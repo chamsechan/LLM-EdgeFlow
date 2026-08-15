@@ -1,110 +1,98 @@
 # 🚀 LLM-EdgeFlow
 
-> **High-Performance C++ Pipeline & Heterogeneous Inference Framework for Edge AI & LLMs**
-> *(专为边缘芯片、嵌入式设备与企业级端侧场景打造的高性能 C++ 大模型算子流水线与异构推理编排框架)*
+<p align="center">
+  <img src="doc/assets/architecture_flow.svg" alt="LLM-EdgeFlow Architecture" width="100%"/>
+</p>
+
+<p align="center">
+  <strong>High-Performance C++ Pipeline &amp; Heterogeneous Inference Framework for Edge AI &amp; LLMs</strong><br>
+  <em>专为边缘芯片、嵌入式设备与企业级端侧场景打造的高性能 C++ 大模型算子流水线与异构推理编排框架</em>
+</p>
+
+<p align="center">
+  <a href="https://en.cppreference.com/w/cpp/17"><img src="https://img.shields.io/badge/C%2B%2B-17-00599C?style=flat-square&logo=c%2B%2B" alt="C++17"/></a>
+  <a href="https://cmake.org/"><img src="https://img.shields.io/badge/CMake-3.16%2B-064F8C?style=flat-square&logo=cmake" alt="CMake"/></a>
+  <a href="https://github.com/google/googletest"><img src="https://img.shields.io/badge/GoogleTest-v1.14.0-34A853?style=flat-square&logo=google" alt="Google Test"/></a>
+  <a href="https://github.com/microsoft/onnxruntime"><img src="https://img.shields.io/badge/Engine-ONNX%20Runtime-0078D4?style=flat-square&logo=microsoft" alt="ONNX Runtime"/></a>
+  <a href="https://github.com/ggerganov/llama.cpp"><img src="https://img.shields.io/badge/Engine-llama.cpp%20(GGUF)-F97316?style=flat-square" alt="llama.cpp"/></a>
+  <a href="https://github.com/chamsechan/LLM-EdgeFlow/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-emerald?style=flat-square" alt="License"/></a>
+  <a href="#"><img src="https://img.shields.io/badge/Arch-x86__64%20%7C%20aarch64-8B5CF6?style=flat-square" alt="Arch"/></a>
+  <a href="#"><img src="https://img.shields.io/badge/QA%20Tests-100%25%20Passed-brightgreen?style=flat-square" alt="QA Passed"/></a>
+</p>
 
 ---
 
 ## 📖 About LLM-EdgeFlow (关于项目)
 
-### 1. 项目定位与背景
-在现代 AI 算法工程落地过程中，算法工程师往往面临以下严峻挑战：
-- **交付壁垒**：向下游集成部门交付算法动态库（`.so`/`.a`）时，需严格遵循 C ABI 接口规范，且必须具备极强的异常隔离与内存安全防御；
-- **芯片异构与硬件限制**：端侧/边缘 SoC（如华为昇腾 Ascend、瑞芯微 RK3588、地平线 Horizon、NVIDIA Jetson）通常采用 **静态编译与定长 DMA Batch 限制**，无法直接处理上层业务复杂可变的长短文本与切片裂变；
-- **复杂多模型多模态协同**：大模型、文本向量表征（Embedding）、交叉语义精排（Reranker）、视觉 OCR、语音 ASR 以及业务过滤规则交织在一起，缺乏统一、解耦、零内存泄漏的编排架构；
-- **引擎强耦合风险**：算法代码直接侵入具体硬件 SDK 或三方推理库（如 ONNX Runtime、llama.cpp、TensorRT），导致更换芯片或引擎时需要大范围重构代码。
+### 1. 为什么需要 LLM-EdgeFlow？
+在端侧与边缘设备（如 **华为昇腾 Ascend、瑞芯微 RK3588、地平线 Horizon、NVIDIA Jetson、高通 Snapdragon**）部署落地 AI 算法时，算法团队通常面临三大核心痛点：
 
-**`LLM-EdgeFlow`** 为此而生。它是一个**工业级、轻量化、高性能的 C++17 异构算子流水线与多模态模型推理编排框架**。通过**4层严格分层隔离**、**异构引擎热插拔**、**全泛型定长硬件 Batch 对齐剥离**以及**动态黑板状态机**，让算法团队能够以极简的方式构建并交付高性能、高可靠的端侧 AI 应用。
+1. **跨部门交付与安全崩溃风险**：向下游集成部门交付动态库（`.so`/`.a`）时，需严格遵循纯 C ABI 接口规范。上层任何未捕获的 C++ 异常都会直接导致宿主主进程直接崩溃；
+2. **边缘 DMA 定长 Batch 冲突**：边缘 NPU/DSP 通常采用静态编译，要求输入张量必须严格满足固定 `max_batch_size`（如 Batch=4），无法直接吞吐上层业务任意长度的多请求批次或 1对N 样本切片裂变；
+3. **多模型/多模态/纯规则协同混乱**：大模型（LLM）、特征向量提取（Embedding）、交叉语义精排（Rerank）、视觉 OCR、语音 ASR 以及业务黑名单规则相互交织，缺乏低耦合、状态隔离且零内存泄漏的编排体系；
+4. **底层推理引擎严重绑死**：算法代码深度耦合特定三方 SDK（如 ONNX Runtime、llama.cpp、TensorRT），芯片或引擎迭代时面临高昂的重构代价。
+
+**`LLM-EdgeFlow`** 专为破解上述工程瓶颈而构建。它是一个**工业级、轻量化、高性能的 C++17 异构算子流与多模态模型推理编排框架**，提供 4 层严格分层隔离、全泛型定长 Batch 调度、动态异构黑板与双模可视化工具链。
+
+---
+
+## ⚖️ 架构横向技术对比 (Architecture Comparison)
+
+| 核心特性与考量指标 | 传统 Ad-Hoc 算法胶水代码 | 传统云端框架 (如 Triton/vLLM) | **LLM-EdgeFlow (本框架)** |
+| :--- | :--- | :--- | :--- |
+| **对外导出接口规范** | 混乱的 C++ 类导出 / 易 ABI 损坏 | HTTP / gRPC 网络微服务 | **标准 6 大 C ABI 纯 C 接口 (`noexcept` 隔离屏障)** |
+| **边缘 NPU 定长 Batch 适配** | 业务代码中硬编码 `if/for` 分批 | 针对云端可变 Batch / PagedAttention | **`FixedBatchExecutor` 全泛型自动补齐剥离与样本溯源** |
+| **多模态与规则混合编排** | 复杂的全局单例 / 状态混杂 | 仅支持模型推理，规则需外部微服务 | **`AlgContext` 请求级动态黑板 + 7 大多模态全能算子池** |
+| **底层硬件/推理引擎解耦** | 业务算子强依赖硬件 SDK 头文件 | 依赖云端 GPU / CUDA 驱动栈 | **PIMPL 零侵入隔离，JSON 配置热插拔切换任意芯片后端** |
+| **三方依赖管理与构建** | 需在系统手动 `apt-get` / 易版本冲突 | 巨大的 Docker 容器镜像 (>10GB) | **CMake `FetchContent` 源码按需自动拉取，环境零依赖** |
+| **嵌入式与开发板调试** | 依赖 GDB 打印或复杂日志分析 | 依赖 Web 监控后台 | **纯 C++ 原生零依赖 CLI (`alg_show`) + 交互式 Web 工作台** |
 
 ---
 
 ## 🌟 核心技术亮点 (Key Features)
 
-### 1. 🛡️ 标准 C ABI 安全屏障 (C ABI Safety Barrier)
-- 导出标准 6 大 C 接口：`Alg_Init()`, `Alg_Create()`, `Alg_Process()`, `Alg_Control()`, `Alg_Destroy()`, `Alg_DeInit()`；
-- 内部建立 `noexcept` 异常屏障与强类型转换，即使内部出现异常也安全捕获并转换为标准错误码返回，**杜绝下游宿主进程崩溃**。
-
-### 2. ⚡ 异构多引擎隔离与热插拔 (Heterogeneous Engine Hot-Swapping)
-- **微软 ONNX Runtime**：原生封装，负责文本表征（Embedding）与交叉语义精排（Rerank）；
-- **开源 llama.cpp / ggml**：原生封装，负责 GGUF 格式（Qwen2.5/Qwen3.5/Gemma3 等）0.5B ~ 70B 大模型端侧推理；
-- **专用芯片/NPU 驱动**：模拟并支持专有 NPU 硬件加速；
-- **PIMPL 零侵入封装**：三方推理库头文件被 100% 封闭在引擎实现内部，上层算子仅依赖纯虚能力接口（`ILlmEngine`, `IEmbeddingEngine`, `IRerankEngine`, `IOcrEngine`, `IAudioAsrEngine`），**切换引擎无需改动任何 C++ 代码**。
-
-### 3. 🎯 定长硬件 Batch 对齐与样本溯源 (FixedBatchExecutor)
-- 专为边缘 NPU/DMA 批处理设计：自动将 1-to-N 裂变后的任意长度样本切分为定长 Hardware Batch（如 Batch=4）；
-- 自动填充 Dummy Pad，推理完成后自动剥离 Pad，并通过 `TraceableItem<T>` 附带的 `(req_id, sub_id)` **100% 精准对齐还原到原始客户端请求**。
-
-### 4. 🧠 动态类型安全异构黑板 (AlgContext Dynamic Blackboard)
-- 基于 `std::any` + `type_info` 实现类型安全动态黑板；
-- 跨算子传递复杂数据结构（图像 BBox、音频 PCM 采样点、向量张量、JSON 结构体）无需手动编写冗余转换胶水层，请求生命周期结束后自动析构回收。
-
-### 5. 🧪 工业级 Google Test (GTest) 质量保障
-- CMake `FetchContent` 自动拉取与编译 Google Test，环境零依赖；
-- 5 大自动化单测套件覆盖核心机制、50 轮连续生命周期压测、双引擎交叉对比与多模态数据隔离验证。
-
-### 6. 📊 双模可视化工具链 (Dual-Mode Visualizer)
-- **纯 C++ 原生 CLI 工具** (`./build/alg_show`)：专为无 Python、极简嵌入式/开发板环境设计，零外部依赖打印 ASCII 拓扑树；
-- **交互式 Web 工作台** (`./show config.json --web`)：动态渲染 DAG 拓扑图、实时黑板数据监控与单步推演仿真。
-
----
-
-## 🏛️ 4 层严格分层架构 (Layered Architecture)
-
-```mermaid
-graph TD
-    classDef l1 fill:#E3F2FD,stroke:#1565C0,stroke-width:2px,color:#0D47A1;
-    classDef l2 fill:#E8F5E9,stroke:#2E7D32,stroke-width:2px,color:#1B5E20;
-    classDef l3 fill:#FFF3E0,stroke:#E65100,stroke-width:2px,color:#E65100;
-    classDef l4 fill:#F3E5F5,stroke:#7B1FA2,stroke-width:2px,color:#4A148C;
-
-    subgraph L1 ["Layer 1: 公司标准 C ABI 适配层 (C Adapter)"]
-        ABI["Alg_Init / Alg_Create / Alg_Process / Alg_Control / Alg_Destroy / Alg_DeInit"]:::l1
-    end
-
-    subgraph L2 ["Layer 2: 框架编排与黑板层 (Pipeline & Context)"]
-        Pipe["Pipeline 调度器"]:::l2
-        Ctx["AlgContext 请求级动态黑板"]:::l2
-        Sess["SessionContext 会话与模型管理器"]:::l2
-    end
-
-    subgraph L3 ["Layer 3: 业务算子池 (Pluggable Node Pool)"]
-        PreNode["前处理 / 分片 / 规则快筛算子"]:::l3
-        InferNode["模型调用与上下文组装算子"]:::l3
-        PostNode["后处理 / 聚合打分 / 结构化算子"]:::l3
-    end
-
-    subgraph L4 ["Layer 4: 多芯片与开源推理引擎层 (Engine Layer)"]
-        IF["抽象能力纯虚接口 (ILlm / IEmbedding / IRerank / IOcr / IAsr)"]:::l4
-        Exec["FixedBatchExecutor 全泛型硬件分批调度器"]:::l4
-        EngNPU["Mock NPU 引擎"]:::l4
-        EngONNX["ONNX Runtime 引擎"]:::l4
-        EngLLAMA["llama.cpp GGUF 引擎"]:::l4
-    end
-
-    ABI -->|解包客户端请求| Pipe
-    Pipe -->|驱动拓扑执行| PreNode
-    PreNode -->|写入中间特征| Ctx
-    InferNode -->|读取黑板 / 索取模型| Ctx
-    InferNode -->|调用纯虚接口| IF
-    IF -->|执行分批调度| Exec
-    Exec -->|底层硬件前向| EngNPU
-    Exec -->|底层硬件前向| EngONNX
-    Exec -->|底层硬件前向| EngLLAMA
-    InferNode -->|写入生成结果| Ctx
-    PostNode -->|读取结果并打包| Ctx
-    Pipe -->|填充客户端输出| ABI
+```text
+┌──────────────────────────────────────────────────────────────────────────────────┐
+│  Layer 1: C ABI 适配层   ➔  Alg_Init / Alg_Create / Alg_Process / Alg_Destroy      │
+│  Layer 2: 管线与黑板层   ➔  Pipeline (DAG 引擎) + AlgContext (类型安全动态黑板)      │
+│  Layer 3: 业务算子池     ➔  前处理分片 / 模型调用 / 规则快筛 / 后处理精准对齐       │
+│  Layer 4: 异构引擎层     ➔  FixedBatchExecutor + ONNX Runtime / llama.cpp / NPU  │
+└──────────────────────────────────────────────────────────────────────────────────┘
 ```
 
+- **🛡️ 纯 C ABI 安全屏障**：导出标准 6 大 C 接口（`Alg_Init`, `Alg_Create`, `Alg_Process`, `Alg_Control`, `Alg_Destroy`, `Alg_DeInit`），内部 `noexcept` 拦截所有异常，杜绝下游崩溃；
+- **⚡ 异构多引擎隔离与热插拔**：基于 PIMPL 模式原生封装 **微软 ONNX Runtime**、**开源 llama.cpp GGUF 引擎** 与 **Mock NPU DMA 内核**，切换引擎无需改动任何 C++ 代码；
+- **🎯 全泛型定长硬件 Batch 调度器 (`FixedBatchExecutor`)**：自动将 1-to-N 裂变的任意长度样本分块为 Hardware Batch，自动补齐 Dummy Pad 并在推理后剥离，保留 `(req_id, sub_id)` 溯源对齐；
+- **🧠 动态类型安全异构黑板 (`AlgContext`)**：基于 `std::any` + `type_info`，跨算子传递复杂数据（图像 BBox、语音 PCM、高维 Tensor、JSON 结构体）无需手动写胶水层，生命周期全自动回收；
+- **🧪 Google Test (GTest) 工业级测试体系**：CMake `FetchContent` 零环境依赖自动拉取 GTest，涵盖核心架构单测、C ABI 50 轮压测、双引擎比对以及多模态隔离验证；
+- **📊 原生双模可视化工具链**：提供专为嵌入式设计的 **纯 C++ 原生 ASCII 拓扑命令行工具 (`./build/alg_show`)** 与 **交互式 Web DAG 工作台 (`./show --web`)**。
+
 ---
 
-## 📁 代码目录结构 (Directory Layout)
+## 📦 已支持的 7 大全模态业务全景 (Multi-Modal Matrix)
+
+同一个算法动态库 `libcompany_alg_sdk.so`，仅通过传入不同配置文件即可执行完全不同的业务拓扑：
+
+| 业务 | 业务名称与定位 | 输入数据模态 (C ABI) | 依赖的核心模型算法与接口 (Layer 4) | 输出数据模态 (C ABI) | 配置文件 |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **业务 1** | **关注词匹配业务** | `CompanyKeywordInputStruct`<br>(文本句子) | **零模型依赖** (纯规则前缀树/哈希快筛) | `CompanyKeywordOutputStruct`<br>(命中类别与词结果 JSON) | [`configs/pipeline_keyword_match.json`](configs/pipeline_keyword_match.json) |
+| **业务 2** | **实体/名词抽取业务** | `CompanyEntityInputStruct`<br>(文本句子) | **`ILlmEngine`** (0.6B Qwen / llama.cpp) | `CompanyEntityOutputStruct`<br>(抽取出的名词列表 JSON) | [`configs/pipeline_entity_extract.json`](configs/pipeline_entity_extract.json) |
+| **业务 3** | **智能长文档切片问答** | `CompanyDocInputStruct`<br>(长文档 + 用户 Query) | 1. **`IEmbeddingEngine`** (向量表征)<br>2. **`ILlmEngine`** (1.5B 文本摘要) | `CompanyDocOutputStruct`<br>(切片数 + 意图类别 + 答案) | [`configs/pipeline_doc_qa.json`](configs/pipeline_doc_qa.json) |
+| **业务 4** | **智能对话风控质检** | `CompanyAuditInputStruct`<br>(对话文本 + 渠道) | 1. **`IEmbeddingEngine`** (初筛召回)<br>2. **`IRerankEngine`** (Cross-Encoder)<br>3. **`ILlmEngine`** (7B 违规判决) | `CompanyAuditOutputStruct`<br>(风险等级 + 风险分 + 判决) | [`configs/pipeline_dialogue_audit.json`](configs/pipeline_dialogue_audit.json) |
+| **业务 5** | **多模态图文发票抽取** | `CompanyOcrDocInputStruct`<br>(图片路径 + 提问 Prompt) | 1. **`IOcrEngine`** (OCR 文字区块检测识别)<br>2. **`ILlmEngine`** (版面理解与结构化) | `CompanyOcrDocOutputStruct`<br>(检测框数 + 结构化发票 JSON) | [`configs/pipeline_ocr_doc_qa.json`](configs/pipeline_ocr_doc_qa.json) |
+| **业务 6** | **语音识别与槽位抽取** | `CompanyAudioInputStruct`<br>(原始 PCM 浮点音频流) | 1. **`IAudioAsrEngine`** (时序语音转写)<br>2. 规则 / NLU 槽位提取器 | `CompanyAudioOutputStruct`<br>(转写文本 + 意图槽位 JSON) | [`configs/pipeline_audio_asr_intent.json`](configs/pipeline_audio_asr_intent.json) |
+| **业务 7** | **纯语义精排矩阵打分** | `CompanyRerankBatchInputStruct`<br>(1 Query + 8 候选段落) | 1. **`IRerankEngine`** (ONNX Cross-Encoder) | `CompanyRerankBatchOutputStruct`<br>(Top-K 打分 + 降序排序索引) | [`configs/pipeline_cross_rerank.json`](configs/pipeline_cross_rerank.json) |
+
+---
+
+## 📁 目录层级结构 (Directory Layout)
 
 ```text
-llm-edgeflow/
+LLM-EdgeFlow/
 ├── include/
 │   ├── company_alg_interface.h # Layer 1: 对外标准 C ABI 接口与结构体
-│   ├── core/                   # Layer 2: 核心框架头文件
-│   │   ├── alg_context.h       #   - 请求级动态异构黑板
+│   ├── core/                   # Layer 2: 核心框架头文件 (黑板 / DAG / 溯源)
+│   │   ├── alg_context.h       #   - 请求级动态异构黑板 (std::any 类型安全)
 │   │   ├── traceable_item.h    #   - 带 (req_id, sub_id) 样本溯源容器
 │   │   ├── node_base.h         #   - 算子纯虚基类 INode
 │   │   ├── node_registry.h     #   - 算子动态反射工厂
@@ -118,18 +106,18 @@ llm-edgeflow/
 │   ├── core/
 │   │   └── pipeline.cpp        # 管线加载与执行实现
 │   ├── engine/                 # 引擎私有实现 (按后端子目录严格物理隔离)
-│   │   ├── mock_npu/           #   - NPU 模拟与定长 DMA 批处理
-│   │   ├── onnx/               #   - 微软 ONNX Runtime 向量与精排引擎
-│   │   └── llama_cpp/          #   - llama.cpp GGUF 大模型引擎
+│   │   ├── mock_npu/           #   - NPU 模拟与定长 DMA 批处理实现
+│   │   ├── onnx/               #   - 微软 ONNX Runtime 向量与精排引擎实现
+│   │   └── llama_cpp/          #   - 开源 llama.cpp GGUF 大模型引擎实现
 │   ├── common_nodes/           # 通用可复用算子 (PromptBuilder, VectorSearch)
-│   ├── business/               # 业务专属算子 (7大业务独立子目录)
-│   │   ├── keyword_match/      #   - 业务 1: 关注词匹配 (纯规则算子)
-│   │   ├── entity_extract/     #   - 业务 2: 实体/名词提取 (0.6B LLM 算子)
-│   │   ├── doc_qa/             #   - 业务 3: 智能长文档问答 (Embedding + LLM)
-│   │   ├── dialogue_audit/     #   - 业务 4: 对话风控质检 (3模型+6节点协同)
-│   │   ├── ocr_doc_qa/         #   - 业务 5: 多模态图文票据问答 (OCR + LLM)
-│   │   ├── audio_asr/          #   - 业务 6: 语音识别与意图抽取 (PCM ASR + NLU)
-│   │   └── cross_rerank/       #   - 业务 7: 纯语义精排打分 (Cross-Encoder)
+│   ├── business/               # 业务专属算子 (7 大业务独立子目录)
+│   │   ├── keyword_match/      #   - 业务 1: 关注词匹配算子
+│   │   ├── entity_extract/     #   - 业务 2: 实体/名词提取算子
+│   │   ├── doc_qa/             #   - 业务 3: 智能长文档问答算子
+│   │   ├── dialogue_audit/     #   - 业务 4: 对话风控质检算子
+│   │   ├── ocr_doc_qa/         #   - 业务 5: 多模态图文发票抽取算子
+│   │   ├── audio_asr/          #   - 业务 6: 语音识别与意图抽取算子
+│   │   └── cross_rerank/       #   - 业务 7: 纯语义精排打分算子
 │   ├── adapter/
 │   │   └── company_c_adapter.cpp # 对接公司 C ABI 接口的安全胶水层
 │   └── tools/
@@ -147,7 +135,7 @@ llm-edgeflow/
 
 ## 🚀 快速上手与编译运行 (Quick Start)
 
-### 1. 编译工程
+### 1. 编译工程 (自动拉取 GTest, ONNX Runtime, llama.cpp)
 
 ```bash
 mkdir -p build && cd build
@@ -155,13 +143,13 @@ cmake ..
 make -j4
 ```
 
-### 2. 运行 7 大业务端到端集成演示
+### 2. 运行 7 大业务端到端全流程集成演示
 
 ```bash
 ./build/alg_demo
 ```
 
-### 3. 运行 Google Test (GTest) 单元测试套件
+### 3. 执行全量 Google Test (GTest) 单元测试套件
 
 ```bash
 # 运行底层硬件定长 Batch 补齐与剥离单测
@@ -196,12 +184,12 @@ make -j4
 
 ## 📊 算法管线与 DAG 可视化工具 (Visualizer)
 
-### 1. 命令行拓扑打印 (适用于终端或嵌入式调试)
+### 1. 命令行拓扑打印 (适用于终端或嵌入式环境调试)
 ```bash
 # Python 命令行工具
 ./show configs/pipeline_doc_qa.json
 
-# 纯 C++ 原生零依赖工具 (专为边缘 Linux 设备设计)
+# 纯 C++ 原生零依赖工具 (专为开发板/嵌入式 Linux 设计)
 ./build/alg_show configs/pipeline_ocr_doc_qa.json
 ```
 
@@ -218,4 +206,5 @@ make -j4
 - **Language Standard**: Modern C++17
 - **Code Style**: Google C++ Style Guide ([`.clang-format`](.clang-format))
 - **Test Framework**: Google Test (GTest v1.14.0)
+- **Supported Backends**: NPU DMA, ONNX Runtime, llama.cpp (GGUF), Ascend CANN, RKNN, Horizon BPU
 - **Deployment Targets**: x86_64, aarch64 (Linux, Embedded Edge SoC, Android/QNX)
