@@ -1,0 +1,307 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1060 880" width="100%" height="100%">
+  <defs>
+    <linearGradient id="puml-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#090D16"/>
+      <stop offset="50%" stop-color="#0F172A"/>
+      <stop offset="100%" stop-color="#050811"/>
+    </linearGradient>
+
+    <linearGradient id="card-bg" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#1E293B" stop-opacity="0.95"/>
+      <stop offset="100%" stop-color="#0F172A" stop-opacity="0.98"/>
+    </linearGradient>
+
+    <filter id="puml-shadow" x="-5%" y="-5%" width="110%" height="110%">
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#000" flood-opacity="0.4"/>
+    </filter>
+
+    <style>
+      .puml-title { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-weight: 700; }
+      .puml-code { font-family: 'Fira Code', 'JetBrains Mono', Consolas, monospace; }
+      .puml-text { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 11px; fill: #94A3B8; }
+      .puml-method { font-family: 'Fira Code', 'JetBrains Mono', Consolas, monospace; font-size: 10px; fill: #CBD5E1; }
+      .puml-attr { font-family: 'Fira Code', 'JetBrains Mono', Consolas, monospace; font-size: 9.5px; fill: #94A3B8; }
+      .tag-c { fill: #0284C7; font-weight: bold; }
+      .tag-i { fill: #10B981; font-weight: bold; }
+      .tag-s { fill: #F59E0B; font-weight: bold; }
+    </style>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1060" height="880" rx="14" fill="url(#puml-bg)" stroke="#1E293B" stroke-width="1.5"/>
+
+  <!-- Main Title -->
+  <g transform="translate(30, 28)">
+    <text x="0" y="20" class="puml-title" font-size="18" fill="#F8FAFC">LLM-EdgeFlow Framework UML Class Diagram</text>
+    <text x="470" y="20" class="puml-text" font-size="12" fill="#64748B">|  4-Tier Enterprise Architecture &amp; Type-Safe Contracts</text>
+  </g>
+
+  <!-- ========================================================================= -->
+  <!-- LAYER 1: C ABI Adapter -->
+  <!-- ========================================================================= -->
+  <g transform="translate(30, 65)">
+    <!-- Package Box -->
+    <rect width="1000" height="150" rx="8" fill="#1E293B" fill-opacity="0.5" stroke="#334155" stroke-width="1" filter="url(#puml-shadow)"/>
+    <rect x="0" y="0" width="360" height="24" rx="4" fill="#0284C7" fill-opacity="0.2"/>
+    <text x="12" y="16" class="puml-title" font-size="12" fill="#38BDF8">Layer 1: 公司标准 C ABI 导出层 (include/company_alg_interface.h)</text>
+
+    <!-- Class 1: C ABI Export -->
+    <g transform="translate(15, 35)">
+      <rect width="320" height="100" rx="6" fill="#0F172A" stroke="#0284C7" stroke-width="1"/>
+      <circle cx="15" cy="14" r="7" fill="#0284C7"/>
+      <text x="12" y="18" class="puml-code" font-size="10" fill="#FFF" font-weight="700">C</text>
+      <text x="30" y="18" class="puml-code" font-size="11" font-weight="700" fill="#E2E8F0">Company C ABI Exports</text>
+      <line x1="0" y1="26" x2="320" y2="26" stroke="#1E293B" stroke-width="1"/>
+      <text x="10" y="42" class="puml-method">+ Alg_Init() : int</text>
+      <text x="10" y="56" class="puml-method">+ Alg_Create(void** hndl, const ParamCreate*) : int</text>
+      <text x="10" y="70" class="puml-method">+ Alg_Process(void* hndl, in, out) : int</text>
+      <text x="10" y="84" class="puml-method">+ Alg_Control(void* hndl, const ParamControl*) : int</text>
+      <text x="10" y="98" class="puml-method">+ Alg_Destroy(void* hndl) / Alg_DeInit() : int</text>
+    </g>
+
+    <!-- Class 2: AlgHandleInstance -->
+    <g transform="translate(350, 35)">
+      <rect width="260" height="100" rx="6" fill="#0F172A" stroke="#334155" stroke-width="1"/>
+      <circle cx="15" cy="14" r="7" fill="#64748B"/>
+      <text x="12" y="18" class="puml-code" font-size="10" fill="#FFF" font-weight="700">C</text>
+      <text x="30" y="18" class="puml-code" font-size="11" font-weight="700" fill="#E2E8F0">AlgHandleInstance</text>
+      <line x1="0" y1="26" x2="260" y2="26" stroke="#1E293B" stroke-width="1"/>
+      <text x="10" y="44" class="puml-attr">+ pipeline : unique_ptr&lt;Pipeline&gt;</text>
+      <text x="10" y="62" class="puml-attr">+ biz_type : CompanyAlgBizType</text>
+      <text x="10" y="80" class="puml-attr">+ device_id : int</text>
+      <text x="10" y="95" class="puml-attr" fill="#10B981">/* noexcept Exception Barrier */</text>
+    </g>
+
+    <!-- Class 3: Multi-Modal C Structs -->
+    <g transform="translate(625, 35)">
+      <rect width="360" height="100" rx="6" fill="#0F172A" stroke="#F59E0B" stroke-width="1"/>
+      <circle cx="15" cy="14" r="7" fill="#F59E0B"/>
+      <text x="12" y="18" class="puml-code" font-size="10" fill="#000" font-weight="700">S</text>
+      <text x="30" y="18" class="puml-code" font-size="11" font-weight="700" fill="#FDE68A">Multi-Modal C Input/Output Structs</text>
+      <line x1="0" y1="26" x2="360" y2="26" stroke="#1E293B" stroke-width="1"/>
+      <text x="10" y="42" class="puml-attr">• CompanyDocInput / CompanyDocOutput (Doc QA)</text>
+      <text x="10" y="56" class="puml-attr">• CompanyOcrDocInput / Output (OCR Doc QA)</text>
+      <text x="10" y="70" class="puml-attr">• CompanyAudioInput / Output (Speech ASR / NLU)</text>
+      <text x="10" y="84" class="puml-attr">• CompanyRerankBatchInput / Output (Cross-Encoder)</text>
+      <text x="10" y="98" class="puml-attr">• CompanyKeywordInput / CompanyEntityInput</text>
+    </g>
+  </g>
+
+  <!-- ========================================================================= -->
+  <!-- LAYER 2: Pipeline Core & Dynamic Blackboard -->
+  <!-- ========================================================================= -->
+  <g transform="translate(30, 230)">
+    <rect width="1000" height="175" rx="8" fill="#1E293B" fill-opacity="0.5" stroke="#334155" stroke-width="1" filter="url(#puml-shadow)"/>
+    <rect x="0" y="0" width="340" height="24" rx="4" fill="#10B981" fill-opacity="0.2"/>
+    <text x="12" y="16" class="puml-title" font-size="12" fill="#34D399">Layer 2: 核心编排与动态黑板层 (include/core/)</text>
+
+    <!-- Pipeline Class -->
+    <g transform="translate(15, 35)">
+      <rect width="290" height="125" rx="6" fill="#0F172A" stroke="#10B981" stroke-width="1.2"/>
+      <circle cx="15" cy="14" r="7" fill="#10B981"/>
+      <text x="12" y="18" class="puml-code" font-size="10" fill="#FFF" font-weight="700">C</text>
+      <text x="30" y="18" class="puml-code" font-size="11" font-weight="700" fill="#A7F3D0">Pipeline</text>
+      <line x1="0" y1="26" x2="290" y2="26" stroke="#1E293B" stroke-width="1"/>
+      <text x="10" y="42" class="puml-attr">- nodes_ : vector&lt;unique_ptr&lt;INode&gt;&gt;</text>
+      <text x="10" y="56" class="puml-attr">- session_context_ : SessionContext</text>
+      <text x="10" y="70" class="puml-attr">- business_name_ : string</text>
+      <line x1="10" y1="76" x2="280" y2="76" stroke="#1E293B" stroke-width="1"/>
+      <text x="10" y="90" class="puml-method">+ BuildFromConfigFile(path) : bool</text>
+      <text x="10" y="104" class="puml-method">+ BuildFromJson(config_json) : bool</text>
+      <text x="10" y="118" class="puml-method">+ Execute(req_ctx: AlgContext*) : int</text>
+    </g>
+
+    <!-- AlgContext Class (Dynamic Blackboard) -->
+    <g transform="translate(320, 35)">
+      <rect width="250" height="125" rx="6" fill="#0F172A" stroke="#059669" stroke-width="1.2"/>
+      <circle cx="15" cy="14" r="7" fill="#059669"/>
+      <text x="12" y="18" class="puml-code" font-size="10" fill="#FFF" font-weight="700">B</text>
+      <text x="30" y="18" class="puml-code" font-size="11" font-weight="700" fill="#6EE7B7">AlgContext (Blackboard)</text>
+      <line x1="0" y1="26" x2="250" y2="26" stroke="#1E293B" stroke-width="1"/>
+      <text x="10" y="42" class="puml-attr">- blackboard_: unordered_map&lt;string, any&gt;</text>
+      <text x="10" y="56" class="puml-attr">- error_code_: int, error_message_: string</text>
+      <line x1="10" y1="62" x2="240" y2="62" stroke="#1E293B" stroke-width="1"/>
+      <text x="10" y="76" class="puml-method">+ Set&lt;T&gt;(key: string, val: T) : void</text>
+      <text x="10" y="90" class="puml-method">+ Get&lt;T&gt;(key: string) : T* (Type-Safe)</text>
+      <text x="10" y="104" class="puml-method">+ Has(key: string) : bool</text>
+      <text x="10" y="118" class="puml-method">+ SetError(code: int, msg: string) : void</text>
+    </g>
+
+    <!-- ModelManager & SessionContext -->
+    <g transform="translate(585, 35)">
+      <rect width="210" height="125" rx="6" fill="#0F172A" stroke="#334155" stroke-width="1"/>
+      <circle cx="15" cy="14" r="7" fill="#8B5CF6"/>
+      <text x="12" y="18" class="puml-code" font-size="10" fill="#FFF" font-weight="700">C</text>
+      <text x="30" y="18" class="puml-code" font-size="11" font-weight="700" fill="#DDD6FE">ModelManager</text>
+      <line x1="0" y1="26" x2="210" y2="26" stroke="#1E293B" stroke-width="1"/>
+      <text x="10" y="42" class="puml-attr">- models_: map&lt;str, shared_ptr&gt;</text>
+      <line x1="10" y1="48" x2="200" y2="48" stroke="#1E293B" stroke-width="1"/>
+      <text x="10" y="64" class="puml-method">+ RegisterModel(id, engine)</text>
+      <text x="10" y="80" class="puml-method">+ GetModel&lt;T&gt;(id) : shared_ptr&lt;T&gt;</text>
+      <text x="10" y="96" class="puml-method">+ HasModel(id) : bool</text>
+      <text x="10" y="115" class="puml-attr" fill="#A78BFA">Owned by SessionContext</text>
+    </g>
+
+    <!-- TraceableItem<T> -->
+    <g transform="translate(810, 35)">
+      <rect width="175" height="125" rx="6" fill="#0F172A" stroke="#8B5CF6" stroke-width="1"/>
+      <circle cx="15" cy="14" r="7" fill="#8B5CF6"/>
+      <text x="12" y="18" class="puml-code" font-size="10" fill="#FFF" font-weight="700">T</text>
+      <text x="30" y="18" class="puml-code" font-size="11" font-weight="700" fill="#E9D5FF">TraceableItem&lt;T&gt;</text>
+      <line x1="0" y1="26" x2="175" y2="26" stroke="#1E293B" stroke-width="1"/>
+      <text x="10" y="44" class="puml-attr">+ req_id : uint64_t</text>
+      <text x="10" y="62" class="puml-attr">+ sub_id : uint32_t</text>
+      <text x="10" y="80" class="puml-attr">+ data : T</text>
+      <line x1="10" y1="88" x2="165" y2="88" stroke="#1E293B" stroke-width="1"/>
+      <text x="10" y="106" class="puml-text" font-size="9" fill="#C084FC">硬件批处理切片精准溯源</text>
+    </g>
+  </g>
+
+  <!-- ========================================================================= -->
+  <!-- LAYER 3: Pluggable Node Pool -->
+  <!-- ========================================================================= -->
+  <g transform="translate(30, 420)">
+    <rect width="1000" height="200" rx="8" fill="#1E293B" fill-opacity="0.5" stroke="#334155" stroke-width="1" filter="url(#puml-shadow)"/>
+    <rect x="0" y="0" width="300" height="24" rx="4" fill="#F59E0B" fill-opacity="0.2"/>
+    <text x="12" y="16" class="puml-title" font-size="12" fill="#FBBF24">Layer 3: 业务专属可插拔算子池 (src/business/)</text>
+
+    <!-- Interface: INode -->
+    <g transform="translate(15, 35)">
+      <rect width="210" height="150" rx="6" fill="#0F172A" stroke="#F59E0B" stroke-width="1.2"/>
+      <circle cx="15" cy="14" r="7" fill="#F59E0B"/>
+      <text x="12" y="18" class="puml-code" font-size="10" fill="#000" font-weight="700">I</text>
+      <text x="30" y="18" class="puml-code" font-size="11" font-weight="700" fill="#FDE68A">&lt;&lt;interface&gt;&gt; INode</text>
+      <line x1="0" y1="26" x2="210" y2="26" stroke="#1E293B" stroke-width="1"/>
+      <text x="10" y="44" class="puml-method">+ Init(cfg, sess_ctx) : bool</text>
+      <text x="10" y="62" class="puml-method">+ Process(req_ctx) : int</text>
+      <text x="10" y="80" class="puml-method">+ Control(cmd, param) : int</text>
+      <text x="10" y="98" class="puml-method">+ Name() : const string&amp;</text>
+      <line x1="10" y1="108" x2="200" y2="108" stroke="#1E293B" stroke-width="1"/>
+      <text x="10" y="124" class="puml-attr" fill="#F59E0B">NodeFactory::Instance()</text>
+      <text x="10" y="140" class="puml-attr" fill="#94A3B8">REGISTER_NODE(Name)</text>
+    </g>
+
+    <!-- Node Groups (Pre, Infer, Post) -->
+    <g transform="translate(240, 35)">
+      <rect width="240" height="150" rx="6" fill="#0F172A" stroke="#334155" stroke-width="1"/>
+      <text x="12" y="20" class="puml-title" font-size="11" fill="#FDE68A">前处理与规则算子</text>
+      <line x1="12" y1="26" x2="228" y2="26" stroke="#1E293B" stroke-width="1"/>
+      <text x="10" y="44" class="puml-attr">• DocChunkPreNode (1对N 切片)</text>
+      <text x="10" y="62" class="puml-attr">• ImagePreNode (图像预处理)</text>
+      <text x="10" y="80" class="puml-attr">• AudioFeaturePreNode (PCM 采样)</text>
+      <text x="10" y="98" class="puml-attr">• KeywordMatcherNode (纯规则)</text>
+      <text x="10" y="116" class="puml-attr">• SafetyRulePreNode (风控前筛)</text>
+      <text x="10" y="134" class="puml-attr">• RerankPairBuilderNode (配对)</text>
+    </g>
+
+    <g transform="translate(495, 35)">
+      <rect width="245" height="150" rx="6" fill="#0F172A" stroke="#334155" stroke-width="1"/>
+      <text x="12" y="20" class="puml-title" font-size="11" fill="#38BDF8">模型调用与推理算子</text>
+      <line x1="12" y1="26" x2="233" y2="26" stroke="#1E293B" stroke-width="1"/>
+      <text x="10" y="44" class="puml-attr">• DocEmbeddingNode (向量提取)</text>
+      <text x="10" y="62" class="puml-attr">• LlmGenerateNode (大模型生成)</text>
+      <text x="10" y="80" class="puml-attr">• CrossRerankNode (精排打分)</text>
+      <text x="10" y="98" class="puml-attr">• OcrInferNode (文字区域识别)</text>
+      <text x="10" y="116" class="puml-attr">• AsrInferNode (语音识别转写)</text>
+      <text x="10" y="134" class="puml-attr">• VectorSearchNode (余弦 Top-K)</text>
+    </g>
+
+    <g transform="translate(755, 35)">
+      <rect width="230" height="150" rx="6" fill="#0F172A" stroke="#334155" stroke-width="1"/>
+      <text x="12" y="20" class="puml-title" font-size="11" fill="#34D399">后处理与结构化打包算子</text>
+      <line x1="12" y1="26" x2="218" y2="26" stroke="#1E293B" stroke-width="1"/>
+      <text x="10" y="44" class="puml-attr">• DocQaPostNode (问答对齐)</text>
+      <text x="10" y="62" class="puml-attr">• AuditPostNode (风控决策打包)</text>
+      <text x="10" y="80" class="puml-attr">• OcrDocPostNode (发票 JSON)</text>
+      <text x="10" y="98" class="puml-attr">• AudioPostNode (意图槽位 JSON)</text>
+      <text x="10" y="116" class="puml-attr">• RerankSortPostNode (排序打分)</text>
+      <text x="10" y="134" class="puml-attr">• EntityExtractPostNode (实体列表)</text>
+    </g>
+  </g>
+
+  <!-- ========================================================================= -->
+  <!-- LAYER 4: Heterogeneous Engine Layer & FixedBatchExecutor -->
+  <!-- ========================================================================= -->
+  <g transform="translate(30, 635)">
+    <rect width="1000" height="215" rx="8" fill="#1E293B" fill-opacity="0.5" stroke="#334155" stroke-width="1" filter="url(#puml-shadow)"/>
+    <rect x="0" y="0" width="370" height="24" rx="4" fill="#8B5CF6" fill-opacity="0.2"/>
+    <text x="12" y="16" class="puml-title" font-size="12" fill="#C084FC">Layer 4: 异构芯片引擎与硬件批调度层 (include/engine/ &amp; src/engine/)</text>
+
+    <!-- Pure Virtual Capability Interfaces -->
+    <g transform="translate(15, 35)">
+      <rect width="250" height="165" rx="6" fill="#0F172A" stroke="#8B5CF6" stroke-width="1.2"/>
+      <circle cx="15" cy="14" r="7" fill="#8B5CF6"/>
+      <text x="12" y="18" class="puml-code" font-size="10" fill="#FFF" font-weight="700">I</text>
+      <text x="30" y="18" class="puml-code" font-size="11" font-weight="700" fill="#DDD6FE">IModelEngine (Capability IF)</text>
+      <line x1="0" y1="26" x2="250" y2="26" stroke="#1E293B" stroke-width="1"/>
+      <text x="10" y="44" class="puml-method">▲ IEmbeddingEngine</text>
+      <text x="20" y="58" class="puml-attr">InferTraceableBatch(inputs, outs)</text>
+      <text x="10" y="74" class="puml-method">▲ ILlmEngine</text>
+      <text x="20" y="88" class="puml-attr">Generate(prompt, opt, out_str)</text>
+      <text x="10" y="104" class="puml-method">▲ IRerankEngine</text>
+      <text x="20" y="118" class="puml-attr">ScoreTraceableBatch(pairs, scores)</text>
+      <text x="10" y="134" class="puml-method">▲ IOcrEngine / IAudioAsrEngine</text>
+      <text x="20" y="148" class="puml-attr">InferTraceableBatch(...)</text>
+    </g>
+
+    <!-- FixedBatchExecutor Template -->
+    <g transform="translate(280, 35)">
+      <rect width="270" height="165" rx="6" fill="#0F172A" stroke="#F59E0B" stroke-width="1.2"/>
+      <circle cx="15" cy="14" r="7" fill="#F59E0B"/>
+      <text x="12" y="18" class="puml-code" font-size="10" fill="#000" font-weight="700">T</text>
+      <text x="30" y="18" class="puml-code" font-size="11" font-weight="700" fill="#FDE68A">FixedBatchExecutor</text>
+      <line x1="0" y1="26" x2="270" y2="26" stroke="#1E293B" stroke-width="1"/>
+      <text x="10" y="44" class="puml-method">+ Execute&lt;TIn, TOut&gt; (</text>
+      <text x="20" y="60" class="puml-attr">inputs: vector&lt;TraceableItem&lt;TIn&gt;&gt;,</text>
+      <text x="20" y="76" class="puml-attr">max_batch_size: size_t,</text>
+      <text x="20" y="92" class="puml-attr">dummy_pad: TIn,</text>
+      <text x="20" y="108" class="puml-attr">hardware_kernel_func: Func,</text>
+      <text x="20" y="124" class="puml-attr">outputs: vector&lt;TraceableItem&lt;TOut&gt;&gt;*</text>
+      <text x="10" y="140" class="puml-method">) : int</text>
+      <text x="10" y="156" class="puml-text" fill="#34D399">✓ 自动切块 + Pad 补齐/剥离 + 溯源</text>
+    </g>
+
+    <!-- Concrete Engine Implementations (PIMPL) -->
+    <g transform="translate(565, 35)">
+      <rect width="420" height="165" rx="6" fill="#0F172A" stroke="#334155" stroke-width="1"/>
+      <text x="12" y="20" class="puml-title" font-size="11" fill="#38BDF8">引擎具体实现 (PIMPL 模式 · 依赖 100% 物理隔离)</text>
+      <line x1="12" y1="26" x2="408" y2="26" stroke="#1E293B" stroke-width="1"/>
+      
+      <g transform="translate(10, 36)">
+        <rect width="190" height="36" rx="4" fill="#1E293B" stroke="#0284C7" stroke-width="1"/>
+        <text x="8" y="16" class="puml-code" font-size="10" fill="#38BDF8">OnnxEmbeddingEngine</text>
+        <text x="8" y="28" class="puml-text" font-size="9">Microsoft ONNX Runtime</text>
+      </g>
+
+      <g transform="translate(210, 36)">
+        <rect width="190" height="36" rx="4" fill="#1E293B" stroke="#0284C7" stroke-width="1"/>
+        <text x="8" y="16" class="puml-code" font-size="10" fill="#38BDF8">OnnxRerankEngine</text>
+        <text x="8" y="28" class="puml-text" font-size="9">Cross-Encoder Scoring</text>
+      </g>
+
+      <g transform="translate(10, 80)">
+        <rect width="190" height="36" rx="4" fill="#1E293B" stroke="#10B981" stroke-width="1"/>
+        <text x="8" y="16" class="puml-code" font-size="10" fill="#34D399">LlamaCppEngine</text>
+        <text x="8" y="28" class="puml-text" font-size="9">llama.cpp (GGUF Models)</text>
+      </g>
+
+      <g transform="translate(210, 80)">
+        <rect width="190" height="36" rx="4" fill="#1E293B" stroke="#F59E0B" stroke-width="1"/>
+        <text x="8" y="16" class="puml-code" font-size="10" fill="#FBBF24">MockNpuEmbeddingEngine</text>
+        <text x="8" y="28" class="puml-text" font-size="9">Fixed DMA Batch=4 Driver</text>
+      </g>
+
+      <g transform="translate(10, 122)">
+        <rect width="190" height="32" rx="4" fill="#1E293B" stroke="#F59E0B" stroke-width="1"/>
+        <text x="8" y="15" class="puml-code" font-size="10" fill="#FBBF24">MockNpuLlmEngine</text>
+        <text x="8" y="26" class="puml-text" font-size="9">Fixed DMA Batch=2 Driver</text>
+      </g>
+
+      <g transform="translate(210, 122)">
+        <rect width="190" height="32" rx="4" fill="#1E293B" stroke="#F59E0B" stroke-width="1"/>
+        <text x="8" y="15" class="puml-code" font-size="10" fill="#FBBF24">MockNpuOcr / AsrEngine</text>
+        <text x="8" y="26" class="puml-text" font-size="9">Fixed DMA Batch=2 Modalities</text>
+      </g>
+    </g>
+  </g>
+</svg>
