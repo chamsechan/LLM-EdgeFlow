@@ -1,0 +1,90 @@
+# cmake/ThirdPartyEngines.cmake
+# 自动从 GitHub 下载与集成第三方开源推理引擎 (ONNX Runtime & llama.cpp)
+
+include(FetchContent)
+
+# ------------------------------------------------------------------------------
+# 1. ONNX Runtime 开源推理引擎配置 (用于特征向量与精排打分模型)
+# ------------------------------------------------------------------------------
+option(ENABLE_ONNXRUNTIME "Enable ONNX Runtime engine (auto-download from GitHub)" ON)
+
+if(ENABLE_ONNXRUNTIME)
+  message(STATUS "[Engine Layer] Enabling ONNX Runtime engine support...")
+
+  # 根据目标架构选择对应的官方 Release 包
+  if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
+    set(ORT_URL "https://github.com/microsoft/onnxruntime/releases/download/v1.17.3/onnxruntime-linux-aarch64-1.17.3.tgz")
+  else()
+    set(ORT_URL "https://github.com/microsoft/onnxruntime/releases/download/v1.17.3/onnxruntime-linux-x64-1.17.3.tgz")
+  endif()
+
+  FetchContent_Declare(
+    onnxruntime_prebuilt
+    URL ${ORT_URL}
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+  )
+
+  FetchContent_GetProperties(onnxruntime_prebuilt)
+  if(NOT onnxruntime_prebuilt_POPULATED)
+    message(STATUS "[Engine Layer] Downloading ONNX Runtime C/C++ release from GitHub: ${ORT_URL} ...")
+    FetchContent_Populate(onnxruntime_prebuilt)
+  endif()
+
+  set(ONNXRUNTIME_INCLUDE_DIR "${onnxruntime_prebuilt_SOURCE_DIR}/include")
+  file(GLOB_RECURSE ONNXRUNTIME_LIB "${onnxruntime_prebuilt_SOURCE_DIR}/lib/libonnxruntime.so*")
+
+  if(EXISTS "${ONNXRUNTIME_INCLUDE_DIR}" AND ONNXRUNTIME_LIB)
+    message(STATUS "[Engine Layer] ONNX Runtime successfully loaded from: ${onnxruntime_prebuilt_SOURCE_DIR}")
+    include_directories(${ONNXRUNTIME_INCLUDE_DIR})
+    set(THIRD_PARTY_ENGINE_LIBS ${THIRD_PARTY_ENGINE_LIBS} ${ONNXRUNTIME_LIB})
+    add_definitions(-DHAVE_ONNXRUNTIME=1)
+  else()
+    message(WARNING "[Engine Layer] ONNX Runtime library or headers not found in downloaded package, falling back to stub.")
+  endif()
+endif()
+
+# ------------------------------------------------------------------------------
+# 2. llama.cpp 开源大语言模型推理引擎配置 (用于 GGUF 自回归 LLM 生成)
+# ------------------------------------------------------------------------------
+option(ENABLE_LLAMACPP "Enable llama.cpp LLM engine (auto-download from GitHub)" ON)
+
+if(ENABLE_LLAMACPP)
+  message(STATUS "[Engine Layer] Enabling llama.cpp engine support...")
+
+  # 配置 llama.cpp 极简构建选项，强制开启 -fPIC 以便链接到 .so 中
+  set(CMAKE_POSITION_INDEPENDENT_CODE ON CACHE BOOL "Position independent code" FORCE)
+  set(LLAMA_BUILD_TESTS OFF CACHE BOOL "Build tests" FORCE)
+  set(LLAMA_BUILD_EXAMPLES OFF CACHE BOOL "Build examples" FORCE)
+  set(LLAMA_BUILD_SERVER OFF CACHE BOOL "Build server" FORCE)
+  set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build shared libraries" FORCE)
+
+  FetchContent_Declare(
+    llama_cpp_source
+    URL https://github.com/ggerganov/llama.cpp/archive/refs/heads/master.tar.gz
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+  )
+
+  FetchContent_GetProperties(llama_cpp_source)
+  if(NOT llama_cpp_source_POPULATED)
+    message(STATUS "[Engine Layer] Downloading llama.cpp source code from GitHub: https://github.com/ggerganov/llama.cpp ...")
+    FetchContent_Populate(llama_cpp_source)
+  endif()
+
+  # 将 llama.cpp 作为三方子工程引入
+  if(EXISTS "${llama_cpp_source_SOURCE_DIR}/CMakeLists.txt")
+    add_subdirectory(${llama_cpp_source_SOURCE_DIR} ${llama_cpp_source_BINARY_DIR} EXCLUDE_FROM_ALL)
+    include_directories(${llama_cpp_source_SOURCE_DIR}/include ${llama_cpp_source_SOURCE_DIR}/ggml/include)
+    
+    # 链接 llama 静态库
+    if(TARGET llama)
+      set(THIRD_PARTY_ENGINE_LIBS ${THIRD_PARTY_ENGINE_LIBS} llama)
+      add_definitions(-DHAVE_LLAMACPP=1)
+      message(STATUS "[Engine Layer] llama.cpp target configured successfully.")
+    elseif(TARGET ggml)
+      set(THIRD_PARTY_ENGINE_LIBS ${THIRD_PARTY_ENGINE_LIBS} ggml)
+      add_definitions(-DHAVE_LLAMACPP=1)
+    endif()
+  else()
+    message(WARNING "[Engine Layer] llama.cpp CMakeLists.txt not found, falling back to stub.")
+  endif()
+endif()

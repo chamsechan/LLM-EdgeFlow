@@ -1,0 +1,73 @@
+{
+  "business_name": "smart_doc_qa_onnx_llamacpp_v1",
+  "models": [
+    {
+      "model_id": "embed_model_onnx",
+      "engine_type": "onnx_embedding",
+      "model_path": "./models/bge_base_zh_v1.5.onnx",
+      "config": {
+        "max_batch_size": 4,
+        "embedding_dim": 128
+      }
+    },
+    {
+      "model_id": "llm_model_llamacpp",
+      "engine_type": "llama_cpp",
+      "model_path": "./models/qwen2.5_1.5b_instruct_q4_k_m.gguf",
+      "config": {
+        "max_batch_size": 2,
+        "max_seq_len": 1024
+      }
+    }
+  ],
+  "pipeline": [
+    {
+      "node_type": "DocChunkPreNode",
+      "config": {
+        "chunk_size": 60
+      }
+    },
+    {
+      "node_type": "DocEmbeddingNode",
+      "config": {
+        "bind_model": "embed_model_onnx"
+      }
+    },
+    {
+      "node_type": "VectorSearchNode",
+      "config": {
+        "top_k": 1,
+        "min_score": 0.0
+      }
+    },
+    {
+      "node_type": "PromptBuilderNode",
+      "config": {
+        "template": "【参考片段】: {context}\n【用户提问】: {query}\n请基于参考片段给出精确解答:"
+      }
+    },
+    {
+      "node_type": "IntentRuleNode",
+      "config": {
+        "default_intent": "GENERAL_QA",
+        "threshold": 0.8,
+        "rules": {
+          "AFTER_SALES_REFUND": ["退款", "退货", "换货"],
+          "TECH_ARCHITECTURE": ["架构", "设计", "C++", "算法框架", "ONNX", "llama.cpp"]
+        }
+      }
+    },
+    {
+      "node_type": "LlmGenerateNode",
+      "config": {
+        "bind_model": "llm_model_llamacpp",
+        "temperature": 0.3,
+        "max_tokens": 128
+      }
+    },
+    {
+      "node_type": "DocQaPostNode",
+      "config": {}
+    }
+  ]
+}

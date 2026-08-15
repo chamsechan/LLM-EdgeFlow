@@ -1,0 +1,1706 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Alg-SDK Pipeline & DAG 算法管线可视化工作台</title>
+  <meta name="description" content="企业级算法交付与管线框架（Alg-SDK）可视化工具：支持 DAG 图结构拓扑展示、节点状态监控、数据流向追踪与动态模拟执行。">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-main: #0f172a;
+      --bg-panel: #1e293b;
+      --bg-panel-hover: #334155;
+      --bg-surface: #0b1120;
+      --border-color: #334155;
+      --border-focus: #38bdf8;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --text-dim: #64748b;
+      
+      --accent-blue: #38bdf8;
+      --accent-cyan: #06b6d4;
+      --accent-emerald: #10b981;
+      --accent-amber: #f59e0b;
+      --accent-rose: #f43f5e;
+      --accent-purple: #a855f7;
+
+      --node-pre: #0284c7;
+      --node-infer: #7c3aed;
+      --node-rule: #d97706;
+      --node-post: #059669;
+      --node-search: #0891b2;
+      
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: var(--font-sans);
+      background-color: var(--bg-main);
+      color: var(--text-main);
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Top Navigation Bar */
+    header {
+      height: 60px;
+      background: var(--bg-panel);
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 24px;
+      z-index: 20;
+      flex-shrink: 0;
+    }
+
+    .brand-section {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .logo-icon {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, var(--accent-blue), var(--accent-cyan));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      font-weight: 700;
+      font-size: 16px;
+      box-shadow: 0 0 12px rgba(56, 189, 248, 0.4);
+    }
+
+    .brand-title {
+      font-size: 16px;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      color: var(--text-main);
+    }
+
+    .brand-badge {
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 9999px;
+      background: rgba(56, 189, 248, 0.15);
+      color: var(--accent-blue);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+    }
+
+    .controls-section {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .preset-select-wrapper {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    select, button {
+      font-family: var(--font-sans);
+      font-size: 13px;
+    }
+
+    select {
+      background: var(--bg-surface);
+      color: var(--text-main);
+      border: 1px solid var(--border-color);
+      padding: 6px 12px;
+      border-radius: 6px;
+      outline: none;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    select:focus {
+      border-color: var(--border-focus);
+    }
+
+    .btn {
+      background: var(--bg-surface);
+      color: var(--text-main);
+      border: 1px solid var(--border-color);
+      padding: 6px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 500;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s;
+    }
+
+    .btn:hover {
+      background: var(--bg-panel-hover);
+      border-color: var(--text-muted);
+    }
+
+    .btn-primary {
+      background: #0284c7;
+      color: #fff;
+      border-color: #38bdf8;
+    }
+
+    .btn-primary:hover {
+      background: #0369a1;
+      box-shadow: 0 0 10px rgba(56, 189, 248, 0.4);
+    }
+
+    .btn-emerald {
+      background: #059669;
+      color: #fff;
+      border-color: #10b981;
+    }
+
+    .btn-emerald:hover {
+      background: #047857;
+      box-shadow: 0 0 10px rgba(16, 185, 129, 0.4);
+    }
+
+    /* Main Workspace Layout */
+    .app-body {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 340px 1fr 380px;
+      overflow: hidden;
+    }
+
+    /* Left Sidebar: Models Pool & JSON Config */
+    .sidebar-left {
+      background: var(--bg-panel);
+      border-right: 1px solid var(--border-color);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .panel-header {
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--border-color);
+      font-size: 13px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .panel-content {
+      padding: 16px;
+      overflow-y: auto;
+      flex: 1;
+    }
+
+    .section-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--accent-cyan);
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      text-transform: uppercase;
+    }
+
+    .card-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+
+    .model-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 12px;
+      transition: all 0.2s;
+    }
+
+    .model-card:hover {
+      border-color: var(--accent-purple);
+      box-shadow: 0 2px 8px rgba(168, 85, 247, 0.15);
+    }
+
+    .model-card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 6px;
+    }
+
+    .model-id {
+      font-family: var(--font-mono);
+      font-size: 13px;
+      font-weight: 600;
+      color: #c084fc;
+    }
+
+    .engine-badge {
+      font-size: 10px;
+      padding: 2px 6px;
+      background: rgba(168, 85, 247, 0.15);
+      border: 1px solid rgba(168, 85, 247, 0.3);
+      color: #e9d5ff;
+      border-radius: 4px;
+      font-family: var(--font-mono);
+    }
+
+    .model-prop {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 4px;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .model-prop span:last-child {
+      color: var(--text-main);
+      font-family: var(--font-mono);
+    }
+
+    /* JSON Editor Area */
+    .json-editor-area {
+      height: 220px;
+      width: 100%;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      color: #38bdf8;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      padding: 10px;
+      resize: vertical;
+      outline: none;
+      line-height: 1.4;
+    }
+
+    .json-editor-area:focus {
+      border-color: var(--border-focus);
+    }
+
+    /* Center: DAG Graph Canvas */
+    .canvas-center {
+      background: #070d19;
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .canvas-toolbar {
+      position: absolute;
+      top: 16px;
+      left: 20px;
+      z-index: 10;
+      background: rgba(30, 41, 59, 0.85);
+      backdrop-filter: blur(8px);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 6px 12px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    }
+
+    .status-pill {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .status-indicator {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--text-dim);
+    }
+
+    .status-indicator.running {
+      background: var(--accent-amber);
+      box-shadow: 0 0 8px var(--accent-amber);
+      animation: pulse 1.2s infinite;
+    }
+
+    .status-indicator.success {
+      background: var(--accent-emerald);
+      box-shadow: 0 0 8px var(--accent-emerald);
+    }
+
+    @keyframes pulse {
+      0% { opacity: 0.4; }
+      50% { opacity: 1; }
+      100% { opacity: 0.4; }
+    }
+
+    .graph-viewport {
+      flex: 1;
+      width: 100%;
+      height: 100%;
+      cursor: grab;
+      position: relative;
+    }
+
+    .graph-viewport:active {
+      cursor: grabbing;
+    }
+
+    svg.dag-svg {
+      width: 100%;
+      height: 100%;
+      position: absolute;
+      top: 0;
+      left: 0;
+    }
+
+    /* Right Sidebar: Node Inspector & AlgContext Blackboard */
+    .sidebar-right {
+      background: var(--bg-panel);
+      border-left: 1px solid var(--border-color);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .tab-bar {
+      display: flex;
+      border-bottom: 1px solid var(--border-color);
+      background: var(--bg-surface);
+    }
+
+    .tab-item {
+      flex: 1;
+      padding: 12px;
+      text-align: center;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: all 0.2s;
+    }
+
+    .tab-item.active {
+      color: var(--accent-blue);
+      border-bottom-color: var(--accent-blue);
+      background: var(--bg-panel);
+    }
+
+    .inspector-content {
+      padding: 16px;
+      overflow-y: auto;
+      flex: 1;
+    }
+
+    .inspector-node-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text-main);
+      margin-bottom: 4px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .inspector-badge {
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 4px;
+      background: rgba(56, 189, 248, 0.15);
+      color: var(--accent-blue);
+      font-family: var(--font-mono);
+    }
+
+    .detail-group {
+      margin-top: 16px;
+    }
+
+    .detail-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 6px;
+    }
+
+    .key-tag {
+      display: inline-block;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      padding: 3px 8px;
+      border-radius: 4px;
+      margin: 2px 4px 2px 0;
+    }
+
+    .key-in {
+      background: rgba(14, 165, 233, 0.15);
+      border: 1px solid rgba(14, 165, 233, 0.3);
+      color: #38bdf8;
+    }
+
+    .key-out {
+      background: rgba(16, 185, 129, 0.15);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      color: #34d399;
+    }
+
+    .blackboard-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 11px;
+      font-family: var(--font-mono);
+    }
+
+    .blackboard-table th, .blackboard-table td {
+      border: 1px solid var(--border-color);
+      padding: 8px;
+      text-align: left;
+    }
+
+    .blackboard-table th {
+      background: var(--bg-surface);
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+
+    .blackboard-table td.key-cell {
+      color: #38bdf8;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    .blackboard-table td.val-cell {
+      color: #cbd5e1;
+      max-width: 180px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .code-block {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      padding: 10px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: #cbd5e1;
+      white-space: pre-wrap;
+      word-break: break-all;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+
+    /* DAG SVG Elements Styling */
+    .dag-node-group {
+      cursor: pointer;
+      transition: transform 0.2s ease;
+    }
+
+    .dag-node-group:hover {
+      filter: drop-shadow(0 0 10px rgba(56, 189, 248, 0.5));
+    }
+
+    .dag-node-group.active rect {
+      stroke: var(--accent-blue) !important;
+      stroke-width: 2.5px !important;
+      filter: drop-shadow(0 0 12px rgba(56, 189, 248, 0.7));
+    }
+
+    .dag-edge {
+      stroke: #334155;
+      stroke-width: 2px;
+      fill: none;
+      transition: stroke 0.3s;
+    }
+
+    .dag-edge.active {
+      stroke: var(--accent-cyan);
+      stroke-width: 3px;
+    }
+
+    .edge-particle {
+      fill: var(--accent-cyan);
+      filter: drop-shadow(0 0 6px var(--accent-cyan));
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top Navigation Header -->
+  <header>
+    <div class="brand-section">
+      <div class="logo-icon">DAG</div>
+      <div class="brand-title">Alg-SDK Pipeline Visualizer</div>
+      <span class="brand-badge">v1.2.0 • Interactive</span>
+    </div>
+
+    <div class="controls-section">
+      <div class="preset-select-wrapper">
+        <span>切换演示业务:</span>
+        <select id="presetSelect">
+          <option value="dialogue_audit">业务 4: 智能对话风控质检 (3大模型+6节点协同 DAG 管线)</option>
+          <option value="ocr_doc_qa">业务 5: 智能多模态图文票据问答 (OCR 检测识别 + LLM 结构化)</option>
+          <option value="audio_asr_intent">业务 6: 语音识别与意图槽位抽取 (Audio PCM + ASR + NLU)</option>
+          <option value="cross_rerank">业务 7: 纯语义精排打分业务 (ONNX Cross-Encoder Matrix)</option>
+          <option value="doc_qa">业务 3: 智能长文档切片问答 (Embedding + LLM 复杂管线)</option>
+          <option value="doc_qa_onnx">业务 8: ONNX Runtime + llama.cpp 问答 (双开源引擎)</option>
+          <option value="entity_extract_llamacpp">业务 9: llama.cpp 0.6B GGUF 实体提取 (开源LLM引擎)</option>
+          <option value="entity_extract">业务 2: 实体与名词提取 (0.6B LLM 管线)</option>
+          <option value="keyword_match">业务 1: 关注词匹配业务 (零模型 / Control 动态词表)</option>
+        </select>
+      </div>
+
+      <button class="btn btn-emerald" id="btnRunRealCpp">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+        真实 C++ 后端执行 (Real C++ SDK Run)
+      </button>
+
+      <button class="btn btn-primary" id="btnRunSim">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+        仿真推演 (Simulate)
+      </button>
+
+      <button class="btn" id="btnNextStep">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
+        单步 (Step)
+      </button>
+
+      <button class="btn" id="btnResetSim">↺ 重置</button>
+    </div>
+  </header>
+
+  <!-- Main Body Layout -->
+  <div class="app-body">
+
+    <!-- Left Sidebar: Models Pool & JSON Configuration -->
+    <aside class="sidebar-left">
+      <div class="panel-header">
+        <span>模型池与配置 (Models & Config)</span>
+      </div>
+      <div class="panel-content">
+        <div class="section-title">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+          已加载模型池 (ModelManager)
+        </div>
+        <div class="card-list" id="modelsList">
+          <!-- Dynamic Model Cards -->
+        </div>
+
+        <div class="section-title" style="margin-top: 10px;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+          Pipeline JSON 实时配置
+        </div>
+        <textarea id="jsonConfigEditor" class="json-editor-area" spellcheck="false"></textarea>
+        <button class="btn btn-primary" id="btnApplyJson" style="width: 100%; margin-top: 8px;">
+          ⚡ 重新编译解析此配置
+        </button>
+      </div>
+    </aside>
+
+    <!-- Center: Interactive DAG Canvas -->
+    <main class="canvas-center">
+      <div class="canvas-toolbar">
+        <div class="status-pill">
+          <div class="status-indicator" id="statusDot"></div>
+          <span id="statusText">状态: 就绪 (IDLE)</span>
+        </div>
+        <span style="color: var(--border-color);">|</span>
+        <div style="font-size: 12px; color: var(--text-muted);">
+          当前执行阶段: <span id="currentStepName" style="color: var(--accent-blue); font-weight: 600;">-</span>
+        </div>
+      </div>
+
+      <div class="graph-viewport" id="graphViewport">
+        <svg class="dag-svg" id="dagSvg">
+          <defs>
+            <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M 0 1 L 10 5 L 0 9 z" fill="#475569"/>
+            </marker>
+            <marker id="arrow-active" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M 0 1 L 10 5 L 0 9 z" fill="#06b6d4"/>
+            </marker>
+          </defs>
+          <g id="dagEdgesGroup"></g>
+          <g id="dagParticlesGroup"></g>
+          <g id="dagNodesGroup"></g>
+        </svg>
+      </div>
+    </main>
+
+    <!-- Right Sidebar: Inspector & Blackboard -->
+    <aside class="sidebar-right">
+      <div class="tab-bar">
+        <div class="tab-item active" id="tabNode" onclick="switchTab('node')">节点属性</div>
+        <div class="tab-item" id="tabContext" onclick="switchTab('context')">黑板数据</div>
+        <div class="tab-item" id="tabCppLogs" onclick="switchTab('cpplogs')">C++真实执行</div>
+      </div>
+
+      <div class="inspector-content" id="panelNode">
+        <div id="nodeDetailsPlaceholder" style="color: var(--text-dim); text-align: center; margin-top: 40px; font-size: 13px;">
+          👈 请在左侧画布中点击任意算子节点查看详情
+        </div>
+        <div id="nodeDetailsContainer" style="display: none;">
+          <div class="inspector-node-title">
+            <span id="inspNodeName">DocChunkPreNode</span>
+            <span class="inspector-badge" id="inspNodeType">PreProcess</span>
+          </div>
+          <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;" id="inspNodeDesc">
+            长文档切片前处理算子，将输入文本做 1对N 裂变并打上样本溯源标签。
+          </div>
+
+          <div class="detail-group">
+            <div class="detail-label">绑定模型实例 (Bind Model)</div>
+            <div id="inspBindModel" style="font-family: var(--font-mono); font-size: 12px; color: #c084fc;">-</div>
+          </div>
+
+          <div class="detail-group">
+            <div class="detail-label">输入数据特征 (Inputs from AlgContext)</div>
+            <div id="inspInputs"></div>
+          </div>
+
+          <div class="detail-group">
+            <div class="detail-label">产出特征写入 (Outputs to AlgContext)</div>
+            <div id="inspOutputs"></div>
+          </div>
+
+          <div class="detail-group">
+            <div class="detail-label">节点私有配置与状态 (Private Config & State)</div>
+            <div class="code-block" id="inspConfigJson">{}</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="inspector-content" id="panelContext" style="display: none;">
+        <div class="section-title">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+          当前请求黑板数据 (AlgContext Data Map)
+        </div>
+        <table class="blackboard-table">
+          <thead>
+            <tr>
+              <th>Context Key</th>
+              <th>Type / Preview</th>
+            </tr>
+          </thead>
+          <tbody id="blackboardBody">
+            <!-- Dynamic Key Values -->
+          </tbody>
+        </table>
+
+        <div class="section-title" style="margin-top: 20px;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          当前选中 Key 详细值
+        </div>
+        <div class="code-block" id="blackboardValueDetail">点击上方表格行查看完整 JSON 数据...</div>
+      </div>
+
+      <div class="inspector-content" id="panelCppLogs" style="display: none;">
+        <div class="section-title">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+          C++ 引擎真实运行监控 (Real C++ SDK Execution)
+        </div>
+        <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px;">
+          直接调用底层编译出的 <code>libcompany_alg_sdk.so</code> 和 <code>./build/alg_demo</code>，获取真实硬件耗时与 NPU 批处理日志。
+        </div>
+
+        <div style="background: var(--bg-surface); padding: 10px; border-radius: 6px; border: 1px solid var(--border-color); margin-bottom: 12px; font-size: 12px;">
+          <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+            <span style="color: var(--text-dim);">运行状态:</span>
+            <span id="cppExecStatus" style="color: var(--accent-emerald); font-weight: 600;">未执行</span>
+          </div>
+          <div style="display: flex; justify-content: space-between;">
+            <span style="color: var(--text-dim);">端到端耗时:</span>
+            <span id="cppExecTime" style="color: var(--accent-blue); font-family: var(--font-mono);">- ms</span>
+          </div>
+        </div>
+
+        <div class="section-title">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+          底层 C ABI / NPU 终端标准输出流 (stdout)
+        </div>
+        <div class="code-block" id="cppRawLogs" style="max-height: 480px; font-size: 11px; color: #a5f3fc;">点击顶部绿色按钮「真实 C++ 后端执行」查看实时输出...</div>
+      </div>
+    </aside>
+
+  </div>
+
+  <script>
+    // =========================================================================
+    // 3 大预置业务的完整 Pipeline 配置与元数据定义
+    // =========================================================================
+    const PRESET_CONFIGS = {
+      doc_qa: {
+        business_name: "smart_doc_qa_v1",
+        models: [
+          {
+            model_id: "embed_model_v1",
+            engine_type: "mock_npu_embedding",
+            model_path: "./models/bge_base_npu.bin",
+            config: { max_batch_size: 4, embedding_dim: 128 }
+          },
+          {
+            model_id: "llm_model_v1",
+            engine_type: "mock_npu_llm",
+            model_path: "./models/qwen_1.5b_npu.bin",
+            config: { max_batch_size: 2, max_seq_len: 1024 }
+          }
+        ],
+        pipeline: [
+          {
+            node_type: "DocChunkPreNode",
+            category: "PreProcess",
+            desc: "长文本切片前处理算子，将输入文本做 1对N 裂变并打上 (req_id, sub_id) 样本溯源标签。",
+            inputs: ["raw_docs", "raw_queries", "raw_request_ids"],
+            outputs: ["chunked_doc_items", "query_items", "chunk_counts_per_req"],
+            config: { chunk_size: 60 }
+          },
+          {
+            node_type: "DocEmbeddingNode",
+            category: "Inference",
+            desc: "调用底层固定 Batch=4 NPU Embedding 模型，自动分块和填充提取 128 维稠密特征向量。",
+            bind_model: "embed_model_v1",
+            inputs: ["chunked_doc_items", "query_items"],
+            outputs: ["chunk_embeddings", "query_embeddings"],
+            config: { bind_model: "embed_model_v1" }
+          },
+          {
+            node_type: "VectorSearchNode",
+            category: "Search",
+            desc: "计算用户问题向量与各个分段切片的余弦相似度，筛选召回 Top-1 核心参考分段。",
+            inputs: ["chunk_embeddings", "query_embeddings", "chunked_doc_items"],
+            outputs: ["matched_top_chunks"],
+            config: { top_k: 1, min_score: 0.0 }
+          },
+          {
+            node_type: "PromptBuilderNode",
+            category: "PreProcess",
+            desc: "将检索召回的文档参考片段与用户原始提问渲染注入到大模型 Prompt 模板中。",
+            inputs: ["matched_top_chunks", "raw_queries"],
+            outputs: ["llm_input_prompts"],
+            config: { template: "【参考片段】: {context}\n【用户提问】: {query}\n请给出解答:" }
+          },
+          {
+            node_type: "IntentRuleNode",
+            category: "Rule",
+            desc: "使用节点私有状态中的规则映射表，基于关键词进行售后/技术意图分类与置信度打分。",
+            inputs: ["raw_queries"],
+            outputs: ["recognized_intents", "intent_confidences"],
+            config: {
+              default_intent: "GENERAL_QA",
+              threshold: 0.8,
+              rules: {
+                AFTER_SALES_REFUND: ["退款", "退货", "换货"],
+                TECH_ARCHITECTURE: ["架构", "设计", "C++", "算法框架"]
+              }
+            }
+          },
+          {
+            node_type: "LlmGenerateNode",
+            category: "Inference",
+            desc: "调用底层固定 Batch=2 NPU LLM 模型，生成最终推理总结回答文本。",
+            bind_model: "llm_model_v1",
+            inputs: ["llm_input_prompts"],
+            outputs: ["generated_llm_answers"],
+            config: { bind_model: "llm_model_v1", temperature: 0.3, max_tokens: 128 }
+          },
+          {
+            node_type: "DocQaPostNode",
+            category: "PostProcess",
+            desc: "按 req_id 自动归拢所有零散特征与回答，打包填充回 CompanyDocOutputStruct 结构体。",
+            inputs: ["raw_request_ids", "recognized_intents", "intent_confidences", "chunk_counts_per_req", "generated_llm_answers"],
+            outputs: ["final_doc_outputs"],
+            config: {}
+          }
+        ]
+      },
+
+      entity_extract: {
+        business_name: "entity_extract_0.6b_v1",
+        models: [
+          {
+            model_id: "llm_0.6b_entity",
+            engine_type: "mock_npu_llm",
+            model_path: "./models/qwen2.5_0.6b_instruct_npu.bin",
+            config: { max_batch_size: 2, max_seq_len: 512 }
+          }
+        ],
+        pipeline: [
+          {
+            node_type: "EntityExtractPreNode",
+            category: "PreProcess",
+            desc: "构造专用于 0.6B 小模型的实体与名词抽取 Prompt。",
+            inputs: ["input_sentences", "raw_request_ids"],
+            outputs: ["llm_input_prompts"],
+            config: { prompt_template: "请从以下句子中提取名词与实体：{text}" }
+          },
+          {
+            node_type: "LlmGenerateNode",
+            category: "Inference",
+            desc: "调用 0.6B 语言模型推理提取名词。",
+            bind_model: "llm_0.6b_entity",
+            inputs: ["llm_input_prompts"],
+            outputs: ["generated_llm_answers"],
+            config: { bind_model: "llm_0.6b_entity", temperature: 0.1, max_tokens: 64 }
+          },
+          {
+            node_type: "EntityExtractPostNode",
+            category: "PostProcess",
+            desc: "解析 0.6B 输出并结构化打包为 CompanyEntityOutputStruct 实体 JSON 列表。",
+            inputs: ["raw_request_ids", "generated_llm_answers"],
+            outputs: ["entity_extract_outputs"],
+            config: {}
+          }
+        ]
+      },
+
+      keyword_match: {
+        business_name: "keyword_match_v1",
+        models: [], // 纯规则，0模型
+        pipeline: [
+          {
+            node_type: "KeywordMatcherNode",
+            category: "Rule",
+            desc: "纯规则关注词匹配算子：无需加载模型，通过 Alg_Control 动态热更新词表，输入 2 句话匹配输出 JSON。",
+            inputs: ["input_sentences", "raw_request_ids"],
+            outputs: ["keyword_match_outputs"],
+            config: {
+              default_categories: { SYSTEM_INIT: ["初始化", "自检"] }
+            }
+          }
+        ]
+      },
+
+      dialogue_audit: {
+        business_name: "dialogue_compliance_audit_v1",
+        models: [
+          {
+            model_id: "embed_model_v2",
+            engine_type: "mock_npu_embedding",
+            model_path: "./models/bge_m3_npu.bin",
+            config: { max_batch_size: 4, embedding_dim: 128 }
+          },
+          {
+            model_id: "rerank_model_v1",
+            engine_type: "mock_npu_rerank",
+            model_path: "./models/bge_reranker_large_npu.bin",
+            config: { max_batch_size: 4 }
+          },
+          {
+            model_id: "audit_llm_v1",
+            engine_type: "mock_npu_llm",
+            model_path: "./models/qwen2.5_7b_audit_npu.bin",
+            config: { max_batch_size: 2, max_seq_len: 1024 }
+          }
+        ],
+        pipeline: [
+          {
+            node_type: "SafetyRulePreNode",
+            category: "Rule",
+            desc: "高危敏感词内存字典前置快筛过滤。",
+            inputs: ["user_texts"],
+            outputs: ["hard_risk_flags", "hit_keywords"],
+            config: { blacklist: ["私下转账", "加微信", "索取密码", "发送验证码", "刷单返利"] }
+          },
+          {
+            node_type: "DenseRetrievalNode",
+            category: "Search",
+            desc: "调用 Model 1 (Embedding 引擎) 初筛召回合规政策候选条款。",
+            bind_model: "embed_model_v2",
+            inputs: ["user_texts"],
+            outputs: ["candidate_policies"],
+            config: { bind_model: "embed_model_v2" }
+          },
+          {
+            node_type: "CrossRerankNode",
+            category: "Inference",
+            desc: "调用 Model 2 (Cross-Encoder Reranker 引擎) 进行深度语义交叉打分。",
+            bind_model: "rerank_model_v1",
+            inputs: ["user_texts", "candidate_policies"],
+            outputs: ["matched_policy_clauses", "rerank_scores"],
+            config: { bind_model: "rerank_model_v1" }
+          },
+          {
+            node_type: "RiskPromptNode",
+            category: "PreProcess",
+            desc: "融合规则标签与精排高分合规条款，组装 LLM 风控判决 Prompt。",
+            inputs: ["user_texts", "matched_policy_clauses", "hard_risk_flags"],
+            outputs: ["llm_audit_prompts"],
+            config: { template: "请根据合规条款【{policy}】审核对话：{user_text}" }
+          },
+          {
+            node_type: "LlmAuditNode",
+            category: "Inference",
+            desc: "调用 Model 3 (LLM 引擎) 进行深度合规判决并生成安全建议。",
+            bind_model: "audit_llm_v1",
+            inputs: ["llm_audit_prompts"],
+            outputs: ["generated_verdicts"],
+            config: { bind_model: "audit_llm_v1", temperature: 0.1, max_tokens: 256 }
+          },
+          {
+            node_type: "AuditPostNode",
+            category: "PostProcess",
+            desc: "汇聚精排得分与 LLM 判决，打包填充 CompanyAuditOutputStruct 结构体。",
+            inputs: ["raw_request_ids", "matched_policy_clauses", "rerank_scores", "generated_verdicts"],
+            outputs: ["compliance_audit_outputs"],
+            config: {}
+          }
+        ]
+      },
+
+      doc_qa_onnx: {
+        business_name: "smart_doc_qa_onnx_llamacpp_v1",
+        models: [
+          {
+            model_id: "embed_model_onnx",
+            engine_type: "onnx_embedding",
+            model_path: "./models/bge_base_zh_v1.5.onnx",
+            config: { max_batch_size: 4, embedding_dim: 128 }
+          },
+          {
+            model_id: "llm_model_llamacpp",
+            engine_type: "llama_cpp",
+            model_path: "./models/qwen2.5_1.5b_instruct_q4_k_m.gguf",
+            config: { max_batch_size: 2, max_seq_len: 1024 }
+          }
+        ],
+        pipeline: [
+          {
+            node_type: "DocChunkPreNode",
+            category: "PreProcess",
+            desc: "长文档切片算子，基于标点滑动切片并附加 (req_id, sub_id) 溯源标签。",
+            inputs: ["raw_docs", "raw_queries", "raw_request_ids"],
+            outputs: ["chunked_doc_items", "chunked_query_items", "chunk_counts_per_req"],
+            config: { chunk_size: 60 }
+          },
+          {
+            node_type: "DocEmbeddingNode",
+            category: "Inference",
+            desc: "ONNX Runtime 向量化算子，调用 ONNX Runtime C++ API 计算文本 Embedding。",
+            inputs: ["chunked_doc_items", "chunked_query_items"],
+            outputs: ["chunked_doc_embeddings", "chunked_query_embeddings"],
+            config: { bind_model: "embed_model_onnx" }
+          },
+          {
+            node_type: "VectorSearchNode",
+            category: "Search",
+            desc: "余弦相似度检索，精准匹配 Top-1 知识片段。",
+            inputs: ["chunked_doc_embeddings", "chunked_query_embeddings", "chunked_doc_items"],
+            outputs: ["matched_contexts"],
+            config: { top_k: 1, min_score: 0.0 }
+          },
+          {
+            node_type: "PromptBuilderNode",
+            category: "PreProcess",
+            desc: "Prompt 模板渲染算子，组装问答上下文。",
+            inputs: ["matched_contexts", "raw_queries"],
+            outputs: ["rendered_prompts"],
+            config: { template: "【参考片段】: {context}\n【用户提问】: {query}\n请给出精确解答:" }
+          },
+          {
+            node_type: "IntentRuleNode",
+            category: "Rule",
+            desc: "意图规则算子：双重风控过滤与意图识别。",
+            inputs: ["raw_queries"],
+            outputs: ["detected_intents"],
+            config: { default_intent: "GENERAL_QA", threshold: 0.8 }
+          },
+          {
+            node_type: "LlmGenerateNode",
+            category: "Inference",
+            desc: "llama.cpp 大模型生成算子，调用 GGUF 量化模型生成回答。",
+            inputs: ["rendered_prompts"],
+            outputs: ["generated_answers"],
+            config: { bind_model: "llm_model_llamacpp", temperature: 0.3, max_tokens: 128 }
+          },
+          {
+            node_type: "DocQaPostNode",
+            category: "PostProcess",
+            desc: "后处理对齐打包算子，聚合多请求输出结构体。",
+            inputs: ["raw_request_ids", "chunk_counts_per_req", "detected_intents", "generated_answers"],
+            outputs: ["pipeline_final_qa_results"],
+            config: {}
+          }
+        ]
+      },
+
+      entity_extract_llamacpp: {
+        business_name: "entity_extract_llamacpp_0.6b_v1",
+        models: [
+          {
+            model_id: "llm_0.6b_gguf",
+            engine_type: "llama_cpp",
+            model_path: "./models/qwen2.5_0.5b_instruct_q8_0.gguf",
+            config: { max_batch_size: 2, max_seq_len: 512 }
+          }
+        ],
+        pipeline: [
+          {
+            node_type: "EntityExtractPreNode",
+            category: "PreProcess",
+            desc: "实体抽取 Prompt 构建算子，打上样本溯源标签。",
+            inputs: ["input_sentences", "raw_request_ids"],
+            outputs: ["rendered_prompts"],
+            config: { prompt_template: "请从以下句子中提取出所有名词与实体，以JSON列表返回：\n{text}" }
+          },
+          {
+            node_type: "LlmGenerateNode",
+            category: "Inference",
+            desc: "llama.cpp 0.6B GGUF 量化模型推理算子，执行名词抽取推理。",
+            inputs: ["rendered_prompts"],
+            outputs: ["generated_answers"],
+            config: { bind_model: "llm_0.6b_gguf", temperature: 0.1, max_tokens: 64 }
+          },
+          {
+            node_type: "EntityExtractPostNode",
+            category: "PostProcess",
+            desc: "实体抽取后处理算子，解析 JSON 并填充输出结构体。",
+            inputs: ["raw_request_ids", "generated_answers"],
+            outputs: ["entity_extract_outputs"],
+            config: {}
+          }
+        ]
+      },
+
+      ocr_doc_qa: {
+        business_name: "multimodal_ocr_invoice_qa",
+        models: [
+          {
+            model_id: "ocr_model_v1",
+            engine_type: "mock_npu_ocr",
+            model_path: "./models/ch_ppocr_v4_det_rec_npu.bin",
+            config: { max_batch_size: 2 }
+          },
+          {
+            model_id: "llm_model_v1",
+            engine_type: "mock_npu_llm",
+            model_path: "./models/qwen_1.5b_npu.bin",
+            config: { max_batch_size: 2, max_seq_len: 1024 }
+          }
+        ],
+        pipeline: [
+          {
+            node_type: "ImagePreNode",
+            category: "PreProcess",
+            desc: "图片与发票前处理算子，封装图片路径并打上溯源标签。",
+            inputs: ["raw_image_paths", "raw_queries", "raw_request_ids"],
+            outputs: ["traceable_image_items"],
+            config: {}
+          },
+          {
+            node_type: "OcrInferNode",
+            category: "Inference",
+            desc: "OCR 算子：调用 IOcrEngine 检出文字区块 (BBox+Text) 并组装问答上下文。",
+            inputs: ["traceable_image_items"],
+            outputs: ["ocr_box_counts", "llm_input_prompts"],
+            config: { bind_model: "ocr_model_v1" }
+          },
+          {
+            node_type: "LlmGenerateNode",
+            category: "Inference",
+            desc: "LLM 算子：调用 ILlmEngine 理解票据版面并提取结构化字段。",
+            inputs: ["llm_input_prompts"],
+            outputs: ["generated_llm_answers"],
+            config: { bind_model: "llm_model_v1", temperature: 0.1, max_tokens: 128 }
+          },
+          {
+            node_type: "OcrDocPostNode",
+            category: "PostProcess",
+            desc: "票据问答后处理算子，打包提取的结构化 JSON 与检测框统计。",
+            inputs: ["raw_request_ids", "ocr_box_counts", "generated_llm_answers"],
+            outputs: ["ocr_doc_final_outputs"],
+            config: {}
+          }
+        ]
+      },
+
+      audio_asr_intent: {
+        business_name: "speech_audio_asr_intent_slot",
+        models: [
+          {
+            model_id: "asr_model_v1",
+            engine_type: "mock_npu_asr",
+            model_path: "./models/paraformer_asr_npu.bin",
+            config: { max_batch_size: 2 }
+          }
+        ],
+        pipeline: [
+          {
+            node_type: "AudioFeaturePreNode",
+            category: "PreProcess",
+            desc: "音频前处理算子：接收原始 PCM 浮点信号并完成定长切片打标。",
+            inputs: ["raw_audio_inputs", "raw_request_ids"],
+            outputs: ["traceable_audio_items"],
+            config: {}
+          },
+          {
+            node_type: "AsrInferNode",
+            category: "Inference",
+            desc: "ASR 语音转写算子：调用 IAudioAsrEngine 将音频流识别为文本。",
+            inputs: ["traceable_audio_items"],
+            outputs: ["asr_transcripts"],
+            config: { bind_model: "asr_model_v1" }
+          },
+          {
+            node_type: "SlotExtractNode",
+            category: "Rule",
+            desc: "NLU 槽位与意图抽取算子：解析车控与导航指令槽位。",
+            inputs: ["asr_transcripts"],
+            outputs: ["intent_slot_results"],
+            config: {}
+          },
+          {
+            node_type: "AudioPostNode",
+            category: "PostProcess",
+            desc: "语音后处理算子：输出识别文本与意图槽位 JSON 结构体。",
+            inputs: ["raw_request_ids", "asr_transcripts", "intent_slot_results"],
+            outputs: ["audio_final_outputs"],
+            config: {}
+          }
+        ]
+      },
+
+      cross_rerank: {
+        business_name: "dense_cross_rerank_scoring",
+        models: [
+          {
+            model_id: "rerank_model_v1",
+            engine_type: "onnx_rerank",
+            model_path: "./models/bge_reranker_large.onnx",
+            config: { max_batch_size: 4 }
+          }
+        ],
+        pipeline: [
+          {
+            node_type: "RerankPairBuilderNode",
+            category: "PreProcess",
+            desc: "精排候选构建算子：将 1 Query + N 候选段落展平为 (Query, Passage) 对。",
+            inputs: ["raw_rerank_inputs"],
+            outputs: ["rerank_pair_items", "rerank_counts_per_req"],
+            config: {}
+          },
+          {
+            node_type: "CrossRerankBatchNode",
+            category: "Inference",
+            desc: "Cross-Encoder 语义精排打分算子：调用 IRerankEngine 进行全交叉相似度打分。",
+            inputs: ["rerank_pair_items"],
+            outputs: ["rerank_scored_items"],
+            config: { bind_model: "rerank_model_v1" }
+          },
+          {
+            node_type: "RerankSortPostNode",
+            category: "PostProcess",
+            desc: "精排排序后处理算子：按得分降序排序并输出 Top-K 索引列表。",
+            inputs: ["raw_rerank_inputs", "rerank_scored_items"],
+            outputs: ["rerank_batch_final_outputs"],
+            config: {}
+          }
+        ]
+      }
+    };
+
+    // 模拟运行时的 AlgContext 数据黑板演变
+    const MOCK_CONTEXT_DATA = {
+      doc_qa: [
+        {
+          step: "DocChunkPreNode",
+          context: {
+            raw_docs: ["企业级算法框架设计规范...", "客户服务售后政策..."],
+            raw_queries: ["请简述该算法框架的架构设计？", "我想办理退款退货..."],
+            chunked_doc_items: "[TraceableItem x 8 chunks] (Req 0: 4 chunks, Req 1: 4 chunks)",
+            chunk_counts_per_req: [4, 4]
+          }
+        },
+        {
+          step: "DocEmbeddingNode",
+          context: {
+            chunk_embeddings: "[128-dim Embedding Vectors x 8 chunks] (NPU Batch=4 inferred)",
+            query_embeddings: "[128-dim Embedding Vectors x 2 queries] (NPU Batch=4 inferred)"
+          }
+        },
+        {
+          step: "VectorSearchNode",
+          context: {
+            matched_top_chunks: [
+              { req_id: 0, sub_id: 0, text: "企业级算法框架采用4层分层架构..." },
+              { req_id: 1, sub_id: 0, text: "客户服务售后政策：支持7天无理由退款..." }
+            ]
+          }
+        },
+        {
+          step: "PromptBuilderNode",
+          context: {
+            llm_input_prompts: [
+              "【参考片段】: 企业级算法框架采用4层分层架构...\n【用户提问】: 请简述架构设计？\n请给出解答:",
+              "【参考片段】: 客户服务售后政策支持7天无理由退款...\n【用户提问】: 我想办理退款退货？\n请给出解答:"
+            ]
+          }
+        },
+        {
+          step: "IntentRuleNode",
+          context: {
+            recognized_intents: ["TECH_ARCHITECTURE", "AFTER_SALES_REFUND"],
+            intent_confidences: [0.95, 0.95]
+          }
+        },
+        {
+          step: "LlmGenerateNode",
+          context: {
+            generated_llm_answers: [
+              "【LLM总结】文档核心为现代软件工程化设计，包含松耦合与状态隔离。",
+              "【LLM意图分析】检测到售后退款诉求。建议操作：7天无理由退货审核。"
+            ]
+          }
+        },
+        {
+          step: "DocQaPostNode",
+          context: {
+            final_doc_outputs: [
+              { req_id: 10001, intent: "TECH_ARCHITECTURE", conf: 0.95, answer: "【LLM总结】..." },
+              { req_id: 10002, intent: "AFTER_SALES_REFUND", conf: 0.95, answer: "【LLM意图分析】..." }
+            ]
+          }
+        }
+      ]
+    };
+
+    // =========================================================================
+    // 全局状态与 UI 渲染引擎
+    // =========================================================================
+    let currentConfig = JSON.parse(JSON.stringify(PRESET_CONFIGS.doc_qa));
+    let simulationIndex = -1;
+    let isSimulating = false;
+    let selectedNodeIndex = 0;
+    let currentBlackboard = {};
+
+    const categoryColors = {
+      PreProcess: { border: "#0284c7", bg: "rgba(2, 132, 199, 0.15)", text: "#38bdf8" },
+      Inference:  { border: "#7c3aed", bg: "rgba(124, 58, 237, 0.15)", text: "#c084fc" },
+      Search:     { border: "#0891b2", bg: "rgba(8, 145, 178, 0.15)",  text: "#22d3ee" },
+      Rule:       { border: "#d97706", bg: "rgba(217, 119, 6, 0.15)",  text: "#fbbf24" },
+      PostProcess:{ border: "#059669", bg: "rgba(5, 150, 105, 0.15)",  text: "#34d399" }
+    };
+
+    function init() {
+      setupEventListeners();
+      loadPreset("doc_qa");
+    }
+
+    function setupEventListeners() {
+      document.getElementById("presetSelect").addEventListener("change", (e) => {
+        loadPreset(e.target.value);
+      });
+
+      document.getElementById("btnApplyJson").addEventListener("click", () => {
+        try {
+          const parsed = JSON.parse(document.getElementById("jsonConfigEditor").value);
+          currentConfig = parsed;
+          resetSimulation();
+          renderApp();
+          alert("✅ 配置文件解析成功，管线 DAG 图已动态重构！");
+        } catch (err) {
+          alert("❌ JSON 格式解析失败: " + err.message);
+        }
+      });
+
+      document.getElementById("btnRunRealCpp").addEventListener("click", runRealCppExecution);
+      document.getElementById("btnRunSim").addEventListener("click", runFullSimulation);
+      document.getElementById("btnNextStep").addEventListener("click", stepSimulation);
+      document.getElementById("btnResetSim").addEventListener("click", resetSimulation);
+    }
+
+    function loadPreset(key) {
+      if (!PRESET_CONFIGS[key]) return;
+      currentConfig = JSON.parse(JSON.stringify(PRESET_CONFIGS[key]));
+      document.getElementById("jsonConfigEditor").value = JSON.stringify(currentConfig, null, 2);
+      resetSimulation();
+      renderApp();
+    }
+
+    function renderApp() {
+      renderModelsList();
+      renderDagGraph();
+      selectNode(selectedNodeIndex);
+      updateBlackboardTable();
+    }
+
+    function renderModelsList() {
+      const container = document.getElementById("modelsList");
+      container.innerHTML = "";
+
+      if (!currentConfig.models || currentConfig.models.length === 0) {
+        container.innerHTML = `<div style="font-size: 12px; color: var(--text-dim); padding: 8px;">(纯规则业务，无需加载模型，零硬件开销)</div>`;
+        return;
+      }
+
+      currentConfig.models.forEach(m => {
+        const card = document.createElement("div");
+        card.className = "model-card";
+        card.innerHTML = `
+          <div class="model-card-header">
+            <span class="model-id">${m.model_id}</span>
+            <span class="engine-badge">${m.engine_type}</span>
+          </div>
+          <div class="model-prop"><span>权重路径:</span><span>${m.model_path.split('/').pop()}</span></div>
+          <div class="model-prop"><span>固定MaxBatch:</span><span>${m.config?.max_batch_size || 1}</span></div>
+        `;
+        container.appendChild(card);
+      });
+    }
+
+    // =========================================================================
+    // 核心 DAG 图自动布局与 SVG 渲染引擎
+    // =========================================================================
+    function renderDagGraph() {
+      const svg = document.getElementById("dagSvg");
+      const edgesGroup = document.getElementById("dagEdgesGroup");
+      const nodesGroup = document.getElementById("dagNodesGroup");
+
+      edgesGroup.innerHTML = "";
+      nodesGroup.innerHTML = "";
+
+      const pipeline = currentConfig.pipeline || [];
+      if (pipeline.length === 0) return;
+
+      const nodeWidth = 220;
+      const nodeHeight = 74;
+      const startX = 60;
+      const startY = 120;
+      const gapX = 80;
+
+      // 布局计算：按水平管线/拓扑顺序计算各个节点 (X, Y)
+      const positions = [];
+      pipeline.forEach((node, i) => {
+        let x = startX + i * (nodeWidth + gapX);
+        let y = startY;
+
+        // 如果节点与前面节点并列（例如 IntentRuleNode 和 VectorSearchNode 并行处理），做错位美化
+        if (node.node_type === "IntentRuleNode" && i > 2) {
+          y = startY + 110;
+        }
+
+        positions.push({ x, y, width: nodeWidth, height: nodeHeight, node, index: i });
+      });
+
+      // 1. 渲染连接边 (Bezier Curves)
+      for (let i = 0; i < positions.length - 1; ++i) {
+        const from = positions[i];
+        const to = positions[i + 1];
+
+        const x1 = from.x + from.width;
+        const y1 = from.y + from.height / 2;
+        const x2 = to.x;
+        const y2 = to.y + to.height / 2;
+
+        const cx1 = x1 + gapX / 2;
+        const cy1 = y1;
+        const cx2 = x2 - gapX / 2;
+        const cy2 = y2;
+
+        const pathD = `M ${x1} ${y1} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${x2} ${y2}`;
+
+        const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        path.setAttribute("d", pathD);
+        path.setAttribute("class", "dag-edge");
+        path.setAttribute("id", `edge-${i}`);
+        path.setAttribute("marker-end", "url(#arrow)");
+        edgesGroup.appendChild(path);
+      }
+
+      // 2. 渲染节点卡片 (SVG Group)
+      positions.forEach(pos => {
+        const cat = pos.node.category || "PreProcess";
+        const theme = categoryColors[cat] || categoryColors.PreProcess;
+
+        const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+        g.setAttribute("class", `dag-node-group ${pos.index === selectedNodeIndex ? 'active' : ''}`);
+        g.setAttribute("id", `dag-node-${pos.index}`);
+        g.setAttribute("transform", `translate(${pos.x}, ${pos.y})`);
+        g.onclick = () => selectNode(pos.index);
+
+        // 卡片底板
+        const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+        rect.setAttribute("width", pos.width);
+        rect.setAttribute("height", pos.height);
+        rect.setAttribute("rx", "10");
+        rect.setAttribute("fill", "#1e293b");
+        rect.setAttribute("stroke", theme.border);
+        rect.setAttribute("stroke-width", "1.5");
+
+        // 状态顶部发光条
+        const topBar = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+        topBar.setAttribute("x", "0");
+        topBar.setAttribute("y", "0");
+        topBar.setAttribute("width", pos.width);
+        topBar.setAttribute("height", "4");
+        topBar.setAttribute("rx", "2");
+        topBar.setAttribute("fill", theme.border);
+
+        // 节点序号徽标
+        const numText = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        numText.setAttribute("x", "12");
+        numText.setAttribute("y", "24");
+        numText.setAttribute("fill", theme.text);
+        numText.setAttribute("font-size", "11");
+        numText.setAttribute("font-family", "JetBrains Mono");
+        numText.setAttribute("font-weight", "600");
+        numText.textContent = `#0${pos.index + 1} ${cat}`;
+
+        // 节点类名
+        const nameText = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        nameText.setAttribute("x", "12");
+        nameText.setAttribute("y", "44");
+        nameText.setAttribute("fill", "#f8fafc");
+        nameText.setAttribute("font-size", "13");
+        nameText.setAttribute("font-family", "Inter");
+        nameText.setAttribute("font-weight", "600");
+        nameText.textContent = pos.node.node_type;
+
+        // 绑定模型或配置简述
+        const subText = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        subText.setAttribute("x", "12");
+        subText.setAttribute("y", "62");
+        subText.setAttribute("fill", "#94a3b8");
+        subText.setAttribute("font-size", "11");
+        subText.setAttribute("font-family", "JetBrains Mono");
+        subText.textContent = pos.node.bind_model ? `[Model: ${pos.node.bind_model}]` : `[Pure Logic / Rule]`;
+
+        g.appendChild(rect);
+        g.appendChild(topBar);
+        g.appendChild(numText);
+        g.appendChild(nameText);
+        g.appendChild(subText);
+        nodesGroup.appendChild(g);
+      });
+    }
+
+    // =========================================================================
+    // 节点选中与详情面板检查器 (Node Inspector)
+    // =========================================================================
+    function selectNode(index) {
+      selectedNodeIndex = index;
+      const pipeline = currentConfig.pipeline || [];
+      if (!pipeline[index]) return;
+
+      document.querySelectorAll(".dag-node-group").forEach((g, idx) => {
+        if (idx === index) g.classList.add("active");
+        else g.classList.remove("active");
+      });
+
+      const node = pipeline[index];
+      document.getElementById("nodeDetailsPlaceholder").style.display = "none";
+      document.getElementById("nodeDetailsContainer").style.display = "block";
+
+      document.getElementById("inspNodeName").textContent = node.node_type;
+      document.getElementById("inspNodeType").textContent = node.category || "Operator";
+      document.getElementById("inspNodeDesc").textContent = node.desc || "算法处理算子节点。";
+      document.getElementById("inspBindModel").textContent = node.bind_model ? `✨ ${node.bind_model}` : "无 (纯 CPU 规则处理)";
+
+      const inputsContainer = document.getElementById("inspInputs");
+      inputsContainer.innerHTML = "";
+      (node.inputs || []).forEach(k => {
+        inputsContainer.innerHTML += `<span class="key-tag key-in">📥 ${k}</span>`;
+      });
+
+      const outputsContainer = document.getElementById("inspOutputs");
+      outputsContainer.innerHTML = "";
+      (node.outputs || []).forEach(k => {
+        outputsContainer.innerHTML += `<span class="key-tag key-out">📤 ${k}</span>`;
+      });
+
+      document.getElementById("inspConfigJson").textContent = JSON.stringify(node.config || {}, null, 2);
+    }
+
+    // =========================================================================
+    // 动态执行仿真引擎 (Simulation Engine)
+    // =========================================================================
+    function runFullSimulation() {
+      if (isSimulating) return;
+      isSimulating = true;
+      resetSimulation();
+
+      const totalNodes = (currentConfig.pipeline || []).length;
+      let step = 0;
+
+      document.getElementById("statusDot").className = "status-indicator running";
+      document.getElementById("statusText").textContent = "状态: 正在流水线流转计算 (RUNNING)";
+
+      const interval = setInterval(() => {
+        if (step < totalNodes) {
+          executeStep(step);
+          step++;
+        } else {
+          clearInterval(interval);
+          isSimulating = false;
+          document.getElementById("statusDot").className = "status-indicator success";
+          document.getElementById("statusText").textContent = "状态: 批次计算成功 (SUCCESS 200 OK)";
+          document.getElementById("currentStepName").textContent = "全管线执行完成 (All Nodes Done)";
+        }
+      }, 700);
+    }
+
+    function stepSimulation() {
+      const totalNodes = (currentConfig.pipeline || []).length;
+      if (simulationIndex < totalNodes - 1) {
+        simulationIndex++;
+        executeStep(simulationIndex);
+      }
+    }
+
+    function executeStep(stepIndex) {
+      simulationIndex = stepIndex;
+      selectNode(stepIndex);
+
+      const node = currentConfig.pipeline[stepIndex];
+      document.getElementById("currentStepName").textContent = `[${stepIndex + 1}/${currentConfig.pipeline.length}] ${node.node_type}`;
+
+      // 激活高亮边
+      if (stepIndex > 0) {
+        const edge = document.getElementById(`edge-${stepIndex - 1}`);
+        if (edge) {
+          edge.classList.add("active");
+          edge.setAttribute("marker-end", "url(#arrow-active)");
+        }
+      }
+
+      // 更新黑板上下文数据
+      if (MOCK_CONTEXT_DATA.doc_qa && MOCK_CONTEXT_DATA.doc_qa[stepIndex]) {
+        const stepContext = MOCK_CONTEXT_DATA.doc_qa[stepIndex].context;
+        Object.assign(currentBlackboard, stepContext);
+      } else {
+        (node.outputs || []).forEach(k => {
+          currentBlackboard[k] = `[${node.node_type} 计算产出特征对象]`;
+        });
+      }
+
+      updateBlackboardTable();
+    }
+
+    function resetSimulation() {
+      simulationIndex = -1;
+      isSimulating = false;
+      currentBlackboard = {
+        raw_request_ids: "[10001, 10002]",
+        raw_docs: ["企业级算法框架设计规范...", "客户服务售后政策..."],
+        raw_queries: ["请简述架构设计特点？", "我想申请退款退货..."]
+      };
+
+      document.getElementById("statusDot").className = "status-indicator";
+      document.getElementById("statusText").textContent = "状态: 就绪 (IDLE)";
+      document.getElementById("currentStepName").textContent = "等待执行";
+
+      document.querySelectorAll(".dag-edge").forEach(edge => {
+        edge.classList.remove("active");
+        edge.setAttribute("marker-end", "url(#arrow)");
+      });
+
+      updateBlackboardTable();
+      selectNode(0);
+    }
+
+    function updateBlackboardTable() {
+      const tbody = document.getElementById("blackboardBody");
+      tbody.innerHTML = "";
+
+      for (const [k, v] of Object.entries(currentBlackboard)) {
+        const tr = document.createElement("tr");
+        tr.style.cursor = "pointer";
+        tr.onclick = () => {
+          document.getElementById("blackboardValueDetail").textContent =
+            typeof v === "object" ? JSON.stringify(v, null, 2) : String(v);
+        };
+
+        const previewVal = typeof v === "object" ? JSON.stringify(v) : String(v);
+        tr.innerHTML = `
+          <td class="key-cell">${k}</td>
+          <td class="val-cell" title="${previewVal}">${previewVal}</td>
+        `;
+        tbody.appendChild(tr);
+      }
+    }
+
+    function switchTab(tab) {
+      document.getElementById("tabNode").classList.toggle("active", tab === "node");
+      document.getElementById("tabContext").classList.toggle("active", tab === "context");
+      document.getElementById("tabCppLogs").classList.toggle("active", tab === "cpplogs");
+
+      document.getElementById("panelNode").style.display = tab === "node" ? "block" : "none";
+      document.getElementById("panelContext").style.display = tab === "context" ? "block" : "none";
+      document.getElementById("panelCppLogs").style.display = tab === "cpplogs" ? "block" : "none";
+    }
+
+    async function runRealCppExecution() {
+      switchTab("cpplogs");
+      document.getElementById("cppExecStatus").textContent = "正在调用 C++ 算法动态库执行中 (Running)...";
+      document.getElementById("cppExecStatus").style.color = "var(--accent-amber)";
+      document.getElementById("cppRawLogs").textContent = "🚀 正在向 Python 后端发送真实 C++ SDK 执行指令...\n请稍候...";
+
+      document.getElementById("statusDot").className = "status-indicator running";
+      document.getElementById("statusText").textContent = "状态: C++ 真实引擎执行中 (REAL C++ RUNNING)";
+
+      try {
+        const resp = await fetch("/api/run_cpp", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ config: currentConfig })
+        });
+
+        const data = await resp.json();
+        if (data.success) {
+          document.getElementById("cppExecStatus").textContent = "执行成功 (200 OK)";
+          document.getElementById("cppExecStatus").style.color = "var(--accent-emerald)";
+          document.getElementById("cppExecTime").textContent = data.elapsed_ms + " ms";
+          document.getElementById("cppRawLogs").textContent = data.stdout || "(无输出)";
+          
+          document.getElementById("statusDot").className = "status-indicator success";
+          document.getElementById("statusText").textContent = `状态: C++ 执行完成 (${data.elapsed_ms}ms)`;
+
+          // 同步激活 DAG 全管线流光效果
+          document.querySelectorAll(".dag-edge").forEach(edge => {
+            edge.classList.add("active");
+            edge.setAttribute("marker-end", "url(#arrow-active)");
+          });
+        } else {
+          document.getElementById("cppExecStatus").textContent = "执行异常 (Failed)";
+          document.getElementById("cppExecStatus").style.color = "var(--accent-rose)";
+          document.getElementById("cppRawLogs").textContent = "❌ 错误信息:\n" + (data.error || data.stderr);
+        }
+      } catch (err) {
+        document.getElementById("cppExecStatus").textContent = "通信失败";
+        document.getElementById("cppExecStatus").style.color = "var(--accent-rose)";
+        document.getElementById("cppRawLogs").textContent = "❌ 无法连接到 /api/run_cpp 后端接口。\n提示：如果您直接以 file:// 协议打开本地静态 HTML，请使用 './show configs/xxx.json --web' 启动带有 C++ 桥接服务的环境。";
+      }
+    }
+
+    // 启动初始化
+    window.addEventListener("DOMContentLoaded", init);
+  </script>
+</body>
+</html>

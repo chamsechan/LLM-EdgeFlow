@@ -1,0 +1,29 @@
+{
+  "business_name": "dense_cross_rerank_scoring",
+  "models": [
+    {
+      "model_id": "rerank_model_v1",
+      "engine_type": "onnx_rerank",
+      "model_path": "./models/bge_reranker_large.onnx",
+      "config": {
+        "max_batch_size": 4
+      }
+    }
+  ],
+  "pipeline": [
+    {
+      "node_type": "RerankPairBuilderNode",
+      "config": {}
+    },
+    {
+      "node_type": "CrossRerankBatchNode",
+      "config": {
+        "bind_model": "rerank_model_v1"
+      }
+    },
+    {
+      "node_type": "RerankSortPostNode",
+      "config": {}
+    }
+  ]
+}

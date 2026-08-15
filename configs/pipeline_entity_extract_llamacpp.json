@@ -1,0 +1,34 @@
+{
+  "business_name": "entity_extract_llamacpp_0.6b_v1",
+  "models": [
+    {
+      "model_id": "llm_0.6b_gguf",
+      "engine_type": "llama_cpp",
+      "model_path": "./models/qwen2.5_0.5b_instruct_q8_0.gguf",
+      "config": {
+        "max_batch_size": 2,
+        "max_seq_len": 512
+      }
+    }
+  ],
+  "pipeline": [
+    {
+      "node_type": "EntityExtractPreNode",
+      "config": {
+        "prompt_template": "你是一个中文实体与名词抽取助手。请从以下句子中提取出所有名词与实体，并仅以JSON列表形式返回：\n输入文本：{text}\n提取结果："
+      }
+    },
+    {
+      "node_type": "LlmGenerateNode",
+      "config": {
+        "bind_model": "llm_0.6b_gguf",
+        "temperature": 0.1,
+        "max_tokens": 64
+      }
+    },
+    {
+      "node_type": "EntityExtractPostNode",
+      "config": {}
+    }
+  ]
+}

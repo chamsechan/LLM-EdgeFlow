@@ -1,0 +1,69 @@
+{
+  "business_name": "dialogue_compliance_audit_v1",
+  "models": [
+    {
+      "model_id": "embed_model_v2",
+      "engine_type": "mock_npu_embedding",
+      "model_path": "./models/bge_m3_npu.bin",
+      "config": {
+        "max_batch_size": 4,
+        "embedding_dim": 128
+      }
+    },
+    {
+      "model_id": "rerank_model_v1",
+      "engine_type": "mock_npu_rerank",
+      "model_path": "./models/bge_reranker_large_npu.bin",
+      "config": {
+        "max_batch_size": 4
+      }
+    },
+    {
+      "model_id": "audit_llm_v1",
+      "engine_type": "mock_npu_llm",
+      "model_path": "./models/qwen2.5_7b_audit_npu.bin",
+      "config": {
+        "max_batch_size": 2,
+        "max_seq_len": 1024
+      }
+    }
+  ],
+  "pipeline": [
+    {
+      "node_type": "SafetyRulePreNode",
+      "config": {
+        "blacklist": ["私下转账", "加微信", "索取密码", "发送验证码", "刷单返利"]
+      }
+    },
+    {
+      "node_type": "DenseRetrievalNode",
+      "config": {
+        "bind_model": "embed_model_v2"
+      }
+    },
+    {
+      "node_type": "CrossRerankNode",
+      "config": {
+        "bind_model": "rerank_model_v1"
+      }
+    },
+    {
+      "node_type": "RiskPromptNode",
+      "config": {
+        "template": "你是一个专业的智能客服合规风控质检大模型。请根据相关制度条款对客服与用户的对话进行合规判定并给出建议：\n【对话内容】: {user_text}\n【相关制度】: {policy}\n【规则初筛】: {rule_flag}\n请严格按JSON格式输出判定：{\"verdict\": \"违规/合规\", \"risk_level\": \"HIGH_RISK/SAFE\", \"suggestion\": \"...\"}\n【审核结论】:"
+      }
+    },
+    {
+      "node_type": "LlmAuditNode",
+      "config": {
+        "bind_model": "audit_llm_v1",
+        "temperature": 0.1,
+        "max_tokens": 256
+      }
+    },
+    {
+      "node_type": "AuditPostNode",
+      "config": {}
+    }
+  ]
+}

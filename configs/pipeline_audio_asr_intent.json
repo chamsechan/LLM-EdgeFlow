@@ -1,0 +1,33 @@
+{
+  "business_name": "speech_audio_asr_intent_slot",
+  "models": [
+    {
+      "model_id": "asr_model_v1",
+      "engine_type": "mock_npu_asr",
+      "model_path": "./models/paraformer_asr_npu.bin",
+      "config": {
+        "max_batch_size": 2
+      }
+    }
+  ],
+  "pipeline": [
+    {
+      "node_type": "AudioFeaturePreNode",
+      "config": {}
+    },
+    {
+      "node_type": "AsrInferNode",
+      "config": {
+        "bind_model": "asr_model_v1"
+      }
+    },
+    {
+      "node_type": "SlotExtractNode",
+      "config": {}
+    },
+    {
+      "node_type": "AudioPostNode",
+      "config": {}
+    }
+  ]
+}
