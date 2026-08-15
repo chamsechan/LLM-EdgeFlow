@@ -1,0 +1,256 @@
+@startuml LLM_EdgeFlow_Architecture
+!theme plain
+skinparam backgroundColor #0F172A
+skinparam defaultFontName "Segoe UI", Arial, sans-serif
+skinparam roundCorner 8
+skinparam shadowing true
+skinparam dpi 300
+
+skinparam package {
+  BackgroundColor #1E293B
+  BorderColor #475569
+  FontColor #F8FAFC
+  FontSize 13
+  FontStyle bold
+}
+
+skinparam class {
+  BackgroundColor #0F172A
+  BorderColor #0284C7
+  FontColor #F1F5F9
+  AttributeFontColor #94A3B8
+  FontSize 11
+  AttributeFontSize 10
+}
+
+skinparam interface {
+  BackgroundColor #0F172A
+  BorderColor #10B981
+  FontColor #A7F3D0
+  AttributeFontColor #94A3B8
+  FontSize 11
+}
+
+skinparam arrow {
+  Color #38BDF8
+  FontColor #CBD5E1
+  FontSize 9
+}
+
+' ==============================================================================
+' Layer 1: C ABI 适配层
+' ==============================================================================
+package "Layer 1: 公司标准 C ABI 导出层 (C Adapter)" as L1 {
+  class "Company C ABI Exports" as C_ABI <<(C,#0284C7) API Export>> {
+    + Alg_Init(): int
+    + Alg_Create(void** hndl, const CompanyAlgParamCreate*): int
+    + Alg_Process(void* hndl, const vector<void*>& in, vector<void*>& out): int
+    + Alg_Control(void* hndl, const CompanyAlgParamControl*): int
+    + Alg_Destroy(void* hndl): int
+    + Alg_DeInit(): int
+  }
+
+  class "AlgHandleInstance" as HandleInst {
+    + pipeline: std::unique_ptr<Pipeline>
+    + biz_type: CompanyAlgBizType
+    + device_id: int
+  }
+
+  class "Multi-Modal C Structs" as Structs <<(S,#F59E0B) Data Struct>> {
+    + CompanyDocInput / Output
+    + CompanyOcrDocInput / Output
+    + CompanyAudioInput / Output
+    + CompanyRerankBatchInput / Output
+    + CompanyAuditInput / Output
+    + CompanyKeywordInput / Output
+  }
+}
+
+' ==============================================================================
+' Layer 2: 框架调度与黑板层
+' ==============================================================================
+package "Layer 2: 核心编排与动态黑板层 (Pipeline & Context)" as L2 {
+  class Pipeline {
+    - nodes_: std::vector<std::unique_ptr<INode>>
+    - session_context_: SessionContext
+    - business_name_: std::string
+    + BuildFromConfigFile(config_path: string): bool
+    + BuildFromJson(root_config: json): bool
+    + Execute(req_ctx: AlgContext*): int
+    + Control(cmd: int, json_param: string): int
+  }
+
+  class AlgContext <<(B,#10B981) Request Blackboard>> {
+    - blackboard_: std::unordered_map<string, std::any>
+    - error_code_: int
+    - error_message_: std::string
+    + Set<T>(key: string, value: T): void
+    + Get<T>(key: string): T*
+    + Has(key: string): bool
+    + SetError(code: int, msg: string): void
+    + Clear(): void
+  }
+
+  class SessionContext {
+    - model_manager_: ModelManager
+    + GetModelManager(): ModelManager&
+  }
+
+  class ModelManager {
+    - models_: std::unordered_map<string, std::shared_ptr<IModelEngine>>
+    + RegisterModel(id: string, engine: shared_ptr<IModelEngine>): void
+    + GetModel<T>(id: string): std::shared_ptr<T>
+    + HasModel(id: string): bool
+  }
+
+  class "TraceableItem<T>" as TraceableItem <<(T,#8B5CF6) Data Container>> {
+    + req_id: uint64_t
+    + sub_id: uint32_t
+    + data: T
+  }
+}
+
+' ==============================================================================
+' Layer 3: 业务专属算子池
+' ==============================================================================
+package "Layer 3: 业务专属算子池 (Pluggable Nodes)" as L3 {
+  interface INode {
+    + {abstract} Init(config: json, session_ctx: SessionContext*): bool
+    + {abstract} Process(req_ctx: AlgContext*): int
+    + {abstract} Control(cmd: int, param: json): int
+    + {abstract} Name(): const string&
+  }
+
+  class NodeFactory <<(S,#EC4899) Singleton>> {
+    + {static} Instance(): NodeFactory&
+    + Register(type: string, creator: Func): void
+    + Create(type: string): std::unique_ptr<INode>
+  }
+
+  package "PreProcess & Rule Nodes" as PreNodes {
+    class DocChunkPreNode
+    class ImagePreNode
+    class AudioFeaturePreNode
+    class RerankPairBuilderNode
+    class KeywordMatcherNode
+    class SafetyRulePreNode
+    class IntentRuleNode
+    class SlotExtractNode
+  }
+
+  package "Inference Invocation Nodes" as InferNodes {
+    class DocEmbeddingNode
+    class LlmGenerateNode
+    class CrossRerankNode
+    class OcrInferNode
+    class AsrInferNode
+    class LlmAuditNode
+    class VectorSearchNode
+    class PromptBuilderNode
+  }
+
+  package "PostProcess Alignment Nodes" as PostNodes {
+    class DocQaPostNode
+    class AuditPostNode
+    class OcrDocPostNode
+    class AudioPostNode
+    class RerankSortPostNode
+    class EntityExtractPostNode
+  }
+}
+
+' ==============================================================================
+' Layer 4: 异构引擎与分批调度层
+' ==============================================================================
+package "Layer 4: 异构引擎与硬件批调度层 (Engine Layer)" as L4 {
+  interface IModelEngine {
+    + {abstract} Load(path: string, config: json): bool
+    + {abstract} GetMaxBatchSize(): size_t
+    + {abstract} EngineType(): const string&
+  }
+
+  interface IEmbeddingEngine {
+    + {abstract} InferTraceableBatch(inputs: vector<TraceableItem<string>>, outputs: vector<TraceableItem<vector<float>>>*): int
+  }
+
+  interface ILlmEngine {
+    + {abstract} Generate(prompt: string, opt: GenerateOption, out: string*): int
+    + {abstract} InferTraceableBatch(prompts: vector<TraceableItem<string>>, opt: GenerateOption, out: vector<TraceableItem<string>>*): int
+  }
+
+  interface IRerankEngine {
+    + {abstract} ScoreTraceableBatch(pairs: vector<TraceableItem<PairInput>>, scores: vector<TraceableItem<float>>*): int
+  }
+
+  interface IOcrEngine {
+    + {abstract} InferTraceableBatch(images: vector<TraceableItem<string>>, boxes: vector<TraceableItem<vector<OcrBoxItem>>>*): int
+  }
+
+  interface IAudioAsrEngine {
+    + {abstract} InferTraceableBatch(audios: vector<TraceableItem<AudioPcmData>>, transcripts: vector<TraceableItem<string>>*): int
+  }
+
+  class EngineFactory <<(S,#EC4899) Singleton>> {
+    + {static} Instance(): EngineFactory&
+    + Register(type: string, creator: Func): void
+    + Create(type: string): std::unique_ptr<IModelEngine>
+  }
+
+  class FixedBatchExecutor <<(T,#F59E0B) Generic Template>> {
+    + {static} Execute<TIn, TOut>(inputs: vector<TraceableItem<TIn>>, max_batch: size_t, pad: TIn, kernel: Func, outputs: vector<TraceableItem<TOut>>*): int
+  }
+
+  package "Engine Implementations (PIMPL)" as EngineImpls {
+    class OnnxEmbeddingEngine
+    class OnnxRerankEngine
+    class LlamaCppEngine
+    class MockNpuEmbeddingEngine
+    class MockNpuLlmEngine
+    class MockNpuRerankEngine
+    class MockNpuOcrEngine
+    class MockNpuAsrEngine
+  }
+}
+
+' ==============================================================================
+' 关系连接与流向
+' ==============================================================================
+C_ABI ..> HandleInst : 管理生命周期
+C_ABI ..> Structs : 解包/填充
+HandleInst *-- Pipeline
+
+Pipeline *-- SessionContext
+Pipeline *-- INode : 拓扑执行
+SessionContext *-- ModelManager
+ModelManager o-- IModelEngine
+
+INode <|.. PreNodes
+INode <|.. InferNodes
+INode <|.. PostNodes
+NodeFactory ..> INode : 动态反射创建
+
+InferNodes ..> AlgContext : 读写数据
+PreNodes ..> AlgContext : 写入分片/特征
+PostNodes ..> AlgContext : 提取并精准对齐
+InferNodes ..> ModelManager : 索取纯虚能力接口
+
+IModelEngine <|-- IEmbeddingEngine
+IModelEngine <|-- ILlmEngine
+IModelEngine <|-- IRerankEngine
+IModelEngine <|-- IOcrEngine
+IModelEngine <|-- IAudioAsrEngine
+
+IEmbeddingEngine <|.. OnnxEmbeddingEngine
+IEmbeddingEngine <|.. MockNpuEmbeddingEngine
+IRerankEngine <|.. OnnxRerankEngine
+IRerankEngine <|.. MockNpuRerankEngine
+ILlmEngine <|.. LlamaCppEngine
+ILlmEngine <|.. MockNpuLlmEngine
+IOcrEngine <|.. MockNpuOcrEngine
+IAudioAsrEngine <|.. MockNpuAsrEngine
+
+EngineFactory ..> IModelEngine : 动态反射创建
+EngineImpls ..> FixedBatchExecutor : 调用定长硬件分批模板
+FixedBatchExecutor ..> TraceableItem : 样本切块/补齐/剥离/溯源
+
+@enduml
