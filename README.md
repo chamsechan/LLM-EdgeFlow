@@ -10,6 +10,7 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/chamsechan/LLM-EdgeFlow/actions/workflows/ci.yml"><img src="https://github.com/chamsechan/LLM-EdgeFlow/actions/workflows/ci.yml/badge.svg" alt="CI Status"/></a>
   <a href="https://en.cppreference.com/w/cpp/17"><img src="https://img.shields.io/badge/C%2B%2B-17-00599C?style=flat-square&logo=c%2B%2B" alt="C++17"/></a>
   <a href="https://cmake.org/"><img src="https://img.shields.io/badge/CMake-3.16%2B-064F8C?style=flat-square&logo=cmake" alt="CMake"/></a>
   <a href="https://github.com/google/googletest"><img src="https://img.shields.io/badge/GoogleTest-v1.14.0-34A853?style=flat-square&logo=google" alt="Google Test"/></a>
@@ -116,6 +117,20 @@ LLM-EdgeFlow/
 ├── tests/                       # Google Test (GTest) 单元测试套件
 └── tools/visualizer/            # 交互式 Web DAG 可视化平台
 ```
+
+---
+
+## 📝 更新日志 (Changelog)
+
+- **v1.2.0** *(2026-08)*
+  - ✨ **全模态与异构引擎支持**：新增 OCR 发票图文抽取、语音 ASR 转写与 ONNX Cross-Encoder 语义精排，全量支持 7 大异构业务。
+  - ⚡ **Google Test & CTest 全自动化测试**：集成 CMake `FetchContent` 零依赖单测套件，全面覆盖 4 层架构。
+  - 🛠️ **双模可视化与开发者体系**：提供纯 C++ 原生 ASCII 拓扑命令行工具 (`alg_show`)、Web 仿真工作台与 4 层扩展开发说明书。
+- **v1.1.0** *(2026-08)*
+  - ⚡ **开源双引擎 PIMPL 隔离**：集成微软 ONNX Runtime 与 llama.cpp (GGUF)，支持 Qwen 等大模型双引擎热插拔比对。
+  - 🛡️ **定长 DMA 硬件批调度器 (`FixedBatchExecutor`)**：实现 1-to-N 自动分块、Dummy Pad 自动补齐/剥离与 `(req_id, sub_id)` 样本溯源。
+- **v1.0.0** *(2026-08)*
+  - 🚀 **LLM-EdgeFlow 初始发布**：建立标准 6 大 C ABI 纯 C 接口屏障、`AlgContext` 动态类型安全黑板与 DAG 算子反射机制。
 
 ---
 
