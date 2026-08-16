@@ -18,19 +18,37 @@ echo " Target Branch : ${BRANCH_NAME}"
 echo " Commit Message: ${MSG}"
 echo "=================================================="
 
-# 1. Format code
+# 1. Google C++ 规范自动格式化
 if [ -f "./scripts/format.sh" ]; then
+    echo "[Step 1/6] Running Google C++ code formatting..."
     ./scripts/format.sh
 fi
 
-# 2. Sync main branch
+# 2. 强校验：全量质量回归测试门禁 (Mandatory Full Test Gate)
+echo "[Step 2/6] Running full mandatory regression test suite..."
+if [ -f "./scripts/run_all_tests.sh" ]; then
+    if ! ./scripts/run_all_tests.sh; then
+        echo "❌ [TEST GATE BLOCKED] Regression tests failed! Merge rejected."
+        exit 1
+    fi
+else
+    # Fallback to CTest in build directory
+    if [ -d "./build" ]; then
+        cd build && cmake .. && make -j4 && ctest --output-on-failure && cd ..
+    fi
+fi
+echo "✓ [TEST GATE PASSED] All test suites and CTest passed 100%!"
+
+# 3. 检查远程主干同步
+echo "[Step 3/6] Syncing main branch with origin/main..."
 git checkout main
 git pull origin main
 
-# 3. Create and switch to new branch
+# 4. 创建并切换至新工作分支
+echo "[Step 4/6] Creating isolated branch: ${BRANCH_NAME}..."
 git checkout -b "${BRANCH_NAME}"
 
-# 4. Stage and commit
+# 5. 暂存与提交
 git add .
 if git diff-index --quiet HEAD --; then
     echo "⚠️ No changes to commit. Working tree is clean."
@@ -41,13 +59,13 @@ fi
 
 git commit -m "${MSG}"
 
-# 5. Push branch to remote
+# 6. 推送并执行合并 (GitHub PR / Fast-Forward)
+echo "[Step 5/6] Pushing branch and merging..."
 git push -u origin "${BRANCH_NAME}"
 
-# 6. Merge via GitHub PR or Local Safe Merge
 if command -v gh &> /dev/null; then
-    echo "Merging via GitHub CLI PR..."
-    gh pr create --title "${MSG}" --body "Automated branch sync for LLM-EdgeFlow" --base main --head "${BRANCH_NAME}" || true
+    echo "Creating & merging via GitHub PR..."
+    gh pr create --title "${MSG}" --body "Automated branch sync with full verified tests for LLM-EdgeFlow" --base main --head "${BRANCH_NAME}" || true
     gh pr merge "${BRANCH_NAME}" --merge --delete-branch --admin || gh pr merge "${BRANCH_NAME}" --merge --delete-branch || {
         echo "PR merge fallback to local merge..."
         git checkout main
@@ -67,9 +85,10 @@ else
     git push origin --delete "${BRANCH_NAME}" 2>/dev/null || true
 fi
 
-# 7. Final sync verification
+# 7. 最终主干同步验证
+echo "[Step 6/6] Final verification on main..."
 git checkout main
 git pull origin main
 echo "=================================================="
-echo " ✅ Branch-and-Merge Workflow Completed Successfully!"
+echo " ✅ Verified & Merged into main successfully!"
 echo "=================================================="
