@@ -49,6 +49,8 @@
 
 </details>
 
+> 📖 **4 层扩展开发说明书与代码模板详见**：[doc/developer_guide.md](doc/developer_guide.md)
+
 ---
 
 ## 📦 已支持的 7 大多模态业务 (Multi-Modal Matrix)
