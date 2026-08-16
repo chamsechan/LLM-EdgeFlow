@@ -78,21 +78,28 @@ include(cmake/GoogleTest.cmake)
 add_executable(alg_demo demo/main.cpp)
 target_link_libraries(alg_demo PRIVATE alg_sdk)
 
-# 3. 单元测试与安全性测试集 (基于 Google Test)
+# 3. 单元测试与安全性测试集 (基于 Google Test & CTest)
+enable_testing()
+
 add_executable(test_batch_executor tests/test_batch_executor.cpp)
 target_link_libraries(test_batch_executor PRIVATE GTest::gtest GTest::gtest_main)
+add_test(NAME BatchExecutorTest COMMAND test_batch_executor)
 
 add_executable(test_framework_core tests/test_framework_core.cpp)
 target_link_libraries(test_framework_core PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME FrameworkCoreTest COMMAND test_framework_core)
 
 add_executable(test_c_abi_safety tests/test_c_abi_safety.cpp)
 target_link_libraries(test_c_abi_safety PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME CAbiSafetyTest COMMAND test_c_abi_safety)
 
 add_executable(test_qwen_engines_comparison tests/test_qwen_engines_comparison.cpp)
 target_link_libraries(test_qwen_engines_comparison PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME QwenEnginesComparisonTest COMMAND test_qwen_engines_comparison)
 
 add_executable(test_different_io_modalities tests/test_different_io_modalities.cpp)
 target_link_libraries(test_different_io_modalities PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME DifferentIoModalitiesTest COMMAND test_different_io_modalities)
 
 # 4. 纯 C++ 零依赖原生 DAG 可视化工具 (专为无 Python 的极简嵌入式/边缘环境设计)
 add_executable(alg_show src/tools/alg_show.cpp)
