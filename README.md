@@ -71,30 +71,16 @@
 
 ## 🚀 快速开始 (Quick Start)
 
-### 1. 编译 (CMake 自动拉取 GTest, ONNX Runtime 与 llama.cpp)
 ```bash
+# 1. 编译工程 (自动拉取 GTest, ONNX Runtime 与 llama.cpp)
 mkdir -p build && cd build
 cmake .. && make -j4
-```
 
-### 2. 运行 7 大业务端到端演示
-```bash
-./build/alg_demo
-```
+# 2. 自动化执行全量测试套件 (CTest & Google Test)
+ctest --output-on-failure
 
-### 3. 运行 Google Test (GTest) 单元测试套件
-```bash
-./build/test_batch_executor              # 定长硬件批调度与样本溯源单测
-./build/test_framework_core              # 核心黑板/反射工厂/模型管理器单测
-./build/test_c_abi_safety                # C ABI 安全边界与 50 轮生命周期压测
-./build/test_qwen_engines_comparison     # Qwen (NPU vs llama.cpp) 交叉比对
-./build/test_different_io_modalities     # 多模态异构 I/O 隔离单测
-```
-
-### 4. 自动化质量验收与代码格式化
-```bash
-./scripts/run_all_tests.sh               # 执行全量 6 阶段自动化回归测试
-./scripts/format.sh                      # Google C++ Style 一键格式化
+# 3. 运行 7 大业务端到端全链路集成演示
+./alg_demo
 ```
 
 ---
