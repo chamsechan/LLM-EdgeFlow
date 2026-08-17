@@ -43,10 +43,13 @@ Layer 4: Heterogeneous Inference Engines & Batch Schedulers (FixedBatchExecutor,
 
 When performing specific tasks, you **MUST** reference and execute the corresponding project skills:
 
-1. **When Extending the Framework (New Modality, Node, or Engine)**:
+1. **When Composing New Pipelines or Reusing Operators (Zero-C++ First)**:
+   - Read and follow: [`.agents/skills/pipeline-composer/SKILL.md`](.agents/skills/pipeline-composer/SKILL.md)
+   - Search existing common nodes catalog before writing any new C++ code.
+2. **When Extending the Framework (New Modality, Node, or Engine)**:
    - Read and follow: [`.agents/skills/llm-edgeflow-developer-guide/SKILL.md`](.agents/skills/llm-edgeflow-developer-guide/SKILL.md)
    - Follow the step-by-step checklists for Layer 1, Layer 2, Layer 3, and Layer 4.
-2. **When Uploading Changes to GitHub / Merging Code**:
+3. **When Uploading Changes to GitHub / Merging Code**:
    - Read and follow: [`.agents/skills/github-branch-merge/SKILL.md`](.agents/skills/github-branch-merge/SKILL.md)
    - **Mandatory**: Use `./scripts/git_branch_upload.sh "<commit message>" "<type>"` to enforce branch creation, local test gating, PR creation, and automated merge.
    - **Never push directly to `main` without branch isolation!**
@@ -55,8 +58,9 @@ When performing specific tasks, you **MUST** reference and execute the correspon
 
 ## 🔒 3. Testing, Quality & Git Hygiene Directives
 
-1. **Mandatory Full Test Gate (100% Pass Requirement)**:
-   - Before completing any feature or bugfix, you **MUST** run and pass all 7 CTest suites:
+1. **Mandatory Full Test Gate & Zero-Untested-Code Directive**:
+   - **Mandatory Rule**: Any newly added business pipeline, common node, or inference engine **MUST** have a corresponding Google Test suite created under `tests/test_<name>.cpp` and registered via `add_test(NAME ... COMMAND ...)` in `CMakeLists.txt`.
+   - Before completing any feature or bugfix, all CTest suites MUST run and pass 100%:
      ```bash
      cd build && ctest --output-on-failure
      ```

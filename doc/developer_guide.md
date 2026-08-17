@@ -182,10 +182,18 @@ REGISTER_ENGINE("my_backend_llm", MyBackendLlmEngine);
 ## 4. 上线、单测与 Git 分支合并规范
 
 1. **新建配置文件**：`configs/pipeline_custom.json`
-2. **编写 GTest 单元测试**：`tests/test_custom.cpp`
-3. **格式化与回归**：
+2. **编写 GTest 单元测试并注册进 CTest**：
+   - 编写 `tests/test_custom.cpp` 包含 `TEST_F(MySuite, BasicFlow)`；
+   - 在 `CMakeLists.txt` 中注册测试目标：
+     ```cmake
+     add_executable(test_custom tests/test_custom.cpp)
+     target_link_libraries(test_custom PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+     add_test(NAME CustomTest COMMAND test_custom)
+     ```
+3. **格式化与全量回归**：
    ```bash
    ./scripts/format.sh
+   cd build && ctest --output-on-failure
    ./scripts/run_all_tests.sh
    ```
 4. **一键分支合并上传**：
