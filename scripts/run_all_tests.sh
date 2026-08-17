@@ -34,18 +34,20 @@ cmake "$ROOT_DIR" > /dev/null
 make -j4
 echo -e "${GREEN}✓ 核心动态库与测试目标编译通过！${NC}\n"
 
-# 3. 核心机制单元测试 (Tier 1)
-echo -e "${BOLD}[ Step 3/6: 核心架构单元测试 (Batch调度/类型黑板/反射工厂/Qwen双引擎/多模态不同IO隔离) ]${NC}"
+# 3. 核心机制与多模态单元测试 (Tier 1)
+echo -e "${BOLD}[ Step 3/6: 核心架构与全业务细粒度 GTest 单元测试 ]${NC}"
 "$BUILD_DIR/test_batch_executor"
 "$BUILD_DIR/test_framework_core"
 "$BUILD_DIR/test_qwen_engines_comparison"
 "$BUILD_DIR/test_different_io_modalities"
-echo -e "${GREEN}✓ Tier 1 核心架构与多模态双引擎比对单元测试全部通过！${NC}\n"
+"$BUILD_DIR/test_all_business_pipelines"
+echo -e "${GREEN}✓ Tier 1 核心架构与 7 大业务细粒度 GTest 断言测试全部通过！${NC}\n"
 
-# 4. C ABI 安全防御与生命周期压测 (Tier 2)
-echo -e "${BOLD}[ Step 4/6: 平台 C ABI 安全屏障与 50 轮生命周期压测 ]${NC}"
+# 4. C ABI 安全防御、多线程并发与边界压测 (Tier 2)
+echo -e "${BOLD}[ Step 4/6: C ABI 安全、8 线程高并发与极端边界鲁棒性压测 ]${NC}"
 "$BUILD_DIR/test_c_abi_safety"
-echo -e "${GREEN}✓ Tier 2 C ABI 安全与生命周期测试全部通过！${NC}\n"
+"$BUILD_DIR/test_concurrency_and_edge_cases"
+echo -e "${GREEN}✓ Tier 2 C ABI 安全、多线程并发与边界容错测试全部通过！${NC}\n"
 
 # 5. 7 大业务端到端全流程集成测试 (Tier 3)
 echo -e "${BOLD}[ Step 5/6: 7 大业务端到端全链路集成测试 (规则/NLP/问答/质检/OCR/语音ASR/精排) ]${NC}"
