@@ -232,11 +232,18 @@ REGISTER_ENGINE("tensorrt_llm", TensorRtLlmEngine);
      ]
    }
    ```
-2. **编写 Google Test 单元测试 (`tests/test_custom.cpp`)**：
-   - 包含 `TEST_F(MySuite, BasicFlow)`，验证空指针安全、DAG 正确性与结果对齐。
+2. **编写 Google Test 单元测试 (`tests/test_custom.cpp`) 并注册到 CTest**：
+   - 编写测试用例 `TEST_F(MySuite, BasicFlow)`，验证空指针安全、DAG 正确性与结果对齐；
+   - **强制在 `CMakeLists.txt` 中注册 CTest 目标**：
+     ```cmake
+     add_executable(test_custom tests/test_custom.cpp)
+     target_link_libraries(test_custom PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+     add_test(NAME CustomTest COMMAND test_custom)
+     ```
 3. **格式化与全量回归**：
    ```bash
    ./scripts/format.sh
+   cd build && ctest --output-on-failure
    ./scripts/run_all_tests.sh
    ```
 4. **Git 分支合并上传**：
