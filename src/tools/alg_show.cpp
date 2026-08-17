@@ -1,9 +1,8 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <nlohmann/json.hpp>
 #include <string>
-
-#include "third_party/nlohmann/json.hpp"
 
 // 终端 ANSI 颜色定义
 #define COLOR_CYAN "\033[96m"

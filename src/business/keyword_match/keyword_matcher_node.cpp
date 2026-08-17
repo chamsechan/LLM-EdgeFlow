@@ -1,5 +1,6 @@
 #include <cstring>
 #include <iostream>
+#include <nlohmann/json.hpp>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -7,7 +8,6 @@
 #include "company_alg_interface.h"
 #include "core/node_base.h"
 #include "core/node_registry.h"
-#include "third_party/nlohmann/json.hpp"
 
 namespace alg_framework {
 

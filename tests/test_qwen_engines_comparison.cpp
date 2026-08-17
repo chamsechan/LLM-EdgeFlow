@@ -2,6 +2,7 @@
 
 #include <iostream>
 #include <memory>
+#include <nlohmann/json.hpp>
 #include <string>
 #include <vector>
 
@@ -9,7 +10,6 @@
 #include "core/session_context.h"
 #include "engine/engine_interface.h"
 #include "engine/engine_registry.h"
-#include "third_party/nlohmann/json.hpp"
 
 std::string GetConfigPath(const std::string& rel_path) {
   FILE* fp = fopen(rel_path.c_str(), "r");

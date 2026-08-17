@@ -1,10 +1,10 @@
 #include "engine/llama_cpp/llama_cpp_engine.h"
 
 #include <iostream>
+#include <nlohmann/json.hpp>
 #include <vector>
 
 #include "engine/engine_registry.h"
-#include "third_party/nlohmann/json.hpp"
 
 #ifdef HAVE_LLAMACPP
 #include "llama.h"

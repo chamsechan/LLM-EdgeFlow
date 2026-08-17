@@ -2,11 +2,11 @@
 
 #include <functional>
 #include <memory>
+#include <nlohmann/json.hpp>
 #include <string>
 #include <vector>
 
 #include "core/traceable_item.h"
-#include "third_party/nlohmann/json.hpp"
 
 namespace alg_framework {
 

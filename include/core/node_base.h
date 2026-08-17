@@ -1,11 +1,11 @@
 #pragma once
 
 #include <memory>
+#include <nlohmann/json.hpp>
 #include <string>
 
 #include "core/alg_context.h"
 #include "core/session_context.h"
-#include "third_party/nlohmann/json.hpp"
 
 namespace alg_framework {
 

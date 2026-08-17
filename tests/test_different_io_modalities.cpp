@@ -4,11 +4,11 @@
 #include <cstring>
 #include <iostream>
 #include <memory>
+#include <nlohmann/json.hpp>
 #include <string>
 #include <vector>
 
 #include "company_alg_interface.h"
-#include "third_party/nlohmann/json.hpp"
 
 std::string GetConfigPath(const std::string& rel_path) {
   FILE* fp = fopen(rel_path.c_str(), "r");

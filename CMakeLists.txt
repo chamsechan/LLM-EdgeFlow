@@ -14,8 +14,10 @@ include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/src
-    ${CMAKE_CURRENT_SOURCE_DIR}/third_party
 )
+
+# 引入第三方 JSON 库 (nlohmann/json) 自动下载配置
+include(cmake/NlohmannJson.cmake)
 
 # 引入第三方开源推理引擎 (ONNX Runtime & llama.cpp) 自动下载配置
 include(cmake/ThirdPartyEngines.cmake)
@@ -62,6 +64,7 @@ set(FRAMEWORK_SRCS
 
 # 1. 生成对外交付的动态算法库 (.so)
 add_library(alg_sdk SHARED ${FRAMEWORK_SRCS})
+target_link_libraries(alg_sdk PUBLIC nlohmann_json::nlohmann_json)
 if(THIRD_PARTY_ENGINE_LIBS)
   target_link_libraries(alg_sdk PRIVATE ${THIRD_PARTY_ENGINE_LIBS})
 endif()
@@ -103,3 +106,4 @@ add_test(NAME DifferentIoModalitiesTest COMMAND test_different_io_modalities)
 
 # 4. 纯 C++ 零依赖原生 DAG 可视化工具 (专为无 Python 的极简嵌入式/边缘环境设计)
 add_executable(alg_show src/tools/alg_show.cpp)
+target_link_libraries(alg_show PRIVATE nlohmann_json::nlohmann_json)
