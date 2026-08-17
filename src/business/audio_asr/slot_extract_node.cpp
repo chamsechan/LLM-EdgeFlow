@@ -1,4 +1,5 @@
 #include <iostream>
+#include <nlohmann/json.hpp>
 #include <string>
 #include <vector>
 
@@ -6,7 +7,6 @@
 #include "core/node_base.h"
 #include "core/node_registry.h"
 #include "core/traceable_item.h"
-#include "third_party/nlohmann/json.hpp"
 
 namespace alg_framework {
 
