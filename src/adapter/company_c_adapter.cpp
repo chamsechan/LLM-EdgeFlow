@@ -347,10 +347,10 @@ int Alg_Process(void* hndl, const std::vector<void*>& inputs,
 
 int Alg_Control(void* hndl, const CompanyAlgParamControl* param_control) {
   if (!hndl || !param_control) return -1;
+  if (!param_control->json_param_str) return -2;
   auto* instance = static_cast<AlgHandleInstance*>(hndl);
-  return instance->pipeline->Control(
-      param_control->control_cmd,
-      param_control->json_param_str ? param_control->json_param_str : "{}");
+  return instance->pipeline->Control(param_control->control_cmd,
+                                     param_control->json_param_str);
 }
 
 int Alg_Destroy(void* hndl) {

@@ -104,6 +104,14 @@ add_executable(test_different_io_modalities tests/test_different_io_modalities.c
 target_link_libraries(test_different_io_modalities PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
 add_test(NAME DifferentIoModalitiesTest COMMAND test_different_io_modalities)
 
+add_executable(test_all_business_pipelines tests/test_all_business_pipelines.cpp)
+target_link_libraries(test_all_business_pipelines PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME AllBusinessPipelinesTest COMMAND test_all_business_pipelines)
+
+add_executable(test_concurrency_and_edge_cases tests/test_concurrency_and_edge_cases.cpp)
+target_link_libraries(test_concurrency_and_edge_cases PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME ConcurrencyAndEdgeCasesTest COMMAND test_concurrency_and_edge_cases)
+
 # 4. 纯 C++ 零依赖原生 DAG 可视化工具 (专为无 Python 的极简嵌入式/边缘环境设计)
 add_executable(alg_show src/tools/alg_show.cpp)
 target_link_libraries(alg_show PRIVATE nlohmann_json::nlohmann_json)

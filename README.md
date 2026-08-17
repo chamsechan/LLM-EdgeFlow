@@ -124,7 +124,8 @@ LLM-EdgeFlow/
 
 - **v1.2.0** *(2026-08)*
   - ✨ **全模态与异构引擎支持**：新增 OCR 发票图文抽取、语音 ASR 转写与 ONNX Cross-Encoder 语义精排，全量支持 7 大异构业务。
-  - ⚡ **Google Test & CTest 全自动化测试**：集成 CMake `FetchContent` 零依赖单测套件，全面覆盖 4 层架构。
+  - ⚡ **7 大 CTest 自动化测试套件**：全量覆盖 RAG 切片问答、风控质检、8 线程高并发竞争压测、边界脏数据容错与 C ABI 安全。
+  - 📦 **零静态代码依赖**：`nlohmann/json` 全面切换为 CMake `FetchContent` 动态拉取，彻底剔除本地第三方源码。
   - 🛠️ **双模可视化与开发者体系**：提供纯 C++ 原生 ASCII 拓扑命令行工具 (`alg_show`)、Web 仿真工作台与 4 层扩展开发说明书。
 - **v1.1.0** *(2026-08)*
   - ⚡ **开源双引擎 PIMPL 隔离**：集成微软 ONNX Runtime 与 llama.cpp (GGUF)，支持 Qwen 等大模型双引擎热插拔比对。
