@@ -127,3 +127,11 @@ add_test(NAME EngineFaultToleranceAndLifecycleTest COMMAND test_engine_fault_tol
 # 4. 纯 C++ 零依赖原生 DAG 可视化工具 (专为无 Python 的极简嵌入式/边缘环境设计)
 add_executable(alg_show src/tools/alg_show.cpp)
 target_link_libraries(alg_show PRIVATE nlohmann_json::nlohmann_json)
+
+# 5. 独立物理真实模型端到端测试套件 (阶段性/物理硬件压测，隔离于默认日常 CTest)
+option(ENABLE_REAL_MODEL_TESTS "Enable real model weights E2E test suite" OFF)
+add_executable(test_real_models_e2e tests/e2e_real_models/test_real_models_e2e.cpp)
+target_link_libraries(test_real_models_e2e PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+if(ENABLE_REAL_MODEL_TESTS)
+  add_test(NAME RealModelE2ETest COMMAND test_real_models_e2e)
+endif()

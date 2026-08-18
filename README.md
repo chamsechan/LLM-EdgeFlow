@@ -122,6 +122,9 @@ LLM-EdgeFlow/
 
 ## 📝 更新日志 (Changelog)
 
+- **v1.4.0** *(2026-08)*
+  - 🎨 **DAG 节点图可视化编辑与节点工坊 (Visual Graph Studio)**：Web 工作台全面升级为**支持拖拽创建算子节点、动态配置上游依赖、实时成环死锁拦截、修改属性并一键导出 C++ 标准 Pipeline JSON** 的全功能节点工坊 (`./show --web`)。
+  - 🧪 **物理真实模型物理压测链路隔离**：新增独立的 `test_real_models_e2e` 与 `./scripts/run_real_model_e2e.sh`，实现官方 `llama.cpp` 真实自回归 Token 解码、物理权重批处理与 C ABI 端到端硬件吞吐压测，与日常 0.3 秒敏捷 CTest 零干扰隔离。
 - **v1.3.0** *(2026-08)*
   - 📐 **原生 DAG 拓扑排序与波前异步并发调度器**：核心 `Pipeline` 全面支持显式依赖 (`depends_on`)、Kahn 算法拓扑波前分层调度 (`execution_mode: "parallel"`，单节点主线程直跑，多兄弟节点线程池并发，时延直降 40%~60%) 与成环死锁检测 (`CycleDetection`)。
   - 🔒 **线程安全并发读写黑板 (`AlgContext`)**：基于 `std::shared_mutex` 实现读读并发、写写互斥，完美支撑多算子多线程无锁竞争访问。
