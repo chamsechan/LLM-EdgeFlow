@@ -125,7 +125,7 @@ LLM-EdgeFlow/
 - **v1.3.0** *(2026-08)*
   - 📐 **原生 DAG 拓扑排序与波前异步并发调度器**：核心 `Pipeline` 全面支持显式依赖 (`depends_on`)、Kahn 算法拓扑波前分层调度 (`execution_mode: "parallel"`，单节点主线程直跑，多兄弟节点线程池并发，时延直降 40%~60%) 与成环死锁检测 (`CycleDetection`)。
   - 🔒 **线程安全并发读写黑板 (`AlgContext`)**：基于 `std::shared_mutex` 实现读读并发、写写互斥，完美支撑多算子多线程无锁竞争访问。
-  - ⚡ **8 大 CTest 自动化测试套件**：新增 `DagPipelineTest`，全量覆盖乱序重排、异步波前并发、16 线程黑板压测、钻石汇聚图与环路死锁拦截。
+  - ⚡ **10 大 CTest 工业级全场景测试矩阵**：新增 `RuntimeControlAndHotSwapTest` 与 `EngineFaultToleranceAndLifecycleTest`，全量覆盖硬件故障注入、在线动态热更新、5 层深拓扑并发、大负载确定性析构与全局高频生命周期压测。
 - **v1.2.0** *(2026-08)*
   - ✨ **全模态与异构引擎支持**：新增 OCR 发票图文抽取、语音 ASR 转写与 ONNX Cross-Encoder 语义精排，全量支持 7 大异构业务。
   - ⚡ **7 大 CTest 自动化测试套件**：全量覆盖 RAG 切片问答、风控质检、8 线程高并发竞争压测、边界脏数据容错与 C ABI 安全。

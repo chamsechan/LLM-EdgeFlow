@@ -116,6 +116,14 @@ add_executable(test_dag_pipeline tests/test_dag_pipeline.cpp)
 target_link_libraries(test_dag_pipeline PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
 add_test(NAME DagPipelineTest COMMAND test_dag_pipeline)
 
+add_executable(test_runtime_control_and_hot_swap tests/test_runtime_control_and_hot_swap.cpp)
+target_link_libraries(test_runtime_control_and_hot_swap PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME RuntimeControlAndHotSwapTest COMMAND test_runtime_control_and_hot_swap)
+
+add_executable(test_engine_fault_tolerance_and_lifecycle tests/test_engine_fault_tolerance_and_lifecycle.cpp)
+target_link_libraries(test_engine_fault_tolerance_and_lifecycle PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME EngineFaultToleranceAndLifecycleTest COMMAND test_engine_fault_tolerance_and_lifecycle)
+
 # 4. 纯 C++ 零依赖原生 DAG 可视化工具 (专为无 Python 的极简嵌入式/边缘环境设计)
 add_executable(alg_show src/tools/alg_show.cpp)
 target_link_libraries(alg_show PRIVATE nlohmann_json::nlohmann_json)

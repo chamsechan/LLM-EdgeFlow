@@ -1,6 +1,8 @@
 #include <cstring>
 #include <iostream>
+#include <mutex>
 #include <nlohmann/json.hpp>
+#include <shared_mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -17,7 +19,8 @@ namespace alg_framework {
  * 业务特点：
  * 1. 纯 CPU / 规则处理，零模型依赖；
  * 2. 支持通过 Control 接口动态下发并热更新关注词表；
- * 3. 输入固定/可变长度句子 vector，输出命中类别与词汇 JSON。
+ * 3. 读写安全保护 (std::shared_mutex 读读并发、写写互斥)；
+ * 4. 输入固定/可变长度句子 vector，输出命中类别与词汇 JSON。
  */
 class KeywordMatcherNode : public INode {
  public:
@@ -69,6 +72,8 @@ class KeywordMatcherNode : public INode {
     size_t batch_size = sentences->size();
     std::vector<CompanyKeywordOutputStruct> outputs(batch_size);
 
+    std::shared_lock<std::shared_mutex> lock(rw_mutex_);
+
     for (size_t i = 0; i < batch_size; ++i) {
       outputs[i].request_id = (*req_ids)[i];
       outputs[i].status_code = 0;
@@ -117,6 +122,7 @@ class KeywordMatcherNode : public INode {
 
  private:
   void UpdateCategoryKeywords(const nlohmann::json& categories_json) {
+    std::unique_lock<std::shared_mutex> lock(rw_mutex_);
     category_keywords_map_.clear();
     for (auto& [cat, words] : categories_json.items()) {
       std::vector<std::string> w_list;
@@ -130,6 +136,7 @@ class KeywordMatcherNode : public INode {
   }
 
  private:
+  mutable std::shared_mutex rw_mutex_;
   // 节点私有词表映射：类别 -> 词列表
   std::unordered_map<std::string, std::vector<std::string>>
       category_keywords_map_;
