@@ -1,0 +1,5 @@
+# 语音交互与意图槽位抽取测试语料 ([AUDIO_META])
+[AUDIO_META]
+sample_rate=16000
+duration_samples=16000
+description=语音导航指令PCM测试流
