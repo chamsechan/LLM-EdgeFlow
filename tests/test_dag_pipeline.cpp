@@ -12,6 +12,8 @@
 
 namespace alg_framework {
 
+static std::mutex s_trace_mutex;
+
 // 辅助测试算子定义
 class DagTestNodeA : public INode {
  public:
@@ -22,9 +24,12 @@ class DagTestNodeA : public INode {
     return true;
   }
   int Process(AlgContext* req_ctx) override {
-    auto* trace = req_ctx->Get<std::vector<std::string>>("exec_trace");
-    if (trace) {
-      trace->push_back("NodeA");
+    {
+      std::lock_guard<std::mutex> lock(s_trace_mutex);
+      auto* trace = req_ctx->Get<std::vector<std::string>>("exec_trace");
+      if (trace) {
+        trace->push_back("NodeA");
+      }
     }
     req_ctx->Set("node_a_out", std::string("DataFromA"));
     return 0;
@@ -50,9 +55,12 @@ class DagTestNodeB : public INode {
     return true;
   }
   int Process(AlgContext* req_ctx) override {
-    auto* trace = req_ctx->Get<std::vector<std::string>>("exec_trace");
-    if (trace) {
-      trace->push_back("NodeB");
+    {
+      std::lock_guard<std::mutex> lock(s_trace_mutex);
+      auto* trace = req_ctx->Get<std::vector<std::string>>("exec_trace");
+      if (trace) {
+        trace->push_back("NodeB");
+      }
     }
     // 必须依赖 NodeA 的输出
     auto* a_out = req_ctx->Get<std::string>("node_a_out");
@@ -81,9 +89,12 @@ class DagTestNodeC : public INode {
     return true;
   }
   int Process(AlgContext* req_ctx) override {
-    auto* trace = req_ctx->Get<std::vector<std::string>>("exec_trace");
-    if (trace) {
-      trace->push_back("NodeC");
+    {
+      std::lock_guard<std::mutex> lock(s_trace_mutex);
+      auto* trace = req_ctx->Get<std::vector<std::string>>("exec_trace");
+      if (trace) {
+        trace->push_back("NodeC");
+      }
     }
     // 依赖 NodeA 的输出 (分支 2)
     auto* a_out = req_ctx->Get<std::string>("node_a_out");
@@ -112,9 +123,12 @@ class DagTestNodeD : public INode {
     return true;
   }
   int Process(AlgContext* req_ctx) override {
-    auto* trace = req_ctx->Get<std::vector<std::string>>("exec_trace");
-    if (trace) {
-      trace->push_back("NodeD");
+    {
+      std::lock_guard<std::mutex> lock(s_trace_mutex);
+      auto* trace = req_ctx->Get<std::vector<std::string>>("exec_trace");
+      if (trace) {
+        trace->push_back("NodeD");
+      }
     }
     // 汇聚 NodeB 和 NodeC 两个分支
     auto* b_out = req_ctx->Get<std::string>("node_b_out");
@@ -276,6 +290,7 @@ TEST_F(DagPipelineTest, BackwardCompatibilityWithoutDependsOn) {
 
   Pipeline pipeline;
   ASSERT_TRUE(pipeline.BuildFromJson(legacy_config));
+  EXPECT_EQ(pipeline.GetExecutionMode(), Pipeline::ExecutionMode::SEQUENTIAL);
 
   AlgContext req_ctx;
   req_ctx.Set("exec_trace", std::vector<std::string>{});
@@ -290,6 +305,91 @@ TEST_F(DagPipelineTest, BackwardCompatibilityWithoutDependsOn) {
   EXPECT_EQ((*trace)[1], "NodeB");
   EXPECT_EQ((*trace)[2], "NodeC");
   EXPECT_EQ((*trace)[3], "NodeD");
+}
+
+// 7. 异步波前分层并发调度测试 (Parallel Wavefront Execution)
+TEST_F(DagPipelineTest, ParallelWavefrontExecution) {
+  nlohmann::json parallel_config = {
+      {"business_name", "parallel_wavefront_dag"},
+      {"execution_mode", "parallel"},
+      {"max_parallel_workers", 4},
+      {"pipeline",
+       {// Layer 0: Root 节点 A
+        {{"id", "node_a"},
+         {"node_type", "DagTestNodeA"},
+         {"depends_on", nlohmann::json::array()}},
+        // Layer 1: 兄弟节点 B 和 C 均依赖 A，在 Layer 1 并发执行
+        {{"id", "node_b"},
+         {"node_type", "DagTestNodeB"},
+         {"depends_on", {"node_a"}}},
+        {{"id", "node_c"},
+         {"node_type", "DagTestNodeC"},
+         {"depends_on", {"node_a"}}},
+        // Layer 2: 汇聚节点 D，依赖 B 和 C
+        {{"id", "node_d"},
+         {"node_type", "DagTestNodeD"},
+         {"depends_on", {"node_b", "node_c"}}}}}};
+
+  Pipeline pipeline;
+  ASSERT_TRUE(pipeline.BuildFromJson(parallel_config));
+  EXPECT_EQ(pipeline.GetExecutionMode(), Pipeline::ExecutionMode::PARALLEL);
+
+  const auto& layers = pipeline.GetTopologicalLayers();
+  ASSERT_EQ(layers.size(), 3);
+  EXPECT_EQ(layers[0].size(), 1);  // Layer 0: node_a
+  EXPECT_EQ(layers[1].size(),
+            2);  // Layer 1: node_b, node_c (Parallel Wavefront)
+  EXPECT_EQ(layers[2].size(), 1);  // Layer 2: node_d
+
+  AlgContext req_ctx;
+  req_ctx.Set("exec_trace", std::vector<std::string>{});
+
+  int ret = pipeline.Execute(&req_ctx);
+  EXPECT_EQ(ret, 0);
+
+  auto* final_res = req_ctx.Get<std::string>("final_dag_result");
+  ASSERT_NE(final_res, nullptr);
+  EXPECT_EQ(*final_res,
+            "DataFromB_after_DataFromA + DataFromC_after_DataFromA");
+}
+
+// 8. 黑板高并发读写线程安全性压测 (Thread-Safe AlgContext Stress Test)
+TEST_F(DagPipelineTest, ThreadSafeAlgContextStressTest) {
+  AlgContext req_ctx;
+  const int num_threads = 16;
+  const int ops_per_thread = 500;
+
+  std::vector<std::thread> workers;
+  workers.reserve(num_threads);
+
+  for (int t = 0; t < num_threads; ++t) {
+    workers.emplace_back([&req_ctx, t]() {
+      for (int i = 0; i < ops_per_thread; ++i) {
+        std::string my_key =
+            "thread_" + std::to_string(t) + "_key_" + std::to_string(i % 10);
+        req_ctx.Set(my_key, i * 100 + t);
+
+        // 并发读取
+        int* val = req_ctx.Get<int>(my_key);
+        if (val) {
+          EXPECT_GE(*val, 0);
+        }
+
+        // 并发交叉读取共享 Key
+        if (req_ctx.Has("shared_counter")) {
+          req_ctx.Get<int>("shared_counter");
+        } else {
+          req_ctx.Set("shared_counter", 1);
+        }
+      }
+    });
+  }
+
+  for (auto& w : workers) {
+    w.join();
+  }
+
+  EXPECT_TRUE(req_ctx.IsOk());
 }
 
 }  // namespace alg_framework
