@@ -112,6 +112,10 @@ add_executable(test_concurrency_and_edge_cases tests/test_concurrency_and_edge_c
 target_link_libraries(test_concurrency_and_edge_cases PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
 add_test(NAME ConcurrencyAndEdgeCasesTest COMMAND test_concurrency_and_edge_cases)
 
+add_executable(test_dag_pipeline tests/test_dag_pipeline.cpp)
+target_link_libraries(test_dag_pipeline PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME DagPipelineTest COMMAND test_dag_pipeline)
+
 # 4. 纯 C++ 零依赖原生 DAG 可视化工具 (专为无 Python 的极简嵌入式/边缘环境设计)
 add_executable(alg_show src/tools/alg_show.cpp)
 target_link_libraries(alg_show PRIVATE nlohmann_json::nlohmann_json)

@@ -35,13 +35,14 @@ make -j4
 echo -e "${GREEN}✓ 核心动态库与测试目标编译通过！${NC}\n"
 
 # 3. 核心机制与多模态单元测试 (Tier 1)
-echo -e "${BOLD}[ Step 3/6: 核心架构与全业务细粒度 GTest 单元测试 ]${NC}"
+echo -e "${BOLD}[ Step 3/6: 核心架构、DAG拓扑排序与全业务细粒度 GTest 单元测试 ]${NC}"
 "$BUILD_DIR/test_batch_executor"
 "$BUILD_DIR/test_framework_core"
+"$BUILD_DIR/test_dag_pipeline"
 "$BUILD_DIR/test_qwen_engines_comparison"
 "$BUILD_DIR/test_different_io_modalities"
 "$BUILD_DIR/test_all_business_pipelines"
-echo -e "${GREEN}✓ Tier 1 核心架构与 7 大业务细粒度 GTest 断言测试全部通过！${NC}\n"
+echo -e "${GREEN}✓ Tier 1 核心架构、DAG拓扑调度与 7 大业务细粒度 GTest 断言测试全部通过！${NC}\n"
 
 # 4. C ABI 安全防御、多线程并发与边界压测 (Tier 2)
 echo -e "${BOLD}[ Step 4/6: C ABI 安全、8 线程高并发与极端边界鲁棒性压测 ]${NC}"
