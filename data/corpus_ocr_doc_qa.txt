@@ -1,0 +1,5 @@
+# 多模态图文发票票据测试语料 ([IMAGE] 与 [PROMPT])
+[IMAGE]
+./data/invoice_01.jpg
+[PROMPT]
+提取发票代码、号码与总金额
