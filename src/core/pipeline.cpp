@@ -1,6 +1,7 @@
 #include "core/pipeline.h"
 
 #include <fstream>
+#include <future>
 #include <iostream>
 #include <queue>
 #include <unordered_map>
@@ -34,9 +35,10 @@ bool Pipeline::BuildFromConfigFile(const std::string& config_file_path) {
 
 bool Pipeline::ResolveDagTopologicalSort(
     const std::vector<DagNodeMeta>& raw_nodes,
-    std::vector<DagNodeMeta>* sorted_nodes) {
+    std::vector<std::vector<DagNodeMeta>>* sorted_layers) {
   topological_order_.clear();
-  sorted_nodes->clear();
+  topological_layers_ids_.clear();
+  sorted_layers->clear();
 
   if (raw_nodes.empty()) {
     return true;
@@ -63,9 +65,10 @@ bool Pipeline::ResolveDagTopologicalSort(
   // 2. 向后兼容处理：若全量节点均未声明 depends_on，则直接保持 JSON
   // 数组自然顺序
   if (!has_explicit_dependencies) {
-    *sorted_nodes = raw_nodes;
     for (const auto& node : raw_nodes) {
+      sorted_layers->push_back({node});
       topological_order_.push_back(node.id);
+      topological_layers_ids_.push_back({node.id});
     }
     return true;
   }
@@ -87,8 +90,7 @@ bool Pipeline::ResolveDagTopologicalSort(
     }
   }
 
-  // 4. 构建入度表 (In-Degree Map) 与邻接表 (Adjacency List: u -> v, 代表 u
-  // 执行完成后可触发 v)
+  // 4. 构建入度表 (In-Degree Map) 与邻接表 (Adjacency List: u -> v)
   std::unordered_map<std::string, int> in_degree;
   std::unordered_map<std::string, std::vector<std::string>> adj_list;
 
@@ -99,35 +101,48 @@ bool Pipeline::ResolveDagTopologicalSort(
     }
   }
 
-  // 5. 将所有入度为 0 的根节点入队 (Kahn 算法 BFS)
-  std::queue<std::string> zero_in_degree_q;
+  // 5. Kahn 算法波前分层解析 (Wavefront BFS)
+  std::queue<std::string> current_wave_q;
   for (const auto& node : raw_nodes) {
     if (in_degree[node.id] == 0) {
-      zero_in_degree_q.push(node.id);
+      current_wave_q.push(node.id);
     }
   }
 
-  std::vector<std::string> sorted_ids;
-  sorted_ids.reserve(raw_nodes.size());
+  size_t total_resolved = 0;
 
-  while (!zero_in_degree_q.empty()) {
-    std::string u = zero_in_degree_q.front();
-    zero_in_degree_q.pop();
-    sorted_ids.push_back(u);
+  while (!current_wave_q.empty()) {
+    size_t wave_size = current_wave_q.size();
+    std::vector<DagNodeMeta> current_layer_nodes;
+    std::vector<std::string> current_layer_ids;
+    std::queue<std::string> next_wave_q;
 
-    auto it = adj_list.find(u);
-    if (it != adj_list.end()) {
-      for (const auto& v : it->second) {
-        in_degree[v]--;
-        if (in_degree[v] == 0) {
-          zero_in_degree_q.push(v);
+    for (size_t i = 0; i < wave_size; ++i) {
+      std::string u = current_wave_q.front();
+      current_wave_q.pop();
+      total_resolved++;
+
+      current_layer_nodes.push_back(*meta_lookup[u]);
+      current_layer_ids.push_back(u);
+      topological_order_.push_back(u);
+
+      auto it = adj_list.find(u);
+      if (it != adj_list.end()) {
+        for (const auto& v : it->second) {
+          if (--in_degree[v] == 0) {
+            next_wave_q.push(v);
+          }
         }
       }
     }
+
+    sorted_layers->push_back(std::move(current_layer_nodes));
+    topological_layers_ids_.push_back(std::move(current_layer_ids));
+    current_wave_q = std::move(next_wave_q);
   }
 
   // 6. 环路死锁检测 (Cycle Detection)
-  if (sorted_ids.size() != raw_nodes.size()) {
+  if (total_resolved != raw_nodes.size()) {
     std::cerr << "[Pipeline] Cyclic dependency deadlock detected in DAG "
                  "pipeline! Unresolved nodes: ";
     for (const auto& pair : in_degree) {
@@ -138,13 +153,6 @@ bool Pipeline::ResolveDagTopologicalSort(
     }
     std::cerr << std::endl;
     return false;
-  }
-
-  // 7. 按照拓扑序生成排好序的算子元数据列表
-  sorted_nodes->reserve(sorted_ids.size());
-  for (const auto& id : sorted_ids) {
-    sorted_nodes->push_back(*meta_lookup[id]);
-    topological_order_.push_back(id);
   }
 
   return true;
@@ -189,7 +197,22 @@ bool Pipeline::BuildFromJson(const nlohmann::json& root_config) {
     }
   }
 
-  // 2. 解析 pipeline 数组并执行 DAG 拓扑排序
+  // 2. 解析 execution_mode 执行策略与线程池
+  std::string mode_str = root_config.value("execution_mode", "sequential");
+  if (mode_str == "parallel" || mode_str == "async") {
+    execution_mode_ = ExecutionMode::PARALLEL;
+    max_parallel_workers_ = root_config.value("max_parallel_workers", 4);
+    thread_pool_ = std::make_unique<ThreadPool>(max_parallel_workers_);
+    std::cout << "[Pipeline] Parallel Wavefront Execution Mode enabled "
+                 "(workers: "
+              << max_parallel_workers_ << ")" << std::endl;
+  } else {
+    execution_mode_ = ExecutionMode::SEQUENTIAL;
+    thread_pool_.reset();
+    std::cout << "[Pipeline] Sequential Execution Mode active" << std::endl;
+  }
+
+  // 3. 解析 pipeline 数组并执行 DAG 拓扑分层波前排序
   if (!root_config.contains("pipeline") ||
       !root_config["pipeline"].is_array()) {
     std::cerr << "[Pipeline] Missing 'pipeline' array in configuration"
@@ -226,8 +249,7 @@ bool Pipeline::BuildFromJson(const nlohmann::json& root_config) {
     nlohmann::json custom_cfg =
         node_cfg.value("config", nlohmann::json::object());
 
-    // 如果节点本身有其他顶层配置参数（如 model_id / threshold 等），合并入
-    // custom_cfg
+    // 合并顶层配置
     for (auto it = node_cfg.begin(); it != node_cfg.end(); ++it) {
       if (it.key() != "id" && it.key() != "node_type" &&
           it.key() != "depends_on" && it.key() != "config" &&
@@ -239,40 +261,53 @@ bool Pipeline::BuildFromJson(const nlohmann::json& root_config) {
     raw_nodes.push_back({id, node_type, std::move(depends_on), custom_cfg});
   }
 
-  std::vector<DagNodeMeta> sorted_nodes;
-  if (!ResolveDagTopologicalSort(raw_nodes, &sorted_nodes)) {
+  std::vector<std::vector<DagNodeMeta>> sorted_layers;
+  if (!ResolveDagTopologicalSort(raw_nodes, &sorted_layers)) {
     std::cerr << "[Pipeline] DAG Topological Sort failed!" << std::endl;
     return false;
   }
 
-  // 3. 按照拓扑排序结果实例化并初始化算子节点
+  // 4. 按照波前拓扑层实例化并初始化算子节点
   nodes_.clear();
-  for (const auto& meta : sorted_nodes) {
-    auto node = NodeFactory::Instance().Create(meta.node_type);
-    if (!node) {
-      std::cerr << "[Pipeline] Unregistered node_type: " << meta.node_type
+  node_layers_.clear();
+
+  for (size_t layer_idx = 0; layer_idx < sorted_layers.size(); ++layer_idx) {
+    std::vector<INode*> layer_ptrs;
+    for (const auto& meta : sorted_layers[layer_idx]) {
+      auto node = NodeFactory::Instance().Create(meta.node_type);
+      if (!node) {
+        std::cerr << "[Pipeline] Unregistered node_type: " << meta.node_type
+                  << std::endl;
+        return false;
+      }
+
+      if (!node->Init(meta.custom_config, &session_ctx_)) {
+        std::cerr << "[Pipeline] Node Init failed: " << meta.node_type
+                  << " (id: " << meta.id << ")" << std::endl;
+        return false;
+      }
+
+      layer_ptrs.push_back(node.get());
+      nodes_.push_back(std::move(node));
+      std::cout << "[Pipeline] Initialized node [" << meta.node_type
+                << "] (id: " << meta.id << ", layer: " << layer_idx << ")"
                 << std::endl;
-      return false;
     }
-
-    if (!node->Init(meta.custom_config, &session_ctx_)) {
-      std::cerr << "[Pipeline] Node Init failed: " << meta.node_type
-                << " (id: " << meta.id << ")" << std::endl;
-      return false;
-    }
-
-    nodes_.push_back(std::move(node));
-    std::cout << "[Pipeline] Initialized node [" << meta.node_type
-              << "] (id: " << meta.id << ")" << std::endl;
+    node_layers_.push_back(std::move(layer_ptrs));
   }
 
-  std::cout << "[Pipeline] DAG Topological Sort completed successfully. "
-               "Execution order: ";
-  for (size_t i = 0; i < topological_order_.size(); ++i) {
-    std::cout << topological_order_[i]
-              << (i + 1 < topological_order_.size() ? " -> " : "");
+  std::cout << "[Pipeline] DAG Wavefront Topology created with "
+            << node_layers_.size() << " execution layers:" << std::endl;
+  for (size_t i = 0; i < topological_layers_ids_.size(); ++i) {
+    std::cout << "  Layer " << i << " ["
+              << (node_layers_[i].size() > 1 ? "Parallel" : "Sequential")
+              << "]: ";
+    for (size_t j = 0; j < topological_layers_ids_[i].size(); ++j) {
+      std::cout << topological_layers_ids_[i][j]
+                << (j + 1 < topological_layers_ids_[i].size() ? ", " : "");
+    }
+    std::cout << std::endl;
   }
-  std::cout << std::endl;
 
   return true;
 }
@@ -280,13 +315,46 @@ bool Pipeline::BuildFromJson(const nlohmann::json& root_config) {
 int Pipeline::Execute(AlgContext* req_ctx) {
   if (!req_ctx) return -1;
 
-  for (size_t i = 0; i < nodes_.size(); ++i) {
-    int ret = nodes_[i]->Process(req_ctx);
-    if (ret != 0) {
-      std::cerr << "[Pipeline] Node [" << nodes_[i]->Name()
-                << "] failed with error code: " << ret
-                << ", msg: " << req_ctx->GetErrorMessage() << std::endl;
-      return ret;
+  for (size_t layer_idx = 0; layer_idx < node_layers_.size(); ++layer_idx) {
+    const auto& layer = node_layers_[layer_idx];
+    if (layer.empty()) continue;
+
+    // 单节点层 或 顺序执行模式：直接主线程执行 (零线程切换开销)
+    if (layer.size() == 1 || execution_mode_ == ExecutionMode::SEQUENTIAL ||
+        !thread_pool_) {
+      for (auto* node : layer) {
+        int ret = node->Process(req_ctx);
+        if (ret != 0) {
+          std::cerr << "[Pipeline] Node [" << node->Name()
+                    << "] failed with error code: " << ret
+                    << ", msg: " << req_ctx->GetErrorMessage() << std::endl;
+          return ret;
+        }
+      }
+    } else {
+      // 多节点并发层：分发到线程池并发执行，并等待本波前汇聚
+      std::vector<std::future<int>> futures;
+      futures.reserve(layer.size());
+
+      for (auto* node : layer) {
+        futures.push_back(thread_pool_->Submit(
+            [node, req_ctx]() { return node->Process(req_ctx); }));
+      }
+
+      int first_error = 0;
+      for (size_t i = 0; i < futures.size(); ++i) {
+        int ret = futures[i].get();
+        if (ret != 0 && first_error == 0) {
+          first_error = ret;
+          std::cerr << "[Pipeline] Parallel Node [" << layer[i]->Name()
+                    << "] failed with error code: " << ret
+                    << ", msg: " << req_ctx->GetErrorMessage() << std::endl;
+        }
+      }
+
+      if (first_error != 0) {
+        return first_error;
+      }
     }
   }
 
