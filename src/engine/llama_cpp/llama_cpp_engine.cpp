@@ -54,10 +54,12 @@ bool LlamaCppEngine::Load(const std::string& model_path,
       llama_context_params ctx_params = llama_context_default_params();
       ctx_params.n_ctx = static_cast<uint32_t>(max_seq_len_);
       pimpl_->ctx = llama_init_from_model(pimpl_->model, ctx_params);
-      pimpl_->is_real_llama_active = true;
-      std::cout << "[LlamaCppEngine] Successfully loaded GGUF model via "
-                   "llama.cpp C/C++ API: "
-                << model_path << std::endl;
+      pimpl_->is_real_llama_active = (pimpl_->ctx != nullptr);
+      if (pimpl_->is_real_llama_active) {
+        std::cout << "[LlamaCppEngine] Successfully loaded real GGUF model via "
+                     "llama.cpp C/C++ API: "
+                  << model_path << std::endl;
+      }
     }
   } else {
     std::cout << "[LlamaCppEngine] GGUF Model file " << model_path
@@ -136,9 +138,81 @@ int LlamaCppEngine::RawLlamaHardwareInfer(
 
 std::string LlamaCppEngine::GenerateLlamaResponse(
     const std::string& prompt, const GenerateOption& option) {
+#ifdef HAVE_LLAMACPP
+  // 1. 真实物理 GGUF 权重推理链路
+  if (pimpl_->is_real_llama_active && pimpl_->model && pimpl_->ctx) {
+    const llama_vocab* vocab = llama_model_get_vocab(pimpl_->model);
+    if (!vocab) return "";
+
+    // 1.1 Tokenize prompt
+    std::vector<llama_token> tokens(prompt.size() + 32);
+    int n_tokens = llama_tokenize(
+        vocab, prompt.c_str(), static_cast<int32_t>(prompt.size()),
+        tokens.data(), static_cast<int32_t>(tokens.size()), true, true);
+    if (n_tokens < 0) {
+      tokens.resize(-n_tokens);
+      n_tokens = llama_tokenize(
+          vocab, prompt.c_str(), static_cast<int32_t>(prompt.size()),
+          tokens.data(), static_cast<int32_t>(tokens.size()), true, true);
+    }
+    if (n_tokens <= 0) return "";
+    tokens.resize(n_tokens);
+
+    // 1.2 清空 KV 缓存
+    llama_memory_clear(llama_get_memory(pimpl_->ctx), true);
+
+    // 1.3 初始化采样器链
+    llama_sampler_chain_params sparams = llama_sampler_chain_default_params();
+    llama_sampler* smpl = llama_sampler_chain_init(sparams);
+    if (option.temperature <= 0.01f) {
+      llama_sampler_chain_add(smpl, llama_sampler_init_greedy());
+    } else {
+      llama_sampler_chain_add(smpl,
+                              llama_sampler_init_temp(option.temperature));
+      llama_sampler_chain_add(smpl, llama_sampler_init_dist(42));
+    }
+
+    // 1.4 Decode Prompt 前向计算
+    llama_batch batch =
+        llama_batch_get_one(tokens.data(), static_cast<int32_t>(tokens.size()));
+    if (llama_decode(pimpl_->ctx, batch) != 0) {
+      llama_sampler_free(smpl);
+      return "[llama.cpp error] prompt decode failed";
+    }
+
+    // 1.5 自回归 Token 生成循环
+    std::string result = "";
+    int max_gen_tokens = option.max_tokens > 0 ? option.max_tokens : 128;
+    for (int step = 0; step < max_gen_tokens; ++step) {
+      llama_token new_token = llama_sampler_sample(smpl, pimpl_->ctx, -1);
+      llama_sampler_accept(smpl, new_token);
+
+      if (llama_vocab_is_eog(vocab, new_token)) {
+        break;
+      }
+
+      char piece[128] = {0};
+      int piece_len = llama_token_to_piece(vocab, new_token, piece,
+                                           sizeof(piece), 0, false);
+      if (piece_len > 0) {
+        result.append(piece, piece_len);
+      }
+
+      llama_batch next_batch = llama_batch_get_one(&new_token, 1);
+      if (llama_decode(pimpl_->ctx, next_batch) != 0) {
+        break;
+      }
+    }
+
+    llama_sampler_free(smpl);
+    return result;
+  }
+#endif
+
+  // 2. 模拟器/仿真模式 (在无真实 GGUF 权重时保证全链路回归)
   (void)option;
 
-  // 1. 实体与名词提取业务响应
+  // 2.1 实体与名词提取业务响应
   if (prompt.find("实体") != std::string::npos ||
       prompt.find("名词") != std::string::npos) {
     std::vector<std::string> extracted_nouns;
@@ -161,7 +235,7 @@ std::string LlamaCppEngine::GenerateLlamaResponse(
     return j.dump();
   }
 
-  // 2. 合规质检与风控审核请求
+  // 2.2 合规质检与风控审核请求
   if (prompt.find("合规") != std::string::npos ||
       prompt.find("风控") != std::string::npos ||
       prompt.find("质检") != std::string::npos) {
@@ -179,7 +253,7 @@ std::string LlamaCppEngine::GenerateLlamaResponse(
            "\"对话正常，继续保持专业服务。\"}";
   }
 
-  // 3. 智能问答与长文档推理业务
+  // 2.3 智能问答与长文档推理业务
   if (prompt.find("退款") != std::string::npos ||
       prompt.find("退货") != std::string::npos) {
     return "【llama.cpp "
