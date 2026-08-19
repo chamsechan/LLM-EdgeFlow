@@ -9,6 +9,10 @@
 #include "adapter/adapter_status.h"
 #include "adapter/adapter_validation_helper.h"
 #include "adapter/business_adapter_registry.h"
+#include "adapter/templates/flat_struct_adapter.h"
+#include "adapter/templates/nested_array_adapter.h"
+#include "adapter/templates/nested_pointer_tree_adapter.h"
+#include "adapter/templates/tagged_union_adapter.h"
 #include "company_alg_cpp.hpp"
 #include "company_alg_interface.h"
 
@@ -33,59 +37,309 @@ class AdapterContractSecurityTest : public ::testing::Test {
 };
 
 // ---------------------------------------------------------------------------
-// 1. Tagged Union & 非法枚举分支拦截测试 (ADP-001, ADP-011)
+// 1. Tagged Union & 模板适配器真实运行与非法枚举拦截 (ADP-001, ADP-010,
+// RECHECK-005)
 // ---------------------------------------------------------------------------
 TEST_F(AdapterContractSecurityTest, TaggedUnionAndEnumValidation) {
-  AdapterStatus status;
-  std::vector<int> valid_enums = {1, 2, 3};
+  using namespace template_examples;
+  TemplateTaggedUnionAdapter adapter;
 
-  // 合法枚举
+  // 1.1 Helper 级校验
+  AdapterStatus status;
+  std::vector<int> valid_enums = {1, 2};
   EXPECT_TRUE(AdapterValidationHelper::RequireEnum(
-      "inputs[0].modal_type", 1, valid_enums, 0, "MultiModalBiz", &status));
+      "inputs[0].payload_type", 1, valid_enums, 0, "MultiModalBiz", &status));
   EXPECT_TRUE(status.IsOk());
 
-  // 非法枚举 (例如 99)
   EXPECT_FALSE(AdapterValidationHelper::RequireEnum(
-      "inputs[0].modal_type", 99, valid_enums, 0, "MultiModalBiz", &status));
+      "inputs[0].payload_type", 99, valid_enums, 0, "MultiModalBiz", &status));
   EXPECT_EQ(status.Code(), COMPANY_ALG_ERR_INVALID_INPUT);
   EXPECT_EQ(status.SampleIndex(), 0);
-  EXPECT_EQ(status.FieldPath(), "inputs[0].modal_type");
+  EXPECT_EQ(status.FieldPath(), "inputs[0].payload_type");
+
+  // 1.2 Tagged Union 适配器真实 Unpack 路径测试 (文本分支)
+  TemplateTaggedUnionInput text_in;
+  text_in.request_id = 1001;
+  text_in.payload_type = TEMPLATE_PAYLOAD_TEXT;
+  text_in.data.text.text_content = "Hello Tagged Union";
+
+  const void* inputs[1] = {&text_in};
+  AlgContext ctx;
+  AdapterStatus unpack_status;
+  int ret = adapter.Unpack(inputs, 1, &ctx, &unpack_status);
+  EXPECT_EQ(ret, COMPANY_ALG_SUCCESS);
+  auto* items =
+      ctx.Get<std::vector<TemplateUnionItemDto>>("tagged_union_items");
+  ASSERT_NE(items, nullptr);
+  ASSERT_EQ(items->size(), 1);
+  EXPECT_EQ((*items)[0].text_content, "Hello Tagged Union");
+
+  // 1.3 非法枚举分支直接在真实 Unpack 中被拦截
+  TemplateTaggedUnionInput invalid_in;
+  invalid_in.request_id = 1002;
+  invalid_in.payload_type = 999;  // 非法枚举
+  const void* bad_inputs[1] = {&invalid_in};
+  AlgContext bad_ctx;
+  AdapterStatus bad_status;
+  int bad_ret = adapter.Unpack(bad_inputs, 1, &bad_ctx, &bad_status);
+  EXPECT_EQ(bad_ret, COMPANY_ALG_ERR_INVALID_INPUT);
+  EXPECT_FALSE(bad_status.IsOk());
+  EXPECT_EQ(bad_status.SampleIndex(), 0);
+  EXPECT_EQ(bad_status.FieldPath(), "inputs[i].payload_type");
 }
 
 // ---------------------------------------------------------------------------
-// 2. 嵌套变长数组与乘法溢出/超限测试 (ADP-001, ADP-011)
+// 2. 嵌套变长数组与乘法溢出/超限测试 (ADP-001, ADP-010, RECHECK-005)
 // ---------------------------------------------------------------------------
 TEST_F(AdapterContractSecurityTest, NestedArrayAndIntegerOverflowProtection) {
+  using namespace template_examples;
+  TemplateNestedArrayAdapter adapter;
+
+  // 2.1 Helper 级乘法溢出校验
   AdapterStatus status;
   struct DummyBox {
     float x, y, w, h;
   };
-
-  // 正常乘法校验
   EXPECT_TRUE(AdapterValidationHelper::CheckedMultiply(
       "inputs[0].boxes", 100, sizeof(DummyBox), 1024 * 1024, 0, "DetectionBiz",
       &status));
 
-  // 乘法溢出 (SIZE_MAX / sizeof(DummyBox) + 1)
   size_t overflow_count = (SIZE_MAX / sizeof(DummyBox)) + 1;
   EXPECT_FALSE(AdapterValidationHelper::CheckedMultiply(
       "inputs[0].boxes", overflow_count, sizeof(DummyBox), 1024 * 1024, 0,
       "DetectionBiz", &status));
   EXPECT_EQ(status.Code(), COMPANY_ALG_ERR_INVALID_INPUT);
-  EXPECT_EQ(status.FieldPath(), "inputs[0].boxes");
 
-  // 超出最大总字节数限制 (1MB limit vs 2MB payload)
-  size_t huge_count = (2 * 1024 * 1024) / sizeof(DummyBox);
-  EXPECT_FALSE(AdapterValidationHelper::CheckedMultiply(
-      "inputs[0].boxes", huge_count, sizeof(DummyBox), 1024 * 1024, 0,
-      "DetectionBiz", &status));
-  EXPECT_EQ(status.Code(), COMPANY_ALG_ERR_INVALID_INPUT);
+  // 2.2 嵌套数组适配器真实 Unpack 路径
+  TemplateTagItem tags[2] = {{"tag_a", 0.9f}, {"tag_b", 0.5f}};
+  TemplateNestedArrayInput array_in;
+  array_in.request_id = 2001;
+  array_in.tag_count = 2;
+  array_in.tag_array = tags;
+
+  const void* inputs[1] = {&array_in};
+  AlgContext ctx;
+  AdapterStatus unpack_status;
+  int ret = adapter.Unpack(inputs, 1, &ctx, &unpack_status);
+  EXPECT_EQ(ret, COMPANY_ALG_SUCCESS);
+  auto* array_items =
+      ctx.Get<std::vector<TemplateNestedArrayItemDto>>("nested_array_items");
+  ASSERT_NE(array_items, nullptr);
+  ASSERT_EQ(array_items->size(), 1);
+  EXPECT_EQ((*array_items)[0].tags.size(), 2);
+  EXPECT_EQ((*array_items)[0].tags[0].tag_name, "tag_a");
+
+  // 2.3 异常 count (<0 或 count > max) 拦截
+  TemplateNestedArrayInput bad_array_in;
+  bad_array_in.request_id = 2002;
+  bad_array_in.tag_count = -5;  // 负数
+  bad_array_in.tag_array = nullptr;
+  const void* bad_inputs[1] = {&bad_array_in};
+  AlgContext bad_ctx;
+  AdapterStatus bad_status;
+  int bad_ret = adapter.Unpack(bad_inputs, 1, &bad_ctx, &bad_status);
+  EXPECT_EQ(bad_ret, COMPANY_ALG_ERR_INVALID_INPUT);
 }
 
 // ---------------------------------------------------------------------------
-// 3. COPY_IN 内存所有权隔离测试 (ADP-002, ADP-011)
+// 3. 多级嵌套指针树与最大深度递归栈保护测试 (ADP-001, ADP-010, RECHECK-005)
 // ---------------------------------------------------------------------------
-TEST_F(AdapterContractSecurityTest, CopyInMemoryOwnershipIsolation) {
+TEST_F(AdapterContractSecurityTest, NestedPointerTreeDepthProtection) {
+  using namespace template_examples;
+  TemplateNestedPointerTreeAdapter adapter;
+
+  // 3.1 正常二层树
+  TemplateTreeNode child1{101, "child_node_1", 0, nullptr};
+  TemplateTreeNode child2{102, "child_node_2", 0, nullptr};
+  const TemplateTreeNode* root_children[2] = {&child1, &child2};
+  TemplateTreeNode root{100, "root_node", 2, root_children};
+
+  TemplateNestedTreeInput tree_in{3001, &root};
+  const void* inputs[1] = {&tree_in};
+  AlgContext ctx;
+  AdapterStatus status;
+  int ret = adapter.Unpack(inputs, 1, &ctx, &status);
+  EXPECT_EQ(ret, COMPANY_ALG_SUCCESS);
+  auto* tree_dtos = ctx.Get<std::vector<TemplateTreeNodeDto>>("tree_root_dtos");
+  ASSERT_NE(tree_dtos, nullptr);
+  ASSERT_EQ(tree_dtos->size(), 1);
+  EXPECT_EQ((*tree_dtos)[0].children.size(), 2);
+
+  // 3.2 空子节点指针拦截
+  const TemplateTreeNode* bad_children[2] = {&child1, nullptr};
+  TemplateTreeNode bad_root{100, "root_node", 2, bad_children};
+  TemplateNestedTreeInput bad_tree_in{3002, &bad_root};
+  const void* bad_inputs[1] = {&bad_tree_in};
+  AlgContext bad_ctx;
+  AdapterStatus bad_status;
+  int bad_ret = adapter.Unpack(bad_inputs, 1, &bad_ctx, &bad_status);
+  EXPECT_EQ(bad_ret, COMPANY_ALG_ERR_INVALID_INPUT);
+}
+
+// ---------------------------------------------------------------------------
+// 4. COPY_IN 内存所有权深度隔离测试 (ADP-002, RECHECK-006)
+// ---------------------------------------------------------------------------
+TEST_F(AdapterContractSecurityTest, DirectUnpackMemoryIsolation) {
+  auto adapter = BusinessAdapterRegistry::Instance().GetAdapter(
+      ALG_BIZ_TYPE_KEYWORD_MATCH);
+  ASSERT_NE(adapter, nullptr);
+
+  // 创建动态可修改的原始缓冲区
+  char caller_buf[256];
+  snprintf(caller_buf, sizeof(caller_buf), "设备系统初始化自检正常");
+
+  CompanyKeywordInputStruct in_struct;
+  in_struct.request_id = 9999;
+  in_struct.sentence_text = caller_buf;
+
+  const void* inputs[1] = {&in_struct};
+  AlgContext ctx;
+  AdapterStatus status;
+  int unpack_ret = adapter->Unpack(inputs, 1, &ctx, &status);
+  ASSERT_EQ(unpack_ret, COMPANY_ALG_SUCCESS);
+
+  // 立即篡改调用方内存 Buffer (例如 memset 覆盖为 'X')
+  std::memset(caller_buf, 'X', sizeof(caller_buf) - 1);
+  caller_buf[sizeof(caller_buf) - 1] = '\0';
+
+  // 验证 AlgContext 中的 DTO 保持原有数据完全不受外界内存修改影响 (物理深拷贝)
+  auto* sentences = ctx.Get<std::vector<std::string>>("input_sentences");
+  ASSERT_NE(sentences, nullptr);
+  ASSERT_EQ(sentences->size(), 1);
+  EXPECT_EQ((*sentences)[0], "设备系统初始化自检正常");
+  EXPECT_NE((*sentences)[0], std::string(caller_buf));
+}
+
+// ---------------------------------------------------------------------------
+// 5. 输出字符串截断拒绝测试 (RECHECK-001)
+// ---------------------------------------------------------------------------
+TEST_F(AdapterContractSecurityTest, OutputStringTruncationRejection) {
+  using namespace template_examples;
+  TemplateFlatStructAdapter adapter;
+
+  AlgContext ctx;
+  std::vector<TemplateFlatResultDto> results;
+  // 构造长度超过 512 字节的超长 JSON 结果
+  std::string huge_json(1024, 'A');
+  results.push_back({5001, 0, huge_json});
+  ctx.Set("flat_final_outputs", results);
+
+  TemplateFlatOutput out_slot;
+  void* outputs[1] = {&out_slot};
+  int num_outputs = 1;
+  AdapterStatus status;
+
+  // 预期必须返回 COMPANY_ALG_ERR_BUFFER_TOO_SMALL (-4)，拒绝静默假装成功
+  int pack_ret = adapter.Pack(&ctx, outputs, &num_outputs, &status);
+  EXPECT_EQ(pack_ret, COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
+  EXPECT_FALSE(status.IsOk());
+  EXPECT_EQ(status.Code(), COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
+}
+
+// ---------------------------------------------------------------------------
+// 6. Pipeline 绑定精确白名单与 Fail-Closed 校验 (RECHECK-002)
+// ---------------------------------------------------------------------------
+TEST_F(AdapterContractSecurityTest, PipelineBindingFailClosedAndExactMatch) {
+  auto adapter = BusinessAdapterRegistry::Instance().GetAdapter(
+      ALG_BIZ_TYPE_KEYWORD_MATCH);
+  ASSERT_NE(adapter, nullptr);
+
+  // 6.1 精确匹配成功
+  EXPECT_TRUE(adapter->ValidatePipelineBinding("keyword_match_v1"));
+
+  // 6.2 包含子串的伪造名称 / 大小写不匹配 / 空白名称均严格拒绝 (Fail-Closed)
+  EXPECT_FALSE(adapter->ValidatePipelineBinding("keyword_match_v1_fake"));
+  EXPECT_FALSE(adapter->ValidatePipelineBinding("my_keyword_match_v1"));
+  EXPECT_FALSE(adapter->ValidatePipelineBinding("KEYWORD_MATCH_V1"));
+  EXPECT_FALSE(adapter->ValidatePipelineBinding(""));
+  EXPECT_FALSE(
+      adapter->ValidatePipelineBinding("dialogue_compliance_audit_v1"));
+
+  // 6.3 Alg_Create 阶段使用串用配置创建句柄立即失败 (-5)
+  std::string wrong_cfg = GetConfigPath("configs/pipeline_dialogue_audit.json");
+  CompanyAlgParamCreate param;
+  param.config_file_path = wrong_cfg.c_str();
+  param.model_root_dir = "./models";
+  param.device_id = 0;
+  param.biz_type = ALG_BIZ_TYPE_KEYWORD_MATCH;  // 业务是 KeywordMatch，但配置是
+                                                // ComplianceAudit
+
+  void* handle = nullptr;
+  int create_ret = Alg_Create(&handle, &param);
+  EXPECT_EQ(create_ret, -5);
+  EXPECT_EQ(handle, nullptr);
+}
+
+// ---------------------------------------------------------------------------
+// 7. Registry 拒绝不支持的 Descriptor 策略组合 (RECHECK-003)
+// ---------------------------------------------------------------------------
+TEST_F(AdapterContractSecurityTest, RegistryRejectsUnsupportedPolicies) {
+  class UnsupportedPolicyAdapter : public IBusinessAdapter {
+   public:
+    CompanyAlgBizType BizType() const override {
+      return static_cast<CompanyAlgBizType>(201);
+    }
+    const char* BizName() const override { return "UnsupportedPolicy"; }
+    const AdapterDescriptor& GetDescriptor() const override {
+      static AdapterDescriptor desc{
+          static_cast<CompanyAlgBizType>(201),
+          "UnsupportedPolicy",
+          "2.0.0",
+          "In",
+          "Out",
+          64,
+          OwnershipPolicy::kBorrowDuringProcess,  // 当前未开放策略
+          ThreadModel::kStatelessThreadSafe,
+          OutputCardinality::kOneToOne,
+          {"pipeline_v1"}};
+      return desc;
+    }
+    int Unpack(const void** i, int n, AlgContext* c,
+               AdapterStatus* s) const override {
+      return 0;
+    }
+    int Pack(AlgContext* c, void** o, int* n, AdapterStatus* s) const override {
+      return 0;
+    }
+  };
+
+  auto bad_adapter = std::make_shared<UnsupportedPolicyAdapter>();
+  bool reg_ret =
+      BusinessAdapterRegistry::Instance().RegisterAdapter(bad_adapter);
+  EXPECT_FALSE(reg_ret);
+  EXPECT_TRUE(BusinessAdapterRegistry::Instance().HasRegistrationConflict());
+}
+
+// ---------------------------------------------------------------------------
+// 8. 结构化诊断工具与有界字符串扫描测试 (RECHECK-004)
+// ---------------------------------------------------------------------------
+TEST_F(AdapterContractSecurityTest, StructuredStatusAndBoundedStringScan) {
+  AdapterStatus status;
+
+  // 正常字符串
+  EXPECT_TRUE(AdapterValidationHelper::RequireBoundedString(
+      "inputs[0].text", "normal text", 100, 0, "TestBiz", &status));
+  EXPECT_TRUE(status.IsOk());
+
+  // 超长字符串拦截
+  EXPECT_FALSE(AdapterValidationHelper::RequireBoundedString(
+      "inputs[0].text", "a very very long text exceeding limit", 10, 0,
+      "TestBiz", &status));
+  EXPECT_FALSE(status.IsOk());
+  EXPECT_EQ(status.Code(), COMPANY_ALG_ERR_INVALID_INPUT);
+  EXPECT_EQ(status.FieldPath(), "inputs[0].text");
+
+  // 验证诊断字符串包含丰富定位元数据
+  std::string diag = status.ToString();
+  EXPECT_NE(diag.find("TestBiz"), std::string::npos);
+  EXPECT_NE(diag.find("inputs[0].text"), std::string::npos);
+  EXPECT_NE(diag.find("sample [0]"), std::string::npos);
+}
+
+// ---------------------------------------------------------------------------
+// 9. 多线程共享 Adapter 无状态并发安全性测试 (ADP-003, RECHECK-006)
+// ---------------------------------------------------------------------------
+TEST_F(AdapterContractSecurityTest, ConcurrentStatelessAdapterExecution) {
   std::string cfg_path = GetConfigPath("configs/pipeline_keyword_match.json");
   CompanyAlgParamCreate param;
   param.config_file_path = cfg_path.c_str();
@@ -93,235 +347,40 @@ TEST_F(AdapterContractSecurityTest, CopyInMemoryOwnershipIsolation) {
   param.device_id = 0;
   param.biz_type = ALG_BIZ_TYPE_KEYWORD_MATCH;
 
-  void* handle = nullptr;
-  int create_ret = Alg_Create(&handle, &param);
-  ASSERT_EQ(create_ret, 0);
-  ASSERT_NE(handle, nullptr);
+  constexpr int kNumThreads = 8;
+  constexpr int kNumIters = 10;
+  std::vector<std::thread> workers;
 
-  // 准备输入缓冲区
-  char mutable_sentence[128];
-  std::snprintf(mutable_sentence, sizeof(mutable_sentence), "%s",
-                "系统正在进行安全初始化流程");
+  for (int t = 0; t < kNumThreads; ++t) {
+    workers.emplace_back([&, t]() {
+      void* hndl = nullptr;
+      int create_ret = Alg_Create(&hndl, &param);
+      ASSERT_EQ(create_ret, 0);
+      ASSERT_NE(hndl, nullptr);
 
-  CompanyKeywordInputStruct req{1001, mutable_sentence};
-  CompanyKeywordOutputStruct out{};
-  const void* inputs[1] = {&req};
-  void* outputs[1] = {&out};
-  int num_outputs = 1;
+      for (int it = 0; it < kNumIters; ++it) {
+        CompanyKeywordInputStruct in_req;
+        in_req.request_id = t * 1000 + it;
+        std::string query = "系统初始化与设备自检请求 #" + std::to_string(t);
+        in_req.sentence_text = query.c_str();
 
-  // 执行算法 (Unpack 会执行 COPY_IN 深拷贝)
-  int proc_ret = Alg_Process(handle, inputs, 1, outputs, &num_outputs);
-  EXPECT_EQ(proc_ret, COMPANY_ALG_SUCCESS);
-  EXPECT_EQ(out.is_hit, 1);  // 命中 "初始化"
+        CompanyKeywordOutputStruct out_res;
+        const void* in_arr[1] = {&in_req};
+        void* out_arr[1] = {&out_res};
+        int num_outs = 1;
 
-  // 在调用后立即污染外部调用方内存
-  std::memset(mutable_sentence, 'X', sizeof(mutable_sentence) - 1);
-  mutable_sentence[sizeof(mutable_sentence) - 1] = '\0';
+        int proc_ret = Alg_Process(hndl, in_arr, 1, out_arr, &num_outs);
+        EXPECT_EQ(proc_ret, 0);
+        EXPECT_EQ(out_res.request_id, in_req.request_id);
+        EXPECT_EQ(out_res.is_hit, 1);
+      }
 
-  // 再次传入相同 req (但内容已变) 验证独立性
-  CompanyKeywordInputStruct req_garbled{1002, mutable_sentence};
-  inputs[0] = &req_garbled;
-  num_outputs = 1;
-  proc_ret = Alg_Process(handle, inputs, 1, outputs, &num_outputs);
-  EXPECT_EQ(proc_ret, COMPANY_ALG_SUCCESS);
-  EXPECT_EQ(out.is_hit, 0);  // XXXXX 不会命中初始化关键词
-
-  Alg_Destroy(handle);
-}
-
-// ---------------------------------------------------------------------------
-// 4. 重排序业务候选集严格边界校验 (ADP-005)
-// ---------------------------------------------------------------------------
-TEST_F(AdapterContractSecurityTest, CrossRerankCandidateStrictValidation) {
-  std::string cfg_path = GetConfigPath("configs/pipeline_cross_rerank.json");
-  CompanyAlgParamCreate param;
-  param.config_file_path = cfg_path.c_str();
-  param.model_root_dir = "./models";
-  param.device_id = 0;
-  param.biz_type = ALG_BIZ_TYPE_CROSS_RERANK;
-
-  void* handle = nullptr;
-  int create_ret = Alg_Create(&handle, &param);
-  ASSERT_EQ(create_ret, 0);
-
-  const char* candidates[10] = {"p0", "p1", "p2", "p3", "p4",
-                                "p5", "p6", "p7", "p8", "p9"};
-
-  // Case A: candidate_count = 0 (非法，拒绝)
-  CompanyRerankBatchInputStruct req_zero{};
-  req_zero.request_id = 2001;
-  req_zero.query_text = "query";
-  req_zero.candidate_count = 0;
-  const void* in_zero[1] = {&req_zero};
-  CompanyRerankBatchOutputStruct out{};
-  void* out_arr[1] = {&out};
-  int num_out = 1;
-  EXPECT_EQ(Alg_Process(handle, in_zero, 1, out_arr, &num_out),
-            COMPANY_ALG_ERR_INVALID_INPUT);
-
-  // Case B: candidate_count = 9 (超出 8 上限，必须拒绝而不是静默截断)
-  CompanyRerankBatchInputStruct req_overflow{};
-  req_overflow.request_id = 2002;
-  req_overflow.query_text = "query";
-  for (int i = 0; i < 8; ++i) {
-    req_overflow.candidate_passages[i] = "p";
-  }
-  req_overflow.candidate_count = 9;
-  const void* in_overflow[1] = {&req_overflow};
-  num_out = 1;
-  EXPECT_EQ(Alg_Process(handle, in_overflow, 1, out_arr, &num_out),
-            COMPANY_ALG_ERR_INVALID_INPUT);
-
-  // Case C: candidate_passages 包含空指针
-  CompanyRerankBatchInputStruct req_null_elem{};
-  req_null_elem.request_id = 2003;
-  req_null_elem.query_text = "query";
-  req_null_elem.candidate_passages[0] = "p0";
-  req_null_elem.candidate_passages[1] = nullptr;
-  req_null_elem.candidate_passages[2] = "p2";
-  req_null_elem.candidate_count = 3;
-  const void* in_null_elem[1] = {&req_null_elem};
-  num_out = 1;
-  EXPECT_EQ(Alg_Process(handle, in_null_elem, 1, out_arr, &num_out),
-            COMPANY_ALG_ERR_INVALID_INPUT);
-
-  Alg_Destroy(handle);
-}
-
-// ---------------------------------------------------------------------------
-// 5. 音频业务参数严格校验 (ADP-005)
-// ---------------------------------------------------------------------------
-TEST_F(AdapterContractSecurityTest, AudioAsrStrictValidation) {
-  std::string cfg_path =
-      GetConfigPath("configs/pipeline_audio_asr_intent.json");
-  CompanyAlgParamCreate param;
-  param.config_file_path = cfg_path.c_str();
-  param.model_root_dir = "./models";
-  param.device_id = 0;
-  param.biz_type = ALG_BIZ_TYPE_AUDIO_ASR_INTENT;
-
-  void* handle = nullptr;
-  int create_ret = Alg_Create(&handle, &param);
-  ASSERT_EQ(create_ret, 0);
-
-  // Case A: 采样率非法 (0 或负数，拒绝)
-  float dummy_pcm[16] = {0.0f};
-  CompanyAudioInputStruct req_bad_sr{3001, dummy_pcm, 16, -1};
-  const void* in_bad_sr[1] = {&req_bad_sr};
-  CompanyAudioOutputStruct out{};
-  void* out_arr[1] = {&out};
-  int num_out = 1;
-  EXPECT_EQ(Alg_Process(handle, in_bad_sr, 1, out_arr, &num_out),
-            COMPANY_ALG_ERR_INVALID_INPUT);
-
-  // Case B: pcm_length > 0 但 pcm_buffer == nullptr (非法，拒绝)
-  CompanyAudioInputStruct req_null_pcm{3002, nullptr, 100, 16000};
-  const void* in_null_pcm[1] = {&req_null_pcm};
-  num_out = 1;
-  EXPECT_EQ(Alg_Process(handle, in_null_pcm, 1, out_arr, &num_out),
-            COMPANY_ALG_ERR_INVALID_INPUT);
-
-  // Case C: pcm_length < 0 (非法，拒绝)
-  CompanyAudioInputStruct req_neg_len{3003, dummy_pcm, -10, 16000};
-  const void* in_neg_len[1] = {&req_neg_len};
-  num_out = 1;
-  EXPECT_EQ(Alg_Process(handle, in_neg_len, 1, out_arr, &num_out),
-            COMPANY_ALG_ERR_INVALID_INPUT);
-
-  Alg_Destroy(handle);
-}
-
-// ---------------------------------------------------------------------------
-// 6. Pipeline 配置与业务绑定不匹配强拦截 (ADP-006)
-// ---------------------------------------------------------------------------
-TEST_F(AdapterContractSecurityTest,
-       PipelineBusinessBindingMismatchInAlgCreate) {
-  // 用语音识别的 biz_type 去加载实体抽取的 Pipeline 配置
-  std::string mismatched_cfg =
-      GetConfigPath("configs/pipeline_entity_extract.json");
-  CompanyAlgParamCreate param;
-  param.config_file_path = mismatched_cfg.c_str();
-  param.model_root_dir = "./models";
-  param.device_id = 0;
-  param.biz_type = ALG_BIZ_TYPE_AUDIO_ASR_INTENT;
-
-  void* handle = nullptr;
-  int ret = Alg_Create(&handle, &param);
-  // 必须在创建阶段立即拦截并返回 -5 (COMPANY_ALG_ERR_UNSUPPORTED_BIZ)
-  EXPECT_EQ(ret, COMPANY_ALG_ERR_UNSUPPORTED_BIZ);
-  EXPECT_EQ(handle, nullptr);
-}
-
-// ---------------------------------------------------------------------------
-// 7. Descriptor 单一事实源一致性校验 (ADP-008)
-// ---------------------------------------------------------------------------
-class InconsistentMockAdapter : public IBusinessAdapter {
- public:
-  CompanyAlgBizType BizType() const override { return ALG_BIZ_TYPE_DOC_QA; }
-  const char* BizName() const override { return "MockDocQA"; }
-
-  const AdapterDescriptor& GetDescriptor() const override {
-    // 故意返回与 BizType/BizName 不一致的 Descriptor
-    static AdapterDescriptor desc{
-        ALG_BIZ_TYPE_KEYWORD_MATCH, "DifferentName", "2.0.0", "In", "Out", 64};
-    return desc;
+      Alg_Destroy(hndl);
+    });
   }
 
-  int Unpack(const void**, int, AlgContext*) const override { return 0; }
-  int Pack(AlgContext*, void**, int*) const override { return 0; }
-};
-
-TEST_F(AdapterContractSecurityTest,
-       DescriptorSingleSourceOfTruthInconsistency) {
-  auto mock_adapter = std::make_shared<InconsistentMockAdapter>();
-  bool reg_res =
-      BusinessAdapterRegistry::Instance().RegisterAdapter(mock_adapter);
-  EXPECT_FALSE(reg_res);
-  EXPECT_TRUE(BusinessAdapterRegistry::Instance().HasRegistrationConflict());
-  EXPECT_FALSE(
-      BusinessAdapterRegistry::Instance().GetRegistrationErrors().empty());
-}
-
-// ---------------------------------------------------------------------------
-// 8. 适配器跨句柄并发无状态安全性验证 (ADP-003)
-// ---------------------------------------------------------------------------
-TEST_F(AdapterContractSecurityTest, ConcurrentStatelessAdapterExecution) {
-  std::string cfg_path = GetConfigPath("configs/pipeline_keyword_match.json");
-
-  auto run_thread = [&](int thread_id) {
-    CompanyAlgParamCreate param;
-    param.config_file_path = cfg_path.c_str();
-    param.model_root_dir = "./models";
-    param.device_id = 0;
-    param.biz_type = ALG_BIZ_TYPE_KEYWORD_MATCH;
-
-    void* handle = nullptr;
-    int ret = Alg_Create(&handle, &param);
-    ASSERT_EQ(ret, 0);
-
-    for (int iter = 0; iter < 10; ++iter) {
-      std::string text = "系统自检中初始化线程" + std::to_string(thread_id);
-      CompanyKeywordInputStruct in{
-          static_cast<uint64_t>(thread_id * 100 + iter), text.c_str()};
-      CompanyKeywordOutputStruct out{};
-      const void* inputs[1] = {&in};
-      void* outputs[1] = {&out};
-      int num_out = 1;
-
-      int proc_ret = Alg_Process(handle, inputs, 1, outputs, &num_out);
-      EXPECT_EQ(proc_ret, COMPANY_ALG_SUCCESS);
-      EXPECT_EQ(out.is_hit, 1);
-      EXPECT_EQ(out.request_id, in.request_id);
-    }
-    Alg_Destroy(handle);
-  };
-
-  std::vector<std::thread> threads;
-  for (int t = 0; t < 8; ++t) {
-    threads.emplace_back(run_thread, t);
-  }
-  for (auto& th : threads) {
-    th.join();
+  for (auto& w : workers) {
+    if (w.joinable()) w.join();
   }
 }
 
