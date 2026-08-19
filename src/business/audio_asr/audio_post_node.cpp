@@ -1,9 +1,8 @@
-#include <cstring>
 #include <iostream>
 #include <string>
 #include <vector>
 
-#include "company_alg_interface.h"
+#include "business/audio_asr/audio_asr_dto.h"
 #include "core/alg_context.h"
 #include "core/node_base.h"
 #include "core/node_registry.h"
@@ -32,15 +31,12 @@ class AudioPostNode : public INode {
       return -6401;
     }
 
-    std::vector<CompanyAudioOutputStruct> outputs(req_ids->size());
+    std::vector<AudioAsrResult> outputs(req_ids->size());
     for (size_t i = 0; i < req_ids->size(); ++i) {
       outputs[i].request_id = (*req_ids)[i];
       outputs[i].status_code = 0;
-
-      std::strncpy(outputs[i].transcribed_text, (*transcripts)[i].data.c_str(),
-                   sizeof(outputs[i].transcribed_text) - 1);
-      std::strncpy(outputs[i].intent_slot_json, (*slot_jsons)[i].c_str(),
-                   sizeof(outputs[i].intent_slot_json) - 1);
+      outputs[i].transcribed_text = (*transcripts)[i].data;
+      outputs[i].intent_slot_json = (*slot_jsons)[i];
     }
 
     req_ctx->Set("audio_final_outputs", std::move(outputs));

@@ -1,9 +1,8 @@
-#include <cstring>
 #include <iostream>
 #include <string>
 #include <vector>
 
-#include "company_alg_interface.h"
+#include "business/ocr_doc_qa/ocr_doc_qa_dto.h"
 #include "core/alg_context.h"
 #include "core/node_base.h"
 #include "core/node_registry.h"
@@ -31,18 +30,16 @@ class OcrDocPostNode : public INode {
       return -5301;
     }
 
-    std::vector<CompanyOcrDocOutputStruct> results(req_ids->size());
+    std::vector<OcrDocResult> results(req_ids->size());
     for (size_t i = 0; i < req_ids->size(); ++i) {
       results[i].request_id = (*req_ids)[i];
       results[i].detected_box_count = (*box_counts)[i];
       results[i].status_code = 0;
 
-      std::string json_res =
+      results[i].extracted_invoice_json =
           "{\"invoice_code\":\"011002200111\",\"invoice_number\":\"88765432\","
           "\"invoice_date\":\"2026-08-15\",\"total_amount\":12000.00,\"buyer\":"
           "\"北京某某科技有限责任公司\"}";
-      std::strncpy(results[i].extracted_invoice_json, json_res.c_str(),
-                   sizeof(results[i].extracted_invoice_json) - 1);
     }
 
     req_ctx->Set("ocr_doc_final_outputs", std::move(results));

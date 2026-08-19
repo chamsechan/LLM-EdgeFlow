@@ -1,10 +1,9 @@
-#include <cstring>
 #include <iostream>
 #include <nlohmann/json.hpp>
 #include <string>
 #include <vector>
 
-#include "company_alg_interface.h"
+#include "business/dialogue_audit/dialogue_audit_dto.h"
 #include "core/node_base.h"
 #include "core/node_registry.h"
 #include "core/traceable_item.h"
@@ -12,7 +11,7 @@
 namespace alg_framework {
 
 /**
- * @brief 风控审核后处理与结果打包算子 (Node 6: 组装输出结构体)
+ * @brief 风控审核后处理与结果打包算子 (Node 6: 组装输出领域 DTO)
  */
 class AuditPostNode : public INode {
  public:
@@ -34,7 +33,7 @@ class AuditPostNode : public INode {
     if (!req_ids || !policies || !verdicts) return -8501;
 
     size_t batch_size = req_ids->size();
-    std::vector<CompanyAuditOutputStruct> outputs(batch_size);
+    std::vector<DialogueAuditResult> outputs(batch_size);
 
     for (size_t i = 0; i < batch_size; ++i) {
       outputs[i].request_id = (*req_ids)[i];
@@ -42,33 +41,22 @@ class AuditPostNode : public INode {
       outputs[i].risk_score = (rerank_scores && i < rerank_scores->size())
                                   ? (*rerank_scores)[i]
                                   : 0.0f;
-      strncpy(outputs[i].risk_level, "SAFE", sizeof(outputs[i].risk_level) - 1);
-
-      const std::string& policy_str = (*policies)[i];
-      strncpy(outputs[i].matched_policy_clause, policy_str.c_str(),
-              sizeof(outputs[i].matched_policy_clause) - 1);
-      outputs[i]
-          .matched_policy_clause[sizeof(outputs[i].matched_policy_clause) - 1] =
-          '\0';
+      outputs[i].risk_level = "SAFE";
+      outputs[i].matched_policy_clause = (*policies)[i];
     }
 
     // 从 LLM 输出解析结构化字段
     for (const auto& item : *verdicts) {
       uint32_t r_id = item.req_id;
       if (r_id < batch_size) {
-        strncpy(outputs[r_id].audit_verdict_json, item.data.c_str(),
-                sizeof(outputs[r_id].audit_verdict_json) - 1);
-        outputs[r_id]
-            .audit_verdict_json[sizeof(outputs[r_id].audit_verdict_json) - 1] =
-            '\0';
+        outputs[r_id].audit_verdict_json = item.data;
 
         try {
           nlohmann::json j = nlohmann::json::parse(item.data);
           std::string level = j.value("risk_level", "SAFE");
           float score = j.value("risk_score", outputs[r_id].risk_score);
           outputs[r_id].risk_score = score;
-          strncpy(outputs[r_id].risk_level, level.c_str(),
-                  sizeof(outputs[r_id].risk_level) - 1);
+          outputs[r_id].risk_level = level;
         } catch (...) {
         }
       }

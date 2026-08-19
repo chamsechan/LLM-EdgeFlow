@@ -2,7 +2,7 @@
 #include <string>
 #include <vector>
 
-#include "company_alg_interface.h"
+#include "business/cross_rerank/cross_rerank_dto.h"
 #include "core/alg_context.h"
 #include "core/node_base.h"
 #include "core/node_registry.h"
@@ -21,8 +21,8 @@ class RerankPairBuilderNode : public INode {
   }
 
   int Process(AlgContext* req_ctx) override {
-    auto* raw_inputs = req_ctx->Get<std::vector<CompanyRerankBatchInputStruct>>(
-        "raw_rerank_inputs");
+    auto* raw_inputs =
+        req_ctx->Get<std::vector<RerankQueryInput>>("raw_rerank_inputs");
     if (!raw_inputs) {
       req_ctx->SetError(-7101,
                         "RerankPairBuilderNode: Missing raw_rerank_inputs");
@@ -34,12 +34,12 @@ class RerankPairBuilderNode : public INode {
 
     for (size_t i = 0; i < raw_inputs->size(); ++i) {
       const auto& item = (*raw_inputs)[i];
-      counts_per_req.push_back(item.candidate_count);
-      for (int c = 0; c < item.candidate_count; ++c) {
+      int cand_count = static_cast<int>(item.candidate_passages.size());
+      counts_per_req.push_back(cand_count);
+      for (int c = 0; c < cand_count; ++c) {
         IRerankEngine::PairInput pair;
-        pair.query = item.query_text ? item.query_text : "";
-        pair.passage =
-            item.candidate_passages[c] ? item.candidate_passages[c] : "";
+        pair.query = item.query_text;
+        pair.passage = item.candidate_passages[c];
         pair_items.emplace_back(item.request_id, c, std::move(pair));
       }
     }

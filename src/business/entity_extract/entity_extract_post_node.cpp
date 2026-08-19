@@ -1,10 +1,9 @@
-#include <cstring>
 #include <iostream>
 #include <nlohmann/json.hpp>
 #include <string>
 #include <vector>
 
-#include "company_alg_interface.h"
+#include "business/entity_extract/entity_extract_dto.h"
 #include "core/node_base.h"
 #include "core/node_registry.h"
 #include "core/traceable_item.h"
@@ -12,7 +11,7 @@
 namespace alg_framework {
 
 /**
- * @brief 实体提取后处理算子 (解析 0.6B LLM 输出并打包输出结构体)
+ * @brief 实体提取后处理算子 (解析 0.6B LLM 输出并打包输出领域 DTO)
  */
 class EntityExtractPostNode : public INode {
  public:
@@ -34,23 +33,19 @@ class EntityExtractPostNode : public INode {
     }
 
     size_t batch_size = req_ids->size();
-    std::vector<CompanyEntityOutputStruct> outputs(batch_size);
+    std::vector<EntityExtractResult> outputs(batch_size);
 
     for (size_t i = 0; i < batch_size; ++i) {
       outputs[i].request_id = (*req_ids)[i];
       outputs[i].status_code = 0;
-      strncpy(outputs[i].entities_json, "{\"nouns\":[]}",
-              sizeof(outputs[i].entities_json) - 1);
+      outputs[i].entities_json = "{\"nouns\":[]}";
     }
 
     // 根据 req_id 精准对齐
     for (const auto& item : *llm_answers) {
       uint32_t r_id = item.req_id;
       if (r_id < batch_size) {
-        strncpy(outputs[r_id].entities_json, item.data.c_str(),
-                sizeof(outputs[r_id].entities_json) - 1);
-        outputs[r_id].entities_json[sizeof(outputs[r_id].entities_json) - 1] =
-            '\0';
+        outputs[r_id].entities_json = item.data;
       }
     }
 

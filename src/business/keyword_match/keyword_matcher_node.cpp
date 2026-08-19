@@ -7,7 +7,7 @@
 #include <unordered_map>
 #include <vector>
 
-#include "company_alg_interface.h"
+#include "business/keyword_match/keyword_match_dto.h"
 #include "core/node_base.h"
 #include "core/node_registry.h"
 
@@ -70,7 +70,7 @@ class KeywordMatcherNode : public INode {
     }
 
     size_t batch_size = sentences->size();
-    std::vector<CompanyKeywordOutputStruct> outputs(batch_size);
+    std::vector<KeywordMatchResult> outputs(batch_size);
 
     std::shared_lock<std::shared_mutex> lock(rw_mutex_);
 
@@ -99,18 +99,16 @@ class KeywordMatcherNode : public INode {
         outputs[i].is_hit = 0;
         result_json["matches"] = nlohmann::json::array();
       } else {
-        // 命中：输出包含类别与词的 JSON
+        // 命中：输出命中详情
         outputs[i].is_hit = 1;
         result_json["matches"] = matches_array;
       }
 
-      std::string json_str = result_json.dump();
-      strncpy(outputs[i].match_result_json, json_str.c_str(),
-              sizeof(outputs[i].match_result_json) - 1);
-      outputs[i].match_result_json[sizeof(outputs[i].match_result_json) - 1] =
-          '\0';
+      outputs[i].match_result_json = result_json.dump();
     }
 
+    std::cout << "[KeywordMatcherNode] Processed batch of " << batch_size
+              << " sentences." << std::endl;
     req_ctx->Set("keyword_match_outputs", std::move(outputs));
     return 0;
   }
@@ -124,14 +122,16 @@ class KeywordMatcherNode : public INode {
   void UpdateCategoryKeywords(const nlohmann::json& categories_json) {
     std::unique_lock<std::shared_mutex> lock(rw_mutex_);
     category_keywords_map_.clear();
-    for (auto& [cat, words] : categories_json.items()) {
-      std::vector<std::string> w_list;
-      if (words.is_array()) {
-        for (const auto& w : words) {
-          w_list.push_back(w.get<std::string>());
+    for (auto it = categories_json.begin(); it != categories_json.end(); ++it) {
+      if (it.value().is_array()) {
+        std::vector<std::string> words;
+        for (const auto& w : it.value()) {
+          if (w.is_string()) {
+            words.push_back(w.get<std::string>());
+          }
         }
+        category_keywords_map_[it.key()] = std::move(words);
       }
-      category_keywords_map_[cat] = std::move(w_list);
     }
   }
 

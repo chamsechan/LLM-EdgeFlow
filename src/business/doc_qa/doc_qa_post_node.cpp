@@ -1,7 +1,8 @@
-#include <cstring>
 #include <iostream>
+#include <string>
+#include <vector>
 
-#include "company_alg_interface.h"
+#include "business/doc_qa/doc_qa_dto.h"
 #include "core/node_base.h"
 #include "core/node_registry.h"
 #include "core/traceable_item.h"
@@ -15,6 +16,8 @@ class DocQaPostNode : public INode {
  public:
   bool Init(const nlohmann::json& config,
             SessionContext* session_ctx) override {
+    (void)config;
+    (void)session_ctx;
     return true;
   }
 
@@ -33,7 +36,7 @@ class DocQaPostNode : public INode {
     }
 
     size_t batch_size = raw_req_ids->size();
-    std::vector<CompanyDocOutputStruct> final_outputs(batch_size);
+    std::vector<DocQaResult> final_outputs(batch_size);
 
     // 默认初始化
     for (size_t i = 0; i < batch_size; ++i) {
@@ -43,22 +46,14 @@ class DocQaPostNode : public INode {
           (i < chunk_counts->size()) ? (*chunk_counts)[i] : 0;
       final_outputs[i].confidence =
           (i < confidences->size()) ? (*confidences)[i] : 0.0f;
-
-      const std::string& intent_str = (*intents)[i];
-      strncpy(final_outputs[i].intent_name, intent_str.c_str(),
-              sizeof(final_outputs[i].intent_name) - 1);
-      final_outputs[i].intent_name[sizeof(final_outputs[i].intent_name) - 1] =
-          '\0';
+      final_outputs[i].intent_name = (*intents)[i];
     }
 
     // 根据 req_id 填充 LLM 生成回答
     for (const auto& ans_item : *answers) {
       uint32_t r_id = ans_item.req_id;
       if (r_id < batch_size) {
-        strncpy(final_outputs[r_id].answer_text, ans_item.data.c_str(),
-                sizeof(final_outputs[r_id].answer_text) - 1);
-        final_outputs[r_id]
-            .answer_text[sizeof(final_outputs[r_id].answer_text) - 1] = '\0';
+        final_outputs[r_id].answer_text = ans_item.data;
       }
     }
 
