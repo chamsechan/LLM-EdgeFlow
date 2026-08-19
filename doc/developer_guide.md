@@ -61,19 +61,31 @@ class CustomTaskAdapter : public IBusinessAdapter {
   const char* BizName() const override { return "CustomTask"; }
 
   const AdapterDescriptor& GetDescriptor() const override {
-    static AdapterDescriptor desc{ALG_BIZ_TYPE_CUSTOM_TASK,
-                                  "CustomTask",
-                                  "2.0.0",
-                                  "CompanyCustomInputStruct",
-                                  "CompanyCustomOutputStruct",
-                                  64};
+    static AdapterDescriptor desc{
+        ALG_BIZ_TYPE_CUSTOM_TASK,
+        "CustomTask",
+        "2.0.0",
+        "CompanyCustomInputStruct",
+        "CompanyCustomOutputStruct",
+        64,
+        OwnershipPolicy::kCopyIn,
+        ThreadModel::kStatelessThreadSafe,
+        OutputCardinality::kOneToOne,
+        {"custom_pipeline_v1"}};
     return desc;
   }
 
-  int Unpack(const void** inputs, int num_inputs, AlgContext* ctx) const override {
+  int Unpack(const void** inputs, int num_inputs, AlgContext* ctx,
+             AdapterStatus* out_status = nullptr) const override {
     int valid_ret = AdapterValidationHelper::ValidateBatchInputs(
         inputs, num_inputs, GetDescriptor().max_batch_size, BizName());
-    if (valid_ret != 0 || !ctx) return COMPANY_ALG_ERR_INVALID_INPUT;
+    if (valid_ret != 0 || !ctx) {
+      if (out_status) {
+        *out_status = AdapterStatus::InvalidInput(
+            "Batch envelope validation failed", "inputs", -1, BizName());
+      }
+      return COMPANY_ALG_ERR_INVALID_INPUT;
+    }
 
     std::vector<uint64_t> req_ids;
     std::vector<std::string> queries;
@@ -82,8 +94,18 @@ class CustomTaskAdapter : public IBusinessAdapter {
 
     for (int i = 0; i < num_inputs; ++i) {
       auto* in = static_cast<const CompanyCustomInputStruct*>(inputs[i]);
+      if (!AdapterValidationHelper::RequireNotNull("inputs[i]", in, i, BizName(),
+                                                   out_status)) {
+        return COMPANY_ALG_ERR_INVALID_INPUT;
+      }
+      if (!AdapterValidationHelper::RequireBoundedString(
+              "inputs[i].query_text", in->query_text, 64 * 1024, i, BizName(),
+              out_status)) {
+        return COMPANY_ALG_ERR_INVALID_INPUT;
+      }
+
       req_ids.push_back(in->request_id);
-      queries.push_back(in->query_text ? in->query_text : "");
+      queries.push_back(in->query_text);
     }
 
     ctx->Set("raw_request_ids", std::move(req_ids));
@@ -91,7 +113,8 @@ class CustomTaskAdapter : public IBusinessAdapter {
     return COMPANY_ALG_SUCCESS;
   }
 
-  int Pack(const AlgContext* ctx, void** outputs, int* num_outputs) const override {
+  int Pack(AlgContext* ctx, void** outputs, int* num_outputs,
+           AdapterStatus* out_status = nullptr) const override {
     if (!ctx) return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
 
     auto* res = ctx->Get<std::vector<CustomTaskResult>>("custom_task_outputs");
@@ -106,8 +129,14 @@ class CustomTaskAdapter : public IBusinessAdapter {
       auto* out_ptr = static_cast<CompanyCustomOutputStruct*>(outputs[i]);
       out_ptr->request_id = (*res)[i].request_id;
       out_ptr->status_code = (*res)[i].status_code;
-      snprintf(out_ptr->result_json, sizeof(out_ptr->result_json), "%s",
-               (*res)[i].result_json.c_str());
+
+      // 截断时严格拦截返回 -4
+      if (!AdapterValidationHelper::CheckedStringCopy(
+              out_ptr->result_json, sizeof(out_ptr->result_json),
+              (*res)[i].result_json.c_str(), "outputs[i].result_json", i,
+              BizName(), out_status)) {
+        return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
+      }
     }
     *num_outputs = count;
     return COMPANY_ALG_SUCCESS;
