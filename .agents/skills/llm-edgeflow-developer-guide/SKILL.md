@@ -16,7 +16,7 @@ This guide provides a standardized, copy-pasteable cookbook for developers exten
 
 | Layer | What to Add? | Target Files | Key Macro / Mechanism |
 | :--- | :--- | :--- | :--- |
-| **Layer 1: C ABI** | 新业务类型、输入/输出 C 结构体 | `include/company_alg_interface.h`<br>`src/adapter/company_c_adapter.cpp` | `ALG_BIZ_TYPE_*`<br>`noexcept` 异常屏障 |
+| **Layer 1: C ABI** | 新业务类型、输入/输出 C 结构体与专属适配器 | `include/company_alg_interface.h`<br>`src/adapter/adapters/<biz>_adapter.cpp` | `ALG_BIZ_TYPE_*`<br>`IBusinessAdapter`<br>`REGISTER_BUSINESS_ADAPTER` |
 | **Layer 2: Core** | 核心调度、黑板扩展、会话共享资源 | `include/core/alg_context.h`<br>`include/core/session_context.h` | `AlgContext::Set<T>()`<br>`SessionContext::SetResource()` |
 | **Layer 3: Nodes** | 业务专属算子 / 通用公共算子 | `src/business/<biz_name>/*.cpp`<br>`src/common_nodes/*.cpp` | `INode`<br>`REGISTER_NODE(NodeName)` |
 | **Layer 4: Engine** | 新硬件芯片推理后端 (如 Ascend/RKNN/TensorRT) | `include/engine/engine_interface.h`<br>`src/engine/<backend>/*_engine.cpp` | `IModelEngine`<br>`REGISTER_ENGINE(Name, Cls)`<br>`FixedBatchExecutor` |

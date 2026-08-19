@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "company_alg_cpp.hpp"
 #include "company_alg_interface.h"
 
 std::string GetConfigPath(const std::string& rel_path) {

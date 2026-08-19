@@ -155,6 +155,19 @@ typedef struct {
   int status_code;        // 0: 成功, 其他: 失败
 } CompanyRerankBatchOutputStruct;
 
+// -------------------------------------------------------------
+// 公司统一标准 C ABI 错误码常量 (ABI V2, ADP-004)
+// -------------------------------------------------------------
+#define COMPANY_ALG_SUCCESS (0)                 // 成功
+#define COMPANY_ALG_ERR_INVALID_HANDLE (-1)     // 无效句柄 (nullptr 或野指针)
+#define COMPANY_ALG_ERR_INVALID_PARAM (-2)      // 参数非法 (如空字符串、缺少必填参数)
+#define COMPANY_ALG_ERR_INVALID_INPUT (-3)      // 输入数据非法 (空指针槽位、批大小超限或字段语义错误)
+#define COMPANY_ALG_ERR_BUFFER_TOO_SMALL (-4)   // 输出缓冲区不足或空槽位 (此时回填所需容量)
+#define COMPANY_ALG_ERR_UNSUPPORTED_BIZ (-5)    // 不支持或未注册的业务类型 / 业务配置不匹配
+#define COMPANY_ALG_ERR_REGISTRY_CONFLICT (-6)  // 注册表冲突 (fail-closed 拦截)
+#define COMPANY_ALG_ERR_EXCEPTION (-99)         // 运行时捕获到 std::exception 异常
+#define COMPANY_ALG_ERR_UNKNOWN (-100)          // 运行时捕获到未知异常
+
 #ifdef __cplusplus
 #define COMPANY_ALG_NOEXCEPT noexcept
 #else
@@ -207,22 +220,6 @@ int Alg_DeInit(void) COMPANY_ALG_NOEXCEPT;
 
 #ifdef __cplusplus
 }
-
-// -------------------------------------------------------------
-// C++ 便捷重载包装 (供 C++ 调用方无缝迁移，不破坏现有测试与调用)
-// -------------------------------------------------------------
-#include <vector>
-
-inline int Alg_Process(void* hndl, const std::vector<void*>& inputs,
-                       std::vector<void*>& outputs) {
-  if (!hndl) return -1;
-  if (inputs.empty()) return -2;
-  int num_outputs = static_cast<int>(outputs.size());
-  return Alg_Process(hndl, const_cast<const void**>(inputs.data()),
-                     static_cast<int>(inputs.size()),
-                     outputs.empty() ? nullptr : outputs.data(), &num_outputs);
-}
-
-#endif  // __cplusplus
+#endif
 
 #endif  // COMPANY_ALG_INTERFACE_H_
