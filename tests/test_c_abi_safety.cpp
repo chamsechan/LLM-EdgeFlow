@@ -203,3 +203,79 @@ TEST_F(CAbiSafetyTest, RuntimeOptionsAndDevicePropagation) {
   ASSERT_EQ(Alg_Create(&handle1, &param), 0);
   EXPECT_EQ(Alg_Destroy(handle1), 0);
 }
+
+// 8. 测试 UNKNOWN 业务与未注册业务在 Alg_Create 前置拦截 (REV2-001)
+TEST_F(CAbiSafetyTest, UnknownAndUnregisteredBizRejectionInCreate) {
+  std::string cfg = GetConfigPath("configs/pipeline_keyword_match.json");
+  CompanyAlgParamCreate param;
+  param.config_file_path = cfg.c_str();
+  param.model_root_dir = "./models";
+  param.device_id = 0;
+
+  // 1) 传入 ALG_BIZ_TYPE_UNKNOWN 必须被 Alg_Create 明确拒绝返回 -5
+  param.biz_type = ALG_BIZ_TYPE_UNKNOWN;
+  void* handle = nullptr;
+  int ret = Alg_Create(&handle, &param);
+  EXPECT_EQ(ret, -5);
+  EXPECT_EQ(handle, nullptr);
+
+  // 2) 传入越界/未注册业务枚举 9999 必须被 Alg_Create 明确拒绝返回 -5
+  param.biz_type = static_cast<CompanyAlgBizType>(9999);
+  ret = Alg_Create(&handle, &param);
+  EXPECT_EQ(ret, -5);
+  EXPECT_EQ(handle, nullptr);
+}
+
+// 9. 测试 Registry 冲突 fail-closed 导致 Alg_Init 失败 (REV2-003)
+TEST_F(CAbiSafetyTest, FailClosedRegistryConflictAndInitFailure) {
+  auto& registry = alg_framework::BusinessAdapterRegistry::Instance();
+  registry.ResetConflictForTesting();
+
+  // 初始干净状态 Alg_Init 成功
+  EXPECT_EQ(Alg_Init(), 0);
+
+  // 注册冲突（重复注册 DocQA 业务）
+  auto doc_adapter = registry.GetAdapter(ALG_BIZ_TYPE_DOC_QA);
+  ASSERT_NE(doc_adapter, nullptr);
+  bool reg_ret = registry.RegisterAdapter(doc_adapter);
+  EXPECT_FALSE(reg_ret);
+  EXPECT_TRUE(registry.HasRegistrationConflict());
+
+  // 注册冲突发生后，Alg_Init 必须 fail-closed 返回 -6
+  EXPECT_EQ(Alg_Init(), -6);
+
+  // 测试结束后清理恢复干净状态
+  registry.ResetConflictForTesting();
+  EXPECT_FALSE(registry.HasRegistrationConflict());
+  EXPECT_EQ(Alg_Init(), 0);
+}
+
+// 10. 测试 Adapter Descriptor max_batch_size 契约强制执行 (REV2-005)
+TEST_F(CAbiSafetyTest, AdapterDescriptorMaxBatchSizeEnforcement) {
+  std::string cfg = GetConfigPath("configs/pipeline_keyword_match.json");
+  CompanyAlgParamCreate param;
+  param.config_file_path = cfg.c_str();
+  param.model_root_dir = "./models";
+  param.device_id = 0;
+  param.biz_type = ALG_BIZ_TYPE_KEYWORD_MATCH;
+
+  void* handle = nullptr;
+  ASSERT_EQ(Alg_Create(&handle, &param), 0);
+
+  // 构造 65 条输入数据 (超过 max_batch_size = 64 上限)
+  std::vector<CompanyKeywordInputStruct> reqs(65, {1, "测试输入"});
+  std::vector<const void*> inputs(65);
+  for (int i = 0; i < 65; ++i) inputs[i] = &reqs[i];
+
+  std::vector<CompanyKeywordOutputStruct> outs(65);
+  std::vector<void*> outputs(65);
+  for (int i = 0; i < 65; ++i) outputs[i] = &outs[i];
+  int num_outputs = 65;
+
+  // 超过 max_batch_size -> 必须被 ValidateBatchPreFlight 前置拦截返回 -3
+  int ret =
+      Alg_Process(handle, inputs.data(), 65, outputs.data(), &num_outputs);
+  EXPECT_EQ(ret, -3);
+
+  EXPECT_EQ(Alg_Destroy(handle), 0);
+}
