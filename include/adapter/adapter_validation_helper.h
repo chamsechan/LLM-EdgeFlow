@@ -21,12 +21,14 @@ namespace alg_framework {
  *    - 检查 *num_outputs 容量 >= required_count (不足时回填所需容量并确定性返回
  * -4)；
  *    - 检查每一个 outputs[i] 非空 (包含空槽位确定性返回 -4)。
- * 2. 字段级安全解析工具 (ADP-001, ADP-005)：
+ * 2. 字段级安全解析工具 (ADP-001, ADP-005, RECHECK-001, RECHECK-004)：
  *    - RequireNotNull: 非空指针检查与字段路径诊断；
  *    - RequireRange: 数值区间边界检查；
  *    - RequireEnum: 枚举值有效性与 Tagged Union 校验；
- *    - CheckedMultiply: 乘法溢出防护 (count * sizeof(T))；
- *    - CheckedStringCopy: 字符串安全拷贝与截断拦截。
+ *    - RequireBoundedString: 有界安全字符串扫描与长度校验 (防止无界内存扫描)；
+ *    - CheckedMultiply: 乘法溢出与最大缓冲区字节限制；
+ *    - CheckedStringCopy: 字符串安全拷贝，截断时返回 false 并记录
+ * BufferTooSmall 诊断。
  */
 class AdapterValidationHelper {
  public:
@@ -92,12 +94,8 @@ class AdapterValidationHelper {
   }
 
   static int ValidateBatchInputs(const void** inputs, int num_inputs,
+                                 int max_batch_size = 64,
                                  const char* biz_name = nullptr) {
-    return ValidateBatchInputs(inputs, num_inputs, 64, biz_name);
-  }
-
-  static int ValidateBatchInputs(const void** inputs, int num_inputs,
-                                 int max_batch_size, const char* biz_name) {
     if (!inputs || num_inputs <= 0) {
       return COMPANY_ALG_ERR_INVALID_INPUT;
     }
@@ -128,7 +126,7 @@ class AdapterValidationHelper {
   }
 
   // =========================================================================
-  // 结构化字段级安全解析工具集 (ADP-001, ADP-005)
+  // 结构化字段级安全解析工具集 (ADP-001, ADP-005, RECHECK-001, RECHECK-004)
   // =========================================================================
 
   /**
@@ -191,6 +189,34 @@ class AdapterValidationHelper {
   }
 
   /**
+   * @brief 有界 C 字符串安全扫描与长度校验 (防止无界内存扫描, RECHECK-004)
+   */
+  static bool RequireBoundedString(const char* field_path, const char* str,
+                                   size_t max_len, int sample_idx = -1,
+                                   const char* biz_name = nullptr,
+                                   AdapterStatus* out_status = nullptr) {
+    if (!str) {
+      if (out_status) {
+        *out_status = AdapterStatus::InvalidInput(
+            "Required string field is null", field_path ? field_path : "",
+            sample_idx, biz_name ? biz_name : "");
+      }
+      return false;
+    }
+    size_t len = ::strnlen(str, max_len + 1);
+    if (len > max_len) {
+      if (out_status) {
+        *out_status = AdapterStatus::InvalidInput(
+            "String exceeds maximum allowed length limit (" +
+                std::to_string(max_len) + ")",
+            field_path ? field_path : "", sample_idx, biz_name ? biz_name : "");
+      }
+      return false;
+    }
+    return true;
+  }
+
+  /**
    * @brief 乘法溢出与缓冲区总大小安全检查
    */
   static bool CheckedMultiply(const char* field_path, size_t count,
@@ -220,25 +246,33 @@ class AdapterValidationHelper {
   }
 
   /**
-   * @brief 字符串安全拷贝与截断检测
+   * @brief 字符串安全拷贝与截断检测 (RECHECK-001)
+   * @return true 完整拷贝成功, false 目标容量不足产生截断并记录 BufferTooSmall
    */
   static bool CheckedStringCopy(char* dst, size_t dst_size, const char* src,
                                 const char* field_path, int sample_idx = -1,
                                 const char* biz_name = nullptr,
                                 AdapterStatus* out_status = nullptr) {
-    if (!dst || dst_size == 0) return false;
+    if (!dst || dst_size == 0) {
+      if (out_status) {
+        *out_status = AdapterStatus::BufferTooSmall(
+            "Destination buffer pointer is null or zero size",
+            field_path ? field_path : "", sample_idx, biz_name ? biz_name : "");
+      }
+      return false;
+    }
     if (!src) {
       dst[0] = '\0';
       return true;
     }
     size_t src_len = std::strlen(src);
     if (src_len >= dst_size) {
-      // 发生截断
+      // 发生截断：写入安全终止符但返回 false，拒绝静默假装成功 (RECHECK-001)
       std::memcpy(dst, src, dst_size - 1);
       dst[dst_size - 1] = '\0';
       if (out_status) {
-        *out_status = AdapterStatus::InvalidInput(
-            "String truncated during copy (src_len=" + std::to_string(src_len) +
+        *out_status = AdapterStatus::BufferTooSmall(
+            "Output string truncated (src_len=" + std::to_string(src_len) +
                 ", dst_capacity=" + std::to_string(dst_size) + ")",
             field_path ? field_path : "", sample_idx, biz_name ? biz_name : "");
       }

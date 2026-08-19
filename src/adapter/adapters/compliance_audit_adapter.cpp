@@ -17,30 +17,32 @@ class ComplianceAuditAdapter : public IBusinessAdapter {
   const char* BizName() const override { return "ComplianceAudit"; }
 
   const AdapterDescriptor& GetDescriptor() const override {
-    static AdapterDescriptor desc{ALG_BIZ_TYPE_COMPLIANCE_AUDIT,
-                                  "ComplianceAudit",
-                                  "2.0.0",
-                                  "CompanyAuditInputStruct",
-                                  "CompanyAuditOutputStruct",
-                                  64,
-                                  OwnershipPolicy::kCopyIn,
-                                  ThreadModel::kStatelessThreadSafe,
-                                  OutputCardinality::kOneToOne};
+    static AdapterDescriptor desc{
+        ALG_BIZ_TYPE_COMPLIANCE_AUDIT,
+        "ComplianceAudit",
+        "2.0.0",
+        "CompanyAuditInputStruct",
+        "CompanyAuditOutputStruct",
+        64,
+        OwnershipPolicy::kCopyIn,
+        ThreadModel::kStatelessThreadSafe,
+        OutputCardinality::kOneToOne,
+        {"dialogue_compliance_audit_v1"}};  // RECHECK-002: 精确白名单
     return desc;
   }
 
-  bool ValidatePipelineBinding(
-      const std::string& pipeline_biz_name) const override {
-    return pipeline_biz_name.find("audit") != std::string::npos ||
-           pipeline_biz_name.find("compliance") != std::string::npos ||
-           pipeline_biz_name == "ComplianceAudit";
-  }
-
-  int Unpack(const void** inputs, int num_inputs,
-             AlgContext* ctx) const override {
+  int Unpack(const void** inputs, int num_inputs, AlgContext* ctx,
+             AdapterStatus* out_status = nullptr) const override {
     int valid_ret = AdapterValidationHelper::ValidateBatchInputs(
         inputs, num_inputs, GetDescriptor().max_batch_size, BizName());
-    if (valid_ret != 0 || !ctx) return COMPANY_ALG_ERR_INVALID_INPUT;
+    if (valid_ret != 0 || !ctx) {
+      if (out_status) {
+        *out_status = AdapterStatus::InvalidInput(
+            "Batch envelope validation failed or null AlgContext", "inputs", -1,
+            BizName());
+      }
+      return COMPANY_ALG_ERR_INVALID_INPUT;
+    }
 
     std::vector<uint64_t> req_ids;
     std::vector<std::string> user_texts;
@@ -50,9 +52,21 @@ class ComplianceAuditAdapter : public IBusinessAdapter {
     user_texts.reserve(num_inputs);
     channel_names.reserve(num_inputs);
 
+    constexpr size_t kMaxTextLen = 64 * 1024;  // 64KB 单文本上限
+
     for (int i = 0; i < num_inputs; ++i) {
       auto* in = static_cast<const CompanyAuditInputStruct*>(inputs[i]);
-      if (!in || !in->user_text) return COMPANY_ALG_ERR_INVALID_INPUT;
+      if (!AdapterValidationHelper::RequireNotNull("inputs[i]", in, i,
+                                                   BizName(), out_status)) {
+        return COMPANY_ALG_ERR_INVALID_INPUT;
+      }
+
+      // ADP-001, RECHECK-004: 有界字符串强校验
+      if (!AdapterValidationHelper::RequireBoundedString(
+              "inputs[i].user_text", in->user_text, kMaxTextLen, i, BizName(),
+              out_status)) {
+        return COMPANY_ALG_ERR_INVALID_INPUT;
+      }
 
       req_ids.push_back(in->request_id);
       user_texts.push_back(in->user_text);
@@ -65,17 +79,37 @@ class ComplianceAuditAdapter : public IBusinessAdapter {
     return COMPANY_ALG_SUCCESS;
   }
 
-  int Pack(AlgContext* ctx, void** outputs, int* num_outputs) const override {
-    if (!ctx) return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
+  int Pack(AlgContext* ctx, void** outputs, int* num_outputs,
+           AdapterStatus* out_status = nullptr) const override {
+    if (!ctx) {
+      if (out_status) {
+        *out_status = AdapterStatus::BufferTooSmall(
+            "Null AlgContext passed to Pack", "ctx", -1, BizName());
+      }
+      return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
+    }
 
     auto* res =
         ctx->Get<std::vector<DialogueAuditResult>>("compliance_audit_outputs");
-    if (!res) return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
+    if (!res) {
+      if (out_status) {
+        *out_status = AdapterStatus::BufferTooSmall(
+            "compliance_audit_outputs not found in AlgContext",
+            "compliance_audit_outputs", -1, BizName());
+      }
+      return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
+    }
 
     int count = static_cast<int>(res->size());
     int valid_ret = AdapterValidationHelper::ValidateBatchOutputs(
         outputs, num_outputs, count, BizName());
-    if (valid_ret != 0) return valid_ret;
+    if (valid_ret != 0) {
+      if (out_status) {
+        *out_status = AdapterStatus::BufferTooSmall(
+            "Output slots insufficient or null", "outputs", -1, BizName());
+      }
+      return valid_ret;
+    }
 
     for (int i = 0; i < count; ++i) {
       auto* out_ptr = static_cast<CompanyAuditOutputStruct*>(outputs[i]);
@@ -83,20 +117,28 @@ class ComplianceAuditAdapter : public IBusinessAdapter {
       out_ptr->risk_score = (*res)[i].risk_score;
       out_ptr->status_code = (*res)[i].status_code;
 
-      AdapterValidationHelper::CheckedStringCopy(
-          out_ptr->risk_level, sizeof(out_ptr->risk_level),
-          (*res)[i].risk_level.c_str(), "outputs[i].risk_level", i, BizName());
+      // RECHECK-001: 严格拦截截断
+      if (!AdapterValidationHelper::CheckedStringCopy(
+              out_ptr->risk_level, sizeof(out_ptr->risk_level),
+              (*res)[i].risk_level.c_str(), "outputs[i].risk_level", i,
+              BizName(), out_status)) {
+        return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
+      }
 
-      AdapterValidationHelper::CheckedStringCopy(
-          out_ptr->matched_policy_clause,
-          sizeof(out_ptr->matched_policy_clause),
-          (*res)[i].matched_policy_clause.c_str(),
-          "outputs[i].matched_policy_clause", i, BizName());
+      if (!AdapterValidationHelper::CheckedStringCopy(
+              out_ptr->matched_policy_clause,
+              sizeof(out_ptr->matched_policy_clause),
+              (*res)[i].matched_policy_clause.c_str(),
+              "outputs[i].matched_policy_clause", i, BizName(), out_status)) {
+        return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
+      }
 
-      AdapterValidationHelper::CheckedStringCopy(
-          out_ptr->audit_verdict_json, sizeof(out_ptr->audit_verdict_json),
-          (*res)[i].audit_verdict_json.c_str(), "outputs[i].audit_verdict_json",
-          i, BizName());
+      if (!AdapterValidationHelper::CheckedStringCopy(
+              out_ptr->audit_verdict_json, sizeof(out_ptr->audit_verdict_json),
+              (*res)[i].audit_verdict_json.c_str(),
+              "outputs[i].audit_verdict_json", i, BizName(), out_status)) {
+        return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
+      }
     }
     *num_outputs = count;
     return COMPANY_ALG_SUCCESS;

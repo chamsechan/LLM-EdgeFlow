@@ -17,42 +17,57 @@ class CrossRerankAdapter : public IBusinessAdapter {
   const char* BizName() const override { return "CrossRerank"; }
 
   const AdapterDescriptor& GetDescriptor() const override {
-    static AdapterDescriptor desc{ALG_BIZ_TYPE_CROSS_RERANK,
-                                  "CrossRerank",
-                                  "2.0.0",
-                                  "CompanyRerankBatchInputStruct",
-                                  "CompanyRerankBatchOutputStruct",
-                                  64,
-                                  OwnershipPolicy::kCopyIn,
-                                  ThreadModel::kStatelessThreadSafe,
-                                  OutputCardinality::kOneToOne};
+    static AdapterDescriptor desc{
+        ALG_BIZ_TYPE_CROSS_RERANK,
+        "CrossRerank",
+        "2.0.0",
+        "CompanyRerankBatchInputStruct",
+        "CompanyRerankBatchOutputStruct",
+        64,
+        OwnershipPolicy::kCopyIn,
+        ThreadModel::kStatelessThreadSafe,
+        OutputCardinality::kOneToOne,
+        {"dense_cross_rerank_scoring"}};  // RECHECK-002: 精确白名单
     return desc;
   }
 
-  bool ValidatePipelineBinding(
-      const std::string& pipeline_biz_name) const override {
-    return pipeline_biz_name.find("rerank") != std::string::npos ||
-           pipeline_biz_name == "CrossRerank";
-  }
-
-  int Unpack(const void** inputs, int num_inputs,
-             AlgContext* ctx) const override {
+  int Unpack(const void** inputs, int num_inputs, AlgContext* ctx,
+             AdapterStatus* out_status = nullptr) const override {
     int valid_ret = AdapterValidationHelper::ValidateBatchInputs(
         inputs, num_inputs, GetDescriptor().max_batch_size, BizName());
-    if (valid_ret != 0 || !ctx) return COMPANY_ALG_ERR_INVALID_INPUT;
+    if (valid_ret != 0 || !ctx) {
+      if (out_status) {
+        *out_status = AdapterStatus::InvalidInput(
+            "Batch envelope validation failed or null AlgContext", "inputs", -1,
+            BizName());
+      }
+      return COMPANY_ALG_ERR_INVALID_INPUT;
+    }
 
     std::vector<RerankQueryInput> raw_inputs;
     raw_inputs.reserve(num_inputs);
 
+    constexpr size_t kMaxTextLen = 64 * 1024;  // 64KB 单文本上限
+
     for (int i = 0; i < num_inputs; ++i) {
       auto* in_rerank =
           static_cast<const CompanyRerankBatchInputStruct*>(inputs[i]);
-      if (!in_rerank || !in_rerank->query_text) {
+      if (!AdapterValidationHelper::RequireNotNull("inputs[i]", in_rerank, i,
+                                                   BizName(), out_status)) {
+        return COMPANY_ALG_ERR_INVALID_INPUT;
+      }
+
+      // ADP-001, RECHECK-004: 有界字符串强校验
+      if (!AdapterValidationHelper::RequireBoundedString(
+              "inputs[i].query_text", in_rerank->query_text, kMaxTextLen, i,
+              BizName(), out_status)) {
         return COMPANY_ALG_ERR_INVALID_INPUT;
       }
 
       // ADP-001, ADP-005: 严格校验 candidate_count (1~8)，杜绝越界或静默截断
-      if (in_rerank->candidate_count <= 0 || in_rerank->candidate_count > 8) {
+      if (!AdapterValidationHelper::RequireRange("inputs[i].candidate_count",
+                                                 in_rerank->candidate_count, 1,
+                                                 8, i, BizName(), out_status)) {
         return COMPANY_ALG_ERR_INVALID_INPUT;
       }
 
@@ -61,7 +76,11 @@ class CrossRerankAdapter : public IBusinessAdapter {
       query_item.query_text = in_rerank->query_text;
 
       for (int c = 0; c < in_rerank->candidate_count; ++c) {
-        if (!in_rerank->candidate_passages[c]) {
+        std::string field_name =
+            "inputs[i].candidate_passages[" + std::to_string(c) + "]";
+        if (!AdapterValidationHelper::RequireBoundedString(
+                field_name.c_str(), in_rerank->candidate_passages[c],
+                kMaxTextLen, i, BizName(), out_status)) {
           return COMPANY_ALG_ERR_INVALID_INPUT;
         }
         query_item.candidate_passages.push_back(
@@ -74,17 +93,37 @@ class CrossRerankAdapter : public IBusinessAdapter {
     return COMPANY_ALG_SUCCESS;
   }
 
-  int Pack(AlgContext* ctx, void** outputs, int* num_outputs) const override {
-    if (!ctx) return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
+  int Pack(AlgContext* ctx, void** outputs, int* num_outputs,
+           AdapterStatus* out_status = nullptr) const override {
+    if (!ctx) {
+      if (out_status) {
+        *out_status = AdapterStatus::BufferTooSmall(
+            "Null AlgContext passed to Pack", "ctx", -1, BizName());
+      }
+      return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
+    }
 
     auto* res =
         ctx->Get<std::vector<RerankQueryResult>>("rerank_batch_final_outputs");
-    if (!res) return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
+    if (!res) {
+      if (out_status) {
+        *out_status = AdapterStatus::BufferTooSmall(
+            "rerank_batch_final_outputs not found in AlgContext",
+            "rerank_batch_final_outputs", -1, BizName());
+      }
+      return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
+    }
 
     int count = static_cast<int>(res->size());
     int valid_ret = AdapterValidationHelper::ValidateBatchOutputs(
         outputs, num_outputs, count, BizName());
-    if (valid_ret != 0) return valid_ret;
+    if (valid_ret != 0) {
+      if (out_status) {
+        *out_status = AdapterStatus::BufferTooSmall(
+            "Output slots insufficient or null", "outputs", -1, BizName());
+      }
+      return valid_ret;
+    }
 
     for (int i = 0; i < count; ++i) {
       auto* out_ptr = static_cast<CompanyRerankBatchOutputStruct*>(outputs[i]);
