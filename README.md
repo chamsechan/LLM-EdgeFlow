@@ -122,11 +122,11 @@ LLM-EdgeFlow/
 
 ## 📝 更新日志 (Changelog)
 
-- **v1.5.0** *(2026-08)*
-  - 🛡️ **纯 C11 ABI 安全边界标准重构 (ARCH-001)**：`include/company_alg_interface.h` 彻底剔除 `<vector>` 等 C++ 符号依赖，导出纯 C 标准指针数组批处理接口并提供 C++ 向后兼容包装层；新增纯 C 语言编写的 `test_c11_abi_compliance` 门禁测试。
-  - 🧩 **Layer 1 业务适配器注册中心 (`IBusinessAdapter` & ARCH-003)**：将 370 行中心单体 Adapter 重构为可插拔的 `BusinessAdapterRegistry` 机制，7 大业务各自分离为高内聚的独立 Adapter 类，消除中心分发单点修改冲突。
-  - 🧱 **Layer 3 算子与交付层彻底解耦 (ARCH-002)**：所有 8 个业务后处理算子全面消除对 `company_alg_interface.h` 的反向依赖，改由各业务领域 DTO 与 `AlgContext` 交互；新增 `scripts/check_layer_isolation.sh` 架构防腐脚本作为 CI 强门禁。
-  - 🌐 **SessionContext 运行时环境与设备参数贯通 (ARCH-010)**：新增 `RuntimeOptions`，贯通 `model_root_dir` 相对路径解析与加速卡 `device_id` 自动注入。
+- **v2.0.0 (Phase 1 架构重构交付)** *(2026-08)*
+  - 🛡️ **纯 C11 5 参数指针数组 ABI 体系与 SOVERSION 2 (ARCH-001, ACC-001, ACC-002)**：`include/company_alg_interface.h` 彻底剔除 `<vector>` 等 C++ 符号，采用纯 C 指针数组批处理接口；全量 6 大导出函数严格保证 `COMPANY_ALG_NOEXCEPT` 全异常拦截；SOVERSION 正式升级为 2；新增 C11 原生编译器验证套件 `test_c11_abi_compliance`。
+  - 🧩 **独立业务适配器与注册安全防护 (ARCH-003, ACC-003, ACC-005)**：引入 `BusinessAdapterRegistry`，支持 `AdapterDescriptor` 自省与重复注册冲突防护；提供 `AdapterValidationHelper` 统一各业务适配器的批输入与输出缓冲区容量契约（不足时返回 `-4` 并回填所需容量，空指针确定性返回 `-3` / `-4`）。
+  - 🧱 **Layer 3 算子与 C ABI 彻底解耦 (ARCH-002, ACC-006)**：所有业务算子全面解除对 `company_alg_interface.h` 的反向包含，改由各业务领域 DTO (`AudioInputDto`, `EntityExtractResult` 等) 交互；`LayerGuard` (4-Tier 架构防腐脚本) 作为 CTest 目标与 CI 强门禁自动化拦截逆向依赖。
+  - 🌐 **运行时路径规范化与硬件设备参数全链路贯通 (ARCH-010, ACC-004)**：通过 `SessionContext` `RuntimeOptions` 实现基于 `std::filesystem::path` 的模型相对路径自动规范化，支持 `device_id` (含 0 和正整数) 贯通传递与引擎观测接口 (`GetLoadedModelPath()`, `GetDeviceId()`)。
 - **v1.4.0** *(2026-08)*
   - 🎨 **DAG 节点图可视化编辑与节点工坊 (Visual Graph Studio)**：Web 工作台全面升级为**支持拖拽创建算子节点、动态配置上游依赖、实时成环死锁拦截、修改属性并一键导出 C++ 标准 Pipeline JSON** 的全功能节点工坊 (`./show --web`)。
   - 🧪 **物理真实模型物理压测链路隔离**：新增独立的 `test_real_models_e2e` 与 `./scripts/run_real_model_e2e.sh`，实现官方 `llama.cpp` 真实自回归 Token 解码、物理权重批处理与 C ABI 端到端硬件吞吐压测，与日常 0.3 秒敏捷 CTest 零干扰隔离。
