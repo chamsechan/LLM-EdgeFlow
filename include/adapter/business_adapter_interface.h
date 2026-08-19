@@ -6,6 +6,18 @@
 namespace alg_framework {
 
 /**
+ * @brief 业务适配器描述符 (Layer 1 机器可读元数据)
+ */
+struct AdapterDescriptor {
+  CompanyAlgBizType biz_type = ALG_BIZ_TYPE_UNKNOWN;
+  std::string biz_name;
+  std::string abi_version = "2.0.0";
+  std::string input_type_name;
+  std::string output_type_name;
+  int max_batch_size = 64;
+};
+
+/**
  * @brief 业务适配器抽象接口 (Layer 1 内部)
  *
  * 职责：
@@ -26,6 +38,11 @@ class IBusinessAdapter {
    * @brief 业务名称
    */
   virtual const char* BizName() const = 0;
+
+  /**
+   * @brief 获取业务适配器机器可读元数据描述符
+   */
+  virtual const AdapterDescriptor& GetDescriptor() const = 0;
 
   /**
    * @brief 解包 C 结构体输入为内部 DTO

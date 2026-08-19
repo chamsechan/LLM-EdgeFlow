@@ -1,6 +1,7 @@
 #include <cstring>
 #include <vector>
 
+#include "adapter/adapter_validation_helper.h"
 #include "adapter/business_adapter_registry.h"
 #include "business/entity_extract/entity_extract_dto.h"
 #include "company_alg_interface.h"
@@ -15,8 +16,20 @@ class EntityExtractAdapter : public IBusinessAdapter {
 
   const char* BizName() const override { return "EntityExtract"; }
 
+  const AdapterDescriptor& GetDescriptor() const override {
+    static AdapterDescriptor desc{ALG_BIZ_TYPE_ENTITY_EXTRACT,
+                                  "EntityExtract",
+                                  "2.0.0",
+                                  "CompanyEntityInputStruct",
+                                  "CompanyEntityOutputStruct",
+                                  64};
+    return desc;
+  }
+
   int Unpack(const void** inputs, int num_inputs, AlgContext* ctx) override {
-    if (!inputs || num_inputs <= 0 || !ctx) return -3;
+    int valid_ret = AdapterValidationHelper::ValidateBatchInputs(
+        inputs, num_inputs, BizName());
+    if (valid_ret != 0 || !ctx) return -3;
 
     std::vector<uint64_t> req_ids;
     std::vector<std::string> sentences;
@@ -25,7 +38,6 @@ class EntityExtractAdapter : public IBusinessAdapter {
 
     for (int i = 0; i < num_inputs; ++i) {
       auto* in = static_cast<const CompanyEntityInputStruct*>(inputs[i]);
-      if (!in) return -3;
       req_ids.push_back(in->request_id);
       sentences.push_back(in->sentence_text ? in->sentence_text : "");
     }
@@ -36,23 +48,24 @@ class EntityExtractAdapter : public IBusinessAdapter {
   }
 
   int Pack(AlgContext* ctx, void** outputs, int* num_outputs) override {
-    if (!ctx || !outputs || !num_outputs || *num_outputs <= 0) return -4;
+    if (!ctx) return -4;
 
     auto* res =
         ctx->Get<std::vector<EntityExtractResult>>("entity_extract_outputs");
     if (!res) return -4;
 
     int count = static_cast<int>(res->size());
-    int out_limit = *num_outputs;
-    for (int i = 0; i < count && i < out_limit; ++i) {
+    int valid_ret = AdapterValidationHelper::ValidateBatchOutputs(
+        outputs, num_outputs, count, BizName());
+    if (valid_ret != 0) return valid_ret;
+
+    for (int i = 0; i < count; ++i) {
       auto* out_ptr = static_cast<CompanyEntityOutputStruct*>(outputs[i]);
-      if (out_ptr) {
-        out_ptr->request_id = (*res)[i].request_id;
-        out_ptr->status_code = (*res)[i].status_code;
-        strncpy(out_ptr->entities_json, (*res)[i].entities_json.c_str(),
-                sizeof(out_ptr->entities_json) - 1);
-        out_ptr->entities_json[sizeof(out_ptr->entities_json) - 1] = '\0';
-      }
+      out_ptr->request_id = (*res)[i].request_id;
+      out_ptr->status_code = (*res)[i].status_code;
+      strncpy(out_ptr->entities_json, (*res)[i].entities_json.c_str(),
+              sizeof(out_ptr->entities_json) - 1);
+      out_ptr->entities_json[sizeof(out_ptr->entities_json) - 1] = '\0';
     }
     *num_outputs = count;
     return 0;

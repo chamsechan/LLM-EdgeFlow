@@ -1,6 +1,7 @@
 #include <cstring>
 #include <vector>
 
+#include "adapter/adapter_validation_helper.h"
 #include "adapter/business_adapter_registry.h"
 #include "business/dialogue_audit/dialogue_audit_dto.h"
 #include "company_alg_interface.h"
@@ -15,8 +16,17 @@ class ComplianceAuditAdapter : public IBusinessAdapter {
 
   const char* BizName() const override { return "ComplianceAudit"; }
 
+  const AdapterDescriptor& GetDescriptor() const override {
+    static AdapterDescriptor desc{
+        ALG_BIZ_TYPE_COMPLIANCE_AUDIT, "ComplianceAudit",          "2.0.0",
+        "CompanyAuditInputStruct",     "CompanyAuditOutputStruct", 64};
+    return desc;
+  }
+
   int Unpack(const void** inputs, int num_inputs, AlgContext* ctx) override {
-    if (!inputs || num_inputs <= 0 || !ctx) return -3;
+    int valid_ret = AdapterValidationHelper::ValidateBatchInputs(
+        inputs, num_inputs, BizName());
+    if (valid_ret != 0 || !ctx) return -3;
 
     std::vector<uint64_t> req_ids;
     std::vector<std::string> user_texts;
@@ -28,7 +38,6 @@ class ComplianceAuditAdapter : public IBusinessAdapter {
 
     for (int i = 0; i < num_inputs; ++i) {
       auto* in = static_cast<const CompanyAuditInputStruct*>(inputs[i]);
-      if (!in) return -3;
       req_ids.push_back(in->request_id);
       user_texts.push_back(in->user_text ? in->user_text : "");
       channel_names.push_back(in->channel_name ? in->channel_name : "");
@@ -41,37 +50,38 @@ class ComplianceAuditAdapter : public IBusinessAdapter {
   }
 
   int Pack(AlgContext* ctx, void** outputs, int* num_outputs) override {
-    if (!ctx || !outputs || !num_outputs || *num_outputs <= 0) return -4;
+    if (!ctx) return -4;
 
     auto* res =
         ctx->Get<std::vector<DialogueAuditResult>>("compliance_audit_outputs");
     if (!res) return -4;
 
     int count = static_cast<int>(res->size());
-    int out_limit = *num_outputs;
-    for (int i = 0; i < count && i < out_limit; ++i) {
+    int valid_ret = AdapterValidationHelper::ValidateBatchOutputs(
+        outputs, num_outputs, count, BizName());
+    if (valid_ret != 0) return valid_ret;
+
+    for (int i = 0; i < count; ++i) {
       auto* out_ptr = static_cast<CompanyAuditOutputStruct*>(outputs[i]);
-      if (out_ptr) {
-        out_ptr->request_id = (*res)[i].request_id;
-        out_ptr->risk_score = (*res)[i].risk_score;
-        out_ptr->status_code = (*res)[i].status_code;
+      out_ptr->request_id = (*res)[i].request_id;
+      out_ptr->risk_score = (*res)[i].risk_score;
+      out_ptr->status_code = (*res)[i].status_code;
 
-        strncpy(out_ptr->risk_level, (*res)[i].risk_level.c_str(),
-                sizeof(out_ptr->risk_level) - 1);
-        out_ptr->risk_level[sizeof(out_ptr->risk_level) - 1] = '\0';
+      strncpy(out_ptr->risk_level, (*res)[i].risk_level.c_str(),
+              sizeof(out_ptr->risk_level) - 1);
+      out_ptr->risk_level[sizeof(out_ptr->risk_level) - 1] = '\0';
 
-        strncpy(out_ptr->matched_policy_clause,
-                (*res)[i].matched_policy_clause.c_str(),
-                sizeof(out_ptr->matched_policy_clause) - 1);
-        out_ptr->matched_policy_clause[sizeof(out_ptr->matched_policy_clause) -
-                                       1] = '\0';
+      strncpy(out_ptr->matched_policy_clause,
+              (*res)[i].matched_policy_clause.c_str(),
+              sizeof(out_ptr->matched_policy_clause) - 1);
+      out_ptr
+          ->matched_policy_clause[sizeof(out_ptr->matched_policy_clause) - 1] =
+          '\0';
 
-        strncpy(out_ptr->audit_verdict_json,
-                (*res)[i].audit_verdict_json.c_str(),
-                sizeof(out_ptr->audit_verdict_json) - 1);
-        out_ptr->audit_verdict_json[sizeof(out_ptr->audit_verdict_json) - 1] =
-            '\0';
-      }
+      strncpy(out_ptr->audit_verdict_json, (*res)[i].audit_verdict_json.c_str(),
+              sizeof(out_ptr->audit_verdict_json) - 1);
+      out_ptr->audit_verdict_json[sizeof(out_ptr->audit_verdict_json) - 1] =
+          '\0';
     }
     *num_outputs = count;
     return 0;

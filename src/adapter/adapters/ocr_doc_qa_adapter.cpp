@@ -1,6 +1,7 @@
 #include <cstring>
 #include <vector>
 
+#include "adapter/adapter_validation_helper.h"
 #include "adapter/business_adapter_registry.h"
 #include "business/ocr_doc_qa/ocr_doc_qa_dto.h"
 #include "company_alg_interface.h"
@@ -13,8 +14,20 @@ class OcrDocQaAdapter : public IBusinessAdapter {
 
   const char* BizName() const override { return "OcrDocQA"; }
 
+  const AdapterDescriptor& GetDescriptor() const override {
+    static AdapterDescriptor desc{ALG_BIZ_TYPE_OCR_DOC_QA,
+                                  "OcrDocQA",
+                                  "2.0.0",
+                                  "CompanyOcrDocInputStruct",
+                                  "CompanyOcrDocOutputStruct",
+                                  64};
+    return desc;
+  }
+
   int Unpack(const void** inputs, int num_inputs, AlgContext* ctx) override {
-    if (!inputs || num_inputs <= 0 || !ctx) return -3;
+    int valid_ret = AdapterValidationHelper::ValidateBatchInputs(
+        inputs, num_inputs, BizName());
+    if (valid_ret != 0 || !ctx) return -3;
 
     std::vector<uint64_t> raw_req_ids;
     std::vector<std::string> raw_images;
@@ -26,7 +39,6 @@ class OcrDocQaAdapter : public IBusinessAdapter {
 
     for (int i = 0; i < num_inputs; ++i) {
       auto* in_ocr = static_cast<const CompanyOcrDocInputStruct*>(inputs[i]);
-      if (!in_ocr) return -3;
       raw_req_ids.push_back(in_ocr->request_id);
       raw_images.push_back(in_ocr->image_path ? in_ocr->image_path : "");
       raw_queries.push_back(in_ocr->query_prompt ? in_ocr->query_prompt : "");
@@ -39,27 +51,27 @@ class OcrDocQaAdapter : public IBusinessAdapter {
   }
 
   int Pack(AlgContext* ctx, void** outputs, int* num_outputs) override {
-    if (!ctx || !outputs || !num_outputs || *num_outputs <= 0) return -4;
+    if (!ctx) return -4;
 
     auto* res = ctx->Get<std::vector<OcrDocResult>>("ocr_doc_final_outputs");
     if (!res) return -4;
 
     int count = static_cast<int>(res->size());
-    int out_limit = *num_outputs;
-    for (int i = 0; i < count && i < out_limit; ++i) {
-      auto* out_ptr = static_cast<CompanyOcrDocOutputStruct*>(outputs[i]);
-      if (out_ptr) {
-        out_ptr->request_id = (*res)[i].request_id;
-        out_ptr->detected_box_count = (*res)[i].detected_box_count;
-        out_ptr->status_code = (*res)[i].status_code;
+    int valid_ret = AdapterValidationHelper::ValidateBatchOutputs(
+        outputs, num_outputs, count, BizName());
+    if (valid_ret != 0) return valid_ret;
 
-        strncpy(out_ptr->extracted_invoice_json,
-                (*res)[i].extracted_invoice_json.c_str(),
-                sizeof(out_ptr->extracted_invoice_json) - 1);
-        out_ptr
-            ->extracted_invoice_json[sizeof(out_ptr->extracted_invoice_json) -
-                                     1] = '\0';
-      }
+    for (int i = 0; i < count; ++i) {
+      auto* out_ptr = static_cast<CompanyOcrDocOutputStruct*>(outputs[i]);
+      out_ptr->request_id = (*res)[i].request_id;
+      out_ptr->detected_box_count = (*res)[i].detected_box_count;
+      out_ptr->status_code = (*res)[i].status_code;
+
+      strncpy(out_ptr->extracted_invoice_json,
+              (*res)[i].extracted_invoice_json.c_str(),
+              sizeof(out_ptr->extracted_invoice_json) - 1);
+      out_ptr->extracted_invoice_json[sizeof(out_ptr->extracted_invoice_json) -
+                                      1] = '\0';
     }
     *num_outputs = count;
     return 0;
