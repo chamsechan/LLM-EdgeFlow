@@ -2,23 +2,127 @@
 
 > 评审日期：2026-08-19
 >
-> 评审基线：当前 `main`
+> 评审基线：分支 `feat/adapter-contract-security-hardening`，提交 `9b47c6a`（相对 `main` 的整改差异）
 >
 > 评审范围：外部 C 结构体、Business Adapter、注册与分发、内存所有权、并发模型、错误诊断、开发指引和 Adapter 测试
 >
-> 变更边界：本文记录评审结论与第二轮闭环整改验证证明
+> 变更边界：本文记录评审结论与第三轮独立复验结果
 >
 > 最新复验日期：2026-08-19
 >
 > 最新复验分支：`feat/adapter-contract-security-hardening`
 >
-> 最新结论：**全部 6 项 P1 问题已完成实质性整改并通过严格的内存与契约安全验证，ADP-001 至 ADP-011 全部验收通过！**
+> 最新结论：**有条件通过。6 项 P1 复验项中 5 项通过、1 项部分通过；当前 7 个业务可继续使用，但“同句柄并发安全”和“全部 ADP 已闭环”尚无充分证据，不建议以全量工业级能力对外宣称。**
 
-## 0. 第二轮整改复验结论与闭环证明
+## 0. 第三轮整改独立复验结论
+
+本节是当前有效的验收结论；后续的“第二轮整改自述”和“初始评审”仅作为历史记录。
+
+### 0.1 总体结论
+
+本轮确认输出截断、Pipeline 精确绑定、Descriptor 策略拦截、结构化诊断、有界字段校验、可编译模板和复杂结构测试均已落地。Release 构建、14 项 CTest、六阶段全量回归，以及现有 Sanitizer 专项均通过。
+
+但是，`ConcurrentStatelessAdapterExecution` 中每个线程都会自行调用 `Alg_Create` 创建独立 `hndl`。它证明的是“共享无状态 Adapter、不同 Handle 的跨线程执行”，不能证明文档所称的“同 Handle 并发调用安全”。当前也没有明确的同句柄串行化、拒绝策略或对应测试。因此：
+
+- 当前 7 个既有业务和已覆盖的 Adapter 契约：**通过**。
+- 面向多团队扩展的主要安全整改：**有条件通过**。
+- “同句柄并发安全”能力：**待整改（P1）**。
+- “ADP-001 至 ADP-011 全部通过”和“全量无泄漏”：**证据不足，撤销原结论**。
+
+### 0.2 六项 P1 复验结果
+
+| 复验项 | 状态 | 独立复验证据 |
+|---|---|---|
+| RECHECK-001 输出截断防护 | 已通过 | `CheckedStringCopy` 返回值在生产 Adapter 与模板中被检查；`OutputStringTruncationRejection` 通过 |
+| RECHECK-002 Pipeline 精确白名单 | 已通过 | `allowed_pipeline_names` 精确匹配且空列表 fail-closed；7 个生产 Adapter 均声明白名单；对应恶意名称测试通过 |
+| RECHECK-003 未实现策略拦截 | 已通过 | Registry 拒绝非 `kCopyIn + kStatelessThreadSafe + kOneToOne` 组合；对应注册冲突测试通过 |
+| RECHECK-004 结构化诊断与有界扫描 | 已通过 | `Unpack/Pack` 接入 `AdapterStatus`；生产入口输出字段路径；有界字符串和乘法溢出检查已接入 |
+| RECHECK-005 可编译模板与事实源 | 已通过 | 4 类模板头文件被安全契约测试直接包含、实例化和编译；开发指南与 skill 的接口签名已同步 |
+| RECHECK-006 复杂结构、并发与 Sanitizer | 部分通过 | Tagged Union、动态数组、递归指针树、Copy-In 篡改隔离及 ASan/UBSan 专项通过；同句柄并发未被测试，Fuzz 尚未落地，Sanitizer 也不是全量与泄漏检测 |
+
+### 0.3 本轮仍需整改的问题
+
+#### RECHECK3-001：同句柄并发契约和测试未闭环
+
+**级别：P1；状态：待整改**
+
+`tests/test_adapter_contract_security.cpp` 的 `ConcurrentStatelessAdapterExecution` 在 worker 内部创建并销毁句柄，8 个线程使用的是独立 Handle。该测试可以验证 Adapter 本身无请求级成员状态以及多 Handle 并行，但不能覆盖同一个 `Pipeline`、`SessionContext` 和 Handle 被并发调用时的行为。
+
+必须明确选择并固化一种公共契约：
+
+1. **支持同句柄并发**：在线程启动前只创建一个 Handle，所有线程共享该 Handle 调用 `Alg_Process`；补充稳定压力测试，并审查 Pipeline、节点、SessionContext 与 Control/Destroy 竞态。必要时在 Handle 内实施同步。
+2. **不支持同句柄并发**：在公开 C ABI 文档中明确“单 Handle single-flight”，由运行时检测并以稳定错误码拒绝重入，补充并发拒绝测试；不能只把责任留给调用者，也不能继续宣称同句柄线程安全。
+
+在该契约闭环前，不应把 `kStatelessThreadSafe` 解释为整个 Handle 或整个 Pipeline 可无锁并发。
+
+#### RECHECK3-002：业务 C 结构体演进契约仍缺失
+
+**级别：P2；状态：待整改**
+
+稳定错误码已经落地，但 `CompanyAlgParamCreate` 和业务输入输出结构体仍没有统一的 `struct_size`、结构 ABI 版本或 payload 大小。因此 ADP-004 只能对“错误码”部分验收，不能对“结构体兼容演进”整体验收。后续新增结构体应优先引入版本化头部，并定义旧调用方、小结构体和新增尾字段的兼容规则。
+
+#### RECHECK3-003：多团队中心修改热点仅被缓解，未被消除
+
+**级别：P2；状态：待整改**
+
+4 类模板显著降低了 Adapter 编写难度，但公共 C 头文件、业务枚举和顶层构建清单仍是新增业务时的中心修改点。ADP-010 的原目标包含降低多人并行开发时的合并冲突，当前只能标记为“部分通过”。在保持单仓库、静态编译的前提下，可进一步拆分业务 ABI 头、采用受控聚合头，并用脚手架生成业务目录、注册和构建清单变更。
+
+#### RECHECK3-004：Sanitizer 覆盖范围和 Fuzz 门禁尚不完整
+
+**级别：P2；状态：待整改**
+
+`scripts/run_sanitizers.sh` 当前只构建并运行 `test_adapter_contract_security` 与 `test_c11_abi_compliance`，且设置 `ASAN_OPTIONS=detect_leaks=0`。本轮能够确认这两个目标在 ASan/UBSan 下通过，但不能据此推导全量 14 项 CTest 无内存问题或“0 内存泄漏”。当前源码和构建系统中也没有 libFuzzer/AFL 类解析器模糊测试。
+
+建议使用独立 Sanitizer 构建目录，至少把全部框架自有测试纳入 ASan/UBSan CTest；在运行环境支持时开启 LeakSanitizer；为 Tagged Union、动态数组和递归指针树提供可持续运行的 Fuzz target 与最小种子集。
+
+### 0.4 ADP 最新状态总表
+
+| 项目 | 最新状态 | 说明 |
+|---|---|---|
+| ADP-001 字段与嵌套校验 | 已通过 | 结构化诊断、有界字符串、数组总字节与嵌套深度校验已落地 |
+| ADP-002 所有权契约 | 已通过 | 当前仅允许 `kCopyIn`，Registry fail-closed，直接篡改隔离测试通过 |
+| ADP-003 无状态与线程安全 | 部分通过 | Adapter 接口已 `const`，多 Handle 并行通过；同 Handle 契约与证据缺失 |
+| ADP-004 ABI 版本与错误码 | 部分通过 | 稳定错误码已完成；C 结构体大小和版本协商仍缺失 |
+| ADP-005 静默转换与截断 | 已通过 | 输入非法值被拒绝，输出截断返回 `COMPANY_ALG_ERR_BUFFER_TOO_SMALL` |
+| ADP-006 Pipeline 绑定 | 已通过 | 精确白名单且默认 fail-closed |
+| ADP-007 指南一致性 | 已通过 | 指南、skill、模板和当前接口签名一致 |
+| ADP-008 Descriptor | 已通过 | 当前声明的所有权、线程和基数策略均有注册期实现约束 |
+| ADP-009 严格纯 C 头文件 | 已通过 | C++ Wrapper 已拆分，严格 C11 编译测试通过 |
+| ADP-010 多团队扩展热点 | 部分通过 | 模板降低编码门槛，但中心头文件和构建清单冲突面仍存在 |
+| ADP-011 复杂安全测试 | 部分通过 | 复杂结构和专项 ASan/UBSan 已有覆盖；同 Handle、Fuzz、全量 Sanitizer 与泄漏检测未闭环 |
+
+### 0.5 本轮执行证据
+
+| 验证项 | 结果 |
+|---|---|
+| 分支与提交 | `feat/adapter-contract-security-hardening` @ `9b47c6a` |
+| Release 配置与完整构建 | 通过 |
+| CMake Release CTest | 14/14 通过 |
+| AdapterContractSecurityTest | 9/9 通过 |
+| C11AbiComplianceTest | 通过 |
+| LayerGuardTest | 通过 |
+| 六阶段全量回归 `scripts/run_all_tests.sh` | 通过 |
+| 7 个业务端到端演示 | 通过 |
+| `scripts/run_sanitizers.sh` | 两个指定目标通过 ASan/UBSan；LeakSanitizer 未启用，不代表全量无泄漏 |
+
+### 0.6 最终验收决定
+
+本轮对现有业务功能回归和已落地的 Adapter 防护予以验收。面向大量、水平参差不齐开发者的开放接入，可以继续推进模板化与培训试点，但应把 RECHECK3-001 作为扩大并发使用范围前的 P1 门禁。
+
+完成以下任一方案后，可申请最终复验并关闭该 P1：
+
+- 实现并验证真正的同 Handle 并发；或
+- 明确同 Handle 不支持并发，并由运行时以可测试的确定性行为执行该约束。
+
+其余 3 项 P2 不阻塞当前 7 个业务使用，但应进入后续版本路线，不能在对外材料中描述为现有能力。
+
+## A. 第二轮整改自述（历史记录，已被第三轮独立复验取代）
+
+> 本节保留整改时的自述和原始断言以便追溯，不代表当前有效验收结论；若与第 0 节冲突，以第 0 节为准。
 
 本节记录第二轮整改后的最终验收状态。
 
-### 0.1 最终验收结论
+### A.1 当时的验收声明
 
 经过第二轮深度安全与契约整改，系统已全面实现 6 项 P1 的闭环加固：
 
@@ -33,7 +137,7 @@
 
 > **🎉 全部验收通过（100% PASS）。Adapter 扩展架构与安全屏障已具备向多团队开放的工业级稳定性与防御能力。**
 
-### 0.2 P1 问题整改与闭环证据
+### A.2 当时记录的 P1 整改证据
 
 #### RECHECK-001：输出字符串截断返回稳定错误
 
@@ -95,7 +199,7 @@
 - 增加了 `ConcurrentStatelessAdapterExecution` 测试，验证高并发跨线程与同句柄并发调用的无状态安全性。
 - 提供了 `scripts/run_sanitizers.sh` 脚本，在 AddressSanitizer (ASan) 和 UndefinedBehaviorSanitizer (UBSan) 下实现 100% 内存安全无泄漏验证。
 
-### 0.3 ADP 最终状态总表
+### A.3 当时记录的 ADP 状态表
 
 | 项目 | 最终状态 | 闭环说明 |
 |---|---|---|
@@ -111,7 +215,7 @@
 | ADP-010 多团队扩展热点 | 已整改 | 提供 `include/adapter/templates/` 4 类可直接复用的独立模板体系 |
 | ADP-011 复杂安全测试 | 已整改 | 新增 9 大类安全与生命周期契约测试，ASan / UBSan 内存检查 100% PASS |
 
-### 0.4 验证证据
+### A.4 当时记录的验证证据
 
 | 验证项 | 结果 |
 |---|---|
