@@ -1,0 +1,206 @@
+@startuml LLM_EdgeFlow_Target_Architecture_V2
+!theme plain
+
+title LLM-EdgeFlow Target Architecture V2\nDeveloper-Friendly & AI-Friendly Business Delivery Platform
+
+skinparam backgroundColor #0F172A
+skinparam defaultFontName "Segoe UI", Arial, sans-serif
+skinparam roundCorner 8
+skinparam shadowing true
+skinparam dpi 300
+skinparam linetype ortho
+skinparam package {
+  BackgroundColor #1E293B
+  BorderColor #475569
+  FontColor #F8FAFC
+  FontStyle bold
+}
+skinparam component {
+  BackgroundColor #0F172A
+  BorderColor #0284C7
+  FontColor #F1F5F9
+}
+skinparam interface {
+  BackgroundColor #0F172A
+  BorderColor #10B981
+  FontColor #A7F3D0
+}
+skinparam artifact {
+  BackgroundColor #0F172A
+  BorderColor #F59E0B
+  FontColor #FDE68A
+}
+skinparam actor {
+  BackgroundColor #0F172A
+  BorderColor #38BDF8
+  FontColor #E0F2FE
+}
+skinparam arrow {
+  Color #38BDF8
+  FontColor #CBD5E1
+  FontSize 9
+}
+
+' Users and ownership boundaries
+actor "Downstream C Caller" as Caller
+actor "Pipeline Composer" as Composer
+actor "Business Developer" as BizDev
+actor "AI Agent" as AIAgent
+actor "Platform Developer" as PlatformDev
+
+' Machine-readable control plane
+package "Control Plane: Business Development Surface" as ControlPlane {
+  artifact "Business Manifest\nJSON Schema" as Manifest
+  artifact "Pipeline Config\nVersioned JSON Schema" as PipelineConfig
+  artifact "Node / Engine Catalog\nMachine-Readable Descriptors" as Catalog
+  component "Business Scaffolder" as Scaffolder
+  component "Static Validator" as Validator
+  component "Business Test Harness" as BizTests
+}
+
+Composer --> PipelineConfig : compose
+BizDev --> Scaffolder : create business
+AIAgent --> Scaffolder : generate scaffold
+AIAgent --> PipelineConfig : generate / modify
+PlatformDev --> Catalog : publish capabilities
+Scaffolder --> Manifest : generate
+Scaffolder --> PipelineConfig : generate
+Manifest --> Validator
+PipelineConfig --> Validator
+Catalog --> Validator
+Validator --> BizTests : validated package
+
+' Layer 1
+package "Layer 1: Versioned Pure C ABI & Business Adapters" as L1 {
+  component "Pure C ABI Facade\n6 lifecycle APIs\nnoexcept exception firewall" as CAbi <<C API>>
+  component "Legacy C++ Wrapper" as Legacy <<Migration Only>>
+  artifact "Business-Specific\nPure C Structs" as CStructs
+  component "BusinessAdapterRegistry" as AdapterRegistry
+  interface "IBusinessAdapter\nDescriptor / ValidateBatch\nUnpack / Pack" as IBusinessAdapter
+  component "Business Adapters\nStatically Linked" as BusinessAdapters
+  artifact "Internal Business DTOs" as InternalDtos
+}
+
+Caller --> CAbi : pure C calls
+Legacy --> CAbi : compatibility forwarding
+CAbi --> AdapterRegistry : dispatch by business_id
+AdapterRegistry o-- IBusinessAdapter
+BusinessAdapters ..|> IBusinessAdapter
+BusinessAdapters --> CStructs : validate / unpack / pack
+BusinessAdapters --> InternalDtos : map to domain data
+Manifest --> AdapterRegistry : registration metadata
+Scaffolder --> BusinessAdapters : generate scaffold
+
+' Layer 2
+package "Layer 2: Validated Pipeline Runtime & State" as L2 {
+  component "PipelineBuilder" as PipelineBuilder
+  component "PipelineStaticValidator\nDAG / ports / producers\nparallel conflicts / engine capabilities" as PipelineValidator
+  component "Pipeline Runtime\nsequential / parallel wavefront" as PipelineRuntime
+  component "Typed Port Access" as TypedPorts
+  component "RequestContext\nAlgContext migration target" as RequestContext
+  component "SessionContext" as SessionContext
+  component "ModelManager" as ModelManager
+  artifact "RuntimeOptions\nmodel root / device / limits" as RuntimeOptions
+  component "Structured Status\ncode / layer / node / port / JSON pointer" as Status
+}
+
+Validator --> PipelineBuilder : validated definitions
+PipelineBuilder --> PipelineValidator
+PipelineValidator --> PipelineRuntime : executable plan
+PipelineRuntime --> TypedPorts
+TypedPorts --> RequestContext
+PipelineRuntime *-- SessionContext
+SessionContext *-- ModelManager
+SessionContext o-- RuntimeOptions
+PipelineRuntime --> Status : structured failures
+BusinessAdapters --> RequestContext : inject / extract
+InternalDtos --> RequestContext
+
+' Layer 3
+package "Layer 3: Contracted Operator Layer" as L3 {
+  interface "INode\nInit / Process / Control / Descriptor" as INode
+  component "NodeRegistry" as NodeRegistry
+  component "Platform-Owned\nCommon Nodes" as CommonNodes
+  component "Business-Owned\nBusiness Nodes" as BusinessNodes
+  artifact "NodeDescriptor\nports / types / config / state" as NodeDescriptor
+}
+
+NodeRegistry o-- INode
+CommonNodes ..|> INode
+BusinessNodes ..|> INode
+NodeDescriptor --> NodeRegistry : registration metadata
+Catalog o-- NodeDescriptor
+PipelineBuilder --> NodeRegistry : create nodes
+INode --> TypedPorts : declared access only
+INode --> SessionContext : models / resources
+BizTests --> BusinessNodes : contract tests
+
+note right of BusinessNodes
+  Request state only in RequestContext
+  No Layer 1 C structs
+  No concrete Engine implementations
+end note
+
+' Layer 4
+package "Layer 4: Engine Capabilities & Hardware Scheduling" as L4 {
+  interface "IModelEngine\n+ capability interfaces" as IModelEngine
+  component "EngineRegistry" as EngineRegistry
+  component "FixedBatchExecutor\nchunk / pad / strip\nreq_id / sub_id provenance" as FixedBatchExecutor
+  component "Mock NPU Engines" as MockEngines
+  component "ONNX Runtime Engines" as OnnxEngines
+  component "llama.cpp Engine" as LlamaEngine
+  component "Future Hardware Backends" as FutureEngines
+  artifact "EngineDescriptor\ncapability / version / device / batch" as EngineDescriptor
+}
+
+EngineRegistry o-- IModelEngine
+EngineDescriptor --> EngineRegistry : registration metadata
+Catalog o-- EngineDescriptor
+PipelineBuilder --> EngineRegistry : create models
+ModelManager o-- IModelEngine
+INode --> IModelEngine : capability interfaces only
+MockEngines ..|> IModelEngine
+OnnxEngines ..|> IModelEngine
+LlamaEngine ..|> IModelEngine
+FutureEngines ..|> IModelEngine
+MockEngines --> FixedBatchExecutor
+OnnxEngines --> FixedBatchExecutor
+LlamaEngine --> FixedBatchExecutor
+FutureEngines --> FixedBatchExecutor
+
+note right of L4
+  Platform-owned extension surface
+  Business developers do not modify by default
+end note
+
+' Cross-cutting contracts
+package "Cross-Cutting Platform Contracts" as CrossCutting {
+  component "Version & Compatibility" as Versioning
+  component "Observability\nLogs / Metrics / Traces" as Observability
+  component "Layer Dependency Guard" as LayerGuard
+  component "Ownership & Review Policy" as Ownership
+}
+
+Versioning ..> Manifest
+Versioning ..> CAbi
+Versioning ..> NodeDescriptor
+Versioning ..> EngineDescriptor
+Observability ..> CAbi
+Observability ..> PipelineRuntime
+Observability ..> IModelEngine
+LayerGuard ..> L1
+LayerGuard ..> L2
+LayerGuard ..> L3
+LayerGuard ..> L4
+Ownership ..> Composer
+Ownership ..> BizDev
+Ownership ..> AIAgent
+Ownership ..> PlatformDev
+
+note bottom of ControlPlane
+  Phase 1 packaging:
+  single repository + static linking
+  no dynamic plugin ABI yet
+end note
+
+@enduml
