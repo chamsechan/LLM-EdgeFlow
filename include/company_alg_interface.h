@@ -155,6 +155,12 @@ typedef struct {
   int status_code;        // 0: 成功, 其他: 失败
 } CompanyRerankBatchOutputStruct;
 
+#ifdef __cplusplus
+#define COMPANY_ALG_NOEXCEPT noexcept
+#else
+#define COMPANY_ALG_NOEXCEPT
+#endif
+
 // -------------------------------------------------------------
 // 公司统一限定导出的 6 大标准纯 C 接口 (ABI V2)
 // -------------------------------------------------------------
@@ -162,14 +168,15 @@ typedef struct {
 /**
  * @brief 全局资源初始化 (进程级)
  */
-int Alg_Init(void);
+int Alg_Init(void) COMPANY_ALG_NOEXCEPT;
 
 /**
  * @brief 创建算法处理句柄实例 (会话级)
  * @param[out] hndl 返回的句柄指针
  * @param[in] param_create 创建参数
  */
-int Alg_Create(void** hndl, const CompanyAlgParamCreate* param_create);
+int Alg_Create(void** hndl,
+               const CompanyAlgParamCreate* param_create) COMPANY_ALG_NOEXCEPT;
 
 /**
  * @brief 批量执行算法计算 (纯 C 标准批处理接口)
@@ -180,22 +187,23 @@ int Alg_Create(void** hndl, const CompanyAlgParamCreate* param_create);
  * @param[in,out] num_outputs 输入为 outputs 容量，输出为实际填充的样本数量
  */
 int Alg_Process(void* hndl, const void** inputs, int num_inputs, void** outputs,
-                int* num_outputs);
+                int* num_outputs) COMPANY_ALG_NOEXCEPT;
 
 /**
  * @brief 运行时动态控制或参数调整
  */
-int Alg_Control(void* hndl, const CompanyAlgParamControl* param_control);
+int Alg_Control(void* hndl, const CompanyAlgParamControl* param_control)
+    COMPANY_ALG_NOEXCEPT;
 
 /**
  * @brief 销毁算法句柄实例
  */
-int Alg_Destroy(void* hndl);
+int Alg_Destroy(void* hndl) COMPANY_ALG_NOEXCEPT;
 
 /**
  * @brief 全局资源释放 (进程级)
  */
-int Alg_DeInit(void);
+int Alg_DeInit(void) COMPANY_ALG_NOEXCEPT;
 
 #ifdef __cplusplus
 }

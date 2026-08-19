@@ -20,22 +20,31 @@ struct AlgHandleInstance {
 
 extern "C" {
 
-int Alg_Init(void) {
-  std::cout
-      << "[Company C Adapter] Alg_Init: Global runtime resources initialized."
-      << std::endl;
-  return 0;
+int Alg_Init(void) COMPANY_ALG_NOEXCEPT {
+  try {
+    std::cout
+        << "[Company C Adapter] Alg_Init: Global runtime resources initialized."
+        << std::endl;
+    return 0;
+  } catch (const std::exception& e) {
+    std::cerr << "[Company C Adapter] Alg_Init exception: " << e.what()
+              << std::endl;
+    return -99;
+  } catch (...) {
+    return -100;
+  }
 }
 
-int Alg_Create(void** hndl, const CompanyAlgParamCreate* param_create) {
-  if (!hndl || !param_create) {
-    std::cerr
-        << "[Company C Adapter] Alg_Create failed: Null pointer arguments."
-        << std::endl;
-    return -1;
-  }
-
+int Alg_Create(void** hndl,
+               const CompanyAlgParamCreate* param_create) COMPANY_ALG_NOEXCEPT {
   try {
+    if (!hndl || !param_create) {
+      std::cerr
+          << "[Company C Adapter] Alg_Create failed: Null pointer arguments."
+          << std::endl;
+      return -1;
+    }
+
     auto instance = std::make_unique<AlgHandleInstance>();
     instance->biz_type = param_create->biz_type;
     instance->device_id = param_create->device_id;
@@ -48,6 +57,7 @@ int Alg_Create(void** hndl, const CompanyAlgParamCreate* param_create) {
         param_create->config_file_path ? param_create->config_file_path : "";
     options.model_root_dir = instance->model_root_dir;
     options.device_id = instance->device_id;
+    options.has_device_id = (instance->device_id >= 0);
     options.biz_type = static_cast<int>(instance->biz_type);
 
     instance->pipeline->GetSessionContext().SetRuntimeOptions(options);
@@ -85,21 +95,26 @@ int Alg_Create(void** hndl, const CompanyAlgParamCreate* param_create) {
 }
 
 int Alg_Process(void* hndl, const void** inputs, int num_inputs, void** outputs,
-                int* num_outputs) {
-  if (!hndl) {
-    std::cerr << "[Company C Adapter] Alg_Process failed: Null handle."
-              << std::endl;
-    return -1;
-  }
-  if (!inputs || num_inputs <= 0) {
-    std::cerr << "[Company C Adapter] Alg_Process failed: Empty inputs."
-              << std::endl;
-    return -2;
-  }
-
-  auto* instance = static_cast<AlgHandleInstance*>(hndl);
-
+                int* num_outputs) COMPANY_ALG_NOEXCEPT {
   try {
+    if (!hndl) {
+      std::cerr << "[Company C Adapter] Alg_Process failed: Null handle."
+                << std::endl;
+      return -1;
+    }
+    if (!inputs || num_inputs <= 0) {
+      std::cerr << "[Company C Adapter] Alg_Process failed: Empty inputs."
+                << std::endl;
+      return -2;
+    }
+    if (!outputs || !num_outputs || *num_outputs < 0) {
+      std::cerr
+          << "[Company C Adapter] Alg_Process failed: Invalid output pointers."
+          << std::endl;
+      return -4;
+    }
+
+    auto* instance = static_cast<AlgHandleInstance*>(hndl);
     CompanyAlgBizType lookup_type = instance->biz_type;
     if (lookup_type == ALG_BIZ_TYPE_UNKNOWN) {
       lookup_type = ALG_BIZ_TYPE_DOC_QA;
@@ -145,36 +160,53 @@ int Alg_Process(void* hndl, const void** inputs, int num_inputs, void** outputs,
   }
 }
 
-int Alg_Control(void* hndl, const CompanyAlgParamControl* param_control) {
-  if (!hndl || !param_control) return -1;
-  if (!param_control->json_param_str) return -2;
+int Alg_Control(void* hndl, const CompanyAlgParamControl* param_control)
+    COMPANY_ALG_NOEXCEPT {
   try {
+    if (!hndl || !param_control) return -1;
+    if (!param_control->json_param_str) return -2;
     auto* instance = static_cast<AlgHandleInstance*>(hndl);
     return instance->pipeline->Control(param_control->control_cmd,
                                        param_control->json_param_str);
-  } catch (...) {
+  } catch (const std::exception& e) {
+    std::cerr << "[Company C Adapter] Alg_Control exception: " << e.what()
+              << std::endl;
     return -99;
+  } catch (...) {
+    return -100;
   }
 }
 
-int Alg_Destroy(void* hndl) {
-  if (!hndl) return -1;
+int Alg_Destroy(void* hndl) COMPANY_ALG_NOEXCEPT {
   try {
+    if (!hndl) return -1;
     auto* instance = static_cast<AlgHandleInstance*>(hndl);
     std::cout << "[Company C Adapter] Alg_Destroy: Destroying handle at "
               << hndl << std::endl;
     delete instance;
     return 0;
-  } catch (...) {
+  } catch (const std::exception& e) {
+    std::cerr << "[Company C Adapter] Alg_Destroy exception: " << e.what()
+              << std::endl;
     return -99;
+  } catch (...) {
+    return -100;
   }
 }
 
-int Alg_DeInit(void) {
-  std::cout
-      << "[Company C Adapter] Alg_DeInit: Global runtime resources released."
-      << std::endl;
-  return 0;
+int Alg_DeInit(void) COMPANY_ALG_NOEXCEPT {
+  try {
+    std::cout
+        << "[Company C Adapter] Alg_DeInit: Global runtime resources released."
+        << std::endl;
+    return 0;
+  } catch (const std::exception& e) {
+    std::cerr << "[Company C Adapter] Alg_DeInit exception: " << e.what()
+              << std::endl;
+    return -99;
+  } catch (...) {
+    return -100;
+  }
 }
 
 }  // extern "C"
