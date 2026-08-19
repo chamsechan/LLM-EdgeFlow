@@ -10,6 +10,16 @@
 namespace alg_framework {
 
 /**
+ * @brief 句柄级运行时配置与资源参数
+ */
+struct RuntimeOptions {
+  std::string config_file_path;
+  std::string model_root_dir;
+  int device_id = 0;
+  int biz_type = 0;
+};
+
+/**
  * @brief 单句柄持有的模型实例资源池
  */
 class ModelManager {
@@ -46,6 +56,7 @@ class ModelManager {
  * 负责存放：
  * 1. 句柄加载的多个模型实例 (ModelManager)
  * 2. 句柄级全局资源 (共享词典、预分配缓存、全局配置等)
+ * 3. 句柄运行时参数 (RuntimeOptions: model_root_dir, device_id 等)
  */
 class SessionContext {
  public:
@@ -54,6 +65,11 @@ class SessionContext {
 
   ModelManager& GetModelManager() { return model_manager_; }
   const ModelManager& GetModelManager() const { return model_manager_; }
+
+  void SetRuntimeOptions(const RuntimeOptions& options) {
+    runtime_options_ = options;
+  }
+  const RuntimeOptions& GetRuntimeOptions() const { return runtime_options_; }
 
   template <typename T>
   void SetResource(const std::string& key, std::shared_ptr<T> resource) {
@@ -70,6 +86,7 @@ class SessionContext {
  private:
   ModelManager model_manager_;
   std::unordered_map<std::string, std::shared_ptr<void>> resources_;
+  RuntimeOptions runtime_options_;
 };
 
 }  // namespace alg_framework

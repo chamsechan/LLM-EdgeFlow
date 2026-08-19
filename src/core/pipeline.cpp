@@ -177,6 +177,23 @@ bool Pipeline::BuildFromJson(const nlohmann::json& root_config) {
         return false;
       }
 
+      // 根据 RuntimeOptions 自动解析相对模型路径并注入 device_id
+      std::string resolved_model_path = model_path;
+      const auto& options = session_ctx_.GetRuntimeOptions();
+      if (!model_path.empty() && model_path[0] != '/' &&
+          !options.model_root_dir.empty()) {
+        std::string root = options.model_root_dir;
+        if (root.back() != '/') root += '/';
+        std::string candidate_path = root + model_path;
+        std::ifstream test_f(candidate_path);
+        if (test_f.good()) {
+          resolved_model_path = candidate_path;
+        }
+      }
+      if (!custom_cfg.contains("device_id") && options.device_id != 0) {
+        custom_cfg["device_id"] = options.device_id;
+      }
+
       auto engine = EngineFactory::Instance().Create(engine_type);
       if (!engine) {
         std::cerr << "[Pipeline] Unknown engine_type: " << engine_type
@@ -184,9 +201,9 @@ bool Pipeline::BuildFromJson(const nlohmann::json& root_config) {
         return false;
       }
 
-      if (!engine->Load(model_path, custom_cfg)) {
+      if (!engine->Load(resolved_model_path, custom_cfg)) {
         std::cerr << "[Pipeline] Failed to load model: " << model_id
-                  << " at path: " << model_path << std::endl;
+                  << " at path: " << resolved_model_path << std::endl;
         return false;
       }
 
