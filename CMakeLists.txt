@@ -11,6 +11,14 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 # 编译选项
 add_compile_options(-Wall -Wextra -O2 -fPIC)
 
+option(ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
+if(ENABLE_SANITIZERS)
+  message(STATUS "Enabling AddressSanitizer and UndefinedBehaviorSanitizer (-fsanitize=address,undefined)")
+  add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
+  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=address,undefined")
+  set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -fsanitize=address,undefined")
+endif()
+
 # 头文件搜索路径
 include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}
