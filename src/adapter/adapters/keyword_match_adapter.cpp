@@ -17,16 +17,15 @@ class KeywordMatchAdapter : public IBusinessAdapter {
   const char* BizName() const override { return "KeywordMatch"; }
 
   const AdapterDescriptor& GetDescriptor() const override {
-    static AdapterDescriptor desc{
-        ALG_BIZ_TYPE_KEYWORD_MATCH,
-        "KeywordMatch",
-        "2.0.0",
-        "CompanyKeywordInputStruct",
-        "CompanyKeywordOutputStruct",
-        64,
-        OwnershipPolicy::kCopyIn,
-        ThreadModel::kStatelessThreadSafe,
-        OutputCardinality::kOneToOne};
+    static AdapterDescriptor desc{ALG_BIZ_TYPE_KEYWORD_MATCH,
+                                  "KeywordMatch",
+                                  "2.0.0",
+                                  "CompanyKeywordInputStruct",
+                                  "CompanyKeywordOutputStruct",
+                                  64,
+                                  OwnershipPolicy::kCopyIn,
+                                  ThreadModel::kStatelessThreadSafe,
+                                  OutputCardinality::kOneToOne};
     return desc;
   }
 

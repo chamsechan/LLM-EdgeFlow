@@ -17,16 +17,15 @@ class AudioAsrIntentAdapter : public IBusinessAdapter {
   const char* BizName() const override { return "AudioAsrIntent"; }
 
   const AdapterDescriptor& GetDescriptor() const override {
-    static AdapterDescriptor desc{
-        ALG_BIZ_TYPE_AUDIO_ASR_INTENT,
-        "AudioAsrIntent",
-        "2.0.0",
-        "CompanyAudioInputStruct",
-        "CompanyAudioOutputStruct",
-        64,
-        OwnershipPolicy::kCopyIn,
-        ThreadModel::kStatelessThreadSafe,
-        OutputCardinality::kOneToOne};
+    static AdapterDescriptor desc{ALG_BIZ_TYPE_AUDIO_ASR_INTENT,
+                                  "AudioAsrIntent",
+                                  "2.0.0",
+                                  "CompanyAudioInputStruct",
+                                  "CompanyAudioOutputStruct",
+                                  64,
+                                  OwnershipPolicy::kCopyIn,
+                                  ThreadModel::kStatelessThreadSafe,
+                                  OutputCardinality::kOneToOne};
     return desc;
   }
 

@@ -18,7 +18,8 @@ namespace alg_framework {
  *    - 必须在 Pipeline Execute 前调用，杜绝容量不足时无效执行模型推理；
  *    - 检查 num_inputs > 0 且不超过 max_batch_size (超出确定性返回 -3)；
  *    - 检查每一个 inputs[i] 非空 (包含空槽位确定性返回 -3)；
- *    - 检查 *num_outputs 容量 >= required_count (不足时回填所需容量并确定性返回 -4)；
+ *    - 检查 *num_outputs 容量 >= required_count (不足时回填所需容量并确定性返回
+ * -4)；
  *    - 检查每一个 outputs[i] 非空 (包含空槽位确定性返回 -4)。
  * 2. 字段级安全解析工具 (ADP-001, ADP-005)：
  *    - RequireNotNull: 非空指针检查与字段路径诊断；
@@ -157,10 +158,10 @@ class AdapterValidationHelper {
                            AdapterStatus* out_status = nullptr) {
     if (val < min_val || val > max_val) {
       if (out_status) {
-        std::string msg = "Field value out of range (val=" +
-                          std::to_string(val) + ", allowed=[" +
-                          std::to_string(min_val) + ", " +
-                          std::to_string(max_val) + "])";
+        std::string msg =
+            "Field value out of range (val=" + std::to_string(val) +
+            ", allowed=[" + std::to_string(min_val) + ", " +
+            std::to_string(max_val) + "])";
         *out_status = AdapterStatus::InvalidInput(
             std::move(msg), field_path ? field_path : "", sample_idx,
             biz_name ? biz_name : "");
@@ -201,8 +202,7 @@ class AdapterValidationHelper {
       if (out_status) {
         *out_status = AdapterStatus::InvalidInput(
             "Integer overflow detected in byte size calculation",
-            field_path ? field_path : "", sample_idx,
-            biz_name ? biz_name : "");
+            field_path ? field_path : "", sample_idx, biz_name ? biz_name : "");
       }
       return false;
     }
@@ -212,8 +212,7 @@ class AdapterValidationHelper {
         *out_status = AdapterStatus::InvalidInput(
             "Total byte size (" + std::to_string(total_bytes) +
                 ") exceeds max limit (" + std::to_string(max_bytes) + ")",
-            field_path ? field_path : "", sample_idx,
-            biz_name ? biz_name : "");
+            field_path ? field_path : "", sample_idx, biz_name ? biz_name : "");
       }
       return false;
     }
@@ -239,11 +238,9 @@ class AdapterValidationHelper {
       dst[dst_size - 1] = '\0';
       if (out_status) {
         *out_status = AdapterStatus::InvalidInput(
-            "String truncated during copy (src_len=" +
-                std::to_string(src_len) +
+            "String truncated during copy (src_len=" + std::to_string(src_len) +
                 ", dst_capacity=" + std::to_string(dst_size) + ")",
-            field_path ? field_path : "", sample_idx,
-            biz_name ? biz_name : "");
+            field_path ? field_path : "", sample_idx, biz_name ? biz_name : "");
       }
       return false;
     }

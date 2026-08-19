@@ -17,16 +17,15 @@ class EntityExtractAdapter : public IBusinessAdapter {
   const char* BizName() const override { return "EntityExtract"; }
 
   const AdapterDescriptor& GetDescriptor() const override {
-    static AdapterDescriptor desc{
-        ALG_BIZ_TYPE_ENTITY_EXTRACT,
-        "EntityExtract",
-        "2.0.0",
-        "CompanyEntityInputStruct",
-        "CompanyEntityOutputStruct",
-        64,
-        OwnershipPolicy::kCopyIn,
-        ThreadModel::kStatelessThreadSafe,
-        OutputCardinality::kOneToOne};
+    static AdapterDescriptor desc{ALG_BIZ_TYPE_ENTITY_EXTRACT,
+                                  "EntityExtract",
+                                  "2.0.0",
+                                  "CompanyEntityInputStruct",
+                                  "CompanyEntityOutputStruct",
+                                  64,
+                                  OwnershipPolicy::kCopyIn,
+                                  ThreadModel::kStatelessThreadSafe,
+                                  OutputCardinality::kOneToOne};
     return desc;
   }
 

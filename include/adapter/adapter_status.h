@@ -12,17 +12,19 @@ namespace alg_framework {
  * @brief 输入内存所有权策略契约 (ADP-002)
  */
 enum class OwnershipPolicy {
-  kCopyIn = 0,               // 默认策略：Unpack 将外部数据完整复制到内部 DTO/Buffer
-  kBorrowDuringProcess = 1,  // 借用策略：仅在本次同步 Alg_Process 期间借用指针，调用返回后绝不留存
-  kRetainWithCallback = 2    // 跨调用异步持有 (暂未开放)
+  kCopyIn = 0,  // 默认策略：Unpack 将外部数据完整复制到内部 DTO/Buffer
+  kBorrowDuringProcess =
+      1,  // 借用策略：仅在本次同步 Alg_Process 期间借用指针，调用返回后绝不留存
+  kRetainWithCallback = 2  // 跨调用异步持有 (暂未开放)
 };
 
 /**
  * @brief 适配器线程与状态模型契约 (ADP-003)
  */
 enum class ThreadModel {
-  kStatelessThreadSafe = 0,   // 强制无状态：Adapter 为单例并在所有句柄与线程间安全并发共享
-  kStatefulHandleIsolated = 1 // 有状态：每个句柄独立拥有 Adapter 实例
+  kStatelessThreadSafe =
+      0,  // 强制无状态：Adapter 为单例并在所有句柄与线程间安全并发共享
+  kStatefulHandleIsolated = 1  // 有状态：每个句柄独立拥有 Adapter 实例
 };
 
 /**
@@ -40,8 +42,7 @@ enum class OutputCardinality {
  */
 class AdapterStatus {
  public:
-  AdapterStatus()
-      : code_(COMPANY_ALG_SUCCESS), sample_index_(-1) {}
+  AdapterStatus() : code_(COMPANY_ALG_SUCCESS), sample_index_(-1) {}
 
   AdapterStatus(int code, std::string message, std::string field_path = "",
                 int sample_index = -1, std::string biz_name = "")

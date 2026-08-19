@@ -15,16 +15,15 @@ class DocQaAdapter : public IBusinessAdapter {
   const char* BizName() const override { return "DocQA"; }
 
   const AdapterDescriptor& GetDescriptor() const override {
-    static AdapterDescriptor desc{
-        ALG_BIZ_TYPE_DOC_QA,
-        "DocQA",
-        "2.0.0",
-        "CompanyDocInputStruct",
-        "CompanyDocOutputStruct",
-        64,
-        OwnershipPolicy::kCopyIn,
-        ThreadModel::kStatelessThreadSafe,
-        OutputCardinality::kOneToOne};
+    static AdapterDescriptor desc{ALG_BIZ_TYPE_DOC_QA,
+                                  "DocQA",
+                                  "2.0.0",
+                                  "CompanyDocInputStruct",
+                                  "CompanyDocOutputStruct",
+                                  64,
+                                  OwnershipPolicy::kCopyIn,
+                                  ThreadModel::kStatelessThreadSafe,
+                                  OutputCardinality::kOneToOne};
     return desc;
   }
 

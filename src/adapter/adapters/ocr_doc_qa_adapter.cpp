@@ -15,16 +15,15 @@ class OcrDocQaAdapter : public IBusinessAdapter {
   const char* BizName() const override { return "OcrDocQA"; }
 
   const AdapterDescriptor& GetDescriptor() const override {
-    static AdapterDescriptor desc{
-        ALG_BIZ_TYPE_OCR_DOC_QA,
-        "OcrDocQA",
-        "2.0.0",
-        "CompanyOcrDocInputStruct",
-        "CompanyOcrDocOutputStruct",
-        64,
-        OwnershipPolicy::kCopyIn,
-        ThreadModel::kStatelessThreadSafe,
-        OutputCardinality::kOneToOne};
+    static AdapterDescriptor desc{ALG_BIZ_TYPE_OCR_DOC_QA,
+                                  "OcrDocQA",
+                                  "2.0.0",
+                                  "CompanyOcrDocInputStruct",
+                                  "CompanyOcrDocOutputStruct",
+                                  64,
+                                  OwnershipPolicy::kCopyIn,
+                                  ThreadModel::kStatelessThreadSafe,
+                                  OutputCardinality::kOneToOne};
     return desc;
   }
 

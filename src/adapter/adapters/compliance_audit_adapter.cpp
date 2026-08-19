@@ -17,16 +17,15 @@ class ComplianceAuditAdapter : public IBusinessAdapter {
   const char* BizName() const override { return "ComplianceAudit"; }
 
   const AdapterDescriptor& GetDescriptor() const override {
-    static AdapterDescriptor desc{
-        ALG_BIZ_TYPE_COMPLIANCE_AUDIT,
-        "ComplianceAudit",
-        "2.0.0",
-        "CompanyAuditInputStruct",
-        "CompanyAuditOutputStruct",
-        64,
-        OwnershipPolicy::kCopyIn,
-        ThreadModel::kStatelessThreadSafe,
-        OutputCardinality::kOneToOne};
+    static AdapterDescriptor desc{ALG_BIZ_TYPE_COMPLIANCE_AUDIT,
+                                  "ComplianceAudit",
+                                  "2.0.0",
+                                  "CompanyAuditInputStruct",
+                                  "CompanyAuditOutputStruct",
+                                  64,
+                                  OwnershipPolicy::kCopyIn,
+                                  ThreadModel::kStatelessThreadSafe,
+                                  OutputCardinality::kOneToOne};
     return desc;
   }
 
