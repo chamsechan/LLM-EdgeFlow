@@ -1,8 +1,8 @@
 #ifndef COMPANY_ALG_INTERFACE_H_
 #define COMPANY_ALG_INTERFACE_H_
 
-#include <cstdint>
-#include <vector>
+#include <stddef.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -133,8 +133,7 @@ typedef struct {
 typedef struct {
   uint64_t request_id;          // 对应的外部请求 ID
   char transcribed_text[512];   // ASR 识别出的自然语言文本
-  char intent_slot_json[1024];  // NLU 解析出的意图与槽位 JSON (如
-                                // {"intent":"NAV","slots":{"dest":"北京"}})
+  char intent_slot_json[1024];  // NLU 解析出的意图与槽位 JSON
   int status_code;              // 0: 成功, 其他: 失败
 } CompanyAudioOutputStruct;
 
@@ -157,13 +156,13 @@ typedef struct {
 } CompanyRerankBatchOutputStruct;
 
 // -------------------------------------------------------------
-// 公司统一限定导出的 6 大标准 C 接口
+// 公司统一限定导出的 6 大标准纯 C 接口 (ABI V2)
 // -------------------------------------------------------------
 
 /**
  * @brief 全局资源初始化 (进程级)
  */
-int Alg_Init();
+int Alg_Init(void);
 
 /**
  * @brief 创建算法处理句柄实例 (会话级)
@@ -173,13 +172,15 @@ int Alg_Init();
 int Alg_Create(void** hndl, const CompanyAlgParamCreate* param_create);
 
 /**
- * @brief 批量执行算法计算
+ * @brief 批量执行算法计算 (纯 C 标准批处理接口)
  * @param[in] hndl 算法句柄
- * @param[in] inputs 多个输入结构体指针的集合 (支持 Batch 处理)
- * @param[out] outputs 对应的多个输出结构体指针的集合
+ * @param[in] inputs 多个输入结构体指针数组
+ * @param[in] num_inputs 输入样本数量
+ * @param[out] outputs 多个输出结构体指针数组
+ * @param[in,out] num_outputs 输入为 outputs 容量，输出为实际填充的样本数量
  */
-int Alg_Process(void* hndl, const std::vector<void*>& inputs,
-                std::vector<void*>& outputs);
+int Alg_Process(void* hndl, const void** inputs, int num_inputs, void** outputs,
+                int* num_outputs);
 
 /**
  * @brief 运行时动态控制或参数调整
@@ -194,10 +195,26 @@ int Alg_Destroy(void* hndl);
 /**
  * @brief 全局资源释放 (进程级)
  */
-int Alg_DeInit();
+int Alg_DeInit(void);
 
 #ifdef __cplusplus
 }
-#endif
+
+// -------------------------------------------------------------
+// C++ 便捷重载包装 (供 C++ 调用方无缝迁移，不破坏现有测试与调用)
+// -------------------------------------------------------------
+#include <vector>
+
+inline int Alg_Process(void* hndl, const std::vector<void*>& inputs,
+                       std::vector<void*>& outputs) {
+  if (!hndl) return -1;
+  if (inputs.empty()) return -2;
+  int num_outputs = static_cast<int>(outputs.size());
+  return Alg_Process(hndl, const_cast<const void**>(inputs.data()),
+                     static_cast<int>(inputs.size()),
+                     outputs.empty() ? nullptr : outputs.data(), &num_outputs);
+}
+
+#endif  // __cplusplus
 
 #endif  // COMPANY_ALG_INTERFACE_H_

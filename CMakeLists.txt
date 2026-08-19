@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.16)
-project(AlgSdkFramework LANGUAGES CXX)
+project(AlgSdkFramework LANGUAGES C CXX)
 
+set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -59,6 +61,13 @@ set(FRAMEWORK_SRCS
     src/business/cross_rerank/rerank_pair_builder_node.cpp
     src/business/cross_rerank/cross_rerank_batch_node.cpp
     src/business/cross_rerank/rerank_sort_post_node.cpp
+    src/adapter/adapters/keyword_match_adapter.cpp
+    src/adapter/adapters/entity_extract_adapter.cpp
+    src/adapter/adapters/doc_qa_adapter.cpp
+    src/adapter/adapters/compliance_audit_adapter.cpp
+    src/adapter/adapters/ocr_doc_qa_adapter.cpp
+    src/adapter/adapters/audio_asr_intent_adapter.cpp
+    src/adapter/adapters/cross_rerank_adapter.cpp
     src/adapter/company_c_adapter.cpp
 )
 
@@ -81,7 +90,12 @@ include(cmake/GoogleTest.cmake)
 add_executable(alg_demo demo/main.cpp)
 target_link_libraries(alg_demo PRIVATE alg_sdk)
 
-# 3. 单元测试与安全性测试集 (基于 Google Test & CTest)
+# 3. 纯 C11 ABI 兼容性测试 (确保头文件为纯 C 且可被标准 C 编译器直接编译)
+add_executable(test_c11_abi_compliance tests/test_c11_abi_compliance.c)
+target_link_libraries(test_c11_abi_compliance PRIVATE alg_sdk)
+add_test(NAME C11AbiComplianceTest COMMAND test_c11_abi_compliance)
+
+# 4. 单元测试与安全性测试集 (基于 Google Test & CTest)
 enable_testing()
 
 add_executable(test_batch_executor tests/test_batch_executor.cpp)
@@ -124,14 +138,15 @@ add_executable(test_engine_fault_tolerance_and_lifecycle tests/test_engine_fault
 target_link_libraries(test_engine_fault_tolerance_and_lifecycle PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
 add_test(NAME EngineFaultToleranceAndLifecycleTest COMMAND test_engine_fault_tolerance_and_lifecycle)
 
-# 4. 纯 C++ 零依赖原生 DAG 可视化工具 (专为无 Python 的极简嵌入式/边缘环境设计)
+# 5. 纯 C++ 零依赖原生 DAG 可视化工具 (专为无 Python 的极简嵌入式/边缘环境设计)
 add_executable(alg_show src/tools/alg_show.cpp)
 target_link_libraries(alg_show PRIVATE nlohmann_json::nlohmann_json)
 
-# 5. 独立物理真实模型端到端测试套件 (阶段性/物理硬件压测，隔离于默认日常 CTest)
+# 6. 独立物理真实模型端到端测试套件 (阶段性/物理硬件压测，隔离于默认日常 CTest)
 option(ENABLE_REAL_MODEL_TESTS "Enable real model weights E2E test suite" OFF)
 add_executable(test_real_models_e2e tests/e2e_real_models/test_real_models_e2e.cpp)
 target_link_libraries(test_real_models_e2e PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
 if(ENABLE_REAL_MODEL_TESTS)
   add_test(NAME RealModelE2ETest COMMAND test_real_models_e2e)
 endif()
+
