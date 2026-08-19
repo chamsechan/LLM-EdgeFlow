@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 
+#include "company_alg_cpp.hpp"
 #include "company_alg_interface.h"
 #include "core/session_context.h"
 #include "engine/engine_interface.h"

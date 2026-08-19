@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 
+#include "company_alg_cpp.hpp"
 #include "company_alg_interface.h"
 #include "engine/engine_interface.h"
 #include "engine/engine_registry.h"

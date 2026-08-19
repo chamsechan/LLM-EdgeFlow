@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "company_alg_cpp.hpp"
 #include "company_alg_interface.h"
 #include "core/alg_context.h"
 #include "core/node_base.h"

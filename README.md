@@ -122,6 +122,13 @@ LLM-EdgeFlow/
 
 ## 📝 更新日志 (Changelog)
 
+- **v2.1.0 (Adapter 契约与内存安全加固交付)** *(2026-08)*
+  - 🛡️ **输出截断防御与容量保护 (RECHECK-001, ADP-005)**：`AdapterValidationHelper::CheckedStringCopy` 在缓冲区容量不足时自动记录结构化诊断并返回 `false`；全部生产 Adapter 及模板严密校验返回值，遇截断即时返回标准错误码 `COMPANY_ALG_ERR_BUFFER_TOO_SMALL` (`-4`)，彻底杜绝静默截断伪成功。
+  - 🔒 **Pipeline 精确白名单与 Fail-Closed 绑定 (RECHECK-002, ADP-006)**：`AdapterDescriptor` 引入 `allowed_pipeline_names` 显式白名单列表；基类 `ValidatePipelineBinding` 实施 Fail-Closed 默认防御，彻底废弃名称模糊子串推断，杜绝恶意或误配置 Pipeline 绑定。
+  - 🚫 **未实现策略注册拦截 (RECHECK-003, ADP-008)**：`BusinessAdapterRegistry` 在注册期严格校验 `ownership_policy`、`thread_model` 和 `cardinality`，非当前支持组合（`kCopyIn + kStatelessThreadSafe + kOneToOne`）直接拒绝注册并标记冲突。
+  - 🩺 **结构化诊断贯通与有界扫描 (RECHECK-004, ADP-001)**：`IBusinessAdapter::Unpack/Pack` 全面引入 `AdapterStatus` 诊断上下文，`Alg_Process` 实时捕获并输出精准的 `field_path`、`sample_index` 和错误码；引入 `RequireBoundedString`（`strnlen`）与 `CheckedMultiply` 数组总字节上限约束。
+  - 🧩 **4 套独立可编译模板事实源 (RECHECK-005, ADP-010)**：在 `include/adapter/templates/` 下发布 Flat Struct、Tagged Union、Nested Dynamic Array、Nested Pointer Tree 4 套现代 C++ 模板头文件并纳入编译器与 CI 门禁，开发指南与技能文件签名 100% 同步。
+  - 🧪 **复杂结构安全契约测试与 Sanitizer 门禁 (RECHECK-006, ADP-011)**：新增 9 组深度安全与生命周期单元测试（涵盖直接外部内存篡改隔离、递归指针树深度熔断、跨线程并发），并提供 `scripts/run_sanitizers.sh` 在 ASan/UBSan 模式下通过全量内存安全验证。
 - **v2.0.0 (Phase 1 架构重构交付)** *(2026-08)*
   - 🛡️ **纯 C11 5 参数指针数组 ABI 体系与 SOVERSION 2 (ARCH-001, ACC-001, ACC-002)**：`include/company_alg_interface.h` 彻底剔除 `<vector>` 等 C++ 符号，采用纯 C 指针数组批处理接口；全量 6 大导出函数严格保证 `COMPANY_ALG_NOEXCEPT` 全异常拦截；SOVERSION 正式升级为 2；新增 C11 原生编译器验证套件 `test_c11_abi_compliance`。
   - 🧩 **独立业务适配器与注册安全防护 (ARCH-003, ACC-003, ACC-005)**：引入 `BusinessAdapterRegistry`，支持 `AdapterDescriptor` 自省与重复注册冲突防护；提供 `AdapterValidationHelper` 统一各业务适配器的批输入与输出缓冲区容量契约（不足时返回 `-4` 并回填所需容量，空指针确定性返回 `-3` / `-4`）。

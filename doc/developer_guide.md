@@ -8,14 +8,16 @@
 
 | 架构层级 | 新增什么？ | 核心修改文件 | 关键宏 / 核心类 |
 | :--- | :--- | :--- | :--- |
-| **Layer 1: C ABI 适配层** | 新增业务枚举、输入/输出纯 C 结构体 | `include/company_alg_interface.h`<br>`src/adapter/company_c_adapter.cpp` | `CompanyAlgBizType`<br>`noexcept` 异常安全屏障 |
+| **Layer 1: C ABI 适配层** | 新增业务枚举、输入/输出纯 C 结构体与专属适配器 | `include/company_alg_interface.h`<br>`src/adapter/adapters/<biz>_adapter.cpp` | `CompanyAlgBizType`<br>`IBusinessAdapter`<br>`REGISTER_BUSINESS_ADAPTER` |
 | **Layer 2: 核心编排层** | 扩展动态黑板、会话模型管理与全局资源 | `include/core/alg_context.h`<br>`include/core/session_context.h` | `AlgContext::Set<T>()`<br>`SessionContext::SetResource()` |
 | **Layer 3: 业务算子池** | 新增前处理/后处理/推理/规则算子 | `src/business/<biz_name>/*.cpp`<br>`src/common_nodes/*.cpp` | `INode`<br>`REGISTER_NODE(NodeName)` |
 | **Layer 4: 异构引擎层** | 接入新芯片或推理后端 (如 Ascend/RKNN/TensorRT) | `include/engine/engine_interface.h`<br>`src/engine/<backend>/*_engine.cpp` | `IModelEngine`<br>`REGISTER_ENGINE(Name, Cls)`<br>`FixedBatchExecutor` |
 
 ---
 
-## 1. Layer 1: 如何新增一个业务的 C ABI 接口
+## 1. Layer 1: 如何新增一个业务的 C ABI 接口与专属 Adapter
+
+> ⚠️ **平台治理红线**：普通业务接入严禁修改中心分发文件 `src/adapter/company_c_adapter.cpp`，必须编写业务专属 Adapter 类并注册。
 
 ### 步骤 1.1: 声明 C 枚举与数据结构 (`include/company_alg_interface.h`)
 ```c
@@ -41,24 +43,109 @@ typedef struct {
 } CompanyCustomOutputStruct;
 ```
 
-### 步骤 1.2: 在适配器中实现解包与打包 (`src/adapter/company_c_adapter.cpp`)
+### 步骤 1.2: 编写业务专属适配器 (`src/adapter/adapters/custom_task_adapter.cpp`)
 ```cpp
-case ALG_BIZ_TYPE_CUSTOM_TASK: {
-    auto* in_struct = static_cast<const CompanyCustomInputStruct*>(inputs[i]);
-    req_ctx.SetRequestId(in_struct->request_id);
-    req_ctx.Set("query_text", std::string(in_struct->query_text));
-    
-    int ret = inst->pipeline->Execute(&req_ctx);
-    if (ret != 0) return ret;
-    
-    auto* out_struct = static_cast<CompanyCustomOutputStruct*>(outputs[i]);
-    out_struct->request_id = in_struct->request_id;
-    auto* res_json = req_ctx.Get<std::string>("custom_result_json");
-    if (res_json) {
-        snprintf(out_struct->result_json, sizeof(out_struct->result_json), "%s", res_json->c_str());
+#include "adapter/adapter_validation_helper.h"
+#include "adapter/business_adapter_registry.h"
+#include "business/custom_task/custom_task_dto.h"
+#include "company_alg_interface.h"
+
+namespace alg_framework {
+
+class CustomTaskAdapter : public IBusinessAdapter {
+ public:
+  CompanyAlgBizType BizType() const override {
+    return ALG_BIZ_TYPE_CUSTOM_TASK;
+  }
+
+  const char* BizName() const override { return "CustomTask"; }
+
+  const AdapterDescriptor& GetDescriptor() const override {
+    static AdapterDescriptor desc{
+        ALG_BIZ_TYPE_CUSTOM_TASK,
+        "CustomTask",
+        "2.0.0",
+        "CompanyCustomInputStruct",
+        "CompanyCustomOutputStruct",
+        64,
+        OwnershipPolicy::kCopyIn,
+        ThreadModel::kStatelessThreadSafe,
+        OutputCardinality::kOneToOne,
+        {"custom_pipeline_v1"}};
+    return desc;
+  }
+
+  int Unpack(const void** inputs, int num_inputs, AlgContext* ctx,
+             AdapterStatus* out_status = nullptr) const override {
+    int valid_ret = AdapterValidationHelper::ValidateBatchInputs(
+        inputs, num_inputs, GetDescriptor().max_batch_size, BizName());
+    if (valid_ret != 0 || !ctx) {
+      if (out_status) {
+        *out_status = AdapterStatus::InvalidInput(
+            "Batch envelope validation failed", "inputs", -1, BizName());
+      }
+      return COMPANY_ALG_ERR_INVALID_INPUT;
     }
-    break;
-}
+
+    std::vector<uint64_t> req_ids;
+    std::vector<std::string> queries;
+    req_ids.reserve(num_inputs);
+    queries.reserve(num_inputs);
+
+    for (int i = 0; i < num_inputs; ++i) {
+      auto* in = static_cast<const CompanyCustomInputStruct*>(inputs[i]);
+      if (!AdapterValidationHelper::RequireNotNull("inputs[i]", in, i, BizName(),
+                                                   out_status)) {
+        return COMPANY_ALG_ERR_INVALID_INPUT;
+      }
+      if (!AdapterValidationHelper::RequireBoundedString(
+              "inputs[i].query_text", in->query_text, 64 * 1024, i, BizName(),
+              out_status)) {
+        return COMPANY_ALG_ERR_INVALID_INPUT;
+      }
+
+      req_ids.push_back(in->request_id);
+      queries.push_back(in->query_text);
+    }
+
+    ctx->Set("raw_request_ids", std::move(req_ids));
+    ctx->Set("query_texts", std::move(queries));
+    return COMPANY_ALG_SUCCESS;
+  }
+
+  int Pack(AlgContext* ctx, void** outputs, int* num_outputs,
+           AdapterStatus* out_status = nullptr) const override {
+    if (!ctx) return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
+
+    auto* res = ctx->Get<std::vector<CustomTaskResult>>("custom_task_outputs");
+    if (!res) return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
+
+    int count = static_cast<int>(res->size());
+    int valid_ret = AdapterValidationHelper::ValidateBatchOutputs(
+        outputs, num_outputs, count, BizName());
+    if (valid_ret != 0) return valid_ret;
+
+    for (int i = 0; i < count; ++i) {
+      auto* out_ptr = static_cast<CompanyCustomOutputStruct*>(outputs[i]);
+      out_ptr->request_id = (*res)[i].request_id;
+      out_ptr->status_code = (*res)[i].status_code;
+
+      // 截断时严格拦截返回 -4
+      if (!AdapterValidationHelper::CheckedStringCopy(
+              out_ptr->result_json, sizeof(out_ptr->result_json),
+              (*res)[i].result_json.c_str(), "outputs[i].result_json", i,
+              BizName(), out_status)) {
+        return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
+      }
+    }
+    *num_outputs = count;
+    return COMPANY_ALG_SUCCESS;
+  }
+};
+
+REGISTER_BUSINESS_ADAPTER(CustomTaskAdapter);
+
+}  // namespace alg_framework
 ```
 
 ---

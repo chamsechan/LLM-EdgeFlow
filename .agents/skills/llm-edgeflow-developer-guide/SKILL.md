@@ -16,7 +16,7 @@ This guide provides a standardized, copy-pasteable cookbook for developers exten
 
 | Layer | What to Add? | Target Files | Key Macro / Mechanism |
 | :--- | :--- | :--- | :--- |
-| **Layer 1: C ABI** | 新业务类型、输入/输出 C 结构体 | `include/company_alg_interface.h`<br>`src/adapter/company_c_adapter.cpp` | `ALG_BIZ_TYPE_*`<br>`noexcept` 异常屏障 |
+| **Layer 1: C ABI** | 新业务类型、输入/输出 C 结构体与专属适配器 | `include/company_alg_interface.h`<br>`src/adapter/adapters/<biz>_adapter.cpp` | `ALG_BIZ_TYPE_*`<br>`IBusinessAdapter`<br>`REGISTER_BUSINESS_ADAPTER` |
 | **Layer 2: Core** | 核心调度、黑板扩展、会话共享资源 | `include/core/alg_context.h`<br>`include/core/session_context.h` | `AlgContext::Set<T>()`<br>`SessionContext::SetResource()` |
 | **Layer 3: Nodes** | 业务专属算子 / 通用公共算子 | `src/business/<biz_name>/*.cpp`<br>`src/common_nodes/*.cpp` | `INode`<br>`REGISTER_NODE(NodeName)` |
 | **Layer 4: Engine** | 新硬件芯片推理后端 (如 Ascend/RKNN/TensorRT) | `include/engine/engine_interface.h`<br>`src/engine/<backend>/*_engine.cpp` | `IModelEngine`<br>`REGISTER_ENGINE(Name, Cls)`<br>`FixedBatchExecutor` |
@@ -63,36 +63,83 @@ class CustomTaskAdapter : public IBusinessAdapter {
   CompanyAlgBizType BizType() const override { return ALG_BIZ_TYPE_CUSTOM_TASK; }
   const char* BizName() const override { return "CustomTask"; }
 
-  int Unpack(const void** inputs, int num_inputs, AlgContext* ctx) override {
-    if (!inputs || num_inputs <= 0 || !ctx) return -3;
+  const AdapterDescriptor& GetDescriptor() const override {
+    static AdapterDescriptor desc{
+        ALG_BIZ_TYPE_CUSTOM_TASK,
+        "CustomTask",
+        "2.0.0",
+        "CompanyCustomInputStruct",
+        "CompanyCustomOutputStruct",
+        64,
+        OwnershipPolicy::kCopyIn,
+        ThreadModel::kStatelessThreadSafe,
+        OutputCardinality::kOneToOne,
+        {"custom_pipeline_v1"}};
+    return desc;
+  }
+
+  int Unpack(const void** inputs, int num_inputs, AlgContext* ctx,
+             AdapterStatus* out_status = nullptr) const override {
+    int valid_ret = AdapterValidationHelper::ValidateBatchInputs(
+        inputs, num_inputs, GetDescriptor().max_batch_size, BizName());
+    if (valid_ret != 0 || !ctx) {
+      if (out_status) {
+        *out_status = AdapterStatus::InvalidInput(
+            "Batch envelope validation failed", "inputs", -1, BizName());
+      }
+      return COMPANY_ALG_ERR_INVALID_INPUT;
+    }
+
     std::vector<uint64_t> req_ids;
     std::vector<std::string> queries;
+    req_ids.reserve(num_inputs);
+    queries.reserve(num_inputs);
+
     for (int i = 0; i < num_inputs; ++i) {
       auto* in = static_cast<const CompanyCustomInputStruct*>(inputs[i]);
-      if (!in) return -3;
+      if (!AdapterValidationHelper::RequireNotNull("inputs[i]", in, i, BizName(),
+                                                   out_status)) {
+        return COMPANY_ALG_ERR_INVALID_INPUT;
+      }
+      if (!AdapterValidationHelper::RequireBoundedString(
+              "inputs[i].query_text", in->query_text, 64 * 1024, i, BizName(),
+              out_status)) {
+        return COMPANY_ALG_ERR_INVALID_INPUT;
+      }
+
       req_ids.push_back(in->request_id);
-      queries.push_back(in->query_text ? in->query_text : "");
+      queries.push_back(in->query_text);
     }
     ctx->Set("raw_request_ids", std::move(req_ids));
     ctx->Set("query_texts", std::move(queries));
-    return 0;
+    return COMPANY_ALG_SUCCESS;
   }
 
-  int Pack(AlgContext* ctx, void** outputs, int* num_outputs) override {
-    if (!ctx || !outputs || !num_outputs || *num_outputs <= 0) return -4;
+  int Pack(AlgContext* ctx, void** outputs, int* num_outputs,
+           AdapterStatus* out_status = nullptr) const override {
+    if (!ctx) return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     auto* res = ctx->Get<std::vector<CustomTaskResult>>("custom_task_outputs");
-    if (!res) return -4;
+    if (!res) return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
+
     int count = static_cast<int>(res->size());
-    for (int i = 0; i < count && i < *num_outputs; ++i) {
+    int valid_ret = AdapterValidationHelper::ValidateBatchOutputs(
+        outputs, num_outputs, count, BizName());
+    if (valid_ret != 0) return valid_ret;
+
+    for (int i = 0; i < count; ++i) {
       auto* out = static_cast<CompanyCustomOutputStruct*>(outputs[i]);
-      if (out) {
-        out->request_id = (*res)[i].request_id;
-        out->status_code = (*res)[i].status_code;
-        strncpy(out->result_json, (*res)[i].result_json.c_str(), sizeof(out->result_json) - 1);
+      out->request_id = (*res)[i].request_id;
+      out->status_code = (*res)[i].status_code;
+
+      if (!AdapterValidationHelper::CheckedStringCopy(
+              out->result_json, sizeof(out->result_json),
+              (*res)[i].result_json.c_str(), "outputs[i].result_json", i,
+              BizName(), out_status)) {
+        return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
       }
     }
     *num_outputs = count;
-    return 0;
+    return COMPANY_ALG_SUCCESS;
   }
 };
 

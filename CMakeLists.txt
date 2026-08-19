@@ -11,6 +11,14 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 # 编译选项
 add_compile_options(-Wall -Wextra -O2 -fPIC)
 
+option(ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
+if(ENABLE_SANITIZERS)
+  message(STATUS "Enabling AddressSanitizer and UndefinedBehaviorSanitizer (-fsanitize=address,undefined)")
+  add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
+  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=address,undefined")
+  set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -fsanitize=address,undefined")
+endif()
+
 # 头文件搜索路径
 include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}
@@ -140,6 +148,10 @@ add_test(NAME RuntimeControlAndHotSwapTest COMMAND test_runtime_control_and_hot_
 add_executable(test_engine_fault_tolerance_and_lifecycle tests/test_engine_fault_tolerance_and_lifecycle.cpp)
 target_link_libraries(test_engine_fault_tolerance_and_lifecycle PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
 add_test(NAME EngineFaultToleranceAndLifecycleTest COMMAND test_engine_fault_tolerance_and_lifecycle)
+
+add_executable(test_adapter_contract_security tests/test_adapter_contract_security.cpp)
+target_link_libraries(test_adapter_contract_security PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME AdapterContractSecurityTest COMMAND test_adapter_contract_security)
 
 # 6. 纯 C++ 零依赖原生 DAG 可视化工具 (专为无 Python 的极简嵌入式/边缘环境设计)
 add_executable(alg_show src/tools/alg_show.cpp)

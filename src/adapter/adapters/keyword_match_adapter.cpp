@@ -17,59 +17,111 @@ class KeywordMatchAdapter : public IBusinessAdapter {
   const char* BizName() const override { return "KeywordMatch"; }
 
   const AdapterDescriptor& GetDescriptor() const override {
-    static AdapterDescriptor desc{ALG_BIZ_TYPE_KEYWORD_MATCH,
-                                  "KeywordMatch",
-                                  "2.0.0",
-                                  "CompanyKeywordInputStruct",
-                                  "CompanyKeywordOutputStruct",
-                                  64};
+    static AdapterDescriptor desc{
+        ALG_BIZ_TYPE_KEYWORD_MATCH,
+        "KeywordMatch",
+        "2.0.0",
+        "CompanyKeywordInputStruct",
+        "CompanyKeywordOutputStruct",
+        64,
+        OwnershipPolicy::kCopyIn,
+        ThreadModel::kStatelessThreadSafe,
+        OutputCardinality::kOneToOne,
+        {"keyword_match_v1"}};  // RECHECK-002: 精确白名单
     return desc;
   }
 
-  int Unpack(const void** inputs, int num_inputs, AlgContext* ctx) override {
+  int Unpack(const void** inputs, int num_inputs, AlgContext* ctx,
+             AdapterStatus* out_status = nullptr) const override {
     int valid_ret = AdapterValidationHelper::ValidateBatchInputs(
-        inputs, num_inputs, BizName());
-    if (valid_ret != 0 || !ctx) return -3;
+        inputs, num_inputs, GetDescriptor().max_batch_size, BizName());
+    if (valid_ret != 0 || !ctx) {
+      if (out_status) {
+        *out_status = AdapterStatus::InvalidInput(
+            "Batch envelope validation failed or null AlgContext", "inputs", -1,
+            BizName());
+      }
+      return COMPANY_ALG_ERR_INVALID_INPUT;
+    }
 
     std::vector<uint64_t> req_ids;
     std::vector<std::string> sentences;
     req_ids.reserve(num_inputs);
     sentences.reserve(num_inputs);
 
+    constexpr size_t kMaxSentenceLen = 64 * 1024;  // 64KB 单文本上限
+
     for (int i = 0; i < num_inputs; ++i) {
       auto* in = static_cast<const CompanyKeywordInputStruct*>(inputs[i]);
+      if (!AdapterValidationHelper::RequireNotNull("inputs[i]", in, i,
+                                                   BizName(), out_status)) {
+        return COMPANY_ALG_ERR_INVALID_INPUT;
+      }
+
+      // ADP-001, RECHECK-004: 有界字符串强校验
+      if (!AdapterValidationHelper::RequireBoundedString(
+              "inputs[i].sentence_text", in->sentence_text, kMaxSentenceLen, i,
+              BizName(), out_status)) {
+        return COMPANY_ALG_ERR_INVALID_INPUT;
+      }
+
       req_ids.push_back(in->request_id);
-      sentences.push_back(in->sentence_text ? in->sentence_text : "");
+      sentences.push_back(in->sentence_text);
     }
 
     ctx->Set("raw_request_ids", std::move(req_ids));
     ctx->Set("input_sentences", std::move(sentences));
-    return 0;
+    return COMPANY_ALG_SUCCESS;
   }
 
-  int Pack(AlgContext* ctx, void** outputs, int* num_outputs) override {
-    if (!ctx) return -4;
+  int Pack(AlgContext* ctx, void** outputs, int* num_outputs,
+           AdapterStatus* out_status = nullptr) const override {
+    if (!ctx) {
+      if (out_status) {
+        *out_status = AdapterStatus::BufferTooSmall(
+            "Null AlgContext passed to Pack", "ctx", -1, BizName());
+      }
+      return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
+    }
 
     auto* res =
         ctx->Get<std::vector<KeywordMatchResult>>("keyword_match_outputs");
-    if (!res) return -4;
+    if (!res) {
+      if (out_status) {
+        *out_status = AdapterStatus::BufferTooSmall(
+            "keyword_match_outputs not found in AlgContext",
+            "keyword_match_outputs", -1, BizName());
+      }
+      return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
+    }
 
     int count = static_cast<int>(res->size());
     int valid_ret = AdapterValidationHelper::ValidateBatchOutputs(
         outputs, num_outputs, count, BizName());
-    if (valid_ret != 0) return valid_ret;
+    if (valid_ret != 0) {
+      if (out_status) {
+        *out_status = AdapterStatus::BufferTooSmall(
+            "Output slots insufficient or null", "outputs", -1, BizName());
+      }
+      return valid_ret;
+    }
 
     for (int i = 0; i < count; ++i) {
       auto* out_ptr = static_cast<CompanyKeywordOutputStruct*>(outputs[i]);
       out_ptr->request_id = (*res)[i].request_id;
       out_ptr->is_hit = (*res)[i].is_hit;
       out_ptr->status_code = (*res)[i].status_code;
-      strncpy(out_ptr->match_result_json, (*res)[i].match_result_json.c_str(),
-              sizeof(out_ptr->match_result_json) - 1);
-      out_ptr->match_result_json[sizeof(out_ptr->match_result_json) - 1] = '\0';
+
+      // RECHECK-001: 严格拦截截断
+      if (!AdapterValidationHelper::CheckedStringCopy(
+              out_ptr->match_result_json, sizeof(out_ptr->match_result_json),
+              (*res)[i].match_result_json.c_str(),
+              "outputs[i].match_result_json", i, BizName(), out_status)) {
+        return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
+      }
     }
     *num_outputs = count;
-    return 0;
+    return COMPANY_ALG_SUCCESS;
   }
 };
 

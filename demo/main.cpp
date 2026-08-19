@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 
+#include "company_alg_cpp.hpp"
 #include "company_alg_interface.h"
 #include "demo/demo_utils.h"
 

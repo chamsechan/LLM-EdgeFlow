@@ -46,6 +46,47 @@ class BusinessAdapterRegistry {
       return false;
     }
 
+    // 冲突与契约检查 0: 必须满足框架当前可执行的 Descriptor 策略 (RECHECK-003,
+    // ADP-008)
+    const auto& desc = adapter->GetDescriptor();
+    if (desc.ownership_policy != OwnershipPolicy::kCopyIn) {
+      has_conflict_ = true;
+      std::string err = "Unsupported OwnershipPolicy in adapter '" +
+                        std::string(adapter->BizName()) +
+                        "': only kCopyIn is currently supported";
+      registration_errors_.push_back(err);
+      std::cerr << "[BusinessAdapterRegistry ERROR] " << err << std::endl;
+      return false;
+    }
+    if (desc.thread_model != ThreadModel::kStatelessThreadSafe) {
+      has_conflict_ = true;
+      std::string err = "Unsupported ThreadModel in adapter '" +
+                        std::string(adapter->BizName()) +
+                        "': only kStatelessThreadSafe is currently supported";
+      registration_errors_.push_back(err);
+      std::cerr << "[BusinessAdapterRegistry ERROR] " << err << std::endl;
+      return false;
+    }
+    if (desc.cardinality != OutputCardinality::kOneToOne) {
+      has_conflict_ = true;
+      std::string err = "Unsupported OutputCardinality in adapter '" +
+                        std::string(adapter->BizName()) +
+                        "': only kOneToOne is currently supported";
+      registration_errors_.push_back(err);
+      std::cerr << "[BusinessAdapterRegistry ERROR] " << err << std::endl;
+      return false;
+    }
+    if (desc.biz_type != biz_type || desc.biz_name != adapter->BizName()) {
+      has_conflict_ = true;
+      std::string err =
+          "Descriptor inconsistency for adapter '" +
+          std::string(adapter->BizName()) +
+          "': BizType/BizName mismatch between methods and descriptor";
+      registration_errors_.push_back(err);
+      std::cerr << "[BusinessAdapterRegistry ERROR] " << err << std::endl;
+      return false;
+    }
+
     // 冲突检查 1: 业务 ID 重复冲突
     auto it = adapters_.find(biz_type);
     if (it != adapters_.end()) {

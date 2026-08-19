@@ -111,6 +111,17 @@ int Alg_Create(void** hndl,
       return -3;
     }
 
+    // ADP-006: 校验 Pipeline 声明的业务标识与 Adapter 是否匹配
+    if (!adapter->ValidatePipelineBinding(
+            instance->pipeline->GetBusinessName())) {
+      std::cerr
+          << "[Company C Adapter] Alg_Create failed: Pipeline business_name '"
+          << instance->pipeline->GetBusinessName()
+          << "' does not match adapter '" << adapter->BizName() << "'."
+          << std::endl;
+      return -5;
+    }
+
     *hndl = static_cast<void*>(instance.release());
     std::cout
         << "[Company C Adapter] Alg_Create: Handle created successfully at "
@@ -160,10 +171,12 @@ int Alg_Process(void* hndl, const void** inputs, int num_inputs, void** outputs,
     }
 
     alg_framework::AlgContext req_ctx;
-    int unpack_ret = adapter->Unpack(inputs, num_inputs, &req_ctx);
+    alg_framework::AdapterStatus unpack_status;
+    int unpack_ret =
+        adapter->Unpack(inputs, num_inputs, &req_ctx, &unpack_status);
     if (unpack_ret != 0) {
       std::cerr << "[Company C Adapter] Unpack failed for "
-                << adapter->BizName() << " with code: " << unpack_ret
+                << adapter->BizName() << " (" << unpack_status.ToString() << ")"
                 << std::endl;
       return unpack_ret;
     }
@@ -173,14 +186,15 @@ int Alg_Process(void* hndl, const void** inputs, int num_inputs, void** outputs,
       return exec_ret;
     }
 
-    int pack_ret = adapter->Pack(&req_ctx, outputs, num_outputs);
+    alg_framework::AdapterStatus pack_status;
+    int pack_ret = adapter->Pack(&req_ctx, outputs, num_outputs, &pack_status);
     if (pack_ret != 0) {
       std::cerr << "[Company C Adapter] Pack failed for " << adapter->BizName()
-                << " with code: " << pack_ret << std::endl;
+                << " (" << pack_status.ToString() << ")" << std::endl;
       return pack_ret;
     }
 
-    return 0;
+    return COMPANY_ALG_SUCCESS;
   } catch (const std::exception& e) {
     std::cerr << "[Company C Adapter] Alg_Process exception: " << e.what()
               << std::endl;
