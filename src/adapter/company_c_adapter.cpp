@@ -22,6 +22,19 @@ extern "C" {
 
 int Alg_Init(void) COMPANY_ALG_NOEXCEPT {
   try {
+    // REV2-003: 检测静态注册期是否存在业务 ID/名称冲突，fail-closed 拒绝启动
+    if (alg_framework::BusinessAdapterRegistry::Instance()
+            .HasRegistrationConflict()) {
+      std::cerr << "[Company C Adapter] Alg_Init failed: Registration conflict "
+                   "detected in BusinessAdapterRegistry."
+                << std::endl;
+      for (const auto& err : alg_framework::BusinessAdapterRegistry::Instance()
+                                 .GetRegistrationErrors()) {
+        std::cerr << "  - " << err << std::endl;
+      }
+      return -6;
+    }
+
     std::cout
         << "[Company C Adapter] Alg_Init: Global runtime resources initialized."
         << std::endl;
@@ -43,6 +56,24 @@ int Alg_Create(void** hndl,
           << "[Company C Adapter] Alg_Create failed: Null pointer arguments."
           << std::endl;
       return -1;
+    }
+
+    // REV2-001: 在 Alg_Create 阶段前置校验业务类型，拒绝 UNKNOWN 与未注册业务
+    if (param_create->biz_type == ALG_BIZ_TYPE_UNKNOWN) {
+      std::cerr << "[Company C Adapter] Alg_Create failed: Cannot create "
+                   "pipeline with ALG_BIZ_TYPE_UNKNOWN."
+                << std::endl;
+      return -5;
+    }
+
+    auto adapter =
+        alg_framework::BusinessAdapterRegistry::Instance().GetAdapter(
+            param_create->biz_type);
+    if (!adapter) {
+      std::cerr << "[Company C Adapter] Alg_Create failed: Unsupported or "
+                   "unregistered biz_type: "
+                << param_create->biz_type << std::endl;
+      return -5;
     }
 
     auto instance = std::make_unique<AlgHandleInstance>();
@@ -102,31 +133,30 @@ int Alg_Process(void* hndl, const void** inputs, int num_inputs, void** outputs,
                 << std::endl;
       return -1;
     }
-    if (!inputs || num_inputs <= 0) {
-      std::cerr << "[Company C Adapter] Alg_Process failed: Empty inputs."
-                << std::endl;
-      return -2;
-    }
-    if (!outputs || !num_outputs || *num_outputs < 0) {
-      std::cerr
-          << "[Company C Adapter] Alg_Process failed: Invalid output pointers."
-          << std::endl;
-      return -4;
-    }
 
     auto* instance = static_cast<AlgHandleInstance*>(hndl);
-    CompanyAlgBizType lookup_type = instance->biz_type;
-    if (lookup_type == ALG_BIZ_TYPE_UNKNOWN) {
-      lookup_type = ALG_BIZ_TYPE_DOC_QA;
+    if (instance->biz_type == ALG_BIZ_TYPE_UNKNOWN) {
+      std::cerr << "[Company C Adapter] Alg_Process failed: Handle has "
+                   "ALG_BIZ_TYPE_UNKNOWN."
+                << std::endl;
+      return -5;
     }
 
     auto adapter =
         alg_framework::BusinessAdapterRegistry::Instance().GetAdapter(
-            lookup_type);
+            instance->biz_type);
     if (!adapter) {
       std::cerr << "[Company C Adapter] Unsupported biz_type: "
                 << instance->biz_type << std::endl;
       return -5;
+    }
+
+    // REV2-002 & REV2-005: 严格在 Pipeline Execute
+    // 之前完成批大小上限、空槽位与输出缓冲区容量预检
+    int preflight_ret =
+        adapter->ValidateBatch(inputs, num_inputs, outputs, num_outputs);
+    if (preflight_ret != 0) {
+      return preflight_ret;
     }
 
     alg_framework::AlgContext req_ctx;

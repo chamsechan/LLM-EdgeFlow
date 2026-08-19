@@ -1,5 +1,6 @@
 #pragma once
 
+#include "adapter/adapter_validation_helper.h"
 #include "company_alg_interface.h"
 #include "core/alg_context.h"
 
@@ -21,9 +22,10 @@ struct AdapterDescriptor {
  * @brief 业务适配器抽象接口 (Layer 1 内部)
  *
  * 职责：
- * 1. 将业务专属的纯 C 结构体解包 (Unpack) 并转换为内部 DTO 存入 AlgContext
- * 2. 从 AlgContext 读取算法输出 DTO 并打包 (Pack) 回业务专属纯 C 结构体
- * 3. 校验批量输入输出指针有效性与数量
+ * 1. ValidateBatch: 在执行 Pipeline 之前预检批大小、输入输出槽位及缓冲区容量
+ * (REV2-002, REV2-005)
+ * 2. Unpack: 将业务专属的纯 C 结构体解包并转换为内部 DTO 存入 AlgContext
+ * 3. Pack: 从 AlgContext 读取算法输出 DTO 并打包回业务专属纯 C 结构体
  */
 class IBusinessAdapter {
  public:
@@ -43,6 +45,25 @@ class IBusinessAdapter {
    * @brief 获取业务适配器机器可读元数据描述符
    */
   virtual const AdapterDescriptor& GetDescriptor() const = 0;
+
+  /**
+   * @brief 预估所需输出数量 (默认 1:1 批处理模式)
+   */
+  virtual int EstimateRequiredOutputs(int num_inputs) const {
+    return num_inputs;
+  }
+
+  /**
+   * @brief Pipeline 执行前完整批处理契约预检 (REV2-002, REV2-005)
+   * @return 0 校验通过, -3 输入非法或超限, -4 输出缓冲区容量不足或空指针
+   */
+  virtual int ValidateBatch(const void** inputs, int num_inputs, void** outputs,
+                            int* num_outputs) const {
+    int required = EstimateRequiredOutputs(num_inputs);
+    return AdapterValidationHelper::ValidateBatchPreFlight(
+        inputs, num_inputs, outputs, num_outputs,
+        GetDescriptor().max_batch_size, required, BizName());
+  }
 
   /**
    * @brief 解包 C 结构体输入为内部 DTO
