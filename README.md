@@ -122,6 +122,11 @@ LLM-EdgeFlow/
 
 ## 📝 更新日志 (Changelog)
 
+- **v1.5.0** *(2026-08)*
+  - 🛡️ **纯 C11 ABI 安全边界标准重构 (ARCH-001)**：`include/company_alg_interface.h` 彻底剔除 `<vector>` 等 C++ 符号依赖，导出纯 C 标准指针数组批处理接口并提供 C++ 向后兼容包装层；新增纯 C 语言编写的 `test_c11_abi_compliance` 门禁测试。
+  - 🧩 **Layer 1 业务适配器注册中心 (`IBusinessAdapter` & ARCH-003)**：将 370 行中心单体 Adapter 重构为可插拔的 `BusinessAdapterRegistry` 机制，7 大业务各自分离为高内聚的独立 Adapter 类，消除中心分发单点修改冲突。
+  - 🧱 **Layer 3 算子与交付层彻底解耦 (ARCH-002)**：所有 8 个业务后处理算子全面消除对 `company_alg_interface.h` 的反向依赖，改由各业务领域 DTO 与 `AlgContext` 交互；新增 `scripts/check_layer_isolation.sh` 架构防腐脚本作为 CI 强门禁。
+  - 🌐 **SessionContext 运行时环境与设备参数贯通 (ARCH-010)**：新增 `RuntimeOptions`，贯通 `model_root_dir` 相对路径解析与加速卡 `device_id` 自动注入。
 - **v1.4.0** *(2026-08)*
   - 🎨 **DAG 节点图可视化编辑与节点工坊 (Visual Graph Studio)**：Web 工作台全面升级为**支持拖拽创建算子节点、动态配置上游依赖、实时成环死锁拦截、修改属性并一键导出 C++ 标准 Pipeline JSON** 的全功能节点工坊 (`./show --web`)。
   - 🧪 **物理真实模型物理压测链路隔离**：新增独立的 `test_real_models_e2e` 与 `./scripts/run_real_model_e2e.sh`，实现官方 `llama.cpp` 真实自回归 Token 解码、物理权重批处理与 C ABI 端到端硬件吞吐压测，与日常 0.3 秒敏捷 CTest 零干扰隔离。

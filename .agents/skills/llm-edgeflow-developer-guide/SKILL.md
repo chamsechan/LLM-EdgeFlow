@@ -49,28 +49,56 @@ typedef struct {
 } CompanyCustomOutputStruct;
 ```
 
-### 步骤 1.2: 在适配层实现解包与打包 (`src/adapter/company_c_adapter.cpp`)
-在 `Alg_Process()` 中追加 `switch(inst->biz_type)` 分支：
+### 步骤 1.2: 编写业务专属适配器 (`src/adapter/adapters/<biz>_adapter.cpp`)
+实现 `IBusinessAdapter` 并通过宏自动注册，无需修改中心分发文件：
 ```cpp
-case ALG_BIZ_TYPE_CUSTOM_TASK: {
-    // 解包：将 C struct 放入 AlgContext 黑板
-    auto* in_struct = static_cast<const CompanyCustomInputStruct*>(inputs[i]);
-    req_ctx.SetRequestId(in_struct->request_id);
-    req_ctx.Set("query_text", std::string(in_struct->query_text));
-    
-    // 执行 Pipeline 拓扑调度
-    int ret = inst->pipeline->Execute(&req_ctx);
-    if (ret != 0) return ret;
-    
-    // 打包：从 AlgContext 黑板提取结果并拷贝回 C struct
-    auto* out_struct = static_cast<CompanyCustomOutputStruct*>(outputs[i]);
-    out_struct->request_id = in_struct->request_id;
-    auto* res_json = req_ctx.Get<std::string>("custom_result_json");
-    if (res_json) {
-        snprintf(out_struct->result_json, sizeof(out_struct->result_json), "%s", res_json->c_str());
+#include "adapter/business_adapter_registry.h"
+#include "company_alg_interface.h"
+#include "business/custom_task/custom_task_dto.h"
+
+namespace alg_framework {
+
+class CustomTaskAdapter : public IBusinessAdapter {
+ public:
+  CompanyAlgBizType BizType() const override { return ALG_BIZ_TYPE_CUSTOM_TASK; }
+  const char* BizName() const override { return "CustomTask"; }
+
+  int Unpack(const void** inputs, int num_inputs, AlgContext* ctx) override {
+    if (!inputs || num_inputs <= 0 || !ctx) return -3;
+    std::vector<uint64_t> req_ids;
+    std::vector<std::string> queries;
+    for (int i = 0; i < num_inputs; ++i) {
+      auto* in = static_cast<const CompanyCustomInputStruct*>(inputs[i]);
+      if (!in) return -3;
+      req_ids.push_back(in->request_id);
+      queries.push_back(in->query_text ? in->query_text : "");
     }
-    break;
-}
+    ctx->Set("raw_request_ids", std::move(req_ids));
+    ctx->Set("query_texts", std::move(queries));
+    return 0;
+  }
+
+  int Pack(AlgContext* ctx, void** outputs, int* num_outputs) override {
+    if (!ctx || !outputs || !num_outputs || *num_outputs <= 0) return -4;
+    auto* res = ctx->Get<std::vector<CustomTaskResult>>("custom_task_outputs");
+    if (!res) return -4;
+    int count = static_cast<int>(res->size());
+    for (int i = 0; i < count && i < *num_outputs; ++i) {
+      auto* out = static_cast<CompanyCustomOutputStruct*>(outputs[i]);
+      if (out) {
+        out->request_id = (*res)[i].request_id;
+        out->status_code = (*res)[i].status_code;
+        strncpy(out->result_json, (*res)[i].result_json.c_str(), sizeof(out->result_json) - 1);
+      }
+    }
+    *num_outputs = count;
+    return 0;
+  }
+};
+
+REGISTER_BUSINESS_ADAPTER(CustomTaskAdapter);
+
+}  // namespace alg_framework
 ```
 
 ---
