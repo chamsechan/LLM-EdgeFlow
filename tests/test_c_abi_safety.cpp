@@ -19,8 +19,14 @@ std::string GetConfigPath(const std::string& rel_path) {
 
 class CAbiSafetyTest : public ::testing::Test {
  protected:
-  void SetUp() override { Alg_Init(); }
-  void TearDown() override { Alg_DeInit(); }
+  void SetUp() override {
+    alg_framework::BusinessAdapterRegistry::Instance().ResetConflictForTesting();
+    Alg_Init();
+  }
+  void TearDown() override {
+    Alg_DeInit();
+    alg_framework::BusinessAdapterRegistry::Instance().ResetConflictForTesting();
+  }
 };
 
 // 1. 测试空指针与异常安全防御机制 (noexcept barrier)
@@ -119,13 +125,13 @@ TEST_F(CAbiSafetyTest, OutputCapacityInsufficientAndFeedbackContract) {
   CompanyKeywordOutputStruct out0;
   void* outputs[1] = {&out0};
 
-  // 1) 传入容量为 0，应该返回 -4 并回填所需容量为 2
+  // 1) 传入 outputs = nullptr 且 capacity = 0 (标准容量预查)，必须返回 -4 并回填所需容量为 2
   int num_outputs = 0;
-  int ret = Alg_Process(handle, inputs, 2, outputs, &num_outputs);
+  int ret = Alg_Process(handle, inputs, 2, nullptr, &num_outputs);
   EXPECT_EQ(ret, -4);
   EXPECT_EQ(num_outputs, 2);
 
-  // 2) 传入容量为 1 (小于需要的 2)，应该返回 -4 并回填所需容量为 2
+  // 2) 传入 outputs 有效但容量为 1 (小于需要的 2)，应该返回 -4 并回填所需容量为 2
   num_outputs = 1;
   ret = Alg_Process(handle, inputs, 2, outputs, &num_outputs);
   EXPECT_EQ(ret, -4);

@@ -48,21 +48,21 @@ class AdapterValidationHelper {
       }
     }
 
-    if (!outputs || !num_outputs || *num_outputs < 0) {
+    if (!num_outputs || *num_outputs < 0) {
       std::cerr
           << "[AdapterValidation] " << (biz_name ? biz_name : "Biz")
-          << " PreFlight failed: Null outputs or invalid num_outputs pointer"
+          << " PreFlight failed: Invalid num_outputs pointer or negative capacity"
           << std::endl;
       return -4;
     }
 
-    // REV2-002: 提前拦截容量不足，回填所需容量
+    // REV2-002: 提前拦截容量不足或空 outputs (标准容量预查)，回填所需容量
     int capacity = *num_outputs;
-    if (capacity < required_count) {
+    if (capacity < required_count || !outputs) {
       std::cerr << "[AdapterValidation] " << (biz_name ? biz_name : "Biz")
-                << " PreFlight failed: Output capacity (" << capacity
-                << ") is smaller than required count (" << required_count << ")"
-                << std::endl;
+                << " PreFlight: Output capacity (" << capacity
+                << ") insufficient or outputs array null for required count ("
+                << required_count << ")" << std::endl;
       *num_outputs = required_count;  // 报告所需容量
       return -4;
     }
@@ -101,11 +101,11 @@ class AdapterValidationHelper {
   static int ValidateBatchOutputs(void** outputs, int* num_outputs,
                                   int required_count,
                                   const char* biz_name = nullptr) {
-    if (!outputs || !num_outputs || *num_outputs < 0) {
+    if (!num_outputs || *num_outputs < 0) {
       return -4;
     }
     int capacity = *num_outputs;
-    if (capacity < required_count) {
+    if (capacity < required_count || !outputs) {
       *num_outputs = required_count;
       return -4;
     }
