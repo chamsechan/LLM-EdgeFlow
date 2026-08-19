@@ -159,4 +159,37 @@ TEST(PipelineTest, ErrorHandlingAndRobustness) {
   EXPECT_FALSE(ok);
 }
 
+// 6. 测试 RuntimeOptions 路径规范化与设备 ID 优先级渗透 (REV2-004)
+TEST(PipelineTest, RuntimeOptionsPropagationAndPrecedence) {
+  Pipeline pipe;
+  RuntimeOptions opts;
+  opts.model_root_dir = "/opt/custom_models";
+  opts.device_id = 2;
+  opts.has_device_id = true;
+  pipe.GetSessionContext().SetRuntimeOptions(opts);
+
+  nlohmann::json root_cfg = {{"business_name", "test_runtime_opts"},
+                             {"execution_mode", "sequential"},
+                             {"models",
+                              {{{"model_id", "test_mock_llm"},
+                                {"engine_type", "mock_npu_llm"},
+                                {"model_path", "./models/qwen.bin"},
+                                {"config", {{"max_batch_size", 2}}}}}},
+                             {"pipeline", nlohmann::json::array()}};
+
+  bool ok = pipe.BuildFromJson(root_cfg);
+  EXPECT_TRUE(ok);
+
+  auto model_engine =
+      pipe.GetSessionContext().GetModelManager().GetModel<IModelEngine>(
+          "test_mock_llm");
+  ASSERT_NE(model_engine, nullptr);
+
+  // 断言 1: 设备 ID 正确透传 (REV2-004)
+  EXPECT_EQ(model_engine->GetDeviceId(), 2);
+
+  // 断言 2: 模型相对路径被 /opt/custom_models 规范化拼接 (REV2-004)
+  EXPECT_EQ(model_engine->GetLoadedModelPath(), "/opt/custom_models/qwen.bin");
+}
+
 }  // namespace alg_framework

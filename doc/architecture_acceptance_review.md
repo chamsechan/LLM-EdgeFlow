@@ -1,11 +1,151 @@
 # LLM-EdgeFlow V2 架构整改验收记录
 
-> 验收日期：2026-08-19  
-> 验收分支：`docs/architecture-review-ai-friendly`  
-> 验收范围：纯 C ABI、Business Adapter、四层依赖、RuntimeOptions、架构门禁、文档一致性及回归验证  
-> 总体结论：**暂不通过；V2 架构方向合理，当前实现应定义为 Phase 1 部分完成。**
+> 首轮验收日期：2026-08-19
+>
+> 最新复验分支：`docs/architecture-review-ai-friendly`
+>
+> 验收范围：纯 C ABI、Business Adapter、四层依赖、RuntimeOptions、架构门禁、文档一致性及回归验证
+>
+> 最新结论：**暂不通过；上一轮 P0 已消除，但仍有 3 个 P1 问题需要整改。**
 
-## 1. 总体判断
+## 1. 第二轮复验结论
+
+相比第一轮，当前实现已有实质进展：动态库已升级为 `VERSION 2.0.0 / SOVERSION 2`，六个公共 C 接口已增加一致的 `COMPANY_ALG_NOEXCEPT` 与异常捕获，七个 Adapter 已统一输出容量及空槽位校验，音频 Adapter 也不再直接依赖 Engine 类型。LayerGuard 已接入 CTest、全量测试脚本和 GitHub Actions。
+
+本轮没有再发现 P0 问题，但仍存在业务类型误路由、容量校验时机和 Registry fail-open 三个 P1 问题。Phase 1 当前应定义为“主要安全整改已完成，尚未最终验收”。
+
+### REV2-001：UNKNOWN 业务被静默映射为 DocQA
+
+**级别：P1**
+
+**状态：待整改**
+
+`src/adapter/company_c_adapter.cpp:118-120` 将 `ALG_BIZ_TYPE_UNKNOWN` 自动替换成 `ALG_BIZ_TYPE_DOC_QA`。如果下游开发者忘记设置 `biz_type`，其他业务输入结构体可能被 DocQA Adapter 当成 `CompanyDocInputStruct` 强制解释，从而读取结构体边界之外的数据。此类段错误无法由 C++ `noexcept` 或 `catch` 拦截。
+
+同时，未注册或非法业务类型在 `Alg_Create` 阶段不会失败；系统会先完成 Pipeline 构建，直到 `Alg_Process` 才返回不支持业务错误。
+
+**整改建议**
+
+- 在 `Alg_Create` 阶段查询 `BusinessAdapterRegistry`，拒绝 UNKNOWN、越界和未注册业务。
+- 删除 UNKNOWN 到 DocQA 的隐式回退。
+- 后续通过 Business Manifest 校验配置业务类型与 `biz_type` 一致。
+- 增加 UNKNOWN、非法枚举值、未注册业务和配置不匹配测试。
+
+### REV2-002：输出容量校验发生在 Pipeline 执行之后
+
+**级别：P1**
+
+**状态：待整改**
+
+`src/adapter/company_c_adapter.cpp:141` 先执行完整 Pipeline，到 `src/adapter/company_c_adapter.cpp:146` 调用 `Pack` 时才通过 `AdapterValidationHelper` 校验输出容量。
+
+容量不足测试显示，容量 0 和容量 1 会分别完整执行一次业务 Pipeline，然后返回 `-4`；调用方扩容重试时还要再次执行推理。这会造成模型/NPU 推理重复执行，也可能重复触发指标、缓存或未来具有外部副作用的节点。
+
+当前 `outputs == nullptr、capacity == 0` 也不能作为标准容量查询方式，因为 C ABI 外观层会在获得所需容量前直接返回错误。
+
+**整改建议**
+
+- 在 `IBusinessAdapter` 中增加真正的 `ValidateBatch` 或输出基数描述。
+- 在 Unpack 和 Pipeline Execute 前完成可确定的容量及空槽位预检。
+- 对当前一输入一输出的七个业务，可直接要求 `capacity >= num_inputs`。
+- 对未来可变输出业务，设计输出数量估算、结果缓存或由 SDK 分配输出的明确机制。
+- 测试容量不足时 Pipeline 未被执行。
+
+### REV2-003：Registry 冲突检测没有让初始化失败
+
+**级别：P1**
+
+**状态：待整改**
+
+`include/adapter/business_adapter_registry.h:92-99` 的自动注册宏会捕获异常并返回 `false`，重复 ID 或名称也会由 `RegisterAdapter` 返回 `false`。但该静态 bool 没有被后续初始化流程检查，`Alg_Init` 仍然无条件返回成功。
+
+两个团队注册相同业务 ID 时，第一个 Adapter 会保留、第二个 Adapter 会失败，但程序继续启动并路由到第一个实现。除日志外，宿主无法判断当前交付包存在注册冲突。
+
+**整改建议**
+
+- Registry 保存注册错误及冲突详情，`Alg_Init` 检查后返回明确错误码。
+- 或由 Manifest/生成代码创建确定性的注册表，并在构建期检查业务 ID、名称和 ABI 版本唯一性。
+- 增加不同类型相同 ID、不同 ID 相同名称、注册异常和缺失 Adapter 测试。
+
+### REV2-004：RuntimeOptions 实现已生效，但测试没有断言传播结果
+
+**级别：P2**
+
+**状态：待整改**
+
+详细测试日志已经显示规范化模型路径以及设备 0、设备 1 被传入 Mock Engine，说明当前实现生效。但 `tests/test_c_abi_safety.cpp:189-204` 只断言 `Alg_Create` 和 `Alg_Destroy` 成功，没有读取或断言新增的 `GetLoadedModelPath()`、`GetDeviceId()`。
+
+如果未来代码再次忽略这些参数，现有测试仍会通过。还没有验证 Pipeline 配置中的 `device_id` 与创建参数冲突时的优先级。
+
+**整改建议**
+
+- 通过 Pipeline/SessionContext 内部测试取得 Engine，断言解析后的路径和设备 ID。
+- 使用非默认临时模型根目录，避免测试结果依赖仓库当前目录。
+- 明确并测试 RuntimeOptions、Pipeline 配置和 Engine 默认值的覆盖优先级。
+
+### REV2-005：Adapter Descriptor 尚未成为可执行契约
+
+**级别：P2**
+
+**状态：待整改**
+
+`include/adapter/business_adapter_interface.h:17` 声明 `max_batch_size = 64`，但 `AdapterValidationHelper::ValidateBatchInputs` 不读取或检查该限制，测试也只断言它大于 0。当前 Descriptor 仍是展示元数据，不能阻止普通开发者或 AI 提交超限批次。
+
+**整改建议**
+
+- 将 Descriptor 传入统一 `ValidateBatch`，强制检查最大批次、输入输出基数和 ABI 版本。
+- 为等于上限、超过上限和极端大批次增加契约测试。
+- 后续由 Manifest、Catalog 和脚手架复用同一个 Descriptor 事实来源。
+
+### REV2-006：验收文档状态和差异门禁仍未闭环
+
+**级别：P2**
+
+**状态：待整改**
+
+第一轮验收内容仍将 SOVERSION 1、缺少 `noexcept`、旧 Adapter 容量实现等描述为当前事实；`doc/architecture_review.md` 也仍将 vector ABI、Layer 3 反向依赖和中心 Adapter 分支描述为当前实现，而 README 已声明相关项目完成。如果不标明时间基线，AI 和开发者会从多个文档得到互相冲突的结论。
+
+第二轮审查开始时，`git diff --check main...HEAD` 曾发现本文档存在 Markdown 行尾空格。本次更新已清理这些空格，并通过 `git diff --check main` 复验；但 CI 仍未显式执行该检查。
+
+**整改建议**
+
+- 将下文明确保留为“第一轮验收历史快照”，最新状态始终维护在本节。
+- 后续为 `architecture_review.md` 增加基线版本、当前状态和目标状态字段。
+- 在 CI 中显式执行 `git diff --check`，因为现有 `git diff --exit-code` 不会检查已经提交的空白问题。
+
+## 2. 第二轮整改状态
+
+| 项目 | 第二轮状态 | 说明 |
+|---|---|---|
+| ACC-001 SOVERSION | 已解决 | 已升级为 `VERSION 2.0.0 / SOVERSION 2` |
+| ACC-002 异常防火墙 | 代码层已解决 | 六接口具备一致的 `noexcept` 和异常捕获 |
+| ACC-003 输出容量契约 | 部分解决 | Pack 行为正确，执行前预检仍缺失 |
+| ACC-004 RuntimeOptions | 部分解决 | 实现已生效，回归断言和优先级测试不足 |
+| ACC-005 Registry 冲突 | 部分解决 | 能检测冲突，但初始化仍为 fail-open |
+| ACC-006 LayerGuard | 已解决 | 已接入 CTest、全量脚本和 GitHub Actions |
+| ACC-007 文档一致性 | 部分解决 | 已增加第二轮状态，但主架构评审仍需状态化 |
+| ACC-008 差异检查 | 已解决 | 已清理空格并通过 `git diff --check main` |
+
+## 3. 第二轮验证证据
+
+| 验证项 | 结果 |
+|---|---|
+| CMake Release 配置 | 通过 |
+| 完整工程编译 | 通过 |
+| CTest | 13/13 通过 |
+| LayerGuard CTest | 通过 |
+| C11 ABI 测试 | 通过 |
+| C ABI 容量和空槽位测试 | 通过 |
+| Registry 重复 ID 测试 | 通过 |
+| RuntimeOptions 运行日志 | 路径规范化及设备 0/1 传播生效 |
+| 工作树干净性（审查开始时） | 通过 |
+| `git diff --check main` | 通过 |
+
+## A. 第一轮验收历史快照
+
+以下内容记录第一轮验收时的源码状态，仅作为整改依据和历史证据，不代表第二轮后的当前实现。当前状态以本文第 1 至第 3 节为准。
+
+## A.1 第一轮总体判断
 
 `doc/architecture_v2.puml` 描述的目标架构仍然合理：保留四层平台内核，在其上建设 Business Manifest、Schema、Catalog、脚手架、静态校验和测试工具，可以同时降低普通业务开发者和 AI 的接入难度。
 
@@ -19,11 +159,12 @@
 
 但当前仍存在 ABI 兼容性、异常安全、批处理输出契约等发布阻断问题，尚不能将 ARCH-001、ARCH-003 和 ARCH-010 判定为完整整改。
 
-## 2. 发布阻断项
+## A.2 第一轮发布阻断项
 
 ### ACC-001：ABI 已发生破坏，但动态库版本仍为 SOVERSION 1
 
-**级别：P0**  
+**级别：P0**
+
 **状态：待整改**
 
 `include/company_alg_interface.h:182` 将原有三参数 `Alg_Process` 替换为五参数纯 C 接口。当前 C++ inline wrapper 只能提供重新编译后的源码兼容，不能提供已有二进制的兼容。
@@ -48,7 +189,8 @@ SOVERSION 1
 
 ### ACC-002：六个公共 C 接口尚未形成完整的异常防火墙
 
-**级别：P1**  
+**级别：P1**
+
 **状态：待整改**
 
 `include/company_alg_interface.h:165-198` 的六个接口没有声明与 C/C++ 条件编译兼容的 `noexcept`。实现中：
@@ -68,7 +210,8 @@ SOVERSION 1
 
 ### ACC-003：所有业务 Adapter 的输出容量契约实现错误
 
-**级别：P1**  
+**级别：P1**
+
 **状态：待整改**
 
 公共头文件约定 `num_outputs` 输入为 `outputs` 容量，输出为实际填充数量。但七个 Adapter 都执行了以下等价逻辑：
@@ -102,11 +245,12 @@ return 0;
 - 抽取公共 `ValidateBatch`/Pack 辅助逻辑，避免七个 Adapter 复制同一缺陷。
 - 增加容量为 0、容量不足、空槽位、结果为空和超大批次测试。
 
-## 3. 架构完整性问题
+## A.3 第一轮架构完整性问题
 
 ### ACC-004：`model_root_dir` 和 `device_id` 尚未真正贯通到 Engine
 
-**级别：P1**  
+**级别：P1**
+
 **状态：待整改**
 
 `src/core/pipeline.cpp:187` 使用字符串方式拼接 `root + model_path`。当前配置中的模型路径普遍为 `./models/foo`，调用方传入的根目录也为 `./models`，因此候选路径会成为：
@@ -129,7 +273,8 @@ return 0;
 
 ### ACC-005：Adapter Registry 尚不能防止多团队注册冲突
 
-**级别：P1**  
+**级别：P1**
+
 **状态：待整改**
 
 `include/adapter/business_adapter_registry.h:25` 使用：
@@ -149,7 +294,8 @@ adapters_[biz_type] = adapter;
 
 ### ACC-006：Layer Guard 尚不是完整的 CI 强门禁
 
-**级别：P2**  
+**级别：P2**
+
 **状态：待整改**
 
 README 将 `scripts/check_layer_isolation.sh` 描述为 CI 强门禁，但当前脚本没有接入 CTest、`scripts/run_all_tests.sh` 或仓库 CI。
@@ -167,7 +313,8 @@ README 将 `scripts/check_layer_isolation.sh` 描述为 CI 强门禁，但当前
 
 ### ACC-007：架构评审、目标图和 README 的状态描述不一致
 
-**级别：P2**  
+**级别：P2**
+
 **状态：待整改**
 
 `doc/architecture_review.md` 仍把以下内容描述为当前事实：
@@ -187,7 +334,8 @@ README 将 `scripts/check_layer_isolation.sh` 描述为 CI 强门禁，但当前
 
 ### ACC-008：代码差异检查存在格式问题
 
-**级别：P2**  
+**级别：P2**
+
 **状态：待整改**
 
 `git diff --check main...HEAD` 报告：
@@ -198,7 +346,7 @@ CMakeLists.txt:152: new blank line at EOF.
 
 应在交付前修复，并把 `git diff --check` 加入本地和 CI 门禁。
 
-## 4. 已通过的验证
+## A.4 第一轮已通过的验证
 
 本轮以只读方式完成以下验证：
 
@@ -217,7 +365,7 @@ CMakeLists.txt:152: new blank line at EOF.
 
 没有直接执行 `scripts/run_all_tests.sh`，因为其第一步会调用 `clang-format -i` 修改整个源码树，不符合本轮只读验收边界；其中构建、测试、Demo 和工具运行部分已分别执行。
 
-## 5. 建议整改与复验顺序
+## A.5 第一轮建议整改与复验顺序
 
 1. 先确定旧 ABI 是否已经对外交付，并完成 ABI 符号和 SOVERSION 决策。
 2. 实现六接口完整 `noexcept`/异常屏障，消除可能抛异常的预初始化流程。
