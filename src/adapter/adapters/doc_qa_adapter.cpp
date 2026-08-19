@@ -16,15 +16,29 @@ class DocQaAdapter : public IBusinessAdapter {
 
   const AdapterDescriptor& GetDescriptor() const override {
     static AdapterDescriptor desc{
-        ALG_BIZ_TYPE_DOC_QA,      "DocQA", "2.0.0", "CompanyDocInputStruct",
-        "CompanyDocOutputStruct", 64};
+        ALG_BIZ_TYPE_DOC_QA,
+        "DocQA",
+        "2.0.0",
+        "CompanyDocInputStruct",
+        "CompanyDocOutputStruct",
+        64,
+        OwnershipPolicy::kCopyIn,
+        ThreadModel::kStatelessThreadSafe,
+        OutputCardinality::kOneToOne};
     return desc;
   }
 
-  int Unpack(const void** inputs, int num_inputs, AlgContext* ctx) override {
+  bool ValidatePipelineBinding(
+      const std::string& pipeline_biz_name) const override {
+    return pipeline_biz_name.find("doc_qa") != std::string::npos ||
+           pipeline_biz_name == "DocQA";
+  }
+
+  int Unpack(const void** inputs, int num_inputs,
+             AlgContext* ctx) const override {
     int valid_ret = AdapterValidationHelper::ValidateBatchInputs(
-        inputs, num_inputs, BizName());
-    if (valid_ret != 0 || !ctx) return -3;
+        inputs, num_inputs, GetDescriptor().max_batch_size, BizName());
+    if (valid_ret != 0 || !ctx) return COMPANY_ALG_ERR_INVALID_INPUT;
 
     std::vector<uint64_t> raw_req_ids;
     std::vector<std::string> raw_docs;
@@ -36,22 +50,26 @@ class DocQaAdapter : public IBusinessAdapter {
 
     for (int i = 0; i < num_inputs; ++i) {
       auto* in_doc = static_cast<const CompanyDocInputStruct*>(inputs[i]);
+      if (!in_doc || !in_doc->query_text) {
+        return COMPANY_ALG_ERR_INVALID_INPUT;
+      }
+
       raw_req_ids.push_back(in_doc->request_id);
       raw_docs.push_back(in_doc->doc_text ? in_doc->doc_text : "");
-      raw_queries.push_back(in_doc->query_text ? in_doc->query_text : "");
+      raw_queries.push_back(in_doc->query_text);
     }
 
     ctx->Set("raw_request_ids", std::move(raw_req_ids));
     ctx->Set("raw_docs", std::move(raw_docs));
     ctx->Set("raw_queries", std::move(raw_queries));
-    return 0;
+    return COMPANY_ALG_SUCCESS;
   }
 
-  int Pack(AlgContext* ctx, void** outputs, int* num_outputs) override {
-    if (!ctx) return -4;
+  int Pack(AlgContext* ctx, void** outputs, int* num_outputs) const override {
+    if (!ctx) return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
 
     auto* res = ctx->Get<std::vector<DocQaResult>>("final_doc_outputs");
-    if (!res) return -4;
+    if (!res) return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
 
     int count = static_cast<int>(res->size());
     int valid_ret = AdapterValidationHelper::ValidateBatchOutputs(
@@ -65,16 +83,18 @@ class DocQaAdapter : public IBusinessAdapter {
       out_ptr->chunk_count = (*res)[i].chunk_count;
       out_ptr->status_code = (*res)[i].status_code;
 
-      strncpy(out_ptr->intent_name, (*res)[i].intent_name.c_str(),
-              sizeof(out_ptr->intent_name) - 1);
-      out_ptr->intent_name[sizeof(out_ptr->intent_name) - 1] = '\0';
+      AdapterValidationHelper::CheckedStringCopy(
+          out_ptr->intent_name, sizeof(out_ptr->intent_name),
+          (*res)[i].intent_name.c_str(), "outputs[i].intent_name", i,
+          BizName());
 
-      strncpy(out_ptr->answer_text, (*res)[i].answer_text.c_str(),
-              sizeof(out_ptr->answer_text) - 1);
-      out_ptr->answer_text[sizeof(out_ptr->answer_text) - 1] = '\0';
+      AdapterValidationHelper::CheckedStringCopy(
+          out_ptr->answer_text, sizeof(out_ptr->answer_text),
+          (*res)[i].answer_text.c_str(), "outputs[i].answer_text", i,
+          BizName());
     }
     *num_outputs = count;
-    return 0;
+    return COMPANY_ALG_SUCCESS;
   }
 };
 

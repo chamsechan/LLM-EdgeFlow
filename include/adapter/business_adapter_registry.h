@@ -46,6 +46,19 @@ class BusinessAdapterRegistry {
       return false;
     }
 
+    // 冲突检查 0: Descriptor 与方法元数据一致性 (ADP-008)
+    const auto& desc = adapter->GetDescriptor();
+    if (desc.biz_type != biz_type || desc.biz_name != adapter->BizName()) {
+      has_conflict_ = true;
+      std::string err =
+          "Descriptor inconsistency for adapter '" +
+          std::string(adapter->BizName()) +
+          "': BizType/BizName mismatch between methods and descriptor";
+      registration_errors_.push_back(err);
+      std::cerr << "[BusinessAdapterRegistry ERROR] " << err << std::endl;
+      return false;
+    }
+
     // 冲突检查 1: 业务 ID 重复冲突
     auto it = adapters_.find(biz_type);
     if (it != adapters_.end()) {

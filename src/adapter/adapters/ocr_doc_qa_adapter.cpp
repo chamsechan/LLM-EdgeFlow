@@ -15,19 +15,30 @@ class OcrDocQaAdapter : public IBusinessAdapter {
   const char* BizName() const override { return "OcrDocQA"; }
 
   const AdapterDescriptor& GetDescriptor() const override {
-    static AdapterDescriptor desc{ALG_BIZ_TYPE_OCR_DOC_QA,
-                                  "OcrDocQA",
-                                  "2.0.0",
-                                  "CompanyOcrDocInputStruct",
-                                  "CompanyOcrDocOutputStruct",
-                                  64};
+    static AdapterDescriptor desc{
+        ALG_BIZ_TYPE_OCR_DOC_QA,
+        "OcrDocQA",
+        "2.0.0",
+        "CompanyOcrDocInputStruct",
+        "CompanyOcrDocOutputStruct",
+        64,
+        OwnershipPolicy::kCopyIn,
+        ThreadModel::kStatelessThreadSafe,
+        OutputCardinality::kOneToOne};
     return desc;
   }
 
-  int Unpack(const void** inputs, int num_inputs, AlgContext* ctx) override {
+  bool ValidatePipelineBinding(
+      const std::string& pipeline_biz_name) const override {
+    return pipeline_biz_name.find("ocr") != std::string::npos ||
+           pipeline_biz_name == "OcrDocQA";
+  }
+
+  int Unpack(const void** inputs, int num_inputs,
+             AlgContext* ctx) const override {
     int valid_ret = AdapterValidationHelper::ValidateBatchInputs(
-        inputs, num_inputs, BizName());
-    if (valid_ret != 0 || !ctx) return -3;
+        inputs, num_inputs, GetDescriptor().max_batch_size, BizName());
+    if (valid_ret != 0 || !ctx) return COMPANY_ALG_ERR_INVALID_INPUT;
 
     std::vector<uint64_t> raw_req_ids;
     std::vector<std::string> raw_images;
@@ -39,22 +50,26 @@ class OcrDocQaAdapter : public IBusinessAdapter {
 
     for (int i = 0; i < num_inputs; ++i) {
       auto* in_ocr = static_cast<const CompanyOcrDocInputStruct*>(inputs[i]);
+      if (!in_ocr || !in_ocr->image_path || !in_ocr->query_prompt) {
+        return COMPANY_ALG_ERR_INVALID_INPUT;
+      }
+
       raw_req_ids.push_back(in_ocr->request_id);
-      raw_images.push_back(in_ocr->image_path ? in_ocr->image_path : "");
-      raw_queries.push_back(in_ocr->query_prompt ? in_ocr->query_prompt : "");
+      raw_images.push_back(in_ocr->image_path);
+      raw_queries.push_back(in_ocr->query_prompt);
     }
 
     ctx->Set("raw_request_ids", std::move(raw_req_ids));
     ctx->Set("raw_image_paths", std::move(raw_images));
     ctx->Set("raw_queries", std::move(raw_queries));
-    return 0;
+    return COMPANY_ALG_SUCCESS;
   }
 
-  int Pack(AlgContext* ctx, void** outputs, int* num_outputs) override {
-    if (!ctx) return -4;
+  int Pack(AlgContext* ctx, void** outputs, int* num_outputs) const override {
+    if (!ctx) return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
 
     auto* res = ctx->Get<std::vector<OcrDocResult>>("ocr_doc_final_outputs");
-    if (!res) return -4;
+    if (!res) return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
 
     int count = static_cast<int>(res->size());
     int valid_ret = AdapterValidationHelper::ValidateBatchOutputs(
@@ -67,14 +82,14 @@ class OcrDocQaAdapter : public IBusinessAdapter {
       out_ptr->detected_box_count = (*res)[i].detected_box_count;
       out_ptr->status_code = (*res)[i].status_code;
 
-      strncpy(out_ptr->extracted_invoice_json,
-              (*res)[i].extracted_invoice_json.c_str(),
-              sizeof(out_ptr->extracted_invoice_json) - 1);
-      out_ptr->extracted_invoice_json[sizeof(out_ptr->extracted_invoice_json) -
-                                      1] = '\0';
+      AdapterValidationHelper::CheckedStringCopy(
+          out_ptr->extracted_invoice_json,
+          sizeof(out_ptr->extracted_invoice_json),
+          (*res)[i].extracted_invoice_json.c_str(),
+          "outputs[i].extracted_invoice_json", i, BizName());
     }
     *num_outputs = count;
-    return 0;
+    return COMPANY_ALG_SUCCESS;
   }
 };
 

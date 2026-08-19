@@ -111,6 +111,17 @@ int Alg_Create(void** hndl,
       return -3;
     }
 
+    // ADP-006: 校验 Pipeline 声明的业务标识与 Adapter 是否匹配
+    if (!adapter->ValidatePipelineBinding(
+            instance->pipeline->GetBusinessName())) {
+      std::cerr
+          << "[Company C Adapter] Alg_Create failed: Pipeline business_name '"
+          << instance->pipeline->GetBusinessName()
+          << "' does not match adapter '" << adapter->BizName() << "'."
+          << std::endl;
+      return -5;
+    }
+
     *hndl = static_cast<void*>(instance.release());
     std::cout
         << "[Company C Adapter] Alg_Create: Handle created successfully at "
