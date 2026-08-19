@@ -1,5 +1,6 @@
 #include "core/pipeline.h"
 
+#include <filesystem>
 #include <fstream>
 #include <future>
 #include <iostream>
@@ -180,17 +181,43 @@ bool Pipeline::BuildFromJson(const nlohmann::json& root_config) {
       // 根据 RuntimeOptions 自动解析相对模型路径并注入 device_id
       std::string resolved_model_path = model_path;
       const auto& options = session_ctx_.GetRuntimeOptions();
-      if (!model_path.empty() && model_path[0] != '/' &&
-          !options.model_root_dir.empty()) {
-        std::string root = options.model_root_dir;
-        if (root.back() != '/') root += '/';
-        std::string candidate_path = root + model_path;
-        std::ifstream test_f(candidate_path);
-        if (test_f.good()) {
-          resolved_model_path = candidate_path;
+
+      if (!model_path.empty()) {
+        std::filesystem::path model_p(model_path);
+        if (model_p.is_absolute()) {
+          resolved_model_path = model_p.lexically_normal().string();
+        } else if (!options.model_root_dir.empty()) {
+          std::filesystem::path root_p(options.model_root_dir);
+
+          std::string stripped_rel = model_path;
+          if (stripped_rel.rfind("./models/", 0) == 0) {
+            stripped_rel = stripped_rel.substr(9);
+          } else if (stripped_rel.rfind("models/", 0) == 0) {
+            stripped_rel = stripped_rel.substr(7);
+          }
+
+          std::filesystem::path cand_stripped = root_p / stripped_rel;
+          std::filesystem::path cand_direct = root_p / model_p;
+          std::filesystem::path cand_filename = root_p / model_p.filename();
+
+          if (std::filesystem::exists(cand_stripped)) {
+            resolved_model_path = cand_stripped.lexically_normal().string();
+          } else if (std::filesystem::exists(cand_direct)) {
+            resolved_model_path = cand_direct.lexically_normal().string();
+          } else if (std::filesystem::exists(cand_filename)) {
+            resolved_model_path = cand_filename.lexically_normal().string();
+          } else if (std::filesystem::exists(model_p)) {
+            resolved_model_path = model_p.lexically_normal().string();
+          } else {
+            resolved_model_path = cand_stripped.lexically_normal().string();
+          }
         }
       }
-      if (!custom_cfg.contains("device_id") && options.device_id != 0) {
+
+      // 只要显式指定了 device_id (has_device_id 为 true)，无论 0 还是非 0
+      // 均注入 Engine
+      if (options.has_device_id && (!custom_cfg.contains("device_id") ||
+                                    custom_cfg["device_id"].is_null())) {
         custom_cfg["device_id"] = options.device_id;
       }
 

@@ -15,10 +15,12 @@ bool MockNpuEmbeddingEngine::Load(const std::string& model_path,
   model_path_ = model_path;
   max_batch_size_ = engine_config.value("max_batch_size", 4);
   embedding_dim_ = engine_config.value("embedding_dim", 128);
+  device_id_ = engine_config.value("device_id", -1);
   is_loaded_ = true;
   std::cout << "[MockNpuEmbeddingEngine] Loaded model from: " << model_path
             << ", Fixed MaxBatchSize: " << max_batch_size_
-            << ", Dim: " << embedding_dim_ << std::endl;
+            << ", Dim: " << embedding_dim_ << ", Device: " << device_id_
+            << std::endl;
   return true;
 }
 

@@ -26,6 +26,8 @@ class OnnxEmbeddingEngine : public IEmbeddingEngine {
             const nlohmann::json& engine_config) override;
   size_t GetMaxBatchSize() const override { return max_batch_size_; }
   const std::string& EngineType() const override;
+  const std::string& GetLoadedModelPath() const override { return model_path_; }
+  int GetDeviceId() const override { return device_id_; }
 
   int InferTraceableBatch(
       const std::vector<TraceableItem<std::string>>& input_texts,
@@ -40,6 +42,7 @@ class OnnxEmbeddingEngine : public IEmbeddingEngine {
 
  private:
   std::string model_path_;
+  int device_id_ = -1;
   size_t max_batch_size_ = 4;
   size_t embedding_dim_ = 128;
   bool is_loaded_ = false;

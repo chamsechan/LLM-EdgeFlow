@@ -34,6 +34,19 @@ class IModelEngine {
    * @brief 引擎类型名称标识
    */
   virtual const std::string& EngineType() const = 0;
+
+  /**
+   * @brief 获取已加载的模型文件绝对或解析路径 (可观测性与测试)
+   */
+  virtual const std::string& GetLoadedModelPath() const {
+    static std::string empty;
+    return empty;
+  }
+
+  /**
+   * @brief 获取当前绑定的硬件设备 ID (可观测性与测试)
+   */
+  virtual int GetDeviceId() const { return -1; }
 };
 
 /**

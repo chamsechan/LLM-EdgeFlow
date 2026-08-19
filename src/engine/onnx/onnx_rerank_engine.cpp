@@ -14,10 +14,11 @@ bool OnnxRerankEngine::Load(const std::string& model_path,
                             const nlohmann::json& engine_config) {
   model_path_ = model_path;
   max_batch_size_ = engine_config.value("max_batch_size", 4);
+  device_id_ = engine_config.value("device_id", -1);
   is_loaded_ = true;
   std::cout << "[OnnxRerankEngine] Loaded ONNX Cross-Encoder Reranker from: "
             << model_path_ << ", Fixed MaxBatchSize: " << max_batch_size_
-            << std::endl;
+            << ", Device: " << device_id_ << std::endl;
   return true;
 }
 

@@ -40,6 +40,7 @@ bool LlamaCppEngine::Load(const std::string& model_path,
   model_path_ = model_path;
   max_batch_size_ = engine_config.value("max_batch_size", 2);
   max_seq_len_ = engine_config.value("max_seq_len", 1024);
+  device_id_ = engine_config.value("device_id", -1);
 
 #ifdef HAVE_LLAMACPP
   llama_backend_init();

@@ -15,7 +15,8 @@ namespace alg_framework {
 struct RuntimeOptions {
   std::string config_file_path;
   std::string model_root_dir;
-  int device_id = 0;
+  int device_id = -1;  // -1 表示未指定/默认，>=0 表示物理设备 ID
+  bool has_device_id = false;
   int biz_type = 0;
 };
 
