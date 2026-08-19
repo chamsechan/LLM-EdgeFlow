@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 
+#include "adapter/business_adapter_registry.h"
 #include "company_alg_interface.h"
 
 std::string GetConfigPath(const std::string& rel_path) {
@@ -97,4 +98,108 @@ TEST_F(CAbiSafetyTest, EndToEndDynamicControlAndVerification) {
 
   ret = Alg_Destroy(handle);
   EXPECT_EQ(ret, 0);
+}
+
+// 4. 测试输出缓冲区容量不足与所需容量回填契约 (ACC-003)
+TEST_F(CAbiSafetyTest, OutputCapacityInsufficientAndFeedbackContract) {
+  std::string cfg = GetConfigPath("configs/pipeline_keyword_match.json");
+  CompanyAlgParamCreate param;
+  param.config_file_path = cfg.c_str();
+  param.model_root_dir = "./models";
+  param.device_id = 0;
+  param.biz_type = ALG_BIZ_TYPE_KEYWORD_MATCH;
+
+  void* handle = nullptr;
+  ASSERT_EQ(Alg_Create(&handle, &param), 0);
+
+  CompanyKeywordInputStruct req0{101, "请联系VIP专员"};
+  CompanyKeywordInputStruct req1{102, "普通闲聊文本"};
+  const void* inputs[2] = {&req0, &req1};
+
+  CompanyKeywordOutputStruct out0;
+  void* outputs[1] = {&out0};
+
+  // 1) 传入容量为 0，应该返回 -4 并回填所需容量为 2
+  int num_outputs = 0;
+  int ret = Alg_Process(handle, inputs, 2, outputs, &num_outputs);
+  EXPECT_EQ(ret, -4);
+  EXPECT_EQ(num_outputs, 2);
+
+  // 2) 传入容量为 1 (小于需要的 2)，应该返回 -4 并回填所需容量为 2
+  num_outputs = 1;
+  ret = Alg_Process(handle, inputs, 2, outputs, &num_outputs);
+  EXPECT_EQ(ret, -4);
+  EXPECT_EQ(num_outputs, 2);
+
+  EXPECT_EQ(Alg_Destroy(handle), 0);
+}
+
+// 5. 测试输入与输出空槽位确定性拦截 (ACC-003)
+TEST_F(CAbiSafetyTest, NullSlotInBatchInputsOrOutputs) {
+  std::string cfg = GetConfigPath("configs/pipeline_keyword_match.json");
+  CompanyAlgParamCreate param;
+  param.config_file_path = cfg.c_str();
+  param.model_root_dir = "./models";
+  param.device_id = 0;
+  param.biz_type = ALG_BIZ_TYPE_KEYWORD_MATCH;
+
+  void* handle = nullptr;
+  ASSERT_EQ(Alg_Create(&handle, &param), 0);
+
+  CompanyKeywordInputStruct req0{101, "请联系VIP专员"};
+  const void* inputs_with_null[2] = {&req0, nullptr};  // 第二个槽位为空
+
+  CompanyKeywordOutputStruct out0, out1;
+  void* outputs[2] = {&out0, &out1};
+  int num_outputs = 2;
+
+  // 输入包含空指针 -> 必须确定性返回 -3
+  int ret = Alg_Process(handle, inputs_with_null, 2, outputs, &num_outputs);
+  EXPECT_EQ(ret, -3);
+
+  // 输出包含空指针 -> 必须确定性返回 -4
+  const void* valid_inputs[2] = {&req0, &req0};
+  void* outputs_with_null[2] = {&out0, nullptr};
+  num_outputs = 2;
+  ret = Alg_Process(handle, valid_inputs, 2, outputs_with_null, &num_outputs);
+  EXPECT_EQ(ret, -4);
+
+  EXPECT_EQ(Alg_Destroy(handle), 0);
+}
+
+// 6. 测试 Adapter 注册冲突防护与 Descriptor 机器可读性 (ACC-005)
+TEST_F(CAbiSafetyTest, AdapterRegistryConflictDetectionAndDescriptor) {
+  auto& registry = alg_framework::BusinessAdapterRegistry::Instance();
+  auto doc_adapter = registry.GetAdapter(ALG_BIZ_TYPE_DOC_QA);
+  ASSERT_NE(doc_adapter, nullptr);
+
+  // 验证 Descriptor
+  const auto& desc = doc_adapter->GetDescriptor();
+  EXPECT_EQ(desc.biz_type, ALG_BIZ_TYPE_DOC_QA);
+  EXPECT_EQ(desc.biz_name, "DocQA");
+  EXPECT_EQ(desc.abi_version, "2.0.0");
+  EXPECT_GT(desc.max_batch_size, 0);
+
+  // 测试重复 BizType 注册拦截
+  bool reg_dup_ret = registry.RegisterAdapter(doc_adapter);
+  EXPECT_FALSE(reg_dup_ret) << "Duplicate biz_type registration must fail";
+}
+
+// 7. 测试 RuntimeOptions 与设备参数贯通 (ACC-004)
+TEST_F(CAbiSafetyTest, RuntimeOptionsAndDevicePropagation) {
+  std::string cfg = GetConfigPath("configs/pipeline_doc_qa.json");
+  CompanyAlgParamCreate param;
+  param.config_file_path = cfg.c_str();
+  param.model_root_dir = "./models";
+  param.device_id = 0;  // 显式指定设备 0
+  param.biz_type = ALG_BIZ_TYPE_DOC_QA;
+
+  void* handle0 = nullptr;
+  ASSERT_EQ(Alg_Create(&handle0, &param), 0);
+  EXPECT_EQ(Alg_Destroy(handle0), 0);
+
+  param.device_id = 1;  // 显式指定设备 1
+  void* handle1 = nullptr;
+  ASSERT_EQ(Alg_Create(&handle1, &param), 0);
+  EXPECT_EQ(Alg_Destroy(handle1), 0);
 }

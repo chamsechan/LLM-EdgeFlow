@@ -21,10 +21,11 @@ echo -e "${BOLD}${CYAN}  Alg-SDK 框架全层级自动化测试与交付质量�
 echo -e "${BOLD}${CYAN}  Project Root: $ROOT_DIR${NC}"
 echo -e "${BOLD}${CYAN}==================================================================${NC}\n"
 
-# 1. 代码规范与格式化检验
-echo -e "${BOLD}[ Step 1/6: Google C++ 代码规范扫描与格式化检验 ]${NC}"
+# 1. 架构分层隔离与代码规范检验
+echo -e "${BOLD}[ Step 1/6: LayerGuard 架构分层防腐扫描与 Google C++ 代码规范检验 ]${NC}"
+"$SCRIPT_DIR/check_layer_isolation.sh"
 "$SCRIPT_DIR/format.sh"
-echo -e "${GREEN}✓ 代码规范校验通过！${NC}\n"
+echo -e "${GREEN}✓ 架构分层隔离与代码规范校验 100% 通过！${NC}\n"
 
 # 2. 全量工程编译
 echo -e "${BOLD}[ Step 2/6: CMake 构建与二进制链接 ]${NC}"
