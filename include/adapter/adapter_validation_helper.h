@@ -49,10 +49,10 @@ class AdapterValidationHelper {
     }
 
     if (!num_outputs || *num_outputs < 0) {
-      std::cerr
-          << "[AdapterValidation] " << (biz_name ? biz_name : "Biz")
-          << " PreFlight failed: Invalid num_outputs pointer or negative capacity"
-          << std::endl;
+      std::cerr << "[AdapterValidation] " << (biz_name ? biz_name : "Biz")
+                << " PreFlight failed: Invalid num_outputs pointer or negative "
+                   "capacity"
+                << std::endl;
       return -4;
     }
 
