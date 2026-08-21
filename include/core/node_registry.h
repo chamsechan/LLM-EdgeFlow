@@ -83,12 +83,6 @@ class NodeFactory {
     return conflict_errors_;
   }
 
-  void ResetConflictForTesting() {
-    std::lock_guard<std::mutex> lock(mutex_);
-    has_conflict_ = false;
-    conflict_errors_.clear();
-  }
-
  private:
   NodeFactory() = default;
   mutable std::mutex mutex_;

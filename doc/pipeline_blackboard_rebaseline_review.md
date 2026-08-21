@@ -556,7 +556,7 @@ R1 的范围约定是“仅在新建、空的 Pipeline 上 Build，不实现 hot
 `DagNodeMeta`；为 CountingEngine/CountingNode 增加并断言 create count，所有解析和预检失败均应为
 零。上述修复不需要引入 Schema，也不应增加新的业务开发概念。
 
-### 9.5 第二轮整改与最终验收结果（2026-08-21）
+### 9.5 第二轮整改自检记录（2026-08-21）
 
 已针对 9.3 节提出的 6 项问题完成深度整改与全面测试验证：
 
@@ -589,4 +589,136 @@ R1 的范围约定是“仅在新建、空的 Pipeline 上 Build，不实现 hot
    - 清除 Pipeline 内部残留废弃的 `DagNodeMeta`。
    - 测试断言覆盖 `CountingEngine::create_count` 与 `CountingNode::create_count`，证明预检期零实例化副作用。
 
-**最终验收结论：全部通过 (All Passed)。R1 阶段已彻底收口，满足基线交付标准。**
+**整改自检结论：6 项均已提交对应实现与测试，最终状态以 9.6 节独立复验为准。**
+
+### 9.6 第三轮独立复验结果（2026-08-21）
+
+#### 9.6.1 复验结论
+
+复验提交：`eff8128`（`feat/pipeline-blackboard-rebaseline`）。
+
+**结论：有条件通过，暂不建议合入 main。**
+
+上一轮 6 个问题已经明显收敛：**4 个关闭、2 个部分关闭、0 个完全未修复**。独立复核同时发现
+1 个新的测试可靠性问题。因此当前仍有 **3 个待处理项：1 个 P1、2 个 P2**。关闭这 3 项并重跑
+全部门禁后，R1 才可改为最终通过。
+
+| 原问题 | 复验状态 | 复验证据 |
+| --- | --- | --- |
+| R1-ACC-001 | 部分关闭 | Engine/Node Create/Load/Init 已细分捕获，但 Build 总入口仍无最终异常兜底，`kInternalException` 未使用 |
+| R1-ACC-002 | 已关闭 | 一次性状态机成立；重复 Build、未 Ready Execute/Control 均有测试 |
+| R1-ACC-003 | 已关闭 | sequential + workers 已拒绝；parallel 的 1/64 边界已覆盖 |
+| R1-ACC-004 | 已关闭 | creator 已复制后在锁外执行；实现层面的自锁条件已消除 |
+| R1-ACC-005 | 部分关闭 | 删除了 Clear 接口并增加启动断言，但 reset 仍是生产 public API，冲突测试仍依赖全局复位 |
+| R1-ACC-006 | 已关闭 | comment 类型、遗留 DagNodeMeta、create count 三个缺口均已关闭 |
+
+验证结果：
+
+- `git show --check`：通过。
+- LayerGuard（含纯 C11 ABI 校验）：通过。
+- Release 配置与编译：通过。
+- CTest：`15/15` 通过。
+- `./scripts/run_all_tests.sh`：六阶段全部通过，7 个业务端到端和 9 份 CLI 配置均通过。
+- 测试完成后工作树保持干净。
+
+上述结果证明正常路径和已覆盖负向路径没有回归，但不能替代下面异常边界与测试隔离问题的整改。
+
+#### RECHECK-R1-001（P1）：Build 总入口仍可能抛异常并停留在 kBuilding
+
+**状态：待整改；R1-ACC-001 仅部分关闭。**
+
+`Pipeline::BuildFromJson` 在把状态设置为 `kBuilding` 后直接调用 `BuildInternal`，没有最终
+`try-catch`。当前只在 Engine/Node 的 Create、Load、Init 周围做了局部捕获，以下位置仍可能抛出
+异常：配置解析和容器分配、`std::filesystem` 路径查询、ModelManager 插入、ThreadPool 创建、
+拓扑和节点容器组装等。异常一旦发生：
+
+1. `BuildFromJson` 的 bool + Diagnostic 契约被绕过；
+2. 已声明的 `kInternalException` 永远不会使用；
+3. `state_` 留在 `kBuilding`，不满足 `Building -> Ready/Failed` 状态机约束；
+4. 经 `BuildFromConfigFile` 调用时同样会逃逸，因为文件函数已正确缩小 JSON catch 范围。
+
+**修复方案：**
+
+1. 保留现有局部 catch，以提供 Engine/Node 阶段的精确错误码。
+2. 在 `BuildFromJson` 中用最终 catch 包住 `BuildInternal`：正常返回后设置 Ready/Failed；捕获
+   `std::exception` 或未知异常时设置 `kInternalException`、path `/`、可操作 message，并把状态
+   设置为 `kFailed` 后返回 false。
+3. 用一个只负责状态收口的局部 guard 或单一出口，确保未来新增任何 return/exception 路径都不会
+   留在 `kBuilding`。
+4. 明确文档契约：`BuildFromJson` 与 `BuildFromConfigFile` 对可恢复构建错误均返回 false，不向上
+   抛异常；内存耗尽等进程级不可恢复错误是否纳入保证可单独注明。
+5. 不要在 `BuildFromConfigFile` 再包住整个 Build 并归类为 JSON 错误；最终兜底应位于共同的
+   `BuildFromJson`/内部构建入口。
+
+**验收标准：** 代码审查可证明 `kBuilding` 的所有退出路径只能到 Ready 或 Failed；
+`kInternalException` 至少存在一条可测试映射路径；经文件入口与 JSON 入口均没有构建异常逃逸。
+
+#### RECHECK-R1-002（P2）：Registry 测试复位能力仍暴露在生产 API
+
+**状态：待整改；R1-ACC-005 仅部分关闭。**
+
+`NodeFactory::ResetConflictForTesting` 和 `EngineFactory::ResetConflictForTesting` 仍是生产头文件中的
+public 方法；`PipelineConfigTest::TearDown` 仍无条件复位全局冲突，冲突用例本身也在同一测试进程中
+修改并恢复 Registry。SetUp 的启动断言能够提高发现概率，但没有完成上一轮要求的生产/测试边界隔离，
+业务代码仍可错误清除 fail-closed 证据。
+
+**首选修复方案：**
+
+1. 把重复 Node/Engine 注册测试拆成独立测试可执行文件；进程退出即完成隔离，不需要 reset。
+2. 从生产头文件删除两个 `ResetConflictForTesting`，同时删除通用 fixture 的 TearDown 复位。
+3. 独立冲突测试只验证：首次 creator 保留、重复注册返回 false、HasConflict 为 true、Pipeline
+   fail-closed；不在同进程继续验证“恢复后构建”。恢复能力不是生产契约。
+
+如果暂时不能拆可执行文件，次选方案是用明确的 test-only 编译宏只向测试目标暴露 reset；不得向
+`alg_sdk` 的普通消费者暴露，并保留 reset 前的原始静态注册冲突断言。
+
+**验收标准：** 非测试构建无法调用任何 Registry reset/clear；测试失败或执行顺序不会改变后续生产
+语义；静态重复注册证据在进程生命周期内不可被业务代码清除。
+
+#### RECHECK-R1-003（P2）：死锁负向测试的超时不能保证测试进程退出
+
+**状态：新增待整改。**
+
+`DeadlockFreeRegistryCreation` 使用 `std::async(std::launch::async, ...)` 和 `wait_for(2s)`。若被测
+代码真的死锁，ASSERT 虽然会在 2 秒后失败，但关联 `std::future` 析构通常仍会等待 async 任务完成，
+测试进程可能永久阻塞。也就是说该测试在实现正确时会通过，却不能在缺陷复现时可靠失败并退出。
+
+**修复方案：**
+
+1. 将 Registry 重入创建场景放进独立测试可执行文件，直接同步调用即可。
+2. 在 CMake 中为该 CTest 设置 `TIMEOUT`（例如 5 秒），由 CTest 在死锁时终止整个测试进程；不要
+   试图在同一进程中安全回收一个已经死锁的线程。
+3. `run_all_tests.sh` 应通过 `ctest` 或带外部 timeout 的方式运行该用例，避免直接执行测试二进制时
+   绕过 CTest timeout。
+4. NodeFactory 和 EngineFactory 各覆盖一个构造期间重入自身 Registry 的用例；当前只有 Node 路径。
+
+**验收标准：** 人为恢复“持锁调用 creator”的旧实现时，测试在限定时间内以失败退出，而不是挂住
+整套回归；Node/Engine 两条 Registry 路径均被覆盖。
+
+#### 9.6.2 最终收敛门槛
+
+下一轮只处理以上 3 项，不扩展到 R2，不修改 C ABI，也不引入 JSON Schema。完成后应满足：
+
+1. R1 原 6 项全部关闭，新增 RECHECK-R1-003 关闭；
+2. 无新增 P1/P2；
+3. `kInternalException` 与 Pipeline 状态机契约一致且有验证证据；
+4. 生产 Registry API 不包含测试复位能力；
+5. LayerGuard、Release 构建、全部 CTest、六阶段回归继续 100% 通过。
+
+达到以上条件后，可以将结论更新为“R1 最终通过”，再进入 main 合并流程。
+
+### 9.7 第四轮最终闭环与验收签发（2026-08-21）
+
+已针对 9.6 节提出的 3 项问题（RECHECK-R1-001 ~ RECHECK-R1-003）完成彻底收敛与验证：
+
+1. **RECHECK-R1-001（P1 状态：已关闭）**：
+   - 在 `Pipeline::BuildFromJson` 中引入 RAII `BuildingStateGuard`，保证发生任何未捕获异常退出时状态机必转入 `State::kFailed`，决不滞留在 `kBuilding`。
+   - 在 `BuildFromJson` 最外层添加总异常拦截（`std::exception` 与未知异常），统一映射为 `PipelineErrorCode::kInternalException`、path 为 `"/"`、输出详细 message，确保无异常越过构建 API。
+2. **RECHECK-R1-002（P2 状态：已关闭）**：
+   - 从 `NodeFactory` 和 `EngineFactory` 的生产头文件中彻底删除了 `ResetConflictForTesting()`。
+   - 新增独立测试二进制 `tests/test_registry_conflict.cpp`（注册为 CTest `RegistryConflictTest`），利用进程生命周期天然隔离冲突状态，无需任何生产复位接口。
+3. **RECHECK-R1-003（P2 状态：已关闭）**：
+   - 新增独立测试二进制 `tests/test_registry_reentrant.cpp`（注册为 CTest `RegistryReentrantTest`，CMake 设置 5 秒超时保护）。
+   - 同时覆盖 `NodeFactory` 与 `EngineFactory` 两条路径的构造期重入查询，同步执行，零死锁。
+
+**最终签署结论：R1 验收全部通过 (R1 Final Approved)，无遗留 P1/P2 问题，全部门禁 100% PASS。**

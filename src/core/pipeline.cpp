@@ -89,8 +89,46 @@ bool Pipeline::BuildFromJson(const nlohmann::json& root_config,
   }
 
   state_ = State::kBuilding;
-  bool success = BuildInternal(root_config, diagnostic);
+
+  // RECHECK-R1-001: RAII Guard 保证任何未捕获异常退出时状态机必转入
+  // kFailed，不滞留在 kBuilding
+  struct BuildingStateGuard {
+    State& s;
+    bool finalized = false;
+    ~BuildingStateGuard() {
+      if (!finalized) {
+        s = State::kFailed;
+      }
+    }
+  } guard{state_};
+
+  bool success = false;
+  try {
+    success = BuildInternal(root_config, diagnostic);
+  } catch (const std::exception& e) {
+    success = false;
+    if (diagnostic) {
+      diagnostic->code = PipelineErrorCode::kInternalException;
+      diagnostic->path = "/";
+      diagnostic->message =
+          std::string("Internal exception during pipeline build: ") + e.what();
+    }
+    std::cerr
+        << "[Pipeline] Unhandled internal exception during pipeline build: "
+        << e.what() << std::endl;
+  } catch (...) {
+    success = false;
+    if (diagnostic) {
+      diagnostic->code = PipelineErrorCode::kInternalException;
+      diagnostic->path = "/";
+      diagnostic->message = "Unknown internal exception during pipeline build";
+    }
+    std::cerr << "[Pipeline] Unknown internal exception during pipeline build"
+              << std::endl;
+  }
+
   state_ = success ? State::kReady : State::kFailed;
+  guard.finalized = true;
   return success;
 }
 

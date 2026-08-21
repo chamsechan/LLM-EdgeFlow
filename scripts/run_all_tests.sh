@@ -41,6 +41,8 @@ echo -e "${BOLD}[ Step 3/6: 核心架构、DAG拓扑排序、引擎容错与全�
 "$BUILD_DIR/test_batch_executor"
 "$BUILD_DIR/test_framework_core"
 "$BUILD_DIR/test_pipeline_config"
+"$BUILD_DIR/test_registry_conflict"
+"$BUILD_DIR/test_registry_reentrant"
 "$BUILD_DIR/test_dag_pipeline"
 "$BUILD_DIR/test_engine_fault_tolerance_and_lifecycle"
 "$BUILD_DIR/test_qwen_engines_comparison"

@@ -84,12 +84,6 @@ class EngineFactory {
     return conflict_errors_;
   }
 
-  void ResetConflictForTesting() {
-    std::lock_guard<std::mutex> lock(mutex_);
-    has_conflict_ = false;
-    conflict_errors_.clear();
-  }
-
  private:
   EngineFactory() = default;
   mutable std::mutex mutex_;

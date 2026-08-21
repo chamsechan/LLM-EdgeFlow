@@ -158,6 +158,16 @@ add_executable(test_pipeline_config tests/test_pipeline_config.cpp)
 target_link_libraries(test_pipeline_config PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
 add_test(NAME PipelineConfigTest COMMAND test_pipeline_config)
 
+add_executable(test_registry_conflict tests/test_registry_conflict.cpp)
+target_link_libraries(test_registry_conflict PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME RegistryConflictTest COMMAND test_registry_conflict)
+set_tests_properties(RegistryConflictTest PROPERTIES TIMEOUT 5)
+
+add_executable(test_registry_reentrant tests/test_registry_reentrant.cpp)
+target_link_libraries(test_registry_reentrant PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME RegistryReentrantTest COMMAND test_registry_reentrant)
+set_tests_properties(RegistryReentrantTest PROPERTIES TIMEOUT 5)
+
 # 6. 纯 C++ 零依赖原生 DAG 可视化工具 (专为无 Python 的极简嵌入式/边缘环境设计)
 add_executable(alg_show src/tools/alg_show.cpp)
 target_link_libraries(alg_show PRIVATE nlohmann_json::nlohmann_json)

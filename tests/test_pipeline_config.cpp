@@ -1,9 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <atomic>
-#include <chrono>
 #include <fstream>
-#include <future>
 #include <iostream>
 #include <nlohmann/json.hpp>
 #include <stdexcept>
@@ -179,24 +177,6 @@ class FailingInitNode : public INode {
 };
 REGISTER_NODE(FailingInitNode);
 
-// 3. 自锁测试替身 (R1-ACC-004)
-class ReentrantNode : public INode {
- public:
-  ReentrantNode() {
-    // 构造期间递归调用 NodeFactory 查询，测试是否存在死锁
-    bool has = NodeFactory::Instance().Has("CountingNode");
-    (void)has;
-  }
-  bool Init(const nlohmann::json&, SessionContext*) override { return true; }
-  int Process(AlgContext*) override { return 0; }
-  int Control(int, const std::string&) override { return 0; }
-  const std::string& Name() const override {
-    static const std::string name = "ReentrantNode";
-    return name;
-  }
-};
-REGISTER_NODE(ReentrantNode);
-
 // 辅助函数：查找配置文件相对路径
 static std::string GetConfigPath(const std::string& rel_path) {
   FILE* fp = fopen(rel_path.c_str(), "r");
@@ -213,16 +193,11 @@ static std::string GetConfigPath(const std::string& rel_path) {
 class PipelineConfigTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    // R1-ACC-005: 启动时断言正式静态注册表没有任何冲突
+    // RECHECK-R1-002: 启动时严格断言全局静态注册无冲突，不依赖生产 Reset 接口
     ASSERT_FALSE(NodeFactory::Instance().HasConflict());
     ASSERT_FALSE(EngineFactory::Instance().HasConflict());
     CountingEngine::Reset();
     CountingNode::Reset();
-  }
-
-  void TearDown() override {
-    NodeFactory::Instance().ResetConflictForTesting();
-    EngineFactory::Instance().ResetConflictForTesting();
   }
 };
 
@@ -261,6 +236,7 @@ TEST_F(PipelineConfigTest, PositiveNineFormalConfigs) {
                           << diag.message << " at " << diag.path;
     EXPECT_EQ(diag.code, PipelineErrorCode::kOk);
     EXPECT_TRUE(pipeline.IsReady());
+    EXPECT_EQ(pipeline.GetState(), Pipeline::State::kReady);
   }
 }
 
@@ -689,7 +665,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
   }
 }
 
-// 4. 物化异常与细粒度错误诊断测试 (R1-ACC-001)
+// 4. 物化异常与细粒度错误诊断测试 (R1-ACC-001 & RECHECK-R1-001)
 TEST_F(PipelineConfigTest, MaterializationExceptionsAndFineGrainedDiagnostics) {
   PipelineDiagnostic diag;
 
@@ -699,6 +675,7 @@ TEST_F(PipelineConfigTest, MaterializationExceptionsAndFineGrainedDiagnostics) {
     EXPECT_FALSE(p.BuildFromConfigFile("/non/existent/path.json", &diag));
     EXPECT_EQ(diag.code, PipelineErrorCode::kConfigFileOpen);
     EXPECT_EQ(diag.path, "/");
+    EXPECT_EQ(p.GetState(), Pipeline::State::kFailed);
   }
 
   // 4.2 JSON 语法错误文件
@@ -712,6 +689,7 @@ TEST_F(PipelineConfigTest, MaterializationExceptionsAndFineGrainedDiagnostics) {
     EXPECT_FALSE(p.BuildFromConfigFile(bad_json_path, &diag));
     EXPECT_EQ(diag.code, PipelineErrorCode::kJsonParse);
     EXPECT_EQ(diag.path, "/");
+    EXPECT_EQ(p.GetState(), Pipeline::State::kFailed);
     std::remove(bad_json_path.c_str());
   }
 
@@ -727,6 +705,7 @@ TEST_F(PipelineConfigTest, MaterializationExceptionsAndFineGrainedDiagnostics) {
     EXPECT_FALSE(p.BuildFromJson(cfg, &diag));
     EXPECT_EQ(diag.code, PipelineErrorCode::kEngineCreateFailed);
     EXPECT_EQ(diag.path, "/models/0/engine_type");
+    EXPECT_EQ(p.GetState(), Pipeline::State::kFailed);
   }
 
   // 4.4 Engine Load 抛异常
@@ -741,6 +720,7 @@ TEST_F(PipelineConfigTest, MaterializationExceptionsAndFineGrainedDiagnostics) {
     EXPECT_FALSE(p.BuildFromJson(cfg, &diag));
     EXPECT_EQ(diag.code, PipelineErrorCode::kEngineLoadFailed);
     EXPECT_EQ(diag.path, "/models/0");
+    EXPECT_EQ(p.GetState(), Pipeline::State::kFailed);
   }
 
   // 4.5 Engine Load 返回 false
@@ -755,6 +735,7 @@ TEST_F(PipelineConfigTest, MaterializationExceptionsAndFineGrainedDiagnostics) {
     EXPECT_FALSE(p.BuildFromJson(cfg, &diag));
     EXPECT_EQ(diag.code, PipelineErrorCode::kEngineLoadFailed);
     EXPECT_EQ(diag.path, "/models/0");
+    EXPECT_EQ(p.GetState(), Pipeline::State::kFailed);
   }
 
   // 4.6 Node 构造函数抛异常
@@ -767,6 +748,7 @@ TEST_F(PipelineConfigTest, MaterializationExceptionsAndFineGrainedDiagnostics) {
     EXPECT_FALSE(p.BuildFromJson(cfg, &diag));
     EXPECT_EQ(diag.code, PipelineErrorCode::kNodeCreateFailed);
     EXPECT_EQ(diag.path, "/pipeline/0/node_type");
+    EXPECT_EQ(p.GetState(), Pipeline::State::kFailed);
   }
 
   // 4.7 Node Init 抛异常
@@ -779,6 +761,7 @@ TEST_F(PipelineConfigTest, MaterializationExceptionsAndFineGrainedDiagnostics) {
     EXPECT_FALSE(p.BuildFromJson(cfg, &diag));
     EXPECT_EQ(diag.code, PipelineErrorCode::kNodeInitFailed);
     EXPECT_EQ(diag.path, "/pipeline/0/config");
+    EXPECT_EQ(p.GetState(), Pipeline::State::kFailed);
   }
 
   // 4.8 Node Init 返回 false
@@ -791,10 +774,11 @@ TEST_F(PipelineConfigTest, MaterializationExceptionsAndFineGrainedDiagnostics) {
     EXPECT_FALSE(p.BuildFromJson(cfg, &diag));
     EXPECT_EQ(diag.code, PipelineErrorCode::kNodeInitFailed);
     EXPECT_EQ(diag.path, "/pipeline/0/config");
+    EXPECT_EQ(p.GetState(), Pipeline::State::kFailed);
   }
 }
 
-// 5. 一次性构建契约与生命周期状态机测试 (R1-ACC-002)
+// 5. 一次性构建契约与生命周期状态机测试 (R1-ACC-002 & RECHECK-R1-001)
 TEST_F(PipelineConfigTest, OnceOnlyBuildContractAndStateMachineProtection) {
   PipelineDiagnostic diag;
   nlohmann::json valid_cfg = {
@@ -852,76 +836,7 @@ TEST_F(PipelineConfigTest, OnceOnlyBuildContractAndStateMachineProtection) {
   }
 }
 
-// 6. Registry 锁粒度优化与自锁预防测试 (R1-ACC-004)
-TEST_F(PipelineConfigTest, DeadlockFreeRegistryCreation) {
-  // 使用 std::async 带超时验证构造期间重入查询 Registry 不会死锁
-  auto future = std::async(std::launch::async, []() {
-    Pipeline p;
-    PipelineDiagnostic diag;
-    nlohmann::json cfg = {
-        {"business_name", "reentrant_test"},
-        {"pipeline",
-         nlohmann::json::array({{{"node_type", "ReentrantNode"}}})}};
-    return p.BuildFromJson(cfg, &diag);
-  });
-
-  ASSERT_EQ(future.wait_for(std::chrono::seconds(2)), std::future_status::ready)
-      << "ReentrantNode creation deadlocked in Registry mutex!";
-  EXPECT_TRUE(future.get());
-}
-
-// 7. Registry 冲突隔离与 Fail-Closed 测试 (R1-ACC-005)
-TEST_F(PipelineConfigTest, RegistryConflictFailClosed) {
-  // 7.1 重复 Node 注册拦截
-  bool dup_node_ret = NodeFactory::Instance().Register(
-      "CountingNode", []() { return std::make_unique<CountingNode>(); });
-  EXPECT_FALSE(dup_node_ret)
-      << "Duplicate NodeFactory registration must return false";
-  EXPECT_TRUE(NodeFactory::Instance().HasConflict());
-
-  // 首次注册必须保留
-  auto node_inst = NodeFactory::Instance().Create("CountingNode");
-  EXPECT_NE(node_inst, nullptr);
-
-  // 冲突状态下 Pipeline Build 必须 fail-closed
-  Pipeline pipe_conflict_node;
-  PipelineDiagnostic diag;
-  nlohmann::json valid_cfg = {
-      {"business_name", "conflict_test"},
-      {"pipeline", nlohmann::json::array({{{"node_type", "CountingNode"}}})}};
-
-  EXPECT_FALSE(pipe_conflict_node.BuildFromJson(valid_cfg, &diag));
-  EXPECT_EQ(diag.code, PipelineErrorCode::kRegistryConflict);
-
-  // 恢复干净状态后，在新 Pipeline 实例上构建成功
-  NodeFactory::Instance().ResetConflictForTesting();
-  EXPECT_FALSE(NodeFactory::Instance().HasConflict());
-  Pipeline clean_pipe_node;
-  EXPECT_TRUE(clean_pipe_node.BuildFromJson(valid_cfg, &diag));
-
-  // 7.2 重复 Engine 注册拦截
-  bool dup_engine_ret = EngineFactory::Instance().Register(
-      "counting_engine", []() { return std::make_unique<CountingEngine>(); });
-  EXPECT_FALSE(dup_engine_ret)
-      << "Duplicate EngineFactory registration must return false";
-  EXPECT_TRUE(EngineFactory::Instance().HasConflict());
-
-  // 首次注册必须保留
-  auto engine_inst = EngineFactory::Instance().Create("counting_engine");
-  EXPECT_NE(engine_inst, nullptr);
-
-  Pipeline pipe_conflict_engine;
-  diag.Clear();
-  EXPECT_FALSE(pipe_conflict_engine.BuildFromJson(valid_cfg, &diag));
-  EXPECT_EQ(diag.code, PipelineErrorCode::kRegistryConflict);
-
-  EngineFactory::Instance().ResetConflictForTesting();
-  EXPECT_FALSE(EngineFactory::Instance().HasConflict());
-  Pipeline clean_pipe_engine;
-  EXPECT_TRUE(clean_pipe_engine.BuildFromJson(valid_cfg, &diag));
-}
-
-// 8. ModelManager 重复 model_id 注册防御性拦截测试
+// 6. ModelManager 重复 model_id 注册防御性拦截测试
 TEST_F(PipelineConfigTest, ModelManagerDuplicateRejection) {
   ModelManager manager;
   auto eng1 = std::make_shared<CountingEngine>();
@@ -934,7 +849,7 @@ TEST_F(PipelineConfigTest, ModelManagerDuplicateRejection) {
   EXPECT_EQ(manager.GetModel<CountingEngine>("model_x"), eng1);
 }
 
-// 9. 并发模式边界测试 (R1-ACC-003)
+// 7. 并发模式边界测试 (R1-ACC-003)
 TEST_F(PipelineConfigTest, ParallelModeWorkersBoundaries) {
   PipelineDiagnostic diag;
 
