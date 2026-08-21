@@ -7,6 +7,8 @@
 
 #include "core/alg_context.h"
 #include "core/node_base.h"
+#include "core/pipeline_config.h"
+#include "core/pipeline_diagnostic.h"
 #include "core/session_context.h"
 #include "core/thread_pool.h"
 
@@ -24,22 +26,27 @@ class Pipeline {
  public:
   enum class ExecutionMode { SEQUENTIAL, PARALLEL };
 
-  struct DagNodeMeta {
-    std::string id;
-    std::string node_type;
-    std::vector<std::string> depends_on;
-    nlohmann::json custom_config;
+  /**
+   * @brief Pipeline 实例状态机 (R1-ACC-002 一次性构建与就绪保护)
+   */
+  enum class State {
+    kEmpty = 0,  ///< 新建空实例，允许发起且仅允许发起一次构建
+    kBuilding,  ///< 正在执行构建（解析、预检、物化）
+    kReady,     ///< 构建成功，允许执行 Execute 和 Control
+    kFailed,    ///< 构建失败，不可再次构建或执行
   };
 
   Pipeline();
   ~Pipeline() = default;
 
   /**
-   * @brief 从 JSON 配置文件构建整条管线 (包含多模型加载、DAG
+   * @brief 从 JSON 配置文件构建整条管线 (包含严格校验、模型加载、DAG
    * 拓扑分层与执行器组装)
    */
-  bool BuildFromConfigFile(const std::string& config_file_path);
-  bool BuildFromJson(const nlohmann::json& root_config);
+  bool BuildFromConfigFile(const std::string& config_file_path,
+                           PipelineDiagnostic* diagnostic = nullptr);
+  bool BuildFromJson(const nlohmann::json& root_config,
+                     PipelineDiagnostic* diagnostic = nullptr);
 
   /**
    * @brief 按照拓扑排序/波前序列执行单次批次管线推理
@@ -51,7 +58,11 @@ class Pipeline {
    */
   int Control(int cmd, const std::string& json_param);
 
+  State GetState() const { return state_; }
+  bool IsReady() const { return state_ == State::kReady; }
+
   SessionContext& GetSessionContext() { return session_ctx_; }
+  const SessionContext& GetSessionContext() const { return session_ctx_; }
   const std::string& GetBusinessName() const { return business_name_; }
   ExecutionMode GetExecutionMode() const { return execution_mode_; }
   const std::vector<std::string>& GetTopologicalOrder() const {
@@ -62,10 +73,23 @@ class Pipeline {
   }
 
  private:
-  bool ResolveDagTopologicalSort(
-      const std::vector<DagNodeMeta>& raw_nodes,
-      std::vector<std::vector<DagNodeMeta>>* sorted_layers);
+  struct DagPlan {
+    std::vector<std::vector<ParsedNodeConfig>> sorted_layers;
+    std::vector<std::string> topological_order;
+    std::vector<std::vector<std::string>> topological_layers_ids;
+  };
 
+  static bool ResolveDagTopologicalSort(
+      const std::vector<ParsedNodeConfig>& raw_nodes, bool uses_explicit_dag,
+      DagPlan* plan, PipelineDiagnostic* diagnostic);
+
+  bool BuildInternal(const nlohmann::json& root_config,
+                     PipelineDiagnostic* diagnostic);
+
+  friend class PipelineConfigTest;
+  std::function<void()> test_internal_hook_;
+
+  State state_ = State::kEmpty;
   std::string business_name_;
   ExecutionMode execution_mode_ = ExecutionMode::SEQUENTIAL;
   size_t max_parallel_workers_ = 4;

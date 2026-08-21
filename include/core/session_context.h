@@ -25,9 +25,16 @@ struct RuntimeOptions {
  */
 class ModelManager {
  public:
-  void RegisterModel(const std::string& model_id,
+  bool RegisterModel(const std::string& model_id,
                      std::shared_ptr<IModelEngine> engine) {
-    models_[model_id] = engine;
+    if (model_id.empty() || !engine) {
+      return false;
+    }
+    if (models_.find(model_id) != models_.end()) {
+      return false;
+    }
+    models_[model_id] = std::move(engine);
+    return true;
   }
 
   template <typename T>

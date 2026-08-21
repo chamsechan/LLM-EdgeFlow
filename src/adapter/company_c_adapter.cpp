@@ -105,9 +105,12 @@ int Alg_Create(void** hndl,
     std::cout << "[Company C Adapter] Creating Pipeline for BizType ["
               << instance->biz_type << "] with config: " << cfg_path
               << std::endl;
-    if (!instance->pipeline->BuildFromConfigFile(cfg_path)) {
-      std::cerr << "[Company C Adapter] Failed to build pipeline from config."
-                << std::endl;
+    alg_framework::PipelineDiagnostic diagnostic;
+    if (!instance->pipeline->BuildFromConfigFile(cfg_path, &diagnostic)) {
+      std::cerr << "[Company C Adapter] Failed to build pipeline from config: "
+                << diagnostic.message
+                << " (code: " << static_cast<int>(diagnostic.code)
+                << ", path: " << diagnostic.path << ")" << std::endl;
       return -3;
     }
 

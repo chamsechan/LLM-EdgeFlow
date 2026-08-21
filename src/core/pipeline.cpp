@@ -15,74 +15,177 @@ namespace alg_framework {
 
 Pipeline::Pipeline() : business_name_("default_biz") {}
 
-bool Pipeline::BuildFromConfigFile(const std::string& config_file_path) {
+bool Pipeline::BuildFromConfigFile(const std::string& config_file_path,
+                                   PipelineDiagnostic* diagnostic) {
+  if (diagnostic) {
+    diagnostic->Clear();
+  }
+
+  // R1-ACC-002: 一次性构建状态检查
+  if (state_ != State::kEmpty) {
+    if (diagnostic) {
+      diagnostic->code = PipelineErrorCode::kInvalidBuildState;
+      diagnostic->path = "/";
+      diagnostic->message =
+          "Pipeline build can only be attempted once on an empty Pipeline "
+          "instance";
+    }
+    std::cerr << "[Pipeline] Build attempted on non-empty Pipeline (state: "
+              << static_cast<int>(state_) << ")" << std::endl;
+    return false;
+  }
+
   std::ifstream ifs(config_file_path);
   if (!ifs.is_open()) {
+    state_ = State::kFailed;
+    if (diagnostic) {
+      diagnostic->code = PipelineErrorCode::kConfigFileOpen;
+      diagnostic->path = "/";
+      diagnostic->message = "Failed to open config file: " + config_file_path;
+    }
     std::cerr << "[Pipeline] Failed to open config file: " << config_file_path
               << std::endl;
     return false;
   }
 
+  // R1-ACC-001: 缩小 JSON 解析 try-catch 范围，避免掩盖下游构建异常
+  nlohmann::json root_json;
   try {
-    nlohmann::json root_json;
     ifs >> root_json;
-    return BuildFromJson(root_json);
   } catch (const std::exception& e) {
+    state_ = State::kFailed;
+    if (diagnostic) {
+      diagnostic->code = PipelineErrorCode::kJsonParse;
+      diagnostic->path = "/";
+      diagnostic->message = std::string("JSON parse exception in ") +
+                            config_file_path + ": " + e.what();
+    }
     std::cerr << "[Pipeline] JSON parse exception in " << config_file_path
               << ": " << e.what() << std::endl;
     return false;
   }
+
+  return BuildFromJson(root_json, diagnostic);
+}
+
+bool Pipeline::BuildFromJson(const nlohmann::json& root_config,
+                             PipelineDiagnostic* diagnostic) {
+  if (diagnostic) {
+    diagnostic->Clear();
+  }
+
+  // R1-ACC-002: 一次性构建状态检查
+  if (state_ != State::kEmpty) {
+    if (diagnostic) {
+      diagnostic->code = PipelineErrorCode::kInvalidBuildState;
+      diagnostic->path = "/";
+      diagnostic->message =
+          "Pipeline build can only be attempted once on an empty Pipeline "
+          "instance";
+    }
+    std::cerr << "[Pipeline] Build attempted on non-empty Pipeline (state: "
+              << static_cast<int>(state_) << ")" << std::endl;
+    return false;
+  }
+
+  state_ = State::kBuilding;
+
+  // RECHECK-R1-001: RAII Guard 保证任何未捕获异常退出时状态机必转入
+  // kFailed，不滞留在 kBuilding
+  struct BuildingStateGuard {
+    State& s;
+    bool finalized = false;
+    ~BuildingStateGuard() {
+      if (!finalized) {
+        s = State::kFailed;
+      }
+    }
+  } guard{state_};
+
+  bool success = false;
+  try {
+    success = BuildInternal(root_config, diagnostic);
+  } catch (const std::exception& e) {
+    success = false;
+    if (diagnostic) {
+      diagnostic->code = PipelineErrorCode::kInternalException;
+      diagnostic->path = "/";
+      diagnostic->message =
+          std::string("Internal exception during pipeline build: ") + e.what();
+    }
+    std::cerr
+        << "[Pipeline] Unhandled internal exception during pipeline build: "
+        << e.what() << std::endl;
+  } catch (...) {
+    success = false;
+    if (diagnostic) {
+      diagnostic->code = PipelineErrorCode::kInternalException;
+      diagnostic->path = "/";
+      diagnostic->message = "Unknown internal exception during pipeline build";
+    }
+    std::cerr << "[Pipeline] Unknown internal exception during pipeline build"
+              << std::endl;
+  }
+
+  state_ = success ? State::kReady : State::kFailed;
+  guard.finalized = true;
+  return success;
 }
 
 bool Pipeline::ResolveDagTopologicalSort(
-    const std::vector<DagNodeMeta>& raw_nodes,
-    std::vector<std::vector<DagNodeMeta>>* sorted_layers) {
-  topological_order_.clear();
-  topological_layers_ids_.clear();
-  sorted_layers->clear();
+    const std::vector<ParsedNodeConfig>& raw_nodes, bool uses_explicit_dag,
+    DagPlan* plan, PipelineDiagnostic* diagnostic) {
+  if (!plan) return false;
+  plan->topological_order.clear();
+  plan->topological_layers_ids.clear();
+  plan->sorted_layers.clear();
 
   if (raw_nodes.empty()) {
     return true;
   }
 
-  // 1. 提取所有节点 ID 并验证唯一性
-  std::unordered_set<std::string> all_ids;
-  std::unordered_map<std::string, const DagNodeMeta*> meta_lookup;
-  bool has_explicit_dependencies = false;
-
-  for (const auto& node : raw_nodes) {
-    if (all_ids.find(node.id) != all_ids.end()) {
-      std::cerr << "[Pipeline] Duplicate node id detected in DAG config: "
-                << node.id << std::endl;
-      return false;
-    }
-    all_ids.insert(node.id);
-    meta_lookup[node.id] = &node;
-    if (!node.depends_on.empty()) {
-      has_explicit_dependencies = true;
-    }
-  }
-
-  // 2. 向后兼容处理：若全量节点均未声明 depends_on，则直接保持 JSON
-  // 数组自然顺序
-  if (!has_explicit_dependencies) {
+  // 1. 向后兼容处理：非显式 DAG (sequential 且全量节点均未声明 depends_on)
+  // 直接保持 JSON 数组自然顺序
+  if (!uses_explicit_dag) {
     for (const auto& node : raw_nodes) {
-      sorted_layers->push_back({node});
-      topological_order_.push_back(node.id);
-      topological_layers_ids_.push_back({node.id});
+      plan->sorted_layers.push_back({node});
+      plan->topological_order.push_back(node.id);
+      plan->topological_layers_ids.push_back({node.id});
     }
     return true;
   }
 
-  // 3. 校验所有依赖 ID 是否均存在于节点集合中
+  // 2. 建立节点 ID 查找索引
+  std::unordered_map<std::string, const ParsedNodeConfig*> meta_lookup;
   for (const auto& node : raw_nodes) {
-    for (const auto& dep_id : node.depends_on) {
+    meta_lookup[node.id] = &node;
+  }
+
+  // 3. 校验所有依赖 ID 是否均存在于节点集合中，并拦截自环死锁
+  for (const auto& node : raw_nodes) {
+    for (size_t d = 0; d < node.depends_on.size(); ++d) {
+      const auto& dep_id = node.depends_on[d];
+      std::string dep_path = "/pipeline/" + std::to_string(node.source_index) +
+                             "/depends_on/" + std::to_string(d);
       if (dep_id == node.id) {
+        if (diagnostic) {
+          diagnostic->code = PipelineErrorCode::kDagCycle;
+          diagnostic->path = dep_path;
+          diagnostic->message = "Self-loop cycle detected: node '" + node.id +
+                                "' depends on itself";
+        }
         std::cerr << "[Pipeline] Self-loop cycle detected: node [" << node.id
                   << "] depends on itself!" << std::endl;
         return false;
       }
-      if (all_ids.find(dep_id) == all_ids.end()) {
+      if (meta_lookup.find(dep_id) == meta_lookup.end()) {
+        if (diagnostic) {
+          diagnostic->code = PipelineErrorCode::kInvalidDependency;
+          diagnostic->path = dep_path;
+          diagnostic->message = "Node '" + node.id +
+                                "' depends on non-existent node '" + dep_id +
+                                "'";
+        }
         std::cerr << "[Pipeline] Invalid dependency: node [" << node.id
                   << "] depends on non-existent node [" << dep_id << "]"
                   << std::endl;
@@ -114,7 +217,7 @@ bool Pipeline::ResolveDagTopologicalSort(
 
   while (!current_wave_q.empty()) {
     size_t wave_size = current_wave_q.size();
-    std::vector<DagNodeMeta> current_layer_nodes;
+    std::vector<ParsedNodeConfig> current_layer_nodes;
     std::vector<std::string> current_layer_ids;
     std::queue<std::string> next_wave_q;
 
@@ -125,7 +228,7 @@ bool Pipeline::ResolveDagTopologicalSort(
 
       current_layer_nodes.push_back(*meta_lookup[u]);
       current_layer_ids.push_back(u);
-      topological_order_.push_back(u);
+      plan->topological_order.push_back(u);
 
       auto it = adj_list.find(u);
       if (it != adj_list.end()) {
@@ -137,13 +240,30 @@ bool Pipeline::ResolveDagTopologicalSort(
       }
     }
 
-    sorted_layers->push_back(std::move(current_layer_nodes));
-    topological_layers_ids_.push_back(std::move(current_layer_ids));
+    plan->sorted_layers.push_back(std::move(current_layer_nodes));
+    plan->topological_layers_ids.push_back(std::move(current_layer_ids));
     current_wave_q = std::move(next_wave_q);
   }
 
-  // 6. 环路死锁检测 (Cycle Detection)
+  // 6. 环路死锁检测 (Cycle Deadlock Detection)
   if (total_resolved != raw_nodes.size()) {
+    std::string unresolved_path = "/pipeline";
+    std::string unresolved_name;
+    for (const auto& node : raw_nodes) {
+      if (in_degree[node.id] > 0) {
+        unresolved_path = "/pipeline/" + std::to_string(node.source_index);
+        unresolved_name = node.id;
+        break;
+      }
+    }
+    if (diagnostic) {
+      diagnostic->code = PipelineErrorCode::kDagCycle;
+      diagnostic->path = unresolved_path;
+      diagnostic->message =
+          "Cyclic dependency deadlock detected in DAG pipeline involving node "
+          "'" +
+          unresolved_name + "'";
+    }
     std::cerr << "[Pipeline] Cyclic dependency deadlock detected in DAG "
                  "pipeline! Unresolved nodes: ";
     for (const auto& pair : in_degree) {
@@ -159,93 +279,224 @@ bool Pipeline::ResolveDagTopologicalSort(
   return true;
 }
 
-bool Pipeline::BuildFromJson(const nlohmann::json& root_config) {
-  business_name_ = root_config.value("business_name", "unnamed_biz");
+bool Pipeline::BuildInternal(const nlohmann::json& root_config,
+                             PipelineDiagnostic* diagnostic) {
+  // FINAL-R1-003: 仅在测试场景下注入异常，以提供 kInternalException
+  // 动态覆盖证据
+  if (test_internal_hook_) {
+    test_internal_hook_();
+  }
 
-  // 1. 加载配置中声明的所有模型 (支持多模型加载到 ModelManager)
-  if (root_config.contains("models") && root_config["models"].is_array()) {
-    for (const auto& model_cfg : root_config["models"]) {
-      std::string model_id = model_cfg.value("model_id", "");
-      std::string engine_type = model_cfg.value("engine_type", "");
-      std::string model_path = model_cfg.value("model_path", "");
-      nlohmann::json custom_cfg =
-          model_cfg.value("config", nlohmann::json::object());
+  // =========================================================================
+  // Phase 1: Parse
+  // =========================================================================
+  ParsedPipelineConfig parsed_cfg;
+  if (!ParsePipelineConfig(root_config, &parsed_cfg, diagnostic)) {
+    return false;
+  }
 
-      if (model_id.empty() || engine_type.empty()) {
-        std::cerr << "[Pipeline] Invalid model config: model_id or engine_type "
-                     "is empty"
-                  << std::endl;
-        return false;
+  // =========================================================================
+  // Phase 2: Validate References, Registry and DAG (Preflight before side
+  // effects)
+  // =========================================================================
+  // 1. 校验 Registry 冲突状态 (fail-closed)
+  if (NodeFactory::Instance().HasConflict()) {
+    if (diagnostic) {
+      diagnostic->code = PipelineErrorCode::kRegistryConflict;
+      diagnostic->path = "/pipeline";
+      diagnostic->message = "Node factory has registration conflict";
+    }
+    std::cerr << "[Pipeline] NodeFactory registration conflict detected!"
+              << std::endl;
+    return false;
+  }
+
+  if (EngineFactory::Instance().HasConflict()) {
+    if (diagnostic) {
+      diagnostic->code = PipelineErrorCode::kRegistryConflict;
+      diagnostic->path = "/models";
+      diagnostic->message = "Engine factory has registration conflict";
+    }
+    std::cerr << "[Pipeline] EngineFactory registration conflict detected!"
+              << std::endl;
+    return false;
+  }
+
+  // 2. 校验配置中声明的所有 engine_type 是否已注册
+  for (const auto& model_cfg : parsed_cfg.models) {
+    if (!EngineFactory::Instance().Has(model_cfg.engine_type)) {
+      if (diagnostic) {
+        diagnostic->code = PipelineErrorCode::kUnknownEngineType;
+        diagnostic->path = "/models/" + std::to_string(model_cfg.source_index) +
+                           "/engine_type";
+        diagnostic->message = "Unknown engine_type: " + model_cfg.engine_type +
+                              " for model: " + model_cfg.model_id;
       }
-
-      // 根据 RuntimeOptions 自动解析相对模型路径并注入 device_id
-      std::string resolved_model_path = model_path;
-      const auto& options = session_ctx_.GetRuntimeOptions();
-
-      if (!model_path.empty()) {
-        std::filesystem::path model_p(model_path);
-        if (model_p.is_absolute()) {
-          resolved_model_path = model_p.lexically_normal().string();
-        } else if (!options.model_root_dir.empty()) {
-          std::filesystem::path root_p(options.model_root_dir);
-
-          std::string stripped_rel = model_path;
-          if (stripped_rel.rfind("./models/", 0) == 0) {
-            stripped_rel = stripped_rel.substr(9);
-          } else if (stripped_rel.rfind("models/", 0) == 0) {
-            stripped_rel = stripped_rel.substr(7);
-          }
-
-          std::filesystem::path cand_stripped = root_p / stripped_rel;
-          std::filesystem::path cand_direct = root_p / model_p;
-          std::filesystem::path cand_filename = root_p / model_p.filename();
-
-          if (std::filesystem::exists(cand_stripped)) {
-            resolved_model_path = cand_stripped.lexically_normal().string();
-          } else if (std::filesystem::exists(cand_direct)) {
-            resolved_model_path = cand_direct.lexically_normal().string();
-          } else if (std::filesystem::exists(cand_filename)) {
-            resolved_model_path = cand_filename.lexically_normal().string();
-          } else if (std::filesystem::exists(model_p)) {
-            resolved_model_path = model_p.lexically_normal().string();
-          } else {
-            resolved_model_path = cand_stripped.lexically_normal().string();
-          }
-        }
-      }
-
-      // 只要显式指定了 device_id (has_device_id 为 true)，无论 0 还是非 0
-      // 均注入 Engine
-      if (options.has_device_id && (!custom_cfg.contains("device_id") ||
-                                    custom_cfg["device_id"].is_null())) {
-        custom_cfg["device_id"] = options.device_id;
-      }
-
-      auto engine = EngineFactory::Instance().Create(engine_type);
-      if (!engine) {
-        std::cerr << "[Pipeline] Unknown engine_type: " << engine_type
-                  << " for model: " << model_id << std::endl;
-        return false;
-      }
-
-      if (!engine->Load(resolved_model_path, custom_cfg)) {
-        std::cerr << "[Pipeline] Failed to load model: " << model_id
-                  << " at path: " << resolved_model_path << std::endl;
-        return false;
-      }
-
-      session_ctx_.GetModelManager().RegisterModel(
-          model_id, std::shared_ptr<IModelEngine>(std::move(engine)));
-      std::cout << "[Pipeline] Successfully loaded model [" << model_id
-                << "] with engine [" << engine_type << "]" << std::endl;
+      std::cerr << "[Pipeline] Unknown engine_type: " << model_cfg.engine_type
+                << " for model: " << model_cfg.model_id << std::endl;
+      return false;
     }
   }
 
+  // 3. 校验配置中声明的所有 node_type 是否已注册
+  for (const auto& node_cfg : parsed_cfg.nodes) {
+    if (!NodeFactory::Instance().Has(node_cfg.node_type)) {
+      if (diagnostic) {
+        diagnostic->code = PipelineErrorCode::kUnknownNodeType;
+        diagnostic->path =
+            "/pipeline/" + std::to_string(node_cfg.source_index) + "/node_type";
+        diagnostic->message = "Unregistered node_type: " + node_cfg.node_type;
+      }
+      std::cerr << "[Pipeline] Unregistered node_type: " << node_cfg.node_type
+                << " (id: " << node_cfg.id << ")" << std::endl;
+      return false;
+    }
+  }
+
+  // 4. 函数式解析 DAG 拓扑排序计划 (纯计算无副作用)
+  DagPlan dag_plan;
+  if (!ResolveDagTopologicalSort(parsed_cfg.nodes, parsed_cfg.uses_explicit_dag,
+                                 &dag_plan, diagnostic)) {
+    return false;
+  }
+
+  // =========================================================================
+  // Phase 3: Materialize Engines and Nodes (with fine-grained exception
+  // conversion)
+  // =========================================================================
+  business_name_ = parsed_cfg.business_name;
+
+  // 1. 加载配置中声明的所有模型 (支持多模型加载到 ModelManager)
+  const auto& options = session_ctx_.GetRuntimeOptions();
+  for (const auto& model_cfg : parsed_cfg.models) {
+    std::unique_ptr<IModelEngine> engine;
+    try {
+      engine = EngineFactory::Instance().Create(model_cfg.engine_type);
+    } catch (const std::exception& e) {
+      if (diagnostic) {
+        diagnostic->code = PipelineErrorCode::kEngineCreateFailed;
+        diagnostic->path = "/models/" + std::to_string(model_cfg.source_index) +
+                           "/engine_type";
+        diagnostic->message = "Exception creating engine '" +
+                              model_cfg.engine_type + "': " + e.what();
+      }
+      return false;
+    } catch (...) {
+      if (diagnostic) {
+        diagnostic->code = PipelineErrorCode::kEngineCreateFailed;
+        diagnostic->path = "/models/" + std::to_string(model_cfg.source_index) +
+                           "/engine_type";
+        diagnostic->message =
+            "Unknown exception creating engine '" + model_cfg.engine_type + "'";
+      }
+      return false;
+    }
+
+    if (!engine) {
+      if (diagnostic) {
+        diagnostic->code = PipelineErrorCode::kEngineCreateFailed;
+        diagnostic->path = "/models/" + std::to_string(model_cfg.source_index) +
+                           "/engine_type";
+        diagnostic->message = "EngineFactory returned null for engine_type: " +
+                              model_cfg.engine_type;
+      }
+      return false;
+    }
+
+    // 根据 RuntimeOptions 自动解析相对模型路径并注入 device_id
+    std::string resolved_model_path = model_cfg.model_path;
+    if (!model_cfg.model_path.empty()) {
+      std::filesystem::path model_p(model_cfg.model_path);
+      if (model_p.is_absolute()) {
+        resolved_model_path = model_p.lexically_normal().string();
+      } else if (!options.model_root_dir.empty()) {
+        std::filesystem::path root_p(options.model_root_dir);
+
+        std::string stripped_rel = model_cfg.model_path;
+        if (stripped_rel.rfind("./models/", 0) == 0) {
+          stripped_rel = stripped_rel.substr(9);
+        } else if (stripped_rel.rfind("models/", 0) == 0) {
+          stripped_rel = stripped_rel.substr(7);
+        }
+
+        std::filesystem::path cand_stripped = root_p / stripped_rel;
+        std::filesystem::path cand_direct = root_p / model_p;
+        std::filesystem::path cand_filename = root_p / model_p.filename();
+
+        if (std::filesystem::exists(cand_stripped)) {
+          resolved_model_path = cand_stripped.lexically_normal().string();
+        } else if (std::filesystem::exists(cand_direct)) {
+          resolved_model_path = cand_direct.lexically_normal().string();
+        } else if (std::filesystem::exists(cand_filename)) {
+          resolved_model_path = cand_filename.lexically_normal().string();
+        } else if (std::filesystem::exists(model_p)) {
+          resolved_model_path = model_p.lexically_normal().string();
+        } else {
+          resolved_model_path = cand_stripped.lexically_normal().string();
+        }
+      }
+    }
+
+    nlohmann::json custom_cfg = model_cfg.config;
+    if (options.has_device_id && (!custom_cfg.contains("device_id") ||
+                                  custom_cfg["device_id"].is_null())) {
+      custom_cfg["device_id"] = options.device_id;
+    }
+
+    bool load_ok = false;
+    try {
+      load_ok = engine->Load(resolved_model_path, custom_cfg);
+    } catch (const std::exception& e) {
+      if (diagnostic) {
+        diagnostic->code = PipelineErrorCode::kEngineLoadFailed;
+        diagnostic->path = "/models/" + std::to_string(model_cfg.source_index);
+        diagnostic->message =
+            "Exception loading model '" + model_cfg.model_id + "': " + e.what();
+      }
+      return false;
+    } catch (...) {
+      if (diagnostic) {
+        diagnostic->code = PipelineErrorCode::kEngineLoadFailed;
+        diagnostic->path = "/models/" + std::to_string(model_cfg.source_index);
+        diagnostic->message =
+            "Unknown exception loading model '" + model_cfg.model_id + "'";
+      }
+      return false;
+    }
+
+    if (!load_ok) {
+      if (diagnostic) {
+        diagnostic->code = PipelineErrorCode::kEngineLoadFailed;
+        diagnostic->path = "/models/" + std::to_string(model_cfg.source_index);
+        diagnostic->message = "Failed to load model: " + model_cfg.model_id +
+                              " at path: " + resolved_model_path;
+      }
+      std::cerr << "[Pipeline] Failed to load model: " << model_cfg.model_id
+                << " at path: " << resolved_model_path << std::endl;
+      return false;
+    }
+
+    if (!session_ctx_.GetModelManager().RegisterModel(
+            model_cfg.model_id,
+            std::shared_ptr<IModelEngine>(std::move(engine)))) {
+      if (diagnostic) {
+        diagnostic->code = PipelineErrorCode::kDuplicateModelId;
+        diagnostic->path =
+            "/models/" + std::to_string(model_cfg.source_index) + "/model_id";
+        diagnostic->message =
+            "Failed to register model in ModelManager: " + model_cfg.model_id;
+      }
+      return false;
+    }
+
+    std::cout << "[Pipeline] Successfully loaded model [" << model_cfg.model_id
+              << "] with engine [" << model_cfg.engine_type << "]" << std::endl;
+  }
+
   // 2. 解析 execution_mode 执行策略与线程池
-  std::string mode_str = root_config.value("execution_mode", "sequential");
-  if (mode_str == "parallel" || mode_str == "async") {
+  if (parsed_cfg.execution_mode == "parallel") {
     execution_mode_ = ExecutionMode::PARALLEL;
-    max_parallel_workers_ = root_config.value("max_parallel_workers", 4);
+    max_parallel_workers_ = parsed_cfg.max_parallel_workers;
     thread_pool_ = std::make_unique<ThreadPool>(max_parallel_workers_);
     std::cout << "[Pipeline] Parallel Wavefront Execution Mode enabled "
                  "(workers: "
@@ -256,76 +507,82 @@ bool Pipeline::BuildFromJson(const nlohmann::json& root_config) {
     std::cout << "[Pipeline] Sequential Execution Mode active" << std::endl;
   }
 
-  // 3. 解析 pipeline 数组并执行 DAG 拓扑分层波前排序
-  if (!root_config.contains("pipeline") ||
-      !root_config["pipeline"].is_array()) {
-    std::cerr << "[Pipeline] Missing 'pipeline' array in configuration"
-              << std::endl;
-    return false;
-  }
+  // 3. 按照波前拓扑层实例化并初始化算子节点
+  topological_order_ = std::move(dag_plan.topological_order);
+  topological_layers_ids_ = std::move(dag_plan.topological_layers_ids);
 
-  std::vector<DagNodeMeta> raw_nodes;
-  int auto_id_seq = 0;
-
-  for (const auto& node_cfg : root_config["pipeline"]) {
-    std::string node_type = node_cfg.value("node_type", "");
-    if (node_type.empty()) {
-      std::cerr << "[Pipeline] node_type is empty in pipeline config"
-                << std::endl;
-      return false;
-    }
-
-    std::string id = node_cfg.value("id", "");
-    if (id.empty()) {
-      id = "node_" + std::to_string(auto_id_seq) + "_" + node_type;
-    }
-    auto_id_seq++;
-
-    std::vector<std::string> depends_on;
-    if (node_cfg.contains("depends_on") && node_cfg["depends_on"].is_array()) {
-      for (const auto& dep : node_cfg["depends_on"]) {
-        if (dep.is_string() && !dep.get<std::string>().empty()) {
-          depends_on.push_back(dep.get<std::string>());
-        }
-      }
-    }
-
-    nlohmann::json custom_cfg =
-        node_cfg.value("config", nlohmann::json::object());
-
-    // 合并顶层配置
-    for (auto it = node_cfg.begin(); it != node_cfg.end(); ++it) {
-      if (it.key() != "id" && it.key() != "node_type" &&
-          it.key() != "depends_on" && it.key() != "config" &&
-          it.key() != "comment") {
-        custom_cfg[it.key()] = it.value();
-      }
-    }
-
-    raw_nodes.push_back({id, node_type, std::move(depends_on), custom_cfg});
-  }
-
-  std::vector<std::vector<DagNodeMeta>> sorted_layers;
-  if (!ResolveDagTopologicalSort(raw_nodes, &sorted_layers)) {
-    std::cerr << "[Pipeline] DAG Topological Sort failed!" << std::endl;
-    return false;
-  }
-
-  // 4. 按照波前拓扑层实例化并初始化算子节点
-  nodes_.clear();
-  node_layers_.clear();
-
-  for (size_t layer_idx = 0; layer_idx < sorted_layers.size(); ++layer_idx) {
+  for (size_t layer_idx = 0; layer_idx < dag_plan.sorted_layers.size();
+       ++layer_idx) {
     std::vector<INode*> layer_ptrs;
-    for (const auto& meta : sorted_layers[layer_idx]) {
-      auto node = NodeFactory::Instance().Create(meta.node_type);
+    for (const auto& meta : dag_plan.sorted_layers[layer_idx]) {
+      std::unique_ptr<INode> node;
+      try {
+        node = NodeFactory::Instance().Create(meta.node_type);
+      } catch (const std::exception& e) {
+        if (diagnostic) {
+          diagnostic->code = PipelineErrorCode::kNodeCreateFailed;
+          diagnostic->path =
+              "/pipeline/" + std::to_string(meta.source_index) + "/node_type";
+          diagnostic->message =
+              "Exception creating node '" + meta.node_type + "': " + e.what();
+        }
+        return false;
+      } catch (...) {
+        if (diagnostic) {
+          diagnostic->code = PipelineErrorCode::kNodeCreateFailed;
+          diagnostic->path =
+              "/pipeline/" + std::to_string(meta.source_index) + "/node_type";
+          diagnostic->message =
+              "Unknown exception creating node '" + meta.node_type + "'";
+        }
+        return false;
+      }
+
       if (!node) {
-        std::cerr << "[Pipeline] Unregistered node_type: " << meta.node_type
+        if (diagnostic) {
+          diagnostic->code = PipelineErrorCode::kNodeCreateFailed;
+          diagnostic->path =
+              "/pipeline/" + std::to_string(meta.source_index) + "/node_type";
+          diagnostic->message =
+              "NodeFactory returned null for node_type: " + meta.node_type;
+        }
+        std::cerr << "[Pipeline] Failed to create node: " << meta.node_type
                   << std::endl;
         return false;
       }
 
-      if (!node->Init(meta.custom_config, &session_ctx_)) {
+      bool init_ok = false;
+      try {
+        init_ok = node->Init(meta.config, &session_ctx_);
+      } catch (const std::exception& e) {
+        if (diagnostic) {
+          diagnostic->code = PipelineErrorCode::kNodeInitFailed;
+          diagnostic->path =
+              "/pipeline/" + std::to_string(meta.source_index) + "/config";
+          diagnostic->message = "Exception initializing node '" +
+                                meta.node_type + "': " + e.what();
+        }
+        return false;
+      } catch (...) {
+        if (diagnostic) {
+          diagnostic->code = PipelineErrorCode::kNodeInitFailed;
+          diagnostic->path =
+              "/pipeline/" + std::to_string(meta.source_index) + "/config";
+          diagnostic->message =
+              "Unknown exception initializing node '" + meta.node_type + "'";
+        }
+        return false;
+      }
+
+      if (!init_ok) {
+        if (diagnostic) {
+          diagnostic->code = PipelineErrorCode::kNodeInitFailed;
+          diagnostic->path =
+              "/pipeline/" + std::to_string(meta.source_index) + "/config";
+          diagnostic->message =
+              "Node Init returned false for node_type: " + meta.node_type +
+              " (id: " + meta.id + ")";
+        }
         std::cerr << "[Pipeline] Node Init failed: " << meta.node_type
                   << " (id: " << meta.id << ")" << std::endl;
         return false;
@@ -357,7 +614,10 @@ bool Pipeline::BuildFromJson(const nlohmann::json& root_config) {
 }
 
 int Pipeline::Execute(AlgContext* req_ctx) {
-  if (!req_ctx) return -1;
+  // R1-ACC-002: 仅允许在 Ready 状态下执行
+  if (state_ != State::kReady || !req_ctx) {
+    return -1;
+  }
 
   for (size_t layer_idx = 0; layer_idx < node_layers_.size(); ++layer_idx) {
     const auto& layer = node_layers_[layer_idx];
@@ -406,6 +666,11 @@ int Pipeline::Execute(AlgContext* req_ctx) {
 }
 
 int Pipeline::Control(int cmd, const std::string& json_param) {
+  // R1-ACC-002: 仅允许在 Ready 状态下执行
+  if (state_ != State::kReady) {
+    return -1;
+  }
+
   std::cout << "[Pipeline] Control cmd received: " << cmd
             << ", params: " << json_param << std::endl;
   int last_ret = 0;

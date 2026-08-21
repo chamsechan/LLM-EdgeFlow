@@ -122,6 +122,13 @@ LLM-EdgeFlow/
 
 ## 📝 更新日志 (Changelog)
 
+- **v2.2.0 (Pipeline 严格解析、Fail-Closed 注册与结构化诊断交付 - R1)** *(2026-08)*
+  - 📐 **严格配置解析与白名单校验 (PLB-004, R1-ACC-003/006)**：实现集中式强类型解析器 `ParsePipelineConfig`，严格拒绝根节点/Model/Node 未知字段；废除顶层未知参数自动合并进算子配置的隐式行为；校验 `comment` 强类型与 `execution_mode: sequential` + `max_parallel_workers` 排他组合；平滑保持 9 份正式配置向后兼容（自动生成稳定顺序 ID）。
+  - 🛡️ **注册中心重复拒绝与 Fail-Closed 防护 (PLB-006, RECHECK-R1-002)**：`NodeFactory` 与 `EngineFactory` 在检测到同名类型重复注册时，无条件保留首个注册实例并标记 `has_conflict_ = true`；Pipeline 构建阶段实施 Fail-Closed 拦截；移除生产头文件中的重置调试接口，确保进程级注册冲突不可篡改。
+  - 🩺 **精细化结构诊断与异常阶段隔离 (PLB-011, R1-ACC-001, RECHECK-R1-001/003)**：定义 21 种细粒度 `PipelineErrorCode`，涵盖配置无法打开、语法解析、引擎/算子创建与初始化异常；物化边界建立全生命周期异常拦截网络并映射至标准 JSON Pointer path，杜绝异常逃逸；引入 `BuildingStateGuard` 保证构建异常确定性收敛至 `State::kFailed`。
+  - 🔄 **一次性构建生命周期状态机保护 (R1-ACC-002)**：`Pipeline` 引入 `State::kEmpty -> State::kBuilding -> State::kReady / State::kFailed` 显式状态机，彻底封禁重复 Build 与脏状态复用；`Execute` 与 `Control` 仅在 `Ready` 状态工作，未就绪或失败实例安全拦截。
+  - 🔒 **Registry 锁粒度优化与自锁消除 (R1-ACC-004, RECHECK-R1-003)**：`Create` 调整为锁内检索复制函数对象、锁外执行构造，彻底消除算子构造期重入 Registry 导致的死锁风险；新增带超时保护的进程级独立测试套件。
+  - 🧪 **18 组全量 CTest 单元测试矩阵与 6 阶段全量回归**：新增 `test_pipeline_config`、`test_registry_conflict`、`test_registry_reentrant` 测试套件，全量表驱动断言解析预检零副作用与物化异常，全部 18 组 CTest 及 6 阶段端到端回归 100% 通过。
 - **v2.1.0 (Adapter 契约与内存安全加固交付)** *(2026-08)*
   - 🛡️ **输出截断防御与容量保护 (RECHECK-001, ADP-005)**：`AdapterValidationHelper::CheckedStringCopy` 在缓冲区容量不足时自动记录结构化诊断并返回 `false`；全部生产 Adapter 及模板严密校验返回值，遇截断即时返回标准错误码 `COMPANY_ALG_ERR_BUFFER_TOO_SMALL` (`-4`)，彻底杜绝静默截断伪成功。
   - 🔒 **Pipeline 精确白名单与 Fail-Closed 绑定 (RECHECK-002, ADP-006)**：`AdapterDescriptor` 引入 `allowed_pipeline_names` 显式白名单列表；基类 `ValidatePipelineBinding` 实施 Fail-Closed 默认防御，彻底废弃名称模糊子串推断，杜绝恶意或误配置 Pipeline 绑定。
