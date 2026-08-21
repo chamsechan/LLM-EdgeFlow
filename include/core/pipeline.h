@@ -86,6 +86,9 @@ class Pipeline {
   bool BuildInternal(const nlohmann::json& root_config,
                      PipelineDiagnostic* diagnostic);
 
+  friend class PipelineConfigTest;
+  std::function<void()> test_internal_hook_;
+
   State state_ = State::kEmpty;
   std::string business_name_;
   ExecutionMode execution_mode_ = ExecutionMode::SEQUENTIAL;

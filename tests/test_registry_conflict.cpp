@@ -36,14 +36,13 @@ class DummyEngine : public IModelEngine {
 };
 REGISTER_ENGINE("dummy_engine", DummyEngine);
 
-// RECHECK-R1-002: 独立进程验证静态注册冲突与 Fail-Closed 行为 (零生产 reset
-// 接口)
-TEST(RegistryConflictTest, DuplicateNodeAndEngineRegistrationFailClosed) {
-  // 1. 验证启动时原始静态注册无冲突
+// FINAL-R1-002: 独立 TEST 隔离 Node 冲突与 Engine 冲突，杜绝跨套件污染
+
+// 1. 独立验证 Node 注册冲突与 fail-closed
+TEST(RegistryConflictNodeTest, DuplicateNodeFailClosed) {
   ASSERT_FALSE(NodeFactory::Instance().HasConflict());
   ASSERT_FALSE(EngineFactory::Instance().HasConflict());
 
-  // 2. 模拟重复 Node 注册
   bool dup_node = NodeFactory::Instance().Register(
       "DummyNode", []() { return std::make_unique<DummyNode>(); });
   EXPECT_FALSE(dup_node);
@@ -53,17 +52,23 @@ TEST(RegistryConflictTest, DuplicateNodeAndEngineRegistrationFailClosed) {
   auto node_inst = NodeFactory::Instance().Create("DummyNode");
   EXPECT_NE(node_inst, nullptr);
 
-  // 3. 冲突状态下 Pipeline Build 必须 fail-closed
-  Pipeline pipe_node;
+  // Pipeline 构建 fail-closed 并定位至 /pipeline
+  Pipeline pipe;
   PipelineDiagnostic diag;
   nlohmann::json cfg = {
-      {"business_name", "conflict_test"},
+      {"business_name", "conflict_node_test"},
       {"pipeline", nlohmann::json::array({{{"node_type", "DummyNode"}}})}};
 
-  EXPECT_FALSE(pipe_node.BuildFromJson(cfg, &diag));
+  EXPECT_FALSE(pipe.BuildFromJson(cfg, &diag));
   EXPECT_EQ(diag.code, PipelineErrorCode::kRegistryConflict);
+  EXPECT_EQ(diag.path, "/pipeline");
+}
 
-  // 4. 模拟重复 Engine 注册
+// 2. 独立验证 Engine 注册冲突与 fail-closed
+TEST(RegistryConflictEngineTest, DuplicateEngineFailClosed) {
+  ASSERT_FALSE(NodeFactory::Instance().HasConflict());
+  ASSERT_FALSE(EngineFactory::Instance().HasConflict());
+
   bool dup_engine = EngineFactory::Instance().Register(
       "dummy_engine", []() { return std::make_unique<DummyEngine>(); });
   EXPECT_FALSE(dup_engine);
@@ -72,10 +77,18 @@ TEST(RegistryConflictTest, DuplicateNodeAndEngineRegistrationFailClosed) {
   auto engine_inst = EngineFactory::Instance().Create("dummy_engine");
   EXPECT_NE(engine_inst, nullptr);
 
-  Pipeline pipe_engine;
-  diag.Clear();
-  EXPECT_FALSE(pipe_engine.BuildFromJson(cfg, &diag));
+  // Pipeline 构建 fail-closed 并定位至 /models
+  Pipeline pipe;
+  PipelineDiagnostic diag;
+  nlohmann::json cfg = {
+      {"business_name", "conflict_engine_test"},
+      {"models", nlohmann::json::array(
+                     {{{"model_id", "m1"}, {"engine_type", "dummy_engine"}}})},
+      {"pipeline", nlohmann::json::array({{{"node_type", "DummyNode"}}})}};
+
+  EXPECT_FALSE(pipe.BuildFromJson(cfg, &diag));
   EXPECT_EQ(diag.code, PipelineErrorCode::kRegistryConflict);
+  EXPECT_EQ(diag.path, "/models");
 }
 
 }  // namespace alg_framework

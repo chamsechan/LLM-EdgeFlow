@@ -160,8 +160,10 @@ add_test(NAME PipelineConfigTest COMMAND test_pipeline_config)
 
 add_executable(test_registry_conflict tests/test_registry_conflict.cpp)
 target_link_libraries(test_registry_conflict PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
-add_test(NAME RegistryConflictTest COMMAND test_registry_conflict)
-set_tests_properties(RegistryConflictTest PROPERTIES TIMEOUT 5)
+add_test(NAME RegistryConflictNodeTest COMMAND test_registry_conflict --gtest_filter=RegistryConflictNodeTest.*)
+set_tests_properties(RegistryConflictNodeTest PROPERTIES TIMEOUT 5)
+add_test(NAME RegistryConflictEngineTest COMMAND test_registry_conflict --gtest_filter=RegistryConflictEngineTest.*)
+set_tests_properties(RegistryConflictEngineTest PROPERTIES TIMEOUT 5)
 
 add_executable(test_registry_reentrant tests/test_registry_reentrant.cpp)
 target_link_libraries(test_registry_reentrant PRIVATE alg_sdk GTest::gtest GTest::gtest_main)

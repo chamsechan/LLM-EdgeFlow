@@ -199,6 +199,12 @@ class PipelineConfigTest : public ::testing::Test {
     CountingEngine::Reset();
     CountingNode::Reset();
   }
+
+  void SetInternalBuildHook(Pipeline* p, std::function<void()> hook) {
+    if (p) {
+      p->test_internal_hook_ = std::move(hook);
+    }
+  }
 };
 
 // 1. 兼容正例：当前 9 份正式配置全部 Parse/Build 通过
@@ -774,6 +780,23 @@ TEST_F(PipelineConfigTest, MaterializationExceptionsAndFineGrainedDiagnostics) {
     EXPECT_FALSE(p.BuildFromJson(cfg, &diag));
     EXPECT_EQ(diag.code, PipelineErrorCode::kNodeInitFailed);
     EXPECT_EQ(diag.path, "/pipeline/0/config");
+    EXPECT_EQ(p.GetState(), Pipeline::State::kFailed);
+  }
+
+  // 4.9 内部未捕获异常被外层兜底拦截并映射为 kInternalException (FINAL-R1-003)
+  {
+    Pipeline p;
+    SetInternalBuildHook(&p, []() {
+      throw std::runtime_error("Simulated unhandled internal exception");
+    });
+    nlohmann::json cfg = {
+        {"business_name", "internal_exc_test"},
+        {"pipeline", nlohmann::json::array({{{"node_type", "CountingNode"}}})}};
+    EXPECT_FALSE(p.BuildFromJson(cfg, &diag));
+    EXPECT_EQ(diag.code, PipelineErrorCode::kInternalException);
+    EXPECT_EQ(diag.path, "/");
+    EXPECT_TRUE(diag.message.find("Simulated unhandled internal exception") !=
+                std::string::npos);
     EXPECT_EQ(p.GetState(), Pipeline::State::kFailed);
   }
 }

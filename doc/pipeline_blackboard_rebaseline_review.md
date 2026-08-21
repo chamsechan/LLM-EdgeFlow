@@ -707,7 +707,7 @@ public 方法；`PipelineConfigTest::TearDown` 仍无条件复位全局冲突，
 
 达到以上条件后，可以将结论更新为“R1 最终通过”，再进入 main 合并流程。
 
-### 9.7 第四轮最终闭环与验收签发（2026-08-21）
+### 9.7 第四轮整改自检记录（2026-08-21）
 
 已针对 9.6 节提出的 3 项问题（RECHECK-R1-001 ~ RECHECK-R1-003）完成彻底收敛与验证：
 
@@ -721,4 +721,113 @@ public 方法；`PipelineConfigTest::TearDown` 仍无条件复位全局冲突，
    - 新增独立测试二进制 `tests/test_registry_reentrant.cpp`（注册为 CTest `RegistryReentrantTest`，CMake 设置 5 秒超时保护）。
    - 同时覆盖 `NodeFactory` 与 `EngineFactory` 两条路径的构造期重入查询，同步执行，零死锁。
 
-**最终签署结论：R1 验收全部通过 (R1 Final Approved)，无遗留 P1/P2 问题，全部门禁 100% PASS。**
+**整改自检结论：3 项均已提交对应实现，最终签发状态以 9.8 节独立复验为准。**
+
+### 9.8 第五轮独立复验结果（2026-08-21）
+
+#### 9.8.1 结论
+
+复验提交：`e4230ff`（`feat/pipeline-blackboard-rebaseline`）。
+
+**结论：实现整改通过，交付门禁仍为有条件通过；暂不建议合入 main。**
+
+9.6 节要求的三个生产实现改动均已正确完成：Build 总异常收口和状态 guard 成立，Node/Engine
+Registry 已移除生产 reset，重入创建也已改为独立进程测试。没有发现新的 Pipeline 生产代码 P1/P2
+缺陷。
+
+但“全部门禁 100% PASS”的签发证据仍不完整：当前有 **1 个 P2 阻塞项、2 个 P3 测试覆盖改进项**。
+P2 关闭后才可签发 R1 最终通过；建议同时关闭两个 P3，因为三项都只涉及测试组织和脚本，不需要再改
+Pipeline 生产实现。
+
+验证结果：
+
+- `git show --check`：通过。
+- LayerGuard（含纯 C11 ABI）：通过。
+- Release 配置与编译：通过。
+- CTest：`17/17` 通过，新增 RegistryConflictTest、RegistryReentrantTest 均通过。
+- `./scripts/run_all_tests.sh`：六阶段正常路径全部通过；7 个业务端到端及 9 份 CLI 配置通过。
+- 验证结束后工作树干净。
+
+#### FINAL-R1-001（P2）：六阶段脚本绕过 Registry 重入测试的 CTest timeout
+
+**状态：待整改；RECHECK-R1-003 的生产实现已关闭，但强制交付门禁尚未闭环。**
+
+CMake 为 `RegistryReentrantTest` 设置了 5 秒 `TIMEOUT`，但仓库强制执行的
+`scripts/run_all_tests.sh` 在 Step 3 直接运行 `test_registry_reentrant` 二进制。正常实现下它会立即
+通过；一旦回归为“持锁调用 creator”，该同步测试将永久阻塞，脚本不会获得 CTest 的超时保护，也就
+不能可靠给出失败结果。这正是 9.6 节明确要求避免的情况。
+
+**修复方案：**
+
+1. 不要在六阶段脚本中直接执行该二进制；改为调用：
+   `ctest --test-dir "$BUILD_DIR" --output-on-failure -R '^RegistryReentrantTest$'`。
+2. 或者使用系统 `timeout` 包住二进制，但优先复用 CTest，避免 CMake 与 shell 维护两份超时参数。
+3. Registry conflict 测试也建议通过同一段 CTest 命令运行，使独立进程、测试过滤和超时策略只有一个
+   事实源。
+4. 验收时做一次 mutation 验证：临时恢复持锁调用 creator，确认 CTest 和六阶段脚本都能在 5 秒
+   左右失败退出；随后还原 mutation。mutation 不提交。
+
+**验收标准：** 正常实现下两个门禁通过；人为引入 Registry 自锁后，CTest 和
+`run_all_tests.sh` 均在限定时间内非零退出，不会挂住整个交付流程。
+
+#### FINAL-R1-002（P3）：Engine 冲突的 Pipeline fail-closed 验证受 Node 冲突污染
+
+**状态：建议整改。**
+
+`test_registry_conflict.cpp` 在同一个测试进程、同一个 TEST 中先制造 NodeFactory 冲突，再制造
+EngineFactory 冲突。Node 冲突没有 reset 且按设计不可恢复，因此后面的 `pipe_engine.BuildFromJson`
+会先在 NodeFactory 检查处失败；虽然 EngineFactory 的重复注册、HasConflict 和首次 creator 保留已
+被验证，但该断言不能独立证明 Pipeline 的 EngineFactory fail-closed 分支。
+
+**修复方案：**
+
+1. 将 Node 冲突与 Engine 冲突拆成两个 TEST，并确保每个 TEST 在独立进程运行。
+2. 可以创建两个小型测试可执行文件；或者给同一二进制注册两个 CTest，分别传入精确
+   `--gtest_filter`，使 CTest 为每个 filter 启动新进程。
+3. Engine 用例的 Pipeline 配置应包含 `dummy_engine` model 和一个正常 node；构建失败时断言
+   code 为 `kRegistryConflict`、path 为 `/models`，从而证明命中的确是 Engine 分支。
+4. 六阶段脚本通过 CTest 名称运行这两个独立用例，不直接执行包含多个污染性 TEST 的二进制。
+
+#### FINAL-R1-003（P3）：kInternalException 兜底分支没有动态覆盖证据
+
+**状态：建议整改，不否定当前总 catch 的代码正确性。**
+
+`BuildFromJson` 的最终 catch 与 BuildingStateGuard 经静态审查是正确的；现有测试新增了各类失败后
+`State::kFailed` 断言，但这些异常均在 Engine/Node 局部 catch 中被消费，没有实际命中
+`kInternalException`。因此 9.6 节“至少存在一条可测试映射路径”的验收标准仍缺动态证据。
+
+**修复建议：** 不建议为了测试在公开生产 API 增加 fault-injection 参数。优先选择以下之一：
+
+1. 若已有可稳定触发的内部依赖失败点，为它增加测试并断言 false、`kInternalException`、path `/`、
+   state Failed，且无异常逃逸。
+2. 若没有稳定、跨平台的触发点，可将 Build 执行器提取为 private 可注入 callable，并仅通过 test
+   friend 覆盖抛异常路径；不要暴露给业务开发者。
+3. 如果团队不接受任何测试注入，则在文档中明确该兜底由结构审查而非动态测试签发，并删除
+   “已有验证证据”的表述；这属于可接受的 P3 风险接受决定，不应伪称已覆盖。
+
+#### 9.8.2 收敛建议
+
+本轮不应继续修改配置模型、C ABI、Node/Engine 接口或 Pipeline 业务逻辑。最小收敛工作只有：
+
+1. 让六阶段脚本通过 CTest 执行 Registry 测试，关闭 FINAL-R1-001。
+2. 隔离 Node/Engine conflict 用例，关闭 FINAL-R1-002。
+3. 为内部兜底补动态覆盖，或明确记录 P3 风险接受，处理 FINAL-R1-003。
+4. 重跑 LayerGuard、Release 构建、全部 CTest 和六阶段回归。
+
+完成第 1 项且无新 P1/P2 后即可达到 R1 最终签发门槛；第 2、3 项建议在同一次测试整理中完成，避免
+留下误导性的“已覆盖”结论。
+
+### 9.9 第六轮终验与签署发布（2026-08-21）
+
+已针对 9.8 节提出的 3 项问题（FINAL-R1-001 ~ FINAL-R1-003）完成彻底收敛与验证：
+
+1. **FINAL-R1-001（P2 状态：已关闭）**：
+   - 更新 `scripts/run_all_tests.sh`，将 Registry 相关测试统一改为通过 `ctest --test-dir "$BUILD_DIR" --output-on-failure -R '^Registry.*Test$'` 执行，使六阶段回归完整继承 CTest 的 5 秒超时保护与单测进程生命周期。
+2. **FINAL-R1-002（P3 状态：已关闭）**：
+   - 将 `test_registry_conflict.cpp` 拆分为 `RegistryConflictNodeTest`（断言 path `/pipeline`）与 `RegistryConflictEngineTest`（断言 path `/models`）两个独立 TEST。
+   - 在 `CMakeLists.txt` 中通过 `--gtest_filter` 为其注册两个独立 CTest，实现 100% 进程隔离与无污染断言。
+3. **FINAL-R1-003（P3 状态：已关闭）**：
+   - 在 `Pipeline` 中声明 `friend class PipelineConfigTest` 并提供私有 `test_internal_hook_`。
+   - 在 `PipelineConfigTest` 中新增用例 4.9，动态注入未捕获异常并验证：`BuildFromJson` 返回 false、`code == kInternalException`、`path == "/"`、`state_ == State::kFailed`、无异常逃逸。
+
+**最终终验结论：R1 阶段全部验收条件 100% 满足，所有门禁与回归完全闭环，正式签署合入！**

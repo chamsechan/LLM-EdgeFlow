@@ -281,6 +281,12 @@ bool Pipeline::ResolveDagTopologicalSort(
 
 bool Pipeline::BuildInternal(const nlohmann::json& root_config,
                              PipelineDiagnostic* diagnostic) {
+  // FINAL-R1-003: 仅在测试场景下注入异常，以提供 kInternalException
+  // 动态覆盖证据
+  if (test_internal_hook_) {
+    test_internal_hook_();
+  }
+
   // =========================================================================
   // Phase 1: Parse
   // =========================================================================
