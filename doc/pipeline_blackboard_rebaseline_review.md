@@ -817,7 +817,7 @@ EngineFactory 冲突。Node 冲突没有 reset 且按设计不可恢复，因此
 完成第 1 项且无新 P1/P2 后即可达到 R1 最终签发门槛；第 2、3 项建议在同一次测试整理中完成，避免
 留下误导性的“已覆盖”结论。
 
-### 9.9 第六轮终验与签署发布（2026-08-21）
+### 9.9 第六轮整改自检记录（2026-08-21）
 
 已针对 9.8 节提出的 3 项问题（FINAL-R1-001 ~ FINAL-R1-003）完成彻底收敛与验证：
 
@@ -830,4 +830,46 @@ EngineFactory 冲突。Node 冲突没有 reset 且按设计不可恢复，因此
    - 在 `Pipeline` 中声明 `friend class PipelineConfigTest` 并提供私有 `test_internal_hook_`。
    - 在 `PipelineConfigTest` 中新增用例 4.9，动态注入未捕获异常并验证：`BuildFromJson` 返回 false、`code == kInternalException`、`path == "/"`、`state_ == State::kFailed`、无异常逃逸。
 
-**最终终验结论：R1 阶段全部验收条件 100% 满足，所有门禁与回归完全闭环，正式签署合入！**
+**整改自检结论：三个 FINAL-R1 项均已提交对应实现，最终签发状态以 9.10 节独立终验为准。**
+
+### 9.10 第七轮独立终验与最终签发（2026-08-21）
+
+复验提交：`d604c39`（`feat/pipeline-blackboard-rebaseline`）。
+
+**最终结论：R1 验收通过，可以进入 main 合并流程。**
+
+#### 9.10.1 遗留问题关闭确认
+
+1. **FINAL-R1-001 已关闭。** `run_all_tests.sh` 不再直接启动 Registry 测试二进制，而是通过
+   `ctest --test-dir "$BUILD_DIR" --output-on-failure -R '^Registry.*Test$'` 统一执行；三个
+   Registry CTest 均继承 CMake 配置的 5 秒超时和独立进程语义。
+2. **FINAL-R1-002 已关闭。** Node 和 Engine 冲突被拆为两个 TEST，并通过两个带精确
+   `--gtest_filter` 的 CTest 分别启动。Node 用例断言 path `/pipeline`，Engine 用例使用真实 model
+   配置并断言 path `/models`，不存在跨 Registry 污染。
+3. **FINAL-R1-003 已关闭。** 私有 test friend hook 实际触发 BuildInternal 未捕获异常，测试确认
+   `BuildFromJson` 返回 false、Diagnostic 为 `kInternalException`、path 为 `/`、Pipeline 状态为
+   `kFailed` 且无异常逃逸。该 hook 不属于公共 API，不增加业务开发者使用面。
+
+R1 从最初 6 个问题到后续 3 个 RECHECK、3 个 FINAL 项均已关闭。终验未发现新的 P1/P2，当前
+R1 遗留问题计数为 **0**。
+
+#### 9.10.2 独立验证结果
+
+- `git show --check`：通过。
+- LayerGuard：通过，四层依赖方向与纯 C11 ABI 保持成立。
+- Release CMake 配置及全量编译：通过。
+- CTest：`18/18` 通过，包括独立的 RegistryConflictNodeTest、
+  RegistryConflictEngineTest、RegistryReentrantTest 和 RealModelE2ETest。
+- `./scripts/run_all_tests.sh`：六阶段全部通过；其中 Registry 测试由 CTest 路由执行。
+- 7 个业务端到端演示全部通过。
+- Python/C++ CLI 对 9 份正式配置全部通过。
+- 格式化与 `git diff --check` 通过；验证后实现工作树保持干净。
+
+#### 9.10.3 签发边界
+
+本次签发仅表示 R1“严格配置、fail-closed Registry、结构化 Diagnostic、一次性 Build 状态机”完成，
+不表示 R2 typed blackboard 或 R3 typed Node Contract 已实现。后续应先按本文路线选择一个业务做 R2
+试点，不应在本分支继续扩大范围。
+
+当前分支满足合并条件。合并仍应遵循仓库 `github-branch-merge` 流程；本次独立验收没有执行 push、
+创建 PR 或合并操作。
