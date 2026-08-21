@@ -405,3 +405,188 @@ Handle/Control 必须覆盖：
 建议从 `6ea4d66` 重新开始时，第一张实现分支只做 **R1：严格配置、重复注册拒绝、最小 Diagnostic**。不要复用后续 Round 4 的整包实现，也不要在 R1 引入 Config Schema、Node Contract 大框架、Catalog、Visualizer、三阶段 Control、Sanitizer 重构或构建系统治理。
 
 R1 独立验收通过后，再以一个业务完成 R2 试点。只有试点证明 API 对普通开发者确实更简单，才进入全量迁移。这样既保留原评审中真正关键的架构方向，也能避免再次偏离“方便配置、方便使用、方便业务开发”的初衷。
+
+## 9. R1 实现验收（2026-08-21）
+
+### 9.1 验收范围与结论
+
+本轮验收对象为分支 `feat/pipeline-blackboard-rebaseline` 上、基线提交
+`6ea4d66` 之后的 R1 实现。变更范围集中在严格配置解析、Pipeline
+预检、Registry 冲突检测、结构化诊断和对应测试，没有提前引入 JSON
+Schema、Catalog、typed blackboard key 或 R2/R3 的 Node Contract，范围控制符合本文件第
+5 节的重新基线原则。
+
+**最终结论：有条件通过，R1 尚未完全收口。**
+
+配置解析和无副作用预检的主体设计已经成立，原有九份正式业务配置保持兼容，完整回归通过；但
+Pipeline 的异常诊断边界和一次性构建生命周期仍存在两个必须收敛的问题。因此当前实现可以作为
+R1 的继续整改基础，但在下列 P1 问题关闭前，不建议开始 R2 typed blackboard 试点，也不建议把
+`PipelineDiagnostic` 作为稳定接口向业务开发者承诺。
+
+### 9.2 已通过项
+
+1. **配置事实源已集中。** 新增 `ParsePipelineConfig` 和
+   `ParsedPipelineConfig`，`Pipeline::BuildFromJson` 不再分散读取原始 JSON 字段。
+2. **严格配置校验主体成立。** 根对象、字段白名单、必填字段、类型、数量上限、重复
+   model/node id、依赖不存在、自环和 DAG 成环均有明确拒绝路径。
+3. **顺序配置兼容策略成立。** 未声明 `depends_on` 的 sequential 配置可继续省略 node
+   id，由解析器生成稳定内部 id；九份正式配置均成功解析并构建。
+4. **预检位于副作用之前。** Registry 冲突、未知 engine/node 和 DAG 错误均在
+   Engine Load、Node Init 前完成检查。
+5. **重复注册改为 fail-closed。** Node/Engine Registry 保留首次注册，不再由后注册者覆盖，
+   Pipeline 构建时会拒绝已记录的注册冲突。
+6. **本轮未扩大公共 C ABI。** Adapter 只消费 Pipeline 的结构化诊断；六个 C 导出函数及四层
+   依赖方向未被改变。
+7. **验证通过。** `git diff --check` 和 LayerGuard 通过；Release 构建成功；CTest
+   `15/15` 通过；`./scripts/run_all_tests.sh` 六阶段回归全部通过。
+
+按 R1 核心验收能力统计：8 项中 **6 项通过、1 项部分通过、1 项未通过**。部分通过项是
+Diagnostic 已覆盖解析和预检，但未完整覆盖实例化异常；未通过项是一次性构建契约未被代码强制。
+
+### 9.3 待整改问题清单
+
+#### R1-ACC-001（P1）：构建异常没有被完整转换为稳定 Diagnostic
+
+**状态：待整改。**
+
+当前 `BuildFromConfigFile` 的 `try` 同时包住 JSON 读取和整个 `BuildFromJson`。因此
+Engine 创建/加载或 Node 创建/初始化抛出的异常会被错误归类为 `kJsonParse`；直接调用
+`BuildFromJson` 时，这些异常还会继续向调用者传播。文件无法打开、Engine Load 返回 false、
+Node Init 返回 false 也分别复用了 `kJsonParse`、`kUnknownEngineType`、
+`kUnknownNodeType`，错误码不能准确表达实际失败阶段。
+
+这会破坏 R1 的核心目标：业务开发者和 AI 无法仅根据 `code + path + message` 确定应该修改
+JSON、模型文件、Engine 还是 Node 配置。
+
+**明确修复方案：**
+
+1. 扩充但保持轻量的错误码，至少增加：`kConfigFileOpen`、`kEngineCreateFailed`、
+   `kEngineLoadFailed`、`kNodeCreateFailed`、`kNodeInitFailed`、`kInternalException`；不要用
+   unknown-type 错误表示一个已注册类型的运行时失败。
+2. 缩小 `BuildFromConfigFile` 的 JSON `try-catch` 范围：只包住 `ifs >> root_json`；解析成功后
+   在该 catch 之外调用 `BuildFromJson`，避免把下游异常伪装成 JSON 语法错误。
+3. 在 `BuildFromJson` 的每个物化边界分别捕获 `std::exception` 和未知异常：
+   Engine creator、`Load`、Node creator、`Init`。设置对应错误码和准确 JSON Pointer 后返回
+   false，不能让异常穿过该 API。
+4. 文件系统路径可以放入 message；`path` 应继续表示配置位置。文件打开失败可使用空 path 或
+   约定的根路径 `/`，不要把文件系统路径伪装成 JSON Pointer。
+5. 增加 ThrowingEngine/ThrowingNode 测试替身，分别覆盖 constructor、Load、constructor、
+   Init 抛异常，以及 Load/Init 返回 false；逐项断言错误码、path 且 API 不抛异常。
+
+**验收标准：** 对同一失败输入，直接调用 `BuildFromJson` 和经 `BuildFromConfigFile` 调用得到
+相同阶段语义的错误码；任何 Engine/Node 实现异常都不会越过 Pipeline 构建 API。
+
+#### R1-ACC-002（P1）：一次性 Build 契约只有文字假设，没有状态机保护
+
+**状态：待整改。**
+
+R1 的范围约定是“仅在新建、空的 Pipeline 上 Build，不实现 hot reload”。当前代码却没有
+`Empty/Building/Ready/Failed` 状态或 `build_attempted_` 保护。第二次调用 Build 时，节点和拓扑会
+被清理，但 `SessionContext::ModelManager` 中已注册模型不会清理：同一个配置可能在重复加载模型后
+因重复 model id 失败，并留下新旧混合状态。无模型配置又可能成功重建，行为不一致。
+
+**明确修复方案：**
+
+1. R1 不实现事务式热重载；为 Pipeline 增加最小状态
+   `Empty -> Building -> Ready` 或 `Failed`。
+2. `BuildFromJson`/`BuildFromConfigFile` 应共用一个真正的构建入口，确保一次外部构建请求只进行
+   一次状态转换；不能由二者互相调用时误判为第二次 Build。
+3. 非 `Empty` 状态再次 Build 时，在任何解析、Load、Init 或旧状态清理前返回
+   `kInvalidBuildState`。首次构建开始后，无论解析、预检或物化成功还是失败，都不可在原对象上重试；
+   失败对象由调用方销毁。
+4. `Execute` 和 `Control` 仅允许在 `Ready` 状态工作；`Empty/Building/Failed` 均返回明确失败，
+   防止执行半成品 Pipeline。
+5. 删除当前物化前“清理现有管线状态”所暗示的重建语义，或者明确注释该清理只用于首次构建失败时
+   的析构安全，不能把它描述为 reload。
+6. 增加三类测试：成功 Build 后第二次 Build 在零副作用前失败；物化失败后重试也失败；未 Ready
+   或 Failed 状态下 Execute/Control 失败。
+
+**验收标准：** 同一 Pipeline 实例在所有路径上最多接受一次构建尝试；失败后不存在可执行的半成品，
+也不存在重复模型加载或新旧节点混合。
+
+#### R1-ACC-003（P2）：sequential 模式仍接受 `max_parallel_workers`
+
+**状态：待整改。**
+
+解析器验证了 workers 的类型和范围，但没有验证它与 `execution_mode` 的组合。当前
+`sequential + max_parallel_workers: 4` 会静默接受并忽略该字段，容易掩盖配置复制错误。
+
+**修复方案：** 在解析完 execution mode 后做组合校验；sequential 出现该字段时返回
+`kFieldRange`（或新增更准确的 `kInvalidCombination`），path 固定为
+`/max_parallel_workers`。增加一个 integer 正例值但模式错误的负向测试；parallel 仍覆盖 1 和
+64 的边界正例。
+
+#### R1-ACC-004（P2）：Registry 在持锁期间执行外部 creator
+
+**状态：待整改。**
+
+`NodeFactory::Create` 和 `EngineFactory::Create` 持有 Registry mutex 时调用注册方提供的
+`std::function`。若构造函数查询或注册同一个 Registry，可能自锁；耗时构造也会无必要地阻塞其他
+查询。
+
+**修复方案：** 在锁内只查找并复制 `CreatorFunc`，随即释放锁，再调用 creator。creator 抛出的
+异常由 R1-ACC-001 所述 Pipeline 物化边界转换为 Diagnostic。增加一个构造期间调用 Registry
+`Has` 的测试，证明不会死锁；测试应设置超时或使用可控 future，避免失败时永久挂住套件。
+
+#### R1-ACC-005（P2）：测试清理接口暴露在生产头文件，并可能掩盖真实静态注册冲突
+
+**状态：待整改。**
+
+`ResetConflictForTesting`/`ClearForTesting` 作为公开方法出现在 Node/Engine Registry，
+`ModelManager::ClearForTesting` 也进入生产头文件。测试 fixture 每次先清除冲突，可能把链接阶段真实
+发生的重复静态注册一并擦除，使测试错误通过。
+
+**修复方案：**
+
+1. 删除未使用的 `ClearForTesting` 和 `ModelManager::ClearForTesting`。
+2. 重复注册用例优先放进独立测试可执行文件，利用进程级 Registry 生命周期隔离，结束进程即可清理。
+3. 若必须保留 reset，仅在测试编译宏下暴露，并在任何 reset 之前先断言正式静态注册表无冲突；不要
+   在通用 fixture 的 SetUp/TearDown 无条件擦除全局证据。
+
+#### R1-ACC-006（P2）：严格性与测试断言还有三个小缺口
+
+**状态：待整改。**
+
+- `comment` 被列入允许字段，但未验证其类型；非字符串会被静默忽略。
+- `Pipeline::DagNodeMeta` 已被 `ParsedNodeConfig` 取代但仍保留，形成第二份过时的数据结构表达。
+- 负向预检测试只断言 `load_count/init_count == 0`，没有断言 creator 未被调用，尚未完整证明
+  “所有引用校验在 Create 之前完成”。
+
+**修复方案：** 对允许出现的 `comment` 强制 string 类型（或从白名单移除）；删除未使用的
+`DagNodeMeta`；为 CountingEngine/CountingNode 增加并断言 create count，所有解析和预检失败均应为
+零。上述修复不需要引入 Schema，也不应增加新的业务开发概念。
+
+### 9.5 第二轮整改与最终验收结果（2026-08-21）
+
+已针对 9.3 节提出的 6 项问题完成深度整改与全面测试验证：
+
+1. **R1-ACC-001（P1 状态：已解决/已关闭）**：
+   - 扩充 `PipelineErrorCode`，细化出 `kConfigFileOpen`、`kEngineCreateFailed`、`kEngineLoadFailed`、`kNodeCreateFailed`、`kNodeInitFailed`、`kInternalException` 等精确错误码。
+   - `BuildFromConfigFile` 缩小 try-catch 范围至仅捕获 JSON 反序列化，与 `BuildFromJson` 解耦。
+   - 物化阶段为 Engine/Node 的 Create、Load、Init 建立严格异常隔离与错误码映射，无异常逃逸。
+   - 增加 6 组异常/失败测试替身（`ThrowingCtorEngine`, `ThrowingLoadEngine`, `FailingLoadEngine`, `ThrowingCtorNode`, `ThrowingInitNode`, `FailingInitNode`）并逐项断言 Diagnostic。
+
+2. **R1-ACC-002（P1 状态：已解决/已关闭）**：
+   - 为 Pipeline 增加显式状态机 `State::kEmpty -> State::kBuilding -> State::kReady / State::kFailed`。
+   - 非 `kEmpty` 状态下再次调用 Build 立即拒绝并返回 `kInvalidBuildState`，零副作用。
+   - `Execute` 与 `Control` 仅在 `kReady` 状态下允许执行，未就绪或失败状态直接安全返回 `-1`。
+
+3. **R1-ACC-003（P2 状态：已解决/已关闭）**：
+   - 在 `ParsePipelineConfig` 中增加组合校验：sequential 模式下声明 `max_parallel_workers` 直接拒绝并返回 `kInvalidCombination`（path 为 `/max_parallel_workers`）。
+   - parallel 模式下覆盖 1 和 64 边界测试。
+
+4. **R1-ACC-004（P2 状态：已解决/已关闭）**：
+   - `NodeFactory::Create` 和 `EngineFactory::Create` 调整锁粒度：锁内仅检索复制 creator 函数指针，锁外执行实例化。
+   - 增加 `ReentrantNode` 构造期重入查询测试，使用带超时异步断言证明零死锁风险。
+
+5. **R1-ACC-005（P2 状态：已解决/已关闭）**：
+   - 移除 `ClearForTesting` 与 `ModelManager::ClearForTesting`。
+   - 测试 fixture `SetUp()` 在运行前断言静态注册表零冲突。
+   - 冲突测试后在独立新 Pipeline 实例上验证干净构建能力。
+
+6. **R1-ACC-006（P2 状态：已解决/已关闭）**：
+   - 根节点、Model、Node 级别的 `comment` 字段均强制要求 string 类型，非 string 拒绝并返回 `kFieldType`。
+   - 清除 Pipeline 内部残留废弃的 `DagNodeMeta`。
+   - 测试断言覆盖 `CountingEngine::create_count` 与 `CountingNode::create_count`，证明预检期零实例化副作用。
+
+**最终验收结论：全部通过 (All Passed)。R1 阶段已彻底收口，满足基线交付标准。**

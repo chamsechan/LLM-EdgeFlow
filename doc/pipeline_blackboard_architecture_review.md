@@ -1,5 +1,7 @@
 # LLM-EdgeFlow Pipeline 与 Blackboard 架构专项评审
 
+> **历史文档提示：** 本文是 `6ea4d66` 上保存的初次评审，问题证据仍可参考，但原整改范围已被重新收缩。2026-08-21 最新结论和实施顺序请以 `doc/pipeline_blackboard_rebaseline_review.md` 为准。
+
 > 评审日期：2026-08-19
 >
 > 评审基线：`main` 分支提交 `aa69bde`

@@ -34,6 +34,7 @@ include(cmake/ThirdPartyEngines.cmake)
 
 # 核心框架与业务算子源文件列表
 set(FRAMEWORK_SRCS
+    src/core/pipeline_config.cpp
     src/core/pipeline.cpp
     src/engine/mock_npu/mock_npu_embedding_engine.cpp
     src/engine/mock_npu/mock_npu_llm_engine.cpp
@@ -152,6 +153,10 @@ add_test(NAME EngineFaultToleranceAndLifecycleTest COMMAND test_engine_fault_tol
 add_executable(test_adapter_contract_security tests/test_adapter_contract_security.cpp)
 target_link_libraries(test_adapter_contract_security PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
 add_test(NAME AdapterContractSecurityTest COMMAND test_adapter_contract_security)
+
+add_executable(test_pipeline_config tests/test_pipeline_config.cpp)
+target_link_libraries(test_pipeline_config PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME PipelineConfigTest COMMAND test_pipeline_config)
 
 # 6. 纯 C++ 零依赖原生 DAG 可视化工具 (专为无 Python 的极简嵌入式/边缘环境设计)
 add_executable(alg_show src/tools/alg_show.cpp)

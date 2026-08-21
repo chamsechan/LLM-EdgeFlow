@@ -1,0 +1,972 @@
+#include <gtest/gtest.h>
+
+#include <atomic>
+#include <chrono>
+#include <fstream>
+#include <future>
+#include <iostream>
+#include <nlohmann/json.hpp>
+#include <stdexcept>
+#include <string>
+#include <vector>
+
+#include "core/node_base.h"
+#include "core/node_registry.h"
+#include "core/pipeline.h"
+#include "core/pipeline_config.h"
+#include "core/pipeline_diagnostic.h"
+#include "core/session_context.h"
+#include "engine/engine_interface.h"
+#include "engine/engine_registry.h"
+
+namespace alg_framework {
+
+// =============================================================================
+// 测试探针类与测试替身
+// =============================================================================
+
+// 1. 基础计数探针
+class CountingEngine : public IModelEngine {
+ public:
+  static inline std::atomic<int> create_count{0};
+  static inline std::atomic<int> load_count{0};
+
+  static void Reset() {
+    create_count.store(0);
+    load_count.store(0);
+  }
+
+  CountingEngine() { create_count.fetch_add(1); }
+
+  bool Load(const std::string& model_path,
+            const nlohmann::json& custom_config) override {
+    (void)model_path;
+    (void)custom_config;
+    load_count.fetch_add(1);
+    return true;
+  }
+
+  size_t GetMaxBatchSize() const override { return 4; }
+
+  const std::string& EngineType() const override {
+    static const std::string type = "counting_engine";
+    return type;
+  }
+};
+REGISTER_ENGINE("counting_engine", CountingEngine);
+
+class CountingNode : public INode {
+ public:
+  static inline std::atomic<int> create_count{0};
+  static inline std::atomic<int> init_count{0};
+
+  static void Reset() {
+    create_count.store(0);
+    init_count.store(0);
+  }
+
+  CountingNode() { create_count.fetch_add(1); }
+
+  bool Init(const nlohmann::json& config,
+            SessionContext* session_ctx) override {
+    (void)config;
+    (void)session_ctx;
+    init_count.fetch_add(1);
+    return true;
+  }
+
+  int Process(AlgContext* req_ctx) override {
+    (void)req_ctx;
+    return 0;
+  }
+
+  int Control(int cmd, const std::string& param) override {
+    (void)cmd;
+    (void)param;
+    return 0;
+  }
+
+  const std::string& Name() const override {
+    static const std::string name = "CountingNode";
+    return name;
+  }
+};
+REGISTER_NODE(CountingNode);
+
+// 2. 异常与失败测试替身 (R1-ACC-001)
+class ThrowingCtorEngine : public IModelEngine {
+ public:
+  ThrowingCtorEngine() {
+    throw std::runtime_error("ThrowingCtorEngine constructor exception");
+  }
+  bool Load(const std::string&, const nlohmann::json&) override { return true; }
+  size_t GetMaxBatchSize() const override { return 1; }
+  const std::string& EngineType() const override {
+    static const std::string type = "throwing_ctor_engine";
+    return type;
+  }
+};
+REGISTER_ENGINE("throwing_ctor_engine", ThrowingCtorEngine);
+
+class ThrowingLoadEngine : public IModelEngine {
+ public:
+  ThrowingLoadEngine() = default;
+  bool Load(const std::string&, const nlohmann::json&) override {
+    throw std::runtime_error("ThrowingLoadEngine Load exception");
+  }
+  size_t GetMaxBatchSize() const override { return 1; }
+  const std::string& EngineType() const override {
+    static const std::string type = "throwing_load_engine";
+    return type;
+  }
+};
+REGISTER_ENGINE("throwing_load_engine", ThrowingLoadEngine);
+
+class FailingLoadEngine : public IModelEngine {
+ public:
+  FailingLoadEngine() = default;
+  bool Load(const std::string&, const nlohmann::json&) override {
+    return false;
+  }
+  size_t GetMaxBatchSize() const override { return 1; }
+  const std::string& EngineType() const override {
+    static const std::string type = "failing_load_engine";
+    return type;
+  }
+};
+REGISTER_ENGINE("failing_load_engine", FailingLoadEngine);
+
+class ThrowingCtorNode : public INode {
+ public:
+  ThrowingCtorNode() {
+    throw std::runtime_error("ThrowingCtorNode constructor exception");
+  }
+  bool Init(const nlohmann::json&, SessionContext*) override { return true; }
+  int Process(AlgContext*) override { return 0; }
+  int Control(int, const std::string&) override { return 0; }
+  const std::string& Name() const override {
+    static const std::string name = "ThrowingCtorNode";
+    return name;
+  }
+};
+REGISTER_NODE(ThrowingCtorNode);
+
+class ThrowingInitNode : public INode {
+ public:
+  ThrowingInitNode() = default;
+  bool Init(const nlohmann::json&, SessionContext*) override {
+    throw std::runtime_error("ThrowingInitNode Init exception");
+  }
+  int Process(AlgContext*) override { return 0; }
+  int Control(int, const std::string&) override { return 0; }
+  const std::string& Name() const override {
+    static const std::string name = "ThrowingInitNode";
+    return name;
+  }
+};
+REGISTER_NODE(ThrowingInitNode);
+
+class FailingInitNode : public INode {
+ public:
+  FailingInitNode() = default;
+  bool Init(const nlohmann::json&, SessionContext*) override { return false; }
+  int Process(AlgContext*) override { return 0; }
+  int Control(int, const std::string&) override { return 0; }
+  const std::string& Name() const override {
+    static const std::string name = "FailingInitNode";
+    return name;
+  }
+};
+REGISTER_NODE(FailingInitNode);
+
+// 3. 自锁测试替身 (R1-ACC-004)
+class ReentrantNode : public INode {
+ public:
+  ReentrantNode() {
+    // 构造期间递归调用 NodeFactory 查询，测试是否存在死锁
+    bool has = NodeFactory::Instance().Has("CountingNode");
+    (void)has;
+  }
+  bool Init(const nlohmann::json&, SessionContext*) override { return true; }
+  int Process(AlgContext*) override { return 0; }
+  int Control(int, const std::string&) override { return 0; }
+  const std::string& Name() const override {
+    static const std::string name = "ReentrantNode";
+    return name;
+  }
+};
+REGISTER_NODE(ReentrantNode);
+
+// 辅助函数：查找配置文件相对路径
+static std::string GetConfigPath(const std::string& rel_path) {
+  FILE* fp = fopen(rel_path.c_str(), "r");
+  if (fp) {
+    fclose(fp);
+    return rel_path;
+  }
+  return "../" + rel_path;
+}
+
+// =============================================================================
+// GTest 测试套件
+// =============================================================================
+class PipelineConfigTest : public ::testing::Test {
+ protected:
+  void SetUp() override {
+    // R1-ACC-005: 启动时断言正式静态注册表没有任何冲突
+    ASSERT_FALSE(NodeFactory::Instance().HasConflict());
+    ASSERT_FALSE(EngineFactory::Instance().HasConflict());
+    CountingEngine::Reset();
+    CountingNode::Reset();
+  }
+
+  void TearDown() override {
+    NodeFactory::Instance().ResetConflictForTesting();
+    EngineFactory::Instance().ResetConflictForTesting();
+  }
+};
+
+// 1. 兼容正例：当前 9 份正式配置全部 Parse/Build 通过
+TEST_F(PipelineConfigTest, PositiveNineFormalConfigs) {
+  const std::vector<std::string> configs = {
+      "configs/pipeline_keyword_match.json",
+      "configs/pipeline_entity_extract.json",
+      "configs/pipeline_doc_qa.json",
+      "configs/pipeline_dialogue_audit.json",
+      "configs/pipeline_doc_qa_onnx.json",
+      "configs/pipeline_entity_extract_llamacpp.json",
+      "configs/pipeline_ocr_doc_qa.json",
+      "configs/pipeline_audio_asr_intent.json",
+      "configs/pipeline_cross_rerank.json",
+  };
+
+  for (const auto& cfg_file : configs) {
+    std::string full_path = GetConfigPath(cfg_file);
+    std::ifstream ifs(full_path);
+    ASSERT_TRUE(ifs.is_open()) << "Failed to open config file: " << full_path;
+
+    nlohmann::json root;
+    ifs >> root;
+
+    ParsedPipelineConfig parsed_cfg;
+    PipelineDiagnostic diag;
+    bool parse_ok = ParsePipelineConfig(root, &parsed_cfg, &diag);
+    EXPECT_TRUE(parse_ok) << "Parse failed for " << cfg_file << ": "
+                          << diag.message << " at " << diag.path;
+    EXPECT_EQ(diag.code, PipelineErrorCode::kOk);
+
+    Pipeline pipeline;
+    bool build_ok = pipeline.BuildFromConfigFile(full_path, &diag);
+    EXPECT_TRUE(build_ok) << "Build failed for " << cfg_file << ": "
+                          << diag.message << " at " << diag.path;
+    EXPECT_EQ(diag.code, PipelineErrorCode::kOk);
+    EXPECT_TRUE(pipeline.IsReady());
+  }
+}
+
+// 2. 顺序兼容：无 id、无 depends_on 时保持数组顺序并生成稳定 ID
+TEST_F(PipelineConfigTest, SequentialCompatibilityWithoutIdOrDependsOn) {
+  nlohmann::json root = {
+      {"business_name", "seq_compat_test"},
+      {"pipeline",
+       nlohmann::json::array(
+           {{{"node_type", "CountingNode"}, {"config", {{"k", 1}}}},
+            {{"node_type", "CountingNode"}, {"config", {{"k", 2}}}}})}};
+
+  ParsedPipelineConfig parsed_cfg;
+  PipelineDiagnostic diag;
+  ASSERT_TRUE(ParsePipelineConfig(root, &parsed_cfg, &diag));
+  EXPECT_FALSE(parsed_cfg.uses_explicit_dag);
+  ASSERT_EQ(parsed_cfg.nodes.size(), 2);
+  EXPECT_EQ(parsed_cfg.nodes[0].id, "node_0_CountingNode");
+  EXPECT_EQ(parsed_cfg.nodes[1].id, "node_1_CountingNode");
+
+  Pipeline pipeline;
+  ASSERT_TRUE(pipeline.BuildFromJson(root, &diag));
+  EXPECT_TRUE(pipeline.IsReady());
+  EXPECT_EQ(pipeline.GetExecutionMode(), Pipeline::ExecutionMode::SEQUENTIAL);
+  const auto& order = pipeline.GetTopologicalOrder();
+  ASSERT_EQ(order.size(), 2);
+  EXPECT_EQ(order[0], "node_0_CountingNode");
+  EXPECT_EQ(order[1], "node_1_CountingNode");
+}
+
+// 3. 表驱动负例测试：结构、类型、字段、组合、DAG 负例与零副作用断言
+// (R1-ACC-003, R1-ACC-006)
+struct NegativeTestCase {
+  std::string name;
+  nlohmann::json input;
+  PipelineErrorCode expected_code;
+  std::string expected_path_prefix;
+};
+
+TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
+  std::vector<NegativeTestCase> cases;
+
+  // --- Root 校验 ---
+  cases.push_back(NegativeTestCase{"RootNotObject",
+                                   nlohmann::json::array({1, 2, 3}),
+                                   PipelineErrorCode::kRootType, "/"});
+  cases.push_back(NegativeTestCase{
+      "RootUnknownField",
+      nlohmann::json{{"business_name", "test"},
+                     {"unknown_root_key", 123},
+                     {"pipeline", nlohmann::json::array(
+                                      {{{"node_type", "CountingNode"}}})}},
+      PipelineErrorCode::kUnknownField, "/unknown_root_key"});
+  cases.push_back(NegativeTestCase{
+      "RootCommentNotString",
+      nlohmann::json{{"business_name", "test"},
+                     {"comment", 12345},
+                     {"pipeline", nlohmann::json::array(
+                                      {{{"node_type", "CountingNode"}}})}},
+      PipelineErrorCode::kFieldType, "/comment"});
+  cases.push_back(NegativeTestCase{
+      "MissingBusinessName",
+      nlohmann::json{{"pipeline", nlohmann::json::array(
+                                      {{{"node_type", "CountingNode"}}})}},
+      PipelineErrorCode::kMissingField, "/business_name"});
+  cases.push_back(NegativeTestCase{
+      "EmptyBusinessName",
+      nlohmann::json{{"business_name", ""},
+                     {"pipeline", nlohmann::json::array(
+                                      {{{"node_type", "CountingNode"}}})}},
+      PipelineErrorCode::kFieldRange, "/business_name"});
+  cases.push_back(NegativeTestCase{
+      "NonStringBusinessName",
+      nlohmann::json{{"business_name", 12345},
+                     {"pipeline", nlohmann::json::array(
+                                      {{{"node_type", "CountingNode"}}})}},
+      PipelineErrorCode::kFieldType, "/business_name"});
+
+  // --- Execution Mode & Workers 组合校验 (R1-ACC-003) ---
+  cases.push_back(NegativeTestCase{
+      "SequentialModeWithMaxParallelWorkers",
+      nlohmann::json{{"business_name", "test"},
+                     {"execution_mode", "sequential"},
+                     {"max_parallel_workers", 4},
+                     {"pipeline", nlohmann::json::array(
+                                      {{{"node_type", "CountingNode"}}})}},
+      PipelineErrorCode::kInvalidCombination, "/max_parallel_workers"});
+  cases.push_back(NegativeTestCase{
+      "ExecutionModeAsyncRejected",
+      nlohmann::json{{"business_name", "test"},
+                     {"execution_mode", "async"},
+                     {"pipeline", nlohmann::json::array(
+                                      {{{"node_type", "CountingNode"}}})}},
+      PipelineErrorCode::kFieldRange, "/execution_mode"});
+  cases.push_back(NegativeTestCase{
+      "ExecutionModeUnknownString",
+      nlohmann::json{{"business_name", "test"},
+                     {"execution_mode", "coroutine_mode"},
+                     {"pipeline", nlohmann::json::array(
+                                      {{{"node_type", "CountingNode"}}})}},
+      PipelineErrorCode::kFieldRange, "/execution_mode"});
+  cases.push_back(NegativeTestCase{
+      "ExecutionModeNonString",
+      nlohmann::json{{"business_name", "test"},
+                     {"execution_mode", true},
+                     {"pipeline", nlohmann::json::array(
+                                      {{{"node_type", "CountingNode"}}})}},
+      PipelineErrorCode::kFieldType, "/execution_mode"});
+  cases.push_back(NegativeTestCase{
+      "WorkersZeroInParallel",
+      nlohmann::json{
+          {"business_name", "test"},
+          {"execution_mode", "parallel"},
+          {"max_parallel_workers", 0},
+          {"pipeline",
+           nlohmann::json::array({{{"id", "n1"},
+                                   {"node_type", "CountingNode"},
+                                   {"depends_on", nlohmann::json::array()}}})}},
+      PipelineErrorCode::kFieldRange, "/max_parallel_workers"});
+  cases.push_back(NegativeTestCase{
+      "WorkersOutOfRange65InParallel",
+      nlohmann::json{
+          {"business_name", "test"},
+          {"execution_mode", "parallel"},
+          {"max_parallel_workers", 65},
+          {"pipeline",
+           nlohmann::json::array({{{"id", "n1"},
+                                   {"node_type", "CountingNode"},
+                                   {"depends_on", nlohmann::json::array()}}})}},
+      PipelineErrorCode::kFieldRange, "/max_parallel_workers"});
+
+  // --- Models 校验 ---
+  cases.push_back(NegativeTestCase{
+      "ModelsNotArray",
+      nlohmann::json{{"business_name", "test"},
+                     {"models", "not_an_array"},
+                     {"pipeline", nlohmann::json::array(
+                                      {{{"node_type", "CountingNode"}}})}},
+      PipelineErrorCode::kFieldType, "/models"});
+  cases.push_back(NegativeTestCase{
+      "ModelItemNotObject",
+      nlohmann::json{{"business_name", "test"},
+                     {"models", nlohmann::json::array({"invalid_string"})},
+                     {"pipeline", nlohmann::json::array(
+                                      {{{"node_type", "CountingNode"}}})}},
+      PipelineErrorCode::kFieldType, "/models/0"});
+  cases.push_back(NegativeTestCase{
+      "ModelCommentNotString",
+      nlohmann::json{
+          {"business_name", "test"},
+          {"models", nlohmann::json::array({{{"model_id", "m1"},
+                                             {"engine_type", "counting_engine"},
+                                             {"comment", 123}}})},
+          {"pipeline",
+           nlohmann::json::array({{{"node_type", "CountingNode"}}})}},
+      PipelineErrorCode::kFieldType, "/models/0/comment"});
+  cases.push_back(NegativeTestCase{
+      "ModelUnknownField",
+      nlohmann::json{
+          {"business_name", "test"},
+          {"models", nlohmann::json::array({{{"model_id", "m1"},
+                                             {"engine_type", "counting_engine"},
+                                             {"unknown_model_key", 1}}})},
+          {"pipeline",
+           nlohmann::json::array({{{"node_type", "CountingNode"}}})}},
+      PipelineErrorCode::kUnknownField, "/models/0/unknown_model_key"});
+  cases.push_back(NegativeTestCase{
+      "ModelMissingId",
+      nlohmann::json{{"business_name", "test"},
+                     {"models", nlohmann::json::array(
+                                    {{{"engine_type", "counting_engine"}}})},
+                     {"pipeline", nlohmann::json::array(
+                                      {{{"node_type", "CountingNode"}}})}},
+      PipelineErrorCode::kMissingField, "/models/0/model_id"});
+  cases.push_back(NegativeTestCase{
+      "ModelEmptyId",
+      nlohmann::json{
+          {"business_name", "test"},
+          {"models",
+           nlohmann::json::array(
+               {{{"model_id", ""}, {"engine_type", "counting_engine"}}})},
+          {"pipeline",
+           nlohmann::json::array({{{"node_type", "CountingNode"}}})}},
+      PipelineErrorCode::kFieldRange, "/models/0/model_id"});
+  cases.push_back(NegativeTestCase{
+      "ModelDuplicateId",
+      nlohmann::json{
+          {"business_name", "test"},
+          {"models",
+           nlohmann::json::array(
+               {{{"model_id", "dup_m"}, {"engine_type", "counting_engine"}},
+                {{"model_id", "dup_m"}, {"engine_type", "counting_engine"}}})},
+          {"pipeline",
+           nlohmann::json::array({{{"node_type", "CountingNode"}}})}},
+      PipelineErrorCode::kDuplicateModelId, "/models/1/model_id"});
+  cases.push_back(NegativeTestCase{
+      "ModelMissingEngineType",
+      nlohmann::json{{"business_name", "test"},
+                     {"models", nlohmann::json::array({{{"model_id", "m1"}}})},
+                     {"pipeline", nlohmann::json::array(
+                                      {{{"node_type", "CountingNode"}}})}},
+      PipelineErrorCode::kMissingField, "/models/0/engine_type"});
+  cases.push_back(NegativeTestCase{
+      "ModelConfigNotObject",
+      nlohmann::json{
+          {"business_name", "test"},
+          {"models", nlohmann::json::array({{{"model_id", "m1"},
+                                             {"engine_type", "counting_engine"},
+                                             {"config", "invalid"}}})},
+          {"pipeline",
+           nlohmann::json::array({{{"node_type", "CountingNode"}}})}},
+      PipelineErrorCode::kFieldType, "/models/0/config"});
+  cases.push_back(NegativeTestCase{
+      "ModelUnknownEngineType",
+      nlohmann::json{
+          {"business_name", "test"},
+          {"models", nlohmann::json::array(
+                         {{{"model_id", "m1"},
+                           {"engine_type", "unregistered_mock_engine_xyz"}}})},
+          {"pipeline",
+           nlohmann::json::array({{{"node_type", "CountingNode"}}})}},
+      PipelineErrorCode::kUnknownEngineType, "/models/0/engine_type"});
+
+  // --- Pipeline Nodes 校验 ---
+  cases.push_back(NegativeTestCase{
+      "MissingPipeline", nlohmann::json{{"business_name", "test"}},
+      PipelineErrorCode::kMissingField, "/pipeline"});
+  cases.push_back(NegativeTestCase{
+      "PipelineNotArray",
+      nlohmann::json{{"business_name", "test"}, {"pipeline", "not_an_array"}},
+      PipelineErrorCode::kFieldType, "/pipeline"});
+  cases.push_back(
+      NegativeTestCase{"PipelineEmptyArray",
+                       nlohmann::json{{"business_name", "test"},
+                                      {"pipeline", nlohmann::json::array()}},
+                       PipelineErrorCode::kFieldRange, "/pipeline"});
+  cases.push_back(NegativeTestCase{
+      "NodeNotObject",
+      nlohmann::json{{"business_name", "test"},
+                     {"pipeline", nlohmann::json::array({"string_node"})}},
+      PipelineErrorCode::kFieldType, "/pipeline/0"});
+  cases.push_back(NegativeTestCase{
+      "NodeCommentNotString",
+      nlohmann::json{
+          {"business_name", "test"},
+          {"pipeline", nlohmann::json::array({{{"node_type", "CountingNode"},
+                                               {"comment", 999}}})}},
+      PipelineErrorCode::kFieldType, "/pipeline/0/comment"});
+  cases.push_back(NegativeTestCase{
+      "NodeUnknownTopLevelField",
+      nlohmann::json{
+          {"business_name", "test"},
+          {"pipeline", nlohmann::json::array({{{"node_type", "CountingNode"},
+                                               {"unknown_top_level", 123}}})}},
+      PipelineErrorCode::kUnknownField, "/pipeline/0/unknown_top_level"});
+  cases.push_back(NegativeTestCase{
+      "NodeMissingNodeType",
+      nlohmann::json{
+          {"business_name", "test"},
+          {"pipeline",
+           nlohmann::json::array({{{"config", nlohmann::json::object()}}})}},
+      PipelineErrorCode::kMissingField, "/pipeline/0/node_type"});
+  cases.push_back(NegativeTestCase{
+      "NodeEmptyNodeType",
+      nlohmann::json{
+          {"business_name", "test"},
+          {"pipeline", nlohmann::json::array({{{"node_type", ""}}})}},
+      PipelineErrorCode::kFieldRange, "/pipeline/0/node_type"});
+  cases.push_back(NegativeTestCase{
+      "NodeConfigNotObject",
+      nlohmann::json{
+          {"business_name", "test"},
+          {"pipeline", nlohmann::json::array({{{"node_type", "CountingNode"},
+                                               {"config", "not_an_object"}}})}},
+      PipelineErrorCode::kFieldType, "/pipeline/0/config"});
+  cases.push_back(NegativeTestCase{
+      "NodeUnregisteredNodeType",
+      nlohmann::json{
+          {"business_name", "test"},
+          {"pipeline", nlohmann::json::array(
+                           {{{"node_type", "GhostUnregisteredNodeXYZ"}}})}},
+      PipelineErrorCode::kUnknownNodeType, "/pipeline/0/node_type"});
+
+  // --- DAG 校验 ---
+  cases.push_back(NegativeTestCase{
+      "DagMissingIdInParallel",
+      nlohmann::json{
+          {"business_name", "test"},
+          {"execution_mode", "parallel"},
+          {"pipeline",
+           nlohmann::json::array({{{"node_type", "CountingNode"},
+                                   {"depends_on", nlohmann::json::array()}}})}},
+      PipelineErrorCode::kMissingField, "/pipeline/0/id"});
+  cases.push_back(NegativeTestCase{
+      "DagDuplicateNodeId",
+      nlohmann::json{
+          {"business_name", "test"},
+          {"pipeline",
+           nlohmann::json::array({{{"id", "node_dup"},
+                                   {"node_type", "CountingNode"},
+                                   {"depends_on", nlohmann::json::array()}},
+                                  {{"id", "node_dup"},
+                                   {"node_type", "CountingNode"},
+                                   {"depends_on", nlohmann::json::array()}}})}},
+      PipelineErrorCode::kDuplicateNodeId, "/pipeline/1/id"});
+  cases.push_back(NegativeTestCase{
+      "DagPartialDependsOnOmission",
+      nlohmann::json{
+          {"business_name", "test"},
+          {"pipeline",
+           nlohmann::json::array(
+               {{{"id", "node_a"},
+                 {"node_type", "CountingNode"},
+                 {"depends_on", nlohmann::json::array()}},
+                {{"id", "node_b"}, {"node_type", "CountingNode"}}})}},
+      PipelineErrorCode::kMissingField, "/pipeline/1/depends_on"});
+  cases.push_back(NegativeTestCase{
+      "DagDependsOnNotArray",
+      nlohmann::json{
+          {"business_name", "test"},
+          {"pipeline", nlohmann::json::array({{{"id", "node_a"},
+                                               {"node_type", "CountingNode"},
+                                               {"depends_on", "node_prev"}}})}},
+      PipelineErrorCode::kFieldType, "/pipeline/0/depends_on"});
+  cases.push_back(NegativeTestCase{
+      "DagDependsOnNonStringItem",
+      nlohmann::json{
+          {"business_name", "test"},
+          {"pipeline", nlohmann::json::array(
+                           {{{"id", "node_a"},
+                             {"node_type", "CountingNode"},
+                             {"depends_on", nlohmann::json::array({123})}}})}},
+      PipelineErrorCode::kFieldType, "/pipeline/0/depends_on/0"});
+  cases.push_back(NegativeTestCase{
+      "DagDependsOnEmptyStringItem",
+      nlohmann::json{
+          {"business_name", "test"},
+          {"pipeline", nlohmann::json::array(
+                           {{{"id", "node_a"},
+                             {"node_type", "CountingNode"},
+                             {"depends_on", nlohmann::json::array({""})}}})}},
+      PipelineErrorCode::kFieldRange, "/pipeline/0/depends_on/0"});
+  cases.push_back(NegativeTestCase{
+      "DagDependsOnDuplicateItemInNode",
+      nlohmann::json{
+          {"business_name", "test"},
+          {"pipeline", nlohmann::json::array(
+                           {{{"id", "node_a"},
+                             {"node_type", "CountingNode"},
+                             {"depends_on", nlohmann::json::array()}},
+                            {{"id", "node_b"},
+                             {"node_type", "CountingNode"},
+                             {"depends_on",
+                              nlohmann::json::array({"node_a", "node_a"})}}})}},
+      PipelineErrorCode::kInvalidDependency, "/pipeline/1/depends_on/1"});
+  cases.push_back(NegativeTestCase{
+      "DagSelfLoopCycle",
+      nlohmann::json{
+          {"business_name", "test"},
+          {"pipeline",
+           nlohmann::json::array(
+               {{{"id", "node_a"},
+                 {"node_type", "CountingNode"},
+                 {"depends_on", nlohmann::json::array({"node_a"})}}})}},
+      PipelineErrorCode::kDagCycle, "/pipeline/0/depends_on/0"});
+  cases.push_back(NegativeTestCase{
+      "DagNonExistentDependency",
+      nlohmann::json{
+          {"business_name", "test"},
+          {"pipeline",
+           nlohmann::json::array(
+               {{{"id", "node_a"},
+                 {"node_type", "CountingNode"},
+                 {"depends_on", nlohmann::json::array({"ghost_dep"})}}})}},
+      PipelineErrorCode::kInvalidDependency, "/pipeline/0/depends_on/0"});
+  cases.push_back(NegativeTestCase{
+      "DagCycle3Nodes",
+      nlohmann::json{
+          {"business_name", "test"},
+          {"pipeline",
+           nlohmann::json::array(
+               {{{"id", "node_a"},
+                 {"node_type", "CountingNode"},
+                 {"depends_on", nlohmann::json::array({"node_c"})}},
+                {{"id", "node_b"},
+                 {"node_type", "CountingNode"},
+                 {"depends_on", nlohmann::json::array({"node_a"})}},
+                {{"id", "node_c"},
+                 {"node_type", "CountingNode"},
+                 {"depends_on", nlohmann::json::array({"node_b"})}}})}},
+      PipelineErrorCode::kDagCycle, "/pipeline"});
+
+  for (const auto& tc : cases) {
+    CountingEngine::Reset();
+    CountingNode::Reset();
+
+    Pipeline pipeline;
+    PipelineDiagnostic diag;
+    bool ok = pipeline.BuildFromJson(tc.input, &diag);
+
+    EXPECT_FALSE(ok) << "Test case '" << tc.name
+                     << "' was expected to fail, but succeeded!";
+    EXPECT_EQ(diag.code, tc.expected_code)
+        << "Test case '" << tc.name
+        << "': code mismatch (got: " << static_cast<int>(diag.code)
+        << ", expected: " << static_cast<int>(tc.expected_code)
+        << ", message: " << diag.message << ")";
+    EXPECT_EQ(diag.path.rfind(tc.expected_path_prefix, 0), 0)
+        << "Test case '" << tc.name << "': path mismatch (got: '" << diag.path
+        << "', expected prefix: '" << tc.expected_path_prefix << "')";
+
+    // R1-ACC-006: 关键断言：校验失败发生在任何模型/算子 Create/Load/Init
+    // 副作用之前
+    EXPECT_EQ(CountingEngine::create_count.load(), 0)
+        << "CountingEngine::Create had side effects during failed case '"
+        << tc.name << "'";
+    EXPECT_EQ(CountingEngine::load_count.load(), 0)
+        << "CountingEngine::Load had side effects during failed case '"
+        << tc.name << "'";
+    EXPECT_EQ(CountingNode::create_count.load(), 0)
+        << "CountingNode::Create had side effects during failed case '"
+        << tc.name << "'";
+    EXPECT_EQ(CountingNode::init_count.load(), 0)
+        << "CountingNode::Init had side effects during failed case '" << tc.name
+        << "'";
+  }
+}
+
+// 4. 物化异常与细粒度错误诊断测试 (R1-ACC-001)
+TEST_F(PipelineConfigTest, MaterializationExceptionsAndFineGrainedDiagnostics) {
+  PipelineDiagnostic diag;
+
+  // 4.1 配置文件不存在
+  {
+    Pipeline p;
+    EXPECT_FALSE(p.BuildFromConfigFile("/non/existent/path.json", &diag));
+    EXPECT_EQ(diag.code, PipelineErrorCode::kConfigFileOpen);
+    EXPECT_EQ(diag.path, "/");
+  }
+
+  // 4.2 JSON 语法错误文件
+  {
+    std::string bad_json_path = "/tmp/bad_syntax_test.json";
+    std::ofstream ofs(bad_json_path);
+    ofs << "{ business_name: invalid_json, }";
+    ofs.close();
+
+    Pipeline p;
+    EXPECT_FALSE(p.BuildFromConfigFile(bad_json_path, &diag));
+    EXPECT_EQ(diag.code, PipelineErrorCode::kJsonParse);
+    EXPECT_EQ(diag.path, "/");
+    std::remove(bad_json_path.c_str());
+  }
+
+  // 4.3 Engine 构造函数抛异常
+  {
+    nlohmann::json cfg = {
+        {"business_name", "t"},
+        {"models",
+         nlohmann::json::array(
+             {{{"model_id", "m1"}, {"engine_type", "throwing_ctor_engine"}}})},
+        {"pipeline", nlohmann::json::array({{{"node_type", "CountingNode"}}})}};
+    Pipeline p;
+    EXPECT_FALSE(p.BuildFromJson(cfg, &diag));
+    EXPECT_EQ(diag.code, PipelineErrorCode::kEngineCreateFailed);
+    EXPECT_EQ(diag.path, "/models/0/engine_type");
+  }
+
+  // 4.4 Engine Load 抛异常
+  {
+    nlohmann::json cfg = {
+        {"business_name", "t"},
+        {"models",
+         nlohmann::json::array(
+             {{{"model_id", "m1"}, {"engine_type", "throwing_load_engine"}}})},
+        {"pipeline", nlohmann::json::array({{{"node_type", "CountingNode"}}})}};
+    Pipeline p;
+    EXPECT_FALSE(p.BuildFromJson(cfg, &diag));
+    EXPECT_EQ(diag.code, PipelineErrorCode::kEngineLoadFailed);
+    EXPECT_EQ(diag.path, "/models/0");
+  }
+
+  // 4.5 Engine Load 返回 false
+  {
+    nlohmann::json cfg = {
+        {"business_name", "t"},
+        {"models",
+         nlohmann::json::array(
+             {{{"model_id", "m1"}, {"engine_type", "failing_load_engine"}}})},
+        {"pipeline", nlohmann::json::array({{{"node_type", "CountingNode"}}})}};
+    Pipeline p;
+    EXPECT_FALSE(p.BuildFromJson(cfg, &diag));
+    EXPECT_EQ(diag.code, PipelineErrorCode::kEngineLoadFailed);
+    EXPECT_EQ(diag.path, "/models/0");
+  }
+
+  // 4.6 Node 构造函数抛异常
+  {
+    nlohmann::json cfg = {
+        {"business_name", "t"},
+        {"pipeline",
+         nlohmann::json::array({{{"node_type", "ThrowingCtorNode"}}})}};
+    Pipeline p;
+    EXPECT_FALSE(p.BuildFromJson(cfg, &diag));
+    EXPECT_EQ(diag.code, PipelineErrorCode::kNodeCreateFailed);
+    EXPECT_EQ(diag.path, "/pipeline/0/node_type");
+  }
+
+  // 4.7 Node Init 抛异常
+  {
+    nlohmann::json cfg = {
+        {"business_name", "t"},
+        {"pipeline",
+         nlohmann::json::array({{{"node_type", "ThrowingInitNode"}}})}};
+    Pipeline p;
+    EXPECT_FALSE(p.BuildFromJson(cfg, &diag));
+    EXPECT_EQ(diag.code, PipelineErrorCode::kNodeInitFailed);
+    EXPECT_EQ(diag.path, "/pipeline/0/config");
+  }
+
+  // 4.8 Node Init 返回 false
+  {
+    nlohmann::json cfg = {
+        {"business_name", "t"},
+        {"pipeline",
+         nlohmann::json::array({{{"node_type", "FailingInitNode"}}})}};
+    Pipeline p;
+    EXPECT_FALSE(p.BuildFromJson(cfg, &diag));
+    EXPECT_EQ(diag.code, PipelineErrorCode::kNodeInitFailed);
+    EXPECT_EQ(diag.path, "/pipeline/0/config");
+  }
+}
+
+// 5. 一次性构建契约与生命周期状态机测试 (R1-ACC-002)
+TEST_F(PipelineConfigTest, OnceOnlyBuildContractAndStateMachineProtection) {
+  PipelineDiagnostic diag;
+  nlohmann::json valid_cfg = {
+      {"business_name", "state_test"},
+      {"pipeline", nlohmann::json::array({{{"node_type", "CountingNode"}}})}};
+
+  // 5.1 成功构建后的第二次 Build 在任何操作前直接拒绝
+  {
+    Pipeline p;
+    EXPECT_EQ(p.GetState(), Pipeline::State::kEmpty);
+    EXPECT_FALSE(p.IsReady());
+
+    EXPECT_TRUE(p.BuildFromJson(valid_cfg, &diag));
+    EXPECT_EQ(p.GetState(), Pipeline::State::kReady);
+    EXPECT_TRUE(p.IsReady());
+    int init_count_before = CountingNode::init_count.load();
+
+    // 第二次 Build
+    EXPECT_FALSE(p.BuildFromJson(valid_cfg, &diag));
+    EXPECT_EQ(diag.code, PipelineErrorCode::kInvalidBuildState);
+    EXPECT_EQ(diag.path, "/");
+    // 断言没有任何重复初始化副作用
+    EXPECT_EQ(CountingNode::init_count.load(), init_count_before);
+  }
+
+  // 5.2 构建失败后的重试也直接拒绝
+  {
+    Pipeline p;
+    nlohmann::json invalid_cfg = {
+        {"business_name", "state_test"},
+        {"pipeline",
+         nlohmann::json::array({{{"node_type", "FailingInitNode"}}})}};
+
+    EXPECT_FALSE(p.BuildFromJson(invalid_cfg, &diag));
+    EXPECT_EQ(p.GetState(), Pipeline::State::kFailed);
+    EXPECT_FALSE(p.IsReady());
+
+    // 失败实例上再次尝试 Build
+    EXPECT_FALSE(p.BuildFromJson(valid_cfg, &diag));
+    EXPECT_EQ(diag.code, PipelineErrorCode::kInvalidBuildState);
+  }
+
+  // 5.3 未 Ready 或 Failed 状态下 Execute / Control 拒绝执行
+  {
+    Pipeline empty_p;
+    AlgContext ctx;
+    EXPECT_EQ(empty_p.Execute(&ctx), -1);
+    EXPECT_EQ(empty_p.Control(1, "{}"), -1);
+
+    Pipeline failed_p;
+    nlohmann::json invalid_cfg = {{"business_name", "fail"}};
+    failed_p.BuildFromJson(invalid_cfg);
+    EXPECT_EQ(failed_p.Execute(&ctx), -1);
+    EXPECT_EQ(failed_p.Control(1, "{}"), -1);
+  }
+}
+
+// 6. Registry 锁粒度优化与自锁预防测试 (R1-ACC-004)
+TEST_F(PipelineConfigTest, DeadlockFreeRegistryCreation) {
+  // 使用 std::async 带超时验证构造期间重入查询 Registry 不会死锁
+  auto future = std::async(std::launch::async, []() {
+    Pipeline p;
+    PipelineDiagnostic diag;
+    nlohmann::json cfg = {
+        {"business_name", "reentrant_test"},
+        {"pipeline",
+         nlohmann::json::array({{{"node_type", "ReentrantNode"}}})}};
+    return p.BuildFromJson(cfg, &diag);
+  });
+
+  ASSERT_EQ(future.wait_for(std::chrono::seconds(2)), std::future_status::ready)
+      << "ReentrantNode creation deadlocked in Registry mutex!";
+  EXPECT_TRUE(future.get());
+}
+
+// 7. Registry 冲突隔离与 Fail-Closed 测试 (R1-ACC-005)
+TEST_F(PipelineConfigTest, RegistryConflictFailClosed) {
+  // 7.1 重复 Node 注册拦截
+  bool dup_node_ret = NodeFactory::Instance().Register(
+      "CountingNode", []() { return std::make_unique<CountingNode>(); });
+  EXPECT_FALSE(dup_node_ret)
+      << "Duplicate NodeFactory registration must return false";
+  EXPECT_TRUE(NodeFactory::Instance().HasConflict());
+
+  // 首次注册必须保留
+  auto node_inst = NodeFactory::Instance().Create("CountingNode");
+  EXPECT_NE(node_inst, nullptr);
+
+  // 冲突状态下 Pipeline Build 必须 fail-closed
+  Pipeline pipe_conflict_node;
+  PipelineDiagnostic diag;
+  nlohmann::json valid_cfg = {
+      {"business_name", "conflict_test"},
+      {"pipeline", nlohmann::json::array({{{"node_type", "CountingNode"}}})}};
+
+  EXPECT_FALSE(pipe_conflict_node.BuildFromJson(valid_cfg, &diag));
+  EXPECT_EQ(diag.code, PipelineErrorCode::kRegistryConflict);
+
+  // 恢复干净状态后，在新 Pipeline 实例上构建成功
+  NodeFactory::Instance().ResetConflictForTesting();
+  EXPECT_FALSE(NodeFactory::Instance().HasConflict());
+  Pipeline clean_pipe_node;
+  EXPECT_TRUE(clean_pipe_node.BuildFromJson(valid_cfg, &diag));
+
+  // 7.2 重复 Engine 注册拦截
+  bool dup_engine_ret = EngineFactory::Instance().Register(
+      "counting_engine", []() { return std::make_unique<CountingEngine>(); });
+  EXPECT_FALSE(dup_engine_ret)
+      << "Duplicate EngineFactory registration must return false";
+  EXPECT_TRUE(EngineFactory::Instance().HasConflict());
+
+  // 首次注册必须保留
+  auto engine_inst = EngineFactory::Instance().Create("counting_engine");
+  EXPECT_NE(engine_inst, nullptr);
+
+  Pipeline pipe_conflict_engine;
+  diag.Clear();
+  EXPECT_FALSE(pipe_conflict_engine.BuildFromJson(valid_cfg, &diag));
+  EXPECT_EQ(diag.code, PipelineErrorCode::kRegistryConflict);
+
+  EngineFactory::Instance().ResetConflictForTesting();
+  EXPECT_FALSE(EngineFactory::Instance().HasConflict());
+  Pipeline clean_pipe_engine;
+  EXPECT_TRUE(clean_pipe_engine.BuildFromJson(valid_cfg, &diag));
+}
+
+// 8. ModelManager 重复 model_id 注册防御性拦截测试
+TEST_F(PipelineConfigTest, ModelManagerDuplicateRejection) {
+  ModelManager manager;
+  auto eng1 = std::make_shared<CountingEngine>();
+  auto eng2 = std::make_shared<CountingEngine>();
+
+  EXPECT_TRUE(manager.RegisterModel("model_x", eng1));
+  EXPECT_FALSE(manager.RegisterModel("model_x", eng2))
+      << "Duplicate model_id registration must return false without "
+         "overwriting";
+  EXPECT_EQ(manager.GetModel<CountingEngine>("model_x"), eng1);
+}
+
+// 9. 并发模式边界测试 (R1-ACC-003)
+TEST_F(PipelineConfigTest, ParallelModeWorkersBoundaries) {
+  PipelineDiagnostic diag;
+
+  // workers = 1
+  {
+    nlohmann::json cfg = {
+        {"business_name", "par_1"},
+        {"execution_mode", "parallel"},
+        {"max_parallel_workers", 1},
+        {"pipeline",
+         nlohmann::json::array({{{"id", "n1"},
+                                 {"node_type", "CountingNode"},
+                                 {"depends_on", nlohmann::json::array()}}})}};
+    Pipeline p;
+    EXPECT_TRUE(p.BuildFromJson(cfg, &diag));
+    EXPECT_EQ(p.GetExecutionMode(), Pipeline::ExecutionMode::PARALLEL);
+  }
+
+  // workers = 64
+  {
+    nlohmann::json cfg = {
+        {"business_name", "par_64"},
+        {"execution_mode", "parallel"},
+        {"max_parallel_workers", 64},
+        {"pipeline",
+         nlohmann::json::array({{{"id", "n1"},
+                                 {"node_type", "CountingNode"},
+                                 {"depends_on", nlohmann::json::array()}}})}};
+    Pipeline p;
+    EXPECT_TRUE(p.BuildFromJson(cfg, &diag));
+    EXPECT_EQ(p.GetExecutionMode(), Pipeline::ExecutionMode::PARALLEL);
+  }
+}
+
+}  // namespace alg_framework
