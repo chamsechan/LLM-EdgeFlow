@@ -10,7 +10,7 @@ using namespace alg_framework;
 // 1. 奇数个分片样本（7个样本 / batch_size=4）自动补齐与剥离
 TEST(FixedBatchExecutorTest, OddItemCountChunkAndPaddingStripping) {
   std::vector<TraceableItem<int>> inputs = {
-      {0, 0, 10}, {0, 1, 20}, {0, 2, 30},             // Request 0 的 3 个分片
+      {0, 0, 10}, {0, 1, 20}, {0, 2, 30},  // Request 0 的 3 个分片
       {1, 0, 40}, {1, 1, 50}, {1, 2, 60}, {1, 3, 70}  // Request 1 的 4 个分片
   };
 
@@ -40,7 +40,7 @@ TEST(FixedBatchExecutorTest, OddItemCountChunkAndPaddingStripping) {
 
   EXPECT_EQ(ret, 0);
   EXPECT_EQ(hardware_call_count, 2);  // 7 / 4 向上取整 = 2 次硬件调用
-  EXPECT_EQ(outputs.size(), 7);       // 自动剥离 Padding，保留刚好 7 个有效输出
+  EXPECT_EQ(outputs.size(), 7);  // 自动剥离 Padding，保留刚好 7 个有效输出
 
   // 验证输出与原始 TraceableItem 的 (req_id, sub_id) 严格对齐
   for (size_t i = 0; i < inputs.size(); ++i) {
