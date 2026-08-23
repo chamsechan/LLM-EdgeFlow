@@ -24,22 +24,26 @@ int RunCrossRerankDemo(const DemoOptions& options) {
     }
   }
 
-  std::string query = "怎么办理7天无理由退款？";
-  std::vector<std::string> passages = {
-      "条款A: 境外交易加收3%手续费。",
-      "条款B: 售后退款支持7天无理由，原路退回付款账户。",
-      "条款C: 节假日人工客服支持延后一个工作日。"};
+  std::string query;
+  std::vector<std::string> passages;
 
   if (!sections["QUERY"].empty()) query = sections["QUERY"][0];
   if (!sections["PASSAGE"].empty()) passages = sections["PASSAGE"];
 
-  if (passages.empty()) {
+  if (query.empty() || passages.empty()) {
     if (options.allow_fallback_sample) {
-      passages = {"条款A: 境外交易加收3%手续费。",
-                  "条款B: 售后退款支持7天无理由，原路退回付款账户。",
-                  "条款C: 节假日人工客服支持延后一个工作日。"};
+      std::cout << "[CrossRerankDemo WARN] Dataset sections missing, using "
+                   "fallback sample."
+                << std::endl;
+      if (query.empty()) query = "怎么办理7天无理由退款？";
+      if (passages.empty()) {
+        passages = {"条款A: 境外交易加收3%手续费。",
+                    "条款B: 售后退款支持7天无理由，原路退回付款账户。",
+                    "条款C: 节假日人工客服支持延后一个工作日。"};
+      }
     } else {
-      std::cerr << "[CrossRerankDemo ERROR] Dataset missing [PASSAGE] section."
+      std::cerr << "[CrossRerankDemo ERROR] Dataset missing required [QUERY] "
+                   "or [PASSAGE] section."
                 << std::endl;
       return 4;
     }

@@ -23,10 +23,25 @@ int RunOcrDocQaDemo(const DemoOptions& options) {
     }
   }
 
-  std::string img = "./data/invoice_01.jpg";
-  std::string prompt = "提取发票代码、号码与总金额";
+  std::string img;
+  std::string prompt;
   if (!sections["IMAGE"].empty()) img = sections["IMAGE"][0];
   if (!sections["PROMPT"].empty()) prompt = sections["PROMPT"][0];
+
+  if (img.empty() || prompt.empty()) {
+    if (options.allow_fallback_sample) {
+      std::cout << "[OcrDocQaDemo WARN] Dataset sections missing, using "
+                   "fallback sample."
+                << std::endl;
+      if (img.empty()) img = "./data/invoice_01.jpg";
+      if (prompt.empty()) prompt = "提取发票代码、号码与总金额";
+    } else {
+      std::cerr << "[OcrDocQaDemo ERROR] Dataset missing required [IMAGE] or "
+                   "[PROMPT] sections."
+                << std::endl;
+      return 4;
+    }
+  }
 
   std::vector<CompanyOcrDocInputStruct> inputs = {
       {60001, img.c_str(), prompt.c_str()}};
