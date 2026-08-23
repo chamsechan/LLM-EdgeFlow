@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <functional>
 #include <iostream>
 #include <memory>
@@ -9,6 +10,7 @@
 #include <vector>
 
 #include "core/node_base.h"
+#include "core/pipeline_catalog.h"
 
 namespace alg_framework {
 
@@ -21,7 +23,8 @@ class NodeFactory {
     return instance;
   }
 
-  bool Register(const std::string& node_type, CreatorFunc creator) noexcept {
+  bool Register(const std::string& node_type, CreatorFunc creator,
+                const NodeDefinition* definition = nullptr) noexcept {
     try {
       if (node_type.empty() || !creator) {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -40,6 +43,12 @@ class NodeFactory {
         return false;
       }
       creators_[node_type] = std::move(creator);
+      if (definition && !PipelineCatalog::RegisterNodeDefinition(*definition)) {
+        has_conflict_ = true;
+        conflict_errors_.push_back("Invalid or duplicate node Definition: " +
+                                   node_type);
+        return false;
+      }
       return true;
     } catch (const std::exception& e) {
       std::lock_guard<std::mutex> lock(mutex_);
@@ -73,6 +82,15 @@ class NodeFactory {
     return creators_.find(node_type) != creators_.end();
   }
 
+  std::vector<std::string> ListTypes() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<std::string> result;
+    result.reserve(creators_.size());
+    for (const auto& item : creators_) result.push_back(item.first);
+    std::sort(result.begin(), result.end());
+    return result;
+  }
+
   bool HasConflict() const {
     std::lock_guard<std::mutex> lock(mutex_);
     return has_conflict_;
@@ -91,12 +109,25 @@ class NodeFactory {
   std::vector<std::string> conflict_errors_;
 };
 
-#define REGISTER_NODE(NodeType)                                      \
-  static bool _registered_node_##NodeType = []() noexcept {          \
-    return ::alg_framework::NodeFactory::Instance().Register(        \
-        #NodeType, []() -> std::unique_ptr<::alg_framework::INode> { \
-          return std::make_unique<NodeType>();                       \
-        });                                                          \
+#define REGISTER_NODE_WITH_DEFINITION(NodeType, DefinitionExpression) \
+  static bool _registered_node_##NodeType = []() noexcept {           \
+    const auto definition = (DefinitionExpression);                   \
+    return ::alg_framework::NodeFactory::Instance().Register(         \
+        #NodeType,                                                    \
+        []() -> std::unique_ptr<::alg_framework::INode> {             \
+          return std::make_unique<NodeType>();                        \
+        },                                                            \
+        &definition);                                                 \
+  }()
+
+#define REGISTER_NODE(NodeType)                                        \
+  static bool _registered_node_##NodeType = []() noexcept {            \
+    return ::alg_framework::NodeFactory::Instance().Register(          \
+        #NodeType,                                                     \
+        []() -> std::unique_ptr<::alg_framework::INode> {              \
+          return std::make_unique<NodeType>();                         \
+        },                                                             \
+        ::alg_framework::PipelineCatalog::FindBuiltinNode(#NodeType)); \
   }()
 
 }  // namespace alg_framework

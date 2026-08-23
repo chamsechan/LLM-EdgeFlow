@@ -1,333 +1,562 @@
 #!/usr/bin/env python3
-"""
-LLM-EdgeFlow Pipeline & DAG Visualizer & Editor CLI Tool
-Usage:
-    ./show configs/pipeline_doc_qa.json           # 默认：在终端打印精美彩色 DAG 拓扑图与数据流向
-    ./show configs/pipeline_doc_qa.json --web     # 启动并在浏览器中打开交互式可视化与节点编辑工坊
-    ./show --web                                  # 直接打开可视化与节点编辑工坊
-"""
+"""Terminal viewer and local Pipeline Studio server for LLM-EdgeFlow."""
 
-import sys
-import os
-import json
-import webbrowser
+from __future__ import annotations
+
+import argparse
+import copy
+import hashlib
 import http.server
+import json
+import os
+from pathlib import Path
+import re
+import signal
 import socketserver
+import subprocess
+import tempfile
 import threading
 import time
+from typing import Any
+from urllib.parse import parse_qs, quote, urlparse
+import uuid
+import webbrowser
 
-# 终端 ANSI 颜色常量
-CYAN = "\033[96m"
-BLUE = "\033[94m"
-GREEN = "\033[92m"
-YELLOW = "\033[93m"
-MAGENTA = "\033[95m"
-RED = "\033[91m"
-BOLD = "\033[1m"
-DIM = "\033[2m"
-RESET = "\033[0m"
 
-CATEGORY_COLOR = {
-    "PreProcess": BLUE,
-    "Inference": MAGENTA,
-    "Search": CYAN,
-    "Rule": YELLOW,
-    "PostProcess": GREEN
-}
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+WEB_ROOT = PROJECT_ROOT / "tools" / "visualizer"
+CONFIG_ROOT = PROJECT_ROOT / "configs"
+PROFILE_FILE = PROJECT_ROOT / "demo" / "profiles.json"
+PIPELINE_TOOL = PROJECT_ROOT / "build" / "alg_pipeline_tool"
+DEMO_BINARY = PROJECT_ROOT / "build" / "alg_demo"
+MANAGED_NAME = re.compile(r"^pipeline_[a-z0-9_]+\.json$")
+MAX_LOG_BYTES = 2 * 1024 * 1024
 
-NODE_META = {
-    "DocChunkPreNode": {
-        "cat": "PreProcess",
-        "desc": "长文本分块切片与打标 (1对N裂变)",
-        "in": ["raw_docs", "raw_queries"],
-        "out": ["chunked_doc_items", "query_items"]
-    },
-    "DocEmbeddingNode": {
-        "cat": "Inference",
-        "desc": "调用 NPU Embedding 提取 128 维特征向量",
-        "in": ["chunked_doc_items", "query_items"],
-        "out": ["chunk_embeddings", "query_embeddings"]
-    },
-    "VectorSearchNode": {
-        "cat": "Search",
-        "desc": "向量余弦相似度计算与 Top-K 检索",
-        "in": ["chunk_embeddings", "query_embeddings"],
-        "out": ["matched_top_chunks"]
-    },
-    "PromptBuilderNode": {
-        "cat": "PreProcess",
-        "desc": "渲染 Prompt 模板并注入上下文与问题",
-        "in": ["matched_top_chunks", "raw_queries"],
-        "out": ["llm_input_prompts"]
-    },
-    "IntentRuleNode": {
-        "cat": "Rule",
-        "desc": "私有状态规则字典意图分类",
-        "in": ["raw_queries"],
-        "out": ["recognized_intents", "intent_confidences"]
-    },
-    "LlmGenerateNode": {
-        "cat": "Inference",
-        "desc": "调用 NPU LLM 模型推理生成回答文本",
-        "in": ["llm_input_prompts"],
-        "out": ["generated_llm_answers"]
-    },
-    "DocQaPostNode": {
-        "cat": "PostProcess",
-        "desc": "按 req_id 聚合结果并打包 CompanyDocOutputStruct",
-        "in": ["raw_request_ids", "recognized_intents", "generated_llm_answers"],
-        "out": ["final_doc_outputs"]
-    },
-    "KeywordMatcherNode": {
-        "cat": "Rule",
-        "desc": "纯规则关注词匹配与动态 Control 词表热更新",
-        "in": ["input_sentences", "raw_request_ids"],
-        "out": ["keyword_match_outputs"]
-    },
-    "EntityExtractPreNode": {
-        "cat": "PreProcess",
-        "desc": "0.6B LLM 实体/名词抽取 Prompt 渲染",
-        "in": ["input_sentences", "raw_request_ids"],
-        "out": ["llm_input_prompts"]
-    },
-    "EntityExtractPostNode": {
-        "cat": "PostProcess",
-        "desc": "解析 0.6B 输出并结构化为实体 JSON 列表",
-        "in": ["raw_request_ids", "generated_llm_answers"],
-        "out": ["entity_extract_outputs"]
-    },
-    "SafetyRulePreNode": {
-        "cat": "PreProcess",
-        "desc": "敏感词与前置黑名单规则过滤",
-        "in": ["raw_dialogues"],
-        "out": ["safety_flags"]
-    },
-    "DenseRetrievalNode": {
-        "cat": "Search",
-        "desc": "稠密向量召回最相关风控法条",
-        "in": ["dialogue_embeddings"],
-        "out": ["recalled_policies"]
-    },
-    "CrossRerankNode": {
-        "cat": "Inference",
-        "desc": "Cross-Encoder 精排模型打分矩阵",
-        "in": ["recalled_policies"],
-        "out": ["rerank_scores"]
-    },
-    "RiskPromptNode": {
-        "cat": "PreProcess",
-        "desc": "组装风控质检大模型 Prompt",
-        "in": ["top_matched_policies"],
-        "out": ["audit_prompts"]
-    },
-    "LlmAuditNode": {
-        "cat": "Inference",
-        "desc": "LLM 审核推理生成违规判定与建议",
-        "in": ["audit_prompts"],
-        "out": ["audit_verdicts"]
-    },
-    "AuditPostNode": {
-        "cat": "PostProcess",
-        "desc": "封装合规质检 CompanyAuditOutputStruct",
-        "in": ["audit_verdicts"],
-        "out": ["compliance_audit_outputs"]
-    },
-    "ImagePreNode": {
-        "cat": "PreProcess",
-        "desc": "图像解码、尺寸对齐与归一化处理",
-        "in": ["raw_images"],
-        "out": ["preprocessed_tensors"]
-    },
-    "OcrInferNode": {
-        "cat": "Inference",
-        "desc": "NPU OCR 文本检测与识别 (PP-OCRv4)",
-        "in": ["preprocessed_tensors"],
-        "out": ["ocr_boxes", "ocr_texts"]
-    },
-    "OcrDocPostNode": {
-        "cat": "PostProcess",
-        "desc": "发票票据结构化封装与 JSON 输出",
-        "in": ["ocr_texts", "llm_raw_texts"],
-        "out": ["ocr_doc_outputs"]
-    },
-    "AudioFeaturePreNode": {
-        "cat": "PreProcess",
-        "desc": "PCM 音频分帧与 Fbank 频谱特征提取",
-        "in": ["raw_pcm"],
-        "out": ["audio_features"]
-    },
-    "AsrInferNode": {
-        "cat": "Inference",
-        "desc": "NPU 语音识别引擎 (Paraformer ASR)",
-        "in": ["audio_features"],
-        "out": ["transcribed_texts"]
-    },
-    "SlotExtractNode": {
-        "cat": "Rule",
-        "desc": "槽位与意图结构化规则提取 (NLU)",
-        "in": ["transcribed_texts"],
-        "out": ["slot_entities"]
-    },
-    "AudioPostNode": {
-        "cat": "PostProcess",
-        "desc": "语音识别与意图槽位封装输出",
-        "in": ["transcribed_texts", "slot_entities"],
-        "out": ["audio_final_outputs"]
-    },
-    "RerankPairBuilderNode": {
-        "cat": "PreProcess",
-        "desc": "Query-Passage 对组合与 Tokenizer 打包",
-        "in": ["raw_queries", "candidate_passages"],
-        "out": ["pair_tensors"]
-    },
-    "CrossRerankBatchNode": {
-        "cat": "Inference",
-        "desc": "ONNX Cross-Encoder 批量相关度打分",
-        "in": ["pair_tensors"],
-        "out": ["rerank_scores"]
-    },
-    "RerankSortPostNode": {
-        "cat": "PostProcess",
-        "desc": "得分降序排序与原始索引映射输出",
-        "in": ["rerank_scores"],
-        "out": ["rerank_batch_final_outputs"]
-    }
-}
 
-def get_project_root():
-    return os.path.dirname(os.path.abspath(__file__))
+class StudioError(RuntimeError):
+    def __init__(self, code: str, message: str, status: int = 400):
+        super().__init__(message)
+        self.code = code
+        self.status = status
 
-def render_terminal_dag(cfg_path, data):
-    print(f"\n{BOLD}{CYAN}=================================================================={RESET}")
-    print(f"  {BOLD}LLM-EdgeFlow Pipeline 拓扑与算子图解析{RESET}")
-    print(f"  {DIM}配置文件: {cfg_path}{RESET}")
-    print(f"{BOLD}{CYAN}=================================================================={RESET}\n")
 
-    biz_name = data.get("business_name", "unknown")
-    exec_mode = data.get("execution_mode", "sequential")
-    workers = data.get("max_parallel_workers", 1)
-    models = data.get("models", [])
-    pipeline = data.get("pipeline", [])
+class StudioHttpServer(http.server.ThreadingHTTPServer):
+    """Loopback HTTP server without reverse-DNS lookup during bind."""
 
-    print(f"  {BOLD}业务标识 (Business){RESET} : {GREEN}{biz_name}{RESET}")
-    print(f"  {BOLD}调度模式 (Execution){RESET}: {CYAN}{exec_mode.upper()} (Max Workers: {workers}){RESET}")
-    print(f"  {BOLD}算子节点 (Total Nodes){RESET}: {YELLOW}{len(pipeline)}{RESET}\n")
+    def server_bind(self) -> None:
+        socketserver.TCPServer.server_bind(self)
+        host, port = self.server_address[:2]
+        self.server_name = host
+        self.server_port = port
 
-    if models:
-        print(f"  {BOLD}📦 已挂载异构推理引擎与模型 (Models Pool):{RESET}")
-        for m in models:
-            name = m.get("name", "")
-            engine = m.get("engine_type", "")
-            path = m.get("model_path", "")
-            batch = m.get("max_batch_size", 1)
-            print(f"    • {MAGENTA}{name:<20}{RESET} [{engine:<18}] (Batch: {batch}) -> {DIM}{path}{RESET}")
-        print()
 
-    print(f"  {BOLD}🚀 DAG 拓扑执行流向与波前层级 (Wavefront DAG Order):{RESET}")
-    print(f"  {DIM}{'─'*62}{RESET}")
+def json_result(ok: bool, **values: Any) -> dict[str, Any]:
+    return {"schema_version": 1, "ok": ok, **values}
 
-    for idx, node in enumerate(pipeline):
-        node_id = node.get("node_id", f"node_{idx}")
-        node_type = node.get("node_type", "UnknownNode")
-        deps = node.get("depends_on", [])
-        meta = NODE_META.get(node_type, {"cat": "Operator", "desc": "算法处理算子", "in": [], "out": []})
-        cat = meta.get("cat", "Operator")
-        color = CATEGORY_COLOR.get(cat, CYAN)
-        desc = meta.get("desc", "")
 
-        deps_str = f" <- [{', '.join(deps)}]" if deps else " [Root Node]"
-        print(f"  [{idx}] {BOLD}{node_id:<12}{RESET} : {color}{node_type:<24}{RESET}{DIM}{deps_str}{RESET}")
-        print(f"      {DIM}功能: {desc}{RESET}")
+def revision_for(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
 
-        in_keys = meta.get("in", [])
-        out_keys = meta.get("out", [])
-        if in_keys:
-            print(f"      {BLUE}📥 读黑板: {', '.join(in_keys)}{RESET}")
-        if out_keys:
-            print(f"      {GREEN}📤 写黑板: {', '.join(out_keys)}{RESET}")
 
-        if idx < len(pipeline) - 1:
-            print(f"      {DIM}│{RESET}")
-            print(f"      {DIM}▼{RESET}")
+def read_json(path: Path) -> Any:
+    with path.open("r", encoding="utf-8") as stream:
+        return json.load(stream)
 
-    print(f"  {DIM}{'─'*62}{RESET}\n")
 
-def launch_web_visualizer(cfg_file=None, port=8080):
-    root_dir = get_project_root()
-    web_dir = os.path.join(root_dir, "tools", "visualizer")
+class WorkbenchService:
+    """State and filesystem boundary behind /api/v1."""
 
-    if not os.path.exists(web_dir):
-        print(f"{RED}[Error] 找不到可视化前端目录: {web_dir}{RESET}")
-        return
+    def __init__(self, config_root: Path = CONFIG_ROOT):
+        self.config_root = config_root.resolve()
+        self.jobs: dict[str, dict[str, Any]] = {}
+        self.job_lock = threading.Lock()
 
-    os.chdir(web_dir)
+    def managed_path(self, requested: str, must_exist: bool = False) -> Path:
+        path = Path(requested)
+        if path.is_absolute() or len(path.parts) not in (1, 2):
+            raise StudioError("INVALID_PIPELINE_PATH", "只允许 configs 下的方案文件")
+        if len(path.parts) == 2 and path.parts[0] != "configs":
+            raise StudioError("INVALID_PIPELINE_PATH", "路径必须位于 configs 目录")
+        filename = path.name
+        if not MANAGED_NAME.fullmatch(filename):
+            raise StudioError(
+                "INVALID_PIPELINE_NAME",
+                "文件名必须匹配 pipeline_[a-z0-9_]+.json",
+            )
+        candidate = self.config_root / filename
+        if candidate.exists() or candidate.is_symlink():
+            if candidate.is_symlink():
+                raise StudioError("SYMLINK_REJECTED", "拒绝读写符号链接方案")
+            if candidate.resolve().parent != self.config_root:
+                raise StudioError("PATH_ESCAPE", "方案路径逃逸 configs 目录")
+        elif must_exist:
+            raise StudioError("PIPELINE_NOT_FOUND", filename, 404)
+        return candidate
 
-    class CustomHandler(http.server.SimpleHTTPRequestHandler):
-        def log_message(self, format, *args):
-            pass
+    def pipelines(self) -> dict[str, Any]:
+        items = []
+        for path in sorted(self.config_root.glob("pipeline_*.json")):
+            try:
+                checked = self.managed_path(path.name, must_exist=True)
+                raw = checked.read_bytes()
+                pipeline = json.loads(raw)
+            except (StudioError, OSError, json.JSONDecodeError):
+                continue
+            items.append(
+                {
+                    "filename": checked.name,
+                    "business_name": pipeline.get("business_name", ""),
+                    "revision": revision_for(raw),
+                }
+            )
+        return json_result(True, pipelines=items)
 
-    server = socketserver.TCPServer(("", port), CustomHandler)
-    url = f"http://localhost:{port}/index.html"
+    def open_pipeline(self, requested: str) -> dict[str, Any]:
+        path = self.managed_path(requested, must_exist=True)
+        raw = path.read_bytes()
+        try:
+            pipeline = json.loads(raw)
+        except json.JSONDecodeError as error:
+            raise StudioError("INVALID_JSON", str(error)) from error
+        return json_result(
+            True,
+            filename=path.name,
+            revision=revision_for(raw),
+            pipeline=pipeline,
+        )
 
-    print(f"\n{BOLD}{GREEN}=================================================================={RESET}")
-    print(f"  🎉 {BOLD}LLM-EdgeFlow 可视化与节点工坊 Web 服务已启动！{RESET}")
-    print(f"  🌐 访问地址: {CYAN}{url}{RESET}")
-    print(f"  💡 支持：DAG 节点图拖拽、➕ 新增算子、属性动态编辑、成环检测、导出 JSON")
-    print(f"  {DIM}按 Ctrl+C 可停止 Web 服务。{RESET}")
-    print(f"{BOLD}{GREEN}=================================================================={RESET}\n")
+    def invoke_tool(
+        self, command: list[str], pipeline: Any | None = None
+    ) -> dict[str, Any]:
+        if not PIPELINE_TOOL.is_file():
+            raise StudioError("TOOL_NOT_BUILT", "请先构建 build/alg_pipeline_tool", 503)
+        process = subprocess.run(
+            [str(PIPELINE_TOOL), *command],
+            input=None if pipeline is None else json.dumps(pipeline),
+            text=True,
+            capture_output=True,
+            cwd=PROJECT_ROOT,
+            timeout=30,
+            check=False,
+        )
+        try:
+            return json.loads(process.stdout)
+        except json.JSONDecodeError as error:
+            raise StudioError(
+                "TOOL_PROTOCOL_ERROR",
+                f"alg_pipeline_tool 未返回 JSON: {process.stderr[-500:]}",
+                500,
+            ) from error
 
-    t = threading.Thread(target=server.serve_forever)
-    t.daemon = True
-    t.start()
+    def catalog(self, business: str = "") -> dict[str, Any]:
+        args = ["catalog"]
+        if business:
+            args.extend(["--business", business])
+        return self.invoke_tool(args)
 
+    def profiles(self) -> dict[str, Any]:
+        root = read_json(PROFILE_FILE)
+        profiles = []
+        for name, profile in sorted(root.get("profiles", {}).items()):
+            item = dict(profile)
+            item["name"] = name
+            profiles.append(item)
+        return json_result(True, profiles=profiles)
+
+    def validate(self, pipeline: Any) -> dict[str, Any]:
+        return self.invoke_tool(["validate", "--stdin"], pipeline)
+
+    def normalize(self, pipeline: Any) -> dict[str, Any]:
+        return self.invoke_tool(["normalize", "--explicit-dag", "--stdin"], pipeline)
+
+    def init_pipeline(
+        self, business: str, profile: str = "", empty: bool = False
+    ) -> dict[str, Any]:
+        args = ["init", "--business", business]
+        if profile:
+            args.extend(["--profile", profile])
+        elif empty:
+            args.append("--empty")
+        return self.invoke_tool(args)
+
+    def save_pipeline(
+        self,
+        requested: str,
+        pipeline: Any,
+        expected_revision: str | None,
+        save_as: bool = False,
+    ) -> dict[str, Any]:
+        report = self.validate(pipeline)
+        if not report.get("ok"):
+            raise StudioError("VALIDATION_FAILED", json.dumps(report, ensure_ascii=False))
+        path = self.managed_path(requested)
+        if path.exists() and not save_as:
+            current = revision_for(path.read_bytes())
+            if not expected_revision or current != expected_revision:
+                raise StudioError(
+                    "REVISION_CONFLICT",
+                    "文件已被 IDE 或 Git 修改，请重新加载或另存",
+                    409,
+                )
+        if save_as and path.exists():
+            raise StudioError("FILE_EXISTS", "另存目标已存在", 409)
+        encoded = (json.dumps(pipeline, ensure_ascii=False, indent=2) + "\n").encode()
+        self.config_root.mkdir(parents=True, exist_ok=True)
+        descriptor, temporary = tempfile.mkstemp(
+            prefix=f".{path.stem}.", suffix=".tmp", dir=self.config_root
+        )
+        try:
+            with os.fdopen(descriptor, "wb") as stream:
+                stream.write(encoded)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, path)
+        finally:
+            if os.path.exists(temporary):
+                os.unlink(temporary)
+        return json_result(
+            True,
+            filename=path.name,
+            revision=revision_for(encoded),
+            pipeline=pipeline,
+        )
+
+    def start_run(self, pipeline: Any, profile_name: str) -> dict[str, Any]:
+        report = self.validate(pipeline)
+        if not report.get("ok"):
+            raise StudioError("VALIDATION_FAILED", json.dumps(report, ensure_ascii=False))
+        profiles = read_json(PROFILE_FILE).get("profiles", {})
+        profile = profiles.get(profile_name)
+        if not profile:
+            raise StudioError("UNKNOWN_PROFILE", profile_name)
+        profile_conf = PROJECT_ROOT / profile["config"]
+        conf = read_json(profile_conf)
+        data = conf.get("data", conf)
+        original_pipeline_path = Path(data["pipe_path"])
+        if not original_pipeline_path.is_absolute():
+            original_pipeline_path = profile_conf.parent / original_pipeline_path
+        original = read_json(original_pipeline_path.resolve())
+        if original.get("business_name") != pipeline.get("business_name"):
+            raise StudioError("PROFILE_MISMATCH", "Profile 与业务契约不匹配")
+        with self.job_lock:
+            if any(job["status"] in ("queued", "running") for job in self.jobs.values()):
+                raise StudioError("RUN_BUSY", "同一工作台最多运行一个任务", 409)
+            job_id = uuid.uuid4().hex[:16]
+            self.jobs[job_id] = {
+                "id": job_id,
+                "status": "queued",
+                "profile": profile_name,
+                "logs": "",
+                "cancel_requested": False,
+                "process": None,
+            }
+        threading.Thread(
+            target=self._run_job,
+            args=(job_id, pipeline, copy.deepcopy(profile), conf),
+            daemon=True,
+        ).start()
+        return json_result(True, job_id=job_id, status="queued")
+
+    def _run_job(
+        self,
+        job_id: str,
+        pipeline: Any,
+        profile: dict[str, Any],
+        conf: dict[str, Any],
+    ) -> None:
+        temporary = tempfile.TemporaryDirectory(prefix="llm-edgeflow-studio-")
+        temp_root = Path(temporary.name)
+        try:
+            pipeline_path = temp_root / "pipeline.json"
+            pipeline_path.write_text(
+                json.dumps(pipeline, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+            temp_conf = copy.deepcopy(conf)
+            if "data" in temp_conf:
+                temp_conf["data"]["pipe_path"] = str(pipeline_path)
+            else:
+                temp_conf["pipe_path"] = str(pipeline_path)
+            conf_path = temp_root / "pipeline.conf"
+            conf_path.write_text(json.dumps(temp_conf, indent=2), encoding="utf-8")
+            output_dir = temp_root / "results"
+            dataset = PROJECT_ROOT / profile["dataset"]
+            args = [
+                str(DEMO_BINARY),
+                "--business",
+                str(profile["business"]),
+                "--config",
+                str(conf_path),
+                "--dataset",
+                str(dataset),
+                "--output-dir",
+                str(output_dir),
+                "--batch-size",
+                str(profile.get("batch_size", 1)),
+                "--device-id",
+                str(profile.get("device_id", 0)),
+                "--chip",
+                str(profile.get("chip", "ax650")),
+                "--depth",
+                str(profile.get("depth", 1)),
+            ]
+            timeout = 300 if profile.get("suite", "smoke") == "smoke" else 1800
+            with self.job_lock:
+                job = self.jobs[job_id]
+                if job["cancel_requested"]:
+                    job["status"] = "cancelled"
+                    return
+                job["status"] = "running"
+                job["started_at"] = time.time()
+            if not DEMO_BINARY.is_file():
+                raise StudioError("DEMO_NOT_BUILT", "请先构建 build/alg_demo", 503)
+            process = subprocess.Popen(
+                args,
+                cwd=PROJECT_ROOT,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=False,
+                start_new_session=True,
+            )
+            with self.job_lock:
+                self.jobs[job_id]["process"] = process
+            try:
+                stdout, stderr = process.communicate(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                os.killpg(process.pid, signal.SIGTERM)
+                stdout, stderr = process.communicate(timeout=5)
+                raise StudioError("RUN_TIMEOUT", f"运行超过 {timeout} 秒", 408)
+            combined = (stdout + b"\n" + stderr)[-MAX_LOG_BYTES:]
+            result_files: dict[str, Any] = {}
+            for name in ("summary.json", "results.jsonl"):
+                matches = list(output_dir.rglob(name)) if output_dir.exists() else []
+                if not matches:
+                    continue
+                text = matches[0].read_text(encoding="utf-8", errors="replace")
+                if name.endswith(".json"):
+                    try:
+                        result_files[name] = json.loads(text)
+                    except json.JSONDecodeError:
+                        result_files[name] = text
+                else:
+                    result_files[name] = [
+                        json.loads(line) for line in text.splitlines() if line.strip()
+                    ]
+            with self.job_lock:
+                job = self.jobs[job_id]
+                job["logs"] = combined.decode("utf-8", errors="replace")
+                job["exit_code"] = process.returncode
+                job["result"] = result_files
+                job["status"] = "cancelled" if job["cancel_requested"] else (
+                    "completed" if process.returncode == 0 else "failed"
+                )
+                job["finished_at"] = time.time()
+                job["process"] = None
+        except Exception as error:
+            with self.job_lock:
+                job = self.jobs[job_id]
+                job["status"] = "cancelled" if job["cancel_requested"] else "failed"
+                job["error"] = {
+                    "code": getattr(error, "code", "RUN_FAILED"),
+                    "message": str(error),
+                }
+                job["finished_at"] = time.time()
+                job["process"] = None
+        finally:
+            temporary.cleanup()
+
+    def run_status(self, job_id: str) -> dict[str, Any]:
+        with self.job_lock:
+            job = self.jobs.get(job_id)
+            if not job:
+                raise StudioError("RUN_NOT_FOUND", job_id, 404)
+            public = {key: value for key, value in job.items() if key != "process"}
+        return json_result(True, job=public)
+
+    def cancel_run(self, job_id: str) -> dict[str, Any]:
+        with self.job_lock:
+            job = self.jobs.get(job_id)
+            if not job:
+                raise StudioError("RUN_NOT_FOUND", job_id, 404)
+            job["cancel_requested"] = True
+            process = job.get("process")
+            if job["status"] == "queued":
+                job["status"] = "cancelled"
+        if process and process.poll() is None:
+            os.killpg(process.pid, signal.SIGTERM)
+        return json_result(True, job_id=job_id, status="cancelling")
+
+
+def make_handler(service: WorkbenchService):
+    class Handler(http.server.SimpleHTTPRequestHandler):
+        def __init__(self, *args: Any, **kwargs: Any):
+            super().__init__(*args, directory=str(WEB_ROOT), **kwargs)
+
+        def log_message(self, _format: str, *_args: Any) -> None:
+            return
+
+        def _send(self, status: int, payload: Any) -> None:
+            encoded = json.dumps(payload, ensure_ascii=False).encode()
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(encoded)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(encoded)
+
+        def _body(self) -> dict[str, Any]:
+            length = int(self.headers.get("Content-Length", "0"))
+            if length > 4 * 1024 * 1024:
+                raise StudioError("BODY_TOO_LARGE", "请求体超过 4 MiB", 413)
+            try:
+                return json.loads(self.rfile.read(length) or b"{}")
+            except json.JSONDecodeError as error:
+                raise StudioError("INVALID_JSON", str(error)) from error
+
+        def _dispatch(self, method: str) -> None:
+            parsed = urlparse(self.path)
+            path = parsed.path
+            query = parse_qs(parsed.query)
+            body: dict[str, Any] = {}
+            if method in ("POST", "PUT", "DELETE"):
+                body = self._body()
+            if method == "GET" and path == "/api/v1/catalog":
+                payload = service.catalog(query.get("business", [""])[0])
+            elif method == "GET" and path == "/api/v1/profiles":
+                payload = service.profiles()
+            elif method == "GET" and path == "/api/v1/pipelines":
+                payload = service.pipelines()
+            elif method == "GET" and path == "/api/v1/pipeline":
+                payload = service.open_pipeline(query.get("filename", [""])[0])
+            elif method == "GET" and path.startswith("/api/v1/runs/"):
+                payload = service.run_status(path.rsplit("/", 1)[-1])
+            elif method == "POST" and path == "/api/v1/validate":
+                payload = service.validate(body.get("pipeline"))
+            elif method == "POST" and path == "/api/v1/normalize":
+                payload = service.normalize(body.get("pipeline"))
+            elif method == "POST" and path == "/api/v1/init":
+                payload = service.init_pipeline(
+                    body.get("business", ""), body.get("profile", ""), body.get("empty", False)
+                )
+            elif method == "POST" and path == "/api/v1/pipelines":
+                payload = service.save_pipeline(
+                    body.get("filename", ""), body.get("pipeline"), None, save_as=True
+                )
+            elif method == "PUT" and path == "/api/v1/pipeline":
+                payload = service.save_pipeline(
+                    body.get("filename", ""),
+                    body.get("pipeline"),
+                    body.get("revision"),
+                    save_as=False,
+                )
+            elif method == "POST" and path == "/api/v1/runs":
+                payload = service.start_run(body.get("pipeline"), body.get("profile", ""))
+            elif method == "DELETE" and path.startswith("/api/v1/runs/"):
+                payload = service.cancel_run(path.rsplit("/", 1)[-1])
+            else:
+                raise StudioError("NOT_FOUND", path, 404)
+            self._send(200, payload)
+
+        def do_GET(self) -> None:
+            if not urlparse(self.path).path.startswith("/api/"):
+                super().do_GET()
+                return
+            self._respond("GET")
+
+        def do_POST(self) -> None:
+            self._respond("POST")
+
+        def do_PUT(self) -> None:
+            self._respond("PUT")
+
+        def do_DELETE(self) -> None:
+            self._respond("DELETE")
+
+        def _respond(self, method: str) -> None:
+            try:
+                self._dispatch(method)
+            except StudioError as error:
+                detail: Any = str(error)
+                if error.code == "VALIDATION_FAILED":
+                    try:
+                        detail = json.loads(str(error))
+                    except json.JSONDecodeError:
+                        pass
+                self._send(
+                    error.status,
+                    json_result(False, error={"code": error.code, "message": detail}),
+                )
+            except Exception as error:
+                self._send(
+                    500,
+                    json_result(
+                        False,
+                        error={"code": "INTERNAL_ERROR", "message": str(error)},
+                    ),
+                )
+
+    return Handler
+
+
+def render_terminal(path: Path, pipeline: dict[str, Any]) -> None:
+    print(f"\nLLM-EdgeFlow Pipeline: {path}")
+    print(f"Business: {pipeline.get('business_name', 'unknown')}")
+    nodes = pipeline.get("pipeline", [])
+    for index, node in enumerate(nodes):
+        node_id = node.get("id", f"node_{index}_{node.get('node_type', 'unknown')}")
+        depends = node.get("depends_on")
+        if depends is None and index:
+            previous = nodes[index - 1]
+            depends = [
+                previous.get(
+                    "id", f"node_{index - 1}_{previous.get('node_type', 'unknown')}"
+                )
+            ]
+        print(f"  [{index}] {node_id}: {node.get('node_type', 'unknown')} <- {depends or []}")
+    print()
+
+
+def launch_web(initial: Path | None, port: int) -> None:
+    service = WorkbenchService()
+    server = StudioHttpServer(("127.0.0.1", port), make_handler(service))
+    actual_port = server.server_address[1]
+    fragment = f"#pipeline={quote(initial.name)}" if initial else ""
+    url = f"http://127.0.0.1:{actual_port}/index.html{fragment}"
+    print("LLM-EdgeFlow Pipeline Studio 已启动")
+    print(f"地址: {url}")
+    print("服务仅绑定 127.0.0.1；Ctrl+C 停止。")
     try:
         webbrowser.open(url)
     except Exception:
         pass
-
     try:
-        while True:
-            time.sleep(1)
+        server.serve_forever()
     except KeyboardInterrupt:
-        print("\nWeb 可视化服务已停止。")
+        pass
+    finally:
+        server.server_close()
 
-def main():
-    if len(sys.argv) == 1 or sys.argv[1] in ("-h", "--help"):
-        print("用法: ./show <path_to_config.json> [--web]")
-        print("      ./show --web")
-        print("\n示例:")
-        print("  ./show configs/pipeline_doc_qa.json           # 在终端打印 DAG 拓扑图")
-        print("  ./show configs/pipeline_doc_qa.json --web     # 在浏览器中打开可视化与节点工坊")
-        print("  ./show --web                                  # 直接启动可视化编辑工坊")
-        sys.exit(0)
 
-    if sys.argv[1] in ("--web", "-w", "--ui"):
-        launch_web_visualizer()
-        sys.exit(0)
+def main() -> None:
+    parser = argparse.ArgumentParser(description="LLM-EdgeFlow Pipeline viewer/studio")
+    parser.add_argument("pipeline", nargs="?", help="configs/pipeline_*.json")
+    parser.add_argument("--web", "--ui", action="store_true", dest="web")
+    parser.add_argument("--port", type=int, default=8080)
+    args = parser.parse_args()
+    selected: Path | None = None
+    if args.pipeline:
+        service = WorkbenchService()
+        selected = service.managed_path(args.pipeline, must_exist=True)
+        pipeline = read_json(selected)
+        if not args.web:
+            render_terminal(selected, pipeline)
+    if args.web:
+        launch_web(selected, args.port)
+    elif not args.pipeline:
+        parser.print_help()
 
-    cfg_file = sys.argv[1]
-    is_web = "--web" in sys.argv or "--ui" in sys.argv
-
-    if not os.path.exists(cfg_file):
-        root_dir = get_project_root()
-        alt_path = os.path.join(root_dir, cfg_file)
-        if os.path.exists(alt_path):
-            cfg_file = alt_path
-        else:
-            print(f"{RED}[Error] 找不到配置文件: {cfg_file}{RESET}")
-            sys.exit(1)
-
-    try:
-        with open(cfg_file, "r", encoding="utf-8") as f:
-            data = json.load(f)
-    except Exception as e:
-        print(f"{RED}[Error] 读取 JSON 配置异常: {e}{RESET}")
-        sys.exit(1)
-
-    render_terminal_dag(cfg_file, data)
-
-    if is_web:
-        launch_web_visualizer(cfg_file)
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except StudioError as error:
+        raise SystemExit(f"[{error.code}] {error}") from error

@@ -114,7 +114,8 @@ class BusinessAdapterRegistry {
     }
 
     adapters_[biz_type] = adapter;
-    std::cout << "[BusinessAdapterRegistry] Registered adapter for BizType ["
+    // Keep stdout machine-readable for tools such as alg_pipeline_tool.
+    std::cerr << "[BusinessAdapterRegistry] Registered adapter for BizType ["
               << biz_type << "]: " << adapter->BizName()
               << " (ABI: " << adapter->GetDescriptor().abi_version << ")"
               << std::endl;

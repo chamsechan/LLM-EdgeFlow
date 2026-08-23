@@ -28,7 +28,7 @@
 - 🎯 **定长硬件 DMA 批处理调度 (`FixedBatchExecutor`)**：专为端侧/NPU 定长 Batch 设计，全泛型自动切块、补齐 Dummy Pad、推理后剥离并保持 `(req_id, sub_id)` 样本溯源。
 - ⚡ **异构推理引擎 PIMPL 解耦**：原生封装 **ONNX Runtime**、**llama.cpp (GGUF)** 与 **专有 NPU DMA 内核**，切换芯片/引擎无需改动任何业务代码，纯 JSON 配置热插拔。
 - 🧠 **动态类型安全黑板 (`AlgContext`)**：基于 `std::any` 传递多模态复杂张量与结构体，零冗余内存拷贝，请求结束自动释放。
-- 📊 **原生双模可视化工具链**：内置嵌入式专用 **纯 C++ 原生命令行工具 (`./build/alg_show`)** 与 **交互式 Web DAG 工作台 (`./show --web`)**。
+- 📊 **图形化算法方案闭环**：C++ Definition/Catalog 驱动统一 CLI 与 **交互式 Web DAG 工作台 (`./show --web`)**，支持方案创建、结构编辑、静态校验、原子保存及隔离的真实 Demo 草稿运行。
 
 ---
 
@@ -102,9 +102,22 @@ cd .. && ./scripts/run_all_demos.sh smoke
 # 1. 嵌入式/终端原生 ASCII 拓扑打印 (纯 C++ 零依赖)
 ./build/alg_show configs/pipeline_ocr_doc_qa.json
 
-# 2. 启动交互式 Web DAG 工作台 (浏览器访问 http://localhost:8080)
+# 2. 打开方案列表或直接打开指定方案
+./show --web
 ./show configs/pipeline_dialogue_audit.json --web
+
+# 3. AI / 自动化使用同一个 C++ Catalog 与 Validator
+./build/alg_pipeline_tool catalog --business smart_doc_qa_v1
+./build/alg_pipeline_tool describe-node PromptBuilderNode
+./build/alg_pipeline_tool validate configs/pipeline_doc_qa.json
+./build/alg_pipeline_tool plan configs/pipeline_doc_qa.json
 ```
+
+工作台是开发期工具，仅绑定 `127.0.0.1`，不设置账号或令牌鉴权。它只管理
+`configs/pipeline_[a-z0-9_]+.json`，通过 SHA-256 revision 检测 IDE/Git 外部修改，
+保存前调用 C++ Validator 并原子替换。节点坐标只存于浏览器 `localStorage`，不会污染
+Pipeline JSON；未保存草稿可在隔离临时目录中调用真实 `alg_demo`，不会改写正式 `.conf`
+或仓库 `results/`。
 
 ---
 
@@ -136,6 +149,13 @@ LLM-EdgeFlow/
 
 ## 📝 更新日志 (Changelog)
 
+- **v2.5.0 (图形化算法方案工作台与配置编排闭环 - RFC 0006)** *(2026-08)*
+  - 🧭 **运行时 Catalog/Definition**：节点与引擎构造器同步注册 Definition，导出业务 Adapter ingress/egress、类型化端口、配置约束、模型能力与并行安全信息；新增节点可自动出现在 CLI 和 Web。
+  - ✅ **统一静态 Validator 与 CLI**：`Pipeline::Build` 在模型加载前复用无副作用预检；新增 `alg_pipeline_tool` 的 `catalog`、`describe-node`、`init`、`normalize`、`validate`、`plan` 六类版本化 JSON 命令。
+  - 🎛️ **可编辑 SVG 工作台**：原生 ES Modules 实现打开/新建/保存/另存、节点增删拖动、拉线删线、自动布局、参数表单、Graph/JSON 双向同步、诊断定位与 Profile 草稿运行。
+  - 🔒 **本机开发服务**：仅绑定回环地址且不引入账号/令牌权限；限制方案文件名和真实路径，revision 防覆盖、临时文件原子保存，并提供单任务异步运行、取消、超时和 2 MiB 日志上限。
+  - 🤖 **技能闭环**：`pipeline-composer` 改为 Catalog→describe→compose→validate→Smoke 的短流程；Developer Guide 改为四层按需引用路由，两个技能均通过 `quick_validate.py`。
+  - 🧪 **工作台回归矩阵**：新增 C++ Catalog/Validator/normalize 测试和 Python 文件/API/CLI/真实 Demo 闭环测试，全部既有 Pipeline 纳入统一静态校验。
 - **v2.4.0 (参数化业务 Demo Runner 与执行配置解耦交付 - RFC 0005)** *(2026-08)*
   - 🧩 **独立业务 Demo 模块化解耦 (`demo/businesses/`)**：将原 `demo/main.cpp` 中单体硬编码的 7 大业务逻辑拆分为独立的 `*_demo.cpp` 文件，通过 `DemoRegistry` 与 `REGISTER_DEMO_BUSINESS` 宏实现字符串解耦与动态业务注册。
   - 📋 **Profile 声明式配置清单 (`demo/profiles.json`)**：引入统一 Profile Schema 作为 Demo 默认参数的唯一事实源，支持 CLI 命令行参数、Profile 配置与安全默认值的无缝优先级合并覆盖。

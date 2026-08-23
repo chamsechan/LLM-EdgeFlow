@@ -67,7 +67,9 @@ include(cmake/ThirdPartyEngines.cmake)
 
 # 核心框架与业务算子源文件列表
 set(FRAMEWORK_SRCS
+    src/core/pipeline_catalog.cpp
     src/core/pipeline_config.cpp
+    src/core/pipeline_validator.cpp
     src/core/pipeline.cpp
     src/engine/mock_npu/mock_npu_embedding_engine.cpp
     src/engine/mock_npu/mock_npu_llm_engine.cpp
@@ -235,6 +237,16 @@ add_executable(test_rerank_refine_node tests/test_rerank_refine_node.cpp)
 target_link_libraries(test_rerank_refine_node PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
 add_test(NAME RerankRefineNodeTest COMMAND test_rerank_refine_node)
 
+add_executable(test_pipeline_studio tests/test_pipeline_studio.cpp)
+target_link_libraries(test_pipeline_studio PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME PipelineStudioTest COMMAND test_pipeline_studio)
+
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
+add_test(
+  NAME VisualizerServerTest
+  COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_visualizer_server.py
+)
+
 # Demo Runner 参数化与结果落盘单元测试
 set(TEST_DEMO_RUNNER_SRCS
     tests/test_demo_runner.cpp
@@ -262,13 +274,18 @@ set_tests_properties(
   RuntimeControlAndHotSwapTest EngineFaultToleranceAndLifecycleTest
   AdapterContractSecurityTest PipelineConfigTest RegistryConflictNodeTest
   RegistryConflictEngineTest RegistryReentrantTest PlatformOperatorTest
-  DocQaRerankTest RerankRefineNodeTest DemoRunnerTest
+  DocQaRerankTest RerankRefineNodeTest PipelineStudioTest VisualizerServerTest
+  DemoRunnerTest
   PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
 )
 
 # 6. 纯 C++ 零依赖原生 DAG 可视化工具 (专为无 Python 的极简嵌入式/边缘环境设计)
 add_executable(alg_show src/tools/alg_show.cpp)
 target_link_libraries(alg_show PRIVATE nlohmann_json::nlohmann_json)
+
+# 6.1 Pipeline Catalog / Validator / Normalizer machine-readable CLI
+add_executable(alg_pipeline_tool src/tools/alg_pipeline_tool.cpp)
+target_link_libraries(alg_pipeline_tool PRIVATE alg_sdk)
 
 # 7. 独立物理真实模型端到端测试套件 (阶段性/物理硬件压测，隔离于默认日常 CTest)
 option(ENABLE_REAL_MODEL_TESTS "Enable real model weights E2E test suite" OFF)

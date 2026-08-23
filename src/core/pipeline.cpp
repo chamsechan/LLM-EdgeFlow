@@ -9,9 +9,54 @@
 #include <unordered_set>
 
 #include "core/node_registry.h"
+#include "core/pipeline_validator.h"
 #include "engine/engine_registry.h"
 
 namespace alg_framework {
+
+namespace {
+
+PipelineErrorCode ValidationCodeToPipelineCode(const std::string& code) {
+  if (code == "ROOT_TYPE") return PipelineErrorCode::kRootType;
+  if (code == "UNKNOWN_FIELD" || code == "UNKNOWN_CONFIG_FIELD")
+    return PipelineErrorCode::kUnknownField;
+  if (code == "MISSING_FIELD") return PipelineErrorCode::kMissingField;
+  if (code == "FIELD_TYPE" || code == "CONFIG_FIELD_TYPE")
+    return PipelineErrorCode::kFieldType;
+  if (code == "FIELD_RANGE" || code == "CONFIG_FIELD_RANGE")
+    return PipelineErrorCode::kFieldRange;
+  if (code == "DUPLICATE_MODEL_ID") return PipelineErrorCode::kDuplicateModelId;
+  if (code == "DUPLICATE_NODE_ID") return PipelineErrorCode::kDuplicateNodeId;
+  if (code == "UNKNOWN_NODE_TYPE") return PipelineErrorCode::kUnknownNodeType;
+  if (code == "UNKNOWN_ENGINE_TYPE")
+    return PipelineErrorCode::kUnknownEngineType;
+  if (code == "INVALID_DEPENDENCY" || code == "DUPLICATE_DEPENDENCY")
+    return PipelineErrorCode::kInvalidDependency;
+  if (code == "DAG_CYCLE") return PipelineErrorCode::kDagCycle;
+  if (code == "REGISTRY_CONFLICT") return PipelineErrorCode::kRegistryConflict;
+  return PipelineErrorCode::kInvalidCombination;
+}
+
+// Unit tests and downstream embedders may register private node/engine types
+// without publishing a studio definition. The public validator remains strict;
+// Pipeline only exempts these definition-only diagnostics for registered
+// extension types so the historical extension API remains source-compatible.
+bool IsPrivateExtensionDiagnostic(const ValidationDiagnostic& diagnostic) {
+  if (diagnostic.code == "UNKNOWN_BUSINESS") return true;
+  if (diagnostic.code == "UNKNOWN_NODE_TYPE" && !diagnostic.node_id.empty()) {
+    return diagnostic.message.find("missing catalog definition") !=
+           std::string::npos;
+  }
+  if (diagnostic.code == "UNKNOWN_ENGINE_TYPE") {
+    constexpr const char* prefix = "Unknown engine_type: ";
+    if (diagnostic.message.rfind(prefix, 0) == 0) {
+      return EngineFactory::Instance().Has(diagnostic.message.substr(21));
+    }
+  }
+  return false;
+}
+
+}  // namespace
 
 Pipeline::Pipeline() : business_name_("default_biz") {}
 
@@ -285,6 +330,21 @@ bool Pipeline::BuildInternal(const nlohmann::json& root_config,
   // 动态覆盖证据
   if (test_internal_hook_) {
     test_internal_hook_();
+  }
+
+  // Studio, CLI and runtime share this side-effect-free preflight. Engines and
+  // nodes are materialized only after validation succeeds.
+  const ValidationReport validation = PipelineValidator::Validate(root_config);
+  for (const auto& item : validation.diagnostics) {
+    if (IsPrivateExtensionDiagnostic(item)) continue;
+    if (diagnostic) {
+      diagnostic->code = ValidationCodeToPipelineCode(item.code);
+      diagnostic->path = item.path;
+      diagnostic->message = item.code + ": " + item.message;
+    }
+    std::cerr << "[Pipeline] Validation failed: " << item.code << " at "
+              << item.path << ": " << item.message << std::endl;
+    return false;
   }
 
   // =========================================================================
