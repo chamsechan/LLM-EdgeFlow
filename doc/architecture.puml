@@ -44,25 +44,31 @@ package "Layer 1: 公司标准 C ABI 导出层 (C Adapter)" as L1 {
   class "Company C ABI Exports" as C_ABI <<(C,#0284C7) API Export>> {
     + Alg_Init(): int
     + Alg_Create(void** hndl, const CompanyAlgParamCreate*): int
-    + Alg_Process(void* hndl, const vector<void*>& in, vector<void*>& out): int
+    + Alg_Process(void* hndl, const void** in, int num_in, void** out, int* num_out): int
     + Alg_Control(void* hndl, const CompanyAlgParamControl*): int
     + Alg_Destroy(void* hndl): int
     + Alg_DeInit(): int
   }
 
   class "AlgHandleInstance" as HandleInst {
-    + pipeline: std::unique_ptr<Pipeline>
-    + biz_type: CompanyAlgBizType
-    + device_id: int
+    + runtime: std::unique_ptr<SharedAlgorithmRuntime>
+  }
+
+  class "SharedAlgorithmRuntime" as SharedRuntime {
+    - pipeline_: std::unique_ptr<Pipeline>
+    - adapter_: std::shared_ptr<IBusinessAdapter>
+    + ExecuteBatch(inputs, num_inputs, outputs, num_outputs, err): int
+    + ExecuteControl(cmd, json_param, err): int
   }
 
   class "Multi-Modal C Structs" as Structs <<(S,#F59E0B) Data Struct>> {
+    + CompanyKeywordInput / Output
+    + CompanyEntityInput / Output
     + CompanyDocInput / Output
+    + CompanyAuditInput / Output
     + CompanyOcrDocInput / Output
     + CompanyAudioInput / Output
     + CompanyRerankBatchInput / Output
-    + CompanyAuditInput / Output
-    + CompanyKeywordInput / Output
   }
 }
 
@@ -117,7 +123,7 @@ package "Layer 3: 业务专属算子池 (Pluggable Nodes)" as L3 {
   interface INode {
     + {abstract} Init(config: json, session_ctx: SessionContext*): bool
     + {abstract} Process(req_ctx: AlgContext*): int
-    + {abstract} Control(cmd: int, param: json): int
+    + {abstract} Control(cmd: int, json_param: const string&): int
     + {abstract} Name(): const string&
   }
 
@@ -136,9 +142,10 @@ package "Layer 3: 业务专属算子池 (Pluggable Nodes)" as L3 {
     class SafetyRulePreNode
     class IntentRuleNode
     class SlotExtractNode
+    class EntityExtractPreNode
   }
 
-  package "Inference Invocation Nodes" as InferNodes {
+  package "Inference & Common Nodes" as InferNodes {
     class DocEmbeddingNode
     class LlmGenerateNode
     class CrossRerankNode
@@ -147,6 +154,7 @@ package "Layer 3: 业务专属算子池 (Pluggable Nodes)" as L3 {
     class LlmAuditNode
     class VectorSearchNode
     class PromptBuilderNode
+    class RerankRefineNode
   }
 
   package "PostProcess Alignment Nodes" as PostNodes {
@@ -217,7 +225,8 @@ package "Layer 4: 异构引擎与硬件批调度层 (Engine Layer)" as L4 {
 ' ==============================================================================
 C_ABI ..> HandleInst : 管理生命周期
 C_ABI ..> Structs : 解包/填充
-HandleInst *-- Pipeline
+HandleInst *-- SharedRuntime
+SharedRuntime *-- Pipeline
 
 Pipeline *-- SessionContext
 Pipeline *-- INode : 拓扑执行
