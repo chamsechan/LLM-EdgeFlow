@@ -30,6 +30,10 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+set(CMAKE_BUILD_WITH_INSTALL_RPATH FALSE)
+set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
+set(CMAKE_BUILD_RPATH_USE_ORIGIN TRUE)
+set(CMAKE_BUILD_RPATH "${CMAKE_BINARY_DIR}")
 
 # 编译选项
 add_compile_options(-Wall -Wextra -O2 -fPIC)
@@ -129,6 +133,7 @@ set_target_properties(alg_sdk PROPERTIES
 
 # 引入 Google Test 框架 (自动下载或使用系统库)
 include(cmake/GoogleTest.cmake)
+enable_testing()
 
 # 2. 生成下游部门集成测试 Demo 可执行程序
 add_executable(alg_demo demo/main.cpp)
@@ -143,7 +148,6 @@ add_test(NAME C11AbiComplianceTest COMMAND test_c11_abi_compliance)
 add_test(NAME LayerGuardTest COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_layer_isolation.sh)
 
 # 5. 单元测试与安全性测试集 (基于 Google Test & CTest)
-enable_testing()
 
 add_executable(test_batch_executor tests/test_batch_executor.cpp)
 target_link_libraries(test_batch_executor PRIVATE GTest::gtest GTest::gtest_main)
@@ -216,6 +220,18 @@ add_test(NAME DocQaRerankTest COMMAND test_doc_qa_rerank)
 add_executable(test_rerank_refine_node tests/test_rerank_refine_node.cpp)
 target_link_libraries(test_rerank_refine_node PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
 add_test(NAME RerankRefineNodeTest COMMAND test_rerank_refine_node)
+
+# 设置所有测试工作目录为项目根目录，保证无论从何处运行 CTest，相对路径均一致解析
+set_tests_properties(
+  C11AbiComplianceTest LayerGuardTest BatchExecutorTest FrameworkCoreTest
+  CAbiSafetyTest QwenEnginesComparisonTest DifferentIoModalitiesTest
+  AllBusinessPipelinesTest ConcurrencyAndEdgeCasesTest DagPipelineTest
+  RuntimeControlAndHotSwapTest EngineFaultToleranceAndLifecycleTest
+  AdapterContractSecurityTest PipelineConfigTest RegistryConflictNodeTest
+  RegistryConflictEngineTest RegistryReentrantTest PlatformOperatorTest
+  DocQaRerankTest RerankRefineNodeTest
+  PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+)
 
 # 6. 纯 C++ 零依赖原生 DAG 可视化工具 (专为无 Python 的极简嵌入式/边缘环境设计)
 add_executable(alg_show src/tools/alg_show.cpp)

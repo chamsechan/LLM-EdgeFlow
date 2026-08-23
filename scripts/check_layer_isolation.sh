@@ -41,10 +41,10 @@ echo "✅ [LayerGuard PASS] Zero Common Node -> Business Node reverse include vi
 
 # Rule 4: Pure C11 Syntax & ABI Compliance Check via standard C compiler
 if command -v gcc >/dev/null 2>&1; then
-  gcc -std=c11 -pedantic-errors -fsyntax-only -I"$REPO_ROOT/include" "$REPO_ROOT/include/company_alg_interface.h"
+  gcc -std=c11 -pedantic-errors -fsyntax-only -x c -I"$REPO_ROOT/include" "$REPO_ROOT/include/company_alg_interface.h"
   echo "✅ [LayerGuard PASS] GCC pure C11 strict syntax and ABI verification passed."
 elif command -v clang >/dev/null 2>&1; then
-  clang -std=c11 -pedantic-errors -fsyntax-only -I"$REPO_ROOT/include" "$REPO_ROOT/include/company_alg_interface.h"
+  clang -std=c11 -pedantic-errors -fsyntax-only -x c -I"$REPO_ROOT/include" "$REPO_ROOT/include/company_alg_interface.h"
   echo "✅ [LayerGuard PASS] Clang pure C11 strict syntax and ABI verification passed."
 else
   echo "⚠️ [LayerGuard WARN] Neither gcc nor clang found for C11 syntax-only check."
