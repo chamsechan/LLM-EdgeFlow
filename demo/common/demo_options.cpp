@@ -1,6 +1,7 @@
 #include "demo/common/demo_options.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -122,16 +123,17 @@ int ParseCommandLine(int argc, char* argv[], DemoOptions* out_options,
         return 2;
       }
       try {
-        int id = std::stoi(argv[++i]);
-        out_options->legacy_biz_id = id;
-        std::string mapped = LegacyBizIdToName(id);
-        if (mapped.empty()) {
+        int64_t val = std::stoll(argv[++i]);
+        if (val < 1 || val > 7) {
           if (error_msg) {
-            *error_msg = "Unsupported legacy --biz ID: " + std::to_string(id) +
+            *error_msg = "Unsupported legacy --biz ID: " + std::to_string(val) +
                          " (Must be 1..7)";
           }
           return 2;
         }
+        int id = static_cast<int>(val);
+        out_options->legacy_biz_id = id;
+        std::string mapped = LegacyBizIdToName(id);
         std::cerr << "[DEPRECATION WARNING] Flag '--biz " << id
                   << "' is deprecated. Please use '--business " << mapped
                   << "' instead." << std::endl;
@@ -170,11 +172,13 @@ int ParseCommandLine(int argc, char* argv[], DemoOptions* out_options,
         return 2;
       }
       try {
-        out_options->batch_size = std::stoi(argv[++i]);
-        if (out_options->batch_size <= 0) {
-          if (error_msg) *error_msg = "--batch-size must be > 0";
+        int64_t val = std::stoll(argv[++i]);
+        if (val <= 0 || val > 100000) {
+          if (error_msg)
+            *error_msg = "--batch-size must be between 1 and 100000";
           return 2;
         }
+        out_options->batch_size = static_cast<int>(val);
         out_options->has_batch_size = true;
       } catch (...) {
         if (error_msg) *error_msg = "Invalid integer for --batch-size";
@@ -186,11 +190,12 @@ int ParseCommandLine(int argc, char* argv[], DemoOptions* out_options,
         return 2;
       }
       try {
-        out_options->device_id = std::stoi(argv[++i]);
-        if (out_options->device_id < 0) {
-          if (error_msg) *error_msg = "--device-id must be >= 0";
+        int64_t val = std::stoll(argv[++i]);
+        if (val < 0 || val > 1024) {
+          if (error_msg) *error_msg = "--device-id must be between 0 and 1024";
           return 2;
         }
+        out_options->device_id = static_cast<int>(val);
         out_options->has_device_id = true;
       } catch (...) {
         if (error_msg) *error_msg = "Invalid integer for --device-id";
@@ -218,12 +223,12 @@ int ParseCommandLine(int argc, char* argv[], DemoOptions* out_options,
         return 2;
       }
       try {
-        int depth = std::stoi(argv[++i]);
-        if (depth <= 0) {
-          if (error_msg) *error_msg = "--depth must be > 0";
+        int64_t val = std::stoll(argv[++i]);
+        if (val <= 0 || val > 100000) {
+          if (error_msg) *error_msg = "--depth must be between 1 and 100000";
           return 2;
         }
-        out_options->depth_num = static_cast<uint32_t>(depth);
+        out_options->depth_num = static_cast<uint32_t>(val);
         out_options->has_depth_num = true;
       } catch (...) {
         if (error_msg) *error_msg = "Invalid integer for --depth";
@@ -311,7 +316,7 @@ int LoadAndMergeProfiles(const std::string& profiles_path,
 
   const auto& profiles = root["profiles"];
 
-  // 严格 Schema 校验所有 Profiles (P2-1)
+  // 严格 Schema 校验所有 Profiles (P2-1, 上界与类型防溢出校验)
   for (const auto& [name, p] : profiles.items()) {
     if (name.empty()) {
       if (error_msg)
@@ -357,28 +362,49 @@ int LoadAndMergeProfiles(const std::string& profiles_path,
       }
     }
     if (p.contains("batch_size")) {
-      if (!p["batch_size"].is_number_integer() ||
-          p["batch_size"].get<int>() <= 0) {
+      if (!p["batch_size"].is_number_integer()) {
         if (error_msg)
+          *error_msg =
+              "Profile '" + name + "' field 'batch_size' must be integer";
+        return 3;
+      }
+      int64_t val = p["batch_size"].get<int64_t>();
+      if (val <= 0 || val > 100000) {
+        if (error_msg) {
           *error_msg = "Profile '" + name +
-                       "' field 'batch_size' must be positive integer";
+                       "' field 'batch_size' must be between 1 and 100000";
+        }
         return 3;
       }
     }
     if (p.contains("device_id")) {
-      if (!p["device_id"].is_number_integer() ||
-          p["device_id"].get<int>() < 0) {
+      if (!p["device_id"].is_number_integer()) {
         if (error_msg)
+          *error_msg =
+              "Profile '" + name + "' field 'device_id' must be integer";
+        return 3;
+      }
+      int64_t val = p["device_id"].get<int64_t>();
+      if (val < 0 || val > 1024) {
+        if (error_msg) {
           *error_msg = "Profile '" + name +
-                       "' field 'device_id' must be non-negative integer";
+                       "' field 'device_id' must be between 0 and 1024";
+        }
         return 3;
       }
     }
     if (p.contains("depth")) {
-      if (!p["depth"].is_number_integer() || p["depth"].get<int>() <= 0) {
+      if (!p["depth"].is_number_integer()) {
         if (error_msg)
-          *error_msg =
-              "Profile '" + name + "' field 'depth' must be positive integer";
+          *error_msg = "Profile '" + name + "' field 'depth' must be integer";
+        return 3;
+      }
+      int64_t val = p["depth"].get<int64_t>();
+      if (val <= 0 || val > 100000) {
+        if (error_msg) {
+          *error_msg = "Profile '" + name +
+                       "' field 'depth' must be between 1 and 100000";
+        }
         return 3;
       }
     }
@@ -441,16 +467,17 @@ int LoadAndMergeProfiles(const std::string& profiles_path,
       out_options->suite = p["suite"].get<std::string>();
     }
     if (p.contains("batch_size") && !cli_options.has_batch_size) {
-      out_options->batch_size = p["batch_size"].get<int>();
+      out_options->batch_size =
+          static_cast<int>(p["batch_size"].get<int64_t>());
     }
     if (p.contains("device_id") && !cli_options.has_device_id) {
-      out_options->device_id = p["device_id"].get<int>();
+      out_options->device_id = static_cast<int>(p["device_id"].get<int64_t>());
     }
     if (p.contains("chip") && !cli_options.has_chip) {
       out_options->chip = p["chip"].get<std::string>();
     }
     if (p.contains("depth") && !cli_options.has_depth_num) {
-      out_options->depth_num = static_cast<uint32_t>(p["depth"].get<int>());
+      out_options->depth_num = static_cast<uint32_t>(p["depth"].get<int64_t>());
     }
     if (p.contains("control_file") && !cli_options.has_control_file) {
       out_options->control_file = p["control_file"].get<std::string>();

@@ -228,4 +228,3 @@ RFC-0005 已实现主要结构性目标，代码解耦和可扩展性相较原�
 - **`./scripts/run_all_demos.sh smoke`**：从 `/private/tmp` 及仓库根目录调用均 **100% PASS**。
 - **`./scripts/run_all_tests.sh`**：6 阶段全量自动化门禁 **100% PASS**。
 - **架构防腐与 Google C++ 规范**：LayerGuard 0 违规，Clang-Format 100% 对齐。
-

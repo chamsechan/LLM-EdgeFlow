@@ -10,6 +10,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include "adapter/business_adapter_registry.h"
+#include "company_alg_interface.h"
 #include "demo/common/dataset_reader.h"
 #include "demo/common/demo_options.h"
 #include "nlohmann/json.hpp"
@@ -18,35 +20,35 @@
 namespace alg_demo {
 
 /**
- * @brief 结构化业务精确映射表：Pipeline business_name -> Demo Business (P1-3)
+ * @brief 将 Demo 业务名映射为标准 CompanyAlgBizType 枚举
+ */
+inline CompanyAlgBizType DemoBusinessToBizType(std::string_view demo_biz) {
+  if (demo_biz == "entity_extract") return ALG_BIZ_TYPE_ENTITY_EXTRACT;
+  if (demo_biz == "keyword_match") return ALG_BIZ_TYPE_KEYWORD_MATCH;
+  if (demo_biz == "doc_qa") return ALG_BIZ_TYPE_DOC_QA;
+  if (demo_biz == "dialogue_audit") return ALG_BIZ_TYPE_COMPLIANCE_AUDIT;
+  if (demo_biz == "ocr_doc_qa") return ALG_BIZ_TYPE_OCR_DOC_QA;
+  if (demo_biz == "audio_asr") return ALG_BIZ_TYPE_AUDIO_ASR_INTENT;
+  if (demo_biz == "cross_rerank") return ALG_BIZ_TYPE_CROSS_RERANK;
+  return ALG_BIZ_TYPE_UNKNOWN;
+}
+
+/**
+ * @brief 校验 Pipeline business_name 与 Demo 业务是否兼容 (基于
+ * BusinessAdapterRegistry 单一事实源)
  */
 inline bool IsBusinessCompatible(std::string_view expected_demo_biz,
-                                 std::string_view actual_pipe_biz) {
-  if (expected_demo_biz == actual_pipe_biz) return true;
-
-  static const std::unordered_map<std::string_view, std::string_view>
-      kPipelineToDemoMap = {
-          {"entity_extract_0.6b_v1", "entity_extract"},
-          {"entity_extract_llamacpp_0.6b_v1", "entity_extract"},
-          {"entity_extract_llamacpp_v1", "entity_extract"},
-          {"keyword_match_v1", "keyword_match"},
-          {"smart_doc_qa_v1", "doc_qa"},
-          {"smart_doc_qa_onnx_llamacpp_v1", "doc_qa"},
-          {"smart_doc_qa_onnx_v1", "doc_qa"},
-          {"smart_doc_qa_rerank_llm_v1", "doc_qa"},
-          {"smart_doc_qa_rerank_hybrid_v1", "doc_qa"},
-          {"smart_doc_qa_rerank_real_v1", "doc_qa"},
-          {"dialogue_compliance_audit_v1", "dialogue_audit"},
-          {"multimodal_ocr_invoice_qa", "ocr_doc_qa"},
-          {"speech_audio_asr_intent_slot", "audio_asr"},
-          {"dense_cross_rerank_scoring", "cross_rerank"},
-      };
-
-  auto it = kPipelineToDemoMap.find(actual_pipe_biz);
-  if (it != kPipelineToDemoMap.end()) {
-    return it->second == expected_demo_biz;
+                                 const std::string& actual_pipe_biz) {
+  CompanyAlgBizType expected_type = DemoBusinessToBizType(expected_demo_biz);
+  if (expected_type == ALG_BIZ_TYPE_UNKNOWN) {
+    return false;
   }
-  return false;
+  auto adapter = alg_framework::BusinessAdapterRegistry::Instance()
+                     .GetAdapterByPipelineName(actual_pipe_biz);
+  if (!adapter) {
+    return false;
+  }
+  return adapter->BizType() == expected_type;
 }
 
 /**

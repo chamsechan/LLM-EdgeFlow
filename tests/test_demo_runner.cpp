@@ -89,9 +89,14 @@ TEST(DemoRunnerTest, CommandLineParsingErrors) {
   const char* argv2[] = {"alg_demo", "--profile"};
   EXPECT_EQ(ParseCommandLine(2, const_cast<char**>(argv2), &opts, &err), 2);
 
-  // 非法 batch_size
+  // 非法 batch_size (负数)
   const char* argv3[] = {"alg_demo", "--batch-size", "-1"};
   EXPECT_EQ(ParseCommandLine(3, const_cast<char**>(argv3), &opts, &err), 2);
+
+  // 非法 batch_size (超大数值溢出拦截)
+  const char* argv3_overflow[] = {"alg_demo", "--batch-size", "4294967297"};
+  EXPECT_EQ(
+      ParseCommandLine(3, const_cast<char**>(argv3_overflow), &opts, &err), 2);
 
   // 非法 chip
   const char* argv4[] = {"alg_demo", "--chip", "unsupported_dsp"};
@@ -200,7 +205,7 @@ TEST(DemoRunnerTest, ProfileNotFound) {
   EXPECT_NE(err.find("not found"), std::string::npos);
 }
 
-// P2-1: 测试 Profile Schema 严格校验
+// P2-1: 测试 Profile Schema 严格校验与数值溢出防御
 TEST(DemoRunnerTest, ProfileSchemaStrictValidation) {
   std::string temp_invalid_json = "./results/invalid_profile.json";
   std::filesystem::create_directories("./results");
@@ -235,6 +240,25 @@ TEST(DemoRunnerTest, ProfileSchemaStrictValidation) {
   EXPECT_EQ(LoadAndMergeProfiles(temp_invalid_json, cli_opts, &merged, &err),
             3);
   EXPECT_NE(err.find("bad_prof"), std::string::npos);
+
+  // Case 3: batch_size 数值超界溢出 (4294967297) 防御拦截
+  {
+    std::ofstream ofs(temp_invalid_json);
+    ofs << R"({
+      "schema_version": 1,
+      "profiles": {
+        "overflow_prof": {
+          "business": "entity_extract",
+          "config": "configs/pipeline_entity_extract.conf",
+          "dataset": "data/corpus_entity_extract.txt",
+          "batch_size": 4294967297
+        }
+      }
+    })";
+  }
+  EXPECT_EQ(LoadAndMergeProfiles(temp_invalid_json, cli_opts, &merged, &err),
+            3);
+  EXPECT_NE(err.find("batch_size"), std::string::npos);
 
   std::filesystem::remove(temp_invalid_json);
 }
@@ -289,8 +313,8 @@ TEST(DemoRunnerTest, DatasetReaderFunctions) {
   EXPECT_TRUE(sections.find("QUERY") != sections.end());
 }
 
-// 6. 测试 ResultWriter 结果落盘与原子替换
-TEST(DemoRunnerTest, ResultWriterAtomicOutput) {
+// 6. 测试 ResultWriter 结果落盘、错误样本记录与 --append 模式累计摘要口径
+TEST(DemoRunnerTest, ResultWriterAtomicOutputAndCumulativeAppend) {
   DemoOptions opts;
   opts.profile = "test_profile_unit";
   opts.business = "unit_test";
@@ -307,11 +331,12 @@ TEST(DemoRunnerTest, ResultWriterAtomicOutput) {
   s1.output["data"] = "test_value_1";
   samples.push_back(s1);
 
+  // 错误样本测试
   DemoSampleResult s2;
   s2.request_id = 9002;
-  s2.status = 0;
+  s2.status = 5;
   s2.latency_ms = 3.5;
-  s2.output["data"] = "test_value_2";
+  s2.error = "Mock inference error for sample";
   samples.push_back(s2);
 
   std::string err;
@@ -326,7 +351,7 @@ TEST(DemoRunnerTest, ResultWriterAtomicOutput) {
   EXPECT_TRUE(std::filesystem::exists(jsonl_path));
   EXPECT_TRUE(std::filesystem::exists(summary_path));
 
-  // 验证 JSONL 文件行数与内容
+  // 验证 JSONL 文件行数与内容 (含错误样本)
   std::ifstream j_ifs(jsonl_path);
   std::string line;
   int count = 0;
@@ -336,21 +361,54 @@ TEST(DemoRunnerTest, ResultWriterAtomicOutput) {
     auto obj = nlohmann::json::parse(line);
     EXPECT_EQ(obj["schema_version"], 1);
     EXPECT_EQ(obj["profile"], "test_profile_unit");
-    EXPECT_EQ(obj["status"], 0);
+    if (obj["request_id"] == 9002) {
+      EXPECT_EQ(obj["status"], 5);
+      EXPECT_EQ(obj["error"], "Mock inference error for sample");
+    }
   }
   EXPECT_EQ(count, 2);
 
   // 验证 summary.json
-  std::ifstream s_ifs(summary_path);
-  nlohmann::json summary_obj;
-  s_ifs >> summary_obj;
-  EXPECT_EQ(summary_obj["schema_version"], 1);
-  EXPECT_EQ(summary_obj["total_samples"], 2);
-  EXPECT_EQ(summary_obj["success_count"], 2);
-  EXPECT_EQ(summary_obj["failed_count"], 0);
+  {
+    std::ifstream s_ifs(summary_path);
+    nlohmann::json summary_obj;
+    s_ifs >> summary_obj;
+    EXPECT_EQ(summary_obj["schema_version"], 1);
+    EXPECT_EQ(summary_obj["total_samples"], 2);
+    EXPECT_EQ(summary_obj["success_count"], 1);
+    EXPECT_EQ(summary_obj["failed_count"], 1);
+  }
+
+  // 测试 --append 模式下的追加写入与累计口径校验
+  opts.append = true;
+  ResultWriter append_writer(opts);
+
+  std::vector<DemoSampleResult> append_samples;
+  DemoSampleResult s3;
+  s3.request_id = 9003;
+  s3.status = 0;
+  s3.latency_ms = 4.0;
+  s3.output["data"] = "test_value_3";
+  append_samples.push_back(s3);
+
+  ret = append_writer.WriteResults(append_samples, 4.0, &err);
+  EXPECT_EQ(ret, 0) << "Append write failed: " << err;
+
+  // 验证 summary.json 准确记录了 3 条样本的累计统计
+  {
+    std::ifstream s_ifs2(summary_path);
+    nlohmann::json summary_obj2;
+    s_ifs2 >> summary_obj2;
+    EXPECT_EQ(summary_obj2["total_samples"], 3);
+    EXPECT_EQ(summary_obj2["success_count"], 2);
+    EXPECT_EQ(summary_obj2["failed_count"], 1);
+    EXPECT_EQ(summary_obj2["run_samples"], 1);
+    EXPECT_EQ(summary_obj2["run_success_count"], 1);
+    EXPECT_EQ(summary_obj2["run_failed_count"], 0);
+  }
 }
 
-// 7. 测试 Config 与 Business 匹配校验与 P1-3 精确匹配
+// 7. 测试 Config 与 Business 匹配校验与 P1-3 精确匹配 (Single Source of Truth)
 TEST(DemoRunnerTest, ConfigBusinessMatchValidation) {
   std::string err;
 
