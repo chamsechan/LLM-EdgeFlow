@@ -47,7 +47,8 @@ ctest --test-dir "$BUILD_DIR" --output-on-failure -R '^Registry.*Test$'
 "$BUILD_DIR/test_qwen_engines_comparison"
 "$BUILD_DIR/test_different_io_modalities"
 "$BUILD_DIR/test_all_business_pipelines"
-echo -e "${GREEN}✓ Tier 1 核心架构、DAG拓扑调度与 7 大业务细粒度 GTest 断言测试全部通过！${NC}\n"
+"$BUILD_DIR/test_doc_qa_rerank"
+echo -e "${GREEN}✓ Tier 1 核心架构、DAG拓扑调度与全业务组合（含 LLM+Rerank+QA）细粒度 GTest 断言测试全部通过！${NC}\n"
 
 # 4. C ABI 安全防御、多线程并发与边界压测 (Tier 2)
 echo -e "${BOLD}[ Step 4/6: C ABI 安全、平台 Operator 接口、8 线程并发、动态热重载与极端边界鲁棒性压测 ]${NC}"

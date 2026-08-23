@@ -52,6 +52,7 @@ set(FRAMEWORK_SRCS
     src/engine/llama_cpp/llama_cpp_engine.cpp
     src/common_nodes/prompt_builder_node.cpp
     src/common_nodes/vector_search_node.cpp
+    src/common_nodes/rerank_refine_node.cpp
     src/business/doc_qa/doc_chunk_pre_node.cpp
     src/business/doc_qa/doc_embedding_node.cpp
     src/business/doc_qa/intent_rule_node.cpp
@@ -184,6 +185,10 @@ set_tests_properties(RegistryReentrantTest PROPERTIES TIMEOUT 5)
 add_executable(test_platform_operator tests/test_platform_operator.cpp)
 target_link_libraries(test_platform_operator PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
 add_test(NAME PlatformOperatorTest COMMAND test_platform_operator)
+
+add_executable(test_doc_qa_rerank tests/test_doc_qa_rerank.cpp)
+target_link_libraries(test_doc_qa_rerank PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME DocQaRerankTest COMMAND test_doc_qa_rerank)
 
 # 6. 纯 C++ 零依赖原生 DAG 可视化工具 (专为无 Python 的极简嵌入式/边缘环境设计)
 add_executable(alg_show src/tools/alg_show.cpp)
