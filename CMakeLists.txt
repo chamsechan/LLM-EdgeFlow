@@ -1,6 +1,18 @@
 cmake_minimum_required(VERSION 3.16)
 project(AlgSdkFramework LANGUAGES C CXX)
 
+# 严格禁止 In-Source 构建 (防止误用 cmake . 污染源码目录并触发重复下载阻塞)
+if("${CMAKE_SOURCE_DIR}" STREQUAL "${CMAKE_BINARY_DIR}")
+  message(FATAL_ERROR "
+  [ERROR] In-source builds are strictly forbidden!
+  Building directly inside the source directory with 'cmake .' causes pollution and hangs on network dependencies.
+  Please use out-of-source build instead:
+    mkdir -p build && cd build && cmake .. && make -j4
+  Or:
+    cmake -B build -S . && cmake --build build -j4
+  ")
+endif()
+
 # 编译加速开关 (允许通过 -DLLM_EDGEFLOW_USE_CCACHE=OFF 显式关闭)
 option(LLM_EDGEFLOW_USE_CCACHE "Enable ccache compiler launcher if available" ON)
 if(LLM_EDGEFLOW_USE_CCACHE)
