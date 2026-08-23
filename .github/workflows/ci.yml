@@ -12,6 +12,12 @@ jobs:
     name: Build & GTest Regression Suite
     runs-on: ubuntu-latest
 
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      CCACHE_COMPRESS: "true"
+      CCACHE_COMPRESSLEVEL: "6"
+      CCACHE_MAXSIZE: "500M"
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -19,7 +25,24 @@ jobs:
       - name: Set up Build Environment
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake clang-format python3
+          sudo apt-get install -y build-essential cmake clang-format python3 ccache
+
+      - name: Restore/Save CCache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ccache-${{ runner.os }}-${{ github.ref }}-${{ github.sha }}
+          restore-keys: |
+            ccache-${{ runner.os }}-${{ github.ref }}-
+            ccache-${{ runner.os }}-
+
+      - name: Restore/Save CMake FetchContent Cache
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: fetchcontent-${{ runner.os }}-${{ hashFiles('cmake/*.cmake', 'CMakeLists.txt') }}
+          restore-keys: |
+            fetchcontent-${{ runner.os }}-
 
       - name: Verify Code Style (Google C++ Format)
         run: |
@@ -30,11 +53,13 @@ jobs:
         run: |
           mkdir -p build
           cd build
-          cmake .. -DCMAKE_BUILD_TYPE=Release
+          ccache -z
+          cmake .. -DCMAKE_BUILD_TYPE=Release -DLLM_EDGEFLOW_USE_CCACHE=ON
 
       - name: Compile Targets
         run: |
           cmake --build build --config Release -j4
+          ccache -s
 
       - name: Run Google Test Suites via CTest
         run: |
