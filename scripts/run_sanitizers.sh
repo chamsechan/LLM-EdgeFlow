@@ -20,7 +20,12 @@ cmake -S "${PROJECT_ROOT}" -B "${BUILD_DIR}" \
 cmake --build "${BUILD_DIR}" -j4
 
 export ASAN_OPTIONS="detect_leaks=0:abort_on_error=1"
-export UBSAN_OPTIONS="halt_on_error=1:print_stacktrace=1"
+UBSAN_SUPP="${SCRIPT_DIR}/ubsan_suppressions.txt"
+if [[ -f "${UBSAN_SUPP}" ]]; then
+    export UBSAN_OPTIONS="halt_on_error=1:print_stacktrace=1:suppressions=${UBSAN_SUPP}"
+else
+    export UBSAN_OPTIONS="halt_on_error=1:print_stacktrace=1"
+fi
 export LD_LIBRARY_PATH="${BUILD_DIR}:${BUILD_DIR}/_deps/onnxruntime_prebuilt-src/lib:${LD_LIBRARY_PATH:-}"
 export DYLD_LIBRARY_PATH="${BUILD_DIR}:${BUILD_DIR}/_deps/onnxruntime_prebuilt-src/lib:${DYLD_LIBRARY_PATH:-}"
 
