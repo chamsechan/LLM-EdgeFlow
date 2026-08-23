@@ -135,8 +135,22 @@ set_target_properties(alg_sdk PROPERTIES
 include(cmake/GoogleTest.cmake)
 enable_testing()
 
-# 2. 生成下游部门集成测试 Demo 可执行程序
-add_executable(alg_demo demo/main.cpp)
+# 2. 生成下游部门集成测试 Demo 可执行程序 (参数化多业务模块化 Runner)
+set(ALG_DEMO_SRCS
+    demo/main.cpp
+    demo/common/demo_options.cpp
+    demo/common/demo_registry.cpp
+    demo/common/dataset_reader.cpp
+    demo/common/result_writer.cpp
+    demo/businesses/entity_extract_demo.cpp
+    demo/businesses/keyword_match_demo.cpp
+    demo/businesses/doc_qa_demo.cpp
+    demo/businesses/dialogue_audit_demo.cpp
+    demo/businesses/ocr_doc_qa_demo.cpp
+    demo/businesses/audio_asr_demo.cpp
+    demo/businesses/cross_rerank_demo.cpp
+)
+add_executable(alg_demo ${ALG_DEMO_SRCS})
 target_link_libraries(alg_demo PRIVATE alg_sdk)
 
 # 3. 纯 C11 ABI 兼容性测试 (确保头文件为纯 C 且可被标准 C 编译器直接编译)
@@ -221,6 +235,25 @@ add_executable(test_rerank_refine_node tests/test_rerank_refine_node.cpp)
 target_link_libraries(test_rerank_refine_node PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
 add_test(NAME RerankRefineNodeTest COMMAND test_rerank_refine_node)
 
+# Demo Runner 参数化与结果落盘单元测试
+set(TEST_DEMO_RUNNER_SRCS
+    tests/test_demo_runner.cpp
+    demo/common/demo_options.cpp
+    demo/common/demo_registry.cpp
+    demo/common/dataset_reader.cpp
+    demo/common/result_writer.cpp
+    demo/businesses/entity_extract_demo.cpp
+    demo/businesses/keyword_match_demo.cpp
+    demo/businesses/doc_qa_demo.cpp
+    demo/businesses/dialogue_audit_demo.cpp
+    demo/businesses/ocr_doc_qa_demo.cpp
+    demo/businesses/audio_asr_demo.cpp
+    demo/businesses/cross_rerank_demo.cpp
+)
+add_executable(test_demo_runner ${TEST_DEMO_RUNNER_SRCS})
+target_link_libraries(test_demo_runner PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME DemoRunnerTest COMMAND test_demo_runner)
+
 # 设置所有测试工作目录为项目根目录，保证无论从何处运行 CTest，相对路径均一致解析
 set_tests_properties(
   C11AbiComplianceTest LayerGuardTest BatchExecutorTest FrameworkCoreTest
@@ -229,7 +262,7 @@ set_tests_properties(
   RuntimeControlAndHotSwapTest EngineFaultToleranceAndLifecycleTest
   AdapterContractSecurityTest PipelineConfigTest RegistryConflictNodeTest
   RegistryConflictEngineTest RegistryReentrantTest PlatformOperatorTest
-  DocQaRerankTest RerankRefineNodeTest
+  DocQaRerankTest RerankRefineNodeTest DemoRunnerTest
   PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
 )
 

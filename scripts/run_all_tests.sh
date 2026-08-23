@@ -63,8 +63,8 @@ echo -e "${BOLD}[ Step 4/6: C ABI 安全、平台 Operator 接口、8 线程并�
 echo -e "${GREEN}✓ Tier 2 C ABI 安全、平台 Operator 门面、在线动态热控制与极端边界容错测试全部通过！${NC}\n"
 
 # 5. 7 大业务端到端全流程集成测试 (Tier 3)
-echo -e "${BOLD}[ Step 5/6: 7 大业务端到端全链路集成测试 (规则/NLP/问答/质检/OCR/语音ASR/精排) ]${NC}"
-"$BUILD_DIR/alg_demo"
+echo -e "${BOLD}[ Step 5/6: 7 大业务端到端全链路集成测试 (参数化 Profile Demo 套件) ]${NC}"
+"$SCRIPT_DIR/run_all_demos.sh" smoke
 echo -e "${GREEN}✓ Tier 3 业务 1 ~ 业务 7 全链路端到端集成测试全部通过！${NC}\n"
 
 # 6. 可视化与命令行工具链测试 (Tier 4)
