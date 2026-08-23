@@ -1,6 +1,29 @@
 cmake_minimum_required(VERSION 3.16)
 project(AlgSdkFramework LANGUAGES C CXX)
 
+# 严格禁止 In-Source 构建 (防止误用 cmake . 污染源码目录并触发重复下载阻塞)
+if("${CMAKE_SOURCE_DIR}" STREQUAL "${CMAKE_BINARY_DIR}")
+  message(FATAL_ERROR "
+  [ERROR] In-source builds are strictly forbidden!
+  Building directly inside the source directory with 'cmake .' causes pollution and hangs on network dependencies.
+  Please use out-of-source build instead:
+    mkdir -p build && cd build && cmake .. && make -j4
+  Or:
+    cmake -B build -S . && cmake --build build -j4
+  ")
+endif()
+
+# 编译加速开关 (允许通过 -DLLM_EDGEFLOW_USE_CCACHE=OFF 显式关闭)
+option(LLM_EDGEFLOW_USE_CCACHE "Enable ccache compiler launcher if available" ON)
+if(LLM_EDGEFLOW_USE_CCACHE)
+  find_program(CCACHE_PROGRAM ccache)
+  if(CCACHE_PROGRAM)
+    message(STATUS "Found ccache: ${CCACHE_PROGRAM}, compiler caching enabled!")
+    set(CMAKE_C_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
+    set(CMAKE_CXX_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
+  endif()
+endif()
+
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_STANDARD 17)
@@ -26,6 +49,12 @@ include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
+if(APPLE)
+  if(EXISTS "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1")
+    include_directories(SYSTEM "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1")
+  endif()
+endif()
+
 # 引入第三方 JSON 库 (nlohmann/json) 自动下载配置
 include(cmake/NlohmannJson.cmake)
 
@@ -46,6 +75,7 @@ set(FRAMEWORK_SRCS
     src/engine/llama_cpp/llama_cpp_engine.cpp
     src/common_nodes/prompt_builder_node.cpp
     src/common_nodes/vector_search_node.cpp
+    src/common_nodes/rerank_refine_node.cpp
     src/business/doc_qa/doc_chunk_pre_node.cpp
     src/business/doc_qa/doc_embedding_node.cpp
     src/business/doc_qa/intent_rule_node.cpp
@@ -77,6 +107,11 @@ set(FRAMEWORK_SRCS
     src/adapter/adapters/ocr_doc_qa_adapter.cpp
     src/adapter/adapters/audio_asr_intent_adapter.cpp
     src/adapter/adapters/cross_rerank_adapter.cpp
+    src/adapter/shared_algorithm_runtime.cpp
+    src/adapter/platform/company_conf_resolver.cpp
+    src/adapter/platform/platform_io_registry.cpp
+    src/adapter/platform/platform_control_registry.cpp
+    src/adapter/platform_operator_adapter.cpp
     src/adapter/company_c_adapter.cpp
 )
 
@@ -169,6 +204,18 @@ add_executable(test_registry_reentrant tests/test_registry_reentrant.cpp)
 target_link_libraries(test_registry_reentrant PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
 add_test(NAME RegistryReentrantTest COMMAND test_registry_reentrant)
 set_tests_properties(RegistryReentrantTest PROPERTIES TIMEOUT 5)
+
+add_executable(test_platform_operator tests/test_platform_operator.cpp)
+target_link_libraries(test_platform_operator PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME PlatformOperatorTest COMMAND test_platform_operator)
+
+add_executable(test_doc_qa_rerank tests/test_doc_qa_rerank.cpp)
+target_link_libraries(test_doc_qa_rerank PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME DocQaRerankTest COMMAND test_doc_qa_rerank)
+
+add_executable(test_rerank_refine_node tests/test_rerank_refine_node.cpp)
+target_link_libraries(test_rerank_refine_node PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME RerankRefineNodeTest COMMAND test_rerank_refine_node)
 
 # 6. 纯 C++ 零依赖原生 DAG 可视化工具 (专为无 Python 的极简嵌入式/边缘环境设计)
 add_executable(alg_show src/tools/alg_show.cpp)

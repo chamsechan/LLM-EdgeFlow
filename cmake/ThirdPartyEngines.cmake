@@ -11,8 +11,14 @@ option(ENABLE_ONNXRUNTIME "Enable ONNX Runtime engine (auto-download from GitHub
 if(ENABLE_ONNXRUNTIME)
   message(STATUS "[Engine Layer] Enabling ONNX Runtime engine support...")
 
-  # 根据目标架构选择对应的官方 Release 包
-  if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
+  # 根据目标系统与架构选择对应的官方 Release 包
+  if(APPLE)
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
+      set(ORT_URL "https://github.com/microsoft/onnxruntime/releases/download/v1.17.3/onnxruntime-osx-arm64-1.17.3.tgz")
+    else()
+      set(ORT_URL "https://github.com/microsoft/onnxruntime/releases/download/v1.17.3/onnxruntime-osx-x86_64-1.17.3.tgz")
+    endif()
+  elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
     set(ORT_URL "https://github.com/microsoft/onnxruntime/releases/download/v1.17.3/onnxruntime-linux-aarch64-1.17.3.tgz")
   else()
     set(ORT_URL "https://github.com/microsoft/onnxruntime/releases/download/v1.17.3/onnxruntime-linux-x64-1.17.3.tgz")
@@ -31,7 +37,14 @@ if(ENABLE_ONNXRUNTIME)
   endif()
 
   set(ONNXRUNTIME_INCLUDE_DIR "${onnxruntime_prebuilt_SOURCE_DIR}/include")
-  file(GLOB_RECURSE ONNXRUNTIME_LIB "${onnxruntime_prebuilt_SOURCE_DIR}/lib/libonnxruntime.so*")
+  if(APPLE)
+    set(ONNXRUNTIME_LIB "${onnxruntime_prebuilt_SOURCE_DIR}/lib/libonnxruntime.dylib")
+    if(NOT EXISTS "${ONNXRUNTIME_LIB}")
+      set(ONNXRUNTIME_LIB "${onnxruntime_prebuilt_SOURCE_DIR}/lib/libonnxruntime.1.17.3.dylib")
+    endif()
+  else()
+    file(GLOB ONNXRUNTIME_LIB "${onnxruntime_prebuilt_SOURCE_DIR}/lib/libonnxruntime.so*")
+  endif()
 
   if(EXISTS "${ONNXRUNTIME_INCLUDE_DIR}" AND ONNXRUNTIME_LIB)
     message(STATUS "[Engine Layer] ONNX Runtime successfully loaded from: ${onnxruntime_prebuilt_SOURCE_DIR}")
@@ -57,6 +70,11 @@ if(ENABLE_LLAMACPP)
   set(LLAMA_BUILD_EXAMPLES OFF CACHE BOOL "Build examples" FORCE)
   set(LLAMA_BUILD_SERVER OFF CACHE BOOL "Build server" FORCE)
   set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build shared libraries" FORCE)
+  # ggml 有独立的 ccache 开关。顶层明确关闭编译缓存时必须同步关闭，
+  # 避免子工程绕过 LLM_EDGEFLOW_USE_CCACHE 并访问不可写的默认缓存目录。
+  if(DEFINED LLM_EDGEFLOW_USE_CCACHE AND NOT LLM_EDGEFLOW_USE_CCACHE)
+    set(GGML_CCACHE OFF CACHE BOOL "Use ccache for ggml" FORCE)
+  endif()
 
   FetchContent_Declare(
     llama_cpp_source

@@ -1,0 +1,88 @@
+{
+  "business_name": "smart_doc_qa_rerank_llm_v1",
+  "models": [
+    {
+      "model_id": "embed_model_v1",
+      "engine_type": "mock_npu_embedding",
+      "model_path": "./models/bge_base_npu.bin",
+      "config": {
+        "max_batch_size": 4,
+        "embedding_dim": 128
+      }
+    },
+    {
+      "model_id": "rerank_model_v1",
+      "engine_type": "mock_npu_rerank",
+      "model_path": "./models/bge_reranker_large_npu.bin",
+      "config": {
+        "max_batch_size": 4
+      }
+    },
+    {
+      "model_id": "llm_model_v1",
+      "engine_type": "mock_npu_llm",
+      "model_path": "./models/qwen_1.5b_npu.bin",
+      "config": {
+        "max_batch_size": 2,
+        "max_seq_len": 1024
+      }
+    }
+  ],
+  "pipeline": [
+    {
+      "node_type": "DocChunkPreNode",
+      "config": {
+        "chunk_size": 60
+      }
+    },
+    {
+      "node_type": "DocEmbeddingNode",
+      "config": {
+        "bind_model": "embed_model_v1"
+      }
+    },
+    {
+      "node_type": "VectorSearchNode",
+      "config": {
+        "top_k": 4,
+        "min_score": 0.0
+      }
+    },
+    {
+      "node_type": "RerankRefineNode",
+      "config": {
+        "bind_model": "rerank_model_v1",
+        "top_k": 1
+      }
+    },
+    {
+      "node_type": "PromptBuilderNode",
+      "config": {
+        "template": "【经过精排选取的精准参考上下文】: {context}\n【用户提问】: {query}\n请根据上述上下文给出专业、严谨且精炼的解答:"
+      }
+    },
+    {
+      "node_type": "IntentRuleNode",
+      "config": {
+        "default_intent": "GENERAL_QA",
+        "threshold": 0.8,
+        "rules": {
+          "AFTER_SALES_REFUND": ["退款", "退货", "换货"],
+          "TECH_ARCHITECTURE": ["架构", "设计", "C++", "算法框架", "ONNX", "llama.cpp", "Rerank"]
+        }
+      }
+    },
+    {
+      "node_type": "LlmGenerateNode",
+      "config": {
+        "bind_model": "llm_model_v1",
+        "temperature": 0.3,
+        "max_tokens": 128
+      }
+    },
+    {
+      "node_type": "DocQaPostNode",
+      "config": {}
+    }
+  ]
+}

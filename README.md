@@ -122,6 +122,13 @@ LLM-EdgeFlow/
 
 ## 📝 更新日志 (Changelog)
 
+- **v2.3.0 (平台 Operator 兼容门面与命名 I/O 双轨交付)** *(2026-08)*
+  - 🔌 **平台 OperatorFunc 函数表兼容门面**：新增独立 C++ 平台头文件 `include/platform/platform_operator_interface.h`，导出 `Get_LLM_EDGEFLOW_OperatorTable()`，为公司调度平台提供 `Init` / `Create` / `Process` / `Control` / `Destroy` / `Deinit` 全 `noexcept` 隔离函数表。
+  - 🧱 **Layer 1 共享算法运行时 (`SharedAlgorithmRuntime`)**：下沉提炼共享执行引擎，实现单点 `ValidateBatch` $\rightarrow$ `Unpack` $\rightarrow$ `Pipeline::Execute` $\rightarrow$ `Pack` 数据流，纯 C ABI 与 C++ 平台 Operator 门面双轨共用底层 Runtime，杜绝双轨逻辑分裂。
+  - 📄 **平台部署配置解析器 (`CompanyConfResolver`)**：解析公司平台 `.conf` 部署配置，支持基于 `.conf` 目录相对路径规范化，实现 Pipeline JSON 模型路径内存动态重写与单/多模型映射覆盖，保持 Pipeline JSON 严格白名单与零磁盘临时文件。
+  - 🏷️ **命名 I/O 派发与零拷贝提取 (`PlatformIoRegistry`)**：定义基于点后缀（`namespace.type_suffix`）的槽位派发体系（如 `camera_0.frame` $\rightarrow$ `frame`，`detector.od_out` $\rightarrow$ `od_out`），通过 `std::shared_ptr<void>::get()` 零拷贝借用外部指针转换为 C 指针数组。
+  - 🔄 **强类型动态控制映射 (`PlatformControlRegistry`)**：将平台 `ControlCommand` 枚举与参数结构体强类型校验后无缝接入 `Pipeline::Control`。
+  - 🧪 **全量回归与测试矩阵**：新增 `test_platform_operator` 全场景测试套件（覆盖 11 类生命周期、命名 I/O 异常、多模型覆盖、全业务执行与并发互斥），Demo 改为平台标准 `OperatorFunc` 驱动，18 组 CTest 100% 通过。
 - **v2.2.0 (Pipeline 严格解析、Fail-Closed 注册与结构化诊断交付 - R1)** *(2026-08)*
   - 📐 **严格配置解析与白名单校验 (PLB-004, R1-ACC-003/006)**：实现集中式强类型解析器 `ParsePipelineConfig`，严格拒绝根节点/Model/Node 未知字段；废除顶层未知参数自动合并进算子配置的隐式行为；校验 `comment` 强类型与 `execution_mode: sequential` + `max_parallel_workers` 排他组合；平滑保持 9 份正式配置向后兼容（自动生成稳定顺序 ID）。
   - 🛡️ **注册中心重复拒绝与 Fail-Closed 防护 (PLB-006, RECHECK-R1-002)**：`NodeFactory` 与 `EngineFactory` 在检测到同名类型重复注册时，无条件保留首个注册实例并标记 `has_conflict_ = true`；Pipeline 构建阶段实施 Fail-Closed 拦截；移除生产头文件中的重置调试接口，确保进程级注册冲突不可篡改。

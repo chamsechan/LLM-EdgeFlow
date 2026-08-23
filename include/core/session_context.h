@@ -18,6 +18,10 @@ struct RuntimeOptions {
   int device_id = -1;  // -1 表示未指定/默认，>=0 表示物理设备 ID
   bool has_device_id = false;
   int biz_type = 0;
+  std::string business_name;
+  std::string chip_type = "UNKNOWN";
+  int platform_max_batch = 1;
+  uint32_t depth_num = 1;
 };
 
 /**
@@ -64,7 +68,7 @@ class ModelManager {
  * 负责存放：
  * 1. 句柄加载的多个模型实例 (ModelManager)
  * 2. 句柄级全局资源 (共享词典、预分配缓存、全局配置等)
- * 3. 句柄运行时参数 (RuntimeOptions: model_root_dir, device_id 等)
+ * 3. 句柄运行时参数 (RuntimeOptions: model_root_dir, device_id, chip_type 等)
  */
 class SessionContext {
  public:
@@ -78,6 +82,12 @@ class SessionContext {
     runtime_options_ = options;
   }
   const RuntimeOptions& GetRuntimeOptions() const { return runtime_options_; }
+
+  const std::string& GetChipType() const { return runtime_options_.chip_type; }
+  int GetPlatformMaxBatch() const {
+    return runtime_options_.platform_max_batch;
+  }
+  uint32_t GetDepthNum() const { return runtime_options_.depth_num; }
 
   template <typename T>
   void SetResource(const std::string& key, std::shared_ptr<T> resource) {

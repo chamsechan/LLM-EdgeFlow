@@ -131,6 +131,61 @@ class BusinessAdapterRegistry {
     return nullptr;
   }
 
+  enum class AdapterLookupStatus {
+    kSuccess = 0,
+    kNotFound = 1,
+    kAmbiguousMatch = 2,
+  };
+
+  std::shared_ptr<IBusinessAdapter> GetAdapterByPipelineName(
+      const std::string& pipeline_name,
+      AdapterLookupStatus* out_status = nullptr) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::shared_ptr<IBusinessAdapter> matched = nullptr;
+    size_t match_count = 0;
+    for (const auto& kv : adapters_) {
+      if (kv.second && kv.second->ValidatePipelineBinding(pipeline_name)) {
+        matched = kv.second;
+        match_count++;
+      }
+    }
+    if (match_count == 1) {
+      if (out_status) *out_status = AdapterLookupStatus::kSuccess;
+      return matched;
+    }
+    if (match_count > 1) {
+      if (out_status) *out_status = AdapterLookupStatus::kAmbiguousMatch;
+      return nullptr;  // RECHECK-P1-2: 多个 Adapter 发生白名单冲突时
+                       // fail-closed 拦截
+    }
+    if (out_status) *out_status = AdapterLookupStatus::kNotFound;
+    return nullptr;
+  }
+
+  std::shared_ptr<IBusinessAdapter> GetAdapterByBusinessName(
+      const std::string& biz_name,
+      AdapterLookupStatus* out_status = nullptr) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::shared_ptr<IBusinessAdapter> matched = nullptr;
+    size_t match_count = 0;
+    for (const auto& kv : adapters_) {
+      if (kv.second && kv.second->BizName() == biz_name) {
+        matched = kv.second;
+        match_count++;
+      }
+    }
+    if (match_count == 1) {
+      if (out_status) *out_status = AdapterLookupStatus::kSuccess;
+      return matched;
+    }
+    if (match_count > 1) {
+      if (out_status) *out_status = AdapterLookupStatus::kAmbiguousMatch;
+      return nullptr;
+    }
+    if (out_status) *out_status = AdapterLookupStatus::kNotFound;
+    return nullptr;
+  }
+
   size_t AdapterCount() const {
     std::lock_guard<std::mutex> lock(mutex_);
     return adapters_.size();

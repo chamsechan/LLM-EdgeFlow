@@ -3,6 +3,7 @@
 本目录包含算法交付与管线框架（Alg-SDK Runtime Pipeline Framework）的详细设计、架构图与开发指引：
 
 - **[architecture.md](architecture.md)**：框架 4 层抽象架构图、模块详细职责、运行时时序图（Mermaid）及扩展规范。
+- **[platform_operator_interface_design.md](platform_operator_interface_design.md)**：公司平台 `OperatorFunc`、`.conf`、命名 I/O 与输出生命周期兼容层设计。
 - **[../tools/visualizer/index.html](../tools/visualizer/index.html)**：交互式 DAG 管线与数据流向可视化 Web 工具。
 
 ---

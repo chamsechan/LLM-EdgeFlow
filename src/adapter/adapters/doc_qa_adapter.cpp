@@ -25,8 +25,8 @@ class DocQaAdapter : public IBusinessAdapter {
         OwnershipPolicy::kCopyIn,
         ThreadModel::kStatelessThreadSafe,
         OutputCardinality::kOneToOne,
-        {"smart_doc_qa_v1",
-         "smart_doc_qa_onnx_llamacpp_v1"}};  // RECHECK-002: 精确白名单
+        {"smart_doc_qa_v1", "smart_doc_qa_onnx_llamacpp_v1",
+         "smart_doc_qa_rerank_llm_v1"}};  // RECHECK-002: 精确白名单
     return desc;
   }
 

@@ -47,14 +47,17 @@ ctest --test-dir "$BUILD_DIR" --output-on-failure -R '^Registry.*Test$'
 "$BUILD_DIR/test_qwen_engines_comparison"
 "$BUILD_DIR/test_different_io_modalities"
 "$BUILD_DIR/test_all_business_pipelines"
-echo -e "${GREEN}✓ Tier 1 核心架构、DAG拓扑调度与 7 大业务细粒度 GTest 断言测试全部通过！${NC}\n"
+"$BUILD_DIR/test_doc_qa_rerank"
+"$BUILD_DIR/test_rerank_refine_node"
+echo -e "${GREEN}✓ Tier 1 核心架构、DAG拓扑调度与全业务组合（含 LLM+Rerank+QA 与 RerankRefineNode）细粒度 GTest 断言测试全部通过！${NC}\n"
 
 # 4. C ABI 安全防御、多线程并发与边界压测 (Tier 2)
-echo -e "${BOLD}[ Step 4/6: C ABI 安全、8 线程并发、动态热重载与极端边界鲁棒性压测 ]${NC}"
+echo -e "${BOLD}[ Step 4/6: C ABI 安全、平台 Operator 接口、8 线程并发、动态热重载与极端边界鲁棒性压测 ]${NC}"
 "$BUILD_DIR/test_c_abi_safety"
+"$BUILD_DIR/test_platform_operator"
 "$BUILD_DIR/test_runtime_control_and_hot_swap"
 "$BUILD_DIR/test_concurrency_and_edge_cases"
-echo -e "${GREEN}✓ Tier 2 C ABI 安全、在线动态热控制与极端边界容错测试全部通过！${NC}\n"
+echo -e "${GREEN}✓ Tier 2 C ABI 安全、平台 Operator 门面、在线动态热控制与极端边界容错测试全部通过！${NC}\n"
 
 # 5. 7 大业务端到端全流程集成测试 (Tier 3)
 echo -e "${BOLD}[ Step 5/6: 7 大业务端到端全链路集成测试 (规则/NLP/问答/质检/OCR/语音ASR/精排) ]${NC}"
@@ -65,24 +68,26 @@ echo -e "${GREEN}✓ Tier 3 业务 1 ~ 业务 7 全链路端到端集成测试�
 echo -e "${BOLD}[ Step 6/6: CLI 可视化工具链双模测试 (Python & 纯 C++) ]${NC}"
 cd "$ROOT_DIR"
 
-echo -n "  Testing Python CLI (./show) on all 9 configs ... "
+echo -n "  Testing Python CLI (./show) on all 10 configs ... "
 ./show configs/pipeline_keyword_match.json > /dev/null
 ./show configs/pipeline_entity_extract.json > /dev/null
 ./show configs/pipeline_doc_qa.json > /dev/null
 ./show configs/pipeline_dialogue_audit.json > /dev/null
 ./show configs/pipeline_doc_qa_onnx.json > /dev/null
+./show configs/pipeline_doc_qa_rerank.json > /dev/null
 ./show configs/pipeline_entity_extract_llamacpp.json > /dev/null
 ./show configs/pipeline_ocr_doc_qa.json > /dev/null
 ./show configs/pipeline_audio_asr_intent.json > /dev/null
 ./show configs/pipeline_cross_rerank.json > /dev/null
 echo -e "${GREEN}✓ PASS${NC}"
 
-echo -n "  Testing Native C++ CLI (./build/alg_show) on all 9 configs ... "
+echo -n "  Testing Native C++ CLI (./build/alg_show) on all 10 configs ... "
 ./build/alg_show configs/pipeline_keyword_match.json > /dev/null
 ./build/alg_show configs/pipeline_entity_extract.json > /dev/null
 ./build/alg_show configs/pipeline_doc_qa.json > /dev/null
 ./build/alg_show configs/pipeline_dialogue_audit.json > /dev/null
 ./build/alg_show configs/pipeline_doc_qa_onnx.json > /dev/null
+./build/alg_show configs/pipeline_doc_qa_rerank.json > /dev/null
 ./build/alg_show configs/pipeline_entity_extract_llamacpp.json > /dev/null
 ./build/alg_show configs/pipeline_ocr_doc_qa.json > /dev/null
 ./build/alg_show configs/pipeline_audio_asr_intent.json > /dev/null
