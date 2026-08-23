@@ -3,65 +3,78 @@
 #include <string>
 #include <vector>
 
-#include "company_alg_cpp.hpp"
 #include "company_alg_interface.h"
 #include "demo/demo_utils.h"
+#include "platform/platform_operator_interface.h"
 
 using namespace alg_demo;
+using namespace llm_edgeflow::platform;
 
 // =============================================================================
-// 通用公共核心：C ABI 标准执行助手函数 (模板化统一管理生命周期与调用闭环)
+// 通用平台 Operator 标准执行助手函数 (模拟公司外部调度框架基于 OperatorFunc
+// 调用)
 // =============================================================================
 template <typename TIn, typename TOut>
-int RunPipeline(const std::string& config_file, CompanyAlgBizType biz_type,
-                std::vector<TIn>& inputs, std::vector<TOut>& outputs,
-                const char* control_json = nullptr) {
-  std::string resolved_cfg = ResolvePath(config_file);
+int RunPlatformOperator(const std::string& conf_file,
+                        const std::string& input_slot_key,
+                        const std::string& output_slot_key,
+                        std::vector<TIn>& inputs, std::vector<TOut>& outputs,
+                        ControlCommand ctrl_cmd = ControlCommand::kUpdateRules,
+                        const char* control_json = nullptr) {
+  std::string resolved_conf = ResolvePath(conf_file);
 
-  // 1. 创建会话句柄
-  CompanyAlgParamCreate param;
-  param.config_file_path = resolved_cfg.c_str();
-  param.model_root_dir = "./models";
-  param.device_id = 0;
-  param.biz_type = biz_type;
+  // 1. 获取平台 Operator 函数表
+  OperatorFunc ops = Get_LLM_EDGEFLOW_OperatorTable();
+
+  // 2. 创建平台会话句柄 (.conf 部署配置 + 芯片类型 + Batch 大小)
+  CreateParam param{};
+  param.cfg_file_name = resolved_conf.c_str();
+  param.platform_config.batch_size =
+      std::max(1, static_cast<int>(inputs.size()));
+  param.platform_config.device_id = 0;
+  param.platform_config.type = ChipType::kAx650;
+  param.depth_num = 2;
 
   void* handle = nullptr;
-  int ret = Alg_Create(&handle, &param);
+  int ret = ops.Create(&handle, &param);
   if (ret != 0 || !handle) {
-    std::cerr << "[Client] Failed to create handle for BizType [" << biz_type
-              << "], ret=" << ret << std::endl;
+    std::cerr << "[Platform Client] Failed to create handle with conf: "
+              << resolved_conf << " (" << GetPlatformLastError() << ")"
+              << std::endl;
     return ret;
   }
 
-  // 2. (可选) 下发前置动态控制指令 (如在线热更新词表)
+  // 3. (可选) 动态参数与词表热更新
   if (control_json) {
-    CompanyAlgParamControl ctrl{1, control_json};
-    std::cout
-        << "[Client] Invoking Alg_Control to dynamically push parameters..."
-        << std::endl;
-    Alg_Control(handle, &ctrl);
+    std::cout << "[Platform Client] Invoking ops.Control to dynamically push "
+                 "parameters..."
+              << std::endl;
+    ops.Control(handle, ctrl_cmd, const_cast<char*>(control_json));
   }
 
-  // 3. 构造指针数组并执行计算
-  std::vector<void*> in_ptrs;
-  in_ptrs.reserve(inputs.size());
-  for (auto& item : inputs) {
-    in_ptrs.push_back(&item);
-  }
-
+  // 4. 组装命名 I/O 批容器 (NamedIoBatch)
   outputs.assign(inputs.size(), TOut{});
-  std::vector<void*> out_ptrs;
-  out_ptrs.reserve(outputs.size());
-  for (auto& item : outputs) {
-    out_ptrs.push_back(&item);
+  NamedIoBatch in_batch(inputs.size());
+  NamedIoBatch out_batch(outputs.size());
+
+  for (size_t i = 0; i < inputs.size(); ++i) {
+    // 零拷贝借用外部指针
+    in_batch[i][input_slot_key] =
+        std::shared_ptr<void>(&inputs[i], [](void*) {});
+    out_batch[i][output_slot_key] =
+        std::shared_ptr<void>(&outputs[i], [](void*) {});
   }
 
-  std::cout << "[Client] Sending " << inputs.size()
-            << " request(s) to Alg_Process()..." << std::endl;
-  ret = Alg_Process(handle, in_ptrs, out_ptrs);
+  std::cout << "[Platform Client] Dispatching " << inputs.size()
+            << " request(s) via ops.Process (NamedIoBatch)..." << std::endl;
+  ret = ops.Process(handle, in_batch, out_batch);
+  if (ret != 0) {
+    std::cerr << "[Platform Client] ops.Process failed: code=" << ret << " ("
+              << GetPlatformLastError() << ")" << std::endl;
+  }
 
-  // 4. 安全销毁句柄
-  Alg_Destroy(handle);
+  // 5. 安全销毁句柄
+  ops.Destroy(handle);
   return ret;
 }
 
@@ -69,12 +82,11 @@ int RunPipeline(const std::string& config_file, CompanyAlgBizType biz_type,
 // 业务 1: 实体/名词提取业务演示 (使用 0.6B LLM)
 // =============================================================================
 void Demo1_EntityExtract(
-    const std::string& cfg = "configs/pipeline_entity_extract.json",
+    const std::string& conf = "configs/pipeline_entity_extract.conf",
     const std::string& data_file = "data/corpus_entity_extract.txt") {
   PrintBanner("【业务 1 演示】实体/名词提取业务 (使用 0.6B LLM 模型)",
-              "Config: " + cfg);
+              "Conf: " + conf);
 
-  // 1. 读取测试语料
   auto lines = ReadLinesFromFile(data_file);
   if (lines.empty()) {
     lines = {
@@ -82,15 +94,14 @@ void Demo1_EntityExtract(
         "U芯片和深度学习大模型的研发项目。"};
   }
 
-  // 2. 组装输入结构体
   std::vector<CompanyEntityInputStruct> inputs;
   for (size_t i = 0; i < lines.size(); ++i) {
     inputs.push_back({static_cast<uint64_t>(30001 + i), lines[i].c_str()});
   }
 
-  // 3. 执行推理
   std::vector<CompanyEntityOutputStruct> outputs;
-  if (RunPipeline(cfg, ALG_BIZ_TYPE_ENTITY_EXTRACT, inputs, outputs) == 0) {
+  if (RunPlatformOperator(conf, "nlp_node.entity_in", "nlp_node.entity_out",
+                          inputs, outputs) == 0) {
     std::cout << "\n>>> 业务 1 执行结果验证 <<<" << std::endl;
     for (size_t i = 0; i < outputs.size(); ++i) {
       PrintDivider();
@@ -100,7 +111,7 @@ void Demo1_EntityExtract(
                 << std::endl;
     }
   }
-  std::cout << "[Client] Business 1 completed and handle destroyed.\n"
+  std::cout << "[Platform Client] Business 1 completed and handle destroyed.\n"
             << std::endl;
 }
 
@@ -108,26 +119,23 @@ void Demo1_EntityExtract(
 // 业务 2: 关注词规则匹配业务演示 (无需模型 / Control 动态词表)
 // =============================================================================
 void Demo2_KeywordMatch(
-    const std::string& cfg = "configs/pipeline_keyword_match.json",
+    const std::string& conf = "configs/pipeline_keyword_match.conf",
     const std::string& data_file = "data/corpus_keyword_match.txt") {
   PrintBanner(
       "【业务 2 演示】关注词匹配业务 (无需模型 / Control动态词表 / Batch=2)",
-      "Config: " + cfg);
+      "Conf: " + conf);
 
-  // 1. 读取语料
   auto lines = ReadLinesFromFile(data_file);
   if (lines.empty()) {
     lines = {"请帮我联系一下VIP专员，我有一笔大客户加急订单需要优先处理。",
              "今天天气真不错，阳光明媚，我想去公园散散步。"};
   }
 
-  // 2. 组装输入
   std::vector<CompanyKeywordInputStruct> inputs;
   for (size_t i = 0; i < lines.size(); ++i) {
     inputs.push_back({static_cast<uint64_t>(20001 + i), lines[i].c_str()});
   }
 
-  // 3. 动态控制参数
   const char* ctrl_json =
       "{\n"
       "  \"categories\": {\n"
@@ -137,10 +145,10 @@ void Demo2_KeywordMatch(
       "  }\n"
       "}";
 
-  // 4. 执行推理
   std::vector<CompanyKeywordOutputStruct> outputs;
-  if (RunPipeline(cfg, ALG_BIZ_TYPE_KEYWORD_MATCH, inputs, outputs,
-                  ctrl_json) == 0) {
+  if (RunPlatformOperator(conf, "client_channel.keyword_in",
+                          "client_channel.keyword_out", inputs, outputs,
+                          ControlCommand::kUpdateRules, ctrl_json) == 0) {
     std::cout << "\n>>> 业务 2 执行结果验证 <<<" << std::endl;
     for (size_t i = 0; i < outputs.size(); ++i) {
       PrintDivider();
@@ -153,19 +161,18 @@ void Demo2_KeywordMatch(
                 << std::endl;
     }
   }
-  std::cout << "[Client] Business 2 completed and handle destroyed.\n"
+  std::cout << "[Platform Client] Business 2 completed and handle destroyed.\n"
             << std::endl;
 }
 
 // =============================================================================
 // 业务 3: 智能长文档问答业务演示 (多模型协同: Embedding + LLM)
 // =============================================================================
-void Demo3_SmartDocQa(const std::string& cfg = "configs/pipeline_doc_qa.json",
+void Demo3_SmartDocQa(const std::string& conf = "configs/pipeline_doc_qa.conf",
                       const std::string& data_file = "data/corpus_doc_qa.txt") {
   PrintBanner("【业务 3 演示】智能长文档问答业务 (多模型协同: Embedding + LLM)",
-              "Config: " + cfg);
+              "Conf: " + conf);
 
-  // 1. 读取结构化段落
   auto sections = ParseTagSections(data_file);
   auto docs = sections["DOC"];
   auto queries = sections["QUERY"];
@@ -187,7 +194,8 @@ void Demo3_SmartDocQa(const std::string& cfg = "configs/pipeline_doc_qa.json",
   }
 
   std::vector<CompanyDocOutputStruct> outputs;
-  if (RunPipeline(cfg, ALG_BIZ_TYPE_DOC_QA, inputs, outputs) == 0) {
+  if (RunPlatformOperator(conf, "rag_channel.doc_in", "rag_channel.doc_out",
+                          inputs, outputs) == 0) {
     std::cout << "\n>>> 业务 3 执行结果验证 <<<" << std::endl;
     for (size_t i = 0; i < outputs.size(); ++i) {
       PrintDivider();
@@ -201,7 +209,7 @@ void Demo3_SmartDocQa(const std::string& cfg = "configs/pipeline_doc_qa.json",
                 << "  LLM Answer    : " << outputs[i].answer_text << std::endl;
     }
   }
-  std::cout << "[Client] Business 3 completed and handle destroyed.\n"
+  std::cout << "[Platform Client] Business 3 completed and handle destroyed.\n"
             << std::endl;
 }
 
@@ -209,10 +217,10 @@ void Demo3_SmartDocQa(const std::string& cfg = "configs/pipeline_doc_qa.json",
 // 业务 4: 智能对话风控质检演示 (3大模型+6节点协同流水线)
 // =============================================================================
 void Demo4_DialogueAudit(
-    const std::string& cfg = "configs/pipeline_dialogue_audit.json",
+    const std::string& conf = "configs/pipeline_dialogue_audit.conf",
     const std::string& data_file = "data/corpus_dialogue_audit.txt") {
   PrintBanner("【业务 4 演示】智能对话风控质检业务 (3大模型+6节点协同流水线)",
-              "Model 1: bge_m3 | Model 2: bge_reranker | Model 3: qwen2.5_7b");
+              "Conf: " + conf);
 
   auto sections = ParseTagSections(data_file);
   auto channels = sections["CHANNEL"];
@@ -234,7 +242,8 @@ void Demo4_DialogueAudit(
   }
 
   std::vector<CompanyAuditOutputStruct> outputs;
-  if (RunPipeline(cfg, ALG_BIZ_TYPE_COMPLIANCE_AUDIT, inputs, outputs) == 0) {
+  if (RunPlatformOperator(conf, "audit_channel.audit_in",
+                          "audit_channel.audit_out", inputs, outputs) == 0) {
     std::cout << "\n>>> 业务 4 执行结果验证 (多模型协同质检) <<<" << std::endl;
     for (size_t i = 0; i < outputs.size(); ++i) {
       PrintDivider();
@@ -251,7 +260,7 @@ void Demo4_DialogueAudit(
                 << std::endl;
     }
   }
-  std::cout << "[Client] Business 4 completed and handle destroyed.\n"
+  std::cout << "[Platform Client] Business 4 completed and handle destroyed.\n"
             << std::endl;
 }
 
@@ -259,11 +268,11 @@ void Demo4_DialogueAudit(
 // 业务 5: 智能多模态图文票据问答 (OCR 检测识别 + LLM 结构化)
 // =============================================================================
 void Demo5_OcrDocQa(
-    const std::string& cfg = "configs/pipeline_ocr_doc_qa.json",
+    const std::string& conf = "configs/pipeline_ocr_doc_qa.conf",
     const std::string& data_file = "data/corpus_ocr_doc_qa.txt") {
   PrintBanner(
       "【业务 5 演示】智能多模态图文票据问答 (OCR 检测识别 + LLM 结构化)",
-      "Model 1: ch_ppocr_v4 | Model 2: qwen_1.5b");
+      "Conf: " + conf);
 
   auto sections = ParseTagSections(data_file);
   std::string img = "./data/invoice_01.jpg";
@@ -275,7 +284,8 @@ void Demo5_OcrDocQa(
       {60001, img.c_str(), prompt.c_str()}};
   std::vector<CompanyOcrDocOutputStruct> outputs;
 
-  if (RunPipeline(cfg, ALG_BIZ_TYPE_OCR_DOC_QA, inputs, outputs) == 0) {
+  if (RunPlatformOperator(conf, "camera_0.frame", "camera_0.od_out", inputs,
+                          outputs) == 0) {
     std::cout << "\n>>> 业务 5 执行结果验证 <<<" << std::endl;
     PrintDivider();
     std::cout << "  Request ID     : " << outputs[0].request_id << "\n"
@@ -283,7 +293,7 @@ void Demo5_OcrDocQa(
               << "  Extracted JSON : " << outputs[0].extracted_invoice_json
               << std::endl;
   }
-  std::cout << "[Client] Business 5 completed and handle destroyed.\n"
+  std::cout << "[Platform Client] Business 5 completed and handle destroyed.\n"
             << std::endl;
 }
 
@@ -291,18 +301,19 @@ void Demo5_OcrDocQa(
 // 业务 6: 语音识别与意图槽位抽取 (Audio PCM + ASR + NLU)
 // =============================================================================
 void Demo6_AudioAsr(
-    const std::string& cfg = "configs/pipeline_audio_asr_intent.json",
+    const std::string& conf = "configs/pipeline_audio_asr_intent.conf",
     const std::string& data_file = "data/corpus_audio_asr.txt") {
   (void)data_file;
   PrintBanner("【业务 6 演示】语音识别与意图槽位抽取 (Audio PCM + ASR + NLU)",
-              "Model: paraformer_asr_npu");
+              "Conf: " + conf);
 
   std::vector<float> pcm(16000, 0.01f);
   std::vector<CompanyAudioInputStruct> inputs = {
       {70001, pcm.data(), static_cast<int>(pcm.size()), 16000}};
   std::vector<CompanyAudioOutputStruct> outputs;
 
-  if (RunPipeline(cfg, ALG_BIZ_TYPE_AUDIO_ASR_INTENT, inputs, outputs) == 0) {
+  if (RunPlatformOperator(conf, "mic_0.audio_in", "mic_0.audio_out", inputs,
+                          outputs) == 0) {
     std::cout << "\n>>> 业务 6 执行结果验证 <<<" << std::endl;
     PrintDivider();
     std::cout << "  Request ID     : " << outputs[0].request_id << "\n"
@@ -310,7 +321,7 @@ void Demo6_AudioAsr(
               << "  Intent / Slots : " << outputs[0].intent_slot_json
               << std::endl;
   }
-  std::cout << "[Client] Business 6 completed and handle destroyed.\n"
+  std::cout << "[Platform Client] Business 6 completed and handle destroyed.\n"
             << std::endl;
 }
 
@@ -318,10 +329,10 @@ void Demo6_AudioAsr(
 // 业务 7: 纯语义精排打分业务 (ONNX Cross-Encoder Matrix)
 // =============================================================================
 void Demo7_CrossRerank(
-    const std::string& cfg = "configs/pipeline_cross_rerank.json",
+    const std::string& conf = "configs/pipeline_cross_rerank.conf",
     const std::string& data_file = "data/corpus_cross_rerank.txt") {
   PrintBanner("【业务 7 演示】纯语义精排打分业务 (ONNX Cross-Encoder Matrix)",
-              "Model: bge_reranker_large");
+              "Conf: " + conf);
 
   auto sections = ParseTagSections(data_file);
   std::string query = "怎么办理7天无理由退款？";
@@ -343,7 +354,8 @@ void Demo7_CrossRerank(
   std::vector<CompanyRerankBatchInputStruct> inputs = {req};
   std::vector<CompanyRerankBatchOutputStruct> outputs;
 
-  if (RunPipeline(cfg, ALG_BIZ_TYPE_CROSS_RERANK, inputs, outputs) == 0) {
+  if (RunPlatformOperator(conf, "ranker.rerank_in", "ranker.rerank_out", inputs,
+                          outputs) == 0) {
     std::cout << "\n>>> 业务 7 执行结果验证 <<<" << std::endl;
     PrintDivider();
     std::cout << "  Query Text     : \"" << query << "\"" << std::endl;
@@ -354,22 +366,22 @@ void Demo7_CrossRerank(
                 << passages[orig_idx] << std::endl;
     }
   }
-  std::cout << "[Client] Business 7 completed and handle destroyed.\n"
+  std::cout << "[Platform Client] Business 7 completed and handle destroyed.\n"
             << std::endl;
 }
 
 // =============================================================================
-// 主程序入口：支持 CLI 命令行单业务/外置语料指定 与 默认全业务一键巡检
+// 主程序入口：支持 CLI 命令行单业务与全业务全景演示
 // =============================================================================
 int main(int argc, char* argv[]) {
-  std::string config_path = "";
+  std::string conf_path = "";
   std::string data_path = "";
   int target_biz = 0;
 
   for (int i = 1; i < argc; ++i) {
     std::string arg = argv[i];
-    if ((arg == "-c" || arg == "--config") && i + 1 < argc) {
-      config_path = argv[++i];
+    if ((arg == "-c" || arg == "--config" || arg == "--conf") && i + 1 < argc) {
+      conf_path = argv[++i];
     } else if ((arg == "-b" || arg == "--biz") && i + 1 < argc) {
       target_biz = std::stoi(argv[++i]);
     } else if ((arg == "-d" || arg == "--data") && i + 1 < argc) {
@@ -378,7 +390,7 @@ int main(int argc, char* argv[]) {
       std::cout << "Usage: " << argv[0] << " [options]\n\n"
                 << "Options:\n"
                 << "  -b, --biz <id>       Target business ID (1..7)\n"
-                << "  -c, --config <path>  Custom pipeline JSON config path\n"
+                << "  -c, --conf <path>    Custom platform .conf path\n"
                 << "  -d, --data <path>    Custom test corpus .txt file path\n"
                 << "  -h, --help           Show this help message\n\n"
                 << "Supported Business IDs:\n"
@@ -394,51 +406,54 @@ int main(int argc, char* argv[]) {
     }
   }
 
-  // 1. 初始化底层全局资源
-  Alg_Init();
+  // 1. 初始化平台全局环境
+  OperatorFunc ops = Get_LLM_EDGEFLOW_OperatorTable();
+  if (ops.Init() != 0) {
+    std::cerr << "Global Init failed: " << GetPlatformLastError() << std::endl;
+    return -1;
+  }
 
   if (target_biz > 0) {
     // 单业务定向运行模式
     switch (target_biz) {
       case 1:
         Demo1_EntityExtract(
-            config_path.empty() ? "configs/pipeline_entity_extract.json"
-                                : config_path,
+            conf_path.empty() ? "configs/pipeline_entity_extract.conf"
+                              : conf_path,
             data_path.empty() ? "data/corpus_entity_extract.txt" : data_path);
         break;
       case 2:
         Demo2_KeywordMatch(
-            config_path.empty() ? "configs/pipeline_keyword_match.json"
-                                : config_path,
+            conf_path.empty() ? "configs/pipeline_keyword_match.conf"
+                              : conf_path,
             data_path.empty() ? "data/corpus_keyword_match.txt" : data_path);
         break;
       case 3:
         Demo3_SmartDocQa(
-            config_path.empty() ? "configs/pipeline_doc_qa.json" : config_path,
+            conf_path.empty() ? "configs/pipeline_doc_qa.conf" : conf_path,
             data_path.empty() ? "data/corpus_doc_qa.txt" : data_path);
         break;
       case 4:
         Demo4_DialogueAudit(
-            config_path.empty() ? "configs/pipeline_dialogue_audit.json"
-                                : config_path,
+            conf_path.empty() ? "configs/pipeline_dialogue_audit.conf"
+                              : conf_path,
             data_path.empty() ? "data/corpus_dialogue_audit.txt" : data_path);
         break;
       case 5:
         Demo5_OcrDocQa(
-            config_path.empty() ? "configs/pipeline_ocr_doc_qa.json"
-                                : config_path,
+            conf_path.empty() ? "configs/pipeline_ocr_doc_qa.conf" : conf_path,
             data_path.empty() ? "data/corpus_ocr_doc_qa.txt" : data_path);
         break;
       case 6:
         Demo6_AudioAsr(
-            config_path.empty() ? "configs/pipeline_audio_asr_intent.json"
-                                : config_path,
+            conf_path.empty() ? "configs/pipeline_audio_asr_intent.conf"
+                              : conf_path,
             data_path.empty() ? "data/corpus_audio_asr.txt" : data_path);
         break;
       case 7:
         Demo7_CrossRerank(
-            config_path.empty() ? "configs/pipeline_cross_rerank.json"
-                                : config_path,
+            conf_path.empty() ? "configs/pipeline_cross_rerank.conf"
+                              : conf_path,
             data_path.empty() ? "data/corpus_cross_rerank.txt" : data_path);
         break;
       default:
@@ -447,12 +462,13 @@ int main(int argc, char* argv[]) {
     }
   } else {
     // 默认全业务全景演示巡检模式 (1 ~ 7)
-    std::cout << "#############################################################"
-                 "#####\n"
-              << "   LLM-EdgeFlow 全业务全景端到端演示 (Unified Direct Runner) "
-                 "     \n"
-              << "#############################################################"
-                 "#####\n";
+    std::cout
+        << "#############################################################"
+           "#####\n"
+        << "   LLM-EdgeFlow 全业务全景端到端演示 (Platform Operator Runner) "
+           " \n"
+        << "#############################################################"
+           "#####\n";
 
     Demo1_EntityExtract();
     Demo2_KeywordMatch();
@@ -462,15 +478,16 @@ int main(int argc, char* argv[]) {
     Demo6_AudioAsr();
     Demo7_CrossRerank();
 
-    std::cout << "#############################################################"
-                 "#####\n"
-              << "   ALL 7 BUSINESSES EXECUTED SUCCESSFULLY VIA CONFIG "
-                 "SWITCHING!   \n"
-              << "#############################################################"
-                 "#####\n";
+    std::cout
+        << "#############################################################"
+           "#####\n"
+        << "   ALL 7 BUSINESSES EXECUTED SUCCESSFULLY VIA OPERATOR TABLE!   "
+           "\n"
+        << "#############################################################"
+           "#####\n";
   }
 
-  // 2. 释放全局资源
-  Alg_DeInit();
+  // 2. 释放平台全局资源
+  ops.Deinit();
   return 0;
 }

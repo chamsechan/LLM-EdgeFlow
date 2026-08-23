@@ -131,6 +131,28 @@ class BusinessAdapterRegistry {
     return nullptr;
   }
 
+  std::shared_ptr<IBusinessAdapter> GetAdapterByPipelineName(
+      const std::string& pipeline_name) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    for (const auto& kv : adapters_) {
+      if (kv.second && kv.second->ValidatePipelineBinding(pipeline_name)) {
+        return kv.second;
+      }
+    }
+    return nullptr;
+  }
+
+  std::shared_ptr<IBusinessAdapter> GetAdapterByBusinessName(
+      const std::string& biz_name) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    for (const auto& kv : adapters_) {
+      if (kv.second && kv.second->BizName() == biz_name) {
+        return kv.second;
+      }
+    }
+    return nullptr;
+  }
+
   size_t AdapterCount() const {
     std::lock_guard<std::mutex> lock(mutex_);
     return adapters_.size();

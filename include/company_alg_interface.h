@@ -34,7 +34,7 @@ typedef struct {
 
 // 运行时动态控制参数结构体
 typedef struct {
-  int control_cmd;  // 1: 更新词表/规则, 2: 切换 Prompt, 3: 调整阈值
+  int control_cmd;             // 1: 更新词表/规则, 2: 切换 Prompt, 3: 调整阈值
   const char* json_param_str;  // 控制参数的 JSON 字符串
 } CompanyAlgParamControl;
 
@@ -52,8 +52,8 @@ typedef struct {
   char risk_level[32];  // 风险等级: "HIGH_RISK", "MEDIUM_RISK", "SAFE"
   float risk_score;     // 综合风险打分 0.0 ~ 1.0
   char matched_policy_clause[256];  // 语义检索+精排命中的合规制度条款
-  char audit_verdict_json[1024];  // 审核结论与合规建议 (JSON格式)
-  int status_code;                // 0: 成功, 其他: 失败
+  char audit_verdict_json[1024];    // 审核结论与合规建议 (JSON格式)
+  int status_code;                  // 0: 成功, 其他: 失败
 } CompanyAuditOutputStruct;
 
 // -------------------------------------------------------------
@@ -170,7 +170,7 @@ typedef struct {
   (-5)  // 不支持或未注册的业务类型 / 业务配置不匹配
 #define COMPANY_ALG_ERR_REGISTRY_CONFLICT (-6)  // 注册表冲突 (fail-closed 拦截)
 #define COMPANY_ALG_ERR_EXCEPTION (-99)  // 运行时捕获到 std::exception 异常
-#define COMPANY_ALG_ERR_UNKNOWN (-100)  // 运行时捕获到未知异常
+#define COMPANY_ALG_ERR_UNKNOWN (-100)   // 运行时捕获到未知异常
 
 #ifdef __cplusplus
 #define COMPANY_ALG_NOEXCEPT noexcept

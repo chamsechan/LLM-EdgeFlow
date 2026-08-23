@@ -1,6 +1,6 @@
-# LLM-EdgeFlow 平台 Operator 接口兼容层设计
+# LLM-EdgeFlow 平台 Operator 接口兼容层设计与实现
 
-> 文档状态：设计提案，尚未实现
+> 文档状态：已完成实现并全量回归测试 (v2.3.0 Release)
 >
 > 目标场景：公司平台通过 `OperatorFunc` 函数表、`.conf` 配置、命名 I/O Map 和外部输出调度调用算法库
 >
@@ -43,38 +43,89 @@
 - 公司内网 `.conf` 的最终字段路径和完整 Schema。
 - AX650 等芯片枚举的公司正式数值。
 - 公司平台如何登记、排队和选择 `depth_num` 个输出对象。
-- 本轮直接实现接口、输出内存池或修改现有 demo。
 - 将 C++ 容器接口暴露为纯 C ABI。
 
 上述未知项全部集中在平台接入适配点，后续拿到公司接口后不需要修改 Pipeline、Node 或 Engine。
 
 ## 3. 总体架构
 
-```text
-公司外部调度框架
-  │
-  │ OperatorFunc + NamedIoBatch
-  ▼
-Platform Operator Facade                         Layer 1 / C++
-  ├─ CompanyConfResolver       (.conf 字段提取)
-  ├─ PlatformIoRegistry        (点后缀 -> C 结构体契约)
-  ├─ PlatformControlRegistry   (命令 -> 参数解析器)
-  └─ PlatformHandle            (生命周期与同句柄串行化)
-  │
-  ▼
-Shared Algorithm Runtime                         Layer 1 / internal
-  ├─ BusinessAdapterRegistry
-  ├─ C input/output pointer arrays
-  └─ Pipeline construction and execution
-  │
-  ▼
-Pipeline + AlgContext + SessionContext            Layer 2
-  │
-  ▼
-INode / REGISTER_NODE                             Layer 3
-  │
-  ▼
-IModelEngine + FixedBatchExecutor                 Layer 4
+```plantuml
+@startuml Platform_Operator_Interface_Architecture
+!theme plain
+skinparam backgroundColor #0F172A
+skinparam roundCorner 8
+skinparam shadowing true
+skinparam package {
+  BackgroundColor #1E293B
+  BorderColor #475569
+  FontColor #F8FAFC
+}
+skinparam component {
+  BackgroundColor #0F172A
+  BorderColor #0284C7
+  FontColor #F1F5F9
+}
+skinparam interface {
+  BackgroundColor #0F172A
+  BorderColor #10B981
+  FontColor #A7F3D0
+}
+
+actor "Company Platform Scheduler" as Scheduler
+
+package "Layer 1: Dual Public Facades & Shared Runtime" as L1 {
+  interface "OperatorFunc\nGet_LLM_EDGEFLOW_OperatorTable()" as OpTable
+  component "Platform Operator Facade" as PlatformFacade {
+    component "CompanyConfResolver" as ConfResolver
+    component "PlatformIoRegistry" as IoRegistry
+    component "PlatformControlRegistry" as CtrlRegistry
+    component "PlatformHandle" as PlatHandle
+  }
+  component "Pure C ABI Exports\nAlg_Init / Alg_Create / Alg_Process..." as CAbi
+
+  component "Shared Algorithm Runtime" as SharedRuntime {
+    component "BusinessAdapterRegistry" as BizRegistry
+    component "IBusinessAdapter\nValidate / Unpack / Pack" as BizAdapter
+  }
+}
+
+package "Layer 2: Pipeline Blackboard Engine" as L2 {
+  component "Pipeline" as Pipeline
+  component "AlgContext (Blackboard)" as AlgContext
+  component "SessionContext" as SessionContext
+}
+
+package "Layer 3: Pluggable Nodes" as L3 {
+  component "INode" as INode
+}
+
+package "Layer 4: Engine & Batch Scheduler" as L4 {
+  component "FixedBatchExecutor" as BatchExecutor
+  component "IModelEngine" as Engine
+}
+
+Scheduler --> OpTable : C++ NamedIoBatch
+Scheduler --> CAbi : Pure C Pointers
+
+OpTable --> PlatformFacade
+PlatformFacade --> ConfResolver : parse .conf
+PlatformFacade --> IoRegistry : resolve .suffix
+PlatformFacade --> PlatHandle : serialize calls
+
+PlatformFacade --> SharedRuntime : convert to C pointers
+CAbi --> SharedRuntime : forward C params
+
+SharedRuntime --> BizRegistry
+BizRegistry --> BizAdapter
+BizAdapter --> AlgContext : Unpack / Pack
+SharedRuntime --> Pipeline : Execute
+
+Pipeline --> INode : step execution
+INode --> AlgContext : read / write
+INode --> Engine : model inference
+Engine --> BatchExecutor : hardware batching
+
+@enduml
 ```
 
 依赖方向仍为 Layer 1 → Layer 2 → Layer 3 → Layer 4。平台门面不得直接调用业务 Node 或硬件 SDK。

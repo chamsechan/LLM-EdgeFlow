@@ -43,6 +43,7 @@ skinparam arrow {
 
 ' Users and ownership boundaries
 actor "Downstream C Caller" as Caller
+actor "Platform Scheduler" as PlatformScheduler
 actor "Pipeline Composer" as Composer
 actor "Business Developer" as BizDev
 actor "AI Agent" as AIAgent
@@ -71,9 +72,10 @@ Catalog --> Validator
 Validator --> BizTests : validated package
 
 ' Layer 1
-package "Layer 1: Versioned Pure C ABI & Business Adapters" as L1 {
-  component "Pure C ABI Facade\n6 lifecycle APIs\nnoexcept exception firewall" as CAbi <<C API>>
-  component "Legacy C++ Wrapper" as Legacy <<Migration Only>>
+package "Layer 1: Dual Facades & Shared Algorithm Runtime" as L1 {
+  component "Pure C ABI Facade\n6 lifecycle APIs\nnoexcept exception firewall" as CAbi <<C ABI>>
+  component "Platform Operator Facade\nOperatorFunc + NamedIoBatch\nCompanyConfResolver\nPlatformIoRegistry" as PlatformFacade <<C++ Platform>>
+  component "Shared Algorithm Runtime\nSharedAlgorithmRuntime\nSingle Unpack-Execute-Pack" as SharedRuntime
   artifact "Business-Specific\nPure C Structs" as CStructs
   component "BusinessAdapterRegistry" as AdapterRegistry
   interface "IBusinessAdapter\nDescriptor / ValidateBatch\nUnpack / Pack" as IBusinessAdapter
@@ -82,8 +84,10 @@ package "Layer 1: Versioned Pure C ABI & Business Adapters" as L1 {
 }
 
 Caller --> CAbi : pure C calls
-Legacy --> CAbi : compatibility forwarding
-CAbi --> AdapterRegistry : dispatch by business_id
+PlatformScheduler --> PlatformFacade : OperatorFunc calls
+PlatformFacade --> SharedRuntime : convert NamedIo to C ptrs
+CAbi --> SharedRuntime : forward C params
+SharedRuntime --> AdapterRegistry : dispatch by business_id / name
 AdapterRegistry o-- IBusinessAdapter
 BusinessAdapters ..|> IBusinessAdapter
 BusinessAdapters --> CStructs : validate / unpack / pack

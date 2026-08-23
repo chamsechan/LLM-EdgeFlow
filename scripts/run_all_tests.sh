@@ -50,11 +50,12 @@ ctest --test-dir "$BUILD_DIR" --output-on-failure -R '^Registry.*Test$'
 echo -e "${GREEN}✓ Tier 1 核心架构、DAG拓扑调度与 7 大业务细粒度 GTest 断言测试全部通过！${NC}\n"
 
 # 4. C ABI 安全防御、多线程并发与边界压测 (Tier 2)
-echo -e "${BOLD}[ Step 4/6: C ABI 安全、8 线程并发、动态热重载与极端边界鲁棒性压测 ]${NC}"
+echo -e "${BOLD}[ Step 4/6: C ABI 安全、平台 Operator 接口、8 线程并发、动态热重载与极端边界鲁棒性压测 ]${NC}"
 "$BUILD_DIR/test_c_abi_safety"
+"$BUILD_DIR/test_platform_operator"
 "$BUILD_DIR/test_runtime_control_and_hot_swap"
 "$BUILD_DIR/test_concurrency_and_edge_cases"
-echo -e "${GREEN}✓ Tier 2 C ABI 安全、在线动态热控制与极端边界容错测试全部通过！${NC}\n"
+echo -e "${GREEN}✓ Tier 2 C ABI 安全、平台 Operator 门面、在线动态热控制与极端边界容错测试全部通过！${NC}\n"
 
 # 5. 7 大业务端到端全流程集成测试 (Tier 3)
 echo -e "${BOLD}[ Step 5/6: 7 大业务端到端全链路集成测试 (规则/NLP/问答/质检/OCR/语音ASR/精排) ]${NC}"

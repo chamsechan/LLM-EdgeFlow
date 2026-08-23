@@ -83,6 +83,11 @@ set(FRAMEWORK_SRCS
     src/adapter/adapters/ocr_doc_qa_adapter.cpp
     src/adapter/adapters/audio_asr_intent_adapter.cpp
     src/adapter/adapters/cross_rerank_adapter.cpp
+    src/adapter/shared_algorithm_runtime.cpp
+    src/adapter/platform/company_conf_resolver.cpp
+    src/adapter/platform/platform_io_registry.cpp
+    src/adapter/platform/platform_control_registry.cpp
+    src/adapter/platform_operator_adapter.cpp
     src/adapter/company_c_adapter.cpp
 )
 
@@ -175,6 +180,10 @@ add_executable(test_registry_reentrant tests/test_registry_reentrant.cpp)
 target_link_libraries(test_registry_reentrant PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
 add_test(NAME RegistryReentrantTest COMMAND test_registry_reentrant)
 set_tests_properties(RegistryReentrantTest PROPERTIES TIMEOUT 5)
+
+add_executable(test_platform_operator tests/test_platform_operator.cpp)
+target_link_libraries(test_platform_operator PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME PlatformOperatorTest COMMAND test_platform_operator)
 
 # 6. 纯 C++ 零依赖原生 DAG 可视化工具 (专为无 Python 的极简嵌入式/边缘环境设计)
 add_executable(alg_show src/tools/alg_show.cpp)

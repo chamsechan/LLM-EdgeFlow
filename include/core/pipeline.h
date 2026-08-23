@@ -31,9 +31,9 @@ class Pipeline {
    */
   enum class State {
     kEmpty = 0,  ///< 新建空实例，允许发起且仅允许发起一次构建
-    kBuilding,  ///< 正在执行构建（解析、预检、物化）
-    kReady,     ///< 构建成功，允许执行 Execute 和 Control
-    kFailed,    ///< 构建失败，不可再次构建或执行
+    kBuilding,   ///< 正在执行构建（解析、预检、物化）
+    kReady,      ///< 构建成功，允许执行 Execute 和 Control
+    kFailed,     ///< 构建失败，不可再次构建或执行
   };
 
   Pipeline();
