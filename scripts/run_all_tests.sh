@@ -97,6 +97,13 @@ echo -n "  Testing Native C++ CLI (./build/alg_show) on all 10 configs ... "
 ./build/alg_show configs/pipeline_cross_rerank.json > /dev/null
 echo -e "${GREEN}✓ PASS${NC}"
 
+echo -n "  Testing Pipeline Studio Validator/API/real Demo roundtrip ... "
+"$BUILD_DIR/test_pipeline_studio" > /dev/null
+python3 tests/test_visualizer_server.py > /dev/null
+./build/alg_pipeline_tool catalog --business keyword_match_v1 > /dev/null
+./build/alg_pipeline_tool validate configs/pipeline_keyword_match.json > /dev/null
+echo -e "${GREEN}✓ PASS${NC}"
+
 echo -e "\n${BOLD}${GREEN}==================================================================${NC}"
 echo -e "${BOLD}${GREEN}  🎉 交付验证通过：全部 6 大测试阶段 100% PASS！                 ${NC}"
 echo -e "${BOLD}${GREEN}  - 核心架构单元测试   : PASSED (6/6 模块)${NC}"
