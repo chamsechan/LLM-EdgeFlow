@@ -38,56 +38,94 @@ skinparam arrow {
 }
 
 ' ==============================================================================
-' Layer 1: C ABI 适配层
+' Layer 1: C ABI 适配层与平台门面
 ' ==============================================================================
-package "Layer 1: 公司标准 C ABI 导出层 (C Adapter)" as L1 {
+package "Layer 1: 双门面与 C ABI 安全适配层 (Dual Facades & C Adapter)" as L1 {
   class "Company C ABI Exports" as C_ABI <<(C,#0284C7) API Export>> {
-    + Alg_Init(): int
-    + Alg_Create(void** hndl, const CompanyAlgParamCreate*): int
-    + Alg_Process(void* hndl, const void** in, int num_in, void** out, int* num_out): int
-    + Alg_Control(void* hndl, const CompanyAlgParamControl*): int
-    + Alg_Destroy(void* hndl): int
-    + Alg_DeInit(): int
+    + Alg_Init(): int noexcept
+    + Alg_Create(void** hndl, const CompanyAlgParamCreate*): int noexcept
+    + Alg_Process(void* hndl, const void** in, int num_in, void** out, int* num_out): int noexcept
+    + Alg_Control(void* hndl, const CompanyAlgParamControl*): int noexcept
+    + Alg_Destroy(void* hndl): int noexcept
+    + Alg_DeInit(): int noexcept
   }
 
-  class "AlgHandleInstance" as HandleInst {
-    + runtime: std::unique_ptr<SharedAlgorithmRuntime>
+  class "Platform Operator Facade" as PlatformFacade <<(P,#38BDF8) Platform Operator>> {
+    + Get_LLM_EDGEFLOW_OperatorTable(): const OperatorFunc*
+    + CompanyConfResolver: resolve .conf & rewrite model paths
+    + PlatformIoRegistry: named I/O map dispatch
+    + PlatformControlRegistry: typed control commands
   }
 
-  class "SharedAlgorithmRuntime" as SharedRuntime {
+  class "SharedAlgorithmRuntime" as SharedRuntime <<(R,#10B981) Shared Runtime>> {
     - pipeline_: std::unique_ptr<Pipeline>
     - adapter_: std::shared_ptr<IBusinessAdapter>
     + ExecuteBatch(inputs, num_inputs, outputs, num_outputs, err): int
     + ExecuteControl(cmd, json_param, err): int
   }
 
+  class "AlgHandleInstance" as HandleInst {
+    + runtime: std::unique_ptr<SharedAlgorithmRuntime>
+  }
+
+  class "BusinessAdapterRegistry" as AdapterRegistry <<(S,#EC4899) Singleton>> {
+    + Register(type: int, adapter: shared_ptr<IBusinessAdapter>): void
+    + Get(type: int): std::shared_ptr<IBusinessAdapter>
+    + HasConflict(): bool
+  }
+
+  interface "IBusinessAdapter" as IAdapter {
+    + {abstract} GetDescriptor(): AdapterDescriptor
+    + {abstract} ValidateBatch(in, num_in, out, num_out, status): bool
+    + {abstract} Unpack(in, num_in, ctx, status): bool
+    + {abstract} Pack(ctx, out, num_out, status): bool
+  }
+
+  class "AdapterValidationHelper" as ValidationHelper {
+    + {static} CheckedStringCopy(src, dst, max_len, status): bool
+    + {static} RequireBoundedString(str, max_len, status): bool
+  }
+
   class "Multi-Modal C Structs" as Structs <<(S,#F59E0B) Data Struct>> {
-    + CompanyKeywordInput / Output
-    + CompanyEntityInput / Output
-    + CompanyDocInput / Output
-    + CompanyAuditInput / Output
-    + CompanyOcrDocInput / Output
-    + CompanyAudioInput / Output
-    + CompanyRerankBatchInput / Output
+    + CompanyDocInput / Output (Biz 1)
+    + CompanyKeywordInput / Output (Biz 2)
+    + CompanyEntityInput / Output (Biz 3)
+    + CompanyAuditInput / Output (Biz 4)
+    + CompanyOcrDocInput / Output (Biz 5)
+    + CompanyAudioInput / Output (Biz 6)
+    + CompanyRerankBatchInput / Output (Biz 7)
   }
 }
 
 ' ==============================================================================
 ' Layer 2: 框架调度与黑板层
 ' ==============================================================================
-package "Layer 2: 核心编排与动态黑板层 (Pipeline & Context)" as L2 {
+package "Layer 2: 核心编排与动态黑板层 (Pipeline & Blackboard)" as L2 {
   class Pipeline {
     - nodes_: std::vector<std::unique_ptr<INode>>
     - session_context_: SessionContext
     - business_name_: std::string
+    - state_: State {kEmpty, kBuilding, kReady, kFailed}
+    - execution_layers_: std::vector<std::vector<size_t>>
     + BuildFromConfigFile(config_path: string): bool
     + BuildFromJson(root_config: json): bool
+    + ResolveDagTopologicalSort(nodes): vector<vector<size_t>>
     + Execute(req_ctx: AlgContext*): int
     + Control(cmd: int, json_param: string): int
   }
 
+  class PipelineValidator <<(V,#0284C7) Static Validator>> {
+    + {static} ValidatePipeline(json_obj, session_ctx): PipelineValidationResult
+    + {static} NormalizeExplicitDag(json_obj): json
+  }
+
+  class PipelineConfig <<(C,#38BDF8) Strict Parser>> {
+    + {static} ParsePipelineConfig(json_obj, parsed_out): PipelineErrorCode
+  }
+
   class AlgContext <<(B,#10B981) Request Blackboard>> {
     - blackboard_: std::unordered_map<string, std::any>
+    - mutable rw_mutex_: std::shared_mutex
     - error_code_: int
     - error_message_: std::string
     + Set<T>(key: string, value: T): void
@@ -99,7 +137,9 @@ package "Layer 2: 核心编排与动态黑板层 (Pipeline & Context)" as L2 {
 
   class SessionContext {
     - model_manager_: ModelManager
+    - runtime_options_: RuntimeOptions
     + GetModelManager(): ModelManager&
+    + GetRuntimeOptions(): const RuntimeOptions&
   }
 
   class ModelManager {
@@ -131,9 +171,10 @@ package "Layer 3: 业务专属算子池 (Pluggable Nodes)" as L3 {
     + {static} Instance(): NodeFactory&
     + Register(type: string, creator: Func): void
     + Create(type: string): std::unique_ptr<INode>
+    + HasConflict(): bool
   }
 
-  package "PreProcess & Rule Nodes" as PreNodes {
+  package "PreProcess & Rule Nodes (9)" as PreNodes {
     class DocChunkPreNode
     class ImagePreNode
     class AudioFeaturePreNode
@@ -145,7 +186,7 @@ package "Layer 3: 业务专属算子池 (Pluggable Nodes)" as L3 {
     class EntityExtractPreNode
   }
 
-  package "Inference & Common Nodes" as InferNodes {
+  package "Inference & Common Nodes (11)" as InferNodes {
     class DocEmbeddingNode
     class LlmGenerateNode
     class CrossRerankNode
@@ -155,15 +196,18 @@ package "Layer 3: 业务专属算子池 (Pluggable Nodes)" as L3 {
     class VectorSearchNode
     class PromptBuilderNode
     class RerankRefineNode
+    class CountingNode
+    class PassthroughNode
   }
 
-  package "PostProcess Alignment Nodes" as PostNodes {
+  package "PostProcess Alignment Nodes (7)" as PostNodes {
     class DocQaPostNode
     class AuditPostNode
     class OcrDocPostNode
     class AudioPostNode
     class RerankSortPostNode
     class EntityExtractPostNode
+    class ComplianceReportPostNode
   }
 }
 
@@ -175,6 +219,8 @@ package "Layer 4: 异构引擎与硬件批调度层 (Engine Layer)" as L4 {
     + {abstract} Load(path: string, config: json): bool
     + {abstract} GetMaxBatchSize(): size_t
     + {abstract} EngineType(): const string&
+    + {abstract} GetLoadedModelPath(): const string&
+    + {abstract} GetDeviceId(): int
   }
 
   interface IEmbeddingEngine {
@@ -202,6 +248,7 @@ package "Layer 4: 异构引擎与硬件批调度层 (Engine Layer)" as L4 {
     + {static} Instance(): EngineFactory&
     + Register(type: string, creator: Func): void
     + Create(type: string): std::unique_ptr<IModelEngine>
+    + HasConflict(): bool
   }
 
   class FixedBatchExecutor <<(T,#F59E0B) Generic Template>> {
@@ -221,24 +268,50 @@ package "Layer 4: 异构引擎与硬件批调度层 (Engine Layer)" as L4 {
 }
 
 ' ==============================================================================
+' Platform Tooling & Visualizer Studio
+' ==============================================================================
+package "Platform Tooling & Visualizer Studio (Tools & Demo)" as Tools {
+  class "alg_pipeline_tool (CLI)" as PipelineTool <<(T,#38BDF8) C++ Tool>> {
+    + catalog / describe-node / init / normalize / validate / plan
+  }
+  class "alg_show (CLI)" as AlgShow <<(T,#38BDF8) C++ Tool>> {
+    + Native ASCII DAG print
+  }
+  class "Web Visualizer Studio" as WebStudio <<(W,#10B981) Web App>> {
+    + ./show --web (ES Modules + SVG Graph + Live Demo Draft)
+  }
+  class "Parameterized Demo Runner" as DemoRunner <<(D,#F59E0B) Demo Suite>> {
+    + profiles.json (Single source of truth)
+    + OperatorRunner (RAII lifecycle execution)
+    + ResultWriter (JSONL / Summary persistence)
+  }
+}
+
+' ==============================================================================
 ' 关系连接与流向
 ' ==============================================================================
 C_ABI ..> HandleInst : 管理生命周期
 C_ABI ..> Structs : 解包/填充
+PlatformFacade ..> SharedRuntime : 命名 I/O 适配
 HandleInst *-- SharedRuntime
 SharedRuntime *-- Pipeline
+SharedRuntime o-- AdapterRegistry
+AdapterRegistry o-- IAdapter
+IAdapter ..> ValidationHelper : 严格容量与截断防护
 
 Pipeline *-- SessionContext
-Pipeline *-- INode : 拓扑执行
+Pipeline *-- INode : 显式 DAG 拓扑执行
+Pipeline ..> PipelineConfig : 强类型解析
+Pipeline ..> PipelineValidator : 静态校验与规范化
 SessionContext *-- ModelManager
 ModelManager o-- IModelEngine
 
 INode <|.. PreNodes
 INode <|.. InferNodes
 INode <|.. PostNodes
-NodeFactory ..> INode : 动态反射创建
+NodeFactory ..> INode : 动态反射创建 (Fail-Closed)
 
-InferNodes ..> AlgContext : 读写数据
+InferNodes ..> AlgContext : 并发安全读写
 PreNodes ..> AlgContext : 写入分片/特征
 PostNodes ..> AlgContext : 提取并精准对齐
 InferNodes ..> ModelManager : 索取纯虚能力接口
@@ -258,8 +331,12 @@ ILlmEngine <|.. MockNpuLlmEngine
 IOcrEngine <|.. MockNpuOcrEngine
 IAudioAsrEngine <|.. MockNpuAsrEngine
 
-EngineFactory ..> IModelEngine : 动态反射创建
+EngineFactory ..> IModelEngine : 动态反射创建 (Fail-Closed)
 EngineImpls ..> FixedBatchExecutor : 调用定长硬件分批模板
 FixedBatchExecutor ..> TraceableItem : 样本切块/补齐/剥离/溯源
+
+WebStudio ..> PipelineTool : 交互式编排调用
+Tools ..> L1 : 驱动 Demo 与平台 Operator
+Tools ..> L2 : 静态校验与拓扑规划
 
 @enduml
