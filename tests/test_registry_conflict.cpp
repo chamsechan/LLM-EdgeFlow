@@ -57,7 +57,10 @@ TEST(RegistryConflictNodeTest, DuplicateNodeFailClosed) {
   PipelineDiagnostic diag;
   nlohmann::json cfg = {
       {"business_name", "conflict_node_test"},
-      {"pipeline", nlohmann::json::array({{{"node_type", "DummyNode"}}})}};
+      {"pipeline",
+       nlohmann::json::array({{{"id", "node_0_DummyNode"},
+                               {"node_type", "DummyNode"},
+                               {"depends_on", nlohmann::json::array()}}})}};
 
   EXPECT_FALSE(pipe.BuildFromJson(cfg, &diag));
   EXPECT_EQ(diag.code, PipelineErrorCode::kRegistryConflict);
@@ -84,7 +87,10 @@ TEST(RegistryConflictEngineTest, DuplicateEngineFailClosed) {
       {"business_name", "conflict_engine_test"},
       {"models", nlohmann::json::array(
                      {{{"model_id", "m1"}, {"engine_type", "dummy_engine"}}})},
-      {"pipeline", nlohmann::json::array({{{"node_type", "DummyNode"}}})}};
+      {"pipeline",
+       nlohmann::json::array({{{"id", "node_0_DummyNode"},
+                               {"node_type", "DummyNode"},
+                               {"depends_on", nlohmann::json::array()}}})}};
 
   EXPECT_FALSE(pipe.BuildFromJson(cfg, &diag));
   EXPECT_EQ(diag.code, PipelineErrorCode::kRegistryConflict);

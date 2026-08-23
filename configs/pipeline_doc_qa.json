@@ -2,73 +2,115 @@
   "business_name": "smart_doc_qa_v1",
   "models": [
     {
-      "model_id": "embed_model_v1",
-      "engine_type": "mock_npu_embedding",
-      "model_path": "./models/bge_base_npu.bin",
       "config": {
-        "max_batch_size": 4,
-        "embedding_dim": 128
-      }
+        "embedding_dim": 128,
+        "max_batch_size": 4
+      },
+      "engine_type": "mock_npu_embedding",
+      "model_id": "embed_model_v1",
+      "model_path": "./models/bge_base_npu.bin"
     },
     {
-      "model_id": "llm_model_v1",
-      "engine_type": "mock_npu_llm",
-      "model_path": "./models/qwen_1.5b_npu.bin",
       "config": {
         "max_batch_size": 2,
         "max_seq_len": 1024
-      }
+      },
+      "engine_type": "mock_npu_llm",
+      "model_id": "llm_model_v1",
+      "model_path": "./models/qwen_1.5b_npu.bin"
     }
   ],
   "pipeline": [
     {
-      "node_type": "DocChunkPreNode",
       "config": {
         "chunk_size": 60
-      }
+      },
+      "depends_on": [],
+      "id": "node_0_DocChunkPreNode",
+      "node_type": "DocChunkPreNode"
     },
     {
-      "node_type": "DocEmbeddingNode",
       "config": {
         "bind_model": "embed_model_v1"
-      }
+      },
+      "depends_on": [
+        "node_0_DocChunkPreNode"
+      ],
+      "id": "node_1_DocEmbeddingNode",
+      "node_type": "DocEmbeddingNode"
     },
     {
-      "node_type": "VectorSearchNode",
       "config": {
-        "top_k": 1,
-        "min_score": 0.0
-      }
+        "min_score": 0.0,
+        "top_k": 1
+      },
+      "depends_on": [
+        "node_1_DocEmbeddingNode"
+      ],
+      "id": "node_2_VectorSearchNode",
+      "node_type": "VectorSearchNode"
     },
     {
-      "node_type": "PromptBuilderNode",
       "config": {
         "template": "【参考片段】: {context}\n【用户提问】: {query}\n请基于参考片段给出精确解答:"
-      }
+      },
+      "depends_on": [
+        "node_2_VectorSearchNode"
+      ],
+      "id": "node_3_PromptBuilderNode",
+      "node_type": "PromptBuilderNode"
     },
     {
-      "node_type": "IntentRuleNode",
       "config": {
         "default_intent": "GENERAL_QA",
-        "threshold": 0.8,
         "rules": {
-          "AFTER_SALES_REFUND": ["退款", "退货", "换货", "发票"],
-          "TECH_ARCHITECTURE": ["架构", "设计", "C++", "算法框架", "NPU"],
-          "LOGISTICS_STATUS": ["快递", "发货", "物流", "送到哪里"]
-        }
-      }
+          "AFTER_SALES_REFUND": [
+            "退款",
+            "退货",
+            "换货",
+            "发票"
+          ],
+          "LOGISTICS_STATUS": [
+            "快递",
+            "发货",
+            "物流",
+            "送到哪里"
+          ],
+          "TECH_ARCHITECTURE": [
+            "架构",
+            "设计",
+            "C++",
+            "算法框架",
+            "NPU"
+          ]
+        },
+        "threshold": 0.8
+      },
+      "depends_on": [
+        "node_3_PromptBuilderNode"
+      ],
+      "id": "node_4_IntentRuleNode",
+      "node_type": "IntentRuleNode"
     },
     {
-      "node_type": "LlmGenerateNode",
       "config": {
         "bind_model": "llm_model_v1",
-        "temperature": 0.3,
-        "max_tokens": 128
-      }
+        "max_tokens": 128,
+        "temperature": 0.3
+      },
+      "depends_on": [
+        "node_4_IntentRuleNode"
+      ],
+      "id": "node_5_LlmGenerateNode",
+      "node_type": "LlmGenerateNode"
     },
     {
-      "node_type": "DocQaPostNode",
-      "config": {}
+      "config": {},
+      "depends_on": [
+        "node_5_LlmGenerateNode"
+      ],
+      "id": "node_6_DocQaPostNode",
+      "node_type": "DocQaPostNode"
     }
   ]
 }

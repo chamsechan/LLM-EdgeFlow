@@ -168,15 +168,17 @@ TEST(PipelineTest, RuntimeOptionsPropagationAndPrecedence) {
   opts.has_device_id = true;
   pipe.GetSessionContext().SetRuntimeOptions(opts);
 
-  nlohmann::json root_cfg = {
-      {"business_name", "test_runtime_opts"},
-      {"execution_mode", "sequential"},
-      {"models",
-       {{{"model_id", "test_mock_llm"},
-         {"engine_type", "mock_npu_llm"},
-         {"model_path", "./models/qwen.bin"},
-         {"config", {{"max_batch_size", 2}}}}}},
-      {"pipeline", {{{"node_type", "DocChunkPreNode"}}}}};
+  nlohmann::json root_cfg = {{"business_name", "test_runtime_opts"},
+                             {"execution_mode", "sequential"},
+                             {"models",
+                              {{{"model_id", "test_mock_llm"},
+                                {"engine_type", "mock_npu_llm"},
+                                {"model_path", "./models/qwen.bin"},
+                                {"config", {{"max_batch_size", 2}}}}}},
+                             {"pipeline",
+                              {{{"id", "node_0_DocChunkPreNode"},
+                                {"node_type", "DocChunkPreNode"},
+                                {"depends_on", nlohmann::json::array()}}}}};
 
   bool ok = pipe.BuildFromJson(root_cfg);
   EXPECT_TRUE(ok);

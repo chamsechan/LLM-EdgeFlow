@@ -2,87 +2,129 @@
   "business_name": "smart_doc_qa_rerank_llm_v1",
   "models": [
     {
-      "model_id": "embed_model_v1",
-      "engine_type": "mock_npu_embedding",
-      "model_path": "./models/bge_base_npu.bin",
       "config": {
-        "max_batch_size": 4,
-        "embedding_dim": 128
-      }
+        "embedding_dim": 128,
+        "max_batch_size": 4
+      },
+      "engine_type": "mock_npu_embedding",
+      "model_id": "embed_model_v1",
+      "model_path": "./models/bge_base_npu.bin"
     },
     {
-      "model_id": "rerank_model_v1",
-      "engine_type": "mock_npu_rerank",
-      "model_path": "./models/bge_reranker_large_npu.bin",
       "config": {
         "max_batch_size": 4
-      }
+      },
+      "engine_type": "mock_npu_rerank",
+      "model_id": "rerank_model_v1",
+      "model_path": "./models/bge_reranker_large_npu.bin"
     },
     {
-      "model_id": "llm_model_v1",
-      "engine_type": "mock_npu_llm",
-      "model_path": "./models/qwen_1.5b_npu.bin",
       "config": {
         "max_batch_size": 2,
         "max_seq_len": 1024
-      }
+      },
+      "engine_type": "mock_npu_llm",
+      "model_id": "llm_model_v1",
+      "model_path": "./models/qwen_1.5b_npu.bin"
     }
   ],
   "pipeline": [
     {
-      "node_type": "DocChunkPreNode",
       "config": {
         "chunk_size": 60
-      }
+      },
+      "depends_on": [],
+      "id": "node_0_DocChunkPreNode",
+      "node_type": "DocChunkPreNode"
     },
     {
-      "node_type": "DocEmbeddingNode",
       "config": {
         "bind_model": "embed_model_v1"
-      }
+      },
+      "depends_on": [
+        "node_0_DocChunkPreNode"
+      ],
+      "id": "node_1_DocEmbeddingNode",
+      "node_type": "DocEmbeddingNode"
     },
     {
-      "node_type": "VectorSearchNode",
       "config": {
-        "top_k": 4,
-        "min_score": 0.0
-      }
+        "min_score": 0.0,
+        "top_k": 4
+      },
+      "depends_on": [
+        "node_1_DocEmbeddingNode"
+      ],
+      "id": "node_2_VectorSearchNode",
+      "node_type": "VectorSearchNode"
     },
     {
-      "node_type": "RerankRefineNode",
       "config": {
         "bind_model": "rerank_model_v1",
         "top_k": 1
-      }
+      },
+      "depends_on": [
+        "node_2_VectorSearchNode"
+      ],
+      "id": "node_3_RerankRefineNode",
+      "node_type": "RerankRefineNode"
     },
     {
-      "node_type": "PromptBuilderNode",
       "config": {
         "template": "【经过精排选取的精准参考上下文】: {context}\n【用户提问】: {query}\n请根据上述上下文给出专业、严谨且精炼的解答:"
-      }
+      },
+      "depends_on": [
+        "node_3_RerankRefineNode"
+      ],
+      "id": "node_4_PromptBuilderNode",
+      "node_type": "PromptBuilderNode"
     },
     {
-      "node_type": "IntentRuleNode",
       "config": {
         "default_intent": "GENERAL_QA",
-        "threshold": 0.8,
         "rules": {
-          "AFTER_SALES_REFUND": ["退款", "退货", "换货"],
-          "TECH_ARCHITECTURE": ["架构", "设计", "C++", "算法框架", "ONNX", "llama.cpp", "Rerank"]
-        }
-      }
+          "AFTER_SALES_REFUND": [
+            "退款",
+            "退货",
+            "换货"
+          ],
+          "TECH_ARCHITECTURE": [
+            "架构",
+            "设计",
+            "C++",
+            "算法框架",
+            "ONNX",
+            "llama.cpp",
+            "Rerank"
+          ]
+        },
+        "threshold": 0.8
+      },
+      "depends_on": [
+        "node_4_PromptBuilderNode"
+      ],
+      "id": "node_5_IntentRuleNode",
+      "node_type": "IntentRuleNode"
     },
     {
-      "node_type": "LlmGenerateNode",
       "config": {
         "bind_model": "llm_model_v1",
-        "temperature": 0.3,
-        "max_tokens": 128
-      }
+        "max_tokens": 128,
+        "temperature": 0.3
+      },
+      "depends_on": [
+        "node_5_IntentRuleNode"
+      ],
+      "id": "node_6_LlmGenerateNode",
+      "node_type": "LlmGenerateNode"
     },
     {
-      "node_type": "DocQaPostNode",
-      "config": {}
+      "config": {},
+      "depends_on": [
+        "node_6_LlmGenerateNode"
+      ],
+      "id": "node_7_DocQaPostNode",
+      "node_type": "DocQaPostNode"
     }
   ]
 }

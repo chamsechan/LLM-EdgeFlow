@@ -275,8 +275,8 @@ bool ParsePipelineConfig(const nlohmann::json& root,
   const std::unordered_set<std::string> allowed_node_keys = {
       "id", "node_type", "depends_on", "config", "comment"};
 
-  // 预先扫描 pipeline 中是否存在显式 depends_on
-  bool any_node_has_depends_on = false;
+  std::unordered_set<std::string> seen_node_ids;
+
   for (size_t i = 0; i < root["pipeline"].size(); ++i) {
     const auto& node_elem = root["pipeline"][i];
     std::string node_path_prefix = "/pipeline/" + std::to_string(i);
@@ -287,7 +287,7 @@ bool ParsePipelineConfig(const nlohmann::json& root,
       return false;
     }
 
-    // 拒绝 node 内部未知字段 (删除自动合并顶层字段的行为)
+    // 拒绝 node 内部未知字段
     for (auto it = node_elem.begin(); it != node_elem.end(); ++it) {
       if (allowed_node_keys.find(it.key()) == allowed_node_keys.end()) {
         SetDiag(diagnostic, PipelineErrorCode::kUnknownField,
@@ -304,27 +304,6 @@ bool ParsePipelineConfig(const nlohmann::json& root,
               "Field 'comment' must be a string");
       return false;
     }
-
-    if (node_elem.contains("depends_on")) {
-      if (!node_elem["depends_on"].is_array()) {
-        SetDiag(diagnostic, PipelineErrorCode::kFieldType,
-                node_path_prefix + "/depends_on",
-                "Field 'depends_on' must be an array");
-        return false;
-      }
-      any_node_has_depends_on = true;
-    }
-  }
-
-  bool is_parallel = (result.execution_mode == "parallel");
-  bool uses_explicit_dag = is_parallel || any_node_has_depends_on;
-  result.uses_explicit_dag = uses_explicit_dag;
-
-  std::unordered_set<std::string> seen_node_ids;
-
-  for (size_t i = 0; i < root["pipeline"].size(); ++i) {
-    const auto& node_elem = root["pipeline"][i];
-    std::string node_path_prefix = "/pipeline/" + std::to_string(i);
 
     ParsedNodeConfig node_cfg;
     node_cfg.source_index = i;
@@ -363,105 +342,75 @@ bool ParsePipelineConfig(const nlohmann::json& root,
       node_cfg.config = nlohmann::json::object();
     }
 
-    // id 与 depends_on 校验
-    if (uses_explicit_dag) {
-      // 显式 DAG 或 parallel 模式：每个节点必须显式提供非空唯一的 id
-      if (!node_elem.contains("id")) {
-        SetDiag(diagnostic, PipelineErrorCode::kMissingField,
-                node_path_prefix + "/id",
-                "Node id is required in explicit DAG or parallel mode");
-        return false;
-      }
-      if (!node_elem["id"].is_string()) {
-        SetDiag(diagnostic, PipelineErrorCode::kFieldType,
-                node_path_prefix + "/id", "Field 'id' must be a string");
-        return false;
-      }
-      node_cfg.id = node_elem["id"].get<std::string>();
-      if (node_cfg.id.empty()) {
-        SetDiag(diagnostic, PipelineErrorCode::kFieldRange,
-                node_path_prefix + "/id", "Field 'id' cannot be empty");
-        return false;
-      }
-      if (seen_node_ids.find(node_cfg.id) != seen_node_ids.end()) {
-        SetDiag(diagnostic, PipelineErrorCode::kDuplicateNodeId,
-                node_path_prefix + "/id", "Duplicate node id: " + node_cfg.id);
-        return false;
-      }
-      seen_node_ids.insert(node_cfg.id);
+    // id (必填非空字符串，唯一)
+    if (!node_elem.contains("id")) {
+      SetDiag(diagnostic, PipelineErrorCode::kMissingField,
+              node_path_prefix + "/id",
+              "Missing required field 'id' in pipeline node");
+      return false;
+    }
+    if (!node_elem["id"].is_string()) {
+      SetDiag(diagnostic, PipelineErrorCode::kFieldType,
+              node_path_prefix + "/id", "Field 'id' must be a string");
+      return false;
+    }
+    node_cfg.id = node_elem["id"].get<std::string>();
+    if (node_cfg.id.empty()) {
+      SetDiag(diagnostic, PipelineErrorCode::kFieldRange,
+              node_path_prefix + "/id", "Field 'id' cannot be empty");
+      return false;
+    }
+    if (seen_node_ids.find(node_cfg.id) != seen_node_ids.end()) {
+      SetDiag(diagnostic, PipelineErrorCode::kDuplicateNodeId,
+              node_path_prefix + "/id", "Duplicate node id: " + node_cfg.id);
+      return false;
+    }
+    seen_node_ids.insert(node_cfg.id);
 
-      // 一旦任一节点声明 depends_on，所有节点必须显式提供 depends_on 数组
-      if (any_node_has_depends_on && !node_elem.contains("depends_on")) {
-        SetDiag(
-            diagnostic, PipelineErrorCode::kMissingField,
-            node_path_prefix + "/depends_on",
-            "All nodes must declare 'depends_on' when explicit DAG is used");
+    // depends_on (必填数组，元素为非空字符串且不重复)
+    if (!node_elem.contains("depends_on")) {
+      SetDiag(diagnostic, PipelineErrorCode::kMissingField,
+              node_path_prefix + "/depends_on",
+              "Missing required field 'depends_on' in pipeline node");
+      return false;
+    }
+    if (!node_elem["depends_on"].is_array()) {
+      SetDiag(diagnostic, PipelineErrorCode::kFieldType,
+              node_path_prefix + "/depends_on",
+              "Field 'depends_on' must be an array");
+      return false;
+    }
+    if (node_elem["depends_on"].size() > 256) {
+      SetDiag(diagnostic, PipelineErrorCode::kFieldRange,
+              node_path_prefix + "/depends_on",
+              "Node dependencies exceed limit of 256");
+      return false;
+    }
+
+    std::unordered_set<std::string> node_deps;
+    for (size_t d = 0; d < node_elem["depends_on"].size(); ++d) {
+      const auto& dep_item = node_elem["depends_on"][d];
+      std::string dep_path =
+          node_path_prefix + "/depends_on/" + std::to_string(d);
+
+      if (!dep_item.is_string()) {
+        SetDiag(diagnostic, PipelineErrorCode::kFieldType, dep_path,
+                "Dependency item must be a string");
         return false;
       }
-
-      if (node_elem.contains("depends_on")) {
-        if (!node_elem["depends_on"].is_array()) {
-          SetDiag(diagnostic, PipelineErrorCode::kFieldType,
-                  node_path_prefix + "/depends_on",
-                  "Field 'depends_on' must be an array");
-          return false;
-        }
-        if (node_elem["depends_on"].size() > 256) {
-          SetDiag(diagnostic, PipelineErrorCode::kFieldRange,
-                  node_path_prefix + "/depends_on",
-                  "Node dependencies exceed limit of 256");
-          return false;
-        }
-
-        std::unordered_set<std::string> node_deps;
-        for (size_t d = 0; d < node_elem["depends_on"].size(); ++d) {
-          const auto& dep_item = node_elem["depends_on"][d];
-          std::string dep_path =
-              node_path_prefix + "/depends_on/" + std::to_string(d);
-
-          if (!dep_item.is_string()) {
-            SetDiag(diagnostic, PipelineErrorCode::kFieldType, dep_path,
-                    "Dependency item must be a string");
-            return false;
-          }
-          std::string dep_str = dep_item.get<std::string>();
-          if (dep_str.empty()) {
-            SetDiag(diagnostic, PipelineErrorCode::kFieldRange, dep_path,
-                    "Dependency item cannot be empty");
-            return false;
-          }
-          if (node_deps.find(dep_str) != node_deps.end()) {
-            SetDiag(diagnostic, PipelineErrorCode::kInvalidDependency, dep_path,
-                    "Duplicate dependency in node: " + dep_str);
-            return false;
-          }
-          node_deps.insert(dep_str);
-          node_cfg.depends_on.push_back(dep_str);
-        }
-      }
-    } else {
-      // 兼容路径：sequential 且全部节点均未声明 depends_on
-      if (node_elem.contains("id")) {
-        if (!node_elem["id"].is_string()) {
-          SetDiag(diagnostic, PipelineErrorCode::kFieldType,
-                  node_path_prefix + "/id", "Field 'id' must be a string");
-          return false;
-        }
-        node_cfg.id = node_elem["id"].get<std::string>();
-        if (node_cfg.id.empty()) {
-          SetDiag(diagnostic, PipelineErrorCode::kFieldRange,
-                  node_path_prefix + "/id", "Field 'id' cannot be empty");
-          return false;
-        }
-      } else {
-        node_cfg.id = "node_" + std::to_string(i) + "_" + node_cfg.node_type;
-      }
-      if (seen_node_ids.find(node_cfg.id) != seen_node_ids.end()) {
-        SetDiag(diagnostic, PipelineErrorCode::kDuplicateNodeId,
-                node_path_prefix + "/id", "Duplicate node id: " + node_cfg.id);
+      std::string dep_str = dep_item.get<std::string>();
+      if (dep_str.empty()) {
+        SetDiag(diagnostic, PipelineErrorCode::kFieldRange, dep_path,
+                "Dependency item cannot be empty");
         return false;
       }
-      seen_node_ids.insert(node_cfg.id);
+      if (node_deps.find(dep_str) != node_deps.end()) {
+        SetDiag(diagnostic, PipelineErrorCode::kInvalidDependency, dep_path,
+                "Duplicate dependency in node: " + dep_str);
+        return false;
+      }
+      node_deps.insert(dep_str);
+      node_cfg.depends_on.push_back(dep_str);
     }
 
     result.nodes.push_back(std::move(node_cfg));

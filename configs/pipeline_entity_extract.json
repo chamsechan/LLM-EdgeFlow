@@ -2,33 +2,43 @@
   "business_name": "entity_extract_0.6b_v1",
   "models": [
     {
-      "model_id": "llm_0.6b_entity",
-      "engine_type": "mock_npu_llm",
-      "model_path": "./models/qwen2.5_0.6b_instruct_npu.bin",
       "config": {
         "max_batch_size": 2,
         "max_seq_len": 512
-      }
+      },
+      "engine_type": "mock_npu_llm",
+      "model_id": "llm_0.6b_entity",
+      "model_path": "./models/qwen2.5_0.6b_instruct_npu.bin"
     }
   ],
   "pipeline": [
     {
-      "node_type": "EntityExtractPreNode",
       "config": {
         "prompt_template": "你是一个中文实体与名词抽取助手。请从以下句子中提取出所有名词与实体，并仅以JSON列表形式返回：\n输入文本：{text}\n提取结果："
-      }
+      },
+      "depends_on": [],
+      "id": "node_0_EntityExtractPreNode",
+      "node_type": "EntityExtractPreNode"
     },
     {
-      "node_type": "LlmGenerateNode",
       "config": {
         "bind_model": "llm_0.6b_entity",
-        "temperature": 0.1,
-        "max_tokens": 64
-      }
+        "max_tokens": 64,
+        "temperature": 0.1
+      },
+      "depends_on": [
+        "node_0_EntityExtractPreNode"
+      ],
+      "id": "node_1_LlmGenerateNode",
+      "node_type": "LlmGenerateNode"
     },
     {
-      "node_type": "EntityExtractPostNode",
-      "config": {}
+      "config": {},
+      "depends_on": [
+        "node_1_LlmGenerateNode"
+      ],
+      "id": "node_2_EntityExtractPostNode",
+      "node_type": "EntityExtractPostNode"
     }
   ]
 }

@@ -178,8 +178,8 @@ bool Pipeline::BuildFromJson(const nlohmann::json& root_config,
 }
 
 bool Pipeline::ResolveDagTopologicalSort(
-    const std::vector<ParsedNodeConfig>& raw_nodes, bool uses_explicit_dag,
-    DagPlan* plan, PipelineDiagnostic* diagnostic) {
+    const std::vector<ParsedNodeConfig>& raw_nodes, DagPlan* plan,
+    PipelineDiagnostic* diagnostic) {
   if (!plan) return false;
   plan->topological_order.clear();
   plan->topological_layers_ids.clear();
@@ -189,18 +189,7 @@ bool Pipeline::ResolveDagTopologicalSort(
     return true;
   }
 
-  // 1. 向后兼容处理：非显式 DAG (sequential 且全量节点均未声明 depends_on)
-  // 直接保持 JSON 数组自然顺序
-  if (!uses_explicit_dag) {
-    for (const auto& node : raw_nodes) {
-      plan->sorted_layers.push_back({node});
-      plan->topological_order.push_back(node.id);
-      plan->topological_layers_ids.push_back({node.id});
-    }
-    return true;
-  }
-
-  // 2. 建立节点 ID 查找索引
+  // 1. 建立节点 ID 查找索引
   std::unordered_map<std::string, const ParsedNodeConfig*> meta_lookup;
   for (const auto& node : raw_nodes) {
     meta_lookup[node.id] = &node;
@@ -415,8 +404,7 @@ bool Pipeline::BuildInternal(const nlohmann::json& root_config,
 
   // 4. 函数式解析 DAG 拓扑排序计划 (纯计算无副作用)
   DagPlan dag_plan;
-  if (!ResolveDagTopologicalSort(parsed_cfg.nodes, parsed_cfg.uses_explicit_dag,
-                                 &dag_plan, diagnostic)) {
+  if (!ResolveDagTopologicalSort(parsed_cfg.nodes, &dag_plan, diagnostic)) {
     return false;
   }
 

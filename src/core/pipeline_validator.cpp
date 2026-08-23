@@ -92,15 +92,9 @@ bool MatchesKind(const nlohmann::json& value, ConfigValueKind kind) {
   return false;
 }
 
-std::vector<ParsedNodeConfig> EffectiveNodes(
+const std::vector<ParsedNodeConfig>& EffectiveNodes(
     const ParsedPipelineConfig& parsed) {
-  std::vector<ParsedNodeConfig> result = parsed.nodes;
-  if (!parsed.uses_explicit_dag) {
-    for (size_t i = 1; i < result.size(); ++i) {
-      result[i].depends_on = {result[i - 1].id};
-    }
-  }
-  return result;
+  return parsed.nodes;
 }
 
 bool ResolveTopology(const std::vector<ParsedNodeConfig>& nodes,
@@ -448,9 +442,11 @@ bool PipelineValidator::NormalizeExplicitDag(const nlohmann::json& root,
                                              nlohmann::json* output,
                                              ValidationDiagnostic* diagnostic) {
   if (!output) return false;
-  ParsedPipelineConfig parsed;
-  PipelineDiagnostic parse_diag;
-  if (!ParsePipelineConfig(root, &parsed, &parse_diag)) {
+  if (!root.is_object() || !root.contains("pipeline") ||
+      !root["pipeline"].is_array()) {
+    ParsedPipelineConfig parsed;
+    PipelineDiagnostic parse_diag;
+    ParsePipelineConfig(root, &parsed, &parse_diag);
     if (diagnostic) {
       diagnostic->code = PipelineErrorCodeName(parse_diag.code);
       diagnostic->path = parse_diag.path;
@@ -459,29 +455,43 @@ bool PipelineValidator::NormalizeExplicitDag(const nlohmann::json& root,
     return false;
   }
 
-  *output = root;
-  auto& pipeline = (*output)["pipeline"];
+  nlohmann::json normalized = root;
+  auto& pipeline = normalized["pipeline"];
   std::vector<std::string> ids;
   ids.reserve(pipeline.size());
   for (size_t i = 0; i < pipeline.size(); ++i) {
-    std::string id = pipeline[i].contains("id")
+    if (!pipeline[i].is_object()) continue;
+    std::string id = pipeline[i].contains("id") &&
+                             pipeline[i]["id"].is_string() &&
+                             !pipeline[i]["id"].get<std::string>().empty()
                          ? pipeline[i]["id"].get<std::string>()
                          : "node_" + std::to_string(i) + "_" +
-                               pipeline[i]["node_type"].get<std::string>();
+                               pipeline[i].value("node_type", "UnknownNode");
     pipeline[i]["id"] = id;
     ids.push_back(std::move(id));
   }
-  if (!parsed.uses_explicit_dag) {
-    for (size_t i = 0; i < pipeline.size(); ++i) {
+
+  for (size_t i = 0; i < pipeline.size(); ++i) {
+    if (!pipeline[i].is_object()) continue;
+    if (!pipeline[i].contains("depends_on") ||
+        !pipeline[i]["depends_on"].is_array()) {
       pipeline[i]["depends_on"] = i == 0 ? nlohmann::json::array()
                                          : nlohmann::json::array({ids[i - 1]});
     }
-  } else {
-    for (auto& node : pipeline) {
-      if (!node.contains("depends_on"))
-        node["depends_on"] = nlohmann::json::array();
-    }
   }
+
+  ParsedPipelineConfig parsed;
+  PipelineDiagnostic parse_diag;
+  if (!ParsePipelineConfig(normalized, &parsed, &parse_diag)) {
+    if (diagnostic) {
+      diagnostic->code = PipelineErrorCodeName(parse_diag.code);
+      diagnostic->path = parse_diag.path;
+      diagnostic->message = parse_diag.message;
+    }
+    return false;
+  }
+
+  *output = std::move(normalized);
   return true;
 }
 

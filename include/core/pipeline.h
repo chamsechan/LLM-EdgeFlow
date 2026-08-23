@@ -80,8 +80,8 @@ class Pipeline {
   };
 
   static bool ResolveDagTopologicalSort(
-      const std::vector<ParsedNodeConfig>& raw_nodes, bool uses_explicit_dag,
-      DagPlan* plan, PipelineDiagnostic* diagnostic);
+      const std::vector<ParsedNodeConfig>& raw_nodes, DagPlan* plan,
+      PipelineDiagnostic* diagnostic);
 
   bool BuildInternal(const nlohmann::json& root_config,
                      PipelineDiagnostic* diagnostic);
