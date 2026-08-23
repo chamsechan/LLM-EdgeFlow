@@ -151,7 +151,7 @@ LLM-EdgeFlow/
 
 - **v2.5.1 (全面审查证据与质量门禁修正)** *(2026-08)*
   - 🧪 **可复现 Sanitizer**：ASan/UBSan 改用独立构建目录，支持显式 sanitizer 集合，禁用用户级 ccache，并动态执行全部 CTest 与 Smoke Profile。
-  - 📐 **真实格式门禁**：`format.sh --check`、CI 和六阶段回归改为只读 clang-format 检查，格式偏差不再被 `git diff --check` 漏掉。
+  - 📐 **真实格式门禁**：`format.sh --check`、CI 和六阶段回归改为只读 clang-format 检查，并统一固定 clang-format 18.x，格式偏差与工具版本漂移不再被 `git diff --check` 漏掉。
   - 🔒 **C ABI 布局证据**：业务枚举通过 `INT32_MAX` guard 与纯 C11 编译期断言锁定 32 位 ABI。
   - 📋 **审查结论校正**：按最新主干的 23 项 CTest 和 27 个节点实现重新冻结证据，将 ASan、TSan、真实硬件等缺失证据如实标为 `NOT VERIFIED`。
 - **v2.5.0 (图形化算法方案工作台与配置编排闭环 - RFC 0006)** *(2026-08)*
