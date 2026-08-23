@@ -1,0 +1,4 @@
+# LLM-EdgeFlow UBSan Suppressions File
+# Suppress known third-party null pointer offset calculations in ggml.c
+pointer-overflow:ggml.c
+null:ggml.c
