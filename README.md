@@ -58,15 +58,15 @@
 
 同一算法库 `libcompany_alg_sdk.so`，仅需传入不同 JSON 配置文件即可无缝热切换：
 
-| 业务 | 业务名称 | 输入模态 | 挂载模型 / 算法能力 | 输出模态 | 配置文件 |
+| 业务类型 / Enum | 业务名称 | 输入模态 | 挂载模型 / 算法能力 | 输出模态 | 配置文件 |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Biz 1** | **关注词规则匹配** | 文本句子 | 纯规则树快筛 (零模型) | 命中的类别与词 JSON | [`pipeline_keyword_match.json`](configs/pipeline_keyword_match.json) |
-| **Biz 2** | **实体名词抽取** | 文本句子 | 0.6B Qwen / llama.cpp | 抽取的名词列表 JSON | [`pipeline_entity_extract.json`](configs/pipeline_entity_extract.json) |
-| **Biz 3** | **智能长文档问答** | 长文本+提问 | Embedding + 1.5B LLM | 切片数+意图+生成回答 | [`pipeline_doc_qa.json`](configs/pipeline_doc_qa.json) |
-| **Biz 4** | **对话风控质检** | 对话流+渠道 | Embedding + Rerank + 7B LLM | 风险分+等级+质检判决 | [`pipeline_dialogue_audit.json`](configs/pipeline_dialogue_audit.json) |
-| **Biz 5** | **多模态发票抽取** | 图像路径+Query | OCR 框检测识别 + LLM | 识别框数+结构化发票 JSON | [`pipeline_ocr_doc_qa.json`](configs/pipeline_ocr_doc_qa.json) |
-| **Biz 6** | **语音识别与槽位抽取** | 原始音频 PCM | Speech ASR + NLU 槽位提取器 | 转写文本+意图槽位 JSON | [`pipeline_audio_asr_intent.json`](configs/pipeline_audio_asr_intent.json) |
-| **Biz 7** | **纯语义精排矩阵打分** | 1 Query + N 候选 | ONNX Cross-Encoder 矩阵计算 | Top-K 打分与排序索引 | [`pipeline_cross_rerank.json`](configs/pipeline_cross_rerank.json) |
+| **Biz 1 (`ALG_BIZ_TYPE_DOC_QA`)** | **智能长文档问答** | 长文本+提问 | Embedding + 1.5B LLM | 切片数+意图+生成回答 | [`pipeline_doc_qa.json`](configs/pipeline_doc_qa.json) |
+| **Biz 2 (`ALG_BIZ_TYPE_KEYWORD_MATCH`)** | **关注词规则匹配** | 文本句子 | 纯规则树快筛 (零模型) | 命中的类别与词 JSON | [`pipeline_keyword_match.json`](configs/pipeline_keyword_match.json) |
+| **Biz 3 (`ALG_BIZ_TYPE_ENTITY_EXTRACT`)** | **实体名词抽取** | 文本句子 | 0.6B Qwen / llama.cpp | 抽取的名词列表 JSON | [`pipeline_entity_extract.json`](configs/pipeline_entity_extract.json) |
+| **Biz 4 (`ALG_BIZ_TYPE_COMPLIANCE_AUDIT`)** | **对话风控质检** | 对话流+渠道 | Embedding + Rerank + 7B LLM | 风险分+等级+质检判决 | [`pipeline_dialogue_audit.json`](configs/pipeline_dialogue_audit.json) |
+| **Biz 5 (`ALG_BIZ_TYPE_OCR_DOC_QA`)** | **多模态发票抽取** | 图像路径+Query | OCR 框检测识别 + LLM | 识别框数+结构化发票 JSON | [`pipeline_ocr_doc_qa.json`](configs/pipeline_ocr_doc_qa.json) |
+| **Biz 6 (`ALG_BIZ_TYPE_AUDIO_ASR_INTENT`)** | **语音识别与槽位抽取** | 原始音频 PCM | Speech ASR + NLU 槽位提取器 | 转写文本+意图槽位 JSON | [`pipeline_audio_asr_intent.json`](configs/pipeline_audio_asr_intent.json) |
+| **Biz 7 (`ALG_BIZ_TYPE_CROSS_RERANK`)** | **纯语义精排矩阵打分** | 1 Query + N 候选 | ONNX Cross-Encoder 矩阵计算 | Top-K 打分与排序索引 | [`pipeline_cross_rerank.json`](configs/pipeline_cross_rerank.json) |
 
 ---
 
@@ -132,16 +132,20 @@ LLM-EdgeFlow/
 │   └── engine/                  # Layer 4: 引擎接口 (FixedBatchExecutor, IModelEngine)
 ├── src/
 │   ├── adapter/                 # Layer 1: C ABI 安全胶水层 (company_c_adapter.cpp)
-│   ├── core/                    # Layer 2: Pipeline 调度器实现
+│   ├── core/                    # Layer 2: Pipeline 调度器与配置校验器实现
 │   ├── business/                # Layer 3: 7 大多模态业务算子库
 │   ├── engine/                  # Layer 4: 异构引擎实现 (mock_npu, onnx, llama_cpp)
-│   └── tools/                   # 纯 C++ 原生 DAG 可视化工具 (alg_show.cpp)
+│   └── tools/                   # C++ 工具集 (alg_show.cpp, alg_pipeline_tool.cpp)
+├── doc/
+│   ├── developer_guide.md       # 4 层扩展开发说明书
+│   └── rfcs/                    # RFC 架构演进与治理文档 (RFC 0001 ~ 0007)
 ├── configs/                     # 11 大标准化业务配置 (JSON & .conf)
 ├── demo/                        # 参数化多业务端到端演示与 Runner
 │   ├── profiles.json            # 预定义执行 Profile 清单 (单一事实源)
 │   ├── common/                  # 通用参数解析、注册表、数据读取、结果落盘与 RAII Runner
 │   └── businesses/              # 7 大独立业务 Demo 适配实现 (*_demo.cpp)
-├── tests/                       # Google Test (GTest) 单元测试套件
+├── tests/                       # Google Test (GTest) 单元测试套件 (23 组测试)
+├── scripts/                     # 自动化测试、Demo 调度与代码格式化工具
 └── tools/visualizer/            # 交互式 Web DAG 可视化平台
 ```
 
@@ -151,8 +155,8 @@ LLM-EdgeFlow/
 
 - **v2.6.0 (全库 Pipeline 显式 DAG 标准化与旧式配置维护解耦 - RFC 0007)** *(2026-08)*
   - 📐 **全量官方方案显式 DAG 升级**：`configs/` 目录下全部 11 个官方预置方案全面标准化为显式 DAG 格式（`id` + `depends_on`），消除隐式顺序数组的历史遗留形态，与底层 Kahn 拓扑排序及 Wavefront 调度严格契合。
-  - 🎨 **Web Studio 零弹窗平滑拓扑编辑**：优化 `tools/visualizer/app.js` 交互逻辑，官方方案开箱即显式 DAG，导入旧格式时自动平滑规范化并 Toast 提示，彻底移除阻塞式确认弹窗。
-  - 🛡️ **分层高容错向后兼容**：底层 C++ 引擎（`PipelineValidator` / `PipelineConfig`）保持安全容错，外部历史配置依然可自动解析，保证 C ABI 与系统调用的向下兼容。
+  - 🔒 **严格显式 DAG 强类型约束**：彻底清除 C++ 底层对隐式顺序配置的兼容分支与 bypass 逻辑，强制要求所有节点显式提供 `id` 与 `depends_on`，统一使用 Kahn 拓扑排序，杜绝双轨维护与隐式 ID 合成债务。
+  - 🎨 **Web Studio 零弹窗平滑拓扑编辑**：优化 `tools/visualizer/app.js` 交互逻辑，官方方案开箱即显式 DAG，简化节点与连线操作，彻底移除阻塞式确认弹窗。
   - 🧪 **全链路 6 阶段质量门禁回归**：更新 `run_all_tests.sh` 覆盖全量 11 个方案的 CLI 双模测试，23 项 Google Test 单元测试与 6 阶段自动化测试套件 100% 通过。
 - **v2.5.1 (全面审查证据与质量门禁修正)** *(2026-08)*
   - 🧪 **可复现 Sanitizer**：ASan/UBSan 改用独立构建目录，支持显式 sanitizer 集合，禁用用户级 ccache，并动态执行全部 CTest 与 Smoke Profile。
