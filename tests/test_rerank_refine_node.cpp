@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 
+#include "company_alg_interface.h"
 #include "core/alg_context.h"
 #include "core/node_registry.h"
 #include "core/session_context.h"
@@ -58,12 +59,15 @@ class ControllableMockRerankEngine : public IRerankEngine {
 class RerankRefineNodeTest : public ::testing::Test {
  protected:
   void SetUp() override {
+    Alg_Init();
     mock_engine_ = std::make_shared<ControllableMockRerankEngine>();
     session_ctx_.GetModelManager().RegisterModel("test_rerank_model",
                                                  mock_engine_);
     node_ = NodeFactory::Instance().Create("RerankRefineNode");
     ASSERT_NE(node_, nullptr);
   }
+
+  void TearDown() override { Alg_DeInit(); }
 
   std::shared_ptr<ControllableMockRerankEngine> mock_engine_;
   SessionContext session_ctx_;
