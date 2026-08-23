@@ -1,6 +1,6 @@
 # LLM-EdgeFlow 平台 Operator 接口兼容层设计与实现
 
-> 文档状态：已完成实现并全量回归测试 (v2.3.0 Release)
+> 文档状态：已完成实现并全量回归测试 (v1.3.0 Release)
 >
 > 目标场景：公司平台通过 `OperatorFunc` 函数表、`.conf` 配置、命名 I/O Map 和外部输出调度调用算法库
 >
