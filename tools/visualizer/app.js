@@ -36,13 +36,12 @@ function isExplicit() {
 
 async function ensureExplicit() {
   if (isExplicit()) return true;
-  if (!confirm("这是旧式顺序配置。首次结构编辑需要由 C++ normalize 升级为显式 DAG，是否继续？")) return false;
   try {
     const result = await write("/normalize", "POST", { pipeline: state.pipeline });
     state.pipeline = result.pipeline;
     setDirty(true);
     renderAll();
-    toast("已升级为 id + depends_on 显式 DAG");
+    toast("已自动规范化为显式 DAG 格式");
     return true;
   } catch (error) { toast(error.message, true); return false; }
 }

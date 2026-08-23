@@ -149,6 +149,11 @@ LLM-EdgeFlow/
 
 ## 📝 更新日志 (Changelog)
 
+- **v2.6.0 (全库 Pipeline 显式 DAG 标准化与旧式配置维护解耦 - RFC 0007)** *(2026-08)*
+  - 📐 **全量官方方案显式 DAG 升级**：`configs/` 目录下全部 11 个官方预置方案全面标准化为显式 DAG 格式（`id` + `depends_on`），消除隐式顺序数组的历史遗留形态，与底层 Kahn 拓扑排序及 Wavefront 调度严格契合。
+  - 🎨 **Web Studio 零弹窗平滑拓扑编辑**：优化 `tools/visualizer/app.js` 交互逻辑，官方方案开箱即显式 DAG，导入旧格式时自动平滑规范化并 Toast 提示，彻底移除阻塞式确认弹窗。
+  - 🛡️ **分层高容错向后兼容**：底层 C++ 引擎（`PipelineValidator` / `PipelineConfig`）保持安全容错，外部历史配置依然可自动解析，保证 C ABI 与系统调用的向下兼容。
+  - 🧪 **全链路 6 阶段质量门禁回归**：更新 `run_all_tests.sh` 覆盖全量 11 个方案的 CLI 双模测试，23 项 Google Test 单元测试与 6 阶段自动化测试套件 100% 通过。
 - **v2.5.1 (全面审查证据与质量门禁修正)** *(2026-08)*
   - 🧪 **可复现 Sanitizer**：ASan/UBSan 改用独立构建目录，支持显式 sanitizer 集合，禁用用户级 ccache，并动态执行全部 CTest 与 Smoke Profile。
   - 📐 **真实格式门禁**：`format.sh --check`、CI 和六阶段回归改为只读 clang-format 检查，并统一固定 clang-format 18.x，格式偏差与工具版本漂移不再被 `git diff --check` 漏掉。

@@ -2,72 +2,109 @@
   "business_name": "smart_doc_qa_onnx_llamacpp_v1",
   "models": [
     {
-      "model_id": "embed_model_onnx",
-      "engine_type": "onnx_embedding",
-      "model_path": "./models/bge_base_zh_v1.5.onnx",
       "config": {
-        "max_batch_size": 4,
-        "embedding_dim": 128
-      }
+        "embedding_dim": 128,
+        "max_batch_size": 4
+      },
+      "engine_type": "onnx_embedding",
+      "model_id": "embed_model_onnx",
+      "model_path": "./models/bge_base_zh_v1.5.onnx"
     },
     {
-      "model_id": "llm_model_llamacpp",
-      "engine_type": "llama_cpp",
-      "model_path": "./models/qwen2.5_1.5b_instruct_q4_k_m.gguf",
       "config": {
         "max_batch_size": 2,
         "max_seq_len": 1024
-      }
+      },
+      "engine_type": "llama_cpp",
+      "model_id": "llm_model_llamacpp",
+      "model_path": "./models/qwen2.5_1.5b_instruct_q4_k_m.gguf"
     }
   ],
   "pipeline": [
     {
-      "node_type": "DocChunkPreNode",
       "config": {
         "chunk_size": 60
-      }
+      },
+      "depends_on": [],
+      "id": "node_0_DocChunkPreNode",
+      "node_type": "DocChunkPreNode"
     },
     {
-      "node_type": "DocEmbeddingNode",
       "config": {
         "bind_model": "embed_model_onnx"
-      }
+      },
+      "depends_on": [
+        "node_0_DocChunkPreNode"
+      ],
+      "id": "node_1_DocEmbeddingNode",
+      "node_type": "DocEmbeddingNode"
     },
     {
-      "node_type": "VectorSearchNode",
       "config": {
-        "top_k": 1,
-        "min_score": 0.0
-      }
+        "min_score": 0.0,
+        "top_k": 1
+      },
+      "depends_on": [
+        "node_1_DocEmbeddingNode"
+      ],
+      "id": "node_2_VectorSearchNode",
+      "node_type": "VectorSearchNode"
     },
     {
-      "node_type": "PromptBuilderNode",
       "config": {
         "template": "【参考片段】: {context}\n【用户提问】: {query}\n请基于参考片段给出精确解答:"
-      }
+      },
+      "depends_on": [
+        "node_2_VectorSearchNode"
+      ],
+      "id": "node_3_PromptBuilderNode",
+      "node_type": "PromptBuilderNode"
     },
     {
-      "node_type": "IntentRuleNode",
       "config": {
         "default_intent": "GENERAL_QA",
-        "threshold": 0.8,
         "rules": {
-          "AFTER_SALES_REFUND": ["退款", "退货", "换货"],
-          "TECH_ARCHITECTURE": ["架构", "设计", "C++", "算法框架", "ONNX", "llama.cpp"]
-        }
-      }
+          "AFTER_SALES_REFUND": [
+            "退款",
+            "退货",
+            "换货"
+          ],
+          "TECH_ARCHITECTURE": [
+            "架构",
+            "设计",
+            "C++",
+            "算法框架",
+            "ONNX",
+            "llama.cpp"
+          ]
+        },
+        "threshold": 0.8
+      },
+      "depends_on": [
+        "node_3_PromptBuilderNode"
+      ],
+      "id": "node_4_IntentRuleNode",
+      "node_type": "IntentRuleNode"
     },
     {
-      "node_type": "LlmGenerateNode",
       "config": {
         "bind_model": "llm_model_llamacpp",
-        "temperature": 0.3,
-        "max_tokens": 128
-      }
+        "max_tokens": 128,
+        "temperature": 0.3
+      },
+      "depends_on": [
+        "node_4_IntentRuleNode"
+      ],
+      "id": "node_5_LlmGenerateNode",
+      "node_type": "LlmGenerateNode"
     },
     {
-      "node_type": "DocQaPostNode",
-      "config": {}
+      "config": {},
+      "depends_on": [
+        "node_5_LlmGenerateNode"
+      ],
+      "id": "node_6_DocQaPostNode",
+      "node_type": "DocQaPostNode"
     }
   ]
 }

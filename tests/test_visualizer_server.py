@@ -112,14 +112,34 @@ class PipelineCliTest(unittest.TestCase):
         )
         self.assertEqual(code, 0)
         self.assertEqual(initialized["pipeline"]["pipeline"], [])
-        legacy = json.loads(
-            (ROOT / "configs" / "pipeline_entity_extract.json").read_text()
-        )
+        legacy = {
+            "business_name": "entity_extract_0.6b_v1",
+            "models": [
+                {
+                    "model_id": "llm_0.6b_entity",
+                    "engine_type": "mock_npu_llm",
+                    "model_path": "./models/qwen2.5_0.6b_instruct_npu.bin",
+                    "config": {"max_batch_size": 2, "max_seq_len": 512},
+                }
+            ],
+            "pipeline": [
+                {"node_type": "EntityExtractPreNode"},
+                {
+                    "node_type": "LlmGenerateNode",
+                    "config": {"bind_model": "llm_0.6b_entity"},
+                },
+                {"node_type": "EntityExtractPostNode"},
+            ],
+        }
         code, normalized = self.command(
             "normalize", "--explicit-dag", "--stdin", input_pipeline=legacy
         )
         self.assertEqual(code, 0)
-        self.assertIn("depends_on", normalized["pipeline"]["pipeline"][0])
+        self.assertEqual(normalized["pipeline"]["pipeline"][0]["depends_on"], [])
+        self.assertEqual(
+            normalized["pipeline"]["pipeline"][1]["depends_on"],
+            [normalized["pipeline"]["pipeline"][0]["id"]],
+        )
         code, validated = self.command(
             "validate", "--stdin", input_pipeline=normalized["pipeline"]
         )

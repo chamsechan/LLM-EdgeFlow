@@ -3,12 +3,17 @@
   "models": [],
   "pipeline": [
     {
-      "node_type": "KeywordMatcherNode",
       "config": {
         "default_categories": {
-          "SYSTEM_INIT": ["初始化", "自检"]
+          "SYSTEM_INIT": [
+            "初始化",
+            "自检"
+          ]
         }
-      }
+      },
+      "depends_on": [],
+      "id": "node_0_KeywordMatcherNode",
+      "node_type": "KeywordMatcherNode"
     }
   ]
 }
