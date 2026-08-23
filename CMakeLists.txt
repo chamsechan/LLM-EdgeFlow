@@ -1,6 +1,14 @@
 cmake_minimum_required(VERSION 3.16)
 project(AlgSdkFramework LANGUAGES C CXX)
 
+# 自动检测并启用 ccache 编译加速 (如果存在则无缝加速，不存在则平滑降级)
+find_program(CCACHE_PROGRAM ccache)
+if(CCACHE_PROGRAM)
+  message(STATUS "Found ccache: ${CCACHE_PROGRAM}, compiler caching enabled!")
+  set(CMAKE_C_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
+  set(CMAKE_CXX_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
+endif()
+
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_STANDARD 17)
