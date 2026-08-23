@@ -32,6 +32,52 @@ struct PlatformHandle {
   std::mutex mutex;
 };
 
+using OutputPool = std::vector<std::pair<std::string, std::shared_ptr<void>>>;
+
+/**
+ * @brief 调用外部释放 Hook，但无论单个回调是否抛异常都继续清理剩余对象。
+ * @return 0 全部成功，-99 捕获 std::exception，-100 捕获未知异常。
+ */
+int ReleaseOutputPool(OutputDeallocator deallocator, void* user_data,
+                      OutputPool* output_pool) noexcept {
+  if (!output_pool) return 0;
+
+  int first_error = 0;
+  if (deallocator) {
+    for (auto& item : *output_pool) {
+      try {
+        deallocator(item.first.c_str(), std::move(item.second), user_data);
+      } catch (const std::exception&) {
+        if (first_error == 0) first_error = -99;
+      } catch (...) {
+        if (first_error == 0) first_error = -100;
+      }
+    }
+  }
+
+  // 即使外部 Hook 失败，也必须释放所有剩余 shared_ptr。
+  output_pool->clear();
+  return first_error;
+}
+
+/**
+ * @brief 销毁单个句柄。RAII 保证异常路径同样释放 Runtime 与句柄本体。
+ */
+int CleanupPlatformHandle(PlatformHandle* handle) noexcept {
+  if (!handle) return 0;
+
+  std::unique_ptr<PlatformHandle> owner(handle);
+  try {
+    std::lock_guard<std::mutex> lock(owner->mutex);
+    return ReleaseOutputPool(owner->output_deallocator, owner->user_data,
+                             &owner->pooled_outputs);
+  } catch (const std::exception&) {
+    return -99;
+  } catch (...) {
+    return -100;
+  }
+}
+
 /**
  * @brief 全局线程安全活跃句柄注册中心 (杜绝 Use-After-Free 与悬挂指针解引用)
  */
@@ -70,29 +116,26 @@ class PlatformHandleManager {
   /**
    * @brief 安全清理并释放所有活跃句柄资源 (含预分配输出池与底层 Runtime)
    */
-  void DestroyAll() {
-    std::vector<PlatformHandle*> to_destroy;
-    {
-      std::lock_guard<std::mutex> lock(mutex_);
-      for (auto* h : active_handles_) {
-        to_destroy.push_back(h);
-      }
-      active_handles_.clear();
-    }
-    for (auto* h : to_destroy) {
-      if (!h) continue;
+  int DestroyAll() noexcept {
+    try {
+      std::unordered_set<PlatformHandle*> to_destroy;
       {
-        std::lock_guard<std::mutex> lock(h->mutex);
-        if (h->output_deallocator) {
-          for (auto& item : h->pooled_outputs) {
-            h->output_deallocator(item.first.c_str(), std::move(item.second),
-                                  h->user_data);
-          }
-        }
-        h->pooled_outputs.clear();
-        h->runtime.reset();
+        std::lock_guard<std::mutex> lock(mutex_);
+        to_destroy.swap(active_handles_);
       }
-      delete h;
+
+      int first_error = 0;
+      for (auto* h : to_destroy) {
+        int cleanup_ret = CleanupPlatformHandle(h);
+        if (first_error == 0 && cleanup_ret != 0) {
+          first_error = cleanup_ret;
+        }
+      }
+      return first_error;
+    } catch (const std::exception&) {
+      return -99;
+    } catch (...) {
+      return -100;
     }
   }
 
@@ -200,7 +243,7 @@ int Platform_Create(void** handle, const CreateParam* param) noexcept {
     }
 
     // 4. (可选) 处理 depth_num 输出对象预分配 Hook
-    std::vector<std::pair<std::string, std::shared_ptr<void>>> output_pool;
+    OutputPool output_pool;
     if (param->output_allocator && resolved_conf.io_descriptor) {
       try {
         for (uint32_t d = 0; d < param->depth_num; ++d) {
@@ -216,16 +259,25 @@ int Platform_Create(void** handle, const CreateParam* param) noexcept {
           }
         }
       } catch (const std::exception& e) {
-        // 回滚已分配对象
-        if (param->output_deallocator) {
-          for (auto& item : output_pool) {
-            param->output_deallocator(item.first.c_str(),
-                                      std::move(item.second), param->user_data);
-          }
+        // 回滚已分配对象；释放 Hook 异常不能中断剩余对象清理。
+        int cleanup_ret = ReleaseOutputPool(param->output_deallocator,
+                                            param->user_data, &output_pool);
+        if (cleanup_ret != 0) {
+          SetLastError(
+              "Output memory allocation failed and output deallocator threw "
+              "during rollback");
+          return cleanup_ret;
         }
         SetLastError(std::string("Output memory allocation failed: ") +
                      e.what());
         return -4;
+      } catch (...) {
+        int cleanup_ret = ReleaseOutputPool(param->output_deallocator,
+                                            param->user_data, &output_pool);
+        SetLastError(
+            "Unknown exception in OutputAllocator; allocated outputs were "
+            "rolled back");
+        return cleanup_ret != 0 ? cleanup_ret : -100;
       }
     }
 
@@ -411,21 +463,17 @@ int Platform_Destroy(void* handle) noexcept {
       return -1;
     }
 
-    {
-      std::lock_guard<std::mutex> lock(h->mutex);
-      // 释放池化预分配对象
-      if (h->output_deallocator) {
-        for (auto& item : h->pooled_outputs) {
-          h->output_deallocator(item.first.c_str(), std::move(item.second),
-                                h->user_data);
-        }
-      }
-      h->pooled_outputs.clear();
-      h->runtime.reset();
+    int cleanup_ret = CleanupPlatformHandle(h);
+    if (cleanup_ret == -99) {
+      SetLastError(
+          "Output deallocator threw std::exception during Destroy; all "
+          "resources were still released");
+    } else if (cleanup_ret == -100) {
+      SetLastError(
+          "Output deallocator threw an unknown exception during Destroy; all "
+          "resources were still released");
     }
-
-    delete h;
-    return 0;
+    return cleanup_ret;
   } catch (const std::exception& e) {
     SetLastError(std::string("Destroy exception: ") + e.what());
     return -99;
@@ -437,8 +485,18 @@ int Platform_Destroy(void* handle) noexcept {
 
 int Platform_Deinit() noexcept {
   try {
-    PlatformHandleManager::Instance().DestroyAll();
-    return alg_framework::SharedAlgorithmRuntime::GlobalDeinit();
+    int cleanup_ret = PlatformHandleManager::Instance().DestroyAll();
+    int deinit_ret = alg_framework::SharedAlgorithmRuntime::GlobalDeinit();
+    if (cleanup_ret == -99) {
+      SetLastError(
+          "Output deallocator threw std::exception during Deinit; all handles "
+          "were still released");
+    } else if (cleanup_ret == -100) {
+      SetLastError(
+          "Output deallocator threw an unknown exception during Deinit; all "
+          "handles were still released");
+    }
+    return cleanup_ret != 0 ? cleanup_ret : deinit_ret;
   } catch (const std::exception& e) {
     SetLastError(std::string("Deinit exception: ") + e.what());
     return -99;

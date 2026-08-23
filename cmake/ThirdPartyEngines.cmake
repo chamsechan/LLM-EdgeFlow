@@ -70,6 +70,11 @@ if(ENABLE_LLAMACPP)
   set(LLAMA_BUILD_EXAMPLES OFF CACHE BOOL "Build examples" FORCE)
   set(LLAMA_BUILD_SERVER OFF CACHE BOOL "Build server" FORCE)
   set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build shared libraries" FORCE)
+  # ggml 有独立的 ccache 开关。顶层明确关闭编译缓存时必须同步关闭，
+  # 避免子工程绕过 LLM_EDGEFLOW_USE_CCACHE 并访问不可写的默认缓存目录。
+  if(DEFINED LLM_EDGEFLOW_USE_CCACHE AND NOT LLM_EDGEFLOW_USE_CCACHE)
+    set(GGML_CCACHE OFF CACHE BOOL "Use ccache for ggml" FORCE)
+  endif()
 
   FetchContent_Declare(
     llama_cpp_source

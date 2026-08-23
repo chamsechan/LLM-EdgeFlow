@@ -8,10 +8,12 @@
 #include <fstream>
 #include <limits>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <vector>
 
+#include "adapter/platform/company_conf_resolver.h"
 #include "adapter/platform/platform_io_registry.h"
 #include "company_alg_interface.h"
 #include "platform/platform_operator_interface.h"
@@ -26,6 +28,29 @@ static std::string GetConfPath(const std::string& rel_path) {
   }
   return "../" + rel_path;
 }
+
+class ScopedTempDirectory {
+ public:
+  ScopedTempDirectory() {
+    static std::atomic<uint64_t> sequence{0};
+    path_ = std::filesystem::temp_directory_path() /
+            ("llm_edgeflow_platform_test_" +
+             std::to_string(
+                 std::chrono::steady_clock::now().time_since_epoch().count()) +
+             "_" + std::to_string(sequence.fetch_add(1)));
+    std::filesystem::create_directories(path_);
+  }
+
+  ~ScopedTempDirectory() {
+    std::error_code ec;
+    std::filesystem::remove_all(path_, ec);
+  }
+
+  const std::filesystem::path& path() const { return path_; }
+
+ private:
+  std::filesystem::path path_;
+};
 
 class PlatformOperatorTest : public ::testing::Test {
  protected:
@@ -312,6 +337,21 @@ TEST_F(PlatformOperatorTest, DepthNumHookAndRollback) {
   EXPECT_EQ(fail_handle, nullptr);
   // 验证之前成功分配的 2 个对象被全量回滚释放
   EXPECT_EQ(fail_dealloc_count.load(), 2);
+
+  // 5.3 回滚 deallocator 自身抛异常时，仍继续清理全部已分配对象
+  fail_alloc_count.store(0);
+  fail_dealloc_count.store(0);
+  auto throwing_rollback_deallocator = [](const char*, std::shared_ptr<void>,
+                                          void*) {
+    fail_dealloc_count.fetch_add(1);
+    throw std::runtime_error("expected rollback deallocator failure");
+  };
+  param.output_deallocator = throwing_rollback_deallocator;
+  fail_handle = nullptr;
+
+  EXPECT_EQ(ops_.Create(&fail_handle, &param), -99);
+  EXPECT_EQ(fail_handle, nullptr);
+  EXPECT_EQ(fail_dealloc_count.load(), 2);
 }
 
 // 6. 验证 Deinit 托管清理活跃句柄与输出池 (P1-2 修复验证)
@@ -364,30 +404,181 @@ TEST_F(PlatformOperatorTest, DeinitCleansActiveHandlesAndPools) {
   ASSERT_EQ(ops_.Init(), 0);
 }
 
-// 7. 验证未被覆盖的相对模型路径自动绝对化 (P1-1 修复验证)
-TEST_F(PlatformOperatorTest, UncoveredModelPathsNormalization) {
-  // 使用多模型 DocQA pipeline，但 conf 中仅覆盖单个模型或零覆盖
-  std::string conf_path = GetConfPath("configs/pipeline_doc_qa.conf");
+// 7. Destroy 遇到释放回调异常时仍全量清理句柄与输出池
+TEST_F(PlatformOperatorTest, DestroyCleanupSurvivesDeallocatorExceptions) {
+  std::string conf_path = GetConfPath("configs/pipeline_keyword_match.conf");
+
+  static std::atomic<int> dealloc_count{0};
+  static std::atomic<int> released_count{0};
+  dealloc_count.store(0);
+  released_count.store(0);
+  auto alloc = [](const char*, void*) -> std::shared_ptr<void> {
+    return std::shared_ptr<void>(
+        new CompanyKeywordOutputStruct(), [](void* raw) {
+          delete static_cast<CompanyKeywordOutputStruct*>(raw);
+          released_count.fetch_add(1);
+        });
+  };
+  auto throwing_dealloc = [](const char*, std::shared_ptr<void>, void*) {
+    dealloc_count.fetch_add(1);
+    throw std::runtime_error("expected deallocator failure");
+  };
 
   CreateParam param{};
   param.cfg_file_name = conf_path.c_str();
-  param.platform_config.batch_size = 2;
+  param.platform_config.batch_size = 1;
   param.platform_config.device_id = 0;
   param.platform_config.type = ChipType::kAx650;
-  param.depth_num = 1;
+  param.depth_num = 3;
+  param.output_allocator = alloc;
+  param.output_deallocator = throwing_dealloc;
 
   void* handle = nullptr;
-  int ret = ops_.Create(&handle, &param);
-  ASSERT_EQ(ret, 0);
-  ASSERT_NE(handle, nullptr);
+  ASSERT_EQ(ops_.Create(&handle, &param), 0);
+  EXPECT_EQ(ops_.Destroy(handle), -99);
+  EXPECT_EQ(dealloc_count.load(), 3);
+  EXPECT_EQ(released_count.load(), 3);
+  EXPECT_EQ(ops_.Destroy(handle), -1);
 
-  ops_.Destroy(handle);
+  static std::atomic<int> unknown_dealloc_count{0};
+  unknown_dealloc_count.store(0);
+  released_count.store(0);
+  auto unknown_dealloc = [](const char*, std::shared_ptr<void>, void*) {
+    unknown_dealloc_count.fetch_add(1);
+    throw 42;
+  };
+  param.depth_num = 2;
+  param.output_deallocator = unknown_dealloc;
+  handle = nullptr;
+  ASSERT_EQ(ops_.Create(&handle, &param), 0);
+  EXPECT_EQ(ops_.Destroy(handle), -100);
+  EXPECT_EQ(unknown_dealloc_count.load(), 2);
+  EXPECT_EQ(released_count.load(), 2);
+  EXPECT_EQ(ops_.Destroy(handle), -1);
 }
 
-// 8. 验证纯 C ABI 遇到非法 Pipeline 配置构建失败时返回 -3 (P1-3 修复验证)
+// 8. Deinit 遇到单个释放回调异常时仍继续清理全部活跃句柄
+TEST_F(PlatformOperatorTest, DeinitCleanupSurvivesDeallocatorException) {
+  std::string conf_path = GetConfPath("configs/pipeline_keyword_match.conf");
+
+  static std::atomic<int> dealloc_count{0};
+  static std::atomic<int> released_count{0};
+  dealloc_count.store(0);
+  released_count.store(0);
+  auto alloc = [](const char*, void*) -> std::shared_ptr<void> {
+    return std::shared_ptr<void>(
+        new CompanyKeywordOutputStruct(), [](void* raw) {
+          delete static_cast<CompanyKeywordOutputStruct*>(raw);
+          released_count.fetch_add(1);
+        });
+  };
+  auto throwing_dealloc = [](const char*, std::shared_ptr<void>, void*) {
+    dealloc_count.fetch_add(1);
+    throw std::runtime_error("expected deallocator failure");
+  };
+
+  CreateParam param{};
+  param.cfg_file_name = conf_path.c_str();
+  param.platform_config.batch_size = 1;
+  param.platform_config.device_id = 0;
+  param.platform_config.type = ChipType::kAx650;
+  param.depth_num = 2;
+  param.output_allocator = alloc;
+  param.output_deallocator = throwing_dealloc;
+
+  void* h1 = nullptr;
+  void* h2 = nullptr;
+  ASSERT_EQ(ops_.Create(&h1, &param), 0);
+  ASSERT_EQ(ops_.Create(&h2, &param), 0);
+
+  EXPECT_EQ(ops_.Deinit(), -99);
+  EXPECT_EQ(dealloc_count.load(), 4);
+  EXPECT_EQ(released_count.load(), 4);
+  EXPECT_EQ(ops_.Destroy(h1), -1);
+  EXPECT_EQ(ops_.Destroy(h2), -1);
+
+  ASSERT_EQ(ops_.Init(), 0);
+}
+
+// 9. 验证未被覆盖的相对模型路径自动绝对化 (P1-1 修复验证)
+TEST_F(PlatformOperatorTest, UncoveredModelPathsNormalization) {
+  ScopedTempDirectory temp_dir;
+  const auto pipeline_path = temp_dir.path() / "pipeline.json";
+  const auto conf_path = temp_dir.path() / "operator.conf";
+
+  {
+    std::ofstream pipeline_file(pipeline_path);
+    pipeline_file << R"({
+  "business_name": "smart_doc_qa_v1",
+  "models": [
+    {"model_id": "embed_model_v1", "model_path": "defaults/embed.bin"},
+    {"model_id": "llm_model_v1", "model_path": "defaults/llm.bin"}
+  ],
+  "pipeline": []
+})";
+  }
+  {
+    std::ofstream conf_file(conf_path);
+    conf_file << R"({
+  "data": {
+    "pipe_path": "pipeline.json",
+    "model_paths": {"embed_model_v1": "overrides/embed.bin"}
+  }
+})";
+  }
+
+  PlatformConfig platform_config{};
+  platform_config.batch_size = 2;
+  platform_config.device_id = 0;
+  platform_config.type = ChipType::kAx650;
+
+  alg_framework::ResolvedCompanyConfig resolved;
+  std::string error;
+  ASSERT_EQ(alg_framework::CompanyConfResolver::Resolve(
+                conf_path.string(), platform_config, &resolved, &error),
+            0)
+      << error;
+
+  ASSERT_EQ(resolved.synthetic_pipeline_json["models"].size(), 2);
+  const auto& models = resolved.synthetic_pipeline_json["models"];
+  EXPECT_EQ(
+      models[0]["model_path"].get<std::string>(),
+      (temp_dir.path() / "overrides/embed.bin").lexically_normal().string());
+  EXPECT_EQ(models[1]["model_path"].get<std::string>(),
+            (temp_dir.path() / "defaults/llm.bin").lexically_normal().string());
+  EXPECT_TRUE(std::filesystem::path(models[0]["model_path"].get<std::string>())
+                  .is_absolute());
+  EXPECT_TRUE(std::filesystem::path(models[1]["model_path"].get<std::string>())
+                  .is_absolute());
+}
+
+// 10. 验证纯 C ABI 所有 Pipeline 文件/语义构建失败均保持 main 的 -3
 TEST_F(PlatformOperatorTest, PureCAbiConfigFailureErrorCode) {
+  ScopedTempDirectory temp_dir;
+
+  CompanyAlgParamCreate c_param{};
+  c_param.model_root_dir = "";
+  c_param.device_id = 0;
+  c_param.biz_type = ALG_BIZ_TYPE_KEYWORD_MATCH;
+  void* c_handle = nullptr;
+
+  std::string missing_path = (temp_dir.path() / "missing.json").string();
+  c_param.config_file_path = missing_path.c_str();
+  EXPECT_EQ(Alg_Create(&c_handle, &c_param), -3);
+  EXPECT_EQ(c_handle, nullptr);
+
+  std::string malformed_path = (temp_dir.path() / "malformed.json").string();
+  {
+    std::ofstream malformed(malformed_path);
+    malformed << "{ invalid json";
+  }
+  c_param.config_file_path = malformed_path.c_str();
+  EXPECT_EQ(Alg_Create(&c_handle, &c_param), -3);
+  EXPECT_EQ(c_handle, nullptr);
+
   // 临时创建一个 business_name 合法但 node_type 未知的非法 pipeline
-  std::string invalid_pipe = "temp_invalid_pipeline.json";
+  std::string invalid_pipe =
+      (temp_dir.path() / "invalid_pipeline.json").string();
   {
     std::ofstream ofs(invalid_pipe);
     ofs << "{\n"
@@ -397,38 +588,67 @@ TEST_F(PlatformOperatorTest, PureCAbiConfigFailureErrorCode) {
         << "}\n";
   }
 
-  CompanyAlgParamCreate c_param{};
   c_param.config_file_path = invalid_pipe.c_str();
-  c_param.model_root_dir = "";
-  c_param.device_id = 0;
-  c_param.biz_type = ALG_BIZ_TYPE_KEYWORD_MATCH;
-
-  void* c_handle = nullptr;
   int ret = Alg_Create(&c_handle, &c_param);
   // 按照 main 纯 C ABI V2 规范，构建失败返回 -3 (COMPANY_ALG_ERR_INVALID_INPUT)
   EXPECT_EQ(ret, -3);
   EXPECT_EQ(c_handle, nullptr);
-
-  std::filesystem::remove(invalid_pipe);
 }
 
-// 9. 验证 PlatformIoRegistry 描述符不变量注册检查 (P2-2 修复验证)
+// 11. 验证 PlatformIoRegistry 完整描述符不变量 (P2-2 修复验证)
 TEST_F(PlatformOperatorTest, PlatformIoRegistryDescriptorInvariants) {
-  // 1. 无效 BizType
-  alg_framework::PlatformIoDescriptor invalid_desc{};
+  auto& registry = alg_framework::PlatformIoRegistry::Instance();
+  const auto* registered = registry.GetDescriptor(ALG_BIZ_TYPE_KEYWORD_MATCH);
+  ASSERT_NE(registered, nullptr);
+
+  std::string error;
+  EXPECT_TRUE(alg_framework::PlatformIoRegistry::ValidateDescriptor(*registered,
+                                                                    &error))
+      << error;
+
+  auto invalid_desc = *registered;
   invalid_desc.biz_type = ALG_BIZ_TYPE_UNKNOWN;
-  invalid_desc.biz_name = "test";
-  EXPECT_FALSE(alg_framework::PlatformIoRegistry::Instance().RegisterDescriptor(
-      invalid_desc));
+  EXPECT_FALSE(alg_framework::PlatformIoRegistry::ValidateDescriptor(
+      invalid_desc, &error));
 
-  // 2. 空槽位组
+  invalid_desc = *registered;
   invalid_desc.biz_type = static_cast<CompanyAlgBizType>(100);
-  invalid_desc.biz_name = "test_empty_slots";
-  EXPECT_FALSE(alg_framework::PlatformIoRegistry::Instance().RegisterDescriptor(
-      invalid_desc));
+  EXPECT_FALSE(alg_framework::PlatformIoRegistry::ValidateDescriptor(
+      invalid_desc, &error));
 
-  // 重置回健康状态，确保单测隔离
-  alg_framework::PlatformIoRegistry::Instance().ResetForTesting();
+  invalid_desc = *registered;
+  invalid_desc.biz_name = "MismatchedBusinessName";
+  EXPECT_FALSE(alg_framework::PlatformIoRegistry::ValidateDescriptor(
+      invalid_desc, &error));
+
+  invalid_desc = *registered;
+  invalid_desc.input_groups.front().c_type_name = "WrongInputType";
+  EXPECT_FALSE(alg_framework::PlatformIoRegistry::ValidateDescriptor(
+      invalid_desc, &error));
+
+  invalid_desc = *registered;
+  invalid_desc.output_groups.front().c_type_name.clear();
+  EXPECT_FALSE(alg_framework::PlatformIoRegistry::ValidateDescriptor(
+      invalid_desc, &error));
+
+  invalid_desc = *registered;
+  invalid_desc.input_groups.push_back(invalid_desc.input_groups.front());
+  invalid_desc.input_groups.back().canonical_suffix = "second_input";
+  invalid_desc.input_groups.back().aliases.clear();
+  EXPECT_FALSE(alg_framework::PlatformIoRegistry::ValidateDescriptor(
+      invalid_desc, &error));
+
+  invalid_desc = *registered;
+  invalid_desc.input_groups.front().direction =
+      alg_framework::IoDirection::kOutput;
+  EXPECT_FALSE(alg_framework::PlatformIoRegistry::ValidateDescriptor(
+      invalid_desc, &error));
+
+  invalid_desc = *registered;
+  invalid_desc.input_groups.front().aliases.push_back(
+      invalid_desc.input_groups.front().canonical_suffix);
+  EXPECT_FALSE(alg_framework::PlatformIoRegistry::ValidateDescriptor(
+      invalid_desc, &error));
 }
 
 // 10. 业务 1 (关注词匹配) 全生命周期与命名 I/O 执行

@@ -97,6 +97,9 @@ struct PlatformConfig {
 
 /**
  * @brief 可注入的输出对象分配/释放回调钩子 (用于 depth_num 预分配管理)
+ *
+ * 回调由 Operator 异常屏障保护。释放回调抛异常时，Destroy/Deinit 会继续
+ * 清理其他输出对象和句柄，并向调用方返回 -99（标准异常）或 -100（未知异常）。
  */
 using OutputAllocator = std::shared_ptr<void> (*)(const char* slot_suffix,
                                                   void* user_data);

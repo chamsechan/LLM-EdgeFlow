@@ -62,6 +62,14 @@ class PlatformIoRegistry {
   bool RegisterDescriptor(const PlatformIoDescriptor& desc);
 
   /**
+   * @brief 校验描述符与业务 Adapter 及第一阶段单 DTO 契约是否一致。
+   *
+   * 该方法不修改注册中心状态，便于注册前检查和单元测试。
+   */
+  static bool ValidateDescriptor(const PlatformIoDescriptor& desc,
+                                 std::string* error_msg = nullptr) noexcept;
+
+  /**
    * @brief 根据业务类型获取平台 I/O 契约描述符
    */
   const PlatformIoDescriptor* GetDescriptor(CompanyAlgBizType biz_type) const;
@@ -86,11 +94,6 @@ class PlatformIoRegistry {
    * @brief 检查注册中心是否存在注册冲突 (Fail-Closed 审计)
    */
   bool HasConflict() const;
-
-  /**
-   * @brief 重置为默认状态 (仅供单测隔离使用)
-   */
-  void ResetForTesting();
 
  private:
   PlatformIoRegistry();
