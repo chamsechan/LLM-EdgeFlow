@@ -68,6 +68,7 @@ doc/rfcs/NNNN-<kebab-case-title>.md
 | **RFC-0002** | C ABI Adapter 契约安全与内存防越界加固 | `Completed` | `v2.0.0` | Layer 1 (C ABI Adapter) | [0002-c-abi-adapter-security-hardening.md](0002-c-abi-adapter-security-hardening.md) |
 | **RFC-0003** | Pipeline 动态黑板重构与 Wavefront 调度演进 | `Completed` | `v2.1.0` | Layer 2 (Pipeline & Blackboard) | [0003-pipeline-dynamic-blackboard-rebaseline.md](0003-pipeline-dynamic-blackboard-rebaseline.md) |
 | **RFC-0004** | 平台 Operator 接口与命名 I/O 兼容层设计 | `Completed` | `v2.3.0` | Layer 1 (Platform Operator) | [0004-platform-operator-interface-compatibility.md](0004-platform-operator-interface-compatibility.md) |
+| **RFC-0005** | 参数化业务 Demo Runner 与执行配置解耦 | `Draft` | `v2.4.0` | Demo / Integration Tooling | [0005-parameterized-business-demo-runner.md](0005-parameterized-business-demo-runner.md) |
 
 ---
 
