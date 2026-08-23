@@ -51,13 +51,13 @@
 | 依赖状态 | FetchContent 版本、下载来源、校验值、缓存状态 |
 | 可选资产 | 真实模型、真实硬件、网络和 GitHub Actions 是否可用 |
 
-当前候选代码基线为 `origin/main@182c8ee`。正式执行时若代码已变化，应以执行当日重新冻结的 SHA 为准，禁止沿用旧证据。
+当前候选代码基线为 `origin/main@ac6ea4716a7ee0d3056e3acae617fbc23613bb6e`。正式执行时若代码已变化，应以执行当日重新冻结的 SHA 为准，禁止沿用旧证据。
 
 ### 3.2 当前资产快照
 
 以下数字只作为计划编写时的快照，执行时必须通过仓库盘点重新生成：
 
-- 默认 CTest：21 项；
+- 默认 CTest：23 项；
 - 可选真实模型 CTest：启用 `ENABLE_REAL_MODEL_TESTS` 后额外增加；
 - 配置文件：22 个，即 11 对 `.conf/.json`；
 - 默认可视化检查配置：10 个，真实模型配置单独验证；
@@ -208,7 +208,7 @@ MockNPU 只能证明 Mock 契约，不得用于宣称真实硬件时序或 DMA �
 
 1. 从干净环境执行 Debug 和 Release 配置/构建。
 2. 检查 In-source 构建防护、编译选项、RPATH 和安装/导出规则。
-3. 核对默认 21 项及所有条件测试的注册、工作目录和超时。
+3. 动态枚举并核对全部默认 CTest（当前 23 项）及条件测试的注册、工作目录和超时。
 4. 审查 CI 是否检查格式差异，而不是格式化后只执行 `git diff --check`。
 5. 审查 `run_all_tests.sh` 是否遗漏 CTest、是否绕过超时、是否输出过时数量。
 6. 检查脚本的 `set -euo pipefail`、参数、路径、网络失败和重复执行。
@@ -296,7 +296,7 @@ MockNPU 只能证明 Mock 契约，不得用于宣称真实硬件时序或 DMA �
 | 默认 CTest | 必须全量 | PASS/FAIL |
 | Smoke Demo | 必须 | PASS/FAIL |
 | 负向与故障探针 | 必须 | PASS/FAIL |
-| ASan/UBSan | 必须，记录覆盖范围 | PASS/FAIL/PARTIAL |
+| ASan/UBSan | 必须尝试，记录覆盖范围与工具链限制 | PASS/FAIL/PARTIAL/NOT VERIFIED |
 | LeakSanitizer | 平台支持时 | PASS/FAIL/NOT VERIFIED |
 | TSan | 平台支持时 | PASS/FAIL/NOT VERIFIED |
 | 真实模型 | 资产存在时 | PASS/FAIL/NOT VERIFIED |

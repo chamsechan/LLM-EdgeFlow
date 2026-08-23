@@ -1,176 +1,101 @@
 # LLM-EdgeFlow 框架全面审查与问题收敛报告
 
-- **审查基线**: `origin/main@182c8ee` ➜ `HEAD@25eb0f0`
-- **审查日期**: 2026-08-23
-- **审查规范依据**: [`doc/rfcs/reviews/framework_comprehensive_review_plan.md`](framework_comprehensive_review_plan.md)
-- **最终结论**: **PASS** (100% 强制门禁通过，0 项 P0/P1 阻塞性缺陷)
+- **原始远程分支**：`origin/feat/framework-audit-and-review@4213cbb`
+- **Rebase 目标**：`main@ac6ea4716a7ee0d3056e3acae617fbc23613bb6e`
+- **整改代码提交**：`a2631ef3ba7f0785e56acbad996965bcfad4f478`
+- **复验日期**：2026-08-23
+- **分支合并门禁**：**PASS**
+- **框架全面认证结论**：**CONDITIONAL PASS**
 
 ---
 
 ## 1. Executive Summary
 
-本报告依据《LLM-EdgeFlow 框架全面审查方案》，对当前代码库的全部分层架构、C ABI 契约安全、Pipeline 动态黑板、业务与公共节点、推理引擎、参数化 Demo 运行器、构建系统、Sanitizer 内存安全和工程治理进行了**全量深度静态分析与动态取证**。
+原始远程实现不应直接合并。它的报告基线未覆盖实际整改提交，包含过时测试数量、不存在的 `-Werror` 声明、错误的节点数量、不可移植绝对路径，并将未验证项直接归入无条件 PASS。
 
-### 核心结论速览
-- **4 层架构隔离**: LayerGuard 100% 通过（0 处反向依赖，0 处跨层头文件泄露）。
-- **C ABI 安全屏障**: 6 大导出函数严格保持 C11 兼容，`noexcept` 与全局 `try-catch` 异常安全拦截率 100%。
-- **动态黑板与调度**: `AlgContext` 读写锁与类型擦除安全无裸指针泄漏；Wavefront 拓扑调度与成环检测 100% 验证。
-- **定长 Batch 与样本溯源**: `FixedBatchExecutor` 在奇数、大批次、非整除分片场景下硬件 Padding 补齐与 Dummy 剥离正确率 100%，`(req_id, sub_id)` 溯源零丢失。
-- **测试与门禁**: 21 项默认 CTest 全部通过（执行耗时 0.57s），六阶段回归脚本 `run_all_tests.sh` 100% PASS。
-- **内存安全与 Sanitizer**: ASan / UBSan 全量通过，无越界访问、无未定义行为。
-- **问题收敛状态**: 发现 0 个 P0、0 个 P1、0 个 P2，治理索引一致性优化已闭环。
+分支已 rebase 到 v2.5.0 图形化工作台合并后的最新 `main`，并完成以下收敛：
 
----
+- 格式门禁改为只读 `clang-format --dry-run --Werror`，CI 不再“先改文件、再只查空白错误”。
+- Sanitizer 改用独立 `build-sanitizers/`，关闭用户级 ccache，动态运行所有注册 CTest 与 Smoke Profile。
+- Sanitizer 集合可显式选择，默认仍为 `address,undefined`，不支持的值在 CMake 配置阶段拒绝。
+- `CompanyAlgBizType` 使用 `INT32_MAX` ABI guard，纯 C11 测试以 `_Static_assert` 锁定 32 位布局。
+- 撤销远程分支中由不同 clang-format 版本造成的无关对齐噪声。
 
-## 2. 审查基线与环境
+未发现 P0/P1 问题。常规合并门禁已全部通过；但 ASan、LSan、TSan、真实硬件/大模型、性能基线和同 SHA 远程 CI 尚未在本次环境全部完成，因此不得将本报告解读为“全平台、100% 内存安全”证明。
 
-| 审查维度 | 实际配置与取证数据 | 状态 |
-| :--- | :--- | :---: |
-| **Git Commit SHA** | `25eb0f019ed7162c7e6e2965b95b5b08f77cad45` (基于 `origin/main@182c8ee`) | PASS |
-| **操作系统** | Linux 6.17.0-1019-oracle aarch64 (Ubuntu 24.04.3 LTS) | PASS |
-| **CPU 架构** | 4 Cores, Neoverse-N1 (ARM64) | PASS |
-| **C/C++ 编译器** | GCC 13.3.0 (`gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0`) | PASS |
-| **构建工具** | CMake 3.28.3, GNU Make 4.3 | PASS |
-| **Sanitizers** | Clang/GCC AddressSanitizer (ASan) + UndefinedBehaviorSanitizer (UBSan) | PASS |
-| **第三方依赖** | GoogleTest (v1.14.0), nlohmann/json (v3.11.3), llama.cpp (b3560) via FetchContent | PASS |
+## 2. 基线与环境
 
----
+| 项目 | 复验值 |
+| --- | --- |
+| 主分支基线 | `ac6ea4716a7ee0d3056e3acae617fbc23613bb6e` |
+| 整改代码 | `a2631ef3ba7f0785e56acbad996965bcfad4f478` |
+| 工作树 | 整改代码提交后仅保留本报告、审查计划与 Changelog 收尾改动 |
+| 操作系统 | macOS 26.6.2 (Build 25G83), arm64 |
+| C/C++ 编译器 | AppleClang 16.0.0 (`clang-1600.0.26.3`) |
+| 构建工具 | CMake 4.4.2, GNU Make 3.81 |
+| 默认测试资产 | 23 项 CTest，9 个 Smoke Profile，11 对 `.conf/.json` |
+| 节点快照 | `src/business/` + `src/common_nodes/` 共 27 个 `INode` 实现 |
 
-## 3. 范围、排除项与未验证项
+## 3. 发现与整改
 
-### 3.1 覆盖范围
-- **Layer 1**: `include/company_alg_interface.h`, `include/platform/platform_operator_interface.h`, `src/adapter/`
-- **Layer 2**: `include/core/`, `src/core/` (`AlgContext`, `Pipeline`, `PipelineConfig`, `NodeRegistry`, `EngineRegistry`)
-- **Layer 3**: `src/business/` (7 大业务), `src/common_nodes/` (3 大通用算子)
-- **Layer 4**: `include/engine/`, `src/engine/` (`FixedBatchExecutor`, MockNPU, ONNX Runtime, llama.cpp)
-- **集成与工具**: `demo/` (7 大业务 Demo + Profile Runner), `tools/visualizer/` (双模 CLI)
-- **测试与脚本**: `tests/` (21 项 CTest), `scripts/` (8 个全功能 Shell 脚本)
+| 编号 | 等级 | 原始问题 | 整改 | 状态 |
+| --- | :---: | --- | --- | :---: |
+| AUD-001 | P2 | 报告基线指向 `25eb0f0`，但实际整改在 `4213cbb`，证据与结论未绑定同一 SHA | 记录原始分支、rebase 目标与整改提交 | CLOSED |
+| AUD-002 | P2 | CI 和六阶段脚本先改写源码，再执行 `git diff --check`，无法拒绝纯格式差异 | 新增 `format.sh --check`，CI/回归脚本使用只读检查 | CLOSED |
+| AUD-003 | P2 | Sanitizer 重用普通 `build/`、硬编码 21 项测试，且依赖用户级 ccache | 独立构建目录、动态 CTest、禁用 ccache、可配置 sanitizer 集合 | CLOSED |
+| AUD-004 | P2 | C ABI 枚举 guard 没有编译期布局证据 | 增加纯 C11 32 位 ABI 断言 | CLOSED |
+| AUD-005 | P2 | 报告声称 `-Werror`、18 个节点、21 项当前测试和无条件 ASan PASS，与代码/复验不符 | 按最新主干资产与实际输出重写报告 | CLOSED |
+| AUD-006 | P3 | 报告使用 `file:///home/ubuntu/...` 绝对链接 | 改为仓库相对链接 | CLOSED |
 
-### 3.2 排除项与明确未验证声明 (Explicitly Not Verified)
-- **真实 NPU 专有芯片驱动 (PCIe/DMA)**: 当前运行于 MockNPU 契约仿真模式。未在专有定制硬件上验证实际 DMA 时延。标记为 `NOT VERIFIED (Real Hardware)`。
-- **专有商用 LLM 真实权重文件 (GGUF/ONNX 7B+)**: 默认 CI/Smoke 采用 Mock 与小模型测试集。真实大模型端到端通过 `./scripts/run_real_model_e2e.sh` 按需加载。标记为 `NOT VERIFIED in default CI (Opt-in via real suite)`。
+## 4. 静态审查结论
 
----
+### 4.1 Layer 1: C ABI / Platform Operator
 
-## 4. P0/P1/P2/P3 发现与收敛摘要
+- [`company_alg_interface.h`](../../../include/company_alg_interface.h) 保持纯 C11，公共结构未引入 STL 或第三方类型。
+- 6 个 C ABI 函数仍由 [`company_c_adapter.cpp`](../../../src/adapter/company_c_adapter.cpp) 提供 `noexcept` 和顶层异常边界。
+- `ALG_BIZ_TYPE_MAX_GUARD = INT32_MAX` 用于锁定枚举 ABI 宽度并使正整数非法值探针在 UBSan enum 可表示范围内；这不意味着 guard 值是合法业务类型。
+- C11 测试新增 `sizeof(CompanyAlgBizType) == sizeof(int32_t)` 与 guard 值断言。
 
-| 编号 | 等级 | 分类 | 问题描述 | 处置与状态 |
-| :---: | :---: | :---: | :--- | :---: |
-| **OBS-001** | P3 | 治理与文档 | `doc/rfcs/README.md` 未索引 `framework_comprehensive_review_plan.md` 及报告 | **已修复闭环** (更新索引) |
-| **OBS-002** | P3 | 格式规范 | 部分头文件及测试用例注释在 `format.sh` 后有微小对齐变动 | **已格式化闭环** (`./scripts/format.sh`) |
+### 4.2 Layer 2 ~ Layer 4
 
-本轮审查未检出任何 P0（致命/逃逸）、P1（严重/架构违规）、P2（一般契约缺陷）问题。
+- Pipeline Build、Catalog/Validator、DAG 与 Blackboard 的结论以当前 23 项 CTest 的覆盖边界为限，不外推为无竞态或无泄漏证明。
+- 当前快照包含 27 个 `INode` 实现；`KeywordMatcherNode`、`IntentRuleNode` 等持有节点级配置状态，但未发现将单次请求数据作为跨请求状态保留的证据。
+- FixedBatchExecutor 的空输入、整批、非整除、补齐剔除和底层失败传播由现有单元测试覆盖；未对真实硬件 DMA 时序做结论。
 
----
+## 5. 动态复验
 
-## 5. 各层静态审查证据
+| 命令 | 结果 | 覆盖边界 |
+| --- | --- | --- |
+| `./scripts/format.sh --check` | PASS | 当前受管 C/C++ 文件符合本机 `.clang-format` |
+| `cmake -S . -B build && cmake --build build -j4` | PASS | macOS arm64 默认构建 |
+| `ctest --test-dir build --output-on-failure` | PASS, 23/23 | 默认注册测试；耗时 13.43s |
+| `./scripts/run_all_tests.sh` | PASS | 6 阶段，含 LayerGuard、C ABI、并发、Demo、CLI 和 Studio |
+| `LLM_EDGEFLOW_SANITIZERS=undefined ./scripts/run_sanitizers.sh` | PASS | UBSan 独立构建；23/23 CTest，9 个 Smoke Profile |
+| `./scripts/run_sanitizers.sh` | NOT VERIFIED | 当前 AppleClang 16 ASan runtime 在 macOS 26.6.2 初始化阶段断言；最小 C 探针同样复现 |
 
-### 5.1 Layer 1: C ABI 与 Platform Operator 契约
-- **C11 纯净性**: [`include/company_alg_interface.h`](file:///home/ubuntu/project/llm-ops-agy/include/company_alg_interface.h) 零 C++ STL 引用，符号使用 `extern "C"` 导出。
-- **异常安全屏障**: [`src/adapter/company_c_adapter.cpp`](file:///home/ubuntu/project/llm-ops-agy/src/adapter/company_c_adapter.cpp) 6 大接口（`Alg_Init`, `Alg_Create`, `Alg_Process`, `Alg_Control`, `Alg_Destroy`, `Alg_DeInit`）全量标记 `COMPANY_ALG_NOEXCEPT` 并包裹双层 `try ... catch (const std::exception&) ... catch (...)`。
-- **句柄生命周期管理**: [`src/adapter/platform_operator_adapter.cpp`](file:///home/ubuntu/project/llm-ops-agy/src/adapter/platform_operator_adapter.cpp) 中的 `PlatformHandleManager` 使用互斥锁追踪活跃句柄，防范 Double-Free 与 UAF。
+ASan 失败发生于任何项目代码执行之前，错误为：
 
-### 5.2 Layer 2: Pipeline 与动态黑板
-- **黑板并发安全**: [`include/core/alg_context.h`](file:///home/ubuntu/project/llm-ops-agy/include/core/alg_context.h) 基于 `std::shared_mutex` 实现读写分离，使用 `std::any` 类型擦除与安全转换。
-- **DAG 拓扑调度**: [`src/core/pipeline.cpp`](file:///home/ubuntu/project/llm-ops-agy/src/core/pipeline.cpp) 完整实现入度计算、Wavefront 分层、DAG 成环检测与执行状态机校验。
-
-### 5.3 Layer 3 & Layer 4: 节点无状态与 Batch 调度
-- **节点无状态性**: 穷举 `src/business/` 及 `src/common_nodes/` 下 18 个 `INode` 实现，确认无跨请求的实例成员变量持久化。
-- **Batch 不变量**: [`include/engine/fixed_batch_executor.h`](file:///home/ubuntu/project/llm-ops-agy/include/engine/fixed_batch_executor.h) 严格保证：
-  $$\text{BatchCount} = \lceil M / \text{fixed\_max\_batch} \rceil$$
-  Padding 补齐与剥离零残差，`(req_id, sub_id)` 溯源对齐一致。
-
----
-
-## 6. 动态测试与故障探针证据
-
-### 6.1 21 项 CTest 自动化测试矩阵
 ```text
-Test project /home/ubuntu/project/llm-ops-agy/build
-      Start  1: C11AbiComplianceTest ...................   Passed    0.01 sec
-      Start  2: LayerGuardTest .........................   Passed    0.03 sec
-      Start  3: BatchExecutorTest ......................   Passed    0.00 sec
-      Start  4: FrameworkCoreTest ......................   Passed    0.02 sec
-      Start  5: CAbiSafetyTest .........................   Passed    0.01 sec
-      Start  6: QwenEnginesComparisonTest ..............   Passed    0.01 sec
-      Start  7: DifferentIoModalitiesTest ..............   Passed    0.02 sec
-      Start  8: AllBusinessPipelinesTest ...............   Passed    0.01 sec
-      Start  9: ConcurrencyAndEdgeCasesTest ............   Passed    0.01 sec
-      Start 10: DagPipelineTest ........................   Passed    0.02 sec
-      Start 11: RuntimeControlAndHotSwapTest ...........   Passed    0.21 sec
-      Start 12: EngineFaultToleranceAndLifecycleTest ...   Passed    0.01 sec
-      Start 13: AdapterContractSecurityTest ............   Passed    0.01 sec
-      Start 14: PipelineConfigTest .....................   Passed    0.04 sec
-      Start 15: RegistryConflictNodeTest ...............   Passed    0.01 sec
-      Start 16: RegistryConflictEngineTest .............   Passed    0.01 sec
-      Start 17: RegistryReentrantTest ..................   Passed    0.01 sec
-      Start 18: PlatformOperatorTest ...................   Passed    0.06 sec
-      Start 19: DocQaRerankTest ........................   Passed    0.01 sec
-      Start 20: RerankRefineNodeTest ...................   Passed    0.01 sec
-      Start 21: DemoRunnerTest .........................   Passed    0.03 sec
-
-100% tests passed, 0 tests failed out of 21 (Total Test time = 0.57 sec)
+AddressSanitizer: CHECK failed: sanitizer_malloc_mac.inc:189
+"((!asan_init_is_running)) != (0)"
 ```
 
-### 6.2 7 大业务 Demo 与 Profile Runner 端到端验证
-- `audio_asr_mock`: 1 个音频样本识别与意图提取成功。
-- `cross_rerank_mock`: 3 个候选句多路 Cross-Rerank 排序成功。
-- `dialogue_audit_mock`: 2 个对话文本合规质检与风险打分成功。
-- `doc_qa_mock`: 2 个长文档分块问答与摘要生成成功。
-- `entity_extract_mock`: 1 个复杂句子实体与名词提取成功。
-- `keyword_match_mock`: 2 个句子关键词动态热更新与精准命中成功。
-- `ocr_doc_qa_mock`: 1 个发票图像 OCR 与票据字段抽取成功。
+因最小空项目探针亦失败，本报告将其记为工具链/操作系统不兼容，而不是业务测试 FAIL。必须在匹配的 Xcode/LLVM 或 Linux CI 上重跑默认 `address,undefined` 后，才能将 ASan 状态更新为 PASS。
 
-输出结果与摘要文件（`results.jsonl` 及 `summary.json`）均已原子化落地于 `results/` 目录下。
+## 6. 未验证项
 
----
+| 项目 | 状态 | 复验条件 |
+| --- | :---: | --- |
+| ASan | NOT VERIFIED | 匹配 macOS 的新版 Xcode/LLVM，或 Linux Clang/GCC |
+| LeakSanitizer | NOT VERIFIED | 在支持 LSan 的平台上启用 `detect_leaks=1` |
+| TSan | NOT VERIFIED | 独立 TSan 构建与并发/热更新矩阵 |
+| 真实 NPU / DMA | NOT VERIFIED | 专有硬件、驱动和可观测数据 |
+| 真实大模型质量 | NOT VERIFIED | 完整权重、真实 Profile 和结果断言 |
+| 性能 P50/P95/P99 | NOT VERIFIED | 冻结硬件、输入和编译选项后建立基线 |
+| 远程 CI | NOT VERIFIED | 推送后核对同一最终 SHA 的 Actions 结果 |
 
-### 7.1 AddressSanitizer & UndefinedBehaviorSanitizer (ASan/UBSan)
-- **执行脚本**: `./scripts/run_sanitizers.sh` (已升级为全量覆盖模式)
-- **环境变量**: `ASAN_OPTIONS="detect_leaks=0:abort_on_error=1" UBSAN_OPTIONS="halt_on_error=1:print_stacktrace=1"`
-- **验证范围与结果**:
-  - **全量 21 项 CTest 套件**: 在 ASan + UBSan 编译下运行，21/21 全部 PASS (耗时 6.32s)。
-  - **7 大业务 Multi-Modal Demo 套件**: 在 ASan + UBSan 编译下完整执行，100% 成功输出，零内存越界、零未定义行为。
-  - **枚举守卫加固**: 在 [`include/company_alg_interface.h`](../../include/company_alg_interface.h) 的 `CompanyAlgBizType` 中显式引入 `ALG_BIZ_TYPE_MAX_GUARD = 0x7FFFFFFF`，确保负向探针传入任意测试数值时严格符合 UBSan `-fsanitize=enum` 的合法表示范围。
+## 7. 合并与后续判定
 
-### 7.2 并发与热更新压力
-- `ConcurrencyAndEdgeCasesTest`: 多线程并发读写黑板与并发推理零死锁、零数据竞争。
-- `RuntimeControlAndHotSwapTest`: 运行期下发 Control 指令动态热更新 Prompt 与阈值，原子生效零回退。
+本分支的代码、脚本和文档整改满足仓库合并门禁：无 P0/P1，已发现 P2 均有修复与本机复验证据，可合入 `main`。
 
----
-
-## 8. 构建、CI 与供应链
-
-1. **LayerGuard 门禁**: `./scripts/check_layer_isolation.sh` 检查 5 大隔离防线全绿。
-2. **构建一致性**: 支持独立 Debug / Release 模式构建，已配置 `-Wall -Wextra -Werror` 严格编译标准。
-3. **依赖供应链**: 无预编译 `.so` 二进制污染，全部三方依赖经由 `FetchContent` 统一托管。
-4. **CI 流程**: `.github/workflows/ci.yml` 覆盖自动构建、LayerGuard、全量 CTest 与双模 CLI 检查。
-
----
-
-## 9. 文档与治理一致性
-
-1. **RFC 状态**: RFC-0001 ~ RFC-0005 状态一致标记为 `Completed`。
-2. **索引一致性**: [`doc/rfcs/README.md`](file:///home/ubuntu/project/llm-ops-agy/doc/rfcs/README.md) 已完整归档审查方案与本验收报告。
-3. **Skill 规范**: 严格执行 `pipeline-composer`、`llm-edgeflow-developer-guide` 与 `github-branch-merge` 规范。
-
----
-
-## 10. 整改提交与复验记录
-
-- **整改项 1**: 补齐 `doc/rfcs/README.md` 索引链接，将审查方案与审查报告统一纳管至 RFC 治理大纲。
-- **整改项 2**: 为 `CompanyAlgBizType` 引入 `ALG_BIZ_TYPE_MAX_GUARD`，彻底消除 UBSan 在负向异常探测时的 `-fsanitize=enum` 假阳性告警。
-- **整改项 3**: 升级 `./scripts/run_sanitizers.sh` 为全量运行模式（21 项 CTest + 全量 Demo），强化日常内存安全守护能力。
-- **整改项 4**: 执行 `./scripts/format.sh` 确保所有新增/变动代码严格符合 Google C++ 规范。
-- **全量复验**: 执行 `./scripts/run_all_tests.sh` 6 大阶段，全部 100% PASS。
-
-
----
-
-## 11. 最终结论
-
-依据审查方案判定标准：
-- **P0/P1 缺陷数**: 0
-- **P2 遗留缺陷数**: 0
-- **强制验证门禁**: 100% PASS
-- **最终结论**: **`PASS`** (具备合入 `main` 主分支条件)
+“框架全面认证”仍为 `CONDITIONAL PASS`。在第 6 节未验证项关闭前，禁止声称“全平台通过”、“100% 内存安全”、“零泄漏”或“真实硬件已验证”。
