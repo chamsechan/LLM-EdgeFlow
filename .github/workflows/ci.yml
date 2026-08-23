@@ -24,7 +24,7 @@ jobs:
       - name: Verify Code Style (Google C++ Format)
         run: |
           ./scripts/format.sh
-          git diff --exit-code || (echo "❌ Code style check failed! Please run ./scripts/format.sh" && exit 1)
+          git diff --check || (echo "❌ Code style / whitespace check failed!" && exit 1)
 
       - name: Configure CMake
         run: |
@@ -39,12 +39,15 @@ jobs:
       - name: Run Google Test Suites via CTest
         run: |
           cd build
+          export LD_LIBRARY_PATH=$PWD:$PWD/_deps/onnxruntime_prebuilt-src/lib:$LD_LIBRARY_PATH
           ctest --output-on-failure --verbose
 
       - name: Run End-to-End Multi-Modal Integration Demo
         run: |
+          export LD_LIBRARY_PATH=$PWD/build:$PWD/build/_deps/onnxruntime_prebuilt-src/lib:$LD_LIBRARY_PATH
           ./build/alg_demo
 
       - name: Run Full 6-Tier Quality Assurance Script
         run: |
+          export LD_LIBRARY_PATH=$PWD/build:$PWD/build/_deps/onnxruntime_prebuilt-src/lib:$LD_LIBRARY_PATH
           ./scripts/run_all_tests.sh

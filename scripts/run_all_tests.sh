@@ -8,6 +8,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 BUILD_DIR="$ROOT_DIR/build"
+export LD_LIBRARY_PATH="$BUILD_DIR:$BUILD_DIR/_deps/onnxruntime_prebuilt-src/lib:${LD_LIBRARY_PATH:-}"
 
 GREEN='\033[0;32m'
 CYAN='\033[0;36m'
@@ -53,7 +54,9 @@ echo -e "${GREEN}✓ Tier 1 核心架构、DAG拓扑调度与全业务组合（�
 
 # 4. C ABI 安全防御、多线程并发与边界压测 (Tier 2)
 echo -e "${BOLD}[ Step 4/6: C ABI 安全、平台 Operator 接口、8 线程并发、动态热重载与极端边界鲁棒性压测 ]${NC}"
+"$BUILD_DIR/test_c11_abi_compliance"
 "$BUILD_DIR/test_c_abi_safety"
+"$BUILD_DIR/test_adapter_contract_security"
 "$BUILD_DIR/test_platform_operator"
 "$BUILD_DIR/test_runtime_control_and_hot_swap"
 "$BUILD_DIR/test_concurrency_and_edge_cases"
