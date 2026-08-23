@@ -81,3 +81,5 @@ doc/rfcs/NNNN-<kebab-case-title>.md
 - [RFC-0003 Pipeline 黑板重构验收报告](reviews/0003-pipeline-dynamic-blackboard-acceptance.md)
 - [RFC-0004 平台 Operator 兼容层验收报告](reviews/0004-platform-operator-interface-acceptance.md)
 - [RFC-0005 参数化业务 Demo Runner 验收评审报告](reviews/0005-parameterized-business-demo-runner-acceptance.md)
+- [框架全面审查方案](reviews/framework_comprehensive_review_plan.md)
+- [框架全面审查与问题收敛报告](reviews/framework_comprehensive_review_report.md)

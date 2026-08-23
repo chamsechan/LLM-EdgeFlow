@@ -21,7 +21,10 @@ typedef enum {
   ALG_BIZ_TYPE_AUDIO_ASR_INTENT =
       6,  // 业务 6: 语音识别与意图槽位抽取 (Audio ASR + NLU)
   ALG_BIZ_TYPE_CROSS_RERANK =
-      7  // 业务 7: 纯语义精排打分 (Query-Passage Cross-Encoder)
+      7,  // 业务 7: 纯语义精排打分 (Query-Passage Cross-Encoder)
+  // Force a 32-bit ABI representation and keep positive invalid-value probes
+  // representable when enum sanitization is enabled.
+  ALG_BIZ_TYPE_MAX_GUARD = INT32_MAX
 } CompanyAlgBizType;
 
 // 句柄创建参数结构体

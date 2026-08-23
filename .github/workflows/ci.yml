@@ -40,8 +40,8 @@ jobs:
 
       - name: Verify Code Style (Google C++ Format)
         run: |
-          ./scripts/format.sh
-          git diff --check || (echo "❌ Code style / whitespace check failed!" && exit 1)
+          ./scripts/format.sh --check
+          git diff --check
 
       - name: Configure CMake
         run: |

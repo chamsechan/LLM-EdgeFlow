@@ -13,6 +13,11 @@
 
 #include "company_alg_interface.h"
 
+_Static_assert(sizeof(CompanyAlgBizType) == sizeof(int32_t),
+               "CompanyAlgBizType must remain a 32-bit C ABI type");
+_Static_assert(ALG_BIZ_TYPE_MAX_GUARD == INT32_MAX,
+               "CompanyAlgBizType ABI guard must remain INT32_MAX");
+
 int main(void) {
   printf("[C11 ABI Test] Testing pure C ABI lifecycle and safety...\n");
 
