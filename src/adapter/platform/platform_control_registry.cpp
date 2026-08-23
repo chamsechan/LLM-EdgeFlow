@@ -1,5 +1,6 @@
 #include "adapter/platform/platform_control_registry.h"
 
+#include <cmath>
 #include <cstring>
 #include <iostream>
 
@@ -110,11 +111,12 @@ int PlatformControlRegistry::ResolveControlParam(
         const auto* param = static_cast<
             const llm_edgeflow::platform::ControlUpdateThresholdParam*>(
             control_param);
-        if (param->threshold < 0.0f || param->threshold > 1.0f) {
+        if (!std::isfinite(param->threshold) || param->threshold < 0.0f ||
+            param->threshold > 1.0f) {
           if (error_msg) {
             *error_msg =
-                "ControlUpdateThresholdParam::threshold out of range [0.0, "
-                "1.0]: " +
+                "ControlUpdateThresholdParam::threshold must be a finite float "
+                "in range [0.0, 1.0]: " +
                 std::to_string(param->threshold);
           }
           return -2;

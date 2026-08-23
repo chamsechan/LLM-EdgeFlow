@@ -2,13 +2,17 @@
 
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
+#include <limits>
 #include <memory>
 #include <string>
 #include <thread>
 #include <vector>
 
+#include "adapter/platform/platform_io_registry.h"
 #include "company_alg_interface.h"
 #include "platform/platform_operator_interface.h"
 
@@ -116,7 +120,7 @@ TEST_F(PlatformOperatorTest, CreateParameterValidation) {
   EXPECT_NE(GetPlatformLastError(), nullptr);
 }
 
-// 3. 强类型 Control 正常与边界异常测试 (P0-1 修复验证)
+// 3. 强类型 Control 正常与边界异常测试 (含 NaN / Infinity 拦截，P2-1 修复验证)
 TEST_F(PlatformOperatorTest, StronglyTypedControlValidation) {
   std::string conf_path = GetConfPath("configs/pipeline_keyword_match.conf");
   CreateParam param{};
@@ -131,22 +135,16 @@ TEST_F(PlatformOperatorTest, StronglyTypedControlValidation) {
   ASSERT_NE(handle, nullptr);
 
   // 3.1 ControlUpdateRulesParam 测试
-  // A. 空参数指针
-  EXPECT_EQ(ops_.Control(handle, ControlCommand::kUpdateRules, nullptr), -2);
-
-  // B. rules_json_str 为 nullptr
   ControlUpdateRulesParam rules_param_null{nullptr};
   EXPECT_EQ(
       ops_.Control(handle, ControlCommand::kUpdateRules, &rules_param_null),
       -2);
 
-  // C. 非法 JSON
   ControlUpdateRulesParam rules_param_invalid{"not_a_json_object"};
   EXPECT_EQ(
       ops_.Control(handle, ControlCommand::kUpdateRules, &rules_param_invalid),
       -2);
 
-  // D. 正常合法 JSON
   ControlUpdateRulesParam rules_param_valid{
       "{\"categories\":{\"VIP_SERVICE\":[\"VIP\",\"加急\"]}}"};
   EXPECT_EQ(
@@ -154,21 +152,18 @@ TEST_F(PlatformOperatorTest, StronglyTypedControlValidation) {
       0);
 
   // 3.2 ControlSwitchPromptParam 测试
-  // A. 空 prompt_template_str
   ControlSwitchPromptParam prompt_param_null{"prompt_v1", nullptr};
   EXPECT_EQ(
       ops_.Control(handle, ControlCommand::kSwitchPrompt, &prompt_param_null),
       -2);
 
-  // B. 正常模板
   ControlSwitchPromptParam prompt_param_valid{"prompt_v2",
                                               "用户提问：{query}，请回答："};
   EXPECT_EQ(
       ops_.Control(handle, ControlCommand::kSwitchPrompt, &prompt_param_valid),
       0);
 
-  // 3.3 ControlUpdateThresholdParam 测试
-  // A. 阈值超出 [0.0, 1.0] 范围
+  // 3.3 ControlUpdateThresholdParam 测试 (含 NaN / Infinity 特殊浮点数拦截)
   ControlUpdateThresholdParam thresh_low{"VIP_SERVICE", -0.1f};
   EXPECT_EQ(ops_.Control(handle, ControlCommand::kUpdateThreshold, &thresh_low),
             -2);
@@ -176,7 +171,18 @@ TEST_F(PlatformOperatorTest, StronglyTypedControlValidation) {
   EXPECT_EQ(
       ops_.Control(handle, ControlCommand::kUpdateThreshold, &thresh_high), -2);
 
-  // B. 正常阈值
+  // NaN 拦截
+  float nan_val = std::numeric_limits<float>::quiet_NaN();
+  ControlUpdateThresholdParam thresh_nan{"VIP_SERVICE", nan_val};
+  EXPECT_EQ(ops_.Control(handle, ControlCommand::kUpdateThreshold, &thresh_nan),
+            -2);
+
+  // Infinity 拦截
+  float inf_val = std::numeric_limits<float>::infinity();
+  ControlUpdateThresholdParam thresh_inf{"VIP_SERVICE", inf_val};
+  EXPECT_EQ(ops_.Control(handle, ControlCommand::kUpdateThreshold, &thresh_inf),
+            -2);
+
   ControlUpdateThresholdParam thresh_valid{"VIP_SERVICE", 0.85f};
   EXPECT_EQ(
       ops_.Control(handle, ControlCommand::kUpdateThreshold, &thresh_valid), 0);
@@ -206,8 +212,7 @@ TEST_F(PlatformOperatorTest, HandleLifecycleAndUafPrevention) {
   // 1. 正常单次销毁
   EXPECT_EQ(ops_.Destroy(handle), 0);
 
-  // 2. 重复销毁 (Double Destroy): 句柄已被摘除，必须安全返回 -1，绝不发生 UAF /
-  // SIGSEGV
+  // 2. 重复销毁 (Double Destroy): 安全返回 -1，绝不发生 UAF / SIGSEGV
   EXPECT_EQ(ops_.Destroy(handle), -1);
 
   // 3. 销毁后调用 Process / Control: 安全返回 -1
@@ -222,7 +227,7 @@ TEST_F(PlatformOperatorTest, HandleLifecycleAndUafPrevention) {
   EXPECT_EQ(ops_.Control(handle, ControlCommand::kUpdateRules, &ctrl_param),
             -1);
 
-  // 4. 传入随机垃圾地址指针: 注册表中查不到，必须安全返回 -1
+  // 4. 传入随机垃圾地址指针: 注册表中查不到，安全返回 -1
   void* fake_handle = reinterpret_cast<void*>(0xdeadbeef);
   EXPECT_EQ(ops_.Destroy(fake_handle), -1);
   EXPECT_EQ(ops_.Process(fake_handle, in_b, out_b), -1);
@@ -230,7 +235,203 @@ TEST_F(PlatformOperatorTest, HandleLifecycleAndUafPrevention) {
       ops_.Control(fake_handle, ControlCommand::kUpdateRules, &ctrl_param), -1);
 }
 
-// 5. 业务 1 (关注词匹配) 全生命周期与命名 I/O 执行
+// 5. 验证 depth_num 预分配 Hook 正常生命周期与失败回滚 (P1-3 修复验证)
+TEST_F(PlatformOperatorTest, DepthNumHookAndRollback) {
+  std::string conf_path = GetConfPath("configs/pipeline_keyword_match.conf");
+
+  // 5.1 正常分配与销毁
+  static std::atomic<int> alloc_count{0};
+  static std::atomic<int> dealloc_count{0};
+  alloc_count.store(0);
+  dealloc_count.store(0);
+
+  auto my_allocator = [](const char* slot,
+                         void* user_data) -> std::shared_ptr<void> {
+    (void)slot;
+    (void)user_data;
+    alloc_count.fetch_add(1);
+    return std::make_shared<CompanyKeywordOutputStruct>();
+  };
+
+  auto my_deallocator = [](const char* slot, std::shared_ptr<void> ptr,
+                           void* user_data) {
+    (void)slot;
+    (void)ptr;
+    (void)user_data;
+    dealloc_count.fetch_add(1);
+  };
+
+  CreateParam param{};
+  param.cfg_file_name = conf_path.c_str();
+  param.platform_config.batch_size = 2;
+  param.platform_config.device_id = 0;
+  param.platform_config.type = ChipType::kAx650;
+  param.depth_num = 4;
+  param.output_allocator = my_allocator;
+  param.output_deallocator = my_deallocator;
+
+  void* handle = nullptr;
+  ASSERT_EQ(ops_.Create(&handle, &param), 0);
+  EXPECT_EQ(alloc_count.load(), 4);
+
+  ASSERT_EQ(ops_.Destroy(handle), 0);
+  EXPECT_EQ(dealloc_count.load(), 4);
+
+  // 5.2 分配中途失败真实回滚验证 (P2-3 修复验证)
+  static std::atomic<int> fail_alloc_count{0};
+  static std::atomic<int> fail_dealloc_count{0};
+  fail_alloc_count.store(0);
+  fail_dealloc_count.store(0);
+
+  auto failing_allocator = [](const char* slot,
+                              void* user_data) -> std::shared_ptr<void> {
+    (void)slot;
+    (void)user_data;
+    int cur = fail_alloc_count.fetch_add(1);
+    if (cur >= 2) {
+      return nullptr;  // 第 3 次分配时故意返回空指针，触发回滚
+    }
+    return std::make_shared<CompanyKeywordOutputStruct>();
+  };
+
+  auto failing_deallocator = [](const char* slot, std::shared_ptr<void> ptr,
+                                void* user_data) {
+    (void)slot;
+    (void)ptr;
+    (void)user_data;
+    fail_dealloc_count.fetch_add(1);
+  };
+
+  param.depth_num = 4;
+  param.output_allocator = failing_allocator;
+  param.output_deallocator = failing_deallocator;
+  void* fail_handle = nullptr;
+
+  int ret = ops_.Create(&fail_handle, &param);
+  EXPECT_EQ(ret, -4);  // 内存分配失败返回 -4
+  EXPECT_EQ(fail_handle, nullptr);
+  // 验证之前成功分配的 2 个对象被全量回滚释放
+  EXPECT_EQ(fail_dealloc_count.load(), 2);
+}
+
+// 6. 验证 Deinit 托管清理活跃句柄与输出池 (P1-2 修复验证)
+TEST_F(PlatformOperatorTest, DeinitCleansActiveHandlesAndPools) {
+  std::string conf_path = GetConfPath("configs/pipeline_keyword_match.conf");
+
+  static std::atomic<int> active_dealloc_count{0};
+  active_dealloc_count.store(0);
+
+  auto dealloc = [](const char* slot, std::shared_ptr<void> ptr,
+                    void* user_data) {
+    (void)slot;
+    (void)ptr;
+    (void)user_data;
+    active_dealloc_count.fetch_add(1);
+  };
+
+  auto alloc = [](const char* slot, void* user_data) -> std::shared_ptr<void> {
+    (void)slot;
+    (void)user_data;
+    return std::make_shared<CompanyKeywordOutputStruct>();
+  };
+
+  CreateParam param{};
+  param.cfg_file_name = conf_path.c_str();
+  param.platform_config.batch_size = 2;
+  param.platform_config.device_id = 0;
+  param.platform_config.type = ChipType::kAx650;
+  param.depth_num = 3;
+  param.output_allocator = alloc;
+  param.output_deallocator = dealloc;
+
+  void* h1 = nullptr;
+  void* h2 = nullptr;
+  ASSERT_EQ(ops_.Create(&h1, &param), 0);
+  ASSERT_EQ(ops_.Create(&h2, &param), 0);
+
+  // 在没有显式 Destroy 的情况下直接调用 Deinit
+  int deinit_ret = ops_.Deinit();
+  EXPECT_EQ(deinit_ret, 0);
+
+  // 验证 2 个句柄 * depth_num(3) = 6 个池化对象全部被安全回收
+  EXPECT_EQ(active_dealloc_count.load(), 6);
+
+  // 再次对已被托管清理的句柄调用 Destroy，安全返回 -1
+  EXPECT_EQ(ops_.Destroy(h1), -1);
+  EXPECT_EQ(ops_.Destroy(h2), -1);
+
+  // 重新 Init 恢复测试环境
+  ASSERT_EQ(ops_.Init(), 0);
+}
+
+// 7. 验证未被覆盖的相对模型路径自动绝对化 (P1-1 修复验证)
+TEST_F(PlatformOperatorTest, UncoveredModelPathsNormalization) {
+  // 使用多模型 DocQA pipeline，但 conf 中仅覆盖单个模型或零覆盖
+  std::string conf_path = GetConfPath("configs/pipeline_doc_qa.conf");
+
+  CreateParam param{};
+  param.cfg_file_name = conf_path.c_str();
+  param.platform_config.batch_size = 2;
+  param.platform_config.device_id = 0;
+  param.platform_config.type = ChipType::kAx650;
+  param.depth_num = 1;
+
+  void* handle = nullptr;
+  int ret = ops_.Create(&handle, &param);
+  ASSERT_EQ(ret, 0);
+  ASSERT_NE(handle, nullptr);
+
+  ops_.Destroy(handle);
+}
+
+// 8. 验证纯 C ABI 遇到非法 Pipeline 配置构建失败时返回 -3 (P1-3 修复验证)
+TEST_F(PlatformOperatorTest, PureCAbiConfigFailureErrorCode) {
+  // 临时创建一个 business_name 合法但 node_type 未知的非法 pipeline
+  std::string invalid_pipe = "temp_invalid_pipeline.json";
+  {
+    std::ofstream ofs(invalid_pipe);
+    ofs << "{\n"
+        << "  \"business_name\": \"keyword_match_v1\",\n"
+        << "  \"models\": [],\n"
+        << "  \"pipeline\": [{\"node_type\": \"UnknownNonExistentNode\"}]\n"
+        << "}\n";
+  }
+
+  CompanyAlgParamCreate c_param{};
+  c_param.config_file_path = invalid_pipe.c_str();
+  c_param.model_root_dir = "";
+  c_param.device_id = 0;
+  c_param.biz_type = ALG_BIZ_TYPE_KEYWORD_MATCH;
+
+  void* c_handle = nullptr;
+  int ret = Alg_Create(&c_handle, &c_param);
+  // 按照 main 纯 C ABI V2 规范，构建失败返回 -3 (COMPANY_ALG_ERR_INVALID_INPUT)
+  EXPECT_EQ(ret, -3);
+  EXPECT_EQ(c_handle, nullptr);
+
+  std::filesystem::remove(invalid_pipe);
+}
+
+// 9. 验证 PlatformIoRegistry 描述符不变量注册检查 (P2-2 修复验证)
+TEST_F(PlatformOperatorTest, PlatformIoRegistryDescriptorInvariants) {
+  // 1. 无效 BizType
+  alg_framework::PlatformIoDescriptor invalid_desc{};
+  invalid_desc.biz_type = ALG_BIZ_TYPE_UNKNOWN;
+  invalid_desc.biz_name = "test";
+  EXPECT_FALSE(alg_framework::PlatformIoRegistry::Instance().RegisterDescriptor(
+      invalid_desc));
+
+  // 2. 空槽位组
+  invalid_desc.biz_type = static_cast<CompanyAlgBizType>(100);
+  invalid_desc.biz_name = "test_empty_slots";
+  EXPECT_FALSE(alg_framework::PlatformIoRegistry::Instance().RegisterDescriptor(
+      invalid_desc));
+
+  // 重置回健康状态，确保单测隔离
+  alg_framework::PlatformIoRegistry::Instance().ResetForTesting();
+}
+
+// 10. 业务 1 (关注词匹配) 全生命周期与命名 I/O 执行
 TEST_F(PlatformOperatorTest, KeywordMatchLifecycleAndExecution) {
   std::string conf_path = GetConfPath("configs/pipeline_keyword_match.conf");
 
@@ -291,7 +492,7 @@ TEST_F(PlatformOperatorTest, KeywordMatchLifecycleAndExecution) {
   EXPECT_EQ(ret, 0);
 }
 
-// 6. 命名 I/O 错误边界校验 (别名组、非法后缀、空指针)
+// 11. 命名 I/O 错误边界校验 (别名组、非法后缀、空指针)
 TEST_F(PlatformOperatorTest, NamedIoErrorHandling) {
   std::string conf_path = GetConfPath("configs/pipeline_keyword_match.conf");
 
@@ -353,7 +554,7 @@ TEST_F(PlatformOperatorTest, NamedIoErrorHandling) {
   ops_.Destroy(handle);
 }
 
-// 7. 同句柄互斥与多句柄并发测试 (P2-5 修复验证)
+// 12. 同句柄互斥与多句柄并发测试 (P2-5 修复验证)
 TEST_F(PlatformOperatorTest, SameHandleMutualExclusionAndConcurrency) {
   std::string conf_path = GetConfPath("configs/pipeline_keyword_match.conf");
 
@@ -410,50 +611,7 @@ TEST_F(PlatformOperatorTest, SameHandleMutualExclusionAndConcurrency) {
   ops_.Destroy(handle);
 }
 
-// 8. 验证 depth_num 预分配 Hook 与失败回滚机制 (P1-3 修复验证)
-TEST_F(PlatformOperatorTest, DepthNumHookAndRollback) {
-  std::string conf_path = GetConfPath("configs/pipeline_keyword_match.conf");
-
-  static std::atomic<int> alloc_count{0};
-  static std::atomic<int> dealloc_count{0};
-  alloc_count.store(0);
-  dealloc_count.store(0);
-
-  auto my_allocator = [](const char* slot,
-                         void* user_data) -> std::shared_ptr<void> {
-    (void)slot;
-    (void)user_data;
-    alloc_count.fetch_add(1);
-    return std::make_shared<CompanyKeywordOutputStruct>();
-  };
-
-  auto my_deallocator = [](const char* slot, std::shared_ptr<void> ptr,
-                           void* user_data) {
-    (void)slot;
-    (void)ptr;
-    (void)user_data;
-    dealloc_count.fetch_add(1);
-  };
-
-  CreateParam param{};
-  param.cfg_file_name = conf_path.c_str();
-  param.platform_config.batch_size = 2;
-  param.platform_config.device_id = 0;
-  param.platform_config.type = ChipType::kAx650;
-  param.depth_num = 4;
-  param.output_allocator = my_allocator;
-  param.output_deallocator = my_deallocator;
-
-  void* handle = nullptr;
-  ASSERT_EQ(ops_.Create(&handle, &param), 0);
-  // depth_num=4, 业务 1 有 1 个输出组，共分配 4 个对象
-  EXPECT_EQ(alloc_count.load(), 4);
-
-  ASSERT_EQ(ops_.Destroy(handle), 0);
-  EXPECT_EQ(dealloc_count.load(), 4);
-}
-
-// 9. 业务 2 (实体/名词提取) 平台 Operator 测试
+// 13. 业务 2 (实体/名词提取) 平台 Operator 测试
 TEST_F(PlatformOperatorTest, EntityExtractPipeline) {
   std::string conf_path = GetConfPath("configs/pipeline_entity_extract.conf");
 
@@ -486,7 +644,7 @@ TEST_F(PlatformOperatorTest, EntityExtractPipeline) {
   ops_.Destroy(handle);
 }
 
-// 10. 业务 3 (智能长文档切片问答 RAG) 平台 Operator 测试
+// 14. 业务 3 (智能长文档切片问答 RAG) 平台 Operator 测试
 TEST_F(PlatformOperatorTest, DocQaPipeline) {
   std::string conf_path = GetConfPath("configs/pipeline_doc_qa.conf");
 
@@ -522,7 +680,7 @@ TEST_F(PlatformOperatorTest, DocQaPipeline) {
   ops_.Destroy(handle);
 }
 
-// 11. 业务 4 (智能对话风控质检) 平台 Operator 测试
+// 15. 业务 4 (智能对话风控质检) 平台 Operator 测试
 TEST_F(PlatformOperatorTest, DialogueComplianceAuditPipeline) {
   std::string conf_path = GetConfPath("configs/pipeline_dialogue_audit.conf");
 
@@ -556,7 +714,7 @@ TEST_F(PlatformOperatorTest, DialogueComplianceAuditPipeline) {
   ops_.Destroy(handle);
 }
 
-// 12. 业务 5 (多模态 OCR 图文票据) 平台 Operator 测试 ("frame" / "od_out")
+// 16. 业务 5 (多模态 OCR 图文票据) 平台 Operator 测试 ("frame" / "od_out")
 TEST_F(PlatformOperatorTest, OcrDocQaPipeline) {
   std::string conf_path = GetConfPath("configs/pipeline_ocr_doc_qa.conf");
 
@@ -588,7 +746,7 @@ TEST_F(PlatformOperatorTest, OcrDocQaPipeline) {
   ops_.Destroy(handle);
 }
 
-// 13. 业务 6 (语音识别与意图) 平台 Operator 测试
+// 17. 业务 6 (语音识别与意图) 平台 Operator 测试
 TEST_F(PlatformOperatorTest, AudioAsrIntentPipeline) {
   std::string conf_path = GetConfPath("configs/pipeline_audio_asr_intent.conf");
 
@@ -621,7 +779,7 @@ TEST_F(PlatformOperatorTest, AudioAsrIntentPipeline) {
   ops_.Destroy(handle);
 }
 
-// 14. 业务 7 (纯语义精排打分) 平台 Operator 测试
+// 18. 业务 7 (纯语义精排打分) 平台 Operator 测试
 TEST_F(PlatformOperatorTest, CrossRerankPipeline) {
   std::string conf_path = GetConfPath("configs/pipeline_cross_rerank.conf");
 

@@ -87,11 +87,16 @@ class PlatformIoRegistry {
    */
   bool HasConflict() const;
 
+  /**
+   * @brief 重置为默认状态 (仅供单测隔离使用)
+   */
+  void ResetForTesting();
+
  private:
   PlatformIoRegistry();
   void RegisterDefaults();
 
-  mutable std::mutex mutex_;
+  mutable std::recursive_mutex mutex_;
   std::unordered_map<int, PlatformIoDescriptor> descriptors_;
   bool has_conflict_ = false;
   std::vector<std::string> registration_errors_;

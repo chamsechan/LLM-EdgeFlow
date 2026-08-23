@@ -2,6 +2,7 @@
 
 #include <iostream>
 #include <sstream>
+#include <unordered_set>
 
 namespace alg_framework {
 
@@ -13,8 +14,90 @@ PlatformIoRegistry& PlatformIoRegistry::Instance() {
 PlatformIoRegistry::PlatformIoRegistry() { RegisterDefaults(); }
 
 bool PlatformIoRegistry::RegisterDescriptor(const PlatformIoDescriptor& desc) {
-  std::lock_guard<std::mutex> lock(mutex_);
+  std::lock_guard<std::recursive_mutex> lock(mutex_);
   int biz_key = static_cast<int>(desc.biz_type);
+
+  if (desc.biz_type == ALG_BIZ_TYPE_UNKNOWN || desc.biz_name.empty()) {
+    has_conflict_ = true;
+    std::string err =
+        "Invalid descriptor: ALG_BIZ_TYPE_UNKNOWN or empty biz_name";
+    registration_errors_.push_back(err);
+    std::cerr << "[PlatformIoRegistry ERROR] " << err << std::endl;
+    return false;
+  }
+
+  if (desc.input_groups.empty() || desc.output_groups.empty()) {
+    has_conflict_ = true;
+    std::string err =
+        "Descriptor for BizType " + std::to_string(biz_key) +
+        " must declare at least one input group and one output group";
+    registration_errors_.push_back(err);
+    std::cerr << "[PlatformIoRegistry ERROR] " << err << std::endl;
+    return false;
+  }
+
+  std::unordered_set<std::string> seen_in;
+  for (const auto& group : desc.input_groups) {
+    if (group.canonical_suffix.empty() ||
+        group.direction != IoDirection::kInput) {
+      has_conflict_ = true;
+      std::string err =
+          "Invalid input group canonical_suffix or direction for BizType " +
+          std::to_string(biz_key);
+      registration_errors_.push_back(err);
+      return false;
+    }
+    if (!seen_in.insert(group.canonical_suffix).second) {
+      has_conflict_ = true;
+      std::string err = "Duplicate suffix '" + group.canonical_suffix +
+                        "' in input groups for BizType " +
+                        std::to_string(biz_key);
+      registration_errors_.push_back(err);
+      return false;
+    }
+    for (const auto& alias : group.aliases) {
+      if (alias.empty() || !seen_in.insert(alias).second) {
+        has_conflict_ = true;
+        std::string err = "Duplicate or empty alias '" + alias +
+                          "' in input groups for BizType " +
+                          std::to_string(biz_key);
+        registration_errors_.push_back(err);
+        return false;
+      }
+    }
+  }
+
+  std::unordered_set<std::string> seen_out;
+  for (const auto& group : desc.output_groups) {
+    if (group.canonical_suffix.empty() ||
+        group.direction != IoDirection::kOutput) {
+      has_conflict_ = true;
+      std::string err =
+          "Invalid output group canonical_suffix or direction for BizType " +
+          std::to_string(biz_key);
+      registration_errors_.push_back(err);
+      return false;
+    }
+    if (!seen_out.insert(group.canonical_suffix).second) {
+      has_conflict_ = true;
+      std::string err = "Duplicate suffix '" + group.canonical_suffix +
+                        "' in output groups for BizType " +
+                        std::to_string(biz_key);
+      registration_errors_.push_back(err);
+      return false;
+    }
+    for (const auto& alias : group.aliases) {
+      if (alias.empty() || !seen_out.insert(alias).second) {
+        has_conflict_ = true;
+        std::string err = "Duplicate or empty alias '" + alias +
+                          "' in output groups for BizType " +
+                          std::to_string(biz_key);
+        registration_errors_.push_back(err);
+        return false;
+      }
+    }
+  }
+
   if (descriptors_.find(biz_key) != descriptors_.end()) {
     has_conflict_ = true;
     std::string err =
@@ -29,8 +112,16 @@ bool PlatformIoRegistry::RegisterDescriptor(const PlatformIoDescriptor& desc) {
 }
 
 bool PlatformIoRegistry::HasConflict() const {
-  std::lock_guard<std::mutex> lock(mutex_);
+  std::lock_guard<std::recursive_mutex> lock(mutex_);
   return has_conflict_;
+}
+
+void PlatformIoRegistry::ResetForTesting() {
+  std::lock_guard<std::recursive_mutex> lock(mutex_);
+  descriptors_.clear();
+  registration_errors_.clear();
+  has_conflict_ = false;
+  RegisterDefaults();
 }
 
 void PlatformIoRegistry::RegisterDefaults() {
@@ -135,7 +226,7 @@ void PlatformIoRegistry::RegisterDefaults() {
 
 const PlatformIoDescriptor* PlatformIoRegistry::GetDescriptor(
     CompanyAlgBizType biz_type) const {
-  std::lock_guard<std::mutex> lock(mutex_);
+  std::lock_guard<std::recursive_mutex> lock(mutex_);
   auto it = descriptors_.find(static_cast<int>(biz_type));
   if (it != descriptors_.end()) {
     return &it->second;

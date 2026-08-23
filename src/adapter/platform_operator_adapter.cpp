@@ -67,9 +67,33 @@ class PlatformHandleManager {
     return h;
   }
 
-  void ClearAll() {
-    std::lock_guard<std::mutex> lock(mutex_);
-    active_handles_.clear();
+  /**
+   * @brief 安全清理并释放所有活跃句柄资源 (含预分配输出池与底层 Runtime)
+   */
+  void DestroyAll() {
+    std::vector<PlatformHandle*> to_destroy;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      for (auto* h : active_handles_) {
+        to_destroy.push_back(h);
+      }
+      active_handles_.clear();
+    }
+    for (auto* h : to_destroy) {
+      if (!h) continue;
+      {
+        std::lock_guard<std::mutex> lock(h->mutex);
+        if (h->output_deallocator) {
+          for (auto& item : h->pooled_outputs) {
+            h->output_deallocator(item.first.c_str(), std::move(item.second),
+                                  h->user_data);
+          }
+        }
+        h->pooled_outputs.clear();
+        h->runtime.reset();
+      }
+      delete h;
+    }
   }
 
  private:
@@ -413,7 +437,7 @@ int Platform_Destroy(void* handle) noexcept {
 
 int Platform_Deinit() noexcept {
   try {
-    PlatformHandleManager::Instance().ClearAll();
+    PlatformHandleManager::Instance().DestroyAll();
     return alg_framework::SharedAlgorithmRuntime::GlobalDeinit();
   } catch (const std::exception& e) {
     SetLastError(std::string("Deinit exception: ") + e.what());

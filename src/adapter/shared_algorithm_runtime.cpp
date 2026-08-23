@@ -124,11 +124,11 @@ int SharedAlgorithmRuntime::CreateFromConfigFile(
       if (diagnostic.code == PipelineErrorCode::kRegistryConflict) {
         return COMPANY_ALG_ERR_REGISTRY_CONFLICT;  // -6
       }
-      if (diagnostic.code == PipelineErrorCode::kConfigFileOpen ||
-          diagnostic.code == PipelineErrorCode::kJsonParse) {
+      if (diagnostic.code == PipelineErrorCode::kConfigFileOpen) {
         return COMPANY_ALG_ERR_INVALID_PARAM;  // -2
       }
-      return COMPANY_ALG_ERR_INVALID_PARAM;  // -2
+      // 保持 main 既有纯 C ABI 契约：配置语义/节点构建失败返回 -3
+      return COMPANY_ALG_ERR_INVALID_INPUT;  // -3
     }
 
     if (!adapter->ValidatePipelineBinding(

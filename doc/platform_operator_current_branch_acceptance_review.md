@@ -1,12 +1,14 @@
-# 当前分支相对 `main` 的验收评审
+# 当前分支相对 `main` 的验收复评
 
-## 1. 评审结论
+## 1. 复评结论
 
-**结论：不通过，建议整改后复验。**
+**结论：仍不通过，建议修复剩余 P1 后再次复验。**
 
-当前分支已经实现了平台 Operator 兼容层的主要骨架，常规构建、19 组 CTest 和六阶段回归均通过；纯 C ABI 与 C++ 平台门面也确实复用了同一套 `SharedAlgorithmRuntime`。但是，设计中的异常安全、强类型 Control、句柄生命周期、注册冲突 fail-closed、配置路径规范化和 `depth_num` 所有权语义尚未完整落地。其中 Control 裸指针探测和重复 Destroy 存在进程崩溃/未定义行为风险，不满足平台接入的安全边界，不能按当前状态验收。
+本轮复评确认，上一次报告中的两个 P0 安全问题已经关闭：Control 已改为按命令解析唯一的强类型参数结构体；顺序重复 Destroy、Destroy 后 Process/Control 和随机非法句柄也不再直接解引用已释放对象。注册冲突 fail-closed、显式芯片白名单、RuntimeOptions 贯通、C ABI 入口异常屏障、输出分配 Hook 和 RerankRefineNode 单测也已落地。
 
-建议先修复本文 P0、P1 项，再重新执行完整测试矩阵和 sanitizer 验证。
+最新提交能够完成全量构建，20/20 CTest 和六阶段回归全部通过，文档声明的正常生命周期与七个业务 happy path 基本可用。本轮没有发现新的 P0。
+
+但仍存在 3 项 P1：部分模型覆盖时未覆盖模型的路径仍依赖当前工作目录；Deinit 在存在活跃句柄时静默遗失句柄及输出池；共享 Runtime 重构改变了既有纯 C ABI 的 Pipeline 构建失败返回码。这三项分别违反设计的路径确定性、生命周期所有权和“现有 C ABI 错误码保持不变”原则，因此当前仍不建议最终验收。
 
 ## 2. 评审范围与基线
 
@@ -14,193 +16,189 @@
 | --- | --- |
 | 当前分支 | `docs/platform-operator-interface-design` |
 | `main` | `a5fdf53` |
-| 当前 HEAD | `3947dbc` |
+| 当前 HEAD | `09e9276` |
+| 上次评审 HEAD | `3947dbc` |
+| 本轮修复提交 | `0c8e95b`、`09e9276` |
 | 设计基线 | `f857662a:doc/platform_operator_interface_design.md` |
-| 比较范围 | `main...HEAD`，共 40 个文件，约新增 3305 行、删除 275 行 |
+| 比较范围 | `main...HEAD`，43 个文件，约新增 4400 行、删除 265 行 |
 
-设计文档在后续提交中被改成“已完成实现并全量回归测试”，且删除了原设计“本轮不直接实现接口/输出内存池/修改 demo”的非目标描述。本次验收严格以用户指定的 `f857662a` 版本为基线，同时对当前分支实际声称的“已完成交付”进行核查。
+验收以用户指定提交 `f857662a` 中的设计文档为准，同时核对当前 README、当前设计文档及提交信息中的完成度声明。
 
-当前分支最后一个提交还增加了 `RerankRefineNode` 和 LLM + Rerank + QA 多模型 Pipeline。这部分不属于 `f857662a` 的平台 Operator 设计范围，但由于它位于当前分支相对 `main` 的差异中，本评审也检查了其架构和测试质量。
+## 3. 上轮问题复验结果
 
-## 3. 阻断问题
+| 编号 | 复验结论 | 说明 |
+| --- | --- | --- |
+| P0-1 Control 猜测裸指针布局 | 已关闭 | 三个命令均有唯一参数结构体，按枚举确定性转换，并增加 null、长度、JSON 与范围检查 |
+| P0-2 重复 Destroy UAF | 已关闭（按设计契约） | 活跃句柄表可安全拒绝顺序重复 Destroy、Destroy 后调用和随机地址；设计明确要求调用方在 Destroy 前停止并等待同句柄调用，因此并发 Destroy 不作为本轮强制能力 |
+| P1-1 相对路径重复拼接 | 部分关闭 | `.conf`、Pipeline 路径和显式覆盖的模型路径已经绝对化；未覆盖模型仍保持相对路径，详见 P1-1 |
+| P1-2 Registry fail-closed | 基本关闭 | GlobalInit 已审计 Business/Node/Engine/Platform I/O Registry，业务名唯一反查和 Create 期 I/O 绑定已落地 |
+| P1-3 `depth_num` 所有权 | 基本关闭 | 已增加分配/释放 Hook 并按深度保存输出池；正常创建/销毁计数通过，但自动化测试尚未真正覆盖分配中途失败回滚 |
+| P1-4 芯片和运行时元数据 | 已关闭 | 显式芯片白名单已接入，chip/batch/depth/device/business 已写入 RuntimeOptions |
+| P1-5 C ABI 入口异常屏障 | 已关闭 | 六个 C 导出入口均恢复标准异常和未知异常双重 catch |
+| P2-1 I/O alias 语义 | 已关闭 | canonical suffix 与 aliases 已显式分组 |
+| P2-2 `.conf` 错误字段静默忽略 | 已关闭 | 已出现但类型错误、空字符串、未知 model_id 均确定性返回错误 |
+| P2-3 平台错误类别丢失 | 已关闭 | Resolver 改为结构化返回 `-2/-5`，Registry 构建冲突保留 `-6` |
+| P2-4 Rerank 未验证重排 | 已关闭 | 新增独立 `RerankRefineNodeTest`，覆盖可控分数重排、每请求 Top-K、空候选和缺失 Key |
+| P2-5 测试/README 声明不准确 | 部分关闭 | 同句柄 Process/Control 已有并发用例，Rerank 已补单测；路径矩阵、真实 rollback 和活跃句柄 Deinit 仍未覆盖 |
 
-### P0-1：Control 通过猜测 `void*` 内存布局解析参数，可能直接导致宿主进程崩溃
+## 4. 剩余高优先级问题
 
-设计第 10 节明确要求：每个命令必须声明唯一参数结构体，通用门面不得猜测内存布局。
+### P1-1：部分或零模型覆盖时，Pipeline 原始相对模型路径没有按 `.conf` 目录绝对化
 
-当前公开头只定义了 `ControlCommand`，没有为三个命令定义对应参数结构体。实现却依次把同一指针猜成 `const char*` 和 `const char**`，并执行首字节读取、二次指针解引用及无界 `strlen`：
+设计第 5.3、5.4 节要求：模型相对路径统一以 `.conf` 所在目录为基准规范化；`model_paths` 允许只覆盖部分模型，未覆盖模型保留其语义，但仍必须得到确定的最终路径。
 
-- `src/adapter/platform/platform_control_registry.cpp:36-56`
-- `include/platform/platform_operator_interface.h:20-27`
+当前 Resolver 只对 `.conf` 中显式出现的 `model_path`/`model_paths` 做绝对化：
 
-如果调用方按设计传入阈值、Prompt 或规则结构体，该代码可能把整数/浮点数字节解释成地址并解引用。`try-catch` 无法捕获 SIGSEGV，因此 `noexcept` 不能形成异常安全屏障。这也与 README 中“强类型动态控制映射”的交付声明不符（`README.md:130`）。
+- `src/adapter/platform/company_conf_resolver.cpp:170-269`
+- `src/adapter/platform_operator_adapter.cpp:163-171`
 
-建议：
+Create 随后把空字符串作为 `model_root_dir` 传给 Pipeline，并声称模型路径已“全量绝对规范化”。因此 Pipeline JSON 中未被覆盖的相对 `model_path` 会原样进入 Engine。
 
-1. 在平台公开头中为每个 `ControlCommand` 定义唯一、明确的参数结构体。
-2. 注册表按命令做确定性 `static_cast`，逐字段执行 null、长度和范围校验。
-3. 字符串读取必须带上限；禁止探测任意裸内存、禁止对未知结构执行 `strlen`。
-4. 增加三个命令的正常、null、非法范围、超长字符串、未知命令和异常注入测试。
-
-### P0-2：重复 Destroy 测试本身触发 use-after-free，生命周期保护无效
-
-`Platform_Destroy` 在第一次调用中将 `is_valid` 置为 false 后立即 `delete h`；第二次调用又把原地址转换成 `PlatformHandle*` 并读取 `h->is_valid`：
-
-- `src/adapter/platform_operator_adapter.cpp:257-272`
-- `tests/test_platform_operator.cpp:172-177`
-
-第二次读取已经释放的对象属于 use-after-free。当前普通构建下测试偶然返回 `-1`，不代表实现安全；内存被复用后可能二次释放、崩溃或错误访问其他对象。同理，Destroy 后的 Process/Control 也会先解引用悬挂句柄。
-
-建议：使用可校验的句柄注册表/控制块，在删除对象前从活动表原子摘除，并让公开入口先验证句柄是否仍登记；或者调整 API 为可清空调用方句柄的所有权模型。补充重复 Destroy、Destroy 后 Process/Control、非法句柄和并发销毁测试，并在 ASan 下通过。
-
-## 4. 高优先级问题
-
-### P1-1：相对路径没有按设计规范化，存在重复拼接模型目录的问题
-
-`CompanyConfResolver` 在 `.conf` 为相对路径时，把模型覆盖写成相对的 `base_dir/model_path`；`Platform_Create` 随后又把 `conf_path.parent_path()` 作为 `model_root_dir` 传给 Pipeline：
-
-- `src/adapter/platform/company_conf_resolver.cpp:26-37,145-180`
-- `src/adapter/platform_operator_adapter.cpp:102-107`
-
-从仓库根目录执行以下命令可以直接观察到错误路径：
-
-```bash
-./build/alg_demo --biz 1 --conf configs/pipeline_entity_extract.conf
-```
-
-实际加载日志为：
+本轮从 `/private/tmp` 运行一个只覆盖 DocQA 两个模型中一个模型的 `.conf`，实际日志为：
 
 ```text
-configs/configs/models/qwen_0_6b_npu.bin
+[MockNpuEmbeddingEngine] Loaded model from: /private/tmp/models/overridden_embed.bin
+[MockNpuLlmEngine] Loaded LLM from: ./models/qwen_1.5b_npu.bin
 ```
 
-Mock Engine 不检查文件存在性，因此回归仍然通过；真实 Engine 或部署路径会受影响。设计要求 `.conf`、Pipeline 和模型相对路径均以 `.conf` 所在目录为基准规范化后写入内存 JSON。
+第一个模型按 `.conf` 目录解析，第二个模型依赖进程 cwd，最终行为不确定。当前仓库正式 `.conf` 恰好全量覆盖了所有有模型的 Pipeline，因此六阶段回归没有暴露该问题。
 
-建议：先把 `.conf` 路径转成 `absolute(...).lexically_normal()`/受控 canonical 路径，再生成绝对 Pipeline 和模型路径；已写入绝对模型路径时不要再次传入会参与拼接的 `model_root_dir`。增加“从仓库根、build 目录和其他 cwd 使用同一相对/绝对 `.conf`”的路径断言测试，直接检查 Engine 的最终加载路径。
+建议在完成 `.conf` 覆盖后，再遍历内存 Pipeline JSON 中的全部模型：对仍为相对路径的 `model_path` 统一按 `.conf` 目录绝对化；或者传入唯一、明确的模型根目录，但不能同时出现两套相对路径基准。补充零覆盖、部分覆盖、全量覆盖及不同 cwd 的最终 Engine 路径断言。
 
-### P1-2：注册冲突和业务唯一反查未按设计 fail-closed
+### P1-2：Deinit 会静默清空活跃句柄登记，但不销毁句柄和输出池
 
-设计要求 Node、Engine、BusinessAdapter、Platform I/O 注册冲突在 Init 阶段 fail-closed，并要求 `business_name` 唯一反查 Adapter。
+`Platform_Deinit` 当前先调用 `PlatformHandleManager::ClearAll()`，后者只执行 `active_handles_.clear()`：
 
-当前实现存在以下缺口：
+- `src/adapter/platform_operator_adapter.cpp:70-73`
+- `src/adapter/platform_operator_adapter.cpp:414-424`
 
-- `SharedAlgorithmRuntime::GlobalInit` 只检查 `BusinessAdapterRegistry`，未检查 `NodeFactory`、`EngineFactory` 和 Platform I/O Registry。
-- `PlatformIoRegistry` 通过 `unordered_map::operator[]` 硬编码写入，没有注册 API、重复检测或冲突状态。
-- `GetAdapterByPipelineName` 找到第一个匹配项就返回，无法识别两个 Adapter 的 `allowed_pipeline_names` 重叠（`include/adapter/business_adapter_registry.h:134-142`）。
-- Create 阶段不校验业务是否存在 Platform I/O Descriptor；缺失描述符要到首次 Process 才返回 `-5`（`src/adapter/platform/platform_io_registry.cpp:116-123`）。
-- Pipeline 的 Node/Engine 冲突诊断最终会被 `CreateFromPipelineJson` 统一映射成 `-3`，没有保持设计的 `-6`。
+它没有删除 `PlatformHandle`、reset Runtime，也没有调用输出 deallocator。清空登记后，调用方再执行 Destroy 会被判定为非法句柄，已经没有公开路径可以回收该对象。
 
-建议：统一全局注册健康检查；让业务反查返回“0/1/多匹配”的确定状态；Create 时绑定并保存 Adapter 与 I/O Descriptor；按诊断类别保持 `-5/-6` 错误码。
+本轮定向探针结果：
 
-### P1-3：`depth_num` 和输出所有权只存值，没有实现设计语义
+```text
+lifecycle create=0 alloc=2 deinit=0 dealloc_after_deinit=0 destroy_after_deinit=-1
+```
 
-当前 `depth_num` 只做非零校验并保存到 `PlatformHandle`，后续没有任何读取、输出对象创建/销毁钩子或 opaque 输出内存上下文：
+这意味着 Deinit 返回成功，但两个预分配输出没有释放，句柄和 Runtime 同样泄漏。即使规范调用顺序应为 Destroy → Deinit，门面也不能在非法顺序下静默遗失资源。
 
-- `src/adapter/platform_operator_adapter.cpp:21-28,84-87,114-119`
+建议二选一并形成稳定契约：
 
-这不等价于设计第 7 节所述“Create 阶段创建 `depth_num` 组输出对象，Destroy 阶段统一销毁”。如果公司内存 API 尚未提供，这可以作为明确的待集成项，但不能将当前版本声明为完整实现。至少应提供可注入的创建/销毁 hook 接口及失败回滚测试；若本阶段明确不实现，应同步修正文档、README 和验收口径。
+1. Deinit 检测到活跃句柄时返回 `-1`，不清空登记，允许调用方补做 Destroy；或
+2. Deinit 原子摘取全部活跃句柄，按 Destroy 的同一释放逻辑逐个清理。
 
-### P1-4：芯片校验与运行时元数据贯通不完整
+同时增加“活跃句柄 Deinit”“Deinit 后 Destroy”“带输出池 Deinit”和多句柄 Deinit 测试。
 
-Create 只拒绝 `ChipType::kUnknown`，任何强转得到的其他枚举值都会被接受（`src/adapter/platform_operator_adapter.cpp:79-82`）。`ChipType`、平台最大 Batch 和 `depth_num` 仅保存在平台句柄，未写入 `SessionContext::RuntimeOptions`；RuntimeOptions 仍只有 device、业务和路径字段。
+### P1-3：共享 Runtime 重构改变了既有纯 C ABI 的 Pipeline 构建失败码
 
-这不满足设计“拒绝未支持芯片类型”及“将 device_id、芯片类型和其他运行时元数据写入 SessionContext”的要求。建议使用显式支持表校验枚举，并补充 RuntimeOptions 字段与下游可观测测试。
+设计第 1 节与第 13 节要求保留现有纯 C ABI V2，并在抽取共享 Runtime 后保持既有错误码和测试不变。
 
-### P1-5：纯 C ABI 的 `Alg_Init`/`Alg_DeInit` 失去入口级双重异常屏障
+`main` 中，只要 `Pipeline::BuildFromConfigFile` 失败，`Alg_Create` 返回 `-3`。当前 `SharedAlgorithmRuntime::CreateFromConfigFile` 除 Registry 冲突外统一返回 `-2`：
 
-仓库最高规则要求六个 C 导出函数均在入口处使用 `noexcept` 和标准/未知异常双重 catch。重构后 `Alg_Init` 与 `Alg_DeInit` 没有入口级 try-catch：
+- `src/adapter/shared_algorithm_runtime.cpp:116-132`
+- `src/adapter/company_c_adapter.cpp:54-63`
 
-- `src/adapter/company_c_adapter.cpp:17-24`
-- `src/adapter/company_c_adapter.cpp:147-153`
+本轮使用 business_name 合法但 node_type 未注册的 Pipeline 验证，当前返回：
 
-虽然共享 Runtime 当前内部捕获异常，但外层日志输出等代码仍可能抛出，`noexcept` 会导致 `std::terminate`。应恢复六个导出函数一致的入口屏障，并保留 C ABI 回归。
+```text
+create_invalid_pipeline_ret=-2 handle_is_null=1
+```
 
-## 5. 中优先级问题
+同一场景在 `main` 的实现路径返回 `-3`。这会改变依赖既有 C ABI 错误分类的宿主行为，而现有 C ABI 测试没有覆盖配置语义构建失败的精确返回码。
 
-### P2-1：I/O 描述符的 `required` 语义与提取逻辑不一致
+建议让 `CreateFromConfigFile` 保留旧 C ABI 映射，或由共享 Runtime 返回内部结构化错误类别，再由 C ABI 门面和平台门面分别映射：C ABI 保持兼容，平台 `.conf` 门面继续遵守新设计表。补充从 `main` 固化的错误码契约测试。
 
-每个业务同时登记两个输入和两个输出槽位，且全部标记 `required=true`，例如 `keyword_in` 与 `sentence_in`（`src/adapter/platform/platform_io_registry.cpp:14-23`）。提取逻辑却接受其中任意一个，并在同一样本出现第二个合法槽位时直接报“Duplicate”（`src/adapter/platform/platform_io_registry.cpp:137-198`）。`required` 字段实际上从未参与校验。
+## 5. 中优先级问题与测试缺口
 
-如果这些名称是别名，应在描述符中显式表达 alias group；如果它们是必需的独立槽位，则提取结果不能只返回单指针。当前元数据会误导注册校验和后续扩展。
+### P2-1：NaN 阈值可绕过 `[0, 1]` 校验
 
-### P2-2：`.conf` 的错误字段类型会被静默忽略
+阈值校验只判断 `< 0.0f || > 1.0f`。IEEE NaN 与两边比较都为 false，因此会被序列化成 JSON `null` 并返回成功：
 
-`model_path` 非字符串时被当作未提供；`model_paths` 非对象时也被忽略；映射中的非字符串 value 直接 `continue`（`src/adapter/platform/company_conf_resolver.cpp:145-175`）。这与设计中的严格参数错误和测试矩阵不符，拼写/类型错误可能静默退回 Pipeline 原路径。
+- `src/adapter/platform/platform_control_registry.cpp:109-142`
 
-建议对已出现但类型错误、空字符串及非法映射值统一返回 `-2`，诊断中包含 JSON 字段路径。
+定向探针结果：
 
-### P2-3：错误码映射不完全符合设计
+```text
+[Pipeline] Control cmd received: 3, params: {"category":"VIP_SERVICE","threshold":null}
+nan_threshold_ret=0
+```
 
-`CompanyConfResolver` 只返回 bool，Platform Create 将所有解析失败统一映射为 `-2`（`src/adapter/platform_operator_adapter.cpp:92-97`）。其中未注册业务/业务绑定错误按设计应为 `-5`。输入输出 Batch 数量不一致当前返回 `-3`，而输出 Batch 不可用在错误码表中定义为 `-4`。
+建议使用 `std::isfinite` 后再做范围校验，并增加 NaN、正负 Infinity 测试。
 
-建议让 Resolver/Runtime 返回结构化错误类别，不要靠字符串推断。
+### P2-2：Platform I/O 注册只检查重复 BizType，没有验证设计声明的 Descriptor 不变量
 
-### P2-4：新增 Rerank Pipeline 的测试没有验证“重排”效果
+设计要求 `biz_type + direction + suffix` 唯一，且 C 类型名与真实 Adapter 输入/输出结构一致。当前 `RegisterDescriptor` 只检查 BizType 是否重复，没有验证：
 
-新增节点符合 `INode + REGISTER_NODE`、黑板通信和 Engine 抽象要求，也有对应 CTest 目标。但 `tests/test_doc_qa_rerank.cpp` 只验证最终 intent、answer 非空和 chunk_count，未断言 Rerank 前后顺序、Top-K、分数对应关系、空候选、非法 `top_k` 或 Engine 输出数量异常。
+- canonical suffix/alias 是否为空或在同方向重复；
+- group 的 direction 是否与 input_groups/output_groups 一致；
+- `c_type_name`、`biz_name` 是否与 BusinessAdapter 契约一致；
+- 第一阶段是否严格只有一个输入组和一个输出组。
 
-建议增加 `RerankRefineNode` 的独立 Google Test，使用可控分数的测试 Engine，直接验证 `(req_id, sub_id)` 对齐和每请求 Top-K 结果。
+涉及位置：
 
-### P2-5：README 的完成度和测试覆盖声明不准确
+- `src/adapter/platform/platform_io_registry.cpp:15-29`
+- `src/adapter/platform/platform_io_registry.cpp:159-274`
 
-README 声称 Control 已做“参数结构体强类型校验”，并声称平台测试覆盖多模型覆盖和同句柄并发互斥（`README.md:130-131`）。实际测试：
+当前七个默认描述符本身正确，因此不是现有业务 happy path 故障；但公开注册 API 可以接收无法由 ExtractInputs/ExtractOutputs 正确表达的描述符，GlobalInit 仍会报告健康。建议在 RegisterDescriptor 中完整验证并记录冲突诊断。
 
-- Control 只传入 JSON C 字符串。
-- 没有单/多模型覆盖及未知 model_id 负向断言。
-- 名为 `MultiHandleConcurrencyAndSerialization` 的测试只让每个线程使用不同句柄，没有同句柄 Process/Control 竞争（`tests/test_platform_operator.cpp:437-484`）。
-- 重复 Destroy 用例本身是 UAF。
+### P2-3：新增测试名称仍高估了实际覆盖范围
 
-应在修复实现和补齐测试后更新交付声明。
+- `DepthNumHookAndRollback` 只验证全部分配成功后的 Destroy 计数，没有让 allocator 中途返回 null/抛异常，也没有断言回滚数量。
+- `HandleLifecycleAndUafPrevention` 覆盖顺序重复 Destroy 和销毁后调用，但不覆盖活跃句柄 Deinit。
+- `.conf` 测试仍没有覆盖非法 JSON、缺字段、零/单/多模型、部分覆盖、未知 model_id 和不同 cwd；当前路径问题因此漏检。
+- Control 测试覆盖有限区间，但没有 NaN/Infinity 和超长字符串。
+- Platform I/O Registry 没有专门的描述符注册不变量测试。
 
-## 6. 已符合设计的部分
+建议让测试名与真实断言一致，并把上述场景作为最终验收门禁。
 
-以下实现方向正确，建议保留：
+### P2-4：ccache 自动启用缺少显式开关，在受限环境中会使构建失败
 
-- 新增独立 C++ 平台公开头，未把 STL/C++ 类型放入纯 C 头。
-- `OperatorFunc` 六个函数指针均非空，命名和签名基本符合设计。
-- 从 C ABI 中提取 `SharedAlgorithmRuntime`，C 与平台门面共享 `ValidateBatch -> Unpack -> Pipeline::Execute -> Pack`，没有复制两套执行逻辑。
-- 平台配置在内存中修改 Pipeline JSON，没有创建临时 JSON 文件。
-- Named I/O 使用最后一个点号解析后缀，并通过 `shared_ptr<void>::get()` 借用底层指针，没有复制业务 C 结构体。
-- Process 校验空 Batch、输入输出数量和平台 Batch 上限；业务 Adapter 仍负责自身最大 Batch 和 DTO 字段校验。
-- 同一有效句柄上的 Process/Control 使用同一 mutex 串行化；不同句柄可独立执行。
-- 新增平台 demo、平台测试目标、Rerank Pipeline 测试目标并注册到 CTest。
-- 新增 `RerankRefineNode` 位于 `src/common_nodes/`，使用 Blackboard 和 `IRerankEngine`，未产生反向层依赖。
-- README 已记录平台兼容层这一主要架构变化。
+`09e9276` 在发现 ccache 后无条件设置 C/C++ compiler launcher。本轮标准 `cmake --build build -j4` 因默认缓存目录不可写而失败：
 
-## 7. 测试与复现记录
+```text
+ccache: error: failed to create temporary file for
+/Users/chenqichao/Library/Caches/ccache/tmp/...: Operation not permitted
+```
+
+设置 `CCACHE_DIR=/private/tmp/llm-edgeflow-review-ccache` 后完整构建通过。这不是平台业务实现缺陷，但会影响受限 CI/沙箱的开箱构建。建议提供 `LLM_EDGEFLOW_USE_CCACHE` 开关，并允许调用方显式关闭或配置缓存目录。
+
+## 6. 已确认符合设计的实现
+
+- 新增独立 C++ 平台公开头，纯 C 头未引入 STL/C++ 类型。
+- 函数表六个函数指针完整、签名为 `noexcept`，入口具备双重异常屏障。
+- C ABI 与平台门面共享 `SharedAlgorithmRuntime`，没有复制两套 Unpack → Execute → Pack 逻辑。
+- `.conf` 与 Pipeline JSON 分层，内存修改 Pipeline JSON，没有生成临时配置文件。
+- 强类型 Control 映射、字符串有界扫描、JSON object 校验和普通阈值边界已落地。
+- Named I/O 使用最后一个点号解析后缀，alias group、必需槽位、额外槽位、空 shared_ptr 和 Batch 上限均有校验。
+- 同一有效句柄的 Process/Control 使用同一 mutex 串行，不同句柄可独立执行。
+- 顺序重复 Destroy、Destroy 后 Process/Control 和随机非法句柄会稳定返回 `-1`。
+- BusinessAdapter 唯一反查、Create 期 I/O Descriptor 绑定和四类 Registry Init fail-closed 已落地。
+- 显式芯片白名单及 chip/batch/depth/device/business RuntimeOptions 已贯通。
+- `depth_num` 输出对象分配、正常 Destroy 释放和 Create 失败时已有实现级回滚逻辑。
+- RerankRefineNode 遵守 `INode + REGISTER_NODE`、Blackboard 和 Engine 抽象，并新增可控分数单测。
+
+## 7. 构建与测试记录
 
 | 验证项 | 结果 | 说明 |
 | --- | --- | --- |
-| `cmake -S . -B build` | 通过 | 首次配置需下载 FetchContent 依赖 |
-| `cmake --build build -j4` | 通过 | 有若干既有 unused-parameter 警告 |
-| `ctest --test-dir build --output-on-failure` | 通过 | 19/19，通过时间约 11.9 秒 |
-| `./scripts/run_all_tests.sh` | 通过 | 六阶段脚本全部通过；脚本会执行格式化和重新构建 |
-| 从仓库根运行相对 `.conf` | 发现问题 | 模型加载日志出现 `configs/configs/models/...` |
-| ASan/UBSan 补充验证 | 未形成有效结论 | sanitizer 构建成功，但 AppleClang ASan 目标在测试启动阶段因 runtime 初始化检查中止，未进入测试体 |
+| `cmake -S . -B build` | 通过 | FetchContent 依赖重新拉取并生成成功；存在上游 CMake deprecation/OpenMP 警告 |
+| `cmake --build build -j4` | 条件通过 | 默认 ccache 目录在受限环境不可写；指定临时 `CCACHE_DIR` 后全量编译成功 |
+| `ctest --test-dir build --output-on-failure` | 通过 | 20/20，约 13.4 秒 |
+| `./scripts/run_all_tests.sh` | 通过 | 设置可写 `CCACHE_DIR` 后，LayerGuard、格式、构建、Tier 1～4、七业务 demo 和双 CLI 六阶段全部通过 |
+| 部分模型覆盖、不同 cwd | 失败 | 未覆盖模型仍以 `./models/...` 进入 Engine |
+| 活跃句柄 Deinit 探针 | 失败 | Deinit 返回 0，但输出释放计数为 0，后续 Destroy 返回 -1 |
+| NaN Control 阈值探针 | 失败 | NaN 被序列化为 `null`，Control 返回 0 |
+| C ABI 配置语义失败码 | 不兼容 | 当前返回 -2，`main` 对同类 Pipeline 构建失败返回 -3 |
+| `git diff --check`、`git diff main --check` | 通过 | 当前工作区报告更新无空白错误 |
 
-常规测试全部通过只能说明 happy path 和部分输入校验可工作，不能消除本文发现的裸指针解析、UAF 和缺失语义。
+常规测试通过证明了正常主流程和已覆盖边界可用，但不能替代上述定向失败场景。
 
-## 8. 设计测试矩阵缺口
+## 8. 建议整改顺序与复验门槛
 
-对照设计第 14 节，至少还缺少：
-
-- `.conf` 非法 JSON、缺少字段、错误字段类型、空路径、不同 cwd 路径规范化。
-- 零模型忽略单路径、单模型覆盖、多模型映射、单路径配多模型失败、未知 model_id、部分覆盖。
-- business_name 零匹配和多匹配；Business/Node/Engine/I/O 冲突的 Init fail-closed。
-- 空后缀、首点号、尾点号、重复后缀、方向错误、额外槽位、输出 null。
-- 三个 Control 命令的强类型正常/异常路径及未知命令。
-- Process 不替换输出地址，Create/Destroy 的 `depth_num` 输出对象数量和失败回滚。
-- 同句柄 Process/Control 串行化，不同句柄并发，以及受控 Destroy 生命周期。
-- 每个公开入口的标准异常/未知异常注入验证。
-- sanitizer 下的重复 Destroy、Destroy 后调用和 Control 非法结构测试。
-
-## 9. 建议整改顺序与复验门槛
-
-1. 先修复 Control 强类型契约和句柄 UAF；这两项属于安全阻断。
-2. 修复路径绝对化/单次解析，并增加最终 Engine 路径断言。
-3. 补齐统一 Registry 健康检查、唯一业务反查、I/O Descriptor Create 期绑定和错误码映射。
-4. 明确并实现 `depth_num` hook，或将其正式标记为待公司接口落地、撤销“已完整实现”的声明。
-5. 贯通 ChipType/平台 Batch/depth 元数据并恢复 C ABI 六入口异常屏障。
-6. 补齐设计测试矩阵与 Rerank 节点单测，在 ASan/UBSan 可正常运行的环境中执行。
-7. 最后重新运行格式化、19+ CTest、六阶段回归和平台 demo；P0/P1 全部关闭后再验收。
-
+1. 全量规范化 Pipeline 中未被 `.conf` 覆盖的相对模型路径，并增加不同 cwd 的最终 Engine 路径断言。
+2. 明确 Deinit 对活跃句柄的拒绝或托管清理策略，确保句柄、Runtime 和输出池不泄漏。
+3. 恢复纯 C ABI 的既有 Pipeline 构建失败码，平台门面使用独立映射时不要改变旧 ABI。
+4. 拒绝 NaN/Infinity 阈值，补齐 Descriptor 注册不变量。
+5. 把 allocator 中途失败回滚、活跃句柄 Deinit、配置矩阵和 Control 特殊浮点值纳入自动化测试。
+6. 为 ccache 增加可关闭/可配置选项。
+7. 重新执行全量构建、20+ CTest、六阶段回归与上述定向探针；P1 全部关闭后再作最终通过结论。

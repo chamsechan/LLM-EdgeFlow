@@ -268,6 +268,24 @@ int CompanyConfResolver::Resolve(
       }
     }
 
+    // 7.3 全量规范化：确保 Pipeline JSON 中所有未被覆盖的相对模型路径，也全部按
+    // base_dir 绝对化
+    if (pipe_json.contains("models") && pipe_json["models"].is_array()) {
+      for (auto& model_item : pipe_json["models"]) {
+        if (model_item.contains("model_path") &&
+            model_item["model_path"].is_string()) {
+          std::string mpath = model_item["model_path"].get<std::string>();
+          if (!mpath.empty()) {
+            std::filesystem::path p(mpath);
+            if (p.is_relative()) {
+              p = (base_dir / p).lexically_normal();
+              model_item["model_path"] = p.string();
+            }
+          }
+        }
+      }
+    }
+
     // 8. 设备 ID 覆盖
     if (platform_config.device_id >= 0 && pipe_json.contains("models") &&
         pipe_json["models"].is_array()) {
