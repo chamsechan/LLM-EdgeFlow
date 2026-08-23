@@ -68,23 +68,56 @@ void ListProfilesAndBusinesses() {
   std::cout << std::endl;
 }
 
-int RunDefaultSmokeSuite() {
-  std::cout
-      << "#############################################################"
-         "#####\n"
-      << "   LLM-EdgeFlow 全业务全景端到端演示 (Platform Operator Runner) "
-         " \n"
-      << "#############################################################"
-         "#####\n";
+int RunSuite(const std::string& suite_name, const DemoOptions& base_cli_opts) {
+  std::string profiles_path = ResolvePath("demo/profiles.json");
+  std::ifstream ifs(profiles_path);
+  if (!ifs.is_open()) {
+    std::cerr << "[Main ERROR] Cannot open profiles file: " << profiles_path
+              << std::endl;
+    return 3;
+  }
 
-  std::vector<std::string> smoke_profiles = {
-      "entity_extract_mock", "keyword_match_mock", "doc_qa_mock",
-      "dialogue_audit_mock", "ocr_doc_qa_mock",    "audio_asr_mock",
-      "cross_rerank_mock"};
+  nlohmann::json root;
+  try {
+    ifs >> root;
+  } catch (const std::exception& e) {
+    std::cerr << "[Main ERROR] Invalid JSON in profiles file: " << e.what()
+              << std::endl;
+    return 3;
+  }
 
-  for (const auto& prof : smoke_profiles) {
-    DemoOptions cli_opt;
+  if (!root.contains("profiles") || !root["profiles"].is_object()) {
+    std::cerr << "[Main ERROR] Missing 'profiles' object in profiles.json"
+              << std::endl;
+    return 3;
+  }
+
+  std::vector<std::string> target_profiles;
+  for (const auto& [prof_name, prof_data] : root["profiles"].items()) {
+    std::string s = prof_data.value("suite", "smoke");
+    if (suite_name == "all" || s == suite_name) {
+      target_profiles.push_back(prof_name);
+    }
+  }
+
+  if (target_profiles.empty()) {
+    std::cerr << "[Main ERROR] No profiles found matching suite '" << suite_name
+              << "'" << std::endl;
+    return 3;
+  }
+
+  std::cout << "#############################################################"
+               "#####\n"
+            << "   LLM-EdgeFlow Demo Suite: [" << suite_name << "] ("
+            << target_profiles.size() << " Profiles)\n"
+            << "#############################################################"
+               "#####\n";
+
+  for (const auto& prof : target_profiles) {
+    DemoOptions cli_opt = base_cli_opts;
     cli_opt.profile = prof;
+    cli_opt.has_profile = true;
+
     DemoOptions merged_opt;
     std::string err;
     int ret = LoadAndMergeProfiles("", cli_opt, &merged_opt, &err);
@@ -109,13 +142,12 @@ int RunDefaultSmokeSuite() {
     }
   }
 
-  std::cout
-      << "\n#############################################################"
-         "#####\n"
-      << "   ALL 7 SMOKE BUSINESSES EXECUTED SUCCESSFULLY VIA RUNNER!      "
-         "\n"
-      << "#############################################################"
-         "#####\n";
+  std::cout << "\n#############################################################"
+               "#####\n"
+            << "   ALL PROFILES IN SUITE [" << suite_name
+            << "] EXECUTED SUCCESSFULLY!\n"
+            << "#############################################################"
+               "#####\n";
   return 0;
 }
 
@@ -150,13 +182,16 @@ int main(int argc, char* argv[]) {
     return 5;
   }
 
-  // 3. 判断是否为无参数默认全景 Smoke 运行模式
-  if (cli_options.profile.empty() && cli_options.business.empty() &&
-      cli_options.config_path.empty()) {
-    return RunDefaultSmokeSuite();
+  // 3. 判断是否为 Suite 批量运行模式 (显式 --suite 或无参数默认 smoke)
+  if (cli_options.has_suite) {
+    return RunSuite(cli_options.suite, cli_options);
+  }
+  if (!cli_options.has_profile && !cli_options.has_business &&
+      !cli_options.has_config_path) {
+    return RunSuite("smoke", cli_options);
   }
 
-  // 4. 合并 Profile 与命令行配置
+  // 4. 合并 Profile 与命令行配置 (单 Profile / 单业务模式)
   DemoOptions options;
   std::string merge_err;
   int merge_ret = LoadAndMergeProfiles("", cli_options, &options, &merge_err);

@@ -37,6 +37,8 @@ TEST(DemoRunnerTest, CommandLineParsingSuccess) {
                         "cpu_generic",
                         "--depth",
                         "2",
+                        "--suite",
+                        "smoke",
                         "--append",
                         "--allow-fallback-sample"};
   int argc = sizeof(argv) / sizeof(argv[0]);
@@ -54,6 +56,11 @@ TEST(DemoRunnerTest, CommandLineParsingSuccess) {
   EXPECT_EQ(opts.device_id, 1);
   EXPECT_EQ(opts.chip, "cpu_generic");
   EXPECT_EQ(opts.depth_num, 2u);
+  EXPECT_EQ(opts.suite, "smoke");
+  EXPECT_TRUE(opts.has_batch_size);
+  EXPECT_TRUE(opts.has_device_id);
+  EXPECT_TRUE(opts.has_chip);
+  EXPECT_TRUE(opts.has_suite);
   EXPECT_TRUE(opts.append);
   EXPECT_TRUE(opts.allow_fallback_sample);
 }
@@ -90,9 +97,13 @@ TEST(DemoRunnerTest, CommandLineParsingErrors) {
   const char* argv4[] = {"alg_demo", "--chip", "unsupported_dsp"};
   EXPECT_EQ(ParseCommandLine(3, const_cast<char**>(argv4), &opts, &err), 2);
 
-  // 非法 legacy biz
-  const char* argv5[] = {"alg_demo", "--biz", "99"};
+  // 非法 suite
+  const char* argv5[] = {"alg_demo", "--suite", "invalid_suite"};
   EXPECT_EQ(ParseCommandLine(3, const_cast<char**>(argv5), &opts, &err), 2);
+
+  // 非法 legacy biz
+  const char* argv6[] = {"alg_demo", "--biz", "99"};
+  EXPECT_EQ(ParseCommandLine(3, const_cast<char**>(argv6), &opts, &err), 2);
 }
 
 // 2. 测试芯片白名单解析
@@ -124,12 +135,12 @@ TEST(DemoRunnerTest, ChipTypeWhitelistValidation) {
   EXPECT_EQ(type, ChipType::kUnknown);
 }
 
-// 3. 测试 Profile 加载与合并
+// 3. 测试 Profile 加载、合并与 P1-1 CLI 显式默认值覆盖
 TEST(DemoRunnerTest, ProfileLoadAndMerge) {
   DemoOptions cli_opts;
   cli_opts.profile = "entity_extract_mock";
-  // CLI 覆盖参数
   cli_opts.batch_size = 8;
+  cli_opts.has_batch_size = true;
 
   DemoOptions merged;
   std::string err;
@@ -143,10 +154,33 @@ TEST(DemoRunnerTest, ProfileLoadAndMerge) {
   EXPECT_EQ(merged.batch_size, 8);  // CLI 覆盖 Profile 的默认 1
 }
 
+// P1-1: 验证 CLI 显式传入默认值 (例如 --batch-size 1) 可以可靠覆盖 Profile 中非
+// 1 的 batch_size
+TEST(DemoRunnerTest, CliOverridesProfileEvenWithExplicitDefault) {
+  const char* argv[] = {"alg_demo", "--profile", "cross_rerank_mock",
+                        "--batch-size", "1"};
+  int argc = 5;
+
+  DemoOptions cli_opts;
+  std::string err;
+  int ret = ParseCommandLine(argc, const_cast<char**>(argv), &cli_opts, &err);
+  ASSERT_EQ(ret, 0);
+  EXPECT_TRUE(cli_opts.has_batch_size);
+  EXPECT_EQ(cli_opts.batch_size, 1);
+
+  DemoOptions merged;
+  ret = LoadAndMergeProfiles("demo/profiles.json", cli_opts, &merged, &err);
+  ASSERT_EQ(ret, 0) << "Error: " << err;
+
+  // cross_rerank_mock profile 中的 batch_size 为 4, CLI 显式指定的 1 必须胜出
+  EXPECT_EQ(merged.batch_size, 1);
+}
+
 TEST(DemoRunnerTest, ProfileBusinessMismatchRejection) {
   DemoOptions cli_opts;
   cli_opts.profile = "entity_extract_mock";
   cli_opts.business = "doc_qa";  // 冲突的业务名
+  cli_opts.has_business = true;
 
   DemoOptions merged;
   std::string err;
@@ -164,6 +198,45 @@ TEST(DemoRunnerTest, ProfileNotFound) {
   int ret = LoadAndMergeProfiles("demo/profiles.json", cli_opts, &merged, &err);
   EXPECT_EQ(ret, 3);
   EXPECT_NE(err.find("not found"), std::string::npos);
+}
+
+// P2-1: 测试 Profile Schema 严格校验
+TEST(DemoRunnerTest, ProfileSchemaStrictValidation) {
+  std::string temp_invalid_json = "./results/invalid_profile.json";
+  std::filesystem::create_directories("./results");
+
+  // Case 1: 缺少 schema_version
+  {
+    std::ofstream ofs(temp_invalid_json);
+    ofs << "{\"profiles\": {}}";
+  }
+  DemoOptions cli_opts;
+  cli_opts.profile = "foo";
+  DemoOptions merged;
+  std::string err;
+  EXPECT_EQ(LoadAndMergeProfiles(temp_invalid_json, cli_opts, &merged, &err),
+            3);
+
+  // Case 2: 非法 suite
+  {
+    std::ofstream ofs(temp_invalid_json);
+    ofs << R"({
+      "schema_version": 1,
+      "profiles": {
+        "bad_prof": {
+          "business": "entity_extract",
+          "config": "configs/pipeline_entity_extract.conf",
+          "dataset": "data/corpus_entity_extract.txt",
+          "suite": "invalid_suite"
+        }
+      }
+    })";
+  }
+  EXPECT_EQ(LoadAndMergeProfiles(temp_invalid_json, cli_opts, &merged, &err),
+            3);
+  EXPECT_NE(err.find("bad_prof"), std::string::npos);
+
+  std::filesystem::remove(temp_invalid_json);
 }
 
 // 4. 测试 DemoRegistry 注册与冲突检测
@@ -277,7 +350,7 @@ TEST(DemoRunnerTest, ResultWriterAtomicOutput) {
   EXPECT_EQ(summary_obj["failed_count"], 0);
 }
 
-// 7. 测试 Config 与 Business 匹配校验
+// 7. 测试 Config 与 Business 匹配校验与 P1-3 精确匹配
 TEST(DemoRunnerTest, ConfigBusinessMatchValidation) {
   std::string err;
 
@@ -286,6 +359,8 @@ TEST(DemoRunnerTest, ConfigBusinessMatchValidation) {
       "configs/pipeline_entity_extract.conf", "entity_extract", &err));
   EXPECT_TRUE(ValidateConfigBusinessMatch("configs/pipeline_doc_qa.conf",
                                           "doc_qa", &err));
+  EXPECT_TRUE(ValidateConfigBusinessMatch("configs/pipeline_doc_qa_rerank.conf",
+                                          "doc_qa", &err));
   EXPECT_TRUE(ValidateConfigBusinessMatch("configs/pipeline_keyword_match.conf",
                                           "keyword_match", &err));
 
@@ -293,6 +368,78 @@ TEST(DemoRunnerTest, ConfigBusinessMatchValidation) {
   EXPECT_FALSE(ValidateConfigBusinessMatch("configs/pipeline_doc_qa.conf",
                                            "entity_extract", &err));
   EXPECT_NE(err.find("Business mismatch"), std::string::npos);
+
+  // P1-3: cross_rerank 绝不应该匹配 doc_qa_rerank (即使名字里有 rerank)
+  EXPECT_FALSE(ValidateConfigBusinessMatch(
+      "configs/pipeline_doc_qa_rerank.conf", "cross_rerank", &err));
+  EXPECT_NE(err.find("Business mismatch"), std::string::npos);
+}
+
+// P1-2: 测试显式指定不存在或非法的 Control 文件 Fail-Closed
+TEST(DemoRunnerTest, FailClosedOnMissingOrInvalidControlFile) {
+  OperatorFunc ops = Get_LLM_EDGEFLOW_OperatorTable();
+  ASSERT_EQ(ops.Init(), 0);
+
+  const auto* desc = DemoRegistry::Instance().Find("keyword_match");
+  ASSERT_NE(desc, nullptr);
+
+  DemoOptions opts;
+  opts.profile = "keyword_match_mock";
+  std::string err;
+  int ret = LoadAndMergeProfiles("demo/profiles.json", opts, &opts, &err);
+  ASSERT_EQ(ret, 0);
+
+  // 显式指定不存在的 control 文件 -> 必须返回 3 报错退出
+  opts.control_file = "/private/tmp/definitely_missing_control_file_123.json";
+  opts.has_control_file = true;
+  EXPECT_EQ(desc->run(opts), 3);
+
+  // 显式指定非法 JSON 的 control 文件 -> 必须返回 3 报错退出
+  std::string bad_json_file = "./results/bad_control.json";
+  {
+    std::ofstream ofs(bad_json_file);
+    ofs << "NOT_VALID_JSON{{{";
+  }
+  opts.control_file = bad_json_file;
+  EXPECT_EQ(desc->run(opts), 3);
+  std::filesystem::remove(bad_json_file);
+
+  ops.Deinit();
+}
+
+// P1-1: 测试多样本按 batch_size 进行分块调度 (Chunking)
+TEST(DemoRunnerTest, OperatorBatchChunking) {
+  OperatorFunc ops = Get_LLM_EDGEFLOW_OperatorTable();
+  ASSERT_EQ(ops.Init(), 0);
+
+  const auto* desc = DemoRegistry::Instance().Find("keyword_match");
+  ASSERT_NE(desc, nullptr);
+
+  DemoOptions opts;
+  opts.profile = "keyword_match_mock";
+  std::string err;
+  int ret = LoadAndMergeProfiles("demo/profiles.json", opts, &opts, &err);
+  ASSERT_EQ(ret, 0);
+
+  // 指定 batch_size = 1 (数据集有 2 条样本，必须分 2 批执行)
+  opts.batch_size = 1;
+  opts.has_batch_size = true;
+  opts.output_dir = "./results/test_chunking_out";
+
+  EXPECT_EQ(desc->run(opts), 0);
+
+  // 验证结果文件中有 2 条记录
+  std::string jsonl_path =
+      opts.output_dir + "/keyword_match_mock/results.jsonl";
+  std::ifstream ifs(jsonl_path);
+  std::string line;
+  int sample_count = 0;
+  while (std::getline(ifs, line)) {
+    if (!line.empty()) sample_count++;
+  }
+  EXPECT_EQ(sample_count, 2);
+
+  ops.Deinit();
 }
 
 // 8. 测试全业务 Demo Case 执行 (集成测试)

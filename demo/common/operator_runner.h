@@ -7,6 +7,7 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 #include "demo/common/dataset_reader.h"
@@ -16,38 +17,34 @@
 
 namespace alg_demo {
 
+/**
+ * @brief 结构化业务精确映射表：Pipeline business_name -> Demo Business (P1-3)
+ */
 inline bool IsBusinessCompatible(std::string_view expected_demo_biz,
                                  std::string_view actual_pipe_biz) {
   if (expected_demo_biz == actual_pipe_biz) return true;
-  if (expected_demo_biz == "entity_extract" &&
-      actual_pipe_biz.find("entity_extract") != std::string_view::npos) {
-    return true;
-  }
-  if (expected_demo_biz == "keyword_match" &&
-      actual_pipe_biz.find("keyword_match") != std::string_view::npos) {
-    return true;
-  }
-  if (expected_demo_biz == "doc_qa" &&
-      actual_pipe_biz.find("doc_qa") != std::string_view::npos) {
-    return true;
-  }
-  if (expected_demo_biz == "dialogue_audit" &&
-      (actual_pipe_biz.find("dialogue") != std::string_view::npos ||
-       actual_pipe_biz.find("audit") != std::string_view::npos)) {
-    return true;
-  }
-  if (expected_demo_biz == "ocr_doc_qa" &&
-      actual_pipe_biz.find("ocr") != std::string_view::npos) {
-    return true;
-  }
-  if (expected_demo_biz == "audio_asr" &&
-      (actual_pipe_biz.find("audio") != std::string_view::npos ||
-       actual_pipe_biz.find("asr") != std::string_view::npos)) {
-    return true;
-  }
-  if (expected_demo_biz == "cross_rerank" &&
-      actual_pipe_biz.find("rerank") != std::string_view::npos) {
-    return true;
+
+  static const std::unordered_map<std::string_view, std::string_view>
+      kPipelineToDemoMap = {
+          {"entity_extract_0.6b_v1", "entity_extract"},
+          {"entity_extract_llamacpp_0.6b_v1", "entity_extract"},
+          {"entity_extract_llamacpp_v1", "entity_extract"},
+          {"keyword_match_v1", "keyword_match"},
+          {"smart_doc_qa_v1", "doc_qa"},
+          {"smart_doc_qa_onnx_llamacpp_v1", "doc_qa"},
+          {"smart_doc_qa_onnx_v1", "doc_qa"},
+          {"smart_doc_qa_rerank_llm_v1", "doc_qa"},
+          {"smart_doc_qa_rerank_hybrid_v1", "doc_qa"},
+          {"smart_doc_qa_rerank_real_v1", "doc_qa"},
+          {"dialogue_compliance_audit_v1", "dialogue_audit"},
+          {"multimodal_ocr_invoice_qa", "ocr_doc_qa"},
+          {"speech_audio_asr_intent_slot", "audio_asr"},
+          {"dense_cross_rerank_scoring", "cross_rerank"},
+      };
+
+  auto it = kPipelineToDemoMap.find(actual_pipe_biz);
+  if (it != kPipelineToDemoMap.end()) {
+    return it->second == expected_demo_biz;
   }
   return false;
 }
@@ -169,7 +166,7 @@ struct OperatorHandleGuard {
 };
 
 /**
- * @brief 通用 Platform Operator 生命周期与批量推理执行器
+ * @brief 通用 Platform Operator 生命周期与按批分块执行器 (P1-1, P1-2, P1-3)
  * @tparam TInput 业务 C 输入结构体类型
  * @tparam TOutput 业务 C 输出结构体类型
  * @param options Demo 运行选项
@@ -177,10 +174,11 @@ struct OperatorHandleGuard {
  * @param output_slot 输出槽位名称 (如 "nlp_node.entity_out")
  * @param inputs 输入结构体列表
  * @param outputs 输出结构体列表
- * @param out_latencies_ms 每个样本的平均耗时或单批耗时
+ * @param out_latencies_ms 每个样本的耗时列表
  * @param ctrl_cmd 控制命令类型
  * @param default_ctrl_json 默认控制 JSON (若 options 未指定 control_file)
- * @return 0 成功, 非 0 错误退出码 (3: 配置校验错误, 5: 平台执行错误)
+ * @return 0 成功, 非 0 错误退出码 (3: 配置/Control错误, 4: 数据集错误, 5:
+ * 平台执行错误)
  */
 template <typename TInput, typename TOutput>
 int RunPlatformOperator(
@@ -203,7 +201,7 @@ int RunPlatformOperator(
     return 5;
   }
 
-  // 1. 验证配置文件与业务匹配
+  // 1. 验证配置文件与业务精确匹配 (P1-3)
   std::string err;
   if (!ValidateConfigBusinessMatch(options.config_path, options.business,
                                    &err)) {
@@ -224,11 +222,13 @@ int RunPlatformOperator(
   // 2. 获取平台函数表
   OperatorFunc ops = Get_LLM_EDGEFLOW_OperatorTable();
 
-  // 3. 创建平台会话句柄
+  // 3. 创建平台会话句柄 (严格使用 options.batch_size 作为单次 Process 的最大
+  // Batch，P1-1)
+  int max_batch_size = options.batch_size > 0 ? options.batch_size : 1;
+
   CreateParam param{};
   param.cfg_file_name = resolved_conf.c_str();
-  param.platform_config.batch_size =
-      std::max(options.batch_size, static_cast<int>(inputs.size()));
+  param.platform_config.batch_size = max_batch_size;
   param.platform_config.device_id = options.device_id;
   param.platform_config.type = chip_type;
   param.depth_num = options.depth_num > 0 ? options.depth_num : 1;
@@ -245,12 +245,30 @@ int RunPlatformOperator(
   // RAII 守卫确保离开函数时 Destroy 必然调用
   OperatorHandleGuard guard(ops, raw_handle);
 
-  // 4. 下发 Control 命令 (如果存在)
+  // 4. 下发 Control 命令 (Fail-Closed:
+  // 显式指定读取或下发失败立即报错退出，P1-2)
   std::string control_payload;
   if (options.control_file.has_value() && !options.control_file->empty()) {
     if (!ReadTextFile(*options.control_file, &control_payload, &err)) {
-      std::cerr << "[OperatorRunner WARN] Failed to read control file: " << err
-                << std::endl;
+      std::cerr
+          << "[OperatorRunner ERROR] Failed to read explicit control file '"
+          << *options.control_file << "': " << err << std::endl;
+      return 3;
+    }
+    // 校验 JSON 语法有效性
+    try {
+      auto parsed_check = nlohmann::json::parse(control_payload);
+      if (!parsed_check.is_object()) {
+        std::cerr << "[OperatorRunner ERROR] Control file content must be a "
+                     "JSON object"
+                  << std::endl;
+        return 3;
+      }
+    } catch (const std::exception& e) {
+      std::cerr
+          << "[OperatorRunner ERROR] Invalid JSON syntax in control file: "
+          << e.what() << std::endl;
+      return 3;
     }
   } else if (default_ctrl_json != nullptr) {
     control_payload = default_ctrl_json;
@@ -261,47 +279,79 @@ int RunPlatformOperator(
                  "parameters..."
               << std::endl;
     ControlUpdateRulesParam ctrl_param{control_payload.c_str()};
-    ops.Control(raw_handle, ctrl_cmd, &ctrl_param);
+    int ctrl_ret = ops.Control(raw_handle, ctrl_cmd, &ctrl_param);
+    if (ctrl_ret != 0) {
+      std::cerr << "[OperatorRunner ERROR] ops.Control failed: code="
+                << ctrl_ret << " (Platform error: " << GetPlatformLastError()
+                << ")" << std::endl;
+      return 5;
+    }
   }
 
-  // 5. 组装命名 I/O 批容器 (NamedIoBatch)
-  outputs->assign(inputs.size(), TOutput{});
-  NamedIoBatch in_batch(inputs.size());
-  NamedIoBatch out_batch(outputs->size());
+  // 5. 按 max_batch_size 分块调度执行 Process (P1-1)
+  size_t total_inputs = inputs.size();
+  outputs->assign(total_inputs, TOutput{});
+  if (out_latencies_ms) {
+    out_latencies_ms->assign(total_inputs, 0.0);
+  }
 
   std::string in_key(input_slot);
   std::string out_key(output_slot);
 
-  for (size_t i = 0; i < inputs.size(); ++i) {
-    in_batch[i][in_key] = std::shared_ptr<void>(&inputs[i], [](void*) {});
-    out_batch[i][out_key] = std::shared_ptr<void>(&(*outputs)[i], [](void*) {});
+  size_t processed_count = 0;
+  double total_elapsed_ms = 0.0;
+
+  while (processed_count < total_inputs) {
+    size_t chunk_size = std::min(static_cast<size_t>(max_batch_size),
+                                 total_inputs - processed_count);
+
+    NamedIoBatch in_batch(chunk_size);
+    NamedIoBatch out_batch(chunk_size);
+
+    for (size_t i = 0; i < chunk_size; ++i) {
+      size_t idx = processed_count + i;
+      in_batch[i][in_key] = std::shared_ptr<void>(&inputs[idx], [](void*) {});
+      out_batch[i][out_key] =
+          std::shared_ptr<void>(&(*outputs)[idx], [](void*) {});
+    }
+
+    std::cout << "[OperatorRunner] Dispatching chunk [" << processed_count
+              << ".." << (processed_count + chunk_size - 1) << " / "
+              << total_inputs << "] (size=" << chunk_size
+              << ", max_batch=" << max_batch_size << ") via ops.Process ("
+              << in_key << " -> " << out_key << ")..." << std::endl;
+
+    auto start_time = std::chrono::high_resolution_clock::now();
+    ret = ops.Process(raw_handle, in_batch, out_batch);
+    auto end_time = std::chrono::high_resolution_clock::now();
+
+    double chunk_elapsed_ms =
+        std::chrono::duration<double, std::milli>(end_time - start_time)
+            .count();
+    total_elapsed_ms += chunk_elapsed_ms;
+
+    if (ret != 0) {
+      std::cerr << "[OperatorRunner ERROR] ops.Process failed at chunk "
+                   "starting index "
+                << processed_count << ": code=" << ret << " ("
+                << GetPlatformLastError() << ")" << std::endl;
+      return 5;
+    }
+
+    if (out_latencies_ms) {
+      double per_sample_ms =
+          chunk_size > 0 ? (chunk_elapsed_ms / chunk_size) : 0.0;
+      for (size_t i = 0; i < chunk_size; ++i) {
+        (*out_latencies_ms)[processed_count + i] = per_sample_ms;
+      }
+    }
+
+    processed_count += chunk_size;
   }
 
-  std::cout << "[OperatorRunner] Dispatching " << inputs.size()
-            << " request(s) via ops.Process (" << in_key << " -> " << out_key
-            << ")..." << std::endl;
-
-  auto start_time = std::chrono::high_resolution_clock::now();
-  ret = ops.Process(raw_handle, in_batch, out_batch);
-  auto end_time = std::chrono::high_resolution_clock::now();
-
-  double elapsed_ms =
-      std::chrono::duration<double, std::milli>(end_time - start_time).count();
-
-  if (out_latencies_ms) {
-    out_latencies_ms->clear();
-    double per_sample_ms = inputs.empty() ? 0.0 : (elapsed_ms / inputs.size());
-    out_latencies_ms->assign(inputs.size(), per_sample_ms);
-  }
-
-  if (ret != 0) {
-    std::cerr << "[OperatorRunner ERROR] ops.Process failed: code=" << ret
-              << " (" << GetPlatformLastError() << ")" << std::endl;
-    return 5;
-  }
-
-  std::cout << "[OperatorRunner] Process completed in " << elapsed_ms << " ms."
-            << std::endl;
+  std::cout << "[OperatorRunner] All " << total_inputs
+            << " sample(s) processed successfully in " << total_elapsed_ms
+            << " ms." << std::endl;
   return 0;
 }
 

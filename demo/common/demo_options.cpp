@@ -93,12 +93,29 @@ int ParseCommandLine(int argc, char* argv[], DemoOptions* out_options,
         return 2;
       }
       out_options->profile = argv[++i];
+      out_options->has_profile = true;
     } else if (arg == "-b" || arg == "--business") {
       if (i + 1 >= argc) {
         if (error_msg) *error_msg = "Missing value for argument: " + arg;
         return 2;
       }
       out_options->business = argv[++i];
+      out_options->has_business = true;
+    } else if (arg == "--suite") {
+      if (i + 1 >= argc) {
+        if (error_msg) *error_msg = "Missing value for argument: " + arg;
+        return 2;
+      }
+      std::string suite_str = argv[++i];
+      if (suite_str != "smoke" && suite_str != "real" && suite_str != "all") {
+        if (error_msg) {
+          *error_msg = "Invalid --suite '" + suite_str +
+                       "'. Must be smoke, real, or all.";
+        }
+        return 2;
+      }
+      out_options->suite = suite_str;
+      out_options->has_suite = true;
     } else if (arg == "--biz") {
       if (i + 1 >= argc) {
         if (error_msg) *error_msg = "Missing value for argument: " + arg;
@@ -118,8 +135,9 @@ int ParseCommandLine(int argc, char* argv[], DemoOptions* out_options,
         std::cerr << "[DEPRECATION WARNING] Flag '--biz " << id
                   << "' is deprecated. Please use '--business " << mapped
                   << "' instead." << std::endl;
-        if (out_options->business.empty()) {
+        if (!out_options->has_business) {
           out_options->business = mapped;
+          out_options->has_business = true;
         }
       } catch (const std::exception&) {
         if (error_msg) *error_msg = "Invalid integer for --biz";
@@ -131,18 +149,21 @@ int ParseCommandLine(int argc, char* argv[], DemoOptions* out_options,
         return 2;
       }
       out_options->config_path = argv[++i];
+      out_options->has_config_path = true;
     } else if (arg == "-d" || arg == "--dataset" || arg == "--data") {
       if (i + 1 >= argc) {
         if (error_msg) *error_msg = "Missing value for argument: " + arg;
         return 2;
       }
       out_options->dataset_path = argv[++i];
+      out_options->has_dataset_path = true;
     } else if (arg == "-o" || arg == "--output-dir") {
       if (i + 1 >= argc) {
         if (error_msg) *error_msg = "Missing value for argument: " + arg;
         return 2;
       }
       out_options->output_dir = argv[++i];
+      out_options->has_output_dir = true;
     } else if (arg == "--batch-size") {
       if (i + 1 >= argc) {
         if (error_msg) *error_msg = "Missing value for argument: " + arg;
@@ -154,6 +175,7 @@ int ParseCommandLine(int argc, char* argv[], DemoOptions* out_options,
           if (error_msg) *error_msg = "--batch-size must be > 0";
           return 2;
         }
+        out_options->has_batch_size = true;
       } catch (...) {
         if (error_msg) *error_msg = "Invalid integer for --batch-size";
         return 2;
@@ -169,6 +191,7 @@ int ParseCommandLine(int argc, char* argv[], DemoOptions* out_options,
           if (error_msg) *error_msg = "--device-id must be >= 0";
           return 2;
         }
+        out_options->has_device_id = true;
       } catch (...) {
         if (error_msg) *error_msg = "Invalid integer for --device-id";
         return 2;
@@ -188,6 +211,7 @@ int ParseCommandLine(int argc, char* argv[], DemoOptions* out_options,
         }
         return 2;
       }
+      out_options->has_chip = true;
     } else if (arg == "--depth") {
       if (i + 1 >= argc) {
         if (error_msg) *error_msg = "Missing value for argument: " + arg;
@@ -200,6 +224,7 @@ int ParseCommandLine(int argc, char* argv[], DemoOptions* out_options,
           return 2;
         }
         out_options->depth_num = static_cast<uint32_t>(depth);
+        out_options->has_depth_num = true;
       } catch (...) {
         if (error_msg) *error_msg = "Invalid integer for --depth";
         return 2;
@@ -210,6 +235,7 @@ int ParseCommandLine(int argc, char* argv[], DemoOptions* out_options,
         return 2;
       }
       out_options->control_file = argv[++i];
+      out_options->has_control_file = true;
     } else if (arg == "--append") {
       out_options->append = true;
     } else if (arg == "--allow-fallback-sample") {
@@ -237,8 +263,6 @@ int LoadAndMergeProfiles(const std::string& profiles_path,
       ResolvePath(profiles_path.empty() ? "demo/profiles.json" : profiles_path);
   std::ifstream ifs(resolved_path);
   if (!ifs.is_open()) {
-    // 如果没有显式指定 profile，且没有
-    // profiles.json，且有直接命令行参数，则允许继续
     if (cli_options.profile.empty()) {
       return 0;
     }
@@ -287,6 +311,99 @@ int LoadAndMergeProfiles(const std::string& profiles_path,
 
   const auto& profiles = root["profiles"];
 
+  // 严格 Schema 校验所有 Profiles (P2-1)
+  for (const auto& [name, p] : profiles.items()) {
+    if (name.empty()) {
+      if (error_msg)
+        *error_msg = "Profile name cannot be empty string in profiles.json";
+      return 3;
+    }
+    if (!p.is_object()) {
+      if (error_msg) *error_msg = "Profile '" + name + "' must be an object";
+      return 3;
+    }
+    if (!p.contains("business") || !p["business"].is_string() ||
+        p["business"].get<std::string>().empty()) {
+      if (error_msg)
+        *error_msg =
+            "Profile '" + name + "' must contain non-empty string 'business'";
+      return 3;
+    }
+    if (!p.contains("config") || !p["config"].is_string() ||
+        p["config"].get<std::string>().empty()) {
+      if (error_msg)
+        *error_msg =
+            "Profile '" + name + "' must contain non-empty string 'config'";
+      return 3;
+    }
+    if (!p.contains("dataset") || !p["dataset"].is_string() ||
+        p["dataset"].get<std::string>().empty()) {
+      if (error_msg)
+        *error_msg =
+            "Profile '" + name + "' must contain non-empty string 'dataset'";
+      return 3;
+    }
+    if (p.contains("suite")) {
+      if (!p["suite"].is_string()) {
+        if (error_msg)
+          *error_msg = "Profile '" + name + "' field 'suite' must be a string";
+        return 3;
+      }
+      std::string s = p["suite"].get<std::string>();
+      if (s != "smoke" && s != "real") {
+        if (error_msg)
+          *error_msg = "Profile '" + name + "' suite must be 'smoke' or 'real'";
+        return 3;
+      }
+    }
+    if (p.contains("batch_size")) {
+      if (!p["batch_size"].is_number_integer() ||
+          p["batch_size"].get<int>() <= 0) {
+        if (error_msg)
+          *error_msg = "Profile '" + name +
+                       "' field 'batch_size' must be positive integer";
+        return 3;
+      }
+    }
+    if (p.contains("device_id")) {
+      if (!p["device_id"].is_number_integer() ||
+          p["device_id"].get<int>() < 0) {
+        if (error_msg)
+          *error_msg = "Profile '" + name +
+                       "' field 'device_id' must be non-negative integer";
+        return 3;
+      }
+    }
+    if (p.contains("depth")) {
+      if (!p["depth"].is_number_integer() || p["depth"].get<int>() <= 0) {
+        if (error_msg)
+          *error_msg =
+              "Profile '" + name + "' field 'depth' must be positive integer";
+        return 3;
+      }
+    }
+    if (p.contains("chip")) {
+      if (!p["chip"].is_string()) {
+        if (error_msg)
+          *error_msg = "Profile '" + name + "' field 'chip' must be a string";
+        return 3;
+      }
+      ChipType dummy;
+      if (!ParseChipType(p["chip"].get<std::string>(), &dummy)) {
+        if (error_msg)
+          *error_msg = "Profile '" + name + "' chip '" +
+                       p["chip"].get<std::string>() + "' is not supported";
+        return 3;
+      }
+    }
+    if (p.contains("control_file") && !p["control_file"].is_string()) {
+      if (error_msg)
+        *error_msg =
+            "Profile '" + name + "' field 'control_file' must be a string";
+      return 3;
+    }
+  }
+
   // 如果请求了特定 Profile
   if (!cli_options.profile.empty()) {
     if (!profiles.contains(cli_options.profile)) {
@@ -298,44 +415,12 @@ int LoadAndMergeProfiles(const std::string& profiles_path,
     }
 
     const auto& p = profiles[cli_options.profile];
-    if (!p.is_object()) {
-      if (error_msg)
-        *error_msg =
-            "Profile entry '" + cli_options.profile + "' must be an object";
-      return 3;
-    }
-
-    // 必填字段校验
-    if (!p.contains("business") || !p["business"].is_string() ||
-        !p.contains("config") || !p["config"].is_string() ||
-        !p.contains("dataset") || !p["dataset"].is_string()) {
-      if (error_msg) {
-        *error_msg =
-            "Profile '" + cli_options.profile +
-            "' must contain string fields: 'business', 'config', 'dataset'";
-      }
-      return 3;
-    }
-
     std::string prof_biz = p["business"].get<std::string>();
     std::string prof_cfg = p["config"].get<std::string>();
     std::string prof_data = p["dataset"].get<std::string>();
 
-    if (p.contains("suite")) {
-      std::string suite = p["suite"].get<std::string>();
-      if (suite != "smoke" && suite != "real") {
-        if (error_msg) {
-          *error_msg = "Profile '" + cli_options.profile +
-                       "' suite must be 'smoke' or 'real'";
-        }
-        return 3;
-      }
-    }
-
-    // CLI > Profile 覆盖合并
-    if (cli_options.business.empty()) {
-      out_options->business = prof_biz;
-    } else if (cli_options.business != prof_biz) {
+    // 冲突检查：若 CLI 显式提供了 --business，必须与 Profile business 完全一致
+    if (cli_options.has_business && cli_options.business != prof_biz) {
       if (error_msg) {
         *error_msg = "Business conflict: CLI specified '--business " +
                      cli_options.business + "' but profile '" +
@@ -344,36 +429,35 @@ int LoadAndMergeProfiles(const std::string& profiles_path,
       return 3;
     }
 
-    if (cli_options.config_path.empty()) {
-      out_options->config_path = prof_cfg;
-    }
-    if (cli_options.dataset_path.empty()) {
-      out_options->dataset_path = prof_data;
-    }
+    // 严格合并优先级：默认值 < Profile < CLI显式参数 (P1-1)
+    out_options->business =
+        cli_options.has_business ? cli_options.business : prof_biz;
+    out_options->config_path =
+        cli_options.has_config_path ? cli_options.config_path : prof_cfg;
+    out_options->dataset_path =
+        cli_options.has_dataset_path ? cli_options.dataset_path : prof_data;
 
-    if (p.contains("batch_size") && p["batch_size"].is_number_integer() &&
-        cli_options.batch_size == 1) {
+    if (p.contains("suite") && !cli_options.has_suite) {
+      out_options->suite = p["suite"].get<std::string>();
+    }
+    if (p.contains("batch_size") && !cli_options.has_batch_size) {
       out_options->batch_size = p["batch_size"].get<int>();
     }
-    if (p.contains("device_id") && p["device_id"].is_number_integer() &&
-        cli_options.device_id == 0) {
+    if (p.contains("device_id") && !cli_options.has_device_id) {
       out_options->device_id = p["device_id"].get<int>();
     }
-    if (p.contains("chip") && p["chip"].is_string() &&
-        cli_options.chip == "ax650") {
+    if (p.contains("chip") && !cli_options.has_chip) {
       out_options->chip = p["chip"].get<std::string>();
     }
-    if (p.contains("depth") && p["depth"].is_number_integer() &&
-        cli_options.depth_num == 1) {
+    if (p.contains("depth") && !cli_options.has_depth_num) {
       out_options->depth_num = static_cast<uint32_t>(p["depth"].get<int>());
     }
-    if (p.contains("control_file") && p["control_file"].is_string() &&
-        !cli_options.control_file.has_value()) {
+    if (p.contains("control_file") && !cli_options.has_control_file) {
       out_options->control_file = p["control_file"].get<std::string>();
     }
   }
 
-  // 终态校验
+  // 终态芯片校验
   ChipType dummy_chip;
   if (!ParseChipType(out_options->chip, &dummy_chip)) {
     if (error_msg) {
@@ -388,8 +472,9 @@ int LoadAndMergeProfiles(const std::string& profiles_path,
 void PrintHelp(const char* program_name) {
   std::cout
       << "Usage: " << program_name << " [options]\n\n"
-      << "Profile Options:\n"
+      << "Profile & Suite Options:\n"
       << "  -p, --profile <name>       Run with a pre-configured profile\n"
+      << "  --suite <smoke|real|all>   Run an entire suite of profiles\n"
       << "  -l, --list                 List all available business cases and "
          "profiles\n\n"
       << "Direct Execution Options:\n"

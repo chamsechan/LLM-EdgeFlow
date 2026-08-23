@@ -79,3 +79,4 @@ doc/rfcs/NNNN-<kebab-case-title>.md
 - [RFC-0001 初始架构验收评审报告](reviews/0001-four-tier-architecture-acceptance.md)
 - [RFC-0003 Pipeline 黑板重构验收报告](reviews/0003-pipeline-dynamic-blackboard-acceptance.md)
 - [RFC-0004 平台 Operator 兼容层验收报告](reviews/0004-platform-operator-interface-acceptance.md)
+- [RFC-0005 参数化业务 Demo Runner 验收评审报告](reviews/0005-parameterized-business-demo-runner-acceptance.md)
