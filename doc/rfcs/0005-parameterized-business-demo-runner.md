@@ -2,7 +2,7 @@
 
 - **RFC 编号**：0005-parameterized-business-demo-runner
 - **创建日期**：2026-08-23
-- **文档状态**：Draft
+- **文档状态**：Completed
 - **关联分支**：`feat/parameterized-business-demo-runner`
 - **目标版本**：v2.4.0
 - **负责人 / 作者**：LLM-EdgeFlow Team
@@ -645,32 +645,32 @@ Real 套件作为具备模型资产和对应硬件环境时的附加验收，不
 
 ### 阶段一：公共执行层抽取
 
-- [ ] 抽取 `DemoOptions` 和 CLI Parser；
-- [ ] 抽取 Dataset Reader；
-- [ ] 抽取 Platform Operator RAII Runner；
-- [ ] 保持当前 7 个业务行为不变。
+- [x] 抽取 `DemoOptions` 和 CLI Parser；
+- [x] 抽取 Dataset Reader；
+- [x] 抽取 Platform Operator RAII Runner；
+- [x] 保持当前 7 个业务行为不变。
 
 ### 阶段二：业务文件拆分
 
-- [ ] 将 7 个 `DemoXxx` 迁移为独立 `*_demo.cpp`；
-- [ ] 引入字符串业务注册表；
-- [ ] 删除 `main.cpp` 中的数字 `switch`；
-- [ ] 增加注册冲突和未知业务测试。
+- [x] 将 7 个 `DemoXxx` 迁移为独立 `*_demo.cpp`；
+- [x] 引入字符串业务注册表；
+- [x] 删除 `main.cpp` 中的数字 `switch`；
+- [x] 增加注册冲突和未知业务测试。
 
 ### 阶段三：Profile 与结果落盘
 
-- [ ] 增加 `demo/profiles.json`；
-- [ ] 实现 CLI 覆盖和严格校验；
-- [ ] 实现 JSONL 与 Summary 输出；
-- [ ] 将 `results/` 加入 `.gitignore`。
+- [x] 增加 `demo/profiles.json`；
+- [x] 实现 CLI 覆盖和严格校验；
+- [x] 实现 JSONL 与 Summary 输出；
+- [x] 将 `results/` 加入 `.gitignore`。
 
 ### 阶段四：脚本、回归与文档
 
-- [ ] 增加 `scripts/run_all_demos.sh`；
-- [ ] 更新 `scripts/run_all_tests.sh`；
-- [ ] 更新 README Demo 使用说明；
-- [ ] 执行 CTest 和全量六阶段回归；
-- [ ] 将 RFC 状态更新为 `Completed`。
+- [x] 增加 `scripts/run_all_demos.sh`；
+- [x] 更新 `scripts/run_all_tests.sh`；
+- [x] 更新 README Demo 使用说明；
+- [x] 执行 CTest 和全量六阶段回归；
+- [x] 将 RFC 状态更新为 `Completed`。
 
 ---
 

@@ -77,11 +77,21 @@
 mkdir -p build && cd build
 cmake .. && make -j4
 
-# 2. 自动化执行全量测试套件 (CTest & Google Test)
+# 2. 自动化执行全量测试套件 (21 组 CTest & Google Test)
 ctest --output-on-failure
 
-# 3. 运行 7 大业务端到端全链路集成演示
+# 3. 运行 7 大业务端到端全链路集成演示 (默认 Smoke 组合)
 ./alg_demo
+
+# 4. 基于 Profile 运行特定业务配置
+./alg_demo --profile entity_extract_mock
+./alg_demo --profile doc_qa_onnx
+
+# 5. 查看所有支持的业务与 Profile 清单
+./alg_demo --list
+
+# 6. 批量自动化执行全部 Demo 套件 (Smoke / Real / All)
+cd .. && ./scripts/run_all_demos.sh smoke
 ```
 
 ---
@@ -105,6 +115,7 @@ LLM-EdgeFlow/
 ├── include/
 │   ├── company_alg_interface.h  # Layer 1: 标准 C ABI 导出头文件
 │   ├── core/                    # Layer 2: 框架核心 (AlgContext, Pipeline, TraceableItem)
+│   ├── platform/                # Layer 1: 平台 Operator 接口 (platform_operator_interface.h)
 │   └── engine/                  # Layer 4: 引擎接口 (FixedBatchExecutor, IModelEngine)
 ├── src/
 │   ├── adapter/                 # Layer 1: C ABI 安全胶水层 (company_c_adapter.cpp)
@@ -112,8 +123,11 @@ LLM-EdgeFlow/
 │   ├── business/                # Layer 3: 7 大多模态业务算子库
 │   ├── engine/                  # Layer 4: 异构引擎实现 (mock_npu, onnx, llama_cpp)
 │   └── tools/                   # 纯 C++ 原生 DAG 可视化工具 (alg_show.cpp)
-├── configs/                     # 9 大标准化业务配置 (JSON)
-├── demo/                        # 7 大业务端到端演示 (main.cpp)
+├── configs/                     # 9 大标准化业务配置 (JSON & .conf)
+├── demo/                        # 参数化多业务端到端演示与 Runner
+│   ├── profiles.json            # 预定义执行 Profile 清单 (单一事实源)
+│   ├── common/                  # 通用参数解析、注册表、数据读取、结果落盘与 RAII Runner
+│   └── businesses/              # 7 大独立业务 Demo 适配实现 (*_demo.cpp)
 ├── tests/                       # Google Test (GTest) 单元测试套件
 └── tools/visualizer/            # 交互式 Web DAG 可视化平台
 ```
@@ -122,6 +136,13 @@ LLM-EdgeFlow/
 
 ## 📝 更新日志 (Changelog)
 
+- **v2.4.0 (参数化业务 Demo Runner 与执行配置解耦交付 - RFC 0005)** *(2026-08)*
+  - 🧩 **独立业务 Demo 模块化解耦 (`demo/businesses/`)**：将原 `demo/main.cpp` 中单体硬编码的 7 大业务逻辑拆分为独立的 `*_demo.cpp` 文件，通过 `DemoRegistry` 与 `REGISTER_DEMO_BUSINESS` 宏实现字符串解耦与动态业务注册。
+  - 📋 **Profile 声明式配置清单 (`demo/profiles.json`)**：引入统一 Profile Schema 作为 Demo 默认参数的唯一事实源，支持 CLI 命令行参数、Profile 配置与安全默认值的无缝优先级合并覆盖。
+  - 🛡️ **通用 Platform Operator RAII 执行器 (`operator_runner.h`)**：统一收敛平台生命周期 `Init/Create/Process/Destroy/Deinit`，内置预检快速失败、强类型芯片白名单校验（`ChipType`）、精准耗时统计与 RAII 句柄安全释放。
+  - 💾 **结构化结果落盘契约 (`results/<profile>/`)**：标准落盘 `results.jsonl`（包含 `request_id`、`status`、`latency_ms` 与业务 JSON）与 `summary.json`，支持临时文件原子写入（`.tmp` $\rightarrow$ 重命名）及 `--append` 追加模式。
+  - 📜 **批量自动化 Demo 调度脚本 (`scripts/run_all_demos.sh`)**：提供统一批量调度入口，支持 `smoke`（默认轻量套件）、`real` 与 `all` 组合，并与 6 阶段自动化测试套件深度整合。
+  - 🧪 **DemoRunnerTest 全量测试套件**：新增 `tests/test_demo_runner.cpp` 单元测试，全面覆盖 CLI 参数解析、芯片白名单、Profile 校验与冲突、数据读取、结果原子落盘及 7 大业务端到端集成，21 组 CTest 100% 通过。
 - **v2.3.0 (平台 Operator 兼容门面与命名 I/O 双轨交付)** *(2026-08)*
   - 🔌 **平台 OperatorFunc 函数表兼容门面**：新增独立 C++ 平台头文件 `include/platform/platform_operator_interface.h`，导出 `Get_LLM_EDGEFLOW_OperatorTable()`，为公司调度平台提供 `Init` / `Create` / `Process` / `Control` / `Destroy` / `Deinit` 全 `noexcept` 隔离函数表。
   - 🧱 **Layer 1 共享算法运行时 (`SharedAlgorithmRuntime`)**：下沉提炼共享执行引擎，实现单点 `ValidateBatch` $\rightarrow$ `Unpack` $\rightarrow$ `Pipeline::Execute` $\rightarrow$ `Pack` 数据流，纯 C ABI 与 C++ 平台 Operator 门面双轨共用底层 Runtime，杜绝双轨逻辑分裂。
