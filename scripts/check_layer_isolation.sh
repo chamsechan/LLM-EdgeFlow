@@ -50,6 +50,17 @@ else
   echo "⚠️ [LayerGuard WARN] Neither gcc nor clang found for C11 syntax-only check."
 fi
 
+# Rule 5: Demo Layer (demo/) MUST NEVER directly include internal SDK headers (adapter/, core/, business/, engine/, src/)
+VIOLATIONS_DEMO_INTERNAL=$(grep -rnE '#include\s*["<](adapter/|core/|business/|engine/|src/)' "$REPO_ROOT/demo" || true)
+
+if [ -n "$VIOLATIONS_DEMO_INTERNAL" ]; then
+  echo "❌ [LayerGuard ERROR] Found Demo -> SDK internal header violations:"
+  echo "$VIOLATIONS_DEMO_INTERNAL"
+  echo "Directive: Demo must strictly behave as external user and only include platform/ and public company_alg_interface.h."
+  exit 1
+fi
+echo "✅ [LayerGuard PASS] Zero Demo -> Internal SDK header violations."
+
 echo "======================================================================"
 echo " All LayerGuard architectural isolation checks passed successfully!"
 echo "======================================================================"

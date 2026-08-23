@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 
+#include "nlohmann/json.hpp"
 #include "platform/platform_operator_interface.h"
 
 namespace alg_demo {
@@ -71,6 +72,19 @@ int ParseCommandLine(int argc, char* argv[], DemoOptions* out_options,
                      std::string* error_msg);
 
 /**
+ * @brief 解析并严格校验 profiles.json 文档 (校验 schema_version, profiles
+ * 结构与所有字段)
+ * @param profiles_path profiles.json 路径 (支持相对或绝对路径，为空默认使用
+ * demo/profiles.json)
+ * @param out_root 输出解析并校验通过的 JSON 对象
+ * @param error_msg 错误输出信息
+ * @return 0 成功, 非 0 错误码 (3: 格式或配置错误)
+ */
+int LoadAndValidateProfilesDocument(const std::string& profiles_path,
+                                    nlohmann::json* out_root,
+                                    std::string* error_msg);
+
+/**
  * @brief 从 demo/profiles.json 读取并与 CLI 参数进行合并
  *        优先级: 命令行显式参数 > Profile 配置 > 默认值
  * @param profiles_path profiles.json 路径
@@ -82,6 +96,19 @@ int ParseCommandLine(int argc, char* argv[], DemoOptions* out_options,
 int LoadAndMergeProfiles(const std::string& profiles_path,
                          const DemoOptions& cli_options,
                          DemoOptions* out_options, std::string* error_msg);
+
+/**
+ * @brief 根据套件名称获取满足条件的 Profile 名称列表
+ * @param profiles_path profiles.json 路径
+ * @param suite_name 套件名 ("smoke", "real", "all")
+ * @param out_profiles 输出 Profile 标识列表
+ * @param error_msg 错误输出信息
+ * @return 0 成功, 非 0 错误码 (3: 格式或配置错误)
+ */
+int GetProfilesForSuite(const std::string& profiles_path,
+                        const std::string& suite_name,
+                        std::vector<std::string>* out_profiles,
+                        std::string* error_msg);
 
 /**
  * @brief 打印 Demo CLI 帮助信息

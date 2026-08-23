@@ -520,4 +520,45 @@ const char* GetPlatformLastError() noexcept {
   return g_last_platform_error.c_str();
 }
 
+int ValidatePlatformConfigBinding(const char* cfg_file_name,
+                                  int32_t expected_biz_type,
+                                  char* out_error_msg,
+                                  size_t error_buf_size) noexcept {
+  if (!cfg_file_name || cfg_file_name[0] == '\0') {
+    if (out_error_msg && error_buf_size > 0) {
+      std::snprintf(out_error_msg, error_buf_size,
+                    "Null or empty config file name");
+    }
+    return -1;
+  }
+  alg_framework::ResolvedCompanyConfig resolved;
+  std::string err;
+  PlatformConfig dummy_cfg{};
+  dummy_cfg.batch_size = 1;
+  dummy_cfg.device_id = 0;
+  dummy_cfg.type = ChipType::kCpuGeneric;
+
+  int ret = alg_framework::CompanyConfResolver::Resolve(
+      cfg_file_name, dummy_cfg, &resolved, &err);
+  if (ret != 0) {
+    if (out_error_msg && error_buf_size > 0) {
+      std::snprintf(out_error_msg, error_buf_size, "%s", err.c_str());
+    }
+    return ret;
+  }
+
+  if (expected_biz_type != 0 &&
+      resolved.biz_type != static_cast<CompanyAlgBizType>(expected_biz_type)) {
+    if (out_error_msg && error_buf_size > 0) {
+      std::snprintf(
+          out_error_msg, error_buf_size,
+          "Business mismatch: Config resolves to biz_type %d, but expected %d",
+          static_cast<int>(resolved.biz_type), expected_biz_type);
+    }
+    return -3;
+  }
+
+  return 0;
+}
+
 }  // namespace llm_edgeflow::platform

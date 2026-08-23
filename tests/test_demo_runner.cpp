@@ -77,6 +77,7 @@ TEST(DemoRunnerTest, CommandLineLegacyBizMapping) {
   EXPECT_EQ(opts.legacy_biz_id, 1);
 }
 
+// P2-1: 测试 CLI 参数严格解析 (尾随字符拦截与错误退出码 2)
 TEST(DemoRunnerTest, CommandLineParsingErrors) {
   DemoOptions opts;
   std::string err;
@@ -98,6 +99,29 @@ TEST(DemoRunnerTest, CommandLineParsingErrors) {
   EXPECT_EQ(
       ParseCommandLine(3, const_cast<char**>(argv3_overflow), &opts, &err), 2);
 
+  // P2-1: 非法 batch_size (含尾随非法字符 "1abc")
+  const char* argv3_trailing[] = {"alg_demo", "--batch-size", "1abc"};
+  EXPECT_EQ(
+      ParseCommandLine(3, const_cast<char**>(argv3_trailing), &opts, &err), 2);
+
+  // P2-1: 非法 device-id (含尾随字符 "0xyz")
+  const char* argv_dev_trailing[] = {"alg_demo", "--device-id", "0xyz"};
+  EXPECT_EQ(
+      ParseCommandLine(3, const_cast<char**>(argv_dev_trailing), &opts, &err),
+      2);
+
+  // P2-1: 非法 depth (含尾随字符 "2foo")
+  const char* argv_depth_trailing[] = {"alg_demo", "--depth", "2foo"};
+  EXPECT_EQ(
+      ParseCommandLine(3, const_cast<char**>(argv_depth_trailing), &opts, &err),
+      2);
+
+  // P2-1: 非法 legacy biz (含尾随字符 "1bar")
+  const char* argv_biz_trailing[] = {"alg_demo", "--biz", "1bar"};
+  EXPECT_EQ(
+      ParseCommandLine(3, const_cast<char**>(argv_biz_trailing), &opts, &err),
+      2);
+
   // 非法 chip
   const char* argv4[] = {"alg_demo", "--chip", "unsupported_dsp"};
   EXPECT_EQ(ParseCommandLine(3, const_cast<char**>(argv4), &opts, &err), 2);
@@ -106,7 +130,7 @@ TEST(DemoRunnerTest, CommandLineParsingErrors) {
   const char* argv5[] = {"alg_demo", "--suite", "invalid_suite"};
   EXPECT_EQ(ParseCommandLine(3, const_cast<char**>(argv5), &opts, &err), 2);
 
-  // 非法 legacy biz
+  // 非法 legacy biz 超界
   const char* argv6[] = {"alg_demo", "--biz", "99"};
   EXPECT_EQ(ParseCommandLine(3, const_cast<char**>(argv6), &opts, &err), 2);
 }
@@ -205,7 +229,8 @@ TEST(DemoRunnerTest, ProfileNotFound) {
   EXPECT_NE(err.find("not found"), std::string::npos);
 }
 
-// P2-1: 测试 Profile Schema 严格校验与数值溢出防御
+// P1-1 & P2-1: 测试 Profile Schema 严格校验、非法 suite 类型防御 (123)
+// 与数值溢出防御
 TEST(DemoRunnerTest, ProfileSchemaStrictValidation) {
   std::string temp_invalid_json = "./results/invalid_profile.json";
   std::filesystem::create_directories("./results");
@@ -222,7 +247,7 @@ TEST(DemoRunnerTest, ProfileSchemaStrictValidation) {
   EXPECT_EQ(LoadAndMergeProfiles(temp_invalid_json, cli_opts, &merged, &err),
             3);
 
-  // Case 2: 非法 suite
+  // Case 2: 非法 suite 字符串
   {
     std::ofstream ofs(temp_invalid_json);
     ofs << R"({
@@ -241,7 +266,32 @@ TEST(DemoRunnerTest, ProfileSchemaStrictValidation) {
             3);
   EXPECT_NE(err.find("bad_prof"), std::string::npos);
 
-  // Case 3: batch_size 数值超界溢出 (4294967297) 防御拦截
+  // Case 3 (P1-1 探针): suite 字段为数字 123 -> 必须返回 3 而非抛出异常崩溃
+  // (exit 134)
+  {
+    std::ofstream ofs(temp_invalid_json);
+    ofs << R"({
+      "schema_version": 1,
+      "profiles": {
+        "bad_suite_type": {
+          "business": "keyword_match",
+          "config": "configs/pipeline_keyword_match.conf",
+          "dataset": "data/corpus_keyword_match.txt",
+          "suite": 123
+        }
+      }
+    })";
+  }
+  EXPECT_EQ(LoadAndMergeProfiles(temp_invalid_json, cli_opts, &merged, &err),
+            3);
+  EXPECT_NE(err.find("suite"), std::string::npos);
+
+  // 验证 GetProfilesForSuite 对该非法文件同样返回 3 且不崩溃
+  std::vector<std::string> prof_list;
+  EXPECT_EQ(GetProfilesForSuite(temp_invalid_json, "smoke", &prof_list, &err),
+            3);
+
+  // Case 4: batch_size 数值超界溢出 (4294967297) 防御拦截
   {
     std::ofstream ofs(temp_invalid_json);
     ofs << R"({
@@ -356,14 +406,15 @@ TEST(DemoRunnerTest, ResultWriterAtomicOutputAndCumulativeAppend) {
   std::string line;
   int count = 0;
   while (std::getline(j_ifs, line)) {
-    if (line.empty()) continue;
-    count++;
-    auto obj = nlohmann::json::parse(line);
-    EXPECT_EQ(obj["schema_version"], 1);
-    EXPECT_EQ(obj["profile"], "test_profile_unit");
-    if (obj["request_id"] == 9002) {
-      EXPECT_EQ(obj["status"], 5);
-      EXPECT_EQ(obj["error"], "Mock inference error for sample");
+    if (!line.empty()) {
+      count++;
+      auto obj = nlohmann::json::parse(line);
+      EXPECT_EQ(obj["schema_version"], 1);
+      EXPECT_EQ(obj["profile"], "test_profile_unit");
+      if (obj["request_id"] == 9002) {
+        EXPECT_EQ(obj["status"], 5);
+        EXPECT_EQ(obj["error"], "Mock inference error for sample");
+      }
     }
   }
   EXPECT_EQ(count, 2);
@@ -408,7 +459,8 @@ TEST(DemoRunnerTest, ResultWriterAtomicOutputAndCumulativeAppend) {
   }
 }
 
-// 7. 测试 Config 与 Business 匹配校验与 P1-3 精确匹配 (Single Source of Truth)
+// 7. 测试 Config 与 Business 匹配校验、P1-2 pipe_path 类型异常与 P1-3 Platform
+// 公开预检 API
 TEST(DemoRunnerTest, ConfigBusinessMatchValidation) {
   std::string err;
 
@@ -431,6 +483,32 @@ TEST(DemoRunnerTest, ConfigBusinessMatchValidation) {
   EXPECT_FALSE(ValidateConfigBusinessMatch(
       "configs/pipeline_doc_qa_rerank.conf", "cross_rerank", &err));
   EXPECT_NE(err.find("Business mismatch"), std::string::npos);
+
+  // P1-2 探针测试: .conf 中 pipe_path 为数字 123 (必须返回 false，不抛异常崩溃)
+  std::string bad_conf_path = "./results/bad_pipe_path.conf";
+  {
+    std::ofstream ofs(bad_conf_path);
+    ofs << R"({"data": {"pipe_path": 123}})";
+  }
+  EXPECT_FALSE(
+      ValidateConfigBusinessMatch(bad_conf_path, "keyword_match", &err));
+  EXPECT_NE(err.find("pipe_path"), std::string::npos);
+  std::filesystem::remove(bad_conf_path);
+
+  // 测试公开 API ValidatePlatformConfigBinding
+  char err_buf[256] = {0};
+  EXPECT_EQ(ValidatePlatformConfigBinding(
+                "configs/pipeline_entity_extract.conf",
+                ALG_BIZ_TYPE_ENTITY_EXTRACT, err_buf, sizeof(err_buf)),
+            0);
+  EXPECT_EQ(ValidatePlatformConfigBinding(
+                "configs/pipeline_entity_extract.conf", ALG_BIZ_TYPE_DOC_QA,
+                err_buf, sizeof(err_buf)),
+            -3);
+  EXPECT_EQ(ValidatePlatformConfigBinding("non_existent_conf_file.conf",
+                                          ALG_BIZ_TYPE_DOC_QA, err_buf,
+                                          sizeof(err_buf)),
+            -2);
 }
 
 // P1-2: 测试显式指定不存在或非法的 Control 文件 Fail-Closed

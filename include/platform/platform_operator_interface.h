@@ -149,4 +149,18 @@ OperatorFunc Get_LLM_EDGEFLOW_OperatorTable() noexcept;
  */
 const char* GetPlatformLastError() noexcept;
 
+/**
+ * @brief 校验平台部署配置 .conf 与预期业务类型是否兼容
+ * (只读无副作用预检，不抛出任何异常)
+ * @param cfg_file_name 平台 .conf 部署配置文件路径
+ * @param expected_biz_type 预期算法业务类型 (CompanyAlgBizType)
+ * @param out_error_msg 错误输出信息缓冲区 (可选)
+ * @param error_buf_size 缓冲区容量
+ * @return 0 校验通过且兼容, -1 参数非法, -2 配置解析或文件不存在, -3 业务不匹配
+ */
+int ValidatePlatformConfigBinding(const char* cfg_file_name,
+                                  int32_t expected_biz_type,
+                                  char* out_error_msg = nullptr,
+                                  size_t error_buf_size = 0) noexcept;
+
 }  // namespace llm_edgeflow::platform
