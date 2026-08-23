@@ -83,7 +83,7 @@ struct ControlSwitchPromptParam {
  */
 struct ControlUpdateThresholdParam {
   const char* category_or_rule_name = nullptr;  // 目标规则名或分类名 (可选)
-  float threshold = 0.0f;  // 判定阈值 (范围 0.0f ~ 1.0f)
+  float threshold = 0.0f;                       // 判定阈值 (范围 0.0f ~ 1.0f)
 };
 
 /**
@@ -91,7 +91,7 @@ struct ControlUpdateThresholdParam {
  */
 struct PlatformConfig {
   int32_t batch_size = 1;  // 单次 Process 允许提交的最大样本数 (必须 > 0)
-  int32_t device_id = 0;  // 目标硬件设备 ID (必须 >= 0)
+  int32_t device_id = 0;   // 目标硬件设备 ID (必须 >= 0)
   ChipType type = ChipType::kUnknown;  // 硬件芯片类型 (必须在显式支持白名单内)
 };
 
@@ -111,9 +111,9 @@ using OutputDeallocator = void (*)(const char* slot_suffix,
  */
 struct CreateParam {
   const char* cfg_file_name = nullptr;  // 公司平台 .conf 部署配置文件路径
-  PlatformConfig platform_config;  // 平台运行参数
+  PlatformConfig platform_config;       // 平台运行参数
   uint32_t depth_num = 1;  // Create 阶段输出结构体创建组数预声明 (必须 > 0)
-  OutputAllocator output_allocator = nullptr;  // 可选: 输出对象自定义分配器
+  OutputAllocator output_allocator = nullptr;      // 可选: 输出对象自定义分配器
   OutputDeallocator output_deallocator = nullptr;  // 可选: 输出对象自定义释放器
   void* user_data = nullptr;                       // 回调上下文指针
 };

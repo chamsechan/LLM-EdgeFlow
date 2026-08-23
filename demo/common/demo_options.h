@@ -15,10 +15,10 @@ namespace alg_demo {
  * @brief Demo 运行参数对象 (由命令行参数、Profile 配置与默认安全值合并而成)
  */
 struct DemoOptions {
-  std::string profile;  // 预定义运行配置 Profile 标识
-  std::string business;  // 业务标识名 (如 entity_extract, keyword_match 等)
-  std::string config_path;               // Platform .conf 路径
-  std::string dataset_path;              // 业务测试集文件路径
+  std::string profile;       // 预定义运行配置 Profile 标识
+  std::string business;      // 业务标识名 (如 entity_extract, keyword_match 等)
+  std::string config_path;   // Platform .conf 路径
+  std::string dataset_path;  // 业务测试集文件路径
   std::string output_dir = "./results";  // 结果输出根目录
 
   int batch_size = 1;          // 最大批大小 (支持按批分块分发)
@@ -27,9 +27,9 @@ struct DemoOptions {
   uint32_t depth_num = 1;      // 输出结构体预分配深度
 
   std::optional<std::string> control_file;  // 运行时 Control JSON 文件路径
-  std::string suite;                   // 执行套件 ("smoke", "real", "all")
-  bool append = false;                 // 结果文件是否追加模式
-  bool allow_fallback_sample = false;  // 测试集缺失时是否允许使用内置样例
+  std::string suite;                        // 执行套件 ("smoke", "real", "all")
+  bool append = false;                      // 结果文件是否追加模式
+  bool allow_fallback_sample = false;       // 测试集缺失时是否允许使用内置样例
   bool list_only = false;  // 是否仅列出可用 Business 和 Profile
   bool show_help = false;  // 是否显示帮助信息
 

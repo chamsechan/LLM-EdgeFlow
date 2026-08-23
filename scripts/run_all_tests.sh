@@ -25,7 +25,7 @@ echo -e "${BOLD}${CYAN}=========================================================
 # 1. 架构分层隔离、代码规范与差异门禁检验
 echo -e "${BOLD}[ Step 1/6: LayerGuard 架构分层防腐扫描、Google C++ 代码规范与 Git Diff 门禁检验 ]${NC}"
 "$SCRIPT_DIR/check_layer_isolation.sh"
-"$SCRIPT_DIR/format.sh"
+"$SCRIPT_DIR/format.sh" --check
 git diff --check
 echo -e "${GREEN}✓ 架构分层隔离、代码规范与差异门禁校验 100% 通过！${NC}\n"
 

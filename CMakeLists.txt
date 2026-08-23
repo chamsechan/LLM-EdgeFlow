@@ -39,11 +39,20 @@ set(CMAKE_BUILD_RPATH "${CMAKE_BINARY_DIR}")
 add_compile_options(-Wall -Wextra -O2 -fPIC)
 
 option(ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
+set(LLM_EDGEFLOW_SANITIZERS "address,undefined" CACHE STRING
+    "Comma-separated Clang/GCC sanitizer set used when ENABLE_SANITIZERS=ON")
 if(ENABLE_SANITIZERS)
-  message(STATUS "Enabling AddressSanitizer and UndefinedBehaviorSanitizer (-fsanitize=address,undefined)")
-  add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
-  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=address,undefined")
-  set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -fsanitize=address,undefined")
+  if(NOT LLM_EDGEFLOW_SANITIZERS MATCHES "^(address|undefined|address,undefined|undefined,address)$")
+    message(FATAL_ERROR
+      "Unsupported LLM_EDGEFLOW_SANITIZERS='${LLM_EDGEFLOW_SANITIZERS}'. "
+      "Use address, undefined, or address,undefined.")
+  endif()
+  message(STATUS "Enabling sanitizers (-fsanitize=${LLM_EDGEFLOW_SANITIZERS})")
+  add_compile_options(-fsanitize=${LLM_EDGEFLOW_SANITIZERS} -fno-omit-frame-pointer)
+  set(CMAKE_EXE_LINKER_FLAGS
+      "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=${LLM_EDGEFLOW_SANITIZERS}")
+  set(CMAKE_SHARED_LINKER_FLAGS
+      "${CMAKE_SHARED_LINKER_FLAGS} -fsanitize=${LLM_EDGEFLOW_SANITIZERS}")
 endif()
 
 # 头文件搜索路径
