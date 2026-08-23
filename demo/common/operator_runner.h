@@ -7,13 +7,12 @@
 #include <memory>
 #include <string>
 #include <string_view>
-#include <unordered_map>
 #include <vector>
 
-#include "adapter/business_adapter_registry.h"
 #include "company_alg_interface.h"
 #include "demo/common/dataset_reader.h"
 #include "demo/common/demo_options.h"
+#include "demo/common/result_writer.h"
 #include "nlohmann/json.hpp"
 #include "platform/platform_operator_interface.h"
 
@@ -34,110 +33,32 @@ inline CompanyAlgBizType DemoBusinessToBizType(std::string_view demo_biz) {
 }
 
 /**
- * @brief 校验 Pipeline business_name 与 Demo 业务是否兼容 (基于
- * BusinessAdapterRegistry 单一事实源)
- */
-inline bool IsBusinessCompatible(std::string_view expected_demo_biz,
-                                 const std::string& actual_pipe_biz) {
-  CompanyAlgBizType expected_type = DemoBusinessToBizType(expected_demo_biz);
-  if (expected_type == ALG_BIZ_TYPE_UNKNOWN) {
-    return false;
-  }
-  auto adapter = alg_framework::BusinessAdapterRegistry::Instance()
-                     .GetAdapterByPipelineName(actual_pipe_biz);
-  if (!adapter) {
-    return false;
-  }
-  return adapter->BizType() == expected_type;
-}
-
-/**
  * @brief 校验 .conf 与 Pipeline JSON 中的 business_name 是否与 Demo Case 兼容
+ * (基于 Platform 公开预检 API)
  */
 inline bool ValidateConfigBusinessMatch(const std::string& conf_path,
                                         std::string_view expected_biz,
                                         std::string* error_msg) {
+  CompanyAlgBizType expected_type = DemoBusinessToBizType(expected_biz);
+  if (expected_type == ALG_BIZ_TYPE_UNKNOWN) {
+    if (error_msg) {
+      *error_msg = "Unknown demo business: " + std::string(expected_biz);
+    }
+    return false;
+  }
+
   std::string resolved_conf = ResolvePath(conf_path);
-  std::ifstream c_ifs(resolved_conf);
-  if (!c_ifs.is_open()) {
+  char err_buf[512] = {0};
+  int ret = llm_edgeflow::platform::ValidatePlatformConfigBinding(
+      resolved_conf.c_str(), static_cast<int32_t>(expected_type), err_buf,
+      sizeof(err_buf));
+
+  if (ret != 0) {
     if (error_msg) {
-      *error_msg = "Cannot open deployment .conf: '" + conf_path +
-                   "' (resolved: '" + resolved_conf + "')";
-    }
-    return false;
-  }
-
-  nlohmann::json conf_json;
-  try {
-    c_ifs >> conf_json;
-  } catch (const std::exception& e) {
-    if (error_msg) {
-      *error_msg =
-          "Invalid JSON in .conf file '" + resolved_conf + "': " + e.what();
-    }
-    return false;
-  }
-
-  std::string pipe_rel;
-  if (conf_json.contains("data") && conf_json["data"].is_object() &&
-      conf_json["data"].contains("pipe_path")) {
-    pipe_rel = conf_json["data"]["pipe_path"].get<std::string>();
-  } else if (conf_json.contains("pipe_path")) {
-    pipe_rel = conf_json["pipe_path"].get<std::string>();
-  }
-
-  if (pipe_rel.empty()) {
-    if (error_msg) {
-      *error_msg = "Missing 'pipe_path' in .conf file '" + resolved_conf + "'";
-    }
-    return false;
-  }
-
-  // 拼接或解析 pipeline JSON 路径
-  std::filesystem::path conf_dir =
-      std::filesystem::path(resolved_conf).parent_path();
-  std::filesystem::path candidate = conf_dir / pipe_rel;
-  std::string resolved_pipe = ResolvePath(candidate.string());
-  if (!std::filesystem::exists(resolved_pipe)) {
-    resolved_pipe = ResolvePath(pipe_rel);
-  }
-
-  std::ifstream p_ifs(resolved_pipe);
-  if (!p_ifs.is_open()) {
-    if (error_msg) {
-      *error_msg = "Cannot open pipeline JSON: '" + pipe_rel +
-                   "' (resolved: '" + resolved_pipe + "')";
-    }
-    return false;
-  }
-
-  nlohmann::json pipe_json;
-  try {
-    p_ifs >> pipe_json;
-  } catch (const std::exception& e) {
-    if (error_msg) {
-      *error_msg =
-          "Invalid JSON in pipeline file '" + resolved_pipe + "': " + e.what();
-    }
-    return false;
-  }
-
-  if (!pipe_json.contains("business_name") ||
-      !pipe_json["business_name"].is_string()) {
-    if (error_msg) {
-      *error_msg =
-          "Pipeline JSON missing 'business_name' in '" + resolved_pipe + "'";
-    }
-    return false;
-  }
-
-  std::string actual_biz = pipe_json["business_name"].get<std::string>();
-  if (!IsBusinessCompatible(expected_biz, actual_biz)) {
-    if (error_msg) {
-      *error_msg = "Business mismatch: Pipeline declares business_name '" +
-                   actual_biz +
-                   "', which is incompatible with demo business '" +
-                   std::string(expected_biz) + "'";
+      *error_msg = (err_buf[0] != '\0')
+                       ? std::string(err_buf)
+                       : "Platform config validation failed (code " +
+                             std::to_string(ret) + ")";
     }
     return false;
   }
@@ -168,8 +89,9 @@ struct OperatorHandleGuard {
 };
 
 /**
- * @brief 通用 Platform Operator 生命周期与按批分块执行器 (P1-1, P1-2, P1-3)
- * @tparam TInput 业务 C 输入结构体类型
+ * @brief 通用 Platform Operator 生命周期与按批分块执行器 (P1-1, P1-2, P1-3,
+ * P2-2)
+ * @tparam TInput 业务 C 输入结构体类型 (首字段必须为 uint64_t request_id)
  * @tparam TOutput 业务 C 输出结构体类型
  * @param options Demo 运行选项
  * @param input_slot 输入槽位名称 (如 "nlp_node.entity_in")
@@ -238,9 +160,10 @@ int RunPlatformOperator(
   void* raw_handle = nullptr;
   int ret = ops.Create(&raw_handle, &param);
   if (ret != 0 || !raw_handle) {
+    std::string plat_err = GetPlatformLastError();
     std::cerr << "[OperatorRunner ERROR] Failed ops.Create with conf: "
-              << resolved_conf << " (Platform error: " << GetPlatformLastError()
-              << ")" << std::endl;
+              << resolved_conf << " (Platform error: " << plat_err << ")"
+              << std::endl;
     return 5;
   }
 
@@ -333,10 +256,40 @@ int RunPlatformOperator(
     total_elapsed_ms += chunk_elapsed_ms;
 
     if (ret != 0) {
+      std::string platform_err = GetPlatformLastError();
       std::cerr << "[OperatorRunner ERROR] ops.Process failed at chunk "
                    "starting index "
-                << processed_count << ": code=" << ret << " ("
-                << GetPlatformLastError() << ")" << std::endl;
+                << processed_count << ": code=" << ret << " (" << platform_err
+                << ")" << std::endl;
+
+      // 构造错误样本结果落盘 (P2-2)
+      std::vector<DemoSampleResult> sample_results;
+      sample_results.reserve(total_inputs);
+      for (size_t i = 0; i < total_inputs; ++i) {
+        DemoSampleResult s;
+        s.request_id = inputs[i].request_id;
+        if (i < processed_count) {
+          s.status = 0;
+          s.latency_ms = out_latencies_ms ? (*out_latencies_ms)[i] : 0.0;
+          s.output = {{"chunk_status", "completed"}};
+        } else if (i < processed_count + chunk_size) {
+          s.status = (ret != 0) ? ret : 5;
+          s.latency_ms = chunk_size > 0 ? (chunk_elapsed_ms / chunk_size) : 0.0;
+          s.error = "ops.Process failed: " + platform_err;
+          s.output = nlohmann::json::object();
+        } else {
+          s.status = 5;
+          s.latency_ms = 0.0;
+          s.error = "Skipped due to prior chunk failure";
+          s.output = nlohmann::json::object();
+        }
+        sample_results.push_back(s);
+      }
+
+      ResultWriter writer(options);
+      std::string w_err;
+      writer.WriteResults(sample_results, total_elapsed_ms, &w_err);
+
       return 5;
     }
 

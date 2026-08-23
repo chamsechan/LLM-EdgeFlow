@@ -42,6 +42,24 @@ const char* LegacyBizIdToName(int biz_id) {
   }
 }
 
+/**
+ * @brief 严格整数解析函数，拒绝包含尾随非法字符的字符串 (P2-1)
+ */
+bool ParseStrictInt64(const std::string& str, int64_t* out_val) {
+  if (str.empty()) return false;
+  size_t idx = 0;
+  try {
+    int64_t val = std::stoll(str, &idx);
+    if (idx != str.size()) {
+      return false;  // 存在尾随非法字符 (如 "1abc")
+    }
+    if (out_val) *out_val = val;
+    return true;
+  } catch (...) {
+    return false;
+  }
+}
+
 }  // namespace
 
 bool ParseChipType(const std::string& chip_str, ChipType* out_type) noexcept {
@@ -122,28 +140,23 @@ int ParseCommandLine(int argc, char* argv[], DemoOptions* out_options,
         if (error_msg) *error_msg = "Missing value for argument: " + arg;
         return 2;
       }
-      try {
-        int64_t val = std::stoll(argv[++i]);
-        if (val < 1 || val > 7) {
-          if (error_msg) {
-            *error_msg = "Unsupported legacy --biz ID: " + std::to_string(val) +
-                         " (Must be 1..7)";
-          }
-          return 2;
+      int64_t val = 0;
+      if (!ParseStrictInt64(argv[++i], &val) || val < 1 || val > 7) {
+        if (error_msg) {
+          *error_msg = "Unsupported legacy --biz ID: " + std::string(argv[i]) +
+                       " (Must be integer 1..7)";
         }
-        int id = static_cast<int>(val);
-        out_options->legacy_biz_id = id;
-        std::string mapped = LegacyBizIdToName(id);
-        std::cerr << "[DEPRECATION WARNING] Flag '--biz " << id
-                  << "' is deprecated. Please use '--business " << mapped
-                  << "' instead." << std::endl;
-        if (!out_options->has_business) {
-          out_options->business = mapped;
-          out_options->has_business = true;
-        }
-      } catch (const std::exception&) {
-        if (error_msg) *error_msg = "Invalid integer for --biz";
         return 2;
+      }
+      int id = static_cast<int>(val);
+      out_options->legacy_biz_id = id;
+      std::string mapped = LegacyBizIdToName(id);
+      std::cerr << "[DEPRECATION WARNING] Flag '--biz " << id
+                << "' is deprecated. Please use '--business " << mapped
+                << "' instead." << std::endl;
+      if (!out_options->has_business) {
+        out_options->business = mapped;
+        out_options->has_business = true;
       }
     } else if (arg == "-c" || arg == "--config" || arg == "--conf") {
       if (i + 1 >= argc) {
@@ -171,36 +184,31 @@ int ParseCommandLine(int argc, char* argv[], DemoOptions* out_options,
         if (error_msg) *error_msg = "Missing value for argument: " + arg;
         return 2;
       }
-      try {
-        int64_t val = std::stoll(argv[++i]);
-        if (val <= 0 || val > 100000) {
-          if (error_msg)
-            *error_msg = "--batch-size must be between 1 and 100000";
-          return 2;
+      int64_t val = 0;
+      if (!ParseStrictInt64(argv[++i], &val) || val <= 0 || val > 100000) {
+        if (error_msg) {
+          *error_msg = "Invalid integer for --batch-size: '" +
+                       std::string(argv[i]) + "' (Must be integer 1..100000)";
         }
-        out_options->batch_size = static_cast<int>(val);
-        out_options->has_batch_size = true;
-      } catch (...) {
-        if (error_msg) *error_msg = "Invalid integer for --batch-size";
         return 2;
       }
+      out_options->batch_size = static_cast<int>(val);
+      out_options->has_batch_size = true;
     } else if (arg == "--device-id") {
       if (i + 1 >= argc) {
         if (error_msg) *error_msg = "Missing value for argument: " + arg;
         return 2;
       }
-      try {
-        int64_t val = std::stoll(argv[++i]);
-        if (val < 0 || val > 1024) {
-          if (error_msg) *error_msg = "--device-id must be between 0 and 1024";
-          return 2;
+      int64_t val = 0;
+      if (!ParseStrictInt64(argv[++i], &val) || val < 0 || val > 1024) {
+        if (error_msg) {
+          *error_msg = "Invalid integer for --device-id: '" +
+                       std::string(argv[i]) + "' (Must be integer 0..1024)";
         }
-        out_options->device_id = static_cast<int>(val);
-        out_options->has_device_id = true;
-      } catch (...) {
-        if (error_msg) *error_msg = "Invalid integer for --device-id";
         return 2;
       }
+      out_options->device_id = static_cast<int>(val);
+      out_options->has_device_id = true;
     } else if (arg == "--chip") {
       if (i + 1 >= argc) {
         if (error_msg) *error_msg = "Missing value for argument: " + arg;
@@ -222,18 +230,16 @@ int ParseCommandLine(int argc, char* argv[], DemoOptions* out_options,
         if (error_msg) *error_msg = "Missing value for argument: " + arg;
         return 2;
       }
-      try {
-        int64_t val = std::stoll(argv[++i]);
-        if (val <= 0 || val > 100000) {
-          if (error_msg) *error_msg = "--depth must be between 1 and 100000";
-          return 2;
+      int64_t val = 0;
+      if (!ParseStrictInt64(argv[++i], &val) || val <= 0 || val > 100000) {
+        if (error_msg) {
+          *error_msg = "Invalid integer for --depth: '" + std::string(argv[i]) +
+                       "' (Must be integer 1..100000)";
         }
-        out_options->depth_num = static_cast<uint32_t>(val);
-        out_options->has_depth_num = true;
-      } catch (...) {
-        if (error_msg) *error_msg = "Invalid integer for --depth";
         return 2;
       }
+      out_options->depth_num = static_cast<uint32_t>(val);
+      out_options->has_depth_num = true;
     } else if (arg == "--control-file") {
       if (i + 1 >= argc) {
         if (error_msg) *error_msg = "Missing value for argument: " + arg;
@@ -254,23 +260,18 @@ int ParseCommandLine(int argc, char* argv[], DemoOptions* out_options,
   return 0;
 }
 
-int LoadAndMergeProfiles(const std::string& profiles_path,
-                         const DemoOptions& cli_options,
-                         DemoOptions* out_options, std::string* error_msg) {
-  if (!out_options) {
-    if (error_msg) *error_msg = "Null out_options pointer";
+int LoadAndValidateProfilesDocument(const std::string& profiles_path,
+                                    nlohmann::json* out_root,
+                                    std::string* error_msg) {
+  if (!out_root) {
+    if (error_msg) *error_msg = "Null out_root pointer";
     return 3;
   }
-
-  *out_options = cli_options;
 
   std::string resolved_path =
       ResolvePath(profiles_path.empty() ? "demo/profiles.json" : profiles_path);
   std::ifstream ifs(resolved_path);
   if (!ifs.is_open()) {
-    if (cli_options.profile.empty()) {
-      return 0;
-    }
     if (error_msg) {
       *error_msg = "Failed to open profiles file: " + resolved_path;
     }
@@ -289,14 +290,16 @@ int LoadAndMergeProfiles(const std::string& profiles_path,
   }
 
   if (!root.is_object()) {
-    if (error_msg) *error_msg = "Profiles root must be a JSON object";
+    if (error_msg)
+      *error_msg = "Profiles root must be a JSON object in " + resolved_path;
     return 3;
   }
 
   if (!root.contains("schema_version") ||
       !root["schema_version"].is_number_integer()) {
     if (error_msg)
-      *error_msg = "Missing or invalid 'schema_version' in profiles.json";
+      *error_msg = "Missing or invalid 'schema_version' in profiles file: " +
+                   resolved_path;
     return 3;
   }
 
@@ -310,17 +313,19 @@ int LoadAndMergeProfiles(const std::string& profiles_path,
   }
 
   if (!root.contains("profiles") || !root["profiles"].is_object()) {
-    if (error_msg) *error_msg = "Missing 'profiles' map in profiles.json";
+    if (error_msg)
+      *error_msg =
+          "Missing 'profiles' map object in profiles file: " + resolved_path;
     return 3;
   }
 
   const auto& profiles = root["profiles"];
 
-  // 严格 Schema 校验所有 Profiles (P2-1, 上界与类型防溢出校验)
+  // 严格 Schema 校验所有 Profiles (逐字段类型与数值区间安全检验)
   for (const auto& [name, p] : profiles.items()) {
     if (name.empty()) {
       if (error_msg)
-        *error_msg = "Profile name cannot be empty string in profiles.json";
+        *error_msg = "Profile name cannot be empty string in " + resolved_path;
       return 3;
     }
     if (!p.is_object()) {
@@ -350,14 +355,18 @@ int LoadAndMergeProfiles(const std::string& profiles_path,
     }
     if (p.contains("suite")) {
       if (!p["suite"].is_string()) {
-        if (error_msg)
-          *error_msg = "Profile '" + name + "' field 'suite' must be a string";
+        if (error_msg) {
+          *error_msg = "Profile '" + name +
+                       "' field 'suite' must be string ('smoke' or 'real')";
+        }
         return 3;
       }
       std::string s = p["suite"].get<std::string>();
       if (s != "smoke" && s != "real") {
-        if (error_msg)
-          *error_msg = "Profile '" + name + "' suite must be 'smoke' or 'real'";
+        if (error_msg) {
+          *error_msg = "Profile '" + name +
+                       "' suite must be 'smoke' or 'real' (got '" + s + "')";
+        }
         return 3;
       }
     }
@@ -430,58 +439,108 @@ int LoadAndMergeProfiles(const std::string& profiles_path,
     }
   }
 
-  // 如果请求了特定 Profile
-  if (!cli_options.profile.empty()) {
-    if (!profiles.contains(cli_options.profile)) {
-      if (error_msg) {
-        *error_msg = "Profile '" + cli_options.profile + "' not found in " +
-                     resolved_path;
-      }
-      return 3;
-    }
+  *out_root = std::move(root);
+  return 0;
+}
 
-    const auto& p = profiles[cli_options.profile];
-    std::string prof_biz = p["business"].get<std::string>();
-    std::string prof_cfg = p["config"].get<std::string>();
-    std::string prof_data = p["dataset"].get<std::string>();
+int GetProfilesForSuite(const std::string& profiles_path,
+                        const std::string& suite_name,
+                        std::vector<std::string>* out_profiles,
+                        std::string* error_msg) {
+  if (!out_profiles) {
+    if (error_msg) *error_msg = "Null out_profiles pointer";
+    return 3;
+  }
+  out_profiles->clear();
 
-    // 冲突检查：若 CLI 显式提供了 --business，必须与 Profile business 完全一致
-    if (cli_options.has_business && cli_options.business != prof_biz) {
-      if (error_msg) {
-        *error_msg = "Business conflict: CLI specified '--business " +
-                     cli_options.business + "' but profile '" +
-                     cli_options.profile + "' requires '" + prof_biz + "'";
-      }
-      return 3;
-    }
+  nlohmann::json root;
+  int ret = LoadAndValidateProfilesDocument(profiles_path, &root, error_msg);
+  if (ret != 0) {
+    return ret;
+  }
 
-    // 严格合并优先级：默认值 < Profile < CLI显式参数 (P1-1)
-    out_options->business =
-        cli_options.has_business ? cli_options.business : prof_biz;
-    out_options->config_path =
-        cli_options.has_config_path ? cli_options.config_path : prof_cfg;
-    out_options->dataset_path =
-        cli_options.has_dataset_path ? cli_options.dataset_path : prof_data;
+  const auto& profiles = root["profiles"];
+  for (const auto& [name, p] : profiles.items()) {
+    std::string s =
+        p.contains("suite") ? p["suite"].get<std::string>() : "smoke";
+    if (suite_name == "all" || s == suite_name) {
+      out_profiles->push_back(name);
+    }
+  }
 
-    if (p.contains("suite") && !cli_options.has_suite) {
-      out_options->suite = p["suite"].get<std::string>();
+  return 0;
+}
+
+int LoadAndMergeProfiles(const std::string& profiles_path,
+                         const DemoOptions& cli_options,
+                         DemoOptions* out_options, std::string* error_msg) {
+  if (!out_options) {
+    if (error_msg) *error_msg = "Null out_options pointer";
+    return 3;
+  }
+
+  *out_options = cli_options;
+
+  if (cli_options.profile.empty()) {
+    // 未指定 Profile，无需从配置文件合并
+    return 0;
+  }
+
+  nlohmann::json root;
+  int ret = LoadAndValidateProfilesDocument(profiles_path, &root, error_msg);
+  if (ret != 0) {
+    return ret;
+  }
+
+  const auto& profiles = root["profiles"];
+  if (!profiles.contains(cli_options.profile)) {
+    if (error_msg) {
+      *error_msg =
+          "Profile '" + cli_options.profile + "' not found in profiles file";
     }
-    if (p.contains("batch_size") && !cli_options.has_batch_size) {
-      out_options->batch_size =
-          static_cast<int>(p["batch_size"].get<int64_t>());
+    return 3;
+  }
+
+  const auto& p = profiles[cli_options.profile];
+  std::string prof_biz = p["business"].get<std::string>();
+  std::string prof_cfg = p["config"].get<std::string>();
+  std::string prof_data = p["dataset"].get<std::string>();
+
+  // 冲突检查：若 CLI 显式提供了 --business，必须与 Profile business 完全一致
+  if (cli_options.has_business && cli_options.business != prof_biz) {
+    if (error_msg) {
+      *error_msg = "Business conflict: CLI specified '--business " +
+                   cli_options.business + "' but profile '" +
+                   cli_options.profile + "' requires '" + prof_biz + "'";
     }
-    if (p.contains("device_id") && !cli_options.has_device_id) {
-      out_options->device_id = static_cast<int>(p["device_id"].get<int64_t>());
-    }
-    if (p.contains("chip") && !cli_options.has_chip) {
-      out_options->chip = p["chip"].get<std::string>();
-    }
-    if (p.contains("depth") && !cli_options.has_depth_num) {
-      out_options->depth_num = static_cast<uint32_t>(p["depth"].get<int64_t>());
-    }
-    if (p.contains("control_file") && !cli_options.has_control_file) {
-      out_options->control_file = p["control_file"].get<std::string>();
-    }
+    return 3;
+  }
+
+  // 严格合并优先级：默认值 < Profile < CLI显式参数 (P1-1)
+  out_options->business =
+      cli_options.has_business ? cli_options.business : prof_biz;
+  out_options->config_path =
+      cli_options.has_config_path ? cli_options.config_path : prof_cfg;
+  out_options->dataset_path =
+      cli_options.has_dataset_path ? cli_options.dataset_path : prof_data;
+
+  if (p.contains("suite") && !cli_options.has_suite) {
+    out_options->suite = p["suite"].get<std::string>();
+  }
+  if (p.contains("batch_size") && !cli_options.has_batch_size) {
+    out_options->batch_size = static_cast<int>(p["batch_size"].get<int64_t>());
+  }
+  if (p.contains("device_id") && !cli_options.has_device_id) {
+    out_options->device_id = static_cast<int>(p["device_id"].get<int64_t>());
+  }
+  if (p.contains("chip") && !cli_options.has_chip) {
+    out_options->chip = p["chip"].get<std::string>();
+  }
+  if (p.contains("depth") && !cli_options.has_depth_num) {
+    out_options->depth_num = static_cast<uint32_t>(p["depth"].get<int64_t>());
+  }
+  if (p.contains("control_file") && !cli_options.has_control_file) {
+    out_options->control_file = p["control_file"].get<std::string>();
   }
 
   // 终态芯片校验

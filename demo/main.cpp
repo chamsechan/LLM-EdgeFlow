@@ -44,66 +44,37 @@ void ListProfilesAndBusinesses() {
 
   std::cout << "\n=== Configured Profiles (demo/profiles.json) ==="
             << std::endl;
-  std::string profiles_path = ResolvePath("demo/profiles.json");
-  std::ifstream ifs(profiles_path);
-  if (ifs.is_open()) {
-    try {
-      nlohmann::json root;
-      ifs >> root;
-      if (root.contains("profiles") && root["profiles"].is_object()) {
-        for (const auto& [name, p] : root["profiles"].items()) {
-          std::string biz = p.value("business", "unknown");
-          std::string suite = p.value("suite", "smoke");
-          std::string cfg = p.value("config", "");
-          std::cout << "  - " << name << " [suite: " << suite
-                    << ", biz: " << biz << ", cfg: " << cfg << "]" << std::endl;
-        }
-      }
-    } catch (...) {
-      std::cout << "  (Failed to parse profiles.json)" << std::endl;
+  nlohmann::json root;
+  std::string err;
+  if (LoadAndValidateProfilesDocument("", &root, &err) == 0) {
+    for (const auto& [name, p] : root["profiles"].items()) {
+      std::string biz = p["business"].get<std::string>();
+      std::string suite =
+          p.contains("suite") ? p["suite"].get<std::string>() : "smoke";
+      std::string cfg = p["config"].get<std::string>();
+      std::cout << "  - " << name << " [suite: " << suite << ", biz: " << biz
+                << ", cfg: " << cfg << "]" << std::endl;
     }
   } else {
-    std::cout << "  (profiles.json not found)" << std::endl;
+    std::cout << "  (" << err << ")" << std::endl;
   }
   std::cout << std::endl;
 }
 
 int RunSuite(const std::string& suite_name, const DemoOptions& base_cli_opts) {
-  std::string profiles_path = ResolvePath("demo/profiles.json");
-  std::ifstream ifs(profiles_path);
-  if (!ifs.is_open()) {
-    std::cerr << "[Main ERROR] Cannot open profiles file: " << profiles_path
-              << std::endl;
-    return 3;
-  }
-
-  nlohmann::json root;
-  try {
-    ifs >> root;
-  } catch (const std::exception& e) {
-    std::cerr << "[Main ERROR] Invalid JSON in profiles file: " << e.what()
-              << std::endl;
-    return 3;
-  }
-
-  if (!root.contains("profiles") || !root["profiles"].is_object()) {
-    std::cerr << "[Main ERROR] Missing 'profiles' object in profiles.json"
-              << std::endl;
-    return 3;
-  }
-
   std::vector<std::string> target_profiles;
-  for (const auto& [prof_name, prof_data] : root["profiles"].items()) {
-    std::string s = prof_data.value("suite", "smoke");
-    if (suite_name == "all" || s == suite_name) {
-      target_profiles.push_back(prof_name);
-    }
+  std::string err;
+  int ret = GetProfilesForSuite("", suite_name, &target_profiles, &err);
+  if (ret != 0) {
+    std::cerr << "[Main ERROR] Failed to load suite '" << suite_name
+              << "': " << err << std::endl;
+    return ret;
   }
 
   if (target_profiles.empty()) {
-    std::cerr << "[Main ERROR] No profiles found matching suite '" << suite_name
-              << "'" << std::endl;
-    return 3;
+    std::cerr << "[Main WARN] No profiles found matching suite: " << suite_name
+              << std::endl;
+    return 0;
   }
 
   std::cout << "#############################################################"
