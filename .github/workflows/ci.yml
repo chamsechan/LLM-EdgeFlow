@@ -17,6 +17,8 @@ jobs:
       CCACHE_COMPRESS: "true"
       CCACHE_COMPRESSLEVEL: "6"
       CCACHE_MAXSIZE: "500M"
+      CCACHE_BASEDIR: ${{ github.workspace }}
+      CCACHE_NOHASHDIR: "true"
 
     steps:
       - name: Checkout Code
@@ -35,14 +37,6 @@ jobs:
           restore-keys: |
             ccache-${{ runner.os }}-${{ github.ref }}-
             ccache-${{ runner.os }}-
-
-      - name: Restore/Save CMake FetchContent Cache
-        uses: actions/cache@v4
-        with:
-          path: build/_deps
-          key: fetchcontent-${{ runner.os }}-${{ hashFiles('cmake/*.cmake', 'CMakeLists.txt') }}
-          restore-keys: |
-            fetchcontent-${{ runner.os }}-
 
       - name: Verify Code Style (Google C++ Format)
         run: |
