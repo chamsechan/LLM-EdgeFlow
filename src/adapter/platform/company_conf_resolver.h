@@ -6,6 +6,7 @@
 #include <unordered_map>
 
 #include "adapter/business_adapter_interface.h"
+#include "adapter/platform/platform_io_registry.h"
 #include "nlohmann/json.hpp"
 #include "platform/platform_operator_interface.h"
 
@@ -22,6 +23,7 @@ struct ResolvedCompanyConfig {
   std::string business_name;
   CompanyAlgBizType biz_type = ALG_BIZ_TYPE_UNKNOWN;
   std::shared_ptr<IBusinessAdapter> adapter;
+  const PlatformIoDescriptor* io_descriptor = nullptr;
   nlohmann::json synthetic_pipeline_json;
 };
 
@@ -36,9 +38,9 @@ class CompanyConfResolver {
    * @param[in] platform_config 平台运行配置
    * @param[out] result 解析结果
    * @param[out] error_msg 结构化诊断错误信息
-   * @return true 成功, false 失败
+   * @return 0 成功, 非 0 错误码 (-2 参数/格式错误, -5 业务未支持/冲突)
    */
-  static bool Resolve(
+  static int Resolve(
       const std::string& conf_file,
       const llm_edgeflow::platform::PlatformConfig& platform_config,
       ResolvedCompanyConfig* result, std::string* error_msg) noexcept;

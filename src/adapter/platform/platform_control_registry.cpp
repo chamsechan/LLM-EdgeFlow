@@ -22,61 +22,134 @@ int PlatformControlRegistry::ResolveControlParam(
       return -2;
     }
 
-    int cmd_val = static_cast<int>(command);
-    if (cmd_val < 1 || cmd_val > 3) {
-      if (error_msg) {
-        *error_msg =
-            "Unsupported ControlCommand enum value: " + std::to_string(cmd_val);
-      }
-      return -2;
-    }
+    constexpr size_t kMaxStringLength = 65536;
 
-    *out_cmd_id = cmd_val;
-
-    // 尝试将 control_param 解释为 const char* (JSON 字符串)
-    // 或者结构体指针（若为以 const char* 开头的结构体）
-    const char* str_ptr = nullptr;
-    // 兼容 const char* 直接传入
-    str_ptr = static_cast<const char*>(control_param);
-
-    // 简单探测：若首字符为 '{' 或 '['，视为 JSON 字符串
-    if (str_ptr && (str_ptr[0] == '{' || str_ptr[0] == '[')) {
-      *out_json_str = str_ptr;
-    } else {
-      // 尝试作为包装结构体（首个字段为 const char* json_str）
-      const char** struct_str_ptr = static_cast<const char**>(control_param);
-      if (struct_str_ptr && *struct_str_ptr &&
-          ((*struct_str_ptr)[0] == '{' || (*struct_str_ptr)[0] == '[')) {
-        *out_json_str = *struct_str_ptr;
-      } else {
-        // 若为普通非空字符串，包装为合法的默认 JSON 负载
-        if (str_ptr && strlen(str_ptr) > 0) {
-          nlohmann::json j;
-          j["param"] = str_ptr;
-          *out_json_str = j.dump();
-        } else {
-          if (error_msg)
-            *error_msg = "Cannot parse control_param into valid JSON";
+    switch (command) {
+      case llm_edgeflow::platform::ControlCommand::kUpdateRules: {
+        const auto* param =
+            static_cast<const llm_edgeflow::platform::ControlUpdateRulesParam*>(
+                control_param);
+        if (!param->rules_json_str) {
+          if (error_msg) {
+            *error_msg = "ControlUpdateRulesParam::rules_json_str is null";
+          }
+          return -2;
+        }
+        size_t len = strnlen(param->rules_json_str, kMaxStringLength);
+        if (len == 0 || len >= kMaxStringLength) {
+          if (error_msg) {
+            *error_msg =
+                "ControlUpdateRulesParam::rules_json_str length invalid (empty "
+                "or exceeds 64KB)";
+          }
+          return -2;
+        }
+        try {
+          auto parsed = nlohmann::json::parse(param->rules_json_str);
+          if (!parsed.is_object()) {
+            if (error_msg) {
+              *error_msg = "ControlUpdateRulesParam JSON must be an object";
+            }
+            return -2;
+          }
+          *out_cmd_id = 1;
+          *out_json_str = parsed.dump();
+          return 0;
+        } catch (const std::exception& e) {
+          if (error_msg) {
+            *error_msg =
+                std::string("Invalid JSON in rules_json_str: ") + e.what();
+          }
           return -2;
         }
       }
-    }
 
-    // 验证 JSON 合法性
-    try {
-      auto parsed = nlohmann::json::parse(*out_json_str);
-      if (!parsed.is_object() && !parsed.is_array()) {
-        if (error_msg) *error_msg = "Control JSON must be an object or array";
+      case llm_edgeflow::platform::ControlCommand::kSwitchPrompt: {
+        const auto* param = static_cast<
+            const llm_edgeflow::platform::ControlSwitchPromptParam*>(
+            control_param);
+        if (!param->prompt_template_str) {
+          if (error_msg) {
+            *error_msg =
+                "ControlSwitchPromptParam::prompt_template_str is null";
+          }
+          return -2;
+        }
+        size_t len = strnlen(param->prompt_template_str, kMaxStringLength);
+        if (len == 0 || len >= kMaxStringLength) {
+          if (error_msg) {
+            *error_msg =
+                "ControlSwitchPromptParam::prompt_template_str length invalid "
+                "(empty or exceeds 64KB)";
+          }
+          return -2;
+        }
+        std::string prompt_id = "";
+        if (param->prompt_id) {
+          size_t id_len = strnlen(param->prompt_id, 256);
+          if (id_len >= 256) {
+            if (error_msg) {
+              *error_msg =
+                  "ControlSwitchPromptParam::prompt_id exceeds 256 bytes";
+            }
+            return -2;
+          }
+          prompt_id = param->prompt_id;
+        }
+        nlohmann::json j;
+        j["prompt_template"] = param->prompt_template_str;
+        if (!prompt_id.empty()) {
+          j["prompt_id"] = prompt_id;
+        }
+        *out_cmd_id = 2;
+        *out_json_str = j.dump();
+        return 0;
+      }
+
+      case llm_edgeflow::platform::ControlCommand::kUpdateThreshold: {
+        const auto* param = static_cast<
+            const llm_edgeflow::platform::ControlUpdateThresholdParam*>(
+            control_param);
+        if (param->threshold < 0.0f || param->threshold > 1.0f) {
+          if (error_msg) {
+            *error_msg =
+                "ControlUpdateThresholdParam::threshold out of range [0.0, "
+                "1.0]: " +
+                std::to_string(param->threshold);
+          }
+          return -2;
+        }
+        std::string cat = "";
+        if (param->category_or_rule_name) {
+          size_t cat_len = strnlen(param->category_or_rule_name, 256);
+          if (cat_len >= 256) {
+            if (error_msg) {
+              *error_msg =
+                  "ControlUpdateThresholdParam::category_or_rule_name exceeds "
+                  "256 bytes";
+            }
+            return -2;
+          }
+          cat = param->category_or_rule_name;
+        }
+        nlohmann::json j;
+        j["threshold"] = param->threshold;
+        if (!cat.empty()) {
+          j["category"] = cat;
+        }
+        *out_cmd_id = 3;
+        *out_json_str = j.dump();
+        return 0;
+      }
+
+      default: {
+        if (error_msg) {
+          *error_msg = "Unsupported or unknown ControlCommand: " +
+                       std::to_string(static_cast<int>(command));
+        }
         return -2;
       }
-    } catch (const std::exception& e) {
-      if (error_msg) {
-        *error_msg = "Invalid JSON in control_param: " + std::string(e.what());
-      }
-      return -2;
     }
-
-    return 0;
   } catch (const std::exception& e) {
     if (error_msg) *error_msg = std::string("Exception: ") + e.what();
     return -99;

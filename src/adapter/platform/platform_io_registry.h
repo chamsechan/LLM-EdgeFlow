@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -12,16 +13,30 @@ namespace alg_framework {
 
 enum class IoDirection { kInput, kOutput };
 
-struct PlatformIoSlotDescriptor {
-  std::string suffix;
+/**
+ * @brief 命名 I/O 槽位别名组描述符 (明确表达主名与别名关系，消除歧义)
+ */
+struct PlatformIoSlotGroup {
+  std::string canonical_suffix;
+  std::vector<std::string> aliases;
   std::string c_type_name;
   IoDirection direction;
-  bool required = true;
+  bool is_required = true;
+
+  bool Matches(const std::string& suffix) const noexcept {
+    if (suffix == canonical_suffix) return true;
+    for (const auto& a : aliases) {
+      if (suffix == a) return true;
+    }
+    return false;
+  }
 };
 
 struct PlatformIoDescriptor {
   CompanyAlgBizType biz_type;
-  std::vector<PlatformIoSlotDescriptor> slots;
+  std::string biz_name;
+  std::vector<PlatformIoSlotGroup> input_groups;
+  std::vector<PlatformIoSlotGroup> output_groups;
 };
 
 /**
@@ -40,6 +55,11 @@ class PlatformIoRegistry {
    */
   static bool ParseKey(const std::string& key, std::string* out_namespace,
                        std::string* out_suffix) noexcept;
+
+  /**
+   * @brief 显式注册平台 I/O 描述符 (带重复检测与冲突标记)
+   */
+  bool RegisterDescriptor(const PlatformIoDescriptor& desc);
 
   /**
    * @brief 根据业务类型获取平台 I/O 契约描述符
@@ -62,11 +82,19 @@ class PlatformIoRegistry {
                      std::vector<void*>* out_ptrs,
                      std::string* error_msg) const noexcept;
 
+  /**
+   * @brief 检查注册中心是否存在注册冲突 (Fail-Closed 审计)
+   */
+  bool HasConflict() const;
+
  private:
   PlatformIoRegistry();
   void RegisterDefaults();
 
+  mutable std::mutex mutex_;
   std::unordered_map<int, PlatformIoDescriptor> descriptors_;
+  bool has_conflict_ = false;
+  std::vector<std::string> registration_errors_;
 };
 
 }  // namespace alg_framework

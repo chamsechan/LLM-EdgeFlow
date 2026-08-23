@@ -190,6 +190,10 @@ add_executable(test_doc_qa_rerank tests/test_doc_qa_rerank.cpp)
 target_link_libraries(test_doc_qa_rerank PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
 add_test(NAME DocQaRerankTest COMMAND test_doc_qa_rerank)
 
+add_executable(test_rerank_refine_node tests/test_rerank_refine_node.cpp)
+target_link_libraries(test_rerank_refine_node PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME RerankRefineNodeTest COMMAND test_rerank_refine_node)
+
 # 6. 纯 C++ 零依赖原生 DAG 可视化工具 (专为无 Python 的极简嵌入式/边缘环境设计)
 add_executable(alg_show src/tools/alg_show.cpp)
 target_link_libraries(alg_show PRIVATE nlohmann_json::nlohmann_json)

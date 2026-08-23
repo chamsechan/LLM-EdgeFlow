@@ -15,13 +15,21 @@ struct AlgHandleInstance {
 extern "C" {
 
 int Alg_Init(void) COMPANY_ALG_NOEXCEPT {
-  int ret = alg_framework::SharedAlgorithmRuntime::GlobalInit();
-  if (ret == 0) {
-    std::cout
-        << "[Company C Adapter] Alg_Init: Global runtime resources initialized."
-        << std::endl;
+  try {
+    int ret = alg_framework::SharedAlgorithmRuntime::GlobalInit();
+    if (ret == 0) {
+      std::cout << "[Company C Adapter] Alg_Init: Global runtime resources "
+                   "initialized."
+                << std::endl;
+    }
+    return ret;
+  } catch (const std::exception& e) {
+    std::cerr << "[Company C Adapter] Alg_Init exception: " << e.what()
+              << std::endl;
+    return COMPANY_ALG_ERR_EXCEPTION;
+  } catch (...) {
+    return COMPANY_ALG_ERR_UNKNOWN;
   }
-  return ret;
 }
 
 int Alg_Create(void** hndl,
@@ -145,11 +153,19 @@ int Alg_Destroy(void* hndl) COMPANY_ALG_NOEXCEPT {
 }
 
 int Alg_DeInit(void) COMPANY_ALG_NOEXCEPT {
-  int ret = alg_framework::SharedAlgorithmRuntime::GlobalDeinit();
-  std::cout
-      << "[Company C Adapter] Alg_DeInit: Global runtime resources released."
-      << std::endl;
-  return ret;
+  try {
+    int ret = alg_framework::SharedAlgorithmRuntime::GlobalDeinit();
+    std::cout
+        << "[Company C Adapter] Alg_DeInit: Global runtime resources released."
+        << std::endl;
+    return ret;
+  } catch (const std::exception& e) {
+    std::cerr << "[Company C Adapter] Alg_DeInit exception: " << e.what()
+              << std::endl;
+    return COMPANY_ALG_ERR_EXCEPTION;
+  } catch (...) {
+    return COMPANY_ALG_ERR_UNKNOWN;
+  }
 }
 
 }  // extern "C"

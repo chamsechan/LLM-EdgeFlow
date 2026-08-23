@@ -44,12 +44,13 @@ int RunPlatformOperator(const std::string& conf_file,
     return ret;
   }
 
-  // 3. (可选) 动态参数与词表热更新
+  // 3. (可选) 动态参数与词表热更新 (强类型 ControlUpdateRulesParam 传递)
   if (control_json) {
     std::cout << "[Platform Client] Invoking ops.Control to dynamically push "
                  "parameters..."
               << std::endl;
-    ops.Control(handle, ctrl_cmd, const_cast<char*>(control_json));
+    ControlUpdateRulesParam ctrl_param{control_json};
+    ops.Control(handle, ctrl_cmd, &ctrl_param);
   }
 
   // 4. 组装命名 I/O 批容器 (NamedIoBatch)

@@ -6,6 +6,7 @@
 #include "adapter/business_adapter_interface.h"
 #include "company_alg_interface.h"
 #include "core/pipeline.h"
+#include "core/session_context.h"
 #include "nlohmann/json.hpp"
 
 namespace alg_framework {
@@ -24,7 +25,7 @@ class SharedAlgorithmRuntime {
   SharedAlgorithmRuntime& operator=(const SharedAlgorithmRuntime&) = delete;
 
   /**
-   * @brief 全局资源初始化与注册表防腐冲突检查
+   * @brief 全局资源初始化与全量注册表防腐冲突检查 (Fail-Closed)
    */
   static int GlobalInit() noexcept;
 
@@ -49,7 +50,8 @@ class SharedAlgorithmRuntime {
       const nlohmann::json& pipeline_json, int device_id,
       const std::string& model_root_dir, CompanyAlgBizType biz_type,
       std::unique_ptr<SharedAlgorithmRuntime>* out_runtime,
-      std::string* out_error = nullptr) noexcept;
+      std::string* out_error = nullptr,
+      const RuntimeOptions* extra_runtime_options = nullptr) noexcept;
 
   /**
    * @brief 批量计算通用流 (ValidateBatch -> Unpack -> Pipeline::Execute ->

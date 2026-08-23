@@ -4,30 +4,55 @@
 #include <iostream>
 
 #include "adapter/business_adapter_registry.h"
+#include "adapter/platform/platform_io_registry.h"
 #include "core/alg_context.h"
+#include "core/node_registry.h"
 #include "core/session_context.h"
+#include "engine/engine_registry.h"
 
 namespace alg_framework {
 
 int SharedAlgorithmRuntime::GlobalInit() noexcept {
   try {
+    // 1. BusinessAdapterRegistry 冲突审计
     if (BusinessAdapterRegistry::Instance().HasRegistrationConflict()) {
       std::cerr << "[SharedAlgorithmRuntime] GlobalInit failed: Registration "
-                   "conflict detected in BusinessAdapterRegistry."
+                   "conflict in BusinessAdapterRegistry."
                 << std::endl;
-      for (const auto& err :
-           BusinessAdapterRegistry::Instance().GetRegistrationErrors()) {
-        std::cerr << "  - " << err << std::endl;
-      }
-      return -6;
+      return COMPANY_ALG_ERR_REGISTRY_CONFLICT;  // -6
     }
+
+    // 2. NodeFactory 冲突审计
+    if (NodeFactory::Instance().HasConflict()) {
+      std::cerr << "[SharedAlgorithmRuntime] GlobalInit failed: Registration "
+                   "conflict in NodeFactory."
+                << std::endl;
+      return COMPANY_ALG_ERR_REGISTRY_CONFLICT;  // -6
+    }
+
+    // 3. EngineFactory 冲突审计
+    if (EngineFactory::Instance().HasConflict()) {
+      std::cerr << "[SharedAlgorithmRuntime] GlobalInit failed: Registration "
+                   "conflict in EngineFactory."
+                << std::endl;
+      return COMPANY_ALG_ERR_REGISTRY_CONFLICT;  // -6
+    }
+
+    // 4. PlatformIoRegistry 冲突审计
+    if (PlatformIoRegistry::Instance().HasConflict()) {
+      std::cerr << "[SharedAlgorithmRuntime] GlobalInit failed: Registration "
+                   "conflict in PlatformIoRegistry."
+                << std::endl;
+      return COMPANY_ALG_ERR_REGISTRY_CONFLICT;  // -6
+    }
+
     return 0;
   } catch (const std::exception& e) {
     std::cerr << "[SharedAlgorithmRuntime] GlobalInit exception: " << e.what()
               << std::endl;
-    return -99;
+    return COMPANY_ALG_ERR_EXCEPTION;
   } catch (...) {
-    return -100;
+    return COMPANY_ALG_ERR_UNKNOWN;
   }
 }
 
@@ -35,7 +60,7 @@ int SharedAlgorithmRuntime::GlobalDeinit() noexcept {
   try {
     return 0;
   } catch (...) {
-    return -100;
+    return COMPANY_ALG_ERR_UNKNOWN;
   }
 }
 
@@ -47,13 +72,13 @@ int SharedAlgorithmRuntime::CreateFromConfigFile(
   try {
     if (!out_runtime) {
       if (out_error) *out_error = "Null out_runtime pointer";
-      return -1;
+      return COMPANY_ALG_ERR_INVALID_HANDLE;  // -1
     }
     *out_runtime = nullptr;
 
     if (biz_type == ALG_BIZ_TYPE_UNKNOWN) {
       if (out_error) *out_error = "Cannot create with ALG_BIZ_TYPE_UNKNOWN";
-      return -5;
+      return COMPANY_ALG_ERR_UNSUPPORTED_BIZ;  // -5
     }
 
     auto adapter = BusinessAdapterRegistry::Instance().GetAdapter(biz_type);
@@ -62,12 +87,12 @@ int SharedAlgorithmRuntime::CreateFromConfigFile(
         *out_error =
             "Unsupported or unregistered biz_type: " + std::to_string(biz_type);
       }
-      return -5;
+      return COMPANY_ALG_ERR_UNSUPPORTED_BIZ;  // -5
     }
 
     if (config_path.empty()) {
       if (out_error) *out_error = "Empty config_file_path";
-      return -2;
+      return COMPANY_ALG_ERR_INVALID_PARAM;  // -2
     }
 
     auto runtime = std::make_unique<SharedAlgorithmRuntime>();
@@ -84,6 +109,7 @@ int SharedAlgorithmRuntime::CreateFromConfigFile(
     options.device_id = device_id;
     options.has_device_id = (device_id >= 0);
     options.biz_type = static_cast<int>(biz_type);
+    options.business_name = adapter->BizName();
 
     runtime->pipeline_->GetSessionContext().SetRuntimeOptions(options);
 
@@ -95,7 +121,14 @@ int SharedAlgorithmRuntime::CreateFromConfigFile(
             " (code: " + std::to_string(static_cast<int>(diagnostic.code)) +
             ", path: " + diagnostic.path + ")";
       }
-      return -3;
+      if (diagnostic.code == PipelineErrorCode::kRegistryConflict) {
+        return COMPANY_ALG_ERR_REGISTRY_CONFLICT;  // -6
+      }
+      if (diagnostic.code == PipelineErrorCode::kConfigFileOpen ||
+          diagnostic.code == PipelineErrorCode::kJsonParse) {
+        return COMPANY_ALG_ERR_INVALID_PARAM;  // -2
+      }
+      return COMPANY_ALG_ERR_INVALID_PARAM;  // -2
     }
 
     if (!adapter->ValidatePipelineBinding(
@@ -105,17 +138,17 @@ int SharedAlgorithmRuntime::CreateFromConfigFile(
                      runtime->pipeline_->GetBusinessName() +
                      "' does not match adapter '" + adapter->BizName() + "'";
       }
-      return -5;
+      return COMPANY_ALG_ERR_UNSUPPORTED_BIZ;  // -5
     }
 
     *out_runtime = std::move(runtime);
-    return 0;
+    return COMPANY_ALG_SUCCESS;
   } catch (const std::exception& e) {
     if (out_error) *out_error = std::string("Exception: ") + e.what();
-    return -99;
+    return COMPANY_ALG_ERR_EXCEPTION;
   } catch (...) {
     if (out_error) *out_error = "Unknown exception in CreateFromConfigFile";
-    return -100;
+    return COMPANY_ALG_ERR_UNKNOWN;
   }
 }
 
@@ -123,17 +156,18 @@ int SharedAlgorithmRuntime::CreateFromPipelineJson(
     const nlohmann::json& pipeline_json, int device_id,
     const std::string& model_root_dir, CompanyAlgBizType biz_type,
     std::unique_ptr<SharedAlgorithmRuntime>* out_runtime,
-    std::string* out_error) noexcept {
+    std::string* out_error,
+    const RuntimeOptions* extra_runtime_options) noexcept {
   try {
     if (!out_runtime) {
       if (out_error) *out_error = "Null out_runtime pointer";
-      return -1;
+      return COMPANY_ALG_ERR_INVALID_HANDLE;  // -1
     }
     *out_runtime = nullptr;
 
     if (biz_type == ALG_BIZ_TYPE_UNKNOWN) {
       if (out_error) *out_error = "Cannot create with ALG_BIZ_TYPE_UNKNOWN";
-      return -5;
+      return COMPANY_ALG_ERR_UNSUPPORTED_BIZ;  // -5
     }
 
     auto adapter = BusinessAdapterRegistry::Instance().GetAdapter(biz_type);
@@ -142,7 +176,7 @@ int SharedAlgorithmRuntime::CreateFromPipelineJson(
         *out_error =
             "Unsupported or unregistered biz_type: " + std::to_string(biz_type);
       }
-      return -5;
+      return COMPANY_ALG_ERR_UNSUPPORTED_BIZ;  // -5
     }
 
     auto runtime = std::make_unique<SharedAlgorithmRuntime>();
@@ -153,11 +187,15 @@ int SharedAlgorithmRuntime::CreateFromPipelineJson(
     runtime->pipeline_ = std::make_unique<Pipeline>();
 
     RuntimeOptions options;
+    if (extra_runtime_options) {
+      options = *extra_runtime_options;
+    }
     options.config_file_path = "<in_memory_json>";
     options.model_root_dir = model_root_dir;
     options.device_id = device_id;
     options.has_device_id = (device_id >= 0);
     options.biz_type = static_cast<int>(biz_type);
+    options.business_name = adapter->BizName();
 
     runtime->pipeline_->GetSessionContext().SetRuntimeOptions(options);
 
@@ -169,7 +207,10 @@ int SharedAlgorithmRuntime::CreateFromPipelineJson(
             " (code: " + std::to_string(static_cast<int>(diagnostic.code)) +
             ", path: " + diagnostic.path + ")";
       }
-      return -3;
+      if (diagnostic.code == PipelineErrorCode::kRegistryConflict) {
+        return COMPANY_ALG_ERR_REGISTRY_CONFLICT;  // -6
+      }
+      return COMPANY_ALG_ERR_INVALID_PARAM;  // -2
     }
 
     if (!adapter->ValidatePipelineBinding(
@@ -179,17 +220,17 @@ int SharedAlgorithmRuntime::CreateFromPipelineJson(
                      runtime->pipeline_->GetBusinessName() +
                      "' does not match adapter '" + adapter->BizName() + "'";
       }
-      return -5;
+      return COMPANY_ALG_ERR_UNSUPPORTED_BIZ;  // -5
     }
 
     *out_runtime = std::move(runtime);
-    return 0;
+    return COMPANY_ALG_SUCCESS;
   } catch (const std::exception& e) {
     if (out_error) *out_error = std::string("Exception: ") + e.what();
-    return -99;
+    return COMPANY_ALG_ERR_EXCEPTION;
   } catch (...) {
     if (out_error) *out_error = "Unknown exception in CreateFromPipelineJson";
-    return -100;
+    return COMPANY_ALG_ERR_UNKNOWN;
   }
 }
 
@@ -199,7 +240,7 @@ int SharedAlgorithmRuntime::ExecuteBatch(const void** inputs, int num_inputs,
   try {
     if (!adapter_) {
       if (out_error) *out_error = "Null business adapter in runtime instance";
-      return -5;
+      return COMPANY_ALG_ERR_UNSUPPORTED_BIZ;  // -5
     }
 
     // 1. 批大小与槽位容量预检
@@ -251,10 +292,10 @@ int SharedAlgorithmRuntime::ExecuteBatch(const void** inputs, int num_inputs,
     return COMPANY_ALG_SUCCESS;
   } catch (const std::exception& e) {
     if (out_error) *out_error = std::string("Exception: ") + e.what();
-    return -99;
+    return COMPANY_ALG_ERR_EXCEPTION;
   } catch (...) {
     if (out_error) *out_error = "Unknown exception in ExecuteBatch";
-    return -100;
+    return COMPANY_ALG_ERR_UNKNOWN;
   }
 }
 
@@ -264,15 +305,15 @@ int SharedAlgorithmRuntime::ExecuteControl(int cmd,
   try {
     if (!pipeline_) {
       if (out_error) *out_error = "Null pipeline in runtime instance";
-      return -1;
+      return COMPANY_ALG_ERR_INVALID_HANDLE;  // -1
     }
     return pipeline_->Control(cmd, json_param_str);
   } catch (const std::exception& e) {
     if (out_error) *out_error = std::string("Exception: ") + e.what();
-    return -99;
+    return COMPANY_ALG_ERR_EXCEPTION;
   } catch (...) {
     if (out_error) *out_error = "Unknown exception in ExecuteControl";
-    return -100;
+    return COMPANY_ALG_ERR_UNKNOWN;
   }
 }
 
