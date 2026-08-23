@@ -22,28 +22,7 @@ function toast(message, error = false) {
 }
 
 function effectiveNodes() {
-  if (!state.pipeline) return [];
-  return state.pipeline.pipeline.map((node, index, all) => ({
-    ...node,
-    id: node.id || `node_${index}_${node.node_type}`,
-    depends_on: node.depends_on ?? (index ? [all[index - 1].id || `node_${index - 1}_${all[index - 1].node_type}`] : []),
-  }));
-}
-
-function isExplicit() {
-  return state.pipeline?.pipeline?.every(node => typeof node.id === "string" && Array.isArray(node.depends_on));
-}
-
-async function ensureExplicit() {
-  if (isExplicit()) return true;
-  try {
-    const result = await write("/normalize", "POST", { pipeline: state.pipeline });
-    state.pipeline = result.pipeline;
-    setDirty(true);
-    renderAll();
-    toast("已自动规范化为显式 DAG 格式");
-    return true;
-  } catch (error) { toast(error.message, true); return false; }
+  return state.pipeline?.pipeline || [];
 }
 
 function setDirty(value) {
@@ -62,15 +41,13 @@ function restorePositions() {
 
 const graph = new GraphView($("#graph"), {
   select: id => { state.selected = id; renderAll(); },
-  connect: async (source, target) => {
-    if (!await ensureExplicit()) return;
+  connect: (source, target) => {
     const node = state.pipeline.pipeline.find(item => item.id === target);
     if (!node || node.depends_on.includes(source)) return toast("重复连线已拒绝", true);
     if (source === target || reaches(source, target)) return toast("成环连线已拒绝", true);
     node.depends_on.push(source); setDirty(true); renderAll();
   },
-  deleteEdge: async (source, target) => {
-    if (!await ensureExplicit()) return;
+  deleteEdge: (source, target) => {
     const node = state.pipeline.pipeline.find(item => item.id === target);
     node.depends_on = node.depends_on.filter(id => id !== source); setDirty(true); renderAll();
   },
@@ -155,9 +132,8 @@ function renderOperators() {
   }
 }
 
-async function addNode(definition) {
+function addNode(definition) {
   if (!state.pipeline) return toast("请先打开或新建方案", true);
-  if (!await ensureExplicit()) return;
   const base = definition.node_type.replace(/Node$/, "").replace(/([A-Z])/g, "_$1").toLowerCase().replace(/^_/, "");
   let index = 1, id = base;
   const ids = new Set(state.pipeline.pipeline.map(node => node.id));

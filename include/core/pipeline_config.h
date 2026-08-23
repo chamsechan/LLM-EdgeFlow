@@ -40,7 +40,6 @@ struct ParsedPipelineConfig {
   size_t max_parallel_workers = 4;
   std::vector<ParsedModelConfig> models;
   std::vector<ParsedNodeConfig> nodes;
-  bool uses_explicit_dag = false;
 };
 
 /**

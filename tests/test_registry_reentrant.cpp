@@ -55,7 +55,9 @@ TEST(RegistryReentrantTest, ReentrantCreationZeroDeadlock) {
     nlohmann::json cfg = {
         {"business_name", "reentrant_node_test"},
         {"pipeline",
-         nlohmann::json::array({{{"node_type", "ReentrantNode"}}})}};
+         nlohmann::json::array({{{"id", "node_0_ReentrantNode"},
+                                 {"node_type", "ReentrantNode"},
+                                 {"depends_on", nlohmann::json::array()}}})}};
     EXPECT_TRUE(p.BuildFromJson(cfg, &diag));
     EXPECT_TRUE(p.IsReady());
   }
@@ -70,7 +72,9 @@ TEST(RegistryReentrantTest, ReentrantCreationZeroDeadlock) {
          nlohmann::json::array(
              {{{"model_id", "m1"}, {"engine_type", "reentrant_engine"}}})},
         {"pipeline",
-         nlohmann::json::array({{{"node_type", "ReentrantNode"}}})}};
+         nlohmann::json::array({{{"id", "node_0_ReentrantNode"},
+                                 {"node_type", "ReentrantNode"},
+                                 {"depends_on", nlohmann::json::array()}}})}};
     EXPECT_TRUE(p.BuildFromJson(cfg, &diag));
     EXPECT_TRUE(p.IsReady());
   }

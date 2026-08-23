@@ -279,8 +279,8 @@ TEST_F(DagPipelineTest, InvalidDependencyRejection) {
   EXPECT_FALSE(pipeline.BuildFromJson(invalid_dep_config));
 }
 
-// 6. 存量线性配置向后兼容性 (100% Backward Compatibility)
-TEST_F(DagPipelineTest, BackwardCompatibilityWithoutDependsOn) {
+// 6. 拦截旧式未显式声明 id/depends_on 的配置
+TEST_F(DagPipelineTest, RejectsLegacyPipelineWithoutIdOrDependsOn) {
   nlohmann::json legacy_config = {{"business_name", "legacy_linear_pipeline"},
                                   {"pipeline",
                                    {{{"node_type", "DagTestNodeA"}},
@@ -289,22 +289,10 @@ TEST_F(DagPipelineTest, BackwardCompatibilityWithoutDependsOn) {
                                     {{"node_type", "DagTestNodeD"}}}}};
 
   Pipeline pipeline;
-  ASSERT_TRUE(pipeline.BuildFromJson(legacy_config));
-  EXPECT_EQ(pipeline.GetExecutionMode(), Pipeline::ExecutionMode::SEQUENTIAL);
-
-  AlgContext req_ctx;
-  req_ctx.Set("exec_trace", std::vector<std::string>{});
-
-  int ret = pipeline.Execute(&req_ctx);
-  EXPECT_EQ(ret, 0);
-
-  auto* trace = req_ctx.Get<std::vector<std::string>>("exec_trace");
-  ASSERT_NE(trace, nullptr);
-  ASSERT_EQ(trace->size(), 4);
-  EXPECT_EQ((*trace)[0], "NodeA");
-  EXPECT_EQ((*trace)[1], "NodeB");
-  EXPECT_EQ((*trace)[2], "NodeC");
-  EXPECT_EQ((*trace)[3], "NodeD");
+  PipelineDiagnostic diag;
+  EXPECT_FALSE(pipeline.BuildFromJson(legacy_config, &diag));
+  EXPECT_EQ(diag.code, PipelineErrorCode::kMissingField);
+  EXPECT_EQ(diag.path, "/pipeline/0/id");
 }
 
 // 7. 异步波前分层并发调度测试 (Parallel Wavefront Execution)

@@ -31,7 +31,6 @@
 - [x] 确保全量 23 项 Google Test 单元测试与 6 阶段自动化测试套件（`./scripts/run_all_tests.sh`）100% 通过。
 
 ### 2.2 非目标 (Non-Goals / Out-of-Scope)
-- 不破坏底层 C++（`PipelineValidator` / `PipelineConfig`）对隐式旧配置的兼容解析能力，避免对私有扩展或第三方嵌入环境造成非预期破坏。
 - 不修改 6 个公开 C ABI 函数契约。
 
 ---
@@ -41,7 +40,7 @@
 ### 3.1 架构分层映射 (4-Tier Mapping)
 
 - **Layer 1 (C ABI / Platform Adapter)**：保持不变，对外暴露的 C ABI 与 Adapter 数据流完全不受影响。
-- **Layer 2 (Pipeline & Dynamic Blackboard)**：`PipelineConfig` 与 `PipelineValidator` 维持对标准显式 DAG 的严谨解析与验证，同时保持对意外遗留格式的安全容错。
+- **Layer 2 (Pipeline & Dynamic Blackboard)**：`PipelineConfig` 与 `PipelineValidator` 彻底剔除旧式隐式顺序配置的容错分支与 bypass 逻辑，强制要求所有节点显式提供 `id` 与 `depends_on`，统一使用 Kahn 拓扑排序与 Wavefront 调度。
 - **Layer 3 (Business & Common Nodes)**：所有 7 大业务共 11 个官方方案在 `configs/` 中显式标明 `id` 和 `depends_on` 依赖关系。
 - **Layer 4 (Engines & Hardware Acceleration)**：保持不变。
 
@@ -82,10 +81,11 @@
 
 1. **确定性 ID 与依赖命名规则**：
    - 升级采用 C++ 核心规范 `node_<index>_<NodeType>` 作为默认稳定 ID，首节点 `depends_on: []`，后续节点 `depends_on: [前序节点id]`。
-2. **Web Studio 交互平滑性**：
-   - `ensureExplicit()` 在遇到未显式标注 `id`/`depends_on` 的配置时，调用 `/normalize` 自动补齐，并仅通过轻量 Toast 提示，不阻断用户的连接、删除或加点操作。
-3. **分层兼容性原则**：
-   - 官方配置库率先全面完成显式 DAG 现代化升级；底层解析器保持高鲁棒容错，实现“官方方案无旧账，底层引擎不挑食”。
+2. **彻底消除历史技术债务与双轨维护**：
+   - C++ `ParsePipelineConfig` 严格要求每个节点必须具备非空字符串 `id` 和数组 `depends_on`，缺少则直接通过 `PipelineErrorCode::kMissingField` 拦截 fail-closed。
+   - `Pipeline::ResolveDagTopologicalSort` 移除旧式 bypass 逻辑，全量管线统一通过 DAG 拓扑排序执行。
+3. **Web Studio 零多余分支**：
+   - Web Studio 简化节点与连线交互，开箱即为标准 DAG，移除所有旧式检查与阻塞提示。
 
 ---
 
@@ -102,7 +102,7 @@
 
 1. [x] **阶段一：创建特性分支与 RFC 文档**（`feat/explicit-dag-standardization`，`doc/rfcs/0007-explicit-dag-standardization-and-legacy-deprecation.md`）。
 2. [x] **阶段二：执行全库 11 个配置文件的显式 DAG 规范化升级**。
-3. [x] **阶段三：优化 Web Studio 前端逻辑与平滑降级处理**。
+3. [x] **阶段三：彻底移除 C++ / Web Studio 遗留顺序兼容分支，严格校验显式 DAG**。
 4. [x] **阶段四：全量测试套件、CLI 与 6 阶段质量门禁回归验证**。
 5. [x] **阶段五：更新 RFC 状态为 Completed，提交 PR 并合并至 `main`**。
 
@@ -113,3 +113,4 @@
 | 日期 | 版本 | 变更内容 | 作者 |
 | :--- | :--- | :--- | :--- |
 | 2026-08-23 | v0.1 | 初始设计，定义全库 11 个配置显式 DAG 升级方案与 Web Studio 平滑交互规范 | LLM-EdgeFlow Team |
+| 2026-08-23 | v1.0 | 彻底移除旧式顺序兼容代码与双轨解析分支，全库强制统一为显式 DAG 标准 | LLM-EdgeFlow Team |
