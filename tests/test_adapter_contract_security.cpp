@@ -296,9 +296,17 @@ TEST_F(AdapterContractSecurityTest, RegistryRejectsUnsupportedPolicies) {
     }
     int Unpack(const void** i, int n, AlgContext* c,
                AdapterStatus* s) const override {
+      (void)i;
+      (void)n;
+      (void)c;
+      (void)s;
       return 0;
     }
     int Pack(AlgContext* c, void** o, int* n, AdapterStatus* s) const override {
+      (void)c;
+      (void)o;
+      (void)n;
+      (void)s;
       return 0;
     }
   };

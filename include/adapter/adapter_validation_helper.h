@@ -96,6 +96,7 @@ class AdapterValidationHelper {
   static int ValidateBatchInputs(const void** inputs, int num_inputs,
                                  int max_batch_size = 64,
                                  const char* biz_name = nullptr) {
+    (void)biz_name;
     if (!inputs || num_inputs <= 0) {
       return COMPANY_ALG_ERR_INVALID_INPUT;
     }
@@ -111,6 +112,7 @@ class AdapterValidationHelper {
   static int ValidateBatchOutputs(void** outputs, int* num_outputs,
                                   int required_count,
                                   const char* biz_name = nullptr) {
+    (void)biz_name;
     if (!num_outputs || *num_outputs < 0) {
       return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     }

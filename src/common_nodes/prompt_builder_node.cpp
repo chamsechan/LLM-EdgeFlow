@@ -13,6 +13,7 @@ class PromptBuilderNode : public INode {
  public:
   bool Init(const nlohmann::json& config,
             SessionContext* session_ctx) override {
+    (void)session_ctx;
     template_str_ =
         config.value("template", "Context: {context}\nQuery: {query}\nAnswer:");
     return true;
