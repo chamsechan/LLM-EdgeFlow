@@ -20,6 +20,7 @@ class IntentRuleNode : public INode {
  public:
   bool Init(const nlohmann::json& config,
             SessionContext* session_ctx) override {
+    (void)session_ctx;
     threshold_ = config.value("threshold", 0.75f);
     default_intent_ = config.value("default_intent", "GENERAL_CONSULT");
 

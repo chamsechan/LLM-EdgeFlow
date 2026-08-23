@@ -22,7 +22,7 @@ graph TD
 
     %% Level 1
     subgraph L1["Layer 1: 平台接入与 C-ABI 适配层 (Platform C-ABI Adapter Layer)"]
-        C_API["公司统一标准 C ABI 接口<br>• Alg_Init / Alg_DeInit<br>• Alg_Create / Alg_Destroy<br>• Alg_Process(vector&lt;void*&gt; inputs, outputs)<br>• Alg_Control"]
+        C_API["公司统一标准 C ABI 接口<br>• Alg_Init / Alg_DeInit<br>• Alg_Create / Alg_Destroy<br>• Alg_Process(const void** inputs, num_inputs, void** outputs, num_outputs)<br>• Alg_Control"]
         C_Adapter["company_c_adapter.cpp<br>• 句柄生命周期托管 (Handle)<br>• 异常拦截屏障 (noexcept 安全防护)<br>• 外部输入解包 / 输出结构体强转打包"]
     end
 
@@ -45,7 +45,7 @@ graph TD
         subgraph CommonNodes["全组通用算子池 (src/common_nodes/)"]
             PromptNode["PromptBuilderNode"]
             VecSearchNode["VectorSearchNode"]
-            FilterNode["RuleFilterNode / SensitiveNode"]
+            RerankNode["RerankRefineNode"]
         end
         
         subgraph BizNodes["开发者私有业务算子池 (src/business/)"]
@@ -63,16 +63,16 @@ graph TD
         
         BatchExec["FixedBatchExecutor (硬件固定 Batch 调度器)<br>• 样本自动 Chunking 分块<br>• 末尾 Dummy Pad 自动补齐<br>• 推理后剥离 Pad 并保留溯源标签"]
         
-        subgraph HardwareBackends["底层硬件与引擎适配器 (src/engines/)"]
+        subgraph HardwareBackends["底层硬件与引擎适配器 (src/engine/)"]
             NpuEmbed["MockNpuEmbeddingEngine<br>(NPU CANN/RKNN, Batch=4)"]
             NpuLlm["MockNpuLlmEngine<br>(NPU LLM, Batch=2)"]
-            GpuTrt["TensorRtLlmEngine (GPU)"]
-            CpuMnn["MnnEmbeddingEngine (CPU)"]
+            OnnxEngine["OnnxEmbedding / OnnxRerank<br>(ONNX Runtime, CPU/CUDA)"]
+            LlamaCpp["LlamaCppEngine<br>(llama.cpp GGUF)"]
         end
     end
 
     %% 连接关系
-    Caller <==>|结构体指针 vector&lt;void*&gt;| C_API
+    Caller <==|纯 C 指针数组 const void** inputs, outputs| C_API
     C_API --> C_Adapter
     C_Adapter -->|构造/销毁| PipeCore
     C_Adapter -->|解包/打包| R_Ctx
@@ -89,8 +89,8 @@ graph TD
     class Caller ext;
     class C_API,C_Adapter l1;
     class PipeCore,S_Ctx,R_Ctx,TraceTag,Factory l2;
-    class NodeBase,CommonNodes,BizNodes,PromptNode,VecSearchNode,FilterNode,PreNode,RuleNode,PostNode l3;
-    class EngineBase,LlmIntf,EmbedIntf,BatchExec,NpuEmbed,NpuLlm,GpuTrt,CpuMnn l4;
+    class NodeBase,CommonNodes,BizNodes,PromptNode,VecSearchNode,RerankNode,PreNode,RuleNode,PostNode l3;
+    class EngineBase,LlmIntf,EmbedIntf,BatchExec,NpuEmbed,NpuLlm,OnnxEngine,LlamaCpp l4;
 ```
 
 ---
@@ -102,7 +102,7 @@ graph TD
 - **核心职责**：
   1. 导出公司限定的标准 C 接口：`Alg_Init`, `Alg_Create`, `Alg_Process`, `Alg_Control`, `Alg_Destroy`, `Alg_DeInit`；
   2. 充当 `noexcept` 安全屏障，拦截所有 C++ 异常，防止跨动态库边界崩溃；
-  3. 将外部传入的 `vector<void*>` 业务结构体解包，转入内部强类型的 `AlgContext`。
+  3. 将外部传入的纯 C 指针数组业务结构体解包，转入内部强类型的 `AlgContext`。
 
 ### Layer 2: 管线调度与状态黑板层 (Pipeline & State Engine)
 - **代码位置**：`include/core/`，`src/core/`
@@ -119,12 +119,12 @@ graph TD
 - **核心职责**：
   1. **算法工程师核心开发区**：继承 `INode`，实现 `Init(config, session_ctx)` 和 `Process(req_ctx)`；
   2. **有状态节点支持**：开发者可自由在类中定义私有成员变量（私有规则表、词典映射、预编译正则），随句柄常驻；
-  3. **模块化复用**：通用算子（Prompt 构造、向量检索、敏感词过滤）全组共享。
+  3. **模块化复用**：通用算子（Prompt 构造、向量检索、精排重打分）全组共享。
 
 ### Layer 4: 多后端模型引擎与批处理调度层 (Multi-Backend Engine & Batch)
-- **代码位置**：`include/engine/`，`src/engines/`
+- **代码位置**：`include/engine/`，`src/engine/`
 - **核心职责**：
-  1. 纯虚接口屏蔽硬件差异（`ILlmEngine`, `IEmbeddingEngine`, `ICvEngine`）；
+  1. 纯虚接口屏蔽硬件差异（`ILlmEngine`, `IEmbeddingEngine`, `ICvEngine`, `IRerankEngine`, `IAudioAsrEngine`）；
   2. **固定 Max Batch 自动调度（`FixedBatchExecutor`）**：解决端侧 NPU 静态编译 `max_batch_size` 限制，自动完成批次切分、末尾补齐 Dummy Pad、推理后剔除 Pad 与结果回溯对齐；
   3. 切换底层芯片（NPU/GPU/CPU）只需改动 JSON 配置中的 `engine_type`，业务代码 0 修改。
 
@@ -143,7 +143,7 @@ sequenceDiagram
     participant Engine as 模型引擎 & Batch调度器 (L4)
     participant HW as 底层硬件 NPU/GPU (L4)
 
-    App->>Adapter: Alg_Process(inputs: vector<void*>)
+    App->>Adapter: Alg_Process(inputs: const void**, num_inputs, outputs: void**, &num_outputs)
     Adapter->>Ctx: 1. 解包外部结构体，注入输入数据
     Adapter->>Pipe: 2. Execute(ctx)
     
@@ -164,7 +164,7 @@ sequenceDiagram
 
     Pipe-->>Adapter: 管线执行完成
     Adapter->>Ctx: 3. 提取最终输出结果
-    Adapter->>App: 4. 打包回 outputs: vector<void*>，返回状态码 0
+    Adapter->>App: 4. 打包回 outputs: void**，返回状态码 0
 ```
 
 ---

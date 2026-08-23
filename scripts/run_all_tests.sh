@@ -71,26 +71,28 @@ echo -e "${GREEN}✓ Tier 3 业务 1 ~ 业务 7 全链路端到端集成测试�
 echo -e "${BOLD}[ Step 6/6: CLI 可视化工具链双模测试 (Python & 纯 C++) ]${NC}"
 cd "$ROOT_DIR"
 
-echo -n "  Testing Python CLI (./show) on all 10 configs ... "
+echo -n "  Testing Python CLI (./show) on all 11 configs ... "
 ./show configs/pipeline_keyword_match.json > /dev/null
 ./show configs/pipeline_entity_extract.json > /dev/null
 ./show configs/pipeline_doc_qa.json > /dev/null
 ./show configs/pipeline_dialogue_audit.json > /dev/null
 ./show configs/pipeline_doc_qa_onnx.json > /dev/null
 ./show configs/pipeline_doc_qa_rerank.json > /dev/null
+./show configs/pipeline_doc_qa_rerank_real.json > /dev/null
 ./show configs/pipeline_entity_extract_llamacpp.json > /dev/null
 ./show configs/pipeline_ocr_doc_qa.json > /dev/null
 ./show configs/pipeline_audio_asr_intent.json > /dev/null
 ./show configs/pipeline_cross_rerank.json > /dev/null
 echo -e "${GREEN}✓ PASS${NC}"
 
-echo -n "  Testing Native C++ CLI (./build/alg_show) on all 10 configs ... "
+echo -n "  Testing Native C++ CLI (./build/alg_show) on all 11 configs ... "
 ./build/alg_show configs/pipeline_keyword_match.json > /dev/null
 ./build/alg_show configs/pipeline_entity_extract.json > /dev/null
 ./build/alg_show configs/pipeline_doc_qa.json > /dev/null
 ./build/alg_show configs/pipeline_dialogue_audit.json > /dev/null
 ./build/alg_show configs/pipeline_doc_qa_onnx.json > /dev/null
 ./build/alg_show configs/pipeline_doc_qa_rerank.json > /dev/null
+./build/alg_show configs/pipeline_doc_qa_rerank_real.json > /dev/null
 ./build/alg_show configs/pipeline_entity_extract_llamacpp.json > /dev/null
 ./build/alg_show configs/pipeline_ocr_doc_qa.json > /dev/null
 ./build/alg_show configs/pipeline_audio_asr_intent.json > /dev/null
@@ -108,7 +110,7 @@ echo -e "\n${BOLD}${GREEN}======================================================
 echo -e "${BOLD}${GREEN}  🎉 交付验证通过：全部 6 大测试阶段 100% PASS！                 ${NC}"
 echo -e "${BOLD}${GREEN}  - 核心架构单元测试   : PASSED (6/6 模块)${NC}"
 echo -e "${BOLD}${GREEN}  - C ABI 安全边界测试 : PASSED (空指针拦截 / 50轮无泄露)${NC}"
-echo -e "${BOLD}${GREEN}  - 4 大业务端到端测试 : PASSED (规则 / 小模型 / 复杂问答 / 风控质检)${NC}"
+echo -e "${BOLD}${GREEN}  - 7 大业务端到端测试 : PASSED (规则/抽取/问答/风控/OCR/语音/精排)${NC}"
 echo -e "${BOLD}${GREEN}  - CLI 工具双模适配   : PASSED (Python CLI & C++ Native CLI)${NC}"
 echo -e "${BOLD}${GREEN}  - Google C++ 规范    : PASSED (100% 格式对齐)${NC}"
 echo -e "${BOLD}${GREEN}==================================================================${NC}\n"

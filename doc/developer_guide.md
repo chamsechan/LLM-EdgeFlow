@@ -186,9 +186,16 @@ class MyCustomNode : public INode {
     return 0;
   }
 
-  int Control(int cmd, const nlohmann::json& param) override {
-    if (cmd == 1 && param.contains("threshold")) {
-        threshold_ = param["threshold"].get<float>();
+  int Control(int cmd, const std::string& json_param) override {
+    if (cmd == 1) {
+      try {
+        nlohmann::json param = nlohmann::json::parse(json_param);
+        if (param.contains("threshold")) {
+          threshold_ = param["threshold"].get<float>();
+        }
+      } catch (const std::exception& e) {
+        return -1;
+      }
     }
     return 0;
   }

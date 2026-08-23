@@ -77,7 +77,7 @@
 mkdir -p build && cd build
 cmake .. && make -j4
 
-# 2. 自动化执行全量测试套件 (21 组 CTest & Google Test)
+# 2. 自动化执行全量测试套件 (23 组 CTest & Google Test)
 ctest --output-on-failure
 
 # 3. 运行 7 大业务端到端全链路集成演示 (默认 Smoke 组合)
@@ -136,7 +136,7 @@ LLM-EdgeFlow/
 │   ├── business/                # Layer 3: 7 大多模态业务算子库
 │   ├── engine/                  # Layer 4: 异构引擎实现 (mock_npu, onnx, llama_cpp)
 │   └── tools/                   # 纯 C++ 原生 DAG 可视化工具 (alg_show.cpp)
-├── configs/                     # 9 大标准化业务配置 (JSON & .conf)
+├── configs/                     # 11 大标准化业务配置 (JSON & .conf)
 ├── demo/                        # 参数化多业务端到端演示与 Runner
 │   ├── profiles.json            # 预定义执行 Profile 清单 (单一事实源)
 │   ├── common/                  # 通用参数解析、注册表、数据读取、结果落盘与 RAII Runner
