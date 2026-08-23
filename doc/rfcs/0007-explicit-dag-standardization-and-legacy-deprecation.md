@@ -4,7 +4,7 @@
 - **创建日期**：2026-08-23
 - **文档状态**：Completed
 - **关联分支**：`feat/explicit-dag-standardization`
-- **目标版本**：v2.6.0
+- **目标版本**：v1.6.0
 - **负责人 / 作者**：LLM-EdgeFlow Team
 
 ---
