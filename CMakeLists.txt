@@ -26,6 +26,12 @@ include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
+if(APPLE)
+  if(EXISTS "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1")
+    include_directories(SYSTEM "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1")
+  endif()
+endif()
+
 # 引入第三方 JSON 库 (nlohmann/json) 自动下载配置
 include(cmake/NlohmannJson.cmake)
 

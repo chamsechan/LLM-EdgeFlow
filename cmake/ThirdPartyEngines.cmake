@@ -11,8 +11,14 @@ option(ENABLE_ONNXRUNTIME "Enable ONNX Runtime engine (auto-download from GitHub
 if(ENABLE_ONNXRUNTIME)
   message(STATUS "[Engine Layer] Enabling ONNX Runtime engine support...")
 
-  # 根据目标架构选择对应的官方 Release 包
-  if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
+  # 根据目标系统与架构选择对应的官方 Release 包
+  if(APPLE)
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
+      set(ORT_URL "https://github.com/microsoft/onnxruntime/releases/download/v1.17.3/onnxruntime-osx-arm64-1.17.3.tgz")
+    else()
+      set(ORT_URL "https://github.com/microsoft/onnxruntime/releases/download/v1.17.3/onnxruntime-osx-x86_64-1.17.3.tgz")
+    endif()
+  elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
     set(ORT_URL "https://github.com/microsoft/onnxruntime/releases/download/v1.17.3/onnxruntime-linux-aarch64-1.17.3.tgz")
   else()
     set(ORT_URL "https://github.com/microsoft/onnxruntime/releases/download/v1.17.3/onnxruntime-linux-x64-1.17.3.tgz")
@@ -31,7 +37,14 @@ if(ENABLE_ONNXRUNTIME)
   endif()
 
   set(ONNXRUNTIME_INCLUDE_DIR "${onnxruntime_prebuilt_SOURCE_DIR}/include")
-  file(GLOB_RECURSE ONNXRUNTIME_LIB "${onnxruntime_prebuilt_SOURCE_DIR}/lib/libonnxruntime.so*")
+  if(APPLE)
+    set(ONNXRUNTIME_LIB "${onnxruntime_prebuilt_SOURCE_DIR}/lib/libonnxruntime.dylib")
+    if(NOT EXISTS "${ONNXRUNTIME_LIB}")
+      set(ONNXRUNTIME_LIB "${onnxruntime_prebuilt_SOURCE_DIR}/lib/libonnxruntime.1.17.3.dylib")
+    endif()
+  else()
+    file(GLOB ONNXRUNTIME_LIB "${onnxruntime_prebuilt_SOURCE_DIR}/lib/libonnxruntime.so*")
+  endif()
 
   if(EXISTS "${ONNXRUNTIME_INCLUDE_DIR}" AND ONNXRUNTIME_LIB)
     message(STATUS "[Engine Layer] ONNX Runtime successfully loaded from: ${onnxruntime_prebuilt_SOURCE_DIR}")
