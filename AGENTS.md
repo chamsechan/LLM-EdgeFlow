@@ -39,24 +39,46 @@ Layer 4: Heterogeneous Inference Engines & Batch Schedulers (FixedBatchExecutor,
 
 ---
 
-## 🛠️ 2. Mandatory Skill Invocations
+## 📑 2. Mandatory RFC-First Requirement Governance (`doc/rfcs/`)
+
+To maintain architectural rigor and traceability, all new requirements, modalities, interfaces, or architectural refactorings **MUST** strictly follow the RFC-First lifecycle before merging into `main`:
+
+```text
+[ 1. Feature Branch ] ──> [ 2. Author RFC (doc/rfcs/) ] ──> [ 3. Code & GTest ] ──> [ 4. 100% Test Gate ] ──> [ 5. RFC Completed & PR Merge to main ]
+```
+
+1. **Design First Directive**:
+   - Before writing implementation code, create an RFC document under `doc/rfcs/NNNN-<kebab-case-title>.md` using the standard template [`doc/rfcs/RFC_TEMPLATE.md`](doc/rfcs/RFC_TEMPLATE.md).
+   - The RFC must explicitly define: Motivation, In-Scope/Out-of-Scope, 4-Tier Layer Mapping, Interface & Data Flow, Design Invariants, and Test Plan.
+   - Initial status must be marked as `Draft`, `Proposed`, or `In Implementation`.
+2. **Branch Isolation & Zero Direct-Push**:
+   - All RFC authoring, code implementation, and unit test suites MUST be developed in a dedicated feature branch (`feat/<name>` or `fix/<name>`). Never commit unverified work directly to `main`.
+3. **Lifecycle Completion & Merge Gate**:
+   - Once implementation is complete, all Google Test suites pass 100% via CTest, and `./scripts/run_all_tests.sh` passes all 6 stages, update the RFC status to **`Completed`** in the document header and [`doc/rfcs/README.md`](doc/rfcs/README.md).
+   - Submit a Pull Request and merge into `main` after CI verification.
+
+---
+
+## 🛠️ 3. Mandatory Skill Invocations
 
 When performing specific tasks, you **MUST** reference and execute the corresponding project skills:
 
-1. **When Composing New Pipelines or Reusing Operators (Zero-C++ First)**:
+1. **When Proposing or Implementing New Features / Requirements (RFC First)**:
+   - Create and follow: [`doc/rfcs/RFC_TEMPLATE.md`](doc/rfcs/RFC_TEMPLATE.md) & [`doc/rfcs/README.md`](doc/rfcs/README.md).
+2. **When Composing New Pipelines or Reusing Operators (Zero-C++ First)**:
    - Read and follow: [`.agents/skills/pipeline-composer/SKILL.md`](.agents/skills/pipeline-composer/SKILL.md)
    - Search existing common nodes catalog before writing any new C++ code.
-2. **When Extending the Framework (New Modality, Node, or Engine)**:
+3. **When Extending the Framework (New Modality, Node, or Engine)**:
    - Read and follow: [`.agents/skills/llm-edgeflow-developer-guide/SKILL.md`](.agents/skills/llm-edgeflow-developer-guide/SKILL.md)
    - Follow the step-by-step checklists for Layer 1, Layer 2, Layer 3, and Layer 4.
-3. **When Uploading Changes to GitHub / Merging Code**:
+4. **When Uploading Changes to GitHub / Merging Code**:
    - Read and follow: [`.agents/skills/github-branch-merge/SKILL.md`](.agents/skills/github-branch-merge/SKILL.md)
    - **Mandatory**: Use `./scripts/git_branch_upload.sh "<commit message>" "<type>"` to enforce branch creation, local test gating, PR creation, and automated merge.
    - **Never push directly to `main` without branch isolation!**
 
 ---
 
-## 🔒 3. Testing, Quality & Git Hygiene Directives
+## 🔒 4. Testing, Quality & Git Hygiene Directives
 
 1. **Mandatory Full Test Gate & Zero-Untested-Code Directive**:
    - **Mandatory Rule**: Any newly added business pipeline, common node, or inference engine **MUST** have a corresponding Google Test suite created under `tests/test_<name>.cpp` and registered via `add_test(NAME ... COMMAND ...)` in `CMakeLists.txt`.

@@ -37,6 +37,12 @@ This skill enforces a robust, enterprise-grade branch-and-merge workflow when up
 - **Action**: When major changes occur, prepend the version entry to `## 📝 更新日志 (Changelog)` in `README.md`.
 - **Minor changes** (e.g. documentation typos, formatting, tiny bugfixes) do **NOT** require a Changelog entry.
 
+### Rule 3: RFC Lifecycle Status Update (doc/rfcs/)
+- If the feature implements a requirement with an RFC in `doc/rfcs/NNNN-<name>.md`:
+  - Update the RFC document status header to **`Completed`**.
+  - Update the RFC index table in [`doc/rfcs/README.md`](doc/rfcs/README.md).
+  - Ensure the RFC is committed along with the feature implementation.
+
 ---
 
 ## Step-by-Step Execution Guide

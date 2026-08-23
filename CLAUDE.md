@@ -31,14 +31,18 @@ Welcome Claude Code. This document outlines project commands, architecture const
 
 ## 🔒 Mandatory Workflow Directives
 
-1. **Mandatory Full Test Gate & Zero-Untested-Code Directive**:
+1. **RFC-First Design Governance (`doc/rfcs/`)**:
+   - All pending features, new requirements, and architectural changes must first have an RFC created under `doc/rfcs/NNNN-<name>.md` following [`doc/rfcs/RFC_TEMPLATE.md`](doc/rfcs/RFC_TEMPLATE.md).
+   - Once implemented in a feature branch and verified with 100% tests, update RFC status to `Completed` before PR merge to `main`.
+2. **Mandatory Full Test Gate & Zero-Untested-Code Directive**:
    - Any newly added business pipeline, common node, or inference engine **MUST** have a corresponding Google Test created under `tests/test_<name>.cpp` and registered via `add_test(...)` in `CMakeLists.txt`.
    - All CTest suites (`ctest --output-on-failure`) and `./scripts/run_all_tests.sh` MUST pass 100% before committing or completing a task.
-2. **Standard Branch-and-Merge**:
+3. **Standard Branch-and-Merge**:
    - Never push directly to `main`. Use `./scripts/git_branch_upload.sh` to create feature branches and merge via PR.
-3. **Zero Third-Party Bundling**:
+4. **Zero Third-Party Bundling**:
    - All external dependencies (GoogleTest, nlohmann/json, ONNX Runtime, llama.cpp) must be fetched dynamically via CMake `FetchContent`. Never commit `.so` or third-party headers.
-4. **Skill References**:
+5. **Skill References**:
+   - RFC Governance & Index: [`doc/rfcs/README.md`](doc/rfcs/README.md)
    - Pipeline Composition & Reusability: [`.agents/skills/pipeline-composer/SKILL.md`](.agents/skills/pipeline-composer/SKILL.md)
    - 4-Tier Extension Guide: [`.agents/skills/llm-edgeflow-developer-guide/SKILL.md`](.agents/skills/llm-edgeflow-developer-guide/SKILL.md)
    - Git Branch Merge: [`.agents/skills/github-branch-merge/SKILL.md`](.agents/skills/github-branch-merge/SKILL.md)
