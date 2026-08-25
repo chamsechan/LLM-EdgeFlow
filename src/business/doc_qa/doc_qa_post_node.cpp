@@ -2,6 +2,7 @@
 #include <string>
 #include <vector>
 
+#include "business/doc_qa/doc_qa_contract.h"
 #include "business/doc_qa/doc_qa_dto.h"
 #include "core/node_base.h"
 #include "core/node_registry.h"
@@ -14,6 +15,8 @@ namespace alg_framework {
  */
 class DocQaPostNode : public INode {
  public:
+  inline static constexpr char kNodeType[] = "DocQaPostNode";
+
   bool Init(const nlohmann::json& config,
             SessionContext* session_ctx) override {
     (void)config;
@@ -22,13 +25,11 @@ class DocQaPostNode : public INode {
   }
 
   int Process(AlgContext* req_ctx) override {
-    auto* raw_req_ids = req_ctx->Get<std::vector<uint64_t>>("raw_request_ids");
-    auto* intents =
-        req_ctx->Get<std::vector<std::string>>("recognized_intents");
-    auto* confidences = req_ctx->Get<std::vector<float>>("intent_confidences");
-    auto* chunk_counts = req_ctx->Get<std::vector<int>>("chunk_counts_per_req");
-    auto* answers = req_ctx->Get<std::vector<TraceableItem<std::string>>>(
-        "generated_llm_answers");
+    auto* raw_req_ids = req_ctx->Get(kRawRequestIds);
+    auto* intents = req_ctx->Get(kRecognizedIntents);
+    auto* confidences = req_ctx->Get(kIntentConfidences);
+    auto* chunk_counts = req_ctx->Get(kChunkCountsPerReq);
+    auto* answers = req_ctx->Get(kGeneratedLlmAnswers);
 
     if (!raw_req_ids || !intents || !answers) {
       req_ctx->SetError(-4401, "DocQaPostNode: Missing inputs for aggregation");
@@ -43,9 +44,9 @@ class DocQaPostNode : public INode {
       final_outputs[i].request_id = (*raw_req_ids)[i];
       final_outputs[i].status_code = 0;
       final_outputs[i].chunk_count =
-          (i < chunk_counts->size()) ? (*chunk_counts)[i] : 0;
+          (chunk_counts && i < chunk_counts->size()) ? (*chunk_counts)[i] : 0;
       final_outputs[i].confidence =
-          (i < confidences->size()) ? (*confidences)[i] : 0.0f;
+          (confidences && i < confidences->size()) ? (*confidences)[i] : 0.0f;
       final_outputs[i].intent_name = (*intents)[i];
     }
 
@@ -60,16 +61,30 @@ class DocQaPostNode : public INode {
     std::cout << "[DocQaPostNode] Successfully aggregated and aligned "
               << batch_size << " output results." << std::endl;
 
-    req_ctx->Set("final_doc_outputs", std::move(final_outputs));
+    req_ctx->Set(kFinalDocOutputs, std::move(final_outputs));
     return 0;
   }
 
   const std::string& Name() const override {
-    static std::string name = "DocQaPostNode";
+    static std::string name = kNodeType;
     return name;
   }
 };
 
-REGISTER_NODE(DocQaPostNode);
+NodeDefinition MakeDocQaPostNodeDefinition() {
+  NodeDefinition def;
+  def.node_type = DocQaPostNode::kNodeType;
+  def.category = "business";
+  def.description = "Document QA aggregation and post-processing node";
+  def.inputs = {
+      RequiredInput(kRawRequestIds), RequiredInput(kRecognizedIntents),
+      OptionalInput(kIntentConfidences), OptionalInput(kChunkCountsPerReq),
+      RequiredInput(kGeneratedLlmAnswers)};
+  def.outputs = {Output(kFinalDocOutputs)};
+  def.parallel_safe = true;
+  return def;
+}
+
+REGISTER_NODE_WITH_DEFINITION(DocQaPostNode, MakeDocQaPostNodeDefinition());
 
 }  // namespace alg_framework

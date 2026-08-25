@@ -135,6 +135,23 @@ std::string MockNpuLlmEngine::GenerateSingleResponse(
   return "【LLM标准答复】已根据输入文档上下文完成智能检索与摘要生成。";
 }
 
-REGISTER_ENGINE("mock_npu_llm", MockNpuLlmEngine);
+EngineDefinition MakeMockNpuLlmDefinition() {
+  EngineDefinition def;
+  def.engine_type = "mock_npu_llm";
+  def.capability = "llm";
+  def.description = "Mock NPU LLM engine";
+  def.config_fields = {
+      ConfigFieldDefinition{"max_batch_size", ConfigValueKind::kInteger, false,
+                            2, 1.0, 4096.0},
+      ConfigFieldDefinition{"max_seq_len", ConfigValueKind::kInteger, false,
+                            1024, 1.0, 1048576.0},
+      ConfigFieldDefinition{"device_id", ConfigValueKind::kInteger, false, -1,
+                            -1.0, 1024.0}};
+  def.thread_model = EngineThreadModel::kSerialized;
+  return def;
+}
+
+REGISTER_ENGINE_WITH_DEFINITION("mock_npu_llm", MockNpuLlmEngine,
+                                MakeMockNpuLlmDefinition());
 
 }  // namespace alg_framework

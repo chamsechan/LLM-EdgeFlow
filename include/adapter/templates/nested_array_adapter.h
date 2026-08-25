@@ -55,16 +55,18 @@ class TemplateNestedArrayAdapter : public IBusinessAdapter {
   const char* BizName() const override { return "TemplateNestedArray"; }
 
   const AdapterDescriptor& GetDescriptor() const override {
-    static AdapterDescriptor desc{static_cast<CompanyAlgBizType>(103),
-                                  "TemplateNestedArray",
-                                  "2.0.0",
-                                  "TemplateNestedArrayInput",
-                                  "TemplateNestedArrayOutput",
-                                  64,
-                                  OwnershipPolicy::kCopyIn,
-                                  ThreadModel::kStatelessThreadSafe,
-                                  OutputCardinality::kOneToOne,
-                                  {"template_nested_array_pipeline_v1"}};
+    static AdapterDescriptor desc{
+        static_cast<CompanyAlgBizType>(103),
+        "TemplateNestedArray",
+        "2.0.0",
+        "TemplateNestedArrayInput",
+        "TemplateNestedArrayOutput",
+        64,
+        OwnershipPolicy::kCopyIn,
+        ThreadModel::kStatelessThreadSafe,
+        OutputCardinality::kOneToOne,
+        {BusinessDefinition{"TemplateNestedArray",
+                            "template_nested_array_pipeline_v1"}}};
     return desc;
   }
 

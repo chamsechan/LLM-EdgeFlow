@@ -1,5 +1,6 @@
 #include <iostream>
 
+#include "core/common_contracts.h"
 #include "core/node_base.h"
 #include "core/node_registry.h"
 #include "core/traceable_item.h"
@@ -11,6 +12,8 @@ namespace alg_framework {
  */
 class PromptBuilderNode : public INode {
  public:
+  inline static constexpr char kNodeType[] = "PromptBuilderNode";
+
   bool Init(const nlohmann::json& config,
             SessionContext* session_ctx) override {
     (void)session_ctx;
@@ -23,7 +26,7 @@ class PromptBuilderNode : public INode {
     auto* matched_contexts =
         req_ctx->Get<std::vector<TraceableItem<std::string>>>(
             "matched_top_chunks");
-    auto* raw_queries = req_ctx->Get<std::vector<std::string>>("raw_queries");
+    auto* raw_queries = req_ctx->Get(kRawQueries);
 
     if (!matched_contexts || !raw_queries) {
       req_ctx->SetError(-3001, "PromptBuilderNode: Missing inputs");
@@ -48,12 +51,12 @@ class PromptBuilderNode : public INode {
       final_prompts.emplace_back(item.req_id, item.sub_id, std::move(prompt));
     }
 
-    req_ctx->Set("llm_input_prompts", std::move(final_prompts));
+    req_ctx->Set(kLlmInputPrompts, std::move(final_prompts));
     return 0;
   }
 
   const std::string& Name() const override {
-    static std::string name = "PromptBuilderNode";
+    static std::string name = kNodeType;
     return name;
   }
 
@@ -61,6 +64,24 @@ class PromptBuilderNode : public INode {
   std::string template_str_;
 };
 
-REGISTER_NODE(PromptBuilderNode);
+NodeDefinition MakePromptBuilderNodeDefinition() {
+  NodeDefinition def;
+  def.node_type = PromptBuilderNode::kNodeType;
+  def.category = "common";
+  def.description = "Prompt builder node";
+  def.inputs = {
+      RequiredInput(BlackboardKey<std::vector<TraceableItem<std::string>>>{
+          "matched_top_chunks", "traceable<string>[]"}),
+      RequiredInput(kRawQueries)};
+  def.outputs = {Output(kLlmInputPrompts)};
+  def.config_fields = {
+      ConfigFieldDefinition{"template", ConfigValueKind::kString, false,
+                            "Context: {context}\nQuery: {query}\nAnswer:"}};
+  def.parallel_safe = true;
+  return def;
+}
+
+REGISTER_NODE_WITH_DEFINITION(PromptBuilderNode,
+                              MakePromptBuilderNodeDefinition());
 
 }  // namespace alg_framework

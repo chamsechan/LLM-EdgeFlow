@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 
+#include "business/entity_extract/entity_extract_contract.h"
 #include "business/entity_extract/entity_extract_dto.h"
 #include "core/node_base.h"
 #include "core/node_registry.h"
@@ -15,6 +16,8 @@ namespace alg_framework {
  */
 class EntityExtractPostNode : public INode {
  public:
+  inline static constexpr char kNodeType[] = "EntityExtractPostNode";
+
   bool Init(const nlohmann::json& config,
             SessionContext* session_ctx) override {
     (void)config;
@@ -23,9 +26,8 @@ class EntityExtractPostNode : public INode {
   }
 
   int Process(AlgContext* req_ctx) override {
-    auto* req_ids = req_ctx->Get<std::vector<uint64_t>>("raw_request_ids");
-    auto* llm_answers = req_ctx->Get<std::vector<TraceableItem<std::string>>>(
-        "generated_llm_answers");
+    auto* req_ids = req_ctx->Get(kRawRequestIds);
+    auto* llm_answers = req_ctx->Get(kGeneratedLlmAnswers);
 
     if (!req_ids || !llm_answers) {
       req_ctx->SetError(-6101, "EntityExtractPostNode: Missing inputs");
@@ -52,16 +54,29 @@ class EntityExtractPostNode : public INode {
     std::cout << "[EntityExtractPostNode] Packaged " << batch_size
               << " entity extraction outputs." << std::endl;
 
-    req_ctx->Set("entity_extract_outputs", std::move(outputs));
+    req_ctx->Set(kEntityExtractOutputs, std::move(outputs));
     return 0;
   }
 
   const std::string& Name() const override {
-    static std::string name = "EntityExtractPostNode";
+    static std::string name = kNodeType;
     return name;
   }
 };
 
-REGISTER_NODE(EntityExtractPostNode);
+NodeDefinition MakeEntityExtractPostNodeDefinition() {
+  NodeDefinition def;
+  def.node_type = EntityExtractPostNode::kNodeType;
+  def.category = "business";
+  def.description = "Entity extract post-processing node";
+  def.inputs = {RequiredInput(kRawRequestIds),
+                RequiredInput(kGeneratedLlmAnswers)};
+  def.outputs = {Output(kEntityExtractOutputs)};
+  def.parallel_safe = true;
+  return def;
+}
+
+REGISTER_NODE_WITH_DEFINITION(EntityExtractPostNode,
+                              MakeEntityExtractPostNodeDefinition());
 
 }  // namespace alg_framework

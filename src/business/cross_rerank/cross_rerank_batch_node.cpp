@@ -2,6 +2,7 @@
 #include <string>
 #include <vector>
 
+#include "business/cross_rerank/cross_rerank_contract.h"
 #include "core/alg_context.h"
 #include "core/node_base.h"
 #include "core/node_registry.h"
@@ -12,6 +13,8 @@ namespace alg_framework {
 
 class CrossRerankBatchNode : public INode {
  public:
+  inline static constexpr char kNodeType[] = "CrossRerankBatchNode";
+
   bool Init(const nlohmann::json& config,
             SessionContext* session_ctx) override {
     std::string bind_model_id = config.value("bind_model", "rerank_model_v1");
@@ -26,9 +29,7 @@ class CrossRerankBatchNode : public INode {
   }
 
   int Process(AlgContext* req_ctx) override {
-    auto* pair_items =
-        req_ctx->Get<std::vector<TraceableItem<IRerankEngine::PairInput>>>(
-            "rerank_pair_items");
+    auto* pair_items = req_ctx->Get(kRerankPairItems);
     if (!pair_items) {
       req_ctx->SetError(-7201,
                         "CrossRerankBatchNode: Missing rerank_pair_items");
@@ -44,12 +45,12 @@ class CrossRerankBatchNode : public INode {
       return ret;
     }
 
-    req_ctx->Set("rerank_scored_items", std::move(scores));
+    req_ctx->Set(kRerankScoredItems, std::move(scores));
     return 0;
   }
 
   const std::string& Name() const override {
-    static std::string name = "CrossRerankBatchNode";
+    static std::string name = kNodeType;
     return name;
   }
 
@@ -57,6 +58,20 @@ class CrossRerankBatchNode : public INode {
   std::shared_ptr<IRerankEngine> rerank_engine_;
 };
 
-REGISTER_NODE(CrossRerankBatchNode);
+NodeDefinition MakeCrossRerankBatchNodeDefinition() {
+  NodeDefinition def;
+  def.node_type = CrossRerankBatchNode::kNodeType;
+  def.category = "business";
+  def.description = "Cross-encoder batch reranking scoring node";
+  def.inputs = {RequiredInput(kRerankPairItems)};
+  def.outputs = {Output(kRerankScoredItems)};
+  def.config_fields = {
+      ConfigFieldDefinition{"bind_model", ConfigValueKind::kString, true}};
+  def.parallel_safe = true;
+  return def;
+}
+
+REGISTER_NODE_WITH_DEFINITION(CrossRerankBatchNode,
+                              MakeCrossRerankBatchNodeDefinition());
 
 }  // namespace alg_framework

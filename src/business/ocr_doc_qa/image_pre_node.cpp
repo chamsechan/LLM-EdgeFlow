@@ -2,6 +2,7 @@
 #include <string>
 #include <vector>
 
+#include "business/ocr_doc_qa/ocr_doc_qa_contract.h"
 #include "core/alg_context.h"
 #include "core/node_base.h"
 #include "core/node_registry.h"
@@ -14,6 +15,8 @@ namespace alg_framework {
  */
 class ImagePreNode : public INode {
  public:
+  inline static constexpr char kNodeType[] = "ImagePreNode";
+
   bool Init(const nlohmann::json& config,
             SessionContext* session_ctx) override {
     (void)config;
@@ -22,10 +25,9 @@ class ImagePreNode : public INode {
   }
 
   int Process(AlgContext* req_ctx) override {
-    auto* raw_images =
-        req_ctx->Get<std::vector<std::string>>("raw_image_paths");
-    auto* raw_queries = req_ctx->Get<std::vector<std::string>>("raw_queries");
-    auto* req_ids = req_ctx->Get<std::vector<uint64_t>>("raw_request_ids");
+    auto* raw_images = req_ctx->Get(kRawImagePaths);
+    auto* raw_queries = req_ctx->Get(kRawQueries);
+    auto* req_ids = req_ctx->Get(kRawRequestIds);
 
     if (!raw_images || !raw_queries || !req_ids) {
       req_ctx->SetError(-5101,
@@ -38,16 +40,28 @@ class ImagePreNode : public INode {
       image_items.emplace_back((*req_ids)[i], 0, (*raw_images)[i]);
     }
 
-    req_ctx->Set("traceable_image_items", std::move(image_items));
+    req_ctx->Set(kTraceableImageItems, std::move(image_items));
     return 0;
   }
 
   const std::string& Name() const override {
-    static std::string name = "ImagePreNode";
+    static std::string name = kNodeType;
     return name;
   }
 };
 
-REGISTER_NODE(ImagePreNode);
+NodeDefinition MakeImagePreNodeDefinition() {
+  NodeDefinition def;
+  def.node_type = ImagePreNode::kNodeType;
+  def.category = "business";
+  def.description = "OCR image pre-processing node";
+  def.inputs = {RequiredInput(kRawImagePaths), RequiredInput(kRawQueries),
+                RequiredInput(kRawRequestIds)};
+  def.outputs = {Output(kTraceableImageItems)};
+  def.parallel_safe = true;
+  return def;
+}
+
+REGISTER_NODE_WITH_DEFINITION(ImagePreNode, MakeImagePreNodeDefinition());
 
 }  // namespace alg_framework

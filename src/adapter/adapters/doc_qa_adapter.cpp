@@ -3,7 +3,7 @@
 
 #include "adapter/adapter_validation_helper.h"
 #include "adapter/business_adapter_registry.h"
-#include "business/doc_qa/doc_qa_dto.h"
+#include "business/doc_qa/doc_qa_contract.h"
 #include "company_alg_interface.h"
 
 namespace alg_framework {
@@ -25,8 +25,24 @@ class DocQaAdapter : public IBusinessAdapter {
         OwnershipPolicy::kCopyIn,
         ThreadModel::kStatelessThreadSafe,
         OutputCardinality::kOneToOne,
-        {"smart_doc_qa_v1", "smart_doc_qa_onnx_llamacpp_v1",
-         "smart_doc_qa_rerank_llm_v1"}};  // RECHECK-002: 精确白名单
+        {{"smart_doc_qa_v1",
+          "doc_qa",
+          "智能文档问答",
+          {RequiredInput(kRawRequestIds), RequiredInput(kRawDocs),
+           RequiredInput(kRawQueries)},
+          {Output(kFinalDocOutputs)}},
+         {"smart_doc_qa_onnx_llamacpp_v1",
+          "doc_qa",
+          "智能文档问答（ONNX/llama.cpp）",
+          {RequiredInput(kRawRequestIds), RequiredInput(kRawDocs),
+           RequiredInput(kRawQueries)},
+          {Output(kFinalDocOutputs)}},
+         {"smart_doc_qa_rerank_llm_v1",
+          "doc_qa",
+          "智能文档问答（精排）",
+          {RequiredInput(kRawRequestIds), RequiredInput(kRawDocs),
+           RequiredInput(kRawQueries)},
+          {Output(kFinalDocOutputs)}}}};
     return desc;
   }
 
@@ -81,9 +97,9 @@ class DocQaAdapter : public IBusinessAdapter {
       raw_queries.push_back(in_doc->query_text);
     }
 
-    ctx->Set("raw_request_ids", std::move(raw_req_ids));
-    ctx->Set("raw_docs", std::move(raw_docs));
-    ctx->Set("raw_queries", std::move(raw_queries));
+    ctx->Set(kRawRequestIds, std::move(raw_req_ids));
+    ctx->Set(kRawDocs, std::move(raw_docs));
+    ctx->Set(kRawQueries, std::move(raw_queries));
     return COMPANY_ALG_SUCCESS;
   }
 
@@ -97,7 +113,7 @@ class DocQaAdapter : public IBusinessAdapter {
       return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     }
 
-    auto* res = ctx->Get<std::vector<DocQaResult>>("final_doc_outputs");
+    auto* res = ctx->Get(kFinalDocOutputs);
     if (!res) {
       if (out_status) {
         *out_status = AdapterStatus::BufferTooSmall(

@@ -73,6 +73,21 @@ int OnnxRerankEngine::RawOnnxRerankHardwareInfer(
   return 0;
 }
 
-REGISTER_ENGINE("onnx_rerank", OnnxRerankEngine);
+EngineDefinition MakeOnnxRerankDefinition() {
+  EngineDefinition def;
+  def.engine_type = "onnx_rerank";
+  def.capability = "rerank";
+  def.description = "ONNX Runtime rerank engine";
+  def.config_fields = {
+      ConfigFieldDefinition{"max_batch_size", ConfigValueKind::kInteger, false,
+                            4, 1.0, 4096.0},
+      ConfigFieldDefinition{"device_id", ConfigValueKind::kInteger, false, -1,
+                            -1.0, 1024.0}};
+  def.thread_model = EngineThreadModel::kConcurrent;
+  return def;
+}
+
+REGISTER_ENGINE_WITH_DEFINITION("onnx_rerank", OnnxRerankEngine,
+                                MakeOnnxRerankDefinition());
 
 }  // namespace alg_framework

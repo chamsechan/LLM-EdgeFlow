@@ -291,7 +291,7 @@ TEST_F(AdapterContractSecurityTest, RegistryRejectsUnsupportedPolicies) {
           OwnershipPolicy::kBorrowDuringProcess,  // 当前未开放策略
           ThreadModel::kStatelessThreadSafe,
           OutputCardinality::kOneToOne,
-          {"pipeline_v1"}};
+          {BusinessDefinition{"UnsupportedPolicy", "pipeline_v1"}}};
       return desc;
     }
     int Unpack(const void** i, int n, AlgContext* c,

@@ -1,5 +1,6 @@
 #include <iostream>
 
+#include "business/doc_qa/doc_qa_contract.h"
 #include "core/node_base.h"
 #include "core/node_registry.h"
 #include "core/traceable_item.h"
@@ -11,6 +12,8 @@ namespace alg_framework {
  */
 class DocChunkPreNode : public INode {
  public:
+  inline static constexpr char kNodeType[] = "DocChunkPreNode";
+
   bool Init(const nlohmann::json& config,
             SessionContext* session_ctx) override {
     chunk_size_ = config.value("chunk_size", 100);
@@ -18,8 +21,8 @@ class DocChunkPreNode : public INode {
   }
 
   int Process(AlgContext* req_ctx) override {
-    auto* raw_docs = req_ctx->Get<std::vector<std::string>>("raw_docs");
-    auto* raw_queries = req_ctx->Get<std::vector<std::string>>("raw_queries");
+    auto* raw_docs = req_ctx->Get(kRawDocs);
+    auto* raw_queries = req_ctx->Get(kRawQueries);
 
     if (!raw_docs || !raw_queries) {
       req_ctx->SetError(-4001,
@@ -56,14 +59,14 @@ class DocChunkPreNode : public INode {
               << " total chunks from " << raw_docs->size() << " requests."
               << std::endl;
 
-    req_ctx->Set("chunked_doc_items", std::move(chunked_doc_items));
-    req_ctx->Set("query_items", std::move(query_items));
-    req_ctx->Set("chunk_counts_per_req", std::move(chunk_counts_per_req));
+    req_ctx->Set(kChunkedDocItems, std::move(chunked_doc_items));
+    req_ctx->Set(kQueryItems, std::move(query_items));
+    req_ctx->Set(kChunkCountsPerReq, std::move(chunk_counts_per_req));
     return 0;
   }
 
   const std::string& Name() const override {
-    static std::string name = "DocChunkPreNode";
+    static std::string name = kNodeType;
     return name;
   }
 
@@ -71,6 +74,20 @@ class DocChunkPreNode : public INode {
   size_t chunk_size_ = 100;
 };
 
-REGISTER_NODE(DocChunkPreNode);
+NodeDefinition MakeDocChunkPreNodeDefinition() {
+  NodeDefinition def;
+  def.node_type = DocChunkPreNode::kNodeType;
+  def.category = "business";
+  def.description = "Document chunk pre-processing node";
+  def.inputs = {RequiredInput(kRawDocs), RequiredInput(kRawQueries)};
+  def.outputs = {Output(kChunkedDocItems), Output(kQueryItems),
+                 Output(kChunkCountsPerReq)};
+  def.config_fields = {ConfigFieldDefinition{
+      "chunk_size", ConfigValueKind::kInteger, false, 100, 1.0, 100000.0}};
+  def.parallel_safe = true;
+  return def;
+}
+
+REGISTER_NODE_WITH_DEFINITION(DocChunkPreNode, MakeDocChunkPreNodeDefinition());
 
 }  // namespace alg_framework

@@ -5,6 +5,8 @@
 #include <string>
 #include <vector>
 
+#include "core/blackboard_key.h"
+
 namespace alg_framework {
 
 enum class ConfigValueKind {
@@ -16,12 +18,33 @@ enum class ConfigValueKind {
   kArray,
 };
 
+enum class EngineThreadModel {
+  kSerialized = 0,
+  kConcurrent = 1,
+};
+
 struct PortDefinition {
   std::string key;
   std::string type_id;
   bool required = true;
   bool allow_override = false;
 };
+
+template <typename T>
+inline PortDefinition RequiredInput(const BlackboardKey<T>& key) {
+  return PortDefinition{key.name, key.type_id, true, false};
+}
+
+template <typename T>
+inline PortDefinition OptionalInput(const BlackboardKey<T>& key) {
+  return PortDefinition{key.name, key.type_id, false, false};
+}
+
+template <typename T>
+inline PortDefinition Output(const BlackboardKey<T>& key,
+                             bool allow_override = false) {
+  return PortDefinition{key.name, key.type_id, true, allow_override};
+}
 
 struct ConfigFieldDefinition {
   std::string name;
@@ -43,7 +66,7 @@ struct NodeDefinition {
   std::vector<ConfigFieldDefinition> config_fields;
   std::string model_capability;
   std::string model_config_field;
-  bool parallel_safe = true;
+  bool parallel_safe = false;
   std::vector<std::string> business_names;
 };
 
@@ -52,6 +75,7 @@ struct EngineDefinition {
   std::string capability;
   std::string description;
   std::vector<ConfigFieldDefinition> config_fields;
+  EngineThreadModel thread_model = EngineThreadModel::kSerialized;
 };
 
 struct BusinessDefinition {
@@ -66,6 +90,7 @@ class PipelineCatalog {
  public:
   static bool RegisterNodeDefinition(const NodeDefinition& definition);
   static bool RegisterEngineDefinition(const EngineDefinition& definition);
+  static bool RegisterBusinessDefinition(const BusinessDefinition& definition);
 
   static const std::vector<NodeDefinition>& Nodes();
   static const std::vector<EngineDefinition>& Engines();
@@ -76,11 +101,7 @@ class PipelineCatalog {
   static const BusinessDefinition* FindBusiness(
       const std::string& business_name);
 
-  /** Transitional source definitions used by the production registration
-   * macros. */
-  static const NodeDefinition* FindBuiltinNode(const std::string& node_type);
-  static const EngineDefinition* FindBuiltinEngine(
-      const std::string& engine_type);
+  static void ClearForTesting();
 
   static nlohmann::json ToJson(
       const std::string& business_filter = std::string());

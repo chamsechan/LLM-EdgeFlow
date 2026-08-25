@@ -113,6 +113,37 @@ class BusinessAdapterRegistry {
       }
     }
 
+    // 冲突检查 3: 业务 Pipeline 契约必须声明且在 Catalog 中无冲突
+    if (desc.pipelines.empty()) {
+      has_conflict_ = true;
+      std::string err =
+          "Adapter '" + std::string(adapter->BizName()) +
+          "' must declare at least one BusinessDefinition in pipelines";
+      registration_errors_.push_back(err);
+      std::cerr << "[BusinessAdapterRegistry ERROR] " << err << std::endl;
+      return false;
+    }
+
+    for (const auto& pipeline_def : desc.pipelines) {
+      if (pipeline_def.business_name.empty()) {
+        has_conflict_ = true;
+        std::string err = "Adapter '" + std::string(adapter->BizName()) +
+                          "' has a pipeline with empty business_name";
+        registration_errors_.push_back(err);
+        return false;
+      }
+      if (!PipelineCatalog::RegisterBusinessDefinition(pipeline_def)) {
+        has_conflict_ = true;
+        std::string err = "Conflict: Pipeline business_name '" +
+                          pipeline_def.business_name + "' in adapter '" +
+                          std::string(adapter->BizName()) +
+                          "' is invalid or already registered";
+        registration_errors_.push_back(err);
+        std::cerr << "[BusinessAdapterRegistry ERROR] " << err << std::endl;
+        return false;
+      }
+    }
+
     adapters_[biz_type] = adapter;
     // Keep stdout machine-readable for tools such as alg_pipeline_tool.
     std::cerr << "[BusinessAdapterRegistry] Registered adapter for BizType ["

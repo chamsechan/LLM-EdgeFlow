@@ -3,7 +3,7 @@
 
 #include "adapter/adapter_validation_helper.h"
 #include "adapter/business_adapter_registry.h"
-#include "business/keyword_match/keyword_match_dto.h"
+#include "business/keyword_match/keyword_match_contract.h"
 #include "company_alg_interface.h"
 
 namespace alg_framework {
@@ -27,7 +27,11 @@ class KeywordMatchAdapter : public IBusinessAdapter {
         OwnershipPolicy::kCopyIn,
         ThreadModel::kStatelessThreadSafe,
         OutputCardinality::kOneToOne,
-        {"keyword_match_v1"}};  // RECHECK-002: 精确白名单
+        {{"keyword_match_v1",
+          "keyword_match",
+          "关注词匹配",
+          {RequiredInput(kRawRequestIds), RequiredInput(kInputSentences)},
+          {Output(kKeywordMatchOutputs)}}}};
     return desc;
   }
 
@@ -69,8 +73,8 @@ class KeywordMatchAdapter : public IBusinessAdapter {
       sentences.push_back(in->sentence_text);
     }
 
-    ctx->Set("raw_request_ids", std::move(req_ids));
-    ctx->Set("input_sentences", std::move(sentences));
+    ctx->Set(kRawRequestIds, std::move(req_ids));
+    ctx->Set(kInputSentences, std::move(sentences));
     return COMPANY_ALG_SUCCESS;
   }
 
@@ -84,8 +88,7 @@ class KeywordMatchAdapter : public IBusinessAdapter {
       return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     }
 
-    auto* res =
-        ctx->Get<std::vector<KeywordMatchResult>>("keyword_match_outputs");
+    auto* res = ctx->Get(kKeywordMatchOutputs);
     if (!res) {
       if (out_status) {
         *out_status = AdapterStatus::BufferTooSmall(

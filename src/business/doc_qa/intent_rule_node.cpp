@@ -3,6 +3,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "business/doc_qa/doc_qa_contract.h"
 #include "core/node_base.h"
 #include "core/node_registry.h"
 
@@ -18,6 +19,8 @@ namespace alg_framework {
  */
 class IntentRuleNode : public INode {
  public:
+  inline static constexpr char kNodeType[] = "IntentRuleNode";
+
   bool Init(const nlohmann::json& config,
             SessionContext* session_ctx) override {
     (void)session_ctx;
@@ -41,7 +44,7 @@ class IntentRuleNode : public INode {
   }
 
   int Process(AlgContext* req_ctx) override {
-    auto* raw_queries = req_ctx->Get<std::vector<std::string>>("raw_queries");
+    auto* raw_queries = req_ctx->Get(kRawQueries);
     if (!raw_queries) {
       req_ctx->SetError(-4201, "IntentRuleNode: Missing raw_queries");
       return -4201;
@@ -65,13 +68,13 @@ class IntentRuleNode : public INode {
       }
     }
 
-    req_ctx->Set("recognized_intents", std::move(recognized_intents));
-    req_ctx->Set("intent_confidences", std::move(confidences));
+    req_ctx->Set(kRecognizedIntents, std::move(recognized_intents));
+    req_ctx->Set(kIntentConfidences, std::move(confidences));
     return 0;
   }
 
   const std::string& Name() const override {
-    static std::string name = "IntentRuleNode";
+    static std::string name = kNodeType;
     return name;
   }
 
@@ -85,6 +88,23 @@ class IntentRuleNode : public INode {
   std::string default_intent_ = "GENERAL_CONSULT";
 };
 
-REGISTER_NODE(IntentRuleNode);
+NodeDefinition MakeIntentRuleNodeDefinition() {
+  NodeDefinition def;
+  def.node_type = IntentRuleNode::kNodeType;
+  def.category = "business";
+  def.description = "Intent rule classification node";
+  def.inputs = {RequiredInput(kRawQueries)};
+  def.outputs = {Output(kRecognizedIntents), Output(kIntentConfidences)};
+  def.config_fields = {
+      ConfigFieldDefinition{"threshold", ConfigValueKind::kNumber, false, 0.75,
+                            0.0, 1.0},
+      ConfigFieldDefinition{"default_intent", ConfigValueKind::kString, false,
+                            "GENERAL_CONSULT"},
+      ConfigFieldDefinition{"rules", ConfigValueKind::kObject, false}};
+  def.parallel_safe = true;
+  return def;
+}
+
+REGISTER_NODE_WITH_DEFINITION(IntentRuleNode, MakeIntentRuleNodeDefinition());
 
 }  // namespace alg_framework

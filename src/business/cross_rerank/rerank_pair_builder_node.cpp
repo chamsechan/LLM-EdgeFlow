@@ -2,6 +2,7 @@
 #include <string>
 #include <vector>
 
+#include "business/cross_rerank/cross_rerank_contract.h"
 #include "business/cross_rerank/cross_rerank_dto.h"
 #include "core/alg_context.h"
 #include "core/node_base.h"
@@ -13,6 +14,8 @@ namespace alg_framework {
 
 class RerankPairBuilderNode : public INode {
  public:
+  inline static constexpr char kNodeType[] = "RerankPairBuilderNode";
+
   bool Init(const nlohmann::json& config,
             SessionContext* session_ctx) override {
     (void)config;
@@ -21,8 +24,7 @@ class RerankPairBuilderNode : public INode {
   }
 
   int Process(AlgContext* req_ctx) override {
-    auto* raw_inputs =
-        req_ctx->Get<std::vector<RerankQueryInput>>("raw_rerank_inputs");
+    auto* raw_inputs = req_ctx->Get(kRawRerankInputs);
     if (!raw_inputs) {
       req_ctx->SetError(-7101,
                         "RerankPairBuilderNode: Missing raw_rerank_inputs");
@@ -44,17 +46,29 @@ class RerankPairBuilderNode : public INode {
       }
     }
 
-    req_ctx->Set("rerank_pair_items", std::move(pair_items));
-    req_ctx->Set("rerank_counts_per_req", std::move(counts_per_req));
+    req_ctx->Set(kRerankPairItems, std::move(pair_items));
+    req_ctx->Set(kRerankCountsPerReq, std::move(counts_per_req));
     return 0;
   }
 
   const std::string& Name() const override {
-    static std::string name = "RerankPairBuilderNode";
+    static std::string name = kNodeType;
     return name;
   }
 };
 
-REGISTER_NODE(RerankPairBuilderNode);
+NodeDefinition MakeRerankPairBuilderNodeDefinition() {
+  NodeDefinition def;
+  def.node_type = RerankPairBuilderNode::kNodeType;
+  def.category = "business";
+  def.description = "Cross rerank pair builder node";
+  def.inputs = {RequiredInput(kRawRerankInputs)};
+  def.outputs = {Output(kRerankPairItems), Output(kRerankCountsPerReq)};
+  def.parallel_safe = true;
+  return def;
+}
+
+REGISTER_NODE_WITH_DEFINITION(RerankPairBuilderNode,
+                              MakeRerankPairBuilderNodeDefinition());
 
 }  // namespace alg_framework

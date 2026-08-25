@@ -292,8 +292,11 @@ ValidationReport PipelineValidator::Validate(const nlohmann::json& root) {
               return item.name == definition->model_config_field;
             });
         if (field != definition->config_fields.end() &&
-            field->default_value.is_string()) {
+            field->default_value.is_string() &&
+            !field->default_value.get<std::string>().empty()) {
           model_id = field->default_value.get<std::string>();
+        } else if (parsed.models.size() == 1) {
+          model_id = parsed.models.front().model_id;
         }
       }
       auto capability = model_capabilities.find(model_id);

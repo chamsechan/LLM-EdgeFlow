@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 
+#include "business/dialogue_audit/dialogue_audit_contract.h"
 #include "core/node_base.h"
 #include "core/node_registry.h"
 #include "core/traceable_item.h"
@@ -15,6 +16,8 @@ namespace alg_framework {
  */
 class CrossRerankNode : public INode {
  public:
+  inline static constexpr char kNodeType[] = "CrossRerankNode";
+
   bool Init(const nlohmann::json& config,
             SessionContext* session_ctx) override {
     std::string bind_model = config.value("bind_model", "rerank_model_v1");
@@ -29,10 +32,8 @@ class CrossRerankNode : public INode {
   }
 
   int Process(AlgContext* req_ctx) override {
-    auto* user_texts = req_ctx->Get<std::vector<std::string>>("user_texts");
-    auto* candidate_policies =
-        req_ctx->Get<std::vector<TraceableItem<std::vector<std::string>>>>(
-            "candidate_policies");
+    auto* user_texts = req_ctx->Get(kUserTexts);
+    auto* candidate_policies = req_ctx->Get(kCandidatePolicies);
 
     if (!user_texts || !candidate_policies) return -8201;
 
@@ -67,13 +68,13 @@ class CrossRerankNode : public INode {
       }
     }
 
-    req_ctx->Set("matched_policy_clauses", std::move(best_policy_clauses));
-    req_ctx->Set("rerank_scores", std::move(best_policy_scores));
+    req_ctx->Set(kMatchedPolicyClauses, std::move(best_policy_clauses));
+    req_ctx->Set(kRerankScores, std::move(best_policy_scores));
     return 0;
   }
 
   const std::string& Name() const override {
-    static std::string name = "CrossRerankNode";
+    static std::string name = kNodeType;
     return name;
   }
 
@@ -81,6 +82,19 @@ class CrossRerankNode : public INode {
   std::shared_ptr<IRerankEngine> rerank_engine_;
 };
 
-REGISTER_NODE(CrossRerankNode);
+NodeDefinition MakeCrossRerankNodeDefinition() {
+  NodeDefinition def;
+  def.node_type = CrossRerankNode::kNodeType;
+  def.category = "business";
+  def.description = "Cross-encoder policy reranking node";
+  def.inputs = {RequiredInput(kUserTexts), RequiredInput(kCandidatePolicies)};
+  def.outputs = {Output(kMatchedPolicyClauses), Output(kRerankScores)};
+  def.config_fields = {
+      ConfigFieldDefinition{"bind_model", ConfigValueKind::kString, true}};
+  def.parallel_safe = true;
+  return def;
+}
+
+REGISTER_NODE_WITH_DEFINITION(CrossRerankNode, MakeCrossRerankNodeDefinition());
 
 }  // namespace alg_framework

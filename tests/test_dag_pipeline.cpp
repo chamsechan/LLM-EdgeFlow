@@ -14,9 +14,23 @@ namespace alg_framework {
 
 static std::mutex s_trace_mutex;
 
+inline NodeDefinition MakeDagNodeDef(const std::string& type,
+                                     std::vector<PortDefinition> inputs,
+                                     std::vector<PortDefinition> outputs) {
+  NodeDefinition def;
+  def.node_type = type;
+  def.category = "test";
+  def.description = "test dag node";
+  def.inputs = std::move(inputs);
+  def.outputs = std::move(outputs);
+  def.parallel_safe = true;
+  return def;
+}
+
 // 辅助测试算子定义
 class DagTestNodeA : public INode {
  public:
+  inline static constexpr char kNodeType[] = "DagTestNodeA";
   bool Init(const nlohmann::json& config,
             SessionContext* session_ctx) override {
     (void)config;
@@ -40,14 +54,17 @@ class DagTestNodeA : public INode {
     return 0;
   }
   const std::string& Name() const override {
-    static const std::string name = "DagTestNodeA";
+    static const std::string name = kNodeType;
     return name;
   }
 };
-REGISTER_NODE(DagTestNodeA);
+REGISTER_NODE_WITH_DEFINITION(DagTestNodeA,
+                              MakeDagNodeDef(DagTestNodeA::kNodeType, {},
+                                             {{"node_a_out", "string"}}));
 
 class DagTestNodeB : public INode {
  public:
+  inline static constexpr char kNodeType[] = "DagTestNodeB";
   bool Init(const nlohmann::json& config,
             SessionContext* session_ctx) override {
     (void)config;
@@ -74,14 +91,18 @@ class DagTestNodeB : public INode {
     return 0;
   }
   const std::string& Name() const override {
-    static const std::string name = "DagTestNodeB";
+    static const std::string name = kNodeType;
     return name;
   }
 };
-REGISTER_NODE(DagTestNodeB);
+REGISTER_NODE_WITH_DEFINITION(DagTestNodeB,
+                              MakeDagNodeDef(DagTestNodeB::kNodeType,
+                                             {{"node_a_out", "string"}},
+                                             {{"node_b_out", "string"}}));
 
 class DagTestNodeC : public INode {
  public:
+  inline static constexpr char kNodeType[] = "DagTestNodeC";
   bool Init(const nlohmann::json& config,
             SessionContext* session_ctx) override {
     (void)config;
@@ -108,14 +129,18 @@ class DagTestNodeC : public INode {
     return 0;
   }
   const std::string& Name() const override {
-    static const std::string name = "DagTestNodeC";
+    static const std::string name = kNodeType;
     return name;
   }
 };
-REGISTER_NODE(DagTestNodeC);
+REGISTER_NODE_WITH_DEFINITION(DagTestNodeC,
+                              MakeDagNodeDef(DagTestNodeC::kNodeType,
+                                             {{"node_a_out", "string"}},
+                                             {{"node_c_out", "string"}}));
 
 class DagTestNodeD : public INode {
  public:
+  inline static constexpr char kNodeType[] = "DagTestNodeD";
   bool Init(const nlohmann::json& config,
             SessionContext* session_ctx) override {
     (void)config;
@@ -144,11 +169,15 @@ class DagTestNodeD : public INode {
     return 0;
   }
   const std::string& Name() const override {
-    static const std::string name = "DagTestNodeD";
+    static const std::string name = kNodeType;
     return name;
   }
 };
-REGISTER_NODE(DagTestNodeD);
+REGISTER_NODE_WITH_DEFINITION(DagTestNodeD,
+                              MakeDagNodeDef(DagTestNodeD::kNodeType,
+                                             {{"node_b_out", "string"},
+                                              {"node_c_out", "string"}},
+                                             {{"final_dag_result", "string"}}));
 
 // -----------------------------------------------------------------------------
 // GTest 测试套件

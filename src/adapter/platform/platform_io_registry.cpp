@@ -144,103 +144,52 @@ bool PlatformIoRegistry::HasConflict() const {
 }
 
 void PlatformIoRegistry::RegisterDefaults() {
+  auto make_desc = [](CompanyAlgBizType biz_type, std::string in_suffix,
+                      std::vector<std::string> in_aliases,
+                      std::string out_suffix,
+                      std::vector<std::string> out_aliases) {
+    auto adapter = BusinessAdapterRegistry::Instance().GetAdapter(biz_type);
+    std::string biz_name = adapter ? adapter->BizName() : "";
+    std::string in_c_type =
+        adapter ? adapter->GetDescriptor().input_type_name : "";
+    std::string out_c_type =
+        adapter ? adapter->GetDescriptor().output_type_name : "";
+    return PlatformIoDescriptor{
+        biz_type,
+        std::move(biz_name),
+        {{std::move(in_suffix), std::move(in_aliases), std::move(in_c_type),
+          IoDirection::kInput, true}},
+        {{std::move(out_suffix), std::move(out_aliases), std::move(out_c_type),
+          IoDirection::kOutput, true}}};
+  };
+
   // 业务 1: 关注词匹配
-  RegisterDescriptor(PlatformIoDescriptor{ALG_BIZ_TYPE_KEYWORD_MATCH,
-                                          "KeywordMatch",
-                                          {{"keyword_in",
-                                            {"sentence_in"},
-                                            "CompanyKeywordInputStruct",
-                                            IoDirection::kInput,
-                                            true}},
-                                          {{"keyword_out",
-                                            {"match_out"},
-                                            "CompanyKeywordOutputStruct",
-                                            IoDirection::kOutput,
-                                            true}}});
+  RegisterDescriptor(make_desc(ALG_BIZ_TYPE_KEYWORD_MATCH, "keyword_in",
+                               {"sentence_in"}, "keyword_out", {"match_out"}));
 
   // 业务 2: 实体/名词提取
-  RegisterDescriptor(PlatformIoDescriptor{ALG_BIZ_TYPE_ENTITY_EXTRACT,
-                                          "EntityExtract",
-                                          {{"entity_in",
-                                            {"text_in"},
-                                            "CompanyEntityInputStruct",
-                                            IoDirection::kInput,
-                                            true}},
-                                          {{"entity_out",
-                                            {"extracted_out"},
-                                            "CompanyEntityOutputStruct",
-                                            IoDirection::kOutput,
-                                            true}}});
+  RegisterDescriptor(make_desc(ALG_BIZ_TYPE_ENTITY_EXTRACT, "entity_in",
+                               {"text_in"}, "entity_out", {"extracted_out"}));
 
   // 业务 3: 智能长文档问答
-  RegisterDescriptor(PlatformIoDescriptor{ALG_BIZ_TYPE_DOC_QA,
-                                          "DocQA",
-                                          {{"doc_in",
-                                            {"qa_in"},
-                                            "CompanyDocInputStruct",
-                                            IoDirection::kInput,
-                                            true}},
-                                          {{"doc_out",
-                                            {"qa_out"},
-                                            "CompanyDocOutputStruct",
-                                            IoDirection::kOutput,
-                                            true}}});
+  RegisterDescriptor(make_desc(ALG_BIZ_TYPE_DOC_QA, "doc_in", {"qa_in"},
+                               "doc_out", {"qa_out"}));
 
   // 业务 4: 对话合规质检
-  RegisterDescriptor(PlatformIoDescriptor{ALG_BIZ_TYPE_COMPLIANCE_AUDIT,
-                                          "ComplianceAudit",
-                                          {{"audit_in",
-                                            {"dialogue_in"},
-                                            "CompanyAuditInputStruct",
-                                            IoDirection::kInput,
-                                            true}},
-                                          {{"audit_out",
-                                            {"verdict_out"},
-                                            "CompanyAuditOutputStruct",
-                                            IoDirection::kOutput,
-                                            true}}});
+  RegisterDescriptor(make_desc(ALG_BIZ_TYPE_COMPLIANCE_AUDIT, "audit_in",
+                               {"dialogue_in"}, "audit_out", {"verdict_out"}));
 
   // 业务 5: OCR 图文票据
-  RegisterDescriptor(PlatformIoDescriptor{ALG_BIZ_TYPE_OCR_DOC_QA,
-                                          "OcrDocQA",
-                                          {{"frame",
-                                            {"image_in"},
-                                            "CompanyOcrDocInputStruct",
-                                            IoDirection::kInput,
-                                            true}},
-                                          {{"od_out",
-                                            {"ocr_out"},
-                                            "CompanyOcrDocOutputStruct",
-                                            IoDirection::kOutput,
-                                            true}}});
+  RegisterDescriptor(make_desc(ALG_BIZ_TYPE_OCR_DOC_QA, "frame", {"image_in"},
+                               "od_out", {"ocr_out"}));
 
   // 业务 6: 语音识别与意图
-  RegisterDescriptor(PlatformIoDescriptor{ALG_BIZ_TYPE_AUDIO_ASR_INTENT,
-                                          "AudioAsrIntent",
-                                          {{"audio_in",
-                                            {"pcm_stream"},
-                                            "CompanyAudioInputStruct",
-                                            IoDirection::kInput,
-                                            true}},
-                                          {{"audio_out",
-                                            {"asr_out"},
-                                            "CompanyAudioOutputStruct",
-                                            IoDirection::kOutput,
-                                            true}}});
+  RegisterDescriptor(make_desc(ALG_BIZ_TYPE_AUDIO_ASR_INTENT, "audio_in",
+                               {"pcm_stream"}, "audio_out", {"asr_out"}));
 
   // 业务 7: 语义精排
-  RegisterDescriptor(PlatformIoDescriptor{ALG_BIZ_TYPE_CROSS_RERANK,
-                                          "CrossRerank",
-                                          {{"rerank_in",
-                                            {"pair_in"},
-                                            "CompanyRerankBatchInputStruct",
-                                            IoDirection::kInput,
-                                            true}},
-                                          {{"rerank_out",
-                                            {"scores_out"},
-                                            "CompanyRerankBatchOutputStruct",
-                                            IoDirection::kOutput,
-                                            true}}});
+  RegisterDescriptor(make_desc(ALG_BIZ_TYPE_CROSS_RERANK, "rerank_in",
+                               {"pair_in"}, "rerank_out", {"scores_out"}));
 }
 
 const PlatformIoDescriptor* PlatformIoRegistry::GetDescriptor(

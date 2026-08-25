@@ -93,7 +93,23 @@ std::vector<float> MockNpuEmbeddingEngine::ComputeDeterministicEmbedding(
   return vec;
 }
 
-// 注册该引擎
-REGISTER_ENGINE("mock_npu_embedding", MockNpuEmbeddingEngine);
+EngineDefinition MakeMockNpuEmbeddingDefinition() {
+  EngineDefinition def;
+  def.engine_type = "mock_npu_embedding";
+  def.capability = "embedding";
+  def.description = "Mock NPU embedding engine";
+  def.config_fields = {
+      ConfigFieldDefinition{"max_batch_size", ConfigValueKind::kInteger, false,
+                            4, 1.0, 4096.0},
+      ConfigFieldDefinition{"embedding_dim", ConfigValueKind::kInteger, false,
+                            128, 1.0, 65536.0},
+      ConfigFieldDefinition{"device_id", ConfigValueKind::kInteger, false, -1,
+                            -1.0, 1024.0}};
+  def.thread_model = EngineThreadModel::kSerialized;
+  return def;
+}
+
+REGISTER_ENGINE_WITH_DEFINITION("mock_npu_embedding", MockNpuEmbeddingEngine,
+                                MakeMockNpuEmbeddingDefinition());
 
 }  // namespace alg_framework

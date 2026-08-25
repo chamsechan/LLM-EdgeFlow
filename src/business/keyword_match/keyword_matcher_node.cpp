@@ -7,6 +7,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "business/keyword_match/keyword_match_contract.h"
 #include "business/keyword_match/keyword_match_dto.h"
 #include "core/node_base.h"
 #include "core/node_registry.h"
@@ -24,6 +25,8 @@ namespace alg_framework {
  */
 class KeywordMatcherNode : public INode {
  public:
+  inline static constexpr char kNodeType[] = "KeywordMatcherNode";
+
   bool Init(const nlohmann::json& config,
             SessionContext* session_ctx) override {
     (void)session_ctx;
@@ -59,8 +62,8 @@ class KeywordMatcherNode : public INode {
   }
 
   int Process(AlgContext* req_ctx) override {
-    auto* sentences = req_ctx->Get<std::vector<std::string>>("input_sentences");
-    auto* req_ids = req_ctx->Get<std::vector<uint64_t>>("raw_request_ids");
+    auto* sentences = req_ctx->Get(kInputSentences);
+    auto* req_ids = req_ctx->Get(kRawRequestIds);
 
     if (!sentences || !req_ids) {
       req_ctx->SetError(
@@ -109,12 +112,12 @@ class KeywordMatcherNode : public INode {
 
     std::cout << "[KeywordMatcherNode] Processed batch of " << batch_size
               << " sentences." << std::endl;
-    req_ctx->Set("keyword_match_outputs", std::move(outputs));
+    req_ctx->Set(kKeywordMatchOutputs, std::move(outputs));
     return 0;
   }
 
   const std::string& Name() const override {
-    static std::string name = "KeywordMatcherNode";
+    static std::string name = kNodeType;
     return name;
   }
 
@@ -142,6 +145,20 @@ class KeywordMatcherNode : public INode {
       category_keywords_map_;
 };
 
-REGISTER_NODE(KeywordMatcherNode);
+NodeDefinition MakeKeywordMatcherNodeDefinition() {
+  NodeDefinition def;
+  def.node_type = KeywordMatcherNode::kNodeType;
+  def.category = "business";
+  def.description = "Keyword matcher node";
+  def.inputs = {RequiredInput(kInputSentences), RequiredInput(kRawRequestIds)};
+  def.outputs = {Output(kKeywordMatchOutputs)};
+  def.config_fields = {ConfigFieldDefinition{"default_categories",
+                                             ConfigValueKind::kObject, false}};
+  def.parallel_safe = true;
+  return def;
+}
+
+REGISTER_NODE_WITH_DEFINITION(KeywordMatcherNode,
+                              MakeKeywordMatcherNodeDefinition());
 
 }  // namespace alg_framework

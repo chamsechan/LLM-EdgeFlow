@@ -275,6 +275,15 @@ add_executable(test_demo_runner ${TEST_DEMO_RUNNER_SRCS})
 target_link_libraries(test_demo_runner PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
 add_test(NAME DemoRunnerTest COMMAND test_demo_runner)
 
+# RFC 0008 SSOT 契约与强类型黑板单测
+add_executable(test_catalog_contract_ssot tests/test_catalog_contract_ssot.cpp)
+target_link_libraries(test_catalog_contract_ssot PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME CatalogContractSsotTest COMMAND test_catalog_contract_ssot)
+
+add_executable(test_typed_blackboard_contracts tests/test_typed_blackboard_contracts.cpp)
+target_link_libraries(test_typed_blackboard_contracts PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME TypedBlackboardContractsTest COMMAND test_typed_blackboard_contracts)
+
 # 设置所有测试工作目录为项目根目录，保证无论从何处运行 CTest，相对路径均一致解析
 set_tests_properties(
   C11AbiComplianceTest LayerGuardTest BatchExecutorTest FrameworkCoreTest
@@ -284,7 +293,7 @@ set_tests_properties(
   AdapterContractSecurityTest PipelineConfigTest RegistryConflictNodeTest
   RegistryConflictEngineTest RegistryReentrantTest PlatformOperatorTest
   DocQaRerankTest RerankRefineNodeTest PipelineStudioTest VisualizerServerTest
-  DemoRunnerTest
+  DemoRunnerTest CatalogContractSsotTest TypedBlackboardContractsTest
   PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
 )
 

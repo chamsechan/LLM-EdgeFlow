@@ -40,16 +40,18 @@ class TemplateFlatStructAdapter : public IBusinessAdapter {
   const char* BizName() const override { return "TemplateFlatStruct"; }
 
   const AdapterDescriptor& GetDescriptor() const override {
-    static AdapterDescriptor desc{static_cast<CompanyAlgBizType>(101),
-                                  "TemplateFlatStruct",
-                                  "2.0.0",
-                                  "TemplateFlatInput",
-                                  "TemplateFlatOutput",
-                                  64,
-                                  OwnershipPolicy::kCopyIn,
-                                  ThreadModel::kStatelessThreadSafe,
-                                  OutputCardinality::kOneToOne,
-                                  {"template_flat_pipeline_v1"}};
+    static AdapterDescriptor desc{
+        static_cast<CompanyAlgBizType>(101),
+        "TemplateFlatStruct",
+        "2.0.0",
+        "TemplateFlatInput",
+        "TemplateFlatOutput",
+        64,
+        OwnershipPolicy::kCopyIn,
+        ThreadModel::kStatelessThreadSafe,
+        OutputCardinality::kOneToOne,
+        {BusinessDefinition{"TemplateFlatStruct",
+                            "template_flat_pipeline_v1"}}};
     return desc;
   }
 

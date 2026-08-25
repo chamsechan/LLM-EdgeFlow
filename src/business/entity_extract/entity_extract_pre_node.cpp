@@ -2,6 +2,7 @@
 #include <string>
 #include <vector>
 
+#include "business/entity_extract/entity_extract_contract.h"
 #include "core/node_base.h"
 #include "core/node_registry.h"
 #include "core/traceable_item.h"
@@ -13,6 +14,8 @@ namespace alg_framework {
  */
 class EntityExtractPreNode : public INode {
  public:
+  inline static constexpr char kNodeType[] = "EntityExtractPreNode";
+
   bool Init(const nlohmann::json& config,
             SessionContext* session_ctx) override {
     (void)session_ctx;
@@ -24,7 +27,7 @@ class EntityExtractPreNode : public INode {
   }
 
   int Process(AlgContext* req_ctx) override {
-    auto* sentences = req_ctx->Get<std::vector<std::string>>("input_sentences");
+    auto* sentences = req_ctx->Get(kInputSentences);
     if (!sentences) {
       req_ctx->SetError(-6001, "EntityExtractPreNode: Missing input_sentences");
       return -6001;
@@ -45,12 +48,12 @@ class EntityExtractPreNode : public INode {
     std::cout << "[EntityExtractPreNode] Formatted " << prompt_items.size()
               << " prompts for 0.6B model." << std::endl;
 
-    req_ctx->Set("llm_input_prompts", std::move(prompt_items));
+    req_ctx->Set(kLlmInputPrompts, std::move(prompt_items));
     return 0;
   }
 
   const std::string& Name() const override {
-    static std::string name = "EntityExtractPreNode";
+    static std::string name = kNodeType;
     return name;
   }
 
@@ -58,6 +61,22 @@ class EntityExtractPreNode : public INode {
   std::string prompt_template_;
 };
 
-REGISTER_NODE(EntityExtractPreNode);
+NodeDefinition MakeEntityExtractPreNodeDefinition() {
+  NodeDefinition def;
+  def.node_type = EntityExtractPreNode::kNodeType;
+  def.category = "business";
+  def.description = "Entity extract prompt builder pre-processing node";
+  def.inputs = {RequiredInput(kInputSentences)};
+  def.outputs = {Output(kLlmInputPrompts)};
+  def.config_fields = {ConfigFieldDefinition{
+      "prompt_template", ConfigValueKind::kString, false,
+      "你是一个中文实体与名词抽取助手。请从以下句子中提取出所有名词与实体，"
+      "并仅以JSON列表形式返回：\n输入文本：{text}\n提取结果："}};
+  def.parallel_safe = true;
+  return def;
+}
+
+REGISTER_NODE_WITH_DEFINITION(EntityExtractPreNode,
+                              MakeEntityExtractPreNodeDefinition());
 
 }  // namespace alg_framework

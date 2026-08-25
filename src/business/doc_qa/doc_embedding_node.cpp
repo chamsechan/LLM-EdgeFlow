@@ -1,5 +1,6 @@
 #include <iostream>
 
+#include "business/doc_qa/doc_qa_contract.h"
 #include "core/node_base.h"
 #include "core/node_registry.h"
 #include "engine/engine_interface.h"
@@ -11,6 +12,8 @@ namespace alg_framework {
  */
 class DocEmbeddingNode : public INode {
  public:
+  inline static constexpr char kNodeType[] = "DocEmbeddingNode";
+
   bool Init(const nlohmann::json& config,
             SessionContext* session_ctx) override {
     std::string bind_model_id = config.value("bind_model", "embed_model_v1");
@@ -25,10 +28,8 @@ class DocEmbeddingNode : public INode {
   }
 
   int Process(AlgContext* req_ctx) override {
-    auto* chunk_items = req_ctx->Get<std::vector<TraceableItem<std::string>>>(
-        "chunked_doc_items");
-    auto* query_items =
-        req_ctx->Get<std::vector<TraceableItem<std::string>>>("query_items");
+    auto* chunk_items = req_ctx->Get(kChunkedDocItems);
+    auto* query_items = req_ctx->Get(kQueryItems);
 
     if (!chunk_items || !query_items) {
       req_ctx->SetError(-4101,
@@ -57,13 +58,13 @@ class DocEmbeddingNode : public INode {
       return ret;
     }
 
-    req_ctx->Set("chunk_embeddings", std::move(chunk_embeddings));
-    req_ctx->Set("query_embeddings", std::move(query_embeddings));
+    req_ctx->Set(kChunkEmbeddings, std::move(chunk_embeddings));
+    req_ctx->Set(kQueryEmbeddings, std::move(query_embeddings));
     return 0;
   }
 
   const std::string& Name() const override {
-    static std::string name = "DocEmbeddingNode";
+    static std::string name = kNodeType;
     return name;
   }
 
@@ -71,6 +72,23 @@ class DocEmbeddingNode : public INode {
   std::shared_ptr<IEmbeddingEngine> engine_;
 };
 
-REGISTER_NODE(DocEmbeddingNode);
+NodeDefinition MakeDocEmbeddingNodeDefinition() {
+  NodeDefinition def;
+  def.node_type = DocEmbeddingNode::kNodeType;
+  def.category = "business";
+  def.description = "Document embedding extraction node";
+  def.inputs = {RequiredInput(kChunkedDocItems), RequiredInput(kQueryItems)};
+  def.outputs = {Output(kChunkEmbeddings), Output(kQueryEmbeddings)};
+  def.config_fields = {ConfigFieldDefinition{
+      "bind_model", ConfigValueKind::kString, false, "embedding_model_v1"}};
+  def.model_capability = "embedding";
+  def.model_config_field = "bind_model";
+  def.business_names = {"doc_qa_embedding_v1", "doc_qa_rerank_v1"};
+  def.parallel_safe = true;
+  return def;
+}
+
+REGISTER_NODE_WITH_DEFINITION(DocEmbeddingNode,
+                              MakeDocEmbeddingNodeDefinition());
 
 }  // namespace alg_framework

@@ -2,6 +2,7 @@
 #include <string>
 #include <vector>
 
+#include "business/dialogue_audit/dialogue_audit_contract.h"
 #include "core/node_base.h"
 #include "core/node_registry.h"
 #include "core/traceable_item.h"
@@ -14,6 +15,8 @@ namespace alg_framework {
  */
 class DenseRetrievalNode : public INode {
  public:
+  inline static constexpr char kNodeType[] = "DenseRetrievalNode";
+
   bool Init(const nlohmann::json& config,
             SessionContext* session_ctx) override {
     std::string bind_model = config.value("bind_model", "embed_model_v2");
@@ -42,7 +45,7 @@ class DenseRetrievalNode : public INode {
   }
 
   int Process(AlgContext* req_ctx) override {
-    auto* user_texts = req_ctx->Get<std::vector<std::string>>("user_texts");
+    auto* user_texts = req_ctx->Get(kUserTexts);
     if (!user_texts) return -8101;
 
     std::vector<TraceableItem<std::string>> query_items;
@@ -63,12 +66,12 @@ class DenseRetrievalNode : public INode {
           TraceableItem<std::vector<std::string>>(req_id, 0, policy_database_);
     }
 
-    req_ctx->Set("candidate_policies", std::move(candidate_policies));
+    req_ctx->Set(kCandidatePolicies, std::move(candidate_policies));
     return 0;
   }
 
   const std::string& Name() const override {
-    static std::string name = "DenseRetrievalNode";
+    static std::string name = kNodeType;
     return name;
   }
 
@@ -77,6 +80,20 @@ class DenseRetrievalNode : public INode {
   std::vector<std::string> policy_database_;
 };
 
-REGISTER_NODE(DenseRetrievalNode);
+NodeDefinition MakeDenseRetrievalNodeDefinition() {
+  NodeDefinition def;
+  def.node_type = DenseRetrievalNode::kNodeType;
+  def.category = "business";
+  def.description = "Dense policy retrieval node";
+  def.inputs = {RequiredInput(kUserTexts)};
+  def.outputs = {Output(kCandidatePolicies)};
+  def.config_fields = {
+      ConfigFieldDefinition{"bind_model", ConfigValueKind::kString, true}};
+  def.parallel_safe = true;
+  return def;
+}
+
+REGISTER_NODE_WITH_DEFINITION(DenseRetrievalNode,
+                              MakeDenseRetrievalNodeDefinition());
 
 }  // namespace alg_framework

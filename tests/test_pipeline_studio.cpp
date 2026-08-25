@@ -15,17 +15,18 @@ namespace {
 
 class StudioCatalogProbeNode : public INode {
  public:
+  inline static constexpr char kNodeType[] = "StudioCatalogProbeNode";
   bool Init(const nlohmann::json&, SessionContext*) override { return true; }
   int Process(AlgContext*) override { return 0; }
   const std::string& Name() const override {
-    static const std::string name = "StudioCatalogProbeNode";
+    static const std::string name = kNodeType;
     return name;
   }
 };
 
 NodeDefinition StudioCatalogProbeDefinition() {
   NodeDefinition definition;
-  definition.node_type = "StudioCatalogProbeNode";
+  definition.node_type = StudioCatalogProbeNode::kNodeType;
   definition.category = "test";
   definition.description = "Catalog auto-discovery probe";
   definition.business_names = {"keyword_match_v1"};
@@ -70,7 +71,8 @@ TEST(PipelineCatalogTest, DefinitionRegistrationMakesNewNodeDiscoverable) {
 }
 
 TEST(BlackboardKeyTest, TypedOverloadsShareTheRuntimeKey) {
-  constexpr BlackboardKey<std::vector<std::string>> key{"studio_values"};
+  constexpr BlackboardKey<std::vector<std::string>> key{
+      "studio_values", "std::vector<std::string>"};
   AlgContext context;
   context.Set(key, std::vector<std::string>{"a", "b"});
   ASSERT_TRUE(context.Has(key));

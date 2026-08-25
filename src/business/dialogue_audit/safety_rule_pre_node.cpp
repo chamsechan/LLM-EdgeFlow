@@ -3,6 +3,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "business/dialogue_audit/dialogue_audit_contract.h"
 #include "core/node_base.h"
 #include "core/node_registry.h"
 #include "core/traceable_item.h"
@@ -14,6 +15,8 @@ namespace alg_framework {
  */
 class SafetyRulePreNode : public INode {
  public:
+  inline static constexpr char kNodeType[] = "SafetyRulePreNode";
+
   bool Init(const nlohmann::json& config,
             SessionContext* session_ctx) override {
     (void)session_ctx;
@@ -28,7 +31,7 @@ class SafetyRulePreNode : public INode {
   }
 
   int Process(AlgContext* req_ctx) override {
-    auto* user_texts = req_ctx->Get<std::vector<std::string>>("user_texts");
+    auto* user_texts = req_ctx->Get(kUserTexts);
     if (!user_texts) {
       req_ctx->SetError(-8001, "SafetyRulePreNode: Missing user_texts");
       return -8001;
@@ -48,13 +51,13 @@ class SafetyRulePreNode : public INode {
       }
     }
 
-    req_ctx->Set("hard_risk_flags", std::move(hard_risk_flags));
-    req_ctx->Set("hit_keywords", std::move(hit_keywords));
+    req_ctx->Set(kHardRiskFlags, std::move(hard_risk_flags));
+    req_ctx->Set(kHitKeywords, std::move(hit_keywords));
     return 0;
   }
 
   const std::string& Name() const override {
-    static std::string name = "SafetyRulePreNode";
+    static std::string name = kNodeType;
     return name;
   }
 
@@ -62,6 +65,20 @@ class SafetyRulePreNode : public INode {
   std::unordered_set<std::string> blacklist_;
 };
 
-REGISTER_NODE(SafetyRulePreNode);
+NodeDefinition MakeSafetyRulePreNodeDefinition() {
+  NodeDefinition def;
+  def.node_type = SafetyRulePreNode::kNodeType;
+  def.category = "business";
+  def.description = "Dialogue safety hard rule pre-processing node";
+  def.inputs = {RequiredInput(kUserTexts)};
+  def.outputs = {Output(kHardRiskFlags), Output(kHitKeywords)};
+  def.config_fields = {
+      ConfigFieldDefinition{"blacklist", ConfigValueKind::kArray, false}};
+  def.parallel_safe = true;
+  return def;
+}
+
+REGISTER_NODE_WITH_DEFINITION(SafetyRulePreNode,
+                              MakeSafetyRulePreNodeDefinition());
 
 }  // namespace alg_framework

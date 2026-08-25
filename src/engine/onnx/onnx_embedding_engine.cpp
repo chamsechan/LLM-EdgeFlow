@@ -145,6 +145,23 @@ std::vector<float> OnnxEmbeddingEngine::GenerateEmbedding(
   return emb;
 }
 
-REGISTER_ENGINE("onnx_embedding", OnnxEmbeddingEngine);
+EngineDefinition MakeOnnxEmbeddingDefinition() {
+  EngineDefinition def;
+  def.engine_type = "onnx_embedding";
+  def.capability = "embedding";
+  def.description = "ONNX Runtime embedding engine";
+  def.config_fields = {
+      ConfigFieldDefinition{"max_batch_size", ConfigValueKind::kInteger, false,
+                            4, 1.0, 4096.0},
+      ConfigFieldDefinition{"embedding_dim", ConfigValueKind::kInteger, false,
+                            128, 1.0, 65536.0},
+      ConfigFieldDefinition{"device_id", ConfigValueKind::kInteger, false, -1,
+                            -1.0, 1024.0}};
+  def.thread_model = EngineThreadModel::kConcurrent;
+  return def;
+}
+
+REGISTER_ENGINE_WITH_DEFINITION("onnx_embedding", OnnxEmbeddingEngine,
+                                MakeOnnxEmbeddingDefinition());
 
 }  // namespace alg_framework

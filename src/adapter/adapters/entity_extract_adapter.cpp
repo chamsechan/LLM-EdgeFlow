@@ -3,7 +3,7 @@
 
 #include "adapter/adapter_validation_helper.h"
 #include "adapter/business_adapter_registry.h"
-#include "business/entity_extract/entity_extract_dto.h"
+#include "business/entity_extract/entity_extract_contract.h"
 #include "company_alg_interface.h"
 
 namespace alg_framework {
@@ -27,8 +27,16 @@ class EntityExtractAdapter : public IBusinessAdapter {
         OwnershipPolicy::kCopyIn,
         ThreadModel::kStatelessThreadSafe,
         OutputCardinality::kOneToOne,
-        {"entity_extract_0.6b_v1",
-         "entity_extract_llamacpp_0.6b_v1"}};  // RECHECK-002: 精确白名单
+        {{"entity_extract_0.6b_v1",
+          "entity_extract",
+          "实体抽取",
+          {RequiredInput(kRawRequestIds), RequiredInput(kInputSentences)},
+          {Output(kEntityExtractOutputs)}},
+         {"entity_extract_llamacpp_0.6b_v1",
+          "entity_extract",
+          "实体抽取（llama.cpp）",
+          {RequiredInput(kRawRequestIds), RequiredInput(kInputSentences)},
+          {Output(kEntityExtractOutputs)}}}};
     return desc;
   }
 
@@ -70,8 +78,8 @@ class EntityExtractAdapter : public IBusinessAdapter {
       sentences.push_back(in->sentence_text);
     }
 
-    ctx->Set("raw_request_ids", std::move(req_ids));
-    ctx->Set("input_sentences", std::move(sentences));
+    ctx->Set(kRawRequestIds, std::move(req_ids));
+    ctx->Set(kInputSentences, std::move(sentences));
     return COMPANY_ALG_SUCCESS;
   }
 
@@ -85,8 +93,7 @@ class EntityExtractAdapter : public IBusinessAdapter {
       return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     }
 
-    auto* res =
-        ctx->Get<std::vector<EntityExtractResult>>("entity_extract_outputs");
+    auto* res = ctx->Get(kEntityExtractOutputs);
     if (!res) {
       if (out_status) {
         *out_status = AdapterStatus::BufferTooSmall(

@@ -13,17 +13,36 @@
 
 namespace alg_framework {
 
+inline NodeDefinition MakeTestNodeDef(const std::string& type) {
+  NodeDefinition def;
+  def.node_type = type;
+  def.category = "test";
+  def.description = "test node " + type;
+  def.parallel_safe = true;
+  return def;
+}
+
+inline EngineDefinition MakeTestEngineDef(const std::string& type) {
+  EngineDefinition def;
+  def.engine_type = type;
+  def.capability = "test";
+  def.description = "test engine " + type;
+  def.thread_model = EngineThreadModel::kConcurrent;
+  return def;
+}
+
 class DummyNode : public INode {
  public:
+  inline static constexpr char kNodeType[] = "DummyNode";
   bool Init(const nlohmann::json&, SessionContext*) override { return true; }
   int Process(AlgContext*) override { return 0; }
   int Control(int, const std::string&) override { return 0; }
   const std::string& Name() const override {
-    static const std::string name = "DummyNode";
+    static const std::string name = kNodeType;
     return name;
   }
 };
-REGISTER_NODE(DummyNode);
+REGISTER_NODE_WITH_DEFINITION(DummyNode, MakeTestNodeDef(DummyNode::kNodeType));
 
 class DummyEngine : public IModelEngine {
  public:
@@ -34,7 +53,8 @@ class DummyEngine : public IModelEngine {
     return type;
   }
 };
-REGISTER_ENGINE("dummy_engine", DummyEngine);
+REGISTER_ENGINE_WITH_DEFINITION("dummy_engine", DummyEngine,
+                                MakeTestEngineDef("dummy_engine"));
 
 // FINAL-R1-002: 独立 TEST 隔离 Node 冲突与 Engine 冲突，杜绝跨套件污染
 
@@ -44,7 +64,8 @@ TEST(RegistryConflictNodeTest, DuplicateNodeFailClosed) {
   ASSERT_FALSE(EngineFactory::Instance().HasConflict());
 
   bool dup_node = NodeFactory::Instance().Register(
-      "DummyNode", []() { return std::make_unique<DummyNode>(); });
+      "DummyNode", []() { return std::make_unique<DummyNode>(); },
+      MakeTestNodeDef("DummyNode"));
   EXPECT_FALSE(dup_node);
   EXPECT_TRUE(NodeFactory::Instance().HasConflict());
 
@@ -73,7 +94,8 @@ TEST(RegistryConflictEngineTest, DuplicateEngineFailClosed) {
   ASSERT_FALSE(EngineFactory::Instance().HasConflict());
 
   bool dup_engine = EngineFactory::Instance().Register(
-      "dummy_engine", []() { return std::make_unique<DummyEngine>(); });
+      "dummy_engine", []() { return std::make_unique<DummyEngine>(); },
+      MakeTestEngineDef("dummy_engine"));
   EXPECT_FALSE(dup_engine);
   EXPECT_TRUE(EngineFactory::Instance().HasConflict());
 

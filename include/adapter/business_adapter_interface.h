@@ -7,6 +7,7 @@
 #include "adapter/adapter_validation_helper.h"
 #include "company_alg_interface.h"
 #include "core/alg_context.h"
+#include "core/pipeline_catalog.h"
 
 namespace alg_framework {
 
@@ -24,8 +25,7 @@ struct AdapterDescriptor {
   OwnershipPolicy ownership_policy = OwnershipPolicy::kCopyIn;
   ThreadModel thread_model = ThreadModel::kStatelessThreadSafe;
   OutputCardinality cardinality = OutputCardinality::kOneToOne;
-  std::vector<std::string>
-      allowed_pipeline_names;  // 精确 Pipeline 契约白名单 (RECHECK-002)
+  std::vector<BusinessDefinition> pipelines;
 };
 
 /**
@@ -75,12 +75,12 @@ class IBusinessAdapter {
    */
   virtual bool ValidatePipelineBinding(
       const std::string& pipeline_biz_name) const {
-    const auto& allowed = GetDescriptor().allowed_pipeline_names;
-    if (allowed.empty()) {
+    const auto& pipelines = GetDescriptor().pipelines;
+    if (pipelines.empty()) {
       return false;  // fail-closed: 未声明契约白名单时一律拒绝
     }
-    for (const auto& name : allowed) {
-      if (name == pipeline_biz_name) {
+    for (const auto& p : pipelines) {
+      if (p.business_name == pipeline_biz_name) {
         return true;
       }
     }

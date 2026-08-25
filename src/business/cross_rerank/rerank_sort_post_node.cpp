@@ -3,6 +3,7 @@
 #include <numeric>
 #include <vector>
 
+#include "business/cross_rerank/cross_rerank_contract.h"
 #include "business/cross_rerank/cross_rerank_dto.h"
 #include "core/alg_context.h"
 #include "core/node_base.h"
@@ -13,6 +14,8 @@ namespace alg_framework {
 
 class RerankSortPostNode : public INode {
  public:
+  inline static constexpr char kNodeType[] = "RerankSortPostNode";
+
   bool Init(const nlohmann::json& config,
             SessionContext* session_ctx) override {
     (void)config;
@@ -21,10 +24,8 @@ class RerankSortPostNode : public INode {
   }
 
   int Process(AlgContext* req_ctx) override {
-    auto* raw_inputs =
-        req_ctx->Get<std::vector<RerankQueryInput>>("raw_rerank_inputs");
-    auto* scored_items =
-        req_ctx->Get<std::vector<TraceableItem<float>>>("rerank_scored_items");
+    auto* raw_inputs = req_ctx->Get(kRawRerankInputs);
+    auto* scored_items = req_ctx->Get(kRerankScoredItems);
 
     if (!raw_inputs || !scored_items) {
       req_ctx->SetError(-7301, "RerankSortPostNode: Missing inputs or scores");
@@ -61,16 +62,29 @@ class RerankSortPostNode : public INode {
       }
     }
 
-    req_ctx->Set("rerank_batch_final_outputs", std::move(outputs));
+    req_ctx->Set(kRerankBatchFinalOutputs, std::move(outputs));
     return 0;
   }
 
   const std::string& Name() const override {
-    static std::string name = "RerankSortPostNode";
+    static std::string name = kNodeType;
     return name;
   }
 };
 
-REGISTER_NODE(RerankSortPostNode);
+NodeDefinition MakeRerankSortPostNodeDefinition() {
+  NodeDefinition def;
+  def.node_type = RerankSortPostNode::kNodeType;
+  def.category = "business";
+  def.description = "Cross rerank scoring sort and post-processing node";
+  def.inputs = {RequiredInput(kRawRerankInputs),
+                RequiredInput(kRerankScoredItems)};
+  def.outputs = {Output(kRerankBatchFinalOutputs)};
+  def.parallel_safe = true;
+  return def;
+}
+
+REGISTER_NODE_WITH_DEFINITION(RerankSortPostNode,
+                              MakeRerankSortPostNodeDefinition());
 
 }  // namespace alg_framework

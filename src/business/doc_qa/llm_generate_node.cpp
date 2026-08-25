@@ -1,5 +1,6 @@
 #include <iostream>
 
+#include "business/doc_qa/doc_qa_contract.h"
 #include "core/node_base.h"
 #include "core/node_registry.h"
 #include "engine/engine_interface.h"
@@ -11,6 +12,8 @@ namespace alg_framework {
  */
 class LlmGenerateNode : public INode {
  public:
+  inline static constexpr char kNodeType[] = "LlmGenerateNode";
+
   bool Init(const nlohmann::json& config,
             SessionContext* session_ctx) override {
     std::string bind_model_id = config.value("bind_model", "llm_model_v1");
@@ -28,8 +31,7 @@ class LlmGenerateNode : public INode {
   }
 
   int Process(AlgContext* req_ctx) override {
-    auto* prompts = req_ctx->Get<std::vector<TraceableItem<std::string>>>(
-        "llm_input_prompts");
+    auto* prompts = req_ctx->Get(kLlmInputPrompts);
     if (!prompts) {
       req_ctx->SetError(-4301, "LlmGenerateNode: Missing llm_input_prompts");
       return -4301;
@@ -46,12 +48,12 @@ class LlmGenerateNode : public INode {
       return ret;
     }
 
-    req_ctx->Set("generated_llm_answers", std::move(generated_outputs));
+    req_ctx->Set(kGeneratedLlmAnswers, std::move(generated_outputs));
     return 0;
   }
 
   const std::string& Name() const override {
-    static std::string name = "LlmGenerateNode";
+    static std::string name = kNodeType;
     return name;
   }
 
@@ -60,6 +62,28 @@ class LlmGenerateNode : public INode {
   ILlmEngine::GenerateOption gen_opt_;
 };
 
-REGISTER_NODE(LlmGenerateNode);
+NodeDefinition MakeLlmGenerateNodeDefinition() {
+  NodeDefinition def;
+  def.node_type = LlmGenerateNode::kNodeType;
+  def.category = "business";
+  def.description = "LLM generate text inference node";
+  def.inputs = {RequiredInput(kLlmInputPrompts)};
+  def.outputs = {Output(kGeneratedLlmAnswers)};
+  def.config_fields = {
+      ConfigFieldDefinition{"bind_model", ConfigValueKind::kString, false,
+                            "llm_model_v1"},
+      ConfigFieldDefinition{"temperature", ConfigValueKind::kNumber, false, 0.7,
+                            0.0, 2.0},
+      ConfigFieldDefinition{"max_tokens", ConfigValueKind::kInteger, false, 128,
+                            1.0, 32768.0}};
+  def.model_capability = "llm";
+  def.model_config_field = "bind_model";
+  def.business_names = {"doc_qa_embedding_v1", "doc_qa_rerank_v1",
+                        "entity_extract_0.6b_v1"};
+  def.parallel_safe = true;
+  return def;
+}
+
+REGISTER_NODE_WITH_DEFINITION(LlmGenerateNode, MakeLlmGenerateNodeDefinition());
 
 }  // namespace alg_framework

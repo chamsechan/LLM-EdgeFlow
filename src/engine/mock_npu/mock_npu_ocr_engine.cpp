@@ -82,6 +82,21 @@ int MockNpuOcrEngine::RawNpuOcrHardwareInfer(
   return 0;
 }
 
-REGISTER_ENGINE("mock_npu_ocr", MockNpuOcrEngine);
+EngineDefinition MakeMockNpuOcrDefinition() {
+  EngineDefinition def;
+  def.engine_type = "mock_npu_ocr";
+  def.capability = "ocr";
+  def.description = "Mock NPU OCR engine";
+  def.config_fields = {
+      ConfigFieldDefinition{"max_batch_size", ConfigValueKind::kInteger, false,
+                            2, 1.0, 4096.0},
+      ConfigFieldDefinition{"device_id", ConfigValueKind::kInteger, false, -1,
+                            -1.0, 1024.0}};
+  def.thread_model = EngineThreadModel::kSerialized;
+  return def;
+}
+
+REGISTER_ENGINE_WITH_DEFINITION("mock_npu_ocr", MockNpuOcrEngine,
+                                MakeMockNpuOcrDefinition());
 
 }  // namespace alg_framework

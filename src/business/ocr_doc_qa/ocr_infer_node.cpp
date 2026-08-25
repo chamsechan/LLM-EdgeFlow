@@ -2,6 +2,7 @@
 #include <string>
 #include <vector>
 
+#include "business/ocr_doc_qa/ocr_doc_qa_contract.h"
 #include "core/alg_context.h"
 #include "core/node_base.h"
 #include "core/node_registry.h"
@@ -15,6 +16,8 @@ namespace alg_framework {
  */
 class OcrInferNode : public INode {
  public:
+  inline static constexpr char kNodeType[] = "OcrInferNode";
+
   bool Init(const nlohmann::json& config,
             SessionContext* session_ctx) override {
     std::string bind_model_id = config.value("bind_model", "ocr_model_v1");
@@ -29,8 +32,7 @@ class OcrInferNode : public INode {
   }
 
   int Process(AlgContext* req_ctx) override {
-    auto* image_items = req_ctx->Get<std::vector<TraceableItem<std::string>>>(
-        "traceable_image_items");
+    auto* image_items = req_ctx->Get(kTraceableImageItems);
     if (!image_items) {
       req_ctx->SetError(-5201, "OcrInferNode: Missing traceable_image_items");
       return -5201;
@@ -45,8 +47,8 @@ class OcrInferNode : public INode {
     }
 
     // 格式化 OCR 文字拼接为上下文
-    auto* raw_queries = req_ctx->Get<std::vector<std::string>>("raw_queries");
-    auto* req_ids = req_ctx->Get<std::vector<uint64_t>>("raw_request_ids");
+    auto* raw_queries = req_ctx->Get(kRawQueries);
+    auto* req_ids = req_ctx->Get(kRawRequestIds);
     std::vector<TraceableItem<std::string>> llm_prompts;
     std::vector<int> box_counts;
 
@@ -63,13 +65,13 @@ class OcrInferNode : public INode {
       llm_prompts.emplace_back((*req_ids)[i], 0, prompt);
     }
 
-    req_ctx->Set("ocr_box_counts", std::move(box_counts));
-    req_ctx->Set("llm_input_prompts", std::move(llm_prompts));
+    req_ctx->Set(kOcrBoxCounts, std::move(box_counts));
+    req_ctx->Set(kLlmInputPrompts, std::move(llm_prompts));
     return 0;
   }
 
   const std::string& Name() const override {
-    static std::string name = "OcrInferNode";
+    static std::string name = kNodeType;
     return name;
   }
 
@@ -77,6 +79,20 @@ class OcrInferNode : public INode {
   std::shared_ptr<IOcrEngine> ocr_engine_;
 };
 
-REGISTER_NODE(OcrInferNode);
+NodeDefinition MakeOcrInferNodeDefinition() {
+  NodeDefinition def;
+  def.node_type = OcrInferNode::kNodeType;
+  def.category = "business";
+  def.description = "OCR text detection and prompt generation inference node";
+  def.inputs = {RequiredInput(kTraceableImageItems), RequiredInput(kRawQueries),
+                RequiredInput(kRawRequestIds)};
+  def.outputs = {Output(kOcrBoxCounts), Output(kLlmInputPrompts)};
+  def.config_fields = {
+      ConfigFieldDefinition{"bind_model", ConfigValueKind::kString, true}};
+  def.parallel_safe = true;
+  return def;
+}
+
+REGISTER_NODE_WITH_DEFINITION(OcrInferNode, MakeOcrInferNodeDefinition());
 
 }  // namespace alg_framework

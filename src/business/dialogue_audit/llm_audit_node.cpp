@@ -2,6 +2,7 @@
 #include <string>
 #include <vector>
 
+#include "business/dialogue_audit/dialogue_audit_contract.h"
 #include "core/node_base.h"
 #include "core/node_registry.h"
 #include "core/traceable_item.h"
@@ -14,6 +15,8 @@ namespace alg_framework {
  */
 class LlmAuditNode : public INode {
  public:
+  inline static constexpr char kNodeType[] = "LlmAuditNode";
+
   bool Init(const nlohmann::json& config,
             SessionContext* session_ctx) override {
     std::string bind_model = config.value("bind_model", "audit_llm_v1");
@@ -30,8 +33,7 @@ class LlmAuditNode : public INode {
   }
 
   int Process(AlgContext* req_ctx) override {
-    auto* prompts = req_ctx->Get<std::vector<TraceableItem<std::string>>>(
-        "llm_audit_prompts");
+    auto* prompts = req_ctx->Get(kLlmAuditPrompts);
     if (!prompts) return -8401;
 
     std::vector<TraceableItem<std::string>> generated_verdicts;
@@ -41,12 +43,12 @@ class LlmAuditNode : public INode {
                                                &generated_verdicts);
     if (ret != 0) return ret;
 
-    req_ctx->Set("generated_verdicts", std::move(generated_verdicts));
+    req_ctx->Set(kGeneratedVerdicts, std::move(generated_verdicts));
     return 0;
   }
 
   const std::string& Name() const override {
-    static std::string name = "LlmAuditNode";
+    static std::string name = kNodeType;
     return name;
   }
 
@@ -55,6 +57,23 @@ class LlmAuditNode : public INode {
   ILlmEngine::GenerateOption gen_opt_;
 };
 
-REGISTER_NODE(LlmAuditNode);
+NodeDefinition MakeLlmAuditNodeDefinition() {
+  NodeDefinition def;
+  def.node_type = LlmAuditNode::kNodeType;
+  def.category = "business";
+  def.description = "LLM dialogue compliance audit node";
+  def.inputs = {RequiredInput(kLlmAuditPrompts)};
+  def.outputs = {Output(kGeneratedVerdicts)};
+  def.config_fields = {
+      ConfigFieldDefinition{"bind_model", ConfigValueKind::kString, true},
+      ConfigFieldDefinition{"temperature", ConfigValueKind::kNumber, false, 0.1,
+                            0.0, 2.0},
+      ConfigFieldDefinition{"max_tokens", ConfigValueKind::kInteger, false, 256,
+                            1.0, 32768.0}};
+  def.parallel_safe = true;
+  return def;
+}
+
+REGISTER_NODE_WITH_DEFINITION(LlmAuditNode, MakeLlmAuditNodeDefinition());
 
 }  // namespace alg_framework

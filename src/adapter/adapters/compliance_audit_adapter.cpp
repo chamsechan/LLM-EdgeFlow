@@ -3,7 +3,7 @@
 
 #include "adapter/adapter_validation_helper.h"
 #include "adapter/business_adapter_registry.h"
-#include "business/dialogue_audit/dialogue_audit_dto.h"
+#include "business/dialogue_audit/dialogue_audit_contract.h"
 #include "company_alg_interface.h"
 
 namespace alg_framework {
@@ -27,7 +27,12 @@ class ComplianceAuditAdapter : public IBusinessAdapter {
         OwnershipPolicy::kCopyIn,
         ThreadModel::kStatelessThreadSafe,
         OutputCardinality::kOneToOne,
-        {"dialogue_compliance_audit_v1"}};  // RECHECK-002: 精确白名单
+        {{"dialogue_compliance_audit_v1",
+          "dialogue_audit",
+          "对话合规审核",
+          {RequiredInput(kRawRequestIds), RequiredInput(kUserTexts),
+           RequiredInput(kChannelNames)},
+          {Output(kComplianceAuditOutputs)}}}};
     return desc;
   }
 
@@ -73,9 +78,9 @@ class ComplianceAuditAdapter : public IBusinessAdapter {
       channel_names.push_back(in->channel_name ? in->channel_name : "");
     }
 
-    ctx->Set("raw_request_ids", std::move(req_ids));
-    ctx->Set("user_texts", std::move(user_texts));
-    ctx->Set("channel_names", std::move(channel_names));
+    ctx->Set(kRawRequestIds, std::move(req_ids));
+    ctx->Set(kUserTexts, std::move(user_texts));
+    ctx->Set(kChannelNames, std::move(channel_names));
     return COMPANY_ALG_SUCCESS;
   }
 
@@ -89,8 +94,7 @@ class ComplianceAuditAdapter : public IBusinessAdapter {
       return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     }
 
-    auto* res =
-        ctx->Get<std::vector<DialogueAuditResult>>("compliance_audit_outputs");
+    auto* res = ctx->Get(kComplianceAuditOutputs);
     if (!res) {
       if (out_status) {
         *out_status = AdapterStatus::BufferTooSmall(

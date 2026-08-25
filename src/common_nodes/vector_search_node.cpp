@@ -14,6 +14,8 @@ namespace alg_framework {
  */
 class VectorSearchNode : public INode {
  public:
+  inline static constexpr char kNodeType[] = "VectorSearchNode";
+
   bool Init(const nlohmann::json& config,
             SessionContext* session_ctx) override {
     top_k_ = config.value("top_k", 1);
@@ -84,7 +86,7 @@ class VectorSearchNode : public INode {
   }
 
   const std::string& Name() const override {
-    static std::string name = "VectorSearchNode";
+    static std::string name = kNodeType;
     return name;
   }
 
@@ -104,6 +106,32 @@ class VectorSearchNode : public INode {
   float min_score_ = 0.0f;
 };
 
-REGISTER_NODE(VectorSearchNode);
+NodeDefinition MakeVectorSearchNodeDefinition() {
+  NodeDefinition def;
+  def.node_type = VectorSearchNode::kNodeType;
+  def.category = "common";
+  def.description = "Vector similarity search node";
+  def.inputs = {
+      RequiredInput(
+          BlackboardKey<std::vector<TraceableItem<std::vector<float>>>>{
+              "chunk_embeddings", "traceable<vector<float>>[]"}),
+      RequiredInput(BlackboardKey<std::vector<TraceableItem<std::string>>>{
+          "chunked_doc_items", "traceable<string>[]"}),
+      RequiredInput(
+          BlackboardKey<std::vector<TraceableItem<std::vector<float>>>>{
+              "query_embeddings", "traceable<vector<float>>[]"})};
+  def.outputs = {Output(BlackboardKey<std::vector<TraceableItem<std::string>>>{
+      "matched_top_chunks", "traceable<string>[]"})};
+  def.config_fields = {
+      ConfigFieldDefinition{"top_k", ConfigValueKind::kInteger, false, 1, 1.0,
+                            100.0},
+      ConfigFieldDefinition{"min_score", ConfigValueKind::kNumber, false, 0.0,
+                            -1.0, 1.0}};
+  def.parallel_safe = true;
+  return def;
+}
+
+REGISTER_NODE_WITH_DEFINITION(VectorSearchNode,
+                              MakeVectorSearchNodeDefinition());
 
 }  // namespace alg_framework

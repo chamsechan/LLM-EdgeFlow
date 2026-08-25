@@ -13,9 +13,28 @@
 
 namespace alg_framework {
 
+inline NodeDefinition MakeTestNodeDef(const std::string& type) {
+  NodeDefinition def;
+  def.node_type = type;
+  def.category = "test";
+  def.description = "test node " + type;
+  def.parallel_safe = true;
+  return def;
+}
+
+inline EngineDefinition MakeTestEngineDef(const std::string& type) {
+  EngineDefinition def;
+  def.engine_type = type;
+  def.capability = "test";
+  def.description = "test engine " + type;
+  def.thread_model = EngineThreadModel::kConcurrent;
+  return def;
+}
+
 // RECHECK-R1-003: 构造期重入自身 Registry 查询，测试锁粒度是否正确释放
 class ReentrantNode : public INode {
  public:
+  inline static constexpr char kNodeType[] = "ReentrantNode";
   ReentrantNode() {
     // 构造期间同步调用 NodeFactory 查询
     volatile bool has = NodeFactory::Instance().Has("ReentrantNode");
@@ -25,11 +44,12 @@ class ReentrantNode : public INode {
   int Process(AlgContext*) override { return 0; }
   int Control(int, const std::string&) override { return 0; }
   const std::string& Name() const override {
-    static const std::string name = "ReentrantNode";
+    static const std::string name = kNodeType;
     return name;
   }
 };
-REGISTER_NODE(ReentrantNode);
+REGISTER_NODE_WITH_DEFINITION(ReentrantNode,
+                              MakeTestNodeDef(ReentrantNode::kNodeType));
 
 class ReentrantEngine : public IModelEngine {
  public:
@@ -45,7 +65,8 @@ class ReentrantEngine : public IModelEngine {
     return type;
   }
 };
-REGISTER_ENGINE("reentrant_engine", ReentrantEngine);
+REGISTER_ENGINE_WITH_DEFINITION("reentrant_engine", ReentrantEngine,
+                                MakeTestEngineDef("reentrant_engine"));
 
 TEST(RegistryReentrantTest, ReentrantCreationZeroDeadlock) {
   // 1. 同步测试 Node 构造期重入 NodeFactory

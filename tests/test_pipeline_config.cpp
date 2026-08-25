@@ -23,6 +23,24 @@ namespace alg_framework {
 // 测试探针类与测试替身
 // =============================================================================
 
+inline NodeDefinition MakeTestNodeDef(const std::string& type) {
+  NodeDefinition def;
+  def.node_type = type;
+  def.category = "test";
+  def.description = "test node " + type;
+  def.parallel_safe = true;
+  return def;
+}
+
+inline EngineDefinition MakeTestEngineDef(const std::string& type) {
+  EngineDefinition def;
+  def.engine_type = type;
+  def.capability = "test";
+  def.description = "test engine " + type;
+  def.thread_model = EngineThreadModel::kConcurrent;
+  return def;
+}
+
 // 1. 基础计数探针
 class CountingEngine : public IModelEngine {
  public:
@@ -51,10 +69,12 @@ class CountingEngine : public IModelEngine {
     return type;
   }
 };
-REGISTER_ENGINE("counting_engine", CountingEngine);
+REGISTER_ENGINE_WITH_DEFINITION("counting_engine", CountingEngine,
+                                MakeTestEngineDef("counting_engine"));
 
 class CountingNode : public INode {
  public:
+  inline static constexpr char kNodeType[] = "CountingNode";
   static inline std::atomic<int> create_count{0};
   static inline std::atomic<int> init_count{0};
 
@@ -85,11 +105,12 @@ class CountingNode : public INode {
   }
 
   const std::string& Name() const override {
-    static const std::string name = "CountingNode";
+    static const std::string name = kNodeType;
     return name;
   }
 };
-REGISTER_NODE(CountingNode);
+REGISTER_NODE_WITH_DEFINITION(CountingNode,
+                              MakeTestNodeDef(CountingNode::kNodeType));
 
 // 2. 异常与失败测试替身 (R1-ACC-001)
 class ThrowingCtorEngine : public IModelEngine {
@@ -104,7 +125,8 @@ class ThrowingCtorEngine : public IModelEngine {
     return type;
   }
 };
-REGISTER_ENGINE("throwing_ctor_engine", ThrowingCtorEngine);
+REGISTER_ENGINE_WITH_DEFINITION("throwing_ctor_engine", ThrowingCtorEngine,
+                                MakeTestEngineDef("throwing_ctor_engine"));
 
 class ThrowingLoadEngine : public IModelEngine {
  public:
@@ -118,7 +140,8 @@ class ThrowingLoadEngine : public IModelEngine {
     return type;
   }
 };
-REGISTER_ENGINE("throwing_load_engine", ThrowingLoadEngine);
+REGISTER_ENGINE_WITH_DEFINITION("throwing_load_engine", ThrowingLoadEngine,
+                                MakeTestEngineDef("throwing_load_engine"));
 
 class FailingLoadEngine : public IModelEngine {
  public:
@@ -132,10 +155,12 @@ class FailingLoadEngine : public IModelEngine {
     return type;
   }
 };
-REGISTER_ENGINE("failing_load_engine", FailingLoadEngine);
+REGISTER_ENGINE_WITH_DEFINITION("failing_load_engine", FailingLoadEngine,
+                                MakeTestEngineDef("failing_load_engine"));
 
 class ThrowingCtorNode : public INode {
  public:
+  inline static constexpr char kNodeType[] = "ThrowingCtorNode";
   ThrowingCtorNode() {
     throw std::runtime_error("ThrowingCtorNode constructor exception");
   }
@@ -143,14 +168,16 @@ class ThrowingCtorNode : public INode {
   int Process(AlgContext*) override { return 0; }
   int Control(int, const std::string&) override { return 0; }
   const std::string& Name() const override {
-    static const std::string name = "ThrowingCtorNode";
+    static const std::string name = kNodeType;
     return name;
   }
 };
-REGISTER_NODE(ThrowingCtorNode);
+REGISTER_NODE_WITH_DEFINITION(ThrowingCtorNode,
+                              MakeTestNodeDef(ThrowingCtorNode::kNodeType));
 
 class ThrowingInitNode : public INode {
  public:
+  inline static constexpr char kNodeType[] = "ThrowingInitNode";
   ThrowingInitNode() = default;
   bool Init(const nlohmann::json&, SessionContext*) override {
     throw std::runtime_error("ThrowingInitNode Init exception");
@@ -158,24 +185,27 @@ class ThrowingInitNode : public INode {
   int Process(AlgContext*) override { return 0; }
   int Control(int, const std::string&) override { return 0; }
   const std::string& Name() const override {
-    static const std::string name = "ThrowingInitNode";
+    static const std::string name = kNodeType;
     return name;
   }
 };
-REGISTER_NODE(ThrowingInitNode);
+REGISTER_NODE_WITH_DEFINITION(ThrowingInitNode,
+                              MakeTestNodeDef(ThrowingInitNode::kNodeType));
 
 class FailingInitNode : public INode {
  public:
+  inline static constexpr char kNodeType[] = "FailingInitNode";
   FailingInitNode() = default;
   bool Init(const nlohmann::json&, SessionContext*) override { return false; }
   int Process(AlgContext*) override { return 0; }
   int Control(int, const std::string&) override { return 0; }
   const std::string& Name() const override {
-    static const std::string name = "FailingInitNode";
+    static const std::string name = kNodeType;
     return name;
   }
 };
-REGISTER_NODE(FailingInitNode);
+REGISTER_NODE_WITH_DEFINITION(FailingInitNode,
+                              MakeTestNodeDef(FailingInitNode::kNodeType));
 
 // 辅助函数：查找配置文件相对路径
 static std::string GetConfigPath(const std::string& rel_path) {

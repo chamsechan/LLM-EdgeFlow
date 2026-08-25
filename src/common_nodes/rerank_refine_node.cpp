@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 
+#include "core/common_contracts.h"
 #include "core/node_base.h"
 #include "core/node_registry.h"
 #include "core/traceable_item.h"
@@ -17,6 +18,8 @@ namespace alg_framework {
  */
 class RerankRefineNode : public INode {
  public:
+  inline static constexpr char kNodeType[] = "RerankRefineNode";
+
   bool Init(const nlohmann::json& config,
             SessionContext* session_ctx) override {
     bind_model_ = config.value("bind_model", "rerank_model_v1");
@@ -101,7 +104,7 @@ class RerankRefineNode : public INode {
   }
 
   const std::string& Name() const override {
-    static std::string name = "RerankRefineNode";
+    static std::string name = kNodeType;
     return name;
   }
 
@@ -114,6 +117,36 @@ class RerankRefineNode : public INode {
   std::shared_ptr<IRerankEngine> rerank_engine_;
 };
 
-REGISTER_NODE(RerankRefineNode);
+NodeDefinition MakeRerankRefineNodeDefinition() {
+  NodeDefinition def;
+  def.node_type = RerankRefineNode::kNodeType;
+  def.category = "common";
+  def.description = "Cross-encoder rerank refine node";
+  def.inputs = {
+      RequiredInput(BlackboardKey<std::vector<TraceableItem<std::string>>>{
+          "matched_top_chunks", "traceable<string>[]"}),
+      RequiredInput(kRawQueries)};
+  def.outputs = {Output(
+      BlackboardKey<std::vector<TraceableItem<std::string>>>{
+          "matched_top_chunks", "traceable<string>[]"},
+      /*allow_override=*/true)};
+  def.config_fields = {
+      ConfigFieldDefinition{"bind_model", ConfigValueKind::kString, true},
+      ConfigFieldDefinition{"top_k", ConfigValueKind::kInteger, false, 1, 1.0,
+                            100.0},
+      ConfigFieldDefinition{"candidates_key", ConfigValueKind::kString, false,
+                            "matched_top_chunks"},
+      ConfigFieldDefinition{"query_key", ConfigValueKind::kString, false,
+                            "raw_queries"},
+      ConfigFieldDefinition{"output_key", ConfigValueKind::kString, false,
+                            "matched_top_chunks"}};
+  def.model_capability = "rerank";
+  def.model_config_field = "bind_model";
+  def.parallel_safe = true;
+  return def;
+}
+
+REGISTER_NODE_WITH_DEFINITION(RerankRefineNode,
+                              MakeRerankRefineNodeDefinition());
 
 }  // namespace alg_framework

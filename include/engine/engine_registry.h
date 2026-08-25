@@ -26,6 +26,21 @@ class EngineFactory {
   bool Register(const std::string& engine_type, CreatorFunc creator,
                 const EngineDefinition* definition = nullptr) noexcept {
     try {
+      if (definition == nullptr) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        has_conflict_ = true;
+        conflict_errors_.push_back(
+            "Engine registration requires a valid Definition: " + engine_type);
+        return false;
+      }
+      if (definition->engine_type != engine_type) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        has_conflict_ = true;
+        conflict_errors_.push_back(
+            "EngineDefinition engine_type mismatch: expected " + engine_type +
+            ", got " + definition->engine_type);
+        return false;
+      }
       if (engine_type.empty() || !creator) {
         std::lock_guard<std::mutex> lock(mutex_);
         has_conflict_ = true;
@@ -43,14 +58,13 @@ class EngineFactory {
                   << engine_type << std::endl;
         return false;
       }
-      creators_[engine_type] = std::move(creator);
-      if (definition &&
-          !PipelineCatalog::RegisterEngineDefinition(*definition)) {
+      if (!PipelineCatalog::RegisterEngineDefinition(*definition)) {
         has_conflict_ = true;
         conflict_errors_.push_back("Invalid or duplicate engine Definition: " +
                                    engine_type);
         return false;
       }
+      creators_[engine_type] = std::move(creator);
       return true;
     } catch (const std::exception& e) {
       std::lock_guard<std::mutex> lock(mutex_);
@@ -65,6 +79,11 @@ class EngineFactory {
                                  engine_type);
       return false;
     }
+  }
+
+  bool Register(const std::string& engine_type, CreatorFunc creator,
+                const EngineDefinition& definition) noexcept {
+    return Register(engine_type, std::move(creator), &definition);
   }
 
   std::unique_ptr<IModelEngine> Create(const std::string& engine_type) const {
@@ -103,6 +122,13 @@ class EngineFactory {
     return conflict_errors_;
   }
 
+  void ClearForTesting() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    creators_.clear();
+    has_conflict_ = false;
+    conflict_errors_.clear();
+  }
+
  private:
   EngineFactory() = default;
   mutable std::mutex mutex_;
@@ -111,26 +137,20 @@ class EngineFactory {
   std::vector<std::string> conflict_errors_;
 };
 
-#define REGISTER_ENGINE_WITH_DEFINITION(EngineTypeStr, ClassName, \
-                                        DefinitionExpression)     \
-  static bool _registered_engine_##ClassName = []() noexcept {    \
-    const auto definition = (DefinitionExpression);               \
-    return ::alg_framework::EngineFactory::Instance().Register(   \
-        EngineTypeStr,                                            \
-        []() -> std::unique_ptr<::alg_framework::IModelEngine> {  \
-          return std::make_unique<ClassName>();                   \
-        },                                                        \
-        &definition);                                             \
+#define REGISTER_ENGINE_WITH_DEFINITION(EngineTypeStr, ClassName, ...) \
+  static bool _registered_engine_##ClassName = []() noexcept {         \
+    const auto definition = (__VA_ARGS__);                             \
+    return ::alg_framework::EngineFactory::Instance().Register(        \
+        EngineTypeStr,                                                 \
+        []() -> std::unique_ptr<::alg_framework::IModelEngine> {       \
+          return std::make_unique<ClassName>();                        \
+        },                                                             \
+        &definition);                                                  \
   }()
 
-#define REGISTER_ENGINE(EngineTypeStr, ClassName)                            \
-  static bool _registered_engine_##ClassName = []() noexcept {               \
-    return ::alg_framework::EngineFactory::Instance().Register(              \
-        EngineTypeStr,                                                       \
-        []() -> std::unique_ptr<::alg_framework::IModelEngine> {             \
-          return std::make_unique<ClassName>();                              \
-        },                                                                   \
-        ::alg_framework::PipelineCatalog::FindBuiltinEngine(EngineTypeStr)); \
-  }()
+#define REGISTER_ENGINE(EngineTypeStr, ClassName)                        \
+  static_assert(false,                                                   \
+                "REGISTER_ENGINE without definition is deprecated. Use " \
+                "REGISTER_ENGINE_WITH_DEFINITION instead.")
 
 }  // namespace alg_framework
