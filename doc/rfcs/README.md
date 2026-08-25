@@ -71,6 +71,7 @@ doc/rfcs/NNNN-<kebab-case-title>.md
 | **RFC-0005** | 参数化业务 Demo Runner 与执行配置解耦 | `Completed` | `v1.4.0` | Demo / Integration Tooling | [0005-parameterized-business-demo-runner.md](0005-parameterized-business-demo-runner.md) |
 | **RFC-0006** | 图形化算法方案工作台与 Catalog/Validator 单一事实源 | `Completed` | `v1.5.0` | Layer 1 ~ Layer 4 / Tooling | [0006-visual-pipeline-studio.md](0006-visual-pipeline-studio.md) |
 | **RFC-0007** | 全库 Pipeline 配置文件显式 DAG 标准化与旧式配置维护解耦 | `Completed` | `v1.6.0` | Layer 2 ~ Layer 3 / Tooling | [0007-explicit-dag-standardization-and-legacy-deprecation.md](0007-explicit-dag-standardization-and-legacy-deprecation.md) |
+| **RFC-0008** | 架构契约收敛与文档一致性修复 | `Proposed` | `v2.1.0` | Layer 1 ~ Layer 4 / Tooling | [0008-architecture-contract-consolidation.md](0008-architecture-contract-consolidation.md) |
 
 ---
 
