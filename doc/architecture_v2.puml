@@ -51,12 +51,12 @@ actor "Platform Developer" as PlatformDev
 
 ' Machine-readable control plane
 package "Control Plane: Business Development Surface" as ControlPlane {
-  artifact "Business Manifest\nJSON Schema" as Manifest
+  artifact "Business Manifest\nJSON Schema (Phase 2)" as Manifest
   artifact "Pipeline Config\nVersioned JSON Schema" as PipelineConfig
-  artifact "Node / Engine Catalog\nMachine-Readable Descriptors" as Catalog
-  component "Business Scaffolder" as Scaffolder
-  component "Static Validator" as Validator
-  component "Business Test Harness" as BizTests
+  artifact "Node / Engine Catalog\nPipelineCatalog (JSON Export)" as Catalog
+  component "Business Scaffolder\n(Planned / Templates)" as Scaffolder
+  component "Static Validator\nPipelineValidator" as Validator
+  component "Business Test Harness\nGoogleTest Suites / CTest" as BizTests
 }
 
 Composer --> PipelineConfig : compose
@@ -97,15 +97,15 @@ Scaffolder --> BusinessAdapters : generate scaffold
 
 ' Layer 2
 package "Layer 2: Validated Pipeline Runtime & State" as L2 {
-  component "PipelineBuilder" as PipelineBuilder
-  component "PipelineStaticValidator\nDAG / ports / producers\nparallel conflicts / engine capabilities" as PipelineValidator
+  component "PipelineBuilder\nPipeline::BuildFromJson" as PipelineBuilder
+  component "PipelineStaticValidator\nPipelineValidator\nDAG / ports / producers / parallel conflicts" as PipelineValidator
   component "Pipeline Runtime\nsequential / parallel wavefront" as PipelineRuntime
-  component "Typed Port Access" as TypedPorts
-  component "RequestContext\nAlgContext migration target" as RequestContext
+  component "Typed Port Access\nBlackboardKey<T>" as TypedPorts
+  component "RequestContext\nAlgContext (migration target)" as RequestContext
   component "SessionContext" as SessionContext
   component "ModelManager" as ModelManager
   artifact "RuntimeOptions\nmodel root / device / limits" as RuntimeOptions
-  component "Structured Status\ncode / layer / node / port / JSON pointer" as Status
+  component "Structured Status\nPipelineDiagnostic / AdapterStatus" as Status
 }
 
 Validator --> PipelineBuilder : validated definitions
@@ -122,11 +122,11 @@ InternalDtos --> RequestContext
 
 ' Layer 3
 package "Layer 3: Contracted Operator Layer" as L3 {
-  interface "INode\nInit / Process / Control / Descriptor" as INode
-  component "NodeRegistry" as NodeRegistry
+  interface "INode\nInit / Process / Control / Name" as INode
+  component "NodeRegistry\n(NodeFactory)" as NodeRegistry
   component "Platform-Owned\nCommon Nodes" as CommonNodes
   component "Business-Owned\nBusiness Nodes" as BusinessNodes
-  artifact "NodeDescriptor\nports / types / config / state" as NodeDescriptor
+  artifact "NodeDescriptor\n(NodeDefinition in Catalog)" as NodeDescriptor
 }
 
 NodeRegistry o-- INode
@@ -148,13 +148,13 @@ end note
 ' Layer 4
 package "Layer 4: Engine Capabilities & Hardware Scheduling" as L4 {
   interface "IModelEngine\n+ capability interfaces" as IModelEngine
-  component "EngineRegistry" as EngineRegistry
+  component "EngineRegistry\n(EngineFactory)" as EngineRegistry
   component "FixedBatchExecutor\nchunk / pad / strip\nreq_id / sub_id provenance" as FixedBatchExecutor
   component "Mock NPU Engines" as MockEngines
   component "ONNX Runtime Engines" as OnnxEngines
   component "llama.cpp Engine" as LlamaEngine
   component "Future Hardware Backends" as FutureEngines
-  artifact "EngineDescriptor\ncapability / version / device / batch" as EngineDescriptor
+  artifact "EngineDescriptor\n(EngineDefinition in Catalog)" as EngineDescriptor
 }
 
 EngineRegistry o-- IModelEngine
