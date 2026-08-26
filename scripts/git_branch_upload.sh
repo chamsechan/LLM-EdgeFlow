@@ -98,7 +98,7 @@ git push -u origin "${BRANCH_NAME}"
 if command -v gh &> /dev/null; then
     echo "Creating & merging via GitHub PR..."
     gh pr create --title "${MSG}" --body "Automated branch sync with full verified tests for LLM-EdgeFlow" --base main --head "${BRANCH_NAME}" || \
-        gh pr view "${BRANCH_NAME}" >/dev/null
+        gh pr view "${BRANCH_NAME}" --json number >/dev/null
 
     echo "Waiting for GitHub CI checks to be registered..."
     CHECK_COUNT=0
