@@ -52,16 +52,18 @@ class TemplateNestedPointerTreeAdapter : public IBusinessAdapter {
   const char* BizName() const override { return "TemplateNestedPointerTree"; }
 
   const AdapterDescriptor& GetDescriptor() const override {
-    static AdapterDescriptor desc{static_cast<CompanyAlgBizType>(104),
-                                  "TemplateNestedPointerTree",
-                                  "2.0.0",
-                                  "TemplateNestedTreeInput",
-                                  "TemplateNestedTreeOutput",
-                                  64,
-                                  OwnershipPolicy::kCopyIn,
-                                  ThreadModel::kStatelessThreadSafe,
-                                  OutputCardinality::kOneToOne,
-                                  {"template_nested_tree_pipeline_v1"}};
+    static AdapterDescriptor desc{
+        static_cast<CompanyAlgBizType>(104),
+        "TemplateNestedPointerTree",
+        "2.0.0",
+        "TemplateNestedTreeInput",
+        "TemplateNestedTreeOutput",
+        64,
+        OwnershipPolicy::kCopyIn,
+        ThreadModel::kStatelessThreadSafe,
+        OutputCardinality::kOneToOne,
+        {BusinessDefinition{"TemplateNestedPointerTree",
+                            "template_nested_tree_pipeline_v1"}}};
     return desc;
   }
 

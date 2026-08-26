@@ -5,7 +5,9 @@
 #include <set>
 #include <string>
 
+#include "adapter/shared_algorithm_runtime.h"
 #include "core/node_registry.h"
+#include "core/pipeline.h"
 #include "core/pipeline_catalog.h"
 #include "core/pipeline_validator.h"
 #include "engine/engine_registry.h"
@@ -15,17 +17,18 @@ namespace {
 
 class StudioCatalogProbeNode : public INode {
  public:
+  inline static constexpr char kNodeType[] = "StudioCatalogProbeNode";
   bool Init(const nlohmann::json&, SessionContext*) override { return true; }
   int Process(AlgContext*) override { return 0; }
   const std::string& Name() const override {
-    static const std::string name = "StudioCatalogProbeNode";
+    static const std::string name = kNodeType;
     return name;
   }
 };
 
 NodeDefinition StudioCatalogProbeDefinition() {
   NodeDefinition definition;
-  definition.node_type = "StudioCatalogProbeNode";
+  definition.node_type = StudioCatalogProbeNode::kNodeType;
   definition.category = "test";
   definition.description = "Catalog auto-discovery probe";
   definition.business_names = {"keyword_match_v1"};
@@ -70,7 +73,8 @@ TEST(PipelineCatalogTest, DefinitionRegistrationMakesNewNodeDiscoverable) {
 }
 
 TEST(BlackboardKeyTest, TypedOverloadsShareTheRuntimeKey) {
-  constexpr BlackboardKey<std::vector<std::string>> key{"studio_values"};
+  constexpr BlackboardKey<std::vector<std::string>> key{
+      "studio_values", "std::vector<std::string>"};
   AlgContext context;
   context.Set(key, std::vector<std::string>{"a", "b"});
   ASSERT_TRUE(context.Has(key));
@@ -111,10 +115,10 @@ TEST(PipelineValidatorTest, ReportsCycle) {
                                       {"depends_on", {"a"}}}}}};
   const auto report = PipelineValidator::Validate(pipeline);
   EXPECT_FALSE(report.ok);
-  std::set<std::string> codes;
+  std::set<DiagnosticCode> codes;
   for (const auto& diagnostic : report.diagnostics)
     codes.insert(diagnostic.code);
-  EXPECT_TRUE(codes.count("DAG_CYCLE"));
+  EXPECT_TRUE(codes.count(DiagnosticCode::kDagCycle));
 }
 
 TEST(PipelineValidatorTest, ReportsDuplicateEdge) {
@@ -129,7 +133,8 @@ TEST(PipelineValidatorTest, ReportsDuplicateEdge) {
   const auto report = PipelineValidator::Validate(pipeline);
   ASSERT_FALSE(report.ok);
   ASSERT_FALSE(report.diagnostics.empty());
-  EXPECT_EQ(report.diagnostics.front().code, "INVALID_DEPENDENCY");
+  EXPECT_EQ(report.diagnostics.front().code,
+            DiagnosticCode::kInvalidDependency);
   EXPECT_EQ(report.diagnostics.front().path, "/pipeline/1/depends_on/1");
 }
 
@@ -151,28 +156,78 @@ TEST(PipelineValidatorTest, ReportsConfigAndCapabilityErrors) {
          {"depends_on", {"llm"}}}}}};
   const auto report = PipelineValidator::Validate(pipeline);
   EXPECT_FALSE(report.ok);
-  std::set<std::string> codes;
+  std::set<DiagnosticCode> codes;
   for (const auto& diagnostic : report.diagnostics)
     codes.insert(diagnostic.code);
-  EXPECT_TRUE(codes.count("UNKNOWN_CONFIG_FIELD"));
-  EXPECT_TRUE(codes.count("CONFIG_FIELD_RANGE"));
-  EXPECT_TRUE(codes.count("MODEL_CAPABILITY_MISMATCH"));
+  EXPECT_TRUE(codes.count(DiagnosticCode::kUnknownConfigField));
+  EXPECT_TRUE(codes.count(DiagnosticCode::kConfigFieldRange));
+  EXPECT_TRUE(codes.count(DiagnosticCode::kModelCapabilityMismatch));
+
+  // Verify external JSON serialization parity
+  auto json_rep = report.ToJson();
+  std::set<std::string> json_codes;
+  for (const auto& item : json_rep["diagnostics"]) {
+    json_codes.insert(item["code"].get<std::string>());
+  }
+  EXPECT_TRUE(json_codes.count("UNKNOWN_CONFIG_FIELD"));
+  EXPECT_TRUE(json_codes.count("CONFIG_FIELD_RANGE"));
+  EXPECT_TRUE(json_codes.count("MODEL_CAPABILITY_MISMATCH"));
 }
 
-TEST(PipelineValidatorTest, NormalizesLegacySequenceToExplicitDag) {
-  const nlohmann::json legacy = {{"business_name", "entity_extract_0.6b_v1"},
-                                 {"pipeline",
-                                  {{{"node_type", "EntityExtractPreNode"}},
-                                   {{"node_type", "LlmGenerateNode"}},
-                                   {{"node_type", "EntityExtractPostNode"}}}}};
-  nlohmann::json normalized;
-  ASSERT_TRUE(PipelineValidator::NormalizeExplicitDag(legacy, &normalized));
-  ASSERT_EQ(normalized["pipeline"].size(), 3U);
-  EXPECT_TRUE(normalized["pipeline"][0]["depends_on"].empty());
-  EXPECT_EQ(normalized["pipeline"][1]["depends_on"][0],
-            normalized["pipeline"][0]["id"]);
-  EXPECT_EQ(normalized["pipeline"][2]["depends_on"][0],
-            normalized["pipeline"][1]["id"]);
+TEST(PipelineValidatorTest, TableDrivenParityMatrix) {
+  std::ifstream stream(
+      "tests/fixtures/pipeline_validation/invalid_pipeline_cases.json");
+  ASSERT_TRUE(stream.is_open());
+  nlohmann::json fixtures;
+  stream >> fixtures;
+  ASSERT_EQ(fixtures["schema_version"], 1);
+
+  for (const auto& test : fixtures["cases"]) {
+    SCOPED_TRACE(test["name"].get<std::string>());
+    const auto& config = test["pipeline"];
+
+    // 1. Validator is the complete structured-report baseline.
+    auto plan = PipelineValidator::ValidateAndPlan(config);
+    EXPECT_FALSE(plan.report.ok);
+    ASSERT_FALSE(plan.report.diagnostics.empty());
+    const auto json_report = plan.report.ToJson();
+    const auto& primary = json_report["diagnostics"].front();
+    EXPECT_EQ(primary["code"], test["primary_code"]);
+    EXPECT_EQ(primary["path"], test["primary_path"]);
+    for (const auto& required_code : test["required_codes"]) {
+      EXPECT_TRUE(std::any_of(
+          json_report["diagnostics"].begin(), json_report["diagnostics"].end(),
+          [&](const auto& item) { return item["code"] == required_code; }))
+          << "Missing required diagnostic " << required_code;
+    }
+
+    // 2. Pipeline maps the first Validator diagnostic without recomputing it.
+    Pipeline pipeline;
+    PipelineDiagnostic pipe_diag;
+    bool built = pipeline.BuildFromJson(config, &pipe_diag);
+    EXPECT_FALSE(built);
+    EXPECT_EQ(pipeline.GetState(), Pipeline::State::kFailed);
+    EXPECT_EQ(static_cast<int>(pipe_diag.code),
+              test["pipeline_error_code"].get<int>());
+    EXPECT_EQ(pipe_diag.path, test["primary_path"].get<std::string>());
+    EXPECT_NE(pipe_diag.message.find(test["primary_code"].get<std::string>()),
+              std::string::npos);
+
+    // 3. The shared runtime must fail before materialization and preserve the
+    // primary structured diagnostic in its internal C++ error boundary.
+    std::unique_ptr<SharedAlgorithmRuntime> runtime;
+    std::string runtime_error;
+    int runtime_result = SharedAlgorithmRuntime::CreateFromPipelineJson(
+        config, 0, "./models",
+        static_cast<CompanyAlgBizType>(test["biz_type"].get<int>()), &runtime,
+        &runtime_error);
+    EXPECT_EQ(runtime_result, test["runtime_error_code"].get<int>());
+    EXPECT_EQ(runtime, nullptr);
+    EXPECT_NE(runtime_error.find(test["primary_code"].get<std::string>()),
+              std::string::npos);
+    EXPECT_NE(runtime_error.find(test["primary_path"].get<std::string>()),
+              std::string::npos);
+  }
 }
 
 }  // namespace

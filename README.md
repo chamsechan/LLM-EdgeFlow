@@ -153,6 +153,20 @@ LLM-EdgeFlow/
 
 ## 📝 更新日志 (Changelog)
 
+- **v2.1.0 (架构契约收敛与文档一致性修复 - RFC 0008)** *(2026-08)*
+  - 🧭 **SSOT 契约注册与自发现体系**：引入 `REGISTER_NODE_WITH_DEFINITION` 与 `REGISTER_ENGINE_WITH_DEFINITION` 宏，统一将 Node / Engine 元数据定义在实现文件中声明并自动注册至 `PipelineCatalog`，彻底废除中心式硬编码 Catalog。
+  - 🧠 **强类型黑板契约 (`BlackboardKey<T>`)**：重构 `AlgContext` 支持 `BlackboardKey<T>`，提供编译期类型安全、常量端口名绑定与零字符串拼写风险。
+  - ⚡ **单趟执行计划 (`ValidatedPipelinePlan`)**：重构 `PipelineValidator::ValidateAndPlan` 一次性完成 JSON 解析、白名单校验、DAG 拓扑排序与波前分层，`Pipeline::Build` 直接消费不可变执行计划，彻底消除二次重复解析、DAG 排序与私有扩展诊断过滤代码。
+  - 🏛️ **Layer 3 算子浅基类体系 (`NodeBase`)**：建立 `NodeBase`（提供 `final noexcept` 异常防火墙、上下文校验与 `Require/Publish/Fail` helper）、`ModelBoundNode<E>`（单模型绑定与访问）与 `TraceableUnaryInferenceNode<E, In, Out>`（单批次推理模板），全库 27 个生产算子全部完成基类迁移。
+  - 🗂️ **算子目录归属规范化**：`LlmGenerateNode` 规整至 `common_nodes`（category `"common"`），`PromptBuilderNode`、`VectorSearchNode`、`RerankRefineNode` 规整至 `business/doc_qa`；`DenseRetrievalNode` 预编码政策库并实现真实余弦相似度检索召回。
+  - 🔒 **统一验证与文档交付门禁**：Core、Pipeline、CLI、Web 与 Runtime 共用 9 类非法配置 fixture；架构 SVG 由固定 PlantUML 版本、Jar 校验和及源 SHA provenance 生成，源/资产漂移与损坏资产均 fail-closed；Sanitizer fast 使用独立 ASan/UBSan 构建和 emulator-only 路径。
+  - 🧪 **33 组 CTest 单元测试矩阵与全量回归**：新增 Validated Plan、Node Base、Definition Schema、文档漂移与架构图生成等专项套件，33 项 CTest、11 个官方 Pipeline Validate/Plan、6 阶段自动化回归及 ASan/UBSan fast 全部通过。
+- **v2.0.0 (SSOT 契约注册与强类型黑板交付 - RFC 0008 阶段一)** *(2026-08)*
+  - 🏛️ **注册即声明（Self-Describing Registration SSOT）**：算子与引擎注册宏升级为 `REGISTER_NODE_WITH_DEFINITION` 与 `REGISTER_ENGINE_WITH_DEFINITION`，节点元数据（`inputs`, `outputs`, `config_fields`, `model_capability`, `model_config_field`, `parallel_safe`, `business_names`）随同定义自包含声明并自动汇入 `PipelineCatalog`，彻底消除外部硬编码 Catalog。
+  - 🧠 **强类型动态黑板契约 (`BlackboardKey<T>`)**：统一黑板 Typed Key 声明规范，提供编译期类型安全与运行时动态类型检查，避免无类型裸字符串与类型不匹配隐患；`TraceableItem<T>` 支持批处理样本多源追溯与硬件定长解构。
+  - 🔌 **业务适配器单一事实源绑定 (`IBusinessAdapter`)**：各业务 Adapter 实现 `GetDescriptor()` 自包含声明业务输入输出 C 结构体契约、批大小上限、Ingress/Egress 端口定义与合法 Pipeline 名称，并在注册期由 `BusinessAdapterRegistry` 自动挂载至 `PipelineCatalog`。
+  - ✅ **集中式 PipelineValidator 校验收敛**：统一由 `PipelineValidator::Validate` 进行无副作用预检，`Pipeline::Build` 共享完全一致的节点/引擎依赖校验、黑板数据流匹配、模型能力匹配及 Kahn 拓扑排序逻辑。
+  - 🧪 **25 组 CTest 单元测试矩阵与全量回归**：新增 `test_catalog_contract_ssot` 与 `test_typed_blackboard_contracts` 专项单测，25 项 Google Test 单元测试与 6 阶段自动化回归 100% 通过。
 - **v1.6.0 (全库 Pipeline 显式 DAG 标准化与旧式配置维护解耦 - RFC 0007)** *(2026-08)*
   - 📐 **全量官方方案显式 DAG 升级**：`configs/` 目录下全部 11 个官方预置方案全面标准化为显式 DAG 格式（`id` + `depends_on`），消除隐式顺序数组的历史遗留形态，与底层 Kahn 拓扑排序及 Wavefront 调度严格契合。
   - 🔒 **严格显式 DAG 强类型约束**：彻底清除 C++ 底层对隐式顺序配置的兼容分支与 bypass 逻辑，强制要求所有节点显式提供 `id` 与 `depends_on`，统一使用 Kahn 拓扑排序，杜绝双轨维护与隐式 ID 合成债务。

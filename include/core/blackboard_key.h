@@ -10,6 +10,7 @@ namespace alg_framework {
 template <typename T>
 struct BlackboardKey {
   const char* name;
+  const char* type_id;
 };
 
 }  // namespace alg_framework

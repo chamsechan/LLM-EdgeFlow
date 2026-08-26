@@ -23,13 +23,14 @@ bool MockNpuLlmEngine::Load(const std::string& model_path,
 }
 
 const std::string& MockNpuLlmEngine::EngineType() const {
-  static std::string type = "mock_npu_llm";
+  static const std::string type = kEngineType;
   return type;
 }
 
 int MockNpuLlmEngine::Generate(const std::string& prompt,
                                const GenerateOption& opt,
                                std::string* output_text) {
+  (void)opt;
   if (!is_loaded_ || !output_text) return -2001;
   *output_text = GenerateSingleResponse(prompt);
   return 0;
@@ -39,6 +40,7 @@ int MockNpuLlmEngine::InferTraceableBatch(
     const std::vector<TraceableItem<std::string>>& input_prompts,
     const GenerateOption& opt,
     std::vector<TraceableItem<std::string>>* output_texts) {
+  (void)opt;
   if (!is_loaded_) return -2001;
 
   std::string dummy_pad = "<PAD_PROMPT>";
@@ -135,6 +137,22 @@ std::string MockNpuLlmEngine::GenerateSingleResponse(
   return "【LLM标准答复】已根据输入文档上下文完成智能检索与摘要生成。";
 }
 
-REGISTER_ENGINE("mock_npu_llm", MockNpuLlmEngine);
+EngineDefinition MakeMockNpuLlmDefinition() {
+  EngineDefinition def;
+  def.engine_type = MockNpuLlmEngine::kEngineType;
+  def.capability = "llm";
+  def.description = "Mock NPU LLM engine";
+  def.config_fields = {
+      ConfigFieldDefinition{"max_batch_size", ConfigValueKind::kInteger, false,
+                            2, 1.0, 4096.0},
+      ConfigFieldDefinition{"max_seq_len", ConfigValueKind::kInteger, false,
+                            1024, 1.0, 1048576.0},
+      ConfigFieldDefinition{"device_id", ConfigValueKind::kInteger, false, -1,
+                            -1.0, 1024.0}};
+  def.thread_model = EngineThreadModel::kSerialized;
+  return def;
+}
+
+REGISTER_ENGINE_WITH_DEFINITION(MockNpuLlmEngine, MakeMockNpuLlmDefinition());
 
 }  // namespace alg_framework

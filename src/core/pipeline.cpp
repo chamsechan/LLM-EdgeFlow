@@ -16,44 +16,60 @@ namespace alg_framework {
 
 namespace {
 
-PipelineErrorCode ValidationCodeToPipelineCode(const std::string& code) {
-  if (code == "ROOT_TYPE") return PipelineErrorCode::kRootType;
-  if (code == "UNKNOWN_FIELD" || code == "UNKNOWN_CONFIG_FIELD")
-    return PipelineErrorCode::kUnknownField;
-  if (code == "MISSING_FIELD") return PipelineErrorCode::kMissingField;
-  if (code == "FIELD_TYPE" || code == "CONFIG_FIELD_TYPE")
-    return PipelineErrorCode::kFieldType;
-  if (code == "FIELD_RANGE" || code == "CONFIG_FIELD_RANGE")
-    return PipelineErrorCode::kFieldRange;
-  if (code == "DUPLICATE_MODEL_ID") return PipelineErrorCode::kDuplicateModelId;
-  if (code == "DUPLICATE_NODE_ID") return PipelineErrorCode::kDuplicateNodeId;
-  if (code == "UNKNOWN_NODE_TYPE") return PipelineErrorCode::kUnknownNodeType;
-  if (code == "UNKNOWN_ENGINE_TYPE")
-    return PipelineErrorCode::kUnknownEngineType;
-  if (code == "INVALID_DEPENDENCY" || code == "DUPLICATE_DEPENDENCY")
-    return PipelineErrorCode::kInvalidDependency;
-  if (code == "DAG_CYCLE") return PipelineErrorCode::kDagCycle;
-  if (code == "REGISTRY_CONFLICT") return PipelineErrorCode::kRegistryConflict;
+PipelineErrorCode ValidationCodeToPipelineCode(DiagnosticCode code) {
+  switch (code) {
+    case DiagnosticCode::kOk:
+      return PipelineErrorCode::kOk;
+    case DiagnosticCode::kJsonParse:
+      return PipelineErrorCode::kJsonParse;
+    case DiagnosticCode::kConfigFileOpen:
+      return PipelineErrorCode::kConfigFileOpen;
+    case DiagnosticCode::kRootType:
+      return PipelineErrorCode::kRootType;
+    case DiagnosticCode::kUnknownField:
+    case DiagnosticCode::kUnknownConfigField:
+      return PipelineErrorCode::kUnknownField;
+    case DiagnosticCode::kMissingField:
+    case DiagnosticCode::kMissingConfigField:
+      return PipelineErrorCode::kMissingField;
+    case DiagnosticCode::kFieldType:
+    case DiagnosticCode::kConfigFieldType:
+      return PipelineErrorCode::kFieldType;
+    case DiagnosticCode::kFieldRange:
+    case DiagnosticCode::kConfigFieldRange:
+      return PipelineErrorCode::kFieldRange;
+    case DiagnosticCode::kInvalidCombination:
+    case DiagnosticCode::kConfigFieldEnum:
+    case DiagnosticCode::kUnknownBusiness:
+    case DiagnosticCode::kUnknownModelReference:
+    case DiagnosticCode::kModelCapabilityMismatch:
+    case DiagnosticCode::kNodeBusinessMismatch:
+    case DiagnosticCode::kMissingInputProducer:
+    case DiagnosticCode::kDuplicatePortProducer:
+    case DiagnosticCode::kMissingBusinessOutput:
+    case DiagnosticCode::kNodeNotParallelSafe:
+    case DiagnosticCode::kParallelWriteConflict:
+    case DiagnosticCode::kSerializedEngineConcurrency:
+      return PipelineErrorCode::kInvalidCombination;
+    case DiagnosticCode::kDuplicateModelId:
+      return PipelineErrorCode::kDuplicateModelId;
+    case DiagnosticCode::kDuplicateNodeId:
+      return PipelineErrorCode::kDuplicateNodeId;
+    case DiagnosticCode::kUnknownNodeType:
+      return PipelineErrorCode::kUnknownNodeType;
+    case DiagnosticCode::kUnknownEngineType:
+      return PipelineErrorCode::kUnknownEngineType;
+    case DiagnosticCode::kInvalidDependency:
+    case DiagnosticCode::kDuplicateDependency:
+      return PipelineErrorCode::kInvalidDependency;
+    case DiagnosticCode::kDagCycle:
+      return PipelineErrorCode::kDagCycle;
+    case DiagnosticCode::kRegistryConflict:
+      return PipelineErrorCode::kRegistryConflict;
+    case DiagnosticCode::kInternalException:
+      return PipelineErrorCode::kInternalException;
+  }
   return PipelineErrorCode::kInvalidCombination;
-}
-
-// Unit tests and downstream embedders may register private node/engine types
-// without publishing a studio definition. The public validator remains strict;
-// Pipeline only exempts these definition-only diagnostics for registered
-// extension types so the historical extension API remains source-compatible.
-bool IsPrivateExtensionDiagnostic(const ValidationDiagnostic& diagnostic) {
-  if (diagnostic.code == "UNKNOWN_BUSINESS") return true;
-  if (diagnostic.code == "UNKNOWN_NODE_TYPE" && !diagnostic.node_id.empty()) {
-    return diagnostic.message.find("missing catalog definition") !=
-           std::string::npos;
-  }
-  if (diagnostic.code == "UNKNOWN_ENGINE_TYPE") {
-    constexpr const char* prefix = "Unknown engine_type: ";
-    if (diagnostic.message.rfind(prefix, 0) == 0) {
-      return EngineFactory::Instance().Has(diagnostic.message.substr(21));
-    }
-  }
-  return false;
 }
 
 }  // namespace
@@ -61,7 +77,8 @@ bool IsPrivateExtensionDiagnostic(const ValidationDiagnostic& diagnostic) {
 Pipeline::Pipeline() : business_name_("default_biz") {}
 
 bool Pipeline::BuildFromConfigFile(const std::string& config_file_path,
-                                   PipelineDiagnostic* diagnostic) {
+                                   PipelineDiagnostic* diagnostic,
+                                   ValidationPolicy policy) {
   if (diagnostic) {
     diagnostic->Clear();
   }
@@ -110,11 +127,12 @@ bool Pipeline::BuildFromConfigFile(const std::string& config_file_path,
     return false;
   }
 
-  return BuildFromJson(root_json, diagnostic);
+  return BuildFromJson(root_json, diagnostic, policy);
 }
 
 bool Pipeline::BuildFromJson(const nlohmann::json& root_config,
-                             PipelineDiagnostic* diagnostic) {
+                             PipelineDiagnostic* diagnostic,
+                             ValidationPolicy policy) {
   if (diagnostic) {
     diagnostic->Clear();
   }
@@ -149,7 +167,7 @@ bool Pipeline::BuildFromJson(const nlohmann::json& root_config,
 
   bool success = false;
   try {
-    success = BuildInternal(root_config, diagnostic);
+    success = BuildInternal(root_config, diagnostic, policy);
   } catch (const std::exception& e) {
     success = false;
     if (diagnostic) {
@@ -177,241 +195,35 @@ bool Pipeline::BuildFromJson(const nlohmann::json& root_config,
   return success;
 }
 
-bool Pipeline::ResolveDagTopologicalSort(
-    const std::vector<ParsedNodeConfig>& raw_nodes, DagPlan* plan,
-    PipelineDiagnostic* diagnostic) {
-  if (!plan) return false;
-  plan->topological_order.clear();
-  plan->topological_layers_ids.clear();
-  plan->sorted_layers.clear();
-
-  if (raw_nodes.empty()) {
-    return true;
-  }
-
-  // 1. 建立节点 ID 查找索引
-  std::unordered_map<std::string, const ParsedNodeConfig*> meta_lookup;
-  for (const auto& node : raw_nodes) {
-    meta_lookup[node.id] = &node;
-  }
-
-  // 3. 校验所有依赖 ID 是否均存在于节点集合中，并拦截自环死锁
-  for (const auto& node : raw_nodes) {
-    for (size_t d = 0; d < node.depends_on.size(); ++d) {
-      const auto& dep_id = node.depends_on[d];
-      std::string dep_path = "/pipeline/" + std::to_string(node.source_index) +
-                             "/depends_on/" + std::to_string(d);
-      if (dep_id == node.id) {
-        if (diagnostic) {
-          diagnostic->code = PipelineErrorCode::kDagCycle;
-          diagnostic->path = dep_path;
-          diagnostic->message = "Self-loop cycle detected: node '" + node.id +
-                                "' depends on itself";
-        }
-        std::cerr << "[Pipeline] Self-loop cycle detected: node [" << node.id
-                  << "] depends on itself!" << std::endl;
-        return false;
-      }
-      if (meta_lookup.find(dep_id) == meta_lookup.end()) {
-        if (diagnostic) {
-          diagnostic->code = PipelineErrorCode::kInvalidDependency;
-          diagnostic->path = dep_path;
-          diagnostic->message = "Node '" + node.id +
-                                "' depends on non-existent node '" + dep_id +
-                                "'";
-        }
-        std::cerr << "[Pipeline] Invalid dependency: node [" << node.id
-                  << "] depends on non-existent node [" << dep_id << "]"
-                  << std::endl;
-        return false;
-      }
-    }
-  }
-
-  // 4. 构建入度表 (In-Degree Map) 与邻接表 (Adjacency List: u -> v)
-  std::unordered_map<std::string, int> in_degree;
-  std::unordered_map<std::string, std::vector<std::string>> adj_list;
-
-  for (const auto& node : raw_nodes) {
-    in_degree[node.id] = static_cast<int>(node.depends_on.size());
-    for (const auto& dep_id : node.depends_on) {
-      adj_list[dep_id].push_back(node.id);
-    }
-  }
-
-  // 5. Kahn 算法波前分层解析 (Wavefront BFS)
-  std::queue<std::string> current_wave_q;
-  for (const auto& node : raw_nodes) {
-    if (in_degree[node.id] == 0) {
-      current_wave_q.push(node.id);
-    }
-  }
-
-  size_t total_resolved = 0;
-
-  while (!current_wave_q.empty()) {
-    size_t wave_size = current_wave_q.size();
-    std::vector<ParsedNodeConfig> current_layer_nodes;
-    std::vector<std::string> current_layer_ids;
-    std::queue<std::string> next_wave_q;
-
-    for (size_t i = 0; i < wave_size; ++i) {
-      std::string u = current_wave_q.front();
-      current_wave_q.pop();
-      total_resolved++;
-
-      current_layer_nodes.push_back(*meta_lookup[u]);
-      current_layer_ids.push_back(u);
-      plan->topological_order.push_back(u);
-
-      auto it = adj_list.find(u);
-      if (it != adj_list.end()) {
-        for (const auto& v : it->second) {
-          if (--in_degree[v] == 0) {
-            next_wave_q.push(v);
-          }
-        }
-      }
-    }
-
-    plan->sorted_layers.push_back(std::move(current_layer_nodes));
-    plan->topological_layers_ids.push_back(std::move(current_layer_ids));
-    current_wave_q = std::move(next_wave_q);
-  }
-
-  // 6. 环路死锁检测 (Cycle Deadlock Detection)
-  if (total_resolved != raw_nodes.size()) {
-    std::string unresolved_path = "/pipeline";
-    std::string unresolved_name;
-    for (const auto& node : raw_nodes) {
-      if (in_degree[node.id] > 0) {
-        unresolved_path = "/pipeline/" + std::to_string(node.source_index);
-        unresolved_name = node.id;
-        break;
-      }
-    }
-    if (diagnostic) {
-      diagnostic->code = PipelineErrorCode::kDagCycle;
-      diagnostic->path = unresolved_path;
-      diagnostic->message =
-          "Cyclic dependency deadlock detected in DAG pipeline involving node "
-          "'" +
-          unresolved_name + "'";
-    }
-    std::cerr << "[Pipeline] Cyclic dependency deadlock detected in DAG "
-                 "pipeline! Unresolved nodes: ";
-    for (const auto& pair : in_degree) {
-      if (pair.second > 0) {
-        std::cerr << "[" << pair.first
-                  << " (remaining in-degree: " << pair.second << ")] ";
-      }
-    }
-    std::cerr << std::endl;
-    return false;
-  }
-
-  return true;
-}
-
 bool Pipeline::BuildInternal(const nlohmann::json& root_config,
-                             PipelineDiagnostic* diagnostic) {
+                             PipelineDiagnostic* diagnostic,
+                             ValidationPolicy policy) {
   // FINAL-R1-003: 仅在测试场景下注入异常，以提供 kInternalException
   // 动态覆盖证据
   if (test_internal_hook_) {
     test_internal_hook_();
   }
 
-  // Studio, CLI and runtime share this side-effect-free preflight. Engines and
-  // nodes are materialized only after validation succeeds.
-  const ValidationReport validation = PipelineValidator::Validate(root_config);
-  for (const auto& item : validation.diagnostics) {
-    if (IsPrivateExtensionDiagnostic(item)) continue;
-    if (diagnostic) {
-      diagnostic->code = ValidationCodeToPipelineCode(item.code);
-      diagnostic->path = item.path;
-      diagnostic->message = item.code + ": " + item.message;
-    }
-    std::cerr << "[Pipeline] Validation failed: " << item.code << " at "
-              << item.path << ": " << item.message << std::endl;
-    return false;
-  }
+  // 唯一单趟校验与执行计划生成 (Single-Pass Validate and Plan)
+  const ValidatedPipelinePlan plan =
+      PipelineValidator::ValidateAndPlan(root_config, policy);
 
-  // =========================================================================
-  // Phase 1: Parse
-  // =========================================================================
-  ParsedPipelineConfig parsed_cfg;
-  if (!ParsePipelineConfig(root_config, &parsed_cfg, diagnostic)) {
-    return false;
-  }
-
-  // =========================================================================
-  // Phase 2: Validate References, Registry and DAG (Preflight before side
-  // effects)
-  // =========================================================================
-  // 1. 校验 Registry 冲突状态 (fail-closed)
-  if (NodeFactory::Instance().HasConflict()) {
-    if (diagnostic) {
-      diagnostic->code = PipelineErrorCode::kRegistryConflict;
-      diagnostic->path = "/pipeline";
-      diagnostic->message = "Node factory has registration conflict";
-    }
-    std::cerr << "[Pipeline] NodeFactory registration conflict detected!"
-              << std::endl;
-    return false;
-  }
-
-  if (EngineFactory::Instance().HasConflict()) {
-    if (diagnostic) {
-      diagnostic->code = PipelineErrorCode::kRegistryConflict;
-      diagnostic->path = "/models";
-      diagnostic->message = "Engine factory has registration conflict";
-    }
-    std::cerr << "[Pipeline] EngineFactory registration conflict detected!"
-              << std::endl;
-    return false;
-  }
-
-  // 2. 校验配置中声明的所有 engine_type 是否已注册
-  for (const auto& model_cfg : parsed_cfg.models) {
-    if (!EngineFactory::Instance().Has(model_cfg.engine_type)) {
+  if (!plan.report.ok) {
+    if (!plan.report.diagnostics.empty()) {
+      const auto& item = plan.report.diagnostics.front();
+      const char* code_str = DiagnosticCodeName(item.code);
       if (diagnostic) {
-        diagnostic->code = PipelineErrorCode::kUnknownEngineType;
-        diagnostic->path = "/models/" + std::to_string(model_cfg.source_index) +
-                           "/engine_type";
-        diagnostic->message = "Unknown engine_type: " + model_cfg.engine_type +
-                              " for model: " + model_cfg.model_id;
+        diagnostic->code = ValidationCodeToPipelineCode(item.code);
+        diagnostic->path = item.path;
+        diagnostic->message = std::string(code_str) + ": " + item.message;
       }
-      std::cerr << "[Pipeline] Unknown engine_type: " << model_cfg.engine_type
-                << " for model: " << model_cfg.model_id << std::endl;
-      return false;
+      std::cerr << "[Pipeline] Validation failed: " << code_str << " at "
+                << item.path << ": " << item.message << std::endl;
     }
-  }
-
-  // 3. 校验配置中声明的所有 node_type 是否已注册
-  for (const auto& node_cfg : parsed_cfg.nodes) {
-    if (!NodeFactory::Instance().Has(node_cfg.node_type)) {
-      if (diagnostic) {
-        diagnostic->code = PipelineErrorCode::kUnknownNodeType;
-        diagnostic->path =
-            "/pipeline/" + std::to_string(node_cfg.source_index) + "/node_type";
-        diagnostic->message = "Unregistered node_type: " + node_cfg.node_type;
-      }
-      std::cerr << "[Pipeline] Unregistered node_type: " << node_cfg.node_type
-                << " (id: " << node_cfg.id << ")" << std::endl;
-      return false;
-    }
-  }
-
-  // 4. 函数式解析 DAG 拓扑排序计划 (纯计算无副作用)
-  DagPlan dag_plan;
-  if (!ResolveDagTopologicalSort(parsed_cfg.nodes, &dag_plan, diagnostic)) {
     return false;
   }
 
-  // =========================================================================
-  // Phase 3: Materialize Engines and Nodes (with fine-grained exception
-  // conversion)
-  // =========================================================================
+  const auto& parsed_cfg = plan.config;
   business_name_ = parsed_cfg.business_name;
 
   // 1. 加载配置中声明的所有模型 (支持多模型加载到 ModelManager)
@@ -555,14 +367,23 @@ bool Pipeline::BuildInternal(const nlohmann::json& root_config,
     std::cout << "[Pipeline] Sequential Execution Mode active" << std::endl;
   }
 
-  // 3. 按照波前拓扑层实例化并初始化算子节点
-  topological_order_ = std::move(dag_plan.topological_order);
-  topological_layers_ids_ = std::move(dag_plan.topological_layers_ids);
+  // 3. 按照波前拓扑层直接物化算子节点
+  topological_order_ = plan.topological_order;
+  topological_layers_ids_ = plan.topological_layers;
 
-  for (size_t layer_idx = 0; layer_idx < dag_plan.sorted_layers.size();
+  std::unordered_map<std::string, const ParsedNodeConfig*> node_by_id;
+  for (const auto& node_cfg : parsed_cfg.nodes) {
+    node_by_id[node_cfg.id] = &node_cfg;
+  }
+
+  for (size_t layer_idx = 0; layer_idx < plan.topological_layers.size();
        ++layer_idx) {
     std::vector<INode*> layer_ptrs;
-    for (const auto& meta : dag_plan.sorted_layers[layer_idx]) {
+    for (const auto& node_id : plan.topological_layers[layer_idx]) {
+      auto it = node_by_id.find(node_id);
+      if (it == node_by_id.end() || !it->second) continue;
+      const auto& meta = *it->second;
+
       std::unique_ptr<INode> node;
       try {
         node = NodeFactory::Instance().Create(meta.node_type);
@@ -627,11 +448,10 @@ bool Pipeline::BuildInternal(const nlohmann::json& root_config,
           diagnostic->code = PipelineErrorCode::kNodeInitFailed;
           diagnostic->path =
               "/pipeline/" + std::to_string(meta.source_index) + "/config";
-          diagnostic->message =
-              "Node Init returned false for node_type: " + meta.node_type +
-              " (id: " + meta.id + ")";
+          diagnostic->message = "Failed to initialize node '" + meta.node_type +
+                                "' (id: " + meta.id + ")";
         }
-        std::cerr << "[Pipeline] Node Init failed: " << meta.node_type
+        std::cerr << "[Pipeline] Failed to initialize node: " << meta.node_type
                   << " (id: " << meta.id << ")" << std::endl;
         return false;
       }

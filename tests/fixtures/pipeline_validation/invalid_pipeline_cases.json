@@ -1,0 +1,205 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "name": "unknown_business",
+      "biz_type": 2,
+      "pipeline": {
+        "business_name": "unknown_biz_xyz",
+        "models": [],
+        "pipeline": [
+          {
+            "id": "keyword",
+            "node_type": "KeywordMatcherNode",
+            "depends_on": [],
+            "config": {}
+          }
+        ]
+      },
+      "required_codes": ["UNKNOWN_BUSINESS"],
+      "primary_code": "UNKNOWN_BUSINESS",
+      "primary_path": "/business_name",
+      "pipeline_error_code": 8,
+      "runtime_error_code": -2
+    },
+    {
+      "name": "unknown_node_type",
+      "biz_type": 2,
+      "pipeline": {
+        "business_name": "keyword_match_v1",
+        "models": [],
+        "pipeline": [
+          {
+            "id": "unknown",
+            "node_type": "CompletelyUnknownNode",
+            "depends_on": [],
+            "config": {}
+          }
+        ]
+      },
+      "required_codes": ["UNKNOWN_NODE_TYPE"],
+      "primary_code": "UNKNOWN_NODE_TYPE",
+      "primary_path": "/pipeline/0/node_type",
+      "pipeline_error_code": 11,
+      "runtime_error_code": -2
+    },
+    {
+      "name": "unknown_config_field",
+      "biz_type": 3,
+      "pipeline": {
+        "business_name": "entity_extract_0.6b_v1",
+        "models": [
+          {"model_id": "llm", "engine_type": "mock_npu_llm"}
+        ],
+        "pipeline": [
+          {"id": "pre", "node_type": "EntityExtractPreNode", "depends_on": []},
+          {
+            "id": "generate",
+            "node_type": "LlmGenerateNode",
+            "depends_on": ["pre"],
+            "config": {"bind_model": "llm", "unsupported_option": true}
+          },
+          {"id": "post", "node_type": "EntityExtractPostNode", "depends_on": ["generate"]}
+        ]
+      },
+      "required_codes": ["UNKNOWN_CONFIG_FIELD"],
+      "primary_code": "UNKNOWN_CONFIG_FIELD",
+      "primary_path": "/pipeline/1/config/unsupported_option",
+      "pipeline_error_code": 4,
+      "runtime_error_code": -2
+    },
+    {
+      "name": "config_field_range",
+      "biz_type": 3,
+      "pipeline": {
+        "business_name": "entity_extract_0.6b_v1",
+        "models": [
+          {"model_id": "llm", "engine_type": "mock_npu_llm"}
+        ],
+        "pipeline": [
+          {"id": "pre", "node_type": "EntityExtractPreNode", "depends_on": []},
+          {
+            "id": "generate",
+            "node_type": "LlmGenerateNode",
+            "depends_on": ["pre"],
+            "config": {"bind_model": "llm", "max_tokens": 0}
+          },
+          {"id": "post", "node_type": "EntityExtractPostNode", "depends_on": ["generate"]}
+        ]
+      },
+      "required_codes": ["CONFIG_FIELD_RANGE"],
+      "primary_code": "CONFIG_FIELD_RANGE",
+      "primary_path": "/pipeline/1/config/max_tokens",
+      "pipeline_error_code": 7,
+      "runtime_error_code": -2
+    },
+    {
+      "name": "model_capability_mismatch",
+      "biz_type": 3,
+      "pipeline": {
+        "business_name": "entity_extract_0.6b_v1",
+        "models": [
+          {"model_id": "embedding", "engine_type": "mock_npu_embedding"}
+        ],
+        "pipeline": [
+          {"id": "pre", "node_type": "EntityExtractPreNode", "depends_on": []},
+          {
+            "id": "generate",
+            "node_type": "LlmGenerateNode",
+            "depends_on": ["pre"],
+            "config": {"bind_model": "embedding"}
+          },
+          {"id": "post", "node_type": "EntityExtractPostNode", "depends_on": ["generate"]}
+        ]
+      },
+      "required_codes": ["MODEL_CAPABILITY_MISMATCH"],
+      "primary_code": "MODEL_CAPABILITY_MISMATCH",
+      "primary_path": "/pipeline/1/config/bind_model",
+      "pipeline_error_code": 8,
+      "runtime_error_code": -2
+    },
+    {
+      "name": "dag_cycle",
+      "biz_type": 2,
+      "pipeline": {
+        "business_name": "keyword_match_v1",
+        "models": [],
+        "pipeline": [
+          {"id": "a", "node_type": "KeywordMatcherNode", "depends_on": ["b"], "config": {}},
+          {"id": "b", "node_type": "KeywordMatcherNode", "depends_on": ["a"], "config": {}}
+        ]
+      },
+      "required_codes": ["DAG_CYCLE"],
+      "primary_code": "DAG_CYCLE",
+      "primary_path": "/pipeline",
+      "pipeline_error_code": 14,
+      "runtime_error_code": -2
+    },
+    {
+      "name": "missing_input_producer",
+      "biz_type": 1,
+      "pipeline": {
+        "business_name": "smart_doc_qa_v1",
+        "models": [],
+        "pipeline": [
+          {"id": "post", "node_type": "DocQaPostNode", "depends_on": [], "config": {}}
+        ]
+      },
+      "required_codes": ["MISSING_INPUT_PRODUCER"],
+      "primary_code": "MISSING_INPUT_PRODUCER",
+      "primary_path": "/pipeline/0",
+      "pipeline_error_code": 8,
+      "runtime_error_code": -2
+    },
+    {
+      "name": "parallel_write_conflict",
+      "biz_type": 2,
+      "pipeline": {
+        "business_name": "keyword_match_v1",
+        "execution_mode": "parallel",
+        "models": [],
+        "pipeline": [
+          {"id": "left", "node_type": "KeywordMatcherNode", "depends_on": [], "config": {}},
+          {"id": "right", "node_type": "KeywordMatcherNode", "depends_on": [], "config": {}}
+        ]
+      },
+      "required_codes": ["DUPLICATE_PORT_PRODUCER", "PARALLEL_WRITE_CONFLICT"],
+      "primary_code": "DUPLICATE_PORT_PRODUCER",
+      "primary_path": "/pipeline/1",
+      "pipeline_error_code": 8,
+      "runtime_error_code": -2
+    },
+    {
+      "name": "serialized_engine_concurrency",
+      "biz_type": 3,
+      "pipeline": {
+        "business_name": "entity_extract_0.6b_v1",
+        "execution_mode": "parallel",
+        "models": [
+          {"model_id": "serialized_llm", "engine_type": "mock_npu_llm"}
+        ],
+        "pipeline": [
+          {"id": "pre", "node_type": "EntityExtractPreNode", "depends_on": []},
+          {
+            "id": "left",
+            "node_type": "LlmGenerateNode",
+            "depends_on": ["pre"],
+            "config": {"bind_model": "serialized_llm"}
+          },
+          {
+            "id": "right",
+            "node_type": "LlmGenerateNode",
+            "depends_on": ["pre"],
+            "config": {"bind_model": "serialized_llm"}
+          },
+          {"id": "post", "node_type": "EntityExtractPostNode", "depends_on": ["left", "right"]}
+        ]
+      },
+      "required_codes": ["DUPLICATE_PORT_PRODUCER", "SERIALIZED_ENGINE_CONCURRENCY"],
+      "primary_code": "DUPLICATE_PORT_PRODUCER",
+      "primary_path": "/pipeline/2",
+      "pipeline_error_code": 8,
+      "runtime_error_code": -2
+    }
+  ]
+}

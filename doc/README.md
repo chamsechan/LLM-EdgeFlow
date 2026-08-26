@@ -5,6 +5,8 @@
 - **[architecture.md](architecture.md)**：框架 4 层抽象架构说明书、模块详细职责、运行时时序图（Mermaid）及算子开发上手规范。
 - **[architecture.puml](architecture.puml)**：框架代码库当前物理实现的精确 PlantUML 类图（As-Is 白盒类与接口视图）。
 - **[architecture_v2.puml](architecture_v2.puml)**：LLM-EdgeFlow 平台目标演进全景图（To-Be Target Blueprint，涵盖控制面交付与跨层契约）。
+- **[assets/architecture_class_diagram.svg](assets/architecture_class_diagram.svg)**：由 `architecture.puml` 固定版本生成的 As-Is 类图资产。
+- **[assets/architecture_flow.svg](assets/architecture_flow.svg)**：由 `architecture_v2.puml` 固定版本生成的 Target 全景图资产。
 - **[developer_guide.md](developer_guide.md)**：算法开发人员与平台接入人员完整研发上手指南。
 - **[rfcs/ (RFC 需求与设计库)](rfcs/README.md)**：所有待实现需求、架构演进 RFC 设计文档及模板规范（`doc/rfcs/`）。
 - **[../tools/visualizer/index.html](../tools/visualizer/index.html)**：交互式 DAG 管线与数据流向可视化 Web 工具（Visual Pipeline Studio）。
@@ -20,3 +22,10 @@
 5. **[新算子与新业务扩展指引](developer_guide.md)**：算法工程师 3 步快速上手模板。
 6. **[RFC 需求与设计规范](rfcs/README.md)**：所有新功能与需求的设计文档生命周期管理。
 7. **[DAG 可视化工作台](../tools/visualizer/index.html)**：交互式节点状态与数据黑板流向监控。
+
+两个 SVG 均由 PlantUML `1.2024.7` 生成，禁止手工编辑。更新源文件后运行：
+
+```bash
+./scripts/render_architecture_diagrams.sh --generate
+./scripts/render_architecture_diagrams.sh --check
+```

@@ -3,7 +3,7 @@
 
 #include "adapter/adapter_validation_helper.h"
 #include "adapter/business_adapter_registry.h"
-#include "business/cross_rerank/cross_rerank_dto.h"
+#include "business/cross_rerank/cross_rerank_contract.h"
 #include "company_alg_interface.h"
 
 namespace alg_framework {
@@ -17,17 +17,20 @@ class CrossRerankAdapter : public IBusinessAdapter {
   const char* BizName() const override { return "CrossRerank"; }
 
   const AdapterDescriptor& GetDescriptor() const override {
-    static AdapterDescriptor desc{
-        ALG_BIZ_TYPE_CROSS_RERANK,
-        "CrossRerank",
-        "2.0.0",
-        "CompanyRerankBatchInputStruct",
-        "CompanyRerankBatchOutputStruct",
-        64,
-        OwnershipPolicy::kCopyIn,
-        ThreadModel::kStatelessThreadSafe,
-        OutputCardinality::kOneToOne,
-        {"dense_cross_rerank_scoring"}};  // RECHECK-002: 精确白名单
+    static AdapterDescriptor desc{ALG_BIZ_TYPE_CROSS_RERANK,
+                                  "CrossRerank",
+                                  "2.0.0",
+                                  "CompanyRerankBatchInputStruct",
+                                  "CompanyRerankBatchOutputStruct",
+                                  64,
+                                  OwnershipPolicy::kCopyIn,
+                                  ThreadModel::kStatelessThreadSafe,
+                                  OutputCardinality::kOneToOne,
+                                  {{kCrossRerankBusinessName,
+                                    "cross_rerank",
+                                    "Cross-Encoder 精排",
+                                    {RequiredInput(kRawRerankInputs)},
+                                    {Output(kRerankBatchFinalOutputs)}}}};
     return desc;
   }
 
@@ -89,7 +92,7 @@ class CrossRerankAdapter : public IBusinessAdapter {
       raw_inputs.push_back(std::move(query_item));
     }
 
-    ctx->Set("raw_rerank_inputs", std::move(raw_inputs));
+    ctx->Set(kRawRerankInputs, std::move(raw_inputs));
     return COMPANY_ALG_SUCCESS;
   }
 
@@ -103,8 +106,7 @@ class CrossRerankAdapter : public IBusinessAdapter {
       return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     }
 
-    auto* res =
-        ctx->Get<std::vector<RerankQueryResult>>("rerank_batch_final_outputs");
+    auto* res = ctx->Get(kRerankBatchFinalOutputs);
     if (!res) {
       if (out_status) {
         *out_status = AdapterStatus::BufferTooSmall(

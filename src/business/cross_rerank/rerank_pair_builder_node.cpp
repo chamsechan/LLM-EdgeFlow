@@ -2,30 +2,25 @@
 #include <string>
 #include <vector>
 
+#include "business/cross_rerank/cross_rerank_contract.h"
 #include "business/cross_rerank/cross_rerank_dto.h"
-#include "core/alg_context.h"
-#include "core/node_base.h"
 #include "core/node_registry.h"
 #include "core/traceable_item.h"
 #include "engine/engine_interface.h"
+#include "nodes/node_support.h"
 
 namespace alg_framework {
 
-class RerankPairBuilderNode : public INode {
+class RerankPairBuilderNode final : public NodeBase {
  public:
-  bool Init(const nlohmann::json& config,
-            SessionContext* session_ctx) override {
-    (void)config;
-    (void)session_ctx;
-    return true;
-  }
+  inline static constexpr char kNodeType[] = "RerankPairBuilderNode";
 
-  int Process(AlgContext* req_ctx) override {
-    auto* raw_inputs =
-        req_ctx->Get<std::vector<RerankQueryInput>>("raw_rerank_inputs");
+  RerankPairBuilderNode() : NodeBase(kNodeType) {}
+
+ protected:
+  int ProcessNode(AlgContext& req_ctx) override {
+    const auto* raw_inputs = Require(req_ctx, kRawRerankInputs, -7101);
     if (!raw_inputs) {
-      req_ctx->SetError(-7101,
-                        "RerankPairBuilderNode: Missing raw_rerank_inputs");
       return -7101;
     }
 
@@ -44,17 +39,25 @@ class RerankPairBuilderNode : public INode {
       }
     }
 
-    req_ctx->Set("rerank_pair_items", std::move(pair_items));
-    req_ctx->Set("rerank_counts_per_req", std::move(counts_per_req));
+    Publish(req_ctx, kRerankPairItems, std::move(pair_items));
+    Publish(req_ctx, kRerankCountsPerReq, std::move(counts_per_req));
     return 0;
-  }
-
-  const std::string& Name() const override {
-    static std::string name = "RerankPairBuilderNode";
-    return name;
   }
 };
 
-REGISTER_NODE(RerankPairBuilderNode);
+NodeDefinition MakeRerankPairBuilderNodeDefinition() {
+  NodeDefinition def;
+  def.node_type = RerankPairBuilderNode::kNodeType;
+  def.category = "business";
+  def.description = "Cross rerank pair builder node";
+  def.inputs = {RequiredInput(kRawRerankInputs)};
+  def.outputs = {Output(kRerankPairItems), Output(kRerankCountsPerReq)};
+  def.business_names = {kCrossRerankBusinessName};
+  def.parallel_safe = true;
+  return def;
+}
+
+REGISTER_NODE_WITH_DEFINITION(RerankPairBuilderNode,
+                              MakeRerankPairBuilderNodeDefinition());
 
 }  // namespace alg_framework

@@ -10,6 +10,8 @@ namespace alg_framework {
 
 class MockNpuAsrEngine : public IAudioAsrEngine {
  public:
+  inline static constexpr char kEngineType[] = "mock_npu_asr";
+
   MockNpuAsrEngine();
   ~MockNpuAsrEngine() override = default;
 

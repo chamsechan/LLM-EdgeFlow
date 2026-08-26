@@ -14,6 +14,8 @@ namespace alg_framework {
  */
 class MockNpuLlmEngine : public ILlmEngine {
  public:
+  inline static constexpr char kEngineType[] = "mock_npu_llm";
+
   MockNpuLlmEngine();
   ~MockNpuLlmEngine() override = default;
 

@@ -7,8 +7,8 @@
 
 #include "core/alg_context.h"
 #include "core/node_base.h"
-#include "core/pipeline_config.h"
 #include "core/pipeline_diagnostic.h"
+#include "core/pipeline_validator.h"
 #include "core/session_context.h"
 #include "core/thread_pool.h"
 
@@ -44,9 +44,11 @@ class Pipeline {
    * 拓扑分层与执行器组装)
    */
   bool BuildFromConfigFile(const std::string& config_file_path,
-                           PipelineDiagnostic* diagnostic = nullptr);
+                           PipelineDiagnostic* diagnostic = nullptr,
+                           ValidationPolicy policy = ValidationPolicy::kStrict);
   bool BuildFromJson(const nlohmann::json& root_config,
-                     PipelineDiagnostic* diagnostic = nullptr);
+                     PipelineDiagnostic* diagnostic = nullptr,
+                     ValidationPolicy policy = ValidationPolicy::kStrict);
 
   /**
    * @brief 按照拓扑排序/波前序列执行单次批次管线推理
@@ -73,18 +75,8 @@ class Pipeline {
   }
 
  private:
-  struct DagPlan {
-    std::vector<std::vector<ParsedNodeConfig>> sorted_layers;
-    std::vector<std::string> topological_order;
-    std::vector<std::vector<std::string>> topological_layers_ids;
-  };
-
-  static bool ResolveDagTopologicalSort(
-      const std::vector<ParsedNodeConfig>& raw_nodes, DagPlan* plan,
-      PipelineDiagnostic* diagnostic);
-
   bool BuildInternal(const nlohmann::json& root_config,
-                     PipelineDiagnostic* diagnostic);
+                     PipelineDiagnostic* diagnostic, ValidationPolicy policy);
 
   friend class PipelineConfigTest;
   std::function<void()> test_internal_hook_;

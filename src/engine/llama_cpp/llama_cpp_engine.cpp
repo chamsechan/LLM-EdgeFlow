@@ -81,7 +81,7 @@ bool LlamaCppEngine::Load(const std::string& model_path,
 }
 
 const std::string& LlamaCppEngine::EngineType() const {
-  static std::string type = "llama_cpp";
+  static const std::string type = kEngineType;
   return type;
 }
 
@@ -267,6 +267,22 @@ std::string LlamaCppEngine::GenerateLlamaResponse(
          "端热插拔能力。";
 }
 
-REGISTER_ENGINE("llama_cpp", LlamaCppEngine);
+EngineDefinition MakeLlamaCppDefinition() {
+  EngineDefinition def;
+  def.engine_type = LlamaCppEngine::kEngineType;
+  def.capability = "llm";
+  def.description = "llama.cpp LLM engine";
+  def.config_fields = {
+      ConfigFieldDefinition{"max_batch_size", ConfigValueKind::kInteger, false,
+                            2, 1.0, 4096.0},
+      ConfigFieldDefinition{"max_seq_len", ConfigValueKind::kInteger, false,
+                            1024, 1.0, 1048576.0},
+      ConfigFieldDefinition{"device_id", ConfigValueKind::kInteger, false, -1,
+                            -1.0, 1024.0}};
+  def.thread_model = EngineThreadModel::kSerialized;
+  return def;
+}
+
+REGISTER_ENGINE_WITH_DEFINITION(LlamaCppEngine, MakeLlamaCppDefinition());
 
 }  // namespace alg_framework

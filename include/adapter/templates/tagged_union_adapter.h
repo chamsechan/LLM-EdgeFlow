@@ -65,16 +65,18 @@ class TemplateTaggedUnionAdapter : public IBusinessAdapter {
   const char* BizName() const override { return "TemplateTaggedUnion"; }
 
   const AdapterDescriptor& GetDescriptor() const override {
-    static AdapterDescriptor desc{static_cast<CompanyAlgBizType>(102),
-                                  "TemplateTaggedUnion",
-                                  "2.0.0",
-                                  "TemplateTaggedUnionInput",
-                                  "TemplateTaggedUnionOutput",
-                                  64,
-                                  OwnershipPolicy::kCopyIn,
-                                  ThreadModel::kStatelessThreadSafe,
-                                  OutputCardinality::kOneToOne,
-                                  {"template_tagged_union_pipeline_v1"}};
+    static AdapterDescriptor desc{
+        static_cast<CompanyAlgBizType>(102),
+        "TemplateTaggedUnion",
+        "2.0.0",
+        "TemplateTaggedUnionInput",
+        "TemplateTaggedUnionOutput",
+        64,
+        OwnershipPolicy::kCopyIn,
+        ThreadModel::kStatelessThreadSafe,
+        OutputCardinality::kOneToOne,
+        {BusinessDefinition{"TemplateTaggedUnion",
+                            "template_tagged_union_pipeline_v1"}}};
     return desc;
   }
 

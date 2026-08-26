@@ -22,7 +22,7 @@ bool MockNpuAsrEngine::Load(const std::string& model_path,
 }
 
 const std::string& MockNpuAsrEngine::EngineType() const {
-  static std::string type = "mock_npu_asr";
+  static const std::string type = kEngineType;
   return type;
 }
 
@@ -76,6 +76,20 @@ int MockNpuAsrEngine::RawNpuAsrHardwareInfer(
   return 0;
 }
 
-REGISTER_ENGINE("mock_npu_asr", MockNpuAsrEngine);
+EngineDefinition MakeMockNpuAsrDefinition() {
+  EngineDefinition def;
+  def.engine_type = MockNpuAsrEngine::kEngineType;
+  def.capability = "asr";
+  def.description = "Mock NPU ASR engine";
+  def.config_fields = {
+      ConfigFieldDefinition{"max_batch_size", ConfigValueKind::kInteger, false,
+                            2, 1.0, 4096.0},
+      ConfigFieldDefinition{"device_id", ConfigValueKind::kInteger, false, -1,
+                            -1.0, 1024.0}};
+  def.thread_model = EngineThreadModel::kSerialized;
+  return def;
+}
+
+REGISTER_ENGINE_WITH_DEFINITION(MockNpuAsrEngine, MakeMockNpuAsrDefinition());
 
 }  // namespace alg_framework

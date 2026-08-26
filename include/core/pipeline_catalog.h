@@ -5,6 +5,8 @@
 #include <string>
 #include <vector>
 
+#include "core/blackboard_key.h"
+
 namespace alg_framework {
 
 enum class ConfigValueKind {
@@ -16,12 +18,41 @@ enum class ConfigValueKind {
   kArray,
 };
 
+enum class EngineThreadModel {
+  kSerialized = 0,
+  kConcurrent = 1,
+};
+
 struct PortDefinition {
   std::string key;
   std::string type_id;
   bool required = true;
   bool allow_override = false;
+
+  PortDefinition() = default;
+  PortDefinition(std::string k, std::string t, bool req = true,
+                 bool allow_ovr = false)
+      : key(std::move(k)),
+        type_id(std::move(t)),
+        required(req),
+        allow_override(allow_ovr) {}
 };
+
+template <typename T>
+inline PortDefinition RequiredInput(const BlackboardKey<T>& key) {
+  return PortDefinition{key.name, key.type_id, true, false};
+}
+
+template <typename T>
+inline PortDefinition OptionalInput(const BlackboardKey<T>& key) {
+  return PortDefinition{key.name, key.type_id, false, false};
+}
+
+template <typename T>
+inline PortDefinition Output(const BlackboardKey<T>& key,
+                             bool allow_override = false) {
+  return PortDefinition{key.name, key.type_id, true, allow_override};
+}
 
 struct ConfigFieldDefinition {
   std::string name;
@@ -32,6 +63,23 @@ struct ConfigFieldDefinition {
   std::optional<double> maximum;
   std::vector<std::string> enum_values;
   std::string semantic;
+
+  ConfigFieldDefinition() = default;
+  ConfigFieldDefinition(std::string field_name, ConfigValueKind value_kind,
+                        bool is_required = false,
+                        nlohmann::json field_default = nlohmann::json(),
+                        std::optional<double> field_minimum = std::nullopt,
+                        std::optional<double> field_maximum = std::nullopt,
+                        std::vector<std::string> allowed_values = {},
+                        std::string field_semantic = {})
+      : name(std::move(field_name)),
+        kind(value_kind),
+        required(is_required),
+        default_value(std::move(field_default)),
+        minimum(field_minimum),
+        maximum(field_maximum),
+        enum_values(std::move(allowed_values)),
+        semantic(std::move(field_semantic)) {}
 };
 
 struct NodeDefinition {
@@ -43,7 +91,7 @@ struct NodeDefinition {
   std::vector<ConfigFieldDefinition> config_fields;
   std::string model_capability;
   std::string model_config_field;
-  bool parallel_safe = true;
+  bool parallel_safe = false;
   std::vector<std::string> business_names;
 };
 
@@ -52,6 +100,7 @@ struct EngineDefinition {
   std::string capability;
   std::string description;
   std::vector<ConfigFieldDefinition> config_fields;
+  EngineThreadModel thread_model = EngineThreadModel::kSerialized;
 };
 
 struct BusinessDefinition {
@@ -60,12 +109,26 @@ struct BusinessDefinition {
   std::string display_name;
   std::vector<PortDefinition> ingress;
   std::vector<PortDefinition> egress;
+
+  BusinessDefinition() = default;
+  BusinessDefinition(std::string name, std::string demo,
+                     std::string display = {},
+                     std::vector<PortDefinition> in = {},
+                     std::vector<PortDefinition> out = {})
+      : business_name(std::move(name)),
+        demo_business(std::move(demo)),
+        display_name(std::move(display)),
+        ingress(std::move(in)),
+        egress(std::move(out)) {}
 };
 
 class PipelineCatalog {
  public:
   static bool RegisterNodeDefinition(const NodeDefinition& definition);
   static bool RegisterEngineDefinition(const EngineDefinition& definition);
+  static bool RegisterBusinessDefinition(const BusinessDefinition& definition);
+  static bool RegisterBusinessDefinitions(
+      const std::vector<BusinessDefinition>& definitions);
 
   static const std::vector<NodeDefinition>& Nodes();
   static const std::vector<EngineDefinition>& Engines();
@@ -76,11 +139,7 @@ class PipelineCatalog {
   static const BusinessDefinition* FindBusiness(
       const std::string& business_name);
 
-  /** Transitional source definitions used by the production registration
-   * macros. */
-  static const NodeDefinition* FindBuiltinNode(const std::string& node_type);
-  static const EngineDefinition* FindBuiltinEngine(
-      const std::string& engine_type);
+  static void ClearForTesting();
 
   static nlohmann::json ToJson(
       const std::string& business_filter = std::string());
@@ -88,5 +147,6 @@ class PipelineCatalog {
 };
 
 const char* ConfigValueKindName(ConfigValueKind kind);
+const char* EngineThreadModelName(EngineThreadModel model);
 
 }  // namespace alg_framework

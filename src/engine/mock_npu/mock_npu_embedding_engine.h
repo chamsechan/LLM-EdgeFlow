@@ -15,6 +15,8 @@ namespace alg_framework {
  */
 class MockNpuEmbeddingEngine : public IEmbeddingEngine {
  public:
+  inline static constexpr char kEngineType[] = "mock_npu_embedding";
+
   MockNpuEmbeddingEngine();
   ~MockNpuEmbeddingEngine() override = default;
 

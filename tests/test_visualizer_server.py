@@ -3,6 +3,7 @@
 
 import importlib.util
 import json
+import os
 from pathlib import Path
 import subprocess
 import tempfile
@@ -13,6 +14,11 @@ import urllib.request
 
 
 ROOT = Path(__file__).resolve().parents[1]
+PIPELINE_TOOL = Path(
+    os.environ.get(
+        "LLM_EDGEFLOW_PIPELINE_TOOL", ROOT / "build" / "alg_pipeline_tool"
+    )
+)
 SPEC = importlib.util.spec_from_file_location("edgeflow_show", ROOT / "scripts" / "show.py")
 SHOW = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(SHOW)
@@ -88,7 +94,7 @@ class WorkbenchServiceTest(unittest.TestCase):
 class PipelineCliTest(unittest.TestCase):
     def command(self, *args, input_pipeline=None):
         process = subprocess.run(
-            [str(ROOT / "build" / "alg_pipeline_tool"), *args],
+            [str(PIPELINE_TOOL), *args],
             input=None if input_pipeline is None else json.dumps(input_pipeline),
             text=True,
             capture_output=True,
@@ -195,6 +201,66 @@ class HttpApiTest(unittest.TestCase):
             payload = json.load(response)
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["schema_version"], 1)
+
+    def test_invalid_fixtures_table_driven_parity_matrix(self):
+        fixture_path = (
+            ROOT
+            / "tests"
+            / "fixtures"
+            / "pipeline_validation"
+            / "invalid_pipeline_cases.json"
+        )
+        fixtures = json.loads(fixture_path.read_text(encoding="utf-8"))
+        self.assertEqual(fixtures["schema_version"], 1)
+
+        for case in fixtures["cases"]:
+            with self.subTest(case=case["name"]):
+                pipeline = case["pipeline"]
+                proc_val = subprocess.run(
+                    [str(PIPELINE_TOOL), "validate", "--stdin"],
+                    input=json.dumps(pipeline),
+                    text=True,
+                    capture_output=True,
+                    cwd=ROOT,
+                    check=False,
+                )
+                self.assertEqual(proc_val.returncode, 1)
+                cli_val = json.loads(proc_val.stdout)
+                self.assertFalse(cli_val["ok"])
+                self.assertEqual(
+                    cli_val["diagnostics"][0]["code"], case["primary_code"]
+                )
+                self.assertEqual(
+                    cli_val["diagnostics"][0]["path"], case["primary_path"]
+                )
+                actual_codes = {item["code"] for item in cli_val["diagnostics"]}
+                self.assertTrue(set(case["required_codes"]).issubset(actual_codes))
+
+                req = urllib.request.Request(
+                    self.base + "/validate",
+                    data=json.dumps({"pipeline": pipeline}).encode(),
+                    method="POST",
+                    headers={"Content-Type": "application/json"},
+                )
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    api_val = json.load(resp)
+
+                # Web is a byte-semantic pass-through of the CLI/Validator
+                # report; all optional diagnostic fields are compared.
+                self.assertEqual(api_val, cli_val)
+
+                proc_plan = subprocess.run(
+                    [str(PIPELINE_TOOL), "plan", "--stdin"],
+                    input=json.dumps(pipeline),
+                    text=True,
+                    capture_output=True,
+                    cwd=ROOT,
+                    check=False,
+                )
+                self.assertEqual(proc_plan.returncode, 1)
+                cli_plan = json.loads(proc_plan.stdout)
+                # Invalid plan requests retain the exact diagnostic report.
+                self.assertEqual(cli_plan, cli_val)
 
 
 if __name__ == "__main__":

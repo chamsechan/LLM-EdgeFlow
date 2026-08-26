@@ -3,37 +3,36 @@
 #include <iostream>
 #include <map>
 
-#include "core/node_base.h"
+#include "business/doc_qa/doc_qa_contract.h"
 #include "core/node_registry.h"
 #include "core/traceable_item.h"
+#include "nodes/node_support.h"
 
 namespace alg_framework {
 
 /**
- * @brief 通用向量相似度检索与重排算子
+ * @brief 向量相似度检索与重排算子
  */
-class VectorSearchNode : public INode {
+class VectorSearchNode final : public NodeBase {
  public:
-  bool Init(const nlohmann::json& config,
-            SessionContext* session_ctx) override {
+  inline static constexpr char kNodeType[] = "VectorSearchNode";
+
+  VectorSearchNode() : NodeBase(kNodeType) {}
+
+ protected:
+  bool InitNode(const nlohmann::json& config,
+                SessionContext& /*session_ctx*/) override {
     top_k_ = config.value("top_k", 1);
     min_score_ = config.value("min_score", 0.0f);
     return true;
   }
 
-  int Process(AlgContext* req_ctx) override {
-    auto* chunk_embeddings =
-        req_ctx->Get<std::vector<TraceableItem<std::vector<float>>>>(
-            "chunk_embeddings");
-    auto* chunk_texts = req_ctx->Get<std::vector<TraceableItem<std::string>>>(
-        "chunked_doc_items");
-    auto* query_embeddings =
-        req_ctx->Get<std::vector<TraceableItem<std::vector<float>>>>(
-            "query_embeddings");
+  int ProcessNode(AlgContext& req_ctx) override {
+    const auto* chunk_embeddings = Require(req_ctx, kChunkEmbeddings, -3101);
+    const auto* chunk_texts = Require(req_ctx, kChunkedDocItems, -3101);
+    const auto* query_embeddings = Require(req_ctx, kQueryEmbeddings, -3101);
 
     if (!chunk_embeddings || !chunk_texts || !query_embeddings) {
-      req_ctx->SetError(-3101,
-                        "VectorSearchNode: Missing embeddings in context");
       return -3101;
     }
 
@@ -63,7 +62,9 @@ class VectorSearchNode : public INode {
       for (size_t c_idx : req_to_chunk_indices[r_id]) {
         const auto& c_vec = (*chunk_embeddings)[c_idx].data;
         float score = CosineSimilarity(q_vec, c_vec);
-        scores.push_back({c_idx, score});
+        if (score >= min_score_) {
+          scores.push_back({c_idx, score});
+        }
       }
 
       std::sort(scores.begin(), scores.end(),
@@ -79,13 +80,8 @@ class VectorSearchNode : public INode {
       }
     }
 
-    req_ctx->Set("matched_top_chunks", std::move(top_matched_chunks));
+    Publish(req_ctx, kMatchedTopChunks, std::move(top_matched_chunks));
     return 0;
-  }
-
-  const std::string& Name() const override {
-    static std::string name = "VectorSearchNode";
-    return name;
   }
 
  private:
@@ -96,14 +92,39 @@ class VectorSearchNode : public INode {
     for (size_t i = 0; i < v1.size(); ++i) {
       dot += v1[i] * v2[i];
     }
-    return dot;  // 假设底层已做 L2 归一化
+    float norm1 = 0.0f;
+    float norm2 = 0.0f;
+    for (float f : v1) norm1 += f * f;
+    for (float f : v2) norm2 += f * f;
+    if (norm1 <= 0.0f || norm2 <= 0.0f) return 0.0f;
+    return dot / (std::sqrt(norm1) * std::sqrt(norm2));
   }
 
- private:
   size_t top_k_ = 1;
   float min_score_ = 0.0f;
 };
 
-REGISTER_NODE(VectorSearchNode);
+NodeDefinition MakeVectorSearchNodeDefinition() {
+  NodeDefinition def;
+  def.node_type = VectorSearchNode::kNodeType;
+  def.category = "business";
+  def.description = "Vector search ranking node";
+  def.inputs = {RequiredInput(kChunkEmbeddings),
+                RequiredInput(kChunkedDocItems),
+                RequiredInput(kQueryEmbeddings)};
+  def.outputs = {Output(kMatchedTopChunks)};
+  def.config_fields = {
+      ConfigFieldDefinition{"top_k", ConfigValueKind::kInteger, false, 1, 1.0,
+                            1000.0},
+      ConfigFieldDefinition{"min_score", ConfigValueKind::kNumber, false, 0.0,
+                            -1.0, 1.0}};
+  def.business_names = {kDocQaBusinessName, kDocQaOnnxBusinessName,
+                        kDocQaRerankBusinessName};
+  def.parallel_safe = true;
+  return def;
+}
+
+REGISTER_NODE_WITH_DEFINITION(VectorSearchNode,
+                              MakeVectorSearchNodeDefinition());
 
 }  // namespace alg_framework

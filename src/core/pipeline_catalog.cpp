@@ -2,370 +2,13 @@
 
 #include <algorithm>
 #include <mutex>
+#include <unordered_set>
 #include <utility>
 
 namespace alg_framework {
 namespace {
 
 using Kind = ConfigValueKind;
-
-PortDefinition Port(std::string key, std::string type, bool required = true,
-                    bool allow_override = false) {
-  return {std::move(key), std::move(type), required, allow_override};
-}
-
-ConfigFieldDefinition Field(std::string name, Kind kind,
-                            nlohmann::json default_value = nullptr,
-                            std::optional<double> minimum = std::nullopt,
-                            std::optional<double> maximum = std::nullopt,
-                            std::string semantic = {}) {
-  ConfigFieldDefinition result;
-  result.name = std::move(name);
-  result.kind = kind;
-  result.default_value = std::move(default_value);
-  result.minimum = minimum;
-  result.maximum = maximum;
-  result.semantic = std::move(semantic);
-  return result;
-}
-
-std::vector<std::string> DocBusinesses() {
-  return {"smart_doc_qa_v1", "smart_doc_qa_onnx_llamacpp_v1",
-          "smart_doc_qa_rerank_llm_v1"};
-}
-
-NodeDefinition Node(std::string type, std::string category,
-                    std::string description, std::vector<PortDefinition> inputs,
-                    std::vector<PortDefinition> outputs,
-                    std::vector<ConfigFieldDefinition> fields = {},
-                    std::string capability = {},
-                    std::vector<std::string> businesses = {}) {
-  NodeDefinition result;
-  result.node_type = std::move(type);
-  result.category = std::move(category);
-  result.description = std::move(description);
-  result.inputs = std::move(inputs);
-  result.outputs = std::move(outputs);
-  result.config_fields = std::move(fields);
-  result.model_capability = std::move(capability);
-  result.model_config_field =
-      result.model_capability.empty() ? std::string() : "bind_model";
-  result.business_names = std::move(businesses);
-  return result;
-}
-
-const std::vector<NodeDefinition>& BuiltinNodes() {
-  static const std::vector<NodeDefinition> nodes = {
-      Node("DocChunkPreNode", "preprocess", "长文档切片与请求溯源",
-           {Port("raw_docs", "vector<string>"),
-            Port("raw_queries", "vector<string>")},
-           {Port("chunked_doc_items", "traceable<string>[]"),
-            Port("query_items", "traceable<string>[]"),
-            Port("chunk_counts_per_req", "vector<int>")},
-           {Field("chunk_size", Kind::kInteger, 100, 1, 1048576)}, {},
-           DocBusinesses()),
-      Node("DocEmbeddingNode", "inference", "文档与查询向量化",
-           {Port("chunked_doc_items", "traceable<string>[]"),
-            Port("query_items", "traceable<string>[]")},
-           {Port("chunk_embeddings", "traceable<vector<float>>[]"),
-            Port("query_embeddings", "traceable<vector<float>>[]")},
-           {Field("bind_model", Kind::kString, "embed_model_v1", std::nullopt,
-                  std::nullopt, "model_ref")},
-           "embedding", DocBusinesses()),
-      Node("VectorSearchNode", "search", "向量相似度 Top-K 检索",
-           {Port("chunk_embeddings", "traceable<vector<float>>[]"),
-            Port("chunked_doc_items", "traceable<string>[]"),
-            Port("query_embeddings", "traceable<vector<float>>[]")},
-           {Port("matched_top_chunks", "traceable<string>[]")},
-           {Field("top_k", Kind::kInteger, 1, 1, 1024),
-            Field("min_score", Kind::kNumber, 0.0, -1.0, 1.0)},
-           {}, DocBusinesses()),
-      Node("RerankRefineNode", "search", "对召回片段进行二次精排",
-           {Port("matched_top_chunks", "traceable<string>[]"),
-            Port("raw_queries", "vector<string>")},
-           {Port("matched_top_chunks", "traceable<string>[]", true, true)},
-           {Field("bind_model", Kind::kString, "rerank_model_v1", std::nullopt,
-                  std::nullopt, "model_ref"),
-            Field("top_k", Kind::kInteger, 1, 1, 1024),
-            Field("candidates_key", Kind::kString, "matched_top_chunks"),
-            Field("query_key", Kind::kString, "raw_queries"),
-            Field("output_key", Kind::kString, "matched_top_chunks")},
-           "rerank", DocBusinesses()),
-      Node("PromptBuilderNode", "preprocess", "组装 RAG Prompt",
-           {Port("matched_top_chunks", "traceable<string>[]"),
-            Port("raw_queries", "vector<string>")},
-           {Port("llm_input_prompts", "traceable<string>[]")},
-           {Field("template", Kind::kString,
-                  "Context: {context}\nQuery: {query}\nAnswer:")},
-           {}, DocBusinesses()),
-      Node("IntentRuleNode", "rule", "基于规则识别查询意图",
-           {Port("raw_queries", "vector<string>")},
-           {Port("recognized_intents", "vector<string>"),
-            Port("intent_confidences", "vector<float>")},
-           {Field("threshold", Kind::kNumber, 0.75, 0.0, 1.0),
-            Field("default_intent", Kind::kString, "GENERAL_CONSULT"),
-            Field("rules", Kind::kObject, nlohmann::json::object())},
-           {}, DocBusinesses()),
-      Node("LlmGenerateNode", "inference", "批量 LLM 文本生成",
-           {Port("llm_input_prompts", "traceable<string>[]")},
-           {Port("generated_llm_answers", "traceable<string>[]")},
-           {Field("bind_model", Kind::kString, "llm_model_v1", std::nullopt,
-                  std::nullopt, "model_ref"),
-            Field("temperature", Kind::kNumber, 0.7, 0.0, 2.0),
-            Field("max_tokens", Kind::kInteger, 128, 1, 32768)},
-           "llm",
-           {"smart_doc_qa_v1", "smart_doc_qa_onnx_llamacpp_v1",
-            "smart_doc_qa_rerank_llm_v1", "entity_extract_0.6b_v1",
-            "entity_extract_llamacpp_0.6b_v1", "multimodal_ocr_invoice_qa"}),
-      Node("DocQaPostNode", "postprocess", "聚合文档问答结果",
-           {Port("raw_request_ids", "vector<uint64>"),
-            Port("recognized_intents", "vector<string>"),
-            Port("intent_confidences", "vector<float>"),
-            Port("chunk_counts_per_req", "vector<int>"),
-            Port("generated_llm_answers", "traceable<string>[]")},
-           {Port("final_doc_outputs", "vector<DocQaResult>")}, {}, {},
-           DocBusinesses()),
-      Node("KeywordMatcherNode", "rule", "分类关键词匹配",
-           {Port("input_sentences", "vector<string>"),
-            Port("raw_request_ids", "vector<uint64>")},
-           {Port("keyword_match_outputs", "vector<KeywordMatchResult>")},
-           {Field("default_categories", Kind::kObject,
-                  nlohmann::json::object())},
-           {}, {"keyword_match_v1"}),
-      Node("EntityExtractPreNode", "preprocess", "实体抽取 Prompt 构造",
-           {Port("input_sentences", "vector<string>")},
-           {Port("llm_input_prompts", "traceable<string>[]")},
-           {Field("prompt_template", Kind::kString,
-                  "请提取句子中的实体和名词：{text}")},
-           {}, {"entity_extract_0.6b_v1", "entity_extract_llamacpp_0.6b_v1"}),
-      Node("EntityExtractPostNode", "postprocess", "实体抽取结果封装",
-           {Port("raw_request_ids", "vector<uint64>"),
-            Port("generated_llm_answers", "traceable<string>[]")},
-           {Port("entity_extract_outputs", "vector<EntityExtractResult>")}, {},
-           {}, {"entity_extract_0.6b_v1", "entity_extract_llamacpp_0.6b_v1"}),
-      Node("SafetyRulePreNode", "rule", "对话黑名单规则过滤",
-           {Port("user_texts", "vector<string>")},
-           {Port("hard_risk_flags", "vector<bool>"),
-            Port("hit_keywords", "vector<vector<string>>")},
-           {Field("blacklist", Kind::kArray, nlohmann::json::array())}, {},
-           {"dialogue_compliance_audit_v1"}),
-      Node("DenseRetrievalNode", "search", "召回候选风控制度",
-           {Port("user_texts", "vector<string>")},
-           {Port("candidate_policies", "traceable<vector<string>>[]")},
-           {Field("bind_model", Kind::kString, "embed_model_v2", std::nullopt,
-                  std::nullopt, "model_ref")},
-           "embedding", {"dialogue_compliance_audit_v1"}),
-      Node("CrossRerankNode", "inference", "风控制度 Cross-Encoder 精排",
-           {Port("user_texts", "vector<string>"),
-            Port("candidate_policies", "traceable<vector<string>>[]")},
-           {Port("matched_policy_clauses", "vector<string>"),
-            Port("rerank_scores", "vector<float>")},
-           {Field("bind_model", Kind::kString, "rerank_model_v1", std::nullopt,
-                  std::nullopt, "model_ref")},
-           "rerank", {"dialogue_compliance_audit_v1"}),
-      Node("RiskPromptNode", "preprocess", "构造风控审核 Prompt",
-           {Port("user_texts", "vector<string>"),
-            Port("matched_policy_clauses", "vector<string>"),
-            Port("hard_risk_flags", "vector<bool>")},
-           {Port("llm_audit_prompts", "traceable<string>[]")},
-           {Field("template", Kind::kString, "{user_text}\n{policy}")}, {},
-           {"dialogue_compliance_audit_v1"}),
-      Node("LlmAuditNode", "inference", "LLM 合规审核",
-           {Port("llm_audit_prompts", "traceable<string>[]")},
-           {Port("generated_verdicts", "traceable<string>[]")},
-           {Field("bind_model", Kind::kString, "audit_llm_v1", std::nullopt,
-                  std::nullopt, "model_ref"),
-            Field("temperature", Kind::kNumber, 0.1, 0.0, 2.0),
-            Field("max_tokens", Kind::kInteger, 256, 1, 32768)},
-           "llm", {"dialogue_compliance_audit_v1"}),
-      Node("AuditPostNode", "postprocess", "聚合合规审核结果",
-           {Port("raw_request_ids", "vector<uint64>"),
-            Port("matched_policy_clauses", "vector<string>"),
-            Port("rerank_scores", "vector<float>", false),
-            Port("generated_verdicts", "traceable<string>[]")},
-           {Port("compliance_audit_outputs", "vector<DialogueAuditResult>")},
-           {}, {}, {"dialogue_compliance_audit_v1"}),
-      Node("ImagePreNode", "preprocess", "图像请求预处理与溯源",
-           {Port("raw_image_paths", "vector<string>"),
-            Port("raw_queries", "vector<string>"),
-            Port("raw_request_ids", "vector<uint64>")},
-           {Port("traceable_image_items", "traceable<string>[]")}, {}, {},
-           {"multimodal_ocr_invoice_qa"}),
-      Node("OcrInferNode", "inference", "OCR 检测识别与 Prompt 组装",
-           {Port("traceable_image_items", "traceable<string>[]"),
-            Port("raw_queries", "vector<string>"),
-            Port("raw_request_ids", "vector<uint64>")},
-           {Port("ocr_box_counts", "vector<int>"),
-            Port("llm_input_prompts", "traceable<string>[]")},
-           {Field("bind_model", Kind::kString, "ocr_model_v1", std::nullopt,
-                  std::nullopt, "model_ref")},
-           "ocr", {"multimodal_ocr_invoice_qa"}),
-      Node("OcrDocPostNode", "postprocess", "OCR 文档结果封装",
-           {Port("raw_request_ids", "vector<uint64>"),
-            Port("ocr_box_counts", "vector<int>"),
-            Port("generated_llm_answers", "traceable<string>[]")},
-           {Port("ocr_doc_final_outputs", "vector<OcrDocResult>")}, {}, {},
-           {"multimodal_ocr_invoice_qa"}),
-      Node("AudioFeaturePreNode", "preprocess", "音频输入溯源与特征准备",
-           {Port("raw_audio_inputs", "vector<AudioInputDto>"),
-            Port("raw_request_ids", "vector<uint64>")},
-           {Port("traceable_audio_items", "traceable<AudioPcmData>[]")}, {}, {},
-           {"speech_audio_asr_intent_slot"}),
-      Node("AsrInferNode", "inference", "ASR 批量转写",
-           {Port("traceable_audio_items", "traceable<AudioPcmData>[]")},
-           {Port("asr_transcripts", "traceable<string>[]")},
-           {Field("bind_model", Kind::kString, "asr_model_v1", std::nullopt,
-                  std::nullopt, "model_ref")},
-           "asr", {"speech_audio_asr_intent_slot"}),
-      Node("SlotExtractNode", "rule", "语音意图与槽位提取",
-           {Port("asr_transcripts", "traceable<string>[]")},
-           {Port("intent_slot_results", "vector<string>")}, {}, {},
-           {"speech_audio_asr_intent_slot"}),
-      Node("AudioPostNode", "postprocess", "语音结果封装",
-           {Port("raw_request_ids", "vector<uint64>"),
-            Port("asr_transcripts", "traceable<string>[]"),
-            Port("intent_slot_results", "vector<string>")},
-           {Port("audio_final_outputs", "vector<AudioAsrResult>")}, {}, {},
-           {"speech_audio_asr_intent_slot"}),
-      Node("RerankPairBuilderNode", "preprocess", "构建 Query-Passage 对",
-           {Port("raw_rerank_inputs", "vector<RerankQueryInput>")},
-           {Port("rerank_pair_items", "traceable<PairInput>[]"),
-            Port("rerank_counts_per_req", "vector<int>")},
-           {}, {}, {"dense_cross_rerank_scoring"}),
-      Node("CrossRerankBatchNode", "inference", "批量语义精排打分",
-           {Port("rerank_pair_items", "traceable<PairInput>[]")},
-           {Port("rerank_scored_items", "traceable<float>[]")},
-           {Field("bind_model", Kind::kString, "rerank_model_v1", std::nullopt,
-                  std::nullopt, "model_ref")},
-           "rerank", {"dense_cross_rerank_scoring"}),
-      Node("RerankSortPostNode", "postprocess", "精排结果排序与封装",
-           {Port("raw_rerank_inputs", "vector<RerankQueryInput>"),
-            Port("rerank_scored_items", "traceable<float>[]")},
-           {Port("rerank_batch_final_outputs", "vector<RerankQueryResult>")},
-           {}, {}, {"dense_cross_rerank_scoring"}),
-  };
-  return nodes;
-}
-
-const std::vector<EngineDefinition>& BuiltinEngines() {
-  static const std::vector<EngineDefinition> engines = {
-      {"mock_npu_embedding",
-       "embedding",
-       "Mock NPU embedding engine",
-       {Field("max_batch_size", Kind::kInteger, 4, 1, 4096),
-        Field("embedding_dim", Kind::kInteger, 128, 1, 65536),
-        Field("device_id", Kind::kInteger, -1, -1, 1024)}},
-      {"onnx_embedding",
-       "embedding",
-       "ONNX Runtime embedding engine",
-       {Field("max_batch_size", Kind::kInteger, 4, 1, 4096),
-        Field("embedding_dim", Kind::kInteger, 128, 1, 65536),
-        Field("device_id", Kind::kInteger, -1, -1, 1024)}},
-      {"mock_npu_llm",
-       "llm",
-       "Mock NPU LLM engine",
-       {Field("max_batch_size", Kind::kInteger, 2, 1, 4096),
-        Field("max_seq_len", Kind::kInteger, 1024, 1, 1048576),
-        Field("device_id", Kind::kInteger, -1, -1, 1024)}},
-      {"llama_cpp",
-       "llm",
-       "llama.cpp LLM engine",
-       {Field("max_batch_size", Kind::kInteger, 2, 1, 4096),
-        Field("max_seq_len", Kind::kInteger, 1024, 1, 1048576),
-        Field("device_id", Kind::kInteger, -1, -1, 1024)}},
-      {"mock_npu_rerank",
-       "rerank",
-       "Mock NPU rerank engine",
-       {Field("max_batch_size", Kind::kInteger, 4, 1, 4096),
-        Field("device_id", Kind::kInteger, -1, -1, 1024)}},
-      {"onnx_rerank",
-       "rerank",
-       "ONNX Runtime rerank engine",
-       {Field("max_batch_size", Kind::kInteger, 4, 1, 4096),
-        Field("device_id", Kind::kInteger, -1, -1, 1024)}},
-      {"mock_npu_ocr",
-       "ocr",
-       "Mock NPU OCR engine",
-       {Field("max_batch_size", Kind::kInteger, 2, 1, 4096),
-        Field("device_id", Kind::kInteger, -1, -1, 1024)}},
-      {"mock_npu_asr",
-       "asr",
-       "Mock NPU ASR engine",
-       {Field("max_batch_size", Kind::kInteger, 2, 1, 4096),
-        Field("device_id", Kind::kInteger, -1, -1, 1024)}},
-  };
-  return engines;
-}
-
-const std::vector<BusinessDefinition>& BuiltinBusinesses() {
-  static const std::vector<BusinessDefinition> businesses = {
-      {"keyword_match_v1",
-       "keyword_match",
-       "关注词匹配",
-       {Port("raw_request_ids", "vector<uint64>"),
-        Port("input_sentences", "vector<string>")},
-       {Port("keyword_match_outputs", "vector<KeywordMatchResult>")}},
-      {"entity_extract_0.6b_v1",
-       "entity_extract",
-       "实体抽取",
-       {Port("raw_request_ids", "vector<uint64>"),
-        Port("input_sentences", "vector<string>")},
-       {Port("entity_extract_outputs", "vector<EntityExtractResult>")}},
-      {"entity_extract_llamacpp_0.6b_v1",
-       "entity_extract",
-       "实体抽取（llama.cpp）",
-       {Port("raw_request_ids", "vector<uint64>"),
-        Port("input_sentences", "vector<string>")},
-       {Port("entity_extract_outputs", "vector<EntityExtractResult>")}},
-      {"smart_doc_qa_v1",
-       "doc_qa",
-       "智能文档问答",
-       {Port("raw_request_ids", "vector<uint64>"),
-        Port("raw_docs", "vector<string>"),
-        Port("raw_queries", "vector<string>")},
-       {Port("final_doc_outputs", "vector<DocQaResult>")}},
-      {"smart_doc_qa_onnx_llamacpp_v1",
-       "doc_qa",
-       "智能文档问答（ONNX/llama.cpp）",
-       {Port("raw_request_ids", "vector<uint64>"),
-        Port("raw_docs", "vector<string>"),
-        Port("raw_queries", "vector<string>")},
-       {Port("final_doc_outputs", "vector<DocQaResult>")}},
-      {"smart_doc_qa_rerank_llm_v1",
-       "doc_qa",
-       "智能文档问答（精排）",
-       {Port("raw_request_ids", "vector<uint64>"),
-        Port("raw_docs", "vector<string>"),
-        Port("raw_queries", "vector<string>")},
-       {Port("final_doc_outputs", "vector<DocQaResult>")}},
-      {"dialogue_compliance_audit_v1",
-       "dialogue_audit",
-       "对话合规审核",
-       {Port("raw_request_ids", "vector<uint64>"),
-        Port("user_texts", "vector<string>"),
-        Port("channel_names", "vector<string>")},
-       {Port("compliance_audit_outputs", "vector<DialogueAuditResult>")}},
-      {"multimodal_ocr_invoice_qa",
-       "ocr_doc_qa",
-       "OCR 票据问答",
-       {Port("raw_request_ids", "vector<uint64>"),
-        Port("raw_image_paths", "vector<string>"),
-        Port("raw_queries", "vector<string>")},
-       {Port("ocr_doc_final_outputs", "vector<OcrDocResult>")}},
-      {"speech_audio_asr_intent_slot",
-       "audio_asr",
-       "语音识别与意图槽位",
-       {Port("raw_request_ids", "vector<uint64>"),
-        Port("raw_audio_inputs", "vector<AudioInputDto>")},
-       {Port("audio_final_outputs", "vector<AudioAsrResult>")}},
-      {"dense_cross_rerank_scoring",
-       "cross_rerank",
-       "Cross-Encoder 精排",
-       {Port("raw_rerank_inputs", "vector<RerankQueryInput>")},
-       {Port("rerank_batch_final_outputs", "vector<RerankQueryResult>")}},
-  };
-  return businesses;
-}
 
 std::vector<NodeDefinition>& RegisteredNodes() {
   static std::vector<NodeDefinition> definitions;
@@ -374,6 +17,11 @@ std::vector<NodeDefinition>& RegisteredNodes() {
 
 std::vector<EngineDefinition>& RegisteredEngines() {
   static std::vector<EngineDefinition> definitions;
+  return definitions;
+}
+
+std::vector<BusinessDefinition>& RegisteredBusinesses() {
+  static std::vector<BusinessDefinition> definitions;
   return definitions;
 }
 
@@ -421,8 +69,90 @@ const char* ConfigValueKindName(ConfigValueKind kind) {
   return "unknown";
 }
 
+const char* EngineThreadModelName(EngineThreadModel model) {
+  switch (model) {
+    case EngineThreadModel::kSerialized:
+      return "serialized";
+    case EngineThreadModel::kConcurrent:
+      return "concurrent";
+  }
+  return "unknown";
+}
+
+bool MatchesKind(const nlohmann::json& value, ConfigValueKind kind) {
+  switch (kind) {
+    case ConfigValueKind::kString:
+      return value.is_string();
+    case ConfigValueKind::kInteger:
+      return value.is_number_integer();
+    case ConfigValueKind::kNumber:
+      return value.is_number();
+    case ConfigValueKind::kBoolean:
+      return value.is_boolean();
+    case ConfigValueKind::kObject:
+      return value.is_object();
+    case ConfigValueKind::kArray:
+      return value.is_array();
+  }
+  return false;
+}
+
+bool ValidateFieldDefinition(const ConfigFieldDefinition& field,
+                             std::unordered_set<std::string>& seen_names) {
+  if (field.name.empty()) return false;
+  if (!seen_names.insert(field.name).second) return false;
+  if (field.kind != ConfigValueKind::kInteger &&
+      field.kind != ConfigValueKind::kNumber) {
+    if (field.minimum.has_value() || field.maximum.has_value()) {
+      return false;
+    }
+  }
+  if (field.minimum.has_value() && field.maximum.has_value() &&
+      *field.minimum > *field.maximum) {
+    return false;
+  }
+  if (!field.enum_values.empty()) {
+    if (field.kind != ConfigValueKind::kString) return false;
+    std::unordered_set<std::string> seen_enums;
+    for (const auto& ev : field.enum_values) {
+      if (ev.empty() || !seen_enums.insert(ev).second) return false;
+    }
+  }
+  if (!field.default_value.is_null()) {
+    if (!MatchesKind(field.default_value, field.kind)) return false;
+    if (field.kind == ConfigValueKind::kInteger ||
+        field.kind == ConfigValueKind::kNumber) {
+      double val = field.default_value.get<double>();
+      if (field.minimum.has_value() && val < *field.minimum) return false;
+      if (field.maximum.has_value() && val > *field.maximum) return false;
+    } else if (field.kind == ConfigValueKind::kString &&
+               !field.enum_values.empty()) {
+      std::string val = field.default_value.get<std::string>();
+      if (std::find(field.enum_values.begin(), field.enum_values.end(), val) ==
+          field.enum_values.end()) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
 bool PipelineCatalog::RegisterNodeDefinition(const NodeDefinition& definition) {
   if (definition.node_type.empty()) return false;
+  std::unordered_set<std::string> seen_field_names;
+  for (const auto& field : definition.config_fields) {
+    if (!ValidateFieldDefinition(field, seen_field_names)) return false;
+  }
+  if (!definition.model_capability.empty()) {
+    if (definition.model_config_field.empty()) return false;
+    auto it = std::find_if(
+        definition.config_fields.begin(), definition.config_fields.end(),
+        [&](const auto& f) { return f.name == definition.model_config_field; });
+    if (it == definition.config_fields.end() ||
+        it->kind != ConfigValueKind::kString) {
+      return false;
+    }
+  }
   std::lock_guard<std::mutex> lock(CatalogMutex());
   auto& definitions = RegisteredNodes();
   if (std::any_of(definitions.begin(), definitions.end(),
@@ -442,6 +172,10 @@ bool PipelineCatalog::RegisterNodeDefinition(const NodeDefinition& definition) {
 bool PipelineCatalog::RegisterEngineDefinition(
     const EngineDefinition& definition) {
   if (definition.engine_type.empty()) return false;
+  std::unordered_set<std::string> seen_field_names;
+  for (const auto& field : definition.config_fields) {
+    if (!ValidateFieldDefinition(field, seen_field_names)) return false;
+  }
   std::lock_guard<std::mutex> lock(CatalogMutex());
   auto& definitions = RegisteredEngines();
   if (std::any_of(definitions.begin(), definitions.end(),
@@ -458,20 +192,58 @@ bool PipelineCatalog::RegisterEngineDefinition(
   return true;
 }
 
+bool PipelineCatalog::RegisterBusinessDefinition(
+    const BusinessDefinition& definition) {
+  return RegisterBusinessDefinitions({definition});
+}
+
+bool PipelineCatalog::RegisterBusinessDefinitions(
+    const std::vector<BusinessDefinition>& batch) {
+  if (batch.empty()) return false;
+  std::lock_guard<std::mutex> lock(CatalogMutex());
+  auto& definitions = RegisteredBusinesses();
+  std::vector<std::string> batch_names;
+  batch_names.reserve(batch.size());
+  for (const auto& definition : batch) {
+    if (definition.business_name.empty()) return false;
+    if (std::find(batch_names.begin(), batch_names.end(),
+                  definition.business_name) != batch_names.end()) {
+      return false;
+    }
+    if (std::any_of(definitions.begin(), definitions.end(),
+                    [&](const auto& item) {
+                      return item.business_name == definition.business_name;
+                    })) {
+      return false;
+    }
+    batch_names.push_back(definition.business_name);
+  }
+  definitions.insert(definitions.end(), batch.begin(), batch.end());
+  std::sort(definitions.begin(), definitions.end(),
+            [](const auto& lhs, const auto& rhs) {
+              return lhs.business_name < rhs.business_name;
+            });
+  return true;
+}
+
 const std::vector<NodeDefinition>& PipelineCatalog::Nodes() {
+  std::lock_guard<std::mutex> lock(CatalogMutex());
   return RegisteredNodes();
 }
 
 const std::vector<EngineDefinition>& PipelineCatalog::Engines() {
+  std::lock_guard<std::mutex> lock(CatalogMutex());
   return RegisteredEngines();
 }
 
 const std::vector<BusinessDefinition>& PipelineCatalog::Businesses() {
-  return BuiltinBusinesses();
+  std::lock_guard<std::mutex> lock(CatalogMutex());
+  return RegisteredBusinesses();
 }
 
 const NodeDefinition* PipelineCatalog::FindNode(const std::string& node_type) {
-  const auto& nodes = Nodes();
+  std::lock_guard<std::mutex> lock(CatalogMutex());
+  const auto& nodes = RegisteredNodes();
   auto it = std::find_if(nodes.begin(), nodes.end(), [&](const auto& item) {
     return item.node_type == node_type;
   });
@@ -480,7 +252,8 @@ const NodeDefinition* PipelineCatalog::FindNode(const std::string& node_type) {
 
 const EngineDefinition* PipelineCatalog::FindEngine(
     const std::string& engine_type) {
-  const auto& engines = Engines();
+  std::lock_guard<std::mutex> lock(CatalogMutex());
+  const auto& engines = RegisteredEngines();
   auto it = std::find_if(engines.begin(), engines.end(), [&](const auto& item) {
     return item.engine_type == engine_type;
   });
@@ -489,29 +262,19 @@ const EngineDefinition* PipelineCatalog::FindEngine(
 
 const BusinessDefinition* PipelineCatalog::FindBusiness(
     const std::string& business_name) {
-  const auto& businesses = Businesses();
+  std::lock_guard<std::mutex> lock(CatalogMutex());
+  const auto& businesses = RegisteredBusinesses();
   auto it = std::find_if(
       businesses.begin(), businesses.end(),
       [&](const auto& item) { return item.business_name == business_name; });
   return it == businesses.end() ? nullptr : &*it;
 }
 
-const NodeDefinition* PipelineCatalog::FindBuiltinNode(
-    const std::string& node_type) {
-  const auto& definitions = BuiltinNodes();
-  auto it = std::find_if(
-      definitions.begin(), definitions.end(),
-      [&](const auto& item) { return item.node_type == node_type; });
-  return it == definitions.end() ? nullptr : &*it;
-}
-
-const EngineDefinition* PipelineCatalog::FindBuiltinEngine(
-    const std::string& engine_type) {
-  const auto& definitions = BuiltinEngines();
-  auto it = std::find_if(
-      definitions.begin(), definitions.end(),
-      [&](const auto& item) { return item.engine_type == engine_type; });
-  return it == definitions.end() ? nullptr : &*it;
+void PipelineCatalog::ClearForTesting() {
+  std::lock_guard<std::mutex> lock(CatalogMutex());
+  RegisteredNodes().clear();
+  RegisteredEngines().clear();
+  RegisteredBusinesses().clear();
 }
 
 nlohmann::json PipelineCatalog::NodeToJson(const NodeDefinition& definition) {
@@ -537,7 +300,7 @@ nlohmann::json PipelineCatalog::NodeToJson(const NodeDefinition& definition) {
 nlohmann::json PipelineCatalog::ToJson(const std::string& business_filter) {
   nlohmann::json nodes = nlohmann::json::array();
   for (const auto& item : Nodes()) {
-    if (!business_filter.empty() &&
+    if (!business_filter.empty() && !item.business_names.empty() &&
         std::find(item.business_names.begin(), item.business_names.end(),
                   business_filter) == item.business_names.end()) {
       continue;
@@ -550,10 +313,12 @@ nlohmann::json PipelineCatalog::ToJson(const std::string& business_filter) {
     nlohmann::json fields = nlohmann::json::array();
     for (const auto& field : item.config_fields)
       fields.push_back(FieldJson(field));
-    engines.push_back({{"engine_type", item.engine_type},
-                       {"capability", item.capability},
-                       {"description", item.description},
-                       {"config_fields", std::move(fields)}});
+    engines.push_back(
+        {{"engine_type", item.engine_type},
+         {"capability", item.capability},
+         {"description", item.description},
+         {"thread_model", EngineThreadModelName(item.thread_model)},
+         {"config_fields", std::move(fields)}});
   }
 
   nlohmann::json businesses = nlohmann::json::array();

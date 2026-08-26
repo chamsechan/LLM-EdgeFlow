@@ -102,6 +102,7 @@ static std::mutex s_deep_dag_mutex;
 
 class DeepDagNode : public INode {
  public:
+  inline static constexpr char kNodeType[] = "DeepDagNode";
   bool Init(const nlohmann::json& config,
             SessionContext* session_ctx) override {
     (void)session_ctx;
@@ -132,7 +133,19 @@ class DeepDagNode : public INode {
  private:
   std::string name_;
 };
-REGISTER_NODE(DeepDagNode);
+
+inline NodeDefinition MakeDeepDagNodeDef() {
+  NodeDefinition def;
+  def.node_type = DeepDagNode::kNodeType;
+  def.category = "test";
+  def.description = "test deep dag node";
+  def.config_fields = {ConfigFieldDefinition{
+      "node_name", ConfigValueKind::kString, false, "DeepDagNode"}};
+  def.parallel_safe = true;
+  return def;
+}
+
+REGISTER_NODE_WITH_DEFINITION(DeepDagNode, MakeDeepDagNodeDef());
 
 }  // namespace alg_framework
 
@@ -239,7 +252,8 @@ TEST_F(EngineFaultToleranceAndLifecycleTest, Deep5LayerWavefrontDagExecution) {
                                        {"depends_on", {"B1", "B2", "B3"}}}}}};
 
   Pipeline pipeline;
-  ASSERT_TRUE(pipeline.BuildFromJson(deep_dag_config));
+  ASSERT_TRUE(pipeline.BuildFromJson(
+      deep_dag_config, nullptr, ValidationPolicy::kPrivateExtensionCompatible));
   EXPECT_EQ(pipeline.GetExecutionMode(), Pipeline::ExecutionMode::PARALLEL);
 
   const auto& layers = pipeline.GetTopologicalLayers();

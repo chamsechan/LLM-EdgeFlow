@@ -88,13 +88,13 @@ set(FRAMEWORK_SRCS
     src/engine/onnx/onnx_embedding_engine.cpp
     src/engine/onnx/onnx_rerank_engine.cpp
     src/engine/llama_cpp/llama_cpp_engine.cpp
-    src/common_nodes/prompt_builder_node.cpp
-    src/common_nodes/vector_search_node.cpp
-    src/common_nodes/rerank_refine_node.cpp
+    src/common_nodes/llm_generate_node.cpp
+    src/business/doc_qa/prompt_builder_node.cpp
+    src/business/doc_qa/vector_search_node.cpp
+    src/business/doc_qa/rerank_refine_node.cpp
     src/business/doc_qa/doc_chunk_pre_node.cpp
     src/business/doc_qa/doc_embedding_node.cpp
     src/business/doc_qa/intent_rule_node.cpp
-    src/business/doc_qa/llm_generate_node.cpp
     src/business/doc_qa/doc_qa_post_node.cpp
     src/business/keyword_match/keyword_matcher_node.cpp
     src/business/entity_extract/entity_extract_pre_node.cpp
@@ -171,6 +171,14 @@ add_test(NAME C11AbiComplianceTest COMMAND test_c11_abi_compliance)
 
 # 4. 架构分层防腐隔离测试 (LayerGuard)
 add_test(NAME LayerGuardTest COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_layer_isolation.sh)
+
+# 4.1 架构文档防漂移测试 (ArchitectureDocsDriftTest)
+add_test(NAME ArchitectureDocsDriftTest COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_architecture_docs.sh)
+add_test(NAME ArchitectureDocsDriftGateSelfTest COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_architecture_docs_drift_gate.sh)
+
+# 4.2 架构图资产一致性检查测试 (DiagramAssetsCheckTest)
+add_test(NAME DiagramAssetsCheckTest COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/render_architecture_diagrams.sh --check)
+add_test(NAME DiagramRenderGateSelfTest COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_diagram_render_gate.sh)
 
 # 5. 单元测试与安全性测试集 (基于 Google Test & CTest)
 
@@ -275,16 +283,45 @@ add_executable(test_demo_runner ${TEST_DEMO_RUNNER_SRCS})
 target_link_libraries(test_demo_runner PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
 add_test(NAME DemoRunnerTest COMMAND test_demo_runner)
 
+# RFC 0008 SSOT 契约与强类型黑板单测
+add_executable(test_catalog_contract_ssot tests/test_catalog_contract_ssot.cpp)
+target_link_libraries(test_catalog_contract_ssot PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME CatalogContractSsotTest COMMAND test_catalog_contract_ssot)
+
+add_executable(test_typed_blackboard_contracts tests/test_typed_blackboard_contracts.cpp)
+target_link_libraries(test_typed_blackboard_contracts PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME TypedBlackboardContractsTest COMMAND test_typed_blackboard_contracts)
+
+add_executable(test_validated_pipeline_plan tests/test_validated_pipeline_plan.cpp)
+target_link_libraries(test_validated_pipeline_plan PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME ValidatedPipelinePlanTest COMMAND test_validated_pipeline_plan)
+
+add_executable(test_node_base_contracts tests/test_node_base_contracts.cpp)
+target_link_libraries(test_node_base_contracts PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME NodeBaseContractsTest COMMAND test_node_base_contracts)
+
+add_executable(test_node_ownership_and_reuse tests/test_node_ownership_and_reuse.cpp)
+target_link_libraries(test_node_ownership_and_reuse PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME NodeOwnershipAndReuseTest COMMAND test_node_ownership_and_reuse)
+
+add_executable(test_definition_schema_validation tests/test_definition_schema_validation.cpp)
+target_link_libraries(test_definition_schema_validation PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME DefinitionSchemaValidationTest COMMAND test_definition_schema_validation)
+
 # 设置所有测试工作目录为项目根目录，保证无论从何处运行 CTest，相对路径均一致解析
 set_tests_properties(
-  C11AbiComplianceTest LayerGuardTest BatchExecutorTest FrameworkCoreTest
+  C11AbiComplianceTest LayerGuardTest ArchitectureDocsDriftTest
+  ArchitectureDocsDriftGateSelfTest DiagramAssetsCheckTest
+  DiagramRenderGateSelfTest BatchExecutorTest FrameworkCoreTest
   CAbiSafetyTest QwenEnginesComparisonTest DifferentIoModalitiesTest
   AllBusinessPipelinesTest ConcurrencyAndEdgeCasesTest DagPipelineTest
   RuntimeControlAndHotSwapTest EngineFaultToleranceAndLifecycleTest
   AdapterContractSecurityTest PipelineConfigTest RegistryConflictNodeTest
   RegistryConflictEngineTest RegistryReentrantTest PlatformOperatorTest
   DocQaRerankTest RerankRefineNodeTest PipelineStudioTest VisualizerServerTest
-  DemoRunnerTest
+  DemoRunnerTest CatalogContractSsotTest TypedBlackboardContractsTest
+  ValidatedPipelinePlanTest NodeBaseContractsTest NodeOwnershipAndReuseTest
+  DefinitionSchemaValidationTest
   PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
 )
 

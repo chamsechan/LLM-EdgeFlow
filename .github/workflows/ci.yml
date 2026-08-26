@@ -3,22 +3,8 @@ name: LLM-EdgeFlow CI
 on:
   push:
     branches: [ main ]
-    paths-ignore:
-      - 'doc/**'
-      - 'docs/**'
-      - '*.md'
-      - '**/*.md'
-      - '.gitignore'
-      - 'LICENSE'
   pull_request:
     branches: [ main ]
-    paths-ignore:
-      - 'doc/**'
-      - 'docs/**'
-      - '*.md'
-      - '**/*.md'
-      - '.gitignore'
-      - 'LICENSE'
   workflow_dispatch:
 
 concurrency:
@@ -45,7 +31,14 @@ jobs:
       - name: Set up Build Environment
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake clang-format-18 python3 ccache
+          sudo apt-get install -y \
+            build-essential \
+            ccache \
+            clang-format-18 \
+            cmake \
+            curl \
+            default-jre-headless \
+            python3
 
       - name: Restore/Save CCache
         uses: actions/cache@v4
@@ -55,6 +48,12 @@ jobs:
           restore-keys: |
             ccache-${{ runner.os }}-${{ github.ref }}-
             ccache-${{ runner.os }}-
+
+      - name: Verify Architecture Isolation & Documentation Integrity
+        run: |
+          ./scripts/check_layer_isolation.sh
+          ./scripts/check_architecture_docs.sh
+          ./scripts/render_architecture_diagrams.sh --check
 
       - name: Verify Code Style (Google C++ Format)
         run: |

@@ -180,7 +180,8 @@ TEST(PipelineTest, RuntimeOptionsPropagationAndPrecedence) {
                                 {"node_type", "DocChunkPreNode"},
                                 {"depends_on", nlohmann::json::array()}}}}};
 
-  bool ok = pipe.BuildFromJson(root_cfg);
+  bool ok = pipe.BuildFromJson(root_cfg, nullptr,
+                               ValidationPolicy::kPrivateExtensionCompatible);
   EXPECT_TRUE(ok);
 
   auto model_engine =

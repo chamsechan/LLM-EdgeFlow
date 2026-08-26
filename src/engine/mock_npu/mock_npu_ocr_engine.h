@@ -10,6 +10,8 @@ namespace alg_framework {
 
 class MockNpuOcrEngine : public IOcrEngine {
  public:
+  inline static constexpr char kEngineType[] = "mock_npu_ocr";
+
   MockNpuOcrEngine();
   ~MockNpuOcrEngine() override = default;
 

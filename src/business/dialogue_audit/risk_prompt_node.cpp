@@ -2,20 +2,25 @@
 #include <string>
 #include <vector>
 
-#include "core/node_base.h"
+#include "business/dialogue_audit/dialogue_audit_contract.h"
 #include "core/node_registry.h"
 #include "core/traceable_item.h"
+#include "nodes/node_support.h"
 
 namespace alg_framework {
 
 /**
  * @brief 风控质检 Prompt 组装算子 (Node 4: 汇聚规则与精排条款)
  */
-class RiskPromptNode : public INode {
+class RiskPromptNode final : public NodeBase {
  public:
-  bool Init(const nlohmann::json& config,
-            SessionContext* session_ctx) override {
-    (void)session_ctx;
+  inline static constexpr char kNodeType[] = "RiskPromptNode";
+
+  RiskPromptNode() : NodeBase(kNodeType) {}
+
+ protected:
+  bool InitNode(const nlohmann::json& config,
+                SessionContext& /*session_ctx*/) override {
     prompt_tpl_ = config.value(
         "template",
         "你是一个专业的智能客服合规风控质检大模型。请根据相关制度条款对客服与用"
@@ -29,11 +34,10 @@ class RiskPromptNode : public INode {
     return true;
   }
 
-  int Process(AlgContext* req_ctx) override {
-    auto* user_texts = req_ctx->Get<std::vector<std::string>>("user_texts");
-    auto* policies =
-        req_ctx->Get<std::vector<std::string>>("matched_policy_clauses");
-    auto* hard_flags = req_ctx->Get<std::vector<bool>>("hard_risk_flags");
+  int ProcessNode(AlgContext& req_ctx) override {
+    const auto* user_texts = Require(req_ctx, kUserTexts, -8301);
+    const auto* policies = Require(req_ctx, kMatchedPolicyClauses, -8301);
+    const auto* hard_flags = req_ctx.Get(kHardRiskFlags);
 
     if (!user_texts || !policies) return -8301;
 
@@ -59,19 +63,37 @@ class RiskPromptNode : public INode {
       llm_prompts.emplace_back(req_id, 0, std::move(prompt));
     }
 
-    req_ctx->Set("llm_audit_prompts", std::move(llm_prompts));
+    Publish(req_ctx, kLlmAuditPrompts, std::move(llm_prompts));
     return 0;
-  }
-
-  const std::string& Name() const override {
-    static std::string name = "RiskPromptNode";
-    return name;
   }
 
  private:
   std::string prompt_tpl_;
 };
 
-REGISTER_NODE(RiskPromptNode);
+NodeDefinition MakeRiskPromptNodeDefinition() {
+  NodeDefinition def;
+  def.node_type = RiskPromptNode::kNodeType;
+  def.category = "business";
+  def.description = "Dialogue audit prompt builder node";
+  def.inputs = {RequiredInput(kUserTexts), RequiredInput(kMatchedPolicyClauses),
+                OptionalInput(kHardRiskFlags)};
+  def.outputs = {Output(kLlmAuditPrompts)};
+  def.config_fields = {ConfigFieldDefinition{
+      "template", ConfigValueKind::kString, false,
+      "你是一个专业的智能客服合规风控质检大模型。请根据相关制度条款对客服与用"
+      "户的对话进行合规判定并给出建议：\n"
+      "【对话内容】: {user_text}\n"
+      "【相关制度】: {policy}\n"
+      "【规则初筛】: {rule_flag}\n"
+      "请严格按JSON格式输出判定：{\"verdict\": \"违规/合规\", "
+      "\"risk_level\": \"HIGH_RISK/SAFE\", \"suggestion\": \"...\"}\n"
+      "【审核结论】:"}};
+  def.business_names = {kDialogueAuditBusinessName};
+  def.parallel_safe = true;
+  return def;
+}
+
+REGISTER_NODE_WITH_DEFINITION(RiskPromptNode, MakeRiskPromptNodeDefinition());
 
 }  // namespace alg_framework

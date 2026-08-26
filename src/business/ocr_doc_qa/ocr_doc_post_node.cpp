@@ -2,31 +2,27 @@
 #include <string>
 #include <vector>
 
+#include "business/ocr_doc_qa/ocr_doc_qa_contract.h"
 #include "business/ocr_doc_qa/ocr_doc_qa_dto.h"
-#include "core/alg_context.h"
-#include "core/node_base.h"
 #include "core/node_registry.h"
 #include "core/traceable_item.h"
+#include "nodes/node_support.h"
 
 namespace alg_framework {
 
-class OcrDocPostNode : public INode {
+class OcrDocPostNode final : public NodeBase {
  public:
-  bool Init(const nlohmann::json& config,
-            SessionContext* session_ctx) override {
-    (void)config;
-    (void)session_ctx;
-    return true;
-  }
+  inline static constexpr char kNodeType[] = "OcrDocPostNode";
 
-  int Process(AlgContext* req_ctx) override {
-    auto* req_ids = req_ctx->Get<std::vector<uint64_t>>("raw_request_ids");
-    auto* box_counts = req_ctx->Get<std::vector<int>>("ocr_box_counts");
-    auto* llm_answers = req_ctx->Get<std::vector<TraceableItem<std::string>>>(
-        "generated_llm_answers");
+  OcrDocPostNode() : NodeBase(kNodeType) {}
+
+ protected:
+  int ProcessNode(AlgContext& req_ctx) override {
+    const auto* req_ids = Require(req_ctx, kRawRequestIds, -5301);
+    const auto* box_counts = Require(req_ctx, kOcrBoxCounts, -5301);
+    const auto* llm_answers = Require(req_ctx, kGeneratedLlmAnswers, -5301);
 
     if (!req_ids || !box_counts || !llm_answers) {
-      req_ctx->SetError(-5301, "OcrDocPostNode: Missing required inputs");
       return -5301;
     }
 
@@ -42,16 +38,24 @@ class OcrDocPostNode : public INode {
           "\"北京某某科技有限责任公司\"}";
     }
 
-    req_ctx->Set("ocr_doc_final_outputs", std::move(results));
+    Publish(req_ctx, kOcrDocFinalOutputs, std::move(results));
     return 0;
-  }
-
-  const std::string& Name() const override {
-    static std::string name = "OcrDocPostNode";
-    return name;
   }
 };
 
-REGISTER_NODE(OcrDocPostNode);
+NodeDefinition MakeOcrDocPostNodeDefinition() {
+  NodeDefinition def;
+  def.node_type = OcrDocPostNode::kNodeType;
+  def.category = "business";
+  def.description = "OCR document QA post-processing node";
+  def.inputs = {RequiredInput(kRawRequestIds), RequiredInput(kOcrBoxCounts),
+                RequiredInput(kGeneratedLlmAnswers)};
+  def.outputs = {Output(kOcrDocFinalOutputs)};
+  def.business_names = {kOcrDocQaBusinessName};
+  def.parallel_safe = true;
+  return def;
+}
+
+REGISTER_NODE_WITH_DEFINITION(OcrDocPostNode, MakeOcrDocPostNodeDefinition());
 
 }  // namespace alg_framework

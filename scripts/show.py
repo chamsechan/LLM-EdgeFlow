@@ -27,8 +27,17 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 WEB_ROOT = PROJECT_ROOT / "tools" / "visualizer"
 CONFIG_ROOT = PROJECT_ROOT / "configs"
 PROFILE_FILE = PROJECT_ROOT / "demo" / "profiles.json"
-PIPELINE_TOOL = PROJECT_ROOT / "build" / "alg_pipeline_tool"
-DEMO_BINARY = PROJECT_ROOT / "build" / "alg_demo"
+PIPELINE_TOOL = Path(
+    os.environ.get(
+        "LLM_EDGEFLOW_PIPELINE_TOOL",
+        PROJECT_ROOT / "build" / "alg_pipeline_tool",
+    )
+)
+DEMO_BINARY = Path(
+    os.environ.get(
+        "LLM_EDGEFLOW_DEMO_BINARY", PROJECT_ROOT / "build" / "alg_demo"
+    )
+)
 MANAGED_NAME = re.compile(r"^pipeline_[a-z0-9_]+\.json$")
 MAX_LOG_BYTES = 2 * 1024 * 1024
 

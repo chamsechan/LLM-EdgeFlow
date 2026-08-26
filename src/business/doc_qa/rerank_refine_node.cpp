@@ -4,44 +4,37 @@
 #include <string>
 #include <vector>
 
-#include "core/node_base.h"
+#include "business/doc_qa/doc_qa_contract.h"
+#include "core/common_contracts.h"
 #include "core/node_registry.h"
 #include "core/traceable_item.h"
 #include "engine/engine_interface.h"
+#include "nodes/model_bound_node.h"
 
 namespace alg_framework {
 
 /**
- * @brief 通用 Cross-Encoder 精排重排序与精选算子 (RAG
+ * @brief Cross-Encoder 精排重排序与精选算子 (RAG
  * 粗筛向量检索后的高精度重排过滤)
  */
-class RerankRefineNode : public INode {
+class RerankRefineNode final : public ModelBoundNode<IRerankEngine> {
  public:
-  bool Init(const nlohmann::json& config,
-            SessionContext* session_ctx) override {
-    bind_model_ = config.value("bind_model", "rerank_model_v1");
-    top_k_ = config.value("top_k", 1);
-    candidates_key_ = config.value("candidates_key", "matched_top_chunks");
-    query_key_ = config.value("query_key", "raw_queries");
-    output_key_ = config.value("output_key", "matched_top_chunks");
+  inline static constexpr char kNodeType[] = "RerankRefineNode";
 
-    rerank_engine_ =
-        session_ctx->GetModelManager().GetModel<IRerankEngine>(bind_model_);
-    if (!rerank_engine_) {
-      std::cerr << "[RerankRefineNode] Failed to bind model: " << bind_model_
-                << std::endl;
-      return false;
-    }
+  RerankRefineNode()
+      : ModelBoundNode<IRerankEngine>(kNodeType, "rerank_model_v1") {}
+
+ protected:
+  bool InitModelNode(const nlohmann::json& config,
+                     SessionContext& /*session_ctx*/) override {
+    top_k_ = config.value("top_k", 1);
     return true;
   }
 
-  int Process(AlgContext* req_ctx) override {
-    auto* candidates =
-        req_ctx->Get<std::vector<TraceableItem<std::string>>>(candidates_key_);
-    auto* queries = req_ctx->Get<std::vector<std::string>>(query_key_);
+  int ProcessNode(AlgContext& req_ctx) override {
+    const auto* candidates = Require(req_ctx, kMatchedTopChunks, -3201);
+    const auto* queries = Require(req_ctx, kRawQueries, -3201);
     if (!candidates || !queries) {
-      req_ctx->SetError(
-          -3201, "RerankRefineNode: Missing candidates or queries in context");
       return -3201;
     }
 
@@ -64,11 +57,10 @@ class RerankRefineNode : public INode {
     std::cout << "[RerankRefineNode] Scoring " << pair_items.size()
               << " candidate (query, chunk) pairs with Reranker..."
               << std::endl;
-    int ret = rerank_engine_->ScoreTraceableBatch(pair_items, &pair_scores);
+    int ret = engine()->ScoreTraceableBatch(pair_items, &pair_scores);
     if (ret != 0) {
-      req_ctx->SetError(ret,
-                        "RerankRefineNode: Rerank engine inference failed");
-      return ret;
+      return Fail(req_ctx, ret,
+                  "RerankRefineNode: Rerank engine inference failed");
     }
 
     // 按 req_id 分组并按打分降序排列
@@ -96,24 +88,34 @@ class RerankRefineNode : public INode {
       }
     }
 
-    req_ctx->Set(output_key_, std::move(refined_top_chunks));
+    Publish(req_ctx, kMatchedTopChunks, std::move(refined_top_chunks));
     return 0;
   }
 
-  const std::string& Name() const override {
-    static std::string name = "RerankRefineNode";
-    return name;
-  }
-
  private:
-  std::string bind_model_;
-  size_t top_k_{1};
-  std::string candidates_key_;
-  std::string query_key_;
-  std::string output_key_;
-  std::shared_ptr<IRerankEngine> rerank_engine_;
+  size_t top_k_ = 1;
 };
 
-REGISTER_NODE(RerankRefineNode);
+NodeDefinition MakeRerankRefineNodeDefinition() {
+  NodeDefinition def;
+  def.node_type = RerankRefineNode::kNodeType;
+  def.category = "business";
+  def.description = "Cross-encoder rerank refine ranking node";
+  def.inputs = {RequiredInput(kMatchedTopChunks), RequiredInput(kRawQueries)};
+  def.outputs = {Output(kMatchedTopChunks, /*allow_override=*/true)};
+  def.config_fields = {
+      ConfigFieldDefinition{"bind_model", ConfigValueKind::kString, false,
+                            "rerank_model_v1"},
+      ConfigFieldDefinition{"top_k", ConfigValueKind::kInteger, false, 1, 1.0,
+                            100.0}};
+  def.model_capability = "rerank";
+  def.model_config_field = "bind_model";
+  def.business_names = {kDocQaRerankBusinessName};
+  def.parallel_safe = true;
+  return def;
+}
+
+REGISTER_NODE_WITH_DEFINITION(RerankRefineNode,
+                              MakeRerankRefineNodeDefinition());
 
 }  // namespace alg_framework

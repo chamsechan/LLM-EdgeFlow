@@ -71,6 +71,7 @@ doc/rfcs/NNNN-<kebab-case-title>.md
 | **RFC-0005** | 参数化业务 Demo Runner 与执行配置解耦 | `Completed` | `v1.4.0` | Demo / Integration Tooling | [0005-parameterized-business-demo-runner.md](0005-parameterized-business-demo-runner.md) |
 | **RFC-0006** | 图形化算法方案工作台与 Catalog/Validator 单一事实源 | `Completed` | `v1.5.0` | Layer 1 ~ Layer 4 / Tooling | [0006-visual-pipeline-studio.md](0006-visual-pipeline-studio.md) |
 | **RFC-0007** | 全库 Pipeline 配置文件显式 DAG 标准化与旧式配置维护解耦 | `Completed` | `v1.6.0` | Layer 2 ~ Layer 3 / Tooling | [0007-explicit-dag-standardization-and-legacy-deprecation.md](0007-explicit-dag-standardization-and-legacy-deprecation.md) |
+| **RFC-0008** | 架构契约收敛与文档一致性修复 | `Completed` | `v2.1.0` | Layer 1 ~ Layer 4 / Tooling | [0008-architecture-contract-consolidation.md](0008-architecture-contract-consolidation.md) |
 
 ---
 
@@ -82,5 +83,8 @@ doc/rfcs/NNNN-<kebab-case-title>.md
 - [RFC-0003 Pipeline 黑板重构验收报告](reviews/0003-pipeline-dynamic-blackboard-acceptance.md)
 - [RFC-0004 平台 Operator 兼容层验收报告](reviews/0004-platform-operator-interface-acceptance.md)
 - [RFC-0005 参数化业务 Demo Runner 验收评审报告](reviews/0005-parameterized-business-demo-runner-acceptance.md)
+- [RFC-0008 架构契约收敛剩余整改计划](reviews/0008-architecture-contract-consolidation-remediation-plan.md)
+- [RFC-0008 架构契约收敛独立验收报告](reviews/0008-architecture-contract-consolidation-acceptance.md)
+- [RFC-0008 架构契约收敛复审报告（2026-08-26）](reviews/0008-architecture-contract-consolidation-convergence-review-20260826.md)
 - [框架全面审查方案](reviews/framework_comprehensive_review_plan.md)
 - [框架全面审查与问题收敛报告](reviews/framework_comprehensive_review_report.md)

@@ -3,7 +3,7 @@
 
 #include "adapter/adapter_validation_helper.h"
 #include "adapter/business_adapter_registry.h"
-#include "business/audio_asr/audio_asr_dto.h"
+#include "business/audio_asr/audio_asr_contract.h"
 #include "company_alg_interface.h"
 
 namespace alg_framework {
@@ -27,7 +27,11 @@ class AudioAsrIntentAdapter : public IBusinessAdapter {
         OwnershipPolicy::kCopyIn,
         ThreadModel::kStatelessThreadSafe,
         OutputCardinality::kOneToOne,
-        {"speech_audio_asr_intent_slot"}};  // RECHECK-002: 精确白名单
+        {{kAudioAsrBusinessName,
+          "audio_asr",
+          "语音识别与意图槽位",
+          {RequiredInput(kRawRequestIds), RequiredInput(kRawAudioInputs)},
+          {Output(kAudioFinalOutputs)}}}};
     return desc;
   }
 
@@ -99,8 +103,8 @@ class AudioAsrIntentAdapter : public IBusinessAdapter {
       raw_audios.push_back(std::move(pcm_dto));
     }
 
-    ctx->Set("raw_request_ids", std::move(raw_req_ids));
-    ctx->Set("raw_audio_inputs", std::move(raw_audios));
+    ctx->Set(kRawRequestIds, std::move(raw_req_ids));
+    ctx->Set(kRawAudioInputs, std::move(raw_audios));
     return COMPANY_ALG_SUCCESS;
   }
 
@@ -114,7 +118,7 @@ class AudioAsrIntentAdapter : public IBusinessAdapter {
       return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     }
 
-    auto* res = ctx->Get<std::vector<AudioAsrResult>>("audio_final_outputs");
+    auto* res = ctx->Get(kAudioFinalOutputs);
     if (!res) {
       if (out_status) {
         *out_status = AdapterStatus::BufferTooSmall(

@@ -3,32 +3,29 @@
 #include <string>
 #include <vector>
 
+#include "business/dialogue_audit/dialogue_audit_contract.h"
 #include "business/dialogue_audit/dialogue_audit_dto.h"
-#include "core/node_base.h"
 #include "core/node_registry.h"
 #include "core/traceable_item.h"
+#include "nodes/node_support.h"
 
 namespace alg_framework {
 
 /**
  * @brief 风控审核后处理与结果打包算子 (Node 6: 组装输出领域 DTO)
  */
-class AuditPostNode : public INode {
+class AuditPostNode final : public NodeBase {
  public:
-  bool Init(const nlohmann::json& config,
-            SessionContext* session_ctx) override {
-    (void)config;
-    (void)session_ctx;
-    return true;
-  }
+  inline static constexpr char kNodeType[] = "AuditPostNode";
 
-  int Process(AlgContext* req_ctx) override {
-    auto* req_ids = req_ctx->Get<std::vector<uint64_t>>("raw_request_ids");
-    auto* policies =
-        req_ctx->Get<std::vector<std::string>>("matched_policy_clauses");
-    auto* rerank_scores = req_ctx->Get<std::vector<float>>("rerank_scores");
-    auto* verdicts = req_ctx->Get<std::vector<TraceableItem<std::string>>>(
-        "generated_verdicts");
+  AuditPostNode() : NodeBase(kNodeType) {}
+
+ protected:
+  int ProcessNode(AlgContext& req_ctx) override {
+    const auto* req_ids = Require(req_ctx, kRawRequestIds, -8501);
+    const auto* policies = Require(req_ctx, kMatchedPolicyClauses, -8501);
+    const auto* verdicts = Require(req_ctx, kGeneratedVerdicts, -8501);
+    const auto* rerank_scores = req_ctx.Get(kRerankScores);
 
     if (!req_ids || !policies || !verdicts) return -8501;
 
@@ -64,16 +61,25 @@ class AuditPostNode : public INode {
 
     std::cout << "[AuditPostNode] Finalized " << batch_size
               << " compliance audit results." << std::endl;
-    req_ctx->Set("compliance_audit_outputs", std::move(outputs));
+    Publish(req_ctx, kComplianceAuditOutputs, std::move(outputs));
     return 0;
-  }
-
-  const std::string& Name() const override {
-    static std::string name = "AuditPostNode";
-    return name;
   }
 };
 
-REGISTER_NODE(AuditPostNode);
+NodeDefinition MakeAuditPostNodeDefinition() {
+  NodeDefinition def;
+  def.node_type = AuditPostNode::kNodeType;
+  def.category = "business";
+  def.description = "Dialogue audit result packaging and post-processing node";
+  def.inputs = {
+      RequiredInput(kRawRequestIds), RequiredInput(kMatchedPolicyClauses),
+      OptionalInput(kRerankScores), RequiredInput(kGeneratedVerdicts)};
+  def.outputs = {Output(kComplianceAuditOutputs)};
+  def.business_names = {kDialogueAuditBusinessName};
+  def.parallel_safe = true;
+  return def;
+}
+
+REGISTER_NODE_WITH_DEFINITION(AuditPostNode, MakeAuditPostNodeDefinition());
 
 }  // namespace alg_framework

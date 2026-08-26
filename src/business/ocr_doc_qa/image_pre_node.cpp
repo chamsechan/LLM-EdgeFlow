@@ -2,34 +2,29 @@
 #include <string>
 #include <vector>
 
-#include "core/alg_context.h"
-#include "core/node_base.h"
+#include "business/ocr_doc_qa/ocr_doc_qa_contract.h"
 #include "core/node_registry.h"
 #include "core/traceable_item.h"
+#include "nodes/node_support.h"
 
 namespace alg_framework {
 
 /**
  * @brief 图片与发票前处理算子
  */
-class ImagePreNode : public INode {
+class ImagePreNode final : public NodeBase {
  public:
-  bool Init(const nlohmann::json& config,
-            SessionContext* session_ctx) override {
-    (void)config;
-    (void)session_ctx;
-    return true;
-  }
+  inline static constexpr char kNodeType[] = "ImagePreNode";
 
-  int Process(AlgContext* req_ctx) override {
-    auto* raw_images =
-        req_ctx->Get<std::vector<std::string>>("raw_image_paths");
-    auto* raw_queries = req_ctx->Get<std::vector<std::string>>("raw_queries");
-    auto* req_ids = req_ctx->Get<std::vector<uint64_t>>("raw_request_ids");
+  ImagePreNode() : NodeBase(kNodeType) {}
+
+ protected:
+  int ProcessNode(AlgContext& req_ctx) override {
+    const auto* raw_images = Require(req_ctx, kRawImagePaths, -5101);
+    const auto* raw_queries = Require(req_ctx, kRawQueries, -5101);
+    const auto* req_ids = Require(req_ctx, kRawRequestIds, -5101);
 
     if (!raw_images || !raw_queries || !req_ids) {
-      req_ctx->SetError(-5101,
-                        "ImagePreNode: Missing input image or query tensors");
       return -5101;
     }
 
@@ -38,16 +33,24 @@ class ImagePreNode : public INode {
       image_items.emplace_back((*req_ids)[i], 0, (*raw_images)[i]);
     }
 
-    req_ctx->Set("traceable_image_items", std::move(image_items));
+    Publish(req_ctx, kTraceableImageItems, std::move(image_items));
     return 0;
-  }
-
-  const std::string& Name() const override {
-    static std::string name = "ImagePreNode";
-    return name;
   }
 };
 
-REGISTER_NODE(ImagePreNode);
+NodeDefinition MakeImagePreNodeDefinition() {
+  NodeDefinition def;
+  def.node_type = ImagePreNode::kNodeType;
+  def.category = "business";
+  def.description = "OCR image pre-processing node";
+  def.inputs = {RequiredInput(kRawImagePaths), RequiredInput(kRawQueries),
+                RequiredInput(kRawRequestIds)};
+  def.outputs = {Output(kTraceableImageItems)};
+  def.business_names = {kOcrDocQaBusinessName};
+  def.parallel_safe = true;
+  return def;
+}
+
+REGISTER_NODE_WITH_DEFINITION(ImagePreNode, MakeImagePreNodeDefinition());
 
 }  // namespace alg_framework

@@ -14,9 +14,23 @@ namespace alg_framework {
 
 static std::mutex s_trace_mutex;
 
+inline NodeDefinition MakeDagNodeDef(const std::string& type,
+                                     std::vector<PortDefinition> inputs,
+                                     std::vector<PortDefinition> outputs) {
+  NodeDefinition def;
+  def.node_type = type;
+  def.category = "test";
+  def.description = "test dag node";
+  def.inputs = std::move(inputs);
+  def.outputs = std::move(outputs);
+  def.parallel_safe = true;
+  return def;
+}
+
 // 辅助测试算子定义
 class DagTestNodeA : public INode {
  public:
+  inline static constexpr char kNodeType[] = "DagTestNodeA";
   bool Init(const nlohmann::json& config,
             SessionContext* session_ctx) override {
     (void)config;
@@ -40,14 +54,17 @@ class DagTestNodeA : public INode {
     return 0;
   }
   const std::string& Name() const override {
-    static const std::string name = "DagTestNodeA";
+    static const std::string name = kNodeType;
     return name;
   }
 };
-REGISTER_NODE(DagTestNodeA);
+REGISTER_NODE_WITH_DEFINITION(DagTestNodeA,
+                              MakeDagNodeDef(DagTestNodeA::kNodeType, {},
+                                             {{"node_a_out", "string"}}));
 
 class DagTestNodeB : public INode {
  public:
+  inline static constexpr char kNodeType[] = "DagTestNodeB";
   bool Init(const nlohmann::json& config,
             SessionContext* session_ctx) override {
     (void)config;
@@ -74,14 +91,18 @@ class DagTestNodeB : public INode {
     return 0;
   }
   const std::string& Name() const override {
-    static const std::string name = "DagTestNodeB";
+    static const std::string name = kNodeType;
     return name;
   }
 };
-REGISTER_NODE(DagTestNodeB);
+REGISTER_NODE_WITH_DEFINITION(DagTestNodeB,
+                              MakeDagNodeDef(DagTestNodeB::kNodeType,
+                                             {{"node_a_out", "string"}},
+                                             {{"node_b_out", "string"}}));
 
 class DagTestNodeC : public INode {
  public:
+  inline static constexpr char kNodeType[] = "DagTestNodeC";
   bool Init(const nlohmann::json& config,
             SessionContext* session_ctx) override {
     (void)config;
@@ -108,14 +129,18 @@ class DagTestNodeC : public INode {
     return 0;
   }
   const std::string& Name() const override {
-    static const std::string name = "DagTestNodeC";
+    static const std::string name = kNodeType;
     return name;
   }
 };
-REGISTER_NODE(DagTestNodeC);
+REGISTER_NODE_WITH_DEFINITION(DagTestNodeC,
+                              MakeDagNodeDef(DagTestNodeC::kNodeType,
+                                             {{"node_a_out", "string"}},
+                                             {{"node_c_out", "string"}}));
 
 class DagTestNodeD : public INode {
  public:
+  inline static constexpr char kNodeType[] = "DagTestNodeD";
   bool Init(const nlohmann::json& config,
             SessionContext* session_ctx) override {
     (void)config;
@@ -144,11 +169,15 @@ class DagTestNodeD : public INode {
     return 0;
   }
   const std::string& Name() const override {
-    static const std::string name = "DagTestNodeD";
+    static const std::string name = kNodeType;
     return name;
   }
 };
-REGISTER_NODE(DagTestNodeD);
+REGISTER_NODE_WITH_DEFINITION(DagTestNodeD,
+                              MakeDagNodeDef(DagTestNodeD::kNodeType,
+                                             {{"node_b_out", "string"},
+                                              {"node_c_out", "string"}},
+                                             {{"final_dag_result", "string"}}));
 
 // -----------------------------------------------------------------------------
 // GTest 测试套件
@@ -174,7 +203,8 @@ TEST_F(DagPipelineTest, ShuffledOrderTopologicalSort) {
                               {"depends_on", nlohmann::json::array()}}}}};
 
   Pipeline pipeline;
-  bool ok = pipeline.BuildFromJson(config);
+  bool ok = pipeline.BuildFromJson(
+      config, nullptr, ValidationPolicy::kPrivateExtensionCompatible);
   ASSERT_TRUE(ok);
 
   // 校验拓扑序：node_a 必须在第一位，node_d 必须在最后一位
@@ -217,7 +247,8 @@ TEST_F(DagPipelineTest, DiamondBranchAndMerge) {
          {"depends_on", {"B", "C"}}}}}};
 
   Pipeline pipeline;
-  ASSERT_TRUE(pipeline.BuildFromJson(config));
+  ASSERT_TRUE(pipeline.BuildFromJson(
+      config, nullptr, ValidationPolicy::kPrivateExtensionCompatible));
 
   AlgContext req_ctx;
   req_ctx.Set("exec_trace", std::vector<std::string>{});
@@ -250,7 +281,8 @@ TEST_F(DagPipelineTest, CycleDetectionRejection) {
        }}};
 
   Pipeline pipeline;
-  bool ok = pipeline.BuildFromJson(cyclic_config);
+  bool ok = pipeline.BuildFromJson(
+      cyclic_config, nullptr, ValidationPolicy::kPrivateExtensionCompatible);
   // 必须拦截成环并返回 false，禁止启动
   EXPECT_FALSE(ok);
 }
@@ -263,7 +295,9 @@ TEST_F(DagPipelineTest, SelfLoopCycleRejection) {
        {{{"id", "A"}, {"node_type", "DagTestNodeA"}, {"depends_on", {"A"}}}}}};
 
   Pipeline pipeline;
-  EXPECT_FALSE(pipeline.BuildFromJson(self_loop_config));
+  EXPECT_FALSE(
+      pipeline.BuildFromJson(self_loop_config, nullptr,
+                             ValidationPolicy::kPrivateExtensionCompatible));
 }
 
 // 5. 非法依赖 ID 校验 (Non-existent Dependency ID)
@@ -276,7 +310,9 @@ TEST_F(DagPipelineTest, InvalidDependencyRejection) {
          {"depends_on", {"ghost_non_existent_node"}}}}}};
 
   Pipeline pipeline;
-  EXPECT_FALSE(pipeline.BuildFromJson(invalid_dep_config));
+  EXPECT_FALSE(
+      pipeline.BuildFromJson(invalid_dep_config, nullptr,
+                             ValidationPolicy::kPrivateExtensionCompatible));
 }
 
 // 6. 拦截旧式未显式声明 id/depends_on 的配置
@@ -290,7 +326,8 @@ TEST_F(DagPipelineTest, RejectsLegacyPipelineWithoutIdOrDependsOn) {
 
   Pipeline pipeline;
   PipelineDiagnostic diag;
-  EXPECT_FALSE(pipeline.BuildFromJson(legacy_config, &diag));
+  EXPECT_FALSE(pipeline.BuildFromJson(
+      legacy_config, &diag, ValidationPolicy::kPrivateExtensionCompatible));
   EXPECT_EQ(diag.code, PipelineErrorCode::kMissingField);
   EXPECT_EQ(diag.path, "/pipeline/0/id");
 }
@@ -319,7 +356,8 @@ TEST_F(DagPipelineTest, ParallelWavefrontExecution) {
          {"depends_on", {"node_b", "node_c"}}}}}};
 
   Pipeline pipeline;
-  ASSERT_TRUE(pipeline.BuildFromJson(parallel_config));
+  ASSERT_TRUE(pipeline.BuildFromJson(
+      parallel_config, nullptr, ValidationPolicy::kPrivateExtensionCompatible));
   EXPECT_EQ(pipeline.GetExecutionMode(), Pipeline::ExecutionMode::PARALLEL);
 
   const auto& layers = pipeline.GetTopologicalLayers();

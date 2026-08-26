@@ -23,11 +23,13 @@ echo -e "${BOLD}${CYAN}  Project Root: $ROOT_DIR${NC}"
 echo -e "${BOLD}${CYAN}==================================================================${NC}\n"
 
 # 1. 架构分层隔离、代码规范与差异门禁检验
-echo -e "${BOLD}[ Step 1/6: LayerGuard 架构分层防腐扫描、Google C++ 代码规范与 Git Diff 门禁检验 ]${NC}"
+echo -e "${BOLD}[ Step 1/6: LayerGuard 架构分层防腐扫描、架构文档防漂移、Google C++ 代码规范与 Git Diff 门禁检验 ]${NC}"
 "$SCRIPT_DIR/check_layer_isolation.sh"
+"$SCRIPT_DIR/check_architecture_docs.sh"
+"$SCRIPT_DIR/render_architecture_diagrams.sh" --check
 "$SCRIPT_DIR/format.sh" --check
 git diff --check
-echo -e "${GREEN}✓ 架构分层隔离、代码规范与差异门禁校验 100% 通过！${NC}\n"
+echo -e "${GREEN}✓ 架构分层隔离、文档防漂移、代码规范与差异门禁校验 100% 通过！${NC}\n"
 
 # 2. 全量工程编译
 echo -e "${BOLD}[ Step 2/6: CMake 构建与二进制链接 ]${NC}"
@@ -106,10 +108,10 @@ python3 tests/test_visualizer_server.py > /dev/null
 ./build/alg_pipeline_tool validate configs/pipeline_keyword_match.json > /dev/null
 echo -e "${GREEN}✓ PASS${NC}"
 
-echo -e "\n${BOLD}${GREEN}==================================================================${NC}"
+echo -e "${BOLD}${GREEN}==================================================================${NC}"
 echo -e "${BOLD}${GREEN}  🎉 交付验证通过：全部 6 大测试阶段 100% PASS！                 ${NC}"
 echo -e "${BOLD}${GREEN}  - 核心架构单元测试   : PASSED (6/6 模块)${NC}"
-echo -e "${BOLD}${GREEN}  - C ABI 安全边界测试 : PASSED (空指针拦截 / 50轮无泄露)${NC}"
+echo -e "${BOLD}${GREEN}  - C ABI 安全边界测试 : PASSED (空指针拦截 / 50轮并发与生命周期稳定)${NC}"
 echo -e "${BOLD}${GREEN}  - 7 大业务端到端测试 : PASSED (规则/抽取/问答/风控/OCR/语音/精排)${NC}"
 echo -e "${BOLD}${GREEN}  - CLI 工具双模适配   : PASSED (Python CLI & C++ Native CLI)${NC}"
 echo -e "${BOLD}${GREEN}  - Google C++ 规范    : PASSED (100% 格式对齐)${NC}"

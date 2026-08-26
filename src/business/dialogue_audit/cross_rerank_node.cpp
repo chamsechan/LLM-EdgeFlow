@@ -3,36 +3,29 @@
 #include <string>
 #include <vector>
 
-#include "core/node_base.h"
+#include "business/dialogue_audit/dialogue_audit_contract.h"
 #include "core/node_registry.h"
 #include "core/traceable_item.h"
 #include "engine/engine_interface.h"
+#include "nodes/model_bound_node.h"
 
 namespace alg_framework {
 
 /**
  * @brief Cross-Encoder 深度语义精排算子 (Node 3: 使用 Model 2 - Rerank 引擎)
  */
-class CrossRerankNode : public INode {
+class CrossRerankNode final : public ModelBoundNode<IRerankEngine> {
  public:
-  bool Init(const nlohmann::json& config,
-            SessionContext* session_ctx) override {
-    std::string bind_model = config.value("bind_model", "rerank_model_v1");
-    rerank_engine_ =
-        session_ctx->GetModelManager().GetModel<IRerankEngine>(bind_model);
-    if (!rerank_engine_) {
-      std::cerr << "[CrossRerankNode] Failed to bind model: " << bind_model
-                << std::endl;
-      return false;
-    }
-    return true;
-  }
+  inline static constexpr char kNodeType[] = "CrossRerankNode";
 
-  int Process(AlgContext* req_ctx) override {
-    auto* user_texts = req_ctx->Get<std::vector<std::string>>("user_texts");
-    auto* candidate_policies =
-        req_ctx->Get<std::vector<TraceableItem<std::vector<std::string>>>>(
-            "candidate_policies");
+  CrossRerankNode()
+      : ModelBoundNode<IRerankEngine>(kNodeType, "rerank_model_v1") {}
+
+ protected:
+  int ProcessNode(AlgContext& req_ctx) override {
+    const auto* user_texts = Require(req_ctx, kUserTexts, -8201);
+    const auto* candidate_policies =
+        Require(req_ctx, kCandidatePolicies, -8201);
 
     if (!user_texts || !candidate_policies) return -8201;
 
@@ -50,8 +43,11 @@ class CrossRerankNode : public INode {
     std::vector<TraceableItem<float>> pair_scores;
     std::cout << "[CrossRerankNode] Invoking Cross-Encoder scoring on "
               << pair_items.size() << " candidate pairs..." << std::endl;
-    int ret = rerank_engine_->ScoreTraceableBatch(pair_items, &pair_scores);
-    if (ret != 0) return ret;
+    int ret = engine()->ScoreTraceableBatch(pair_items, &pair_scores);
+    if (ret != 0) {
+      return Fail(req_ctx, ret,
+                  "CrossRerankNode: Cross-Encoder scoring failed");
+    }
 
     // 为每个 req_id 选出精排得分最高的最匹配政策条款
     std::vector<std::string> best_policy_clauses(user_texts->size(), "");
@@ -67,20 +63,28 @@ class CrossRerankNode : public INode {
       }
     }
 
-    req_ctx->Set("matched_policy_clauses", std::move(best_policy_clauses));
-    req_ctx->Set("rerank_scores", std::move(best_policy_scores));
+    Publish(req_ctx, kMatchedPolicyClauses, std::move(best_policy_clauses));
+    Publish(req_ctx, kRerankScores, std::move(best_policy_scores));
     return 0;
   }
-
-  const std::string& Name() const override {
-    static std::string name = "CrossRerankNode";
-    return name;
-  }
-
- private:
-  std::shared_ptr<IRerankEngine> rerank_engine_;
 };
 
-REGISTER_NODE(CrossRerankNode);
+NodeDefinition MakeCrossRerankNodeDefinition() {
+  NodeDefinition def;
+  def.node_type = CrossRerankNode::kNodeType;
+  def.category = "business";
+  def.description = "Cross-encoder policy reranking node";
+  def.inputs = {RequiredInput(kUserTexts), RequiredInput(kCandidatePolicies)};
+  def.outputs = {Output(kMatchedPolicyClauses), Output(kRerankScores)};
+  def.config_fields = {ConfigFieldDefinition{
+      "bind_model", ConfigValueKind::kString, false, "rerank_model_v1"}};
+  def.model_capability = "rerank";
+  def.model_config_field = "bind_model";
+  def.business_names = {kDialogueAuditBusinessName};
+  def.parallel_safe = true;
+  return def;
+}
+
+REGISTER_NODE_WITH_DEFINITION(CrossRerankNode, MakeCrossRerankNodeDefinition());
 
 }  // namespace alg_framework

@@ -2,51 +2,41 @@
 #include <string>
 #include <vector>
 
-#include "core/alg_context.h"
-#include "core/node_base.h"
+#include "business/ocr_doc_qa/ocr_doc_qa_contract.h"
 #include "core/node_registry.h"
 #include "core/traceable_item.h"
 #include "engine/engine_interface.h"
+#include "nodes/model_bound_node.h"
 
 namespace alg_framework {
 
 /**
  * @brief OCR 推理识别算子
  */
-class OcrInferNode : public INode {
+class OcrInferNode final : public ModelBoundNode<IOcrEngine> {
  public:
-  bool Init(const nlohmann::json& config,
-            SessionContext* session_ctx) override {
-    std::string bind_model_id = config.value("bind_model", "ocr_model_v1");
-    ocr_engine_ =
-        session_ctx->GetModelManager().GetModel<IOcrEngine>(bind_model_id);
-    if (!ocr_engine_) {
-      std::cerr << "[OcrInferNode] Failed to get IOcrEngine model: "
-                << bind_model_id << std::endl;
-      return false;
-    }
-    return true;
-  }
+  inline static constexpr char kNodeType[] = "OcrInferNode";
 
-  int Process(AlgContext* req_ctx) override {
-    auto* image_items = req_ctx->Get<std::vector<TraceableItem<std::string>>>(
-        "traceable_image_items");
-    if (!image_items) {
-      req_ctx->SetError(-5201, "OcrInferNode: Missing traceable_image_items");
+  OcrInferNode() : ModelBoundNode<IOcrEngine>(kNodeType, "ocr_model_v1") {}
+
+ protected:
+  int ProcessNode(AlgContext& req_ctx) override {
+    const auto* image_items = Require(req_ctx, kTraceableImageItems, -5201);
+    const auto* raw_queries = Require(req_ctx, kRawQueries, -5201);
+    const auto* req_ids = Require(req_ctx, kRawRequestIds, -5201);
+
+    if (!image_items || !raw_queries || !req_ids) {
       return -5201;
     }
 
     std::vector<TraceableItem<std::vector<IOcrEngine::OcrBoxItem>>>
         detected_boxes;
-    int ret = ocr_engine_->InferTraceableBatch(*image_items, &detected_boxes);
+    int ret = engine()->InferTraceableBatch(*image_items, &detected_boxes);
     if (ret != 0) {
-      req_ctx->SetError(ret, "OcrInferNode: OCR inference failed");
-      return ret;
+      return Fail(req_ctx, ret, "OcrInferNode: OCR inference failed");
     }
 
     // 格式化 OCR 文字拼接为上下文
-    auto* raw_queries = req_ctx->Get<std::vector<std::string>>("raw_queries");
-    auto* req_ids = req_ctx->Get<std::vector<uint64_t>>("raw_request_ids");
     std::vector<TraceableItem<std::string>> llm_prompts;
     std::vector<int> box_counts;
 
@@ -63,20 +53,29 @@ class OcrInferNode : public INode {
       llm_prompts.emplace_back((*req_ids)[i], 0, prompt);
     }
 
-    req_ctx->Set("ocr_box_counts", std::move(box_counts));
-    req_ctx->Set("llm_input_prompts", std::move(llm_prompts));
+    Publish(req_ctx, kOcrBoxCounts, std::move(box_counts));
+    Publish(req_ctx, kLlmInputPrompts, std::move(llm_prompts));
     return 0;
   }
-
-  const std::string& Name() const override {
-    static std::string name = "OcrInferNode";
-    return name;
-  }
-
- private:
-  std::shared_ptr<IOcrEngine> ocr_engine_;
 };
 
-REGISTER_NODE(OcrInferNode);
+NodeDefinition MakeOcrInferNodeDefinition() {
+  NodeDefinition def;
+  def.node_type = OcrInferNode::kNodeType;
+  def.category = "business";
+  def.description = "OCR text detection and prompt generation inference node";
+  def.inputs = {RequiredInput(kTraceableImageItems), RequiredInput(kRawQueries),
+                RequiredInput(kRawRequestIds)};
+  def.outputs = {Output(kOcrBoxCounts), Output(kLlmInputPrompts)};
+  def.config_fields = {ConfigFieldDefinition{
+      "bind_model", ConfigValueKind::kString, false, "ocr_model_v1"}};
+  def.model_capability = "ocr";
+  def.model_config_field = "bind_model";
+  def.business_names = {kOcrDocQaBusinessName};
+  def.parallel_safe = true;
+  return def;
+}
+
+REGISTER_NODE_WITH_DEFINITION(OcrInferNode, MakeOcrInferNodeDefinition());
 
 }  // namespace alg_framework

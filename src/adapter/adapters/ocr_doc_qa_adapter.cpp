@@ -3,7 +3,7 @@
 
 #include "adapter/adapter_validation_helper.h"
 #include "adapter/business_adapter_registry.h"
-#include "business/ocr_doc_qa/ocr_doc_qa_dto.h"
+#include "business/ocr_doc_qa/ocr_doc_qa_contract.h"
 #include "company_alg_interface.h"
 
 namespace alg_framework {
@@ -25,7 +25,12 @@ class OcrDocQaAdapter : public IBusinessAdapter {
         OwnershipPolicy::kCopyIn,
         ThreadModel::kStatelessThreadSafe,
         OutputCardinality::kOneToOne,
-        {"multimodal_ocr_invoice_qa"}};  // RECHECK-002: 精确白名单
+        {{kOcrDocQaBusinessName,
+          "ocr_doc_qa",
+          "OCR 票据问答",
+          {RequiredInput(kRawRequestIds), RequiredInput(kRawImagePaths),
+           RequiredInput(kRawQueries)},
+          {Output(kOcrDocFinalOutputs)}}}};
     return desc;
   }
 
@@ -77,9 +82,9 @@ class OcrDocQaAdapter : public IBusinessAdapter {
       raw_queries.push_back(in_ocr->query_prompt);
     }
 
-    ctx->Set("raw_request_ids", std::move(raw_req_ids));
-    ctx->Set("raw_image_paths", std::move(raw_images));
-    ctx->Set("raw_queries", std::move(raw_queries));
+    ctx->Set(kRawRequestIds, std::move(raw_req_ids));
+    ctx->Set(kRawImagePaths, std::move(raw_images));
+    ctx->Set(kRawQueries, std::move(raw_queries));
     return COMPANY_ALG_SUCCESS;
   }
 
@@ -93,7 +98,7 @@ class OcrDocQaAdapter : public IBusinessAdapter {
       return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     }
 
-    auto* res = ctx->Get<std::vector<OcrDocResult>>("ocr_doc_final_outputs");
+    auto* res = ctx->Get(kOcrDocFinalOutputs);
     if (!res) {
       if (out_status) {
         *out_status = AdapterStatus::BufferTooSmall(

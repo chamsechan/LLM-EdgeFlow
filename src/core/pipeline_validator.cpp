@@ -12,65 +12,137 @@
 #include "engine/engine_registry.h"
 
 namespace alg_framework {
-namespace {
 
-std::string PipelineErrorCodeName(PipelineErrorCode code) {
+const char* DiagnosticCodeName(DiagnosticCode code) noexcept {
   switch (code) {
-    case PipelineErrorCode::kOk:
+    case DiagnosticCode::kOk:
       return "OK";
-    case PipelineErrorCode::kJsonParse:
+    case DiagnosticCode::kJsonParse:
       return "JSON_PARSE";
-    case PipelineErrorCode::kConfigFileOpen:
+    case DiagnosticCode::kConfigFileOpen:
       return "CONFIG_FILE_OPEN";
-    case PipelineErrorCode::kRootType:
+    case DiagnosticCode::kRootType:
       return "ROOT_TYPE";
-    case PipelineErrorCode::kUnknownField:
+    case DiagnosticCode::kUnknownField:
       return "UNKNOWN_FIELD";
-    case PipelineErrorCode::kMissingField:
+    case DiagnosticCode::kMissingField:
       return "MISSING_FIELD";
-    case PipelineErrorCode::kFieldType:
+    case DiagnosticCode::kFieldType:
       return "FIELD_TYPE";
-    case PipelineErrorCode::kFieldRange:
+    case DiagnosticCode::kFieldRange:
       return "FIELD_RANGE";
-    case PipelineErrorCode::kInvalidCombination:
+    case DiagnosticCode::kInvalidCombination:
       return "INVALID_COMBINATION";
-    case PipelineErrorCode::kDuplicateModelId:
+    case DiagnosticCode::kDuplicateModelId:
       return "DUPLICATE_MODEL_ID";
-    case PipelineErrorCode::kDuplicateNodeId:
+    case DiagnosticCode::kDuplicateNodeId:
       return "DUPLICATE_NODE_ID";
-    case PipelineErrorCode::kUnknownNodeType:
+    case DiagnosticCode::kUnknownBusiness:
+      return "UNKNOWN_BUSINESS";
+    case DiagnosticCode::kUnknownNodeType:
       return "UNKNOWN_NODE_TYPE";
-    case PipelineErrorCode::kUnknownEngineType:
+    case DiagnosticCode::kUnknownEngineType:
       return "UNKNOWN_ENGINE_TYPE";
-    case PipelineErrorCode::kInvalidDependency:
+    case DiagnosticCode::kInvalidDependency:
       return "INVALID_DEPENDENCY";
-    case PipelineErrorCode::kDagCycle:
+    case DiagnosticCode::kDuplicateDependency:
+      return "DUPLICATE_DEPENDENCY";
+    case DiagnosticCode::kDagCycle:
       return "DAG_CYCLE";
-    case PipelineErrorCode::kRegistryConflict:
+    case DiagnosticCode::kRegistryConflict:
       return "REGISTRY_CONFLICT";
-    case PipelineErrorCode::kEngineCreateFailed:
-      return "ENGINE_CREATE_FAILED";
-    case PipelineErrorCode::kEngineLoadFailed:
-      return "ENGINE_LOAD_FAILED";
-    case PipelineErrorCode::kNodeCreateFailed:
-      return "NODE_CREATE_FAILED";
-    case PipelineErrorCode::kNodeInitFailed:
-      return "NODE_INIT_FAILED";
-    case PipelineErrorCode::kInternalException:
+    case DiagnosticCode::kUnknownConfigField:
+      return "UNKNOWN_CONFIG_FIELD";
+    case DiagnosticCode::kMissingConfigField:
+      return "MISSING_CONFIG_FIELD";
+    case DiagnosticCode::kConfigFieldType:
+      return "CONFIG_FIELD_TYPE";
+    case DiagnosticCode::kConfigFieldRange:
+      return "CONFIG_FIELD_RANGE";
+    case DiagnosticCode::kConfigFieldEnum:
+      return "CONFIG_FIELD_ENUM";
+    case DiagnosticCode::kUnknownModelReference:
+      return "UNKNOWN_MODEL_REFERENCE";
+    case DiagnosticCode::kModelCapabilityMismatch:
+      return "MODEL_CAPABILITY_MISMATCH";
+    case DiagnosticCode::kNodeBusinessMismatch:
+      return "NODE_BUSINESS_MISMATCH";
+    case DiagnosticCode::kMissingInputProducer:
+      return "MISSING_INPUT_PRODUCER";
+    case DiagnosticCode::kDuplicatePortProducer:
+      return "DUPLICATE_PORT_PRODUCER";
+    case DiagnosticCode::kMissingBusinessOutput:
+      return "MISSING_BUSINESS_OUTPUT";
+    case DiagnosticCode::kNodeNotParallelSafe:
+      return "NODE_NOT_PARALLEL_SAFE";
+    case DiagnosticCode::kParallelWriteConflict:
+      return "PARALLEL_WRITE_CONFLICT";
+    case DiagnosticCode::kSerializedEngineConcurrency:
+      return "SERIALIZED_ENGINE_CONCURRENCY";
+    case DiagnosticCode::kInternalException:
       return "INTERNAL_EXCEPTION";
-    case PipelineErrorCode::kInvalidBuildState:
-      return "INVALID_BUILD_STATE";
   }
   return "UNKNOWN";
 }
 
-void Add(ValidationReport* report, std::string code, std::string path,
+namespace {
+
+DiagnosticCode PipelineErrorCodeToDiagnosticCode(PipelineErrorCode code) {
+  switch (code) {
+    case PipelineErrorCode::kOk:
+      return DiagnosticCode::kOk;
+    case PipelineErrorCode::kJsonParse:
+      return DiagnosticCode::kJsonParse;
+    case PipelineErrorCode::kConfigFileOpen:
+      return DiagnosticCode::kConfigFileOpen;
+    case PipelineErrorCode::kRootType:
+      return DiagnosticCode::kRootType;
+    case PipelineErrorCode::kUnknownField:
+      return DiagnosticCode::kUnknownField;
+    case PipelineErrorCode::kMissingField:
+      return DiagnosticCode::kMissingField;
+    case PipelineErrorCode::kFieldType:
+      return DiagnosticCode::kFieldType;
+    case PipelineErrorCode::kFieldRange:
+      return DiagnosticCode::kFieldRange;
+    case PipelineErrorCode::kInvalidCombination:
+      return DiagnosticCode::kInvalidCombination;
+    case PipelineErrorCode::kDuplicateModelId:
+      return DiagnosticCode::kDuplicateModelId;
+    case PipelineErrorCode::kDuplicateNodeId:
+      return DiagnosticCode::kDuplicateNodeId;
+    case PipelineErrorCode::kUnknownNodeType:
+      return DiagnosticCode::kUnknownNodeType;
+    case PipelineErrorCode::kUnknownEngineType:
+      return DiagnosticCode::kUnknownEngineType;
+    case PipelineErrorCode::kInvalidDependency:
+      return DiagnosticCode::kInvalidDependency;
+    case PipelineErrorCode::kDagCycle:
+      return DiagnosticCode::kDagCycle;
+    case PipelineErrorCode::kRegistryConflict:
+      return DiagnosticCode::kRegistryConflict;
+    case PipelineErrorCode::kEngineCreateFailed:
+      return DiagnosticCode::kUnknownEngineType;
+    case PipelineErrorCode::kEngineLoadFailed:
+      return DiagnosticCode::kUnknownModelReference;
+    case PipelineErrorCode::kNodeCreateFailed:
+      return DiagnosticCode::kUnknownNodeType;
+    case PipelineErrorCode::kNodeInitFailed:
+      return DiagnosticCode::kUnknownConfigField;
+    case PipelineErrorCode::kInternalException:
+      return DiagnosticCode::kInternalException;
+    case PipelineErrorCode::kInvalidBuildState:
+      return DiagnosticCode::kInternalException;
+  }
+  return DiagnosticCode::kInternalException;
+}
+
+void Add(ValidationReport* report, DiagnosticCode code, std::string path,
          std::string message, std::string node_id = {}, std::string port = {},
          std::vector<std::string> related = {},
          std::vector<std::string> suggestions = {}) {
-  report->diagnostics.push_back({std::move(code), std::move(path),
-                                 std::move(message), "error",
-                                 std::move(node_id), std::move(port),
+  report->diagnostics.push_back({code, std::move(path), std::move(message),
+                                 "error", std::move(node_id), std::move(port),
                                  std::move(related), std::move(suggestions)});
 }
 
@@ -90,6 +162,73 @@ bool MatchesKind(const nlohmann::json& value, ConfigValueKind kind) {
       return value.is_array();
   }
   return false;
+}
+
+void ValidateConfigFields(const std::vector<ConfigFieldDefinition>& definitions,
+                          const nlohmann::json& config,
+                          const std::string& path_prefix,
+                          const std::string& node_or_engine_id,
+                          ValidationReport* report) {
+  if (!config.is_object()) {
+    Add(report, DiagnosticCode::kConfigFieldType, path_prefix,
+        "Config must be a JSON object", node_or_engine_id);
+    return;
+  }
+
+  // 1. 未知字段校验
+  for (auto it = config.begin(); it != config.end(); ++it) {
+    const std::string& key = it.key();
+    bool found = std::any_of(definitions.begin(), definitions.end(),
+                             [&](const auto& f) { return f.name == key; });
+    if (!found) {
+      Add(report, DiagnosticCode::kUnknownConfigField, path_prefix + "/" + key,
+          "Unknown config field: " + key, node_or_engine_id);
+    }
+  }
+
+  // 2. 已声明字段约束校验：required, 类型, 数值范围, enum 枚举值
+  for (const auto& field : definitions) {
+    std::string field_path = path_prefix + "/" + field.name;
+    if (!config.contains(field.name)) {
+      if (field.required) {
+        Add(report, DiagnosticCode::kMissingConfigField, field_path,
+            "Missing required config field: " + field.name, node_or_engine_id);
+      }
+      continue;
+    }
+
+    const auto& val = config[field.name];
+    if (!MatchesKind(val, field.kind)) {
+      Add(report, DiagnosticCode::kConfigFieldType, field_path,
+          "Expected " + std::string(ConfigValueKindName(field.kind)),
+          node_or_engine_id);
+      continue;
+    }
+
+    if (val.is_number()) {
+      double num_val = val.get<double>();
+      if (field.minimum.has_value() && num_val < *field.minimum) {
+        Add(report, DiagnosticCode::kConfigFieldRange, field_path,
+            "Numeric value is below minimum " + std::to_string(*field.minimum),
+            node_or_engine_id);
+      } else if (field.maximum.has_value() && num_val > *field.maximum) {
+        Add(report, DiagnosticCode::kConfigFieldRange, field_path,
+            "Numeric value exceeds maximum " + std::to_string(*field.maximum),
+            node_or_engine_id);
+      }
+    }
+
+    if (field.kind == ConfigValueKind::kString && !field.enum_values.empty() &&
+        val.is_string()) {
+      std::string str_val = val.get<std::string>();
+      if (std::find(field.enum_values.begin(), field.enum_values.end(),
+                    str_val) == field.enum_values.end()) {
+        Add(report, DiagnosticCode::kConfigFieldEnum, field_path,
+            "String value '" + str_val + "' not in allowed enum values",
+            node_or_engine_id);
+      }
+    }
+  }
 }
 
 const std::vector<ParsedNodeConfig>& EffectiveNodes(
@@ -114,16 +253,16 @@ bool ResolveTopology(const std::vector<ParsedNodeConfig>& nodes,
       std::string path = "/pipeline/" + std::to_string(node.source_index) +
                          "/depends_on/" + std::to_string(d);
       if (dep == node.id) {
-        Add(report, "DAG_CYCLE", path, "Node cannot depend on itself", node.id,
-            {}, {dep});
+        Add(report, DiagnosticCode::kDagCycle, path,
+            "Node cannot depend on itself", node.id, {}, {dep});
         invalid_reference = true;
       } else if (index.find(dep) == index.end()) {
-        Add(report, "INVALID_DEPENDENCY", path,
+        Add(report, DiagnosticCode::kInvalidDependency, path,
             "Dependency references an unknown node: " + dep, node.id, {},
             {dep});
         invalid_reference = true;
       } else if (!seen.insert(dep).second) {
-        Add(report, "DUPLICATE_DEPENDENCY", path,
+        Add(report, DiagnosticCode::kDuplicateDependency, path,
             "Dependency is declared more than once: " + dep, node.id, {},
             {dep});
         invalid_reference = true;
@@ -151,7 +290,7 @@ bool ResolveTopology(const std::vector<ParsedNodeConfig>& nodes,
     current = std::move(next);
   }
   if (resolved != nodes.size()) {
-    Add(report, "DAG_CYCLE", "/pipeline",
+    Add(report, DiagnosticCode::kDagCycle, "/pipeline",
         "Cyclic dependency detected in pipeline");
     return false;
   }
@@ -160,20 +299,22 @@ bool ResolveTopology(const std::vector<ParsedNodeConfig>& nodes,
 
 }  // namespace
 
+nlohmann::json ValidationDiagnostic::ToJson() const {
+  nlohmann::json item = {{"code", DiagnosticCodeName(code)},
+                         {"path", path},
+                         {"message", message},
+                         {"severity", severity}};
+  if (!node_id.empty()) item["node_id"] = node_id;
+  if (!port.empty()) item["port"] = port;
+  if (!related_nodes.empty()) item["related_nodes"] = related_nodes;
+  if (!suggestions.empty()) item["suggestions"] = suggestions;
+  return item;
+}
+
 nlohmann::json ValidationReport::ToJson() const {
   nlohmann::json items = nlohmann::json::array();
   for (const auto& diagnostic : diagnostics) {
-    nlohmann::json item = {{"code", diagnostic.code},
-                           {"path", diagnostic.path},
-                           {"message", diagnostic.message},
-                           {"severity", diagnostic.severity}};
-    if (!diagnostic.node_id.empty()) item["node_id"] = diagnostic.node_id;
-    if (!diagnostic.port.empty()) item["port"] = diagnostic.port;
-    if (!diagnostic.related_nodes.empty())
-      item["related_nodes"] = diagnostic.related_nodes;
-    if (!diagnostic.suggestions.empty())
-      item["suggestions"] = diagnostic.suggestions;
-    items.push_back(std::move(item));
+    items.push_back(diagnostic.ToJson());
   }
   return {{"schema_version", 1},
           {"ok", ok},
@@ -183,140 +324,137 @@ nlohmann::json ValidationReport::ToJson() const {
             {"layers", topological_layers}}}};
 }
 
-ValidationReport PipelineValidator::Validate(const nlohmann::json& root) {
-  ValidationReport report;
-  ParsedPipelineConfig parsed;
+ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
+    const nlohmann::json& root, ValidationPolicy policy) {
+  ValidatedPipelinePlan plan;
+  ValidationReport& report = plan.report;
   PipelineDiagnostic parse_diag;
-  if (!ParsePipelineConfig(root, &parsed, &parse_diag)) {
-    Add(&report, PipelineErrorCodeName(parse_diag.code), parse_diag.path,
-        parse_diag.message);
-    return report;
+  if (!ParsePipelineConfig(root, &plan.config, &parse_diag)) {
+    Add(&report, PipelineErrorCodeToDiagnosticCode(parse_diag.code),
+        parse_diag.path, parse_diag.message);
+    report.ok = false;
+    return plan;
   }
+  const auto& parsed = plan.config;
 
   const auto* business = PipelineCatalog::FindBusiness(parsed.business_name);
-  if (!business) {
-    Add(&report, "UNKNOWN_BUSINESS", "/business_name",
+  if (!business && policy == ValidationPolicy::kStrict) {
+    Add(&report, DiagnosticCode::kUnknownBusiness, "/business_name",
         "No registered business contract accepts pipeline name: " +
             parsed.business_name);
   }
   if (NodeFactory::Instance().HasConflict()) {
-    Add(&report, "REGISTRY_CONFLICT", "/pipeline",
+    Add(&report, DiagnosticCode::kRegistryConflict, "/pipeline",
         "Node registry contains registration conflicts");
   }
   if (EngineFactory::Instance().HasConflict()) {
-    Add(&report, "REGISTRY_CONFLICT", "/models",
+    Add(&report, DiagnosticCode::kRegistryConflict, "/models",
         "Engine registry contains registration conflicts");
   }
 
   std::unordered_map<std::string, std::string> model_capabilities;
+  std::unordered_map<std::string, EngineThreadModel> model_thread_models;
   for (const auto& model : parsed.models) {
     const auto* engine = PipelineCatalog::FindEngine(model.engine_type);
-    if (!EngineFactory::Instance().Has(model.engine_type) || !engine) {
-      Add(&report, "UNKNOWN_ENGINE_TYPE",
+    bool factory_has = EngineFactory::Instance().Has(model.engine_type);
+    if (!factory_has || (!engine && policy == ValidationPolicy::kStrict)) {
+      Add(&report, DiagnosticCode::kUnknownEngineType,
           "/models/" + std::to_string(model.source_index) + "/engine_type",
           "Unknown engine_type: " + model.engine_type);
       continue;
     }
-    model_capabilities[model.model_id] = engine->capability;
-    std::unordered_map<std::string, const ConfigFieldDefinition*> fields;
-    for (const auto& field : engine->config_fields) fields[field.name] = &field;
-    for (auto it = model.config.begin(); it != model.config.end(); ++it) {
-      auto found = fields.find(it.key());
-      std::string path = "/models/" + std::to_string(model.source_index) +
-                         "/config/" + it.key();
-      if (found == fields.end()) {
-        Add(&report, "UNKNOWN_CONFIG_FIELD", path,
-            "Unknown engine config field: " + it.key());
-      } else if (!MatchesKind(it.value(), found->second->kind)) {
-        Add(&report, "CONFIG_FIELD_TYPE", path,
-            "Expected " +
-                std::string(ConfigValueKindName(found->second->kind)));
-      }
+    if (engine) {
+      model_capabilities[model.model_id] = engine->capability;
+      model_thread_models[model.model_id] = engine->thread_model;
+
+      ValidateConfigFields(
+          engine->config_fields, model.config,
+          "/models/" + std::to_string(model.source_index) + "/config", "",
+          &report);
     }
   }
 
   auto nodes = EffectiveNodes(parsed);
   std::unordered_map<std::string, const ParsedNodeConfig*> node_by_id;
   std::unordered_map<std::string, const NodeDefinition*> def_by_id;
+  std::unordered_map<std::string, std::string> model_id_by_node;
   for (const auto& node : nodes) {
     node_by_id[node.id] = &node;
     const auto* definition = PipelineCatalog::FindNode(node.node_type);
-    if (!NodeFactory::Instance().Has(node.node_type) || !definition) {
-      Add(&report, "UNKNOWN_NODE_TYPE",
+    bool factory_has = NodeFactory::Instance().Has(node.node_type);
+    if (!factory_has || (!definition && policy == ValidationPolicy::kStrict)) {
+      Add(&report, DiagnosticCode::kUnknownNodeType,
           "/pipeline/" + std::to_string(node.source_index) + "/node_type",
           "Unknown node_type or missing catalog definition: " + node.node_type,
           node.id);
       continue;
     }
-    def_by_id[node.id] = definition;
+    if (definition) {
+      def_by_id[node.id] = definition;
 
-    std::unordered_map<std::string, const ConfigFieldDefinition*> fields;
-    for (const auto& field : definition->config_fields)
-      fields[field.name] = &field;
-    for (auto it = node.config.begin(); it != node.config.end(); ++it) {
-      std::string path = "/pipeline/" + std::to_string(node.source_index) +
-                         "/config/" + it.key();
-      auto found = fields.find(it.key());
-      if (found == fields.end()) {
-        Add(&report, "UNKNOWN_CONFIG_FIELD", path,
-            "Unknown node config field: " + it.key(), node.id);
-        continue;
-      }
-      const auto& field = *found->second;
-      if (!MatchesKind(it.value(), field.kind)) {
-        Add(&report, "CONFIG_FIELD_TYPE", path,
-            "Expected " + std::string(ConfigValueKindName(field.kind)),
+      if (business && !definition->business_names.empty() &&
+          std::find(definition->business_names.begin(),
+                    definition->business_names.end(),
+                    parsed.business_name) == definition->business_names.end()) {
+        Add(&report, DiagnosticCode::kNodeBusinessMismatch,
+            "/pipeline/" + std::to_string(node.source_index) + "/node_type",
+            "Node type is not declared for business: " + parsed.business_name,
             node.id);
-        continue;
       }
-      if (it.value().is_number()) {
-        double value = it.value().get<double>();
-        if ((field.minimum && value < *field.minimum) ||
-            (field.maximum && value > *field.maximum)) {
-          Add(&report, "CONFIG_FIELD_RANGE", path,
-              "Numeric value is outside the supported range", node.id);
-        }
-      }
-    }
 
-    if (!definition->model_capability.empty()) {
-      std::string model_id;
-      if (node.config.contains(definition->model_config_field) &&
-          node.config[definition->model_config_field].is_string()) {
-        model_id =
-            node.config[definition->model_config_field].get<std::string>();
-      } else {
-        auto field = std::find_if(
-            definition->config_fields.begin(), definition->config_fields.end(),
-            [&](const auto& item) {
-              return item.name == definition->model_config_field;
-            });
-        if (field != definition->config_fields.end() &&
-            field->default_value.is_string()) {
-          model_id = field->default_value.get<std::string>();
+      ValidateConfigFields(
+          definition->config_fields, node.config,
+          "/pipeline/" + std::to_string(node.source_index) + "/config", node.id,
+          &report);
+
+      if (!definition->model_capability.empty()) {
+        std::string model_id;
+        if (node.config.contains(definition->model_config_field) &&
+            node.config[definition->model_config_field].is_string()) {
+          model_id =
+              node.config[definition->model_config_field].get<std::string>();
+        } else {
+          auto field = std::find_if(
+              definition->config_fields.begin(),
+              definition->config_fields.end(), [&](const auto& item) {
+                return item.name == definition->model_config_field;
+              });
+          if (field != definition->config_fields.end() &&
+              field->default_value.is_string() &&
+              !field->default_value.get<std::string>().empty()) {
+            model_id = field->default_value.get<std::string>();
+          } else if (parsed.models.size() == 1) {
+            model_id = parsed.models.front().model_id;
+          }
         }
-      }
-      auto capability = model_capabilities.find(model_id);
-      std::string path = "/pipeline/" + std::to_string(node.source_index) +
-                         "/config/" + definition->model_config_field;
-      if (capability == model_capabilities.end()) {
-        Add(&report, "UNKNOWN_MODEL_REFERENCE", path,
-            "Node references an unknown model_id: " + model_id, node.id);
-      } else if (capability->second != definition->model_capability) {
-        Add(&report, "MODEL_CAPABILITY_MISMATCH", path,
-            "Node requires model capability '" + definition->model_capability +
-                "' but model provides '" + capability->second + "'",
-            node.id);
+        auto capability = model_capabilities.find(model_id);
+        if (!model_id.empty()) model_id_by_node[node.id] = model_id;
+        std::string path = "/pipeline/" + std::to_string(node.source_index) +
+                           "/config/" + definition->model_config_field;
+        if (capability == model_capabilities.end()) {
+          Add(&report, DiagnosticCode::kUnknownModelReference, path,
+              "Node references an unknown model_id: " + model_id, node.id);
+        } else if (capability->second != definition->model_capability) {
+          Add(&report, DiagnosticCode::kModelCapabilityMismatch, path,
+              "Node requires model capability '" +
+                  definition->model_capability + "' but model provides '" +
+                  capability->second + "'",
+              node.id);
+        }
       }
     }
   }
 
   const size_t pre_topology_errors = report.diagnostics.size();
   ResolveTopology(nodes, &report);
-  if (report.diagnostics.size() != pre_topology_errors || !business ||
+  plan.topological_order = report.topological_order;
+  plan.topological_layers = report.topological_layers;
+
+  if (report.diagnostics.size() != pre_topology_errors ||
+      (policy == ValidationPolicy::kStrict && !business) ||
       report.topological_order.size() != nodes.size()) {
     report.ok = report.diagnostics.empty();
-    return report;
+    return plan;
   }
 
   std::unordered_map<std::string, std::vector<std::string>> deps;
@@ -338,7 +476,9 @@ ValidationReport PipelineValidator::Validate(const nlohmann::json& root) {
       };
 
   std::unordered_map<std::string, PortDefinition> ingress;
-  for (const auto& port : business->ingress) ingress[port.key] = port;
+  if (business) {
+    for (const auto& port : business->ingress) ingress[port.key] = port;
+  }
   std::unordered_map<std::string,
                      std::vector<std::pair<std::string, PortDefinition>>>
       producers;
@@ -365,7 +505,7 @@ ValidationReport PipelineValidator::Validate(const nlohmann::json& root) {
           }
         }
       }
-      if (!found) {
+      if (!found && business) {
         std::vector<std::string> suggestions;
         for (const auto& candidate : PipelineCatalog::Nodes()) {
           if (std::any_of(candidate.outputs.begin(), candidate.outputs.end(),
@@ -376,7 +516,7 @@ ValidationReport PipelineValidator::Validate(const nlohmann::json& root) {
             suggestions.push_back(candidate.node_type);
           }
         }
-        Add(&report, "MISSING_INPUT_PRODUCER",
+        Add(&report, DiagnosticCode::kMissingInputProducer,
             "/pipeline/" + std::to_string(node.source_index),
             "No business ingress or ancestor node produces required port '" +
                 input.key + "' of type '" + input.type_id + "'",
@@ -386,7 +526,7 @@ ValidationReport PipelineValidator::Validate(const nlohmann::json& root) {
     for (const auto& output : definition.outputs) {
       auto& existing = producers[output.key];
       if (!existing.empty() && !output.allow_override) {
-        Add(&report, "DUPLICATE_PORT_PRODUCER",
+        Add(&report, DiagnosticCode::kDuplicatePortProducer,
             "/pipeline/" + std::to_string(node.source_index),
             "Port is produced more than once without override permission: " +
                 output.key,
@@ -396,36 +536,58 @@ ValidationReport PipelineValidator::Validate(const nlohmann::json& root) {
     }
   }
 
-  for (const auto& required : business->egress) {
-    bool found = false;
-    auto it = producers.find(required.key);
-    if (it != producers.end()) {
-      found = std::any_of(it->second.begin(), it->second.end(),
-                          [&](const auto& producer) {
-                            return producer.second.type_id == required.type_id;
-                          });
-    }
-    if (!found) {
-      Add(&report, "MISSING_BUSINESS_OUTPUT", "/pipeline",
-          "Pipeline does not produce required business output: " + required.key,
-          {}, required.key);
+  if (business) {
+    for (const auto& required : business->egress) {
+      bool found = false;
+      auto it = producers.find(required.key);
+      if (it != producers.end()) {
+        found = std::any_of(
+            it->second.begin(), it->second.end(), [&](const auto& producer) {
+              return producer.second.type_id == required.type_id;
+            });
+      }
+      if (!found) {
+        Add(&report, DiagnosticCode::kMissingBusinessOutput, "/pipeline",
+            "Pipeline does not produce required business output: " +
+                required.key,
+            {}, required.key);
+      }
     }
   }
 
   if (parsed.execution_mode == "parallel") {
     for (const auto& layer : report.topological_layers) {
       std::unordered_map<std::string, std::string> writes;
+      std::unordered_map<std::string, std::string> serialized_model_users;
       for (const auto& id : layer) {
         auto def_it = def_by_id.find(id);
         if (def_it == def_by_id.end()) continue;
         if (!def_it->second->parallel_safe && layer.size() > 1) {
-          Add(&report, "NODE_NOT_PARALLEL_SAFE", "/pipeline",
+          Add(&report, DiagnosticCode::kNodeNotParallelSafe, "/pipeline",
               "Node is not declared safe for wavefront parallel execution", id);
+        }
+        auto model_id = model_id_by_node.find(id);
+        if (layer.size() > 1 && model_id != model_id_by_node.end()) {
+          auto thread_model = model_thread_models.find(model_id->second);
+          if (thread_model != model_thread_models.end() &&
+              thread_model->second == EngineThreadModel::kSerialized) {
+            auto inserted =
+                serialized_model_users.emplace(model_id->second, id);
+            if (!inserted.second) {
+              const auto& node = *node_by_id.at(id);
+              Add(&report, DiagnosticCode::kSerializedEngineConcurrency,
+                  "/pipeline/" + std::to_string(node.source_index) +
+                      "/config/" + def_it->second->model_config_field,
+                  "Parallel layer shares serialized model instance: " +
+                      model_id->second,
+                  id, {}, {inserted.first->second});
+            }
+          }
         }
         for (const auto& output : def_it->second->outputs) {
           auto inserted = writes.emplace(output.key, id);
           if (!inserted.second) {
-            Add(&report, "PARALLEL_WRITE_CONFLICT", "/pipeline",
+            Add(&report, DiagnosticCode::kParallelWriteConflict, "/pipeline",
                 "Parallel layer writes the same port: " + output.key, id,
                 output.key, {inserted.first->second});
           }
@@ -435,7 +597,12 @@ ValidationReport PipelineValidator::Validate(const nlohmann::json& root) {
   }
 
   report.ok = report.diagnostics.empty();
-  return report;
+  return plan;
+}
+
+ValidationReport PipelineValidator::Validate(const nlohmann::json& root,
+                                             ValidationPolicy policy) {
+  return ValidateAndPlan(root, policy).report;
 }
 
 bool PipelineValidator::NormalizeExplicitDag(const nlohmann::json& root,
@@ -448,7 +615,7 @@ bool PipelineValidator::NormalizeExplicitDag(const nlohmann::json& root,
     PipelineDiagnostic parse_diag;
     ParsePipelineConfig(root, &parsed, &parse_diag);
     if (diagnostic) {
-      diagnostic->code = PipelineErrorCodeName(parse_diag.code);
+      diagnostic->code = PipelineErrorCodeToDiagnosticCode(parse_diag.code);
       diagnostic->path = parse_diag.path;
       diagnostic->message = parse_diag.message;
     }
@@ -484,7 +651,7 @@ bool PipelineValidator::NormalizeExplicitDag(const nlohmann::json& root,
   PipelineDiagnostic parse_diag;
   if (!ParsePipelineConfig(normalized, &parsed, &parse_diag)) {
     if (diagnostic) {
-      diagnostic->code = PipelineErrorCodeName(parse_diag.code);
+      diagnostic->code = PipelineErrorCodeToDiagnosticCode(parse_diag.code);
       diagnostic->path = parse_diag.path;
       diagnostic->message = parse_diag.message;
     }

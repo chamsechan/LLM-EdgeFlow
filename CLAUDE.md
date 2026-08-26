@@ -23,7 +23,7 @@ Welcome Claude Code. This document outlines project commands, architecture const
 2. **Layer 2: Pipeline & Dynamic Blackboard (`include/core/alg_context.h`, `pipeline.h`)**:
    - Nodes communicate strictly via request-scoped `AlgContext` with zero unnecessary memory copies.
 3. **Layer 3: Pluggable Business & Common Nodes (`src/business/`, `src/common_nodes/`)**:
-   - Inherit from `INode` and register via `REGISTER_NODE(NodeClassName)`.
+   - Inherit from `NodeBase` (or `ModelBoundNode`, `TraceableUnaryInferenceNode`) and register via `REGISTER_NODE_WITH_DEFINITION(NodeClassName, definition)`.
 4. **Layer 4: Heterogeneous Inference Engines (`include/engine/`, `src/engine/`)**:
    - Batch inference implementations **MUST** utilize `FixedBatchExecutor::Execute` for automatic hardware padding, dummy stripping, and sample provenance tracking `(req_id, sub_id)`.
 
