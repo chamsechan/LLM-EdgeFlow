@@ -77,4 +77,6 @@ void RegisterAudioAsrIntentBridge(PlatformBusinessBridgeRegistry& reg) {
   reg.RegisterBridge(desc);
 }
 
+REGISTER_PLATFORM_BUSINESS_BRIDGE(RegisterAudioAsrIntentBridge);
+
 }  // namespace alg_framework

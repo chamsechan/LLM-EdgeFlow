@@ -3,6 +3,7 @@
 #include <fstream>
 #include <iostream>
 #include <sstream>
+#include <unordered_map>
 #include <unordered_set>
 
 #include "adapter/business_adapter_registry.h"
@@ -11,59 +12,148 @@ namespace alg_framework {
 
 namespace {
 
+struct OutputFieldCapacityConfig {
+  uint32_t default_capacity;
+  uint32_t max_capacity;
+};
+
+const std::unordered_map<
+    std::string, std::unordered_map<std::string, OutputFieldCapacityConfig>>&
+GetOutputCapacityConfigs() {
+  static const std::unordered_map<
+      std::string, std::unordered_map<std::string, OutputFieldCapacityConfig>>
+      kConfigs = {
+          {"od_out", {{"result_json", {2047, 65536}}}},
+          {"keyword_out", {{"match_result_json", {2047, 65536}}}},
+          {"entity_out", {{"entities_json", {2047, 65536}}}},
+          {"doc_out",
+           {{"intent_name", {63, 255}}, {"answer_text", {1023, 65536}}}},
+          {"audit_out",
+           {{"risk_level", {31, 255}},
+            {"matched_policy_clause", {255, 4096}},
+            {"audit_verdict_json", {1023, 65536}}}},
+          {"audio_out",
+           {{"transcribed_text", {511, 16384}},
+            {"intent_slot_json", {1023, 65536}}}},
+          {"rerank_out", {}},
+      };
+  return kConfigs;
+}
+
 void PopulateDefaultCapacities(const std::string& type_suffix,
                                ResolvedOutputPoolSpec* spec) {
-  if (type_suffix == "od_out") {
-    if (spec->capacities.find("result_json") == spec->capacities.end()) {
-      spec->capacities["result_json"] = 2047;
-    }
-  } else if (type_suffix == "keyword_out") {
-    if (spec->capacities.find("match_result_json") == spec->capacities.end()) {
-      spec->capacities["match_result_json"] = 2047;
-    }
-  } else if (type_suffix == "entity_out") {
-    if (spec->capacities.find("entities_json") == spec->capacities.end()) {
-      spec->capacities["entities_json"] = 2047;
-    }
-  } else if (type_suffix == "doc_out") {
-    if (spec->capacities.find("intent_name") == spec->capacities.end()) {
-      spec->capacities["intent_name"] = 63;
-    }
-    if (spec->capacities.find("answer_text") == spec->capacities.end()) {
-      spec->capacities["answer_text"] = 1023;
-    }
-  } else if (type_suffix == "audit_out") {
-    if (spec->capacities.find("risk_level") == spec->capacities.end()) {
-      spec->capacities["risk_level"] = 31;
-    }
-    if (spec->capacities.find("matched_policy_clause") ==
-        spec->capacities.end()) {
-      spec->capacities["matched_policy_clause"] = 255;
-    }
-    if (spec->capacities.find("audit_verdict_json") == spec->capacities.end()) {
-      spec->capacities["audit_verdict_json"] = 1023;
-    }
-  } else if (type_suffix == "audio_out") {
-    if (spec->capacities.find("transcribed_text") == spec->capacities.end()) {
-      spec->capacities["transcribed_text"] = 511;
-    }
-    if (spec->capacities.find("intent_slot_json") == spec->capacities.end()) {
-      spec->capacities["intent_slot_json"] = 1023;
+  const auto& all_configs = GetOutputCapacityConfigs();
+  auto it = all_configs.find(type_suffix);
+  if (it != all_configs.end()) {
+    for (const auto& [field, config] : it->second) {
+      if (spec->capacities.find(field) == spec->capacities.end()) {
+        spec->capacities[field] = config.default_capacity;
+      }
     }
   }
 }
 
-std::unordered_set<std::string> GetAllowedCapacityFields(
-    const std::string& type_suffix) {
-  if (type_suffix == "od_out") return {"result_json"};
-  if (type_suffix == "keyword_out") return {"match_result_json"};
-  if (type_suffix == "entity_out") return {"entities_json"};
-  if (type_suffix == "doc_out") return {"intent_name", "answer_text"};
-  if (type_suffix == "audit_out")
-    return {"risk_level", "matched_policy_clause", "audit_verdict_json"};
-  if (type_suffix == "audio_out")
-    return {"transcribed_text", "intent_slot_json"};
-  return {};
+int ResolveContainedPath(const std::filesystem::path& canonical_root,
+                         const std::string& relative_value,
+                         const char* field_name, bool check_exists,
+                         bool is_directory, std::filesystem::path* resolved,
+                         std::string* error_msg) noexcept {
+  if (!resolved) return -2;
+  if (relative_value.empty()) {
+    if (error_msg) *error_msg = std::string(field_name) + " path is empty";
+    return -2;
+  }
+  // 拒绝绝对路径 (POSIX / Windows / UNC)
+  if (relative_value[0] == '/' || relative_value[0] == '\\') {
+    if (error_msg) {
+      *error_msg = std::string(field_name) +
+                   " must be relative, got absolute: " + relative_value;
+    }
+    return -2;
+  }
+  std::filesystem::path rel_path(relative_value);
+  if (rel_path.is_absolute() || rel_path.has_root_name() ||
+      rel_path.has_root_directory()) {
+    if (error_msg) {
+      *error_msg =
+          std::string(field_name) + " has absolute root: " + relative_value;
+    }
+    return -2;
+  }
+
+  std::error_code ec;
+  std::filesystem::path combined =
+      (canonical_root / rel_path).lexically_normal();
+  auto rel_check = combined.lexically_relative(canonical_root);
+  if (rel_check.empty() || rel_check.string().rfind("..", 0) == 0) {
+    if (error_msg) {
+      *error_msg =
+          std::string(field_name) + " escapes model_path: " + relative_value;
+    }
+    return -2;
+  }
+
+  std::filesystem::path canon_p;
+  if (check_exists) {
+    if (!std::filesystem::exists(combined, ec) || ec) {
+      if (error_msg) {
+        *error_msg = std::string(field_name) +
+                     " file does not exist: " + combined.string();
+      }
+      return -2;
+    }
+    canon_p = std::filesystem::canonical(combined, ec);
+    if (ec) {
+      if (error_msg) {
+        *error_msg = "Failed to canonicalize " + std::string(field_name) +
+                     ": " + combined.string();
+      }
+      return -2;
+    }
+  } else {
+    canon_p = std::filesystem::weakly_canonical(combined, ec);
+    if (ec) {
+      canon_p = combined;
+    }
+  }
+
+  // 组件级包含校验，防止前缀混淆 (/root/a vs /root/ab)
+  auto it_root = canonical_root.begin();
+  auto it_p = canon_p.begin();
+  while (it_root != canonical_root.end()) {
+    if (it_p == canon_p.end() || *it_p != *it_root) {
+      if (error_msg) {
+        *error_msg = std::string(field_name) +
+                     " symlink escapes model_path: " + canon_p.string();
+      }
+      return -2;
+    }
+    ++it_root;
+    ++it_p;
+  }
+
+  if (check_exists) {
+    if (is_directory) {
+      if (!std::filesystem::is_directory(canon_p, ec) || ec) {
+        if (error_msg) {
+          *error_msg = std::string(field_name) +
+                       " is not a directory: " + canon_p.string();
+        }
+        return -2;
+      }
+    } else {
+      if (std::filesystem::is_directory(canon_p, ec) || ec) {
+        if (error_msg) {
+          *error_msg = std::string(field_name) +
+                       " must be a file, not directory: " + canon_p.string();
+        }
+        return -2;
+      }
+    }
+  }
+
+  *resolved = canon_p;
+  return 0;
 }
 
 }  // namespace
@@ -89,54 +179,30 @@ int CompanyConfResolver::Resolve(const char* model_path,
       return -2;
     }
 
-    std::filesystem::path root_path(model_path);
-    if (!std::filesystem::exists(root_path) ||
-        !std::filesystem::is_directory(root_path)) {
+    std::filesystem::path raw_root(model_path);
+    std::error_code ec;
+    if (!std::filesystem::exists(raw_root, ec) ||
+        !std::filesystem::is_directory(raw_root, ec)) {
       if (error_msg) {
         *error_msg =
-            "model_path directory does not exist: " + root_path.string();
+            "model_path directory does not exist: " + raw_root.string();
       }
       return -2;
     }
 
-    std::filesystem::path rel_cfg(cfg_file_name);
-    if (rel_cfg.is_absolute() ||
-        (cfg_file_name[0] == '/' || cfg_file_name[0] == '\\')) {
+    std::filesystem::path canon_root = std::filesystem::canonical(raw_root, ec);
+    if (ec) {
       if (error_msg) {
-        *error_msg = "cfg_file_name must be a relative path: " +
-                     std::string(cfg_file_name);
+        *error_msg = "Failed to canonicalize model_path: " + raw_root.string();
       }
       return -2;
     }
 
-    std::filesystem::path full_cfg = (root_path / rel_cfg).lexically_normal();
-    auto rel_check = full_cfg.lexically_relative(root_path);
-    if (rel_check.empty() || rel_check.string().rfind("..", 0) == 0) {
-      if (error_msg) {
-        *error_msg =
-            "cfg_file_name escapes model_path: " + std::string(cfg_file_name);
-      }
-      return -2;
-    }
-
-    if (!std::filesystem::exists(full_cfg)) {
-      if (error_msg) {
-        *error_msg = "Config file does not exist: " + full_cfg.string();
-      }
-      return -2;
-    }
-
-    // 校验符号链接逃逸
-    auto canon_root = std::filesystem::canonical(root_path);
-    auto canon_cfg = std::filesystem::canonical(full_cfg);
-    auto canon_rel = canon_cfg.lexically_relative(canon_root);
-    if (canon_rel.empty() || canon_rel.string().rfind("..", 0) == 0) {
-      if (error_msg) {
-        *error_msg =
-            "Config file symlink escapes model_path: " + full_cfg.string();
-      }
-      return -2;
-    }
+    // 统一沙箱解析 cfg_file_name (必须存在)
+    std::filesystem::path full_cfg;
+    int ret = ResolveContainedPath(canon_root, cfg_file_name, "cfg_file_name",
+                                   true, false, &full_cfg, error_msg);
+    if (ret != 0) return ret;
 
     // 读取并解析 .conf JSON
     std::ifstream conf_ifs(full_cfg);
@@ -177,25 +243,10 @@ int CompanyConfResolver::Resolve(const char* model_path,
     }
 
     std::string pipe_rel = (*data_obj)["pipe_path"].get<std::string>();
-    if (pipe_rel.empty()) {
-      if (error_msg) *error_msg = "'pipe_path' cannot be empty";
-      return -2;
-    }
-
-    std::filesystem::path full_pipe = (root_path / pipe_rel).lexically_normal();
-    if (!std::filesystem::exists(full_pipe)) {
-      // 容错：如果 root_path 下不存在，尝试相对 full_cfg 的目录
-      std::filesystem::path cfg_dir_pipe =
-          (full_cfg.parent_path() / pipe_rel).lexically_normal();
-      if (std::filesystem::exists(cfg_dir_pipe)) {
-        full_pipe = cfg_dir_pipe;
-      } else {
-        if (error_msg) {
-          *error_msg = "Pipeline JSON does not exist: " + full_pipe.string();
-        }
-        return -2;
-      }
-    }
+    std::filesystem::path full_pipe;
+    ret = ResolveContainedPath(canon_root, pipe_rel, "pipe_path", true, false,
+                               &full_pipe, error_msg);
+    if (ret != 0) return ret;
 
     std::ifstream pipe_ifs(full_pipe);
     if (!pipe_ifs.is_open()) {
@@ -284,14 +335,17 @@ int CompanyConfResolver::Resolve(const char* model_path,
     pool_spec.type = mem_type;
 
     if (mem_que.contains("meta_num")) {
-      if (!mem_que["meta_num"].is_number_integer() ||
-          mem_que["meta_num"].get<int32_t>() < 0) {
+      if (!mem_que["meta_num"].is_number_unsigned()) {
         if (error_msg)
           *error_msg = "mem_que.meta_num must be non-negative integer";
         return -2;
       }
-      pool_spec.meta_num =
-          static_cast<uint32_t>(mem_que["meta_num"].get<int32_t>());
+      uint64_t mnum = mem_que["meta_num"].get<uint64_t>();
+      if (mnum > 65536) {
+        if (error_msg) *error_msg = "mem_que.meta_num exceeds max limit 65536";
+        return -2;
+      }
+      pool_spec.meta_num = static_cast<uint32_t>(mnum);
     }
 
     if (mem_que.contains("metadata_type_id")) {
@@ -302,42 +356,72 @@ int CompanyConfResolver::Resolve(const char* model_path,
       pool_spec.metadata_type_id = mem_que["metadata_type_id"].get<int32_t>();
     }
 
-    if (pool_spec.meta_num == 0 && pool_spec.metadata_type_id != 0) {
-      if (error_msg) {
-        *error_msg = "metadata_type_id must be 0 when meta_num == 0";
+    if (pool_spec.meta_num == 0) {
+      if (pool_spec.metadata_type_id != 0) {
+        if (error_msg) {
+          *error_msg = "metadata_type_id must be 0 when meta_num == 0";
+        }
+        return -2;
       }
-      return -2;
+    } else {
+      if (pool_spec.metadata_type_id == 0 ||
+          !FindCompanyAnyType(pool_spec.metadata_type_id)) {
+        if (error_msg) {
+          *error_msg = "mem_que.metadata_type_id " +
+                       std::to_string(pool_spec.metadata_type_id) +
+                       " is invalid or not whitelisted";
+        }
+        return -2;
+      }
     }
 
-    auto allowed_fields = GetAllowedCapacityFields(mem_type);
+    const auto& all_configs = GetOutputCapacityConfigs();
+    auto cfg_it = all_configs.find(mem_type);
+
     if (mem_que.contains("capacities")) {
       if (!mem_que["capacities"].is_object()) {
         if (error_msg) *error_msg = "mem_que.capacities must be an object";
         return -2;
       }
       for (const auto& [cap_field, cap_val] : mem_que["capacities"].items()) {
-        if (allowed_fields.find(cap_field) == allowed_fields.end()) {
+        if (cfg_it == all_configs.end() ||
+            cfg_it->second.find(cap_field) == cfg_it->second.end()) {
           if (error_msg) {
             *error_msg = "Unknown capacity field '" + cap_field +
                          "' for output type '" + mem_type + "'";
           }
           return -2;
         }
-        if (!cap_val.is_number_integer() || cap_val.get<int32_t>() <= 0) {
+        if (!cap_val.is_number_unsigned()) {
           if (error_msg) {
             *error_msg = "Capacity for field '" + cap_field +
-                         "' must be positive integer";
+                         "' must be positive unsigned integer";
           }
           return -2;
         }
-        pool_spec.capacities[cap_field] =
-            static_cast<uint32_t>(cap_val.get<int32_t>());
+        uint64_t uval = cap_val.get<uint64_t>();
+        if (uval == 0) {
+          if (error_msg) {
+            *error_msg = "Capacity for field '" + cap_field + "' cannot be 0";
+          }
+          return -2;
+        }
+        const auto& field_cfg = cfg_it->second.at(cap_field);
+        if (uval > field_cfg.max_capacity) {
+          if (error_msg) {
+            *error_msg = "Capacity for field '" + cap_field + "' (" +
+                         std::to_string(uval) + ") exceeds max hard limit (" +
+                         std::to_string(field_cfg.max_capacity) + ")";
+          }
+          return -2;
+        }
+        pool_spec.capacities[cap_field] = static_cast<uint32_t>(uval);
       }
     }
 
     PopulateDefaultCapacities(mem_type, &pool_spec);
 
-    // 模型路径覆盖与绝对化
+    // 模型路径覆盖与严格沙箱解析 (不要求 mock 模型物理存在)
     size_t model_count = 0;
     if (pipe_json.contains("models") && pipe_json["models"].is_array()) {
       model_count = pipe_json["models"].size();
@@ -349,16 +433,13 @@ int CompanyConfResolver::Resolve(const char* model_path,
         return -2;
       }
       std::string single_mpath = (*data_obj)["model_path"].get<std::string>();
-      if (single_mpath.empty()) {
-        if (error_msg) *error_msg = "'model_path' cannot be empty";
-        return -2;
-      }
-      std::filesystem::path p(single_mpath);
-      if (p.is_relative()) {
-        p = (root_path / p).lexically_normal();
-      }
+      std::filesystem::path full_mpath;
+      ret = ResolveContainedPath(canon_root, single_mpath, "model_path", false,
+                                 false, &full_mpath, error_msg);
+      if (ret != 0) return ret;
+
       if (model_count == 1) {
-        pipe_json["models"][0]["model_path"] = p.string();
+        pipe_json["models"][0]["model_path"] = full_mpath.string();
       } else if (model_count > 1) {
         if (error_msg) {
           *error_msg = "Conf specifies single 'model_path' but pipeline has " +
@@ -379,15 +460,16 @@ int CompanyConfResolver::Resolve(const char* model_path,
           return -2;
         }
         std::string mstr = mval.get<std::string>();
-        std::filesystem::path p(mstr);
-        if (p.is_relative()) {
-          p = (root_path / p).lexically_normal();
-        }
+        std::filesystem::path full_mpath;
+        ret = ResolveContainedPath(canon_root, mstr, "model_paths entry", false,
+                                   false, &full_mpath, error_msg);
+        if (ret != 0) return ret;
+
         bool matched = false;
         if (pipe_json.contains("models") && pipe_json["models"].is_array()) {
           for (auto& item : pipe_json["models"]) {
             if (item.contains("model_id") && item["model_id"] == mid) {
-              item["model_path"] = p.string();
+              item["model_path"] = full_mpath.string();
               matched = true;
               break;
             }
@@ -402,7 +484,7 @@ int CompanyConfResolver::Resolve(const char* model_path,
       }
     }
 
-    // 全量规范化模型路径
+    // 全量规范化模型路径 (使用单一 root_path 沙箱)
     if (pipe_json.contains("models") && pipe_json["models"].is_array()) {
       for (auto& item : pipe_json["models"]) {
         if (item.contains("model_path") && item["model_path"].is_string()) {
@@ -410,8 +492,11 @@ int CompanyConfResolver::Resolve(const char* model_path,
           if (!mp.empty()) {
             std::filesystem::path p(mp);
             if (p.is_relative()) {
-              p = (root_path / p).lexically_normal();
-              item["model_path"] = p.string();
+              std::filesystem::path full_mpath;
+              ret = ResolveContainedPath(canon_root, mp, "pipeline model_path",
+                                         false, false, &full_mpath, error_msg);
+              if (ret != 0) return ret;
+              item["model_path"] = full_mpath.string();
             }
           }
         }
@@ -436,10 +521,10 @@ int CompanyConfResolver::Resolve(const char* model_path,
     return 0;
   } catch (const std::exception& e) {
     if (error_msg) *error_msg = std::string("Exception: ") + e.what();
-    return -99;
+    return -2;
   } catch (...) {
     if (error_msg) *error_msg = "Unknown exception in CompanyConfResolver";
-    return -100;
+    return -2;
   }
 }
 

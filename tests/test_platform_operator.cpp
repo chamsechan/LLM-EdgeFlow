@@ -813,8 +813,8 @@ TEST_F(PlatformOperatorTest, CompanyBufferAndAnyValidation) {
                           dummy_data};
   EXPECT_EQ(any_binding->validate_external(&any_toolarge, limits, &err), -3);
 
-  // CompanyAny: valid
-  CompanyAny any_valid{1, 3, 3, dummy_data};
+  // 7. 正确尺寸方程: float32 (type_id=1), count=3, byte_length=12 -> 0
+  CompanyAny any_valid{1, 3, 12, dummy_data};
   EXPECT_EQ(any_binding->validate_external(&any_valid, limits, &err), 0);
 }
 
@@ -1013,8 +1013,9 @@ TEST_F(PlatformOperatorTest, MemQueConfigValidationFailClosed) {
       }
     })";
   }
+  const std::string root_str = root.string();
   CreateParam param{};
-  param.model_path = root.string().c_str();
+  param.model_path = root_str.c_str();
   param.cfg_file_name = conf_file.c_str();
   param.device_id = 0;
   param.platform_type = ChipType::kAx650;

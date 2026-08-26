@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <cstring>
+#include <deque>
 #include <functional>
 #include <memory>
 #include <string>
@@ -16,11 +17,12 @@ namespace alg_framework {
 enum class IoDirection { kInput, kOutput };
 
 /**
- * @brief Process 执行期局部影子 DTO 存储器 (保证执行期间指针生命周期有效)
+ * @brief Process 执行期局部影子 DTO 存储器
+ * (保证执行期间指针生命周期与地址绝对稳定)
  */
 struct ProcessLocalShadowStorage {
-  std::vector<std::string> strings;
-  std::vector<std::vector<float>> float_vectors;
+  std::deque<std::string> strings;
+  std::deque<std::vector<float>> float_vectors;
   std::vector<std::shared_ptr<void>> shadow_dtos;
 
   const char* StoreString(const CompanyString* cs) {
@@ -105,7 +107,7 @@ class PlatformBusinessBridgeRegistry {
       CompanyAlgBizType biz_type) const;
 
   /**
-   * @brief 全局初始化与一致性审计
+   * @brief 全局初始化与一致性原子审计 (返回 -6 若存在任何冲突或缺漏)
    */
   int GlobalInit();
 
@@ -130,5 +132,15 @@ class PlatformBusinessBridgeRegistry {
   std::unordered_map<int32_t, PlatformBusinessBridgeDescriptor>
       bridges_by_biz_type_;
 };
+
+#define REGISTER_PLATFORM_BUSINESS_BRIDGE(BridgeRegisterFn)             \
+  namespace {                                                           \
+  struct AutoRegister_##BridgeRegisterFn {                              \
+    AutoRegister_##BridgeRegisterFn() {                                 \
+      BridgeRegisterFn(                                                 \
+          ::alg_framework::PlatformBusinessBridgeRegistry::Instance()); \
+    }                                                                   \
+  } g_auto_reg_##BridgeRegisterFn;                                      \
+  }
 
 }  // namespace alg_framework

@@ -61,7 +61,11 @@ std::optional<fs::path> ProfilePipeline(
   conf_stream >> conf;
   const auto& data = conf.contains("data") ? conf["data"] : conf;
   fs::path pipe_path = data["pipe_path"].get<std::string>();
-  if (pipe_path.is_relative()) pipe_path = conf_path.parent_path() / pipe_path;
+  if (pipe_path.is_relative()) {
+    if (!fs::exists(pipe_path)) {
+      pipe_path = conf_path.parent_path() / pipe_path;
+    }
+  }
   return pipe_path.lexically_normal();
 }
 

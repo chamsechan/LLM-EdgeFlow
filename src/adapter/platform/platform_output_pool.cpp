@@ -5,8 +5,7 @@
 namespace alg_framework {
 
 void OutputPoolDeleter::operator()(void*) const noexcept {
-  auto sp = weak_pool.lock();
-  if (sp && !sp->IsClosing() && block) {
+  if (auto sp = weak_pool.lock()) {
     sp->ReturnBlock(block);
   }
 }
@@ -17,18 +16,23 @@ int OutputPoolState::Create(const std::string& suffix, uint32_t depth,
                             std::shared_ptr<OutputPoolState>* out_pool,
                             std::string* err) {
   if (!out_pool) {
-    if (err) *err = "Null out_pool pointer";
+    if (err) *err = "out_pool pointer is null";
     return -4;
   }
-  if (!binding || !binding->allocate_external || !binding->reset_external ||
+  if (!binding) {
+    if (err)
+      *err = "PlatformValueTypeBinding pointer is null for suffix " + suffix;
+    return -4;
+  }
+  if (!binding->allocate_external || !binding->reset_external ||
       !binding->destroy_external) {
     if (err)
-      *err = "Output value type binding for suffix '" + suffix +
-             "' is missing allocate/reset/destroy functions";
+      *err = "Value type binding for " + suffix +
+             " missing allocate/reset/destroy functions";
     return -4;
   }
 
-  uint32_t effective_depth = depth > 0 ? depth : 25;
+  uint32_t effective_depth = (depth == 0) ? 25 : depth;
 
   auto pool = std::shared_ptr<OutputPoolState>(new OutputPoolState());
   pool->canonical_suffix_ = suffix;
@@ -45,11 +49,14 @@ int OutputPoolState::Create(const std::string& suffix, uint32_t depth,
         if (err && err->empty()) {
           *err = "Failed to allocate external block for suffix " + suffix;
         }
+        // 分配失败，调用 DestroyBlocks 回滚已分配块
         pool->DestroyBlocks();
         return -4;
       }
       binding->reset_external(block.raw_struct, spec);
-      pool->free_blocks_.push(block.raw_struct);
+      void* raw = block.raw_struct;
+      pool->free_blocks_.push(raw);
+      pool->block_states_[raw] = BlockState::kFree;
       pool->all_blocks_.push_back(std::move(block));
     }
   } catch (const std::exception& e) {
@@ -81,6 +88,10 @@ int OutputPoolState::Acquire(void** out_block) {
 
   void* block = free_blocks_.front();
   free_blocks_.pop();
+  auto it = block_states_.find(block);
+  if (it != block_states_.end()) {
+    it->second = BlockState::kCheckedOut;
+  }
   ++checked_out_count_;
   *out_block = block;
   return 0;
@@ -90,6 +101,18 @@ void OutputPoolState::ReturnBlock(void* block) noexcept {
   if (!block) return;
   std::lock_guard<std::mutex> lock(mutex_);
   if (closing_) return;
+
+  auto it = block_states_.find(block);
+  if (it == block_states_.end()) {
+    // 非本池块，拒绝入队
+    return;
+  }
+  if (it->second != BlockState::kCheckedOut) {
+    // 已经处于 kFree 状态，防止重复归还
+    return;
+  }
+  it->second = BlockState::kFree;
+
   if (type_binding_ && type_binding_->reset_external) {
     try {
       type_binding_->reset_external(block, spec_);
@@ -116,6 +139,7 @@ void OutputPoolState::DestroyBlocks() noexcept {
   while (!free_blocks_.empty()) {
     free_blocks_.pop();
   }
+  block_states_.clear();
   if (type_binding_ && type_binding_->destroy_external) {
     for (auto& block : all_blocks_) {
       try {

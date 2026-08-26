@@ -81,4 +81,6 @@ void RegisterCrossRerankBridge(PlatformBusinessBridgeRegistry& reg) {
   reg.RegisterBridge(desc);
 }
 
+REGISTER_PLATFORM_BUSINESS_BRIDGE(RegisterCrossRerankBridge);
+
 }  // namespace alg_framework

@@ -255,6 +255,14 @@ add_executable(test_platform_operator tests/test_platform_operator.cpp)
 target_link_libraries(test_platform_operator PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
 add_test(NAME PlatformOperatorTest COMMAND test_platform_operator)
 
+add_executable(test_platform_output_pool tests/test_platform_output_pool.cpp)
+target_link_libraries(test_platform_output_pool PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME PlatformOutputPoolTest COMMAND test_platform_output_pool)
+
+add_executable(test_platform_value_registry tests/test_platform_value_registry.cpp)
+target_link_libraries(test_platform_value_registry PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME PlatformValueRegistryTest COMMAND test_platform_value_registry)
+
 add_executable(test_doc_qa_rerank tests/test_doc_qa_rerank.cpp)
 target_link_libraries(test_doc_qa_rerank PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
 add_test(NAME DocQaRerankTest COMMAND test_doc_qa_rerank)
@@ -327,6 +335,7 @@ set_tests_properties(
   RuntimeControlAndHotSwapTest EngineFaultToleranceAndLifecycleTest
   AdapterContractSecurityTest PipelineConfigTest RegistryConflictNodeTest
   RegistryConflictEngineTest RegistryReentrantTest PlatformOperatorTest
+  PlatformOutputPoolTest PlatformValueRegistryTest
   DocQaRerankTest RerankRefineNodeTest PipelineStudioTest VisualizerServerTest
   DemoRunnerTest CatalogContractSsotTest TypedBlackboardContractsTest
   ValidatedPipelinePlanTest NodeBaseContractsTest NodeOwnershipAndReuseTest

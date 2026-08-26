@@ -2,7 +2,7 @@
 
 - **RFC 编号**：0009-company-string-and-slot-map-struct-binding
 - **创建日期**：2026-08-26
-- **文档状态**：Completed
+- **文档状态**：In Implementation
 - **关联分支**：`feat/company-string-and-slot-map-struct-binding`
 - **目标版本**：v3.0.0
 - **负责人 / 作者**：LLM-EdgeFlow Team

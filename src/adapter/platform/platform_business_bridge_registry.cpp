@@ -3,6 +3,8 @@
 #include <iostream>
 #include <unordered_set>
 
+#include "adapter/business_adapter_registry.h"
+
 namespace alg_framework {
 
 // Declarations of bridge registration helper functions
@@ -57,15 +59,23 @@ bool PlatformBusinessBridgeRegistry::RegisterBridge(
     has_conflict_ = true;
     return false;
   }
-  if (bridges_by_biz_type_.find(key) != bridges_by_biz_type_.end()) {
-    has_conflict_ = true;
-    return false;
+  auto it = bridges_by_biz_type_.find(key);
+  if (it != bridges_by_biz_type_.end()) {
+    if (it->second.biz_name != desc.biz_name) {
+      has_conflict_ = true;
+      return false;
+    }
+    return true;
   }
 
-  // 校验槽位命名唯一性与后缀存在性
+  // 校验槽位命名唯一性与方向
   std::unordered_set<std::string> in_names, in_suffixes;
   for (const auto& s : desc.input_slots) {
     if (s.logical_name.empty() || s.type_suffix.empty()) {
+      has_conflict_ = true;
+      return false;
+    }
+    if (s.direction != IoDirection::kInput) {
       has_conflict_ = true;
       return false;
     }
@@ -82,6 +92,10 @@ bool PlatformBusinessBridgeRegistry::RegisterBridge(
       has_conflict_ = true;
       return false;
     }
+    if (s.direction != IoDirection::kOutput) {
+      has_conflict_ = true;
+      return false;
+    }
     if (!out_names.insert(s.logical_name).second ||
         !out_suffixes.insert(s.type_suffix).second) {
       has_conflict_ = true;
@@ -89,7 +103,8 @@ bool PlatformBusinessBridgeRegistry::RegisterBridge(
     }
   }
 
-  if (!desc.convert_sample_input || !desc.convert_sample_output) {
+  if (!desc.convert_sample_input || !desc.convert_sample_output ||
+      !desc.create_shadow_output_dto) {
     has_conflict_ = true;
     return false;
   }
@@ -111,22 +126,43 @@ int PlatformBusinessBridgeRegistry::GlobalInit() {
   if (has_conflict_) {
     return -6;
   }
-  // 审计全部槽位后缀是否存在于 PlatformValueTypeRegistry
+  // 全面原子审计：BizType, Adapter, 槽位规范后缀与生命周期函数
   for (const auto& [biz_type, desc] : bridges_by_biz_type_) {
+    auto adapter = BusinessAdapterRegistry::Instance().GetAdapter(
+        static_cast<CompanyAlgBizType>(biz_type));
+    if (!adapter) {
+      has_conflict_ = true;
+      return -6;
+    }
+    if (adapter->BizType() != static_cast<CompanyAlgBizType>(biz_type)) {
+      has_conflict_ = true;
+      return -6;
+    }
     for (const auto& slot : desc.input_slots) {
+      if (slot.direction != IoDirection::kInput) {
+        has_conflict_ = true;
+        return -6;
+      }
       const auto* binding =
           PlatformValueTypeRegistry::Instance().GetBindingBySuffix(
               slot.type_suffix);
-      if (!binding) {
+      if (!binding || binding->canonical_suffix != slot.type_suffix ||
+          !binding->validate_external) {
         has_conflict_ = true;
         return -6;
       }
     }
     for (const auto& slot : desc.output_slots) {
+      if (slot.direction != IoDirection::kOutput) {
+        has_conflict_ = true;
+        return -6;
+      }
       const auto* binding =
           PlatformValueTypeRegistry::Instance().GetBindingBySuffix(
               slot.type_suffix);
-      if (!binding || !binding->allocate_external) {
+      if (!binding || binding->canonical_suffix != slot.type_suffix ||
+          !binding->allocate_external || !binding->reset_external ||
+          !binding->destroy_external) {
         has_conflict_ = true;
         return -6;
       }

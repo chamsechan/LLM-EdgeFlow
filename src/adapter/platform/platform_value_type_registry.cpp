@@ -3,10 +3,20 @@
 #include <cstring>
 #include <iostream>
 #include <limits>
+#include <unordered_set>
 
 namespace alg_framework {
 
 namespace {
+
+const CompanyAnyTypeDescriptor kBuiltinAnyTypes[] = {
+    {0, 0, 1, "none"},
+    {1, sizeof(float), alignof(float), "float32"},
+    {2, sizeof(int32_t), alignof(int32_t), "int32"},
+    {3, sizeof(uint8_t), alignof(uint8_t), "uint8"},
+    {4, sizeof(int64_t), alignof(int64_t), "int64"},
+    {5, sizeof(double), alignof(double), "float64"},
+};
 
 CompanyString* AllocateNestedCompanyString(
     uint32_t capacity, std::vector<void*>* nested_buffers,
@@ -34,6 +44,15 @@ void ResetNestedCompanyString(CompanyString* cs) noexcept {
 }
 
 }  // namespace
+
+const CompanyAnyTypeDescriptor* FindCompanyAnyType(int32_t type_id) noexcept {
+  for (const auto& item : kBuiltinAnyTypes) {
+    if (item.type_id == type_id) {
+      return &item;
+    }
+  }
+  return nullptr;
+}
 
 PlatformValueTypeRegistry& PlatformValueTypeRegistry::Instance() {
   static PlatformValueTypeRegistry instance;
@@ -98,6 +117,97 @@ int PlatformValueTypeRegistry::ValidateCompanyString(
   return 0;
 }
 
+int PlatformValueTypeRegistry::ValidateCompanyBuffer(
+    const CompanyBuffer* buf, size_t max_bytes, const char* field_name,
+    std::string* err) noexcept {
+  if (!buf) {
+    if (err) *err = std::string(field_name) + " pointer is null";
+    return -3;
+  }
+  if (buf->length < 0) {
+    if (err)
+      *err = std::string(field_name) + " has negative length " +
+             std::to_string(buf->length);
+    return -3;
+  }
+  if (static_cast<size_t>(buf->length) > max_bytes) {
+    if (err)
+      *err = std::string(field_name) + " length exceeds max limit " +
+             std::to_string(max_bytes);
+    return -3;
+  }
+  if (buf->length > 0 && !buf->data) {
+    if (err)
+      *err = std::string(field_name) + " has positive length but null data";
+    return -3;
+  }
+  return 0;
+}
+
+int PlatformValueTypeRegistry::ValidateCompanyAnyPayload(
+    const CompanyAny* any, size_t max_bytes, const char* field_name,
+    std::string* err) noexcept {
+  if (!any) {
+    if (err) *err = std::string(field_name) + " pointer is null";
+    return -3;
+  }
+  if (any->element_count < 0 || any->byte_length < 0) {
+    if (err)
+      *err = std::string(field_name) +
+             " has negative element_count or byte_length";
+    return -3;
+  }
+  if (any->type_id < 0) {
+    if (err) *err = std::string(field_name) + " has negative type_id";
+    return -3;
+  }
+  const auto* desc = FindCompanyAnyType(any->type_id);
+  if (!desc) {
+    if (err)
+      *err = std::string(field_name) + " has unwhitelisted type_id " +
+             std::to_string(any->type_id);
+    return -3;
+  }
+  if (any->type_id == 0) {
+    if (any->element_count != 0 || any->byte_length != 0) {
+      if (err)
+        *err = std::string(field_name) +
+               " with type_id 0 must have element_count=0 and byte_length=0";
+      return -3;
+    }
+    return 0;
+  }
+  size_t expected_bytes = 0;
+  if (!CheckedMultiply(static_cast<size_t>(any->element_count),
+                       desc->element_size, &expected_bytes)) {
+    if (err)
+      *err = std::string(field_name) +
+             " element_count * element_size multiplication overflowed";
+    return -3;
+  }
+  if (expected_bytes != static_cast<size_t>(any->byte_length)) {
+    if (err)
+      *err = std::string(field_name) + " byte_length (" +
+             std::to_string(any->byte_length) +
+             ") does not match element_count * element_size (" +
+             std::to_string(expected_bytes) + ")";
+    return -3;
+  }
+  if (static_cast<size_t>(any->byte_length) > max_bytes) {
+    if (err)
+      *err = std::string(field_name) + " byte_length exceeds limit " +
+             std::to_string(max_bytes);
+    return -3;
+  }
+  if (any->byte_length > 0 && !any->data) {
+    if (err)
+      *err = std::string(field_name) +
+             " has positive byte_length but null data pointer";
+    return -3;
+  }
+  return 0;
+}
+
 PlatformValueTypeRegistry::PlatformValueTypeRegistry() {
   RegisterBuiltinBindings();
 }
@@ -108,18 +218,28 @@ bool PlatformValueTypeRegistry::RegisterBinding(
     has_conflict_ = true;
     return false;
   }
+  // 全量预检 canonical 唯一性
   if (bindings_by_canonical_.find(binding.canonical_suffix) !=
-      bindings_by_canonical_.end()) {
+          bindings_by_canonical_.end() ||
+      alias_to_canonical_.find(binding.canonical_suffix) !=
+          alias_to_canonical_.end()) {
     has_conflict_ = true;
     return false;
   }
+  // 全量预检 aliases 唯一性
+  std::unordered_set<std::string> local_aliases;
   for (const auto& a : binding.aliases) {
     if (a.empty() || a == binding.canonical_suffix ||
+        !local_aliases.insert(a).second ||
         alias_to_canonical_.find(a) != alias_to_canonical_.end() ||
         bindings_by_canonical_.find(a) != bindings_by_canonical_.end()) {
       has_conflict_ = true;
       return false;
     }
+  }
+
+  // 预检全部通过，执行原子登记
+  for (const auto& a : binding.aliases) {
     alias_to_canonical_[a] = binding.canonical_suffix;
   }
   bindings_by_canonical_[binding.canonical_suffix] = std::move(binding);
@@ -180,24 +300,8 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
     b.external_c_type_name = "CompanyBuffer";
     b.validate_external = [](const void* ptr, const ResolvedInputLimits& limits,
                              std::string* err) -> int {
-      if (!ptr) {
-        if (err) *err = "CompanyBuffer pointer is null";
-        return -3;
-      }
       const auto* buf = static_cast<const CompanyBuffer*>(ptr);
-      if (buf->length < 0) {
-        if (err) *err = "CompanyBuffer has negative length";
-        return -3;
-      }
-      if (static_cast<size_t>(buf->length) > limits.max_buffer_bytes) {
-        if (err) *err = "CompanyBuffer length exceeds limit";
-        return -3;
-      }
-      if (buf->length > 0 && !buf->data) {
-        if (err) *err = "CompanyBuffer has non-zero length but null data";
-        return -3;
-      }
-      return 0;
+      return ValidateCompanyBuffer(buf, limits.max_buffer_bytes, "buffer", err);
     };
     RegisterBinding(b);
   }
@@ -209,24 +313,8 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
     b.external_c_type_name = "CompanyAny";
     b.validate_external = [](const void* ptr, const ResolvedInputLimits& limits,
                              std::string* err) -> int {
-      if (!ptr) {
-        if (err) *err = "CompanyAny pointer is null";
-        return -3;
-      }
       const auto* any = static_cast<const CompanyAny*>(ptr);
-      if (any->element_count < 0 || any->byte_length < 0) {
-        if (err) *err = "CompanyAny has negative count or length";
-        return -3;
-      }
-      if (static_cast<size_t>(any->byte_length) > limits.max_any_bytes) {
-        if (err) *err = "CompanyAny byte_length exceeds limit";
-        return -3;
-      }
-      if (any->byte_length > 0 && !any->data) {
-        if (err) *err = "CompanyAny has non-zero byte_length but null data";
-        return -3;
-      }
-      return 0;
+      return ValidateCompanyAnyPayload(any, limits.max_any_bytes, "any", err);
     };
     RegisterBinding(b);
   }
@@ -257,20 +345,9 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
         return -3;
       }
       if (frame->metadata) {
-        if (frame->metadata->element_count < 0 ||
-            frame->metadata->byte_length < 0) {
-          if (err) *err = "CompanyFrame.metadata has negative count or length";
-          return -3;
-        }
-        if (static_cast<size_t>(frame->metadata->byte_length) >
-            limits.max_any_bytes) {
-          if (err) *err = "CompanyFrame.metadata byte_length exceeds limit";
-          return -3;
-        }
-        if (frame->metadata->byte_length > 0 && !frame->metadata->data) {
-          if (err) *err = "CompanyFrame.metadata has null data";
-          return -3;
-        }
+        ret = ValidateCompanyAnyPayload(frame->metadata, limits.max_any_bytes,
+                                        "CompanyFrame.metadata", err);
+        if (ret != 0) return ret;
       }
       return 0;
     };
@@ -285,7 +362,7 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
     b.external_c_type_name = "CompanyOdOutput";
     b.allocate_external = [](const ResolvedOutputPoolSpec& spec,
                              OwnedExternalBlock* out_block,
-                             std::string* /*err*/) -> int {
+                             std::string* err) -> int {
       auto* raw = new CompanyOdOutput();
       raw->request_id = 0;
       raw->detected_box_count = 0;
@@ -294,11 +371,29 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
           spec.GetCapacity("result_json", 2047),
           &out_block->owned_nested_buffers, &out_block->nested_company_strings);
       if (spec.meta_num > 0) {
+        const auto* desc = FindCompanyAnyType(spec.metadata_type_id);
+        if (!desc || spec.metadata_type_id == 0) {
+          if (err)
+            *err = "Invalid metadata_type_id " +
+                   std::to_string(spec.metadata_type_id) + " for meta_num > 0";
+          delete raw;
+          return -4;
+        }
+        size_t alloc_bytes = 0;
+        if (!CheckedMultiply(static_cast<size_t>(spec.meta_num),
+                             desc->element_size, &alloc_bytes) ||
+            alloc_bytes > 10 * 1024 * 1024) {
+          if (err)
+            *err = "Metadata allocation byte length overflow or exceeds limit";
+          delete raw;
+          return -4;
+        }
         auto* meta = new CompanyAny();
         meta->type_id = spec.metadata_type_id;
-        meta->element_count = static_cast<int32_t>(spec.meta_num);
-        meta->byte_length = static_cast<int32_t>(spec.meta_num * sizeof(float));
-        meta->data = new uint8_t[meta->byte_length];
+        meta->element_count = 0;
+        meta->byte_length = 0;
+        meta->data = new uint8_t[alloc_bytes];
+        std::memset(meta->data, 0, alloc_bytes);
         out_block->owned_nested_buffers.push_back(meta->data);
         raw->metadata = meta;
       } else {
@@ -318,9 +413,8 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
       ResetNestedCompanyString(raw->result_json);
       if (raw->metadata) {
         auto* meta = const_cast<CompanyAny*>(raw->metadata);
-        if (meta->data && meta->byte_length > 0) {
-          std::memset(meta->data, 0, meta->byte_length);
-        }
+        meta->element_count = 0;
+        meta->byte_length = 0;
       }
     };
     b.destroy_external = [](OwnedExternalBlock* block) noexcept {

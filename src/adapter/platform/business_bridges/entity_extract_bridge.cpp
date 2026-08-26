@@ -64,4 +64,6 @@ void RegisterEntityExtractBridge(PlatformBusinessBridgeRegistry& reg) {
   reg.RegisterBridge(desc);
 }
 
+REGISTER_PLATFORM_BUSINESS_BRIDGE(RegisterEntityExtractBridge);
+
 }  // namespace alg_framework

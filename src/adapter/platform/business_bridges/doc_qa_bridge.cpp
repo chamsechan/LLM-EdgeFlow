@@ -71,4 +71,6 @@ void RegisterDocQaBridge(PlatformBusinessBridgeRegistry& reg) {
   reg.RegisterBridge(desc);
 }
 
+REGISTER_PLATFORM_BUSINESS_BRIDGE(RegisterDocQaBridge);
+
 }  // namespace alg_framework

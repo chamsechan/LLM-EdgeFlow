@@ -5,6 +5,7 @@
 #include <mutex>
 #include <queue>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "adapter/platform/platform_value_type_registry.h"
@@ -22,6 +23,11 @@ struct OutputPoolDeleter {
 
   void operator()(void*) const noexcept;
 };
+
+/**
+ * @brief 块状态枚举 (用于状态机账本严格防下溢与防重复归还)
+ */
+enum class BlockState { kFree, kCheckedOut };
 
 /**
  * @brief 单个输出后缀的输出对象预分配池状态机
@@ -42,7 +48,7 @@ class OutputPoolState : public std::enable_shared_from_this<OutputPoolState> {
   int Acquire(void** out_block);
 
   /**
-   * @brief 将已检出的块重置并归还池中
+   * @brief 将已检出的块重置并归还池中 (校验归属与状态账本)
    */
   void ReturnBlock(void* block) noexcept;
 
@@ -68,6 +74,16 @@ class OutputPoolState : public std::enable_shared_from_this<OutputPoolState> {
   }
   const ResolvedOutputPoolSpec& Spec() const noexcept { return spec_; }
 
+  uint32_t CheckedOutCount() const noexcept {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return checked_out_count_;
+  }
+
+  uint32_t FreeBlockCount() const noexcept {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return static_cast<uint32_t>(free_blocks_.size());
+  }
+
  private:
   OutputPoolState() = default;
 
@@ -78,6 +94,7 @@ class OutputPoolState : public std::enable_shared_from_this<OutputPoolState> {
 
   std::vector<OwnedExternalBlock> all_blocks_;
   std::queue<void*> free_blocks_;
+  std::unordered_map<void*, BlockState> block_states_;
   mutable std::mutex mutex_;
   std::condition_variable available_;
   uint32_t checked_out_count_ = 0;
@@ -85,7 +102,7 @@ class OutputPoolState : public std::enable_shared_from_this<OutputPoolState> {
 };
 
 /**
- * @brief Process 执行期局部检出租约守卫 (RAII 回滚保护)
+ * @brief Process 执行期局部检出租约守卫 (RAII 回滚保护与单块状态转移)
  */
 class ScopedOutputLeaseGuard {
  public:
@@ -97,6 +114,15 @@ class ScopedOutputLeaseGuard {
 
   void Track(std::shared_ptr<OutputPoolState> pool, void* block) {
     leases_.push_back({std::move(pool), block});
+  }
+
+  void Untrack(void* block) noexcept {
+    for (auto it = leases_.begin(); it != leases_.end(); ++it) {
+      if (it->block == block) {
+        leases_.erase(it);
+        break;
+      }
+    }
   }
 
   void Commit() noexcept {

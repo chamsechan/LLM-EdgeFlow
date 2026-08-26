@@ -511,10 +511,21 @@ int Platform_Process(void* handle, const NamedIoBatch& inputs,
       SetLastError("ExecuteBatch failed: " + exec_err);
       return exec_ret;
     }
+    if (num_outputs != static_cast<int>(batch_size)) {
+      SetLastError("ExecuteBatch output count mismatch: expected " +
+                   std::to_string(batch_size) + ", got " +
+                   std::to_string(num_outputs));
+      return -4;
+    }
 
     // 5. 将内部输出结果转换到已租用的池化外部结构中
     for (const auto& acq : acquired_blocks) {
       const void* internal_dto = internal_out_dtos[acq.frame_idx];
+      if (!internal_dto) {
+        SetLastError("Internal output DTO is null for frame " +
+                     std::to_string(acq.frame_idx));
+        return -4;
+      }
       std::string conv_out_err;
       int conv_ret = h->bridge->convert_sample_output(
           internal_dto, acq.raw_block, acq.pool->Spec(), &conv_out_err);
@@ -525,15 +536,31 @@ int Platform_Process(void* handle, const NamedIoBatch& inputs,
       }
     }
 
-    // 6. 全部成功，构造带弱引用的自定义 Deleter 并交付给调用方
+    // 6. 两阶段原子发布：先在局部 pending 中完成全部控制块构造与所有权转移
+    struct PendingOutput {
+      std::shared_ptr<void>* destination = nullptr;
+      std::shared_ptr<void> value;
+    };
+    std::vector<PendingOutput> pending_outputs;
+    pending_outputs.reserve(acquired_blocks.size());
+
     for (const auto& acq : acquired_blocks) {
       alg_framework::OutputPoolDeleter deleter{acq.pool, acq.raw_block};
-      outputs[acq.frame_idx][acq.key] =
-          std::shared_ptr<void>(acq.raw_block, deleter);
+      auto sp = std::shared_ptr<void>(acq.raw_block, deleter);
+      auto* dest = &outputs[acq.frame_idx][acq.key];
+      lease_guard.Untrack(acq.raw_block);
+      pending_outputs.push_back({dest, std::move(sp)});
     }
 
-    // 提交租约 (解除异常自动回滚)
+    // 提交租约保护
     lease_guard.Commit();
+
+    // 不抛异常的移动赋值原子发布至 outputs
+    for (auto& p : pending_outputs) {
+      if (p.destination) {
+        *p.destination = std::move(p.value);
+      }
+    }
     return 0;
   } catch (const std::exception& e) {
     SetLastError(std::string("Process exception: ") + e.what());

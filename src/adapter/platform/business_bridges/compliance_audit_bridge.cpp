@@ -78,4 +78,6 @@ void RegisterComplianceAuditBridge(PlatformBusinessBridgeRegistry& reg) {
   reg.RegisterBridge(desc);
 }
 
+REGISTER_PLATFORM_BUSINESS_BRIDGE(RegisterComplianceAuditBridge);
+
 }  // namespace alg_framework

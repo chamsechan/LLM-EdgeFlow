@@ -1,7 +1,9 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -10,6 +12,33 @@
 #include "platform/company_platform_types.h"
 
 namespace alg_framework {
+
+/**
+ * @brief 安全乘法助手函数 (checked-multiply)
+ */
+inline bool CheckedMultiply(size_t lhs, size_t rhs, size_t* out) noexcept {
+  if (!out) return false;
+  if (lhs != 0 && rhs > std::numeric_limits<size_t>::max() / lhs) {
+    return false;
+  }
+  *out = lhs * rhs;
+  return true;
+}
+
+/**
+ * @brief CompanyAny 白名单类型描述符
+ */
+struct CompanyAnyTypeDescriptor {
+  int32_t type_id = 0;
+  size_t element_size = 0;
+  size_t alignment = 0;
+  const char* debug_name = nullptr;
+};
+
+/**
+ * @brief 根据 type_id 查找 CompanyAny 元素类型描述 (白名单)
+ */
+const CompanyAnyTypeDescriptor* FindCompanyAnyType(int32_t type_id) noexcept;
 
 /**
  * @brief 输入限制配置
@@ -101,7 +130,21 @@ class PlatformValueTypeRegistry {
                                    std::string* err) noexcept;
 
   /**
-   * @brief 注册值类型绑定
+   * @brief 校验 CompanyBuffer 合法性
+   */
+  static int ValidateCompanyBuffer(const CompanyBuffer* buf, size_t max_bytes,
+                                   const char* field_name,
+                                   std::string* err) noexcept;
+
+  /**
+   * @brief 校验 CompanyAny 合法性 (受类型白名单与尺寸乘法方程校验)
+   */
+  static int ValidateCompanyAnyPayload(const CompanyAny* any, size_t max_bytes,
+                                       const char* field_name,
+                                       std::string* err) noexcept;
+
+  /**
+   * @brief 注册值类型绑定 (全量预检后原子写入)
    */
   bool RegisterBinding(PlatformValueTypeBinding binding);
 
