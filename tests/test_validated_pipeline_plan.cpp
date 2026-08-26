@@ -212,12 +212,11 @@ TEST(ValidatedPipelinePlanTest, RejectsSharedSerializedEngineInParallelLayer) {
   auto plan = PipelineValidator::ValidateAndPlan(
       pipeline_json, ValidationPolicy::kPrivateExtensionCompatible);
   EXPECT_FALSE(plan.report.ok);
-  auto diagnostic =
-      std::find_if(plan.report.diagnostics.begin(),
-                   plan.report.diagnostics.end(), [](const auto& item) {
-                     return item.code ==
-                            DiagnosticCode::kSerializedEngineConcurrency;
-                   });
+  auto diagnostic = std::find_if(
+      plan.report.diagnostics.begin(), plan.report.diagnostics.end(),
+      [](const auto& item) {
+        return item.code == DiagnosticCode::kSerializedEngineConcurrency;
+      });
   ASSERT_NE(diagnostic, plan.report.diagnostics.end());
   EXPECT_EQ(diagnostic->node_id, "node_b");
   EXPECT_EQ(diagnostic->related_nodes, std::vector<std::string>({"node_a"}));
@@ -234,12 +233,11 @@ TEST(ValidatedPipelinePlanTest, RejectsNodeFromDifferentBusiness) {
 
   auto plan = PipelineValidator::ValidateAndPlan(pipeline_json);
   EXPECT_FALSE(plan.report.ok);
-  EXPECT_NE(std::find_if(plan.report.diagnostics.begin(),
-                         plan.report.diagnostics.end(),
-                         [](const auto& item) {
-                           return item.code ==
-                                  DiagnosticCode::kNodeBusinessMismatch;
-                         }),
+  EXPECT_NE(std::find_if(
+                plan.report.diagnostics.begin(), plan.report.diagnostics.end(),
+                [](const auto& item) {
+                  return item.code == DiagnosticCode::kNodeBusinessMismatch;
+                }),
             plan.report.diagnostics.end());
 }
 

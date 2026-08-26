@@ -20,6 +20,12 @@ cmake -S "${PROJECT_ROOT}" -B "${BUILD_DIR}" \
 cmake --build "${BUILD_DIR}" -j4
 
 export ASAN_OPTIONS="detect_leaks=0:abort_on_error=1"
+if [[ "${SANITIZERS}" == *"address"* ]]; then
+    LIBASAN_PATH="$(gcc -print-file-name=libasan.so 2>/dev/null || true)"
+    if [[ -f "${LIBASAN_PATH}" ]]; then
+        export LD_PRELOAD="${LIBASAN_PATH}${LD_PRELOAD:+:$LD_PRELOAD}"
+    fi
+fi
 UBSAN_SUPP="${SCRIPT_DIR}/ubsan_suppressions.txt"
 if [[ -f "${UBSAN_SUPP}" ]]; then
     export UBSAN_OPTIONS="halt_on_error=1:print_stacktrace=1:suppressions=${UBSAN_SUPP}"

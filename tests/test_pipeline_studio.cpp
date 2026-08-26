@@ -55,8 +55,10 @@ NodeDefinition StudioSchemaProbeDefinition() {
   def.description = "Schema probe for studio test";
   def.parallel_safe = true;
   def.config_fields = {
-      ConfigFieldDefinition{"req_str", ConfigValueKind::kString, /*required=*/true},
-      ConfigFieldDefinition{"enum_mode", ConfigValueKind::kString, /*required=*/false,
+      ConfigFieldDefinition{"req_str", ConfigValueKind::kString,
+                            /*required=*/true},
+      ConfigFieldDefinition{"enum_mode", ConfigValueKind::kString,
+                            /*required=*/false,
                             /*default_value=*/"fast", /*minimum=*/std::nullopt,
                             /*maximum=*/std::nullopt,
                             /*enum_values=*/{"fast", "accurate"}},
@@ -305,7 +307,8 @@ TEST(PipelineValidatorTest, TableDrivenParityMatrix) {
           DiagnosticCode::kDagCycle,
           PipelineErrorCode::kDagCycle,
       },
-      // 7. 缺失输入 Producer (DocQaPostNode requires answer_text and query_text)
+      // 7. 缺失输入 Producer (DocQaPostNode requires answer_text and
+      // query_text)
       {
           "Missing input producer",
           {{"business_name", "smart_doc_qa_v1"},
@@ -343,11 +346,9 @@ TEST(PipelineValidatorTest, TableDrivenParityMatrix) {
     auto plan = PipelineValidator::ValidateAndPlan(test.config, test.policy);
     EXPECT_FALSE(plan.report.ok);
     ASSERT_FALSE(plan.report.diagnostics.empty());
-    bool found_diag =
-        std::any_of(plan.report.diagnostics.begin(),
-                    plan.report.diagnostics.end(), [&](const auto& item) {
-                      return item.code == test.expected_diag;
-                    });
+    bool found_diag = std::any_of(
+        plan.report.diagnostics.begin(), plan.report.diagnostics.end(),
+        [&](const auto& item) { return item.code == test.expected_diag; });
     EXPECT_TRUE(found_diag)
         << "Expected diagnostic " << DiagnosticCodeName(test.expected_diag)
         << " not found for case: " << test.description;

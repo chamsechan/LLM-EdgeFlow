@@ -49,10 +49,13 @@ NodeDefinition MakeSchemaProbeNodeDefinition() {
   def.description = "Schema probe test node";
   def.parallel_safe = true;
   def.config_fields = {
-      ConfigFieldDefinition{"req_str", ConfigValueKind::kString, /*required=*/true},
-      ConfigFieldDefinition{"opt_int", ConfigValueKind::kInteger, /*required=*/false,
-                            /*default_value=*/10, /*minimum=*/1.0, /*maximum=*/100.0},
-      ConfigFieldDefinition{"enum_mode", ConfigValueKind::kString, /*required=*/false,
+      ConfigFieldDefinition{"req_str", ConfigValueKind::kString,
+                            /*required=*/true},
+      ConfigFieldDefinition{
+          "opt_int", ConfigValueKind::kInteger, /*required=*/false,
+          /*default_value=*/10, /*minimum=*/1.0, /*maximum=*/100.0},
+      ConfigFieldDefinition{"enum_mode", ConfigValueKind::kString,
+                            /*required=*/false,
                             /*default_value=*/"fast", /*minimum=*/std::nullopt,
                             /*maximum=*/std::nullopt,
                             /*enum_values=*/{"fast", "accurate"}},
@@ -87,9 +90,11 @@ EngineDefinition MakeSchemaProbeEngineDefinition() {
   def.description = "Schema probe test engine";
   def.thread_model = EngineThreadModel::kConcurrent;
   def.config_fields = {
-      ConfigFieldDefinition{"device_id", ConfigValueKind::kInteger, /*required=*/false,
-                            /*default_value=*/0, /*minimum=*/0.0, /*maximum=*/16.0},
-      ConfigFieldDefinition{"precision", ConfigValueKind::kString, /*required=*/false,
+      ConfigFieldDefinition{
+          "device_id", ConfigValueKind::kInteger, /*required=*/false,
+          /*default_value=*/0, /*minimum=*/0.0, /*maximum=*/16.0},
+      ConfigFieldDefinition{"precision", ConfigValueKind::kString,
+                            /*required=*/false,
                             /*default_value=*/"fp16", /*minimum=*/std::nullopt,
                             /*maximum=*/std::nullopt,
                             /*enum_values=*/{"fp16", "fp32", "int8"}},
@@ -116,10 +121,11 @@ TEST(DefinitionSchemaValidationTest, EnforcesRequiredField) {
       pipeline, ValidationPolicy::kPrivateExtensionCompatible);
   EXPECT_FALSE(plan.report.ok);
   ASSERT_FALSE(plan.report.diagnostics.empty());
-  auto it = std::find_if(plan.report.diagnostics.begin(),
-                         plan.report.diagnostics.end(), [](const auto& item) {
-                           return item.code == DiagnosticCode::kMissingConfigField;
-                         });
+  auto it =
+      std::find_if(plan.report.diagnostics.begin(),
+                   plan.report.diagnostics.end(), [](const auto& item) {
+                     return item.code == DiagnosticCode::kMissingConfigField;
+                   });
   ASSERT_NE(it, plan.report.diagnostics.end());
   EXPECT_EQ(it->path, "/pipeline/0/config/req_str");
   EXPECT_EQ(it->node_id, "node_0");
@@ -130,19 +136,20 @@ TEST(DefinitionSchemaValidationTest, EnforcesFieldTypeAndRange) {
       {"business_name", "unregistered_test_biz"},
       {"models", nlohmann::json::array()},
       {"pipeline",
-       nlohmann::json::array({{{"id", "node_0"},
-                               {"node_type", SchemaProbeNode::kNodeType},
-                               {"depends_on", nlohmann::json::array()},
-                               {"config",
-                                {{"req_str", "hello"}, {"opt_int", 200}}}}})}};
+       nlohmann::json::array(
+           {{{"id", "node_0"},
+             {"node_type", SchemaProbeNode::kNodeType},
+             {"depends_on", nlohmann::json::array()},
+             {"config", {{"req_str", "hello"}, {"opt_int", 200}}}}})}};
 
   auto plan = PipelineValidator::ValidateAndPlan(
       pipeline, ValidationPolicy::kPrivateExtensionCompatible);
   EXPECT_FALSE(plan.report.ok);
-  auto it = std::find_if(plan.report.diagnostics.begin(),
-                         plan.report.diagnostics.end(), [](const auto& item) {
-                           return item.code == DiagnosticCode::kConfigFieldRange;
-                         });
+  auto it =
+      std::find_if(plan.report.diagnostics.begin(),
+                   plan.report.diagnostics.end(), [](const auto& item) {
+                     return item.code == DiagnosticCode::kConfigFieldRange;
+                   });
   ASSERT_NE(it, plan.report.diagnostics.end());
   EXPECT_EQ(it->path, "/pipeline/0/config/opt_int");
 }
@@ -152,12 +159,12 @@ TEST(DefinitionSchemaValidationTest, EnforcesStringEnumValues) {
       {"business_name", "unregistered_test_biz"},
       {"models", nlohmann::json::array()},
       {"pipeline",
-       nlohmann::json::array({{{"id", "node_0"},
-                               {"node_type", SchemaProbeNode::kNodeType},
-                               {"depends_on", nlohmann::json::array()},
-                               {"config",
-                                {{"req_str", "hello"},
-                                 {"enum_mode", "invalid_choice"}}}}})}};
+       nlohmann::json::array(
+           {{{"id", "node_0"},
+             {"node_type", SchemaProbeNode::kNodeType},
+             {"depends_on", nlohmann::json::array()},
+             {"config",
+              {{"req_str", "hello"}, {"enum_mode", "invalid_choice"}}}}})}};
 
   auto plan = PipelineValidator::ValidateAndPlan(
       pipeline, ValidationPolicy::kPrivateExtensionCompatible);
@@ -224,8 +231,7 @@ TEST(DefinitionSchemaValidationTest, ValidationFailureHasZeroSideEffects) {
   Pipeline pipeline;
   PipelineDiagnostic diag;
   bool built = pipeline.BuildFromJson(
-      invalid_pipeline, &diag,
-      ValidationPolicy::kPrivateExtensionCompatible);
+      invalid_pipeline, &diag, ValidationPolicy::kPrivateExtensionCompatible);
   EXPECT_FALSE(built);
   EXPECT_EQ(pipeline.GetState(), Pipeline::State::kFailed);
 
@@ -249,7 +255,8 @@ TEST(DefinitionSchemaValidationTest, RejectsInvalidDefinitionAtRegistration) {
   NodeDefinition invalid_range_def;
   invalid_range_def.node_type = "InvalidRangeNode";
   invalid_range_def.config_fields = {
-      ConfigFieldDefinition{"num", ConfigValueKind::kNumber, false, 5.0, 10.0, 1.0},
+      ConfigFieldDefinition{"num", ConfigValueKind::kNumber, false, 5.0, 10.0,
+                            1.0},
   };
   EXPECT_FALSE(PipelineCatalog::RegisterNodeDefinition(invalid_range_def));
 
@@ -257,7 +264,8 @@ TEST(DefinitionSchemaValidationTest, RejectsInvalidDefinitionAtRegistration) {
   NodeDefinition default_mismatch_def;
   default_mismatch_def.node_type = "DefaultMismatchNode";
   default_mismatch_def.config_fields = {
-      ConfigFieldDefinition{"flag", ConfigValueKind::kBoolean, false, "not_a_bool"},
+      ConfigFieldDefinition{"flag", ConfigValueKind::kBoolean, false,
+                            "not_a_bool"},
   };
   EXPECT_FALSE(PipelineCatalog::RegisterNodeDefinition(default_mismatch_def));
 
@@ -265,8 +273,13 @@ TEST(DefinitionSchemaValidationTest, RejectsInvalidDefinitionAtRegistration) {
   NodeDefinition enum_mismatch_def;
   enum_mismatch_def.node_type = "EnumMismatchNode";
   enum_mismatch_def.config_fields = {
-      ConfigFieldDefinition{"mode", ConfigValueKind::kString, false, "unknown_mode",
-                            std::nullopt, std::nullopt, {"mode_a", "mode_b"}},
+      ConfigFieldDefinition{"mode",
+                            ConfigValueKind::kString,
+                            false,
+                            "unknown_mode",
+                            std::nullopt,
+                            std::nullopt,
+                            {"mode_a", "mode_b"}},
   };
   EXPECT_FALSE(PipelineCatalog::RegisterNodeDefinition(enum_mismatch_def));
 
@@ -274,8 +287,13 @@ TEST(DefinitionSchemaValidationTest, RejectsInvalidDefinitionAtRegistration) {
   NodeDefinition dup_enum_def;
   dup_enum_def.node_type = "DupEnumNode";
   dup_enum_def.config_fields = {
-      ConfigFieldDefinition{"mode", ConfigValueKind::kString, false, "mode_a",
-                            std::nullopt, std::nullopt, {"mode_a", "mode_a"}},
+      ConfigFieldDefinition{"mode",
+                            ConfigValueKind::kString,
+                            false,
+                            "mode_a",
+                            std::nullopt,
+                            std::nullopt,
+                            {"mode_a", "mode_a"}},
   };
   EXPECT_FALSE(PipelineCatalog::RegisterNodeDefinition(dup_enum_def));
 }
