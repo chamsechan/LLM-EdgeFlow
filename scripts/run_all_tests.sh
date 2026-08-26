@@ -108,10 +108,10 @@ python3 tests/test_visualizer_server.py > /dev/null
 ./build/alg_pipeline_tool validate configs/pipeline_keyword_match.json > /dev/null
 echo -e "${GREEN}✓ PASS${NC}"
 
-echo -e "\n${BOLD}${GREEN}==================================================================${NC}"
+echo -e "${BOLD}${GREEN}==================================================================${NC}"
 echo -e "${BOLD}${GREEN}  🎉 交付验证通过：全部 6 大测试阶段 100% PASS！                 ${NC}"
 echo -e "${BOLD}${GREEN}  - 核心架构单元测试   : PASSED (6/6 模块)${NC}"
-echo -e "${BOLD}${GREEN}  - C ABI 安全边界测试 : PASSED (空指针拦截 / 50轮无泄露)${NC}"
+echo -e "${BOLD}${GREEN}  - C ABI 安全边界测试 : PASSED (空指针拦截 / 50轮并发与生命周期稳定)${NC}"
 echo -e "${BOLD}${GREEN}  - 7 大业务端到端测试 : PASSED (规则/抽取/问答/风控/OCR/语音/精排)${NC}"
 echo -e "${BOLD}${GREEN}  - CLI 工具双模适配   : PASSED (Python CLI & C++ Native CLI)${NC}"
 echo -e "${BOLD}${GREEN}  - Google C++ 规范    : PASSED (100% 格式对齐)${NC}"

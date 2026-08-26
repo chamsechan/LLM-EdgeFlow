@@ -10,28 +10,33 @@ echo "================================================================"
 
 FAILED=0
 
-ACTIVE_DOCS="doc/architecture.md doc/developer_guide.md doc/README.md doc/architecture.puml doc/architecture_v2.puml README.md CLAUDE.md AGENTS.md src include demo configs"
+ACTIVE_DOCS="doc/architecture.md doc/developer_guide.md doc/README.md doc/architecture.puml doc/architecture_v2.puml doc/assets/architecture_class_diagram.svg doc/assets/architecture_flow.svg README.md CLAUDE.md AGENTS.md src include demo configs"
 
-# 1. 检查权威文档与资产中是否存在旧业务名
+# 1. 检查权威文档与资产中是否存在旧业务名 (包含 SVG 资产)
 echo "[Check 1/6] Checking for legacy business names (doc_qa_embedding_v1, doc_qa_rerank_v1)..."
 LEGACY_BIZ=$(grep -rnE "(doc_qa_embedding_v1|doc_qa_rerank_v1)" ${ACTIVE_DOCS} 2>/dev/null || true)
 if [ -n "${LEGACY_BIZ}" ]; then
-  echo "❌ Found deprecated business names in active docs or codebase:"
+  echo "❌ Found deprecated business names in active docs, assets or codebase:"
   echo "${LEGACY_BIZ}"
   FAILED=1
 else
   echo "✅ No legacy business names found."
 fi
 
-# 2. 检查旧注册宏 (REGISTER_NODE( / REGISTER_ENGINE()
-echo "[Check 2/6] Checking for deprecated registration macros without definitions..."
-LEGACY_MACROS=$(grep -rnE "\bREGISTER_NODE\([A-Za-z0-9_]+\)" ${ACTIVE_DOCS} 2>/dev/null | grep -v "#define REGISTER_NODE" || true)
-if [ -n "${LEGACY_MACROS}" ]; then
-  echo "❌ Found deprecated REGISTER_NODE(Name) in active docs or source:"
-  echo "${LEGACY_MACROS}"
+# 2. 检查旧注册宏 (REGISTER_NODE( / REGISTER_ENGINE( / REGISTER_ENGINE_WITH_DEFINITION("str", ...))
+echo "[Check 2/6] Checking for deprecated registration macros..."
+LEGACY_NODE_MACROS=$(grep -rnE "\bREGISTER_NODE\([A-Za-z0-9_]+\)" ${ACTIVE_DOCS} 2>/dev/null | grep -v "#define REGISTER_NODE" || true)
+LEGACY_ENGINE_MACROS=$(grep -rnE "\bREGISTER_ENGINE\([A-Za-z0-9_]+,\s*[A-Za-z0-9_]+\)" ${ACTIVE_DOCS} 2>/dev/null | grep -v "#define REGISTER_ENGINE" || true)
+LEGACY_3PARAM_MACROS=$(grep -rnE "\bREGISTER_ENGINE_WITH_DEFINITION\s*\(\s*\"" ${ACTIVE_DOCS} 2>/dev/null || true)
+
+if [ -n "${LEGACY_NODE_MACROS}" ] || [ -n "${LEGACY_ENGINE_MACROS}" ] || [ -n "${LEGACY_3PARAM_MACROS}" ]; then
+  echo "❌ Found deprecated registration macro invocations:"
+  [ -n "${LEGACY_NODE_MACROS}" ] && echo "${LEGACY_NODE_MACROS}"
+  [ -n "${LEGACY_ENGINE_MACROS}" ] && echo "${LEGACY_ENGINE_MACROS}"
+  [ -n "${LEGACY_3PARAM_MACROS}" ] && echo "${LEGACY_3PARAM_MACROS}"
   FAILED=1
 else
-  echo "✅ No deprecated REGISTER_NODE(...) found in active docs/source."
+  echo "✅ No deprecated registration macro invocations found in active docs/source."
 fi
 
 # 3. 检查虚构生产节点 (PassthroughNode, ComplianceReportPostNode)
@@ -57,6 +62,12 @@ for concept in "ValidatedPipelinePlan" "BlackboardKey" "NodeBase" "FixedBatchExe
     FAILED=1
   fi
 done
+for concept in "SharedAlgorithmRuntime" "Pipeline" "AlgContext" "NodeBase" "FixedBatchExecutor"; do
+  if ! grep -q "${concept}" doc/architecture.puml; then
+    echo "❌ doc/architecture.puml is missing reference to '${concept}'"
+    FAILED=1
+  fi
+done
 if [ ${FAILED} -eq 0 ]; then
   echo "✅ All core architectural concepts verified in architecture docs."
 fi
@@ -72,7 +83,7 @@ else
   echo "✅ architecture_v2.puml state legends verified."
 fi
 
-# 6. 检查 PlantUML 语法有效性 (如果可用)
+# 6. 检查 PlantUML 与 SVG 资产存在性与非空
 echo "[Check 6/6] Verifying architecture diagrams exist and are non-empty..."
 for puml in doc/architecture.puml doc/architecture_v2.puml; do
   if [ ! -s "${puml}" ]; then

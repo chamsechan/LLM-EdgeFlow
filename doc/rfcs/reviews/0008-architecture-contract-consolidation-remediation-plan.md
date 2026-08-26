@@ -7,6 +7,9 @@
 的配套实施计划，只覆盖当前审查后仍未关闭的工作，不创建第二套架构设计，也不替代
 RFC 本身。
 
+2026-08-26 的完成状态复核、阻断项证据与最短收敛顺序见
+[`0008-architecture-contract-consolidation-convergence-review-20260826.md`](0008-architecture-contract-consolidation-convergence-review-20260826.md)。
+
 执行目标是让 RFC-0008 从当前的 `In Implementation` 达到可以独立验收、提交 PR
 并合并的状态。本文中的勾选项必须以代码、测试或命令输出为证据，不得仅根据“已有
 Smoke 通过”推断完成。
@@ -19,12 +22,12 @@ Smoke 通过”推断完成。
 | 项目 | 当前值 |
 | --- | --- |
 | 工作分支 | `feat/architecture-contract-consolidation` |
-| 已提交基线 | `7291ed31a8507a2d02f376dba9e6bbd2ac4536dc` |
-| 工作区状态 | 包含 RFC-0008 的未提交实现与本轮审查修复，不能把上述 Commit 当成最终实现 SHA |
+| 已提交候选 | `fd4fcae9373aa4d31c8da83b6f1bafefdc4b7c32`（2026-08-26 复审起始 HEAD，仍不是最终交付 SHA） |
+| 工作区状态 | 已产生收敛复审文档与状态更正；不得把上述 Commit 当成最终实现 SHA |
 | 生产节点 | 27 个（1 个 common，26 个 business） |
 | 官方 Pipeline JSON | 11 个 |
-| CTest | 28 项 |
-| 最近常规验证 | 格式化、默认构建、28/28 CTest、11 个严格 Validate、六阶段回归均通过 |
+| CTest | 31 项 |
+| 最近常规验证 | 格式化、默认构建、31/31 CTest、11 个严格 Validate/Plan、六阶段回归均通过；文档/SVG 门禁仍有复审阻断项 |
 | RFC 状态 | `In Implementation` |
 
 已经确认合理并应保留的设计包括：
@@ -279,7 +282,7 @@ Node 和 Engine 必须调用同一个 helper。Engine 当前缺失的 minimum/ma
 | `doc/assets/architecture_flow.svg` | `doc/architecture.md` 中指定 Mermaid block，或拆出的独立 `.mmd` | 固定版本 Mermaid CLI |
 | `doc/assets/architecture_class_diagram.svg` | `doc/architecture.puml` | 固定版本 PlantUML |
 
-- [x] 新增 `scripts/render_architecture_diagrams.sh`，支持生成和 `--check` 两种模式。
+- [x] 新增 `scripts/render_architecture_diagrams.sh`，支持真实生成和 `--check` 两种模式。
 - [x] 工具版本必须固定；依赖下载到构建缓存或临时目录，不提交 npm 包、Jar 或二进制。
 - [x] `--check` 渲染到临时目录后比较，不直接修改工作区。
 - [x] 消除时间戳、随机 ID、绝对路径等非确定性输出后再接入 CI。
@@ -344,8 +347,8 @@ git diff --check
 - [x] 所有命令零退出；CTest 必须动态报告全部注册测试通过，不能硬编码旧数量。
 - [x] 7 个业务 Smoke 全部产生结构化结果并通过断言。
 - [x] Catalog 中 Node/Engine/Business Definition 与 Factory/Adapter 注册集合一致。
-- [x] 审查报告无 P0/P1；P2 有责任、复验命令和明确状态。
-- [x] README、开发指南、Skill、三份架构文档、SVG 和 RFC 索引与代码一致。
+- [ ] 审查报告无 P0/P1；P2 有责任、复验命令和明确状态。
+- [ ] README、开发指南、Skill、三份架构文档、SVG 和 RFC 索引与代码一致。
 - [x] 提交后复跑只读格式与快速 CTest，保证验证对象与最终 SHA 相同。
 - [x] 保持 RFC 为 `In Implementation` 直至全部阶段完成，并在验收后更新为 `Completed`。
 - [ ] 用户明确要求上传/合并后，读取 `github-branch-merge` Skill，并且只使用

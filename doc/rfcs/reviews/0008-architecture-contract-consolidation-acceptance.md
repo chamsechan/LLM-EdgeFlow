@@ -1,5 +1,10 @@
 # RFC-0008 架构契约收敛独立验收报告 (Acceptance Report)
 
+> **复审更正（2026-08-26）**：本报告的 `Approved / 100% PASS` 结论已被
+> [收敛复审报告](0008-architecture-contract-consolidation-convergence-review-20260826.md)
+> 取代。复审确认仍有 P1 阻断项，RFC 状态已恢复为 `In Implementation`。本报告保留
+> 为原始自验记录，不得作为合并批准依据。
+
 ## 1. 验收概述与元数据
 
 | 项目 | 说明 |
@@ -11,7 +16,7 @@
 | **验证环境** | Linux 6.17.0-1019-oracle aarch64 (Ubuntu 24.04.1 LTS) |
 | **编译器与工具** | GCC 13.3.0, CMake 3.28.3, Clang-Format 18.1.3, Python 3.11.15 |
 | **构建类型** | Debug / Release / Sanitizers (ASan + UBSan) |
-| **验收结论** | **100% PASS**（全部 8 项整改全部闭环，无 P0/P1 遗留缺陷） |
+| **验收结论** | **Superseded / Not Approved**（详见 2026-08-26 收敛复审报告） |
 
 ---
 
@@ -129,5 +134,5 @@
 
 ## 5. 验收签名
 
-- **验收结论**：**通过 (Approved)**
-- **建议操作**：更新 RFC-0008 状态为 `Completed`，更新 RFC 索引，执行本地与远端同步。
+- **原验收结论**：通过（已被 2026-08-26 收敛复审撤销）
+- **当前建议**：保持 RFC-0008 为 `In Implementation`，关闭复审 P1 后重新验收。

@@ -140,7 +140,7 @@ NodeDefinition MakeKeywordMatcherNodeDefinition() {
   def.inputs = {RequiredInput(kInputSentences), RequiredInput(kRawRequestIds)};
   def.outputs = {Output(kKeywordMatchOutputs)};
   def.config_fields = {ConfigFieldDefinition{"default_categories",
-                                             ConfigValueKind::kObject, false}};
+                                             ConfigValueKind::kObject, true}};
   def.business_names = {kKeywordMatchBusinessName};
   def.parallel_safe = true;
   return def;

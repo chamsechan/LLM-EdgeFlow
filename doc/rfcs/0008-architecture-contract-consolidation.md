@@ -2,13 +2,14 @@
 
 - **RFC 编号**：0008-architecture-contract-consolidation
 - **创建日期**：2026-08-25
-- **文档状态**：Completed
+- **文档状态**：In Implementation
 - **关联分支**：`feat/architecture-contract-consolidation`
 - **目标版本**：v2.1.0
 - **负责人 / 作者**：LLM-EdgeFlow Team
 - **实施计划与验收报告**：
   - 整改计划：[`reviews/0008-architecture-contract-consolidation-remediation-plan.md`](reviews/0008-architecture-contract-consolidation-remediation-plan.md)
   - 独立验收报告：[`reviews/0008-architecture-contract-consolidation-acceptance.md`](reviews/0008-architecture-contract-consolidation-acceptance.md)
+  - 收敛复审报告：[`reviews/0008-architecture-contract-consolidation-convergence-review-20260826.md`](reviews/0008-architecture-contract-consolidation-convergence-review-20260826.md)
 
 ---
 

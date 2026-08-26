@@ -174,9 +174,11 @@ add_test(NAME LayerGuardTest COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_l
 
 # 4.1 架构文档防漂移测试 (ArchitectureDocsDriftTest)
 add_test(NAME ArchitectureDocsDriftTest COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_architecture_docs.sh)
+add_test(NAME ArchitectureDocsDriftGateSelfTest COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_architecture_docs_drift_gate.sh)
 
 # 4.2 架构图资产一致性检查测试 (DiagramAssetsCheckTest)
 add_test(NAME DiagramAssetsCheckTest COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/render_architecture_diagrams.sh --check)
+add_test(NAME DiagramRenderGateSelfTest COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_diagram_render_gate.sh)
 
 # 5. 单元测试与安全性测试集 (基于 Google Test & CTest)
 
@@ -309,7 +311,8 @@ add_test(NAME DefinitionSchemaValidationTest COMMAND test_definition_schema_vali
 # 设置所有测试工作目录为项目根目录，保证无论从何处运行 CTest，相对路径均一致解析
 set_tests_properties(
   C11AbiComplianceTest LayerGuardTest ArchitectureDocsDriftTest
-  DiagramAssetsCheckTest BatchExecutorTest FrameworkCoreTest
+  ArchitectureDocsDriftGateSelfTest DiagramAssetsCheckTest
+  DiagramRenderGateSelfTest BatchExecutorTest FrameworkCoreTest
   CAbiSafetyTest QwenEnginesComparisonTest DifferentIoModalitiesTest
   AllBusinessPipelinesTest ConcurrencyAndEdgeCasesTest DagPipelineTest
   RuntimeControlAndHotSwapTest EngineFaultToleranceAndLifecycleTest

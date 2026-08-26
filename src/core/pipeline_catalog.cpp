@@ -101,6 +101,12 @@ bool ValidateFieldDefinition(const ConfigFieldDefinition& field,
                              std::unordered_set<std::string>& seen_names) {
   if (field.name.empty()) return false;
   if (!seen_names.insert(field.name).second) return false;
+  if (field.kind != ConfigValueKind::kInteger &&
+      field.kind != ConfigValueKind::kNumber) {
+    if (field.minimum.has_value() || field.maximum.has_value()) {
+      return false;
+    }
+  }
   if (field.minimum.has_value() && field.maximum.has_value() &&
       *field.minimum > *field.maximum) {
     return false;
@@ -136,6 +142,16 @@ bool PipelineCatalog::RegisterNodeDefinition(const NodeDefinition& definition) {
   std::unordered_set<std::string> seen_field_names;
   for (const auto& field : definition.config_fields) {
     if (!ValidateFieldDefinition(field, seen_field_names)) return false;
+  }
+  if (!definition.model_capability.empty()) {
+    if (definition.model_config_field.empty()) return false;
+    auto it = std::find_if(
+        definition.config_fields.begin(), definition.config_fields.end(),
+        [&](const auto& f) { return f.name == definition.model_config_field; });
+    if (it == definition.config_fields.end() ||
+        it->kind != ConfigValueKind::kString) {
+      return false;
+    }
   }
   std::lock_guard<std::mutex> lock(CatalogMutex());
   auto& definitions = RegisteredNodes();

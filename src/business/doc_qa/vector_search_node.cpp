@@ -117,7 +117,14 @@ NodeDefinition MakeVectorSearchNodeDefinition() {
       ConfigFieldDefinition{"top_k", ConfigValueKind::kInteger, false, 1, 1.0,
                             1000.0},
       ConfigFieldDefinition{"min_score", ConfigValueKind::kNumber, false, 0.0,
-                            -1.0, 1.0}};
+                            -1.0, 1.0},
+      ConfigFieldDefinition{"metric",
+                            ConfigValueKind::kString,
+                            false,
+                            "cosine",
+                            std::nullopt,
+                            std::nullopt,
+                            {"cosine", "dot", "l2"}}};
   def.business_names = {kDocQaBusinessName, kDocQaOnnxBusinessName,
                         kDocQaRerankBusinessName};
   def.parallel_safe = true;

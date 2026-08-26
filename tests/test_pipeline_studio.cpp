@@ -337,6 +337,29 @@ TEST(PipelineValidatorTest, TableDrivenParityMatrix) {
           DiagnosticCode::kParallelWriteConflict,
           PipelineErrorCode::kInvalidCombination,
       },
+      // 9. 串行 Engine 并发冲突
+      {
+          "Serialized engine concurrency",
+          {{"business_name", "entity_extract_0.6b_v1"},
+           {"execution_mode", "parallel"},
+           {"models",
+            {{{"model_id", "ser_llm"}, {"engine_type", "mock_npu_llm"}}}},
+           {"pipeline",
+            {{{"id", "pre"},
+              {"node_type", "EntityExtractPreNode"},
+              {"depends_on", nlohmann::json::array()}},
+             {{"id", "branch_a"},
+              {"node_type", "LlmGenerateNode"},
+              {"depends_on", {"pre"}},
+              {"config", {{"bind_model", "ser_llm"}}}},
+             {{"id", "branch_b"},
+              {"node_type", "LlmGenerateNode"},
+              {"depends_on", {"pre"}},
+              {"config", {{"bind_model", "ser_llm"}}}}}}},
+          ValidationPolicy::kStrict,
+          DiagnosticCode::kSerializedEngineConcurrency,
+          PipelineErrorCode::kInvalidCombination,
+      },
   };
 
   for (const auto& test : cases) {

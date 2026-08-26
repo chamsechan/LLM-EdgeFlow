@@ -296,6 +296,57 @@ TEST(DefinitionSchemaValidationTest, RejectsInvalidDefinitionAtRegistration) {
                             {"mode_a", "mode_a"}},
   };
   EXPECT_FALSE(PipelineCatalog::RegisterNodeDefinition(dup_enum_def));
+
+  // 6. Non-numeric field carrying minimum/maximum (CR-005)
+  NodeDefinition string_range_def;
+  string_range_def.node_type = "StringRangeNode";
+  string_range_def.config_fields = {
+      ConfigFieldDefinition{"str_fld", ConfigValueKind::kString, false, "hello",
+                            0.0, 10.0},
+  };
+  EXPECT_FALSE(PipelineCatalog::RegisterNodeDefinition(string_range_def));
+
+  NodeDefinition bool_range_def;
+  bool_range_def.node_type = "BoolRangeNode";
+  bool_range_def.config_fields = {
+      ConfigFieldDefinition{"bool_fld", ConfigValueKind::kBoolean, false, true,
+                            0.0, 1.0},
+  };
+  EXPECT_FALSE(PipelineCatalog::RegisterNodeDefinition(bool_range_def));
+
+  // 7. Node declares model_capability without model_config_field (CR-005)
+  NodeDefinition missing_model_field_def;
+  missing_model_field_def.node_type = "MissingModelFieldNode";
+  missing_model_field_def.model_capability = "llm";
+  missing_model_field_def.model_config_field = "";
+  missing_model_field_def.config_fields = {
+      ConfigFieldDefinition{"some_param", ConfigValueKind::kString},
+  };
+  EXPECT_FALSE(
+      PipelineCatalog::RegisterNodeDefinition(missing_model_field_def));
+
+  // 8. Node declares model_capability but field not in config_fields (CR-005)
+  NodeDefinition unlisted_model_field_def;
+  unlisted_model_field_def.node_type = "UnlistedModelFieldNode";
+  unlisted_model_field_def.model_capability = "llm";
+  unlisted_model_field_def.model_config_field = "bind_model";
+  unlisted_model_field_def.config_fields = {
+      ConfigFieldDefinition{"other_param", ConfigValueKind::kString},
+  };
+  EXPECT_FALSE(
+      PipelineCatalog::RegisterNodeDefinition(unlisted_model_field_def));
+
+  // 9. Node declares model_capability but model_config_field is not string
+  // (CR-005)
+  NodeDefinition nonstring_model_field_def;
+  nonstring_model_field_def.node_type = "NonStringModelFieldNode";
+  nonstring_model_field_def.model_capability = "llm";
+  nonstring_model_field_def.model_config_field = "bind_model";
+  nonstring_model_field_def.config_fields = {
+      ConfigFieldDefinition{"bind_model", ConfigValueKind::kInteger},
+  };
+  EXPECT_FALSE(
+      PipelineCatalog::RegisterNodeDefinition(nonstring_model_field_def));
 }
 
 TEST(DefinitionSchemaValidationTest, ProductionCatalogSelfCheck) {
