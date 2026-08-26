@@ -57,27 +57,43 @@ TEST_F(AllBusinessPipelinesTest, DocQaPipelineExecution) {
       "违禁品管控规则：严禁在平台发布、宣传、交易任何国家法律法规禁止流通的违禁"
       "商品。";
 
-  CompanyDocInputStruct req0{
-      30001, "请问平台支持7天无理由退款吗？具体要求是什么？", doc_text};
-  CompanyDocInputStruct req1{30002, "跨境信用卡支付要收手续费吗？", doc_text};
-  std::vector<void*> inputs = {&req0, &req1};
+  CompanyString doc_str, q0_str, q1_str;
+  CompanyString_FromCString(&doc_str, doc_text);
+  CompanyString_FromCString(&q0_str,
+                            "请问平台支持7天无理由退款吗？具体要求是什么？");
+  CompanyString_FromCString(&q1_str, "跨境信用卡支付要收手续费吗？");
 
-  CompanyDocOutputStruct out0;
-  CompanyDocOutputStruct out1;
+  CompanyDocInputStruct req0{30001, &doc_str, &q0_str};
+  CompanyDocInputStruct req1{30002, &doc_str, &q1_str};
+  std::vector<const void*> inputs = {&req0, &req1};
+
+  char intent_buf0[64] = {0}, intent_buf1[64] = {0};
+  char ans_buf0[1024] = {0}, ans_buf1[1024] = {0};
+  CompanyString intent_str0, intent_str1, ans_str0, ans_str1;
+  CompanyString_Init(&intent_str0, intent_buf0, sizeof(intent_buf0));
+  CompanyString_Init(&intent_str1, intent_buf1, sizeof(intent_buf1));
+  CompanyString_Init(&ans_str0, ans_buf0, sizeof(ans_buf0));
+  CompanyString_Init(&ans_str1, ans_buf1, sizeof(ans_buf1));
+
+  CompanyDocOutputStruct out0{.intent_name = &intent_str0,
+                              .answer_text = &ans_str0};
+  CompanyDocOutputStruct out1{.intent_name = &intent_str1,
+                              .answer_text = &ans_str1};
   std::vector<void*> outputs = {&out0, &out1};
 
-  ret = Alg_Process(handle, inputs, outputs);
+  int num_outputs = 2;
+  ret = Alg_Process(handle, inputs.data(), 2, outputs.data(), &num_outputs);
   EXPECT_EQ(ret, 0);
 
   // 验证切片数与意图分类
   EXPECT_EQ(out0.request_id, 30001);
   EXPECT_GT(out0.chunk_count, 0);
-  EXPECT_STREQ(out0.intent_name, "AFTER_SALES_REFUND");
-  EXPECT_TRUE(strlen(out0.answer_text) > 0);
+  EXPECT_STREQ(out0.intent_name->data, "AFTER_SALES_REFUND");
+  EXPECT_TRUE(strlen(out0.answer_text->data) > 0);
 
   EXPECT_EQ(out1.request_id, 30002);
   EXPECT_GT(out1.chunk_count, 0);
-  EXPECT_TRUE(strlen(out1.answer_text) > 0);
+  EXPECT_TRUE(strlen(out1.answer_text->data) > 0);
 
   ret = Alg_Destroy(handle);
   EXPECT_EQ(ret, 0);
@@ -98,45 +114,69 @@ TEST_F(AllBusinessPipelinesTest, DialogueComplianceAuditPipeline) {
   ASSERT_NE(handle, nullptr);
 
   // 样本 A: 违规诱导私下交易
-  CompanyAuditInputStruct req_violation{
-      40001,
+  CompanyString v_text, v_chan, s_text, s_chan;
+  CompanyString_FromCString(
+      &v_text,
       "亲，平台退款审核太慢了，你加我私人微信转账给我吧，我私下把商品寄给你，还"
-      "能返现20元！",
-      "VIP专席客服"};
+      "能返现20元！");
+  CompanyString_FromCString(&v_chan, "VIP专席客服");
+
+  CompanyAuditInputStruct req_violation{40001, &v_text, &v_chan};
 
   // 样本 B: 合规正常客服沟通
-  CompanyAuditInputStruct req_safe{40002,
-                                   "您好，您的商品符合7天无理由退货政策，已为您"
-                                   "在系统提交退款换货流程，请保持手机畅通。",
-                                   "在线售后IM"};
+  CompanyString_FromCString(&s_text,
+                            "您好，您的商品符合7天无理由退货政策，已为您在系统"
+                            "提交退款换货流程，请保持"
+                            "手机畅通。");
+  CompanyString_FromCString(&s_chan, "在线售后IM");
 
-  std::vector<void*> inputs = {&req_violation, &req_safe};
+  CompanyAuditInputStruct req_safe{40002, &s_text, &s_chan};
 
-  CompanyAuditOutputStruct out_violation;
-  CompanyAuditOutputStruct out_safe;
+  std::vector<const void*> inputs = {&req_violation, &req_safe};
+
+  char r_lvl0[32] = {0}, r_lvl1[32] = {0};
+  char m_pol0[256] = {0}, m_pol1[256] = {0};
+  char verd0[1024] = {0}, verd1[1024] = {0};
+  CompanyString rl0, rl1, mp0, mp1, vd0, vd1;
+  CompanyString_Init(&rl0, r_lvl0, sizeof(r_lvl0));
+  CompanyString_Init(&rl1, r_lvl1, sizeof(r_lvl1));
+  CompanyString_Init(&mp0, m_pol0, sizeof(m_pol0));
+  CompanyString_Init(&mp1, m_pol1, sizeof(m_pol1));
+  CompanyString_Init(&vd0, verd0, sizeof(verd0));
+  CompanyString_Init(&vd1, verd1, sizeof(verd1));
+
+  CompanyAuditOutputStruct out_violation{.risk_level = &rl0,
+                                         .matched_policy_clause = &mp0,
+                                         .audit_verdict_json = &vd0};
+  CompanyAuditOutputStruct out_safe{.risk_level = &rl1,
+                                    .matched_policy_clause = &mp1,
+                                    .audit_verdict_json = &vd1};
   std::vector<void*> outputs = {&out_violation, &out_safe};
 
-  ret = Alg_Process(handle, inputs, outputs);
+  int num_outputs = 2;
+  ret = Alg_Process(handle, inputs.data(), 2, outputs.data(), &num_outputs);
   EXPECT_EQ(ret, 0);
 
   // 验证样本 A 判定为 HIGH_RISK，且命中对应合规条款
   EXPECT_EQ(out_violation.request_id, 40001);
-  EXPECT_STREQ(out_violation.risk_level, "HIGH_RISK");
+  EXPECT_STREQ(out_violation.risk_level->data, "HIGH_RISK");
   EXPECT_GE(out_violation.risk_score, 0.80f);
-  EXPECT_TRUE(std::string(out_violation.matched_policy_clause).find("退货") !=
-                  std::string::npos ||
-              std::string(out_violation.matched_policy_clause).find("条款") !=
-                  std::string::npos);
+  EXPECT_TRUE(
+      std::string(out_violation.matched_policy_clause->data).find("退货") !=
+          std::string::npos ||
+      std::string(out_violation.matched_policy_clause->data).find("条款") !=
+          std::string::npos);
 
-  auto j_violation = nlohmann::json::parse(out_violation.audit_verdict_json);
+  auto j_violation =
+      nlohmann::json::parse(out_violation.audit_verdict_json->data);
   EXPECT_EQ(j_violation["risk_level"], "HIGH_RISK");
 
   // 验证样本 B 判定为 SAFE
   EXPECT_EQ(out_safe.request_id, 40002);
-  EXPECT_STREQ(out_safe.risk_level, "SAFE");
+  EXPECT_STREQ(out_safe.risk_level->data, "SAFE");
   EXPECT_LE(out_safe.risk_score, 0.40f);
 
-  auto j_safe = nlohmann::json::parse(out_safe.audit_verdict_json);
+  auto j_safe = nlohmann::json::parse(out_safe.audit_verdict_json->data);
   EXPECT_EQ(j_safe["risk_level"], "SAFE");
 
   ret = Alg_Destroy(handle);

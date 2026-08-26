@@ -153,6 +153,11 @@ LLM-EdgeFlow/
 
 ## 📝 更新日志 (Changelog)
 
+- **v2.2.0 (统一 CompanyString 封装与槽位 Mapname 结构体映射契约 - RFC 0009)** *(2026-08)*
+  - 🔤 **统一 C 风格字符串封装 (`CompanyString`)**：在 `include/company_alg_interface.h` 中定义 `CompanyString`（包含 `data`, `length`, `capacity`），7 大业务输入输出 C 结构体中涉及字符串的字段全部统一为 `CompanyString*` / `const CompanyString*` 指针，彻底消除定长数组溢出隐患与截断风险。
+  - 🗺️ **槽位 Mapname 与 C 解析结构体映射契约 (`CompanySlotStructMapping`)**：在 C ABI 接口层维护标准槽位 `mapname` 到对应 C 解析结构体的全局映射表（`Alg_GetSlotStructMappings`），实现外部调度框架 `"xxx.mapname"` 命名格式与内部 C 结构体大小及方向的精准对齐。
+  - 🛡️ **Adapter 安全校验与读写增强**：`AdapterValidationHelper` 引入 `RequireBoundedCompanyString`（指针非空、字符长度有界校验）与 `CheckedCompanyStringWrite`（容量校验、回填 `length` 及溢出防御），确定性返回 `COMPANY_ALG_ERR_BUFFER_TOO_SMALL (-4)`。
+  - 🧪 **全量 Demo 与测试套件适配**：重构 7 大业务 Demo 与全量 CTest/C11 ABI 测试用例，33 项 Google Test 单元测试、6 阶段自动化回归测试及 ASan/UBSan 内存检查 100% 通过。
 - **v2.1.0 (架构契约收敛与文档一致性修复 - RFC 0008)** *(2026-08)*
   - 🧭 **SSOT 契约注册与自发现体系**：引入 `REGISTER_NODE_WITH_DEFINITION` 与 `REGISTER_ENGINE_WITH_DEFINITION` 宏，统一将 Node / Engine 元数据定义在实现文件中声明并自动注册至 `PipelineCatalog`，彻底废除中心式硬编码 Catalog。
   - 🧠 **强类型黑板契约 (`BlackboardKey<T>`)**：重构 `AlgContext` 支持 `BlackboardKey<T>`，提供编译期类型安全、常量端口名绑定与零字符串拼写风险。

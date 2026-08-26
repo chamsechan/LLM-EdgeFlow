@@ -42,10 +42,12 @@ int RunEntityExtractDemo(const DemoOptions& options) {
     }
   }
 
+  std::vector<CompanyString> input_strings(lines.size());
   std::vector<CompanyEntityInputStruct> inputs;
   inputs.reserve(lines.size());
   for (size_t i = 0; i < lines.size(); ++i) {
-    inputs.push_back({static_cast<uint64_t>(30001 + i), lines[i].c_str()});
+    CompanyString_FromCString(&input_strings[i], lines[i].c_str());
+    inputs.push_back({static_cast<uint64_t>(30001 + i), &input_strings[i]});
   }
 
   std::vector<CompanyEntityOutputStruct> outputs;
@@ -65,19 +67,26 @@ int RunEntityExtractDemo(const DemoOptions& options) {
 
   for (size_t i = 0; i < outputs.size(); ++i) {
     PrintDivider();
-    std::cout << "  Input Sentence : \"" << inputs[i].sentence_text << "\"\n"
+    const char* in_txt =
+        (inputs[i].sentence_text && inputs[i].sentence_text->data)
+            ? inputs[i].sentence_text->data
+            : "";
+    const char* out_json =
+        (outputs[i].entities_json && outputs[i].entities_json->data)
+            ? outputs[i].entities_json->data
+            : "";
+    std::cout << "  Input Sentence : \"" << in_txt << "\"\n"
               << "  Request ID     : " << outputs[i].request_id << "\n"
-              << "  Extracted JSON : " << outputs[i].entities_json << std::endl;
+              << "  Extracted JSON : " << out_json << std::endl;
 
     DemoSampleResult sample;
     sample.request_id = outputs[i].request_id;
     sample.status = 0;
     sample.latency_ms = (i < latencies.size()) ? latencies[i] : 0.0;
-    if (outputs[i].entities_json[0] != '\0') {
-      auto parsed =
-          nlohmann::json::parse(outputs[i].entities_json, nullptr, false);
+    if (out_json[0] != '\0') {
+      auto parsed = nlohmann::json::parse(out_json, nullptr, false);
       if (parsed.is_discarded()) {
-        sample.output["entities_raw"] = outputs[i].entities_json;
+        sample.output["entities_raw"] = out_json;
       } else {
         sample.output["entities"] = parsed;
       }

@@ -241,8 +241,13 @@ TEST_F(PlatformOperatorTest, HandleLifecycleAndUafPrevention) {
   EXPECT_EQ(ops_.Destroy(handle), -1);
 
   // 3. 销毁后调用 Process / Control: 安全返回 -1
-  CompanyKeywordInputStruct in{101, "test"};
-  CompanyKeywordOutputStruct out{};
+  CompanyString in_str;
+  CompanyString_FromCString(&in_str, "test");
+  CompanyKeywordInputStruct in{101, &in_str};
+  char out_buf[2048] = {0};
+  CompanyString out_str;
+  CompanyString_Init(&out_str, out_buf, sizeof(out_buf));
+  CompanyKeywordOutputStruct out{.match_result_json = &out_str};
   NamedIoBatch in_b(1), out_b(1);
   in_b[0]["chan.keyword_in"] = std::shared_ptr<void>(&in, [](void*) {});
   out_b[0]["chan.keyword_out"] = std::shared_ptr<void>(&out, [](void*) {});
@@ -678,10 +683,20 @@ TEST_F(PlatformOperatorTest, KeywordMatchLifecycleAndExecution) {
   EXPECT_EQ(ret, 0);
 
   // 执行 Process: 命名 I/O (点后缀 key: "channel_0.keyword_in")
-  CompanyKeywordInputStruct in0{101, "请帮我联系VIP客服专员加急办理"};
-  CompanyKeywordInputStruct in1{102, "今天天气真好，去散步吧"};
-  CompanyKeywordOutputStruct out0{};
-  CompanyKeywordOutputStruct out1{};
+  CompanyString in_str0, in_str1;
+  CompanyString_FromCString(&in_str0, "请帮我联系VIP客服专员加急办理");
+  CompanyString_FromCString(&in_str1, "今天天气真好，去散步吧");
+
+  CompanyKeywordInputStruct in0{101, &in_str0};
+  CompanyKeywordInputStruct in1{102, &in_str1};
+
+  char out_buf0[2048] = {0}, out_buf1[2048] = {0};
+  CompanyString out_str0, out_str1;
+  CompanyString_Init(&out_str0, out_buf0, sizeof(out_buf0));
+  CompanyString_Init(&out_str1, out_buf1, sizeof(out_buf1));
+
+  CompanyKeywordOutputStruct out0{.match_result_json = &out_str0};
+  CompanyKeywordOutputStruct out1{.match_result_json = &out_str1};
 
   NamedIoBatch inputs(2);
   NamedIoBatch outputs(2);
@@ -727,8 +742,13 @@ TEST_F(PlatformOperatorTest, NamedIoErrorHandling) {
   int ret = ops_.Create(&handle, &param);
   ASSERT_EQ(ret, 0);
 
-  CompanyKeywordInputStruct in0{101, "test"};
-  CompanyKeywordOutputStruct out0{};
+  CompanyString in_str0;
+  CompanyString_FromCString(&in_str0, "test");
+  CompanyKeywordInputStruct in0{101, &in_str0};
+  char out_buf0[2048] = {0};
+  CompanyString out_str0;
+  CompanyString_Init(&out_str0, out_buf0, sizeof(out_buf0));
+  CompanyKeywordOutputStruct out0{.match_result_json = &out_str0};
 
   // 1. 空输入批
   NamedIoBatch empty_inputs;
@@ -796,8 +816,13 @@ TEST_F(PlatformOperatorTest, SameHandleMutualExclusionAndConcurrency) {
   // 线程 1: 持续发起 Process
   std::thread worker_process([this, handle, &stop_flag, &process_count]() {
     while (!stop_flag.load()) {
-      CompanyKeywordInputStruct in{1001, "测试语句"};
-      CompanyKeywordOutputStruct out{};
+      CompanyString in_str;
+      CompanyString_FromCString(&in_str, "测试语句");
+      CompanyKeywordInputStruct in{1001, &in_str};
+      char out_buf[2048] = {0};
+      CompanyString out_str;
+      CompanyString_Init(&out_str, out_buf, sizeof(out_buf));
+      CompanyKeywordOutputStruct out{.match_result_json = &out_str};
       NamedIoBatch in_b(1), out_b(1);
       in_b[0]["chan.keyword_in"] = std::shared_ptr<void>(&in, [](void*) {});
       out_b[0]["chan.keyword_out"] = std::shared_ptr<void>(&out, [](void*) {});
@@ -846,9 +871,15 @@ TEST_F(PlatformOperatorTest, EntityExtractPipeline) {
   int ret = ops_.Create(&handle, &param);
   ASSERT_EQ(ret, 0);
 
-  CompanyEntityInputStruct in0{201,
-                               "清华大学的张三加入了一家北京的人工智能公司"};
-  CompanyEntityOutputStruct out0{};
+  CompanyString in_str;
+  CompanyString_FromCString(&in_str,
+                            "清华大学的张三加入了一家北京的人工智能公司");
+  CompanyEntityInputStruct in0{201, &in_str};
+
+  char out_buf[2048] = {0};
+  CompanyString out_str;
+  CompanyString_Init(&out_str, out_buf, sizeof(out_buf));
+  CompanyEntityOutputStruct out0{.entities_json = &out_str};
 
   NamedIoBatch inputs(1);
   NamedIoBatch outputs(1);
@@ -859,7 +890,7 @@ TEST_F(PlatformOperatorTest, EntityExtractPipeline) {
   ret = ops_.Process(handle, inputs, outputs);
   EXPECT_EQ(ret, 0);
   EXPECT_EQ(out0.request_id, 201);
-  EXPECT_TRUE(strlen(out0.entities_json) > 0);
+  EXPECT_TRUE(strlen(out0.entities_json->data) > 0);
 
   ops_.Destroy(handle);
 }
@@ -882,8 +913,17 @@ TEST_F(PlatformOperatorTest, DocQaPipeline) {
   const char* doc =
       "第一章 平台注册规范：用户须使用真实身份信息注册。\n"
       "第二章 售后退款条例：平台支持自签收之日起7天无理由退货。";
-  CompanyDocInputStruct in0{301, "请问支持7天退款吗？", doc};
-  CompanyDocOutputStruct out0{};
+  CompanyString doc_str, q_str;
+  CompanyString_FromCString(&doc_str, doc);
+  CompanyString_FromCString(&q_str, "请问支持7天退款吗？");
+  CompanyDocInputStruct in0{301, &doc_str, &q_str};
+
+  char intent_buf[64] = {0}, ans_buf[1024] = {0};
+  CompanyString intent_str, ans_str;
+  CompanyString_Init(&intent_str, intent_buf, sizeof(intent_buf));
+  CompanyString_Init(&ans_str, ans_buf, sizeof(ans_buf));
+  CompanyDocOutputStruct out0{.intent_name = &intent_str,
+                              .answer_text = &ans_str};
 
   NamedIoBatch inputs(1);
   NamedIoBatch outputs(1);
@@ -895,7 +935,7 @@ TEST_F(PlatformOperatorTest, DocQaPipeline) {
   EXPECT_EQ(ret, 0);
   EXPECT_EQ(out0.request_id, 301);
   EXPECT_GT(out0.chunk_count, 0);
-  EXPECT_TRUE(strlen(out0.answer_text) > 0);
+  EXPECT_TRUE(strlen(out0.answer_text->data) > 0);
 
   ops_.Destroy(handle);
 }
@@ -915,9 +955,19 @@ TEST_F(PlatformOperatorTest, DialogueComplianceAuditPipeline) {
   int ret = ops_.Create(&handle, &param);
   ASSERT_EQ(ret, 0);
 
-  CompanyAuditInputStruct in0{401, "加我微信转账，给你打八折私下结算",
-                              "在线客服"};
-  CompanyAuditOutputStruct out0{};
+  CompanyString txt_str, chan_str;
+  CompanyString_FromCString(&txt_str, "加我微信转账，给你打八折私下结算");
+  CompanyString_FromCString(&chan_str, "在线客服");
+  CompanyAuditInputStruct in0{401, &txt_str, &chan_str};
+
+  char rl_buf[32] = {0}, pol_buf[256] = {0}, vd_buf[1024] = {0};
+  CompanyString rl_str, pol_str, vd_str;
+  CompanyString_Init(&rl_str, rl_buf, sizeof(rl_buf));
+  CompanyString_Init(&pol_str, pol_buf, sizeof(pol_buf));
+  CompanyString_Init(&vd_str, vd_buf, sizeof(vd_buf));
+  CompanyAuditOutputStruct out0{.risk_level = &rl_str,
+                                .matched_policy_clause = &pol_str,
+                                .audit_verdict_json = &vd_str};
 
   NamedIoBatch inputs(1);
   NamedIoBatch outputs(1);
@@ -929,7 +979,7 @@ TEST_F(PlatformOperatorTest, DialogueComplianceAuditPipeline) {
   ret = ops_.Process(handle, inputs, outputs);
   EXPECT_EQ(ret, 0);
   EXPECT_EQ(out0.request_id, 401);
-  EXPECT_STREQ(out0.risk_level, "HIGH_RISK");
+  EXPECT_STREQ(out0.risk_level->data, "HIGH_RISK");
 
   ops_.Destroy(handle);
 }
@@ -949,9 +999,15 @@ TEST_F(PlatformOperatorTest, OcrDocQaPipeline) {
   int ret = ops_.Create(&handle, &param);
   ASSERT_EQ(ret, 0);
 
-  CompanyOcrDocInputStruct in0{501, "/tmp/invoice_test.jpg",
-                               "提取发票金额与日期"};
-  CompanyOcrDocOutputStruct out0{};
+  CompanyString img_str, pr_str;
+  CompanyString_FromCString(&img_str, "/tmp/invoice_test.jpg");
+  CompanyString_FromCString(&pr_str, "提取发票金额与日期");
+  CompanyOcrDocInputStruct in0{501, &img_str, &pr_str};
+
+  char inv_buf[2048] = {0};
+  CompanyString inv_str;
+  CompanyString_Init(&inv_str, inv_buf, sizeof(inv_buf));
+  CompanyOcrDocOutputStruct out0{.extracted_invoice_json = &inv_str};
 
   NamedIoBatch inputs(1);
   NamedIoBatch outputs(1);
@@ -984,7 +1040,13 @@ TEST_F(PlatformOperatorTest, AudioAsrIntentPipeline) {
   std::vector<float> pcm(1600, 0.1f);
   CompanyAudioInputStruct in0{601, pcm.data(), static_cast<int>(pcm.size()),
                               16000};
-  CompanyAudioOutputStruct out0{};
+
+  char asr_buf[512] = {0}, slot_buf[1024] = {0};
+  CompanyString asr_str, slot_str;
+  CompanyString_Init(&asr_str, asr_buf, sizeof(asr_buf));
+  CompanyString_Init(&slot_str, slot_buf, sizeof(slot_buf));
+  CompanyAudioOutputStruct out0{.transcribed_text = &asr_str,
+                                .intent_slot_json = &slot_str};
 
   NamedIoBatch inputs(1);
   NamedIoBatch outputs(1);
@@ -994,7 +1056,7 @@ TEST_F(PlatformOperatorTest, AudioAsrIntentPipeline) {
   ret = ops_.Process(handle, inputs, outputs);
   EXPECT_EQ(ret, 0);
   EXPECT_EQ(out0.request_id, 601);
-  EXPECT_TRUE(strlen(out0.transcribed_text) > 0);
+  EXPECT_TRUE(strlen(out0.transcribed_text->data) > 0);
 
   ops_.Destroy(handle);
 }
@@ -1015,8 +1077,18 @@ TEST_F(PlatformOperatorTest, CrossRerankPipeline) {
   ASSERT_EQ(ret, 0);
 
   const char* candidates[2] = {"退货政策是七天无理由退换", "今日北京晴天"};
-  CompanyRerankBatchInputStruct in0{
-      701, "怎么退换货？", {candidates[0], candidates[1]}, 2};
+  CompanyString q_str, cand_str0, cand_str1;
+  CompanyString_FromCString(&q_str, "怎么退换货？");
+  CompanyString_FromCString(&cand_str0, candidates[0]);
+  CompanyString_FromCString(&cand_str1, candidates[1]);
+
+  CompanyRerankBatchInputStruct in0{};
+  in0.request_id = 701;
+  in0.query_text = &q_str;
+  in0.candidate_count = 2;
+  in0.candidate_passages[0] = &cand_str0;
+  in0.candidate_passages[1] = &cand_str1;
+
   CompanyRerankBatchOutputStruct out0{};
 
   NamedIoBatch inputs(1);

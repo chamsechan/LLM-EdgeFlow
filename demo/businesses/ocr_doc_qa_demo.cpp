@@ -43,8 +43,12 @@ int RunOcrDocQaDemo(const DemoOptions& options) {
     }
   }
 
+  CompanyString img_str, prompt_str;
+  CompanyString_FromCString(&img_str, img.c_str());
+  CompanyString_FromCString(&prompt_str, prompt.c_str());
+
   std::vector<CompanyOcrDocInputStruct> inputs = {
-      {60001, img.c_str(), prompt.c_str()}};
+      {60001, &img_str, &prompt_str}};
   std::vector<CompanyOcrDocOutputStruct> outputs;
   std::vector<double> latencies;
 
@@ -58,10 +62,13 @@ int RunOcrDocQaDemo(const DemoOptions& options) {
 
   std::cout << "\n>>> 业务 5 执行结果验证 <<<" << std::endl;
   PrintDivider();
+  const char* out_invoice = (outputs[0].extracted_invoice_json &&
+                             outputs[0].extracted_invoice_json->data)
+                                ? outputs[0].extracted_invoice_json->data
+                                : "";
   std::cout << "  Request ID     : " << outputs[0].request_id << "\n"
             << "  OCR Box Count  : " << outputs[0].detected_box_count << "\n"
-            << "  Extracted JSON : " << outputs[0].extracted_invoice_json
-            << std::endl;
+            << "  Extracted JSON : " << out_invoice << std::endl;
 
   std::vector<DemoSampleResult> sample_results;
   DemoSampleResult sample;
@@ -69,12 +76,10 @@ int RunOcrDocQaDemo(const DemoOptions& options) {
   sample.status = 0;
   sample.latency_ms = latencies.empty() ? 0.0 : latencies[0];
   sample.output["detected_box_count"] = outputs[0].detected_box_count;
-  if (outputs[0].extracted_invoice_json[0] != '\0') {
-    auto parsed = nlohmann::json::parse(outputs[0].extracted_invoice_json,
-                                        nullptr, false);
+  if (out_invoice[0] != '\0') {
+    auto parsed = nlohmann::json::parse(out_invoice, nullptr, false);
     if (parsed.is_discarded()) {
-      sample.output["extracted_invoice_raw"] =
-          outputs[0].extracted_invoice_json;
+      sample.output["extracted_invoice_raw"] = out_invoice;
     } else {
       sample.output["extracted_invoice"] = parsed;
     }

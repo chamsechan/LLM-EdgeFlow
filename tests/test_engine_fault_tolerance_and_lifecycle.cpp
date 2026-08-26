@@ -329,13 +329,21 @@ TEST_F(EngineFaultToleranceAndLifecycleTest, RapidGlobalLifecycleInitDeInit) {
     ASSERT_NE(handle, nullptr);
 
     const char* input_text = "循环生命周期压测文本";
+    CompanyString in_str;
+    CompanyString_FromCString(&in_str, input_text);
     CompanyKeywordInputStruct in_req{static_cast<uint64_t>(10000 + cycle),
-                                     input_text};
-    std::vector<void*> inputs = {&in_req};
-    CompanyKeywordOutputStruct out_res;
+                                     &in_str};
+    std::vector<const void*> inputs = {&in_req};
+
+    char out_buf[2048] = {0};
+    CompanyString out_str;
+    CompanyString_Init(&out_str, out_buf, sizeof(out_buf));
+    CompanyKeywordOutputStruct out_res{.match_result_json = &out_str};
     std::vector<void*> outputs = {&out_res};
 
-    int ret = Alg_Process(handle, inputs, outputs);
+    int num_outputs = 1;
+    int ret =
+        Alg_Process(handle, inputs.data(), 1, outputs.data(), &num_outputs);
     EXPECT_EQ(ret, 0);
 
     EXPECT_EQ(Alg_Destroy(handle), 0);

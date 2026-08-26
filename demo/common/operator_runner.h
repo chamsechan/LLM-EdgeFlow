@@ -1,6 +1,7 @@
 #pragma once
 
 #include <chrono>
+#include <deque>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -64,6 +65,69 @@ inline bool ValidateConfigBusinessMatch(const std::string& conf_path,
   }
 
   return true;
+}
+
+struct DemoOutputArena {
+  std::deque<std::vector<char>> char_buffers;
+  std::deque<CompanyString> string_structs;
+
+  void Clear() {
+    char_buffers.clear();
+    string_structs.clear();
+  }
+
+  CompanyString* AllocString(size_t capacity) {
+    char_buffers.emplace_back(capacity, '\0');
+    string_structs.emplace_back();
+    CompanyString* s = &string_structs.back();
+    CompanyString_Init(s, char_buffers.back().data(), capacity);
+    return s;
+  }
+};
+
+inline thread_local DemoOutputArena g_demo_output_arena;
+
+template <typename TOutput>
+inline void InitDemoOutputStruct(TOutput* out) {
+  (void)out;
+}
+
+inline void InitDemoOutputStruct(CompanyKeywordOutputStruct* out) {
+  if (!out) return;
+  out->match_result_json = g_demo_output_arena.AllocString(2048);
+}
+
+inline void InitDemoOutputStruct(CompanyEntityOutputStruct* out) {
+  if (!out) return;
+  out->entities_json = g_demo_output_arena.AllocString(2048);
+}
+
+inline void InitDemoOutputStruct(CompanyDocOutputStruct* out) {
+  if (!out) return;
+  out->intent_name = g_demo_output_arena.AllocString(64);
+  out->answer_text = g_demo_output_arena.AllocString(1024);
+}
+
+inline void InitDemoOutputStruct(CompanyAuditOutputStruct* out) {
+  if (!out) return;
+  out->risk_level = g_demo_output_arena.AllocString(32);
+  out->matched_policy_clause = g_demo_output_arena.AllocString(256);
+  out->audit_verdict_json = g_demo_output_arena.AllocString(1024);
+}
+
+inline void InitDemoOutputStruct(CompanyOcrDocOutputStruct* out) {
+  if (!out) return;
+  out->extracted_invoice_json = g_demo_output_arena.AllocString(2048);
+}
+
+inline void InitDemoOutputStruct(CompanyAudioOutputStruct* out) {
+  if (!out) return;
+  out->transcribed_text = g_demo_output_arena.AllocString(512);
+  out->intent_slot_json = g_demo_output_arena.AllocString(1024);
+}
+
+inline void InitDemoOutputStruct(CompanyRerankBatchOutputStruct* out) {
+  (void)out;
 }
 
 /**
@@ -215,7 +279,11 @@ int RunPlatformOperator(
 
   // 5. 按 max_batch_size 分块调度执行 Process (P1-1)
   size_t total_inputs = inputs.size();
+  g_demo_output_arena.Clear();
   outputs->assign(total_inputs, TOutput{});
+  for (size_t i = 0; i < total_inputs; ++i) {
+    InitDemoOutputStruct(&(*outputs)[i]);
+  }
   if (out_latencies_ms) {
     out_latencies_ms->assign(total_inputs, 0.0);
   }

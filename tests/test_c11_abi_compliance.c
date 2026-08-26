@@ -86,17 +86,35 @@ int main(void) {
     return 7;
   }
 
+  // Verify Slot Struct Mappings mapping contract
+  int map_count = 0;
+  const CompanySlotStructMapping* mappings =
+      Alg_GetSlotStructMappings(&map_count);
+  if (!mappings || map_count <= 0) {
+    fprintf(stderr, "[C11 ABI Test] Alg_GetSlotStructMappings failed\n");
+    Alg_Destroy(handle);
+    return 8;
+  }
+  printf("[C11 ABI Test] Alg_GetSlotStructMappings verified (%d mappings).\n",
+         map_count);
+
   // 4. Test pure C batch processing
-  CompanyKeywordInputStruct req0 = {.request_id = 1001,
-                                    .sentence_text = "请联系VIP专员办理业务"};
-  CompanyKeywordInputStruct req1 = {.request_id = 1002,
-                                    .sentence_text = "普通咨询业务"};
+  CompanyString str0, str1;
+  CompanyString_FromCString(&str0, "请联系VIP专员办理业务");
+  CompanyString_FromCString(&str1, "普通咨询业务");
+
+  CompanyKeywordInputStruct req0 = {.request_id = 1001, .sentence_text = &str0};
+  CompanyKeywordInputStruct req1 = {.request_id = 1002, .sentence_text = &str1};
   const void* inputs[2] = {&req0, &req1};
 
-  CompanyKeywordOutputStruct out0;
-  CompanyKeywordOutputStruct out1;
-  memset(&out0, 0, sizeof(out0));
-  memset(&out1, 0, sizeof(out1));
+  char buf0[2048] = {0};
+  char buf1[2048] = {0};
+  CompanyString out_str0, out_str1;
+  CompanyString_Init(&out_str0, buf0, sizeof(buf0));
+  CompanyString_Init(&out_str1, buf1, sizeof(buf1));
+
+  CompanyKeywordOutputStruct out0 = {.match_result_json = &out_str0};
+  CompanyKeywordOutputStruct out1 = {.match_result_json = &out_str1};
   void* outputs[2] = {&out0, &out1};
 
   int num_outputs = 2;
@@ -110,10 +128,12 @@ int main(void) {
 
   printf("[C11 ABI Test] Batch processed %d samples successfully.\n",
          num_outputs);
-  printf("[C11 ABI Test] Sample 0: is_hit=%d, match_result=%s\n", out0.is_hit,
-         out0.match_result_json);
-  printf("[C11 ABI Test] Sample 1: is_hit=%d, match_result=%s\n", out1.is_hit,
-         out1.match_result_json);
+  printf("[C11 ABI Test] Sample 0: is_hit=%d, match_result=%s (len=%zu)\n",
+         out0.is_hit, out0.match_result_json->data,
+         out0.match_result_json->length);
+  printf("[C11 ABI Test] Sample 1: is_hit=%d, match_result=%s (len=%zu)\n",
+         out1.is_hit, out1.match_result_json->data,
+         out1.match_result_json->length);
 
   if (Alg_Destroy(handle) != 0) {
     fprintf(stderr, "[C11 ABI Test] Alg_Destroy failed\n");

@@ -39,10 +39,12 @@ int RunKeywordMatchDemo(const DemoOptions& options) {
     }
   }
 
+  std::vector<CompanyString> input_strings(lines.size());
   std::vector<CompanyKeywordInputStruct> inputs;
   inputs.reserve(lines.size());
   for (size_t i = 0; i < lines.size(); ++i) {
-    inputs.push_back({static_cast<uint64_t>(20001 + i), lines[i].c_str()});
+    CompanyString_FromCString(&input_strings[i], lines[i].c_str());
+    inputs.push_back({static_cast<uint64_t>(20001 + i), &input_strings[i]});
   }
 
   const char* default_ctrl_json =
@@ -72,22 +74,29 @@ int RunKeywordMatchDemo(const DemoOptions& options) {
 
   for (size_t i = 0; i < outputs.size(); ++i) {
     PrintDivider();
-    std::cout << "  Input #" << i << ": \"" << inputs[i].sentence_text << "\"\n"
+    const char* in_txt =
+        (inputs[i].sentence_text && inputs[i].sentence_text->data)
+            ? inputs[i].sentence_text->data
+            : "";
+    const char* out_json =
+        (outputs[i].match_result_json && outputs[i].match_result_json->data)
+            ? outputs[i].match_result_json->data
+            : "";
+    std::cout << "  Input #" << i << ": \"" << in_txt << "\"\n"
               << "  Request ID : " << outputs[i].request_id << "\n"
               << "  Is Hit     : "
               << (outputs[i].is_hit ? "YES (命中)" : "NO (未命中)") << "\n"
-              << "  JSON Output: " << outputs[i].match_result_json << std::endl;
+              << "  JSON Output: " << out_json << std::endl;
 
     DemoSampleResult sample;
     sample.request_id = outputs[i].request_id;
     sample.status = 0;
     sample.latency_ms = (i < latencies.size()) ? latencies[i] : 0.0;
     sample.output["is_hit"] = (outputs[i].is_hit != 0);
-    if (outputs[i].match_result_json[0] != '\0') {
-      auto parsed =
-          nlohmann::json::parse(outputs[i].match_result_json, nullptr, false);
+    if (out_json[0] != '\0') {
+      auto parsed = nlohmann::json::parse(out_json, nullptr, false);
       if (parsed.is_discarded()) {
-        sample.output["match_result_raw"] = outputs[i].match_result_json;
+        sample.output["match_result_raw"] = out_json;
       } else {
         sample.output["match_result"] = parsed;
       }

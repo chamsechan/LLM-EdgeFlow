@@ -168,4 +168,44 @@ int Alg_DeInit(void) COMPANY_ALG_NOEXCEPT {
   }
 }
 
+const CompanySlotStructMapping* Alg_GetSlotStructMappings(int* count)
+    COMPANY_ALG_NOEXCEPT {
+  static const CompanySlotStructMapping g_slot_mappings[] = {
+      {"keyword_in", ALG_BIZ_TYPE_KEYWORD_MATCH, "CompanyKeywordInputStruct",
+       sizeof(CompanyKeywordInputStruct), 1},
+      {"keyword_out", ALG_BIZ_TYPE_KEYWORD_MATCH, "CompanyKeywordOutputStruct",
+       sizeof(CompanyKeywordOutputStruct), 0},
+      {"entity_in", ALG_BIZ_TYPE_ENTITY_EXTRACT, "CompanyEntityInputStruct",
+       sizeof(CompanyEntityInputStruct), 1},
+      {"entity_out", ALG_BIZ_TYPE_ENTITY_EXTRACT, "CompanyEntityOutputStruct",
+       sizeof(CompanyEntityOutputStruct), 0},
+      {"doc_in", ALG_BIZ_TYPE_DOC_QA, "CompanyDocInputStruct",
+       sizeof(CompanyDocInputStruct), 1},
+      {"doc_out", ALG_BIZ_TYPE_DOC_QA, "CompanyDocOutputStruct",
+       sizeof(CompanyDocOutputStruct), 0},
+      {"audit_in", ALG_BIZ_TYPE_COMPLIANCE_AUDIT, "CompanyAuditInputStruct",
+       sizeof(CompanyAuditInputStruct), 1},
+      {"audit_out", ALG_BIZ_TYPE_COMPLIANCE_AUDIT, "CompanyAuditOutputStruct",
+       sizeof(CompanyAuditOutputStruct), 0},
+      {"ocr_doc_in", ALG_BIZ_TYPE_OCR_DOC_QA, "CompanyOcrDocInputStruct",
+       sizeof(CompanyOcrDocInputStruct), 1},
+      {"ocr_doc_out", ALG_BIZ_TYPE_OCR_DOC_QA, "CompanyOcrDocOutputStruct",
+       sizeof(CompanyOcrDocOutputStruct), 0},
+      {"audio_in", ALG_BIZ_TYPE_AUDIO_ASR_INTENT, "CompanyAudioInputStruct",
+       sizeof(CompanyAudioInputStruct), 1},
+      {"audio_out", ALG_BIZ_TYPE_AUDIO_ASR_INTENT, "CompanyAudioOutputStruct",
+       sizeof(CompanyAudioOutputStruct), 0},
+      {"rerank_in", ALG_BIZ_TYPE_CROSS_RERANK, "CompanyRerankBatchInputStruct",
+       sizeof(CompanyRerankBatchInputStruct), 1},
+      {"rerank_out", ALG_BIZ_TYPE_CROSS_RERANK,
+       "CompanyRerankBatchOutputStruct", sizeof(CompanyRerankBatchOutputStruct),
+       0},
+  };
+  if (count) {
+    *count = static_cast<int>(sizeof(g_slot_mappings) /
+                              sizeof(CompanySlotStructMapping));
+  }
+  return g_slot_mappings;
+}
+
 }  // extern "C"

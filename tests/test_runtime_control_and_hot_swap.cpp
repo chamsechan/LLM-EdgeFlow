@@ -41,12 +41,20 @@ TEST_F(RuntimeControlAndHotSwapTest, KeywordMatcherDynamicHotSwap) {
 
   // 1.1 初始状态测试：默认无 VIP_URGENT 命中
   const char* input_text_1 = "这是一个普通的测试，包含 VIP 专席客户服务。";
-  CompanyKeywordInputStruct in_req_1{10001, input_text_1};
-  std::vector<void*> inputs_1 = {&in_req_1};
-  CompanyKeywordOutputStruct out_res_1;
+  CompanyString in_str_1;
+  CompanyString_FromCString(&in_str_1, input_text_1);
+  CompanyKeywordInputStruct in_req_1{10001, &in_str_1};
+  std::vector<const void*> inputs_1 = {&in_req_1};
+
+  char out_buf_1[2048] = {0};
+  CompanyString out_str_1;
+  CompanyString_Init(&out_str_1, out_buf_1, sizeof(out_buf_1));
+  CompanyKeywordOutputStruct out_res_1{.match_result_json = &out_str_1};
   std::vector<void*> outputs_1 = {&out_res_1};
 
-  int ret = Alg_Process(handle, inputs_1, outputs_1);
+  int num_outputs_1 = 1;
+  int ret =
+      Alg_Process(handle, inputs_1.data(), 1, outputs_1.data(), &num_outputs_1);
   EXPECT_EQ(ret, 0);
   EXPECT_EQ(out_res_1.is_hit, 0);
 
@@ -63,27 +71,37 @@ TEST_F(RuntimeControlAndHotSwapTest, KeywordMatcherDynamicHotSwap) {
   EXPECT_EQ(ret, 0);
 
   // 1.3 再次执行匹配，验证新词库已即时生效并命中
-  ret = Alg_Process(handle, inputs_1, outputs_1);
+  num_outputs_1 = 1;
+  ret =
+      Alg_Process(handle, inputs_1.data(), 1, outputs_1.data(), &num_outputs_1);
   EXPECT_EQ(ret, 0);
   EXPECT_EQ(out_res_1.is_hit, 1);
   nlohmann::json match_json =
-      nlohmann::json::parse(out_res_1.match_result_json);
+      nlohmann::json::parse(out_res_1.match_result_json->data);
   ASSERT_TRUE(match_json.contains("matches"));
   ASSERT_FALSE(match_json["matches"].empty());
   EXPECT_EQ(match_json["matches"][0]["category"], "VIP_URGENT");
 
   // 1.4 验证第二条新词库 DISCOUNT_PROMO
   const char* input_text_2 = "扫码立即返现50元优惠券！";
-  CompanyKeywordInputStruct in_req_2{10002, input_text_2};
-  std::vector<void*> inputs_2 = {&in_req_2};
-  CompanyKeywordOutputStruct out_res_2;
+  CompanyString in_str_2;
+  CompanyString_FromCString(&in_str_2, input_text_2);
+  CompanyKeywordInputStruct in_req_2{10002, &in_str_2};
+  std::vector<const void*> inputs_2 = {&in_req_2};
+
+  char out_buf_2[2048] = {0};
+  CompanyString out_str_2;
+  CompanyString_Init(&out_str_2, out_buf_2, sizeof(out_buf_2));
+  CompanyKeywordOutputStruct out_res_2{.match_result_json = &out_str_2};
   std::vector<void*> outputs_2 = {&out_res_2};
 
-  ret = Alg_Process(handle, inputs_2, outputs_2);
+  int num_outputs_2 = 1;
+  ret =
+      Alg_Process(handle, inputs_2.data(), 1, outputs_2.data(), &num_outputs_2);
   EXPECT_EQ(ret, 0);
   EXPECT_EQ(out_res_2.is_hit, 1);
   nlohmann::json match_json_2 =
-      nlohmann::json::parse(out_res_2.match_result_json);
+      nlohmann::json::parse(out_res_2.match_result_json->data);
   ASSERT_TRUE(match_json_2.contains("matches"));
   ASSERT_FALSE(match_json_2["matches"].empty());
   EXPECT_EQ(match_json_2["matches"][0]["category"], "DISCOUNT_PROMO");
@@ -112,11 +130,20 @@ TEST_F(RuntimeControlAndHotSwapTest, ConcurrentProcessAndHotControl) {
   std::thread process_thread([&]() {
     const char* text = "测试动态控制下的并发推理稳定性，含有VIP关键词";
     while (!stop_flag.load()) {
-      CompanyKeywordInputStruct in_req{10003, text};
-      std::vector<void*> inputs = {&in_req};
-      CompanyKeywordOutputStruct out_res;
+      CompanyString in_str;
+      CompanyString_FromCString(&in_str, text);
+      CompanyKeywordInputStruct in_req{10003, &in_str};
+      std::vector<const void*> inputs = {&in_req};
+
+      char out_buf[2048] = {0};
+      CompanyString out_str;
+      CompanyString_Init(&out_str, out_buf, sizeof(out_buf));
+      CompanyKeywordOutputStruct out_res{.match_result_json = &out_str};
       std::vector<void*> outputs = {&out_res};
-      int ret = Alg_Process(handle, inputs, outputs);
+
+      int num_outs = 1;
+      int ret =
+          Alg_Process(handle, inputs.data(), 1, outputs.data(), &num_outs);
       if (ret == 0) {
         process_count.fetch_add(1);
       }

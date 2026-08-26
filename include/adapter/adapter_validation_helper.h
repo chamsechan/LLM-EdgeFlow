@@ -283,6 +283,90 @@ class AdapterValidationHelper {
     std::memcpy(dst, src, src_len + 1);
     return true;
   }
+
+  /**
+   * @brief 有界 CompanyString 输入安全校验
+   */
+  static bool RequireBoundedCompanyString(const char* field_path,
+                                          const CompanyString* str,
+                                          size_t max_len, int sample_idx = -1,
+                                          const char* biz_name = nullptr,
+                                          AdapterStatus* out_status = nullptr) {
+    if (!str) {
+      if (out_status) {
+        *out_status = AdapterStatus::InvalidInput(
+            "Required CompanyString pointer is null",
+            field_path ? field_path : "", sample_idx, biz_name ? biz_name : "");
+      }
+      return false;
+    }
+    if (!str->data) {
+      if (out_status) {
+        *out_status = AdapterStatus::InvalidInput(
+            "CompanyString data pointer is null", field_path ? field_path : "",
+            sample_idx, biz_name ? biz_name : "");
+      }
+      return false;
+    }
+    size_t actual_len = ::strnlen(str->data, max_len + 1);
+    if (actual_len > max_len) {
+      if (out_status) {
+        *out_status = AdapterStatus::InvalidInput(
+            "CompanyString exceeds maximum allowed length limit (" +
+                std::to_string(max_len) + ")",
+            field_path ? field_path : "", sample_idx, biz_name ? biz_name : "");
+      }
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * @brief 向 CompanyString 输出缓冲区安全写入字符串并填充 length
+   */
+  static bool CheckedCompanyStringWrite(CompanyString* dst, const char* src,
+                                        const char* field_path,
+                                        int sample_idx = -1,
+                                        const char* biz_name = nullptr,
+                                        AdapterStatus* out_status = nullptr) {
+    if (!dst) {
+      if (out_status) {
+        *out_status = AdapterStatus::BufferTooSmall(
+            "Destination CompanyString pointer is null",
+            field_path ? field_path : "", sample_idx, biz_name ? biz_name : "");
+      }
+      return false;
+    }
+    if (!dst->data || dst->capacity == 0) {
+      if (out_status) {
+        *out_status = AdapterStatus::BufferTooSmall(
+            "Destination CompanyString data pointer is null or zero capacity",
+            field_path ? field_path : "", sample_idx, biz_name ? biz_name : "");
+      }
+      return false;
+    }
+    if (!src) {
+      dst->data[0] = '\0';
+      dst->length = 0;
+      return true;
+    }
+    size_t src_len = std::strlen(src);
+    if (src_len >= dst->capacity) {
+      std::memcpy(dst->data, src, dst->capacity - 1);
+      dst->data[dst->capacity - 1] = '\0';
+      dst->length = dst->capacity - 1;
+      if (out_status) {
+        *out_status = AdapterStatus::BufferTooSmall(
+            "Output string truncated (src_len=" + std::to_string(src_len) +
+                ", dst_capacity=" + std::to_string(dst->capacity) + ")",
+            field_path ? field_path : "", sample_idx, biz_name ? biz_name : "");
+      }
+      return false;
+    }
+    std::memcpy(dst->data, src, src_len + 1);
+    dst->length = src_len;
+    return true;
+  }
 };
 
 }  // namespace alg_framework

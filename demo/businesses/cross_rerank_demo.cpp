@@ -45,16 +45,20 @@ int RunCrossRerankDemo(const DemoOptions& options) {
       std::cerr << "[CrossRerankDemo ERROR] Dataset missing required [QUERY] "
                    "or [PASSAGE] section."
                 << std::endl;
-      return 4;
     }
   }
 
+  CompanyString q_str;
+  CompanyString_FromCString(&q_str, query.c_str());
+
+  std::vector<CompanyString> p_strs(8);
   CompanyRerankBatchInputStruct req{};
   req.request_id = 80001;
-  req.query_text = query.c_str();
+  req.query_text = &q_str;
   req.candidate_count = std::min(static_cast<int>(passages.size()), 8);
   for (int i = 0; i < req.candidate_count; ++i) {
-    req.candidate_passages[i] = passages[i].c_str();
+    CompanyString_FromCString(&p_strs[i], passages[i].c_str());
+    req.candidate_passages[i] = &p_strs[i];
   }
 
   std::vector<CompanyRerankBatchInputStruct> inputs = {req};

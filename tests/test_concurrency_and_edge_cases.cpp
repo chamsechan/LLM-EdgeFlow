@@ -67,13 +67,21 @@ TEST_F(ConcurrencyAndEdgeCasesTest, MultiThreadedConcurrentStressTest) {
 
         // 执行推理
         std::string query = "客户请求VIP" + std::to_string(t) + "专席服务";
+        CompanyString in_str;
+        CompanyString_FromCString(&in_str, query.c_str());
         CompanyKeywordInputStruct in_req{static_cast<uint64_t>(t * 1000 + iter),
-                                         query.c_str()};
-        std::vector<void*> inputs = {&in_req};
-        CompanyKeywordOutputStruct out_res;
+                                         &in_str};
+        std::vector<const void*> inputs = {&in_req};
+
+        char out_buf[2048] = {0};
+        CompanyString out_str;
+        CompanyString_Init(&out_str, out_buf, sizeof(out_buf));
+        CompanyKeywordOutputStruct out_res{.match_result_json = &out_str};
         std::vector<void*> outputs = {&out_res};
 
-        ret = Alg_Process(handle, inputs, outputs);
+        int num_outputs = 1;
+        ret =
+            Alg_Process(handle, inputs.data(), 1, outputs.data(), &num_outputs);
         if (ret == 0 && out_res.is_hit == 1) {
           success_count++;
         } else {
@@ -143,16 +151,26 @@ TEST_F(ConcurrencyAndEdgeCasesTest, EdgeCasesAndFaultTolerance) {
     void* handle = nullptr;
     Alg_Create(&handle, &param);
 
-    CompanyKeywordInputStruct empty_req{99901, ""};  // 空文本
-    CompanyKeywordInputStruct symbols_req{99902,
-                                          "  !@#$%^&*()_+~`|}{[]:;?><,./  "};
-    std::vector<void*> inputs = {&empty_req, &symbols_req};
+    CompanyString empty_str, symbols_str;
+    CompanyString_FromCString(&empty_str, "");
+    CompanyString_FromCString(&symbols_str, "  !@#$%^&*()_+~`|}{[]:;?><,./  ");
 
-    CompanyKeywordOutputStruct out0;
-    CompanyKeywordOutputStruct out1;
+    CompanyKeywordInputStruct empty_req{99901, &empty_str};  // 空文本
+    CompanyKeywordInputStruct symbols_req{99902, &symbols_str};
+    std::vector<const void*> inputs = {&empty_req, &symbols_req};
+
+    char buf0[2048] = {0}, buf1[2048] = {0};
+    CompanyString out_str0, out_str1;
+    CompanyString_Init(&out_str0, buf0, sizeof(buf0));
+    CompanyString_Init(&out_str1, buf1, sizeof(buf1));
+
+    CompanyKeywordOutputStruct out0{.match_result_json = &out_str0};
+    CompanyKeywordOutputStruct out1{.match_result_json = &out_str1};
     std::vector<void*> outputs = {&out0, &out1};
 
-    int ret = Alg_Process(handle, inputs, outputs);
+    int num_outputs = 2;
+    int ret =
+        Alg_Process(handle, inputs.data(), 2, outputs.data(), &num_outputs);
     EXPECT_EQ(ret, 0);
     EXPECT_EQ(out0.is_hit, 0);
     EXPECT_EQ(out1.is_hit, 0);
@@ -175,11 +193,18 @@ TEST_F(ConcurrencyAndEdgeCasesTest, EdgeCasesAndFaultTolerance) {
     ASSERT_EQ(ret, 0);
 
     CompanyAudioInputStruct empty_audio{99903, nullptr, 0, 16000};
-    std::vector<void*> inputs = {&empty_audio};
-    CompanyAudioOutputStruct out_audio;
+    std::vector<const void*> inputs = {&empty_audio};
+
+    char asr_buf[512] = {0}, slot_buf[1024] = {0};
+    CompanyString asr_str, slot_str;
+    CompanyString_Init(&asr_str, asr_buf, sizeof(asr_buf));
+    CompanyString_Init(&slot_str, slot_buf, sizeof(slot_buf));
+    CompanyAudioOutputStruct out_audio{.transcribed_text = &asr_str,
+                                       .intent_slot_json = &slot_str};
     std::vector<void*> outputs = {&out_audio};
 
-    ret = Alg_Process(handle, inputs, outputs);
+    int num_outputs = 1;
+    ret = Alg_Process(handle, inputs.data(), 1, outputs.data(), &num_outputs);
     EXPECT_EQ(ret, 0);
 
     Alg_Destroy(handle);

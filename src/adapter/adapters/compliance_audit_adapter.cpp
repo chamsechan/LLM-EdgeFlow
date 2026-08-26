@@ -67,15 +67,17 @@ class ComplianceAuditAdapter : public IBusinessAdapter {
       }
 
       // ADP-001, RECHECK-004: 有界字符串强校验
-      if (!AdapterValidationHelper::RequireBoundedString(
+      if (!AdapterValidationHelper::RequireBoundedCompanyString(
               "inputs[i].user_text", in->user_text, kMaxTextLen, i, BizName(),
               out_status)) {
         return COMPANY_ALG_ERR_INVALID_INPUT;
       }
 
       req_ids.push_back(in->request_id);
-      user_texts.push_back(in->user_text);
-      channel_names.push_back(in->channel_name ? in->channel_name : "");
+      user_texts.push_back(in->user_text->data);
+      channel_names.push_back((in->channel_name && in->channel_name->data)
+                                  ? in->channel_name->data
+                                  : "");
     }
 
     ctx->Set(kRawRequestIds, std::move(req_ids));
@@ -122,24 +124,21 @@ class ComplianceAuditAdapter : public IBusinessAdapter {
       out_ptr->status_code = (*res)[i].status_code;
 
       // RECHECK-001: 严格拦截截断
-      if (!AdapterValidationHelper::CheckedStringCopy(
-              out_ptr->risk_level, sizeof(out_ptr->risk_level),
-              (*res)[i].risk_level.c_str(), "outputs[i].risk_level", i,
-              BizName(), out_status)) {
+      if (!AdapterValidationHelper::CheckedCompanyStringWrite(
+              out_ptr->risk_level, (*res)[i].risk_level.c_str(),
+              "outputs[i].risk_level", i, BizName(), out_status)) {
         return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
       }
 
-      if (!AdapterValidationHelper::CheckedStringCopy(
+      if (!AdapterValidationHelper::CheckedCompanyStringWrite(
               out_ptr->matched_policy_clause,
-              sizeof(out_ptr->matched_policy_clause),
               (*res)[i].matched_policy_clause.c_str(),
               "outputs[i].matched_policy_clause", i, BizName(), out_status)) {
         return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
       }
 
-      if (!AdapterValidationHelper::CheckedStringCopy(
-              out_ptr->audit_verdict_json, sizeof(out_ptr->audit_verdict_json),
-              (*res)[i].audit_verdict_json.c_str(),
+      if (!AdapterValidationHelper::CheckedCompanyStringWrite(
+              out_ptr->audit_verdict_json, (*res)[i].audit_verdict_json.c_str(),
               "outputs[i].audit_verdict_json", i, BizName(), out_status)) {
         return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
       }
