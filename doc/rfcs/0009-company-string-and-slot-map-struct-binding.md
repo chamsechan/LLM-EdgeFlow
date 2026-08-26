@@ -11,28 +11,39 @@
 
 ## 1. 背景与动机 (Motivation & Context)
 
-- **当前痛点**：
-  1. **字符串内存安全与容量不明确**：现有 C ABI 头文件（`include/company_alg_interface.h`）中，输入输出字符串混用了裸指针 `const char*` 和固定长度字符数组（如 `char answer_text[1024]`、`char match_result_json[2048]` 等）。定长数组存在编译期栈占用膨胀、运行时超长截断无法感知及越界写内存崩溃的风险，且无法支持明确的容量预查与零拷贝切片。
-  2. **外部调度框架槽位映射契约脱节**：公司外部调度平台（Host / Platform Scheduler）统一采用 `"xxx.mapname"` 的点分槽位命名格式（例如 `"client_channel.keyword_in"` 中的 `keyword_in`、`"rag_channel.doc_out"` 中的 `doc_out`）。平台要求在算法库导出的 C ABI 头文件接口处，显式维护一份全局标准映射表，精准声明每一个 `mapname` 所对应的 C 解析结构体名称、结构体内存大小 (`sizeof`) 与数据流向（输入/输出），以便外部调度框架能够在调用前完成动态类型装配、内存容量预检与序列化分发。
-- **业务需求**：
-  1. 统一封装 C 风格字符串结构体 `CompanyString`（包含字符指针 `data`、有效字节长度 `length`、最大缓冲区容量 `capacity`），7 大业务输入输出结构体中涉及字符串的字段全部统一采用 `CompanyString*`（输出）或 `const CompanyString*`（输入）指针。
-  2. 在 `include/company_alg_interface.h` 维护输入/输出槽位的 `mapname` 到 C 解析结构体的全局元数据映射表（`CompanySlotStructMapping` 与 `Alg_GetSlotStructMappings`），使算法框架内部（如 `PlatformIoRegistry`）与外部调度能够严格据此进行解析与分发。
-- **预期收益**：
-  1. 彻底根除 C ABI 字符串越界与静默截断风险，实现 Caller Allocates, Callee Fills 的确定性内存回填与容量预查。
-  2. 实现算法框架与公司外部调度框架的高内聚绑定，统一槽位路由与结构体反序列化标准。
+### 1.1 应用场景与架构定位 (Application Context & Positioning)
+本算法框架（`LLM-EdgeFlow`）作为公司统一调度平台（Host / External Platform Scheduler）所集成的标准算法动态库模块（Algorithm Shared Library Plugin）。
+公司外部调度框架负责整体业务流编排、多通道数据路由与跨模块调度，并通过标准纯 C ABI 导出接口（`Alg_Init`, `Alg_Create`, `Alg_Process`, `Alg_Control`, `Alg_Destroy`, `Alg_DeInit`）与本算法库进行交互。
+
+### 1.2 外部调度框架的明确规范与要求 (Host Framework Directives)
+根据公司外部调度框架的标准接入规范与契约要求，算法库必须满足以下具体机制：
+1. **全结构化数据交互 (C-Style Custom Structs)**：
+   外部调度框架与算法库之间的输入和输出数据，均封装为 C 风格的自定义结构体进行处理，覆盖关注词匹配、实体抽取、长文档问答、对话合规质检、OCR 图文票据、语音 ASR、语义精排等业务。
+2. **统一字符串封装规范 (`CompanyString`)**：
+   针对所有业务输入/输出结构体中涉及的字符串数据，公司框架要求统一封装为标准 C 风格字符串结构体 `CompanyString`（包含字符指针 `data`、有效长度 `length` 与缓冲区容量 `capacity`）。所有其他业务结构体凡是引用到字符串，必须全部使用该结构体的指针（只读输入采用 `const CompanyString*`，输出采用 `CompanyString*`），严禁使用裸指针或隐式定长数组。
+3. **槽位 Mapname 与解析结构体全局映射契约 (`"xxx.mapname"` Binding)**：
+   公司外部调度框架采用通道槽位命名规范 `"xxx.mapname"`（例如输入通道 `"client_channel.keyword_in"` 中的 `keyword_in`，输出通道 `"nlp_node.entity_out"` 中的 `entity_out`）。
+   外部调度框架明确要求：**必须在算法库 C ABI 导出头文件（`include/company_alg_interface.h`）接口处显式维护并导出 `mapname` 与解析 C 结构体的映射关系表**（包含 `mapname`、所属业务类型、C 结构体名称、`sizeof` 大小及 I/O 方向）。算法框架内部必须据此映射关系自动完成输入结构体的解包与输出结构体的分发。
+4. **统一内存生命周期契约 (Caller Allocates, Callee Fills)**：
+   在外部调度框架中，输入结构体与输出结构体（包括输出 `CompanyString` 的字符缓冲区 `data`）均由外部调度模块（Caller）在调用 `Alg_Process` 之前统一创建与预分配；算法框架（Callee）据此进行输入解析，并将结果安全写入已分配的输出结构体中，同时回填实际 `length`。
+
+### 1.3 核心改造目标 (Core Goals)
+1. 按照公司调度框架要求，在 `include/company_alg_interface.h` 中定义标准 `CompanyString` 结构体，将 7 大业务的输入输出结构体中的字符串全部重构为指针引用。
+2. 在头文件接口处维护 `CompanySlotStructMapping` 映射表及 `Alg_GetSlotStructMappings` 导出函数，并在内部适配层（`PlatformIoRegistry`、`company_c_adapter`）据此进行全自动解析。
+3. 同步更新相关文档与说明，并在全量单元测试、6 阶段自动化回归及 Demo 上全部调通。
 
 ---
 
 ## 2. 设计范围与边界 (Scope & Non-Goals)
 
 ### 2.1 范围内 (In-Scope)
-- [ ] 在 `include/company_alg_interface.h` 中定义纯 C11 兼容的 `CompanyString` 及辅助内联函数 `CompanyString_Init` 与 `CompanyString_FromCString`。
+- [ ] 在 `include/company_alg_interface.h` 中定义纯 C11 兼容的 `CompanyString` 及其辅助初始化函数。
 - [ ] 重构全部 7 个业务的输入输出 C 结构体（`CompanyKeywordInputStruct`, `CompanyDocOutputStruct` 等），所有字符串字段统一改为 `CompanyString*` / `const CompanyString*` 指针。
-- [ ] 在 `include/company_alg_interface.h` 中定义槽位映射元数据结构体 `CompanySlotStructMapping`，并在 `src/adapter/company_c_adapter.cpp` 中实现 `Alg_GetSlotStructMappings` 导出函数。
-- [ ] 在 `include/adapter/adapter_validation_helper.h` 中新增 `RequireBoundedCompanyString` 与 `CheckedCompanyStringWrite`，实现安全读写与容量溢出拦截。
+- [ ] 在 `include/company_alg_interface.h` 中声明槽位映射元数据结构体 `CompanySlotStructMapping` 与 `Alg_GetSlotStructMappings` 导出函数，并在 `src/adapter/company_c_adapter.cpp` 中维护 14 个标准槽位的全局映射表。
+- [ ] 增强 `include/adapter/adapter_validation_helper.h` 支持 `CompanyString` 的有界只读校验与安全容量回填。
 - [ ] 适配 Layer 1 全部 7 个业务 Adapter 的 `Unpack` / `Pack` 逻辑及 `PlatformIoRegistry`。
-- [ ] 重构全量 Demo（`demo/businesses/`）与全部测试套件（`tests/`），全面适配 `CompanyString` 内存生命周期。
-- [ ] 确保纯 C11 严格兼容、6 大导出函数 `noexcept` 异常安全屏障及 4 层架构隔离 100% 成立。
+- [ ] 适配全量业务 Demo（`demo/businesses/`）与全部测试套件（`tests/`），严格遵循 Caller Allocates, Callee Fills 规范。
+- [ ] 维持 C11 严格兼容性、6 大导出函数 `noexcept` 异常安全屏障及 4 层架构隔离。
 
 ### 2.2 非目标 (Out-of-Scope)
 - 不修改底层推理引擎（Layer 4）的硬件算子与固定 Batch 调度逻辑。
