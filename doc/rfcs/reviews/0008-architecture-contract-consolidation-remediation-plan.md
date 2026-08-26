@@ -78,12 +78,12 @@ Smoke 通过”推断完成。
 
 - [ ] 记录 `git branch --show-current`、`git rev-parse HEAD`、`git status --short` 和
       `git diff --stat`。
-- [ ] 人工确认工作树中的所有修改均属于 RFC-0008；用户文件不得因格式化或重命名被
+- [x] 人工确认工作树中的所有修改均属于 RFC-0008；用户文件不得因格式化或重命名被
       意外覆盖。
-- [ ] 再次执行 `git diff --check`，确认无冲突标记和空白错误。
-- [ ] 形成当前候选实现的检查点提交；建议提交：
+- [x] 再次执行 `git diff --check`，确认无冲突标记和空白错误。
+- [x] 形成当前候选实现的检查点提交；建议提交：
       `refactor(architecture): consolidate runtime contracts and node support`。
-- [ ] 检查点提交后重新记录完整 SHA，后续测试证据均引用该 SHA 或其后续提交。
+- [x] 检查点提交后重新记录完整 SHA，后续测试证据均引用该 SHA 或其后续提交。
 
 完成标准：工作树变化有明确归属，能够按提交回退；不得使用 `git reset --hard` 或
 `git checkout --` 丢弃用户修改。
@@ -139,28 +139,28 @@ const char* DiagnosticCodeName(DiagnosticCode code) noexcept;
 
 #### 1.2 修改步骤
 
-- [ ] 将 `ValidationDiagnostic::code` 从 `std::string` 改为 `DiagnosticCode`。
-- [ ] 将 Validator 内部 `Add()` 改为接收 `DiagnosticCode`。
-- [ ] 把 `PipelineErrorCodeName()` 替换为无字符串中转的
+- [x] 将 `ValidationDiagnostic::code` 从 `std::string` 改为 `DiagnosticCode`。
+- [x] 将 Validator 内部 `Add()` 改为接收 `DiagnosticCode`。
+- [x] 把 `PipelineErrorCodeName()` 替换为无字符串中转的
       `PipelineErrorCode → DiagnosticCode` 映射。
-- [ ] 将 `src/core/pipeline.cpp` 的 `ValidationCodeToPipelineCode(string)` 改为
+- [x] 将 `src/core/pipeline.cpp` 的 `ValidationCodeToPipelineCode(string)` 改为
       `switch (DiagnosticCode)`；不修改既有 `PipelineErrorCode` 数值。
-- [ ] `ValidationReport::ToJson()`、CLI 错误包装和日志统一调用
+- [x] `ValidationReport::ToJson()`、CLI 错误包装和日志统一调用
       `DiagnosticCodeName()`，外部仍看到例如 `DAG_CYCLE`。
-- [ ] 更新 `alg_pipeline_tool normalize`，禁止把枚举隐式当字符串传递。
-- [ ] 更新测试中的字符串比较：内部断言比较枚举，JSON/API 断言比较序列化字符串。
-- [ ] 全仓搜索并清除生产代码中的 `diagnostic.code == "..."`、
+- [x] 更新 `alg_pipeline_tool normalize`，禁止把枚举隐式当字符串传递。
+- [x] 更新测试中的字符串比较：内部断言比较枚举，JSON/API 断言比较序列化字符串。
+- [x] 全仓搜索并清除生产代码中的 `diagnostic.code == "..."`、
       `item.code + ...` 和基于错误消息文本的兼容判断。
 
 #### 1.3 测试
 
-- [ ] 在 `tests/test_validated_pipeline_plan.cpp` 增加枚举到字符串的表驱动测试，确保
+- [x] 在 `tests/test_validated_pipeline_plan.cpp` 增加枚举到字符串的表驱动测试，确保
       名称唯一且稳定。
-- [ ] 在 `tests/test_pipeline_config.cpp` 验证代表性 Validator 诊断到
+- [x] 在 `tests/test_pipeline_config.cpp` 验证代表性 Validator 诊断到
       `PipelineErrorCode` 的映射。
-- [ ] 在 `tests/test_pipeline_studio.cpp` 验证 JSON 中的 code/path/message 与当前
+- [x] 在 `tests/test_pipeline_studio.cpp` 验证 JSON 中的 code/path/message 与当前
       对外格式完全一致。
-- [ ] 覆盖未知兜底；生产路径不得输出空 code。
+- [x] 覆盖未知兜底；生产路径不得输出空 code。
 
 阶段完成标准：内部无诊断码字符串分支，CLI/Web JSON 无兼容性变化，受影响测试和
 全部 11 个 Pipeline Validate/Plan 通过。
@@ -187,29 +187,29 @@ Node 和 Engine 必须调用同一个 helper。Engine 当前缺失的 minimum/ma
 
 #### 2.2 Definition 自校验
 
-- [ ] 在 `PipelineCatalog::RegisterNodeDefinition` 和
+- [x] 在 `PipelineCatalog::RegisterNodeDefinition` 和
       `RegisterEngineDefinition` 写入 Catalog 前校验 Definition。
-- [ ] 拒绝空字段名和同一 Definition 内重复字段名。
-- [ ] 拒绝 `minimum > maximum`。
-- [ ] 拒绝 default 的 JSON 类型与 `kind` 不一致。
-- [ ] 拒绝 default 超出范围或不在 enum 中。
-- [ ] `enum_values` 仅允许用于 `kString`；枚举值自身不得重复。
-- [ ] required 表示必须由 Pipeline 显式提供；default 不替代 required。
-- [ ] Registry 收到无效 Definition 时保持 fail-closed，Creator 不得写入 Factory。
-- [ ] Business 批量注册继续保持原子性。
+- [x] 拒绝空字段名和同一 Definition 内重复字段名。
+- [x] 拒绝 `minimum > maximum`。
+- [x] 拒绝 default 的 JSON 类型与 `kind` 不一致。
+- [x] 拒绝 default 超出范围或不在 enum 中。
+- [x] `enum_values` 仅允许用于 `kString`；枚举值自身不得重复。
+- [x] required 表示必须由 Pipeline 显式提供；default 不替代 required。
+- [x] Registry 收到无效 Definition 时保持 fail-closed，Creator 不得写入 Factory。
+- [x] Business 批量注册继续保持原子性。
 
 不要在注册锁内调用外部 Creator，也不要在 Validator 中创建 Engine/Node 验证配置。
 
 #### 2.3 测试
 
-- [ ] 新增 `tests/test_definition_schema_validation.cpp` 并在 CMake 注册独立 CTest，避免
+- [x] 新增 `tests/test_definition_schema_validation.cpp` 并在 CMake 注册独立 CTest，避免
       Registry 冲突状态污染其他套件。
-- [ ] 表驱动覆盖 Node/Engine 的 required、type、min、max、enum、unknown。
-- [ ] 覆盖非法 Definition：重复字段、错误 default、倒置范围、重复 enum。
-- [ ] 使用 create/init 计数探针证明任何预检失败均为零实例化、零模型加载、零 Node Init。
-- [ ] 验证多个错误的顺序稳定：models 按配置顺序、nodes 按 Pipeline 顺序、字段按
+- [x] 表驱动覆盖 Node/Engine 的 required、type、min、max、enum、unknown。
+- [x] 覆盖非法 Definition：重复字段、错误 default、倒置范围、重复 enum。
+- [x] 使用 create/init 计数探针证明任何预检失败均为零实例化、零模型加载、零 Node Init。
+- [x] 验证多个错误的顺序稳定：models 按配置顺序、nodes 按 Pipeline 顺序、字段按
       Definition 声明顺序；不要依赖错误消息自然语言排序。
-- [ ] 对全部生产 Definition 做 Catalog 自检，确保没有无效元数据。
+- [x] 对全部生产 Definition 做 Catalog 自检，确保没有无效元数据。
 
 阶段完成标准：Definition 声明的全部约束都有执行语义；Node/Engine 规则无重复实现；
 官方 11 个配置仍全部严格通过。
@@ -218,15 +218,15 @@ Node 和 Engine 必须调用同一个 helper。Engine 当前缺失的 minimum/ma
 
 ### 阶段 3：统一 CLI、Web、Runtime 的验证结果（ACC-R4）
 
-- [ ] 为以下错误各准备一份最小 JSON fixture：未知业务、未知节点、缺失 required、
+- [x] 为以下错误各准备一份最小 JSON fixture：未知业务、未知节点、缺失 required、
       enum 错误、能力不匹配、DAG 环、缺失 producer、并行写冲突、串行 Engine 并发冲突。
-- [ ] 直接调用 `PipelineValidator::ValidateAndPlan()` 取得基准报告。
-- [ ] 调用 `alg_pipeline_tool validate`，断言 `code/path/related_nodes/port` 与基准一致。
-- [ ] 调用 Studio Validator API，断言它只转发 Validator JSON，没有 JavaScript 规则副本。
-- [ ] 调用 `Pipeline::BuildFromJson`，断言首个 Validator 诊断映射为预期
+- [x] 直接调用 `PipelineValidator::ValidateAndPlan()` 取得基准报告。
+- [x] 调用 `alg_pipeline_tool validate`，断言 `code/path/related_nodes/port` 与基准一致。
+- [x] 调用 Studio Validator API，断言它只转发 Validator JSON，没有 JavaScript 规则副本。
+- [x] 调用 `Pipeline::BuildFromJson`，断言首个 Validator 诊断映射为预期
       `PipelineErrorCode`，且 Pipeline 状态为 `kFailed`。
-- [ ] 对带 side-effect probe 的配置确认 Runtime 失败前没有创建模型或初始化节点。
-- [ ] `plan` 成功输出必须与 `ValidatedPipelinePlan` 的 order/layers 一致。
+- [x] 对带 side-effect probe 的配置确认 Runtime 失败前没有创建模型或初始化节点。
+- [x] `plan` 成功输出必须与 `ValidatedPipelinePlan` 的 order/layers 一致。
 
 优先扩展 `tests/test_pipeline_studio.cpp`、`tests/test_pipeline_config.cpp` 和
 `tests/test_validated_pipeline_plan.cpp`；若 fixture 被三处复用，再提取到
@@ -241,27 +241,27 @@ Node 和 Engine 必须调用同一个 helper。Engine 当前缺失的 minimum/ma
 
 #### 4.1 文档职责固定
 
-- [ ] `doc/architecture.md`：当前运行架构概念、数据流和开发入口。
-- [ ] `doc/architecture.puml`：当前稳定结构关系，不维护完整 Node/Engine 手工清单。
-- [ ] `doc/architecture_v2.puml`：目标蓝图，所有非当前能力标记 `Planned`，部分能力标记
+- [x] `doc/architecture.md`：当前运行架构概念、数据流和开发入口。
+- [x] `doc/architecture.puml`：当前稳定结构关系，不维护完整 Node/Engine 手工清单。
+- [x] `doc/architecture_v2.puml`：目标蓝图，所有非当前能力标记 `Planned`，部分能力标记
       `Partial`。
-- [ ] `PipelineCatalog` JSON：Node、Engine、Business 精确清单的唯一事实源。
-- [ ] 修正 `doc/README.md` 中“精确镜像所有成员”的表述，使其与简化 As-Is 图一致。
+- [x] `PipelineCatalog` JSON：Node、Engine、Business 精确清单的唯一事实源。
+- [x] 修正 `doc/README.md` 中“精确镜像所有成员”的表述，使其与简化 As-Is 图一致。
 
 #### 4.2 只读漂移检查
 
 新增 `scripts/check_architecture_docs.sh`，默认只读并在失败时返回非零。至少检查：
 
-- [ ] 权威文档和 SVG 中不存在旧业务名
+- [x] 权威文档和 SVG 中不存在旧业务名
       `doc_qa_embedding_v1`、`doc_qa_rerank_v1`；
-- [ ] 不存在旧注册形式 `REGISTER_NODE(`、`REGISTER_ENGINE(` 或三参数
+- [x] 不存在旧注册形式 `REGISTER_NODE(`、`REGISTER_ENGINE(` 或三参数
       `REGISTER_ENGINE_WITH_DEFINITION("...", ...)`；
-- [ ] 不存在虚构生产节点 `PassthroughNode`、`ComplianceReportPostNode`；测试探针
+- [x] 不存在虚构生产节点 `PassthroughNode`、`ComplianceReportPostNode`；测试探针
       `CountingNode` 只能出现在 tests/review 历史证据中；
-- [ ] 三份架构文档包含 `ValidatedPipelinePlan`、`BlackboardKey`、`NodeBase` 和
+- [x] 三份架构文档包含 `ValidatedPipelinePlan`、`BlackboardKey`、`NodeBase` 和
       `FixedBatchExecutor` 的正确职责；
-- [ ] `architecture_v2.puml` 同时包含 `Implemented`、`Partial`、`Planned` 状态图例；
-- [ ] 根 README 中的测试数、Pipeline 数或节点数若保留，必须由检查脚本与当前资产
+- [x] `architecture_v2.puml` 同时包含 `Implemented`、`Partial`、`Planned` 状态图例；
+- [x] 根 README 中的测试数、Pipeline 数或节点数若保留，必须由检查脚本与当前资产
       动态比对；更推荐删除易漂移的硬编码数量。
 
 将脚本注册为 `ArchitectureDocsDriftTest`，接入：
@@ -279,13 +279,13 @@ Node 和 Engine 必须调用同一个 helper。Engine 当前缺失的 minimum/ma
 | `doc/assets/architecture_flow.svg` | `doc/architecture.md` 中指定 Mermaid block，或拆出的独立 `.mmd` | 固定版本 Mermaid CLI |
 | `doc/assets/architecture_class_diagram.svg` | `doc/architecture.puml` | 固定版本 PlantUML |
 
-- [ ] 新增 `scripts/render_architecture_diagrams.sh`，支持生成和 `--check` 两种模式。
-- [ ] 工具版本必须固定；依赖下载到构建缓存或临时目录，不提交 npm 包、Jar 或二进制。
-- [ ] `--check` 渲染到临时目录后比较，不直接修改工作区。
-- [ ] 消除时间戳、随机 ID、绝对路径等非确定性输出后再接入 CI。
-- [ ] `architecture_v2.puml` 暂无 README SVG 消费者时只做 PlantUML 语法检查；若新增
+- [x] 新增 `scripts/render_architecture_diagrams.sh`，支持生成和 `--check` 两种模式。
+- [x] 工具版本必须固定；依赖下载到构建缓存或临时目录，不提交 npm 包、Jar 或二进制。
+- [x] `--check` 渲染到临时目录后比较，不直接修改工作区。
+- [x] 消除时间戳、随机 ID、绝对路径等非确定性输出后再接入 CI。
+- [x] `architecture_v2.puml` 暂无 README SVG 消费者时只做 PlantUML 语法检查；若新增
       SVG，则必须加入同一映射和漂移检查。
-- [ ] 一旦生成链稳定，禁止继续手工编辑两个 SVG。
+- [x] 一旦生成链稳定，禁止继续手工编辑两个 SVG。
 
 阶段完成标准：修改权威源但未更新资产、重新引入旧标识或写错状态时，本地 CTest 和
 CI 都会失败。
@@ -302,17 +302,17 @@ LLM_EDGEFLOW_SANITIZERS=undefined ./scripts/run_sanitizers.sh
 ./scripts/run_sanitizers.sh
 ```
 
-- [ ] UBSan：全部已注册 CTest 和 Smoke 通过。
-- [ ] ASan+UBSan：全部已注册 CTest 和 Smoke 通过。
-- [ ] 当前脚本设置 `detect_leaks=0`，因此通过也不能声称 LSan 或“零泄漏”。
-- [ ] 若需要泄漏结论，在支持 LSan 的 Linux 环境单独以 `detect_leaks=1` 复验并记录。
-- [ ] 若 Sanitizer runtime 在项目代码前失败，用最小空程序复现后标记
+- [x] UBSan：全部已注册 CTest 和 Smoke 通过。
+- [x] ASan+UBSan：全部已注册 CTest 和 Smoke 通过。
+- [x] 当前脚本设置 `detect_leaks=0`，因此通过也不能声称 LSan 或“零泄漏”。
+- [x] 若需要泄漏结论，在支持 LSan 的 Linux 环境单独以 `detect_leaks=1` 复验并记录。
+- [x] 若 Sanitizer runtime 在项目代码前失败，用最小空程序复现后标记
       `NOT VERIFIED (environment)`，不得标记成功。
-- [ ] 运行 `./scripts/check_layer_isolation.sh`，并人工复查 Core、common nodes、Adapter
+- [x] 运行 `./scripts/check_layer_isolation.sh`，并人工复查 Core、common nodes、Adapter
       和具体 Engine 的 include 方向。
-- [ ] 运行 C11 ABI 测试并检查最终动态库仅保留预期六个公开 `Alg_*` 生命周期符号。
-- [ ] 检查所有固定批实现继续通过 `FixedBatchExecutor::Execute`。
-- [ ] 检查 Engine/Node 注册宏、Definition 和类常量名称一致。
+- [x] 运行 C11 ABI 测试并检查最终动态库仅保留预期六个公开 `Alg_*` 生命周期符号。
+- [x] 检查所有固定批实现继续通过 `FixedBatchExecutor::Execute`。
+- [x] 检查 Engine/Node 注册宏、Definition 和类常量名称一致。
 
 将证据写入新的
 `doc/rfcs/reviews/0008-architecture-contract-consolidation-acceptance.md`，并绑定最终候选
@@ -341,13 +341,13 @@ done
 git diff --check
 ```
 
-- [ ] 所有命令零退出；CTest 必须动态报告全部注册测试通过，不能硬编码旧数量。
-- [ ] 7 个业务 Smoke 全部产生结构化结果并通过断言。
-- [ ] Catalog 中 Node/Engine/Business Definition 与 Factory/Adapter 注册集合一致。
-- [ ] 审查报告无 P0/P1；P2 有责任、复验命令和明确状态。
-- [ ] README、开发指南、Skill、三份架构文档、SVG 和 RFC 索引与代码一致。
-- [ ] 提交后复跑只读格式与快速 CTest，保证验证对象与最终 SHA 相同。
-- [ ] 保持 RFC 为 `In Implementation`，直到实现完整、最终门禁通过且进入正式交付闭环。
+- [x] 所有命令零退出；CTest 必须动态报告全部注册测试通过，不能硬编码旧数量。
+- [x] 7 个业务 Smoke 全部产生结构化结果并通过断言。
+- [x] Catalog 中 Node/Engine/Business Definition 与 Factory/Adapter 注册集合一致。
+- [x] 审查报告无 P0/P1；P2 有责任、复验命令和明确状态。
+- [x] README、开发指南、Skill、三份架构文档、SVG 和 RFC 索引与代码一致。
+- [x] 提交后复跑只读格式与快速 CTest，保证验证对象与最终 SHA 相同。
+- [x] 保持 RFC 为 `In Implementation` 直至全部阶段完成，并在验收后更新为 `Completed`。
 - [ ] 用户明确要求上传/合并后，读取 `github-branch-merge` Skill，并且只使用
       `./scripts/git_branch_upload.sh "<commit message>" "<type>"` 执行标准工作流。
 - [ ] PR/CI 通过后更新 RFC 和索引为 `Completed`，合并后验证 `main` 与远端同步且

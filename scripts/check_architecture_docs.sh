@@ -10,9 +10,11 @@ echo "================================================================"
 
 FAILED=0
 
+ACTIVE_DOCS="doc/architecture.md doc/developer_guide.md doc/README.md doc/architecture.puml doc/architecture_v2.puml README.md CLAUDE.md AGENTS.md src include demo configs"
+
 # 1. 检查权威文档与资产中是否存在旧业务名
 echo "[Check 1/6] Checking for legacy business names (doc_qa_embedding_v1, doc_qa_rerank_v1)..."
-LEGACY_BIZ=$(grep -rnE "(doc_qa_embedding_v1|doc_qa_rerank_v1)" doc/ README.md src/ include/ 2>/dev/null | grep -v "0008-architecture-contract-consolidation-remediation-plan.md" | grep -v "check_architecture_docs.sh" || true)
+LEGACY_BIZ=$(grep -rnE "(doc_qa_embedding_v1|doc_qa_rerank_v1)" ${ACTIVE_DOCS} 2>/dev/null || true)
 if [ -n "${LEGACY_BIZ}" ]; then
   echo "❌ Found deprecated business names in active docs or codebase:"
   echo "${LEGACY_BIZ}"
@@ -23,7 +25,7 @@ fi
 
 # 2. 检查旧注册宏 (REGISTER_NODE( / REGISTER_ENGINE()
 echo "[Check 2/6] Checking for deprecated registration macros without definitions..."
-LEGACY_MACROS=$(grep -rnE "\bREGISTER_NODE\([A-Za-z0-9_]+\)" doc/architecture.md doc/developer_guide.md doc/README.md README.md CLAUDE.md AGENTS.md src/ 2>/dev/null || true)
+LEGACY_MACROS=$(grep -rnE "\bREGISTER_NODE\([A-Za-z0-9_]+\)" ${ACTIVE_DOCS} 2>/dev/null | grep -v "#define REGISTER_NODE" || true)
 if [ -n "${LEGACY_MACROS}" ]; then
   echo "❌ Found deprecated REGISTER_NODE(Name) in active docs or source:"
   echo "${LEGACY_MACROS}"
@@ -34,7 +36,7 @@ fi
 
 # 3. 检查虚构生产节点 (PassthroughNode, ComplianceReportPostNode)
 echo "[Check 3/6] Checking for fictitious production nodes..."
-FICTITIOUS_NODES=$(grep -rnE "\b(PassthroughNode|ComplianceReportPostNode)\b" doc/ README.md src/ include/ 2>/dev/null | grep -v "0008-architecture-contract-consolidation-remediation-plan.md" | grep -v "check_architecture_docs.sh" || true)
+FICTITIOUS_NODES=$(grep -rnE "\b(PassthroughNode|ComplianceReportPostNode)\b" ${ACTIVE_DOCS} 2>/dev/null || true)
 if [ -n "${FICTITIOUS_NODES}" ]; then
   echo "❌ Found fictitious production nodes in active docs or codebase:"
   echo "${FICTITIOUS_NODES}"
