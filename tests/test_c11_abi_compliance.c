@@ -12,11 +12,17 @@
 #include <string.h>
 
 #include "company_alg_interface.h"
+#include "platform/company_platform_types.h"
 
 _Static_assert(sizeof(CompanyAlgBizType) == sizeof(int32_t),
                "CompanyAlgBizType must remain a 32-bit C ABI type");
 _Static_assert(ALG_BIZ_TYPE_MAX_GUARD == INT32_MAX,
                "CompanyAlgBizType ABI guard must remain INT32_MAX");
+_Static_assert(sizeof(CompanyString) == sizeof(int32_t) + sizeof(char*) +
+                                            (sizeof(char*) == 8 ? 4 : 0),
+               "CompanyString memory layout check");
+_Static_assert(COMPANY_PLATFORM_MAX_RERANK_CANDIDATES == 8,
+               "COMPANY_PLATFORM_MAX_RERANK_CANDIDATES must be 8");
 
 int main(void) {
   printf("[C11 ABI Test] Testing pure C ABI lifecycle and safety...\n");

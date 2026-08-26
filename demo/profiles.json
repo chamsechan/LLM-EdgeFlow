@@ -29,7 +29,7 @@
       "batch_size": 2,
       "device_id": 0,
       "chip": "ax650",
-      "depth": 1
+      "depth": 2
     },
     "doc_qa_mock": {
       "business": "doc_qa",

@@ -2,7 +2,7 @@
 
 - **RFC 编号**：0009-company-string-and-slot-map-struct-binding
 - **创建日期**：2026-08-26
-- **文档状态**：Proposed
+- **文档状态**：Completed
 - **关联分支**：`feat/company-string-and-slot-map-struct-binding`
 - **目标版本**：v3.0.0
 - **负责人 / 作者**：LLM-EdgeFlow Team
@@ -937,66 +937,66 @@ RFC-0004 除以下重叠内容外继续有效：
 
 ### 14.1 结构、转换与注册
 
-- [ ] 新平台类型头文件通过独立 C11 编译测试，不包含 STL 或第三方头。
-- [ ] 现有 `company_alg_interface.h` DTO 布局测试保持不变。
-- [ ] `CompanyString` 覆盖空值、负长度、非 NUL 结尾、嵌入 NUL 拒绝和容量不足。
-- [ ] `CompanyString`、`CompanyBuffer` 和 `CompanyAny` 在解引用前执行配置硬上限校验；
+- [x] 新平台类型头文件通过独立 C11 编译测试，不包含 STL 或第三方头。
+- [x] 现有 `company_alg_interface.h` DTO 布局测试保持不变。
+- [x] `CompanyString` 覆盖空值、负长度、非 NUL 结尾、嵌入 NUL 拒绝和容量不足。
+- [x] `CompanyString`、`CompanyBuffer` 和 `CompanyAny` 在解引用前执行配置硬上限校验；
   调用方声明长度大于真实分配区属于无法由 ABI 自证的违约。
-- [ ] `CompanyBuffer` 覆盖任意二进制字节，`CompanyAny.type_id` 必须命中白名单。
-- [ ] `CompanyAny.element_count * element_size == byte_length`，并覆盖乘法溢出与不一致。
-- [ ] 七类输入镜像逐字段转换为现有 DTO，七类内部输出转换为池化镜像。
-- [ ] request_id、计数、固定数组、PCM 和 Rerank 上限保持一致。
-- [ ] 覆盖最后点号解析、主名、别名、未知后缀、方向错误和重复逻辑槽位。
-- [ ] 输入 shared_ptr 的 `use_count` 在 Process 前后不因算法库持有而增加；输入内存
+- [x] `CompanyBuffer` 覆盖任意二进制字节，`CompanyAny.type_id` 必须命中白名单。
+- [x] `CompanyAny.element_count * element_size == byte_length`，并覆盖乘法溢出与不一致。
+- [x] 七类输入镜像逐字段转换为现有 DTO，七类内部输出转换为池化镜像。
+- [x] request_id、计数、固定数组、PCM 和 Rerank 上限保持一致。
+- [x] 覆盖最后点号解析、主名、别名、未知后缀、方向错误和重复逻辑槽位。
+- [x] 输入 shared_ptr 的 `use_count` 在 Process 前后不因算法库持有而增加；输入内存
   在 Process 返回后可由调用方立即释放。
-- [ ] 输出 Map 缺 Key、含额外 Key、使用非空占位或同时使用主名与别名均失败且不检出块。
-- [ ] 值类型绑定缺失、类型不一致和重复注册使 Init fail-closed。
-- [ ] OCR 以 `frame + string -> od_out` 多槽位聚合，其他业务聚合 DTO 路径保持正常。
-- [ ] Registry 允许多输入槽位，同时拒绝同一业务方向中的重复类型后缀。
-- [ ] 规范后缀与别名全局冲突、输出类型工厂缺失均使 Init fail-closed。
-- [ ] `data.mem_que` 缺失、type 与业务不符、meta_num/type_id 组合非法和未知容量字段
+- [x] 输出 Map 缺 Key、含额外 Key、使用非空占位或同时使用主名与别名均失败且不检出块。
+- [x] 值类型绑定缺失、类型不一致和重复注册使 Init fail-closed。
+- [x] OCR 以 `frame + string -> od_out` 多槽位聚合，其他业务聚合 DTO 路径保持正常。
+- [x] Registry 允许多输入槽位，同时拒绝同一业务方向中的重复类型后缀。
+- [x] 规范后缀与别名全局冲突、输出类型工厂缺失均使 Init fail-closed。
+- [x] `data.mem_que` 缺失、type 与业务不符、meta_num/type_id 组合非法和未知容量字段
   均使 Create fail-closed；缺失的已知容量使用规范默认值。
-- [ ] `cfg_file_name` 的绝对路径、`..` 逃逸和符号链接逃逸被 Create 与预检一致拒绝。
+- [x] `cfg_file_name` 的绝对路径、`..` 逃逸和符号链接逃逸被 Create 与预检一致拒绝。
 
 ### 14.2 输出池与生命周期
 
-- [ ] `max_frame_depth == 0` 使用默认 25；显式深度分配准确数量。
-- [ ] Batch 同时受池深度和 BusinessAdapter max_batch_size 约束，并以二者较小值拒绝。
-- [ ] Create 任意位置失败都完整逆序回滚，且不返回半初始化句柄。
-- [ ] Process 返回地址来自池，释放后复用同一地址和嵌套容量。
-- [ ] 跨多次 Process 持有输出，未归还总数不超过深度时正常运行。
-- [ ] 池耗尽时线程阻塞；释放一个旧输出后唤醒并完成。
-- [ ] 单次 Batch 大于深度立即失败，不进入阻塞等待。
-- [ ] Process 或转换异常归还全部局部 lease，输出 Map 保持空值。
-- [ ] 正确生命周期下 Destroy 释放所有块、嵌套内存和队列。
-- [ ] 违约场景中 Destroy 后遗留 shared_ptr 的数据不可访问，但其析构通过 weak token
+- [x] `max_frame_depth == 0` 使用默认 25；显式深度分配准确数量。
+- [x] Batch 同时受池深度和 BusinessAdapter max_batch_size 约束，并以二者较小值拒绝。
+- [x] Create 任意位置失败都完整逆序回滚，且不返回半初始化句柄。
+- [x] Process 返回地址来自池，释放后复用同一地址和嵌套容量。
+- [x] 跨多次 Process 持有输出，未归还总数不超过深度时正常运行。
+- [x] 池耗尽时线程阻塞；释放一个旧输出后唤醒并完成。
+- [x] 单次 Batch 大于深度立即失败，不进入阻塞等待。
+- [x] Process 或转换异常归还全部局部 lease，输出 Map 保持空值。
+- [x] 正确生命周期下 Destroy 释放所有块、嵌套内存和队列。
+- [x] 违约场景中 Destroy 后遗留 shared_ptr 的数据不可访问，但其析构通过 weak token
   安全 no-op，不访问已释放 pool state。
-- [ ] 仍有检出块时 Destroy 完成清理、返回 `-1` 且消费句柄；重复 Destroy 被拒绝。
+- [x] 仍有检出块时 Destroy 完成清理、返回 `-1` 且消费句柄；重复 Destroy 被拒绝。
 
 ### 14.3 异常、并发与回归
 
-- [ ] 不同句柄并发执行且输出池互不影响。
-- [ ] 同句柄 Process/Control 串行，deleter 可从其他线程安全回池。
-- [ ] 六个 Platform 入口捕获标准异常和未知异常。
-- [ ] deleter、reset 和 Destroy 清理单块失败不跳过剩余块。
-- [ ] 现有 C11 ABI、安全测试和七类业务 Pipeline 测试全部通过。
-- [ ] SOVERSION 3 阻止旧 Platform 二进制误加载；纯 C ABI V2 回归保持兼容。
-- [ ] `ctest --output-on-failure` 100% 通过。
-- [ ] `./scripts/run_all_tests.sh` 六阶段回归通过。
-- [ ] ASan / LSan 验证无泄漏、UAF 和双重释放；TSan 验证池队列与 deleter 无数据竞争。
+- [x] 不同句柄并发执行且输出池互不影响。
+- [x] 同句柄 Process/Control 串行，deleter 可从其他线程安全回池。
+- [x] 六个 Platform 入口捕获标准异常和未知异常。
+- [x] deleter、reset 和 Destroy 清理单块失败不跳过剩余块。
+- [x] 现有 C11 ABI、安全测试和七类业务 Pipeline 测试全部通过。
+- [x] SOVERSION 3 阻止旧 Platform 二进制误加载；纯 C ABI V2 回归保持兼容。
+- [x] `ctest --output-on-failure` 100% 通过。
+- [x] `./scripts/run_all_tests.sh` 六阶段回归通过。
+- [x] ASan / LSan 验证无泄漏、UAF 和双重释放；TSan 验证池队列与 deleter 无数据竞争。
 
 ---
 
 ## 15. 实施路线与里程碑
 
-1. [ ] **RFC 评审**：确认平台镜像字段、公司配置容量来源和阻塞语义。
-2. [ ] **平台类型与注册**：增加 C11 原子/聚合类型、值类型表和冲突审计。
-3. [ ] **业务桥接**：移除单 DTO 限制，完成七业务槽位聚合和双向转换。
-4. [ ] **输出池**：实现 Create 预分配、事务式 lease、自定义 deleter 和 Destroy。
-5. [ ] **Operator 与 Demo 迁移**：演进 CreateParam、空输出槽位和结果释放流程。
-6. [ ] **测试门禁**：补齐 GTest/C11 测试，执行格式、CTest、回归和 Sanitizer。
-7. [ ] **ABI 发布隔离**：提升 SOVERSION 或落地版本化 Getter，验证错误组合不能部署。
-8. [ ] **完成闭环**：更新 RFC 状态、README Changelog，走标准分支 PR 流程。
+1. [x] **RFC 评审**：确认平台镜像字段、公司配置容量来源和阻塞语义。
+2. [x] **平台类型与注册**：增加 C11 原子/聚合类型、值类型表和冲突审计。
+3. [x] **业务桥接**：移除单 DTO 限制，完成七业务槽位聚合和双向转换。
+4. [x] **输出池**：实现 Create 预分配、事务式 lease、自定义 deleter 和 Destroy。
+5. [x] **Operator 与 Demo 迁移**：演进 CreateParam、空输出槽位和结果释放流程。
+6. [x] **测试门禁**：补齐 GTest/C11 测试，执行格式、CTest、回归和 Sanitizer。
+7. [x] **ABI 发布隔离**：提升 SOVERSION 或落地版本化 Getter，验证错误组合不能部署。
+8. [x] **完成闭环**：更新 RFC 状态、README Changelog，走标准分支 PR 流程。
 
 ### 15.1 实施前必须冻结的评审决策
 

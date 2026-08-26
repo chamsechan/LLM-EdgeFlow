@@ -7,6 +7,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include "platform/company_platform_types.h"
+
 namespace llm_edgeflow::platform {
 
 /**
@@ -87,43 +89,32 @@ struct ControlUpdateThresholdParam {
 };
 
 /**
- * @brief 平台创建期配置参数
- */
-struct PlatformConfig {
-  int32_t batch_size = 1;  // 单次 Process 允许提交的最大样本数 (必须 > 0)
-  int32_t device_id = 0;  // 目标硬件设备 ID (必须 >= 0)
-  ChipType type = ChipType::kUnknown;  // 硬件芯片类型 (必须在显式支持白名单内)
-};
-
-/**
- * @brief 可注入的输出对象分配/释放回调钩子 (用于 depth_num 预分配管理)
- *
- * 回调由 Operator 异常屏障保护。释放回调抛异常时，Destroy/Deinit 会继续
- * 清理其他输出对象和句柄，并向调用方返回 -99（标准异常）或 -100（未知异常）。
- */
-using OutputAllocator = std::shared_ptr<void> (*)(const char* slot_suffix,
-                                                  void* user_data);
-using OutputDeallocator = void (*)(const char* slot_suffix,
-                                   std::shared_ptr<void> ptr, void* user_data);
-
-/**
- * @brief 算法句柄创建参数
+ * @brief 算法句柄创建参数 (ABI v3 契约)
  */
 struct CreateParam {
-  const char* cfg_file_name = nullptr;  // 公司平台 .conf 部署配置文件路径
-  PlatformConfig platform_config;  // 平台运行参数
-  uint32_t depth_num = 1;  // Create 阶段输出结构体创建组数预声明 (必须 > 0)
-  OutputAllocator output_allocator = nullptr;  // 可选: 输出对象自定义分配器
-  OutputDeallocator output_deallocator = nullptr;  // 可选: 输出对象自定义释放器
-  void* user_data = nullptr;                       // 回调上下文指针
+  const char* cfg_file_name = nullptr;  // 必填、非空、相对配置文件路径
+  const char* model_path =
+      nullptr;  // 必填、非空，模型和配置共同所在的目录根路径
+  int32_t device_id = 0;  // 目标加速设备 ID (必须 >= 0)
+  ChipType platform_type = ChipType::kUnknown;  // 硬件芯片类型
+  uint32_t max_frame_depth = 25;  // 每种输出类型的池深度 (0 按默认 25 归一化)
 };
 
 /**
- * @brief 命名 I/O 槽位容器类型定义 (零拷贝借用外部指针)
+ * @brief 命名 I/O 槽位容器类型定义
  */
 using OpaqueData = std::shared_ptr<void>;
 using NamedIo = std::unordered_map<std::string, OpaqueData>;
 using NamedIoBatch = std::vector<NamedIo>;
+
+/**
+ * @brief 辅助构造只读借用输入 shared_ptr (空 Deleter，不持有所有权)
+ */
+template <typename T>
+inline std::shared_ptr<void> MakeBorrowedPlatformInput(const T* ptr) {
+  return std::shared_ptr<void>(const_cast<void*>(static_cast<const void*>(ptr)),
+                               [](void*) {});
+}
 
 /**
  * @brief 平台 Operator 统一函数表契约 (ABI 隔离屏障，全函数 noexcept)
@@ -152,13 +143,16 @@ const char* GetPlatformLastError() noexcept;
 /**
  * @brief 校验平台部署配置 .conf 与预期业务类型是否兼容
  * (只读无副作用预检，不抛出任何异常)
- * @param cfg_file_name 平台 .conf 部署配置文件路径
+ * @param model_path 模型与配置根目录
+ * @param cfg_file_name 相对配置文件路径
  * @param expected_biz_type 预期算法业务类型 (CompanyAlgBizType)
  * @param out_error_msg 错误输出信息缓冲区 (可选)
  * @param error_buf_size 缓冲区容量
- * @return 0 校验通过且兼容, -1 参数非法, -2 配置解析或文件不存在, -3 业务不匹配
+ * @return 0 校验通过且兼容, -1 参数非法, -2 配置解析或文件不存在/逃逸, -3
+ * 业务不匹配
  */
-int ValidatePlatformConfigBinding(const char* cfg_file_name,
+int ValidatePlatformConfigBinding(const char* model_path,
+                                  const char* cfg_file_name,
                                   int32_t expected_biz_type,
                                   char* out_error_msg = nullptr,
                                   size_t error_buf_size = 0) noexcept;

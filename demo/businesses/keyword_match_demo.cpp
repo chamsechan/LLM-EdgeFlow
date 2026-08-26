@@ -1,12 +1,12 @@
 #include <iostream>
 #include <vector>
 
-#include "company_alg_interface.h"
 #include "demo/common/dataset_reader.h"
 #include "demo/common/demo_options.h"
 #include "demo/common/demo_registry.h"
 #include "demo/common/operator_runner.h"
 #include "demo/common/result_writer.h"
+#include "platform/company_platform_types.h"
 
 namespace alg_demo {
 
@@ -39,10 +39,15 @@ int RunKeywordMatchDemo(const DemoOptions& options) {
     }
   }
 
-  std::vector<CompanyKeywordInputStruct> inputs;
+  std::vector<CompanyString> text_strs;
+  text_strs.reserve(lines.size());
+  std::vector<CompanyPlatformKeywordInput> inputs;
   inputs.reserve(lines.size());
+
   for (size_t i = 0; i < lines.size(); ++i) {
-    inputs.push_back({static_cast<uint64_t>(20001 + i), lines[i].c_str()});
+    text_strs.push_back({static_cast<int32_t>(lines[i].size()),
+                         const_cast<char*>(lines[i].data())});
+    inputs.push_back({static_cast<uint64_t>(20001 + i), &text_strs.back()});
   }
 
   const char* default_ctrl_json =
@@ -54,40 +59,57 @@ int RunKeywordMatchDemo(const DemoOptions& options) {
       "  }\n"
       "}";
 
-  std::vector<CompanyKeywordOutputStruct> outputs;
+  struct OutputSummary {
+    uint64_t request_id = 0;
+    int32_t is_hit = 0;
+    std::string match_result_json;
+  };
+  std::vector<OutputSummary> output_summaries(lines.size());
   std::vector<double> latencies;
 
-  int ret = RunPlatformOperator<CompanyKeywordInputStruct,
-                                CompanyKeywordOutputStruct>(
+  int ret = RunPlatformOperatorWithExtractor<CompanyPlatformKeywordInput,
+                                             CompanyPlatformKeywordOutput>(
       options, "client_channel.keyword_in", "client_channel.keyword_out",
-      inputs, &outputs, &latencies,
-      llm_edgeflow::platform::ControlCommand::kUpdateRules, default_ctrl_json);
+      inputs,
+      [&](size_t idx, const CompanyPlatformKeywordOutput& out) {
+        output_summaries[idx].request_id = out.request_id;
+        output_summaries[idx].is_hit = out.is_hit;
+        if (out.match_result_json && out.match_result_json->data) {
+          output_summaries[idx].match_result_json.assign(
+              out.match_result_json->data, out.match_result_json->length);
+        }
+      },
+      &latencies, llm_edgeflow::platform::ControlCommand::kUpdateRules,
+      default_ctrl_json);
   if (ret != 0) {
     return ret;
   }
 
   std::cout << "\n>>> 业务 2 执行结果验证 <<<" << std::endl;
   std::vector<DemoSampleResult> sample_results;
-  sample_results.reserve(outputs.size());
+  sample_results.reserve(output_summaries.size());
 
-  for (size_t i = 0; i < outputs.size(); ++i) {
+  for (size_t i = 0; i < output_summaries.size(); ++i) {
     PrintDivider();
-    std::cout << "  Input #" << i << ": \"" << inputs[i].sentence_text << "\"\n"
-              << "  Request ID : " << outputs[i].request_id << "\n"
+    std::cout << "  Input #" << i << ": \"" << lines[i] << "\"\n"
+              << "  Request ID : " << output_summaries[i].request_id << "\n"
               << "  Is Hit     : "
-              << (outputs[i].is_hit ? "YES (命中)" : "NO (未命中)") << "\n"
-              << "  JSON Output: " << outputs[i].match_result_json << std::endl;
+              << (output_summaries[i].is_hit ? "YES (命中)" : "NO (未命中)")
+              << "\n"
+              << "  JSON Output: " << output_summaries[i].match_result_json
+              << std::endl;
 
     DemoSampleResult sample;
-    sample.request_id = outputs[i].request_id;
+    sample.request_id = output_summaries[i].request_id;
     sample.status = 0;
     sample.latency_ms = (i < latencies.size()) ? latencies[i] : 0.0;
-    sample.output["is_hit"] = (outputs[i].is_hit != 0);
-    if (outputs[i].match_result_json[0] != '\0') {
-      auto parsed =
-          nlohmann::json::parse(outputs[i].match_result_json, nullptr, false);
+    sample.output["is_hit"] = (output_summaries[i].is_hit != 0);
+    if (!output_summaries[i].match_result_json.empty()) {
+      auto parsed = nlohmann::json::parse(output_summaries[i].match_result_json,
+                                          nullptr, false);
       if (parsed.is_discarded()) {
-        sample.output["match_result_raw"] = outputs[i].match_result_json;
+        sample.output["match_result_raw"] =
+            output_summaries[i].match_result_json;
       } else {
         sample.output["match_result"] = parsed;
       }

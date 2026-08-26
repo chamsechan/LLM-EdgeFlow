@@ -124,7 +124,16 @@ set(FRAMEWORK_SRCS
     src/adapter/adapters/cross_rerank_adapter.cpp
     src/adapter/shared_algorithm_runtime.cpp
     src/adapter/platform/company_conf_resolver.cpp
-    src/adapter/platform/platform_io_registry.cpp
+    src/adapter/platform/platform_value_type_registry.cpp
+    src/adapter/platform/platform_business_bridge_registry.cpp
+    src/adapter/platform/platform_output_pool.cpp
+    src/adapter/platform/business_bridges/keyword_match_bridge.cpp
+    src/adapter/platform/business_bridges/entity_extract_bridge.cpp
+    src/adapter/platform/business_bridges/doc_qa_bridge.cpp
+    src/adapter/platform/business_bridges/compliance_audit_bridge.cpp
+    src/adapter/platform/business_bridges/ocr_doc_qa_bridge.cpp
+    src/adapter/platform/business_bridges/audio_asr_intent_bridge.cpp
+    src/adapter/platform/business_bridges/cross_rerank_bridge.cpp
     src/adapter/platform/platform_control_registry.cpp
     src/adapter/platform_operator_adapter.cpp
     src/adapter/company_c_adapter.cpp
@@ -138,8 +147,8 @@ if(THIRD_PARTY_ENGINE_LIBS)
 endif()
 set_target_properties(alg_sdk PROPERTIES
     OUTPUT_NAME "company_alg_sdk"
-    VERSION 2.0.0
-    SOVERSION 2
+    VERSION 3.0.0
+    SOVERSION 3
 )
 
 # 引入 Google Test 框架 (自动下载或使用系统库)

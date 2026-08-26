@@ -2,12 +2,12 @@
 #include <iostream>
 #include <vector>
 
-#include "company_alg_interface.h"
 #include "demo/common/dataset_reader.h"
 #include "demo/common/demo_options.h"
 #include "demo/common/demo_registry.h"
 #include "demo/common/operator_runner.h"
 #include "demo/common/result_writer.h"
+#include "platform/company_platform_types.h"
 
 namespace alg_demo {
 
@@ -48,18 +48,48 @@ int RunDocQaDemo(const DemoOptions& options) {
   }
 
   size_t count = std::min(docs.size(), queries.size());
-  std::vector<CompanyDocInputStruct> inputs;
+  std::vector<CompanyString> doc_strs;
+  std::vector<CompanyString> query_strs;
+  doc_strs.reserve(count);
+  query_strs.reserve(count);
+  std::vector<CompanyPlatformDocInput> inputs;
   inputs.reserve(count);
+
   for (size_t i = 0; i < count; ++i) {
-    inputs.push_back({static_cast<uint64_t>(10001 + i), docs[i].c_str(),
-                      queries[i].c_str()});
+    doc_strs.push_back({static_cast<int32_t>(docs[i].size()),
+                        const_cast<char*>(docs[i].data())});
+    query_strs.push_back({static_cast<int32_t>(queries[i].size()),
+                          const_cast<char*>(queries[i].data())});
+    inputs.push_back({static_cast<uint64_t>(10001 + i), &doc_strs.back(),
+                      &query_strs.back()});
   }
 
-  std::vector<CompanyDocOutputStruct> outputs;
+  struct OutputSummary {
+    uint64_t request_id = 0;
+    std::string intent_name;
+    float confidence = 0.0f;
+    std::string answer_text;
+    int32_t chunk_count = 0;
+  };
+  std::vector<OutputSummary> output_summaries(count);
   std::vector<double> latencies;
 
-  int ret = RunPlatformOperator<CompanyDocInputStruct, CompanyDocOutputStruct>(
-      options, "rag_channel.doc_in", "rag_channel.doc_out", inputs, &outputs,
+  int ret = RunPlatformOperatorWithExtractor<CompanyPlatformDocInput,
+                                             CompanyPlatformDocOutput>(
+      options, "rag_channel.doc_in", "rag_channel.doc_out", inputs,
+      [&](size_t idx, const CompanyPlatformDocOutput& out) {
+        output_summaries[idx].request_id = out.request_id;
+        output_summaries[idx].confidence = out.confidence;
+        output_summaries[idx].chunk_count = out.chunk_count;
+        if (out.intent_name && out.intent_name->data) {
+          output_summaries[idx].intent_name.assign(out.intent_name->data,
+                                                   out.intent_name->length);
+        }
+        if (out.answer_text && out.answer_text->data) {
+          output_summaries[idx].answer_text.assign(out.answer_text->data,
+                                                   out.answer_text->length);
+        }
+      },
       &latencies);
   if (ret != 0) {
     return ret;
@@ -67,29 +97,31 @@ int RunDocQaDemo(const DemoOptions& options) {
 
   std::cout << "\n>>> 业务 3 执行结果验证 <<<" << std::endl;
   std::vector<DemoSampleResult> sample_results;
-  sample_results.reserve(outputs.size());
+  sample_results.reserve(output_summaries.size());
 
-  for (size_t i = 0; i < outputs.size(); ++i) {
+  for (size_t i = 0; i < output_summaries.size(); ++i) {
     PrintDivider();
-    std::cout << "  Result #" << i << " | Request ID: " << outputs[i].request_id
-              << "\n"
-              << "  Chunk Count   : " << outputs[i].chunk_count
+    std::cout << "  Result #" << i
+              << " | Request ID: " << output_summaries[i].request_id << "\n"
+              << "  Chunk Count   : " << output_summaries[i].chunk_count
               << " (1-to-N Sub-items)\n"
               << "  Intent Name   : "
-              << (outputs[i].intent_name[0] != '\0' ? outputs[i].intent_name
-                                                    : "none")
+              << (!output_summaries[i].intent_name.empty()
+                      ? output_summaries[i].intent_name
+                      : "none")
               << " (Conf: " << std::fixed << std::setprecision(2)
-              << outputs[i].confidence << ")\n"
-              << "  LLM Answer    : " << outputs[i].answer_text << std::endl;
+              << output_summaries[i].confidence << ")\n"
+              << "  LLM Answer    : " << output_summaries[i].answer_text
+              << std::endl;
 
     DemoSampleResult sample;
-    sample.request_id = outputs[i].request_id;
+    sample.request_id = output_summaries[i].request_id;
     sample.status = 0;
     sample.latency_ms = (i < latencies.size()) ? latencies[i] : 0.0;
-    sample.output["chunk_count"] = outputs[i].chunk_count;
-    sample.output["intent_name"] = outputs[i].intent_name;
-    sample.output["confidence"] = outputs[i].confidence;
-    sample.output["answer_text"] = outputs[i].answer_text;
+    sample.output["chunk_count"] = output_summaries[i].chunk_count;
+    sample.output["intent_name"] = output_summaries[i].intent_name;
+    sample.output["confidence"] = output_summaries[i].confidence;
+    sample.output["answer_text"] = output_summaries[i].answer_text;
     sample_results.push_back(sample);
   }
 

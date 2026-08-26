@@ -14,6 +14,7 @@
 #include "demo/common/demo_options.h"
 #include "demo/common/result_writer.h"
 #include "nlohmann/json.hpp"
+#include "platform/company_platform_types.h"
 #include "platform/platform_operator_interface.h"
 
 namespace alg_demo {
@@ -33,8 +34,52 @@ inline CompanyAlgBizType DemoBusinessToBizType(std::string_view demo_biz) {
 }
 
 /**
+ * @brief 自动解析 model_root 和 relative cfg_file_name
+ * (支持跨运行路径与父级查找)
+ */
+inline bool ResolveModelRootAndConfig(const std::string& conf_path,
+                                      std::string* out_model_root,
+                                      std::string* out_cfg_rel) {
+  std::string resolved = ResolvePath(conf_path);
+  std::error_code ec;
+  std::filesystem::path abs_conf =
+      std::filesystem::weakly_canonical(resolved, ec);
+  if (ec || !std::filesystem::exists(abs_conf)) {
+    abs_conf = std::filesystem::absolute(resolved);
+  }
+
+  std::filesystem::path rel_p(conf_path);
+  if (rel_p.is_absolute()) {
+    if (out_model_root) *out_model_root = abs_conf.parent_path().string();
+    if (out_cfg_rel) *out_cfg_rel = abs_conf.filename().string();
+    return true;
+  }
+
+  std::vector<std::string> parts;
+  for (const auto& part : rel_p) {
+    if (part != ".") {
+      parts.push_back(part.string());
+    }
+  }
+
+  std::filesystem::path base = abs_conf;
+  for (size_t i = 0; i < parts.size(); ++i) {
+    base = base.parent_path();
+  }
+
+  if (out_model_root) *out_model_root = base.string();
+  if (out_cfg_rel) {
+    std::filesystem::path rel_combined;
+    for (size_t i = 0; i < parts.size(); ++i) {
+      rel_combined /= parts[i];
+    }
+    *out_cfg_rel = rel_combined.string();
+  }
+  return true;
+}
+
+/**
  * @brief 校验 .conf 与 Pipeline JSON 中的 business_name 是否与 Demo Case 兼容
- * (基于 Platform 公开预检 API)
  */
 inline bool ValidateConfigBusinessMatch(const std::string& conf_path,
                                         std::string_view expected_biz,
@@ -47,11 +92,14 @@ inline bool ValidateConfigBusinessMatch(const std::string& conf_path,
     return false;
   }
 
-  std::string resolved_conf = ResolvePath(conf_path);
+  std::string model_root;
+  std::string cfg_rel;
+  ResolveModelRootAndConfig(conf_path, &model_root, &cfg_rel);
+
   char err_buf[512] = {0};
   int ret = llm_edgeflow::platform::ValidatePlatformConfigBinding(
-      resolved_conf.c_str(), static_cast<int32_t>(expected_type), err_buf,
-      sizeof(err_buf));
+      model_root.c_str(), cfg_rel.c_str(), static_cast<int32_t>(expected_type),
+      err_buf, sizeof(err_buf));
 
   if (ret != 0) {
     if (error_msg) {
@@ -83,32 +131,18 @@ struct OperatorHandleGuard {
     }
   }
 
-  // 禁止拷贝
   OperatorHandleGuard(const OperatorHandleGuard&) = delete;
   OperatorHandleGuard& operator=(const OperatorHandleGuard&) = delete;
 };
 
 /**
- * @brief 通用 Platform Operator 生命周期与按批分块执行器 (P1-1, P1-2, P1-3,
- * P2-2)
- * @tparam TInput 业务 C 输入结构体类型 (首字段必须为 uint64_t request_id)
- * @tparam TOutput 业务 C 输出结构体类型
- * @param options Demo 运行选项
- * @param input_slot 输入槽位名称 (如 "nlp_node.entity_in")
- * @param output_slot 输出槽位名称 (如 "nlp_node.entity_out")
- * @param inputs 输入结构体列表
- * @param outputs 输出结构体列表
- * @param out_latencies_ms 每个样本的耗时列表
- * @param ctrl_cmd 控制命令类型
- * @param default_ctrl_json 默认控制 JSON (若 options 未指定 control_file)
- * @return 0 成功, 非 0 错误退出码 (3: 配置/Control错误, 4: 数据集错误, 5:
- * 平台执行错误)
+ * @brief 通用 Platform Operator 单槽位生命周期与调度执行器
  */
-template <typename TInput, typename TOutput>
-int RunPlatformOperator(
+template <typename TInput, typename TOutput, typename TResultExtractor>
+int RunPlatformOperatorWithExtractor(
     const DemoOptions& options, std::string_view input_slot,
-    std::string_view output_slot, std::vector<TInput>& inputs,
-    std::vector<TOutput>* outputs,
+    std::string_view output_slot, const std::vector<TInput>& inputs,
+    TResultExtractor&& extractor,
     std::vector<double>* out_latencies_ms = nullptr,
     llm_edgeflow::platform::ControlCommand ctrl_cmd =
         llm_edgeflow::platform::ControlCommand::kUpdateRules,
@@ -119,13 +153,7 @@ int RunPlatformOperator(
     std::cerr << "[OperatorRunner ERROR] Inputs vector is empty." << std::endl;
     return 4;
   }
-  if (!outputs) {
-    std::cerr << "[OperatorRunner ERROR] Null outputs pointer provided."
-              << std::endl;
-    return 5;
-  }
 
-  // 1. 验证配置文件与业务精确匹配 (P1-3)
   std::string err;
   if (!ValidateConfigBusinessMatch(options.config_path, options.business,
                                    &err)) {
@@ -141,37 +169,37 @@ int RunPlatformOperator(
     return 3;
   }
 
-  std::string resolved_conf = ResolvePath(options.config_path);
+  std::string model_root;
+  std::string cfg_rel;
+  ResolveModelRootAndConfig(options.config_path, &model_root, &cfg_rel);
 
-  // 2. 获取平台函数表
   OperatorFunc ops = Get_LLM_EDGEFLOW_OperatorTable();
 
-  // 3. 创建平台会话句柄 (严格使用 options.batch_size 作为单次 Process 的最大
-  // Batch，P1-1)
   int max_batch_size = options.batch_size > 0 ? options.batch_size : 1;
+  uint32_t requested_depth = options.depth_num > 0 ? options.depth_num : 25;
+  if (requested_depth < static_cast<uint32_t>(max_batch_size)) {
+    requested_depth = static_cast<uint32_t>(max_batch_size);
+  }
 
   CreateParam param{};
-  param.cfg_file_name = resolved_conf.c_str();
-  param.platform_config.batch_size = max_batch_size;
-  param.platform_config.device_id = options.device_id;
-  param.platform_config.type = chip_type;
-  param.depth_num = options.depth_num > 0 ? options.depth_num : 1;
+  param.model_path = model_root.c_str();
+  param.cfg_file_name = cfg_rel.c_str();
+  param.device_id = options.device_id;
+  param.platform_type = chip_type;
+  param.max_frame_depth = requested_depth;
 
   void* raw_handle = nullptr;
   int ret = ops.Create(&raw_handle, &param);
   if (ret != 0 || !raw_handle) {
     std::string plat_err = GetPlatformLastError();
     std::cerr << "[OperatorRunner ERROR] Failed ops.Create with conf: "
-              << resolved_conf << " (Platform error: " << plat_err << ")"
+              << options.config_path << " (Platform error: " << plat_err << ")"
               << std::endl;
     return 5;
   }
 
-  // RAII 守卫确保离开函数时 Destroy 必然调用
   OperatorHandleGuard guard(ops, raw_handle);
 
-  // 4. 下发 Control 命令 (Fail-Closed:
-  // 显式指定读取或下发失败立即报错退出，P1-2)
   std::string control_payload;
   if (options.control_file.has_value() && !options.control_file->empty()) {
     if (!ReadTextFile(*options.control_file, &control_payload, &err)) {
@@ -180,7 +208,6 @@ int RunPlatformOperator(
           << *options.control_file << "': " << err << std::endl;
       return 3;
     }
-    // 校验 JSON 语法有效性
     try {
       auto parsed_check = nlohmann::json::parse(control_payload);
       if (!parsed_check.is_object()) {
@@ -213,9 +240,7 @@ int RunPlatformOperator(
     }
   }
 
-  // 5. 按 max_batch_size 分块调度执行 Process (P1-1)
   size_t total_inputs = inputs.size();
-  outputs->assign(total_inputs, TOutput{});
   if (out_latencies_ms) {
     out_latencies_ms->assign(total_inputs, 0.0);
   }
@@ -235,9 +260,8 @@ int RunPlatformOperator(
 
     for (size_t i = 0; i < chunk_size; ++i) {
       size_t idx = processed_count + i;
-      in_batch[i][in_key] = std::shared_ptr<void>(&inputs[idx], [](void*) {});
-      out_batch[i][out_key] =
-          std::shared_ptr<void>(&(*outputs)[idx], [](void*) {});
+      in_batch[i][in_key] = MakeBorrowedPlatformInput(&inputs[idx]);
+      out_batch[i][out_key] = std::shared_ptr<void>();
     }
 
     std::cout << "[OperatorRunner] Dispatching chunk [" << processed_count
@@ -261,36 +285,16 @@ int RunPlatformOperator(
                    "starting index "
                 << processed_count << ": code=" << ret << " (" << platform_err
                 << ")" << std::endl;
-
-      // 构造错误样本结果落盘 (P2-2)
-      std::vector<DemoSampleResult> sample_results;
-      sample_results.reserve(total_inputs);
-      for (size_t i = 0; i < total_inputs; ++i) {
-        DemoSampleResult s;
-        s.request_id = inputs[i].request_id;
-        if (i < processed_count) {
-          s.status = 0;
-          s.latency_ms = out_latencies_ms ? (*out_latencies_ms)[i] : 0.0;
-          s.output = {{"chunk_status", "completed"}};
-        } else if (i < processed_count + chunk_size) {
-          s.status = (ret != 0) ? ret : 5;
-          s.latency_ms = chunk_size > 0 ? (chunk_elapsed_ms / chunk_size) : 0.0;
-          s.error = "ops.Process failed: " + platform_err;
-          s.output = nlohmann::json::object();
-        } else {
-          s.status = 5;
-          s.latency_ms = 0.0;
-          s.error = "Skipped due to prior chunk failure";
-          s.output = nlohmann::json::object();
-        }
-        sample_results.push_back(s);
-      }
-
-      ResultWriter writer(options);
-      std::string w_err;
-      writer.WriteResults(sample_results, total_elapsed_ms, &w_err);
-
       return 5;
+    }
+
+    for (size_t i = 0; i < chunk_size; ++i) {
+      size_t idx = processed_count + i;
+      if (out_batch[i][out_key] && out_batch[i][out_key].get()) {
+        const auto* out_ptr =
+            static_cast<const TOutput*>(out_batch[i][out_key].get());
+        extractor(idx, *out_ptr);
+      }
     }
 
     if (out_latencies_ms) {
@@ -301,6 +305,7 @@ int RunPlatformOperator(
       }
     }
 
+    out_batch.clear();
     processed_count += chunk_size;
   }
 

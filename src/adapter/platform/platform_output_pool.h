@@ -1,0 +1,126 @@
+#pragma once
+
+#include <condition_variable>
+#include <memory>
+#include <mutex>
+#include <queue>
+#include <string>
+#include <vector>
+
+#include "adapter/platform/platform_value_type_registry.h"
+
+namespace alg_framework {
+
+class OutputPoolState;
+
+/**
+ * @brief 输出池自定义 Deleter (仅捕获 weak_ptr，生命周期安全)
+ */
+struct OutputPoolDeleter {
+  std::weak_ptr<OutputPoolState> weak_pool;
+  void* block = nullptr;
+
+  void operator()(void*) const noexcept;
+};
+
+/**
+ * @brief 单个输出后缀的输出对象预分配池状态机
+ */
+class OutputPoolState : public std::enable_shared_from_this<OutputPoolState> {
+ public:
+  static int Create(const std::string& suffix, uint32_t depth,
+                    const ResolvedOutputPoolSpec& spec,
+                    const PlatformValueTypeBinding* binding,
+                    std::shared_ptr<OutputPoolState>* out_pool,
+                    std::string* err);
+
+  ~OutputPoolState();
+
+  /**
+   * @brief 从空闲队列检出一个块 (池为空时条件变量阻塞等待)
+   */
+  int Acquire(void** out_block);
+
+  /**
+   * @brief 将已检出的块重置并归还池中
+   */
+  void ReturnBlock(void* block) noexcept;
+
+  /**
+   * @brief 关闭输出池并唤醒所有等待线程
+   * @return 关闭瞬间尚未归还的块数量 (checked_out_count)
+   */
+  uint32_t CloseAndDrain() noexcept;
+
+  /**
+   * @brief 释放池中所有块及嵌套分配
+   */
+  void DestroyBlocks() noexcept;
+
+  bool IsClosing() const noexcept {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return closing_;
+  }
+
+  uint32_t Depth() const noexcept { return depth_; }
+  const std::string& CanonicalSuffix() const noexcept {
+    return canonical_suffix_;
+  }
+  const ResolvedOutputPoolSpec& Spec() const noexcept { return spec_; }
+
+ private:
+  OutputPoolState() = default;
+
+  std::string canonical_suffix_;
+  uint32_t depth_ = 0;
+  ResolvedOutputPoolSpec spec_;
+  const PlatformValueTypeBinding* type_binding_ = nullptr;
+
+  std::vector<OwnedExternalBlock> all_blocks_;
+  std::queue<void*> free_blocks_;
+  mutable std::mutex mutex_;
+  std::condition_variable available_;
+  uint32_t checked_out_count_ = 0;
+  bool closing_ = false;
+};
+
+/**
+ * @brief Process 执行期局部检出租约守卫 (RAII 回滚保护)
+ */
+class ScopedOutputLeaseGuard {
+ public:
+  ScopedOutputLeaseGuard() = default;
+  ~ScopedOutputLeaseGuard() { Rollback(); }
+
+  ScopedOutputLeaseGuard(const ScopedOutputLeaseGuard&) = delete;
+  ScopedOutputLeaseGuard& operator=(const ScopedOutputLeaseGuard&) = delete;
+
+  void Track(std::shared_ptr<OutputPoolState> pool, void* block) {
+    leases_.push_back({std::move(pool), block});
+  }
+
+  void Commit() noexcept {
+    committed_ = true;
+    leases_.clear();
+  }
+
+  void Rollback() noexcept {
+    if (committed_) return;
+    for (auto& item : leases_) {
+      if (item.pool && item.block) {
+        item.pool->ReturnBlock(item.block);
+      }
+    }
+    leases_.clear();
+  }
+
+ private:
+  struct LeaseItem {
+    std::shared_ptr<OutputPoolState> pool;
+    void* block = nullptr;
+  };
+  std::vector<LeaseItem> leases_;
+  bool committed_ = false;
+};
+
+}  // namespace alg_framework
