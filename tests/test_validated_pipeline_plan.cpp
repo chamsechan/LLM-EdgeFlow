@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <nlohmann/json.hpp>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #include "core/node_base.h"
@@ -87,6 +88,56 @@ NodeDefinition MakeModelBoundPlanTestNodeDefinition() {
 REGISTER_NODE_WITH_DEFINITION(ModelBoundPlanTestNode,
                               MakeModelBoundPlanTestNodeDefinition());
 
+TEST(ValidatedPipelinePlanTest, DiagnosticCodeNameTableDriven) {
+  struct Case {
+    DiagnosticCode code;
+    const char* expected_name;
+  };
+  const std::vector<Case> cases = {
+      {DiagnosticCode::kOk, "OK"},
+      {DiagnosticCode::kJsonParse, "JSON_PARSE"},
+      {DiagnosticCode::kConfigFileOpen, "CONFIG_FILE_OPEN"},
+      {DiagnosticCode::kRootType, "ROOT_TYPE"},
+      {DiagnosticCode::kUnknownField, "UNKNOWN_FIELD"},
+      {DiagnosticCode::kMissingField, "MISSING_FIELD"},
+      {DiagnosticCode::kFieldType, "FIELD_TYPE"},
+      {DiagnosticCode::kFieldRange, "FIELD_RANGE"},
+      {DiagnosticCode::kInvalidCombination, "INVALID_COMBINATION"},
+      {DiagnosticCode::kDuplicateModelId, "DUPLICATE_MODEL_ID"},
+      {DiagnosticCode::kDuplicateNodeId, "DUPLICATE_NODE_ID"},
+      {DiagnosticCode::kUnknownBusiness, "UNKNOWN_BUSINESS"},
+      {DiagnosticCode::kUnknownNodeType, "UNKNOWN_NODE_TYPE"},
+      {DiagnosticCode::kUnknownEngineType, "UNKNOWN_ENGINE_TYPE"},
+      {DiagnosticCode::kInvalidDependency, "INVALID_DEPENDENCY"},
+      {DiagnosticCode::kDuplicateDependency, "DUPLICATE_DEPENDENCY"},
+      {DiagnosticCode::kDagCycle, "DAG_CYCLE"},
+      {DiagnosticCode::kRegistryConflict, "REGISTRY_CONFLICT"},
+      {DiagnosticCode::kUnknownConfigField, "UNKNOWN_CONFIG_FIELD"},
+      {DiagnosticCode::kMissingConfigField, "MISSING_CONFIG_FIELD"},
+      {DiagnosticCode::kConfigFieldType, "CONFIG_FIELD_TYPE"},
+      {DiagnosticCode::kConfigFieldRange, "CONFIG_FIELD_RANGE"},
+      {DiagnosticCode::kConfigFieldEnum, "CONFIG_FIELD_ENUM"},
+      {DiagnosticCode::kUnknownModelReference, "UNKNOWN_MODEL_REFERENCE"},
+      {DiagnosticCode::kModelCapabilityMismatch, "MODEL_CAPABILITY_MISMATCH"},
+      {DiagnosticCode::kNodeBusinessMismatch, "NODE_BUSINESS_MISMATCH"},
+      {DiagnosticCode::kMissingInputProducer, "MISSING_INPUT_PRODUCER"},
+      {DiagnosticCode::kDuplicatePortProducer, "DUPLICATE_PORT_PRODUCER"},
+      {DiagnosticCode::kMissingBusinessOutput, "MISSING_BUSINESS_OUTPUT"},
+      {DiagnosticCode::kNodeNotParallelSafe, "NODE_NOT_PARALLEL_SAFE"},
+      {DiagnosticCode::kParallelWriteConflict, "PARALLEL_WRITE_CONFLICT"},
+      {DiagnosticCode::kSerializedEngineConcurrency,
+       "SERIALIZED_ENGINE_CONCURRENCY"},
+      {DiagnosticCode::kInternalException, "INTERNAL_EXCEPTION"},
+  };
+
+  std::unordered_set<std::string> names;
+  for (const auto& item : cases) {
+    std::string name = DiagnosticCodeName(item.code);
+    EXPECT_STREQ(name.c_str(), item.expected_name);
+    EXPECT_TRUE(names.insert(name).second) << "Duplicate name: " << name;
+  }
+}
+
 TEST(ValidatedPipelinePlanTest, StrictVsCompatiblePolicy) {
   // 1. Unregistered business with strict policy fails
   nlohmann::json unreg_biz_json = {
@@ -101,7 +152,8 @@ TEST(ValidatedPipelinePlanTest, StrictVsCompatiblePolicy) {
       unreg_biz_json, ValidationPolicy::kStrict);
   EXPECT_FALSE(strict_plan.report.ok);
   ASSERT_FALSE(strict_plan.report.diagnostics.empty());
-  EXPECT_EQ(strict_plan.report.diagnostics.front().code, "UNKNOWN_BUSINESS");
+  EXPECT_EQ(strict_plan.report.diagnostics.front().code,
+            DiagnosticCode::kUnknownBusiness);
 
   auto compat_plan = PipelineValidator::ValidateAndPlan(
       unreg_biz_json, ValidationPolicy::kPrivateExtensionCompatible);
@@ -163,7 +215,8 @@ TEST(ValidatedPipelinePlanTest, RejectsSharedSerializedEngineInParallelLayer) {
   auto diagnostic =
       std::find_if(plan.report.diagnostics.begin(),
                    plan.report.diagnostics.end(), [](const auto& item) {
-                     return item.code == "SERIALIZED_ENGINE_CONCURRENCY";
+                     return item.code ==
+                            DiagnosticCode::kSerializedEngineConcurrency;
                    });
   ASSERT_NE(diagnostic, plan.report.diagnostics.end());
   EXPECT_EQ(diagnostic->node_id, "node_b");
@@ -184,7 +237,8 @@ TEST(ValidatedPipelinePlanTest, RejectsNodeFromDifferentBusiness) {
   EXPECT_NE(std::find_if(plan.report.diagnostics.begin(),
                          plan.report.diagnostics.end(),
                          [](const auto& item) {
-                           return item.code == "NODE_BUSINESS_MISMATCH";
+                           return item.code ==
+                                  DiagnosticCode::kNodeBusinessMismatch;
                          }),
             plan.report.diagnostics.end());
 }

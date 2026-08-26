@@ -113,10 +113,10 @@ TEST(PipelineValidatorTest, ReportsCycle) {
                                       {"depends_on", {"a"}}}}}};
   const auto report = PipelineValidator::Validate(pipeline);
   EXPECT_FALSE(report.ok);
-  std::set<std::string> codes;
+  std::set<DiagnosticCode> codes;
   for (const auto& diagnostic : report.diagnostics)
     codes.insert(diagnostic.code);
-  EXPECT_TRUE(codes.count("DAG_CYCLE"));
+  EXPECT_TRUE(codes.count(DiagnosticCode::kDagCycle));
 }
 
 TEST(PipelineValidatorTest, ReportsDuplicateEdge) {
@@ -131,7 +131,8 @@ TEST(PipelineValidatorTest, ReportsDuplicateEdge) {
   const auto report = PipelineValidator::Validate(pipeline);
   ASSERT_FALSE(report.ok);
   ASSERT_FALSE(report.diagnostics.empty());
-  EXPECT_EQ(report.diagnostics.front().code, "INVALID_DEPENDENCY");
+  EXPECT_EQ(report.diagnostics.front().code,
+            DiagnosticCode::kInvalidDependency);
   EXPECT_EQ(report.diagnostics.front().path, "/pipeline/1/depends_on/1");
 }
 
@@ -153,12 +154,22 @@ TEST(PipelineValidatorTest, ReportsConfigAndCapabilityErrors) {
          {"depends_on", {"llm"}}}}}};
   const auto report = PipelineValidator::Validate(pipeline);
   EXPECT_FALSE(report.ok);
-  std::set<std::string> codes;
+  std::set<DiagnosticCode> codes;
   for (const auto& diagnostic : report.diagnostics)
     codes.insert(diagnostic.code);
-  EXPECT_TRUE(codes.count("UNKNOWN_CONFIG_FIELD"));
-  EXPECT_TRUE(codes.count("CONFIG_FIELD_RANGE"));
-  EXPECT_TRUE(codes.count("MODEL_CAPABILITY_MISMATCH"));
+  EXPECT_TRUE(codes.count(DiagnosticCode::kUnknownConfigField));
+  EXPECT_TRUE(codes.count(DiagnosticCode::kConfigFieldRange));
+  EXPECT_TRUE(codes.count(DiagnosticCode::kModelCapabilityMismatch));
+
+  // Verify external JSON serialization parity
+  auto json_rep = report.ToJson();
+  std::set<std::string> json_codes;
+  for (const auto& item : json_rep["diagnostics"]) {
+    json_codes.insert(item["code"].get<std::string>());
+  }
+  EXPECT_TRUE(json_codes.count("UNKNOWN_CONFIG_FIELD"));
+  EXPECT_TRUE(json_codes.count("CONFIG_FIELD_RANGE"));
+  EXPECT_TRUE(json_codes.count("MODEL_CAPABILITY_MISMATCH"));
 }
 
 TEST(PipelineValidatorTest, NormalizesLegacySequenceToExplicitDag) {

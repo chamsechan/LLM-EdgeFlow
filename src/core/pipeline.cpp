@@ -16,24 +16,59 @@ namespace alg_framework {
 
 namespace {
 
-PipelineErrorCode ValidationCodeToPipelineCode(const std::string& code) {
-  if (code == "ROOT_TYPE") return PipelineErrorCode::kRootType;
-  if (code == "UNKNOWN_FIELD" || code == "UNKNOWN_CONFIG_FIELD")
-    return PipelineErrorCode::kUnknownField;
-  if (code == "MISSING_FIELD") return PipelineErrorCode::kMissingField;
-  if (code == "FIELD_TYPE" || code == "CONFIG_FIELD_TYPE")
-    return PipelineErrorCode::kFieldType;
-  if (code == "FIELD_RANGE" || code == "CONFIG_FIELD_RANGE")
-    return PipelineErrorCode::kFieldRange;
-  if (code == "DUPLICATE_MODEL_ID") return PipelineErrorCode::kDuplicateModelId;
-  if (code == "DUPLICATE_NODE_ID") return PipelineErrorCode::kDuplicateNodeId;
-  if (code == "UNKNOWN_NODE_TYPE") return PipelineErrorCode::kUnknownNodeType;
-  if (code == "UNKNOWN_ENGINE_TYPE")
-    return PipelineErrorCode::kUnknownEngineType;
-  if (code == "INVALID_DEPENDENCY" || code == "DUPLICATE_DEPENDENCY")
-    return PipelineErrorCode::kInvalidDependency;
-  if (code == "DAG_CYCLE") return PipelineErrorCode::kDagCycle;
-  if (code == "REGISTRY_CONFLICT") return PipelineErrorCode::kRegistryConflict;
+PipelineErrorCode ValidationCodeToPipelineCode(DiagnosticCode code) {
+  switch (code) {
+    case DiagnosticCode::kOk:
+      return PipelineErrorCode::kOk;
+    case DiagnosticCode::kJsonParse:
+      return PipelineErrorCode::kJsonParse;
+    case DiagnosticCode::kConfigFileOpen:
+      return PipelineErrorCode::kConfigFileOpen;
+    case DiagnosticCode::kRootType:
+      return PipelineErrorCode::kRootType;
+    case DiagnosticCode::kUnknownField:
+    case DiagnosticCode::kUnknownConfigField:
+      return PipelineErrorCode::kUnknownField;
+    case DiagnosticCode::kMissingField:
+    case DiagnosticCode::kMissingConfigField:
+      return PipelineErrorCode::kMissingField;
+    case DiagnosticCode::kFieldType:
+    case DiagnosticCode::kConfigFieldType:
+      return PipelineErrorCode::kFieldType;
+    case DiagnosticCode::kFieldRange:
+    case DiagnosticCode::kConfigFieldRange:
+      return PipelineErrorCode::kFieldRange;
+    case DiagnosticCode::kInvalidCombination:
+    case DiagnosticCode::kConfigFieldEnum:
+    case DiagnosticCode::kUnknownBusiness:
+    case DiagnosticCode::kUnknownModelReference:
+    case DiagnosticCode::kModelCapabilityMismatch:
+    case DiagnosticCode::kNodeBusinessMismatch:
+    case DiagnosticCode::kMissingInputProducer:
+    case DiagnosticCode::kDuplicatePortProducer:
+    case DiagnosticCode::kMissingBusinessOutput:
+    case DiagnosticCode::kNodeNotParallelSafe:
+    case DiagnosticCode::kParallelWriteConflict:
+    case DiagnosticCode::kSerializedEngineConcurrency:
+      return PipelineErrorCode::kInvalidCombination;
+    case DiagnosticCode::kDuplicateModelId:
+      return PipelineErrorCode::kDuplicateModelId;
+    case DiagnosticCode::kDuplicateNodeId:
+      return PipelineErrorCode::kDuplicateNodeId;
+    case DiagnosticCode::kUnknownNodeType:
+      return PipelineErrorCode::kUnknownNodeType;
+    case DiagnosticCode::kUnknownEngineType:
+      return PipelineErrorCode::kUnknownEngineType;
+    case DiagnosticCode::kInvalidDependency:
+    case DiagnosticCode::kDuplicateDependency:
+      return PipelineErrorCode::kInvalidDependency;
+    case DiagnosticCode::kDagCycle:
+      return PipelineErrorCode::kDagCycle;
+    case DiagnosticCode::kRegistryConflict:
+      return PipelineErrorCode::kRegistryConflict;
+    case DiagnosticCode::kInternalException:
+      return PipelineErrorCode::kInternalException;
+  }
   return PipelineErrorCode::kInvalidCombination;
 }
 
@@ -176,12 +211,13 @@ bool Pipeline::BuildInternal(const nlohmann::json& root_config,
   if (!plan.report.ok) {
     if (!plan.report.diagnostics.empty()) {
       const auto& item = plan.report.diagnostics.front();
+      const char* code_str = DiagnosticCodeName(item.code);
       if (diagnostic) {
         diagnostic->code = ValidationCodeToPipelineCode(item.code);
         diagnostic->path = item.path;
-        diagnostic->message = item.code + ": " + item.message;
+        diagnostic->message = std::string(code_str) + ": " + item.message;
       }
-      std::cerr << "[Pipeline] Validation failed: " << item.code << " at "
+      std::cerr << "[Pipeline] Validation failed: " << code_str << " at "
                 << item.path << ": " << item.message << std::endl;
     }
     return false;

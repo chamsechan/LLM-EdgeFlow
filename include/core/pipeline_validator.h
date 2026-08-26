@@ -13,8 +13,46 @@ enum class ValidationPolicy {
   kPrivateExtensionCompatible,
 };
 
+enum class DiagnosticCode {
+  kOk,
+  kJsonParse,
+  kConfigFileOpen,
+  kRootType,
+  kUnknownField,
+  kMissingField,
+  kFieldType,
+  kFieldRange,
+  kInvalidCombination,
+  kDuplicateModelId,
+  kDuplicateNodeId,
+  kUnknownBusiness,
+  kUnknownNodeType,
+  kUnknownEngineType,
+  kInvalidDependency,
+  kDuplicateDependency,
+  kDagCycle,
+  kRegistryConflict,
+  kUnknownConfigField,
+  kMissingConfigField,
+  kConfigFieldType,
+  kConfigFieldRange,
+  kConfigFieldEnum,
+  kUnknownModelReference,
+  kModelCapabilityMismatch,
+  kNodeBusinessMismatch,
+  kMissingInputProducer,
+  kDuplicatePortProducer,
+  kMissingBusinessOutput,
+  kNodeNotParallelSafe,
+  kParallelWriteConflict,
+  kSerializedEngineConcurrency,
+  kInternalException,
+};
+
+const char* DiagnosticCodeName(DiagnosticCode code) noexcept;
+
 struct ValidationDiagnostic {
-  std::string code;
+  DiagnosticCode code = DiagnosticCode::kOk;
   std::string path;
   std::string message;
   std::string severity = "error";
@@ -22,6 +60,8 @@ struct ValidationDiagnostic {
   std::string port;
   std::vector<std::string> related_nodes;
   std::vector<std::string> suggestions;
+
+  nlohmann::json ToJson() const;
 };
 
 struct ValidationReport {

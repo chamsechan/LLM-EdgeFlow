@@ -296,6 +296,10 @@ add_executable(test_node_ownership_and_reuse tests/test_node_ownership_and_reuse
 target_link_libraries(test_node_ownership_and_reuse PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
 add_test(NAME NodeOwnershipAndReuseTest COMMAND test_node_ownership_and_reuse)
 
+add_executable(test_definition_schema_validation tests/test_definition_schema_validation.cpp)
+target_link_libraries(test_definition_schema_validation PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME DefinitionSchemaValidationTest COMMAND test_definition_schema_validation)
+
 # 设置所有测试工作目录为项目根目录，保证无论从何处运行 CTest，相对路径均一致解析
 set_tests_properties(
   C11AbiComplianceTest LayerGuardTest BatchExecutorTest FrameworkCoreTest
@@ -307,6 +311,7 @@ set_tests_properties(
   DocQaRerankTest RerankRefineNodeTest PipelineStudioTest VisualizerServerTest
   DemoRunnerTest CatalogContractSsotTest TypedBlackboardContractsTest
   ValidatedPipelinePlanTest NodeBaseContractsTest NodeOwnershipAndReuseTest
+  DefinitionSchemaValidationTest
   PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
 )
 

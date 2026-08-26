@@ -219,7 +219,9 @@ int main(int argc, char** argv) {
       alg_framework::ValidationDiagnostic diagnostic;
       if (!PipelineValidator::NormalizeExplicitDag(root, &normalized,
                                                    &diagnostic)) {
-        std::cout << Error(diagnostic.code, diagnostic.message).dump(2)
+        std::cout << Error(DiagnosticCodeName(diagnostic.code),
+                           diagnostic.message)
+                         .dump(2)
                   << std::endl;
         return 1;
       }

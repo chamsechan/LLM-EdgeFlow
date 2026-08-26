@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <mutex>
+#include <unordered_set>
 #include <utility>
 
 namespace alg_framework {
@@ -78,8 +79,64 @@ const char* EngineThreadModelName(EngineThreadModel model) {
   return "unknown";
 }
 
+bool MatchesKind(const nlohmann::json& value, ConfigValueKind kind) {
+  switch (kind) {
+    case ConfigValueKind::kString:
+      return value.is_string();
+    case ConfigValueKind::kInteger:
+      return value.is_number_integer();
+    case ConfigValueKind::kNumber:
+      return value.is_number();
+    case ConfigValueKind::kBoolean:
+      return value.is_boolean();
+    case ConfigValueKind::kObject:
+      return value.is_object();
+    case ConfigValueKind::kArray:
+      return value.is_array();
+  }
+  return false;
+}
+
+bool ValidateFieldDefinition(const ConfigFieldDefinition& field,
+                             std::unordered_set<std::string>& seen_names) {
+  if (field.name.empty()) return false;
+  if (!seen_names.insert(field.name).second) return false;
+  if (field.minimum.has_value() && field.maximum.has_value() &&
+      *field.minimum > *field.maximum) {
+    return false;
+  }
+  if (!field.enum_values.empty()) {
+    if (field.kind != ConfigValueKind::kString) return false;
+    std::unordered_set<std::string> seen_enums;
+    for (const auto& ev : field.enum_values) {
+      if (ev.empty() || !seen_enums.insert(ev).second) return false;
+    }
+  }
+  if (!field.default_value.is_null()) {
+    if (!MatchesKind(field.default_value, field.kind)) return false;
+    if (field.kind == ConfigValueKind::kInteger ||
+        field.kind == ConfigValueKind::kNumber) {
+      double val = field.default_value.get<double>();
+      if (field.minimum.has_value() && val < *field.minimum) return false;
+      if (field.maximum.has_value() && val > *field.maximum) return false;
+    } else if (field.kind == ConfigValueKind::kString &&
+               !field.enum_values.empty()) {
+      std::string val = field.default_value.get<std::string>();
+      if (std::find(field.enum_values.begin(), field.enum_values.end(), val) ==
+          field.enum_values.end()) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
 bool PipelineCatalog::RegisterNodeDefinition(const NodeDefinition& definition) {
   if (definition.node_type.empty()) return false;
+  std::unordered_set<std::string> seen_field_names;
+  for (const auto& field : definition.config_fields) {
+    if (!ValidateFieldDefinition(field, seen_field_names)) return false;
+  }
   std::lock_guard<std::mutex> lock(CatalogMutex());
   auto& definitions = RegisteredNodes();
   if (std::any_of(definitions.begin(), definitions.end(),
@@ -99,6 +156,10 @@ bool PipelineCatalog::RegisterNodeDefinition(const NodeDefinition& definition) {
 bool PipelineCatalog::RegisterEngineDefinition(
     const EngineDefinition& definition) {
   if (definition.engine_type.empty()) return false;
+  std::unordered_set<std::string> seen_field_names;
+  for (const auto& field : definition.config_fields) {
+    if (!ValidateFieldDefinition(field, seen_field_names)) return false;
+  }
   std::lock_guard<std::mutex> lock(CatalogMutex());
   auto& definitions = RegisteredEngines();
   if (std::any_of(definitions.begin(), definitions.end(),
