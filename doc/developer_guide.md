@@ -10,8 +10,8 @@
 | :--- | :--- | :--- | :--- |
 | **Layer 1: C ABI 适配层** | 新增业务枚举、输入/输出纯 C 结构体与专属适配器 | `include/company_alg_interface.h`<br>`src/adapter/adapters/<biz>_adapter.cpp` | `CompanyAlgBizType`<br>`IBusinessAdapter`<br>`REGISTER_BUSINESS_ADAPTER` |
 | **Layer 2: 核心编排层** | 扩展动态黑板、会话模型管理与全局资源 | `include/core/alg_context.h`<br>`include/core/session_context.h` | `AlgContext::Set<T>()`<br>`SessionContext::SetResource()` |
-| **Layer 3: 业务算子池** | 新增前处理/后处理/推理/规则算子 | `src/business/<biz_name>/*.cpp`<br>`src/common_nodes/*.cpp` | `INode`<br>`REGISTER_NODE(NodeName)` |
-| **Layer 4: 异构引擎层** | 接入新芯片或推理后端 (如 Ascend/RKNN/TensorRT) | `include/engine/engine_interface.h`<br>`src/engine/<backend>/*_engine.cpp` | `IModelEngine`<br>`REGISTER_ENGINE(Name, Cls)`<br>`FixedBatchExecutor` |
+| **Layer 3: 业务算子池** | 新增前处理/后处理/推理/规则算子 | `src/business/<biz_name>/*.cpp`<br>`src/common_nodes/*.cpp` | `NodeBase`<br>`REGISTER_NODE_WITH_DEFINITION(NodeName, def)` |
+| **Layer 4: 异构引擎层** | 接入新芯片或推理后端 (如 Ascend/RKNN/TensorRT) | `include/engine/engine_interface.h`<br>`src/engine/<backend>/*_engine.cpp` | `IModelEngine`<br>`REGISTER_ENGINE_WITH_DEFINITION(Cls, def)`<br>`FixedBatchExecutor` |
 
 ---
 
@@ -150,7 +150,15 @@ REGISTER_BUSINESS_ADAPTER(CustomTaskAdapter);
 
 ---
 
-## 2. Layer 3: 如何新增一个业务算子 (NodeBase)
+## 2. Layer 2: 核心编排层与静态校验计划 (Pipeline & ValidatedPipelinePlan)
+
+Layer 2 负责请求黑板生命周期与 DAG 管线单趟构建：
+- **`ValidatedPipelinePlan`**：`PipelineValidator::ValidateAndPlan()` 单趟静态校验与 DAG 拓扑排序输出的不可变执行计划，`Pipeline::BuildInternal()` 直接消费该计划，杜绝运行时二次解析或隐式 DAG 计算。
+- **`BlackboardKey<T>`**：强类型黑板键，各算子间通过 `Require` 与 `Publish` 交换数据，杜绝无类型内存乱序。
+
+---
+
+## 3. Layer 3: 如何新增一个业务算子 (NodeBase)
 
 ```cpp
 // src/business/my_biz/my_custom_node.cpp

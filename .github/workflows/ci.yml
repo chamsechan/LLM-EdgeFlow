@@ -56,6 +56,12 @@ jobs:
             ccache-${{ runner.os }}-${{ github.ref }}-
             ccache-${{ runner.os }}-
 
+      - name: Verify Architecture Isolation & Documentation Integrity
+        run: |
+          ./scripts/check_layer_isolation.sh
+          ./scripts/check_architecture_docs.sh
+          ./scripts/render_architecture_diagrams.sh --check
+
       - name: Verify Code Style (Google C++ Format)
         run: |
           ./scripts/format.sh --check

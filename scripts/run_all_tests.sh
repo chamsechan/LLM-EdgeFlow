@@ -23,11 +23,13 @@ echo -e "${BOLD}${CYAN}  Project Root: $ROOT_DIR${NC}"
 echo -e "${BOLD}${CYAN}==================================================================${NC}\n"
 
 # 1. 架构分层隔离、代码规范与差异门禁检验
-echo -e "${BOLD}[ Step 1/6: LayerGuard 架构分层防腐扫描、Google C++ 代码规范与 Git Diff 门禁检验 ]${NC}"
+echo -e "${BOLD}[ Step 1/6: LayerGuard 架构分层防腐扫描、架构文档防漂移、Google C++ 代码规范与 Git Diff 门禁检验 ]${NC}"
 "$SCRIPT_DIR/check_layer_isolation.sh"
+"$SCRIPT_DIR/check_architecture_docs.sh"
+"$SCRIPT_DIR/render_architecture_diagrams.sh" --check
 "$SCRIPT_DIR/format.sh" --check
 git diff --check
-echo -e "${GREEN}✓ 架构分层隔离、代码规范与差异门禁校验 100% 通过！${NC}\n"
+echo -e "${GREEN}✓ 架构分层隔离、文档防漂移、代码规范与差异门禁校验 100% 通过！${NC}\n"
 
 # 2. 全量工程编译
 echo -e "${BOLD}[ Step 2/6: CMake 构建与二进制链接 ]${NC}"

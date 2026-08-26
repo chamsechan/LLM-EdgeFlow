@@ -172,6 +172,12 @@ add_test(NAME C11AbiComplianceTest COMMAND test_c11_abi_compliance)
 # 4. 架构分层防腐隔离测试 (LayerGuard)
 add_test(NAME LayerGuardTest COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_layer_isolation.sh)
 
+# 4.1 架构文档防漂移测试 (ArchitectureDocsDriftTest)
+add_test(NAME ArchitectureDocsDriftTest COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_architecture_docs.sh)
+
+# 4.2 架构图资产一致性检查测试 (DiagramAssetsCheckTest)
+add_test(NAME DiagramAssetsCheckTest COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/render_architecture_diagrams.sh --check)
+
 # 5. 单元测试与安全性测试集 (基于 Google Test & CTest)
 
 add_executable(test_batch_executor tests/test_batch_executor.cpp)
@@ -302,7 +308,8 @@ add_test(NAME DefinitionSchemaValidationTest COMMAND test_definition_schema_vali
 
 # 设置所有测试工作目录为项目根目录，保证无论从何处运行 CTest，相对路径均一致解析
 set_tests_properties(
-  C11AbiComplianceTest LayerGuardTest BatchExecutorTest FrameworkCoreTest
+  C11AbiComplianceTest LayerGuardTest ArchitectureDocsDriftTest
+  DiagramAssetsCheckTest BatchExecutorTest FrameworkCoreTest
   CAbiSafetyTest QwenEnginesComparisonTest DifferentIoModalitiesTest
   AllBusinessPipelinesTest ConcurrencyAndEdgeCasesTest DagPipelineTest
   RuntimeControlAndHotSwapTest EngineFaultToleranceAndLifecycleTest
