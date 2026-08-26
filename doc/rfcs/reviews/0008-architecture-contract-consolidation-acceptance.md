@@ -6,7 +6,7 @@
 `main` 合并闭环。**
 
 2026-08-26 本轮修复关闭了再复审报告中的 RCR-001～RCR-006：图形资产现在可从固定
-PlantUML 版本确定性生成并 fail-closed 比较；Core、Pipeline、CLI、Web 与 Runtime
+PlantUML 版本、Jar 校验和与源 SHA provenance 生成并 fail-closed 校验；Core、Pipeline、CLI、Web 与 Runtime
 共享同一非法 fixture；生产 Definition 与运行时重新一致；负向文档测试不再修改工作
 树；sanitizer fast 使用独立构建和 emulator-only 路径；RFC 生命周期恢复为真实状态。
 
@@ -39,8 +39,9 @@ PlantUML 版本确定性生成并 fail-closed 比较；Core、Pipeline、CLI、W
 - 权威映射固定为：
   - `doc/architecture.puml` → `doc/assets/architecture_class_diagram.svg`；
   - `doc/architecture_v2.puml` → `doc/assets/architecture_flow.svg`。
-- `--generate` 先在临时目录完整渲染和语义检查，再安装资产；`--check` 重新渲染并用
-  `cmp` 比较已提交资产，不修改资产。
+- `--generate` 先在临时目录完整渲染和语义检查，写入精确源 SHA 与生成器版本后再安装
+  资产；`--check` 重新渲染，并核对已提交资产的 source provenance、SVG 结构和核心
+  架构概念，不修改资产，也不依赖跨 CPU/字体栈不稳定的坐标字节。
 - `-checkonly` 在隔离的临时源副本执行，避免 PlantUML 在 `doc/` 产生 PNG 副产物。
 - `DiagramRenderGateSelfTest` 在临时文档树中验证：源变资产不变会失败、资产损坏会
   失败、`--generate` 可修复且随后 `--check` 通过。

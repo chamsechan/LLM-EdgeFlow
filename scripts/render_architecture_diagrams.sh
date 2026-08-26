@@ -109,27 +109,57 @@ for required_flow in PipelineCatalog PipelineValidator NodeBase FixedBatchExecut
   fi
 done
 
+CLASS_SOURCE_SHA="$(sha256sum "${CLASS_SOURCE}" | awk '{print $1}')"
+FLOW_SOURCE_SHA="$(sha256sum "${FLOW_SOURCE}" | awk '{print $1}')"
+CLASS_PROVENANCE="LLM-EdgeFlow-PlantUML-Source-SHA256:${CLASS_SOURCE_SHA};Generator:${PLANTUML_VERSION}"
+FLOW_PROVENANCE="LLM-EdgeFlow-PlantUML-Source-SHA256:${FLOW_SOURCE_SHA};Generator:${PLANTUML_VERSION}"
+
+annotate_generated_asset() {
+  local generated_file="$1"
+  local provenance="$2"
+  sed -i "1i<!-- ${provenance} -->" "${generated_file}"
+}
+
+validate_committed_asset() {
+  local asset_file="$1"
+  local provenance="$2"
+  shift 2
+  if [[ ! -s "${asset_file}" ]] || ! grep -q '<svg' "${asset_file}" || \
+      ! grep -q '</svg>' "${asset_file}"; then
+    echo "❌ Missing or invalid committed SVG asset: ${asset_file}"
+    exit 1
+  fi
+  if ! grep -Fq "<!-- ${provenance} -->" "${asset_file}"; then
+    echo "❌ SVG source provenance is stale. Run: $0 --generate"
+    exit 1
+  fi
+  for required_concept in "$@"; do
+    if ! grep -q "${required_concept}" "${asset_file}"; then
+      echo "❌ Committed SVG is missing required concept: ${required_concept}"
+      exit 1
+    fi
+  done
+}
+
+annotate_generated_asset "${GENERATED_CLASS}" "${CLASS_PROVENANCE}"
+annotate_generated_asset "${GENERATED_FLOW}" "${FLOW_PROVENANCE}"
+
 if [[ "${MODE}" == "--generate" ]]; then
   mkdir -p "${DOC_ROOT}/assets"
   install -m 0644 "${GENERATED_CLASS}" "${CLASS_ASSET}"
   install -m 0644 "${GENERATED_FLOW}" "${FLOW_ASSET}"
-  echo "✅ Generated deterministic architecture SVG assets."
+  echo "✅ Generated source-provenance-locked architecture SVG assets."
 else
-  for asset_file in "${CLASS_ASSET}" "${FLOW_ASSET}"; do
-    if [[ ! -s "${asset_file}" ]]; then
-      echo "❌ Missing or empty committed SVG asset: ${asset_file}"
-      exit 1
-    fi
-  done
-  if ! cmp --silent "${GENERATED_CLASS}" "${CLASS_ASSET}"; then
-    echo "❌ Class diagram asset is stale. Run: $0 --generate"
-    exit 1
-  fi
-  if ! cmp --silent "${GENERATED_FLOW}" "${FLOW_ASSET}"; then
-    echo "❌ Flow diagram asset is stale. Run: $0 --generate"
-    exit 1
-  fi
-  echo "✅ Committed SVG assets exactly match their PlantUML sources."
+  # PlantUML layout coordinates can differ across CPU architectures and font
+  # stacks even with the same Jar. The committed asset is therefore locked to
+  # the exact source SHA and generator version, while a fresh render above
+  # proves syntax/renderability and both outputs are checked semantically.
+  validate_committed_asset "${CLASS_ASSET}" "${CLASS_PROVENANCE}" \
+    SharedAlgorithmRuntime Pipeline AlgContext NodeBase FixedBatchExecutor
+  validate_committed_asset "${FLOW_ASSET}" "${FLOW_PROVENANCE}" \
+    PipelineCatalog PipelineValidator NodeBase FixedBatchExecutor \
+    SharedAlgorithmRuntime
+  echo "✅ Committed SVG source provenance and semantic contracts are current."
 fi
 
 echo "✅ Architecture diagram gate passed with PlantUML ${PLANTUML_VERSION}."

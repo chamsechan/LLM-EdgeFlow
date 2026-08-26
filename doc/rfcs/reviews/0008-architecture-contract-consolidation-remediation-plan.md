@@ -285,7 +285,8 @@ Node 和 Engine 必须调用同一个 helper。Engine 当前缺失的 minimum/ma
 - [x] 新增 `scripts/render_architecture_diagrams.sh`，支持真实生成和 `--check` 两种模式。
 - [x] 工具版本必须固定；依赖下载到构建缓存或临时目录，不提交 npm 包、Jar 或二进制。
 - [x] `--check` 渲染到临时目录后比较，不直接修改工作区。
-- [x] 消除时间戳、随机 ID、绝对路径等非确定性输出后再接入 CI。
+- [x] 消除时间戳、随机 ID、绝对路径等非确定性输出；跨 CPU/字体栈布局差异通过精确
+      source SHA provenance、生成器版本与语义校验归一化后接入 CI。
 - [x] `architecture_v2.puml` 生成 README 使用的 Target 全景 SVG，并加入同一映射和
       漂移检查。
 - [x] 一旦生成链稳定，禁止继续手工编辑两个 SVG。
