@@ -44,22 +44,28 @@ int RunAudioAsrDemo(const DemoOptions& options) {
 
   std::cout << "\n>>> 业务 6 执行结果验证 <<<" << std::endl;
   PrintDivider();
+  const char* asr_txt =
+      (outputs[0].transcribed_text && outputs[0].transcribed_text->data)
+          ? outputs[0].transcribed_text->data
+          : "";
+  const char* slot_json =
+      (outputs[0].intent_slot_json && outputs[0].intent_slot_json->data)
+          ? outputs[0].intent_slot_json->data
+          : "";
   std::cout << "  Request ID     : " << outputs[0].request_id << "\n"
-            << "  ASR Text       : " << outputs[0].transcribed_text << "\n"
-            << "  Intent / Slots : " << outputs[0].intent_slot_json
-            << std::endl;
+            << "  ASR Text       : " << asr_txt << "\n"
+            << "  Intent / Slots : " << slot_json << std::endl;
 
   std::vector<DemoSampleResult> sample_results;
   DemoSampleResult sample;
   sample.request_id = outputs[0].request_id;
   sample.status = 0;
   sample.latency_ms = latencies.empty() ? 0.0 : latencies[0];
-  sample.output["transcribed_text"] = outputs[0].transcribed_text;
-  if (outputs[0].intent_slot_json[0] != '\0') {
-    auto parsed =
-        nlohmann::json::parse(outputs[0].intent_slot_json, nullptr, false);
+  sample.output["transcribed_text"] = asr_txt;
+  if (slot_json[0] != '\0') {
+    auto parsed = nlohmann::json::parse(slot_json, nullptr, false);
     if (parsed.is_discarded()) {
-      sample.output["intent_slot_raw"] = outputs[0].intent_slot_json;
+      sample.output["intent_slot_raw"] = slot_json;
     } else {
       sample.output["intent_slot"] = parsed;
     }

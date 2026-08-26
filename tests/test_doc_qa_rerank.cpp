@@ -45,24 +45,42 @@ TEST_F(DocQaRerankPipelineTest, ExecuteDocQaWithRerankerAndLlm) {
   ASSERT_NE(handle, nullptr);
 
   // 构造输入样本
-  CompanyDocInputStruct in1{};
-  in1.request_id = 90001;
-  in1.doc_text =
+  CompanyString doc1, q1, doc2, q2;
+  CompanyString_FromCString(
+      &doc1,
       "企业级算法框架设计规范：采用4层分层架构，包含C-"
       "ABI适配层、Pipeline调度层、通用算子池与底层硬件引擎抽象。"
       "其中RerankRefineNode算子用于在粗筛后进行高精度的Cross-"
-      "Encoder语义重排打分。";
-  in1.query_text = "请问该框架中的Rerank算子有什么作用？";
+      "Encoder语义重排打分。");
+  CompanyString_FromCString(&q1, "请问该框架中的Rerank算子有什么作用？");
+  CompanyString_FromCString(
+      &doc2,
+      "客户服务售后政策：支持7天无理由退货与全额退款。若商品存在质量问题，由平"
+      "台承担双向运费并提供快速换货。");
+  CompanyString_FromCString(&q2, "商品质量有问题怎么换货？");
+
+  CompanyDocInputStruct in1{};
+  in1.request_id = 90001;
+  in1.doc_text = &doc1;
+  in1.query_text = &q1;
 
   CompanyDocInputStruct in2{};
   in2.request_id = 90002;
-  in2.doc_text =
-      "客户服务售后政策：支持7天无理由退货与全额退款。若商品存在质量问题，由平"
-      "台承担双向运费并提供快速换货。";
-  in2.query_text = "商品质量有问题怎么换货？";
+  in2.doc_text = &doc2;
+  in2.query_text = &q2;
 
-  CompanyDocOutputStruct out1{};
-  CompanyDocOutputStruct out2{};
+  char intent_buf1[64] = {0}, intent_buf2[64] = {0};
+  char ans_buf1[1024] = {0}, ans_buf2[1024] = {0};
+  CompanyString intent_str1, intent_str2, ans_str1, ans_str2;
+  CompanyString_Init(&intent_str1, intent_buf1, sizeof(intent_buf1));
+  CompanyString_Init(&intent_str2, intent_buf2, sizeof(intent_buf2));
+  CompanyString_Init(&ans_str1, ans_buf1, sizeof(ans_buf1));
+  CompanyString_Init(&ans_str2, ans_buf2, sizeof(ans_buf2));
+
+  CompanyDocOutputStruct out1{.intent_name = &intent_str1,
+                              .answer_text = &ans_str1};
+  CompanyDocOutputStruct out2{.intent_name = &intent_str2,
+                              .answer_text = &ans_str2};
 
   NamedIoBatch in_batch(2);
   NamedIoBatch out_batch(2);
@@ -81,18 +99,20 @@ TEST_F(DocQaRerankPipelineTest, ExecuteDocQaWithRerankerAndLlm) {
   // 验证结果
   EXPECT_EQ(out1.request_id, 90001);
   EXPECT_GT(out1.chunk_count, 0);
-  EXPECT_STREQ(out1.intent_name, "TECH_ARCHITECTURE");
-  EXPECT_GT(strlen(out1.answer_text), 0);
+  EXPECT_STREQ(out1.intent_name->data, "TECH_ARCHITECTURE");
+  EXPECT_GT(strlen(out1.answer_text->data), 0);
 
   EXPECT_EQ(out2.request_id, 90002);
   EXPECT_GT(out2.chunk_count, 0);
-  EXPECT_STREQ(out2.intent_name, "AFTER_SALES_REFUND");
-  EXPECT_GT(strlen(out2.answer_text), 0);
+  EXPECT_STREQ(out2.intent_name->data, "AFTER_SALES_REFUND");
+  EXPECT_GT(strlen(out2.answer_text->data), 0);
 
-  std::cout << "[DocQaRerankPipelineTest] Output 1 intent=" << out1.intent_name
-            << ", answer=" << out1.answer_text << std::endl;
-  std::cout << "[DocQaRerankPipelineTest] Output 2 intent=" << out2.intent_name
-            << ", answer=" << out2.answer_text << std::endl;
+  std::cout << "[DocQaRerankPipelineTest] Output 1 intent="
+            << out1.intent_name->data << ", answer=" << out1.answer_text->data
+            << std::endl;
+  std::cout << "[DocQaRerankPipelineTest] Output 2 intent="
+            << out2.intent_name->data << ", answer=" << out2.answer_text->data
+            << std::endl;
 
   ops_.Destroy(handle);
 }

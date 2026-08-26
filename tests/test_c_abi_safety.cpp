@@ -90,19 +90,31 @@ TEST_F(CAbiSafetyTest, EndToEndDynamicControlAndVerification) {
   EXPECT_EQ(ret, 0);
 
   // 执行推理
-  CompanyKeywordInputStruct req0{101, "请联系VIP专员"};
-  CompanyKeywordInputStruct req1{102, "普通闲聊文本"};
-  std::vector<void*> inputs = {&req0, &req1};
+  CompanyString str0, str1;
+  CompanyString_FromCString(&str0, "请联系VIP专员");
+  CompanyString_FromCString(&str1, "普通闲聊文本");
 
-  CompanyKeywordOutputStruct out0;
-  CompanyKeywordOutputStruct out1;
+  CompanyKeywordInputStruct req0{101, &str0};
+  CompanyKeywordInputStruct req1{102, &str1};
+  std::vector<const void*> inputs = {&req0, &req1};
+
+  char buf0[2048] = {0};
+  char buf1[2048] = {0};
+  CompanyString out_str0, out_str1;
+  CompanyString_Init(&out_str0, buf0, sizeof(buf0));
+  CompanyString_Init(&out_str1, buf1, sizeof(buf1));
+
+  CompanyKeywordOutputStruct out0{.match_result_json = &out_str0};
+  CompanyKeywordOutputStruct out1{.match_result_json = &out_str1};
   std::vector<void*> outputs = {&out0, &out1};
 
-  ret = Alg_Process(handle, inputs, outputs);
+  int num_outputs = 2;
+  ret = Alg_Process(handle, inputs.data(), 2, outputs.data(), &num_outputs);
   EXPECT_EQ(ret, 0);
   EXPECT_EQ(out0.is_hit, 1);
   EXPECT_EQ(out1.is_hit, 0);
-  EXPECT_TRUE(std::string(out0.match_result_json).find("TEST_VIP") !=
+  EXPECT_NE(out0.match_result_json, nullptr);
+  EXPECT_TRUE(std::string(out0.match_result_json->data).find("TEST_VIP") !=
               std::string::npos);
 
   ret = Alg_Destroy(handle);
@@ -121,11 +133,18 @@ TEST_F(CAbiSafetyTest, OutputCapacityInsufficientAndFeedbackContract) {
   void* handle = nullptr;
   ASSERT_EQ(Alg_Create(&handle, &param), 0);
 
-  CompanyKeywordInputStruct req0{101, "请联系VIP专员"};
-  CompanyKeywordInputStruct req1{102, "普通闲聊文本"};
+  CompanyString str0, str1;
+  CompanyString_FromCString(&str0, "请联系VIP专员");
+  CompanyString_FromCString(&str1, "普通闲聊文本");
+
+  CompanyKeywordInputStruct req0{101, &str0};
+  CompanyKeywordInputStruct req1{102, &str1};
   const void* inputs[2] = {&req0, &req1};
 
-  CompanyKeywordOutputStruct out0;
+  char buf0[2048] = {0};
+  CompanyString out_str0;
+  CompanyString_Init(&out_str0, buf0, sizeof(buf0));
+  CompanyKeywordOutputStruct out0{.match_result_json = &out_str0};
   void* outputs[1] = {&out0};
 
   // 1) 传入 outputs = nullptr 且 capacity = 0 (标准容量预查)，必须返回 -4
@@ -157,10 +176,18 @@ TEST_F(CAbiSafetyTest, NullSlotInBatchInputsOrOutputs) {
   void* handle = nullptr;
   ASSERT_EQ(Alg_Create(&handle, &param), 0);
 
-  CompanyKeywordInputStruct req0{101, "请联系VIP专员"};
+  CompanyString str0;
+  CompanyString_FromCString(&str0, "请联系VIP专员");
+  CompanyKeywordInputStruct req0{101, &str0};
   const void* inputs_with_null[2] = {&req0, nullptr};  // 第二个槽位为空
 
-  CompanyKeywordOutputStruct out0, out1;
+  char buf0[2048] = {0}, buf1[2048] = {0};
+  CompanyString out_str0, out_str1;
+  CompanyString_Init(&out_str0, buf0, sizeof(buf0));
+  CompanyString_Init(&out_str1, buf1, sizeof(buf1));
+
+  CompanyKeywordOutputStruct out0{.match_result_json = &out_str0};
+  CompanyKeywordOutputStruct out1{.match_result_json = &out_str1};
   void* outputs[2] = {&out0, &out1};
   int num_outputs = 2;
 
@@ -274,11 +301,22 @@ TEST_F(CAbiSafetyTest, AdapterDescriptorMaxBatchSizeEnforcement) {
   ASSERT_EQ(Alg_Create(&handle, &param), 0);
 
   // 构造 65 条输入数据 (超过 max_batch_size = 64 上限)
-  std::vector<CompanyKeywordInputStruct> reqs(65, {1, "测试输入"});
+  std::vector<CompanyString> in_strs(65);
+  std::vector<CompanyKeywordInputStruct> reqs(65);
+  for (int i = 0; i < 65; ++i) {
+    CompanyString_FromCString(&in_strs[i], "测试输入");
+    reqs[i] = {static_cast<uint64_t>(1 + i), &in_strs[i]};
+  }
   std::vector<const void*> inputs(65);
   for (int i = 0; i < 65; ++i) inputs[i] = &reqs[i];
 
+  std::vector<std::vector<char>> out_bufs(65, std::vector<char>(2048, '\0'));
+  std::vector<CompanyString> out_strs(65);
   std::vector<CompanyKeywordOutputStruct> outs(65);
+  for (int i = 0; i < 65; ++i) {
+    CompanyString_Init(&out_strs[i], out_bufs[i].data(), 2048);
+    outs[i].match_result_json = &out_strs[i];
+  }
   std::vector<void*> outputs(65);
   for (int i = 0; i < 65; ++i) outputs[i] = &outs[i];
   int num_outputs = 65;

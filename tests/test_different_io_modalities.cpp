@@ -42,24 +42,34 @@ TEST_F(DifferentIoModalitiesTest, OcrDocQa) {
   ASSERT_EQ(ret, 0);
   ASSERT_NE(handle, nullptr);
 
-  CompanyOcrDocInputStruct in_req1{60001, "./data/invoice_sample_01.jpg",
-                                   "提取发票代码、号码与总金额"};
-  CompanyOcrDocInputStruct in_req2{60002, "./data/vat_receipt_02.png",
-                                   "提取购买方公司名称与税额"};
-  std::vector<void*> inputs = {&in_req1, &in_req2};
+  CompanyString img1, prompt1, img2, prompt2;
+  CompanyString_FromCString(&img1, "./data/invoice_sample_01.jpg");
+  CompanyString_FromCString(&prompt1, "提取发票代码、号码与总金额");
+  CompanyString_FromCString(&img2, "./data/vat_receipt_02.png");
+  CompanyString_FromCString(&prompt2, "提取购买方公司名称与税额");
 
-  CompanyOcrDocOutputStruct out1;
-  CompanyOcrDocOutputStruct out2;
+  CompanyOcrDocInputStruct in_req1{60001, &img1, &prompt1};
+  CompanyOcrDocInputStruct in_req2{60002, &img2, &prompt2};
+  std::vector<const void*> inputs = {&in_req1, &in_req2};
+
+  char inv_buf1[2048] = {0}, inv_buf2[2048] = {0};
+  CompanyString inv_str1, inv_str2;
+  CompanyString_Init(&inv_str1, inv_buf1, sizeof(inv_buf1));
+  CompanyString_Init(&inv_str2, inv_buf2, sizeof(inv_buf2));
+
+  CompanyOcrDocOutputStruct out1{.extracted_invoice_json = &inv_str1};
+  CompanyOcrDocOutputStruct out2{.extracted_invoice_json = &inv_str2};
   std::vector<void*> outputs = {&out1, &out2};
 
-  ret = Alg_Process(handle, inputs, outputs);
+  int num_outputs = 2;
+  ret = Alg_Process(handle, inputs.data(), 2, outputs.data(), &num_outputs);
   EXPECT_EQ(ret, 0);
   EXPECT_EQ(out1.request_id, 60001);
   EXPECT_EQ(out1.detected_box_count, 6);
   EXPECT_EQ(out2.request_id, 60002);
   EXPECT_EQ(out2.detected_box_count, 6);
 
-  auto j1 = nlohmann::json::parse(out1.extracted_invoice_json);
+  auto j1 = nlohmann::json::parse(out1.extracted_invoice_json->data);
   EXPECT_TRUE(j1.contains("invoice_code") && j1.contains("total_amount"));
 
   ret = Alg_Destroy(handle);
@@ -90,19 +100,30 @@ TEST_F(DifferentIoModalitiesTest, AudioAsrIntent) {
                                     static_cast<int>(pcm1.size()), 16000};
   CompanyAudioInputStruct in_audio2{70002, pcm2.data(),
                                     static_cast<int>(pcm2.size()), 16000};
-  std::vector<void*> inputs = {&in_audio1, &in_audio2};
+  std::vector<const void*> inputs = {&in_audio1, &in_audio2};
 
-  CompanyAudioOutputStruct out1;
-  CompanyAudioOutputStruct out2;
+  char asr_buf1[512] = {0}, asr_buf2[512] = {0};
+  char slot_buf1[1024] = {0}, slot_buf2[1024] = {0};
+  CompanyString asr1, asr2, slot1, slot2;
+  CompanyString_Init(&asr1, asr_buf1, sizeof(asr_buf1));
+  CompanyString_Init(&asr2, asr_buf2, sizeof(asr_buf2));
+  CompanyString_Init(&slot1, slot_buf1, sizeof(slot_buf1));
+  CompanyString_Init(&slot2, slot_buf2, sizeof(slot_buf2));
+
+  CompanyAudioOutputStruct out1{.transcribed_text = &asr1,
+                                .intent_slot_json = &slot1};
+  CompanyAudioOutputStruct out2{.transcribed_text = &asr2,
+                                .intent_slot_json = &slot2};
   std::vector<void*> outputs = {&out1, &out2};
 
-  ret = Alg_Process(handle, inputs, outputs);
+  int num_outputs = 2;
+  ret = Alg_Process(handle, inputs.data(), 2, outputs.data(), &num_outputs);
   EXPECT_EQ(ret, 0);
   EXPECT_EQ(out1.request_id, 70001);
   EXPECT_EQ(out2.request_id, 70002);
 
-  auto j1 = nlohmann::json::parse(out1.intent_slot_json);
-  auto j2 = nlohmann::json::parse(out2.intent_slot_json);
+  auto j1 = nlohmann::json::parse(out1.intent_slot_json->data);
+  auto j2 = nlohmann::json::parse(out2.intent_slot_json->data);
   EXPECT_EQ(j1["intent"], "NAVIGATION");
   EXPECT_EQ(j2["intent"], "VEHICLE_HVAC_CONTROL");
 
@@ -132,17 +153,25 @@ TEST_F(DifferentIoModalitiesTest, CrossRerankBatch) {
       "条款D: 电子发票在订单完成后24小时内发送至邮箱。",
       "条款E: VIP用户享受专属1对1客服通道与快速理赔。"};
 
-  CompanyRerankBatchInputStruct in_rerank;
-  in_rerank.request_id = 80001;
-  in_rerank.query_text = "请问如何申请7天无理由退款？";
-  in_rerank.candidate_count = 5;
-  for (int i = 0; i < 5; ++i) in_rerank.candidate_passages[i] = candidates[i];
+  CompanyString q_str;
+  CompanyString_FromCString(&q_str, "请问如何申请7天无理由退款？");
 
-  std::vector<void*> inputs = {&in_rerank};
-  CompanyRerankBatchOutputStruct out_rerank;
+  CompanyString p_strs[5];
+  CompanyRerankBatchInputStruct in_rerank{};
+  in_rerank.request_id = 80001;
+  in_rerank.query_text = &q_str;
+  in_rerank.candidate_count = 5;
+  for (int i = 0; i < 5; ++i) {
+    CompanyString_FromCString(&p_strs[i], candidates[i]);
+    in_rerank.candidate_passages[i] = &p_strs[i];
+  }
+
+  std::vector<const void*> inputs = {&in_rerank};
+  CompanyRerankBatchOutputStruct out_rerank{};
   std::vector<void*> outputs = {&out_rerank};
 
-  ret = Alg_Process(handle, inputs, outputs);
+  int num_outputs = 1;
+  ret = Alg_Process(handle, inputs.data(), 1, outputs.data(), &num_outputs);
   EXPECT_EQ(ret, 0);
   EXPECT_EQ(out_rerank.request_id, 80001);
   EXPECT_EQ(out_rerank.count, 5);

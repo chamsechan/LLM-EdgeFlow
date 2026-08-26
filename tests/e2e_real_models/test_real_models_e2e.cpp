@@ -139,18 +139,25 @@ TEST_F(RealModelE2ETest, RealModelCAbiEndToEnd) {
   ASSERT_EQ(Alg_Create(&handle, &create_param), 0);
   ASSERT_NE(handle, nullptr);
 
-  CompanyEntityInputStruct req{99001,
-                               "李雷在微软北京研发中心负责AI大模型芯片开发。"};
-  std::vector<void*> inputs = {&req};
+  CompanyString in_str;
+  CompanyString_FromCString(&in_str,
+                            "李雷在微软北京研发中心负责AI大模型芯片开发。");
+  CompanyEntityInputStruct req{99001, &in_str};
+  std::vector<const void*> inputs = {&req};
 
-  CompanyEntityOutputStruct out;
+  char out_buf[2048] = {0};
+  CompanyString out_str;
+  CompanyString_Init(&out_str, out_buf, sizeof(out_buf));
+  CompanyEntityOutputStruct out{.entities_json = &out_str};
   std::vector<void*> outputs = {&out};
 
-  int ret = Alg_Process(handle, inputs, outputs);
+  int num_outputs = 1;
+  int ret = Alg_Process(handle, inputs.data(), 1, outputs.data(), &num_outputs);
   EXPECT_EQ(ret, 0);
   EXPECT_EQ(out.request_id, 99001);
 
-  std::cout << "  [C ABI Real Model Output] " << out.entities_json << std::endl;
+  std::cout << "  [C ABI Real Model Output] " << out.entities_json->data
+            << std::endl;
 
   EXPECT_EQ(Alg_Destroy(handle), 0);
   EXPECT_EQ(Alg_DeInit(), 0);

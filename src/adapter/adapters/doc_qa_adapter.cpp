@@ -78,14 +78,14 @@ class DocQaAdapter : public IBusinessAdapter {
       }
 
       // ADP-001, RECHECK-004: 有界字符串强校验
-      if (!AdapterValidationHelper::RequireBoundedString(
+      if (!AdapterValidationHelper::RequireBoundedCompanyString(
               "inputs[i].query_text", in_doc->query_text, kMaxQueryLen, i,
               BizName(), out_status)) {
         return COMPANY_ALG_ERR_INVALID_INPUT;
       }
 
       if (in_doc->doc_text) {
-        if (!AdapterValidationHelper::RequireBoundedString(
+        if (!AdapterValidationHelper::RequireBoundedCompanyString(
                 "inputs[i].doc_text", in_doc->doc_text, kMaxDocLen, i,
                 BizName(), out_status)) {
           return COMPANY_ALG_ERR_INVALID_INPUT;
@@ -93,8 +93,10 @@ class DocQaAdapter : public IBusinessAdapter {
       }
 
       raw_req_ids.push_back(in_doc->request_id);
-      raw_docs.push_back(in_doc->doc_text ? in_doc->doc_text : "");
-      raw_queries.push_back(in_doc->query_text);
+      raw_docs.push_back((in_doc->doc_text && in_doc->doc_text->data)
+                             ? in_doc->doc_text->data
+                             : "");
+      raw_queries.push_back(in_doc->query_text->data);
     }
 
     ctx->Set(kRawRequestIds, std::move(raw_req_ids));
@@ -142,17 +144,15 @@ class DocQaAdapter : public IBusinessAdapter {
       out_ptr->status_code = (*res)[i].status_code;
 
       // RECHECK-001: 严格拦截截断
-      if (!AdapterValidationHelper::CheckedStringCopy(
-              out_ptr->intent_name, sizeof(out_ptr->intent_name),
-              (*res)[i].intent_name.c_str(), "outputs[i].intent_name", i,
-              BizName(), out_status)) {
+      if (!AdapterValidationHelper::CheckedCompanyStringWrite(
+              out_ptr->intent_name, (*res)[i].intent_name.c_str(),
+              "outputs[i].intent_name", i, BizName(), out_status)) {
         return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
       }
 
-      if (!AdapterValidationHelper::CheckedStringCopy(
-              out_ptr->answer_text, sizeof(out_ptr->answer_text),
-              (*res)[i].answer_text.c_str(), "outputs[i].answer_text", i,
-              BizName(), out_status)) {
+      if (!AdapterValidationHelper::CheckedCompanyStringWrite(
+              out_ptr->answer_text, (*res)[i].answer_text.c_str(),
+              "outputs[i].answer_text", i, BizName(), out_status)) {
         return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
       }
     }

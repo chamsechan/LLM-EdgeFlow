@@ -188,9 +188,12 @@ TEST_F(AdapterContractSecurityTest, DirectUnpackMemoryIsolation) {
   char caller_buf[256];
   snprintf(caller_buf, sizeof(caller_buf), "设备系统初始化自检正常");
 
+  CompanyString in_str;
+  CompanyString_FromCString(&in_str, caller_buf);
+
   CompanyKeywordInputStruct in_struct;
   in_struct.request_id = 9999;
-  in_struct.sentence_text = caller_buf;
+  in_struct.sentence_text = &in_str;
 
   const void* inputs[1] = {&in_struct};
   AlgContext ctx;
@@ -367,12 +370,19 @@ TEST_F(AdapterContractSecurityTest, ConcurrentStatelessAdapterExecution) {
       ASSERT_NE(hndl, nullptr);
 
       for (int it = 0; it < kNumIters; ++it) {
+        std::string query = "系统初始化与设备自检请求 #" + std::to_string(t);
+        CompanyString in_str;
+        CompanyString_FromCString(&in_str, query.c_str());
+
         CompanyKeywordInputStruct in_req;
         in_req.request_id = t * 1000 + it;
-        std::string query = "系统初始化与设备自检请求 #" + std::to_string(t);
-        in_req.sentence_text = query.c_str();
+        in_req.sentence_text = &in_str;
 
-        CompanyKeywordOutputStruct out_res;
+        char buf[2048] = {0};
+        CompanyString out_str;
+        CompanyString_Init(&out_str, buf, sizeof(buf));
+        CompanyKeywordOutputStruct out_res{.match_result_json = &out_str};
+
         const void* in_arr[1] = {&in_req};
         void* out_arr[1] = {&out_res};
         int num_outs = 1;

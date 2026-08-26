@@ -126,16 +126,24 @@ TEST_F(QwenEnginesComparisonTest, CAbiPipelineSwitching) {
     ASSERT_EQ(ret, 0);
     ASSERT_NE(handle_npu, nullptr);
 
-    CompanyEntityInputStruct in_item{
-        50001,
-        "李四在浙江大学毕业后去深圳加入了一家人工智能芯片公司担任算法工程师。"};
-    std::vector<void*> inputs = {&in_item};
-    CompanyEntityOutputStruct out_item;
+    CompanyString in_str;
+    CompanyString_FromCString(
+        &in_str,
+        "李四在浙江大学毕业后去深圳加入了一家人工智能芯片公司担任算法工程师。");
+    CompanyEntityInputStruct in_item{50001, &in_str};
+    std::vector<const void*> inputs = {&in_item};
+
+    char out_buf[2048] = {0};
+    CompanyString out_str;
+    CompanyString_Init(&out_str, out_buf, sizeof(out_buf));
+    CompanyEntityOutputStruct out_item{.entities_json = &out_str};
     std::vector<void*> outputs = {&out_item};
 
-    ret = Alg_Process(handle_npu, inputs, outputs);
+    int num_outputs = 1;
+    ret =
+        Alg_Process(handle_npu, inputs.data(), 1, outputs.data(), &num_outputs);
     EXPECT_EQ(ret, 0);
-    EXPECT_TRUE(std::string(out_item.entities_json).find("浙江大学") !=
+    EXPECT_TRUE(std::string(out_item.entities_json->data).find("浙江大学") !=
                 std::string::npos);
 
     ret = Alg_Destroy(handle_npu);
@@ -157,16 +165,24 @@ TEST_F(QwenEnginesComparisonTest, CAbiPipelineSwitching) {
     ASSERT_EQ(ret, 0);
     ASSERT_NE(handle_llama, nullptr);
 
-    CompanyEntityInputStruct in_item{
-        50002,
-        "李四在浙江大学毕业后去深圳加入了一家人工智能芯片公司担任算法工程师。"};
-    std::vector<void*> inputs = {&in_item};
-    CompanyEntityOutputStruct out_item;
+    CompanyString in_str;
+    CompanyString_FromCString(
+        &in_str,
+        "李四在浙江大学毕业后去深圳加入了一家人工智能芯片公司担任算法工程师。");
+    CompanyEntityInputStruct in_item{50002, &in_str};
+    std::vector<const void*> inputs = {&in_item};
+
+    char out_buf[2048] = {0};
+    CompanyString out_str;
+    CompanyString_Init(&out_str, out_buf, sizeof(out_buf));
+    CompanyEntityOutputStruct out_item{.entities_json = &out_str};
     std::vector<void*> outputs = {&out_item};
 
-    ret = Alg_Process(handle_llama, inputs, outputs);
+    int num_outputs = 1;
+    ret = Alg_Process(handle_llama, inputs.data(), 1, outputs.data(),
+                      &num_outputs);
     EXPECT_EQ(ret, 0);
-    EXPECT_TRUE(std::string(out_item.entities_json).find("浙江大学") !=
+    EXPECT_TRUE(std::string(out_item.entities_json->data).find("浙江大学") !=
                 std::string::npos);
 
     ret = Alg_Destroy(handle_llama);

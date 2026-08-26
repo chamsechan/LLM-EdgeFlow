@@ -144,18 +144,17 @@ class AudioAsrIntentAdapter : public IBusinessAdapter {
       out_ptr->request_id = (*res)[i].request_id;
       out_ptr->status_code = (*res)[i].status_code;
 
-      // RECHECK-001: 校验 CheckedStringCopy 返回值，截断时严格拒绝返回 -4
-      if (!AdapterValidationHelper::CheckedStringCopy(
-              out_ptr->transcribed_text, sizeof(out_ptr->transcribed_text),
-              (*res)[i].transcribed_text.c_str(), "outputs[i].transcribed_text",
-              i, BizName(), out_status)) {
+      // RECHECK-001: 校验 CheckedCompanyStringWrite 返回值，截断时严格拒绝返回
+      // -4
+      if (!AdapterValidationHelper::CheckedCompanyStringWrite(
+              out_ptr->transcribed_text, (*res)[i].transcribed_text.c_str(),
+              "outputs[i].transcribed_text", i, BizName(), out_status)) {
         return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
       }
 
-      if (!AdapterValidationHelper::CheckedStringCopy(
-              out_ptr->intent_slot_json, sizeof(out_ptr->intent_slot_json),
-              (*res)[i].intent_slot_json.c_str(), "outputs[i].intent_slot_json",
-              i, BizName(), out_status)) {
+      if (!AdapterValidationHelper::CheckedCompanyStringWrite(
+              out_ptr->intent_slot_json, (*res)[i].intent_slot_json.c_str(),
+              "outputs[i].intent_slot_json", i, BizName(), out_status)) {
         return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
       }
     }

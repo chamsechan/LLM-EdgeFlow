@@ -66,20 +66,20 @@ class OcrDocQaAdapter : public IBusinessAdapter {
       }
 
       // ADP-001, RECHECK-004: 有界字符串强校验
-      if (!AdapterValidationHelper::RequireBoundedString(
+      if (!AdapterValidationHelper::RequireBoundedCompanyString(
               "inputs[i].image_path", in_ocr->image_path, kMaxPathLen, i,
               BizName(), out_status)) {
         return COMPANY_ALG_ERR_INVALID_INPUT;
       }
-      if (!AdapterValidationHelper::RequireBoundedString(
+      if (!AdapterValidationHelper::RequireBoundedCompanyString(
               "inputs[i].query_prompt", in_ocr->query_prompt, kMaxQueryLen, i,
               BizName(), out_status)) {
         return COMPANY_ALG_ERR_INVALID_INPUT;
       }
 
       raw_req_ids.push_back(in_ocr->request_id);
-      raw_images.push_back(in_ocr->image_path);
-      raw_queries.push_back(in_ocr->query_prompt);
+      raw_images.push_back(in_ocr->image_path->data);
+      raw_queries.push_back(in_ocr->query_prompt->data);
     }
 
     ctx->Set(kRawRequestIds, std::move(raw_req_ids));
@@ -126,9 +126,8 @@ class OcrDocQaAdapter : public IBusinessAdapter {
       out_ptr->status_code = (*res)[i].status_code;
 
       // RECHECK-001: 严格拦截截断
-      if (!AdapterValidationHelper::CheckedStringCopy(
+      if (!AdapterValidationHelper::CheckedCompanyStringWrite(
               out_ptr->extracted_invoice_json,
-              sizeof(out_ptr->extracted_invoice_json),
               (*res)[i].extracted_invoice_json.c_str(),
               "outputs[i].extracted_invoice_json", i, BizName(), out_status)) {
         return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;

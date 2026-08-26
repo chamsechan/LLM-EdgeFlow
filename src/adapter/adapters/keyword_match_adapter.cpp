@@ -63,14 +63,14 @@ class KeywordMatchAdapter : public IBusinessAdapter {
       }
 
       // ADP-001, RECHECK-004: 有界字符串强校验
-      if (!AdapterValidationHelper::RequireBoundedString(
+      if (!AdapterValidationHelper::RequireBoundedCompanyString(
               "inputs[i].sentence_text", in->sentence_text, kMaxSentenceLen, i,
               BizName(), out_status)) {
         return COMPANY_ALG_ERR_INVALID_INPUT;
       }
 
       req_ids.push_back(in->request_id);
-      sentences.push_back(in->sentence_text);
+      sentences.push_back(in->sentence_text->data);
     }
 
     ctx->Set(kRawRequestIds, std::move(req_ids));
@@ -116,9 +116,8 @@ class KeywordMatchAdapter : public IBusinessAdapter {
       out_ptr->status_code = (*res)[i].status_code;
 
       // RECHECK-001: 严格拦截截断
-      if (!AdapterValidationHelper::CheckedStringCopy(
-              out_ptr->match_result_json, sizeof(out_ptr->match_result_json),
-              (*res)[i].match_result_json.c_str(),
+      if (!AdapterValidationHelper::CheckedCompanyStringWrite(
+              out_ptr->match_result_json, (*res)[i].match_result_json.c_str(),
               "outputs[i].match_result_json", i, BizName(), out_status)) {
         return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
       }

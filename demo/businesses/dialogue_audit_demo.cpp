@@ -48,11 +48,15 @@ int RunDialogueAuditDemo(const DemoOptions& options) {
   }
 
   size_t count = std::min(channels.size(), dialogues.size());
+  std::vector<CompanyString> channel_strings(count);
+  std::vector<CompanyString> dialogue_strings(count);
   std::vector<CompanyAuditInputStruct> inputs;
   inputs.reserve(count);
   for (size_t i = 0; i < count; ++i) {
-    inputs.push_back({static_cast<uint64_t>(40001 + i), channels[i].c_str(),
-                      dialogues[i].c_str()});
+    CompanyString_FromCString(&channel_strings[i], channels[i].c_str());
+    CompanyString_FromCString(&dialogue_strings[i], dialogues[i].c_str());
+    inputs.push_back({static_cast<uint64_t>(40001 + i), &dialogue_strings[i],
+                      &channel_strings[i]});
   }
 
   std::vector<CompanyAuditOutputStruct> outputs;
@@ -72,34 +76,39 @@ int RunDialogueAuditDemo(const DemoOptions& options) {
 
   for (size_t i = 0; i < outputs.size(); ++i) {
     PrintDivider();
+    const char* r_level = (outputs[i].risk_level && outputs[i].risk_level->data)
+                              ? outputs[i].risk_level->data
+                              : "";
+    const char* m_policy = (outputs[i].matched_policy_clause &&
+                            outputs[i].matched_policy_clause->data)
+                               ? outputs[i].matched_policy_clause->data
+                               : "";
+    const char* verdict_json =
+        (outputs[i].audit_verdict_json && outputs[i].audit_verdict_json->data)
+            ? outputs[i].audit_verdict_json->data
+            : "";
     std::cout << "  Audit #" << i << " | Request ID: " << outputs[i].request_id
               << "\n"
               << "  Channel       : " << channels[i] << "\n"
               << "  Dialogue Text : \"" << dialogues[i] << "\"\n"
-              << "  Risk Level    : " << outputs[i].risk_level
-              << " (Score: " << std::fixed << std::setprecision(2)
-              << outputs[i].risk_score << ")\n"
+              << "  Risk Level    : " << r_level << " (Score: " << std::fixed
+              << std::setprecision(2) << outputs[i].risk_score << ")\n"
               << "  Matched Policy: "
-              << (outputs[i].matched_policy_clause[0] != '\0'
-                      ? outputs[i].matched_policy_clause
-                      : "none")
-              << "\n"
-              << "  Audit Verdict : " << outputs[i].audit_verdict_json
-              << std::endl;
+              << (m_policy[0] != '\0' ? m_policy : "none") << "\n"
+              << "  Audit Verdict : " << verdict_json << std::endl;
 
     DemoSampleResult sample;
     sample.request_id = outputs[i].request_id;
     sample.status = 0;
     sample.latency_ms = (i < latencies.size()) ? latencies[i] : 0.0;
     sample.output["channel"] = channels[i];
-    sample.output["risk_level"] = outputs[i].risk_level;
+    sample.output["risk_level"] = r_level;
     sample.output["risk_score"] = outputs[i].risk_score;
-    sample.output["matched_policy"] = outputs[i].matched_policy_clause;
-    if (outputs[i].audit_verdict_json[0] != '\0') {
-      auto parsed =
-          nlohmann::json::parse(outputs[i].audit_verdict_json, nullptr, false);
+    sample.output["matched_policy"] = m_policy;
+    if (verdict_json[0] != '\0') {
+      auto parsed = nlohmann::json::parse(verdict_json, nullptr, false);
       if (parsed.is_discarded()) {
-        sample.output["audit_verdict_raw"] = outputs[i].audit_verdict_json;
+        sample.output["audit_verdict_raw"] = verdict_json;
       } else {
         sample.output["audit_verdict"] = parsed;
       }

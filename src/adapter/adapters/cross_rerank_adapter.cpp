@@ -61,7 +61,7 @@ class CrossRerankAdapter : public IBusinessAdapter {
       }
 
       // ADP-001, RECHECK-004: 有界字符串强校验
-      if (!AdapterValidationHelper::RequireBoundedString(
+      if (!AdapterValidationHelper::RequireBoundedCompanyString(
               "inputs[i].query_text", in_rerank->query_text, kMaxTextLen, i,
               BizName(), out_status)) {
         return COMPANY_ALG_ERR_INVALID_INPUT;
@@ -76,18 +76,18 @@ class CrossRerankAdapter : public IBusinessAdapter {
 
       RerankQueryInput query_item;
       query_item.request_id = in_rerank->request_id;
-      query_item.query_text = in_rerank->query_text;
+      query_item.query_text = in_rerank->query_text->data;
 
       for (int c = 0; c < in_rerank->candidate_count; ++c) {
         std::string field_name =
             "inputs[i].candidate_passages[" + std::to_string(c) + "]";
-        if (!AdapterValidationHelper::RequireBoundedString(
+        if (!AdapterValidationHelper::RequireBoundedCompanyString(
                 field_name.c_str(), in_rerank->candidate_passages[c],
                 kMaxTextLen, i, BizName(), out_status)) {
           return COMPANY_ALG_ERR_INVALID_INPUT;
         }
         query_item.candidate_passages.push_back(
-            in_rerank->candidate_passages[c]);
+            in_rerank->candidate_passages[c]->data);
       }
       raw_inputs.push_back(std::move(query_item));
     }

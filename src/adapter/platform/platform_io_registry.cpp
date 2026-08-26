@@ -180,8 +180,9 @@ void PlatformIoRegistry::RegisterDefaults() {
                                {"dialogue_in"}, "audit_out", {"verdict_out"}));
 
   // 业务 5: OCR 图文票据
-  RegisterDescriptor(make_desc(ALG_BIZ_TYPE_OCR_DOC_QA, "frame", {"image_in"},
-                               "od_out", {"ocr_out"}));
+  RegisterDescriptor(make_desc(ALG_BIZ_TYPE_OCR_DOC_QA, "ocr_doc_in",
+                               {"frame", "image_in"}, "ocr_doc_out",
+                               {"od_out", "ocr_out"}));
 
   // 业务 6: 语音识别与意图
   RegisterDescriptor(make_desc(ALG_BIZ_TYPE_AUDIO_ASR_INTENT, "audio_in",

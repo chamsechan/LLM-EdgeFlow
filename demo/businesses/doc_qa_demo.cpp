@@ -48,11 +48,15 @@ int RunDocQaDemo(const DemoOptions& options) {
   }
 
   size_t count = std::min(docs.size(), queries.size());
+  std::vector<CompanyString> doc_strings(count);
+  std::vector<CompanyString> query_strings(count);
   std::vector<CompanyDocInputStruct> inputs;
   inputs.reserve(count);
   for (size_t i = 0; i < count; ++i) {
-    inputs.push_back({static_cast<uint64_t>(10001 + i), docs[i].c_str(),
-                      queries[i].c_str()});
+    CompanyString_FromCString(&doc_strings[i], docs[i].c_str());
+    CompanyString_FromCString(&query_strings[i], queries[i].c_str());
+    inputs.push_back(
+        {static_cast<uint64_t>(10001 + i), &doc_strings[i], &query_strings[i]});
   }
 
   std::vector<CompanyDocOutputStruct> outputs;
@@ -71,25 +75,32 @@ int RunDocQaDemo(const DemoOptions& options) {
 
   for (size_t i = 0; i < outputs.size(); ++i) {
     PrintDivider();
+    const char* intent_str =
+        (outputs[i].intent_name && outputs[i].intent_name->data)
+            ? outputs[i].intent_name->data
+            : "";
+    const char* ans_str =
+        (outputs[i].answer_text && outputs[i].answer_text->data)
+            ? outputs[i].answer_text->data
+            : "";
     std::cout << "  Result #" << i << " | Request ID: " << outputs[i].request_id
               << "\n"
               << "  Chunk Count   : " << outputs[i].chunk_count
               << " (1-to-N Sub-items)\n"
               << "  Intent Name   : "
-              << (outputs[i].intent_name[0] != '\0' ? outputs[i].intent_name
-                                                    : "none")
+              << (intent_str[0] != '\0' ? intent_str : "none")
               << " (Conf: " << std::fixed << std::setprecision(2)
               << outputs[i].confidence << ")\n"
-              << "  LLM Answer    : " << outputs[i].answer_text << std::endl;
+              << "  LLM Answer    : " << ans_str << std::endl;
 
     DemoSampleResult sample;
     sample.request_id = outputs[i].request_id;
     sample.status = 0;
     sample.latency_ms = (i < latencies.size()) ? latencies[i] : 0.0;
     sample.output["chunk_count"] = outputs[i].chunk_count;
-    sample.output["intent_name"] = outputs[i].intent_name;
+    sample.output["intent_name"] = intent_str;
     sample.output["confidence"] = outputs[i].confidence;
-    sample.output["answer_text"] = outputs[i].answer_text;
+    sample.output["answer_text"] = ans_str;
     sample_results.push_back(sample);
   }
 
