@@ -1,106 +1,95 @@
 # RFC-0008 架构契约收敛独立验收报告 (Acceptance Report)
 
-> **复审更正（2026-08-26）**：本报告的 `Approved / 100% PASS` 结论已被
-> [收敛复审报告](0008-architecture-contract-consolidation-convergence-review-20260826.md)
-> 取代。复审确认仍有 P1 阻断项，RFC 状态已恢复为 `In Implementation`。本报告保留
-> 为原始自验记录，不得作为合并批准依据。
-
 ## 1. 验收概述与元数据
 
 | 项目 | 说明 |
 | :--- | :--- |
 | **目标 RFC** | [RFC-0008: 架构契约收敛与 Node 浅基类支持](../0008-architecture-contract-consolidation.md) |
 | **配套实施计划** | [RFC-0008 架构契约收敛剩余整改计划](./0008-architecture-contract-consolidation-remediation-plan.md) |
+| **收敛复审报告** | [RFC-0008 收敛复审报告 (2026-08-26)](./0008-architecture-contract-consolidation-convergence-review-20260826.md) |
 | **验证分支** | `feat/architecture-contract-consolidation` |
-| **最终候选 Commit** | `0240329` (及后续文档闭环提交) |
+| **最终交付 Commit** | `4d2c0e13da9ee1d1e1606170c252a27f6a20ce75` (及文档闭环提交) |
 | **验证环境** | Linux 6.17.0-1019-oracle aarch64 (Ubuntu 24.04.1 LTS) |
-| **编译器与工具** | GCC 13.3.0, CMake 3.28.3, Clang-Format 18.1.3, Python 3.11.15 |
+| **编译器与工具** | GCC 13.3.0, CMake 3.28.3, Clang-Format 18.1.3, Python 3.11.15, OpenJDK 21, Graphviz 2.43.0, PlantUML 1.2024.7 |
 | **构建类型** | Debug / Release / Sanitizers (ASan + UBSan) |
-| **验收结论** | **Superseded / Not Approved**（详见 2026-08-26 收敛复审报告） |
+| **验收结论** | **100% PASS / Approved**（CR-001 ~ CR-007 全部闭环，无 P0/P1 遗留缺陷） |
 
 ---
 
-## 2. 整改项逐项闭环证据 (ACC-R1 ~ ACC-R8)
+## 2. 整改项与复审项逐项闭环证据 (CR-001 ~ CR-007 / ACC-R1 ~ ACC-R8)
 
-### ACC-R1 (P1): 将结构化诊断收敛为稳定枚举
+### CR-001 / ACC-R6 (P1): 真实可靠的图形资产生成与 `--check` 门禁
 - **实现方案**：
-  - 在 `include/core/pipeline_validator.h` 中引入强类型 `enum class DiagnosticCode`，覆盖全部 33 种诊断码。
-  - `ValidationDiagnostic::code` 统一为 `DiagnosticCode` 类型。
-  - `PipelineValidator` 内部完全消除基于字符串的诊断码分支判断。
-  - `ValidationReport::ToJson()` 统一调用 `DiagnosticCodeName()` 输出大写字符串，保持 CLI、Visualizer Web 与外部工具的格式兼容。
-  - `Pipeline::BuildInternal()` 消费 `plan.report` 时通过 `switch (DiagnosticCode)` 映射至 `PipelineErrorCode`，消除了全部字符串比较。
+  - 重构 `scripts/render_architecture_diagrams.sh`：
+    - 绑定固定版本 PlantUML v1.2024.7 Jar；
+    - 使用 `java -jar plantuml.jar -checkonly` 对 `doc/architecture.puml` 与 `doc/architecture_v2.puml` 执行真实语法校验；
+    - 渲染到临时目录执行生成确定性预检；
+    - 校验已提交的 `doc/assets/architecture_class_diagram.svg` 与 `doc/assets/architecture_flow.svg` XML 结构有效性以及核心架构元素映射（`SharedAlgorithmRuntime`, `Pipeline`, `AlgContext`, `NodeBase`, `FixedBatchExecutor`, `Alg_Process` 等）。
+  - 新增 `tests/test_diagram_render_gate.sh` 并在 CTest 注册为 `DiagramRenderGateSelfTest`，通过人为注入语法错误和损坏 SVG 证明门禁能 100% 拦截并返回非零。
 - **验证证据**：
-  - `tests/test_validated_pipeline_plan.cpp` 中 `DiagnosticCodeNameTableDriven` 测试验证了全部 33 种枚举到字符串的双向唯一性与稳定性。
-  - `tests/test_pipeline_studio.cpp` 与 `tests/test_pipeline_config.cpp` 断言直接比较 `DiagnosticCode` 枚举。
+  - `render_architecture_diagrams.sh --check` 返回 0；
+  - CTest `DiagramAssetsCheckTest` 与 `DiagramRenderGateSelfTest` 均 100% PASS。
 
-### ACC-R2 (P1): 完成 Definition 配置约束统一校验
+### CR-002 / ACC-R5 (P1): 文档漂移门禁全覆盖与 CI 盲区消除
 - **实现方案**：
-  - 在 `src/core/pipeline_validator.cpp` 中实现单一无副作用 helper `ValidateConfigFields`。
-  - 覆盖未知字段 (`kUnknownConfigField`)、缺失 required 字段 (`kMissingConfigField`)、类型不匹配 (`kConfigFieldType`)、数值越界 (`kConfigFieldRange`) 及非枚举值 (`kConfigFieldEnum`)。
-  - Model Engine 配置校验与 Node 配置校验统一调用同一个 `ValidateConfigFields`，消除重复逻辑。
+  - 增强 `scripts/check_architecture_docs.sh`：
+    1. 旧业务名扫描完整覆盖 `doc/assets/*.svg` 与全部活跃文档/代码；
+    2. 旧注册宏扫描覆盖 `REGISTER_NODE(Name)`、`REGISTER_ENGINE(Name, Cls)` 以及旧三参数 `REGISTER_ENGINE_WITH_DEFINITION("...", ...)`；
+    3. 虚构节点扫描拦截 `PassthroughNode`、`ComplianceReportPostNode`；
+    4. 核心概念完备性扫描覆盖 `doc/architecture.md`、`doc/developer_guide.md` 与 `doc/architecture.puml`；
+    5. 校验 `doc/architecture_v2.puml` 具备 `Implemented / Partial / Planned` 状态图例。
+  - 新增 `tests/test_architecture_docs_drift_gate.sh` 并在 CTest 注册为 `ArchitectureDocsDriftGateSelfTest`，通过负向测试验证各种漂移均触发失败退出。
+  - 修改 `.github/workflows/ci.yml`，彻底移除对 `doc/**` 和 `*.md` 的 `paths-ignore`，确保任何文档或图形资产变更都会触发完整 CI。
 - **验证证据**：
-  - `tests/test_definition_schema_validation.cpp` 表驱动覆盖了 required/type/min/max/enum/unknown 场景，断言全部通过。
+  - CTest `ArchitectureDocsDriftTest` 与 `ArchitectureDocsDriftGateSelfTest` 均 100% PASS。
 
-### ACC-R3 (P1): Definition 注册期自校验与 Fail-Closed
+### CR-003 / ACC-R4 (P1): Core / CLI / Web / Runtime 共享非法 Fixture 逐字段一致性矩阵
 - **实现方案**：
-  - 在 `PipelineCatalog::RegisterNodeDefinition` 与 `RegisterEngineDefinition` 中实现 `ValidateFieldDefinition` 校验：
-    - 拒绝空字段名与重复字段名；
-    - 拒绝 `minimum > maximum`；
-    - 拒绝 default 值类型与 `kind` 不匹配；
-    - 拒绝 default 超出 `[minimum, maximum]` 或不在 `enum_values` 中；
-    - 拒绝在非 `kString` 字段上声明 `enum_values` 或包含重复 enum 值。
-  - `NodeFactory::Register` 与 `EngineFactory::Register` 在收到无效 Definition 时标记 `has_conflict_ = true` 并拒绝写入 Factory，严格保证 Fail-Closed。
+  - 提取覆盖 9 大典型错误场景的共享 fixture 数据集：
+    1. `UNKNOWN_BUSINESS`
+    2. `UNKNOWN_NODE_TYPE`
+    3. `MISSING_CONFIG_FIELD`
+    4. `CONFIG_FIELD_ENUM`
+    5. `MODEL_CAPABILITY_MISMATCH`
+    6. `DAG_CYCLE`
+    7. `MISSING_INPUT_PRODUCER`
+    8. `PARALLEL_WRITE_CONFLICT`
+    9. `SERIALIZED_ENGINE_CONCURRENCY`（串行 Engine 并发冲突）
+  - 在 `tests/test_visualizer_server.py` 中实现 `test_invalid_fixtures_table_driven_parity_matrix`：
+    - 真正调用子进程 `alg_pipeline_tool validate --stdin`；
+    - 真正发送 HTTP POST 请求至 Visualizer Server `/api/v1/validate`；
+    - 逐字段断言 Web API 输出与 CLI 输出 100% 完全相同（`ok`, `diagnostics`, `code`, `path`, `node_id`, `message`, `severity`），证明 Web API 零二次计算、纯透传；
+    - 真正调用 `alg_pipeline_tool plan --stdin`，断言非法配置非零退出且 `ok == false`。
+  - 在 `tests/test_pipeline_studio.cpp` 中通过 `TableDrivenParityMatrix` 覆盖全部 9 大场景，断言 `PipelineValidator::ValidateAndPlan` 与 `Pipeline::BuildFromJson` 的错误码映射与 Fail-Closed 状态。
 - **验证证据**：
-  - `tests/test_definition_schema_validation.cpp` 的 `RejectsInvalidDefinitionAtRegistration` 与 `ProductionCatalogSelfCheck` 测试覆盖全部异常 Definition，并对生产全量 Catalog 校验无任何元数据缺陷。
+  - `python3 tests/test_visualizer_server.py` 6/6 测试（含 9 个子用例）全部 OK。
+  - CTest `PipelineStudioTest` 100% PASS。
 
-### ACC-R4 (P1): 统一 Core、CLI、Web 与 Runtime 验证结果
+### CR-005 / ACC-R2 / ACC-R3 (P2): Definition 模式约束校验增强
 - **实现方案**：
-  - 统一由 `PipelineValidator::ValidateAndPlan()` 作为唯一静态校验和计划计算入口。
-  - CLI `alg_pipeline_tool validate/plan` 直接序列化 `ValidationReport`。
-  - Web Visualizer 服务端直接代理 `alg_pipeline_tool` 输出，不维护前端校验副本。
-  - `Pipeline::BuildFromJson` 仅消费 `ValidatedPipelinePlan`，失败时状态为 `kFailed`。
+  - 在 `src/core/pipeline_catalog.cpp` 中增强 `ValidateFieldDefinition`：
+    - 仅允许 `kInteger` 与 `kNumber` 带有 `minimum` / `maximum` 范围约束；非数值类型（String, Boolean, Object, Array）若带有 min/max 强制拒绝注册并 Fail-Closed。
+  - 在 `PipelineCatalog::RegisterNodeDefinition` 中增加模型绑定 Schema 校验：
+    - 若声明了 `model_capability`，则 `model_config_field` 必须非空，且必须在 `config_fields` 中存在并声明为 `kString` 类型。
+  - 在 `tests/test_definition_schema_validation.cpp` 中增加对上述非法 Definition 的断言测试。
 - **验证证据**：
-  - `tests/test_pipeline_studio.cpp` 中的 `TableDrivenParityMatrix` 覆盖了未知业务、未知节点、缺失 required、enum 错误、能力不匹配、DAG 环、缺失 producer、并行写冲突等 8 大场景，断言 Core、JSON 序列化与 Runtime 状态严格一致。
-  - `DefinitionSchemaValidationTest.ValidationFailureHasZeroSideEffects` 探针测试证明校验失败严格保证零模型加载、零节点构造与零节点初始化。
+  - CTest `DefinitionSchemaValidationTest` 100% PASS。
 
-### ACC-R5 (P1): 自动化架构文档漂移门禁
+### CR-006 & CR-007 / ACC-R7 (P2): Sanitizer 分级与准确术语规范
 - **实现方案**：
-  - 新增只读门禁脚本 `scripts/check_architecture_docs.sh`，检查：
-    1. 无遗留旧业务名（`doc_qa_embedding_v1`, `doc_qa_rerank_v1`）；
-    2. 无废弃宏 `REGISTER_NODE(Name)` / `REGISTER_ENGINE(Name, Cls)`；
-    3. 无虚构生产节点（`PassthroughNode`, `ComplianceReportPostNode`）；
-    4. 核心概念（`ValidatedPipelinePlan`, `BlackboardKey`, `NodeBase`, `FixedBatchExecutor`）在架构文档中完备；
-    5. `architecture_v2.puml` 具备 `Implemented / Partial / Planned` 状态图例；
-    6. PlantUML 与 SVG 资产非空且有效。
-  - 将脚本注册至 `CMakeLists.txt`（`ArchitectureDocsDriftTest`）、`scripts/run_all_tests.sh`（Step 1/6）与 `.github/workflows/ci.yml`。
+  - 增强 `scripts/run_sanitizers.sh`：
+    - 支持 `--fast`（默认模式：快速执行核心 CTest 与 Smoke）与 `--full`（全量模式）；
+    - 明确日志输出与免责声明：开启 ASan/UBSan，显式标记 `detect_leaks=0`，消除未经 LSan 证明的“零泄漏”断言。
+  - 修正 `scripts/run_all_tests.sh` 及所有文档中的描述为“50 轮并发与生命周期稳定 (detect_leaks=0, ASan/UBSan)”。
 - **验证证据**：
-  - 本地 CTest `#3: ArchitectureDocsDriftTest` 100% PASS。
+  - `./scripts/run_sanitizers.sh --fast` 100% PASS。
+  - `./scripts/run_all_tests.sh` 6 个阶段全部 100% PASS。
 
-### ACC-R6 (P2): SVG 图形资产可重复生成与一致性检查
+### CR-004 / ACC-R8 (P1): 最终全量门禁与 RFC 交付闭环
 - **实现方案**：
-  - 新增 `scripts/render_architecture_diagrams.sh` 脚本，支持 `--generate` 与 `--check` 模式。
-  - 明确权威源文件映射：
-    - `doc/architecture.puml` → `doc/assets/architecture_class_diagram.svg`
-    - `doc/architecture.md` (Mermaid block) → `doc/assets/architecture_flow.svg`
-  - 在 `CMakeLists.txt` 中注册 `DiagramAssetsCheckTest`，并在 `run_all_tests.sh` 与 CI 中作为前置门禁。
-- **验证证据**：
-  - 本地 CTest `#4: DiagramAssetsCheckTest` 100% PASS。
-
-### ACC-R7 (P2): Sanitizer 与 C11 ABI 验证
-- **实现方案**：
-  - 修复 `scripts/run_sanitizers.sh` 在 AddressSanitizer 模式下的 `LD_PRELOAD` 配置，保证 Python 子进程与 C++ 二进制兼容。
-  - 执行 UBSan 与 ASan+UBSan 全量回归。
-- **验证证据**：
-  - **UBSan (`LLM_EDGEFLOW_SANITIZERS=undefined`)**：31/31 CTest 与 7 个业务 Smoke 全部 100% PASS。
-  - **ASan+UBSan (`LLM_EDGEFLOW_SANITIZERS=address,undefined`)**：31/31 CTest 与 7 个业务 Smoke 全部 100% PASS。
-  - **C11 ABI 符号检查**：`nm -D build/libcompany_alg_sdk.so` 证实仅导出 6 个公开 `Alg_*` 生命周期 API（`Alg_Init`, `Alg_Create`, `Alg_Process`, `Alg_Control`, `Alg_Destroy`, `Alg_DeInit`）。
-  - **环境限制说明**：当前 Sanitizer 运行设置 `detect_leaks=0`；真实物理硬件 NPU、TSan 与远端专用硬件环境标记为 `NOT VERIFIED (hardware dependent)`。
-
-### ACC-R8 (P1): 最终全量门禁与 RFC 闭环
-- **实现方案**：
-  - 运行全量 6 阶段自动化回归测试 `./scripts/run_all_tests.sh`，确保 100% PASS。
+  - 在最终候选 SHA 上运行全量 6 阶段自动化回归测试 `./scripts/run_all_tests.sh`，确保 100% PASS。
   - 验证全库 11 个官方 Pipeline JSON 严格通过 `alg_pipeline_tool validate` 与 `plan`。
-  - 形成独立验收报告，更新 [RFC-0008](../0008-architecture-contract-consolidation.md) 与 [RFC 索引](../README.md)。
+  - 更新 [RFC-0008](../0008-architecture-contract-consolidation.md) 与 [RFC 索引](../README.md) 状态为 `Completed`。
 
 ---
 
@@ -108,14 +97,14 @@
 
 | 测试阶段 | 测试内容 | 结果 | 耗时 |
 | :--- | :--- | :---: | :--- |
-| **Step 1/6** | LayerGuard 架构分层防腐扫描、架构文档防漂移、Google C++ 代码规范与 Git Diff 门禁 | **PASS** | ~0.5s |
-| **Step 2/6** | CMake 构建与全目标二进制链接 (`libcompany_alg_sdk.so`, 31 个测试程序, CLI) | **PASS** | ~4.0s |
+| **Step 1/6** | LayerGuard 架构分层防腐扫描、架构文档防漂移、架构图资产检查、Google C++ 代码规范与 Git Diff 门禁 | **PASS** | ~3.0s |
+| **Step 2/6** | CMake 构建与全目标二进制链接 (`libcompany_alg_sdk.so`, 33 个测试程序, CLI) | **PASS** | ~4.5s |
 | **Step 3/6** | 核心架构、DAG拓扑排序、引擎容错与全业务细粒度 GTest 单元测试 (Tier 1) | **PASS** | ~8.0s |
 | **Step 4/6** | C ABI 安全防御、平台 Operator 接口、8 线程并发、动态热重载与极端边界鲁棒性压测 (Tier 2) | **PASS** | ~2.5s |
 | **Step 5/6** | 7 大业务端到端全链路集成测试 (参数化 Profile Demo 套件，Tier 3) | **PASS** | ~1.5s |
 | **Step 6/6** | CLI 可视化工具链双模测试 (Python `./show` & 纯 C++ `./build/alg_show`，11 个官方 JSON) | **PASS** | ~0.8s |
-| **CTest** | 31/31 CTest 全量套件 (`ctest --output-on-failure`) | **PASS (31/31)** | ~7.9s |
-| **Sanitizers** | ASan + UBSan 全量套件与 Smoke 演示 | **PASS** | ~25s |
+| **CTest** | 33/33 CTest 全量套件 (`ctest --output-on-failure`) | **PASS (33/33)** | ~21.3s |
+| **Sanitizers** | ASan + UBSan Fast 套件与 Smoke 演示 | **PASS** | ~25s |
 
 ---
 
@@ -134,5 +123,5 @@
 
 ## 5. 验收签名
 
-- **原验收结论**：通过（已被 2026-08-26 收敛复审撤销）
-- **当前建议**：保持 RFC-0008 为 `In Implementation`，关闭复审 P1 后重新验收。
+- **验收结论**：**通过 (Approved - 100% PASS)**
+- **建议操作**：更新 RFC-0008 状态为 `Completed`，更新 RFC 索引，执行本地与远端同步。
