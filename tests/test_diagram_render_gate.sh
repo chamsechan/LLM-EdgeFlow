@@ -8,42 +8,40 @@ echo "================================================================"
 echo " [Self-Test] Testing Diagram Render Gate Failure Interceptions"
 echo "================================================================"
 
-TMP_DOC_DIR=$(mktemp -d)
-trap 'rm -rf "${TMP_DOC_DIR}"' EXIT
+TMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/edgeflow-diagram-gate.XXXXXX")"
+cleanup() {
+  rm -rf "${TMP_ROOT}"
+}
+trap cleanup EXIT INT TERM
+cp -R doc "${TMP_ROOT}/doc"
+FIXTURE_DOC_ROOT="${TMP_ROOT}/doc"
 
-# 1. 验证正常状态下返回 0
-./scripts/render_architecture_diagrams.sh --check >/dev/null 2>&1 || {
-  echo "❌ Baseline diagram check failed unexpectedly"
-  exit 1
+run_fixture_renderer() {
+  LLM_EDGEFLOW_ARCH_DOC_ROOT="${FIXTURE_DOC_ROOT}" \
+    ./scripts/render_architecture_diagrams.sh "$@" >/dev/null 2>&1
 }
 
-# 2. 负向测试：备份并在临时副本上测试 syntax error
-cp doc/architecture.puml "${TMP_DOC_DIR}/architecture.puml.bak"
-cat << 'EOF' > doc/architecture.puml
-@startuml
-class InvalidSyntax {
-  unclosed brace
-EOF
+./scripts/render_architecture_diagrams.sh --check >/dev/null 2>&1
 
-if ./scripts/render_architecture_diagrams.sh --check >/dev/null 2>&1; then
-  cp "${TMP_DOC_DIR}/architecture.puml.bak" doc/architecture.puml
-  echo "❌ Render gate failed to catch PlantUML syntax error!"
+# A syntactically valid source change must make the committed asset stale.
+sed -i '/@enduml/i class SourceDriftProbe' \
+  "${FIXTURE_DOC_ROOT}/architecture.puml"
+if run_fixture_renderer --check; then
+  echo "❌ Render gate missed source/asset drift"
   exit 1
 fi
-cp "${TMP_DOC_DIR}/architecture.puml.bak" doc/architecture.puml
-echo "✅ Negative test passed: PlantUML syntax error caught."
+cp doc/architecture.puml "${FIXTURE_DOC_ROOT}/architecture.puml"
 
-# 3. 负向测试：损坏 SVG 资产
-cp doc/assets/architecture_class_diagram.svg "${TMP_DOC_DIR}/class_svg.bak"
-echo "corrupted svg" > doc/assets/architecture_class_diagram.svg
-
-if ./scripts/render_architecture_diagrams.sh --check >/dev/null 2>&1; then
-  cp "${TMP_DOC_DIR}/class_svg.bak" doc/assets/architecture_class_diagram.svg
-  echo "❌ Render gate failed to catch corrupted SVG!"
+# A committed asset that does not match the generated result must fail.
+echo "corrupted svg" > \
+  "${FIXTURE_DOC_ROOT}/assets/architecture_class_diagram.svg"
+if run_fixture_renderer --check; then
+  echo "❌ Render gate missed a corrupted SVG asset"
   exit 1
 fi
-cp "${TMP_DOC_DIR}/class_svg.bak" doc/assets/architecture_class_diagram.svg
-echo "✅ Negative test passed: Corrupted SVG asset caught."
 
-echo "✅ All diagram render gate negative self-tests PASSED."
-exit 0
+# Generate must repair only the temporary fixture, then check must pass.
+run_fixture_renderer --generate
+run_fixture_renderer --check
+
+echo "✅ Diagram generate/check and negative self-tests passed."

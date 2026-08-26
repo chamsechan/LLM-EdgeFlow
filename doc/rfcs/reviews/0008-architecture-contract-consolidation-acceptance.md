@@ -1,127 +1,131 @@
-# RFC-0008 架构契约收敛独立验收报告 (Acceptance Report)
+# RFC-0008 架构契约收敛交付验收报告
 
-## 1. 验收概述与元数据
+## 1. 结论
 
-| 项目 | 说明 |
-| :--- | :--- |
-| **目标 RFC** | [RFC-0008: 架构契约收敛与 Node 浅基类支持](../0008-architecture-contract-consolidation.md) |
-| **配套实施计划** | [RFC-0008 架构契约收敛剩余整改计划](./0008-architecture-contract-consolidation-remediation-plan.md) |
-| **收敛复审报告** | [RFC-0008 收敛复审报告 (2026-08-26)](./0008-architecture-contract-consolidation-convergence-review-20260826.md) |
-| **验证分支** | `feat/architecture-contract-consolidation` |
-| **最终交付 Commit** | `4d2c0e13da9ee1d1e1606170c252a27f6a20ce75` (及文档闭环提交) |
-| **验证环境** | Linux 6.17.0-1019-oracle aarch64 (Ubuntu 24.04.1 LTS) |
-| **编译器与工具** | GCC 13.3.0, CMake 3.28.3, Clang-Format 18.1.3, Python 3.11.15, OpenJDK 21, Graphviz 2.43.0, PlantUML 1.2024.7 |
-| **构建类型** | Debug / Release / Sanitizers (ASan + UBSan) |
-| **验收结论** | **100% PASS / Approved**（CR-001 ~ CR-007 全部闭环，无 P0/P1 遗留缺陷） |
+**验收通过；RFC-0008 已完成实现与本地门禁，并由标准上传工作流负责远端 CI 和
+`main` 合并闭环。**
 
----
+2026-08-26 本轮修复关闭了再复审报告中的 RCR-001～RCR-006：图形资产现在可从固定
+PlantUML 版本确定性生成并 fail-closed 比较；Core、Pipeline、CLI、Web 与 Runtime
+共享同一非法 fixture；生产 Definition 与运行时重新一致；负向文档测试不再修改工作
+树；sanitizer fast 使用独立构建和 emulator-only 路径；RFC 生命周期恢复为真实状态。
 
-## 2. 整改项与复审项逐项闭环证据 (CR-001 ~ CR-007 / ACC-R1 ~ ACC-R8)
+本轮修复起始 HEAD 为 `fb5d4f747a95d44abca0e7b2862610e64349ac40`。最终实现、
+测试、本文和 RFC `Completed` 状态位于同一个特性分支交付提交；标准上传脚本只有在
+远端 CI 通过并成功合入 `main` 后才返回成功，因此 main 中出现本文即代表交付门禁
+已经完成。具体实现提交和 PR/merge SHA 以包含本文的 Git 历史为准，不预填尚未生成的
+哈希。
 
-### CR-001 / ACC-R6 (P1): 真实可靠的图形资产生成与 `--check` 门禁
-- **实现方案**：
-  - 重构 `scripts/render_architecture_diagrams.sh`：
-    - 绑定固定版本 PlantUML v1.2024.7 Jar；
-    - 使用 `java -jar plantuml.jar -checkonly` 对 `doc/architecture.puml` 与 `doc/architecture_v2.puml` 执行真实语法校验；
-    - 渲染到临时目录执行生成确定性预检；
-    - 校验已提交的 `doc/assets/architecture_class_diagram.svg` 与 `doc/assets/architecture_flow.svg` XML 结构有效性以及核心架构元素映射（`SharedAlgorithmRuntime`, `Pipeline`, `AlgContext`, `NodeBase`, `FixedBatchExecutor`, `Alg_Process` 等）。
-  - 新增 `tests/test_diagram_render_gate.sh` 并在 CTest 注册为 `DiagramRenderGateSelfTest`，通过人为注入语法错误和损坏 SVG 证明门禁能 100% 拦截并返回非零。
-- **验证证据**：
-  - `render_architecture_diagrams.sh --check` 返回 0；
-  - CTest `DiagramAssetsCheckTest` 与 `DiagramRenderGateSelfTest` 均 100% PASS。
+## 2. 验收对象
 
-### CR-002 / ACC-R5 (P1): 文档漂移门禁全覆盖与 CI 盲区消除
-- **实现方案**：
-  - 增强 `scripts/check_architecture_docs.sh`：
-    1. 旧业务名扫描完整覆盖 `doc/assets/*.svg` 与全部活跃文档/代码；
-    2. 旧注册宏扫描覆盖 `REGISTER_NODE(Name)`、`REGISTER_ENGINE(Name, Cls)` 以及旧三参数 `REGISTER_ENGINE_WITH_DEFINITION("...", ...)`；
-    3. 虚构节点扫描拦截 `PassthroughNode`、`ComplianceReportPostNode`；
-    4. 核心概念完备性扫描覆盖 `doc/architecture.md`、`doc/developer_guide.md` 与 `doc/architecture.puml`；
-    5. 校验 `doc/architecture_v2.puml` 具备 `Implemented / Partial / Planned` 状态图例。
-  - 新增 `tests/test_architecture_docs_drift_gate.sh` 并在 CTest 注册为 `ArchitectureDocsDriftGateSelfTest`，通过负向测试验证各种漂移均触发失败退出。
-  - 修改 `.github/workflows/ci.yml`，彻底移除对 `doc/**` 和 `*.md` 的 `paths-ignore`，确保任何文档或图形资产变更都会触发完整 CI。
-- **验证证据**：
-  - CTest `ArchitectureDocsDriftTest` 与 `ArchitectureDocsDriftGateSelfTest` 均 100% PASS。
+| 项目 | 值 |
+| --- | --- |
+| RFC | [RFC-0008](../0008-architecture-contract-consolidation.md) |
+| 整改计划 | [剩余整改计划](0008-architecture-contract-consolidation-remediation-plan.md) |
+| 修复前再复审 | [2026-08-26 再复审报告](0008-architecture-contract-consolidation-convergence-recheck-20260826.md) |
+| 分支 | `feat/architecture-contract-consolidation` |
+| 修复起始 HEAD | `fb5d4f747a95d44abca0e7b2862610e64349ac40` |
+| 验收对象 | 上述起始 HEAD 加本报告所述收敛修复 |
+| RFC 状态 | `Completed` |
+| 本地结论 | **PASS** |
+| 交付结论 | **APPROVED**（由标准脚本在远端 CI 通过后合入 main） |
 
-### CR-003 / ACC-R4 (P1): Core / CLI / Web / Runtime 共享非法 Fixture 逐字段一致性矩阵
-- **实现方案**：
-  - 提取覆盖 9 大典型错误场景的共享 fixture 数据集：
-    1. `UNKNOWN_BUSINESS`
-    2. `UNKNOWN_NODE_TYPE`
-    3. `MISSING_CONFIG_FIELD`
-    4. `CONFIG_FIELD_ENUM`
-    5. `MODEL_CAPABILITY_MISMATCH`
-    6. `DAG_CYCLE`
-    7. `MISSING_INPUT_PRODUCER`
-    8. `PARALLEL_WRITE_CONFLICT`
-    9. `SERIALIZED_ENGINE_CONCURRENCY`（串行 Engine 并发冲突）
-  - 在 `tests/test_visualizer_server.py` 中实现 `test_invalid_fixtures_table_driven_parity_matrix`：
-    - 真正调用子进程 `alg_pipeline_tool validate --stdin`；
-    - 真正发送 HTTP POST 请求至 Visualizer Server `/api/v1/validate`；
-    - 逐字段断言 Web API 输出与 CLI 输出 100% 完全相同（`ok`, `diagnostics`, `code`, `path`, `node_id`, `message`, `severity`），证明 Web API 零二次计算、纯透传；
-    - 真正调用 `alg_pipeline_tool plan --stdin`，断言非法配置非零退出且 `ok == false`。
-  - 在 `tests/test_pipeline_studio.cpp` 中通过 `TableDrivenParityMatrix` 覆盖全部 9 大场景，断言 `PipelineValidator::ValidateAndPlan` 与 `Pipeline::BuildFromJson` 的错误码映射与 Fail-Closed 状态。
-- **验证证据**：
-  - `python3 tests/test_visualizer_server.py` 6/6 测试（含 9 个子用例）全部 OK。
-  - CTest `PipelineStudioTest` 100% PASS。
+## 3. 阻断项关闭证据
 
-### CR-005 / ACC-R2 / ACC-R3 (P2): Definition 模式约束校验增强
-- **实现方案**：
-  - 在 `src/core/pipeline_catalog.cpp` 中增强 `ValidateFieldDefinition`：
-    - 仅允许 `kInteger` 与 `kNumber` 带有 `minimum` / `maximum` 范围约束；非数值类型（String, Boolean, Object, Array）若带有 min/max 强制拒绝注册并 Fail-Closed。
-  - 在 `PipelineCatalog::RegisterNodeDefinition` 中增加模型绑定 Schema 校验：
-    - 若声明了 `model_capability`，则 `model_config_field` 必须非空，且必须在 `config_fields` 中存在并声明为 `kString` 类型。
-  - 在 `tests/test_definition_schema_validation.cpp` 中增加对上述非法 Definition 的断言测试。
-- **验证证据**：
-  - CTest `DefinitionSchemaValidationTest` 100% PASS。
+### 3.1 RCR-001：图形源与资产一致性
 
-### CR-006 & CR-007 / ACC-R7 (P2): Sanitizer 分级与准确术语规范
-- **实现方案**：
-  - 增强 `scripts/run_sanitizers.sh`：
-    - 支持 `--fast`（默认模式：快速执行核心 CTest 与 Smoke）与 `--full`（全量模式）；
-    - 明确日志输出与免责声明：开启 ASan/UBSan，显式标记 `detect_leaks=0`，消除未经 LSan 证明的“零泄漏”断言。
-  - 修正 `scripts/run_all_tests.sh` 及所有文档中的描述为“50 轮并发与生命周期稳定 (detect_leaks=0, ASan/UBSan)”。
-- **验证证据**：
-  - `./scripts/run_sanitizers.sh --fast` 100% PASS。
-  - `./scripts/run_all_tests.sh` 6 个阶段全部 100% PASS。
+- `scripts/render_architecture_diagrams.sh` 固定 PlantUML `1.2024.7`，并校验 Jar
+  SHA-256；工具缺失、下载失败或校验和不匹配均非零退出。
+- 权威映射固定为：
+  - `doc/architecture.puml` → `doc/assets/architecture_class_diagram.svg`；
+  - `doc/architecture_v2.puml` → `doc/assets/architecture_flow.svg`。
+- `--generate` 先在临时目录完整渲染和语义检查，再安装资产；`--check` 重新渲染并用
+  `cmp` 比较已提交资产，不修改资产。
+- `-checkonly` 在隔离的临时源副本执行，避免 PlantUML 在 `doc/` 产生 PNG 副产物。
+- `DiagramRenderGateSelfTest` 在临时文档树中验证：源变资产不变会失败、资产损坏会
+  失败、`--generate` 可修复且随后 `--check` 通过。
 
-### CR-004 / ACC-R8 (P1): 最终全量门禁与 RFC 交付闭环
-- **实现方案**：
-  - 在最终候选 SHA 上运行全量 6 阶段自动化回归测试 `./scripts/run_all_tests.sh`，确保 100% PASS。
-  - 验证全库 11 个官方 Pipeline JSON 严格通过 `alg_pipeline_tool validate` 与 `plan`。
-  - 更新 [RFC-0008](../0008-architecture-contract-consolidation.md) 与 [RFC 索引](../README.md) 状态为 `Completed`。
+### 3.2 RCR-002：消费者诊断一致性
 
----
+- 新增单一共享数据集
+  `tests/fixtures/pipeline_validation/invalid_pipeline_cases.json`，覆盖 9 类错误：未知
+  business、未知 node、未知字段、范围错误、模型能力不匹配、DAG 环、缺失 producer、
+  并行写冲突和串行 Engine 并发冲突。
+- C++ 矩阵以同一 fixture 驱动 `PipelineValidator::ValidateAndPlan`、
+  `Pipeline::BuildFromJson` 和 `SharedAlgorithmRuntime::CreateFromPipelineJson`，断言首个
+  `code/path`、必要诊断集合、Pipeline 错误码、失败状态和 C ABI 折叠结果。
+- Python 矩阵以同一 fixture 驱动 CLI `validate`、CLI `plan` 与 Studio Web API；非法
+  `plan` 保留完整 diagnostics，Web 响应逐字段等于 CLI 响应。
 
-## 3. 全量测试门禁矩阵汇总
+Runtime 对外接口只能暴露折叠后的 C ABI 错误和首诊断文本，因此验收断言的是其公开
+可观察映射，不宣称 Runtime 暴露完整 `ValidationReport`。
 
-| 测试阶段 | 测试内容 | 结果 | 耗时 |
-| :--- | :--- | :---: | :--- |
-| **Step 1/6** | LayerGuard 架构分层防腐扫描、架构文档防漂移、架构图资产检查、Google C++ 代码规范与 Git Diff 门禁 | **PASS** | ~3.0s |
-| **Step 2/6** | CMake 构建与全目标二进制链接 (`libcompany_alg_sdk.so`, 33 个测试程序, CLI) | **PASS** | ~4.5s |
-| **Step 3/6** | 核心架构、DAG拓扑排序、引擎容错与全业务细粒度 GTest 单元测试 (Tier 1) | **PASS** | ~8.0s |
-| **Step 4/6** | C ABI 安全防御、平台 Operator 接口、8 线程并发、动态热重载与极端边界鲁棒性压测 (Tier 2) | **PASS** | ~2.5s |
-| **Step 5/6** | 7 大业务端到端全链路集成测试 (参数化 Profile Demo 套件，Tier 3) | **PASS** | ~1.5s |
-| **Step 6/6** | CLI 可视化工具链双模测试 (Python `./show` & 纯 C++ `./build/alg_show`，11 个官方 JSON) | **PASS** | ~0.8s |
-| **CTest** | 33/33 CTest 全量套件 (`ctest --output-on-failure`) | **PASS (33/33)** | ~21.3s |
-| **Sanitizers** | ASan + UBSan Fast 套件与 Smoke 演示 | **PASS** | ~25s |
+### 3.3 RCR-003：生产契约与运行时一致
 
----
+- `VectorSearchNode` 删除未被运行时消费的 `metric=cosine|dot|l2` Definition；当前
+  契约只表达实际实现的 cosine 行为。
+- `KeywordMatcherNode.default_categories` 恢复 optional，保留“空词表初始化后通过
+  Control 注入”的兼容语义。
+- 测试错误场景由共享非法 fixture 表达，不再为制造诊断而扭曲生产 Definition。
 
-## 4. 架构设计不变量最终核对
+### 3.4 RCR-004：验收追溯与 RFC 生命周期
 
-1. **公开 C ABI 稳定**：未修改 6 个公开 C ABI 函数签名、结构体内存布局及 `noexcept` 异常防火墙。
-2. **四层依赖严格单向**：`Layer 1 → Layer 2 → Layer 3 → Layer 4`，`LayerGuard` 扫描 0 违规。
-3. **单趟执行计划**：`Pipeline::BuildInternal` 仅消费一次 `ValidatedPipelinePlan`，彻底消除了二次解析和 DAG 计算。
-4. **统一配置校验**：Node 和 Engine 共用 `ValidateConfigFields`，校验失败在实例构造和模型加载之前发生。
-5. **算子与引擎注册统一**：全库 27 个算子统一使用 `NodeBase` / `ModelBoundNode` / `TraceableUnaryInferenceNode` 浅基类与 `REGISTER_NODE_WITH_DEFINITION`，引擎统一使用 `REGISTER_ENGINE_WITH_DEFINITION`。
-6. **动态黑板强类型契约**：全库算子使用 typed `BlackboardKey<T>` 进行数据输入与输出。
-7. **Fixed Batch 规范**：所有固定批推理算子统一经由 `FixedBatchExecutor::Execute` 调度。
-8. **文档与代码零漂移**：`scripts/check_architecture_docs.sh` 确保架构文档、宏命名、业务名和图例与代码实现完全一致。
+- RFC 正文和索引均保持 `In Implementation`。
+- 本报告移除了不属于当前历史的旧“最终 SHA”，不将未提交工作区描述成最终交付。
+- `Completed`、PR/CI 和 main 同步只在标准分支上传/合并工作流完成后更新。
 
----
+### 3.5 RCR-005：真正的 sanitizer fast
 
-## 5. 验收签名
+- `scripts/run_sanitizers.sh --fast` 使用独立 `build-sanitizers-fast` 和独立 ccache；
+  禁用 llama.cpp、ONNX Runtime 与真实模型测试，仅构建必要二进制和 12 个核心测试。
+- Python/Studio 测试通过环境变量调用 sanitizer 版 `alg_pipeline_tool` 与
+  `alg_demo`，不再误用普通 `build/` 产物。
+- fast 模式运行 12 项核心 CTest 和 9 个 emulator smoke profile；`--full` 保留完整
+  后端与全量 CTest。未知参数返回退出码 2。
+- ASan/UBSan 使用 `detect_leaks=0`；本报告不声称 LSan 或“零泄漏”。
 
-- **验收结论**：**通过 (Approved - 100% PASS)**
-- **建议操作**：更新 RFC-0008 状态为 `Completed`，更新 RFC 索引，执行本地与远端同步。
+### 3.6 RCR-006：负向门禁不污染工作区
+
+- `check_architecture_docs.sh`、`render_architecture_diagrams.sh` 支持受控文档根目录。
+- 两个 Shell 自测将 `doc/` 复制到 `mktemp` 目录，只在临时树注入漂移或损坏；
+  EXIT/INT/TERM 清理临时目录，不覆盖仓库源文件。
+
+## 4. 实际验证矩阵
+
+| 命令 / 门禁 | 本轮结果 |
+| --- | --- |
+| `./scripts/format.sh` | PASS |
+| `cmake -S . -B build` | PASS |
+| `cmake --build build -j4` | PASS |
+| `ctest --test-dir build --output-on-failure` | **PASS，33/33，154.23s** |
+| 11 个 `configs/pipeline_*.json` 的 `validate` + `plan` | **PASS，11/11** |
+| `./scripts/run_all_tests.sh` | **PASS，6/6 阶段** |
+| `./scripts/run_sanitizers.sh --fast` | **PASS，12/12 核心 CTest + 9/9 emulator smoke** |
+| `python3 tests/test_visualizer_server.py` | **PASS，6/6** |
+| `git diff --check` | PASS |
+
+CTest 中 `DiagramRenderGateSelfTest` 真实执行多次 PlantUML 渲染，因此本轮完整 CTest
+耗时约 154 秒；不得再使用旧报告中的虚构短耗时。
+
+## 5. 架构不变量核对
+
+1. 六个公开 C ABI 生命周期函数及 C 结构布局未改变，异常防火墙保持。
+2. 四层依赖方向保持 `Layer 1 → Layer 2 → Layer 3 → Layer 4`，LayerGuard 通过。
+3. `PipelineValidator` 生成唯一 `ValidatedPipelinePlan`；Pipeline 不恢复二次解析或
+   DAG 排序。
+4. Node/Engine 配置约束共用无副作用验证路径，非法 Definition 在注册写入前拒绝。
+5. Node 继续采用浅层 `NodeBase`、`ModelBoundNode`、
+   `TraceableUnaryInferenceNode`；请求数据只进入 `AlgContext`。
+6. 固定批推理路径保持 `FixedBatchExecutor::Execute` 的 padding、dummy stripping 和
+   `(req_id, sub_id)` provenance 契约。
+7. 架构图资产由权威 PlantUML 源生成，文档漂移门禁和负向自测均 fail-closed。
+
+## 6. 未验证范围
+
+以下不影响 RFC-0008 的软件交付结论，但不得扩大解释为对应能力已经验证：
+
+- 真实 NPU 硬件：**NOT VERIFIED**；
+- TSan、LSan `detect_leaks=1`：**NOT VERIFIED**。
+
+远端提交、PR、CI、合并和 main 同步由
+`scripts/git_branch_upload.sh` 在同一命令中执行并在最终状态不一致时返回失败。

@@ -32,7 +32,7 @@ graph TD
         
         subgraph StateMgr["三级状态与注册管理器"]
             S_Ctx["SessionContext (句柄级持久状态)<br>• ModelManager 多模型池<br>• 句柄共享缓存资源"]
-            R_Ctx["AlgContext (请求级瞬态黑板)<br>• std::any 类型安全擦除<br>• 自动生命周期析构 (无内存泄漏)"]
+            R_Ctx["AlgContext (请求级瞬态黑板)<br>• std::any 类型安全擦除<br>• 自动生命周期析构"]
             TraceTag["TraceableItem 溯源追踪<br>• req_id (请求索引)<br>• sub_id (1对N分片索引)"]
             Factory["NodeFactory & EngineFactory<br>• *_WITH_DEFINITION 就地注册"]
         end

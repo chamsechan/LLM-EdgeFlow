@@ -15,7 +15,6 @@ skinparam defaultFontName "Segoe UI", Arial, sans-serif
 skinparam roundCorner 8
 skinparam shadowing true
 skinparam dpi 300
-skinparam linetype ortho
 skinparam package {
   BackgroundColor #1E293B
   BorderColor #475569

@@ -55,16 +55,16 @@ LLM-EdgeFlow 已形成可工作的四层运行时：两个外部门面汇入
 
 ### 2.1 范围内
 
-- [ ] Node、Engine、Business Definition 与注册点收敛。
-- [ ] Blackboard Key 与端口类型契约统一。
-- [ ] 引入 `ValidatedPipelinePlan`，删除重复解析和拓扑规划。
-- [ ] 统一结构化诊断码和显式 Validation Policy。
-- [ ] 调整 common/business 节点归属并收敛 LLM 推理重复。
-- [ ] 引入浅层 Node 基类与组合式助手，迁移适合的生产节点。
-- [ ] 修复 `DenseRetrievalNode` 中未参与检索的无效 Embedding 计算。
-- [ ] 将节点和引擎并行安全能力改为显式声明。
-- [ ] 同步架构说明、PlantUML、开发指南、Skill 和 SVG 资源。
-- [ ] 增加架构契约与文档漂移测试。
+- [x] Node、Engine、Business Definition 与注册点收敛。
+- [x] Blackboard Key 与端口类型契约统一。
+- [x] 引入 `ValidatedPipelinePlan`，删除重复解析和拓扑规划。
+- [x] 统一结构化诊断码和显式 Validation Policy。
+- [x] 调整 common/business 节点归属并收敛 LLM 推理重复。
+- [x] 引入浅层 Node 基类与组合式助手，迁移适合的生产节点。
+- [x] 修复 `DenseRetrievalNode` 中未参与检索的无效 Embedding 计算。
+- [x] 将节点和引擎并行安全能力改为显式声明。
+- [x] 同步架构说明、PlantUML、开发指南、Skill 和 SVG 资源。
+- [x] 增加架构契约与文档漂移测试。
 
 ### 2.2 非目标
 
@@ -585,23 +585,23 @@ Unary` 及 helper 组合关系，不展开业务分类空壳类。
 
 ### 6.1 新增测试
 
-- [ ] `tests/test_catalog_contract_ssot.cpp`
+- [x] `tests/test_catalog_contract_ssot.cpp`
   - Definition 全部来自注册；无 Definition 的生产注册失败；
   - 重复业务、Pipeline、端口和类型冲突失败；
   - Node 的 `kNodeType`、`Name()`、注册名和 Definition `node_type` 完全相同；
   - Catalog 不依赖中心 Builtin 表。
-- [ ] `tests/test_validated_pipeline_plan.cpp`
+- [x] `tests/test_validated_pipeline_plan.cpp`
   - Validator 计划与 Pipeline 实际顺序一致；
   - CLI、Web、Runtime 对同一错误返回同一诊断；
   - strict 与兼容策略行为明确。
-- [ ] `tests/test_typed_blackboard_contracts.cpp`
+- [x] `tests/test_typed_blackboard_contracts.cpp`
   - Adapter、Node 和 Definition 共用同一 Key；
   - 类型错误、缺失值、覆盖和并行冲突得到结构化诊断。
-- [ ] `tests/test_node_ownership_and_reuse.cpp`
+- [x] `tests/test_node_ownership_and_reuse.cpp`
   - 公共 LLM 节点至少在两个业务运行；
   - deprecated 包装与公共实现行为一致；
   - Dense Retrieval 使用 Embedding 结果。
-- [ ] `tests/test_node_base_contracts.cpp`
+- [x] `tests/test_node_base_contracts.cpp`
   - `NodeBase` 的 Name、Typed `Require/Publish`、缺失和类型错误行为正确；
   - 空 Session/Context 分别安全失败，hook 抛异常时返回 `-2902` 且无异常越界；
   - `ModelBoundNode` 拒绝空 Session、缺失模型和错误能力类型，并只调用一次专属 Init；
@@ -673,7 +673,7 @@ ctest --test-dir build --output-on-failure
 - [x] 引入 ValidationPolicy 和 ValidatedPipelinePlan。
 - [x] Pipeline 直接物化 Plan。
 - [x] 删除重复 Parse、Registry 检查、DAG Sort 和消息文本兼容判断。
-- [ ] 将当前稳定诊断字符串收敛为 `DiagnosticCode` 枚举，并完成 CLI、Web、Runtime 一致性验收。
+- [x] 将当前稳定诊断字符串收敛为 `DiagnosticCode` 枚举，并完成 CLI、Web、Runtime 一致性验收。
 
 ### 阶段 4：节点归属、复用和并发
 
@@ -688,17 +688,17 @@ ctest --test-dir build --output-on-failure
 ### 阶段 5：文档与漂移门禁
 
 - [x] 更新三份架构文档，并区分当前结构与目标状态。
-- [ ] 同步开发指南、Skill、README 和 Changelog。
-- [ ] 重新生成 SVG。
-- [ ] 增加文档漂移检查。
+- [x] 同步开发指南、Skill、README 和 Changelog。
+- [x] 重新生成 SVG。
+- [x] 增加文档漂移检查。
 
 ### 阶段 6：验收与交付
 
-- [x] 运行完整门禁和全部 Pipeline Smoke（2026-08-26：28/28 CTest、六阶段回归通过）。
-- [ ] 独立审查 C ABI、四层依赖、Catalog 和文档一致性。
-- [ ] P0/P1 全部关闭后将 RFC 与索引标记 `Completed`。
-- [ ] 使用仓库标准 GitHub 工作流创建 PR、通过 CI 并合并 main。
-- [ ] 验证 main 与远端同步且工作区干净。
+- [x] 运行完整门禁和全部 Pipeline Smoke（2026-08-26：33/33 CTest、六阶段回归和 ASan/UBSan fast 通过）。
+- [x] 独立审查 C ABI、四层依赖、Catalog 和文档一致性。
+- [x] P0/P1 全部关闭后将 RFC 与索引标记 `Completed`。
+- [x] 使用仓库标准 GitHub 工作流创建 PR、通过 CI 并合并 main。
+- [x] 验证 main 与远端同步且工作区干净。
 
 ### 7.1 建议提交顺序
 

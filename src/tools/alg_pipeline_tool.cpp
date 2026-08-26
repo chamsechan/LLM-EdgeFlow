@@ -234,7 +234,10 @@ int main(int argc, char** argv) {
     }
     auto report = PipelineValidator::Validate(root);
     auto result = report.ToJson();
-    if (command == "plan") result.erase("diagnostics");
+    // A failed plan request must retain the exact Validator diagnostics so
+    // every consumer observes the same fail-closed report. Successful plans
+    // omit the empty diagnostics array to keep the established CLI shape.
+    if (command == "plan" && report.ok) result.erase("diagnostics");
     std::cout << result.dump(2) << std::endl;
     return report.ok ? 0 : 1;
   }

@@ -3,6 +3,7 @@
 
 import importlib.util
 import json
+import os
 from pathlib import Path
 import subprocess
 import tempfile
@@ -13,6 +14,11 @@ import urllib.request
 
 
 ROOT = Path(__file__).resolve().parents[1]
+PIPELINE_TOOL = Path(
+    os.environ.get(
+        "LLM_EDGEFLOW_PIPELINE_TOOL", ROOT / "build" / "alg_pipeline_tool"
+    )
+)
 SPEC = importlib.util.spec_from_file_location("edgeflow_show", ROOT / "scripts" / "show.py")
 SHOW = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(SHOW)
@@ -88,7 +94,7 @@ class WorkbenchServiceTest(unittest.TestCase):
 class PipelineCliTest(unittest.TestCase):
     def command(self, *args, input_pipeline=None):
         process = subprocess.run(
-            [str(ROOT / "build" / "alg_pipeline_tool"), *args],
+            [str(PIPELINE_TOOL), *args],
             input=None if input_pipeline is None else json.dumps(input_pipeline),
             text=True,
             capture_output=True,
@@ -197,123 +203,21 @@ class HttpApiTest(unittest.TestCase):
         self.assertEqual(payload["schema_version"], 1)
 
     def test_invalid_fixtures_table_driven_parity_matrix(self):
-        cases = [
-            (
-                "UNKNOWN_BUSINESS",
-                {
-                    "business_name": "unknown_biz_xyz",
-                    "models": [],
-                    "pipeline": [{"id": "node_0", "node_type": "KeywordMatcherNode", "depends_on": []}],
-                },
-                "UNKNOWN_BUSINESS",
-            ),
-            (
-                "UNKNOWN_NODE_TYPE",
-                {
-                    "business_name": "keyword_match_v1",
-                    "models": [],
-                    "pipeline": [{"id": "node_0", "node_type": "CompletelyUnknownNode", "depends_on": []}],
-                },
-                "UNKNOWN_NODE_TYPE",
-            ),
-            (
-                "MISSING_CONFIG_FIELD",
-                {
-                    "business_name": "keyword_match_v1",
-                    "models": [],
-                    "pipeline": [
-                        {"id": "node_0", "node_type": "KeywordMatcherNode", "depends_on": [], "config": {}}
-                    ],
-                },
-                "MISSING_CONFIG_FIELD",
-            ),
-            (
-                "CONFIG_FIELD_ENUM",
-                {
-                    "business_name": "smart_doc_qa_v1",
-                    "models": [
-                        {"model_id": "embed_model_v1", "engine_type": "mock_npu_embedding"},
-                        {"model_id": "rerank_model_v1", "engine_type": "mock_npu_rerank"},
-                        {"model_id": "llm_model_v1", "engine_type": "mock_npu_llm"},
-                    ],
-                    "pipeline": [
-                        {"id": "chunk_0", "node_type": "DocChunkPreNode", "depends_on": []},
-                        {"id": "emb_0", "node_type": "DocEmbeddingNode", "depends_on": ["chunk_0"]},
-                        {
-                            "id": "search_0",
-                            "node_type": "VectorSearchNode",
-                            "depends_on": ["emb_0"],
-                            "config": {"metric": "invalid_distance_metric"},
-                        },
-                    ],
-                },
-                "CONFIG_FIELD_ENUM",
-            ),
-            (
-                "MODEL_CAPABILITY_MISMATCH",
-                {
-                    "business_name": "entity_extract_0.6b_v1",
-                    "models": [{"model_id": "emb_model_id", "engine_type": "mock_npu_embedding"}],
-                    "pipeline": [
-                        {"id": "pre", "node_type": "EntityExtractPreNode", "depends_on": []},
-                        {"id": "llm", "node_type": "LlmGenerateNode", "depends_on": ["pre"], "config": {"bind_model": "emb_model_id"}},
-                        {"id": "post", "node_type": "EntityExtractPostNode", "depends_on": ["llm"]},
-                    ],
-                },
-                "MODEL_CAPABILITY_MISMATCH",
-            ),
-            (
-                "DAG_CYCLE",
-                {
-                    "business_name": "keyword_match_v1",
-                    "pipeline": [
-                        {"id": "a", "node_type": "KeywordMatcherNode", "depends_on": ["b"]},
-                        {"id": "b", "node_type": "KeywordMatcherNode", "depends_on": ["a"]},
-                    ],
-                },
-                "DAG_CYCLE",
-            ),
-            (
-                "MISSING_INPUT_PRODUCER",
-                {
-                    "business_name": "smart_doc_qa_v1",
-                    "pipeline": [{"id": "post_only", "node_type": "DocQaPostNode", "depends_on": []}],
-                },
-                "MISSING_INPUT_PRODUCER",
-            ),
-            (
-                "PARALLEL_WRITE_CONFLICT",
-                {
-                    "business_name": "keyword_match_v1",
-                    "execution_mode": "parallel",
-                    "pipeline": [
-                        {"id": "kw1", "node_type": "KeywordMatcherNode", "depends_on": []},
-                        {"id": "kw2", "node_type": "KeywordMatcherNode", "depends_on": []},
-                    ],
-                },
-                "PARALLEL_WRITE_CONFLICT",
-            ),
-            (
-                "SERIALIZED_ENGINE_CONCURRENCY",
-                {
-                    "business_name": "entity_extract_0.6b_v1",
-                    "execution_mode": "parallel",
-                    "models": [{"model_id": "ser_llm", "engine_type": "mock_npu_llm"}],
-                    "pipeline": [
-                        {"id": "pre", "node_type": "EntityExtractPreNode", "depends_on": []},
-                        {"id": "branch_a", "node_type": "LlmGenerateNode", "depends_on": ["pre"], "config": {"bind_model": "ser_llm"}},
-                        {"id": "branch_b", "node_type": "LlmGenerateNode", "depends_on": ["pre"], "config": {"bind_model": "ser_llm"}},
-                    ],
-                },
-                "SERIALIZED_ENGINE_CONCURRENCY",
-            ),
-        ]
+        fixture_path = (
+            ROOT
+            / "tests"
+            / "fixtures"
+            / "pipeline_validation"
+            / "invalid_pipeline_cases.json"
+        )
+        fixtures = json.loads(fixture_path.read_text(encoding="utf-8"))
+        self.assertEqual(fixtures["schema_version"], 1)
 
-        for desc, pipeline, expected_code in cases:
-            with self.subTest(desc=desc):
-                # 1. 直接通过 CLI 执行 validate (非法配置退出码为 1)
+        for case in fixtures["cases"]:
+            with self.subTest(case=case["name"]):
+                pipeline = case["pipeline"]
                 proc_val = subprocess.run(
-                    [str(ROOT / "build" / "alg_pipeline_tool"), "validate", "--stdin"],
+                    [str(PIPELINE_TOOL), "validate", "--stdin"],
                     input=json.dumps(pipeline),
                     text=True,
                     capture_output=True,
@@ -323,10 +227,15 @@ class HttpApiTest(unittest.TestCase):
                 self.assertEqual(proc_val.returncode, 1)
                 cli_val = json.loads(proc_val.stdout)
                 self.assertFalse(cli_val["ok"])
-                found_cli = any(d.get("code") == expected_code for d in cli_val.get("diagnostics", []))
-                self.assertTrue(found_cli, f"Expected {expected_code} in CLI output: {cli_val}")
+                self.assertEqual(
+                    cli_val["diagnostics"][0]["code"], case["primary_code"]
+                )
+                self.assertEqual(
+                    cli_val["diagnostics"][0]["path"], case["primary_path"]
+                )
+                actual_codes = {item["code"] for item in cli_val["diagnostics"]}
+                self.assertTrue(set(case["required_codes"]).issubset(actual_codes))
 
-                # 2. 通过 Web HTTP API 执行 /api/v1/validate
                 req = urllib.request.Request(
                     self.base + "/validate",
                     data=json.dumps({"pipeline": pipeline}).encode(),
@@ -336,21 +245,22 @@ class HttpApiTest(unittest.TestCase):
                 with urllib.request.urlopen(req, timeout=5) as resp:
                     api_val = json.load(resp)
 
-                # 3. 逐字段完全一致性断言 (证明 Web API 零二次计算，纯透传 CLI/Validator)
+                # Web is a byte-semantic pass-through of the CLI/Validator
+                # report; all optional diagnostic fields are compared.
                 self.assertEqual(api_val, cli_val)
 
-                # 4. 执行 CLI plan 并验证在出现结构性错误时拦截
                 proc_plan = subprocess.run(
-                    [str(ROOT / "build" / "alg_pipeline_tool"), "plan", "--stdin"],
+                    [str(PIPELINE_TOOL), "plan", "--stdin"],
                     input=json.dumps(pipeline),
                     text=True,
                     capture_output=True,
                     cwd=ROOT,
                     check=False,
                 )
-                self.assertNotEqual(proc_plan.returncode, 0)
+                self.assertEqual(proc_plan.returncode, 1)
                 cli_plan = json.loads(proc_plan.stdout)
-                self.assertFalse(cli_plan["ok"])
+                # Invalid plan requests retain the exact diagnostic report.
+                self.assertEqual(cli_plan, cli_val)
 
 
 if __name__ == "__main__":

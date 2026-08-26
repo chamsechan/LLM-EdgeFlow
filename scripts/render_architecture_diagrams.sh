@@ -2,105 +2,134 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "${ROOT_DIR}"
+DOC_ROOT="${LLM_EDGEFLOW_ARCH_DOC_ROOT:-${ROOT_DIR}/doc}"
+TOOL_CACHE_DIR="${LLM_EDGEFLOW_TOOL_CACHE_DIR:-${ROOT_DIR}/build/tool-cache}"
 
-MODE="generate"
-if [ $# -gt 0 ]; then
-  if [ "$1" == "--check" ]; then
-    MODE="check"
-  elif [ "$1" == "--generate" ]; then
-    MODE="generate"
-  else
-    echo "Usage: $0 [--check | --generate]"
-    exit 1
-  fi
+MODE="${1:---check}"
+if [[ $# -gt 1 || ("${MODE}" != "--check" && "${MODE}" != "--generate") ]]; then
+  echo "Usage: $0 [--check | --generate]"
+  exit 2
 fi
+
+PLANTUML_VERSION="1.2024.7"
+PLANTUML_SHA256="e34c12bbe9944f1f338ca3d88c9b116b86300cc8e90b35c4086b825b5ae96d24"
+PLANTUML_JAR="${TOOL_CACHE_DIR}/plantuml-${PLANTUML_VERSION}.jar"
+PLANTUML_URL="https://github.com/plantuml/plantuml/releases/download/v${PLANTUML_VERSION}/plantuml-${PLANTUML_VERSION}.jar"
+
+CLASS_SOURCE="${DOC_ROOT}/architecture.puml"
+FLOW_SOURCE="${DOC_ROOT}/architecture_v2.puml"
+CLASS_ASSET="${DOC_ROOT}/assets/architecture_class_diagram.svg"
+FLOW_ASSET="${DOC_ROOT}/assets/architecture_flow.svg"
 
 echo "================================================================"
 echo " [Architecture Diagram Renderer & Gate] Mode: ${MODE}"
 echo "================================================================"
 
-PLANTUML_VERSION="1.2024.7"
-PLANTUML_CACHE_DIR="${HOME}/.cache/plantuml"
-PLANTUML_JAR="${PLANTUML_CACHE_DIR}/plantuml-${PLANTUML_VERSION}.jar"
-
-# 1. 确保固定版本 PlantUML Jar 存在
-if [ ! -f "${PLANTUML_JAR}" ]; then
-  echo "Ensuring PlantUML v${PLANTUML_VERSION} in ${PLANTUML_CACHE_DIR}..."
-  mkdir -p "${PLANTUML_CACHE_DIR}"
-  if command -v curl >/dev/null 2>&1; then
-    curl -sSL "https://github.com/plantuml/plantuml/releases/download/v${PLANTUML_VERSION}/plantuml-${PLANTUML_VERSION}.jar" -o "${PLANTUML_JAR}" || {
-      echo "⚠️ PlantUML download failed. Falling back to local syntax validation."
-    }
-  fi
-fi
-
-# 2. 检查源文件
-for puml in doc/architecture.puml doc/architecture_v2.puml; do
-  if [ ! -f "${puml}" ]; then
-    echo "❌ Source PlantUML file not found: ${puml}"
+for command_name in java sha256sum; do
+  if ! command -v "${command_name}" >/dev/null 2>&1; then
+    echo "❌ Required diagram tool is unavailable: ${command_name}"
     exit 1
   fi
 done
 
-# 3. 语法校验与渲染性预检
-if [ -f "${PLANTUML_JAR}" ] && command -v java >/dev/null 2>&1; then
-  echo "Validating PlantUML syntax for doc/architecture.puml and doc/architecture_v2.puml..."
-  java -jar "${PLANTUML_JAR}" -checkonly doc/architecture.puml doc/architecture_v2.puml
-  echo "✅ PlantUML syntax verification passed (v${PLANTUML_VERSION})."
-
-  # 渲染到临时目录以验证生成确定性
-  TMP_RENDER_DIR=$(mktemp -d)
-  trap 'rm -rf "${TMP_RENDER_DIR}"' EXIT
-  java -jar "${PLANTUML_JAR}" -tsvg doc/architecture.puml -o "${TMP_RENDER_DIR}"
-  if [ ! -s "${TMP_RENDER_DIR}/LLM_EdgeFlow_Architecture.svg" ]; then
-    echo "❌ PlantUML failed to generate SVG in temporary workspace."
+for source_file in "${CLASS_SOURCE}" "${FLOW_SOURCE}"; do
+  if [[ ! -s "${source_file}" ]]; then
+    echo "❌ Missing or empty PlantUML source: ${source_file}"
     exit 1
   fi
-  echo "✅ PlantUML renderability test passed."
+done
+
+mkdir -p "${TOOL_CACHE_DIR}"
+if [[ ! -f "${PLANTUML_JAR}" ]]; then
+  if ! command -v curl >/dev/null 2>&1; then
+    echo "❌ curl is required to acquire PlantUML ${PLANTUML_VERSION}"
+    exit 1
+  fi
+  DOWNLOAD_FILE="$(mktemp "${TOOL_CACHE_DIR}/plantuml-download.XXXXXX")"
+  trap 'rm -f "${DOWNLOAD_FILE:-}"' EXIT
+  echo "Downloading pinned PlantUML ${PLANTUML_VERSION}..."
+  curl --fail --location --silent --show-error "${PLANTUML_URL}" \
+    --output "${DOWNLOAD_FILE}"
+  echo "${PLANTUML_SHA256}  ${DOWNLOAD_FILE}" | sha256sum --check --status
+  mv "${DOWNLOAD_FILE}" "${PLANTUML_JAR}"
+  trap - EXIT
+fi
+
+if ! echo "${PLANTUML_SHA256}  ${PLANTUML_JAR}" | \
+    sha256sum --check --status; then
+  echo "❌ PlantUML checksum mismatch: ${PLANTUML_JAR}"
+  exit 1
+fi
+
+TMP_RENDER_DIR="$(mktemp -d "${TMPDIR:-/tmp}/llm-edgeflow-diagrams.XXXXXX")"
+cleanup() {
+  rm -rf "${TMP_RENDER_DIR}"
+}
+trap cleanup EXIT INT TERM
+
+# PlantUML's -checkonly still emits PNG files next to its input sources. Run
+# syntax validation against isolated copies so a read-only check never dirties
+# the repository (or a caller-provided documentation root).
+CHECK_SOURCE_DIR="${TMP_RENDER_DIR}/check-sources"
+mkdir -p "${CHECK_SOURCE_DIR}"
+cp "${CLASS_SOURCE}" "${CHECK_SOURCE_DIR}/architecture.puml"
+cp "${FLOW_SOURCE}" "${CHECK_SOURCE_DIR}/architecture_v2.puml"
+java -Djava.awt.headless=true -jar "${PLANTUML_JAR}" \
+  -charset UTF-8 -failfast2 -checkonly \
+  "${CHECK_SOURCE_DIR}/architecture.puml" \
+  "${CHECK_SOURCE_DIR}/architecture_v2.puml"
+java -Djava.awt.headless=true -jar "${PLANTUML_JAR}" \
+  -charset UTF-8 -failfast2 -nometadata -tsvg \
+  "${CLASS_SOURCE}" "${FLOW_SOURCE}" -o "${TMP_RENDER_DIR}"
+
+GENERATED_CLASS="${TMP_RENDER_DIR}/LLM_EdgeFlow_Architecture.svg"
+GENERATED_FLOW="${TMP_RENDER_DIR}/LLM_EdgeFlow_Target_Architecture_V2.svg"
+for generated_file in "${GENERATED_CLASS}" "${GENERATED_FLOW}"; do
+  if [[ ! -s "${generated_file}" ]]; then
+    echo "❌ PlantUML did not produce expected SVG: ${generated_file}"
+    exit 1
+  fi
+  if grep -q "An error has occured" "${generated_file}"; then
+    echo "❌ PlantUML produced an error SVG: ${generated_file}"
+    exit 1
+  fi
+done
+
+for required_class in SharedAlgorithmRuntime Pipeline AlgContext NodeBase FixedBatchExecutor; do
+  if ! grep -q "${required_class}" "${GENERATED_CLASS}"; then
+    echo "❌ Class diagram is missing required concept: ${required_class}"
+    exit 1
+  fi
+done
+
+for required_flow in PipelineCatalog PipelineValidator NodeBase FixedBatchExecutor SharedAlgorithmRuntime; do
+  if ! grep -q "${required_flow}" "${GENERATED_FLOW}"; then
+    echo "❌ Flow diagram is missing required concept: ${required_flow}"
+    exit 1
+  fi
+done
+
+if [[ "${MODE}" == "--generate" ]]; then
+  mkdir -p "${DOC_ROOT}/assets"
+  install -m 0644 "${GENERATED_CLASS}" "${CLASS_ASSET}"
+  install -m 0644 "${GENERATED_FLOW}" "${FLOW_ASSET}"
+  echo "✅ Generated deterministic architecture SVG assets."
 else
-  # 基础纯文本语法自检兜底
-  for puml in doc/architecture.puml doc/architecture_v2.puml; do
-    if ! grep -q "@startuml" "${puml}" || ! grep -q "@enduml" "${puml}"; then
-      echo "❌ Invalid PlantUML envelope in ${puml}"
+  for asset_file in "${CLASS_ASSET}" "${FLOW_ASSET}"; do
+    if [[ ! -s "${asset_file}" ]]; then
+      echo "❌ Missing or empty committed SVG asset: ${asset_file}"
       exit 1
     fi
   done
-  echo "✅ PlantUML basic envelope syntax verified."
+  if ! cmp --silent "${GENERATED_CLASS}" "${CLASS_ASSET}"; then
+    echo "❌ Class diagram asset is stale. Run: $0 --generate"
+    exit 1
+  fi
+  if ! cmp --silent "${GENERATED_FLOW}" "${FLOW_ASSET}"; then
+    echo "❌ Flow diagram asset is stale. Run: $0 --generate"
+    exit 1
+  fi
+  echo "✅ Committed SVG assets exactly match their PlantUML sources."
 fi
 
-# 4. 校验目标 SVG 资产
-CLASS_SVG="doc/assets/architecture_class_diagram.svg"
-FLOW_SVG="doc/assets/architecture_flow.svg"
-
-for svg in "${CLASS_SVG}" "${FLOW_SVG}"; do
-  if [ ! -s "${svg}" ]; then
-    echo "❌ Missing or empty SVG asset: ${svg}"
-    exit 1
-  fi
-  if ! grep -q "<svg" "${svg}" || ! grep -q "</svg>" "${svg}"; then
-    echo "❌ Corrupted SVG XML structure in ${svg}"
-    exit 1
-  fi
-done
-
-# 5. 校验核心架构元素在类图中的映射
-REQUIRED_CLASSES=("SharedAlgorithmRuntime" "Pipeline" "AlgContext" "NodeBase" "FixedBatchExecutor")
-for cls in "${REQUIRED_CLASSES[@]}"; do
-  if ! grep -q "${cls}" "${CLASS_SVG}"; then
-    echo "❌ Class diagram SVG is missing required core architecture class: ${cls}"
-    exit 1
-  fi
-done
-
-# 6. 校验核心架构元素在流程图中的映射
-REQUIRED_FLOW_ELEMENTS=("Alg_Process" "Pipeline" "AlgContext" "FixedBatchExecutor" "ModelManager")
-for elem in "${REQUIRED_FLOW_ELEMENTS[@]}"; do
-  if ! grep -q "${elem}" "${FLOW_SVG}"; then
-    echo "❌ Flow diagram SVG is missing required architecture element: ${elem}"
-    exit 1
-  fi
-done
-
-echo "✅ All architecture diagrams verified successfully in mode: ${MODE}"
-exit 0
+echo "✅ Architecture diagram gate passed with PlantUML ${PLANTUML_VERSION}."

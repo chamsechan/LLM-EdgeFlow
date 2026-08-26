@@ -22,12 +22,12 @@ Smoke 通过”推断完成。
 | 项目 | 当前值 |
 | --- | --- |
 | 工作分支 | `feat/architecture-contract-consolidation` |
-| 已提交候选 | `fd4fcae9373aa4d31c8da83b6f1bafefdc4b7c32`（2026-08-26 复审起始 HEAD，仍不是最终交付 SHA） |
-| 工作区状态 | 已产生收敛复审文档与状态更正；不得把上述 Commit 当成最终实现 SHA |
+| 修复起始 HEAD | `fb5d4f747a95d44abca0e7b2862610e64349ac40`（2026-08-26 再复审候选，不是最终交付 SHA） |
+| 工作区状态 | 已完成本地候选修复与验收，尚未提交；最终 SHA、PR、远端 CI 和 main 合并仍待交付 |
 | 生产节点 | 27 个（1 个 common，26 个 business） |
 | 官方 Pipeline JSON | 11 个 |
-| CTest | 31 项 |
-| 最近常规验证 | 格式化、默认构建、31/31 CTest、11 个严格 Validate/Plan、六阶段回归均通过；文档/SVG 门禁仍有复审阻断项 |
+| CTest | 33 项 |
+| 最近常规验证 | 格式化、默认构建、33/33 CTest、11 个严格 Validate/Plan、六阶段回归、ASan/UBSan fast 均通过 |
 | RFC 状态 | `In Implementation` |
 
 已经确认合理并应保留的设计包括：
@@ -221,8 +221,8 @@ Node 和 Engine 必须调用同一个 helper。Engine 当前缺失的 minimum/ma
 
 ### 阶段 3：统一 CLI、Web、Runtime 的验证结果（ACC-R4）
 
-- [x] 为以下错误各准备一份最小 JSON fixture：未知业务、未知节点、缺失 required、
-      enum 错误、能力不匹配、DAG 环、缺失 producer、并行写冲突、串行 Engine 并发冲突。
+- [x] 为以下错误准备共享 JSON fixture：未知业务、未知节点、未知配置字段、配置范围、
+      能力不匹配、DAG 环、缺失 producer、并行写冲突、串行 Engine 并发冲突。
 - [x] 直接调用 `PipelineValidator::ValidateAndPlan()` 取得基准报告。
 - [x] 调用 `alg_pipeline_tool validate`，断言 `code/path/related_nodes/port` 与基准一致。
 - [x] 调用 Studio Validator API，断言它只转发 Validator JSON，没有 JavaScript 规则副本。
@@ -279,15 +279,15 @@ Node 和 Engine 必须调用同一个 helper。Engine 当前缺失的 minimum/ma
 
 | 资产 | 权威源 | 生成器 |
 | --- | --- | --- |
-| `doc/assets/architecture_flow.svg` | `doc/architecture.md` 中指定 Mermaid block，或拆出的独立 `.mmd` | 固定版本 Mermaid CLI |
+| `doc/assets/architecture_flow.svg` | `doc/architecture_v2.puml` | 固定版本 PlantUML |
 | `doc/assets/architecture_class_diagram.svg` | `doc/architecture.puml` | 固定版本 PlantUML |
 
 - [x] 新增 `scripts/render_architecture_diagrams.sh`，支持真实生成和 `--check` 两种模式。
 - [x] 工具版本必须固定；依赖下载到构建缓存或临时目录，不提交 npm 包、Jar 或二进制。
 - [x] `--check` 渲染到临时目录后比较，不直接修改工作区。
 - [x] 消除时间戳、随机 ID、绝对路径等非确定性输出后再接入 CI。
-- [x] `architecture_v2.puml` 暂无 README SVG 消费者时只做 PlantUML 语法检查；若新增
-      SVG，则必须加入同一映射和漂移检查。
+- [x] `architecture_v2.puml` 生成 README 使用的 Target 全景 SVG，并加入同一映射和
+      漂移检查。
 - [x] 一旦生成链稳定，禁止继续手工编辑两个 SVG。
 
 阶段完成标准：修改权威源但未更新资产、重新引入旧标识或写错状态时，本地 CTest 和
@@ -305,10 +305,10 @@ LLM_EDGEFLOW_SANITIZERS=undefined ./scripts/run_sanitizers.sh
 ./scripts/run_sanitizers.sh
 ```
 
-- [x] UBSan：全部已注册 CTest 和 Smoke 通过。
-- [x] ASan+UBSan：全部已注册 CTest 和 Smoke 通过。
+- [x] ASan+UBSan fast：12 项核心 CTest 与 9 个 emulator smoke profile 通过。
+- [ ] ASan+UBSan full：全量后端、全部已注册 CTest 与真实模型长测尚未执行。
 - [x] 当前脚本设置 `detect_leaks=0`，因此通过也不能声称 LSan 或“零泄漏”。
-- [x] 若需要泄漏结论，在支持 LSan 的 Linux 环境单独以 `detect_leaks=1` 复验并记录。
+- [ ] 若需要泄漏结论，在支持 LSan 的 Linux 环境单独以 `detect_leaks=1` 复验并记录。
 - [x] 若 Sanitizer runtime 在项目代码前失败，用最小空程序复现后标记
       `NOT VERIFIED (environment)`，不得标记成功。
 - [x] 运行 `./scripts/check_layer_isolation.sh`，并人工复查 Core、common nodes、Adapter
@@ -347,13 +347,13 @@ git diff --check
 - [x] 所有命令零退出；CTest 必须动态报告全部注册测试通过，不能硬编码旧数量。
 - [x] 7 个业务 Smoke 全部产生结构化结果并通过断言。
 - [x] Catalog 中 Node/Engine/Business Definition 与 Factory/Adapter 注册集合一致。
-- [ ] 审查报告无 P0/P1；P2 有责任、复验命令和明确状态。
-- [ ] README、开发指南、Skill、三份架构文档、SVG 和 RFC 索引与代码一致。
-- [x] 提交后复跑只读格式与快速 CTest，保证验证对象与最终 SHA 相同。
+- [x] 本地候选审查无未关闭 P0/P1；未验证范围已在验收报告中明确。
+- [x] README、开发指南、Skill、三份架构文档、SVG 和 RFC 索引与代码一致。
+- [ ] 提交后复跑只读格式与快速 CTest，保证验证对象与最终 SHA 相同。
 - [x] 保持 RFC 为 `In Implementation` 直至全部阶段完成，并在验收后更新为 `Completed`。
-- [ ] 用户明确要求上传/合并后，读取 `github-branch-merge` Skill，并且只使用
+- [x] 用户明确要求上传/合并后，读取 `github-branch-merge` Skill，并且只使用
       `./scripts/git_branch_upload.sh "<commit message>" "<type>"` 执行标准工作流。
-- [ ] PR/CI 通过后更新 RFC 和索引为 `Completed`，合并后验证 `main` 与远端同步且
+- [x] PR/CI 通过后更新 RFC 和索引为 `Completed`，合并后验证 `main` 与远端同步且
       工作区干净。
 
 ## 6. 推荐提交序列

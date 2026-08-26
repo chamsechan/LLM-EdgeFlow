@@ -159,7 +159,8 @@ LLM-EdgeFlow/
   - ⚡ **单趟执行计划 (`ValidatedPipelinePlan`)**：重构 `PipelineValidator::ValidateAndPlan` 一次性完成 JSON 解析、白名单校验、DAG 拓扑排序与波前分层，`Pipeline::Build` 直接消费不可变执行计划，彻底消除二次重复解析、DAG 排序与私有扩展诊断过滤代码。
   - 🏛️ **Layer 3 算子浅基类体系 (`NodeBase`)**：建立 `NodeBase`（提供 `final noexcept` 异常防火墙、上下文校验与 `Require/Publish/Fail` helper）、`ModelBoundNode<E>`（单模型绑定与访问）与 `TraceableUnaryInferenceNode<E, In, Out>`（单批次推理模板），全库 27 个生产算子全部完成基类迁移。
   - 🗂️ **算子目录归属规范化**：`LlmGenerateNode` 规整至 `common_nodes`（category `"common"`），`PromptBuilderNode`、`VectorSearchNode`、`RerankRefineNode` 规整至 `business/doc_qa`；`DenseRetrievalNode` 预编码政策库并实现真实余弦相似度检索召回。
-  - 🧪 **28 组 CTest 单元测试矩阵与全量回归**：新增 `test_validated_pipeline_plan`、`test_node_base_contracts`、`test_node_ownership_and_reuse` 测试套件，28 项 Google Test 单元测试与 6 阶段自动化回归 100% 通过。
+  - 🔒 **统一验证与文档交付门禁**：Core、Pipeline、CLI、Web 与 Runtime 共用 9 类非法配置 fixture；架构 SVG 由固定 PlantUML 版本和校验和确定性生成，源/资产漂移与损坏资产均 fail-closed；Sanitizer fast 使用独立 ASan/UBSan 构建和 emulator-only 路径。
+  - 🧪 **33 组 CTest 单元测试矩阵与全量回归**：新增 Validated Plan、Node Base、Definition Schema、文档漂移与架构图生成等专项套件，33 项 CTest、11 个官方 Pipeline Validate/Plan、6 阶段自动化回归及 ASan/UBSan fast 全部通过。
 - **v2.0.0 (SSOT 契约注册与强类型黑板交付 - RFC 0008 阶段一)** *(2026-08)*
   - 🏛️ **注册即声明（Self-Describing Registration SSOT）**：算子与引擎注册宏升级为 `REGISTER_NODE_WITH_DEFINITION` 与 `REGISTER_ENGINE_WITH_DEFINITION`，节点元数据（`inputs`, `outputs`, `config_fields`, `model_capability`, `model_config_field`, `parallel_safe`, `business_names`）随同定义自包含声明并自动汇入 `PipelineCatalog`，彻底消除外部硬编码 Catalog。
   - 🧠 **强类型动态黑板契约 (`BlackboardKey<T>`)**：统一黑板 Typed Key 声明规范，提供编译期类型安全与运行时动态类型检查，避免无类型裸字符串与类型不匹配隐患；`TraceableItem<T>` 支持批处理样本多源追溯与硬件定长解构。
