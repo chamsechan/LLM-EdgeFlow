@@ -5,31 +5,27 @@
 
 #include "business/dialogue_audit/dialogue_audit_contract.h"
 #include "business/dialogue_audit/dialogue_audit_dto.h"
-#include "core/node_base.h"
 #include "core/node_registry.h"
 #include "core/traceable_item.h"
+#include "nodes/node_support.h"
 
 namespace alg_framework {
 
 /**
  * @brief 风控审核后处理与结果打包算子 (Node 6: 组装输出领域 DTO)
  */
-class AuditPostNode : public INode {
+class AuditPostNode final : public NodeBase {
  public:
   inline static constexpr char kNodeType[] = "AuditPostNode";
 
-  bool Init(const nlohmann::json& config,
-            SessionContext* session_ctx) override {
-    (void)config;
-    (void)session_ctx;
-    return true;
-  }
+  AuditPostNode() : NodeBase(kNodeType) {}
 
-  int Process(AlgContext* req_ctx) override {
-    auto* req_ids = req_ctx->Get(kRawRequestIds);
-    auto* policies = req_ctx->Get(kMatchedPolicyClauses);
-    auto* rerank_scores = req_ctx->Get(kRerankScores);
-    auto* verdicts = req_ctx->Get(kGeneratedVerdicts);
+ protected:
+  int ProcessNode(AlgContext& req_ctx) override {
+    const auto* req_ids = Require(req_ctx, kRawRequestIds, -8501);
+    const auto* policies = Require(req_ctx, kMatchedPolicyClauses, -8501);
+    const auto* verdicts = Require(req_ctx, kGeneratedVerdicts, -8501);
+    const auto* rerank_scores = req_ctx.Get(kRerankScores);
 
     if (!req_ids || !policies || !verdicts) return -8501;
 
@@ -65,13 +61,8 @@ class AuditPostNode : public INode {
 
     std::cout << "[AuditPostNode] Finalized " << batch_size
               << " compliance audit results." << std::endl;
-    req_ctx->Set(kComplianceAuditOutputs, std::move(outputs));
+    Publish(req_ctx, kComplianceAuditOutputs, std::move(outputs));
     return 0;
-  }
-
-  const std::string& Name() const override {
-    static std::string name = kNodeType;
-    return name;
   }
 };
 
@@ -84,6 +75,7 @@ NodeDefinition MakeAuditPostNodeDefinition() {
       RequiredInput(kRawRequestIds), RequiredInput(kMatchedPolicyClauses),
       OptionalInput(kRerankScores), RequiredInput(kGeneratedVerdicts)};
   def.outputs = {Output(kComplianceAuditOutputs)};
+  def.business_names = {kDialogueAuditBusinessName};
   def.parallel_safe = true;
   return def;
 }

@@ -109,18 +109,21 @@ package "Layer 2: 核心编排与动态黑板层 (Pipeline & Blackboard)" as L2 
     - execution_layers_: std::vector<std::vector<size_t>>
     + BuildFromConfigFile(config_path: string): bool
     + BuildFromJson(root_config: json): bool
-    + ResolveDagTopologicalSort(nodes): vector<vector<size_t>>
     + Execute(req_ctx: AlgContext*): int
     + Control(cmd: int, json_param: string): int
   }
 
   class PipelineValidator <<(V,#0284C7) Static Validator>> {
-    + {static} ValidatePipeline(json_obj, session_ctx): PipelineValidationResult
+    + {static} ValidateAndPlan(json_obj, policy): ValidatedPipelinePlan
+    + {static} Validate(json_obj, policy): ValidationReport
     + {static} NormalizeExplicitDag(json_obj): json
   }
 
-  class PipelineConfig <<(C,#38BDF8) Strict Parser>> {
-    + {static} ParsePipelineConfig(json_obj, parsed_out): PipelineErrorCode
+  class ValidatedPipelinePlan <<(P,#38BDF8) Immutable Plan>> {
+    + report: ValidationReport
+    + config: ParsedPipelineConfig
+    + topological_order: vector<string>
+    + topological_layers: vector<vector<string>>
   }
 
   class AlgContext <<(B,#10B981) Request Blackboard>> {
@@ -128,9 +131,9 @@ package "Layer 2: 核心编排与动态黑板层 (Pipeline & Blackboard)" as L2 
     - mutable rw_mutex_: std::shared_mutex
     - error_code_: int
     - error_message_: std::string
-    + Set<T>(key: string, value: T): void
-    + Get<T>(key: string): T*
-    + Has(key: string): bool
+    + Set<T>(key: BlackboardKey<T>, value: T): void
+    + Get<T>(key: BlackboardKey<T>): const T*
+    + Has<T>(key: BlackboardKey<T>): bool
     + SetError(code: int, msg: string): void
     + Clear(): void
   }
@@ -167,6 +170,23 @@ package "Layer 3: 业务专属算子池 (Pluggable Nodes)" as L3 {
     + {abstract} Name(): const string&
   }
 
+  class NodeBase <<(B,#38BDF8) Base Class>> {
+    # {abstract} ProcessNode(req_ctx: AlgContext&): int
+    # {abstract} InitNode(config, session_ctx): bool
+    # Require<T>(ctx, key, err_code): const T*
+    # Publish<T>(ctx, key, val): void
+    # Fail(ctx, err_code, msg): int
+  }
+
+  class "ModelBoundNode<E>" as ModelBoundNode <<(M,#10B981) Model Template>> {
+    # engine(): shared_ptr<E>
+    # bind_model_id(): const string&
+  }
+
+  class "TraceableUnaryInferenceNode<E, In, Out>" as TraceableUnaryNode <<(U,#8B5CF6) Unary Template>> {
+    # {abstract} InferBatch(in: InputBatch, out: OutputBatch*): int
+  }
+
   class NodeFactory <<(S,#EC4899) Singleton>> {
     + {static} Instance(): NodeFactory&
     + Register(type: string, creator: Func): void
@@ -174,41 +194,8 @@ package "Layer 3: 业务专属算子池 (Pluggable Nodes)" as L3 {
     + HasConflict(): bool
   }
 
-  package "PreProcess & Rule Nodes (9)" as PreNodes {
-    class DocChunkPreNode
-    class ImagePreNode
-    class AudioFeaturePreNode
-    class RerankPairBuilderNode
-    class KeywordMatcherNode
-    class SafetyRulePreNode
-    class IntentRuleNode
-    class SlotExtractNode
-    class EntityExtractPreNode
-  }
-
-  package "Inference & Common Nodes (11)" as InferNodes {
-    class DocEmbeddingNode
-    class LlmGenerateNode
-    class CrossRerankNode
-    class OcrInferNode
-    class AsrInferNode
-    class LlmAuditNode
-    class VectorSearchNode
-    class PromptBuilderNode
-    class RerankRefineNode
-    class CountingNode
-    class PassthroughNode
-  }
-
-  package "PostProcess Alignment Nodes (7)" as PostNodes {
-    class DocQaPostNode
-    class AuditPostNode
-    class OcrDocPostNode
-    class AudioPostNode
-    class RerankSortPostNode
-    class EntityExtractPostNode
-    class ComplianceReportPostNode
-  }
+  class "Common Nodes\nLlmGenerateNode" as CommonNodes
+  class "Business Nodes\n26 production nodes\n(query PipelineCatalog for exact list)" as BusinessNodes
 }
 
 ' ==============================================================================
@@ -306,15 +293,16 @@ Pipeline ..> PipelineValidator : 静态校验与规范化
 SessionContext *-- ModelManager
 ModelManager o-- IModelEngine
 
-INode <|.. PreNodes
-INode <|.. InferNodes
-INode <|.. PostNodes
+INode <|-- NodeBase
+NodeBase <|-- ModelBoundNode
+ModelBoundNode <|-- TraceableUnaryNode
+NodeBase <|.. CommonNodes
+NodeBase <|.. BusinessNodes
 NodeFactory ..> INode : 动态反射创建 (Fail-Closed)
 
-InferNodes ..> AlgContext : 并发安全读写
-PreNodes ..> AlgContext : 写入分片/特征
-PostNodes ..> AlgContext : 提取并精准对齐
-InferNodes ..> ModelManager : 索取纯虚能力接口
+CommonNodes ..> AlgContext : Typed Key 读写
+BusinessNodes ..> AlgContext : Typed Key 读写
+ModelBoundNode ..> ModelManager : 索取纯虚能力接口
 
 IModelEngine <|-- IEmbeddingEngine
 IModelEngine <|-- ILlmEngine

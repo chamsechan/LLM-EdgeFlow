@@ -20,6 +20,8 @@ namespace alg_framework {
  */
 class LlamaCppEngine : public ILlmEngine {
  public:
+  inline static constexpr char kEngineType[] = "llama_cpp";
+
   LlamaCppEngine();
   ~LlamaCppEngine() override;
 

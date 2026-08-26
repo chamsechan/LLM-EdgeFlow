@@ -68,6 +68,16 @@ const char* ConfigValueKindName(ConfigValueKind kind) {
   return "unknown";
 }
 
+const char* EngineThreadModelName(EngineThreadModel model) {
+  switch (model) {
+    case EngineThreadModel::kSerialized:
+      return "serialized";
+    case EngineThreadModel::kConcurrent:
+      return "concurrent";
+  }
+  return "unknown";
+}
+
 bool PipelineCatalog::RegisterNodeDefinition(const NodeDefinition& definition) {
   if (definition.node_type.empty()) return false;
   std::lock_guard<std::mutex> lock(CatalogMutex());
@@ -107,16 +117,31 @@ bool PipelineCatalog::RegisterEngineDefinition(
 
 bool PipelineCatalog::RegisterBusinessDefinition(
     const BusinessDefinition& definition) {
-  if (definition.business_name.empty()) return false;
+  return RegisterBusinessDefinitions({definition});
+}
+
+bool PipelineCatalog::RegisterBusinessDefinitions(
+    const std::vector<BusinessDefinition>& batch) {
+  if (batch.empty()) return false;
   std::lock_guard<std::mutex> lock(CatalogMutex());
   auto& definitions = RegisteredBusinesses();
-  if (std::any_of(definitions.begin(), definitions.end(),
-                  [&](const auto& item) {
-                    return item.business_name == definition.business_name;
-                  })) {
-    return false;
+  std::vector<std::string> batch_names;
+  batch_names.reserve(batch.size());
+  for (const auto& definition : batch) {
+    if (definition.business_name.empty()) return false;
+    if (std::find(batch_names.begin(), batch_names.end(),
+                  definition.business_name) != batch_names.end()) {
+      return false;
+    }
+    if (std::any_of(definitions.begin(), definitions.end(),
+                    [&](const auto& item) {
+                      return item.business_name == definition.business_name;
+                    })) {
+      return false;
+    }
+    batch_names.push_back(definition.business_name);
   }
-  definitions.push_back(definition);
+  definitions.insert(definitions.end(), batch.begin(), batch.end());
   std::sort(definitions.begin(), definitions.end(),
             [](const auto& lhs, const auto& rhs) {
               return lhs.business_name < rhs.business_name;
@@ -211,10 +236,12 @@ nlohmann::json PipelineCatalog::ToJson(const std::string& business_filter) {
     nlohmann::json fields = nlohmann::json::array();
     for (const auto& field : item.config_fields)
       fields.push_back(FieldJson(field));
-    engines.push_back({{"engine_type", item.engine_type},
-                       {"capability", item.capability},
-                       {"description", item.description},
-                       {"config_fields", std::move(fields)}});
+    engines.push_back(
+        {{"engine_type", item.engine_type},
+         {"capability", item.capability},
+         {"description", item.description},
+         {"thread_model", EngineThreadModelName(item.thread_model)},
+         {"config_fields", std::move(fields)}});
   }
 
   nlohmann::json businesses = nlohmann::json::array();

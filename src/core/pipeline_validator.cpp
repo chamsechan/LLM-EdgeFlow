@@ -183,18 +183,21 @@ nlohmann::json ValidationReport::ToJson() const {
             {"layers", topological_layers}}}};
 }
 
-ValidationReport PipelineValidator::Validate(const nlohmann::json& root) {
-  ValidationReport report;
-  ParsedPipelineConfig parsed;
+ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
+    const nlohmann::json& root, ValidationPolicy policy) {
+  ValidatedPipelinePlan plan;
+  ValidationReport& report = plan.report;
   PipelineDiagnostic parse_diag;
-  if (!ParsePipelineConfig(root, &parsed, &parse_diag)) {
+  if (!ParsePipelineConfig(root, &plan.config, &parse_diag)) {
     Add(&report, PipelineErrorCodeName(parse_diag.code), parse_diag.path,
         parse_diag.message);
-    return report;
+    report.ok = false;
+    return plan;
   }
+  const auto& parsed = plan.config;
 
   const auto* business = PipelineCatalog::FindBusiness(parsed.business_name);
-  if (!business) {
+  if (!business && policy == ValidationPolicy::kStrict) {
     Add(&report, "UNKNOWN_BUSINESS", "/business_name",
         "No registered business contract accepts pipeline name: " +
             parsed.business_name);
@@ -209,28 +212,34 @@ ValidationReport PipelineValidator::Validate(const nlohmann::json& root) {
   }
 
   std::unordered_map<std::string, std::string> model_capabilities;
+  std::unordered_map<std::string, EngineThreadModel> model_thread_models;
   for (const auto& model : parsed.models) {
     const auto* engine = PipelineCatalog::FindEngine(model.engine_type);
-    if (!EngineFactory::Instance().Has(model.engine_type) || !engine) {
+    bool factory_has = EngineFactory::Instance().Has(model.engine_type);
+    if (!factory_has || (!engine && policy == ValidationPolicy::kStrict)) {
       Add(&report, "UNKNOWN_ENGINE_TYPE",
           "/models/" + std::to_string(model.source_index) + "/engine_type",
           "Unknown engine_type: " + model.engine_type);
       continue;
     }
-    model_capabilities[model.model_id] = engine->capability;
-    std::unordered_map<std::string, const ConfigFieldDefinition*> fields;
-    for (const auto& field : engine->config_fields) fields[field.name] = &field;
-    for (auto it = model.config.begin(); it != model.config.end(); ++it) {
-      auto found = fields.find(it.key());
-      std::string path = "/models/" + std::to_string(model.source_index) +
-                         "/config/" + it.key();
-      if (found == fields.end()) {
-        Add(&report, "UNKNOWN_CONFIG_FIELD", path,
-            "Unknown engine config field: " + it.key());
-      } else if (!MatchesKind(it.value(), found->second->kind)) {
-        Add(&report, "CONFIG_FIELD_TYPE", path,
-            "Expected " +
-                std::string(ConfigValueKindName(found->second->kind)));
+    if (engine) {
+      model_capabilities[model.model_id] = engine->capability;
+      model_thread_models[model.model_id] = engine->thread_model;
+      std::unordered_map<std::string, const ConfigFieldDefinition*> fields;
+      for (const auto& field : engine->config_fields)
+        fields[field.name] = &field;
+      for (auto it = model.config.begin(); it != model.config.end(); ++it) {
+        auto found = fields.find(it.key());
+        std::string path = "/models/" + std::to_string(model.source_index) +
+                           "/config/" + it.key();
+        if (found == fields.end()) {
+          Add(&report, "UNKNOWN_CONFIG_FIELD", path,
+              "Unknown engine config field: " + it.key());
+        } else if (!MatchesKind(it.value(), found->second->kind)) {
+          Add(&report, "CONFIG_FIELD_TYPE", path,
+              "Expected " +
+                  std::string(ConfigValueKindName(found->second->kind)));
+        }
       }
     }
   }
@@ -238,88 +247,108 @@ ValidationReport PipelineValidator::Validate(const nlohmann::json& root) {
   auto nodes = EffectiveNodes(parsed);
   std::unordered_map<std::string, const ParsedNodeConfig*> node_by_id;
   std::unordered_map<std::string, const NodeDefinition*> def_by_id;
+  std::unordered_map<std::string, std::string> model_id_by_node;
   for (const auto& node : nodes) {
     node_by_id[node.id] = &node;
     const auto* definition = PipelineCatalog::FindNode(node.node_type);
-    if (!NodeFactory::Instance().Has(node.node_type) || !definition) {
+    bool factory_has = NodeFactory::Instance().Has(node.node_type);
+    if (!factory_has || (!definition && policy == ValidationPolicy::kStrict)) {
       Add(&report, "UNKNOWN_NODE_TYPE",
           "/pipeline/" + std::to_string(node.source_index) + "/node_type",
           "Unknown node_type or missing catalog definition: " + node.node_type,
           node.id);
       continue;
     }
-    def_by_id[node.id] = definition;
+    if (definition) {
+      def_by_id[node.id] = definition;
 
-    std::unordered_map<std::string, const ConfigFieldDefinition*> fields;
-    for (const auto& field : definition->config_fields)
-      fields[field.name] = &field;
-    for (auto it = node.config.begin(); it != node.config.end(); ++it) {
-      std::string path = "/pipeline/" + std::to_string(node.source_index) +
-                         "/config/" + it.key();
-      auto found = fields.find(it.key());
-      if (found == fields.end()) {
-        Add(&report, "UNKNOWN_CONFIG_FIELD", path,
-            "Unknown node config field: " + it.key(), node.id);
-        continue;
-      }
-      const auto& field = *found->second;
-      if (!MatchesKind(it.value(), field.kind)) {
-        Add(&report, "CONFIG_FIELD_TYPE", path,
-            "Expected " + std::string(ConfigValueKindName(field.kind)),
+      if (business && !definition->business_names.empty() &&
+          std::find(definition->business_names.begin(),
+                    definition->business_names.end(),
+                    parsed.business_name) == definition->business_names.end()) {
+        Add(&report, "NODE_BUSINESS_MISMATCH",
+            "/pipeline/" + std::to_string(node.source_index) + "/node_type",
+            "Node type is not declared for business: " + parsed.business_name,
             node.id);
-        continue;
       }
-      if (it.value().is_number()) {
-        double value = it.value().get<double>();
-        if ((field.minimum && value < *field.minimum) ||
-            (field.maximum && value > *field.maximum)) {
-          Add(&report, "CONFIG_FIELD_RANGE", path,
-              "Numeric value is outside the supported range", node.id);
+
+      std::unordered_map<std::string, const ConfigFieldDefinition*> fields;
+      for (const auto& field : definition->config_fields)
+        fields[field.name] = &field;
+      for (auto it = node.config.begin(); it != node.config.end(); ++it) {
+        std::string path = "/pipeline/" + std::to_string(node.source_index) +
+                           "/config/" + it.key();
+        auto found = fields.find(it.key());
+        if (found == fields.end()) {
+          Add(&report, "UNKNOWN_CONFIG_FIELD", path,
+              "Unknown node config field: " + it.key(), node.id);
+          continue;
+        }
+        const auto& field = *found->second;
+        if (!MatchesKind(it.value(), field.kind)) {
+          Add(&report, "CONFIG_FIELD_TYPE", path,
+              "Expected " + std::string(ConfigValueKindName(field.kind)),
+              node.id);
+          continue;
+        }
+        if (it.value().is_number()) {
+          double value = it.value().get<double>();
+          if ((field.minimum && value < *field.minimum) ||
+              (field.maximum && value > *field.maximum)) {
+            Add(&report, "CONFIG_FIELD_RANGE", path,
+                "Numeric value is outside the supported range", node.id);
+          }
         }
       }
-    }
 
-    if (!definition->model_capability.empty()) {
-      std::string model_id;
-      if (node.config.contains(definition->model_config_field) &&
-          node.config[definition->model_config_field].is_string()) {
-        model_id =
-            node.config[definition->model_config_field].get<std::string>();
-      } else {
-        auto field = std::find_if(
-            definition->config_fields.begin(), definition->config_fields.end(),
-            [&](const auto& item) {
-              return item.name == definition->model_config_field;
-            });
-        if (field != definition->config_fields.end() &&
-            field->default_value.is_string() &&
-            !field->default_value.get<std::string>().empty()) {
-          model_id = field->default_value.get<std::string>();
-        } else if (parsed.models.size() == 1) {
-          model_id = parsed.models.front().model_id;
+      if (!definition->model_capability.empty()) {
+        std::string model_id;
+        if (node.config.contains(definition->model_config_field) &&
+            node.config[definition->model_config_field].is_string()) {
+          model_id =
+              node.config[definition->model_config_field].get<std::string>();
+        } else {
+          auto field = std::find_if(
+              definition->config_fields.begin(),
+              definition->config_fields.end(), [&](const auto& item) {
+                return item.name == definition->model_config_field;
+              });
+          if (field != definition->config_fields.end() &&
+              field->default_value.is_string() &&
+              !field->default_value.get<std::string>().empty()) {
+            model_id = field->default_value.get<std::string>();
+          } else if (parsed.models.size() == 1) {
+            model_id = parsed.models.front().model_id;
+          }
         }
-      }
-      auto capability = model_capabilities.find(model_id);
-      std::string path = "/pipeline/" + std::to_string(node.source_index) +
-                         "/config/" + definition->model_config_field;
-      if (capability == model_capabilities.end()) {
-        Add(&report, "UNKNOWN_MODEL_REFERENCE", path,
-            "Node references an unknown model_id: " + model_id, node.id);
-      } else if (capability->second != definition->model_capability) {
-        Add(&report, "MODEL_CAPABILITY_MISMATCH", path,
-            "Node requires model capability '" + definition->model_capability +
-                "' but model provides '" + capability->second + "'",
-            node.id);
+        auto capability = model_capabilities.find(model_id);
+        if (!model_id.empty()) model_id_by_node[node.id] = model_id;
+        std::string path = "/pipeline/" + std::to_string(node.source_index) +
+                           "/config/" + definition->model_config_field;
+        if (capability == model_capabilities.end()) {
+          Add(&report, "UNKNOWN_MODEL_REFERENCE", path,
+              "Node references an unknown model_id: " + model_id, node.id);
+        } else if (capability->second != definition->model_capability) {
+          Add(&report, "MODEL_CAPABILITY_MISMATCH", path,
+              "Node requires model capability '" +
+                  definition->model_capability + "' but model provides '" +
+                  capability->second + "'",
+              node.id);
+        }
       }
     }
   }
 
   const size_t pre_topology_errors = report.diagnostics.size();
   ResolveTopology(nodes, &report);
-  if (report.diagnostics.size() != pre_topology_errors || !business ||
+  plan.topological_order = report.topological_order;
+  plan.topological_layers = report.topological_layers;
+
+  if (report.diagnostics.size() != pre_topology_errors ||
+      (policy == ValidationPolicy::kStrict && !business) ||
       report.topological_order.size() != nodes.size()) {
     report.ok = report.diagnostics.empty();
-    return report;
+    return plan;
   }
 
   std::unordered_map<std::string, std::vector<std::string>> deps;
@@ -341,7 +370,9 @@ ValidationReport PipelineValidator::Validate(const nlohmann::json& root) {
       };
 
   std::unordered_map<std::string, PortDefinition> ingress;
-  for (const auto& port : business->ingress) ingress[port.key] = port;
+  if (business) {
+    for (const auto& port : business->ingress) ingress[port.key] = port;
+  }
   std::unordered_map<std::string,
                      std::vector<std::pair<std::string, PortDefinition>>>
       producers;
@@ -368,7 +399,7 @@ ValidationReport PipelineValidator::Validate(const nlohmann::json& root) {
           }
         }
       }
-      if (!found) {
+      if (!found && business) {
         std::vector<std::string> suggestions;
         for (const auto& candidate : PipelineCatalog::Nodes()) {
           if (std::any_of(candidate.outputs.begin(), candidate.outputs.end(),
@@ -399,31 +430,53 @@ ValidationReport PipelineValidator::Validate(const nlohmann::json& root) {
     }
   }
 
-  for (const auto& required : business->egress) {
-    bool found = false;
-    auto it = producers.find(required.key);
-    if (it != producers.end()) {
-      found = std::any_of(it->second.begin(), it->second.end(),
-                          [&](const auto& producer) {
-                            return producer.second.type_id == required.type_id;
-                          });
-    }
-    if (!found) {
-      Add(&report, "MISSING_BUSINESS_OUTPUT", "/pipeline",
-          "Pipeline does not produce required business output: " + required.key,
-          {}, required.key);
+  if (business) {
+    for (const auto& required : business->egress) {
+      bool found = false;
+      auto it = producers.find(required.key);
+      if (it != producers.end()) {
+        found = std::any_of(
+            it->second.begin(), it->second.end(), [&](const auto& producer) {
+              return producer.second.type_id == required.type_id;
+            });
+      }
+      if (!found) {
+        Add(&report, "MISSING_BUSINESS_OUTPUT", "/pipeline",
+            "Pipeline does not produce required business output: " +
+                required.key,
+            {}, required.key);
+      }
     }
   }
 
   if (parsed.execution_mode == "parallel") {
     for (const auto& layer : report.topological_layers) {
       std::unordered_map<std::string, std::string> writes;
+      std::unordered_map<std::string, std::string> serialized_model_users;
       for (const auto& id : layer) {
         auto def_it = def_by_id.find(id);
         if (def_it == def_by_id.end()) continue;
         if (!def_it->second->parallel_safe && layer.size() > 1) {
           Add(&report, "NODE_NOT_PARALLEL_SAFE", "/pipeline",
               "Node is not declared safe for wavefront parallel execution", id);
+        }
+        auto model_id = model_id_by_node.find(id);
+        if (layer.size() > 1 && model_id != model_id_by_node.end()) {
+          auto thread_model = model_thread_models.find(model_id->second);
+          if (thread_model != model_thread_models.end() &&
+              thread_model->second == EngineThreadModel::kSerialized) {
+            auto inserted =
+                serialized_model_users.emplace(model_id->second, id);
+            if (!inserted.second) {
+              const auto& node = *node_by_id.at(id);
+              Add(&report, "SERIALIZED_ENGINE_CONCURRENCY",
+                  "/pipeline/" + std::to_string(node.source_index) +
+                      "/config/" + def_it->second->model_config_field,
+                  "Parallel layer shares serialized model instance: " +
+                      model_id->second,
+                  id, {}, {inserted.first->second});
+            }
+          }
         }
         for (const auto& output : def_it->second->outputs) {
           auto inserted = writes.emplace(output.key, id);
@@ -438,7 +491,12 @@ ValidationReport PipelineValidator::Validate(const nlohmann::json& root) {
   }
 
   report.ok = report.diagnostics.empty();
-  return report;
+  return plan;
+}
+
+ValidationReport PipelineValidator::Validate(const nlohmann::json& root,
+                                             ValidationPolicy policy) {
+  return ValidateAndPlan(root, policy).report;
 }
 
 bool PipelineValidator::NormalizeExplicitDag(const nlohmann::json& root,

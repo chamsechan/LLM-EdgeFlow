@@ -76,8 +76,9 @@ TEST_F(CatalogContractSsotTest, AllInferenceEnginesHaveValidDefinitions) {
         << "Engine type in catalog but missing in EngineFactory: "
         << engine_def.engine_type;
     auto instance = EngineFactory::Instance().Create(engine_def.engine_type);
-    EXPECT_NE(instance, nullptr)
+    ASSERT_NE(instance, nullptr)
         << "Failed to create engine instance: " << engine_def.engine_type;
+    EXPECT_EQ(instance->EngineType(), engine_def.engine_type);
 
     // FindEngine 查询一致性
     const auto* found = PipelineCatalog::FindEngine(engine_def.engine_type);
@@ -130,6 +131,25 @@ TEST_F(CatalogContractSsotTest, FindReturnsNullptrForNonexistentEntities) {
   EXPECT_EQ(PipelineCatalog::FindBusiness("non_existent_biz_xyz"), nullptr);
 }
 
+TEST_F(CatalogContractSsotTest, BusinessBatchRegistrationIsAtomic) {
+  const std::string first = "atomic_catalog_probe_first";
+  const std::string last = "atomic_catalog_probe_last";
+  ASSERT_EQ(PipelineCatalog::FindBusiness(first), nullptr);
+  ASSERT_EQ(PipelineCatalog::FindBusiness(last), nullptr);
+
+  const auto& existing = PipelineCatalog::Businesses();
+  ASSERT_FALSE(existing.empty());
+  std::vector<BusinessDefinition> batch = {
+      BusinessDefinition{first, "probe"},
+      BusinessDefinition{existing.front().business_name, "probe"},
+      BusinessDefinition{last, "probe"},
+  };
+
+  EXPECT_FALSE(PipelineCatalog::RegisterBusinessDefinitions(batch));
+  EXPECT_EQ(PipelineCatalog::FindBusiness(first), nullptr);
+  EXPECT_EQ(PipelineCatalog::FindBusiness(last), nullptr);
+}
+
 // 5. 验证 PipelineCatalog::ToJson 序列化规范性与过滤逻辑
 TEST_F(CatalogContractSsotTest, ToJsonSerializationAndFiltering) {
   auto full_catalog = PipelineCatalog::ToJson();
@@ -140,6 +160,11 @@ TEST_F(CatalogContractSsotTest, ToJsonSerializationAndFiltering) {
   EXPECT_GE(full_catalog["nodes"].size(), 27U);
   EXPECT_GE(full_catalog["engines"].size(), 8U);
   EXPECT_GE(full_catalog["businesses"].size(), 7U);
+  for (const auto& engine : full_catalog["engines"]) {
+    ASSERT_TRUE(engine.contains("thread_model"));
+    EXPECT_TRUE(engine["thread_model"] == "serialized" ||
+                engine["thread_model"] == "concurrent");
+  }
 
   // 业务过滤查询
   auto km_catalog = PipelineCatalog::ToJson("keyword_match_v1");
@@ -149,13 +174,15 @@ TEST_F(CatalogContractSsotTest, ToJsonSerializationAndFiltering) {
   EXPECT_EQ(km_catalog["businesses"][0]["business_name"], "keyword_match_v1");
 
   bool found_km_node = false;
+  bool leaked_doc_node = false;
   for (const auto& item : km_catalog["nodes"]) {
     if (item["node_type"] == "KeywordMatcherNode") {
       found_km_node = true;
-      break;
     }
+    if (item["node_type"] == "DocChunkPreNode") leaked_doc_node = true;
   }
   EXPECT_TRUE(found_km_node);
+  EXPECT_FALSE(leaked_doc_node);
 }
 
 }  // namespace alg_framework

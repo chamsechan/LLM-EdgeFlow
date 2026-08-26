@@ -27,7 +27,7 @@ class KeywordMatchAdapter : public IBusinessAdapter {
         OwnershipPolicy::kCopyIn,
         ThreadModel::kStatelessThreadSafe,
         OutputCardinality::kOneToOne,
-        {{"keyword_match_v1",
+        {{kKeywordMatchBusinessName,
           "keyword_match",
           "关注词匹配",
           {RequiredInput(kRawRequestIds), RequiredInput(kInputSentences)},

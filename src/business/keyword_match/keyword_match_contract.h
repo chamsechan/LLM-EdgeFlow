@@ -9,6 +9,8 @@
 
 namespace alg_framework {
 
+inline constexpr char kKeywordMatchBusinessName[] = "keyword_match_v1";
+
 inline constexpr BlackboardKey<std::vector<std::string>> kInputSentences{
     "input_sentences", "vector<string>"};
 

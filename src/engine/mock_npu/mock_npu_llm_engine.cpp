@@ -23,13 +23,14 @@ bool MockNpuLlmEngine::Load(const std::string& model_path,
 }
 
 const std::string& MockNpuLlmEngine::EngineType() const {
-  static std::string type = "mock_npu_llm";
+  static const std::string type = kEngineType;
   return type;
 }
 
 int MockNpuLlmEngine::Generate(const std::string& prompt,
                                const GenerateOption& opt,
                                std::string* output_text) {
+  (void)opt;
   if (!is_loaded_ || !output_text) return -2001;
   *output_text = GenerateSingleResponse(prompt);
   return 0;
@@ -39,6 +40,7 @@ int MockNpuLlmEngine::InferTraceableBatch(
     const std::vector<TraceableItem<std::string>>& input_prompts,
     const GenerateOption& opt,
     std::vector<TraceableItem<std::string>>* output_texts) {
+  (void)opt;
   if (!is_loaded_) return -2001;
 
   std::string dummy_pad = "<PAD_PROMPT>";
@@ -137,7 +139,7 @@ std::string MockNpuLlmEngine::GenerateSingleResponse(
 
 EngineDefinition MakeMockNpuLlmDefinition() {
   EngineDefinition def;
-  def.engine_type = "mock_npu_llm";
+  def.engine_type = MockNpuLlmEngine::kEngineType;
   def.capability = "llm";
   def.description = "Mock NPU LLM engine";
   def.config_fields = {
@@ -151,7 +153,6 @@ EngineDefinition MakeMockNpuLlmDefinition() {
   return def;
 }
 
-REGISTER_ENGINE_WITH_DEFINITION("mock_npu_llm", MockNpuLlmEngine,
-                                MakeMockNpuLlmDefinition());
+REGISTER_ENGINE_WITH_DEFINITION(MockNpuLlmEngine, MakeMockNpuLlmDefinition());
 
 }  // namespace alg_framework

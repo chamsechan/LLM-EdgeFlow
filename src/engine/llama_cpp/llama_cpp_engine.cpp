@@ -81,7 +81,7 @@ bool LlamaCppEngine::Load(const std::string& model_path,
 }
 
 const std::string& LlamaCppEngine::EngineType() const {
-  static std::string type = "llama_cpp";
+  static const std::string type = kEngineType;
   return type;
 }
 
@@ -269,7 +269,7 @@ std::string LlamaCppEngine::GenerateLlamaResponse(
 
 EngineDefinition MakeLlamaCppDefinition() {
   EngineDefinition def;
-  def.engine_type = "llama_cpp";
+  def.engine_type = LlamaCppEngine::kEngineType;
   def.capability = "llm";
   def.description = "llama.cpp LLM engine";
   def.config_fields = {
@@ -283,7 +283,6 @@ EngineDefinition MakeLlamaCppDefinition() {
   return def;
 }
 
-REGISTER_ENGINE_WITH_DEFINITION("llama_cpp", LlamaCppEngine,
-                                MakeLlamaCppDefinition());
+REGISTER_ENGINE_WITH_DEFINITION(LlamaCppEngine, MakeLlamaCppDefinition());
 
 }  // namespace alg_framework

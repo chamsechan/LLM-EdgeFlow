@@ -5,30 +5,24 @@
 
 #include "business/cross_rerank/cross_rerank_contract.h"
 #include "business/cross_rerank/cross_rerank_dto.h"
-#include "core/alg_context.h"
-#include "core/node_base.h"
 #include "core/node_registry.h"
 #include "core/traceable_item.h"
+#include "nodes/node_support.h"
 
 namespace alg_framework {
 
-class RerankSortPostNode : public INode {
+class RerankSortPostNode final : public NodeBase {
  public:
   inline static constexpr char kNodeType[] = "RerankSortPostNode";
 
-  bool Init(const nlohmann::json& config,
-            SessionContext* session_ctx) override {
-    (void)config;
-    (void)session_ctx;
-    return true;
-  }
+  RerankSortPostNode() : NodeBase(kNodeType) {}
 
-  int Process(AlgContext* req_ctx) override {
-    auto* raw_inputs = req_ctx->Get(kRawRerankInputs);
-    auto* scored_items = req_ctx->Get(kRerankScoredItems);
+ protected:
+  int ProcessNode(AlgContext& req_ctx) override {
+    const auto* raw_inputs = Require(req_ctx, kRawRerankInputs, -7301);
+    const auto* scored_items = Require(req_ctx, kRerankScoredItems, -7301);
 
     if (!raw_inputs || !scored_items) {
-      req_ctx->SetError(-7301, "RerankSortPostNode: Missing inputs or scores");
       return -7301;
     }
 
@@ -62,13 +56,8 @@ class RerankSortPostNode : public INode {
       }
     }
 
-    req_ctx->Set(kRerankBatchFinalOutputs, std::move(outputs));
+    Publish(req_ctx, kRerankBatchFinalOutputs, std::move(outputs));
     return 0;
-  }
-
-  const std::string& Name() const override {
-    static std::string name = kNodeType;
-    return name;
   }
 };
 
@@ -80,6 +69,7 @@ NodeDefinition MakeRerankSortPostNodeDefinition() {
   def.inputs = {RequiredInput(kRawRerankInputs),
                 RequiredInput(kRerankScoredItems)};
   def.outputs = {Output(kRerankBatchFinalOutputs)};
+  def.business_names = {kCrossRerankBusinessName};
   def.parallel_safe = true;
   return def;
 }

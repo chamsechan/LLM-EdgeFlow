@@ -4,28 +4,22 @@
 #include <vector>
 
 #include "business/audio_asr/audio_asr_contract.h"
-#include "core/alg_context.h"
-#include "core/node_base.h"
 #include "core/node_registry.h"
 #include "core/traceable_item.h"
+#include "nodes/node_support.h"
 
 namespace alg_framework {
 
-class SlotExtractNode : public INode {
+class SlotExtractNode final : public NodeBase {
  public:
   inline static constexpr char kNodeType[] = "SlotExtractNode";
 
-  bool Init(const nlohmann::json& config,
-            SessionContext* session_ctx) override {
-    (void)config;
-    (void)session_ctx;
-    return true;
-  }
+  SlotExtractNode() : NodeBase(kNodeType) {}
 
-  int Process(AlgContext* req_ctx) override {
-    auto* transcripts = req_ctx->Get(kAsrTranscripts);
+ protected:
+  int ProcessNode(AlgContext& req_ctx) override {
+    const auto* transcripts = Require(req_ctx, kAsrTranscripts, -6301);
     if (!transcripts) {
-      req_ctx->SetError(-6301, "SlotExtractNode: Missing asr_transcripts");
       return -6301;
     }
 
@@ -48,13 +42,8 @@ class SlotExtractNode : public INode {
       slot_jsons.push_back(j.dump());
     }
 
-    req_ctx->Set(kIntentSlotResults, std::move(slot_jsons));
+    Publish(req_ctx, kIntentSlotResults, std::move(slot_jsons));
     return 0;
-  }
-
-  const std::string& Name() const override {
-    static std::string name = kNodeType;
-    return name;
   }
 };
 
@@ -65,6 +54,7 @@ NodeDefinition MakeSlotExtractNodeDefinition() {
   def.description = "Audio ASR intent and slot extraction node";
   def.inputs = {RequiredInput(kAsrTranscripts)};
   def.outputs = {Output(kIntentSlotResults)};
+  def.business_names = {kAudioAsrBusinessName};
   def.parallel_safe = true;
   return def;
 }

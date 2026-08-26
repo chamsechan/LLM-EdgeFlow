@@ -1,32 +1,32 @@
 #include <iostream>
 
 #include "business/doc_qa/doc_qa_contract.h"
-#include "core/node_base.h"
 #include "core/node_registry.h"
 #include "core/traceable_item.h"
+#include "nodes/node_support.h"
 
 namespace alg_framework {
 
 /**
  * @brief 文档分块前处理算子 (1对N裂变)
  */
-class DocChunkPreNode : public INode {
+class DocChunkPreNode final : public NodeBase {
  public:
   inline static constexpr char kNodeType[] = "DocChunkPreNode";
 
-  bool Init(const nlohmann::json& config,
-            SessionContext* session_ctx) override {
+  DocChunkPreNode() : NodeBase(kNodeType) {}
+
+ protected:
+  bool InitNode(const nlohmann::json& config,
+                SessionContext& /*session_ctx*/) override {
     chunk_size_ = config.value("chunk_size", 100);
     return true;
   }
 
-  int Process(AlgContext* req_ctx) override {
-    auto* raw_docs = req_ctx->Get(kRawDocs);
-    auto* raw_queries = req_ctx->Get(kRawQueries);
-
+  int ProcessNode(AlgContext& req_ctx) override {
+    const auto* raw_docs = Require(req_ctx, kRawDocs, -4001);
+    const auto* raw_queries = Require(req_ctx, kRawQueries, -4001);
     if (!raw_docs || !raw_queries) {
-      req_ctx->SetError(-4001,
-                        "DocChunkPreNode: Missing raw_docs or raw_queries");
       return -4001;
     }
 
@@ -59,15 +59,10 @@ class DocChunkPreNode : public INode {
               << " total chunks from " << raw_docs->size() << " requests."
               << std::endl;
 
-    req_ctx->Set(kChunkedDocItems, std::move(chunked_doc_items));
-    req_ctx->Set(kQueryItems, std::move(query_items));
-    req_ctx->Set(kChunkCountsPerReq, std::move(chunk_counts_per_req));
+    Publish(req_ctx, kChunkedDocItems, std::move(chunked_doc_items));
+    Publish(req_ctx, kQueryItems, std::move(query_items));
+    Publish(req_ctx, kChunkCountsPerReq, std::move(chunk_counts_per_req));
     return 0;
-  }
-
-  const std::string& Name() const override {
-    static std::string name = kNodeType;
-    return name;
   }
 
  private:
@@ -84,6 +79,8 @@ NodeDefinition MakeDocChunkPreNodeDefinition() {
                  Output(kChunkCountsPerReq)};
   def.config_fields = {ConfigFieldDefinition{
       "chunk_size", ConfigValueKind::kInteger, false, 100, 1.0, 100000.0}};
+  def.business_names = {kDocQaBusinessName, kDocQaOnnxBusinessName,
+                        kDocQaRerankBusinessName};
   def.parallel_safe = true;
   return def;
 }

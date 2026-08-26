@@ -88,13 +88,13 @@ set(FRAMEWORK_SRCS
     src/engine/onnx/onnx_embedding_engine.cpp
     src/engine/onnx/onnx_rerank_engine.cpp
     src/engine/llama_cpp/llama_cpp_engine.cpp
-    src/common_nodes/prompt_builder_node.cpp
-    src/common_nodes/vector_search_node.cpp
-    src/common_nodes/rerank_refine_node.cpp
+    src/common_nodes/llm_generate_node.cpp
+    src/business/doc_qa/prompt_builder_node.cpp
+    src/business/doc_qa/vector_search_node.cpp
+    src/business/doc_qa/rerank_refine_node.cpp
     src/business/doc_qa/doc_chunk_pre_node.cpp
     src/business/doc_qa/doc_embedding_node.cpp
     src/business/doc_qa/intent_rule_node.cpp
-    src/business/doc_qa/llm_generate_node.cpp
     src/business/doc_qa/doc_qa_post_node.cpp
     src/business/keyword_match/keyword_matcher_node.cpp
     src/business/entity_extract/entity_extract_pre_node.cpp
@@ -284,6 +284,18 @@ add_executable(test_typed_blackboard_contracts tests/test_typed_blackboard_contr
 target_link_libraries(test_typed_blackboard_contracts PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
 add_test(NAME TypedBlackboardContractsTest COMMAND test_typed_blackboard_contracts)
 
+add_executable(test_validated_pipeline_plan tests/test_validated_pipeline_plan.cpp)
+target_link_libraries(test_validated_pipeline_plan PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME ValidatedPipelinePlanTest COMMAND test_validated_pipeline_plan)
+
+add_executable(test_node_base_contracts tests/test_node_base_contracts.cpp)
+target_link_libraries(test_node_base_contracts PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME NodeBaseContractsTest COMMAND test_node_base_contracts)
+
+add_executable(test_node_ownership_and_reuse tests/test_node_ownership_and_reuse.cpp)
+target_link_libraries(test_node_ownership_and_reuse PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME NodeOwnershipAndReuseTest COMMAND test_node_ownership_and_reuse)
+
 # 设置所有测试工作目录为项目根目录，保证无论从何处运行 CTest，相对路径均一致解析
 set_tests_properties(
   C11AbiComplianceTest LayerGuardTest BatchExecutorTest FrameworkCoreTest
@@ -294,6 +306,7 @@ set_tests_properties(
   RegistryConflictEngineTest RegistryReentrantTest PlatformOperatorTest
   DocQaRerankTest RerankRefineNodeTest PipelineStudioTest VisualizerServerTest
   DemoRunnerTest CatalogContractSsotTest TypedBlackboardContractsTest
+  ValidatedPipelinePlanTest NodeBaseContractsTest NodeOwnershipAndReuseTest
   PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
 )
 

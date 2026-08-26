@@ -137,15 +137,15 @@ class EngineFactory {
   std::vector<std::string> conflict_errors_;
 };
 
-#define REGISTER_ENGINE_WITH_DEFINITION(EngineTypeStr, ClassName, ...) \
-  static bool _registered_engine_##ClassName = []() noexcept {         \
-    const auto definition = (__VA_ARGS__);                             \
-    return ::alg_framework::EngineFactory::Instance().Register(        \
-        EngineTypeStr,                                                 \
-        []() -> std::unique_ptr<::alg_framework::IModelEngine> {       \
-          return std::make_unique<ClassName>();                        \
-        },                                                             \
-        &definition);                                                  \
+#define REGISTER_ENGINE_WITH_DEFINITION(ClassName, ...)          \
+  static bool _registered_engine_##ClassName = []() noexcept {   \
+    const auto definition = (__VA_ARGS__);                       \
+    return ::alg_framework::EngineFactory::Instance().Register(  \
+        ClassName::kEngineType,                                  \
+        []() -> std::unique_ptr<::alg_framework::IModelEngine> { \
+          return std::make_unique<ClassName>();                  \
+        },                                                       \
+        &definition);                                            \
   }()
 
 #define REGISTER_ENGINE(EngineTypeStr, ClassName)                        \

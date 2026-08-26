@@ -27,7 +27,7 @@ class ComplianceAuditAdapter : public IBusinessAdapter {
         OwnershipPolicy::kCopyIn,
         ThreadModel::kStatelessThreadSafe,
         OutputCardinality::kOneToOne,
-        {{"dialogue_compliance_audit_v1",
+        {{kDialogueAuditBusinessName,
           "dialogue_audit",
           "对话合规审核",
           {RequiredInput(kRawRequestIds), RequiredInput(kUserTexts),

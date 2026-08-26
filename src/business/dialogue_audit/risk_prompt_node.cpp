@@ -3,22 +3,24 @@
 #include <vector>
 
 #include "business/dialogue_audit/dialogue_audit_contract.h"
-#include "core/node_base.h"
 #include "core/node_registry.h"
 #include "core/traceable_item.h"
+#include "nodes/node_support.h"
 
 namespace alg_framework {
 
 /**
  * @brief 风控质检 Prompt 组装算子 (Node 4: 汇聚规则与精排条款)
  */
-class RiskPromptNode : public INode {
+class RiskPromptNode final : public NodeBase {
  public:
   inline static constexpr char kNodeType[] = "RiskPromptNode";
 
-  bool Init(const nlohmann::json& config,
-            SessionContext* session_ctx) override {
-    (void)session_ctx;
+  RiskPromptNode() : NodeBase(kNodeType) {}
+
+ protected:
+  bool InitNode(const nlohmann::json& config,
+                SessionContext& /*session_ctx*/) override {
     prompt_tpl_ = config.value(
         "template",
         "你是一个专业的智能客服合规风控质检大模型。请根据相关制度条款对客服与用"
@@ -32,10 +34,10 @@ class RiskPromptNode : public INode {
     return true;
   }
 
-  int Process(AlgContext* req_ctx) override {
-    auto* user_texts = req_ctx->Get(kUserTexts);
-    auto* policies = req_ctx->Get(kMatchedPolicyClauses);
-    auto* hard_flags = req_ctx->Get(kHardRiskFlags);
+  int ProcessNode(AlgContext& req_ctx) override {
+    const auto* user_texts = Require(req_ctx, kUserTexts, -8301);
+    const auto* policies = Require(req_ctx, kMatchedPolicyClauses, -8301);
+    const auto* hard_flags = req_ctx.Get(kHardRiskFlags);
 
     if (!user_texts || !policies) return -8301;
 
@@ -61,13 +63,8 @@ class RiskPromptNode : public INode {
       llm_prompts.emplace_back(req_id, 0, std::move(prompt));
     }
 
-    req_ctx->Set(kLlmAuditPrompts, std::move(llm_prompts));
+    Publish(req_ctx, kLlmAuditPrompts, std::move(llm_prompts));
     return 0;
-  }
-
-  const std::string& Name() const override {
-    static std::string name = kNodeType;
-    return name;
   }
 
  private:
@@ -92,6 +89,7 @@ NodeDefinition MakeRiskPromptNodeDefinition() {
       "请严格按JSON格式输出判定：{\"verdict\": \"违规/合规\", "
       "\"risk_level\": \"HIGH_RISK/SAFE\", \"suggestion\": \"...\"}\n"
       "【审核结论】:"}};
+  def.business_names = {kDialogueAuditBusinessName};
   def.parallel_safe = true;
   return def;
 }

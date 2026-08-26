@@ -193,7 +193,7 @@
   <g transform="translate(30, 425)">
     <rect width="1000" height="195" rx="8" fill="#1E293B" fill-opacity="0.5" stroke="#334155" stroke-width="1" filter="url(#puml-shadow)"/>
     <rect x="0" y="0" width="340" height="24" rx="4" fill="#F59E0B" fill-opacity="0.2"/>
-    <text x="12" y="16" class="puml-title" font-size="12" fill="#FBBF24">Layer 3: 业务专属可插拔算子池 (src/business/ &amp; 27 官方算子)</text>
+    <text x="12" y="16" class="puml-title" font-size="12" fill="#FBBF24">Layer 3: 无请求状态的可插拔节点层 (1 common + 26 business)</text>
 
     <!-- Interface: INode -->
     <g transform="translate(15, 35)">
@@ -208,52 +208,41 @@
       <text x="8" y="90" class="puml-method">+ Name() : const string&amp;</text>
       <line x1="8" y1="98" x2="202" y2="98" stroke="#1E293B" stroke-width="1"/>
       <text x="8" y="114" class="puml-attr" fill="#F59E0B">NodeFactory::Instance()</text>
-      <text x="8" y="128" class="puml-attr" fill="#94A3B8">REGISTER_NODE(Name)</text>
+      <text x="8" y="128" class="puml-attr" fill="#94A3B8">REGISTER_NODE_WITH_DEFINITION</text>
       <text x="8" y="140" class="puml-text" font-size="8.5" fill="#34D399">冲突 Fail-Closed 保护</text>
     </g>
 
-    <!-- PreProcess & Rule Nodes (9) -->
+    <!-- Business-owned nodes -->
     <g transform="translate(235, 35)">
       <rect width="240" height="145" rx="6" fill="#0F172A" stroke="#334155" stroke-width="1"/>
-      <text x="10" y="18" class="puml-title" font-size="11" fill="#FDE68A">前处理与规则算子 (9)</text>
+      <text x="10" y="18" class="puml-title" font-size="11" fill="#FDE68A">业务节点 (26)</text>
       <line x1="10" y1="24" x2="230" y2="24" stroke="#1E293B" stroke-width="1"/>
-      <text x="8" y="38" class="puml-attr">• DocChunkPreNode (1对N 切片)</text>
-      <text x="8" y="52" class="puml-attr">• ImagePreNode (图像解码预处理)</text>
-      <text x="8" y="66" class="puml-attr">• AudioFeaturePreNode (PCM 采样)</text>
-      <text x="8" y="80" class="puml-attr">• RerankPairBuilderNode (Query配对)</text>
-      <text x="8" y="94" class="puml-attr">• KeywordMatcherNode (词表规则树)</text>
-      <text x="8" y="108" class="puml-attr">• SafetyRulePreNode (风控前筛)</text>
-      <text x="8" y="122" class="puml-attr">• IntentRule / SlotExtractNode</text>
-      <text x="8" y="136" class="puml-attr">• EntityExtractPreNode</text>
+      <text x="8" y="46" class="puml-attr">• src/business/&lt;business&gt;/</text>
+      <text x="8" y="66" class="puml-attr">• business_names 显式适用范围</text>
+      <text x="8" y="86" class="puml-attr">• 请求数据只存 AlgContext</text>
+      <text x="8" y="106" class="puml-attr">• 精确列表以 PipelineCatalog 为准</text>
     </g>
 
-    <!-- Inference & Common Nodes (11) -->
+    <!-- Common node and shallow base classes -->
     <g transform="translate(485, 35)">
       <rect width="245" height="145" rx="6" fill="#0F172A" stroke="#334155" stroke-width="1"/>
-      <text x="10" y="18" class="puml-title" font-size="11" fill="#38BDF8">模型调用与推理算子 (11)</text>
+      <text x="10" y="18" class="puml-title" font-size="11" fill="#38BDF8">浅基类与公共节点</text>
       <line x1="10" y1="24" x2="235" y2="24" stroke="#1E293B" stroke-width="1"/>
-      <text x="8" y="38" class="puml-attr">• DocEmbeddingNode (向量提取)</text>
-      <text x="8" y="52" class="puml-attr">• LlmGenerateNode (大模型生成)</text>
-      <text x="8" y="66" class="puml-attr">• CrossRerankNode (精排打分)</text>
-      <text x="8" y="80" class="puml-attr">• OcrInferNode (文字区域识别)</text>
-      <text x="8" y="94" class="puml-attr">• AsrInferNode (语音识别转写)</text>
-      <text x="8" y="108" class="puml-attr">• VectorSearchNode / PromptBuilder</text>
-      <text x="8" y="122" class="puml-attr">• RerankRefineNode / LlmAuditNode</text>
-      <text x="8" y="136" class="puml-attr">• CountingNode / PassthroughNode</text>
+      <text x="8" y="42" class="puml-attr">• NodeBase (final noexcept)</text>
+      <text x="8" y="62" class="puml-attr">• ModelBoundNode&lt;E&gt;</text>
+      <text x="8" y="82" class="puml-attr">• TraceableUnaryInferenceNode</text>
+      <text x="8" y="108" class="puml-attr">• LlmGenerateNode (common)</text>
     </g>
 
-    <!-- PostProcess Alignment Nodes (7) -->
+    <!-- Node Definition contract -->
     <g transform="translate(740, 35)">
       <rect width="245" height="145" rx="6" fill="#0F172A" stroke="#334155" stroke-width="1"/>
-      <text x="10" y="18" class="puml-title" font-size="11" fill="#34D399">后处理与结构化打包算子 (7)</text>
+      <text x="10" y="18" class="puml-title" font-size="11" fill="#34D399">NodeDefinition 契约</text>
       <line x1="10" y1="24" x2="235" y2="24" stroke="#1E293B" stroke-width="1"/>
-      <text x="8" y="38" class="puml-attr">• DocQaPostNode (问答对齐)</text>
-      <text x="8" y="52" class="puml-attr">• AuditPostNode (风控决策打包)</text>
-      <text x="8" y="66" class="puml-attr">• OcrDocPostNode (结构化发票 JSON)</text>
-      <text x="8" y="80" class="puml-attr">• AudioPostNode (意图槽位 JSON)</text>
-      <text x="8" y="94" class="puml-attr">• RerankSortPostNode (排序打分)</text>
-      <text x="8" y="108" class="puml-attr">• EntityExtractPostNode (实体列表)</text>
-      <text x="8" y="124" class="puml-attr">• ComplianceReportPostNode</text>
+      <text x="8" y="42" class="puml-attr">• Typed inputs / outputs</text>
+      <text x="8" y="62" class="puml-attr">• config_fields / capability</text>
+      <text x="8" y="82" class="puml-attr">• parallel_safe / business_names</text>
+      <text x="8" y="108" class="puml-attr">• 注册点与实现同编译单元</text>
     </g>
   </g>
 
@@ -279,7 +268,7 @@
       <text x="8" y="104" class="puml-method">▲ IAudioAsrEngine: InferTraceableBatch()</text>
       <line x1="8" y1="112" x2="242" y2="112" stroke="#1E293B" stroke-width="1"/>
       <text x="8" y="128" class="puml-attr" fill="#A78BFA">EngineFactory::Instance() (Fail-Closed)</text>
-      <text x="8" y="144" class="puml-attr" fill="#94A3B8">REGISTER_ENGINE(Type, Cls)</text>
+      <text x="8" y="144" class="puml-attr" fill="#94A3B8">REGISTER_ENGINE_WITH_DEFINITION</text>
     </g>
 
     <!-- FixedBatchExecutor Template -->

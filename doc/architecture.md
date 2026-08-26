@@ -28,30 +28,33 @@ graph TD
 
     %% Level 2
     subgraph L2["Layer 2: 管线调度与状态黑板层 (Pipeline & Multi-Level Context Layer)"]
-        PipeCore["Pipeline 核心调度器 (pipeline.cpp)<br>• JSON 配置解析与自动组装<br>• 算子拓扑执行与错误熔断"]
+        PipeCore["Pipeline 核心调度器 (pipeline.cpp)<br>• 消费 ValidatedPipelinePlan<br>• 算子波前执行与错误熔断"]
         
         subgraph StateMgr["三级状态与注册管理器"]
             S_Ctx["SessionContext (句柄级持久状态)<br>• ModelManager 多模型池<br>• 句柄共享缓存资源"]
             R_Ctx["AlgContext (请求级瞬态黑板)<br>• std::any 类型安全擦除<br>• 自动生命周期析构 (无内存泄漏)"]
             TraceTag["TraceableItem 溯源追踪<br>• req_id (请求索引)<br>• sub_id (1对N分片索引)"]
-            Factory["NodeFactory & EngineFactory<br>• REGISTER_NODE / REGISTER_ENGINE 宏"]
+            Factory["NodeFactory & EngineFactory<br>• *_WITH_DEFINITION 就地注册"]
         end
     end
 
     %% Level 3
-    subgraph L3["Layer 3: 业务算子与可复用节点层 (Stateful Node & Business Logic Layer)"]
-        NodeBase["INode 基类抽象 (Init / Process)"]
+    subgraph L3["Layer 3: 无请求状态的业务算子与可复用节点层"]
+        NodeApi["INode 运行时接口"]
+        NodeBase["NodeBase<br>final noexcept 生命周期与 Typed I/O"]
+        ModelNode["ModelBoundNode / TraceableUnaryInferenceNode"]
         
         subgraph CommonNodes["全组通用算子池 (src/common_nodes/)"]
-            PromptNode["PromptBuilderNode"]
-            VecSearchNode["VectorSearchNode"]
-            RerankNode["RerankRefineNode"]
+            LlmNode["LlmGenerateNode<br>跨 DocQA / Entity / OCR 复用"]
         end
         
         subgraph BizNodes["开发者私有业务算子池 (src/business/)"]
             PreNode["DocChunkPreNode (1对N切片)"]
             RuleNode["IntentRuleNode (含节点私有词典/规则数据)"]
             PostNode["DocQaPostNode (多样本聚合对齐)"]
+            PromptNode["PromptBuilderNode"]
+            VecSearchNode["VectorSearchNode"]
+            RerankNode["RerankRefineNode"]
         end
     end
 
@@ -77,7 +80,9 @@ graph TD
     C_Adapter -->|构造/销毁| PipeCore
     C_Adapter -->|解包/打包| R_Ctx
     PipeCore --> S_Ctx
-    PipeCore --> NodeBase
+    PipeCore --> NodeApi
+    NodeApi --> NodeBase
+    NodeBase --> ModelNode
     NodeBase -.-> CommonNodes
     NodeBase -.-> BizNodes
     CommonNodes & BizNodes -->|读写特征与溯源数据| R_Ctx
@@ -89,7 +94,7 @@ graph TD
     class Caller ext;
     class C_API,C_Adapter l1;
     class PipeCore,S_Ctx,R_Ctx,TraceTag,Factory l2;
-    class NodeBase,CommonNodes,BizNodes,PromptNode,VecSearchNode,RerankNode,PreNode,RuleNode,PostNode l3;
+    class NodeApi,NodeBase,ModelNode,CommonNodes,BizNodes,LlmNode,PromptNode,VecSearchNode,RerankNode,PreNode,RuleNode,PostNode l3;
     class EngineBase,LlmIntf,EmbedIntf,BatchExec,NpuEmbed,NpuLlm,OnnxEngine,LlamaCpp l4;
 ```
 
@@ -107,24 +112,24 @@ graph TD
 ### Layer 2: 管线调度与状态黑板层 (Pipeline & State Engine)
 - **代码位置**：`include/core/`，`src/core/`
 - **核心职责**：
-  1. **配置驱动**：解析外部 JSON 配置文件，动态初始化模型与组装算子节点序列；
+  1. **配置驱动与执行计划**：通过 `PipelineValidator::ValidateAndPlan` 一次性完成 JSON 解析、业务契约查找、拓扑排序生成 `ValidatedPipelinePlan`，杜绝重复解析与排序；
   2. **三级状态管理**：
      - `SessionContext`：句柄级常驻状态，管理单句柄加载的多个模型实例（`ModelManager`）；
-     - `AlgContext`：请求级瞬态黑板，使用 `std::any` 存储中间特征，用完即释放，避免内存泄漏；
+     - `AlgContext`：请求级强类型黑板（`BlackboardKey<T>`），零内存拷贝传递特征；
      - `TraceableItem<T>`：样本溯源标签（`req_id` + `sub_id`），保证 1对N 裂变后可严格 1:1 对齐回原请求；
-  3. **自注册机制**：`REGISTER_NODE` 与 `REGISTER_ENGINE`，消除硬编码。
+  3. **自注册 SSOT 机制**：`REGISTER_NODE_WITH_DEFINITION` 与 `REGISTER_ENGINE_WITH_DEFINITION`，自动向 `PipelineCatalog` 注册输入输出契约。
 
-### Layer 3: 算子节点与业务编排层 (Stateful Node & Business)
-- **代码位置**：`src/common_nodes/`，`src/business/`
+### Layer 3: 算子节点与业务编排层 (Stateless-per-request Nodes)
+- **代码位置**：`src/common_nodes/`，`src/business/`，`include/nodes/`
 - **核心职责**：
-  1. **算法工程师核心开发区**：继承 `INode`，实现 `Init(config, session_ctx)` 和 `Process(req_ctx)`；
-  2. **有状态节点支持**：开发者可自由在类中定义私有成员变量（私有规则表、词典映射、预编译正则），随句柄常驻；
-  3. **模块化复用**：通用算子（Prompt 构造、向量检索、精排重打分）全组共享。
+  1. **算法工程师核心开发区**：普通节点继承 `NodeBase`，单模型节点继承 `ModelBoundNode`，只有严格单输入/单输出批推理节点才使用 `TraceableUnaryInferenceNode`；
+  2. **异常安全屏障**：`NodeBase::Init` 和 `NodeBase::Process` 设为 `final noexcept`，派生类覆写 `InitNode` 与 `ProcessNode`，提供 `Require`、`Publish`、`Fail` 辅助方法；
+  3. **模块化复用**：通用算子（`LlmGenerateNode` 等）放置在 `src/common_nodes/`，业务专属算子放置在 `src/business/<biz_name>/`。
 
 ### Layer 4: 多后端模型引擎与批处理调度层 (Multi-Backend Engine & Batch)
 - **代码位置**：`include/engine/`，`src/engine/`
 - **核心职责**：
-  1. 纯虚接口屏蔽硬件差异（`ILlmEngine`, `IEmbeddingEngine`, `ICvEngine`, `IRerankEngine`, `IAudioAsrEngine`）；
+  1. 纯虚接口屏蔽硬件差异（`ILlmEngine`, `IEmbeddingEngine`, `IOcrEngine`, `IRerankEngine`, `IAudioAsrEngine`）；
   2. **固定 Max Batch 自动调度（`FixedBatchExecutor`）**：解决端侧 NPU 静态编译 `max_batch_size` 限制，自动完成批次切分、末尾补齐 Dummy Pad、推理后剔除 Pad 与结果回溯对齐；
   3. 切换底层芯片（NPU/GPU/CPU）只需改动 JSON 配置中的 `engine_type`，业务代码 0 修改。
 
@@ -139,7 +144,7 @@ sequenceDiagram
     participant Adapter as C 适配层 (L1)
     participant Pipe as Pipeline 调度器 (L2)
     participant Ctx as AlgContext 黑板 (L2)
-    participant Node as 业务算子 INode (L3)
+    participant Node as 业务算子 NodeBase (L3)
     participant Engine as 模型引擎 & Batch调度器 (L4)
     participant HW as 底层硬件 NPU/GPU (L4)
 
@@ -147,9 +152,9 @@ sequenceDiagram
     Adapter->>Ctx: 1. 解包外部结构体，注入输入数据
     Adapter->>Pipe: 2. Execute(ctx)
     
-    loop 依次执行各算子节点
+    loop 依次执行各拓扑层算子节点
         Pipe->>Node: Process(ctx)
-        Node->>Ctx: 读取上游特征 / 溯源数据
+        Node->>Ctx: Require(ctx, key, error_code) 读取上游特征
         opt 需要模型推理
             Node->>Engine: InferTraceableBatch(items)
             Engine->>Engine: 固定 Batch 切块 + Dummy Pad 补齐
@@ -159,7 +164,7 @@ sequenceDiagram
             Engine-->>Node: 返回强类型对齐输出
         end
         Node->>Node: 处理业务私有逻辑 / 规则字典匹配
-        Node->>Ctx: 写回中间特征或最终结果
+        Node->>Ctx: Publish(ctx, key, value) 写回中间特征或最终结果
     end
 
     Pipe-->>Adapter: 管线执行完成
@@ -169,45 +174,66 @@ sequenceDiagram
 
 ---
 
-## 4. 算法开发者开发新业务指南（3 步上手）
+## 4. 算法开发者新增节点示例
 
-算法同学开发新业务仅需 3 步，**无需修改任何 Core 框架代码**：
+以下仅展示节点实现骨架。新增完整业务仍须按 RFC-first 流程同时提供 Business
+Adapter/Definition、Pipeline JSON、GoogleTest，并通过完整门禁；不得把本节理解为
+“三步即可交付一个业务”。
 
-### 步骤 1：新建算子源文件并继承 `INode`
+### 步骤 1：新建算子源文件并继承 `NodeBase`
 
 ```cpp
-#include "core/node_base.h"
 #include "core/node_registry.h"
+#include "nodes/node_support.h"
 
 namespace alg_framework {
 
-class MyCustomNode : public INode {
-public:
-    // 1. 初始化：读取私有配置，定义类成员存储私有业务数据
-    bool Init(const nlohmann::json& config, SessionContext* session_ctx) override {
-        my_threshold_ = config.value("threshold", 0.8f);
-        return true;
-    }
+inline constexpr BlackboardKey<std::string> kInputText{"input_text", "string"};
+inline constexpr BlackboardKey<std::string> kOutputText{"output_text", "string"};
 
-    // 2. 执行业务计算：从 req_ctx 读取数据，计算后写回
-    int Process(AlgContext* req_ctx) override {
-        auto* input = req_ctx->Get<std::string>("some_key");
-        // 业务处理 ...
-        req_ctx->Set("output_key", "result");
-        return 0;
-    }
+class MyCustomNode final : public NodeBase {
+ public:
+  inline static constexpr char kNodeType[] = "MyCustomNode";
 
-    const std::string& Name() const override {
-        static std::string name = "MyCustomNode";
-        return name;
-    }
+  MyCustomNode() : NodeBase(kNodeType) {}
 
-private:
-    float my_threshold_ = 0.8f; // 节点私有状态
+ protected:
+  // 1. 初始化：读取私有配置
+  bool InitNode(const nlohmann::json& config,
+                SessionContext& /*session_ctx*/) override {
+    threshold_ = config.value("threshold", 0.8f);
+    return true;
+  }
+
+  // 2. 执行业务计算：通过 Require / Publish 读写强类型黑板
+  int ProcessNode(AlgContext& req_ctx) override {
+    const auto* input = Require(req_ctx, kInputText, -9001);
+    if (!input) return -9001;
+
+    std::string result = *input + "_processed";
+    Publish(req_ctx, kOutputText, std::move(result));
+    return 0;
+  }
+
+ private:
+  float threshold_ = 0.8f;
 };
 
-// 3. 注册节点 (一行宏即可完成自动注册)
-REGISTER_NODE(MyCustomNode);
+// 3. 声明元数据定义并自注册
+NodeDefinition MakeMyCustomNodeDefinition() {
+  NodeDefinition def;
+  def.node_type = MyCustomNode::kNodeType;
+  def.category = "business";
+  def.description = "My custom business processing node";
+  def.inputs = {RequiredInput(kInputText)};
+  def.outputs = {Output(kOutputText)};
+  def.config_fields = {ConfigFieldDefinition{
+      "threshold", ConfigValueKind::kNumber, false, 0.8, 0.0, 1.0}};
+  def.parallel_safe = true;
+  return def;
+}
+
+REGISTER_NODE_WITH_DEFINITION(MyCustomNode, MakeMyCustomNodeDefinition());
 
 } // namespace alg_framework
 ```
@@ -227,7 +253,7 @@ REGISTER_NODE(MyCustomNode);
     }
   ],
   "pipeline": [
-    { "node_type": "MyCustomNode", "config": { "threshold": 0.9 } }
+    { "id": "node_0", "node_type": "MyCustomNode", "config": { "threshold": 0.9 } }
   ]
 }
 ```

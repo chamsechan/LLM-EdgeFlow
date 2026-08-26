@@ -53,20 +53,22 @@ REGISTER_NODE_WITH_DEFINITION(ReentrantNode,
 
 class ReentrantEngine : public IModelEngine {
  public:
+  inline static constexpr char kEngineType[] = "reentrant_engine";
+
   ReentrantEngine() {
     // 构造期间同步调用 EngineFactory 查询
-    volatile bool has = EngineFactory::Instance().Has("reentrant_engine");
+    volatile bool has = EngineFactory::Instance().Has(kEngineType);
     (void)has;
   }
   bool Load(const std::string&, const nlohmann::json&) override { return true; }
   size_t GetMaxBatchSize() const override { return 1; }
   const std::string& EngineType() const override {
-    static const std::string type = "reentrant_engine";
+    static const std::string type = kEngineType;
     return type;
   }
 };
-REGISTER_ENGINE_WITH_DEFINITION("reentrant_engine", ReentrantEngine,
-                                MakeTestEngineDef("reentrant_engine"));
+REGISTER_ENGINE_WITH_DEFINITION(
+    ReentrantEngine, MakeTestEngineDef(ReentrantEngine::kEngineType));
 
 TEST(RegistryReentrantTest, ReentrantCreationZeroDeadlock) {
   // 1. 同步测试 Node 构造期重入 NodeFactory
@@ -79,7 +81,8 @@ TEST(RegistryReentrantTest, ReentrantCreationZeroDeadlock) {
          nlohmann::json::array({{{"id", "node_0_ReentrantNode"},
                                  {"node_type", "ReentrantNode"},
                                  {"depends_on", nlohmann::json::array()}}})}};
-    EXPECT_TRUE(p.BuildFromJson(cfg, &diag));
+    EXPECT_TRUE(p.BuildFromJson(cfg, &diag,
+                                ValidationPolicy::kPrivateExtensionCompatible));
     EXPECT_TRUE(p.IsReady());
   }
 
@@ -96,7 +99,8 @@ TEST(RegistryReentrantTest, ReentrantCreationZeroDeadlock) {
          nlohmann::json::array({{{"id", "node_0_ReentrantNode"},
                                  {"node_type", "ReentrantNode"},
                                  {"depends_on", nlohmann::json::array()}}})}};
-    EXPECT_TRUE(p.BuildFromJson(cfg, &diag));
+    EXPECT_TRUE(p.BuildFromJson(cfg, &diag,
+                                ValidationPolicy::kPrivateExtensionCompatible));
     EXPECT_TRUE(p.IsReady());
   }
 }

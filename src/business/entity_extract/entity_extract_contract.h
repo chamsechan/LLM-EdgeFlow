@@ -9,6 +9,10 @@
 
 namespace alg_framework {
 
+inline constexpr char kEntityExtractBusinessName[] = "entity_extract_0.6b_v1";
+inline constexpr char kEntityExtractLlamaCppBusinessName[] =
+    "entity_extract_llamacpp_0.6b_v1";
+
 inline constexpr BlackboardKey<std::vector<std::string>> kInputSentences{
     "input_sentences", "vector<string>"};
 

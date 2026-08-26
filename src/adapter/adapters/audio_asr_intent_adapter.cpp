@@ -27,7 +27,7 @@ class AudioAsrIntentAdapter : public IBusinessAdapter {
         OwnershipPolicy::kCopyIn,
         ThreadModel::kStatelessThreadSafe,
         OutputCardinality::kOneToOne,
-        {{"speech_audio_asr_intent_slot",
+        {{kAudioAsrBusinessName,
           "audio_asr",
           "语音识别与意图槽位",
           {RequiredInput(kRawRequestIds), RequiredInput(kRawAudioInputs)},

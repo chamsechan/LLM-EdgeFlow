@@ -10,6 +10,9 @@
 
 namespace alg_framework {
 
+inline constexpr char kDialogueAuditBusinessName[] =
+    "dialogue_compliance_audit_v1";
+
 inline constexpr BlackboardKey<std::vector<std::string>> kUserTexts{
     "user_texts", "vector<string>"};
 

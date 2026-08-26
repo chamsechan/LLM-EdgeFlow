@@ -19,6 +19,8 @@ namespace alg_framework {
  */
 class OnnxEmbeddingEngine : public IEmbeddingEngine {
  public:
+  inline static constexpr char kEngineType[] = "onnx_embedding";
+
   OnnxEmbeddingEngine();
   ~OnnxEmbeddingEngine() override;
 

@@ -4,22 +4,24 @@
 #include <vector>
 
 #include "business/dialogue_audit/dialogue_audit_contract.h"
-#include "core/node_base.h"
 #include "core/node_registry.h"
 #include "core/traceable_item.h"
+#include "nodes/node_support.h"
 
 namespace alg_framework {
 
 /**
  * @brief 风控前置硬规则快筛算子 (Node 1: 内存私有敏感词库)
  */
-class SafetyRulePreNode : public INode {
+class SafetyRulePreNode final : public NodeBase {
  public:
   inline static constexpr char kNodeType[] = "SafetyRulePreNode";
 
-  bool Init(const nlohmann::json& config,
-            SessionContext* session_ctx) override {
-    (void)session_ctx;
+  SafetyRulePreNode() : NodeBase(kNodeType) {}
+
+ protected:
+  bool InitNode(const nlohmann::json& config,
+                SessionContext& /*session_ctx*/) override {
     if (config.contains("blacklist") && config["blacklist"].is_array()) {
       for (const auto& item : config["blacklist"]) {
         blacklist_.insert(item.get<std::string>());
@@ -30,10 +32,9 @@ class SafetyRulePreNode : public INode {
     return true;
   }
 
-  int Process(AlgContext* req_ctx) override {
-    auto* user_texts = req_ctx->Get(kUserTexts);
+  int ProcessNode(AlgContext& req_ctx) override {
+    const auto* user_texts = Require(req_ctx, kUserTexts, -8001);
     if (!user_texts) {
-      req_ctx->SetError(-8001, "SafetyRulePreNode: Missing user_texts");
       return -8001;
     }
 
@@ -51,14 +52,9 @@ class SafetyRulePreNode : public INode {
       }
     }
 
-    req_ctx->Set(kHardRiskFlags, std::move(hard_risk_flags));
-    req_ctx->Set(kHitKeywords, std::move(hit_keywords));
+    Publish(req_ctx, kHardRiskFlags, std::move(hard_risk_flags));
+    Publish(req_ctx, kHitKeywords, std::move(hit_keywords));
     return 0;
-  }
-
-  const std::string& Name() const override {
-    static std::string name = kNodeType;
-    return name;
   }
 
  private:
@@ -74,6 +70,7 @@ NodeDefinition MakeSafetyRulePreNodeDefinition() {
   def.outputs = {Output(kHardRiskFlags), Output(kHitKeywords)};
   def.config_fields = {
       ConfigFieldDefinition{"blacklist", ConfigValueKind::kArray, false}};
+  def.business_names = {kDialogueAuditBusinessName};
   def.parallel_safe = true;
   return def;
 }

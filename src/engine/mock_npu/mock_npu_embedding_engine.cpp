@@ -25,7 +25,7 @@ bool MockNpuEmbeddingEngine::Load(const std::string& model_path,
 }
 
 const std::string& MockNpuEmbeddingEngine::EngineType() const {
-  static std::string type = "mock_npu_embedding";
+  static const std::string type = kEngineType;
   return type;
 }
 
@@ -95,7 +95,7 @@ std::vector<float> MockNpuEmbeddingEngine::ComputeDeterministicEmbedding(
 
 EngineDefinition MakeMockNpuEmbeddingDefinition() {
   EngineDefinition def;
-  def.engine_type = "mock_npu_embedding";
+  def.engine_type = MockNpuEmbeddingEngine::kEngineType;
   def.capability = "embedding";
   def.description = "Mock NPU embedding engine";
   def.config_fields = {
@@ -109,7 +109,7 @@ EngineDefinition MakeMockNpuEmbeddingDefinition() {
   return def;
 }
 
-REGISTER_ENGINE_WITH_DEFINITION("mock_npu_embedding", MockNpuEmbeddingEngine,
+REGISTER_ENGINE_WITH_DEFINITION(MockNpuEmbeddingEngine,
                                 MakeMockNpuEmbeddingDefinition());
 
 }  // namespace alg_framework

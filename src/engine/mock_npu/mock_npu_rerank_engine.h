@@ -14,6 +14,8 @@ namespace alg_framework {
  */
 class MockNpuRerankEngine : public IRerankEngine {
  public:
+  inline static constexpr char kEngineType[] = "mock_npu_rerank";
+
   MockNpuRerankEngine();
   ~MockNpuRerankEngine() override = default;
 

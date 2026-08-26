@@ -46,15 +46,17 @@ REGISTER_NODE_WITH_DEFINITION(DummyNode, MakeTestNodeDef(DummyNode::kNodeType));
 
 class DummyEngine : public IModelEngine {
  public:
+  inline static constexpr char kEngineType[] = "dummy_engine";
+
   bool Load(const std::string&, const nlohmann::json&) override { return true; }
   size_t GetMaxBatchSize() const override { return 1; }
   const std::string& EngineType() const override {
-    static const std::string type = "dummy_engine";
+    static const std::string type = kEngineType;
     return type;
   }
 };
-REGISTER_ENGINE_WITH_DEFINITION("dummy_engine", DummyEngine,
-                                MakeTestEngineDef("dummy_engine"));
+REGISTER_ENGINE_WITH_DEFINITION(DummyEngine,
+                                MakeTestEngineDef(DummyEngine::kEngineType));
 
 // FINAL-R1-002: 独立 TEST 隔离 Node 冲突与 Engine 冲突，杜绝跨套件污染
 
@@ -83,7 +85,8 @@ TEST(RegistryConflictNodeTest, DuplicateNodeFailClosed) {
                                {"node_type", "DummyNode"},
                                {"depends_on", nlohmann::json::array()}}})}};
 
-  EXPECT_FALSE(pipe.BuildFromJson(cfg, &diag));
+  EXPECT_FALSE(pipe.BuildFromJson(
+      cfg, &diag, ValidationPolicy::kPrivateExtensionCompatible));
   EXPECT_EQ(diag.code, PipelineErrorCode::kRegistryConflict);
   EXPECT_EQ(diag.path, "/pipeline");
 }
@@ -114,7 +117,8 @@ TEST(RegistryConflictEngineTest, DuplicateEngineFailClosed) {
                                {"node_type", "DummyNode"},
                                {"depends_on", nlohmann::json::array()}}})}};
 
-  EXPECT_FALSE(pipe.BuildFromJson(cfg, &diag));
+  EXPECT_FALSE(pipe.BuildFromJson(
+      cfg, &diag, ValidationPolicy::kPrivateExtensionCompatible));
   EXPECT_EQ(diag.code, PipelineErrorCode::kRegistryConflict);
   EXPECT_EQ(diag.path, "/models");
 }

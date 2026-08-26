@@ -1,32 +1,31 @@
+#include <algorithm>
+#include <cmath>
 #include <iostream>
 #include <string>
 #include <vector>
 
 #include "business/dialogue_audit/dialogue_audit_contract.h"
-#include "core/node_base.h"
 #include "core/node_registry.h"
 #include "core/traceable_item.h"
 #include "engine/engine_interface.h"
+#include "nodes/model_bound_node.h"
 
 namespace alg_framework {
 
 /**
  * @brief 合规政策库向量初筛检索算子 (Node 2: 使用 Model 1 - Embedding 引擎)
  */
-class DenseRetrievalNode : public INode {
+class DenseRetrievalNode final : public ModelBoundNode<IEmbeddingEngine> {
  public:
   inline static constexpr char kNodeType[] = "DenseRetrievalNode";
 
-  bool Init(const nlohmann::json& config,
-            SessionContext* session_ctx) override {
-    std::string bind_model = config.value("bind_model", "embed_model_v2");
-    embed_engine_ =
-        session_ctx->GetModelManager().GetModel<IEmbeddingEngine>(bind_model);
-    if (!embed_engine_) {
-      std::cerr << "[DenseRetrievalNode] Failed to bind model: " << bind_model
-                << std::endl;
-      return false;
-    }
+  DenseRetrievalNode()
+      : ModelBoundNode<IEmbeddingEngine>(kNodeType, "embed_model_v2") {}
+
+ protected:
+  bool InitModelNode(const nlohmann::json& config,
+                     SessionContext& /*session_ctx*/) override {
+    top_k_ = config.value("top_k", 4);
 
     // 初始化合规知识库条款候选
     policy_database_ = {
@@ -41,11 +40,16 @@ class DenseRetrievalNode : public INode {
         "104】支持7天无理由退货与正常售后申诉，禁止以任何理由恶意推诿延误退款"
         "。"};
 
-    return true;
+    std::vector<TraceableItem<std::string>> policy_items;
+    for (uint32_t i = 0; i < policy_database_.size(); ++i) {
+      policy_items.emplace_back(0, i, policy_database_[i]);
+    }
+    int ret = engine()->InferTraceableBatch(policy_items, &policy_embeddings_);
+    return ret == 0;
   }
 
-  int Process(AlgContext* req_ctx) override {
-    auto* user_texts = req_ctx->Get(kUserTexts);
+  int ProcessNode(AlgContext& req_ctx) override {
+    const auto* user_texts = Require(req_ctx, kUserTexts, -8101);
     if (!user_texts) return -8101;
 
     std::vector<TraceableItem<std::string>> query_items;
@@ -54,30 +58,64 @@ class DenseRetrievalNode : public INode {
     }
 
     std::vector<TraceableItem<std::vector<float>>> query_embeddings;
-    int ret =
-        embed_engine_->InferTraceableBatch(query_items, &query_embeddings);
-    if (ret != 0) return ret;
+    int ret = engine()->InferTraceableBatch(query_items, &query_embeddings);
+    if (ret != 0) {
+      return Fail(req_ctx, ret,
+                  "DenseRetrievalNode: Query embedding inference failed");
+    }
 
-    // 为每个请求召回全部政策条款作为精排候选对
+    // 基于 Query Embedding 与政策库 Embedding 的余弦相似度计算与 Top-K 初筛
     std::vector<TraceableItem<std::vector<std::string>>> candidate_policies(
         user_texts->size());
     for (uint32_t req_id = 0; req_id < user_texts->size(); ++req_id) {
-      candidate_policies[req_id] =
-          TraceableItem<std::vector<std::string>>(req_id, 0, policy_database_);
+      const auto& q_emb = query_embeddings[req_id].data;
+      std::vector<std::pair<float, size_t>> scored_policies;
+      scored_policies.reserve(policy_database_.size());
+
+      for (size_t p_idx = 0; p_idx < policy_database_.size(); ++p_idx) {
+        float sim =
+            (p_idx < policy_embeddings_.size())
+                ? CosineSimilarity(q_emb, policy_embeddings_[p_idx].data)
+                : 0.0f;
+        scored_policies.emplace_back(sim, p_idx);
+      }
+
+      std::sort(scored_policies.begin(), scored_policies.end(),
+                [](const auto& a, const auto& b) { return a.first > b.first; });
+
+      size_t count =
+          std::min(static_cast<size_t>(top_k_), scored_policies.size());
+      std::vector<std::string> retrieved;
+      retrieved.reserve(count);
+      for (size_t i = 0; i < count; ++i) {
+        retrieved.push_back(policy_database_[scored_policies[i].second]);
+      }
+
+      candidate_policies[req_id] = TraceableItem<std::vector<std::string>>(
+          req_id, 0, std::move(retrieved));
     }
 
-    req_ctx->Set(kCandidatePolicies, std::move(candidate_policies));
+    Publish(req_ctx, kCandidatePolicies, std::move(candidate_policies));
     return 0;
   }
 
-  const std::string& Name() const override {
-    static std::string name = kNodeType;
-    return name;
+ private:
+  static float CosineSimilarity(const std::vector<float>& a,
+                                const std::vector<float>& b) {
+    if (a.empty() || a.size() != b.size()) return 0.0f;
+    float dot = 0.0f, norm_a = 0.0f, norm_b = 0.0f;
+    for (size_t i = 0; i < a.size(); ++i) {
+      dot += a[i] * b[i];
+      norm_a += a[i] * a[i];
+      norm_b += b[i] * b[i];
+    }
+    if (norm_a <= 0.0f || norm_b <= 0.0f) return 0.0f;
+    return dot / (std::sqrt(norm_a) * std::sqrt(norm_b));
   }
 
- private:
-  std::shared_ptr<IEmbeddingEngine> embed_engine_;
+  int top_k_ = 4;
   std::vector<std::string> policy_database_;
+  std::vector<TraceableItem<std::vector<float>>> policy_embeddings_;
 };
 
 NodeDefinition MakeDenseRetrievalNodeDefinition() {
@@ -88,7 +126,13 @@ NodeDefinition MakeDenseRetrievalNodeDefinition() {
   def.inputs = {RequiredInput(kUserTexts)};
   def.outputs = {Output(kCandidatePolicies)};
   def.config_fields = {
-      ConfigFieldDefinition{"bind_model", ConfigValueKind::kString, true}};
+      ConfigFieldDefinition{"bind_model", ConfigValueKind::kString, false,
+                            "embed_model_v2"},
+      ConfigFieldDefinition{"top_k", ConfigValueKind::kInteger, false, 4, 1.0,
+                            100.0}};
+  def.model_capability = "embedding";
+  def.model_config_field = "bind_model";
+  def.business_names = {kDialogueAuditBusinessName};
   def.parallel_safe = true;
   return def;
 }

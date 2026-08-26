@@ -5,32 +5,27 @@
 
 #include "business/entity_extract/entity_extract_contract.h"
 #include "business/entity_extract/entity_extract_dto.h"
-#include "core/node_base.h"
 #include "core/node_registry.h"
 #include "core/traceable_item.h"
+#include "nodes/node_support.h"
 
 namespace alg_framework {
 
 /**
  * @brief 实体提取后处理算子 (解析 0.6B LLM 输出并打包输出领域 DTO)
  */
-class EntityExtractPostNode : public INode {
+class EntityExtractPostNode final : public NodeBase {
  public:
   inline static constexpr char kNodeType[] = "EntityExtractPostNode";
 
-  bool Init(const nlohmann::json& config,
-            SessionContext* session_ctx) override {
-    (void)config;
-    (void)session_ctx;
-    return true;
-  }
+  EntityExtractPostNode() : NodeBase(kNodeType) {}
 
-  int Process(AlgContext* req_ctx) override {
-    auto* req_ids = req_ctx->Get(kRawRequestIds);
-    auto* llm_answers = req_ctx->Get(kGeneratedLlmAnswers);
+ protected:
+  int ProcessNode(AlgContext& req_ctx) override {
+    const auto* req_ids = Require(req_ctx, kRawRequestIds, -6101);
+    const auto* llm_answers = Require(req_ctx, kGeneratedLlmAnswers, -6101);
 
     if (!req_ids || !llm_answers) {
-      req_ctx->SetError(-6101, "EntityExtractPostNode: Missing inputs");
       return -6101;
     }
 
@@ -54,13 +49,8 @@ class EntityExtractPostNode : public INode {
     std::cout << "[EntityExtractPostNode] Packaged " << batch_size
               << " entity extraction outputs." << std::endl;
 
-    req_ctx->Set(kEntityExtractOutputs, std::move(outputs));
+    Publish(req_ctx, kEntityExtractOutputs, std::move(outputs));
     return 0;
-  }
-
-  const std::string& Name() const override {
-    static std::string name = kNodeType;
-    return name;
   }
 };
 
@@ -72,6 +62,8 @@ NodeDefinition MakeEntityExtractPostNodeDefinition() {
   def.inputs = {RequiredInput(kRawRequestIds),
                 RequiredInput(kGeneratedLlmAnswers)};
   def.outputs = {Output(kEntityExtractOutputs)};
+  def.business_names = {kEntityExtractBusinessName,
+                        kEntityExtractLlamaCppBusinessName};
   def.parallel_safe = true;
   return def;
 }

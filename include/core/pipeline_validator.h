@@ -4,7 +4,14 @@
 #include <string>
 #include <vector>
 
+#include "core/pipeline_config.h"
+
 namespace alg_framework {
+
+enum class ValidationPolicy {
+  kStrict,
+  kPrivateExtensionCompatible,
+};
 
 struct ValidationDiagnostic {
   std::string code;
@@ -26,9 +33,22 @@ struct ValidationReport {
   nlohmann::json ToJson() const;
 };
 
+struct ValidatedPipelinePlan {
+  ParsedPipelineConfig config;
+  std::vector<std::string> topological_order;
+  std::vector<std::vector<std::string>> topological_layers;
+  ValidationReport report;
+};
+
 class PipelineValidator {
  public:
-  static ValidationReport Validate(const nlohmann::json& root);
+  static ValidatedPipelinePlan ValidateAndPlan(
+      const nlohmann::json& root,
+      ValidationPolicy policy = ValidationPolicy::kStrict);
+
+  static ValidationReport Validate(
+      const nlohmann::json& root,
+      ValidationPolicy policy = ValidationPolicy::kStrict);
 
   /** Upgrade an implicit sequential pipeline to explicit DAG form. */
   static bool NormalizeExplicitDag(const nlohmann::json& root,

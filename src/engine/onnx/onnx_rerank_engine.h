@@ -11,6 +11,8 @@ namespace alg_framework {
 
 class OnnxRerankEngine : public IRerankEngine {
  public:
+  inline static constexpr char kEngineType[] = "onnx_rerank";
+
   OnnxRerankEngine();
   ~OnnxRerankEngine() override = default;
 

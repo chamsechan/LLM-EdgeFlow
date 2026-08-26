@@ -10,6 +10,11 @@
 
 namespace alg_framework {
 
+inline constexpr char kDocQaBusinessName[] = "smart_doc_qa_v1";
+inline constexpr char kDocQaOnnxBusinessName[] =
+    "smart_doc_qa_onnx_llamacpp_v1";
+inline constexpr char kDocQaRerankBusinessName[] = "smart_doc_qa_rerank_llm_v1";
+
 inline constexpr BlackboardKey<std::vector<std::string>> kRawDocs{
     "raw_docs", "vector<string>"};
 

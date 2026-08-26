@@ -3,59 +3,28 @@
 #include <vector>
 
 #include "business/cross_rerank/cross_rerank_contract.h"
-#include "core/alg_context.h"
-#include "core/node_base.h"
 #include "core/node_registry.h"
 #include "core/traceable_item.h"
 #include "engine/engine_interface.h"
+#include "nodes/traceable_unary_inference_node.h"
 
 namespace alg_framework {
 
-class CrossRerankBatchNode : public INode {
+class CrossRerankBatchNode final
+    : public TraceableUnaryInferenceNode<IRerankEngine,
+                                         IRerankEngine::PairInput, float> {
  public:
   inline static constexpr char kNodeType[] = "CrossRerankBatchNode";
 
-  bool Init(const nlohmann::json& config,
-            SessionContext* session_ctx) override {
-    std::string bind_model_id = config.value("bind_model", "rerank_model_v1");
-    rerank_engine_ =
-        session_ctx->GetModelManager().GetModel<IRerankEngine>(bind_model_id);
-    if (!rerank_engine_) {
-      std::cerr << "[CrossRerankBatchNode] Failed to get IRerankEngine: "
-                << bind_model_id << std::endl;
-      return false;
-    }
-    return true;
+  CrossRerankBatchNode()
+      : TraceableUnaryInferenceNode(kNodeType, "rerank_model_v1",
+                                    kRerankPairItems, kRerankScoredItems,
+                                    -7201) {}
+
+ protected:
+  int InferBatch(const InputBatch& input, OutputBatch* output) override {
+    return engine()->ScoreTraceableBatch(input, output);
   }
-
-  int Process(AlgContext* req_ctx) override {
-    auto* pair_items = req_ctx->Get(kRerankPairItems);
-    if (!pair_items) {
-      req_ctx->SetError(-7201,
-                        "CrossRerankBatchNode: Missing rerank_pair_items");
-      return -7201;
-    }
-
-    std::vector<TraceableItem<float>> scores;
-    std::cout << "[CrossRerankBatchNode] Scoring " << pair_items->size()
-              << " (query, passage) pairs..." << std::endl;
-    int ret = rerank_engine_->ScoreTraceableBatch(*pair_items, &scores);
-    if (ret != 0) {
-      req_ctx->SetError(ret, "CrossRerankBatchNode: Rerank scoring failed");
-      return ret;
-    }
-
-    req_ctx->Set(kRerankScoredItems, std::move(scores));
-    return 0;
-  }
-
-  const std::string& Name() const override {
-    static std::string name = kNodeType;
-    return name;
-  }
-
- private:
-  std::shared_ptr<IRerankEngine> rerank_engine_;
 };
 
 NodeDefinition MakeCrossRerankBatchNodeDefinition() {
@@ -65,8 +34,11 @@ NodeDefinition MakeCrossRerankBatchNodeDefinition() {
   def.description = "Cross-encoder batch reranking scoring node";
   def.inputs = {RequiredInput(kRerankPairItems)};
   def.outputs = {Output(kRerankScoredItems)};
-  def.config_fields = {
-      ConfigFieldDefinition{"bind_model", ConfigValueKind::kString, true}};
+  def.config_fields = {ConfigFieldDefinition{
+      "bind_model", ConfigValueKind::kString, false, "rerank_model_v1"}};
+  def.model_capability = "rerank";
+  def.model_config_field = "bind_model";
+  def.business_names = {kCrossRerankBusinessName};
   def.parallel_safe = true;
   return def;
 }

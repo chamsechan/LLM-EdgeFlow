@@ -11,6 +11,8 @@
 
 namespace alg_framework {
 
+inline constexpr char kCrossRerankBusinessName[] = "dense_cross_rerank_scoring";
+
 inline constexpr BlackboardKey<std::vector<RerankQueryInput>> kRawRerankInputs{
     "raw_rerank_inputs", "vector<RerankQueryInput>"};
 

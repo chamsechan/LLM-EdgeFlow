@@ -10,6 +10,8 @@
 
 namespace alg_framework {
 
+inline constexpr char kOcrDocQaBusinessName[] = "multimodal_ocr_invoice_qa";
+
 inline constexpr BlackboardKey<std::vector<std::string>> kRawImagePaths{
     "raw_image_paths", "vector<string>"};
 

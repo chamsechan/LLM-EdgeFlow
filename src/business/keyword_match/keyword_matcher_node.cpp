@@ -9,37 +9,19 @@
 
 #include "business/keyword_match/keyword_match_contract.h"
 #include "business/keyword_match/keyword_match_dto.h"
-#include "core/node_base.h"
 #include "core/node_registry.h"
+#include "nodes/node_support.h"
 
 namespace alg_framework {
 
 /**
  * @brief 关注词匹配算子 (无需加载模型，纯规则与内存字典)
- *
- * 业务特点：
- * 1. 纯 CPU / 规则处理，零模型依赖；
- * 2. 支持通过 Control 接口动态下发并热更新关注词表；
- * 3. 读写安全保护 (std::shared_mutex 读读并发、写写互斥)；
- * 4. 输入固定/可变长度句子 vector，输出命中类别与词汇 JSON。
  */
-class KeywordMatcherNode : public INode {
+class KeywordMatcherNode final : public NodeBase {
  public:
   inline static constexpr char kNodeType[] = "KeywordMatcherNode";
 
-  bool Init(const nlohmann::json& config,
-            SessionContext* session_ctx) override {
-    (void)session_ctx;
-    // 从初始化配置加载默认词表 (可选)
-    if (config.contains("default_categories") &&
-        config["default_categories"].is_object()) {
-      UpdateCategoryKeywords(config["default_categories"]);
-    }
-    std::cout << "[KeywordMatcherNode] Initialized with "
-              << category_keywords_map_.size() << " initial categories."
-              << std::endl;
-    return true;
-  }
+  KeywordMatcherNode() : NodeBase(kNodeType) {}
 
   int Control(int cmd, const std::string& json_param) override {
     if (cmd == 1) {  // 1: 更新关注词表
@@ -61,14 +43,25 @@ class KeywordMatcherNode : public INode {
     return 0;
   }
 
-  int Process(AlgContext* req_ctx) override {
-    auto* sentences = req_ctx->Get(kInputSentences);
-    auto* req_ids = req_ctx->Get(kRawRequestIds);
+ protected:
+  bool InitNode(const nlohmann::json& config,
+                SessionContext& /*session_ctx*/) override {
+    // 从初始化配置加载默认词表 (可选)
+    if (config.contains("default_categories") &&
+        config["default_categories"].is_object()) {
+      UpdateCategoryKeywords(config["default_categories"]);
+    }
+    std::cout << "[KeywordMatcherNode] Initialized with "
+              << category_keywords_map_.size() << " initial categories."
+              << std::endl;
+    return true;
+  }
+
+  int ProcessNode(AlgContext& req_ctx) override {
+    const auto* sentences = Require(req_ctx, kInputSentences, -5001);
+    const auto* req_ids = Require(req_ctx, kRawRequestIds, -5001);
 
     if (!sentences || !req_ids) {
-      req_ctx->SetError(
-          -5001,
-          "KeywordMatcherNode: Missing input_sentences or raw_request_ids");
       return -5001;
     }
 
@@ -112,13 +105,8 @@ class KeywordMatcherNode : public INode {
 
     std::cout << "[KeywordMatcherNode] Processed batch of " << batch_size
               << " sentences." << std::endl;
-    req_ctx->Set(kKeywordMatchOutputs, std::move(outputs));
+    Publish(req_ctx, kKeywordMatchOutputs, std::move(outputs));
     return 0;
-  }
-
-  const std::string& Name() const override {
-    static std::string name = kNodeType;
-    return name;
   }
 
  private:
@@ -138,7 +126,6 @@ class KeywordMatcherNode : public INode {
     }
   }
 
- private:
   mutable std::shared_mutex rw_mutex_;
   // 节点私有词表映射：类别 -> 词列表
   std::unordered_map<std::string, std::vector<std::string>>
@@ -154,6 +141,7 @@ NodeDefinition MakeKeywordMatcherNodeDefinition() {
   def.outputs = {Output(kKeywordMatchOutputs)};
   def.config_fields = {ConfigFieldDefinition{"default_categories",
                                              ConfigValueKind::kObject, false}};
+  def.business_names = {kKeywordMatchBusinessName};
   def.parallel_safe = true;
   return def;
 }

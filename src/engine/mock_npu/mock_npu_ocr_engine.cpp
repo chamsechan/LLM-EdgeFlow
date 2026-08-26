@@ -22,7 +22,7 @@ bool MockNpuOcrEngine::Load(const std::string& model_path,
 }
 
 const std::string& MockNpuOcrEngine::EngineType() const {
-  static std::string type = "mock_npu_ocr";
+  static const std::string type = kEngineType;
   return type;
 }
 
@@ -84,7 +84,7 @@ int MockNpuOcrEngine::RawNpuOcrHardwareInfer(
 
 EngineDefinition MakeMockNpuOcrDefinition() {
   EngineDefinition def;
-  def.engine_type = "mock_npu_ocr";
+  def.engine_type = MockNpuOcrEngine::kEngineType;
   def.capability = "ocr";
   def.description = "Mock NPU OCR engine";
   def.config_fields = {
@@ -96,7 +96,6 @@ EngineDefinition MakeMockNpuOcrDefinition() {
   return def;
 }
 
-REGISTER_ENGINE_WITH_DEFINITION("mock_npu_ocr", MockNpuOcrEngine,
-                                MakeMockNpuOcrDefinition());
+REGISTER_ENGINE_WITH_DEFINITION(MockNpuOcrEngine, MakeMockNpuOcrDefinition());
 
 }  // namespace alg_framework

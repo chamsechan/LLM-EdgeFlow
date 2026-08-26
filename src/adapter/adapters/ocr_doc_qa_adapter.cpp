@@ -25,7 +25,7 @@ class OcrDocQaAdapter : public IBusinessAdapter {
         OwnershipPolicy::kCopyIn,
         ThreadModel::kStatelessThreadSafe,
         OutputCardinality::kOneToOne,
-        {{"multimodal_ocr_invoice_qa",
+        {{kOcrDocQaBusinessName,
           "ocr_doc_qa",
           "OCR 票据问答",
           {RequiredInput(kRawRequestIds), RequiredInput(kRawImagePaths),

@@ -44,6 +44,7 @@ inline EngineDefinition MakeTestEngineDef(const std::string& type) {
 // 1. 基础计数探针
 class CountingEngine : public IModelEngine {
  public:
+  inline static constexpr char kEngineType[] = "counting_engine";
   static inline std::atomic<int> create_count{0};
   static inline std::atomic<int> load_count{0};
 
@@ -65,12 +66,12 @@ class CountingEngine : public IModelEngine {
   size_t GetMaxBatchSize() const override { return 4; }
 
   const std::string& EngineType() const override {
-    static const std::string type = "counting_engine";
+    static const std::string type = kEngineType;
     return type;
   }
 };
-REGISTER_ENGINE_WITH_DEFINITION("counting_engine", CountingEngine,
-                                MakeTestEngineDef("counting_engine"));
+REGISTER_ENGINE_WITH_DEFINITION(CountingEngine,
+                                MakeTestEngineDef(CountingEngine::kEngineType));
 
 class CountingNode : public INode {
  public:
@@ -115,48 +116,54 @@ REGISTER_NODE_WITH_DEFINITION(CountingNode,
 // 2. 异常与失败测试替身 (R1-ACC-001)
 class ThrowingCtorEngine : public IModelEngine {
  public:
+  inline static constexpr char kEngineType[] = "throwing_ctor_engine";
+
   ThrowingCtorEngine() {
     throw std::runtime_error("ThrowingCtorEngine constructor exception");
   }
   bool Load(const std::string&, const nlohmann::json&) override { return true; }
   size_t GetMaxBatchSize() const override { return 1; }
   const std::string& EngineType() const override {
-    static const std::string type = "throwing_ctor_engine";
+    static const std::string type = kEngineType;
     return type;
   }
 };
-REGISTER_ENGINE_WITH_DEFINITION("throwing_ctor_engine", ThrowingCtorEngine,
-                                MakeTestEngineDef("throwing_ctor_engine"));
+REGISTER_ENGINE_WITH_DEFINITION(
+    ThrowingCtorEngine, MakeTestEngineDef(ThrowingCtorEngine::kEngineType));
 
 class ThrowingLoadEngine : public IModelEngine {
  public:
+  inline static constexpr char kEngineType[] = "throwing_load_engine";
+
   ThrowingLoadEngine() = default;
   bool Load(const std::string&, const nlohmann::json&) override {
     throw std::runtime_error("ThrowingLoadEngine Load exception");
   }
   size_t GetMaxBatchSize() const override { return 1; }
   const std::string& EngineType() const override {
-    static const std::string type = "throwing_load_engine";
+    static const std::string type = kEngineType;
     return type;
   }
 };
-REGISTER_ENGINE_WITH_DEFINITION("throwing_load_engine", ThrowingLoadEngine,
-                                MakeTestEngineDef("throwing_load_engine"));
+REGISTER_ENGINE_WITH_DEFINITION(
+    ThrowingLoadEngine, MakeTestEngineDef(ThrowingLoadEngine::kEngineType));
 
 class FailingLoadEngine : public IModelEngine {
  public:
+  inline static constexpr char kEngineType[] = "failing_load_engine";
+
   FailingLoadEngine() = default;
   bool Load(const std::string&, const nlohmann::json&) override {
     return false;
   }
   size_t GetMaxBatchSize() const override { return 1; }
   const std::string& EngineType() const override {
-    static const std::string type = "failing_load_engine";
+    static const std::string type = kEngineType;
     return type;
   }
 };
-REGISTER_ENGINE_WITH_DEFINITION("failing_load_engine", FailingLoadEngine,
-                                MakeTestEngineDef("failing_load_engine"));
+REGISTER_ENGINE_WITH_DEFINITION(
+    FailingLoadEngine, MakeTestEngineDef(FailingLoadEngine::kEngineType));
 
 class ThrowingCtorNode : public INode {
  public:
@@ -651,7 +658,8 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
 
     Pipeline pipeline;
     PipelineDiagnostic diag;
-    bool ok = pipeline.BuildFromJson(tc.input, &diag);
+    bool ok = pipeline.BuildFromJson(
+        tc.input, &diag, ValidationPolicy::kPrivateExtensionCompatible);
 
     EXPECT_FALSE(ok) << "Test case '" << tc.name
                      << "' was expected to fail, but succeeded!";
@@ -721,7 +729,8 @@ TEST_F(PipelineConfigTest, MaterializationExceptionsAndFineGrainedDiagnostics) {
                                  {"node_type", "CountingNode"},
                                  {"depends_on", nlohmann::json::array()}}})}};
     Pipeline p;
-    EXPECT_FALSE(p.BuildFromJson(cfg, &diag));
+    EXPECT_FALSE(p.BuildFromJson(
+        cfg, &diag, ValidationPolicy::kPrivateExtensionCompatible));
     EXPECT_EQ(diag.code, PipelineErrorCode::kEngineCreateFailed);
     EXPECT_EQ(diag.path, "/models/0/engine_type");
     EXPECT_EQ(p.GetState(), Pipeline::State::kFailed);
@@ -739,7 +748,8 @@ TEST_F(PipelineConfigTest, MaterializationExceptionsAndFineGrainedDiagnostics) {
                                  {"node_type", "CountingNode"},
                                  {"depends_on", nlohmann::json::array()}}})}};
     Pipeline p;
-    EXPECT_FALSE(p.BuildFromJson(cfg, &diag));
+    EXPECT_FALSE(p.BuildFromJson(
+        cfg, &diag, ValidationPolicy::kPrivateExtensionCompatible));
     EXPECT_EQ(diag.code, PipelineErrorCode::kEngineLoadFailed);
     EXPECT_EQ(diag.path, "/models/0");
     EXPECT_EQ(p.GetState(), Pipeline::State::kFailed);
@@ -757,7 +767,8 @@ TEST_F(PipelineConfigTest, MaterializationExceptionsAndFineGrainedDiagnostics) {
                                  {"node_type", "CountingNode"},
                                  {"depends_on", nlohmann::json::array()}}})}};
     Pipeline p;
-    EXPECT_FALSE(p.BuildFromJson(cfg, &diag));
+    EXPECT_FALSE(p.BuildFromJson(
+        cfg, &diag, ValidationPolicy::kPrivateExtensionCompatible));
     EXPECT_EQ(diag.code, PipelineErrorCode::kEngineLoadFailed);
     EXPECT_EQ(diag.path, "/models/0");
     EXPECT_EQ(p.GetState(), Pipeline::State::kFailed);
@@ -772,7 +783,8 @@ TEST_F(PipelineConfigTest, MaterializationExceptionsAndFineGrainedDiagnostics) {
                                  {"node_type", "ThrowingCtorNode"},
                                  {"depends_on", nlohmann::json::array()}}})}};
     Pipeline p;
-    EXPECT_FALSE(p.BuildFromJson(cfg, &diag));
+    EXPECT_FALSE(p.BuildFromJson(
+        cfg, &diag, ValidationPolicy::kPrivateExtensionCompatible));
     EXPECT_EQ(diag.code, PipelineErrorCode::kNodeCreateFailed);
     EXPECT_EQ(diag.path, "/pipeline/0/node_type");
     EXPECT_EQ(p.GetState(), Pipeline::State::kFailed);
@@ -787,7 +799,8 @@ TEST_F(PipelineConfigTest, MaterializationExceptionsAndFineGrainedDiagnostics) {
                                  {"node_type", "ThrowingInitNode"},
                                  {"depends_on", nlohmann::json::array()}}})}};
     Pipeline p;
-    EXPECT_FALSE(p.BuildFromJson(cfg, &diag));
+    EXPECT_FALSE(p.BuildFromJson(
+        cfg, &diag, ValidationPolicy::kPrivateExtensionCompatible));
     EXPECT_EQ(diag.code, PipelineErrorCode::kNodeInitFailed);
     EXPECT_EQ(diag.path, "/pipeline/0/config");
     EXPECT_EQ(p.GetState(), Pipeline::State::kFailed);
@@ -802,7 +815,8 @@ TEST_F(PipelineConfigTest, MaterializationExceptionsAndFineGrainedDiagnostics) {
                                  {"node_type", "FailingInitNode"},
                                  {"depends_on", nlohmann::json::array()}}})}};
     Pipeline p;
-    EXPECT_FALSE(p.BuildFromJson(cfg, &diag));
+    EXPECT_FALSE(p.BuildFromJson(
+        cfg, &diag, ValidationPolicy::kPrivateExtensionCompatible));
     EXPECT_EQ(diag.code, PipelineErrorCode::kNodeInitFailed);
     EXPECT_EQ(diag.path, "/pipeline/0/config");
     EXPECT_EQ(p.GetState(), Pipeline::State::kFailed);
@@ -820,7 +834,8 @@ TEST_F(PipelineConfigTest, MaterializationExceptionsAndFineGrainedDiagnostics) {
          nlohmann::json::array({{{"id", "node_0"},
                                  {"node_type", "CountingNode"},
                                  {"depends_on", nlohmann::json::array()}}})}};
-    EXPECT_FALSE(p.BuildFromJson(cfg, &diag));
+    EXPECT_FALSE(p.BuildFromJson(
+        cfg, &diag, ValidationPolicy::kPrivateExtensionCompatible));
     EXPECT_EQ(diag.code, PipelineErrorCode::kInternalException);
     EXPECT_EQ(diag.path, "/");
     EXPECT_TRUE(diag.message.find("Simulated unhandled internal exception") !=
@@ -845,13 +860,15 @@ TEST_F(PipelineConfigTest, OnceOnlyBuildContractAndStateMachineProtection) {
     EXPECT_EQ(p.GetState(), Pipeline::State::kEmpty);
     EXPECT_FALSE(p.IsReady());
 
-    EXPECT_TRUE(p.BuildFromJson(valid_cfg, &diag));
+    EXPECT_TRUE(p.BuildFromJson(valid_cfg, &diag,
+                                ValidationPolicy::kPrivateExtensionCompatible));
     EXPECT_EQ(p.GetState(), Pipeline::State::kReady);
     EXPECT_TRUE(p.IsReady());
     int init_count_before = CountingNode::init_count.load();
 
     // 第二次 Build
-    EXPECT_FALSE(p.BuildFromJson(valid_cfg, &diag));
+    EXPECT_FALSE(p.BuildFromJson(
+        valid_cfg, &diag, ValidationPolicy::kPrivateExtensionCompatible));
     EXPECT_EQ(diag.code, PipelineErrorCode::kInvalidBuildState);
     EXPECT_EQ(diag.path, "/");
     // 断言没有任何重复初始化副作用
@@ -868,12 +885,14 @@ TEST_F(PipelineConfigTest, OnceOnlyBuildContractAndStateMachineProtection) {
                                  {"node_type", "FailingInitNode"},
                                  {"depends_on", nlohmann::json::array()}}})}};
 
-    EXPECT_FALSE(p.BuildFromJson(invalid_cfg, &diag));
+    EXPECT_FALSE(p.BuildFromJson(
+        invalid_cfg, &diag, ValidationPolicy::kPrivateExtensionCompatible));
     EXPECT_EQ(p.GetState(), Pipeline::State::kFailed);
     EXPECT_FALSE(p.IsReady());
 
     // 失败实例上再次尝试 Build
-    EXPECT_FALSE(p.BuildFromJson(valid_cfg, &diag));
+    EXPECT_FALSE(p.BuildFromJson(
+        valid_cfg, &diag, ValidationPolicy::kPrivateExtensionCompatible));
     EXPECT_EQ(diag.code, PipelineErrorCode::kInvalidBuildState);
   }
 
@@ -886,7 +905,8 @@ TEST_F(PipelineConfigTest, OnceOnlyBuildContractAndStateMachineProtection) {
 
     Pipeline failed_p;
     nlohmann::json invalid_cfg = {{"business_name", "fail"}};
-    failed_p.BuildFromJson(invalid_cfg);
+    failed_p.BuildFromJson(invalid_cfg, nullptr,
+                           ValidationPolicy::kPrivateExtensionCompatible);
     EXPECT_EQ(failed_p.Execute(&ctx), -1);
     EXPECT_EQ(failed_p.Control(1, "{}"), -1);
   }
@@ -920,7 +940,8 @@ TEST_F(PipelineConfigTest, ParallelModeWorkersBoundaries) {
                                  {"node_type", "CountingNode"},
                                  {"depends_on", nlohmann::json::array()}}})}};
     Pipeline p;
-    EXPECT_TRUE(p.BuildFromJson(cfg, &diag));
+    EXPECT_TRUE(p.BuildFromJson(cfg, &diag,
+                                ValidationPolicy::kPrivateExtensionCompatible));
     EXPECT_EQ(p.GetExecutionMode(), Pipeline::ExecutionMode::PARALLEL);
   }
 
@@ -935,7 +956,8 @@ TEST_F(PipelineConfigTest, ParallelModeWorkersBoundaries) {
                                  {"node_type", "CountingNode"},
                                  {"depends_on", nlohmann::json::array()}}})}};
     Pipeline p;
-    EXPECT_TRUE(p.BuildFromJson(cfg, &diag));
+    EXPECT_TRUE(p.BuildFromJson(cfg, &diag,
+                                ValidationPolicy::kPrivateExtensionCompatible));
     EXPECT_EQ(p.GetExecutionMode(), Pipeline::ExecutionMode::PARALLEL);
   }
 }

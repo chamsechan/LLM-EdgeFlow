@@ -76,7 +76,7 @@ bool OnnxEmbeddingEngine::Load(const std::string& model_path,
 }
 
 const std::string& OnnxEmbeddingEngine::EngineType() const {
-  static std::string type = "onnx_embedding";
+  static const std::string type = kEngineType;
   return type;
 }
 
@@ -147,7 +147,7 @@ std::vector<float> OnnxEmbeddingEngine::GenerateEmbedding(
 
 EngineDefinition MakeOnnxEmbeddingDefinition() {
   EngineDefinition def;
-  def.engine_type = "onnx_embedding";
+  def.engine_type = OnnxEmbeddingEngine::kEngineType;
   def.capability = "embedding";
   def.description = "ONNX Runtime embedding engine";
   def.config_fields = {
@@ -161,7 +161,7 @@ EngineDefinition MakeOnnxEmbeddingDefinition() {
   return def;
 }
 
-REGISTER_ENGINE_WITH_DEFINITION("onnx_embedding", OnnxEmbeddingEngine,
+REGISTER_ENGINE_WITH_DEFINITION(OnnxEmbeddingEngine,
                                 MakeOnnxEmbeddingDefinition());
 
 }  // namespace alg_framework

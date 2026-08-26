@@ -2,10 +2,11 @@
 
 - **RFC 编号**：0008-architecture-contract-consolidation
 - **创建日期**：2026-08-25
-- **文档状态**：Completed
+- **文档状态**：In Implementation
 - **关联分支**：`feat/architecture-contract-consolidation`
 - **目标版本**：v2.1.0
 - **负责人 / 作者**：LLM-EdgeFlow Team
+- **剩余整改计划**：[`reviews/0008-architecture-contract-consolidation-remediation-plan.md`](reviews/0008-architecture-contract-consolidation-remediation-plan.md)
 
 ---
 
@@ -150,7 +151,7 @@ REGISTER_NODE_WITH_DEFINITION(LlmGenerateNode,
                               MakeLlmGenerateDefinition());
 
 EngineDefinition MakeOnnxEmbeddingDefinition();
-REGISTER_ENGINE_WITH_DEFINITION("onnx_embedding", OnnxEmbeddingEngine,
+REGISTER_ENGINE_WITH_DEFINITION(OnnxEmbeddingEngine,
                                 MakeOnnxEmbeddingDefinition());
 ```
 
@@ -648,49 +649,49 @@ ctest --test-dir build --output-on-failure
 - [x] 创建特性分支。
 - [x] 创建 RFC-0008 并加入索引。
 - [ ] 保存改造前 CTest、回归、Catalog、Validate 和 Plan 基线。
-- [ ] 评审通过后将状态改为 `In Implementation`。
+- [x] 评审通过后将状态改为 `In Implementation`。
 
 ### 阶段 1：Catalog 与业务契约
 
-- [ ] Node/Engine Definition 就地注册。
-- [ ] Business Definition 随 Adapter 注册。
-- [ ] Platform I/O 删除可推导的重复字段。
-- [ ] 删除 Builtin 中心表并完成 SSOT 测试。
+- [x] Node/Engine Definition 就地注册，并以 `kNodeType` / `kEngineType` 为名称事实源。
+- [x] Business Definition 随 Adapter 原子注册。
+- [x] Platform I/O 删除可推导的重复字段。
+- [x] 删除 Builtin 中心表并完成 SSOT 测试。
 
 ### 阶段 2：Typed Blackboard
 
-- [ ] 扩展 Key 和 Port 助手。
-- [ ] 创建公共及业务 Contract Key。
-- [ ] 迁移全部 Adapter、生产节点和 Definition。
-- [ ] 收敛动态 Key 特例并完成类型契约测试。
+- [x] 扩展 Key 和 Port 助手。
+- [x] 创建公共及业务 Contract Key。
+- [x] 迁移全部 Adapter、生产节点和 Definition。
+- [x] 收敛动态 Key 特例并完成类型契约测试。
 
 ### 阶段 3：Validated Pipeline Plan
 
-- [ ] 引入 ValidationPolicy、诊断枚举和 Plan。
-- [ ] Pipeline 直接物化 Plan。
-- [ ] 删除重复 Parse、Registry 检查、DAG Sort 和消息文本兼容判断。
-- [ ] 校验 CLI、Web、Runtime 一致性。
+- [x] 引入 ValidationPolicy 和 ValidatedPipelinePlan。
+- [x] Pipeline 直接物化 Plan。
+- [x] 删除重复 Parse、Registry 检查、DAG Sort 和消息文本兼容判断。
+- [ ] 将当前稳定诊断字符串收敛为 `DiagnosticCode` 枚举，并完成 CLI、Web、Runtime 一致性验收。
 
 ### 阶段 4：节点归属、复用和并发
 
-- [ ] 增加 `NodeBase`、`ModelBoundNode` 和受限 Unary 模板及契约测试。
-- [ ] 迁移三个代表性节点并做迁移前后行为等价测试。
-- [ ] 按迁移矩阵迁移其余适用节点；复杂节点保留浅继承。
-- [ ] 调整 common/business 目录。
-- [ ] 公共化 LLM 节点并保留 deprecated 包装。
-- [ ] 修复 Dense Retrieval。
-- [ ] 显式声明 Node/Engine 线程模型并完成并发测试。
+- [x] 增加 `NodeBase`、`ModelBoundNode` 和受限 Unary 模板及契约测试。
+- [x] 迁移三个代表性节点并做迁移前后行为等价测试。
+- [x] 按迁移矩阵迁移其余适用节点；复杂节点保留浅继承。
+- [x] 调整 common/business 目录并声明节点业务适用范围。
+- [x] 公共化 LLM 节点；业务审计节点通过受限 Unary 模板复用同一推理生命周期骨架。
+- [x] 修复 Dense Retrieval。
+- [x] 显式声明 Node/Engine 线程模型并完成串行模型同层冲突测试。
 
 ### 阶段 5：文档与漂移门禁
 
-- [ ] 更新三份架构文档。
+- [x] 更新三份架构文档，并区分当前结构与目标状态。
 - [ ] 同步开发指南、Skill、README 和 Changelog。
 - [ ] 重新生成 SVG。
 - [ ] 增加文档漂移检查。
 
 ### 阶段 6：验收与交付
 
-- [ ] 运行完整门禁和全部 Pipeline Smoke。
+- [x] 运行完整门禁和全部 Pipeline Smoke（2026-08-26：28/28 CTest、六阶段回归通过）。
 - [ ] 独立审查 C ABI、四层依赖、Catalog 和文档一致性。
 - [ ] P0/P1 全部关闭后将 RFC 与索引标记 `Completed`。
 - [ ] 使用仓库标准 GitHub 工作流创建 PR、通过 CI 并合并 main。
@@ -752,5 +753,6 @@ RFC 完成状态、PR 和 merge。
 
 | 日期 | 版本 | 变更内容 | 作者 |
 | :--- | :--- | :--- | :--- |
+| 2026-08-26 | v0.3 | 记录实现审查进度：严格默认策略、原子业务注册、业务适用范围、Engine 名称 SSOT 与串行实例并发校验 | Codex |
 | 2026-08-25 | v0.2 | 补充 Node 浅层基类、组合式助手、迁移矩阵和契约验收 | LLM-EdgeFlow Team |
 | 2026-08-25 | v0.1 | 创建架构契约、实施阶段、文档同步和验收计划 | LLM-EdgeFlow Team |

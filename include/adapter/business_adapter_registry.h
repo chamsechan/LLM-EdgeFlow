@@ -132,16 +132,16 @@ class BusinessAdapterRegistry {
         registration_errors_.push_back(err);
         return false;
       }
-      if (!PipelineCatalog::RegisterBusinessDefinition(pipeline_def)) {
-        has_conflict_ = true;
-        std::string err = "Conflict: Pipeline business_name '" +
-                          pipeline_def.business_name + "' in adapter '" +
-                          std::string(adapter->BizName()) +
-                          "' is invalid or already registered";
-        registration_errors_.push_back(err);
-        std::cerr << "[BusinessAdapterRegistry ERROR] " << err << std::endl;
-        return false;
-      }
+    }
+    if (!PipelineCatalog::RegisterBusinessDefinitions(desc.pipelines)) {
+      has_conflict_ = true;
+      std::string err =
+          "Conflict: one or more pipeline business names in adapter '" +
+          std::string(adapter->BizName()) +
+          "' are invalid, duplicated, or already registered";
+      registration_errors_.push_back(err);
+      std::cerr << "[BusinessAdapterRegistry ERROR] " << err << std::endl;
+      return false;
     }
 
     adapters_[biz_type] = adapter;

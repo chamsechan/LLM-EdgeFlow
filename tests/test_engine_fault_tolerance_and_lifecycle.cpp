@@ -252,7 +252,8 @@ TEST_F(EngineFaultToleranceAndLifecycleTest, Deep5LayerWavefrontDagExecution) {
                                        {"depends_on", {"B1", "B2", "B3"}}}}}};
 
   Pipeline pipeline;
-  ASSERT_TRUE(pipeline.BuildFromJson(deep_dag_config));
+  ASSERT_TRUE(pipeline.BuildFromJson(
+      deep_dag_config, nullptr, ValidationPolicy::kPrivateExtensionCompatible));
   EXPECT_EQ(pipeline.GetExecutionMode(), Pipeline::ExecutionMode::PARALLEL);
 
   const auto& layers = pipeline.GetTopologicalLayers();

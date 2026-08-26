@@ -17,10 +17,10 @@ Layer 1: Pure C ABI Adapter (company_c_adapter.cpp)
 Layer 2: Pipeline & Dynamic Blackboard (Pipeline, AlgContext, SessionContext)
     │
     ▼
-Layer 3: Pluggable Business & Common Nodes (INode, REGISTER_NODE)
+Layer 3: Pluggable Business & Common Nodes (NodeBase, REGISTER_NODE_WITH_DEFINITION)
     │
     ▼
-Layer 4: Heterogeneous Inference Engines & Batch Schedulers (FixedBatchExecutor, IModelEngine)
+Layer 4: Heterogeneous Inference Engines & Batch Schedulers (FixedBatchExecutor, IModelEngine, REGISTER_ENGINE_WITH_DEFINITION)
 ```
 
 1. **Layer 1 (C ABI Safety Barrier)**:
@@ -28,14 +28,14 @@ Layer 4: Heterogeneous Inference Engines & Batch Schedulers (FixedBatchExecutor,
    - **Rule**: All 6 exported C functions (`Alg_Init`, `Alg_Create`, `Alg_Process`, `Alg_Control`, `Alg_Destroy`, `Alg_DeInit`) **MUST** be wrapped in `noexcept` and standard `try-catch` blocks to prevent downstream host crashes.
    - **Rule**: Never expose C++ STL types, `std::string`, `std::vector`, or third-party headers in `include/company_alg_interface.h`. Only pure C structs and primitive types are allowed.
 2. **Layer 2 (Pipeline & Blackboard)**:
-   - Target files: `include/core/alg_context.h`, `include/core/session_context.h`, `include/core/pipeline.h`.
-   - **Rule**: Nodes communicate strictly via the request-scoped blackboard `AlgContext`. Zero unnecessary memory copying.
+   - Target files: `include/core/alg_context.h`, `include/core/session_context.h`, `include/core/pipeline.h`, `include/core/pipeline_catalog.h`, `include/core/pipeline_validator.h`.
+   - **Rule**: Nodes communicate strictly via the request-scoped blackboard `AlgContext` with typed `BlackboardKey<T>`. Zero unnecessary memory copying. Pipeline building strictly consumes `ValidatedPipelinePlan` without duplicate parsing or DAG sorting.
 3. **Layer 3 (Business & Common Nodes)**:
-   - Target files: `src/business/<biz_name>/`, `src/common_nodes/`.
-   - **Rule**: All nodes must inherit from `INode` and register via `REGISTER_NODE(NodeClassName)`. Nodes must be stateless regarding individual requests; request data is stored in `AlgContext`.
+   - Target files: `src/business/<biz_name>/`, `src/common_nodes/`, `include/nodes/`.
+   - **Rule**: Nodes should inherit from `NodeBase` (or `ModelBoundNode`, `TraceableUnaryInferenceNode`) and register via `REGISTER_NODE_WITH_DEFINITION(NodeClassName, definition)`. Nodes must be stateless regarding individual requests; request data is stored in `AlgContext`.
 4. **Layer 4 (Engines & Hardware Acceleration)**:
    - Target files: `include/engine/engine_interface.h`, `include/engine/fixed_batch_executor.h`, `src/engine/`.
-   - **Rule**: All batch inference implementations **MUST** utilize `FixedBatchExecutor::Execute` for automatic hardware padding, dummy stripping, and sample provenance tracking `(req_id, sub_id)`.
+   - **Rule**: All batch inference implementations **MUST** utilize `FixedBatchExecutor::Execute` for automatic hardware padding, dummy stripping, and sample provenance tracking `(req_id, sub_id)`. Engines register via `REGISTER_ENGINE_WITH_DEFINITION(EngineClassName, definition)`.
 
 ---
 

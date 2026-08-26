@@ -4,31 +4,25 @@
 
 #include "business/audio_asr/audio_asr_contract.h"
 #include "business/audio_asr/audio_asr_dto.h"
-#include "core/alg_context.h"
-#include "core/node_base.h"
 #include "core/node_registry.h"
 #include "core/traceable_item.h"
+#include "nodes/node_support.h"
 
 namespace alg_framework {
 
-class AudioPostNode : public INode {
+class AudioPostNode final : public NodeBase {
  public:
   inline static constexpr char kNodeType[] = "AudioPostNode";
 
-  bool Init(const nlohmann::json& config,
-            SessionContext* session_ctx) override {
-    (void)config;
-    (void)session_ctx;
-    return true;
-  }
+  AudioPostNode() : NodeBase(kNodeType) {}
 
-  int Process(AlgContext* req_ctx) override {
-    auto* req_ids = req_ctx->Get(kRawRequestIds);
-    auto* transcripts = req_ctx->Get(kAsrTranscripts);
-    auto* slot_jsons = req_ctx->Get(kIntentSlotResults);
+ protected:
+  int ProcessNode(AlgContext& req_ctx) override {
+    const auto* req_ids = Require(req_ctx, kRawRequestIds, -6401);
+    const auto* transcripts = Require(req_ctx, kAsrTranscripts, -6401);
+    const auto* slot_jsons = Require(req_ctx, kIntentSlotResults, -6401);
 
     if (!req_ids || !transcripts || !slot_jsons) {
-      req_ctx->SetError(-6401, "AudioPostNode: Missing input tensors");
       return -6401;
     }
 
@@ -40,13 +34,8 @@ class AudioPostNode : public INode {
       outputs[i].intent_slot_json = (*slot_jsons)[i];
     }
 
-    req_ctx->Set(kAudioFinalOutputs, std::move(outputs));
+    Publish(req_ctx, kAudioFinalOutputs, std::move(outputs));
     return 0;
-  }
-
-  const std::string& Name() const override {
-    static std::string name = kNodeType;
-    return name;
   }
 };
 
@@ -58,6 +47,7 @@ NodeDefinition MakeAudioPostNodeDefinition() {
   def.inputs = {RequiredInput(kRawRequestIds), RequiredInput(kAsrTranscripts),
                 RequiredInput(kIntentSlotResults)};
   def.outputs = {Output(kAudioFinalOutputs)};
+  def.business_names = {kAudioAsrBusinessName};
   def.parallel_safe = true;
   return def;
 }

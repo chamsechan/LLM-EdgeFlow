@@ -4,35 +4,30 @@
 
 #include "business/doc_qa/doc_qa_contract.h"
 #include "business/doc_qa/doc_qa_dto.h"
-#include "core/node_base.h"
 #include "core/node_registry.h"
 #include "core/traceable_item.h"
+#include "nodes/node_support.h"
 
 namespace alg_framework {
 
 /**
  * @brief 文档问答后处理与多样本对齐算子
  */
-class DocQaPostNode : public INode {
+class DocQaPostNode final : public NodeBase {
  public:
   inline static constexpr char kNodeType[] = "DocQaPostNode";
 
-  bool Init(const nlohmann::json& config,
-            SessionContext* session_ctx) override {
-    (void)config;
-    (void)session_ctx;
-    return true;
-  }
+  DocQaPostNode() : NodeBase(kNodeType) {}
 
-  int Process(AlgContext* req_ctx) override {
-    auto* raw_req_ids = req_ctx->Get(kRawRequestIds);
-    auto* intents = req_ctx->Get(kRecognizedIntents);
-    auto* confidences = req_ctx->Get(kIntentConfidences);
-    auto* chunk_counts = req_ctx->Get(kChunkCountsPerReq);
-    auto* answers = req_ctx->Get(kGeneratedLlmAnswers);
+ protected:
+  int ProcessNode(AlgContext& req_ctx) override {
+    const auto* raw_req_ids = Require(req_ctx, kRawRequestIds, -4401);
+    const auto* intents = Require(req_ctx, kRecognizedIntents, -4401);
+    const auto* answers = Require(req_ctx, kGeneratedLlmAnswers, -4401);
+    const auto* confidences = req_ctx.Get(kIntentConfidences);
+    const auto* chunk_counts = req_ctx.Get(kChunkCountsPerReq);
 
     if (!raw_req_ids || !intents || !answers) {
-      req_ctx->SetError(-4401, "DocQaPostNode: Missing inputs for aggregation");
       return -4401;
     }
 
@@ -61,13 +56,8 @@ class DocQaPostNode : public INode {
     std::cout << "[DocQaPostNode] Successfully aggregated and aligned "
               << batch_size << " output results." << std::endl;
 
-    req_ctx->Set(kFinalDocOutputs, std::move(final_outputs));
+    Publish(req_ctx, kFinalDocOutputs, std::move(final_outputs));
     return 0;
-  }
-
-  const std::string& Name() const override {
-    static std::string name = kNodeType;
-    return name;
   }
 };
 
@@ -81,6 +71,8 @@ NodeDefinition MakeDocQaPostNodeDefinition() {
       OptionalInput(kIntentConfidences), OptionalInput(kChunkCountsPerReq),
       RequiredInput(kGeneratedLlmAnswers)};
   def.outputs = {Output(kFinalDocOutputs)};
+  def.business_names = {kDocQaBusinessName, kDocQaOnnxBusinessName,
+                        kDocQaRerankBusinessName};
   def.parallel_safe = true;
   return def;
 }

@@ -203,7 +203,8 @@ TEST_F(DagPipelineTest, ShuffledOrderTopologicalSort) {
                               {"depends_on", nlohmann::json::array()}}}}};
 
   Pipeline pipeline;
-  bool ok = pipeline.BuildFromJson(config);
+  bool ok = pipeline.BuildFromJson(
+      config, nullptr, ValidationPolicy::kPrivateExtensionCompatible);
   ASSERT_TRUE(ok);
 
   // 校验拓扑序：node_a 必须在第一位，node_d 必须在最后一位
@@ -246,7 +247,8 @@ TEST_F(DagPipelineTest, DiamondBranchAndMerge) {
          {"depends_on", {"B", "C"}}}}}};
 
   Pipeline pipeline;
-  ASSERT_TRUE(pipeline.BuildFromJson(config));
+  ASSERT_TRUE(pipeline.BuildFromJson(
+      config, nullptr, ValidationPolicy::kPrivateExtensionCompatible));
 
   AlgContext req_ctx;
   req_ctx.Set("exec_trace", std::vector<std::string>{});
@@ -279,7 +281,8 @@ TEST_F(DagPipelineTest, CycleDetectionRejection) {
        }}};
 
   Pipeline pipeline;
-  bool ok = pipeline.BuildFromJson(cyclic_config);
+  bool ok = pipeline.BuildFromJson(
+      cyclic_config, nullptr, ValidationPolicy::kPrivateExtensionCompatible);
   // 必须拦截成环并返回 false，禁止启动
   EXPECT_FALSE(ok);
 }
@@ -292,7 +295,9 @@ TEST_F(DagPipelineTest, SelfLoopCycleRejection) {
        {{{"id", "A"}, {"node_type", "DagTestNodeA"}, {"depends_on", {"A"}}}}}};
 
   Pipeline pipeline;
-  EXPECT_FALSE(pipeline.BuildFromJson(self_loop_config));
+  EXPECT_FALSE(
+      pipeline.BuildFromJson(self_loop_config, nullptr,
+                             ValidationPolicy::kPrivateExtensionCompatible));
 }
 
 // 5. 非法依赖 ID 校验 (Non-existent Dependency ID)
@@ -305,7 +310,9 @@ TEST_F(DagPipelineTest, InvalidDependencyRejection) {
          {"depends_on", {"ghost_non_existent_node"}}}}}};
 
   Pipeline pipeline;
-  EXPECT_FALSE(pipeline.BuildFromJson(invalid_dep_config));
+  EXPECT_FALSE(
+      pipeline.BuildFromJson(invalid_dep_config, nullptr,
+                             ValidationPolicy::kPrivateExtensionCompatible));
 }
 
 // 6. 拦截旧式未显式声明 id/depends_on 的配置
@@ -319,7 +326,8 @@ TEST_F(DagPipelineTest, RejectsLegacyPipelineWithoutIdOrDependsOn) {
 
   Pipeline pipeline;
   PipelineDiagnostic diag;
-  EXPECT_FALSE(pipeline.BuildFromJson(legacy_config, &diag));
+  EXPECT_FALSE(pipeline.BuildFromJson(
+      legacy_config, &diag, ValidationPolicy::kPrivateExtensionCompatible));
   EXPECT_EQ(diag.code, PipelineErrorCode::kMissingField);
   EXPECT_EQ(diag.path, "/pipeline/0/id");
 }
@@ -348,7 +356,8 @@ TEST_F(DagPipelineTest, ParallelWavefrontExecution) {
          {"depends_on", {"node_b", "node_c"}}}}}};
 
   Pipeline pipeline;
-  ASSERT_TRUE(pipeline.BuildFromJson(parallel_config));
+  ASSERT_TRUE(pipeline.BuildFromJson(
+      parallel_config, nullptr, ValidationPolicy::kPrivateExtensionCompatible));
   EXPECT_EQ(pipeline.GetExecutionMode(), Pipeline::ExecutionMode::PARALLEL);
 
   const auto& layers = pipeline.GetTopologicalLayers();

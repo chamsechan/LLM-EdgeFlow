@@ -22,7 +22,7 @@ bool MockNpuRerankEngine::Load(const std::string& model_path,
 }
 
 const std::string& MockNpuRerankEngine::EngineType() const {
-  static std::string type = "mock_npu_rerank";
+  static const std::string type = kEngineType;
   return type;
 }
 
@@ -88,7 +88,7 @@ float MockNpuRerankEngine::ComputePairScore(const PairInput& pair) {
 
 EngineDefinition MakeMockNpuRerankDefinition() {
   EngineDefinition def;
-  def.engine_type = "mock_npu_rerank";
+  def.engine_type = MockNpuRerankEngine::kEngineType;
   def.capability = "rerank";
   def.description = "Mock NPU rerank engine";
   def.config_fields = {
@@ -100,7 +100,7 @@ EngineDefinition MakeMockNpuRerankDefinition() {
   return def;
 }
 
-REGISTER_ENGINE_WITH_DEFINITION("mock_npu_rerank", MockNpuRerankEngine,
+REGISTER_ENGINE_WITH_DEFINITION(MockNpuRerankEngine,
                                 MakeMockNpuRerankDefinition());
 
 }  // namespace alg_framework

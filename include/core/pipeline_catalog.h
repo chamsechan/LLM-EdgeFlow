@@ -28,6 +28,14 @@ struct PortDefinition {
   std::string type_id;
   bool required = true;
   bool allow_override = false;
+
+  PortDefinition() = default;
+  PortDefinition(std::string k, std::string t, bool req = true,
+                 bool allow_ovr = false)
+      : key(std::move(k)),
+        type_id(std::move(t)),
+        required(req),
+        allow_override(allow_ovr) {}
 };
 
 template <typename T>
@@ -55,6 +63,23 @@ struct ConfigFieldDefinition {
   std::optional<double> maximum;
   std::vector<std::string> enum_values;
   std::string semantic;
+
+  ConfigFieldDefinition() = default;
+  ConfigFieldDefinition(std::string field_name, ConfigValueKind value_kind,
+                        bool is_required = false,
+                        nlohmann::json field_default = nlohmann::json(),
+                        std::optional<double> field_minimum = std::nullopt,
+                        std::optional<double> field_maximum = std::nullopt,
+                        std::vector<std::string> allowed_values = {},
+                        std::string field_semantic = {})
+      : name(std::move(field_name)),
+        kind(value_kind),
+        required(is_required),
+        default_value(std::move(field_default)),
+        minimum(field_minimum),
+        maximum(field_maximum),
+        enum_values(std::move(allowed_values)),
+        semantic(std::move(field_semantic)) {}
 };
 
 struct NodeDefinition {
@@ -84,6 +109,17 @@ struct BusinessDefinition {
   std::string display_name;
   std::vector<PortDefinition> ingress;
   std::vector<PortDefinition> egress;
+
+  BusinessDefinition() = default;
+  BusinessDefinition(std::string name, std::string demo,
+                     std::string display = {},
+                     std::vector<PortDefinition> in = {},
+                     std::vector<PortDefinition> out = {})
+      : business_name(std::move(name)),
+        demo_business(std::move(demo)),
+        display_name(std::move(display)),
+        ingress(std::move(in)),
+        egress(std::move(out)) {}
 };
 
 class PipelineCatalog {
@@ -91,6 +127,8 @@ class PipelineCatalog {
   static bool RegisterNodeDefinition(const NodeDefinition& definition);
   static bool RegisterEngineDefinition(const EngineDefinition& definition);
   static bool RegisterBusinessDefinition(const BusinessDefinition& definition);
+  static bool RegisterBusinessDefinitions(
+      const std::vector<BusinessDefinition>& definitions);
 
   static const std::vector<NodeDefinition>& Nodes();
   static const std::vector<EngineDefinition>& Engines();
@@ -109,5 +147,6 @@ class PipelineCatalog {
 };
 
 const char* ConfigValueKindName(ConfigValueKind kind);
+const char* EngineThreadModelName(EngineThreadModel model);
 
 }  // namespace alg_framework

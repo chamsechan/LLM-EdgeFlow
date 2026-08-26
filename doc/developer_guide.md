@@ -150,43 +150,48 @@ REGISTER_BUSINESS_ADAPTER(CustomTaskAdapter);
 
 ---
 
-## 2. Layer 3: 如何新增一个业务算子 (INode)
+## 2. Layer 3: 如何新增一个业务算子 (NodeBase)
 
 ```cpp
 // src/business/my_biz/my_custom_node.cpp
-#include "core/node_base.h"
 #include "core/node_registry.h"
 #include "engine/engine_interface.h"
+#include "nodes/model_bound_node.h"
+#include "nodes/node_support.h"
 
 namespace alg_framework {
 
-class MyCustomNode : public INode {
+inline constexpr BlackboardKey<std::string> kQueryText{"query_text", "string"};
+inline constexpr BlackboardKey<std::string> kCustomResultJson{"custom_result_json", "string"};
+
+class MyCustomNode final : public ModelBoundNode<ILlmEngine> {
  public:
-  bool Init(const nlohmann::json& config, SessionContext* session_ctx) override {
-    session_ctx_ = session_ctx;
-    model_id_ = config.value("model_id", "my_model_v1");
+  inline static constexpr char kNodeType[] = "MyCustomNode";
+
+  MyCustomNode() : ModelBoundNode<ILlmEngine>(kNodeType, "my_model_v1") {}
+
+ protected:
+  bool InitNode(const nlohmann::json& config, SessionContext& session_ctx) override {
     threshold_ = config.value("threshold", 0.85f);
     return true;
   }
 
-  int Process(AlgContext* req_ctx) override {
-    auto* query = req_ctx->Get<std::string>("query_text");
-    if (!query) return -1;
+  int ProcessNode(AlgContext& req_ctx) override {
+    const auto* query = Require(req_ctx, kQueryText, -9001);
+    if (!query) return -9001;
 
-    // 按需调用 Layer 4 模型
-    auto engine = session_ctx_->GetModelManager().GetModel<ILlmEngine>(model_id_);
-    if (engine) {
-        std::string llm_out;
-        ILlmEngine::GenerateOption opt;
-        engine->Generate(*query, opt, &llm_out);
-        req_ctx->Set("llm_raw_out", llm_out);
+    // 按需调用已绑定的 Layer 4 模型引擎
+    if (engine()) {
+      std::string llm_out;
+      ILlmEngine::GenerateOption opt;
+      engine()->Generate(*query, opt, &llm_out);
     }
 
-    req_ctx->Set("custom_result_json", std::string("{\"verdict\":\"PASS\"}"));
+    Publish(req_ctx, kCustomResultJson, std::string("{\"verdict\":\"PASS\"}"));
     return 0;
   }
 
-  int Control(int cmd, const std::string& json_param) override {
+  int ControlNode(int cmd, const std::string& json_param) override {
     if (cmd == 1) {
       try {
         nlohmann::json param = nlohmann::json::parse(json_param);
@@ -200,19 +205,27 @@ class MyCustomNode : public INode {
     return 0;
   }
 
-  const std::string& Name() const override {
-    static const std::string name = "MyCustomNode";
-    return name;
-  }
-
  private:
-  SessionContext* session_ctx_ = nullptr;
-  std::string model_id_;
   float threshold_ = 0.85f;
 };
 
-// 宏自动注册到反射工厂
-REGISTER_NODE(MyCustomNode);
+NodeDefinition MakeMyCustomNodeDefinition() {
+  NodeDefinition def;
+  def.node_type = MyCustomNode::kNodeType;
+  def.category = "business";
+  def.description = "Custom business inference node";
+  def.inputs = {RequiredInput(kQueryText)};
+  def.outputs = {Output(kCustomResultJson)};
+  def.config_fields = {
+      ConfigFieldDefinition{"bind_model", ConfigValueKind::kString, false, "my_model_v1"},
+      ConfigFieldDefinition{"threshold", ConfigValueKind::kNumber, false, 0.85, 0.0, 1.0}};
+  def.model_capability = "llm";
+  def.model_config_field = "bind_model";
+  def.parallel_safe = true;
+  return def;
+}
+
+REGISTER_NODE_WITH_DEFINITION(MyCustomNode, MakeMyCustomNodeDefinition());
 
 } // namespace alg_framework
 ```
@@ -266,7 +279,18 @@ class MyBackendLlmEngine : public ILlmEngine {
   size_t max_batch_size_ = 4;
 };
 
-REGISTER_ENGINE("my_backend_llm", MyBackendLlmEngine);
+EngineDefinition MakeMyBackendLlmEngineDefinition() {
+  EngineDefinition def;
+  def.engine_type = "my_backend_llm";
+  def.capability = "llm";
+  def.hardware_backend = "custom_npu";
+  def.description = "Custom backend LLM engine";
+  def.config_fields = {
+      ConfigFieldDefinition{"max_batch_size", ConfigValueKind::kInteger, false, 4, 1.0, 64.0}};
+  return def;
+}
+
+REGISTER_ENGINE_WITH_DEFINITION(MyBackendLlmEngine, MakeMyBackendLlmEngineDefinition());
 
 } // namespace alg_framework
 ```

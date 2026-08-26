@@ -23,7 +23,7 @@ bool OnnxRerankEngine::Load(const std::string& model_path,
 }
 
 const std::string& OnnxRerankEngine::EngineType() const {
-  static std::string type = "onnx_rerank";
+  static const std::string type = kEngineType;
   return type;
 }
 
@@ -75,7 +75,7 @@ int OnnxRerankEngine::RawOnnxRerankHardwareInfer(
 
 EngineDefinition MakeOnnxRerankDefinition() {
   EngineDefinition def;
-  def.engine_type = "onnx_rerank";
+  def.engine_type = OnnxRerankEngine::kEngineType;
   def.capability = "rerank";
   def.description = "ONNX Runtime rerank engine";
   def.config_fields = {
@@ -87,7 +87,6 @@ EngineDefinition MakeOnnxRerankDefinition() {
   return def;
 }
 
-REGISTER_ENGINE_WITH_DEFINITION("onnx_rerank", OnnxRerankEngine,
-                                MakeOnnxRerankDefinition());
+REGISTER_ENGINE_WITH_DEFINITION(OnnxRerankEngine, MakeOnnxRerankDefinition());
 
 }  // namespace alg_framework

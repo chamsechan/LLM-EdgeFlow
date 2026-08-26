@@ -4,8 +4,8 @@
 #include <vector>
 
 #include "business/doc_qa/doc_qa_contract.h"
-#include "core/node_base.h"
 #include "core/node_registry.h"
+#include "nodes/node_support.h"
 
 namespace alg_framework {
 
@@ -17,13 +17,15 @@ namespace alg_framework {
  * - 置信度阈值 (threshold_)
  * - 私有计数器或缓存结构
  */
-class IntentRuleNode : public INode {
+class IntentRuleNode final : public NodeBase {
  public:
   inline static constexpr char kNodeType[] = "IntentRuleNode";
 
-  bool Init(const nlohmann::json& config,
-            SessionContext* session_ctx) override {
-    (void)session_ctx;
+  IntentRuleNode() : NodeBase(kNodeType) {}
+
+ protected:
+  bool InitNode(const nlohmann::json& config,
+                SessionContext& /*session_ctx*/) override {
     threshold_ = config.value("threshold", 0.75f);
     default_intent_ = config.value("default_intent", "GENERAL_CONSULT");
 
@@ -43,10 +45,9 @@ class IntentRuleNode : public INode {
     return true;
   }
 
-  int Process(AlgContext* req_ctx) override {
-    auto* raw_queries = req_ctx->Get(kRawQueries);
+  int ProcessNode(AlgContext& req_ctx) override {
+    const auto* raw_queries = Require(req_ctx, kRawQueries, -4201);
     if (!raw_queries) {
-      req_ctx->SetError(-4201, "IntentRuleNode: Missing raw_queries");
       return -4201;
     }
 
@@ -68,20 +69,12 @@ class IntentRuleNode : public INode {
       }
     }
 
-    req_ctx->Set(kRecognizedIntents, std::move(recognized_intents));
-    req_ctx->Set(kIntentConfidences, std::move(confidences));
+    Publish(req_ctx, kRecognizedIntents, std::move(recognized_intents));
+    Publish(req_ctx, kIntentConfidences, std::move(confidences));
     return 0;
   }
 
-  const std::string& Name() const override {
-    static std::string name = kNodeType;
-    return name;
-  }
-
  private:
-  // ==========================================
-  // 开发者私有数据成员 (随节点实例常驻内存)
-  // ==========================================
   std::unordered_map<std::string, std::vector<std::string>>
       intent_keywords_map_;
   float threshold_ = 0.75f;
@@ -92,7 +85,7 @@ NodeDefinition MakeIntentRuleNodeDefinition() {
   NodeDefinition def;
   def.node_type = IntentRuleNode::kNodeType;
   def.category = "business";
-  def.description = "Intent rule classification node";
+  def.description = "Document QA intent recognition rule node";
   def.inputs = {RequiredInput(kRawQueries)};
   def.outputs = {Output(kRecognizedIntents), Output(kIntentConfidences)};
   def.config_fields = {
@@ -100,7 +93,10 @@ NodeDefinition MakeIntentRuleNodeDefinition() {
                             0.0, 1.0},
       ConfigFieldDefinition{"default_intent", ConfigValueKind::kString, false,
                             "GENERAL_CONSULT"},
-      ConfigFieldDefinition{"rules", ConfigValueKind::kObject, false}};
+      ConfigFieldDefinition{"rules", ConfigValueKind::kObject, false,
+                            nlohmann::json::object()}};
+  def.business_names = {kDocQaBusinessName, kDocQaOnnxBusinessName,
+                        kDocQaRerankBusinessName};
   def.parallel_safe = true;
   return def;
 }

@@ -1,35 +1,35 @@
 #include <iostream>
 
+#include "business/doc_qa/doc_qa_contract.h"
 #include "core/common_contracts.h"
-#include "core/node_base.h"
 #include "core/node_registry.h"
 #include "core/traceable_item.h"
+#include "nodes/node_support.h"
 
 namespace alg_framework {
 
 /**
- * @brief 通用 Prompt 模板组装算子
+ * @brief Prompt 模板组装算子
  */
-class PromptBuilderNode : public INode {
+class PromptBuilderNode final : public NodeBase {
  public:
   inline static constexpr char kNodeType[] = "PromptBuilderNode";
 
-  bool Init(const nlohmann::json& config,
-            SessionContext* session_ctx) override {
-    (void)session_ctx;
+  PromptBuilderNode() : NodeBase(kNodeType) {}
+
+ protected:
+  bool InitNode(const nlohmann::json& config,
+                SessionContext& /*session_ctx*/) override {
     template_str_ =
         config.value("template", "Context: {context}\nQuery: {query}\nAnswer:");
     return true;
   }
 
-  int Process(AlgContext* req_ctx) override {
-    auto* matched_contexts =
-        req_ctx->Get<std::vector<TraceableItem<std::string>>>(
-            "matched_top_chunks");
-    auto* raw_queries = req_ctx->Get(kRawQueries);
+  int ProcessNode(AlgContext& req_ctx) override {
+    const auto* matched_contexts = Require(req_ctx, kMatchedTopChunks, -3001);
+    const auto* raw_queries = Require(req_ctx, kRawQueries, -3001);
 
     if (!matched_contexts || !raw_queries) {
-      req_ctx->SetError(-3001, "PromptBuilderNode: Missing inputs");
       return -3001;
     }
 
@@ -51,13 +51,8 @@ class PromptBuilderNode : public INode {
       final_prompts.emplace_back(item.req_id, item.sub_id, std::move(prompt));
     }
 
-    req_ctx->Set(kLlmInputPrompts, std::move(final_prompts));
+    Publish(req_ctx, kLlmInputPrompts, std::move(final_prompts));
     return 0;
-  }
-
-  const std::string& Name() const override {
-    static std::string name = kNodeType;
-    return name;
   }
 
  private:
@@ -67,16 +62,15 @@ class PromptBuilderNode : public INode {
 NodeDefinition MakePromptBuilderNodeDefinition() {
   NodeDefinition def;
   def.node_type = PromptBuilderNode::kNodeType;
-  def.category = "common";
+  def.category = "business";
   def.description = "Prompt builder node";
-  def.inputs = {
-      RequiredInput(BlackboardKey<std::vector<TraceableItem<std::string>>>{
-          "matched_top_chunks", "traceable<string>[]"}),
-      RequiredInput(kRawQueries)};
+  def.inputs = {RequiredInput(kMatchedTopChunks), RequiredInput(kRawQueries)};
   def.outputs = {Output(kLlmInputPrompts)};
   def.config_fields = {
       ConfigFieldDefinition{"template", ConfigValueKind::kString, false,
                             "Context: {context}\nQuery: {query}\nAnswer:"}};
+  def.business_names = {kDocQaBusinessName, kDocQaOnnxBusinessName,
+                        kDocQaRerankBusinessName};
   def.parallel_safe = true;
   return def;
 }

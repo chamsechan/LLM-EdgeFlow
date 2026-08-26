@@ -11,6 +11,8 @@
 
 namespace alg_framework {
 
+inline constexpr char kAudioAsrBusinessName[] = "speech_audio_asr_intent_slot";
+
 inline constexpr BlackboardKey<std::vector<AudioInputDto>> kRawAudioInputs{
     "raw_audio_inputs", "vector<AudioInputDto>"};
 

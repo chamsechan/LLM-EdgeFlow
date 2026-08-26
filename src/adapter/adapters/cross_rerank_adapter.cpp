@@ -26,7 +26,7 @@ class CrossRerankAdapter : public IBusinessAdapter {
                                   OwnershipPolicy::kCopyIn,
                                   ThreadModel::kStatelessThreadSafe,
                                   OutputCardinality::kOneToOne,
-                                  {{"dense_cross_rerank_scoring",
+                                  {{kCrossRerankBusinessName,
                                     "cross_rerank",
                                     "Cross-Encoder 精排",
                                     {RequiredInput(kRawRerankInputs)},
