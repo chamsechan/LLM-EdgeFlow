@@ -38,7 +38,6 @@ jobs:
             cmake \
             curl \
             default-jre-headless \
-            graphviz \
             python3
 
       - name: Restore/Save CCache

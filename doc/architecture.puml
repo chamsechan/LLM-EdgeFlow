@@ -1,4 +1,5 @@
 @startuml LLM_EdgeFlow_Architecture
+!pragma layout smetana
 !theme plain
 skinparam backgroundColor #0F172A
 skinparam defaultFontName "Segoe UI", Arial, sans-serif

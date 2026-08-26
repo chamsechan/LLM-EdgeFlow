@@ -1,4 +1,5 @@
 @startuml LLM_EdgeFlow_Target_Architecture_V2
+!pragma layout smetana
 !theme plain
 
 title LLM-EdgeFlow Target Architecture V2\nDeveloper-Friendly & AI-Friendly Business Delivery Platform
