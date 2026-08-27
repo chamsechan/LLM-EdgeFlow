@@ -1058,5 +1058,5 @@ RFC-0004 除以下重叠内容外继续有效：
 | 2026-08-26 | v0.1 | 初始 Proposed 草案：平台镜像结构、槽位绑定和库内输出池 | LLM-EdgeFlow Team |
 | 2026-08-26 | v0.2 | 按评审拆分原子类型与业务桥接，补齐 NUL、deleter 和 ABI 安全 | LLM-EdgeFlow Team |
 | 2026-08-26 | v0.3 | 补齐 Batch、输入硬上限、配置 Schema、Destroy 违约、辅助 API 与实施落点 | LLM-EdgeFlow Team |
-| 2026-08-27 | v0.4 | 完成阶段 G～K 全部代码整改与全量六阶段回归/三组 Sanitizer 验证，绑定候选提交 `83e8c99` | LLM-EdgeFlow Team |
+| 2026-08-27 | v0.4 | 完成阶段 G～K 全部代码整改与全量六阶段回归/三组 Sanitizer 验证，绑定候选提交 `4b419ce` | LLM-EdgeFlow Team |
 
