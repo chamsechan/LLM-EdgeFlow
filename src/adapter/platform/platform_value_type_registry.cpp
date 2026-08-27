@@ -555,7 +555,7 @@ bool PlatformValueTypeRegistry::RegisterBinding(
     bindings_by_canonical_ = std::move(temp_bindings);
     alias_to_canonical_ = std::move(temp_aliases);
   } catch (...) {
-    has_conflict_ = true;
+    // 资源分配或复制异常不污染契约冲突状态，原快照保持不变
     return false;
   }
   return true;

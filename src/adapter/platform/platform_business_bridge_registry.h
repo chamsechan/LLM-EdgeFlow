@@ -70,17 +70,17 @@ struct PlatformBusinessSlot {
   }
 };
 
-using ConvertSampleInputFn = std::function<int(
+using ConvertSampleInputFn = int (*)(
     const std::unordered_map<std::string, const void*>& slots_by_logical_name,
     ProcessLocalShadowStorage& storage, const void** out_internal_dto,
-    std::string* err)>;
+    std::string* err);
 
 using ConvertSampleOutputFn =
-    std::function<int(const void* internal_dto, void* external_output_struct,
-                      const ResolvedOutputPoolSpec& spec, std::string* err)>;
+    int (*)(const void* internal_dto, void* external_output_struct,
+            const ResolvedOutputPoolSpec& spec, std::string* err);
 
 using CreateShadowOutputDtoFn =
-    std::function<void*(ProcessLocalShadowStorage& storage)>;
+    void* (*)(ProcessLocalShadowStorage& storage);
 
 /**
  * @brief 业务桥接描述符
@@ -93,9 +93,9 @@ struct PlatformBusinessBridgeDescriptor {
   std::string registration_identity;
   std::vector<PlatformBusinessSlot> input_slots;
   std::vector<PlatformBusinessSlot> output_slots;
-  ConvertSampleInputFn convert_sample_input;
-  ConvertSampleOutputFn convert_sample_output;
-  CreateShadowOutputDtoFn create_shadow_output_dto;
+  ConvertSampleInputFn convert_sample_input = nullptr;
+  ConvertSampleOutputFn convert_sample_output = nullptr;
+  CreateShadowOutputDtoFn create_shadow_output_dto = nullptr;
 
   bool operator==(const PlatformBusinessBridgeDescriptor& other) const {
     return biz_type == other.biz_type && biz_name == other.biz_name &&
@@ -103,7 +103,10 @@ struct PlatformBusinessBridgeDescriptor {
            internal_output_type_name == other.internal_output_type_name &&
            registration_identity == other.registration_identity &&
            input_slots == other.input_slots &&
-           output_slots == other.output_slots;
+           output_slots == other.output_slots &&
+           convert_sample_input == other.convert_sample_input &&
+           convert_sample_output == other.convert_sample_output &&
+           create_shadow_output_dto == other.create_shadow_output_dto;
   }
 };
 

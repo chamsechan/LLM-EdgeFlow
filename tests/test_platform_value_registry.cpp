@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
 
+#include <thread>
+
 #include "adapter/platform/platform_value_type_registry.h"
 
 namespace alg_framework {
@@ -344,6 +346,112 @@ TEST(PlatformValueRegistryTest, IsolatedValueTypeRegistryAtomicRollback) {
   EXPECT_FALSE(clean_reg.RegisterBinding(late_b));
   EXPECT_EQ(clean_reg.GlobalInit(), 0);
   EXPECT_FALSE(clean_reg.HasConflict());
+}
+
+// 10. Canonical 与 Alias 冲突矩阵测试
+TEST(PlatformValueRegistryTest, CanonicalAndAliasConflictMatrix) {
+  // 1. Canonical / Canonical 冲突
+  {
+    PlatformValueTypeRegistry reg;
+    PlatformValueTypeBinding b;
+    b.canonical_suffix = "doc_in";  // 已存在
+    EXPECT_FALSE(reg.RegisterBinding(b));
+    EXPECT_TRUE(reg.HasConflict());
+    EXPECT_EQ(reg.GlobalInit(), -6);
+  }
+
+  // 2. Canonical / Alias 冲突 (新 canonical 与已有 alias "qa_in" 冲突)
+  {
+    PlatformValueTypeRegistry reg;
+    PlatformValueTypeBinding b;
+    b.canonical_suffix = "qa_in";
+    EXPECT_FALSE(reg.RegisterBinding(b));
+    EXPECT_TRUE(reg.HasConflict());
+    EXPECT_EQ(reg.GlobalInit(), -6);
+  }
+
+  // 3. Alias / Alias 冲突 (新 alias 与已有 alias "scores_out" 冲突)
+  {
+    PlatformValueTypeRegistry reg;
+    PlatformValueTypeBinding b;
+    b.canonical_suffix = "new_score_type";
+    b.aliases = {"scores_out"};
+    EXPECT_FALSE(reg.RegisterBinding(b));
+    EXPECT_TRUE(reg.HasConflict());
+    EXPECT_EQ(reg.GlobalInit(), -6);
+  }
+
+  // 4. 重复 Alias (在同一个 binding 内部重复)
+  {
+    PlatformValueTypeRegistry reg;
+    PlatformValueTypeBinding b;
+    b.canonical_suffix = "unique_suffix";
+    b.aliases = {"dup_alias", "dup_alias"};
+    EXPECT_FALSE(reg.RegisterBinding(b));
+    EXPECT_TRUE(reg.HasConflict());
+    EXPECT_EQ(reg.GlobalInit(), -6);
+  }
+}
+
+// 11. 缺少 Validator 或 Output Factory 时的 Fail-Closed 审计
+TEST(PlatformValueRegistryTest, MissingValidatorOrFactoryAuditRejection) {
+  // 输入类型缺少 validate_external
+  {
+    PlatformValueTypeRegistry reg;
+    PlatformValueTypeBinding b;
+    b.canonical_suffix = "custom_in";
+    b.external_c_type_name = "CustomInput";
+    b.validate_external = nullptr;
+    EXPECT_TRUE(reg.RegisterBinding(b));
+    EXPECT_EQ(reg.GlobalInit(), -6);
+    EXPECT_TRUE(reg.HasConflict());
+  }
+
+  // 输出类型缺少 allocate_external / reset_external / destroy_external
+  {
+    PlatformValueTypeRegistry reg;
+    PlatformValueTypeBinding b;
+    b.canonical_suffix = "custom_out";
+    b.external_c_type_name = "CustomOutput";
+    b.allocate_external = nullptr;
+    EXPECT_TRUE(reg.RegisterBinding(b));
+    EXPECT_EQ(reg.GlobalInit(), -6);
+    EXPECT_TRUE(reg.HasConflict());
+  }
+}
+
+// 12. TSan 并发查询与冻结交错测试
+TEST(PlatformValueRegistryTest, TSanConcurrentQueryAndFreeze) {
+  PlatformValueTypeRegistry reg;
+  std::atomic<bool> stop_flag{false};
+
+  std::vector<std::thread> readers;
+  for (int i = 0; i < 4; ++i) {
+    readers.emplace_back([&]() {
+      while (!stop_flag.load()) {
+        const auto* b = reg.GetBindingBySuffix("doc_out");
+        EXPECT_NE(b, nullptr);
+        EXPECT_EQ(reg.NormalizeSuffix("qa_out"), "doc_out");
+      }
+    });
+  }
+
+  std::thread freezer([&]() {
+    for (int i = 0; i < 50; ++i) {
+      EXPECT_EQ(reg.GlobalInit(), 0);
+      PlatformValueTypeBinding late_b;
+      late_b.canonical_suffix = "late_b";
+      EXPECT_FALSE(reg.RegisterBinding(late_b));
+    }
+  });
+
+  freezer.join();
+  stop_flag.store(true);
+  for (auto& r : readers) {
+    r.join();
+  }
+  EXPECT_EQ(reg.GlobalInit(), 0);
+  EXPECT_FALSE(reg.HasConflict());
 }
 
 }  // namespace alg_framework
