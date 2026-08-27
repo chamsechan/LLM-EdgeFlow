@@ -35,6 +35,16 @@ struct ResolvedCompanyConfig {
 class CompanyConfResolver {
  public:
   /**
+   * @brief
+   * 校验并规范化模型引用路径（允许文件尚不存在，但严格限制在沙箱根目录下）
+   */
+  static int ResolveModelReferenceUnderRoot(const std::filesystem::path& root,
+                                            const std::string& rel_or_abs,
+                                            const char* field_name,
+                                            std::filesystem::path* out_path,
+                                            std::string* error_msg) noexcept;
+
+  /**
    * @brief 基于 model_path 根目录与相对 cfg_file_name 解析配置
    */
   static int Resolve(const char* model_path, const char* cfg_file_name,

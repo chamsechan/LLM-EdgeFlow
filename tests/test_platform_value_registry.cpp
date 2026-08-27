@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <limits>
 #include <thread>
 
 #include "adapter/platform/platform_value_type_registry.h"
@@ -273,7 +274,7 @@ TEST(PlatformValueRegistryTest, RFC63AliasesCompliance) {
   EXPECT_EQ(reg.NormalizeSuffix("scores_out"), "rerank_out");
 }
 
-// 8. ComputeOutputPoolBytes 预算计算与边界检测 (R9-005)
+// 8. ComputeOutputPoolPayloadBytes 预算计算与边界检测 (R9-005)
 TEST(PlatformValueRegistryTest, AllSevenOutputTypesFootprintAndBudget) {
   const std::vector<std::string> output_suffixes = {
       "doc_out", "keyword_out", "entity_out", "audit_out",
@@ -290,37 +291,41 @@ TEST(PlatformValueRegistryTest, AllSevenOutputTypesFootprintAndBudget) {
     // Depth 0 -> 归一化为 25
     size_t bytes_d0 = 0;
     std::string err;
-    EXPECT_TRUE(ComputeOutputPoolBytes(suffix, spec, 0, &bytes_d0, &err));
+    EXPECT_TRUE(
+        ComputeOutputPoolPayloadBytes(suffix, spec, 0, &bytes_d0, &err));
     EXPECT_GT(bytes_d0, 0u);
-    EXPECT_LT(bytes_d0, kMaxHandlePoolMemoryBytes);
+    EXPECT_LT(bytes_d0, kMaxHandlePoolPayloadBytes);
 
     // Depth 1
     size_t bytes_d1 = 0;
-    EXPECT_TRUE(ComputeOutputPoolBytes(suffix, spec, 1, &bytes_d1, &err));
+    EXPECT_TRUE(
+        ComputeOutputPoolPayloadBytes(suffix, spec, 1, &bytes_d1, &err));
     EXPECT_GT(bytes_d1, 0u);
 
     // Depth 25
     size_t bytes_d25 = 0;
-    EXPECT_TRUE(ComputeOutputPoolBytes(suffix, spec, 25, &bytes_d25, &err));
+    EXPECT_TRUE(
+        ComputeOutputPoolPayloadBytes(suffix, spec, 25, &bytes_d25, &err));
     EXPECT_EQ(bytes_d0, bytes_d25);
 
     // Depth 1024 (上限)
     size_t bytes_d1024 = 0;
-    EXPECT_TRUE(ComputeOutputPoolBytes(suffix, spec, 1024, &bytes_d1024, &err));
+    EXPECT_TRUE(
+        ComputeOutputPoolPayloadBytes(suffix, spec, 1024, &bytes_d1024, &err));
     EXPECT_GT(bytes_d1024, bytes_d25);
 
     // Depth 1025 (超限拦截)
     size_t bytes_overflow = 0;
-    EXPECT_FALSE(
-        ComputeOutputPoolBytes(suffix, spec, 1025, &bytes_overflow, &err));
+    EXPECT_FALSE(ComputeOutputPoolPayloadBytes(suffix, spec, 1025,
+                                               &bytes_overflow, &err));
     EXPECT_FALSE(err.empty());
 
     // spec.type 与 suffix 不匹配拦截
     ResolvedOutputPoolSpec mismatched_spec = spec;
     mismatched_spec.type = "completely_mismatched_suffix";
     size_t bytes_mismatch = 0;
-    EXPECT_FALSE(ComputeOutputPoolBytes(suffix, mismatched_spec, 25,
-                                        &bytes_mismatch, &err));
+    EXPECT_FALSE(ComputeOutputPoolPayloadBytes(suffix, mismatched_spec, 25,
+                                               &bytes_mismatch, &err));
     EXPECT_FALSE(err.empty());
   }
 
@@ -332,8 +337,8 @@ TEST(PlatformValueRegistryTest, AllSevenOutputTypesFootprintAndBudget) {
         100 * 1024 * 1024;  // 100 MiB capacity
     size_t huge_bytes = 0;
     std::string huge_err;
-    EXPECT_FALSE(ComputeOutputPoolBytes("keyword_out", huge_spec, 25,
-                                        &huge_bytes, &huge_err));
+    EXPECT_FALSE(ComputeOutputPoolPayloadBytes("keyword_out", huge_spec, 25,
+                                               &huge_bytes, &huge_err));
     EXPECT_FALSE(huge_err.empty());
   }
 
@@ -342,8 +347,8 @@ TEST(PlatformValueRegistryTest, AllSevenOutputTypesFootprintAndBudget) {
   bad_spec.type = "unknown_out";
   size_t bad_bytes = 0;
   std::string bad_err;
-  EXPECT_FALSE(ComputeOutputPoolBytes("unknown_out", bad_spec, 25, &bad_bytes,
-                                      &bad_err));
+  EXPECT_FALSE(ComputeOutputPoolPayloadBytes("unknown_out", bad_spec, 25,
+                                             &bad_bytes, &bad_err));
   EXPECT_FALSE(bad_err.empty());
 }
 
@@ -419,9 +424,9 @@ TEST(PlatformValueRegistryTest, CanonicalAndAliasConflictMatrix) {
   }
 }
 
-// 11. 缺少 Validator 或 Output Factory 时的 Fail-Closed 审计
+// 11. 缺少 Validator 或 Output Factory 时的 Fail-Closed 审计 (分项独立测试)
 TEST(PlatformValueRegistryTest, MissingValidatorOrFactoryAuditRejection) {
-  // 输入类型缺少 validate_external
+  // 1. 输入类型缺少 validate_external
   {
     PlatformValueTypeRegistry reg;
     PlatformValueTypeBinding b;
@@ -433,20 +438,203 @@ TEST(PlatformValueRegistryTest, MissingValidatorOrFactoryAuditRejection) {
     EXPECT_TRUE(reg.HasConflict());
   }
 
-  // 输出类型缺少 allocate_external / reset_external / destroy_external
+  // 2. 输出类型缺少 allocate_external
   {
     PlatformValueTypeRegistry reg;
     PlatformValueTypeBinding b;
-    b.canonical_suffix = "custom_out";
-    b.external_c_type_name = "CustomOutput";
+    b.canonical_suffix = "custom_out1";
+    b.external_c_type_name = "CustomOutput1";
     b.allocate_external = nullptr;
+    b.reset_external = [](void*, const ResolvedOutputPoolSpec&) {};
+    b.destroy_external = [](OwnedExternalBlock*) {};
     EXPECT_TRUE(reg.RegisterBinding(b));
     EXPECT_EQ(reg.GlobalInit(), -6);
     EXPECT_TRUE(reg.HasConflict());
   }
+
+  // 3. 输出类型缺少 reset_external
+  {
+    PlatformValueTypeRegistry reg;
+    PlatformValueTypeBinding b;
+    b.canonical_suffix = "custom_out2";
+    b.external_c_type_name = "CustomOutput2";
+    b.allocate_external = [](const ResolvedOutputPoolSpec&, OwnedExternalBlock*,
+                             std::string*) { return 0; };
+    b.reset_external = nullptr;
+    b.destroy_external = [](OwnedExternalBlock*) {};
+    EXPECT_TRUE(reg.RegisterBinding(b));
+    EXPECT_EQ(reg.GlobalInit(), -6);
+    EXPECT_TRUE(reg.HasConflict());
+  }
+
+  // 4. 输出类型缺少 destroy_external
+  {
+    PlatformValueTypeRegistry reg;
+    PlatformValueTypeBinding b;
+    b.canonical_suffix = "custom_out3";
+    b.external_c_type_name = "CustomOutput3";
+    b.allocate_external = [](const ResolvedOutputPoolSpec&, OwnedExternalBlock*,
+                             std::string*) { return 0; };
+    b.reset_external = [](void*, const ResolvedOutputPoolSpec&) {};
+    b.destroy_external = nullptr;
+    EXPECT_TRUE(reg.RegisterBinding(b));
+    EXPECT_EQ(reg.GlobalInit(), -6);
+    EXPECT_TRUE(reg.HasConflict());
+  }
+
+  // 5. 空 external_c_type_name 拒绝
+  {
+    PlatformValueTypeRegistry reg;
+    PlatformValueTypeBinding b;
+    b.canonical_suffix = "custom_out4";
+    b.external_c_type_name = "";  // empty
+    b.allocate_external = [](const ResolvedOutputPoolSpec&, OwnedExternalBlock*,
+                             std::string*) { return 0; };
+    b.reset_external = [](void*, const ResolvedOutputPoolSpec&) {};
+    b.destroy_external = [](OwnedExternalBlock*) {};
+    EXPECT_FALSE(reg.RegisterBinding(b));
+    EXPECT_TRUE(reg.HasConflict());
+    EXPECT_EQ(reg.GlobalInit(), -6);
+  }
 }
 
-// 12. TSan 并发查询与冻结交错测试
+// 12. 命名异常注入与 Copy-and-Swap 事务回滚零污染测试 (R9-008, R9-010)
+TEST(PlatformValueRegistryTest, NamedExceptionInjectionRollbackZeroCorruption) {
+  const auto points = {
+      PlatformValueTypeRegistry::RegistryExceptionInjectPoint::
+          kCopyCanonicalMap,
+      PlatformValueTypeRegistry::RegistryExceptionInjectPoint::kCopyAliasMap,
+      PlatformValueTypeRegistry::RegistryExceptionInjectPoint::
+          kSecondAliasInsert,
+      PlatformValueTypeRegistry::RegistryExceptionInjectPoint::kCanonicalInsert,
+      PlatformValueTypeRegistry::RegistryExceptionInjectPoint::kPublish,
+  };
+
+  for (auto pt : points) {
+    PlatformValueTypeRegistry reg;
+    EXPECT_FALSE(reg.HasConflict());
+
+    PlatformValueTypeBinding b;
+    b.canonical_suffix = "injected_custom_out";
+    b.aliases = {"alias_one", "alias_two"};
+    b.external_c_type_name = "InjectedCustomOutput";
+    b.allocate_external = [](const ResolvedOutputPoolSpec&, OwnedExternalBlock*,
+                             std::string*) { return 0; };
+    b.reset_external = [](void*, const ResolvedOutputPoolSpec&) {};
+    b.destroy_external = [](OwnedExternalBlock*) {};
+
+    PlatformValueTypeRegistry::SetExceptionInjectPoint(pt);
+    EXPECT_FALSE(reg.RegisterBinding(b));
+    PlatformValueTypeRegistry::SetExceptionInjectPoint(
+        PlatformValueTypeRegistry::RegistryExceptionInjectPoint::kNone);
+
+    // 状态无污染
+    EXPECT_FALSE(reg.HasConflict());
+    EXPECT_EQ(reg.NormalizeSuffix("alias_one"), "");
+    EXPECT_EQ(reg.NormalizeSuffix("alias_two"), "");
+    EXPECT_EQ(reg.GetBindingBySuffix("injected_custom_out"), nullptr);
+    EXPECT_EQ(reg.GlobalInit(), 0);
+  }
+}
+
+// 13. ComputeOutputPoolPayloadBytes 穷尽预算公式与边界测试 (R9-005)
+TEST(PlatformValueRegistryTest,
+     ComputeOutputPoolPayloadBytesExhaustiveBudgetSuite) {
+  std::string err;
+  size_t out_bytes = 0;
+
+  // 1. 空指针
+  EXPECT_FALSE(ComputeOutputPoolPayloadBytes("doc_out", {}, 10, nullptr, &err));
+
+  // 2. 空 spec.type (必须严格拒绝)
+  {
+    ResolvedOutputPoolSpec spec;
+    spec.type = "";
+    EXPECT_FALSE(
+        ComputeOutputPoolPayloadBytes("doc_out", spec, 10, &out_bytes, &err));
+    EXPECT_FALSE(err.empty());
+  }
+
+  // 3. spec.type 与 suffix 不匹配
+  {
+    ResolvedOutputPoolSpec spec;
+    spec.type = "od_out";
+    EXPECT_FALSE(
+        ComputeOutputPoolPayloadBytes("doc_out", spec, 10, &out_bytes, &err));
+  }
+
+  // 4. 深度 0 归一化为 25 且输出总大小在合理范围内
+  {
+    ResolvedOutputPoolSpec spec;
+    spec.type = "doc_out";
+    EXPECT_TRUE(
+        ComputeOutputPoolPayloadBytes("doc_out", spec, 0, &out_bytes, &err));
+    EXPECT_GT(out_bytes, 0u);
+    EXPECT_LE(out_bytes, 64 * 1024 * 1024u);
+  }
+
+  // 5. 深度 1024 正常通过
+  {
+    ResolvedOutputPoolSpec spec;
+    spec.type = "keyword_out";
+    EXPECT_TRUE(ComputeOutputPoolPayloadBytes("keyword_out", spec, 1024,
+                                              &out_bytes, &err));
+    EXPECT_GT(out_bytes, 0u);
+  }
+
+  // 6. 深度 1025 超限拒绝
+  {
+    ResolvedOutputPoolSpec spec;
+    spec.type = "keyword_out";
+    EXPECT_FALSE(ComputeOutputPoolPayloadBytes("keyword_out", spec, 1025,
+                                               &out_bytes, &err));
+  }
+
+  // 7. depth=1 时构造精确 64 MiB 载荷，边界必须允许；再加 1 字节拒绝。
+  {
+    constexpr size_t kFixedPayload =
+        sizeof(CompanyPlatformKeywordOutput) + sizeof(CompanyString) + 1;
+    static_assert(kMaxHandlePoolPayloadBytes > kFixedPayload);
+    const auto exact_capacity =
+        static_cast<uint32_t>(kMaxHandlePoolPayloadBytes - kFixedPayload);
+
+    ResolvedOutputPoolSpec spec;
+    spec.type = "keyword_out";
+    spec.capacities["match_result_json"] = exact_capacity;
+    EXPECT_TRUE(ComputeOutputPoolPayloadBytes("keyword_out", spec, 1,
+                                              &out_bytes, &err));
+    EXPECT_EQ(out_bytes, kMaxHandlePoolPayloadBytes);
+
+    spec.capacities["match_result_json"] = exact_capacity + 1;
+    EXPECT_FALSE(ComputeOutputPoolPayloadBytes("keyword_out", spec, 1,
+                                               &out_bytes, &err));
+    EXPECT_NE(err.find("64 MiB"), std::string::npos);
+  }
+
+  // 8. checked arithmetic 与多池累加边界。
+  {
+    size_t checked = 0;
+    EXPECT_FALSE(CheckedAdd(std::numeric_limits<size_t>::max(), 1, &checked));
+    EXPECT_FALSE(
+        CheckedMultiply(std::numeric_limits<size_t>::max(), 2, &checked));
+    EXPECT_TRUE(CheckedAdd(kMaxHandlePoolPayloadBytes - 1, 1, &checked));
+    EXPECT_EQ(checked, kMaxHandlePoolPayloadBytes);
+    EXPECT_TRUE(CheckedAdd(kMaxHandlePoolPayloadBytes, 1, &checked));
+    EXPECT_GT(checked, kMaxHandlePoolPayloadBytes);
+  }
+
+  // 9. 只有 od_out 镜像声明 metadata；其他输出不得接受未分配却未计费的配置。
+  {
+    ResolvedOutputPoolSpec spec;
+    spec.type = "doc_out";
+    spec.meta_num = 1;
+    spec.metadata_type_id = 1;
+    EXPECT_FALSE(
+        ComputeOutputPoolPayloadBytes("doc_out", spec, 1, &out_bytes, &err));
+  }
+}
+
+// 14. TSan 并发查询与冻结交错测试
 TEST(PlatformValueRegistryTest, TSanConcurrentQueryAndFreeze) {
   PlatformValueTypeRegistry reg;
   std::atomic<bool> stop_flag{false};

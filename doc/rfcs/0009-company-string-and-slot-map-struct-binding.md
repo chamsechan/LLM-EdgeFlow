@@ -90,6 +90,8 @@ Node 和 Engine 不变。
 - 不将 STL、智能指针或第三方类型加入纯 C ABI 头文件。
 - 不修改 `AlgContext`、Blackboard Key、Pipeline、Validator 或 SessionContext。
 - 不新增或修改 Node、Engine 或 FixedBatchExecutor。
+- 不在仓库中提交、打包或生成模型文件；模型由公司部署环境提供，Resolver 不负责证明
+  模型可加载。
 - 不规定公司私有 SDK 的最终类型名、枚举值和完整配置 Schema；Demo 镜像类型是
   开源仓库中的等价边界模型。
 - 不允许输出池自动扩容、逐次临时分配或在池耗尽时静默丢帧。
@@ -268,8 +270,17 @@ Create 按固定顺序解析路径：
 6. 读取公司 `.conf`；Pipeline、模型和池资源的相对路径都以 `model_path` 为根。
 7. 只在内存中生成合成 Pipeline JSON，不生成临时文件。
 
-路径不存在、类型不符、目录逃逸、解析失败或必需字段缺失均在 Create 阶段
-fail-closed。
+`cfg_file_name` 和 `.conf` 引用的 `pipe_path` 是 Resolver 必须读取的控制文件，因此必须
+存在、是 regular file，并通过 canonical containment 校验。`.conf` 的
+`data.model_path/model_paths` 和 Pipeline JSON 中的模型路径是部署引用：Resolver 必须拒绝
+空值、绝对路径、盘符、UNC、`..` 逃逸以及现存符号链接前缀逃逸，但不得要求最终模型文件
+在 Resolver 阶段已经存在，也不得要求仓库提供模型占位文件。对不存在的目标使用“最近
+存在父目录 canonical 化 + 剩余分量 lexical normalization”得到根目录内路径；如果目标
+已经存在，仍需确认 canonical 路径没有逃逸部署根。模型文件的存在性、文件类型、权限、
+格式和可加载性由实际 Engine 在加载阶段或公司部署门禁负责。
+
+因此，控制文件不存在、类型不符、目录逃逸、解析失败或必需字段缺失必须在 Resolver
+阶段 fail-closed；模型文件不存在本身不是 Resolver 错误。
 
 ### 4.4 Process 形状和前置条件
 
@@ -547,7 +558,8 @@ JSON `.conf` 的 `data` 对象内定义集中隔离的 `mem_que`：
   metadata 时为 0。
 - `meta_num > 0` 时 `metadata_type_id` 必须命中该输出类型的白名单，工厂按
   `meta_num * element_size` checked-multiply 后一次性分配；为 0 时 type_id 也必须为
-  0，且 metadata 指针保持空。
+  0，且 metadata 指针保持空。Demo V1 仅 `od_out` 镜像声明 metadata 指针；其他输出
+  类型的两字段必须同时为 0，避免接受实际不会分配和计费的配置。
 - `capacities` 只允许当前输出类型登记过的字段名，缺失字段使用 5.5 节默认值；未知
   字段、错误类型、零值、负值或超过编译期上限均使 Create 失败。
 - 当前七业务都只有一个规范输出后缀；未来业务确需多输出池时，应把 Schema 版本化为
@@ -728,6 +740,18 @@ struct OutputPoolState {
 `CompanyString*` 或嵌套数组创建固定容量内存，建立 sidecar 容量元数据，执行类型
 专属 reset，最后登记并入队。任一步失败都必须逆序销毁本次及此前已分配的所有块，
 Create 返回失败并保证 `*handle == nullptr`。
+
+Demo V1 的 64 MiB 硬限制明确采用“每句柄预分配业务载荷”口径，而不是进程 RSS 或
+STL allocator 的实际占用。`ComputeOutputPoolPayloadBytes` 必须逐类型确定性计入外层平台
+镜像结构、嵌套 `CompanyString`/`CompanyAny` 结构以及其固定容量数据区，并对深度乘法和
+多池加法使用 checked arithmetic；所有池的载荷总和不得超过
+`kMaxHandlePoolPayloadBytes`。`vector`/`unordered_map` 节点、bucket、共享控制块、mutex 和
+allocator 元数据属于实现管理开销，不得用无法证明的常数伪装成“精确总内存”。它们由
+`max_frame_depth <= 1024`、固定 Registry 数量和配置字段上限共同约束；若公司平台未来
+要求 RSS 或 allocator 级硬上限，应另行 RFC 引入受控 arena/allocator，不能沿用本载荷指标。
+
+`spec.type` 必须非空并严格等于规范输出后缀。预算测试必须覆盖全部七类输出、深度
+0/1/25/1024/1025、精确 64 MiB、64 MiB + 1、checked add/multiply 以及句柄多池累加。
 
 ### 8.3 Process 事务
 
@@ -960,8 +984,9 @@ RFC-0004 除以下重叠内容外继续有效：
 - [x] `data.mem_que` 缺失、type 与业务不符、meta_num/type_id 组合非法和未知容量字段
   均使 Create fail-closed；缺失的已知容量使用规范默认值。
 - [x] `cfg_file_name` 的绝对路径、`..` 逃逸和符号链接逃逸被 Create 与预检一致拒绝。
-- [x] cfg、Pipeline 和模型资源的缺失、非 regular file、绝对路径及符号链接逃逸均被
-  Create 与预检一致拒绝。
+- [x] cfg 与 Pipeline 控制文件的缺失、非 regular file、绝对路径及符号链接逃逸均被
+  Create 与预检一致拒绝；模型路径允许目标不存在，但空值、绝对路径、`..` 和现存
+  symlink 前缀逃逸必须被拒绝，且不得依赖或提交模型占位文件。
 
 ### 14.2 输出池与生命周期
 
@@ -969,6 +994,9 @@ RFC-0004 除以下重叠内容外继续有效：
 - [x] Batch 同时受池深度和 BusinessAdapter max_batch_size 约束，并以二者较小值拒绝。
 - [x] Create 任意位置失败都完整逆序回滚，且不返回半初始化句柄；故障注入覆盖
   pool object、容器预留、块及嵌套对象、账本提交和历史块。
+- [x] 64 MiB 预分配业务载荷口径与逐类型平台镜像/嵌套数据分配一致，严格拒绝空或
+  不匹配的 `spec.type`，并覆盖临界值、临界值加一、多池累加和算术溢出；STL/allocator
+  管理开销不冒充精确 RSS 上限。
 - [x] Process 返回地址来自池，释放后复用同一地址和嵌套容量。
 - [x] 跨多次 Process 持有输出，未归还总数不超过深度时正常运行。
 - [x] 池耗尽时线程阻塞；释放一个旧输出后唤醒并完成。
@@ -1064,3 +1092,6 @@ RFC-0004 除以下重叠内容外继续有效：
 | 2026-08-26 | v0.3 | 补齐 Batch、输入硬上限、配置 Schema、Destroy 违约、辅助 API 与实施落点 | LLM-EdgeFlow Team |
 | 2026-08-27 | v0.4 | 实现方声明完成阶段 G～K 并绑定候选提交 `4b419ce`；该闭环结论后经 v0.5 独立复验撤销 | LLM-EdgeFlow Team |
 | 2026-08-27 | v0.5 | 第七轮独立复验确认 `fi` 已修复，但 Registry、池预算、故障注入、路径/七业务证据和 Sanitizer 候选门禁仍未闭环，恢复未完成项 | LLM-EdgeFlow Team |
+| 2026-08-27 | v0.6 | 第八轮独立复验确认生成器兼容与三组 Sanitizer 已恢复，但模型存在性边界、七业务字段证据、精确预算、完整故障点和异常注入仍未闭环 | LLM-EdgeFlow Team |
+| 2026-08-27 | v0.7 | 按公司部署约束修正路径契约：模型不提交 Git，Resolver 只做根目录内安全归一化，不要求模型文件存在 | LLM-EdgeFlow Team |
+| 2026-08-27 | v0.8 | 固化 64 MiB 为可证明的预分配业务载荷预算，补齐模型引用、七业务字段、故障回滚、Registry 发布和 generator 隔离测试；本地实现验收通过，状态仍待候选提交与 PR CI | LLM-EdgeFlow Team |

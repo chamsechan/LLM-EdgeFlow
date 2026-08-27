@@ -1771,3 +1771,191 @@ TEST_F(PlatformOperatorTest, UnreleasedOutputLifecycleBreach) {
   // 随后调用方释放输出
   out_b.clear();
 }
+
+// 30. 模型文件不存在时允许部署引用通过，但越界逃逸与控制文件缺失必须拦截
+// (R9-003)
+TEST_F(PlatformOperatorTest,
+       ModelPathNonExistentFileAllowedWhileEscapeRejected) {
+  ScopedTempDirectory temp_root;
+  ScopedTempDirectory temp_outside;
+  const std::filesystem::path root = temp_root.path();
+  const std::filesystem::path outside = temp_outside.path();
+  std::filesystem::create_directories(root / "configs");
+  const std::filesystem::path source_root = GetConfDir();
+  std::string err;
+
+  // 1. model_paths 和 Pipeline 原始 model_path 都指向尚未部署的模型；
+  // Resolver 只规范化引用，不能创建或要求模型文件存在。
+  {
+    std::filesystem::copy_file(source_root / "configs/pipeline_doc_qa.json",
+                               root / "configs/pipeline_doc_qa.json");
+    std::ofstream conf(root / "configs/model_paths.conf");
+    conf << R"({
+      "data": {
+        "pipe_path": "configs/pipeline_doc_qa.json",
+        "model_paths": {
+          "embed_model_v1": "models/not_deployed_embed.bin",
+          "llm_model_v1": "models/not_deployed_llm.bin"
+        },
+        "mem_que": {
+          "type": "doc_out",
+          "meta_num": 0,
+          "metadata_type_id": 0
+        }
+      }
+    })";
+    conf.close();
+
+    ASSERT_FALSE(std::filesystem::exists(root / "models"));
+    const std::string root_string = root.string();
+
+    alg_framework::ResolvedCompanyConfig resolved;
+    int ret = alg_framework::CompanyConfResolver::Resolve(
+        root_string.c_str(), "configs/model_paths.conf", 0, ChipType::kAx650,
+        &resolved, &err);
+    EXPECT_EQ(ret, 0) << "Error: " << err;
+    ASSERT_EQ(resolved.synthetic_pipeline_json["models"].size(), 2u);
+    for (const auto& model : resolved.synthetic_pipeline_json["models"]) {
+      const auto path =
+          std::filesystem::path(model["model_path"].get<std::string>());
+      EXPECT_TRUE(path.is_absolute());
+      EXPECT_EQ(path.lexically_relative(root).string().rfind("..", 0),
+                std::string::npos);
+      EXPECT_FALSE(std::filesystem::exists(path));
+    }
+    EXPECT_FALSE(std::filesystem::exists(root / "models"));
+  }
+
+  // 2. 单 model_path override 同样允许最终模型文件不存在。
+  {
+    std::filesystem::copy_file(
+        source_root / "configs/pipeline_audio_asr_intent.json",
+        root / "configs/pipeline_audio_asr_intent.json");
+    std::ofstream conf(root / "configs/single_model.conf");
+    conf << R"({
+      "data": {
+        "pipe_path": "configs/pipeline_audio_asr_intent.json",
+        "model_path": "deployment/asr_model_will_arrive_later.bin",
+        "mem_que": {
+          "type": "audio_out",
+          "meta_num": 0,
+          "metadata_type_id": 0
+        }
+      }
+    })";
+    conf.close();
+
+    const std::string root_string = root.string();
+
+    alg_framework::ResolvedCompanyConfig resolved;
+    int ret = alg_framework::CompanyConfResolver::Resolve(
+        root_string.c_str(), "configs/single_model.conf", 0, ChipType::kAx650,
+        &resolved, &err);
+    ASSERT_EQ(ret, 0) << err;
+    const auto resolved_model = std::filesystem::path(
+        resolved.synthetic_pipeline_json["models"][0]["model_path"]
+            .get<std::string>());
+    EXPECT_EQ(resolved_model,
+              root / "deployment/asr_model_will_arrive_later.bin");
+    EXPECT_FALSE(std::filesystem::exists(resolved_model));
+  }
+
+  // 3. 引用安全矩阵：空值、三类绝对路径、词法逃逸和现存 symlink
+  // 前缀逃逸全部 fail-closed；普通不存在目标成功。
+  {
+    std::filesystem::path resolved;
+    EXPECT_EQ(
+        alg_framework::CompanyConfResolver::ResolveModelReferenceUnderRoot(
+            root, "safe/missing_model.bin", "model_path", &resolved, &err),
+        0);
+    EXPECT_EQ(resolved, root / "safe/missing_model.bin");
+    EXPECT_FALSE(std::filesystem::exists(resolved));
+
+    for (const char* bad :
+         {"", "/absolute/model.bin", "C:\\models\\model.bin",
+          "\\\\server\\share\\model.bin", "../../escape_model.bin",
+          "safe/../../../escape_model.bin"}) {
+      err.clear();
+      EXPECT_EQ(
+          alg_framework::CompanyConfResolver::ResolveModelReferenceUnderRoot(
+              root, bad, "model_path", &resolved, &err),
+          -2)
+          << bad;
+      EXPECT_FALSE(err.empty()) << bad;
+    }
+
+    std::error_code ec;
+    std::filesystem::create_directory_symlink(outside, root / "outside_link",
+                                              ec);
+    ASSERT_FALSE(ec) << ec.message();
+    err.clear();
+    EXPECT_EQ(
+        alg_framework::CompanyConfResolver::ResolveModelReferenceUnderRoot(
+            root, "outside_link/missing_model.bin", "model_path", &resolved,
+            &err),
+        -2);
+    EXPECT_FALSE(err.empty());
+  }
+
+  // 4. cfg 和 pipe 是控制文件，仍必须存在且为 regular file。
+  {
+    const std::string root_string = root.string();
+    alg_framework::ResolvedCompanyConfig resolved;
+    EXPECT_EQ(alg_framework::CompanyConfResolver::Resolve(
+                  root_string.c_str(), "configs/missing.conf", 0,
+                  ChipType::kAx650, &resolved, &err),
+              -2);
+
+    std::ofstream conf(root / "configs/missing_pipe.conf");
+    conf << R"({
+      "data": {
+        "pipe_path": "configs/missing_pipeline.json",
+        "mem_que": {"type": "keyword_out"}
+      }
+    })";
+    conf.close();
+    EXPECT_EQ(alg_framework::CompanyConfResolver::Resolve(
+                  root_string.c_str(), "configs/missing_pipe.conf", 0,
+                  ChipType::kAx650, &resolved, &err),
+              -2);
+
+    // cfg symlink 到根外 regular file 仍是逃逸，不能因为目标存在而接受。
+    std::ofstream outside_conf(outside / "outside.conf");
+    outside_conf << "{}";
+    outside_conf.close();
+    std::error_code ec;
+    std::filesystem::create_symlink(outside / "outside.conf",
+                                    root / "configs/outside.conf", ec);
+    ASSERT_FALSE(ec) << ec.message();
+    EXPECT_EQ(alg_framework::CompanyConfResolver::Resolve(
+                  root_string.c_str(), "configs/outside.conf", 0,
+                  ChipType::kAx650, &resolved, &err),
+              -2);
+
+    // pipe 的绝对路径、目录和根外 symlink 也必须由同一 required-file
+    // helper 拒绝。
+    std::ofstream outside_pipe(outside / "outside_pipeline.json");
+    outside_pipe << "{}";
+    outside_pipe.close();
+    ec.clear();
+    std::filesystem::create_symlink(outside / "outside_pipeline.json",
+                                    root / "configs/outside_pipeline.json", ec);
+    ASSERT_FALSE(ec) << ec.message();
+
+    for (const std::string& pipe_path :
+         {std::string("/absolute/pipeline.json"), std::string("configs"),
+          std::string("configs/outside_pipeline.json")}) {
+      std::ofstream invalid_conf(root / "configs/invalid_pipe.conf");
+      invalid_conf << nlohmann::json(
+          {{"data",
+            {{"pipe_path", pipe_path},
+             {"mem_que", {{"type", "keyword_out"}}}}}});
+      invalid_conf.close();
+      EXPECT_EQ(alg_framework::CompanyConfResolver::Resolve(
+                    root_string.c_str(), "configs/invalid_pipe.conf", 0,
+                    ChipType::kAx650, &resolved, &err),
+                -2)
+          << pipe_path;
+    }
+  }
+}

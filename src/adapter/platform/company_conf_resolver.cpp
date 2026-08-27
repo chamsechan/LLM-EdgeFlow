@@ -203,6 +203,44 @@ int ResolveRequiredFileUnderRoot(const std::filesystem::path& canonical_root,
 
 }  // namespace
 
+int CompanyConfResolver::ResolveModelReferenceUnderRoot(
+    const std::filesystem::path& root, const std::string& rel_or_abs,
+    const char* field_name, std::filesystem::path* out_path,
+    std::string* error_msg) noexcept {
+  try {
+    std::error_code ec;
+    if (!std::filesystem::exists(root, ec) || ec ||
+        !std::filesystem::is_directory(root, ec) || ec) {
+      if (error_msg) {
+        *error_msg =
+            "model_path root must be an existing directory: " + root.string();
+      }
+      return -2;
+    }
+    const std::filesystem::path canonical_root =
+        std::filesystem::canonical(root, ec);
+    if (ec) {
+      if (error_msg) {
+        *error_msg = "Failed to canonicalize model_path root: " + root.string();
+      }
+      return -2;
+    }
+    return ResolveContainedPath(canonical_root, rel_or_abs, field_name, false,
+                                false, out_path, error_msg);
+  } catch (const std::exception& e) {
+    if (error_msg) {
+      *error_msg = "Filesystem exception resolving model reference: " +
+                   std::string(e.what());
+    }
+    return -2;
+  } catch (...) {
+    if (error_msg) {
+      *error_msg = "Unknown filesystem exception resolving model reference";
+    }
+    return -2;
+  }
+}
+
 int CompanyConfResolver::Resolve(const char* model_path,
                                  const char* cfg_file_name, int32_t device_id,
                                  llm_edgeflow::platform::ChipType /*chip_type*/,
@@ -483,9 +521,9 @@ int CompanyConfResolver::Resolve(const char* model_path,
     for (const auto& out_slot : bridge_desc->output_slots) {
       size_t slot_pool_bytes = 0;
       std::string budget_err;
-      if (!ComputeOutputPoolBytes(out_slot.type_suffix, pool_spec,
-                                  effective_depth, &slot_pool_bytes,
-                                  &budget_err)) {
+      if (!ComputeOutputPoolPayloadBytes(out_slot.type_suffix, pool_spec,
+                                         effective_depth, &slot_pool_bytes,
+                                         &budget_err)) {
         if (error_msg) {
           *error_msg = "Output pool budget calculation failed: " + budget_err;
         }
@@ -497,55 +535,32 @@ int CompanyConfResolver::Resolve(const char* model_path,
         return -2;
       }
     }
-    if (total_handle_pool_bytes > kMaxHandlePoolMemoryBytes) {
+    if (total_handle_pool_bytes > kMaxHandlePoolPayloadBytes) {
       if (error_msg) {
-        *error_msg = "Total output pool memory (" +
+        *error_msg = "Total output pool payload (" +
                      std::to_string(total_handle_pool_bytes) +
-                     " bytes) exceeds per-handle budget (" +
-                     std::to_string(kMaxHandlePoolMemoryBytes) + " bytes)";
+                     " bytes) exceeds per-handle payload budget (" +
+                     std::to_string(kMaxHandlePoolPayloadBytes) + " bytes)";
       }
       return -2;
     }
 
-    // 1. 严格预检 Pipeline JSON 中的原始模型路径 (禁止任何原始绝对路径)
+    // 1. 严格预检 Pipeline JSON 中的原始模型路径。模型最终文件可以尚未
+    // 部署，但引用本身必须是非空相对路径且不能经现存 symlink 前缀逃逸。
     if (pipe_json.contains("models") && pipe_json["models"].is_array()) {
       for (const auto& item : pipe_json["models"]) {
-        if (item.contains("model_path") && item["model_path"].is_string()) {
-          std::string mp = item["model_path"].get<std::string>();
-          if (!mp.empty()) {
-            if (mp[0] == '/' || mp[0] == '\\' ||
-                (mp.size() >= 2 &&
-                 ((mp[0] >= 'a' && mp[0] <= 'z') ||
-                  (mp[0] >= 'A' && mp[0] <= 'Z')) &&
-                 mp[1] == ':') ||
-                mp.rfind("//", 0) == 0 || mp.rfind("\\\\", 0) == 0) {
-              if (error_msg) {
-                *error_msg =
-                    "Pipeline JSON contains absolute model_path: " + mp;
-              }
-              return -2;
-            }
-            std::filesystem::path rel_mp(mp);
-            if (rel_mp.is_absolute() || rel_mp.has_root_name() ||
-                rel_mp.has_root_directory()) {
-              if (error_msg) {
-                *error_msg =
-                    "Pipeline JSON contains absolute root in model_path: " + mp;
-              }
-              return -2;
-            }
-            std::filesystem::path comb =
-                (canon_root / rel_mp).lexically_normal();
-            auto rel_chk = comb.lexically_relative(canon_root);
-            if (rel_chk.empty() || rel_chk.string().rfind("..", 0) == 0) {
-              if (error_msg) {
-                *error_msg =
-                    "Pipeline JSON model_path escapes deployment root: " + mp;
-              }
-              return -2;
-            }
+        if (!item.contains("model_path")) continue;
+        if (!item["model_path"].is_string()) {
+          if (error_msg) {
+            *error_msg = "Pipeline JSON model_path must be a string";
           }
+          return -2;
         }
+        const std::string mp = item["model_path"].get<std::string>();
+        std::filesystem::path ignored;
+        ret = ResolveModelReferenceUnderRoot(
+            canon_root, mp, "pipeline model_path", &ignored, error_msg);
+        if (ret != 0) return ret;
       }
     }
 
@@ -566,8 +581,8 @@ int CompanyConfResolver::Resolve(const char* model_path,
       }
       std::string single_mpath = (*data_obj)["model_path"].get<std::string>();
       std::filesystem::path full_mpath;
-      ret = ResolveRequiredFileUnderRoot(canon_root, single_mpath, "model_path",
-                                         &full_mpath, error_msg);
+      ret = ResolveModelReferenceUnderRoot(
+          canon_root, single_mpath, "model_path", &full_mpath, error_msg);
       if (ret != 0) return ret;
 
       if (model_count == 1) {
@@ -595,7 +610,7 @@ int CompanyConfResolver::Resolve(const char* model_path,
         }
         std::string mstr = mval.get<std::string>();
         std::filesystem::path full_mpath;
-        ret = ResolveRequiredFileUnderRoot(
+        ret = ResolveModelReferenceUnderRoot(
             canon_root, mstr, "model_paths entry", &full_mpath, error_msg);
         if (ret != 0) return ret;
 
@@ -634,13 +649,11 @@ int CompanyConfResolver::Resolve(const char* model_path,
         } else if (item.contains("model_path") &&
                    item["model_path"].is_string()) {
           std::string mp = item["model_path"].get<std::string>();
-          if (!mp.empty()) {
-            std::filesystem::path full_mpath;
-            ret = ResolveRequiredFileUnderRoot(
-                canon_root, mp, "pipeline model_path", &full_mpath, error_msg);
-            if (ret != 0) return ret;
-            item["model_path"] = full_mpath.string();
-          }
+          std::filesystem::path full_mpath;
+          ret = ResolveModelReferenceUnderRoot(
+              canon_root, mp, "pipeline model_path", &full_mpath, error_msg);
+          if (ret != 0) return ret;
+          item["model_path"] = full_mpath.string();
         }
         if (device_id >= 0) {
           if (item.contains("config") && item["config"].is_object()) {

@@ -272,4 +272,144 @@ TEST_F(PlatformOutputPoolTest, AllocatorFailureAllOutputTypes) {
   }
 }
 
+// 8. 命名故障点全量注入与对称构造/析构计数断言 (R9-005, R9-006)
+TEST_F(PlatformOutputPoolTest, AllNamedFailureStagesWithSymmetricAccounting) {
+  const auto* binding =
+      PlatformValueTypeRegistry::Instance().GetBindingBySuffix("od_out");
+  ASSERT_NE(binding, nullptr);
+
+  ResolvedOutputPoolSpec spec;
+  spec.type = "od_out";
+  spec.meta_num = 10;
+  spec.metadata_type_id = 1;
+  spec.capacities["result_json"] = 512;
+
+  const OutputPoolState::FailureStage stages[] = {
+      OutputPoolState::FailureStage::kPoolStateAlloc,
+      OutputPoolState::FailureStage::kSpecCopy,
+      OutputPoolState::FailureStage::kAllBlocksReserve,
+      OutputPoolState::FailureStage::kFreeRingResize,
+      OutputPoolState::FailureStage::kBlockStatesReserve,
+      OutputPoolState::FailureStage::kRootStructAlloc,
+      OutputPoolState::FailureStage::kNestedStringAlloc,
+      OutputPoolState::FailureStage::kNestedAnyAlloc,
+      OutputPoolState::FailureStage::kCleanupRegister,
+      OutputPoolState::FailureStage::kLedgerRegister,
+      OutputPoolState::FailureStage::kHistoryBlockN,
+  };
+
+  for (auto stage : stages) {
+    const std::vector<int> targets =
+        stage == OutputPoolState::FailureStage::kCleanupRegister
+            ? std::vector<int>{0, 1, 2, 3, 4}
+            : (stage == OutputPoolState::FailureStage::kHistoryBlockN
+                   ? std::vector<int>{0, 1, 2}
+                   : std::vector<int>{0});
+    for (int target_idx : targets) {
+      OutputPoolState::ResetInstanceCounters();
+      OutputPoolState::SetFailureStageProbe(stage, target_idx);
+
+      std::shared_ptr<OutputPoolState> pool;
+      std::string err;
+      int ret =
+          OutputPoolState::Create("od_out", 3, spec, binding, &pool, &err);
+      EXPECT_NE(ret, 0) << "Expected failure at stage "
+                        << static_cast<int>(stage) << " target block "
+                        << target_idx;
+      EXPECT_EQ(pool, nullptr);
+      EXPECT_FALSE(err.empty());
+
+      uint64_t constructed = OutputPoolState::GetConstructedCount();
+      uint64_t destroyed = OutputPoolState::GetDestroyedCount();
+      EXPECT_EQ(constructed, destroyed)
+          << "Constructed (" << constructed << ") and Destroyed (" << destroyed
+          << ") mismatch at stage " << static_cast<int>(stage) << " block "
+          << target_idx;
+    }
+  }
+  OutputPoolState::ResetInstanceCounters();
+}
+
+TEST_F(PlatformOutputPoolTest,
+       EveryOutputFactoryHonorsNamedRootNestedAndCleanupFailures) {
+  const std::vector<std::string> suffixes = {
+      "doc_out", "keyword_out", "entity_out", "audit_out",
+      "od_out",  "audio_out",   "rerank_out"};
+
+  for (const auto& suffix : suffixes) {
+    const auto* binding =
+        PlatformValueTypeRegistry::Instance().GetBindingBySuffix(suffix);
+    ASSERT_NE(binding, nullptr) << suffix;
+    ResolvedOutputPoolSpec spec;
+    spec.type = suffix;
+
+    std::vector<OutputPoolState::FailureStage> stages = {
+        OutputPoolState::FailureStage::kRootStructAlloc,
+        OutputPoolState::FailureStage::kCleanupRegister};
+    if (suffix != "rerank_out") {
+      stages.push_back(OutputPoolState::FailureStage::kNestedStringAlloc);
+    }
+
+    for (const auto stage : stages) {
+      OutputPoolState::ResetInstanceCounters();
+      OutputPoolState::SetFailureStageProbe(stage, 0);
+      std::shared_ptr<OutputPoolState> pool;
+      std::string err;
+      EXPECT_NE(OutputPoolState::Create(suffix, 1, spec, binding, &pool, &err),
+                0)
+          << suffix << " stage=" << static_cast<int>(stage);
+      EXPECT_EQ(pool, nullptr) << suffix;
+      EXPECT_FALSE(err.empty()) << suffix;
+      EXPECT_EQ(OutputPoolState::GetConstructedCount(),
+                OutputPoolState::GetDestroyedCount())
+          << suffix << " stage=" << static_cast<int>(stage);
+    }
+  }
+  OutputPoolState::ResetInstanceCounters();
+}
+
+// 9. 严格 spec.type 与 64 MiB 预算边界拦截 (R9-005)
+TEST_F(PlatformOutputPoolTest, StrictSpecTypeAndMemoryBudgetBoundary) {
+  const auto* binding =
+      PlatformValueTypeRegistry::Instance().GetBindingBySuffix("doc_out");
+  ASSERT_NE(binding, nullptr);
+
+  // 1. spec.type 为空 -> 严格拒绝
+  {
+    ResolvedOutputPoolSpec spec;
+    spec.type = "";
+    std::shared_ptr<OutputPoolState> pool;
+    std::string err;
+    int ret = OutputPoolState::Create("doc_out", 5, spec, binding, &pool, &err);
+    EXPECT_EQ(ret, -2);
+    EXPECT_EQ(pool, nullptr);
+    EXPECT_FALSE(err.empty());
+  }
+
+  // 2. spec.type 类型不匹配 -> 严格拒绝
+  {
+    ResolvedOutputPoolSpec spec;
+    spec.type = "od_out";
+    std::shared_ptr<OutputPoolState> pool;
+    std::string err;
+    int ret = OutputPoolState::Create("doc_out", 5, spec, binding, &pool, &err);
+    EXPECT_EQ(ret, -2);
+    EXPECT_EQ(pool, nullptr);
+    EXPECT_FALSE(err.empty());
+  }
+
+  // 3. 超出 64 MiB 预算硬上限 -> 拒绝
+  {
+    ResolvedOutputPoolSpec spec;
+    spec.type = "doc_out";
+    spec.capacities["answer_text"] = 100 * 1024 * 1024;  // 100 MiB per block
+    std::shared_ptr<OutputPoolState> pool;
+    std::string err;
+    int ret = OutputPoolState::Create("doc_out", 5, spec, binding, &pool, &err);
+    EXPECT_EQ(ret, -2);
+    EXPECT_EQ(pool, nullptr);
+    EXPECT_NE(err.find("64 MiB"), std::string::npos);
+  }
+}
+
 }  // namespace alg_framework

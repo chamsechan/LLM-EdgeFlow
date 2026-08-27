@@ -188,6 +188,7 @@ add_test(NAME ArchitectureDocsDriftGateSelfTest COMMAND ${CMAKE_CURRENT_SOURCE_D
 # 4.2 架构图资产一致性检查测试 (DiagramAssetsCheckTest)
 add_test(NAME DiagramAssetsCheckTest COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/render_architecture_diagrams.sh --check)
 add_test(NAME DiagramRenderGateSelfTest COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_diagram_render_gate.sh)
+add_test(NAME ScriptGeneratorDetectionTest COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_script_generator_detection.sh)
 
 # 5. 单元测试与安全性测试集 (基于 Google Test & CTest)
 

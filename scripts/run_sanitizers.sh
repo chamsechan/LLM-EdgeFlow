@@ -56,10 +56,10 @@ COMMON_CMAKE_ARGS=(
   -DLLM_EDGEFLOW_SANITIZERS="${SANITIZERS}"
   -DLLM_EDGEFLOW_USE_CCACHE=ON
 )
-if [[ ! -f "${BUILD_DIR}/CMakeCache.txt" ]]; then
-  if command -v ninja >/dev/null 2>&1; then
-    COMMON_CMAKE_ARGS+=(-G Ninja)
-  fi
+GEN_ARG_STR=$("${SCRIPT_DIR}/detect_cmake_generator.sh" "${BUILD_DIR}")
+if [[ -n "${GEN_ARG_STR}" ]]; then
+  read -r -a GENERATOR_ARGS <<< "${GEN_ARG_STR}"
+  COMMON_CMAKE_ARGS+=("${GENERATOR_ARGS[@]}")
 fi
 if [[ "${MODE}" == "fast" ]]; then
   COMMON_CMAKE_ARGS+=(

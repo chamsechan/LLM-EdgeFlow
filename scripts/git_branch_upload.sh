@@ -53,11 +53,11 @@ if [ -f "./scripts/run_all_tests.sh" ]; then
 else
     # Fallback to CTest in build directory
     if [ -d "./build" ]; then
+        SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+        GEN_ARG_STR=$("${SCRIPT_DIR}/detect_cmake_generator.sh" "./build")
         CMAKE_GEN_ARGS=()
-        if [[ ! -f "./build/CMakeCache.txt" ]]; then
-            if command -v ninja >/dev/null 2>&1; then
-                CMAKE_GEN_ARGS=(-G Ninja)
-            fi
+        if [[ -n "${GEN_ARG_STR}" ]]; then
+            read -r -a CMAKE_GEN_ARGS <<< "${GEN_ARG_STR}"
         fi
         cd build && cmake -DLLM_EDGEFLOW_USE_CCACHE=ON "${CMAKE_GEN_ARGS[@]}" .. && cmake --build . -j"$(nproc)" && ctest -j"$(nproc)" --output-on-failure && cd ..
     fi

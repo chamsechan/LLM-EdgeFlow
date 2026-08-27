@@ -17,7 +17,8 @@ namespace alg_framework {
 
 inline constexpr uint32_t kDefaultOutputPoolDepth = 25;
 inline constexpr uint32_t kMaxOutputPoolDepth = 1024;
-inline constexpr size_t kMaxHandlePoolMemoryBytes = 64 * 1024 * 1024;  // 64 MiB
+inline constexpr size_t kMaxHandlePoolPayloadBytes =
+    64 * 1024 * 1024;  // 64 MiB
 
 /**
  * @brief 安全乘法助手函数 (checked-multiply)
@@ -145,11 +146,15 @@ struct OwnedExternalBlock {
 };
 
 /**
- * @brief 计算给定输出后缀、Spec 和深度的输出池总内存估算 (checked add/multiply)
+ * @brief 计算输出池预分配业务载荷的确定性字节数 (checked add/multiply)
+ *
+ * 计入外层平台镜像结构、嵌套 CompanyString/CompanyAny 结构及其数据区；
+ * 不把 STL 容器、allocator、控制块等实现相关管理开销伪装成可精确计算的载荷。
  */
-bool ComputeOutputPoolBytes(const std::string& suffix,
-                            const ResolvedOutputPoolSpec& spec, uint32_t depth,
-                            size_t* out_bytes, std::string* err) noexcept;
+bool ComputeOutputPoolPayloadBytes(const std::string& suffix,
+                                   const ResolvedOutputPoolSpec& spec,
+                                   uint32_t depth, size_t* out_bytes,
+                                   std::string* err) noexcept;
 
 using ValidateExternalFn = std::function<int(
     const void* ptr, const ResolvedInputLimits& limits, std::string* err)>;
@@ -227,7 +232,7 @@ class PlatformValueTypeRegistry {
   /**
    * @brief 注册值类型绑定 (在写入前执行严格的原子预检)
    */
-  bool RegisterBinding(PlatformValueTypeBinding binding);
+  bool RegisterBinding(const PlatformValueTypeBinding& binding);
 
   /**
    * @brief 根据规范后缀或别名获取规范后缀 (若未知返回空字符串)
@@ -245,6 +250,19 @@ class PlatformValueTypeRegistry {
    */
   static void SetAllocationFailureCountdown(int count) noexcept;
   static int GetAllocationFailureCountdown() noexcept;
+
+  enum class RegistryExceptionInjectPoint {
+    kNone = 0,
+    kCopyCanonicalMap,
+    kCopyAliasMap,
+    kSecondAliasInsert,
+    kCanonicalInsert,
+    kPublish
+  };
+
+  static void SetExceptionInjectPoint(
+      RegistryExceptionInjectPoint point) noexcept;
+  static RegistryExceptionInjectPoint GetExceptionInjectPoint() noexcept;
 
  private:
   mutable std::mutex mutex_;

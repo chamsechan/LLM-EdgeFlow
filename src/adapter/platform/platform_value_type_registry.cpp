@@ -8,6 +8,7 @@
 #include <new>
 #include <unordered_set>
 
+#include "adapter/platform/platform_output_pool.h"
 #include "company_alg_interface.h"
 #include "platform/company_platform_types.h"
 
@@ -16,6 +17,9 @@ namespace alg_framework {
 namespace {
 
 std::atomic<int> g_alloc_failure_countdown{-1};
+std::atomic<PlatformValueTypeRegistry::RegistryExceptionInjectPoint>
+    g_registry_inject_point{
+        PlatformValueTypeRegistry::RegistryExceptionInjectPoint::kNone};
 
 void CheckAllocFailureProbe() {
   if (g_alloc_failure_countdown.load() >= 0) {
@@ -35,41 +39,68 @@ const CompanyAnyTypeDescriptor kBuiltinAnyTypes[] = {
 };
 
 inline void DeleteCharArray(void* p) noexcept {
+  OutputPoolState::RecordDestroyed();
   delete[] static_cast<char*>(p);
 }
 
 inline void DeleteCompanyString(void* p) noexcept {
+  OutputPoolState::RecordDestroyed();
   delete static_cast<CompanyString*>(p);
 }
 
 inline void DeleteCompanyAny(void* p) noexcept {
+  OutputPoolState::RecordDestroyed();
   delete static_cast<CompanyAny*>(p);
 }
 
 inline void DeleteAnyPayload(void* p) noexcept {
+  OutputPoolState::RecordDestroyed();
   delete[] static_cast<uint8_t*>(p);
 }
 
 template <typename T>
 inline void DeleteTypedObject(void* p) noexcept {
+  OutputPoolState::RecordDestroyed();
   delete static_cast<T*>(p);
+}
+
+void RegisterCleanup(OwnedExternalBlock* block, CleanupAction action) {
+  if (OutputPoolState::GetFailureStageProbe() ==
+          OutputPoolState::FailureStage::kCleanupRegister &&
+      static_cast<int>(block->cleanups.size()) ==
+          OutputPoolState::GetTargetBlockIndex()) {
+    throw std::bad_alloc();
+  }
+  block->cleanups.push_back(action);
 }
 
 CompanyString* AllocateNestedCompanyString(uint32_t capacity,
                                            OwnedExternalBlock* block) {
+  if (OutputPoolState::GetFailureStageProbe() ==
+      OutputPoolState::FailureStage::kNestedStringAlloc) {
+    throw std::bad_alloc();
+  }
   CheckAllocFailureProbe();
-  std::unique_ptr<CompanyString> str(new CompanyString());
+  std::unique_ptr<CompanyString, decltype(&DeleteCompanyString)> str(
+      new CompanyString(), DeleteCompanyString);
+  OutputPoolState::RecordConstructed();
   CheckAllocFailureProbe();
   size_t alloc_bytes = static_cast<size_t>(capacity) + 1;
-  std::unique_ptr<char[]> data(new char[alloc_bytes]);
+  std::unique_ptr<char[], decltype(&DeleteCharArray)> data(
+      new char[alloc_bytes], DeleteCharArray);
+  OutputPoolState::RecordConstructed();
   std::memset(data.get(), 0, alloc_bytes);
 
   str->length = 0;
   str->data = data.get();
 
-  block->cleanups.push_back({data.release(), DeleteCharArray});
-  block->cleanups.push_back({str.get(), DeleteCompanyString});
-  return str.release();
+  char* raw_data = data.get();
+  CompanyString* raw_str = str.get();
+  RegisterCleanup(block, {raw_data, DeleteCharArray});
+  data.release();
+  RegisterCleanup(block, {raw_str, DeleteCompanyString});
+  str.release();
+  return raw_str;
 }
 
 CompanyAny* AllocateNestedCompanyAny(uint32_t meta_num, int32_t type_id,
@@ -81,14 +112,22 @@ CompanyAny* AllocateNestedCompanyAny(uint32_t meta_num, int32_t type_id,
   if (!desc || desc->element_size == 0) {
     return nullptr;
   }
+  if (OutputPoolState::GetFailureStageProbe() ==
+      OutputPoolState::FailureStage::kNestedAnyAlloc) {
+    throw std::bad_alloc();
+  }
   CheckAllocFailureProbe();
-  std::unique_ptr<CompanyAny> any(new CompanyAny());
+  std::unique_ptr<CompanyAny, decltype(&DeleteCompanyAny)> any(
+      new CompanyAny(), DeleteCompanyAny);
+  OutputPoolState::RecordConstructed();
   size_t total_bytes = 0;
   if (!CheckedMultiply(meta_num, desc->element_size, &total_bytes)) {
     return nullptr;
   }
   CheckAllocFailureProbe();
-  std::unique_ptr<uint8_t[]> data(new uint8_t[total_bytes]);
+  std::unique_ptr<uint8_t[], decltype(&DeleteAnyPayload)> data(
+      new uint8_t[total_bytes], DeleteAnyPayload);
+  OutputPoolState::RecordConstructed();
   std::memset(data.get(), 0, total_bytes);
 
   any->type_id = type_id;
@@ -96,9 +135,13 @@ CompanyAny* AllocateNestedCompanyAny(uint32_t meta_num, int32_t type_id,
   any->byte_length = 0;
   any->data = data.get();
 
-  block->cleanups.push_back({data.release(), DeleteAnyPayload});
-  block->cleanups.push_back({any.get(), DeleteCompanyAny});
-  return any.release();
+  uint8_t* raw_data = data.get();
+  CompanyAny* raw_any = any.get();
+  RegisterCleanup(block, {raw_data, DeleteAnyPayload});
+  data.release();
+  RegisterCleanup(block, {raw_any, DeleteCompanyAny});
+  any.release();
+  return raw_any;
 }
 
 void ResetNestedCompanyString(CompanyString* str) noexcept {
@@ -119,20 +162,21 @@ void ResetNestedCompanyAny(CompanyAny* any) noexcept {
 
 }  // namespace
 
-bool ComputeOutputPoolBytes(const std::string& suffix,
-                            const ResolvedOutputPoolSpec& spec, uint32_t depth,
-                            size_t* out_bytes, std::string* err) noexcept {
+bool ComputeOutputPoolPayloadBytes(const std::string& suffix,
+                                   const ResolvedOutputPoolSpec& spec,
+                                   uint32_t depth, size_t* out_bytes,
+                                   std::string* err) noexcept {
   if (!out_bytes) {
     if (err) *err = "Null out_bytes pointer";
     return false;
   }
   *out_bytes = 0;
 
-  // 1. 校验 spec.type 与 suffix 必须严格一致 (R9-005)
-  if (!spec.type.empty() && spec.type != suffix) {
+  // 1. 校验 spec.type 与 suffix 必须严格一致 (空字符串同样拒绝，R9-005)
+  if (spec.type.empty() || spec.type != suffix) {
     if (err) {
       *err = "Output pool spec type '" + spec.type +
-             "' does not match requested suffix '" + suffix + "'";
+             "' is invalid or does not match requested suffix '" + suffix + "'";
     }
     return false;
   }
@@ -147,16 +191,16 @@ bool ComputeOutputPoolBytes(const std::string& suffix,
     return false;
   }
 
-  // Pool management overhead per block:
-  // - sizeof(OwnedExternalBlock)
-  // - sizeof(void*) in all_blocks_
-  // - sizeof(void*) in free_ring_
-  // - sizeof(void*) + sizeof(uint64_t) in block_states_
-  constexpr size_t kPoolBookkeepingPerBlock =
-      sizeof(OwnedExternalBlock) + sizeof(void*) * 3 + sizeof(uint64_t);
+  if (suffix != "od_out" &&
+      (spec.meta_num != 0 || spec.metadata_type_id != 0)) {
+    if (err) {
+      *err =
+          "Metadata capacity is unsupported for output suffix '" + suffix + "'";
+    }
+    return false;
+  }
 
   size_t single_block_bytes = 0;
-  size_t cleanup_count = 0;
 
   if (suffix == "doc_out") {
     single_block_bytes = sizeof(CompanyPlatformDocOutput);
@@ -171,7 +215,6 @@ bool ComputeOutputPoolBytes(const std::string& suffix,
       if (err) *err = "doc_out capacity calculation overflowed";
       return false;
     }
-    cleanup_count = 4;
   } else if (suffix == "keyword_out") {
     single_block_bytes = sizeof(CompanyPlatformKeywordOutput);
     uint32_t cap_match = spec.GetCapacity("match_result_json", 2047);
@@ -182,7 +225,6 @@ bool ComputeOutputPoolBytes(const std::string& suffix,
       if (err) *err = "keyword_out capacity calculation overflowed";
       return false;
     }
-    cleanup_count = 2;
   } else if (suffix == "entity_out") {
     single_block_bytes = sizeof(CompanyPlatformEntityOutput);
     uint32_t cap_entities = spec.GetCapacity("entities_json", 2047);
@@ -193,7 +235,6 @@ bool ComputeOutputPoolBytes(const std::string& suffix,
       if (err) *err = "entity_out capacity calculation overflowed";
       return false;
     }
-    cleanup_count = 2;
   } else if (suffix == "audit_out") {
     single_block_bytes = sizeof(CompanyPlatformAuditOutput);
     uint32_t cap_risk = spec.GetCapacity("risk_level", 31);
@@ -210,7 +251,6 @@ bool ComputeOutputPoolBytes(const std::string& suffix,
       if (err) *err = "audit_out capacity calculation overflowed";
       return false;
     }
-    cleanup_count = 6;
   } else if (suffix == "od_out") {
     single_block_bytes = sizeof(CompanyOdOutput);
     uint32_t cap_res = spec.GetCapacity("result_json", 2047);
@@ -221,23 +261,26 @@ bool ComputeOutputPoolBytes(const std::string& suffix,
       if (err) *err = "od_out capacity calculation overflowed";
       return false;
     }
-    cleanup_count = 2;
-    if (spec.meta_num > 0 && spec.metadata_type_id > 0) {
+    if ((spec.meta_num == 0) != (spec.metadata_type_id == 0)) {
+      if (err) *err = "Metadata count and type must both be zero or non-zero";
+      return false;
+    }
+    if (spec.meta_num > 0) {
       const auto* mdesc = FindCompanyAnyType(spec.metadata_type_id);
-      if (mdesc && mdesc->element_size > 0) {
-        size_t meta_payload = 0;
-        if (!CheckedMultiply(spec.meta_num, mdesc->element_size,
-                             &meta_payload)) {
-          if (err) *err = "Metadata payload calculation overflowed";
-          return false;
-        }
-        size_t meta_total = 0;
-        if (!CheckedAdd(meta_payload, sizeof(CompanyAny), &meta_total) ||
-            !CheckedAdd(single_block_bytes, meta_total, &single_block_bytes)) {
-          if (err) *err = "Metadata total calculation overflowed";
-          return false;
-        }
-        cleanup_count += 2;
+      if (!mdesc || mdesc->element_size == 0) {
+        if (err) *err = "Metadata type is not registered";
+        return false;
+      }
+      size_t meta_payload = 0;
+      if (!CheckedMultiply(spec.meta_num, mdesc->element_size, &meta_payload)) {
+        if (err) *err = "Metadata payload calculation overflowed";
+        return false;
+      }
+      size_t meta_total = 0;
+      if (!CheckedAdd(meta_payload, sizeof(CompanyAny), &meta_total) ||
+          !CheckedAdd(single_block_bytes, meta_total, &single_block_bytes)) {
+        if (err) *err = "Metadata total calculation overflowed";
+        return false;
       }
     }
   } else if (suffix == "audio_out") {
@@ -253,38 +296,25 @@ bool ComputeOutputPoolBytes(const std::string& suffix,
       if (err) *err = "audio_out capacity calculation overflowed";
       return false;
     }
-    cleanup_count = 4;
   } else if (suffix == "rerank_out") {
     single_block_bytes = sizeof(CompanyPlatformRerankOutput);
-    cleanup_count = 0;
   } else {
     if (err) *err = "Unknown output suffix '" + suffix + "' for pool budgeting";
     return false;
   }
 
-  // Add cleanup actions footprint + pool bookkeeping per block
-  size_t cleanup_bytes = 0;
-  if (!CheckedMultiply(cleanup_count, sizeof(CleanupAction), &cleanup_bytes) ||
-      !CheckedAdd(single_block_bytes, cleanup_bytes, &single_block_bytes) ||
-      !CheckedAdd(single_block_bytes, kPoolBookkeepingPerBlock,
-                  &single_block_bytes)) {
-    if (err) *err = "Block footprint calculation overflowed";
-    return false;
-  }
-
   size_t total_pool_bytes = 0;
   if (!CheckedMultiply(effective_depth, single_block_bytes,
-                       &total_pool_bytes) ||
-      !CheckedAdd(total_pool_bytes, 1024, &total_pool_bytes)) {
-    if (err) *err = "Total pool memory calculation overflowed";
+                       &total_pool_bytes)) {
+    if (err) *err = "Total pool payload calculation overflowed";
     return false;
   }
 
-  if (total_pool_bytes > kMaxHandlePoolMemoryBytes) {
+  if (total_pool_bytes > kMaxHandlePoolPayloadBytes) {
     if (err) {
-      *err = "Total pool memory (" + std::to_string(total_pool_bytes) +
-             " bytes) exceeds maximum allowed budget " +
-             std::to_string(kMaxHandlePoolMemoryBytes) + " bytes (64 MiB)";
+      *err = "Total pool payload (" + std::to_string(total_pool_bytes) +
+             " bytes) exceeds maximum allowed payload budget " +
+             std::to_string(kMaxHandlePoolPayloadBytes) + " bytes (64 MiB)";
     }
     return false;
   }
@@ -300,6 +330,16 @@ void PlatformValueTypeRegistry::SetAllocationFailureCountdown(
 
 int PlatformValueTypeRegistry::GetAllocationFailureCountdown() noexcept {
   return g_alloc_failure_countdown.load();
+}
+
+void PlatformValueTypeRegistry::SetExceptionInjectPoint(
+    RegistryExceptionInjectPoint point) noexcept {
+  g_registry_inject_point.store(point);
+}
+
+PlatformValueTypeRegistry::RegistryExceptionInjectPoint
+PlatformValueTypeRegistry::GetExceptionInjectPoint() noexcept {
+  return g_registry_inject_point.load();
 }
 
 const CompanyAnyTypeDescriptor* FindCompanyAnyType(int32_t type_id) noexcept {
@@ -518,12 +558,13 @@ int PlatformValueTypeRegistry::GlobalInit() {
 }
 
 bool PlatformValueTypeRegistry::RegisterBinding(
-    PlatformValueTypeBinding binding) {
+    const PlatformValueTypeBinding& binding) {
   std::lock_guard<std::mutex> lock(mutex_);
   if (audited_) {
     return false;
   }
-  if (binding.canonical_suffix.empty()) {
+  if (binding.canonical_suffix.empty() ||
+      binding.external_c_type_name.empty()) {
     has_conflict_ = true;
     return false;
   }
@@ -543,40 +584,71 @@ bool PlatformValueTypeRegistry::RegisterBinding(
   }
 
   // 3. 检查本次别名集内部无重复且不等于 canonical
-  std::unordered_set<std::string> current_aliases;
-  for (const auto& a : binding.aliases) {
-    if (a.empty() || a == binding.canonical_suffix) {
-      has_conflict_ = true;
-      return false;
+  try {
+    std::unordered_set<std::string> current_aliases;
+    for (const auto& a : binding.aliases) {
+      if (a.empty() || a == binding.canonical_suffix) {
+        has_conflict_ = true;
+        return false;
+      }
+      if (!current_aliases.insert(a).second) {
+        has_conflict_ = true;
+        return false;
+      }
+      // 检查 alias 是否与已有 canonical 冲突
+      if (bindings_by_canonical_.find(a) != bindings_by_canonical_.end()) {
+        has_conflict_ = true;
+        return false;
+      }
+      // 检查 alias 是否与已有 alias 冲突
+      if (alias_to_canonical_.find(a) != alias_to_canonical_.end()) {
+        has_conflict_ = true;
+        return false;
+      }
     }
-    if (!current_aliases.insert(a).second) {
-      has_conflict_ = true;
-      return false;
-    }
-    // 检查 alias 是否与已有 canonical 冲突
-    if (bindings_by_canonical_.find(a) != bindings_by_canonical_.end()) {
-      has_conflict_ = true;
-      return false;
-    }
-    // 检查 alias 是否与已有 alias 冲突
-    if (alias_to_canonical_.find(a) != alias_to_canonical_.end()) {
-      has_conflict_ = true;
-      return false;
-    }
+  } catch (...) {
+    return false;
   }
 
   // 4. 原子预检通过后，通过 Copy-and-Swap 一次性提交
   try {
+    if (g_registry_inject_point.load() ==
+        PlatformValueTypeRegistry::RegistryExceptionInjectPoint::
+            kCopyCanonicalMap) {
+      throw std::runtime_error("Injected failure copying canonical map");
+    }
     auto temp_bindings = bindings_by_canonical_;
+
+    if (g_registry_inject_point.load() ==
+        PlatformValueTypeRegistry::RegistryExceptionInjectPoint::
+            kCopyAliasMap) {
+      throw std::runtime_error("Injected failure copying alias map");
+    }
     auto temp_aliases = alias_to_canonical_;
 
-    for (const auto& a : binding.aliases) {
-      temp_aliases[a] = binding.canonical_suffix;
+    for (size_t i = 0; i < binding.aliases.size(); ++i) {
+      if (g_registry_inject_point.load() ==
+              PlatformValueTypeRegistry::RegistryExceptionInjectPoint::
+                  kSecondAliasInsert &&
+          i == 1) {
+        throw std::runtime_error("Injected failure on second alias insert");
+      }
+      temp_aliases[binding.aliases[i]] = binding.canonical_suffix;
     }
-    temp_bindings[binding.canonical_suffix] = std::move(binding);
 
-    bindings_by_canonical_ = std::move(temp_bindings);
-    alias_to_canonical_ = std::move(temp_aliases);
+    if (g_registry_inject_point.load() ==
+        PlatformValueTypeRegistry::RegistryExceptionInjectPoint::
+            kCanonicalInsert) {
+      throw std::runtime_error("Injected failure on canonical insert");
+    }
+    temp_bindings[binding.canonical_suffix] = binding;
+
+    if (g_registry_inject_point.load() ==
+        PlatformValueTypeRegistry::RegistryExceptionInjectPoint::kPublish) {
+      throw std::runtime_error("Injected failure before registry publish");
+    }
+    bindings_by_canonical_.swap(temp_bindings);
+    alias_to_canonical_.swap(temp_aliases);
   } catch (...) {
     // 资源分配或复制异常不污染契约冲突状态，原快照保持不变
     return false;
@@ -705,11 +777,18 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
     b.allocate_external = [](const ResolvedOutputPoolSpec& spec,
                              OwnedExternalBlock* out_block,
                              std::string* /*err*/) -> int {
+      if (OutputPoolState::GetFailureStageProbe() ==
+          OutputPoolState::FailureStage::kRootStructAlloc) {
+        return -4;
+      }
       out_block->cleanups.reserve(5);
       CheckAllocFailureProbe();
-      std::unique_ptr<CompanyOdOutput> raw_holder(new CompanyOdOutput());
+      std::unique_ptr<CompanyOdOutput,
+                      decltype(&DeleteTypedObject<CompanyOdOutput>)>
+          raw_holder(new CompanyOdOutput(), DeleteTypedObject<CompanyOdOutput>);
+      OutputPoolState::RecordConstructed();
       auto* raw = raw_holder.get();
-      out_block->cleanups.push_back({raw, DeleteTypedObject<CompanyOdOutput>});
+      RegisterCleanup(out_block, {raw, DeleteTypedObject<CompanyOdOutput>});
       raw_holder.release();
 
       raw->request_id = 0;
@@ -772,13 +851,21 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
     b.allocate_external = [](const ResolvedOutputPoolSpec& spec,
                              OwnedExternalBlock* out_block,
                              std::string* /*err*/) -> int {
+      if (OutputPoolState::GetFailureStageProbe() ==
+          OutputPoolState::FailureStage::kRootStructAlloc) {
+        return -4;
+      }
       out_block->cleanups.reserve(3);
       CheckAllocFailureProbe();
-      std::unique_ptr<CompanyPlatformKeywordOutput> raw_holder(
-          new CompanyPlatformKeywordOutput());
+      std::unique_ptr<
+          CompanyPlatformKeywordOutput,
+          decltype(&DeleteTypedObject<CompanyPlatformKeywordOutput>)>
+          raw_holder(new CompanyPlatformKeywordOutput(),
+                     DeleteTypedObject<CompanyPlatformKeywordOutput>);
+      OutputPoolState::RecordConstructed();
       auto* raw = raw_holder.get();
-      out_block->cleanups.push_back(
-          {raw, DeleteTypedObject<CompanyPlatformKeywordOutput>});
+      RegisterCleanup(out_block,
+                      {raw, DeleteTypedObject<CompanyPlatformKeywordOutput>});
       raw_holder.release();
 
       raw->request_id = 0;
@@ -835,13 +922,20 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
     b.allocate_external = [](const ResolvedOutputPoolSpec& spec,
                              OwnedExternalBlock* out_block,
                              std::string* /*err*/) -> int {
+      if (OutputPoolState::GetFailureStageProbe() ==
+          OutputPoolState::FailureStage::kRootStructAlloc) {
+        return -4;
+      }
       out_block->cleanups.reserve(3);
       CheckAllocFailureProbe();
-      std::unique_ptr<CompanyPlatformEntityOutput> raw_holder(
-          new CompanyPlatformEntityOutput());
+      std::unique_ptr<CompanyPlatformEntityOutput,
+                      decltype(&DeleteTypedObject<CompanyPlatformEntityOutput>)>
+          raw_holder(new CompanyPlatformEntityOutput(),
+                     DeleteTypedObject<CompanyPlatformEntityOutput>);
+      OutputPoolState::RecordConstructed();
       auto* raw = raw_holder.get();
-      out_block->cleanups.push_back(
-          {raw, DeleteTypedObject<CompanyPlatformEntityOutput>});
+      RegisterCleanup(out_block,
+                      {raw, DeleteTypedObject<CompanyPlatformEntityOutput>});
       raw_holder.release();
 
       raw->request_id = 0;
@@ -904,13 +998,20 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
     b.allocate_external = [](const ResolvedOutputPoolSpec& spec,
                              OwnedExternalBlock* out_block,
                              std::string* /*err*/) -> int {
+      if (OutputPoolState::GetFailureStageProbe() ==
+          OutputPoolState::FailureStage::kRootStructAlloc) {
+        return -4;
+      }
       out_block->cleanups.reserve(5);
       CheckAllocFailureProbe();
-      std::unique_ptr<CompanyPlatformDocOutput> raw_holder(
-          new CompanyPlatformDocOutput());
+      std::unique_ptr<CompanyPlatformDocOutput,
+                      decltype(&DeleteTypedObject<CompanyPlatformDocOutput>)>
+          raw_holder(new CompanyPlatformDocOutput(),
+                     DeleteTypedObject<CompanyPlatformDocOutput>);
+      OutputPoolState::RecordConstructed();
       auto* raw = raw_holder.get();
-      out_block->cleanups.push_back(
-          {raw, DeleteTypedObject<CompanyPlatformDocOutput>});
+      RegisterCleanup(out_block,
+                      {raw, DeleteTypedObject<CompanyPlatformDocOutput>});
       raw_holder.release();
 
       raw->request_id = 0;
@@ -981,13 +1082,20 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
     b.allocate_external = [](const ResolvedOutputPoolSpec& spec,
                              OwnedExternalBlock* out_block,
                              std::string* /*err*/) -> int {
+      if (OutputPoolState::GetFailureStageProbe() ==
+          OutputPoolState::FailureStage::kRootStructAlloc) {
+        return -4;
+      }
       out_block->cleanups.reserve(7);
       CheckAllocFailureProbe();
-      std::unique_ptr<CompanyPlatformAuditOutput> raw_holder(
-          new CompanyPlatformAuditOutput());
+      std::unique_ptr<CompanyPlatformAuditOutput,
+                      decltype(&DeleteTypedObject<CompanyPlatformAuditOutput>)>
+          raw_holder(new CompanyPlatformAuditOutput(),
+                     DeleteTypedObject<CompanyPlatformAuditOutput>);
+      OutputPoolState::RecordConstructed();
       auto* raw = raw_holder.get();
-      out_block->cleanups.push_back(
-          {raw, DeleteTypedObject<CompanyPlatformAuditOutput>});
+      RegisterCleanup(out_block,
+                      {raw, DeleteTypedObject<CompanyPlatformAuditOutput>});
       raw_holder.release();
 
       raw->request_id = 0;
@@ -1069,13 +1177,20 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
     b.allocate_external = [](const ResolvedOutputPoolSpec& spec,
                              OwnedExternalBlock* out_block,
                              std::string* /*err*/) -> int {
+      if (OutputPoolState::GetFailureStageProbe() ==
+          OutputPoolState::FailureStage::kRootStructAlloc) {
+        return -4;
+      }
       out_block->cleanups.reserve(5);
       CheckAllocFailureProbe();
-      std::unique_ptr<CompanyPlatformAudioOutput> raw_holder(
-          new CompanyPlatformAudioOutput());
+      std::unique_ptr<CompanyPlatformAudioOutput,
+                      decltype(&DeleteTypedObject<CompanyPlatformAudioOutput>)>
+          raw_holder(new CompanyPlatformAudioOutput(),
+                     DeleteTypedObject<CompanyPlatformAudioOutput>);
+      OutputPoolState::RecordConstructed();
       auto* raw = raw_holder.get();
-      out_block->cleanups.push_back(
-          {raw, DeleteTypedObject<CompanyPlatformAudioOutput>});
+      RegisterCleanup(out_block,
+                      {raw, DeleteTypedObject<CompanyPlatformAudioOutput>});
       raw_holder.release();
 
       raw->request_id = 0;
@@ -1154,16 +1269,23 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
     b.canonical_suffix = "rerank_out";
     b.aliases = {"scores_out"};
     b.external_c_type_name = "CompanyPlatformRerankOutput";
-    b.allocate_external = [](const ResolvedOutputPoolSpec& spec,
+    b.allocate_external = [](const ResolvedOutputPoolSpec& /*spec*/,
                              OwnedExternalBlock* out_block,
                              std::string* /*err*/) -> int {
+      if (OutputPoolState::GetFailureStageProbe() ==
+          OutputPoolState::FailureStage::kRootStructAlloc) {
+        return -4;
+      }
       out_block->cleanups.reserve(1);
       CheckAllocFailureProbe();
-      std::unique_ptr<CompanyPlatformRerankOutput> raw_holder(
-          new CompanyPlatformRerankOutput());
+      std::unique_ptr<CompanyPlatformRerankOutput,
+                      decltype(&DeleteTypedObject<CompanyPlatformRerankOutput>)>
+          raw_holder(new CompanyPlatformRerankOutput(),
+                     DeleteTypedObject<CompanyPlatformRerankOutput>);
+      OutputPoolState::RecordConstructed();
       auto* raw = raw_holder.get();
-      out_block->cleanups.push_back(
-          {raw, DeleteTypedObject<CompanyPlatformRerankOutput>});
+      RegisterCleanup(out_block,
+                      {raw, DeleteTypedObject<CompanyPlatformRerankOutput>});
       raw_holder.release();
 
       raw->request_id = 0;

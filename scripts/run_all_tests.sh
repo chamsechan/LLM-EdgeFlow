@@ -37,11 +37,10 @@ echo -e "${GREEN}✓ 架构分层隔离、文档防漂移、Shell 脚本语法�
 # 2. 全量工程编译
 echo -e "${BOLD}[ Step 2/6: CMake 构建与二进制链接 (Ninja & ccache 并行加速) ]${NC}"
 mkdir -p "$BUILD_DIR"
+GEN_ARG_STR=$("${SCRIPT_DIR}/detect_cmake_generator.sh" "${BUILD_DIR}")
 CMAKE_GEN_ARGS=()
-if [[ ! -f "${BUILD_DIR}/CMakeCache.txt" ]]; then
-  if command -v ninja >/dev/null 2>&1; then
-    CMAKE_GEN_ARGS=(-G Ninja)
-  fi
+if [[ -n "${GEN_ARG_STR}" ]]; then
+  read -r -a CMAKE_GEN_ARGS <<< "${GEN_ARG_STR}"
 fi
 cmake -S "$ROOT_DIR" -B "$BUILD_DIR" -DLLM_EDGEFLOW_USE_CCACHE=ON "${CMAKE_GEN_ARGS[@]}" > /dev/null
 cmake --build "$BUILD_DIR" -j"$(nproc)"
@@ -49,7 +48,7 @@ echo -e "${GREEN}✓ 核心动态库与测试目标编译通过！${NC}\n"
 
 # 3. 核心机制与多模态单元测试 (Tier 1)
 echo -e "${BOLD}[ Step 3/6: 核心架构、DAG拓扑排序、引擎容错与全业务细粒度 GTest 单元测试 (并行加速) ]${NC}"
-TIER1_REGEX='^(BatchExecutorTest|FrameworkCoreTest|PipelineConfigTest|Registry.*Test|DagPipelineTest|EngineFaultToleranceAndLifecycleTest|QwenEnginesComparisonTest|DifferentIoModalitiesTest|AllBusinessPipelinesTest|DocQaRerankTest|RerankRefineNodeTest)$'
+TIER1_REGEX='^(BatchExecutorTest|FrameworkCoreTest|PipelineConfigTest|Registry.*Test|DagPipelineTest|EngineFaultToleranceAndLifecycleTest|QwenEnginesComparisonTest|DifferentIoModalitiesTest|AllBusinessPipelinesTest|DocQaRerankTest|RerankRefineNodeTest|ScriptGeneratorDetectionTest)$'
 ctest --test-dir "$BUILD_DIR" -j"$(nproc)" --output-on-failure -R "$TIER1_REGEX"
 echo -e "${GREEN}✓ Tier 1 核心架构、DAG拓扑调度与全业务组合（含 LLM+Rerank+QA 与 RerankRefineNode）细粒度 GTest 断言测试全部通过！${NC}\n"
 

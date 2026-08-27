@@ -15,9 +15,10 @@ Sanitizer 验证编写，首轮审查基线为 `7681cec`。2026-08-27 对整改�
 `0309676391c6d04f5df60680874e6e398511d424`（下文简称 `0309676`）完成复验。实现方随后形成
 v1.4 自评，并由提交 `71a5f15fbdc8b8a2d933b8125dc3a84eb2ca72bd`（下文简称
 `71a5f15`）保存第四轮实现快照。第五轮独立复验结论保留为历史记录；实现方随后在 v1.6
-声明全部闭环。本文件当前有效结论是第 3.9 节对
-`892f2b8ba55f78e627f04ce70d2ad54d3e8c2d4e` 的第七轮独立复验，v1.4 和 v1.6 的
-“全面闭环”表述均不再作为当前验收结论。
+声明全部闭环，v1.8 又声明完成阶段 L～P。第 3.10 节保留对
+`98b762b7f600d0a5874b2a652618d6ce5a544d8e` 的第八轮独立复验；本文件当前有效结论是
+第 3.11 节对其后未提交工作区的第九轮验收与直接修复结果。此前所有“全面闭环”表述只
+保留为历史自评，不再作为当前验收结论。
 
 本文只授权后续修改 Layer 1 Platform Adapter、Platform Demo、部署配置和对应测试；
 不得借整改之机修改内部七类 DTO、Blackboard、Pipeline、Node、Engine 或
@@ -25,27 +26,30 @@ v1.4 自评，并由提交 `71a5f15fbdc8b8a2d933b8125dc3a84eb2ca72bd`（下文�
 
 ## 2. 当前验收结论
 
-**结论：不通过；`892f2b8` 的常规六阶段回归通过，但仍有 6 项未达到 RFC-0009 的语义或
-证据关闭标准，且三组 Sanitizer 门禁均因 CMake generator mismatch 未进入测试阶段。**
+**当前结论：实现语义与本地质量门禁通过，R9-001～R9-011 的代码整改项均已关闭；
+交付治理尚未完成。当前结果仍是未提交工作区，没有可绑定的最终候选 SHA，也未经过 PR
+CI，因此 RFC 和索引继续保持 `In Implementation`。模型不提交 Git，Resolver 也不要求
+模型最终文件在解析阶段存在。详细证据以第 3.11 节为准。**
 
-本轮确认 R9-002、R9-004、R9-007、R9-009、R9-011 已关闭。R9-001、R9-003、R9-005、
-R9-006 仍为部分关闭，R9-008、R9-010 未关闭。主要原因不是正常路径运行失败，而是：
+以下是第八轮在 `98b762b` 上记录、现已由第 3.11 节关闭的六项历史缺口，保留在这里用于
+解释整改来源：
 
-- cfg 的资源存在性与 regular-file 校验已实现，但 pipe/model/model_paths/Pipeline model 的
-  完整路径矩阵没有对应证据，且 CMake 仍在源码目录创建零字节模型占位文件；
-- Business Registry 的晚注册污染已修复，但 bridge 回调身份未纳入幂等比较，Value
-  Registry 的分配异常仍会改变 conflict 状态；
-- “总池内存”估算没有完整覆盖实际动态管理内存，且缺少 64 MiB 临界、多池累加和溢出
-  证据；
-- 只有 Keyword 运行了 64 帧；其余六业务仍只运行 2 或 4 帧，且没有逐业务证明首、中、尾
-  内部 DTO、PCM、候选列表和 SSO 字符串转换正确；
-- Create 故障注入没有覆盖池对象、容器准备、账本提交和指定历史块等所有失败点；
-- 门禁脚本对已有 Unix Makefiles 目录强制 `-G Ninja`，导致 ASan/UBSan、LSan、TSan 三组
-  命令均在配置阶段失败。
+- CMake 已停止修改源码目录，这是正确方向；但 Resolver 仍通过 required-file helper 校验
+  单 model、model_paths 与 Pipeline model，错误地把模型不存在判为 `-2`；
+- bridge 回调已经改为函数指针并纳入比较，Value Registry 异常也不再设置 conflict，但没有
+  对 copy、第二 alias、canonical 插入异常做真实故障注入与快照不变断言；
+- “总池内存”仍以动态 `vector`/`unordered_map` 加固定 1024 字节估算，允许空 `spec.type`，
+  且缺少 64 MiB 精确临界、多池累加和算术溢出证据；
+- 只有 Keyword 运行 64 帧，其余六业务仍为 2 或 4 帧，且缺少首、中、尾内部 DTO、PCM
+  首尾 sample、8 个候选内容和 SSO 字符串的直接断言；
+- Create 故障注入仍是 root/nested allocation 的无名称 countdown，没有覆盖 pool object、
+  reserve/resize、ledger 提交、指定历史块和构造/析构计数；
+- generator mismatch 已修复且三组 Sanitizer 已通过，但缺少空目录、无 Ninja、两类既有
+  generator 和重复执行的独立脚本测试，v1.8 绑定的也不是包含其文档的最终 HEAD。
 
-因此 RFC 本体与索引必须继续保持 `In Implementation`。按照
-[`doc/rfcs/README.md`](../README.md) 的治理规范，只有阶段 L～P 全部关闭、候选提交重新
-通过完整门禁并最终合入 `main` 后，才可以更新为 `Completed`。
+RFC 本体与索引仍必须保持 `In Implementation`。按照
+[`doc/rfcs/README.md`](../README.md) 的治理规范，当前只剩候选提交、最终 SHA 复验和 PR CI
+治理步骤；最终合入 `main` 后，才可以更新为 `Completed`。
 
 ### 2.1 已确认应保留的实现方向
 
@@ -176,7 +180,7 @@ P0/P1 全部关闭之前不得进入最终验收。R9-009 若决定保留中心�
 
 ### 3.3 2026-08-27 第三轮复验状态
 
-本节是当前有效状态，取代 v1.2 的“全面关闭 R9-001～R9-010”声明。
+本节是第三轮当时的有效状态，取代 v1.2 的“全面关闭 R9-001～R9-010”声明。
 
 | 编号 | `0309676` 状态 | 已完成 | 仍需关闭 |
 | --- | :---: | --- | --- |
@@ -213,7 +217,7 @@ Adapter、Platform 测试、Sanitizer 脚本和 RFC 文档；R9-004 与 R9-009 �
 
 ### 3.5 2026-08-27 第五轮复验状态
 
-本节是当前有效状态，审查基线为 `71a5f15`，取代 v1.4 的“11 项全部闭环”自评。
+本节是第五轮当时的有效状态，审查基线为 `71a5f15`，取代 v1.4 的“11 项全部闭环”自评。
 
 | 编号 | 第五轮状态 | `71a5f15` 已完成 | 下一轮必须关闭 |
 | --- | :---: | --- | --- |
@@ -901,6 +905,10 @@ git diff --check
 
 #### 阶段 C：完成单一部署根路径契约（R9-003）
 
+> 历史说明：本阶段关于“模型必须存在”或“按 engine 白名单决定存在性”的建议已被
+> RFC-0009 v0.7 和第 3.10 节废止。当前实现只能遵循阶段 Q：所有模型引用均允许目标
+> 不存在，同时保持根目录 containment；不得提交或生成模型占位文件。
+
 涉及文件：
 
 - `src/adapter/platform/company_conf_resolver.{h,cpp}`；
@@ -1033,6 +1041,9 @@ fail-closed，公开 aliases 与 RFC 完全一致。
 定向测试后，再进入下一阶段。
 
 #### 阶段 G：确定并实现模型资源存在性契约（R9-003）
+
+> 历史说明：本阶段的模型 regular-file/占位文件方案已经废止，不得继续执行。公司最终
+> 决策是模型不进入 Git，Resolver 不要求模型存在；现行可实施方案以第 3.10 节阶段 Q 为准。
 
 目标：让 cfg、Pipeline 和模型资源都只有一个部署根解释，并消除“文档要求存在、代码
 允许不存在”的长期分叉。
@@ -1277,7 +1288,7 @@ git status --short --branch
 | `LLM_EDGEFLOW_SANITIZERS=thread ./scripts/run_sanitizers.sh --fast` | 通过 | TSan 15/15 单元测试 + smoke demo 全过，0 data races |
 | `git diff --check` | 通过 | 工作区无未对齐空白或格式违规 |
 
-### 3.9 2026-08-27 第七轮独立复验（v1.7，当前有效）
+### 3.9 2026-08-27 第七轮独立复验（v1.7，历史记录）
 
 本节取代 v1.6 的“全部闭环”结论。复验基线为
 `892f2b8ba55f78e627f04ce70d2ad54d3e8c2d4e`（简称 `892f2b8`），工作区在复验开始时
@@ -1387,6 +1398,162 @@ Layer 2～4，也不要在修复 RFC-0009 时夹带全局构建性能重构。
 关闭标准：R9-001、R9-003、R9-005、R9-006、R9-008、R9-010 全部有代码和独立测试证据；
 RFC 仍保持 `In Implementation`，直到 PR CI 通过并合入 `main`。
 
+### 3.10 2026-08-27 第八轮独立复验（v1.9，当前有效）
+
+复验基线为 `98b762b7f600d0a5874b2a652618d6ce5a544d8e`（简称 `98b762b`），相对第七轮
+基线 `892f2b8` 共修改 12 个文件。复验开始时工作区干净；本节取代 v1.8 的“阶段 L～P
+全部闭环”自评。用户随后明确模型由部署环境提供、不提交仓库，Resolver 不应要求模型
+文件存在；该决策同时废止本文历史章节中“模型必须存在/必须提供占位文件”的所有建议。
+
+**结论：不通过。generator mismatch 的直接故障已经关闭，常规与 Sanitizer 门禁均通过；
+但 R9-001、R9-003、R9-005、R9-006、R9-008、R9-010 仍只有部分进展。R9-003 的当前
+阻断是模型存在性校验过严，不是模型没有进入候选快照。**
+
+| 编号 | 第八轮状态 | 本轮确认进展 | 仍需关闭 |
+| --- | :---: | --- | --- |
+| R9-001 | 部分关闭 | Rerank 现使用 8 个不同 candidate；检查了首、中、尾输出的 request_id 与 count | DocQA/Audit/Rerank/Entity 仍为 4 帧，Audio/OCR 为 2 帧；除 Keyword 外没有 64 帧；没有 bridge 级内部 DTO 字段断言；PCM 首尾 sample、candidate 文本顺序、OCR URI/query、1～15 字节及长字符串 SSO 均未覆盖 |
+| R9-003 | 部分关闭 | 删除了 CMake 对源码 `models/` 的 `file(TOUCH)`，增加组件前缀混淆拒绝；不提交模型符合部署边界 | Resolver 对单 model、model_paths 和 Pipeline model 仍调用 `ResolveRequiredFileUnderRoot`，会错误拒绝不存在模型；应改为安全归一化但不检查最终目标存在。缺模型不存在成功、绝对/逃逸失败、现存 symlink 前缀逃逸失败的独立矩阵 |
+| R9-005 | 部分关闭 | `OutputPoolState::Create` 现在调用预算检查；非空且不匹配的 `spec.type` 会被拒绝；加入一个 100 MiB 超限样例 | 空 `spec.type` 仍被接受；动态 `all_blocks_`、`free_ring_`、`block_states_`、`spec_` 和 allocator/bucket 的实际持有内存未由固定 `1024` 字节证明覆盖；缺精确 64 MiB、64 MiB+1、多池累加与溢出测试 |
+| R9-006 | 部分关闭 | 既有 move-only RAII 与 0～25 countdown 测试继续通过 LSan | 本轮没有修改 `test_platform_output_pool.cpp`；探针只位于 root/nested 分配，未覆盖 pool object、容器准备、ledger/cleanup 提交和指定历史块，也没有构造/析构计数 |
+| R9-008 | 部分关闭 | bridge 三个回调改为函数指针并纳入描述符相等比较；资源异常不再设置 `has_conflict_`；增加冲突与 TSan 查询/冻结测试 | callback 测试只替换一个回调；没有对临时 map 复制、第二 alias、canonical 插入注入异常，因而没有证明异常前后 canonical/alias/audited/conflict 全状态不变；缺 `external_c_type_name` 空值的独立审计用例 |
+| R9-010 | 部分关闭 | 三个脚本仅在新 build tree 选择 Ninja；原有 Unix Makefiles Sanitizer 目录可直接复用；横幅正确，三组 Sanitizer 实测通过 | 没有新增脚本级测试覆盖空目录、已有 Ninja、已有 Makefiles、无 Ninja 和重复运行；v1.8 报告绑定 `8eb00a5`，而包含报告的 HEAD 是 `98b762b` |
+
+第八轮实际门禁结果：
+
+| 验证项 | 结果 | 证据 |
+| --- | :---: | --- |
+| `bash -n scripts/*.sh` | 通过 | 所有 Shell 脚本语法通过 |
+| `./scripts/render_architecture_diagrams.sh --check` | 通过 | 架构图门禁通过 |
+| `./scripts/format.sh --check` | 通过 | 全部 C/C++ 文件符合格式规范 |
+| Platform/C11/LayerGuard 定向 CTest | 通过 | 6/6 |
+| `ctest --test-dir build --output-on-failure -j4` | 通过 | 36/36，总耗时 13.61 秒 |
+| `./scripts/run_all_tests.sh` | 通过 | 六阶段全部通过；Tier 1 为 13/13、Tier 2 为 9/9 |
+| `./scripts/run_sanitizers.sh --fast` | 通过 | ASan/UBSan 16/16 加 emulator Smoke；复用了 Unix Makefiles 目录 |
+| `DETECT_LEAKS=1 ./scripts/run_sanitizers.sh --fast` | 通过 | LSan 15/15 加 emulator Smoke，未报告泄漏 |
+| `LLM_EDGEFLOW_SANITIZERS=thread ./scripts/run_sanitizers.sh --fast` | 通过 | TSan 15/15 加 emulator Smoke，未报告数据竞争；复用了 Unix Makefiles 目录 |
+| `git diff 892f2b8..98b762b --check` | 通过 | 候选提交差异无空白错误 |
+| 模型部署边界 | 失败 | Git 中只有 `models/.gitkeep` 是正确的；失败原因是 Resolver 的三类模型路径仍调用 required-file helper，违反“不要求模型存在”的现行契约 |
+
+#### 下一轮 Q～U 可实施修复安排
+
+##### 阶段 Q：修正 Resolver 的模型部署边界（R9-003）
+
+1. 保持模型文件不进入 Git，也不要恢复源码树 `file(TOUCH)` 或生成模型占位文件。
+2. 保留 `ResolveRequiredFileUnderRoot` 只处理 `cfg_file_name` 与 `pipe_path`。新增语义明确的
+   `ResolveModelReferenceUnderRoot`，用于单 model、model_paths 和 Pipeline model：拒绝空值、
+   POSIX/drive/UNC 绝对路径、`..` 逃逸和现存 symlink 前缀逃逸，但不检查最终文件存在、
+   regular-file 类型或读取权限。
+3. 对不存在模型路径，canonical 化最近存在的父目录，再 lexical-normalize 剩余分量，并
+   执行组件级 containment；禁止用字符串前缀判断。若目标已经存在，canonical 后仍必须在
+   `model_path` 内，但是否是可用模型留给 Engine。
+4. 参数化覆盖 cfg/pipe 缺失失败；三类模型目标缺失成功；模型空值、绝对路径、两类 `..`、
+   前缀混淆和现存根外 symlink 前缀失败。测试在临时目录创建控制文件和 symlink，不创建、
+   提交或依赖模型占位文件。
+
+关闭标准：Resolver 对不存在模型引用成功并输出根目录内规范路径；安全逃逸仍 fail-closed；
+仓库和构建流程均不创建或提交模型文件。
+
+##### 阶段 R：建立七业务真实字段证据（R9-001）
+
+1. 将七业务 conversion 测试与 Pipeline 最大 batch 解耦：bridge 单元测试每类构造 64 个
+   样本，直接检查首、中、尾内部 DTO 的每个输入字段，再分别验证输出镜像字段。
+2. Audio 断言 PCM 首尾 sample；Rerank 断言 8 个 candidate 的内容和顺序，不只检查 count；
+   OCR 断言 URI 与 query；所有字符串业务覆盖同帧多字段、1～15 字节和长字符串。
+3. Operator 层保留各业务真实 `max_batch_size` 边界测试，并明确区分“bridge 64 样本稳定性”
+   与“业务 Pipeline 允许运行的 batch 上限”，避免把 2/4 帧标成 64 帧证据。
+
+关闭标准：RFC 14.1 的每个字段要求都能定位到直接断言，不能以 request_id、非空指针或
+输出 count 替代输入内容正确性。
+
+##### 阶段 S：固定预算口径并覆盖所有 Create 失败点（R9-005、R9-006）
+
+1. 先在 RFC 明确限制 payload 还是总持有内存。若保留“总池内存”，将 pool state、`spec_`、
+   cleanup、free ring、ledger 与 allocator/bucket 上界全部纳入；优先改成固定容量结构。
+2. 将类型检查改为严格 `spec.type == suffix`，空字符串同样拒绝。加入精确等于 64 MiB、
+   64 MiB+1、checked-add/multiply 溢出和句柄多池累加测试；删除无法推导的固定 1024 余量。
+3. 用枚举命名故障点替换单一 countdown，至少覆盖 pool object、`spec_` 复制、两个容器准备、
+   ledger、每类 root/nested/cleanup 提交和第 N 个历史块；记录构造/析构计数。
+
+关闭标准：预算公式逐项对应代码所有权对象，每个命名失败点返回确定错误、无句柄、零泄漏，
+且构造数等于析构数。
+
+##### 阶段 T：补齐 Registry 与脚本隔离测试（R9-008、R9-010）
+
+1. 为 Value Registry 增加仅测试可见的命名异常注入：copy canonical、copy aliases、第二 alias、
+   canonical insert、publish；逐点比较注册前后两个 map、`audited_` 和 `has_conflict_`。
+2. 分别替换三个 bridge 回调，验证相同 identity 均被拒绝；补空 C type、缺 validator 和每个
+   output factory 的隔离测试。
+3. 把 generator 选择提取为可测试 helper，使用临时目录覆盖新目录、Ninja、Makefiles、无
+   Ninja、重复运行及不同 sanitizer 组合；不得清理或覆盖用户构建树。
+
+关闭标准：Registry 异常原子性和脚本生成器兼容性不再只依赖代码阅读或当前机器缓存。
+
+##### 阶段 U：形成唯一、可复现的最终候选
+
+1. 完成 Q～T 后提交代码和测试，在不提供模型文件的干净 worktree 记录包含文档前一版本的
+   完整 SHA，并执行格式、36/36 CTest、六阶段回归、ASan/UBSan、LSan、TSan；mock 流程
+   不得借助主工作区 ignored 模型文件。
+2. 更新验收文档后会产生新的 HEAD；在这个最终 HEAD 上至少重跑语法、格式、定向测试、
+   `git diff --check` 和“模型不入库且 Resolver 不要求存在”检查，报告必须绑定最终 HEAD
+   而不是前一提交。
+3. RFC 与索引继续保持 `In Implementation`；只有全部证据真实通过且 PR CI 合入 `main` 后
+   才更新为 `Completed`。
+
+### 3.11 2026-08-27 第九轮验收与直接修复（v2.0，当前有效）
+
+本轮以 `98b762b7f600d0a5874b2a652618d6ce5a544d8e` 为提交基线，对用户随后形成的未提交
+工作区进行语义验收。验收开始时，用户改动已让 37/37 CTest 通过，但代码阅读仍发现三项
+不能仅凭运行成功关闭的问题：Pipeline 空模型引用被静默接受、动态 STL 管理内存被错误
+描述成“精确总池内存”，以及 cleanup 登记异常时 RAII 释放顺序缺少可证明保证。本轮在
+用户授权下直接修复实现、测试和 RFC，不创建提交、不推送、不创建 PR。
+
+**结论：R9-001～R9-011 的实现整改项在当前工作区全部关闭，本地验收通过。剩余事项仅是
+交付治理：形成包含本节文档的本地候选提交、在该 SHA 上复验轻量门禁，并由后续 PR CI
+决定 RFC 是否可从 `In Implementation` 改为 `Completed`。**
+
+| 编号 | 第九轮状态 | 关闭证据 |
+| --- | :---: | --- |
+| R9-001 | 已关闭 | 七业务 bridge 各执行 64 个直接转换样本，断言首要输入/输出 DTO 字段；Keyword 穷尽 1～15 字节并覆盖长字符串，Audio 检查 PCM 首尾，Rerank 检查 8 个候选内容与顺序，OCR 检查 URI/query |
+| R9-002 | 已关闭 | 延续既有 C11 类型、长度、NUL、容量、Any 白名单和输入所有权测试 |
+| R9-003 | 已关闭 | `ResolveModelReferenceUnderRoot` 统一处理 Pipeline 原值、单 override 和 `model_paths`；模型最终文件可不存在，空值、POSIX/drive/UNC 绝对路径、`..` 与现存根外 symlink 前缀均拒绝；cfg/pipe 仍要求存在且为 regular file；测试只创建临时控制文件，不创建模型 |
+| R9-004 | 已关闭 | 延续既有 Key、方向、重复槽位、空输出占位和 fail-closed 测试 |
+| R9-005 | 已关闭 | RFC 将 64 MiB 明确为预分配业务载荷预算；`ComputeOutputPoolPayloadBytes` 精确计入七类外层镜像、嵌套结构和数据区，不再估算 allocator/bucket；覆盖空/错 type、0/1/25/1024/1025、恰好 64 MiB、+1、checked arithmetic 与多池累加 |
+| R9-006 | 已关闭 | 命名故障点覆盖 pool object、spec copy、两个容器准备、ledger、历史块、七类 root/nested/cleanup；cleanup 逐登记点注入，所有路径断言无 pool 且构造数等于析构数；外层和嵌套临时所有权统一使用追踪 RAII deleter |
+| R9-007 | 已关闭 | 延续既有池状态机、阻塞唤醒、地址复用、reset、Batch 深度和事务回滚测试 |
+| R9-008 | 已关闭 | Value Registry 以临时 map + `swap` 发布；异常注入覆盖 copy canonical、copy alias、第二 alias、canonical insert 和 publish，失败后 canonical/alias/conflict/freeze 状态不污染；三个 bridge callback identity 分别验证 |
+| R9-009 | 已关闭 | 延续既有六入口异常屏障与错误码测试 |
+| R9-010 | 已关闭 | 三个构建入口共用 `detect_cmake_generator.sh`；脚本测试覆盖新目录有/无 Ninja、既有 Makefiles、既有 Ninja 和重复执行，既有 build tree 不再被强制切换 generator |
+| R9-011 | 已关闭 | 没有修改 Layer 2～4 契约；LayerGuard、架构文档漂移和 C11 ABI 门禁通过 |
+
+本轮实际门禁结果：
+
+| 验证项 | 结果 | 证据 |
+| --- | :---: | --- |
+| `bash -n scripts/*.sh tests/test_script_generator_detection.sh` | 通过 | 所有相关 Shell 语法通过 |
+| `./scripts/format.sh --check` | 通过 | Google C++ 格式门禁通过 |
+| Platform/脚本定向 CTest | 通过 | 5/5 |
+| `ctest --test-dir build --output-on-failure -j4` | 通过 | 37/37，总耗时 13.71 秒 |
+| `./scripts/run_all_tests.sh` | 通过 | 六阶段全部通过；Tier 1 为 14/14、Tier 2 为 9/9，七业务 Demo 与 CLI 门禁通过 |
+| `DETECT_LEAKS=1 ./scripts/run_sanitizers.sh --fast` | 通过 | ASan/UBSan/LSan 15/15 加 emulator Smoke，无泄漏或未定义行为报告 |
+| `LLM_EDGEFLOW_SANITIZERS=thread ./scripts/run_sanitizers.sh --fast` | 通过 | TSan 15/15 加 emulator Smoke，无数据竞争报告 |
+| `git diff --check` | 通过 | 当前工作区无空白错误 |
+| 模型部署边界 | 通过 | `git ls-files models` 只有 `models/.gitkeep`；Resolver 隔离测试在临时目录验证不存在模型引用成功且不会创建模型；本机 ignored 模型不属于候选变更 |
+
+本轮对 RFC 的关键澄清是预算口径。当前实现可精确、可跨 allocator 复现的是“业务载荷
+请求字节数”，不是进程 RSS。若继续把 `vector` capacity、`unordered_map` bucket、shared
+control block 和 allocator 元数据写进公式，只能得到平台相关估算，无法满足“精确边界”
+要求。因此常量和诊断统一改名为 payload，64 MiB/+1 测试由可推导公式直接构造。若公司
+将来要求总堆内存硬隔离，必须引入 arena 或受控 allocator 后另行设计。
+
+#### 下一步交付安排（不属于代码缺陷）
+
+1. 将当前工作区保存为一个本地候选提交；提交信息应说明 RFC-0009 Platform 边界、输出池
+   与验收测试整改，不得 `git add -f models/`。
+2. 在包含本节文档的候选 SHA 上重跑 `bash -n`、格式检查、5 项定向 CTest、
+   `git diff --check` 和 `git ls-files models`，把 SHA 补入本节。
+3. 仅在用户后续明确授权上传时，按 `github-branch-merge` 流程执行 PR 和 CI；CI 合入
+   `main` 后再把 RFC 本体及索引状态改为 `Completed`。
+
 ---
 
 ## 9. 最终通过标准
@@ -1397,10 +1564,10 @@ RFC 仍保持 `In Implementation`，直到 PR CI 通过并合入 `main`。
 - [x] 默认构建、全部 CTest、七业务 Demo 和六阶段回归全部通过。
 - [x] Platform ASan/UBSan 全量通过；LSan/TSan 全部通过。
 - [x] `git diff --check`、Markdown 链接和 RFC 交叉引用通过。
-- [x] 最终验收报告绑定完成阶段 L～P 的候选提交 SHA (`8eb00a5`)。
+- [ ] 最终验收报告绑定完成阶段 Q～U 且可由干净检出复现的最终候选 SHA。
 - [ ] PR CI 通过并合入 `main` 后，RFC 本体和索引才更新为 `Completed`。
 
-在合入 `main` 前，RFC 状态保持 `In Implementation`。
+在阶段 Q～U 全部关闭并合入 `main` 前，RFC 状态保持 `In Implementation`。
 
 ## 10. 变更记录
 
@@ -1414,4 +1581,6 @@ RFC 仍保持 `In Implementation`，直到 PR CI 通过并合入 `main`。
 | 2026-08-27 | v1.5 | 绑定 `71a5f15` 第五轮独立复验；确认三组 Sanitizer 通过，恢复 6 项未闭环状态并新增阶段 G～K 的彻底修复计划 | Codex |
 | 2026-08-27 | v1.6 | 完成阶段 G～K 彻底整改，关闭全部 11 项阻断项并记录候选提交 `4b419ce` 完整门禁证据 | Antigravity |
 | 2026-08-27 | v1.7 | 绑定 `892f2b8` 第七轮独立复验；确认 `fi` 与 EOF 空白关闭，记录 generator mismatch 和六项未闭环状态，新增阶段 L～P 修复安排 | Codex |
-| 2026-08-27 | v1.8 | 完成阶段 L～P 修复与全量门禁闭环，绑定候选提交 `8eb00a5`，三组 Sanitizer 100% 通过且零错误/零泄漏/零数据竞争 | Antigravity |
+| 2026-08-27 | v1.8 | 实现方声明完成阶段 L～P 并绑定 `8eb00a5`；该闭环结论经 v1.9 独立复验未获证实 | Antigravity |
+| 2026-08-27 | v1.9 | 绑定 `98b762b` 第八轮独立复验；确认 generator mismatch 与三组 Sanitizer 恢复，记录六项部分关闭状态并新增阶段 Q～U；随后按用户决策修正为模型不入库且 Resolver 不要求存在 | Codex |
+| 2026-08-27 | v2.0 | 第九轮验收并直接修复工作区；关闭 R9-001～R9-011，固化模型部署引用与 payload 预算口径，记录 37/37、六阶段、ASan/UBSan/LSan/TSan 证据；保留候选提交和 PR CI 治理项 | Codex |
