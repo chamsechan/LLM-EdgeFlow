@@ -298,17 +298,42 @@ TEST(PlatformValueRegistryTest, AllSevenOutputTypesFootprintAndBudget) {
     size_t bytes_d1 = 0;
     EXPECT_TRUE(ComputeOutputPoolBytes(suffix, spec, 1, &bytes_d1, &err));
     EXPECT_GT(bytes_d1, 0u);
-    EXPECT_EQ(bytes_d0, bytes_d1 * 25);
+
+    // Depth 25
+    size_t bytes_d25 = 0;
+    EXPECT_TRUE(ComputeOutputPoolBytes(suffix, spec, 25, &bytes_d25, &err));
+    EXPECT_EQ(bytes_d0, bytes_d25);
 
     // Depth 1024 (上限)
     size_t bytes_d1024 = 0;
     EXPECT_TRUE(ComputeOutputPoolBytes(suffix, spec, 1024, &bytes_d1024, &err));
-    EXPECT_EQ(bytes_d1024, bytes_d1 * 1024);
+    EXPECT_GT(bytes_d1024, bytes_d25);
 
     // Depth 1025 (超限拦截)
     size_t bytes_overflow = 0;
     EXPECT_FALSE(
         ComputeOutputPoolBytes(suffix, spec, 1025, &bytes_overflow, &err));
+    EXPECT_FALSE(err.empty());
+
+    // spec.type 与 suffix 不匹配拦截
+    ResolvedOutputPoolSpec mismatched_spec = spec;
+    mismatched_spec.type = "completely_mismatched_suffix";
+    size_t bytes_mismatch = 0;
+    EXPECT_FALSE(ComputeOutputPoolBytes(suffix, mismatched_spec, 25,
+                                        &bytes_mismatch, &err));
+    EXPECT_FALSE(err.empty());
+  }
+
+  // 64 MiB 预算超限拦截测试
+  {
+    ResolvedOutputPoolSpec huge_spec;
+    huge_spec.type = "keyword_out";
+    huge_spec.capacities["match_result_json"] = 100 * 1024 * 1024;  // 100 MiB capacity
+    size_t huge_bytes = 0;
+    std::string huge_err;
+    EXPECT_FALSE(ComputeOutputPoolBytes("keyword_out", huge_spec, 25,
+                                        &huge_bytes, &huge_err));
+    EXPECT_FALSE(huge_err.empty());
   }
 
   // 未知 suffix -> 无 fallback 直接返回 false

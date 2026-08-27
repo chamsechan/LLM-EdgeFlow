@@ -51,6 +51,11 @@ int OutputPoolState::Create(const std::string& suffix, uint32_t depth,
     return -2;
   }
 
+  size_t estimated_bytes = 0;
+  if (!ComputeOutputPoolBytes(suffix, spec, depth, &estimated_bytes, err)) {
+    return -2;
+  }
+
   try {
     auto pool = std::shared_ptr<OutputPoolState>(new OutputPoolState());
     pool->canonical_suffix_ = suffix;

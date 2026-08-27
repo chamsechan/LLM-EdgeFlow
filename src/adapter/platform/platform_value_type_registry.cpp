@@ -122,14 +122,26 @@ void ResetNestedCompanyAny(CompanyAny* any) noexcept {
 bool ComputeOutputPoolBytes(const std::string& suffix,
                             const ResolvedOutputPoolSpec& spec, uint32_t depth,
                             size_t* out_bytes, std::string* err) noexcept {
-  if (!out_bytes) return false;
-  *out_bytes = 0;
-  if (depth == 0) {
-    depth = kDefaultOutputPoolDepth;
+  if (!out_bytes) {
+    if (err) *err = "Null out_bytes pointer";
+    return false;
   }
-  if (depth > kMaxOutputPoolDepth) {
+  *out_bytes = 0;
+
+  // 1. 校验 spec.type 与 suffix 必须严格一致 (R9-005)
+  if (!spec.type.empty() && spec.type != suffix) {
     if (err) {
-      *err = "Output pool depth " + std::to_string(depth) +
+      *err = "Output pool spec type '" + spec.type +
+             "' does not match requested suffix '" + suffix + "'";
+    }
+    return false;
+  }
+
+  // 2. 深度校验与归一化 (depth == 0 归一化为默认 25，上限 1024)
+  uint32_t effective_depth = (depth == 0) ? kDefaultOutputPoolDepth : depth;
+  if (effective_depth > kMaxOutputPoolDepth) {
+    if (err) {
+      *err = "Output pool depth " + std::to_string(effective_depth) +
              " exceeds max limit " + std::to_string(kMaxOutputPoolDepth);
     }
     return false;
@@ -250,7 +262,7 @@ bool ComputeOutputPoolBytes(const std::string& suffix,
     return false;
   }
 
-  // Add cleanup actions footprint + pool bookkeeping
+  // Add cleanup actions footprint + pool bookkeeping per block
   size_t cleanup_bytes = 0;
   if (!CheckedMultiply(cleanup_count, sizeof(CleanupAction), &cleanup_bytes) ||
       !CheckedAdd(single_block_bytes, cleanup_bytes, &single_block_bytes) ||
@@ -261,8 +273,19 @@ bool ComputeOutputPoolBytes(const std::string& suffix,
   }
 
   size_t total_pool_bytes = 0;
-  if (!CheckedMultiply(depth, single_block_bytes, &total_pool_bytes)) {
+  if (!CheckedMultiply(effective_depth, single_block_bytes,
+                       &total_pool_bytes) ||
+      !CheckedAdd(total_pool_bytes, 1024, &total_pool_bytes)) {
     if (err) *err = "Total pool memory calculation overflowed";
+    return false;
+  }
+
+  if (total_pool_bytes > kMaxHandlePoolMemoryBytes) {
+    if (err) {
+      *err = "Total pool memory (" + std::to_string(total_pool_bytes) +
+             " bytes) exceeds maximum allowed budget " +
+             std::to_string(kMaxHandlePoolMemoryBytes) + " bytes (64 MiB)";
+    }
     return false;
   }
 
