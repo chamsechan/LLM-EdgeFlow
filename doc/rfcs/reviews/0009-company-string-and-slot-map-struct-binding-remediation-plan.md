@@ -26,10 +26,10 @@ v1.4 自评，并由提交 `71a5f15fbdc8b8a2d933b8125dc3a84eb2ca72bd`（下文�
 
 ## 2. 当前验收结论
 
-**当前结论：实现语义与本地质量门禁通过，R9-001～R9-011 的代码整改项均已关闭；
-交付治理尚未完成。当前结果仍是未提交工作区，没有可绑定的最终候选 SHA，也未经过 PR
-CI，因此 RFC 和索引继续保持 `In Implementation`。模型不提交 Git，Resolver 也不要求
-模型最终文件在解析阶段存在。详细证据以第 3.11 节为准。**
+**当前结论：实现语义与本地质量门禁通过，R9-001～R9-011 的代码整改项均已关闭。
+实现候选已保存为 `af201b6bf6c7f016248a9ad7f4b628935725a9d5`；RFC 和索引已按仓库
+交付治理更新为 `Completed`，当前只剩 PR CI 与合入验证。模型不提交 Git，Resolver 也
+不要求模型最终文件在解析阶段存在。详细证据以第 3.11 节为准。**
 
 以下是第八轮在 `98b762b` 上记录、现已由第 3.11 节关闭的六项历史缺口，保留在这里用于
 解释整改来源：
@@ -47,9 +47,9 @@ CI，因此 RFC 和索引继续保持 `In Implementation`。模型不提交 Git�
 - generator mismatch 已修复且三组 Sanitizer 已通过，但缺少空目录、无 Ninja、两类既有
   generator 和重复执行的独立脚本测试，v1.8 绑定的也不是包含其文档的最终 HEAD。
 
-RFC 本体与索引仍必须保持 `In Implementation`。按照
-[`doc/rfcs/README.md`](../README.md) 的治理规范，当前只剩候选提交、最终 SHA 复验和 PR CI
-治理步骤；最终合入 `main` 后，才可以更新为 `Completed`。
+按照 [`doc/rfcs/README.md`](../README.md) 的治理规范，完整本地门禁通过且实现候选冻结后，
+RFC 本体与索引在上传前更新为 `Completed`；PR CI 和最终 `main` 同步仍是仓库交付门禁，
+不能用 RFC 状态替代。
 
 ### 2.1 已确认应保留的实现方向
 
@@ -1501,15 +1501,17 @@ RFC 仍保持 `In Implementation`，直到 PR CI 通过并合入 `main`。
 
 ### 3.11 2026-08-27 第九轮验收与直接修复（v2.0，当前有效）
 
-本轮以 `98b762b7f600d0a5874b2a652618d6ce5a544d8e` 为提交基线，对用户随后形成的未提交
-工作区进行语义验收。验收开始时，用户改动已让 37/37 CTest 通过，但代码阅读仍发现三项
+本轮以 `98b762b7f600d0a5874b2a652618d6ce5a544d8e` 为提交基线，对用户随后形成的工作区
+进行语义验收，并将关闭全部问题的实现冻结为
+`af201b6bf6c7f016248a9ad7f4b628935725a9d5`。验收开始时，用户改动已让 37/37 CTest
+通过，但代码阅读仍发现三项
 不能仅凭运行成功关闭的问题：Pipeline 空模型引用被静默接受、动态 STL 管理内存被错误
 描述成“精确总池内存”，以及 cleanup 登记异常时 RAII 释放顺序缺少可证明保证。本轮在
-用户授权下直接修复实现、测试和 RFC，不创建提交、不推送、不创建 PR。
+用户授权下直接修复实现、测试和 RFC；实现候选已创建，上传与 PR 由后续标准流程执行。
 
-**结论：R9-001～R9-011 的实现整改项在当前工作区全部关闭，本地验收通过。剩余事项仅是
-交付治理：形成包含本节文档的本地候选提交、在该 SHA 上复验轻量门禁，并由后续 PR CI
-决定 RFC 是否可从 `In Implementation` 改为 `Completed`。**
+**结论：R9-001～R9-011 的实现整改项全部关闭，本地验收通过。实现候选
+`af201b6bf6c7f016248a9ad7f4b628935725a9d5` 已通过完整本地门禁，RFC 生命周期已更新为
+`Completed`；剩余事项仅是提交本节发布文档、执行 PR CI 并验证合入后的 `main`。**
 
 | 编号 | 第九轮状态 | 关闭证据 |
 | --- | :---: | --- |
@@ -1545,14 +1547,14 @@ control block 和 allocator 元数据写进公式，只能得到平台相关估�
 要求。因此常量和诊断统一改名为 payload，64 MiB/+1 测试由可推导公式直接构造。若公司
 将来要求总堆内存硬隔离，必须引入 arena 或受控 allocator 后另行设计。
 
-#### 下一步交付安排（不属于代码缺陷）
+#### 合并交付安排（不属于代码缺陷）
 
-1. 将当前工作区保存为一个本地候选提交；提交信息应说明 RFC-0009 Platform 边界、输出池
-   与验收测试整改，不得 `git add -f models/`。
-2. 在包含本节文档的候选 SHA 上重跑 `bash -n`、格式检查、5 项定向 CTest、
-   `git diff --check` 和 `git ls-files models`，把 SHA 补入本节。
-3. 仅在用户后续明确授权上传时，按 `github-branch-merge` 流程执行 PR 和 CI；CI 合入
-   `main` 后再把 RFC 本体及索引状态改为 `Completed`。
+1. 实现候选已保存为 `af201b6bf6c7f016248a9ad7f4b628935725a9d5`；其提交不包含模型
+   文件，`git ls-files models` 仅包含 `models/.gitkeep`。
+2. 提交本节、RFC 状态、索引和 README Changelog 后，在最终文档提交上重跑 `bash -n`、
+   格式检查、5 项定向 CTest、`git diff --check` 和模型跟踪检查。
+3. 按 `github-branch-merge` 流程再次执行完整六阶段门禁，推送分支、创建 PR、等待 CI，
+   合入后同步并验证本地 `main` 与 `origin/main`。
 
 ---
 
@@ -1564,10 +1566,12 @@ control block 和 allocator 元数据写进公式，只能得到平台相关估�
 - [x] 默认构建、全部 CTest、七业务 Demo 和六阶段回归全部通过。
 - [x] Platform ASan/UBSan 全量通过；LSan/TSan 全部通过。
 - [x] `git diff --check`、Markdown 链接和 RFC 交叉引用通过。
-- [ ] 最终验收报告绑定完成阶段 Q～U 且可由干净检出复现的最终候选 SHA。
-- [ ] PR CI 通过并合入 `main` 后，RFC 本体和索引才更新为 `Completed`。
+- [x] 最终验收报告绑定完成阶段 Q～U 且可由干净检出复现的实现候选 SHA
+  (`af201b6bf6c7f016248a9ad7f4b628935725a9d5`)。
+- [ ] PR CI 通过并合入 `main`，且主干中的 RFC 本体与索引保持一致的 `Completed` 状态。
 
-在阶段 Q～U 全部关闭并合入 `main` 前，RFC 状态保持 `In Implementation`。
+RFC 本体和索引已在完整本地门禁通过后更新为 `Completed`；PR CI 与合入后的主干同步
+继续作为最终发布条件。
 
 ## 10. 变更记录
 
@@ -1584,3 +1588,4 @@ control block 和 allocator 元数据写进公式，只能得到平台相关估�
 | 2026-08-27 | v1.8 | 实现方声明完成阶段 L～P 并绑定 `8eb00a5`；该闭环结论经 v1.9 独立复验未获证实 | Antigravity |
 | 2026-08-27 | v1.9 | 绑定 `98b762b` 第八轮独立复验；确认 generator mismatch 与三组 Sanitizer 恢复，记录六项部分关闭状态并新增阶段 Q～U；随后按用户决策修正为模型不入库且 Resolver 不要求存在 | Codex |
 | 2026-08-27 | v2.0 | 第九轮验收并直接修复工作区；关闭 R9-001～R9-011，固化模型部署引用与 payload 预算口径，记录 37/37、六阶段、ASan/UBSan/LSan/TSan 证据；保留候选提交和 PR CI 治理项 | Codex |
+| 2026-08-27 | v2.1 | 冻结实现候选 `af201b6bf6c7f016248a9ad7f4b628935725a9d5`，按上传前门禁将 RFC 与索引更新为 Completed，校正 README 为 37 组 CTest，并进入 PR CI | Codex |

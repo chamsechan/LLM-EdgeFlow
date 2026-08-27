@@ -2,7 +2,7 @@
 
 - **RFC 编号**：0009-company-string-and-slot-map-struct-binding
 - **创建日期**：2026-08-26
-- **文档状态**：In Implementation
+- **文档状态**：Completed
 - **关联分支**：`feat/company-string-and-slot-map-struct-binding`
 - **目标版本**：v3.0.0
 - **负责人 / 作者**：LLM-EdgeFlow Team
@@ -1030,7 +1030,8 @@ RFC-0004 除以下重叠内容外继续有效：
 5. [x] **Operator 与 Demo 迁移**：演进 CreateParam、空输出槽位和结果释放流程。
 6. [x] **测试门禁**：补齐 GTest/C11 测试，执行格式、CTest、回归和 Sanitizer。
 7. [x] **ABI 发布隔离**：提升 SOVERSION 或落地版本化 Getter，验证错误组合不能部署。
-8. [ ] **完成闭环**：更新 RFC 状态、README Changelog，走标准分支 PR 流程。
+8. [x] **完成闭环**：更新 RFC 状态、索引和 README Changelog，进入标准分支 PR/CI
+   交付门禁。
 
 ### 15.1 实施前必须冻结的评审决策
 
@@ -1095,3 +1096,4 @@ RFC-0004 除以下重叠内容外继续有效：
 | 2026-08-27 | v0.6 | 第八轮独立复验确认生成器兼容与三组 Sanitizer 已恢复，但模型存在性边界、七业务字段证据、精确预算、完整故障点和异常注入仍未闭环 | LLM-EdgeFlow Team |
 | 2026-08-27 | v0.7 | 按公司部署约束修正路径契约：模型不提交 Git，Resolver 只做根目录内安全归一化，不要求模型文件存在 | LLM-EdgeFlow Team |
 | 2026-08-27 | v0.8 | 固化 64 MiB 为可证明的预分配业务载荷预算，补齐模型引用、七业务字段、故障回滚、Registry 发布和 generator 隔离测试；本地实现验收通过，状态仍待候选提交与 PR CI | LLM-EdgeFlow Team |
+| 2026-08-27 | v0.9 | 实现候选 `af201b6bf6c7f016248a9ad7f4b628935725a9d5` 通过 37/37 CTest、六阶段回归及既有 Sanitizer 门禁；RFC 生命周期更新为 Completed，进入 PR CI | LLM-EdgeFlow Team |

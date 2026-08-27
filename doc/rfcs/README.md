@@ -72,7 +72,7 @@ doc/rfcs/NNNN-<kebab-case-title>.md
 | **RFC-0006** | 图形化算法方案工作台与 Catalog/Validator 单一事实源 | `Completed` | `v1.5.0` | Layer 1 ~ Layer 4 / Tooling | [0006-visual-pipeline-studio.md](0006-visual-pipeline-studio.md) |
 | **RFC-0007** | 全库 Pipeline 配置文件显式 DAG 标准化与旧式配置维护解耦 | `Completed` | `v1.6.0` | Layer 2 ~ Layer 3 / Tooling | [0007-explicit-dag-standardization-and-legacy-deprecation.md](0007-explicit-dag-standardization-and-legacy-deprecation.md) |
 | **RFC-0008** | 架构契约收敛与文档一致性修复 | `Completed` | `v2.1.0` | Layer 1 ~ Layer 4 / Tooling | [0008-architecture-contract-consolidation.md](0008-architecture-contract-consolidation.md) |
-| **RFC-0009** | 公司平台 C 结构体槽位绑定与输出内存池 | `In Implementation` | `v3.0.0` | Layer 1 (Platform Operator) / Demo | [0009-company-string-and-slot-map-struct-binding.md](0009-company-string-and-slot-map-struct-binding.md) |
+| **RFC-0009** | 公司平台 C 结构体槽位绑定与输出内存池 | `Completed` | `v3.0.0` | Layer 1 (Platform Operator) / Demo | [0009-company-string-and-slot-map-struct-binding.md](0009-company-string-and-slot-map-struct-binding.md) |
 
 ---
 

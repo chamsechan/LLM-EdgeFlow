@@ -182,7 +182,7 @@ LLM-EdgeFlow/
   - 🔌 **平台 Operator 接口 ABI v3 升级 (`include/platform/platform_operator_interface.h`)**：`CreateParam` 升级支持 `model_path` + `cfg_file_name` 双路径解耦与目录穿越/逃逸安全校验；移除废弃的 `depth_num` 与裸函数指针内存分配器；导出 `ValidatePlatformConfigBinding` 双路径公开预检 API 与 `MakeBorrowedPlatformInput` 零拷贝借用助手；`SOVERSION` 升级为 3。
   - 🏷️ **平台值类型注册中心与业务桥接中心 (`PlatformValueTypeRegistry` & `PlatformBusinessBridgeRegistry`)**：构建 17 种标准类型规范后缀（`string`, `buffer`, `frame`, `od_out`, `*_in`, `*_out` 等）的单一事实源；7 个业务桥接器模块化独立拆分，统一管理多槽位逻辑名映射、类型校验与局部影子 DTO 内存池。
   - 🏊 **会话级预分配输出内存池与弱引用安全 Deleter (`PlatformOutputPool`)**：基于 `data.mem_que` 配置在 `Platform_Create` 预分配固定深度输出内存块；`Platform_Process` 租用块并在成功时交付包装 `OutputPoolDeleter` 的 `std::shared_ptr<void>`；内存池耗尽时自适应阻塞与条件变量唤醒；句柄释放时安全 Drain，违规提前销毁返回 `-1` 并通过弱引用保障下游安全无野指针。
-  - 🧪 **全量 Google Test 单元测试与端到端回归**：更新 `test_platform_operator`、`test_c11_abi_compliance`、`test_doc_qa_rerank` 与 `test_demo_runner`，33 组 CTest 100% 通过，6 阶段回归门禁 100% 通过。
+  - 🧪 **全量 Google Test 单元测试与端到端回归**：更新 Platform Operator、输出池、值类型与业务桥接测试，并覆盖 C11 ABI、Demo 和脚本生成器隔离，37 组 CTest 100% 通过，6 阶段回归门禁 100% 通过。
 - **v1.5.0 (图形化算法方案工作台与配置编排闭环 - RFC 0006)** *(2026-08)*
   - 🧭 **运行时 Catalog/Definition**：节点与引擎构造器同步注册 Definition，导出业务 Adapter ingress/egress、类型化端口、配置约束、模型能力与并行安全信息；新增节点可自动出现在 CLI 和 Web。
   - ✅ **统一静态 Validator 与 CLI**：`Pipeline::Build` 在模型加载前复用无副作用预检；新增 `alg_pipeline_tool` 的 `catalog`、`describe-node`、`init`、`normalize`、`validate`、`plan` 六类版本化 JSON 命令。
