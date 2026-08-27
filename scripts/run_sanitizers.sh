@@ -19,6 +19,7 @@ if [[ $# -eq 1 ]]; then
       exit 2
       ;;
   esac
+fi
 BUILD_DIR_TAG="${SANITIZERS//,/-}"
 BUILD_DIR="${PROJECT_ROOT}/build-sanitizers-${BUILD_DIR_TAG}-${MODE}"
 
