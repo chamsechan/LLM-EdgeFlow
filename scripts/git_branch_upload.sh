@@ -53,7 +53,11 @@ if [ -f "./scripts/run_all_tests.sh" ]; then
 else
     # Fallback to CTest in build directory
     if [ -d "./build" ]; then
-        cd build && cmake .. && make -j4 && ctest --output-on-failure && cd ..
+        CMAKE_GEN_ARGS=()
+        if command -v ninja >/dev/null 2>&1; then
+            CMAKE_GEN_ARGS=(-G Ninja)
+        fi
+        cd build && cmake -DLLM_EDGEFLOW_USE_CCACHE=ON "${CMAKE_GEN_ARGS[@]}" .. && cmake --build . -j"$(nproc)" && ctest -j"$(nproc)" --output-on-failure && cd ..
     fi
 fi
 echo "✓ [TEST GATE PASSED] All test suites and CTest passed 100%!"

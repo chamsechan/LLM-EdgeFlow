@@ -47,6 +47,9 @@ COMMON_CMAKE_ARGS=(
   -DLLM_EDGEFLOW_SANITIZERS="${SANITIZERS}"
   -DLLM_EDGEFLOW_USE_CCACHE=ON
 )
+if command -v ninja >/dev/null 2>&1; then
+  COMMON_CMAKE_ARGS+=(-G Ninja)
+fi
 if [[ "${MODE}" == "fast" ]]; then
   COMMON_CMAKE_ARGS+=(
     -DENABLE_LLAMACPP=OFF
@@ -81,9 +84,9 @@ if [[ "${MODE}" == "fast" ]]; then
     test_typed_blackboard_contracts
     test_validated_pipeline_plan
   )
-  cmake --build "${BUILD_DIR}" --target "${FAST_TARGETS[@]}" -j4
+  cmake --build "${BUILD_DIR}" --target "${FAST_TARGETS[@]}" -j"$(nproc)"
 else
-  cmake --build "${BUILD_DIR}" -j4
+  cmake --build "${BUILD_DIR}" -j"$(nproc)"
 fi
 
 if [[ "${SANITIZERS}" == *"thread"* ]]; then
@@ -120,10 +123,10 @@ if [ "${MODE}" == "fast" ]; then
     FAST_TEST_REGEX="^(BatchExecutorTest|FrameworkCoreTest|CAbiSafetyTest|ConcurrencyAndEdgeCasesTest|AdapterContractSecurityTest|PipelineConfigTest|PipelineStudioTest|PlatformOperatorTest|PlatformOutputPoolTest|PlatformValueRegistryTest|PlatformBusinessBridgeRegistryTest|TypedBlackboardContractsTest|ValidatedPipelinePlanTest|NodeBaseContractsTest|DefinitionSchemaValidationTest)$"
   fi
   echo ">>> [1/2] Running fast sanitized test suites: ${FAST_TEST_REGEX} <<<"
-  "${ARCH_PREFIX[@]}" ctest --test-dir "${BUILD_DIR}" -R "${FAST_TEST_REGEX}" --output-on-failure
+  "${ARCH_PREFIX[@]}" ctest --test-dir "${BUILD_DIR}" -j"$(nproc)" -R "${FAST_TEST_REGEX}" --output-on-failure
 else
   echo ">>> [1/2] Running full sanitized CTest suite with [${SANITIZERS}] <<<"
-  "${ARCH_PREFIX[@]}" ctest --test-dir "${BUILD_DIR}" --output-on-failure
+  "${ARCH_PREFIX[@]}" ctest --test-dir "${BUILD_DIR}" -j"$(nproc)" --output-on-failure
 fi
 
 if [[ "${MODE}" == "fast" ]]; then

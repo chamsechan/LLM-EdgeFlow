@@ -73,12 +73,12 @@
 ## 🚀 快速开始 (Quick Start)
 
 ```bash
-# 1. 编译工程 (自动拉取 GTest, ONNX Runtime 与 llama.cpp)
-mkdir -p build && cd build
-cmake .. && make -j4
+# 1. 编译工程 (Ninja + ccache 并行加速，自动拉取 GTest, ONNX Runtime 与 llama.cpp)
+cmake -B build -G Ninja -DLLM_EDGEFLOW_USE_CCACHE=ON
+cmake --build build -j$(nproc)
 
-# 2. 自动化执行全量测试套件 (23 组 CTest & Google Test)
-ctest --output-on-failure
+# 2. 并行自动化执行全量测试套件 (36 组 CTest & Google Test 并行执行)
+ctest --test-dir build -j$(nproc) --output-on-failure
 
 # 3. 运行 7 大业务端到端全链路集成演示 (默认 Smoke 组合)
 ./alg_demo
