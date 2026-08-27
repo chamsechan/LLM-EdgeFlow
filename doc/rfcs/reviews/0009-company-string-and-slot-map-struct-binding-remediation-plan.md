@@ -11,7 +11,9 @@
 `feat/company-string-and-slot-map-struct-binding` 工作区的静态审查、常规回归和定向
 Sanitizer 验证编写，首轮审查基线为 `7681cec`。2026-08-27 对整改提交
 `11004acd217c46ffd3b11718f78dcbad9c73df25`（下文简称 `11004ac`）完成第二轮复验，
-本文已同步记录本轮已关闭项、剩余阻断项和下一轮执行顺序。
+2026-08-27 又对第三轮实现快照
+`0309676391c6d04f5df60680874e6e398511d424`（下文简称 `0309676`）完成复验。本文当前结论、
+证据和执行规划均以 `0309676` 为准；第二轮内容只保留为历史记录。
 
 本文只授权后续修改 Layer 1 Platform Adapter、Platform Demo、部署配置和对应测试；
 不得借整改之机修改内部七类 DTO、Blackboard、Pipeline、Node、Engine 或
@@ -21,11 +23,11 @@ Sanitizer 验证编写，首轮审查基线为 `7681cec`。2026-08-27 对整改�
 
 **结论：不通过，不能认定当前实现已经完全满足 RFC-0009。**
 
-`11004ac` 已修复首轮发现的输入影子存储地址稳定性、输出两阶段发布、`CompanyAny`
-类型白名单与尺寸方程等关键问题，常规构建、35 项 CTest、六阶段回归和当前可执行的
-Platform ASan/UBSan 定向测试均通过。但是，Create 分配失败回滚、资源路径沙箱、总内存
-预算、输出池运行期状态校验、Registry 冲突/冻结/自注册和完整 Sanitizer 证据仍未满足
-RFC。因此，“能够运行”和“现有测试通过”仍不能替代 RFC 契约验收。
+`0309676` 继续完成了固定容量空闲环、自注册 bridge、路径 helper 异常屏障、深度硬上限和
+部分故障注入测试。常规构建、35 项 CTest、六阶段回归和 Platform ASan/UBSan/LSan 定向
+测试均通过。但是，实际深度下的总池预算、Create 强异常安全、Acquire 后 lease 跟踪、
+模型路径完整约束、Registry 类型一致性、公开别名契约及完整 LSan/TSan 证据仍未关闭。
+因此第三轮结论继续为“不通过”，不能采用 v1.2 的“全面关闭”自评声明。
 
 RFC-0009 和 RFC 索引当前不应标记为 `Completed`。按照
 [`doc/rfcs/README.md`](../README.md) 的生命周期定义，只有实现完整、全部测试门禁通过、
@@ -39,7 +41,10 @@ PR 已合入 `main` 后才可更新为 `Completed`。
 - 输入 map 使用 `.get()` 读取，现有路径未跨调用保存输入 `shared_ptr` 副本。
 - 输出 map 的缺 Key、额外 Key、重复后缀、非空占位可以 fail-closed。
 - 输出池支持默认深度 25、地址复用、池耗尽阻塞和归还后唤醒。
+- 空闲块已经改为 Create 阶段预分配的固定容量环，Return 正常路径不再扩容。
 - 输出 deleter 使用 weak pool lifetime token；Destroy 后晚到的 deleter 可以 no-op。
+- 七个业务 bridge 已删除中心注册调用清单并改为实现文件就地自注册。
+- `CompanyAny` 已使用集中白名单、尺寸方程和类型正确的 metadata data 销毁。
 - 同句柄 Process/Control 串行化，不同句柄可并行。
 - Demo 已迁移到新的 Platform Operator 调用模型，并按正确顺序释放输出。
 
@@ -49,23 +54,21 @@ PR 已合入 `main` 后才可更新为 `Completed`。
 
 | 验证项 | 结果 | 说明 |
 | --- | :---: | --- |
-| 审查基线 | 已绑定 | `11004acd217c46ffd3b11718f78dcbad9c73df25` |
-| `./scripts/format.sh --check` | 通过 | `11004ac` 工作区格式检查通过 |
+| 审查基线 | 已绑定 | `0309676391c6d04f5df60680874e6e398511d424` |
+| `./scripts/format.sh --check` | 通过 | `0309676` 格式检查通过 |
 | 默认构建 | 通过 | `cmake -S . -B build`、`cmake --build build -j4` 通过 |
 | C11/LayerGuard/Platform 定向测试 | 通过 | 5/5 |
-| 全量 CTest | 通过 | 35/35，耗时约 132 秒 |
+| 全量 CTest | 通过 | 35/35，耗时 133.97 秒 |
 | `./scripts/run_all_tests.sh` | 通过 | 六阶段回归通过 |
-| `run_sanitizers.sh --fast` | 通过但覆盖不足 | 12 项 Core 测试和 Smoke Demo；脚本未覆盖 Platform 测试 |
-| Platform ASan/UBSan 定向测试 | 通过 | Operator、OutputPool、ValueRegistry 共 3/3；Operator 完整 21 项均执行 |
-| Platform `detect_leaks=1` 定向测试 | 通过但覆盖不足 | 同上 3/3；未注入分配失败，不能证明 Create 回滚无泄漏 |
-| LSan 完整门禁 | 未验证 | `scripts/run_sanitizers.sh` 仍显式设置 `detect_leaks=0` |
-| TSan | 未验证 | CMake 拒绝 `LLM_EDGEFLOW_SANITIZERS=thread`，无法形成可复现记录 |
-| `git diff --check` | 通过 | 复验结束时工作区干净 |
+| `run_sanitizers.sh --fast` 默认模式 | 通过 | ASan/UBSan 15/15 和 Smoke；默认 `detect_leaks=0` |
+| Platform `detect_leaks=1` 定向测试 | 通过 | Operator、OutputPool、ValueRegistry 共 3/3 |
+| fast `detect_leaks=1` 完整门禁 | 失败 | 14/15；VisualizerServerTest 的 Python 运行时报告 35345 字节泄漏 |
+| TSan | 未验证 | CMake 拒绝 `LLM_EDGEFLOW_SANITIZERS=thread`，配置失败 |
+| `git diff --check` | 通过 | 候选实现提交前差异检查通过 |
 
-首轮 `MemQueConfigValidationFailClosed` 中 `root.string().c_str()` 临时对象造成的
-heap-use-after-free 已修复，Platform Operator 在 ASan/UBSan 下已完整通过 21/21。该修复
-关闭的是测试夹具问题，不代表 Create 分配失败、池队列并发或 Registry 冻结等尚未覆盖的
-路径已经获得 Sanitizer 证明。
+Platform 三个专项测试在 leak detection 下通过，说明已覆盖路径未发现直接泄漏；但当前
+故障探针不能触发 cleanup sidecar 扩容、OutputPool 预留和 lease 跟踪扩容，不能据此证明
+“任意位置失败均零泄漏”。完整 leak 门禁也仍失败，TSan 仍没有可执行证据。
 
 ## 3. 阻断项总表
 
@@ -81,6 +84,7 @@ heap-use-after-free 已修复，Platform Operator 在 ASan/UBSan 下已完整通
 | R9-008 | P1 | Registry Init 审计不完整 | 不完整绑定延迟到 Create 才失败 | canonical/alias、方向、函数集、业务一致性在 Init 原子审计并返回 `-6` |
 | R9-009 | P2 | 七业务由中心列表手工注册 | 新业务易漏登记，偏离自注册设计 | bridge 与实现文件就地自注册，中心不维护七业务清单 |
 | R9-010 | P1 | RFC 状态和测试勾选超前 | 交付证据不可信 | 状态恢复为 `In Implementation`；所有勾选项绑定真实测试记录，合入 main 后再 Completed |
+| R9-011 | P1 | 实现注册的兼容别名与 RFC 映射表不一致 | 公司平台按文档发送 Key 时被拒绝，未声明 Key 被意外接受 | 实现严格采用 RFC 表，或先评审修改 RFC；建立全表参数化测试 |
 
 P0/P1 全部关闭之前不得进入最终验收。R9-009 若决定保留中心注册，必须先修改 RFC，
 说明选择、风险和约束；不能让实现与文档长期分叉。
@@ -155,6 +159,43 @@ P0/P1 全部关闭之前不得进入最终验收。R9-009 若决定保留中心�
   同时关闭 leak detection 且不包含 Platform Operator/Pool/ValueRegistry。
 - 在工具链和脚本真正覆盖这些目标前，相关项必须标记为未验证，不得用 Core fast 结果
   代替 Platform 验收。
+
+### 3.3 2026-08-27 第三轮复验状态
+
+本节是当前有效状态，取代 v1.2 的“全面关闭 R9-001～R9-010”声明。
+
+| 编号 | `0309676` 状态 | 已完成 | 仍需关闭 |
+| --- | :---: | --- | --- |
+| R9-001 | 部分关闭 | Shadow 字符串和 PCM backing storage 已使用地址稳定容器 | 只新增 Keyword 短字符串测试；仍缺 DocQA、Audit、OCR、Rerank、多字段和最大 Batch 实际读取 |
+| R9-002 | 部分关闭 | pending 控制块和最终移动发布可保持外部 output 原子性 | Acquire 后第一次 `lease_guard.Track()` 可能分配失败而丢块；故障注入仅覆盖两帧的第二个控制块 |
+| R9-003 | 部分关闭 | helper 已捕获 filesystem 异常，并拒绝 cfg 的 POSIX/drive/UNC/`..` | Pipeline 原始绝对模型路径仍可在根内被接受；模型路径不检查存在性和文件类型；缺完整路径矩阵 |
+| R9-004 | 已关闭 | `CompanyAny` 白名单、尺寸方程、checked multiply 和 metadata 类型化分配已实现 | 保持单一类型表，不在 Resolver 或 bridge 另写类型 switch |
+| R9-005 | 未关闭 | 单字段容量、metadata 数量和深度 1024 上限已实现 | 总池预算仍固定按 25 计算，未使用实际深度，也未完整计入嵌套结构及池管理开销 |
+| R9-006 | 未关闭 | `OwnedExternalBlock` 已有 move-only 析构回滚，typed delete 已修正 | `new` 与 cleanup 登记之间仍有泄漏窗口；pool reserve/resize 在 try 外；故障注入未覆盖这些位置 |
+| R9-007 | 部分关闭 | Return ledger 和固定容量 free ring 已实现，Return 正常路径不再扩容 | Acquire 在验证 ledger 前已移动 head/减少 count；Track 尚未预分配，异常时账本无法自动恢复 |
+| R9-008 | 未关闭 | bridge registry 已加锁并在 Init 后拒绝注册；基础方向/factory 审计存在 | 描述符没有内部 DTO 类型；未校验 biz_name 与 Adapter Definition；重复描述符不比较转换函数；Value Registry 冻结不具备线程安全和幂等性 |
+| R9-009 | 已关闭 | 中心 `RegisterBuiltinBridges()` 已删除，七个 bridge 编译单元就地自注册 | 增加“缺任一编译单元则 Init 失败”的发现性测试，防止构建列表回归 |
+| R9-010 | 未关闭 | RFC 和索引状态保持 `In Implementation`，默认 ASan/UBSan 已覆盖 Platform 测试 | RFC 仍超前勾选任意失败回滚、LSan、TSan 和完成闭环；完整 leak 门禁失败，TSan 不可配置 |
+| R9-011 | 未关闭 | canonical suffix 基本一致 | `string/buffer/any` 多出未声明别名，`frame/keyword/audit/audio/rerank` 等别名与 RFC 表不同 |
+
+第三轮没有发现需要回退 Layer 2～Layer 4 的理由。整改仍应严格限制在 Layer 1 Platform
+Adapter、Platform 测试、Sanitizer 脚本和 RFC 文档；R9-004 与 R9-009 的主体实现不应重做。
+
+### 3.4 第三轮关键代码证据
+
+1. `company_conf_resolver.cpp:494-497` 使用 `kDefaultOutputPoolDepth` 计算总预算，而
+   `platform_operator_adapter.cpp:177-183,241-243` 实际允许并分配最多 1024 个块。
+2. `platform_value_type_registry.cpp:35-42` 和各输出 root allocator 均在 `new` 后调用
+   `cleanups.push_back`；sidecar 扩容异常时新对象尚未被 RAII 记录。
+3. `platform_output_pool.cpp:52-61` 的 pool 创建和 reserve/resize 位于 try 之外；
+   `platform_operator_adapter.cpp:492-499` 在 Acquire 后才向未预留的 lease vector 登记。
+4. `company_conf_resolver.cpp:571-591` 允许根内绝对 Pipeline 模型路径，并对模型资源使用
+   `check_exists=false`；新增路径测试只修改 `cfg_file_name`。
+5. `platform_business_bridge_registry.h:97-101` 的相等比较不包含转换函数和 DTO 类型；
+   `GlobalInit` 没有 bridge/Adapter Definition 业务名与 DTO 交叉审计。
+6. `platform_value_type_registry.cpp:359-400` 及后续注册的 aliases 与 RFC-0009 6.3 表格不一致。
+7. `DETECT_LEAKS=1 ./scripts/run_sanitizers.sh --fast` 因 VisualizerServerTest 的 Python
+   运行时泄漏失败；CMake 仍拒绝 `LLM_EDGEFLOW_SANITIZERS=thread`。
 
 ## 4. 不得破坏的设计不变量
 
@@ -723,11 +764,218 @@ git diff --check
 建议将前四步拆成独立提交，Registry 与测试/文档分别提交，使每个提交都能通过默认构建
 和受影响的定向测试；最终再执行全量门禁。
 
+### 8.2 基于 `0309676` 的可实施修复规划
+
+以下阶段按依赖顺序执行。每一阶段完成后先运行受影响的 Platform 测试；前一阶段没有
+满足关闭条件时，不应提前更新 RFC 勾选项。
+
+#### 阶段 A：关闭分配与 lease 强异常安全（R9-002、R9-006、R9-007）
+
+涉及文件：
+
+- `src/adapter/platform/platform_value_type_registry.{h,cpp}`；
+- `src/adapter/platform/platform_output_pool.{h,cpp}`；
+- `src/adapter/platform_operator_adapter.cpp`；
+- `tests/test_platform_output_pool.cpp`、`tests/test_platform_operator.cpp`。
+
+实施步骤：
+
+1. 将 `std::vector<std::function<void()>> cleanups` 替换为不需要单独分配控制块的
+   move-only cleanup record，例如 `void* + noexcept function pointer`。allocator 在分配前
+   `reserve` 精确 cleanup 数量；每次 `new` 后的 cleanup 登记必须保证不抛异常。
+2. 所有 root、`CompanyString`、字符数组、`CompanyAny` 和 metadata data 都先由局部
+   `unique_ptr` 持有；只有 cleanup record 成功登记后才 release。不得存在裸指针从 `new`
+   返回到登记之间无人持有的语句区间。
+3. 把 `OutputPoolState` 创建、`all_blocks_.reserve`、`free_ring_.resize` 和
+   `block_states_.reserve` 全部放进同一个 try；函数入口先将 `*out_pool` 置空，所有
+   `bad_alloc` 稳定映射为 `-4`。
+4. `DestroyBlocks()` 继续逐块隔离异常，同时调用注册契约中的 `destroy_external`；
+   `OwnedExternalBlock::Destroy()` 作为幂等兜底，不能让注册的 destroy 函数成为死字段。
+5. 为 `ScopedOutputLeaseGuard` 增加 `Reserve(size_t)`；根据所有
+   `frame_out_bindings` 的总数，在第一次 Acquire 前同时 reserve lease 和
+   `acquired_blocks`。reserve 失败时还没有检出任何块。
+6. Acquire 先读取 ring 元素并校验非空、归属和 `kFree` 状态，全部成功后才移动 head、
+   减少 free count 并增加 checked-out count；任何非法状态都不得改变队列和账本。
+7. 控制块故障探针覆盖第一、中间和最后一个输出；每次失败后断言全部 output 为空、
+   `free_count == depth`、`checked_out == 0`，且下一批可复用全部地址。
+
+测试要求：
+
+- 对七种输出 allocator 的 root、每个嵌套对象、data、cleanup 登记、当前块提交和第 N 个
+  块分别故障注入；
+- 对 pool object、三个 reserve/resize、lease reserve 和 pending reserve 分别注入；
+- 在 Platform `detect_leaks=1` 下零泄漏、零 UAF、零 double-free；
+- 重复归还、foreign block、错误 ledger 和计数下溢均不改变 free ring。
+
+关闭标准：不存在 Acquire 成功后无人持有归还责任的路径；任意 Create 分配失败返回
+`-4`、`*handle == nullptr`，且所有已完成块和当前半成品均被释放。
+
+建议提交：`fix(platform): make pool allocation and leases strongly exception safe`。
+
+#### 阶段 B：按实际深度执行单句柄内存预算（R9-005）
+
+涉及文件：
+
+- `src/adapter/platform/company_conf_resolver.{h,cpp}`；
+- `src/adapter/platform/platform_value_type_registry.{h,cpp}`；
+- `src/adapter/platform_operator_adapter.cpp`；
+- `tests/test_platform_operator.cpp`。
+
+实施步骤：
+
+1. 增加唯一的 `ComputeOutputPoolBytes(suffix, spec, depth, out_bytes, err)`，所有加法和乘法
+   使用 `CheckedAdd/CheckedMultiply`。
+2. 预算至少包含 root struct、每个 `CompanyString` struct、每个 `capacity + 1` data、
+   `CompanyAny` struct、metadata payload、raw block/ring/ledger 的确定性管理开销。若决定只
+   限制 payload，必须先在 RFC 明确预算口径，不能仍称“总池内存”。
+3. 将实际 `effective_depth` 传给 Resolver，或在 Resolver 返回后、创建 Runtime 前执行预算
+   校验。不得继续乘固定默认值 25，也不得等 Runtime/模型加载后才失败。
+4. 当前每业务只有一个输出池，但计算接口按所有 output slots 求和，为未来多输出保持
+   正确；总和超过 `kMaxHandlePoolMemoryBytes` 返回 `-2`。
+
+测试要求：
+
+- depth 为 0、1、1024、1025；
+- 每个容量默认值、硬上限、硬上限加一；
+- 总预算恰好等于上限、上限加一；
+- `depth * block_bytes` 和多池累加溢出；
+- 证明预算失败发生在 Runtime 创建和 pool allocation 之前。
+
+关闭标准：任意被接受的配置按实际深度计算后不超过单句柄预算，超限稳定返回 `-2`。
+
+建议提交：`fix(platform): enforce pool budget with effective frame depth`。
+
+#### 阶段 C：完成单一部署根路径契约（R9-003）
+
+涉及文件：
+
+- `src/adapter/platform/company_conf_resolver.{h,cpp}`；
+- `tests/test_platform_operator.cpp`；
+- 必要时仅调整 Platform 测试 fixture，不修改 Pipeline/Core/Engine。
+
+实施步骤：
+
+1. 在对 Pipeline JSON 应用 `.conf` override 前，先验证所有原始资源值必须为相对路径；
+   POSIX absolute、Windows drive/root、UNC 和任何 lexical `..` 逃逸直接返回 `-2`。
+2. 原始相对值统一通过 `root / relative -> canonical/weakly_canonical -> 组件级 containment`
+   解析。被 `.conf` 覆盖后产生的内部绝对路径通过单独的“已规范化结果”函数校验，不能用
+   该内部路径反向证明原始绝对输入合法。
+3. cfg 和 Pipeline 文件必须存在且是 regular file。模型文件存在性目前与 mock engine
+   配置存在冲突：执行编码前必须二选一并写入 RFC：
+   - 推荐生产契约：Platform Create 要求模型文件存在，测试 fixture 提供受控占位资源；
+   - 若保留 emulator 缺文件能力：仅对明确列出的 emulator engine 允许不存在，同时仍
+     校验其最近存在父目录和 symlink containment，正式 backend 一律要求 regular file。
+4. 删除任何以 conf 所在目录作为第二根的回退；错误诊断必须指出字段名和拒绝原因。
+
+测试要求：对 cfg、pipe_path、单 model_path、model_paths 和 Pipeline 原始 model_path
+分别覆盖正常相对路径、两种 `..`、POSIX absolute、drive、UNC、根内/根外 symlink、
+不存在、目录冒充文件、权限错误及 `/root/a` 与 `/root/ab` 前缀混淆。Create 和
+`ValidatePlatformConfigBinding` 必须返回相同分类。
+
+关闭标准：所有外部资源值只有一个部署根解释；原始绝对路径不存在“根内可接受”旁路。
+
+建议提交：`fix(platform): complete model-root path confinement`。
+
+#### 阶段 D：收敛 Registry 与公开后缀契约（R9-008、R9-009、R9-011）
+
+涉及文件：
+
+- `src/adapter/platform/platform_business_bridge_registry.{h,cpp}`；
+- `src/adapter/platform/platform_value_type_registry.{h,cpp}`；
+- `src/adapter/platform/business_bridges/*.cpp`；
+- `tests/test_platform_value_registry.cpp`，并建议新增独立
+  `tests/test_platform_business_bridge_registry.cpp`。
+
+实施步骤：
+
+1. 给 bridge descriptor 增加 `internal_input_type_name`、`internal_output_type_name` 和稳定的
+   registration identity。每个 bridge 使用对应 `AdapterDescriptor` 的实际 DTO 名称。
+2. GlobalInit 校验 BizType、bridge `biz_name` 命中 Adapter 的 BusinessDefinition、内部 DTO
+   类型一致、canonical suffix、方向、logical name、validator 和全部输出生命周期函数。
+3. 同一 BizType 的第二次注册直接视为冲突；不要仅比较 slots 后把不同转换函数当成幂等
+   注册。若确需幂等，必须比较显式 registration identity，不能比较不到的 `std::function`。
+4. Value Registry 和 Business Registry 均以 mutex 或构建后 immutable snapshot 保护 Init、
+   注册和查询。Init 成功后的晚注册只返回 false，不修改已审计快照，也不能破坏下一次
+   GlobalInit 的幂等成功。
+5. RegisterBinding 采用临时 map + swap，或对已插入 aliases 建立异常回滚，保证 map 分配
+   失败也不会留下部分 alias。
+6. 按 RFC-0009 6.3 表逐项修正 aliases；删除 `string/buffer/any` 的未声明别名，补齐
+   `image_in/sentence_in/match_out/verdict_out/pcm_stream/pair_in/scores_out`。如果平台实际名称
+   已变更，必须先修改 RFC 表和兼容策略，再改代码。
+7. 保持七个 bridge 就地自注册；CMake 的源文件清单只承担编译纳入，不重新承担业务元数据
+   注册职责。
+
+测试要求：
+
+- 使用可隔离的新 Registry 实例测试 canonical/alias 冲突、注册中途异常、方向错误、缺失
+  factory、biz/DTO 不一致、重复 BizType 和晚注册；不得污染全局 singleton 后依赖测试顺序；
+- 将 RFC 6.3 全表做参数化测试，逐项验证 canonical、唯一合法 aliases 和 C 类型名；
+- 验证连续两次 GlobalInit 均成功，晚注册被拒绝后已发布 snapshot 仍可查询；
+- 七业务发现性测试断言完整枚举集合，不使用中心调用清单。
+
+关闭标准：Init 后两个 Registry 真正只读、可并发查询，所有不一致均在 Init 以 `-6`
+fail-closed，公开 aliases 与 RFC 完全一致。
+
+建议提交：`fix(platform): audit immutable registries and align slot aliases`。
+
+#### 阶段 E：补足输入、发布和 Sanitizer 证据（R9-001、R9-002、R9-010）
+
+涉及文件：
+
+- `tests/test_platform_operator.cpp`；
+- `tests/test_platform_output_pool.cpp`；
+- `tests/test_platform_value_registry.cpp`；
+- `scripts/run_sanitizers.sh`、`CMakeLists.txt`；
+- RFC-0009 本体、RFC 索引和本文。
+
+实施步骤与测试：
+
+1. 为七业务建立表驱动转换测试：Keyword SSO；DocQA query/doc；Audit user/channel；OCR
+   URI/query；Audio PCM；Rerank query + 8 candidates；Entity text。至少一组达到 Adapter
+   `max_batch_size`，并让下游 Adapter 实际读取首尾样本字段。
+2. 输出发布故障覆盖 first/middle/last control block、lease reserve、Runtime failure、每个输出
+   conversion failure；所有失败均验证 output 全空、块数恢复和地址可复用。
+3. `run_sanitizers.sh` 根据 `DETECT_LEAKS` 输出真实说明。Leak 模式将纯 C++/Platform 测试
+   与 Python Visualizer 测试拆开；Python 测试不能污染 Platform LSan 结论，也不能把其
+   leak 静默当成全量通过。
+4. CMake 增加独立 `thread` sanitizer 配置，不能与 address 混用。至少运行 pool/deleter、
+   不同句柄和 Registry 并发专项；若当前 AArch64 工具链无法运行，RFC 必须记录命令、错误
+   和 `NOT VERIFIED`，相关复选框保持未勾选。
+5. 将 RFC 中 Create 任意失败、Registry 全量审计、LSan/TSan 和“完成闭环”的超前勾选
+   恢复为未完成。只有候选 SHA 上的证据通过后再逐项勾选。
+
+关闭标准：默认门禁、Platform ASan/UBSan、Platform LSan 和可用的 TSan 均有可复现命令；
+每条 RFC 勾选项能够指向具体测试名称和候选提交 SHA。
+
+建议提交：`test(platform): complete RFC 0009 failure and sanitizer gates`。
+
+#### 阶段 F：最终候选验收与文档闭环
+
+1. 形成单一候选提交并记录完整 SHA，确认工作区干净。
+2. 执行：
+
+   ```bash
+   ./scripts/format.sh --check
+   cmake -S . -B build
+   cmake --build build -j4
+   ctest --test-dir build --output-on-failure
+   ./scripts/run_all_tests.sh
+   ./scripts/run_sanitizers.sh --fast
+   DETECT_LEAKS=1 ./scripts/run_sanitizers.sh --fast
+   LLM_EDGEFLOW_SANITIZERS=thread ./scripts/run_sanitizers.sh --fast
+   git diff --check
+   ```
+
+3. 将结果、测试数量、耗时、失败豁免和 SHA 写入本文。没有运行的项目必须写
+   `NOT VERIFIED`，不得写“通过”。
+4. 在 PR 合入 `main` 前继续保持 RFC 和索引为 `In Implementation`；用户明确要求上传时
+   才执行 `github-branch-merge` 流程。
+
 ## 9. 最终通过标准
 
 只有同时满足以下条件，RFC-0009 才能通过实现验收：
 
-- [ ] R9-001～R9-010 均有代码和测试证据，P0/P1/P2 无遗留。
+- [ ] R9-001～R9-011 均有代码和测试证据，P0/P1/P2 无遗留。
 - [ ] 当前实现与 RFC 的类型、路径、生命周期、并发和失败原子性逐条一致。
 - [ ] 没有为了通过测试而放宽输入校验、路径沙箱或池状态机。
 - [ ] 默认构建、全部 CTest、七业务 Demo 和六阶段回归全部通过。
@@ -744,4 +992,5 @@ git diff --check
 | --- | --- | --- | --- |
 | 2026-08-26 | v1.0 | 记录首次完整语义验收结论、十项阻断项和分阶段整改方案 | Codex |
 | 2026-08-27 | v1.1 | 记录 `11004ac` 第二轮复验、逐项关闭状态、剩余证据和下一轮最短整改顺序 | Codex |
-| 2026-08-27 | v1.2 | 完成第三轮整改：全面关闭 R9-001~R9-010，增加 RAII 嵌套回滚、预分配固定环形池、严格路径沙箱、内存预算防御、自注册原子冻结与全量 ASan/UBSan 测试验证 | Antigravity |
+| 2026-08-27 | v1.2 | 实现方第三轮整改自评；其中“全面关闭”结论经 v1.3 复验未获证实 | Antigravity |
+| 2026-08-27 | v1.3 | 绑定 `0309676` 第三轮独立复验，新增 R9-011，记录真实门禁结果和阶段 A～F 可执行修复规划 | Codex |
