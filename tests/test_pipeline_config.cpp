@@ -286,7 +286,7 @@ TEST_F(PipelineConfigTest, PositiveNineFormalConfigs) {
 // 2. 严格拦截：缺少 id 或 depends_on 时直接报错拦截 (拒绝隐式旧格式)
 TEST_F(PipelineConfigTest, RejectsPipelineWithoutIdOrDependsOn) {
   nlohmann::json root = {
-      {"business_name", "seq_compat_test"},
+      {"biz_name", "seq_compat_test"},
       {"pipeline",
        nlohmann::json::array(
            {{{"node_type", "CountingNode"}, {"config", {{"k", 1}}}},
@@ -297,6 +297,21 @@ TEST_F(PipelineConfigTest, RejectsPipelineWithoutIdOrDependsOn) {
   EXPECT_FALSE(ParsePipelineConfig(root, &parsed_cfg, &diag));
   EXPECT_EQ(diag.code, PipelineErrorCode::kMissingField);
   EXPECT_EQ(diag.path, "/pipeline/0/id");
+}
+
+TEST_F(PipelineConfigTest, AcceptsLegacyBusinessNameField) {
+  nlohmann::json root = {
+      {"business_name", "legacy_compat_test"},
+      {"pipeline",
+       nlohmann::json::array({{{"id", "node_0"},
+                               {"node_type", "CountingNode"},
+                               {"depends_on", nlohmann::json::array()}}})}};
+
+  ParsedPipelineConfig parsed_cfg;
+  PipelineDiagnostic diag;
+  EXPECT_TRUE(ParsePipelineConfig(root, &parsed_cfg, &diag));
+  EXPECT_EQ(parsed_cfg.biz_name, "legacy_compat_test");
+  EXPECT_EQ(parsed_cfg.business_name, "legacy_compat_test");
 }
 
 // 3. 表驱动负例测试：结构、类型、字段、组合、DAG 负例与零副作用断言
@@ -320,50 +335,50 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
                                    nlohmann::json::array({1, 2, 3}),
                                    PipelineErrorCode::kRootType, "/"});
   cases.push_back(NegativeTestCase{"RootUnknownField",
-                                   nlohmann::json{{"business_name", "test"},
+                                   nlohmann::json{{"biz_name", "test"},
                                                   {"unknown_root_key", 123},
                                                   {"pipeline", valid_pipe}},
                                    PipelineErrorCode::kUnknownField,
                                    "/unknown_root_key"});
-  cases.push_back(NegativeTestCase{"RootCommentNotString",
-                                   nlohmann::json{{"business_name", "test"},
-                                                  {"comment", 12345},
-                                                  {"pipeline", valid_pipe}},
-                                   PipelineErrorCode::kFieldType, "/comment"});
   cases.push_back(NegativeTestCase{
-      "MissingBusinessName", nlohmann::json{{"pipeline", valid_pipe}},
-      PipelineErrorCode::kMissingField, "/business_name"});
+      "RootCommentNotString",
+      nlohmann::json{
+          {"biz_name", "test"}, {"comment", 12345}, {"pipeline", valid_pipe}},
+      PipelineErrorCode::kFieldType, "/comment"});
   cases.push_back(NegativeTestCase{
-      "EmptyBusinessName",
-      nlohmann::json{{"business_name", ""}, {"pipeline", valid_pipe}},
-      PipelineErrorCode::kFieldRange, "/business_name"});
+      "MissingBizName", nlohmann::json{{"pipeline", valid_pipe}},
+      PipelineErrorCode::kMissingField, "/biz_name"});
   cases.push_back(NegativeTestCase{
-      "NonStringBusinessName",
-      nlohmann::json{{"business_name", 12345}, {"pipeline", valid_pipe}},
-      PipelineErrorCode::kFieldType, "/business_name"});
+      "EmptyBizName",
+      nlohmann::json{{"biz_name", ""}, {"pipeline", valid_pipe}},
+      PipelineErrorCode::kFieldRange, "/biz_name"});
+  cases.push_back(NegativeTestCase{
+      "NonStringBizName",
+      nlohmann::json{{"biz_name", 12345}, {"pipeline", valid_pipe}},
+      PipelineErrorCode::kFieldType, "/biz_name"});
 
   // --- Execution Mode & Workers 组合校验 (R1-ACC-003) ---
   cases.push_back(NegativeTestCase{
       "SequentialModeWithMaxParallelWorkers",
-      nlohmann::json{{"business_name", "test"},
+      nlohmann::json{{"biz_name", "test"},
                      {"execution_mode", "sequential"},
                      {"max_parallel_workers", 4},
                      {"pipeline", valid_pipe}},
       PipelineErrorCode::kInvalidCombination, "/max_parallel_workers"});
   cases.push_back(NegativeTestCase{"ExecutionModeAsyncRejected",
-                                   nlohmann::json{{"business_name", "test"},
+                                   nlohmann::json{{"biz_name", "test"},
                                                   {"execution_mode", "async"},
                                                   {"pipeline", valid_pipe}},
                                    PipelineErrorCode::kFieldRange,
                                    "/execution_mode"});
   cases.push_back(
       NegativeTestCase{"ExecutionModeUnknownString",
-                       nlohmann::json{{"business_name", "test"},
+                       nlohmann::json{{"biz_name", "test"},
                                       {"execution_mode", "coroutine_mode"},
                                       {"pipeline", valid_pipe}},
                        PipelineErrorCode::kFieldRange, "/execution_mode"});
   cases.push_back(NegativeTestCase{"ExecutionModeNonString",
-                                   nlohmann::json{{"business_name", "test"},
+                                   nlohmann::json{{"biz_name", "test"},
                                                   {"execution_mode", true},
                                                   {"pipeline", valid_pipe}},
                                    PipelineErrorCode::kFieldType,
@@ -371,7 +386,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
   cases.push_back(NegativeTestCase{
       "WorkersZeroInParallel",
       nlohmann::json{
-          {"business_name", "test"},
+          {"biz_name", "test"},
           {"execution_mode", "parallel"},
           {"max_parallel_workers", 0},
           {"pipeline",
@@ -382,7 +397,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
   cases.push_back(NegativeTestCase{
       "WorkersOutOfRange65InParallel",
       nlohmann::json{
-          {"business_name", "test"},
+          {"biz_name", "test"},
           {"execution_mode", "parallel"},
           {"max_parallel_workers", 65},
           {"pipeline",
@@ -393,20 +408,20 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
 
   // --- Models 校验 ---
   cases.push_back(NegativeTestCase{"ModelsNotArray",
-                                   nlohmann::json{{"business_name", "test"},
+                                   nlohmann::json{{"biz_name", "test"},
                                                   {"models", "not_an_array"},
                                                   {"pipeline", valid_pipe}},
                                    PipelineErrorCode::kFieldType, "/models"});
   cases.push_back(NegativeTestCase{
       "ModelItemNotObject",
-      nlohmann::json{{"business_name", "test"},
+      nlohmann::json{{"biz_name", "test"},
                      {"models", nlohmann::json::array({"invalid_string"})},
                      {"pipeline", valid_pipe}},
       PipelineErrorCode::kFieldType, "/models/0"});
   cases.push_back(NegativeTestCase{
       "ModelCommentNotString",
       nlohmann::json{
-          {"business_name", "test"},
+          {"biz_name", "test"},
           {"models", nlohmann::json::array({{{"model_id", "m1"},
                                              {"engine_type", "counting_engine"},
                                              {"comment", 123}}})},
@@ -415,7 +430,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
   cases.push_back(NegativeTestCase{
       "ModelUnknownField",
       nlohmann::json{
-          {"business_name", "test"},
+          {"biz_name", "test"},
           {"models", nlohmann::json::array({{{"model_id", "m1"},
                                              {"engine_type", "counting_engine"},
                                              {"unknown_model_key", 1}}})},
@@ -423,14 +438,14 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
       PipelineErrorCode::kUnknownField, "/models/0/unknown_model_key"});
   cases.push_back(NegativeTestCase{
       "ModelMissingId",
-      nlohmann::json{{"business_name", "test"},
+      nlohmann::json{{"biz_name", "test"},
                      {"models", nlohmann::json::array(
                                     {{{"engine_type", "counting_engine"}}})},
                      {"pipeline", valid_pipe}},
       PipelineErrorCode::kMissingField, "/models/0/model_id"});
   cases.push_back(NegativeTestCase{
       "ModelEmptyId",
-      nlohmann::json{{"business_name", "test"},
+      nlohmann::json{{"biz_name", "test"},
                      {"models", nlohmann::json::array(
                                     {{{"model_id", ""},
                                       {"engine_type", "counting_engine"}}})},
@@ -439,7 +454,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
   cases.push_back(NegativeTestCase{
       "ModelDuplicateId",
       nlohmann::json{
-          {"business_name", "test"},
+          {"biz_name", "test"},
           {"models",
            nlohmann::json::array(
                {{{"model_id", "dup_m"}, {"engine_type", "counting_engine"}},
@@ -448,14 +463,14 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
       PipelineErrorCode::kDuplicateModelId, "/models/1/model_id"});
   cases.push_back(NegativeTestCase{
       "ModelMissingEngineType",
-      nlohmann::json{{"business_name", "test"},
+      nlohmann::json{{"biz_name", "test"},
                      {"models", nlohmann::json::array({{{"model_id", "m1"}}})},
                      {"pipeline", valid_pipe}},
       PipelineErrorCode::kMissingField, "/models/0/engine_type"});
   cases.push_back(NegativeTestCase{
       "ModelConfigNotObject",
       nlohmann::json{
-          {"business_name", "test"},
+          {"biz_name", "test"},
           {"models", nlohmann::json::array({{{"model_id", "m1"},
                                              {"engine_type", "counting_engine"},
                                              {"config", "invalid"}}})},
@@ -464,7 +479,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
   cases.push_back(NegativeTestCase{
       "ModelUnknownEngineType",
       nlohmann::json{
-          {"business_name", "test"},
+          {"biz_name", "test"},
           {"models", nlohmann::json::array(
                          {{{"model_id", "m1"},
                            {"engine_type", "unregistered_mock_engine_xyz"}}})},
@@ -472,26 +487,26 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
       PipelineErrorCode::kUnknownEngineType, "/models/0/engine_type"});
 
   // --- Pipeline Nodes 校验 ---
-  cases.push_back(NegativeTestCase{
-      "MissingPipeline", nlohmann::json{{"business_name", "test"}},
-      PipelineErrorCode::kMissingField, "/pipeline"});
+  cases.push_back(
+      NegativeTestCase{"MissingPipeline", nlohmann::json{{"biz_name", "test"}},
+                       PipelineErrorCode::kMissingField, "/pipeline"});
   cases.push_back(NegativeTestCase{
       "PipelineNotArray",
-      nlohmann::json{{"business_name", "test"}, {"pipeline", "not_an_array"}},
+      nlohmann::json{{"biz_name", "test"}, {"pipeline", "not_an_array"}},
       PipelineErrorCode::kFieldType, "/pipeline"});
   cases.push_back(
       NegativeTestCase{"PipelineEmptyArray",
-                       nlohmann::json{{"business_name", "test"},
+                       nlohmann::json{{"biz_name", "test"},
                                       {"pipeline", nlohmann::json::array()}},
                        PipelineErrorCode::kFieldRange, "/pipeline"});
   cases.push_back(NegativeTestCase{
       "NodeNotObject",
-      nlohmann::json{{"business_name", "test"},
+      nlohmann::json{{"biz_name", "test"},
                      {"pipeline", nlohmann::json::array({"string_node"})}},
       PipelineErrorCode::kFieldType, "/pipeline/0"});
   cases.push_back(NegativeTestCase{
       "NodeCommentNotString",
-      nlohmann::json{{"business_name", "test"},
+      nlohmann::json{{"biz_name", "test"},
                      {"pipeline", nlohmann::json::array(
                                       {{{"id", "n0"},
                                         {"node_type", "CountingNode"},
@@ -500,7 +515,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
       PipelineErrorCode::kFieldType, "/pipeline/0/comment"});
   cases.push_back(NegativeTestCase{
       "NodeUnknownTopLevelField",
-      nlohmann::json{{"business_name", "test"},
+      nlohmann::json{{"biz_name", "test"},
                      {"pipeline", nlohmann::json::array(
                                       {{{"id", "n0"},
                                         {"node_type", "CountingNode"},
@@ -510,7 +525,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
   cases.push_back(NegativeTestCase{
       "NodeMissingNodeType",
       nlohmann::json{
-          {"business_name", "test"},
+          {"biz_name", "test"},
           {"pipeline",
            nlohmann::json::array({{{"id", "n0"},
                                    {"depends_on", nlohmann::json::array()},
@@ -519,7 +534,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
   cases.push_back(NegativeTestCase{
       "NodeEmptyNodeType",
       nlohmann::json{
-          {"business_name", "test"},
+          {"biz_name", "test"},
           {"pipeline",
            nlohmann::json::array({{{"id", "n0"},
                                    {"node_type", ""},
@@ -527,7 +542,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
       PipelineErrorCode::kFieldRange, "/pipeline/0/node_type"});
   cases.push_back(NegativeTestCase{
       "NodeConfigNotObject",
-      nlohmann::json{{"business_name", "test"},
+      nlohmann::json{{"biz_name", "test"},
                      {"pipeline", nlohmann::json::array(
                                       {{{"id", "n0"},
                                         {"node_type", "CountingNode"},
@@ -537,7 +552,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
   cases.push_back(NegativeTestCase{
       "NodeUnregisteredNodeType",
       nlohmann::json{
-          {"business_name", "test"},
+          {"biz_name", "test"},
           {"pipeline",
            nlohmann::json::array({{{"id", "n0"},
                                    {"node_type", "GhostUnregisteredNodeXYZ"},
@@ -548,7 +563,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
   cases.push_back(NegativeTestCase{
       "DagMissingId",
       nlohmann::json{
-          {"business_name", "test"},
+          {"biz_name", "test"},
           {"pipeline",
            nlohmann::json::array({{{"node_type", "CountingNode"},
                                    {"depends_on", nlohmann::json::array()}}})}},
@@ -556,7 +571,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
   cases.push_back(NegativeTestCase{
       "DagDuplicateNodeId",
       nlohmann::json{
-          {"business_name", "test"},
+          {"biz_name", "test"},
           {"pipeline",
            nlohmann::json::array({{{"id", "node_dup"},
                                    {"node_type", "CountingNode"},
@@ -568,7 +583,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
   cases.push_back(NegativeTestCase{
       "DagMissingDependsOn",
       nlohmann::json{
-          {"business_name", "test"},
+          {"biz_name", "test"},
           {"pipeline",
            nlohmann::json::array(
                {{{"id", "node_a"},
@@ -579,7 +594,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
   cases.push_back(NegativeTestCase{
       "DagDependsOnNotArray",
       nlohmann::json{
-          {"business_name", "test"},
+          {"biz_name", "test"},
           {"pipeline", nlohmann::json::array({{{"id", "node_a"},
                                                {"node_type", "CountingNode"},
                                                {"depends_on", "node_prev"}}})}},
@@ -587,7 +602,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
   cases.push_back(NegativeTestCase{
       "DagDependsOnNonStringItem",
       nlohmann::json{
-          {"business_name", "test"},
+          {"biz_name", "test"},
           {"pipeline", nlohmann::json::array(
                            {{{"id", "node_a"},
                              {"node_type", "CountingNode"},
@@ -596,7 +611,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
   cases.push_back(NegativeTestCase{
       "DagDependsOnEmptyStringItem",
       nlohmann::json{
-          {"business_name", "test"},
+          {"biz_name", "test"},
           {"pipeline", nlohmann::json::array(
                            {{{"id", "node_a"},
                              {"node_type", "CountingNode"},
@@ -605,7 +620,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
   cases.push_back(NegativeTestCase{
       "DagDependsOnDuplicateItemInNode",
       nlohmann::json{
-          {"business_name", "test"},
+          {"biz_name", "test"},
           {"pipeline", nlohmann::json::array(
                            {{{"id", "node_a"},
                              {"node_type", "CountingNode"},
@@ -618,7 +633,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
   cases.push_back(NegativeTestCase{
       "DagSelfLoopCycle",
       nlohmann::json{
-          {"business_name", "test"},
+          {"biz_name", "test"},
           {"pipeline",
            nlohmann::json::array(
                {{{"id", "node_a"},
@@ -628,7 +643,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
   cases.push_back(NegativeTestCase{
       "DagNonExistentDependency",
       nlohmann::json{
-          {"business_name", "test"},
+          {"biz_name", "test"},
           {"pipeline",
            nlohmann::json::array(
                {{{"id", "node_a"},
@@ -638,7 +653,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
   cases.push_back(NegativeTestCase{
       "DagCycle3Nodes",
       nlohmann::json{
-          {"business_name", "test"},
+          {"biz_name", "test"},
           {"pipeline",
            nlohmann::json::array(
                {{{"id", "node_a"},
@@ -720,7 +735,7 @@ TEST_F(PipelineConfigTest, MaterializationExceptionsAndFineGrainedDiagnostics) {
   // 4.3 Engine 构造函数抛异常
   {
     nlohmann::json cfg = {
-        {"business_name", "t"},
+        {"biz_name", "t"},
         {"models",
          nlohmann::json::array(
              {{{"model_id", "m1"}, {"engine_type", "throwing_ctor_engine"}}})},
@@ -739,7 +754,7 @@ TEST_F(PipelineConfigTest, MaterializationExceptionsAndFineGrainedDiagnostics) {
   // 4.4 Engine Load 抛异常
   {
     nlohmann::json cfg = {
-        {"business_name", "t"},
+        {"biz_name", "t"},
         {"models",
          nlohmann::json::array(
              {{{"model_id", "m1"}, {"engine_type", "throwing_load_engine"}}})},
@@ -758,7 +773,7 @@ TEST_F(PipelineConfigTest, MaterializationExceptionsAndFineGrainedDiagnostics) {
   // 4.5 Engine Load 返回 false
   {
     nlohmann::json cfg = {
-        {"business_name", "t"},
+        {"biz_name", "t"},
         {"models",
          nlohmann::json::array(
              {{{"model_id", "m1"}, {"engine_type", "failing_load_engine"}}})},
@@ -777,7 +792,7 @@ TEST_F(PipelineConfigTest, MaterializationExceptionsAndFineGrainedDiagnostics) {
   // 4.6 Node 构造函数抛异常
   {
     nlohmann::json cfg = {
-        {"business_name", "t"},
+        {"biz_name", "t"},
         {"pipeline",
          nlohmann::json::array({{{"id", "node_0"},
                                  {"node_type", "ThrowingCtorNode"},
@@ -793,7 +808,7 @@ TEST_F(PipelineConfigTest, MaterializationExceptionsAndFineGrainedDiagnostics) {
   // 4.7 Node Init 抛异常
   {
     nlohmann::json cfg = {
-        {"business_name", "t"},
+        {"biz_name", "t"},
         {"pipeline",
          nlohmann::json::array({{{"id", "node_0"},
                                  {"node_type", "ThrowingInitNode"},
@@ -809,7 +824,7 @@ TEST_F(PipelineConfigTest, MaterializationExceptionsAndFineGrainedDiagnostics) {
   // 4.8 Node Init 返回 false
   {
     nlohmann::json cfg = {
-        {"business_name", "t"},
+        {"biz_name", "t"},
         {"pipeline",
          nlohmann::json::array({{{"id", "node_0"},
                                  {"node_type", "FailingInitNode"},
@@ -829,7 +844,7 @@ TEST_F(PipelineConfigTest, MaterializationExceptionsAndFineGrainedDiagnostics) {
       throw std::runtime_error("Simulated unhandled internal exception");
     });
     nlohmann::json cfg = {
-        {"business_name", "internal_exc_test"},
+        {"biz_name", "internal_exc_test"},
         {"pipeline",
          nlohmann::json::array({{{"id", "node_0"},
                                  {"node_type", "CountingNode"},
@@ -848,7 +863,7 @@ TEST_F(PipelineConfigTest, MaterializationExceptionsAndFineGrainedDiagnostics) {
 TEST_F(PipelineConfigTest, OnceOnlyBuildContractAndStateMachineProtection) {
   PipelineDiagnostic diag;
   nlohmann::json valid_cfg = {
-      {"business_name", "state_test"},
+      {"biz_name", "state_test"},
       {"pipeline",
        nlohmann::json::array({{{"id", "node_0"},
                                {"node_type", "CountingNode"},
@@ -879,7 +894,7 @@ TEST_F(PipelineConfigTest, OnceOnlyBuildContractAndStateMachineProtection) {
   {
     Pipeline p;
     nlohmann::json invalid_cfg = {
-        {"business_name", "state_test"},
+        {"biz_name", "state_test"},
         {"pipeline",
          nlohmann::json::array({{{"id", "node_0"},
                                  {"node_type", "FailingInitNode"},
@@ -904,7 +919,7 @@ TEST_F(PipelineConfigTest, OnceOnlyBuildContractAndStateMachineProtection) {
     EXPECT_EQ(empty_p.Control(1, "{}"), -1);
 
     Pipeline failed_p;
-    nlohmann::json invalid_cfg = {{"business_name", "fail"}};
+    nlohmann::json invalid_cfg = {{"biz_name", "fail"}};
     failed_p.BuildFromJson(invalid_cfg, nullptr,
                            ValidationPolicy::kPrivateExtensionCompatible);
     EXPECT_EQ(failed_p.Execute(&ctx), -1);
@@ -932,7 +947,7 @@ TEST_F(PipelineConfigTest, ParallelModeWorkersBoundaries) {
   // workers = 1
   {
     nlohmann::json cfg = {
-        {"business_name", "par_1"},
+        {"biz_name", "par_1"},
         {"execution_mode", "parallel"},
         {"max_parallel_workers", 1},
         {"pipeline",
@@ -948,7 +963,7 @@ TEST_F(PipelineConfigTest, ParallelModeWorkersBoundaries) {
   // workers = 64
   {
     nlohmann::json cfg = {
-        {"business_name", "par_64"},
+        {"biz_name", "par_64"},
         {"execution_mode", "parallel"},
         {"max_parallel_workers", 64},
         {"pipeline",

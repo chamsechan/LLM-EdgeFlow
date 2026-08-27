@@ -2,13 +2,13 @@
 #include <vector>
 
 #include "adapter/adapter_validation_helper.h"
-#include "adapter/business_adapter_registry.h"
-#include "business/keyword_match/keyword_match_contract.h"
+#include "adapter/biz_adapter_registry.h"
+#include "biz/keyword_match/keyword_match_contract.h"
 #include "company_alg_interface.h"
 
 namespace alg_framework {
 
-class KeywordMatchAdapter : public IBusinessAdapter {
+class KeywordMatchAdapter : public IBizAdapter {
  public:
   CompanyAlgBizType BizType() const override {
     return ALG_BIZ_TYPE_KEYWORD_MATCH;
@@ -128,6 +128,6 @@ class KeywordMatchAdapter : public IBusinessAdapter {
   }
 };
 
-REGISTER_BUSINESS_ADAPTER(KeywordMatchAdapter);
+REGISTER_BIZ_ADAPTER(KeywordMatchAdapter);
 
 }  // namespace alg_framework

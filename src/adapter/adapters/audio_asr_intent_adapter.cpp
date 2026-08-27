@@ -2,13 +2,13 @@
 #include <vector>
 
 #include "adapter/adapter_validation_helper.h"
-#include "adapter/business_adapter_registry.h"
-#include "business/audio_asr/audio_asr_contract.h"
+#include "adapter/biz_adapter_registry.h"
+#include "biz/audio_asr/audio_asr_contract.h"
 #include "company_alg_interface.h"
 
 namespace alg_framework {
 
-class AudioAsrIntentAdapter : public IBusinessAdapter {
+class AudioAsrIntentAdapter : public IBizAdapter {
  public:
   CompanyAlgBizType BizType() const override {
     return ALG_BIZ_TYPE_AUDIO_ASR_INTENT;
@@ -164,6 +164,6 @@ class AudioAsrIntentAdapter : public IBusinessAdapter {
   }
 };
 
-REGISTER_BUSINESS_ADAPTER(AudioAsrIntentAdapter);
+REGISTER_BIZ_ADAPTER(AudioAsrIntentAdapter);
 
 }  // namespace alg_framework

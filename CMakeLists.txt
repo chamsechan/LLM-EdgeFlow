@@ -89,32 +89,32 @@ set(FRAMEWORK_SRCS
     src/engine/onnx/onnx_rerank_engine.cpp
     src/engine/llama_cpp/llama_cpp_engine.cpp
     src/common_nodes/llm_generate_node.cpp
-    src/business/doc_qa/prompt_builder_node.cpp
-    src/business/doc_qa/vector_search_node.cpp
-    src/business/doc_qa/rerank_refine_node.cpp
-    src/business/doc_qa/doc_chunk_pre_node.cpp
-    src/business/doc_qa/doc_embedding_node.cpp
-    src/business/doc_qa/intent_rule_node.cpp
-    src/business/doc_qa/doc_qa_post_node.cpp
-    src/business/keyword_match/keyword_matcher_node.cpp
-    src/business/entity_extract/entity_extract_pre_node.cpp
-    src/business/entity_extract/entity_extract_post_node.cpp
-    src/business/dialogue_audit/safety_rule_pre_node.cpp
-    src/business/dialogue_audit/dense_retrieval_node.cpp
-    src/business/dialogue_audit/cross_rerank_node.cpp
-    src/business/dialogue_audit/risk_prompt_node.cpp
-    src/business/dialogue_audit/llm_audit_node.cpp
-    src/business/dialogue_audit/audit_post_node.cpp
-    src/business/ocr_doc_qa/image_pre_node.cpp
-    src/business/ocr_doc_qa/ocr_infer_node.cpp
-    src/business/ocr_doc_qa/ocr_doc_post_node.cpp
-    src/business/audio_asr/audio_feature_pre_node.cpp
-    src/business/audio_asr/asr_infer_node.cpp
-    src/business/audio_asr/slot_extract_node.cpp
-    src/business/audio_asr/audio_post_node.cpp
-    src/business/cross_rerank/rerank_pair_builder_node.cpp
-    src/business/cross_rerank/cross_rerank_batch_node.cpp
-    src/business/cross_rerank/rerank_sort_post_node.cpp
+    src/biz/doc_qa/prompt_builder_node.cpp
+    src/biz/doc_qa/vector_search_node.cpp
+    src/biz/doc_qa/rerank_refine_node.cpp
+    src/biz/doc_qa/doc_chunk_pre_node.cpp
+    src/biz/doc_qa/doc_embedding_node.cpp
+    src/biz/doc_qa/intent_rule_node.cpp
+    src/biz/doc_qa/doc_qa_post_node.cpp
+    src/biz/keyword_match/keyword_matcher_node.cpp
+    src/biz/entity_extract/entity_extract_pre_node.cpp
+    src/biz/entity_extract/entity_extract_post_node.cpp
+    src/biz/dialogue_audit/safety_rule_pre_node.cpp
+    src/biz/dialogue_audit/dense_retrieval_node.cpp
+    src/biz/dialogue_audit/cross_rerank_node.cpp
+    src/biz/dialogue_audit/risk_prompt_node.cpp
+    src/biz/dialogue_audit/llm_audit_node.cpp
+    src/biz/dialogue_audit/audit_post_node.cpp
+    src/biz/ocr_doc_qa/image_pre_node.cpp
+    src/biz/ocr_doc_qa/ocr_infer_node.cpp
+    src/biz/ocr_doc_qa/ocr_doc_post_node.cpp
+    src/biz/audio_asr/audio_feature_pre_node.cpp
+    src/biz/audio_asr/asr_infer_node.cpp
+    src/biz/audio_asr/slot_extract_node.cpp
+    src/biz/audio_asr/audio_post_node.cpp
+    src/biz/cross_rerank/rerank_pair_builder_node.cpp
+    src/biz/cross_rerank/cross_rerank_batch_node.cpp
+    src/biz/cross_rerank/rerank_sort_post_node.cpp
     src/adapter/adapters/keyword_match_adapter.cpp
     src/adapter/adapters/entity_extract_adapter.cpp
     src/adapter/adapters/doc_qa_adapter.cpp
@@ -125,15 +125,15 @@ set(FRAMEWORK_SRCS
     src/adapter/shared_algorithm_runtime.cpp
     src/adapter/platform/company_conf_resolver.cpp
     src/adapter/platform/platform_value_type_registry.cpp
-    src/adapter/platform/platform_business_bridge_registry.cpp
+    src/adapter/platform/platform_biz_bridge_registry.cpp
     src/adapter/platform/platform_output_pool.cpp
-    src/adapter/platform/business_bridges/keyword_match_bridge.cpp
-    src/adapter/platform/business_bridges/entity_extract_bridge.cpp
-    src/adapter/platform/business_bridges/doc_qa_bridge.cpp
-    src/adapter/platform/business_bridges/compliance_audit_bridge.cpp
-    src/adapter/platform/business_bridges/ocr_doc_qa_bridge.cpp
-    src/adapter/platform/business_bridges/audio_asr_intent_bridge.cpp
-    src/adapter/platform/business_bridges/cross_rerank_bridge.cpp
+    src/adapter/platform/biz_bridges/keyword_match_bridge.cpp
+    src/adapter/platform/biz_bridges/entity_extract_bridge.cpp
+    src/adapter/platform/biz_bridges/doc_qa_bridge.cpp
+    src/adapter/platform/biz_bridges/compliance_audit_bridge.cpp
+    src/adapter/platform/biz_bridges/ocr_doc_qa_bridge.cpp
+    src/adapter/platform/biz_bridges/audio_asr_intent_bridge.cpp
+    src/adapter/platform/biz_bridges/cross_rerank_bridge.cpp
     src/adapter/platform/platform_control_registry.cpp
     src/adapter/platform_operator_adapter.cpp
     src/adapter/company_c_adapter.cpp
@@ -162,13 +162,13 @@ set(ALG_DEMO_SRCS
     demo/common/demo_registry.cpp
     demo/common/dataset_reader.cpp
     demo/common/result_writer.cpp
-    demo/businesses/entity_extract_demo.cpp
-    demo/businesses/keyword_match_demo.cpp
-    demo/businesses/doc_qa_demo.cpp
-    demo/businesses/dialogue_audit_demo.cpp
-    demo/businesses/ocr_doc_qa_demo.cpp
-    demo/businesses/audio_asr_demo.cpp
-    demo/businesses/cross_rerank_demo.cpp
+    demo/biz/entity_extract_demo.cpp
+    demo/biz/keyword_match_demo.cpp
+    demo/biz/doc_qa_demo.cpp
+    demo/biz/dialogue_audit_demo.cpp
+    demo/biz/ocr_doc_qa_demo.cpp
+    demo/biz/audio_asr_demo.cpp
+    demo/biz/cross_rerank_demo.cpp
 )
 add_executable(alg_demo ${ALG_DEMO_SRCS})
 target_link_libraries(alg_demo PRIVATE alg_sdk)
@@ -212,9 +212,9 @@ add_executable(test_different_io_modalities tests/test_different_io_modalities.c
 target_link_libraries(test_different_io_modalities PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
 add_test(NAME DifferentIoModalitiesTest COMMAND test_different_io_modalities)
 
-add_executable(test_all_business_pipelines tests/test_all_business_pipelines.cpp)
-target_link_libraries(test_all_business_pipelines PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
-add_test(NAME AllBusinessPipelinesTest COMMAND test_all_business_pipelines)
+add_executable(test_all_biz_pipelines tests/test_all_biz_pipelines.cpp)
+target_link_libraries(test_all_biz_pipelines PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME AllBizPipelinesTest COMMAND test_all_biz_pipelines)
 
 add_executable(test_concurrency_and_edge_cases tests/test_concurrency_and_edge_cases.cpp)
 target_link_libraries(test_concurrency_and_edge_cases PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
@@ -264,9 +264,9 @@ add_executable(test_platform_value_registry tests/test_platform_value_registry.c
 target_link_libraries(test_platform_value_registry PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
 add_test(NAME PlatformValueRegistryTest COMMAND test_platform_value_registry)
 
-add_executable(test_platform_business_bridge_registry tests/test_platform_business_bridge_registry.cpp)
-target_link_libraries(test_platform_business_bridge_registry PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
-add_test(NAME PlatformBusinessBridgeRegistryTest COMMAND test_platform_business_bridge_registry)
+add_executable(test_platform_biz_bridge_registry tests/test_platform_biz_bridge_registry.cpp)
+target_link_libraries(test_platform_biz_bridge_registry PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME PlatformBizBridgeRegistryTest COMMAND test_platform_biz_bridge_registry)
 
 add_executable(test_doc_qa_rerank tests/test_doc_qa_rerank.cpp)
 target_link_libraries(test_doc_qa_rerank PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
@@ -293,13 +293,13 @@ set(TEST_DEMO_RUNNER_SRCS
     demo/common/demo_registry.cpp
     demo/common/dataset_reader.cpp
     demo/common/result_writer.cpp
-    demo/businesses/entity_extract_demo.cpp
-    demo/businesses/keyword_match_demo.cpp
-    demo/businesses/doc_qa_demo.cpp
-    demo/businesses/dialogue_audit_demo.cpp
-    demo/businesses/ocr_doc_qa_demo.cpp
-    demo/businesses/audio_asr_demo.cpp
-    demo/businesses/cross_rerank_demo.cpp
+    demo/biz/entity_extract_demo.cpp
+    demo/biz/keyword_match_demo.cpp
+    demo/biz/doc_qa_demo.cpp
+    demo/biz/dialogue_audit_demo.cpp
+    demo/biz/ocr_doc_qa_demo.cpp
+    demo/biz/audio_asr_demo.cpp
+    demo/biz/cross_rerank_demo.cpp
 )
 add_executable(test_demo_runner ${TEST_DEMO_RUNNER_SRCS})
 target_link_libraries(test_demo_runner PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
@@ -336,11 +336,11 @@ set_tests_properties(
   ArchitectureDocsDriftGateSelfTest DiagramAssetsCheckTest
   DiagramRenderGateSelfTest BatchExecutorTest FrameworkCoreTest
   CAbiSafetyTest QwenEnginesComparisonTest DifferentIoModalitiesTest
-  AllBusinessPipelinesTest ConcurrencyAndEdgeCasesTest DagPipelineTest
+  AllBizPipelinesTest ConcurrencyAndEdgeCasesTest DagPipelineTest
   RuntimeControlAndHotSwapTest EngineFaultToleranceAndLifecycleTest
   AdapterContractSecurityTest PipelineConfigTest RegistryConflictNodeTest
   RegistryConflictEngineTest RegistryReentrantTest PlatformOperatorTest
-  PlatformOutputPoolTest PlatformValueRegistryTest PlatformBusinessBridgeRegistryTest
+  PlatformOutputPoolTest PlatformValueRegistryTest PlatformBizBridgeRegistryTest
   DocQaRerankTest RerankRefineNodeTest PipelineStudioTest VisualizerServerTest
   DemoRunnerTest CatalogContractSsotTest TypedBlackboardContractsTest
   ValidatedPipelinePlanTest NodeBaseContractsTest NodeOwnershipAndReuseTest

@@ -49,7 +49,8 @@ int main(int argc, char* argv[]) {
     return 2;
   }
 
-  std::string biz_name = j.value("business_name", "unnamed_business");
+  std::string biz_name =
+      j.value("biz_name", j.value("business_name", "unnamed_biz"));
   auto models = j.value("models", nlohmann::json::array());
   auto pipeline = j.value("pipeline", nlohmann::json::array());
 

@@ -5,8 +5,8 @@
 #include <string>
 #include <unordered_map>
 
-#include "adapter/business_adapter_interface.h"
-#include "adapter/platform/platform_business_bridge_registry.h"
+#include "adapter/biz_adapter_interface.h"
+#include "adapter/platform/platform_biz_bridge_registry.h"
 #include "adapter/platform/platform_value_type_registry.h"
 #include "nlohmann/json.hpp"
 #include "platform/platform_operator_interface.h"
@@ -20,10 +20,10 @@ struct ResolvedCompanyConfig {
   std::filesystem::path conf_path;
   std::filesystem::path pipeline_path;
   std::filesystem::path model_root_path;
-  std::string business_name;
+  std::string biz_name;
   CompanyAlgBizType biz_type = ALG_BIZ_TYPE_UNKNOWN;
-  std::shared_ptr<IBusinessAdapter> adapter;
-  const PlatformBusinessBridgeDescriptor* bridge_descriptor = nullptr;
+  std::shared_ptr<IBizAdapter> adapter;
+  const PlatformBizBridgeDescriptor* bridge_descriptor = nullptr;
   nlohmann::json synthetic_pipeline_json;
   ResolvedOutputPoolSpec output_pool_spec;
   ResolvedInputLimits input_limits;

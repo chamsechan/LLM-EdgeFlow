@@ -2,13 +2,13 @@
 #include <vector>
 
 #include "adapter/adapter_validation_helper.h"
-#include "adapter/business_adapter_registry.h"
-#include "business/entity_extract/entity_extract_contract.h"
+#include "adapter/biz_adapter_registry.h"
+#include "biz/entity_extract/entity_extract_contract.h"
 #include "company_alg_interface.h"
 
 namespace alg_framework {
 
-class EntityExtractAdapter : public IBusinessAdapter {
+class EntityExtractAdapter : public IBizAdapter {
  public:
   CompanyAlgBizType BizType() const override {
     return ALG_BIZ_TYPE_ENTITY_EXTRACT;
@@ -132,6 +132,6 @@ class EntityExtractAdapter : public IBusinessAdapter {
   }
 };
 
-REGISTER_BUSINESS_ADAPTER(EntityExtractAdapter);
+REGISTER_BIZ_ADAPTER(EntityExtractAdapter);
 
 }  // namespace alg_framework

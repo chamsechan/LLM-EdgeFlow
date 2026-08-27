@@ -1,5 +1,5 @@
 {
-  "business_name": "entity_extract_llamacpp_0.6b_v1",
+  "biz_name": "entity_extract_llamacpp_0.6b_v1",
   "models": [
     {
       "config": {

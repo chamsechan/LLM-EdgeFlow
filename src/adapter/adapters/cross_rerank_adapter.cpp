@@ -2,13 +2,13 @@
 #include <vector>
 
 #include "adapter/adapter_validation_helper.h"
-#include "adapter/business_adapter_registry.h"
-#include "business/cross_rerank/cross_rerank_contract.h"
+#include "adapter/biz_adapter_registry.h"
+#include "biz/cross_rerank/cross_rerank_contract.h"
 #include "company_alg_interface.h"
 
 namespace alg_framework {
 
-class CrossRerankAdapter : public IBusinessAdapter {
+class CrossRerankAdapter : public IBizAdapter {
  public:
   CompanyAlgBizType BizType() const override {
     return ALG_BIZ_TYPE_CROSS_RERANK;
@@ -143,6 +143,6 @@ class CrossRerankAdapter : public IBusinessAdapter {
   }
 };
 
-REGISTER_BUSINESS_ADAPTER(CrossRerankAdapter);
+REGISTER_BIZ_ADAPTER(CrossRerankAdapter);
 
 }  // namespace alg_framework

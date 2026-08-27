@@ -7,7 +7,7 @@
 #include <vector>
 
 #include "adapter/platform/company_conf_resolver.h"
-#include "adapter/platform/platform_business_bridge_registry.h"
+#include "adapter/platform/platform_biz_bridge_registry.h"
 #include "adapter/platform/platform_control_registry.h"
 #include "adapter/platform/platform_output_pool.h"
 #include "adapter/platform/platform_value_type_registry.h"
@@ -27,7 +27,7 @@ struct PlatformHandle {
   uint32_t max_frame_depth = 25;
   uint32_t effective_process_batch_limit = 25;
   CompanyAlgBizType biz_type = ALG_BIZ_TYPE_UNKNOWN;
-  const alg_framework::PlatformBusinessBridgeDescriptor* bridge = nullptr;
+  const alg_framework::PlatformBizBridgeDescriptor* bridge = nullptr;
   alg_framework::ResolvedCompanyConfig resolved_conf;
   std::unordered_map<std::string,
                      std::shared_ptr<alg_framework::OutputPoolState>>
@@ -119,12 +119,11 @@ int Platform_Init() noexcept {
           "PlatformValueTypeRegistry");
       return ret;
     }
-    ret =
-        alg_framework::PlatformBusinessBridgeRegistry::Instance().GlobalInit();
+    ret = alg_framework::PlatformBizBridgeRegistry::Instance().GlobalInit();
     if (ret != 0) {
       SetLastError(
           "GlobalInit failed: registration conflict in "
-          "PlatformBusinessBridgeRegistry");
+          "PlatformBizBridgeRegistry");
       return ret;
     }
     return 0;
@@ -208,7 +207,8 @@ int Platform_Create(void** handle, const CreateParam* param) noexcept {
     runtime_options.device_id = param->device_id;
     runtime_options.has_device_id = (param->device_id >= 0);
     runtime_options.biz_type = static_cast<int>(resolved_conf.biz_type);
-    runtime_options.business_name = resolved_conf.business_name;
+    runtime_options.biz_name = resolved_conf.biz_name;
+    runtime_options.business_name = resolved_conf.biz_name;
 
     // 3. 构建内部共享运行时
     std::unique_ptr<alg_framework::SharedAlgorithmRuntime> runtime;
@@ -407,7 +407,7 @@ int Platform_Process(void* handle, const NamedIoBatch& inputs,
     struct FrameOutputKeyBinding {
       std::string key;
       std::string canonical_suffix;
-      const alg_framework::PlatformBusinessSlot* slot = nullptr;
+      const alg_framework::PlatformBizSlot* slot = nullptr;
     };
     std::vector<std::vector<FrameOutputKeyBinding>> frame_out_bindings(
         batch_size);

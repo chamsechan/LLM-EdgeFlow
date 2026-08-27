@@ -8,7 +8,7 @@
 
 #include "adapter/adapter_status.h"
 #include "adapter/adapter_validation_helper.h"
-#include "adapter/business_adapter_registry.h"
+#include "adapter/biz_adapter_registry.h"
 #include "adapter/templates/flat_struct_adapter.h"
 #include "adapter/templates/nested_array_adapter.h"
 #include "adapter/templates/nested_pointer_tree_adapter.h"

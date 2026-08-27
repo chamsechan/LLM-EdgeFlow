@@ -1,5 +1,5 @@
 {
-  "business_name": "dense_cross_rerank_scoring",
+  "biz_name": "dense_cross_rerank_scoring",
   "models": [
     {
       "config": {

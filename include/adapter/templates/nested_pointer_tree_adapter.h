@@ -6,7 +6,7 @@
 
 #include "adapter/adapter_status.h"
 #include "adapter/adapter_validation_helper.h"
-#include "adapter/business_adapter_interface.h"
+#include "adapter/biz_adapter_interface.h"
 
 namespace alg_framework {
 namespace template_examples {

@@ -74,7 +74,8 @@ PipelineErrorCode ValidationCodeToPipelineCode(DiagnosticCode code) {
 
 }  // namespace
 
-Pipeline::Pipeline() : business_name_("default_biz") {}
+Pipeline::Pipeline()
+    : biz_name_("default_biz"), business_name_("default_biz") {}
 
 bool Pipeline::BuildFromConfigFile(const std::string& config_file_path,
                                    PipelineDiagnostic* diagnostic,
@@ -224,7 +225,8 @@ bool Pipeline::BuildInternal(const nlohmann::json& root_config,
   }
 
   const auto& parsed_cfg = plan.config;
-  business_name_ = parsed_cfg.business_name;
+  biz_name_ = parsed_cfg.biz_name;
+  business_name_ = parsed_cfg.biz_name;
 
   // 1. 加载配置中声明的所有模型 (支持多模型加载到 ModelManager)
   const auto& options = session_ctx_.GetRuntimeOptions();

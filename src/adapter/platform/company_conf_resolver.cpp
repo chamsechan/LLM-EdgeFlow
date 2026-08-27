@@ -6,7 +6,7 @@
 #include <unordered_map>
 #include <unordered_set>
 
-#include "adapter/business_adapter_registry.h"
+#include "adapter/biz_adapter_registry.h"
 
 namespace alg_framework {
 
@@ -359,39 +359,41 @@ int CompanyConfResolver::Resolve(const char* model_path,
       return -2;
     }
 
-    if (!pipe_json.is_object() || !pipe_json.contains("business_name") ||
-        !pipe_json["business_name"].is_string()) {
+    std::string biz_name;
+    if (pipe_json.is_object() && pipe_json.contains("biz_name") &&
+        pipe_json["biz_name"].is_string()) {
+      biz_name = pipe_json["biz_name"].get<std::string>();
+    } else if (pipe_json.is_object() && pipe_json.contains("business_name") &&
+               pipe_json["business_name"].is_string()) {
+      biz_name = pipe_json["business_name"].get<std::string>();
+    } else {
       if (error_msg)
-        *error_msg = "Pipeline JSON must contain string 'business_name'";
+        *error_msg = "Pipeline JSON must contain string 'biz_name'";
       return -2;
     }
 
-    std::string business_name = pipe_json["business_name"].get<std::string>();
-
-    BusinessAdapterRegistry::AdapterLookupStatus lookup_status;
-    auto adapter = BusinessAdapterRegistry::Instance().GetAdapterByPipelineName(
-        business_name, &lookup_status);
+    BizAdapterRegistry::AdapterLookupStatus lookup_status;
+    auto adapter = BizAdapterRegistry::Instance().GetAdapterByPipelineName(
+        biz_name, &lookup_status);
     if (lookup_status ==
-        BusinessAdapterRegistry::AdapterLookupStatus::kAmbiguousMatch) {
+        BizAdapterRegistry::AdapterLookupStatus::kAmbiguousMatch) {
       if (error_msg) {
-        *error_msg = "Ambiguous pipeline name '" + business_name + "'";
+        *error_msg = "Ambiguous pipeline name '" + biz_name + "'";
       }
       return -5;
     }
     if (!adapter) {
       if (error_msg) {
-        *error_msg =
-            "No registered BusinessAdapter for '" + business_name + "'";
+        *error_msg = "No registered BizAdapter for '" + biz_name + "'";
       }
       return -5;
     }
 
     const auto* bridge_desc =
-        PlatformBusinessBridgeRegistry::Instance().GetBridge(
-            adapter->BizType());
+        PlatformBizBridgeRegistry::Instance().GetBridge(adapter->BizType());
     if (!bridge_desc) {
       if (error_msg) {
-        *error_msg = "No PlatformBusinessBridgeDescriptor for BizType " +
+        *error_msg = "No PlatformBizBridgeDescriptor for BizType " +
                      std::to_string(adapter->BizType());
       }
       return -5;
@@ -419,9 +421,8 @@ int CompanyConfResolver::Resolve(const char* model_path,
     }
     if (!type_matched) {
       if (error_msg) {
-        *error_msg = "mem_que.type '" + mem_type +
-                     "' does not match business '" + business_name +
-                     "' output slot";
+        *error_msg = "mem_que.type '" + mem_type + "' does not match biz '" +
+                     biz_name + "' output slot";
       }
       return -2;
     }
@@ -666,7 +667,7 @@ int CompanyConfResolver::Resolve(const char* model_path,
     result->conf_path = full_cfg;
     result->pipeline_path = full_pipe;
     result->model_root_path = canon_root;
-    result->business_name = business_name;
+    result->biz_name = biz_name;
     result->biz_type = adapter->BizType();
     result->adapter = adapter;
     result->bridge_descriptor = bridge_desc;

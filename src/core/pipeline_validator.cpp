@@ -337,11 +337,10 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
   }
   const auto& parsed = plan.config;
 
-  const auto* business = PipelineCatalog::FindBusiness(parsed.business_name);
+  const auto* business = PipelineCatalog::FindBiz(parsed.biz_name);
   if (!business && policy == ValidationPolicy::kStrict) {
-    Add(&report, DiagnosticCode::kUnknownBusiness, "/business_name",
-        "No registered business contract accepts pipeline name: " +
-            parsed.business_name);
+    Add(&report, DiagnosticCode::kUnknownBiz, "/biz_name",
+        "No registered biz contract accepts pipeline name: " + parsed.biz_name);
   }
   if (NodeFactory::Instance().HasConflict()) {
     Add(&report, DiagnosticCode::kRegistryConflict, "/pipeline",
@@ -392,14 +391,12 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
     if (definition) {
       def_by_id[node.id] = definition;
 
-      if (business && !definition->business_names.empty() &&
-          std::find(definition->business_names.begin(),
-                    definition->business_names.end(),
-                    parsed.business_name) == definition->business_names.end()) {
-        Add(&report, DiagnosticCode::kNodeBusinessMismatch,
+      if (business && !definition->biz_names.empty() &&
+          std::find(definition->biz_names.begin(), definition->biz_names.end(),
+                    parsed.biz_name) == definition->biz_names.end()) {
+        Add(&report, DiagnosticCode::kNodeBizMismatch,
             "/pipeline/" + std::to_string(node.source_index) + "/node_type",
-            "Node type is not declared for business: " + parsed.business_name,
-            node.id);
+            "Node type is not declared for biz: " + parsed.biz_name, node.id);
       }
 
       ValidateConfigFields(
@@ -547,9 +544,8 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
             });
       }
       if (!found) {
-        Add(&report, DiagnosticCode::kMissingBusinessOutput, "/pipeline",
-            "Pipeline does not produce required business output: " +
-                required.key,
+        Add(&report, DiagnosticCode::kMissingBizOutput, "/pipeline",
+            "Pipeline does not produce required biz output: " + required.key,
             {}, required.key);
       }
     }

@@ -114,7 +114,12 @@ class WorkbenchService:
             items.append(
                 {
                     "filename": checked.name,
-                    "business_name": pipeline.get("business_name", ""),
+                    "biz_name": pipeline.get(
+                        "biz_name", pipeline.get("business_name", "")
+                    ),
+                    "business_name": pipeline.get(
+                        "biz_name", pipeline.get("business_name", "")
+                    ),
                     "revision": revision_for(raw),
                 }
             )
@@ -248,7 +253,9 @@ class WorkbenchService:
             else:
                 original_pipeline_path = profile_conf.parent / original_pipeline_path
         original = read_json(original_pipeline_path.resolve())
-        if original.get("business_name") != pipeline.get("business_name"):
+        orig_biz = original.get("biz_name", original.get("business_name"))
+        curr_biz = pipeline.get("biz_name", pipeline.get("business_name"))
+        if orig_biz != curr_biz:
             raise StudioError("PROFILE_MISMATCH", "Profile 与业务契约不匹配")
         with self.job_lock:
             if any(job["status"] in ("queued", "running") for job in self.jobs.values()):
@@ -511,7 +518,8 @@ def make_handler(service: WorkbenchService):
 
 def render_terminal(path: Path, pipeline: dict[str, Any]) -> None:
     print(f"\nLLM-EdgeFlow Pipeline: {path}")
-    print(f"Business: {pipeline.get('business_name', 'unknown')}")
+    biz = pipeline.get("biz_name", pipeline.get("business_name", "unknown"))
+    print(f"Biz: {biz}")
     nodes = pipeline.get("pipeline", [])
     for index, node in enumerate(nodes):
         node_id = node.get("id", f"node_{index}_{node.get('node_type', 'unknown')}")

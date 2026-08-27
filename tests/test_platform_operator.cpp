@@ -14,7 +14,7 @@
 #include <vector>
 
 #include "adapter/platform/company_conf_resolver.h"
-#include "adapter/platform/platform_business_bridge_registry.h"
+#include "adapter/platform/platform_biz_bridge_registry.h"
 #include "adapter/platform/platform_output_pool.h"
 #include "adapter/platform/platform_value_type_registry.h"
 #include "company_alg_interface.h"

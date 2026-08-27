@@ -69,7 +69,7 @@ std::optional<fs::path> ProfilePipeline(
   return pipe_path.lexically_normal();
 }
 
-nlohmann::json ProfilesJson(const std::string& business_filter) {
+nlohmann::json ProfilesJson(const std::string& biz_filter) {
   nlohmann::json result = nlohmann::json::array();
   std::ifstream stream("demo/profiles.json");
   if (!stream.is_open()) return result;
@@ -82,18 +82,21 @@ nlohmann::json ProfilesJson(const std::string& business_filter) {
       nlohmann::json pipeline;
       std::string error;
       if (!ReadJson(pipeline_path->string(), &pipeline, &error)) continue;
-      std::string pipeline_business = pipeline.value("business_name", "");
-      if (!business_filter.empty() && pipeline_business != business_filter)
-        continue;
-      result.push_back({{"name", name},
-                        {"business", profile.value("business", "")},
-                        {"pipeline_business", pipeline_business},
-                        {"config", profile.value("config", "")},
-                        {"dataset", profile.value("dataset", "")},
-                        {"suite", profile.value("suite", "smoke")},
-                        {"batch_size", profile.value("batch_size", 1)},
-                        {"device_id", profile.value("device_id", 0)},
-                        {"chip", profile.value("chip", "ax650")}});
+      std::string pipeline_biz =
+          pipeline.value("biz_name", pipeline.value("business_name", ""));
+      if (!biz_filter.empty() && pipeline_biz != biz_filter) continue;
+      result.push_back(
+          {{"name", name},
+           {"biz", profile.value("biz", profile.value("business", ""))},
+           {"business", profile.value("business", profile.value("biz", ""))},
+           {"pipeline_biz", pipeline_biz},
+           {"pipeline_business", pipeline_biz},
+           {"config", profile.value("config", "")},
+           {"dataset", profile.value("dataset", "")},
+           {"suite", profile.value("suite", "smoke")},
+           {"batch_size", profile.value("batch_size", 1)},
+           {"device_id", profile.value("device_id", 0)},
+           {"chip", profile.value("chip", "ax650")}});
     }
   } catch (...) {
     return nlohmann::json::array();
@@ -102,14 +105,14 @@ nlohmann::json ProfilesJson(const std::string& business_filter) {
 }
 
 void Usage() {
-  std::cerr
-      << "Usage:\n"
-      << "  alg_pipeline_tool catalog [--business NAME]\n"
-      << "  alg_pipeline_tool describe-node NODE_TYPE\n"
-      << "  alg_pipeline_tool init --business NAME [--profile NAME|--empty]\n"
-      << "  alg_pipeline_tool normalize --explicit-dag FILE|--stdin\n"
-      << "  alg_pipeline_tool validate FILE|--stdin\n"
-      << "  alg_pipeline_tool plan FILE|--stdin\n";
+  std::cerr << "Usage:\n"
+            << "  alg_pipeline_tool catalog [--biz|--business NAME]\n"
+            << "  alg_pipeline_tool describe-node NODE_TYPE\n"
+            << "  alg_pipeline_tool init [--biz|--business] NAME [--profile "
+               "NAME|--empty]\n"
+            << "  alg_pipeline_tool normalize --explicit-dag FILE|--stdin\n"
+            << "  alg_pipeline_tool validate FILE|--stdin\n"
+            << "  alg_pipeline_tool plan FILE|--stdin\n";
 }
 
 }  // namespace
@@ -122,11 +125,15 @@ int main(int argc, char** argv) {
   const std::string command = argv[1];
 
   if (command == "catalog") {
-    std::string business;
-    if (argc == 4 && std::string(argv[2]) == "--business") business = argv[3];
-    auto result = PipelineCatalog::ToJson(business);
-    result["profiles"] = ProfilesJson(business);
-    result["ok"] = business.empty() || !result["businesses"].empty();
+    std::string biz;
+    if (argc == 4 && (std::string(argv[2]) == "--biz" ||
+                      std::string(argv[2]) == "--business")) {
+      biz = argv[3];
+    }
+    auto result = PipelineCatalog::ToJson(biz);
+    result["profiles"] = ProfilesJson(biz);
+    result["ok"] =
+        biz.empty() || !result["bizs"].empty() || !result["businesses"].empty();
     std::cout << result.dump(2) << std::endl;
     return result["ok"].get<bool>() ? 0 : 1;
   }
@@ -149,13 +156,13 @@ int main(int argc, char** argv) {
   }
 
   if (command == "init") {
-    std::string business;
+    std::string biz;
     std::string profile;
     bool empty = false;
     for (int i = 2; i < argc; ++i) {
       std::string arg = argv[i];
-      if (arg == "--business" && i + 1 < argc)
-        business = argv[++i];
+      if ((arg == "--biz" || arg == "--business") && i + 1 < argc)
+        biz = argv[++i];
       else if (arg == "--profile" && i + 1 < argc)
         profile = argv[++i];
       else if (arg == "--empty")
@@ -165,8 +172,8 @@ int main(int argc, char** argv) {
         return 2;
       }
     }
-    if (business.empty() || !PipelineCatalog::FindBusiness(business)) {
-      std::cout << Error("UNKNOWN_BUSINESS", business).dump(2) << std::endl;
+    if (biz.empty() || !PipelineCatalog::FindBiz(biz)) {
+      std::cout << Error("UNKNOWN_BIZ", biz).dump(2) << std::endl;
       return 1;
     }
     if (!profile.empty() && !empty) {
@@ -174,10 +181,11 @@ int main(int argc, char** argv) {
       nlohmann::json pipeline;
       std::string error;
       if (!path || !ReadJson(path->string(), &pipeline, &error) ||
-          pipeline.value("business_name", "") != business) {
+          pipeline.value("biz_name", pipeline.value("business_name", "")) !=
+              biz) {
         std::cout << Error("PROFILE_MISMATCH",
                            "Profile is unavailable or belongs to another "
-                           "business contract")
+                           "biz contract")
                          .dump(2)
                   << std::endl;
         return 1;
@@ -189,7 +197,8 @@ int main(int argc, char** argv) {
                 << std::endl;
       return 0;
     }
-    nlohmann::json pipeline = {{"business_name", business},
+    nlohmann::json pipeline = {{"biz_name", biz},
+                               {"business_name", biz},
                                {"models", nlohmann::json::array()},
                                {"pipeline", nlohmann::json::array()}};
     std::cout << nlohmann::json({{"schema_version", 1},

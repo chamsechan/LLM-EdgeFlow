@@ -38,7 +38,7 @@
 | :--- | :--- | :--- |
 | **Layer 1: C ABI 适配层** | 客户端解包、类型强转与 `noexcept` 异常屏障 | `include/company_alg_interface.h`<br>`src/adapter/company_c_adapter.cpp` |
 | **Layer 2: 管线与黑板层** | DAG 拓扑执行、请求级动态黑板与模型容器 | `Pipeline`, `AlgContext`, `SessionContext`, `TraceableItem<T>` |
-| **Layer 3: 业务专属算子池** | 前处理分片、模型调用封装、规则快筛与后处理精准对齐 | `INode`, `NodeFactory`, `src/business/*` (7大业务算子) |
+| **Layer 3: 业务专属算子池** | 前处理分片、模型调用封装、规则快筛与后处理精准对齐 | `INode`, `NodeFactory`, `src/biz/*` (7大业务算子) |
 | **Layer 4: 异构引擎层** | 纯虚能力接口、定长批调度模板与三方引擎实现 | `FixedBatchExecutor`, `ONNX Runtime`, `llama.cpp`, `MockNPU` |
 
 <details>
@@ -133,18 +133,19 @@ LLM-EdgeFlow/
 ├── src/
 │   ├── adapter/                 # Layer 1: C ABI 安全胶水层 (company_c_adapter.cpp)
 │   ├── core/                    # Layer 2: Pipeline 调度器与配置校验器实现
-│   ├── business/                # Layer 3: 7 大多模态业务算子库
+│   ├── biz/                     # Layer 3: 7 大多模态业务算子库 (前处理/后处理/业务编排)
+│   ├── common_nodes/            # Layer 3: 通用跨业务算子 (LlmGenerateNode 等)
 │   ├── engine/                  # Layer 4: 异构引擎实现 (mock_npu, onnx, llama_cpp)
 │   └── tools/                   # C++ 工具集 (alg_show.cpp, alg_pipeline_tool.cpp)
 ├── doc/
 │   ├── developer_guide.md       # 4 层扩展开发说明书
-│   └── rfcs/                    # RFC 架构演进与治理文档 (RFC 0001 ~ 0007)
+│   └── rfcs/                    # RFC 架构演进与治理文档 (RFC 0001 ~ 0010)
 ├── configs/                     # 11 大标准化业务配置 (JSON & .conf)
 ├── demo/                        # 参数化多业务端到端演示与 Runner
 │   ├── profiles.json            # 预定义执行 Profile 清单 (单一事实源)
 │   ├── common/                  # 通用参数解析、注册表、数据读取、结果落盘与 RAII Runner
-│   └── businesses/              # 7 大独立业务 Demo 适配实现 (*_demo.cpp)
-├── tests/                       # Google Test (GTest) 单元测试套件 (23 组测试)
+│   └── biz/                     # 7 大独立业务 Demo 适配实现 (*_demo.cpp)
+├── tests/                       # Google Test (GTest) 单元测试套件 (37 组测试)
 ├── scripts/                     # 自动化测试、Demo 调度与代码格式化工具
 └── tools/visualizer/            # 交互式 Web DAG 可视化平台
 ```
@@ -152,6 +153,13 @@ LLM-EdgeFlow/
 ---
 
 ## 📝 更新日志 (Changelog)
+
+- **v3.1.0 (全栈 business 命名收敛与缩写统合为 biz - RFC 0010)** *(2026-08)*
+  - 🗂️ **全栈目录结构与源码路径统一为 `biz`**：目录 `src/business/` $\rightarrow$ `src/biz/`，`demo/businesses/` $\rightarrow$ `demo/biz/`，`src/adapter/platform/business_bridges/` $\rightarrow$ `src/adapter/platform/biz_bridges/`，消除了冗余词根。
+  - 🏛️ **C++ 核心接口与类名全面精简**：`IBusinessAdapter` $\rightarrow$ `IBizAdapter`，`BusinessAdapterRegistry` $\rightarrow$ `BizAdapterRegistry`，`PlatformBusinessBridgeRegistry` $\rightarrow$ `PlatformBizBridgeRegistry`，`PlatformBusinessSlot` $\rightarrow$ `PlatformBizSlot`，`BusinessDefinition` $\rightarrow$ `BizDefinition`，`PipelineCatalog::FindBusiness` $\rightarrow$ `FindBiz`，同时保留类型别名保证 100% 向后兼容。
+  - 📄 **JSON 配置与 Pipeline 架构字段收敛**：配置文件字段由 `"business_name"` 统一为主格式 `"biz_name"`（内置兼容 `"business_name"`），节点定义分类由 `"business"` 统合为 `"biz"`，`NodeDefinition.biz_names` 与各契约全局常量 `k*BizName` 全面规范化。
+  - 🛠️ **CLI 与工具链升级**：`alg_pipeline_tool`、`alg_show`、`scripts/show.py`、`demo/profiles.json` 支持 `--biz` 参数与 `"biz_name"` 属性。
+  - 🧪 **37 组全量 Google Test 单元测试与 6 阶段质量门禁 100% 通过**：全量 CTest (37/37)、LayerGuard 分层防腐门禁、Google C++ 规范与 7 大业务端到端自动化测试全部无缝通过。
 
 - **v2.1.0 (架构契约收敛与文档一致性修复 - RFC 0008)** *(2026-08)*
   - 🧭 **SSOT 契约注册与自发现体系**：引入 `REGISTER_NODE_WITH_DEFINITION` 与 `REGISTER_ENGINE_WITH_DEFINITION` 宏，统一将 Node / Engine 元数据定义在实现文件中声明并自动注册至 `PipelineCatalog`，彻底废除中心式硬编码 Catalog。

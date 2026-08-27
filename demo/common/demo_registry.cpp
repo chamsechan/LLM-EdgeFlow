@@ -12,33 +12,39 @@ DemoRegistry& DemoRegistry::Instance() {
 bool DemoRegistry::Register(DemoDescriptor descriptor) {
   std::lock_guard<std::mutex> lock(mutex_);
 
-  if (descriptor.business_name.empty()) {
-    std::cerr << "[DemoRegistry ERROR] Empty business_name provided"
-              << std::endl;
+  if (descriptor.biz_name.empty() && !descriptor.business_name.empty()) {
+    descriptor.biz_name = descriptor.business_name;
+  }
+  if (descriptor.business_name.empty() && !descriptor.biz_name.empty()) {
+    descriptor.business_name = descriptor.biz_name;
+  }
+
+  if (descriptor.biz_name.empty()) {
+    std::cerr << "[DemoRegistry ERROR] Empty biz_name provided" << std::endl;
     has_conflict_ = true;
     return false;
   }
   if (!descriptor.run) {
-    std::cerr << "[DemoRegistry ERROR] Null run function for business: "
-              << descriptor.business_name << std::endl;
+    std::cerr << "[DemoRegistry ERROR] Null run function for biz: "
+              << descriptor.biz_name << std::endl;
     has_conflict_ = true;
     return false;
   }
 
-  if (descriptors_.find(descriptor.business_name) != descriptors_.end()) {
-    std::cerr << "[DemoRegistry ERROR] Duplicate registration for business: "
-              << descriptor.business_name << std::endl;
+  if (descriptors_.find(descriptor.biz_name) != descriptors_.end()) {
+    std::cerr << "[DemoRegistry ERROR] Duplicate registration for biz: "
+              << descriptor.biz_name << std::endl;
     has_conflict_ = true;
     return false;
   }
 
-  descriptors_[descriptor.business_name] = std::move(descriptor);
+  descriptors_[descriptor.biz_name] = std::move(descriptor);
   return true;
 }
 
-const DemoDescriptor* DemoRegistry::Find(std::string_view business_name) const {
+const DemoDescriptor* DemoRegistry::Find(std::string_view biz_name) const {
   std::lock_guard<std::mutex> lock(mutex_);
-  auto it = descriptors_.find(std::string(business_name));
+  auto it = descriptors_.find(std::string(biz_name));
   if (it != descriptors_.end()) {
     return &it->second;
   }
@@ -55,7 +61,7 @@ std::vector<DemoDescriptor> DemoRegistry::ListDescriptors() const {
   return list;
 }
 
-std::vector<std::string> DemoRegistry::ListBusinessNames() const {
+std::vector<std::string> DemoRegistry::ListBizNames() const {
   std::lock_guard<std::mutex> lock(mutex_);
   std::vector<std::string> names;
   names.reserve(descriptors_.size());

@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-#include "adapter/business_adapter_registry.h"
+#include "adapter/biz_adapter_registry.h"
 #include "company_alg_cpp.hpp"
 #include "company_alg_interface.h"
 
