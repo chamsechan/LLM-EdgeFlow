@@ -67,18 +67,11 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-# PlantUML's -checkonly still emits PNG files next to its input sources. Run
-# syntax validation against isolated copies so a read-only check never dirties
-# the repository (or a caller-provided documentation root).
-CHECK_SOURCE_DIR="${TMP_RENDER_DIR}/check-sources"
-mkdir -p "${CHECK_SOURCE_DIR}"
-cp "${CLASS_SOURCE}" "${CHECK_SOURCE_DIR}/architecture.puml"
-cp "${FLOW_SOURCE}" "${CHECK_SOURCE_DIR}/architecture_v2.puml"
-java -Djava.awt.headless=true -jar "${PLANTUML_JAR}" \
-  -charset UTF-8 -failfast2 -checkonly \
-  "${CHECK_SOURCE_DIR}/architecture.puml" \
-  "${CHECK_SOURCE_DIR}/architecture_v2.puml"
-java -Djava.awt.headless=true -jar "${PLANTUML_JAR}" \
+# Render SVGs directly to isolated temporary directory in a single pass with
+# parallel threads and fast TieredCompilation startup. Syntax errors are caught
+# immediately via -failfast2 without polluting workspace.
+java -Djava.awt.headless=true -XX:+TieredCompilation -XX:TieredStopAtLevel=1 \
+  -jar "${PLANTUML_JAR}" -nbthread auto \
   -charset UTF-8 -failfast2 -nometadata -tsvg \
   "${CLASS_SOURCE}" "${FLOW_SOURCE}" -o "${TMP_RENDER_DIR}"
 
