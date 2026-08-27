@@ -1225,7 +1225,14 @@ TEST_F(PlatformOperatorTest, PathSandboxStrictBoundaries) {
                 sizeof(err_buf)),
             -2);
 
-  // 7. 对 Create 接口同样严格拦截非普通文件与不存在文件
+  // 7. 路径前缀混淆拒绝 (例如目标根为 root，试图访问 root_extra 目录)
+  EXPECT_EQ(ValidatePlatformConfigBinding(
+                root_dir.c_str(), "../configs_fake/pipeline.conf",
+                static_cast<int32_t>(ALG_BIZ_TYPE_KEYWORD_MATCH), err_buf,
+                sizeof(err_buf)),
+            -2);
+
+  // 8. 对 Create 接口同样严格拦截非普通文件与不存在文件
   CreateParam bad_param{};
   bad_param.model_path = root_dir.c_str();
   bad_param.cfg_file_name = "configs";  // Directory
@@ -1511,23 +1518,26 @@ TEST_F(PlatformOperatorTest, MultiBusinessMaxBatchBoundarySuite) {
     ASSERT_EQ(ops_.Create(&handle, &param), 0);
 
     constexpr size_t kBatch = 4;
-    std::vector<std::string> q_strs(kBatch), c_strs(kBatch);
-    std::vector<CompanyString> q_cs(kBatch), c_cs(kBatch);
+    std::vector<std::string> q_strs(kBatch);
+    std::vector<std::vector<std::string>> c_strs(kBatch, std::vector<std::string>(8));
+    std::vector<CompanyString> q_cs(kBatch);
+    std::vector<std::vector<CompanyString>> c_cs(kBatch, std::vector<CompanyString>(8));
     std::vector<CompanyPlatformRerankInput> inputs(kBatch);
     NamedIoBatch batch_in(kBatch), batch_out(kBatch);
 
     for (size_t i = 0; i < kBatch; ++i) {
       q_strs[i] = "Cross Rerank Query #" + std::to_string(i);
-      c_strs[i] = "Candidate passage content #" + std::to_string(i);
       q_cs[i] = CompanyString{static_cast<int32_t>(q_strs[i].size()),
                               q_strs[i].data()};
-      c_cs[i] = CompanyString{static_cast<int32_t>(c_strs[i].size()),
-                              c_strs[i].data()};
       inputs[i].request_id = static_cast<uint64_t>(400 + i);
       inputs[i].query_text = &q_cs[i];
-      inputs[i].candidate_count = 2;
-      inputs[i].candidate_passages[0] = &c_cs[i];
-      inputs[i].candidate_passages[1] = &c_cs[i];
+      inputs[i].candidate_count = 8;
+      for (size_t c = 0; c < 8; ++c) {
+        c_strs[i][c] = "Candidate passage " + std::to_string(c) + " for req #" + std::to_string(i);
+        c_cs[i][c] = CompanyString{static_cast<int32_t>(c_strs[i][c].size()),
+                                   c_strs[i][c].data()};
+        inputs[i].candidate_passages[c] = &c_cs[i][c];
+      }
       batch_in[i]["rank.rerank_in"] = MakeBorrowedPlatformInput(&inputs[i]);
       batch_out[i]["rank.rerank_out"] = nullptr;
     }
@@ -1537,13 +1547,19 @@ TEST_F(PlatformOperatorTest, MultiBusinessMaxBatchBoundarySuite) {
 
     auto* first_out = static_cast<CompanyPlatformRerankOutput*>(
         batch_out[0]["rank.rerank_out"].get());
+    auto* middle_out = static_cast<CompanyPlatformRerankOutput*>(
+        batch_out[1]["rank.rerank_out"].get());
     auto* last_out = static_cast<CompanyPlatformRerankOutput*>(
         batch_out[kBatch - 1]["rank.rerank_out"].get());
     ASSERT_NE(first_out, nullptr);
+    ASSERT_NE(middle_out, nullptr);
     ASSERT_NE(last_out, nullptr);
     EXPECT_EQ(first_out->request_id, 400u);
+    EXPECT_EQ(middle_out->request_id, 401u);
     EXPECT_EQ(last_out->request_id, 400u + kBatch - 1);
-    EXPECT_EQ(first_out->count, 2);
+    EXPECT_EQ(first_out->count, 8);
+    EXPECT_EQ(middle_out->count, 8);
+    EXPECT_EQ(last_out->count, 8);
 
     batch_out.clear();
     EXPECT_EQ(ops_.Destroy(handle), 0);

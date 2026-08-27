@@ -37,21 +37,6 @@ set(CMAKE_BUILD_RPATH_USE_ORIGIN TRUE)
 add_compile_options(-Wall -Wextra -O2 -fPIC)
 
 # 确保 mock npu 模型的占位文件存在
-foreach(MOCK_MODEL
-    bge_base_npu.bin
-    qwen_1.5b_npu.bin
-    bge_reranker_large_npu.bin
-    bge_m3_npu.bin
-    qwen_1_8b_npu.bin
-    qwen2.5_7b_audit_npu.bin
-    paraformer_asr_npu.bin
-    ch_ppocr_v4_det_rec_npu.bin
-    qwen_0_6b_npu.bin
-)
-  if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/models/${MOCK_MODEL}")
-    file(TOUCH "${CMAKE_CURRENT_SOURCE_DIR}/models/${MOCK_MODEL}")
-  endif()
-endforeach()
 
 option(ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
 set(LLM_EDGEFLOW_SANITIZERS "address,undefined" CACHE STRING
