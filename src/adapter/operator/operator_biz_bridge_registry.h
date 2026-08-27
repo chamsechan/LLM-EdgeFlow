@@ -10,7 +10,7 @@
 #include <unordered_map>
 #include <vector>
 
-#include "adapter/platform/platform_value_type_registry.h"
+#include "adapter/operator/operator_value_type_registry.h"
 #include "company_alg_interface.h"
 
 namespace alg_framework {
@@ -57,20 +57,18 @@ struct ProcessLocalShadowStorage {
 /**
  * @brief 业务逻辑槽位定义
  */
-struct PlatformBizSlot {
+struct OperatorBizSlot {
   std::string logical_name;  // 业务逻辑槽位名 (业务与方向内唯一)
   std::string type_suffix;   // 规范类型后缀
   IoDirection direction = IoDirection::kInput;
   bool required = true;
 
-  bool operator==(const PlatformBizSlot& other) const {
+  bool operator==(const OperatorBizSlot& other) const {
     return logical_name == other.logical_name &&
            type_suffix == other.type_suffix && direction == other.direction &&
            required == other.required;
   }
 };
-
-using PlatformBusinessSlot = PlatformBizSlot;
 
 using ConvertSampleInputFn = int (*)(
     const std::unordered_map<std::string, const void*>& slots_by_logical_name,
@@ -87,19 +85,19 @@ using CreateShadowOutputDtoFn = void* (*)(ProcessLocalShadowStorage& storage);
 /**
  * @brief 业务桥接描述符
  */
-struct PlatformBizBridgeDescriptor {
+struct OperatorBizBridgeDescriptor {
   CompanyAlgBizType biz_type = ALG_BIZ_TYPE_UNKNOWN;
   std::string biz_name;
   std::string internal_input_type_name;
   std::string internal_output_type_name;
   std::string registration_identity;
-  std::vector<PlatformBizSlot> input_slots;
-  std::vector<PlatformBizSlot> output_slots;
+  std::vector<OperatorBizSlot> input_slots;
+  std::vector<OperatorBizSlot> output_slots;
   ConvertSampleInputFn convert_sample_input = nullptr;
   ConvertSampleOutputFn convert_sample_output = nullptr;
   CreateShadowOutputDtoFn create_shadow_output_dto = nullptr;
 
-  bool operator==(const PlatformBizBridgeDescriptor& other) const {
+  bool operator==(const OperatorBizBridgeDescriptor& other) const {
     return biz_type == other.biz_type && biz_name == other.biz_name &&
            internal_input_type_name == other.internal_input_type_name &&
            internal_output_type_name == other.internal_output_type_name &&
@@ -112,24 +110,22 @@ struct PlatformBizBridgeDescriptor {
   }
 };
 
-using PlatformBusinessBridgeDescriptor = PlatformBizBridgeDescriptor;
-
 /**
- * @brief 平台业务桥接注册表 (SSOT 与自注册中心)
+ * @brief Operator 业务桥接注册表 (SSOT 与自注册中心)
  */
-class PlatformBizBridgeRegistry {
+class OperatorBizBridgeRegistry {
  public:
-  static PlatformBizBridgeRegistry& Instance();
+  static OperatorBizBridgeRegistry& Instance();
 
   /**
    * @brief 注册业务桥接描述符 (严格审计并在 Init 后冻结)
    */
-  bool RegisterBridge(PlatformBizBridgeDescriptor desc);
+  bool RegisterBridge(OperatorBizBridgeDescriptor desc);
 
   /**
    * @brief 获取业务桥接描述符
    */
-  const PlatformBizBridgeDescriptor* GetBridge(
+  const OperatorBizBridgeDescriptor* GetBridge(
       CompanyAlgBizType biz_type) const;
 
   /**
@@ -152,32 +148,27 @@ class PlatformBizBridgeRegistry {
                                 uint32_t capacity, const char* field_name,
                                 std::string* err) noexcept;
 
-  PlatformBizBridgeRegistry() = default;
+  OperatorBizBridgeRegistry() = default;
 
  private:
   mutable std::mutex mutex_;
   bool has_conflict_ = false;
   bool audited_ = false;
-  std::unordered_map<int32_t, PlatformBizBridgeDescriptor> bridges_by_biz_type_;
+  std::unordered_map<int32_t, OperatorBizBridgeDescriptor> bridges_by_biz_type_;
 };
-
-using PlatformBusinessBridgeRegistry = PlatformBizBridgeRegistry;
 
 /**
  * @brief 就地业务自注册宏 (无需在中心维护列表)
  */
-#define REGISTER_PLATFORM_BIZ_BRIDGE(BridgeRegisterFn)                       \
+#define REGISTER_OPERATOR_BIZ_BRIDGE(BridgeRegisterFn)                       \
   namespace {                                                                \
   struct AutoRegister_##BridgeRegisterFn {                                   \
     AutoRegister_##BridgeRegisterFn() {                                      \
       BridgeRegisterFn(                                                      \
-          ::alg_framework::PlatformBizBridgeRegistry::Instance());           \
+          ::alg_framework::OperatorBizBridgeRegistry::Instance());           \
     }                                                                        \
   };                                                                         \
   static AutoRegister_##BridgeRegisterFn g_auto_register_##BridgeRegisterFn; \
   }
-
-#define REGISTER_PLATFORM_BUSINESS_BRIDGE(BridgeRegisterFn) \
-  REGISTER_PLATFORM_BIZ_BRIDGE(BridgeRegisterFn)
 
 }  // namespace alg_framework

@@ -11,7 +11,7 @@
 
 namespace alg_demo {
 
-using llm_edgeflow::platform::ChipType;
+using llm_edgeflow::operator_api::ComputePlatform;
 
 namespace {
 
@@ -62,31 +62,32 @@ bool ParseStrictInt64(const std::string& str, int64_t* out_val) {
 
 }  // namespace
 
-bool ParseChipType(const std::string& chip_str, ChipType* out_type) noexcept {
+bool ParseComputePlatform(const std::string& chip_str,
+                          ComputePlatform* out_type) noexcept {
   if (!out_type) return false;
   std::string lower = ToLower(chip_str);
 
   if (lower == "ax650") {
-    *out_type = ChipType::kAx650;
+    *out_type = ComputePlatform::kAx650;
     return true;
   } else if (lower == "ascend310p" || lower == "ascend_310p") {
-    *out_type = ChipType::kAscend310P;
+    *out_type = ComputePlatform::kAscend310P;
     return true;
   } else if (lower == "ascend910b" || lower == "ascend_910b") {
-    *out_type = ChipType::kAscend910B;
+    *out_type = ComputePlatform::kAscend910B;
     return true;
   } else if (lower == "rk3588") {
-    *out_type = ChipType::kRk3588;
+    *out_type = ComputePlatform::kRk3588;
     return true;
-  } else if (lower == "nvidia_gpu" || lower == "nvidiagpu" || lower == "cuda") {
-    *out_type = ChipType::kNvidiaGpu;
+  } else if (lower == "cuda" || lower == "nvidia_gpu" || lower == "nvidiagpu") {
+    *out_type = ComputePlatform::kCuda;
     return true;
-  } else if (lower == "cpu_generic" || lower == "cpu") {
-    *out_type = ChipType::kCpuGeneric;
+  } else if (lower == "cpu" || lower == "cpu_generic") {
+    *out_type = ComputePlatform::kCpu;
     return true;
   }
 
-  *out_type = ChipType::kUnknown;
+  *out_type = ComputePlatform::kUnknown;
   return false;
 }
 
@@ -215,12 +216,12 @@ int ParseCommandLine(int argc, char* argv[], DemoOptions* out_options,
         return 2;
       }
       out_options->chip = argv[++i];
-      ChipType dummy;
-      if (!ParseChipType(out_options->chip, &dummy)) {
+      ComputePlatform dummy;
+      if (!ParseComputePlatform(out_options->chip, &dummy)) {
         if (error_msg) {
           *error_msg = "Unsupported chip type: '" + out_options->chip +
                        "'. Allowed: ax650, ascend310p, ascend910b, rk3588, "
-                       "nvidia_gpu, cpu_generic";
+                       "cuda, cpu";
         }
         return 2;
       }
@@ -426,8 +427,8 @@ int LoadAndValidateProfilesDocument(const std::string& profiles_path,
           *error_msg = "Profile '" + name + "' field 'chip' must be a string";
         return 3;
       }
-      ChipType dummy;
-      if (!ParseChipType(p["chip"].get<std::string>(), &dummy)) {
+      ComputePlatform dummy;
+      if (!ParseComputePlatform(p["chip"].get<std::string>(), &dummy)) {
         if (error_msg)
           *error_msg = "Profile '" + name + "' chip '" +
                        p["chip"].get<std::string>() + "' is not supported";
@@ -548,8 +549,8 @@ int LoadAndMergeProfiles(const std::string& profiles_path,
   }
 
   // 终态芯片校验
-  ChipType dummy_chip;
-  if (!ParseChipType(out_options->chip, &dummy_chip)) {
+  ComputePlatform dummy_chip;
+  if (!ParseComputePlatform(out_options->chip, &dummy_chip)) {
     if (error_msg) {
       *error_msg = "Unsupported chip type: '" + out_options->chip + "'";
     }
@@ -570,17 +571,18 @@ void PrintHelp(const char* program_name) {
       << "Direct Execution Options:\n"
       << "  -b, --business <name>      Target business (e.g. entity_extract, "
          "doc_qa)\n"
-      << "  -c, --config, --conf <path> Platform deployment .conf path\n"
+      << "  -c, --config, --conf <path> Operator deployment .conf path\n"
       << "  -d, --dataset, --data <path> Business dataset path\n"
       << "  -o, --output-dir <path>    Results output directory (default: "
          "./results)\n\n"
       << "Execution Tuning Options:\n"
-      << "  --batch-size <n>           Max batch size for Platform operator "
+      << "  --batch-size <n>           Max batch size for Operator execution "
          "(default: 1)\n"
       << "  --device-id <n>            Target hardware device ID (default: 0)\n"
-      << "  --chip <name>              Chip whitelist name (ax650, ascend310p, "
+      << "  --chip <name>              Compute platform name (ax650, "
+         "ascend310p, "
          "ascend910b,\n"
-      << "                             rk3588, nvidia_gpu, cpu_generic)\n"
+      << "                             rk3588, cuda, cpu)\n"
       << "  --depth <n>                Output descriptor depth count (default: "
          "1)\n"
       << "  --control-file <path>      Runtime control parameters JSON file\n"

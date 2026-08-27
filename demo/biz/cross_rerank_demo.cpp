@@ -7,7 +7,7 @@
 #include "demo/common/demo_registry.h"
 #include "demo/common/operator_runner.h"
 #include "demo/common/result_writer.h"
-#include "platform/company_platform_types.h"
+#include "operator/company_operator_types.h"
 
 namespace alg_demo {
 
@@ -55,7 +55,7 @@ int RunCrossRerankDemo(const DemoOptions& options) {
   int cand_count = std::min(static_cast<int>(passages.size()), 8);
   passage_cs.reserve(cand_count);
 
-  CompanyPlatformRerankInput req{};
+  CompanyOperatorRerankInput req{};
   req.request_id = 80001;
   req.query_text = &query_cs;
   req.candidate_count = cand_count;
@@ -65,7 +65,7 @@ int RunCrossRerankDemo(const DemoOptions& options) {
     req.candidate_passages[i] = &passage_cs.back();
   }
 
-  std::vector<CompanyPlatformRerankInput> inputs = {req};
+  std::vector<CompanyOperatorRerankInput> inputs = {req};
   struct OutputSummary {
     uint64_t request_id = 0;
     int32_t count = 0;
@@ -75,10 +75,10 @@ int RunCrossRerankDemo(const DemoOptions& options) {
   std::vector<OutputSummary> output_summaries(1);
   std::vector<double> latencies;
 
-  int ret = RunPlatformOperatorWithExtractor<CompanyPlatformRerankInput,
-                                             CompanyPlatformRerankOutput>(
+  int ret = RunOperatorWithExtractor<CompanyOperatorRerankInput,
+                                     CompanyOperatorRerankOutput>(
       options, "ranker.rerank_in", "ranker.rerank_out", inputs,
-      [&](size_t idx, const CompanyPlatformRerankOutput& out) {
+      [&](size_t idx, const CompanyOperatorRerankOutput& out) {
         output_summaries[idx].request_id = out.request_id;
         output_summaries[idx].count = out.count;
         for (int i = 0; i < out.count && i < 8; ++i) {

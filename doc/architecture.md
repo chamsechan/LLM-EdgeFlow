@@ -21,7 +21,7 @@ graph TD
     end
 
     %% Level 1
-    subgraph L1["Layer 1: 平台接入与 C-ABI 适配层 (Platform C-ABI Adapter Layer)"]
+    subgraph L1["Layer 1: Operator 接入与 C-ABI 适配层 (Operator & C-ABI Adapter Layer)"]
         C_API["公司统一标准 C ABI 接口<br>• Alg_Init / Alg_DeInit<br>• Alg_Create / Alg_Destroy<br>• Alg_Process(const void** inputs, num_inputs, void** outputs, num_outputs)<br>• Alg_Control"]
         C_Adapter["company_c_adapter.cpp<br>• 句柄生命周期托管 (Handle)<br>• 异常拦截屏障 (noexcept 安全防护)<br>• 外部输入解包 / 输出结构体强转打包"]
     end
@@ -102,46 +102,41 @@ graph TD
 
 ## 2. 4 层抽象职责定义
 
-### Layer 1: 平台接入层 (Platform C-ABI Adapter)
-- **代码位置**：`include/company_alg_interface.h`，`src/adapter/company_c_adapter.cpp`
+### Layer 1: Operator 与 C-ABI 接入层 (Operator & C-ABI Adapter)
+- **代码位置**：`include/company_alg_interface.h`，`include/operator/`，`src/adapter/`
 - **核心职责**：
   1. 导出公司限定的标准 C 接口：`Alg_Init`, `Alg_Create`, `Alg_Process`, `Alg_Control`, `Alg_Destroy`, `Alg_DeInit`；
-  2. 充当 `noexcept` 安全屏障，拦截所有 C++ 异常，防止跨动态库边界崩溃；
-  3. 将外部传入的纯 C 指针数组业务结构体解包，转入内部强类型的 `AlgContext`。
+  2. 导出基于命名 I/O 槽位的 C++ Operator 门面：`Get_LLM_EDGEFLOW_OperatorTable()`；
+  3. 充当 `noexcept` 安全屏障，拦截所有 C++ 异常，防止跨动态库边界崩溃；
+  4. 将外部传入的纯 C 指针数组或 NamedIoBatch 解包，转入内部强类型的 `AlgContext`。
 
-#### 公司平台边界的长期演进（Proposed）
+#### 双外部门面与单一内部运行时架构
 
-> 本节描述 [RFC-0009](rfcs/0009-company-string-and-slot-map-struct-binding.md)
-> 的目标架构，当前代码尚未实现。现有行为仍以已完成的 RFC-0004 和代码为准。
-
-Layer 1 长期需要并行维护两个外部门面，但只允许一个内部运行时：
+Layer 1 并行维护两个外部门面，统一由 `SharedAlgorithmRuntime` 执行调度：
 
 ```text
 纯 C ABI：const void** / void** + 现有 CompanyAlg DTO ─┐
                                                        ├─> SharedAlgorithmRuntime
-C++ Platform Operator：NamedIoBatch + 平台镜像 C 结构 ─┘
+C++ Operator API：NamedIoBatch + Operator 镜像 C 结构 ─┘
 ```
 
-- 纯 C ABI 继续保持 C11、固定布局和现有六函数契约，其 ABI V2 不随本提案改变。
-- C++ Platform Operator 根据 Key 的最后一个点号解析类型后缀：
-  `PlatformValueTypeRegistry` 负责“后缀到外部 C 类型”的唯一绑定，
-  `PlatformBusinessBridgeDescriptor` 负责按业务和方向收集一个或多个槽位，再转换为
-  现有内部 DTO；两种协议不得通过 `reinterpret_cast` 混用布局。
-- 同一业务可以使用一个聚合结构槽位，也可以由多个原子槽位组成；不得继续依赖
-  “一帧恰好一个输入 DTO 和一个输出 DTO”的限制。
+- 纯 C ABI 继续保持 C11、固定布局和现有六函数契约，其 ABI V2 保持源码与符号兼容。
+- C++ Operator API 根据 Key 的最后一个点号解析类型后缀：
+  `OperatorValueTypeRegistry` 负责“后缀到外部 C 类型”的唯一绑定，
+  `OperatorBizBridgeDescriptor` 负责按业务和方向收集一个或多个槽位，再转换为
+  内部 DTO；两种协议不得通过 `reinterpret_cast` 混用布局。
+- 命名解耦设计：`Integration -> Operator -> Pipeline -> Node -> Engine -> Platform`。
+  `Operator` 表达对外交付的算法实例，`Platform`（`ComputePlatform`）表达底层硬件执行平台（CPU、CUDA、AX650、Ascend 等）。
+- 同一业务可以使用一个聚合结构槽位，也可以由多个原子槽位组成；支持多槽位解绑。
 - `CompanyString` 只表达无嵌入 NUL 的文本；任意二进制数据使用 `CompanyBuffer`。
 - 输入由外部持有，Process 只借用裸指针并复制所需值，不持有输入 shared_ptr。
 - 输出由算法库在 Create 期按 `max_frame_depth` 预分配；Process 返回带自定义
   deleter 的 shared_ptr，最后一个引用析构后 reset 并回池；deleter 只捕获池状态的
   weak lifetime token，避免 Destroy 后解引用已释放句柄或池。
-- 值类型表、业务桥接表和内存池只属于 Layer 1，不得进入 Blackboard、Node 或
-  Engine。
-- `CreateParam` 演进属于 C++ Platform 二进制 ABI 变更，目标包提升到 SOVERSION 3；
-  公司平台与库需原子升级，而纯 C ABI V2 保持源码和符号契约不变。
-- v3 Create 和配置预检都以必填部署根 `model_path` 加相对 `cfg_file_name` 解析；
+- 值类型表、业务桥接表和内存池只属于 Layer 1，不得进入 Blackboard、Node 或 Engine。
+- 目标共享库输出名称为 `company_alg_sdk`，SOVERSION 为 4。
+- v4 Create 和配置预检都以必填部署根 `model_path` 加相对 `cfg_file_name` 解析；
   `.conf` 的 `data.mem_que` 归一化输出后缀、metadata 容量和嵌套字段容量。
-- 该演进属于长期平台契约变更，必须完成 RFC-0009 评审和测试门禁后才能将本节改为
-  Current。
 
 ### Layer 2: 管线调度与状态黑板层 (Pipeline & State Engine)
 - **代码位置**：`include/core/`，`src/core/`

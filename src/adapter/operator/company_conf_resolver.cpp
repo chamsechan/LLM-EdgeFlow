@@ -1,4 +1,4 @@
-#include "adapter/platform/company_conf_resolver.h"
+#include "adapter/operator/company_conf_resolver.h"
 
 #include <fstream>
 #include <iostream>
@@ -241,12 +241,11 @@ int CompanyConfResolver::ResolveModelReferenceUnderRoot(
   }
 }
 
-int CompanyConfResolver::Resolve(const char* model_path,
-                                 const char* cfg_file_name, int32_t device_id,
-                                 llm_edgeflow::platform::ChipType /*chip_type*/,
-                                 ResolvedCompanyConfig* result,
-                                 std::string* error_msg,
-                                 uint32_t max_frame_depth) noexcept {
+int CompanyConfResolver::Resolve(
+    const char* model_path, const char* cfg_file_name, int32_t device_id,
+    llm_edgeflow::operator_api::ComputePlatform /*compute_platform*/,
+    ResolvedCompanyConfig* result, std::string* error_msg,
+    uint32_t max_frame_depth) noexcept {
   try {
     if (!result) {
       if (error_msg) *error_msg = "Null output result pointer";
@@ -390,10 +389,10 @@ int CompanyConfResolver::Resolve(const char* model_path,
     }
 
     const auto* bridge_desc =
-        PlatformBizBridgeRegistry::Instance().GetBridge(adapter->BizType());
+        OperatorBizBridgeRegistry::Instance().GetBridge(adapter->BizType());
     if (!bridge_desc) {
       if (error_msg) {
-        *error_msg = "No PlatformBizBridgeDescriptor for BizType " +
+        *error_msg = "No OperatorBizBridgeDescriptor for BizType " +
                      std::to_string(adapter->BizType());
       }
       return -5;

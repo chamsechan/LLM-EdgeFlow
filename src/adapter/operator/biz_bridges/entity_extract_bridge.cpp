@@ -1,23 +1,23 @@
-#include "adapter/platform/platform_biz_bridge_registry.h"
+#include "adapter/operator/operator_biz_bridge_registry.h"
 
 namespace alg_framework {
 
-void RegisterEntityExtractBridge(PlatformBizBridgeRegistry& reg) {
-  PlatformBizBridgeDescriptor desc;
+void RegisterEntityExtractBridge(OperatorBizBridgeRegistry& reg) {
+  OperatorBizBridgeDescriptor desc;
   desc.biz_type = ALG_BIZ_TYPE_ENTITY_EXTRACT;
   desc.biz_name = "EntityExtract";
   desc.internal_input_type_name = "CompanyEntityInputStruct";
   desc.internal_output_type_name = "CompanyEntityOutputStruct";
   desc.registration_identity = "builtin.entity_extract";
 
-  PlatformBizSlot in_slot;
+  OperatorBizSlot in_slot;
   in_slot.logical_name = "entity_in";
   in_slot.type_suffix = "entity_in";
   in_slot.direction = IoDirection::kInput;
   in_slot.required = true;
   desc.input_slots.push_back(in_slot);
 
-  PlatformBizSlot out_slot;
+  OperatorBizSlot out_slot;
   out_slot.logical_name = "entity_out";
   out_slot.type_suffix = "entity_out";
   out_slot.direction = IoDirection::kOutput;
@@ -33,7 +33,7 @@ void RegisterEntityExtractBridge(PlatformBizBridgeRegistry& reg) {
       if (err) *err = "Missing required input slot entity_in";
       return -3;
     }
-    const auto* in = static_cast<const CompanyPlatformEntityInput*>(it->second);
+    const auto* in = static_cast<const CompanyOperatorEntityInput*>(it->second);
     auto* dto = storage.AllocateShadowDto<CompanyEntityInputStruct>();
     dto->request_id = in->request_id;
     dto->sentence_text = storage.StoreString(in->sentence_text);
@@ -51,11 +51,11 @@ void RegisterEntityExtractBridge(PlatformBizBridgeRegistry& reg) {
     const auto* in_dto =
         static_cast<const CompanyEntityOutputStruct*>(internal_dto);
     auto* out =
-        static_cast<CompanyPlatformEntityOutput*>(external_output_struct);
+        static_cast<CompanyOperatorEntityOutput*>(external_output_struct);
     out->request_id = in_dto->request_id;
     out->status_code = in_dto->status_code;
 
-    return PlatformBizBridgeRegistry::CopyToPooledString(
+    return OperatorBizBridgeRegistry::CopyToPooledString(
         in_dto->entities_json, out->entities_json,
         spec.GetCapacity("entities_json", 2047), "entities_json", err);
   };
@@ -67,6 +67,6 @@ void RegisterEntityExtractBridge(PlatformBizBridgeRegistry& reg) {
   reg.RegisterBridge(desc);
 }
 
-REGISTER_PLATFORM_BIZ_BRIDGE(RegisterEntityExtractBridge);
+REGISTER_OPERATOR_BIZ_BRIDGE(RegisterEntityExtractBridge);
 
 }  // namespace alg_framework

@@ -1,4 +1,4 @@
-#include "adapter/platform/platform_biz_bridge_registry.h"
+#include "adapter/operator/operator_biz_bridge_registry.h"
 
 #include <iostream>
 #include <unordered_set>
@@ -7,12 +7,12 @@
 
 namespace alg_framework {
 
-PlatformBizBridgeRegistry& PlatformBizBridgeRegistry::Instance() {
-  static PlatformBizBridgeRegistry instance;
+OperatorBizBridgeRegistry& OperatorBizBridgeRegistry::Instance() {
+  static OperatorBizBridgeRegistry instance;
   return instance;
 }
 
-int PlatformBizBridgeRegistry::CopyToPooledString(const char* src,
+int OperatorBizBridgeRegistry::CopyToPooledString(const char* src,
                                                   CompanyString* dest,
                                                   uint32_t capacity,
                                                   const char* field_name,
@@ -41,8 +41,8 @@ int PlatformBizBridgeRegistry::CopyToPooledString(const char* src,
   return 0;
 }
 
-bool PlatformBizBridgeRegistry::RegisterBridge(
-    PlatformBizBridgeDescriptor desc) {
+bool OperatorBizBridgeRegistry::RegisterBridge(
+    OperatorBizBridgeDescriptor desc) {
   std::lock_guard<std::mutex> lock(mutex_);
   if (audited_) {
     return false;
@@ -108,7 +108,7 @@ bool PlatformBizBridgeRegistry::RegisterBridge(
   return true;
 }
 
-const PlatformBizBridgeDescriptor* PlatformBizBridgeRegistry::GetBridge(
+const OperatorBizBridgeDescriptor* OperatorBizBridgeRegistry::GetBridge(
     CompanyAlgBizType biz_type) const {
   std::lock_guard<std::mutex> lock(mutex_);
   auto it = bridges_by_biz_type_.find(static_cast<int32_t>(biz_type));
@@ -118,7 +118,7 @@ const PlatformBizBridgeDescriptor* PlatformBizBridgeRegistry::GetBridge(
   return nullptr;
 }
 
-int PlatformBizBridgeRegistry::GlobalInit() {
+int OperatorBizBridgeRegistry::GlobalInit() {
   std::lock_guard<std::mutex> lock(mutex_);
   if (has_conflict_) {
     return -6;
@@ -178,7 +178,7 @@ int PlatformBizBridgeRegistry::GlobalInit() {
         return -6;
       }
       const auto* binding =
-          PlatformValueTypeRegistry::Instance().GetBindingBySuffix(
+          OperatorValueTypeRegistry::Instance().GetBindingBySuffix(
               slot.type_suffix);
       if (!binding || binding->canonical_suffix != slot.type_suffix ||
           !binding->validate_external) {
@@ -192,7 +192,7 @@ int PlatformBizBridgeRegistry::GlobalInit() {
         return -6;
       }
       const auto* binding =
-          PlatformValueTypeRegistry::Instance().GetBindingBySuffix(
+          OperatorValueTypeRegistry::Instance().GetBindingBySuffix(
               slot.type_suffix);
       if (!binding || binding->canonical_suffix != slot.type_suffix ||
           !binding->allocate_external || !binding->reset_external ||

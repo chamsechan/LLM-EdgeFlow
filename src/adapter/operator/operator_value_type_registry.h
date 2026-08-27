@@ -11,7 +11,7 @@
 #include <utility>
 #include <vector>
 
-#include "platform/company_platform_types.h"
+#include "operator/company_operator_types.h"
 
 namespace alg_framework {
 
@@ -148,7 +148,7 @@ struct OwnedExternalBlock {
 /**
  * @brief 计算输出池预分配业务载荷的确定性字节数 (checked add/multiply)
  *
- * 计入外层平台镜像结构、嵌套 CompanyString/CompanyAny 结构及其数据区；
+ * 计入外层 Operator 镜像结构、嵌套 CompanyString/CompanyAny 结构及其数据区；
  * 不把 STL 容器、allocator、控制块等实现相关管理开销伪装成可精确计算的载荷。
  */
 bool ComputeOutputPoolPayloadBytes(const std::string& suffix,
@@ -169,9 +169,9 @@ using ResetExternalFn =
 using DestroyExternalFn = std::function<void(OwnedExternalBlock* block)>;
 
 /**
- * @brief 平台值类型绑定描述符
+ * @brief Operator 值类型绑定描述符
  */
-struct PlatformValueTypeBinding {
+struct OperatorValueTypeBinding {
   std::string canonical_suffix;
   std::vector<std::string> aliases;
   std::string external_c_type_name;
@@ -182,13 +182,13 @@ struct PlatformValueTypeBinding {
 };
 
 /**
- * @brief 平台全局值类型表 (SSOT)
+ * @brief Operator 全局值类型表 (SSOT)
  */
-class PlatformValueTypeRegistry {
+class OperatorValueTypeRegistry {
  public:
-  static PlatformValueTypeRegistry& Instance();
+  static OperatorValueTypeRegistry& Instance();
 
-  PlatformValueTypeRegistry();
+  OperatorValueTypeRegistry();
   void RegisterBuiltinBindings();
 
   /**
@@ -232,7 +232,7 @@ class PlatformValueTypeRegistry {
   /**
    * @brief 注册值类型绑定 (在写入前执行严格的原子预检)
    */
-  bool RegisterBinding(const PlatformValueTypeBinding& binding);
+  bool RegisterBinding(const OperatorValueTypeBinding& binding);
 
   /**
    * @brief 根据规范后缀或别名获取规范后缀 (若未知返回空字符串)
@@ -242,7 +242,7 @@ class PlatformValueTypeRegistry {
   /**
    * @brief 根据规范后缀或别名获取绑定描述符
    */
-  const PlatformValueTypeBinding* GetBindingBySuffix(
+  const OperatorValueTypeBinding* GetBindingBySuffix(
       const std::string& suffix) const;
 
   /**
@@ -266,7 +266,7 @@ class PlatformValueTypeRegistry {
 
  private:
   mutable std::mutex mutex_;
-  std::unordered_map<std::string, PlatformValueTypeBinding>
+  std::unordered_map<std::string, OperatorValueTypeBinding>
       bindings_by_canonical_;
   std::unordered_map<std::string, std::string> alias_to_canonical_;
   bool has_conflict_ = false;

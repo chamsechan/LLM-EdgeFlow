@@ -123,19 +123,19 @@ set(FRAMEWORK_SRCS
     src/adapter/adapters/audio_asr_intent_adapter.cpp
     src/adapter/adapters/cross_rerank_adapter.cpp
     src/adapter/shared_algorithm_runtime.cpp
-    src/adapter/platform/company_conf_resolver.cpp
-    src/adapter/platform/platform_value_type_registry.cpp
-    src/adapter/platform/platform_biz_bridge_registry.cpp
-    src/adapter/platform/platform_output_pool.cpp
-    src/adapter/platform/biz_bridges/keyword_match_bridge.cpp
-    src/adapter/platform/biz_bridges/entity_extract_bridge.cpp
-    src/adapter/platform/biz_bridges/doc_qa_bridge.cpp
-    src/adapter/platform/biz_bridges/compliance_audit_bridge.cpp
-    src/adapter/platform/biz_bridges/ocr_doc_qa_bridge.cpp
-    src/adapter/platform/biz_bridges/audio_asr_intent_bridge.cpp
-    src/adapter/platform/biz_bridges/cross_rerank_bridge.cpp
-    src/adapter/platform/platform_control_registry.cpp
-    src/adapter/platform_operator_adapter.cpp
+    src/adapter/operator/company_conf_resolver.cpp
+    src/adapter/operator/operator_value_type_registry.cpp
+    src/adapter/operator/operator_biz_bridge_registry.cpp
+    src/adapter/operator/operator_output_pool.cpp
+    src/adapter/operator/biz_bridges/keyword_match_bridge.cpp
+    src/adapter/operator/biz_bridges/entity_extract_bridge.cpp
+    src/adapter/operator/biz_bridges/doc_qa_bridge.cpp
+    src/adapter/operator/biz_bridges/compliance_audit_bridge.cpp
+    src/adapter/operator/biz_bridges/ocr_doc_qa_bridge.cpp
+    src/adapter/operator/biz_bridges/audio_asr_intent_bridge.cpp
+    src/adapter/operator/biz_bridges/cross_rerank_bridge.cpp
+    src/adapter/operator/operator_control_registry.cpp
+    src/adapter/operator/operator_adapter.cpp
     src/adapter/company_c_adapter.cpp
 )
 
@@ -147,8 +147,8 @@ if(THIRD_PARTY_ENGINE_LIBS)
 endif()
 set_target_properties(alg_sdk PROPERTIES
     OUTPUT_NAME "company_alg_sdk"
-    VERSION 3.0.0
-    SOVERSION 3
+    VERSION 4.0.0
+    SOVERSION 4
 )
 
 # 引入 Google Test 框架 (自动下载或使用系统库)
@@ -252,21 +252,21 @@ target_link_libraries(test_registry_reentrant PRIVATE alg_sdk GTest::gtest GTest
 add_test(NAME RegistryReentrantTest COMMAND test_registry_reentrant)
 set_tests_properties(RegistryReentrantTest PROPERTIES TIMEOUT 5)
 
-add_executable(test_platform_operator tests/test_platform_operator.cpp)
-target_link_libraries(test_platform_operator PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
-add_test(NAME PlatformOperatorTest COMMAND test_platform_operator)
+add_executable(test_operator_api tests/test_operator_api.cpp)
+target_link_libraries(test_operator_api PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME OperatorApiTest COMMAND test_operator_api)
 
-add_executable(test_platform_output_pool tests/test_platform_output_pool.cpp)
-target_link_libraries(test_platform_output_pool PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
-add_test(NAME PlatformOutputPoolTest COMMAND test_platform_output_pool)
+add_executable(test_operator_output_pool tests/test_operator_output_pool.cpp)
+target_link_libraries(test_operator_output_pool PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME OperatorOutputPoolTest COMMAND test_operator_output_pool)
 
-add_executable(test_platform_value_registry tests/test_platform_value_registry.cpp)
-target_link_libraries(test_platform_value_registry PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
-add_test(NAME PlatformValueRegistryTest COMMAND test_platform_value_registry)
+add_executable(test_operator_value_registry tests/test_operator_value_registry.cpp)
+target_link_libraries(test_operator_value_registry PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME OperatorValueRegistryTest COMMAND test_operator_value_registry)
 
-add_executable(test_platform_biz_bridge_registry tests/test_platform_biz_bridge_registry.cpp)
-target_link_libraries(test_platform_biz_bridge_registry PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
-add_test(NAME PlatformBizBridgeRegistryTest COMMAND test_platform_biz_bridge_registry)
+add_executable(test_operator_biz_bridge_registry tests/test_operator_biz_bridge_registry.cpp)
+target_link_libraries(test_operator_biz_bridge_registry PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME OperatorBizBridgeRegistryTest COMMAND test_operator_biz_bridge_registry)
 
 add_executable(test_doc_qa_rerank tests/test_doc_qa_rerank.cpp)
 target_link_libraries(test_doc_qa_rerank PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
@@ -339,8 +339,8 @@ set_tests_properties(
   AllBizPipelinesTest ConcurrencyAndEdgeCasesTest DagPipelineTest
   RuntimeControlAndHotSwapTest EngineFaultToleranceAndLifecycleTest
   AdapterContractSecurityTest PipelineConfigTest RegistryConflictNodeTest
-  RegistryConflictEngineTest RegistryReentrantTest PlatformOperatorTest
-  PlatformOutputPoolTest PlatformValueRegistryTest PlatformBizBridgeRegistryTest
+  RegistryConflictEngineTest RegistryReentrantTest OperatorApiTest
+  OperatorOutputPoolTest OperatorValueRegistryTest OperatorBizBridgeRegistryTest
   DocQaRerankTest RerankRefineNodeTest PipelineStudioTest VisualizerServerTest
   DemoRunnerTest CatalogContractSsotTest TypedBlackboardContractsTest
   ValidatedPipelinePlanTest NodeBaseContractsTest NodeOwnershipAndReuseTest

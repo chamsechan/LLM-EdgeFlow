@@ -1,5 +1,5 @@
-#ifndef COMPANY_PLATFORM_TYPES_H_
-#define COMPANY_PLATFORM_TYPES_H_
+#ifndef COMPANY_OPERATOR_TYPES_H_
+#define COMPANY_OPERATOR_TYPES_H_
 
 #include <stddef.h>
 #include <stdint.h>
@@ -9,7 +9,7 @@ extern "C" {
 #endif
 
 /**
- * @brief 平台 C 字符串镜像结构 (显式长度与可变指针，零拷贝借用/池化持有)
+ * @brief Operator C 字符串镜像结构 (显式长度与可变指针，零拷贝借用/池化持有)
  */
 typedef struct CompanyString {
   int32_t length;  // 有效字节长度 (不含结尾可选 NUL)
@@ -17,7 +17,7 @@ typedef struct CompanyString {
 } CompanyString;
 
 /**
- * @brief 平台二进制通用缓冲区镜像结构
+ * @brief Operator 二进制通用缓冲区镜像结构
  */
 typedef struct CompanyBuffer {
   int32_t length;  // 有效字节数
@@ -25,7 +25,7 @@ typedef struct CompanyBuffer {
 } CompanyBuffer;
 
 /**
- * @brief 平台白名单类型泛型载荷镜像结构
+ * @brief Operator 白名单类型泛型载荷镜像结构
  */
 typedef struct CompanyAny {
   int32_t type_id;        // 载荷类型 ID (受配置白名单约束)
@@ -55,128 +55,128 @@ typedef struct CompanyOdOutput {
 } CompanyOdOutput;
 
 /**
- * @brief 业务 4: 智能对话风控质检平台聚合输入结构体
+ * @brief 业务 4: 智能对话风控质检 Operator 聚合输入结构体
  */
-typedef struct CompanyPlatformAuditInput {
+typedef struct CompanyOperatorAuditInput {
   uint64_t request_id;
   const CompanyString* user_text;
   const CompanyString* channel_name;
-} CompanyPlatformAuditInput;
+} CompanyOperatorAuditInput;
 
 /**
- * @brief 业务 4: 智能对话风控质检平台聚合输出结构体
+ * @brief 业务 4: 智能对话风控质检 Operator 聚合输出结构体
  */
-typedef struct CompanyPlatformAuditOutput {
+typedef struct CompanyOperatorAuditOutput {
   uint64_t request_id;
   CompanyString* risk_level;
   float risk_score;
   CompanyString* matched_policy_clause;
   CompanyString* audit_verdict_json;
   int32_t status_code;
-} CompanyPlatformAuditOutput;
+} CompanyOperatorAuditOutput;
 
 /**
- * @brief 业务 1: 关注词匹配平台聚合输入结构体
+ * @brief 业务 1: 关注词匹配 Operator 聚合输入结构体
  */
-typedef struct CompanyPlatformKeywordInput {
+typedef struct CompanyOperatorKeywordInput {
   uint64_t request_id;
   const CompanyString* sentence_text;
-} CompanyPlatformKeywordInput;
+} CompanyOperatorKeywordInput;
 
 /**
- * @brief 业务 1: 关注词匹配平台聚合输出结构体
+ * @brief 业务 1: 关注词匹配 Operator 聚合输出结构体
  */
-typedef struct CompanyPlatformKeywordOutput {
+typedef struct CompanyOperatorKeywordOutput {
   uint64_t request_id;
   int32_t is_hit;
   CompanyString* match_result_json;
   int32_t status_code;
-} CompanyPlatformKeywordOutput;
+} CompanyOperatorKeywordOutput;
 
 /**
- * @brief 业务 2: 实体/名词提取平台聚合输入结构体
+ * @brief 业务 2: 实体/名词提取 Operator 聚合输入结构体
  */
-typedef struct CompanyPlatformEntityInput {
+typedef struct CompanyOperatorEntityInput {
   uint64_t request_id;
   const CompanyString* sentence_text;
-} CompanyPlatformEntityInput;
+} CompanyOperatorEntityInput;
 
 /**
- * @brief 业务 2: 实体/名词提取平台聚合输出结构体
+ * @brief 业务 2: 实体/名词提取 Operator 聚合输出结构体
  */
-typedef struct CompanyPlatformEntityOutput {
+typedef struct CompanyOperatorEntityOutput {
   uint64_t request_id;
   CompanyString* entities_json;
   int32_t status_code;
-} CompanyPlatformEntityOutput;
+} CompanyOperatorEntityOutput;
 
 /**
- * @brief 业务 3: 智能长文档问答平台聚合输入结构体
+ * @brief 业务 3: 智能长文档问答 Operator 聚合输入结构体
  */
-typedef struct CompanyPlatformDocInput {
+typedef struct CompanyOperatorDocInput {
   uint64_t request_id;
   const CompanyString* doc_text;
   const CompanyString* query_text;
-} CompanyPlatformDocInput;
+} CompanyOperatorDocInput;
 
 /**
- * @brief 业务 3: 智能长文档问答平台聚合输出结构体
+ * @brief 业务 3: 智能长文档问答 Operator 聚合输出结构体
  */
-typedef struct CompanyPlatformDocOutput {
+typedef struct CompanyOperatorDocOutput {
   uint64_t request_id;
   CompanyString* intent_name;
   float confidence;
   CompanyString* answer_text;
   int32_t chunk_count;
   int32_t status_code;
-} CompanyPlatformDocOutput;
+} CompanyOperatorDocOutput;
 
 /**
- * @brief 业务 6: 语音识别与意图抽取平台聚合输入结构体
+ * @brief 业务 6: 语音识别与意图抽取 Operator 聚合输入结构体
  */
-typedef struct CompanyPlatformAudioInput {
+typedef struct CompanyOperatorAudioInput {
   uint64_t request_id;
   const float* pcm_buffer;
   int32_t pcm_length;
   int32_t sample_rate;
-} CompanyPlatformAudioInput;
+} CompanyOperatorAudioInput;
 
 /**
- * @brief 业务 6: 语音识别与意图抽取平台聚合输出结构体
+ * @brief 业务 6: 语音识别与意图抽取 Operator 聚合输出结构体
  */
-typedef struct CompanyPlatformAudioOutput {
+typedef struct CompanyOperatorAudioOutput {
   uint64_t request_id;
   CompanyString* transcribed_text;
   CompanyString* intent_slot_json;
   int32_t status_code;
-} CompanyPlatformAudioOutput;
+} CompanyOperatorAudioOutput;
 
-#define COMPANY_PLATFORM_MAX_RERANK_CANDIDATES 8
+#define COMPANY_OPERATOR_MAX_RERANK_CANDIDATES 8
 
 /**
- * @brief 业务 7: 纯语义精排平台聚合输入结构体
+ * @brief 业务 7: 纯语义精排 Operator 聚合输入结构体
  */
-typedef struct CompanyPlatformRerankInput {
+typedef struct CompanyOperatorRerankInput {
   uint64_t request_id;
   const CompanyString* query_text;
   const CompanyString*
-      candidate_passages[COMPANY_PLATFORM_MAX_RERANK_CANDIDATES];
+      candidate_passages[COMPANY_OPERATOR_MAX_RERANK_CANDIDATES];
   int32_t candidate_count;
-} CompanyPlatformRerankInput;
+} CompanyOperatorRerankInput;
 
 /**
- * @brief 业务 7: 纯语义精排平台聚合输出结构体
+ * @brief 业务 7: 纯语义精排 Operator 聚合输出结构体
  */
-typedef struct CompanyPlatformRerankOutput {
+typedef struct CompanyOperatorRerankOutput {
   uint64_t request_id;
-  float scores[COMPANY_PLATFORM_MAX_RERANK_CANDIDATES];
-  int32_t sorted_indices[COMPANY_PLATFORM_MAX_RERANK_CANDIDATES];
+  float scores[COMPANY_OPERATOR_MAX_RERANK_CANDIDATES];
+  int32_t sorted_indices[COMPANY_OPERATOR_MAX_RERANK_CANDIDATES];
   int32_t count;
   int32_t status_code;
-} CompanyPlatformRerankOutput;
+} CompanyOperatorRerankOutput;
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif  // COMPANY_PLATFORM_TYPES_H_
+#endif  // COMPANY_OPERATOR_TYPES_H_

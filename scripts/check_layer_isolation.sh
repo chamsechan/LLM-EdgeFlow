@@ -42,11 +42,11 @@ echo "✅ [LayerGuard PASS] Zero Common Node -> Biz Node reverse include violati
 # Rule 4: Pure C11 Syntax & ABI Compliance Check via standard C compiler
 if command -v gcc >/dev/null 2>&1; then
   gcc -std=c11 -pedantic-errors -fsyntax-only -x c -I"$REPO_ROOT/include" "$REPO_ROOT/include/company_alg_interface.h"
-  gcc -std=c11 -pedantic-errors -fsyntax-only -x c -I"$REPO_ROOT/include" "$REPO_ROOT/include/platform/company_platform_types.h"
+  gcc -std=c11 -pedantic-errors -fsyntax-only -x c -I"$REPO_ROOT/include" "$REPO_ROOT/include/operator/company_operator_types.h"
   echo "✅ [LayerGuard PASS] GCC pure C11 strict syntax and ABI verification passed."
 elif command -v clang >/dev/null 2>&1; then
   clang -std=c11 -pedantic-errors -fsyntax-only -x c -I"$REPO_ROOT/include" "$REPO_ROOT/include/company_alg_interface.h"
-  clang -std=c11 -pedantic-errors -fsyntax-only -x c -I"$REPO_ROOT/include" "$REPO_ROOT/include/platform/company_platform_types.h"
+  clang -std=c11 -pedantic-errors -fsyntax-only -x c -I"$REPO_ROOT/include" "$REPO_ROOT/include/operator/company_operator_types.h"
   echo "✅ [LayerGuard PASS] Clang pure C11 strict syntax and ABI verification passed."
 else
   echo "⚠️ [LayerGuard WARN] Neither gcc nor clang found for C11 syntax-only check."
@@ -58,7 +58,7 @@ VIOLATIONS_DEMO_INTERNAL=$(grep -rnE '#include\s*["<](adapter/|core/|biz/|busine
 if [ -n "$VIOLATIONS_DEMO_INTERNAL" ]; then
   echo "❌ [LayerGuard ERROR] Found Demo -> SDK internal header violations:"
   echo "$VIOLATIONS_DEMO_INTERNAL"
-  echo "Directive: Demo must strictly behave as external user and only include platform/ and public company_alg_interface.h."
+  echo "Directive: Demo must strictly behave as external user and only include operator/ and public company_alg_interface.h."
   exit 1
 fi
 echo "✅ [LayerGuard PASS] Zero Demo -> Internal SDK header violations."

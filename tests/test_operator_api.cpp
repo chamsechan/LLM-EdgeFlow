@@ -13,15 +13,15 @@
 #include <thread>
 #include <vector>
 
-#include "adapter/platform/company_conf_resolver.h"
-#include "adapter/platform/platform_biz_bridge_registry.h"
-#include "adapter/platform/platform_output_pool.h"
-#include "adapter/platform/platform_value_type_registry.h"
+#include "adapter/operator/company_conf_resolver.h"
+#include "adapter/operator/operator_biz_bridge_registry.h"
+#include "adapter/operator/operator_output_pool.h"
+#include "adapter/operator/operator_value_type_registry.h"
 #include "company_alg_interface.h"
-#include "platform/company_platform_types.h"
-#include "platform/platform_operator_interface.h"
+#include "operator/company_operator_types.h"
+#include "operator/operator_interface.h"
 
-using namespace llm_edgeflow::platform;
+using namespace llm_edgeflow::operator_api;
 
 static std::string GetConfDir() {
   if (std::filesystem::exists("configs")) {
@@ -35,7 +35,7 @@ class ScopedTempDirectory {
   ScopedTempDirectory() {
     static std::atomic<uint64_t> sequence{0};
     path_ = std::filesystem::temp_directory_path() /
-            ("llm_edgeflow_platform_test_" +
+            ("llm_edgeflow_operator_test_" +
              std::to_string(
                  std::chrono::steady_clock::now().time_since_epoch().count()) +
              "_" + std::to_string(sequence.fetch_add(1)));
@@ -53,7 +53,7 @@ class ScopedTempDirectory {
   std::filesystem::path path_;
 };
 
-class PlatformOperatorTest : public ::testing::Test {
+class OperatorApiTest : public ::testing::Test {
  protected:
   void SetUp() override {
     ops_ = Get_LLM_EDGEFLOW_OperatorTable();
@@ -77,7 +77,7 @@ class PlatformOperatorTest : public ::testing::Test {
 };
 
 // 1. 测试函数表完整性与空安全
-TEST_F(PlatformOperatorTest, OperatorTableIntegrity) {
+TEST_F(OperatorApiTest, OperatorTableIntegrity) {
   OperatorFunc table = Get_LLM_EDGEFLOW_OperatorTable();
   EXPECT_NE(table.Init, nullptr);
   EXPECT_NE(table.Create, nullptr);
@@ -88,7 +88,7 @@ TEST_F(PlatformOperatorTest, OperatorTableIntegrity) {
 }
 
 // 2. 参数校验与负向安全拦截 (Create 阶段)
-TEST_F(PlatformOperatorTest, CreateParameterValidation) {
+TEST_F(OperatorApiTest, CreateParameterValidation) {
   void* handle = nullptr;
   std::string root_dir = GetConfDir();
   std::string rel_conf = "configs/pipeline_keyword_match.conf";
@@ -102,7 +102,7 @@ TEST_F(PlatformOperatorTest, CreateParameterValidation) {
   param.model_path = root_dir.c_str();
   param.cfg_file_name = rel_conf.c_str();
   param.device_id = 0;
-  param.platform_type = ChipType::kAx650;
+  param.compute_platform = ComputePlatform::kAx650;
   param.max_frame_depth = 25;
   EXPECT_EQ(ops_.Create(&dummy_ptr, &param), -1);
 
@@ -135,28 +135,28 @@ TEST_F(PlatformOperatorTest, CreateParameterValidation) {
   param.device_id = -1;
   EXPECT_EQ(ops_.Create(&handle, &param), -2);
 
-  // 8. 未知芯片类型 ChipType::kUnknown 及非法枚举值
+  // 8. 未知芯片类型 ComputePlatform::kUnknown 及非法枚举值
   param.device_id = 0;
-  param.platform_type = ChipType::kUnknown;
+  param.compute_platform = ComputePlatform::kUnknown;
   EXPECT_EQ(ops_.Create(&handle, &param), -2);
-  param.platform_type = static_cast<ChipType>(9999);
+  param.compute_platform = static_cast<ComputePlatform>(9999);
   EXPECT_EQ(ops_.Create(&handle, &param), -2);
 
   // 9. 不存在的文件
-  param.platform_type = ChipType::kAx650;
+  param.compute_platform = ComputePlatform::kAx650;
   param.cfg_file_name = "configs/non_existent_file.conf";
   EXPECT_EQ(ops_.Create(&handle, &param), -2);
-  EXPECT_NE(GetPlatformLastError(), nullptr);
+  EXPECT_NE(GetOperatorLastError(), nullptr);
 }
 
 // 3. 强类型 Control 正常与边界异常测试
-TEST_F(PlatformOperatorTest, StronglyTypedControlValidation) {
+TEST_F(OperatorApiTest, StronglyTypedControlValidation) {
   std::string root_dir = GetConfDir();
   CreateParam param{};
   param.model_path = root_dir.c_str();
   param.cfg_file_name = "configs/pipeline_keyword_match.conf";
   param.device_id = 0;
-  param.platform_type = ChipType::kAx650;
+  param.compute_platform = ComputePlatform::kAx650;
   param.max_frame_depth = 25;
 
   void* handle = nullptr;
@@ -223,13 +223,13 @@ TEST_F(PlatformOperatorTest, StronglyTypedControlValidation) {
 }
 
 // 4. 句柄生命周期与防护测试
-TEST_F(PlatformOperatorTest, HandleLifecycleAndUafPrevention) {
+TEST_F(OperatorApiTest, HandleLifecycleAndUafPrevention) {
   std::string root_dir = GetConfDir();
   CreateParam param{};
   param.model_path = root_dir.c_str();
   param.cfg_file_name = "configs/pipeline_keyword_match.conf";
   param.device_id = 0;
-  param.platform_type = ChipType::kAx650;
+  param.compute_platform = ComputePlatform::kAx650;
   param.max_frame_depth = 25;
 
   void* handle = nullptr;
@@ -242,72 +242,72 @@ TEST_F(PlatformOperatorTest, HandleLifecycleAndUafPrevention) {
   std::string text = "test";
   CompanyString cs{static_cast<int32_t>(text.size()),
                    const_cast<char*>(text.data())};
-  CompanyPlatformKeywordInput in{101, &cs};
+  CompanyOperatorKeywordInput in{101, &cs};
 
   NamedIoBatch in_b(1), out_b(1);
-  in_b[0]["chan.keyword_in"] = MakeBorrowedPlatformInput(&in);
+  in_b[0]["chan.keyword_in"] = MakeBorrowedOperatorInput(&in);
   out_b[0]["chan.keyword_out"] = std::shared_ptr<void>();
 
   EXPECT_EQ(ops_.Process(handle, in_b, out_b), -1);
 }
 
 // 5. CompanyString 校验规则测试 (包含嵌入 NUL 拦截、负长度与超限拦截)
-TEST_F(PlatformOperatorTest, CompanyStringValidation) {
+TEST_F(OperatorApiTest, CompanyStringValidation) {
   using namespace alg_framework;
   std::string err;
 
   // 1. null 指针
-  EXPECT_EQ(PlatformValueTypeRegistry::ValidateCompanyString(nullptr, 100,
+  EXPECT_EQ(OperatorValueTypeRegistry::ValidateCompanyString(nullptr, 100,
                                                              "str", &err),
             -3);
 
   // 2. 负长度
   char buf[] = "hello";
   CompanyString cs_neg{-1, buf};
-  EXPECT_EQ(PlatformValueTypeRegistry::ValidateCompanyString(&cs_neg, 100,
+  EXPECT_EQ(OperatorValueTypeRegistry::ValidateCompanyString(&cs_neg, 100,
                                                              "str", &err),
             -3);
 
   // 3. 长度为 0 (正常空字符串)
   CompanyString cs_zero{0, nullptr};
-  EXPECT_EQ(PlatformValueTypeRegistry::ValidateCompanyString(&cs_zero, 100,
+  EXPECT_EQ(OperatorValueTypeRegistry::ValidateCompanyString(&cs_zero, 100,
                                                              "str", &err),
             0);
 
   // 4. 长度超限
   CompanyString cs_toolarge{150, buf};
-  EXPECT_EQ(PlatformValueTypeRegistry::ValidateCompanyString(&cs_toolarge, 100,
+  EXPECT_EQ(OperatorValueTypeRegistry::ValidateCompanyString(&cs_toolarge, 100,
                                                              "str", &err),
             -3);
 
   // 5. 长度 > 0 但 data == nullptr
   CompanyString cs_nulldata{10, nullptr};
-  EXPECT_EQ(PlatformValueTypeRegistry::ValidateCompanyString(&cs_nulldata, 100,
+  EXPECT_EQ(OperatorValueTypeRegistry::ValidateCompanyString(&cs_nulldata, 100,
                                                              "str", &err),
             -3);
 
   // 6. 嵌入 NUL 字符 (禁止)
   char embedded_nul[] = "hello\0world";
   CompanyString cs_embed{11, embedded_nul};
-  EXPECT_EQ(PlatformValueTypeRegistry::ValidateCompanyString(&cs_embed, 100,
+  EXPECT_EQ(OperatorValueTypeRegistry::ValidateCompanyString(&cs_embed, 100,
                                                              "str", &err),
             -3);
 
   // 7. 正常字符串
   CompanyString cs_valid{5, buf};
-  EXPECT_EQ(PlatformValueTypeRegistry::ValidateCompanyString(&cs_valid, 100,
+  EXPECT_EQ(OperatorValueTypeRegistry::ValidateCompanyString(&cs_valid, 100,
                                                              "str", &err),
             0);
 }
 
 // 6. 关注词匹配业务端到端 (Keyword Match)
-TEST_F(PlatformOperatorTest, EndToEndKeywordMatch) {
+TEST_F(OperatorApiTest, EndToEndKeywordMatch) {
   std::string root_dir = GetConfDir();
   CreateParam param{};
   param.model_path = root_dir.c_str();
   param.cfg_file_name = "configs/pipeline_keyword_match.conf";
   param.device_id = 0;
-  param.platform_type = ChipType::kAx650;
+  param.compute_platform = ComputePlatform::kAx650;
   param.max_frame_depth = 25;
 
   void* handle = nullptr;
@@ -322,17 +322,17 @@ TEST_F(PlatformOperatorTest, EndToEndKeywordMatch) {
   std::string text = "请帮我联系VIP专员，加急处理";
   CompanyString cs{static_cast<int32_t>(text.size()),
                    const_cast<char*>(text.data())};
-  CompanyPlatformKeywordInput in{1001, &cs};
+  CompanyOperatorKeywordInput in{1001, &cs};
 
   NamedIoBatch in_b(1), out_b(1);
-  in_b[0]["chan.keyword_in"] = MakeBorrowedPlatformInput(&in);
+  in_b[0]["chan.keyword_in"] = MakeBorrowedOperatorInput(&in);
   out_b[0]["chan.keyword_out"] = std::shared_ptr<void>();
 
   ASSERT_EQ(ops_.Process(handle, in_b, out_b), 0);
 
   auto out_sp = out_b[0]["chan.keyword_out"];
   ASSERT_NE(out_sp, nullptr);
-  auto* out_ptr = static_cast<CompanyPlatformKeywordOutput*>(out_sp.get());
+  auto* out_ptr = static_cast<CompanyOperatorKeywordOutput*>(out_sp.get());
   EXPECT_EQ(out_ptr->request_id, 1001u);
   EXPECT_EQ(out_ptr->is_hit, 1);
   EXPECT_NE(out_ptr->match_result_json, nullptr);
@@ -346,13 +346,13 @@ TEST_F(PlatformOperatorTest, EndToEndKeywordMatch) {
 }
 
 // 7. 多模态 OCR 业务多槽位聚合端到端 (frame + string -> od_out)
-TEST_F(PlatformOperatorTest, EndToEndOcrDocQaMultiSlot) {
+TEST_F(OperatorApiTest, EndToEndOcrDocQaMultiSlot) {
   std::string root_dir = GetConfDir();
   CreateParam param{};
   param.model_path = root_dir.c_str();
   param.cfg_file_name = "configs/pipeline_ocr_doc_qa.conf";
   param.device_id = 0;
-  param.platform_type = ChipType::kAx650;
+  param.compute_platform = ComputePlatform::kAx650;
   param.max_frame_depth = 25;
 
   void* handle = nullptr;
@@ -368,8 +368,8 @@ TEST_F(PlatformOperatorTest, EndToEndOcrDocQaMultiSlot) {
                           const_cast<char*>(prompt.data())};
 
   NamedIoBatch in_b(1), out_b(1);
-  in_b[0]["camera_0.frame"] = MakeBorrowedPlatformInput(&frame);
-  in_b[0]["camera_0.string"] = MakeBorrowedPlatformInput(&prompt_cs);
+  in_b[0]["camera_0.frame"] = MakeBorrowedOperatorInput(&frame);
+  in_b[0]["camera_0.string"] = MakeBorrowedOperatorInput(&prompt_cs);
   out_b[0]["camera_0.od_out"] = std::shared_ptr<void>();
 
   ASSERT_EQ(ops_.Process(handle, in_b, out_b), 0);
@@ -389,13 +389,13 @@ TEST_F(PlatformOperatorTest, EndToEndOcrDocQaMultiSlot) {
 }
 
 // 8. 智能长文档问答业务 (Doc QA)
-TEST_F(PlatformOperatorTest, EndToEndDocQa) {
+TEST_F(OperatorApiTest, EndToEndDocQa) {
   std::string root_dir = GetConfDir();
   CreateParam param{};
   param.model_path = root_dir.c_str();
   param.cfg_file_name = "configs/pipeline_doc_qa.conf";
   param.device_id = 0;
-  param.platform_type = ChipType::kAx650;
+  param.compute_platform = ComputePlatform::kAx650;
   param.max_frame_depth = 25;
 
   void* handle = nullptr;
@@ -408,17 +408,17 @@ TEST_F(PlatformOperatorTest, EndToEndDocQa) {
                        const_cast<char*>(doc.data())};
   CompanyString query_cs{static_cast<int32_t>(query.size()),
                          const_cast<char*>(query.data())};
-  CompanyPlatformDocInput in{10001, &doc_cs, &query_cs};
+  CompanyOperatorDocInput in{10001, &doc_cs, &query_cs};
 
   NamedIoBatch in_b(1), out_b(1);
-  in_b[0]["rag_channel.doc_in"] = MakeBorrowedPlatformInput(&in);
+  in_b[0]["rag_channel.doc_in"] = MakeBorrowedOperatorInput(&in);
   out_b[0]["rag_channel.doc_out"] = std::shared_ptr<void>();
 
   ASSERT_EQ(ops_.Process(handle, in_b, out_b), 0);
 
   auto out_sp = out_b[0]["rag_channel.doc_out"];
   ASSERT_NE(out_sp, nullptr);
-  auto* out_ptr = static_cast<CompanyPlatformDocOutput*>(out_sp.get());
+  auto* out_ptr = static_cast<CompanyOperatorDocOutput*>(out_sp.get());
   EXPECT_EQ(out_ptr->request_id, 10001u);
   EXPECT_NE(out_ptr->answer_text, nullptr);
   EXPECT_GT(out_ptr->answer_text->length, 0);
@@ -429,13 +429,13 @@ TEST_F(PlatformOperatorTest, EndToEndDocQa) {
 }
 
 // 9. 智能对话风控质检业务 (Compliance Audit)
-TEST_F(PlatformOperatorTest, EndToEndComplianceAudit) {
+TEST_F(OperatorApiTest, EndToEndComplianceAudit) {
   std::string root_dir = GetConfDir();
   CreateParam param{};
   param.model_path = root_dir.c_str();
   param.cfg_file_name = "configs/pipeline_dialogue_audit.conf";
   param.device_id = 0;
-  param.platform_type = ChipType::kAx650;
+  param.compute_platform = ComputePlatform::kAx650;
   param.max_frame_depth = 25;
 
   void* handle = nullptr;
@@ -448,17 +448,17 @@ TEST_F(PlatformOperatorTest, EndToEndComplianceAudit) {
                         const_cast<char*>(chan.data())};
   CompanyString dia_cs{static_cast<int32_t>(dialogue.size()),
                        const_cast<char*>(dialogue.data())};
-  CompanyPlatformAuditInput in{40001, &dia_cs, &chan_cs};
+  CompanyOperatorAuditInput in{40001, &dia_cs, &chan_cs};
 
   NamedIoBatch in_b(1), out_b(1);
-  in_b[0]["audit_channel.audit_in"] = MakeBorrowedPlatformInput(&in);
+  in_b[0]["audit_channel.audit_in"] = MakeBorrowedOperatorInput(&in);
   out_b[0]["audit_channel.audit_out"] = std::shared_ptr<void>();
 
   ASSERT_EQ(ops_.Process(handle, in_b, out_b), 0);
 
   auto out_sp = out_b[0]["audit_channel.audit_out"];
   ASSERT_NE(out_sp, nullptr);
-  auto* out_ptr = static_cast<CompanyPlatformAuditOutput*>(out_sp.get());
+  auto* out_ptr = static_cast<CompanyOperatorAuditOutput*>(out_sp.get());
   EXPECT_EQ(out_ptr->request_id, 40001u);
   EXPECT_NE(out_ptr->risk_level, nullptr);
   EXPECT_GT(out_ptr->risk_level->length, 0);
@@ -469,13 +469,13 @@ TEST_F(PlatformOperatorTest, EndToEndComplianceAudit) {
 }
 
 // 10. 语音识别与意图抽取业务 (Audio ASR Intent)
-TEST_F(PlatformOperatorTest, EndToEndAudioAsrIntent) {
+TEST_F(OperatorApiTest, EndToEndAudioAsrIntent) {
   std::string root_dir = GetConfDir();
   CreateParam param{};
   param.model_path = root_dir.c_str();
   param.cfg_file_name = "configs/pipeline_audio_asr_intent.conf";
   param.device_id = 0;
-  param.platform_type = ChipType::kAx650;
+  param.compute_platform = ComputePlatform::kAx650;
   param.max_frame_depth = 25;
 
   void* handle = nullptr;
@@ -483,18 +483,18 @@ TEST_F(PlatformOperatorTest, EndToEndAudioAsrIntent) {
   ASSERT_NE(handle, nullptr);
 
   std::vector<float> pcm(16000, 0.01f);
-  CompanyPlatformAudioInput in{70001, pcm.data(),
+  CompanyOperatorAudioInput in{70001, pcm.data(),
                                static_cast<int32_t>(pcm.size()), 16000};
 
   NamedIoBatch in_b(1), out_b(1);
-  in_b[0]["mic_0.audio_in"] = MakeBorrowedPlatformInput(&in);
+  in_b[0]["mic_0.audio_in"] = MakeBorrowedOperatorInput(&in);
   out_b[0]["mic_0.audio_out"] = std::shared_ptr<void>();
 
   ASSERT_EQ(ops_.Process(handle, in_b, out_b), 0);
 
   auto out_sp = out_b[0]["mic_0.audio_out"];
   ASSERT_NE(out_sp, nullptr);
-  auto* out_ptr = static_cast<CompanyPlatformAudioOutput*>(out_sp.get());
+  auto* out_ptr = static_cast<CompanyOperatorAudioOutput*>(out_sp.get());
   EXPECT_EQ(out_ptr->request_id, 70001u);
   EXPECT_NE(out_ptr->transcribed_text, nullptr);
   EXPECT_GT(out_ptr->transcribed_text->length, 0);
@@ -505,13 +505,13 @@ TEST_F(PlatformOperatorTest, EndToEndAudioAsrIntent) {
 }
 
 // 11. 纯语义精排业务 (Cross Rerank)
-TEST_F(PlatformOperatorTest, EndToEndCrossRerank) {
+TEST_F(OperatorApiTest, EndToEndCrossRerank) {
   std::string root_dir = GetConfDir();
   CreateParam param{};
   param.model_path = root_dir.c_str();
   param.cfg_file_name = "configs/pipeline_cross_rerank.conf";
   param.device_id = 0;
-  param.platform_type = ChipType::kAx650;
+  param.compute_platform = ComputePlatform::kAx650;
   param.max_frame_depth = 25;
 
   void* handle = nullptr;
@@ -528,7 +528,7 @@ TEST_F(PlatformOperatorTest, EndToEndCrossRerank) {
   CompanyString p2_cs{static_cast<int32_t>(passage2.size()),
                       const_cast<char*>(passage2.data())};
 
-  CompanyPlatformRerankInput in{};
+  CompanyOperatorRerankInput in{};
   in.request_id = 80001;
   in.query_text = &query_cs;
   in.candidate_passages[0] = &p1_cs;
@@ -536,14 +536,14 @@ TEST_F(PlatformOperatorTest, EndToEndCrossRerank) {
   in.candidate_count = 2;
 
   NamedIoBatch in_b(1), out_b(1);
-  in_b[0]["ranker.rerank_in"] = MakeBorrowedPlatformInput(&in);
+  in_b[0]["ranker.rerank_in"] = MakeBorrowedOperatorInput(&in);
   out_b[0]["ranker.rerank_out"] = std::shared_ptr<void>();
 
   ASSERT_EQ(ops_.Process(handle, in_b, out_b), 0);
 
   auto out_sp = out_b[0]["ranker.rerank_out"];
   ASSERT_NE(out_sp, nullptr);
-  auto* out_ptr = static_cast<CompanyPlatformRerankOutput*>(out_sp.get());
+  auto* out_ptr = static_cast<CompanyOperatorRerankOutput*>(out_sp.get());
   EXPECT_EQ(out_ptr->request_id, 80001u);
   EXPECT_EQ(out_ptr->count, 2);
 
@@ -553,13 +553,13 @@ TEST_F(PlatformOperatorTest, EndToEndCrossRerank) {
 }
 
 // 12. 输出占位非空拦截与未知 Key 拦截
-TEST_F(PlatformOperatorTest, OutputSlotValidation) {
+TEST_F(OperatorApiTest, OutputSlotValidation) {
   std::string root_dir = GetConfDir();
   CreateParam param{};
   param.model_path = root_dir.c_str();
   param.cfg_file_name = "configs/pipeline_keyword_match.conf";
   param.device_id = 0;
-  param.platform_type = ChipType::kAx650;
+  param.compute_platform = ComputePlatform::kAx650;
   param.max_frame_depth = 25;
 
   void* handle = nullptr;
@@ -568,13 +568,13 @@ TEST_F(PlatformOperatorTest, OutputSlotValidation) {
   std::string text = "test";
   CompanyString cs{static_cast<int32_t>(text.size()),
                    const_cast<char*>(text.data())};
-  CompanyPlatformKeywordInput in{1001, &cs};
+  CompanyOperatorKeywordInput in{1001, &cs};
 
   NamedIoBatch in_b(1), out_b(1);
-  in_b[0]["chan.keyword_in"] = MakeBorrowedPlatformInput(&in);
+  in_b[0]["chan.keyword_in"] = MakeBorrowedOperatorInput(&in);
 
   // 1. 输出槽位为非空 shared_ptr -> 拦截返回 -4
-  CompanyPlatformKeywordOutput dummy_out{};
+  CompanyOperatorKeywordOutput dummy_out{};
   out_b[0]["chan.keyword_out"] =
       std::shared_ptr<void>(&dummy_out, [](void*) {});
   EXPECT_EQ(ops_.Process(handle, in_b, out_b), -4);
@@ -592,13 +592,13 @@ TEST_F(PlatformOperatorTest, OutputSlotValidation) {
 }
 
 // 13. 输出池耗尽、阻塞与唤醒复用测试
-TEST_F(PlatformOperatorTest, OutputPoolExhaustionAndBlocking) {
+TEST_F(OperatorApiTest, OutputPoolExhaustionAndBlocking) {
   std::string root_dir = GetConfDir();
   CreateParam param{};
   param.model_path = root_dir.c_str();
   param.cfg_file_name = "configs/pipeline_keyword_match.conf";
   param.device_id = 0;
-  param.platform_type = ChipType::kAx650;
+  param.compute_platform = ComputePlatform::kAx650;
   param.max_frame_depth = 2;  // 设定极小深度 2
 
   void* handle = nullptr;
@@ -607,25 +607,25 @@ TEST_F(PlatformOperatorTest, OutputPoolExhaustionAndBlocking) {
   std::string text = "test";
   CompanyString cs{static_cast<int32_t>(text.size()),
                    const_cast<char*>(text.data())};
-  CompanyPlatformKeywordInput in{1001, &cs};
+  CompanyOperatorKeywordInput in{1001, &cs};
 
   // 1. 单次 Batch > max_frame_depth -> 立即拒绝 (-3)，不陷入死锁
   NamedIoBatch in_b3(3), out_b3(3);
   for (int i = 0; i < 3; ++i) {
-    in_b3[i]["chan.keyword_in"] = MakeBorrowedPlatformInput(&in);
+    in_b3[i]["chan.keyword_in"] = MakeBorrowedOperatorInput(&in);
     out_b3[i]["chan.keyword_out"] = std::shared_ptr<void>();
   }
   EXPECT_EQ(ops_.Process(handle, in_b3, out_b3), -3);
 
   // 2. 连续检出 2 个块，暂不释放
   NamedIoBatch in_b1(1), out_b1(1);
-  in_b1[0]["chan.keyword_in"] = MakeBorrowedPlatformInput(&in);
+  in_b1[0]["chan.keyword_in"] = MakeBorrowedOperatorInput(&in);
   out_b1[0]["chan.keyword_out"] = std::shared_ptr<void>();
   ASSERT_EQ(ops_.Process(handle, in_b1, out_b1), 0);
   auto out1 = out_b1[0]["chan.keyword_out"];
 
   NamedIoBatch in_b2(1), out_b2(1);
-  in_b2[0]["chan.keyword_in"] = MakeBorrowedPlatformInput(&in);
+  in_b2[0]["chan.keyword_in"] = MakeBorrowedOperatorInput(&in);
   out_b2[0]["chan.keyword_out"] = std::shared_ptr<void>();
   ASSERT_EQ(ops_.Process(handle, in_b2, out_b2), 0);
   auto out2 = out_b2[0]["chan.keyword_out"];
@@ -637,7 +637,7 @@ TEST_F(PlatformOperatorTest, OutputPoolExhaustionAndBlocking) {
   std::thread worker([&]() {
     thread_started = true;
     NamedIoBatch in_b(1), out_b(1);
-    in_b[0]["chan.keyword_in"] = MakeBorrowedPlatformInput(&in);
+    in_b[0]["chan.keyword_in"] = MakeBorrowedOperatorInput(&in);
     out_b[0]["chan.keyword_out"] = std::shared_ptr<void>();
     int ret = ops_.Process(handle, in_b, out_b);
     EXPECT_EQ(ret, 0);
@@ -665,13 +665,13 @@ TEST_F(PlatformOperatorTest, OutputPoolExhaustionAndBlocking) {
 }
 
 // 14. 违约场景 Destroy：仍有检出块时安全清理并返回 -1
-TEST_F(PlatformOperatorTest, DestroyViolationHandling) {
+TEST_F(OperatorApiTest, DestroyViolationHandling) {
   std::string root_dir = GetConfDir();
   CreateParam param{};
   param.model_path = root_dir.c_str();
   param.cfg_file_name = "configs/pipeline_keyword_match.conf";
   param.device_id = 0;
-  param.platform_type = ChipType::kAx650;
+  param.compute_platform = ComputePlatform::kAx650;
   param.max_frame_depth = 5;
 
   void* handle = nullptr;
@@ -680,10 +680,10 @@ TEST_F(PlatformOperatorTest, DestroyViolationHandling) {
   std::string text = "test";
   CompanyString cs{static_cast<int32_t>(text.size()),
                    const_cast<char*>(text.data())};
-  CompanyPlatformKeywordInput in{1001, &cs};
+  CompanyOperatorKeywordInput in{1001, &cs};
 
   NamedIoBatch in_b(1), out_b(1);
-  in_b[0]["chan.keyword_in"] = MakeBorrowedPlatformInput(&in);
+  in_b[0]["chan.keyword_in"] = MakeBorrowedOperatorInput(&in);
   out_b[0]["chan.keyword_out"] = std::shared_ptr<void>();
   ASSERT_EQ(ops_.Process(handle, in_b, out_b), 0);
 
@@ -699,13 +699,13 @@ TEST_F(PlatformOperatorTest, DestroyViolationHandling) {
   leak_out.reset();
 }
 
-// 15. ValidatePlatformConfigBinding 双路径校验接口测试
-TEST_F(PlatformOperatorTest, ValidatePlatformConfigBindingApi) {
+// 15. ValidateOperatorConfigBinding 双路径校验接口测试
+TEST_F(OperatorApiTest, ValidateOperatorConfigBindingApi) {
   std::string root_dir = GetConfDir();
   char err_buf[256] = {0};
 
   // 1. 正常校验
-  EXPECT_EQ(ValidatePlatformConfigBinding(
+  EXPECT_EQ(ValidateOperatorConfigBinding(
                 root_dir.c_str(), "configs/pipeline_keyword_match.conf",
                 static_cast<int32_t>(ALG_BIZ_TYPE_KEYWORD_MATCH), err_buf,
                 sizeof(err_buf)),
@@ -713,13 +713,13 @@ TEST_F(PlatformOperatorTest, ValidatePlatformConfigBindingApi) {
 
   // 2. 业务不匹配
   EXPECT_EQ(
-      ValidatePlatformConfigBinding(
+      ValidateOperatorConfigBinding(
           root_dir.c_str(), "configs/pipeline_keyword_match.conf",
           static_cast<int32_t>(ALG_BIZ_TYPE_DOC_QA), err_buf, sizeof(err_buf)),
       -3);
 
   // 3. 相对路径传入绝对路径 / 逃逸
-  EXPECT_EQ(ValidatePlatformConfigBinding(
+  EXPECT_EQ(ValidateOperatorConfigBinding(
                 root_dir.c_str(), "/etc/passwd",
                 static_cast<int32_t>(ALG_BIZ_TYPE_KEYWORD_MATCH), err_buf,
                 sizeof(err_buf)),
@@ -727,13 +727,13 @@ TEST_F(PlatformOperatorTest, ValidatePlatformConfigBindingApi) {
 }
 
 // 16. 实体抽取业务端到端 (Entity Extract)
-TEST_F(PlatformOperatorTest, EndToEndEntityExtract) {
+TEST_F(OperatorApiTest, EndToEndEntityExtract) {
   std::string root_dir = GetConfDir();
   CreateParam param{};
   param.model_path = root_dir.c_str();
   param.cfg_file_name = "configs/pipeline_entity_extract.conf";
   param.device_id = 0;
-  param.platform_type = ChipType::kAx650;
+  param.compute_platform = ComputePlatform::kAx650;
   param.max_frame_depth = 25;
 
   void* handle = nullptr;
@@ -743,17 +743,17 @@ TEST_F(PlatformOperatorTest, EndToEndEntityExtract) {
   std::string text = "张三在清华大学研发深度学习大模型。";
   CompanyString cs{static_cast<int32_t>(text.size()),
                    const_cast<char*>(text.data())};
-  CompanyPlatformEntityInput in{30001, &cs};
+  CompanyOperatorEntityInput in{30001, &cs};
 
   NamedIoBatch in_b(1), out_b(1);
-  in_b[0]["nlp.entity_in"] = MakeBorrowedPlatformInput(&in);
+  in_b[0]["nlp.entity_in"] = MakeBorrowedOperatorInput(&in);
   out_b[0]["nlp.entity_out"] = std::shared_ptr<void>();
 
   ASSERT_EQ(ops_.Process(handle, in_b, out_b), 0);
 
   auto out_sp = out_b[0]["nlp.entity_out"];
   ASSERT_NE(out_sp, nullptr);
-  auto* out_ptr = static_cast<CompanyPlatformEntityOutput*>(out_sp.get());
+  auto* out_ptr = static_cast<CompanyOperatorEntityOutput*>(out_sp.get());
   EXPECT_EQ(out_ptr->request_id, 30001u);
   EXPECT_NE(out_ptr->entities_json, nullptr);
   EXPECT_GT(out_ptr->entities_json->length, 0);
@@ -764,10 +764,10 @@ TEST_F(PlatformOperatorTest, EndToEndEntityExtract) {
 }
 
 // 17. CompanyBuffer 与 CompanyAny 平台值类型校验测试
-TEST_F(PlatformOperatorTest, CompanyBufferAndAnyValidation) {
+TEST_F(OperatorApiTest, CompanyBufferAndAnyValidation) {
   using namespace alg_framework;
   const auto* buf_binding =
-      PlatformValueTypeRegistry::Instance().GetBindingBySuffix("buffer");
+      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("buffer");
   ASSERT_NE(buf_binding, nullptr);
   ASSERT_TRUE(buf_binding->validate_external);
 
@@ -797,7 +797,7 @@ TEST_F(PlatformOperatorTest, CompanyBufferAndAnyValidation) {
 
   // CompanyAny
   const auto* any_binding =
-      PlatformValueTypeRegistry::Instance().GetBindingBySuffix("any");
+      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("any");
   ASSERT_NE(any_binding, nullptr);
   ASSERT_TRUE(any_binding->validate_external);
 
@@ -819,13 +819,13 @@ TEST_F(PlatformOperatorTest, CompanyBufferAndAnyValidation) {
 }
 
 // 18. 输入 shared_ptr 所有权不持有与 use_count 校验测试
-TEST_F(PlatformOperatorTest, InputSharedPtrUseCountNotRetained) {
+TEST_F(OperatorApiTest, InputSharedPtrUseCountNotRetained) {
   std::string root_dir = GetConfDir();
   CreateParam param{};
   param.model_path = root_dir.c_str();
   param.cfg_file_name = "configs/pipeline_keyword_match.conf";
   param.device_id = 0;
-  param.platform_type = ChipType::kAx650;
+  param.compute_platform = ComputePlatform::kAx650;
   param.max_frame_depth = 25;
 
   void* handle = nullptr;
@@ -834,7 +834,7 @@ TEST_F(PlatformOperatorTest, InputSharedPtrUseCountNotRetained) {
   std::string text = "VIP专员";
   CompanyString cs{static_cast<int32_t>(text.size()),
                    const_cast<char*>(text.data())};
-  auto in_ptr = std::make_shared<CompanyPlatformKeywordInput>();
+  auto in_ptr = std::make_shared<CompanyOperatorKeywordInput>();
   in_ptr->request_id = 1001;
   in_ptr->sentence_text = &cs;
 
@@ -860,7 +860,7 @@ TEST_F(PlatformOperatorTest, InputSharedPtrUseCountNotRetained) {
 }
 
 // 19. 输出内存池深度 0 归一化与地址复用校验测试
-TEST_F(PlatformOperatorTest, OutputAddressReuseAndDepthNormalization) {
+TEST_F(OperatorApiTest, OutputAddressReuseAndDepthNormalization) {
   std::string root_dir = GetConfDir();
 
   // 1. 深度 0 自动归一化为默认 25 测试
@@ -869,7 +869,7 @@ TEST_F(PlatformOperatorTest, OutputAddressReuseAndDepthNormalization) {
     param.model_path = root_dir.c_str();
     param.cfg_file_name = "configs/pipeline_keyword_match.conf";
     param.device_id = 0;
-    param.platform_type = ChipType::kAx650;
+    param.compute_platform = ComputePlatform::kAx650;
     param.max_frame_depth = 0;  // 0 应被自动归一化为默认 25
 
     void* handle = nullptr;
@@ -878,10 +878,10 @@ TEST_F(PlatformOperatorTest, OutputAddressReuseAndDepthNormalization) {
     std::string text = "VIP专员";
     CompanyString cs{static_cast<int32_t>(text.size()),
                      const_cast<char*>(text.data())};
-    CompanyPlatformKeywordInput in{1001, &cs};
+    CompanyOperatorKeywordInput in{1001, &cs};
 
     NamedIoBatch in_b(1), out_b(1);
-    in_b[0]["chan.keyword_in"] = MakeBorrowedPlatformInput(&in);
+    in_b[0]["chan.keyword_in"] = MakeBorrowedOperatorInput(&in);
     out_b[0]["chan.keyword_out"] = std::shared_ptr<void>();
     ASSERT_EQ(ops_.Process(handle, in_b, out_b), 0);
     EXPECT_NE(out_b[0]["chan.keyword_out"], nullptr);
@@ -896,7 +896,7 @@ TEST_F(PlatformOperatorTest, OutputAddressReuseAndDepthNormalization) {
     param.model_path = root_dir.c_str();
     param.cfg_file_name = "configs/pipeline_keyword_match.conf";
     param.device_id = 0;
-    param.platform_type = ChipType::kAx650;
+    param.compute_platform = ComputePlatform::kAx650;
     param.max_frame_depth = 1;
 
     void* handle = nullptr;
@@ -905,10 +905,10 @@ TEST_F(PlatformOperatorTest, OutputAddressReuseAndDepthNormalization) {
     std::string text = "VIP专员";
     CompanyString cs{static_cast<int32_t>(text.size()),
                      const_cast<char*>(text.data())};
-    CompanyPlatformKeywordInput in{1001, &cs};
+    CompanyOperatorKeywordInput in{1001, &cs};
 
     NamedIoBatch in_b1(1), out_b1(1);
-    in_b1[0]["chan.keyword_in"] = MakeBorrowedPlatformInput(&in);
+    in_b1[0]["chan.keyword_in"] = MakeBorrowedOperatorInput(&in);
     out_b1[0]["chan.keyword_out"] = std::shared_ptr<void>();
     ASSERT_EQ(ops_.Process(handle, in_b1, out_b1), 0);
 
@@ -920,7 +920,7 @@ TEST_F(PlatformOperatorTest, OutputAddressReuseAndDepthNormalization) {
 
     // 第二次调用，池中唯一的块必须被严格复用
     NamedIoBatch in_b2(1), out_b2(1);
-    in_b2[0]["chan.keyword_in"] = MakeBorrowedPlatformInput(&in);
+    in_b2[0]["chan.keyword_in"] = MakeBorrowedOperatorInput(&in);
     out_b2[0]["chan.keyword_out"] = std::shared_ptr<void>();
     ASSERT_EQ(ops_.Process(handle, in_b2, out_b2), 0);
 
@@ -933,13 +933,13 @@ TEST_F(PlatformOperatorTest, OutputAddressReuseAndDepthNormalization) {
 }
 
 // 20. 多句柄并发执行与独立输出池隔离测试
-TEST_F(PlatformOperatorTest, ConcurrentDifferentHandles) {
+TEST_F(OperatorApiTest, ConcurrentDifferentHandles) {
   std::string root_dir = GetConfDir();
   CreateParam param1{};
   param1.model_path = root_dir.c_str();
   param1.cfg_file_name = "configs/pipeline_keyword_match.conf";
   param1.device_id = 0;
-  param1.platform_type = ChipType::kAx650;
+  param1.compute_platform = ComputePlatform::kAx650;
   param1.max_frame_depth = 10;
 
   CreateParam param2 = param1;
@@ -955,7 +955,7 @@ TEST_F(PlatformOperatorTest, ConcurrentDifferentHandles) {
   std::string text = "VIP专员";
   CompanyString cs{static_cast<int32_t>(text.size()),
                    const_cast<char*>(text.data())};
-  CompanyPlatformKeywordInput in{1001, &cs};
+  CompanyOperatorKeywordInput in{1001, &cs};
 
   std::atomic<bool> success1{false};
   std::atomic<bool> success2{false};
@@ -963,7 +963,7 @@ TEST_F(PlatformOperatorTest, ConcurrentDifferentHandles) {
   std::thread t1([&]() {
     for (int i = 0; i < 10; ++i) {
       NamedIoBatch in_b(1), out_b(1);
-      in_b[0]["chan.keyword_in"] = MakeBorrowedPlatformInput(&in);
+      in_b[0]["chan.keyword_in"] = MakeBorrowedOperatorInput(&in);
       out_b[0]["chan.keyword_out"] = std::shared_ptr<void>();
       if (ops_.Process(handle1, in_b, out_b) != 0) return;
       out_b.clear();
@@ -974,7 +974,7 @@ TEST_F(PlatformOperatorTest, ConcurrentDifferentHandles) {
   std::thread t2([&]() {
     for (int i = 0; i < 10; ++i) {
       NamedIoBatch in_b(1), out_b(1);
-      in_b[0]["chan.keyword_in"] = MakeBorrowedPlatformInput(&in);
+      in_b[0]["chan.keyword_in"] = MakeBorrowedOperatorInput(&in);
       out_b[0]["chan.keyword_out"] = std::shared_ptr<void>();
       if (ops_.Process(handle2, in_b, out_b) != 0) return;
       out_b.clear();
@@ -993,7 +993,7 @@ TEST_F(PlatformOperatorTest, ConcurrentDifferentHandles) {
 }
 
 // 21. mem_que 配置校验与异常 Fail-Closed 测试
-TEST_F(PlatformOperatorTest, MemQueConfigValidationFailClosed) {
+TEST_F(OperatorApiTest, MemQueConfigValidationFailClosed) {
   ScopedTempDirectory temp_dir;
   std::filesystem::path root = temp_dir.path();
   std::filesystem::create_directories(root / "configs");
@@ -1018,7 +1018,7 @@ TEST_F(PlatformOperatorTest, MemQueConfigValidationFailClosed) {
   param.model_path = root_str.c_str();
   param.cfg_file_name = conf_file.c_str();
   param.device_id = 0;
-  param.platform_type = ChipType::kAx650;
+  param.compute_platform = ComputePlatform::kAx650;
   param.max_frame_depth = 25;
 
   void* handle = nullptr;
@@ -1073,13 +1073,13 @@ TEST_F(PlatformOperatorTest, MemQueConfigValidationFailClosed) {
 }
 
 // 22. SSO 短字符串 (1~7 字节) 与跨批次指针绝对地址稳定性测试 (R9-001)
-TEST_F(PlatformOperatorTest, ShortStringSsoAndAddressStability) {
+TEST_F(OperatorApiTest, ShortStringSsoAndAddressStability) {
   std::string root_dir = GetConfDir();
   CreateParam param{};
   param.model_path = root_dir.c_str();
   param.cfg_file_name = "configs/pipeline_keyword_match.conf";
   param.device_id = 0;
-  param.platform_type = ChipType::kAx650;
+  param.compute_platform = ComputePlatform::kAx650;
   param.max_frame_depth = 25;
 
   void* handle = nullptr;
@@ -1091,7 +1091,7 @@ TEST_F(PlatformOperatorTest, ShortStringSsoAndAddressStability) {
                                "klmno", "pqrstu", "vwxyz12"};
   NamedIoBatch batch_inputs(7);
   std::vector<CompanyString> company_strings(7);
-  std::vector<CompanyPlatformKeywordInput> inputs(7);
+  std::vector<CompanyOperatorKeywordInput> inputs(7);
 
   for (size_t i = 0; i < 7; ++i) {
     company_strings[i].length =
@@ -1101,7 +1101,7 @@ TEST_F(PlatformOperatorTest, ShortStringSsoAndAddressStability) {
     inputs[i].sentence_text = &company_strings[i];
 
     batch_inputs[i]["client_channel.keyword_in"] =
-        MakeBorrowedPlatformInput(&inputs[i]);
+        MakeBorrowedOperatorInput(&inputs[i]);
   }
 
   NamedIoBatch batch_outputs(7);
@@ -1116,7 +1116,7 @@ TEST_F(PlatformOperatorTest, ShortStringSsoAndAddressStability) {
     auto out_sp = batch_outputs[i]["client_channel.keyword_out"];
     ASSERT_NE(out_sp, nullptr);
     const auto* out =
-        static_cast<const CompanyPlatformKeywordOutput*>(out_sp.get());
+        static_cast<const CompanyOperatorKeywordOutput*>(out_sp.get());
     EXPECT_EQ(out->request_id, 70000 + i);
   }
 
@@ -1125,13 +1125,13 @@ TEST_F(PlatformOperatorTest, ShortStringSsoAndAddressStability) {
 }
 
 // 23. 控制块构造失败注入与两阶段原子发布回滚测试 (R9-002)
-TEST_F(PlatformOperatorTest, AtomicPublishFailureRollback) {
+TEST_F(OperatorApiTest, AtomicPublishFailureRollback) {
   std::string root_dir = GetConfDir();
   CreateParam param{};
   param.model_path = root_dir.c_str();
   param.cfg_file_name = "configs/pipeline_keyword_match.conf";
   param.device_id = 0;
-  param.platform_type = ChipType::kAx650;
+  param.compute_platform = ComputePlatform::kAx650;
   param.max_frame_depth = 5;
 
   void* handle = nullptr;
@@ -1140,17 +1140,17 @@ TEST_F(PlatformOperatorTest, AtomicPublishFailureRollback) {
 
   char sent1[] = "VIP";
   CompanyString cs1{3, sent1};
-  CompanyPlatformKeywordInput in1{80001, &cs1};
+  CompanyOperatorKeywordInput in1{80001, &cs1};
 
   char sent2[] = "urgent";
   CompanyString cs2{6, sent2};
-  CompanyPlatformKeywordInput in2{80002, &cs2};
+  CompanyOperatorKeywordInput in2{80002, &cs2};
 
   NamedIoBatch batch_inputs(2);
   batch_inputs[0]["client_channel.keyword_in"] =
-      MakeBorrowedPlatformInput(&in1);
+      MakeBorrowedOperatorInput(&in1);
   batch_inputs[1]["client_channel.keyword_in"] =
-      MakeBorrowedPlatformInput(&in2);
+      MakeBorrowedOperatorInput(&in2);
 
   NamedIoBatch batch_outputs(2);
   batch_outputs[0]["client_channel.keyword_out"] = nullptr;
@@ -1179,54 +1179,54 @@ TEST_F(PlatformOperatorTest, AtomicPublishFailureRollback) {
 }
 
 // 24. 严格路径沙箱与非法路径拦截测试 (R9-003)
-TEST_F(PlatformOperatorTest, PathSandboxStrictBoundaries) {
+TEST_F(OperatorApiTest, PathSandboxStrictBoundaries) {
   std::string root_dir = GetConfDir();
   char err_buf[256] = {0};
 
   // 1. POSIX 绝对路径拒绝
-  EXPECT_EQ(ValidatePlatformConfigBinding(
+  EXPECT_EQ(ValidateOperatorConfigBinding(
                 root_dir.c_str(), "/etc/pipeline.conf",
                 static_cast<int32_t>(ALG_BIZ_TYPE_KEYWORD_MATCH), err_buf,
                 sizeof(err_buf)),
             -2);
 
   // 2. Windows 盘符拒绝
-  EXPECT_EQ(ValidatePlatformConfigBinding(
+  EXPECT_EQ(ValidateOperatorConfigBinding(
                 root_dir.c_str(), "C:\\pipeline.conf",
                 static_cast<int32_t>(ALG_BIZ_TYPE_KEYWORD_MATCH), err_buf,
                 sizeof(err_buf)),
             -2);
 
   // 3. UNC 路径拒绝
-  EXPECT_EQ(ValidatePlatformConfigBinding(
+  EXPECT_EQ(ValidateOperatorConfigBinding(
                 root_dir.c_str(), "\\\\server\\share\\pipeline.conf",
                 static_cast<int32_t>(ALG_BIZ_TYPE_KEYWORD_MATCH), err_buf,
                 sizeof(err_buf)),
             -2);
 
   // 4. .. 逃逸拒绝
-  EXPECT_EQ(ValidatePlatformConfigBinding(
+  EXPECT_EQ(ValidateOperatorConfigBinding(
                 root_dir.c_str(), "../../etc/passwd",
                 static_cast<int32_t>(ALG_BIZ_TYPE_KEYWORD_MATCH), err_buf,
                 sizeof(err_buf)),
             -2);
 
   // 5. 目录而非普通文件拒绝
-  EXPECT_EQ(ValidatePlatformConfigBinding(
+  EXPECT_EQ(ValidateOperatorConfigBinding(
                 root_dir.c_str(), "configs",
                 static_cast<int32_t>(ALG_BIZ_TYPE_KEYWORD_MATCH), err_buf,
                 sizeof(err_buf)),
             -2);
 
   // 6. 不存在的文件拒绝
-  EXPECT_EQ(ValidatePlatformConfigBinding(
+  EXPECT_EQ(ValidateOperatorConfigBinding(
                 root_dir.c_str(), "configs/non_existent.conf",
                 static_cast<int32_t>(ALG_BIZ_TYPE_KEYWORD_MATCH), err_buf,
                 sizeof(err_buf)),
             -2);
 
   // 7. 路径前缀混淆拒绝 (例如目标根为 root，试图访问 root_extra 目录)
-  EXPECT_EQ(ValidatePlatformConfigBinding(
+  EXPECT_EQ(ValidateOperatorConfigBinding(
                 root_dir.c_str(), "../configs_fake/pipeline.conf",
                 static_cast<int32_t>(ALG_BIZ_TYPE_KEYWORD_MATCH), err_buf,
                 sizeof(err_buf)),
@@ -1246,13 +1246,13 @@ TEST_F(PlatformOperatorTest, PathSandboxStrictBoundaries) {
 }
 
 // 25. 深度上限与总内存预算超限防御 (R9-005)
-TEST_F(PlatformOperatorTest, DepthLimitAndTotalMemoryBudget) {
+TEST_F(OperatorApiTest, DepthLimitAndTotalMemoryBudget) {
   std::string root_dir = GetConfDir();
   CreateParam param{};
   param.model_path = root_dir.c_str();
   param.cfg_file_name = "configs/pipeline_keyword_match.conf";
   param.device_id = 0;
-  param.platform_type = ChipType::kAx650;
+  param.compute_platform = ComputePlatform::kAx650;
 
   // 1. 超过最大深度 1024
   param.max_frame_depth = 2048;
@@ -1263,13 +1263,13 @@ TEST_F(PlatformOperatorTest, DepthLimitAndTotalMemoryBudget) {
 
 // 26. 两阶段发布控制块在第 1 个/中间/最后 1 个块失败时的零泄漏与原子回退
 // (R9-002, R9-007)
-TEST_F(PlatformOperatorTest, AtomicPublishFailureFirstMiddleLast) {
+TEST_F(OperatorApiTest, AtomicPublishFailureFirstMiddleLast) {
   std::string root_dir = GetConfDir();
   CreateParam param{};
   param.model_path = root_dir.c_str();
   param.cfg_file_name = "configs/pipeline_keyword_match.conf";
   param.device_id = 0;
-  param.platform_type = ChipType::kAx650;
+  param.compute_platform = ComputePlatform::kAx650;
   param.max_frame_depth = 10;
 
   void* handle = nullptr;
@@ -1278,12 +1278,12 @@ TEST_F(PlatformOperatorTest, AtomicPublishFailureFirstMiddleLast) {
 
   char s1[] = "one", s2[] = "two", s3[] = "three";
   CompanyString cs1{3, s1}, cs2{3, s2}, cs3{5, s3};
-  CompanyPlatformKeywordInput in1{1, &cs1}, in2{2, &cs2}, in3{3, &cs3};
+  CompanyOperatorKeywordInput in1{1, &cs1}, in2{2, &cs2}, in3{3, &cs3};
 
   NamedIoBatch batch_inputs(3);
-  batch_inputs[0]["client.keyword_in"] = MakeBorrowedPlatformInput(&in1);
-  batch_inputs[1]["client.keyword_in"] = MakeBorrowedPlatformInput(&in2);
-  batch_inputs[2]["client.keyword_in"] = MakeBorrowedPlatformInput(&in3);
+  batch_inputs[0]["client.keyword_in"] = MakeBorrowedOperatorInput(&in1);
+  batch_inputs[1]["client.keyword_in"] = MakeBorrowedOperatorInput(&in2);
+  batch_inputs[2]["client.keyword_in"] = MakeBorrowedOperatorInput(&in3);
 
   // 1. 在第 1 个控制块 (countdown=0) 时模拟 bad_alloc
   {
@@ -1350,7 +1350,7 @@ TEST_F(PlatformOperatorTest, AtomicPublishFailureFirstMiddleLast) {
 }
 
 // 27. 全部 7 类核心业务最大 Batch 边界与两端样本读取正确性验证 (R9-001)
-TEST_F(PlatformOperatorTest, MultiBusinessMaxBatchBoundarySuite) {
+TEST_F(OperatorApiTest, MultiBusinessMaxBatchBoundarySuite) {
   std::string root_dir = GetConfDir();
 
   // 1. DocQA 最大 Batch 压测 (不同文本，验证两端正确读取与清空后销毁)
@@ -1359,7 +1359,7 @@ TEST_F(PlatformOperatorTest, MultiBusinessMaxBatchBoundarySuite) {
     param.model_path = root_dir.c_str();
     param.cfg_file_name = "configs/pipeline_doc_qa.conf";
     param.device_id = 0;
-    param.platform_type = ChipType::kAx650;
+    param.compute_platform = ComputePlatform::kAx650;
     param.max_frame_depth = 8;
 
     void* handle = nullptr;
@@ -1368,7 +1368,7 @@ TEST_F(PlatformOperatorTest, MultiBusinessMaxBatchBoundarySuite) {
     constexpr size_t kBatch = 4;
     std::vector<std::string> q_strs(kBatch), d_strs(kBatch);
     std::vector<CompanyString> q_cs(kBatch), d_cs(kBatch);
-    std::vector<CompanyPlatformDocInput> inputs(kBatch);
+    std::vector<CompanyOperatorDocInput> inputs(kBatch);
     NamedIoBatch batch_in(kBatch), batch_out(kBatch);
 
     for (size_t i = 0; i < kBatch; ++i) {
@@ -1381,16 +1381,16 @@ TEST_F(PlatformOperatorTest, MultiBusinessMaxBatchBoundarySuite) {
       inputs[i].request_id = static_cast<uint64_t>(100 + i);
       inputs[i].query_text = &q_cs[i];
       inputs[i].doc_text = &d_cs[i];
-      batch_in[i]["qa.doc_in"] = MakeBorrowedPlatformInput(&inputs[i]);
+      batch_in[i]["qa.doc_in"] = MakeBorrowedOperatorInput(&inputs[i]);
       batch_out[i]["qa.doc_out"] = nullptr;
     }
 
     int ret = ops_.Process(handle, batch_in, batch_out);
     EXPECT_EQ(ret, 0);
 
-    auto* first_out = static_cast<CompanyPlatformDocOutput*>(
+    auto* first_out = static_cast<CompanyOperatorDocOutput*>(
         batch_out[0]["qa.doc_out"].get());
-    auto* last_out = static_cast<CompanyPlatformDocOutput*>(
+    auto* last_out = static_cast<CompanyOperatorDocOutput*>(
         batch_out[kBatch - 1]["qa.doc_out"].get());
     ASSERT_NE(first_out, nullptr);
     ASSERT_NE(last_out, nullptr);
@@ -1411,7 +1411,7 @@ TEST_F(PlatformOperatorTest, MultiBusinessMaxBatchBoundarySuite) {
     param.model_path = root_dir.c_str();
     param.cfg_file_name = "configs/pipeline_dialogue_audit.conf";
     param.device_id = 0;
-    param.platform_type = ChipType::kAx650;
+    param.compute_platform = ComputePlatform::kAx650;
     param.max_frame_depth = 8;
 
     void* handle = nullptr;
@@ -1420,7 +1420,7 @@ TEST_F(PlatformOperatorTest, MultiBusinessMaxBatchBoundarySuite) {
     constexpr size_t kBatch = 4;
     std::vector<std::string> u_strs(kBatch), c_strs(kBatch);
     std::vector<CompanyString> u_cs(kBatch), c_cs(kBatch);
-    std::vector<CompanyPlatformAuditInput> inputs(kBatch);
+    std::vector<CompanyOperatorAuditInput> inputs(kBatch);
     NamedIoBatch batch_in(kBatch), batch_out(kBatch);
 
     for (size_t i = 0; i < kBatch; ++i) {
@@ -1433,16 +1433,16 @@ TEST_F(PlatformOperatorTest, MultiBusinessMaxBatchBoundarySuite) {
       inputs[i].request_id = static_cast<uint64_t>(200 + i);
       inputs[i].user_text = &u_cs[i];
       inputs[i].channel_name = &c_cs[i];
-      batch_in[i]["audit.audit_in"] = MakeBorrowedPlatformInput(&inputs[i]);
+      batch_in[i]["audit.audit_in"] = MakeBorrowedOperatorInput(&inputs[i]);
       batch_out[i]["audit.audit_out"] = nullptr;
     }
 
     int ret = ops_.Process(handle, batch_in, batch_out);
     EXPECT_EQ(ret, 0);
 
-    auto* first_out = static_cast<CompanyPlatformAuditOutput*>(
+    auto* first_out = static_cast<CompanyOperatorAuditOutput*>(
         batch_out[0]["audit.audit_out"].get());
-    auto* last_out = static_cast<CompanyPlatformAuditOutput*>(
+    auto* last_out = static_cast<CompanyOperatorAuditOutput*>(
         batch_out[kBatch - 1]["audit.audit_out"].get());
     ASSERT_NE(first_out, nullptr);
     ASSERT_NE(last_out, nullptr);
@@ -1461,7 +1461,7 @@ TEST_F(PlatformOperatorTest, MultiBusinessMaxBatchBoundarySuite) {
     param.model_path = root_dir.c_str();
     param.cfg_file_name = "configs/pipeline_audio_asr_intent.conf";
     param.device_id = 0;
-    param.platform_type = ChipType::kAx650;
+    param.compute_platform = ComputePlatform::kAx650;
     param.max_frame_depth = 8;
 
     void* handle = nullptr;
@@ -1476,23 +1476,23 @@ TEST_F(PlatformOperatorTest, MultiBusinessMaxBatchBoundarySuite) {
       }
     }
 
-    std::vector<CompanyPlatformAudioInput> inputs(kBatch);
+    std::vector<CompanyOperatorAudioInput> inputs(kBatch);
     NamedIoBatch batch_in(kBatch), batch_out(kBatch);
     for (size_t i = 0; i < kBatch; ++i) {
       inputs[i].request_id = static_cast<uint64_t>(300 + i);
       inputs[i].sample_rate = 16000;
       inputs[i].pcm_length = 16000;
       inputs[i].pcm_buffer = pcm_buffers[i].data();
-      batch_in[i]["audio.audio_in"] = MakeBorrowedPlatformInput(&inputs[i]);
+      batch_in[i]["audio.audio_in"] = MakeBorrowedOperatorInput(&inputs[i]);
       batch_out[i]["audio.audio_out"] = nullptr;
     }
 
     int ret = ops_.Process(handle, batch_in, batch_out);
     EXPECT_EQ(ret, 0);
 
-    auto* first_out = static_cast<CompanyPlatformAudioOutput*>(
+    auto* first_out = static_cast<CompanyOperatorAudioOutput*>(
         batch_out[0]["audio.audio_out"].get());
-    auto* last_out = static_cast<CompanyPlatformAudioOutput*>(
+    auto* last_out = static_cast<CompanyOperatorAudioOutput*>(
         batch_out[kBatch - 1]["audio.audio_out"].get());
     ASSERT_NE(first_out, nullptr);
     ASSERT_NE(last_out, nullptr);
@@ -1511,7 +1511,7 @@ TEST_F(PlatformOperatorTest, MultiBusinessMaxBatchBoundarySuite) {
     param.model_path = root_dir.c_str();
     param.cfg_file_name = "configs/pipeline_cross_rerank.conf";
     param.device_id = 0;
-    param.platform_type = ChipType::kAx650;
+    param.compute_platform = ComputePlatform::kAx650;
     param.max_frame_depth = 8;
 
     void* handle = nullptr;
@@ -1524,7 +1524,7 @@ TEST_F(PlatformOperatorTest, MultiBusinessMaxBatchBoundarySuite) {
     std::vector<CompanyString> q_cs(kBatch);
     std::vector<std::vector<CompanyString>> c_cs(kBatch,
                                                  std::vector<CompanyString>(8));
-    std::vector<CompanyPlatformRerankInput> inputs(kBatch);
+    std::vector<CompanyOperatorRerankInput> inputs(kBatch);
     NamedIoBatch batch_in(kBatch), batch_out(kBatch);
 
     for (size_t i = 0; i < kBatch; ++i) {
@@ -1541,18 +1541,18 @@ TEST_F(PlatformOperatorTest, MultiBusinessMaxBatchBoundarySuite) {
                                    c_strs[i][c].data()};
         inputs[i].candidate_passages[c] = &c_cs[i][c];
       }
-      batch_in[i]["rank.rerank_in"] = MakeBorrowedPlatformInput(&inputs[i]);
+      batch_in[i]["rank.rerank_in"] = MakeBorrowedOperatorInput(&inputs[i]);
       batch_out[i]["rank.rerank_out"] = nullptr;
     }
 
     int ret = ops_.Process(handle, batch_in, batch_out);
     EXPECT_EQ(ret, 0);
 
-    auto* first_out = static_cast<CompanyPlatformRerankOutput*>(
+    auto* first_out = static_cast<CompanyOperatorRerankOutput*>(
         batch_out[0]["rank.rerank_out"].get());
-    auto* middle_out = static_cast<CompanyPlatformRerankOutput*>(
+    auto* middle_out = static_cast<CompanyOperatorRerankOutput*>(
         batch_out[1]["rank.rerank_out"].get());
-    auto* last_out = static_cast<CompanyPlatformRerankOutput*>(
+    auto* last_out = static_cast<CompanyOperatorRerankOutput*>(
         batch_out[kBatch - 1]["rank.rerank_out"].get());
     ASSERT_NE(first_out, nullptr);
     ASSERT_NE(middle_out, nullptr);
@@ -1574,7 +1574,7 @@ TEST_F(PlatformOperatorTest, MultiBusinessMaxBatchBoundarySuite) {
     param.model_path = root_dir.c_str();
     param.cfg_file_name = "configs/pipeline_ocr_doc_qa.conf";
     param.device_id = 0;
-    param.platform_type = ChipType::kAx650;
+    param.compute_platform = ComputePlatform::kAx650;
     param.max_frame_depth = 8;
 
     void* handle = nullptr;
@@ -1596,8 +1596,8 @@ TEST_F(PlatformOperatorTest, MultiBusinessMaxBatchBoundarySuite) {
       frames[i].request_id = static_cast<uint64_t>(600 + i);
       frames[i].image_uri = &uri_cs[i];
       frames[i].metadata = nullptr;
-      batch_in[i]["camera_0.frame"] = MakeBorrowedPlatformInput(&frames[i]);
-      batch_in[i]["query_channel.string"] = MakeBorrowedPlatformInput(&q_cs[i]);
+      batch_in[i]["camera_0.frame"] = MakeBorrowedOperatorInput(&frames[i]);
+      batch_in[i]["query_channel.string"] = MakeBorrowedOperatorInput(&q_cs[i]);
       batch_out[i]["ocr_result.od_out"] = nullptr;
     }
 
@@ -1625,7 +1625,7 @@ TEST_F(PlatformOperatorTest, MultiBusinessMaxBatchBoundarySuite) {
     param.model_path = root_dir.c_str();
     param.cfg_file_name = "configs/pipeline_entity_extract.conf";
     param.device_id = 0;
-    param.platform_type = ChipType::kAx650;
+    param.compute_platform = ComputePlatform::kAx650;
     param.max_frame_depth = 8;
 
     void* handle = nullptr;
@@ -1634,7 +1634,7 @@ TEST_F(PlatformOperatorTest, MultiBusinessMaxBatchBoundarySuite) {
     constexpr size_t kBatch = 4;
     std::vector<std::string> s_strs(kBatch);
     std::vector<CompanyString> s_cs(kBatch);
-    std::vector<CompanyPlatformEntityInput> inputs(kBatch);
+    std::vector<CompanyOperatorEntityInput> inputs(kBatch);
     NamedIoBatch batch_in(kBatch), batch_out(kBatch);
 
     for (size_t i = 0; i < kBatch; ++i) {
@@ -1643,16 +1643,16 @@ TEST_F(PlatformOperatorTest, MultiBusinessMaxBatchBoundarySuite) {
                               s_strs[i].data()};
       inputs[i].request_id = static_cast<uint64_t>(500 + i);
       inputs[i].sentence_text = &s_cs[i];
-      batch_in[i]["ner.entity_in"] = MakeBorrowedPlatformInput(&inputs[i]);
+      batch_in[i]["ner.entity_in"] = MakeBorrowedOperatorInput(&inputs[i]);
       batch_out[i]["ner.entity_out"] = nullptr;
     }
 
     int ret = ops_.Process(handle, batch_in, batch_out);
     EXPECT_EQ(ret, 0);
 
-    auto* first_out = static_cast<CompanyPlatformEntityOutput*>(
+    auto* first_out = static_cast<CompanyOperatorEntityOutput*>(
         batch_out[0]["ner.entity_out"].get());
-    auto* last_out = static_cast<CompanyPlatformEntityOutput*>(
+    auto* last_out = static_cast<CompanyOperatorEntityOutput*>(
         batch_out[kBatch - 1]["ner.entity_out"].get());
     ASSERT_NE(first_out, nullptr);
     ASSERT_NE(last_out, nullptr);
@@ -1667,13 +1667,13 @@ TEST_F(PlatformOperatorTest, MultiBusinessMaxBatchBoundarySuite) {
 }
 
 // 28. 全量 64 帧最大 Batch 与 65 帧超限拒绝测试 (R9-001, R9-010)
-TEST_F(PlatformOperatorTest, Full64MaxBatchAnd65ExceedReject) {
+TEST_F(OperatorApiTest, Full64MaxBatchAnd65ExceedReject) {
   std::string root_dir = GetConfDir();
   CreateParam param{};
   param.model_path = root_dir.c_str();
   param.cfg_file_name = "configs/pipeline_keyword_match.conf";
   param.device_id = 0;
-  param.platform_type = ChipType::kAx650;
+  param.compute_platform = ComputePlatform::kAx650;
   param.max_frame_depth = 64;
 
   void* handle = nullptr;
@@ -1684,7 +1684,7 @@ TEST_F(PlatformOperatorTest, Full64MaxBatchAnd65ExceedReject) {
   constexpr size_t kMaxBatch = 64;
   std::vector<std::string> sent_strs(kMaxBatch);
   std::vector<CompanyString> comp_strs(kMaxBatch);
-  std::vector<CompanyPlatformKeywordInput> inputs(kMaxBatch);
+  std::vector<CompanyOperatorKeywordInput> inputs(kMaxBatch);
   NamedIoBatch batch_in(kMaxBatch), batch_out(kMaxBatch);
 
   for (size_t i = 0; i < kMaxBatch; ++i) {
@@ -1695,7 +1695,7 @@ TEST_F(PlatformOperatorTest, Full64MaxBatchAnd65ExceedReject) {
     inputs[i].request_id = static_cast<uint64_t>(1000 + i);
     inputs[i].sentence_text = &comp_strs[i];
     batch_in[i]["client_channel.keyword_in"] =
-        MakeBorrowedPlatformInput(&inputs[i]);
+        MakeBorrowedOperatorInput(&inputs[i]);
     batch_out[i]["client_channel.keyword_out"] = nullptr;
   }
 
@@ -1705,7 +1705,7 @@ TEST_F(PlatformOperatorTest, Full64MaxBatchAnd65ExceedReject) {
   for (size_t i = 0; i < kMaxBatch; ++i) {
     auto out_sp = batch_out[i]["client_channel.keyword_out"];
     ASSERT_NE(out_sp, nullptr);
-    auto* out_ptr = static_cast<CompanyPlatformKeywordOutput*>(out_sp.get());
+    auto* out_ptr = static_cast<CompanyOperatorKeywordOutput*>(out_sp.get());
     EXPECT_EQ(out_ptr->request_id, 1000u + i);
     EXPECT_NE(out_ptr->match_result_json, nullptr);
     if (i % 2 == 0) {
@@ -1720,7 +1720,7 @@ TEST_F(PlatformOperatorTest, Full64MaxBatchAnd65ExceedReject) {
   constexpr size_t kOverBatch = 65;
   std::vector<std::string> over_strs(kOverBatch, "overflow sentence");
   std::vector<CompanyString> over_cs(kOverBatch);
-  std::vector<CompanyPlatformKeywordInput> over_inputs(kOverBatch);
+  std::vector<CompanyOperatorKeywordInput> over_inputs(kOverBatch);
   NamedIoBatch over_batch_in(kOverBatch), over_batch_out(kOverBatch);
 
   for (size_t i = 0; i < kOverBatch; ++i) {
@@ -1729,7 +1729,7 @@ TEST_F(PlatformOperatorTest, Full64MaxBatchAnd65ExceedReject) {
     over_inputs[i].request_id = static_cast<uint64_t>(2000 + i);
     over_inputs[i].sentence_text = &over_cs[i];
     over_batch_in[i]["client_channel.keyword_in"] =
-        MakeBorrowedPlatformInput(&over_inputs[i]);
+        MakeBorrowedOperatorInput(&over_inputs[i]);
     over_batch_out[i]["client_channel.keyword_out"] = nullptr;
   }
 
@@ -1742,13 +1742,13 @@ TEST_F(PlatformOperatorTest, Full64MaxBatchAnd65ExceedReject) {
 }
 
 // 29. 未归还输出句柄时的违约 Destroy 契约测试 (R9-010)
-TEST_F(PlatformOperatorTest, UnreleasedOutputLifecycleBreach) {
+TEST_F(OperatorApiTest, UnreleasedOutputLifecycleBreach) {
   std::string root_dir = GetConfDir();
   CreateParam param{};
   param.model_path = root_dir.c_str();
   param.cfg_file_name = "configs/pipeline_keyword_match.conf";
   param.device_id = 0;
-  param.platform_type = ChipType::kAx650;
+  param.compute_platform = ComputePlatform::kAx650;
   param.max_frame_depth = 5;
 
   void* handle = nullptr;
@@ -1756,10 +1756,10 @@ TEST_F(PlatformOperatorTest, UnreleasedOutputLifecycleBreach) {
 
   std::string text = "VIP专员";
   CompanyString cs{static_cast<int32_t>(text.size()), text.data()};
-  CompanyPlatformKeywordInput in{99001, &cs};
+  CompanyOperatorKeywordInput in{99001, &cs};
 
   NamedIoBatch in_b(1), out_b(1);
-  in_b[0]["client_channel.keyword_in"] = MakeBorrowedPlatformInput(&in);
+  in_b[0]["client_channel.keyword_in"] = MakeBorrowedOperatorInput(&in);
   out_b[0]["client_channel.keyword_out"] = nullptr;
 
   ASSERT_EQ(ops_.Process(handle, in_b, out_b), 0);
@@ -1774,8 +1774,7 @@ TEST_F(PlatformOperatorTest, UnreleasedOutputLifecycleBreach) {
 
 // 30. 模型文件不存在时允许部署引用通过，但越界逃逸与控制文件缺失必须拦截
 // (R9-003)
-TEST_F(PlatformOperatorTest,
-       ModelPathNonExistentFileAllowedWhileEscapeRejected) {
+TEST_F(OperatorApiTest, ModelPathNonExistentFileAllowedWhileEscapeRejected) {
   ScopedTempDirectory temp_root;
   ScopedTempDirectory temp_outside;
   const std::filesystem::path root = temp_root.path();
@@ -1811,8 +1810,8 @@ TEST_F(PlatformOperatorTest,
 
     alg_framework::ResolvedCompanyConfig resolved;
     int ret = alg_framework::CompanyConfResolver::Resolve(
-        root_string.c_str(), "configs/model_paths.conf", 0, ChipType::kAx650,
-        &resolved, &err);
+        root_string.c_str(), "configs/model_paths.conf", 0,
+        ComputePlatform::kAx650, &resolved, &err);
     EXPECT_EQ(ret, 0) << "Error: " << err;
     ASSERT_EQ(resolved.synthetic_pipeline_json["models"].size(), 2u);
     for (const auto& model : resolved.synthetic_pipeline_json["models"]) {
@@ -1849,8 +1848,8 @@ TEST_F(PlatformOperatorTest,
 
     alg_framework::ResolvedCompanyConfig resolved;
     int ret = alg_framework::CompanyConfResolver::Resolve(
-        root_string.c_str(), "configs/single_model.conf", 0, ChipType::kAx650,
-        &resolved, &err);
+        root_string.c_str(), "configs/single_model.conf", 0,
+        ComputePlatform::kAx650, &resolved, &err);
     ASSERT_EQ(ret, 0) << err;
     const auto resolved_model = std::filesystem::path(
         resolved.synthetic_pipeline_json["models"][0]["model_path"]
@@ -1903,7 +1902,7 @@ TEST_F(PlatformOperatorTest,
     alg_framework::ResolvedCompanyConfig resolved;
     EXPECT_EQ(alg_framework::CompanyConfResolver::Resolve(
                   root_string.c_str(), "configs/missing.conf", 0,
-                  ChipType::kAx650, &resolved, &err),
+                  ComputePlatform::kAx650, &resolved, &err),
               -2);
 
     std::ofstream conf(root / "configs/missing_pipe.conf");
@@ -1916,7 +1915,7 @@ TEST_F(PlatformOperatorTest,
     conf.close();
     EXPECT_EQ(alg_framework::CompanyConfResolver::Resolve(
                   root_string.c_str(), "configs/missing_pipe.conf", 0,
-                  ChipType::kAx650, &resolved, &err),
+                  ComputePlatform::kAx650, &resolved, &err),
               -2);
 
     // cfg symlink 到根外 regular file 仍是逃逸，不能因为目标存在而接受。
@@ -1929,7 +1928,7 @@ TEST_F(PlatformOperatorTest,
     ASSERT_FALSE(ec) << ec.message();
     EXPECT_EQ(alg_framework::CompanyConfResolver::Resolve(
                   root_string.c_str(), "configs/outside.conf", 0,
-                  ChipType::kAx650, &resolved, &err),
+                  ComputePlatform::kAx650, &resolved, &err),
               -2);
 
     // pipe 的绝对路径、目录和根外 symlink 也必须由同一 required-file
@@ -1953,7 +1952,7 @@ TEST_F(PlatformOperatorTest,
       invalid_conf.close();
       EXPECT_EQ(alg_framework::CompanyConfResolver::Resolve(
                     root_string.c_str(), "configs/invalid_pipe.conf", 0,
-                    ChipType::kAx650, &resolved, &err),
+                    ComputePlatform::kAx650, &resolved, &err),
                 -2)
           << pipe_path;
     }

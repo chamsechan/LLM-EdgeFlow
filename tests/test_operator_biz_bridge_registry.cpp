@@ -4,13 +4,13 @@
 #include <vector>
 
 #include "adapter/biz_adapter_registry.h"
-#include "adapter/platform/platform_biz_bridge_registry.h"
+#include "adapter/operator/operator_biz_bridge_registry.h"
 
 namespace alg_framework {
 namespace {
 
-TEST(PlatformBizBridgeRegistryTest, AllSevenBusinessesSelfRegistered) {
-  const auto& reg = PlatformBizBridgeRegistry::Instance();
+TEST(OperatorBizBridgeRegistryTest, AllSevenBusinessesSelfRegistered) {
+  const auto& reg = OperatorBizBridgeRegistry::Instance();
   for (int biz_id = 1; biz_id <= 7; ++biz_id) {
     auto biz_type = static_cast<CompanyAlgBizType>(biz_id);
     const auto* desc = reg.GetBridge(biz_type);
@@ -28,8 +28,8 @@ TEST(PlatformBizBridgeRegistryTest, AllSevenBusinessesSelfRegistered) {
   }
 }
 
-TEST(PlatformBizBridgeRegistryTest, GlobalInitIsIdempotentAndThreadSafe) {
-  auto& reg = PlatformBizBridgeRegistry::Instance();
+TEST(OperatorBizBridgeRegistryTest, GlobalInitIsIdempotentAndThreadSafe) {
+  auto& reg = OperatorBizBridgeRegistry::Instance();
   EXPECT_EQ(reg.GlobalInit(), 0);
   EXPECT_EQ(reg.GlobalInit(), 0);
   EXPECT_FALSE(reg.HasConflict());
@@ -51,12 +51,12 @@ TEST(PlatformBizBridgeRegistryTest, GlobalInitIsIdempotentAndThreadSafe) {
   }
 }
 
-TEST(PlatformBizBridgeRegistryTest,
+TEST(OperatorBizBridgeRegistryTest,
      IsolatedRegistryIdempotencyAndLateRegistration) {
-  PlatformBizBridgeRegistry local_reg;
+  OperatorBizBridgeRegistry local_reg;
 
   // Copy bridges from global instance to local registry
-  const auto& global_reg = PlatformBizBridgeRegistry::Instance();
+  const auto& global_reg = OperatorBizBridgeRegistry::Instance();
   for (int biz_id = 1; biz_id <= 7; ++biz_id) {
     const auto* desc =
         global_reg.GetBridge(static_cast<CompanyAlgBizType>(biz_id));
@@ -73,7 +73,7 @@ TEST(PlatformBizBridgeRegistryTest,
 
   // Late registration after audited_ returns false but does NOT pollute
   // conflict state
-  PlatformBizBridgeDescriptor dummy_desc;
+  OperatorBizBridgeDescriptor dummy_desc;
   dummy_desc.biz_type = static_cast<CompanyAlgBizType>(1);
   dummy_desc.biz_name = "DocQA";
   EXPECT_FALSE(local_reg.RegisterBridge(dummy_desc));
@@ -83,12 +83,12 @@ TEST(PlatformBizBridgeRegistryTest,
   EXPECT_FALSE(local_reg.HasConflict());
 }
 
-TEST(PlatformBizBridgeRegistryTest,
+TEST(OperatorBizBridgeRegistryTest,
      IsolatedRegistryRejectsConflictingDescriptor) {
-  PlatformBizBridgeRegistry local_reg;
+  OperatorBizBridgeRegistry local_reg;
 
   const auto* orig_desc =
-      PlatformBizBridgeRegistry::Instance().GetBridge(ALG_BIZ_TYPE_DOC_QA);
+      OperatorBizBridgeRegistry::Instance().GetBridge(ALG_BIZ_TYPE_DOC_QA);
   ASSERT_NE(orig_desc, nullptr);
   EXPECT_TRUE(local_reg.RegisterBridge(*orig_desc));
 
@@ -96,27 +96,27 @@ TEST(PlatformBizBridgeRegistryTest,
   EXPECT_TRUE(local_reg.RegisterBridge(*orig_desc));
 
   // Re-register with different identity or slots -> conflict
-  PlatformBizBridgeDescriptor conflict_desc = *orig_desc;
+  OperatorBizBridgeDescriptor conflict_desc = *orig_desc;
   conflict_desc.registration_identity = "ConflictingIdentityDocQA";
   EXPECT_FALSE(local_reg.RegisterBridge(conflict_desc));
   EXPECT_TRUE(local_reg.HasConflict());
   EXPECT_EQ(local_reg.GlobalInit(), -6);
 }
 
-TEST(PlatformBizBridgeRegistryTest,
+TEST(OperatorBizBridgeRegistryTest,
      IsolatedRegistryRejectsEachIndividualCallbackChange) {
-  PlatformBizBridgeRegistry local_reg;
+  OperatorBizBridgeRegistry local_reg;
 
   const auto* orig_desc =
-      PlatformBizBridgeRegistry::Instance().GetBridge(ALG_BIZ_TYPE_DOC_QA);
+      OperatorBizBridgeRegistry::Instance().GetBridge(ALG_BIZ_TYPE_DOC_QA);
   ASSERT_NE(orig_desc, nullptr);
   EXPECT_TRUE(local_reg.RegisterBridge(*orig_desc));
 
   // 1. Only convert_sample_input changed -> conflict
   {
-    PlatformBizBridgeRegistry r;
+    OperatorBizBridgeRegistry r;
     EXPECT_TRUE(r.RegisterBridge(*orig_desc));
-    PlatformBizBridgeDescriptor conflict = *orig_desc;
+    OperatorBizBridgeDescriptor conflict = *orig_desc;
     conflict.convert_sample_input =
         [](const std::unordered_map<std::string, const void*>&,
            ProcessLocalShadowStorage&, const void**,
@@ -128,9 +128,9 @@ TEST(PlatformBizBridgeRegistryTest,
 
   // 2. Only convert_sample_output changed -> conflict
   {
-    PlatformBizBridgeRegistry r;
+    OperatorBizBridgeRegistry r;
     EXPECT_TRUE(r.RegisterBridge(*orig_desc));
-    PlatformBizBridgeDescriptor conflict = *orig_desc;
+    OperatorBizBridgeDescriptor conflict = *orig_desc;
     conflict.convert_sample_output = [](const void*, void*,
                                         const ResolvedOutputPoolSpec&,
                                         std::string*) -> int { return -99; };
@@ -141,9 +141,9 @@ TEST(PlatformBizBridgeRegistryTest,
 
   // 3. Only create_shadow_output_dto changed -> conflict
   {
-    PlatformBizBridgeRegistry r;
+    OperatorBizBridgeRegistry r;
     EXPECT_TRUE(r.RegisterBridge(*orig_desc));
-    PlatformBizBridgeDescriptor conflict = *orig_desc;
+    OperatorBizBridgeDescriptor conflict = *orig_desc;
     conflict.create_shadow_output_dto =
         [](ProcessLocalShadowStorage&) -> void* { return nullptr; };
     EXPECT_FALSE(r.RegisterBridge(conflict));
@@ -152,9 +152,9 @@ TEST(PlatformBizBridgeRegistryTest,
   }
 }
 
-TEST(PlatformBizBridgeRegistryTest,
+TEST(OperatorBizBridgeRegistryTest,
      SevenBusinesses64SampleDirectDtoConversionMatrix) {
-  const auto& reg = PlatformBizBridgeRegistry::Instance();
+  const auto& reg = OperatorBizBridgeRegistry::Instance();
   constexpr size_t kNumSamples = 64;
 
   // 1. KeywordMatch 64 samples
@@ -167,7 +167,7 @@ TEST(PlatformBizBridgeRegistryTest,
 
     std::vector<std::string> raw_strings(kNumSamples);
     std::vector<CompanyString> c_strings(kNumSamples);
-    std::vector<CompanyPlatformKeywordInput> inputs(kNumSamples);
+    std::vector<CompanyOperatorKeywordInput> inputs(kNumSamples);
 
     for (size_t i = 0; i < kNumSamples; ++i) {
       // 前 15 帧穷尽 1～15 字节，后续交替覆盖长字符串。
@@ -207,7 +207,7 @@ TEST(PlatformBizBridgeRegistryTest,
 
       char out_buf[256] = {0};
       CompanyString out_cs{0, out_buf};
-      CompanyPlatformKeywordOutput out_struct{};
+      CompanyOperatorKeywordOutput out_struct{};
       out_struct.match_result_json = &out_cs;
 
       ASSERT_EQ(desc->convert_sample_output(&out_dto, &out_struct, spec, &err),
@@ -234,7 +234,7 @@ TEST(PlatformBizBridgeRegistryTest,
                                      : ("Entity extraction sentence #" +
                                         std::to_string(i) + " in Beijing");
       CompanyString cs{static_cast<int32_t>(raw_str.size()), raw_str.data()};
-      CompanyPlatformEntityInput input{2000 + i, &cs};
+      CompanyOperatorEntityInput input{2000 + i, &cs};
 
       std::unordered_map<std::string, const void*> slots = {
           {"entity_in", &input}};
@@ -254,7 +254,7 @@ TEST(PlatformBizBridgeRegistryTest,
 
       char out_buf[256] = {0};
       CompanyString out_cs{0, out_buf};
-      CompanyPlatformEntityOutput out_struct{};
+      CompanyOperatorEntityOutput out_struct{};
       out_struct.entities_json = &out_cs;
 
       ASSERT_EQ(desc->convert_sample_output(&out_dto, &out_struct, spec, &err),
@@ -278,7 +278,7 @@ TEST(PlatformBizBridgeRegistryTest,
           "Context document text for sample #" + std::to_string(i);
       CompanyString q_cs{static_cast<int32_t>(q_str.size()), q_str.data()};
       CompanyString d_cs{static_cast<int32_t>(d_str.size()), d_str.data()};
-      CompanyPlatformDocInput input{3000 + i, &d_cs, &q_cs};
+      CompanyOperatorDocInput input{3000 + i, &d_cs, &q_cs};
 
       std::unordered_map<std::string, const void*> slots = {{"doc_in", &input}};
       const void* internal_dto = nullptr;
@@ -303,7 +303,7 @@ TEST(PlatformBizBridgeRegistryTest,
       char answer_buf[1024] = {0};
       CompanyString intent_cs{0, intent_buf};
       CompanyString answer_cs{0, answer_buf};
-      CompanyPlatformDocOutput out_struct{};
+      CompanyOperatorDocOutput out_struct{};
       out_struct.intent_name = &intent_cs;
       out_struct.answer_text = &answer_cs;
 
@@ -330,7 +330,7 @@ TEST(PlatformBizBridgeRegistryTest,
       std::string c_str = "channel_" + std::to_string(i % 5);
       CompanyString u_cs{static_cast<int32_t>(u_str.size()), u_str.data()};
       CompanyString c_cs{static_cast<int32_t>(c_str.size()), c_str.data()};
-      CompanyPlatformAuditInput input{4000 + i, &u_cs, &c_cs};
+      CompanyOperatorAuditInput input{4000 + i, &u_cs, &c_cs};
 
       std::unordered_map<std::string, const void*> slots = {
           {"audit_in", &input}};
@@ -356,7 +356,7 @@ TEST(PlatformBizBridgeRegistryTest,
 
       char r_buf[32] = {0}, p_buf[256] = {0}, v_buf[1024] = {0};
       CompanyString r_cs{0, r_buf}, p_cs{0, p_buf}, v_cs{0, v_buf};
-      CompanyPlatformAuditOutput out_struct{};
+      CompanyOperatorAuditOutput out_struct{};
       out_struct.risk_level = &r_cs;
       out_struct.matched_policy_clause = &p_cs;
       out_struct.audit_verdict_json = &v_cs;
@@ -385,7 +385,7 @@ TEST(PlatformBizBridgeRegistryTest,
     for (size_t i = 0; i < kNumSamples; ++i) {
       pcm_pool[i][0] = 0.001f * static_cast<float>(i);
       pcm_pool[i][15999] = 0.002f * static_cast<float>(i) + 0.5f;
-      CompanyPlatformAudioInput input{5000 + i, pcm_pool[i].data(), 16000,
+      CompanyOperatorAudioInput input{5000 + i, pcm_pool[i].data(), 16000,
                                       16000};
 
       std::unordered_map<std::string, const void*> slots = {
@@ -411,7 +411,7 @@ TEST(PlatformBizBridgeRegistryTest,
 
       char t_buf[512] = {0}, slot_buf[1024] = {0};
       CompanyString t_cs{0, t_buf}, slot_cs{0, slot_buf};
-      CompanyPlatformAudioOutput out_struct{};
+      CompanyOperatorAudioOutput out_struct{};
       out_struct.transcribed_text = &t_cs;
       out_struct.intent_slot_json = &slot_cs;
 
@@ -436,7 +436,7 @@ TEST(PlatformBizBridgeRegistryTest,
       CompanyString q_cs{static_cast<int32_t>(q_str.size()), q_str.data()};
       std::vector<std::string> c_strs(8);
       std::vector<CompanyString> c_cs(8);
-      CompanyPlatformRerankInput input{};
+      CompanyOperatorRerankInput input{};
       input.request_id = 6000 + i;
       input.query_text = &q_cs;
       input.candidate_count = 8;
@@ -472,7 +472,7 @@ TEST(PlatformBizBridgeRegistryTest,
         out_dto.sorted_indices[c] = c;
       }
 
-      CompanyPlatformRerankOutput out_struct{};
+      CompanyOperatorRerankOutput out_struct{};
       ASSERT_EQ(desc->convert_sample_output(&out_dto, &out_struct, spec, &err),
                 0);
       EXPECT_EQ(out_struct.request_id, 6000 + i);
@@ -535,15 +535,15 @@ TEST(PlatformBizBridgeRegistryTest,
   }
 }
 
-TEST(PlatformBizBridgeRegistryTest,
+TEST(OperatorBizBridgeRegistryTest,
      IsolatedRegistryRejectsSlotDirectionMismatch) {
-  PlatformBizBridgeRegistry local_reg;
+  OperatorBizBridgeRegistry local_reg;
 
   const auto* orig_desc =
-      PlatformBizBridgeRegistry::Instance().GetBridge(ALG_BIZ_TYPE_DOC_QA);
+      OperatorBizBridgeRegistry::Instance().GetBridge(ALG_BIZ_TYPE_DOC_QA);
   ASSERT_NE(orig_desc, nullptr);
 
-  PlatformBizBridgeDescriptor bad_desc = *orig_desc;
+  OperatorBizBridgeDescriptor bad_desc = *orig_desc;
   bad_desc.biz_type = static_cast<CompanyAlgBizType>(99);
   bad_desc.input_slots[0].direction = IoDirection::kOutput;  // Mismatch
   EXPECT_FALSE(local_reg.RegisterBridge(bad_desc));
@@ -551,9 +551,9 @@ TEST(PlatformBizBridgeRegistryTest,
   EXPECT_EQ(local_reg.GlobalInit(), -6);
 }
 
-TEST(PlatformBizBridgeRegistryTest, ConcurrentReadFreezeInterleavingTSan) {
-  PlatformBizBridgeRegistry local_reg;
-  const auto& global_reg = PlatformBizBridgeRegistry::Instance();
+TEST(OperatorBizBridgeRegistryTest, ConcurrentReadFreezeInterleavingTSan) {
+  OperatorBizBridgeRegistry local_reg;
+  const auto& global_reg = OperatorBizBridgeRegistry::Instance();
   for (int biz_id = 1; biz_id <= 7; ++biz_id) {
     const auto* desc =
         global_reg.GetBridge(static_cast<CompanyAlgBizType>(biz_id));
@@ -578,7 +578,7 @@ TEST(PlatformBizBridgeRegistryTest, ConcurrentReadFreezeInterleavingTSan) {
   std::thread freezer([&]() {
     for (int i = 0; i < 50; ++i) {
       EXPECT_EQ(local_reg.GlobalInit(), 0);
-      PlatformBizBridgeDescriptor late_desc;
+      OperatorBizBridgeDescriptor late_desc;
       late_desc.biz_type = static_cast<CompanyAlgBizType>(99);
       EXPECT_FALSE(local_reg.RegisterBridge(late_desc));
     }

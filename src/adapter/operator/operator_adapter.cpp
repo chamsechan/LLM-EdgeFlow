@@ -6,28 +6,28 @@
 #include <unordered_set>
 #include <vector>
 
-#include "adapter/platform/company_conf_resolver.h"
-#include "adapter/platform/platform_biz_bridge_registry.h"
-#include "adapter/platform/platform_control_registry.h"
-#include "adapter/platform/platform_output_pool.h"
-#include "adapter/platform/platform_value_type_registry.h"
+#include "adapter/operator/company_conf_resolver.h"
+#include "adapter/operator/operator_biz_bridge_registry.h"
+#include "adapter/operator/operator_control_registry.h"
+#include "adapter/operator/operator_output_pool.h"
+#include "adapter/operator/operator_value_type_registry.h"
 #include "adapter/shared_algorithm_runtime.h"
-#include "platform/platform_operator_interface.h"
+#include "operator/operator_interface.h"
 
-namespace llm_edgeflow::platform {
+namespace llm_edgeflow::operator_api {
 
 namespace {
 
-thread_local std::string g_last_platform_error;
+thread_local std::string g_last_operator_error;
 
-void SetLastError(const std::string& err) { g_last_platform_error = err; }
+void SetLastError(const std::string& err) { g_last_operator_error = err; }
 
-struct PlatformHandle {
+struct OperatorHandle {
   std::unique_ptr<alg_framework::SharedAlgorithmRuntime> runtime;
   uint32_t max_frame_depth = 25;
   uint32_t effective_process_batch_limit = 25;
   CompanyAlgBizType biz_type = ALG_BIZ_TYPE_UNKNOWN;
-  const alg_framework::PlatformBizBridgeDescriptor* bridge = nullptr;
+  const alg_framework::OperatorBizBridgeDescriptor* bridge = nullptr;
   alg_framework::ResolvedCompanyConfig resolved_conf;
   std::unordered_map<std::string,
                      std::shared_ptr<alg_framework::OutputPoolState>>
@@ -38,14 +38,14 @@ struct PlatformHandle {
 /**
  * @brief 全局线程安全活跃句柄注册中心 (杜绝 Use-After-Free 与悬挂指针解引用)
  */
-class PlatformHandleManager {
+class OperatorHandleManager {
  public:
-  static PlatformHandleManager& Instance() {
-    static PlatformHandleManager instance;
+  static OperatorHandleManager& Instance() {
+    static OperatorHandleManager instance;
     return instance;
   }
 
-  bool Register(PlatformHandle* h) {
+  bool Register(OperatorHandle* h) {
     if (!h) return false;
     std::lock_guard<std::mutex> lock(mutex_);
     return active_handles_.insert(h).second;
@@ -54,25 +54,25 @@ class PlatformHandleManager {
   bool IsValid(void* handle) {
     if (!handle) return false;
     std::lock_guard<std::mutex> lock(mutex_);
-    return active_handles_.find(static_cast<PlatformHandle*>(handle)) !=
+    return active_handles_.find(static_cast<OperatorHandle*>(handle)) !=
            active_handles_.end();
   }
 
-  PlatformHandle* ExtractForDestroy(void* handle) {
+  OperatorHandle* ExtractForDestroy(void* handle) {
     if (!handle) return nullptr;
     std::lock_guard<std::mutex> lock(mutex_);
-    auto it = active_handles_.find(static_cast<PlatformHandle*>(handle));
+    auto it = active_handles_.find(static_cast<OperatorHandle*>(handle));
     if (it == active_handles_.end()) {
       return nullptr;
     }
-    PlatformHandle* h = *it;
+    OperatorHandle* h = *it;
     active_handles_.erase(it);
     return h;
   }
 
   int DestroyAll() noexcept {
     try {
-      std::unordered_set<PlatformHandle*> to_destroy;
+      std::unordered_set<OperatorHandle*> to_destroy;
       {
         std::lock_guard<std::mutex> lock(mutex_);
         to_destroy.swap(active_handles_);
@@ -81,7 +81,7 @@ class PlatformHandleManager {
       int first_error = 0;
       for (auto* h : to_destroy) {
         if (!h) continue;
-        std::unique_ptr<PlatformHandle> owner(h);
+        std::unique_ptr<OperatorHandle> owner(h);
         uint32_t outstanding = 0;
         for (auto& [suffix, pool] : owner->output_pools) {
           if (pool) {
@@ -101,10 +101,10 @@ class PlatformHandleManager {
 
  private:
   std::mutex mutex_;
-  std::unordered_set<PlatformHandle*> active_handles_;
+  std::unordered_set<OperatorHandle*> active_handles_;
 };
 
-int Platform_Init() noexcept {
+int Operator_Init() noexcept {
   try {
     int ret = alg_framework::SharedAlgorithmRuntime::GlobalInit();
     if (ret != 0) {
@@ -112,18 +112,18 @@ int Platform_Init() noexcept {
           "GlobalInit failed: registration conflict in SharedAlgorithmRuntime");
       return ret;
     }
-    ret = alg_framework::PlatformValueTypeRegistry::Instance().GlobalInit();
+    ret = alg_framework::OperatorValueTypeRegistry::Instance().GlobalInit();
     if (ret != 0) {
       SetLastError(
           "GlobalInit failed: registration conflict in "
-          "PlatformValueTypeRegistry");
+          "OperatorValueTypeRegistry");
       return ret;
     }
-    ret = alg_framework::PlatformBizBridgeRegistry::Instance().GlobalInit();
+    ret = alg_framework::OperatorBizBridgeRegistry::Instance().GlobalInit();
     if (ret != 0) {
       SetLastError(
           "GlobalInit failed: registration conflict in "
-          "PlatformBizBridgeRegistry");
+          "OperatorBizBridgeRegistry");
       return ret;
     }
     return 0;
@@ -136,7 +136,7 @@ int Platform_Init() noexcept {
   }
 }
 
-int Platform_Create(void** handle, const CreateParam* param) noexcept {
+int Operator_Create(void** handle, const CreateParam* param) noexcept {
   try {
     if (!handle || *handle != nullptr) {
       SetLastError(
@@ -167,9 +167,9 @@ int Platform_Create(void** handle, const CreateParam* param) noexcept {
       return -2;
     }
 
-    if (!IsSupportedChipType(param->platform_type)) {
-      SetLastError("Unsupported or unknown ChipType: " +
-                   std::to_string(static_cast<int>(param->platform_type)));
+    if (!IsSupportedComputePlatform(param->compute_platform)) {
+      SetLastError("Unsupported or unknown ComputePlatform: " +
+                   std::to_string(static_cast<int>(param->compute_platform)));
       return -2;
     }
 
@@ -187,7 +187,7 @@ int Platform_Create(void** handle, const CreateParam* param) noexcept {
     std::string resolve_err;
     int res_code = alg_framework::CompanyConfResolver::Resolve(
         param->model_path, param->cfg_file_name, param->device_id,
-        param->platform_type, &resolved_conf, &resolve_err, effective_depth);
+        param->compute_platform, &resolved_conf, &resolve_err, effective_depth);
     if (res_code != 0) {
       SetLastError("CompanyConfResolver failed: " + resolve_err);
       return res_code;
@@ -200,7 +200,8 @@ int Platform_Create(void** handle, const CreateParam* param) noexcept {
         std::min(effective_depth, adapter_max_batch);
 
     alg_framework::RuntimeOptions runtime_options;
-    runtime_options.chip_type = ChipTypeToString(param->platform_type);
+    runtime_options.chip_type =
+        ComputePlatformToString(param->compute_platform);
     runtime_options.platform_max_batch =
         static_cast<int32_t>(effective_batch_limit);
     runtime_options.depth_num = effective_depth;
@@ -229,7 +230,7 @@ int Platform_Create(void** handle, const CreateParam* param) noexcept {
                        std::shared_ptr<alg_framework::OutputPoolState>>
         pools;
     for (const auto& out_slot : resolved_conf.bridge_descriptor->output_slots) {
-      const auto* binding = alg_framework::PlatformValueTypeRegistry::Instance()
+      const auto* binding = alg_framework::OperatorValueTypeRegistry::Instance()
                                 .GetBindingBySuffix(out_slot.type_suffix);
       if (!binding) {
         SetLastError("Missing value type binding for output suffix: " +
@@ -249,7 +250,7 @@ int Platform_Create(void** handle, const CreateParam* param) noexcept {
       pools[out_slot.type_suffix] = std::move(pool);
     }
 
-    auto handle_instance = std::make_unique<PlatformHandle>();
+    auto handle_instance = std::make_unique<OperatorHandle>();
     handle_instance->runtime = std::move(runtime);
     handle_instance->max_frame_depth = effective_depth;
     handle_instance->effective_process_batch_limit = effective_batch_limit;
@@ -258,8 +259,8 @@ int Platform_Create(void** handle, const CreateParam* param) noexcept {
     handle_instance->resolved_conf = std::move(resolved_conf);
     handle_instance->output_pools = std::move(pools);
 
-    PlatformHandle* raw_h = handle_instance.get();
-    PlatformHandleManager::Instance().Register(raw_h);
+    OperatorHandle* raw_h = handle_instance.get();
+    OperatorHandleManager::Instance().Register(raw_h);
 
     *handle = static_cast<void*>(handle_instance.release());
     return 0;
@@ -274,7 +275,7 @@ int Platform_Create(void** handle, const CreateParam* param) noexcept {
   }
 }
 
-int Platform_Process(void* handle, const NamedIoBatch& inputs,
+int Operator_Process(void* handle, const NamedIoBatch& inputs,
                      NamedIoBatch& outputs) noexcept {
   try {
     if (!handle) {
@@ -282,12 +283,12 @@ int Platform_Process(void* handle, const NamedIoBatch& inputs,
       return -1;
     }
 
-    if (!PlatformHandleManager::Instance().IsValid(handle)) {
+    if (!OperatorHandleManager::Instance().IsValid(handle)) {
       SetLastError("Invalid or already destroyed handle in Process");
       return -1;
     }
 
-    auto* h = static_cast<PlatformHandle*>(handle);
+    auto* h = static_cast<OperatorHandle*>(handle);
 
     if (inputs.empty()) {
       SetLastError("Empty inputs NamedIoBatch");
@@ -336,14 +337,14 @@ int Platform_Process(void* handle, const NamedIoBatch& inputs,
 
         for (const auto& [k, v] : in_map) {
           std::string ns, suffix;
-          if (!alg_framework::PlatformValueTypeRegistry::ParseKey(k, &ns,
+          if (!alg_framework::OperatorValueTypeRegistry::ParseKey(k, &ns,
                                                                   &suffix)) {
             SetLastError("Invalid input key format in frame " +
                          std::to_string(i) + ": " + k);
             return -3;
           }
           std::string can_suffix =
-              alg_framework::PlatformValueTypeRegistry::Instance()
+              alg_framework::OperatorValueTypeRegistry::Instance()
                   .NormalizeSuffix(suffix);
           if (can_suffix == req_slot.type_suffix) {
             if (!found_key.empty()) {
@@ -371,7 +372,7 @@ int Platform_Process(void* handle, const NamedIoBatch& inputs,
 
         if (payload_ptr) {
           const auto* binding =
-              alg_framework::PlatformValueTypeRegistry::Instance()
+              alg_framework::OperatorValueTypeRegistry::Instance()
                   .GetBindingBySuffix(req_slot.type_suffix);
           if (binding && binding->validate_external) {
             std::string val_err;
@@ -407,7 +408,7 @@ int Platform_Process(void* handle, const NamedIoBatch& inputs,
     struct FrameOutputKeyBinding {
       std::string key;
       std::string canonical_suffix;
-      const alg_framework::PlatformBizSlot* slot = nullptr;
+      const alg_framework::OperatorBizSlot* slot = nullptr;
     };
     std::vector<std::vector<FrameOutputKeyBinding>> frame_out_bindings(
         batch_size);
@@ -421,14 +422,14 @@ int Platform_Process(void* handle, const NamedIoBatch& inputs,
 
         for (const auto& [k, v] : out_map) {
           std::string ns, suffix;
-          if (!alg_framework::PlatformValueTypeRegistry::ParseKey(k, &ns,
+          if (!alg_framework::OperatorValueTypeRegistry::ParseKey(k, &ns,
                                                                   &suffix)) {
             SetLastError("Invalid output key format in frame " +
                          std::to_string(i) + ": " + k);
             return -4;
           }
           std::string can_suffix =
-              alg_framework::PlatformValueTypeRegistry::Instance()
+              alg_framework::OperatorValueTypeRegistry::Instance()
                   .NormalizeSuffix(suffix);
           if (can_suffix == req_slot.type_suffix) {
             if (!found_key.empty()) {
@@ -591,7 +592,7 @@ int Platform_Process(void* handle, const NamedIoBatch& inputs,
   }
 }
 
-int Platform_Control(void* handle, ControlCommand command,
+int Operator_Control(void* handle, ControlCommand command,
                      void* control_param) noexcept {
   try {
     if (!handle) {
@@ -599,12 +600,12 @@ int Platform_Control(void* handle, ControlCommand command,
       return -1;
     }
 
-    if (!PlatformHandleManager::Instance().IsValid(handle)) {
+    if (!OperatorHandleManager::Instance().IsValid(handle)) {
       SetLastError("Invalid or already destroyed handle in Control");
       return -1;
     }
 
-    auto* h = static_cast<PlatformHandle*>(handle);
+    auto* h = static_cast<OperatorHandle*>(handle);
     std::lock_guard<std::mutex> lock(h->mutex);
 
     if (!h->runtime) {
@@ -615,7 +616,7 @@ int Platform_Control(void* handle, ControlCommand command,
     int cmd_id = 0;
     std::string json_str;
     std::string resolve_err;
-    int res_ret = alg_framework::PlatformControlRegistry::ResolveControlParam(
+    int res_ret = alg_framework::OperatorControlRegistry::ResolveControlParam(
         command, control_param, &cmd_id, &json_str, &resolve_err);
     if (res_ret != 0) {
       SetLastError("ResolveControlParam failed: " + resolve_err);
@@ -639,21 +640,21 @@ int Platform_Control(void* handle, ControlCommand command,
   }
 }
 
-int Platform_Destroy(void* handle) noexcept {
+int Operator_Destroy(void* handle) noexcept {
   try {
     if (!handle) {
       SetLastError("Null handle in Destroy");
       return -1;
     }
 
-    PlatformHandle* h =
-        PlatformHandleManager::Instance().ExtractForDestroy(handle);
+    OperatorHandle* h =
+        OperatorHandleManager::Instance().ExtractForDestroy(handle);
     if (!h) {
       SetLastError("Invalid, unmanaged or already destroyed handle in Destroy");
       return -1;
     }
 
-    std::unique_ptr<PlatformHandle> owner(h);
+    std::unique_ptr<OperatorHandle> owner(h);
     uint32_t unreturned_count = 0;
     for (auto& [suffix, pool] : owner->output_pools) {
       if (pool) {
@@ -678,9 +679,9 @@ int Platform_Destroy(void* handle) noexcept {
   }
 }
 
-int Platform_Deinit() noexcept {
+int Operator_Deinit() noexcept {
   try {
-    int cleanup_ret = PlatformHandleManager::Instance().DestroyAll();
+    int cleanup_ret = OperatorHandleManager::Instance().DestroyAll();
     int deinit_ret = alg_framework::SharedAlgorithmRuntime::GlobalDeinit();
     return cleanup_ret != 0 ? cleanup_ret : deinit_ret;
   } catch (const std::exception& e) {
@@ -696,17 +697,17 @@ int Platform_Deinit() noexcept {
 
 OperatorFunc Get_LLM_EDGEFLOW_OperatorTable() noexcept {
   static const OperatorFunc table{
-      Platform_Init,    Platform_Create,  Platform_Process,
-      Platform_Control, Platform_Destroy, Platform_Deinit,
+      Operator_Init,    Operator_Create,  Operator_Process,
+      Operator_Control, Operator_Destroy, Operator_Deinit,
   };
   return table;
 }
 
-const char* GetPlatformLastError() noexcept {
-  return g_last_platform_error.c_str();
+const char* GetOperatorLastError() noexcept {
+  return g_last_operator_error.c_str();
 }
 
-int ValidatePlatformConfigBinding(const char* model_path,
+int ValidateOperatorConfigBinding(const char* model_path,
                                   const char* cfg_file_name,
                                   int32_t expected_biz_type,
                                   char* out_error_msg,
@@ -728,7 +729,7 @@ int ValidatePlatformConfigBinding(const char* model_path,
   alg_framework::ResolvedCompanyConfig resolved;
   std::string err;
   int ret = alg_framework::CompanyConfResolver::Resolve(
-      model_path, cfg_file_name, 0, ChipType::kCpuGeneric, &resolved, &err);
+      model_path, cfg_file_name, 0, ComputePlatform::kCpu, &resolved, &err);
   if (ret != 0) {
     if (out_error_msg && error_buf_size > 0) {
       std::snprintf(out_error_msg, error_buf_size, "%s", err.c_str());
@@ -750,4 +751,4 @@ int ValidatePlatformConfigBinding(const char* model_path,
   return 0;
 }
 
-}  // namespace llm_edgeflow::platform
+}  // namespace llm_edgeflow::operator_api

@@ -6,7 +6,7 @@
 #include "demo/common/demo_registry.h"
 #include "demo/common/operator_runner.h"
 #include "demo/common/result_writer.h"
-#include "platform/company_platform_types.h"
+#include "operator/company_operator_types.h"
 
 namespace alg_demo {
 
@@ -44,7 +44,7 @@ int RunEntityExtractDemo(const DemoOptions& options) {
 
   std::vector<CompanyString> text_strs;
   text_strs.reserve(lines.size());
-  std::vector<CompanyPlatformEntityInput> inputs;
+  std::vector<CompanyOperatorEntityInput> inputs;
   inputs.reserve(lines.size());
 
   for (size_t i = 0; i < lines.size(); ++i) {
@@ -60,10 +60,10 @@ int RunEntityExtractDemo(const DemoOptions& options) {
   std::vector<OutputSummary> output_summaries(lines.size());
   std::vector<double> latencies;
 
-  int ret = RunPlatformOperatorWithExtractor<CompanyPlatformEntityInput,
-                                             CompanyPlatformEntityOutput>(
+  int ret = RunOperatorWithExtractor<CompanyOperatorEntityInput,
+                                     CompanyOperatorEntityOutput>(
       options, "nlp_node.entity_in", "nlp_node.entity_out", inputs,
-      [&](size_t idx, const CompanyPlatformEntityOutput& out) {
+      [&](size_t idx, const CompanyOperatorEntityOutput& out) {
         output_summaries[idx].request_id = out.request_id;
         if (out.entities_json && out.entities_json->data) {
           output_summaries[idx].entities_json.assign(out.entities_json->data,

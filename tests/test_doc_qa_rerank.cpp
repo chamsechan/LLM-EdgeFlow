@@ -6,10 +6,10 @@
 #include <vector>
 
 #include "company_alg_interface.h"
-#include "platform/company_platform_types.h"
-#include "platform/platform_operator_interface.h"
+#include "operator/company_operator_types.h"
+#include "operator/operator_interface.h"
 
-using namespace llm_edgeflow::platform;
+using namespace llm_edgeflow::operator_api;
 
 static std::string GetConfDir() {
   if (std::filesystem::exists("configs")) {
@@ -30,18 +30,18 @@ class DocQaRerankPipelineTest : public ::testing::Test {
   OperatorFunc ops_;
 };
 
-// 1. 测试基于 Platform Operator 创建与执行 LLM + Rerank + QA 组合流水线
+// 1. 测试基于 Operator 创建与执行 LLM + Rerank + QA 组合流水线
 TEST_F(DocQaRerankPipelineTest, ExecuteDocQaWithRerankerAndLlm) {
   std::string root_dir = GetConfDir();
   CreateParam param{};
   param.model_path = root_dir.c_str();
   param.cfg_file_name = "configs/pipeline_doc_qa_rerank.conf";
-  param.platform_type = ChipType::kAx650;
+  param.compute_platform = ComputePlatform::kAx650;
   param.max_frame_depth = 25;
 
   void* handle = nullptr;
   int ret = ops_.Create(&handle, &param);
-  ASSERT_EQ(ret, 0) << "Create failed: " << GetPlatformLastError();
+  ASSERT_EQ(ret, 0) << "Create failed: " << GetOperatorLastError();
   ASSERT_NE(handle, nullptr);
 
   std::string doc1 =
@@ -54,7 +54,7 @@ TEST_F(DocQaRerankPipelineTest, ExecuteDocQaWithRerankerAndLlm) {
                         const_cast<char*>(doc1.data())};
   CompanyString query1_cs{static_cast<int32_t>(query1.size()),
                           const_cast<char*>(query1.data())};
-  CompanyPlatformDocInput in1{90001, &doc1_cs, &query1_cs};
+  CompanyOperatorDocInput in1{90001, &doc1_cs, &query1_cs};
 
   std::string doc2 =
       "客户服务售后政策：支持7天无理由退货与全额退款。若商品存在质量问题，由平"
@@ -64,19 +64,19 @@ TEST_F(DocQaRerankPipelineTest, ExecuteDocQaWithRerankerAndLlm) {
                         const_cast<char*>(doc2.data())};
   CompanyString query2_cs{static_cast<int32_t>(query2.size()),
                           const_cast<char*>(query2.data())};
-  CompanyPlatformDocInput in2{90002, &doc2_cs, &query2_cs};
+  CompanyOperatorDocInput in2{90002, &doc2_cs, &query2_cs};
 
   NamedIoBatch in_batch(2);
   NamedIoBatch out_batch(2);
 
-  in_batch[0]["rag_channel.doc_in"] = MakeBorrowedPlatformInput(&in1);
-  in_batch[1]["rag_channel.doc_in"] = MakeBorrowedPlatformInput(&in2);
+  in_batch[0]["rag_channel.doc_in"] = MakeBorrowedOperatorInput(&in1);
+  in_batch[1]["rag_channel.doc_in"] = MakeBorrowedOperatorInput(&in2);
 
   out_batch[0]["rag_channel.doc_out"] = std::shared_ptr<void>();
   out_batch[1]["rag_channel.doc_out"] = std::shared_ptr<void>();
 
   ret = ops_.Process(handle, in_batch, out_batch);
-  EXPECT_EQ(ret, 0) << "Process failed: " << GetPlatformLastError();
+  EXPECT_EQ(ret, 0) << "Process failed: " << GetOperatorLastError();
 
   auto out1_sp = out_batch[0]["rag_channel.doc_out"];
   auto out2_sp = out_batch[1]["rag_channel.doc_out"];
@@ -84,9 +84,9 @@ TEST_F(DocQaRerankPipelineTest, ExecuteDocQaWithRerankerAndLlm) {
   ASSERT_NE(out2_sp, nullptr);
 
   const auto* out1 =
-      static_cast<const CompanyPlatformDocOutput*>(out1_sp.get());
+      static_cast<const CompanyOperatorDocOutput*>(out1_sp.get());
   const auto* out2 =
-      static_cast<const CompanyPlatformDocOutput*>(out2_sp.get());
+      static_cast<const CompanyOperatorDocOutput*>(out2_sp.get());
 
   EXPECT_EQ(out1->request_id, 90001u);
   EXPECT_GT(out1->chunk_count, 0);

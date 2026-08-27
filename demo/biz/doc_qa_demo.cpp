@@ -7,7 +7,7 @@
 #include "demo/common/demo_registry.h"
 #include "demo/common/operator_runner.h"
 #include "demo/common/result_writer.h"
-#include "platform/company_platform_types.h"
+#include "operator/company_operator_types.h"
 
 namespace alg_demo {
 
@@ -52,7 +52,7 @@ int RunDocQaDemo(const DemoOptions& options) {
   std::vector<CompanyString> query_strs;
   doc_strs.reserve(count);
   query_strs.reserve(count);
-  std::vector<CompanyPlatformDocInput> inputs;
+  std::vector<CompanyOperatorDocInput> inputs;
   inputs.reserve(count);
 
   for (size_t i = 0; i < count; ++i) {
@@ -74,10 +74,10 @@ int RunDocQaDemo(const DemoOptions& options) {
   std::vector<OutputSummary> output_summaries(count);
   std::vector<double> latencies;
 
-  int ret = RunPlatformOperatorWithExtractor<CompanyPlatformDocInput,
-                                             CompanyPlatformDocOutput>(
+  int ret = RunOperatorWithExtractor<CompanyOperatorDocInput,
+                                     CompanyOperatorDocOutput>(
       options, "rag_channel.doc_in", "rag_channel.doc_out", inputs,
-      [&](size_t idx, const CompanyPlatformDocOutput& out) {
+      [&](size_t idx, const CompanyOperatorDocOutput& out) {
         output_summaries[idx].request_id = out.request_id;
         output_summaries[idx].confidence = out.confidence;
         output_summaries[idx].chunk_count = out.chunk_count;

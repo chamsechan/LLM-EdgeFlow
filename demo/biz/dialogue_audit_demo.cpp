@@ -7,7 +7,7 @@
 #include "demo/common/demo_registry.h"
 #include "demo/common/operator_runner.h"
 #include "demo/common/result_writer.h"
-#include "platform/company_platform_types.h"
+#include "operator/company_operator_types.h"
 
 namespace alg_demo {
 
@@ -52,7 +52,7 @@ int RunDialogueAuditDemo(const DemoOptions& options) {
   std::vector<CompanyString> dialogue_strs;
   channel_strs.reserve(count);
   dialogue_strs.reserve(count);
-  std::vector<CompanyPlatformAuditInput> inputs;
+  std::vector<CompanyOperatorAuditInput> inputs;
   inputs.reserve(count);
 
   for (size_t i = 0; i < count; ++i) {
@@ -74,10 +74,10 @@ int RunDialogueAuditDemo(const DemoOptions& options) {
   std::vector<OutputSummary> output_summaries(count);
   std::vector<double> latencies;
 
-  int ret = RunPlatformOperatorWithExtractor<CompanyPlatformAuditInput,
-                                             CompanyPlatformAuditOutput>(
+  int ret = RunOperatorWithExtractor<CompanyOperatorAuditInput,
+                                     CompanyOperatorAuditOutput>(
       options, "audit_channel.audit_in", "audit_channel.audit_out", inputs,
-      [&](size_t idx, const CompanyPlatformAuditOutput& out) {
+      [&](size_t idx, const CompanyOperatorAuditOutput& out) {
         output_summaries[idx].request_id = out.request_id;
         output_summaries[idx].risk_score = out.risk_score;
         if (out.risk_level && out.risk_level->data) {

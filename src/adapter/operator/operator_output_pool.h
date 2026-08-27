@@ -7,7 +7,7 @@
 #include <unordered_map>
 #include <vector>
 
-#include "adapter/platform/platform_value_type_registry.h"
+#include "adapter/operator/operator_value_type_registry.h"
 
 namespace alg_framework {
 
@@ -35,7 +35,7 @@ class OutputPoolState : public std::enable_shared_from_this<OutputPoolState> {
  public:
   static int Create(const std::string& suffix, uint32_t depth,
                     const ResolvedOutputPoolSpec& spec,
-                    const PlatformValueTypeBinding* binding,
+                    const OperatorValueTypeBinding* binding,
                     std::shared_ptr<OutputPoolState>* out_pool,
                     std::string* err);
 
@@ -124,7 +124,7 @@ class OutputPoolState : public std::enable_shared_from_this<OutputPoolState> {
   std::string canonical_suffix_;
   uint32_t depth_ = 0;
   ResolvedOutputPoolSpec spec_;
-  const PlatformValueTypeBinding* type_binding_ = nullptr;
+  const OperatorValueTypeBinding* type_binding_ = nullptr;
 
   std::vector<OwnedExternalBlock> all_blocks_;
   std::vector<void*> free_ring_;
