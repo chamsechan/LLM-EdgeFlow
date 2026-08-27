@@ -53,17 +53,6 @@ void PopulateDefaultCapacities(const std::string& type_suffix,
   }
 }
 
-size_t EstimateBaseStructSize(const std::string& mem_type) {
-  if (mem_type == "od_out") return sizeof(CompanyOdOutput);
-  if (mem_type == "keyword_out") return sizeof(CompanyPlatformKeywordOutput);
-  if (mem_type == "entity_out") return sizeof(CompanyPlatformEntityOutput);
-  if (mem_type == "doc_out") return sizeof(CompanyPlatformDocOutput);
-  if (mem_type == "audit_out") return sizeof(CompanyPlatformAuditOutput);
-  if (mem_type == "audio_out") return sizeof(CompanyPlatformAudioOutput);
-  if (mem_type == "rerank_out") return sizeof(CompanyPlatformRerankOutput);
-  return 512;
-}
-
 int ResolveContainedPath(const std::filesystem::path& canonical_root,
                          const std::string& relative_value,
                          const char* field_name, bool check_exists,
@@ -209,7 +198,8 @@ int CompanyConfResolver::Resolve(const char* model_path,
                                  const char* cfg_file_name, int32_t device_id,
                                  llm_edgeflow::platform::ChipType /*chip_type*/,
                                  ResolvedCompanyConfig* result,
-                                 std::string* error_msg) noexcept {
+                                 std::string* error_msg,
+                                 uint32_t max_frame_depth) noexcept {
   try {
     if (!result) {
       if (error_msg) *error_msg = "Null output result pointer";
@@ -223,6 +213,17 @@ int CompanyConfResolver::Resolve(const char* model_path,
 
     if (!cfg_file_name || cfg_file_name[0] == '\0') {
       if (error_msg) *error_msg = "Null or empty cfg_file_name";
+      return -2;
+    }
+
+    uint32_t effective_depth =
+        max_frame_depth > 0 ? max_frame_depth : kDefaultOutputPoolDepth;
+    if (effective_depth > kMaxOutputPoolDepth) {
+      if (error_msg) {
+        *error_msg = "max_frame_depth (" + std::to_string(effective_depth) +
+                     ") exceeds hard limit " +
+                     std::to_string(kMaxOutputPoolDepth);
+      }
       return -2;
     }
 
@@ -468,44 +469,64 @@ int CompanyConfResolver::Resolve(const char* model_path,
 
     PopulateDefaultCapacities(mem_type, &pool_spec);
 
-    // 计算单块内存预算与总池预算校验
-    size_t single_block_bytes = EstimateBaseStructSize(mem_type);
-    for (const auto& [cap_f, cap_n] : pool_spec.capacities) {
-      size_t field_bytes = 0;
-      if (!CheckedAdd(cap_n, 1, &field_bytes) ||
-          !CheckedAdd(single_block_bytes, field_bytes, &single_block_bytes)) {
-        if (error_msg) *error_msg = "Block memory calculation overflowed";
+    // 计算实际深度下的单句柄所有输出池总预算校验 (Checked Add/Multiply)
+    size_t total_handle_pool_bytes = 0;
+    for (const auto& out_slot : bridge_desc->output_slots) {
+      size_t slot_pool_bytes = 0;
+      std::string budget_err;
+      if (!ComputeOutputPoolBytes(out_slot.type_suffix, pool_spec,
+                                  effective_depth, &slot_pool_bytes,
+                                  &budget_err)) {
+        if (error_msg) {
+          *error_msg = "Output pool budget calculation failed: " + budget_err;
+        }
+        return -2;
+      }
+      if (!CheckedAdd(total_handle_pool_bytes, slot_pool_bytes,
+                      &total_handle_pool_bytes)) {
+        if (error_msg) *error_msg = "Handle pool budget addition overflowed";
         return -2;
       }
     }
-    if (pool_spec.meta_num > 0 && pool_spec.metadata_type_id > 0) {
-      const auto* mdesc = FindCompanyAnyType(pool_spec.metadata_type_id);
-      if (mdesc && mdesc->element_size > 0) {
-        size_t meta_bytes = 0;
-        if (!CheckedMultiply(pool_spec.meta_num, mdesc->element_size,
-                             &meta_bytes) ||
-            !CheckedAdd(single_block_bytes, meta_bytes, &single_block_bytes)) {
-          if (error_msg) *error_msg = "Metadata memory calculation overflowed";
-          return -2;
-        }
-      }
-    }
-
-    size_t total_pool_bytes = 0;
-    if (!CheckedMultiply(kDefaultOutputPoolDepth, single_block_bytes,
-                         &total_pool_bytes) ||
-        total_pool_bytes > kMaxHandlePoolMemoryBytes) {
+    if (total_handle_pool_bytes > kMaxHandlePoolMemoryBytes) {
       if (error_msg) {
         *error_msg = "Total output pool memory (" +
-                     std::to_string(total_pool_bytes) +
+                     std::to_string(total_handle_pool_bytes) +
                      " bytes) exceeds per-handle budget (" +
                      std::to_string(kMaxHandlePoolMemoryBytes) + " bytes)";
       }
       return -2;
     }
 
-    // 模型路径覆盖与严格沙箱解析 (不要求 mock
-    // 模型物理存在，但严格禁止越界与绝对路径)
+    // 1. 严格预检 Pipeline JSON 中的原始模型路径 (禁止任何原始绝对路径)
+    std::unordered_set<std::string> overridden_model_ids;
+    bool has_single_model_override = false;
+    std::string single_override_path;
+
+    if (pipe_json.contains("models") && pipe_json["models"].is_array()) {
+      for (const auto& item : pipe_json["models"]) {
+        if (item.contains("model_path") && item["model_path"].is_string()) {
+          std::string raw_mp = item["model_path"].get<std::string>();
+          if (!raw_mp.empty()) {
+            if (raw_mp[0] == '/' || raw_mp[0] == '\\' ||
+                (raw_mp.size() >= 2 &&
+                 ((raw_mp[0] >= 'a' && raw_mp[0] <= 'z') ||
+                  (raw_mp[0] >= 'A' && raw_mp[0] <= 'Z')) &&
+                 raw_mp[1] == ':') ||
+                raw_mp.rfind("//", 0) == 0 || raw_mp.rfind("\\\\", 0) == 0) {
+              if (error_msg) {
+                *error_msg =
+                    "pipeline model_path must be relative, got absolute: " +
+                    raw_mp;
+              }
+              return -2;
+            }
+          }
+        }
+      }
+    }
+
+    // 2. 解析 .conf 中的模型路径覆盖
     size_t model_count = 0;
     if (pipe_json.contains("models") && pipe_json["models"].is_array()) {
       model_count = pipe_json["models"].size();
@@ -523,7 +544,8 @@ int CompanyConfResolver::Resolve(const char* model_path,
       if (ret != 0) return ret;
 
       if (model_count == 1) {
-        pipe_json["models"][0]["model_path"] = full_mpath.string();
+        has_single_model_override = true;
+        single_override_path = full_mpath.string();
       } else if (model_count > 1) {
         if (error_msg) {
           *error_msg = "Conf specifies single 'model_path' but pipeline has " +
@@ -533,6 +555,7 @@ int CompanyConfResolver::Resolve(const char* model_path,
       }
     }
 
+    std::unordered_map<std::string, std::string> map_overrides;
     if (data_obj->contains("model_paths")) {
       if (!(*data_obj)["model_paths"].is_object()) {
         if (error_msg) *error_msg = "'model_paths' in conf must be an object";
@@ -553,7 +576,8 @@ int CompanyConfResolver::Resolve(const char* model_path,
         if (pipe_json.contains("models") && pipe_json["models"].is_array()) {
           for (auto& item : pipe_json["models"]) {
             if (item.contains("model_id") && item["model_id"] == mid) {
-              item["model_path"] = full_mpath.string();
+              map_overrides[mid] = full_mpath.string();
+              overridden_model_ids.insert(mid);
               matched = true;
               break;
             }
@@ -568,27 +592,27 @@ int CompanyConfResolver::Resolve(const char* model_path,
       }
     }
 
-    // 全量规范化模型路径 (检查相对路径并在沙箱内解析，绝对路径直接拦截)
+    // 3. 全量规范化模型路径 (将未覆盖项通过沙箱解析为绝对规范路径)
     if (pipe_json.contains("models") && pipe_json["models"].is_array()) {
       for (auto& item : pipe_json["models"]) {
-        if (item.contains("model_path") && item["model_path"].is_string()) {
+        std::string mid =
+            item.contains("model_id") && item["model_id"].is_string()
+                ? item["model_id"].get<std::string>()
+                : "";
+        if (has_single_model_override) {
+          item["model_path"] = single_override_path;
+        } else if (!mid.empty() &&
+                   map_overrides.find(mid) != map_overrides.end()) {
+          item["model_path"] = map_overrides[mid];
+        } else if (item.contains("model_path") &&
+                   item["model_path"].is_string()) {
           std::string mp = item["model_path"].get<std::string>();
           if (!mp.empty()) {
-            std::filesystem::path p(mp);
-            if (p.is_relative()) {
-              std::filesystem::path full_mpath;
-              ret = ResolveContainedPath(canon_root, mp, "pipeline model_path",
-                                         false, false, &full_mpath, error_msg);
-              if (ret != 0) return ret;
-              item["model_path"] = full_mpath.string();
-            } else {
-              // 检查是否已经在沙箱内部 (例如已被上一层 conf override
-              // 规范化)，若非沙箱内则拒绝
-              ret = ResolveContainedPath(
-                  canon_root, p.lexically_relative(canon_root).string(),
-                  "pipeline model_path", false, false, &p, error_msg);
-              if (ret != 0) return ret;
-            }
+            std::filesystem::path full_mpath;
+            ret = ResolveContainedPath(canon_root, mp, "pipeline model_path",
+                                       false, false, &full_mpath, error_msg);
+            if (ret != 0) return ret;
+            item["model_path"] = full_mpath.string();
           }
         }
         if (device_id >= 0) {

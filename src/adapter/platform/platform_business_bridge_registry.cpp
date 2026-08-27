@@ -130,7 +130,8 @@ int PlatformBusinessBridgeRegistry::GlobalInit() {
     }
   }
 
-  // 全面原子审计：BizType, Adapter, 槽位规范后缀与生命周期函数
+  // 全面原子审计：BizType, Adapter, 内部 DTO
+  // 类型，业务名一致性，槽位规范后缀与生命周期函数
   for (const auto& [biz_type, desc] : bridges_by_biz_type_) {
     auto adapter = BusinessAdapterRegistry::Instance().GetAdapter(
         static_cast<CompanyAlgBizType>(biz_type));
@@ -142,6 +143,30 @@ int PlatformBusinessBridgeRegistry::GlobalInit() {
       has_conflict_ = true;
       return -6;
     }
+    const auto& adapter_desc = adapter->GetDescriptor();
+    if (desc.internal_input_type_name != adapter_desc.input_type_name) {
+      has_conflict_ = true;
+      return -6;
+    }
+    if (desc.internal_output_type_name != adapter_desc.output_type_name) {
+      has_conflict_ = true;
+      return -6;
+    }
+    // 校验业务名匹配 adapter->BizName() 或 pipeline business_name
+    bool biz_name_matched = (desc.biz_name == adapter->BizName());
+    if (!biz_name_matched) {
+      for (const auto& p : adapter_desc.pipelines) {
+        if (p.business_name == desc.biz_name) {
+          biz_name_matched = true;
+          break;
+        }
+      }
+    }
+    if (!biz_name_matched) {
+      has_conflict_ = true;
+      return -6;
+    }
+
     for (const auto& slot : desc.input_slots) {
       if (slot.direction != IoDirection::kInput) {
         has_conflict_ = true;

@@ -5,7 +5,10 @@ namespace alg_framework {
 void RegisterOcrDocQaBridge(PlatformBusinessBridgeRegistry& reg) {
   PlatformBusinessBridgeDescriptor desc;
   desc.biz_type = ALG_BIZ_TYPE_OCR_DOC_QA;
-  desc.biz_name = "ocr_doc_qa";
+  desc.biz_name = "OcrDocQA";
+  desc.internal_input_type_name = "CompanyOcrDocInputStruct";
+  desc.internal_output_type_name = "CompanyOcrDocOutputStruct";
+  desc.registration_identity = "builtin.ocr_doc_qa";
 
   // Slot 1: frame -> CompanyFrame
   PlatformBusinessSlot frame_slot;

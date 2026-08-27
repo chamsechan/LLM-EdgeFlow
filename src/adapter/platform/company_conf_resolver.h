@@ -40,8 +40,8 @@ class CompanyConfResolver {
   static int Resolve(const char* model_path, const char* cfg_file_name,
                      int32_t device_id,
                      llm_edgeflow::platform::ChipType chip_type,
-                     ResolvedCompanyConfig* result,
-                     std::string* error_msg) noexcept;
+                     ResolvedCompanyConfig* result, std::string* error_msg,
+                     uint32_t max_frame_depth = 25) noexcept;
 };
 
 }  // namespace alg_framework

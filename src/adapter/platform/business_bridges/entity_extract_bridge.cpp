@@ -5,7 +5,10 @@ namespace alg_framework {
 void RegisterEntityExtractBridge(PlatformBusinessBridgeRegistry& reg) {
   PlatformBusinessBridgeDescriptor desc;
   desc.biz_type = ALG_BIZ_TYPE_ENTITY_EXTRACT;
-  desc.biz_name = "entity_extract";
+  desc.biz_name = "EntityExtract";
+  desc.internal_input_type_name = "CompanyEntityInputStruct";
+  desc.internal_output_type_name = "CompanyEntityOutputStruct";
+  desc.registration_identity = "builtin.entity_extract";
 
   PlatformBusinessSlot in_slot;
   in_slot.logical_name = "entity_in";

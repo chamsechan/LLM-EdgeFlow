@@ -74,32 +74,45 @@ else
   cmake --build "${BUILD_DIR}" -j4
 fi
 
-DETECT_LEAKS="${DETECT_LEAKS:-0}"
-export ASAN_OPTIONS="detect_leaks=${DETECT_LEAKS}:abort_on_error=1"
-if [[ "${SANITIZERS}" == *"address"* ]]; then
+if [[ "${SANITIZERS}" == *"thread"* ]]; then
+  export TSAN_OPTIONS="halt_on_error=1:abort_on_error=1"
+else
+  DETECT_LEAKS="${DETECT_LEAKS:-0}"
+  export ASAN_OPTIONS="detect_leaks=${DETECT_LEAKS}:abort_on_error=1"
+  if [[ "${SANITIZERS}" == *"address"* ]]; then
     LIBASAN_PATH="$(gcc -print-file-name=libasan.so 2>/dev/null || true)"
     if [[ -f "${LIBASAN_PATH}" ]]; then
-        export LD_PRELOAD="${LIBASAN_PATH}${LD_PRELOAD:+:$LD_PRELOAD}"
+      export LD_PRELOAD="${LIBASAN_PATH}${LD_PRELOAD:+:$LD_PRELOAD}"
     fi
-fi
-UBSAN_SUPP="${SCRIPT_DIR}/ubsan_suppressions.txt"
-if [[ -f "${UBSAN_SUPP}" ]]; then
+  fi
+  UBSAN_SUPP="${SCRIPT_DIR}/ubsan_suppressions.txt"
+  if [[ -f "${UBSAN_SUPP}" ]]; then
     export UBSAN_OPTIONS="halt_on_error=1:print_stacktrace=1:suppressions=${UBSAN_SUPP}"
-else
+  else
     export UBSAN_OPTIONS="halt_on_error=1:print_stacktrace=1"
+  fi
 fi
+
 export LD_LIBRARY_PATH="${BUILD_DIR}:${BUILD_DIR}/_deps/onnxruntime_prebuilt-src/lib:${LD_LIBRARY_PATH:-}"
 export DYLD_LIBRARY_PATH="${BUILD_DIR}:${BUILD_DIR}/_deps/onnxruntime_prebuilt-src/lib:${DYLD_LIBRARY_PATH:-}"
 export LLM_EDGEFLOW_PIPELINE_TOOL="${BUILD_DIR}/alg_pipeline_tool"
 export LLM_EDGEFLOW_DEMO_BINARY="${BUILD_DIR}/alg_demo"
 
+ARCH_PREFIX=()
+if [[ "${SANITIZERS}" == *"thread"* ]] && [[ "$(uname -s)" == "Linux" ]] && [[ "$(uname -m)" == "aarch64" ]]; then
+  ARCH_PREFIX=(setarch "$(uname -m)" -R)
+fi
+
 if [ "${MODE}" == "fast" ]; then
   echo ">>> [1/2] Running emulator-only core CTest suite with [${SANITIZERS}] <<<"
   FAST_TEST_REGEX="^(BatchExecutorTest|FrameworkCoreTest|CAbiSafetyTest|ConcurrencyAndEdgeCasesTest|AdapterContractSecurityTest|PipelineConfigTest|PipelineStudioTest|PlatformOperatorTest|PlatformOutputPoolTest|PlatformValueRegistryTest|VisualizerServerTest|TypedBlackboardContractsTest|ValidatedPipelinePlanTest|NodeBaseContractsTest|DefinitionSchemaValidationTest)$"
-  ctest --test-dir "${BUILD_DIR}" -R "${FAST_TEST_REGEX}" --output-on-failure
+  if [[ "${DETECT_LEAKS:-0}" == "1" ]] || [[ "${SANITIZERS}" == *"thread"* ]]; then
+    FAST_TEST_REGEX="^(BatchExecutorTest|FrameworkCoreTest|CAbiSafetyTest|ConcurrencyAndEdgeCasesTest|AdapterContractSecurityTest|PipelineConfigTest|PipelineStudioTest|PlatformOperatorTest|PlatformOutputPoolTest|PlatformValueRegistryTest|TypedBlackboardContractsTest|ValidatedPipelinePlanTest|NodeBaseContractsTest|DefinitionSchemaValidationTest)$"
+  fi
+  "${ARCH_PREFIX[@]}" ctest --test-dir "${BUILD_DIR}" -R "${FAST_TEST_REGEX}" --output-on-failure
 else
   echo ">>> [1/2] Running Full CTest Suite with [${SANITIZERS}] <<<"
-  ctest --test-dir "${BUILD_DIR}" --output-on-failure
+  "${ARCH_PREFIX[@]}" ctest --test-dir "${BUILD_DIR}" --output-on-failure
 fi
 
 if [[ "${MODE}" == "fast" ]]; then
@@ -108,7 +121,7 @@ else
   echo ">>> [2/2] Running full-backend Demo Smoke Suite with [${SANITIZERS}] <<<"
 fi
 cd "${PROJECT_ROOT}"
-"${BUILD_DIR}/alg_demo" --suite smoke
+"${ARCH_PREFIX[@]}" "${BUILD_DIR}/alg_demo" --suite smoke
 
 echo "=================================================="
 echo " 🎉 Sanitizer set [${SANITIZERS}] checks PASSED! (Mode: ${MODE})"

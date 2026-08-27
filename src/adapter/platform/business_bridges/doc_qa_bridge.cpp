@@ -5,7 +5,10 @@ namespace alg_framework {
 void RegisterDocQaBridge(PlatformBusinessBridgeRegistry& reg) {
   PlatformBusinessBridgeDescriptor desc;
   desc.biz_type = ALG_BIZ_TYPE_DOC_QA;
-  desc.biz_name = "doc_qa";
+  desc.biz_name = "DocQA";
+  desc.internal_input_type_name = "CompanyDocInputStruct";
+  desc.internal_output_type_name = "CompanyDocOutputStruct";
+  desc.registration_identity = "builtin.doc_qa";
 
   PlatformBusinessSlot in_slot;
   in_slot.logical_name = "doc_in";

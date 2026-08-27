@@ -5,7 +5,10 @@ namespace alg_framework {
 void RegisterComplianceAuditBridge(PlatformBusinessBridgeRegistry& reg) {
   PlatformBusinessBridgeDescriptor desc;
   desc.biz_type = ALG_BIZ_TYPE_COMPLIANCE_AUDIT;
-  desc.biz_name = "compliance_audit";
+  desc.biz_name = "ComplianceAudit";
+  desc.internal_input_type_name = "CompanyAuditInputStruct";
+  desc.internal_output_type_name = "CompanyAuditOutputStruct";
+  desc.registration_identity = "builtin.compliance_audit";
 
   PlatformBusinessSlot in_slot;
   in_slot.logical_name = "audit_in";

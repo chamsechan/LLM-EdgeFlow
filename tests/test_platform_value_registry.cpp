@@ -196,4 +196,98 @@ TEST(PlatformValueRegistryTest, RegisterBindingAtomicPrecheckAndFreeze) {
   EXPECT_FALSE(reg.RegisterBinding(late_binding));
 }
 
+// 7. RFC 6.3 槽位类型与别名表完整性校验 (R9-011)
+TEST(PlatformValueRegistryTest, RFC63AliasesCompliance) {
+  auto& reg = PlatformValueTypeRegistry::Instance();
+
+  // 1. string -> 没有别名
+  EXPECT_EQ(reg.NormalizeSuffix("string"), "string");
+  EXPECT_EQ(reg.NormalizeSuffix("text"), "");
+  EXPECT_EQ(reg.NormalizeSuffix("str"), "");
+
+  // 2. buffer -> 没有别名
+  EXPECT_EQ(reg.NormalizeSuffix("buffer"), "buffer");
+  EXPECT_EQ(reg.NormalizeSuffix("bin"), "");
+
+  // 3. any -> 没有别名
+  EXPECT_EQ(reg.NormalizeSuffix("any"), "any");
+  EXPECT_EQ(reg.NormalizeSuffix("metadata"), "");
+
+  // 4. frame -> aliases: {"image_in"}
+  EXPECT_EQ(reg.NormalizeSuffix("frame"), "frame");
+  EXPECT_EQ(reg.NormalizeSuffix("image_in"), "frame");
+  EXPECT_EQ(reg.NormalizeSuffix("image"), "");
+
+  // 5. od_out -> aliases: {"ocr_out"}
+  EXPECT_EQ(reg.NormalizeSuffix("od_out"), "od_out");
+  EXPECT_EQ(reg.NormalizeSuffix("ocr_out"), "od_out");
+
+  // 6. keyword_in -> aliases: {"sentence_in"}
+  EXPECT_EQ(reg.NormalizeSuffix("keyword_in"), "keyword_in");
+  EXPECT_EQ(reg.NormalizeSuffix("sentence_in"), "keyword_in");
+
+  // 7. keyword_out -> aliases: {"match_out"}
+  EXPECT_EQ(reg.NormalizeSuffix("keyword_out"), "keyword_out");
+  EXPECT_EQ(reg.NormalizeSuffix("match_out"), "keyword_out");
+
+  // 8. entity_in -> aliases: {"text_in"}
+  EXPECT_EQ(reg.NormalizeSuffix("entity_in"), "entity_in");
+  EXPECT_EQ(reg.NormalizeSuffix("text_in"), "entity_in");
+
+  // 9. entity_out -> aliases: {"extracted_out"}
+  EXPECT_EQ(reg.NormalizeSuffix("entity_out"), "entity_out");
+  EXPECT_EQ(reg.NormalizeSuffix("extracted_out"), "entity_out");
+
+  // 10. doc_in -> aliases: {"qa_in"}
+  EXPECT_EQ(reg.NormalizeSuffix("doc_in"), "doc_in");
+  EXPECT_EQ(reg.NormalizeSuffix("qa_in"), "doc_in");
+
+  // 11. doc_out -> aliases: {"qa_out"}
+  EXPECT_EQ(reg.NormalizeSuffix("doc_out"), "doc_out");
+  EXPECT_EQ(reg.NormalizeSuffix("qa_out"), "doc_out");
+
+  // 12. audit_in -> aliases: {"dialogue_in"}
+  EXPECT_EQ(reg.NormalizeSuffix("audit_in"), "audit_in");
+  EXPECT_EQ(reg.NormalizeSuffix("dialogue_in"), "audit_in");
+
+  // 13. audit_out -> aliases: {"verdict_out"}
+  EXPECT_EQ(reg.NormalizeSuffix("audit_out"), "audit_out");
+  EXPECT_EQ(reg.NormalizeSuffix("verdict_out"), "audit_out");
+
+  // 14. audio_in -> aliases: {"pcm_stream"}
+  EXPECT_EQ(reg.NormalizeSuffix("audio_in"), "audio_in");
+  EXPECT_EQ(reg.NormalizeSuffix("pcm_stream"), "audio_in");
+
+  // 15. audio_out -> aliases: {"asr_out"}
+  EXPECT_EQ(reg.NormalizeSuffix("audio_out"), "audio_out");
+  EXPECT_EQ(reg.NormalizeSuffix("asr_out"), "audio_out");
+
+  // 16. rerank_in -> aliases: {"pair_in"}
+  EXPECT_EQ(reg.NormalizeSuffix("rerank_in"), "rerank_in");
+  EXPECT_EQ(reg.NormalizeSuffix("pair_in"), "rerank_in");
+
+  // 17. rerank_out -> aliases: {"scores_out"}
+  EXPECT_EQ(reg.NormalizeSuffix("rerank_out"), "rerank_out");
+  EXPECT_EQ(reg.NormalizeSuffix("scores_out"), "rerank_out");
+}
+
+// 8. ComputeOutputPoolBytes 预算计算与边界检测 (R9-005)
+TEST(PlatformValueRegistryTest, ComputeOutputPoolBytesBudgeting) {
+  ResolvedOutputPoolSpec spec;
+  spec.type = "od_out";
+  spec.meta_num = 100;
+  spec.metadata_type_id = 1;  // float32 (400 bytes)
+  spec.capacities["result_json"] = 1024;
+
+  size_t bytes = 0;
+  std::string err;
+  EXPECT_TRUE(ComputeOutputPoolBytes("od_out", spec, 25, &bytes, &err));
+  EXPECT_GT(bytes, 0u);
+  EXPECT_LT(bytes, kMaxHandlePoolMemoryBytes);
+
+  // 深度超限
+  EXPECT_FALSE(ComputeOutputPoolBytes("od_out", spec, 1025, &bytes, &err));
+  EXPECT_FALSE(err.empty());
+}
+
 }  // namespace alg_framework

@@ -5,6 +5,7 @@
 #include <functional>
 #include <limits>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -92,11 +93,26 @@ struct ResolvedOutputPoolSpec {
 };
 
 /**
+ * @brief 移动语义清理动作 (无需 std::function 堆分配或控制块)
+ */
+struct CleanupAction {
+  void* ptr = nullptr;
+  void (*deleter)(void*) noexcept = nullptr;
+
+  void Execute() noexcept {
+    if (ptr && deleter) {
+      deleter(ptr);
+      ptr = nullptr;
+    }
+  }
+};
+
+/**
  * @brief 由输出池持有所有权的外部结构块 (具备完整 RAII 自动回滚与类型安全清理)
  */
 struct OwnedExternalBlock {
   void* raw_struct = nullptr;
-  std::vector<std::function<void()>> cleanups;
+  std::vector<CleanupAction> cleanups;
   ResolvedOutputPoolSpec spec;
 
   OwnedExternalBlock() = default;
@@ -125,15 +141,19 @@ struct OwnedExternalBlock {
 
   void Destroy() noexcept {
     for (auto it = cleanups.rbegin(); it != cleanups.rend(); ++it) {
-      try {
-        if (*it) (*it)();
-      } catch (...) {
-      }
+      it->Execute();
     }
     cleanups.clear();
     raw_struct = nullptr;
   }
 };
+
+/**
+ * @brief 计算给定输出后缀、Spec 和深度的输出池总内存估算 (checked add/multiply)
+ */
+bool ComputeOutputPoolBytes(const std::string& suffix,
+                            const ResolvedOutputPoolSpec& spec, uint32_t depth,
+                            size_t* out_bytes, std::string* err) noexcept;
 
 using ValidateExternalFn = std::function<int(
     const void* ptr, const ResolvedInputLimits& limits, std::string* err)>;
@@ -198,7 +218,7 @@ class PlatformValueTypeRegistry {
   /**
    * @brief 检查是否存在冲突
    */
-  bool HasConflict() const { return has_conflict_; }
+  bool HasConflict() const;
 
   /**
    * @brief 全局初始化并冻结注册表 (幂等安全，若存在冲突返回 -6)
@@ -213,10 +233,7 @@ class PlatformValueTypeRegistry {
   /**
    * @brief 根据规范后缀或别名获取规范后缀 (若未知返回空字符串)
    */
-  std::string NormalizeSuffix(const std::string& suffix) const {
-    const auto* b = GetBindingBySuffix(suffix);
-    return b ? b->canonical_suffix : "";
-  }
+  std::string NormalizeSuffix(const std::string& suffix) const;
 
   /**
    * @brief 根据规范后缀或别名获取绑定描述符
@@ -234,9 +251,10 @@ class PlatformValueTypeRegistry {
   PlatformValueTypeRegistry();
   void RegisterBuiltinBindings();
 
-  mutable std::unordered_map<std::string, PlatformValueTypeBinding>
+  mutable std::mutex mutex_;
+  std::unordered_map<std::string, PlatformValueTypeBinding>
       bindings_by_canonical_;
-  mutable std::unordered_map<std::string, std::string> alias_to_canonical_;
+  std::unordered_map<std::string, std::string> alias_to_canonical_;
   bool has_conflict_ = false;
   bool audited_ = false;
 };

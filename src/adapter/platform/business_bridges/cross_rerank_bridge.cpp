@@ -5,7 +5,10 @@ namespace alg_framework {
 void RegisterCrossRerankBridge(PlatformBusinessBridgeRegistry& reg) {
   PlatformBusinessBridgeDescriptor desc;
   desc.biz_type = ALG_BIZ_TYPE_CROSS_RERANK;
-  desc.biz_name = "cross_rerank";
+  desc.biz_name = "CrossRerank";
+  desc.internal_input_type_name = "CompanyRerankBatchInputStruct";
+  desc.internal_output_type_name = "CompanyRerankBatchOutputStruct";
+  desc.registration_identity = "builtin.cross_rerank";
 
   PlatformBusinessSlot in_slot;
   in_slot.logical_name = "rerank_in";

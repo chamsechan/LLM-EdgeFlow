@@ -88,6 +88,9 @@ using CreateShadowOutputDtoFn =
 struct PlatformBusinessBridgeDescriptor {
   CompanyAlgBizType biz_type = ALG_BIZ_TYPE_UNKNOWN;
   std::string biz_name;
+  std::string internal_input_type_name;
+  std::string internal_output_type_name;
+  std::string registration_identity;
   std::vector<PlatformBusinessSlot> input_slots;
   std::vector<PlatformBusinessSlot> output_slots;
   ConvertSampleInputFn convert_sample_input;
@@ -96,6 +99,9 @@ struct PlatformBusinessBridgeDescriptor {
 
   bool operator==(const PlatformBusinessBridgeDescriptor& other) const {
     return biz_type == other.biz_type && biz_name == other.biz_name &&
+           internal_input_type_name == other.internal_input_type_name &&
+           internal_output_type_name == other.internal_output_type_name &&
+           registration_identity == other.registration_identity &&
            input_slots == other.input_slots &&
            output_slots == other.output_slots;
   }

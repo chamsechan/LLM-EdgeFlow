@@ -188,7 +188,7 @@ int Platform_Create(void** handle, const CreateParam* param) noexcept {
     std::string resolve_err;
     int res_code = alg_framework::CompanyConfResolver::Resolve(
         param->model_path, param->cfg_file_name, param->device_id,
-        param->platform_type, &resolved_conf, &resolve_err);
+        param->platform_type, &resolved_conf, &resolve_err, effective_depth);
     if (res_code != 0) {
       SetLastError("CompanyConfResolver failed: " + resolve_err);
       return res_code;
@@ -470,8 +470,13 @@ int Platform_Process(void* handle, const NamedIoBatch& inputs,
       }
     }
 
-    // 3. 从内存池预先租用块 (带 RAII 自动回滚)
+    // 3. 从内存池预先租用块 (带 RAII 自动回滚与非分配跟踪)
+    size_t total_out_slots = 0;
+    for (size_t i = 0; i < batch_size; ++i) {
+      total_out_slots += frame_out_bindings[i].size();
+    }
     alg_framework::ScopedOutputLeaseGuard lease_guard;
+    lease_guard.Reserve(total_out_slots);
     struct AcquiredSlotBlock {
       size_t frame_idx;
       std::string key;
@@ -479,6 +484,7 @@ int Platform_Process(void* handle, const NamedIoBatch& inputs,
       void* raw_block = nullptr;
     };
     std::vector<AcquiredSlotBlock> acquired_blocks;
+    acquired_blocks.reserve(total_out_slots);
 
     for (size_t i = 0; i < batch_size; ++i) {
       for (const auto& ob : frame_out_bindings[i]) {
@@ -709,14 +715,14 @@ int ValidatePlatformConfigBinding(const char* model_path,
     if (out_error_msg && error_buf_size > 0) {
       std::snprintf(out_error_msg, error_buf_size, "Null or empty model_path");
     }
-    return -1;
+    return -2;
   }
   if (!cfg_file_name || cfg_file_name[0] == '\0') {
     if (out_error_msg && error_buf_size > 0) {
       std::snprintf(out_error_msg, error_buf_size,
                     "Null or empty cfg_file_name");
     }
-    return -1;
+    return -2;
   }
 
   alg_framework::ResolvedCompanyConfig resolved;

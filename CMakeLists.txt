@@ -42,10 +42,10 @@ option(ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer
 set(LLM_EDGEFLOW_SANITIZERS "address,undefined" CACHE STRING
     "Comma-separated Clang/GCC sanitizer set used when ENABLE_SANITIZERS=ON")
 if(ENABLE_SANITIZERS)
-  if(NOT LLM_EDGEFLOW_SANITIZERS MATCHES "^(address|undefined|address,undefined|undefined,address)$")
+  if(NOT LLM_EDGEFLOW_SANITIZERS MATCHES "^(address|undefined|address,undefined|undefined,address|thread)$")
     message(FATAL_ERROR
       "Unsupported LLM_EDGEFLOW_SANITIZERS='${LLM_EDGEFLOW_SANITIZERS}'. "
-      "Use address, undefined, or address,undefined.")
+      "Use address, undefined, address,undefined, or thread.")
   endif()
   message(STATUS "Enabling sanitizers (-fsanitize=${LLM_EDGEFLOW_SANITIZERS})")
   add_compile_options(-fsanitize=${LLM_EDGEFLOW_SANITIZERS} -fno-omit-frame-pointer)

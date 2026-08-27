@@ -4,6 +4,7 @@
 #include <cstring>
 #include <iostream>
 #include <limits>
+#include <memory>
 #include <new>
 #include <unordered_set>
 
@@ -30,18 +31,44 @@ const CompanyAnyTypeDescriptor kBuiltinAnyTypes[] = {
     {5, sizeof(double), alignof(double), "float64"},
 };
 
+inline void DeleteCharArray(void* p) noexcept {
+  delete[] static_cast<char*>(p);
+}
+
+inline void DeleteCompanyString(void* p) noexcept {
+  delete static_cast<CompanyString*>(p);
+}
+
+inline void DeleteUint8Array(void* p) noexcept {
+  delete[] static_cast<uint8_t*>(p);
+}
+
+inline void DeleteCompanyAny(void* p) noexcept {
+  delete static_cast<CompanyAny*>(p);
+}
+
+template <typename T>
+inline void DeleteTypedObject(void* p) noexcept {
+  delete static_cast<T*>(p);
+}
+
 CompanyString* AllocateNestedCompanyString(uint32_t capacity,
                                            OwnedExternalBlock* out_block) {
   CheckAllocFailureProbe();
-  char* data = new char[capacity + 1];
-  out_block->cleanups.push_back([data]() { delete[] data; });
-  data[0] = '\0';
+  std::unique_ptr<char[]> data_holder(new char[capacity + 1]);
+  data_holder[0] = '\0';
+  char* data = data_holder.get();
+  out_block->cleanups.push_back({data, DeleteCharArray});
+  data_holder.release();
 
   CheckAllocFailureProbe();
-  auto* cs = new CompanyString();
-  out_block->cleanups.push_back([cs]() { delete cs; });
-  cs->length = 0;
-  cs->data = data;
+  std::unique_ptr<CompanyString> cs_holder(new CompanyString());
+  cs_holder->length = 0;
+  cs_holder->data = data;
+  CompanyString* cs = cs_holder.get();
+  out_block->cleanups.push_back({cs, DeleteCompanyString});
+  cs_holder.release();
+
   return cs;
 }
 
@@ -62,16 +89,21 @@ CompanyAny* AllocateNestedCompanyAny(uint32_t meta_num,
   }
 
   CheckAllocFailureProbe();
-  uint8_t* mdata = new uint8_t[total_bytes]();
-  out_block->cleanups.push_back([mdata]() { delete[] mdata; });
+  std::unique_ptr<uint8_t[]> mdata_holder(new uint8_t[total_bytes]());
+  uint8_t* mdata = mdata_holder.get();
+  out_block->cleanups.push_back({mdata, DeleteUint8Array});
+  mdata_holder.release();
 
   CheckAllocFailureProbe();
-  auto* meta = new CompanyAny();
-  out_block->cleanups.push_back([meta]() { delete meta; });
-  meta->type_id = metadata_type_id;
-  meta->element_count = 0;
-  meta->byte_length = 0;
-  meta->data = mdata;
+  std::unique_ptr<CompanyAny> meta_holder(new CompanyAny());
+  meta_holder->type_id = metadata_type_id;
+  meta_holder->element_count = 0;
+  meta_holder->byte_length = 0;
+  meta_holder->data = mdata;
+  CompanyAny* meta = meta_holder.get();
+  out_block->cleanups.push_back({meta, DeleteCompanyAny});
+  meta_holder.release();
+
   return meta;
 }
 
@@ -91,7 +123,85 @@ void ResetNestedCompanyAny(CompanyAny* any) noexcept {
   }
 }
 
+size_t EstimateBaseStructSize(const std::string& mem_type) {
+  if (mem_type == "od_out") return sizeof(CompanyOdOutput);
+  if (mem_type == "keyword_out") return sizeof(CompanyPlatformKeywordOutput);
+  if (mem_type == "entity_out") return sizeof(CompanyPlatformEntityOutput);
+  if (mem_type == "doc_out") return sizeof(CompanyPlatformDocOutput);
+  if (mem_type == "audit_out") return sizeof(CompanyPlatformAuditOutput);
+  if (mem_type == "audio_out") return sizeof(CompanyPlatformAudioOutput);
+  if (mem_type == "rerank_out") return sizeof(CompanyPlatformRerankOutput);
+  return 512;
+}
+
 }  // namespace
+
+bool ComputeOutputPoolBytes(const std::string& suffix,
+                            const ResolvedOutputPoolSpec& spec, uint32_t depth,
+                            size_t* out_bytes, std::string* err) noexcept {
+  if (!out_bytes) return false;
+  *out_bytes = 0;
+  if (depth == 0) {
+    depth = kDefaultOutputPoolDepth;
+  }
+  if (depth > kMaxOutputPoolDepth) {
+    if (err) {
+      *err = "Output pool depth " + std::to_string(depth) +
+             " exceeds max limit " + std::to_string(kMaxOutputPoolDepth);
+    }
+    return false;
+  }
+
+  size_t single_block_bytes = EstimateBaseStructSize(suffix);
+
+  for (const auto& [cap_f, cap_n] : spec.capacities) {
+    size_t field_data_bytes = 0;
+    if (!CheckedAdd(cap_n, 1, &field_data_bytes)) {
+      if (err) *err = "Capacity calculation overflowed for field: " + cap_f;
+      return false;
+    }
+    size_t field_total = 0;
+    if (!CheckedAdd(field_data_bytes, sizeof(CompanyString), &field_total) ||
+        !CheckedAdd(single_block_bytes, field_total, &single_block_bytes)) {
+      if (err) *err = "Block memory calculation overflowed for field: " + cap_f;
+      return false;
+    }
+  }
+
+  if (spec.meta_num > 0 && spec.metadata_type_id > 0) {
+    const auto* mdesc = FindCompanyAnyType(spec.metadata_type_id);
+    if (mdesc && mdesc->element_size > 0) {
+      size_t meta_payload = 0;
+      if (!CheckedMultiply(spec.meta_num, mdesc->element_size, &meta_payload)) {
+        if (err) *err = "Metadata payload calculation overflowed";
+        return false;
+      }
+      size_t meta_total = 0;
+      if (!CheckedAdd(meta_payload, sizeof(CompanyAny), &meta_total) ||
+          !CheckedAdd(single_block_bytes, meta_total, &single_block_bytes)) {
+        if (err) *err = "Metadata total calculation overflowed";
+        return false;
+      }
+    }
+  }
+
+  constexpr size_t kPerBlockManagementOverhead =
+      sizeof(OwnedExternalBlock) + sizeof(void*) + sizeof(void*) + 64;
+  if (!CheckedAdd(single_block_bytes, kPerBlockManagementOverhead,
+                  &single_block_bytes)) {
+    if (err) *err = "Block overhead calculation overflowed";
+    return false;
+  }
+
+  size_t total_pool_bytes = 0;
+  if (!CheckedMultiply(depth, single_block_bytes, &total_pool_bytes)) {
+    if (err) *err = "Total pool memory calculation overflowed";
+    return false;
+  }
+
+  *out_bytes = total_pool_bytes;
+  return true;
+}
 
 void PlatformValueTypeRegistry::SetAllocationFailureCountdown(
     int count) noexcept {
@@ -272,7 +382,13 @@ int PlatformValueTypeRegistry::ValidateCompanyAnyPayload(
   return 0;
 }
 
+bool PlatformValueTypeRegistry::HasConflict() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return has_conflict_;
+}
+
 int PlatformValueTypeRegistry::GlobalInit() {
+  std::lock_guard<std::mutex> lock(mutex_);
   if (has_conflict_) {
     return -6;
   }
@@ -282,8 +398,8 @@ int PlatformValueTypeRegistry::GlobalInit() {
 
 bool PlatformValueTypeRegistry::RegisterBinding(
     PlatformValueTypeBinding binding) {
+  std::lock_guard<std::mutex> lock(mutex_);
   if (audited_) {
-    has_conflict_ = true;
     return false;
   }
   if (binding.canonical_suffix.empty()) {
@@ -329,15 +445,27 @@ bool PlatformValueTypeRegistry::RegisterBinding(
   }
 
   // 4. 原子预检通过后，一次性提交
-  for (const auto& a : binding.aliases) {
-    alias_to_canonical_[a] = binding.canonical_suffix;
+  try {
+    for (const auto& a : binding.aliases) {
+      alias_to_canonical_[a] = binding.canonical_suffix;
+    }
+    bindings_by_canonical_[binding.canonical_suffix] = std::move(binding);
+  } catch (...) {
+    has_conflict_ = true;
+    return false;
   }
-  bindings_by_canonical_[binding.canonical_suffix] = std::move(binding);
   return true;
+}
+
+std::string PlatformValueTypeRegistry::NormalizeSuffix(
+    const std::string& suffix) const {
+  const auto* b = GetBindingBySuffix(suffix);
+  return b ? b->canonical_suffix : "";
 }
 
 const PlatformValueTypeBinding* PlatformValueTypeRegistry::GetBindingBySuffix(
     const std::string& suffix) const {
+  std::lock_guard<std::mutex> lock(mutex_);
   auto it_can = bindings_by_canonical_.find(suffix);
   if (it_can != bindings_by_canonical_.end()) {
     return &it_can->second;
@@ -357,11 +485,11 @@ PlatformValueTypeRegistry::PlatformValueTypeRegistry() {
 }
 
 void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
-  // 1. string -> CompanyString
+  // 1. string -> CompanyString (RFC 6.3: aliases: {})
   {
     PlatformValueTypeBinding b;
     b.canonical_suffix = "string";
-    b.aliases = {"text", "str"};
+    b.aliases = {};
     b.external_c_type_name = "CompanyString";
     b.validate_external = [](const void* ptr, const ResolvedInputLimits& limits,
                              std::string* err) -> int {
@@ -375,11 +503,11 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
     RegisterBinding(b);
   }
 
-  // 2. buffer -> CompanyBuffer
+  // 2. buffer -> CompanyBuffer (RFC 6.3: aliases: {})
   {
     PlatformValueTypeBinding b;
     b.canonical_suffix = "buffer";
-    b.aliases = {"bin", "binary", "raw_buf"};
+    b.aliases = {};
     b.external_c_type_name = "CompanyBuffer";
     b.validate_external = [](const void* ptr, const ResolvedInputLimits& limits,
                              std::string* err) -> int {
@@ -393,11 +521,11 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
     RegisterBinding(b);
   }
 
-  // 3. any -> CompanyAny
+  // 3. any -> CompanyAny (RFC 6.3: aliases: {})
   {
     PlatformValueTypeBinding b;
     b.canonical_suffix = "any";
-    b.aliases = {"generic_any", "metadata"};
+    b.aliases = {};
     b.external_c_type_name = "CompanyAny";
     b.validate_external = [](const void* ptr, const ResolvedInputLimits& limits,
                              std::string* err) -> int {
@@ -411,11 +539,11 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
     RegisterBinding(b);
   }
 
-  // 4. frame -> CompanyFrame
+  // 4. frame -> CompanyFrame (RFC 6.3: aliases: {"image_in"})
   {
     PlatformValueTypeBinding b;
     b.canonical_suffix = "frame";
-    b.aliases = {"image", "image_frame"};
+    b.aliases = {"image_in"};
     b.external_c_type_name = "CompanyFrame";
     b.validate_external = [](const void* ptr, const ResolvedInputLimits& limits,
                              std::string* err) -> int {
@@ -441,18 +569,22 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
     RegisterBinding(b);
   }
 
-  // 5. od_out -> CompanyOdOutput
+  // 5. od_out -> CompanyOdOutput (RFC 6.3: aliases: {"ocr_out"})
   {
     PlatformValueTypeBinding b;
     b.canonical_suffix = "od_out";
-    b.aliases = {"ocr_out", "detect_out"};
+    b.aliases = {"ocr_out"};
     b.external_c_type_name = "CompanyOdOutput";
     b.allocate_external = [](const ResolvedOutputPoolSpec& spec,
                              OwnedExternalBlock* out_block,
                              std::string* /*err*/) -> int {
+      out_block->cleanups.reserve(5);
       CheckAllocFailureProbe();
-      auto* raw = new CompanyOdOutput();
-      out_block->cleanups.push_back([raw]() { delete raw; });
+      std::unique_ptr<CompanyOdOutput> raw_holder(new CompanyOdOutput());
+      auto* raw = raw_holder.get();
+      out_block->cleanups.push_back({raw, DeleteTypedObject<CompanyOdOutput>});
+      raw_holder.release();
+
       raw->request_id = 0;
       raw->detected_box_count = 0;
       raw->status_code = 0;
@@ -480,11 +612,12 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
     RegisterBinding(b);
   }
 
-  // 6. keyword_in -> CompanyPlatformKeywordInput
+  // 6. keyword_in -> CompanyPlatformKeywordInput (RFC 6.3: aliases:
+  // {"sentence_in"})
   {
     PlatformValueTypeBinding b;
     b.canonical_suffix = "keyword_in";
-    b.aliases = {"kw_in"};
+    b.aliases = {"sentence_in"};
     b.external_c_type_name = "CompanyPlatformKeywordInput";
     b.validate_external = [](const void* ptr, const ResolvedInputLimits& limits,
                              std::string* err) -> int {
@@ -503,18 +636,25 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
     RegisterBinding(b);
   }
 
-  // 7. keyword_out -> CompanyPlatformKeywordOutput
+  // 7. keyword_out -> CompanyPlatformKeywordOutput (RFC 6.3: aliases:
+  // {"match_out"})
   {
     PlatformValueTypeBinding b;
     b.canonical_suffix = "keyword_out";
-    b.aliases = {"kw_out"};
+    b.aliases = {"match_out"};
     b.external_c_type_name = "CompanyPlatformKeywordOutput";
     b.allocate_external = [](const ResolvedOutputPoolSpec& spec,
                              OwnedExternalBlock* out_block,
                              std::string* /*err*/) -> int {
+      out_block->cleanups.reserve(3);
       CheckAllocFailureProbe();
-      auto* raw = new CompanyPlatformKeywordOutput();
-      out_block->cleanups.push_back([raw]() { delete raw; });
+      std::unique_ptr<CompanyPlatformKeywordOutput> raw_holder(
+          new CompanyPlatformKeywordOutput());
+      auto* raw = raw_holder.get();
+      out_block->cleanups.push_back(
+          {raw, DeleteTypedObject<CompanyPlatformKeywordOutput>});
+      raw_holder.release();
+
       raw->request_id = 0;
       raw->is_hit = 0;
       raw->match_result_json = AllocateNestedCompanyString(
@@ -537,7 +677,7 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
     RegisterBinding(b);
   }
 
-  // 8. entity_in -> CompanyPlatformEntityInput
+  // 8. entity_in -> CompanyPlatformEntityInput (RFC 6.3: aliases: {"text_in"})
   {
     PlatformValueTypeBinding b;
     b.canonical_suffix = "entity_in";
@@ -560,7 +700,8 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
     RegisterBinding(b);
   }
 
-  // 9. entity_out -> CompanyPlatformEntityOutput
+  // 9. entity_out -> CompanyPlatformEntityOutput (RFC 6.3: aliases:
+  // {"extracted_out"})
   {
     PlatformValueTypeBinding b;
     b.canonical_suffix = "entity_out";
@@ -569,9 +710,15 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
     b.allocate_external = [](const ResolvedOutputPoolSpec& spec,
                              OwnedExternalBlock* out_block,
                              std::string* /*err*/) -> int {
+      out_block->cleanups.reserve(3);
       CheckAllocFailureProbe();
-      auto* raw = new CompanyPlatformEntityOutput();
-      out_block->cleanups.push_back([raw]() { delete raw; });
+      std::unique_ptr<CompanyPlatformEntityOutput> raw_holder(
+          new CompanyPlatformEntityOutput());
+      auto* raw = raw_holder.get();
+      out_block->cleanups.push_back(
+          {raw, DeleteTypedObject<CompanyPlatformEntityOutput>});
+      raw_holder.release();
+
       raw->request_id = 0;
       raw->status_code = 0;
       raw->entities_json = AllocateNestedCompanyString(
@@ -594,7 +741,7 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
     RegisterBinding(b);
   }
 
-  // 10. doc_in -> CompanyPlatformDocInput
+  // 10. doc_in -> CompanyPlatformDocInput (RFC 6.3: aliases: {"qa_in"})
   {
     PlatformValueTypeBinding b;
     b.canonical_suffix = "doc_in";
@@ -624,7 +771,7 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
     RegisterBinding(b);
   }
 
-  // 11. doc_out -> CompanyPlatformDocOutput
+  // 11. doc_out -> CompanyPlatformDocOutput (RFC 6.3: aliases: {"qa_out"})
   {
     PlatformValueTypeBinding b;
     b.canonical_suffix = "doc_out";
@@ -633,9 +780,15 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
     b.allocate_external = [](const ResolvedOutputPoolSpec& spec,
                              OwnedExternalBlock* out_block,
                              std::string* /*err*/) -> int {
+      out_block->cleanups.reserve(5);
       CheckAllocFailureProbe();
-      auto* raw = new CompanyPlatformDocOutput();
-      out_block->cleanups.push_back([raw]() { delete raw; });
+      std::unique_ptr<CompanyPlatformDocOutput> raw_holder(
+          new CompanyPlatformDocOutput());
+      auto* raw = raw_holder.get();
+      out_block->cleanups.push_back(
+          {raw, DeleteTypedObject<CompanyPlatformDocOutput>});
+      raw_holder.release();
+
       raw->request_id = 0;
       raw->confidence = 0.0f;
       raw->chunk_count = 0;
@@ -665,7 +818,8 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
     RegisterBinding(b);
   }
 
-  // 12. audit_in -> CompanyPlatformAuditInput
+  // 12. audit_in -> CompanyPlatformAuditInput (RFC 6.3: aliases:
+  // {"dialogue_in"})
   {
     PlatformValueTypeBinding b;
     b.canonical_suffix = "audit_in";
@@ -694,18 +848,25 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
     RegisterBinding(b);
   }
 
-  // 13. audit_out -> CompanyPlatformAuditOutput
+  // 13. audit_out -> CompanyPlatformAuditOutput (RFC 6.3: aliases:
+  // {"verdict_out"})
   {
     PlatformValueTypeBinding b;
     b.canonical_suffix = "audit_out";
-    b.aliases = {"dialogue_out"};
+    b.aliases = {"verdict_out"};
     b.external_c_type_name = "CompanyPlatformAuditOutput";
     b.allocate_external = [](const ResolvedOutputPoolSpec& spec,
                              OwnedExternalBlock* out_block,
                              std::string* /*err*/) -> int {
+      out_block->cleanups.reserve(7);
       CheckAllocFailureProbe();
-      auto* raw = new CompanyPlatformAuditOutput();
-      out_block->cleanups.push_back([raw]() { delete raw; });
+      std::unique_ptr<CompanyPlatformAuditOutput> raw_holder(
+          new CompanyPlatformAuditOutput());
+      auto* raw = raw_holder.get();
+      out_block->cleanups.push_back(
+          {raw, DeleteTypedObject<CompanyPlatformAuditOutput>});
+      raw_holder.release();
+
       raw->request_id = 0;
       raw->risk_score = 0.0f;
       raw->status_code = 0;
@@ -736,11 +897,12 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
     RegisterBinding(b);
   }
 
-  // 14. audio_in -> CompanyPlatformAudioInput
+  // 14. audio_in -> CompanyPlatformAudioInput (RFC 6.3: aliases:
+  // {"pcm_stream"})
   {
     PlatformValueTypeBinding b;
     b.canonical_suffix = "audio_in";
-    b.aliases = {"asr_in"};
+    b.aliases = {"pcm_stream"};
     b.external_c_type_name = "CompanyPlatformAudioInput";
     b.validate_external = [](const void* ptr, const ResolvedInputLimits& limits,
                              std::string* err) -> int {
@@ -776,7 +938,7 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
     RegisterBinding(b);
   }
 
-  // 15. audio_out -> CompanyPlatformAudioOutput
+  // 15. audio_out -> CompanyPlatformAudioOutput (RFC 6.3: aliases: {"asr_out"})
   {
     PlatformValueTypeBinding b;
     b.canonical_suffix = "audio_out";
@@ -785,9 +947,15 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
     b.allocate_external = [](const ResolvedOutputPoolSpec& spec,
                              OwnedExternalBlock* out_block,
                              std::string* /*err*/) -> int {
+      out_block->cleanups.reserve(5);
       CheckAllocFailureProbe();
-      auto* raw = new CompanyPlatformAudioOutput();
-      out_block->cleanups.push_back([raw]() { delete raw; });
+      std::unique_ptr<CompanyPlatformAudioOutput> raw_holder(
+          new CompanyPlatformAudioOutput());
+      auto* raw = raw_holder.get();
+      out_block->cleanups.push_back(
+          {raw, DeleteTypedObject<CompanyPlatformAudioOutput>});
+      raw_holder.release();
+
       raw->request_id = 0;
       raw->status_code = 0;
       raw->transcribed_text = AllocateNestedCompanyString(
@@ -813,11 +981,11 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
     RegisterBinding(b);
   }
 
-  // 16. rerank_in -> CompanyPlatformRerankInput
+  // 16. rerank_in -> CompanyPlatformRerankInput (RFC 6.3: aliases: {"pair_in"})
   {
     PlatformValueTypeBinding b;
     b.canonical_suffix = "rerank_in";
-    b.aliases = {"rank_in"};
+    b.aliases = {"pair_in"};
     b.external_c_type_name = "CompanyPlatformRerankInput";
     b.validate_external = [](const void* ptr, const ResolvedInputLimits& limits,
                              std::string* err) -> int {
@@ -858,18 +1026,25 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
     RegisterBinding(b);
   }
 
-  // 17. rerank_out -> CompanyPlatformRerankOutput
+  // 17. rerank_out -> CompanyPlatformRerankOutput (RFC 6.3: aliases:
+  // {"scores_out"})
   {
     PlatformValueTypeBinding b;
     b.canonical_suffix = "rerank_out";
-    b.aliases = {"rank_out"};
+    b.aliases = {"scores_out"};
     b.external_c_type_name = "CompanyPlatformRerankOutput";
     b.allocate_external = [](const ResolvedOutputPoolSpec& spec,
                              OwnedExternalBlock* out_block,
                              std::string* /*err*/) -> int {
+      out_block->cleanups.reserve(1);
       CheckAllocFailureProbe();
-      auto* raw = new CompanyPlatformRerankOutput();
-      out_block->cleanups.push_back([raw]() { delete raw; });
+      std::unique_ptr<CompanyPlatformRerankOutput> raw_holder(
+          new CompanyPlatformRerankOutput());
+      auto* raw = raw_holder.get();
+      out_block->cleanups.push_back(
+          {raw, DeleteTypedObject<CompanyPlatformRerankOutput>});
+      raw_holder.release();
+
       raw->request_id = 0;
       raw->count = 0;
       raw->status_code = 0;

@@ -5,7 +5,10 @@ namespace alg_framework {
 void RegisterAudioAsrIntentBridge(PlatformBusinessBridgeRegistry& reg) {
   PlatformBusinessBridgeDescriptor desc;
   desc.biz_type = ALG_BIZ_TYPE_AUDIO_ASR_INTENT;
-  desc.biz_name = "audio_asr_intent";
+  desc.biz_name = "AudioAsrIntent";
+  desc.internal_input_type_name = "CompanyAudioInputStruct";
+  desc.internal_output_type_name = "CompanyAudioOutputStruct";
+  desc.registration_identity = "builtin.audio_asr_intent";
 
   PlatformBusinessSlot in_slot;
   in_slot.logical_name = "audio_in";

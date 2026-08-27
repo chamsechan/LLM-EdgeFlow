@@ -121,6 +121,8 @@ class ScopedOutputLeaseGuard {
   ScopedOutputLeaseGuard(const ScopedOutputLeaseGuard&) = delete;
   ScopedOutputLeaseGuard& operator=(const ScopedOutputLeaseGuard&) = delete;
 
+  void Reserve(size_t count) { leases_.reserve(count); }
+
   void Track(std::shared_ptr<OutputPoolState> pool, void* block) {
     leases_.push_back({std::move(pool), block});
   }

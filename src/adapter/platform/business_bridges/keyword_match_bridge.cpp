@@ -5,7 +5,10 @@ namespace alg_framework {
 void RegisterKeywordMatchBridge(PlatformBusinessBridgeRegistry& reg) {
   PlatformBusinessBridgeDescriptor desc;
   desc.biz_type = ALG_BIZ_TYPE_KEYWORD_MATCH;
-  desc.biz_name = "keyword_match";
+  desc.biz_name = "KeywordMatch";
+  desc.internal_input_type_name = "CompanyKeywordInputStruct";
+  desc.internal_output_type_name = "CompanyKeywordOutputStruct";
+  desc.registration_identity = "builtin.keyword_match";
 
   PlatformBusinessSlot in_slot;
   in_slot.logical_name = "keyword_in";

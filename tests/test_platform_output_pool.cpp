@@ -235,4 +235,34 @@ TEST_F(PlatformOutputPoolTest, ConcurrentAcquireReturnAndWakeup) {
   EXPECT_EQ(pool->CheckedOutCount(), 0u);
 }
 
+// 7. 全部 7 类输出结构分配失败故障注入与零泄漏 (R9-002, R9-006)
+TEST_F(PlatformOutputPoolTest, AllocatorFailureAllOutputTypes) {
+  const char* types[] = {"keyword_out", "entity_out", "doc_out", "audit_out",
+                         "audio_out",   "rerank_out", "od_out"};
+
+  for (const char* t : types) {
+    const auto* binding =
+        PlatformValueTypeRegistry::Instance().GetBindingBySuffix(t);
+    ASSERT_NE(binding, nullptr) << "Missing binding for: " << t;
+
+    ResolvedOutputPoolSpec spec;
+    spec.type = t;
+    if (std::strcmp(t, "od_out") == 0) {
+      spec.meta_num = 5;
+      spec.metadata_type_id = 1;
+    }
+
+    for (int step = 0; step <= 8; ++step) {
+      PlatformValueTypeRegistry::SetAllocationFailureCountdown(step);
+      std::shared_ptr<OutputPoolState> pool;
+      std::string err;
+      int ret = OutputPoolState::Create(t, 2, spec, binding, &pool, &err);
+      if (ret != 0) {
+        EXPECT_EQ(pool, nullptr);
+      }
+    }
+    PlatformValueTypeRegistry::SetAllocationFailureCountdown(-1);
+  }
+}
+
 }  // namespace alg_framework
