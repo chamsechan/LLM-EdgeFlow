@@ -166,10 +166,10 @@ int ResolveContainedPath(const std::filesystem::path& canonical_root,
           return -2;
         }
       } else {
-        if (std::filesystem::is_directory(canon_p, ec) || ec) {
+        if (!std::filesystem::is_regular_file(canon_p, ec) || ec) {
           if (error_msg) {
             *error_msg = std::string(field_name) +
-                         " must be a file, not directory: " + canon_p.string();
+                         " must be a regular file: " + canon_p.string();
           }
           return -2;
         }
@@ -190,6 +190,15 @@ int ResolveContainedPath(const std::filesystem::path& canonical_root,
     }
     return -2;
   }
+}
+
+int ResolveRequiredFileUnderRoot(const std::filesystem::path& canonical_root,
+                                 const std::string& relative_value,
+                                 const char* field_name,
+                                 std::filesystem::path* resolved,
+                                 std::string* error_msg) noexcept {
+  return ResolveContainedPath(canonical_root, relative_value, field_name, true,
+                              false, resolved, error_msg);
 }
 
 }  // namespace
@@ -246,10 +255,10 @@ int CompanyConfResolver::Resolve(const char* model_path,
       return -2;
     }
 
-    // 统一沙箱解析 cfg_file_name (必须存在)
+    // 统一沙箱解析 cfg_file_name (必须存在且为常规文件)
     std::filesystem::path full_cfg;
-    int ret = ResolveContainedPath(canon_root, cfg_file_name, "cfg_file_name",
-                                   true, false, &full_cfg, error_msg);
+    int ret = ResolveRequiredFileUnderRoot(
+        canon_root, cfg_file_name, "cfg_file_name", &full_cfg, error_msg);
     if (ret != 0) return ret;
 
     // 读取并解析 .conf JSON
@@ -292,8 +301,8 @@ int CompanyConfResolver::Resolve(const char* model_path,
 
     std::string pipe_rel = (*data_obj)["pipe_path"].get<std::string>();
     std::filesystem::path full_pipe;
-    ret = ResolveContainedPath(canon_root, pipe_rel, "pipe_path", true, false,
-                               &full_pipe, error_msg);
+    ret = ResolveRequiredFileUnderRoot(canon_root, pipe_rel, "pipe_path",
+                                       &full_pipe, error_msg);
     if (ret != 0) return ret;
 
     std::ifstream pipe_ifs(full_pipe);
@@ -499,25 +508,39 @@ int CompanyConfResolver::Resolve(const char* model_path,
     }
 
     // 1. 严格预检 Pipeline JSON 中的原始模型路径 (禁止任何原始绝对路径)
-    std::unordered_set<std::string> overridden_model_ids;
-    bool has_single_model_override = false;
-    std::string single_override_path;
-
     if (pipe_json.contains("models") && pipe_json["models"].is_array()) {
       for (const auto& item : pipe_json["models"]) {
         if (item.contains("model_path") && item["model_path"].is_string()) {
-          std::string raw_mp = item["model_path"].get<std::string>();
-          if (!raw_mp.empty()) {
-            if (raw_mp[0] == '/' || raw_mp[0] == '\\' ||
-                (raw_mp.size() >= 2 &&
-                 ((raw_mp[0] >= 'a' && raw_mp[0] <= 'z') ||
-                  (raw_mp[0] >= 'A' && raw_mp[0] <= 'Z')) &&
-                 raw_mp[1] == ':') ||
-                raw_mp.rfind("//", 0) == 0 || raw_mp.rfind("\\\\", 0) == 0) {
+          std::string mp = item["model_path"].get<std::string>();
+          if (!mp.empty()) {
+            if (mp[0] == '/' || mp[0] == '\\' ||
+                (mp.size() >= 2 &&
+                 ((mp[0] >= 'a' && mp[0] <= 'z') ||
+                  (mp[0] >= 'A' && mp[0] <= 'Z')) &&
+                 mp[1] == ':') ||
+                mp.rfind("//", 0) == 0 || mp.rfind("\\\\", 0) == 0) {
               if (error_msg) {
                 *error_msg =
-                    "pipeline model_path must be relative, got absolute: " +
-                    raw_mp;
+                    "Pipeline JSON contains absolute model_path: " + mp;
+              }
+              return -2;
+            }
+            std::filesystem::path rel_mp(mp);
+            if (rel_mp.is_absolute() || rel_mp.has_root_name() ||
+                rel_mp.has_root_directory()) {
+              if (error_msg) {
+                *error_msg =
+                    "Pipeline JSON contains absolute root in model_path: " + mp;
+              }
+              return -2;
+            }
+            std::filesystem::path comb =
+                (canon_root / rel_mp).lexically_normal();
+            auto rel_chk = comb.lexically_relative(canon_root);
+            if (rel_chk.empty() || rel_chk.string().rfind("..", 0) == 0) {
+              if (error_msg) {
+                *error_msg =
+                    "Pipeline JSON model_path escapes deployment root: " + mp;
               }
               return -2;
             }
@@ -526,7 +549,11 @@ int CompanyConfResolver::Resolve(const char* model_path,
       }
     }
 
-    // 2. 解析 .conf 中的模型路径覆盖
+    // 2. 解析与校验模型路径 (model_path 与 model_paths)
+    std::unordered_set<std::string> overridden_model_ids;
+    bool has_single_model_override = false;
+    std::string single_override_path;
+
     size_t model_count = 0;
     if (pipe_json.contains("models") && pipe_json["models"].is_array()) {
       model_count = pipe_json["models"].size();
@@ -539,8 +566,8 @@ int CompanyConfResolver::Resolve(const char* model_path,
       }
       std::string single_mpath = (*data_obj)["model_path"].get<std::string>();
       std::filesystem::path full_mpath;
-      ret = ResolveContainedPath(canon_root, single_mpath, "model_path", false,
-                                 false, &full_mpath, error_msg);
+      ret = ResolveRequiredFileUnderRoot(canon_root, single_mpath, "model_path",
+                                         &full_mpath, error_msg);
       if (ret != 0) return ret;
 
       if (model_count == 1) {
@@ -568,8 +595,8 @@ int CompanyConfResolver::Resolve(const char* model_path,
         }
         std::string mstr = mval.get<std::string>();
         std::filesystem::path full_mpath;
-        ret = ResolveContainedPath(canon_root, mstr, "model_paths entry", false,
-                                   false, &full_mpath, error_msg);
+        ret = ResolveRequiredFileUnderRoot(
+            canon_root, mstr, "model_paths entry", &full_mpath, error_msg);
         if (ret != 0) return ret;
 
         bool matched = false;
@@ -609,8 +636,8 @@ int CompanyConfResolver::Resolve(const char* model_path,
           std::string mp = item["model_path"].get<std::string>();
           if (!mp.empty()) {
             std::filesystem::path full_mpath;
-            ret = ResolveContainedPath(canon_root, mp, "pipeline model_path",
-                                       false, false, &full_mpath, error_msg);
+            ret = ResolveRequiredFileUnderRoot(
+                canon_root, mp, "pipeline model_path", &full_mpath, error_msg);
             if (ret != 0) return ret;
             item["model_path"] = full_mpath.string();
           }
