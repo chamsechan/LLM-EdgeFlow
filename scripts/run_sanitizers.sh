@@ -19,15 +19,25 @@ if [[ $# -eq 1 ]]; then
       exit 2
       ;;
   esac
-fi
-BUILD_DIR="${PROJECT_ROOT}/build-sanitizers-${MODE}"
+BUILD_DIR_TAG="${SANITIZERS//,/-}"
+BUILD_DIR="${PROJECT_ROOT}/build-sanitizers-${BUILD_DIR_TAG}-${MODE}"
+
+DETECT_LEAKS="${DETECT_LEAKS:-0}"
 
 echo "=================================================="
 echo " Running Clang/GCC Sanitizer Suite (Mode: ${MODE})"
 echo " Project Root: ${PROJECT_ROOT}"
 echo " Sanitizers: ${SANITIZERS}"
-echo " Note: ASan/UBSan memory safety checks enabled."
-echo "       LeakSanitizer disabled (detect_leaks=0)."
+if [[ "${SANITIZERS}" == *"thread"* ]]; then
+  echo " Note: ThreadSanitizer data race detection enabled."
+else
+  echo " Note: ASan/UBSan memory safety checks enabled."
+  if [[ "${DETECT_LEAKS}" == "1" ]]; then
+    echo "       LeakSanitizer enabled (detect_leaks=1)."
+  else
+    echo "       LeakSanitizer disabled (detect_leaks=0)."
+  fi
+fi
 echo "=================================================="
 
 COMMON_CMAKE_ARGS=(
@@ -63,6 +73,7 @@ if [[ "${MODE}" == "fast" ]]; then
     test_node_base_contracts
     test_pipeline_config
     test_pipeline_studio
+    test_platform_business_bridge_registry
     test_platform_operator
     test_platform_output_pool
     test_platform_value_registry
@@ -77,7 +88,6 @@ fi
 if [[ "${SANITIZERS}" == *"thread"* ]]; then
   export TSAN_OPTIONS="halt_on_error=1:abort_on_error=1"
 else
-  DETECT_LEAKS="${DETECT_LEAKS:-0}"
   export ASAN_OPTIONS="detect_leaks=${DETECT_LEAKS}:abort_on_error=1"
   if [[ "${SANITIZERS}" == *"address"* ]]; then
     LIBASAN_PATH="$(gcc -print-file-name=libasan.so 2>/dev/null || true)"
@@ -104,14 +114,14 @@ if [[ "${SANITIZERS}" == *"thread"* ]] && [[ "$(uname -s)" == "Linux" ]] && [[ "
 fi
 
 if [ "${MODE}" == "fast" ]; then
-  echo ">>> [1/2] Running emulator-only core CTest suite with [${SANITIZERS}] <<<"
-  FAST_TEST_REGEX="^(BatchExecutorTest|FrameworkCoreTest|CAbiSafetyTest|ConcurrencyAndEdgeCasesTest|AdapterContractSecurityTest|PipelineConfigTest|PipelineStudioTest|PlatformOperatorTest|PlatformOutputPoolTest|PlatformValueRegistryTest|VisualizerServerTest|TypedBlackboardContractsTest|ValidatedPipelinePlanTest|NodeBaseContractsTest|DefinitionSchemaValidationTest)$"
+  FAST_TEST_REGEX="^(BatchExecutorTest|FrameworkCoreTest|CAbiSafetyTest|ConcurrencyAndEdgeCasesTest|AdapterContractSecurityTest|PipelineConfigTest|PipelineStudioTest|PlatformOperatorTest|PlatformOutputPoolTest|PlatformValueRegistryTest|PlatformBusinessBridgeRegistryTest|VisualizerServerTest|TypedBlackboardContractsTest|ValidatedPipelinePlanTest|NodeBaseContractsTest|DefinitionSchemaValidationTest)$"
   if [[ "${DETECT_LEAKS:-0}" == "1" ]] || [[ "${SANITIZERS}" == *"thread"* ]]; then
-    FAST_TEST_REGEX="^(BatchExecutorTest|FrameworkCoreTest|CAbiSafetyTest|ConcurrencyAndEdgeCasesTest|AdapterContractSecurityTest|PipelineConfigTest|PipelineStudioTest|PlatformOperatorTest|PlatformOutputPoolTest|PlatformValueRegistryTest|TypedBlackboardContractsTest|ValidatedPipelinePlanTest|NodeBaseContractsTest|DefinitionSchemaValidationTest)$"
+    FAST_TEST_REGEX="^(BatchExecutorTest|FrameworkCoreTest|CAbiSafetyTest|ConcurrencyAndEdgeCasesTest|AdapterContractSecurityTest|PipelineConfigTest|PipelineStudioTest|PlatformOperatorTest|PlatformOutputPoolTest|PlatformValueRegistryTest|PlatformBusinessBridgeRegistryTest|TypedBlackboardContractsTest|ValidatedPipelinePlanTest|NodeBaseContractsTest|DefinitionSchemaValidationTest)$"
   fi
+  echo ">>> [1/2] Running fast sanitized test suites: ${FAST_TEST_REGEX} <<<"
   "${ARCH_PREFIX[@]}" ctest --test-dir "${BUILD_DIR}" -R "${FAST_TEST_REGEX}" --output-on-failure
 else
-  echo ">>> [1/2] Running Full CTest Suite with [${SANITIZERS}] <<<"
+  echo ">>> [1/2] Running full sanitized CTest suite with [${SANITIZERS}] <<<"
   "${ARCH_PREFIX[@]}" ctest --test-dir "${BUILD_DIR}" --output-on-failure
 fi
 
