@@ -950,21 +950,21 @@ RFC-0004 除以下重叠内容外继续有效：
 - [x] 输入 shared_ptr 的 `use_count` 在 Process 前后不因算法库持有而增加；输入内存
   在 Process 返回后可由调用方立即释放。
 - [x] 输出 Map 缺 Key、含额外 Key、使用非空占位或同时使用主名与别名均失败且不检出块。
-- [ ] 值类型绑定缺失、类型不一致和重复注册使 Init fail-closed。
+- [x] 值类型绑定缺失、类型不一致和重复注册使 Init fail-closed。
 - [x] OCR 以 `frame + string -> od_out` 多槽位聚合，其他业务聚合 DTO 路径保持正常。
 - [x] Registry 允许多输入槽位，同时拒绝同一业务方向中的重复类型后缀。
-- [ ] 规范后缀与别名全局冲突、输出类型工厂缺失均使 Init fail-closed。
+- [x] 规范后缀与别名全局冲突、输出类型工厂缺失均使 Init fail-closed。
 - [x] `data.mem_que` 缺失、type 与业务不符、meta_num/type_id 组合非法和未知容量字段
   均使 Create fail-closed；缺失的已知容量使用规范默认值。
 - [x] `cfg_file_name` 的绝对路径、`..` 逃逸和符号链接逃逸被 Create 与预检一致拒绝。
-- [ ] cfg、Pipeline 和模型资源的缺失、非 regular file、绝对路径及符号链接逃逸均被
+- [x] cfg、Pipeline 和模型资源的缺失、非 regular file、绝对路径及符号链接逃逸均被
   Create 与预检一致拒绝。
 
 ### 14.2 输出池与生命周期
 
 - [x] `max_frame_depth == 0` 使用默认 25；显式深度分配准确数量。
 - [x] Batch 同时受池深度和 BusinessAdapter max_batch_size 约束，并以二者较小值拒绝。
-- [ ] Create 任意位置失败都完整逆序回滚，且不返回半初始化句柄。
+- [x] Create 任意位置失败都完整逆序回滚，且不返回半初始化句柄。
 - [x] Process 返回地址来自池，释放后复用同一地址和嵌套容量。
 - [x] 跨多次 Process 持有输出，未归还总数不超过深度时正常运行。
 - [x] 池耗尽时线程阻塞；释放一个旧输出后唤醒并完成。
@@ -996,7 +996,7 @@ RFC-0004 除以下重叠内容外继续有效：
 3. [x] **业务桥接**：移除单 DTO 限制，完成七业务槽位聚合和双向转换。
 4. [x] **输出池**：实现 Create 预分配、事务式 lease、自定义 deleter 和 Destroy。
 5. [x] **Operator 与 Demo 迁移**：演进 CreateParam、空输出槽位和结果释放流程。
-6. [ ] **测试门禁**：补齐 GTest/C11 测试，执行格式、CTest、回归和 Sanitizer。
+6. [x] **测试门禁**：补齐 GTest/C11 测试，执行格式、CTest、回归和 Sanitizer。
 7. [x] **ABI 发布隔离**：提升 SOVERSION 或落地版本化 Getter，验证错误组合不能部署。
 8. [ ] **完成闭环**：更新 RFC 状态、README Changelog，走标准分支 PR 流程。
 
@@ -1058,3 +1058,5 @@ RFC-0004 除以下重叠内容外继续有效：
 | 2026-08-26 | v0.1 | 初始 Proposed 草案：平台镜像结构、槽位绑定和库内输出池 | LLM-EdgeFlow Team |
 | 2026-08-26 | v0.2 | 按评审拆分原子类型与业务桥接，补齐 NUL、deleter 和 ABI 安全 | LLM-EdgeFlow Team |
 | 2026-08-26 | v0.3 | 补齐 Batch、输入硬上限、配置 Schema、Destroy 违约、辅助 API 与实施落点 | LLM-EdgeFlow Team |
+| 2026-08-27 | v0.4 | 完成阶段 G～K 全部代码整改与全量六阶段回归/三组 Sanitizer 验证，绑定候选提交 `83e8c99` | LLM-EdgeFlow Team |
+

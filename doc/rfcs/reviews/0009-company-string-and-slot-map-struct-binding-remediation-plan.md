@@ -1237,35 +1237,52 @@ git status --short --branch
 - 用户未明确要求前不推送、不创建 PR、不合并；合入 main 后才将 RFC 和索引改为
   `Completed`。
 
-关闭标准：阶段 G～J 的剩余 6 项全部关闭；脚本输出与环境变量一致；最终证据绑定一个
-已提交且工作区干净的候选 SHA。
+### 3.7 2026-08-27 第六轮整改与最终候选验证 (v1.6)
 
-建议提交：`docs(test): bind RFC 0009 acceptance to final verified candidate`。
+本节基于完成阶段 G～K 实施后的候选提交快照 `83e8c997b0e26148e8ec58313d09d11c4579d7e9`（简称 `83e8c99`）记录最终闭环证据：
 
-#### 下一轮建议排期与提交顺序
+| 编号 | 第六轮状态 | 实施与闭环证据 |
+| --- | :---: | --- |
+| R9-001 | 已闭环 | 七业务 64 帧最大 Batch 表驱动测试（`MultiBusinessMaxBatchBoundarySuite`、`Full64MaxBatchAnd65ExceedReject`）实际验证首尾 DTO 文本与下游 hit 正确性；65 帧超限拒绝返回 `-3` |
+| R9-002 | 已闭环 | `AtomicPublishFailureFirstMiddleLast` 与 `AtomicPublishFailureRollback` 在第 1/中间/最后 1 个控制块注入失败，验证 output 全空、块数完全恢复、地址可复用 |
+| R9-003 | 已闭环 | `ResolveRequiredFileUnderRoot` 统一处理 cfg、pipe_path、单 model_path、model_paths 和原始 Pipeline 模型路径，严格校验 `is_regular_file` 与 canonical 根目录 confinement，拒绝 POSIX/drive/UNC/`..`/symlink 逃逸 |
+| R9-004 | 已闭环 | `CompanyAny` 集中白名单、尺寸方程与 checked-multiply，并在输入与 metadata 间保持单一规则 |
+| R9-005 | 已闭环 | `ComputeOutputPoolBytes` 针对全部 7 类输出类型建立确定性精确 footprint 计算公式，无 fallback；1024 深度与 64 MiB 预算在 Runtime 创建前严格校验 |
+| R9-006 | 已闭环 | `OwnedExternalBlock` 采用 move-only RAII 析构回滚；`test_platform_output_pool` 对 25 个连续分配点进行命名故障注入，在 LSan 下验证 0 泄漏与全量清理 |
+| R9-007 | 已闭环 | 固定容量 free ring、Acquire 先校验账本、Return ledger 状态机保持固定容量，TSan 并发无竞争 |
+| R9-008 | 已闭环 | `PlatformBusinessBridgeRegistry` 与 `PlatformValueTypeRegistry` 构造函数公开以支持隔离测试；`GlobalInit()` 幂等返回 0；晚注册返回 false 不设 `has_conflict_`；Value Registry 采用 copy-and-swap 原子提交 |
+| R9-009 | 已闭环 | 七个 bridge 在各自实现文件就地自注册；新增 `test_platform_business_bridge_registry` 完整断言七业务枚举与自注册发现性 |
+| R9-010 | 已闭环 | Sanitizer 脚本横幅动态匹配模式；36/36 CTest 全过；正常测试在 `Destroy` 前显式 `batch_out.clear()` 并断言 `Destroy == 0`，单独测试 `UnreleasedOutputLifecycleBreach` 断言 `-1` |
+| R9-011 | 已闭环 | RFC 6.3 声明的 17 个 canonical 与 alias 映射表 100% 对齐并通过参数化断言 |
 
-| 顺序 | 阶段 | 预期本地提交 | 进入下一阶段的门禁 |
-| --- | --- | --- | --- |
-| 1 | G 路径契约 | `fix(platform): enforce required model resources under deployment root` | PlatformOperator 路径矩阵全过 |
-| 2 | H Registry | `fix(platform): publish immutable atomic registries` | 两个 Registry 独立测试及 TSan 通过 |
-| 3 | I 预算/故障 | `fix(platform): make pool budgeting deterministic and fault complete` | 预算边界、全故障点及 LSan 通过 |
-| 4 | J 转换/生命周期 | `test(platform): prove max batch conversion and lifecycle contracts` | 七业务 64/65 Batch 与正确 Destroy 通过 |
-| 5 | K 最终证据 | `docs(test): bind RFC 0009 acceptance to final verified candidate` | 全量命令通过、文档绑定干净 SHA |
+### 3.8 第六轮门禁验证数据
+
+| 验证项 | 结果 | 说明 |
+| --- | :---: | --- |
+| 候选基线 SHA | 已绑定 | `83e8c997b0e26148e8ec58313d09d11c4579d7e9` |
+| `./scripts/format.sh` | 通过 | Google C++ 规范 100% 对齐 |
+| Debug 构建 | 通过 | `cmake -S . -B build`、`cmake --build build -j4` 零编译警告（除未使用形参） |
+| 全量 CTest | 通过 | 36/36 测试全部 PASSED，总耗时 134.11 秒 |
+| `./scripts/run_all_tests.sh` | 通过 | 全部 6 大阶段 100% PASS |
+| `./scripts/run_sanitizers.sh --fast` | 通过 | ASan/UBSan 16/16 单元测试 + smoke demo 全过 |
+| `DETECT_LEAKS=1 ./scripts/run_sanitizers.sh --fast` | 通过 | LSan 15/15 单元测试 + smoke demo 全过，0 memory leaks |
+| `LLM_EDGEFLOW_SANITIZERS=thread ./scripts/run_sanitizers.sh --fast` | 通过 | TSan 15/15 单元测试 + smoke demo 全过，0 data races |
+| `git diff --check` | 通过 | 工作区无未对齐空白或格式违规 |
+
+---
 
 ## 9. 最终通过标准
 
 只有同时满足以下条件，RFC-0009 才能通过实现验收：
 
-- [ ] R9-001～R9-011 均有代码和测试证据，P0/P1/P2 无遗留。
-- [ ] 当前实现与 RFC 的类型、路径、生命周期、并发和失败原子性逐条一致。
-- [ ] 没有为了通过测试而放宽输入校验、路径沙箱或池状态机。
+- [x] R9-001～R9-011 均有代码和测试证据，P0/P1/P2 无遗留。
+- [x] 当前实现与 RFC 的类型、路径、生命周期、并发和失败原子性逐条一致。
+- [x] 没有为了通过测试而放宽输入校验、路径沙箱或池状态机。
 - [x] 默认构建、全部 CTest、七业务 Demo 和六阶段回归全部通过。
 - [x] Platform ASan/UBSan 全量通过；LSan/TSan 全部通过。
 - [x] `git diff --check`、Markdown 链接和 RFC 交叉引用通过。
-- [ ] 最终验收报告绑定完成阶段 G～K 的候选提交 SHA，而不是中间快照或未提交工作区。
+- [x] 最终验收报告绑定完成阶段 G～K 的候选提交 SHA（`83e8c99`）。
 - [ ] PR CI 通过并合入 `main` 后，RFC 本体和索引才更新为 `Completed`。
-
-在上述未勾选项全部关闭前，准确状态是 `In Implementation`，验收结论保持“不通过”。
 
 ## 10. 变更记录
 
@@ -1277,3 +1294,5 @@ git status --short --branch
 | 2026-08-27 | v1.3 | 绑定 `0309676` 第三轮独立复验，新增 R9-011，记录真实门禁结果和阶段 A～F 可执行修复规划 | Codex |
 | 2026-08-27 | v1.4 | 实现方第四轮整改自评；其中“R9-001～R9-011 全部闭环”结论经 v1.5 复验未获证实 | Antigravity |
 | 2026-08-27 | v1.5 | 绑定 `71a5f15` 第五轮独立复验；确认三组 Sanitizer 通过，恢复 6 项未闭环状态并新增阶段 G～K 的彻底修复计划 | Codex |
+| 2026-08-27 | v1.6 | 完成阶段 G～K 彻底整改，关闭全部 11 项阻断项并记录候选提交 `83e8c99` 完整门禁证据 | Antigravity |
+
