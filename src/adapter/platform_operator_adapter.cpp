@@ -176,6 +176,12 @@ int Platform_Create(void** handle, const CreateParam* param) noexcept {
 
     uint32_t effective_depth =
         param->max_frame_depth > 0 ? param->max_frame_depth : 25;
+    if (effective_depth > alg_framework::kMaxOutputPoolDepth) {
+      SetLastError("max_frame_depth (" + std::to_string(effective_depth) +
+                   ") exceeds hard limit " +
+                   std::to_string(alg_framework::kMaxOutputPoolDepth));
+      return -2;
+    }
 
     // 1. 双路径安全解析 .conf
     alg_framework::ResolvedCompanyConfig resolved_conf;
@@ -238,7 +244,7 @@ int Platform_Create(void** handle, const CreateParam* param) noexcept {
       if (pool_ret != 0 || !pool) {
         SetLastError("Failed to create output pool for suffix " +
                      out_slot.type_suffix + ": " + pool_err);
-        return -4;
+        return pool_ret != 0 ? pool_ret : -4;
       }
       pools[out_slot.type_suffix] = std::move(pool);
     }
@@ -545,6 +551,14 @@ int Platform_Process(void* handle, const NamedIoBatch& inputs,
     pending_outputs.reserve(acquired_blocks.size());
 
     for (const auto& acq : acquired_blocks) {
+      if (alg_framework::OutputPoolState::GetPublishFailureCountdown() >= 0) {
+        if (alg_framework::OutputPoolState::GetPublishFailureCountdown() == 0) {
+          alg_framework::OutputPoolState::SetPublishFailureCountdown(-1);
+          throw std::bad_alloc();
+        }
+        alg_framework::OutputPoolState::SetPublishFailureCountdown(
+            alg_framework::OutputPoolState::GetPublishFailureCountdown() - 1);
+      }
       alg_framework::OutputPoolDeleter deleter{acq.pool, acq.raw_block};
       auto sp = std::shared_ptr<void>(acq.raw_block, deleter);
       auto* dest = &outputs[acq.frame_idx][acq.key];

@@ -14,11 +14,20 @@ namespace alg_framework {
 
 class PlatformOutputPoolTest : public ::testing::Test {
  protected:
-  void SetUp() override { PlatformValueTypeRegistry::Instance().GlobalInit(); }
+  void SetUp() override {
+    PlatformValueTypeRegistry::Instance().GlobalInit();
+    PlatformValueTypeRegistry::SetAllocationFailureCountdown(-1);
+    OutputPoolState::SetPublishFailureCountdown(-1);
+  }
+
+  void TearDown() override {
+    PlatformValueTypeRegistry::SetAllocationFailureCountdown(-1);
+    OutputPoolState::SetPublishFailureCountdown(-1);
+  }
 };
 
-// 1. 深度 0 归一化为 25 且正常预分配
-TEST_F(PlatformOutputPoolTest, DepthZeroNormalizedTo25) {
+// 1. 深度 0 归一化为 25 且正常预分配，深度 > 1024 拦截
+TEST_F(PlatformOutputPoolTest, DepthZeroNormalizedTo25AndMaxLimitChecked) {
   const auto* binding =
       PlatformValueTypeRegistry::Instance().GetBindingBySuffix("keyword_out");
   ASSERT_NE(binding, nullptr);
@@ -35,6 +44,13 @@ TEST_F(PlatformOutputPoolTest, DepthZeroNormalizedTo25) {
   EXPECT_EQ(pool->Depth(), 25u);
   EXPECT_EQ(pool->FreeBlockCount(), 25u);
   EXPECT_EQ(pool->CheckedOutCount(), 0u);
+
+  // 超过 1024 硬上限
+  std::shared_ptr<OutputPoolState> pool_bad;
+  ret = OutputPoolState::Create("keyword_out", 1025, spec, binding, &pool_bad,
+                                &err);
+  EXPECT_EQ(ret, -2);
+  EXPECT_EQ(pool_bad, nullptr);
 }
 
 // 2. 状态账本防重复归还、防外部指针注入与无下溢
@@ -155,7 +171,31 @@ TEST_F(PlatformOutputPoolTest, LeaseGuardTransactionRollback) {
   EXPECT_EQ(pool->CheckedOutCount(), 1u);
 }
 
-// 5. 多线程并发归还与条件变量唤醒
+// 5. 确定性分配失败注入与全量回滚零泄漏测试 (R9-006)
+TEST_F(PlatformOutputPoolTest, AllocatorFailureRollbackZeroLeak) {
+  const auto* binding =
+      PlatformValueTypeRegistry::Instance().GetBindingBySuffix("od_out");
+  ASSERT_NE(binding, nullptr);
+
+  ResolvedOutputPoolSpec spec;
+  spec.type = "od_out";
+  spec.meta_num = 10;
+  spec.metadata_type_id = 1;  // float32
+  spec.capacities["result_json"] = 512;
+
+  // 针对 od_out（包含 1 个 root + 1 个 char buf + 1 个 cs + 1 个 meta buf + 1
+  // 个 meta struct） 逐个注入分配失败探针
+  for (int fail_step = 0; fail_step <= 5; ++fail_step) {
+    PlatformValueTypeRegistry::SetAllocationFailureCountdown(fail_step);
+    std::shared_ptr<OutputPoolState> pool;
+    std::string err;
+    int ret = OutputPoolState::Create("od_out", 3, spec, binding, &pool, &err);
+    EXPECT_NE(ret, 0) << "Failed at step: " << fail_step;
+    EXPECT_EQ(pool, nullptr);
+  }
+}
+
+// 6. 多线程并发归还与条件变量唤醒
 TEST_F(PlatformOutputPoolTest, ConcurrentAcquireReturnAndWakeup) {
   const auto* binding =
       PlatformValueTypeRegistry::Instance().GetBindingBySuffix("keyword_out");

@@ -3,7 +3,6 @@
 #include <condition_variable>
 #include <memory>
 #include <mutex>
-#include <queue>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -30,7 +29,7 @@ struct OutputPoolDeleter {
 enum class BlockState { kFree, kCheckedOut };
 
 /**
- * @brief 单个输出后缀的输出对象预分配池状态机
+ * @brief 单个输出后缀的输出对象预分配池状态机 (固定容量零分配无下溢)
  */
 class OutputPoolState : public std::enable_shared_from_this<OutputPoolState> {
  public:
@@ -48,7 +47,8 @@ class OutputPoolState : public std::enable_shared_from_this<OutputPoolState> {
   int Acquire(void** out_block);
 
   /**
-   * @brief 将已检出的块重置并归还池中 (校验归属与状态账本)
+   * @brief 将已检出的块重置并归还池中 (校验归属与状态账本，noexcept
+   * 且零内存分配)
    */
   void ReturnBlock(void* block) noexcept;
 
@@ -81,8 +81,14 @@ class OutputPoolState : public std::enable_shared_from_this<OutputPoolState> {
 
   uint32_t FreeBlockCount() const noexcept {
     std::lock_guard<std::mutex> lock(mutex_);
-    return static_cast<uint32_t>(free_blocks_.size());
+    return static_cast<uint32_t>(free_count_);
   }
+
+  /**
+   * @brief 测试专用的发布故障注入探针 (非公开 ABI，仅单测使用)
+   */
+  static void SetPublishFailureCountdown(int count) noexcept;
+  static int GetPublishFailureCountdown() noexcept;
 
  private:
   OutputPoolState() = default;
@@ -93,7 +99,10 @@ class OutputPoolState : public std::enable_shared_from_this<OutputPoolState> {
   const PlatformValueTypeBinding* type_binding_ = nullptr;
 
   std::vector<OwnedExternalBlock> all_blocks_;
-  std::queue<void*> free_blocks_;
+  std::vector<void*> free_ring_;
+  size_t free_head_ = 0;
+  size_t free_tail_ = 0;
+  size_t free_count_ = 0;
   std::unordered_map<void*, BlockState> block_states_;
   mutable std::mutex mutex_;
   std::condition_variable available_;

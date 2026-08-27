@@ -53,107 +53,154 @@ void PopulateDefaultCapacities(const std::string& type_suffix,
   }
 }
 
+size_t EstimateBaseStructSize(const std::string& mem_type) {
+  if (mem_type == "od_out") return sizeof(CompanyOdOutput);
+  if (mem_type == "keyword_out") return sizeof(CompanyPlatformKeywordOutput);
+  if (mem_type == "entity_out") return sizeof(CompanyPlatformEntityOutput);
+  if (mem_type == "doc_out") return sizeof(CompanyPlatformDocOutput);
+  if (mem_type == "audit_out") return sizeof(CompanyPlatformAuditOutput);
+  if (mem_type == "audio_out") return sizeof(CompanyPlatformAudioOutput);
+  if (mem_type == "rerank_out") return sizeof(CompanyPlatformRerankOutput);
+  return 512;
+}
+
 int ResolveContainedPath(const std::filesystem::path& canonical_root,
                          const std::string& relative_value,
                          const char* field_name, bool check_exists,
                          bool is_directory, std::filesystem::path* resolved,
                          std::string* error_msg) noexcept {
-  if (!resolved) return -2;
-  if (relative_value.empty()) {
-    if (error_msg) *error_msg = std::string(field_name) + " path is empty";
-    return -2;
-  }
-  // 拒绝绝对路径 (POSIX / Windows / UNC)
-  if (relative_value[0] == '/' || relative_value[0] == '\\') {
-    if (error_msg) {
-      *error_msg = std::string(field_name) +
-                   " must be relative, got absolute: " + relative_value;
+  try {
+    if (!resolved) return -2;
+    if (relative_value.empty()) {
+      if (error_msg) *error_msg = std::string(field_name) + " path is empty";
+      return -2;
     }
-    return -2;
-  }
-  std::filesystem::path rel_path(relative_value);
-  if (rel_path.is_absolute() || rel_path.has_root_name() ||
-      rel_path.has_root_directory()) {
-    if (error_msg) {
-      *error_msg =
-          std::string(field_name) + " has absolute root: " + relative_value;
-    }
-    return -2;
-  }
-
-  std::error_code ec;
-  std::filesystem::path combined =
-      (canonical_root / rel_path).lexically_normal();
-  auto rel_check = combined.lexically_relative(canonical_root);
-  if (rel_check.empty() || rel_check.string().rfind("..", 0) == 0) {
-    if (error_msg) {
-      *error_msg =
-          std::string(field_name) + " escapes model_path: " + relative_value;
-    }
-    return -2;
-  }
-
-  std::filesystem::path canon_p;
-  if (check_exists) {
-    if (!std::filesystem::exists(combined, ec) || ec) {
+    // 拒绝 POSIX / Windows / UNC 绝对路径与盘符
+    if (relative_value[0] == '/' || relative_value[0] == '\\') {
       if (error_msg) {
         *error_msg = std::string(field_name) +
-                     " file does not exist: " + combined.string();
+                     " must be relative, got absolute: " + relative_value;
       }
       return -2;
     }
-    canon_p = std::filesystem::canonical(combined, ec);
-    if (ec) {
-      if (error_msg) {
-        *error_msg = "Failed to canonicalize " + std::string(field_name) +
-                     ": " + combined.string();
-      }
-      return -2;
-    }
-  } else {
-    canon_p = std::filesystem::weakly_canonical(combined, ec);
-    if (ec) {
-      canon_p = combined;
-    }
-  }
-
-  // 组件级包含校验，防止前缀混淆 (/root/a vs /root/ab)
-  auto it_root = canonical_root.begin();
-  auto it_p = canon_p.begin();
-  while (it_root != canonical_root.end()) {
-    if (it_p == canon_p.end() || *it_p != *it_root) {
+    if (relative_value.size() >= 2 &&
+        ((relative_value[0] >= 'a' && relative_value[0] <= 'z') ||
+         (relative_value[0] >= 'A' && relative_value[0] <= 'Z')) &&
+        relative_value[1] == ':') {
       if (error_msg) {
         *error_msg = std::string(field_name) +
-                     " symlink escapes model_path: " + canon_p.string();
+                     " contains Windows drive letter: " + relative_value;
       }
       return -2;
     }
-    ++it_root;
-    ++it_p;
-  }
+    if (relative_value.rfind("//", 0) == 0 ||
+        relative_value.rfind("\\\\", 0) == 0) {
+      if (error_msg) {
+        *error_msg =
+            std::string(field_name) + " contains UNC path: " + relative_value;
+      }
+      return -2;
+    }
 
-  if (check_exists) {
-    if (is_directory) {
-      if (!std::filesystem::is_directory(canon_p, ec) || ec) {
+    std::filesystem::path rel_path(relative_value);
+    if (rel_path.is_absolute() || rel_path.has_root_name() ||
+        rel_path.has_root_directory()) {
+      if (error_msg) {
+        *error_msg =
+            std::string(field_name) + " has absolute root: " + relative_value;
+      }
+      return -2;
+    }
+
+    std::error_code ec;
+    std::filesystem::path combined =
+        (canonical_root / rel_path).lexically_normal();
+    auto rel_check = combined.lexically_relative(canonical_root);
+    if (rel_check.empty() || rel_check.string().rfind("..", 0) == 0) {
+      if (error_msg) {
+        *error_msg =
+            std::string(field_name) + " escapes model_path: " + relative_value;
+      }
+      return -2;
+    }
+
+    std::filesystem::path canon_p;
+    if (check_exists) {
+      if (!std::filesystem::exists(combined, ec) || ec) {
         if (error_msg) {
           *error_msg = std::string(field_name) +
-                       " is not a directory: " + canon_p.string();
+                       " file does not exist: " + combined.string();
+        }
+        return -2;
+      }
+      canon_p = std::filesystem::canonical(combined, ec);
+      if (ec) {
+        if (error_msg) {
+          *error_msg = "Failed to canonicalize " + std::string(field_name) +
+                       ": " + combined.string();
         }
         return -2;
       }
     } else {
-      if (std::filesystem::is_directory(canon_p, ec) || ec) {
+      canon_p = std::filesystem::weakly_canonical(combined, ec);
+      if (ec) {
         if (error_msg) {
-          *error_msg = std::string(field_name) +
-                       " must be a file, not directory: " + canon_p.string();
+          *error_msg = "Failed to weakly canonicalize " +
+                       std::string(field_name) + ": " + combined.string();
         }
         return -2;
       }
     }
-  }
 
-  *resolved = canon_p;
-  return 0;
+    // 组件级严格包含校验，杜绝前缀混淆 (/root/a vs /root/ab) 与 symlink 逃逸
+    auto it_root = canonical_root.begin();
+    auto it_p = canon_p.begin();
+    while (it_root != canonical_root.end()) {
+      if (it_p == canon_p.end() || *it_p != *it_root) {
+        if (error_msg) {
+          *error_msg = std::string(field_name) +
+                       " symlink escapes model_path: " + canon_p.string();
+        }
+        return -2;
+      }
+      ++it_root;
+      ++it_p;
+    }
+
+    if (check_exists) {
+      if (is_directory) {
+        if (!std::filesystem::is_directory(canon_p, ec) || ec) {
+          if (error_msg) {
+            *error_msg = std::string(field_name) +
+                         " is not a directory: " + canon_p.string();
+          }
+          return -2;
+        }
+      } else {
+        if (std::filesystem::is_directory(canon_p, ec) || ec) {
+          if (error_msg) {
+            *error_msg = std::string(field_name) +
+                         " must be a file, not directory: " + canon_p.string();
+          }
+          return -2;
+        }
+      }
+    }
+
+    *resolved = canon_p;
+    return 0;
+  } catch (const std::exception& e) {
+    if (error_msg) {
+      *error_msg = std::string("Filesystem exception in ") + field_name + ": " +
+                   e.what();
+    }
+    return -2;
+  } catch (...) {
+    if (error_msg) {
+      *error_msg = std::string("Unknown filesystem exception in ") + field_name;
+    }
+    return -2;
+  }
 }
 
 }  // namespace
@@ -421,7 +468,44 @@ int CompanyConfResolver::Resolve(const char* model_path,
 
     PopulateDefaultCapacities(mem_type, &pool_spec);
 
-    // 模型路径覆盖与严格沙箱解析 (不要求 mock 模型物理存在)
+    // 计算单块内存预算与总池预算校验
+    size_t single_block_bytes = EstimateBaseStructSize(mem_type);
+    for (const auto& [cap_f, cap_n] : pool_spec.capacities) {
+      size_t field_bytes = 0;
+      if (!CheckedAdd(cap_n, 1, &field_bytes) ||
+          !CheckedAdd(single_block_bytes, field_bytes, &single_block_bytes)) {
+        if (error_msg) *error_msg = "Block memory calculation overflowed";
+        return -2;
+      }
+    }
+    if (pool_spec.meta_num > 0 && pool_spec.metadata_type_id > 0) {
+      const auto* mdesc = FindCompanyAnyType(pool_spec.metadata_type_id);
+      if (mdesc && mdesc->element_size > 0) {
+        size_t meta_bytes = 0;
+        if (!CheckedMultiply(pool_spec.meta_num, mdesc->element_size,
+                             &meta_bytes) ||
+            !CheckedAdd(single_block_bytes, meta_bytes, &single_block_bytes)) {
+          if (error_msg) *error_msg = "Metadata memory calculation overflowed";
+          return -2;
+        }
+      }
+    }
+
+    size_t total_pool_bytes = 0;
+    if (!CheckedMultiply(kDefaultOutputPoolDepth, single_block_bytes,
+                         &total_pool_bytes) ||
+        total_pool_bytes > kMaxHandlePoolMemoryBytes) {
+      if (error_msg) {
+        *error_msg = "Total output pool memory (" +
+                     std::to_string(total_pool_bytes) +
+                     " bytes) exceeds per-handle budget (" +
+                     std::to_string(kMaxHandlePoolMemoryBytes) + " bytes)";
+      }
+      return -2;
+    }
+
+    // 模型路径覆盖与严格沙箱解析 (不要求 mock
+    // 模型物理存在，但严格禁止越界与绝对路径)
     size_t model_count = 0;
     if (pipe_json.contains("models") && pipe_json["models"].is_array()) {
       model_count = pipe_json["models"].size();
@@ -484,7 +568,7 @@ int CompanyConfResolver::Resolve(const char* model_path,
       }
     }
 
-    // 全量规范化模型路径 (使用单一 root_path 沙箱)
+    // 全量规范化模型路径 (检查相对路径并在沙箱内解析，绝对路径直接拦截)
     if (pipe_json.contains("models") && pipe_json["models"].is_array()) {
       for (auto& item : pipe_json["models"]) {
         if (item.contains("model_path") && item["model_path"].is_string()) {
@@ -497,6 +581,13 @@ int CompanyConfResolver::Resolve(const char* model_path,
                                          false, false, &full_mpath, error_msg);
               if (ret != 0) return ret;
               item["model_path"] = full_mpath.string();
+            } else {
+              // 检查是否已经在沙箱内部 (例如已被上一层 conf override
+              // 规范化)，若非沙箱内则拒绝
+              ret = ResolveContainedPath(
+                  canon_root, p.lexically_relative(canon_root).string(),
+                  "pipeline model_path", false, false, &p, error_msg);
+              if (ret != 0) return ret;
             }
           }
         }

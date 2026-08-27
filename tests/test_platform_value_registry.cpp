@@ -150,4 +150,50 @@ TEST(PlatformValueRegistryTest, CompanyStringValidation) {
             0);
 }
 
+// 5. CompanyBuffer 二进制透明性与校验测试 (允许嵌入 NUL 字节)
+TEST(PlatformValueRegistryTest, CompanyBufferValidation) {
+  std::string err;
+
+  // 1. 空指针 -> -3
+  EXPECT_EQ(PlatformValueTypeRegistry::ValidateCompanyBuffer(nullptr, 100,
+                                                             "buf", &err),
+            -3);
+
+  // 2. 负长度 -> -3
+  uint8_t raw[] = {0x01, 0x00, 0x02, 0xFF};
+  CompanyBuffer cb_neg{-1, raw};
+  EXPECT_EQ(PlatformValueTypeRegistry::ValidateCompanyBuffer(&cb_neg, 100,
+                                                             "buf", &err),
+            -3);
+
+  // 3. 超限 -> -3
+  CompanyBuffer cb_toolarge{10, raw};
+  EXPECT_EQ(PlatformValueTypeRegistry::ValidateCompanyBuffer(&cb_toolarge, 3,
+                                                             "buf", &err),
+            -3);
+
+  // 4. 包含嵌入 0x00 字节的二进制数据 (对于 Buffer 必须合法通过)
+  CompanyBuffer cb_valid{4, raw};
+  EXPECT_EQ(PlatformValueTypeRegistry::ValidateCompanyBuffer(&cb_valid, 100,
+                                                             "buf", &err),
+            0);
+
+  // 5. 正长度但空数据指针 -> -3
+  CompanyBuffer cb_nulldata{4, nullptr};
+  EXPECT_EQ(PlatformValueTypeRegistry::ValidateCompanyBuffer(&cb_nulldata, 100,
+                                                             "buf", &err),
+            -3);
+}
+
+// 6. ValueTypeRegistry 原子预检与只读冻结测试 (R9-008)
+TEST(PlatformValueRegistryTest, RegisterBindingAtomicPrecheckAndFreeze) {
+  auto& reg = PlatformValueTypeRegistry::Instance();
+  EXPECT_EQ(reg.GlobalInit(), 0);
+
+  // 尝试在 GlobalInit 之后晚注册 -> 必须拒绝
+  PlatformValueTypeBinding late_binding;
+  late_binding.canonical_suffix = "late_in";
+  EXPECT_FALSE(reg.RegisterBinding(late_binding));
+}
+
 }  // namespace alg_framework

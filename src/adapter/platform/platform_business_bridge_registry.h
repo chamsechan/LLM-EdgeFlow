@@ -5,6 +5,7 @@
 #include <deque>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -61,6 +62,12 @@ struct PlatformBusinessSlot {
   std::string type_suffix;   // 规范类型后缀
   IoDirection direction = IoDirection::kInput;
   bool required = true;
+
+  bool operator==(const PlatformBusinessSlot& other) const {
+    return logical_name == other.logical_name &&
+           type_suffix == other.type_suffix && direction == other.direction &&
+           required == other.required;
+  }
 };
 
 using ConvertSampleInputFn = std::function<int(
@@ -86,17 +93,23 @@ struct PlatformBusinessBridgeDescriptor {
   ConvertSampleInputFn convert_sample_input;
   ConvertSampleOutputFn convert_sample_output;
   CreateShadowOutputDtoFn create_shadow_output_dto;
+
+  bool operator==(const PlatformBusinessBridgeDescriptor& other) const {
+    return biz_type == other.biz_type && biz_name == other.biz_name &&
+           input_slots == other.input_slots &&
+           output_slots == other.output_slots;
+  }
 };
 
 /**
- * @brief 平台业务桥接注册表 (SSOT)
+ * @brief 平台业务桥接注册表 (SSOT 与自注册中心)
  */
 class PlatformBusinessBridgeRegistry {
  public:
   static PlatformBusinessBridgeRegistry& Instance();
 
   /**
-   * @brief 注册业务桥接描述符
+   * @brief 注册业务桥接描述符 (严格审计并在 Init 后冻结)
    */
   bool RegisterBridge(PlatformBusinessBridgeDescriptor desc);
 
@@ -114,7 +127,10 @@ class PlatformBusinessBridgeRegistry {
   /**
    * @brief 检查是否存在冲突
    */
-  bool HasConflict() const { return has_conflict_; }
+  bool HasConflict() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return has_conflict_;
+  }
 
   /**
    * @brief 辅助函数：将 C 字符串安全复制至池化 CompanyString
@@ -124,23 +140,27 @@ class PlatformBusinessBridgeRegistry {
                                 std::string* err) noexcept;
 
  private:
-  PlatformBusinessBridgeRegistry();
-  void RegisterBuiltinBridges();
+  PlatformBusinessBridgeRegistry() = default;
 
+  mutable std::mutex mutex_;
   bool has_conflict_ = false;
   bool audited_ = false;
   std::unordered_map<int32_t, PlatformBusinessBridgeDescriptor>
       bridges_by_biz_type_;
 };
 
-#define REGISTER_PLATFORM_BUSINESS_BRIDGE(BridgeRegisterFn)             \
-  namespace {                                                           \
-  struct AutoRegister_##BridgeRegisterFn {                              \
-    AutoRegister_##BridgeRegisterFn() {                                 \
-      BridgeRegisterFn(                                                 \
-          ::alg_framework::PlatformBusinessBridgeRegistry::Instance()); \
-    }                                                                   \
-  } g_auto_reg_##BridgeRegisterFn;                                      \
+/**
+ * @brief 就地业务自注册宏 (无需在中心维护列表)
+ */
+#define REGISTER_PLATFORM_BUSINESS_BRIDGE(BridgeRegisterFn)                  \
+  namespace {                                                                \
+  struct AutoRegister_##BridgeRegisterFn {                                   \
+    AutoRegister_##BridgeRegisterFn() {                                      \
+      BridgeRegisterFn(                                                      \
+          ::alg_framework::PlatformBusinessBridgeRegistry::Instance());      \
+    }                                                                        \
+  };                                                                         \
+  static AutoRegister_##BridgeRegisterFn g_auto_register_##BridgeRegisterFn; \
   }
 
 }  // namespace alg_framework

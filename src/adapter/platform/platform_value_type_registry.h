@@ -7,11 +7,16 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "platform/company_platform_types.h"
 
 namespace alg_framework {
+
+inline constexpr uint32_t kDefaultOutputPoolDepth = 25;
+inline constexpr uint32_t kMaxOutputPoolDepth = 1024;
+inline constexpr size_t kMaxHandlePoolMemoryBytes = 64 * 1024 * 1024;  // 64 MiB
 
 /**
  * @brief 安全乘法助手函数 (checked-multiply)
@@ -22,6 +27,18 @@ inline bool CheckedMultiply(size_t lhs, size_t rhs, size_t* out) noexcept {
     return false;
   }
   *out = lhs * rhs;
+  return true;
+}
+
+/**
+ * @brief 安全加法助手函数 (checked-add)
+ */
+inline bool CheckedAdd(size_t lhs, size_t rhs, size_t* out) noexcept {
+  if (!out) return false;
+  if (rhs > std::numeric_limits<size_t>::max() - lhs) {
+    return false;
+  }
+  *out = lhs + rhs;
   return true;
 }
 
@@ -75,13 +92,47 @@ struct ResolvedOutputPoolSpec {
 };
 
 /**
- * @brief 由输出池持有所有权的外部结构块
+ * @brief 由输出池持有所有权的外部结构块 (具备完整 RAII 自动回滚与类型安全清理)
  */
 struct OwnedExternalBlock {
   void* raw_struct = nullptr;
-  std::vector<void*> owned_nested_buffers;
-  std::vector<CompanyString*> nested_company_strings;
+  std::vector<std::function<void()>> cleanups;
   ResolvedOutputPoolSpec spec;
+
+  OwnedExternalBlock() = default;
+  ~OwnedExternalBlock() { Destroy(); }
+
+  OwnedExternalBlock(OwnedExternalBlock&& other) noexcept
+      : raw_struct(other.raw_struct),
+        cleanups(std::move(other.cleanups)),
+        spec(std::move(other.spec)) {
+    other.raw_struct = nullptr;
+  }
+
+  OwnedExternalBlock& operator=(OwnedExternalBlock&& other) noexcept {
+    if (this != &other) {
+      Destroy();
+      raw_struct = other.raw_struct;
+      cleanups = std::move(other.cleanups);
+      spec = std::move(other.spec);
+      other.raw_struct = nullptr;
+    }
+    return *this;
+  }
+
+  OwnedExternalBlock(const OwnedExternalBlock&) = delete;
+  OwnedExternalBlock& operator=(const OwnedExternalBlock&) = delete;
+
+  void Destroy() noexcept {
+    for (auto it = cleanups.rbegin(); it != cleanups.rend(); ++it) {
+      try {
+        if (*it) (*it)();
+      } catch (...) {
+      }
+    }
+    cleanups.clear();
+    raw_struct = nullptr;
+  }
 };
 
 using ValidateExternalFn = std::function<int(
@@ -139,45 +190,55 @@ class PlatformValueTypeRegistry {
   /**
    * @brief 校验 CompanyAny 合法性 (受类型白名单与尺寸乘法方程校验)
    */
-  static int ValidateCompanyAnyPayload(const CompanyAny* any, size_t max_bytes,
+  static int ValidateCompanyAnyPayload(const CompanyAny* any,
+                                       size_t max_any_bytes,
                                        const char* field_name,
                                        std::string* err) noexcept;
-
-  /**
-   * @brief 注册值类型绑定 (全量预检后原子写入)
-   */
-  bool RegisterBinding(PlatformValueTypeBinding binding);
-
-  /**
-   * @brief 根据后缀 (规范名或别名) 获取绑定
-   */
-  const PlatformValueTypeBinding* GetBindingBySuffix(
-      const std::string& suffix) const;
-
-  /**
-   * @brief 将可能为别名的后缀归一化为规范后缀
-   */
-  std::string NormalizeSuffix(const std::string& suffix) const;
-
-  /**
-   * @brief 执行全局审计 (Fail-Closed 校验重名/别名冲突/缺失工厂)
-   */
-  int GlobalInit();
 
   /**
    * @brief 检查是否存在冲突
    */
   bool HasConflict() const { return has_conflict_; }
 
+  /**
+   * @brief 全局初始化并冻结注册表 (幂等安全，若存在冲突返回 -6)
+   */
+  int GlobalInit();
+
+  /**
+   * @brief 注册值类型绑定 (在写入前执行严格的原子预检)
+   */
+  bool RegisterBinding(PlatformValueTypeBinding binding);
+
+  /**
+   * @brief 根据规范后缀或别名获取规范后缀 (若未知返回空字符串)
+   */
+  std::string NormalizeSuffix(const std::string& suffix) const {
+    const auto* b = GetBindingBySuffix(suffix);
+    return b ? b->canonical_suffix : "";
+  }
+
+  /**
+   * @brief 根据规范后缀或别名获取绑定描述符
+   */
+  const PlatformValueTypeBinding* GetBindingBySuffix(
+      const std::string& suffix) const;
+
+  /**
+   * @brief 测试专用的分配故障注入探针 (非公开 ABI，仅单测使用)
+   */
+  static void SetAllocationFailureCountdown(int count) noexcept;
+  static int GetAllocationFailureCountdown() noexcept;
+
  private:
   PlatformValueTypeRegistry();
   void RegisterBuiltinBindings();
 
+  mutable std::unordered_map<std::string, PlatformValueTypeBinding>
+      bindings_by_canonical_;
+  mutable std::unordered_map<std::string, std::string> alias_to_canonical_;
   bool has_conflict_ = false;
   bool audited_ = false;
-  std::unordered_map<std::string, PlatformValueTypeBinding>
-      bindings_by_canonical_;
-  std::unordered_map<std::string, std::string> alias_to_canonical_;
 };
 
 }  // namespace alg_framework

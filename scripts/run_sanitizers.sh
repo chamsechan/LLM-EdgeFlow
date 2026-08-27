@@ -63,6 +63,9 @@ if [[ "${MODE}" == "fast" ]]; then
     test_node_base_contracts
     test_pipeline_config
     test_pipeline_studio
+    test_platform_operator
+    test_platform_output_pool
+    test_platform_value_registry
     test_typed_blackboard_contracts
     test_validated_pipeline_plan
   )
@@ -71,7 +74,8 @@ else
   cmake --build "${BUILD_DIR}" -j4
 fi
 
-export ASAN_OPTIONS="detect_leaks=0:abort_on_error=1"
+DETECT_LEAKS="${DETECT_LEAKS:-0}"
+export ASAN_OPTIONS="detect_leaks=${DETECT_LEAKS}:abort_on_error=1"
 if [[ "${SANITIZERS}" == *"address"* ]]; then
     LIBASAN_PATH="$(gcc -print-file-name=libasan.so 2>/dev/null || true)"
     if [[ -f "${LIBASAN_PATH}" ]]; then
@@ -91,7 +95,7 @@ export LLM_EDGEFLOW_DEMO_BINARY="${BUILD_DIR}/alg_demo"
 
 if [ "${MODE}" == "fast" ]; then
   echo ">>> [1/2] Running emulator-only core CTest suite with [${SANITIZERS}] <<<"
-  FAST_TEST_REGEX="^(BatchExecutorTest|FrameworkCoreTest|CAbiSafetyTest|ConcurrencyAndEdgeCasesTest|AdapterContractSecurityTest|PipelineConfigTest|PipelineStudioTest|VisualizerServerTest|TypedBlackboardContractsTest|ValidatedPipelinePlanTest|NodeBaseContractsTest|DefinitionSchemaValidationTest)$"
+  FAST_TEST_REGEX="^(BatchExecutorTest|FrameworkCoreTest|CAbiSafetyTest|ConcurrencyAndEdgeCasesTest|AdapterContractSecurityTest|PipelineConfigTest|PipelineStudioTest|PlatformOperatorTest|PlatformOutputPoolTest|PlatformValueRegistryTest|VisualizerServerTest|TypedBlackboardContractsTest|ValidatedPipelinePlanTest|NodeBaseContractsTest|DefinitionSchemaValidationTest)$"
   ctest --test-dir "${BUILD_DIR}" -R "${FAST_TEST_REGEX}" --output-on-failure
 else
   echo ">>> [1/2] Running Full CTest Suite with [${SANITIZERS}] <<<"

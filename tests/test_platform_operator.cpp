@@ -1071,3 +1071,157 @@ TEST_F(PlatformOperatorTest, MemQueConfigValidationFailClosed) {
   }
   EXPECT_EQ(ops_.Create(&handle, &param), -2);
 }
+
+// 22. SSO 短字符串 (1~7 字节) 与跨批次指针绝对地址稳定性测试 (R9-001)
+TEST_F(PlatformOperatorTest, ShortStringSsoAndAddressStability) {
+  std::string root_dir = GetConfDir();
+  CreateParam param{};
+  param.model_path = root_dir.c_str();
+  param.cfg_file_name = "configs/pipeline_keyword_match.conf";
+  param.device_id = 0;
+  param.platform_type = ChipType::kAx650;
+  param.max_frame_depth = 25;
+
+  void* handle = nullptr;
+  ASSERT_EQ(ops_.Create(&handle, &param), 0);
+  ASSERT_NE(handle, nullptr);
+
+  // 构造包含 1~7 字节短字符串 (SSO 敏感) 的多个样本
+  const char* short_words[] = {"a",     "bc",     "def",    "ghij",
+                               "klmno", "pqrstu", "vwxyz12"};
+  NamedIoBatch batch_inputs(7);
+  std::vector<CompanyString> company_strings(7);
+  std::vector<CompanyPlatformKeywordInput> inputs(7);
+
+  for (size_t i = 0; i < 7; ++i) {
+    company_strings[i].length =
+        static_cast<int32_t>(std::strlen(short_words[i]));
+    company_strings[i].data = const_cast<char*>(short_words[i]);
+    inputs[i].request_id = 70000 + i;
+    inputs[i].sentence_text = &company_strings[i];
+
+    batch_inputs[i]["client_channel.keyword_in"] =
+        MakeBorrowedPlatformInput(&inputs[i]);
+  }
+
+  NamedIoBatch batch_outputs(7);
+  for (size_t i = 0; i < 7; ++i) {
+    batch_outputs[i]["client_channel.keyword_out"] = nullptr;
+  }
+
+  int ret = ops_.Process(handle, batch_inputs, batch_outputs);
+  EXPECT_EQ(ret, 0);
+
+  for (size_t i = 0; i < 7; ++i) {
+    auto out_sp = batch_outputs[i]["client_channel.keyword_out"];
+    ASSERT_NE(out_sp, nullptr);
+    const auto* out =
+        static_cast<const CompanyPlatformKeywordOutput*>(out_sp.get());
+    EXPECT_EQ(out->request_id, 70000 + i);
+  }
+
+  ops_.Destroy(handle);
+}
+
+// 23. 控制块构造失败注入与两阶段原子发布回滚测试 (R9-002)
+TEST_F(PlatformOperatorTest, AtomicPublishFailureRollback) {
+  std::string root_dir = GetConfDir();
+  CreateParam param{};
+  param.model_path = root_dir.c_str();
+  param.cfg_file_name = "configs/pipeline_keyword_match.conf";
+  param.device_id = 0;
+  param.platform_type = ChipType::kAx650;
+  param.max_frame_depth = 5;
+
+  void* handle = nullptr;
+  ASSERT_EQ(ops_.Create(&handle, &param), 0);
+  ASSERT_NE(handle, nullptr);
+
+  char sent1[] = "VIP";
+  CompanyString cs1{3, sent1};
+  CompanyPlatformKeywordInput in1{80001, &cs1};
+
+  char sent2[] = "urgent";
+  CompanyString cs2{6, sent2};
+  CompanyPlatformKeywordInput in2{80002, &cs2};
+
+  NamedIoBatch batch_inputs(2);
+  batch_inputs[0]["client_channel.keyword_in"] =
+      MakeBorrowedPlatformInput(&in1);
+  batch_inputs[1]["client_channel.keyword_in"] =
+      MakeBorrowedPlatformInput(&in2);
+
+  NamedIoBatch batch_outputs(2);
+  batch_outputs[0]["client_channel.keyword_out"] = nullptr;
+  batch_outputs[1]["client_channel.keyword_out"] = nullptr;
+
+  // 注入探针：在发布第 2 个控制块 (index=1) 时模拟 bad_alloc 异常
+  alg_framework::OutputPoolState::SetPublishFailureCountdown(1);
+
+  int ret = ops_.Process(handle, batch_inputs, batch_outputs);
+  // 必须返回异常捕获错误 -99
+  EXPECT_EQ(ret, -99);
+
+  // 验证两阶段发布原子性：任何一个失败，对外输出必须全部保持 null
+  EXPECT_EQ(batch_outputs[0]["client_channel.keyword_out"], nullptr);
+  EXPECT_EQ(batch_outputs[1]["client_channel.keyword_out"], nullptr);
+
+  // 验证池中块全量安全回退：下一次正常请求仍可完整获取所有块
+  alg_framework::OutputPoolState::SetPublishFailureCountdown(-1);
+  ret = ops_.Process(handle, batch_inputs, batch_outputs);
+  EXPECT_EQ(ret, 0);
+  EXPECT_NE(batch_outputs[0]["client_channel.keyword_out"], nullptr);
+  EXPECT_NE(batch_outputs[1]["client_channel.keyword_out"], nullptr);
+
+  ops_.Destroy(handle);
+}
+
+// 24. 严格路径沙箱与非法路径拦截测试 (R9-003)
+TEST_F(PlatformOperatorTest, PathSandboxStrictBoundaries) {
+  std::string root_dir = GetConfDir();
+  char err_buf[256] = {0};
+
+  // 1. POSIX 绝对路径拒绝
+  EXPECT_EQ(ValidatePlatformConfigBinding(
+                root_dir.c_str(), "/etc/pipeline.conf",
+                static_cast<int32_t>(ALG_BIZ_TYPE_KEYWORD_MATCH), err_buf,
+                sizeof(err_buf)),
+            -2);
+
+  // 2. Windows 盘符拒绝
+  EXPECT_EQ(ValidatePlatformConfigBinding(
+                root_dir.c_str(), "C:\\pipeline.conf",
+                static_cast<int32_t>(ALG_BIZ_TYPE_KEYWORD_MATCH), err_buf,
+                sizeof(err_buf)),
+            -2);
+
+  // 3. UNC 路径拒绝
+  EXPECT_EQ(ValidatePlatformConfigBinding(
+                root_dir.c_str(), "\\\\server\\share\\pipeline.conf",
+                static_cast<int32_t>(ALG_BIZ_TYPE_KEYWORD_MATCH), err_buf,
+                sizeof(err_buf)),
+            -2);
+
+  // 4. .. 逃逸拒绝
+  EXPECT_EQ(ValidatePlatformConfigBinding(
+                root_dir.c_str(), "../../etc/passwd",
+                static_cast<int32_t>(ALG_BIZ_TYPE_KEYWORD_MATCH), err_buf,
+                sizeof(err_buf)),
+            -2);
+}
+
+// 25. 深度上限与总内存预算超限防御 (R9-005)
+TEST_F(PlatformOperatorTest, DepthLimitAndTotalMemoryBudget) {
+  std::string root_dir = GetConfDir();
+  CreateParam param{};
+  param.model_path = root_dir.c_str();
+  param.cfg_file_name = "configs/pipeline_keyword_match.conf";
+  param.device_id = 0;
+  param.platform_type = ChipType::kAx650;
+
+  // 1. 超过最大深度 1024
+  param.max_frame_depth = 2048;
+  void* handle = nullptr;
+  EXPECT_EQ(ops_.Create(&handle, &param), -2);
+  EXPECT_EQ(handle, nullptr);
+}

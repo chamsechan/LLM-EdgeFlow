@@ -7,15 +7,6 @@
 
 namespace alg_framework {
 
-// Declarations of bridge registration helper functions
-void RegisterKeywordMatchBridge(PlatformBusinessBridgeRegistry& reg);
-void RegisterEntityExtractBridge(PlatformBusinessBridgeRegistry& reg);
-void RegisterDocQaBridge(PlatformBusinessBridgeRegistry& reg);
-void RegisterComplianceAuditBridge(PlatformBusinessBridgeRegistry& reg);
-void RegisterOcrDocQaBridge(PlatformBusinessBridgeRegistry& reg);
-void RegisterAudioAsrIntentBridge(PlatformBusinessBridgeRegistry& reg);
-void RegisterCrossRerankBridge(PlatformBusinessBridgeRegistry& reg);
-
 PlatformBusinessBridgeRegistry& PlatformBusinessBridgeRegistry::Instance() {
   static PlatformBusinessBridgeRegistry instance;
   return instance;
@@ -48,12 +39,14 @@ int PlatformBusinessBridgeRegistry::CopyToPooledString(
   return 0;
 }
 
-PlatformBusinessBridgeRegistry::PlatformBusinessBridgeRegistry() {
-  RegisterBuiltinBridges();
-}
-
 bool PlatformBusinessBridgeRegistry::RegisterBridge(
     PlatformBusinessBridgeDescriptor desc) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (audited_) {
+    has_conflict_ = true;
+    return false;
+  }
+
   int32_t key = static_cast<int32_t>(desc.biz_type);
   if (key == 0 || desc.biz_name.empty()) {
     has_conflict_ = true;
@@ -61,7 +54,7 @@ bool PlatformBusinessBridgeRegistry::RegisterBridge(
   }
   auto it = bridges_by_biz_type_.find(key);
   if (it != bridges_by_biz_type_.end()) {
-    if (it->second.biz_name != desc.biz_name) {
+    if (!(it->second == desc)) {
       has_conflict_ = true;
       return false;
     }
@@ -115,6 +108,7 @@ bool PlatformBusinessBridgeRegistry::RegisterBridge(
 
 const PlatformBusinessBridgeDescriptor*
 PlatformBusinessBridgeRegistry::GetBridge(CompanyAlgBizType biz_type) const {
+  std::lock_guard<std::mutex> lock(mutex_);
   auto it = bridges_by_biz_type_.find(static_cast<int32_t>(biz_type));
   if (it != bridges_by_biz_type_.end()) {
     return &it->second;
@@ -123,9 +117,19 @@ PlatformBusinessBridgeRegistry::GetBridge(CompanyAlgBizType biz_type) const {
 }
 
 int PlatformBusinessBridgeRegistry::GlobalInit() {
+  std::lock_guard<std::mutex> lock(mutex_);
   if (has_conflict_) {
     return -6;
   }
+
+  // 校验全部 7 类核心业务均已就地自注册到位
+  for (int biz_id = 1; biz_id <= 7; ++biz_id) {
+    if (bridges_by_biz_type_.find(biz_id) == bridges_by_biz_type_.end()) {
+      has_conflict_ = true;
+      return -6;
+    }
+  }
+
   // 全面原子审计：BizType, Adapter, 槽位规范后缀与生命周期函数
   for (const auto& [biz_type, desc] : bridges_by_biz_type_) {
     auto adapter = BusinessAdapterRegistry::Instance().GetAdapter(
@@ -170,16 +174,6 @@ int PlatformBusinessBridgeRegistry::GlobalInit() {
   }
   audited_ = true;
   return 0;
-}
-
-void PlatformBusinessBridgeRegistry::RegisterBuiltinBridges() {
-  RegisterKeywordMatchBridge(*this);
-  RegisterEntityExtractBridge(*this);
-  RegisterDocQaBridge(*this);
-  RegisterComplianceAuditBridge(*this);
-  RegisterOcrDocQaBridge(*this);
-  RegisterAudioAsrIntentBridge(*this);
-  RegisterCrossRerankBridge(*this);
 }
 
 }  // namespace alg_framework
