@@ -112,13 +112,13 @@ TEST(PlatformBusinessBridgeRegistryTest,
   ASSERT_NE(orig_desc, nullptr);
   EXPECT_TRUE(local_reg.RegisterBridge(*orig_desc));
 
-  // Re-register with same metadata/slots but different callback function pointer -> conflict
+  // Re-register with same metadata/slots but different callback function
+  // pointer -> conflict
   PlatformBusinessBridgeDescriptor conflict_desc = *orig_desc;
   conflict_desc.convert_sample_input =
       [](const std::unordered_map<std::string, const void*>&,
-         ProcessLocalShadowStorage&, const void**, std::string*) -> int {
-    return -99;
-  };
+         ProcessLocalShadowStorage&, const void**,
+         std::string*) -> int { return -99; };
   EXPECT_FALSE(local_reg.RegisterBridge(conflict_desc));
   EXPECT_TRUE(local_reg.HasConflict());
   EXPECT_EQ(local_reg.GlobalInit(), -6);
@@ -140,8 +140,7 @@ TEST(PlatformBusinessBridgeRegistryTest,
   EXPECT_EQ(local_reg.GlobalInit(), -6);
 }
 
-TEST(PlatformBusinessBridgeRegistryTest,
-     ConcurrentReadFreezeInterleavingTSan) {
+TEST(PlatformBusinessBridgeRegistryTest, ConcurrentReadFreezeInterleavingTSan) {
   PlatformBusinessBridgeRegistry local_reg;
   const auto& global_reg = PlatformBusinessBridgeRegistry::Instance();
   for (int biz_id = 1; biz_id <= 7; ++biz_id) {

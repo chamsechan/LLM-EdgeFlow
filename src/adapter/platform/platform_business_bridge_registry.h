@@ -75,12 +75,12 @@ using ConvertSampleInputFn = int (*)(
     ProcessLocalShadowStorage& storage, const void** out_internal_dto,
     std::string* err);
 
-using ConvertSampleOutputFn =
-    int (*)(const void* internal_dto, void* external_output_struct,
-            const ResolvedOutputPoolSpec& spec, std::string* err);
+using ConvertSampleOutputFn = int (*)(const void* internal_dto,
+                                      void* external_output_struct,
+                                      const ResolvedOutputPoolSpec& spec,
+                                      std::string* err);
 
-using CreateShadowOutputDtoFn =
-    void* (*)(ProcessLocalShadowStorage& storage);
+using CreateShadowOutputDtoFn = void* (*)(ProcessLocalShadowStorage& storage);
 
 /**
  * @brief 业务桥接描述符

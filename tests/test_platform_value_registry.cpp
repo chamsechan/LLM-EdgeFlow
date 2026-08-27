@@ -328,7 +328,8 @@ TEST(PlatformValueRegistryTest, AllSevenOutputTypesFootprintAndBudget) {
   {
     ResolvedOutputPoolSpec huge_spec;
     huge_spec.type = "keyword_out";
-    huge_spec.capacities["match_result_json"] = 100 * 1024 * 1024;  // 100 MiB capacity
+    huge_spec.capacities["match_result_json"] =
+        100 * 1024 * 1024;  // 100 MiB capacity
     size_t huge_bytes = 0;
     std::string huge_err;
     EXPECT_FALSE(ComputeOutputPoolBytes("keyword_out", huge_spec, 25,

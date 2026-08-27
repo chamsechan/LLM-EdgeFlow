@@ -1519,9 +1519,11 @@ TEST_F(PlatformOperatorTest, MultiBusinessMaxBatchBoundarySuite) {
 
     constexpr size_t kBatch = 4;
     std::vector<std::string> q_strs(kBatch);
-    std::vector<std::vector<std::string>> c_strs(kBatch, std::vector<std::string>(8));
+    std::vector<std::vector<std::string>> c_strs(kBatch,
+                                                 std::vector<std::string>(8));
     std::vector<CompanyString> q_cs(kBatch);
-    std::vector<std::vector<CompanyString>> c_cs(kBatch, std::vector<CompanyString>(8));
+    std::vector<std::vector<CompanyString>> c_cs(kBatch,
+                                                 std::vector<CompanyString>(8));
     std::vector<CompanyPlatformRerankInput> inputs(kBatch);
     NamedIoBatch batch_in(kBatch), batch_out(kBatch);
 
@@ -1533,7 +1535,8 @@ TEST_F(PlatformOperatorTest, MultiBusinessMaxBatchBoundarySuite) {
       inputs[i].query_text = &q_cs[i];
       inputs[i].candidate_count = 8;
       for (size_t c = 0; c < 8; ++c) {
-        c_strs[i][c] = "Candidate passage " + std::to_string(c) + " for req #" + std::to_string(i);
+        c_strs[i][c] = "Candidate passage " + std::to_string(c) + " for req #" +
+                       std::to_string(i);
         c_cs[i][c] = CompanyString{static_cast<int32_t>(c_strs[i][c].size()),
                                    c_strs[i][c].data()};
         inputs[i].candidate_passages[c] = &c_cs[i][c];
