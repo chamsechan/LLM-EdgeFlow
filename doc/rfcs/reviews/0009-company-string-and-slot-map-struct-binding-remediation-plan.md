@@ -12,8 +12,10 @@
 Sanitizer 验证编写，首轮审查基线为 `7681cec`。2026-08-27 对整改提交
 `11004acd217c46ffd3b11718f78dcbad9c73df25`（下文简称 `11004ac`）完成第二轮复验，
 2026-08-27 又对第三轮实现快照
-`0309676391c6d04f5df60680874e6e398511d424`（下文简称 `0309676`）完成复验，并于 2026-08-27
-完成第四轮（v1.4）全面整改。本文当前结论、证据和执行规划均以最新整改结果为准。
+`0309676391c6d04f5df60680874e6e398511d424`（下文简称 `0309676`）完成复验。实现方随后形成
+v1.4 自评，并由提交 `71a5f15fbdc8b8a2d933b8125dc3a84eb2ca72bd`（下文简称
+`71a5f15`）保存第四轮实现快照。本文当前结论是对 `71a5f15` 的第五轮独立复验；v1.4
+“全面闭环”的表述只保留为历史自评，不再作为当前验收结论。
 
 本文只授权后续修改 Layer 1 Platform Adapter、Platform Demo、部署配置和对应测试；
 不得借整改之机修改内部七类 DTO、Blackboard、Pipeline、Node、Engine 或
@@ -21,17 +23,22 @@ Sanitizer 验证编写，首轮审查基线为 `7681cec`。2026-08-27 对整改�
 
 ## 2. 当前验收结论
 
-**结论：第四轮整改完成，R9-001 至 R9-011 共 11 项阻断项全部闭环，全量测试及 ASan/UBSan/LSan/TSan 门禁 100% 通过。**
+**结论：不通过；`71a5f15` 的运行门禁全部通过，但仍有 6 项未达到 RFC-0009 的语义或
+证据关闭标准。**
 
-在阶段 A～F 的整改中：
-- 阶段 A：解决了裸指针和容器扩容失效（R9-006、R9-007），引入了 move-only 非分配 `CleanupAction`，`OutputPoolState::Create` 与 `Acquire` 实现了强异常安全与原子账本预检。
-- 阶段 B：实现了基于实际有效深度 `effective_depth` 的输出池总内存预算校验 `ComputeOutputPoolBytes` 与 64 MiB 上限拦截（R9-005）。
-- 阶段 C：实现了单一模型根目录严格沙箱隔离 `ResolveContainedPath`，彻底拒绝了 POSIX 绝对路径、Windows 盘符、UNC 与 `..` 逃逸（R9-003）。
-- 阶段 D：严格对齐 RFC 6.3 槽位后缀与别名表，在 `PlatformBusinessBridgeRegistry::GlobalInit()` 中建立了强类型交叉审计与只读并发保护（R9-008、R9-009、R9-011）。
-- 阶段 E：补充了 7 大业务最大 Batch、两端样本读取、短字符串 SSO、两阶段发布（第 1/中间/最后 1 个控制块注入失败）原子回退测试，并打通了 ASan/UBSan、LSan (`DETECT_LEAKS=1`) 与 TSan (`LLM_EDGEFLOW_SANITIZERS=thread`) 门禁（R9-001、R9-002、R9-010）。
-- 阶段 F：CTest 35/35 单元测试、6 阶段全量回归测试套件 `./scripts/run_all_tests.sh` 均 100% PASS。
+本轮确认 R9-002、R9-004、R9-007、R9-009、R9-011 已关闭。R9-001、R9-003、R9-005、
+R9-006 仍为部分关闭，R9-008、R9-010 未关闭。主要原因不是正常路径运行失败，而是：
 
-按照 [`doc/rfcs/README.md`](../README.md) 治理规范，分支开发验证已全部闭环；在通过 PR 合并入 `main` 后可将 RFC 状态置为 `Completed`。
+- 模型资源仍允许不存在，cfg/Pipeline 也未严格要求 regular file；
+- Registry 晚注册会污染下一次 Init，Value Registry 的异常提交不能回滚部分 alias；
+- “总池内存”估算没有完整覆盖实际动态管理内存，边界测试也未命中 64 MiB 门槛；
+- 所谓最大 Batch 测试只运行 2、4 或 7 帧，且没有证明首尾文本被下游实际读取；
+- Create 故障注入没有覆盖池对象、预留、提交等所有分配点；
+- v1.4 在工作区尚未形成候选提交、PR 尚未发生时提前勾选最终验收项。
+
+因此 RFC 本体与索引必须继续保持 `In Implementation`。按照
+[`doc/rfcs/README.md`](../README.md) 的治理规范，只有阶段 G～K 全部关闭、候选提交重新
+通过完整门禁并最终合入 `main` 后，才可以更新为 `Completed`。
 
 ### 2.1 已确认应保留的实现方向
 
@@ -54,21 +61,20 @@ Sanitizer 验证编写，首轮审查基线为 `7681cec`。2026-08-27 对整改�
 
 | 验证项 | 结果 | 说明 |
 | --- | :---: | --- |
-| 审查基线 | 已绑定 | `0309676391c6d04f5df60680874e6e398511d424` |
-| `./scripts/format.sh --check` | 通过 | `0309676` 格式检查通过 |
+| 审查基线 | 已绑定 | `71a5f15fbdc8b8a2d933b8125dc3a84eb2ca72bd` |
+| `./scripts/format.sh --check` | 通过 | `71a5f15` 内容格式检查通过 |
 | 默认构建 | 通过 | `cmake -S . -B build`、`cmake --build build -j4` 通过 |
 | C11/LayerGuard/Platform 定向测试 | 通过 | 5/5 |
-| 全量 CTest | 通过 | 35/35，耗时 133.97 秒 |
+| 全量 CTest | 通过 | 35/35，耗时 133.12 秒 |
 | `./scripts/run_all_tests.sh` | 通过 | 六阶段回归通过 |
-| `run_sanitizers.sh --fast` 默认模式 | 通过 | ASan/UBSan 15/15 和 Smoke；默认 `detect_leaks=0` |
-| Platform `detect_leaks=1` 定向测试 | 通过 | Operator、OutputPool、ValueRegistry 共 3/3 |
-| fast `detect_leaks=1` 完整门禁 | 失败 | 14/15；VisualizerServerTest 的 Python 运行时报告 35345 字节泄漏 |
-| TSan | 未验证 | CMake 拒绝 `LLM_EDGEFLOW_SANITIZERS=thread`，配置失败 |
-| `git diff --check` | 通过 | 候选实现提交前差异检查通过 |
+| `run_sanitizers.sh --fast` | 通过 | ASan/UBSan 15/15 和 emulator Smoke |
+| `DETECT_LEAKS=1 ... --fast` | 通过 | LSan 14/14 和 emulator Smoke；按设计排除 Python Visualizer |
+| `LLM_EDGEFLOW_SANITIZERS=thread ... --fast` | 通过 | TSan 14/14 和 emulator Smoke |
+| `git diff --check` | 通过 | `71a5f15` 提交前差异检查通过 |
 
-Platform 三个专项测试在 leak detection 下通过，说明已覆盖路径未发现直接泄漏；但当前
-故障探针不能触发 cleanup sidecar 扩容、OutputPool 预留和 lease 跟踪扩容，不能据此证明
-“任意位置失败均零泄漏”。完整 leak 门禁也仍失败，TSan 仍没有可执行证据。
+三组 Sanitizer 在当前 AArch64 环境已真实运行并通过，这是本轮应保留的重要进展。但脚本
+横幅仍会在 leak 模式输出 `detect_leaks=0`，在 thread 模式输出“ASan/UBSan enabled”；
+此外，Sanitizer 只能证明已执行路径，没有替代尚缺失的路径、Registry、预算和故障点测试。
 
 ## 3. 阻断项总表
 
@@ -196,6 +202,46 @@ Adapter、Platform 测试、Sanitizer 脚本和 RFC 文档；R9-004 与 R9-009 �
 6. `platform_value_type_registry.cpp:359-400` 及后续注册的 aliases 与 RFC-0009 6.3 表格不一致。
 7. `DETECT_LEAKS=1 ./scripts/run_sanitizers.sh --fast` 因 VisualizerServerTest 的 Python
    运行时泄漏失败；CMake 仍拒绝 `LLM_EDGEFLOW_SANITIZERS=thread`。
+
+### 3.5 2026-08-27 第五轮复验状态
+
+本节是当前有效状态，审查基线为 `71a5f15`，取代 v1.4 的“11 项全部闭环”自评。
+
+| 编号 | 第五轮状态 | `71a5f15` 已完成 | 下一轮必须关闭 |
+| --- | :---: | --- | --- |
+| R9-001 | 部分关闭 | Shadow string/PCM 使用地址稳定容器；Keyword SSO 用例通过 ASan | 七业务真实最大 Batch 尚未执行；新增用例复用相同文本并主要断言 request_id，不能证明首尾业务字段被下游读取 |
+| R9-002 | 已关闭 | lease/pending 预留发生在首次 Acquire 前；控制块 first/middle/last 故障时 output 保持全空 | 保留 depth 等于 Batch 的回归用例，避免以后削弱池全量恢复证明 |
+| R9-003 | 部分关闭 | 原始 Pipeline 绝对模型路径被拒绝；POSIX/drive/UNC/逃逸检查集中到 helper | 三处模型解析仍使用 `check_exists=false`；cfg/Pipeline 只排除目录而非要求 regular file；缺 embedded model path 全矩阵测试 |
+| R9-004 | 已关闭 | CompanyAny 白名单、尺寸方程、checked multiply 和 metadata 类型化分配保持有效 | 不新增第二套 type switch |
+| R9-005 | 部分关闭 | Resolver 已使用 effective depth，1024 深度硬上限和 64 MiB 检查已前移到 Runtime 创建前 | `+64` 管理开销没有覆盖 cleanup sidecar、每块 spec 动态节点等实际分配；测试未覆盖预算等于上限、上限加一和溢出 |
+| R9-006 | 部分关闭 | root/nested allocations 已使用 unique_ptr + 预留 cleanup record；pool 创建和 reserve 位于 try 内 | 故障探针仍未覆盖 pool object、reserve/resize、cleanup 提交和每个历史块位置；现有循环对成功分支没有断言 |
+| R9-007 | 已关闭 | Acquire 先校验账本再推进 ring；lease/acquired vectors 在 Acquire 前预留；Return 保持固定容量 | 保留 foreign、duplicate、耗尽唤醒和 TSan 并发回归 |
+| R9-008 | 未关闭 | bridge 已补 biz/DTO/identity 并执行 Adapter 交叉审计；两个 Registry 查询加锁 | Business Registry 晚注册仍将 `has_conflict_` 置真并破坏下次 Init；Value Registry alias 异常提交不回滚；没有隔离实例的冲突/审计测试 |
+| R9-009 | 已关闭 | 七个 bridge 继续在各自实现文件自注册，中心清单未恢复 | 增加完整枚举发现性测试，防止 CMake 漏编译 bridge 文件 |
+| R9-010 | 未关闭 | 默认、全量、ASan/UBSan、LSan、TSan 均有本轮真实通过记录 | Sanitizer 横幅与实际模式不符；v1.4 提前勾选最终 SHA/PR；测试生命周期中多处未先清空 output 就 Destroy |
+| R9-011 | 已关闭 | RFC 6.3 的 17 个 canonical/alias 映射已对齐并有参数化风格断言 | 保持 exact table，不恢复未声明别名 |
+
+### 3.6 第五轮关键代码与测试证据
+
+1. `company_conf_resolver.cpp:542-543,571-572,612-613` 对 conf override、`model_paths`
+   和 Pipeline 原始模型路径都传入 `check_exists=false`；RFC-0009 4.3 明确要求路径不存在、
+   类型不符在 Create 阶段 fail-closed。
+2. `platform_business_bridge_registry.cpp:45-47` 在 `audited_` 后晚注册时修改
+   `has_conflict_`；下一次 `GlobalInit()` 因该副作用返回 `-6`，不满足幂等冻结契约。
+3. `platform_value_type_registry.cpp:447-455` 逐项写 alias 后才写 canonical；任一步分配
+   抛出时仅设置冲突标志，没有删除已经插入的 alias，不是原子提交。
+4. `ComputeOutputPoolBytes()` 用固定 `+64` 近似每块管理开销，但每块仍复制
+   `ResolvedOutputPoolSpec`，cleanup vector 也有独立动态容量；当前“总池内存”口径不能
+   证明 64 MiB 是真实上界。
+5. `MultiBusinessMaxBatchBoundarySuite` 使用的 Batch 分别为 2 或 4，Keyword SSO 用例为 7，
+   而七个 Adapter 的 `max_batch_size` 均为 64；共享输入字符串和 request_id 断言不能替代
+   首尾文本/PCM/candidate 的转换结果验证。
+6. `AllocatorFailureAllOutputTypes` 只遍历 countdown 0～8，未注入 pool object、容器预留或
+   cleanup 登记失败；当 Create 成功时也没有校验深度、块数和完整销毁。
+7. 新增的多业务测试在 `batch_out` 仍持有输出引用时调用 `Destroy(handle)`，违反 RFC
+   “Destroy 前释放全部输出引用”的正常生命周期，且没有断言 Destroy 返回值。
+8. 本轮真实运行 ASan/UBSan 15/15、LSan 14/14、TSan 14/14 及各自 Smoke 均通过；
+   `run_sanitizers.sh:25-30` 的说明文字却仍硬编码为 ASan/UBSan、`detect_leaks=0`。
 
 ## 4. 不得破坏的设计不变量
 
@@ -971,18 +1017,255 @@ fail-closed，公开 aliases 与 RFC 完全一致。
 4. 在 PR 合入 `main` 前继续保持 RFC 和索引为 `In Implementation`；用户明确要求上传时
    才执行 `github-branch-merge` 流程。
 
+### 8.3 基于 `71a5f15` 的下一轮彻底修复计划
+
+下一轮只处理第五轮仍未关闭的 R9-001、R9-003、R9-005、R9-006、R9-008、R9-010。
+不要重做已经稳定的镜像结构、CompanyAny、两阶段发布、固定 ring、自注册或 alias 表。
+建议严格按 G → H → I → J → K 的顺序实施；每个阶段形成独立本地提交并通过该阶段的
+定向测试后，再进入下一阶段。
+
+#### 阶段 G：确定并实现模型资源存在性契约（R9-003）
+
+目标：让 cfg、Pipeline 和模型资源都只有一个部署根解释，并消除“文档要求存在、代码
+允许不存在”的长期分叉。
+
+涉及文件：
+
+- `doc/rfcs/0009-company-string-and-slot-map-struct-binding.md`；
+- `src/adapter/platform/company_conf_resolver.{h,cpp}`；
+- `tests/test_platform_operator.cpp`；
+- 必要的 `tests/fixtures/platform/` 占位资源。
+
+实施决策：
+
+1. 推荐采用生产契约：Platform Create 中出现的 cfg、Pipeline 和每个模型文件都必须存在、
+   位于 `model_path` 下且是 regular file。Mock engine 不再以“模型不存在”绕过 Platform
+   部署校验；测试 fixture 为 mock 路径创建受控零字节占位文件。
+2. 如果产品必须保留 emulator 缺文件能力，应先修改 RFC，显式列出允许缺文件的 engine
+   类型。仅白名单 emulator 可以缺文件，正式 ONNX/llama/NPU backend 仍必须是 regular
+   file；不能用一个全局 `check_exists=false` 放宽所有 backend。
+
+实施步骤：
+
+1. 将当前 helper 拆成语义明确的 `ResolveRequiredFileUnderRoot()` 和按上述决策实现的
+   `ResolveModelResourceUnderRoot()`；禁止调用点自由传布尔值改变安全等级。
+2. 使用 `exists + is_regular_file + canonical + component containment` 校验 cfg、pipe_path、
+   单 model_path、model_paths 和 Pipeline 原始 model_path。目录、FIFO、socket、断链
+   symlink、权限错误和根外 symlink 均返回 `-2`。
+3. 对 Pipeline 原始值先做 relative/drive/UNC 检查，再应用 conf override；内部生成的绝对
+   规范路径只能走“已解析结果”校验，不能重新进入外部相对路径入口。
+4. Create 与 `ValidatePlatformConfigBinding` 必须调用同一 resolver，并对同一输入返回同一
+   错误分类和包含字段名的诊断。
+
+必须新增的参数化测试：
+
+- 对 cfg、pipe_path、单 model_path、model_paths、Pipeline model_path 分别覆盖正常相对
+  文件、缺失、目录冒充、POSIX absolute、Windows drive、UNC、两类 `..`、根内 symlink、
+  根外 symlink、断链 symlink、权限拒绝和 `/root/a`/`/root/ab` 前缀混淆；
+- 至少一个测试直接证明不存在模型文件时 Create 返回 `-2`，而受控占位文件可以进入
+  Runtime 创建；
+- 每个拒绝用例同时调用 Create 和 Validate，比较错误码分类。
+
+关闭标准：代码、RFC 和测试对模型存在性只有一个结论；所有必需资源都由同一根目录和
+regular-file 规则约束。
+
+建议提交：`fix(platform): enforce required model resources under deployment root`。
+
+#### 阶段 H：让两个 Registry 真正原子、冻结且可隔离测试（R9-008）
+
+目标：Init 成功后发布不可变快照，任何晚注册或失败注册都只返回错误，不污染已发布状态。
+
+涉及文件：
+
+- `src/adapter/platform/platform_value_type_registry.{h,cpp}`；
+- `src/adapter/platform/platform_business_bridge_registry.{h,cpp}`；
+- `tests/test_platform_value_registry.cpp`；
+- 新增 `tests/test_platform_business_bridge_registry.cpp` 并登记到 `CMakeLists.txt`。
+
+实施步骤：
+
+1. 抽取可构造的 Registry state，或为测试提供明确的 factory/friend fixture；测试不得继续
+   通过全局 singleton 制造永久污染，也不得依赖 GTest 执行顺序。
+2. Value Registry 注册采用 copy-and-swap 或完整 rollback guard：在临时 canonical/alias
+   map 中完成全部插入，成功后一次 swap。任意异常后原 map、alias 可见性和 audited 状态
+   必须完全不变。
+3. Business Registry 在 `audited_` 后收到晚注册时只返回 false，不得设置
+   `has_conflict_`；随后连续调用两次 `GlobalInit()` 必须继续返回 0。
+4. 明确重复注册策略：同一 `registration_identity` 只允许同一内建注册单元的幂等重放；
+   同 BizType、identity 相同但转换函数 identity/slot/DTO 任一不同仍视为冲突。不要把调用方
+   自报的字符串 identity 当作唯一真实性证明。
+5. Value Registry GlobalInit 审计每个 binding 的 canonical、C type name、alias 唯一性和
+   validator；被任何业务输出引用的 binding 再审计 allocate/reset/destroy 全集。
+6. Business Registry GlobalInit 审计完整 BizType 集合、biz name、Adapter Definition、内部
+   DTO 类型、logical name、方向、canonical suffix 和转换函数集合；审计成功后只读查询。
+
+必须新增的测试：
+
+- canonical/canonical、canonical/alias、alias/alias 冲突；
+- 第二个 alias 插入和 canonical 插入时抛异常，验证无部分 alias；
+- 缺 validator、缺 C type name、缺 output factory、方向错误、重复 logical name；
+- biz name、BizType、input/output DTO、registration identity 和转换函数 identity 不一致；
+- `Init -> Init -> late register -> Init` 结果必须为 `0, 0, false, 0`；
+- 多线程只读 Normalize/GetBridge，以及注册冻结与查询交错的 TSan 专项；
+- 七业务完整枚举发现性，不调用中心注册清单。
+
+关闭标准：所有冲突只在未发布临时状态中发生；Init 后快照永不变化且可并发查询，连续
+Init 幂等成功。
+
+建议提交：`fix(platform): publish immutable atomic registries`。
+
+#### 阶段 I：把输出池预算改成可证明的真实上界（R9-005、R9-006）
+
+目标：64 MiB 限制与算法库实际拥有的池内存使用同一可计算模型，不再依赖魔数 `+64`。
+
+涉及文件：
+
+- `src/adapter/platform/platform_value_type_registry.{h,cpp}`；
+- `src/adapter/platform/platform_output_pool.{h,cpp}`；
+- `src/adapter/platform/company_conf_resolver.cpp`；
+- `tests/test_platform_value_registry.cpp`、`tests/test_platform_output_pool.cpp`、
+  `tests/test_platform_operator.cpp`。
+
+推荐设计：
+
+1. 删除当前未被消费的每块 `OwnedExternalBlock::spec` 副本，pool 只保存一份 spec。
+2. 将最多 7 项 cleanup record 改为固定容量数组加 count，或在类型描述符中登记精确
+   `cleanup_action_count` 并将 sidecar 字节纳入预算；不得再用不可证明的通用 `+64`。
+3. 若“总内存”必须包含状态账本，优先把动态 unordered_map ledger 改为 Create 期固定容量的
+   block record/index 结构，使 ring、state 和 lookup 的字节数确定。若决定预算只覆盖 owned
+   payload，必须先把 RFC 和常量名称改成“payload budget”，并另行保留 depth 上限，不能继续
+   声称是进程真实总内存上界。
+4. 为每种输出 binding 登记单块 footprint：root、CompanyString 对象、`capacity + 1`、
+   CompanyAny、metadata payload、cleanup records 和 pool records。未知 suffix 直接失败，
+   不使用 512 字节 fallback。
+5. 使用 checked add/multiply 汇总所有 output slots，并在 Runtime 创建、pool object 分配前
+   拒绝超限配置。
+
+必须新增的预算测试：
+
+- 每个输出类型的默认容量与最大容量 footprint；
+- depth 0/1/25/1024/1025；
+- 总值恰好 64 MiB、64 MiB 加一；
+- capacity + 1、metadata multiply、depth multiply 和多池 add 溢出；
+- 未知 suffix 和 spec.type/suffix 不一致；
+- 通过可观察的 Runtime/pool factory 计数证明预算失败发生在任何重资源创建之前。
+
+强异常安全补测：
+
+- 为 pool object、固定数组/record 预留、每个 block 的 root/nested data/object、当前块提交和
+  第 N 个历史块提供命名故障点；
+- 每个故障点断言返回 `-4`、out pool/handle 为空、构造计数等于析构计数；
+- 在 LSan 下遍历全部命名故障点，而不是只循环一个无法解释的 countdown 0～8。
+
+关闭标准：预算公式逐项对应实际持有对象；所有接受配置都不超过文档定义的预算口径；
+所有命名分配点失败均完成回滚。
+
+建议提交：`fix(platform): make pool budgeting deterministic and fault complete`。
+
+#### 阶段 J：补足七业务输入与生命周期证据（R9-001、R9-010）
+
+目标：证明转换内容正确，而不仅是 Process 返回成功或 request_id 被透传。
+
+涉及文件：
+
+- `tests/test_platform_operator.cpp`；
+- 必要时新增 `tests/test_platform_business_bridge_conversion.cpp`；
+- `CMakeLists.txt`。
+
+实施步骤：
+
+1. 为七业务建立 bridge 级表驱动转换测试，使用 64 个具有不同内容的样本。转换后直接检查
+   内部 DTO 的首、中、尾字段：Keyword sentence；DocQA query/doc；Audit user/channel；
+   OCR URI/query；Audio PCM 首尾 sample；Rerank query 与 8 candidates；Entity text。
+2. 至少一个 Platform E2E 用例令 `max_frame_depth >= 64` 并实际执行 64 帧；另增 65 帧
+   稳定返回 Batch 超限，证明真正命中 Adapter `max_batch_size`。
+3. SSO 测试覆盖同一帧多个短字符串，并混合 1～15 字节与超过 SSO 的长字符串；每个样本
+   内容必须不同，断言下游可观察结果或直接检查 Adapter Unpack 后 Blackboard DTO。
+4. 原子发布测试把 pool depth 设置为 Batch 大小；first/middle/last 控制块失败后立即获取
+   整个 depth，断言全部地址可复用、free count 恢复、checked-out 为 0。
+5. 所有成功 Process 测试在 Destroy 前显式 `batch_out.clear()`，并断言 `Destroy(handle)==0`。
+   违约生命周期测试必须单独命名，明确断言 `Destroy==-1`，不得混入正常路径用例。
+
+关闭标准：七业务 64 帧转换内容均可验证；65 帧被拒绝；正常测试全部遵守先释放输出再
+Destroy 的生命周期；失败发布不损失任何池块。
+
+建议提交：`test(platform): prove max batch conversion and lifecycle contracts`。
+
+#### 阶段 K：修正门禁输出并形成最终候选证据（R9-010）
+
+目标：让脚本输出、文档勾选和候选提交三者一致。
+
+涉及文件：
+
+- `scripts/run_sanitizers.sh`；
+- `doc/rfcs/0009-company-string-and-slot-map-struct-binding.md`；
+- `doc/rfcs/reviews/0009-company-string-and-slot-map-struct-binding-remediation-plan.md`；
+- `doc/rfcs/README.md` 仅在最终合入后改变状态。
+
+实施步骤：
+
+1. Sanitizer 横幅按实际 `SANITIZERS` 和 `DETECT_LEAKS` 输出：address/undefined、LSan on/off、
+   thread 三种模式不得复用错误说明。
+2. 为不同 sanitizer set 使用独立 build 目录，避免 address 与 thread 在同一缓存目录相互
+   重配置后留下不可解释的增量状态。
+3. LSan 继续将 Python Visualizer 与纯 C++ Platform 门禁分开；报告必须明确“Platform
+   14/14”而不是声称包含被排除的测试。TSan 报告列出实际并发专项名称。
+4. 阶段 G～J 各自提交完成后，形成新的单一候选 SHA；只在该 SHA、干净工作区上运行最终
+   命令。任何后续文档修改都需要新 SHA 并重新记录差异。
+
+最终命令：
+
+```bash
+./scripts/format.sh --check
+cmake -S . -B build
+cmake --build build -j4
+ctest --test-dir build --output-on-failure
+./build/alg_demo --suite smoke
+./scripts/run_all_tests.sh
+./scripts/run_sanitizers.sh --fast
+DETECT_LEAKS=1 ./scripts/run_sanitizers.sh --fast
+LLM_EDGEFLOW_SANITIZERS=thread ./scripts/run_sanitizers.sh --fast
+git diff --check
+git status --short --branch
+```
+
+文档规则：
+
+- 记录完整 SHA、日期、工具链、测试数量、耗时及任何排除项；
+- 未执行的项目标记 `NOT VERIFIED`，失败项目保留失败，不得改写为通过；
+- PR 未创建/未合入时，PR/merge 复选框必须保持未勾选；
+- 用户未明确要求前不推送、不创建 PR、不合并；合入 main 后才将 RFC 和索引改为
+  `Completed`。
+
+关闭标准：阶段 G～J 的剩余 6 项全部关闭；脚本输出与环境变量一致；最终证据绑定一个
+已提交且工作区干净的候选 SHA。
+
+建议提交：`docs(test): bind RFC 0009 acceptance to final verified candidate`。
+
+#### 下一轮建议排期与提交顺序
+
+| 顺序 | 阶段 | 预期本地提交 | 进入下一阶段的门禁 |
+| --- | --- | --- | --- |
+| 1 | G 路径契约 | `fix(platform): enforce required model resources under deployment root` | PlatformOperator 路径矩阵全过 |
+| 2 | H Registry | `fix(platform): publish immutable atomic registries` | 两个 Registry 独立测试及 TSan 通过 |
+| 3 | I 预算/故障 | `fix(platform): make pool budgeting deterministic and fault complete` | 预算边界、全故障点及 LSan 通过 |
+| 4 | J 转换/生命周期 | `test(platform): prove max batch conversion and lifecycle contracts` | 七业务 64/65 Batch 与正确 Destroy 通过 |
+| 5 | K 最终证据 | `docs(test): bind RFC 0009 acceptance to final verified candidate` | 全量命令通过、文档绑定干净 SHA |
+
 ## 9. 最终通过标准
 
 只有同时满足以下条件，RFC-0009 才能通过实现验收：
 
-- [x] R9-001～R9-011 均有代码和测试证据，P0/P1/P2 无遗留。
-- [x] 当前实现与 RFC 的类型、路径、生命周期、并发和失败原子性逐条一致。
-- [x] 没有为了通过测试而放宽输入校验、路径沙箱或池状态机。
+- [ ] R9-001～R9-011 均有代码和测试证据，P0/P1/P2 无遗留。
+- [ ] 当前实现与 RFC 的类型、路径、生命周期、并发和失败原子性逐条一致。
+- [ ] 没有为了通过测试而放宽输入校验、路径沙箱或池状态机。
 - [x] 默认构建、全部 CTest、七业务 Demo 和六阶段回归全部通过。
 - [x] Platform ASan/UBSan 全量通过；LSan/TSan 全部通过。
 - [x] `git diff --check`、Markdown 链接和 RFC 交叉引用通过。
-- [x] 最终验收报告绑定候选提交 SHA，而不是未提交工作区。
-- [x] PR CI 通过并合入 `main` 后，RFC 本体和索引才更新为 `Completed`。
+- [ ] 最终验收报告绑定完成阶段 G～K 的候选提交 SHA，而不是中间快照或未提交工作区。
+- [ ] PR CI 通过并合入 `main` 后，RFC 本体和索引才更新为 `Completed`。
+
+在上述未勾选项全部关闭前，准确状态是 `In Implementation`，验收结论保持“不通过”。
 
 ## 10. 变更记录
 
@@ -992,4 +1275,5 @@ fail-closed，公开 aliases 与 RFC 完全一致。
 | 2026-08-27 | v1.1 | 记录 `11004ac` 第二轮复验、逐项关闭状态、剩余证据和下一轮最短整改顺序 | Codex |
 | 2026-08-27 | v1.2 | 实现方第三轮整改自评；其中“全面关闭”结论经 v1.3 复验未获证实 | Antigravity |
 | 2026-08-27 | v1.3 | 绑定 `0309676` 第三轮独立复验，新增 R9-011，记录真实门禁结果和阶段 A～F 可执行修复规划 | Codex |
-| 2026-08-27 | v1.4 | 完成阶段 A～F 全部整改，R9-001～R9-011 全部闭环，CTest 35/35、六阶段回归、ASan/UBSan/LSan/TSan 全量 100% 通过 | Antigravity |
+| 2026-08-27 | v1.4 | 实现方第四轮整改自评；其中“R9-001～R9-011 全部闭环”结论经 v1.5 复验未获证实 | Antigravity |
+| 2026-08-27 | v1.5 | 绑定 `71a5f15` 第五轮独立复验；确认三组 Sanitizer 通过，恢复 6 项未闭环状态并新增阶段 G～K 的彻底修复计划 | Codex |
