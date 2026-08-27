@@ -7,7 +7,7 @@
 #include <vector>
 
 #include "nlohmann/json.hpp"
-#include "platform/platform_operator_interface.h"
+#include "operator/operator_interface.h"
 
 namespace alg_demo {
 
@@ -17,14 +17,14 @@ namespace alg_demo {
 struct DemoOptions {
   std::string profile;  // 预定义运行配置 Profile 标识
   std::string business;  // 业务标识名 (如 entity_extract, keyword_match 等)
-  std::string config_path;               // Platform .conf 路径
+  std::string config_path;               // Operator .conf 路径
   std::string dataset_path;              // 业务测试集文件路径
   std::string output_dir = "./results";  // 结果输出根目录
 
-  int batch_size = 1;          // 最大批大小 (支持按批分块分发)
-  int device_id = 0;           // 设备 ID
-  std::string chip = "ax650";  // 芯片类型字符串 (受严格白名单校验)
-  uint32_t depth_num = 1;      // 输出结构体预分配深度
+  int batch_size = 1;  // 最大批大小 (支持按批分块分发)
+  int device_id = 0;   // 设备 ID
+  std::string chip = "ax650";  // 计算平台芯片类型字符串 (受严格白名单校验)
+  uint32_t depth_num = 1;  // 输出结构体预分配深度
 
   std::optional<std::string> control_file;  // 运行时 Control JSON 文件路径
   std::string suite;                   // 执行套件 ("smoke", "real", "all")
@@ -52,13 +52,23 @@ struct DemoOptions {
 };
 
 /**
- * @brief 解析芯片类型字符串为强类型 ChipType (严格白名单校验)
+ * @brief 解析芯片计算平台字符串为强类型 ComputePlatform (严格白名单校验)
  * @param chip_str 芯片字符串 (支持大小写无关)
- * @param out_type 输出 ChipType
+ * @param out_type 输出 ComputePlatform
  * @return true 成功, false 字符串不在白名单内
  */
-bool ParseChipType(const std::string& chip_str,
-                   llm_edgeflow::platform::ChipType* out_type) noexcept;
+bool ParseComputePlatform(
+    const std::string& chip_str,
+    llm_edgeflow::operator_api::ComputePlatform* out_type) noexcept;
+
+/**
+ * @brief 保持向后兼容的别名函数
+ */
+inline bool ParseChipType(
+    const std::string& chip_str,
+    llm_edgeflow::operator_api::ComputePlatform* out_type) noexcept {
+  return ParseComputePlatform(chip_str, out_type);
+}
 
 /**
  * @brief 解析命令行参数填充 DemoOptions

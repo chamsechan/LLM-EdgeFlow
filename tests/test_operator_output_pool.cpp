@@ -7,29 +7,29 @@
 #include <thread>
 #include <vector>
 
-#include "adapter/platform/platform_output_pool.h"
-#include "adapter/platform/platform_value_type_registry.h"
+#include "adapter/operator/operator_output_pool.h"
+#include "adapter/operator/operator_value_type_registry.h"
 
 namespace alg_framework {
 
-class PlatformOutputPoolTest : public ::testing::Test {
+class OperatorOutputPoolTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    PlatformValueTypeRegistry::Instance().GlobalInit();
-    PlatformValueTypeRegistry::SetAllocationFailureCountdown(-1);
+    OperatorValueTypeRegistry::Instance().GlobalInit();
+    OperatorValueTypeRegistry::SetAllocationFailureCountdown(-1);
     OutputPoolState::SetPublishFailureCountdown(-1);
   }
 
   void TearDown() override {
-    PlatformValueTypeRegistry::SetAllocationFailureCountdown(-1);
+    OperatorValueTypeRegistry::SetAllocationFailureCountdown(-1);
     OutputPoolState::SetPublishFailureCountdown(-1);
   }
 };
 
 // 1. 深度 0 归一化为 25 且正常预分配，深度 > 1024 拦截
-TEST_F(PlatformOutputPoolTest, DepthZeroNormalizedTo25AndMaxLimitChecked) {
+TEST_F(OperatorOutputPoolTest, DepthZeroNormalizedTo25AndMaxLimitChecked) {
   const auto* binding =
-      PlatformValueTypeRegistry::Instance().GetBindingBySuffix("keyword_out");
+      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("keyword_out");
   ASSERT_NE(binding, nullptr);
 
   ResolvedOutputPoolSpec spec;
@@ -54,9 +54,9 @@ TEST_F(PlatformOutputPoolTest, DepthZeroNormalizedTo25AndMaxLimitChecked) {
 }
 
 // 2. 状态账本防重复归还、防外部指针注入与无下溢
-TEST_F(PlatformOutputPoolTest, LedgerRejectsDuplicateAndForeignBlocks) {
+TEST_F(OperatorOutputPoolTest, LedgerRejectsDuplicateAndForeignBlocks) {
   const auto* binding =
-      PlatformValueTypeRegistry::Instance().GetBindingBySuffix("keyword_out");
+      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("keyword_out");
   ASSERT_NE(binding, nullptr);
 
   ResolvedOutputPoolSpec spec;
@@ -92,9 +92,9 @@ TEST_F(PlatformOutputPoolTest, LedgerRejectsDuplicateAndForeignBlocks) {
 }
 
 // 3. 地址复用与 Reset 契约保留嵌套容量
-TEST_F(PlatformOutputPoolTest, AddressReuseAndResetContract) {
+TEST_F(OperatorOutputPoolTest, AddressReuseAndResetContract) {
   const auto* binding =
-      PlatformValueTypeRegistry::Instance().GetBindingBySuffix("keyword_out");
+      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("keyword_out");
   ASSERT_NE(binding, nullptr);
 
   ResolvedOutputPoolSpec spec;
@@ -108,7 +108,7 @@ TEST_F(PlatformOutputPoolTest, AddressReuseAndResetContract) {
 
   void* b1 = nullptr;
   ASSERT_EQ(pool->Acquire(&b1), 0);
-  auto* out1 = static_cast<CompanyPlatformKeywordOutput*>(b1);
+  auto* out1 = static_cast<CompanyOperatorKeywordOutput*>(b1);
   out1->request_id = 999;
   out1->is_hit = 1;
   std::strcpy(out1->match_result_json->data, "hello world");
@@ -122,7 +122,7 @@ TEST_F(PlatformOutputPoolTest, AddressReuseAndResetContract) {
   void* b2 = nullptr;
   ASSERT_EQ(pool->Acquire(&b2), 0);
   EXPECT_EQ(b1, b2);
-  auto* out2 = static_cast<CompanyPlatformKeywordOutput*>(b2);
+  auto* out2 = static_cast<CompanyOperatorKeywordOutput*>(b2);
 
   // 验证 Reset 契约：内容重置为初始，但物理地址和容量完好保留
   EXPECT_EQ(out2->request_id, 0u);
@@ -135,9 +135,9 @@ TEST_F(PlatformOutputPoolTest, AddressReuseAndResetContract) {
 }
 
 // 4. ScopedOutputLeaseGuard 的 Untrack 与 Rollback 事务边界
-TEST_F(PlatformOutputPoolTest, LeaseGuardTransactionRollback) {
+TEST_F(OperatorOutputPoolTest, LeaseGuardTransactionRollback) {
   const auto* binding =
-      PlatformValueTypeRegistry::Instance().GetBindingBySuffix("keyword_out");
+      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("keyword_out");
   ASSERT_NE(binding, nullptr);
 
   ResolvedOutputPoolSpec spec;
@@ -172,9 +172,9 @@ TEST_F(PlatformOutputPoolTest, LeaseGuardTransactionRollback) {
 }
 
 // 5. 确定性分配失败注入与全量回滚零泄漏测试 (R9-006)
-TEST_F(PlatformOutputPoolTest, AllocatorFailureRollbackZeroLeak) {
+TEST_F(OperatorOutputPoolTest, AllocatorFailureRollbackZeroLeak) {
   const auto* binding =
-      PlatformValueTypeRegistry::Instance().GetBindingBySuffix("od_out");
+      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("od_out");
   ASSERT_NE(binding, nullptr);
 
   ResolvedOutputPoolSpec spec;
@@ -186,7 +186,7 @@ TEST_F(PlatformOutputPoolTest, AllocatorFailureRollbackZeroLeak) {
   // 针对 od_out（包含 1 个 root + 1 个 char buf + 1 个 cs + 1 个 meta buf + 1
   // 个 meta struct） 逐个注入分配失败探针
   for (int fail_step = 0; fail_step <= 5; ++fail_step) {
-    PlatformValueTypeRegistry::SetAllocationFailureCountdown(fail_step);
+    OperatorValueTypeRegistry::SetAllocationFailureCountdown(fail_step);
     std::shared_ptr<OutputPoolState> pool;
     std::string err;
     int ret = OutputPoolState::Create("od_out", 3, spec, binding, &pool, &err);
@@ -196,9 +196,9 @@ TEST_F(PlatformOutputPoolTest, AllocatorFailureRollbackZeroLeak) {
 }
 
 // 6. 多线程并发归还与条件变量唤醒
-TEST_F(PlatformOutputPoolTest, ConcurrentAcquireReturnAndWakeup) {
+TEST_F(OperatorOutputPoolTest, ConcurrentAcquireReturnAndWakeup) {
   const auto* binding =
-      PlatformValueTypeRegistry::Instance().GetBindingBySuffix("keyword_out");
+      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("keyword_out");
   ASSERT_NE(binding, nullptr);
 
   ResolvedOutputPoolSpec spec;
@@ -236,13 +236,13 @@ TEST_F(PlatformOutputPoolTest, ConcurrentAcquireReturnAndWakeup) {
 }
 
 // 7. 全部 7 类输出结构分配失败故障注入与零泄漏 (R9-002, R9-006)
-TEST_F(PlatformOutputPoolTest, AllocatorFailureAllOutputTypes) {
+TEST_F(OperatorOutputPoolTest, AllocatorFailureAllOutputTypes) {
   const char* types[] = {"keyword_out", "entity_out", "doc_out", "audit_out",
                          "audio_out",   "rerank_out", "od_out"};
 
   for (const char* t : types) {
     const auto* binding =
-        PlatformValueTypeRegistry::Instance().GetBindingBySuffix(t);
+        OperatorValueTypeRegistry::Instance().GetBindingBySuffix(t);
     ASSERT_NE(binding, nullptr) << "Missing binding for: " << t;
 
     ResolvedOutputPoolSpec spec;
@@ -253,7 +253,7 @@ TEST_F(PlatformOutputPoolTest, AllocatorFailureAllOutputTypes) {
     }
 
     for (int step = 0; step <= 25; ++step) {
-      PlatformValueTypeRegistry::SetAllocationFailureCountdown(step);
+      OperatorValueTypeRegistry::SetAllocationFailureCountdown(step);
       std::shared_ptr<OutputPoolState> pool;
       std::string err;
       int ret = OutputPoolState::Create(t, 4, spec, binding, &pool, &err);
@@ -268,14 +268,14 @@ TEST_F(PlatformOutputPoolTest, AllocatorFailureAllOutputTypes) {
         pool->DestroyBlocks();
       }
     }
-    PlatformValueTypeRegistry::SetAllocationFailureCountdown(-1);
+    OperatorValueTypeRegistry::SetAllocationFailureCountdown(-1);
   }
 }
 
 // 8. 命名故障点全量注入与对称构造/析构计数断言 (R9-005, R9-006)
-TEST_F(PlatformOutputPoolTest, AllNamedFailureStagesWithSymmetricAccounting) {
+TEST_F(OperatorOutputPoolTest, AllNamedFailureStagesWithSymmetricAccounting) {
   const auto* binding =
-      PlatformValueTypeRegistry::Instance().GetBindingBySuffix("od_out");
+      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("od_out");
   ASSERT_NE(binding, nullptr);
 
   ResolvedOutputPoolSpec spec;
@@ -330,7 +330,7 @@ TEST_F(PlatformOutputPoolTest, AllNamedFailureStagesWithSymmetricAccounting) {
   OutputPoolState::ResetInstanceCounters();
 }
 
-TEST_F(PlatformOutputPoolTest,
+TEST_F(OperatorOutputPoolTest,
        EveryOutputFactoryHonorsNamedRootNestedAndCleanupFailures) {
   const std::vector<std::string> suffixes = {
       "doc_out", "keyword_out", "entity_out", "audit_out",
@@ -338,7 +338,7 @@ TEST_F(PlatformOutputPoolTest,
 
   for (const auto& suffix : suffixes) {
     const auto* binding =
-        PlatformValueTypeRegistry::Instance().GetBindingBySuffix(suffix);
+        OperatorValueTypeRegistry::Instance().GetBindingBySuffix(suffix);
     ASSERT_NE(binding, nullptr) << suffix;
     ResolvedOutputPoolSpec spec;
     spec.type = suffix;
@@ -369,9 +369,9 @@ TEST_F(PlatformOutputPoolTest,
 }
 
 // 9. 严格 spec.type 与 64 MiB 预算边界拦截 (R9-005)
-TEST_F(PlatformOutputPoolTest, StrictSpecTypeAndMemoryBudgetBoundary) {
+TEST_F(OperatorOutputPoolTest, StrictSpecTypeAndMemoryBudgetBoundary) {
   const auto* binding =
-      PlatformValueTypeRegistry::Instance().GetBindingBySuffix("doc_out");
+      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("doc_out");
   ASSERT_NE(binding, nullptr);
 
   // 1. spec.type 为空 -> 严格拒绝

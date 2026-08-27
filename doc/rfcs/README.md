@@ -74,6 +74,7 @@ doc/rfcs/NNNN-<kebab-case-title>.md
 | **RFC-0008** | 架构契约收敛与文档一致性修复 | `Completed` | `v2.1.0` | Layer 1 ~ Layer 4 / Tooling | [0008-architecture-contract-consolidation.md](0008-architecture-contract-consolidation.md) |
 | **RFC-0009** | 公司平台 C 结构体槽位绑定与输出内存池 | `Completed` | `v3.0.0` | Layer 1 (Platform Operator) / Demo | [0009-company-string-and-slot-map-struct-binding.md](0009-company-string-and-slot-map-struct-binding.md) |
 | **RFC-0010** | 全栈统一业务命名为 biz | `Completed` | `v3.1.0` | Layer 1 ~ Layer 4 / Tooling | [0010-business-to-biz-naming-unification.md](0010-business-to-biz-naming-unification.md) |
+| **RFC-0011** | Operator 与计算 Platform 命名解耦 | `Completed` | `v4.0.0` | Layer 1 (Operator Adapter) / Demo / Layer 4 Terminology | [0011-operator-platform-naming-unification.md](0011-operator-platform-naming-unification.md) |
 
 ---
 

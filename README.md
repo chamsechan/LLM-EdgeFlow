@@ -128,10 +128,10 @@ LLM-EdgeFlow/
 ├── include/
 │   ├── company_alg_interface.h  # Layer 1: 标准 C ABI 导出头文件
 │   ├── core/                    # Layer 2: 框架核心 (AlgContext, Pipeline, TraceableItem)
-│   ├── platform/                # Layer 1: 平台 Operator 接口 (platform_operator_interface.h)
+│   ├── operator/                # Layer 1: Operator 门面接口 (operator_interface.h)
 │   └── engine/                  # Layer 4: 引擎接口 (FixedBatchExecutor, IModelEngine)
 ├── src/
-│   ├── adapter/                 # Layer 1: C ABI 安全胶水层 (company_c_adapter.cpp)
+│   ├── adapter/                 # Layer 1: C ABI 与 Operator 安全胶水层
 │   ├── core/                    # Layer 2: Pipeline 调度器与配置校验器实现
 │   ├── biz/                     # Layer 3: 7 大多模态业务算子库 (前处理/后处理/业务编排)
 │   ├── common_nodes/            # Layer 3: 通用跨业务算子 (LlmGenerateNode 等)
@@ -139,7 +139,7 @@ LLM-EdgeFlow/
 │   └── tools/                   # C++ 工具集 (alg_show.cpp, alg_pipeline_tool.cpp)
 ├── doc/
 │   ├── developer_guide.md       # 4 层扩展开发说明书
-│   └── rfcs/                    # RFC 架构演进与治理文档 (RFC 0001 ~ 0010)
+│   └── rfcs/                    # RFC 架构演进与治理文档 (RFC 0001 ~ 0011)
 ├── configs/                     # 11 大标准化业务配置 (JSON & .conf)
 ├── demo/                        # 参数化多业务端到端演示与 Runner
 │   ├── profiles.json            # 预定义执行 Profile 清单 (单一事实源)
@@ -153,6 +153,13 @@ LLM-EdgeFlow/
 ---
 
 ## 📝 更新日志 (Changelog)
+
+- **v4.0.0 (Operator 与计算 Platform 概念与命名全栈解耦 - RFC 0011)** *(2026-08)*
+  - 🏛️ **Operator 与 Platform 语义彻底解耦**：确立 `Integration -> Operator -> Pipeline -> Node -> Engine -> Platform` 全局术语链。`Operator` 代表对外暴露的算法实例生命周期与 Named I/O 契约，`Platform`（`ComputePlatform`）代表底层硬件计算平台（AX650、Ascend、RK3588、CUDA、CPU）。
+  - 🗂️ **全栈目录结构与头文件规整**：头文件由 `include/platform/` 迁移至 `include/operator/`（`operator_interface.h`、`company_operator_types.h`），适配层由 `src/adapter/platform/` 迁移至 `src/adapter/operator/`，`src/adapter/platform_operator_adapter.cpp` 迁移至 `src/adapter/operator/operator_adapter.cpp`。
+  - 🏷️ **C++ 命名空间与类型升级**：命名空间统一为 `llm_edgeflow::operator_api`，类型与注册表重构为 `OperatorValueTypeRegistry`、`OperatorBizBridgeRegistry`、`OperatorControlRegistry`、`OperatorOutputPool`、`CompanyOperator*`，硬件枚举命名为 `ComputePlatform`（`kAx650`, `kAscend310P`, `kAscend910B`, `kRk3588`, `kCuda`, `kCpu`）。
+  - 🔌 **统一 Demo 与测试套件**：Demo CLI 参数 `--chip` 校验底层硬件执行平台，Runner 统一调用 `RunOperatorWithExtractor`，测试套件全面迁移至 `test_operator_api`、`test_operator_output_pool`、`test_operator_value_registry`、`test_operator_biz_bridge_registry`。
+  - 🧪 **37 组全量 Google Test 单元测试与 6 阶段质量门禁 100% 通过**：37 项 CTest 全绿通过，C11 ABI 合规检查、LayerGuard 分层防腐、架构图源校验与 Demo 全链路烟测全部通过。
 
 - **v3.1.0 (全栈 business 命名收敛与缩写统合为 biz - RFC 0010)** *(2026-08)*
   - 🗂️ **全栈目录结构与源码路径统一为 `biz`**：目录 `src/business/` $\rightarrow$ `src/biz/`，`demo/businesses/` $\rightarrow$ `demo/biz/`，`src/adapter/platform/business_bridges/` $\rightarrow$ `src/adapter/platform/biz_bridges/`，消除了冗余词根。

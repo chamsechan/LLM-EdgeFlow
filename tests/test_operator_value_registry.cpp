@@ -3,12 +3,12 @@
 #include <limits>
 #include <thread>
 
-#include "adapter/platform/platform_value_type_registry.h"
+#include "adapter/operator/operator_value_type_registry.h"
 
 namespace alg_framework {
 
 // 1. Any 类型白名单与尺寸查找
-TEST(PlatformValueRegistryTest, CompanyAnyTypeWhitelistAndSizes) {
+TEST(OperatorValueRegistryTest, CompanyAnyTypeWhitelistAndSizes) {
   const auto* t0 = FindCompanyAnyType(0);
   ASSERT_NE(t0, nullptr);
   EXPECT_EQ(t0->element_size, 0u);
@@ -39,7 +39,7 @@ TEST(PlatformValueRegistryTest, CompanyAnyTypeWhitelistAndSizes) {
 }
 
 // 2. CheckedMultiply 溢出与边界检测
-TEST(PlatformValueRegistryTest, CheckedMultiplySafety) {
+TEST(OperatorValueRegistryTest, CheckedMultiplySafety) {
   size_t out = 0;
   EXPECT_TRUE(CheckedMultiply(10, 20, &out));
   EXPECT_EQ(out, 200u);
@@ -54,154 +54,154 @@ TEST(PlatformValueRegistryTest, CheckedMultiplySafety) {
 }
 
 // 3. CompanyAny 尺寸方程校验与 Fail-Closed
-TEST(PlatformValueRegistryTest, CompanyAnyValidationSuite) {
+TEST(OperatorValueRegistryTest, CompanyAnyValidationSuite) {
   std::string err;
   uint8_t dummy[64] = {0};
 
   // 1. 空指针 -> -3
-  EXPECT_EQ(PlatformValueTypeRegistry::ValidateCompanyAnyPayload(nullptr, 1024,
+  EXPECT_EQ(OperatorValueTypeRegistry::ValidateCompanyAnyPayload(nullptr, 1024,
                                                                  "test", &err),
             -3);
 
   // 2. 负数字段 -> -3
   CompanyAny any_neg_cnt{1, -1, 4, dummy};
-  EXPECT_EQ(PlatformValueTypeRegistry::ValidateCompanyAnyPayload(
+  EXPECT_EQ(OperatorValueTypeRegistry::ValidateCompanyAnyPayload(
                 &any_neg_cnt, 1024, "test", &err),
             -3);
 
   CompanyAny any_neg_len{1, 1, -4, dummy};
-  EXPECT_EQ(PlatformValueTypeRegistry::ValidateCompanyAnyPayload(
+  EXPECT_EQ(OperatorValueTypeRegistry::ValidateCompanyAnyPayload(
                 &any_neg_len, 1024, "test", &err),
             -3);
 
   // 3. 未白名单 type_id -> -3
   CompanyAny any_unknown_type{999, 1, 4, dummy};
-  EXPECT_EQ(PlatformValueTypeRegistry::ValidateCompanyAnyPayload(
+  EXPECT_EQ(OperatorValueTypeRegistry::ValidateCompanyAnyPayload(
                 &any_unknown_type, 1024, "test", &err),
             -3);
 
   // 4. type_id 为 0 但 count/len 非零 -> -3
   CompanyAny any_zero_nonzero{0, 1, 4, dummy};
-  EXPECT_EQ(PlatformValueTypeRegistry::ValidateCompanyAnyPayload(
+  EXPECT_EQ(OperatorValueTypeRegistry::ValidateCompanyAnyPayload(
                 &any_zero_nonzero, 1024, "test", &err),
             -3);
 
   // 5. type_id 为 0 且 count/len 为零 -> 0 (合法无 metadata)
   CompanyAny any_zero_valid{0, 0, 0, nullptr};
-  EXPECT_EQ(PlatformValueTypeRegistry::ValidateCompanyAnyPayload(
+  EXPECT_EQ(OperatorValueTypeRegistry::ValidateCompanyAnyPayload(
                 &any_zero_valid, 1024, "test", &err),
             0);
 
   // 6. 尺寸方程不匹配: float32 (type_id=1), count=2, 期望 8 bytes, 但给出 6
   // bytes -> -3
   CompanyAny any_mismatch{1, 2, 6, dummy};
-  EXPECT_EQ(PlatformValueTypeRegistry::ValidateCompanyAnyPayload(
+  EXPECT_EQ(OperatorValueTypeRegistry::ValidateCompanyAnyPayload(
                 &any_mismatch, 1024, "test", &err),
             -3);
 
   // 7. 正确尺寸方程: float32 (type_id=1), count=2, byte_length=8 -> 0
   CompanyAny any_valid{1, 2, 8, dummy};
-  EXPECT_EQ(PlatformValueTypeRegistry::ValidateCompanyAnyPayload(
+  EXPECT_EQ(OperatorValueTypeRegistry::ValidateCompanyAnyPayload(
                 &any_valid, 1024, "test", &err),
             0);
 
   // 8. 正字节数但空 data 指针 -> -3
   CompanyAny any_nulldata{1, 2, 8, nullptr};
-  EXPECT_EQ(PlatformValueTypeRegistry::ValidateCompanyAnyPayload(
+  EXPECT_EQ(OperatorValueTypeRegistry::ValidateCompanyAnyPayload(
                 &any_nulldata, 1024, "test", &err),
             -3);
 
   // 9. 超过最大字节上限 -> -3
-  EXPECT_EQ(PlatformValueTypeRegistry::ValidateCompanyAnyPayload(&any_valid, 4,
+  EXPECT_EQ(OperatorValueTypeRegistry::ValidateCompanyAnyPayload(&any_valid, 4,
                                                                  "test", &err),
             -3);
 }
 
 // 4. CompanyString 嵌入 NUL、负长度与超限拦截
-TEST(PlatformValueRegistryTest, CompanyStringValidation) {
+TEST(OperatorValueRegistryTest, CompanyStringValidation) {
   std::string err;
 
   // 1. 空指针
-  EXPECT_EQ(PlatformValueTypeRegistry::ValidateCompanyString(nullptr, 100,
+  EXPECT_EQ(OperatorValueTypeRegistry::ValidateCompanyString(nullptr, 100,
                                                              "test", &err),
             -3);
 
   // 2. 负长度
   char buf[] = "hello";
   CompanyString cs_neg{-1, buf};
-  EXPECT_EQ(PlatformValueTypeRegistry::ValidateCompanyString(&cs_neg, 100,
+  EXPECT_EQ(OperatorValueTypeRegistry::ValidateCompanyString(&cs_neg, 100,
                                                              "test", &err),
             -3);
 
   // 3. 超限
   CompanyString cs_toolarge{10, buf};
-  EXPECT_EQ(PlatformValueTypeRegistry::ValidateCompanyString(&cs_toolarge, 5,
+  EXPECT_EQ(OperatorValueTypeRegistry::ValidateCompanyString(&cs_toolarge, 5,
                                                              "test", &err),
             -3);
 
   // 4. 嵌入 NUL 字节拦截
   char embedded_nul[] = {'a', 'b', '\0', 'c'};
   CompanyString cs_nul{4, embedded_nul};
-  EXPECT_EQ(PlatformValueTypeRegistry::ValidateCompanyString(&cs_nul, 100,
+  EXPECT_EQ(OperatorValueTypeRegistry::ValidateCompanyString(&cs_nul, 100,
                                                              "test", &err),
             -3);
 
   // 5. 正常字符串
   CompanyString cs_valid{5, buf};
-  EXPECT_EQ(PlatformValueTypeRegistry::ValidateCompanyString(&cs_valid, 100,
+  EXPECT_EQ(OperatorValueTypeRegistry::ValidateCompanyString(&cs_valid, 100,
                                                              "test", &err),
             0);
 }
 
 // 5. CompanyBuffer 二进制透明性与校验测试 (允许嵌入 NUL 字节)
-TEST(PlatformValueRegistryTest, CompanyBufferValidation) {
+TEST(OperatorValueRegistryTest, CompanyBufferValidation) {
   std::string err;
 
   // 1. 空指针 -> -3
-  EXPECT_EQ(PlatformValueTypeRegistry::ValidateCompanyBuffer(nullptr, 100,
+  EXPECT_EQ(OperatorValueTypeRegistry::ValidateCompanyBuffer(nullptr, 100,
                                                              "buf", &err),
             -3);
 
   // 2. 负长度 -> -3
   uint8_t raw[] = {0x01, 0x00, 0x02, 0xFF};
   CompanyBuffer cb_neg{-1, raw};
-  EXPECT_EQ(PlatformValueTypeRegistry::ValidateCompanyBuffer(&cb_neg, 100,
+  EXPECT_EQ(OperatorValueTypeRegistry::ValidateCompanyBuffer(&cb_neg, 100,
                                                              "buf", &err),
             -3);
 
   // 3. 超限 -> -3
   CompanyBuffer cb_toolarge{10, raw};
-  EXPECT_EQ(PlatformValueTypeRegistry::ValidateCompanyBuffer(&cb_toolarge, 3,
+  EXPECT_EQ(OperatorValueTypeRegistry::ValidateCompanyBuffer(&cb_toolarge, 3,
                                                              "buf", &err),
             -3);
 
   // 4. 包含嵌入 0x00 字节的二进制数据 (对于 Buffer 必须合法通过)
   CompanyBuffer cb_valid{4, raw};
-  EXPECT_EQ(PlatformValueTypeRegistry::ValidateCompanyBuffer(&cb_valid, 100,
+  EXPECT_EQ(OperatorValueTypeRegistry::ValidateCompanyBuffer(&cb_valid, 100,
                                                              "buf", &err),
             0);
 
   // 5. 正长度但空数据指针 -> -3
   CompanyBuffer cb_nulldata{4, nullptr};
-  EXPECT_EQ(PlatformValueTypeRegistry::ValidateCompanyBuffer(&cb_nulldata, 100,
+  EXPECT_EQ(OperatorValueTypeRegistry::ValidateCompanyBuffer(&cb_nulldata, 100,
                                                              "buf", &err),
             -3);
 }
 
 // 6. ValueTypeRegistry 原子预检与只读冻结测试 (R9-008)
-TEST(PlatformValueRegistryTest, RegisterBindingAtomicPrecheckAndFreeze) {
-  auto& reg = PlatformValueTypeRegistry::Instance();
+TEST(OperatorValueRegistryTest, RegisterBindingAtomicPrecheckAndFreeze) {
+  auto& reg = OperatorValueTypeRegistry::Instance();
   EXPECT_EQ(reg.GlobalInit(), 0);
 
   // 尝试在 GlobalInit 之后晚注册 -> 必须拒绝
-  PlatformValueTypeBinding late_binding;
+  OperatorValueTypeBinding late_binding;
   late_binding.canonical_suffix = "late_in";
   EXPECT_FALSE(reg.RegisterBinding(late_binding));
 }
 
 // 7. RFC 6.3 槽位类型与别名表完整性校验 (R9-011)
-TEST(PlatformValueRegistryTest, RFC63AliasesCompliance) {
-  auto& reg = PlatformValueTypeRegistry::Instance();
+TEST(OperatorValueRegistryTest, RFC63AliasesCompliance) {
+  auto& reg = OperatorValueTypeRegistry::Instance();
 
   // 1. string -> 没有别名
   EXPECT_EQ(reg.NormalizeSuffix("string"), "string");
@@ -275,7 +275,7 @@ TEST(PlatformValueRegistryTest, RFC63AliasesCompliance) {
 }
 
 // 8. ComputeOutputPoolPayloadBytes 预算计算与边界检测 (R9-005)
-TEST(PlatformValueRegistryTest, AllSevenOutputTypesFootprintAndBudget) {
+TEST(OperatorValueRegistryTest, AllSevenOutputTypesFootprintAndBudget) {
   const std::vector<std::string> output_suffixes = {
       "doc_out", "keyword_out", "entity_out", "audit_out",
       "od_out",  "audio_out",   "rerank_out"};
@@ -353,11 +353,11 @@ TEST(PlatformValueRegistryTest, AllSevenOutputTypesFootprintAndBudget) {
 }
 
 // 9. 独立 ValueTypeRegistry 实例与原子回滚测试
-TEST(PlatformValueRegistryTest, IsolatedValueTypeRegistryAtomicRollback) {
-  PlatformValueTypeRegistry local_reg;
+TEST(OperatorValueRegistryTest, IsolatedValueTypeRegistryAtomicRollback) {
+  OperatorValueTypeRegistry local_reg;
 
   // 1. 测试别名冲突 (alias 与已有 canonical "string" 冲突)
-  PlatformValueTypeBinding bad_b1;
+  OperatorValueTypeBinding bad_b1;
   bad_b1.canonical_suffix = "my_custom";
   bad_b1.aliases = {"string"};  // 与已存在的 "string" canonical 冲突
   EXPECT_FALSE(local_reg.RegisterBinding(bad_b1));
@@ -365,14 +365,14 @@ TEST(PlatformValueRegistryTest, IsolatedValueTypeRegistryAtomicRollback) {
   EXPECT_EQ(local_reg.GlobalInit(), -6);
 
   // 2. 干净的本地 Registry 实例
-  PlatformValueTypeRegistry clean_reg;
+  OperatorValueTypeRegistry clean_reg;
   EXPECT_EQ(clean_reg.GlobalInit(), 0);
   // 幂等多次 GlobalInit
   EXPECT_EQ(clean_reg.GlobalInit(), 0);
   EXPECT_FALSE(clean_reg.HasConflict());
 
   // 3. 晚注册被拒绝但不会破坏幂等 GlobalInit
-  PlatformValueTypeBinding late_b;
+  OperatorValueTypeBinding late_b;
   late_b.canonical_suffix = "late_slot";
   EXPECT_FALSE(clean_reg.RegisterBinding(late_b));
   EXPECT_EQ(clean_reg.GlobalInit(), 0);
@@ -380,11 +380,11 @@ TEST(PlatformValueRegistryTest, IsolatedValueTypeRegistryAtomicRollback) {
 }
 
 // 10. Canonical 与 Alias 冲突矩阵测试
-TEST(PlatformValueRegistryTest, CanonicalAndAliasConflictMatrix) {
+TEST(OperatorValueRegistryTest, CanonicalAndAliasConflictMatrix) {
   // 1. Canonical / Canonical 冲突
   {
-    PlatformValueTypeRegistry reg;
-    PlatformValueTypeBinding b;
+    OperatorValueTypeRegistry reg;
+    OperatorValueTypeBinding b;
     b.canonical_suffix = "doc_in";  // 已存在
     EXPECT_FALSE(reg.RegisterBinding(b));
     EXPECT_TRUE(reg.HasConflict());
@@ -393,8 +393,8 @@ TEST(PlatformValueRegistryTest, CanonicalAndAliasConflictMatrix) {
 
   // 2. Canonical / Alias 冲突 (新 canonical 与已有 alias "qa_in" 冲突)
   {
-    PlatformValueTypeRegistry reg;
-    PlatformValueTypeBinding b;
+    OperatorValueTypeRegistry reg;
+    OperatorValueTypeBinding b;
     b.canonical_suffix = "qa_in";
     EXPECT_FALSE(reg.RegisterBinding(b));
     EXPECT_TRUE(reg.HasConflict());
@@ -403,8 +403,8 @@ TEST(PlatformValueRegistryTest, CanonicalAndAliasConflictMatrix) {
 
   // 3. Alias / Alias 冲突 (新 alias 与已有 alias "scores_out" 冲突)
   {
-    PlatformValueTypeRegistry reg;
-    PlatformValueTypeBinding b;
+    OperatorValueTypeRegistry reg;
+    OperatorValueTypeBinding b;
     b.canonical_suffix = "new_score_type";
     b.aliases = {"scores_out"};
     EXPECT_FALSE(reg.RegisterBinding(b));
@@ -414,8 +414,8 @@ TEST(PlatformValueRegistryTest, CanonicalAndAliasConflictMatrix) {
 
   // 4. 重复 Alias (在同一个 binding 内部重复)
   {
-    PlatformValueTypeRegistry reg;
-    PlatformValueTypeBinding b;
+    OperatorValueTypeRegistry reg;
+    OperatorValueTypeBinding b;
     b.canonical_suffix = "unique_suffix";
     b.aliases = {"dup_alias", "dup_alias"};
     EXPECT_FALSE(reg.RegisterBinding(b));
@@ -425,11 +425,11 @@ TEST(PlatformValueRegistryTest, CanonicalAndAliasConflictMatrix) {
 }
 
 // 11. 缺少 Validator 或 Output Factory 时的 Fail-Closed 审计 (分项独立测试)
-TEST(PlatformValueRegistryTest, MissingValidatorOrFactoryAuditRejection) {
+TEST(OperatorValueRegistryTest, MissingValidatorOrFactoryAuditRejection) {
   // 1. 输入类型缺少 validate_external
   {
-    PlatformValueTypeRegistry reg;
-    PlatformValueTypeBinding b;
+    OperatorValueTypeRegistry reg;
+    OperatorValueTypeBinding b;
     b.canonical_suffix = "custom_in";
     b.external_c_type_name = "CustomInput";
     b.validate_external = nullptr;
@@ -440,8 +440,8 @@ TEST(PlatformValueRegistryTest, MissingValidatorOrFactoryAuditRejection) {
 
   // 2. 输出类型缺少 allocate_external
   {
-    PlatformValueTypeRegistry reg;
-    PlatformValueTypeBinding b;
+    OperatorValueTypeRegistry reg;
+    OperatorValueTypeBinding b;
     b.canonical_suffix = "custom_out1";
     b.external_c_type_name = "CustomOutput1";
     b.allocate_external = nullptr;
@@ -454,8 +454,8 @@ TEST(PlatformValueRegistryTest, MissingValidatorOrFactoryAuditRejection) {
 
   // 3. 输出类型缺少 reset_external
   {
-    PlatformValueTypeRegistry reg;
-    PlatformValueTypeBinding b;
+    OperatorValueTypeRegistry reg;
+    OperatorValueTypeBinding b;
     b.canonical_suffix = "custom_out2";
     b.external_c_type_name = "CustomOutput2";
     b.allocate_external = [](const ResolvedOutputPoolSpec&, OwnedExternalBlock*,
@@ -469,8 +469,8 @@ TEST(PlatformValueRegistryTest, MissingValidatorOrFactoryAuditRejection) {
 
   // 4. 输出类型缺少 destroy_external
   {
-    PlatformValueTypeRegistry reg;
-    PlatformValueTypeBinding b;
+    OperatorValueTypeRegistry reg;
+    OperatorValueTypeBinding b;
     b.canonical_suffix = "custom_out3";
     b.external_c_type_name = "CustomOutput3";
     b.allocate_external = [](const ResolvedOutputPoolSpec&, OwnedExternalBlock*,
@@ -484,8 +484,8 @@ TEST(PlatformValueRegistryTest, MissingValidatorOrFactoryAuditRejection) {
 
   // 5. 空 external_c_type_name 拒绝
   {
-    PlatformValueTypeRegistry reg;
-    PlatformValueTypeBinding b;
+    OperatorValueTypeRegistry reg;
+    OperatorValueTypeBinding b;
     b.canonical_suffix = "custom_out4";
     b.external_c_type_name = "";  // empty
     b.allocate_external = [](const ResolvedOutputPoolSpec&, OwnedExternalBlock*,
@@ -499,22 +499,22 @@ TEST(PlatformValueRegistryTest, MissingValidatorOrFactoryAuditRejection) {
 }
 
 // 12. 命名异常注入与 Copy-and-Swap 事务回滚零污染测试 (R9-008, R9-010)
-TEST(PlatformValueRegistryTest, NamedExceptionInjectionRollbackZeroCorruption) {
+TEST(OperatorValueRegistryTest, NamedExceptionInjectionRollbackZeroCorruption) {
   const auto points = {
-      PlatformValueTypeRegistry::RegistryExceptionInjectPoint::
+      OperatorValueTypeRegistry::RegistryExceptionInjectPoint::
           kCopyCanonicalMap,
-      PlatformValueTypeRegistry::RegistryExceptionInjectPoint::kCopyAliasMap,
-      PlatformValueTypeRegistry::RegistryExceptionInjectPoint::
+      OperatorValueTypeRegistry::RegistryExceptionInjectPoint::kCopyAliasMap,
+      OperatorValueTypeRegistry::RegistryExceptionInjectPoint::
           kSecondAliasInsert,
-      PlatformValueTypeRegistry::RegistryExceptionInjectPoint::kCanonicalInsert,
-      PlatformValueTypeRegistry::RegistryExceptionInjectPoint::kPublish,
+      OperatorValueTypeRegistry::RegistryExceptionInjectPoint::kCanonicalInsert,
+      OperatorValueTypeRegistry::RegistryExceptionInjectPoint::kPublish,
   };
 
   for (auto pt : points) {
-    PlatformValueTypeRegistry reg;
+    OperatorValueTypeRegistry reg;
     EXPECT_FALSE(reg.HasConflict());
 
-    PlatformValueTypeBinding b;
+    OperatorValueTypeBinding b;
     b.canonical_suffix = "injected_custom_out";
     b.aliases = {"alias_one", "alias_two"};
     b.external_c_type_name = "InjectedCustomOutput";
@@ -523,10 +523,10 @@ TEST(PlatformValueRegistryTest, NamedExceptionInjectionRollbackZeroCorruption) {
     b.reset_external = [](void*, const ResolvedOutputPoolSpec&) {};
     b.destroy_external = [](OwnedExternalBlock*) {};
 
-    PlatformValueTypeRegistry::SetExceptionInjectPoint(pt);
+    OperatorValueTypeRegistry::SetExceptionInjectPoint(pt);
     EXPECT_FALSE(reg.RegisterBinding(b));
-    PlatformValueTypeRegistry::SetExceptionInjectPoint(
-        PlatformValueTypeRegistry::RegistryExceptionInjectPoint::kNone);
+    OperatorValueTypeRegistry::SetExceptionInjectPoint(
+        OperatorValueTypeRegistry::RegistryExceptionInjectPoint::kNone);
 
     // 状态无污染
     EXPECT_FALSE(reg.HasConflict());
@@ -538,7 +538,7 @@ TEST(PlatformValueRegistryTest, NamedExceptionInjectionRollbackZeroCorruption) {
 }
 
 // 13. ComputeOutputPoolPayloadBytes 穷尽预算公式与边界测试 (R9-005)
-TEST(PlatformValueRegistryTest,
+TEST(OperatorValueRegistryTest,
      ComputeOutputPoolPayloadBytesExhaustiveBudgetSuite) {
   std::string err;
   size_t out_bytes = 0;
@@ -593,7 +593,7 @@ TEST(PlatformValueRegistryTest,
   // 7. depth=1 时构造精确 64 MiB 载荷，边界必须允许；再加 1 字节拒绝。
   {
     constexpr size_t kFixedPayload =
-        sizeof(CompanyPlatformKeywordOutput) + sizeof(CompanyString) + 1;
+        sizeof(CompanyOperatorKeywordOutput) + sizeof(CompanyString) + 1;
     static_assert(kMaxHandlePoolPayloadBytes > kFixedPayload);
     const auto exact_capacity =
         static_cast<uint32_t>(kMaxHandlePoolPayloadBytes - kFixedPayload);
@@ -635,8 +635,8 @@ TEST(PlatformValueRegistryTest,
 }
 
 // 14. TSan 并发查询与冻结交错测试
-TEST(PlatformValueRegistryTest, TSanConcurrentQueryAndFreeze) {
-  PlatformValueTypeRegistry reg;
+TEST(OperatorValueRegistryTest, TSanConcurrentQueryAndFreeze) {
+  OperatorValueTypeRegistry reg;
   std::atomic<bool> stop_flag{false};
 
   std::vector<std::thread> readers;
@@ -653,7 +653,7 @@ TEST(PlatformValueRegistryTest, TSanConcurrentQueryAndFreeze) {
   std::thread freezer([&]() {
     for (int i = 0; i < 50; ++i) {
       EXPECT_EQ(reg.GlobalInit(), 0);
-      PlatformValueTypeBinding late_b;
+      OperatorValueTypeBinding late_b;
       late_b.canonical_suffix = "late_b";
       EXPECT_FALSE(reg.RegisterBinding(late_b));
     }

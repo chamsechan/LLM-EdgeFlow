@@ -6,7 +6,7 @@
 #include "demo/common/demo_registry.h"
 #include "demo/common/operator_runner.h"
 #include "demo/common/result_writer.h"
-#include "platform/company_platform_types.h"
+#include "operator/company_operator_types.h"
 
 namespace alg_demo {
 
@@ -50,9 +50,9 @@ int RunOcrDocQaDemo(const DemoOptions& options) {
     return 3;
   }
 
-  llm_edgeflow::platform::ChipType chip_type =
-      llm_edgeflow::platform::ChipType::kUnknown;
-  if (!ParseChipType(options.chip, &chip_type)) {
+  llm_edgeflow::operator_api::ComputePlatform chip_type =
+      llm_edgeflow::operator_api::ComputePlatform::kUnknown;
+  if (!ParseComputePlatform(options.chip, &chip_type)) {
     std::cerr << "[OcrDocQaDemo ERROR] Unsupported chip: " << options.chip
               << std::endl;
     return 3;
@@ -62,7 +62,7 @@ int RunOcrDocQaDemo(const DemoOptions& options) {
   std::string cfg_rel;
   ResolveModelRootAndConfig(options.config_path, &model_root, &cfg_rel);
 
-  auto ops = llm_edgeflow::platform::Get_LLM_EDGEFLOW_OperatorTable();
+  auto ops = llm_edgeflow::operator_api::Get_LLM_EDGEFLOW_OperatorTable();
 
   int max_batch_size = options.batch_size > 0 ? options.batch_size : 1;
   uint32_t requested_depth = options.depth_num > 0 ? options.depth_num : 25;
@@ -70,18 +70,19 @@ int RunOcrDocQaDemo(const DemoOptions& options) {
     requested_depth = static_cast<uint32_t>(max_batch_size);
   }
 
-  llm_edgeflow::platform::CreateParam param{};
+  llm_edgeflow::operator_api::CreateParam param{};
   param.model_path = model_root.c_str();
   param.cfg_file_name = cfg_rel.c_str();
   param.device_id = options.device_id;
-  param.platform_type = chip_type;
+  param.compute_platform = chip_type;
   param.max_frame_depth = requested_depth;
 
   void* raw_handle = nullptr;
   int ret = ops.Create(&raw_handle, &param);
   if (ret != 0 || !raw_handle) {
     std::cerr << "[OcrDocQaDemo ERROR] Failed ops.Create: "
-              << llm_edgeflow::platform::GetPlatformLastError() << std::endl;
+              << llm_edgeflow::operator_api::GetOperatorLastError()
+              << std::endl;
     return 5;
   }
 
@@ -93,13 +94,13 @@ int RunOcrDocQaDemo(const DemoOptions& options) {
   CompanyString prompt_str{static_cast<int32_t>(prompt.size()),
                            const_cast<char*>(prompt.data())};
 
-  llm_edgeflow::platform::NamedIoBatch in_batch(1);
-  llm_edgeflow::platform::NamedIoBatch out_batch(1);
+  llm_edgeflow::operator_api::NamedIoBatch in_batch(1);
+  llm_edgeflow::operator_api::NamedIoBatch out_batch(1);
 
   in_batch[0]["camera_0.frame"] =
-      llm_edgeflow::platform::MakeBorrowedPlatformInput(&frame);
+      llm_edgeflow::operator_api::MakeBorrowedOperatorInput(&frame);
   in_batch[0]["camera_0.string"] =
-      llm_edgeflow::platform::MakeBorrowedPlatformInput(&prompt_str);
+      llm_edgeflow::operator_api::MakeBorrowedOperatorInput(&prompt_str);
   out_batch[0]["camera_0.od_out"] = std::shared_ptr<void>();
 
   auto start_time = std::chrono::high_resolution_clock::now();
@@ -111,7 +112,8 @@ int RunOcrDocQaDemo(const DemoOptions& options) {
 
   if (ret != 0) {
     std::cerr << "[OcrDocQaDemo ERROR] ops.Process failed: "
-              << llm_edgeflow::platform::GetPlatformLastError() << std::endl;
+              << llm_edgeflow::operator_api::GetOperatorLastError()
+              << std::endl;
     return 5;
   }
 

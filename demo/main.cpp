@@ -8,25 +8,25 @@
 #include "demo/common/demo_options.h"
 #include "demo/common/demo_registry.h"
 #include "nlohmann/json.hpp"
-#include "platform/platform_operator_interface.h"
+#include "operator/operator_interface.h"
 
 using namespace alg_demo;
-using namespace llm_edgeflow::platform;
+using namespace llm_edgeflow::operator_api;
 
 namespace {
 
-struct PlatformGlobalGuard {
+struct OperatorGlobalGuard {
   OperatorFunc ops;
   bool initialized = false;
 
-  PlatformGlobalGuard() {
+  OperatorGlobalGuard() {
     ops = Get_LLM_EDGEFLOW_OperatorTable();
     if (ops.Init && ops.Init() == 0) {
       initialized = true;
     }
   }
 
-  ~PlatformGlobalGuard() {
+  ~OperatorGlobalGuard() {
     if (initialized && ops.Deinit) {
       ops.Deinit();
       initialized = false;
@@ -145,11 +145,11 @@ int main(int argc, char* argv[]) {
     return 0;
   }
 
-  // 2. 初始化平台全局环境 (RAII 自动管理 Init / Deinit)
-  PlatformGlobalGuard global_guard;
+  // 2. 初始化 Operator 全局环境 (RAII 自动管理 Init / Deinit)
+  OperatorGlobalGuard global_guard;
   if (!global_guard.initialized) {
-    std::cerr << "[Main ERROR] Global Platform Init failed: "
-              << GetPlatformLastError() << std::endl;
+    std::cerr << "[Main ERROR] Global Operator Init failed: "
+              << GetOperatorLastError() << std::endl;
     return 5;
   }
 

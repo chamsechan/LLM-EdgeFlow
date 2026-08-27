@@ -51,11 +51,12 @@ package "Layer 1: 双门面与 C ABI 安全适配层 (Dual Facades & C Adapter)"
     + Alg_DeInit(): int noexcept
   }
 
-  class "Platform Operator Facade" as PlatformFacade <<(P,#38BDF8) Platform Operator>> {
-    + Get_LLM_EDGEFLOW_OperatorTable(): const OperatorFunc*
+  class "Operator Facade" as PlatformFacade <<(P,#38BDF8) Operator API>> {
+    + Get_LLM_EDGEFLOW_OperatorTable(): OperatorFunc
     + CompanyConfResolver: resolve .conf & rewrite model paths
-    + PlatformIoRegistry: named I/O map dispatch
-    + PlatformControlRegistry: typed control commands
+    + OperatorValueTypeRegistry: value type whitelist & pool sizing
+    + OperatorBizBridgeRegistry: biz bridge slots & conversion
+    + OperatorControlRegistry: typed control commands
   }
 
   class "SharedAlgorithmRuntime" as SharedRuntime <<(R,#10B981) Shared Runtime>> {
@@ -325,7 +326,7 @@ EngineImpls ..> FixedBatchExecutor : 调用定长硬件分批模板
 FixedBatchExecutor ..> TraceableItem : 样本切块/补齐/剥离/溯源
 
 WebStudio ..> PipelineTool : 交互式编排调用
-Tools ..> L1 : 驱动 Demo 与平台 Operator
+Tools ..> L1 : 驱动 Demo 与 Operator API
 Tools ..> L2 : 静态校验与拓扑规划
 
 @enduml

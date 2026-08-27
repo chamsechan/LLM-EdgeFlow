@@ -14,8 +14,8 @@
 #include "demo/common/demo_options.h"
 #include "demo/common/result_writer.h"
 #include "nlohmann/json.hpp"
-#include "platform/company_platform_types.h"
-#include "platform/platform_operator_interface.h"
+#include "operator/company_operator_types.h"
+#include "operator/operator_interface.h"
 
 namespace alg_demo {
 
@@ -79,7 +79,7 @@ inline bool ResolveModelRootAndConfig(const std::string& conf_path,
 }
 
 /**
- * @brief 校验 .conf 与 Pipeline JSON 中的 business_name 是否与 Demo Case 兼容
+ * @brief 校验 .conf 与 Pipeline JSON 中的 biz_name 是否与 Demo Case 兼容
  */
 inline bool ValidateConfigBusinessMatch(const std::string& conf_path,
                                         std::string_view expected_biz,
@@ -97,7 +97,7 @@ inline bool ValidateConfigBusinessMatch(const std::string& conf_path,
   ResolveModelRootAndConfig(conf_path, &model_root, &cfg_rel);
 
   char err_buf[512] = {0};
-  int ret = llm_edgeflow::platform::ValidatePlatformConfigBinding(
+  int ret = llm_edgeflow::operator_api::ValidateOperatorConfigBinding(
       model_root.c_str(), cfg_rel.c_str(), static_cast<int32_t>(expected_type),
       err_buf, sizeof(err_buf));
 
@@ -105,7 +105,7 @@ inline bool ValidateConfigBusinessMatch(const std::string& conf_path,
     if (error_msg) {
       *error_msg = (err_buf[0] != '\0')
                        ? std::string(err_buf)
-                       : "Platform config validation failed (code " +
+                       : "Operator config validation failed (code " +
                              std::to_string(ret) + ")";
     }
     return false;
@@ -115,13 +115,13 @@ inline bool ValidateConfigBusinessMatch(const std::string& conf_path,
 }
 
 /**
- * @brief Platform Operator 句柄 RAII 生命周期管理器
+ * @brief Operator 句柄 RAII 生命周期管理器
  */
 struct OperatorHandleGuard {
-  llm_edgeflow::platform::OperatorFunc ops;
+  llm_edgeflow::operator_api::OperatorFunc ops;
   void* handle = nullptr;
 
-  OperatorHandleGuard(llm_edgeflow::platform::OperatorFunc f, void* h)
+  OperatorHandleGuard(llm_edgeflow::operator_api::OperatorFunc f, void* h)
       : ops(f), handle(h) {}
 
   ~OperatorHandleGuard() {
@@ -136,18 +136,18 @@ struct OperatorHandleGuard {
 };
 
 /**
- * @brief 通用 Platform Operator 单槽位生命周期与调度执行器
+ * @brief 通用 Operator 单槽位生命周期与调度执行器
  */
 template <typename TInput, typename TOutput, typename TResultExtractor>
-int RunPlatformOperatorWithExtractor(
+int RunOperatorWithExtractor(
     const DemoOptions& options, std::string_view input_slot,
     std::string_view output_slot, const std::vector<TInput>& inputs,
     TResultExtractor&& extractor,
     std::vector<double>* out_latencies_ms = nullptr,
-    llm_edgeflow::platform::ControlCommand ctrl_cmd =
-        llm_edgeflow::platform::ControlCommand::kUpdateRules,
+    llm_edgeflow::operator_api::ControlCommand ctrl_cmd =
+        llm_edgeflow::operator_api::ControlCommand::kUpdateRules,
     const char* default_ctrl_json = nullptr) {
-  using namespace llm_edgeflow::platform;
+  using namespace llm_edgeflow::operator_api;
 
   if (inputs.empty()) {
     std::cerr << "[OperatorRunner ERROR] Inputs vector is empty." << std::endl;
@@ -162,10 +162,10 @@ int RunPlatformOperatorWithExtractor(
     return 3;
   }
 
-  ChipType chip_type = ChipType::kUnknown;
-  if (!ParseChipType(options.chip, &chip_type)) {
-    std::cerr << "[OperatorRunner ERROR] Unsupported chip: " << options.chip
-              << std::endl;
+  ComputePlatform chip_type = ComputePlatform::kUnknown;
+  if (!ParseComputePlatform(options.chip, &chip_type)) {
+    std::cerr << "[OperatorRunner ERROR] Unsupported compute platform / chip: "
+              << options.chip << std::endl;
     return 3;
   }
 
@@ -185,15 +185,15 @@ int RunPlatformOperatorWithExtractor(
   param.model_path = model_root.c_str();
   param.cfg_file_name = cfg_rel.c_str();
   param.device_id = options.device_id;
-  param.platform_type = chip_type;
+  param.compute_platform = chip_type;
   param.max_frame_depth = requested_depth;
 
   void* raw_handle = nullptr;
   int ret = ops.Create(&raw_handle, &param);
   if (ret != 0 || !raw_handle) {
-    std::string plat_err = GetPlatformLastError();
+    std::string op_err = GetOperatorLastError();
     std::cerr << "[OperatorRunner ERROR] Failed ops.Create with conf: "
-              << options.config_path << " (Platform error: " << plat_err << ")"
+              << options.config_path << " (Operator error: " << op_err << ")"
               << std::endl;
     return 5;
   }
@@ -234,7 +234,7 @@ int RunPlatformOperatorWithExtractor(
     int ctrl_ret = ops.Control(raw_handle, ctrl_cmd, &ctrl_param);
     if (ctrl_ret != 0) {
       std::cerr << "[OperatorRunner ERROR] ops.Control failed: code="
-                << ctrl_ret << " (Platform error: " << GetPlatformLastError()
+                << ctrl_ret << " (Operator error: " << GetOperatorLastError()
                 << ")" << std::endl;
       return 5;
     }
@@ -260,7 +260,7 @@ int RunPlatformOperatorWithExtractor(
 
     for (size_t i = 0; i < chunk_size; ++i) {
       size_t idx = processed_count + i;
-      in_batch[i][in_key] = MakeBorrowedPlatformInput(&inputs[idx]);
+      in_batch[i][in_key] = MakeBorrowedOperatorInput(&inputs[idx]);
       out_batch[i][out_key] = std::shared_ptr<void>();
     }
 
@@ -280,11 +280,11 @@ int RunPlatformOperatorWithExtractor(
     total_elapsed_ms += chunk_elapsed_ms;
 
     if (ret != 0) {
-      std::string platform_err = GetPlatformLastError();
+      std::string op_err = GetOperatorLastError();
       std::cerr << "[OperatorRunner ERROR] ops.Process failed at chunk "
                    "starting index "
-                << processed_count << ": code=" << ret << " (" << platform_err
-                << ")" << std::endl;
+                << processed_count << ": code=" << ret << " (" << op_err << ")"
+                << std::endl;
       return 5;
     }
 
@@ -313,6 +313,24 @@ int RunPlatformOperatorWithExtractor(
             << " sample(s) processed successfully in " << total_elapsed_ms
             << " ms." << std::endl;
   return 0;
+}
+
+/**
+ * @brief 向后兼容别名函数
+ */
+template <typename TInput, typename TOutput, typename TResultExtractor>
+inline int RunPlatformOperatorWithExtractor(
+    const DemoOptions& options, std::string_view input_slot,
+    std::string_view output_slot, const std::vector<TInput>& inputs,
+    TResultExtractor&& extractor,
+    std::vector<double>* out_latencies_ms = nullptr,
+    llm_edgeflow::operator_api::ControlCommand ctrl_cmd =
+        llm_edgeflow::operator_api::ControlCommand::kUpdateRules,
+    const char* default_ctrl_json = nullptr) {
+  return RunOperatorWithExtractor<TInput, TOutput, TResultExtractor>(
+      options, input_slot, output_slot, inputs,
+      std::forward<TResultExtractor>(extractor), out_latencies_ms, ctrl_cmd,
+      default_ctrl_json);
 }
 
 }  // namespace alg_demo

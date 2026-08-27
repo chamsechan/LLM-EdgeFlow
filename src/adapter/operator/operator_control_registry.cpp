@@ -1,4 +1,4 @@
-#include "adapter/platform/platform_control_registry.h"
+#include "adapter/operator/operator_control_registry.h"
 
 #include <cmath>
 #include <cstring>
@@ -8,8 +8,8 @@
 
 namespace alg_framework {
 
-int PlatformControlRegistry::ResolveControlParam(
-    llm_edgeflow::platform::ControlCommand command, void* control_param,
+int OperatorControlRegistry::ResolveControlParam(
+    llm_edgeflow::operator_api::ControlCommand command, void* control_param,
     int* out_cmd_id, std::string* out_json_str,
     std::string* error_msg) noexcept {
   try {
@@ -26,10 +26,10 @@ int PlatformControlRegistry::ResolveControlParam(
     constexpr size_t kMaxStringLength = 65536;
 
     switch (command) {
-      case llm_edgeflow::platform::ControlCommand::kUpdateRules: {
-        const auto* param =
-            static_cast<const llm_edgeflow::platform::ControlUpdateRulesParam*>(
-                control_param);
+      case llm_edgeflow::operator_api::ControlCommand::kUpdateRules: {
+        const auto* param = static_cast<
+            const llm_edgeflow::operator_api::ControlUpdateRulesParam*>(
+            control_param);
         if (!param->rules_json_str) {
           if (error_msg) {
             *error_msg = "ControlUpdateRulesParam::rules_json_str is null";
@@ -65,9 +65,9 @@ int PlatformControlRegistry::ResolveControlParam(
         }
       }
 
-      case llm_edgeflow::platform::ControlCommand::kSwitchPrompt: {
+      case llm_edgeflow::operator_api::ControlCommand::kSwitchPrompt: {
         const auto* param = static_cast<
-            const llm_edgeflow::platform::ControlSwitchPromptParam*>(
+            const llm_edgeflow::operator_api::ControlSwitchPromptParam*>(
             control_param);
         if (!param->prompt_template_str) {
           if (error_msg) {
@@ -107,9 +107,9 @@ int PlatformControlRegistry::ResolveControlParam(
         return 0;
       }
 
-      case llm_edgeflow::platform::ControlCommand::kUpdateThreshold: {
+      case llm_edgeflow::operator_api::ControlCommand::kUpdateThreshold: {
         const auto* param = static_cast<
-            const llm_edgeflow::platform::ControlUpdateThresholdParam*>(
+            const llm_edgeflow::operator_api::ControlUpdateThresholdParam*>(
             control_param);
         if (!std::isfinite(param->threshold) || param->threshold < 0.0f ||
             param->threshold > 1.0f) {

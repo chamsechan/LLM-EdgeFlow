@@ -1,4 +1,4 @@
-#include "adapter/platform/platform_value_type_registry.h"
+#include "adapter/operator/operator_value_type_registry.h"
 
 #include <atomic>
 #include <cstring>
@@ -8,18 +8,18 @@
 #include <new>
 #include <unordered_set>
 
-#include "adapter/platform/platform_output_pool.h"
+#include "adapter/operator/operator_output_pool.h"
 #include "company_alg_interface.h"
-#include "platform/company_platform_types.h"
+#include "operator/company_operator_types.h"
 
 namespace alg_framework {
 
 namespace {
 
 std::atomic<int> g_alloc_failure_countdown{-1};
-std::atomic<PlatformValueTypeRegistry::RegistryExceptionInjectPoint>
+std::atomic<OperatorValueTypeRegistry::RegistryExceptionInjectPoint>
     g_registry_inject_point{
-        PlatformValueTypeRegistry::RegistryExceptionInjectPoint::kNone};
+        OperatorValueTypeRegistry::RegistryExceptionInjectPoint::kNone};
 
 void CheckAllocFailureProbe() {
   if (g_alloc_failure_countdown.load() >= 0) {
@@ -203,7 +203,7 @@ bool ComputeOutputPoolPayloadBytes(const std::string& suffix,
   size_t single_block_bytes = 0;
 
   if (suffix == "doc_out") {
-    single_block_bytes = sizeof(CompanyPlatformDocOutput);
+    single_block_bytes = sizeof(CompanyOperatorDocOutput);
     uint32_t cap_intent = spec.GetCapacity("intent_name", 63);
     uint32_t cap_answer = spec.GetCapacity("answer_text", 1023);
     size_t str_bytes = 0;
@@ -216,7 +216,7 @@ bool ComputeOutputPoolPayloadBytes(const std::string& suffix,
       return false;
     }
   } else if (suffix == "keyword_out") {
-    single_block_bytes = sizeof(CompanyPlatformKeywordOutput);
+    single_block_bytes = sizeof(CompanyOperatorKeywordOutput);
     uint32_t cap_match = spec.GetCapacity("match_result_json", 2047);
     size_t str_bytes = 0;
     if (!CheckedAdd(static_cast<size_t>(cap_match), 1, &str_bytes) ||
@@ -226,7 +226,7 @@ bool ComputeOutputPoolPayloadBytes(const std::string& suffix,
       return false;
     }
   } else if (suffix == "entity_out") {
-    single_block_bytes = sizeof(CompanyPlatformEntityOutput);
+    single_block_bytes = sizeof(CompanyOperatorEntityOutput);
     uint32_t cap_entities = spec.GetCapacity("entities_json", 2047);
     size_t str_bytes = 0;
     if (!CheckedAdd(static_cast<size_t>(cap_entities), 1, &str_bytes) ||
@@ -236,7 +236,7 @@ bool ComputeOutputPoolPayloadBytes(const std::string& suffix,
       return false;
     }
   } else if (suffix == "audit_out") {
-    single_block_bytes = sizeof(CompanyPlatformAuditOutput);
+    single_block_bytes = sizeof(CompanyOperatorAuditOutput);
     uint32_t cap_risk = spec.GetCapacity("risk_level", 31);
     uint32_t cap_clause = spec.GetCapacity("matched_policy_clause", 255);
     uint32_t cap_verdict = spec.GetCapacity("audit_verdict_json", 1023);
@@ -284,7 +284,7 @@ bool ComputeOutputPoolPayloadBytes(const std::string& suffix,
       }
     }
   } else if (suffix == "audio_out") {
-    single_block_bytes = sizeof(CompanyPlatformAudioOutput);
+    single_block_bytes = sizeof(CompanyOperatorAudioOutput);
     uint32_t cap_trans = spec.GetCapacity("transcribed_text", 511);
     uint32_t cap_intent = spec.GetCapacity("intent_slot_json", 1023);
     size_t str_bytes = 0;
@@ -297,7 +297,7 @@ bool ComputeOutputPoolPayloadBytes(const std::string& suffix,
       return false;
     }
   } else if (suffix == "rerank_out") {
-    single_block_bytes = sizeof(CompanyPlatformRerankOutput);
+    single_block_bytes = sizeof(CompanyOperatorRerankOutput);
   } else {
     if (err) *err = "Unknown output suffix '" + suffix + "' for pool budgeting";
     return false;
@@ -323,22 +323,22 @@ bool ComputeOutputPoolPayloadBytes(const std::string& suffix,
   return true;
 }
 
-void PlatformValueTypeRegistry::SetAllocationFailureCountdown(
+void OperatorValueTypeRegistry::SetAllocationFailureCountdown(
     int count) noexcept {
   g_alloc_failure_countdown.store(count);
 }
 
-int PlatformValueTypeRegistry::GetAllocationFailureCountdown() noexcept {
+int OperatorValueTypeRegistry::GetAllocationFailureCountdown() noexcept {
   return g_alloc_failure_countdown.load();
 }
 
-void PlatformValueTypeRegistry::SetExceptionInjectPoint(
+void OperatorValueTypeRegistry::SetExceptionInjectPoint(
     RegistryExceptionInjectPoint point) noexcept {
   g_registry_inject_point.store(point);
 }
 
-PlatformValueTypeRegistry::RegistryExceptionInjectPoint
-PlatformValueTypeRegistry::GetExceptionInjectPoint() noexcept {
+OperatorValueTypeRegistry::RegistryExceptionInjectPoint
+OperatorValueTypeRegistry::GetExceptionInjectPoint() noexcept {
   return g_registry_inject_point.load();
 }
 
@@ -351,12 +351,12 @@ const CompanyAnyTypeDescriptor* FindCompanyAnyType(int32_t type_id) noexcept {
   return nullptr;
 }
 
-PlatformValueTypeRegistry& PlatformValueTypeRegistry::Instance() {
-  static PlatformValueTypeRegistry instance;
+OperatorValueTypeRegistry& OperatorValueTypeRegistry::Instance() {
+  static OperatorValueTypeRegistry instance;
   return instance;
 }
 
-bool PlatformValueTypeRegistry::ParseKey(const std::string& key,
+bool OperatorValueTypeRegistry::ParseKey(const std::string& key,
                                          std::string* out_namespace,
                                          std::string* out_suffix) noexcept {
   if (key.empty()) return false;
@@ -374,7 +374,7 @@ bool PlatformValueTypeRegistry::ParseKey(const std::string& key,
   return true;
 }
 
-int PlatformValueTypeRegistry::ValidateCompanyString(
+int OperatorValueTypeRegistry::ValidateCompanyString(
     const CompanyString* str, size_t max_bytes, const char* field_name,
     std::string* err) noexcept {
   if (!str) {
@@ -414,7 +414,7 @@ int PlatformValueTypeRegistry::ValidateCompanyString(
   return 0;
 }
 
-int PlatformValueTypeRegistry::ValidateCompanyBuffer(
+int OperatorValueTypeRegistry::ValidateCompanyBuffer(
     const CompanyBuffer* buf, size_t max_bytes, const char* field_name,
     std::string* err) noexcept {
   if (!buf) {
@@ -440,7 +440,7 @@ int PlatformValueTypeRegistry::ValidateCompanyBuffer(
   return 0;
 }
 
-int PlatformValueTypeRegistry::ValidateCompanyAnyPayload(
+int OperatorValueTypeRegistry::ValidateCompanyAnyPayload(
     const CompanyAny* any, size_t max_any_bytes, const char* field_name,
     std::string* err) noexcept {
   if (!any) {
@@ -512,12 +512,12 @@ int PlatformValueTypeRegistry::ValidateCompanyAnyPayload(
   return 0;
 }
 
-bool PlatformValueTypeRegistry::HasConflict() const {
+bool OperatorValueTypeRegistry::HasConflict() const {
   std::lock_guard<std::mutex> lock(mutex_);
   return has_conflict_;
 }
 
-int PlatformValueTypeRegistry::GlobalInit() {
+int OperatorValueTypeRegistry::GlobalInit() {
   std::lock_guard<std::mutex> lock(mutex_);
   if (has_conflict_) {
     return -6;
@@ -557,8 +557,8 @@ int PlatformValueTypeRegistry::GlobalInit() {
   return 0;
 }
 
-bool PlatformValueTypeRegistry::RegisterBinding(
-    const PlatformValueTypeBinding& binding) {
+bool OperatorValueTypeRegistry::RegisterBinding(
+    const OperatorValueTypeBinding& binding) {
   std::lock_guard<std::mutex> lock(mutex_);
   if (audited_) {
     return false;
@@ -613,14 +613,14 @@ bool PlatformValueTypeRegistry::RegisterBinding(
   // 4. 原子预检通过后，通过 Copy-and-Swap 一次性提交
   try {
     if (g_registry_inject_point.load() ==
-        PlatformValueTypeRegistry::RegistryExceptionInjectPoint::
+        OperatorValueTypeRegistry::RegistryExceptionInjectPoint::
             kCopyCanonicalMap) {
       throw std::runtime_error("Injected failure copying canonical map");
     }
     auto temp_bindings = bindings_by_canonical_;
 
     if (g_registry_inject_point.load() ==
-        PlatformValueTypeRegistry::RegistryExceptionInjectPoint::
+        OperatorValueTypeRegistry::RegistryExceptionInjectPoint::
             kCopyAliasMap) {
       throw std::runtime_error("Injected failure copying alias map");
     }
@@ -628,7 +628,7 @@ bool PlatformValueTypeRegistry::RegisterBinding(
 
     for (size_t i = 0; i < binding.aliases.size(); ++i) {
       if (g_registry_inject_point.load() ==
-              PlatformValueTypeRegistry::RegistryExceptionInjectPoint::
+              OperatorValueTypeRegistry::RegistryExceptionInjectPoint::
                   kSecondAliasInsert &&
           i == 1) {
         throw std::runtime_error("Injected failure on second alias insert");
@@ -637,14 +637,14 @@ bool PlatformValueTypeRegistry::RegisterBinding(
     }
 
     if (g_registry_inject_point.load() ==
-        PlatformValueTypeRegistry::RegistryExceptionInjectPoint::
+        OperatorValueTypeRegistry::RegistryExceptionInjectPoint::
             kCanonicalInsert) {
       throw std::runtime_error("Injected failure on canonical insert");
     }
     temp_bindings[binding.canonical_suffix] = binding;
 
     if (g_registry_inject_point.load() ==
-        PlatformValueTypeRegistry::RegistryExceptionInjectPoint::kPublish) {
+        OperatorValueTypeRegistry::RegistryExceptionInjectPoint::kPublish) {
       throw std::runtime_error("Injected failure before registry publish");
     }
     bindings_by_canonical_.swap(temp_bindings);
@@ -656,13 +656,13 @@ bool PlatformValueTypeRegistry::RegisterBinding(
   return true;
 }
 
-std::string PlatformValueTypeRegistry::NormalizeSuffix(
+std::string OperatorValueTypeRegistry::NormalizeSuffix(
     const std::string& suffix) const {
   const auto* b = GetBindingBySuffix(suffix);
   return b ? b->canonical_suffix : "";
 }
 
-const PlatformValueTypeBinding* PlatformValueTypeRegistry::GetBindingBySuffix(
+const OperatorValueTypeBinding* OperatorValueTypeRegistry::GetBindingBySuffix(
     const std::string& suffix) const {
   std::lock_guard<std::mutex> lock(mutex_);
   auto it_can = bindings_by_canonical_.find(suffix);
@@ -679,14 +679,14 @@ const PlatformValueTypeBinding* PlatformValueTypeRegistry::GetBindingBySuffix(
   return nullptr;
 }
 
-PlatformValueTypeRegistry::PlatformValueTypeRegistry() {
+OperatorValueTypeRegistry::OperatorValueTypeRegistry() {
   RegisterBuiltinBindings();
 }
 
-void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
+void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
   // 1. string -> CompanyString (RFC 6.3: aliases: {})
   {
-    PlatformValueTypeBinding b;
+    OperatorValueTypeBinding b;
     b.canonical_suffix = "string";
     b.aliases = {};
     b.external_c_type_name = "CompanyString";
@@ -704,7 +704,7 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
 
   // 2. buffer -> CompanyBuffer (RFC 6.3: aliases: {})
   {
-    PlatformValueTypeBinding b;
+    OperatorValueTypeBinding b;
     b.canonical_suffix = "buffer";
     b.aliases = {};
     b.external_c_type_name = "CompanyBuffer";
@@ -722,7 +722,7 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
 
   // 3. any -> CompanyAny (RFC 6.3: aliases: {})
   {
-    PlatformValueTypeBinding b;
+    OperatorValueTypeBinding b;
     b.canonical_suffix = "any";
     b.aliases = {};
     b.external_c_type_name = "CompanyAny";
@@ -740,7 +740,7 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
 
   // 4. frame -> CompanyFrame (RFC 6.3: aliases: {"image_in"})
   {
-    PlatformValueTypeBinding b;
+    OperatorValueTypeBinding b;
     b.canonical_suffix = "frame";
     b.aliases = {"image_in"};
     b.external_c_type_name = "CompanyFrame";
@@ -770,7 +770,7 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
 
   // 5. od_out -> CompanyOdOutput (RFC 6.3: aliases: {"ocr_out"})
   {
-    PlatformValueTypeBinding b;
+    OperatorValueTypeBinding b;
     b.canonical_suffix = "od_out";
     b.aliases = {"ocr_out"};
     b.external_c_type_name = "CompanyOdOutput";
@@ -817,20 +817,20 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
     RegisterBinding(b);
   }
 
-  // 6. keyword_in -> CompanyPlatformKeywordInput (RFC 6.3: aliases:
+  // 6. keyword_in -> CompanyOperatorKeywordInput (RFC 6.3: aliases:
   // {"sentence_in"})
   {
-    PlatformValueTypeBinding b;
+    OperatorValueTypeBinding b;
     b.canonical_suffix = "keyword_in";
     b.aliases = {"sentence_in"};
-    b.external_c_type_name = "CompanyPlatformKeywordInput";
+    b.external_c_type_name = "CompanyOperatorKeywordInput";
     b.validate_external = [](const void* ptr, const ResolvedInputLimits& limits,
                              std::string* err) -> int {
       if (!ptr) {
-        if (err) *err = "CompanyPlatformKeywordInput pointer is null";
+        if (err) *err = "CompanyOperatorKeywordInput pointer is null";
         return -3;
       }
-      const auto* in = static_cast<const CompanyPlatformKeywordInput*>(ptr);
+      const auto* in = static_cast<const CompanyOperatorKeywordInput*>(ptr);
       if (!in->sentence_text) {
         if (err) *err = "sentence_text pointer is null";
         return -3;
@@ -841,13 +841,13 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
     RegisterBinding(b);
   }
 
-  // 7. keyword_out -> CompanyPlatformKeywordOutput (RFC 6.3: aliases:
+  // 7. keyword_out -> CompanyOperatorKeywordOutput (RFC 6.3: aliases:
   // {"match_out"})
   {
-    PlatformValueTypeBinding b;
+    OperatorValueTypeBinding b;
     b.canonical_suffix = "keyword_out";
     b.aliases = {"match_out"};
-    b.external_c_type_name = "CompanyPlatformKeywordOutput";
+    b.external_c_type_name = "CompanyOperatorKeywordOutput";
     b.allocate_external = [](const ResolvedOutputPoolSpec& spec,
                              OwnedExternalBlock* out_block,
                              std::string* /*err*/) -> int {
@@ -858,14 +858,14 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
       out_block->cleanups.reserve(3);
       CheckAllocFailureProbe();
       std::unique_ptr<
-          CompanyPlatformKeywordOutput,
-          decltype(&DeleteTypedObject<CompanyPlatformKeywordOutput>)>
-          raw_holder(new CompanyPlatformKeywordOutput(),
-                     DeleteTypedObject<CompanyPlatformKeywordOutput>);
+          CompanyOperatorKeywordOutput,
+          decltype(&DeleteTypedObject<CompanyOperatorKeywordOutput>)>
+          raw_holder(new CompanyOperatorKeywordOutput(),
+                     DeleteTypedObject<CompanyOperatorKeywordOutput>);
       OutputPoolState::RecordConstructed();
       auto* raw = raw_holder.get();
       RegisterCleanup(out_block,
-                      {raw, DeleteTypedObject<CompanyPlatformKeywordOutput>});
+                      {raw, DeleteTypedObject<CompanyOperatorKeywordOutput>});
       raw_holder.release();
 
       raw->request_id = 0;
@@ -878,7 +878,7 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
     b.reset_external = [](void* ptr,
                           const ResolvedOutputPoolSpec& /*spec*/) noexcept {
       if (!ptr) return;
-      auto* raw = static_cast<CompanyPlatformKeywordOutput*>(ptr);
+      auto* raw = static_cast<CompanyOperatorKeywordOutput*>(ptr);
       raw->request_id = 0;
       raw->is_hit = 0;
       ResetNestedCompanyString(raw->match_result_json);
@@ -889,19 +889,19 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
     RegisterBinding(b);
   }
 
-  // 8. entity_in -> CompanyPlatformEntityInput (RFC 6.3: aliases: {"text_in"})
+  // 8. entity_in -> CompanyOperatorEntityInput (RFC 6.3: aliases: {"text_in"})
   {
-    PlatformValueTypeBinding b;
+    OperatorValueTypeBinding b;
     b.canonical_suffix = "entity_in";
     b.aliases = {"text_in"};
-    b.external_c_type_name = "CompanyPlatformEntityInput";
+    b.external_c_type_name = "CompanyOperatorEntityInput";
     b.validate_external = [](const void* ptr, const ResolvedInputLimits& limits,
                              std::string* err) -> int {
       if (!ptr) {
-        if (err) *err = "CompanyPlatformEntityInput pointer is null";
+        if (err) *err = "CompanyOperatorEntityInput pointer is null";
         return -3;
       }
-      const auto* in = static_cast<const CompanyPlatformEntityInput*>(ptr);
+      const auto* in = static_cast<const CompanyOperatorEntityInput*>(ptr);
       if (!in->sentence_text) {
         if (err) *err = "sentence_text pointer is null";
         return -3;
@@ -912,13 +912,13 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
     RegisterBinding(b);
   }
 
-  // 9. entity_out -> CompanyPlatformEntityOutput (RFC 6.3: aliases:
+  // 9. entity_out -> CompanyOperatorEntityOutput (RFC 6.3: aliases:
   // {"extracted_out"})
   {
-    PlatformValueTypeBinding b;
+    OperatorValueTypeBinding b;
     b.canonical_suffix = "entity_out";
     b.aliases = {"extracted_out"};
-    b.external_c_type_name = "CompanyPlatformEntityOutput";
+    b.external_c_type_name = "CompanyOperatorEntityOutput";
     b.allocate_external = [](const ResolvedOutputPoolSpec& spec,
                              OwnedExternalBlock* out_block,
                              std::string* /*err*/) -> int {
@@ -928,14 +928,14 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
       }
       out_block->cleanups.reserve(3);
       CheckAllocFailureProbe();
-      std::unique_ptr<CompanyPlatformEntityOutput,
-                      decltype(&DeleteTypedObject<CompanyPlatformEntityOutput>)>
-          raw_holder(new CompanyPlatformEntityOutput(),
-                     DeleteTypedObject<CompanyPlatformEntityOutput>);
+      std::unique_ptr<CompanyOperatorEntityOutput,
+                      decltype(&DeleteTypedObject<CompanyOperatorEntityOutput>)>
+          raw_holder(new CompanyOperatorEntityOutput(),
+                     DeleteTypedObject<CompanyOperatorEntityOutput>);
       OutputPoolState::RecordConstructed();
       auto* raw = raw_holder.get();
       RegisterCleanup(out_block,
-                      {raw, DeleteTypedObject<CompanyPlatformEntityOutput>});
+                      {raw, DeleteTypedObject<CompanyOperatorEntityOutput>});
       raw_holder.release();
 
       raw->request_id = 0;
@@ -948,7 +948,7 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
     b.reset_external = [](void* ptr,
                           const ResolvedOutputPoolSpec& /*spec*/) noexcept {
       if (!ptr) return;
-      auto* raw = static_cast<CompanyPlatformEntityOutput*>(ptr);
+      auto* raw = static_cast<CompanyOperatorEntityOutput*>(ptr);
       raw->request_id = 0;
       raw->status_code = 0;
       ResetNestedCompanyString(raw->entities_json);
@@ -959,19 +959,19 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
     RegisterBinding(b);
   }
 
-  // 10. doc_in -> CompanyPlatformDocInput (RFC 6.3: aliases: {"qa_in"})
+  // 10. doc_in -> CompanyOperatorDocInput (RFC 6.3: aliases: {"qa_in"})
   {
-    PlatformValueTypeBinding b;
+    OperatorValueTypeBinding b;
     b.canonical_suffix = "doc_in";
     b.aliases = {"qa_in"};
-    b.external_c_type_name = "CompanyPlatformDocInput";
+    b.external_c_type_name = "CompanyOperatorDocInput";
     b.validate_external = [](const void* ptr, const ResolvedInputLimits& limits,
                              std::string* err) -> int {
       if (!ptr) {
-        if (err) *err = "CompanyPlatformDocInput pointer is null";
+        if (err) *err = "CompanyOperatorDocInput pointer is null";
         return -3;
       }
-      const auto* in = static_cast<const CompanyPlatformDocInput*>(ptr);
+      const auto* in = static_cast<const CompanyOperatorDocInput*>(ptr);
       if (!in->query_text) {
         if (err) *err = "query_text pointer is null";
         return -3;
@@ -989,12 +989,12 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
     RegisterBinding(b);
   }
 
-  // 11. doc_out -> CompanyPlatformDocOutput (RFC 6.3: aliases: {"qa_out"})
+  // 11. doc_out -> CompanyOperatorDocOutput (RFC 6.3: aliases: {"qa_out"})
   {
-    PlatformValueTypeBinding b;
+    OperatorValueTypeBinding b;
     b.canonical_suffix = "doc_out";
     b.aliases = {"qa_out"};
-    b.external_c_type_name = "CompanyPlatformDocOutput";
+    b.external_c_type_name = "CompanyOperatorDocOutput";
     b.allocate_external = [](const ResolvedOutputPoolSpec& spec,
                              OwnedExternalBlock* out_block,
                              std::string* /*err*/) -> int {
@@ -1004,14 +1004,14 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
       }
       out_block->cleanups.reserve(5);
       CheckAllocFailureProbe();
-      std::unique_ptr<CompanyPlatformDocOutput,
-                      decltype(&DeleteTypedObject<CompanyPlatformDocOutput>)>
-          raw_holder(new CompanyPlatformDocOutput(),
-                     DeleteTypedObject<CompanyPlatformDocOutput>);
+      std::unique_ptr<CompanyOperatorDocOutput,
+                      decltype(&DeleteTypedObject<CompanyOperatorDocOutput>)>
+          raw_holder(new CompanyOperatorDocOutput(),
+                     DeleteTypedObject<CompanyOperatorDocOutput>);
       OutputPoolState::RecordConstructed();
       auto* raw = raw_holder.get();
       RegisterCleanup(out_block,
-                      {raw, DeleteTypedObject<CompanyPlatformDocOutput>});
+                      {raw, DeleteTypedObject<CompanyOperatorDocOutput>});
       raw_holder.release();
 
       raw->request_id = 0;
@@ -1028,7 +1028,7 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
     b.reset_external = [](void* ptr,
                           const ResolvedOutputPoolSpec& /*spec*/) noexcept {
       if (!ptr) return;
-      auto* raw = static_cast<CompanyPlatformDocOutput*>(ptr);
+      auto* raw = static_cast<CompanyOperatorDocOutput*>(ptr);
       raw->request_id = 0;
       raw->confidence = 0.0f;
       raw->chunk_count = 0;
@@ -1042,20 +1042,20 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
     RegisterBinding(b);
   }
 
-  // 12. audit_in -> CompanyPlatformAuditInput (RFC 6.3: aliases:
+  // 12. audit_in -> CompanyOperatorAuditInput (RFC 6.3: aliases:
   // {"dialogue_in"})
   {
-    PlatformValueTypeBinding b;
+    OperatorValueTypeBinding b;
     b.canonical_suffix = "audit_in";
     b.aliases = {"dialogue_in"};
-    b.external_c_type_name = "CompanyPlatformAuditInput";
+    b.external_c_type_name = "CompanyOperatorAuditInput";
     b.validate_external = [](const void* ptr, const ResolvedInputLimits& limits,
                              std::string* err) -> int {
       if (!ptr) {
-        if (err) *err = "CompanyPlatformAuditInput pointer is null";
+        if (err) *err = "CompanyOperatorAuditInput pointer is null";
         return -3;
       }
-      const auto* in = static_cast<const CompanyPlatformAuditInput*>(ptr);
+      const auto* in = static_cast<const CompanyOperatorAuditInput*>(ptr);
       if (!in->user_text) {
         if (err) *err = "user_text pointer is null";
         return -3;
@@ -1072,13 +1072,13 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
     RegisterBinding(b);
   }
 
-  // 13. audit_out -> CompanyPlatformAuditOutput (RFC 6.3: aliases:
+  // 13. audit_out -> CompanyOperatorAuditOutput (RFC 6.3: aliases:
   // {"verdict_out"})
   {
-    PlatformValueTypeBinding b;
+    OperatorValueTypeBinding b;
     b.canonical_suffix = "audit_out";
     b.aliases = {"verdict_out"};
-    b.external_c_type_name = "CompanyPlatformAuditOutput";
+    b.external_c_type_name = "CompanyOperatorAuditOutput";
     b.allocate_external = [](const ResolvedOutputPoolSpec& spec,
                              OwnedExternalBlock* out_block,
                              std::string* /*err*/) -> int {
@@ -1088,14 +1088,14 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
       }
       out_block->cleanups.reserve(7);
       CheckAllocFailureProbe();
-      std::unique_ptr<CompanyPlatformAuditOutput,
-                      decltype(&DeleteTypedObject<CompanyPlatformAuditOutput>)>
-          raw_holder(new CompanyPlatformAuditOutput(),
-                     DeleteTypedObject<CompanyPlatformAuditOutput>);
+      std::unique_ptr<CompanyOperatorAuditOutput,
+                      decltype(&DeleteTypedObject<CompanyOperatorAuditOutput>)>
+          raw_holder(new CompanyOperatorAuditOutput(),
+                     DeleteTypedObject<CompanyOperatorAuditOutput>);
       OutputPoolState::RecordConstructed();
       auto* raw = raw_holder.get();
       RegisterCleanup(out_block,
-                      {raw, DeleteTypedObject<CompanyPlatformAuditOutput>});
+                      {raw, DeleteTypedObject<CompanyOperatorAuditOutput>});
       raw_holder.release();
 
       raw->request_id = 0;
@@ -1113,7 +1113,7 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
     b.reset_external = [](void* ptr,
                           const ResolvedOutputPoolSpec& /*spec*/) noexcept {
       if (!ptr) return;
-      auto* raw = static_cast<CompanyPlatformAuditOutput*>(ptr);
+      auto* raw = static_cast<CompanyOperatorAuditOutput*>(ptr);
       raw->request_id = 0;
       raw->risk_score = 0.0f;
       raw->status_code = 0;
@@ -1127,20 +1127,20 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
     RegisterBinding(b);
   }
 
-  // 14. audio_in -> CompanyPlatformAudioInput (RFC 6.3: aliases:
+  // 14. audio_in -> CompanyOperatorAudioInput (RFC 6.3: aliases:
   // {"pcm_stream"})
   {
-    PlatformValueTypeBinding b;
+    OperatorValueTypeBinding b;
     b.canonical_suffix = "audio_in";
     b.aliases = {"pcm_stream"};
-    b.external_c_type_name = "CompanyPlatformAudioInput";
+    b.external_c_type_name = "CompanyOperatorAudioInput";
     b.validate_external = [](const void* ptr, const ResolvedInputLimits& limits,
                              std::string* err) -> int {
       if (!ptr) {
-        if (err) *err = "CompanyPlatformAudioInput pointer is null";
+        if (err) *err = "CompanyOperatorAudioInput pointer is null";
         return -3;
       }
-      const auto* in = static_cast<const CompanyPlatformAudioInput*>(ptr);
+      const auto* in = static_cast<const CompanyOperatorAudioInput*>(ptr);
       if (in->sample_rate < limits.min_sample_rate ||
           in->sample_rate > limits.max_sample_rate) {
         if (err) {
@@ -1168,12 +1168,12 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
     RegisterBinding(b);
   }
 
-  // 15. audio_out -> CompanyPlatformAudioOutput (RFC 6.3: aliases: {"asr_out"})
+  // 15. audio_out -> CompanyOperatorAudioOutput (RFC 6.3: aliases: {"asr_out"})
   {
-    PlatformValueTypeBinding b;
+    OperatorValueTypeBinding b;
     b.canonical_suffix = "audio_out";
     b.aliases = {"asr_out"};
-    b.external_c_type_name = "CompanyPlatformAudioOutput";
+    b.external_c_type_name = "CompanyOperatorAudioOutput";
     b.allocate_external = [](const ResolvedOutputPoolSpec& spec,
                              OwnedExternalBlock* out_block,
                              std::string* /*err*/) -> int {
@@ -1183,14 +1183,14 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
       }
       out_block->cleanups.reserve(5);
       CheckAllocFailureProbe();
-      std::unique_ptr<CompanyPlatformAudioOutput,
-                      decltype(&DeleteTypedObject<CompanyPlatformAudioOutput>)>
-          raw_holder(new CompanyPlatformAudioOutput(),
-                     DeleteTypedObject<CompanyPlatformAudioOutput>);
+      std::unique_ptr<CompanyOperatorAudioOutput,
+                      decltype(&DeleteTypedObject<CompanyOperatorAudioOutput>)>
+          raw_holder(new CompanyOperatorAudioOutput(),
+                     DeleteTypedObject<CompanyOperatorAudioOutput>);
       OutputPoolState::RecordConstructed();
       auto* raw = raw_holder.get();
       RegisterCleanup(out_block,
-                      {raw, DeleteTypedObject<CompanyPlatformAudioOutput>});
+                      {raw, DeleteTypedObject<CompanyOperatorAudioOutput>});
       raw_holder.release();
 
       raw->request_id = 0;
@@ -1205,7 +1205,7 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
     b.reset_external = [](void* ptr,
                           const ResolvedOutputPoolSpec& /*spec*/) noexcept {
       if (!ptr) return;
-      auto* raw = static_cast<CompanyPlatformAudioOutput*>(ptr);
+      auto* raw = static_cast<CompanyOperatorAudioOutput*>(ptr);
       raw->request_id = 0;
       raw->status_code = 0;
       ResetNestedCompanyString(raw->transcribed_text);
@@ -1217,19 +1217,19 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
     RegisterBinding(b);
   }
 
-  // 16. rerank_in -> CompanyPlatformRerankInput (RFC 6.3: aliases: {"pair_in"})
+  // 16. rerank_in -> CompanyOperatorRerankInput (RFC 6.3: aliases: {"pair_in"})
   {
-    PlatformValueTypeBinding b;
+    OperatorValueTypeBinding b;
     b.canonical_suffix = "rerank_in";
     b.aliases = {"pair_in"};
-    b.external_c_type_name = "CompanyPlatformRerankInput";
+    b.external_c_type_name = "CompanyOperatorRerankInput";
     b.validate_external = [](const void* ptr, const ResolvedInputLimits& limits,
                              std::string* err) -> int {
       if (!ptr) {
-        if (err) *err = "CompanyPlatformRerankInput pointer is null";
+        if (err) *err = "CompanyOperatorRerankInput pointer is null";
         return -3;
       }
-      const auto* in = static_cast<const CompanyPlatformRerankInput*>(ptr);
+      const auto* in = static_cast<const CompanyOperatorRerankInput*>(ptr);
       if (!in->query_text) {
         if (err) *err = "query_text pointer is null";
         return -3;
@@ -1238,11 +1238,11 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
                                       "query_text", err);
       if (ret != 0) return ret;
       if (in->candidate_count <= 0 ||
-          in->candidate_count > COMPANY_PLATFORM_MAX_RERANK_CANDIDATES) {
+          in->candidate_count > COMPANY_OPERATOR_MAX_RERANK_CANDIDATES) {
         if (err) {
           *err = "candidate_count " + std::to_string(in->candidate_count) +
                  " out of valid range [1, " +
-                 std::to_string(COMPANY_PLATFORM_MAX_RERANK_CANDIDATES) + "]";
+                 std::to_string(COMPANY_OPERATOR_MAX_RERANK_CANDIDATES) + "]";
         }
         return -3;
       }
@@ -1262,13 +1262,13 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
     RegisterBinding(b);
   }
 
-  // 17. rerank_out -> CompanyPlatformRerankOutput (RFC 6.3: aliases:
+  // 17. rerank_out -> CompanyOperatorRerankOutput (RFC 6.3: aliases:
   // {"scores_out"})
   {
-    PlatformValueTypeBinding b;
+    OperatorValueTypeBinding b;
     b.canonical_suffix = "rerank_out";
     b.aliases = {"scores_out"};
-    b.external_c_type_name = "CompanyPlatformRerankOutput";
+    b.external_c_type_name = "CompanyOperatorRerankOutput";
     b.allocate_external = [](const ResolvedOutputPoolSpec& /*spec*/,
                              OwnedExternalBlock* out_block,
                              std::string* /*err*/) -> int {
@@ -1278,20 +1278,20 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
       }
       out_block->cleanups.reserve(1);
       CheckAllocFailureProbe();
-      std::unique_ptr<CompanyPlatformRerankOutput,
-                      decltype(&DeleteTypedObject<CompanyPlatformRerankOutput>)>
-          raw_holder(new CompanyPlatformRerankOutput(),
-                     DeleteTypedObject<CompanyPlatformRerankOutput>);
+      std::unique_ptr<CompanyOperatorRerankOutput,
+                      decltype(&DeleteTypedObject<CompanyOperatorRerankOutput>)>
+          raw_holder(new CompanyOperatorRerankOutput(),
+                     DeleteTypedObject<CompanyOperatorRerankOutput>);
       OutputPoolState::RecordConstructed();
       auto* raw = raw_holder.get();
       RegisterCleanup(out_block,
-                      {raw, DeleteTypedObject<CompanyPlatformRerankOutput>});
+                      {raw, DeleteTypedObject<CompanyOperatorRerankOutput>});
       raw_holder.release();
 
       raw->request_id = 0;
       raw->count = 0;
       raw->status_code = 0;
-      for (int i = 0; i < COMPANY_PLATFORM_MAX_RERANK_CANDIDATES; ++i) {
+      for (int i = 0; i < COMPANY_OPERATOR_MAX_RERANK_CANDIDATES; ++i) {
         raw->scores[i] = 0.0f;
         raw->sorted_indices[i] = -1;
       }
@@ -1301,11 +1301,11 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
     b.reset_external = [](void* ptr,
                           const ResolvedOutputPoolSpec& /*spec*/) noexcept {
       if (!ptr) return;
-      auto* raw = static_cast<CompanyPlatformRerankOutput*>(ptr);
+      auto* raw = static_cast<CompanyOperatorRerankOutput*>(ptr);
       raw->request_id = 0;
       raw->count = 0;
       raw->status_code = 0;
-      for (int i = 0; i < COMPANY_PLATFORM_MAX_RERANK_CANDIDATES; ++i) {
+      for (int i = 0; i < COMPANY_OPERATOR_MAX_RERANK_CANDIDATES; ++i) {
         raw->scores[i] = 0.0f;
         raw->sorted_indices[i] = -1;
       }

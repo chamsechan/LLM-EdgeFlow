@@ -1,23 +1,23 @@
-#include "adapter/platform/platform_biz_bridge_registry.h"
+#include "adapter/operator/operator_biz_bridge_registry.h"
 
 namespace alg_framework {
 
-void RegisterKeywordMatchBridge(PlatformBizBridgeRegistry& reg) {
-  PlatformBizBridgeDescriptor desc;
+void RegisterKeywordMatchBridge(OperatorBizBridgeRegistry& reg) {
+  OperatorBizBridgeDescriptor desc;
   desc.biz_type = ALG_BIZ_TYPE_KEYWORD_MATCH;
   desc.biz_name = "KeywordMatch";
   desc.internal_input_type_name = "CompanyKeywordInputStruct";
   desc.internal_output_type_name = "CompanyKeywordOutputStruct";
   desc.registration_identity = "builtin.keyword_match";
 
-  PlatformBizSlot in_slot;
+  OperatorBizSlot in_slot;
   in_slot.logical_name = "keyword_in";
   in_slot.type_suffix = "keyword_in";
   in_slot.direction = IoDirection::kInput;
   in_slot.required = true;
   desc.input_slots.push_back(in_slot);
 
-  PlatformBizSlot out_slot;
+  OperatorBizSlot out_slot;
   out_slot.logical_name = "keyword_out";
   out_slot.type_suffix = "keyword_out";
   out_slot.direction = IoDirection::kOutput;
@@ -34,7 +34,7 @@ void RegisterKeywordMatchBridge(PlatformBizBridgeRegistry& reg) {
       return -3;
     }
     const auto* in =
-        static_cast<const CompanyPlatformKeywordInput*>(it->second);
+        static_cast<const CompanyOperatorKeywordInput*>(it->second);
     auto* dto = storage.AllocateShadowDto<CompanyKeywordInputStruct>();
     dto->request_id = in->request_id;
     dto->sentence_text = storage.StoreString(in->sentence_text);
@@ -52,12 +52,12 @@ void RegisterKeywordMatchBridge(PlatformBizBridgeRegistry& reg) {
     const auto* in_dto =
         static_cast<const CompanyKeywordOutputStruct*>(internal_dto);
     auto* out =
-        static_cast<CompanyPlatformKeywordOutput*>(external_output_struct);
+        static_cast<CompanyOperatorKeywordOutput*>(external_output_struct);
     out->request_id = in_dto->request_id;
     out->is_hit = in_dto->is_hit;
     out->status_code = in_dto->status_code;
 
-    return PlatformBizBridgeRegistry::CopyToPooledString(
+    return OperatorBizBridgeRegistry::CopyToPooledString(
         in_dto->match_result_json, out->match_result_json,
         spec.GetCapacity("match_result_json", 2047), "match_result_json", err);
   };
@@ -69,6 +69,6 @@ void RegisterKeywordMatchBridge(PlatformBizBridgeRegistry& reg) {
   reg.RegisterBridge(desc);
 }
 
-REGISTER_PLATFORM_BIZ_BRIDGE(RegisterKeywordMatchBridge);
+REGISTER_OPERATOR_BIZ_BRIDGE(RegisterKeywordMatchBridge);
 
 }  // namespace alg_framework

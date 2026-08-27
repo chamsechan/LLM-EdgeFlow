@@ -6,7 +6,7 @@
 #include "demo/common/demo_registry.h"
 #include "demo/common/operator_runner.h"
 #include "demo/common/result_writer.h"
-#include "platform/company_platform_types.h"
+#include "operator/company_operator_types.h"
 
 namespace alg_demo {
 
@@ -27,7 +27,7 @@ int RunAudioAsrDemo(const DemoOptions& options) {
   }
 
   std::vector<float> pcm(16000, 0.01f);
-  std::vector<CompanyPlatformAudioInput> inputs = {
+  std::vector<CompanyOperatorAudioInput> inputs = {
       {70001, pcm.data(), static_cast<int32_t>(pcm.size()), 16000}};
 
   struct OutputSummary {
@@ -38,10 +38,10 @@ int RunAudioAsrDemo(const DemoOptions& options) {
   std::vector<OutputSummary> output_summaries(1);
   std::vector<double> latencies;
 
-  int ret = RunPlatformOperatorWithExtractor<CompanyPlatformAudioInput,
-                                             CompanyPlatformAudioOutput>(
+  int ret = RunOperatorWithExtractor<CompanyOperatorAudioInput,
+                                     CompanyOperatorAudioOutput>(
       options, "mic_0.audio_in", "mic_0.audio_out", inputs,
-      [&](size_t idx, const CompanyPlatformAudioOutput& out) {
+      [&](size_t idx, const CompanyOperatorAudioOutput& out) {
         output_summaries[idx].request_id = out.request_id;
         if (out.transcribed_text && out.transcribed_text->data) {
           output_summaries[idx].transcribed_text.assign(

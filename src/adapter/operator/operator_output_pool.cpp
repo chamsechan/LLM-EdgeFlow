@@ -1,4 +1,4 @@
-#include "adapter/platform/platform_output_pool.h"
+#include "adapter/operator/operator_output_pool.h"
 
 #include <atomic>
 #include <iostream>
@@ -69,7 +69,7 @@ void OutputPoolDeleter::operator()(void*) const noexcept {
 
 int OutputPoolState::Create(const std::string& suffix, uint32_t depth,
                             const ResolvedOutputPoolSpec& spec,
-                            const PlatformValueTypeBinding* binding,
+                            const OperatorValueTypeBinding* binding,
                             std::shared_ptr<OutputPoolState>* out_pool,
                             std::string* err) {
   if (!out_pool) {

@@ -1,23 +1,23 @@
-#include "adapter/platform/platform_biz_bridge_registry.h"
+#include "adapter/operator/operator_biz_bridge_registry.h"
 
 namespace alg_framework {
 
-void RegisterCrossRerankBridge(PlatformBizBridgeRegistry& reg) {
-  PlatformBizBridgeDescriptor desc;
+void RegisterCrossRerankBridge(OperatorBizBridgeRegistry& reg) {
+  OperatorBizBridgeDescriptor desc;
   desc.biz_type = ALG_BIZ_TYPE_CROSS_RERANK;
   desc.biz_name = "CrossRerank";
   desc.internal_input_type_name = "CompanyRerankBatchInputStruct";
   desc.internal_output_type_name = "CompanyRerankBatchOutputStruct";
   desc.registration_identity = "builtin.cross_rerank";
 
-  PlatformBizSlot in_slot;
+  OperatorBizSlot in_slot;
   in_slot.logical_name = "rerank_in";
   in_slot.type_suffix = "rerank_in";
   in_slot.direction = IoDirection::kInput;
   in_slot.required = true;
   desc.input_slots.push_back(in_slot);
 
-  PlatformBizSlot out_slot;
+  OperatorBizSlot out_slot;
   out_slot.logical_name = "rerank_out";
   out_slot.type_suffix = "rerank_out";
   out_slot.direction = IoDirection::kOutput;
@@ -33,15 +33,15 @@ void RegisterCrossRerankBridge(PlatformBizBridgeRegistry& reg) {
       if (err) *err = "Missing required input slot rerank_in";
       return -3;
     }
-    const auto* in = static_cast<const CompanyPlatformRerankInput*>(it->second);
+    const auto* in = static_cast<const CompanyOperatorRerankInput*>(it->second);
     auto* dto = storage.AllocateShadowDto<CompanyRerankBatchInputStruct>();
     dto->request_id = in->request_id;
     dto->candidate_count = in->candidate_count;
     dto->query_text = storage.StoreString(in->query_text);
 
     int count = in->candidate_count;
-    if (count > COMPANY_PLATFORM_MAX_RERANK_CANDIDATES) {
-      count = COMPANY_PLATFORM_MAX_RERANK_CANDIDATES;
+    if (count > COMPANY_OPERATOR_MAX_RERANK_CANDIDATES) {
+      count = COMPANY_OPERATOR_MAX_RERANK_CANDIDATES;
     }
     for (int i = 0; i < count; ++i) {
       dto->candidate_passages[i] =
@@ -64,13 +64,13 @@ void RegisterCrossRerankBridge(PlatformBizBridgeRegistry& reg) {
     const auto* in_dto =
         static_cast<const CompanyRerankBatchOutputStruct*>(internal_dto);
     auto* out =
-        static_cast<CompanyPlatformRerankOutput*>(external_output_struct);
+        static_cast<CompanyOperatorRerankOutput*>(external_output_struct);
     out->request_id = in_dto->request_id;
     out->count = in_dto->count;
     out->status_code = in_dto->status_code;
 
     for (int i = 0;
-         i < in_dto->count && i < COMPANY_PLATFORM_MAX_RERANK_CANDIDATES; ++i) {
+         i < in_dto->count && i < COMPANY_OPERATOR_MAX_RERANK_CANDIDATES; ++i) {
       out->scores[i] = in_dto->scores[i];
       out->sorted_indices[i] = in_dto->sorted_indices[i];
     }
@@ -84,6 +84,6 @@ void RegisterCrossRerankBridge(PlatformBizBridgeRegistry& reg) {
   reg.RegisterBridge(desc);
 }
 
-REGISTER_PLATFORM_BIZ_BRIDGE(RegisterCrossRerankBridge);
+REGISTER_OPERATOR_BIZ_BRIDGE(RegisterCrossRerankBridge);
 
 }  // namespace alg_framework

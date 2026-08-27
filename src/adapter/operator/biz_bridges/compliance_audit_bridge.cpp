@@ -1,23 +1,23 @@
-#include "adapter/platform/platform_biz_bridge_registry.h"
+#include "adapter/operator/operator_biz_bridge_registry.h"
 
 namespace alg_framework {
 
-void RegisterComplianceAuditBridge(PlatformBizBridgeRegistry& reg) {
-  PlatformBizBridgeDescriptor desc;
+void RegisterComplianceAuditBridge(OperatorBizBridgeRegistry& reg) {
+  OperatorBizBridgeDescriptor desc;
   desc.biz_type = ALG_BIZ_TYPE_COMPLIANCE_AUDIT;
   desc.biz_name = "ComplianceAudit";
   desc.internal_input_type_name = "CompanyAuditInputStruct";
   desc.internal_output_type_name = "CompanyAuditOutputStruct";
   desc.registration_identity = "builtin.compliance_audit";
 
-  PlatformBizSlot in_slot;
+  OperatorBizSlot in_slot;
   in_slot.logical_name = "audit_in";
   in_slot.type_suffix = "audit_in";
   in_slot.direction = IoDirection::kInput;
   in_slot.required = true;
   desc.input_slots.push_back(in_slot);
 
-  PlatformBizSlot out_slot;
+  OperatorBizSlot out_slot;
   out_slot.logical_name = "audit_out";
   out_slot.type_suffix = "audit_out";
   out_slot.direction = IoDirection::kOutput;
@@ -33,7 +33,7 @@ void RegisterComplianceAuditBridge(PlatformBizBridgeRegistry& reg) {
       if (err) *err = "Missing required input slot audit_in";
       return -3;
     }
-    const auto* in = static_cast<const CompanyPlatformAuditInput*>(it->second);
+    const auto* in = static_cast<const CompanyOperatorAuditInput*>(it->second);
     auto* dto = storage.AllocateShadowDto<CompanyAuditInputStruct>();
     dto->request_id = in->request_id;
     dto->user_text = storage.StoreString(in->user_text);
@@ -52,23 +52,23 @@ void RegisterComplianceAuditBridge(PlatformBizBridgeRegistry& reg) {
     const auto* in_dto =
         static_cast<const CompanyAuditOutputStruct*>(internal_dto);
     auto* out =
-        static_cast<CompanyPlatformAuditOutput*>(external_output_struct);
+        static_cast<CompanyOperatorAuditOutput*>(external_output_struct);
     out->request_id = in_dto->request_id;
     out->risk_score = in_dto->risk_score;
     out->status_code = in_dto->status_code;
 
-    int ret = PlatformBizBridgeRegistry::CopyToPooledString(
+    int ret = OperatorBizBridgeRegistry::CopyToPooledString(
         in_dto->risk_level, out->risk_level, spec.GetCapacity("risk_level", 31),
         "risk_level", err);
     if (ret != 0) return ret;
 
-    ret = PlatformBizBridgeRegistry::CopyToPooledString(
+    ret = OperatorBizBridgeRegistry::CopyToPooledString(
         in_dto->matched_policy_clause, out->matched_policy_clause,
         spec.GetCapacity("matched_policy_clause", 255), "matched_policy_clause",
         err);
     if (ret != 0) return ret;
 
-    return PlatformBizBridgeRegistry::CopyToPooledString(
+    return OperatorBizBridgeRegistry::CopyToPooledString(
         in_dto->audit_verdict_json, out->audit_verdict_json,
         spec.GetCapacity("audit_verdict_json", 1023), "audit_verdict_json",
         err);
@@ -81,6 +81,6 @@ void RegisterComplianceAuditBridge(PlatformBizBridgeRegistry& reg) {
   reg.RegisterBridge(desc);
 }
 
-REGISTER_PLATFORM_BIZ_BRIDGE(RegisterComplianceAuditBridge);
+REGISTER_OPERATOR_BIZ_BRIDGE(RegisterComplianceAuditBridge);
 
 }  // namespace alg_framework

@@ -6,7 +6,7 @@
 #include "demo/common/demo_registry.h"
 #include "demo/common/operator_runner.h"
 #include "demo/common/result_writer.h"
-#include "platform/company_platform_types.h"
+#include "operator/company_operator_types.h"
 
 namespace alg_demo {
 
@@ -41,7 +41,7 @@ int RunKeywordMatchDemo(const DemoOptions& options) {
 
   std::vector<CompanyString> text_strs;
   text_strs.reserve(lines.size());
-  std::vector<CompanyPlatformKeywordInput> inputs;
+  std::vector<CompanyOperatorKeywordInput> inputs;
   inputs.reserve(lines.size());
 
   for (size_t i = 0; i < lines.size(); ++i) {
@@ -67,11 +67,11 @@ int RunKeywordMatchDemo(const DemoOptions& options) {
   std::vector<OutputSummary> output_summaries(lines.size());
   std::vector<double> latencies;
 
-  int ret = RunPlatformOperatorWithExtractor<CompanyPlatformKeywordInput,
-                                             CompanyPlatformKeywordOutput>(
+  int ret = RunOperatorWithExtractor<CompanyOperatorKeywordInput,
+                                     CompanyOperatorKeywordOutput>(
       options, "client_channel.keyword_in", "client_channel.keyword_out",
       inputs,
-      [&](size_t idx, const CompanyPlatformKeywordOutput& out) {
+      [&](size_t idx, const CompanyOperatorKeywordOutput& out) {
         output_summaries[idx].request_id = out.request_id;
         output_summaries[idx].is_hit = out.is_hit;
         if (out.match_result_json && out.match_result_json->data) {
@@ -79,7 +79,7 @@ int RunKeywordMatchDemo(const DemoOptions& options) {
               out.match_result_json->data, out.match_result_json->length);
         }
       },
-      &latencies, llm_edgeflow::platform::ControlCommand::kUpdateRules,
+      &latencies, llm_edgeflow::operator_api::ControlCommand::kUpdateRules,
       default_ctrl_json);
   if (ret != 0) {
     return ret;

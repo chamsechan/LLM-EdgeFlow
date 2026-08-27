@@ -1,23 +1,23 @@
-#include "adapter/platform/platform_biz_bridge_registry.h"
+#include "adapter/operator/operator_biz_bridge_registry.h"
 
 namespace alg_framework {
 
-void RegisterAudioAsrIntentBridge(PlatformBizBridgeRegistry& reg) {
-  PlatformBizBridgeDescriptor desc;
+void RegisterAudioAsrIntentBridge(OperatorBizBridgeRegistry& reg) {
+  OperatorBizBridgeDescriptor desc;
   desc.biz_type = ALG_BIZ_TYPE_AUDIO_ASR_INTENT;
   desc.biz_name = "AudioAsrIntent";
   desc.internal_input_type_name = "CompanyAudioInputStruct";
   desc.internal_output_type_name = "CompanyAudioOutputStruct";
   desc.registration_identity = "builtin.audio_asr_intent";
 
-  PlatformBizSlot in_slot;
+  OperatorBizSlot in_slot;
   in_slot.logical_name = "audio_in";
   in_slot.type_suffix = "audio_in";
   in_slot.direction = IoDirection::kInput;
   in_slot.required = true;
   desc.input_slots.push_back(in_slot);
 
-  PlatformBizSlot out_slot;
+  OperatorBizSlot out_slot;
   out_slot.logical_name = "audio_out";
   out_slot.type_suffix = "audio_out";
   out_slot.direction = IoDirection::kOutput;
@@ -33,7 +33,7 @@ void RegisterAudioAsrIntentBridge(PlatformBizBridgeRegistry& reg) {
       if (err) *err = "Missing required input slot audio_in";
       return -3;
     }
-    const auto* in = static_cast<const CompanyPlatformAudioInput*>(it->second);
+    const auto* in = static_cast<const CompanyOperatorAudioInput*>(it->second);
     auto* dto = storage.AllocateShadowDto<CompanyAudioInputStruct>();
     dto->request_id = in->request_id;
     dto->pcm_length = in->pcm_length;
@@ -59,16 +59,16 @@ void RegisterAudioAsrIntentBridge(PlatformBizBridgeRegistry& reg) {
     const auto* in_dto =
         static_cast<const CompanyAudioOutputStruct*>(internal_dto);
     auto* out =
-        static_cast<CompanyPlatformAudioOutput*>(external_output_struct);
+        static_cast<CompanyOperatorAudioOutput*>(external_output_struct);
     out->request_id = in_dto->request_id;
     out->status_code = in_dto->status_code;
 
-    int ret = PlatformBizBridgeRegistry::CopyToPooledString(
+    int ret = OperatorBizBridgeRegistry::CopyToPooledString(
         in_dto->transcribed_text, out->transcribed_text,
         spec.GetCapacity("transcribed_text", 511), "transcribed_text", err);
     if (ret != 0) return ret;
 
-    return PlatformBizBridgeRegistry::CopyToPooledString(
+    return OperatorBizBridgeRegistry::CopyToPooledString(
         in_dto->intent_slot_json, out->intent_slot_json,
         spec.GetCapacity("intent_slot_json", 1023), "intent_slot_json", err);
   };
@@ -80,6 +80,6 @@ void RegisterAudioAsrIntentBridge(PlatformBizBridgeRegistry& reg) {
   reg.RegisterBridge(desc);
 }
 
-REGISTER_PLATFORM_BIZ_BRIDGE(RegisterAudioAsrIntentBridge);
+REGISTER_OPERATOR_BIZ_BRIDGE(RegisterAudioAsrIntentBridge);
 
 }  // namespace alg_framework

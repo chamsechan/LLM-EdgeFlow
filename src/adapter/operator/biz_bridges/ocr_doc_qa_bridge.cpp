@@ -1,9 +1,9 @@
-#include "adapter/platform/platform_biz_bridge_registry.h"
+#include "adapter/operator/operator_biz_bridge_registry.h"
 
 namespace alg_framework {
 
-void RegisterOcrDocQaBridge(PlatformBizBridgeRegistry& reg) {
-  PlatformBizBridgeDescriptor desc;
+void RegisterOcrDocQaBridge(OperatorBizBridgeRegistry& reg) {
+  OperatorBizBridgeDescriptor desc;
   desc.biz_type = ALG_BIZ_TYPE_OCR_DOC_QA;
   desc.biz_name = "OcrDocQA";
   desc.internal_input_type_name = "CompanyOcrDocInputStruct";
@@ -11,7 +11,7 @@ void RegisterOcrDocQaBridge(PlatformBizBridgeRegistry& reg) {
   desc.registration_identity = "builtin.ocr_doc_qa";
 
   // Slot 1: frame -> CompanyFrame
-  PlatformBizSlot frame_slot;
+  OperatorBizSlot frame_slot;
   frame_slot.logical_name = "frame";
   frame_slot.type_suffix = "frame";
   frame_slot.direction = IoDirection::kInput;
@@ -19,7 +19,7 @@ void RegisterOcrDocQaBridge(PlatformBizBridgeRegistry& reg) {
   desc.input_slots.push_back(frame_slot);
 
   // Slot 2: string -> CompanyString
-  PlatformBizSlot string_slot;
+  OperatorBizSlot string_slot;
   string_slot.logical_name = "string";
   string_slot.type_suffix = "string";
   string_slot.direction = IoDirection::kInput;
@@ -27,7 +27,7 @@ void RegisterOcrDocQaBridge(PlatformBizBridgeRegistry& reg) {
   desc.input_slots.push_back(string_slot);
 
   // Output slot: od_out -> CompanyOdOutput
-  PlatformBizSlot out_slot;
+  OperatorBizSlot out_slot;
   out_slot.logical_name = "od_out";
   out_slot.type_suffix = "od_out";
   out_slot.direction = IoDirection::kOutput;
@@ -74,7 +74,7 @@ void RegisterOcrDocQaBridge(PlatformBizBridgeRegistry& reg) {
     out->detected_box_count = in_dto->detected_box_count;
     out->status_code = in_dto->status_code;
 
-    return PlatformBizBridgeRegistry::CopyToPooledString(
+    return OperatorBizBridgeRegistry::CopyToPooledString(
         in_dto->extracted_invoice_json, out->result_json,
         spec.GetCapacity("result_json", 2047), "result_json", err);
   };
@@ -86,6 +86,6 @@ void RegisterOcrDocQaBridge(PlatformBizBridgeRegistry& reg) {
   reg.RegisterBridge(desc);
 }
 
-REGISTER_PLATFORM_BIZ_BRIDGE(RegisterOcrDocQaBridge);
+REGISTER_OPERATOR_BIZ_BRIDGE(RegisterOcrDocQaBridge);
 
 }  // namespace alg_framework

@@ -11,10 +11,10 @@
 #include "demo/common/operator_runner.h"
 #include "demo/common/result_writer.h"
 #include "nlohmann/json.hpp"
-#include "platform/platform_operator_interface.h"
+#include "operator/operator_interface.h"
 
 using namespace alg_demo;
-using namespace llm_edgeflow::platform;
+using namespace llm_edgeflow::operator_api;
 
 // 1. 测试 CLI 命令行解析
 TEST(DemoRunnerTest, CommandLineParsingSuccess) {
@@ -136,32 +136,32 @@ TEST(DemoRunnerTest, CommandLineParsingErrors) {
 }
 
 // 2. 测试芯片白名单解析
-TEST(DemoRunnerTest, ChipTypeWhitelistValidation) {
-  ChipType type;
+TEST(DemoRunnerTest, ComputePlatformWhitelistValidation) {
+  ComputePlatform type;
 
-  EXPECT_TRUE(ParseChipType("ax650", &type));
-  EXPECT_EQ(type, ChipType::kAx650);
+  EXPECT_TRUE(ParseComputePlatform("ax650", &type));
+  EXPECT_EQ(type, ComputePlatform::kAx650);
 
-  EXPECT_TRUE(ParseChipType("AX650", &type));
-  EXPECT_EQ(type, ChipType::kAx650);
+  EXPECT_TRUE(ParseComputePlatform("AX650", &type));
+  EXPECT_EQ(type, ComputePlatform::kAx650);
 
-  EXPECT_TRUE(ParseChipType("ascend310p", &type));
-  EXPECT_EQ(type, ChipType::kAscend310P);
+  EXPECT_TRUE(ParseComputePlatform("ascend310p", &type));
+  EXPECT_EQ(type, ComputePlatform::kAscend310P);
 
-  EXPECT_TRUE(ParseChipType("ascend910b", &type));
-  EXPECT_EQ(type, ChipType::kAscend910B);
+  EXPECT_TRUE(ParseComputePlatform("ascend910b", &type));
+  EXPECT_EQ(type, ComputePlatform::kAscend910B);
 
-  EXPECT_TRUE(ParseChipType("rk3588", &type));
-  EXPECT_EQ(type, ChipType::kRk3588);
+  EXPECT_TRUE(ParseComputePlatform("rk3588", &type));
+  EXPECT_EQ(type, ComputePlatform::kRk3588);
 
-  EXPECT_TRUE(ParseChipType("nvidia_gpu", &type));
-  EXPECT_EQ(type, ChipType::kNvidiaGpu);
+  EXPECT_TRUE(ParseComputePlatform("nvidia_gpu", &type));
+  EXPECT_EQ(type, ComputePlatform::kCuda);
 
-  EXPECT_TRUE(ParseChipType("cpu_generic", &type));
-  EXPECT_EQ(type, ChipType::kCpuGeneric);
+  EXPECT_TRUE(ParseComputePlatform("cpu_generic", &type));
+  EXPECT_EQ(type, ComputePlatform::kCpu);
 
-  EXPECT_FALSE(ParseChipType("invalid_hardware", &type));
-  EXPECT_EQ(type, ChipType::kUnknown);
+  EXPECT_FALSE(ParseComputePlatform("invalid_hardware", &type));
+  EXPECT_EQ(type, ComputePlatform::kUnknown);
 }
 
 // 3. 测试 Profile 加载、合并与 P1-1 CLI 显式默认值覆盖
@@ -459,7 +459,7 @@ TEST(DemoRunnerTest, ResultWriterAtomicOutputAndCumulativeAppend) {
   }
 }
 
-// 7. 测试 Config 与 Business 匹配校验、P1-2 pipe_path 类型异常与 P1-3 Platform
+// 7. 测试 Config 与 Business 匹配校验、P1-2 pipe_path 类型异常与 P1-3 Operator
 // 公开预检 API
 TEST(DemoRunnerTest, ConfigBusinessMatchValidation) {
   std::string err;
@@ -495,24 +495,24 @@ TEST(DemoRunnerTest, ConfigBusinessMatchValidation) {
   EXPECT_NE(err.find("pipe_path"), std::string::npos);
   std::filesystem::remove(bad_conf_path);
 
-  // 测试公开 API ValidatePlatformConfigBinding
+  // 测试公开 API ValidateOperatorConfigBinding
   char err_buf[256] = {0};
   std::string root_dir = ".";
   if (std::filesystem::exists("../configs")) {
     root_dir = "..";
   }
-  EXPECT_EQ(ValidatePlatformConfigBinding(
+  EXPECT_EQ(ValidateOperatorConfigBinding(
                 root_dir.c_str(), "configs/pipeline_entity_extract.conf",
                 static_cast<int32_t>(ALG_BIZ_TYPE_ENTITY_EXTRACT), err_buf,
                 sizeof(err_buf)),
             0);
   EXPECT_EQ(
-      ValidatePlatformConfigBinding(
+      ValidateOperatorConfigBinding(
           root_dir.c_str(), "configs/pipeline_entity_extract.conf",
           static_cast<int32_t>(ALG_BIZ_TYPE_DOC_QA), err_buf, sizeof(err_buf)),
       -3);
   EXPECT_EQ(
-      ValidatePlatformConfigBinding(
+      ValidateOperatorConfigBinding(
           root_dir.c_str(), "non_existent_conf_file.conf",
           static_cast<int32_t>(ALG_BIZ_TYPE_DOC_QA), err_buf, sizeof(err_buf)),
       -2);

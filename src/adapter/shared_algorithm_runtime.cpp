@@ -4,8 +4,8 @@
 #include <iostream>
 
 #include "adapter/biz_adapter_registry.h"
-#include "adapter/platform/platform_biz_bridge_registry.h"
-#include "adapter/platform/platform_value_type_registry.h"
+#include "adapter/operator/operator_biz_bridge_registry.h"
+#include "adapter/operator/operator_value_type_registry.h"
 #include "core/alg_context.h"
 #include "core/node_registry.h"
 #include "core/session_context.h"
@@ -39,18 +39,18 @@ int SharedAlgorithmRuntime::GlobalInit() noexcept {
       return COMPANY_ALG_ERR_REGISTRY_CONFLICT;  // -6
     }
 
-    // 4. PlatformValueTypeRegistry 冲突审计
-    if (PlatformValueTypeRegistry::Instance().HasConflict()) {
+    // 4. OperatorValueTypeRegistry 冲突审计
+    if (OperatorValueTypeRegistry::Instance().HasConflict()) {
       std::cerr << "[SharedAlgorithmRuntime] GlobalInit failed: Registration "
-                   "conflict in PlatformValueTypeRegistry."
+                   "conflict in OperatorValueTypeRegistry."
                 << std::endl;
       return COMPANY_ALG_ERR_REGISTRY_CONFLICT;  // -6
     }
 
-    // 5. PlatformBizBridgeRegistry 冲突审计
-    if (PlatformBizBridgeRegistry::Instance().HasConflict()) {
+    // 5. OperatorBizBridgeRegistry 冲突审计
+    if (OperatorBizBridgeRegistry::Instance().HasConflict()) {
       std::cerr << "[SharedAlgorithmRuntime] GlobalInit failed: Registration "
-                   "conflict in PlatformBizBridgeRegistry."
+                   "conflict in OperatorBizBridgeRegistry."
                 << std::endl;
       return COMPANY_ALG_ERR_REGISTRY_CONFLICT;  // -6
     }
