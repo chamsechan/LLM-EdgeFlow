@@ -2,12 +2,12 @@
 #include <iostream>
 #include <vector>
 
-#include "company_alg_interface.h"
 #include "demo/common/dataset_reader.h"
 #include "demo/common/demo_options.h"
 #include "demo/common/demo_registry.h"
 #include "demo/common/operator_runner.h"
 #include "demo/common/result_writer.h"
+#include "platform/company_platform_types.h"
 
 namespace alg_demo {
 
@@ -48,58 +48,92 @@ int RunDialogueAuditDemo(const DemoOptions& options) {
   }
 
   size_t count = std::min(channels.size(), dialogues.size());
-  std::vector<CompanyAuditInputStruct> inputs;
+  std::vector<CompanyString> channel_strs;
+  std::vector<CompanyString> dialogue_strs;
+  channel_strs.reserve(count);
+  dialogue_strs.reserve(count);
+  std::vector<CompanyPlatformAuditInput> inputs;
   inputs.reserve(count);
+
   for (size_t i = 0; i < count; ++i) {
-    inputs.push_back({static_cast<uint64_t>(40001 + i), channels[i].c_str(),
-                      dialogues[i].c_str()});
+    channel_strs.push_back({static_cast<int32_t>(channels[i].size()),
+                            const_cast<char*>(channels[i].data())});
+    dialogue_strs.push_back({static_cast<int32_t>(dialogues[i].size()),
+                             const_cast<char*>(dialogues[i].data())});
+    inputs.push_back({static_cast<uint64_t>(40001 + i), &dialogue_strs.back(),
+                      &channel_strs.back()});
   }
 
-  std::vector<CompanyAuditOutputStruct> outputs;
+  struct OutputSummary {
+    uint64_t request_id = 0;
+    std::string risk_level;
+    float risk_score = 0.0f;
+    std::string matched_policy_clause;
+    std::string audit_verdict_json;
+  };
+  std::vector<OutputSummary> output_summaries(count);
   std::vector<double> latencies;
 
-  int ret =
-      RunPlatformOperator<CompanyAuditInputStruct, CompanyAuditOutputStruct>(
-          options, "audit_channel.audit_in", "audit_channel.audit_out", inputs,
-          &outputs, &latencies);
+  int ret = RunPlatformOperatorWithExtractor<CompanyPlatformAuditInput,
+                                             CompanyPlatformAuditOutput>(
+      options, "audit_channel.audit_in", "audit_channel.audit_out", inputs,
+      [&](size_t idx, const CompanyPlatformAuditOutput& out) {
+        output_summaries[idx].request_id = out.request_id;
+        output_summaries[idx].risk_score = out.risk_score;
+        if (out.risk_level && out.risk_level->data) {
+          output_summaries[idx].risk_level.assign(out.risk_level->data,
+                                                  out.risk_level->length);
+        }
+        if (out.matched_policy_clause && out.matched_policy_clause->data) {
+          output_summaries[idx].matched_policy_clause.assign(
+              out.matched_policy_clause->data,
+              out.matched_policy_clause->length);
+        }
+        if (out.audit_verdict_json && out.audit_verdict_json->data) {
+          output_summaries[idx].audit_verdict_json.assign(
+              out.audit_verdict_json->data, out.audit_verdict_json->length);
+        }
+      },
+      &latencies);
   if (ret != 0) {
     return ret;
   }
 
   std::cout << "\n>>> 业务 4 执行结果验证 (多模型协同质检) <<<" << std::endl;
   std::vector<DemoSampleResult> sample_results;
-  sample_results.reserve(outputs.size());
+  sample_results.reserve(output_summaries.size());
 
-  for (size_t i = 0; i < outputs.size(); ++i) {
+  for (size_t i = 0; i < output_summaries.size(); ++i) {
     PrintDivider();
-    std::cout << "  Audit #" << i << " | Request ID: " << outputs[i].request_id
-              << "\n"
+    std::cout << "  Audit #" << i
+              << " | Request ID: " << output_summaries[i].request_id << "\n"
               << "  Channel       : " << channels[i] << "\n"
               << "  Dialogue Text : \"" << dialogues[i] << "\"\n"
-              << "  Risk Level    : " << outputs[i].risk_level
+              << "  Risk Level    : " << output_summaries[i].risk_level
               << " (Score: " << std::fixed << std::setprecision(2)
-              << outputs[i].risk_score << ")\n"
+              << output_summaries[i].risk_score << ")\n"
               << "  Matched Policy: "
-              << (outputs[i].matched_policy_clause[0] != '\0'
-                      ? outputs[i].matched_policy_clause
+              << (!output_summaries[i].matched_policy_clause.empty()
+                      ? output_summaries[i].matched_policy_clause
                       : "none")
               << "\n"
-              << "  Audit Verdict : " << outputs[i].audit_verdict_json
+              << "  Audit Verdict : " << output_summaries[i].audit_verdict_json
               << std::endl;
 
     DemoSampleResult sample;
-    sample.request_id = outputs[i].request_id;
+    sample.request_id = output_summaries[i].request_id;
     sample.status = 0;
     sample.latency_ms = (i < latencies.size()) ? latencies[i] : 0.0;
     sample.output["channel"] = channels[i];
-    sample.output["risk_level"] = outputs[i].risk_level;
-    sample.output["risk_score"] = outputs[i].risk_score;
-    sample.output["matched_policy"] = outputs[i].matched_policy_clause;
-    if (outputs[i].audit_verdict_json[0] != '\0') {
-      auto parsed =
-          nlohmann::json::parse(outputs[i].audit_verdict_json, nullptr, false);
+    sample.output["risk_level"] = output_summaries[i].risk_level;
+    sample.output["risk_score"] = output_summaries[i].risk_score;
+    sample.output["matched_policy"] = output_summaries[i].matched_policy_clause;
+    if (!output_summaries[i].audit_verdict_json.empty()) {
+      auto parsed = nlohmann::json::parse(
+          output_summaries[i].audit_verdict_json, nullptr, false);
       if (parsed.is_discarded()) {
-        sample.output["audit_verdict_raw"] = outputs[i].audit_verdict_json;
+        sample.output["audit_verdict_raw"] =
+            output_summaries[i].audit_verdict_json;
       } else {
         sample.output["audit_verdict"] = parsed;
       }

@@ -33,19 +33,19 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(CMAKE_BUILD_WITH_INSTALL_RPATH FALSE)
 set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 set(CMAKE_BUILD_RPATH_USE_ORIGIN TRUE)
-set(CMAKE_BUILD_RPATH "${CMAKE_BINARY_DIR}")
-
 # 编译选项
 add_compile_options(-Wall -Wextra -O2 -fPIC)
+
+# 确保 mock npu 模型的占位文件存在
 
 option(ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
 set(LLM_EDGEFLOW_SANITIZERS "address,undefined" CACHE STRING
     "Comma-separated Clang/GCC sanitizer set used when ENABLE_SANITIZERS=ON")
 if(ENABLE_SANITIZERS)
-  if(NOT LLM_EDGEFLOW_SANITIZERS MATCHES "^(address|undefined|address,undefined|undefined,address)$")
+  if(NOT LLM_EDGEFLOW_SANITIZERS MATCHES "^(address|undefined|address,undefined|undefined,address|thread)$")
     message(FATAL_ERROR
       "Unsupported LLM_EDGEFLOW_SANITIZERS='${LLM_EDGEFLOW_SANITIZERS}'. "
-      "Use address, undefined, or address,undefined.")
+      "Use address, undefined, address,undefined, or thread.")
   endif()
   message(STATUS "Enabling sanitizers (-fsanitize=${LLM_EDGEFLOW_SANITIZERS})")
   add_compile_options(-fsanitize=${LLM_EDGEFLOW_SANITIZERS} -fno-omit-frame-pointer)
@@ -124,7 +124,16 @@ set(FRAMEWORK_SRCS
     src/adapter/adapters/cross_rerank_adapter.cpp
     src/adapter/shared_algorithm_runtime.cpp
     src/adapter/platform/company_conf_resolver.cpp
-    src/adapter/platform/platform_io_registry.cpp
+    src/adapter/platform/platform_value_type_registry.cpp
+    src/adapter/platform/platform_business_bridge_registry.cpp
+    src/adapter/platform/platform_output_pool.cpp
+    src/adapter/platform/business_bridges/keyword_match_bridge.cpp
+    src/adapter/platform/business_bridges/entity_extract_bridge.cpp
+    src/adapter/platform/business_bridges/doc_qa_bridge.cpp
+    src/adapter/platform/business_bridges/compliance_audit_bridge.cpp
+    src/adapter/platform/business_bridges/ocr_doc_qa_bridge.cpp
+    src/adapter/platform/business_bridges/audio_asr_intent_bridge.cpp
+    src/adapter/platform/business_bridges/cross_rerank_bridge.cpp
     src/adapter/platform/platform_control_registry.cpp
     src/adapter/platform_operator_adapter.cpp
     src/adapter/company_c_adapter.cpp
@@ -138,8 +147,8 @@ if(THIRD_PARTY_ENGINE_LIBS)
 endif()
 set_target_properties(alg_sdk PROPERTIES
     OUTPUT_NAME "company_alg_sdk"
-    VERSION 2.0.0
-    SOVERSION 2
+    VERSION 3.0.0
+    SOVERSION 3
 )
 
 # 引入 Google Test 框架 (自动下载或使用系统库)
@@ -179,6 +188,7 @@ add_test(NAME ArchitectureDocsDriftGateSelfTest COMMAND ${CMAKE_CURRENT_SOURCE_D
 # 4.2 架构图资产一致性检查测试 (DiagramAssetsCheckTest)
 add_test(NAME DiagramAssetsCheckTest COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/render_architecture_diagrams.sh --check)
 add_test(NAME DiagramRenderGateSelfTest COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_diagram_render_gate.sh)
+add_test(NAME ScriptGeneratorDetectionTest COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_script_generator_detection.sh)
 
 # 5. 单元测试与安全性测试集 (基于 Google Test & CTest)
 
@@ -245,6 +255,18 @@ set_tests_properties(RegistryReentrantTest PROPERTIES TIMEOUT 5)
 add_executable(test_platform_operator tests/test_platform_operator.cpp)
 target_link_libraries(test_platform_operator PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
 add_test(NAME PlatformOperatorTest COMMAND test_platform_operator)
+
+add_executable(test_platform_output_pool tests/test_platform_output_pool.cpp)
+target_link_libraries(test_platform_output_pool PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME PlatformOutputPoolTest COMMAND test_platform_output_pool)
+
+add_executable(test_platform_value_registry tests/test_platform_value_registry.cpp)
+target_link_libraries(test_platform_value_registry PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME PlatformValueRegistryTest COMMAND test_platform_value_registry)
+
+add_executable(test_platform_business_bridge_registry tests/test_platform_business_bridge_registry.cpp)
+target_link_libraries(test_platform_business_bridge_registry PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME PlatformBusinessBridgeRegistryTest COMMAND test_platform_business_bridge_registry)
 
 add_executable(test_doc_qa_rerank tests/test_doc_qa_rerank.cpp)
 target_link_libraries(test_doc_qa_rerank PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
@@ -318,6 +340,7 @@ set_tests_properties(
   RuntimeControlAndHotSwapTest EngineFaultToleranceAndLifecycleTest
   AdapterContractSecurityTest PipelineConfigTest RegistryConflictNodeTest
   RegistryConflictEngineTest RegistryReentrantTest PlatformOperatorTest
+  PlatformOutputPoolTest PlatformValueRegistryTest PlatformBusinessBridgeRegistryTest
   DocQaRerankTest RerankRefineNodeTest PipelineStudioTest VisualizerServerTest
   DemoRunnerTest CatalogContractSsotTest TypedBlackboardContractsTest
   ValidatedPipelinePlanTest NodeBaseContractsTest NodeOwnershipAndReuseTest

@@ -4,7 +4,8 @@
 #include <iostream>
 
 #include "adapter/business_adapter_registry.h"
-#include "adapter/platform/platform_io_registry.h"
+#include "adapter/platform/platform_business_bridge_registry.h"
+#include "adapter/platform/platform_value_type_registry.h"
 #include "core/alg_context.h"
 #include "core/node_registry.h"
 #include "core/session_context.h"
@@ -38,10 +39,18 @@ int SharedAlgorithmRuntime::GlobalInit() noexcept {
       return COMPANY_ALG_ERR_REGISTRY_CONFLICT;  // -6
     }
 
-    // 4. PlatformIoRegistry 冲突审计
-    if (PlatformIoRegistry::Instance().HasConflict()) {
+    // 4. PlatformValueTypeRegistry 冲突审计
+    if (PlatformValueTypeRegistry::Instance().HasConflict()) {
       std::cerr << "[SharedAlgorithmRuntime] GlobalInit failed: Registration "
-                   "conflict in PlatformIoRegistry."
+                   "conflict in PlatformValueTypeRegistry."
+                << std::endl;
+      return COMPANY_ALG_ERR_REGISTRY_CONFLICT;  // -6
+    }
+
+    // 5. PlatformBusinessBridgeRegistry 冲突审计
+    if (PlatformBusinessBridgeRegistry::Instance().HasConflict()) {
+      std::cerr << "[SharedAlgorithmRuntime] GlobalInit failed: Registration "
+                   "conflict in PlatformBusinessBridgeRegistry."
                 << std::endl;
       return COMPANY_ALG_ERR_REGISTRY_CONFLICT;  // -6
     }

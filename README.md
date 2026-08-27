@@ -73,12 +73,12 @@
 ## 🚀 快速开始 (Quick Start)
 
 ```bash
-# 1. 编译工程 (自动拉取 GTest, ONNX Runtime 与 llama.cpp)
-mkdir -p build && cd build
-cmake .. && make -j4
+# 1. 编译工程 (Ninja + ccache 并行加速，自动拉取 GTest, ONNX Runtime 与 llama.cpp)
+cmake -B build -G Ninja -DLLM_EDGEFLOW_USE_CCACHE=ON
+cmake --build build -j$(nproc)
 
-# 2. 自动化执行全量测试套件 (23 组 CTest & Google Test)
-ctest --output-on-failure
+# 2. 并行自动化执行全量测试套件 (36 组 CTest & Google Test 并行执行)
+ctest --test-dir build -j$(nproc) --output-on-failure
 
 # 3. 运行 7 大业务端到端全链路集成演示 (默认 Smoke 组合)
 ./alg_demo
@@ -177,6 +177,12 @@ LLM-EdgeFlow/
   - 📐 **真实格式门禁**：`format.sh --check`、CI 和六阶段回归改为只读 clang-format 检查，并统一固定 clang-format 18.x，格式偏差与工具版本漂移不再被 `git diff --check` 漏掉。
   - 🔒 **C ABI 布局证据**：业务枚举通过 `INT32_MAX` guard 与纯 C11 编译期断言锁定 32 位 ABI。
   - 📋 **审查结论校正**：按最新主干的 23 项 CTest 和 27 个节点实现重新冻结证据，将 ASan、TSan、真实硬件等缺失证据如实标为 `NOT VERIFIED`。
+- **v3.0.0 (平台 C 结构体槽位绑定与输出内存池 - RFC 0009)** *(2026-08)*
+  - 🏛️ **纯 C11 平台值类型镜像定义 (`include/platform/company_platform_types.h`)**：定义 `CompanyString`（长度+显式指针）、`CompanyBuffer`、`CompanyAny`、`CompanyFrame`、`CompanyOdOutput` 及 7 大业务聚合平台镜像结构体，彻底替代裸定长 char 数组，实现零冗余内存开销并支持任意合法 UTF-8 字符串与二进制数据。
+  - 🔌 **平台 Operator 接口 ABI v3 升级 (`include/platform/platform_operator_interface.h`)**：`CreateParam` 升级支持 `model_path` + `cfg_file_name` 双路径解耦与目录穿越/逃逸安全校验；移除废弃的 `depth_num` 与裸函数指针内存分配器；导出 `ValidatePlatformConfigBinding` 双路径公开预检 API 与 `MakeBorrowedPlatformInput` 零拷贝借用助手；`SOVERSION` 升级为 3。
+  - 🏷️ **平台值类型注册中心与业务桥接中心 (`PlatformValueTypeRegistry` & `PlatformBusinessBridgeRegistry`)**：构建 17 种标准类型规范后缀（`string`, `buffer`, `frame`, `od_out`, `*_in`, `*_out` 等）的单一事实源；7 个业务桥接器模块化独立拆分，统一管理多槽位逻辑名映射、类型校验与局部影子 DTO 内存池。
+  - 🏊 **会话级预分配输出内存池与弱引用安全 Deleter (`PlatformOutputPool`)**：基于 `data.mem_que` 配置在 `Platform_Create` 预分配固定深度输出内存块；`Platform_Process` 租用块并在成功时交付包装 `OutputPoolDeleter` 的 `std::shared_ptr<void>`；内存池耗尽时自适应阻塞与条件变量唤醒；句柄释放时安全 Drain，违规提前销毁返回 `-1` 并通过弱引用保障下游安全无野指针。
+  - 🧪 **全量 Google Test 单元测试与端到端回归**：更新 Platform Operator、输出池、值类型与业务桥接测试，并覆盖 C11 ABI、Demo 和脚本生成器隔离，37 组 CTest 100% 通过，6 阶段回归门禁 100% 通过。
 - **v1.5.0 (图形化算法方案工作台与配置编排闭环 - RFC 0006)** *(2026-08)*
   - 🧭 **运行时 Catalog/Definition**：节点与引擎构造器同步注册 Definition，导出业务 Adapter ingress/egress、类型化端口、配置约束、模型能力与并行安全信息；新增节点可自动出现在 CLI 和 Web。
   - ✅ **统一静态 Validator 与 CLI**：`Pipeline::Build` 在模型加载前复用无副作用预检；新增 `alg_pipeline_tool` 的 `catalog`、`describe-node`、`init`、`normalize`、`validate`、`plan` 六类版本化 JSON 命令。

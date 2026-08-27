@@ -2,12 +2,12 @@
 #include <iostream>
 #include <vector>
 
-#include "company_alg_interface.h"
 #include "demo/common/dataset_reader.h"
 #include "demo/common/demo_options.h"
 #include "demo/common/demo_registry.h"
 #include "demo/common/operator_runner.h"
 #include "demo/common/result_writer.h"
+#include "platform/company_platform_types.h"
 
 namespace alg_demo {
 
@@ -49,21 +49,43 @@ int RunCrossRerankDemo(const DemoOptions& options) {
     }
   }
 
-  CompanyRerankBatchInputStruct req{};
+  CompanyString query_cs{static_cast<int32_t>(query.size()),
+                         const_cast<char*>(query.data())};
+  std::vector<CompanyString> passage_cs;
+  int cand_count = std::min(static_cast<int>(passages.size()), 8);
+  passage_cs.reserve(cand_count);
+
+  CompanyPlatformRerankInput req{};
   req.request_id = 80001;
-  req.query_text = query.c_str();
-  req.candidate_count = std::min(static_cast<int>(passages.size()), 8);
-  for (int i = 0; i < req.candidate_count; ++i) {
-    req.candidate_passages[i] = passages[i].c_str();
+  req.query_text = &query_cs;
+  req.candidate_count = cand_count;
+  for (int i = 0; i < cand_count; ++i) {
+    passage_cs.push_back({static_cast<int32_t>(passages[i].size()),
+                          const_cast<char*>(passages[i].data())});
+    req.candidate_passages[i] = &passage_cs.back();
   }
 
-  std::vector<CompanyRerankBatchInputStruct> inputs = {req};
-  std::vector<CompanyRerankBatchOutputStruct> outputs;
+  std::vector<CompanyPlatformRerankInput> inputs = {req};
+  struct OutputSummary {
+    uint64_t request_id = 0;
+    int32_t count = 0;
+    float scores[8] = {0};
+    int32_t sorted_indices[8] = {0};
+  };
+  std::vector<OutputSummary> output_summaries(1);
   std::vector<double> latencies;
 
-  int ret = RunPlatformOperator<CompanyRerankBatchInputStruct,
-                                CompanyRerankBatchOutputStruct>(
-      options, "ranker.rerank_in", "ranker.rerank_out", inputs, &outputs,
+  int ret = RunPlatformOperatorWithExtractor<CompanyPlatformRerankInput,
+                                             CompanyPlatformRerankOutput>(
+      options, "ranker.rerank_in", "ranker.rerank_out", inputs,
+      [&](size_t idx, const CompanyPlatformRerankOutput& out) {
+        output_summaries[idx].request_id = out.request_id;
+        output_summaries[idx].count = out.count;
+        for (int i = 0; i < out.count && i < 8; ++i) {
+          output_summaries[idx].scores[i] = out.scores[i];
+          output_summaries[idx].sorted_indices[i] = out.sorted_indices[i];
+        }
+      },
       &latencies);
   if (ret != 0) {
     return ret;
@@ -75,21 +97,21 @@ int RunCrossRerankDemo(const DemoOptions& options) {
 
   std::vector<DemoSampleResult> sample_results;
   DemoSampleResult sample;
-  sample.request_id = outputs[0].request_id;
+  sample.request_id = output_summaries[0].request_id;
   sample.status = 0;
   sample.latency_ms = latencies.empty() ? 0.0 : latencies[0];
   sample.output["query"] = query;
 
   nlohmann::json ranked_array = nlohmann::json::array();
-  for (int k = 0; k < outputs[0].count; ++k) {
-    int orig_idx = outputs[0].sorted_indices[k];
+  for (int k = 0; k < output_summaries[0].count; ++k) {
+    int orig_idx = output_summaries[0].sorted_indices[k];
     std::cout << "  Rank #" << k << " [Score " << std::fixed
-              << std::setprecision(4) << outputs[0].scores[k] << "] -> "
-              << passages[orig_idx] << std::endl;
+              << std::setprecision(4) << output_summaries[0].scores[k]
+              << "] -> " << passages[orig_idx] << std::endl;
 
     nlohmann::json item;
     item["rank"] = k;
-    item["score"] = outputs[0].scores[k];
+    item["score"] = output_summaries[0].scores[k];
     item["passage_index"] = orig_idx;
     item["passage_text"] = passages[orig_idx];
     ranked_array.push_back(item);

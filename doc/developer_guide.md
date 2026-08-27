@@ -19,6 +19,40 @@
 
 > ⚠️ **平台治理红线**：普通业务接入严禁修改中心分发文件 `src/adapter/company_c_adapter.cpp`，必须编写业务专属 Adapter 类并注册。
 
+### 平台镜像结构与输出池方向（Proposed）
+
+> [RFC-0009](rfcs/0009-company-string-and-slot-map-struct-binding.md) 正在定义公司
+> C++ Platform Operator 的长期数据边界，本节仅用于提前锁定扩展方向，尚不是当前
+> 实现指南。
+
+后续新增平台数据类型时必须区分两类协议：
+
+| 协议 | 使用位置 | 扩展方式 |
+| --- | --- | --- |
+| 纯 C ABI DTO | `Alg_Process` 与 BusinessAdapter | 继续按本章现有步骤声明并注册 |
+| 平台镜像 C 结构 | C++ `NamedIoBatch` Process 边界 | 注册值类型、业务槽位桥接、双向转换和输出池操作 |
+
+平台扩展必须分两步：先在 `PlatformValueTypeRegistry` 中建立“规范后缀 -> 外部 C
+类型 + validate/allocate/reset/destroy”的唯一绑定，再通过
+`PlatformBusinessBridgeDescriptor` 声明业务、方向和一个或多个逻辑槽位，并完成与
+现有内部 DTO 的逐字段转换。不要把 `.frame` 或 `.string` 直接绑定成整套业务 DTO，
+也不要恢复“一帧恰好一个输入/输出组”的限制。
+
+`CompanyString` 只用于无嵌入 NUL 的文本，二进制内容使用 `CompanyBuffer`。平台镜像
+结构不得替换或渗透内部 DTO。输入转换只读取 `.get()` 指针并复制数据值；输出由
+Create 期固定池分配，Process 只向空输出槽位提交池化 shared_ptr。输出 deleter 只
+持有池状态的 weak lifetime token，Destroy 后不得访问输出数据。任何需要修改
+Blackboard、Node 或 Engine 才能识别平台结构的方案均违反分层要求。
+
+RFC-0009 还会改变 C++ `CreateParam` 的二进制布局，因此 Platform 包必须提升到
+SOVERSION 3 并与公司调用方原子升级；这不改变纯 C ABI V2。若发布系统不能用 SONAME
+隔离旧调用方，必须提供版本化 Getter 和参数类型，不能复用旧二进制入口。
+
+Platform v3 的 Create 和配置预检都使用部署根 `model_path` 加相对
+`cfg_file_name`。每份 v3 `.conf` 必须提供 `data.mem_que`，由 Resolver 归一化规范
+输出后缀、`meta_num`、metadata type 和字段容量；业务桥接与输出池不得直接读取原始
+JSON 键。
+
 ### 步骤 1.1: 声明 C 枚举与数据结构 (`include/company_alg_interface.h`)
 ```c
 // 1. 追加业务类型枚举

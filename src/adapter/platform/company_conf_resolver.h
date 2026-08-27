@@ -6,44 +6,52 @@
 #include <unordered_map>
 
 #include "adapter/business_adapter_interface.h"
-#include "adapter/platform/platform_io_registry.h"
+#include "adapter/platform/platform_business_bridge_registry.h"
+#include "adapter/platform/platform_value_type_registry.h"
 #include "nlohmann/json.hpp"
 #include "platform/platform_operator_interface.h"
 
 namespace alg_framework {
 
 /**
- * @brief 解析后的公司平台部署配置与合成 Pipeline JSON
+ * @brief 解析后的公司平台部署配置与合成 Pipeline JSON (v3 规范)
  */
 struct ResolvedCompanyConfig {
   std::filesystem::path conf_path;
   std::filesystem::path pipeline_path;
-  std::optional<std::filesystem::path> single_model_path;
-  std::unordered_map<std::string, std::filesystem::path> model_paths_by_id;
+  std::filesystem::path model_root_path;
   std::string business_name;
   CompanyAlgBizType biz_type = ALG_BIZ_TYPE_UNKNOWN;
   std::shared_ptr<IBusinessAdapter> adapter;
-  const PlatformIoDescriptor* io_descriptor = nullptr;
+  const PlatformBusinessBridgeDescriptor* bridge_descriptor = nullptr;
   nlohmann::json synthetic_pipeline_json;
+  ResolvedOutputPoolSpec output_pool_spec;
+  ResolvedInputLimits input_limits;
 };
 
 /**
- * @brief 公司平台部署配置解析器 (集中收敛 .conf 解析与 Pipeline JSON 覆盖逻辑)
+ * @brief 公司平台部署配置解析器
  */
 class CompanyConfResolver {
  public:
   /**
-   * @brief 解析 .conf 并生成可直接用于 Pipeline::BuildFromJson 的配置对象
-   * @param[in] conf_file .conf 路径
-   * @param[in] platform_config 平台运行配置
-   * @param[out] result 解析结果
-   * @param[out] error_msg 结构化诊断错误信息
-   * @return 0 成功, 非 0 错误码 (-2 参数/格式错误, -5 业务未支持/冲突)
+   * @brief
+   * 校验并规范化模型引用路径（允许文件尚不存在，但严格限制在沙箱根目录下）
    */
-  static int Resolve(
-      const std::string& conf_file,
-      const llm_edgeflow::platform::PlatformConfig& platform_config,
-      ResolvedCompanyConfig* result, std::string* error_msg) noexcept;
+  static int ResolveModelReferenceUnderRoot(const std::filesystem::path& root,
+                                            const std::string& rel_or_abs,
+                                            const char* field_name,
+                                            std::filesystem::path* out_path,
+                                            std::string* error_msg) noexcept;
+
+  /**
+   * @brief 基于 model_path 根目录与相对 cfg_file_name 解析配置
+   */
+  static int Resolve(const char* model_path, const char* cfg_file_name,
+                     int32_t device_id,
+                     llm_edgeflow::platform::ChipType chip_type,
+                     ResolvedCompanyConfig* result, std::string* error_msg,
+                     uint32_t max_frame_depth = 25) noexcept;
 };
 
 }  // namespace alg_framework

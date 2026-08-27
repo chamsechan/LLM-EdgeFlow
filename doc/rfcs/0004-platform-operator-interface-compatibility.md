@@ -5,6 +5,12 @@
 > 目标场景：公司平台通过 `OperatorFunc` 函数表、`.conf` 配置、命名 I/O Map 和外部输出调度调用算法库
 >
 > 兼容原则：保留现有纯 C ABI V2，在其上增加独立 C++ 平台兼容层
+>
+> **后续修订**：[RFC-0009](0009-company-string-and-slot-map-struct-binding.md)
+> 处于 Proposed 状态，计划将公司平台的 Create 参数、输出池、输出指针生命周期、
+> Process 空输出槽位及 Demo 调用约定重新基线化。在 RFC-0009 完成实现前，当前代码
+> 仍以本 RFC 为准；RFC-0009 完成后，与上述主题重叠的内容由其取代，本 RFC 的其余
+> 架构结论继续有效。
 
 ## 1. 背景与设计结论
 

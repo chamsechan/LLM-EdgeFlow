@@ -497,18 +497,25 @@ TEST(DemoRunnerTest, ConfigBusinessMatchValidation) {
 
   // 测试公开 API ValidatePlatformConfigBinding
   char err_buf[256] = {0};
+  std::string root_dir = ".";
+  if (std::filesystem::exists("../configs")) {
+    root_dir = "..";
+  }
   EXPECT_EQ(ValidatePlatformConfigBinding(
-                "configs/pipeline_entity_extract.conf",
-                ALG_BIZ_TYPE_ENTITY_EXTRACT, err_buf, sizeof(err_buf)),
+                root_dir.c_str(), "configs/pipeline_entity_extract.conf",
+                static_cast<int32_t>(ALG_BIZ_TYPE_ENTITY_EXTRACT), err_buf,
+                sizeof(err_buf)),
             0);
-  EXPECT_EQ(ValidatePlatformConfigBinding(
-                "configs/pipeline_entity_extract.conf", ALG_BIZ_TYPE_DOC_QA,
-                err_buf, sizeof(err_buf)),
-            -3);
-  EXPECT_EQ(ValidatePlatformConfigBinding("non_existent_conf_file.conf",
-                                          ALG_BIZ_TYPE_DOC_QA, err_buf,
-                                          sizeof(err_buf)),
-            -2);
+  EXPECT_EQ(
+      ValidatePlatformConfigBinding(
+          root_dir.c_str(), "configs/pipeline_entity_extract.conf",
+          static_cast<int32_t>(ALG_BIZ_TYPE_DOC_QA), err_buf, sizeof(err_buf)),
+      -3);
+  EXPECT_EQ(
+      ValidatePlatformConfigBinding(
+          root_dir.c_str(), "non_existent_conf_file.conf",
+          static_cast<int32_t>(ALG_BIZ_TYPE_DOC_QA), err_buf, sizeof(err_buf)),
+      -2);
 }
 
 // P1-2: 测试显式指定不存在或非法的 Control 文件 Fail-Closed

@@ -1,21 +1,21 @@
 #include <gtest/gtest.h>
 
+#include <filesystem>
 #include <iostream>
 #include <string>
 #include <vector>
 
 #include "company_alg_interface.h"
+#include "platform/company_platform_types.h"
 #include "platform/platform_operator_interface.h"
 
 using namespace llm_edgeflow::platform;
 
-static std::string GetConfPath(const std::string& rel_path) {
-  FILE* fp = fopen(rel_path.c_str(), "r");
-  if (fp) {
-    fclose(fp);
-    return rel_path;
+static std::string GetConfDir() {
+  if (std::filesystem::exists("configs")) {
+    return std::filesystem::current_path().string();
   }
-  return "../" + rel_path;
+  return std::filesystem::current_path().parent_path().string();
 }
 
 class DocQaRerankPipelineTest : public ::testing::Test {
@@ -32,67 +32,79 @@ class DocQaRerankPipelineTest : public ::testing::Test {
 
 // 1. 测试基于 Platform Operator 创建与执行 LLM + Rerank + QA 组合流水线
 TEST_F(DocQaRerankPipelineTest, ExecuteDocQaWithRerankerAndLlm) {
-  std::string conf_path = GetConfPath("configs/pipeline_doc_qa_rerank.conf");
+  std::string root_dir = GetConfDir();
   CreateParam param{};
-  param.cfg_file_name = conf_path.c_str();
-  param.platform_config.batch_size = 2;
-  param.platform_config.type = ChipType::kAx650;
-  param.depth_num = 2;
+  param.model_path = root_dir.c_str();
+  param.cfg_file_name = "configs/pipeline_doc_qa_rerank.conf";
+  param.platform_type = ChipType::kAx650;
+  param.max_frame_depth = 25;
 
   void* handle = nullptr;
   int ret = ops_.Create(&handle, &param);
   ASSERT_EQ(ret, 0) << "Create failed: " << GetPlatformLastError();
   ASSERT_NE(handle, nullptr);
 
-  // 构造输入样本
-  CompanyDocInputStruct in1{};
-  in1.request_id = 90001;
-  in1.doc_text =
+  std::string doc1 =
       "企业级算法框架设计规范：采用4层分层架构，包含C-"
       "ABI适配层、Pipeline调度层、通用算子池与底层硬件引擎抽象。"
       "其中RerankRefineNode算子用于在粗筛后进行高精度的Cross-"
       "Encoder语义重排打分。";
-  in1.query_text = "请问该框架中的Rerank算子有什么作用？";
+  std::string query1 = "请问该框架中的Rerank算子有什么作用？";
+  CompanyString doc1_cs{static_cast<int32_t>(doc1.size()),
+                        const_cast<char*>(doc1.data())};
+  CompanyString query1_cs{static_cast<int32_t>(query1.size()),
+                          const_cast<char*>(query1.data())};
+  CompanyPlatformDocInput in1{90001, &doc1_cs, &query1_cs};
 
-  CompanyDocInputStruct in2{};
-  in2.request_id = 90002;
-  in2.doc_text =
+  std::string doc2 =
       "客户服务售后政策：支持7天无理由退货与全额退款。若商品存在质量问题，由平"
       "台承担双向运费并提供快速换货。";
-  in2.query_text = "商品质量有问题怎么换货？";
-
-  CompanyDocOutputStruct out1{};
-  CompanyDocOutputStruct out2{};
+  std::string query2 = "商品质量有问题怎么换货？";
+  CompanyString doc2_cs{static_cast<int32_t>(doc2.size()),
+                        const_cast<char*>(doc2.data())};
+  CompanyString query2_cs{static_cast<int32_t>(query2.size()),
+                          const_cast<char*>(query2.data())};
+  CompanyPlatformDocInput in2{90002, &doc2_cs, &query2_cs};
 
   NamedIoBatch in_batch(2);
   NamedIoBatch out_batch(2);
 
-  in_batch[0]["rag_channel.doc_in"] = std::shared_ptr<void>(&in1, [](void*) {});
-  in_batch[1]["rag_channel.doc_in"] = std::shared_ptr<void>(&in2, [](void*) {});
+  in_batch[0]["rag_channel.doc_in"] = MakeBorrowedPlatformInput(&in1);
+  in_batch[1]["rag_channel.doc_in"] = MakeBorrowedPlatformInput(&in2);
 
-  out_batch[0]["rag_channel.doc_out"] =
-      std::shared_ptr<void>(&out1, [](void*) {});
-  out_batch[1]["rag_channel.doc_out"] =
-      std::shared_ptr<void>(&out2, [](void*) {});
+  out_batch[0]["rag_channel.doc_out"] = std::shared_ptr<void>();
+  out_batch[1]["rag_channel.doc_out"] = std::shared_ptr<void>();
 
   ret = ops_.Process(handle, in_batch, out_batch);
   EXPECT_EQ(ret, 0) << "Process failed: " << GetPlatformLastError();
 
-  // 验证结果
-  EXPECT_EQ(out1.request_id, 90001);
-  EXPECT_GT(out1.chunk_count, 0);
-  EXPECT_STREQ(out1.intent_name, "TECH_ARCHITECTURE");
-  EXPECT_GT(strlen(out1.answer_text), 0);
+  auto out1_sp = out_batch[0]["rag_channel.doc_out"];
+  auto out2_sp = out_batch[1]["rag_channel.doc_out"];
+  ASSERT_NE(out1_sp, nullptr);
+  ASSERT_NE(out2_sp, nullptr);
 
-  EXPECT_EQ(out2.request_id, 90002);
-  EXPECT_GT(out2.chunk_count, 0);
-  EXPECT_STREQ(out2.intent_name, "AFTER_SALES_REFUND");
-  EXPECT_GT(strlen(out2.answer_text), 0);
+  const auto* out1 =
+      static_cast<const CompanyPlatformDocOutput*>(out1_sp.get());
+  const auto* out2 =
+      static_cast<const CompanyPlatformDocOutput*>(out2_sp.get());
 
-  std::cout << "[DocQaRerankPipelineTest] Output 1 intent=" << out1.intent_name
-            << ", answer=" << out1.answer_text << std::endl;
-  std::cout << "[DocQaRerankPipelineTest] Output 2 intent=" << out2.intent_name
-            << ", answer=" << out2.answer_text << std::endl;
+  EXPECT_EQ(out1->request_id, 90001u);
+  EXPECT_GT(out1->chunk_count, 0);
+  ASSERT_NE(out1->intent_name, nullptr);
+  EXPECT_STREQ(out1->intent_name->data, "TECH_ARCHITECTURE");
+  ASSERT_NE(out1->answer_text, nullptr);
+  EXPECT_GT(out1->answer_text->length, 0);
+
+  EXPECT_EQ(out2->request_id, 90002u);
+  EXPECT_GT(out2->chunk_count, 0);
+  ASSERT_NE(out2->intent_name, nullptr);
+  EXPECT_STREQ(out2->intent_name->data, "AFTER_SALES_REFUND");
+  ASSERT_NE(out2->answer_text, nullptr);
+  EXPECT_GT(out2->answer_text->length, 0);
+
+  out_batch.clear();
+  out1_sp.reset();
+  out2_sp.reset();
 
   ops_.Destroy(handle);
 }

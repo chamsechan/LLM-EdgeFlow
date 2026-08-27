@@ -23,45 +23,39 @@ echo -e "${BOLD}${CYAN}  Project Root: $ROOT_DIR${NC}"
 echo -e "${BOLD}${CYAN}==================================================================${NC}\n"
 
 # 1. 架构分层隔离、代码规范与差异门禁检验
-echo -e "${BOLD}[ Step 1/6: LayerGuard 架构分层防腐扫描、架构文档防漂移、Google C++ 代码规范与 Git Diff 门禁检验 ]${NC}"
+echo -e "${BOLD}[ Step 1/6: LayerGuard 架构分层防腐扫描、架构文档防漂移、Shell 语法静态检查、Google C++ 代码规范与 Git Diff 门禁检验 ]${NC}"
+for sh_file in "$SCRIPT_DIR"/*.sh; do
+  bash -n "$sh_file"
+done
 "$SCRIPT_DIR/check_layer_isolation.sh"
 "$SCRIPT_DIR/check_architecture_docs.sh"
 "$SCRIPT_DIR/render_architecture_diagrams.sh" --check
 "$SCRIPT_DIR/format.sh" --check
 git diff --check
-echo -e "${GREEN}✓ 架构分层隔离、文档防漂移、代码规范与差异门禁校验 100% 通过！${NC}\n"
+echo -e "${GREEN}✓ 架构分层隔离、文档防漂移、Shell 脚本语法、代码规范与差异门禁校验 100% 通过！${NC}\n"
 
 # 2. 全量工程编译
-echo -e "${BOLD}[ Step 2/6: CMake 构建与二进制链接 ]${NC}"
+echo -e "${BOLD}[ Step 2/6: CMake 构建与二进制链接 (Ninja & ccache 并行加速) ]${NC}"
 mkdir -p "$BUILD_DIR"
-cd "$BUILD_DIR"
-cmake "$ROOT_DIR" > /dev/null
-make -j4
+GEN_ARG_STR=$("${SCRIPT_DIR}/detect_cmake_generator.sh" "${BUILD_DIR}")
+CMAKE_GEN_ARGS=()
+if [[ -n "${GEN_ARG_STR}" ]]; then
+  read -r -a CMAKE_GEN_ARGS <<< "${GEN_ARG_STR}"
+fi
+cmake -S "$ROOT_DIR" -B "$BUILD_DIR" -DLLM_EDGEFLOW_USE_CCACHE=ON "${CMAKE_GEN_ARGS[@]}" > /dev/null
+cmake --build "$BUILD_DIR" -j"$(nproc)"
 echo -e "${GREEN}✓ 核心动态库与测试目标编译通过！${NC}\n"
 
 # 3. 核心机制与多模态单元测试 (Tier 1)
-echo -e "${BOLD}[ Step 3/6: 核心架构、DAG拓扑排序、引擎容错与全业务细粒度 GTest 单元测试 ]${NC}"
-"$BUILD_DIR/test_batch_executor"
-"$BUILD_DIR/test_framework_core"
-"$BUILD_DIR/test_pipeline_config"
-ctest --test-dir "$BUILD_DIR" --output-on-failure -R '^Registry.*Test$'
-"$BUILD_DIR/test_dag_pipeline"
-"$BUILD_DIR/test_engine_fault_tolerance_and_lifecycle"
-"$BUILD_DIR/test_qwen_engines_comparison"
-"$BUILD_DIR/test_different_io_modalities"
-"$BUILD_DIR/test_all_business_pipelines"
-"$BUILD_DIR/test_doc_qa_rerank"
-"$BUILD_DIR/test_rerank_refine_node"
+echo -e "${BOLD}[ Step 3/6: 核心架构、DAG拓扑排序、引擎容错与全业务细粒度 GTest 单元测试 (并行加速) ]${NC}"
+TIER1_REGEX='^(BatchExecutorTest|FrameworkCoreTest|PipelineConfigTest|Registry.*Test|DagPipelineTest|EngineFaultToleranceAndLifecycleTest|QwenEnginesComparisonTest|DifferentIoModalitiesTest|AllBusinessPipelinesTest|DocQaRerankTest|RerankRefineNodeTest|ScriptGeneratorDetectionTest)$'
+ctest --test-dir "$BUILD_DIR" -j"$(nproc)" --output-on-failure -R "$TIER1_REGEX"
 echo -e "${GREEN}✓ Tier 1 核心架构、DAG拓扑调度与全业务组合（含 LLM+Rerank+QA 与 RerankRefineNode）细粒度 GTest 断言测试全部通过！${NC}\n"
 
 # 4. C ABI 安全防御、多线程并发与边界压测 (Tier 2)
-echo -e "${BOLD}[ Step 4/6: C ABI 安全、平台 Operator 接口、8 线程并发、动态热重载与极端边界鲁棒性压测 ]${NC}"
-"$BUILD_DIR/test_c11_abi_compliance"
-"$BUILD_DIR/test_c_abi_safety"
-"$BUILD_DIR/test_adapter_contract_security"
-"$BUILD_DIR/test_platform_operator"
-"$BUILD_DIR/test_runtime_control_and_hot_swap"
-"$BUILD_DIR/test_concurrency_and_edge_cases"
+echo -e "${BOLD}[ Step 4/6: C ABI 安全、平台 Operator 接口、8 线程并发、动态热重载与极端边界鲁棒性压测 (并行加速) ]${NC}"
+TIER2_REGEX='^(C11AbiComplianceTest|CAbiSafetyTest|AdapterContractSecurityTest|PlatformOperatorTest|PlatformOutputPoolTest|PlatformValueRegistryTest|PlatformBusinessBridgeRegistryTest|RuntimeControlAndHotSwapTest|ConcurrencyAndEdgeCasesTest)$'
+ctest --test-dir "$BUILD_DIR" -j"$(nproc)" --output-on-failure -R "$TIER2_REGEX"
 echo -e "${GREEN}✓ Tier 2 C ABI 安全、平台 Operator 门面、在线动态热控制与极端边界容错测试全部通过！${NC}\n"
 
 # 5. 7 大业务端到端全流程集成测试 (Tier 3)

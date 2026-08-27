@@ -243,7 +243,10 @@ class WorkbenchService:
         data = conf.get("data", conf)
         original_pipeline_path = Path(data["pipe_path"])
         if not original_pipeline_path.is_absolute():
-            original_pipeline_path = profile_conf.parent / original_pipeline_path
+            if (PROJECT_ROOT / original_pipeline_path).exists():
+                original_pipeline_path = PROJECT_ROOT / original_pipeline_path
+            else:
+                original_pipeline_path = profile_conf.parent / original_pipeline_path
         original = read_json(original_pipeline_path.resolve())
         if original.get("business_name") != pipeline.get("business_name"):
             raise StudioError("PROFILE_MISMATCH", "Profile 与业务契约不匹配")
@@ -282,9 +285,9 @@ class WorkbenchService:
             )
             temp_conf = copy.deepcopy(conf)
             if "data" in temp_conf:
-                temp_conf["data"]["pipe_path"] = str(pipeline_path)
+                temp_conf["data"]["pipe_path"] = "pipeline.json"
             else:
-                temp_conf["pipe_path"] = str(pipeline_path)
+                temp_conf["pipe_path"] = "pipeline.json"
             conf_path = temp_root / "pipeline.conf"
             conf_path.write_text(json.dumps(temp_conf, indent=2), encoding="utf-8")
             output_dir = temp_root / "results"
