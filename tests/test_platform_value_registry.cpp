@@ -272,22 +272,78 @@ TEST(PlatformValueRegistryTest, RFC63AliasesCompliance) {
 }
 
 // 8. ComputeOutputPoolBytes 预算计算与边界检测 (R9-005)
-TEST(PlatformValueRegistryTest, ComputeOutputPoolBytesBudgeting) {
-  ResolvedOutputPoolSpec spec;
-  spec.type = "od_out";
-  spec.meta_num = 100;
-  spec.metadata_type_id = 1;  // float32 (400 bytes)
-  spec.capacities["result_json"] = 1024;
+TEST(PlatformValueRegistryTest, AllSevenOutputTypesFootprintAndBudget) {
+  const std::vector<std::string> output_suffixes = {
+      "doc_out", "keyword_out", "entity_out", "audit_out",
+      "od_out",  "audio_out",   "rerank_out"};
 
-  size_t bytes = 0;
-  std::string err;
-  EXPECT_TRUE(ComputeOutputPoolBytes("od_out", spec, 25, &bytes, &err));
-  EXPECT_GT(bytes, 0u);
-  EXPECT_LT(bytes, kMaxHandlePoolMemoryBytes);
+  for (const auto& suffix : output_suffixes) {
+    ResolvedOutputPoolSpec spec;
+    spec.type = suffix;
+    if (suffix == "od_out") {
+      spec.meta_num = 64;
+      spec.metadata_type_id = 1;  // float32
+    }
 
-  // 深度超限
-  EXPECT_FALSE(ComputeOutputPoolBytes("od_out", spec, 1025, &bytes, &err));
-  EXPECT_FALSE(err.empty());
+    // Depth 0 -> 归一化为 25
+    size_t bytes_d0 = 0;
+    std::string err;
+    EXPECT_TRUE(ComputeOutputPoolBytes(suffix, spec, 0, &bytes_d0, &err));
+    EXPECT_GT(bytes_d0, 0u);
+    EXPECT_LT(bytes_d0, kMaxHandlePoolMemoryBytes);
+
+    // Depth 1
+    size_t bytes_d1 = 0;
+    EXPECT_TRUE(ComputeOutputPoolBytes(suffix, spec, 1, &bytes_d1, &err));
+    EXPECT_GT(bytes_d1, 0u);
+    EXPECT_EQ(bytes_d0, bytes_d1 * 25);
+
+    // Depth 1024 (上限)
+    size_t bytes_d1024 = 0;
+    EXPECT_TRUE(ComputeOutputPoolBytes(suffix, spec, 1024, &bytes_d1024, &err));
+    EXPECT_EQ(bytes_d1024, bytes_d1 * 1024);
+
+    // Depth 1025 (超限拦截)
+    size_t bytes_overflow = 0;
+    EXPECT_FALSE(
+        ComputeOutputPoolBytes(suffix, spec, 1025, &bytes_overflow, &err));
+  }
+
+  // 未知 suffix -> 无 fallback 直接返回 false
+  ResolvedOutputPoolSpec bad_spec;
+  bad_spec.type = "unknown_out";
+  size_t bad_bytes = 0;
+  std::string bad_err;
+  EXPECT_FALSE(ComputeOutputPoolBytes("unknown_out", bad_spec, 25, &bad_bytes,
+                                      &bad_err));
+  EXPECT_FALSE(bad_err.empty());
+}
+
+// 9. 独立 ValueTypeRegistry 实例与原子回滚测试
+TEST(PlatformValueRegistryTest, IsolatedValueTypeRegistryAtomicRollback) {
+  PlatformValueTypeRegistry local_reg;
+
+  // 1. 测试别名冲突 (alias 与已有 canonical "string" 冲突)
+  PlatformValueTypeBinding bad_b1;
+  bad_b1.canonical_suffix = "my_custom";
+  bad_b1.aliases = {"string"};  // 与已存在的 "string" canonical 冲突
+  EXPECT_FALSE(local_reg.RegisterBinding(bad_b1));
+  EXPECT_TRUE(local_reg.HasConflict());
+  EXPECT_EQ(local_reg.GlobalInit(), -6);
+
+  // 2. 干净的本地 Registry 实例
+  PlatformValueTypeRegistry clean_reg;
+  EXPECT_EQ(clean_reg.GlobalInit(), 0);
+  // 幂等多次 GlobalInit
+  EXPECT_EQ(clean_reg.GlobalInit(), 0);
+  EXPECT_FALSE(clean_reg.HasConflict());
+
+  // 3. 晚注册被拒绝但不会破坏幂等 GlobalInit
+  PlatformValueTypeBinding late_b;
+  late_b.canonical_suffix = "late_slot";
+  EXPECT_FALSE(clean_reg.RegisterBinding(late_b));
+  EXPECT_EQ(clean_reg.GlobalInit(), 0);
+  EXPECT_FALSE(clean_reg.HasConflict());
 }
 
 }  // namespace alg_framework

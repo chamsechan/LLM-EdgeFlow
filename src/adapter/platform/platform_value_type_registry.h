@@ -113,15 +113,12 @@ struct CleanupAction {
 struct OwnedExternalBlock {
   void* raw_struct = nullptr;
   std::vector<CleanupAction> cleanups;
-  ResolvedOutputPoolSpec spec;
 
   OwnedExternalBlock() = default;
   ~OwnedExternalBlock() { Destroy(); }
 
   OwnedExternalBlock(OwnedExternalBlock&& other) noexcept
-      : raw_struct(other.raw_struct),
-        cleanups(std::move(other.cleanups)),
-        spec(std::move(other.spec)) {
+      : raw_struct(other.raw_struct), cleanups(std::move(other.cleanups)) {
     other.raw_struct = nullptr;
   }
 
@@ -130,7 +127,6 @@ struct OwnedExternalBlock {
       Destroy();
       raw_struct = other.raw_struct;
       cleanups = std::move(other.cleanups);
-      spec = std::move(other.spec);
       other.raw_struct = nullptr;
     }
     return *this;
@@ -186,6 +182,9 @@ struct PlatformValueTypeBinding {
 class PlatformValueTypeRegistry {
  public:
   static PlatformValueTypeRegistry& Instance();
+
+  PlatformValueTypeRegistry();
+  void RegisterBuiltinBindings();
 
   /**
    * @brief 解析 Key (例如 "camera_0.frame") 提取命名空间和后缀
@@ -248,9 +247,6 @@ class PlatformValueTypeRegistry {
   static int GetAllocationFailureCountdown() noexcept;
 
  private:
-  PlatformValueTypeRegistry();
-  void RegisterBuiltinBindings();
-
   mutable std::mutex mutex_;
   std::unordered_map<std::string, PlatformValueTypeBinding>
       bindings_by_canonical_;

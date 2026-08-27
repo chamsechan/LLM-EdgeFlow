@@ -252,13 +252,20 @@ TEST_F(PlatformOutputPoolTest, AllocatorFailureAllOutputTypes) {
       spec.metadata_type_id = 1;
     }
 
-    for (int step = 0; step <= 8; ++step) {
+    for (int step = 0; step <= 25; ++step) {
       PlatformValueTypeRegistry::SetAllocationFailureCountdown(step);
       std::shared_ptr<OutputPoolState> pool;
       std::string err;
-      int ret = OutputPoolState::Create(t, 2, spec, binding, &pool, &err);
+      int ret = OutputPoolState::Create(t, 4, spec, binding, &pool, &err);
       if (ret != 0) {
         EXPECT_EQ(pool, nullptr);
+        EXPECT_EQ(ret, -4);
+      } else {
+        ASSERT_NE(pool, nullptr);
+        EXPECT_EQ(pool->Depth(), 4u);
+        EXPECT_EQ(pool->FreeBlockCount(), 4u);
+        EXPECT_EQ(pool->CheckedOutCount(), 0u);
+        pool->DestroyBlocks();
       }
     }
     PlatformValueTypeRegistry::SetAllocationFailureCountdown(-1);

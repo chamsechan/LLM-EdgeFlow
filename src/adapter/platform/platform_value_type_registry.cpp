@@ -8,6 +8,9 @@
 #include <new>
 #include <unordered_set>
 
+#include "company_alg_interface.h"
+#include "platform/company_platform_types.h"
+
 namespace alg_framework {
 
 namespace {
@@ -39,12 +42,12 @@ inline void DeleteCompanyString(void* p) noexcept {
   delete static_cast<CompanyString*>(p);
 }
 
-inline void DeleteUint8Array(void* p) noexcept {
-  delete[] static_cast<uint8_t*>(p);
-}
-
 inline void DeleteCompanyAny(void* p) noexcept {
   delete static_cast<CompanyAny*>(p);
+}
+
+inline void DeleteAnyPayload(void* p) noexcept {
+  delete[] static_cast<uint8_t*>(p);
 }
 
 template <typename T>
@@ -53,65 +56,56 @@ inline void DeleteTypedObject(void* p) noexcept {
 }
 
 CompanyString* AllocateNestedCompanyString(uint32_t capacity,
-                                           OwnedExternalBlock* out_block) {
+                                           OwnedExternalBlock* block) {
   CheckAllocFailureProbe();
-  std::unique_ptr<char[]> data_holder(new char[capacity + 1]);
-  data_holder[0] = '\0';
-  char* data = data_holder.get();
-  out_block->cleanups.push_back({data, DeleteCharArray});
-  data_holder.release();
-
+  std::unique_ptr<CompanyString> str(new CompanyString());
   CheckAllocFailureProbe();
-  std::unique_ptr<CompanyString> cs_holder(new CompanyString());
-  cs_holder->length = 0;
-  cs_holder->data = data;
-  CompanyString* cs = cs_holder.get();
-  out_block->cleanups.push_back({cs, DeleteCompanyString});
-  cs_holder.release();
+  size_t alloc_bytes = static_cast<size_t>(capacity) + 1;
+  std::unique_ptr<char[]> data(new char[alloc_bytes]);
+  std::memset(data.get(), 0, alloc_bytes);
 
-  return cs;
+  str->length = 0;
+  str->data = data.get();
+
+  block->cleanups.push_back({data.release(), DeleteCharArray});
+  block->cleanups.push_back({str.get(), DeleteCompanyString});
+  return str.release();
 }
 
-CompanyAny* AllocateNestedCompanyAny(uint32_t meta_num,
-                                     int32_t metadata_type_id,
-                                     OwnedExternalBlock* out_block) {
-  if (meta_num == 0 || metadata_type_id == 0) {
+CompanyAny* AllocateNestedCompanyAny(uint32_t meta_num, int32_t type_id,
+                                     OwnedExternalBlock* block) {
+  if (meta_num == 0 || type_id == 0) {
     return nullptr;
   }
-  const auto* desc = FindCompanyAnyType(metadata_type_id);
+  const auto* desc = FindCompanyAnyType(type_id);
   if (!desc || desc->element_size == 0) {
     return nullptr;
   }
-
+  CheckAllocFailureProbe();
+  std::unique_ptr<CompanyAny> any(new CompanyAny());
   size_t total_bytes = 0;
   if (!CheckedMultiply(meta_num, desc->element_size, &total_bytes)) {
-    throw std::bad_alloc();
+    return nullptr;
   }
-
   CheckAllocFailureProbe();
-  std::unique_ptr<uint8_t[]> mdata_holder(new uint8_t[total_bytes]());
-  uint8_t* mdata = mdata_holder.get();
-  out_block->cleanups.push_back({mdata, DeleteUint8Array});
-  mdata_holder.release();
+  std::unique_ptr<uint8_t[]> data(new uint8_t[total_bytes]);
+  std::memset(data.get(), 0, total_bytes);
 
-  CheckAllocFailureProbe();
-  std::unique_ptr<CompanyAny> meta_holder(new CompanyAny());
-  meta_holder->type_id = metadata_type_id;
-  meta_holder->element_count = 0;
-  meta_holder->byte_length = 0;
-  meta_holder->data = mdata;
-  CompanyAny* meta = meta_holder.get();
-  out_block->cleanups.push_back({meta, DeleteCompanyAny});
-  meta_holder.release();
+  any->type_id = type_id;
+  any->element_count = 0;
+  any->byte_length = 0;
+  any->data = data.get();
 
-  return meta;
+  block->cleanups.push_back({data.release(), DeleteAnyPayload});
+  block->cleanups.push_back({any.get(), DeleteCompanyAny});
+  return any.release();
 }
 
-void ResetNestedCompanyString(CompanyString* cs) noexcept {
-  if (cs) {
-    cs->length = 0;
-    if (cs->data) {
-      cs->data[0] = '\0';
+void ResetNestedCompanyString(CompanyString* str) noexcept {
+  if (str) {
+    str->length = 0;
+    if (str->data) {
+      str->data[0] = '\0';
     }
   }
 }
@@ -121,17 +115,6 @@ void ResetNestedCompanyAny(CompanyAny* any) noexcept {
     any->element_count = 0;
     any->byte_length = 0;
   }
-}
-
-size_t EstimateBaseStructSize(const std::string& mem_type) {
-  if (mem_type == "od_out") return sizeof(CompanyOdOutput);
-  if (mem_type == "keyword_out") return sizeof(CompanyPlatformKeywordOutput);
-  if (mem_type == "entity_out") return sizeof(CompanyPlatformEntityOutput);
-  if (mem_type == "doc_out") return sizeof(CompanyPlatformDocOutput);
-  if (mem_type == "audit_out") return sizeof(CompanyPlatformAuditOutput);
-  if (mem_type == "audio_out") return sizeof(CompanyPlatformAudioOutput);
-  if (mem_type == "rerank_out") return sizeof(CompanyPlatformRerankOutput);
-  return 512;
 }
 
 }  // namespace
@@ -152,44 +135,128 @@ bool ComputeOutputPoolBytes(const std::string& suffix,
     return false;
   }
 
-  size_t single_block_bytes = EstimateBaseStructSize(suffix);
+  // Pool management overhead per block:
+  // - sizeof(OwnedExternalBlock)
+  // - sizeof(void*) in all_blocks_
+  // - sizeof(void*) in free_ring_
+  // - sizeof(void*) + sizeof(uint64_t) in block_states_
+  constexpr size_t kPoolBookkeepingPerBlock =
+      sizeof(OwnedExternalBlock) + sizeof(void*) * 3 + sizeof(uint64_t);
 
-  for (const auto& [cap_f, cap_n] : spec.capacities) {
-    size_t field_data_bytes = 0;
-    if (!CheckedAdd(cap_n, 1, &field_data_bytes)) {
-      if (err) *err = "Capacity calculation overflowed for field: " + cap_f;
+  size_t single_block_bytes = 0;
+  size_t cleanup_count = 0;
+
+  if (suffix == "doc_out") {
+    single_block_bytes = sizeof(CompanyPlatformDocOutput);
+    uint32_t cap_intent = spec.GetCapacity("intent_name", 63);
+    uint32_t cap_answer = spec.GetCapacity("answer_text", 1023);
+    size_t str_bytes = 0;
+    if (!CheckedAdd(static_cast<size_t>(cap_intent), 1, &str_bytes) ||
+        !CheckedAdd(str_bytes, static_cast<size_t>(cap_answer) + 1,
+                    &str_bytes) ||
+        !CheckedAdd(str_bytes, sizeof(CompanyString) * 2, &str_bytes) ||
+        !CheckedAdd(single_block_bytes, str_bytes, &single_block_bytes)) {
+      if (err) *err = "doc_out capacity calculation overflowed";
       return false;
     }
-    size_t field_total = 0;
-    if (!CheckedAdd(field_data_bytes, sizeof(CompanyString), &field_total) ||
-        !CheckedAdd(single_block_bytes, field_total, &single_block_bytes)) {
-      if (err) *err = "Block memory calculation overflowed for field: " + cap_f;
+    cleanup_count = 4;
+  } else if (suffix == "keyword_out") {
+    single_block_bytes = sizeof(CompanyPlatformKeywordOutput);
+    uint32_t cap_match = spec.GetCapacity("match_result_json", 2047);
+    size_t str_bytes = 0;
+    if (!CheckedAdd(static_cast<size_t>(cap_match), 1, &str_bytes) ||
+        !CheckedAdd(str_bytes, sizeof(CompanyString), &str_bytes) ||
+        !CheckedAdd(single_block_bytes, str_bytes, &single_block_bytes)) {
+      if (err) *err = "keyword_out capacity calculation overflowed";
       return false;
     }
-  }
-
-  if (spec.meta_num > 0 && spec.metadata_type_id > 0) {
-    const auto* mdesc = FindCompanyAnyType(spec.metadata_type_id);
-    if (mdesc && mdesc->element_size > 0) {
-      size_t meta_payload = 0;
-      if (!CheckedMultiply(spec.meta_num, mdesc->element_size, &meta_payload)) {
-        if (err) *err = "Metadata payload calculation overflowed";
-        return false;
-      }
-      size_t meta_total = 0;
-      if (!CheckedAdd(meta_payload, sizeof(CompanyAny), &meta_total) ||
-          !CheckedAdd(single_block_bytes, meta_total, &single_block_bytes)) {
-        if (err) *err = "Metadata total calculation overflowed";
-        return false;
+    cleanup_count = 2;
+  } else if (suffix == "entity_out") {
+    single_block_bytes = sizeof(CompanyPlatformEntityOutput);
+    uint32_t cap_entities = spec.GetCapacity("entities_json", 2047);
+    size_t str_bytes = 0;
+    if (!CheckedAdd(static_cast<size_t>(cap_entities), 1, &str_bytes) ||
+        !CheckedAdd(str_bytes, sizeof(CompanyString), &str_bytes) ||
+        !CheckedAdd(single_block_bytes, str_bytes, &single_block_bytes)) {
+      if (err) *err = "entity_out capacity calculation overflowed";
+      return false;
+    }
+    cleanup_count = 2;
+  } else if (suffix == "audit_out") {
+    single_block_bytes = sizeof(CompanyPlatformAuditOutput);
+    uint32_t cap_risk = spec.GetCapacity("risk_level", 31);
+    uint32_t cap_clause = spec.GetCapacity("matched_policy_clause", 255);
+    uint32_t cap_verdict = spec.GetCapacity("audit_verdict_json", 1023);
+    size_t str_bytes = 0;
+    if (!CheckedAdd(static_cast<size_t>(cap_risk), 1, &str_bytes) ||
+        !CheckedAdd(str_bytes, static_cast<size_t>(cap_clause) + 1,
+                    &str_bytes) ||
+        !CheckedAdd(str_bytes, static_cast<size_t>(cap_verdict) + 1,
+                    &str_bytes) ||
+        !CheckedAdd(str_bytes, sizeof(CompanyString) * 3, &str_bytes) ||
+        !CheckedAdd(single_block_bytes, str_bytes, &single_block_bytes)) {
+      if (err) *err = "audit_out capacity calculation overflowed";
+      return false;
+    }
+    cleanup_count = 6;
+  } else if (suffix == "od_out") {
+    single_block_bytes = sizeof(CompanyOdOutput);
+    uint32_t cap_res = spec.GetCapacity("result_json", 2047);
+    size_t str_bytes = 0;
+    if (!CheckedAdd(static_cast<size_t>(cap_res), 1, &str_bytes) ||
+        !CheckedAdd(str_bytes, sizeof(CompanyString), &str_bytes) ||
+        !CheckedAdd(single_block_bytes, str_bytes, &single_block_bytes)) {
+      if (err) *err = "od_out capacity calculation overflowed";
+      return false;
+    }
+    cleanup_count = 2;
+    if (spec.meta_num > 0 && spec.metadata_type_id > 0) {
+      const auto* mdesc = FindCompanyAnyType(spec.metadata_type_id);
+      if (mdesc && mdesc->element_size > 0) {
+        size_t meta_payload = 0;
+        if (!CheckedMultiply(spec.meta_num, mdesc->element_size,
+                             &meta_payload)) {
+          if (err) *err = "Metadata payload calculation overflowed";
+          return false;
+        }
+        size_t meta_total = 0;
+        if (!CheckedAdd(meta_payload, sizeof(CompanyAny), &meta_total) ||
+            !CheckedAdd(single_block_bytes, meta_total, &single_block_bytes)) {
+          if (err) *err = "Metadata total calculation overflowed";
+          return false;
+        }
+        cleanup_count += 2;
       }
     }
+  } else if (suffix == "audio_out") {
+    single_block_bytes = sizeof(CompanyPlatformAudioOutput);
+    uint32_t cap_trans = spec.GetCapacity("transcribed_text", 511);
+    uint32_t cap_intent = spec.GetCapacity("intent_slot_json", 1023);
+    size_t str_bytes = 0;
+    if (!CheckedAdd(static_cast<size_t>(cap_trans), 1, &str_bytes) ||
+        !CheckedAdd(str_bytes, static_cast<size_t>(cap_intent) + 1,
+                    &str_bytes) ||
+        !CheckedAdd(str_bytes, sizeof(CompanyString) * 2, &str_bytes) ||
+        !CheckedAdd(single_block_bytes, str_bytes, &single_block_bytes)) {
+      if (err) *err = "audio_out capacity calculation overflowed";
+      return false;
+    }
+    cleanup_count = 4;
+  } else if (suffix == "rerank_out") {
+    single_block_bytes = sizeof(CompanyPlatformRerankOutput);
+    cleanup_count = 0;
+  } else {
+    if (err) *err = "Unknown output suffix '" + suffix + "' for pool budgeting";
+    return false;
   }
 
-  constexpr size_t kPerBlockManagementOverhead =
-      sizeof(OwnedExternalBlock) + sizeof(void*) + sizeof(void*) + 64;
-  if (!CheckedAdd(single_block_bytes, kPerBlockManagementOverhead,
+  // Add cleanup actions footprint + pool bookkeeping
+  size_t cleanup_bytes = 0;
+  if (!CheckedMultiply(cleanup_count, sizeof(CleanupAction), &cleanup_bytes) ||
+      !CheckedAdd(single_block_bytes, cleanup_bytes, &single_block_bytes) ||
+      !CheckedAdd(single_block_bytes, kPoolBookkeepingPerBlock,
                   &single_block_bytes)) {
-    if (err) *err = "Block overhead calculation overflowed";
+    if (err) *err = "Block footprint calculation overflowed";
     return false;
   }
 
@@ -392,6 +459,37 @@ int PlatformValueTypeRegistry::GlobalInit() {
   if (has_conflict_) {
     return -6;
   }
+  if (audited_) {
+    return 0;
+  }
+  for (const auto& [suffix, binding] : bindings_by_canonical_) {
+    if (binding.canonical_suffix.empty() ||
+        binding.external_c_type_name.empty()) {
+      has_conflict_ = true;
+      return -6;
+    }
+    bool is_output =
+        (suffix.size() >= 4 && suffix.rfind("_out") == suffix.size() - 4);
+    if (is_output) {
+      if (!binding.allocate_external || !binding.reset_external ||
+          !binding.destroy_external) {
+        has_conflict_ = true;
+        return -6;
+      }
+    } else {
+      if (!binding.validate_external) {
+        has_conflict_ = true;
+        return -6;
+      }
+    }
+    for (const auto& a : binding.aliases) {
+      auto it = alias_to_canonical_.find(a);
+      if (it == alias_to_canonical_.end() || it->second != suffix) {
+        has_conflict_ = true;
+        return -6;
+      }
+    }
+  }
   audited_ = true;
   return 0;
 }
@@ -444,12 +542,18 @@ bool PlatformValueTypeRegistry::RegisterBinding(
     }
   }
 
-  // 4. 原子预检通过后，一次性提交
+  // 4. 原子预检通过后，通过 Copy-and-Swap 一次性提交
   try {
+    auto temp_bindings = bindings_by_canonical_;
+    auto temp_aliases = alias_to_canonical_;
+
     for (const auto& a : binding.aliases) {
-      alias_to_canonical_[a] = binding.canonical_suffix;
+      temp_aliases[a] = binding.canonical_suffix;
     }
-    bindings_by_canonical_[binding.canonical_suffix] = std::move(binding);
+    temp_bindings[binding.canonical_suffix] = std::move(binding);
+
+    bindings_by_canonical_ = std::move(temp_bindings);
+    alias_to_canonical_ = std::move(temp_aliases);
   } catch (...) {
     has_conflict_ = true;
     return false;
@@ -593,7 +697,6 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
       raw->metadata = AllocateNestedCompanyAny(
           spec.meta_num, spec.metadata_type_id, out_block);
       out_block->raw_struct = raw;
-      out_block->spec = spec;
       return 0;
     };
     b.reset_external = [](void* ptr,
@@ -660,7 +763,6 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
       raw->match_result_json = AllocateNestedCompanyString(
           spec.GetCapacity("match_result_json", 2047), out_block);
       out_block->raw_struct = raw;
-      out_block->spec = spec;
       return 0;
     };
     b.reset_external = [](void* ptr,
@@ -724,7 +826,6 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
       raw->entities_json = AllocateNestedCompanyString(
           spec.GetCapacity("entities_json", 2047), out_block);
       out_block->raw_struct = raw;
-      out_block->spec = spec;
       return 0;
     };
     b.reset_external = [](void* ptr,
@@ -798,7 +899,6 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
       raw->answer_text = AllocateNestedCompanyString(
           spec.GetCapacity("answer_text", 1023), out_block);
       out_block->raw_struct = raw;
-      out_block->spec = spec;
       return 0;
     };
     b.reset_external = [](void* ptr,
@@ -877,7 +977,6 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
       raw->audit_verdict_json = AllocateNestedCompanyString(
           spec.GetCapacity("audit_verdict_json", 1023), out_block);
       out_block->raw_struct = raw;
-      out_block->spec = spec;
       return 0;
     };
     b.reset_external = [](void* ptr,
@@ -963,7 +1062,6 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
       raw->intent_slot_json = AllocateNestedCompanyString(
           spec.GetCapacity("intent_slot_json", 1023), out_block);
       out_block->raw_struct = raw;
-      out_block->spec = spec;
       return 0;
     };
     b.reset_external = [](void* ptr,
@@ -1053,7 +1151,6 @@ void PlatformValueTypeRegistry::RegisterBuiltinBindings() {
         raw->sorted_indices[i] = -1;
       }
       out_block->raw_struct = raw;
-      out_block->spec = spec;
       return 0;
     };
     b.reset_external = [](void* ptr,
