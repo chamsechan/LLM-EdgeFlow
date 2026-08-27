@@ -1120,7 +1120,8 @@ TEST_F(PlatformOperatorTest, ShortStringSsoAndAddressStability) {
     EXPECT_EQ(out->request_id, 70000 + i);
   }
 
-  ops_.Destroy(handle);
+  batch_outputs.clear();
+  EXPECT_EQ(ops_.Destroy(handle), 0);
 }
 
 // 23. 控制块构造失败注入与两阶段原子发布回滚测试 (R9-002)
@@ -1173,7 +1174,8 @@ TEST_F(PlatformOperatorTest, AtomicPublishFailureRollback) {
   EXPECT_NE(batch_outputs[0]["client_channel.keyword_out"], nullptr);
   EXPECT_NE(batch_outputs[1]["client_channel.keyword_out"], nullptr);
 
-  ops_.Destroy(handle);
+  batch_outputs.clear();
+  EXPECT_EQ(ops_.Destroy(handle), 0);
 }
 
 // 24. 严格路径沙箱与非法路径拦截测试 (R9-003)
@@ -1208,6 +1210,32 @@ TEST_F(PlatformOperatorTest, PathSandboxStrictBoundaries) {
                 static_cast<int32_t>(ALG_BIZ_TYPE_KEYWORD_MATCH), err_buf,
                 sizeof(err_buf)),
             -2);
+
+  // 5. 目录而非普通文件拒绝
+  EXPECT_EQ(ValidatePlatformConfigBinding(
+                root_dir.c_str(), "configs",
+                static_cast<int32_t>(ALG_BIZ_TYPE_KEYWORD_MATCH), err_buf,
+                sizeof(err_buf)),
+            -2);
+
+  // 6. 不存在的文件拒绝
+  EXPECT_EQ(ValidatePlatformConfigBinding(
+                root_dir.c_str(), "configs/non_existent.conf",
+                static_cast<int32_t>(ALG_BIZ_TYPE_KEYWORD_MATCH), err_buf,
+                sizeof(err_buf)),
+            -2);
+
+  // 7. 对 Create 接口同样严格拦截非普通文件与不存在文件
+  CreateParam bad_param{};
+  bad_param.model_path = root_dir.c_str();
+  bad_param.cfg_file_name = "configs";  // Directory
+  void* handle = nullptr;
+  EXPECT_EQ(ops_.Create(&handle, &bad_param), -2);
+  EXPECT_EQ(handle, nullptr);
+
+  bad_param.cfg_file_name = "configs/non_existent.conf";
+  EXPECT_EQ(ops_.Create(&handle, &bad_param), -2);
+  EXPECT_EQ(handle, nullptr);
 }
 
 // 25. 深度上限与总内存预算超限防御 (R9-005)
@@ -1308,16 +1336,17 @@ TEST_F(PlatformOperatorTest, AtomicPublishFailureFirstMiddleLast) {
     EXPECT_NE(batch_outputs[0]["client.keyword_out"], nullptr);
     EXPECT_NE(batch_outputs[1]["client.keyword_out"], nullptr);
     EXPECT_NE(batch_outputs[2]["client.keyword_out"], nullptr);
+    batch_outputs.clear();
   }
 
-  ops_.Destroy(handle);
+  EXPECT_EQ(ops_.Destroy(handle), 0);
 }
 
 // 27. 全部 7 类核心业务最大 Batch 边界与两端样本读取正确性验证 (R9-001)
 TEST_F(PlatformOperatorTest, MultiBusinessMaxBatchBoundarySuite) {
   std::string root_dir = GetConfDir();
 
-  // 1. DocQA 最大 Batch 压测
+  // 1. DocQA 最大 Batch 压测 (不同文本，验证两端正确读取与清空后销毁)
   {
     CreateParam param{};
     param.model_path = root_dir.c_str();
@@ -1330,17 +1359,21 @@ TEST_F(PlatformOperatorTest, MultiBusinessMaxBatchBoundarySuite) {
     ASSERT_EQ(ops_.Create(&handle, &param), 0);
 
     constexpr size_t kBatch = 4;
-    char q_text[] = "Doc QA Question";
-    char d_text[] = "Doc QA Context Document Text";
-    CompanyString q_cs{static_cast<int32_t>(std::strlen(q_text)), q_text};
-    CompanyString d_cs{static_cast<int32_t>(std::strlen(d_text)), d_text};
-
+    std::vector<std::string> q_strs(kBatch), d_strs(kBatch);
+    std::vector<CompanyString> q_cs(kBatch), d_cs(kBatch);
     std::vector<CompanyPlatformDocInput> inputs(kBatch);
     NamedIoBatch batch_in(kBatch), batch_out(kBatch);
+
     for (size_t i = 0; i < kBatch; ++i) {
+      q_strs[i] = "Doc QA Question #" + std::to_string(i);
+      d_strs[i] = "Doc QA Context Document Text #" + std::to_string(i);
+      q_cs[i] = CompanyString{static_cast<int32_t>(q_strs[i].size()),
+                              q_strs[i].data()};
+      d_cs[i] = CompanyString{static_cast<int32_t>(d_strs[i].size()),
+                              d_strs[i].data()};
       inputs[i].request_id = static_cast<uint64_t>(100 + i);
-      inputs[i].query_text = &q_cs;
-      inputs[i].doc_text = &d_cs;
+      inputs[i].query_text = &q_cs[i];
+      inputs[i].doc_text = &d_cs[i];
       batch_in[i]["qa.doc_in"] = MakeBorrowedPlatformInput(&inputs[i]);
       batch_out[i]["qa.doc_out"] = nullptr;
     }
@@ -1358,8 +1391,11 @@ TEST_F(PlatformOperatorTest, MultiBusinessMaxBatchBoundarySuite) {
     EXPECT_EQ(last_out->request_id, 100u + kBatch - 1);
     EXPECT_NE(first_out->intent_name, nullptr);
     EXPECT_NE(first_out->answer_text, nullptr);
+    EXPECT_NE(last_out->intent_name, nullptr);
+    EXPECT_NE(last_out->answer_text, nullptr);
 
-    ops_.Destroy(handle);
+    batch_out.clear();
+    EXPECT_EQ(ops_.Destroy(handle), 0);
   }
 
   // 2. DialogueAudit 最大 Batch 压测
@@ -1375,17 +1411,21 @@ TEST_F(PlatformOperatorTest, MultiBusinessMaxBatchBoundarySuite) {
     ASSERT_EQ(ops_.Create(&handle, &param), 0);
 
     constexpr size_t kBatch = 4;
-    char u_text[] = "Audit Dialogue User Content";
-    char c_text[] = "channel_01";
-    CompanyString u_cs{static_cast<int32_t>(std::strlen(u_text)), u_text};
-    CompanyString c_cs{static_cast<int32_t>(std::strlen(c_text)), c_text};
-
+    std::vector<std::string> u_strs(kBatch), c_strs(kBatch);
+    std::vector<CompanyString> u_cs(kBatch), c_cs(kBatch);
     std::vector<CompanyPlatformAuditInput> inputs(kBatch);
     NamedIoBatch batch_in(kBatch), batch_out(kBatch);
+
     for (size_t i = 0; i < kBatch; ++i) {
+      u_strs[i] = "Audit Dialogue User Content #" + std::to_string(i);
+      c_strs[i] = "channel_" + std::to_string(i);
+      u_cs[i] = CompanyString{static_cast<int32_t>(u_strs[i].size()),
+                              u_strs[i].data()};
+      c_cs[i] = CompanyString{static_cast<int32_t>(c_strs[i].size()),
+                              c_strs[i].data()};
       inputs[i].request_id = static_cast<uint64_t>(200 + i);
-      inputs[i].user_text = &u_cs;
-      inputs[i].channel_name = &c_cs;
+      inputs[i].user_text = &u_cs[i];
+      inputs[i].channel_name = &c_cs[i];
       batch_in[i]["audit.audit_in"] = MakeBorrowedPlatformInput(&inputs[i]);
       batch_out[i]["audit.audit_out"] = nullptr;
     }
@@ -1404,7 +1444,8 @@ TEST_F(PlatformOperatorTest, MultiBusinessMaxBatchBoundarySuite) {
     EXPECT_NE(first_out->risk_level, nullptr);
     EXPECT_NE(first_out->audit_verdict_json, nullptr);
 
-    ops_.Destroy(handle);
+    batch_out.clear();
+    EXPECT_EQ(ops_.Destroy(handle), 0);
   }
 
   // 3. AudioAsrIntent 边界与 Batch 压测
@@ -1420,14 +1461,21 @@ TEST_F(PlatformOperatorTest, MultiBusinessMaxBatchBoundarySuite) {
     ASSERT_EQ(ops_.Create(&handle, &param), 0);
 
     constexpr size_t kBatch = 2;
-    float pcm_samples[16000] = {0.0f};
+    std::vector<std::vector<float>> pcm_buffers(kBatch,
+                                                std::vector<float>(16000));
+    for (size_t i = 0; i < kBatch; ++i) {
+      for (size_t j = 0; j < 16000; ++j) {
+        pcm_buffers[i][j] = static_cast<float>(i * 0.01f + j * 0.0001f);
+      }
+    }
+
     std::vector<CompanyPlatformAudioInput> inputs(kBatch);
     NamedIoBatch batch_in(kBatch), batch_out(kBatch);
     for (size_t i = 0; i < kBatch; ++i) {
       inputs[i].request_id = static_cast<uint64_t>(300 + i);
       inputs[i].sample_rate = 16000;
       inputs[i].pcm_length = 16000;
-      inputs[i].pcm_buffer = pcm_samples;
+      inputs[i].pcm_buffer = pcm_buffers[i].data();
       batch_in[i]["audio.audio_in"] = MakeBorrowedPlatformInput(&inputs[i]);
       batch_out[i]["audio.audio_out"] = nullptr;
     }
@@ -1446,7 +1494,8 @@ TEST_F(PlatformOperatorTest, MultiBusinessMaxBatchBoundarySuite) {
     EXPECT_NE(first_out->transcribed_text, nullptr);
     EXPECT_NE(first_out->intent_slot_json, nullptr);
 
-    ops_.Destroy(handle);
+    batch_out.clear();
+    EXPECT_EQ(ops_.Destroy(handle), 0);
   }
 
   // 4. CrossRerank 最大 Batch 压测
@@ -1462,19 +1511,23 @@ TEST_F(PlatformOperatorTest, MultiBusinessMaxBatchBoundarySuite) {
     ASSERT_EQ(ops_.Create(&handle, &param), 0);
 
     constexpr size_t kBatch = 4;
-    char q_text[] = "Cross Rerank Query";
-    char c_text[] = "Candidate passage content";
-    CompanyString q_cs{static_cast<int32_t>(std::strlen(q_text)), q_text};
-    CompanyString c_cs{static_cast<int32_t>(std::strlen(c_text)), c_text};
-
+    std::vector<std::string> q_strs(kBatch), c_strs(kBatch);
+    std::vector<CompanyString> q_cs(kBatch), c_cs(kBatch);
     std::vector<CompanyPlatformRerankInput> inputs(kBatch);
     NamedIoBatch batch_in(kBatch), batch_out(kBatch);
+
     for (size_t i = 0; i < kBatch; ++i) {
+      q_strs[i] = "Cross Rerank Query #" + std::to_string(i);
+      c_strs[i] = "Candidate passage content #" + std::to_string(i);
+      q_cs[i] = CompanyString{static_cast<int32_t>(q_strs[i].size()),
+                              q_strs[i].data()};
+      c_cs[i] = CompanyString{static_cast<int32_t>(c_strs[i].size()),
+                              c_strs[i].data()};
       inputs[i].request_id = static_cast<uint64_t>(400 + i);
-      inputs[i].query_text = &q_cs;
+      inputs[i].query_text = &q_cs[i];
       inputs[i].candidate_count = 2;
-      inputs[i].candidate_passages[0] = &c_cs;
-      inputs[i].candidate_passages[1] = &c_cs;
+      inputs[i].candidate_passages[0] = &c_cs[i];
+      inputs[i].candidate_passages[1] = &c_cs[i];
       batch_in[i]["rank.rerank_in"] = MakeBorrowedPlatformInput(&inputs[i]);
       batch_out[i]["rank.rerank_out"] = nullptr;
     }
@@ -1492,7 +1545,8 @@ TEST_F(PlatformOperatorTest, MultiBusinessMaxBatchBoundarySuite) {
     EXPECT_EQ(last_out->request_id, 400u + kBatch - 1);
     EXPECT_EQ(first_out->count, 2);
 
-    ops_.Destroy(handle);
+    batch_out.clear();
+    EXPECT_EQ(ops_.Destroy(handle), 0);
   }
 
   // 5. OcrDocQA 最大 Batch 压测
@@ -1508,19 +1562,23 @@ TEST_F(PlatformOperatorTest, MultiBusinessMaxBatchBoundarySuite) {
     ASSERT_EQ(ops_.Create(&handle, &param), 0);
 
     constexpr size_t kBatch = 2;
-    char uri[] = "/tmp/image_test.jpg";
-    CompanyString uri_cs{static_cast<int32_t>(std::strlen(uri)), uri};
-    char q_text[] = "What is the invoice number?";
-    CompanyString q_cs{static_cast<int32_t>(std::strlen(q_text)), q_text};
-
+    std::vector<std::string> uris(kBatch), q_strs(kBatch);
+    std::vector<CompanyString> uri_cs(kBatch), q_cs(kBatch);
     std::vector<CompanyFrame> frames(kBatch);
     NamedIoBatch batch_in(kBatch), batch_out(kBatch);
+
     for (size_t i = 0; i < kBatch; ++i) {
+      uris[i] = "data/invoice_0" + std::to_string(i + 1) + ".jpg";
+      q_strs[i] = "What is invoice item #" + std::to_string(i) + "?";
+      uri_cs[i] =
+          CompanyString{static_cast<int32_t>(uris[i].size()), uris[i].data()};
+      q_cs[i] = CompanyString{static_cast<int32_t>(q_strs[i].size()),
+                              q_strs[i].data()};
       frames[i].request_id = static_cast<uint64_t>(600 + i);
-      frames[i].image_uri = &uri_cs;
+      frames[i].image_uri = &uri_cs[i];
       frames[i].metadata = nullptr;
       batch_in[i]["camera_0.frame"] = MakeBorrowedPlatformInput(&frames[i]);
-      batch_in[i]["query_channel.string"] = MakeBorrowedPlatformInput(&q_cs);
+      batch_in[i]["query_channel.string"] = MakeBorrowedPlatformInput(&q_cs[i]);
       batch_out[i]["ocr_result.od_out"] = nullptr;
     }
 
@@ -1529,10 +1587,17 @@ TEST_F(PlatformOperatorTest, MultiBusinessMaxBatchBoundarySuite) {
 
     auto* first_out =
         static_cast<CompanyOdOutput*>(batch_out[0]["ocr_result.od_out"].get());
+    auto* last_out = static_cast<CompanyOdOutput*>(
+        batch_out[kBatch - 1]["ocr_result.od_out"].get());
     ASSERT_NE(first_out, nullptr);
+    ASSERT_NE(last_out, nullptr);
+    EXPECT_EQ(first_out->request_id, 600u);
+    EXPECT_EQ(last_out->request_id, 600u + kBatch - 1);
     EXPECT_NE(first_out->result_json, nullptr);
+    EXPECT_NE(last_out->result_json, nullptr);
 
-    ops_.Destroy(handle);
+    batch_out.clear();
+    EXPECT_EQ(ops_.Destroy(handle), 0);
   }
 
   // 6. EntityExtract 最大 Batch 压测
@@ -1548,14 +1613,17 @@ TEST_F(PlatformOperatorTest, MultiBusinessMaxBatchBoundarySuite) {
     ASSERT_EQ(ops_.Create(&handle, &param), 0);
 
     constexpr size_t kBatch = 4;
-    char s_text[] = "Alice works at Acme Corp in New York.";
-    CompanyString s_cs{static_cast<int32_t>(std::strlen(s_text)), s_text};
-
+    std::vector<std::string> s_strs(kBatch);
+    std::vector<CompanyString> s_cs(kBatch);
     std::vector<CompanyPlatformEntityInput> inputs(kBatch);
     NamedIoBatch batch_in(kBatch), batch_out(kBatch);
+
     for (size_t i = 0; i < kBatch; ++i) {
+      s_strs[i] = "User #" + std::to_string(i) + " works at Acme in Beijing.";
+      s_cs[i] = CompanyString{static_cast<int32_t>(s_strs[i].size()),
+                              s_strs[i].data()};
       inputs[i].request_id = static_cast<uint64_t>(500 + i);
-      inputs[i].sentence_text = &s_cs;
+      inputs[i].sentence_text = &s_cs[i];
       batch_in[i]["ner.entity_in"] = MakeBorrowedPlatformInput(&inputs[i]);
       batch_out[i]["ner.entity_out"] = nullptr;
     }
@@ -1572,7 +1640,115 @@ TEST_F(PlatformOperatorTest, MultiBusinessMaxBatchBoundarySuite) {
     EXPECT_EQ(first_out->request_id, 500u);
     EXPECT_EQ(last_out->request_id, 500u + kBatch - 1);
     EXPECT_NE(first_out->entities_json, nullptr);
+    EXPECT_NE(last_out->entities_json, nullptr);
 
-    ops_.Destroy(handle);
+    batch_out.clear();
+    EXPECT_EQ(ops_.Destroy(handle), 0);
   }
+}
+
+// 28. 全量 64 帧最大 Batch 与 65 帧超限拒绝测试 (R9-001, R9-010)
+TEST_F(PlatformOperatorTest, Full64MaxBatchAnd65ExceedReject) {
+  std::string root_dir = GetConfDir();
+  CreateParam param{};
+  param.model_path = root_dir.c_str();
+  param.cfg_file_name = "configs/pipeline_keyword_match.conf";
+  param.device_id = 0;
+  param.platform_type = ChipType::kAx650;
+  param.max_frame_depth = 64;
+
+  void* handle = nullptr;
+  ASSERT_EQ(ops_.Create(&handle, &param), 0);
+  ASSERT_NE(handle, nullptr);
+
+  // 1. 构造 64 个不同内容的样本进行最大批处理
+  constexpr size_t kMaxBatch = 64;
+  std::vector<std::string> sent_strs(kMaxBatch);
+  std::vector<CompanyString> comp_strs(kMaxBatch);
+  std::vector<CompanyPlatformKeywordInput> inputs(kMaxBatch);
+  NamedIoBatch batch_in(kMaxBatch), batch_out(kMaxBatch);
+
+  for (size_t i = 0; i < kMaxBatch; ++i) {
+    sent_strs[i] = "Sentence item #" + std::to_string(i) +
+                   (i % 2 == 0 ? " 系统初始化完成" : " 普通用户消息");
+    comp_strs[i] = CompanyString{static_cast<int32_t>(sent_strs[i].size()),
+                                 sent_strs[i].data()};
+    inputs[i].request_id = static_cast<uint64_t>(1000 + i);
+    inputs[i].sentence_text = &comp_strs[i];
+    batch_in[i]["client_channel.keyword_in"] =
+        MakeBorrowedPlatformInput(&inputs[i]);
+    batch_out[i]["client_channel.keyword_out"] = nullptr;
+  }
+
+  int ret = ops_.Process(handle, batch_in, batch_out);
+  EXPECT_EQ(ret, 0);
+
+  for (size_t i = 0; i < kMaxBatch; ++i) {
+    auto out_sp = batch_out[i]["client_channel.keyword_out"];
+    ASSERT_NE(out_sp, nullptr);
+    auto* out_ptr = static_cast<CompanyPlatformKeywordOutput*>(out_sp.get());
+    EXPECT_EQ(out_ptr->request_id, 1000u + i);
+    EXPECT_NE(out_ptr->match_result_json, nullptr);
+    if (i % 2 == 0) {
+      EXPECT_EQ(out_ptr->is_hit, 1);
+    }
+  }
+
+  // 清空 64 帧输出
+  batch_out.clear();
+
+  // 2. 构造 65 帧请求 -> 必须被拒绝且返回 -3 (COMPANY_ALG_ERR_INVALID_INPUT)
+  constexpr size_t kOverBatch = 65;
+  std::vector<std::string> over_strs(kOverBatch, "overflow sentence");
+  std::vector<CompanyString> over_cs(kOverBatch);
+  std::vector<CompanyPlatformKeywordInput> over_inputs(kOverBatch);
+  NamedIoBatch over_batch_in(kOverBatch), over_batch_out(kOverBatch);
+
+  for (size_t i = 0; i < kOverBatch; ++i) {
+    over_cs[i] = CompanyString{static_cast<int32_t>(over_strs[i].size()),
+                               over_strs[i].data()};
+    over_inputs[i].request_id = static_cast<uint64_t>(2000 + i);
+    over_inputs[i].sentence_text = &over_cs[i];
+    over_batch_in[i]["client_channel.keyword_in"] =
+        MakeBorrowedPlatformInput(&over_inputs[i]);
+    over_batch_out[i]["client_channel.keyword_out"] = nullptr;
+  }
+
+  int over_ret = ops_.Process(handle, over_batch_in, over_batch_out);
+  EXPECT_EQ(over_ret, -3);
+
+  // 3. 释放并正常销毁
+  over_batch_out.clear();
+  EXPECT_EQ(ops_.Destroy(handle), 0);
+}
+
+// 29. 未归还输出句柄时的违约 Destroy 契约测试 (R9-010)
+TEST_F(PlatformOperatorTest, UnreleasedOutputLifecycleBreach) {
+  std::string root_dir = GetConfDir();
+  CreateParam param{};
+  param.model_path = root_dir.c_str();
+  param.cfg_file_name = "configs/pipeline_keyword_match.conf";
+  param.device_id = 0;
+  param.platform_type = ChipType::kAx650;
+  param.max_frame_depth = 5;
+
+  void* handle = nullptr;
+  ASSERT_EQ(ops_.Create(&handle, &param), 0);
+
+  std::string text = "VIP专员";
+  CompanyString cs{static_cast<int32_t>(text.size()), text.data()};
+  CompanyPlatformKeywordInput in{99001, &cs};
+
+  NamedIoBatch in_b(1), out_b(1);
+  in_b[0]["client_channel.keyword_in"] = MakeBorrowedPlatformInput(&in);
+  out_b[0]["client_channel.keyword_out"] = nullptr;
+
+  ASSERT_EQ(ops_.Process(handle, in_b, out_b), 0);
+  ASSERT_NE(out_b[0]["client_channel.keyword_out"], nullptr);
+
+  // 在调用方依然持有输出 shared_ptr 时调用 Destroy -> 必须返回 -1 (未归还违约)
+  EXPECT_EQ(ops_.Destroy(handle), -1);
+
+  // 随后调用方释放输出
+  out_b.clear();
 }
