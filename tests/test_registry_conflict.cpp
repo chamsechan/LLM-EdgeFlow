@@ -36,7 +36,9 @@ class DummyNode : public INode {
   inline static constexpr char kNodeType[] = "DummyNode";
   bool Init(const nlohmann::json&, SessionContext*) override { return true; }
   int Process(AlgContext*) override { return 0; }
-  int Control(int, const std::string&) override { return 0; }
+  NodeControlResult Control(int, const std::string&) override {
+    return NodeControlResult::Handled(0);
+  }
   const std::string& Name() const override {
     static const std::string name = kNodeType;
     return name;

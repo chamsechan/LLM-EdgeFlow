@@ -1,12 +1,16 @@
 #include <cstring>
+#include <nlohmann/json.hpp>
 #include <vector>
 
 #include "adapter/adapter_validation_helper.h"
 #include "adapter/biz_adapter_registry.h"
-#include "biz/dialogue_audit/dialogue_audit_contract.h"
 #include "company_alg_interface.h"
+#include "core/common_contracts.h"
 
 namespace alg_framework {
+
+inline static constexpr char kDialogueAuditBusinessName[] =
+    "dialogue_compliance_audit_v1";
 
 class ComplianceAuditAdapter : public IBizAdapter {
  public:
@@ -32,7 +36,8 @@ class ComplianceAuditAdapter : public IBizAdapter {
           "对话合规审核",
           {RequiredInput(kRawRequestIds), RequiredInput(kUserTexts),
            RequiredInput(kChannelNames)},
-          {Output(kComplianceAuditOutputs)}}}};
+          {Output(kStructuredVerdicts), Output(kMatchedPolicy),
+           Output(kRuleMatches)}}}};
     return desc;
   }
 
@@ -50,8 +55,8 @@ class ComplianceAuditAdapter : public IBizAdapter {
     }
 
     std::vector<uint64_t> req_ids;
-    std::vector<std::string> user_texts;
-    std::vector<std::string> channel_names;
+    TextBatch user_texts;
+    TextBatch channel_names;
 
     req_ids.reserve(num_inputs);
     user_texts.reserve(num_inputs);
@@ -66,7 +71,6 @@ class ComplianceAuditAdapter : public IBizAdapter {
         return COMPANY_ALG_ERR_INVALID_INPUT;
       }
 
-      // ADP-001, RECHECK-004: 有界字符串强校验
       if (!AdapterValidationHelper::RequireBoundedString(
               "inputs[i].user_text", in->user_text, kMaxTextLen, i, BizName(),
               out_status)) {
@@ -74,8 +78,9 @@ class ComplianceAuditAdapter : public IBizAdapter {
       }
 
       req_ids.push_back(in->request_id);
-      user_texts.push_back(in->user_text);
-      channel_names.push_back(in->channel_name ? in->channel_name : "");
+      user_texts.emplace_back(static_cast<uint32_t>(i), 0, in->user_text);
+      channel_names.emplace_back(static_cast<uint32_t>(i), 0,
+                                 in->channel_name ? in->channel_name : "");
     }
 
     ctx->Set(kRawRequestIds, std::move(req_ids));
@@ -94,17 +99,21 @@ class ComplianceAuditAdapter : public IBizAdapter {
       return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     }
 
-    auto* res = ctx->Get(kComplianceAuditOutputs);
-    if (!res) {
+    const auto* verdicts = ctx->Get(kStructuredVerdicts);
+    const auto* matched_policies = ctx->Get(kMatchedPolicy);
+    const auto* rule_matches = ctx->Get(kRuleMatches);
+    const auto* raw_req_ids = ctx->Get(kRawRequestIds);
+
+    if (!verdicts) {
       if (out_status) {
         *out_status = AdapterStatus::BufferTooSmall(
-            "compliance_audit_outputs not found in AlgContext",
-            "compliance_audit_outputs", -1, BizName());
+            "structured_verdicts not found in AlgContext",
+            "structured_verdicts", -1, BizName());
       }
       return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     }
 
-    int count = static_cast<int>(res->size());
+    int count = static_cast<int>(verdicts->size());
     int valid_ret = AdapterValidationHelper::ValidateBatchOutputs(
         outputs, num_outputs, count, BizName());
     if (valid_ret != 0) {
@@ -117,30 +126,58 @@ class ComplianceAuditAdapter : public IBizAdapter {
 
     for (int i = 0; i < count; ++i) {
       auto* out_ptr = static_cast<CompanyAuditOutputStruct*>(outputs[i]);
-      out_ptr->request_id = (*res)[i].request_id;
-      out_ptr->risk_score = (*res)[i].risk_score;
-      out_ptr->status_code = (*res)[i].status_code;
+      uint64_t req_id =
+          (raw_req_ids && i < static_cast<int>(raw_req_ids->size()))
+              ? (*raw_req_ids)[i]
+              : (*verdicts)[i].req_id;
+      out_ptr->request_id = req_id;
 
-      // RECHECK-001: 严格拦截截断
+      std::string risk_level = "SAFE";
+      float risk_score = 0.10f;
+      std::string verdict_json = (*verdicts)[i].data;
+
+      try {
+        auto parsed = nlohmann::json::parse(verdict_json);
+        if (parsed.contains("risk_level") && parsed["risk_level"].is_string()) {
+          risk_level = parsed["risk_level"].get<std::string>();
+        }
+        if (parsed.contains("risk_score") && parsed["risk_score"].is_number()) {
+          risk_score = parsed["risk_score"].get<float>();
+        }
+      } catch (...) {
+        if (rule_matches && i < static_cast<int>(rule_matches->size()) &&
+            (*rule_matches)[i].data.is_hit) {
+          risk_level = "HIGH_RISK";
+          risk_score = 0.85f;
+        }
+      }
+
+      std::string policy_clause = "Standard Compliance Policy Clause 1.0";
+      if (matched_policies && i < static_cast<int>(matched_policies->size())) {
+        policy_clause = (*matched_policies)[i].data.text;
+      }
+
+      out_ptr->risk_score = risk_score;
+      out_ptr->status_code = 0;
+
       if (!AdapterValidationHelper::CheckedStringCopy(
               out_ptr->risk_level, sizeof(out_ptr->risk_level),
-              (*res)[i].risk_level.c_str(), "outputs[i].risk_level", i,
-              BizName(), out_status)) {
+              risk_level.c_str(), "outputs[i].risk_level", i, BizName(),
+              out_status)) {
         return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
       }
 
       if (!AdapterValidationHelper::CheckedStringCopy(
               out_ptr->matched_policy_clause,
-              sizeof(out_ptr->matched_policy_clause),
-              (*res)[i].matched_policy_clause.c_str(),
+              sizeof(out_ptr->matched_policy_clause), policy_clause.c_str(),
               "outputs[i].matched_policy_clause", i, BizName(), out_status)) {
         return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
       }
 
       if (!AdapterValidationHelper::CheckedStringCopy(
               out_ptr->audit_verdict_json, sizeof(out_ptr->audit_verdict_json),
-              (*res)[i].audit_verdict_json.c_str(),
-              "outputs[i].audit_verdict_json", i, BizName(), out_status)) {
+              verdict_json.c_str(), "outputs[i].audit_verdict_json", i,
+              BizName(), out_status)) {
         return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
       }
     }

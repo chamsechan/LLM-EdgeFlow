@@ -154,6 +154,13 @@ LLM-EdgeFlow/
 
 ## 📝 更新日志 (Changelog)
 
+- **v4.1.0 (I/O 契约驱动的通用 Node 架构与编排重构 - RFC 0012)** *(2026-08)*
+  - 🏛️ **I/O 契约驱动的通用 Node 架构**：彻底废弃按业务名或流水线阶段名绑定的 26 个特定算子，确立 `Node Family` (I/O 契约)、`Node Type` (单一操作语义 + 执行契约)、`Node Instance` (端口绑定 + 配置 + 模型) 三层解耦模型，实现全栈零重复代码。
+  - 🧱 **11 个第一阶段通用 Common Nodes 落地**：落地 `TextTemplateNode`、`TextChunkNode`、`TextRuleMatchNode`、`StructuredJsonParseNode`、`TextEmbeddingNode`、`VectorTopKNode`、`TextRerankNode`、`LlmGenerateNode`、`AsrTranscribeNode`、`OcrDetectNode`、`TextCorpusSourceNode`。
+  - 🔌 **显式逻辑端口绑定机制 (`BoundInput<T>` / `BoundOutput<T>`)**：在 Pipeline JSON 中通过 `ports: { "inputs": {...}, "outputs": {...} }` 将 Node 逻辑端口灵活映射至黑板物理键，支持同一类型算子在同一 Pipeline 中多次复用（例如 Query Embedding 与 Doc Embedding 独立复用同一算子）。
+  - 🛡️ **单趟执行计划波前并发冲突校验 (`PipelineValidator`)**：在 DAG 拓扑分层时静态校验同一波前层中是否存在无 override 权限的重复输出键写入冲突，实现 Fail-Closed 静态安全防线。
+  - 🧪 **37 组全量 Google Test 单元测试与 6 阶段质量门禁 100% 通过**：37 项 CTest 100% 通过，7 大业务端到端自动化测试、C11 ABI 合规检查与 CLI 双模验证全部通过。
+
 - **v4.0.0 (Operator 与计算 Platform 概念与命名全栈解耦 - RFC 0011)** *(2026-08)*
   - 🏛️ **Operator 与 Platform 语义彻底解耦**：确立 `Integration -> Operator -> Pipeline -> Node -> Engine -> Platform` 全局术语链。`Operator` 代表对外暴露的算法实例生命周期与 Named I/O 契约，`Platform`（`ComputePlatform`）代表底层硬件计算平台（AX650、Ascend、RK3588、CUDA、CPU）。
   - 🗂️ **全栈目录结构与头文件规整**：头文件由 `include/platform/` 迁移至 `include/operator/`（`operator_interface.h`、`company_operator_types.h`），适配层由 `src/adapter/platform/` 迁移至 `src/adapter/operator/`，`src/adapter/platform_operator_adapter.cpp` 迁移至 `src/adapter/operator/operator_adapter.cpp`。

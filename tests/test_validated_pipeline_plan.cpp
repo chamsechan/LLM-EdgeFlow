@@ -222,13 +222,34 @@ TEST(ValidatedPipelinePlanTest, RejectsSharedSerializedEngineInParallelLayer) {
   EXPECT_EQ(diagnostic->related_nodes, std::vector<std::string>({"node_a"}));
 }
 
+class RestrictedBusinessNode : public INode {
+ public:
+  inline static constexpr char kNodeType[] = "RestrictedBusinessNode";
+  bool Init(const nlohmann::json&, SessionContext*) override { return true; }
+  int Process(AlgContext*) override { return 0; }
+  const std::string& Name() const override {
+    static const std::string n = kNodeType;
+    return n;
+  }
+};
+
+inline NodeDefinition MakeRestrictedNodeDef() {
+  NodeDefinition def;
+  def.node_type = RestrictedBusinessNode::kNodeType;
+  def.category = "biz";
+  def.biz_names = {"restricted_only_biz"};
+  def.description = "Restricted test node";
+  return def;
+}
+REGISTER_NODE_WITH_DEFINITION(RestrictedBusinessNode, MakeRestrictedNodeDef());
+
 TEST(ValidatedPipelinePlanTest, RejectsNodeFromDifferentBusiness) {
   nlohmann::json pipeline_json = {
       {"business_name", "smart_doc_qa_v1"},
       {"models", nlohmann::json::array()},
       {"pipeline",
        nlohmann::json::array({{{"id", "wrong_business_node"},
-                               {"node_type", "KeywordMatcherNode"},
+                               {"node_type", "RestrictedBusinessNode"},
                                {"depends_on", nlohmann::json::array()}}})}};
 
   auto plan = PipelineValidator::ValidateAndPlan(pipeline_json);

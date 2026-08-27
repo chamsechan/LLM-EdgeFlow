@@ -8,7 +8,7 @@
 namespace alg_framework {
 
 /**
- * @brief LLM 推理生成公共算子 (调用绑定的 ILlmEngine)
+ * @brief LLM 推理生成公共算子 (LlmGenerateNode, 调用绑定的 ILlmEngine)
  */
 class LlmGenerateNode final
     : public TraceableUnaryInferenceNode<ILlmEngine, std::string, std::string> {
@@ -16,14 +16,16 @@ class LlmGenerateNode final
   inline static constexpr char kNodeType[] = "LlmGenerateNode";
 
   LlmGenerateNode()
-      : TraceableUnaryInferenceNode(kNodeType, "llm_model_v1", kLlmInputPrompts,
-                                    kGeneratedLlmAnswers, -4301) {}
+      : TraceableUnaryInferenceNode(kNodeType, "llm_model_v1", "prompt", "text",
+                                    -4301) {}
 
  protected:
   bool InitModelNode(const nlohmann::json& config,
-                     SessionContext& /*session_ctx*/) override {
+                     SessionContext& session_ctx) override {
+    TraceableUnaryInferenceNode::InitModelNode(config, session_ctx);
     gen_opt_.temperature = config.value("temperature", 0.7f);
     gen_opt_.max_tokens = config.value("max_tokens", 128);
+    gen_opt_.top_p = config.value("top_p", 0.9f);
     return true;
   }
 
@@ -42,19 +44,20 @@ NodeDefinition MakeLlmGenerateNodeDefinition() {
   def.node_type = LlmGenerateNode::kNodeType;
   def.category = "common";
   def.description = "LLM generate text inference node";
-  def.inputs = {RequiredInput(kLlmInputPrompts)};
-  def.outputs = {Output(kGeneratedLlmAnswers)};
+  def.inputs = {
+      RequiredInputPort("prompt", BlackboardKey<TextBatch>{"", "TextBatch"})};
+  def.outputs = {OutputPort("text", BlackboardKey<TextBatch>{"", "TextBatch"})};
   def.config_fields = {
       ConfigFieldDefinition{"bind_model", ConfigValueKind::kString, false,
                             "llm_model_v1"},
       ConfigFieldDefinition{"temperature", ConfigValueKind::kNumber, false, 0.7,
                             0.0, 2.0},
       ConfigFieldDefinition{"max_tokens", ConfigValueKind::kInteger, false, 128,
-                            1.0, 32768.0}};
+                            1.0, 32768.0},
+      ConfigFieldDefinition{"top_p", ConfigValueKind::kNumber, false, 0.9, 0.0,
+                            1.0}};
   def.model_capability = "llm";
   def.model_config_field = "bind_model";
-  // Empty means this common node is reusable by any compatible business.
-  def.biz_names = {};
   def.parallel_safe = true;
   return def;
 }

@@ -108,10 +108,10 @@ TEST(PipelineValidatorTest, ReportsCycle) {
   const nlohmann::json pipeline = {{"business_name", "keyword_match_v1"},
                                    {"pipeline",
                                     {{{"id", "a"},
-                                      {"node_type", "KeywordMatcherNode"},
+                                      {"node_type", "TextRuleMatchNode"},
                                       {"depends_on", {"b"}}},
                                      {{"id", "b"},
-                                      {"node_type", "KeywordMatcherNode"},
+                                      {"node_type", "TextRuleMatchNode"},
                                       {"depends_on", {"a"}}}}}};
   const auto report = PipelineValidator::Validate(pipeline);
   EXPECT_FALSE(report.ok);
@@ -125,10 +125,10 @@ TEST(PipelineValidatorTest, ReportsDuplicateEdge) {
   const nlohmann::json pipeline = {{"business_name", "keyword_match_v1"},
                                    {"pipeline",
                                     {{{"id", "a"},
-                                      {"node_type", "KeywordMatcherNode"},
+                                      {"node_type", "TextRuleMatchNode"},
                                       {"depends_on", nlohmann::json::array()}},
                                      {{"id", "b"},
-                                      {"node_type", "KeywordMatcherNode"},
+                                      {"node_type", "TextRuleMatchNode"},
                                       {"depends_on", {"a", "a"}}}}}};
   const auto report = PipelineValidator::Validate(pipeline);
   ASSERT_FALSE(report.ok);
@@ -145,14 +145,14 @@ TEST(PipelineValidatorTest, ReportsConfigAndCapabilityErrors) {
        {{{"model_id", "llm_model_v1"}, {"engine_type", "mock_npu_embedding"}}}},
       {"pipeline",
        {{{"id", "pre"},
-         {"node_type", "EntityExtractPreNode"},
+         {"node_type", "TextTemplateNode"},
          {"depends_on", nlohmann::json::array()}},
         {{"id", "llm"},
          {"node_type", "LlmGenerateNode"},
          {"depends_on", {"pre"}},
          {"config", {{"max_tokens", 0}, {"invented", true}}}},
         {{"id", "post"},
-         {"node_type", "EntityExtractPostNode"},
+         {"node_type", "StructuredJsonParseNode"},
          {"depends_on", {"llm"}}}}}};
   const auto report = PipelineValidator::Validate(pipeline);
   EXPECT_FALSE(report.ok);

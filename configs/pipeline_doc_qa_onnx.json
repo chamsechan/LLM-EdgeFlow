@@ -22,48 +22,110 @@
   ],
   "pipeline": [
     {
+      "id": "node_0_TextChunkNode",
+      "node_type": "TextChunkNode",
+      "depends_on": [],
+      "ports": {
+        "inputs": {
+          "text": "raw_docs"
+        },
+        "outputs": {
+          "chunks": "doc_chunks"
+        }
+      },
       "config": {
         "chunk_size": 60
-      },
-      "depends_on": [],
-      "id": "node_0_DocChunkPreNode",
-      "node_type": "DocChunkPreNode"
+      }
     },
     {
+      "id": "node_1_QueryEmbeddingNode",
+      "node_type": "TextEmbeddingNode",
+      "depends_on": [],
+      "ports": {
+        "inputs": {
+          "text": "raw_queries"
+        },
+        "outputs": {
+          "embedding": "query_embeddings"
+        }
+      },
       "config": {
         "bind_model": "embed_model_onnx"
-      },
-      "depends_on": [
-        "node_0_DocChunkPreNode"
-      ],
-      "id": "node_1_DocEmbeddingNode",
-      "node_type": "DocEmbeddingNode"
+      }
     },
     {
+      "id": "node_2_ChunkEmbeddingNode",
+      "node_type": "TextEmbeddingNode",
+      "depends_on": [
+        "node_0_TextChunkNode"
+      ],
+      "ports": {
+        "inputs": {
+          "text": "doc_chunks"
+        },
+        "outputs": {
+          "embedding": "chunk_embeddings"
+        }
+      },
+      "config": {
+        "bind_model": "embed_model_onnx"
+      }
+    },
+    {
+      "id": "node_3_VectorTopKNode",
+      "node_type": "VectorTopKNode",
+      "depends_on": [
+        "node_1_QueryEmbeddingNode",
+        "node_2_ChunkEmbeddingNode"
+      ],
+      "ports": {
+        "inputs": {
+          "queries": "query_embeddings",
+          "candidates": "chunk_embeddings",
+          "candidate_texts": "doc_chunks"
+        },
+        "outputs": {
+          "ranked": "ranked_contexts"
+        }
+      },
       "config": {
         "min_score": 0.0,
         "top_k": 1
-      },
-      "depends_on": [
-        "node_1_DocEmbeddingNode"
-      ],
-      "id": "node_2_VectorSearchNode",
-      "node_type": "VectorSearchNode"
+      }
     },
     {
-      "config": {
-        "template": "【参考片段】: {context}\n【用户提问】: {query}\n请基于参考片段给出精确解答:"
-      },
+      "id": "node_4_TextTemplateNode",
+      "node_type": "TextTemplateNode",
       "depends_on": [
-        "node_2_VectorSearchNode"
+        "node_3_VectorTopKNode"
       ],
-      "id": "node_3_PromptBuilderNode",
-      "node_type": "PromptBuilderNode"
+      "ports": {
+        "inputs": {
+          "primary": "raw_queries",
+          "context": "ranked_contexts"
+        },
+        "outputs": {
+          "text": "prompt_text"
+        }
+      },
+      "config": {
+        "template": "【参考片段】: {{context}}\n【用户提问】: {{primary}}\n请基于参考片段给出精确解答:"
+      }
     },
     {
+      "id": "node_5_TextRuleMatchNode",
+      "node_type": "TextRuleMatchNode",
+      "depends_on": [],
+      "ports": {
+        "inputs": {
+          "text": "raw_queries"
+        },
+        "outputs": {
+          "matches": "intent_matches"
+        }
+      },
       "config": {
-        "default_intent": "GENERAL_QA",
-        "rules": {
+        "categories": {
           "AFTER_SALES_REFUND": [
             "退款",
             "退货",
@@ -77,34 +139,28 @@
             "ONNX",
             "llama.cpp"
           ]
-        },
-        "threshold": 0.8
-      },
-      "depends_on": [
-        "node_3_PromptBuilderNode"
-      ],
-      "id": "node_4_IntentRuleNode",
-      "node_type": "IntentRuleNode"
+        }
+      }
     },
     {
+      "id": "node_6_LlmGenerateNode",
+      "node_type": "LlmGenerateNode",
+      "depends_on": [
+        "node_4_TextTemplateNode"
+      ],
+      "ports": {
+        "inputs": {
+          "prompt": "prompt_text"
+        },
+        "outputs": {
+          "text": "llm_answers"
+        }
+      },
       "config": {
         "bind_model": "llm_model_llamacpp",
         "max_tokens": 128,
         "temperature": 0.3
-      },
-      "depends_on": [
-        "node_4_IntentRuleNode"
-      ],
-      "id": "node_5_LlmGenerateNode",
-      "node_type": "LlmGenerateNode"
-    },
-    {
-      "config": {},
-      "depends_on": [
-        "node_5_LlmGenerateNode"
-      ],
-      "id": "node_6_DocQaPostNode",
-      "node_type": "DocQaPostNode"
+      }
     }
   ]
 }

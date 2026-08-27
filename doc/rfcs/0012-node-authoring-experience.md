@@ -2,7 +2,7 @@
 
 - **RFC 编号**：0012-node-authoring-experience
 - **创建日期**：2026-08-27
-- **文档状态**：Proposed
+- **文档状态**：Completed
 - **关联分支**：`feat/node-authoring-experience`
 - **目标版本**：v4.1.0
 - **负责人 / 作者**：LLM-EdgeFlow Architecture & Quality Team

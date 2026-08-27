@@ -12,36 +12,55 @@
   ],
   "pipeline": [
     {
-      "config": {},
+      "id": "node_0_AsrTranscribeNode",
+      "node_type": "AsrTranscribeNode",
       "depends_on": [],
-      "id": "node_0_AudioFeaturePreNode",
-      "node_type": "AudioFeaturePreNode"
-    },
-    {
+      "ports": {
+        "inputs": {
+          "audio": "audio_inputs"
+        },
+        "outputs": {
+          "text": "transcripts"
+        }
+      },
       "config": {
         "bind_model": "asr_model_v1"
+      }
+    },
+    {
+      "id": "node_1_TextRuleMatchNode",
+      "node_type": "TextRuleMatchNode",
+      "depends_on": [
+        "node_0_AsrTranscribeNode"
+      ],
+      "ports": {
+        "inputs": {
+          "text": "transcripts"
+        },
+        "outputs": {
+          "matches": "intent_slots"
+        }
       },
-      "depends_on": [
-        "node_0_AudioFeaturePreNode"
-      ],
-      "id": "node_1_AsrInferNode",
-      "node_type": "AsrInferNode"
-    },
-    {
-      "config": {},
-      "depends_on": [
-        "node_1_AsrInferNode"
-      ],
-      "id": "node_2_SlotExtractNode",
-      "node_type": "SlotExtractNode"
-    },
-    {
-      "config": {},
-      "depends_on": [
-        "node_2_SlotExtractNode"
-      ],
-      "id": "node_3_AudioPostNode",
-      "node_type": "AudioPostNode"
+      "config": {
+        "categories": {
+          "MUSIC_PLAY": [
+            "播放",
+            "音乐",
+            "我想听"
+          ],
+          "NAVIGATION": [
+            "导航",
+            "路线",
+            "去哪"
+          ],
+          "VEHICLE_HVAC_CONTROL": [
+            "空调",
+            "温度",
+            "风量",
+            "二档"
+          ]
+        }
+      }
     }
   ]
 }

@@ -30,68 +30,180 @@
   ],
   "pipeline": [
     {
-      "config": {
-        "blacklist": [
-          "私下转账",
-          "加微信",
-          "索取密码",
-          "发送验证码",
-          "刷单返利"
-        ]
-      },
+      "id": "node_0_TextRuleMatchNode",
+      "node_type": "TextRuleMatchNode",
       "depends_on": [],
-      "id": "node_0_SafetyRulePreNode",
-      "node_type": "SafetyRulePreNode"
+      "ports": {
+        "inputs": {
+          "text": "user_texts"
+        },
+        "outputs": {
+          "matches": "rule_matches"
+        }
+      },
+      "config": {
+        "categories": {
+          "BLACKLIST": [
+            "私下转账",
+            "加微信",
+            "索取密码",
+            "发送验证码",
+            "刷单返利"
+          ]
+        }
+      }
     },
     {
+      "id": "node_1_TextCorpusSourceNode",
+      "node_type": "TextCorpusSourceNode",
+      "depends_on": [],
+      "ports": {
+        "outputs": {
+          "corpus": "policy_corpus"
+        }
+      },
+      "config": {
+        "corpus": [
+          "制度条款101: 严禁引导客户进行私下转账、绕过平台交易或索取银行卡密码",
+          "制度条款102: 客服人员不得向客户索取手机动态短信验证码及支付密码",
+          "制度条款103: 严禁以任何理由向客户推介非官方指定的返利或刷单活动",
+          "制度条款104: 规范客服日常服务用语，严禁出现侮辱、辱骂或威胁客户的行为"
+        ]
+      }
+    },
+    {
+      "id": "node_2_QueryEmbeddingNode",
+      "node_type": "TextEmbeddingNode",
+      "depends_on": [],
+      "ports": {
+        "inputs": {
+          "text": "user_texts"
+        },
+        "outputs": {
+          "embedding": "query_embeddings"
+        }
+      },
       "config": {
         "bind_model": "embed_model_v2"
-      },
-      "depends_on": [
-        "node_0_SafetyRulePreNode"
-      ],
-      "id": "node_1_DenseRetrievalNode",
-      "node_type": "DenseRetrievalNode"
+      }
     },
     {
+      "id": "node_3_PolicyEmbeddingNode",
+      "node_type": "TextEmbeddingNode",
+      "depends_on": [
+        "node_1_TextCorpusSourceNode"
+      ],
+      "ports": {
+        "inputs": {
+          "text": "policy_corpus"
+        },
+        "outputs": {
+          "embedding": "policy_embeddings"
+        }
+      },
       "config": {
-        "bind_model": "rerank_model_v1"
-      },
-      "depends_on": [
-        "node_1_DenseRetrievalNode"
-      ],
-      "id": "node_2_CrossRerankNode",
-      "node_type": "CrossRerankNode"
+        "bind_model": "embed_model_v2"
+      }
     },
     {
+      "id": "node_4_VectorTopKNode",
+      "node_type": "VectorTopKNode",
+      "depends_on": [
+        "node_2_QueryEmbeddingNode",
+        "node_3_PolicyEmbeddingNode"
+      ],
+      "ports": {
+        "inputs": {
+          "queries": "query_embeddings",
+          "candidates": "policy_embeddings",
+          "candidate_texts": "policy_corpus"
+        },
+        "outputs": {
+          "ranked": "coarse_policy"
+        }
+      },
       "config": {
-        "template": "你是一个专业的智能客服合规风控质检大模型。请根据相关制度条款对客服与用户的对话进行合规判定并给出建议：\n【对话内容】: {user_text}\n【相关制度】: {policy}\n【规则初筛】: {rule_flag}\n请严格按JSON格式输出判定：{\"verdict\": \"违规/合规\", \"risk_level\": \"HIGH_RISK/SAFE\", \"suggestion\": \"...\"}\n【审核结论】:"
-      },
-      "depends_on": [
-        "node_2_CrossRerankNode"
-      ],
-      "id": "node_3_RiskPromptNode",
-      "node_type": "RiskPromptNode"
+        "top_k": 3
+      }
     },
     {
+      "id": "node_5_TextRerankNode",
+      "node_type": "TextRerankNode",
+      "depends_on": [
+        "node_4_VectorTopKNode"
+      ],
+      "ports": {
+        "inputs": {
+          "queries": "user_texts",
+          "candidates": "coarse_policy"
+        },
+        "outputs": {
+          "ranked": "matched_policy"
+        }
+      },
+      "config": {
+        "bind_model": "rerank_model_v1",
+        "top_k": 1
+      }
+    },
+    {
+      "id": "node_6_TextTemplateNode",
+      "node_type": "TextTemplateNode",
+      "depends_on": [
+        "node_0_TextRuleMatchNode",
+        "node_5_TextRerankNode"
+      ],
+      "ports": {
+        "inputs": {
+          "primary": "user_texts",
+          "context": "matched_policy",
+          "matches": "rule_matches"
+        },
+        "outputs": {
+          "text": "prompt_text"
+        }
+      },
+      "config": {
+        "template": "你是一个专业的智能客服合规风控质检大模型。请根据相关制度条款对客服与用户的对话进行合规判定并给出建议：\n【对话内容】: {{primary}}\n【相关制度】: {{context}}\n【规则初筛】: {{matches}}\n请严格按JSON格式输出判定：{\"verdict\": \"违规/合规\", \"risk_level\": \"HIGH_RISK/SAFE\", \"suggestion\": \"...\"}\n【审核结论】:"
+      }
+    },
+    {
+      "id": "node_7_LlmGenerateNode",
+      "node_type": "LlmGenerateNode",
+      "depends_on": [
+        "node_6_TextTemplateNode"
+      ],
+      "ports": {
+        "inputs": {
+          "prompt": "prompt_text"
+        },
+        "outputs": {
+          "text": "llm_raw_verdict"
+        }
+      },
       "config": {
         "bind_model": "audit_llm_v1",
         "max_tokens": 256,
         "temperature": 0.1
-      },
-      "depends_on": [
-        "node_3_RiskPromptNode"
-      ],
-      "id": "node_4_LlmAuditNode",
-      "node_type": "LlmAuditNode"
+      }
     },
     {
-      "config": {},
+      "id": "node_8_StructuredJsonParseNode",
+      "node_type": "StructuredJsonParseNode",
       "depends_on": [
-        "node_4_LlmAuditNode"
+        "node_7_LlmGenerateNode"
       ],
-      "id": "node_5_AuditPostNode",
-      "node_type": "AuditPostNode"
+      "ports": {
+        "inputs": {
+          "text": "llm_raw_verdict"
+        },
+        "outputs": {
+          "document": "structured_verdicts"
+        }
+      },
+      "config": {
+        "fallback_json": "{\"verdict\": \"合规\", \"risk_level\": \"SAFE\", \"suggestion\": \"无违规内容\"}"
+      }
     }
   ]
 }

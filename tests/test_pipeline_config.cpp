@@ -99,10 +99,10 @@ class CountingNode : public INode {
     return 0;
   }
 
-  int Control(int cmd, const std::string& param) override {
+  NodeControlResult Control(int cmd, const std::string& param) override {
     (void)cmd;
     (void)param;
-    return 0;
+    return NodeControlResult::Handled(0);
   }
 
   const std::string& Name() const override {
@@ -173,7 +173,9 @@ class ThrowingCtorNode : public INode {
   }
   bool Init(const nlohmann::json&, SessionContext*) override { return true; }
   int Process(AlgContext*) override { return 0; }
-  int Control(int, const std::string&) override { return 0; }
+  NodeControlResult Control(int, const std::string&) override {
+    return NodeControlResult::Handled(0);
+  }
   const std::string& Name() const override {
     static const std::string name = kNodeType;
     return name;
@@ -190,7 +192,9 @@ class ThrowingInitNode : public INode {
     throw std::runtime_error("ThrowingInitNode Init exception");
   }
   int Process(AlgContext*) override { return 0; }
-  int Control(int, const std::string&) override { return 0; }
+  NodeControlResult Control(int, const std::string&) override {
+    return NodeControlResult::Handled(0);
+  }
   const std::string& Name() const override {
     static const std::string name = kNodeType;
     return name;
@@ -205,7 +209,9 @@ class FailingInitNode : public INode {
   FailingInitNode() = default;
   bool Init(const nlohmann::json&, SessionContext*) override { return false; }
   int Process(AlgContext*) override { return 0; }
-  int Control(int, const std::string&) override { return 0; }
+  NodeControlResult Control(int, const std::string&) override {
+    return NodeControlResult::Handled(0);
+  }
   const std::string& Name() const override {
     static const std::string name = kNodeType;
     return name;

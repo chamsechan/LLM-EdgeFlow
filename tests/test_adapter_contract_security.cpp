@@ -15,6 +15,7 @@
 #include "adapter/templates/tagged_union_adapter.h"
 #include "company_alg_cpp.hpp"
 #include "company_alg_interface.h"
+#include "core/common_contracts.h"
 
 namespace alg_framework {
 
@@ -203,11 +204,11 @@ TEST_F(AdapterContractSecurityTest, DirectUnpackMemoryIsolation) {
   caller_buf[sizeof(caller_buf) - 1] = '\0';
 
   // 验证 AlgContext 中的 DTO 保持原有数据完全不受外界内存修改影响 (物理深拷贝)
-  auto* sentences = ctx.Get<std::vector<std::string>>("input_sentences");
+  auto* sentences = ctx.Get(kInputSentences);
   ASSERT_NE(sentences, nullptr);
-  ASSERT_EQ(sentences->size(), 1);
-  EXPECT_EQ((*sentences)[0], "设备系统初始化自检正常");
-  EXPECT_NE((*sentences)[0], std::string(caller_buf));
+  ASSERT_EQ(sentences->size(), 1U);
+  EXPECT_EQ((*sentences)[0].data, "设备系统初始化自检正常");
+  EXPECT_NE((*sentences)[0].data, std::string(caller_buf));
 }
 
 // ---------------------------------------------------------------------------

@@ -17,21 +17,38 @@ class TraceableUnaryInferenceNode : public ModelBoundNode<EngineCapability> {
 
   TraceableUnaryInferenceNode(std::string node_name,
                               std::string default_model_id,
+                              std::string input_port_name,
+                              std::string output_port_name,
+                              int missing_input_error)
+      : ModelBoundNode<EngineCapability>(std::move(node_name),
+                                         std::move(default_model_id)),
+        in_port_(std::move(input_port_name)),
+        out_port_(std::move(output_port_name)),
+        missing_input_error_(missing_input_error) {}
+
+  TraceableUnaryInferenceNode(std::string node_name,
+                              std::string default_model_id,
                               const BlackboardKey<InputBatch>& input_key,
                               const BlackboardKey<OutputBatch>& output_key,
                               int missing_input_error)
       : ModelBoundNode<EngineCapability>(std::move(node_name),
                                          std::move(default_model_id)),
-        input_key_(input_key),
-        output_key_(output_key),
+        in_port_(input_key.name, input_key.name, input_key.type_id),
+        out_port_(output_key.name, output_key.name, output_key.type_id),
         missing_input_error_(missing_input_error) {}
 
   virtual int InferBatch(const InputBatch& input, OutputBatch* output) = 0;
 
+  bool InitModelNode(const nlohmann::json& /*config*/,
+                     SessionContext& /*session_ctx*/) override {
+    this->BindPort(in_port_);
+    this->BindPort(out_port_);
+    return true;
+  }
+
  private:
   int ProcessNode(AlgContext& req_ctx) final {
-    const auto* inputs =
-        this->Require(req_ctx, input_key_, missing_input_error_);
+    const auto* inputs = in_port_.Require(req_ctx, missing_input_error_);
     if (!inputs) {
       return missing_input_error_;
     }
@@ -40,12 +57,12 @@ class TraceableUnaryInferenceNode : public ModelBoundNode<EngineCapability> {
     if (ret != 0) {
       return this->Fail(req_ctx, ret, this->Name() + " inference failed");
     }
-    this->Publish(req_ctx, output_key_, std::move(outputs));
+    out_port_.Set(req_ctx, std::move(outputs));
     return 0;
   }
 
-  const BlackboardKey<InputBatch>& input_key_;
-  const BlackboardKey<OutputBatch>& output_key_;
+  BoundInput<InputBatch> in_port_;
+  BoundOutput<OutputBatch> out_port_;
   const int missing_input_error_;
 };
 

@@ -122,10 +122,10 @@ class DeepDagNode : public INode {
     return 0;
   }
 
-  int Control(int cmd, const std::string& param) override {
+  NodeControlResult Control(int cmd, const std::string& param) override {
     (void)cmd;
     (void)param;
-    return 0;
+    return NodeControlResult::Handled(0);
   }
 
   const std::string& Name() const override { return name_; }

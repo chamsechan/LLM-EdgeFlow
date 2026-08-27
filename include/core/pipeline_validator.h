@@ -76,10 +76,36 @@ struct ValidationReport {
   nlohmann::json ToJson() const;
 };
 
+enum class PortDirection { kInput, kOutput };
+
+struct ResolvedPortBinding {
+  std::string logical_name;
+  std::string blackboard_key;
+  std::string type_id;
+  PortDirection direction = PortDirection::kInput;
+};
+
+struct ValidatedNodePlan {
+  ParsedNodeConfig node;
+  nlohmann::json normalized_config;
+  std::vector<ResolvedPortBinding> ports;
+
+  std::string FindPortKey(const std::string& logical_name,
+                          PortDirection dir = PortDirection::kInput) const {
+    for (const auto& p : ports) {
+      if (p.logical_name == logical_name && p.direction == dir) {
+        return p.blackboard_key;
+      }
+    }
+    return {};
+  }
+};
+
 struct ValidatedPipelinePlan {
   ParsedPipelineConfig config;
   std::vector<std::string> topological_order;
   std::vector<std::vector<std::string>> topological_layers;
+  std::unordered_map<std::string, ValidatedNodePlan> node_plans;
   ValidationReport report;
 };
 

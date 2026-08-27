@@ -484,15 +484,59 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
     if (def_it == def_by_id.end()) continue;
     const auto& definition = *def_it->second;
     const auto& node = *node_by_id[id];
+
+    ValidatedNodePlan node_plan;
+    node_plan.node = node;
+    node_plan.normalized_config = node.config;
+
+    // 校验未声明的输入端口映射
+    for (const auto& [in_port, target_key] : node.ports.inputs) {
+      bool declared =
+          std::any_of(definition.inputs.begin(), definition.inputs.end(),
+                      [&](const auto& item) { return item.key == in_port; });
+      if (!declared) {
+        Add(&report, DiagnosticCode::kUnknownField,
+            "/pipeline/" + std::to_string(node.source_index) +
+                "/ports/inputs/" + in_port,
+            "Unknown logical input port '" + in_port + "' for node type '" +
+                definition.node_type + "'",
+            id, in_port);
+      }
+    }
+
+    // 校验未声明的输出端口映射
+    for (const auto& [out_port, target_key] : node.ports.outputs) {
+      bool declared =
+          std::any_of(definition.outputs.begin(), definition.outputs.end(),
+                      [&](const auto& item) { return item.key == out_port; });
+      if (!declared) {
+        Add(&report, DiagnosticCode::kUnknownField,
+            "/pipeline/" + std::to_string(node.source_index) +
+                "/ports/outputs/" + out_port,
+            "Unknown logical output port '" + out_port + "' for node type '" +
+                definition.node_type + "'",
+            id, out_port);
+      }
+    }
+
     for (const auto& input : definition.inputs) {
+      std::string actual_key = input.key;
+      auto port_it = node.ports.inputs.find(input.key);
+      if (port_it != node.ports.inputs.end()) {
+        actual_key = port_it->second;
+      }
+
+      node_plan.ports.push_back(
+          {input.key, actual_key, input.type_id, PortDirection::kInput});
+
       if (!input.required) continue;
       bool found = false;
-      auto root_port = ingress.find(input.key);
+      auto root_port = ingress.find(actual_key);
       if (root_port != ingress.end() &&
           root_port->second.type_id == input.type_id) {
         found = true;
       }
-      auto producer_it = producers.find(input.key);
+      auto producer_it = producers.find(actual_key);
       if (producer_it != producers.end()) {
         for (const auto& producer : producer_it->second) {
           if (is_ancestor(producer.first, id) &&
@@ -507,8 +551,7 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
         for (const auto& candidate : PipelineCatalog::Nodes()) {
           if (std::any_of(candidate.outputs.begin(), candidate.outputs.end(),
                           [&](const auto& output) {
-                            return output.key == input.key &&
-                                   output.type_id == input.type_id;
+                            return output.type_id == input.type_id;
                           })) {
             suggestions.push_back(candidate.node_type);
           }
@@ -516,21 +559,35 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
         Add(&report, DiagnosticCode::kMissingInputProducer,
             "/pipeline/" + std::to_string(node.source_index),
             "No business ingress or ancestor node produces required port '" +
-                input.key + "' of type '" + input.type_id + "'",
+                input.key + "' (bound key: '" + actual_key + "') of type '" +
+                input.type_id + "'",
             id, input.key, {}, suggestions);
       }
     }
+
     for (const auto& output : definition.outputs) {
-      auto& existing = producers[output.key];
+      std::string actual_key = output.key;
+      auto port_it = node.ports.outputs.find(output.key);
+      if (port_it != node.ports.outputs.end()) {
+        actual_key = port_it->second;
+      }
+
+      node_plan.ports.push_back(
+          {output.key, actual_key, output.type_id, PortDirection::kOutput});
+
+      auto& existing = producers[actual_key];
       if (!existing.empty() && !output.allow_override) {
         Add(&report, DiagnosticCode::kDuplicatePortProducer,
             "/pipeline/" + std::to_string(node.source_index),
             "Port is produced more than once without override permission: " +
-                output.key,
+                actual_key,
             id, output.key, {existing.back().first});
       }
-      existing.push_back({id, output});
+      existing.push_back({id, PortDefinition{actual_key, output.type_id, true,
+                                             output.allow_override}});
     }
+
+    plan.node_plans[id] = std::move(node_plan);
   }
 
   if (business) {
@@ -580,12 +637,14 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
             }
           }
         }
-        for (const auto& output : def_it->second->outputs) {
-          auto inserted = writes.emplace(output.key, id);
+        const auto& node_plan = plan.node_plans[id];
+        for (const auto& p : node_plan.ports) {
+          if (p.direction != PortDirection::kOutput) continue;
+          auto inserted = writes.emplace(p.blackboard_key, id);
           if (!inserted.second) {
             Add(&report, DiagnosticCode::kParallelWriteConflict, "/pipeline",
-                "Parallel layer writes the same port: " + output.key, id,
-                output.key, {inserted.first->second});
+                "Parallel layer writes the same port: " + p.blackboard_key, id,
+                p.logical_name, {inserted.first->second});
           }
         }
       }

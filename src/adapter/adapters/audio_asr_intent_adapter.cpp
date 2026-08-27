@@ -3,10 +3,13 @@
 
 #include "adapter/adapter_validation_helper.h"
 #include "adapter/biz_adapter_registry.h"
-#include "biz/audio_asr/audio_asr_contract.h"
 #include "company_alg_interface.h"
+#include "core/common_contracts.h"
 
 namespace alg_framework {
+
+inline static constexpr char kAudioAsrBusinessName[] =
+    "speech_audio_asr_intent_slot";
 
 class AudioAsrIntentAdapter : public IBizAdapter {
  public:
@@ -30,8 +33,8 @@ class AudioAsrIntentAdapter : public IBizAdapter {
         {{kAudioAsrBusinessName,
           "audio_asr",
           "语音识别与意图槽位",
-          {RequiredInput(kRawRequestIds), RequiredInput(kRawAudioInputs)},
-          {Output(kAudioFinalOutputs)}}}};
+          {RequiredInput(kRawRequestIds), RequiredInput(kAudioInputs)},
+          {Output(kIntentSlots), Output(kTranscripts)}}}};
     return desc;
   }
 
@@ -49,12 +52,11 @@ class AudioAsrIntentAdapter : public IBizAdapter {
     }
 
     std::vector<uint64_t> raw_req_ids;
-    std::vector<AudioInputDto> raw_audios;
+    AudioPcmBatch raw_audios;
 
     raw_req_ids.reserve(num_inputs);
     raw_audios.reserve(num_inputs);
 
-    // 最大允许单次音频采样点 (1分钟 @ 16kHz = 960,000 点, RECHECK-004)
     constexpr int64_t kMaxAudioSamples = 16000 * 60;
 
     for (int i = 0; i < num_inputs; ++i) {
@@ -64,7 +66,6 @@ class AudioAsrIntentAdapter : public IBizAdapter {
         return COMPANY_ALG_ERR_INVALID_INPUT;
       }
 
-      // ADP-001, ADP-005, RECHECK-004: 严格校验采样率与音频采样点区间
       if (!AdapterValidationHelper::RequireRange(
               "inputs[i].sample_rate", in_audio->sample_rate, 8000, 192000, i,
               BizName(), out_status)) {
@@ -82,7 +83,6 @@ class AudioAsrIntentAdapter : public IBizAdapter {
                                                      BizName(), out_status)) {
           return COMPANY_ALG_ERR_INVALID_INPUT;
         }
-        // 乘法溢出与最大内存安全校验 (10MB 缓冲区上限)
         if (!AdapterValidationHelper::CheckedMultiply(
                 "inputs[i].pcm_buffer", in_audio->pcm_length, sizeof(float),
                 10 * 1024 * 1024, i, BizName(), out_status)) {
@@ -92,19 +92,17 @@ class AudioAsrIntentAdapter : public IBizAdapter {
 
       raw_req_ids.push_back(in_audio->request_id);
 
-      AudioInputDto pcm_dto;
-      pcm_dto.request_id = in_audio->request_id;
-      // ADP-002: COPY_IN 内存深拷贝，与调用方生命周期完全隔离
+      AudioPcmPayload pcm_dto;
       if (in_audio->pcm_buffer && in_audio->pcm_length > 0) {
         pcm_dto.pcm_data.assign(in_audio->pcm_buffer,
                                 in_audio->pcm_buffer + in_audio->pcm_length);
       }
       pcm_dto.sample_rate = in_audio->sample_rate;
-      raw_audios.push_back(std::move(pcm_dto));
+      raw_audios.emplace_back(static_cast<uint32_t>(i), 0, std::move(pcm_dto));
     }
 
     ctx->Set(kRawRequestIds, std::move(raw_req_ids));
-    ctx->Set(kRawAudioInputs, std::move(raw_audios));
+    ctx->Set(kAudioInputs, std::move(raw_audios));
     return COMPANY_ALG_SUCCESS;
   }
 
@@ -118,17 +116,20 @@ class AudioAsrIntentAdapter : public IBizAdapter {
       return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     }
 
-    auto* res = ctx->Get(kAudioFinalOutputs);
-    if (!res) {
+    const auto* transcripts = ctx->Get(kTranscripts);
+    const auto* intent_slots = ctx->Get(kIntentSlots);
+    const auto* raw_req_ids = ctx->Get(kRawRequestIds);
+
+    if (!transcripts) {
       if (out_status) {
-        *out_status = AdapterStatus::BufferTooSmall(
-            "audio_final_outputs not found in AlgContext",
-            "audio_final_outputs", -1, BizName());
+        *out_status =
+            AdapterStatus::BufferTooSmall("transcripts not found in AlgContext",
+                                          "transcripts", -1, BizName());
       }
       return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     }
 
-    int count = static_cast<int>(res->size());
+    int count = static_cast<int>(transcripts->size());
     int valid_ret = AdapterValidationHelper::ValidateBatchOutputs(
         outputs, num_outputs, count, BizName());
     if (valid_ret != 0) {
@@ -141,21 +142,29 @@ class AudioAsrIntentAdapter : public IBizAdapter {
 
     for (int i = 0; i < count; ++i) {
       auto* out_ptr = static_cast<CompanyAudioOutputStruct*>(outputs[i]);
-      out_ptr->request_id = (*res)[i].request_id;
-      out_ptr->status_code = (*res)[i].status_code;
+      uint64_t req_id =
+          (raw_req_ids && i < static_cast<int>(raw_req_ids->size()))
+              ? (*raw_req_ids)[i]
+              : (*transcripts)[i].req_id;
+      out_ptr->request_id = req_id;
+      out_ptr->status_code = 0;
 
-      // RECHECK-001: 校验 CheckedStringCopy 返回值，截断时严格拒绝返回 -4
+      std::string slot_json = "{}";
+      if (intent_slots && i < static_cast<int>(intent_slots->size())) {
+        slot_json = (*intent_slots)[i].data.match_result_json;
+      }
+
       if (!AdapterValidationHelper::CheckedStringCopy(
               out_ptr->transcribed_text, sizeof(out_ptr->transcribed_text),
-              (*res)[i].transcribed_text.c_str(), "outputs[i].transcribed_text",
-              i, BizName(), out_status)) {
+              (*transcripts)[i].data.c_str(), "outputs[i].transcribed_text", i,
+              BizName(), out_status)) {
         return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
       }
 
       if (!AdapterValidationHelper::CheckedStringCopy(
               out_ptr->intent_slot_json, sizeof(out_ptr->intent_slot_json),
-              (*res)[i].intent_slot_json.c_str(), "outputs[i].intent_slot_json",
-              i, BizName(), out_status)) {
+              slot_json.c_str(), "outputs[i].intent_slot_json", i, BizName(),
+              out_status)) {
         return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
       }
     }

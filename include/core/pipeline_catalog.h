@@ -54,6 +54,27 @@ inline PortDefinition Output(const BlackboardKey<T>& key,
   return PortDefinition{key.name, key.type_id, true, allow_override};
 }
 
+template <typename T>
+inline PortDefinition RequiredInputPort(std::string logical_name,
+                                        const BlackboardKey<T>& key_type) {
+  return PortDefinition{std::move(logical_name), key_type.type_id, true, false};
+}
+
+template <typename T>
+inline PortDefinition OptionalInputPort(std::string logical_name,
+                                        const BlackboardKey<T>& key_type) {
+  return PortDefinition{std::move(logical_name), key_type.type_id, false,
+                        false};
+}
+
+template <typename T>
+inline PortDefinition OutputPort(std::string logical_name,
+                                 const BlackboardKey<T>& key_type,
+                                 bool allow_override = false) {
+  return PortDefinition{std::move(logical_name), key_type.type_id, true,
+                        allow_override};
+}
+
 struct ConfigFieldDefinition {
   std::string name;
   ConfigValueKind kind = ConfigValueKind::kString;

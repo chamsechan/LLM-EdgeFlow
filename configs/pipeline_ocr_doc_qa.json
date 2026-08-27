@@ -21,40 +21,79 @@
   ],
   "pipeline": [
     {
-      "config": {},
+      "id": "node_0_OcrDetectNode",
+      "node_type": "OcrDetectNode",
       "depends_on": [],
-      "id": "node_0_ImagePreNode",
-      "node_type": "ImagePreNode"
-    },
-    {
+      "ports": {
+        "inputs": {
+          "images": "image_paths"
+        },
+        "outputs": {
+          "document": "ocr_docs",
+          "text": "ocr_text"
+        }
+      },
       "config": {
         "bind_model": "ocr_model_v1"
-      },
-      "depends_on": [
-        "node_0_ImagePreNode"
-      ],
-      "id": "node_1_OcrInferNode",
-      "node_type": "OcrInferNode"
+      }
     },
     {
+      "id": "node_1_TextTemplateNode",
+      "node_type": "TextTemplateNode",
+      "depends_on": [
+        "node_0_OcrDetectNode"
+      ],
+      "ports": {
+        "inputs": {
+          "primary": "user_queries",
+          "document": "ocr_docs"
+        },
+        "outputs": {
+          "text": "prompt_text"
+        }
+      },
+      "config": {
+        "template": "请根据以下OCR识别出的发票单据内容，回答用户的问题并以JSON输出：\n【单据内容】：\n{{document}}\n【用户问题】：{{primary}}\n【提取结果】：",
+        "separator": "\n"
+      }
+    },
+    {
+      "id": "node_2_LlmGenerateNode",
+      "node_type": "LlmGenerateNode",
+      "depends_on": [
+        "node_1_TextTemplateNode"
+      ],
+      "ports": {
+        "inputs": {
+          "prompt": "prompt_text"
+        },
+        "outputs": {
+          "text": "llm_raw_answer"
+        }
+      },
       "config": {
         "bind_model": "llm_model_v1",
         "max_tokens": 128,
         "temperature": 0.1
-      },
-      "depends_on": [
-        "node_1_OcrInferNode"
-      ],
-      "id": "node_2_LlmGenerateNode",
-      "node_type": "LlmGenerateNode"
+      }
     },
     {
-      "config": {},
+      "id": "node_3_StructuredJsonParseNode",
+      "node_type": "StructuredJsonParseNode",
       "depends_on": [
         "node_2_LlmGenerateNode"
       ],
-      "id": "node_3_OcrDocPostNode",
-      "node_type": "OcrDocPostNode"
+      "ports": {
+        "inputs": {
+          "text": "llm_raw_answer"
+        },
+        "outputs": {
+          "document": "extracted_invoice_json"
+        }
+      },
+      "config": {
+        "fallback_json": "{}"
+      }
     }
   ]
 }

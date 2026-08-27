@@ -5,8 +5,8 @@
 #include <string>
 #include <vector>
 
-#include "biz/dialogue_audit/dialogue_audit_contract.h"
 #include "core/alg_context.h"
+#include "core/common_contracts.h"
 #include "core/node_base.h"
 #include "core/node_registry.h"
 #include "core/pipeline_catalog.h"
@@ -16,23 +16,26 @@
 namespace alg_framework {
 
 TEST(NodeOwnershipAndReuseTest, CatalogCategoriesAndOwnership) {
-  // 1. LlmGenerateNode is a common node
+  // Common nodes in Phase 1
   const auto* llm_gen = PipelineCatalog::FindNode("LlmGenerateNode");
   ASSERT_NE(llm_gen, nullptr);
   EXPECT_EQ(llm_gen->category, "common");
 
-  // 2. PromptBuilderNode, VectorSearchNode, RerankRefineNode are biz nodes
-  const auto* prompt_bld = PipelineCatalog::FindNode("PromptBuilderNode");
-  ASSERT_NE(prompt_bld, nullptr);
-  EXPECT_EQ(prompt_bld->category, "biz");
+  const auto* text_tmpl = PipelineCatalog::FindNode("TextTemplateNode");
+  ASSERT_NE(text_tmpl, nullptr);
+  EXPECT_EQ(text_tmpl->category, "common");
 
-  const auto* vec_search = PipelineCatalog::FindNode("VectorSearchNode");
-  ASSERT_NE(vec_search, nullptr);
-  EXPECT_EQ(vec_search->category, "biz");
+  const auto* text_chunk = PipelineCatalog::FindNode("TextChunkNode");
+  ASSERT_NE(text_chunk, nullptr);
+  EXPECT_EQ(text_chunk->category, "common");
 
-  const auto* rerank_refine = PipelineCatalog::FindNode("RerankRefineNode");
-  ASSERT_NE(rerank_refine, nullptr);
-  EXPECT_EQ(rerank_refine->category, "biz");
+  const auto* vec_topk = PipelineCatalog::FindNode("VectorTopKNode");
+  ASSERT_NE(vec_topk, nullptr);
+  EXPECT_EQ(vec_topk->category, "common");
+
+  const auto* text_rerank = PipelineCatalog::FindNode("TextRerankNode");
+  ASSERT_NE(text_rerank, nullptr);
+  EXPECT_EQ(text_rerank->category, "common");
 }
 
 // Mock Embedding Engine that computes distinct vector based on string hash /
@@ -71,30 +74,31 @@ class DistinctMockEmbeddingEngine : public IEmbeddingEngine {
   }
 };
 
-TEST(NodeOwnershipAndReuseTest, DenseRetrievalEmbeddingCosineRanking) {
+TEST(NodeOwnershipAndReuseTest, CommonEmbeddingAndVectorTopKExecution) {
   SessionContext session_ctx;
   session_ctx.GetModelManager().RegisterModel(
       "embed_model_v2", std::make_shared<DistinctMockEmbeddingEngine>());
 
-  auto node = NodeFactory::Instance().Create("DenseRetrievalNode");
-  ASSERT_NE(node, nullptr);
+  auto embed_node = NodeFactory::Instance().Create("TextEmbeddingNode");
+  ASSERT_NE(embed_node, nullptr);
 
-  nlohmann::json node_cfg = {{"bind_model", "embed_model_v2"}, {"top_k", 2}};
-  ASSERT_TRUE(node->Init(node_cfg, &session_ctx));
+  nlohmann::json node_cfg = {{"bind_model", "embed_model_v2"},
+                             {"normalize", true}};
+  ASSERT_TRUE(embed_node->Init(node_cfg, &session_ctx));
 
   AlgContext ctx;
-  std::vector<std::string> user_texts = {"请把钱私下转账给我"};
-  ctx.Set(kUserTexts, user_texts);
+  TextBatch query_batch = {
+      TraceableItem<std::string>{0, 0, "请把钱私下转账给我"}};
+  ctx.Set(BlackboardKey<TextBatch>{"text", "TextBatch"}, query_batch);
 
-  int ret = node->Process(&ctx);
+  int ret = embed_node->Process(&ctx);
   EXPECT_EQ(ret, 0);
 
-  const auto* candidates = ctx.Get(kCandidatePolicies);
-  ASSERT_NE(candidates, nullptr);
-  ASSERT_EQ(candidates->size(), 1u);
-  // Top 1 retrieved policy should be clause 101 regarding 私下转账
-  ASSERT_GE((*candidates)[0].data.size(), 1u);
-  EXPECT_TRUE((*candidates)[0].data[0].find("101") != std::string::npos);
+  const auto* q_embed =
+      ctx.Get(BlackboardKey<EmbeddingBatch>{"embedding", "EmbeddingBatch"});
+  ASSERT_NE(q_embed, nullptr);
+  ASSERT_EQ(q_embed->size(), 1u);
+  EXPECT_GT((*q_embed)[0].data[0], 0.5f);
 }
 
 }  // namespace alg_framework

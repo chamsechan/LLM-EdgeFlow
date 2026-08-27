@@ -123,7 +123,18 @@ std::string MockNpuLlmEngine::GenerateSingleResponse(
            "\"对话正常，继续保持专业服务。\"}";
   }
 
-  // 3. 意图与问答请求
+  // 3. 发票与单据 OCR 提取请求
+  if (prompt.find("发票") != std::string::npos ||
+      prompt.find("单据") != std::string::npos ||
+      prompt.find("OCR") != std::string::npos) {
+    return "{\"invoice_code\": \"011002200111\", \"invoice_number\": "
+           "\"88765432\", "
+           "\"total_amount\": \"¥1280.00\", \"purchaser\": "
+           "\"某某科技创新有限公司\", "
+           "\"tax_amount\": \"¥76.80\"}";
+  }
+
+  // 4. 意图与问答请求
   if (prompt.find("退款") != std::string::npos ||
       prompt.find("退货") != std::string::npos) {
     return "【LLM意图分析】检测到售后退款诉求。建议操作：7天无理由退货审核流程"

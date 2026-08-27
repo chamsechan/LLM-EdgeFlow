@@ -17,7 +17,7 @@ class CatalogContractSsotTest : public ::testing::Test {};
 // 1. 验证所有生产算子均具备合法的 NodeDefinition 元数据
 TEST_F(CatalogContractSsotTest, AllProductionNodesHaveValidDefinitions) {
   const auto& nodes = PipelineCatalog::Nodes();
-  EXPECT_GE(nodes.size(), 27U);
+  EXPECT_GE(nodes.size(), 11U);
 
   std::set<std::string> seen_types;
   for (const auto& node_def : nodes) {
@@ -42,20 +42,18 @@ TEST_F(CatalogContractSsotTest, AllProductionNodesHaveValidDefinitions) {
     EXPECT_EQ(found->category, node_def.category);
   }
 
-  // 必须包含 3 个 Common 算子
-  EXPECT_TRUE(seen_types.count("PromptBuilderNode"));
-  EXPECT_TRUE(seen_types.count("RerankRefineNode"));
-  EXPECT_TRUE(seen_types.count("VectorSearchNode"));
-
-  // 必须包含业务算子
-  EXPECT_TRUE(seen_types.count("KeywordMatcherNode"));
-  EXPECT_TRUE(seen_types.count("EntityExtractPreNode"));
-  EXPECT_TRUE(seen_types.count("EntityExtractPostNode"));
-  EXPECT_TRUE(seen_types.count("DocChunkPreNode"));
-  EXPECT_TRUE(seen_types.count("DocEmbeddingNode"));
-  EXPECT_TRUE(seen_types.count("IntentRuleNode"));
+  // 必须包含 11 个 Phase-1 Common 算子
+  EXPECT_TRUE(seen_types.count("TextTemplateNode"));
+  EXPECT_TRUE(seen_types.count("TextChunkNode"));
+  EXPECT_TRUE(seen_types.count("TextRuleMatchNode"));
+  EXPECT_TRUE(seen_types.count("StructuredJsonParseNode"));
+  EXPECT_TRUE(seen_types.count("TextEmbeddingNode"));
+  EXPECT_TRUE(seen_types.count("VectorTopKNode"));
+  EXPECT_TRUE(seen_types.count("TextRerankNode"));
   EXPECT_TRUE(seen_types.count("LlmGenerateNode"));
-  EXPECT_TRUE(seen_types.count("DocQaPostNode"));
+  EXPECT_TRUE(seen_types.count("AsrTranscribeNode"));
+  EXPECT_TRUE(seen_types.count("OcrDetectNode"));
+  EXPECT_TRUE(seen_types.count("TextCorpusSourceNode"));
 }
 
 // 2. 验证所有推理引擎均具备合法的 EngineDefinition 元数据
@@ -157,7 +155,7 @@ TEST_F(CatalogContractSsotTest, ToJsonSerializationAndFiltering) {
   EXPECT_TRUE(full_catalog["nodes"].is_array());
   EXPECT_TRUE(full_catalog["engines"].is_array());
   EXPECT_TRUE(full_catalog["bizs"].is_array());
-  EXPECT_GE(full_catalog["nodes"].size(), 27U);
+  EXPECT_GE(full_catalog["nodes"].size(), 11U);
   EXPECT_GE(full_catalog["engines"].size(), 8U);
   EXPECT_GE(full_catalog["bizs"].size(), 7U);
   for (const auto& engine : full_catalog["engines"]) {
@@ -173,16 +171,13 @@ TEST_F(CatalogContractSsotTest, ToJsonSerializationAndFiltering) {
   EXPECT_EQ(km_catalog["businesses"].size(), 1U);
   EXPECT_EQ(km_catalog["businesses"][0]["business_name"], "keyword_match_v1");
 
-  bool found_km_node = false;
-  bool leaked_doc_node = false;
+  bool found_match_node = false;
   for (const auto& item : km_catalog["nodes"]) {
-    if (item["node_type"] == "KeywordMatcherNode") {
-      found_km_node = true;
+    if (item["node_type"] == "TextRuleMatchNode") {
+      found_match_node = true;
     }
-    if (item["node_type"] == "DocChunkPreNode") leaked_doc_node = true;
   }
-  EXPECT_TRUE(found_km_node);
-  EXPECT_FALSE(leaked_doc_node);
+  EXPECT_TRUE(found_match_node);
 }
 
 }  // namespace alg_framework

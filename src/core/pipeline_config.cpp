@@ -305,7 +305,7 @@ bool ParsePipelineConfig(const nlohmann::json& root,
   }
 
   const std::unordered_set<std::string> allowed_node_keys = {
-      "id", "node_type", "depends_on", "config", "comment"};
+      "id", "node_type", "depends_on", "ports", "config", "comment"};
 
   std::unordered_set<std::string> seen_node_ids;
 
@@ -359,6 +359,76 @@ bool ParsePipelineConfig(const nlohmann::json& root,
               node_path_prefix + "/node_type",
               "Field 'node_type' cannot be empty");
       return false;
+    }
+
+    // ports (可选对象)
+    if (node_elem.contains("ports")) {
+      if (!node_elem["ports"].is_object()) {
+        SetDiag(diagnostic, PipelineErrorCode::kFieldType,
+                node_path_prefix + "/ports", "Field 'ports' must be an object");
+        return false;
+      }
+      const auto& ports_obj = node_elem["ports"];
+      const std::unordered_set<std::string> allowed_port_keys = {
+          "inputs", "outputs", "comment"};
+      for (auto pit = ports_obj.begin(); pit != ports_obj.end(); ++pit) {
+        if (allowed_port_keys.find(pit.key()) == allowed_port_keys.end()) {
+          SetDiag(diagnostic, PipelineErrorCode::kUnknownField,
+                  node_path_prefix + "/ports/" + pit.key(),
+                  "Unknown field in ports: " + pit.key());
+          return false;
+        }
+      }
+      if (ports_obj.contains("inputs")) {
+        if (!ports_obj["inputs"].is_object()) {
+          SetDiag(diagnostic, PipelineErrorCode::kFieldType,
+                  node_path_prefix + "/ports/inputs",
+                  "Field 'ports.inputs' must be an object");
+          return false;
+        }
+        for (auto it = ports_obj["inputs"].begin();
+             it != ports_obj["inputs"].end(); ++it) {
+          if (!it.value().is_string()) {
+            SetDiag(diagnostic, PipelineErrorCode::kFieldType,
+                    node_path_prefix + "/ports/inputs/" + it.key(),
+                    "Port mapping target must be a string");
+            return false;
+          }
+          std::string target = it.value().get<std::string>();
+          if (target.empty()) {
+            SetDiag(diagnostic, PipelineErrorCode::kFieldRange,
+                    node_path_prefix + "/ports/inputs/" + it.key(),
+                    "Port mapping target cannot be empty");
+            return false;
+          }
+          node_cfg.ports.inputs[it.key()] = std::move(target);
+        }
+      }
+      if (ports_obj.contains("outputs")) {
+        if (!ports_obj["outputs"].is_object()) {
+          SetDiag(diagnostic, PipelineErrorCode::kFieldType,
+                  node_path_prefix + "/ports/outputs",
+                  "Field 'ports.outputs' must be an object");
+          return false;
+        }
+        for (auto it = ports_obj["outputs"].begin();
+             it != ports_obj["outputs"].end(); ++it) {
+          if (!it.value().is_string()) {
+            SetDiag(diagnostic, PipelineErrorCode::kFieldType,
+                    node_path_prefix + "/ports/outputs/" + it.key(),
+                    "Port mapping target must be a string");
+            return false;
+          }
+          std::string target = it.value().get<std::string>();
+          if (target.empty()) {
+            SetDiag(diagnostic, PipelineErrorCode::kFieldRange,
+                    node_path_prefix + "/ports/outputs/" + it.key(),
+                    "Port mapping target cannot be empty");
+            return false;
+          }
+          node_cfg.ports.outputs[it.key()] = std::move(target);
+        }
+      }
     }
 
     // config (可选对象)

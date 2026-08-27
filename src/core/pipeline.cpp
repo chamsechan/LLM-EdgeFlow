@@ -424,7 +424,18 @@ bool Pipeline::BuildInternal(const nlohmann::json& root_config,
 
       bool init_ok = false;
       try {
-        init_ok = node->Init(meta.config, &session_ctx_);
+        const ValidatedNodePlan* node_plan_ptr = nullptr;
+        auto np_it = plan.node_plans.find(meta.id);
+        if (np_it != plan.node_plans.end()) {
+          node_plan_ptr = &np_it->second;
+        }
+
+        NodeInitContext init_ctx;
+        init_ctx.plan = node_plan_ptr;
+        init_ctx.config = &meta.config;
+        init_ctx.session_ctx = &session_ctx_;
+
+        init_ok = node->Init(init_ctx);
       } catch (const std::exception& e) {
         if (diagnostic) {
           diagnostic->code = PipelineErrorCode::kNodeInitFailed;
@@ -543,14 +554,17 @@ int Pipeline::Control(int cmd, const std::string& json_param) {
 
   std::cout << "[Pipeline] Control cmd received: " << cmd
             << ", params: " << json_param << std::endl;
-  int last_ret = 0;
+  int failure_code = 0;
   for (auto& node : nodes_) {
-    int ret = node->Control(cmd, json_param);
-    if (ret != 0) {
-      last_ret = ret;
+    NodeControlResult res = node->Control(cmd, json_param);
+    if (res.status == NodeControlStatus::kFailed) {
+      std::cerr << "[Pipeline] Node [" << node->Name()
+                << "] Control failed with code: " << res.code
+                << ", msg: " << res.message << std::endl;
+      failure_code = res.code != 0 ? res.code : -1;
     }
   }
-  return last_ret;
+  return failure_code;
 }
 
 }  // namespace alg_framework
