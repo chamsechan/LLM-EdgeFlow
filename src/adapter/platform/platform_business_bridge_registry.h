@@ -145,9 +145,9 @@ class PlatformBusinessBridgeRegistry {
                                 uint32_t capacity, const char* field_name,
                                 std::string* err) noexcept;
 
- private:
   PlatformBusinessBridgeRegistry() = default;
 
+ private:
   mutable std::mutex mutex_;
   bool has_conflict_ = false;
   bool audited_ = false;

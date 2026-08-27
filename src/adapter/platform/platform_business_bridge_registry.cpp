@@ -43,7 +43,6 @@ bool PlatformBusinessBridgeRegistry::RegisterBridge(
     PlatformBusinessBridgeDescriptor desc) {
   std::lock_guard<std::mutex> lock(mutex_);
   if (audited_) {
-    has_conflict_ = true;
     return false;
   }
 
@@ -54,11 +53,12 @@ bool PlatformBusinessBridgeRegistry::RegisterBridge(
   }
   auto it = bridges_by_biz_type_.find(key);
   if (it != bridges_by_biz_type_.end()) {
-    if (!(it->second == desc)) {
-      has_conflict_ = true;
-      return false;
+    if (it->second.registration_identity == desc.registration_identity &&
+        it->second == desc) {
+      return true;
     }
-    return true;
+    has_conflict_ = true;
+    return false;
   }
 
   // 校验槽位命名唯一性与方向
@@ -120,6 +120,9 @@ int PlatformBusinessBridgeRegistry::GlobalInit() {
   std::lock_guard<std::mutex> lock(mutex_);
   if (has_conflict_) {
     return -6;
+  }
+  if (audited_) {
+    return 0;
   }
 
   // 校验全部 7 类核心业务均已就地自注册到位

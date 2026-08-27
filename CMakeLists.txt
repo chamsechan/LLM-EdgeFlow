@@ -33,10 +33,25 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(CMAKE_BUILD_WITH_INSTALL_RPATH FALSE)
 set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 set(CMAKE_BUILD_RPATH_USE_ORIGIN TRUE)
-set(CMAKE_BUILD_RPATH "${CMAKE_BINARY_DIR}")
-
 # 编译选项
 add_compile_options(-Wall -Wextra -O2 -fPIC)
+
+# 确保 mock npu 模型的占位文件存在
+foreach(MOCK_MODEL
+    bge_base_npu.bin
+    qwen_1.5b_npu.bin
+    bge_reranker_large_npu.bin
+    bge_m3_npu.bin
+    qwen_1_8b_npu.bin
+    qwen2.5_7b_audit_npu.bin
+    paraformer_asr_npu.bin
+    ch_ppocr_v4_det_rec_npu.bin
+    qwen_0_6b_npu.bin
+)
+  if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/models/${MOCK_MODEL}")
+    file(TOUCH "${CMAKE_CURRENT_SOURCE_DIR}/models/${MOCK_MODEL}")
+  endif()
+endforeach()
 
 option(ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
 set(LLM_EDGEFLOW_SANITIZERS "address,undefined" CACHE STRING
@@ -263,6 +278,10 @@ add_executable(test_platform_value_registry tests/test_platform_value_registry.c
 target_link_libraries(test_platform_value_registry PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
 add_test(NAME PlatformValueRegistryTest COMMAND test_platform_value_registry)
 
+add_executable(test_platform_business_bridge_registry tests/test_platform_business_bridge_registry.cpp)
+target_link_libraries(test_platform_business_bridge_registry PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME PlatformBusinessBridgeRegistryTest COMMAND test_platform_business_bridge_registry)
+
 add_executable(test_doc_qa_rerank tests/test_doc_qa_rerank.cpp)
 target_link_libraries(test_doc_qa_rerank PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
 add_test(NAME DocQaRerankTest COMMAND test_doc_qa_rerank)
@@ -335,7 +354,7 @@ set_tests_properties(
   RuntimeControlAndHotSwapTest EngineFaultToleranceAndLifecycleTest
   AdapterContractSecurityTest PipelineConfigTest RegistryConflictNodeTest
   RegistryConflictEngineTest RegistryReentrantTest PlatformOperatorTest
-  PlatformOutputPoolTest PlatformValueRegistryTest
+  PlatformOutputPoolTest PlatformValueRegistryTest PlatformBusinessBridgeRegistryTest
   DocQaRerankTest RerankRefineNodeTest PipelineStudioTest VisualizerServerTest
   DemoRunnerTest CatalogContractSsotTest TypedBlackboardContractsTest
   ValidatedPipelinePlanTest NodeBaseContractsTest NodeOwnershipAndReuseTest
