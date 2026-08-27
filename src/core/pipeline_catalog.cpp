@@ -20,8 +20,8 @@ std::vector<EngineDefinition>& RegisteredEngines() {
   return definitions;
 }
 
-std::vector<BusinessDefinition>& RegisteredBusinesses() {
-  static std::vector<BusinessDefinition> definitions;
+std::vector<BizDefinition>& RegisteredBizs() {
+  static std::vector<BizDefinition> definitions;
   return definitions;
 }
 
@@ -192,36 +192,35 @@ bool PipelineCatalog::RegisterEngineDefinition(
   return true;
 }
 
-bool PipelineCatalog::RegisterBusinessDefinition(
-    const BusinessDefinition& definition) {
-  return RegisterBusinessDefinitions({definition});
+bool PipelineCatalog::RegisterBizDefinition(const BizDefinition& definition) {
+  return RegisterBizDefinitions({definition});
 }
 
-bool PipelineCatalog::RegisterBusinessDefinitions(
-    const std::vector<BusinessDefinition>& batch) {
+bool PipelineCatalog::RegisterBizDefinitions(
+    const std::vector<BizDefinition>& batch) {
   if (batch.empty()) return false;
   std::lock_guard<std::mutex> lock(CatalogMutex());
-  auto& definitions = RegisteredBusinesses();
+  auto& definitions = RegisteredBizs();
   std::vector<std::string> batch_names;
   batch_names.reserve(batch.size());
   for (const auto& definition : batch) {
-    if (definition.business_name.empty()) return false;
+    if (definition.biz_name.empty()) return false;
     if (std::find(batch_names.begin(), batch_names.end(),
-                  definition.business_name) != batch_names.end()) {
+                  definition.biz_name) != batch_names.end()) {
       return false;
     }
     if (std::any_of(definitions.begin(), definitions.end(),
                     [&](const auto& item) {
-                      return item.business_name == definition.business_name;
+                      return item.biz_name == definition.biz_name;
                     })) {
       return false;
     }
-    batch_names.push_back(definition.business_name);
+    batch_names.push_back(definition.biz_name);
   }
   definitions.insert(definitions.end(), batch.begin(), batch.end());
   std::sort(definitions.begin(), definitions.end(),
             [](const auto& lhs, const auto& rhs) {
-              return lhs.business_name < rhs.business_name;
+              return lhs.biz_name < rhs.biz_name;
             });
   return true;
 }
@@ -236,9 +235,9 @@ const std::vector<EngineDefinition>& PipelineCatalog::Engines() {
   return RegisteredEngines();
 }
 
-const std::vector<BusinessDefinition>& PipelineCatalog::Businesses() {
+const std::vector<BizDefinition>& PipelineCatalog::Bizs() {
   std::lock_guard<std::mutex> lock(CatalogMutex());
-  return RegisteredBusinesses();
+  return RegisteredBizs();
 }
 
 const NodeDefinition* PipelineCatalog::FindNode(const std::string& node_type) {
@@ -260,21 +259,20 @@ const EngineDefinition* PipelineCatalog::FindEngine(
   return it == engines.end() ? nullptr : &*it;
 }
 
-const BusinessDefinition* PipelineCatalog::FindBusiness(
-    const std::string& business_name) {
+const BizDefinition* PipelineCatalog::FindBiz(const std::string& biz_name) {
   std::lock_guard<std::mutex> lock(CatalogMutex());
-  const auto& businesses = RegisteredBusinesses();
-  auto it = std::find_if(
-      businesses.begin(), businesses.end(),
-      [&](const auto& item) { return item.business_name == business_name; });
-  return it == businesses.end() ? nullptr : &*it;
+  const auto& bizs = RegisteredBizs();
+  auto it = std::find_if(bizs.begin(), bizs.end(), [&](const auto& item) {
+    return item.biz_name == biz_name;
+  });
+  return it == bizs.end() ? nullptr : &*it;
 }
 
 void PipelineCatalog::ClearForTesting() {
   std::lock_guard<std::mutex> lock(CatalogMutex());
   RegisteredNodes().clear();
   RegisteredEngines().clear();
-  RegisteredBusinesses().clear();
+  RegisteredBizs().clear();
 }
 
 nlohmann::json PipelineCatalog::NodeToJson(const NodeDefinition& definition) {
@@ -294,15 +292,16 @@ nlohmann::json PipelineCatalog::NodeToJson(const NodeDefinition& definition) {
           {"model_capability", definition.model_capability},
           {"model_config_field", definition.model_config_field},
           {"parallel_safe", definition.parallel_safe},
-          {"business_names", definition.business_names}};
+          {"biz_names", definition.biz_names},
+          {"business_names", definition.biz_names}};
 }
 
-nlohmann::json PipelineCatalog::ToJson(const std::string& business_filter) {
+nlohmann::json PipelineCatalog::ToJson(const std::string& biz_filter) {
   nlohmann::json nodes = nlohmann::json::array();
   for (const auto& item : Nodes()) {
-    if (!business_filter.empty() && !item.business_names.empty() &&
-        std::find(item.business_names.begin(), item.business_names.end(),
-                  business_filter) == item.business_names.end()) {
+    if (!biz_filter.empty() && !item.biz_names.empty() &&
+        std::find(item.biz_names.begin(), item.biz_names.end(), biz_filter) ==
+            item.biz_names.end()) {
       continue;
     }
     nodes.push_back(NodeToJson(item));
@@ -321,25 +320,27 @@ nlohmann::json PipelineCatalog::ToJson(const std::string& business_filter) {
          {"config_fields", std::move(fields)}});
   }
 
-  nlohmann::json businesses = nlohmann::json::array();
-  for (const auto& item : Businesses()) {
-    if (!business_filter.empty() && item.business_name != business_filter)
-      continue;
+  nlohmann::json bizs = nlohmann::json::array();
+  for (const auto& item : Bizs()) {
+    if (!biz_filter.empty() && item.biz_name != biz_filter) continue;
     nlohmann::json ingress = nlohmann::json::array();
     nlohmann::json egress = nlohmann::json::array();
     for (const auto& port : item.ingress) ingress.push_back(PortJson(port));
     for (const auto& port : item.egress) egress.push_back(PortJson(port));
-    businesses.push_back({{"business_name", item.business_name},
-                          {"demo_business", item.demo_business},
-                          {"display_name", item.display_name},
-                          {"ingress", std::move(ingress)},
-                          {"egress", std::move(egress)}});
+    bizs.push_back({{"biz_name", item.biz_name},
+                    {"business_name", item.biz_name},
+                    {"demo_biz", item.demo_biz},
+                    {"demo_business", item.demo_biz},
+                    {"display_name", item.display_name},
+                    {"ingress", std::move(ingress)},
+                    {"egress", std::move(egress)}});
   }
 
   return {{"schema_version", 1},
           {"nodes", std::move(nodes)},
           {"engines", std::move(engines)},
-          {"businesses", std::move(businesses)}};
+          {"bizs", bizs},
+          {"businesses", std::move(bizs)}};
 }
 
 }  // namespace alg_framework

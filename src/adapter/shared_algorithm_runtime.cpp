@@ -3,8 +3,8 @@
 #include <cstring>
 #include <iostream>
 
-#include "adapter/business_adapter_registry.h"
-#include "adapter/platform/platform_business_bridge_registry.h"
+#include "adapter/biz_adapter_registry.h"
+#include "adapter/platform/platform_biz_bridge_registry.h"
 #include "adapter/platform/platform_value_type_registry.h"
 #include "core/alg_context.h"
 #include "core/node_registry.h"
@@ -15,10 +15,10 @@ namespace alg_framework {
 
 int SharedAlgorithmRuntime::GlobalInit() noexcept {
   try {
-    // 1. BusinessAdapterRegistry 冲突审计
-    if (BusinessAdapterRegistry::Instance().HasRegistrationConflict()) {
+    // 1. BizAdapterRegistry 冲突审计
+    if (BizAdapterRegistry::Instance().HasRegistrationConflict()) {
       std::cerr << "[SharedAlgorithmRuntime] GlobalInit failed: Registration "
-                   "conflict in BusinessAdapterRegistry."
+                   "conflict in BizAdapterRegistry."
                 << std::endl;
       return COMPANY_ALG_ERR_REGISTRY_CONFLICT;  // -6
     }
@@ -47,10 +47,10 @@ int SharedAlgorithmRuntime::GlobalInit() noexcept {
       return COMPANY_ALG_ERR_REGISTRY_CONFLICT;  // -6
     }
 
-    // 5. PlatformBusinessBridgeRegistry 冲突审计
-    if (PlatformBusinessBridgeRegistry::Instance().HasConflict()) {
+    // 5. PlatformBizBridgeRegistry 冲突审计
+    if (PlatformBizBridgeRegistry::Instance().HasConflict()) {
       std::cerr << "[SharedAlgorithmRuntime] GlobalInit failed: Registration "
-                   "conflict in PlatformBusinessBridgeRegistry."
+                   "conflict in PlatformBizBridgeRegistry."
                 << std::endl;
       return COMPANY_ALG_ERR_REGISTRY_CONFLICT;  // -6
     }
@@ -90,7 +90,7 @@ int SharedAlgorithmRuntime::CreateFromConfigFile(
       return COMPANY_ALG_ERR_UNSUPPORTED_BIZ;  // -5
     }
 
-    auto adapter = BusinessAdapterRegistry::Instance().GetAdapter(biz_type);
+    auto adapter = BizAdapterRegistry::Instance().GetAdapter(biz_type);
     if (!adapter) {
       if (out_error) {
         *out_error =
@@ -177,7 +177,7 @@ int SharedAlgorithmRuntime::CreateFromPipelineJson(
       return COMPANY_ALG_ERR_UNSUPPORTED_BIZ;  // -5
     }
 
-    auto adapter = BusinessAdapterRegistry::Instance().GetAdapter(biz_type);
+    auto adapter = BizAdapterRegistry::Instance().GetAdapter(biz_type);
     if (!adapter) {
       if (out_error) {
         *out_error =

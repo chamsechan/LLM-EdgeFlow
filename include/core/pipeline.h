@@ -65,7 +65,8 @@ class Pipeline {
 
   SessionContext& GetSessionContext() { return session_ctx_; }
   const SessionContext& GetSessionContext() const { return session_ctx_; }
-  const std::string& GetBusinessName() const { return business_name_; }
+  const std::string& GetBizName() const { return biz_name_; }
+  const std::string& GetBusinessName() const { return biz_name_; }
   ExecutionMode GetExecutionMode() const { return execution_mode_; }
   const std::vector<std::string>& GetTopologicalOrder() const {
     return topological_order_;
@@ -82,6 +83,7 @@ class Pipeline {
   std::function<void()> test_internal_hook_;
 
   State state_ = State::kEmpty;
+  std::string biz_name_;
   std::string business_name_;
   ExecutionMode execution_mode_ = ExecutionMode::SEQUENTIAL;
   size_t max_parallel_workers_ = 4;

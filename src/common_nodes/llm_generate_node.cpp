@@ -54,7 +54,7 @@ NodeDefinition MakeLlmGenerateNodeDefinition() {
   def.model_capability = "llm";
   def.model_config_field = "bind_model";
   // Empty means this common node is reusable by any compatible business.
-  def.business_names = {};
+  def.biz_names = {};
   def.parallel_safe = true;
   return def;
 }

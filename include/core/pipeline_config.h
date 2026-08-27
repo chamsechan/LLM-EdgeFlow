@@ -35,6 +35,7 @@ struct ParsedNodeConfig {
  * @brief 解析后的完整管线配置
  */
 struct ParsedPipelineConfig {
+  std::string biz_name;
   std::string business_name;
   std::string execution_mode = "sequential";
   size_t max_parallel_workers = 4;

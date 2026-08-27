@@ -1,5 +1,5 @@
 {
-  "business_name": "speech_audio_asr_intent_slot",
+  "biz_name": "speech_audio_asr_intent_slot",
   "models": [
     {
       "config": {

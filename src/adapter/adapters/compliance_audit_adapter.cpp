@@ -2,13 +2,13 @@
 #include <vector>
 
 #include "adapter/adapter_validation_helper.h"
-#include "adapter/business_adapter_registry.h"
-#include "business/dialogue_audit/dialogue_audit_contract.h"
+#include "adapter/biz_adapter_registry.h"
+#include "biz/dialogue_audit/dialogue_audit_contract.h"
 #include "company_alg_interface.h"
 
 namespace alg_framework {
 
-class ComplianceAuditAdapter : public IBusinessAdapter {
+class ComplianceAuditAdapter : public IBizAdapter {
  public:
   CompanyAlgBizType BizType() const override {
     return ALG_BIZ_TYPE_COMPLIANCE_AUDIT;
@@ -149,6 +149,6 @@ class ComplianceAuditAdapter : public IBusinessAdapter {
   }
 };
 
-REGISTER_BUSINESS_ADAPTER(ComplianceAuditAdapter);
+REGISTER_BIZ_ADAPTER(ComplianceAuditAdapter);
 
 }  // namespace alg_framework

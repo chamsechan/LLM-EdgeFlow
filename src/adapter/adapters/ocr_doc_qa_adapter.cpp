@@ -2,13 +2,13 @@
 #include <vector>
 
 #include "adapter/adapter_validation_helper.h"
-#include "adapter/business_adapter_registry.h"
-#include "business/ocr_doc_qa/ocr_doc_qa_contract.h"
+#include "adapter/biz_adapter_registry.h"
+#include "biz/ocr_doc_qa/ocr_doc_qa_contract.h"
 #include "company_alg_interface.h"
 
 namespace alg_framework {
 
-class OcrDocQaAdapter : public IBusinessAdapter {
+class OcrDocQaAdapter : public IBizAdapter {
  public:
   CompanyAlgBizType BizType() const override { return ALG_BIZ_TYPE_OCR_DOC_QA; }
 
@@ -139,6 +139,6 @@ class OcrDocQaAdapter : public IBusinessAdapter {
   }
 };
 
-REGISTER_BUSINESS_ADAPTER(OcrDocQaAdapter);
+REGISTER_BIZ_ADAPTER(OcrDocQaAdapter);
 
 }  // namespace alg_framework

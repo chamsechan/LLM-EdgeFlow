@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-#include "business/dialogue_audit/dialogue_audit_contract.h"
+#include "biz/dialogue_audit/dialogue_audit_contract.h"
 #include "core/alg_context.h"
 #include "core/node_base.h"
 #include "core/node_registry.h"
@@ -21,18 +21,18 @@ TEST(NodeOwnershipAndReuseTest, CatalogCategoriesAndOwnership) {
   ASSERT_NE(llm_gen, nullptr);
   EXPECT_EQ(llm_gen->category, "common");
 
-  // 2. PromptBuilderNode, VectorSearchNode, RerankRefineNode are business nodes
+  // 2. PromptBuilderNode, VectorSearchNode, RerankRefineNode are biz nodes
   const auto* prompt_bld = PipelineCatalog::FindNode("PromptBuilderNode");
   ASSERT_NE(prompt_bld, nullptr);
-  EXPECT_EQ(prompt_bld->category, "business");
+  EXPECT_EQ(prompt_bld->category, "biz");
 
   const auto* vec_search = PipelineCatalog::FindNode("VectorSearchNode");
   ASSERT_NE(vec_search, nullptr);
-  EXPECT_EQ(vec_search->category, "business");
+  EXPECT_EQ(vec_search->category, "biz");
 
   const auto* rerank_refine = PipelineCatalog::FindNode("RerankRefineNode");
   ASSERT_NE(rerank_refine, nullptr);
-  EXPECT_EQ(rerank_refine->category, "business");
+  EXPECT_EQ(rerank_refine->category, "biz");
 }
 
 // Mock Embedding Engine that computes distinct vector based on string hash /

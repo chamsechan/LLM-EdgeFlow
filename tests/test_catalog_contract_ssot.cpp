@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-#include "adapter/business_adapter_registry.h"
+#include "adapter/biz_adapter_registry.h"
 #include "core/node_registry.h"
 #include "core/pipeline_catalog.h"
 #include "engine/engine_registry.h"
@@ -100,13 +100,13 @@ TEST_F(CatalogContractSsotTest, AllInferenceEnginesHaveValidDefinitions) {
 
 // 3. 验证 7 种业务契约在 PipelineCatalog 中完整注册
 TEST_F(CatalogContractSsotTest, AllBusinessDefinitionsAreRegistered) {
-  const auto& businesses = PipelineCatalog::Businesses();
-  EXPECT_GE(businesses.size(), 7U);
+  const auto& bizs = PipelineCatalog::Bizs();
+  EXPECT_GE(bizs.size(), 7U);
 
   std::set<std::string> biz_names;
-  for (const auto& b : businesses) {
-    EXPECT_FALSE(b.business_name.empty());
-    biz_names.insert(b.business_name);
+  for (const auto& b : bizs) {
+    EXPECT_FALSE(b.biz_name.empty());
+    biz_names.insert(b.biz_name);
   }
 
   EXPECT_TRUE(biz_names.count("keyword_match_v1"));
@@ -118,9 +118,9 @@ TEST_F(CatalogContractSsotTest, AllBusinessDefinitionsAreRegistered) {
   EXPECT_TRUE(biz_names.count("dense_cross_rerank_scoring"));
 
   for (const auto& name : biz_names) {
-    const auto* found = PipelineCatalog::FindBusiness(name);
-    ASSERT_NE(found, nullptr) << "Missing business definition: " << name;
-    EXPECT_EQ(found->business_name, name);
+    const auto* found = PipelineCatalog::FindBiz(name);
+    ASSERT_NE(found, nullptr) << "Missing biz definition: " << name;
+    EXPECT_EQ(found->biz_name, name);
   }
 }
 
@@ -128,26 +128,26 @@ TEST_F(CatalogContractSsotTest, AllBusinessDefinitionsAreRegistered) {
 TEST_F(CatalogContractSsotTest, FindReturnsNullptrForNonexistentEntities) {
   EXPECT_EQ(PipelineCatalog::FindNode("NonExistentNode12345"), nullptr);
   EXPECT_EQ(PipelineCatalog::FindEngine("non_existent_engine_999"), nullptr);
-  EXPECT_EQ(PipelineCatalog::FindBusiness("non_existent_biz_xyz"), nullptr);
+  EXPECT_EQ(PipelineCatalog::FindBiz("non_existent_biz_xyz"), nullptr);
 }
 
 TEST_F(CatalogContractSsotTest, BusinessBatchRegistrationIsAtomic) {
   const std::string first = "atomic_catalog_probe_first";
   const std::string last = "atomic_catalog_probe_last";
-  ASSERT_EQ(PipelineCatalog::FindBusiness(first), nullptr);
-  ASSERT_EQ(PipelineCatalog::FindBusiness(last), nullptr);
+  ASSERT_EQ(PipelineCatalog::FindBiz(first), nullptr);
+  ASSERT_EQ(PipelineCatalog::FindBiz(last), nullptr);
 
-  const auto& existing = PipelineCatalog::Businesses();
+  const auto& existing = PipelineCatalog::Bizs();
   ASSERT_FALSE(existing.empty());
-  std::vector<BusinessDefinition> batch = {
-      BusinessDefinition{first, "probe"},
-      BusinessDefinition{existing.front().business_name, "probe"},
-      BusinessDefinition{last, "probe"},
+  std::vector<BizDefinition> batch = {
+      BizDefinition{first, "probe"},
+      BizDefinition{existing.front().biz_name, "probe"},
+      BizDefinition{last, "probe"},
   };
 
-  EXPECT_FALSE(PipelineCatalog::RegisterBusinessDefinitions(batch));
-  EXPECT_EQ(PipelineCatalog::FindBusiness(first), nullptr);
-  EXPECT_EQ(PipelineCatalog::FindBusiness(last), nullptr);
+  EXPECT_FALSE(PipelineCatalog::RegisterBizDefinitions(batch));
+  EXPECT_EQ(PipelineCatalog::FindBiz(first), nullptr);
+  EXPECT_EQ(PipelineCatalog::FindBiz(last), nullptr);
 }
 
 // 5. 验证 PipelineCatalog::ToJson 序列化规范性与过滤逻辑
@@ -156,10 +156,10 @@ TEST_F(CatalogContractSsotTest, ToJsonSerializationAndFiltering) {
   EXPECT_EQ(full_catalog["schema_version"], 1);
   EXPECT_TRUE(full_catalog["nodes"].is_array());
   EXPECT_TRUE(full_catalog["engines"].is_array());
-  EXPECT_TRUE(full_catalog["businesses"].is_array());
+  EXPECT_TRUE(full_catalog["bizs"].is_array());
   EXPECT_GE(full_catalog["nodes"].size(), 27U);
   EXPECT_GE(full_catalog["engines"].size(), 8U);
-  EXPECT_GE(full_catalog["businesses"].size(), 7U);
+  EXPECT_GE(full_catalog["bizs"].size(), 7U);
   for (const auto& engine : full_catalog["engines"]) {
     ASSERT_TRUE(engine.contains("thread_model"));
     EXPECT_TRUE(engine["thread_model"] == "serialized" ||

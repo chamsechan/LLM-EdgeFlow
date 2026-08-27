@@ -92,7 +92,7 @@ struct NodeDefinition {
   std::string model_capability;
   std::string model_config_field;
   bool parallel_safe = false;
-  std::vector<std::string> business_names;
+  std::vector<std::string> biz_names;
 };
 
 struct EngineDefinition {
@@ -103,46 +103,57 @@ struct EngineDefinition {
   EngineThreadModel thread_model = EngineThreadModel::kSerialized;
 };
 
-struct BusinessDefinition {
-  std::string business_name;
-  std::string demo_business;
+struct BizDefinition {
+  std::string biz_name;
+  std::string demo_biz;
   std::string display_name;
   std::vector<PortDefinition> ingress;
   std::vector<PortDefinition> egress;
 
-  BusinessDefinition() = default;
-  BusinessDefinition(std::string name, std::string demo,
-                     std::string display = {},
-                     std::vector<PortDefinition> in = {},
-                     std::vector<PortDefinition> out = {})
-      : business_name(std::move(name)),
-        demo_business(std::move(demo)),
+  BizDefinition() = default;
+  BizDefinition(std::string name, std::string demo, std::string display = {},
+                std::vector<PortDefinition> in = {},
+                std::vector<PortDefinition> out = {})
+      : biz_name(std::move(name)),
+        demo_biz(std::move(demo)),
         display_name(std::move(display)),
         ingress(std::move(in)),
         egress(std::move(out)) {}
 };
 
+using BusinessDefinition = BizDefinition;
+
 class PipelineCatalog {
  public:
   static bool RegisterNodeDefinition(const NodeDefinition& definition);
   static bool RegisterEngineDefinition(const EngineDefinition& definition);
-  static bool RegisterBusinessDefinition(const BusinessDefinition& definition);
+  static bool RegisterBizDefinition(const BizDefinition& definition);
+  static bool RegisterBizDefinitions(
+      const std::vector<BizDefinition>& definitions);
+
+  static bool RegisterBusinessDefinition(const BizDefinition& definition) {
+    return RegisterBizDefinition(definition);
+  }
   static bool RegisterBusinessDefinitions(
-      const std::vector<BusinessDefinition>& definitions);
+      const std::vector<BizDefinition>& definitions) {
+    return RegisterBizDefinitions(definitions);
+  }
 
   static const std::vector<NodeDefinition>& Nodes();
   static const std::vector<EngineDefinition>& Engines();
-  static const std::vector<BusinessDefinition>& Businesses();
+  static const std::vector<BizDefinition>& Bizs();
+  static const std::vector<BizDefinition>& Businesses() { return Bizs(); }
 
   static const NodeDefinition* FindNode(const std::string& node_type);
   static const EngineDefinition* FindEngine(const std::string& engine_type);
-  static const BusinessDefinition* FindBusiness(
-      const std::string& business_name);
+  static const BizDefinition* FindBiz(const std::string& biz_name);
+  static const BizDefinition* FindBusiness(const std::string& biz_name) {
+    return FindBiz(biz_name);
+  }
 
   static void ClearForTesting();
 
-  static nlohmann::json ToJson(
-      const std::string& business_filter = std::string());
+  static nlohmann::json ToJson(const std::string& biz_filter = std::string());
   static nlohmann::json NodeToJson(const NodeDefinition& definition);
 };
 

@@ -332,11 +332,14 @@ int LoadAndValidateProfilesDocument(const std::string& profiles_path,
       if (error_msg) *error_msg = "Profile '" + name + "' must be an object";
       return 3;
     }
-    if (!p.contains("business") || !p["business"].is_string() ||
-        p["business"].get<std::string>().empty()) {
+    bool has_biz = p.contains("biz") && p["biz"].is_string() &&
+                   !p["biz"].get<std::string>().empty();
+    bool has_business = p.contains("business") && p["business"].is_string() &&
+                        !p["business"].get<std::string>().empty();
+    if (!has_biz && !has_business) {
       if (error_msg)
         *error_msg =
-            "Profile '" + name + "' must contain non-empty string 'business'";
+            "Profile '" + name + "' must contain non-empty string 'biz'";
       return 3;
     }
     if (!p.contains("config") || !p["config"].is_string() ||
@@ -502,7 +505,8 @@ int LoadAndMergeProfiles(const std::string& profiles_path,
   }
 
   const auto& p = profiles[cli_options.profile];
-  std::string prof_biz = p["business"].get<std::string>();
+  std::string prof_biz = p.contains("biz") ? p["biz"].get<std::string>()
+                                           : p["business"].get<std::string>();
   std::string prof_cfg = p["config"].get<std::string>();
   std::string prof_data = p["dataset"].get<std::string>();
 
