@@ -38,8 +38,10 @@ echo -e "${GREEN}✓ 架构分层隔离、文档防漂移、Shell 脚本语法�
 echo -e "${BOLD}[ Step 2/6: CMake 构建与二进制链接 (Ninja & ccache 并行加速) ]${NC}"
 mkdir -p "$BUILD_DIR"
 CMAKE_GEN_ARGS=()
-if command -v ninja >/dev/null 2>&1; then
-  CMAKE_GEN_ARGS=(-G Ninja)
+if [[ ! -f "${BUILD_DIR}/CMakeCache.txt" ]]; then
+  if command -v ninja >/dev/null 2>&1; then
+    CMAKE_GEN_ARGS=(-G Ninja)
+  fi
 fi
 cmake -S "$ROOT_DIR" -B "$BUILD_DIR" -DLLM_EDGEFLOW_USE_CCACHE=ON "${CMAKE_GEN_ARGS[@]}" > /dev/null
 cmake --build "$BUILD_DIR" -j"$(nproc)"

@@ -31,8 +31,17 @@ echo " Project Root: ${PROJECT_ROOT}"
 echo " Sanitizers: ${SANITIZERS}"
 if [[ "${SANITIZERS}" == *"thread"* ]]; then
   echo " Note: ThreadSanitizer data race detection enabled."
-else
-  echo " Note: ASan/UBSan memory safety checks enabled."
+elif [[ "${SANITIZERS}" == "address" ]]; then
+  echo " Note: AddressSanitizer memory safety checks enabled."
+  if [[ "${DETECT_LEAKS}" == "1" ]]; then
+    echo "       LeakSanitizer enabled (detect_leaks=1)."
+  else
+    echo "       LeakSanitizer disabled (detect_leaks=0)."
+  fi
+elif [[ "${SANITIZERS}" == "undefined" ]]; then
+  echo " Note: UndefinedBehaviorSanitizer checks enabled."
+elif [[ "${SANITIZERS}" == *"address"* ]] && [[ "${SANITIZERS}" == *"undefined"* ]]; then
+  echo " Note: ASan/UBSan memory safety and UB checks enabled."
   if [[ "${DETECT_LEAKS}" == "1" ]]; then
     echo "       LeakSanitizer enabled (detect_leaks=1)."
   else
@@ -47,8 +56,10 @@ COMMON_CMAKE_ARGS=(
   -DLLM_EDGEFLOW_SANITIZERS="${SANITIZERS}"
   -DLLM_EDGEFLOW_USE_CCACHE=ON
 )
-if command -v ninja >/dev/null 2>&1; then
-  COMMON_CMAKE_ARGS+=(-G Ninja)
+if [[ ! -f "${BUILD_DIR}/CMakeCache.txt" ]]; then
+  if command -v ninja >/dev/null 2>&1; then
+    COMMON_CMAKE_ARGS+=(-G Ninja)
+  fi
 fi
 if [[ "${MODE}" == "fast" ]]; then
   COMMON_CMAKE_ARGS+=(
