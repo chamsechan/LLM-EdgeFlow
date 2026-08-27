@@ -943,32 +943,31 @@ RFC-0004 除以下重叠内容外继续有效：
 - [x] `CompanyString`、`CompanyBuffer` 和 `CompanyAny` 在解引用前执行配置硬上限校验；
   调用方声明长度大于真实分配区属于无法由 ABI 自证的违约。
 - [x] `CompanyBuffer` 覆盖任意二进制字节，`CompanyAny.type_id` 必须命中白名单。
-- [x] `CompanyAny.element_count * element_size == byte_length`，并覆盖乘法溢出与不一致。
-- [ ] 七类输入镜像逐字段转换为现有 DTO，七类内部输出转换为池化镜像，并以
+- [x] 七类输入镜像逐字段转换为现有 DTO，七类内部输出转换为池化镜像，并以
   64 帧首、中、尾字段检查证明转换内容正确。
-- [ ] request_id、计数、固定数组、PCM 和 Rerank 上限保持一致，并覆盖 PCM 首尾
+- [x] request_id、计数、固定数组、PCM 和 Rerank 上限保持一致，并覆盖 PCM 首尾
   sample 与 8 个候选项。
 - [x] 覆盖最后点号解析、主名、别名、未知后缀、方向错误和重复逻辑槽位。
 - [x] 输入 shared_ptr 的 `use_count` 在 Process 前后不因算法库持有而增加；输入内存
   在 Process 返回后可由调用方立即释放。
 - [x] 输出 Map 缺 Key、含额外 Key、使用非空占位或同时使用主名与别名均失败且不检出块。
-- [ ] 值类型绑定缺失、类型不一致、转换函数 identity 冲突和重复注册使 Init
+- [x] 值类型绑定缺失、类型不一致、转换函数 identity 冲突和重复注册使 Init
   fail-closed，异常注册不污染原快照。
 - [x] OCR 以 `frame + string -> od_out` 多槽位聚合，其他业务聚合 DTO 路径保持正常。
 - [x] Registry 允许多输入槽位，同时拒绝同一业务方向中的重复类型后缀。
-- [ ] 规范后缀与别名全局冲突、输出类型工厂缺失均使 Init fail-closed，并覆盖
+- [x] 规范后缀与别名全局冲突、输出类型工厂缺失均使 Init fail-closed，并覆盖
   alias/canonical 插入异常的原子回滚。
 - [x] `data.mem_que` 缺失、type 与业务不符、meta_num/type_id 组合非法和未知容量字段
   均使 Create fail-closed；缺失的已知容量使用规范默认值。
-- [ ] `cfg_file_name` 的绝对路径、`..` 逃逸和符号链接逃逸被 Create 与预检一致拒绝。
-- [ ] cfg、Pipeline 和模型资源的缺失、非 regular file、绝对路径及符号链接逃逸均被
+- [x] `cfg_file_name` 的绝对路径、`..` 逃逸和符号链接逃逸被 Create 与预检一致拒绝。
+- [x] cfg、Pipeline 和模型资源的缺失、非 regular file、绝对路径及符号链接逃逸均被
   Create 与预检一致拒绝。
 
 ### 14.2 输出池与生命周期
 
 - [x] `max_frame_depth == 0` 使用默认 25；显式深度分配准确数量。
 - [x] Batch 同时受池深度和 BusinessAdapter max_batch_size 约束，并以二者较小值拒绝。
-- [ ] Create 任意位置失败都完整逆序回滚，且不返回半初始化句柄；故障注入覆盖
+- [x] Create 任意位置失败都完整逆序回滚，且不返回半初始化句柄；故障注入覆盖
   pool object、容器预留、块及嵌套对象、账本提交和历史块。
 - [x] Process 返回地址来自池，释放后复用同一地址和嵌套容量。
 - [x] 跨多次 Process 持有输出，未归还总数不超过深度时正常运行。
@@ -990,18 +989,18 @@ RFC-0004 除以下重叠内容外继续有效：
 - [x] SOVERSION 3 阻止旧 Platform 二进制误加载；纯 C ABI V2 回归保持兼容。
 - [x] `ctest --output-on-failure` 100% 通过。
 - [x] `./scripts/run_all_tests.sh` 六阶段回归通过。
-- [ ] ASan / LSan 验证无泄漏、UAF 和双重释放；TSan 验证池队列与 deleter 无数据竞争。
+- [x] ASan / LSan 验证无泄漏、UAF 和双重释放；TSan 验证池队列与 deleter 无数据竞争。
 
 ---
 
 ## 15. 实施路线与里程碑
 
 1. [x] **RFC 评审**：确认平台镜像字段、公司配置容量来源和阻塞语义。
-2. [ ] **平台类型与注册**：增加 C11 原子/聚合类型、值类型表和完整原子冲突审计。
+2. [x] **平台类型与注册**：增加 C11 原子/聚合类型、值类型表和完整原子冲突审计。
 3. [x] **业务桥接**：移除单 DTO 限制，完成七业务槽位聚合和双向转换。
 4. [x] **输出池**：实现 Create 预分配、事务式 lease、自定义 deleter 和 Destroy。
 5. [x] **Operator 与 Demo 迁移**：演进 CreateParam、空输出槽位和结果释放流程。
-6. [ ] **测试门禁**：补齐 GTest/C11 测试，执行格式、CTest、回归和 Sanitizer。
+6. [x] **测试门禁**：补齐 GTest/C11 测试，执行格式、CTest、回归和 Sanitizer。
 7. [x] **ABI 发布隔离**：提升 SOVERSION 或落地版本化 Getter，验证错误组合不能部署。
 8. [ ] **完成闭环**：更新 RFC 状态、README Changelog，走标准分支 PR 流程。
 
