@@ -2,11 +2,11 @@
 
 #include <cstdint>
 #include <cstring>
-#include <iostream>
 #include <vector>
 
 #include "adapter/adapter_status.h"
 #include "company_alg_interface.h"
+#include "company_alg_log.h"
 
 namespace alg_framework {
 
@@ -37,55 +37,57 @@ class AdapterValidationHelper {
                                     int max_batch_size, int required_count,
                                     const char* biz_name) {
     if (!inputs || num_inputs <= 0) {
-      std::cerr
-          << "[AdapterValidation] " << (biz_name ? biz_name : "Biz")
-          << " PreFlight failed: Invalid inputs array or num_inputs <= 0 ("
-          << num_inputs << ")" << std::endl;
+      ALG_LOG_ERROR(
+          "[AdapterValidation] %s PreFlight failed: Invalid inputs array or "
+          "num_inputs <= 0 (%d)\n",
+          biz_name ? biz_name : "Biz", num_inputs);
       return COMPANY_ALG_ERR_INVALID_INPUT;
     }
 
     // REV2-005: 强制校验 max_batch_size Descriptor 契约
     if (max_batch_size > 0 && num_inputs > max_batch_size) {
-      std::cerr << "[AdapterValidation] " << (biz_name ? biz_name : "Biz")
-                << " PreFlight failed: num_inputs (" << num_inputs
-                << ") exceeds max_batch_size limit (" << max_batch_size << ")"
-                << std::endl;
+      ALG_LOG_ERROR(
+          "[AdapterValidation] %s PreFlight failed: num_inputs (%d) exceeds "
+          "max_batch_size limit (%d)\n",
+          biz_name ? biz_name : "Biz", num_inputs, max_batch_size);
       return COMPANY_ALG_ERR_INVALID_INPUT;
     }
 
     for (int i = 0; i < num_inputs; ++i) {
       if (!inputs[i]) {
-        std::cerr << "[AdapterValidation] " << (biz_name ? biz_name : "Biz")
-                  << " PreFlight failed: Null pointer at input index [" << i
-                  << "]" << std::endl;
+        ALG_LOG_ERROR(
+            "[AdapterValidation] %s PreFlight failed: Null pointer at input "
+            "index [%d]\n",
+            biz_name ? biz_name : "Biz", i);
         return COMPANY_ALG_ERR_INVALID_INPUT;
       }
     }
 
     if (!num_outputs || *num_outputs < 0) {
-      std::cerr << "[AdapterValidation] " << (biz_name ? biz_name : "Biz")
-                << " PreFlight failed: Invalid num_outputs pointer or negative "
-                   "capacity"
-                << std::endl;
+      ALG_LOG_ERROR(
+          "[AdapterValidation] %s PreFlight failed: Invalid num_outputs "
+          "pointer or negative capacity\n",
+          biz_name ? biz_name : "Biz");
       return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     }
 
     // REV2-002: 提前拦截容量不足或空 outputs (标准容量预查)，回填所需容量
     int capacity = *num_outputs;
     if (capacity < required_count || !outputs) {
-      std::cerr << "[AdapterValidation] " << (biz_name ? biz_name : "Biz")
-                << " PreFlight: Output capacity (" << capacity
-                << ") insufficient or outputs array null for required count ("
-                << required_count << ")" << std::endl;
+      ALG_LOG_ERROR(
+          "[AdapterValidation] %s PreFlight: Output capacity (%d) "
+          "insufficient or outputs array null for required count (%d)\n",
+          biz_name ? biz_name : "Biz", capacity, required_count);
       *num_outputs = required_count;  // 报告所需容量
       return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     }
 
     for (int i = 0; i < required_count; ++i) {
       if (!outputs[i]) {
-        std::cerr << "[AdapterValidation] " << (biz_name ? biz_name : "Biz")
-                  << " PreFlight failed: Null pointer at output slot index ["
-                  << i << "]" << std::endl;
+        ALG_LOG_ERROR(
+            "[AdapterValidation] %s PreFlight failed: Null pointer at output "
+            "slot index [%d]\n",
+            biz_name ? biz_name : "Biz", i);
         return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
       }
     }

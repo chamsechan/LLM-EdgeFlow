@@ -2,10 +2,12 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <sstream>
 
+#include "company_alg_log.h"
 #include "demo/common/dataset_reader.h"
 #include "nlohmann/json.hpp"
 
@@ -61,6 +63,15 @@ bool ParseStrictInt64(const std::string& str, int64_t* out_val) {
 }
 
 }  // namespace
+
+void ConfigureLogLevelFromEnvironment() noexcept {
+  const char* value = std::getenv("LLMEDGEFLOW_LEVEL");
+  if (!value || value[0] < '0' || value[0] > '5' || value[1] != '\0') {
+    return;
+  }
+  const int parsed_level = value[0] - '0';
+  (void)AlgBase_setLogLevelByName(COMPANY_ALG_LOG_NAME, parsed_level);
+}
 
 bool ParseComputePlatform(const std::string& chip_str,
                           ComputePlatform* out_type) noexcept {

@@ -1,7 +1,6 @@
 #include "adapter/operator/operator_output_pool.h"
 
 #include <atomic>
-#include <iostream>
 
 namespace alg_framework {
 

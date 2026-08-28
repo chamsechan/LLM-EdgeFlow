@@ -2,13 +2,13 @@
 
 #include <algorithm>
 #include <functional>
-#include <iostream>
 #include <memory>
 #include <mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
+#include "company_alg_log.h"
 #include "core/node_base.h"
 #include "core/pipeline_catalog.h"
 
@@ -53,8 +53,8 @@ class NodeFactory {
         has_conflict_ = true;
         conflict_errors_.push_back("Duplicate node registration for type: " +
                                    node_type);
-        std::cerr << "[NodeFactory ERROR] Duplicate node registration: "
-                  << node_type << std::endl;
+        ALG_LOG_ERROR("[NodeFactory] Duplicate node registration: %s\n",
+                      node_type.c_str());
         return false;
       }
       if (!PipelineCatalog::RegisterNodeDefinition(*definition)) {

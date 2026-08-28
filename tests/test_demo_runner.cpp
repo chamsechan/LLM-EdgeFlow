@@ -1,10 +1,12 @@
 #include <gtest/gtest.h>
 
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <string>
 #include <vector>
 
+#include "company_alg_log.h"
 #include "demo/common/dataset_reader.h"
 #include "demo/common/demo_options.h"
 #include "demo/common/demo_registry.h"
@@ -15,6 +17,75 @@
 
 using namespace alg_demo;
 using namespace llm_edgeflow::operator_api;
+
+namespace {
+
+class EnvironmentGuard {
+ public:
+  explicit EnvironmentGuard(const char* name) : name_(name) {
+    const char* value = std::getenv(name);
+    if (value) {
+      had_value_ = true;
+      value_ = value;
+    }
+  }
+
+  ~EnvironmentGuard() {
+    if (had_value_) {
+      setenv(name_, value_.c_str(), 1);
+    } else {
+      unsetenv(name_);
+    }
+  }
+
+ private:
+  const char* name_;
+  bool had_value_ = false;
+  std::string value_;
+};
+
+class DemoLogLevelGuard {
+ public:
+  DemoLogLevelGuard()
+      : saved_level_(AlgBase_getLogLevelByName(COMPANY_ALG_LOG_NAME)) {}
+  ~DemoLogLevelGuard() {
+    (void)AlgBase_setLogLevelByName(COMPANY_ALG_LOG_NAME, saved_level_);
+  }
+
+ private:
+  int saved_level_;
+};
+
+}  // namespace
+
+TEST(DemoRunnerTest, LogLevelEnvironmentConfiguration) {
+  EnvironmentGuard environment_guard("LLMEDGEFLOW_LEVEL");
+  DemoLogLevelGuard log_level_guard;
+
+  ASSERT_EQ(AlgBase_setLogLevelByName(COMPANY_ALG_LOG_NAME,
+                                      E_ALG_BASE_LOG_LEVEL_WARNING),
+            0);
+  unsetenv("LLMEDGEFLOW_LEVEL");
+  ConfigureLogLevelFromEnvironment();
+  EXPECT_EQ(AlgBase_getLogLevelByName(COMPANY_ALG_LOG_NAME),
+            E_ALG_BASE_LOG_LEVEL_WARNING);
+
+  setenv("LLMEDGEFLOW_LEVEL", "4", 1);
+  ConfigureLogLevelFromEnvironment();
+  EXPECT_EQ(AlgBase_getLogLevelByName(COMPANY_ALG_LOG_NAME),
+            E_ALG_BASE_LOG_LEVEL_DEBUG);
+
+  for (const char* invalid : {"", "3x", " 3", "+3", "6", "-1"}) {
+    ASSERT_EQ(AlgBase_setLogLevelByName(COMPANY_ALG_LOG_NAME,
+                                        E_ALG_BASE_LOG_LEVEL_WARNING),
+              0);
+    setenv("LLMEDGEFLOW_LEVEL", invalid, 1);
+    ConfigureLogLevelFromEnvironment();
+    EXPECT_EQ(AlgBase_getLogLevelByName(COMPANY_ALG_LOG_NAME),
+              E_ALG_BASE_LOG_LEVEL_WARNING)
+        << "invalid value: " << invalid;
+  }
+}
 
 // 1. 测试 CLI 命令行解析
 TEST(DemoRunnerTest, CommandLineParsingSuccess) {

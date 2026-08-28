@@ -12,6 +12,14 @@
 namespace alg_demo {
 
 /**
+ * @brief Apply the optional LLMEDGEFLOW_LEVEL environment setting.
+ *
+ * Valid decimal values are 0 (Fatal) through 5 (Verbose). Missing or invalid
+ * values silently preserve the current process-wide log level.
+ */
+void ConfigureLogLevelFromEnvironment() noexcept;
+
+/**
  * @brief Demo 运行参数对象 (由命令行参数、Profile 配置与默认安全值合并而成)
  */
 struct DemoOptions {

@@ -6,11 +6,11 @@
 #include <fstream>
 #include <functional>
 #include <future>
-#include <iostream>
 #include <queue>
 #include <unordered_map>
 #include <unordered_set>
 
+#include "company_alg_log.h"
 #include "core/node_registry.h"
 #include "core/pipeline_validator.h"
 #include "engine/engine_registry.h"
@@ -99,8 +99,9 @@ bool Pipeline::BuildFromConfigFile(const std::string& config_file_path,
           "Pipeline build can only be attempted once on an empty Pipeline "
           "instance";
     }
-    std::cerr << "[Pipeline] Build attempted on non-empty Pipeline (state: "
-              << static_cast<int>(state_) << ")" << std::endl;
+    ALG_LOG_ERROR(
+        "[Pipeline] Build attempted on non-empty Pipeline (state: %d)\n",
+        static_cast<int>(state_));
     return false;
   }
 
@@ -112,8 +113,8 @@ bool Pipeline::BuildFromConfigFile(const std::string& config_file_path,
       diagnostic->path = "/";
       diagnostic->message = "Failed to open config file: " + config_file_path;
     }
-    std::cerr << "[Pipeline] Failed to open config file: " << config_file_path
-              << std::endl;
+    ALG_LOG_ERROR("[Pipeline] Failed to open config file: %s\n",
+                  config_file_path.c_str());
     return false;
   }
 
@@ -129,8 +130,8 @@ bool Pipeline::BuildFromConfigFile(const std::string& config_file_path,
       diagnostic->message = std::string("JSON parse exception in ") +
                             config_file_path + ": " + e.what();
     }
-    std::cerr << "[Pipeline] JSON parse exception in " << config_file_path
-              << ": " << e.what() << std::endl;
+    ALG_LOG_ERROR("[Pipeline] JSON parse exception in %s: %s\n",
+                  config_file_path.c_str(), e.what());
     return false;
   }
 
@@ -153,8 +154,9 @@ bool Pipeline::BuildFromJson(const nlohmann::json& root_config,
           "Pipeline build can only be attempted once on an empty Pipeline "
           "instance";
     }
-    std::cerr << "[Pipeline] Build attempted on non-empty Pipeline (state: "
-              << static_cast<int>(state_) << ")" << std::endl;
+    ALG_LOG_ERROR(
+        "[Pipeline] Build attempted on non-empty Pipeline (state: %d)\n",
+        static_cast<int>(state_));
     return false;
   }
 
@@ -183,9 +185,9 @@ bool Pipeline::BuildFromJson(const nlohmann::json& root_config,
       diagnostic->message =
           std::string("Internal exception during pipeline build: ") + e.what();
     }
-    std::cerr
-        << "[Pipeline] Unhandled internal exception during pipeline build: "
-        << e.what() << std::endl;
+    ALG_LOG_ERROR(
+        "[Pipeline] Unhandled internal exception during pipeline build: %s\n",
+        e.what());
   } catch (...) {
     success = false;
     if (diagnostic) {
@@ -193,8 +195,8 @@ bool Pipeline::BuildFromJson(const nlohmann::json& root_config,
       diagnostic->path = "/";
       diagnostic->message = "Unknown internal exception during pipeline build";
     }
-    std::cerr << "[Pipeline] Unknown internal exception during pipeline build"
-              << std::endl;
+    ALG_LOG_ERROR(
+        "[Pipeline] Unknown internal exception during pipeline build\n");
   }
 
   state_ = success ? State::kReady : State::kFailed;
@@ -223,8 +225,8 @@ bool Pipeline::BuildInternal(const nlohmann::json& root_config,
         diagnostic->path = item.path;
         diagnostic->message = std::string(code_str) + ": " + item.message;
       }
-      std::cerr << "[Pipeline] Validation failed: " << code_str << " at "
-                << item.path << ": " << item.message << std::endl;
+      ALG_LOG_ERROR("[Pipeline] Validation failed: %s at %s: %s\n", code_str,
+                    item.path.c_str(), item.message.c_str());
     }
     return false;
   }
@@ -338,8 +340,8 @@ bool Pipeline::BuildInternal(const nlohmann::json& root_config,
         diagnostic->message = "Failed to load model: " + model_cfg.model_id +
                               " at path: " + resolved_model_path;
       }
-      std::cerr << "[Pipeline] Failed to load model: " << model_cfg.model_id
-                << " at path: " << resolved_model_path << std::endl;
+      ALG_LOG_ERROR("[Pipeline] Failed to load model: %s at path: %s\n",
+                    model_cfg.model_id.c_str(), resolved_model_path.c_str());
       return false;
     }
 
@@ -359,8 +361,8 @@ bool Pipeline::BuildInternal(const nlohmann::json& root_config,
       return false;
     }
 
-    std::cout << "[Pipeline] Successfully loaded model [" << model_cfg.model_id
-              << "] with engine [" << model_cfg.engine_type << "]" << std::endl;
+    ALG_LOG_INFO("[Pipeline] Successfully loaded model [%s] with engine [%s]\n",
+                 model_cfg.model_id.c_str(), model_cfg.engine_type.c_str());
   }
 
   // 2. 解析 execution_mode 执行策略与线程池
@@ -368,13 +370,13 @@ bool Pipeline::BuildInternal(const nlohmann::json& root_config,
     execution_mode_ = ExecutionMode::PARALLEL;
     max_parallel_workers_ = parsed_cfg.max_parallel_workers;
     thread_pool_ = std::make_unique<ThreadPool>(max_parallel_workers_);
-    std::cout << "[Pipeline] Parallel Wavefront Execution Mode enabled "
-                 "(workers: "
-              << max_parallel_workers_ << ")" << std::endl;
+    ALG_LOG_INFO(
+        "[Pipeline] Parallel Wavefront Execution Mode enabled (workers: %zu)\n",
+        max_parallel_workers_);
   } else {
     execution_mode_ = ExecutionMode::SEQUENTIAL;
     thread_pool_.reset();
-    std::cout << "[Pipeline] Sequential Execution Mode active" << std::endl;
+    ALG_LOG_INFO("[Pipeline] Sequential Execution Mode active\n");
   }
 
   // 3. 按照波前拓扑层直接物化算子节点
@@ -425,8 +427,8 @@ bool Pipeline::BuildInternal(const nlohmann::json& root_config,
           diagnostic->message =
               "NodeFactory returned null for node_type: " + meta.node_type;
         }
-        std::cerr << "[Pipeline] Failed to create node: " << meta.node_type
-                  << std::endl;
+        ALG_LOG_ERROR("[Pipeline] Failed to create node: %s\n",
+                      meta.node_type.c_str());
         return false;
       }
 
@@ -472,31 +474,31 @@ bool Pipeline::BuildInternal(const nlohmann::json& root_config,
           diagnostic->message = "Failed to initialize node '" + meta.node_type +
                                 "' (id: " + meta.id + ")";
         }
-        std::cerr << "[Pipeline] Failed to initialize node: " << meta.node_type
-                  << " (id: " << meta.id << ")" << std::endl;
+        ALG_LOG_ERROR("[Pipeline] Failed to initialize node: %s (id: %s)\n",
+                      meta.node_type.c_str(), meta.id.c_str());
         return false;
       }
 
       layer_ptrs.push_back(node.get());
       nodes_.push_back(std::move(node));
-      std::cout << "[Pipeline] Initialized node [" << meta.node_type
-                << "] (id: " << meta.id << ", layer: " << layer_idx << ")"
-                << std::endl;
+      ALG_LOG_DEBUG("[Pipeline] Initialized node [%s] (id: %s, layer: %zu)\n",
+                    meta.node_type.c_str(), meta.id.c_str(), layer_idx);
     }
     node_layers_.push_back(std::move(layer_ptrs));
   }
 
-  std::cout << "[Pipeline] DAG Wavefront Topology created with "
-            << node_layers_.size() << " execution layers:" << std::endl;
+  ALG_LOG_DEBUG(
+      "[Pipeline] DAG Wavefront Topology created with %zu execution layers:\n",
+      node_layers_.size());
   for (size_t i = 0; i < topological_layers_ids_.size(); ++i) {
-    std::cout << "  Layer " << i << " ["
-              << (node_layers_[i].size() > 1 ? "Parallel" : "Sequential")
-              << "]: ";
+    std::string node_ids;
     for (size_t j = 0; j < topological_layers_ids_[i].size(); ++j) {
-      std::cout << topological_layers_ids_[i][j]
-                << (j + 1 < topological_layers_ids_[i].size() ? ", " : "");
+      node_ids += topological_layers_ids_[i][j];
+      if (j + 1 < topological_layers_ids_[i].size()) node_ids += ", ";
     }
-    std::cout << std::endl;
+    ALG_LOG_DEBUG("  Layer %zu [%s]: %s\n", i,
+                  node_layers_[i].size() > 1 ? "Parallel" : "Sequential",
+                  node_ids.c_str());
   }
 
   return true;
@@ -518,9 +520,9 @@ int Pipeline::Execute(AlgContext* req_ctx) {
       for (auto* node : layer) {
         int ret = node->Process(req_ctx);
         if (ret != 0) {
-          std::cerr << "[Pipeline] Node [" << node->Name()
-                    << "] failed with error code: " << ret
-                    << ", msg: " << req_ctx->GetErrorMessage() << std::endl;
+          ALG_LOG_ERROR(
+              "[Pipeline] Node [%s] failed with error code: %d, msg: %s\n",
+              node->Name().c_str(), ret, req_ctx->GetErrorMessage().c_str());
           return ret;
         }
       }
@@ -539,9 +541,11 @@ int Pipeline::Execute(AlgContext* req_ctx) {
         int ret = futures[i].get();
         if (ret != 0 && first_error == 0) {
           first_error = ret;
-          std::cerr << "[Pipeline] Parallel Node [" << layer[i]->Name()
-                    << "] failed with error code: " << ret
-                    << ", msg: " << req_ctx->GetErrorMessage() << std::endl;
+          ALG_LOG_ERROR(
+              "[Pipeline] Parallel Node [%s] failed with error code: %d, "
+              "msg: %s\n",
+              layer[i]->Name().c_str(), ret,
+              req_ctx->GetErrorMessage().c_str());
         }
       }
 
@@ -652,8 +656,8 @@ int Pipeline::Control(int cmd, const std::string& json_param) {
     return -1;
   }
 
-  std::cout << "[Pipeline] Control cmd received: " << cmd
-            << ", params: " << json_param << std::endl;
+  ALG_LOG_DEBUG("[Pipeline] Control cmd received: %d, params: %s\n", cmd,
+                json_param.c_str());
 
   bool has_target = false;
   bool has_handled = false;
@@ -686,16 +690,16 @@ int Pipeline::Control(int cmd, const std::string& json_param) {
           parsed_payload = nlohmann::json::parse(json_param);
           json_parsed = true;
         } catch (const std::exception& e) {
-          std::cerr << "[Pipeline] Control payload JSON parse error: "
-                    << e.what() << std::endl;
+          ALG_LOG_ERROR("[Pipeline] Control payload JSON parse error: %s\n",
+                        e.what());
           return -1;
         }
       }
       std::string schema_err;
       if (!ValidatePayloadSchema(
               parsed_payload, matched_cmd_def->payload_schema, &schema_err)) {
-        std::cerr << "[Pipeline] Control payload schema violation: "
-                  << schema_err << std::endl;
+        ALG_LOG_ERROR("[Pipeline] Control payload schema violation: %s\n",
+                      schema_err.c_str());
         return -1;
       }
     }
@@ -703,7 +707,7 @@ int Pipeline::Control(int cmd, const std::string& json_param) {
   }
 
   if (targets.empty()) {
-    std::cerr << "[Pipeline] Unsupported control command: " << cmd << std::endl;
+    ALG_LOG_ERROR("[Pipeline] Unsupported control command: %d\n", cmd);
     return -7;  // COMPANY_ALG_ERR_UNSUPPORTED_CONTROL
   }
 
@@ -712,9 +716,9 @@ int Pipeline::Control(int cmd, const std::string& json_param) {
     has_target = true;
     NodeControlResult res = node->Control(cmd, json_param);
     if (res.status == NodeControlStatus::kFailed) {
-      std::cerr << "[Pipeline] Node [" << node->Name()
-                << "] Control failed with code: " << res.code
-                << ", msg: " << res.message << std::endl;
+      ALG_LOG_ERROR(
+          "[Pipeline] Node [%s] Control failed with code: %d, msg: %s\n",
+          node->Name().c_str(), res.code, res.message.c_str());
       if (first_fail_code == 0) {
         first_fail_code = res.code != 0 ? res.code : -1;
       }
@@ -730,7 +734,7 @@ int Pipeline::Control(int cmd, const std::string& json_param) {
     return 0;
   }
   if (!has_target) {
-    std::cerr << "[Pipeline] Unsupported control command: " << cmd << std::endl;
+    ALG_LOG_ERROR("[Pipeline] Unsupported control command: %d\n", cmd);
     return -7;  // COMPANY_ALG_ERR_UNSUPPORTED_CONTROL
   }
   return -7;

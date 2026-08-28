@@ -1,5 +1,4 @@
 #include <algorithm>
-#include <iostream>
 #include <mutex>
 #include <nlohmann/json.hpp>
 #include <regex>
@@ -305,8 +304,8 @@ class TextRuleMatchNode final : public NodeBase {
         try {
           spec.compiled_regex = std::regex(converted_pat);
         } catch (const std::exception& e) {
-          std::cerr << "[TextRuleMatchNode] Invalid regex: " << spec.pattern
-                    << " (" << e.what() << ")" << std::endl;
+          ALG_LOG_ERROR("[TextRuleMatchNode] Invalid regex: %s (%s)\n",
+                        spec.pattern.c_str(), e.what());
           return false;
         }
       }
@@ -365,3 +364,4 @@ REGISTER_NODE_WITH_DEFINITION(TextRuleMatchNode,
                               MakeTextRuleMatchNodeDefinition());
 
 }  // namespace alg_framework
+#include "company_alg_log.h"

@@ -2,13 +2,13 @@
 
 #include <algorithm>
 #include <functional>
-#include <iostream>
 #include <memory>
 #include <mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
+#include "company_alg_log.h"
 #include "core/pipeline_catalog.h"
 #include "engine/engine_interface.h"
 
@@ -54,8 +54,8 @@ class EngineFactory {
         has_conflict_ = true;
         conflict_errors_.push_back("Duplicate engine registration for type: " +
                                    engine_type);
-        std::cerr << "[EngineFactory ERROR] Duplicate engine registration: "
-                  << engine_type << std::endl;
+        ALG_LOG_ERROR("[EngineFactory] Duplicate engine registration: %s\n",
+                      engine_type.c_str());
         return false;
       }
       if (!PipelineCatalog::RegisterEngineDefinition(*definition)) {

@@ -1,5 +1,4 @@
 #include <algorithm>
-#include <iostream>
 #include <mutex>
 #include <nlohmann/json.hpp>
 #include <regex>
@@ -440,9 +439,10 @@ class TextTemplateNode final : public NodeBase {
       if (is_double) {
         size_t close_pos = tmpl.find("}}", open_pos + 2);
         if (close_pos == std::string::npos) {
-          std::cerr
-              << "[TextTemplateNode] Unclosed {{ placeholder in template at "
-              << open_pos << std::endl;
+          ALG_LOG_ERROR(
+              "[TextTemplateNode] Unclosed {{ placeholder in template at "
+              "%zu\n",
+              open_pos);
           return false;
         }
         std::string raw_name =
@@ -450,16 +450,16 @@ class TextTemplateNode final : public NodeBase {
         size_t first = raw_name.find_first_not_of(" \t");
         size_t last = raw_name.find_last_not_of(" \t");
         if (first == std::string::npos) {
-          std::cerr << "[TextTemplateNode] Empty {{}} placeholder in template"
-                    << std::endl;
+          ALG_LOG_ERROR(
+              "[TextTemplateNode] Empty {{}} placeholder in template\n");
           return false;
         }
         std::string var_name = raw_name.substr(first, last - first + 1);
         if (!IsValidIdentifier(var_name) ||
             (!allow_dynamic_attrs && !kBuiltins.count(var_name) &&
              !static_vals.count(var_name))) {
-          std::cerr << "[TextTemplateNode] Unknown template placeholder: "
-                    << var_name << std::endl;
+          ALG_LOG_ERROR("[TextTemplateNode] Unknown template placeholder: %s\n",
+                        var_name.c_str());
           return false;
         }
         out_tokens->push_back({TokenType::kVariable, std::move(var_name)});
@@ -479,8 +479,9 @@ class TextTemplateNode final : public NodeBase {
           if (IsValidIdentifier(var_name)) {
             if (!allow_dynamic_attrs && !kBuiltins.count(var_name) &&
                 !static_vals.count(var_name)) {
-              std::cerr << "[TextTemplateNode] Unknown template placeholder: "
-                        << var_name << std::endl;
+              ALG_LOG_ERROR(
+                  "[TextTemplateNode] Unknown template placeholder: %s\n",
+                  var_name.c_str());
               return false;
             }
             out_tokens->push_back({TokenType::kVariable, std::move(var_name)});
@@ -602,3 +603,4 @@ REGISTER_NODE_WITH_DEFINITION(TextTemplateNode,
                               MakeTextTemplateNodeDefinition());
 
 }  // namespace alg_framework
+#include "company_alg_log.h"

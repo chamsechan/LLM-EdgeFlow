@@ -28,6 +28,7 @@
 - 🎯 **定长硬件 DMA 批处理调度 (`FixedBatchExecutor`)**：专为端侧/NPU 定长 Batch 设计，全泛型自动切块、补齐 Dummy Pad、推理后剥离并保持 `(req_id, sub_id)` 样本溯源。
 - ⚡ **异构推理引擎 PIMPL 解耦**：原生封装 **ONNX Runtime**、**llama.cpp (GGUF)** 与 **专有 NPU DMA 内核**，切换芯片/引擎无需改动任何业务代码，纯 JSON 配置热插拔。
 - 🧠 **动态类型安全黑板 (`AlgContext`)**：基于 `std::any` 传递多模态复杂张量与结构体，零冗余内存拷贝，请求结束自动释放。
+- 🩺 **公共六级日志 API**：纯 C11 公共头统一 FATAL 到 VERBOSE 输出，支持线程安全的进程级动态阈值。
 - 📊 **图形化算法方案闭环**：C++ Definition/Catalog 驱动统一 CLI 与 **交互式 Web DAG 工作台 (`./show --web`)**，支持方案创建、结构编辑、静态校验、原子保存及隔离的真实 Demo 草稿运行。
 
 ---
@@ -100,6 +101,28 @@ cd .. && ./scripts/run_all_demos.sh smoke
 
 ---
 
+## 🩺 公共日志 API (Logging)
+
+```c
+#include "company_alg_log.h"
+
+AlgBase_setLogLevelByName("LLM_EDGEFLOW", E_ALG_BASE_LOG_LEVEL_DEBUG);
+ALG_LOG_DEBUG("hello[%d], reasoning[%d]\n", session_id, reasoning);
+```
+
+日志等级为 `0=FATAL` 到 `5=VERBOSE`，默认为 `2=WARNING`，且
+`FATAL` 只记录而不终止进程。`ALG_LOG_*` 默认使用 `LLM_EDGEFLOW`
+作为 name，下游可在包含头文件前定义 `COMPANY_ALG_LOG_NAME` 覆盖。
+Demo 在启动时读取数字环境变量：
+
+```bash
+LLMEDGEFLOW_LEVEL=4 ./build/alg_demo --suite smoke
+```
+
+环境变量缺失或非法时静默保留默认 WARNING。
+
+---
+
 ## 📊 DAG 可视化调试 (Visualizer)
 
 ```bash
@@ -131,6 +154,7 @@ Pipeline JSON；未保存草稿可在隔离临时目录中调用真实 `alg_demo
 LLM-EdgeFlow/
 ├── include/
 │   ├── company_alg_interface.h  # Layer 1: 标准 C ABI 导出头文件
+│   ├── company_alg_log.h        # 公共六级日志 API
 │   ├── core/                    # Layer 2: 框架核心 (AlgContext, Pipeline, TraceableItem)
 │   ├── operator/                # Layer 1: Operator 门面接口 (operator_interface.h)
 │   └── engine/                  # Layer 4: 引擎接口 (FixedBatchExecutor, IModelEngine)
@@ -143,13 +167,13 @@ LLM-EdgeFlow/
 │   └── tools/                   # C++ 工具集 (alg_show.cpp, alg_pipeline_tool.cpp)
 ├── doc/
 │   ├── developer_guide.md       # 4 层扩展开发说明书
-│   └── rfcs/                    # RFC 架构演进与治理文档 (RFC 0001 ~ 0011)
+│   └── rfcs/                    # RFC 架构演进与治理文档 (RFC 0001 ~ 0014)
 ├── configs/                     # 11 大标准化业务配置 (JSON & .conf)
 ├── demo/                        # 参数化多业务端到端演示与 Runner
 │   ├── profiles.json            # 预定义执行 Profile 清单 (单一事实源)
 │   ├── common/                  # 通用参数解析、注册表、数据读取、结果落盘与 RAII Runner
 │   └── biz/                     # 7 大独立业务 Demo 适配实现 (*_demo.cpp)
-├── tests/                       # Google Test (GTest) 单元测试套件 (37 组测试)
+├── tests/                       # Google Test / CTest 测试套件 (78 项)
 ├── scripts/                     # 自动化测试、Demo 调度与代码格式化工具
 └── tools/visualizer/            # 交互式 Web DAG 可视化平台
 ```
@@ -157,6 +181,12 @@ LLM-EdgeFlow/
 ---
 
 ## 📝 更新日志 (Changelog)
+
+- **v4.3.0 (独立公共日志 API - RFC 0014)** *(2026-08)*
+  - 🩺 **纯 C11 六级日志契约**：新增 `company_alg_log.h`，提供 FATAL、ERROR、WARNING、INFO、DEBUG、VERBOSE 宏和线程安全全局等级 API，不引入 STL 或第三方日志依赖。
+  - 🎚️ **Demo 运行时配置**：`LLMEDGEFLOW_LEVEL=0..5` 在 Demo 初始化前设置进程级阈值，缺失或非法值默认为 WARNING。
+  - 🔄 **全层生产日志收敛**：Adapter、Pipeline、Common Nodes 和 Engines 停止直接使用 iostream，机器可读 CLI stdout 保持不变。
+  - 🧪 **78 项 CTest 质量门禁**：新增公共日志过滤、格式、多线程、name 覆盖、Fatal 语义、Demo 环境变量与严格 C11 调用验证。
 
 - **v4.2.0 (开发反馈闭环加速 - RFC 0013)** *(2026-08)*
   - ⚡ **双模式编译闭环**：新增持久化 `build-fast` 开发配置，普通 Fast 与 Sanitizer 统一使用可诊断的 `-O1`，Release 保留标准优化等级；mold/lld 经真实链接探测后自动启用并支持系统链接器回退。

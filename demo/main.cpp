@@ -124,6 +124,8 @@ int RunSuite(const std::string& suite_name, const DemoOptions& base_cli_opts) {
 }  // namespace
 
 int main(int argc, char* argv[]) {
+  ConfigureLogLevelFromEnvironment();
+
   // 1. 解析命令行参数
   DemoOptions cli_options;
   std::string cli_err;

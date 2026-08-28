@@ -1,9 +1,9 @@
 #include "engine/onnx/onnx_embedding_engine.h"
 
 #include <cmath>
-#include <iostream>
 #include <vector>
 
+#include "company_alg_log.h"
 #include "engine/engine_registry.h"
 
 #ifdef HAVE_ONNXRUNTIME
@@ -48,30 +48,33 @@ bool OnnxEmbeddingEngine::Load(const std::string& model_path,
       pimpl_->session = std::make_unique<Ort::Session>(
           *pimpl_->env, model_path.c_str(), *pimpl_->session_options);
       pimpl_->is_real_ort_active = true;
-      std::cout << "[OnnxEmbeddingEngine] Successfully loaded ONNX model via "
-                   "ONNX Runtime C++ API: "
-                << model_path << std::endl;
+      ALG_LOG_INFO(
+          "[OnnxEmbeddingEngine] Successfully loaded ONNX model via ONNX "
+          "Runtime C++ API: %s\n",
+          model_path.c_str());
     } else {
-      std::cout
-          << "[OnnxEmbeddingEngine] Model file " << model_path
-          << " not present on disk, using ONNX Runtime pipeline emulator mode."
-          << std::endl;
+      ALG_LOG_WARNING(
+          "[OnnxEmbeddingEngine] Model file %s not present on disk, using "
+          "ONNX Runtime pipeline emulator mode.\n",
+          model_path.c_str());
     }
   } catch (const std::exception& e) {
-    std::cout << "[OnnxEmbeddingEngine] ONNX Runtime session init notice: "
-              << e.what() << " (falling back to robust embedded mode)"
-              << std::endl;
+    ALG_LOG_WARNING(
+        "[OnnxEmbeddingEngine] ONNX Runtime session init notice: %s (falling "
+        "back to robust embedded mode)\n",
+        e.what());
   }
 #else
-  std::cout << "[OnnxEmbeddingEngine] Compiled without -DHAVE_ONNXRUNTIME=1, "
-               "using zero-dependency embedded mode."
-            << std::endl;
+  ALG_LOG_WARNING(
+      "[OnnxEmbeddingEngine] Compiled without -DHAVE_ONNXRUNTIME=1, using "
+      "zero-dependency embedded mode.\n");
 #endif
 
   is_loaded_ = true;
-  std::cout << "[OnnxEmbeddingEngine] Engine Ready: " << model_path
-            << ", Fixed MaxBatchSize: " << max_batch_size_
-            << ", Dim: " << embedding_dim_ << std::endl;
+  ALG_LOG_INFO(
+      "[OnnxEmbeddingEngine] Engine Ready: %s, Fixed MaxBatchSize: %zu, Dim: "
+      "%zu\n",
+      model_path.c_str(), max_batch_size_, embedding_dim_);
   return true;
 }
 
@@ -100,15 +103,17 @@ int OnnxEmbeddingEngine::RawOnnxHardwareInfer(
     const std::vector<std::string>& batch_inputs,
     std::vector<std::vector<float>>* batch_outputs) {
   if (batch_inputs.size() != max_batch_size_) {
-    std::cerr << "[OnnxEmbeddingEngine] HARDWARE ERROR: Batch size "
-              << batch_inputs.size() << " != Fixed MaxBatch " << max_batch_size_
-              << std::endl;
+    ALG_LOG_ERROR(
+        "[OnnxEmbeddingEngine] HARDWARE ERROR: Batch size %zu != Fixed "
+        "MaxBatch %zu\n",
+        batch_inputs.size(), max_batch_size_);
     return -9002;
   }
 
-  std::cout
-      << "  [ONNX Runtime Engine] Executing ONNX embedding kernel with batch="
-      << max_batch_size_ << ", dim=" << embedding_dim_ << std::endl;
+  ALG_LOG_DEBUG(
+      "  [ONNX Runtime Engine] Executing ONNX embedding kernel with "
+      "batch=%zu, dim=%zu\n",
+      max_batch_size_, embedding_dim_);
 
   batch_outputs->resize(max_batch_size_);
   for (size_t i = 0; i < max_batch_size_; ++i) {

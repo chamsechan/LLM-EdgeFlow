@@ -12,6 +12,7 @@
 #include <string.h>
 
 #include "company_alg_interface.h"
+#include "company_alg_log.h"
 #include "operator/company_operator_types.h"
 
 _Static_assert(sizeof(CompanyAlgBizType) == sizeof(int32_t),
@@ -23,8 +24,29 @@ _Static_assert(sizeof(CompanyString) == sizeof(int32_t) + sizeof(char*) +
                "CompanyString memory layout check");
 _Static_assert(COMPANY_OPERATOR_MAX_RERANK_CANDIDATES == 8,
                "COMPANY_OPERATOR_MAX_RERANK_CANDIDATES must be 8");
+_Static_assert(E_ALG_BASE_LOG_LEVEL_FATAL == 0,
+               "Fatal log level must remain 0");
+_Static_assert(E_ALG_BASE_LOG_LEVEL_WARNING == 2,
+               "Warning log level must remain 2");
+_Static_assert(E_ALG_BASE_LOG_LEVEL_VERBOSE == 5,
+               "Verbose log level must remain 5");
 
 int main(void) {
+  if (AlgBase_getLogLevelByName("LLM_EDGEFLOW") !=
+      E_ALG_BASE_LOG_LEVEL_WARNING) {
+    fprintf(stderr, "[C11 ABI Test] Public log default must be WARNING\n");
+    return 11;
+  }
+  if (AlgBase_setLogLevelByName("LLM_EDGEFLOW", E_ALG_BASE_LOG_LEVEL_WARNING) !=
+          0 ||
+      AlgBase_getLogLevelByName("LLM_EDGEFLOW") !=
+          E_ALG_BASE_LOG_LEVEL_WARNING) {
+    fprintf(stderr, "[C11 ABI Test] Failed to configure public log API\n");
+    return 12;
+  }
+  ALG_LOG_DEBUG("This C11 debug record is filtered\n");
+  ALG_LOG_WARNING("[C11 ABI Test] Public log macro is operational\n");
+
   printf("[C11 ABI Test] Testing pure C ABI lifecycle and safety...\n");
 
   // 1. Test Alg_Init and Alg_DeInit

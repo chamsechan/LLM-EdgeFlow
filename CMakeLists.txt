@@ -79,6 +79,7 @@ include(cmake/ThirdPartyEngines.cmake)
 
 # 核心框架与公共算子源文件列表
 set(FRAMEWORK_SRCS
+    src/company_alg_log.cpp
     src/core/pipeline_catalog.cpp
     src/core/pipeline_config.cpp
     src/core/pipeline_validator.cpp
@@ -134,7 +135,7 @@ if(THIRD_PARTY_ENGINE_LIBS)
 endif()
 set_target_properties(alg_sdk PROPERTIES
     OUTPUT_NAME "company_alg_sdk"
-    VERSION 4.0.0
+    VERSION 4.3.0
     SOVERSION 4
 )
 
@@ -192,6 +193,13 @@ add_test(NAME BatchExecutorTest COMMAND test_batch_executor)
 add_executable(test_framework_core tests/test_framework_core.cpp)
 target_link_libraries(test_framework_core PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
 add_test(NAME FrameworkCoreTest COMMAND test_framework_core)
+
+add_executable(test_company_alg_log
+    tests/test_company_alg_log.cpp
+    tests/test_company_alg_log_name_override.cpp)
+target_link_libraries(test_company_alg_log PRIVATE
+    alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME CompanyAlgLogTest COMMAND test_company_alg_log)
 
 add_executable(test_c_abi_safety tests/test_c_abi_safety.cpp)
 target_link_libraries(test_c_abi_safety PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
@@ -385,7 +393,7 @@ set_tests_properties(
   C11AbiComplianceTest LayerGuardTest ArchitectureDocsDriftTest
   ArchitectureDocsDriftGateSelfTest DiagramAssetsCheckTest
   DiagramRenderGateSelfTest BatchExecutorTest FrameworkCoreTest
-  CAbiSafetyTest QwenEnginesComparisonTest DifferentIoModalitiesTest
+  CAbiSafetyTest CompanyAlgLogTest QwenEnginesComparisonTest DifferentIoModalitiesTest
   AllBizPipelinesTest ConcurrencyAndEdgeCasesTest DagPipelineTest
   RuntimeControlAndHotSwapTest EngineFaultToleranceAndLifecycleTest
   AdapterContractSecurityTest PipelineConfigTest RegistryConflictNodeTest

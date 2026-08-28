@@ -1,8 +1,8 @@
 #include "engine/mock_npu/mock_npu_asr_engine.h"
 
-#include <iostream>
 #include <vector>
 
+#include "company_alg_log.h"
 #include "engine/engine_registry.h"
 
 namespace alg_framework {
@@ -15,9 +15,10 @@ bool MockNpuAsrEngine::Load(const std::string& model_path,
   max_batch_size_ = engine_config.value("max_batch_size", 2);
   device_id_ = engine_config.value("device_id", -1);
   is_loaded_ = true;
-  std::cout << "[MockNpuAsrEngine] Loaded Speech ASR model from: "
-            << model_path_ << ", Fixed MaxBatchSize: " << max_batch_size_
-            << ", Device: " << device_id_ << std::endl;
+  ALG_LOG_INFO(
+      "[MockNpuAsrEngine] Loaded Speech ASR model from: %s, Fixed "
+      "MaxBatchSize: %zu, Device: %d\n",
+      model_path_.c_str(), max_batch_size_, device_id_);
   return true;
 }
 
@@ -47,15 +48,17 @@ int MockNpuAsrEngine::RawNpuAsrHardwareInfer(
     const std::vector<AudioPcmData>& batch_audio,
     std::vector<std::string>* batch_transcripts) {
   if (batch_audio.size() != max_batch_size_) {
-    std::cerr << "[MockNpuAsrEngine] HARDWARE ERROR: Batch size "
-              << batch_audio.size() << " != Fixed MaxBatch " << max_batch_size_
-              << std::endl;
+    ALG_LOG_ERROR(
+        "[MockNpuAsrEngine] HARDWARE ERROR: Batch size %zu != Fixed MaxBatch "
+        "%zu\n",
+        batch_audio.size(), max_batch_size_);
     return -8002;
   }
 
-  std::cout << "  [NPU Hardware] Executing NPU Audio ASR Speech-to-Text kernel "
-               "with batch="
-            << max_batch_size_ << std::endl;
+  ALG_LOG_DEBUG(
+      "  [NPU Hardware] Executing NPU Audio ASR Speech-to-Text kernel with "
+      "batch=%zu\n",
+      max_batch_size_);
 
   batch_transcripts->resize(max_batch_size_);
   for (size_t i = 0; i < max_batch_size_; ++i) {

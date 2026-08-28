@@ -2,10 +2,10 @@
 
 #include <atomic>
 #include <cstring>
-#include <iostream>
 #include <limits>
 #include <memory>
 #include <new>
+#include <stdexcept>
 #include <unordered_set>
 
 #include "adapter/operator/operator_output_pool.h"

@@ -1,9 +1,9 @@
 #include "engine/llama_cpp/llama_cpp_engine.h"
 
-#include <iostream>
 #include <nlohmann/json.hpp>
 #include <vector>
 
+#include "company_alg_log.h"
 #include "engine/engine_registry.h"
 
 #ifdef HAVE_LLAMACPP
@@ -57,26 +57,29 @@ bool LlamaCppEngine::Load(const std::string& model_path,
       pimpl_->ctx = llama_init_from_model(pimpl_->model, ctx_params);
       pimpl_->is_real_llama_active = (pimpl_->ctx != nullptr);
       if (pimpl_->is_real_llama_active) {
-        std::cout << "[LlamaCppEngine] Successfully loaded real GGUF model via "
-                     "llama.cpp C/C++ API: "
-                  << model_path << std::endl;
+        ALG_LOG_INFO(
+            "[LlamaCppEngine] Successfully loaded real GGUF model via "
+            "llama.cpp C/C++ API: %s\n",
+            model_path.c_str());
       }
     }
   } else {
-    std::cout << "[LlamaCppEngine] GGUF Model file " << model_path
-              << " not found on disk, running llama.cpp pipeline emulator mode."
-              << std::endl;
+    ALG_LOG_WARNING(
+        "[LlamaCppEngine] GGUF Model file %s not found on disk, running "
+        "llama.cpp pipeline emulator mode.\n",
+        model_path.c_str());
   }
 #else
-  std::cout << "[LlamaCppEngine] Compiled without -DHAVE_LLAMACPP=1, "
-               "running zero-dependency embedded mode."
-            << std::endl;
+  ALG_LOG_WARNING(
+      "[LlamaCppEngine] Compiled without -DHAVE_LLAMACPP=1, running "
+      "zero-dependency embedded mode.\n");
 #endif
 
   is_loaded_ = true;
-  std::cout << "[LlamaCppEngine] LLM Engine Ready: " << model_path
-            << ", Fixed MaxBatchSize: " << max_batch_size_
-            << ", MaxSeqLen: " << max_seq_len_ << std::endl;
+  ALG_LOG_INFO(
+      "[LlamaCppEngine] LLM Engine Ready: %s, Fixed MaxBatchSize: %zu, "
+      "MaxSeqLen: %zu\n",
+      model_path.c_str(), max_batch_size_, max_seq_len_);
   return true;
 }
 
@@ -114,16 +117,17 @@ int LlamaCppEngine::RawLlamaHardwareInfer(
     const std::vector<std::string>& batch_prompts, const GenerateOption& option,
     std::vector<std::string>* batch_outputs) {
   if (batch_prompts.size() != max_batch_size_) {
-    std::cerr << "[LlamaCppEngine] HARDWARE ERROR: Batch size "
-              << batch_prompts.size() << " != Fixed MaxBatch "
-              << max_batch_size_ << std::endl;
+    ALG_LOG_ERROR(
+        "[LlamaCppEngine] HARDWARE ERROR: Batch size %zu != Fixed MaxBatch "
+        "%zu\n",
+        batch_prompts.size(), max_batch_size_);
     return -9102;
   }
 
-  std::cout << "  [llama.cpp Engine] Executing GGUF LLM Generation kernel with "
-               "batch="
-            << max_batch_size_ << ", max_tokens=" << option.max_tokens
-            << ", temp=" << option.temperature << std::endl;
+  ALG_LOG_DEBUG(
+      "  [llama.cpp Engine] Executing GGUF LLM Generation kernel with "
+      "batch=%zu, max_tokens=%d, temp=%.3f\n",
+      max_batch_size_, option.max_tokens, option.temperature);
 
   batch_outputs->resize(max_batch_size_);
   for (size_t i = 0; i < max_batch_size_; ++i) {
