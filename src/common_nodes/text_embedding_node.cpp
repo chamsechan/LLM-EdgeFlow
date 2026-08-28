@@ -108,6 +108,10 @@ class TextEmbeddingNode final : public ModelBoundNode<IEmbeddingEngine> {
   static std::string ComputeDigest(const TextBatch& items) {
     size_t hash = 14695981039346656037ULL;
     for (const auto& item : items) {
+      hash ^= static_cast<size_t>(item.req_id);
+      hash *= 1099511628211ULL;
+      hash ^= static_cast<size_t>(item.sub_id);
+      hash *= 1099511628211ULL;
       for (char c : item.data) {
         hash ^= static_cast<size_t>(c);
         hash *= 1099511628211ULL;

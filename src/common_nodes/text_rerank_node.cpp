@@ -176,9 +176,18 @@ NodeDefinition MakeTextRerankNodeDefinition() {
   def.outputs = {OutputPort(
       "ranked", BlackboardKey<RankedTextBatch>{"", "RankedTextBatch"},
       /*allow_override=*/true)};
-  def.port_constraints = {PortGroupConstraint(
-      PortConstraintKind::kAtLeastOneOf, {"pairs", "candidates"},
-      "TextRerankNode requires either 'pairs' or 'candidates' to be bound")};
+  def.port_constraints = {
+      PortGroupConstraint(
+          PortConstraintKind::kAtLeastOneOf, {"pairs", "queries"},
+          "TextRerankNode requires either 'pairs' or 'queries' to be bound"),
+      PortGroupConstraint(
+          PortConstraintKind::kAtLeastOneOf,
+          {"pairs", "candidates", "candidate_texts"},
+          "TextRerankNode requires either 'pairs' or candidate inputs to be "
+          "bound"),
+      PortGroupConstraint(
+          PortConstraintKind::kAtMostOneOf, {"pairs", "queries"},
+          "TextRerankNode cannot accept both 'pairs' and 'queries'")};
   def.config_fields = {
       ConfigFieldDefinition{"bind_model", ConfigValueKind::kString, false,
                             "rerank_model_v1"},

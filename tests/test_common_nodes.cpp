@@ -113,6 +113,44 @@ TEST_F(CommonNodesTest, TextTemplateNodeComprehensive) {
   EXPECT_EQ((*out2)[0].data, "NewTemplate: What is LLM?");
 }
 
+// 1.4 TextTemplateNode attributes and sub_id preservation
+TEST_F(CommonNodesTest, TextTemplateNodeAttributesAndSubIdPreservation) {
+  auto node = NodeFactory::Instance().Create("TextTemplateNode");
+  ASSERT_NE(node, nullptr);
+
+  nlohmann::json cfg = {
+      {"template", "User: {{primary}} | Role: {{role}} | Loc: {{location}}"},
+      {"allow_dynamic_attributes", true},
+      {"overflow_policy", "fail"}};
+  EXPECT_TRUE(node->Init(cfg, session_ctx_.get()));
+
+  AlgContext ctx;
+  TextBatch primary;
+  primary.emplace_back(100, 0, "Alice");
+  primary.emplace_back(100, 1, "Bob");
+  ctx.Set("primary", primary);
+
+  TextAttributesBatch attrs;
+  attrs.emplace_back(100, 0,
+                     std::unordered_map<std::string, std::string>{
+                         {"role", "Admin"}, {"location", "Beijing"}});
+  attrs.emplace_back(100, 1,
+                     std::unordered_map<std::string, std::string>{
+                         {"role", "User"}, {"location", "Shanghai"}});
+  ctx.Set("attributes", attrs);
+
+  EXPECT_EQ(node->Process(&ctx), 0);
+  const auto* out = ctx.Get<TextBatch>("text");
+  ASSERT_NE(out, nullptr);
+  ASSERT_EQ(out->size(), 2u);
+  EXPECT_EQ((*out)[0].req_id, 100u);
+  EXPECT_EQ((*out)[0].sub_id, 0u);
+  EXPECT_EQ((*out)[0].data, "User: Alice | Role: Admin | Loc: Beijing");
+  EXPECT_EQ((*out)[1].req_id, 100u);
+  EXPECT_EQ((*out)[1].sub_id, 1u);
+  EXPECT_EQ((*out)[1].data, "User: Bob | Role: User | Loc: Shanghai");
+}
+
 // 2. TextChunkNode: chunking, overlap, provenance
 TEST_F(CommonNodesTest, TextChunkNodeComprehensive) {
   auto node = NodeFactory::Instance().Create("TextChunkNode");
@@ -321,6 +359,39 @@ TEST_F(CommonNodesTest, TextRerankNodeComprehensive) {
   const auto* out = ctx.Get<RankedTextBatch>("ranked");
   ASSERT_NE(out, nullptr);
   ASSERT_EQ(out->size(), 1u);
+}
+
+// 7.1 TextRerankNode combination constraints validation test
+TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
+  // Test invalid case 1: only candidates, missing queries
+  nlohmann::json bad_pipeline_1 = {
+      {"biz_name", "cross_encoder_rerank_v1"},
+      {"models",
+       {{{"engine_type", "mock_npu_rerank"},
+         {"model_id", "rerank_model_v1"},
+         {"model_path", "./models/rerank.bin"}}}},
+      {"pipeline",
+       {{{"id", "node_0_TextRerankNode"},
+         {"node_type", "TextRerankNode"},
+         {"ports", {{"inputs", {{"candidates", "some_candidates"}}}}},
+         {"config", {{"bind_model", "rerank_model_v1"}}}}}}};
+  auto plan1 = PipelineValidator::ValidateAndPlan(bad_pipeline_1);
+  EXPECT_FALSE(plan1.report.ok);
+
+  // Test invalid case 2: only queries, missing candidates
+  nlohmann::json bad_pipeline_2 = {
+      {"biz_name", "cross_encoder_rerank_v1"},
+      {"models",
+       {{{"engine_type", "mock_npu_rerank"},
+         {"model_id", "rerank_model_v1"},
+         {"model_path", "./models/rerank.bin"}}}},
+      {"pipeline",
+       {{{"id", "node_0_TextRerankNode"},
+         {"node_type", "TextRerankNode"},
+         {"ports", {{"inputs", {{"queries", "some_queries"}}}}},
+         {"config", {{"bind_model", "rerank_model_v1"}}}}}}};
+  auto plan2 = PipelineValidator::ValidateAndPlan(bad_pipeline_2);
+  EXPECT_FALSE(plan2.report.ok);
 }
 
 // 8. LlmGenerateNode: prompt inference

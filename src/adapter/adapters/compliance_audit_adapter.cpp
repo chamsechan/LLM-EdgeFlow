@@ -132,27 +132,14 @@ class ComplianceAuditAdapter : public IBizAdapter {
               : (*verdicts)[i].req_id;
       out_ptr->request_id = req_id;
 
-      std::string risk_level = "SAFE";
-      float risk_score = 0.10f;
-      std::string verdict_json = (*verdicts)[i].data;
+      const auto& verdict_item = (*verdicts)[i].data;
+      std::string risk_level =
+          verdict_item.structured_data.value("risk_level", "SAFE");
+      float risk_score =
+          verdict_item.structured_data.value("risk_score", 0.10f);
+      const std::string& verdict_json = verdict_item.json_payload;
 
-      try {
-        auto parsed = nlohmann::json::parse(verdict_json);
-        if (parsed.contains("risk_level") && parsed["risk_level"].is_string()) {
-          risk_level = parsed["risk_level"].get<std::string>();
-        }
-        if (parsed.contains("risk_score") && parsed["risk_score"].is_number()) {
-          risk_score = parsed["risk_score"].get<float>();
-        }
-      } catch (...) {
-        if (rule_matches && i < static_cast<int>(rule_matches->size()) &&
-            (*rule_matches)[i].data.is_hit) {
-          risk_level = "HIGH_RISK";
-          risk_score = 0.85f;
-        }
-      }
-
-      std::string policy_clause = "Standard Compliance Policy Clause 1.0";
+      std::string policy_clause;
       if (matched_policies && i < static_cast<int>(matched_policies->size())) {
         policy_clause = (*matched_policies)[i].data.text;
       }

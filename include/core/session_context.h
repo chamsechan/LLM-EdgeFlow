@@ -2,6 +2,7 @@
 
 #include <any>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 
@@ -92,11 +93,13 @@ class SessionContext {
 
   template <typename T>
   void SetResource(const std::string& key, std::shared_ptr<T> resource) {
+    std::lock_guard<std::mutex> lock(resource_mutex_);
     resources_[key] = resource;
   }
 
   template <typename T>
   std::shared_ptr<T> GetResource(const std::string& key) const {
+    std::lock_guard<std::mutex> lock(resource_mutex_);
     auto it = resources_.find(key);
     if (it == resources_.end()) return nullptr;
     return std::static_pointer_cast<T>(it->second);
@@ -104,6 +107,7 @@ class SessionContext {
 
  private:
   ModelManager model_manager_;
+  mutable std::mutex resource_mutex_;
   std::unordered_map<std::string, std::shared_ptr<void>> resources_;
   RuntimeOptions runtime_options_;
 };

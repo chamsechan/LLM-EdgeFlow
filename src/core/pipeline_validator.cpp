@@ -593,6 +593,9 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
         case PortConstraintKind::kAllOrNone:
           satisfied = (count == 0 || count == constraint.ports.size());
           break;
+        case PortConstraintKind::kAtMostOneOf:
+          satisfied = (count <= 1);
+          break;
       }
       if (!satisfied) {
         std::string msg = constraint.message.empty()

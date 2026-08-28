@@ -7,6 +7,7 @@
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include "core/common_contracts.h"
@@ -22,6 +23,12 @@ class TextTemplateNode final : public NodeBase {
  public:
   inline static constexpr char kNodeType[] = "TextTemplateNode";
 
+  enum class TokenType { kLiteral, kVariable };
+  struct TemplateToken {
+    TokenType type = TokenType::kLiteral;
+    std::string value;
+  };
+
   TextTemplateNode()
       : NodeBase(kNodeType),
         in_primary_("primary"),
@@ -30,6 +37,7 @@ class TextTemplateNode final : public NodeBase {
         in_matches_("matches"),
         in_document_("document"),
         in_document_text_("document_text"),
+        in_attributes_("attributes"),
         out_text_("text") {}
 
  protected:
@@ -41,6 +49,7 @@ class TextTemplateNode final : public NodeBase {
     BindPort(init_ctx, in_matches_);
     BindPort(init_ctx, in_document_);
     BindPort(init_ctx, in_document_text_);
+    BindPort(init_ctx, in_attributes_);
     BindPort(init_ctx, out_text_);
 
     std::unique_lock<std::shared_mutex> lock(rw_mutex_);
@@ -49,8 +58,8 @@ class TextTemplateNode final : public NodeBase {
     max_length_ = config.value("max_length", 65536);
     overflow_policy_ = config.value("overflow_policy", "fail");
 
+    static_values_.clear();
     if (config.contains("values") && config["values"].is_object()) {
-      static_values_.clear();
       for (auto it = config["values"].begin(); it != config["values"].end();
            ++it) {
         if (it.value().is_string()) {
@@ -59,7 +68,16 @@ class TextTemplateNode final : public NodeBase {
       }
     }
 
-    return ValidateTemplate(template_str_, static_values_);
+    allow_dynamic_attrs_ = in_attributes_.IsBound() ||
+                           config.value("allow_dynamic_attributes", false);
+
+    std::vector<TemplateToken> compiled;
+    if (!CompileTemplate(template_str_, static_values_, allow_dynamic_attrs_,
+                         &compiled)) {
+      return false;
+    }
+    compiled_tokens_ = std::move(compiled);
+    return true;
   }
 
   NodeControlResult ControlNode(int cmd,
@@ -67,10 +85,14 @@ class TextTemplateNode final : public NodeBase {
     if (cmd == kControlCmdUpdatePrompt) {
       try {
         nlohmann::json root = nlohmann::json::parse(json_param);
-        std::unique_lock<std::shared_mutex> lock(rw_mutex_);
-        std::string new_tmpl = template_str_;
-        std::unordered_map<std::string, std::string> new_values =
-            static_values_;
+        std::string new_tmpl;
+        std::unordered_map<std::string, std::string> new_values;
+
+        {
+          std::shared_lock<std::shared_mutex> lock(rw_mutex_);
+          new_tmpl = template_str_;
+          new_values = static_values_;
+        }
 
         if (root.contains("template") && root["template"].is_string()) {
           new_tmpl = root["template"].get<std::string>();
@@ -84,12 +106,17 @@ class TextTemplateNode final : public NodeBase {
           }
         }
 
-        if (!ValidateTemplate(new_tmpl, new_values)) {
-          return NodeControlResult::Failed(-1, "Invalid template placeholders");
+        std::vector<TemplateToken> new_tokens;
+        if (!CompileTemplate(new_tmpl, new_values, allow_dynamic_attrs_,
+                             &new_tokens)) {
+          return NodeControlResult::Failed(
+              -1, "Invalid template placeholders or syntax in Control");
         }
 
+        std::unique_lock<std::shared_mutex> lock(rw_mutex_);
         template_str_ = std::move(new_tmpl);
         static_values_ = std::move(new_values);
+        compiled_tokens_ = std::move(new_tokens);
         return NodeControlResult::Handled(0, "Template updated successfully");
       } catch (const std::exception& e) {
         return NodeControlResult::Failed(
@@ -108,47 +135,57 @@ class TextTemplateNode final : public NodeBase {
     const auto* matches_items = in_matches_.Get(req_ctx);
     const auto* document_items = in_document_.Get(req_ctx);
     const auto* document_text_items = in_document_text_.Get(req_ctx);
+    const auto* attributes_items = in_attributes_.Get(req_ctx);
 
-    // 计算请求批次大小与各请求对应的元素集合
-    std::unordered_map<uint32_t, std::string> primary_by_req;
-    std::unordered_map<uint32_t, std::vector<std::string>> context_by_req;
-    std::unordered_map<uint32_t, std::vector<std::string>> matches_by_req;
-    std::unordered_map<uint32_t, std::vector<std::string>> document_by_req;
-    std::vector<uint32_t> ordered_req_ids;
-    std::unordered_map<uint32_t, uint32_t> sub_ids_by_req;
-
-    auto record_req = [&](uint32_t req_id, uint32_t sub_id) {
-      if (std::find(ordered_req_ids.begin(), ordered_req_ids.end(), req_id) ==
-          ordered_req_ids.end()) {
-        ordered_req_ids.push_back(req_id);
-        sub_ids_by_req[req_id] = sub_id;
+    // 收集所有请求-子项样本键值 (req_id, sub_id)
+    struct SampleKey {
+      uint32_t req_id;
+      uint32_t sub_id;
+      bool operator==(const SampleKey& o) const {
+        return req_id == o.req_id && sub_id == o.sub_id;
+      }
+    };
+    std::vector<SampleKey> ordered_samples;
+    auto record_sample = [&](uint32_t r, uint32_t s) {
+      SampleKey k{r, s};
+      if (std::find(ordered_samples.begin(), ordered_samples.end(), k) ==
+          ordered_samples.end()) {
+        ordered_samples.push_back(k);
       }
     };
 
+    std::map<std::pair<uint32_t, uint32_t>, std::string> primary_by_sample;
+    std::unordered_map<uint32_t, std::vector<std::string>> context_by_req;
+    std::unordered_map<uint32_t, std::vector<std::string>> matches_by_req;
+    std::unordered_map<uint32_t, std::vector<std::string>> document_by_req;
+    std::map<std::pair<uint32_t, uint32_t>,
+             std::unordered_map<std::string, std::string>>
+        attributes_by_sample;
+
     if (primary_items) {
       for (const auto& item : *primary_items) {
-        record_req(item.req_id, item.sub_id);
-        primary_by_req[item.req_id] = item.data;
+        record_sample(item.req_id, item.sub_id);
+        primary_by_sample[{item.req_id, item.sub_id}] = item.data;
       }
     }
 
     if (context_items) {
       for (const auto& item : *context_items) {
-        record_req(item.req_id, item.sub_id);
+        record_sample(item.req_id, item.sub_id);
         context_by_req[item.req_id].push_back(item.data.text);
       }
     }
 
     if (context_text_items) {
       for (const auto& item : *context_text_items) {
-        record_req(item.req_id, item.sub_id);
+        record_sample(item.req_id, item.sub_id);
         context_by_req[item.req_id].push_back(item.data);
       }
     }
 
     if (matches_items) {
       for (const auto& item : *matches_items) {
-        record_req(item.req_id, item.sub_id);
+        record_sample(item.req_id, item.sub_id);
         if (!item.data.matched_word.empty()) {
           matches_by_req[item.req_id].push_back(item.data.matched_word);
         } else if (!item.data.category.empty()) {
@@ -159,74 +196,100 @@ class TextTemplateNode final : public NodeBase {
 
     if (document_items) {
       for (const auto& item : *document_items) {
-        record_req(item.req_id, item.sub_id);
+        record_sample(item.req_id, item.sub_id);
         document_by_req[item.req_id].push_back(item.data.combined_text);
       }
     }
 
     if (document_text_items) {
       for (const auto& item : *document_text_items) {
-        record_req(item.req_id, item.sub_id);
+        record_sample(item.req_id, item.sub_id);
         document_by_req[item.req_id].push_back(item.data);
       }
     }
 
+    if (attributes_items) {
+      for (const auto& item : *attributes_items) {
+        record_sample(item.req_id, item.sub_id);
+        attributes_by_sample[{item.req_id, item.sub_id}] = item.data;
+      }
+    }
+
     TextBatch output_batch;
-    output_batch.reserve(ordered_req_ids.size());
+    output_batch.reserve(ordered_samples.size());
 
-    for (uint32_t req_id : ordered_req_ids) {
-      std::string rendered = template_str_;
+    for (const auto& sample : ordered_samples) {
+      uint32_t req_id = sample.req_id;
+      uint32_t sub_id = sample.sub_id;
 
-      // 1. 替换 primary / text
       std::string primary_str;
-      if (primary_by_req.find(req_id) != primary_by_req.end()) {
-        primary_str = primary_by_req[req_id];
+      auto p_it = primary_by_sample.find({req_id, sub_id});
+      if (p_it != primary_by_sample.end()) {
+        primary_str = p_it->second;
+      } else {
+        for (const auto& [k, v] : primary_by_sample) {
+          if (k.first == req_id) {
+            primary_str = v;
+            break;
+          }
+        }
       }
-      ReplaceAll(rendered, "{{primary}}", primary_str);
-      ReplaceAll(rendered, "{primary}", primary_str);
-      ReplaceAll(rendered, "{text}", primary_str);
-      ReplaceAll(rendered, "{{text}}", primary_str);
 
-      // 2. 替换 context
       std::string context_str;
-      if (context_by_req.find(req_id) != context_by_req.end()) {
-        const auto& list = context_by_req[req_id];
-        for (size_t i = 0; i < list.size(); ++i) {
+      auto c_it = context_by_req.find(req_id);
+      if (c_it != context_by_req.end()) {
+        for (size_t i = 0; i < c_it->second.size(); ++i) {
           if (i > 0) context_str += separator_;
-          context_str += list[i];
+          context_str += c_it->second[i];
         }
       }
-      ReplaceAll(rendered, "{{context}}", context_str);
-      ReplaceAll(rendered, "{context}", context_str);
 
-      // 3. 替换 matches
       std::string matches_str;
-      if (matches_by_req.find(req_id) != matches_by_req.end()) {
-        const auto& list = matches_by_req[req_id];
-        for (size_t i = 0; i < list.size(); ++i) {
+      auto m_it = matches_by_req.find(req_id);
+      if (m_it != matches_by_req.end()) {
+        for (size_t i = 0; i < m_it->second.size(); ++i) {
           if (i > 0) matches_str += ", ";
-          matches_str += list[i];
+          matches_str += m_it->second[i];
         }
       }
-      ReplaceAll(rendered, "{{matches}}", matches_str);
-      ReplaceAll(rendered, "{matches}", matches_str);
 
-      // 4. 替换 document
       std::string doc_str;
-      if (document_by_req.find(req_id) != document_by_req.end()) {
-        const auto& list = document_by_req[req_id];
-        for (size_t i = 0; i < list.size(); ++i) {
+      auto d_it = document_by_req.find(req_id);
+      if (d_it != document_by_req.end()) {
+        for (size_t i = 0; i < d_it->second.size(); ++i) {
           if (i > 0) doc_str += separator_;
-          doc_str += list[i];
+          doc_str += d_it->second[i];
         }
       }
-      ReplaceAll(rendered, "{{document}}", doc_str);
-      ReplaceAll(rendered, "{document}", doc_str);
 
-      // 5. 替换 static_values
-      for (const auto& [k, v] : static_values_) {
-        ReplaceAll(rendered, "{{" + k + "}}", v);
-        ReplaceAll(rendered, "{" + k + "}", v);
+      const std::unordered_map<std::string, std::string>* attrs_ptr = nullptr;
+      auto a_it = attributes_by_sample.find({req_id, sub_id});
+      if (a_it != attributes_by_sample.end()) {
+        attrs_ptr = &a_it->second;
+      }
+
+      std::string rendered;
+      rendered.reserve(256);
+
+      for (const auto& token : compiled_tokens_) {
+        if (token.type == TokenType::kLiteral) {
+          rendered += token.value;
+        } else {
+          const std::string& var = token.value;
+          if (var == "primary" || var == "text") {
+            rendered += primary_str;
+          } else if (var == "context" || var == "context_text") {
+            rendered += context_str;
+          } else if (var == "matches") {
+            rendered += matches_str;
+          } else if (var == "document" || var == "document_text") {
+            rendered += doc_str;
+          } else if (attrs_ptr && attrs_ptr->find(var) != attrs_ptr->end()) {
+            rendered += attrs_ptr->at(var);
+          } else if (static_values_.find(var) != static_values_.end()) {
+            rendered += static_values_.at(var);
+          }
+        }
       }
 
       if (rendered.size() > max_length_) {
@@ -238,8 +301,7 @@ class TextTemplateNode final : public NodeBase {
         rendered.resize(max_length_);
       }
 
-      output_batch.emplace_back(req_id, sub_ids_by_req[req_id],
-                                std::move(rendered));
+      output_batch.emplace_back(req_id, sub_id, std::move(rendered));
     }
 
     out_text_.Set(req_ctx, std::move(output_batch));
@@ -247,35 +309,97 @@ class TextTemplateNode final : public NodeBase {
   }
 
  private:
-  static bool ValidateTemplate(
-      const std::string& tmpl,
-      const std::unordered_map<std::string, std::string>& static_vals) {
-    static const std::unordered_set<std::string> kBuiltins = {
-        "primary", "text", "context", "matches", "document", "document_text"};
-    // 匹配 {{var}} 或 {var}
-    std::regex re(R"(\{\{([a-zA-Z0-9_]+)\}\})");
-    auto words_begin = std::sregex_iterator(tmpl.begin(), tmpl.end(), re);
-    auto words_end = std::sregex_iterator();
-    for (std::sregex_iterator i = words_begin; i != words_end; ++i) {
-      std::smatch match = *i;
-      std::string var_name = match[1].str();
-      if (!kBuiltins.count(var_name) && !static_vals.count(var_name)) {
-        std::cerr << "[TextTemplateNode] Unknown template placeholder: "
-                  << var_name << std::endl;
+  static bool IsValidIdentifier(const std::string& str) {
+    if (str.empty()) return false;
+    for (char c : str) {
+      if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+            (c >= '0' && c <= '9') || c == '_')) {
         return false;
       }
     }
     return true;
   }
 
-  static void ReplaceAll(std::string& str, const std::string& from,
-                         const std::string& to) {
-    if (from.empty()) return;
+  static bool CompileTemplate(
+      const std::string& tmpl,
+      const std::unordered_map<std::string, std::string>& static_vals,
+      bool allow_dynamic_attrs, std::vector<TemplateToken>* out_tokens) {
+    static const std::unordered_set<std::string> kBuiltins = {
+        "primary", "text",     "context",       "context_text",
+        "matches", "document", "document_text", "attributes"};
+
+    out_tokens->clear();
     size_t pos = 0;
-    while ((pos = str.find(from, pos)) != std::string::npos) {
-      str.replace(pos, from.length(), to);
-      pos += to.length();
+    while (pos < tmpl.size()) {
+      size_t open_pos = tmpl.find('{', pos);
+      if (open_pos == std::string::npos) {
+        out_tokens->push_back({TokenType::kLiteral, tmpl.substr(pos)});
+        break;
+      }
+
+      if (open_pos > pos) {
+        out_tokens->push_back(
+            {TokenType::kLiteral, tmpl.substr(pos, open_pos - pos)});
+      }
+
+      bool is_double =
+          (open_pos + 1 < tmpl.size() && tmpl[open_pos + 1] == '{');
+
+      if (is_double) {
+        size_t close_pos = tmpl.find("}}", open_pos + 2);
+        if (close_pos == std::string::npos) {
+          std::cerr
+              << "[TextTemplateNode] Unclosed {{ placeholder in template at "
+              << open_pos << std::endl;
+          return false;
+        }
+        std::string raw_name =
+            tmpl.substr(open_pos + 2, close_pos - open_pos - 2);
+        size_t first = raw_name.find_first_not_of(" \t");
+        size_t last = raw_name.find_last_not_of(" \t");
+        if (first == std::string::npos) {
+          std::cerr << "[TextTemplateNode] Empty {{}} placeholder in template"
+                    << std::endl;
+          return false;
+        }
+        std::string var_name = raw_name.substr(first, last - first + 1);
+        if (!IsValidIdentifier(var_name) ||
+            (!allow_dynamic_attrs && !kBuiltins.count(var_name) &&
+             !static_vals.count(var_name))) {
+          std::cerr << "[TextTemplateNode] Unknown template placeholder: "
+                    << var_name << std::endl;
+          return false;
+        }
+        out_tokens->push_back({TokenType::kVariable, std::move(var_name)});
+        pos = close_pos + 2;
+        continue;
+      }
+
+      // Single { : check if it forms a valid identifier placeholder {var}
+      size_t close_pos = tmpl.find('}', open_pos + 1);
+      if (close_pos != std::string::npos) {
+        std::string raw_name =
+            tmpl.substr(open_pos + 1, close_pos - open_pos - 1);
+        size_t first = raw_name.find_first_not_of(" \t");
+        size_t last = raw_name.find_last_not_of(" \t");
+        if (first != std::string::npos) {
+          std::string var_name = raw_name.substr(first, last - first + 1);
+          if (IsValidIdentifier(var_name) &&
+              (kBuiltins.count(var_name) || static_vals.count(var_name) ||
+               allow_dynamic_attrs)) {
+            out_tokens->push_back({TokenType::kVariable, std::move(var_name)});
+            pos = close_pos + 1;
+            continue;
+          }
+        }
+      }
+
+      // Not a valid variable placeholder (e.g. JSON literal '{'), emit literal
+      // '{'
+      out_tokens->push_back({TokenType::kLiteral, "{"});
+      pos = open_pos + 1;
     }
+    return true;
   }
 
   mutable std::shared_mutex rw_mutex_;
@@ -283,7 +407,9 @@ class TextTemplateNode final : public NodeBase {
   std::string separator_ = "\n";
   size_t max_length_ = 65536;
   std::string overflow_policy_ = "fail";
+  bool allow_dynamic_attrs_ = false;
   std::unordered_map<std::string, std::string> static_values_;
+  std::vector<TemplateToken> compiled_tokens_;
 
   BoundInput<TextBatch> in_primary_;
   BoundInput<RankedTextBatch> in_context_;
@@ -291,6 +417,7 @@ class TextTemplateNode final : public NodeBase {
   BoundInput<RuleMatchBatch> in_matches_;
   BoundInput<OcrDocumentBatch> in_document_;
   BoundInput<TextBatch> in_document_text_;
+  BoundInput<TextAttributesBatch> in_attributes_;
   BoundOutput<TextBatch> out_text_;
 };
 
@@ -310,12 +437,14 @@ NodeDefinition MakeTextTemplateNodeDefinition() {
       OptionalInputPort(
           "document", BlackboardKey<OcrDocumentBatch>{"", "OcrDocumentBatch"}),
       OptionalInputPort("document_text",
-                        BlackboardKey<TextBatch>{"", "TextBatch"})};
+                        BlackboardKey<TextBatch>{"", "TextBatch"}),
+      OptionalInputPort("attributes", BlackboardKey<TextAttributesBatch>{
+                                          "", "TextAttributesBatch"})};
   def.outputs = {OutputPort("text", BlackboardKey<TextBatch>{"", "TextBatch"})};
   def.port_constraints = {PortGroupConstraint(
       PortConstraintKind::kAtLeastOneOf,
       {"primary", "context", "context_text", "matches", "document",
-       "document_text"},
+       "document_text", "attributes"},
       "TextTemplateNode requires at least one dynamic input port to be bound")};
   def.control_commands = {ControlCommandDefinition(
       kControlCmdUpdatePrompt, "update_prompt",

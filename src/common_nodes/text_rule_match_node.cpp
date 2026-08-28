@@ -43,11 +43,16 @@ class TextRuleMatchNode final : public NodeBase {
       try {
         nlohmann::json root = nlohmann::json::parse(json_param);
         if (root.contains("categories") && root["categories"].is_object()) {
-          UpdateCategories(root["categories"]);
+          if (!UpdateCategories(root["categories"])) {
+            return NodeControlResult::Failed(-1, "Invalid categories payload");
+          }
           return NodeControlResult::Handled(
               0, "TextRuleMatchNode categories updated");
         } else if (root.contains("rules") && root["rules"].is_array()) {
-          UpdateRules(root["rules"]);
+          if (!UpdateRules(root["rules"])) {
+            return NodeControlResult::Failed(
+                -1, "Invalid rules payload or regular expression syntax");
+          }
           return NodeControlResult::Handled(0,
                                             "TextRuleMatchNode rules updated");
         }
@@ -67,14 +72,14 @@ class TextRuleMatchNode final : public NodeBase {
 
     if (config.contains("default_categories") &&
         config["default_categories"].is_object()) {
-      UpdateCategories(config["default_categories"]);
+      if (!UpdateCategories(config["default_categories"])) return false;
     } else if (config.contains("categories") &&
                config["categories"].is_object()) {
-      UpdateCategories(config["categories"]);
+      if (!UpdateCategories(config["categories"])) return false;
     }
 
     if (config.contains("rules") && config["rules"].is_array()) {
-      UpdateRules(config["rules"]);
+      if (!UpdateRules(config["rules"])) return false;
     }
     return true;
   }
@@ -202,9 +207,9 @@ class TextRuleMatchNode final : public NodeBase {
   }
 
  private:
-  void UpdateCategories(const nlohmann::json& categories_json) {
-    std::unique_lock<std::shared_mutex> lock(rw_mutex_);
-    category_keywords_list_.clear();
+  bool UpdateCategories(const nlohmann::json& categories_json) {
+    std::vector<std::pair<std::string, std::vector<std::string>>>
+        temp_categories;
     for (auto it = categories_json.begin(); it != categories_json.end(); ++it) {
       if (it.value().is_array()) {
         std::vector<std::string> words;
@@ -213,16 +218,18 @@ class TextRuleMatchNode final : public NodeBase {
             words.push_back(w.get<std::string>());
           }
         }
-        category_keywords_list_.push_back({it.key(), std::move(words)});
+        temp_categories.push_back({it.key(), std::move(words)});
       }
     }
+    std::unique_lock<std::shared_mutex> lock(rw_mutex_);
+    category_keywords_list_ = std::move(temp_categories);
+    return true;
   }
 
-  void UpdateRules(const nlohmann::json& rules_json) {
-    std::unique_lock<std::shared_mutex> lock(rw_mutex_);
-    rules_list_.clear();
+  bool UpdateRules(const nlohmann::json& rules_json) {
+    std::vector<RuleSpec> temp_rules;
     for (const auto& r_elem : rules_json) {
-      if (!r_elem.is_object()) continue;
+      if (!r_elem.is_object()) return false;
       RuleSpec spec;
       spec.id = r_elem.value("id", "");
       spec.strategy = r_elem.value("strategy", "contains");
@@ -272,13 +279,17 @@ class TextRuleMatchNode final : public NodeBase {
         spec.named_groups = std::move(group_names);
         try {
           spec.compiled_regex = std::regex(converted_pat);
-        } catch (...) {
+        } catch (const std::exception& e) {
           std::cerr << "[TextRuleMatchNode] Invalid regex: " << spec.pattern
-                    << std::endl;
+                    << " (" << e.what() << ")" << std::endl;
+          return false;
         }
       }
-      rules_list_.push_back(std::move(spec));
+      temp_rules.push_back(std::move(spec));
     }
+    std::unique_lock<std::shared_mutex> lock(rw_mutex_);
+    rules_list_ = std::move(temp_rules);
+    return true;
   }
 
   mutable std::shared_mutex rw_mutex_;

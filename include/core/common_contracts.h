@@ -114,8 +114,12 @@ enum class JsonParseStatus {
 /**
  * @brief 结构化文档/JSON 解析单项载荷 (JsonDocumentItem)
  */
+/**
+ * @brief 结构化文档/JSON 解析单项载荷 (JsonDocumentItem)
+ */
 struct JsonDocumentItem {
   std::string json_payload;
+  nlohmann::json structured_data = nlohmann::json::object();
   bool is_valid = false;
   JsonParseStatus parse_status = JsonParseStatus::kOk;
   std::string diagnostic;
@@ -123,8 +127,10 @@ struct JsonDocumentItem {
   JsonDocumentItem() = default;
   JsonDocumentItem(std::string payload, bool valid = true,
                    JsonParseStatus status = JsonParseStatus::kOk,
-                   std::string diag = {})
+                   std::string diag = {},
+                   nlohmann::json structured = nlohmann::json::object())
       : json_payload(std::move(payload)),
+        structured_data(std::move(structured)),
         is_valid(valid),
         parse_status(status),
         diagnostic(std::move(diag)) {}
@@ -161,9 +167,14 @@ struct AudioPcmPayload {
 using AudioPcmBatch = std::vector<TraceableItem<AudioPcmPayload>>;
 
 /**
- * @brief 图像文件路径或引用批次 (ImageRefBatch)
+ * @brief 图像文件路径或引用批次 (ImageRefBatch) - 具有强类型特质
  */
-using ImageRefBatch = std::vector<TraceableItem<std::string>>;
+struct ImageRefBatch : public std::vector<TraceableItem<std::string>> {
+  using std::vector<TraceableItem<std::string>>::vector;
+  ImageRefBatch() = default;
+  ImageRefBatch(std::vector<TraceableItem<std::string>> v)
+      : std::vector<TraceableItem<std::string>>(std::move(v)) {}
+};
 
 /**
  * @brief OCR 矩形边界与文本识别框 (OcrBoxRecord)
@@ -254,6 +265,11 @@ struct BlackboardTypeTraits<OcrDocumentBatch> {
 template <>
 struct BlackboardTypeTraits<QueryCandidatesBatch> {
   static constexpr const char* TypeName() { return "QueryCandidatesBatch"; }
+};
+
+template <>
+struct BlackboardTypeTraits<ImageRefBatch> {
+  static constexpr const char* TypeName() { return "ImageRefBatch"; }
 };
 
 template <>

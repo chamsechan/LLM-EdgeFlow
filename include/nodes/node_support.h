@@ -33,12 +33,14 @@ class BoundInput {
   void Resolve(std::string actual_key) {
     if (!actual_key.empty()) {
       actual_key_ = std::move(actual_key);
+      is_bound_ = true;
     }
   }
 
   const std::string& LogicalName() const { return logical_name_; }
   const std::string& ActualKey() const { return actual_key_; }
   const std::string& TypeId() const { return type_id_; }
+  bool IsBound() const { return is_bound_; }
 
   const T* Get(const AlgContext& ctx) const { return ctx.Get<T>(actual_key_); }
 
@@ -68,6 +70,7 @@ class BoundInput {
   std::string logical_name_;
   std::string actual_key_;
   std::string type_id_;
+  bool is_bound_ = false;
 };
 
 template <typename T>
@@ -82,12 +85,14 @@ class BoundOutput {
   void Resolve(std::string actual_key) {
     if (!actual_key.empty()) {
       actual_key_ = std::move(actual_key);
+      is_bound_ = true;
     }
   }
 
   const std::string& LogicalName() const { return logical_name_; }
   const std::string& ActualKey() const { return actual_key_; }
   const std::string& TypeId() const { return type_id_; }
+  bool IsBound() const { return is_bound_; }
 
   void Set(AlgContext& ctx, T value) const {
     ctx.Set(actual_key_, std::move(value));
@@ -97,6 +102,7 @@ class BoundOutput {
   std::string logical_name_;
   std::string actual_key_;
   std::string type_id_;
+  bool is_bound_ = false;
 };
 
 class NodeBase : public INode {

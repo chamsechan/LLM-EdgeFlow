@@ -28,14 +28,21 @@ struct PortDefinition {
   std::string type_id;
   bool required = true;
   bool allow_override = false;
+  std::string cardinality = "1:1";
+  std::string provenance_policy = "preserve";
+  std::string lifetime = "request";
 
   PortDefinition() = default;
   PortDefinition(std::string k, std::string t, bool req = true,
-                 bool allow_ovr = false)
+                 bool allow_ovr = false, std::string card = "1:1",
+                 std::string prov = "preserve", std::string life = "request")
       : key(std::move(k)),
         type_id(std::move(t)),
         required(req),
-        allow_override(allow_ovr) {}
+        allow_override(allow_ovr),
+        cardinality(std::move(card)),
+        provenance_policy(std::move(prov)),
+        lifetime(std::move(life)) {}
 };
 
 template <typename T>
@@ -56,23 +63,45 @@ inline PortDefinition Output(const BlackboardKey<T>& key,
 
 template <typename T>
 inline PortDefinition RequiredInputPort(std::string logical_name,
-                                        const BlackboardKey<T>& key_type) {
-  return PortDefinition{std::move(logical_name), key_type.type_id, true, false};
+                                        const BlackboardKey<T>& key_type,
+                                        std::string cardinality = "1:1",
+                                        std::string provenance = "preserve",
+                                        std::string lifetime = "request") {
+  return PortDefinition{std::move(logical_name),
+                        key_type.type_id,
+                        true,
+                        false,
+                        std::move(cardinality),
+                        std::move(provenance),
+                        std::move(lifetime)};
 }
 
 template <typename T>
 inline PortDefinition OptionalInputPort(std::string logical_name,
-                                        const BlackboardKey<T>& key_type) {
-  return PortDefinition{std::move(logical_name), key_type.type_id, false,
-                        false};
+                                        const BlackboardKey<T>& key_type,
+                                        std::string cardinality = "1:1",
+                                        std::string provenance = "preserve",
+                                        std::string lifetime = "request") {
+  return PortDefinition{std::move(logical_name),
+                        key_type.type_id,
+                        false,
+                        false,
+                        std::move(cardinality),
+                        std::move(provenance),
+                        std::move(lifetime)};
 }
 
 template <typename T>
 inline PortDefinition OutputPort(std::string logical_name,
                                  const BlackboardKey<T>& key_type,
-                                 bool allow_override = false) {
-  return PortDefinition{std::move(logical_name), key_type.type_id, true,
-                        allow_override};
+                                 bool allow_override = false,
+                                 std::string cardinality = "1:1",
+                                 std::string provenance = "preserve",
+                                 std::string lifetime = "request") {
+  return PortDefinition{
+      std::move(logical_name), key_type.type_id,       true,
+      allow_override,          std::move(cardinality), std::move(provenance),
+      std::move(lifetime)};
 }
 
 struct ConfigFieldDefinition {
@@ -107,6 +136,7 @@ enum class PortConstraintKind {
   kAtLeastOneOf = 0,
   kExactlyOneOf = 1,
   kAllOrNone = 2,
+  kAtMostOneOf = 3,
 };
 
 struct PortGroupConstraint {
@@ -217,5 +247,6 @@ class PipelineCatalog {
 
 const char* ConfigValueKindName(ConfigValueKind kind);
 const char* EngineThreadModelName(EngineThreadModel model);
+const char* PortConstraintKindName(PortConstraintKind kind);
 
 }  // namespace alg_framework

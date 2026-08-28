@@ -476,3 +476,79 @@ C ABI 映射             -> Adapter
 和 Pipeline 配置的方向仍然正确；当前问题是公共契约没有完全实现、测试尚未锁住外部
 行为，以及部分业务计算被错误留在 Adapter。后续应继续按
 `I/O-first, operation-defined, contract-guarded` 收敛，而不是恢复“一业务一 Node”。
+
+---
+
+## 9. 第三轮独立复验结论（2026-08-28）
+
+### 9.1 最终判定
+
+**结论：本轮整改显著改善了可运行性、Catalog 可见性和回归门禁，但仍不通过
+RFC-0012 最终验收。**
+
+当前剩余 **4 个 P0、5 个 P1**；NA-008 保持 Closed。RFC-0012 与索引继续保持
+`In Implementation`，不得依据“现有测试全绿”将其标记为 `Completed`。
+
+复验对象为分支 `feat/node-authoring-experience`、HEAD `9251df17ced2` 之上的未提交
+工作树。报告原先附加的“NA-001～NA-010 100% Closed”属于实现方自报结论，已由本节
+独立证据替代。
+
+### 9.2 动态复验与门禁证据
+
+| 检查项 | 结果 | 独立复验结论 |
+| :--- | :---: | :--- |
+| `git diff --check` | PASS | 工作树无 whitespace error |
+| `./scripts/format.sh --check` | PASS | clang-format 18 检查通过 |
+| CMake configure / build | PASS | 当前工作树可编译 |
+| 全量 CTest | PASS，40/40 | 已有断言全部通过，但存在错误基线和反例覆盖缺口 |
+| Runtime Catalog | PASS，11 类 Common Node | constraints、control commands 和端口元数据已可导出 |
+| 11 个 Pipeline validate / plan | PASS | 当前 11 个生产配置均可验证和规划 |
+| `./scripts/run_all_tests.sh` | PASS，六阶段 | 新增测试目标已进入分阶段门禁 |
+| `./scripts/run_sanitizers.sh` | PASS | ASan/UBSan 19 个 fast test 与 9 个 smoke profile 通过 |
+| Audio smoke | 部分 PASS | 导航 slots 正确；HVAC 外部字段名和值类型与迁移前不一致 |
+| DialogueAudit smoke | 部分 PASS | 顺序执行时 policy embedding 仅计算一次；并发 single-flight 未证明 |
+| 远端 PR / CI / main 合并 | NOT VERIFIED | 本次验收不包含上传或合并 |
+
+### 9.3 NA-001～NA-010 独立状态
+
+| 编号 | 状态 | 第三轮复验结论 |
+| :--- | :---: | :--- |
+| **NA-001** | **Partial / P0** | optional 绑定检查、端口元数据导出和部分 Catalog 自校验已完成；TextRerank 仍未精确表达 `pairs` 或 `queries + candidates` 或 `queries + candidate_texts` 三组互斥方案，`pairs + candidates`、`queries + candidates + candidate_texts` 等歧义组合仍未被组合约束拒绝。cardinality/provenance/lifetime 目前也是未校验、未执行的自由字符串。 |
+| **NA-002** | **Partial / P0** | 导航 destination、avoid_toll、avoid_traffic 已恢复。迁移前 HVAC 契约为 `temperature: 24`、`fan_speed: 2`，当前 golden 却固定为 `target_temp: "24"`、`fan_speed: "二"`；字段名、值和 JSON 类型均不兼容。迁移前无匹配时还会输出 `GENERAL_VOICE_CMD/raw_query`，当前未恢复。 |
+| **NA-003** | **Partial / P1** | Control 路由、Catalog 导出以及规则/模板临时编译后替换已改善；但两个命令的 `payload_schema` 仍为空对象，Pipeline 分发前没有 schema 校验。规则 strategy 未按封闭枚举拒绝，非法 categories 成员也可能被静默忽略后覆盖旧配置。 |
+| **NA-004** | **Open / P0** | `structured_data` 使 JSON payload 真正结构化了一步，但没有 schema/field mapping；空字符串在 `failure_policy=fail` 时仍返回 fallback 成功。Compliance Adapter 仍补造 `SAFE/0.10`，DocQA Adapter 仍补造 `GENERAL_QA/0.90` 并计算 chunk_count，Layer 1 尚未成为纯映射层。 |
+| **NA-005** | **Partial / P1** | `ImageRefBatch` 已成为独立类型，Catalog 也增加重复端口/约束引用/命令 ID 检查；但 `BoundInput/Output::TypeId()` 没有任何消费者，逻辑端口类型仍手写字符串，模型默认值仍重复维护，端口元数据合法值和组合语义也未自校验。 |
+| **NA-006** | **Partial / P1** | DialogueAudit 已配置 session cache，resource map 单次 Get/Set 有互斥保护，顺序 smoke 证明静态语料只推理一次；但 Get→Infer→Set 不是原子 single-flight，并发冷启动可重复推理，也没有 warmup、模型/语料更新失效和 Validator 生命周期兼容检查。 |
+| **NA-007** | **Partial / P1** | 模板已预编译 token，增加 attributes，并保留 primary 的 `(req_id, sub_id)`；但测试使用的 `allow_dynamic_attributes` 不在 Definition schema 中，真实 Pipeline 配置会被拒绝。未知单花括号变量仍可作为字面量通过，context/matches/document 仍按 req_id 广播且未声明 join/cardinality，缺少精确 primary 时还会回退到同 req_id 的首项。 |
+| **NA-008** | **Closed** | owned `ValidatedPipelinePlan` 的所有权修复保持有效，ASan/UBSan 本轮通过。 |
+| **NA-009** | **Partial / P0** | 7 个 Operator、7 个 Adapter 和 11 类 Node 已有测试入口且已进入门禁，但关键断言不足：Rerank 反例使用未注册的 `cross_encoder_rerank_v1`，会因 UNKNOWN_BUSINESS 失败，不能证明端口组合约束；Audio golden 固化了错误的新 HVAC 契约；Adapter purity 都提供完整字段，无法证明 Adapter 不会补默认值；多数 Node 仍缺失败策略、类型、cardinality、Control 和并发矩阵。 |
+| **NA-010** | **Partial / P1** | sanitizer 旧 target 已修复，RFC 状态正确；README、architecture 和 developer guide 仍把 Layer 3 描述为 `src/biz/*` 或 `src/business/*` 业务节点池。LayerGuard 对 grep 错误仍使用 `|| true`，也没有缺目录/违规注入的脚本自测。 |
+
+### 9.4 下一轮最短整改清单
+
+1. **先修 P0 外部行为**：以迁移前 Operator 输出为基线恢复 HVAC 的
+   `temperature=24`、`fan_speed=2` 及 GENERAL_VOICE_CMD fallback；golden 必须比较字段名、
+   JSON 值类型和完整关键字段。
+2. **完成结构化结果装配**：在 Layer 3 生成明确的 DocQA/Audit 输出 DTO，或增加语义窄的
+   结果装配 Node；StructuredJsonParse 增加 schema、field mapping 和严格 failure policy；
+   Adapter 缺字段时 fail-closed，禁止补造业务默认值。
+3. **精确表达 Rerank 组合**：增加“互斥方案组”约束，直接表达
+   `pairs | (queries+candidates) | (queries+candidate_texts)`；用真实
+   `dense_cross_rerank_scoring` business fixture 覆盖所有合法/非法组合，并比较 CLI、Plan、
+   Build 的结构化诊断。
+4. **补齐执行契约**：Catalog 注册时校验 cardinality/provenance/lifetime 枚举，并让
+   Validator/Runtime 实际消费；Control 在分发前校验 payload schema；Template 明确
+   `(req_id, sub_id)` join/broadcast 规则并移除静默回退。
+5. **完成 session 资源语义**：为 SessionContext 增加原子 GetOrCreate/single-flight，缓存键
+   纳入模型版本与 corpus digest，并补并发调用次数、更新失效测试。
+6. **把测试变成验收证据**：修正 Rerank 假阳性 fixture，为 Adapter 增加缺字段反例，为
+   11 类 Node 补齐 Init/Process/Control/边界/并发矩阵；同步 README、architecture、
+   developer guide 和 LayerGuard 自测。
+
+### 9.5 架构结论
+
+本轮问题仍然不是“11 类 Common Node 的方向错误”，而是契约只完成了数据结构声明，尚未
+完整贯通 Catalog、Validator、Runtime、Adapter 和测试。继续沿用
+`I/O-first, operation-defined, contract-guarded`，但必须以旧 Operator 兼容性和
+fail-closed 反例作为最终门禁；在 4 个 P0、5 个 P1 全部关闭之前，不建议提交最终验收
+commit 或合入 `main`。

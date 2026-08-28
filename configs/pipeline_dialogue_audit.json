@@ -102,7 +102,8 @@
         }
       },
       "config": {
-        "bind_model": "embed_model_v2"
+        "bind_model": "embed_model_v2",
+        "lifetime": "session"
       }
     },
     {

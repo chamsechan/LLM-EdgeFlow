@@ -7,8 +7,12 @@ echo "======================================================================"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-# Rule 1: Layer 3 (src/biz/ and src/common_nodes/) MUST NEVER include Layer 1 header (company_alg_interface.h)
-VIOLATIONS_L3_L1=$(grep -rnE '#include\s*["<]company_alg_interface\.h[">]' "$REPO_ROOT/src/biz" "$REPO_ROOT/src/common_nodes" || true)
+# Rule 1: Layer 3 (src/common_nodes/ and src/biz/ if exists) MUST NEVER include Layer 1 header (company_alg_interface.h)
+L3_DIRS=("$REPO_ROOT/src/common_nodes")
+if [ -d "$REPO_ROOT/src/biz" ]; then
+  L3_DIRS+=("$REPO_ROOT/src/biz")
+fi
+VIOLATIONS_L3_L1=$(grep -rnE '#include\s*["<]company_alg_interface\.h[">]' "${L3_DIRS[@]}" || true)
 
 if [ -n "$VIOLATIONS_L3_L1" ]; then
   echo "❌ [LayerGuard ERROR] Found Layer 3 -> Layer 1 reverse dependency violations:"

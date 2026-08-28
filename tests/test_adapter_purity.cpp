@@ -18,7 +18,53 @@ class AdapterPurityTest : public ::testing::Test {
   void SetUp() override { SharedAlgorithmRuntime::GlobalInit(); }
 };
 
-// 1. KeywordMatchAdapter Purity
+// 1. DocQaAdapter Purity (Biz 1)
+TEST_F(AdapterPurityTest, DocQaAdapterPurity) {
+  auto adapter = BizAdapterRegistry::Instance().GetAdapter(ALG_BIZ_TYPE_DOC_QA);
+  ASSERT_NE(adapter, nullptr);
+
+  CompanyDocInputStruct in{};
+  in.request_id = 1001;
+  in.doc_text = "Doc Content";
+  in.query_text = "Query Question";
+  const void* inputs[] = {&in};
+
+  AlgContext ctx;
+  AdapterStatus status;
+  ASSERT_EQ(adapter->Unpack(inputs, 1, &ctx, &status), 0);
+
+  const auto* req_ids = ctx.Get(kRawRequestIds);
+  const auto* docs = ctx.Get(kRawDocs);
+  const auto* queries = ctx.Get(kRawQueries);
+  ASSERT_NE(req_ids, nullptr);
+  ASSERT_NE(docs, nullptr);
+  ASSERT_NE(queries, nullptr);
+  EXPECT_EQ((*req_ids)[0], 1001u);
+  EXPECT_EQ((*docs)[0].data, "Doc Content");
+  EXPECT_EQ((*queries)[0].data, "Query Question");
+
+  // Pack check
+  TextBatch answers;
+  answers.emplace_back(0, 0, "Model Generated Answer");
+  ctx.Set(kLlmAnswers, std::move(answers));
+
+  RuleMatchBatch intents;
+  intents.emplace_back(0, 0,
+                       RuleMatchItem(1, "GENERAL_QA", "query", "{}", 0.95f));
+  ctx.Set(kIntentMatches, std::move(intents));
+
+  CompanyDocOutputStruct out{};
+  void* outputs[] = {&out};
+  int num_out = 1;
+  ASSERT_EQ(adapter->Pack(&ctx, outputs, &num_out, &status), 0);
+
+  EXPECT_EQ(out.request_id, 1001u);
+  EXPECT_STREQ(out.intent_name, "GENERAL_QA");
+  EXPECT_FLOAT_EQ(out.confidence, 0.95f);
+  EXPECT_STREQ(out.answer_text, "Model Generated Answer");
+}
+
+// 2. KeywordMatchAdapter Purity (Biz 2)
 TEST_F(AdapterPurityTest, KeywordMatchAdapterPurity) {
   auto adapter =
       BizAdapterRegistry::Instance().GetAdapter(ALG_BIZ_TYPE_KEYWORD_MATCH);
@@ -42,8 +88,7 @@ TEST_F(AdapterPurityTest, KeywordMatchAdapterPurity) {
   EXPECT_EQ((*req_ids)[0], 12345u);
   EXPECT_EQ((*text_batch)[0].data, sentence);
 
-  // Pack check: AlgContext -> C Struct (Pure transparent copy, zero business
-  // synthesis)
+  // Pack check: AlgContext -> C Struct
   RuleMatchBatch match_batch;
   RuleMatchItem match_item(1, "TEST_CAT", "测试", "{\"intent\":\"TEST_CAT\"}",
                            1.0f);
@@ -60,7 +105,35 @@ TEST_F(AdapterPurityTest, KeywordMatchAdapterPurity) {
   EXPECT_STREQ(output.match_result_json, "{\"intent\":\"TEST_CAT\"}");
 }
 
-// 2. ComplianceAuditAdapter Purity
+// 3. EntityExtractAdapter Purity (Biz 3)
+TEST_F(AdapterPurityTest, EntityExtractAdapterPurity) {
+  auto adapter =
+      BizAdapterRegistry::Instance().GetAdapter(ALG_BIZ_TYPE_ENTITY_EXTRACT);
+  ASSERT_NE(adapter, nullptr);
+
+  CompanyEntityInputStruct in{};
+  in.request_id = 3001;
+  in.sentence_text = "张三就职于阿里巴巴";
+  const void* inputs[] = {&in};
+
+  AlgContext ctx;
+  AdapterStatus status;
+  ASSERT_EQ(adapter->Unpack(inputs, 1, &ctx, &status), 0);
+
+  StructuredDocumentBatch entities;
+  entities.emplace_back(0, 0, JsonDocumentItem("[\"张三\",\"阿里巴巴\"]"));
+  ctx.Set(kExtractedEntities, std::move(entities));
+
+  CompanyEntityOutputStruct out{};
+  void* outputs[] = {&out};
+  int num_out = 1;
+  ASSERT_EQ(adapter->Pack(&ctx, outputs, &num_out, &status), 0);
+
+  EXPECT_EQ(out.request_id, 3001u);
+  EXPECT_STREQ(out.entities_json, "[\"张三\",\"阿里巴巴\"]");
+}
+
+// 4. ComplianceAuditAdapter Purity (Biz 4)
 TEST_F(AdapterPurityTest, ComplianceAuditAdapterPurity) {
   auto adapter =
       BizAdapterRegistry::Instance().GetAdapter(ALG_BIZ_TYPE_COMPLIANCE_AUDIT);
@@ -78,9 +151,12 @@ TEST_F(AdapterPurityTest, ComplianceAuditAdapterPurity) {
 
   // Pack structured verdict from AlgContext directly
   StructuredDocumentBatch verdicts;
+  nlohmann::json structured_obj = {{"risk_level", "HIGH_RISK"},
+                                   {"risk_score", 0.92f}};
   verdicts.emplace_back(
       0, 0,
-      JsonDocumentItem("{\"risk_level\":\"HIGH_RISK\",\"risk_score\":0.92}"));
+      JsonDocumentItem("{\"risk_level\":\"HIGH_RISK\",\"risk_score\":0.92}",
+                       true, JsonParseStatus::kOk, "", structured_obj));
   ctx.Set(kStructuredVerdicts, std::move(verdicts));
 
   RankedTextBatch policies;
@@ -97,6 +173,120 @@ TEST_F(AdapterPurityTest, ComplianceAuditAdapterPurity) {
   EXPECT_STREQ(out.risk_level, "HIGH_RISK");
   EXPECT_FLOAT_EQ(out.risk_score, 0.92f);
   EXPECT_STREQ(out.matched_policy_clause, "Clause 9.1 Refund Policy");
+}
+
+// 5. OcrDocQaAdapter Purity (Biz 5)
+TEST_F(AdapterPurityTest, OcrDocQaAdapterPurity) {
+  auto adapter =
+      BizAdapterRegistry::Instance().GetAdapter(ALG_BIZ_TYPE_OCR_DOC_QA);
+  ASSERT_NE(adapter, nullptr);
+
+  CompanyOcrDocInputStruct in{};
+  in.request_id = 5001;
+  in.image_path = "./data/invoice.png";
+  in.query_prompt = "提取发票总额";
+  const void* inputs[] = {&in};
+
+  AlgContext ctx;
+  AdapterStatus status;
+  ASSERT_EQ(adapter->Unpack(inputs, 1, &ctx, &status), 0);
+
+  OcrDocumentBatch ocr_docs;
+  OcrDocumentItem doc_item;
+  doc_item.boxes.push_back({10, 20, 100, 30, "总计 500 元", 0.99f});
+  ocr_docs.emplace_back(0, 0, std::move(doc_item));
+  ctx.Set(kOcrDocs, std::move(ocr_docs));
+
+  StructuredDocumentBatch invoices;
+  invoices.emplace_back(0, 0, JsonDocumentItem("{\"total\":500}"));
+  ctx.Set(kExtractedInvoiceJson, std::move(invoices));
+
+  CompanyOcrDocOutputStruct out{};
+  void* outputs[] = {&out};
+  int num_out = 1;
+  ASSERT_EQ(adapter->Pack(&ctx, outputs, &num_out, &status), 0);
+
+  EXPECT_EQ(out.request_id, 5001u);
+  EXPECT_EQ(out.detected_box_count, 1);
+  EXPECT_STREQ(out.extracted_invoice_json, "{\"total\":500}");
+}
+
+// 6. AudioAsrIntentAdapter Purity (Biz 6)
+TEST_F(AdapterPurityTest, AudioAsrIntentAdapterPurity) {
+  auto adapter =
+      BizAdapterRegistry::Instance().GetAdapter(ALG_BIZ_TYPE_AUDIO_ASR_INTENT);
+  ASSERT_NE(adapter, nullptr);
+
+  std::vector<float> pcm(160, 0.1f);
+  CompanyAudioInputStruct in{};
+  in.request_id = 6001;
+  in.pcm_buffer = pcm.data();
+  in.pcm_length = static_cast<int64_t>(pcm.size());
+  in.sample_rate = 16000;
+  const void* inputs[] = {&in};
+
+  AlgContext ctx;
+  AdapterStatus status;
+  ASSERT_EQ(adapter->Unpack(inputs, 1, &ctx, &status), 0);
+
+  TextBatch transcripts;
+  transcripts.emplace_back(0, 0, "导航到清华科技园");
+  ctx.Set(kTranscripts, std::move(transcripts));
+
+  RuleMatchBatch slots;
+  slots.emplace_back(0, 0,
+                     RuleMatchItem(1, "NAVIGATION", "导航到",
+                                   "{\"intent\":\"NAVIGATION\",\"slots\":{"
+                                   "\"destination\":\"清华科技园\"}}",
+                                   1.0f));
+  ctx.Set(kIntentSlots, std::move(slots));
+
+  CompanyAudioOutputStruct out{};
+  void* outputs[] = {&out};
+  int num_out = 1;
+  ASSERT_EQ(adapter->Pack(&ctx, outputs, &num_out, &status), 0);
+
+  EXPECT_EQ(out.request_id, 6001u);
+  EXPECT_STREQ(out.transcribed_text, "导航到清华科技园");
+  EXPECT_NE(std::string(out.intent_slot_json).find("清华科技园"),
+            std::string::npos);
+}
+
+// 7. CrossRerankAdapter Purity (Biz 7)
+TEST_F(AdapterPurityTest, CrossRerankAdapterPurity) {
+  auto adapter =
+      BizAdapterRegistry::Instance().GetAdapter(ALG_BIZ_TYPE_CROSS_RERANK);
+  ASSERT_NE(adapter, nullptr);
+
+  const char* query = "EdgeFlow 架构";
+  const char* p0 = "LLM-EdgeFlow 核心组件";
+  const char* p1 = "不相关段落";
+  CompanyRerankBatchInputStruct in{};
+  in.request_id = 7001;
+  in.query_text = query;
+  in.candidate_passages[0] = p0;
+  in.candidate_passages[1] = p1;
+  in.candidate_count = 2;
+  const void* inputs[] = {&in};
+
+  AlgContext ctx;
+  AdapterStatus status;
+  ASSERT_EQ(adapter->Unpack(inputs, 1, &ctx, &status), 0);
+
+  RankedTextBatch results;
+  results.emplace_back(0, 0, RankedCandidate(p0, 0.98f, 1, 0));
+  results.emplace_back(0, 1, RankedCandidate(p1, 0.12f, 2, 1));
+  ctx.Set(kRankedResults, std::move(results));
+
+  CompanyRerankBatchOutputStruct out{};
+  void* outputs[] = {&out};
+  int num_out = 1;
+  ASSERT_EQ(adapter->Pack(&ctx, outputs, &num_out, &status), 0);
+
+  EXPECT_EQ(out.request_id, 7001u);
+  EXPECT_EQ(out.count, 2);
+  EXPECT_FLOAT_EQ(out.scores[0], 0.98f);
+  EXPECT_EQ(out.sorted_indices[0], 0);
 }
 
 }  // namespace alg_framework
