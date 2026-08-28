@@ -1,5 +1,4 @@
-#include <iostream>
-
+#include "company_alg_log.h"
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
 #include "engine/engine_interface.h"
@@ -30,8 +29,10 @@ class LlmGenerateNode final
   }
 
   int InferBatch(const InputBatch& prompts, OutputBatch* outputs) override {
-    std::cout << "[LlmGenerateNode] Inferring LLM outputs for "
-              << prompts.size() << " prompt items..." << std::endl;
+    ALG_LOG_DEBUG(
+        "[LlmGenerateNode] Inferring LLM outputs for %zu prompt "
+        "items...\n",
+        prompts.size());
     return engine()->InferTraceableBatch(prompts, gen_opt_, outputs);
   }
 

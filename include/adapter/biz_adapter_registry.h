@@ -1,6 +1,5 @@
 #pragma once
 
-#include <iostream>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -8,6 +7,7 @@
 #include <vector>
 
 #include "adapter/biz_adapter_interface.h"
+#include "company_alg_log.h"
 
 namespace alg_framework {
 
@@ -42,7 +42,7 @@ class BizAdapterRegistry {
                         std::string(adapter->BizName()) +
                         "' with ALG_BIZ_TYPE_UNKNOWN";
       registration_errors_.push_back(err);
-      std::cerr << "[BizAdapterRegistry ERROR] " << err << std::endl;
+      ALG_LOG_ERROR("[BizAdapterRegistry] %s\n", err.c_str());
       return false;
     }
 
@@ -55,7 +55,7 @@ class BizAdapterRegistry {
                         std::string(adapter->BizName()) +
                         "': only kCopyIn is currently supported";
       registration_errors_.push_back(err);
-      std::cerr << "[BizAdapterRegistry ERROR] " << err << std::endl;
+      ALG_LOG_ERROR("[BizAdapterRegistry] %s\n", err.c_str());
       return false;
     }
     if (desc.thread_model != ThreadModel::kStatelessThreadSafe) {
@@ -64,7 +64,7 @@ class BizAdapterRegistry {
                         std::string(adapter->BizName()) +
                         "': only kStatelessThreadSafe is currently supported";
       registration_errors_.push_back(err);
-      std::cerr << "[BizAdapterRegistry ERROR] " << err << std::endl;
+      ALG_LOG_ERROR("[BizAdapterRegistry] %s\n", err.c_str());
       return false;
     }
     if (desc.cardinality != OutputCardinality::kOneToOne) {
@@ -73,7 +73,7 @@ class BizAdapterRegistry {
                         std::string(adapter->BizName()) +
                         "': only kOneToOne is currently supported";
       registration_errors_.push_back(err);
-      std::cerr << "[BizAdapterRegistry ERROR] " << err << std::endl;
+      ALG_LOG_ERROR("[BizAdapterRegistry] %s\n", err.c_str());
       return false;
     }
     if (desc.biz_type != biz_type || desc.biz_name != adapter->BizName()) {
@@ -83,7 +83,7 @@ class BizAdapterRegistry {
           std::string(adapter->BizName()) +
           "': BizType/BizName mismatch between methods and descriptor";
       registration_errors_.push_back(err);
-      std::cerr << "[BizAdapterRegistry ERROR] " << err << std::endl;
+      ALG_LOG_ERROR("[BizAdapterRegistry] %s\n", err.c_str());
       return false;
     }
 
@@ -95,7 +95,7 @@ class BizAdapterRegistry {
                         "] already registered by '" + it->second->BizName() +
                         "'. Cannot register '" + adapter->BizName() + "'.";
       registration_errors_.push_back(err);
-      std::cerr << "[BizAdapterRegistry ERROR] " << err << std::endl;
+      ALG_LOG_ERROR("[BizAdapterRegistry] %s\n", err.c_str());
       return false;
     }
 
@@ -108,7 +108,7 @@ class BizAdapterRegistry {
                           "' already registered under BizType [" +
                           std::to_string(kv.first) + "].";
         registration_errors_.push_back(err);
-        std::cerr << "[BizAdapterRegistry ERROR] " << err << std::endl;
+        ALG_LOG_ERROR("[BizAdapterRegistry] %s\n", err.c_str());
         return false;
       }
     }
@@ -120,7 +120,7 @@ class BizAdapterRegistry {
           "Adapter '" + std::string(adapter->BizName()) +
           "' must declare at least one BizDefinition in pipelines";
       registration_errors_.push_back(err);
-      std::cerr << "[BizAdapterRegistry ERROR] " << err << std::endl;
+      ALG_LOG_ERROR("[BizAdapterRegistry] %s\n", err.c_str());
       return false;
     }
 
@@ -140,16 +140,16 @@ class BizAdapterRegistry {
           std::string(adapter->BizName()) +
           "' are invalid, duplicated, or already registered";
       registration_errors_.push_back(err);
-      std::cerr << "[BizAdapterRegistry ERROR] " << err << std::endl;
+      ALG_LOG_ERROR("[BizAdapterRegistry] %s\n", err.c_str());
       return false;
     }
 
     adapters_[biz_type] = adapter;
-    // Keep stdout machine-readable for tools such as alg_pipeline_tool.
-    std::cerr << "[BizAdapterRegistry] Registered adapter for BizType ["
-              << biz_type << "]: " << adapter->BizName()
-              << " (ABI: " << adapter->GetDescriptor().abi_version << ")"
-              << std::endl;
+    ALG_LOG_VERBOSE(
+        "[BizAdapterRegistry] Registered adapter for BizType [%d]: %s (ABI: "
+        "%s)\n",
+        static_cast<int>(biz_type), adapter->BizName(),
+        adapter->GetDescriptor().abi_version.c_str());
     return true;
   }
 
@@ -242,7 +242,7 @@ class BizAdapterRegistry {
     std::lock_guard<std::mutex> lock(mutex_);
     has_conflict_ = true;
     registration_errors_.push_back(error_msg);
-    std::cerr << "[BizAdapterRegistry ERROR] " << error_msg << std::endl;
+    ALG_LOG_ERROR("[BizAdapterRegistry] %s\n", error_msg.c_str());
   }
 
   void ClearForTesting() {

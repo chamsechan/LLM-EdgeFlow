@@ -1,7 +1,6 @@
 #include "engine/mock_npu/mock_npu_llm_engine.h"
 
-#include <iostream>
-
+#include "company_alg_log.h"
 #include "engine/engine_registry.h"
 
 namespace alg_framework {
@@ -15,10 +14,10 @@ bool MockNpuLlmEngine::Load(const std::string& model_path,
   max_seq_len_ = engine_config.value("max_seq_len", 1024);
   device_id_ = engine_config.value("device_id", -1);
   is_loaded_ = true;
-  std::cout << "[MockNpuLlmEngine] Loaded LLM from: " << model_path
-            << ", Fixed MaxBatchSize: " << max_batch_size_
-            << ", MaxSeqLen: " << max_seq_len_ << ", Device: " << device_id_
-            << std::endl;
+  ALG_LOG_INFO(
+      "[MockNpuLlmEngine] Loaded LLM from: %s, Fixed MaxBatchSize: %zu, "
+      "MaxSeqLen: %d, Device: %d\n",
+      model_path.c_str(), max_batch_size_, max_seq_len_, device_id_);
   return true;
 }
 
@@ -58,15 +57,16 @@ int MockNpuLlmEngine::RawNpuHardwareLlmInfer(
     const std::vector<std::string>& batch_prompts,
     std::vector<std::string>* batch_outputs) {
   if (batch_prompts.size() != max_batch_size_) {
-    std::cerr << "[MockNpuLlmEngine] HARDWARE ERROR: Batch size "
-              << batch_prompts.size() << " != Fixed MaxBatch "
-              << max_batch_size_ << std::endl;
+    ALG_LOG_ERROR(
+        "[MockNpuLlmEngine] HARDWARE ERROR: Batch size %zu != Fixed MaxBatch "
+        "%zu\n",
+        batch_prompts.size(), max_batch_size_);
     return -2002;
   }
 
-  std::cout
-      << "  [NPU Hardware] Executing NPU LLM Generation kernel with batch="
-      << max_batch_size_ << std::endl;
+  ALG_LOG_DEBUG(
+      "  [NPU Hardware] Executing NPU LLM Generation kernel with batch=%zu\n",
+      max_batch_size_);
   batch_outputs->resize(max_batch_size_);
 
   for (size_t i = 0; i < max_batch_size_; ++i) {

@@ -1,6 +1,5 @@
 #include <algorithm>
 #include <cmath>
-#include <iostream>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -130,9 +129,10 @@ class VectorTopKNode final : public NodeBase {
       }
     }
 
-    std::cout << "[VectorTopKNode] Processed " << queries->size()
-              << " queries, returned " << ranked_batch.size()
-              << " top ranked items." << std::endl;
+    ALG_LOG_DEBUG(
+        "[VectorTopKNode] Processed %zu queries, returned %zu top ranked "
+        "items.\n",
+        queries->size(), ranked_batch.size());
 
     out_ranked_.Set(req_ctx, std::move(ranked_batch));
     return 0;
@@ -209,3 +209,4 @@ NodeDefinition MakeVectorTopKNodeDefinition() {
 REGISTER_NODE_WITH_DEFINITION(VectorTopKNode, MakeVectorTopKNodeDefinition());
 
 }  // namespace alg_framework
+#include "company_alg_log.h"

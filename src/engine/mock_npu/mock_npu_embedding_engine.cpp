@@ -1,9 +1,9 @@
 #include "engine/mock_npu/mock_npu_embedding_engine.h"
 
 #include <cmath>
-#include <iostream>
 #include <numeric>
 
+#include "company_alg_log.h"
 #include "engine/engine_registry.h"
 
 namespace alg_framework {
@@ -17,10 +17,10 @@ bool MockNpuEmbeddingEngine::Load(const std::string& model_path,
   embedding_dim_ = engine_config.value("embedding_dim", 128);
   device_id_ = engine_config.value("device_id", -1);
   is_loaded_ = true;
-  std::cout << "[MockNpuEmbeddingEngine] Loaded model from: " << model_path
-            << ", Fixed MaxBatchSize: " << max_batch_size_
-            << ", Dim: " << embedding_dim_ << ", Device: " << device_id_
-            << std::endl;
+  ALG_LOG_INFO(
+      "[MockNpuEmbeddingEngine] Loaded model from: %s, Fixed MaxBatchSize: "
+      "%zu, Dim: %zu, Device: %d\n",
+      model_path.c_str(), max_batch_size_, embedding_dim_, device_id_);
   return true;
 }
 
@@ -51,14 +51,16 @@ int MockNpuEmbeddingEngine::RawNpuHardwareInfer(
     std::vector<std::vector<float>>* batch_outputs) {
   // 严格校验底层 NPU 输入是否恰好为固定 max_batch_size
   if (batch_inputs.size() != max_batch_size_) {
-    std::cerr << "[MockNpuEmbeddingEngine] HARDWARE ERROR: Batch size "
-              << batch_inputs.size() << " != Fixed MaxBatch " << max_batch_size_
-              << std::endl;
+    ALG_LOG_ERROR(
+        "[MockNpuEmbeddingEngine] HARDWARE ERROR: Batch size %zu != Fixed "
+        "MaxBatch %zu\n",
+        batch_inputs.size(), max_batch_size_);
     return -1002;
   }
 
-  std::cout << "  [NPU Hardware] Executing NPU Embedding kernel with batch="
-            << max_batch_size_ << std::endl;
+  ALG_LOG_DEBUG(
+      "  [NPU Hardware] Executing NPU Embedding kernel with batch=%zu\n",
+      max_batch_size_);
   batch_outputs->resize(max_batch_size_);
 
   for (size_t i = 0; i < max_batch_size_; ++i) {

@@ -1,6 +1,6 @@
-#include <iostream>
 #include <vector>
 
+#include "company_alg_log.h"
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
 #include "engine/engine_interface.h"
@@ -51,8 +51,10 @@ class AsrTranscribeNode final : public ModelBoundNode<IAudioAsrEngine> {
     }
 
     TextBatch transcripts;
-    std::cout << "[AsrTranscribeNode] Inferring transcripts for "
-              << engine_items.size() << " audio streams..." << std::endl;
+    ALG_LOG_DEBUG(
+        "[AsrTranscribeNode] Inferring transcripts for %zu audio "
+        "streams...\n",
+        engine_items.size());
 
     int ret = engine()->InferTraceableBatch(engine_items, &transcripts);
     if (ret != 0) {

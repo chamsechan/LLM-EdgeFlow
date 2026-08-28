@@ -1,7 +1,6 @@
 #include "adapter/operator/company_conf_resolver.h"
 
 #include <fstream>
-#include <iostream>
 #include <sstream>
 #include <unordered_map>
 #include <unordered_set>

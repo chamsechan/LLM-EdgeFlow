@@ -1,5 +1,4 @@
 #include <algorithm>
-#include <iostream>
 #include <map>
 #include <string>
 #include <vector>
@@ -108,9 +107,10 @@ class TextRerankNode final : public ModelBoundNode<IRerankEngine> {
     }
 
     std::vector<TraceableItem<float>> pair_scores;
-    std::cout << "[TextRerankNode] Scoring " << pair_items.size()
-              << " candidate (query, passage) pairs with Reranker..."
-              << std::endl;
+    ALG_LOG_DEBUG(
+        "[TextRerankNode] Scoring %zu candidate (query, passage) "
+        "pairs with Reranker...\n",
+        pair_items.size());
 
     int ret = engine()->ScoreTraceableBatch(pair_items, &pair_scores);
     if (ret != 0) {
@@ -200,3 +200,4 @@ NodeDefinition MakeTextRerankNodeDefinition() {
 REGISTER_NODE_WITH_DEFINITION(TextRerankNode, MakeTextRerankNodeDefinition());
 
 }  // namespace alg_framework
+#include "company_alg_log.h"

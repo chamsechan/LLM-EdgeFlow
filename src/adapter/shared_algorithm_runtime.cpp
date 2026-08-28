@@ -1,11 +1,11 @@
 #include "adapter/shared_algorithm_runtime.h"
 
 #include <cstring>
-#include <iostream>
 
 #include "adapter/biz_adapter_registry.h"
 #include "adapter/operator/operator_biz_bridge_registry.h"
 #include "adapter/operator/operator_value_type_registry.h"
+#include "company_alg_log.h"
 #include "core/alg_context.h"
 #include "core/node_registry.h"
 #include "core/session_context.h"
@@ -17,48 +17,48 @@ int SharedAlgorithmRuntime::GlobalInit() noexcept {
   try {
     // 1. BizAdapterRegistry 冲突审计
     if (BizAdapterRegistry::Instance().HasRegistrationConflict()) {
-      std::cerr << "[SharedAlgorithmRuntime] GlobalInit failed: Registration "
-                   "conflict in BizAdapterRegistry."
-                << std::endl;
+      ALG_LOG_ERROR(
+          "[SharedAlgorithmRuntime] GlobalInit failed: Registration conflict "
+          "in BizAdapterRegistry.\n");
       return COMPANY_ALG_ERR_REGISTRY_CONFLICT;  // -6
     }
 
     // 2. NodeFactory 冲突审计
     if (NodeFactory::Instance().HasConflict()) {
-      std::cerr << "[SharedAlgorithmRuntime] GlobalInit failed: Registration "
-                   "conflict in NodeFactory."
-                << std::endl;
+      ALG_LOG_ERROR(
+          "[SharedAlgorithmRuntime] GlobalInit failed: Registration conflict "
+          "in NodeFactory.\n");
       return COMPANY_ALG_ERR_REGISTRY_CONFLICT;  // -6
     }
 
     // 3. EngineFactory 冲突审计
     if (EngineFactory::Instance().HasConflict()) {
-      std::cerr << "[SharedAlgorithmRuntime] GlobalInit failed: Registration "
-                   "conflict in EngineFactory."
-                << std::endl;
+      ALG_LOG_ERROR(
+          "[SharedAlgorithmRuntime] GlobalInit failed: Registration conflict "
+          "in EngineFactory.\n");
       return COMPANY_ALG_ERR_REGISTRY_CONFLICT;  // -6
     }
 
     // 4. OperatorValueTypeRegistry 冲突审计
     if (OperatorValueTypeRegistry::Instance().HasConflict()) {
-      std::cerr << "[SharedAlgorithmRuntime] GlobalInit failed: Registration "
-                   "conflict in OperatorValueTypeRegistry."
-                << std::endl;
+      ALG_LOG_ERROR(
+          "[SharedAlgorithmRuntime] GlobalInit failed: Registration conflict "
+          "in OperatorValueTypeRegistry.\n");
       return COMPANY_ALG_ERR_REGISTRY_CONFLICT;  // -6
     }
 
     // 5. OperatorBizBridgeRegistry 冲突审计
     if (OperatorBizBridgeRegistry::Instance().HasConflict()) {
-      std::cerr << "[SharedAlgorithmRuntime] GlobalInit failed: Registration "
-                   "conflict in OperatorBizBridgeRegistry."
-                << std::endl;
+      ALG_LOG_ERROR(
+          "[SharedAlgorithmRuntime] GlobalInit failed: Registration conflict "
+          "in OperatorBizBridgeRegistry.\n");
       return COMPANY_ALG_ERR_REGISTRY_CONFLICT;  // -6
     }
 
     return 0;
   } catch (const std::exception& e) {
-    std::cerr << "[SharedAlgorithmRuntime] GlobalInit exception: " << e.what()
-              << std::endl;
+    ALG_LOG_ERROR("[SharedAlgorithmRuntime] GlobalInit exception: %s\n",
+                  e.what());
     return COMPANY_ALG_ERR_EXCEPTION;
   } catch (...) {
     return COMPANY_ALG_ERR_UNKNOWN;

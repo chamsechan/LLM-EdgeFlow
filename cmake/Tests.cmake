@@ -21,6 +21,8 @@ endfunction()
 
 set(EDGEFLOW_TEST_CORE_SRCS
   tests/test_batch_executor.cpp
+  tests/test_company_alg_log.cpp
+  tests/test_company_alg_log_name_override.cpp
   tests/test_framework_core.cpp
   tests/test_dag_pipeline.cpp
   tests/test_engine_fault_tolerance_and_lifecycle.cpp
@@ -121,6 +123,9 @@ edgeflow_add_runner_test(BatchExecutorTest edgeflow_test_core_runner
   "FixedBatchExecutorTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(FrameworkCoreTest edgeflow_test_core_runner
   "AlgContextTest.*:TraceableItemTest.*:NodeRegistryTest.*:EngineRegistryTest.*:PipelineTest.*"
+  "${_edgeflow_tier1}")
+edgeflow_add_runner_test(CompanyAlgLogTest edgeflow_test_core_runner
+  "CompanyAlgLogTest.*:CompanyAlgLogNameOverrideTest.*"
   "${_edgeflow_tier1}")
 edgeflow_add_runner_test(DagPipelineTest edgeflow_test_core_runner
   "DagPipelineTest.*" "${_edgeflow_tier1}")

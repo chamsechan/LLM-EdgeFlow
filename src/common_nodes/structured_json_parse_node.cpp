@@ -1,4 +1,3 @@
-#include <iostream>
 #include <nlohmann/json.hpp>
 #include <string>
 #include <unordered_set>
@@ -61,15 +60,15 @@ class StructuredJsonParseNode final : public NodeBase {
     try {
       fallback_structured_ = nlohmann::json::parse(fallback_json_);
     } catch (const std::exception& e) {
-      std::cerr << "[StructuredJsonParseNode] Invalid fallback_json: "
-                << e.what() << std::endl;
+      ALG_LOG_ERROR("[StructuredJsonParseNode] Invalid fallback_json: %s\n",
+                    e.what());
       return false;
     }
     if (failure_policy_ != "fail" &&
         !ValidateStructuredFields(fallback_structured_, nullptr)) {
-      std::cerr << "[StructuredJsonParseNode] fallback_json does not satisfy "
-                   "required_fields/field_types"
-                << std::endl;
+      ALG_LOG_ERROR(
+          "[StructuredJsonParseNode] fallback_json does not satisfy "
+          "required_fields/field_types\n");
       return false;
     }
     return true;
@@ -325,3 +324,4 @@ REGISTER_NODE_WITH_DEFINITION(StructuredJsonParseNode,
                               MakeStructuredJsonParseNodeDefinition());
 
 }  // namespace alg_framework
+#include "company_alg_log.h"

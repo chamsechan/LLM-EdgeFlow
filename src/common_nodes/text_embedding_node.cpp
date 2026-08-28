@@ -1,5 +1,4 @@
 #include <cmath>
-#include <iostream>
 #include <memory>
 #include <string>
 #include <vector>
@@ -80,9 +79,10 @@ class TextEmbeddingNode final : public ModelBoundNode<IEmbeddingEngine> {
     }
 
     EmbeddingBatch output_embeddings;
-    std::cout << "[TextEmbeddingNode] Inferring embeddings for "
-              << text_items->size() << " text items using engine..."
-              << std::endl;
+    ALG_LOG_DEBUG(
+        "[TextEmbeddingNode] Inferring embeddings for %zu text "
+        "items using engine...\n",
+        text_items->size());
 
     int ret = engine()->InferTraceableBatch(*text_items, &output_embeddings);
     if (ret != 0) {
@@ -166,3 +166,4 @@ REGISTER_NODE_WITH_DEFINITION(TextEmbeddingNode,
                               MakeTextEmbeddingNodeDefinition());
 
 }  // namespace alg_framework
+#include "company_alg_log.h"

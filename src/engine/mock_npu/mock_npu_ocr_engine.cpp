@@ -1,8 +1,8 @@
 #include "engine/mock_npu/mock_npu_ocr_engine.h"
 
-#include <iostream>
 #include <vector>
 
+#include "company_alg_log.h"
 #include "engine/engine_registry.h"
 
 namespace alg_framework {
@@ -15,9 +15,10 @@ bool MockNpuOcrEngine::Load(const std::string& model_path,
   max_batch_size_ = engine_config.value("max_batch_size", 2);
   device_id_ = engine_config.value("device_id", -1);
   is_loaded_ = true;
-  std::cout << "[MockNpuOcrEngine] Loaded OCR Detection/Recog model from: "
-            << model_path_ << ", Fixed MaxBatchSize: " << max_batch_size_
-            << ", Device: " << device_id_ << std::endl;
+  ALG_LOG_INFO(
+      "[MockNpuOcrEngine] Loaded OCR Detection/Recog model from: %s, Fixed "
+      "MaxBatchSize: %zu, Device: %d\n",
+      model_path_.c_str(), max_batch_size_, device_id_);
   return true;
 }
 
@@ -46,15 +47,17 @@ int MockNpuOcrEngine::RawNpuOcrHardwareInfer(
     const std::vector<std::string>& batch_images,
     std::vector<std::vector<OcrBoxItem>>* batch_outputs) {
   if (batch_images.size() != max_batch_size_) {
-    std::cerr << "[MockNpuOcrEngine] HARDWARE ERROR: Batch size "
-              << batch_images.size() << " != Fixed MaxBatch " << max_batch_size_
-              << std::endl;
+    ALG_LOG_ERROR(
+        "[MockNpuOcrEngine] HARDWARE ERROR: Batch size %zu != Fixed MaxBatch "
+        "%zu\n",
+        batch_images.size(), max_batch_size_);
     return -7002;
   }
 
-  std::cout << "  [NPU Hardware] Executing NPU OCR Detection & Recognition "
-               "kernel with batch="
-            << max_batch_size_ << std::endl;
+  ALG_LOG_DEBUG(
+      "  [NPU Hardware] Executing NPU OCR Detection & Recognition kernel "
+      "with batch=%zu\n",
+      max_batch_size_);
 
   batch_outputs->resize(max_batch_size_);
   for (size_t i = 0; i < max_batch_size_; ++i) {

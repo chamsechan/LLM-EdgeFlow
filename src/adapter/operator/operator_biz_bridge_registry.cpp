@@ -1,6 +1,5 @@
 #include "adapter/operator/operator_biz_bridge_registry.h"
 
-#include <iostream>
 #include <unordered_set>
 
 #include "adapter/biz_adapter_registry.h"

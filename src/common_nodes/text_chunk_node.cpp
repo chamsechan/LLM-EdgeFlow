@@ -1,5 +1,4 @@
 #include <algorithm>
-#include <iostream>
 #include <string>
 #include <vector>
 
@@ -68,9 +67,8 @@ class TextChunkNode final : public NodeBase {
       chunk_counts.emplace_back(req_id, 0, count_for_req);
     }
 
-    std::cout << "[TextChunkNode] Split " << text_items->size()
-              << " input texts into " << chunked_items.size() << " chunks."
-              << std::endl;
+    ALG_LOG_DEBUG("[TextChunkNode] Split %zu input texts into %zu chunks.\n",
+                  text_items->size(), chunked_items.size());
 
     out_chunks_.Set(req_ctx, std::move(chunked_items));
     out_chunk_counts_.Set(req_ctx, std::move(chunk_counts));
@@ -111,3 +109,4 @@ NodeDefinition MakeTextChunkNodeDefinition() {
 REGISTER_NODE_WITH_DEFINITION(TextChunkNode, MakeTextChunkNodeDefinition());
 
 }  // namespace alg_framework
+#include "company_alg_log.h"

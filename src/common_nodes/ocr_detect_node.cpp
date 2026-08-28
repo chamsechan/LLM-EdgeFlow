@@ -1,4 +1,3 @@
-#include <iostream>
 #include <string>
 #include <vector>
 
@@ -47,8 +46,9 @@ class OcrDetectNode final : public ModelBoundNode<IOcrEngine> {
     }
 
     std::vector<TraceableItem<std::vector<IOcrEngine::OcrBoxItem>>> raw_boxes;
-    std::cout << "[OcrDetectNode] Executing OCR text detection for "
-              << image_items->size() << " image files..." << std::endl;
+    ALG_LOG_DEBUG(
+        "[OcrDetectNode] Executing OCR text detection for %zu image files...\n",
+        image_items->size());
 
     int ret = engine()->InferTraceableBatch(*image_items, &raw_boxes);
     if (ret != 0) {
@@ -114,3 +114,4 @@ NodeDefinition MakeOcrDetectNodeDefinition() {
 REGISTER_NODE_WITH_DEFINITION(OcrDetectNode, MakeOcrDetectNodeDefinition());
 
 }  // namespace alg_framework
+#include "company_alg_log.h"
