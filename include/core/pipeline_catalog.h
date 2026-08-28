@@ -137,17 +137,29 @@ enum class PortConstraintKind {
   kExactlyOneOf = 1,
   kAllOrNone = 2,
   kAtMostOneOf = 3,
+  kExactOneGroupOf = 4,
 };
 
 struct PortGroupConstraint {
   PortConstraintKind kind = PortConstraintKind::kAtLeastOneOf;
   std::vector<std::string> ports;
+  std::vector<std::vector<std::string>> port_groups;
   std::string message;
 
   PortGroupConstraint() = default;
   PortGroupConstraint(PortConstraintKind k, std::vector<std::string> p,
                       std::string msg = {})
       : kind(k), ports(std::move(p)), message(std::move(msg)) {}
+
+  static PortGroupConstraint Groups(
+      PortConstraintKind k, std::vector<std::vector<std::string>> groups,
+      std::string msg = {}) {
+    PortGroupConstraint c;
+    c.kind = k;
+    c.port_groups = std::move(groups);
+    c.message = std::move(msg);
+    return c;
+  }
 };
 
 struct ControlCommandDefinition {

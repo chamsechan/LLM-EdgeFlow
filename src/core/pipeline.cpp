@@ -545,6 +545,89 @@ int Pipeline::Execute(AlgContext* req_ctx) {
   return 0;
 }
 
+namespace {
+
+bool ValidatePayloadSchema(const nlohmann::json& payload,
+                           const nlohmann::json& schema, std::string* err_msg) {
+  if (schema.empty() || !schema.is_object()) return true;
+
+  if (schema.contains("type") && schema["type"].is_string()) {
+    std::string expected_type = schema["type"].get<std::string>();
+    if (expected_type == "object" && !payload.is_object()) {
+      if (err_msg) *err_msg = "Payload root must be an object";
+      return false;
+    }
+    if (expected_type == "array" && !payload.is_array()) {
+      if (err_msg) *err_msg = "Payload root must be an array";
+      return false;
+    }
+    if (expected_type == "string" && !payload.is_string()) {
+      if (err_msg) *err_msg = "Payload root must be a string";
+      return false;
+    }
+  }
+
+  if (payload.is_object()) {
+    // Check required fields
+    if (schema.contains("required") && schema["required"].is_array()) {
+      for (const auto& req : schema["required"]) {
+        if (req.is_string()) {
+          std::string req_key = req.get<std::string>();
+          if (!payload.contains(req_key)) {
+            if (err_msg)
+              *err_msg =
+                  "Missing required field in control payload: " + req_key;
+            return false;
+          }
+        }
+      }
+    }
+
+    // Check properties types
+    if (schema.contains("properties") && schema["properties"].is_object()) {
+      for (auto it = schema["properties"].begin();
+           it != schema["properties"].end(); ++it) {
+        if (payload.contains(it.key())) {
+          const auto& prop_val = payload[it.key()];
+          const auto& prop_schema = it.value();
+          if (prop_schema.is_object() && prop_schema.contains("type") &&
+              prop_schema["type"].is_string()) {
+            std::string ptype = prop_schema["type"].get<std::string>();
+            if (ptype == "string" && !prop_val.is_string()) {
+              if (err_msg)
+                *err_msg = "Property '" + it.key() + "' must be a string";
+              return false;
+            }
+            if (ptype == "object" && !prop_val.is_object()) {
+              if (err_msg)
+                *err_msg = "Property '" + it.key() + "' must be an object";
+              return false;
+            }
+            if (ptype == "array" && !prop_val.is_array()) {
+              if (err_msg)
+                *err_msg = "Property '" + it.key() + "' must be an array";
+              return false;
+            }
+            if (ptype == "boolean" && !prop_val.is_boolean()) {
+              if (err_msg)
+                *err_msg = "Property '" + it.key() + "' must be a boolean";
+              return false;
+            }
+            if (ptype == "number" && !prop_val.is_number()) {
+              if (err_msg)
+                *err_msg = "Property '" + it.key() + "' must be a number";
+              return false;
+            }
+          }
+        }
+      }
+    }
+  }
+  return true;
+}
+
+}  // namespace
+
 int Pipeline::Control(int cmd, const std::string& json_param) {
   // R1-ACC-002: 仅允许在 Ready 状态下执行
   if (state_ != State::kReady) {
@@ -560,17 +643,36 @@ int Pipeline::Control(int cmd, const std::string& json_param) {
 
   for (auto& node : nodes_) {
     const auto* def = PipelineCatalog::FindNode(node->Name());
-    bool supports_cmd = false;
+    const ControlCommandDefinition* matched_cmd_def = nullptr;
     if (def) {
       for (const auto& cmd_def : def->control_commands) {
         if (cmd_def.cmd_id == cmd) {
-          supports_cmd = true;
+          matched_cmd_def = &cmd_def;
           break;
         }
       }
     }
-    if (!supports_cmd) {
+    if (!matched_cmd_def) {
       continue;
+    }
+
+    if (!matched_cmd_def->payload_schema.empty() &&
+        matched_cmd_def->payload_schema.is_object()) {
+      nlohmann::json parsed_payload;
+      try {
+        parsed_payload = nlohmann::json::parse(json_param);
+      } catch (const std::exception& e) {
+        std::cerr << "[Pipeline] Control payload JSON parse error: " << e.what()
+                  << std::endl;
+        return -1;
+      }
+      std::string schema_err;
+      if (!ValidatePayloadSchema(
+              parsed_payload, matched_cmd_def->payload_schema, &schema_err)) {
+        std::cerr << "[Pipeline] Control payload schema violation: "
+                  << schema_err << std::endl;
+        return -1;
+      }
     }
 
     has_target = true;

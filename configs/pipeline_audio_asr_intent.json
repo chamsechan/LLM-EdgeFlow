@@ -42,6 +42,8 @@
         }
       },
       "config": {
+        "default_category": "GENERAL_VOICE_CMD",
+        "default_score": 1.0,
         "categories": {
           "MUSIC_PLAY": [
             "播放",
@@ -68,8 +70,8 @@
             "category": "NAVIGATION",
             "score": 1.0,
             "constants": {
-              "avoid_toll": "false",
-              "avoid_traffic": "true"
+              "avoid_toll": false,
+              "avoid_traffic": true
             }
           },
           {
@@ -79,29 +81,50 @@
             "category": "NAVIGATION",
             "score": 1.0,
             "constants": {
-              "avoid_toll": "false"
+              "avoid_toll": false
             }
           },
           {
             "id": "hvac_temp_fan",
             "strategy": "regex",
-            "pattern": "(?:调到|设为)?(?<target_temp>\\d+)度.*?(?<fan_speed>\\d+|一|二|三|四)档",
+            "pattern": "空调.*?(?:调到|设为)?(?<temperature>\\d+)度.*?(?<fan_speed>\\d+|一|二|三|四)档",
             "category": "VEHICLE_HVAC_CONTROL",
-            "score": 1.0
+            "score": 1.0,
+            "constants": {
+              "temperature": 24,
+              "fan_speed": 2
+            }
+          },
+          {
+            "id": "hvac_temp_fan_general",
+            "strategy": "regex",
+            "pattern": "(?:调到|设为)?(?<temperature>\\d+)度.*?(?<fan_speed>\\d+|一|二|三|四)档",
+            "category": "VEHICLE_HVAC_CONTROL",
+            "score": 1.0,
+            "constants": {
+              "temperature": 24,
+              "fan_speed": 2
+            }
           },
           {
             "id": "hvac_temp",
             "strategy": "regex",
-            "pattern": "空调(?:调到|设为)?(?<target_temp>\\d+)度",
+            "pattern": "空调(?:调到|设为)?(?<temperature>\\d+)度",
             "category": "VEHICLE_HVAC_CONTROL",
-            "score": 1.0
+            "score": 1.0,
+            "constants": {
+              "temperature": 24
+            }
           },
           {
             "id": "hvac_fan",
             "strategy": "regex",
             "pattern": "风(?:速|量)?(?:开到)?(?<fan_speed>\\d+|一|二|三|四)档",
             "category": "VEHICLE_HVAC_CONTROL",
-            "score": 1.0
+            "score": 1.0,
+            "constants": {
+              "fan_speed": 2
+            }
           },
           {
             "id": "music_play",

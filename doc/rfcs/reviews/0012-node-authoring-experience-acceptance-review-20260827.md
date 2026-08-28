@@ -552,3 +552,162 @@ RFC-0012 最终验收。**
 `I/O-first, operation-defined, contract-guarded`，但必须以旧 Operator 兼容性和
 fail-closed 反例作为最终门禁；在 4 个 P0、5 个 P1 全部关闭之前，不建议提交最终验收
 commit 或合入 `main`。
+
+---
+
+## 10. 第四轮独立复验结论（2026-08-28）
+
+### 10.1 最终判定
+
+**结论：本轮关闭了多项具体缺陷，但 RFC-0012 仍未达到最终验收标准。**
+
+当前仍计 **4 个 P0、5 个 P1**，NA-008 保持 Closed。数量未下降不代表整改无效，而是
+每个编号代表一组完整架构契约；本轮已完成的子项将在下表明确保留，下一轮不应重复实现。
+
+复验对象为分支 `feat/node-authoring-experience`、HEAD `ad0e33c` 之上的 24 个未提交文件。
+RFC 与索引应继续保持 `In Implementation`。
+
+### 10.2 本轮确认有效的整改
+
+1. TextRerank 已用 `exact_one_group_of` 精确表达三组输入方案；合法与非法组合测试会检查
+   `INVALID_COMBINATION`，已消除上一轮 UNKNOWN_BUSINESS 假阳性；
+2. Audio HVAC 已恢复 `temperature: 24`、`fan_speed: 2`，并恢复
+   `GENERAL_VOICE_CMD/raw_query` fallback；
+3. RuleMatch 已拒绝非法 strategy、非法 categories 和无有效字段的 Control payload；
+4. StructuredJsonParse 在 `failure_policy=fail` 时正确拒绝空输入；
+5. Compliance/DocQA Adapter 已删除 SAFE、GENERAL_QA、0.10、0.90 等默认值补造，并增加
+   缺字段 fail-closed；
+6. TextTemplate 已将 `allow_dynamic_attributes` 纳入 Definition，拒绝未知单花括号变量，并
+   移除跨 sub_id 的 primary 静默回退；
+7. SessionContext 已提供原子 GetOrCreate；8 线程定向运行只观察到一次 Embedding engine
+   kernel 调用；
+8. Architecture 主文档、LayerGuard 缺目录检查和违规注入测试已得到改善。
+
+### 10.3 动态复验结果
+
+| 检查项 | 结果 | 说明 |
+| :--- | :---: | :--- |
+| `git diff --check` | PASS | 无 whitespace error |
+| `./scripts/format.sh --check` | PASS | Google C++ 格式通过 |
+| CMake configure / build | PASS | 当前工作树可编译 |
+| 定向契约测试 | PASS，7/7 | Rerank、Audio、Adapter、Catalog、LayerGuard 均通过 |
+| 全量 CTest | PASS，41/41 | 新增 LayerGuardSelfTest 已注册 |
+| Runtime Catalog | PASS，11 类 Node | Rerank groups、Template/Rule Control schema 可导出 |
+| 11 个 Pipeline validate / plan | PASS | 生产配置全部可验证、可规划 |
+| 业务定向 smoke | PASS | Audio、DialogueAudit、DocQA |
+| `./scripts/run_all_tests.sh` | PASS，六阶段 | 9 个 smoke profile 全部通过 |
+| `./scripts/run_sanitizers.sh` | PASS | ASan/UBSan 19 个 fast test 与 9 个 smoke 通过 |
+| 远端 PR / CI / main 合并 | NOT VERIFIED | 本次没有上传或合并授权 |
+
+### 10.4 NA-001～NA-010 第四轮状态
+
+| 编号 | 状态 | 第四轮独立结论 |
+| :--- | :---: | :--- |
+| **NA-001** | **Partial / P0** | Rerank 三组互斥方案和端口元数据枚举注册检查已修复；但 11 类 Node 的端口仍几乎全部使用默认 `1:1/preserve/request`，例如 TextChunk 输出没有声明 `1:N/generate_sub_id`，Template 的集合聚合没有声明 `N:1/aggregate`。Validator/Runtime 也未实际消费 cardinality、provenance、lifetime，因此这些字段仍是展示元数据。 |
+| **NA-002** | **Partial / P0** | HVAC 和通用 fallback 已恢复；导航的 `avoid_toll`、`avoid_traffic` 仍由配置写成字符串，当前输出为 `"false"/"true"`。迁移前 SlotExtract 输出的是 JSON boolean `false/true`，现有 golden 也错误地断言字符串，外部契约尚差最后一个值类型修复。 |
+| **NA-003** | **Partial / P1** | Rule/Template 已导出非空 schema，规则 Control 的本地校验和原子替换明显改善；但 `Pipeline::Control` 仍不读取 `payload_schema`，没有统一的分发前校验。Template 对 `{"bogus":1}` 仍可返回 Handled，schema 中声明的 `allow_dynamic_attributes` 也没有在 Control 中应用。 |
+| **NA-004** | **Partial / P0** | 空输入 fail、结构化 payload 和 Adapter 缺字段 fail-closed 已修复；但 StructuredJsonParse 仍没有 schema/field mapping，Compliance Adapter 只检查字段存在、不检查 JSON 类型，`get<T>()` 可能抛异常。DocQA Adapter 仍遍历 `doc_chunks` 计算 `chunk_count`，Layer 1 还不是纯结果映射。 |
+| **NA-005** | **Partial / P1** | Catalog 已校验端口元数据取值和 group 引用；但 `BoundInput/Output::TypeId()` 仍无消费者，Definition 与运行时绑定仍手写两套类型字符串，模型默认 ID 仍在构造函数、Definition 和 Init 中重复。SSOT 尚未闭环。 |
+| **NA-006** | **Partial / P1** | 同 key 并发冷启动已实现 single-flight，定向运行只调用一次 engine；但当前在全局 resource mutex 下执行推理，会阻塞所有不相关资源并存在任意 factory 重入风险。缓存没有模型版本更新失效机制，Validator 也不能拒绝 request 输入误用 `lifetime=session`；测试只断言 8 个结果成功，没有用 counting engine 断言调用次数。 |
+| **NA-007** | **Partial / P1** | token 编译、attributes schema、单/双花括号校验和 primary sub_id 对齐已改善；动态 attribute 在运行时缺失时仍静默渲染为空，context/matches/document 仍按 req_id 广播聚合且没有声明 cardinality/join 规则，Control 对 `allow_dynamic_attributes` 的声明与行为不一致。 |
+| **NA-008** | **Closed** | owned plan 所有权保持正确，本轮 ASan/UBSan 继续通过。 |
+| **NA-009** | **Partial / P0** | Rerank 假阳性、HVAC/fallback golden、Adapter 缺字段反例和 LayerGuard CTest 已补；但 Audio golden 仍锁定错误的导航字符串类型，single-flight 没有调用计数断言，Control schema、structured schema/type、Template 缺变量和真实 cardinality 仍无失败用例。11 类 Node 也仍集中在一个聚合测试目标，未达到原验收矩阵。 |
+| **NA-010** | **Partial / P1** | Architecture 和 LayerGuard 主路径已更新；README 仍描述 `src/biz/*` 业务专属算子池，developer guide 仍引用 `src/business/<biz_name>`。LayerGuard self-test 只直接测试 grep，没有调用真实脚本验证“缺目录必须失败”，门禁闭环尚不完整。 |
+
+### 10.5 下一轮只需处理的剩余项
+
+1. 将 Audio 导航 constants 改为 JSON boolean，并把 golden 改为布尔断言；
+2. 把 DocQA chunk_count 及 Audit/DocQA 输出装配移到 Layer 3 的窄语义结果契约，Adapter 只
+   拷贝；为 StructuredJsonParse 增加所需 schema/field mapping，并对字段类型 fail-closed；
+3. 为各 Node 声明真实 cardinality/provenance/lifetime，让 Validator 和运行时消费这些
+   契约；同时消除 TypeId、模型默认值的重复事实源；
+4. 在 Pipeline 分发 Control 前统一执行 payload schema 校验，Template 的声明字段与热更新
+   行为保持一致；
+5. 将 session cache 改为 per-key single-flight，纳入模型版本/语料变更失效，并使用 counting
+   engine 精确断言调用次数；
+6. 明确 Template join/缺变量策略，补齐失败矩阵，更新 README、developer guide 和真正调用
+   LayerGuard 的缺目录自测。
+
+完成以上六组工作后，再在同一个完整 commit SHA 上复跑本节门禁并申请最终验收。
+
+---
+
+## 11. 第五轮独立复验结论（2026-08-28）
+
+### 11.1 最终判定
+
+**结论：本轮整改有明确进步，功能与回归门禁全部通过，但 RFC-0012 仍未达到最终架构
+验收标准。**
+
+剩余问题由上一轮的 **4 个 P0、5 个 P1** 降为 **3 个 P0、4 个 P1**。本轮确认关闭
+NA-002 和 NA-010；NA-008 继续保持 Closed。RFC-0012 与索引应继续保持
+`In Implementation`，在 3 个 P0 关闭前不建议形成最终验收 commit 或合入 `main`。
+
+复验对象为分支 `feat/node-authoring-experience`、HEAD `ad0e33c` 之上的未提交工作树。
+本轮只更新验收报告，没有修改实现代码。
+
+### 11.2 相比第四轮确认完成的整改
+
+1. Audio 导航 slots 已恢复为 JSON boolean，HVAC 保持 `temperature: 24`、
+   `fan_speed: 2`，通用 fallback 也由精确 golden 锁定，外部 Operator 契约恢复；
+2. 11 类 Common Node 均显式补充了 cardinality、provenance、lifetime 元数据，
+   TextRerank 三组互斥方案继续正确工作；
+3. Pipeline 已开始读取并校验 Control payload schema，RuleMatch 的类型、strategy 和空更新
+   均能 fail-closed；
+4. Compliance Adapter 已增加 `risk_level`、`risk_score` 类型检查，不再因错误 JSON 类型
+   执行不受控的 `get<T>()`；
+5. SessionContext 已改为 per-key single-flight，不同 key 不再被一次推理全局阻塞；
+   counting engine 的 8 线程测试精确断言首次推理一次、语料变化后再次推理；
+6. README、developer guide 和 Architecture 当前路径已更新；LayerGuard self-test 会真实调用
+   检查脚本，并验证缺目录与注入违规都必须失败。
+
+### 11.3 动态复验结果
+
+| 检查项 | 结果 | 说明 |
+| :--- | :---: | :--- |
+| `git diff --check` | PASS | 当前工作树无 whitespace error |
+| `./scripts/format.sh --check` | PASS | clang-format 18 检查通过 |
+| CMake configure / build | PASS | Ninja 构建成功 |
+| 全量 CTest | PASS，41/41 | 包含真实 LayerGuardSelfTest |
+| Runtime Catalog | PASS | 11 Node、8 Engine、10 business/biz contract、11 profile |
+| 11 个 Pipeline validate / plan | PASS，11/11 | 全部生产 JSON 可验证、可规划 |
+| `./scripts/run_all_tests.sh` | PASS，六阶段 | 9 个 smoke profile 与双 CLI 门禁全部通过 |
+| `./scripts/run_sanitizers.sh` | PASS | ASan/UBSan 19 个 fast test 与 9 个 smoke 通过 |
+| 远端 PR / CI / main 合并 | NOT VERIFIED | 本次没有上传或合并授权 |
+
+### 11.4 NA-001～NA-010 第五轮状态
+
+| 编号 | 状态 | 第五轮独立结论 |
+| :--- | :---: | :--- |
+| **NA-001** | **Partial / P0** | Rerank 组合约束、元数据枚举自校验和各 Node 的显式声明已完成；但 Validator/Runtime 仍不消费 cardinality、provenance、lifetime，错误声明无法在 Pipeline 校验时被发现。现有声明中也存在与实现不一致：TextRuleMatch 每个输入仅产生一个同 provenance 的 `RuleMatchItem`，却声明为 `1:N/generate_sub_id`；OcrDetect 的 `document` 同样一图一 document、保留 req/sub，却声明为 `1:N/generate_sub_id`。TextEmbedding Definition 固定声明 request lifetime，也无法表达实例配置的 session lifetime。 |
+| **NA-002** | **Closed** | 导航布尔 slots、destination、HVAC 数值字段和 GENERAL fallback 均已恢复，Operator golden 使用精确字段与 JSON 类型断言；全量与 sanitizer smoke 均验证通过。 |
+| **NA-003** | **Partial / P1** | Pipeline 已读取 schema，Rule Control 的本地校验与原子替换有效；但校验发生在逐 Node 分发过程中，而不是先验证全部目标再执行，多个 Node 共享 command id 时仍可能出现前面的 Node 已更新、后面的 Node 校验/执行失败。Template schema 接受 `allow_dynamic_attributes`，其 Control 实现却不读取该字段；`{\"bogus\":1}` 也可被视为成功的空更新。 |
+| **NA-004** | **Partial / P0** | 结构化 JSON、诊断、空输入 fail、required fields 和 Audit 字段类型检查已完成；但 `required_fields` 仅检查存在性，仍没有字段类型 schema/field mapping。更关键的是 DocQA Adapter 仍在 Layer 1 用整个 `doc_chunks->size()` 计算每个输出的 `chunk_count`；多请求批次会把全批 chunk 总数写给每条结果，既违反纯映射边界也存在业务结果错误。 |
+| **NA-005** | **Partial / P1** | Catalog 的结构与合法值检查已有改善；但 `BoundInput/BoundOutput::TypeId()` 仍没有消费者，Definition 的类型字符串与运行时绑定仍是两套事实源。模型默认 ID 也继续在 `ModelBoundNode` 构造、Init `config.value` 和 Definition 中重复维护。 |
+| **NA-006** | **Partial / P1** | per-key single-flight 和并发调用计数已经闭环，corpus digest、model id 与 normalize 进入缓存键；但同 model id 下模型热更新没有版本/指纹失效机制。Definition 仍把 TextEmbedding 输入输出声明为 request lifetime，Validator 无法拒绝将请求数据误配置成 session 缓存。 |
+| **NA-007** | **Partial / P1** | Template 的预编译、端口 join 声明、sub_id 对齐和语法校验继续有效；但允许动态属性后，某个样本缺少属性时仍静默渲染为空，没有可配置的 missing-variable policy。Control 声明与 `allow_dynamic_attributes` 实际行为也不一致。新增的 `TextTemplateNodeMissingVariableFail` 测试只覆盖“属性存在并成功渲染”，没有执行缺变量失败场景。 |
+| **NA-008** | **Closed** | owned `ValidatedPipelinePlan` 生命周期修复保持有效，ASan/UBSan 持续通过。 |
+| **NA-009** | **Partial / P0** | Audio、Rerank、Adapter、single-flight、LayerGuard 等关键反例已明显增强；但 11 类新 Common Node 仍集中在 `tests/test_common_nodes.cpp` 一个目标中，没有满足仓库强制规则“每个新 common node 对应 `tests/test_<name>.cpp` 并独立注册”。同时 Template 缺变量测试名与真实断言不符，端口 cardinality/provenance/lifetime 的错误声明也没有契约测试捕获。 |
+| **NA-010** | **Closed** | 当前架构说明与开发指南已指向 `src/common_nodes/`；RFC 状态保持 `In Implementation`；LayerGuard 真实脚本自测、完整 CTest、六阶段回归和 sanitizer 均通过。README changelog 中的旧路径仅为历史变更记录，不视为当前架构漂移。 |
+
+### 11.5 下一轮最短整改清单
+
+1. **先关闭 NA-004**：在 Layer 3 形成按 `(req_id, sub_id)` 对齐的 DocQA 结果装配契约，
+   Adapter 只复制 `chunk_count`；StructuredJsonParse 增加字段类型 schema，或引入语义窄的
+   typed result assembler，避免 Adapter 理解 JSON 业务字段；
+2. **贯通端口执行契约**：由 Validator 校验相邻端口 cardinality、provenance、lifetime
+   兼容性，并修正 RuleMatch/OCR/Embedding 的声明；至少用故意错误的 fixture 证明门禁
+   fail-closed；
+3. **关闭 NA-009**：按仓库治理规则将 11 类 Common Node 拆为对应独立测试文件/目标，
+   每类至少覆盖 Init、Process、错误输入、边界和其特有的 Control/并发/缓存语义；
+4. **收尾 P1**：Control 先验证全部目标再分发并拒绝空更新；Template 增加明确的
+   missing-variable policy；缓存键纳入模型版本；让绑定端口类型和模型默认值真正来自
+   NodeDefinition 单一事实源。
+
+### 11.6 架构结论
+
+11 个 Common Node 组合现有业务的总体方向已经被本轮 11 条 Pipeline、9 个 smoke profile
+和全量 sanitizer 再次证明可行；不需要恢复按业务拆 Node。当前剩余问题已经从“迁移行为
+是否正确”收敛为三类框架治理问题：**执行契约是否可验证、Layer 1 是否保持纯映射、测试
+是否能独立锁住每个公共能力**。完成 3 个 P0 后可申请下一次最终验收；4 个 P1 建议同批
+收尾，以避免 RFC 在带已知架构债务的状态下标记 Completed。

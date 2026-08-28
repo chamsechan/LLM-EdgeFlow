@@ -145,6 +145,24 @@ class DocQaAdapter : public IBizAdapter {
       return valid_ret;
     }
 
+    if (!intent_matches ||
+        intent_matches->size() < static_cast<size_t>(count)) {
+      if (out_status) {
+        *out_status = AdapterStatus::InvalidInput(
+            "intent_matches missing or count mismatch in AlgContext",
+            "intent_matches", -1, BizName());
+      }
+      return COMPANY_ALG_ERR_INVALID_INPUT;
+    }
+
+    if (!doc_chunks) {
+      if (out_status) {
+        *out_status = AdapterStatus::InvalidInput(
+            "doc_chunks missing in AlgContext", "doc_chunks", -1, BizName());
+      }
+      return COMPANY_ALG_ERR_INVALID_INPUT;
+    }
+
     for (int i = 0; i < count; ++i) {
       auto* out_ptr = static_cast<CompanyDocOutputStruct*>(outputs[i]);
       uint64_t req_id =
@@ -153,24 +171,12 @@ class DocQaAdapter : public IBizAdapter {
               : (*answers)[i].req_id;
       out_ptr->request_id = req_id;
 
-      std::string intent = "GENERAL_QA";
-      float conf = 0.90f;
-      if (intent_matches && i < static_cast<int>(intent_matches->size())) {
-        const auto& match = (*intent_matches)[i].data;
-        if (!match.category.empty()) intent = match.category;
-        if (match.score > 0.0f) conf = match.score;
-      }
+      const auto& match = (*intent_matches)[i].data;
+      const std::string& intent = match.category;
+      float conf = match.score;
       out_ptr->confidence = conf;
 
-      int chunks_cnt = 0;
-      if (doc_chunks) {
-        for (const auto& chk : *doc_chunks) {
-          if (chk.req_id == static_cast<uint32_t>(i)) {
-            chunks_cnt++;
-          }
-        }
-      }
-      out_ptr->chunk_count = chunks_cnt;
+      out_ptr->chunk_count = static_cast<int32_t>(doc_chunks->size());
       out_ptr->status_code = 0;
 
       if (!AdapterValidationHelper::CheckedStringCopy(

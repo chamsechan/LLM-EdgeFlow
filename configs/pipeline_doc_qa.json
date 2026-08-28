@@ -125,6 +125,8 @@
         }
       },
       "config": {
+        "default_category": "GENERAL_QA",
+        "default_score": 0.90,
         "categories": {
           "AFTER_SALES_REFUND": [
             "退款",

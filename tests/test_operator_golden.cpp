@@ -274,23 +274,29 @@ TEST_F(OperatorGoldenTest, AudioAsrIntentSlotExtractionGolden) {
   ASSERT_EQ(ops_.Create(&handle, &param), 0);
   ASSERT_NE(handle, nullptr);
 
-  // Sample 1: Navigation with avoid traffic (sum > 50 in mock ASR)
-  std::vector<float> pcm_nav(16000, 0.05f);  // sum = 800 > 50
-  // Sample 2: HVAC temp and fan speed (sum <= 50 in mock ASR)
-  std::vector<float> pcm_hvac(16000, 0.001f);  // sum = 16 <= 50
+  // Sample 1: Navigation with avoid traffic (sum > 120 in mock ASR)
+  std::vector<float> pcm_nav(16000, 0.05f);  // sum = 800 > 120
+  // Sample 2: HVAC temp and fan speed (sum <= 40 in mock ASR)
+  std::vector<float> pcm_hvac(16000, 0.001f);  // sum = 16 <= 40
+  // Sample 3: Unmatched general voice command (sum = 80, > 40 and <= 120)
+  std::vector<float> pcm_gen(16000, 0.005f);  // sum = 80
 
   CompanyOperatorAudioInput in1{6001, pcm_nav.data(),
                                 static_cast<int32_t>(pcm_nav.size()), 16000};
   CompanyOperatorAudioInput in2{6002, pcm_hvac.data(),
                                 static_cast<int32_t>(pcm_hvac.size()), 16000};
+  CompanyOperatorAudioInput in3{6003, pcm_gen.data(),
+                                static_cast<int32_t>(pcm_gen.size()), 16000};
 
-  NamedIoBatch inputs(2);
+  NamedIoBatch inputs(3);
   inputs[0]["mic_0.audio_in"] = MakeBorrowedOperatorInput(&in1);
   inputs[1]["mic_0.audio_in"] = MakeBorrowedOperatorInput(&in2);
+  inputs[2]["mic_0.audio_in"] = MakeBorrowedOperatorInput(&in3);
 
-  NamedIoBatch outputs(2);
+  NamedIoBatch outputs(3);
   outputs[0]["mic_0.audio_out"] = std::shared_ptr<void>();
   outputs[1]["mic_0.audio_out"] = std::shared_ptr<void>();
+  outputs[2]["mic_0.audio_out"] = std::shared_ptr<void>();
 
   int p_ret = ops_.Process(handle, inputs, outputs);
   ASSERT_EQ(p_ret, 0) << "Process error: "
@@ -314,8 +320,8 @@ TEST_F(OperatorGoldenTest, AudioAsrIntentSlotExtractionGolden) {
   EXPECT_EQ(j1["intent"], "NAVIGATION");
   ASSERT_TRUE(j1.contains("slots"));
   EXPECT_EQ(j1["slots"]["destination"], "清华科技园");
-  EXPECT_EQ(j1["slots"]["avoid_traffic"], "true");
-  EXPECT_EQ(j1["slots"]["avoid_toll"], "false");
+  EXPECT_EQ(j1["slots"]["avoid_traffic"], true);
+  EXPECT_EQ(j1["slots"]["avoid_toll"], false);
 
   // Verify Sample 2: HVAC Control
   auto out_sp2 = outputs[1]["mic_0.audio_out"];
@@ -334,12 +340,32 @@ TEST_F(OperatorGoldenTest, AudioAsrIntentSlotExtractionGolden) {
   auto j2 = nlohmann::json::parse(slot_str2);
   EXPECT_EQ(j2["intent"], "VEHICLE_HVAC_CONTROL");
   ASSERT_TRUE(j2.contains("slots"));
-  EXPECT_EQ(j2["slots"]["target_temp"], "24");
-  EXPECT_EQ(j2["slots"]["fan_speed"], "二");
+  EXPECT_EQ(j2["slots"]["temperature"], 24);
+  EXPECT_EQ(j2["slots"]["fan_speed"], 2);
+
+  // Verify Sample 3: General Voice Command Fallback
+  auto out_sp3 = outputs[2]["mic_0.audio_out"];
+  ASSERT_NE(out_sp3, nullptr);
+  auto* out_dto3 = static_cast<CompanyOperatorAudioOutput*>(out_sp3.get());
+  EXPECT_EQ(out_dto3->request_id, 6003u);
+  EXPECT_EQ(out_dto3->status_code, 0);
+  ASSERT_NE(out_dto3->transcribed_text, nullptr);
+  ASSERT_NE(out_dto3->intent_slot_json, nullptr);
+  std::string transcript3(out_dto3->transcribed_text->data,
+                          out_dto3->transcribed_text->length);
+  EXPECT_STREQ(transcript3.c_str(), "今天北京天气怎么样？");
+
+  std::string slot_str3(out_dto3->intent_slot_json->data,
+                        out_dto3->intent_slot_json->length);
+  auto j3 = nlohmann::json::parse(slot_str3);
+  EXPECT_EQ(j3["intent"], "GENERAL_VOICE_CMD");
+  ASSERT_TRUE(j3.contains("slots"));
+  EXPECT_EQ(j3["slots"]["raw_query"], "今天北京天气怎么样？");
 
   outputs.clear();
   out_sp1.reset();
   out_sp2.reset();
+  out_sp3.reset();
   EXPECT_EQ(ops_.Destroy(handle), 0);
 }
 

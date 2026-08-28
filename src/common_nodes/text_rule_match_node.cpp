@@ -6,6 +6,7 @@
 #include <shared_mutex>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -30,6 +31,7 @@ class TextRuleMatchNode final : public NodeBase {
     std::string category;
     float score = 1.0f;
     std::unordered_map<std::string, std::string> constants;
+    std::unordered_map<std::string, nlohmann::json> constants_json;
     std::regex compiled_regex;
     std::vector<std::string> named_groups;
   };
@@ -42,20 +44,27 @@ class TextRuleMatchNode final : public NodeBase {
     if (cmd == kControlCmdUpdateRules) {  // 1: 动态更新关注词/规则表
       try {
         nlohmann::json root = nlohmann::json::parse(json_param);
-        if (root.contains("categories") && root["categories"].is_object()) {
-          if (!UpdateCategories(root["categories"])) {
+        if (!root.is_object()) {
+          return NodeControlResult::Failed(
+              -1, "Control payload must be a JSON object");
+        }
+        if (root.contains("categories")) {
+          if (!root["categories"].is_object() ||
+              !UpdateCategories(root["categories"])) {
             return NodeControlResult::Failed(-1, "Invalid categories payload");
           }
           return NodeControlResult::Handled(
               0, "TextRuleMatchNode categories updated");
-        } else if (root.contains("rules") && root["rules"].is_array()) {
-          if (!UpdateRules(root["rules"])) {
+        } else if (root.contains("rules")) {
+          if (!root["rules"].is_array() || !UpdateRules(root["rules"])) {
             return NodeControlResult::Failed(
                 -1, "Invalid rules payload or regular expression syntax");
           }
           return NodeControlResult::Handled(0,
                                             "TextRuleMatchNode rules updated");
         }
+        return NodeControlResult::Failed(
+            -1, "Control payload must contain 'categories' or 'rules'");
       } catch (const std::exception& e) {
         return NodeControlResult::Failed(
             -1, std::string("JSON parse error in Control: ") + e.what());
@@ -69,6 +78,9 @@ class TextRuleMatchNode final : public NodeBase {
                 SessionContext& /*session_ctx*/) override {
     BindPort(init_ctx, in_text_);
     BindPort(init_ctx, out_matches_);
+
+    default_category_ = config.value("default_category", "");
+    default_score_ = config.value("default_score", 1.0f);
 
     if (config.contains("default_categories") &&
         config["default_categories"].is_object()) {
@@ -169,9 +181,11 @@ class TextRuleMatchNode final : public NodeBase {
             total_captures[k] = v;
             slots_obj[k] = v;
           }
+          for (const auto& [k, v] : rule.constants_json) {
+            slots_obj[k] = v;
+          }
           for (const auto& [k, v] : rule.constants) {
             total_constants[k] = v;
-            slots_obj[k] = v;
           }
 
           nlohmann::json match_elem;
@@ -181,6 +195,14 @@ class TextRuleMatchNode final : public NodeBase {
           match_elem["score"] = rule.score;
           matches_array.push_back(std::move(match_elem));
         }
+      }
+
+      if (!is_hit && !default_category_.empty()) {
+        is_hit = 1;
+        first_hit_category = default_category_;
+        first_hit_score = default_score_;
+        first_hit_word = "";
+        slots_obj["raw_query"] = sentence;
       }
 
       nlohmann::json result_json;
@@ -208,18 +230,17 @@ class TextRuleMatchNode final : public NodeBase {
 
  private:
   bool UpdateCategories(const nlohmann::json& categories_json) {
+    if (!categories_json.is_object()) return false;
     std::vector<std::pair<std::string, std::vector<std::string>>>
         temp_categories;
     for (auto it = categories_json.begin(); it != categories_json.end(); ++it) {
-      if (it.value().is_array()) {
-        std::vector<std::string> words;
-        for (const auto& w : it.value()) {
-          if (w.is_string()) {
-            words.push_back(w.get<std::string>());
-          }
-        }
-        temp_categories.push_back({it.key(), std::move(words)});
+      if (!it.value().is_array()) return false;
+      std::vector<std::string> words;
+      for (const auto& w : it.value()) {
+        if (!w.is_string()) return false;
+        words.push_back(w.get<std::string>());
       }
+      temp_categories.push_back({it.key(), std::move(words)});
     }
     std::unique_lock<std::shared_mutex> lock(rw_mutex_);
     category_keywords_list_ = std::move(temp_categories);
@@ -227,12 +248,16 @@ class TextRuleMatchNode final : public NodeBase {
   }
 
   bool UpdateRules(const nlohmann::json& rules_json) {
+    if (!rules_json.is_array()) return false;
+    static const std::unordered_set<std::string> kValidStrategies = {
+        "contains", "exact", "regex"};
     std::vector<RuleSpec> temp_rules;
     for (const auto& r_elem : rules_json) {
       if (!r_elem.is_object()) return false;
       RuleSpec spec;
       spec.id = r_elem.value("id", "");
       spec.strategy = r_elem.value("strategy", "contains");
+      if (!kValidStrategies.count(spec.strategy)) return false;
       spec.pattern = r_elem.value("pattern", "");
       spec.category = r_elem.value("category", "");
       spec.score = r_elem.value("score", 1.0f);
@@ -240,6 +265,7 @@ class TextRuleMatchNode final : public NodeBase {
       if (r_elem.contains("constants") && r_elem["constants"].is_object()) {
         for (auto it = r_elem["constants"].begin();
              it != r_elem["constants"].end(); ++it) {
+          spec.constants_json[it.key()] = it.value();
           if (it.value().is_string()) {
             spec.constants[it.key()] = it.value().get<std::string>();
           } else if (it.value().is_boolean()) {
@@ -252,7 +278,6 @@ class TextRuleMatchNode final : public NodeBase {
       }
 
       if (spec.strategy == "regex" && !spec.pattern.empty()) {
-        // 解析命名捕获组 (?<name>...) 或 (?P<name>...)
         std::string raw_pat = spec.pattern;
         std::string converted_pat;
         std::vector<std::string> group_names;
@@ -296,6 +321,8 @@ class TextRuleMatchNode final : public NodeBase {
   std::vector<std::pair<std::string, std::vector<std::string>>>
       category_keywords_list_;
   std::vector<RuleSpec> rules_list_;
+  std::string default_category_;
+  float default_score_ = 1.0f;
 
   BoundInput<TextBatch> in_text_;
   BoundOutput<RuleMatchBatch> out_matches_;
@@ -307,15 +334,25 @@ NodeDefinition MakeTextRuleMatchNodeDefinition() {
   def.category = "common";
   def.description =
       "Keyword and rule matching engine node with regex slot capture";
-  def.inputs = {
-      RequiredInputPort("text", BlackboardKey<TextBatch>{"", "TextBatch"})};
-  def.outputs = {OutputPort(
-      "matches", BlackboardKey<RuleMatchBatch>{"", "RuleMatchBatch"})};
+  def.inputs = {RequiredInputPort("text",
+                                  BlackboardKey<TextBatch>{"", "TextBatch"},
+                                  "1:1", "preserve", "request")};
+  def.outputs = {OutputPort("matches",
+                            BlackboardKey<RuleMatchBatch>{"", "RuleMatchBatch"},
+                            false, "1:N", "generate_sub_id", "request")};
   def.control_commands = {ControlCommandDefinition(
       kControlCmdUpdateRules, "update_rules",
       "Update matching rules and categories dynamically",
-      nlohmann::json::object(), true)};
+      nlohmann::json{{"type", "object"},
+                     {"properties",
+                      {{"categories", {{"type", "object"}}},
+                       {"rules", {{"type", "array"}}}}}},
+      true)};
   def.config_fields = {
+      ConfigFieldDefinition{"default_category", ConfigValueKind::kString, false,
+                            ""},
+      ConfigFieldDefinition{"default_score", ConfigValueKind::kNumber, false,
+                            1.0, 0.0, 1.0},
       ConfigFieldDefinition{"default_categories", ConfigValueKind::kObject,
                             false},
       ConfigFieldDefinition{"categories", ConfigValueKind::kObject, false},

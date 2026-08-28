@@ -79,10 +79,11 @@ NodeDefinition MakeTextChunkNodeDefinition() {
   def.node_type = TextChunkNode::kNodeType;
   def.category = "common";
   def.description = "Text chunking and slicing pre-processing node";
-  def.inputs = {
-      RequiredInputPort("text", BlackboardKey<TextBatch>{"", "TextBatch"})};
-  def.outputs = {
-      OutputPort("chunks", BlackboardKey<TextBatch>{"", "TextBatch"})};
+  def.inputs = {RequiredInputPort("text",
+                                  BlackboardKey<TextBatch>{"", "TextBatch"},
+                                  "1:1", "preserve", "request")};
+  def.outputs = {OutputPort("chunks", BlackboardKey<TextBatch>{"", "TextBatch"},
+                            false, "1:N", "generate_sub_id", "request")};
   def.config_fields = {
       ConfigFieldDefinition{"chunk_size", ConfigValueKind::kInteger, false, 100,
                             1.0, 1000000.0},

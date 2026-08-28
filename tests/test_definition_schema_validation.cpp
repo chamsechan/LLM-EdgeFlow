@@ -354,8 +354,9 @@ TEST(DefinitionSchemaValidationTest, RejectsInvalidDefinitionAtRegistration) {
   invalid_constraint_def.node_type = "InvalidConstraintNode";
   invalid_constraint_def.inputs = {
       RequiredInputPort("text", BlackboardKey<TextBatch>{"", "TextBatch"})};
-  invalid_constraint_def.port_constraints = {PortGroupConstraint(
-      PortConstraintKind::kAtLeastOneOf, {"text", "unknown_port"})};
+  invalid_constraint_def.port_constraints = {
+      PortGroupConstraint(PortConstraintKind::kAtLeastOneOf,
+                          std::vector<std::string>{"text", "unknown_port"})};
   EXPECT_FALSE(PipelineCatalog::RegisterNodeDefinition(invalid_constraint_def));
 
   // 11. Invalid control command definition

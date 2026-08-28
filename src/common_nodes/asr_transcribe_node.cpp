@@ -74,8 +74,10 @@ NodeDefinition MakeAsrTranscribeNodeDefinition() {
   def.category = "common";
   def.description = "Audio speech recognition (ASR) transcription node";
   def.inputs = {RequiredInputPort(
-      "audio", BlackboardKey<AudioPcmBatch>{"", "AudioPcmBatch"})};
-  def.outputs = {OutputPort("text", BlackboardKey<TextBatch>{"", "TextBatch"})};
+      "audio", BlackboardKey<AudioPcmBatch>{"", "AudioPcmBatch"}, "1:1",
+      "preserve", "request")};
+  def.outputs = {OutputPort("text", BlackboardKey<TextBatch>{"", "TextBatch"},
+                            false, "1:1", "preserve", "request")};
   def.config_fields = {ConfigFieldDefinition{
       "bind_model", ConfigValueKind::kString, false, "mock_asr_model"}};
   def.model_capability = "asr";

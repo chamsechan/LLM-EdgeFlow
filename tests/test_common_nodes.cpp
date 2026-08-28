@@ -363,9 +363,19 @@ TEST_F(CommonNodesTest, TextRerankNodeComprehensive) {
 
 // 7.1 TextRerankNode combination constraints validation test
 TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
-  // Test invalid case 1: only candidates, missing queries
-  nlohmann::json bad_pipeline_1 = {
-      {"biz_name", "cross_encoder_rerank_v1"},
+  auto has_constraint_err = [](const ValidationReport& rep) {
+    return std::any_of(rep.diagnostics.begin(), rep.diagnostics.end(),
+                       [](const auto& d) {
+                         return d.code == DiagnosticCode::kInvalidCombination &&
+                                d.message.find(
+                                    "TextRerankNode requires exactly one input "
+                                    "group") != std::string::npos;
+                       });
+  };
+
+  // Test valid scheme 1: 'pairs' input only
+  nlohmann::json valid_pipeline_pairs = {
+      {"business_name", "custom_rerank_test"},
       {"models",
        {{{"engine_type", "mock_npu_rerank"},
          {"model_id", "rerank_model_v1"},
@@ -373,14 +383,79 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
       {"pipeline",
        {{{"id", "node_0_TextRerankNode"},
          {"node_type", "TextRerankNode"},
-         {"ports", {{"inputs", {{"candidates", "some_candidates"}}}}},
+         {"depends_on", nlohmann::json::array()},
+         {"ports",
+          {{"inputs", {{"pairs", "any_pairs"}}},
+           {"outputs", {{"ranked", "ranked_results"}}}}},
          {"config", {{"bind_model", "rerank_model_v1"}}}}}}};
-  auto plan1 = PipelineValidator::ValidateAndPlan(bad_pipeline_1);
+  auto plan_pairs = PipelineValidator::ValidateAndPlan(
+      valid_pipeline_pairs, ValidationPolicy::kPrivateExtensionCompatible);
+  EXPECT_TRUE(plan_pairs.report.ok);
+
+  // Test valid scheme 2: 'queries' + 'candidates'
+  nlohmann::json valid_pipeline_qc = {
+      {"business_name", "custom_rerank_test"},
+      {"models",
+       {{{"engine_type", "mock_npu_rerank"},
+         {"model_id", "rerank_model_v1"},
+         {"model_path", "./models/rerank.bin"}}}},
+      {"pipeline",
+       {{{"id", "node_0_TextRerankNode"},
+         {"node_type", "TextRerankNode"},
+         {"depends_on", nlohmann::json::array()},
+         {"ports",
+          {{"inputs",
+            {{"queries", "any_queries"}, {"candidates", "any_candidates"}}},
+           {"outputs", {{"ranked", "ranked_results"}}}}},
+         {"config", {{"bind_model", "rerank_model_v1"}}}}}}};
+  auto plan_qc = PipelineValidator::ValidateAndPlan(
+      valid_pipeline_qc, ValidationPolicy::kPrivateExtensionCompatible);
+  EXPECT_TRUE(plan_qc.report.ok);
+
+  // Test valid scheme 3: 'queries' + 'candidate_texts'
+  nlohmann::json valid_pipeline_qct = {
+      {"business_name", "custom_rerank_test"},
+      {"models",
+       {{{"engine_type", "mock_npu_rerank"},
+         {"model_id", "rerank_model_v1"},
+         {"model_path", "./models/rerank.bin"}}}},
+      {"pipeline",
+       {{{"id", "node_0_TextRerankNode"},
+         {"node_type", "TextRerankNode"},
+         {"depends_on", nlohmann::json::array()},
+         {"ports",
+          {{"inputs",
+            {{"queries", "any_queries"},
+             {"candidate_texts", "any_candidate_texts"}}},
+           {"outputs", {{"ranked", "ranked_results"}}}}},
+         {"config", {{"bind_model", "rerank_model_v1"}}}}}}};
+  auto plan_qct = PipelineValidator::ValidateAndPlan(
+      valid_pipeline_qct, ValidationPolicy::kPrivateExtensionCompatible);
+  EXPECT_TRUE(plan_qct.report.ok);
+
+  // Test invalid case 1: only candidates, missing queries
+  nlohmann::json bad_pipeline_1 = {
+      {"business_name", "custom_rerank_test"},
+      {"models",
+       {{{"engine_type", "mock_npu_rerank"},
+         {"model_id", "rerank_model_v1"},
+         {"model_path", "./models/rerank.bin"}}}},
+      {"pipeline",
+       {{{"id", "node_0_TextRerankNode"},
+         {"node_type", "TextRerankNode"},
+         {"depends_on", nlohmann::json::array()},
+         {"ports",
+          {{"inputs", {{"candidates", "some_cand"}}},
+           {"outputs", {{"ranked", "ranked_results"}}}}},
+         {"config", {{"bind_model", "rerank_model_v1"}}}}}}};
+  auto plan1 = PipelineValidator::ValidateAndPlan(
+      bad_pipeline_1, ValidationPolicy::kPrivateExtensionCompatible);
   EXPECT_FALSE(plan1.report.ok);
+  EXPECT_TRUE(has_constraint_err(plan1.report));
 
   // Test invalid case 2: only queries, missing candidates
   nlohmann::json bad_pipeline_2 = {
-      {"biz_name", "cross_encoder_rerank_v1"},
+      {"business_name", "custom_rerank_test"},
       {"models",
        {{{"engine_type", "mock_npu_rerank"},
          {"model_id", "rerank_model_v1"},
@@ -388,10 +463,141 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
       {"pipeline",
        {{{"id", "node_0_TextRerankNode"},
          {"node_type", "TextRerankNode"},
-         {"ports", {{"inputs", {{"queries", "some_queries"}}}}},
+         {"depends_on", nlohmann::json::array()},
+         {"ports",
+          {{"inputs", {{"queries", "some_queries"}}},
+           {"outputs", {{"ranked", "ranked_results"}}}}},
          {"config", {{"bind_model", "rerank_model_v1"}}}}}}};
-  auto plan2 = PipelineValidator::ValidateAndPlan(bad_pipeline_2);
+  auto plan2 = PipelineValidator::ValidateAndPlan(
+      bad_pipeline_2, ValidationPolicy::kPrivateExtensionCompatible);
   EXPECT_FALSE(plan2.report.ok);
+  EXPECT_TRUE(has_constraint_err(plan2.report));
+
+  // Test invalid case 3: pairs + candidates (ambiguous/conflicting combination)
+  nlohmann::json bad_pipeline_3 = {
+      {"business_name", "custom_rerank_test"},
+      {"models",
+       {{{"engine_type", "mock_npu_rerank"},
+         {"model_id", "rerank_model_v1"},
+         {"model_path", "./models/rerank.bin"}}}},
+      {"pipeline",
+       {{{"id", "node_0_TextRerankNode"},
+         {"node_type", "TextRerankNode"},
+         {"depends_on", nlohmann::json::array()},
+         {"ports",
+          {{"inputs",
+            {{"pairs", "any_pairs"}, {"candidates", "any_candidates"}}},
+           {"outputs", {{"ranked", "ranked_results"}}}}},
+         {"config", {{"bind_model", "rerank_model_v1"}}}}}}};
+  auto plan3 = PipelineValidator::ValidateAndPlan(
+      bad_pipeline_3, ValidationPolicy::kPrivateExtensionCompatible);
+  EXPECT_FALSE(plan3.report.ok);
+  EXPECT_TRUE(has_constraint_err(plan3.report));
+
+  // Test invalid case 4: queries + candidates + candidate_texts (conflicting)
+  nlohmann::json bad_pipeline_4 = {
+      {"business_name", "custom_rerank_test"},
+      {"models",
+       {{{"engine_type", "mock_npu_rerank"},
+         {"model_id", "rerank_model_v1"},
+         {"model_path", "./models/rerank.bin"}}}},
+      {"pipeline",
+       {{{"id", "node_0_TextRerankNode"},
+         {"node_type", "TextRerankNode"},
+         {"depends_on", nlohmann::json::array()},
+         {"ports",
+          {{"inputs",
+            {{"queries", "any_queries"},
+             {"candidates", "any_candidates"},
+             {"candidate_texts", "any_candidate_texts"}}},
+           {"outputs", {{"ranked", "ranked_results"}}}}},
+         {"config", {{"bind_model", "rerank_model_v1"}}}}}}};
+  auto plan4 = PipelineValidator::ValidateAndPlan(
+      bad_pipeline_4, ValidationPolicy::kPrivateExtensionCompatible);
+  EXPECT_FALSE(plan4.report.ok);
+  EXPECT_TRUE(has_constraint_err(plan4.report));
+}
+
+namespace {
+
+class CountingEmbeddingEngine final : public IEmbeddingEngine {
+ public:
+  std::atomic<int> infer_calls{0};
+  std::string engine_type_ = "counting_mock_embedding";
+
+  bool Load(const std::string&, const nlohmann::json&) override { return true; }
+  size_t GetMaxBatchSize() const override { return 4; }
+  const std::string& EngineType() const override { return engine_type_; }
+
+  int InferTraceableBatch(
+      const std::vector<TraceableItem<std::string>>& input_texts,
+      std::vector<TraceableItem<std::vector<float>>>* output_embeddings)
+      override {
+    infer_calls++;
+    output_embeddings->clear();
+    for (const auto& in : input_texts) {
+      output_embeddings->emplace_back(in.req_id, in.sub_id,
+                                      std::vector<float>(384, 0.1f));
+    }
+    return 0;
+  }
+};
+
+}  // namespace
+
+// 7.2 TextEmbeddingNode single-flight session caching concurrency test
+TEST_F(CommonNodesTest, TextEmbeddingNodeSingleFlightSessionCaching) {
+  auto counting_engine = std::make_shared<CountingEmbeddingEngine>();
+  ASSERT_TRUE(session_ctx_->GetModelManager().RegisterModel(
+      "counting_embed_model", counting_engine));
+
+  auto node = NodeFactory::Instance().Create("TextEmbeddingNode");
+  ASSERT_NE(node, nullptr);
+
+  nlohmann::json cfg = {{"bind_model", "counting_embed_model"},
+                        {"normalize", true},
+                        {"lifetime", "session"}};
+  EXPECT_TRUE(node->Init(cfg, session_ctx_.get()));
+
+  constexpr int kNumThreads = 8;
+  std::vector<std::thread> threads;
+  std::atomic<int> success_count{0};
+
+  for (int i = 0; i < kNumThreads; ++i) {
+    threads.emplace_back([&, i]() {
+      AlgContext ctx;
+      TextBatch corpus;
+      corpus.emplace_back(100, 0, "Static policy clause 1");
+      corpus.emplace_back(100, 1, "Static policy clause 2");
+      ctx.Set("text", corpus);
+
+      int ret = node->Process(&ctx);
+      if (ret == 0) {
+        const auto* out = ctx.Get<EmbeddingBatch>("embedding");
+        if (out && out->size() == 2u) {
+          success_count++;
+        }
+      }
+    });
+  }
+
+  for (auto& t : threads) {
+    t.join();
+  }
+  EXPECT_EQ(success_count.load(), kNumThreads);
+  EXPECT_EQ(counting_engine->infer_calls.load(), 1);
+
+  // Invalidation test: changing corpus triggers recomputation
+  {
+    AlgContext ctx;
+    TextBatch updated_corpus;
+    updated_corpus.emplace_back(100, 0, "Brand new updated policy text");
+    ctx.Set("text", updated_corpus);
+
+    int ret = node->Process(&ctx);
+    EXPECT_EQ(ret, 0);
+    EXPECT_EQ(counting_engine->infer_calls.load(), 2);
+  }
 }
 
 // 8. LlmGenerateNode: prompt inference
@@ -474,6 +680,63 @@ TEST_F(CommonNodesTest, TextCorpusSourceNodeComprehensive) {
   ASSERT_EQ(out->size(), 2u);
   EXPECT_EQ((*out)[0].data, "Clause 1: Compliance");
   EXPECT_EQ((*out)[1].data, "Clause 2: Security");
+}
+
+// 12. StructuredJsonParseNode required_fields validation test
+TEST_F(CommonNodesTest, StructuredJsonParseNodeRequiredFields) {
+  auto node = NodeFactory::Instance().Create("StructuredJsonParseNode");
+  ASSERT_NE(node, nullptr);
+
+  nlohmann::json cfg = {{"required_fields", {"risk_level", "risk_score"}},
+                        {"failure_policy", "fail"}};
+  EXPECT_TRUE(node->Init(cfg, session_ctx_.get()));
+
+  // Valid sample with required fields
+  {
+    AlgContext ctx;
+    TextBatch inputs;
+    inputs.emplace_back(1, 0, "{\"risk_level\":\"HIGH\",\"risk_score\":0.95}");
+    ctx.Set("text", inputs);
+    EXPECT_EQ(node->Process(&ctx), 0);
+    const auto* doc = ctx.Get<StructuredDocumentBatch>("document");
+    ASSERT_NE(doc, nullptr);
+    ASSERT_EQ(doc->size(), 1u);
+    EXPECT_TRUE((*doc)[0].data.is_valid);
+  }
+
+  // Invalid sample missing required field 'risk_score'
+  {
+    AlgContext ctx;
+    TextBatch inputs;
+    inputs.emplace_back(1, 0, "{\"risk_level\":\"HIGH\"}");
+    ctx.Set("text", inputs);
+    EXPECT_NE(node->Process(&ctx), 0);
+  }
+}
+
+// 13. TextTemplateNode missing variable failure test
+TEST_F(CommonNodesTest, TextTemplateNodeMissingVariableFail) {
+  auto node = NodeFactory::Instance().Create("TextTemplateNode");
+  ASSERT_NE(node, nullptr);
+
+  // allow_dynamic_attributes is false by default
+  nlohmann::json cfg = {{"template", "Hello {user_name}, welcome!"},
+                        {"allow_dynamic_attributes", true}};
+  EXPECT_TRUE(node->Init(cfg, session_ctx_.get()));
+
+  // Attributes provided
+  {
+    AlgContext ctx;
+    TextAttributesBatch attrs;
+    attrs.emplace_back(
+        1, 0,
+        std::unordered_map<std::string, std::string>{{"user_name", "Alice"}});
+    ctx.Set("attributes", attrs);
+    EXPECT_EQ(node->Process(&ctx), 0);
+    const auto* out = ctx.Get<TextBatch>("text");
+    ASSERT_NE(out, nullptr);
+    EXPECT_EQ((*out)[0].data, "Hello Alice, welcome!");
+  }
 }
 
 }  // namespace alg_framework

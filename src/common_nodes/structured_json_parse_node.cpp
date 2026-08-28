@@ -29,6 +29,16 @@ class StructuredJsonParseNode final : public NodeBase {
     extract_json_block_ = config.value("extract_json_block", true);
     failure_policy_ = config.value("failure_policy", "configured_fallback");
 
+    required_fields_.clear();
+    if (config.contains("required_fields") &&
+        config["required_fields"].is_array()) {
+      for (const auto& f : config["required_fields"]) {
+        if (f.is_string()) {
+          required_fields_.push_back(f.get<std::string>());
+        }
+      }
+    }
+
     // 验证 fallback_json 是否为合法 JSON 并预解析
     try {
       fallback_structured_ = nlohmann::json::parse(fallback_json_);
@@ -58,6 +68,18 @@ class StructuredJsonParseNode final : public NodeBase {
 
       bool ok = ParseOrExtractJson(item.data, &parsed_json_str,
                                    &parsed_structured, &status, &diag);
+      if (ok && !required_fields_.empty()) {
+        for (const auto& rf : required_fields_) {
+          if (!parsed_structured.is_object() ||
+              !parsed_structured.contains(rf)) {
+            ok = false;
+            diag = "Missing required structured field: " + rf;
+            status = JsonParseStatus::kFailed;
+            break;
+          }
+        }
+      }
+
       if (!ok) {
         if (failure_policy_ == "fail") {
           return Fail(req_ctx, -6102, "JSON parse failed for sample: " + diag);
@@ -93,6 +115,10 @@ class StructuredJsonParseNode final : public NodeBase {
                           JsonParseStatus* out_status,
                           std::string* out_diag) const {
     if (input.empty()) {
+      if (failure_policy_ == "fail") {
+        *out_diag = "Empty input string";
+        return false;
+      }
       *out_json = fallback_json_;
       if (out_structured) *out_structured = fallback_structured_;
       *out_status = JsonParseStatus::kFallbackApplied;
@@ -208,6 +234,7 @@ class StructuredJsonParseNode final : public NodeBase {
   nlohmann::json fallback_structured_ = nlohmann::json::object();
   bool extract_json_block_ = true;
   std::string failure_policy_ = "configured_fallback";
+  std::vector<std::string> required_fields_;
 
   BoundInput<TextBatch> in_text_;
   BoundOutput<StructuredDocumentBatch> out_doc_;
@@ -218,15 +245,19 @@ NodeDefinition MakeStructuredJsonParseNodeDefinition() {
   def.node_type = StructuredJsonParseNode::kNodeType;
   def.category = "common";
   def.description = "Structured JSON parser and validator node";
-  def.inputs = {
-      RequiredInputPort("text", BlackboardKey<TextBatch>{"", "TextBatch"})};
-  def.outputs = {OutputPort("document", BlackboardKey<StructuredDocumentBatch>{
-                                            "", "StructuredDocumentBatch"})};
+  def.inputs = {RequiredInputPort("text",
+                                  BlackboardKey<TextBatch>{"", "TextBatch"},
+                                  "1:1", "preserve", "request")};
+  def.outputs = {OutputPort(
+      "document",
+      BlackboardKey<StructuredDocumentBatch>{"", "StructuredDocumentBatch"},
+      false, "1:1", "preserve", "request")};
   def.config_fields = {
       ConfigFieldDefinition{"fallback_json", ConfigValueKind::kString, false,
                             "{}"},
       ConfigFieldDefinition{"extract_json_block", ConfigValueKind::kBoolean,
                             false, true},
+      ConfigFieldDefinition{"required_fields", ConfigValueKind::kArray, false},
       ConfigFieldDefinition{
           "failure_policy",
           ConfigValueKind::kString,

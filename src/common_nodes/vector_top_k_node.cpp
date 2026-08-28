@@ -179,13 +179,17 @@ NodeDefinition MakeVectorTopKNodeDefinition() {
   def.description = "Vector Top-K search and ranking node";
   def.inputs = {
       RequiredInputPort("queries",
-                        BlackboardKey<EmbeddingBatch>{"", "EmbeddingBatch"}),
+                        BlackboardKey<EmbeddingBatch>{"", "EmbeddingBatch"},
+                        "1:1", "preserve", "request"),
       RequiredInputPort("candidates",
-                        BlackboardKey<EmbeddingBatch>{"", "EmbeddingBatch"}),
+                        BlackboardKey<EmbeddingBatch>{"", "EmbeddingBatch"},
+                        "N:1", "preserve", "request"),
       OptionalInputPort("candidate_texts",
-                        BlackboardKey<TextBatch>{"", "TextBatch"})};
+                        BlackboardKey<TextBatch>{"", "TextBatch"}, "N:1",
+                        "preserve", "request")};
   def.outputs = {OutputPort(
-      "ranked", BlackboardKey<RankedTextBatch>{"", "RankedTextBatch"})};
+      "ranked", BlackboardKey<RankedTextBatch>{"", "RankedTextBatch"}, false,
+      "1:N", "generate_sub_id", "request")};
   def.config_fields = {
       ConfigFieldDefinition{"top_k", ConfigValueKind::kInteger, false, 1, 1.0,
                             1000.0},

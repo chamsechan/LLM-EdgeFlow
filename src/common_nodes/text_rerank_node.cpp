@@ -166,28 +166,26 @@ NodeDefinition MakeTextRerankNodeDefinition() {
   def.category = "common";
   def.description = "Cross-encoder semantic reranking and top-k node";
   def.inputs = {
-      OptionalInputPort("queries", BlackboardKey<TextBatch>{"", "TextBatch"}),
+      OptionalInputPort("queries", BlackboardKey<TextBatch>{"", "TextBatch"},
+                        "1:1", "preserve", "request"),
       OptionalInputPort("candidates",
-                        BlackboardKey<RankedTextBatch>{"", "RankedTextBatch"}),
+                        BlackboardKey<RankedTextBatch>{"", "RankedTextBatch"},
+                        "N:1", "preserve", "request"),
       OptionalInputPort("candidate_texts",
-                        BlackboardKey<TextBatch>{"", "TextBatch"}),
-      OptionalInputPort("pairs", BlackboardKey<QueryCandidatesBatch>{
-                                     "", "QueryCandidatesBatch"})};
+                        BlackboardKey<TextBatch>{"", "TextBatch"}, "N:1",
+                        "preserve", "request"),
+      OptionalInputPort(
+          "pairs",
+          BlackboardKey<QueryCandidatesBatch>{"", "QueryCandidatesBatch"},
+          "1:1", "preserve", "request")};
   def.outputs = {OutputPort(
       "ranked", BlackboardKey<RankedTextBatch>{"", "RankedTextBatch"},
-      /*allow_override=*/true)};
-  def.port_constraints = {
-      PortGroupConstraint(
-          PortConstraintKind::kAtLeastOneOf, {"pairs", "queries"},
-          "TextRerankNode requires either 'pairs' or 'queries' to be bound"),
-      PortGroupConstraint(
-          PortConstraintKind::kAtLeastOneOf,
-          {"pairs", "candidates", "candidate_texts"},
-          "TextRerankNode requires either 'pairs' or candidate inputs to be "
-          "bound"),
-      PortGroupConstraint(
-          PortConstraintKind::kAtMostOneOf, {"pairs", "queries"},
-          "TextRerankNode cannot accept both 'pairs' and 'queries'")};
+      /*allow_override=*/true, "1:N", "generate_sub_id", "request")};
+  def.port_constraints = {PortGroupConstraint::Groups(
+      PortConstraintKind::kExactOneGroupOf,
+      {{"pairs"}, {"queries", "candidates"}, {"queries", "candidate_texts"}},
+      "TextRerankNode requires exactly one input group: [pairs], [queries, "
+      "candidates], or [queries, candidate_texts]")};
   def.config_fields = {
       ConfigFieldDefinition{"bind_model", ConfigValueKind::kString, false,
                             "rerank_model_v1"},

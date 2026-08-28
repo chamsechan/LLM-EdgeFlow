@@ -41,9 +41,14 @@ nlohmann::json PortJson(const PortDefinition& port) {
 }
 
 nlohmann::json ConstraintJson(const PortGroupConstraint& constraint) {
-  return {{"kind", PortConstraintKindName(constraint.kind)},
-          {"ports", constraint.ports},
-          {"message", constraint.message}};
+  nlohmann::json result = {{"kind", PortConstraintKindName(constraint.kind)},
+                           {"message", constraint.message}};
+  if (constraint.kind == PortConstraintKind::kExactOneGroupOf) {
+    result["port_groups"] = constraint.port_groups;
+  } else {
+    result["ports"] = constraint.ports;
+  }
+  return result;
 }
 
 nlohmann::json ControlCommandJson(const ControlCommandDefinition& cmd) {
@@ -106,6 +111,8 @@ const char* PortConstraintKindName(PortConstraintKind kind) {
       return "all_or_none";
     case PortConstraintKind::kAtMostOneOf:
       return "at_most_one_of";
+    case PortConstraintKind::kExactOneGroupOf:
+      return "exact_one_group_of";
   }
   return "unknown";
 }
@@ -170,20 +177,53 @@ bool ValidateFieldDefinition(const ConfigFieldDefinition& field,
 
 bool PipelineCatalog::RegisterNodeDefinition(const NodeDefinition& definition) {
   if (definition.node_type.empty()) return false;
+  static const std::unordered_set<std::string> kValidCardinalities = {
+      "1:1", "1:N", "N:1", "N:M"};
+  static const std::unordered_set<std::string> kValidProvenance = {
+      "preserve", "generate_sub_id", "aggregate", "independent"};
+  static const std::unordered_set<std::string> kValidLifetimes = {
+      "request", "session", "global"};
+
   std::unordered_set<std::string> seen_in_ports;
   for (const auto& port : definition.inputs) {
     if (port.key.empty() || port.type_id.empty()) return false;
+    if (!port.cardinality.empty() &&
+        !kValidCardinalities.count(port.cardinality))
+      return false;
+    if (!port.provenance_policy.empty() &&
+        !kValidProvenance.count(port.provenance_policy))
+      return false;
+    if (!port.lifetime.empty() && !kValidLifetimes.count(port.lifetime))
+      return false;
     if (!seen_in_ports.insert(port.key).second) return false;
   }
   std::unordered_set<std::string> seen_out_ports;
   for (const auto& port : definition.outputs) {
     if (port.key.empty() || port.type_id.empty()) return false;
+    if (!port.cardinality.empty() &&
+        !kValidCardinalities.count(port.cardinality))
+      return false;
+    if (!port.provenance_policy.empty() &&
+        !kValidProvenance.count(port.provenance_policy))
+      return false;
+    if (!port.lifetime.empty() && !kValidLifetimes.count(port.lifetime))
+      return false;
     if (!seen_out_ports.insert(port.key).second) return false;
   }
   for (const auto& constraint : definition.port_constraints) {
-    if (constraint.ports.empty()) return false;
-    for (const auto& p : constraint.ports) {
-      if (!seen_in_ports.count(p) && !seen_out_ports.count(p)) return false;
+    if (constraint.kind == PortConstraintKind::kExactOneGroupOf) {
+      if (constraint.port_groups.empty()) return false;
+      for (const auto& group : constraint.port_groups) {
+        if (group.empty()) return false;
+        for (const auto& p : group) {
+          if (!seen_in_ports.count(p) && !seen_out_ports.count(p)) return false;
+        }
+      }
+    } else {
+      if (constraint.ports.empty()) return false;
+      for (const auto& p : constraint.ports) {
+        if (!seen_in_ports.count(p) && !seen_out_ports.count(p)) return false;
+      }
     }
   }
   std::unordered_set<int> seen_cmd_ids;

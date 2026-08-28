@@ -38,7 +38,7 @@
 | :--- | :--- | :--- |
 | **Layer 1: C ABI 适配层** | 客户端解包、类型强转与 `noexcept` 异常屏障 | `include/company_alg_interface.h`<br>`src/adapter/company_c_adapter.cpp` |
 | **Layer 2: 管线与黑板层** | DAG 拓扑执行、请求级动态黑板与模型容器 | `Pipeline`, `AlgContext`, `SessionContext`, `TraceableItem<T>` |
-| **Layer 3: 业务专属算子池** | 前处理分片、模型调用封装、规则快筛与后处理精准对齐 | `INode`, `NodeFactory`, `src/biz/*` (7大业务算子) |
+| **Layer 3: 通用能力算子池** | 前处理分片、模型调用封装、规则快筛与结构化解析 | `INode`, `NodeBase`, `src/common_nodes/*` (11类通用算子) |
 | **Layer 4: 异构引擎层** | 纯虚能力接口、定长批调度模板与三方引擎实现 | `FixedBatchExecutor`, `ONNX Runtime`, `llama.cpp`, `MockNPU` |
 
 <details>

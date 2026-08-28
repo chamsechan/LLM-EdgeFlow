@@ -226,13 +226,6 @@ class TextTemplateNode final : public NodeBase {
       auto p_it = primary_by_sample.find({req_id, sub_id});
       if (p_it != primary_by_sample.end()) {
         primary_str = p_it->second;
-      } else {
-        for (const auto& [k, v] : primary_by_sample) {
-          if (k.first == req_id) {
-            primary_str = v;
-            break;
-          }
-        }
       }
 
       std::string context_str;
@@ -384,9 +377,13 @@ class TextTemplateNode final : public NodeBase {
         size_t last = raw_name.find_last_not_of(" \t");
         if (first != std::string::npos) {
           std::string var_name = raw_name.substr(first, last - first + 1);
-          if (IsValidIdentifier(var_name) &&
-              (kBuiltins.count(var_name) || static_vals.count(var_name) ||
-               allow_dynamic_attrs)) {
+          if (IsValidIdentifier(var_name)) {
+            if (!allow_dynamic_attrs && !kBuiltins.count(var_name) &&
+                !static_vals.count(var_name)) {
+              std::cerr << "[TextTemplateNode] Unknown template placeholder: "
+                        << var_name << std::endl;
+              return false;
+            }
             out_tokens->push_back({TokenType::kVariable, std::move(var_name)});
             pos = close_pos + 1;
             continue;
@@ -427,20 +424,29 @@ NodeDefinition MakeTextTemplateNodeDefinition() {
   def.category = "common";
   def.description = "Text template rendering and prompt builder node";
   def.inputs = {
-      OptionalInputPort("primary", BlackboardKey<TextBatch>{"", "TextBatch"}),
+      OptionalInputPort("primary", BlackboardKey<TextBatch>{"", "TextBatch"},
+                        "1:1", "preserve", "request"),
       OptionalInputPort("context",
-                        BlackboardKey<RankedTextBatch>{"", "RankedTextBatch"}),
+                        BlackboardKey<RankedTextBatch>{"", "RankedTextBatch"},
+                        "N:1", "aggregate", "request"),
       OptionalInputPort("context_text",
-                        BlackboardKey<TextBatch>{"", "TextBatch"}),
+                        BlackboardKey<TextBatch>{"", "TextBatch"}, "N:1",
+                        "aggregate", "request"),
       OptionalInputPort("matches",
-                        BlackboardKey<RuleMatchBatch>{"", "RuleMatchBatch"}),
-      OptionalInputPort(
-          "document", BlackboardKey<OcrDocumentBatch>{"", "OcrDocumentBatch"}),
+                        BlackboardKey<RuleMatchBatch>{"", "RuleMatchBatch"},
+                        "N:1", "aggregate", "request"),
+      OptionalInputPort("document",
+                        BlackboardKey<OcrDocumentBatch>{"", "OcrDocumentBatch"},
+                        "N:1", "aggregate", "request"),
       OptionalInputPort("document_text",
-                        BlackboardKey<TextBatch>{"", "TextBatch"}),
-      OptionalInputPort("attributes", BlackboardKey<TextAttributesBatch>{
-                                          "", "TextAttributesBatch"})};
-  def.outputs = {OutputPort("text", BlackboardKey<TextBatch>{"", "TextBatch"})};
+                        BlackboardKey<TextBatch>{"", "TextBatch"}, "N:1",
+                        "aggregate", "request"),
+      OptionalInputPort(
+          "attributes",
+          BlackboardKey<TextAttributesBatch>{"", "TextAttributesBatch"}, "1:1",
+          "preserve", "request")};
+  def.outputs = {OutputPort("text", BlackboardKey<TextBatch>{"", "TextBatch"},
+                            false, "1:1", "preserve", "request")};
   def.port_constraints = {PortGroupConstraint(
       PortConstraintKind::kAtLeastOneOf,
       {"primary", "context", "context_text", "matches", "document",
@@ -448,13 +454,21 @@ NodeDefinition MakeTextTemplateNodeDefinition() {
       "TextTemplateNode requires at least one dynamic input port to be bound")};
   def.control_commands = {ControlCommandDefinition(
       kControlCmdUpdatePrompt, "update_prompt",
-      "Update template string dynamically", nlohmann::json::object(), true)};
+      "Update template string dynamically",
+      nlohmann::json{{"type", "object"},
+                     {"properties",
+                      {{"template", {{"type", "string"}}},
+                       {"values", {{"type", "object"}}},
+                       {"allow_dynamic_attributes", {{"type", "boolean"}}}}}},
+      true)};
   def.config_fields = {
       ConfigFieldDefinition{"template", ConfigValueKind::kString, false,
                             "{{primary}}"},
       ConfigFieldDefinition{"separator", ConfigValueKind::kString, false, "\n"},
       ConfigFieldDefinition{"max_length", ConfigValueKind::kInteger, false,
                             65536, 1.0, 1048576.0},
+      ConfigFieldDefinition{"allow_dynamic_attributes",
+                            ConfigValueKind::kBoolean, false, false},
       ConfigFieldDefinition{"overflow_policy",
                             ConfigValueKind::kString,
                             false,

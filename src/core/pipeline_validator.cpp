@@ -576,33 +576,71 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
 
     // 校验端口组合约束 (Port Group Constraints)
     for (const auto& constraint : definition.port_constraints) {
-      size_t count = 0;
-      for (const auto& p : constraint.ports) {
-        if (bound_input_ports.count(p)) {
-          count++;
-        }
-      }
       bool satisfied = true;
-      switch (constraint.kind) {
-        case PortConstraintKind::kAtLeastOneOf:
-          satisfied = (count >= 1);
-          break;
-        case PortConstraintKind::kExactlyOneOf:
-          satisfied = (count == 1);
-          break;
-        case PortConstraintKind::kAllOrNone:
-          satisfied = (count == 0 || count == constraint.ports.size());
-          break;
-        case PortConstraintKind::kAtMostOneOf:
-          satisfied = (count <= 1);
-          break;
+      if (constraint.kind == PortConstraintKind::kExactOneGroupOf) {
+        int fully_matched_groups = 0;
+        for (size_t g = 0; g < constraint.port_groups.size(); ++g) {
+          const auto& group = constraint.port_groups[g];
+          bool all_in = true;
+          for (const auto& p : group) {
+            if (!bound_input_ports.count(p)) {
+              all_in = false;
+              break;
+            }
+          }
+          if (all_in) {
+            bool only_this_group = true;
+            for (const auto& p : bound_input_ports) {
+              if (std::find(group.begin(), group.end(), p) == group.end()) {
+                for (size_t og = 0; og < constraint.port_groups.size(); ++og) {
+                  if (og != g) {
+                    if (std::find(constraint.port_groups[og].begin(),
+                                  constraint.port_groups[og].end(),
+                                  p) != constraint.port_groups[og].end()) {
+                      only_this_group = false;
+                      break;
+                    }
+                  }
+                }
+              }
+              if (!only_this_group) break;
+            }
+            if (only_this_group) {
+              fully_matched_groups++;
+            }
+          }
+        }
+        satisfied = (fully_matched_groups == 1);
+      } else {
+        size_t count = 0;
+        for (const auto& p : constraint.ports) {
+          if (bound_input_ports.count(p)) {
+            count++;
+          }
+        }
+        switch (constraint.kind) {
+          case PortConstraintKind::kAtLeastOneOf:
+            satisfied = (count >= 1);
+            break;
+          case PortConstraintKind::kExactlyOneOf:
+            satisfied = (count == 1);
+            break;
+          case PortConstraintKind::kAllOrNone:
+            satisfied = (count == 0 || count == constraint.ports.size());
+            break;
+          case PortConstraintKind::kAtMostOneOf:
+            satisfied = (count <= 1);
+            break;
+          case PortConstraintKind::kExactOneGroupOf:
+            break;
+        }
       }
       if (!satisfied) {
         std::string msg = constraint.message.empty()
                               ? ("Port constraint violation for node '" +
                                  definition.node_type + "'")
                               : constraint.message;
-        Add(&report, DiagnosticCode::kMissingInputProducer,
+        Add(&report, DiagnosticCode::kInvalidCombination,
             "/pipeline/" + std::to_string(node.source_index), msg, id);
       }
     }

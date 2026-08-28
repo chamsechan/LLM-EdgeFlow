@@ -53,12 +53,17 @@ TEST_F(AdapterPurityTest, DocQaAdapterPurity) {
                        RuleMatchItem(1, "GENERAL_QA", "query", "{}", 0.95f));
   ctx.Set(kIntentMatches, std::move(intents));
 
+  TextBatch chunks;
+  chunks.emplace_back(0, 0, "Doc Chunk 1");
+  ctx.Set(kDocChunks, std::move(chunks));
+
   CompanyDocOutputStruct out{};
   void* outputs[] = {&out};
   int num_out = 1;
   ASSERT_EQ(adapter->Pack(&ctx, outputs, &num_out, &status), 0);
 
   EXPECT_EQ(out.request_id, 1001u);
+  EXPECT_EQ(out.chunk_count, 1);
   EXPECT_STREQ(out.intent_name, "GENERAL_QA");
   EXPECT_FLOAT_EQ(out.confidence, 0.95f);
   EXPECT_STREQ(out.answer_text, "Model Generated Answer");
@@ -287,6 +292,67 @@ TEST_F(AdapterPurityTest, CrossRerankAdapterPurity) {
   EXPECT_EQ(out.count, 2);
   EXPECT_FLOAT_EQ(out.scores[0], 0.98f);
   EXPECT_EQ(out.sorted_indices[0], 0);
+}
+
+// 8. Negative Tests: Fail-Closed Purity Assertions (Zero Fabrication)
+TEST_F(AdapterPurityTest, DocQaAdapter_FailClosedWhenMissingOutputs) {
+  auto adapter = BizAdapterRegistry::Instance().GetAdapter(ALG_BIZ_TYPE_DOC_QA);
+  ASSERT_NE(adapter, nullptr);
+
+  AlgContext ctx;
+  AdapterStatus status;
+  CompanyDocOutputStruct out{};
+  void* outputs[] = {&out};
+  int num_out = 1;
+
+  // Case 1: missing llm_answers
+  EXPECT_NE(adapter->Pack(&ctx, outputs, &num_out, &status), 0);
+
+  // Case 2: has llm_answers but missing intent_matches -> MUST fail-closed
+  TextBatch answers;
+  answers.emplace_back(0, 0, "Some answer");
+  ctx.Set(kLlmAnswers, std::move(answers));
+  EXPECT_EQ(adapter->Pack(&ctx, outputs, &num_out, &status),
+            COMPANY_ALG_ERR_INVALID_INPUT);
+
+  // Case 3: has intent_matches but missing doc_chunks -> MUST fail-closed
+  RuleMatchBatch intents;
+  intents.emplace_back(0, 0, RuleMatchItem(1, "GENERAL_QA", "", "{}", 0.9f));
+  ctx.Set(kIntentMatches, std::move(intents));
+  EXPECT_EQ(adapter->Pack(&ctx, outputs, &num_out, &status),
+            COMPANY_ALG_ERR_INVALID_INPUT);
+}
+
+TEST_F(AdapterPurityTest,
+       ComplianceAuditAdapter_FailClosedWhenMissingStructuredFields) {
+  auto adapter =
+      BizAdapterRegistry::Instance().GetAdapter(ALG_BIZ_TYPE_COMPLIANCE_AUDIT);
+  ASSERT_NE(adapter, nullptr);
+
+  AlgContext ctx;
+  AdapterStatus status;
+  CompanyAuditOutputStruct out{};
+  void* outputs[] = {&out};
+  int num_out = 1;
+
+  // Case 1: missing structured_verdicts
+  EXPECT_NE(adapter->Pack(&ctx, outputs, &num_out, &status), 0);
+
+  // Case 2: structured_verdicts missing required field 'risk_level' -> MUST
+  // fail-closed
+  StructuredDocumentBatch verdicts;
+  nlohmann::json incomplete_obj = {{"only_verdict", "合规"}};
+  verdicts.emplace_back(
+      0, 0,
+      JsonDocumentItem("{}", true, JsonParseStatus::kOk, "", incomplete_obj));
+  ctx.Set(kStructuredVerdicts, std::move(verdicts));
+
+  RankedTextBatch policies;
+  policies.emplace_back(0, 0, RankedCandidate("Clause", 1.0f, 1));
+  ctx.Set(kMatchedPolicy, std::move(policies));
+
+  EXPECT_EQ(adapter->Pack(&ctx, outputs, &num_out, &status),
+            COMPANY_ALG_ERR_INVALID_INPUT);
 }
 
 }  // namespace alg_framework

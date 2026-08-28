@@ -1,23 +1,63 @@
 #!/bin/bash
 set -euo pipefail
 
+REPO_ROOT="${REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+
+if [[ "${1:-}" == "--self-test" ]]; then
+  echo "======================================================================"
+  echo " [LayerGuard Self-Test] Testing violation detection capability..."
+  echo "======================================================================"
+  SCRIPT_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+  TMP_TEST_DIR=$(mktemp -d /tmp/layerguard_test_XXXXXX)
+  trap 'rm -rf "${TMP_TEST_DIR}"' EXIT
+
+  # Test Case 1: Missing directory must cause script to fail
+  mkdir -p "${TMP_TEST_DIR}/empty_repo"
+  set +e
+  REPO_ROOT="${TMP_TEST_DIR}/empty_repo" bash "${SCRIPT_PATH}" >/dev/null 2>&1
+  STATUS_MISSING_DIR=$?
+  set -e
+  if [ $STATUS_MISSING_DIR -eq 0 ]; then
+    echo "❌ [LayerGuard Self-Test FAIL] Script did not fail on missing directory!"
+    exit 1
+  fi
+
+  # Test Case 2: Injected illegal include must cause script to fail
+  mkdir -p "${TMP_TEST_DIR}/violation_repo/src/common_nodes"
+  mkdir -p "${TMP_TEST_DIR}/violation_repo/src/adapter/adapters"
+  mkdir -p "${TMP_TEST_DIR}/violation_repo/demo"
+  mkdir -p "${TMP_TEST_DIR}/violation_repo/include/operator"
+  touch "${TMP_TEST_DIR}/violation_repo/include/company_alg_interface.h"
+  touch "${TMP_TEST_DIR}/violation_repo/include/operator/company_operator_types.h"
+  echo '#include "company_alg_interface.h"' > "${TMP_TEST_DIR}/violation_repo/src/common_nodes/bad_node.cpp"
+  set +e
+  REPO_ROOT="${TMP_TEST_DIR}/violation_repo" bash "${SCRIPT_PATH}" >/dev/null 2>&1
+  STATUS_INJECT_VIOLATION=$?
+  set -e
+  if [ $STATUS_INJECT_VIOLATION -eq 0 ]; then
+    echo "❌ [LayerGuard Self-Test FAIL] Script did not fail on injected architectural violation!"
+    exit 1
+  fi
+
+  echo "✅ [LayerGuard Self-Test PASS] Successfully verified both missing-directory and violation injection detection."
+  exit 0
+fi
+
 echo "======================================================================"
 echo " [LayerGuard] Checking 4-Tier Architectural Isolation Directives..."
 echo "======================================================================"
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-
-# Rule 1: Layer 3 (src/common_nodes/ and src/biz/ if exists) MUST NEVER include Layer 1 header (company_alg_interface.h)
-L3_DIRS=("$REPO_ROOT/src/common_nodes")
-if [ -d "$REPO_ROOT/src/biz" ]; then
-  L3_DIRS+=("$REPO_ROOT/src/biz")
+# Rule 1: Layer 3 (src/common_nodes/) MUST NEVER include Layer 1 header (company_alg_interface.h)
+if [ ! -d "$REPO_ROOT/src/common_nodes" ]; then
+  echo "❌ [LayerGuard ERROR] src/common_nodes directory not found!"
+  exit 1
 fi
-VIOLATIONS_L3_L1=$(grep -rnE '#include\s*["<]company_alg_interface\.h[">]' "${L3_DIRS[@]}" || true)
+VIOLATIONS_L3_L1=$(grep -rnE '#include\s*["<]company_alg_interface\.h[">]' "$REPO_ROOT/src/common_nodes" || true)
 
 if [ -n "$VIOLATIONS_L3_L1" ]; then
   echo "❌ [LayerGuard ERROR] Found Layer 3 -> Layer 1 reverse dependency violations:"
   echo "$VIOLATIONS_L3_L1"
-  echo "Directive: Layer 3 biz and common nodes must strictly communicate via DTOs and AlgContext (ARCH-002)."
+  echo "Directive: Layer 3 common nodes must strictly communicate via DTOs and AlgContext (ARCH-002)."
   exit 1
 fi
 echo "✅ [LayerGuard PASS] Zero Layer 3 -> Layer 1 reverse include violations."
@@ -33,7 +73,7 @@ if [ -n "$VIOLATIONS_L1_L4" ]; then
 fi
 echo "✅ [LayerGuard PASS] Zero Layer 1 -> Layer 4 illegal engine include violations."
 
-# Rule 3: Common Nodes (src/common_nodes/) MUST NEVER depend on biz-specific nodes (src/biz/)
+# Rule 3: Common Nodes (src/common_nodes/) MUST NEVER depend on biz-specific nodes
 VIOLATIONS_COMMON_BIZ=$(grep -rnE '#include\s*["<](biz/|src/biz/|business/|src/business/)' "$REPO_ROOT/src/common_nodes" || true)
 
 if [ -n "$VIOLATIONS_COMMON_BIZ" ]; then

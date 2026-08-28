@@ -164,6 +164,7 @@ add_test(NAME C11AbiComplianceTest COMMAND test_c11_abi_compliance)
 
 # 4. 架构分层防腐隔离测试 (LayerGuard)
 add_test(NAME LayerGuardTest COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_layer_isolation.sh)
+add_test(NAME LayerGuardSelfTest COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_layer_isolation.sh --self-test)
 
 # 4.1 架构文档防漂移测试 (ArchitectureDocsDriftTest)
 add_test(NAME ArchitectureDocsDriftTest COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_architecture_docs.sh)

@@ -53,25 +53,25 @@ class TextEmbeddingNode final : public ModelBoundNode<IEmbeddingEngine> {
       std::string digest = ComputeDigest(*text_items);
       std::string cache_key = "static_emb:" + bind_model_id_ + ":" +
                               std::to_string(normalize_) + ":" + digest;
-      auto cached = session_ctx_->GetResource<EmbeddingBatch>(cache_key);
-      if (cached) {
-        // 直接复用 SessionContext 中的只读缓存
-        out_embedding_.Set(req_ctx, *cached);
-        return 0;
+      int infer_err = 0;
+      auto cached = session_ctx_->GetOrCreateResource<EmbeddingBatch>(
+          cache_key, [&]() -> std::shared_ptr<EmbeddingBatch> {
+            auto output = std::make_shared<EmbeddingBatch>();
+            int ret = engine()->InferTraceableBatch(*text_items, output.get());
+            if (ret != 0) {
+              infer_err = ret;
+              return nullptr;
+            }
+            if (normalize_) {
+              Normalize(*output);
+            }
+            return output;
+          });
+      if (!cached) {
+        return Fail(req_ctx, infer_err != 0 ? infer_err : -5101,
+                    "TextEmbeddingNode: single-flight inference failed");
       }
-
-      EmbeddingBatch output_embeddings;
-      int ret = engine()->InferTraceableBatch(*text_items, &output_embeddings);
-      if (ret != 0) {
-        return Fail(req_ctx, ret, "TextEmbeddingNode: inference failed");
-      }
-      if (normalize_) {
-        Normalize(output_embeddings);
-      }
-
-      session_ctx_->SetResource(
-          cache_key, std::make_shared<EmbeddingBatch>(output_embeddings));
-      out_embedding_.Set(req_ctx, std::move(output_embeddings));
+      out_embedding_.Set(req_ctx, *cached);
       return 0;
     }
 
@@ -134,10 +134,12 @@ NodeDefinition MakeTextEmbeddingNodeDefinition() {
   def.node_type = TextEmbeddingNode::kNodeType;
   def.category = "common";
   def.description = "Text embedding extraction node";
-  def.inputs = {
-      RequiredInputPort("text", BlackboardKey<TextBatch>{"", "TextBatch"})};
-  def.outputs = {OutputPort(
-      "embedding", BlackboardKey<EmbeddingBatch>{"", "EmbeddingBatch"})};
+  def.inputs = {RequiredInputPort("text",
+                                  BlackboardKey<TextBatch>{"", "TextBatch"},
+                                  "1:1", "preserve", "request")};
+  def.outputs = {OutputPort("embedding",
+                            BlackboardKey<EmbeddingBatch>{"", "EmbeddingBatch"},
+                            false, "1:1", "preserve", "request")};
   def.config_fields = {
       ConfigFieldDefinition{"bind_model", ConfigValueKind::kString, false,
                             "embed_model_v1"},

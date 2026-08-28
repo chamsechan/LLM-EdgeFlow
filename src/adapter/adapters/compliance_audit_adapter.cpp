@@ -124,6 +124,16 @@ class ComplianceAuditAdapter : public IBizAdapter {
       return valid_ret;
     }
 
+    if (!matched_policies ||
+        matched_policies->size() < static_cast<size_t>(count)) {
+      if (out_status) {
+        *out_status = AdapterStatus::InvalidInput(
+            "matched_policies missing or count mismatch in AlgContext",
+            "matched_policies", -1, BizName());
+      }
+      return COMPANY_ALG_ERR_INVALID_INPUT;
+    }
+
     for (int i = 0; i < count; ++i) {
       auto* out_ptr = static_cast<CompanyAuditOutputStruct*>(outputs[i]);
       uint64_t req_id =
@@ -133,16 +143,25 @@ class ComplianceAuditAdapter : public IBizAdapter {
       out_ptr->request_id = req_id;
 
       const auto& verdict_item = (*verdicts)[i].data;
+      if (!verdict_item.structured_data.contains("risk_level") ||
+          !verdict_item.structured_data.contains("risk_score") ||
+          !verdict_item.structured_data["risk_level"].is_string() ||
+          !verdict_item.structured_data["risk_score"].is_number()) {
+        if (out_status) {
+          *out_status = AdapterStatus::InvalidInput(
+              "structured_data missing or invalid risk_level/risk_score types",
+              "structured_verdicts", i, BizName());
+        }
+        return COMPANY_ALG_ERR_INVALID_INPUT;
+      }
+
       std::string risk_level =
-          verdict_item.structured_data.value("risk_level", "SAFE");
+          verdict_item.structured_data["risk_level"].get<std::string>();
       float risk_score =
-          verdict_item.structured_data.value("risk_score", 0.10f);
+          verdict_item.structured_data["risk_score"].get<float>();
       const std::string& verdict_json = verdict_item.json_payload;
 
-      std::string policy_clause;
-      if (matched_policies && i < static_cast<int>(matched_policies->size())) {
-        policy_clause = (*matched_policies)[i].data.text;
-      }
+      std::string policy_clause = (*matched_policies)[i].data.text;
 
       out_ptr->risk_score = risk_score;
       out_ptr->status_code = 0;

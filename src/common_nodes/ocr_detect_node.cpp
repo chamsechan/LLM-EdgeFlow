@@ -95,12 +95,14 @@ NodeDefinition MakeOcrDetectNodeDefinition() {
   def.category = "common";
   def.description = "OCR visual document detection and text recognition node";
   def.inputs = {RequiredInputPort(
-      "images", BlackboardKey<ImageRefBatch>{"", "ImageRefBatch"})};
+      "images", BlackboardKey<ImageRefBatch>{"", "ImageRefBatch"}, "1:1",
+      "preserve", "request")};
   def.outputs = {
       OutputPort("document",
-                 BlackboardKey<OcrDocumentBatch>{"", "OcrDocumentBatch"}),
+                 BlackboardKey<OcrDocumentBatch>{"", "OcrDocumentBatch"}, false,
+                 "1:N", "generate_sub_id", "request"),
       OutputPort("text", BlackboardKey<TextBatch>{"", "TextBatch"},
-                 /*allow_override=*/true)};
+                 /*allow_override=*/true, "1:1", "preserve", "request")};
   def.config_fields = {ConfigFieldDefinition{
       "bind_model", ConfigValueKind::kString, false, "ocr_model_v1"}};
   def.model_capability = "ocr";

@@ -60,10 +60,11 @@ NodeDefinition MakeTextCorpusSourceNodeDefinition() {
   def.node_type = TextCorpusSourceNode::kNodeType;
   def.category = "common";
   def.description = "Static text corpus and knowledge database source node";
-  def.inputs = {
-      OptionalInputPort("trigger", BlackboardKey<TextBatch>{"", "TextBatch"})};
-  def.outputs = {
-      OutputPort("corpus", BlackboardKey<TextBatch>{"", "TextBatch"})};
+  def.inputs = {OptionalInputPort("trigger",
+                                  BlackboardKey<TextBatch>{"", "TextBatch"},
+                                  "1:1", "preserve", "request")};
+  def.outputs = {OutputPort("corpus", BlackboardKey<TextBatch>{"", "TextBatch"},
+                            false, "1:N", "generate_sub_id", "session")};
   def.config_fields = {
       ConfigFieldDefinition{"corpus", ConfigValueKind::kArray, false}};
   def.parallel_safe = true;

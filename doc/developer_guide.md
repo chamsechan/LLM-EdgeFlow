@@ -10,7 +10,7 @@
 | :--- | :--- | :--- | :--- |
 | **Layer 1: C ABI 适配层** | 新增业务枚举、输入/输出纯 C 结构体与专属适配器 | `include/company_alg_interface.h`<br>`src/adapter/adapters/<biz>_adapter.cpp` | `CompanyAlgBizType`<br>`IBusinessAdapter`<br>`REGISTER_BUSINESS_ADAPTER` |
 | **Layer 2: 核心编排层** | 扩展动态黑板、会话模型管理与全局资源 | `include/core/alg_context.h`<br>`include/core/session_context.h` | `AlgContext::Set<T>()`<br>`SessionContext::SetResource()` |
-| **Layer 3: 业务算子池** | 新增前处理/后处理/推理/规则算子 | `src/business/<biz_name>/*.cpp`<br>`src/common_nodes/*.cpp` | `NodeBase`<br>`REGISTER_NODE_WITH_DEFINITION(NodeName, def)` |
+| **Layer 3: 通用能力算子池** | 新增通用能力算子 (分片/向量检索/重排/模板/规则/解析) | `src/common_nodes/*.cpp`<br>`include/nodes/*.h` | `NodeBase`<br>`REGISTER_NODE_WITH_DEFINITION(NodeName, def)` |
 | **Layer 4: 异构引擎层** | 接入新芯片或推理后端 (如 Ascend/RKNN/TensorRT) | `include/engine/engine_interface.h`<br>`src/engine/<backend>/*_engine.cpp` | `IModelEngine`<br>`REGISTER_ENGINE_WITH_DEFINITION(Cls, def)`<br>`FixedBatchExecutor` |
 
 ---
@@ -185,10 +185,10 @@ Layer 2 负责请求黑板生命周期与 DAG 管线单趟构建：
 
 ---
 
-## 3. Layer 3: 如何新增一个业务算子 (NodeBase)
+## 3. Layer 3: 如何新增一个通用能力算子 (NodeBase)
 
 ```cpp
-// src/business/my_biz/my_custom_node.cpp
+// src/common_nodes/my_custom_node.cpp
 #include "core/node_registry.h"
 #include "engine/engine_interface.h"
 #include "nodes/model_bound_node.h"

@@ -203,7 +203,7 @@
         }
       },
       "config": {
-        "fallback_json": "{\"verdict\": \"合规\", \"risk_level\": \"SAFE\", \"suggestion\": \"无违规内容\"}"
+        "fallback_json": "{\"verdict\": \"合规\", \"risk_level\": \"SAFE\", \"risk_score\": 0.10, \"suggestion\": \"无违规内容\"}"
       }
     }
   ]

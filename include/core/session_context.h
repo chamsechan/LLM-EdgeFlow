@@ -105,10 +105,55 @@ class SessionContext {
     return std::static_pointer_cast<T>(it->second);
   }
 
+  template <typename T, typename FactoryFunc>
+  std::shared_ptr<T> GetOrCreateResource(const std::string& key,
+                                         FactoryFunc&& factory) {
+    std::shared_ptr<SingleFlightEntry> flight;
+    {
+      std::lock_guard<std::mutex> lock(resource_mutex_);
+      auto it = resources_.find(key);
+      if (it != resources_.end()) {
+        return std::static_pointer_cast<T>(it->second);
+      }
+      auto fit = flights_.find(key);
+      if (fit == flights_.end()) {
+        flight = std::make_shared<SingleFlightEntry>();
+        flights_[key] = flight;
+      } else {
+        flight = fit->second;
+      }
+    }
+
+    std::lock_guard<std::mutex> key_lock(flight->mtx);
+    if (flight->done) {
+      return std::static_pointer_cast<T>(flight->result);
+    }
+
+    auto created = factory();
+    flight->result = created;
+    flight->done = true;
+
+    {
+      std::lock_guard<std::mutex> lock(resource_mutex_);
+      if (created) {
+        resources_[key] = created;
+      }
+      flights_.erase(key);
+    }
+    return created;
+  }
+
  private:
+  struct SingleFlightEntry {
+    std::mutex mtx;
+    std::shared_ptr<void> result;
+    bool done = false;
+  };
+
   ModelManager model_manager_;
   mutable std::mutex resource_mutex_;
   std::unordered_map<std::string, std::shared_ptr<void>> resources_;
+  std::unordered_map<std::string, std::shared_ptr<SingleFlightEntry>> flights_;
   RuntimeOptions runtime_options_;
 };
 

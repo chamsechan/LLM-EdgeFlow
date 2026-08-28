@@ -45,9 +45,11 @@ NodeDefinition MakeLlmGenerateNodeDefinition() {
   def.node_type = LlmGenerateNode::kNodeType;
   def.category = "common";
   def.description = "LLM generate text inference node";
-  def.inputs = {
-      RequiredInputPort("prompt", BlackboardKey<TextBatch>{"", "TextBatch"})};
-  def.outputs = {OutputPort("text", BlackboardKey<TextBatch>{"", "TextBatch"})};
+  def.inputs = {RequiredInputPort("prompt",
+                                  BlackboardKey<TextBatch>{"", "TextBatch"},
+                                  "1:1", "preserve", "request")};
+  def.outputs = {OutputPort("text", BlackboardKey<TextBatch>{"", "TextBatch"},
+                            false, "1:1", "preserve", "request")};
   def.config_fields = {
       ConfigFieldDefinition{"bind_model", ConfigValueKind::kString, false,
                             "llm_model_v1"},
