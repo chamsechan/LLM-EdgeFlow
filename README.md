@@ -73,24 +73,28 @@
 ## 🚀 快速开始 (Quick Start)
 
 ```bash
-# 1. 编译工程 (Ninja + ccache 并行加速，自动拉取 GTest, ONNX Runtime 与 llama.cpp)
-cmake -B build -G Ninja -DLLM_EDGEFLOW_USE_CCACHE=ON
+# 1. 编译工程（自动选择 mold/lld，均不可用时回退系统链接器）
+cmake -B build -G Ninja -DLLM_EDGEFLOW_USE_CCACHE=ON \
+  -DLLM_EDGEFLOW_LINKER=auto
 cmake --build build -j$(nproc)
 
-# 2. 并行自动化执行全量测试套件 (36 组 CTest & Google Test 并行执行)
-ctest --test-dir build -j$(nproc) --output-on-failure
+# 2. 日常快速收敛（独立 build-fast、-O1、mock-only、标签化并行测试）
+./scripts/run_all_tests.sh --fast
 
-# 3. 运行 7 大业务端到端全链路集成演示 (默认 Smoke 组合)
+# 3. 交付前完整六阶段门禁（无参数调用同样默认为 --full）
+./scripts/run_all_tests.sh --full
+
+# 4. 运行 7 大业务端到端全链路集成演示 (默认 Smoke 组合)
 ./alg_demo
 
-# 4. 基于 Profile 运行特定业务配置
+# 5. 基于 Profile 运行特定业务配置
 ./alg_demo --profile entity_extract_mock
 ./alg_demo --profile doc_qa_onnx
 
-# 5. 查看所有支持的业务与 Profile 清单
+# 6. 查看所有支持的业务与 Profile 清单
 ./alg_demo --list
 
-# 6. 批量自动化执行全部 Demo 套件 (Smoke / Real / All)
+# 7. 批量自动化执行全部 Demo 套件 (Smoke / Real / All)
 cd .. && ./scripts/run_all_demos.sh smoke
 ```
 
@@ -153,6 +157,12 @@ LLM-EdgeFlow/
 ---
 
 ## 📝 更新日志 (Changelog)
+
+- **v4.2.0 (开发反馈闭环加速 - RFC 0013)** *(2026-08)*
+  - ⚡ **双模式编译闭环**：新增持久化 `build-fast` 开发配置，普通 Fast 与 Sanitizer 统一使用可诊断的 `-O1`，Release 保留标准优化等级；mold/lld 经真实链接探测后自动启用并支持系统链接器回退。
+  - 🧩 **PCH 测试分片**：兼容 GTest 收敛为 core、nodes、adapter/operator、tooling 四个 Runner，共享 GTest、nlohmann/json 与 STL 预编译头，同时保留原 CTest 名称、过滤器和特殊 Registry/Qwen/C11 进程隔离。
+  - 🧪 **统一标签化质量门禁**：77 项 CTest 按 Tier、Fast、Slow、Tooling 与 Sanitizer 标签进入同一个全局并行调度池；Demo 与 11 组 Pipeline 的 Python/C++ CLI 矩阵原生注册为 CTest，消除六阶段、CI 和上传流程中的重复执行。
+  - 🔀 **安全 PR-only 交付**：标准上传脚本新增 `--pr-only`，在完整测试和 GitHub CI 通过后保留已验证 PR，不自动修改 `main`。
 
 - **v4.1.0 (I/O 契约驱动的通用 Node 架构与编排重构 - RFC 0012)** *(2026-08)*
   - 🏛️ **I/O 契约驱动的通用 Node 架构**：彻底废弃按业务名或流水线阶段名绑定的 26 个特定算子，确立 `Node Family` (I/O 契约)、`Node Type` (单一操作语义 + 执行契约)、`Node Instance` (端口绑定 + 配置 + 模型) 三层解耦模型，实现全栈零重复代码。

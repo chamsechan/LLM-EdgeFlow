@@ -9,7 +9,7 @@
 #include "company_alg_cpp.hpp"
 #include "company_alg_interface.h"
 
-std::string GetConfigPath(const std::string& rel_path) {
+static std::string GetConfigPath(const std::string& rel_path) {
   FILE* fp = fopen(rel_path.c_str(), "r");
   if (fp) {
     fclose(fp);

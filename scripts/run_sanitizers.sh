@@ -55,6 +55,9 @@ COMMON_CMAKE_ARGS=(
   -DENABLE_SANITIZERS=ON
   -DLLM_EDGEFLOW_SANITIZERS="${SANITIZERS}"
   -DLLM_EDGEFLOW_USE_CCACHE=ON
+  -DLLM_EDGEFLOW_FAST_BUILD=OFF
+  -DLLM_EDGEFLOW_SHARDED_TEST_RUNNERS=ON
+  -DLLM_EDGEFLOW_LINKER="${LLM_EDGEFLOW_LINKER:-auto}"
 )
 GEN_ARG_STR=$("${SCRIPT_DIR}/detect_cmake_generator.sh" "${BUILD_DIR}")
 if [[ -n "${GEN_ARG_STR}" ]]; then
@@ -76,40 +79,7 @@ fi
 
 cmake -S "${PROJECT_ROOT}" -B "${BUILD_DIR}" "${COMMON_CMAKE_ARGS[@]}"
 if [[ "${MODE}" == "fast" ]]; then
-  FAST_TARGETS=(
-    alg_demo
-    alg_pipeline_tool
-    test_adapter_contract_security
-    test_adapter_purity
-    test_batch_executor
-    test_c_abi_safety
-    test_common_nodes
-    test_concurrency_and_edge_cases
-    test_definition_schema_validation
-    test_framework_core
-    test_node_base_contracts
-    test_operator_api
-    test_operator_biz_bridge_registry
-    test_operator_golden
-    test_operator_output_pool
-    test_operator_value_registry
-    test_pipeline_config
-    test_pipeline_studio
-    test_text_chunk_node
-    test_text_embedding_node
-    test_vector_top_k_node
-    test_text_rerank_node
-    test_text_template_node
-    test_llm_generate_node
-    test_asr_transcribe_node
-    test_ocr_detect_node
-    test_text_rule_match_node
-    test_structured_json_parse_node
-    test_text_corpus_source_node
-    test_typed_blackboard_contracts
-    test_validated_pipeline_plan
-  )
-  cmake --build "${BUILD_DIR}" --target "${FAST_TARGETS[@]}" -j"$(nproc)"
+  cmake --build "${BUILD_DIR}" --target edgeflow_dev_tests -j"$(nproc)"
 else
   cmake --build "${BUILD_DIR}" -j"$(nproc)"
 fi
@@ -142,25 +112,21 @@ if [[ "${SANITIZERS}" == *"thread"* ]] && [[ "$(uname -s)" == "Linux" ]] && [[ "
   ARCH_PREFIX=(setarch "$(uname -m)" -R)
 fi
 
-if [ "${MODE}" == "fast" ]; then
-  FAST_TEST_REGEX="^(BatchExecutorTest|FrameworkCoreTest|CAbiSafetyTest|ConcurrencyAndEdgeCasesTest|AdapterContractSecurityTest|PipelineConfigTest|PipelineStudioTest|OperatorApiTest|OperatorOutputPoolTest|OperatorValueRegistryTest|OperatorBizBridgeRegistryTest|VisualizerServerTest|TypedBlackboardContractsTest|ValidatedPipelinePlanTest|NodeBaseContractsTest|DefinitionSchemaValidationTest|CommonNodesTest|OperatorGoldenTest|AdapterPurityTest|TextChunkNodeTest|TextEmbeddingNodeTest|VectorTopKNodeTest|TextRerankNodeTest|TextTemplateNodeTest|LlmGenerateNodeTest|AsrTranscribeNodeTest|OcrDetectNodeTest|TextRuleMatchNodeTest|StructuredJsonParseNodeTest|TextCorpusSourceNodeTest)$"
-  if [[ "${DETECT_LEAKS:-0}" == "1" ]] || [[ "${SANITIZERS}" == *"thread"* ]]; then
-    FAST_TEST_REGEX="^(BatchExecutorTest|FrameworkCoreTest|CAbiSafetyTest|ConcurrencyAndEdgeCasesTest|AdapterContractSecurityTest|PipelineConfigTest|PipelineStudioTest|OperatorApiTest|OperatorOutputPoolTest|OperatorValueRegistryTest|OperatorBizBridgeRegistryTest|TypedBlackboardContractsTest|ValidatedPipelinePlanTest|NodeBaseContractsTest|DefinitionSchemaValidationTest|CommonNodesTest|OperatorGoldenTest|AdapterPurityTest|TextChunkNodeTest|TextEmbeddingNodeTest|VectorTopKNodeTest|TextRerankNodeTest|TextTemplateNodeTest|LlmGenerateNodeTest|AsrTranscribeNodeTest|OcrDetectNodeTest|TextRuleMatchNodeTest|StructuredJsonParseNodeTest|TextCorpusSourceNodeTest)$"
-  fi
-  echo ">>> [1/2] Running fast sanitized test suites: ${FAST_TEST_REGEX} <<<"
-  "${ARCH_PREFIX[@]}" ctest --test-dir "${BUILD_DIR}" -j"$(nproc)" -R "${FAST_TEST_REGEX}" --output-on-failure
-else
-  echo ">>> [1/2] Running full sanitized CTest suite with [${SANITIZERS}] <<<"
-  "${ARCH_PREFIX[@]}" ctest --test-dir "${BUILD_DIR}" -j"$(nproc)" --output-on-failure
-fi
-
+CTEST_ARGS=(
+  --test-dir "${BUILD_DIR}"
+  -j"$(nproc)"
+  --output-on-failure
+)
 if [[ "${MODE}" == "fast" ]]; then
-  echo ">>> [2/2] Running emulator-only Demo Smoke Suite with [${SANITIZERS}] <<<"
+  CTEST_ARGS+=( -L sanitizer-compatible )
+  echo ">>> Running label-driven fast sanitized test suite <<<"
 else
-  echo ">>> [2/2] Running full-backend Demo Smoke Suite with [${SANITIZERS}] <<<"
+  echo ">>> Running full sanitized CTest suite with [${SANITIZERS}] <<<"
 fi
-cd "${PROJECT_ROOT}"
-"${ARCH_PREFIX[@]}" "${BUILD_DIR}/alg_demo" --suite smoke
+if [[ "${DETECT_LEAKS:-0}" == "1" ]] || [[ "${SANITIZERS}" == *"thread"* ]]; then
+  CTEST_ARGS+=( -E '^VisualizerServerTest$' )
+fi
+"${ARCH_PREFIX[@]}" ctest "${CTEST_ARGS[@]}"
 
 echo "=================================================="
 echo " 🎉 Sanitizer set [${SANITIZERS}] checks PASSED! (Mode: ${MODE})"

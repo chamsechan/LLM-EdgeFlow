@@ -1,13 +1,23 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # LLM-EdgeFlow: Automated Git Branch & Merge Workflow Script
-# Usage: ./scripts/git_branch_upload.sh "commit message" [branch_prefix]
+# Usage: ./scripts/git_branch_upload.sh "commit message" [branch_prefix] [--pr-only]
 # ==============================================================================
 
 set -e
 
 MSG="${1:-chore: update codebase and sync to GitHub}"
 PREFIX="${2:-feat}"
+DELIVERY_MODE="${3:-merge}"
+
+if [[ "${DELIVERY_MODE}" != "merge" && "${DELIVERY_MODE}" != "--pr-only" ]]; then
+    echo "Usage: $0 \"commit message\" [branch_prefix] [--pr-only]"
+    exit 2
+fi
+if [[ "${DELIVERY_MODE}" == "--pr-only" ]] && ! command -v gh &> /dev/null; then
+    echo "❌ --pr-only requires the GitHub CLI (gh) to create the pull request."
+    exit 1
+fi
 
 TIMESTAMP=$(date +%Y%m%d-%H%M%S)
 SOURCE_BRANCH=$(git branch --show-current)
@@ -35,6 +45,7 @@ echo "=================================================="
 echo " 🚀 LLM-EdgeFlow Git Branch & Merge Workflow"
 echo " Target Branch : ${BRANCH_NAME}"
 echo " Commit Message: ${MSG}"
+echo " Delivery Mode : ${DELIVERY_MODE}"
 echo "=================================================="
 
 # 1. Google C++ 规范自动格式化
@@ -97,8 +108,8 @@ else
     git commit -m "${MSG}"
 fi
 
-# 6. 推送并执行合并 (GitHub PR / Fast-Forward)
-echo "[Step 5/6] Pushing branch and merging..."
+# 6. 推送并创建 PR；默认模式继续自动合并，--pr-only 停在已验证 PR。
+echo "[Step 5/6] Pushing branch and creating GitHub PR..."
 git push -u origin "${BRANCH_NAME}"
 
 if command -v gh &> /dev/null; then
@@ -122,6 +133,14 @@ if command -v gh &> /dev/null; then
         exit 1
     fi
     gh pr checks "${BRANCH_NAME}" --watch --fail-fast
+
+    if [[ "${DELIVERY_MODE}" == "--pr-only" ]]; then
+        echo "=================================================="
+        echo " ✅ Verified PR created successfully; main was not modified."
+        echo "=================================================="
+        git status --short
+        exit 0
+    fi
 
     gh pr merge "${BRANCH_NAME}" --merge --delete-branch || gh pr merge "${BRANCH_NAME}" --merge --delete-branch --admin || {
         echo "PR merge fallback to local merge..."
