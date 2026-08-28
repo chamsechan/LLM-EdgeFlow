@@ -57,9 +57,9 @@ TEST_F(AllBizPipelinesTest, DocQaPipelineExecution) {
       "违禁品管控规则：严禁在平台发布、宣传、交易任何国家法律法规禁止流通的违禁"
       "商品。";
 
-  CompanyDocInputStruct req0{
-      30001, "请问平台支持7天无理由退款吗？具体要求是什么？", doc_text};
-  CompanyDocInputStruct req1{30002, "跨境信用卡支付要收手续费吗？", doc_text};
+  CompanyDocInputStruct req0{30001, doc_text,
+                             "请问平台支持7天无理由退款吗？具体要求是什么？"};
+  CompanyDocInputStruct req1{30002, doc_text, "跨境信用卡支付要收手续费吗？"};
   std::vector<void*> inputs = {&req0, &req1};
 
   CompanyDocOutputStruct out0;

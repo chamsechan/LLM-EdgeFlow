@@ -12,28 +12,22 @@
   ],
   "pipeline": [
     {
-      "config": {},
+      "id": "node_0_TextRerankNode",
+      "node_type": "TextRerankNode",
       "depends_on": [],
-      "id": "node_0_RerankPairBuilderNode",
-      "node_type": "RerankPairBuilderNode"
-    },
-    {
-      "config": {
-        "bind_model": "rerank_model_v1"
+      "ports": {
+        "inputs": {
+          "queries": "rerank_queries",
+          "candidates": "rerank_candidates"
+        },
+        "outputs": {
+          "ranked": "ranked_results"
+        }
       },
-      "depends_on": [
-        "node_0_RerankPairBuilderNode"
-      ],
-      "id": "node_1_CrossRerankBatchNode",
-      "node_type": "CrossRerankBatchNode"
-    },
-    {
-      "config": {},
-      "depends_on": [
-        "node_1_CrossRerankBatchNode"
-      ],
-      "id": "node_2_RerankSortPostNode",
-      "node_type": "RerankSortPostNode"
+      "config": {
+        "bind_model": "rerank_model_v1",
+        "top_k": 8
+      }
     }
   ]
 }

@@ -21,12 +21,21 @@ struct ParsedModelConfig {
 };
 
 /**
+ * @brief 解析后的单节点端口映射配置
+ */
+struct ParsedPortBindings {
+  std::unordered_map<std::string, std::string> inputs;
+  std::unordered_map<std::string, std::string> outputs;
+};
+
+/**
  * @brief 解析后的单节点配置
  */
 struct ParsedNodeConfig {
   std::string id;
   std::string node_type;
   std::vector<std::string> depends_on;
+  ParsedPortBindings ports;
   nlohmann::json config = nlohmann::json::object();
   size_t source_index = 0;
 };

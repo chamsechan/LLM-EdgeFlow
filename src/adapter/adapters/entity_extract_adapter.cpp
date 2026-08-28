@@ -3,10 +3,15 @@
 
 #include "adapter/adapter_validation_helper.h"
 #include "adapter/biz_adapter_registry.h"
-#include "biz/entity_extract/entity_extract_contract.h"
 #include "company_alg_interface.h"
+#include "core/common_contracts.h"
 
 namespace alg_framework {
+
+inline static constexpr char kEntityExtractBusinessName[] =
+    "entity_extract_0.6b_v1";
+inline static constexpr char kEntityExtractLlamaCppBusinessName[] =
+    "entity_extract_llamacpp_0.6b_v1";
 
 class EntityExtractAdapter : public IBizAdapter {
  public:
@@ -31,12 +36,12 @@ class EntityExtractAdapter : public IBizAdapter {
           "entity_extract",
           "实体抽取",
           {RequiredInput(kRawRequestIds), RequiredInput(kInputSentences)},
-          {Output(kEntityExtractOutputs)}},
+          {Output(kExtractedEntities)}},
          {kEntityExtractLlamaCppBusinessName,
           "entity_extract",
           "实体抽取（llama.cpp）",
           {RequiredInput(kRawRequestIds), RequiredInput(kInputSentences)},
-          {Output(kEntityExtractOutputs)}}}};
+          {Output(kExtractedEntities)}}}};
     return desc;
   }
 
@@ -54,7 +59,7 @@ class EntityExtractAdapter : public IBizAdapter {
     }
 
     std::vector<uint64_t> req_ids;
-    std::vector<std::string> sentences;
+    TextBatch sentences;
     req_ids.reserve(num_inputs);
     sentences.reserve(num_inputs);
 
@@ -67,7 +72,6 @@ class EntityExtractAdapter : public IBizAdapter {
         return COMPANY_ALG_ERR_INVALID_INPUT;
       }
 
-      // ADP-001, RECHECK-004: 有界字符串强校验
       if (!AdapterValidationHelper::RequireBoundedString(
               "inputs[i].sentence_text", in->sentence_text, kMaxSentenceLen, i,
               BizName(), out_status)) {
@@ -75,7 +79,7 @@ class EntityExtractAdapter : public IBizAdapter {
       }
 
       req_ids.push_back(in->request_id);
-      sentences.push_back(in->sentence_text);
+      sentences.emplace_back(static_cast<uint32_t>(i), 0, in->sentence_text);
     }
 
     ctx->Set(kRawRequestIds, std::move(req_ids));
@@ -93,12 +97,13 @@ class EntityExtractAdapter : public IBizAdapter {
       return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     }
 
-    auto* res = ctx->Get(kEntityExtractOutputs);
+    const auto* res = ctx->Get(kExtractedEntities);
+    const auto* raw_req_ids = ctx->Get(kRawRequestIds);
     if (!res) {
       if (out_status) {
         *out_status = AdapterStatus::BufferTooSmall(
-            "entity_extract_outputs not found in AlgContext",
-            "entity_extract_outputs", -1, BizName());
+            "extracted_entities not found in AlgContext", "extracted_entities",
+            -1, BizName());
       }
       return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     }
@@ -116,14 +121,17 @@ class EntityExtractAdapter : public IBizAdapter {
 
     for (int i = 0; i < count; ++i) {
       auto* out_ptr = static_cast<CompanyEntityOutputStruct*>(outputs[i]);
-      out_ptr->request_id = (*res)[i].request_id;
-      out_ptr->status_code = (*res)[i].status_code;
+      uint64_t req_id =
+          (raw_req_ids && i < static_cast<int>(raw_req_ids->size()))
+              ? (*raw_req_ids)[i]
+              : (*res)[i].req_id;
+      out_ptr->request_id = req_id;
+      out_ptr->status_code = 0;
 
-      // RECHECK-001: 严格拦截截断
       if (!AdapterValidationHelper::CheckedStringCopy(
               out_ptr->entities_json, sizeof(out_ptr->entities_json),
-              (*res)[i].entities_json.c_str(), "outputs[i].entities_json", i,
-              BizName(), out_status)) {
+              (*res)[i].data.c_str(), "outputs[i].entities_json", i, BizName(),
+              out_status)) {
         return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
       }
     }

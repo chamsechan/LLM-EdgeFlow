@@ -66,7 +66,8 @@ TEST_F(TypedBlackboardContractsTest, CommonContractsAndTraceableProvenance) {
   AlgContext ctx;
 
   std::vector<uint64_t> raw_req_ids = {1001, 1002};
-  std::vector<std::string> queries = {"query 1", "query 2"};
+  TextBatch queries = {TraceableItem<std::string>{1001, 0, "query 1"},
+                       TraceableItem<std::string>{1002, 0, "query 2"}};
   ctx.Set(kRawRequestIds, raw_req_ids);
   ctx.Set(kRawQueries, queries);
 

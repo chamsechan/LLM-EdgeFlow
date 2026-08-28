@@ -69,23 +69,23 @@ TEST(NodeRegistryTest, DynamicReflection) {
   auto& factory = NodeFactory::Instance();
 
   // 验证已注册的核心算子
-  auto node1 = factory.Create("DocChunkPreNode");
+  auto node1 = factory.Create("TextChunkNode");
   ASSERT_NE(node1, nullptr);
-  EXPECT_EQ(node1->Name(), "DocChunkPreNode");
+  EXPECT_EQ(node1->Name(), "TextChunkNode");
 
-  auto node2 = factory.Create("KeywordMatcherNode");
+  auto node2 = factory.Create("TextRuleMatchNode");
   ASSERT_NE(node2, nullptr);
 
-  auto node3 = factory.Create("SafetyRulePreNode");
+  auto node3 = factory.Create("TextTemplateNode");
   ASSERT_NE(node3, nullptr);
 
-  auto node4 = factory.Create("OcrInferNode");
+  auto node4 = factory.Create("OcrDetectNode");
   ASSERT_NE(node4, nullptr);
 
-  auto node5 = factory.Create("AsrInferNode");
+  auto node5 = factory.Create("AsrTranscribeNode");
   ASSERT_NE(node5, nullptr);
 
-  auto node6 = factory.Create("CrossRerankBatchNode");
+  auto node6 = factory.Create("TextRerankNode");
   ASSERT_NE(node6, nullptr);
 
   // 不存在的算子名应当安全返回 nullptr
@@ -176,8 +176,8 @@ TEST(PipelineTest, RuntimeOptionsPropagationAndPrecedence) {
                                 {"model_path", "./models/qwen.bin"},
                                 {"config", {{"max_batch_size", 2}}}}}},
                              {"pipeline",
-                              {{{"id", "node_0_DocChunkPreNode"},
-                                {"node_type", "DocChunkPreNode"},
+                              {{{"id", "node_0_TextChunkNode"},
+                                {"node_type", "TextChunkNode"},
                                 {"depends_on", nlohmann::json::array()}}}}};
 
   bool ok = pipe.BuildFromJson(root_cfg, nullptr,

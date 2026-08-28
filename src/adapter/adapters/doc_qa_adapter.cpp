@@ -3,10 +3,16 @@
 
 #include "adapter/adapter_validation_helper.h"
 #include "adapter/biz_adapter_registry.h"
-#include "biz/doc_qa/doc_qa_contract.h"
 #include "company_alg_interface.h"
+#include "core/common_contracts.h"
 
 namespace alg_framework {
+
+inline static constexpr char kDocQaBusinessName[] = "smart_doc_qa_v1";
+inline static constexpr char kDocQaOnnxBusinessName[] =
+    "smart_doc_qa_onnx_llamacpp_v1";
+inline static constexpr char kDocQaRerankBusinessName[] =
+    "smart_doc_qa_rerank_llm_v1";
 
 class DocQaAdapter : public IBizAdapter {
  public:
@@ -30,19 +36,22 @@ class DocQaAdapter : public IBizAdapter {
           "智能文档问答",
           {RequiredInput(kRawRequestIds), RequiredInput(kRawDocs),
            RequiredInput(kRawQueries)},
-          {Output(kFinalDocOutputs)}},
+          {Output(kLlmAnswers), Output(kIntentMatches),
+           Output(kDocChunkCounts)}},
          {kDocQaOnnxBusinessName,
           "doc_qa",
           "智能文档问答（ONNX/llama.cpp）",
           {RequiredInput(kRawRequestIds), RequiredInput(kRawDocs),
            RequiredInput(kRawQueries)},
-          {Output(kFinalDocOutputs)}},
+          {Output(kLlmAnswers), Output(kIntentMatches),
+           Output(kDocChunkCounts)}},
          {kDocQaRerankBusinessName,
           "doc_qa",
           "智能文档问答（精排）",
           {RequiredInput(kRawRequestIds), RequiredInput(kRawDocs),
            RequiredInput(kRawQueries)},
-          {Output(kFinalDocOutputs)}}}};
+          {Output(kLlmAnswers), Output(kIntentMatches),
+           Output(kDocChunkCounts)}}}};
     return desc;
   }
 
@@ -60,8 +69,8 @@ class DocQaAdapter : public IBizAdapter {
     }
 
     std::vector<uint64_t> raw_req_ids;
-    std::vector<std::string> raw_docs;
-    std::vector<std::string> raw_queries;
+    TextBatch raw_docs;
+    TextBatch raw_queries;
 
     raw_req_ids.reserve(num_inputs);
     raw_docs.reserve(num_inputs);
@@ -77,7 +86,6 @@ class DocQaAdapter : public IBizAdapter {
         return COMPANY_ALG_ERR_INVALID_INPUT;
       }
 
-      // ADP-001, RECHECK-004: 有界字符串强校验
       if (!AdapterValidationHelper::RequireBoundedString(
               "inputs[i].query_text", in_doc->query_text, kMaxQueryLen, i,
               BizName(), out_status)) {
@@ -93,8 +101,10 @@ class DocQaAdapter : public IBizAdapter {
       }
 
       raw_req_ids.push_back(in_doc->request_id);
-      raw_docs.push_back(in_doc->doc_text ? in_doc->doc_text : "");
-      raw_queries.push_back(in_doc->query_text);
+      raw_docs.emplace_back(static_cast<uint32_t>(i), 0,
+                            in_doc->doc_text ? in_doc->doc_text : "");
+      raw_queries.emplace_back(static_cast<uint32_t>(i), 0,
+                               in_doc->query_text ? in_doc->query_text : "");
     }
 
     ctx->Set(kRawRequestIds, std::move(raw_req_ids));
@@ -113,17 +123,21 @@ class DocQaAdapter : public IBizAdapter {
       return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     }
 
-    auto* res = ctx->Get(kFinalDocOutputs);
-    if (!res) {
+    const auto* answers = ctx->Get(kLlmAnswers);
+    const auto* intent_matches = ctx->Get(kIntentMatches);
+    const auto* chunk_counts = ctx->Get(kDocChunkCounts);
+    const auto* raw_req_ids = ctx->Get(kRawRequestIds);
+
+    if (!answers) {
       if (out_status) {
-        *out_status = AdapterStatus::BufferTooSmall(
-            "final_doc_outputs not found in AlgContext", "final_doc_outputs",
-            -1, BizName());
+        *out_status =
+            AdapterStatus::BufferTooSmall("llm_answers not found in AlgContext",
+                                          "llm_answers", -1, BizName());
       }
       return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     }
 
-    int count = static_cast<int>(res->size());
+    int count = static_cast<int>(answers->size());
     int valid_ret = AdapterValidationHelper::ValidateBatchOutputs(
         outputs, num_outputs, count, BizName());
     if (valid_ret != 0) {
@@ -134,24 +148,55 @@ class DocQaAdapter : public IBizAdapter {
       return valid_ret;
     }
 
+    if (!intent_matches ||
+        intent_matches->size() != static_cast<size_t>(count)) {
+      if (out_status) {
+        *out_status = AdapterStatus::InvalidInput(
+            "intent_matches missing or count mismatch in AlgContext",
+            "intent_matches", -1, BizName());
+      }
+      return COMPANY_ALG_ERR_INVALID_INPUT;
+    }
+
+    if (!chunk_counts || chunk_counts->size() != static_cast<size_t>(count)) {
+      if (out_status) {
+        *out_status = AdapterStatus::InvalidInput(
+            "doc_chunk_counts missing or count mismatch in AlgContext",
+            "doc_chunk_counts", -1, BizName());
+      }
+      return COMPANY_ALG_ERR_INVALID_INPUT;
+    }
+    if (!raw_req_ids || raw_req_ids->size() != static_cast<size_t>(count)) {
+      if (out_status) {
+        *out_status = AdapterStatus::InvalidInput(
+            "raw_request_ids missing or count mismatch in AlgContext",
+            "raw_request_ids", -1, BizName());
+      }
+      return COMPANY_ALG_ERR_INVALID_INPUT;
+    }
+
     for (int i = 0; i < count; ++i) {
       auto* out_ptr = static_cast<CompanyDocOutputStruct*>(outputs[i]);
-      out_ptr->request_id = (*res)[i].request_id;
-      out_ptr->confidence = (*res)[i].confidence;
-      out_ptr->chunk_count = (*res)[i].chunk_count;
-      out_ptr->status_code = (*res)[i].status_code;
+      out_ptr->request_id = (*raw_req_ids)[i];
 
-      // RECHECK-001: 严格拦截截断
+      const auto& match = (*intent_matches)[i].data;
+      const std::string& intent = match.category;
+      float conf = match.score;
+      out_ptr->confidence = conf;
+
+      out_ptr->chunk_count = (*chunk_counts)[i].data;
+      out_ptr->status_code = 0;
+
       if (!AdapterValidationHelper::CheckedStringCopy(
               out_ptr->intent_name, sizeof(out_ptr->intent_name),
-              (*res)[i].intent_name.c_str(), "outputs[i].intent_name", i,
-              BizName(), out_status)) {
+              intent.c_str(), "outputs[i].intent_name", i, BizName(),
+              out_status)) {
         return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
       }
 
       if (!AdapterValidationHelper::CheckedStringCopy(
               out_ptr->answer_text, sizeof(out_ptr->answer_text),
-              (*res)[i].answer_text.c_str(), "outputs[i].answer_text", i,
+              (*answers)[i].data.c_str(), "outputs[i].answer_text", i,
               BizName(), out_status)) {
         return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
       }

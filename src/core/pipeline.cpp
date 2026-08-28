@@ -1,7 +1,10 @@
 #include "core/pipeline.h"
 
+#include <algorithm>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <future>
 #include <iostream>
 #include <queue>
@@ -50,6 +53,9 @@ PipelineErrorCode ValidationCodeToPipelineCode(DiagnosticCode code) {
     case DiagnosticCode::kNodeNotParallelSafe:
     case DiagnosticCode::kParallelWriteConflict:
     case DiagnosticCode::kSerializedEngineConcurrency:
+    case DiagnosticCode::kPortCardinalityMismatch:
+    case DiagnosticCode::kPortProvenanceMismatch:
+    case DiagnosticCode::kPortLifetimeMismatch:
       return PipelineErrorCode::kInvalidCombination;
     case DiagnosticCode::kDuplicateModelId:
       return PipelineErrorCode::kDuplicateModelId;
@@ -206,12 +212,11 @@ bool Pipeline::BuildInternal(const nlohmann::json& root_config,
   }
 
   // 唯一单趟校验与执行计划生成 (Single-Pass Validate and Plan)
-  const ValidatedPipelinePlan plan =
-      PipelineValidator::ValidateAndPlan(root_config, policy);
+  plan_ = PipelineValidator::ValidateAndPlan(root_config, policy);
 
-  if (!plan.report.ok) {
-    if (!plan.report.diagnostics.empty()) {
-      const auto& item = plan.report.diagnostics.front();
+  if (!plan_.report.ok) {
+    if (!plan_.report.diagnostics.empty()) {
+      const auto& item = plan_.report.diagnostics.front();
       const char* code_str = DiagnosticCodeName(item.code);
       if (diagnostic) {
         diagnostic->code = ValidationCodeToPipelineCode(item.code);
@@ -224,7 +229,7 @@ bool Pipeline::BuildInternal(const nlohmann::json& root_config,
     return false;
   }
 
-  const auto& parsed_cfg = plan.config;
+  const auto& parsed_cfg = plan_.config;
   biz_name_ = parsed_cfg.biz_name;
   business_name_ = parsed_cfg.biz_name;
 
@@ -338,9 +343,12 @@ bool Pipeline::BuildInternal(const nlohmann::json& root_config,
       return false;
     }
 
+    const std::string model_revision = std::to_string(std::hash<std::string>{}(
+        model_cfg.engine_type + "\n" + resolved_model_path + "\n" +
+        custom_cfg.dump()));
     if (!session_ctx_.GetModelManager().RegisterModel(
             model_cfg.model_id,
-            std::shared_ptr<IModelEngine>(std::move(engine)))) {
+            std::shared_ptr<IModelEngine>(std::move(engine)), model_revision)) {
       if (diagnostic) {
         diagnostic->code = PipelineErrorCode::kDuplicateModelId;
         diagnostic->path =
@@ -370,18 +378,18 @@ bool Pipeline::BuildInternal(const nlohmann::json& root_config,
   }
 
   // 3. 按照波前拓扑层直接物化算子节点
-  topological_order_ = plan.topological_order;
-  topological_layers_ids_ = plan.topological_layers;
+  topological_order_ = plan_.topological_order;
+  topological_layers_ids_ = plan_.topological_layers;
 
   std::unordered_map<std::string, const ParsedNodeConfig*> node_by_id;
   for (const auto& node_cfg : parsed_cfg.nodes) {
     node_by_id[node_cfg.id] = &node_cfg;
   }
 
-  for (size_t layer_idx = 0; layer_idx < plan.topological_layers.size();
+  for (size_t layer_idx = 0; layer_idx < plan_.topological_layers.size();
        ++layer_idx) {
     std::vector<INode*> layer_ptrs;
-    for (const auto& node_id : plan.topological_layers[layer_idx]) {
+    for (const auto& node_id : plan_.topological_layers[layer_idx]) {
       auto it = node_by_id.find(node_id);
       if (it == node_by_id.end() || !it->second) continue;
       const auto& meta = *it->second;
@@ -424,7 +432,18 @@ bool Pipeline::BuildInternal(const nlohmann::json& root_config,
 
       bool init_ok = false;
       try {
-        init_ok = node->Init(meta.config, &session_ctx_);
+        const ValidatedNodePlan* node_plan_ptr = nullptr;
+        auto np_it = plan_.node_plans.find(meta.id);
+        if (np_it != plan_.node_plans.end()) {
+          node_plan_ptr = &np_it->second;
+        }
+
+        NodeInitContext init_ctx;
+        init_ctx.plan = node_plan_ptr;
+        init_ctx.config = &meta.config;
+        init_ctx.session_ctx = &session_ctx_;
+
+        init_ok = node->Init(init_ctx);
       } catch (const std::exception& e) {
         if (diagnostic) {
           diagnostic->code = PipelineErrorCode::kNodeInitFailed;
@@ -535,6 +554,98 @@ int Pipeline::Execute(AlgContext* req_ctx) {
   return 0;
 }
 
+namespace {
+
+bool ValidatePayloadSchema(const nlohmann::json& payload,
+                           const nlohmann::json& schema, std::string* err_msg) {
+  if (schema.empty() || !schema.is_object()) return true;
+
+  const auto fail = [&](const std::string& message) {
+    if (err_msg) *err_msg = message;
+    return false;
+  };
+
+  if (schema.contains("type") && schema["type"].is_string()) {
+    const std::string type = schema["type"].get<std::string>();
+    const bool matches = (type == "object" && payload.is_object()) ||
+                         (type == "array" && payload.is_array()) ||
+                         (type == "string" && payload.is_string()) ||
+                         (type == "boolean" && payload.is_boolean()) ||
+                         (type == "number" && payload.is_number()) ||
+                         (type == "integer" && payload.is_number_integer()) ||
+                         (type == "null" && payload.is_null());
+    if (!matches)
+      return fail("Control payload does not match type '" + type + "'");
+  }
+
+  if (schema.contains("enum") && schema["enum"].is_array() &&
+      std::find(schema["enum"].begin(), schema["enum"].end(), payload) ==
+          schema["enum"].end()) {
+    return fail("Control payload value is not in the allowed enum");
+  }
+
+  if (payload.is_object()) {
+    if (schema.contains("minProperties") &&
+        schema["minProperties"].is_number_integer()) {
+      const auto minimum = schema["minProperties"].get<int64_t>();
+      if (minimum >= 0 && payload.size() < static_cast<size_t>(minimum)) {
+        return fail("Control payload has fewer properties than required");
+      }
+    }
+
+    if (schema.contains("required") && schema["required"].is_array()) {
+      for (const auto& req : schema["required"]) {
+        if (req.is_string()) {
+          std::string req_key = req.get<std::string>();
+          if (!payload.contains(req_key)) {
+            return fail("Missing required field in control payload: " +
+                        req_key);
+          }
+        }
+      }
+    }
+
+    const nlohmann::json empty_properties = nlohmann::json::object();
+    const auto& properties =
+        schema.contains("properties") && schema["properties"].is_object()
+            ? schema["properties"]
+            : empty_properties;
+    for (auto it = payload.begin(); it != payload.end(); ++it) {
+      if (properties.contains(it.key())) {
+        std::string nested_error;
+        if (!ValidatePayloadSchema(it.value(), properties[it.key()],
+                                   &nested_error)) {
+          return fail("Property '" + it.key() + "': " + nested_error);
+        }
+      } else if (schema.contains("additionalProperties")) {
+        const auto& additional = schema["additionalProperties"];
+        if (additional.is_boolean() && !additional.get<bool>()) {
+          return fail("Unknown property in control payload: " + it.key());
+        }
+        if (additional.is_object()) {
+          std::string nested_error;
+          if (!ValidatePayloadSchema(it.value(), additional, &nested_error)) {
+            return fail("Property '" + it.key() + "': " + nested_error);
+          }
+        }
+      }
+    }
+  }
+
+  if (payload.is_array() && schema.contains("items") &&
+      schema["items"].is_object()) {
+    for (size_t i = 0; i < payload.size(); ++i) {
+      std::string nested_error;
+      if (!ValidatePayloadSchema(payload[i], schema["items"], &nested_error)) {
+        return fail("Array item " + std::to_string(i) + ": " + nested_error);
+      }
+    }
+  }
+  return true;
+}
+
+}  // namespace
+
 int Pipeline::Control(int cmd, const std::string& json_param) {
   // R1-ACC-002: 仅允许在 Ready 状态下执行
   if (state_ != State::kReady) {
@@ -543,14 +654,86 @@ int Pipeline::Control(int cmd, const std::string& json_param) {
 
   std::cout << "[Pipeline] Control cmd received: " << cmd
             << ", params: " << json_param << std::endl;
-  int last_ret = 0;
+
+  bool has_target = false;
+  bool has_handled = false;
+  int first_fail_code = 0;
+
+  // Pass 1: Collect targets and validate payload across all targets
+  std::vector<std::pair<INode*, const ControlCommandDefinition*>> targets;
+  nlohmann::json parsed_payload;
+  bool json_parsed = false;
+
   for (auto& node : nodes_) {
-    int ret = node->Control(cmd, json_param);
-    if (ret != 0) {
-      last_ret = ret;
+    const auto* def = PipelineCatalog::FindNode(node->Name());
+    const ControlCommandDefinition* matched_cmd_def = nullptr;
+    if (def) {
+      for (const auto& cmd_def : def->control_commands) {
+        if (cmd_def.cmd_id == cmd) {
+          matched_cmd_def = &cmd_def;
+          break;
+        }
+      }
+    }
+    if (!matched_cmd_def) {
+      continue;
+    }
+
+    if (!matched_cmd_def->payload_schema.empty() &&
+        matched_cmd_def->payload_schema.is_object()) {
+      if (!json_parsed) {
+        try {
+          parsed_payload = nlohmann::json::parse(json_param);
+          json_parsed = true;
+        } catch (const std::exception& e) {
+          std::cerr << "[Pipeline] Control payload JSON parse error: "
+                    << e.what() << std::endl;
+          return -1;
+        }
+      }
+      std::string schema_err;
+      if (!ValidatePayloadSchema(
+              parsed_payload, matched_cmd_def->payload_schema, &schema_err)) {
+        std::cerr << "[Pipeline] Control payload schema violation: "
+                  << schema_err << std::endl;
+        return -1;
+      }
+    }
+    targets.emplace_back(node.get(), matched_cmd_def);
+  }
+
+  if (targets.empty()) {
+    std::cerr << "[Pipeline] Unsupported control command: " << cmd << std::endl;
+    return -7;  // COMPANY_ALG_ERR_UNSUPPORTED_CONTROL
+  }
+
+  // Pass 2: Dispatch command to all validated targets
+  for (auto& [node, cmd_def] : targets) {
+    has_target = true;
+    NodeControlResult res = node->Control(cmd, json_param);
+    if (res.status == NodeControlStatus::kFailed) {
+      std::cerr << "[Pipeline] Node [" << node->Name()
+                << "] Control failed with code: " << res.code
+                << ", msg: " << res.message << std::endl;
+      if (first_fail_code == 0) {
+        first_fail_code = res.code != 0 ? res.code : -1;
+      }
+    } else if (res.status == NodeControlStatus::kHandled) {
+      has_handled = true;
     }
   }
-  return last_ret;
+
+  if (first_fail_code != 0) {
+    return first_fail_code;
+  }
+  if (has_handled) {
+    return 0;
+  }
+  if (!has_target) {
+    std::cerr << "[Pipeline] Unsupported control command: " << cmd << std::endl;
+    return -7;  // COMPANY_ALG_ERR_UNSUPPORTED_CONTROL
+  }
+  return -7;
 }
 
 }  // namespace alg_framework

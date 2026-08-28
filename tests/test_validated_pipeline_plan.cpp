@@ -88,6 +88,53 @@ NodeDefinition MakeModelBoundPlanTestNodeDefinition() {
 REGISTER_NODE_WITH_DEFINITION(ModelBoundPlanTestNode,
                               MakeModelBoundPlanTestNodeDefinition());
 
+class FlowContractProducerNode : public INode {
+ public:
+  inline static constexpr char kNodeType[] = "FlowContractProducerNode";
+  bool Init(const nlohmann::json&, SessionContext*) override { return true; }
+  int Process(AlgContext*) override { return 0; }
+  const std::string& Name() const override {
+    static const std::string name = kNodeType;
+    return name;
+  }
+};
+
+class FlowContractConsumerNode : public INode {
+ public:
+  inline static constexpr char kNodeType[] = "FlowContractConsumerNode";
+  bool Init(const nlohmann::json&, SessionContext*) override { return true; }
+  int Process(AlgContext*) override { return 0; }
+  const std::string& Name() const override {
+    static const std::string name = kNodeType;
+    return name;
+  }
+};
+
+NodeDefinition MakeFlowContractProducerDefinition() {
+  NodeDefinition def;
+  def.node_type = FlowContractProducerNode::kNodeType;
+  def.category = "test";
+  def.description = "Produces a generated request-scoped collection";
+  def.outputs = {PortDefinition{"flow", "TextBatch", true, false, "1:N",
+                                "generate_sub_id", "request"}};
+  return def;
+}
+
+NodeDefinition MakeFlowContractConsumerDefinition() {
+  NodeDefinition def;
+  def.node_type = FlowContractConsumerNode::kNodeType;
+  def.category = "test";
+  def.description = "Requires incompatible flow metadata";
+  def.inputs = {PortDefinition{"flow", "TextBatch", true, false, "1:1",
+                               "independent", "session"}};
+  return def;
+}
+
+REGISTER_NODE_WITH_DEFINITION(FlowContractProducerNode,
+                              MakeFlowContractProducerDefinition());
+REGISTER_NODE_WITH_DEFINITION(FlowContractConsumerNode,
+                              MakeFlowContractConsumerDefinition());
+
 TEST(ValidatedPipelinePlanTest, DiagnosticCodeNameTableDriven) {
   struct Case {
     DiagnosticCode code;
@@ -127,6 +174,9 @@ TEST(ValidatedPipelinePlanTest, DiagnosticCodeNameTableDriven) {
       {DiagnosticCode::kParallelWriteConflict, "PARALLEL_WRITE_CONFLICT"},
       {DiagnosticCode::kSerializedEngineConcurrency,
        "SERIALIZED_ENGINE_CONCURRENCY"},
+      {DiagnosticCode::kPortCardinalityMismatch, "PORT_CARDINALITY_MISMATCH"},
+      {DiagnosticCode::kPortProvenanceMismatch, "PORT_PROVENANCE_MISMATCH"},
+      {DiagnosticCode::kPortLifetimeMismatch, "PORT_LIFETIME_MISMATCH"},
       {DiagnosticCode::kInternalException, "INTERNAL_EXCEPTION"},
   };
 
@@ -136,6 +186,69 @@ TEST(ValidatedPipelinePlanTest, DiagnosticCodeNameTableDriven) {
     EXPECT_STREQ(name.c_str(), item.expected_name);
     EXPECT_TRUE(names.insert(name).second) << "Duplicate name: " << name;
   }
+}
+
+TEST(ValidatedPipelinePlanTest, RejectsIncompatiblePortExecutionContracts) {
+  nlohmann::json pipeline_json = {
+      {"business_name", "unregistered_test_biz"},
+      {"models", nlohmann::json::array()},
+      {"pipeline",
+       nlohmann::json::array(
+           {{{"id", "producer"},
+             {"node_type", FlowContractProducerNode::kNodeType},
+             {"depends_on", nlohmann::json::array()}},
+            {{"id", "consumer"},
+             {"node_type", FlowContractConsumerNode::kNodeType},
+             {"depends_on", nlohmann::json::array({"producer"})}}})}};
+
+  auto plan = PipelineValidator::ValidateAndPlan(
+      pipeline_json, ValidationPolicy::kPrivateExtensionCompatible);
+  EXPECT_FALSE(plan.report.ok);
+  const std::unordered_set<DiagnosticCode> expected = {
+      DiagnosticCode::kPortCardinalityMismatch,
+      DiagnosticCode::kPortProvenanceMismatch,
+      DiagnosticCode::kPortLifetimeMismatch};
+  std::unordered_set<DiagnosticCode> actual;
+  for (const auto& diagnostic : plan.report.diagnostics) {
+    actual.insert(diagnostic.code);
+    if (expected.count(diagnostic.code)) {
+      EXPECT_EQ(diagnostic.path, "/pipeline/1/ports/inputs/flow");
+      EXPECT_EQ(diagnostic.node_id, "consumer");
+      EXPECT_EQ(diagnostic.port, "flow");
+      EXPECT_EQ(diagnostic.related_nodes,
+                std::vector<std::string>({"producer"}));
+    }
+  }
+  for (const auto code : expected) EXPECT_TRUE(actual.count(code));
+}
+
+TEST(ValidatedPipelinePlanTest, ResolvesConfiguredPortLifetimeBeforePlanning) {
+  nlohmann::json pipeline_json = {
+      {"business_name", "smart_doc_qa_v1"},
+      {"models",
+       nlohmann::json::array({{{"model_id", "embed_model_v1"},
+                               {"engine_type", "mock_npu_embedding"}}})},
+      {"pipeline",
+       nlohmann::json::array(
+           {{{"id", "session_embedding"},
+             {"node_type", "TextEmbeddingNode"},
+             {"depends_on", nlohmann::json::array()},
+             {"ports", {{"inputs", {{"text", "raw_queries"}}}}},
+             {"config",
+              {{"bind_model", "embed_model_v1"}, {"lifetime", "session"}}}}})}};
+
+  auto plan = PipelineValidator::ValidateAndPlan(pipeline_json);
+  auto diagnostic =
+      std::find_if(plan.report.diagnostics.begin(),
+                   plan.report.diagnostics.end(), [](const auto& item) {
+                     return item.code == DiagnosticCode::kPortLifetimeMismatch;
+                   });
+  ASSERT_NE(diagnostic, plan.report.diagnostics.end());
+  EXPECT_EQ(diagnostic->node_id, "session_embedding");
+  const auto* binding = plan.node_plans.at("session_embedding")
+                            .FindPort("text", PortDirection::kInput);
+  ASSERT_NE(binding, nullptr);
+  EXPECT_EQ(binding->lifetime, "session");
 }
 
 TEST(ValidatedPipelinePlanTest, StrictVsCompatiblePolicy) {
@@ -222,13 +335,34 @@ TEST(ValidatedPipelinePlanTest, RejectsSharedSerializedEngineInParallelLayer) {
   EXPECT_EQ(diagnostic->related_nodes, std::vector<std::string>({"node_a"}));
 }
 
+class RestrictedBusinessNode : public INode {
+ public:
+  inline static constexpr char kNodeType[] = "RestrictedBusinessNode";
+  bool Init(const nlohmann::json&, SessionContext*) override { return true; }
+  int Process(AlgContext*) override { return 0; }
+  const std::string& Name() const override {
+    static const std::string n = kNodeType;
+    return n;
+  }
+};
+
+inline NodeDefinition MakeRestrictedNodeDef() {
+  NodeDefinition def;
+  def.node_type = RestrictedBusinessNode::kNodeType;
+  def.category = "biz";
+  def.biz_names = {"restricted_only_biz"};
+  def.description = "Restricted test node";
+  return def;
+}
+REGISTER_NODE_WITH_DEFINITION(RestrictedBusinessNode, MakeRestrictedNodeDef());
+
 TEST(ValidatedPipelinePlanTest, RejectsNodeFromDifferentBusiness) {
   nlohmann::json pipeline_json = {
       {"business_name", "smart_doc_qa_v1"},
       {"models", nlohmann::json::array()},
       {"pipeline",
        nlohmann::json::array({{{"id", "wrong_business_node"},
-                               {"node_type", "KeywordMatcherNode"},
+                               {"node_type", "RestrictedBusinessNode"},
                                {"depends_on", nlohmann::json::array()}}})}};
 
   auto plan = PipelineValidator::ValidateAndPlan(pipeline_json);

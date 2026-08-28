@@ -80,18 +80,32 @@ if [[ "${MODE}" == "fast" ]]; then
     alg_demo
     alg_pipeline_tool
     test_adapter_contract_security
+    test_adapter_purity
     test_batch_executor
     test_c_abi_safety
+    test_common_nodes
     test_concurrency_and_edge_cases
     test_definition_schema_validation
     test_framework_core
     test_node_base_contracts
+    test_operator_api
+    test_operator_biz_bridge_registry
+    test_operator_golden
+    test_operator_output_pool
+    test_operator_value_registry
     test_pipeline_config
     test_pipeline_studio
-    test_platform_business_bridge_registry
-    test_platform_operator
-    test_platform_output_pool
-    test_platform_value_registry
+    test_text_chunk_node
+    test_text_embedding_node
+    test_vector_top_k_node
+    test_text_rerank_node
+    test_text_template_node
+    test_llm_generate_node
+    test_asr_transcribe_node
+    test_ocr_detect_node
+    test_text_rule_match_node
+    test_structured_json_parse_node
+    test_text_corpus_source_node
     test_typed_blackboard_contracts
     test_validated_pipeline_plan
   )
@@ -129,9 +143,9 @@ if [[ "${SANITIZERS}" == *"thread"* ]] && [[ "$(uname -s)" == "Linux" ]] && [[ "
 fi
 
 if [ "${MODE}" == "fast" ]; then
-  FAST_TEST_REGEX="^(BatchExecutorTest|FrameworkCoreTest|CAbiSafetyTest|ConcurrencyAndEdgeCasesTest|AdapterContractSecurityTest|PipelineConfigTest|PipelineStudioTest|PlatformOperatorTest|PlatformOutputPoolTest|PlatformValueRegistryTest|PlatformBusinessBridgeRegistryTest|VisualizerServerTest|TypedBlackboardContractsTest|ValidatedPipelinePlanTest|NodeBaseContractsTest|DefinitionSchemaValidationTest)$"
+  FAST_TEST_REGEX="^(BatchExecutorTest|FrameworkCoreTest|CAbiSafetyTest|ConcurrencyAndEdgeCasesTest|AdapterContractSecurityTest|PipelineConfigTest|PipelineStudioTest|OperatorApiTest|OperatorOutputPoolTest|OperatorValueRegistryTest|OperatorBizBridgeRegistryTest|VisualizerServerTest|TypedBlackboardContractsTest|ValidatedPipelinePlanTest|NodeBaseContractsTest|DefinitionSchemaValidationTest|CommonNodesTest|OperatorGoldenTest|AdapterPurityTest|TextChunkNodeTest|TextEmbeddingNodeTest|VectorTopKNodeTest|TextRerankNodeTest|TextTemplateNodeTest|LlmGenerateNodeTest|AsrTranscribeNodeTest|OcrDetectNodeTest|TextRuleMatchNodeTest|StructuredJsonParseNodeTest|TextCorpusSourceNodeTest)$"
   if [[ "${DETECT_LEAKS:-0}" == "1" ]] || [[ "${SANITIZERS}" == *"thread"* ]]; then
-    FAST_TEST_REGEX="^(BatchExecutorTest|FrameworkCoreTest|CAbiSafetyTest|ConcurrencyAndEdgeCasesTest|AdapterContractSecurityTest|PipelineConfigTest|PipelineStudioTest|PlatformOperatorTest|PlatformOutputPoolTest|PlatformValueRegistryTest|PlatformBusinessBridgeRegistryTest|TypedBlackboardContractsTest|ValidatedPipelinePlanTest|NodeBaseContractsTest|DefinitionSchemaValidationTest)$"
+    FAST_TEST_REGEX="^(BatchExecutorTest|FrameworkCoreTest|CAbiSafetyTest|ConcurrencyAndEdgeCasesTest|AdapterContractSecurityTest|PipelineConfigTest|PipelineStudioTest|OperatorApiTest|OperatorOutputPoolTest|OperatorValueRegistryTest|OperatorBizBridgeRegistryTest|TypedBlackboardContractsTest|ValidatedPipelinePlanTest|NodeBaseContractsTest|DefinitionSchemaValidationTest|CommonNodesTest|OperatorGoldenTest|AdapterPurityTest|TextChunkNodeTest|TextEmbeddingNodeTest|VectorTopKNodeTest|TextRerankNodeTest|TextTemplateNodeTest|LlmGenerateNodeTest|AsrTranscribeNodeTest|OcrDetectNodeTest|TextRuleMatchNodeTest|StructuredJsonParseNodeTest|TextCorpusSourceNodeTest)$"
   fi
   echo ">>> [1/2] Running fast sanitized test suites: ${FAST_TEST_REGEX} <<<"
   "${ARCH_PREFIX[@]}" ctest --test-dir "${BUILD_DIR}" -j"$(nproc)" -R "${FAST_TEST_REGEX}" --output-on-failure

@@ -3,10 +3,13 @@
 
 #include "adapter/adapter_validation_helper.h"
 #include "adapter/biz_adapter_registry.h"
-#include "biz/ocr_doc_qa/ocr_doc_qa_contract.h"
 #include "company_alg_interface.h"
+#include "core/common_contracts.h"
 
 namespace alg_framework {
+
+inline static constexpr char kOcrDocQaBusinessName[] =
+    "multimodal_ocr_invoice_qa";
 
 class OcrDocQaAdapter : public IBizAdapter {
  public:
@@ -28,9 +31,9 @@ class OcrDocQaAdapter : public IBizAdapter {
         {{kOcrDocQaBusinessName,
           "ocr_doc_qa",
           "OCR 票据问答",
-          {RequiredInput(kRawRequestIds), RequiredInput(kRawImagePaths),
-           RequiredInput(kRawQueries)},
-          {Output(kOcrDocFinalOutputs)}}}};
+          {RequiredInput(kRawRequestIds), RequiredInput(kImagePaths),
+           RequiredInput(kUserQueries)},
+          {Output(kExtractedInvoiceJson), Output(kOcrDocs)}}}};
     return desc;
   }
 
@@ -48,8 +51,8 @@ class OcrDocQaAdapter : public IBizAdapter {
     }
 
     std::vector<uint64_t> raw_req_ids;
-    std::vector<std::string> raw_images;
-    std::vector<std::string> raw_queries;
+    ImageRefBatch raw_images;
+    TextBatch raw_queries;
 
     raw_req_ids.reserve(num_inputs);
     raw_images.reserve(num_inputs);
@@ -65,7 +68,6 @@ class OcrDocQaAdapter : public IBizAdapter {
         return COMPANY_ALG_ERR_INVALID_INPUT;
       }
 
-      // ADP-001, RECHECK-004: 有界字符串强校验
       if (!AdapterValidationHelper::RequireBoundedString(
               "inputs[i].image_path", in_ocr->image_path, kMaxPathLen, i,
               BizName(), out_status)) {
@@ -78,13 +80,15 @@ class OcrDocQaAdapter : public IBizAdapter {
       }
 
       raw_req_ids.push_back(in_ocr->request_id);
-      raw_images.push_back(in_ocr->image_path);
-      raw_queries.push_back(in_ocr->query_prompt);
+      raw_images.emplace_back(static_cast<uint32_t>(i), 0, in_ocr->image_path);
+      raw_queries.emplace_back(
+          static_cast<uint32_t>(i), 0,
+          in_ocr->query_prompt ? in_ocr->query_prompt : "");
     }
 
     ctx->Set(kRawRequestIds, std::move(raw_req_ids));
-    ctx->Set(kRawImagePaths, std::move(raw_images));
-    ctx->Set(kRawQueries, std::move(raw_queries));
+    ctx->Set(kImagePaths, std::move(raw_images));
+    ctx->Set(kUserQueries, std::move(raw_queries));
     return COMPANY_ALG_SUCCESS;
   }
 
@@ -98,17 +102,20 @@ class OcrDocQaAdapter : public IBizAdapter {
       return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     }
 
-    auto* res = ctx->Get(kOcrDocFinalOutputs);
-    if (!res) {
+    const auto* invoice_jsons = ctx->Get(kExtractedInvoiceJson);
+    const auto* ocr_docs = ctx->Get(kOcrDocs);
+    const auto* raw_req_ids = ctx->Get(kRawRequestIds);
+
+    if (!invoice_jsons) {
       if (out_status) {
         *out_status = AdapterStatus::BufferTooSmall(
-            "ocr_doc_final_outputs not found in AlgContext",
-            "ocr_doc_final_outputs", -1, BizName());
+            "extracted_invoice_json not found in AlgContext",
+            "extracted_invoice_json", -1, BizName());
       }
       return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     }
 
-    int count = static_cast<int>(res->size());
+    int count = static_cast<int>(invoice_jsons->size());
     int valid_ret = AdapterValidationHelper::ValidateBatchOutputs(
         outputs, num_outputs, count, BizName());
     if (valid_ret != 0) {
@@ -121,15 +128,23 @@ class OcrDocQaAdapter : public IBizAdapter {
 
     for (int i = 0; i < count; ++i) {
       auto* out_ptr = static_cast<CompanyOcrDocOutputStruct*>(outputs[i]);
-      out_ptr->request_id = (*res)[i].request_id;
-      out_ptr->detected_box_count = (*res)[i].detected_box_count;
-      out_ptr->status_code = (*res)[i].status_code;
+      uint64_t req_id =
+          (raw_req_ids && i < static_cast<int>(raw_req_ids->size()))
+              ? (*raw_req_ids)[i]
+              : (*invoice_jsons)[i].req_id;
+      out_ptr->request_id = req_id;
 
-      // RECHECK-001: 严格拦截截断
+      int box_count = 0;
+      if (ocr_docs && i < static_cast<int>(ocr_docs->size())) {
+        box_count = static_cast<int>((*ocr_docs)[i].data.boxes.size());
+      }
+      out_ptr->detected_box_count = box_count;
+      out_ptr->status_code = 0;
+
       if (!AdapterValidationHelper::CheckedStringCopy(
               out_ptr->extracted_invoice_json,
               sizeof(out_ptr->extracted_invoice_json),
-              (*res)[i].extracted_invoice_json.c_str(),
+              (*invoice_jsons)[i].data.c_str(),
               "outputs[i].extracted_invoice_json", i, BizName(), out_status)) {
         return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
       }

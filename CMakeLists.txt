@@ -74,7 +74,7 @@ include(cmake/NlohmannJson.cmake)
 # 引入第三方开源推理引擎 (ONNX Runtime & llama.cpp) 自动下载配置
 include(cmake/ThirdPartyEngines.cmake)
 
-# 核心框架与业务算子源文件列表
+# 核心框架与公共算子源文件列表
 set(FRAMEWORK_SRCS
     src/core/pipeline_catalog.cpp
     src/core/pipeline_config.cpp
@@ -88,33 +88,17 @@ set(FRAMEWORK_SRCS
     src/engine/onnx/onnx_embedding_engine.cpp
     src/engine/onnx/onnx_rerank_engine.cpp
     src/engine/llama_cpp/llama_cpp_engine.cpp
+    src/common_nodes/text_template_node.cpp
+    src/common_nodes/text_chunk_node.cpp
+    src/common_nodes/text_rule_match_node.cpp
+    src/common_nodes/structured_json_parse_node.cpp
+    src/common_nodes/text_embedding_node.cpp
+    src/common_nodes/vector_top_k_node.cpp
+    src/common_nodes/text_rerank_node.cpp
     src/common_nodes/llm_generate_node.cpp
-    src/biz/doc_qa/prompt_builder_node.cpp
-    src/biz/doc_qa/vector_search_node.cpp
-    src/biz/doc_qa/rerank_refine_node.cpp
-    src/biz/doc_qa/doc_chunk_pre_node.cpp
-    src/biz/doc_qa/doc_embedding_node.cpp
-    src/biz/doc_qa/intent_rule_node.cpp
-    src/biz/doc_qa/doc_qa_post_node.cpp
-    src/biz/keyword_match/keyword_matcher_node.cpp
-    src/biz/entity_extract/entity_extract_pre_node.cpp
-    src/biz/entity_extract/entity_extract_post_node.cpp
-    src/biz/dialogue_audit/safety_rule_pre_node.cpp
-    src/biz/dialogue_audit/dense_retrieval_node.cpp
-    src/biz/dialogue_audit/cross_rerank_node.cpp
-    src/biz/dialogue_audit/risk_prompt_node.cpp
-    src/biz/dialogue_audit/llm_audit_node.cpp
-    src/biz/dialogue_audit/audit_post_node.cpp
-    src/biz/ocr_doc_qa/image_pre_node.cpp
-    src/biz/ocr_doc_qa/ocr_infer_node.cpp
-    src/biz/ocr_doc_qa/ocr_doc_post_node.cpp
-    src/biz/audio_asr/audio_feature_pre_node.cpp
-    src/biz/audio_asr/asr_infer_node.cpp
-    src/biz/audio_asr/slot_extract_node.cpp
-    src/biz/audio_asr/audio_post_node.cpp
-    src/biz/cross_rerank/rerank_pair_builder_node.cpp
-    src/biz/cross_rerank/cross_rerank_batch_node.cpp
-    src/biz/cross_rerank/rerank_sort_post_node.cpp
+    src/common_nodes/asr_transcribe_node.cpp
+    src/common_nodes/ocr_detect_node.cpp
+    src/common_nodes/text_corpus_source_node.cpp
     src/adapter/adapters/keyword_match_adapter.cpp
     src/adapter/adapters/entity_extract_adapter.cpp
     src/adapter/adapters/doc_qa_adapter.cpp
@@ -180,6 +164,7 @@ add_test(NAME C11AbiComplianceTest COMMAND test_c11_abi_compliance)
 
 # 4. 架构分层防腐隔离测试 (LayerGuard)
 add_test(NAME LayerGuardTest COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_layer_isolation.sh)
+add_test(NAME LayerGuardSelfTest COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_layer_isolation.sh --self-test)
 
 # 4.1 架构文档防漂移测试 (ArchitectureDocsDriftTest)
 add_test(NAME ArchitectureDocsDriftTest COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_architecture_docs.sh)
@@ -330,6 +315,63 @@ add_executable(test_definition_schema_validation tests/test_definition_schema_va
 target_link_libraries(test_definition_schema_validation PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
 add_test(NAME DefinitionSchemaValidationTest COMMAND test_definition_schema_validation)
 
+# RFC 0012 11 类 Common Nodes 独立测试套件与 Operator Golden / Adapter Purity 测试
+add_executable(test_text_chunk_node tests/test_text_chunk_node.cpp)
+target_link_libraries(test_text_chunk_node PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME TextChunkNodeTest COMMAND test_text_chunk_node)
+
+add_executable(test_text_embedding_node tests/test_text_embedding_node.cpp)
+target_link_libraries(test_text_embedding_node PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME TextEmbeddingNodeTest COMMAND test_text_embedding_node)
+
+add_executable(test_vector_top_k_node tests/test_vector_top_k_node.cpp)
+target_link_libraries(test_vector_top_k_node PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME VectorTopKNodeTest COMMAND test_vector_top_k_node)
+
+add_executable(test_text_rerank_node tests/test_text_rerank_node.cpp)
+target_link_libraries(test_text_rerank_node PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME TextRerankNodeTest COMMAND test_text_rerank_node)
+
+add_executable(test_text_template_node tests/test_text_template_node.cpp)
+target_link_libraries(test_text_template_node PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME TextTemplateNodeTest COMMAND test_text_template_node)
+
+add_executable(test_llm_generate_node tests/test_llm_generate_node.cpp)
+target_link_libraries(test_llm_generate_node PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME LlmGenerateNodeTest COMMAND test_llm_generate_node)
+
+add_executable(test_asr_transcribe_node tests/test_asr_transcribe_node.cpp)
+target_link_libraries(test_asr_transcribe_node PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME AsrTranscribeNodeTest COMMAND test_asr_transcribe_node)
+
+add_executable(test_ocr_detect_node tests/test_ocr_detect_node.cpp)
+target_link_libraries(test_ocr_detect_node PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME OcrDetectNodeTest COMMAND test_ocr_detect_node)
+
+add_executable(test_text_rule_match_node tests/test_text_rule_match_node.cpp)
+target_link_libraries(test_text_rule_match_node PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME TextRuleMatchNodeTest COMMAND test_text_rule_match_node)
+
+add_executable(test_structured_json_parse_node tests/test_structured_json_parse_node.cpp)
+target_link_libraries(test_structured_json_parse_node PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME StructuredJsonParseNodeTest COMMAND test_structured_json_parse_node)
+
+add_executable(test_text_corpus_source_node tests/test_text_corpus_source_node.cpp)
+target_link_libraries(test_text_corpus_source_node PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME TextCorpusSourceNodeTest COMMAND test_text_corpus_source_node)
+
+add_executable(test_common_nodes tests/test_common_nodes.cpp)
+target_link_libraries(test_common_nodes PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME CommonNodesTest COMMAND test_common_nodes)
+
+add_executable(test_operator_golden tests/test_operator_golden.cpp)
+target_link_libraries(test_operator_golden PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME OperatorGoldenTest COMMAND test_operator_golden)
+
+add_executable(test_adapter_purity tests/test_adapter_purity.cpp)
+target_link_libraries(test_adapter_purity PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME AdapterPurityTest COMMAND test_adapter_purity)
+
 # 设置所有测试工作目录为项目根目录，保证无论从何处运行 CTest，相对路径均一致解析
 set_tests_properties(
   C11AbiComplianceTest LayerGuardTest ArchitectureDocsDriftTest
@@ -344,7 +386,11 @@ set_tests_properties(
   DocQaRerankTest RerankRefineNodeTest PipelineStudioTest VisualizerServerTest
   DemoRunnerTest CatalogContractSsotTest TypedBlackboardContractsTest
   ValidatedPipelinePlanTest NodeBaseContractsTest NodeOwnershipAndReuseTest
-  DefinitionSchemaValidationTest
+  DefinitionSchemaValidationTest TextChunkNodeTest TextEmbeddingNodeTest
+  VectorTopKNodeTest TextRerankNodeTest TextTemplateNodeTest
+  LlmGenerateNodeTest AsrTranscribeNodeTest OcrDetectNodeTest
+  TextRuleMatchNodeTest StructuredJsonParseNodeTest TextCorpusSourceNodeTest
+  CommonNodesTest OperatorGoldenTest AdapterPurityTest
   PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
 )
 

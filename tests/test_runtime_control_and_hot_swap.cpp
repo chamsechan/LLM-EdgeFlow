@@ -170,10 +170,11 @@ TEST_F(RuntimeControlAndHotSwapTest, InvalidControlCommands) {
   ASSERT_EQ(Alg_Create(&handle, &param), 0);
   ASSERT_NE(handle, nullptr);
 
-  // 3.1 非法指令码 cmd = 99999 (未识别命令默认忽略返回 0)
+  // 3.1 非法指令码 cmd = 99999 (未声明命令返回
+  // COMPANY_ALG_ERR_UNSUPPORTED_CONTROL = -7)
   CompanyAlgParamControl ctrl1{99999, "{}"};
   int ret = Alg_Control(handle, &ctrl1);
-  EXPECT_EQ(ret, 0);
+  EXPECT_EQ(ret, COMPANY_ALG_ERR_UNSUPPORTED_CONTROL);
 
   // 3.2 空指针参数
   ret = Alg_Control(handle, nullptr);

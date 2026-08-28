@@ -30,59 +30,133 @@
   ],
   "pipeline": [
     {
+      "id": "node_0_TextChunkNode",
+      "node_type": "TextChunkNode",
+      "depends_on": [],
+      "ports": {
+        "inputs": {
+          "text": "raw_docs"
+        },
+        "outputs": {
+          "chunks": "doc_chunks",
+          "chunk_counts": "doc_chunk_counts"
+        }
+      },
       "config": {
         "chunk_size": 60
-      },
-      "depends_on": [],
-      "id": "node_0_DocChunkPreNode",
-      "node_type": "DocChunkPreNode"
+      }
     },
     {
+      "id": "node_1_QueryEmbeddingNode",
+      "node_type": "TextEmbeddingNode",
+      "depends_on": [],
+      "ports": {
+        "inputs": {
+          "text": "raw_queries"
+        },
+        "outputs": {
+          "embedding": "query_embeddings"
+        }
+      },
       "config": {
         "bind_model": "embed_model_v1"
-      },
-      "depends_on": [
-        "node_0_DocChunkPreNode"
-      ],
-      "id": "node_1_DocEmbeddingNode",
-      "node_type": "DocEmbeddingNode"
+      }
     },
     {
+      "id": "node_2_ChunkEmbeddingNode",
+      "node_type": "TextEmbeddingNode",
+      "depends_on": [
+        "node_0_TextChunkNode"
+      ],
+      "ports": {
+        "inputs": {
+          "text": "doc_chunks"
+        },
+        "outputs": {
+          "embedding": "chunk_embeddings"
+        }
+      },
+      "config": {
+        "bind_model": "embed_model_v1"
+      }
+    },
+    {
+      "id": "node_3_VectorTopKNode",
+      "node_type": "VectorTopKNode",
+      "depends_on": [
+        "node_1_QueryEmbeddingNode",
+        "node_2_ChunkEmbeddingNode"
+      ],
+      "ports": {
+        "inputs": {
+          "queries": "query_embeddings",
+          "candidates": "chunk_embeddings",
+          "candidate_texts": "doc_chunks"
+        },
+        "outputs": {
+          "ranked": "coarse_contexts"
+        }
+      },
       "config": {
         "min_score": 0.0,
         "top_k": 4
-      },
-      "depends_on": [
-        "node_1_DocEmbeddingNode"
-      ],
-      "id": "node_2_VectorSearchNode",
-      "node_type": "VectorSearchNode"
+      }
     },
     {
+      "id": "node_4_TextRerankNode",
+      "node_type": "TextRerankNode",
+      "depends_on": [
+        "node_3_VectorTopKNode"
+      ],
+      "ports": {
+        "inputs": {
+          "queries": "raw_queries",
+          "candidates": "coarse_contexts"
+        },
+        "outputs": {
+          "ranked": "fine_contexts"
+        }
+      },
       "config": {
         "bind_model": "rerank_model_v1",
         "top_k": 1
-      },
-      "depends_on": [
-        "node_2_VectorSearchNode"
-      ],
-      "id": "node_3_RerankRefineNode",
-      "node_type": "RerankRefineNode"
+      }
     },
     {
-      "config": {
-        "template": "【经过精排选取的精准参考上下文】: {context}\n【用户提问】: {query}\n请根据上述上下文给出专业、严谨且精炼的解答:"
-      },
+      "id": "node_5_TextTemplateNode",
+      "node_type": "TextTemplateNode",
       "depends_on": [
-        "node_3_RerankRefineNode"
+        "node_4_TextRerankNode"
       ],
-      "id": "node_4_PromptBuilderNode",
-      "node_type": "PromptBuilderNode"
+      "ports": {
+        "inputs": {
+          "primary": "raw_queries",
+          "context": "fine_contexts"
+        },
+        "outputs": {
+          "text": "prompt_text"
+        }
+      },
+      "config": {
+        "template": "【经过精排选取的精准参考上下文】: {{context}}\n【用户提问】: {{primary}}\n请根据上述上下文给出专业、严谨且精炼的解答:"
+      }
     },
     {
+      "id": "node_6_TextRuleMatchNode",
+      "node_type": "TextRuleMatchNode",
+      "depends_on": [],
+      "ports": {
+        "inputs": {
+          "text": "raw_queries"
+        },
+        "outputs": {
+          "matches": "intent_matches"
+        }
+      },
       "config": {
-        "default_intent": "GENERAL_QA",
-        "rules": {
+        "default_category": "GENERAL_QA",
+        "default_score": 0.90,
+        "categories": {
           "AFTER_SALES_REFUND": [
             "退款",
             "退货",
@@ -97,34 +171,28 @@
             "llama.cpp",
             "Rerank"
           ]
-        },
-        "threshold": 0.8
-      },
-      "depends_on": [
-        "node_4_PromptBuilderNode"
-      ],
-      "id": "node_5_IntentRuleNode",
-      "node_type": "IntentRuleNode"
+        }
+      }
     },
     {
+      "id": "node_7_LlmGenerateNode",
+      "node_type": "LlmGenerateNode",
+      "depends_on": [
+        "node_5_TextTemplateNode"
+      ],
+      "ports": {
+        "inputs": {
+          "prompt": "prompt_text"
+        },
+        "outputs": {
+          "text": "llm_answers"
+        }
+      },
       "config": {
         "bind_model": "llm_model_v1",
         "max_tokens": 128,
         "temperature": 0.3
-      },
-      "depends_on": [
-        "node_5_IntentRuleNode"
-      ],
-      "id": "node_6_LlmGenerateNode",
-      "node_type": "LlmGenerateNode"
-    },
-    {
-      "config": {},
-      "depends_on": [
-        "node_6_LlmGenerateNode"
-      ],
-      "id": "node_7_DocQaPostNode",
-      "node_type": "DocQaPostNode"
+      }
     }
   ]
 }

@@ -31,10 +31,36 @@ std::mutex& CatalogMutex() {
 }
 
 nlohmann::json PortJson(const PortDefinition& port) {
-  return {{"key", port.key},
-          {"type_id", port.type_id},
-          {"required", port.required},
-          {"allow_override", port.allow_override}};
+  nlohmann::json result = {{"key", port.key},
+                           {"type_id", port.type_id},
+                           {"required", port.required},
+                           {"allow_override", port.allow_override},
+                           {"cardinality", port.cardinality},
+                           {"provenance_policy", port.provenance_policy},
+                           {"lifetime", port.lifetime}};
+  if (!port.lifetime_config_field.empty()) {
+    result["lifetime_config_field"] = port.lifetime_config_field;
+  }
+  return result;
+}
+
+nlohmann::json ConstraintJson(const PortGroupConstraint& constraint) {
+  nlohmann::json result = {{"kind", PortConstraintKindName(constraint.kind)},
+                           {"message", constraint.message}};
+  if (constraint.kind == PortConstraintKind::kExactOneGroupOf) {
+    result["port_groups"] = constraint.port_groups;
+  } else {
+    result["ports"] = constraint.ports;
+  }
+  return result;
+}
+
+nlohmann::json ControlCommandJson(const ControlCommandDefinition& cmd) {
+  return {{"cmd_id", cmd.cmd_id},
+          {"name", cmd.name},
+          {"description", cmd.description},
+          {"payload_schema", cmd.payload_schema},
+          {"supports_hot_swap", cmd.supports_hot_swap}};
 }
 
 nlohmann::json FieldJson(const ConfigFieldDefinition& field) {
@@ -75,6 +101,22 @@ const char* EngineThreadModelName(EngineThreadModel model) {
       return "serialized";
     case EngineThreadModel::kConcurrent:
       return "concurrent";
+  }
+  return "unknown";
+}
+
+const char* PortConstraintKindName(PortConstraintKind kind) {
+  switch (kind) {
+    case PortConstraintKind::kAtLeastOneOf:
+      return "at_least_one_of";
+    case PortConstraintKind::kExactlyOneOf:
+      return "exactly_one_of";
+    case PortConstraintKind::kAllOrNone:
+      return "all_or_none";
+    case PortConstraintKind::kAtMostOneOf:
+      return "at_most_one_of";
+    case PortConstraintKind::kExactOneGroupOf:
+      return "exact_one_group_of";
   }
   return "unknown";
 }
@@ -139,9 +181,84 @@ bool ValidateFieldDefinition(const ConfigFieldDefinition& field,
 
 bool PipelineCatalog::RegisterNodeDefinition(const NodeDefinition& definition) {
   if (definition.node_type.empty()) return false;
+  static const std::unordered_set<std::string> kValidCardinalities = {
+      "1:1", "1:N", "N:1", "N:M"};
+  static const std::unordered_set<std::string> kValidProvenance = {
+      "preserve", "generate_sub_id", "aggregate", "independent"};
+  static const std::unordered_set<std::string> kValidLifetimes = {
+      "request", "session", "global"};
+
+  std::unordered_set<std::string> seen_in_ports;
+  for (const auto& port : definition.inputs) {
+    if (port.key.empty() || port.type_id.empty()) return false;
+    if (!port.cardinality.empty() &&
+        !kValidCardinalities.count(port.cardinality))
+      return false;
+    if (!port.provenance_policy.empty() &&
+        !kValidProvenance.count(port.provenance_policy))
+      return false;
+    if (!port.lifetime.empty() && !kValidLifetimes.count(port.lifetime))
+      return false;
+    if (!seen_in_ports.insert(port.key).second) return false;
+  }
+  std::unordered_set<std::string> seen_out_ports;
+  for (const auto& port : definition.outputs) {
+    if (port.key.empty() || port.type_id.empty()) return false;
+    if (!port.cardinality.empty() &&
+        !kValidCardinalities.count(port.cardinality))
+      return false;
+    if (!port.provenance_policy.empty() &&
+        !kValidProvenance.count(port.provenance_policy))
+      return false;
+    if (!port.lifetime.empty() && !kValidLifetimes.count(port.lifetime))
+      return false;
+    if (!seen_out_ports.insert(port.key).second) return false;
+  }
+  for (const auto& constraint : definition.port_constraints) {
+    if (constraint.kind == PortConstraintKind::kExactOneGroupOf) {
+      if (constraint.port_groups.empty()) return false;
+      for (const auto& group : constraint.port_groups) {
+        if (group.empty()) return false;
+        for (const auto& p : group) {
+          if (!seen_in_ports.count(p) && !seen_out_ports.count(p)) return false;
+        }
+      }
+    } else {
+      if (constraint.ports.empty()) return false;
+      for (const auto& p : constraint.ports) {
+        if (!seen_in_ports.count(p) && !seen_out_ports.count(p)) return false;
+      }
+    }
+  }
+  std::unordered_set<int> seen_cmd_ids;
+  std::unordered_set<std::string> seen_cmd_names;
+  for (const auto& cmd : definition.control_commands) {
+    if (cmd.cmd_id <= 0 || cmd.name.empty()) return false;
+    if (!seen_cmd_ids.insert(cmd.cmd_id).second) return false;
+    if (!seen_cmd_names.insert(cmd.name).second) return false;
+  }
   std::unordered_set<std::string> seen_field_names;
   for (const auto& field : definition.config_fields) {
     if (!ValidateFieldDefinition(field, seen_field_names)) return false;
+  }
+  const auto validates_lifetime_override = [&](const PortDefinition& port) {
+    if (port.lifetime_config_field.empty()) return true;
+    auto it = std::find_if(
+        definition.config_fields.begin(), definition.config_fields.end(),
+        [&](const auto& f) { return f.name == port.lifetime_config_field; });
+    if (it == definition.config_fields.end() ||
+        it->kind != ConfigValueKind::kString || it->enum_values.empty()) {
+      return false;
+    }
+    return std::all_of(
+        it->enum_values.begin(), it->enum_values.end(),
+        [&](const auto& value) { return kValidLifetimes.count(value) != 0; });
+  };
+  if (!std::all_of(definition.inputs.begin(), definition.inputs.end(),
+                   validates_lifetime_override) ||
+      !std::all_of(definition.outputs.begin(), definition.outputs.end(),
+                   validates_lifetime_override)) {
+    return false;
   }
   if (!definition.model_capability.empty()) {
     if (definition.model_config_field.empty()) return false;
@@ -278,9 +395,15 @@ void PipelineCatalog::ClearForTesting() {
 nlohmann::json PipelineCatalog::NodeToJson(const NodeDefinition& definition) {
   nlohmann::json inputs = nlohmann::json::array();
   nlohmann::json outputs = nlohmann::json::array();
+  nlohmann::json constraints = nlohmann::json::array();
+  nlohmann::json commands = nlohmann::json::array();
   nlohmann::json fields = nlohmann::json::array();
   for (const auto& item : definition.inputs) inputs.push_back(PortJson(item));
   for (const auto& item : definition.outputs) outputs.push_back(PortJson(item));
+  for (const auto& item : definition.port_constraints)
+    constraints.push_back(ConstraintJson(item));
+  for (const auto& item : definition.control_commands)
+    commands.push_back(ControlCommandJson(item));
   for (const auto& item : definition.config_fields)
     fields.push_back(FieldJson(item));
   return {{"node_type", definition.node_type},
@@ -288,6 +411,8 @@ nlohmann::json PipelineCatalog::NodeToJson(const NodeDefinition& definition) {
           {"description", definition.description},
           {"inputs", std::move(inputs)},
           {"outputs", std::move(outputs)},
+          {"port_constraints", std::move(constraints)},
+          {"control_commands", std::move(commands)},
           {"config_fields", std::move(fields)},
           {"model_capability", definition.model_capability},
           {"model_config_field", definition.model_config_field},

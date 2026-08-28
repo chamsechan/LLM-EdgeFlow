@@ -65,8 +65,10 @@ int MockNpuAsrEngine::RawNpuAsrHardwareInfer(
       // 模拟语音转文字
       float sum = 0.0f;
       for (float val : batch_audio[i].pcm_data) sum += val;
-      if (sum > 50.0f) {
+      if (sum > 120.0f) {
         (*batch_transcripts)[i] = "帮我导航到清华科技园，避开拥堵路段。";
+      } else if (sum > 40.0f) {
+        (*batch_transcripts)[i] = "今天北京天气怎么样？";
       } else {
         (*batch_transcripts)[i] = "把空调温度调到24度，风量开到二档。";
       }

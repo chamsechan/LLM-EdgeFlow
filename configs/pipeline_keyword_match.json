@@ -3,6 +3,17 @@
   "models": [],
   "pipeline": [
     {
+      "id": "node_0_TextRuleMatchNode",
+      "node_type": "TextRuleMatchNode",
+      "depends_on": [],
+      "ports": {
+        "inputs": {
+          "text": "input_sentences"
+        },
+        "outputs": {
+          "matches": "rule_matches"
+        }
+      },
       "config": {
         "default_categories": {
           "SYSTEM_INIT": [
@@ -10,10 +21,7 @@
             "自检"
           ]
         }
-      },
-      "depends_on": [],
-      "id": "node_0_KeywordMatcherNode",
-      "node_type": "KeywordMatcherNode"
+      }
     }
   ]
 }

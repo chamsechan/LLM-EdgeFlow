@@ -10,7 +10,7 @@
         "pipeline": [
           {
             "id": "keyword",
-            "node_type": "KeywordMatcherNode",
+            "node_type": "TextRuleMatchNode",
             "depends_on": [],
             "config": {}
           }
@@ -52,14 +52,25 @@
           {"model_id": "llm", "engine_type": "mock_npu_llm"}
         ],
         "pipeline": [
-          {"id": "pre", "node_type": "EntityExtractPreNode", "depends_on": []},
+          {
+            "id": "pre",
+            "node_type": "TextTemplateNode",
+            "depends_on": [],
+            "ports": {"inputs": {"primary": "input_sentences"}, "outputs": {"text": "prompt_text"}}
+          },
           {
             "id": "generate",
             "node_type": "LlmGenerateNode",
             "depends_on": ["pre"],
+            "ports": {"inputs": {"prompt": "prompt_text"}, "outputs": {"text": "ans"}},
             "config": {"bind_model": "llm", "unsupported_option": true}
           },
-          {"id": "post", "node_type": "EntityExtractPostNode", "depends_on": ["generate"]}
+          {
+            "id": "post",
+            "node_type": "StructuredJsonParseNode",
+            "depends_on": ["generate"],
+            "ports": {"inputs": {"text": "ans"}, "outputs": {"document": "extracted_entities"}}
+          }
         ]
       },
       "required_codes": ["UNKNOWN_CONFIG_FIELD"],
@@ -77,14 +88,25 @@
           {"model_id": "llm", "engine_type": "mock_npu_llm"}
         ],
         "pipeline": [
-          {"id": "pre", "node_type": "EntityExtractPreNode", "depends_on": []},
+          {
+            "id": "pre",
+            "node_type": "TextTemplateNode",
+            "depends_on": [],
+            "ports": {"inputs": {"primary": "input_sentences"}, "outputs": {"text": "prompt_text"}}
+          },
           {
             "id": "generate",
             "node_type": "LlmGenerateNode",
             "depends_on": ["pre"],
+            "ports": {"inputs": {"prompt": "prompt_text"}, "outputs": {"text": "ans"}},
             "config": {"bind_model": "llm", "max_tokens": 0}
           },
-          {"id": "post", "node_type": "EntityExtractPostNode", "depends_on": ["generate"]}
+          {
+            "id": "post",
+            "node_type": "StructuredJsonParseNode",
+            "depends_on": ["generate"],
+            "ports": {"inputs": {"text": "ans"}, "outputs": {"document": "extracted_entities"}}
+          }
         ]
       },
       "required_codes": ["CONFIG_FIELD_RANGE"],
@@ -102,14 +124,25 @@
           {"model_id": "embedding", "engine_type": "mock_npu_embedding"}
         ],
         "pipeline": [
-          {"id": "pre", "node_type": "EntityExtractPreNode", "depends_on": []},
+          {
+            "id": "pre",
+            "node_type": "TextTemplateNode",
+            "depends_on": [],
+            "ports": {"inputs": {"primary": "input_sentences"}, "outputs": {"text": "prompt_text"}}
+          },
           {
             "id": "generate",
             "node_type": "LlmGenerateNode",
             "depends_on": ["pre"],
+            "ports": {"inputs": {"prompt": "prompt_text"}, "outputs": {"text": "ans"}},
             "config": {"bind_model": "embedding"}
           },
-          {"id": "post", "node_type": "EntityExtractPostNode", "depends_on": ["generate"]}
+          {
+            "id": "post",
+            "node_type": "StructuredJsonParseNode",
+            "depends_on": ["generate"],
+            "ports": {"inputs": {"text": "ans"}, "outputs": {"document": "extracted_entities"}}
+          }
         ]
       },
       "required_codes": ["MODEL_CAPABILITY_MISMATCH"],
@@ -125,8 +158,8 @@
         "biz_name": "keyword_match_v1",
         "models": [],
         "pipeline": [
-          {"id": "a", "node_type": "KeywordMatcherNode", "depends_on": ["b"], "config": {}},
-          {"id": "b", "node_type": "KeywordMatcherNode", "depends_on": ["a"], "config": {}}
+          {"id": "a", "node_type": "TextRuleMatchNode", "depends_on": ["b"], "config": {}},
+          {"id": "b", "node_type": "TextRuleMatchNode", "depends_on": ["a"], "config": {}}
         ]
       },
       "required_codes": ["DAG_CYCLE"],
@@ -142,12 +175,22 @@
         "biz_name": "smart_doc_qa_v1",
         "models": [],
         "pipeline": [
-          {"id": "post", "node_type": "DocQaPostNode", "depends_on": [], "config": {}}
+          {
+            "id": "parse",
+            "node_type": "StructuredJsonParseNode",
+            "depends_on": [],
+            "ports": {
+              "inputs": {
+                "text": "non_existent_key"
+              }
+            },
+            "config": {}
+          }
         ]
       },
       "required_codes": ["MISSING_INPUT_PRODUCER"],
       "primary_code": "MISSING_INPUT_PRODUCER",
-      "primary_path": "/pipeline/0",
+      "primary_path": "/pipeline/0/ports/inputs/text",
       "pipeline_error_code": 8,
       "runtime_error_code": -2
     },
@@ -159,8 +202,26 @@
         "execution_mode": "parallel",
         "models": [],
         "pipeline": [
-          {"id": "left", "node_type": "KeywordMatcherNode", "depends_on": [], "config": {}},
-          {"id": "right", "node_type": "KeywordMatcherNode", "depends_on": [], "config": {}}
+          {
+            "id": "left",
+            "node_type": "TextRuleMatchNode",
+            "depends_on": [],
+            "ports": {
+              "inputs": {"text": "input_sentences"},
+              "outputs": {"matches": "conflict_matches"}
+            },
+            "config": {}
+          },
+          {
+            "id": "right",
+            "node_type": "TextRuleMatchNode",
+            "depends_on": [],
+            "ports": {
+              "inputs": {"text": "input_sentences"},
+              "outputs": {"matches": "conflict_matches"}
+            },
+            "config": {}
+          }
         ]
       },
       "required_codes": ["DUPLICATE_PORT_PRODUCER", "PARALLEL_WRITE_CONFLICT"],
@@ -179,25 +240,49 @@
           {"model_id": "serialized_llm", "engine_type": "mock_npu_llm"}
         ],
         "pipeline": [
-          {"id": "pre", "node_type": "EntityExtractPreNode", "depends_on": []},
+          {
+            "id": "pre",
+            "node_type": "TextTemplateNode",
+            "depends_on": [],
+            "ports": {
+              "inputs": {"primary": "input_sentences"},
+              "outputs": {"text": "prompt_text"}
+            }
+          },
           {
             "id": "left",
             "node_type": "LlmGenerateNode",
             "depends_on": ["pre"],
+            "ports": {
+              "inputs": {"prompt": "prompt_text"},
+              "outputs": {"text": "ans_left"}
+            },
             "config": {"bind_model": "serialized_llm"}
           },
           {
             "id": "right",
             "node_type": "LlmGenerateNode",
             "depends_on": ["pre"],
+            "ports": {
+              "inputs": {"prompt": "prompt_text"},
+              "outputs": {"text": "ans_right"}
+            },
             "config": {"bind_model": "serialized_llm"}
           },
-          {"id": "post", "node_type": "EntityExtractPostNode", "depends_on": ["left", "right"]}
+          {
+            "id": "post",
+            "node_type": "StructuredJsonParseNode",
+            "depends_on": ["left", "right"],
+            "ports": {
+              "inputs": {"text": "ans_left"},
+              "outputs": {"document": "extracted_entities"}
+            }
+          }
         ]
       },
-      "required_codes": ["DUPLICATE_PORT_PRODUCER", "SERIALIZED_ENGINE_CONCURRENCY"],
-      "primary_code": "DUPLICATE_PORT_PRODUCER",
-      "primary_path": "/pipeline/2",
+      "required_codes": ["SERIALIZED_ENGINE_CONCURRENCY"],
+      "primary_code": "SERIALIZED_ENGINE_CONCURRENCY",
+      "primary_path": "/pipeline/2/config/bind_model",
       "pipeline_error_code": 8,
       "runtime_error_code": -2
     }

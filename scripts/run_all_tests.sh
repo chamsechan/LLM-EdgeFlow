@@ -48,13 +48,13 @@ echo -e "${GREEN}✓ 核心动态库与测试目标编译通过！${NC}\n"
 
 # 3. 核心机制与多模态单元测试 (Tier 1)
 echo -e "${BOLD}[ Step 3/6: 核心架构、DAG拓扑排序、引擎容错与全业务细粒度 GTest 单元测试 (并行加速) ]${NC}"
-TIER1_REGEX='^(BatchExecutorTest|FrameworkCoreTest|PipelineConfigTest|Registry.*Test|DagPipelineTest|EngineFaultToleranceAndLifecycleTest|QwenEnginesComparisonTest|DifferentIoModalitiesTest|AllBusinessPipelinesTest|DocQaRerankTest|RerankRefineNodeTest|ScriptGeneratorDetectionTest)$'
+TIER1_REGEX='^(BatchExecutorTest|FrameworkCoreTest|PipelineConfigTest|Registry.*Test|DagPipelineTest|EngineFaultToleranceAndLifecycleTest|QwenEnginesComparisonTest|DifferentIoModalitiesTest|AllBusinessPipelinesTest|DocQaRerankTest|RerankRefineNodeTest|ScriptGeneratorDetectionTest|CommonNodesTest|NodeOwnershipAndReuseTest|NodeBaseContractsTest|ValidatedPipelinePlanTest|TypedBlackboardContractsTest|DefinitionSchemaValidationTest|TextChunkNodeTest|TextEmbeddingNodeTest|VectorTopKNodeTest|TextRerankNodeTest|TextTemplateNodeTest|LlmGenerateNodeTest|AsrTranscribeNodeTest|OcrDetectNodeTest|TextRuleMatchNodeTest|StructuredJsonParseNodeTest|TextCorpusSourceNodeTest)$'
 ctest --test-dir "$BUILD_DIR" -j"$(nproc)" --output-on-failure -R "$TIER1_REGEX"
-echo -e "${GREEN}✓ Tier 1 核心架构、DAG拓扑调度与全业务组合（含 LLM+Rerank+QA 与 RerankRefineNode）细粒度 GTest 断言测试全部通过！${NC}\n"
+echo -e "${GREEN}✓ Tier 1 核心架构、DAG拓扑调度与全业务组合（含 LLM+Rerank+QA 与通用算子套件）细粒度 GTest 断言测试全部通过！${NC}\n"
 
 # 4. C ABI 安全防御、多线程并发与边界压测 (Tier 2)
 echo -e "${BOLD}[ Step 4/6: C ABI 安全、Operator 接口、8 线程并发、动态热重载与极端边界鲁棒性压测 (并行加速) ]${NC}"
-TIER2_REGEX='^(C11AbiComplianceTest|CAbiSafetyTest|AdapterContractSecurityTest|OperatorApiTest|OperatorOutputPoolTest|OperatorValueRegistryTest|OperatorBizBridgeRegistryTest|RuntimeControlAndHotSwapTest|ConcurrencyAndEdgeCasesTest)$'
+TIER2_REGEX='^(C11AbiComplianceTest|CAbiSafetyTest|AdapterContractSecurityTest|OperatorApiTest|OperatorOutputPoolTest|OperatorValueRegistryTest|OperatorBizBridgeRegistryTest|RuntimeControlAndHotSwapTest|ConcurrencyAndEdgeCasesTest|OperatorGoldenTest|AdapterPurityTest)$'
 ctest --test-dir "$BUILD_DIR" -j"$(nproc)" --output-on-failure -R "$TIER2_REGEX"
 echo -e "${GREEN}✓ Tier 2 C ABI 安全、Operator 门面、在线动态热控制与极端边界容错测试全部通过！${NC}\n"
 

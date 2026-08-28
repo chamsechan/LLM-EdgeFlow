@@ -6,6 +6,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "core/common_contracts.h"
 #include "core/node_base.h"
 #include "core/node_registry.h"
 #include "core/pipeline.h"
@@ -347,6 +348,63 @@ TEST(DefinitionSchemaValidationTest, RejectsInvalidDefinitionAtRegistration) {
   };
   EXPECT_FALSE(
       PipelineCatalog::RegisterNodeDefinition(nonstring_model_field_def));
+
+  // 10. Port constraints referencing undeclared ports
+  NodeDefinition invalid_constraint_def;
+  invalid_constraint_def.node_type = "InvalidConstraintNode";
+  invalid_constraint_def.inputs = {
+      RequiredInputPort("text", BlackboardKey<TextBatch>{"", "TextBatch"})};
+  invalid_constraint_def.port_constraints = {
+      PortGroupConstraint(PortConstraintKind::kAtLeastOneOf,
+                          std::vector<std::string>{"text", "unknown_port"})};
+  EXPECT_FALSE(PipelineCatalog::RegisterNodeDefinition(invalid_constraint_def));
+
+  // 11. Invalid control command definition
+  NodeDefinition invalid_cmd_def;
+  invalid_cmd_def.node_type = "InvalidCmdNode";
+  invalid_cmd_def.control_commands = {
+      ControlCommandDefinition(0, "invalid_cmd")};  // id <= 0
+  EXPECT_FALSE(PipelineCatalog::RegisterNodeDefinition(invalid_cmd_def));
+
+  // 12. A dynamic lifetime must reference a declared string enum containing
+  // only framework lifetimes.
+  NodeDefinition invalid_lifetime_override;
+  invalid_lifetime_override.node_type = "InvalidLifetimeOverrideNode";
+  invalid_lifetime_override.inputs = {PortDefinition{"text", "TextBatch", true,
+                                                     false, "1:1", "preserve",
+                                                     "request", "lifetime"}};
+  invalid_lifetime_override.config_fields = {
+      ConfigFieldDefinition{"lifetime",
+                            ConfigValueKind::kString,
+                            false,
+                            "forever",
+                            std::nullopt,
+                            std::nullopt,
+                            {"request", "forever"}}};
+  EXPECT_FALSE(
+      PipelineCatalog::RegisterNodeDefinition(invalid_lifetime_override));
+}
+
+TEST(DefinitionSchemaValidationTest, NodeToJsonExportsConstraintsAndCommands) {
+  const auto* rerank_def = PipelineCatalog::FindNode("TextRerankNode");
+  ASSERT_NE(rerank_def, nullptr);
+  auto json = PipelineCatalog::NodeToJson(*rerank_def);
+  EXPECT_TRUE(json.contains("port_constraints"));
+  EXPECT_TRUE(json["port_constraints"].is_array());
+  EXPECT_FALSE(json["port_constraints"].empty());
+
+  const auto* rule_def = PipelineCatalog::FindNode("TextRuleMatchNode");
+  ASSERT_NE(rule_def, nullptr);
+  auto rule_json = PipelineCatalog::NodeToJson(*rule_def);
+  EXPECT_TRUE(rule_json.contains("control_commands"));
+  EXPECT_TRUE(rule_json["control_commands"].is_array());
+  EXPECT_FALSE(rule_json["control_commands"].empty());
+
+  const auto* embedding_def = PipelineCatalog::FindNode("TextEmbeddingNode");
+  ASSERT_NE(embedding_def, nullptr);
+  auto embedding_json = PipelineCatalog::NodeToJson(*embedding_def);
+  ASSERT_FALSE(embedding_json["inputs"].empty());
+  EXPECT_EQ(embedding_json["inputs"][0]["lifetime_config_field"], "lifetime");
 }
 
 TEST(DefinitionSchemaValidationTest, ProductionCatalogSelfCheck) {

@@ -75,6 +75,7 @@ doc/rfcs/NNNN-<kebab-case-title>.md
 | **RFC-0009** | 公司平台 C 结构体槽位绑定与输出内存池 | `Completed` | `v3.0.0` | Layer 1 (Platform Operator) / Demo | [0009-company-string-and-slot-map-struct-binding.md](0009-company-string-and-slot-map-struct-binding.md) |
 | **RFC-0010** | 全栈统一业务命名为 biz | `Completed` | `v3.1.0` | Layer 1 ~ Layer 4 / Tooling | [0010-business-to-biz-naming-unification.md](0010-business-to-biz-naming-unification.md) |
 | **RFC-0011** | Operator 与计算 Platform 命名解耦 | `Completed` | `v4.0.0` | Layer 1 (Operator Adapter) / Demo / Layer 4 Terminology | [0011-operator-platform-naming-unification.md](0011-operator-platform-naming-unification.md) |
+| **RFC-0012** | I/O 契约驱动的通用 Node 架构 | `Completed` | `v4.1.0` | Layer 1 ~ Layer 4 / Tooling | [0012-node-authoring-experience.md](0012-node-authoring-experience.md) |
 
 ---
 
@@ -89,5 +90,6 @@ doc/rfcs/NNNN-<kebab-case-title>.md
 - [RFC-0008 架构契约收敛剩余整改计划](reviews/0008-architecture-contract-consolidation-remediation-plan.md)
 - [RFC-0008 架构契约收敛独立验收报告](reviews/0008-architecture-contract-consolidation-acceptance.md)
 - [RFC-0008 架构契约收敛复审报告（2026-08-26）](reviews/0008-architecture-contract-consolidation-convergence-review-20260826.md)
+- [RFC-0012 Node 架构改造验收与整改指南（2026-08-27）](reviews/0012-node-authoring-experience-acceptance-review-20260827.md)
 - [框架全面审查方案](reviews/framework_comprehensive_review_plan.md)
 - [框架全面审查与问题收敛报告](reviews/framework_comprehensive_review_report.md)

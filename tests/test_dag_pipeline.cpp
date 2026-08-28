@@ -48,10 +48,10 @@ class DagTestNodeA : public INode {
     req_ctx->Set("node_a_out", std::string("DataFromA"));
     return 0;
   }
-  int Control(int cmd, const std::string& param) override {
+  NodeControlResult Control(int cmd, const std::string& param) override {
     (void)cmd;
     (void)param;
-    return 0;
+    return NodeControlResult::Handled(0);
   }
   const std::string& Name() const override {
     static const std::string name = kNodeType;
@@ -85,10 +85,10 @@ class DagTestNodeB : public INode {
     req_ctx->Set("node_b_out", std::string("DataFromB_after_") + *a_out);
     return 0;
   }
-  int Control(int cmd, const std::string& param) override {
+  NodeControlResult Control(int cmd, const std::string& param) override {
     (void)cmd;
     (void)param;
-    return 0;
+    return NodeControlResult::Handled(0);
   }
   const std::string& Name() const override {
     static const std::string name = kNodeType;
@@ -123,10 +123,10 @@ class DagTestNodeC : public INode {
     req_ctx->Set("node_c_out", std::string("DataFromC_after_") + *a_out);
     return 0;
   }
-  int Control(int cmd, const std::string& param) override {
+  NodeControlResult Control(int cmd, const std::string& param) override {
     (void)cmd;
     (void)param;
-    return 0;
+    return NodeControlResult::Handled(0);
   }
   const std::string& Name() const override {
     static const std::string name = kNodeType;
@@ -163,10 +163,10 @@ class DagTestNodeD : public INode {
     req_ctx->Set("final_dag_result", *b_out + " + " + *c_out);
     return 0;
   }
-  int Control(int cmd, const std::string& param) override {
+  NodeControlResult Control(int cmd, const std::string& param) override {
     (void)cmd;
     (void)param;
-    return 0;
+    return NodeControlResult::Handled(0);
   }
   const std::string& Name() const override {
     static const std::string name = kNodeType;

@@ -110,9 +110,9 @@ class PipelineCliTest(unittest.TestCase):
         second_code, second = self.command("catalog", "--business", "keyword_match_v1")
         self.assertEqual((first_code, first), (second_code, second))
         self.assertTrue(first["nodes"])
-        code, described = self.command("describe-node", "KeywordMatcherNode")
+        code, described = self.command("describe-node", "TextRuleMatchNode")
         self.assertEqual(code, 0)
-        self.assertEqual(described["node_type"], "KeywordMatcherNode")
+        self.assertEqual(described["node_type"], "TextRuleMatchNode")
         code, initialized = self.command(
             "init", "--business", "keyword_match_v1", "--empty"
         )
@@ -129,12 +129,28 @@ class PipelineCliTest(unittest.TestCase):
                 }
             ],
             "pipeline": [
-                {"node_type": "EntityExtractPreNode"},
+                {
+                    "node_type": "TextTemplateNode",
+                    "ports": {
+                        "inputs": {"primary": "input_sentences"},
+                        "outputs": {"text": "prompt_text"},
+                    },
+                },
                 {
                     "node_type": "LlmGenerateNode",
+                    "ports": {
+                        "inputs": {"prompt": "prompt_text"},
+                        "outputs": {"text": "ans"},
+                    },
                     "config": {"bind_model": "llm_0.6b_entity"},
                 },
-                {"node_type": "EntityExtractPostNode"},
+                {
+                    "node_type": "StructuredJsonParseNode",
+                    "ports": {
+                        "inputs": {"text": "ans"},
+                        "outputs": {"document": "extracted_entities"},
+                    },
+                },
             ],
         }
         code, normalized = self.command(

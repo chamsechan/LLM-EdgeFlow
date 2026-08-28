@@ -28,14 +28,26 @@ struct PortDefinition {
   std::string type_id;
   bool required = true;
   bool allow_override = false;
+  std::string cardinality = "1:1";
+  std::string provenance_policy = "preserve";
+  std::string lifetime = "request";
+  // Optional instance config field overriding lifetime (for example the
+  // TextEmbeddingNode request/session cache policy).
+  std::string lifetime_config_field;
 
   PortDefinition() = default;
   PortDefinition(std::string k, std::string t, bool req = true,
-                 bool allow_ovr = false)
+                 bool allow_ovr = false, std::string card = "1:1",
+                 std::string prov = "preserve", std::string life = "request",
+                 std::string life_config_field = {})
       : key(std::move(k)),
         type_id(std::move(t)),
         required(req),
-        allow_override(allow_ovr) {}
+        allow_override(allow_ovr),
+        cardinality(std::move(card)),
+        provenance_policy(std::move(prov)),
+        lifetime(std::move(life)),
+        lifetime_config_field(std::move(life_config_field)) {}
 };
 
 template <typename T>
@@ -52,6 +64,54 @@ template <typename T>
 inline PortDefinition Output(const BlackboardKey<T>& key,
                              bool allow_override = false) {
   return PortDefinition{key.name, key.type_id, true, allow_override};
+}
+
+template <typename T>
+inline PortDefinition RequiredInputPort(
+    std::string logical_name, const BlackboardKey<T>& key_type,
+    std::string cardinality = "1:1", std::string provenance = "preserve",
+    std::string lifetime = "request", std::string lifetime_config_field = {}) {
+  return PortDefinition{std::move(logical_name),
+                        key_type.type_id,
+                        true,
+                        false,
+                        std::move(cardinality),
+                        std::move(provenance),
+                        std::move(lifetime),
+                        std::move(lifetime_config_field)};
+}
+
+template <typename T>
+inline PortDefinition OptionalInputPort(
+    std::string logical_name, const BlackboardKey<T>& key_type,
+    std::string cardinality = "1:1", std::string provenance = "preserve",
+    std::string lifetime = "request", std::string lifetime_config_field = {}) {
+  return PortDefinition{std::move(logical_name),
+                        key_type.type_id,
+                        false,
+                        false,
+                        std::move(cardinality),
+                        std::move(provenance),
+                        std::move(lifetime),
+                        std::move(lifetime_config_field)};
+}
+
+template <typename T>
+inline PortDefinition OutputPort(std::string logical_name,
+                                 const BlackboardKey<T>& key_type,
+                                 bool allow_override = false,
+                                 std::string cardinality = "1:1",
+                                 std::string provenance = "preserve",
+                                 std::string lifetime = "request",
+                                 std::string lifetime_config_field = {}) {
+  return PortDefinition{std::move(logical_name),
+                        key_type.type_id,
+                        true,
+                        allow_override,
+                        std::move(cardinality),
+                        std::move(provenance),
+                        std::move(lifetime),
+                        std::move(lifetime_config_field)};
 }
 
 struct ConfigFieldDefinition {
@@ -82,12 +142,62 @@ struct ConfigFieldDefinition {
         semantic(std::move(field_semantic)) {}
 };
 
+enum class PortConstraintKind {
+  kAtLeastOneOf = 0,
+  kExactlyOneOf = 1,
+  kAllOrNone = 2,
+  kAtMostOneOf = 3,
+  kExactOneGroupOf = 4,
+};
+
+struct PortGroupConstraint {
+  PortConstraintKind kind = PortConstraintKind::kAtLeastOneOf;
+  std::vector<std::string> ports;
+  std::vector<std::vector<std::string>> port_groups;
+  std::string message;
+
+  PortGroupConstraint() = default;
+  PortGroupConstraint(PortConstraintKind k, std::vector<std::string> p,
+                      std::string msg = {})
+      : kind(k), ports(std::move(p)), message(std::move(msg)) {}
+
+  static PortGroupConstraint Groups(
+      PortConstraintKind k, std::vector<std::vector<std::string>> groups,
+      std::string msg = {}) {
+    PortGroupConstraint c;
+    c.kind = k;
+    c.port_groups = std::move(groups);
+    c.message = std::move(msg);
+    return c;
+  }
+};
+
+struct ControlCommandDefinition {
+  int cmd_id = 0;
+  std::string name;
+  std::string description;
+  nlohmann::json payload_schema = nlohmann::json::object();
+  bool supports_hot_swap = false;
+
+  ControlCommandDefinition() = default;
+  ControlCommandDefinition(int id, std::string n, std::string desc = {},
+                           nlohmann::json schema = nlohmann::json::object(),
+                           bool hot_swap = false)
+      : cmd_id(id),
+        name(std::move(n)),
+        description(std::move(desc)),
+        payload_schema(std::move(schema)),
+        supports_hot_swap(hot_swap) {}
+};
+
 struct NodeDefinition {
   std::string node_type;
   std::string category;
   std::string description;
   std::vector<PortDefinition> inputs;
   std::vector<PortDefinition> outputs;
+  std::vector<PortGroupConstraint> port_constraints;
+  std::vector<ControlCommandDefinition> control_commands;
   std::vector<ConfigFieldDefinition> config_fields;
   std::string model_capability;
   std::string model_config_field;
@@ -159,5 +269,6 @@ class PipelineCatalog {
 
 const char* ConfigValueKindName(ConfigValueKind kind);
 const char* EngineThreadModelName(EngineThreadModel model);
+const char* PortConstraintKindName(PortConstraintKind kind);
 
 }  // namespace alg_framework

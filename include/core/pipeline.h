@@ -74,6 +74,7 @@ class Pipeline {
   const std::vector<std::vector<std::string>>& GetTopologicalLayers() const {
     return topological_layers_ids_;
   }
+  const ValidatedPipelinePlan& GetPlan() const { return plan_; }
 
  private:
   bool BuildInternal(const nlohmann::json& root_config,
@@ -88,6 +89,7 @@ class Pipeline {
   ExecutionMode execution_mode_ = ExecutionMode::SEQUENTIAL;
   size_t max_parallel_workers_ = 4;
   SessionContext session_ctx_;
+  ValidatedPipelinePlan plan_;
 
   std::vector<std::unique_ptr<INode>> nodes_;
   std::vector<std::vector<INode*>> node_layers_;

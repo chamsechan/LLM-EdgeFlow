@@ -13,32 +13,58 @@
   ],
   "pipeline": [
     {
-      "config": {
-        "prompt_template": "你是一个中文实体与名词抽取助手。请从以下句子中提取出所有名词与实体，并仅以JSON列表形式返回：\n输入文本：{text}\n提取结果："
-      },
+      "id": "node_0_TextTemplateNode",
+      "node_type": "TextTemplateNode",
       "depends_on": [],
-      "id": "node_0_EntityExtractPreNode",
-      "node_type": "EntityExtractPreNode"
+      "ports": {
+        "inputs": {
+          "primary": "input_sentences"
+        },
+        "outputs": {
+          "text": "prompt_text"
+        }
+      },
+      "config": {
+        "template": "你是一个中文实体与名词抽取助手。请从以下句子中提取出所有名词与实体，并仅以JSON列表形式返回：\n输入文本：{{primary}}\n提取结果："
+      }
     },
     {
+      "id": "node_1_LlmGenerateNode",
+      "node_type": "LlmGenerateNode",
+      "depends_on": [
+        "node_0_TextTemplateNode"
+      ],
+      "ports": {
+        "inputs": {
+          "prompt": "prompt_text"
+        },
+        "outputs": {
+          "text": "llm_raw_answer"
+        }
+      },
       "config": {
         "bind_model": "llm_0.6b_gguf",
         "max_tokens": 64,
         "temperature": 0.1
-      },
-      "depends_on": [
-        "node_0_EntityExtractPreNode"
-      ],
-      "id": "node_1_LlmGenerateNode",
-      "node_type": "LlmGenerateNode"
+      }
     },
     {
-      "config": {},
+      "id": "node_2_StructuredJsonParseNode",
+      "node_type": "StructuredJsonParseNode",
       "depends_on": [
         "node_1_LlmGenerateNode"
       ],
-      "id": "node_2_EntityExtractPostNode",
-      "node_type": "EntityExtractPostNode"
+      "ports": {
+        "inputs": {
+          "text": "llm_raw_answer"
+        },
+        "outputs": {
+          "document": "extracted_entities"
+        }
+      },
+      "config": {
+        "fallback_json": "[]"
+      }
     }
   ]
 }

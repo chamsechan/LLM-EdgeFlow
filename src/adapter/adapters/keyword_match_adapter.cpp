@@ -3,10 +3,12 @@
 
 #include "adapter/adapter_validation_helper.h"
 #include "adapter/biz_adapter_registry.h"
-#include "biz/keyword_match/keyword_match_contract.h"
 #include "company_alg_interface.h"
+#include "core/common_contracts.h"
 
 namespace alg_framework {
+
+inline static constexpr char kKeywordMatchBusinessName[] = "keyword_match_v1";
 
 class KeywordMatchAdapter : public IBizAdapter {
  public:
@@ -31,7 +33,7 @@ class KeywordMatchAdapter : public IBizAdapter {
           "keyword_match",
           "关注词匹配",
           {RequiredInput(kRawRequestIds), RequiredInput(kInputSentences)},
-          {Output(kKeywordMatchOutputs)}}}};
+          {Output(kRuleMatches)}}}};
     return desc;
   }
 
@@ -49,7 +51,7 @@ class KeywordMatchAdapter : public IBizAdapter {
     }
 
     std::vector<uint64_t> req_ids;
-    std::vector<std::string> sentences;
+    TextBatch sentences;
     req_ids.reserve(num_inputs);
     sentences.reserve(num_inputs);
 
@@ -62,7 +64,6 @@ class KeywordMatchAdapter : public IBizAdapter {
         return COMPANY_ALG_ERR_INVALID_INPUT;
       }
 
-      // ADP-001, RECHECK-004: 有界字符串强校验
       if (!AdapterValidationHelper::RequireBoundedString(
               "inputs[i].sentence_text", in->sentence_text, kMaxSentenceLen, i,
               BizName(), out_status)) {
@@ -70,7 +71,7 @@ class KeywordMatchAdapter : public IBizAdapter {
       }
 
       req_ids.push_back(in->request_id);
-      sentences.push_back(in->sentence_text);
+      sentences.emplace_back(static_cast<uint32_t>(i), 0, in->sentence_text);
     }
 
     ctx->Set(kRawRequestIds, std::move(req_ids));
@@ -88,12 +89,13 @@ class KeywordMatchAdapter : public IBizAdapter {
       return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     }
 
-    auto* res = ctx->Get(kKeywordMatchOutputs);
+    const auto* res = ctx->Get(kRuleMatches);
+    const auto* raw_req_ids = ctx->Get(kRawRequestIds);
     if (!res) {
       if (out_status) {
         *out_status = AdapterStatus::BufferTooSmall(
-            "keyword_match_outputs not found in AlgContext",
-            "keyword_match_outputs", -1, BizName());
+            "rule_matches not found in AlgContext", "rule_matches", -1,
+            BizName());
       }
       return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     }
@@ -111,14 +113,17 @@ class KeywordMatchAdapter : public IBizAdapter {
 
     for (int i = 0; i < count; ++i) {
       auto* out_ptr = static_cast<CompanyKeywordOutputStruct*>(outputs[i]);
-      out_ptr->request_id = (*res)[i].request_id;
-      out_ptr->is_hit = (*res)[i].is_hit;
-      out_ptr->status_code = (*res)[i].status_code;
+      uint64_t req_id =
+          (raw_req_ids && i < static_cast<int>(raw_req_ids->size()))
+              ? (*raw_req_ids)[i]
+              : (*res)[i].req_id;
+      out_ptr->request_id = req_id;
+      out_ptr->is_hit = (*res)[i].data.is_hit;
+      out_ptr->status_code = (*res)[i].data.status_code;
 
-      // RECHECK-001: 严格拦截截断
       if (!AdapterValidationHelper::CheckedStringCopy(
               out_ptr->match_result_json, sizeof(out_ptr->match_result_json),
-              (*res)[i].match_result_json.c_str(),
+              (*res)[i].data.match_result_json.c_str(),
               "outputs[i].match_result_json", i, BizName(), out_status)) {
         return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
       }

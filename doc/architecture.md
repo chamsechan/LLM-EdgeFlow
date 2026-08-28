@@ -39,22 +39,23 @@ graph TD
     end
 
     %% Level 3
-    subgraph L3["Layer 3: 无请求状态的业务算子与可复用节点层"]
+    subgraph L3["Layer 3: 无请求状态的通用能力算子与可复用节点层"]
         NodeApi["INode 运行时接口"]
         NodeBase["NodeBase<br>final noexcept 生命周期与 Typed I/O"]
         ModelNode["ModelBoundNode / TraceableUnaryInferenceNode"]
         
-        subgraph CommonNodes["全组通用算子池 (src/common_nodes/)"]
-            LlmNode["LlmGenerateNode<br>跨 DocQA / Entity / OCR 复用"]
-        end
-        
-        subgraph BizNodes["开发者私有业务算子池 (src/business/)"]
-            PreNode["DocChunkPreNode (1对N切片)"]
-            RuleNode["IntentRuleNode (含节点私有词典/规则数据)"]
-            PostNode["DocQaPostNode (多样本聚合对齐)"]
-            PromptNode["PromptBuilderNode"]
-            VecSearchNode["VectorSearchNode"]
-            RerankNode["RerankRefineNode"]
+        subgraph CommonNodes["通用能力算子池 (src/common_nodes/)"]
+            LlmNode["LlmGenerateNode (大语言模型生成)"]
+            ChunkNode["TextChunkNode (文本切片)"]
+            RuleNode["TextRuleMatchNode (规则与关键词匹配)"]
+            EmbedNode["TextEmbeddingNode (向量提取)"]
+            TopKNode["VectorTopKNode (Top-K 检索)"]
+            RerankNode["TextRerankNode (精排评分)"]
+            TemplateNode["TextTemplateNode (提示词模板渲染)"]
+            JsonNode["StructuredJsonParseNode (JSON 结构化解析)"]
+            AsrNode["AsrTranscribeNode (语音转写)"]
+            OcrNode["OcrDetectNode (OCR 识别)"]
+            CorpusNode["TextCorpusSourceNode (语料源)"]
         end
     end
 
@@ -148,12 +149,12 @@ C++ Operator API：NamedIoBatch + Operator 镜像 C 结构 ─┘
      - `TraceableItem<T>`：样本溯源标签（`req_id` + `sub_id`），保证 1对N 裂变后可严格 1:1 对齐回原请求；
   3. **自注册 SSOT 机制**：`REGISTER_NODE_WITH_DEFINITION` 与 `REGISTER_ENGINE_WITH_DEFINITION`，自动向 `PipelineCatalog` 注册输入输出契约。
 
-### Layer 3: 算子节点与业务编排层 (Stateless-per-request Nodes)
-- **代码位置**：`src/common_nodes/`，`src/business/`，`include/nodes/`
+### Layer 3: 通用能力算子层 (Stateless Capability Nodes)
+- **代码位置**：`src/common_nodes/`，`include/nodes/`
 - **核心职责**：
-  1. **算法工程师核心开发区**：普通节点继承 `NodeBase`，单模型节点继承 `ModelBoundNode`，只有严格单输入/单输出批推理节点才使用 `TraceableUnaryInferenceNode`；
+  1. **算法工程师核心开发区**：算子继承 `NodeBase`，单模型算子继承 `ModelBoundNode`；
   2. **异常安全屏障**：`NodeBase::Init` 和 `NodeBase::Process` 设为 `final noexcept`，派生类覆写 `InitNode` 与 `ProcessNode`，提供 `Require`、`Publish`、`Fail` 辅助方法；
-  3. **模块化复用**：通用算子（`LlmGenerateNode` 等）放置在 `src/common_nodes/`，业务专属算子放置在 `src/business/<biz_name>/`。
+  3. **模块化与配置组合**：11 类核心通用算子（`LlmGenerateNode`, `TextChunkNode`, `TextRuleMatchNode`, `TextEmbeddingNode`, `VectorTopKNode`, `TextRerankNode`, `TextTemplateNode`, `StructuredJsonParseNode`, `AsrTranscribeNode`, `OcrDetectNode`, `TextCorpusSourceNode`）全部收敛在 `src/common_nodes/`，通过 JSON Pipeline 自由编排。
 
 ### Layer 4: 多后端模型引擎与批处理调度层 (Multi-Backend Engine & Batch)
 - **代码位置**：`include/engine/`，`src/engine/`
