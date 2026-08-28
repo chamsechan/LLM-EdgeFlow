@@ -519,17 +519,23 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
       }
     }
 
+    std::unordered_set<std::string> bound_input_ports;
     for (const auto& input : definition.inputs) {
       std::string actual_key = input.key;
+      bool explicitly_bound = false;
       auto port_it = node.ports.inputs.find(input.key);
       if (port_it != node.ports.inputs.end()) {
         actual_key = port_it->second;
+        explicitly_bound = true;
+        bound_input_ports.insert(input.key);
+      } else if (input.required) {
+        bound_input_ports.insert(input.key);
       }
 
       node_plan.ports.push_back(
           {input.key, actual_key, input.type_id, PortDirection::kInput});
 
-      if (!input.required) continue;
+      if (!input.required && !explicitly_bound) continue;
       bool found = false;
       auto root_port = ingress.find(actual_key);
       if (root_port != ingress.end() &&
@@ -557,11 +563,44 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
           }
         }
         Add(&report, DiagnosticCode::kMissingInputProducer,
-            "/pipeline/" + std::to_string(node.source_index),
-            "No business ingress or ancestor node produces required port '" +
-                input.key + "' (bound key: '" + actual_key + "') of type '" +
+            explicitly_bound
+                ? ("/pipeline/" + std::to_string(node.source_index) +
+                   "/ports/inputs/" + input.key)
+                : ("/pipeline/" + std::to_string(node.source_index)),
+            "No business ingress or ancestor node produces port '" + input.key +
+                "' (bound key: '" + actual_key + "') of type '" +
                 input.type_id + "'",
             id, input.key, {}, suggestions);
+      }
+    }
+
+    // 校验端口组合约束 (Port Group Constraints)
+    for (const auto& constraint : definition.port_constraints) {
+      size_t count = 0;
+      for (const auto& p : constraint.ports) {
+        if (bound_input_ports.count(p)) {
+          count++;
+        }
+      }
+      bool satisfied = true;
+      switch (constraint.kind) {
+        case PortConstraintKind::kAtLeastOneOf:
+          satisfied = (count >= 1);
+          break;
+        case PortConstraintKind::kExactlyOneOf:
+          satisfied = (count == 1);
+          break;
+        case PortConstraintKind::kAllOrNone:
+          satisfied = (count == 0 || count == constraint.ports.size());
+          break;
+      }
+      if (!satisfied) {
+        std::string msg = constraint.message.empty()
+                              ? ("Port constraint violation for node '" +
+                                 definition.node_type + "'")
+                              : constraint.message;
+        Add(&report, DiagnosticCode::kMissingInputProducer,
+            "/pipeline/" + std::to_string(node.source_index), msg, id);
       }
     }
 

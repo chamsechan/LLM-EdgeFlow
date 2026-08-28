@@ -103,12 +103,49 @@ struct ConfigFieldDefinition {
         semantic(std::move(field_semantic)) {}
 };
 
+enum class PortConstraintKind {
+  kAtLeastOneOf = 0,
+  kExactlyOneOf = 1,
+  kAllOrNone = 2,
+};
+
+struct PortGroupConstraint {
+  PortConstraintKind kind = PortConstraintKind::kAtLeastOneOf;
+  std::vector<std::string> ports;
+  std::string message;
+
+  PortGroupConstraint() = default;
+  PortGroupConstraint(PortConstraintKind k, std::vector<std::string> p,
+                      std::string msg = {})
+      : kind(k), ports(std::move(p)), message(std::move(msg)) {}
+};
+
+struct ControlCommandDefinition {
+  int cmd_id = 0;
+  std::string name;
+  std::string description;
+  nlohmann::json payload_schema = nlohmann::json::object();
+  bool supports_hot_swap = false;
+
+  ControlCommandDefinition() = default;
+  ControlCommandDefinition(int id, std::string n, std::string desc = {},
+                           nlohmann::json schema = nlohmann::json::object(),
+                           bool hot_swap = false)
+      : cmd_id(id),
+        name(std::move(n)),
+        description(std::move(desc)),
+        payload_schema(std::move(schema)),
+        supports_hot_swap(hot_swap) {}
+};
+
 struct NodeDefinition {
   std::string node_type;
   std::string category;
   std::string description;
   std::vector<PortDefinition> inputs;
   std::vector<PortDefinition> outputs;
+  std::vector<PortGroupConstraint> port_constraints;
+  std::vector<ControlCommandDefinition> control_commands;
   std::vector<ConfigFieldDefinition> config_fields;
   std::string model_capability;
   std::string model_config_field;

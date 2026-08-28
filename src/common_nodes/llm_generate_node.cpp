@@ -20,9 +20,10 @@ class LlmGenerateNode final
                                     -4301) {}
 
  protected:
-  bool InitModelNode(const nlohmann::json& config,
+  bool InitModelNode(const NodeInitContext& init_ctx,
+                     const nlohmann::json& config,
                      SessionContext& session_ctx) override {
-    TraceableUnaryInferenceNode::InitModelNode(config, session_ctx);
+    TraceableUnaryInferenceNode::InitModelNode(init_ctx, config, session_ctx);
     gen_opt_.temperature = config.value("temperature", 0.7f);
     gen_opt_.max_tokens = config.value("max_tokens", 128);
     gen_opt_.top_p = config.value("top_p", 0.9f);

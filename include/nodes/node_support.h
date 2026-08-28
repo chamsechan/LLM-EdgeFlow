@@ -24,12 +24,11 @@ enum class NodeRuntimeCode : int {
 template <typename T>
 class BoundInput {
  public:
-  explicit BoundInput(std::string logical_name, std::string default_key = {},
-                      std::string type_id = {})
+  explicit BoundInput(std::string logical_name, std::string default_key = {})
       : logical_name_(std::move(logical_name)),
         actual_key_(default_key.empty() ? logical_name_
                                         : std::move(default_key)),
-        type_id_(std::move(type_id)) {}
+        type_id_(BlackboardTypeTraits<T>::TypeName()) {}
 
   void Resolve(std::string actual_key) {
     if (!actual_key.empty()) {
@@ -39,6 +38,7 @@ class BoundInput {
 
   const std::string& LogicalName() const { return logical_name_; }
   const std::string& ActualKey() const { return actual_key_; }
+  const std::string& TypeId() const { return type_id_; }
 
   const T* Get(const AlgContext& ctx) const { return ctx.Get<T>(actual_key_); }
 
@@ -73,12 +73,11 @@ class BoundInput {
 template <typename T>
 class BoundOutput {
  public:
-  explicit BoundOutput(std::string logical_name, std::string default_key = {},
-                       std::string type_id = {})
+  explicit BoundOutput(std::string logical_name, std::string default_key = {})
       : logical_name_(std::move(logical_name)),
         actual_key_(default_key.empty() ? logical_name_
                                         : std::move(default_key)),
-        type_id_(std::move(type_id)) {}
+        type_id_(BlackboardTypeTraits<T>::TypeName()) {}
 
   void Resolve(std::string actual_key) {
     if (!actual_key.empty()) {
@@ -88,6 +87,7 @@ class BoundOutput {
 
   const std::string& LogicalName() const { return logical_name_; }
   const std::string& ActualKey() const { return actual_key_; }
+  const std::string& TypeId() const { return type_id_; }
 
   void Set(AlgContext& ctx, T value) const {
     ctx.Set(actual_key_, std::move(value));
@@ -109,11 +109,11 @@ class NodeBase : public INode {
       return false;
     }
     try {
-      plan_ = init_ctx.plan;
       const nlohmann::json& cfg =
           init_ctx.config ? *init_ctx.config
-                          : (plan_ ? plan_->normalized_config : empty_config_);
-      return InitNode(cfg, *init_ctx.session_ctx);
+                          : (init_ctx.plan ? init_ctx.plan->normalized_config
+                                           : empty_config_);
+      return InitNode(init_ctx, cfg, *init_ctx.session_ctx);
     } catch (...) {
       return false;
     }
@@ -155,6 +155,13 @@ class NodeBase : public INode {
   const std::string& Name() const final { return node_name_; }
 
  protected:
+  virtual bool InitNode(const NodeInitContext& init_ctx,
+                        const nlohmann::json& config,
+                        SessionContext& session_ctx) {
+    (void)init_ctx;
+    return InitNode(config, session_ctx);
+  }
+
   virtual bool InitNode(const nlohmann::json& /*config*/,
                         SessionContext& /*session_ctx*/) {
     return true;
@@ -170,10 +177,10 @@ class NodeBase : public INode {
   }
 
   template <typename T>
-  void BindPort(BoundInput<T>& in_port) {
-    if (plan_) {
-      std::string actual =
-          plan_->FindPortKey(in_port.LogicalName(), PortDirection::kInput);
+  void BindPort(const NodeInitContext& init_ctx, BoundInput<T>& in_port) {
+    if (init_ctx.plan) {
+      std::string actual = init_ctx.plan->FindPortKey(in_port.LogicalName(),
+                                                      PortDirection::kInput);
       if (!actual.empty()) {
         in_port.Resolve(std::move(actual));
       }
@@ -181,14 +188,42 @@ class NodeBase : public INode {
   }
 
   template <typename T>
-  void BindPort(BoundOutput<T>& out_port) {
-    if (plan_) {
-      std::string actual =
-          plan_->FindPortKey(out_port.LogicalName(), PortDirection::kOutput);
+  void BindPort(const NodeInitContext& init_ctx, BoundOutput<T>& out_port) {
+    if (init_ctx.plan) {
+      std::string actual = init_ctx.plan->FindPortKey(out_port.LogicalName(),
+                                                      PortDirection::kOutput);
       if (!actual.empty()) {
         out_port.Resolve(std::move(actual));
       }
     }
+  }
+
+  template <typename T>
+  BoundInput<T> BindInput(const NodeInitContext& init_ctx,
+                          std::string logical_name) const {
+    BoundInput<T> port(std::move(logical_name));
+    if (init_ctx.plan) {
+      std::string actual =
+          init_ctx.plan->FindPortKey(port.LogicalName(), PortDirection::kInput);
+      if (!actual.empty()) {
+        port.Resolve(std::move(actual));
+      }
+    }
+    return port;
+  }
+
+  template <typename T>
+  BoundOutput<T> BindOutput(const NodeInitContext& init_ctx,
+                            std::string logical_name) const {
+    BoundOutput<T> port(std::move(logical_name));
+    if (init_ctx.plan) {
+      std::string actual = init_ctx.plan->FindPortKey(port.LogicalName(),
+                                                      PortDirection::kOutput);
+      if (!actual.empty()) {
+        port.Resolve(std::move(actual));
+      }
+    }
+    return port;
   }
 
   template <typename T>
@@ -224,8 +259,6 @@ class NodeBase : public INode {
     return error_code;
   }
 
-  const ValidatedNodePlan* Plan() const { return plan_; }
-
  private:
   void SetUnhandledErrorNoexcept(AlgContext& ctx,
                                  const char* detail) const noexcept {
@@ -244,7 +277,6 @@ class NodeBase : public INode {
   }
 
   const std::string node_name_;
-  const ValidatedNodePlan* plan_ = nullptr;
   static inline const nlohmann::json empty_config_ = nlohmann::json::object();
 };
 

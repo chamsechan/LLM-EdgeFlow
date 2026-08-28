@@ -407,3 +407,72 @@ C ABI 映射             -> Adapter
 
 最终目标不是把 Node 数量压到最低，而是让每个 Node 都具有稳定、可理解、可测试、可组合的
 契约。按本报告完成整改后，当前 11 类 Common Node 可以成为合理的首批框架基线。
+
+---
+
+## 8. 独立二次复验结论（2026-08-28）
+
+### 8.1 最终判定
+
+**结论：本轮整改有明显进展，但仍不通过 RFC-0012 最终验收。**
+
+本次候选尚未形成独立 commit，复验对象为 `1eef1cc` 之上的当前工作树。现有测试门禁
+全部绿色，但 10 项整改中仅 NA-008 可以确认关闭；其余项目为 Partial 或 Open。RFC
+和索引必须保持 `In Implementation`，不应在特性分支和独立验收之前标记为
+`Completed`。
+
+### 8.2 动态验证证据
+
+| 检查项 | 结果 | 结论 |
+| :--- | :---: | :--- |
+| `./scripts/format.sh --check` | PASS | 全库格式符合 clang-format 18 |
+| CMake configure / build | PASS | 当前候选可编译 |
+| `ctest --test-dir build -j4 --output-on-failure` | PASS，40/40 | 已有断言通过，不代表契约覆盖完整 |
+| Runtime Catalog | PASS，11 类 Common Node | 新增 control/port constraint 元数据没有出现在 Catalog JSON |
+| 11 个 Pipeline validate / plan | PASS | 现有生产配置均可生成执行计划 |
+| `alg_demo --suite smoke` | PASS，9 profiles | Audio slots 和静态 embedding 行为仍有问题 |
+| `./scripts/run_all_tests.sh` | PASS，六阶段 | LayerGuard 仍访问不存在的 `src/biz`；新增 3 个测试目标未进入分阶段 CTest |
+| `./scripts/run_sanitizers.sh --fast` | **FAIL** | 脚本引用已不存在的 `test_platform_business_bridge_registry` target |
+| 错误 optional binding | PASS（正确拒绝） | NA-001 的 optional 类型检查已修复 |
+| 无输入 TextTemplate | PASS（正确拒绝） | `at_least_one_of` 对 Template 生效 |
+| 只有 candidates、没有 query 的 TextRerank | **FAIL（错误放行）** | Validator 返回成功，但运行时契约不成立 |
+
+### 8.3 NA-001～NA-010 复验状态
+
+| 编号 | 状态 | 二次复验结论 |
+| :--- | :---: | :--- |
+| **NA-001** | **Partial / P0** | optional 显式绑定和 Template 至少一个输入已修复；TextRerank 的组合约束仍错误，且 PortDefinition 仍没有 cardinality/provenance |
+| **NA-002** | **Open / P0** | 规则节点已有 regex captures，但真实 Audio smoke 把 destination 解析为“清华科技园，避开拥堵路段。”，并缺少旧行为的 `avoid_traffic=true`；现有 golden test 只断言 JSON 非空 |
+| **NA-003** | **Partial / P1** | Unsupported 和按声明路由基本实现；payload schema 未校验、未导出 Catalog，非法 regex 会被吞掉且 Control 仍返回 Handled |
+| **NA-004** | **Open / P0** | `JsonDocumentItem` 仍以 string 为实际 payload，没有 schema/field mapping；ComplianceAudit 和 DocQA Adapter 中的业务默认值、JSON 解析和 chunk 计算均未移除 |
+| **NA-005** | **Partial / P1** | 增加了 TypeTraits 和 Init 期端口解析；但 TypeId 没有消费者，同底层 alias 无法区分 TextBatch/ImageRefBatch，Definition 新字段未自校验和序列化，默认模型 ID 仍重复维护 |
+| **NA-006** | **Open / P1** | TextEmbedding 增加了可选缓存代码，但 DialogueAudit 没有配置 `lifetime=session`；smoke 中 4 条 policy embedding 对两个请求各执行一次。SessionContext resource map 也没有并发保护，缓存 key 不包含 provenance |
+| **NA-007** | **Partial / P1** | 未知双花括号和 overflow policy 已处理；仍按 req_id 覆盖多个 primary、丢失 sub_id cardinality，没有 attributes 输入，单花括号未校验，`document_text` 被允许但没有对应替换，模板也未真正编译为执行计划 |
+| **NA-008** | **Closed** | Pipeline 已持有 owned `ValidatedPipelinePlan`，Node 不再保存指向局部 plan 的裸指针 |
+| **NA-009** | **Open / P0** | 11 个 Node 只有聚合 happy-path 测试；Operator golden 仅覆盖 3/7 且 Audio 不检查 slot 值；Adapter purity 仅覆盖 2 个 Adapter；六阶段脚本未运行新增 3 个测试目标 |
+| **NA-010** | **Open / P1** | README/architecture/developer guide 和 LayerGuard 仍引用旧目录；RFC 被提前标 Completed；sanitizer 因旧 target 名直接失败 |
+
+### 8.4 下一轮最短整改顺序
+
+1. **先补失败测试**：TextRerank 合法组合矩阵、Audio slots 精确 golden、7 个 Operator
+   golden、全部 Adapter purity，并把新增测试目标纳入六阶段脚本；
+2. **修 Core SSOT**：为端口组合表达 `pairs` 或 `queries + candidates` 或
+   `queries + candidate_texts`；补 cardinality/provenance/lifetime；Catalog 导出并自校验
+   constraints/control commands；
+3. **修 Control 原子性**：分发前校验 payload，规则和模板先完整编译到临时对象，成功后
+   原子替换；非法 regex/placeholder 必须保留旧配置并返回失败；
+4. **恢复 Operator 行为**：收窄 destination 捕获并恢复 `avoid_traffic`、HVAC slots；
+   golden test 精确比较迁移前后的字段和值；
+5. **清理 Layer 1**：结构化解析输出实际 document/schema/diagnostics；SAFE、默认置信度、
+   策略文案和 chunk_count 在 Pipeline/Node 中形成，Adapter 仅映射；
+6. **修 Template 和缓存**：按 `(req_id, sub_id)` 对齐，增加受限 attributes，真正编译模板；
+   固定 policy corpus 使用线程安全的 session 资源，只计算一次 embedding；
+7. **恢复门禁**：修复 LayerGuard 旧目录、sanitizer 旧 target 和架构文档；在同一个完整
+   commit SHA 上重新运行格式、40+ CTest、11 Pipeline、9 smoke、六阶段和 sanitizer。
+
+### 8.5 保留的架构结论
+
+本次未通过不意味着 Common Node 方向错误。26 个 Biz Node 收敛为能力型 Common Node
+和 Pipeline 配置的方向仍然正确；当前问题是公共契约没有完全实现、测试尚未锁住外部
+行为，以及部分业务计算被错误留在 Adapter。后续应继续按
+`I/O-first, operation-defined, contract-guarded` 收敛，而不是恢复“一业务一 Node”。

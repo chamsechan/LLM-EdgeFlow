@@ -190,7 +190,7 @@
       },
       "required_codes": ["MISSING_INPUT_PRODUCER"],
       "primary_code": "MISSING_INPUT_PRODUCER",
-      "primary_path": "/pipeline/0",
+      "primary_path": "/pipeline/0/ports/inputs/text",
       "pipeline_error_code": 8,
       "runtime_error_code": -2
     },

@@ -2,9 +2,11 @@
 #include <iostream>
 #include <mutex>
 #include <nlohmann/json.hpp>
+#include <regex>
 #include <shared_mutex>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "core/common_contracts.h"
@@ -22,29 +24,30 @@ class TextTemplateNode final : public NodeBase {
 
   TextTemplateNode()
       : NodeBase(kNodeType),
-        in_primary_("primary", "primary", "TextBatch"),
-        in_context_("context", "context", "RankedTextBatch"),
-        in_context_text_("context_text", "context_text", "TextBatch"),
-        in_matches_("matches", "matches", "RuleMatchBatch"),
-        in_document_("document", "document", "OcrDocumentBatch"),
-        in_document_text_("document_text", "document_text", "TextBatch"),
-        out_text_("text", "text", "TextBatch") {}
+        in_primary_("primary"),
+        in_context_("context"),
+        in_context_text_("context_text"),
+        in_matches_("matches"),
+        in_document_("document"),
+        in_document_text_("document_text"),
+        out_text_("text") {}
 
  protected:
-  bool InitNode(const nlohmann::json& config,
+  bool InitNode(const NodeInitContext& init_ctx, const nlohmann::json& config,
                 SessionContext& /*session_ctx*/) override {
-    BindPort(in_primary_);
-    BindPort(in_context_);
-    BindPort(in_context_text_);
-    BindPort(in_matches_);
-    BindPort(in_document_);
-    BindPort(in_document_text_);
-    BindPort(out_text_);
+    BindPort(init_ctx, in_primary_);
+    BindPort(init_ctx, in_context_);
+    BindPort(init_ctx, in_context_text_);
+    BindPort(init_ctx, in_matches_);
+    BindPort(init_ctx, in_document_);
+    BindPort(init_ctx, in_document_text_);
+    BindPort(init_ctx, out_text_);
 
     std::unique_lock<std::shared_mutex> lock(rw_mutex_);
     template_str_ = config.value("template", "{{primary}}");
     separator_ = config.value("separator", "\n");
     max_length_ = config.value("max_length", 65536);
+    overflow_policy_ = config.value("overflow_policy", "fail");
 
     if (config.contains("values") && config["values"].is_object()) {
       static_values_.clear();
@@ -55,26 +58,38 @@ class TextTemplateNode final : public NodeBase {
         }
       }
     }
-    return true;
+
+    return ValidateTemplate(template_str_, static_values_);
   }
 
   NodeControlResult ControlNode(int cmd,
                                 const std::string& json_param) override {
-    if (cmd == 1 || cmd == 2) {
+    if (cmd == kControlCmdUpdatePrompt) {
       try {
         nlohmann::json root = nlohmann::json::parse(json_param);
         std::unique_lock<std::shared_mutex> lock(rw_mutex_);
+        std::string new_tmpl = template_str_;
+        std::unordered_map<std::string, std::string> new_values =
+            static_values_;
+
         if (root.contains("template") && root["template"].is_string()) {
-          template_str_ = root["template"].get<std::string>();
+          new_tmpl = root["template"].get<std::string>();
         }
         if (root.contains("values") && root["values"].is_object()) {
           for (auto it = root["values"].begin(); it != root["values"].end();
                ++it) {
             if (it.value().is_string()) {
-              static_values_[it.key()] = it.value().get<std::string>();
+              new_values[it.key()] = it.value().get<std::string>();
             }
           }
         }
+
+        if (!ValidateTemplate(new_tmpl, new_values)) {
+          return NodeControlResult::Failed(-1, "Invalid template placeholders");
+        }
+
+        template_str_ = std::move(new_tmpl);
+        static_values_ = std::move(new_values);
         return NodeControlResult::Handled(0, "Template updated successfully");
       } catch (const std::exception& e) {
         return NodeControlResult::Failed(
@@ -215,6 +230,11 @@ class TextTemplateNode final : public NodeBase {
       }
 
       if (rendered.size() > max_length_) {
+        if (overflow_policy_ == "fail") {
+          return Fail(req_ctx, -6201,
+                      "Rendered prompt exceeds max_length of " +
+                          std::to_string(max_length_));
+        }
         rendered.resize(max_length_);
       }
 
@@ -227,6 +247,27 @@ class TextTemplateNode final : public NodeBase {
   }
 
  private:
+  static bool ValidateTemplate(
+      const std::string& tmpl,
+      const std::unordered_map<std::string, std::string>& static_vals) {
+    static const std::unordered_set<std::string> kBuiltins = {
+        "primary", "text", "context", "matches", "document", "document_text"};
+    // 匹配 {{var}} 或 {var}
+    std::regex re(R"(\{\{([a-zA-Z0-9_]+)\}\})");
+    auto words_begin = std::sregex_iterator(tmpl.begin(), tmpl.end(), re);
+    auto words_end = std::sregex_iterator();
+    for (std::sregex_iterator i = words_begin; i != words_end; ++i) {
+      std::smatch match = *i;
+      std::string var_name = match[1].str();
+      if (!kBuiltins.count(var_name) && !static_vals.count(var_name)) {
+        std::cerr << "[TextTemplateNode] Unknown template placeholder: "
+                  << var_name << std::endl;
+        return false;
+      }
+    }
+    return true;
+  }
+
   static void ReplaceAll(std::string& str, const std::string& from,
                          const std::string& to) {
     if (from.empty()) return;
@@ -241,6 +282,7 @@ class TextTemplateNode final : public NodeBase {
   std::string template_str_ = "{{primary}}";
   std::string separator_ = "\n";
   size_t max_length_ = 65536;
+  std::string overflow_policy_ = "fail";
   std::unordered_map<std::string, std::string> static_values_;
 
   BoundInput<TextBatch> in_primary_;
@@ -270,12 +312,27 @@ NodeDefinition MakeTextTemplateNodeDefinition() {
       OptionalInputPort("document_text",
                         BlackboardKey<TextBatch>{"", "TextBatch"})};
   def.outputs = {OutputPort("text", BlackboardKey<TextBatch>{"", "TextBatch"})};
+  def.port_constraints = {PortGroupConstraint(
+      PortConstraintKind::kAtLeastOneOf,
+      {"primary", "context", "context_text", "matches", "document",
+       "document_text"},
+      "TextTemplateNode requires at least one dynamic input port to be bound")};
+  def.control_commands = {ControlCommandDefinition(
+      kControlCmdUpdatePrompt, "update_prompt",
+      "Update template string dynamically", nlohmann::json::object(), true)};
   def.config_fields = {
       ConfigFieldDefinition{"template", ConfigValueKind::kString, false,
                             "{{primary}}"},
       ConfigFieldDefinition{"separator", ConfigValueKind::kString, false, "\n"},
       ConfigFieldDefinition{"max_length", ConfigValueKind::kInteger, false,
                             65536, 1.0, 1048576.0},
+      ConfigFieldDefinition{"overflow_policy",
+                            ConfigValueKind::kString,
+                            false,
+                            "fail",
+                            std::nullopt,
+                            std::nullopt,
+                            {"fail", "truncate"}},
       ConfigFieldDefinition{"values", ConfigValueKind::kObject, false}};
   def.parallel_safe = true;
   return def;

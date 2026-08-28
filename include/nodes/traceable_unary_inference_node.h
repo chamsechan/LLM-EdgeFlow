@@ -33,16 +33,17 @@ class TraceableUnaryInferenceNode : public ModelBoundNode<EngineCapability> {
                               int missing_input_error)
       : ModelBoundNode<EngineCapability>(std::move(node_name),
                                          std::move(default_model_id)),
-        in_port_(input_key.name, input_key.name, input_key.type_id),
-        out_port_(output_key.name, output_key.name, output_key.type_id),
+        in_port_(input_key.name),
+        out_port_(output_key.name),
         missing_input_error_(missing_input_error) {}
 
   virtual int InferBatch(const InputBatch& input, OutputBatch* output) = 0;
 
-  bool InitModelNode(const nlohmann::json& /*config*/,
+  bool InitModelNode(const NodeInitContext& init_ctx,
+                     const nlohmann::json& /*config*/,
                      SessionContext& /*session_ctx*/) override {
-    this->BindPort(in_port_);
-    this->BindPort(out_port_);
+    this->BindPort(init_ctx, in_port_);
+    this->BindPort(init_ctx, out_port_);
     return true;
   }
 

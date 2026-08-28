@@ -188,9 +188,11 @@ TEST_F(OperatorApiTest, StronglyTypedControlValidation) {
 
   ControlSwitchPromptParam prompt_param_valid{"prompt_v2",
                                               "用户提问：{query}，请回答："};
+  // KeywordMatch 不含 TextTemplateNode，返回 -7
+  // (COMPANY_ALG_ERR_UNSUPPORTED_CONTROL)
   EXPECT_EQ(
       ops_.Control(handle, ControlCommand::kSwitchPrompt, &prompt_param_valid),
-      0);
+      -7);
 
   // 3.3 ControlUpdateThresholdParam 测试 (含 NaN / Infinity 特殊浮点数拦截)
   ControlUpdateThresholdParam thresh_low{"VIP_SERVICE", -0.1f};
@@ -211,8 +213,10 @@ TEST_F(OperatorApiTest, StronglyTypedControlValidation) {
             -2);
 
   ControlUpdateThresholdParam thresh_valid{"VIP_SERVICE", 0.85f};
+  // KeywordMatch 不支持动态阈值调节，返回 -7
   EXPECT_EQ(
-      ops_.Control(handle, ControlCommand::kUpdateThreshold, &thresh_valid), 0);
+      ops_.Control(handle, ControlCommand::kUpdateThreshold, &thresh_valid),
+      -7);
 
   // 3.4 未知命令枚举
   EXPECT_EQ(
@@ -220,6 +224,24 @@ TEST_F(OperatorApiTest, StronglyTypedControlValidation) {
       -2);
 
   ops_.Destroy(handle);
+
+  // 3.5 在包含 TextTemplateNode 的管线上测试 kSwitchPrompt 成功路径
+  CreateParam entity_param{};
+  entity_param.model_path = root_dir.c_str();
+  entity_param.cfg_file_name = "configs/pipeline_entity_extract.conf";
+  entity_param.device_id = 0;
+  entity_param.compute_platform = ComputePlatform::kCpu;
+
+  void* entity_handle = nullptr;
+  ASSERT_EQ(ops_.Create(&entity_handle, &entity_param), 0);
+  ASSERT_NE(entity_handle, nullptr);
+
+  ControlSwitchPromptParam entity_prompt{"prompt_v2", "{{primary}}"};
+  EXPECT_EQ(ops_.Control(entity_handle, ControlCommand::kSwitchPrompt,
+                         &entity_prompt),
+            0);
+
+  ops_.Destroy(entity_handle);
 }
 
 // 4. 句柄生命周期与防护测试

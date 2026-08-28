@@ -21,13 +21,20 @@ class ModelBoundNode : public NodeBase {
     return engine_;
   }
 
+  virtual bool InitModelNode(const NodeInitContext& init_ctx,
+                             const nlohmann::json& config,
+                             SessionContext& session_ctx) {
+    (void)init_ctx;
+    return InitModelNode(config, session_ctx);
+  }
+
   virtual bool InitModelNode(const nlohmann::json& /*config*/,
                              SessionContext& /*session_ctx*/) {
     return true;
   }
 
  private:
-  bool InitNode(const nlohmann::json& config,
+  bool InitNode(const NodeInitContext& init_ctx, const nlohmann::json& config,
                 SessionContext& session_ctx) final {
     std::string model_id = config.value("bind_model", default_model_id_);
     if (model_id.empty()) {
@@ -38,7 +45,7 @@ class ModelBoundNode : public NodeBase {
     if (!engine_) {
       return false;
     }
-    return InitModelNode(config, session_ctx);
+    return InitModelNode(init_ctx, config, session_ctx);
   }
 
   const std::string default_model_id_;

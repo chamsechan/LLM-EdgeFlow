@@ -21,20 +21,21 @@ class TextRerankNode final : public ModelBoundNode<IRerankEngine> {
 
   TextRerankNode()
       : ModelBoundNode<IRerankEngine>(kNodeType, "rerank_model_v1"),
-        in_queries_("queries", "queries", "TextBatch"),
-        in_candidates_("candidates", "candidates", "RankedTextBatch"),
-        in_candidate_texts_("candidate_texts", "candidate_texts", "TextBatch"),
-        in_pairs_("pairs", "pairs", "QueryCandidatesBatch"),
-        out_ranked_("ranked", "ranked", "RankedTextBatch") {}
+        in_queries_("queries"),
+        in_candidates_("candidates"),
+        in_candidate_texts_("candidate_texts"),
+        in_pairs_("pairs"),
+        out_ranked_("ranked") {}
 
  protected:
-  bool InitModelNode(const nlohmann::json& config,
+  bool InitModelNode(const NodeInitContext& init_ctx,
+                     const nlohmann::json& config,
                      SessionContext& /*session_ctx*/) override {
-    BindPort(in_queries_);
-    BindPort(in_candidates_);
-    BindPort(in_candidate_texts_);
-    BindPort(in_pairs_);
-    BindPort(out_ranked_);
+    BindPort(init_ctx, in_queries_);
+    BindPort(init_ctx, in_candidates_);
+    BindPort(init_ctx, in_candidate_texts_);
+    BindPort(init_ctx, in_pairs_);
+    BindPort(init_ctx, out_ranked_);
 
     top_k_ = config.value("top_k", 1);
     return true;
@@ -175,6 +176,9 @@ NodeDefinition MakeTextRerankNodeDefinition() {
   def.outputs = {OutputPort(
       "ranked", BlackboardKey<RankedTextBatch>{"", "RankedTextBatch"},
       /*allow_override=*/true)};
+  def.port_constraints = {PortGroupConstraint(
+      PortConstraintKind::kAtLeastOneOf, {"pairs", "candidates"},
+      "TextRerankNode requires either 'pairs' or 'candidates' to be bound")};
   def.config_fields = {
       ConfigFieldDefinition{"bind_model", ConfigValueKind::kString, false,
                             "rerank_model_v1"},

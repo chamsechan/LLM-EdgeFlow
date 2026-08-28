@@ -18,14 +18,15 @@ class AsrTranscribeNode final : public ModelBoundNode<IAudioAsrEngine> {
 
   AsrTranscribeNode()
       : ModelBoundNode<IAudioAsrEngine>(kNodeType, "mock_asr_model"),
-        in_audio_("audio", "audio", "AudioPcmBatch"),
-        out_text_("text", "text", "TextBatch") {}
+        in_audio_("audio"),
+        out_text_("text") {}
 
  protected:
-  bool InitModelNode(const nlohmann::json& /*config*/,
+  bool InitModelNode(const NodeInitContext& init_ctx,
+                     const nlohmann::json& /*config*/,
                      SessionContext& /*session_ctx*/) override {
-    BindPort(in_audio_);
-    BindPort(out_text_);
+    BindPort(init_ctx, in_audio_);
+    BindPort(init_ctx, out_text_);
     return true;
   }
 

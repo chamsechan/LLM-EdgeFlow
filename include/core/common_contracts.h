@@ -13,7 +13,16 @@
 namespace alg_framework {
 
 // ==============================================================================
-// 1. 基础批处理值类型 (Common Contract Value Types)
+// 1. 标准控制命令常量 (Standard Named Control Commands)
+// ==============================================================================
+
+inline constexpr int kControlCmdUpdateRules = 1;
+inline constexpr int kControlCmdUpdatePrompt = 2;
+inline constexpr int kControlCmdUpdateThreshold = 3;
+inline constexpr int kControlCmdUpdateParams = 4;
+
+// ==============================================================================
+// 2. 基础批处理值类型 (Common Contract Value Types)
 // ==============================================================================
 
 /**
@@ -68,16 +77,19 @@ struct RuleMatchItem {
   std::string rule_id;
   std::string matched_word;
   float score = 0.0f;
+  std::unordered_map<std::string, std::string> captures;
+  std::unordered_map<std::string, std::string> constants;
   std::string match_result_json;
   nlohmann::json details = nlohmann::json::object();
 
   RuleMatchItem() = default;
   RuleMatchItem(int hit, std::string cat, std::string word,
-                std::string res_json = {}, float sc = 0.0f)
+                std::string res_json = {}, float sc = 0.0f,
+                std::string rid = {})
       : is_hit(hit),
         status_code(0),
         category(std::move(cat)),
-        rule_id(),
+        rule_id(std::move(rid)),
         matched_word(std::move(word)),
         score(sc),
         match_result_json(std::move(res_json)) {}
@@ -89,9 +101,47 @@ struct RuleMatchItem {
 using RuleMatchBatch = std::vector<TraceableItem<RuleMatchItem>>;
 
 /**
- * @brief 结构化文档/JSON 解析批次 (StructuredDocumentBatch)
+ * @brief 结构化文档解析状态枚举
  */
-using StructuredDocumentBatch = std::vector<TraceableItem<std::string>>;
+enum class JsonParseStatus {
+  kOk = 0,
+  kExtractedFromMarkdown = 1,
+  kAutoClosed = 2,
+  kFallbackApplied = 3,
+  kFailed = 4,
+};
+
+/**
+ * @brief 结构化文档/JSON 解析单项载荷 (JsonDocumentItem)
+ */
+struct JsonDocumentItem {
+  std::string json_payload;
+  bool is_valid = false;
+  JsonParseStatus parse_status = JsonParseStatus::kOk;
+  std::string diagnostic;
+
+  JsonDocumentItem() = default;
+  JsonDocumentItem(std::string payload, bool valid = true,
+                   JsonParseStatus status = JsonParseStatus::kOk,
+                   std::string diag = {})
+      : json_payload(std::move(payload)),
+        is_valid(valid),
+        parse_status(status),
+        diagnostic(std::move(diag)) {}
+
+  const char* c_str() const { return json_payload.c_str(); }
+  const std::string& str() const { return json_payload; }
+
+  // 兼容直接字符串转换
+  operator const std::string&() const { return json_payload; }
+};
+
+/**
+ * @brief 标准可溯源结构化文档/JSON 批次 (JsonDocumentBatch /
+ * StructuredDocumentBatch)
+ */
+using JsonDocumentBatch = std::vector<TraceableItem<JsonDocumentItem>>;
+using StructuredDocumentBatch = JsonDocumentBatch;
 
 /**
  * @brief 音频 PCM 浮点时序载荷 (AudioPcmPayload)
@@ -158,7 +208,61 @@ struct QueryCandidatePair {
 using QueryCandidatesBatch = std::vector<TraceableItem<QueryCandidatePair>>;
 
 // ==============================================================================
-// 2. 标准类型标识符与通用 BlackboardKey (Standard Keys)
+// 3. 编译期类型萃取特化 (BlackboardTypeTraits Specializations)
+// ==============================================================================
+
+template <>
+struct BlackboardTypeTraits<TextBatch> {
+  static constexpr const char* TypeName() { return "TextBatch"; }
+};
+
+template <>
+struct BlackboardTypeTraits<TextAttributesBatch> {
+  static constexpr const char* TypeName() { return "TextAttributesBatch"; }
+};
+
+template <>
+struct BlackboardTypeTraits<EmbeddingBatch> {
+  static constexpr const char* TypeName() { return "EmbeddingBatch"; }
+};
+
+template <>
+struct BlackboardTypeTraits<RankedTextBatch> {
+  static constexpr const char* TypeName() { return "RankedTextBatch"; }
+};
+
+template <>
+struct BlackboardTypeTraits<RuleMatchBatch> {
+  static constexpr const char* TypeName() { return "RuleMatchBatch"; }
+};
+
+template <>
+struct BlackboardTypeTraits<JsonDocumentBatch> {
+  static constexpr const char* TypeName() { return "StructuredDocumentBatch"; }
+};
+
+template <>
+struct BlackboardTypeTraits<AudioPcmBatch> {
+  static constexpr const char* TypeName() { return "AudioPcmBatch"; }
+};
+
+template <>
+struct BlackboardTypeTraits<OcrDocumentBatch> {
+  static constexpr const char* TypeName() { return "OcrDocumentBatch"; }
+};
+
+template <>
+struct BlackboardTypeTraits<QueryCandidatesBatch> {
+  static constexpr const char* TypeName() { return "QueryCandidatesBatch"; }
+};
+
+template <>
+struct BlackboardTypeTraits<std::vector<uint64_t>> {
+  static constexpr const char* TypeName() { return "vector<uint64>"; }
+};
+
+// ==============================================================================
+// 4. 标准类型标识符与通用 BlackboardKey (Standard Keys)
 // ==============================================================================
 
 inline constexpr BlackboardKey<std::vector<uint64_t>> kRawRequestIds{

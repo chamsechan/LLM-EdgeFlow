@@ -314,6 +314,19 @@ add_executable(test_definition_schema_validation tests/test_definition_schema_va
 target_link_libraries(test_definition_schema_validation PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
 add_test(NAME DefinitionSchemaValidationTest COMMAND test_definition_schema_validation)
 
+# RFC 0012 Common Nodes 独立测试与 Operator Golden / Adapter Purity 测试
+add_executable(test_common_nodes tests/test_common_nodes.cpp)
+target_link_libraries(test_common_nodes PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME CommonNodesTest COMMAND test_common_nodes)
+
+add_executable(test_operator_golden tests/test_operator_golden.cpp)
+target_link_libraries(test_operator_golden PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME OperatorGoldenTest COMMAND test_operator_golden)
+
+add_executable(test_adapter_purity tests/test_adapter_purity.cpp)
+target_link_libraries(test_adapter_purity PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME AdapterPurityTest COMMAND test_adapter_purity)
+
 # 设置所有测试工作目录为项目根目录，保证无论从何处运行 CTest，相对路径均一致解析
 set_tests_properties(
   C11AbiComplianceTest LayerGuardTest ArchitectureDocsDriftTest
@@ -328,7 +341,8 @@ set_tests_properties(
   DocQaRerankTest RerankRefineNodeTest PipelineStudioTest VisualizerServerTest
   DemoRunnerTest CatalogContractSsotTest TypedBlackboardContractsTest
   ValidatedPipelinePlanTest NodeBaseContractsTest NodeOwnershipAndReuseTest
-  DefinitionSchemaValidationTest
+  DefinitionSchemaValidationTest CommonNodesTest OperatorGoldenTest
+  AdapterPurityTest
   PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
 )
 

@@ -172,6 +172,7 @@ typedef struct {
 #define COMPANY_ALG_ERR_UNSUPPORTED_BIZ \
   (-5)  // 不支持或未注册的业务类型 / 业务配置不匹配
 #define COMPANY_ALG_ERR_REGISTRY_CONFLICT (-6)  // 注册表冲突 (fail-closed 拦截)
+#define COMPANY_ALG_ERR_UNSUPPORTED_CONTROL (-7)  // 不支持或未声明的控制命令
 #define COMPANY_ALG_ERR_EXCEPTION (-99)  // 运行时捕获到 std::exception 异常
 #define COMPANY_ALG_ERR_UNKNOWN (-100)  // 运行时捕获到未知异常
 

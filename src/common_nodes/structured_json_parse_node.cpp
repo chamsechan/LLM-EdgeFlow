@@ -17,18 +17,27 @@ class StructuredJsonParseNode final : public NodeBase {
   inline static constexpr char kNodeType[] = "StructuredJsonParseNode";
 
   StructuredJsonParseNode()
-      : NodeBase(kNodeType),
-        in_text_("text", "text", "TextBatch"),
-        out_doc_("document", "document", "StructuredDocumentBatch") {}
+      : NodeBase(kNodeType), in_text_("text"), out_doc_("document") {}
 
  protected:
-  bool InitNode(const nlohmann::json& config,
+  bool InitNode(const NodeInitContext& init_ctx, const nlohmann::json& config,
                 SessionContext& /*session_ctx*/) override {
-    BindPort(in_text_);
-    BindPort(out_doc_);
+    BindPort(init_ctx, in_text_);
+    BindPort(init_ctx, out_doc_);
 
     fallback_json_ = config.value("fallback_json", "{}");
     extract_json_block_ = config.value("extract_json_block", true);
+    failure_policy_ = config.value("failure_policy", "configured_fallback");
+
+    // 验证 fallback_json 是否为合法 JSON
+    try {
+      auto j = nlohmann::json::parse(fallback_json_);
+      (void)j;
+    } catch (const std::exception& e) {
+      std::cerr << "[StructuredJsonParseNode] Invalid fallback_json: "
+                << e.what() << std::endl;
+      return false;
+    }
     return true;
   }
 
@@ -43,9 +52,32 @@ class StructuredJsonParseNode final : public NodeBase {
     output_docs.reserve(text_items->size());
 
     for (const auto& item : *text_items) {
-      std::string parsed_json_str = ParseOrExtractJson(item.data);
-      output_docs.emplace_back(item.req_id, item.sub_id,
-                               std::move(parsed_json_str));
+      std::string parsed_json_str;
+      JsonParseStatus status = JsonParseStatus::kOk;
+      std::string diag;
+
+      bool ok = ParseOrExtractJson(item.data, &parsed_json_str, &status, &diag);
+      if (!ok) {
+        if (failure_policy_ == "fail") {
+          return Fail(req_ctx, -6102, "JSON parse failed for sample: " + diag);
+        } else if (failure_policy_ == "emit_diagnostic") {
+          output_docs.emplace_back(
+              item.req_id, item.sub_id,
+              JsonDocumentItem(fallback_json_, false, JsonParseStatus::kFailed,
+                               diag));
+          continue;
+        } else {  // configured_fallback
+          output_docs.emplace_back(
+              item.req_id, item.sub_id,
+              JsonDocumentItem(fallback_json_, true,
+                               JsonParseStatus::kFallbackApplied, diag));
+          continue;
+        }
+      }
+
+      output_docs.emplace_back(
+          item.req_id, item.sub_id,
+          JsonDocumentItem(std::move(parsed_json_str), true, status, diag));
     }
 
     out_doc_.Set(req_ctx, std::move(output_docs));
@@ -53,18 +85,28 @@ class StructuredJsonParseNode final : public NodeBase {
   }
 
  private:
-  std::string ParseOrExtractJson(const std::string& input) const {
-    if (input.empty()) return fallback_json_;
+  bool ParseOrExtractJson(const std::string& input, std::string* out_json,
+                          JsonParseStatus* out_status,
+                          std::string* out_diag) const {
+    if (input.empty()) {
+      *out_json = fallback_json_;
+      *out_status = JsonParseStatus::kFallbackApplied;
+      *out_diag = "Empty input string";
+      return true;
+    }
 
     // 1. 尝试直接完整解析
     try {
       auto j = nlohmann::json::parse(input);
-      return j.dump();
-    } catch (...) {
+      *out_json = j.dump();
+      *out_status = JsonParseStatus::kOk;
+      return true;
+    } catch (const std::exception& e) {
+      *out_diag = e.what();
     }
 
     if (!extract_json_block_) {
-      return fallback_json_;
+      return false;
     }
 
     // 2. 尝试从 markdown 代码块 ```json ... ``` 提取
@@ -77,13 +119,15 @@ class StructuredJsonParseNode final : public NodeBase {
             input.substr(content_start, code_block_end - content_start);
         try {
           auto j = nlohmann::json::parse(candidate);
-          return j.dump();
+          *out_json = j.dump();
+          *out_status = JsonParseStatus::kExtractedFromMarkdown;
+          return true;
         } catch (...) {
         }
       }
     }
 
-    // 3. 尝试搜索最外层 { ... } 或 [ ... ]
+    // 3. 尝试搜索最外层 { ... }
     size_t obj_start = input.find('{');
     size_t obj_end = input.rfind('}');
     if (obj_start != std::string::npos && obj_end != std::string::npos &&
@@ -91,11 +135,14 @@ class StructuredJsonParseNode final : public NodeBase {
       std::string candidate = input.substr(obj_start, obj_end - obj_start + 1);
       try {
         auto j = nlohmann::json::parse(candidate);
-        return j.dump();
+        *out_json = j.dump();
+        *out_status = JsonParseStatus::kAutoClosed;
+        return true;
       } catch (...) {
       }
     }
 
+    // 4. 尝试搜索最外层 [ ... ]
     size_t arr_start = input.find('[');
     size_t arr_end = input.rfind(']');
     if (arr_start != std::string::npos) {
@@ -104,7 +151,9 @@ class StructuredJsonParseNode final : public NodeBase {
             input.substr(arr_start, arr_end - arr_start + 1);
         try {
           auto j = nlohmann::json::parse(candidate);
-          return j.dump();
+          *out_json = j.dump();
+          *out_status = JsonParseStatus::kAutoClosed;
+          return true;
         } catch (...) {
         }
       }
@@ -115,13 +164,15 @@ class StructuredJsonParseNode final : public NodeBase {
             input.substr(arr_start, last_quote - arr_start + 1) + "]";
         try {
           auto j = nlohmann::json::parse(candidate);
-          return j.dump();
+          *out_json = j.dump();
+          *out_status = JsonParseStatus::kAutoClosed;
+          return true;
         } catch (...) {
         }
       }
     }
 
-    // 4. 提取双引号包裹的实体词
+    // 5. 提取双引号包裹的实体词
     nlohmann::json extracted_array = nlohmann::json::array();
     size_t pos = 0;
     while ((pos = input.find('"', pos)) != std::string::npos) {
@@ -134,14 +185,17 @@ class StructuredJsonParseNode final : public NodeBase {
       pos = next_pos + 1;
     }
     if (!extracted_array.empty()) {
-      return extracted_array.dump();
+      *out_json = extracted_array.dump();
+      *out_status = JsonParseStatus::kAutoClosed;
+      return true;
     }
 
-    return fallback_json_;
+    return false;
   }
 
   std::string fallback_json_ = "{}";
   bool extract_json_block_ = true;
+  std::string failure_policy_ = "configured_fallback";
 
   BoundInput<TextBatch> in_text_;
   BoundOutput<StructuredDocumentBatch> out_doc_;
@@ -160,7 +214,15 @@ NodeDefinition MakeStructuredJsonParseNodeDefinition() {
       ConfigFieldDefinition{"fallback_json", ConfigValueKind::kString, false,
                             "{}"},
       ConfigFieldDefinition{"extract_json_block", ConfigValueKind::kBoolean,
-                            false, true}};
+                            false, true},
+      ConfigFieldDefinition{
+          "failure_policy",
+          ConfigValueKind::kString,
+          false,
+          "configured_fallback",
+          std::nullopt,
+          std::nullopt,
+          {"fail", "emit_diagnostic", "configured_fallback"}}};
   def.parallel_safe = true;
   return def;
 }

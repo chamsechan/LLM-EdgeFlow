@@ -19,16 +19,17 @@ class OcrDetectNode final : public ModelBoundNode<IOcrEngine> {
 
   OcrDetectNode()
       : ModelBoundNode<IOcrEngine>(kNodeType, "ocr_model_v1"),
-        in_images_("images", "images", "ImageRefBatch"),
-        out_doc_("document", "document", "OcrDocumentBatch"),
-        out_text_("text", "text", "TextBatch") {}
+        in_images_("images"),
+        out_doc_("document"),
+        out_text_("text") {}
 
  protected:
-  bool InitModelNode(const nlohmann::json& /*config*/,
+  bool InitModelNode(const NodeInitContext& init_ctx,
+                     const nlohmann::json& /*config*/,
                      SessionContext& /*session_ctx*/) override {
-    BindPort(in_images_);
-    BindPort(out_doc_);
-    BindPort(out_text_);
+    BindPort(init_ctx, in_images_);
+    BindPort(init_ctx, out_doc_);
+    BindPort(init_ctx, out_text_);
     return true;
   }
 

@@ -17,15 +17,13 @@ class TextCorpusSourceNode final : public NodeBase {
   inline static constexpr char kNodeType[] = "TextCorpusSourceNode";
 
   TextCorpusSourceNode()
-      : NodeBase(kNodeType),
-        in_trigger_("trigger", "trigger", "TextBatch"),
-        out_corpus_("corpus", "corpus", "TextBatch") {}
+      : NodeBase(kNodeType), in_trigger_("trigger"), out_corpus_("corpus") {}
 
  protected:
-  bool InitNode(const nlohmann::json& config,
+  bool InitNode(const NodeInitContext& init_ctx, const nlohmann::json& config,
                 SessionContext& /*session_ctx*/) override {
-    BindPort(in_trigger_);
-    BindPort(out_corpus_);
+    BindPort(init_ctx, in_trigger_);
+    BindPort(init_ctx, out_corpus_);
 
     corpus_items_.clear();
     if (config.contains("corpus") && config["corpus"].is_array()) {

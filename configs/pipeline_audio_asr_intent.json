@@ -59,7 +59,40 @@
             "风量",
             "二档"
           ]
-        }
+        },
+        "rules": [
+          {
+            "id": "nav_dest",
+            "strategy": "regex",
+            "pattern": "导航到(?<destination>.+)",
+            "category": "NAVIGATION",
+            "score": 1.0,
+            "constants": {
+              "avoid_toll": "false"
+            }
+          },
+          {
+            "id": "hvac_temp",
+            "strategy": "regex",
+            "pattern": "空调(调到|设为)?(?<target_temp>\\d+)度",
+            "category": "VEHICLE_HVAC_CONTROL",
+            "score": 1.0
+          },
+          {
+            "id": "hvac_fan",
+            "strategy": "regex",
+            "pattern": "风速(?<fan_speed>\\d+)档",
+            "category": "VEHICLE_HVAC_CONTROL",
+            "score": 1.0
+          },
+          {
+            "id": "music_play",
+            "strategy": "regex",
+            "pattern": "播放歌曲(?<song_name>.+)",
+            "category": "MUSIC_PLAY",
+            "score": 1.0
+          }
+        ]
       }
     }
   ]

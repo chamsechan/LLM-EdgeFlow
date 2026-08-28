@@ -1,5 +1,7 @@
 #include <cmath>
 #include <iostream>
+#include <memory>
+#include <string>
 #include <vector>
 
 #include "core/common_contracts.h"
@@ -11,7 +13,7 @@ namespace alg_framework {
 
 /**
  * @brief 文本特征向量提取通用算子 (TextEmbeddingNode, 调用绑定的
- * IEmbeddingEngine)
+ * IEmbeddingEngine) 支持 session 级别静态语料缓存与归一化
  */
 class TextEmbeddingNode final : public ModelBoundNode<IEmbeddingEngine> {
  public:
@@ -19,15 +21,19 @@ class TextEmbeddingNode final : public ModelBoundNode<IEmbeddingEngine> {
 
   TextEmbeddingNode()
       : ModelBoundNode<IEmbeddingEngine>(kNodeType, "embed_model_v1"),
-        in_text_("text", "text", "TextBatch"),
-        out_embedding_("embedding", "embedding", "EmbeddingBatch") {}
+        in_text_("text"),
+        out_embedding_("embedding") {}
 
  protected:
-  bool InitModelNode(const nlohmann::json& config,
-                     SessionContext& /*session_ctx*/) override {
-    BindPort(in_text_);
-    BindPort(out_embedding_);
+  bool InitModelNode(const NodeInitContext& init_ctx,
+                     const nlohmann::json& config,
+                     SessionContext& session_ctx) override {
+    BindPort(init_ctx, in_text_);
+    BindPort(init_ctx, out_embedding_);
     normalize_ = config.value("normalize", true);
+    lifetime_ = config.value("lifetime", "request");
+    bind_model_id_ = config.value("bind_model", "embed_model_v1");
+    session_ctx_ = &session_ctx;
     return true;
   }
 
@@ -43,6 +49,32 @@ class TextEmbeddingNode final : public ModelBoundNode<IEmbeddingEngine> {
       return 0;
     }
 
+    if (lifetime_ == "session" && session_ctx_) {
+      std::string digest = ComputeDigest(*text_items);
+      std::string cache_key = "static_emb:" + bind_model_id_ + ":" +
+                              std::to_string(normalize_) + ":" + digest;
+      auto cached = session_ctx_->GetResource<EmbeddingBatch>(cache_key);
+      if (cached) {
+        // 直接复用 SessionContext 中的只读缓存
+        out_embedding_.Set(req_ctx, *cached);
+        return 0;
+      }
+
+      EmbeddingBatch output_embeddings;
+      int ret = engine()->InferTraceableBatch(*text_items, &output_embeddings);
+      if (ret != 0) {
+        return Fail(req_ctx, ret, "TextEmbeddingNode: inference failed");
+      }
+      if (normalize_) {
+        Normalize(output_embeddings);
+      }
+
+      session_ctx_->SetResource(
+          cache_key, std::make_shared<EmbeddingBatch>(output_embeddings));
+      out_embedding_.Set(req_ctx, std::move(output_embeddings));
+      return 0;
+    }
+
     EmbeddingBatch output_embeddings;
     std::cout << "[TextEmbeddingNode] Inferring embeddings for "
               << text_items->size() << " text items using engine..."
@@ -54,14 +86,7 @@ class TextEmbeddingNode final : public ModelBoundNode<IEmbeddingEngine> {
     }
 
     if (normalize_) {
-      for (auto& item : output_embeddings) {
-        float norm = 0.0f;
-        for (float v : item.data) norm += v * v;
-        if (norm > 0.0f) {
-          float inv = 1.0f / std::sqrt(norm);
-          for (float& v : item.data) v *= inv;
-        }
-      }
+      Normalize(output_embeddings);
     }
 
     out_embedding_.Set(req_ctx, std::move(output_embeddings));
@@ -69,7 +94,33 @@ class TextEmbeddingNode final : public ModelBoundNode<IEmbeddingEngine> {
   }
 
  private:
+  static void Normalize(EmbeddingBatch& batch) {
+    for (auto& item : batch) {
+      float norm = 0.0f;
+      for (float v : item.data) norm += v * v;
+      if (norm > 0.0f) {
+        float inv = 1.0f / std::sqrt(norm);
+        for (float& v : item.data) v *= inv;
+      }
+    }
+  }
+
+  static std::string ComputeDigest(const TextBatch& items) {
+    size_t hash = 14695981039346656037ULL;
+    for (const auto& item : items) {
+      for (char c : item.data) {
+        hash ^= static_cast<size_t>(c);
+        hash *= 1099511628211ULL;
+      }
+    }
+    return std::to_string(hash);
+  }
+
   bool normalize_ = true;
+  std::string lifetime_ = "request";
+  std::string bind_model_id_ = "embed_model_v1";
+  SessionContext* session_ctx_ = nullptr;
+
   BoundInput<TextBatch> in_text_;
   BoundOutput<EmbeddingBatch> out_embedding_;
 };
@@ -87,7 +138,14 @@ NodeDefinition MakeTextEmbeddingNodeDefinition() {
       ConfigFieldDefinition{"bind_model", ConfigValueKind::kString, false,
                             "embed_model_v1"},
       ConfigFieldDefinition{"normalize", ConfigValueKind::kBoolean, false,
-                            true}};
+                            true},
+      ConfigFieldDefinition{"lifetime",
+                            ConfigValueKind::kString,
+                            false,
+                            "request",
+                            std::nullopt,
+                            std::nullopt,
+                            {"request", "session"}}};
   def.model_capability = "embedding";
   def.model_config_field = "bind_model";
   def.parallel_safe = true;

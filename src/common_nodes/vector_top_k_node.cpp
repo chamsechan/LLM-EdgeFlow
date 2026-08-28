@@ -20,18 +20,18 @@ class VectorTopKNode final : public NodeBase {
 
   VectorTopKNode()
       : NodeBase(kNodeType),
-        in_queries_("queries", "queries", "EmbeddingBatch"),
-        in_candidates_("candidates", "candidates", "EmbeddingBatch"),
-        in_candidate_texts_("candidate_texts", "candidate_texts", "TextBatch"),
-        out_ranked_("ranked", "ranked", "RankedTextBatch") {}
+        in_queries_("queries"),
+        in_candidates_("candidates"),
+        in_candidate_texts_("candidate_texts"),
+        out_ranked_("ranked") {}
 
  protected:
-  bool InitNode(const nlohmann::json& config,
+  bool InitNode(const NodeInitContext& init_ctx, const nlohmann::json& config,
                 SessionContext& /*session_ctx*/) override {
-    BindPort(in_queries_);
-    BindPort(in_candidates_);
-    BindPort(in_candidate_texts_);
-    BindPort(out_ranked_);
+    BindPort(init_ctx, in_queries_);
+    BindPort(init_ctx, in_candidates_);
+    BindPort(init_ctx, in_candidate_texts_);
+    BindPort(init_ctx, out_ranked_);
 
     top_k_ = config.value("top_k", 1);
     min_score_ = config.value("min_score", 0.0f);
@@ -66,12 +66,10 @@ class VectorTopKNode final : public NodeBase {
       req_candidate_indices[(*candidates)[i].req_id].push_back(i);
     }
 
-    // 检查是否为全局共享候选库 (即候选全部归属 req_id == 0，而 queries
-    // 存在多请求)
+    // 检查是否为全局共享候选库 (即候选全部归属 req_id == 0)
     bool is_shared_candidates =
         (req_candidate_indices.size() == 1 &&
-         req_candidate_indices.find(0) != req_candidate_indices.end() &&
-         queries->size() > 1);
+         req_candidate_indices.find(0) != req_candidate_indices.end());
 
     RankedTextBatch ranked_batch;
 

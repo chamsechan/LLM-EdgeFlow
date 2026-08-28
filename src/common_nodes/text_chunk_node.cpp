@@ -17,15 +17,13 @@ class TextChunkNode final : public NodeBase {
   inline static constexpr char kNodeType[] = "TextChunkNode";
 
   TextChunkNode()
-      : NodeBase(kNodeType),
-        in_text_("text", "text", "TextBatch"),
-        out_chunks_("chunks", "chunks", "TextBatch") {}
+      : NodeBase(kNodeType), in_text_("text"), out_chunks_("chunks") {}
 
  protected:
-  bool InitNode(const nlohmann::json& config,
+  bool InitNode(const NodeInitContext& init_ctx, const nlohmann::json& config,
                 SessionContext& /*session_ctx*/) override {
-    BindPort(in_text_);
-    BindPort(out_chunks_);
+    BindPort(init_ctx, in_text_);
+    BindPort(init_ctx, out_chunks_);
 
     chunk_size_ = config.value("chunk_size", 100);
     overlap_ = config.value("overlap", 0);

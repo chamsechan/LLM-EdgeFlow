@@ -206,12 +206,11 @@ bool Pipeline::BuildInternal(const nlohmann::json& root_config,
   }
 
   // 唯一单趟校验与执行计划生成 (Single-Pass Validate and Plan)
-  const ValidatedPipelinePlan plan =
-      PipelineValidator::ValidateAndPlan(root_config, policy);
+  plan_ = PipelineValidator::ValidateAndPlan(root_config, policy);
 
-  if (!plan.report.ok) {
-    if (!plan.report.diagnostics.empty()) {
-      const auto& item = plan.report.diagnostics.front();
+  if (!plan_.report.ok) {
+    if (!plan_.report.diagnostics.empty()) {
+      const auto& item = plan_.report.diagnostics.front();
       const char* code_str = DiagnosticCodeName(item.code);
       if (diagnostic) {
         diagnostic->code = ValidationCodeToPipelineCode(item.code);
@@ -224,7 +223,7 @@ bool Pipeline::BuildInternal(const nlohmann::json& root_config,
     return false;
   }
 
-  const auto& parsed_cfg = plan.config;
+  const auto& parsed_cfg = plan_.config;
   biz_name_ = parsed_cfg.biz_name;
   business_name_ = parsed_cfg.biz_name;
 
@@ -370,18 +369,18 @@ bool Pipeline::BuildInternal(const nlohmann::json& root_config,
   }
 
   // 3. 按照波前拓扑层直接物化算子节点
-  topological_order_ = plan.topological_order;
-  topological_layers_ids_ = plan.topological_layers;
+  topological_order_ = plan_.topological_order;
+  topological_layers_ids_ = plan_.topological_layers;
 
   std::unordered_map<std::string, const ParsedNodeConfig*> node_by_id;
   for (const auto& node_cfg : parsed_cfg.nodes) {
     node_by_id[node_cfg.id] = &node_cfg;
   }
 
-  for (size_t layer_idx = 0; layer_idx < plan.topological_layers.size();
+  for (size_t layer_idx = 0; layer_idx < plan_.topological_layers.size();
        ++layer_idx) {
     std::vector<INode*> layer_ptrs;
-    for (const auto& node_id : plan.topological_layers[layer_idx]) {
+    for (const auto& node_id : plan_.topological_layers[layer_idx]) {
       auto it = node_by_id.find(node_id);
       if (it == node_by_id.end() || !it->second) continue;
       const auto& meta = *it->second;
@@ -425,8 +424,8 @@ bool Pipeline::BuildInternal(const nlohmann::json& root_config,
       bool init_ok = false;
       try {
         const ValidatedNodePlan* node_plan_ptr = nullptr;
-        auto np_it = plan.node_plans.find(meta.id);
-        if (np_it != plan.node_plans.end()) {
+        auto np_it = plan_.node_plans.find(meta.id);
+        if (np_it != plan_.node_plans.end()) {
           node_plan_ptr = &np_it->second;
         }
 
@@ -554,17 +553,51 @@ int Pipeline::Control(int cmd, const std::string& json_param) {
 
   std::cout << "[Pipeline] Control cmd received: " << cmd
             << ", params: " << json_param << std::endl;
-  int failure_code = 0;
+
+  bool has_target = false;
+  bool has_handled = false;
+  int first_fail_code = 0;
+
   for (auto& node : nodes_) {
+    const auto* def = PipelineCatalog::FindNode(node->Name());
+    bool supports_cmd = false;
+    if (def) {
+      for (const auto& cmd_def : def->control_commands) {
+        if (cmd_def.cmd_id == cmd) {
+          supports_cmd = true;
+          break;
+        }
+      }
+    }
+    if (!supports_cmd) {
+      continue;
+    }
+
+    has_target = true;
     NodeControlResult res = node->Control(cmd, json_param);
     if (res.status == NodeControlStatus::kFailed) {
       std::cerr << "[Pipeline] Node [" << node->Name()
                 << "] Control failed with code: " << res.code
                 << ", msg: " << res.message << std::endl;
-      failure_code = res.code != 0 ? res.code : -1;
+      if (first_fail_code == 0) {
+        first_fail_code = res.code != 0 ? res.code : -1;
+      }
+    } else if (res.status == NodeControlStatus::kHandled) {
+      has_handled = true;
     }
   }
-  return failure_code;
+
+  if (first_fail_code != 0) {
+    return first_fail_code;
+  }
+  if (has_handled) {
+    return 0;
+  }
+  if (!has_target) {
+    std::cerr << "[Pipeline] Unsupported control command: " << cmd << std::endl;
+    return -7;  // COMPANY_ALG_ERR_UNSUPPORTED_CONTROL
+  }
+  return -7;
 }
 
 }  // namespace alg_framework
