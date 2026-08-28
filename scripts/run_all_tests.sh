@@ -1,112 +1,115 @@
 #!/usr/bin/env bash
-set -e
+set -euo pipefail
 
 # ==============================================================================
-# Alg-SDK Framework 全自动化测试与质量交付验证脚本 (Quality Assurance Test Suite)
+# LLM-EdgeFlow unified development/full quality gate.
 # ==============================================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
-BUILD_DIR="$ROOT_DIR/build"
+
+MODE="full"
+if [[ $# -gt 1 ]]; then
+  echo "Usage: $0 [--fast | --full]"
+  exit 2
+fi
+if [[ $# -eq 1 ]]; then
+  case "$1" in
+    --fast) MODE="fast" ;;
+    --full) MODE="full" ;;
+    *)
+      echo "Usage: $0 [--fast | --full]"
+      exit 2
+      ;;
+  esac
+fi
+
+if [[ "$MODE" == "fast" ]]; then
+  BUILD_DIR="$ROOT_DIR/build-fast"
+else
+  BUILD_DIR="$ROOT_DIR/build"
+fi
+
+SELECTED_LINKER="${LLM_EDGEFLOW_LINKER:-auto}"
+JOBS="${LLM_EDGEFLOW_JOBS:-$(nproc)}"
+SECONDS=0
+
 export LD_LIBRARY_PATH="$BUILD_DIR:$BUILD_DIR/_deps/onnxruntime_prebuilt-src/lib:${LD_LIBRARY_PATH:-}"
 
 GREEN='\033[0;32m'
 CYAN='\033[0;36m'
-YELLOW='\033[1;33m'
 RED='\033[0;31m'
 BOLD='\033[1m'
 NC='\033[0m'
 
 echo -e "${BOLD}${CYAN}==================================================================${NC}"
-echo -e "${BOLD}${CYAN}  Alg-SDK 框架全层级自动化测试与交付质量验证套件                  ${NC}"
-echo -e "${BOLD}${CYAN}  Project Root: $ROOT_DIR${NC}"
+echo -e "${BOLD}${CYAN}  LLM-EdgeFlow Unified Quality Gate                              ${NC}"
+echo -e "${BOLD}${CYAN}  Mode: $MODE | Build: $BUILD_DIR | Linker: $SELECTED_LINKER${NC}"
 echo -e "${BOLD}${CYAN}==================================================================${NC}\n"
 
-# 1. 架构分层隔离、代码规范与差异门禁检验
-echo -e "${BOLD}[ Step 1/6: LayerGuard 架构分层防腐扫描、架构文档防漂移、Shell 语法静态检查、Google C++ 代码规范与 Git Diff 门禁检验 ]${NC}"
+echo -e "${BOLD}[ Step 1/6: Shell syntax, Google C++ format and Git diff gates ]${NC}"
 for sh_file in "$SCRIPT_DIR"/*.sh; do
   bash -n "$sh_file"
 done
-"$SCRIPT_DIR/check_layer_isolation.sh"
-"$SCRIPT_DIR/check_architecture_docs.sh"
-"$SCRIPT_DIR/render_architecture_diagrams.sh" --check
 "$SCRIPT_DIR/format.sh" --check
-git diff --check
-echo -e "${GREEN}✓ 架构分层隔离、文档防漂移、Shell 脚本语法、代码规范与差异门禁校验 100% 通过！${NC}\n"
+git -C "$ROOT_DIR" diff --check
+echo -e "${GREEN}✓ Static source gates passed.${NC}\n"
 
-# 2. 全量工程编译
-echo -e "${BOLD}[ Step 2/6: CMake 构建与二进制链接 (Ninja & ccache 并行加速) ]${NC}"
-mkdir -p "$BUILD_DIR"
-GEN_ARG_STR=$("${SCRIPT_DIR}/detect_cmake_generator.sh" "${BUILD_DIR}")
+echo -e "${BOLD}[ Step 2/6: Configure and build with Ninja + ccache ]${NC}"
+GEN_ARG_STR=$("${SCRIPT_DIR}/detect_cmake_generator.sh" "$BUILD_DIR")
 CMAKE_GEN_ARGS=()
-if [[ -n "${GEN_ARG_STR}" ]]; then
-  read -r -a CMAKE_GEN_ARGS <<< "${GEN_ARG_STR}"
+if [[ -n "$GEN_ARG_STR" ]]; then
+  read -r -a CMAKE_GEN_ARGS <<< "$GEN_ARG_STR"
 fi
-cmake -S "$ROOT_DIR" -B "$BUILD_DIR" -DLLM_EDGEFLOW_USE_CCACHE=ON "${CMAKE_GEN_ARGS[@]}" > /dev/null
-cmake --build "$BUILD_DIR" -j"$(nproc)"
-echo -e "${GREEN}✓ 核心动态库与测试目标编译通过！${NC}\n"
 
-# 3. 核心机制与多模态单元测试 (Tier 1)
-echo -e "${BOLD}[ Step 3/6: 核心架构、DAG拓扑排序、引擎容错与全业务细粒度 GTest 单元测试 (并行加速) ]${NC}"
-TIER1_REGEX='^(BatchExecutorTest|FrameworkCoreTest|PipelineConfigTest|Registry.*Test|DagPipelineTest|EngineFaultToleranceAndLifecycleTest|QwenEnginesComparisonTest|DifferentIoModalitiesTest|AllBusinessPipelinesTest|DocQaRerankTest|RerankRefineNodeTest|ScriptGeneratorDetectionTest|CommonNodesTest|NodeOwnershipAndReuseTest|NodeBaseContractsTest|ValidatedPipelinePlanTest|TypedBlackboardContractsTest|DefinitionSchemaValidationTest|TextChunkNodeTest|TextEmbeddingNodeTest|VectorTopKNodeTest|TextRerankNodeTest|TextTemplateNodeTest|LlmGenerateNodeTest|AsrTranscribeNodeTest|OcrDetectNodeTest|TextRuleMatchNodeTest|StructuredJsonParseNodeTest|TextCorpusSourceNodeTest)$'
-ctest --test-dir "$BUILD_DIR" -j"$(nproc)" --output-on-failure -R "$TIER1_REGEX"
-echo -e "${GREEN}✓ Tier 1 核心架构、DAG拓扑调度与全业务组合（含 LLM+Rerank+QA 与通用算子套件）细粒度 GTest 断言测试全部通过！${NC}\n"
+CMAKE_ARGS=(
+  -DLLM_EDGEFLOW_USE_CCACHE=ON
+  -DLLM_EDGEFLOW_SHARDED_TEST_RUNNERS=ON
+  -DLLM_EDGEFLOW_LINKER="$SELECTED_LINKER"
+  -DENABLE_REAL_MODEL_TESTS=OFF
+)
+if [[ "$MODE" == "fast" ]]; then
+  CMAKE_ARGS+=(
+    -DCMAKE_BUILD_TYPE=Debug
+    -DLLM_EDGEFLOW_FAST_BUILD=ON
+    -DENABLE_LLAMACPP=OFF
+    -DENABLE_ONNXRUNTIME=OFF
+  )
+else
+  CMAKE_ARGS+=(
+    -DCMAKE_BUILD_TYPE=Release
+    -DLLM_EDGEFLOW_FAST_BUILD=OFF
+    -DENABLE_LLAMACPP=ON
+    -DENABLE_ONNXRUNTIME=ON
+  )
+fi
 
-# 4. C ABI 安全防御、多线程并发与边界压测 (Tier 2)
-echo -e "${BOLD}[ Step 4/6: C ABI 安全、Operator 接口、8 线程并发、动态热重载与极端边界鲁棒性压测 (并行加速) ]${NC}"
-TIER2_REGEX='^(C11AbiComplianceTest|CAbiSafetyTest|AdapterContractSecurityTest|OperatorApiTest|OperatorOutputPoolTest|OperatorValueRegistryTest|OperatorBizBridgeRegistryTest|RuntimeControlAndHotSwapTest|ConcurrencyAndEdgeCasesTest|OperatorGoldenTest|AdapterPurityTest)$'
-ctest --test-dir "$BUILD_DIR" -j"$(nproc)" --output-on-failure -R "$TIER2_REGEX"
-echo -e "${GREEN}✓ Tier 2 C ABI 安全、Operator 门面、在线动态热控制与极端边界容错测试全部通过！${NC}\n"
+cmake -S "$ROOT_DIR" -B "$BUILD_DIR" "${CMAKE_ARGS[@]}" \
+  "${CMAKE_GEN_ARGS[@]}"
+if [[ "$MODE" == "fast" ]]; then
+  cmake --build "$BUILD_DIR" --target edgeflow_dev_tests -j"$JOBS"
+else
+  cmake --build "$BUILD_DIR" -j"$JOBS"
+fi
+echo -e "${GREEN}✓ Build completed.${NC}\n"
 
-# 5. 7 大业务端到端全流程集成测试 (Tier 3)
-echo -e "${BOLD}[ Step 5/6: 7 大业务端到端全链路集成测试 (参数化 Profile Demo 套件) ]${NC}"
-"$SCRIPT_DIR/run_all_demos.sh" smoke
-echo -e "${GREEN}✓ Tier 3 业务 1 ~ 业务 7 全链路端到端集成测试全部通过！${NC}\n"
+# Steps 3-6 share one global scheduler. Labels retain stage ownership while
+# allowing slow integration and tooling tests to overlap safely.
+echo -e "${BOLD}[ Steps 3-6/6: Unified Tier 1-4 CTest scheduler ]${NC}"
+CTEST_ARGS=(
+  --test-dir "$BUILD_DIR"
+  -j"$JOBS"
+  --output-on-failure
+)
+if [[ "$MODE" == "fast" ]]; then
+  CTEST_ARGS+=( -L dev-fast )
+fi
+ctest "${CTEST_ARGS[@]}"
 
-# 6. 可视化与命令行工具链测试 (Tier 4)
-echo -e "${BOLD}[ Step 6/6: CLI 可视化工具链双模测试 (Python & 纯 C++) ]${NC}"
-cd "$ROOT_DIR"
-
-echo -n "  Testing Python CLI (./show) on all 11 configs ... "
-./show configs/pipeline_keyword_match.json > /dev/null
-./show configs/pipeline_entity_extract.json > /dev/null
-./show configs/pipeline_doc_qa.json > /dev/null
-./show configs/pipeline_dialogue_audit.json > /dev/null
-./show configs/pipeline_doc_qa_onnx.json > /dev/null
-./show configs/pipeline_doc_qa_rerank.json > /dev/null
-./show configs/pipeline_doc_qa_rerank_real.json > /dev/null
-./show configs/pipeline_entity_extract_llamacpp.json > /dev/null
-./show configs/pipeline_ocr_doc_qa.json > /dev/null
-./show configs/pipeline_audio_asr_intent.json > /dev/null
-./show configs/pipeline_cross_rerank.json > /dev/null
-echo -e "${GREEN}✓ PASS${NC}"
-
-echo -n "  Testing Native C++ CLI (./build/alg_show) on all 11 configs ... "
-./build/alg_show configs/pipeline_keyword_match.json > /dev/null
-./build/alg_show configs/pipeline_entity_extract.json > /dev/null
-./build/alg_show configs/pipeline_doc_qa.json > /dev/null
-./build/alg_show configs/pipeline_dialogue_audit.json > /dev/null
-./build/alg_show configs/pipeline_doc_qa_onnx.json > /dev/null
-./build/alg_show configs/pipeline_doc_qa_rerank.json > /dev/null
-./build/alg_show configs/pipeline_doc_qa_rerank_real.json > /dev/null
-./build/alg_show configs/pipeline_entity_extract_llamacpp.json > /dev/null
-./build/alg_show configs/pipeline_ocr_doc_qa.json > /dev/null
-./build/alg_show configs/pipeline_audio_asr_intent.json > /dev/null
-./build/alg_show configs/pipeline_cross_rerank.json > /dev/null
-echo -e "${GREEN}✓ PASS${NC}"
-
-echo -n "  Testing Pipeline Studio Validator/API/real Demo roundtrip ... "
-"$BUILD_DIR/test_pipeline_studio" > /dev/null
-python3 tests/test_visualizer_server.py > /dev/null
-./build/alg_pipeline_tool catalog --business keyword_match_v1 > /dev/null
-./build/alg_pipeline_tool validate configs/pipeline_keyword_match.json > /dev/null
-echo -e "${GREEN}✓ PASS${NC}"
-
-echo -e "${BOLD}${GREEN}==================================================================${NC}"
-echo -e "${BOLD}${GREEN}  🎉 交付验证通过：全部 6 大测试阶段 100% PASS！                 ${NC}"
-echo -e "${BOLD}${GREEN}  - 核心架构单元测试   : PASSED (6/6 模块)${NC}"
-echo -e "${BOLD}${GREEN}  - C ABI 安全边界测试 : PASSED (空指针拦截 / 50轮并发与生命周期稳定)${NC}"
-echo -e "${BOLD}${GREEN}  - 7 大业务端到端测试 : PASSED (规则/抽取/问答/风控/OCR/语音/精排)${NC}"
-echo -e "${BOLD}${GREEN}  - CLI 工具双模适配   : PASSED (Python CLI & C++ Native CLI)${NC}"
-echo -e "${BOLD}${GREEN}  - Google C++ 规范    : PASSED (100% 格式对齐)${NC}"
+echo -e "\n${BOLD}${GREEN}==================================================================${NC}"
+echo -e "${BOLD}${GREEN}  ✓ All required $MODE development gates passed in ${SECONDS}s.${NC}"
+echo -e "${BOLD}${GREEN}  - Tier 1: Core, DAG, engines and common nodes${NC}"
+echo -e "${BOLD}${GREEN}  - Tier 2: C ABI, Operator, concurrency and safety${NC}"
+echo -e "${BOLD}${GREEN}  - Tier 3: Business integration and Demo smoke${NC}"
+echo -e "${BOLD}${GREEN}  - Tier 4: CLI, Pipeline Studio and documentation tooling${NC}"
 echo -e "${BOLD}${GREEN}==================================================================${NC}\n"

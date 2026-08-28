@@ -38,6 +38,8 @@ jobs:
             cmake \
             curl \
             default-jre-headless \
+            mold \
+            ninja-build \
             python3
 
       - name: Restore/Save CCache
@@ -49,41 +51,9 @@ jobs:
             ccache-${{ runner.os }}-${{ github.ref }}-
             ccache-${{ runner.os }}-
 
-      - name: Verify Architecture Isolation & Documentation Integrity
+      - name: Run Unified Full Quality Gate with mold
         run: |
-          ./scripts/check_layer_isolation.sh
-          ./scripts/check_architecture_docs.sh
-          ./scripts/render_architecture_diagrams.sh --check
-
-      - name: Verify Code Style (Google C++ Format)
-        run: |
-          ./scripts/format.sh --check
-          git diff --check
-
-      - name: Configure CMake
-        run: |
-          mkdir -p build
-          cd build
           ccache -z
-          cmake .. -DCMAKE_BUILD_TYPE=Release -DLLM_EDGEFLOW_USE_CCACHE=ON
-
-      - name: Compile Targets
-        run: |
-          cmake --build build --config Release -j4
+          LLM_EDGEFLOW_LINKER=mold LLM_EDGEFLOW_JOBS=4 \
+            ./scripts/run_all_tests.sh --full
           ccache -s
-
-      - name: Run Google Test Suites via CTest
-        run: |
-          cd build
-          export LD_LIBRARY_PATH=$PWD:$PWD/_deps/onnxruntime_prebuilt-src/lib:$LD_LIBRARY_PATH
-          ctest --output-on-failure --verbose
-
-      - name: Run End-to-End Multi-Modal Integration Demo
-        run: |
-          export LD_LIBRARY_PATH=$PWD/build:$PWD/build/_deps/onnxruntime_prebuilt-src/lib:$LD_LIBRARY_PATH
-          ./build/alg_demo
-
-      - name: Run Full 6-Tier Quality Assurance Script
-        run: |
-          export LD_LIBRARY_PATH=$PWD/build:$PWD/build/_deps/onnxruntime_prebuilt-src/lib:$LD_LIBRARY_PATH
-          ./scripts/run_all_tests.sh

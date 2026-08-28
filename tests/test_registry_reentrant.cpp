@@ -13,7 +13,7 @@
 
 namespace alg_framework {
 
-inline NodeDefinition MakeTestNodeDef(const std::string& type) {
+static NodeDefinition MakeTestNodeDef(const std::string& type) {
   NodeDefinition def;
   def.node_type = type;
   def.category = "test";
@@ -22,7 +22,7 @@ inline NodeDefinition MakeTestNodeDef(const std::string& type) {
   return def;
 }
 
-inline EngineDefinition MakeTestEngineDef(const std::string& type) {
+static EngineDefinition MakeTestEngineDef(const std::string& type) {
   EngineDefinition def;
   def.engine_type = type;
   def.capability = "test";

@@ -33,8 +33,9 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(CMAKE_BUILD_WITH_INSTALL_RPATH FALSE)
 set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 set(CMAKE_BUILD_RPATH_USE_ORIGIN TRUE)
-# 编译选项
-add_compile_options(-Wall -Wextra -O2 -fPIC)
+# 编译与链接加速配置
+include(cmake/BuildAcceleration.cmake)
+add_compile_options(-Wall -Wextra -fPIC)
 
 # 确保 mock npu 模型的占位文件存在
 
@@ -48,7 +49,9 @@ if(ENABLE_SANITIZERS)
       "Use address, undefined, address,undefined, or thread.")
   endif()
   message(STATUS "Enabling sanitizers (-fsanitize=${LLM_EDGEFLOW_SANITIZERS})")
-  add_compile_options(-fsanitize=${LLM_EDGEFLOW_SANITIZERS} -fno-omit-frame-pointer)
+  add_compile_options(
+      -O1 -g -fsanitize=${LLM_EDGEFLOW_SANITIZERS}
+      -fno-omit-frame-pointer -fno-optimize-sibling-calls)
   set(CMAKE_EXE_LINKER_FLAGS
       "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=${LLM_EDGEFLOW_SANITIZERS}")
   set(CMAKE_SHARED_LINKER_FLAGS
@@ -139,6 +142,9 @@ set_target_properties(alg_sdk PROPERTIES
 include(cmake/GoogleTest.cmake)
 enable_testing()
 
+option(LLM_EDGEFLOW_SHARDED_TEST_RUNNERS
+       "Build PCH-enabled sharded Google Test runners" ON)
+
 # 2. 生成下游部门集成测试 Demo 可执行程序 (参数化多业务模块化 Runner)
 set(ALG_DEMO_SRCS
     demo/main.cpp
@@ -156,6 +162,8 @@ set(ALG_DEMO_SRCS
 )
 add_executable(alg_demo ${ALG_DEMO_SRCS})
 target_link_libraries(alg_demo PRIVATE alg_sdk)
+
+if(NOT LLM_EDGEFLOW_SHARDED_TEST_RUNNERS)
 
 # 3. 纯 C11 ABI 兼容性测试 (确保头文件为纯 C 且可被标准 C 编译器直接编译)
 add_executable(test_c11_abi_compliance tests/test_c11_abi_compliance.c)
@@ -394,6 +402,8 @@ set_tests_properties(
   PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
 )
 
+endif()
+
 # 6. 纯 C++ 零依赖原生 DAG 可视化工具 (专为无 Python 的极简嵌入式/边缘环境设计)
 add_executable(alg_show src/tools/alg_show.cpp)
 target_link_libraries(alg_show PRIVATE nlohmann_json::nlohmann_json)
@@ -404,8 +414,15 @@ target_link_libraries(alg_pipeline_tool PRIVATE alg_sdk)
 
 # 7. 独立物理真实模型端到端测试套件 (阶段性/物理硬件压测，隔离于默认日常 CTest)
 option(ENABLE_REAL_MODEL_TESTS "Enable real model weights E2E test suite" OFF)
-add_executable(test_real_models_e2e tests/e2e_real_models/test_real_models_e2e.cpp)
-target_link_libraries(test_real_models_e2e PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
 if(ENABLE_REAL_MODEL_TESTS)
+  add_executable(test_real_models_e2e tests/e2e_real_models/test_real_models_e2e.cpp)
+  target_link_libraries(test_real_models_e2e PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
   add_test(NAME RealModelE2ETest COMMAND test_real_models_e2e)
+  set_tests_properties(RealModelE2ETest PROPERTIES
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+    LABELS "tier3;slow;real-model")
+endif()
+
+if(LLM_EDGEFLOW_SHARDED_TEST_RUNNERS)
+  include(cmake/Tests.cmake)
 endif()

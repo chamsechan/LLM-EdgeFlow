@@ -76,6 +76,7 @@ doc/rfcs/NNNN-<kebab-case-title>.md
 | **RFC-0010** | 全栈统一业务命名为 biz | `Completed` | `v3.1.0` | Layer 1 ~ Layer 4 / Tooling | [0010-business-to-biz-naming-unification.md](0010-business-to-biz-naming-unification.md) |
 | **RFC-0011** | Operator 与计算 Platform 命名解耦 | `Completed` | `v4.0.0` | Layer 1 (Operator Adapter) / Demo / Layer 4 Terminology | [0011-operator-platform-naming-unification.md](0011-operator-platform-naming-unification.md) |
 | **RFC-0012** | I/O 契约驱动的通用 Node 架构 | `Completed` | `v4.1.0` | Layer 1 ~ Layer 4 / Tooling | [0012-node-authoring-experience.md](0012-node-authoring-experience.md) |
+| **RFC-0013** | 开发反馈闭环加速 | `Completed` | `v4.2.0` | Tooling / Test Infrastructure | [0013-developer-feedback-loop-acceleration.md](0013-developer-feedback-loop-acceleration.md) |
 
 ---
 

@@ -12,7 +12,7 @@
 #include "engine/engine_interface.h"
 #include "engine/engine_registry.h"
 
-std::string GetConfigPath(const std::string& rel_path) {
+static std::string GetConfigPath(const std::string& rel_path) {
   FILE* fp = fopen(rel_path.c_str(), "r");
   if (fp) {
     fclose(fp);
