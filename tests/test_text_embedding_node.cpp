@@ -46,7 +46,7 @@ class TextEmbeddingNodeTest : public ::testing::Test {
     session_ctx_ = std::make_unique<SessionContext>();
     counting_engine_ = std::make_shared<CountingEmbeddingEngine>();
     ASSERT_TRUE(session_ctx_->GetModelManager().RegisterModel(
-        "embed_model_v1", counting_engine_));
+        "embed_model_v1", counting_engine_, "revision-1"));
   }
   std::unique_ptr<SessionContext> session_ctx_;
   std::shared_ptr<CountingEmbeddingEngine> counting_engine_;
@@ -121,6 +121,20 @@ TEST_F(TextEmbeddingNodeTest, SessionCachingSingleFlightAndInvalidation) {
     int ret = node->Process(&ctx);
     EXPECT_EQ(ret, 0);
     EXPECT_EQ(counting_engine_->infer_calls.load(), 2);
+  }
+
+  // A model hot update changes the revision and invalidates otherwise
+  // identical session cache entries.
+  ASSERT_TRUE(session_ctx_->GetModelManager().UpdateModelRevision(
+      "embed_model_v1", "revision-2"));
+  {
+    AlgContext ctx;
+    TextBatch original_corpus;
+    original_corpus.emplace_back(100, 0, "Static policy clause 1");
+    original_corpus.emplace_back(100, 1, "Static policy clause 2");
+    ctx.Set("text", original_corpus);
+    EXPECT_EQ(node->Process(&ctx), 0);
+    EXPECT_EQ(counting_engine_->infer_calls.load(), 3);
   }
 }
 

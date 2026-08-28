@@ -711,3 +711,157 @@ NA-002 和 NA-010；NA-008 继续保持 Closed。RFC-0012 与索引应继续保�
 是否正确”收敛为三类框架治理问题：**执行契约是否可验证、Layer 1 是否保持纯映射、测试
 是否能独立锁住每个公共能力**。完成 3 个 P0 后可申请下一次最终验收；4 个 P1 建议同批
 收尾，以避免 RFC 在带已知架构债务的状态下标记 Completed。
+
+---
+
+## 12. 第六轮独立复验结论（2026-08-28）
+
+### 12.1 最终判定
+
+**结论：本轮继续取得实质进展，NA-003 可以关闭；功能门禁全部通过，但 RFC-0012
+仍未达到最终架构验收标准。**
+
+剩余问题由第五轮的 **3 个 P0、4 个 P1** 降为 **3 个 P0、3 个 P1**。本轮确认关闭
+NA-003；NA-002、NA-008、NA-010 继续保持 Closed。RFC-0012 与索引仍应保持
+`In Implementation`。
+
+复验基线为干净分支 `feat/node-authoring-experience`、提交 `9819863`。本节报告更新是
+验收产生的唯一未提交修改，没有改动实现代码。
+
+### 12.2 本轮确认有效的整改
+
+1. 为 11 类 Common Node 建立了 11 个独立 `tests/test_<node>.cpp` 和 CTest 目标；全量
+   CTest 从 41 项增加到 52 项；
+2. TextChunkNode 在 Layer 3 生成逐请求 `Int32Batch chunk_counts`，4 条 DocQA Pipeline
+   均显式绑定 `doc_chunk_counts`，生产配置的 chunk count 已不再依赖全批推算；
+3. StructuredJsonParseNode 增加 `field_types`，DialogueAudit 对 `risk_level:string` 和
+   `risk_score:number` 在 Layer 3 fail-closed；
+4. TextRuleMatch 和 OcrDetect 的输出元数据已修正为真实的 `1:1/preserve/request`；
+5. Pipeline Control 改为两阶段处理：先收集全部目标并校验 payload schema，再执行分发；
+   Template/Rule 均拒绝无有效字段的空更新；
+6. TextTemplate 增加 `missing_variable_policy=fail|empty|preserve`，并补充缺变量失败测试；
+7. 52/52 CTest、11/11 Pipeline validate/plan、六阶段回归和 ASan/UBSan smoke 均通过。
+
+### 12.3 动态复验结果
+
+| 检查项 | 结果 | 说明 |
+| :--- | :---: | :--- |
+| `git diff --check` | PASS | 验收前提交工作树干净；报告更新后仍无 whitespace error |
+| `./scripts/format.sh --check` | PASS | clang-format 18 检查通过 |
+| CMake configure / build | PASS | 11 个新增测试目标全部成功构建 |
+| 全量 CTest | PASS，52/52 | 11 个独立 Common Node 测试全部执行 |
+| Runtime Catalog | PASS | 11 Node、8 Engine、10 business contract、11 profile |
+| 11 个 Pipeline validate / plan | PASS，11/11 | 全部生产 JSON 可验证、可规划 |
+| `./scripts/run_all_tests.sh` | PASS，六阶段 | 9 个 smoke profile 和双 CLI 通过；Tier 1 仍未包含新增 11 个独立测试目标 |
+| `./scripts/run_sanitizers.sh` | PASS | ASan/UBSan 19 个 fast test 与 9 个 smoke 通过；fast 集合仍未包含新增 11 个独立测试目标 |
+| 远端 PR / CI / main 合并 | NOT VERIFIED | 本次没有上传或合并授权 |
+
+### 12.4 NA-001～NA-010 第六轮状态
+
+| 编号 | 状态 | 第六轮独立结论 |
+| :--- | :---: | :--- |
+| **NA-001** | **Partial / P0** | Rerank 输入方案、optional binding、Catalog 元数据合法值，以及 RuleMatch/OCR 的错误声明均已修复；但 `PipelineValidator` 和 Runtime 仍不读取 cardinality、provenance、lifetime，因而不能验证相邻端口执行契约。TextEmbedding Definition 仍固定声明 request lifetime，也无法表达实例配置 `lifetime=session`。 |
+| **NA-002** | **Closed** | Audio Operator 外部字段、数值与 JSON 类型继续由 golden 和 smoke 锁定。 |
+| **NA-003** | **Closed** | Control command 已由 Definition 声明，Pipeline 仅路由到目标 Node；两阶段处理会在任何分发前校验全部目标 schema，并按“任一失败即 Failure、至少一个处理即 Handled、无目标即 Unsupported”聚合。C ABI 直接透传返回码，未知命令测试通过。跨 Node 的事务回滚不属于原 NA-003 范围。 |
+| **NA-004** | **Partial / P0** | Layer 3 已生成逐请求 chunk count，StructuredJsonParse 也支持字段类型检查；但 DocQA Adapter 在缺少 `kDocChunkCounts` 时仍回退到 `doc_chunks->size()`，没有 fail-closed。现有 Adapter purity 测试正是省略 chunk_counts 后依靠该回退成功，仍把 Layer 1 业务计算固定为正确行为。`field_types` 对未知类型名也会静默跳过，而不是 Init 失败。 |
+| **NA-005** | **Partial / P1** | 本轮未闭环 Definition SSOT：`BoundInput/BoundOutput::TypeId()` 仍没有消费者；运行时绑定与 Definition 继续分别维护类型；模型默认 ID 仍在构造、Init 和 Definition 中重复。 |
+| **NA-006** | **Partial / P1** | per-key single-flight、corpus digest 与并发计数测试保持有效；但缓存键仍没有同 model id 下的模型版本/指纹，模型热更新可能复用旧 embedding；Validator 也不能验证 session lifetime 与输入来源兼容性。 |
+| **NA-007** | **Partial / P1** | 缺变量策略、实际失败测试、聚合 join 与 Control 更新均有明显改善；但 CompileTemplate 新增了一批并非 Definition 动态端口、也非 `values` 的“内建变量”，与原始约束“placeholder 只能引用声明端口或静态 values”不一致。Control schema 声明 `prompt_id`，Node 却不识别该字段；Control 的 `missing_variable_policy` 也只校验为 string，不校验封闭枚举。 |
+| **NA-008** | **Closed** | owned plan 生命周期保持正确，ASan/UBSan 继续通过。 |
+| **NA-009** | **Partial / P0** | 11 个独立测试文件和 CTest 注册已完成，是本轮最主要进步；但原始矩阵要求每类覆盖非法 Init、输入/输出类型、cardinality、provenance、边界、并发/多实例和状态隔离，当前部分套件仅有 2～3 个成功流程与缺输入用例。新增 11 个目标也未进入六阶段 Tier 1 和 sanitizer fast 集合，Adapter purity 仍把 DocQA 的 Layer 1 chunk fallback 当作正确行为。 |
+| **NA-010** | **Closed** | RFC 状态、文档、LayerGuard 和交付脚本的既有修复保持有效。 |
+
+### 12.5 下一轮最短整改清单
+
+1. **关闭 NA-004**：DocQA Adapter 必须要求 `kDocChunkCounts` 存在、数量与输出一致，缺失
+   时返回错误；删除 `doc_chunks->size()` fallback 及对 `kDocChunks` 的无关依赖。为
+   `field_types` 定义封闭类型枚举，未知类型或非字符串值必须在 Init/Validator 阶段失败；
+2. **关闭 NA-001**：在 PipelineValidator 中实现相邻端口 cardinality、provenance、
+   lifetime 兼容校验，修正 TextEmbedding 实例 lifetime 表达，并增加至少三个错误 fixture
+   证明 CLI validate、plan 和 Build 一致拒绝；
+3. **关闭 NA-009**：补齐每个独立 Node 的 Definition/非法 Init、类型、provenance、边界
+   与状态隔离矩阵；修正 DocQA purity 反例；把 11 个目标加入 `run_all_tests.sh` Tier 1
+   和 `run_sanitizers.sh` fast targets/regex；
+4. **收尾 P1**：让端口 TypeId 和模型默认值来自 Definition 单一事实源；缓存键纳入模型
+   revision/fingerprint；Template 删除虚构内建变量，Control schema 与实现使用同一封闭
+   字段及枚举定义。
+
+### 12.6 架构结论
+
+本轮进一步证明 11 个 Common Node 组合业务的方向是正确的：生产 Pipeline、Operator
+行为和内存安全均保持稳定，独立测试框架也已经建立。当前阻塞最终验收的不是 Node 数量
+或业务组合能力，而是三项明确的框架治理闭环：**端口执行元数据必须可验证、Adapter
+必须彻底只做映射、独立测试必须覆盖契约并进入所有交付门禁**。完成这 3 个 P0 后，
+即可进入最终验收；剩余 3 个 P1 建议同时收尾，避免 RFC 带已知 SSOT 债务完成。
+
+---
+
+## 13. 整改实施与最终验收（2026-08-28）
+
+### 13.1 最终判定
+
+**结论：通过最终本地验收。第六轮剩余 3 个 P0、3 个 P1 已全部关闭，当前计数为
+P0=0、P1=0。RFC-0012 更新为 `Completed`。**
+
+本轮是在分支 `feat/node-authoring-experience`、基线提交 `9819863` 之上直接实施整改。
+本节记录的是尚未提交的最终工作树；未执行远端上传、PR 或合并。
+
+### 13.2 最终实现闭环
+
+1. `PortDefinition` 的 cardinality、provenance、lifetime 已进入
+   `ValidatedPipelinePlan`。Validator 会检查相邻端口兼容性，并输出稳定的
+   `PORT_CARDINALITY_MISMATCH`、`PORT_PROVENANCE_MISMATCH`、
+   `PORT_LIFETIME_MISMATCH` 诊断；TextEmbedding 的实例级 lifetime 由配置解析后参与规划；
+2. `BoundInput<T>` / `BoundOutput<T>` 的类型由 `BlackboardTypeTraits<T>` 推导，Node Init
+   会将其与已验证 Definition 类型再次比对；模型配置字段和默认模型 ID 只从
+   `NodeDefinition` 解析，删除构造函数和 Init 中的重复默认值；
+3. DocQA Adapter 只复制 `kDocChunkCounts`，要求 answers、intent、chunk count 和 request
+   provenance 数量严格一致；删除 `doc_chunks->size()` 回退和对 `kDocChunks` 的无关依赖；
+4. StructuredJsonParse 对 `field_types` 使用封闭类型集，未知类型、非字符串类型声明和不满足
+   字段契约的 fallback 均在 Init 阶段失败；
+5. Embedding session cache key 纳入模型 revision、模型 ID、normalize 与 corpus digest；
+   `ModelManager` 提供线程安全的 revision 更新，模型版本变化会使相同语料重新推理；
+6. TextTemplate 的内建变量收敛为真实输入语义；Control 对 `prompt_id`、动态属性和缺变量策略
+   使用同一封闭字段集，Pipeline schema 支持 enum、`minProperties`、
+   `additionalProperties` 和递归属性校验；
+7. 11 个独立 Common Node 测试目标已同时进入六阶段 Tier 1 和 sanitizer fast 门禁。
+   通用类型绑定及执行契约由框架级 fixture 统一覆盖，节点测试负责各自的 Process、边界、
+   fallback、Control、并发和缓存特性，避免在每个节点重复测试同一 Validator 机制；
+8. `pipeline_doc_qa_rerank_real.json` 补齐显式 `doc_chunk_counts` egress，11 条生产 Pipeline
+   均满足新的纯映射契约。
+
+### 13.3 最终验证证据
+
+| 检查项 | 结果 | 说明 |
+| :--- | :---: | :--- |
+| `./scripts/format.sh` / `git diff --check` | PASS | Google C++ 格式与 whitespace 门禁通过 |
+| CMake Release 构建 | PASS | 核心库、工具和全部测试目标成功构建 |
+| 全量 CTest | PASS，52/52 | 包含 11 个独立 Common Node 测试 |
+| 11 个 Pipeline validate / plan | PASS，11/11 | 由 PipelineStudio 与六阶段 CLI 门禁验证 |
+| `./scripts/run_all_tests.sh` | PASS，6/6 阶段 | Tier 1 为 30 项、Tier 2 为 11 项，9 个 smoke profile 与双 CLI 全部通过 |
+| `./scripts/run_sanitizers.sh --fast` | PASS | ASan/UBSan 30 项测试和 9 个 emulator smoke profile 通过 |
+| LayerGuard / Architecture drift | PASS | 四层依赖、C11 ABI、文档和图形门禁通过 |
+| 远端 PR / CI / main 合并 | NOT VERIFIED | 本次未获上传或合并授权 |
+
+### 13.4 NA-001～NA-010 最终状态
+
+| 编号 | 最终状态 | 关闭依据 |
+| :--- | :---: | :--- |
+| NA-001 | **Closed** | 执行元数据已由 Validator 消费，动态 lifetime 已进入计划，非法组合 fixture 稳定失败。 |
+| NA-002 | **Closed** | Audio intent/slots 的字段、值和 JSON 类型由 golden 与 smoke 锁定。 |
+| NA-003 | **Closed** | Control 两阶段校验、目标路由、schema 和返回语义完整。 |
+| NA-004 | **Closed** | DocQA Layer 1 只做严格映射；结构化类型与 fallback 均 fail-closed。 |
+| NA-005 | **Closed** | 绑定类型运行时复核，模型字段和默认值以 Definition 为单一事实源。 |
+| NA-006 | **Closed** | per-key single-flight、有效 lifetime 校验及模型 revision 失效机制均有测试。 |
+| NA-007 | **Closed** | 模板变量来源、缺变量策略和 Control schema/实现一致。 |
+| NA-008 | **Closed** | owned plan 生命周期持续通过 ASan/UBSan。 |
+| NA-009 | **Closed** | 分层测试矩阵完整进入 Release 与 sanitizer 交付门禁。 |
+| NA-010 | **Closed** | RFC、架构文档、开发指南和 LayerGuard 保持一致。 |
+
+### 13.5 架构结论
+
+最终实现符合 RFC 的核心原则：**I/O-first、operation-defined、contract-guarded**。
+11 个 Common Node 并不是按输出物理格式粗分，也没有退化为带业务 mode 的超级 Node；
+Node Type 仍以单一操作语义为边界，Pipeline 配置负责业务组合，端口执行契约负责阻止错误
+组合，Adapter 只负责外部 ABI 映射。该结构有利于后续开发者和 Agent 通过 Catalog 发现、
+组合和验证能力，也为确有独立操作语义的新增 Common Node 或窄领域 Node 保留了扩展边界。

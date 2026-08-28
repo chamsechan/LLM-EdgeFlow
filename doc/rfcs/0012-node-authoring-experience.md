@@ -2,7 +2,7 @@
 
 - **RFC 编号**：0012-node-authoring-experience
 - **创建日期**：2026-08-27
-- **文档状态**：In Implementation
+- **文档状态**：Completed
 - **关联分支**：`feat/node-authoring-experience`
 - **目标版本**：v4.1.0
 - **负责人 / 作者**：LLM-EdgeFlow Architecture & Quality Team
@@ -457,3 +457,4 @@ ctest --test-dir build -j$(nproc) --output-on-failure
 | 日期 | 版本 | 变更内容 | 作者 |
 | :--- | :--- | :--- | :--- |
 | 2026-08-27 | v1.0.0 | 将历次讨论压缩为最终架构结论与现有业务迁移方案 | LLM-EdgeFlow Architecture & Quality Team |
+| 2026-08-28 | v1.1.0 | 完成 11 类 Common Node 迁移、执行契约闭环、Adapter 纯映射与全量测试验收 | LLM-EdgeFlow Architecture & Quality Team |

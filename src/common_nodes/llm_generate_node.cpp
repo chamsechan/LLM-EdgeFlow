@@ -16,8 +16,7 @@ class LlmGenerateNode final
   inline static constexpr char kNodeType[] = "LlmGenerateNode";
 
   LlmGenerateNode()
-      : TraceableUnaryInferenceNode(kNodeType, "llm_model_v1", "prompt", "text",
-                                    -4301) {}
+      : TraceableUnaryInferenceNode(kNodeType, "prompt", "text", -4301) {}
 
  protected:
   bool InitModelNode(const NodeInitContext& init_ctx,

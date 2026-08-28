@@ -1,6 +1,7 @@
 #pragma once
 
 #include <any>
+#include <cstdint>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -32,35 +33,61 @@ struct RuntimeOptions {
 class ModelManager {
  public:
   bool RegisterModel(const std::string& model_id,
-                     std::shared_ptr<IModelEngine> engine) {
+                     std::shared_ptr<IModelEngine> engine,
+                     std::string revision = {}) {
+    std::lock_guard<std::mutex> lock(mutex_);
     if (model_id.empty() || !engine) {
       return false;
     }
     if (models_.find(model_id) != models_.end()) {
       return false;
     }
+    if (revision.empty()) {
+      revision = std::to_string(reinterpret_cast<uintptr_t>(engine.get()));
+    }
     models_[model_id] = std::move(engine);
+    revisions_[model_id] = std::move(revision);
     return true;
   }
 
   template <typename T>
   std::shared_ptr<T> GetModel(const std::string& model_id) const {
+    std::lock_guard<std::mutex> lock(mutex_);
     auto it = models_.find(model_id);
     if (it == models_.end()) return nullptr;
     return std::dynamic_pointer_cast<T>(it->second);
   }
 
   bool HasModel(const std::string& model_id) const {
+    std::lock_guard<std::mutex> lock(mutex_);
     return models_.find(model_id) != models_.end();
   }
 
-  const std::unordered_map<std::string, std::shared_ptr<IModelEngine>>&
-  GetAllModels() const {
+  std::string GetModelRevision(const std::string& model_id) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = revisions_.find(model_id);
+    return it == revisions_.end() ? std::string() : it->second;
+  }
+
+  bool UpdateModelRevision(const std::string& model_id, std::string revision) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (revision.empty() || models_.find(model_id) == models_.end()) {
+      return false;
+    }
+    revisions_[model_id] = std::move(revision);
+    return true;
+  }
+
+  std::unordered_map<std::string, std::shared_ptr<IModelEngine>> GetAllModels()
+      const {
+    std::lock_guard<std::mutex> lock(mutex_);
     return models_;
   }
 
  private:
+  mutable std::mutex mutex_;
   std::unordered_map<std::string, std::shared_ptr<IModelEngine>> models_;
+  std::unordered_map<std::string, std::string> revisions_;
 };
 
 /**

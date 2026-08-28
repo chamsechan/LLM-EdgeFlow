@@ -7,6 +7,7 @@
 
 #include "core/alg_context.h"
 #include "core/blackboard_key.h"
+#include "core/pipeline_catalog.h"
 #include "core/session_context.h"
 #include "engine/engine_interface.h"
 #include "nodes/model_bound_node.h"
@@ -122,6 +123,36 @@ TEST(NodeBaseContractsTest, RequireAndPublishHelpers) {
   }
 }
 
+class BoundPortProbeNode : public NodeBase {
+ public:
+  BoundPortProbeNode() : NodeBase("BoundPortProbeNode"), input_("input") {}
+
+ protected:
+  bool InitNode(const NodeInitContext& init_ctx, const nlohmann::json&,
+                SessionContext&) override {
+    BindPort(init_ctx, input_);
+    return true;
+  }
+  int ProcessNode(AlgContext&) override { return 0; }
+
+ private:
+  BoundInput<std::string> input_;
+};
+
+TEST(NodeBaseContractsTest, BindingRejectsDefinitionRuntimeTypeDrift) {
+  ValidatedNodePlan plan;
+  plan.normalized_config = nlohmann::json::object();
+  plan.ports.push_back({"input", "actual_input", "integer", "1:1", "preserve",
+                        "request", PortDirection::kInput});
+  SessionContext session_ctx;
+  NodeInitContext init_ctx;
+  init_ctx.plan = &plan;
+  init_ctx.session_ctx = &session_ctx;
+
+  BoundPortProbeNode node;
+  EXPECT_FALSE(node.Init(init_ctx));
+}
+
 // 3. Mock Model Engine for ModelBoundNode and TraceableUnaryInferenceNode
 class MockAsrEngine : public IAudioAsrEngine {
  public:
@@ -155,9 +186,8 @@ class MockTraceableAsrNode
  public:
   inline static constexpr char kNodeType[] = "MockTraceableAsrNode";
   MockTraceableAsrNode()
-      : TraceableUnaryInferenceNode(kNodeType, "test_asr_model",
-                                    kTestAudioInputs, kTestTranscripts, -6201) {
-  }
+      : TraceableUnaryInferenceNode(kNodeType, kTestAudioInputs,
+                                    kTestTranscripts, -6201) {}
 
  protected:
   int InferBatch(const InputBatch& input, OutputBatch* output) override {
@@ -166,6 +196,14 @@ class MockTraceableAsrNode
 };
 
 TEST(NodeBaseContractsTest, TraceableUnaryInferenceNodeWorkflow) {
+  NodeDefinition definition;
+  definition.node_type = MockTraceableAsrNode::kNodeType;
+  definition.model_capability = "audio_asr";
+  definition.model_config_field = "bind_model";
+  definition.config_fields = {ConfigFieldDefinition{
+      "bind_model", ConfigValueKind::kString, false, "test_asr_model"}};
+  ASSERT_TRUE(PipelineCatalog::RegisterNodeDefinition(definition));
+
   SessionContext session_ctx;
   session_ctx.GetModelManager().RegisterModel(
       "test_asr_model", std::make_shared<MockAsrEngine>());

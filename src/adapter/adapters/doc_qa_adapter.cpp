@@ -36,19 +36,22 @@ class DocQaAdapter : public IBizAdapter {
           "智能文档问答",
           {RequiredInput(kRawRequestIds), RequiredInput(kRawDocs),
            RequiredInput(kRawQueries)},
-          {Output(kLlmAnswers), Output(kIntentMatches), Output(kDocChunks)}},
+          {Output(kLlmAnswers), Output(kIntentMatches),
+           Output(kDocChunkCounts)}},
          {kDocQaOnnxBusinessName,
           "doc_qa",
           "智能文档问答（ONNX/llama.cpp）",
           {RequiredInput(kRawRequestIds), RequiredInput(kRawDocs),
            RequiredInput(kRawQueries)},
-          {Output(kLlmAnswers), Output(kIntentMatches), Output(kDocChunks)}},
+          {Output(kLlmAnswers), Output(kIntentMatches),
+           Output(kDocChunkCounts)}},
          {kDocQaRerankBusinessName,
           "doc_qa",
           "智能文档问答（精排）",
           {RequiredInput(kRawRequestIds), RequiredInput(kRawDocs),
            RequiredInput(kRawQueries)},
-          {Output(kLlmAnswers), Output(kIntentMatches), Output(kDocChunks)}}}};
+          {Output(kLlmAnswers), Output(kIntentMatches),
+           Output(kDocChunkCounts)}}}};
     return desc;
   }
 
@@ -122,7 +125,7 @@ class DocQaAdapter : public IBizAdapter {
 
     const auto* answers = ctx->Get(kLlmAnswers);
     const auto* intent_matches = ctx->Get(kIntentMatches);
-    const auto* doc_chunks = ctx->Get(kDocChunks);
+    const auto* chunk_counts = ctx->Get(kDocChunkCounts);
     const auto* raw_req_ids = ctx->Get(kRawRequestIds);
 
     if (!answers) {
@@ -146,7 +149,7 @@ class DocQaAdapter : public IBizAdapter {
     }
 
     if (!intent_matches ||
-        intent_matches->size() < static_cast<size_t>(count)) {
+        intent_matches->size() != static_cast<size_t>(count)) {
       if (out_status) {
         *out_status = AdapterStatus::InvalidInput(
             "intent_matches missing or count mismatch in AlgContext",
@@ -155,34 +158,33 @@ class DocQaAdapter : public IBizAdapter {
       return COMPANY_ALG_ERR_INVALID_INPUT;
     }
 
-    if (!doc_chunks) {
+    if (!chunk_counts || chunk_counts->size() != static_cast<size_t>(count)) {
       if (out_status) {
         *out_status = AdapterStatus::InvalidInput(
-            "doc_chunks missing in AlgContext", "doc_chunks", -1, BizName());
+            "doc_chunk_counts missing or count mismatch in AlgContext",
+            "doc_chunk_counts", -1, BizName());
+      }
+      return COMPANY_ALG_ERR_INVALID_INPUT;
+    }
+    if (!raw_req_ids || raw_req_ids->size() != static_cast<size_t>(count)) {
+      if (out_status) {
+        *out_status = AdapterStatus::InvalidInput(
+            "raw_request_ids missing or count mismatch in AlgContext",
+            "raw_request_ids", -1, BizName());
       }
       return COMPANY_ALG_ERR_INVALID_INPUT;
     }
 
-    const auto* chunk_counts = ctx->Get(kDocChunkCounts);
-
     for (int i = 0; i < count; ++i) {
       auto* out_ptr = static_cast<CompanyDocOutputStruct*>(outputs[i]);
-      uint64_t req_id =
-          (raw_req_ids && i < static_cast<int>(raw_req_ids->size()))
-              ? (*raw_req_ids)[i]
-              : (*answers)[i].req_id;
-      out_ptr->request_id = req_id;
+      out_ptr->request_id = (*raw_req_ids)[i];
 
       const auto& match = (*intent_matches)[i].data;
       const std::string& intent = match.category;
       float conf = match.score;
       out_ptr->confidence = conf;
 
-      if (chunk_counts && i < static_cast<int>(chunk_counts->size())) {
-        out_ptr->chunk_count = (*chunk_counts)[i].data;
-      } else {
-        out_ptr->chunk_count = static_cast<int32_t>(doc_chunks->size());
-      }
+      out_ptr->chunk_count = (*chunk_counts)[i].data;
       out_ptr->status_code = 0;
 
       if (!AdapterValidationHelper::CheckedStringCopy(

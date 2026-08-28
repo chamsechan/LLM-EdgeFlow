@@ -31,18 +31,23 @@ struct PortDefinition {
   std::string cardinality = "1:1";
   std::string provenance_policy = "preserve";
   std::string lifetime = "request";
+  // Optional instance config field overriding lifetime (for example the
+  // TextEmbeddingNode request/session cache policy).
+  std::string lifetime_config_field;
 
   PortDefinition() = default;
   PortDefinition(std::string k, std::string t, bool req = true,
                  bool allow_ovr = false, std::string card = "1:1",
-                 std::string prov = "preserve", std::string life = "request")
+                 std::string prov = "preserve", std::string life = "request",
+                 std::string life_config_field = {})
       : key(std::move(k)),
         type_id(std::move(t)),
         required(req),
         allow_override(allow_ovr),
         cardinality(std::move(card)),
         provenance_policy(std::move(prov)),
-        lifetime(std::move(life)) {}
+        lifetime(std::move(life)),
+        lifetime_config_field(std::move(life_config_field)) {}
 };
 
 template <typename T>
@@ -62,33 +67,33 @@ inline PortDefinition Output(const BlackboardKey<T>& key,
 }
 
 template <typename T>
-inline PortDefinition RequiredInputPort(std::string logical_name,
-                                        const BlackboardKey<T>& key_type,
-                                        std::string cardinality = "1:1",
-                                        std::string provenance = "preserve",
-                                        std::string lifetime = "request") {
+inline PortDefinition RequiredInputPort(
+    std::string logical_name, const BlackboardKey<T>& key_type,
+    std::string cardinality = "1:1", std::string provenance = "preserve",
+    std::string lifetime = "request", std::string lifetime_config_field = {}) {
   return PortDefinition{std::move(logical_name),
                         key_type.type_id,
                         true,
                         false,
                         std::move(cardinality),
                         std::move(provenance),
-                        std::move(lifetime)};
+                        std::move(lifetime),
+                        std::move(lifetime_config_field)};
 }
 
 template <typename T>
-inline PortDefinition OptionalInputPort(std::string logical_name,
-                                        const BlackboardKey<T>& key_type,
-                                        std::string cardinality = "1:1",
-                                        std::string provenance = "preserve",
-                                        std::string lifetime = "request") {
+inline PortDefinition OptionalInputPort(
+    std::string logical_name, const BlackboardKey<T>& key_type,
+    std::string cardinality = "1:1", std::string provenance = "preserve",
+    std::string lifetime = "request", std::string lifetime_config_field = {}) {
   return PortDefinition{std::move(logical_name),
                         key_type.type_id,
                         false,
                         false,
                         std::move(cardinality),
                         std::move(provenance),
-                        std::move(lifetime)};
+                        std::move(lifetime),
+                        std::move(lifetime_config_field)};
 }
 
 template <typename T>
@@ -97,11 +102,16 @@ inline PortDefinition OutputPort(std::string logical_name,
                                  bool allow_override = false,
                                  std::string cardinality = "1:1",
                                  std::string provenance = "preserve",
-                                 std::string lifetime = "request") {
-  return PortDefinition{
-      std::move(logical_name), key_type.type_id,       true,
-      allow_override,          std::move(cardinality), std::move(provenance),
-      std::move(lifetime)};
+                                 std::string lifetime = "request",
+                                 std::string lifetime_config_field = {}) {
+  return PortDefinition{std::move(logical_name),
+                        key_type.type_id,
+                        true,
+                        allow_override,
+                        std::move(cardinality),
+                        std::move(provenance),
+                        std::move(lifetime),
+                        std::move(lifetime_config_field)};
 }
 
 struct ConfigFieldDefinition {

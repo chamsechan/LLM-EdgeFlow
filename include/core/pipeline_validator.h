@@ -49,6 +49,9 @@ enum class DiagnosticCode {
   kNodeNotParallelSafe,
   kParallelWriteConflict,
   kSerializedEngineConcurrency,
+  kPortCardinalityMismatch,
+  kPortProvenanceMismatch,
+  kPortLifetimeMismatch,
   kInternalException,
 };
 
@@ -82,6 +85,9 @@ struct ResolvedPortBinding {
   std::string logical_name;
   std::string blackboard_key;
   std::string type_id;
+  std::string cardinality;
+  std::string provenance_policy;
+  std::string lifetime;
   PortDirection direction = PortDirection::kInput;
 };
 
@@ -98,6 +104,15 @@ struct ValidatedNodePlan {
       }
     }
     return {};
+  }
+
+  const ResolvedPortBinding* FindPort(
+      const std::string& logical_name,
+      PortDirection dir = PortDirection::kInput) const {
+    for (const auto& p : ports) {
+      if (p.logical_name == logical_name && p.direction == dir) return &p;
+    }
+    return nullptr;
   }
 };
 

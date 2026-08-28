@@ -3,6 +3,7 @@
 #include <exception>
 #include <memory>
 #include <nlohmann/json.hpp>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -183,23 +184,32 @@ class NodeBase : public INode {
   }
 
   template <typename T>
-  void BindPort(const NodeInitContext& init_ctx, BoundInput<T>& in_port) {
+  void BindPort(const NodeInitContext& init_ctx, BoundInput<T>& in_port) const {
     if (init_ctx.plan) {
-      std::string actual = init_ctx.plan->FindPortKey(in_port.LogicalName(),
-                                                      PortDirection::kInput);
-      if (!actual.empty()) {
-        in_port.Resolve(std::move(actual));
+      const auto* binding =
+          init_ctx.plan->FindPort(in_port.LogicalName(), PortDirection::kInput);
+      if (binding) {
+        if (binding->type_id != in_port.TypeId()) {
+          throw std::invalid_argument("Input port TypeId mismatch for " +
+                                      in_port.LogicalName());
+        }
+        in_port.Resolve(binding->blackboard_key);
       }
     }
   }
 
   template <typename T>
-  void BindPort(const NodeInitContext& init_ctx, BoundOutput<T>& out_port) {
+  void BindPort(const NodeInitContext& init_ctx,
+                BoundOutput<T>& out_port) const {
     if (init_ctx.plan) {
-      std::string actual = init_ctx.plan->FindPortKey(out_port.LogicalName(),
-                                                      PortDirection::kOutput);
-      if (!actual.empty()) {
-        out_port.Resolve(std::move(actual));
+      const auto* binding = init_ctx.plan->FindPort(out_port.LogicalName(),
+                                                    PortDirection::kOutput);
+      if (binding) {
+        if (binding->type_id != out_port.TypeId()) {
+          throw std::invalid_argument("Output port TypeId mismatch for " +
+                                      out_port.LogicalName());
+        }
+        out_port.Resolve(binding->blackboard_key);
       }
     }
   }
@@ -208,13 +218,7 @@ class NodeBase : public INode {
   BoundInput<T> BindInput(const NodeInitContext& init_ctx,
                           std::string logical_name) const {
     BoundInput<T> port(std::move(logical_name));
-    if (init_ctx.plan) {
-      std::string actual =
-          init_ctx.plan->FindPortKey(port.LogicalName(), PortDirection::kInput);
-      if (!actual.empty()) {
-        port.Resolve(std::move(actual));
-      }
-    }
+    BindPort(init_ctx, port);
     return port;
   }
 
@@ -222,13 +226,7 @@ class NodeBase : public INode {
   BoundOutput<T> BindOutput(const NodeInitContext& init_ctx,
                             std::string logical_name) const {
     BoundOutput<T> port(std::move(logical_name));
-    if (init_ctx.plan) {
-      std::string actual = init_ctx.plan->FindPortKey(port.LogicalName(),
-                                                      PortDirection::kOutput);
-      if (!actual.empty()) {
-        port.Resolve(std::move(actual));
-      }
-    }
+    BindPort(init_ctx, port);
     return port;
   }
 

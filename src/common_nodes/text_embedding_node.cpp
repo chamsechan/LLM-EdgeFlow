@@ -20,7 +20,7 @@ class TextEmbeddingNode final : public ModelBoundNode<IEmbeddingEngine> {
   inline static constexpr char kNodeType[] = "TextEmbeddingNode";
 
   TextEmbeddingNode()
-      : ModelBoundNode<IEmbeddingEngine>(kNodeType, "embed_model_v1"),
+      : ModelBoundNode<IEmbeddingEngine>(kNodeType),
         in_text_("text"),
         out_embedding_("embedding") {}
 
@@ -32,7 +32,8 @@ class TextEmbeddingNode final : public ModelBoundNode<IEmbeddingEngine> {
     BindPort(init_ctx, out_embedding_);
     normalize_ = config.value("normalize", true);
     lifetime_ = config.value("lifetime", "request");
-    bind_model_id_ = config.value("bind_model", "embed_model_v1");
+    if (lifetime_ != "request" && lifetime_ != "session") return false;
+    bind_model_id_ = model_id();
     session_ctx_ = &session_ctx;
     return true;
   }
@@ -51,7 +52,10 @@ class TextEmbeddingNode final : public ModelBoundNode<IEmbeddingEngine> {
 
     if (lifetime_ == "session" && session_ctx_) {
       std::string digest = ComputeDigest(*text_items);
+      const std::string model_revision =
+          session_ctx_->GetModelManager().GetModelRevision(bind_model_id_);
       std::string cache_key = "static_emb:" + bind_model_id_ + ":" +
+                              model_revision + ":" +
                               std::to_string(normalize_) + ":" + digest;
       int infer_err = 0;
       auto cached = session_ctx_->GetOrCreateResource<EmbeddingBatch>(
@@ -122,7 +126,7 @@ class TextEmbeddingNode final : public ModelBoundNode<IEmbeddingEngine> {
 
   bool normalize_ = true;
   std::string lifetime_ = "request";
-  std::string bind_model_id_ = "embed_model_v1";
+  std::string bind_model_id_;
   SessionContext* session_ctx_ = nullptr;
 
   BoundInput<TextBatch> in_text_;
@@ -136,10 +140,10 @@ NodeDefinition MakeTextEmbeddingNodeDefinition() {
   def.description = "Text embedding extraction node";
   def.inputs = {RequiredInputPort("text",
                                   BlackboardKey<TextBatch>{"", "TextBatch"},
-                                  "1:1", "preserve", "request")};
+                                  "N:M", "preserve", "request", "lifetime")};
   def.outputs = {OutputPort("embedding",
                             BlackboardKey<EmbeddingBatch>{"", "EmbeddingBatch"},
-                            false, "1:1", "preserve", "request")};
+                            false, "N:M", "preserve", "request", "lifetime")};
   def.config_fields = {
       ConfigFieldDefinition{"bind_model", ConfigValueKind::kString, false,
                             "embed_model_v1"},

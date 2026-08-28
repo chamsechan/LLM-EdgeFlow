@@ -56,20 +56,32 @@ class TextTemplateNode final : public NodeBase {
     std::unique_lock<std::shared_mutex> lock(rw_mutex_);
     template_str_ = config.value("template", "{{primary}}");
     separator_ = config.value("separator", "\n");
-    max_length_ = config.value("max_length", 65536);
+    const int64_t configured_max_length = config.value("max_length", 65536);
+    if (configured_max_length < 1 || configured_max_length > 1048576) {
+      return false;
+    }
+    max_length_ = static_cast<size_t>(configured_max_length);
     overflow_policy_ = config.value("overflow_policy", "fail");
+    if (overflow_policy_ != "fail" && overflow_policy_ != "truncate") {
+      return false;
+    }
 
     static_values_.clear();
-    if (config.contains("values") && config["values"].is_object()) {
+    if (config.contains("values")) {
+      if (!config["values"].is_object()) return false;
       for (auto it = config["values"].begin(); it != config["values"].end();
            ++it) {
-        if (it.value().is_string()) {
-          static_values_[it.key()] = it.value().get<std::string>();
-        }
+        if (!it.value().is_string()) return false;
+        static_values_[it.key()] = it.value().get<std::string>();
       }
     }
 
     missing_variable_policy_ = config.value("missing_variable_policy", "fail");
+    if (missing_variable_policy_ != "fail" &&
+        missing_variable_policy_ != "empty" &&
+        missing_variable_policy_ != "preserve") {
+      return false;
+    }
     allow_dynamic_attrs_ = in_attributes_.IsBound() ||
                            config.value("allow_dynamic_attributes", false);
 
@@ -87,18 +99,45 @@ class TextTemplateNode final : public NodeBase {
     if (cmd == kControlCmdUpdatePrompt) {
       try {
         nlohmann::json root = nlohmann::json::parse(json_param);
+        if (!root.is_object()) {
+          return NodeControlResult::Failed(-1,
+                                           "Control payload must be an object");
+        }
+        static const std::unordered_set<std::string> kAllowedFields = {
+            "template", "prompt_template",          "prompt_id",
+            "values",   "allow_dynamic_attributes", "missing_variable_policy"};
+        for (auto it = root.begin(); it != root.end(); ++it) {
+          if (!kAllowedFields.count(it.key())) {
+            return NodeControlResult::Failed(
+                -1, "Unknown field in Control payload: " + it.key());
+          }
+        }
         if (!root.contains("template") && !root.contains("prompt_template") &&
             !root.contains("values") &&
             !root.contains("allow_dynamic_attributes") &&
-            !root.contains("missing_variable_policy")) {
+            !root.contains("missing_variable_policy") &&
+            !root.contains("prompt_id")) {
           return NodeControlResult::Failed(
               -1, "No recognized update field in Control payload");
+        }
+        if ((root.contains("template") && !root["template"].is_string()) ||
+            (root.contains("prompt_template") &&
+             !root["prompt_template"].is_string()) ||
+            (root.contains("prompt_id") && !root["prompt_id"].is_string()) ||
+            (root.contains("values") && !root["values"].is_object()) ||
+            (root.contains("allow_dynamic_attributes") &&
+             !root["allow_dynamic_attributes"].is_boolean()) ||
+            (root.contains("missing_variable_policy") &&
+             !root["missing_variable_policy"].is_string())) {
+          return NodeControlResult::Failed(
+              -1, "Control payload field has an invalid type");
         }
 
         std::string new_tmpl;
         std::unordered_map<std::string, std::string> new_values;
         bool new_allow_dynamic = allow_dynamic_attrs_;
         std::string new_missing_policy = missing_variable_policy_;
+        std::string new_prompt_id = prompt_id_;
 
         {
           std::shared_lock<std::shared_mutex> lock(rw_mutex_);
@@ -106,6 +145,7 @@ class TextTemplateNode final : public NodeBase {
           new_values = static_values_;
           new_allow_dynamic = allow_dynamic_attrs_;
           new_missing_policy = missing_variable_policy_;
+          new_prompt_id = prompt_id_;
         }
 
         if (root.contains("template") && root["template"].is_string()) {
@@ -122,13 +162,23 @@ class TextTemplateNode final : public NodeBase {
             root["missing_variable_policy"].is_string()) {
           new_missing_policy =
               root["missing_variable_policy"].get<std::string>();
+          if (new_missing_policy != "fail" && new_missing_policy != "empty" &&
+              new_missing_policy != "preserve") {
+            return NodeControlResult::Failed(
+                -1, "Invalid missing_variable_policy in Control payload");
+          }
+        }
+        if (root.contains("prompt_id") && root["prompt_id"].is_string()) {
+          new_prompt_id = root["prompt_id"].get<std::string>();
         }
         if (root.contains("values") && root["values"].is_object()) {
           for (auto it = root["values"].begin(); it != root["values"].end();
                ++it) {
-            if (it.value().is_string()) {
-              new_values[it.key()] = it.value().get<std::string>();
+            if (!it.value().is_string()) {
+              return NodeControlResult::Failed(
+                  -1, "Control values entries must be strings");
             }
+            new_values[it.key()] = it.value().get<std::string>();
           }
         }
 
@@ -144,6 +194,7 @@ class TextTemplateNode final : public NodeBase {
         static_values_ = std::move(new_values);
         allow_dynamic_attrs_ = new_allow_dynamic;
         missing_variable_policy_ = std::move(new_missing_policy);
+        prompt_id_ = std::move(new_prompt_id);
         compiled_tokens_ = std::move(new_tokens);
         return NodeControlResult::Handled(0, "Template updated successfully");
       } catch (const std::exception& e) {
@@ -366,16 +417,8 @@ class TextTemplateNode final : public NodeBase {
       const std::unordered_map<std::string, std::string>& static_vals,
       bool allow_dynamic_attrs, std::vector<TemplateToken>* out_tokens) {
     static const std::unordered_set<std::string> kBuiltins = {
-        "primary",      "text",          "context",       "context_text",
-        "matches",      "document",      "document_text", "rules",
-        "rule_matches", "entities",      "risk_level",    "risk_score",
-        "doc_chunks",   "query",         "intent_name",   "confidence",
-        "speech_text",  "channel",       "channel_name",  "user_text",
-        "user_query",   "policy_clause", "invoice_code",  "invoice_number",
-        "total_amount", "tax_amount",    "purchaser",     "slots",
-        "intent",       "action",        "target",        "destination",
-        "avoid_toll",   "avoid_traffic", "temperature",   "fan_speed",
-        "mode",         "raw_query",     "prompt"};
+        "primary", "context",  "context_text",
+        "matches", "document", "document_text"};
 
     out_tokens->clear();
     size_t pos = 0;
@@ -461,6 +504,7 @@ class TextTemplateNode final : public NodeBase {
   size_t max_length_ = 65536;
   std::string overflow_policy_ = "fail";
   std::string missing_variable_policy_ = "fail";
+  std::string prompt_id_;
   bool allow_dynamic_attrs_ = false;
   std::unordered_map<std::string, std::string> static_values_;
   std::vector<TemplateToken> compiled_tokens_;
@@ -512,14 +556,20 @@ NodeDefinition MakeTextTemplateNodeDefinition() {
   def.control_commands = {ControlCommandDefinition(
       kControlCmdUpdatePrompt, "update_prompt",
       "Update template string dynamically",
-      nlohmann::json{{"type", "object"},
-                     {"properties",
-                      {{"template", {{"type", "string"}}},
-                       {"prompt_template", {{"type", "string"}}},
-                       {"prompt_id", {{"type", "string"}}},
-                       {"values", {{"type", "object"}}},
-                       {"allow_dynamic_attributes", {{"type", "boolean"}}},
-                       {"missing_variable_policy", {{"type", "string"}}}}}},
+      nlohmann::json{
+          {"type", "object"},
+          {"minProperties", 1},
+          {"additionalProperties", false},
+          {"properties",
+           {{"template", {{"type", "string"}}},
+            {"prompt_template", {{"type", "string"}}},
+            {"prompt_id", {{"type", "string"}}},
+            {"values",
+             {{"type", "object"},
+              {"additionalProperties", {{"type", "string"}}}}},
+            {"allow_dynamic_attributes", {{"type", "boolean"}}},
+            {"missing_variable_policy",
+             {{"type", "string"}, {"enum", {"fail", "empty", "preserve"}}}}}}},
       true)};
   def.config_fields = {
       ConfigFieldDefinition{"template", ConfigValueKind::kString, false,

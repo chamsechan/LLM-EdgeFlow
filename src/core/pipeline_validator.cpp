@@ -79,6 +79,12 @@ const char* DiagnosticCodeName(DiagnosticCode code) noexcept {
       return "PARALLEL_WRITE_CONFLICT";
     case DiagnosticCode::kSerializedEngineConcurrency:
       return "SERIALIZED_ENGINE_CONCURRENCY";
+    case DiagnosticCode::kPortCardinalityMismatch:
+      return "PORT_CARDINALITY_MISMATCH";
+    case DiagnosticCode::kPortProvenanceMismatch:
+      return "PORT_PROVENANCE_MISMATCH";
+    case DiagnosticCode::kPortLifetimeMismatch:
+      return "PORT_LIFETIME_MISMATCH";
     case DiagnosticCode::kInternalException:
       return "INTERNAL_EXCEPTION";
   }
@@ -162,6 +168,84 @@ bool MatchesKind(const nlohmann::json& value, ConfigValueKind kind) {
       return value.is_array();
   }
   return false;
+}
+
+PortDefinition EffectivePortDefinition(const PortDefinition& declared,
+                                       const NodeDefinition& node_definition,
+                                       const nlohmann::json& node_config) {
+  PortDefinition effective = declared;
+  if (declared.lifetime_config_field.empty()) return effective;
+
+  const auto& field_name = declared.lifetime_config_field;
+  if (node_config.contains(field_name) && node_config[field_name].is_string()) {
+    effective.lifetime = node_config[field_name].get<std::string>();
+    return effective;
+  }
+  auto field =
+      std::find_if(node_definition.config_fields.begin(),
+                   node_definition.config_fields.end(),
+                   [&](const auto& item) { return item.name == field_name; });
+  if (field != node_definition.config_fields.end() &&
+      field->default_value.is_string()) {
+    effective.lifetime = field->default_value.get<std::string>();
+  }
+  return effective;
+}
+
+bool CardinalityCompatible(const std::string& producer,
+                           const std::string& consumer) {
+  if (producer == consumer || producer == "N:M" || consumer == "N:M") {
+    return true;
+  }
+  return consumer == "N:1";
+}
+
+bool ProvenanceCompatible(const std::string& producer,
+                          const std::string& consumer) {
+  if (consumer == "preserve" || consumer == "aggregate") return true;
+  return producer == consumer;
+}
+
+int LifetimeRank(const std::string& lifetime) {
+  if (lifetime == "request") return 0;
+  if (lifetime == "session") return 1;
+  if (lifetime == "global") return 2;
+  return -1;
+}
+
+bool LifetimeCompatible(const std::string& producer,
+                        const std::string& consumer) {
+  return LifetimeRank(producer) >= LifetimeRank(consumer);
+}
+
+void ValidatePortFlowContract(const PortDefinition& producer,
+                              const PortDefinition& consumer,
+                              const ParsedNodeConfig& node,
+                              const std::string& logical_port,
+                              const std::string& producer_id,
+                              ValidationReport* report) {
+  const std::string path = "/pipeline/" + std::to_string(node.source_index) +
+                           "/ports/inputs/" + logical_port;
+  if (!CardinalityCompatible(producer.cardinality, consumer.cardinality)) {
+    Add(report, DiagnosticCode::kPortCardinalityMismatch, path,
+        "Port cardinality mismatch: producer '" + producer.cardinality +
+            "' cannot feed consumer '" + consumer.cardinality + "'",
+        node.id, logical_port, {producer_id});
+  }
+  if (!ProvenanceCompatible(producer.provenance_policy,
+                            consumer.provenance_policy)) {
+    Add(report, DiagnosticCode::kPortProvenanceMismatch, path,
+        "Port provenance mismatch: producer policy '" +
+            producer.provenance_policy + "' cannot satisfy consumer policy '" +
+            consumer.provenance_policy + "'",
+        node.id, logical_port, {producer_id});
+  }
+  if (!LifetimeCompatible(producer.lifetime, consumer.lifetime)) {
+    Add(report, DiagnosticCode::kPortLifetimeMismatch, path,
+        "Port lifetime mismatch: producer lifetime '" + producer.lifetime +
+            "' is shorter than consumer lifetime '" + consumer.lifetime + "'",
+        node.id, logical_port, {producer_id});
+  }
 }
 
 void ValidateConfigFields(const std::vector<ConfigFieldDefinition>& definitions,
@@ -420,8 +504,6 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
               field->default_value.is_string() &&
               !field->default_value.get<std::string>().empty()) {
             model_id = field->default_value.get<std::string>();
-          } else if (parsed.models.size() == 1) {
-            model_id = parsed.models.front().model_id;
           }
         }
         auto capability = model_capabilities.find(model_id);
@@ -520,7 +602,9 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
     }
 
     std::unordered_set<std::string> bound_input_ports;
-    for (const auto& input : definition.inputs) {
+    for (const auto& declared_input : definition.inputs) {
+      const auto input =
+          EffectivePortDefinition(declared_input, definition, node.config);
       std::string actual_key = input.key;
       bool explicitly_bound = false;
       auto port_it = node.ports.inputs.find(input.key);
@@ -532,24 +616,36 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
         bound_input_ports.insert(input.key);
       }
 
-      node_plan.ports.push_back(
-          {input.key, actual_key, input.type_id, PortDirection::kInput});
+      node_plan.ports.push_back({input.key, actual_key, input.type_id,
+                                 input.cardinality, input.provenance_policy,
+                                 input.lifetime, PortDirection::kInput});
 
       if (!input.required && !explicitly_bound) continue;
       bool found = false;
-      auto root_port = ingress.find(actual_key);
-      if (root_port != ingress.end() &&
-          root_port->second.type_id == input.type_id) {
-        found = true;
-      }
       auto producer_it = producers.find(actual_key);
       if (producer_it != producers.end()) {
-        for (const auto& producer : producer_it->second) {
-          if (is_ancestor(producer.first, id) &&
-              producer.second.type_id == input.type_id) {
-            found = true;
+        // Blackboard keys use last-writer semantics. Resolve the nearest
+        // topologically preceding ancestor, including its type, instead of
+        // accepting an older producer that is shadowed at runtime.
+        for (auto it = producer_it->second.rbegin();
+             it != producer_it->second.rend(); ++it) {
+          if (is_ancestor(it->first, id)) {
+            if (it->second.type_id == input.type_id) {
+              found = true;
+              ValidatePortFlowContract(it->second, input, node, input.key,
+                                       it->first, &report);
+            }
             break;
           }
+        }
+      }
+      if (!found && producer_it == producers.end()) {
+        auto root_port = ingress.find(actual_key);
+        if (root_port != ingress.end() &&
+            root_port->second.type_id == input.type_id) {
+          found = true;
+          ValidatePortFlowContract(root_port->second, input, node, input.key,
+                                   "$ingress", &report);
         }
       }
       if (!found && business) {
@@ -645,15 +741,18 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
       }
     }
 
-    for (const auto& output : definition.outputs) {
+    for (const auto& declared_output : definition.outputs) {
+      const auto output =
+          EffectivePortDefinition(declared_output, definition, node.config);
       std::string actual_key = output.key;
       auto port_it = node.ports.outputs.find(output.key);
       if (port_it != node.ports.outputs.end()) {
         actual_key = port_it->second;
       }
 
-      node_plan.ports.push_back(
-          {output.key, actual_key, output.type_id, PortDirection::kOutput});
+      node_plan.ports.push_back({output.key, actual_key, output.type_id,
+                                 output.cardinality, output.provenance_policy,
+                                 output.lifetime, PortDirection::kOutput});
 
       auto& existing = producers[actual_key];
       if (!existing.empty() && !output.allow_override) {
@@ -663,8 +762,9 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
                 actual_key,
             id, output.key, {existing.back().first});
       }
-      existing.push_back({id, PortDefinition{actual_key, output.type_id, true,
-                                             output.allow_override}});
+      PortDefinition resolved_output = output;
+      resolved_output.key = actual_key;
+      existing.push_back({id, std::move(resolved_output)});
     }
 
     plan.node_plans[id] = std::move(node_plan);
@@ -674,11 +774,8 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
     for (const auto& required : business->egress) {
       bool found = false;
       auto it = producers.find(required.key);
-      if (it != producers.end()) {
-        found = std::any_of(
-            it->second.begin(), it->second.end(), [&](const auto& producer) {
-              return producer.second.type_id == required.type_id;
-            });
+      if (it != producers.end() && !it->second.empty()) {
+        found = it->second.back().second.type_id == required.type_id;
       }
       if (!found) {
         Add(&report, DiagnosticCode::kMissingBizOutput, "/pipeline",

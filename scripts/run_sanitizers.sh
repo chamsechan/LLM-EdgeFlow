@@ -95,6 +95,17 @@ if [[ "${MODE}" == "fast" ]]; then
     test_operator_value_registry
     test_pipeline_config
     test_pipeline_studio
+    test_text_chunk_node
+    test_text_embedding_node
+    test_vector_top_k_node
+    test_text_rerank_node
+    test_text_template_node
+    test_llm_generate_node
+    test_asr_transcribe_node
+    test_ocr_detect_node
+    test_text_rule_match_node
+    test_structured_json_parse_node
+    test_text_corpus_source_node
     test_typed_blackboard_contracts
     test_validated_pipeline_plan
   )
@@ -132,9 +143,9 @@ if [[ "${SANITIZERS}" == *"thread"* ]] && [[ "$(uname -s)" == "Linux" ]] && [[ "
 fi
 
 if [ "${MODE}" == "fast" ]; then
-  FAST_TEST_REGEX="^(BatchExecutorTest|FrameworkCoreTest|CAbiSafetyTest|ConcurrencyAndEdgeCasesTest|AdapterContractSecurityTest|PipelineConfigTest|PipelineStudioTest|OperatorApiTest|OperatorOutputPoolTest|OperatorValueRegistryTest|OperatorBizBridgeRegistryTest|VisualizerServerTest|TypedBlackboardContractsTest|ValidatedPipelinePlanTest|NodeBaseContractsTest|DefinitionSchemaValidationTest|CommonNodesTest|OperatorGoldenTest|AdapterPurityTest)$"
+  FAST_TEST_REGEX="^(BatchExecutorTest|FrameworkCoreTest|CAbiSafetyTest|ConcurrencyAndEdgeCasesTest|AdapterContractSecurityTest|PipelineConfigTest|PipelineStudioTest|OperatorApiTest|OperatorOutputPoolTest|OperatorValueRegistryTest|OperatorBizBridgeRegistryTest|VisualizerServerTest|TypedBlackboardContractsTest|ValidatedPipelinePlanTest|NodeBaseContractsTest|DefinitionSchemaValidationTest|CommonNodesTest|OperatorGoldenTest|AdapterPurityTest|TextChunkNodeTest|TextEmbeddingNodeTest|VectorTopKNodeTest|TextRerankNodeTest|TextTemplateNodeTest|LlmGenerateNodeTest|AsrTranscribeNodeTest|OcrDetectNodeTest|TextRuleMatchNodeTest|StructuredJsonParseNodeTest|TextCorpusSourceNodeTest)$"
   if [[ "${DETECT_LEAKS:-0}" == "1" ]] || [[ "${SANITIZERS}" == *"thread"* ]]; then
-    FAST_TEST_REGEX="^(BatchExecutorTest|FrameworkCoreTest|CAbiSafetyTest|ConcurrencyAndEdgeCasesTest|AdapterContractSecurityTest|PipelineConfigTest|PipelineStudioTest|OperatorApiTest|OperatorOutputPoolTest|OperatorValueRegistryTest|OperatorBizBridgeRegistryTest|TypedBlackboardContractsTest|ValidatedPipelinePlanTest|NodeBaseContractsTest|DefinitionSchemaValidationTest|CommonNodesTest|OperatorGoldenTest|AdapterPurityTest)$"
+    FAST_TEST_REGEX="^(BatchExecutorTest|FrameworkCoreTest|CAbiSafetyTest|ConcurrencyAndEdgeCasesTest|AdapterContractSecurityTest|PipelineConfigTest|PipelineStudioTest|OperatorApiTest|OperatorOutputPoolTest|OperatorValueRegistryTest|OperatorBizBridgeRegistryTest|TypedBlackboardContractsTest|ValidatedPipelinePlanTest|NodeBaseContractsTest|DefinitionSchemaValidationTest|CommonNodesTest|OperatorGoldenTest|AdapterPurityTest|TextChunkNodeTest|TextEmbeddingNodeTest|VectorTopKNodeTest|TextRerankNodeTest|TextTemplateNodeTest|LlmGenerateNodeTest|AsrTranscribeNodeTest|OcrDetectNodeTest|TextRuleMatchNodeTest|StructuredJsonParseNodeTest|TextCorpusSourceNodeTest)$"
   fi
   echo ">>> [1/2] Running fast sanitized test suites: ${FAST_TEST_REGEX} <<<"
   "${ARCH_PREFIX[@]}" ctest --test-dir "${BUILD_DIR}" -j"$(nproc)" -R "${FAST_TEST_REGEX}" --output-on-failure

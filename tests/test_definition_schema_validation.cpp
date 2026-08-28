@@ -365,6 +365,24 @@ TEST(DefinitionSchemaValidationTest, RejectsInvalidDefinitionAtRegistration) {
   invalid_cmd_def.control_commands = {
       ControlCommandDefinition(0, "invalid_cmd")};  // id <= 0
   EXPECT_FALSE(PipelineCatalog::RegisterNodeDefinition(invalid_cmd_def));
+
+  // 12. A dynamic lifetime must reference a declared string enum containing
+  // only framework lifetimes.
+  NodeDefinition invalid_lifetime_override;
+  invalid_lifetime_override.node_type = "InvalidLifetimeOverrideNode";
+  invalid_lifetime_override.inputs = {PortDefinition{"text", "TextBatch", true,
+                                                     false, "1:1", "preserve",
+                                                     "request", "lifetime"}};
+  invalid_lifetime_override.config_fields = {
+      ConfigFieldDefinition{"lifetime",
+                            ConfigValueKind::kString,
+                            false,
+                            "forever",
+                            std::nullopt,
+                            std::nullopt,
+                            {"request", "forever"}}};
+  EXPECT_FALSE(
+      PipelineCatalog::RegisterNodeDefinition(invalid_lifetime_override));
 }
 
 TEST(DefinitionSchemaValidationTest, NodeToJsonExportsConstraintsAndCommands) {
@@ -381,6 +399,12 @@ TEST(DefinitionSchemaValidationTest, NodeToJsonExportsConstraintsAndCommands) {
   EXPECT_TRUE(rule_json.contains("control_commands"));
   EXPECT_TRUE(rule_json["control_commands"].is_array());
   EXPECT_FALSE(rule_json["control_commands"].empty());
+
+  const auto* embedding_def = PipelineCatalog::FindNode("TextEmbeddingNode");
+  ASSERT_NE(embedding_def, nullptr);
+  auto embedding_json = PipelineCatalog::NodeToJson(*embedding_def);
+  ASSERT_FALSE(embedding_json["inputs"].empty());
+  EXPECT_EQ(embedding_json["inputs"][0]["lifetime_config_field"], "lifetime");
 }
 
 TEST(DefinitionSchemaValidationTest, ProductionCatalogSelfCheck) {

@@ -53,9 +53,9 @@ TEST_F(AdapterPurityTest, DocQaAdapterPurity) {
                        RuleMatchItem(1, "GENERAL_QA", "query", "{}", 0.95f));
   ctx.Set(kIntentMatches, std::move(intents));
 
-  TextBatch chunks;
-  chunks.emplace_back(0, 0, "Doc Chunk 1");
-  ctx.Set(kDocChunks, std::move(chunks));
+  Int32Batch chunk_counts;
+  chunk_counts.emplace_back(0, 0, 1);
+  ctx.Set(kDocChunkCounts, std::move(chunk_counts));
 
   CompanyDocOutputStruct out{};
   void* outputs[] = {&out};
@@ -315,10 +315,18 @@ TEST_F(AdapterPurityTest, DocQaAdapter_FailClosedWhenMissingOutputs) {
   EXPECT_EQ(adapter->Pack(&ctx, outputs, &num_out, &status),
             COMPANY_ALG_ERR_INVALID_INPUT);
 
-  // Case 3: has intent_matches but missing doc_chunks -> MUST fail-closed
+  // Case 3: has intent_matches but missing explicit per-request chunk counts
+  // -> MUST fail-closed (the adapter may not derive business data).
   RuleMatchBatch intents;
   intents.emplace_back(0, 0, RuleMatchItem(1, "GENERAL_QA", "", "{}", 0.9f));
   ctx.Set(kIntentMatches, std::move(intents));
+  EXPECT_EQ(adapter->Pack(&ctx, outputs, &num_out, &status),
+            COMPANY_ALG_ERR_INVALID_INPUT);
+
+  // Case 4: all business outputs exist but input request provenance is absent.
+  Int32Batch chunk_counts;
+  chunk_counts.emplace_back(0, 0, 1);
+  ctx.Set(kDocChunkCounts, std::move(chunk_counts));
   EXPECT_EQ(adapter->Pack(&ctx, outputs, &num_out, &status),
             COMPANY_ALG_ERR_INVALID_INPUT);
 }

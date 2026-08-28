@@ -18,7 +18,7 @@ class OcrDetectNode final : public ModelBoundNode<IOcrEngine> {
   inline static constexpr char kNodeType[] = "OcrDetectNode";
 
   OcrDetectNode()
-      : ModelBoundNode<IOcrEngine>(kNodeType, "ocr_model_v1"),
+      : ModelBoundNode<IOcrEngine>(kNodeType),
         in_images_("images"),
         out_doc_("document"),
         out_text_("text") {}

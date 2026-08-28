@@ -1,7 +1,10 @@
 #include "core/pipeline.h"
 
+#include <algorithm>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <future>
 #include <iostream>
 #include <queue>
@@ -50,6 +53,9 @@ PipelineErrorCode ValidationCodeToPipelineCode(DiagnosticCode code) {
     case DiagnosticCode::kNodeNotParallelSafe:
     case DiagnosticCode::kParallelWriteConflict:
     case DiagnosticCode::kSerializedEngineConcurrency:
+    case DiagnosticCode::kPortCardinalityMismatch:
+    case DiagnosticCode::kPortProvenanceMismatch:
+    case DiagnosticCode::kPortLifetimeMismatch:
       return PipelineErrorCode::kInvalidCombination;
     case DiagnosticCode::kDuplicateModelId:
       return PipelineErrorCode::kDuplicateModelId;
@@ -337,9 +343,12 @@ bool Pipeline::BuildInternal(const nlohmann::json& root_config,
       return false;
     }
 
+    const std::string model_revision = std::to_string(std::hash<std::string>{}(
+        model_cfg.engine_type + "\n" + resolved_model_path + "\n" +
+        custom_cfg.dump()));
     if (!session_ctx_.GetModelManager().RegisterModel(
             model_cfg.model_id,
-            std::shared_ptr<IModelEngine>(std::move(engine)))) {
+            std::shared_ptr<IModelEngine>(std::move(engine)), model_revision)) {
       if (diagnostic) {
         diagnostic->code = PipelineErrorCode::kDuplicateModelId;
         diagnostic->path =
@@ -551,75 +560,84 @@ bool ValidatePayloadSchema(const nlohmann::json& payload,
                            const nlohmann::json& schema, std::string* err_msg) {
   if (schema.empty() || !schema.is_object()) return true;
 
+  const auto fail = [&](const std::string& message) {
+    if (err_msg) *err_msg = message;
+    return false;
+  };
+
   if (schema.contains("type") && schema["type"].is_string()) {
-    std::string expected_type = schema["type"].get<std::string>();
-    if (expected_type == "object" && !payload.is_object()) {
-      if (err_msg) *err_msg = "Payload root must be an object";
-      return false;
-    }
-    if (expected_type == "array" && !payload.is_array()) {
-      if (err_msg) *err_msg = "Payload root must be an array";
-      return false;
-    }
-    if (expected_type == "string" && !payload.is_string()) {
-      if (err_msg) *err_msg = "Payload root must be a string";
-      return false;
-    }
+    const std::string type = schema["type"].get<std::string>();
+    const bool matches = (type == "object" && payload.is_object()) ||
+                         (type == "array" && payload.is_array()) ||
+                         (type == "string" && payload.is_string()) ||
+                         (type == "boolean" && payload.is_boolean()) ||
+                         (type == "number" && payload.is_number()) ||
+                         (type == "integer" && payload.is_number_integer()) ||
+                         (type == "null" && payload.is_null());
+    if (!matches)
+      return fail("Control payload does not match type '" + type + "'");
+  }
+
+  if (schema.contains("enum") && schema["enum"].is_array() &&
+      std::find(schema["enum"].begin(), schema["enum"].end(), payload) ==
+          schema["enum"].end()) {
+    return fail("Control payload value is not in the allowed enum");
   }
 
   if (payload.is_object()) {
-    // Check required fields
+    if (schema.contains("minProperties") &&
+        schema["minProperties"].is_number_integer()) {
+      const auto minimum = schema["minProperties"].get<int64_t>();
+      if (minimum >= 0 && payload.size() < static_cast<size_t>(minimum)) {
+        return fail("Control payload has fewer properties than required");
+      }
+    }
+
     if (schema.contains("required") && schema["required"].is_array()) {
       for (const auto& req : schema["required"]) {
         if (req.is_string()) {
           std::string req_key = req.get<std::string>();
           if (!payload.contains(req_key)) {
-            if (err_msg)
-              *err_msg =
-                  "Missing required field in control payload: " + req_key;
-            return false;
+            return fail("Missing required field in control payload: " +
+                        req_key);
           }
         }
       }
     }
 
-    // Check properties types
-    if (schema.contains("properties") && schema["properties"].is_object()) {
-      for (auto it = schema["properties"].begin();
-           it != schema["properties"].end(); ++it) {
-        if (payload.contains(it.key())) {
-          const auto& prop_val = payload[it.key()];
-          const auto& prop_schema = it.value();
-          if (prop_schema.is_object() && prop_schema.contains("type") &&
-              prop_schema["type"].is_string()) {
-            std::string ptype = prop_schema["type"].get<std::string>();
-            if (ptype == "string" && !prop_val.is_string()) {
-              if (err_msg)
-                *err_msg = "Property '" + it.key() + "' must be a string";
-              return false;
-            }
-            if (ptype == "object" && !prop_val.is_object()) {
-              if (err_msg)
-                *err_msg = "Property '" + it.key() + "' must be an object";
-              return false;
-            }
-            if (ptype == "array" && !prop_val.is_array()) {
-              if (err_msg)
-                *err_msg = "Property '" + it.key() + "' must be an array";
-              return false;
-            }
-            if (ptype == "boolean" && !prop_val.is_boolean()) {
-              if (err_msg)
-                *err_msg = "Property '" + it.key() + "' must be a boolean";
-              return false;
-            }
-            if (ptype == "number" && !prop_val.is_number()) {
-              if (err_msg)
-                *err_msg = "Property '" + it.key() + "' must be a number";
-              return false;
-            }
+    const nlohmann::json empty_properties = nlohmann::json::object();
+    const auto& properties =
+        schema.contains("properties") && schema["properties"].is_object()
+            ? schema["properties"]
+            : empty_properties;
+    for (auto it = payload.begin(); it != payload.end(); ++it) {
+      if (properties.contains(it.key())) {
+        std::string nested_error;
+        if (!ValidatePayloadSchema(it.value(), properties[it.key()],
+                                   &nested_error)) {
+          return fail("Property '" + it.key() + "': " + nested_error);
+        }
+      } else if (schema.contains("additionalProperties")) {
+        const auto& additional = schema["additionalProperties"];
+        if (additional.is_boolean() && !additional.get<bool>()) {
+          return fail("Unknown property in control payload: " + it.key());
+        }
+        if (additional.is_object()) {
+          std::string nested_error;
+          if (!ValidatePayloadSchema(it.value(), additional, &nested_error)) {
+            return fail("Property '" + it.key() + "': " + nested_error);
           }
         }
+      }
+    }
+  }
+
+  if (payload.is_array() && schema.contains("items") &&
+      schema["items"].is_object()) {
+    for (size_t i = 0; i < payload.size(); ++i) {
+      std::string nested_error;
+      if (!ValidatePayloadSchema(payload[i], schema["items"], &nested_error)) {
+        return fail("Array item " + std::to_string(i) + ": " + nested_error);
       }
     }
   }

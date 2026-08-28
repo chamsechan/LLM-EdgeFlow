@@ -31,13 +31,17 @@ std::mutex& CatalogMutex() {
 }
 
 nlohmann::json PortJson(const PortDefinition& port) {
-  return {{"key", port.key},
-          {"type_id", port.type_id},
-          {"required", port.required},
-          {"allow_override", port.allow_override},
-          {"cardinality", port.cardinality},
-          {"provenance_policy", port.provenance_policy},
-          {"lifetime", port.lifetime}};
+  nlohmann::json result = {{"key", port.key},
+                           {"type_id", port.type_id},
+                           {"required", port.required},
+                           {"allow_override", port.allow_override},
+                           {"cardinality", port.cardinality},
+                           {"provenance_policy", port.provenance_policy},
+                           {"lifetime", port.lifetime}};
+  if (!port.lifetime_config_field.empty()) {
+    result["lifetime_config_field"] = port.lifetime_config_field;
+  }
+  return result;
 }
 
 nlohmann::json ConstraintJson(const PortGroupConstraint& constraint) {
@@ -236,6 +240,25 @@ bool PipelineCatalog::RegisterNodeDefinition(const NodeDefinition& definition) {
   std::unordered_set<std::string> seen_field_names;
   for (const auto& field : definition.config_fields) {
     if (!ValidateFieldDefinition(field, seen_field_names)) return false;
+  }
+  const auto validates_lifetime_override = [&](const PortDefinition& port) {
+    if (port.lifetime_config_field.empty()) return true;
+    auto it = std::find_if(
+        definition.config_fields.begin(), definition.config_fields.end(),
+        [&](const auto& f) { return f.name == port.lifetime_config_field; });
+    if (it == definition.config_fields.end() ||
+        it->kind != ConfigValueKind::kString || it->enum_values.empty()) {
+      return false;
+    }
+    return std::all_of(
+        it->enum_values.begin(), it->enum_values.end(),
+        [&](const auto& value) { return kValidLifetimes.count(value) != 0; });
+  };
+  if (!std::all_of(definition.inputs.begin(), definition.inputs.end(),
+                   validates_lifetime_override) ||
+      !std::all_of(definition.outputs.begin(), definition.outputs.end(),
+                   validates_lifetime_override)) {
+    return false;
   }
   if (!definition.model_capability.empty()) {
     if (definition.model_config_field.empty()) return false;

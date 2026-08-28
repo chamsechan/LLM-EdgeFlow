@@ -1,6 +1,7 @@
 #include <iostream>
 #include <nlohmann/json.hpp>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #include "core/common_contracts.h"
@@ -28,24 +29,31 @@ class StructuredJsonParseNode final : public NodeBase {
     fallback_json_ = config.value("fallback_json", "{}");
     extract_json_block_ = config.value("extract_json_block", true);
     failure_policy_ = config.value("failure_policy", "configured_fallback");
+    if (failure_policy_ != "fail" && failure_policy_ != "emit_diagnostic" &&
+        failure_policy_ != "configured_fallback") {
+      return false;
+    }
 
     required_fields_.clear();
-    if (config.contains("required_fields") &&
-        config["required_fields"].is_array()) {
+    if (config.contains("required_fields")) {
+      if (!config["required_fields"].is_array()) return false;
       for (const auto& f : config["required_fields"]) {
-        if (f.is_string()) {
-          required_fields_.push_back(f.get<std::string>());
-        }
+        if (!f.is_string() || f.get<std::string>().empty()) return false;
+        required_fields_.push_back(f.get<std::string>());
       }
     }
 
     field_types_.clear();
-    if (config.contains("field_types") && config["field_types"].is_object()) {
+    if (config.contains("field_types")) {
+      if (!config["field_types"].is_object()) return false;
       for (auto it = config["field_types"].begin();
            it != config["field_types"].end(); ++it) {
-        if (it.value().is_string()) {
-          field_types_[it.key()] = it.value().get<std::string>();
-        }
+        static const std::unordered_set<std::string> kSupportedTypes = {
+            "string", "number", "boolean", "object", "array"};
+        if (!it.value().is_string()) return false;
+        const auto type_name = it.value().get<std::string>();
+        if (!kSupportedTypes.count(type_name)) return false;
+        field_types_[it.key()] = type_name;
       }
     }
 
@@ -55,6 +63,13 @@ class StructuredJsonParseNode final : public NodeBase {
     } catch (const std::exception& e) {
       std::cerr << "[StructuredJsonParseNode] Invalid fallback_json: "
                 << e.what() << std::endl;
+      return false;
+    }
+    if (failure_policy_ != "fail" &&
+        !ValidateStructuredFields(fallback_structured_, nullptr)) {
+      std::cerr << "[StructuredJsonParseNode] fallback_json does not satisfy "
+                   "required_fields/field_types"
+                << std::endl;
       return false;
     }
     return true;
@@ -78,55 +93,9 @@ class StructuredJsonParseNode final : public NodeBase {
 
       bool ok = ParseOrExtractJson(item.data, &parsed_json_str,
                                    &parsed_structured, &status, &diag);
-      if (ok && !required_fields_.empty()) {
-        for (const auto& rf : required_fields_) {
-          if (!parsed_structured.is_object() ||
-              !parsed_structured.contains(rf)) {
-            ok = false;
-            diag = "Missing required structured field: " + rf;
-            status = JsonParseStatus::kFailed;
-            break;
-          }
-        }
-      }
-
-      if (ok && !field_types_.empty()) {
-        for (const auto& [fname, ftype] : field_types_) {
-          if (!parsed_structured.is_object() ||
-              !parsed_structured.contains(fname)) {
-            ok = false;
-            diag = "Missing field for type check: " + fname;
-            status = JsonParseStatus::kFailed;
-            break;
-          }
-          const auto& val = parsed_structured[fname];
-          if (ftype == "string" && !val.is_string()) {
-            ok = false;
-            diag = "Field '" + fname + "' type mismatch, expected string";
-            status = JsonParseStatus::kFailed;
-            break;
-          } else if (ftype == "number" && !val.is_number()) {
-            ok = false;
-            diag = "Field '" + fname + "' type mismatch, expected number";
-            status = JsonParseStatus::kFailed;
-            break;
-          } else if (ftype == "boolean" && !val.is_boolean()) {
-            ok = false;
-            diag = "Field '" + fname + "' type mismatch, expected boolean";
-            status = JsonParseStatus::kFailed;
-            break;
-          } else if (ftype == "object" && !val.is_object()) {
-            ok = false;
-            diag = "Field '" + fname + "' type mismatch, expected object";
-            status = JsonParseStatus::kFailed;
-            break;
-          } else if (ftype == "array" && !val.is_array()) {
-            ok = false;
-            diag = "Field '" + fname + "' type mismatch, expected array";
-            status = JsonParseStatus::kFailed;
-            break;
-          }
-        }
+      if (ok && !ValidateStructuredFields(parsed_structured, &diag)) {
+        ok = false;
+        status = JsonParseStatus::kFailed;
       }
 
       if (!ok) {
@@ -159,6 +128,37 @@ class StructuredJsonParseNode final : public NodeBase {
   }
 
  private:
+  bool ValidateStructuredFields(const nlohmann::json& document,
+                                std::string* diagnostic) const {
+    for (const auto& field : required_fields_) {
+      if (!document.is_object() || !document.contains(field)) {
+        if (diagnostic) {
+          *diagnostic = "Missing required structured field: " + field;
+        }
+        return false;
+      }
+    }
+    for (const auto& [field, type] : field_types_) {
+      if (!document.is_object() || !document.contains(field)) {
+        if (diagnostic) *diagnostic = "Missing field for type check: " + field;
+        return false;
+      }
+      const auto& value = document[field];
+      const bool matches = (type == "string" && value.is_string()) ||
+                           (type == "number" && value.is_number()) ||
+                           (type == "boolean" && value.is_boolean()) ||
+                           (type == "object" && value.is_object()) ||
+                           (type == "array" && value.is_array());
+      if (!matches) {
+        if (diagnostic) {
+          *diagnostic = "Field '" + field + "' type mismatch, expected " + type;
+        }
+        return false;
+      }
+    }
+    return true;
+  }
+
   bool ParseOrExtractJson(const std::string& input, std::string* out_json,
                           nlohmann::json* out_structured,
                           JsonParseStatus* out_status,

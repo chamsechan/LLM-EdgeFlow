@@ -16,23 +16,19 @@ class TraceableUnaryInferenceNode : public ModelBoundNode<EngineCapability> {
   using OutputBatch = std::vector<TraceableItem<Output>>;
 
   TraceableUnaryInferenceNode(std::string node_name,
-                              std::string default_model_id,
                               std::string input_port_name,
                               std::string output_port_name,
                               int missing_input_error)
-      : ModelBoundNode<EngineCapability>(std::move(node_name),
-                                         std::move(default_model_id)),
+      : ModelBoundNode<EngineCapability>(std::move(node_name)),
         in_port_(std::move(input_port_name)),
         out_port_(std::move(output_port_name)),
         missing_input_error_(missing_input_error) {}
 
   TraceableUnaryInferenceNode(std::string node_name,
-                              std::string default_model_id,
                               const BlackboardKey<InputBatch>& input_key,
                               const BlackboardKey<OutputBatch>& output_key,
                               int missing_input_error)
-      : ModelBoundNode<EngineCapability>(std::move(node_name),
-                                         std::move(default_model_id)),
+      : ModelBoundNode<EngineCapability>(std::move(node_name)),
         in_port_(input_key.name),
         out_port_(output_key.name),
         missing_input_error_(missing_input_error) {}

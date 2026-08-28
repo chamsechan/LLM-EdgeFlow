@@ -20,7 +20,7 @@ class TextRerankNode final : public ModelBoundNode<IRerankEngine> {
   inline static constexpr char kNodeType[] = "TextRerankNode";
 
   TextRerankNode()
-      : ModelBoundNode<IRerankEngine>(kNodeType, "rerank_model_v1"),
+      : ModelBoundNode<IRerankEngine>(kNodeType),
         in_queries_("queries"),
         in_candidates_("candidates"),
         in_candidate_texts_("candidate_texts"),

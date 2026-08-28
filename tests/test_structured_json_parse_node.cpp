@@ -107,4 +107,27 @@ TEST_F(StructuredJsonParseNodeTest, FallbackPolicyOnMalformedInput) {
   EXPECT_EQ((*doc)[0].data.structured_data["status"], "FALLBACK");
 }
 
+TEST_F(StructuredJsonParseNodeTest, RejectsInvalidFieldTypeContracts) {
+  auto unknown_type = NodeFactory::Instance().Create("StructuredJsonParseNode");
+  ASSERT_NE(unknown_type, nullptr);
+  EXPECT_FALSE(unknown_type->Init({{"field_types", {{"risk", "decimal"}}}},
+                                  session_ctx_.get()));
+
+  auto non_string_type =
+      NodeFactory::Instance().Create("StructuredJsonParseNode");
+  ASSERT_NE(non_string_type, nullptr);
+  EXPECT_FALSE(non_string_type->Init({{"field_types", {{"risk", 7}}}},
+                                     session_ctx_.get()));
+
+  auto invalid_fallback =
+      NodeFactory::Instance().Create("StructuredJsonParseNode");
+  ASSERT_NE(invalid_fallback, nullptr);
+  EXPECT_FALSE(
+      invalid_fallback->Init({{"required_fields", {"risk"}},
+                              {"field_types", {{"risk", "number"}}},
+                              {"fallback_json", R"({"risk":"not-a-number"})"},
+                              {"failure_policy", "configured_fallback"}},
+                             session_ctx_.get()));
+}
+
 }  // namespace alg_framework

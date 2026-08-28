@@ -17,7 +17,7 @@ class AsrTranscribeNode final : public ModelBoundNode<IAudioAsrEngine> {
   inline static constexpr char kNodeType[] = "AsrTranscribeNode";
 
   AsrTranscribeNode()
-      : ModelBoundNode<IAudioAsrEngine>(kNodeType, "mock_asr_model"),
+      : ModelBoundNode<IAudioAsrEngine>(kNodeType),
         in_audio_("audio"),
         out_text_("text") {}
 

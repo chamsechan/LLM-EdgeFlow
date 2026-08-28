@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <cstdio>
 #include <memory>
 #include <nlohmann/json.hpp>
 #include <string>
@@ -9,6 +10,7 @@
 #include "core/alg_context.h"
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
+#include "core/pipeline.h"
 #include "core/session_context.h"
 
 namespace alg_framework {
@@ -21,6 +23,15 @@ class TextTemplateNodeTest : public ::testing::Test {
   }
   std::unique_ptr<SessionContext> session_ctx_;
 };
+
+std::string ResolveConfigPath(const std::string& relative) {
+  FILE* file = fopen(relative.c_str(), "r");
+  if (file) {
+    fclose(file);
+    return relative;
+  }
+  return "../" + relative;
+}
 
 // 1. Process Multi-Input Aggregation
 TEST_F(TextTemplateNodeTest, ProcessMultiInputAggregation) {
@@ -113,11 +124,43 @@ TEST_F(TextTemplateNodeTest, ControlCommandHotSwapAndBogusRejection) {
       node->Control(kControlCmdUpdatePrompt, valid_update.dump());
   EXPECT_EQ(res.status, NodeControlStatus::kHandled);
 
+  // Operator metadata is accepted independently of a template change.
+  NodeControlResult prompt_id_res = node->Control(
+      kControlCmdUpdatePrompt, nlohmann::json{{"prompt_id", "qa-v2"}}.dump());
+  EXPECT_EQ(prompt_id_res.status, NodeControlStatus::kHandled);
+
+  NodeControlResult invalid_policy_res = node->Control(
+      kControlCmdUpdatePrompt,
+      nlohmann::json{{"missing_variable_policy", "invent"}}.dump());
+  EXPECT_EQ(invalid_policy_res.status, NodeControlStatus::kFailed);
+
   // Bogus update with no valid fields -> Rejected
   nlohmann::json bogus_update = {{"bogus_field", 123}};
   NodeControlResult bogus_res =
       node->Control(kControlCmdUpdatePrompt, bogus_update.dump());
   EXPECT_EQ(bogus_res.status, NodeControlStatus::kFailed);
+}
+
+TEST_F(TextTemplateNodeTest, PipelineEnforcesPublishedControlSchema) {
+  Pipeline pipeline;
+  PipelineDiagnostic diagnostic;
+  ASSERT_TRUE(pipeline.BuildFromConfigFile(
+      ResolveConfigPath("configs/pipeline_doc_qa.json"), &diagnostic))
+      << diagnostic.message;
+
+  EXPECT_NE(pipeline.Control(kControlCmdUpdatePrompt, "{}"), 0);
+  EXPECT_NE(pipeline.Control(
+                kControlCmdUpdatePrompt,
+                nlohmann::json{{"template", "{{primary}}"}, {"unknown", true}}
+                    .dump()),
+            0);
+  EXPECT_NE(pipeline.Control(
+                kControlCmdUpdatePrompt,
+                nlohmann::json{{"missing_variable_policy", "invent"}}.dump()),
+            0);
+  EXPECT_EQ(pipeline.Control(kControlCmdUpdatePrompt,
+                             nlohmann::json{{"prompt_id", "doc-qa-v2"}}.dump()),
+            0);
 }
 
 }  // namespace alg_framework
