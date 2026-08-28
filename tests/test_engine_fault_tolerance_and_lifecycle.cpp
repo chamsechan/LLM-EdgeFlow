@@ -166,8 +166,8 @@ TEST_F(EngineFaultToleranceAndLifecycleTest,
   std::vector<TraceableItem<std::string>> input_items;
   for (int i = 0; i < 5; ++i) {
     TraceableItem<std::string> item;
-    item.req_id = 100 + i;
-    item.sub_id = 0;
+    item.req_id = 100U + static_cast<uint32_t>(i);
+    item.sub_id = 0U;
     item.data = "query_" + std::to_string(i);
     input_items.push_back(std::move(item));
   }
@@ -183,9 +183,9 @@ TEST_F(EngineFaultToleranceAndLifecycleTest,
   output_embeddings.clear();
   ret = engine->InferTraceableBatch(input_items, &output_embeddings);
   EXPECT_EQ(ret, 0);
-  EXPECT_EQ(output_embeddings.size(), 5);
-  EXPECT_EQ(output_embeddings[0].data.size(), 128);
-  EXPECT_EQ(output_embeddings[4].data.size(), 128);
+  EXPECT_EQ(output_embeddings.size(), 5U);
+  EXPECT_EQ(output_embeddings[0].data.size(), 128U);
+  EXPECT_EQ(output_embeddings[4].data.size(), 128U);
 }
 
 // 2. 5 层深度复杂波前 DAG 拓扑执行测试 (Layer 0 ~ Layer 4)

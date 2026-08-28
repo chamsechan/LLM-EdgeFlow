@@ -70,12 +70,12 @@ TEST_F(AllBizPipelinesTest, DocQaPipelineExecution) {
   EXPECT_EQ(ret, 0);
 
   // 验证切片数与意图分类
-  EXPECT_EQ(out0.request_id, 30001);
+  EXPECT_EQ(out0.request_id, 30001ULL);
   EXPECT_GT(out0.chunk_count, 0);
   EXPECT_STREQ(out0.intent_name, "AFTER_SALES_REFUND");
   EXPECT_TRUE(strlen(out0.answer_text) > 0);
 
-  EXPECT_EQ(out1.request_id, 30002);
+  EXPECT_EQ(out1.request_id, 30002ULL);
   EXPECT_GT(out1.chunk_count, 0);
   EXPECT_TRUE(strlen(out1.answer_text) > 0);
 

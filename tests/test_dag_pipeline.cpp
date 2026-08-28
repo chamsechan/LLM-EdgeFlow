@@ -209,7 +209,7 @@ TEST_F(DagPipelineTest, ShuffledOrderTopologicalSort) {
 
   // 校验拓扑序：node_a 必须在第一位，node_d 必须在最后一位
   const auto& order = pipeline.GetTopologicalOrder();
-  ASSERT_EQ(order.size(), 4);
+  ASSERT_EQ(order.size(), 4U);
   EXPECT_EQ(order[0], "node_a");
   EXPECT_EQ(order[3], "node_d");
 

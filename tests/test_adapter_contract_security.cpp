@@ -72,7 +72,7 @@ TEST_F(AdapterContractSecurityTest, TaggedUnionAndEnumValidation) {
   auto* items =
       ctx.Get<std::vector<TemplateUnionItemDto>>("tagged_union_items");
   ASSERT_NE(items, nullptr);
-  ASSERT_EQ(items->size(), 1);
+  ASSERT_EQ(items->size(), 1U);
   EXPECT_EQ((*items)[0].text_content, "Hello Tagged Union");
 
   // 1.3 非法枚举分支直接在真实 Unpack 中被拦截

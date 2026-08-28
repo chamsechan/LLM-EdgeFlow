@@ -90,8 +90,7 @@ int RunSuite(const std::string& suite_name, const DemoOptions& base_cli_opts) {
     cli_opt.has_profile = true;
 
     DemoOptions merged_opt;
-    std::string err;
-    int ret = LoadAndMergeProfiles("", cli_opt, &merged_opt, &err);
+    ret = LoadAndMergeProfiles("", cli_opt, &merged_opt, &err);
     if (ret != 0) {
       std::cerr << "[Main ERROR] Failed to load profile '" << prof
                 << "': " << err << std::endl;

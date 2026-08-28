@@ -689,7 +689,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
         << "': code mismatch (got: " << static_cast<int>(diag.code)
         << ", expected: " << static_cast<int>(tc.expected_code)
         << ", message: " << diag.message << ")";
-    EXPECT_EQ(diag.path.rfind(tc.expected_path_prefix, 0), 0)
+    EXPECT_EQ(diag.path.rfind(tc.expected_path_prefix, 0), 0U)
         << "Test case '" << tc.name << "': path mismatch (got: '" << diag.path
         << "', expected prefix: '" << tc.expected_path_prefix << "')";
 

@@ -51,7 +51,7 @@ if(ENABLE_ONNXRUNTIME)
 
   if(EXISTS "${ONNXRUNTIME_INCLUDE_DIR}" AND EXISTS "${ONNXRUNTIME_LIB}")
     message(STATUS "[Engine Layer] ONNX Runtime successfully loaded from: ${onnxruntime_prebuilt_SOURCE_DIR}")
-    include_directories(${ONNXRUNTIME_INCLUDE_DIR})
+    include_directories(SYSTEM ${ONNXRUNTIME_INCLUDE_DIR})
     link_directories("${onnxruntime_prebuilt_SOURCE_DIR}/lib")
     set(CMAKE_BUILD_RPATH "${CMAKE_BUILD_RPATH};${onnxruntime_prebuilt_SOURCE_DIR}/lib")
     set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_RPATH};${onnxruntime_prebuilt_SOURCE_DIR}/lib")
@@ -103,7 +103,7 @@ if(ENABLE_LLAMACPP)
   # 将 llama.cpp 作为三方子工程引入
   if(EXISTS "${llama_cpp_source_SOURCE_DIR}/CMakeLists.txt")
     add_subdirectory(${llama_cpp_source_SOURCE_DIR} ${llama_cpp_source_BINARY_DIR} EXCLUDE_FROM_ALL)
-    include_directories(${llama_cpp_source_SOURCE_DIR}/include ${llama_cpp_source_SOURCE_DIR}/ggml/include)
+    include_directories(SYSTEM ${llama_cpp_source_SOURCE_DIR}/include ${llama_cpp_source_SOURCE_DIR}/ggml/include)
     
     # 链接 llama 静态库
     if(TARGET llama)

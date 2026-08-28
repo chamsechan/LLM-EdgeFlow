@@ -35,7 +35,7 @@ TEST(AlgContextTest, BasicAndTypeSafety) {
   ctx.Set("tags", tags);
   auto* retrieved_tags = ctx.Get<std::vector<std::string>>("tags");
   ASSERT_NE(retrieved_tags, nullptr);
-  EXPECT_EQ(retrieved_tags->size(), 3);
+  EXPECT_EQ(retrieved_tags->size(), 3U);
   EXPECT_EQ((*retrieved_tags)[1], "NPU");
 
   // 错误码设置与检查
@@ -55,12 +55,12 @@ TEST(TraceableItemTest, ProvenanceTracking) {
   TraceableItem<std::string> item2(101, 1, "Chunk 1 of Req 101");
   TraceableItem<std::string> item3(102, 0, "Chunk 0 of Req 102");
 
-  EXPECT_EQ(item1.req_id, 101);
-  EXPECT_EQ(item1.sub_id, 0);
-  EXPECT_EQ(item2.req_id, 101);
-  EXPECT_EQ(item2.sub_id, 1);
-  EXPECT_EQ(item3.req_id, 102);
-  EXPECT_EQ(item3.sub_id, 0);
+  EXPECT_EQ(item1.req_id, 101U);
+  EXPECT_EQ(item1.sub_id, 0U);
+  EXPECT_EQ(item2.req_id, 101U);
+  EXPECT_EQ(item2.sub_id, 1U);
+  EXPECT_EQ(item3.req_id, 102U);
+  EXPECT_EQ(item3.sub_id, 0U);
   EXPECT_EQ(item1.data, "Chunk 0 of Req 101");
 }
 
