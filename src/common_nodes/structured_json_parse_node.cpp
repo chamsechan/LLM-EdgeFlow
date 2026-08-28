@@ -39,6 +39,16 @@ class StructuredJsonParseNode final : public NodeBase {
       }
     }
 
+    field_types_.clear();
+    if (config.contains("field_types") && config["field_types"].is_object()) {
+      for (auto it = config["field_types"].begin();
+           it != config["field_types"].end(); ++it) {
+        if (it.value().is_string()) {
+          field_types_[it.key()] = it.value().get<std::string>();
+        }
+      }
+    }
+
     // 验证 fallback_json 是否为合法 JSON 并预解析
     try {
       fallback_structured_ = nlohmann::json::parse(fallback_json_);
@@ -74,6 +84,45 @@ class StructuredJsonParseNode final : public NodeBase {
               !parsed_structured.contains(rf)) {
             ok = false;
             diag = "Missing required structured field: " + rf;
+            status = JsonParseStatus::kFailed;
+            break;
+          }
+        }
+      }
+
+      if (ok && !field_types_.empty()) {
+        for (const auto& [fname, ftype] : field_types_) {
+          if (!parsed_structured.is_object() ||
+              !parsed_structured.contains(fname)) {
+            ok = false;
+            diag = "Missing field for type check: " + fname;
+            status = JsonParseStatus::kFailed;
+            break;
+          }
+          const auto& val = parsed_structured[fname];
+          if (ftype == "string" && !val.is_string()) {
+            ok = false;
+            diag = "Field '" + fname + "' type mismatch, expected string";
+            status = JsonParseStatus::kFailed;
+            break;
+          } else if (ftype == "number" && !val.is_number()) {
+            ok = false;
+            diag = "Field '" + fname + "' type mismatch, expected number";
+            status = JsonParseStatus::kFailed;
+            break;
+          } else if (ftype == "boolean" && !val.is_boolean()) {
+            ok = false;
+            diag = "Field '" + fname + "' type mismatch, expected boolean";
+            status = JsonParseStatus::kFailed;
+            break;
+          } else if (ftype == "object" && !val.is_object()) {
+            ok = false;
+            diag = "Field '" + fname + "' type mismatch, expected object";
+            status = JsonParseStatus::kFailed;
+            break;
+          } else if (ftype == "array" && !val.is_array()) {
+            ok = false;
+            diag = "Field '" + fname + "' type mismatch, expected array";
             status = JsonParseStatus::kFailed;
             break;
           }
@@ -235,6 +284,7 @@ class StructuredJsonParseNode final : public NodeBase {
   bool extract_json_block_ = true;
   std::string failure_policy_ = "configured_fallback";
   std::vector<std::string> required_fields_;
+  std::unordered_map<std::string, std::string> field_types_;
 
   BoundInput<TextBatch> in_text_;
   BoundOutput<StructuredDocumentBatch> out_doc_;
@@ -258,6 +308,7 @@ NodeDefinition MakeStructuredJsonParseNodeDefinition() {
       ConfigFieldDefinition{"extract_json_block", ConfigValueKind::kBoolean,
                             false, true},
       ConfigFieldDefinition{"required_fields", ConfigValueKind::kArray, false},
+      ConfigFieldDefinition{"field_types", ConfigValueKind::kObject, false},
       ConfigFieldDefinition{
           "failure_policy",
           ConfigValueKind::kString,

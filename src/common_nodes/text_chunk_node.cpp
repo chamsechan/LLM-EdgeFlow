@@ -17,13 +17,17 @@ class TextChunkNode final : public NodeBase {
   inline static constexpr char kNodeType[] = "TextChunkNode";
 
   TextChunkNode()
-      : NodeBase(kNodeType), in_text_("text"), out_chunks_("chunks") {}
+      : NodeBase(kNodeType),
+        in_text_("text"),
+        out_chunks_("chunks"),
+        out_chunk_counts_("chunk_counts") {}
 
  protected:
   bool InitNode(const NodeInitContext& init_ctx, const nlohmann::json& config,
                 SessionContext& /*session_ctx*/) override {
     BindPort(init_ctx, in_text_);
     BindPort(init_ctx, out_chunks_);
+    BindPort(init_ctx, out_chunk_counts_);
 
     chunk_size_ = config.value("chunk_size", 100);
     overlap_ = config.value("overlap", 0);
@@ -40,6 +44,8 @@ class TextChunkNode final : public NodeBase {
     }
 
     TextBatch chunked_items;
+    Int32Batch chunk_counts;
+    chunk_counts.reserve(text_items->size());
     size_t step =
         (chunk_size_ > overlap_) ? (chunk_size_ - overlap_) : chunk_size_;
 
@@ -47,15 +53,19 @@ class TextChunkNode final : public NodeBase {
       const std::string& str = item.data;
       uint32_t req_id = item.req_id;
       uint32_t sub_id = 0;
+      int32_t count_for_req = 0;
 
       if (str.empty()) {
         chunked_items.emplace_back(req_id, sub_id++, "");
+        count_for_req = 1;
       } else {
         for (size_t pos = 0; pos < str.size(); pos += step) {
           std::string slice = str.substr(pos, chunk_size_);
           chunked_items.emplace_back(req_id, sub_id++, std::move(slice));
+          count_for_req++;
         }
       }
+      chunk_counts.emplace_back(req_id, 0, count_for_req);
     }
 
     std::cout << "[TextChunkNode] Split " << text_items->size()
@@ -63,6 +73,7 @@ class TextChunkNode final : public NodeBase {
               << std::endl;
 
     out_chunks_.Set(req_ctx, std::move(chunked_items));
+    out_chunk_counts_.Set(req_ctx, std::move(chunk_counts));
     return 0;
   }
 
@@ -72,6 +83,7 @@ class TextChunkNode final : public NodeBase {
 
   BoundInput<TextBatch> in_text_;
   BoundOutput<TextBatch> out_chunks_;
+  BoundOutput<Int32Batch> out_chunk_counts_;
 };
 
 NodeDefinition MakeTextChunkNodeDefinition() {
@@ -82,8 +94,11 @@ NodeDefinition MakeTextChunkNodeDefinition() {
   def.inputs = {RequiredInputPort("text",
                                   BlackboardKey<TextBatch>{"", "TextBatch"},
                                   "1:1", "preserve", "request")};
-  def.outputs = {OutputPort("chunks", BlackboardKey<TextBatch>{"", "TextBatch"},
-                            false, "1:N", "generate_sub_id", "request")};
+  def.outputs = {
+      OutputPort("chunks", BlackboardKey<TextBatch>{"", "TextBatch"}, false,
+                 "1:N", "generate_sub_id", "request"),
+      OutputPort("chunk_counts", BlackboardKey<Int32Batch>{"", "Int32Batch"},
+                 /*allow_override=*/true, "1:1", "preserve", "request")};
   def.config_fields = {
       ConfigFieldDefinition{"chunk_size", ConfigValueKind::kInteger, false, 100,
                             1.0, 1000000.0},

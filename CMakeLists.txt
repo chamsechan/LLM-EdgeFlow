@@ -315,7 +315,51 @@ add_executable(test_definition_schema_validation tests/test_definition_schema_va
 target_link_libraries(test_definition_schema_validation PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
 add_test(NAME DefinitionSchemaValidationTest COMMAND test_definition_schema_validation)
 
-# RFC 0012 Common Nodes 独立测试与 Operator Golden / Adapter Purity 测试
+# RFC 0012 11 类 Common Nodes 独立测试套件与 Operator Golden / Adapter Purity 测试
+add_executable(test_text_chunk_node tests/test_text_chunk_node.cpp)
+target_link_libraries(test_text_chunk_node PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME TextChunkNodeTest COMMAND test_text_chunk_node)
+
+add_executable(test_text_embedding_node tests/test_text_embedding_node.cpp)
+target_link_libraries(test_text_embedding_node PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME TextEmbeddingNodeTest COMMAND test_text_embedding_node)
+
+add_executable(test_vector_top_k_node tests/test_vector_top_k_node.cpp)
+target_link_libraries(test_vector_top_k_node PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME VectorTopKNodeTest COMMAND test_vector_top_k_node)
+
+add_executable(test_text_rerank_node tests/test_text_rerank_node.cpp)
+target_link_libraries(test_text_rerank_node PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME TextRerankNodeTest COMMAND test_text_rerank_node)
+
+add_executable(test_text_template_node tests/test_text_template_node.cpp)
+target_link_libraries(test_text_template_node PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME TextTemplateNodeTest COMMAND test_text_template_node)
+
+add_executable(test_llm_generate_node tests/test_llm_generate_node.cpp)
+target_link_libraries(test_llm_generate_node PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME LlmGenerateNodeTest COMMAND test_llm_generate_node)
+
+add_executable(test_asr_transcribe_node tests/test_asr_transcribe_node.cpp)
+target_link_libraries(test_asr_transcribe_node PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME AsrTranscribeNodeTest COMMAND test_asr_transcribe_node)
+
+add_executable(test_ocr_detect_node tests/test_ocr_detect_node.cpp)
+target_link_libraries(test_ocr_detect_node PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME OcrDetectNodeTest COMMAND test_ocr_detect_node)
+
+add_executable(test_text_rule_match_node tests/test_text_rule_match_node.cpp)
+target_link_libraries(test_text_rule_match_node PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME TextRuleMatchNodeTest COMMAND test_text_rule_match_node)
+
+add_executable(test_structured_json_parse_node tests/test_structured_json_parse_node.cpp)
+target_link_libraries(test_structured_json_parse_node PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME StructuredJsonParseNodeTest COMMAND test_structured_json_parse_node)
+
+add_executable(test_text_corpus_source_node tests/test_text_corpus_source_node.cpp)
+target_link_libraries(test_text_corpus_source_node PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME TextCorpusSourceNodeTest COMMAND test_text_corpus_source_node)
+
 add_executable(test_common_nodes tests/test_common_nodes.cpp)
 target_link_libraries(test_common_nodes PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
 add_test(NAME CommonNodesTest COMMAND test_common_nodes)
@@ -342,8 +386,11 @@ set_tests_properties(
   DocQaRerankTest RerankRefineNodeTest PipelineStudioTest VisualizerServerTest
   DemoRunnerTest CatalogContractSsotTest TypedBlackboardContractsTest
   ValidatedPipelinePlanTest NodeBaseContractsTest NodeOwnershipAndReuseTest
-  DefinitionSchemaValidationTest CommonNodesTest OperatorGoldenTest
-  AdapterPurityTest
+  DefinitionSchemaValidationTest TextChunkNodeTest TextEmbeddingNodeTest
+  VectorTopKNodeTest TextRerankNodeTest TextTemplateNodeTest
+  LlmGenerateNodeTest AsrTranscribeNodeTest OcrDetectNodeTest
+  TextRuleMatchNodeTest StructuredJsonParseNodeTest TextCorpusSourceNodeTest
+  CommonNodesTest OperatorGoldenTest AdapterPurityTest
   PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
 )
 

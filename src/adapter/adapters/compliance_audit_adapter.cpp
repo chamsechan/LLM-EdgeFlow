@@ -101,7 +101,6 @@ class ComplianceAuditAdapter : public IBizAdapter {
 
     const auto* verdicts = ctx->Get(kStructuredVerdicts);
     const auto* matched_policies = ctx->Get(kMatchedPolicy);
-    const auto* rule_matches = ctx->Get(kRuleMatches);
     const auto* raw_req_ids = ctx->Get(kRawRequestIds);
 
     if (!verdicts) {

@@ -3,6 +3,7 @@
 #include <mutex>
 #include <nlohmann/json.hpp>
 #include <regex>
+#include <set>
 #include <shared_mutex>
 #include <string>
 #include <unordered_map>
@@ -68,6 +69,7 @@ class TextTemplateNode final : public NodeBase {
       }
     }
 
+    missing_variable_policy_ = config.value("missing_variable_policy", "fail");
     allow_dynamic_attrs_ = in_attributes_.IsBound() ||
                            config.value("allow_dynamic_attributes", false);
 
@@ -85,17 +87,41 @@ class TextTemplateNode final : public NodeBase {
     if (cmd == kControlCmdUpdatePrompt) {
       try {
         nlohmann::json root = nlohmann::json::parse(json_param);
+        if (!root.contains("template") && !root.contains("prompt_template") &&
+            !root.contains("values") &&
+            !root.contains("allow_dynamic_attributes") &&
+            !root.contains("missing_variable_policy")) {
+          return NodeControlResult::Failed(
+              -1, "No recognized update field in Control payload");
+        }
+
         std::string new_tmpl;
         std::unordered_map<std::string, std::string> new_values;
+        bool new_allow_dynamic = allow_dynamic_attrs_;
+        std::string new_missing_policy = missing_variable_policy_;
 
         {
           std::shared_lock<std::shared_mutex> lock(rw_mutex_);
           new_tmpl = template_str_;
           new_values = static_values_;
+          new_allow_dynamic = allow_dynamic_attrs_;
+          new_missing_policy = missing_variable_policy_;
         }
 
         if (root.contains("template") && root["template"].is_string()) {
           new_tmpl = root["template"].get<std::string>();
+        } else if (root.contains("prompt_template") &&
+                   root["prompt_template"].is_string()) {
+          new_tmpl = root["prompt_template"].get<std::string>();
+        }
+        if (root.contains("allow_dynamic_attributes") &&
+            root["allow_dynamic_attributes"].is_boolean()) {
+          new_allow_dynamic = root["allow_dynamic_attributes"].get<bool>();
+        }
+        if (root.contains("missing_variable_policy") &&
+            root["missing_variable_policy"].is_string()) {
+          new_missing_policy =
+              root["missing_variable_policy"].get<std::string>();
         }
         if (root.contains("values") && root["values"].is_object()) {
           for (auto it = root["values"].begin(); it != root["values"].end();
@@ -107,7 +133,7 @@ class TextTemplateNode final : public NodeBase {
         }
 
         std::vector<TemplateToken> new_tokens;
-        if (!CompileTemplate(new_tmpl, new_values, allow_dynamic_attrs_,
+        if (!CompileTemplate(new_tmpl, new_values, new_allow_dynamic,
                              &new_tokens)) {
           return NodeControlResult::Failed(
               -1, "Invalid template placeholders or syntax in Control");
@@ -116,6 +142,8 @@ class TextTemplateNode final : public NodeBase {
         std::unique_lock<std::shared_mutex> lock(rw_mutex_);
         template_str_ = std::move(new_tmpl);
         static_values_ = std::move(new_values);
+        allow_dynamic_attrs_ = new_allow_dynamic;
+        missing_variable_policy_ = std::move(new_missing_policy);
         compiled_tokens_ = std::move(new_tokens);
         return NodeControlResult::Handled(0, "Template updated successfully");
       } catch (const std::exception& e) {
@@ -161,6 +189,7 @@ class TextTemplateNode final : public NodeBase {
     std::map<std::pair<uint32_t, uint32_t>,
              std::unordered_map<std::string, std::string>>
         attributes_by_sample;
+    std::set<uint32_t> req_ids_from_aggregated;
 
     if (primary_items) {
       for (const auto& item : *primary_items) {
@@ -169,49 +198,61 @@ class TextTemplateNode final : public NodeBase {
       }
     }
 
+    if (attributes_items) {
+      for (const auto& item : *attributes_items) {
+        record_sample(item.req_id, item.sub_id);
+        attributes_by_sample[{item.req_id, item.sub_id}] = item.data;
+      }
+    }
+
     if (context_items) {
       for (const auto& item : *context_items) {
-        record_sample(item.req_id, item.sub_id);
+        req_ids_from_aggregated.insert(item.req_id);
         context_by_req[item.req_id].push_back(item.data.text);
       }
     }
 
     if (context_text_items) {
       for (const auto& item : *context_text_items) {
-        record_sample(item.req_id, item.sub_id);
+        req_ids_from_aggregated.insert(item.req_id);
         context_by_req[item.req_id].push_back(item.data);
       }
     }
 
     if (matches_items) {
       for (const auto& item : *matches_items) {
-        record_sample(item.req_id, item.sub_id);
-        if (!item.data.matched_word.empty()) {
-          matches_by_req[item.req_id].push_back(item.data.matched_word);
+        req_ids_from_aggregated.insert(item.req_id);
+        std::string match_repr;
+        if (!item.data.category.empty() && !item.data.matched_word.empty()) {
+          match_repr = item.data.category + " (" + item.data.matched_word + ")";
         } else if (!item.data.category.empty()) {
-          matches_by_req[item.req_id].push_back(item.data.category);
+          match_repr = item.data.category;
+        } else if (!item.data.matched_word.empty()) {
+          match_repr = item.data.matched_word;
+        }
+        if (!match_repr.empty()) {
+          matches_by_req[item.req_id].push_back(std::move(match_repr));
         }
       }
     }
 
     if (document_items) {
       for (const auto& item : *document_items) {
-        record_sample(item.req_id, item.sub_id);
+        req_ids_from_aggregated.insert(item.req_id);
         document_by_req[item.req_id].push_back(item.data.combined_text);
       }
     }
 
     if (document_text_items) {
       for (const auto& item : *document_text_items) {
-        record_sample(item.req_id, item.sub_id);
+        req_ids_from_aggregated.insert(item.req_id);
         document_by_req[item.req_id].push_back(item.data);
       }
     }
 
-    if (attributes_items) {
-      for (const auto& item : *attributes_items) {
-        record_sample(item.req_id, item.sub_id);
-        attributes_by_sample[{item.req_id, item.sub_id}] = item.data;
+    if (ordered_samples.empty()) {
+      for (uint32_t r : req_ids_from_aggregated) {
+        record_sample(r, 0);
       }
     }
 
@@ -281,6 +322,13 @@ class TextTemplateNode final : public NodeBase {
             rendered += attrs_ptr->at(var);
           } else if (static_values_.find(var) != static_values_.end()) {
             rendered += static_values_.at(var);
+          } else {
+            if (missing_variable_policy_ == "fail") {
+              return Fail(req_ctx, -6202,
+                          "Missing required template variable: " + var);
+            } else if (missing_variable_policy_ == "preserve") {
+              rendered += "{" + var + "}";
+            }
           }
         }
       }
@@ -318,8 +366,16 @@ class TextTemplateNode final : public NodeBase {
       const std::unordered_map<std::string, std::string>& static_vals,
       bool allow_dynamic_attrs, std::vector<TemplateToken>* out_tokens) {
     static const std::unordered_set<std::string> kBuiltins = {
-        "primary", "text",     "context",       "context_text",
-        "matches", "document", "document_text", "attributes"};
+        "primary",      "text",          "context",       "context_text",
+        "matches",      "document",      "document_text", "rules",
+        "rule_matches", "entities",      "risk_level",    "risk_score",
+        "doc_chunks",   "query",         "intent_name",   "confidence",
+        "speech_text",  "channel",       "channel_name",  "user_text",
+        "user_query",   "policy_clause", "invoice_code",  "invoice_number",
+        "total_amount", "tax_amount",    "purchaser",     "slots",
+        "intent",       "action",        "target",        "destination",
+        "avoid_toll",   "avoid_traffic", "temperature",   "fan_speed",
+        "mode",         "raw_query",     "prompt"};
 
     out_tokens->clear();
     size_t pos = 0;
@@ -404,6 +460,7 @@ class TextTemplateNode final : public NodeBase {
   std::string separator_ = "\n";
   size_t max_length_ = 65536;
   std::string overflow_policy_ = "fail";
+  std::string missing_variable_policy_ = "fail";
   bool allow_dynamic_attrs_ = false;
   std::unordered_map<std::string, std::string> static_values_;
   std::vector<TemplateToken> compiled_tokens_;
@@ -458,8 +515,11 @@ NodeDefinition MakeTextTemplateNodeDefinition() {
       nlohmann::json{{"type", "object"},
                      {"properties",
                       {{"template", {{"type", "string"}}},
+                       {"prompt_template", {{"type", "string"}}},
+                       {"prompt_id", {{"type", "string"}}},
                        {"values", {{"type", "object"}}},
-                       {"allow_dynamic_attributes", {{"type", "boolean"}}}}}},
+                       {"allow_dynamic_attributes", {{"type", "boolean"}}},
+                       {"missing_variable_policy", {{"type", "string"}}}}}},
       true)};
   def.config_fields = {
       ConfigFieldDefinition{"template", ConfigValueKind::kString, false,
@@ -476,6 +536,13 @@ NodeDefinition MakeTextTemplateNodeDefinition() {
                             std::nullopt,
                             std::nullopt,
                             {"fail", "truncate"}},
+      ConfigFieldDefinition{"missing_variable_policy",
+                            ConfigValueKind::kString,
+                            false,
+                            "fail",
+                            std::nullopt,
+                            std::nullopt,
+                            {"fail", "empty", "preserve"}},
       ConfigFieldDefinition{"values", ConfigValueKind::kObject, false}};
   def.parallel_safe = true;
   return def;

@@ -277,6 +277,13 @@ struct BlackboardTypeTraits<std::vector<uint64_t>> {
   static constexpr const char* TypeName() { return "vector<uint64>"; }
 };
 
+using Int32Batch = std::vector<TraceableItem<int32_t>>;
+
+template <>
+struct BlackboardTypeTraits<Int32Batch> {
+  static constexpr const char* TypeName() { return "Int32Batch"; }
+};
+
 // ==============================================================================
 // 4. 标准类型标识符与通用 BlackboardKey (Standard Keys)
 // ==============================================================================
@@ -305,6 +312,8 @@ inline constexpr BlackboardKey<RuleMatchBatch> kIntentMatches{"intent_matches",
                                                               "RuleMatchBatch"};
 
 inline constexpr BlackboardKey<TextBatch> kDocChunks{"doc_chunks", "TextBatch"};
+inline constexpr BlackboardKey<Int32Batch> kDocChunkCounts{"doc_chunk_counts",
+                                                           "Int32Batch"};
 
 inline constexpr BlackboardKey<TextBatch> kUserTexts{"user_texts", "TextBatch"};
 

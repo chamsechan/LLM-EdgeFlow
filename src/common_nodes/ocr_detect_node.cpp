@@ -100,7 +100,7 @@ NodeDefinition MakeOcrDetectNodeDefinition() {
   def.outputs = {
       OutputPort("document",
                  BlackboardKey<OcrDocumentBatch>{"", "OcrDocumentBatch"}, false,
-                 "1:N", "generate_sub_id", "request"),
+                 "1:1", "preserve", "request"),
       OutputPort("text", BlackboardKey<TextBatch>{"", "TextBatch"},
                  /*allow_override=*/true, "1:1", "preserve", "request")};
   def.config_fields = {ConfigFieldDefinition{

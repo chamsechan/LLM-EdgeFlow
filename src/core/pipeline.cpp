@@ -641,6 +641,11 @@ int Pipeline::Control(int cmd, const std::string& json_param) {
   bool has_handled = false;
   int first_fail_code = 0;
 
+  // Pass 1: Collect targets and validate payload across all targets
+  std::vector<std::pair<INode*, const ControlCommandDefinition*>> targets;
+  nlohmann::json parsed_payload;
+  bool json_parsed = false;
+
   for (auto& node : nodes_) {
     const auto* def = PipelineCatalog::FindNode(node->Name());
     const ControlCommandDefinition* matched_cmd_def = nullptr;
@@ -658,13 +663,15 @@ int Pipeline::Control(int cmd, const std::string& json_param) {
 
     if (!matched_cmd_def->payload_schema.empty() &&
         matched_cmd_def->payload_schema.is_object()) {
-      nlohmann::json parsed_payload;
-      try {
-        parsed_payload = nlohmann::json::parse(json_param);
-      } catch (const std::exception& e) {
-        std::cerr << "[Pipeline] Control payload JSON parse error: " << e.what()
-                  << std::endl;
-        return -1;
+      if (!json_parsed) {
+        try {
+          parsed_payload = nlohmann::json::parse(json_param);
+          json_parsed = true;
+        } catch (const std::exception& e) {
+          std::cerr << "[Pipeline] Control payload JSON parse error: "
+                    << e.what() << std::endl;
+          return -1;
+        }
       }
       std::string schema_err;
       if (!ValidatePayloadSchema(
@@ -674,7 +681,16 @@ int Pipeline::Control(int cmd, const std::string& json_param) {
         return -1;
       }
     }
+    targets.emplace_back(node.get(), matched_cmd_def);
+  }
 
+  if (targets.empty()) {
+    std::cerr << "[Pipeline] Unsupported control command: " << cmd << std::endl;
+    return -7;  // COMPANY_ALG_ERR_UNSUPPORTED_CONTROL
+  }
+
+  // Pass 2: Dispatch command to all validated targets
+  for (auto& [node, cmd_def] : targets) {
     has_target = true;
     NodeControlResult res = node->Control(cmd, json_param);
     if (res.status == NodeControlStatus::kFailed) {

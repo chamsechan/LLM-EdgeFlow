@@ -163,6 +163,8 @@ class DocQaAdapter : public IBizAdapter {
       return COMPANY_ALG_ERR_INVALID_INPUT;
     }
 
+    const auto* chunk_counts = ctx->Get(kDocChunkCounts);
+
     for (int i = 0; i < count; ++i) {
       auto* out_ptr = static_cast<CompanyDocOutputStruct*>(outputs[i]);
       uint64_t req_id =
@@ -176,7 +178,11 @@ class DocQaAdapter : public IBizAdapter {
       float conf = match.score;
       out_ptr->confidence = conf;
 
-      out_ptr->chunk_count = static_cast<int32_t>(doc_chunks->size());
+      if (chunk_counts && i < static_cast<int>(chunk_counts->size())) {
+        out_ptr->chunk_count = (*chunk_counts)[i].data;
+      } else {
+        out_ptr->chunk_count = static_cast<int32_t>(doc_chunks->size());
+      }
       out_ptr->status_code = 0;
 
       if (!AdapterValidationHelper::CheckedStringCopy(

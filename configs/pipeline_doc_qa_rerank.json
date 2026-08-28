@@ -38,7 +38,8 @@
           "text": "raw_docs"
         },
         "outputs": {
-          "chunks": "doc_chunks"
+          "chunks": "doc_chunks",
+          "chunk_counts": "doc_chunk_counts"
         }
       },
       "config": {
