@@ -40,7 +40,7 @@ TEST(FixedBatchExecutorTest, OddItemCountChunkAndPaddingStripping) {
 
   EXPECT_EQ(ret, 0);
   EXPECT_EQ(hardware_call_count, 2);  // 7 / 4 向上取整 = 2 次硬件调用
-  EXPECT_EQ(outputs.size(), 7);  // 自动剥离 Padding，保留刚好 7 个有效输出
+  EXPECT_EQ(outputs.size(), 7U);  // 自动剥离 Padding，保留刚好 7 个有效输出
 
   // 验证输出与原始 TraceableItem 的 (req_id, sub_id) 严格对齐
   for (size_t i = 0; i < inputs.size(); ++i) {

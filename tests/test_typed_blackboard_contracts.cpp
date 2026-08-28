@@ -84,10 +84,10 @@ TEST_F(TypedBlackboardContractsTest, CommonContractsAndTraceableProvenance) {
   ASSERT_NE(retrieved_prompts, nullptr);
   ASSERT_EQ(retrieved_prompts->size(), 2U);
   EXPECT_EQ((*retrieved_prompts)[0].req_id, 1001U);
-  EXPECT_EQ((*retrieved_prompts)[0].sub_id, 0);
+  EXPECT_EQ((*retrieved_prompts)[0].sub_id, 0U);
   EXPECT_EQ((*retrieved_prompts)[0].data, "Prompt for 1001-0");
   EXPECT_EQ((*retrieved_prompts)[1].req_id, 1002U);
-  EXPECT_EQ((*retrieved_prompts)[1].sub_id, 0);
+  EXPECT_EQ((*retrieved_prompts)[1].sub_id, 0U);
   EXPECT_EQ((*retrieved_prompts)[1].data, "Prompt for 1002-0");
 }
 

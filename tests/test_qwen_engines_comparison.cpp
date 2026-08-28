@@ -98,8 +98,8 @@ TEST_F(QwenEnginesComparisonTest, DirectInterfaceComparison) {
 
   EXPECT_EQ(ret_npu, 0);
   EXPECT_EQ(ret_llama, 0);
-  EXPECT_EQ(npu_batch_out.size(), 3);
-  EXPECT_EQ(llama_batch_out.size(), 3);
+  EXPECT_EQ(npu_batch_out.size(), 3U);
+  EXPECT_EQ(llama_batch_out.size(), 3U);
 
   for (size_t i = 0; i < 3; ++i) {
     EXPECT_EQ(npu_batch_out[i].req_id, batch_prompts[i].req_id);

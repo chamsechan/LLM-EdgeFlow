@@ -54,10 +54,10 @@ TEST_F(DifferentIoModalitiesTest, OcrDocQa) {
 
   ret = Alg_Process(handle, inputs, outputs);
   EXPECT_EQ(ret, 0);
-  EXPECT_EQ(out1.request_id, 60001);
-  EXPECT_EQ(out1.detected_box_count, 6);
-  EXPECT_EQ(out2.request_id, 60002);
-  EXPECT_EQ(out2.detected_box_count, 6);
+  EXPECT_EQ(out1.request_id, 60001ULL);
+  EXPECT_EQ(out1.detected_box_count, 6U);
+  EXPECT_EQ(out2.request_id, 60002ULL);
+  EXPECT_EQ(out2.detected_box_count, 6U);
 
   auto j1 = nlohmann::json::parse(out1.extracted_invoice_json);
   EXPECT_TRUE(j1.contains("invoice_code") && j1.contains("total_amount"));
