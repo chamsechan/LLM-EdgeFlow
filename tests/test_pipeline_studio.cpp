@@ -10,6 +10,7 @@
 #include "core/pipeline.h"
 #include "core/pipeline_catalog.h"
 #include "core/pipeline_validator.h"
+#include "engine/backend_registry.h"
 #include "engine/engine_registry.h"
 
 namespace alg_framework {
@@ -87,6 +88,8 @@ TEST(BlackboardKeyTest, TypedOverloadsShareTheRuntimeKey) {
 TEST(PipelineValidatorTest, AllRepositoryPipelinesValidate) {
   const std::filesystem::path configs("configs");
   size_t validated = 0;
+  const bool has_onnxruntime =
+      BackendRegistry::Instance().Find("onnxruntime").has_value();
   for (const auto& entry : std::filesystem::directory_iterator(configs)) {
     const auto filename = entry.path().filename().string();
     if (!entry.is_regular_file() || entry.path().extension() != ".json" ||
@@ -97,11 +100,22 @@ TEST(PipelineValidatorTest, AllRepositoryPipelinesValidate) {
     ASSERT_TRUE(stream.is_open()) << entry.path();
     nlohmann::json pipeline;
     ASSERT_NO_THROW(stream >> pipeline) << entry.path();
+    bool requires_onnxruntime = false;
+    for (const auto& model :
+         pipeline.value("models", nlohmann::json::array())) {
+      if (model.is_object() && model.value("backend", "") == "onnxruntime") {
+        requires_onnxruntime = true;
+        break;
+      }
+    }
+    if (requires_onnxruntime && !has_onnxruntime) {
+      continue;
+    }
     const auto report = PipelineValidator::Validate(pipeline);
     EXPECT_TRUE(report.ok) << entry.path() << "\n" << report.ToJson().dump(2);
     ++validated;
   }
-  EXPECT_GE(validated, 10U);
+  EXPECT_GE(validated, has_onnxruntime ? 10U : 8U);
 }
 
 TEST(PipelineValidatorTest, ReportsCycle) {

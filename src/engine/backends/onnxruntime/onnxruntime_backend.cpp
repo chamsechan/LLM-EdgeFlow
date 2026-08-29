@@ -16,43 +16,11 @@
 
 namespace alg_framework {
 
-#ifdef HAVE_ONNXRUNTIME
+namespace onnxruntime_detail {
 
-namespace {
-
-std::optional<ElementType> TryMapOnnxElementType(
-    ONNXTensorElementDataType onnx_type) noexcept {
-  switch (onnx_type) {
-    case ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT:
-      return ElementType::kFloat32;
-    case ONNX_TENSOR_ELEMENT_DATA_TYPE_INT32:
-      return ElementType::kInt32;
-    case ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64:
-      return ElementType::kInt64;
-    case ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT8:
-      return ElementType::kUInt8;
-    default:
-      return std::nullopt;
-  }
-}
-
-ONNXTensorElementDataType ElementTypeToOnnxType(ElementType type) noexcept {
-  switch (type) {
-    case ElementType::kFloat32:
-      return ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT;
-    case ElementType::kInt32:
-      return ONNX_TENSOR_ELEMENT_DATA_TYPE_INT32;
-    case ElementType::kInt64:
-      return ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64;
-    case ElementType::kUInt8:
-      return ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT8;
-  }
-  return ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT;
-}
-
-bool ValidateRuntimeTensor(const Tensor& tensor, const TensorSpec& spec,
-                           const BatchPolicy& policy,
-                           std::string* diagnostic) noexcept {
+bool ValidateInputTensor(const Tensor& tensor, const TensorSpec& spec,
+                         const BatchPolicy& policy,
+                         std::string* diagnostic) noexcept {
   if (!tensor.buffer || tensor.buffer->Data() == nullptr) {
     if (diagnostic) *diagnostic = "Input tensor buffer is null: " + spec.name;
     return false;
@@ -95,6 +63,12 @@ bool ValidateRuntimeTensor(const Tensor& tensor, const TensorSpec& spec,
 
   if (!tensor.desc.shape.empty()) {
     int64_t batch = tensor.desc.shape[0];
+    if (batch <= 0) {
+      if (diagnostic) {
+        *diagnostic = "Input tensor batch must be positive for: " + spec.name;
+      }
+      return false;
+    }
     if (policy.fixed_batch_size > 0 &&
         static_cast<size_t>(batch) != policy.fixed_batch_size) {
       if (diagnostic) {
@@ -133,6 +107,103 @@ bool ValidateRuntimeTensor(const Tensor& tensor, const TensorSpec& spec,
   }
 
   return true;
+}
+
+bool ValidateOutputMetadata(ElementType element_type,
+                            const std::vector<int64_t>& shape,
+                            size_t runtime_element_count,
+                            const TensorSpec& spec, size_t expected_batch,
+                            std::string* diagnostic) noexcept {
+  if (element_type != spec.element_type) {
+    if (diagnostic) {
+      *diagnostic = "Output tensor element type mismatch for: " + spec.name;
+    }
+    return false;
+  }
+
+  if (shape.size() != spec.shape.size()) {
+    if (diagnostic) {
+      *diagnostic = "Output tensor rank mismatch for: " + spec.name;
+    }
+    return false;
+  }
+
+  for (size_t d = 0; d < spec.shape.size(); ++d) {
+    if (shape[d] < 0) {
+      if (diagnostic) {
+        *diagnostic =
+            "Output tensor has negative runtime dimension: " + spec.name;
+      }
+      return false;
+    }
+    if (spec.shape[d] >= 0 && shape[d] != spec.shape[d]) {
+      if (diagnostic) {
+        *diagnostic =
+            "Output tensor static dimension mismatch for: " + spec.name;
+      }
+      return false;
+    }
+  }
+
+  if (expected_batch > 0 &&
+      (shape.empty() || static_cast<size_t>(shape[0]) != expected_batch)) {
+    if (diagnostic) {
+      *diagnostic = "Output tensor batch dimension mismatch for: " + spec.name;
+    }
+    return false;
+  }
+
+  TensorDesc desc{element_type, shape};
+  const size_t element_size = ElementTypeByteSize(element_type);
+  size_t expected_bytes = 0;
+  if (!inference_detail::ComputeTensorByteSize(desc, element_size,
+                                               &expected_bytes, diagnostic)) {
+    return false;
+  }
+  if (element_size == 0 ||
+      expected_bytes / element_size != runtime_element_count) {
+    if (diagnostic) {
+      *diagnostic = "Output tensor element count mismatch for: " + spec.name;
+    }
+    return false;
+  }
+  return true;
+}
+
+}  // namespace onnxruntime_detail
+
+#ifdef HAVE_ONNXRUNTIME
+
+namespace {
+
+std::optional<ElementType> TryMapOnnxElementType(
+    ONNXTensorElementDataType onnx_type) noexcept {
+  switch (onnx_type) {
+    case ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT:
+      return ElementType::kFloat32;
+    case ONNX_TENSOR_ELEMENT_DATA_TYPE_INT32:
+      return ElementType::kInt32;
+    case ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64:
+      return ElementType::kInt64;
+    case ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT8:
+      return ElementType::kUInt8;
+    default:
+      return std::nullopt;
+  }
+}
+
+ONNXTensorElementDataType ElementTypeToOnnxType(ElementType type) noexcept {
+  switch (type) {
+    case ElementType::kFloat32:
+      return ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT;
+    case ElementType::kInt32:
+      return ONNX_TENSOR_ELEMENT_DATA_TYPE_INT32;
+    case ElementType::kInt64:
+      return ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64;
+    case ElementType::kUInt8:
+      return ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT8;
+  }
+  return ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT;
 }
 
 class OnnxTensorGraphSession : public ITensorGraphSession {
@@ -191,6 +262,7 @@ class OnnxTensorGraphSession : public ITensorGraphSession {
       std::vector<Ort::Value> ort_inputs;
       input_names.reserve(inputs_.size());
       ort_inputs.reserve(inputs_.size());
+      size_t expected_batch = 0;
 
       for (const auto& spec : inputs_) {
         auto it = inputs.find(spec.name);
@@ -203,7 +275,19 @@ class OnnxTensorGraphSession : public ITensorGraphSession {
         }
 
         const Tensor& tensor = it->second;
-        if (!ValidateRuntimeTensor(tensor, spec, policy_, diagnostic)) {
+        if (!onnxruntime_detail::ValidateInputTensor(tensor, spec, policy_,
+                                                     diagnostic)) {
+          outputs->clear();
+          return -1;
+        }
+        const size_t input_batch =
+            static_cast<size_t>(tensor.desc.shape.front());
+        if (expected_batch == 0) {
+          expected_batch = input_batch;
+        } else if (input_batch != expected_batch) {
+          if (diagnostic) {
+            *diagnostic = "Input tensor batch dimensions are inconsistent";
+          }
           outputs->clear();
           return -1;
         }
@@ -252,41 +336,21 @@ class OnnxTensorGraphSession : public ITensorGraphSession {
 
         auto type_info = ort_out.GetTensorTypeAndShapeInfo();
         auto elem_type_opt = TryMapOnnxElementType(type_info.GetElementType());
-        if (!elem_type_opt.has_value() || *elem_type_opt != spec.element_type) {
+        if (!elem_type_opt.has_value()) {
           if (diagnostic) {
             *diagnostic =
-                "Output tensor element type mismatch for: " + spec.name;
+                "Output tensor has unsupported element type for: " + spec.name;
           }
           outputs->clear();
           return -1;
         }
 
         auto shape = type_info.GetShape();
-        if (shape.size() != spec.shape.size()) {
-          if (diagnostic) {
-            *diagnostic = "Output tensor rank mismatch for: " + spec.name;
-          }
+        if (!onnxruntime_detail::ValidateOutputMetadata(
+                *elem_type_opt, shape, type_info.GetElementCount(), spec,
+                expected_batch, diagnostic)) {
           outputs->clear();
           return -1;
-        }
-
-        for (size_t d = 0; d < spec.shape.size(); ++d) {
-          if (shape[d] < 0) {
-            if (diagnostic) {
-              *diagnostic =
-                  "Output tensor has negative runtime dimension: " + spec.name;
-            }
-            outputs->clear();
-            return -1;
-          }
-          if (spec.shape[d] >= 0 && shape[d] != spec.shape[d]) {
-            if (diagnostic) {
-              *diagnostic =
-                  "Output tensor static dimension mismatch for: " + spec.name;
-            }
-            outputs->clear();
-            return -1;
-          }
         }
 
         TensorDesc out_desc;
@@ -300,7 +364,15 @@ class OnnxTensorGraphSession : public ITensorGraphSession {
         }
 
         const void* src_data = ort_out.GetTensorData<void>();
-        if (src_data && host_tensor.buffer) {
+        if (!host_tensor.buffer ||
+            (host_tensor.buffer->ByteSize() > 0 && !src_data)) {
+          if (diagnostic) {
+            *diagnostic = "Output tensor data is null for: " + spec.name;
+          }
+          outputs->clear();
+          return -1;
+        }
+        if (host_tensor.buffer->ByteSize() > 0) {
           std::memcpy(host_tensor.buffer->MutableData(), src_data,
                       host_tensor.buffer->ByteSize());
         }
@@ -353,6 +425,7 @@ const std::string& OnnxRuntimeBackend::BackendType() const noexcept {
 std::shared_ptr<IBackendSession> OnnxRuntimeBackend::Load(
     const BackendLoadSpec& spec, std::string* diagnostic) noexcept {
 #ifndef HAVE_ONNXRUNTIME
+  static_cast<void>(spec);
   if (diagnostic) {
     *diagnostic =
         "ONNX Runtime backend was not compiled into this build "

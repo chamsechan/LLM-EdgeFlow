@@ -1,115 +1,185 @@
 #!/usr/bin/env python3
-"""
-Generate a minimal valid BGE Embedding ONNX model fixture and vocab.txt.
-Graph:
-  input_ids: int64[batch, seq]
-  attention_mask: int64[batch, seq]
-  -> Gather from Embedding table (vocab_size=1000, hidden_dim=128)
-  -> last_hidden_state: float32[batch, seq, 128]
+"""Generate a deterministic, dependency-free ONNX Runtime test fixture.
+
+The graph is intentionally small and is not a pretrained BGE model. It proves
+the real ONNX Runtime Load/Run boundary used by ``BgeEmbeddingModel``:
+
+  input_ids[int64, batch, sequence]
+    -> Cast -> Unsqueeze -> Mul(scale) -> Add(bias)
+    -> last_hidden_state[float32, batch, sequence, 128]
+
+Only Python's standard library is used. The minimal ONNX protobuf is encoded
+directly so a clean checkout does not require the ``onnx`` or ``numpy`` wheels.
 """
 
-import os
+from __future__ import annotations
+
+import argparse
 import hashlib
-import numpy as np
-import onnx
-from onnx import helper, TensorProto
+import math
+import os
+import struct
+from pathlib import Path
+from typing import List, Optional, Union
 
-def generate_vocab(vocab_path):
+
+def _varint(value: int) -> bytes:
+    if value < 0:
+        value &= (1 << 64) - 1
+    encoded = bytearray()
+    while value > 0x7F:
+        encoded.append((value & 0x7F) | 0x80)
+        value >>= 7
+    encoded.append(value)
+    return bytes(encoded)
+
+
+def _key(field_number: int, wire_type: int) -> bytes:
+    return _varint((field_number << 3) | wire_type)
+
+
+def _int_field(field_number: int, value: int) -> bytes:
+    return _key(field_number, 0) + _varint(value)
+
+
+def _bytes_field(field_number: int, value: bytes) -> bytes:
+    return _key(field_number, 2) + _varint(len(value)) + value
+
+
+def _string_field(field_number: int, value: str) -> bytes:
+    return _bytes_field(field_number, value.encode("utf-8"))
+
+
+def _message_field(field_number: int, value: bytes) -> bytes:
+    return _bytes_field(field_number, value)
+
+
+def _tensor_shape(dimensions: List[Union[int, str]]) -> bytes:
+    shape = bytearray()
+    for dimension in dimensions:
+        if isinstance(dimension, str):
+            dim = _string_field(2, dimension)
+        else:
+            dim = _int_field(1, dimension)
+        shape += _message_field(1, dim)
+    return bytes(shape)
+
+
+def _value_info(name: str, element_type: int,
+                dimensions: List[Union[int, str]]) -> bytes:
+    tensor_type = _int_field(1, element_type)
+    tensor_type += _message_field(2, _tensor_shape(dimensions))
+    type_proto = _message_field(1, tensor_type)
+    return _string_field(1, name) + _message_field(2, type_proto)
+
+
+def _tensor(name: str, element_type: int, dimensions: List[int],
+            raw_data: bytes) -> bytes:
+    tensor = bytearray()
+    for dimension in dimensions:
+        tensor += _int_field(1, dimension)
+    tensor += _int_field(2, element_type)
+    tensor += _string_field(8, name)
+    tensor += _bytes_field(9, raw_data)
+    return bytes(tensor)
+
+
+def _attribute_int(name: str, value: int) -> bytes:
+    # AttributeProto.INT = 2.
+    return (_string_field(1, name) + _int_field(3, value) +
+            _int_field(20, 2))
+
+
+def _node(op_type: str, inputs: List[str], outputs: List[str],
+          attributes: Optional[List[bytes]] = None) -> bytes:
+    node = bytearray()
+    for input_name in inputs:
+        node += _string_field(1, input_name)
+    for output_name in outputs:
+        node += _string_field(2, output_name)
+    node += _string_field(4, op_type)
+    for attribute in attributes or []:
+        node += _message_field(5, attribute)
+    return bytes(node)
+
+
+def generate_vocab(vocab_path: Path) -> None:
     tokens = [
-        "[PAD]",
-        "[UNK]",
-        "[CLS]",
-        "[SEP]",
-        "hello",
-        "world",
-        "bge",
-        "embedding",
-        "test",
-        "edgeflow",
-        "北",
-        "京",
-        "大",
-        "学",
-        "智",
-        "能",
-        "问",
-        "答",
-        "系",
-        "统",
+        "[PAD]", "[UNK]", "[CLS]", "[SEP]", "hello", "world", "bge",
+        "embedding", "test", "edgeflow", "北", "京", "大", "学", "智",
+        "能", "问", "答", "系", "统",
     ]
-    # Pad to 1000 tokens
-    for i in range(len(tokens), 1000):
-        tokens.append(f"token_{i}")
-    
-    os.makedirs(os.path.dirname(vocab_path), exist_ok=True)
-    with open(vocab_path, "w", encoding="utf-8") as f:
-        for t in tokens:
-            f.write(t + "\n")
-    print(f"Generated vocab at {vocab_path} (size={len(tokens)})")
+    tokens.extend(f"token_{index}" for index in range(len(tokens), 1000))
+    vocab_path.parent.mkdir(parents=True, exist_ok=True)
+    vocab_path.write_text("\n".join(tokens) + "\n", encoding="utf-8")
 
-def generate_onnx_model(model_path, vocab_size=1000, hidden_dim=128):
-    os.makedirs(os.path.dirname(model_path), exist_ok=True)
-    
-    # 1. Inputs
-    input_ids = helper.make_tensor_value_info(
-        "input_ids", TensorProto.INT64, ["batch", "sequence"]
+
+def generate_onnx_model(model_path: Path, hidden_dim: int = 128) -> None:
+    # TensorProto.FLOAT = 1, TensorProto.INT64 = 7.
+    scale = [0.25 + (index + 1) / hidden_dim for index in range(hidden_dim)]
+    bias = [math.sin(index + 1) * 0.5 for index in range(hidden_dim)]
+    scale_raw = struct.pack(f"<{hidden_dim}f", *scale)
+    bias_raw = struct.pack(f"<{hidden_dim}f", *bias)
+    axes_raw = struct.pack("<q", -1)
+
+    graph = bytearray()
+    graph += _message_field(
+        1, _node("Cast", ["input_ids"], ["ids_float"],
+                 [_attribute_int("to", 1)]))
+    graph += _message_field(
+        1, _node("Unsqueeze", ["ids_float", "unsqueeze_axes"],
+                 ["ids_expanded"]))
+    graph += _message_field(
+        1, _node("Mul", ["ids_expanded", "scale"], ["scaled_ids"]))
+    graph += _message_field(
+        1, _node("Add", ["scaled_ids", "bias"], ["last_hidden_state"]))
+    graph += _string_field(2, "edgeflow_embedding_fixture")
+    graph += _message_field(5, _tensor("unsqueeze_axes", 7, [1], axes_raw))
+    graph += _message_field(
+        5, _tensor("scale", 1, [1, 1, hidden_dim], scale_raw))
+    graph += _message_field(
+        5, _tensor("bias", 1, [1, 1, hidden_dim], bias_raw))
+    graph += _message_field(
+        11, _value_info("input_ids", 7, ["batch", "sequence"]))
+    graph += _message_field(
+        11, _value_info("attention_mask", 7, ["batch", "sequence"]))
+    graph += _message_field(
+        12, _value_info("last_hidden_state", 1,
+                        ["batch", "sequence", hidden_dim]))
+
+    model = bytearray()
+    model += _int_field(1, 8)  # ModelProto.ir_version
+    model += _string_field(2, "edgeflow_test_generator")
+    model += _message_field(7, bytes(graph))
+    model += _message_field(8, _int_field(2, 13))  # default opset 13
+
+    model_path.parent.mkdir(parents=True, exist_ok=True)
+    model_path.write_bytes(model)
+
+
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--output-dir",
+        default=os.path.join(os.path.dirname(__file__), "..", "models"),
+        help="Directory receiving embedding_fixture.onnx and vocab.txt",
     )
-    attention_mask = helper.make_tensor_value_info(
-        "attention_mask", TensorProto.INT64, ["batch", "sequence"]
-    )
-    
-    # 2. Output
-    last_hidden_state = helper.make_tensor_value_info(
-        "last_hidden_state", TensorProto.FLOAT, ["batch", "sequence", hidden_dim]
-    )
-    
-    # 3. Initializer: Embedding table weights
-    np.random.seed(42)
-    embedding_table = np.random.randn(vocab_size, hidden_dim).astype(np.float32)
-    # Ensure non-zero deterministic vectors
-    for i in range(vocab_size):
-        embedding_table[i] = embedding_table[i] / np.linalg.norm(embedding_table[i])
-        
-    embed_weights = helper.make_tensor(
-        name="embed_weights",
-        data_type=TensorProto.FLOAT,
-        dims=[vocab_size, hidden_dim],
-        vals=embedding_table.flatten().tolist()
-    )
-    
-    # 4. Node: Gather(embed_weights, input_ids, axis=0) -> last_hidden_state
-    gather_node = helper.make_node(
-        "Gather",
-        inputs=["embed_weights", "input_ids"],
-        outputs=["last_hidden_state"],
-        axis=0
-    )
-    
-    # 5. Graph & Model
-    graph = helper.make_graph(
-        [gather_node],
-        "bge_embedding_graph",
-        [input_ids, attention_mask],
-        [last_hidden_state],
-        initializer=[embed_weights]
-    )
-    
-    model = helper.make_model(
-        graph,
-        producer_name="edgeflow_test_generator",
-        opset_imports=[helper.make_opsetid("", 14)],
-        ir_version=8
-    )
-    onnx.checker.check_model(model)
-    onnx.save(model, model_path)
-    
-    with open(model_path, "rb") as f:
-        sha256 = hashlib.sha256(f.read()).hexdigest()
-    print(f"Generated valid ONNX model at {model_path} (SHA-256={sha256})")
+    args = parser.parse_args()
+
+    output_dir = Path(args.output_dir).resolve()
+    model_path = output_dir / "embedding_fixture.onnx"
+    vocab_path = output_dir / "vocab.txt"
+    generate_vocab(vocab_path)
+    generate_onnx_model(model_path)
+    print(f"ONNX_FIXTURE={model_path}")
+    print(f"ONNX_SHA256={_sha256(model_path)}")
+    print(f"VOCAB_FIXTURE={vocab_path}")
+    print(f"VOCAB_SHA256={_sha256(vocab_path)}")
+
 
 if __name__ == "__main__":
-    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-    model_path = os.path.join(base_dir, "models", "bge_base_zh_v1.5.onnx")
-    vocab_path = os.path.join(base_dir, "models", "vocab.txt")
-    generate_vocab(vocab_path)
-    generate_onnx_model(model_path, vocab_size=1000, hidden_dim=128)
+    main()

@@ -1,9 +1,12 @@
 #include <gtest/gtest.h>
 
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <memory>
 #include <nlohmann/json.hpp>
 #include <string>
@@ -27,7 +30,68 @@
 #include "engine/models/bge_embedding/bert_wordpiece_tokenizer.h"
 #include "engine/models/bge_embedding/bge_embedding_model.h"
 
+#ifndef EDGEFLOW_STAGE3_ONNX_FIXTURE
+#define EDGEFLOW_STAGE3_ONNX_FIXTURE "models/embedding_fixture.onnx"
+#endif
+#ifndef EDGEFLOW_STAGE3_VOCAB_FIXTURE
+#define EDGEFLOW_STAGE3_VOCAB_FIXTURE "models/vocab.txt"
+#endif
+
 namespace alg_framework {
+
+namespace {
+
+#ifdef HAVE_ONNXRUNTIME
+std::filesystem::path GetFixturePath(const char* environment_name,
+                                     const char* fallback) {
+  const char* configured = std::getenv(environment_name);
+  if (configured && configured[0] != '\0') {
+    return std::filesystem::path(configured);
+  }
+  return std::filesystem::path(fallback);
+}
+#endif
+
+void WriteTestVocab(const std::filesystem::path& path) {
+  std::ofstream out(path);
+  out << "[PAD]\n[UNK]\n[CLS]\n[SEP]\nhello\nworld\nword\n";
+}
+
+class FaultInjectingTensorBuffer final : public ITensorBuffer {
+ public:
+  FaultInjectingTensorBuffer(size_t byte_size, size_t data_offset = 0,
+                             bool null_data = false)
+      : byte_size_(byte_size) {
+    const size_t allocation_size =
+        byte_size + data_offset + alignof(std::max_align_t);
+    allocation_ = std::malloc(allocation_size == 0 ? 1 : allocation_size);
+    if (!allocation_ || null_data) return;
+    const uintptr_t address = reinterpret_cast<uintptr_t>(allocation_);
+    const uintptr_t aligned =
+        (address + alignof(std::max_align_t) - 1) &
+        ~(static_cast<uintptr_t>(alignof(std::max_align_t)) - 1);
+    data_ = reinterpret_cast<void*>(aligned + data_offset);
+  }
+
+  ~FaultInjectingTensorBuffer() override { std::free(allocation_); }
+
+  const void* Data() const noexcept override { return data_; }
+  void* MutableData() noexcept override { return data_; }
+  size_t ByteSize() const noexcept override { return byte_size_; }
+
+ private:
+  void* allocation_ = nullptr;
+  void* data_ = nullptr;
+  size_t byte_size_ = 0;
+};
+
+Tensor MakeFaultTensor(const TensorDesc& desc, size_t byte_size,
+                       size_t data_offset = 0, bool null_data = false) {
+  return Tensor{desc, std::make_shared<FaultInjectingTensorBuffer>(
+                          byte_size, data_offset, null_data)};
+}
+
+}  // namespace
 
 class OnnxAndEmbeddingModelTest : public ::testing::Test {
  protected:
@@ -204,7 +268,7 @@ class FakeTensorGraphSession : public ITensorGraphSession {
   int Run(const TensorMap& inputs, TensorMap* outputs,
           std::string* diagnostic = nullptr) noexcept override {
     run_count_++;
-    if (fail_run_) {
+    if (fail_run_ || (fail_on_run_ > 0 && run_count_ == fail_on_run_)) {
       if (diagnostic) *diagnostic = "Forced run failure";
       return -1;
     }
@@ -216,6 +280,7 @@ class FakeTensorGraphSession : public ITensorGraphSession {
 
     int64_t batch_size = it_ids->second.desc.shape[0];
     int64_t seq_len = it_ids->second.desc.shape[1];
+    observed_batch_sizes_.push_back(static_cast<size_t>(batch_size));
 
     TensorDesc out_desc;
     out_desc.element_type = ElementType::kFloat32;
@@ -246,17 +311,47 @@ class FakeTensorGraphSession : public ITensorGraphSession {
     if (corrupt_zero_dim_) {
       out_desc.shape = {batch_size, 0, hidden_dim_};
     }
+    if (corrupt_sequence_delta_ != 0 && is_3d_) {
+      out_desc.shape[1] += corrupt_sequence_delta_;
+    }
+    if (corrupt_negative_dim_ && is_3d_) {
+      out_desc.shape[1] = -1;
+    }
+    if (corrupt_overflow_ && is_3d_) {
+      out_desc.shape = {batch_size, std::numeric_limits<int64_t>::max(),
+                        std::numeric_limits<int64_t>::max()};
+    }
 
     Tensor out_tensor;
-    CreateHostTensor(out_desc, &out_tensor, nullptr);
-    if (out_tensor.buffer && out_tensor.buffer->MutableData()) {
-      float* data = static_cast<float*>(out_tensor.buffer->MutableData());
-      size_t total_elements = 1;
-      for (int64_t d : out_desc.shape) {
-        if (d > 0) total_elements *= static_cast<size_t>(d);
+    const bool inject_buffer = corrupt_byte_delta_ != 0 ||
+                               corrupt_misalignment_ || corrupt_null_data_ ||
+                               corrupt_negative_dim_ || corrupt_overflow_;
+    if (inject_buffer) {
+      size_t expected_bytes = 16;
+      std::string ignored;
+      inference_detail::ComputeTensorByteSize(
+          out_desc, ElementTypeByteSize(out_desc.element_type), &expected_bytes,
+          &ignored);
+      if (corrupt_byte_delta_ < 0) {
+        const size_t reduction = static_cast<size_t>(-corrupt_byte_delta_);
+        expected_bytes =
+            reduction > expected_bytes ? 0 : expected_bytes - reduction;
+      } else {
+        expected_bytes += static_cast<size_t>(corrupt_byte_delta_);
       }
-      for (size_t i = 0; i < total_elements; ++i) {
-        data[i] = static_cast<float>(i % 10 + 1) * 0.1f;
+      out_tensor =
+          MakeFaultTensor(out_desc, expected_bytes,
+                          corrupt_misalignment_ ? 1 : 0, corrupt_null_data_);
+    } else {
+      CreateHostTensor(out_desc, &out_tensor, nullptr);
+    }
+    if (out_desc.element_type == ElementType::kFloat32) {
+      float* data = GetMutableTensorData<float>(&out_tensor, nullptr);
+      if (data) {
+        size_t total_elements = out_tensor.buffer->ByteSize() / sizeof(float);
+        for (size_t i = 0; i < total_elements; ++i) {
+          data[i] = static_cast<float>(i % 10 + 1) * 0.1f;
+        }
       }
     }
 
@@ -275,11 +370,92 @@ class FakeTensorGraphSession : public ITensorGraphSession {
   bool corrupt_dim_ = false;
   bool corrupt_rank_ = false;
   bool corrupt_zero_dim_ = false;
+  int64_t corrupt_sequence_delta_ = 0;
+  bool corrupt_negative_dim_ = false;
+  bool corrupt_overflow_ = false;
+  int corrupt_byte_delta_ = 0;
+  bool corrupt_misalignment_ = false;
+  bool corrupt_null_data_ = false;
+  int fail_on_run_ = 0;
+  std::vector<size_t> observed_batch_sizes_;
+
+  void ResetFaults() noexcept {
+    fail_run_ = false;
+    corrupt_dtype_ = false;
+    corrupt_batch_ = false;
+    corrupt_dim_ = false;
+    corrupt_rank_ = false;
+    corrupt_zero_dim_ = false;
+    corrupt_sequence_delta_ = 0;
+    corrupt_negative_dim_ = false;
+    corrupt_overflow_ = false;
+    corrupt_byte_delta_ = 0;
+    corrupt_misalignment_ = false;
+    corrupt_null_data_ = false;
+    fail_on_run_ = 0;
+  }
+
+  void ResetMetrics() {
+    run_count_ = 0;
+    observed_batch_sizes_.clear();
+  }
 
  private:
   std::vector<TensorSpec> inputs_;
   std::vector<TensorSpec> outputs_;
 };
+
+TEST_F(OnnxAndEmbeddingModelTest, ModelSidecarContainmentSecurity) {
+  auto model_root = temp_dir_ / "model";
+  auto sibling_root = temp_dir_ / "model-escape";
+  auto outside_root = temp_dir_ / "outside";
+  std::filesystem::create_directories(model_root);
+  std::filesystem::create_directories(sibling_root);
+  std::filesystem::create_directories(outside_root);
+  WriteTestVocab(model_root / "vocab.txt");
+  WriteTestVocab(sibling_root / "vocab.txt");
+  WriteTestVocab(outside_root / "vocab.txt");
+
+  ModelCreateContext context;
+  context.backend_session = std::make_shared<FakeTensorGraphSession>(4, true);
+  context.model_resource_root = model_root.string();
+  context.model_config = {
+      {"tokenizer_file", "vocab.txt"},
+      {"embedding_dim", 4},
+      {"max_length", 16},
+  };
+
+  std::string diag;
+  EXPECT_NE(BgeEmbeddingModel::Create(context, &diag), nullptr) << diag;
+
+  // 普通词法逃逸必须失败。
+  context.model_config["tokenizer_file"] = "../outside/vocab.txt";
+  diag.clear();
+  EXPECT_EQ(BgeEmbeddingModel::Create(context, &diag), nullptr);
+  EXPECT_NE(diag.find("cannot escape root"), std::string::npos);
+
+  // 同前缀兄弟目录不能通过字符串前缀混淆逃逸。
+  context.model_config["tokenizer_file"] = "../model-escape/vocab.txt";
+  diag.clear();
+  EXPECT_EQ(BgeEmbeddingModel::Create(context, &diag), nullptr);
+  EXPECT_NE(diag.find("cannot escape root"), std::string::npos);
+
+  // 已存在的 symlink 指向根外时也必须失败。
+  std::error_code ec;
+  std::filesystem::create_directory_symlink(outside_root,
+                                            model_root / "outside_link", ec);
+  ASSERT_FALSE(ec) << ec.message();
+  context.model_config["tokenizer_file"] = "outside_link/vocab.txt";
+  diag.clear();
+  EXPECT_EQ(BgeEmbeddingModel::Create(context, &diag), nullptr);
+  EXPECT_NE(diag.find("cannot escape root"), std::string::npos);
+
+  // RFC 明确允许显式绝对路径。
+  context.model_config["tokenizer_file"] =
+      (sibling_root / "vocab.txt").string();
+  diag.clear();
+  EXPECT_NE(BgeEmbeddingModel::Create(context, &diag), nullptr) << diag;
+}
 
 TEST_F(OnnxAndEmbeddingModelTest, BgeEmbeddingModelCLSAndMeanPooling) {
   auto fake_session_3d = std::make_shared<FakeTensorGraphSession>(4, true);
@@ -379,6 +555,59 @@ TEST_F(OnnxAndEmbeddingModelTest,
   fake_session->corrupt_zero_dim_ = true;
   EXPECT_NE(model.Embed(inputs, opts, &outputs), 0);
   EXPECT_TRUE(outputs.empty());
+
+  // 7. 3D sequence 必须与输入 Tensor 的 max_length 完全一致。
+  fake_session->ResetFaults();
+  fake_session->corrupt_sequence_delta_ = -1;
+  EXPECT_NE(model.Embed(inputs, opts, &outputs), 0);
+  EXPECT_TRUE(outputs.empty());
+
+  fake_session->ResetFaults();
+  fake_session->corrupt_sequence_delta_ = 1;
+  EXPECT_NE(model.Embed(inputs, opts, &outputs), 0);
+  EXPECT_TRUE(outputs.empty());
+
+  // 8. 负维度、溢出、过短/过长 Buffer、错位和空数据全部 fail closed。
+  fake_session->ResetFaults();
+  fake_session->corrupt_negative_dim_ = true;
+  EXPECT_NE(model.Embed(inputs, opts, &outputs), 0);
+  EXPECT_TRUE(outputs.empty());
+
+  fake_session->ResetFaults();
+  fake_session->corrupt_overflow_ = true;
+  EXPECT_NE(model.Embed(inputs, opts, &outputs), 0);
+  EXPECT_TRUE(outputs.empty());
+
+  fake_session->ResetFaults();
+  fake_session->corrupt_byte_delta_ = -1;
+  EXPECT_NE(model.Embed(inputs, opts, &outputs), 0);
+  EXPECT_TRUE(outputs.empty());
+
+  fake_session->ResetFaults();
+  fake_session->corrupt_byte_delta_ = 1;
+  EXPECT_NE(model.Embed(inputs, opts, &outputs), 0);
+  EXPECT_TRUE(outputs.empty());
+
+  fake_session->ResetFaults();
+  fake_session->corrupt_misalignment_ = true;
+  EXPECT_NE(model.Embed(inputs, opts, &outputs), 0);
+  EXPECT_TRUE(outputs.empty());
+
+  fake_session->ResetFaults();
+  fake_session->corrupt_null_data_ = true;
+  EXPECT_NE(model.Embed(inputs, opts, &outputs), 0);
+  EXPECT_TRUE(outputs.empty());
+
+  // 9. 跨批第二批失败时不得暴露第一批的部分结果。
+  fake_session->ResetFaults();
+  fake_session->ResetMetrics();
+  fake_session->fail_on_run_ = 2;
+  TextBatch multi_batch_inputs = {
+      {1, 0, "hello"}, {2, 0, "hello"}, {3, 0, "hello"}};
+  outputs = {{999, 999, {1.0f}}};
+  EXPECT_NE(model.Embed(multi_batch_inputs, opts, &outputs), 0);
+  EXPECT_TRUE(outputs.empty());
+  EXPECT_EQ(fake_session->run_count_, 2);
 }
 
 TEST_F(OnnxAndEmbeddingModelTest, FixedAndDynamicBatchScheduling) {
@@ -405,6 +634,45 @@ TEST_F(OnnxAndEmbeddingModelTest, FixedAndDynamicBatchScheduling) {
   EXPECT_EQ(outputs[1].req_id, 2);
   EXPECT_EQ(outputs[2].req_id, 3);
   EXPECT_EQ(fake_fixed->run_count_, 2);
+  ASSERT_EQ(fake_fixed->observed_batch_sizes_.size(), 2u);
+  EXPECT_EQ(fake_fixed->observed_batch_sizes_[0], 2u);
+  EXPECT_EQ(fake_fixed->observed_batch_sizes_[1], 2u);
+
+  // 固定 batch：单条和满批均以固定 execution_count 执行，且保留 sub_id。
+  fake_fixed->ResetMetrics();
+  TextBatch one_input = {{11, 7, "a"}};
+  EXPECT_EQ(model_fixed.Embed(one_input, opts, &outputs), 0);
+  ASSERT_EQ(outputs.size(), 1u);
+  EXPECT_EQ(outputs[0].req_id, 11);
+  EXPECT_EQ(outputs[0].sub_id, 7);
+  ASSERT_EQ(fake_fixed->observed_batch_sizes_.size(), 1u);
+  EXPECT_EQ(fake_fixed->observed_batch_sizes_[0], 2u);
+
+  fake_fixed->ResetMetrics();
+  TextBatch full_inputs = {{21, 1, "a"}, {22, 2, "b"}};
+  EXPECT_EQ(model_fixed.Embed(full_inputs, opts, &outputs), 0);
+  ASSERT_EQ(outputs.size(), 2u);
+  ASSERT_EQ(fake_fixed->observed_batch_sizes_.size(), 1u);
+  EXPECT_EQ(fake_fixed->observed_batch_sizes_[0], 2u);
+
+  // 动态 batch：最后一批不得 padding，覆盖单条、3 条和跨批。
+  auto fake_dynamic =
+      std::make_shared<FakeTensorGraphSession>(4, true, /*fixed_batch=*/0, 2);
+  BgeEmbeddingModel model_dynamic(fake_dynamic, tokenizer, 16, "cls", true,
+                                  "last_hidden_state", 4, 3);
+  EXPECT_EQ(model_dynamic.Embed(one_input, opts, &outputs), 0);
+  ASSERT_EQ(fake_dynamic->observed_batch_sizes_.size(), 1u);
+  EXPECT_EQ(fake_dynamic->observed_batch_sizes_[0], 1u);
+
+  fake_dynamic->ResetMetrics();
+  TextBatch dynamic_inputs = {{31, 3, "a"}, {32, 4, "b"}, {33, 5, "c"}};
+  EXPECT_EQ(model_dynamic.Embed(dynamic_inputs, opts, &outputs), 0);
+  ASSERT_EQ(outputs.size(), 3u);
+  EXPECT_EQ(outputs[0].sub_id, 3);
+  EXPECT_EQ(outputs[2].sub_id, 5);
+  ASSERT_EQ(fake_dynamic->observed_batch_sizes_.size(), 2u);
+  EXPECT_EQ(fake_dynamic->observed_batch_sizes_[0], 2u);
+  EXPECT_EQ(fake_dynamic->observed_batch_sizes_[1], 1u);
 
   // 2. 模型语义上限冲突拒绝创建 (R3-012)
   ModelCreateContext mctx;
@@ -440,6 +708,8 @@ TEST_F(OnnxAndEmbeddingModelTest, CatalogRegistrations) {
   EXPECT_EQ(bdef_opt->concurrency, InferenceConcurrency::kConcurrent);
   ASSERT_EQ(bdef_opt->supported_protocols.size(), 1u);
   EXPECT_EQ(bdef_opt->supported_protocols[0], ExecutionProtocol::kTensorGraph);
+#else
+  EXPECT_FALSE(BackendRegistry::Instance().Find("onnxruntime").has_value());
 #endif
 
   auto mdef_opt = ModelRegistry::Instance().Find("bge_embedding");
@@ -488,19 +758,79 @@ TEST_F(OnnxAndEmbeddingModelTest, TextEmbeddingNodeBoundToModel) {
 }
 
 // =============================================================================
-// 4. 真实 ONNX Artifact 运行与 Pipeline Smoke 测试 (R3-013)
+// 4. ONNX Backend 中性边界与真实 Runtime fixture (R3-011, R3-013)
 // =============================================================================
 
-TEST_F(OnnxAndEmbeddingModelTest, RealOnnxArtifactPassEvidence) {
+TEST_F(OnnxAndEmbeddingModelTest, OnnxBackendNeutralTensorValidation) {
+  TensorSpec input_spec{"input_ids", ElementType::kInt64, {-1, 16}};
+  BatchPolicy policy{/*max_batch_size=*/2, /*fixed_batch_size=*/0};
+  TensorDesc input_desc{ElementType::kInt64, {1, 16}};
+  Tensor valid_input;
+  std::string diag;
+  ASSERT_TRUE(CreateHostTensor(input_desc, &valid_input, &diag)) << diag;
+  EXPECT_TRUE(onnxruntime_detail::ValidateInputTensor(valid_input, input_spec,
+                                                      policy, &diag));
+
+  Tensor short_input = MakeFaultTensor(input_desc, 16 * sizeof(int64_t) - 1);
+  EXPECT_FALSE(onnxruntime_detail::ValidateInputTensor(short_input, input_spec,
+                                                       policy, &diag));
+  Tensor long_input = MakeFaultTensor(input_desc, 16 * sizeof(int64_t) + 1);
+  EXPECT_FALSE(onnxruntime_detail::ValidateInputTensor(long_input, input_spec,
+                                                       policy, &diag));
+
+  TensorDesc overflow_desc{ElementType::kInt64,
+                           {1, std::numeric_limits<int64_t>::max(),
+                            std::numeric_limits<int64_t>::max()}};
+  Tensor overflow_input = MakeFaultTensor(overflow_desc, 16);
+  TensorSpec overflow_spec{"input_ids", ElementType::kInt64, {-1, -1, -1}};
+  EXPECT_FALSE(onnxruntime_detail::ValidateInputTensor(
+      overflow_input, overflow_spec, policy, &diag));
+
+  TensorDesc wrong_static_desc{ElementType::kInt64, {1, 15}};
+  Tensor wrong_static;
+  ASSERT_TRUE(CreateHostTensor(wrong_static_desc, &wrong_static, &diag));
+  EXPECT_FALSE(onnxruntime_detail::ValidateInputTensor(wrong_static, input_spec,
+                                                       policy, &diag));
+
+  TensorSpec output_spec{
+      "last_hidden_state", ElementType::kFloat32, {-1, 16, 128}};
+  constexpr size_t kElementCount = 1 * 16 * 128;
+  EXPECT_TRUE(onnxruntime_detail::ValidateOutputMetadata(
+      ElementType::kFloat32, {1, 16, 128}, kElementCount, output_spec, 1,
+      &diag));
+  EXPECT_FALSE(onnxruntime_detail::ValidateOutputMetadata(
+      ElementType::kInt32, {1, 16, 128}, kElementCount, output_spec, 1, &diag));
+  EXPECT_FALSE(onnxruntime_detail::ValidateOutputMetadata(
+      ElementType::kFloat32, {1, 16}, 16, output_spec, 1, &diag));
+  EXPECT_FALSE(onnxruntime_detail::ValidateOutputMetadata(
+      ElementType::kFloat32, {1, 15, 128}, 1 * 15 * 128, output_spec, 1,
+      &diag));
+  EXPECT_FALSE(onnxruntime_detail::ValidateOutputMetadata(
+      ElementType::kFloat32, {2, 16, 128}, 2 * kElementCount, output_spec, 1,
+      &diag));
+  EXPECT_FALSE(onnxruntime_detail::ValidateOutputMetadata(
+      ElementType::kFloat32, {1, 16, 128}, kElementCount - 1, output_spec, 1,
+      &diag));
+  EXPECT_FALSE(onnxruntime_detail::ValidateOutputMetadata(
+      ElementType::kFloat32,
+      {1, std::numeric_limits<int64_t>::max(),
+       std::numeric_limits<int64_t>::max()},
+      0, TensorSpec{"overflow", ElementType::kFloat32, {-1, -1, -1}}, 1,
+      &diag));
+}
+
+TEST_F(OnnxAndEmbeddingModelTest, OnnxRuntimeFixturePassEvidence) {
 #ifndef HAVE_ONNXRUNTIME
   GTEST_SKIP() << "ONNX Runtime not compiled into this build.";
 #else
-  const char* onnx_path = "models/bge_base_zh_v1.5.onnx";
-  const char* vocab_path = "models/vocab.txt";
+  const auto onnx_path = GetFixturePath("LLM_EDGEFLOW_TEST_BGE_ONNX",
+                                        EDGEFLOW_STAGE3_ONNX_FIXTURE);
+  const auto vocab_path = GetFixturePath("LLM_EDGEFLOW_TEST_BGE_VOCAB",
+                                         EDGEFLOW_STAGE3_VOCAB_FIXTURE);
 
   if (!std::filesystem::exists(onnx_path) ||
       !std::filesystem::exists(vocab_path)) {
-    GTEST_SKIP() << "Real BGE ONNX/vocab artifact not found on disk.";
+    GTEST_SKIP() << "ONNX/vocab fixture not found on disk.";
   }
 
   // 1. Backend Load 真实自省元数据
@@ -508,7 +838,7 @@ TEST_F(OnnxAndEmbeddingModelTest, RealOnnxArtifactPassEvidence) {
   ASSERT_NE(backend, nullptr);
 
   BackendLoadSpec bspec;
-  bspec.model_path = onnx_path;
+  bspec.model_path = onnx_path.string();
   bspec.backend_config = {{"max_batch_size", 2}};
   std::string diag;
   auto session = backend->Load(bspec, &diag);
@@ -526,10 +856,9 @@ TEST_F(OnnxAndEmbeddingModelTest, RealOnnxArtifactPassEvidence) {
   // 2. Model 实例化与真实端到端推理
   ModelCreateContext mctx;
   mctx.backend_session = session;
-  mctx.model_resource_root =
-      std::filesystem::path(vocab_path).parent_path().string();
+  mctx.model_resource_root = vocab_path.parent_path().string();
   mctx.model_config = {
-      {"tokenizer_file", std::filesystem::path(vocab_path).filename().string()},
+      {"tokenizer_file", vocab_path.filename().string()},
       {"do_lower_case", true},
       {"max_length", 32},
       {"pooling_strategy", "mean"},
@@ -591,11 +920,25 @@ TEST_F(OnnxAndEmbeddingModelTest, RealOnnxArtifactPassEvidence) {
   }
   EXPECT_TRUE(is_different);
 
-  // 3. 真实 Pipeline Build 与 Execute 完整验证
+  // 3. 使用同一 fixture 完成 Pipeline Build 与 Execute。测试副本只替换
+  // artifact 路径和序列长度，不修改生产配置。
+  std::ifstream config_in("configs/pipeline_doc_qa_onnx.json");
+  ASSERT_TRUE(config_in.good());
+  nlohmann::json pipeline_config;
+  config_in >> pipeline_config;
+  pipeline_config["models"][0]["model_path"] = onnx_path.string();
+  pipeline_config["models"][0]["model_config"]["tokenizer_file"] =
+      vocab_path.string();
+  pipeline_config["models"][0]["model_config"]["max_length"] = 32;
+  const auto smoke_config_path = temp_dir_ / "pipeline_fixture_smoke.json";
+  std::ofstream config_out(smoke_config_path);
+  config_out << pipeline_config.dump(2);
+  config_out.close();
+
   Pipeline pipeline;
   PipelineDiagnostic pdiag;
   bool build_ok =
-      pipeline.BuildFromConfigFile("configs/pipeline_doc_qa_onnx.json", &pdiag);
+      pipeline.BuildFromConfigFile(smoke_config_path.string(), &pdiag);
   ASSERT_TRUE(build_ok) << pdiag.message << " at " << pdiag.path;
   EXPECT_TRUE(pipeline.IsReady());
 
@@ -634,12 +977,13 @@ TEST_F(OnnxAndEmbeddingModelTest, OnnxRuntimeBackendNegativeValidation) {
   EXPECT_EQ(backend->Load(bspec, &diag), nullptr);
 
   // 2. 加载合法模型后测试 Run 输入负向校验 (R3-011)
-  const char* onnx_path = "models/bge_base_zh_v1.5.onnx";
+  const auto onnx_path = GetFixturePath("LLM_EDGEFLOW_TEST_BGE_ONNX",
+                                        EDGEFLOW_STAGE3_ONNX_FIXTURE);
   if (!std::filesystem::exists(onnx_path)) {
-    GTEST_SKIP() << "models/bge_base_zh_v1.5.onnx not found";
+    GTEST_SKIP() << "ONNX fixture not found: " << onnx_path;
   }
 
-  bspec.model_path = onnx_path;
+  bspec.model_path = onnx_path.string();
   bspec.backend_config = {{"max_batch_size", 2}};
   auto session = backend->Load(bspec, &diag);
   ASSERT_NE(session, nullptr) << diag;
@@ -672,6 +1016,40 @@ TEST_F(OnnxAndEmbeddingModelTest, OnnxRuntimeBackendNegativeValidation) {
   CreateHostTensor(overflow_batch_desc, &overflow_batch_tensor, nullptr);
   inputs["input_ids"] = overflow_batch_tensor;
   inputs["attention_mask"] = overflow_batch_tensor;
+  EXPECT_NE(tensor_session->Run(inputs, &outputs, &diag), 0);
+  EXPECT_TRUE(outputs.empty());
+
+  // 2.4 输入 Buffer 必须精确匹配，过短和过长都失败。
+  TensorDesc valid_desc{ElementType::kInt64, {1, 16}};
+  Tensor valid_tensor;
+  ASSERT_TRUE(CreateHostTensor(valid_desc, &valid_tensor, &diag));
+  Tensor short_tensor = MakeFaultTensor(valid_desc, 16 * sizeof(int64_t) - 1);
+  inputs["input_ids"] = short_tensor;
+  inputs["attention_mask"] = valid_tensor;
+  EXPECT_NE(tensor_session->Run(inputs, &outputs, &diag), 0);
+  EXPECT_TRUE(outputs.empty());
+
+  Tensor long_tensor = MakeFaultTensor(valid_desc, 16 * sizeof(int64_t) + 1);
+  inputs["input_ids"] = long_tensor;
+  EXPECT_NE(tensor_session->Run(inputs, &outputs, &diag), 0);
+  EXPECT_TRUE(outputs.empty());
+
+  // 2.5 多输入的运行时 batch 必须一致。
+  TensorDesc batch_two_desc{ElementType::kInt64, {2, 16}};
+  Tensor batch_two_tensor;
+  ASSERT_TRUE(CreateHostTensor(batch_two_desc, &batch_two_tensor, &diag));
+  inputs["input_ids"] = valid_tensor;
+  inputs["attention_mask"] = batch_two_tensor;
+  EXPECT_NE(tensor_session->Run(inputs, &outputs, &diag), 0);
+  EXPECT_TRUE(outputs.empty());
+
+  // 2.6 shape 元素数乘法溢出必须在进入 ORT 前失败。
+  TensorDesc overflow_desc{ElementType::kInt64,
+                           {1, std::numeric_limits<int64_t>::max(),
+                            std::numeric_limits<int64_t>::max()}};
+  Tensor overflow_tensor = MakeFaultTensor(overflow_desc, 16);
+  inputs["input_ids"] = overflow_tensor;
+  inputs["attention_mask"] = overflow_tensor;
   EXPECT_NE(tensor_session->Run(inputs, &outputs, &diag), 0);
   EXPECT_TRUE(outputs.empty());
 #endif

@@ -3,7 +3,7 @@
 - **制定日期**：2026-08-29
 - **关联 RFC**：`0015-model-capability-backend-decoupling`
 - **关联分支**：`feat/model-backend-decoupling-rfc`
-- **当前状态**：阶段一基础整改已完成，RFC 实现进行中
+- **当前状态**：阶段三 ONNX Embedding 纵向切片已验收，可进入阶段四；RFC 实现进行中
 - **审查依据**：[RFC-0015 桩实现审查与整改清单](0015-model-capability-backend-decoupling-stub-review-20260828.md)
 - **后续实现**：[RFC-0015 后续实现指南](0015-model-capability-backend-decoupling-continuation-guide-20260829.md)
 - **阶段 3 验收与整改**：[ONNX Embedding 验收结论与实施设计](0015-stage3-onnx-embedding-acceptance-remediation-20260829.md)
@@ -241,6 +241,9 @@
 - [x] 真实 ONNX 条件测试至少一次非 skip PASS，并保存 artifact 证据；
 - [x] 不存在 production fallback；
 - [x] 配置 validate、plan、真实 build 和 Process smoke 全部通过。
+
+验收证据见阶段 3 验收文档第 0 节。当前 macOS 已完成 UBSan 79/79 和完整门禁 82/82；
+受支持的 Linux ASan/LSan 结果作为合入 `main` 前门禁，不阻塞阶段 4 开发。
 
 ---
 

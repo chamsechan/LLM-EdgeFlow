@@ -15,10 +15,13 @@ namespace alg_framework {
 namespace {
 
 bool ValidateEmbeddingOutput(const Tensor& tensor, size_t expected_batch,
-                             size_t expected_dim, const float** data_ptr,
+                             size_t expected_sequence, size_t expected_dim,
+                             const float** data_ptr,
                              std::string* diagnostic) noexcept {
-  if (expected_batch == 0 || expected_dim == 0) {
-    if (diagnostic) *diagnostic = "Expected batch and dim must be positive";
+  if (expected_batch == 0 || expected_sequence == 0 || expected_dim == 0) {
+    if (diagnostic) {
+      *diagnostic = "Expected batch, sequence and dim must be positive";
+    }
     return false;
   }
 
@@ -53,6 +56,14 @@ bool ValidateEmbeddingOutput(const Tensor& tensor, size_t expected_batch,
 
   size_t dim = (shape.size() == 2) ? static_cast<size_t>(shape[1])
                                    : static_cast<size_t>(shape[2]);
+  if (shape.size() == 3 && static_cast<size_t>(shape[1]) != expected_sequence) {
+    if (diagnostic) {
+      *diagnostic = "Output tensor sequence dimension mismatch. Expected: " +
+                    std::to_string(expected_sequence) +
+                    ", got: " + std::to_string(shape[1]);
+    }
+    return false;
+  }
   if (dim != expected_dim) {
     if (diagnostic) {
       *diagnostic = "Output tensor embedding_dim mismatch. Expected: " +
@@ -140,19 +151,42 @@ std::shared_ptr<IModel> BgeEmbeddingModel::Create(const ModelCreateContext& ctx,
   std::string output_name =
       ctx.model_config.value("output_name", "last_hidden_state");
 
-  // 解析并加载词表 sidecar 文件 (使用 weakly_canonical 防止符号链接/路径逃逸)
+  // 解析并加载词表 sidecar 文件。相对路径必须在资源根目录内，且按路径组件
+  // 比较，避免 /root/model 与 /root/model-escape 的字符串前缀混淆。
   std::filesystem::path tok_p(tokenizer_file);
   std::filesystem::path resolved_vocab_path;
 
   if (tok_p.is_absolute()) {
     resolved_vocab_path = tok_p.lexically_normal();
   } else {
-    std::filesystem::path root_p =
-        std::filesystem::weakly_canonical(ctx.model_resource_root);
-    resolved_vocab_path = std::filesystem::weakly_canonical(root_p / tok_p);
-    std::string root_str = root_p.string();
-    std::string res_str = resolved_vocab_path.string();
-    if (res_str.rfind(root_str, 0) != 0) {
+    std::error_code ec;
+    std::filesystem::path root_p = std::filesystem::weakly_canonical(
+        std::filesystem::path(ctx.model_resource_root), ec);
+    if (ec) {
+      if (diagnostic) {
+        *diagnostic = "Failed to canonicalize model resource root: " +
+                      ctx.model_resource_root;
+      }
+      return nullptr;
+    }
+    resolved_vocab_path = std::filesystem::weakly_canonical(root_p / tok_p, ec);
+    if (ec) {
+      if (diagnostic) {
+        *diagnostic =
+            "Failed to canonicalize tokenizer file: " + tokenizer_file;
+      }
+      return nullptr;
+    }
+
+    auto root_it = root_p.begin();
+    auto candidate_it = resolved_vocab_path.begin();
+    while (root_it != root_p.end() &&
+           candidate_it != resolved_vocab_path.end() &&
+           *root_it == *candidate_it) {
+      ++root_it;
+      ++candidate_it;
+    }
+    if (root_it != root_p.end()) {
       if (diagnostic) {
         *diagnostic =
             "Tokenizer file path cannot escape root: " + tokenizer_file;
@@ -322,8 +356,8 @@ int BgeEmbeddingModel::RawEmbedSlice(
     }
 
     const float* data = nullptr;
-    if (!ValidateEmbeddingOutput(it_out->second, exec_count, embedding_dim_,
-                                 &data, &diag)) {
+    if (!ValidateEmbeddingOutput(it_out->second, exec_count, max_length_,
+                                 embedding_dim_, &data, &diag)) {
       ALG_LOG_ERROR("[BgeEmbeddingModel] ValidateEmbeddingOutput failed: %s\n",
                     diag.c_str());
       batch_embeddings->clear();
@@ -344,7 +378,7 @@ int BgeEmbeddingModel::RawEmbedSlice(
 
         if (pooling_strategy_ == "mean") {
           float sum_mask = 0.0f;
-          for (size_t s = 0; s < seq_len && s < max_length_; ++s) {
+          for (size_t s = 0; s < seq_len; ++s) {
             int64_t m = mask_ptr[b * max_length_ + s];
             if (m > 0) {
               sum_mask += 1.0f;

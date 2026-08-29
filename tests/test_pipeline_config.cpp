@@ -14,6 +14,7 @@
 #include "core/pipeline_config.h"
 #include "core/pipeline_diagnostic.h"
 #include "core/session_context.h"
+#include "engine/backend_registry.h"
 #include "engine/engine_interface.h"
 #include "engine/engine_registry.h"
 
@@ -278,6 +279,12 @@ TEST_F(PipelineConfigTest, PositiveNineFormalConfigs) {
     EXPECT_TRUE(parse_ok) << "Parse failed for " << cfg_file << ": "
                           << diag.message << " at " << diag.path;
     EXPECT_EQ(diag.code, PipelineErrorCode::kOk);
+
+    if (cfg_file == "configs/pipeline_doc_qa_onnx.json" &&
+        !BackendRegistry::Instance().Find("onnxruntime").has_value()) {
+      // Optional backend is deliberately absent in ONNX-disabled builds.
+      continue;
+    }
 
     Pipeline pipeline;
     bool build_ok = pipeline.BuildFromConfigFile(full_path, &diag);

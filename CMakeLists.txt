@@ -65,7 +65,7 @@ include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
-if(APPLE)
+if(APPLE AND CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang")
   if(EXISTS "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1")
     include_directories(SYSTEM "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1")
   endif()
@@ -87,6 +87,7 @@ set(FRAMEWORK_SRCS
     src/engine/runtime/model_registry.cpp
     src/engine/runtime/backend_registry.cpp
     src/engine/runtime/model_runtime_factory.cpp
+    src/engine/backends/onnxruntime/onnxruntime_backend.cpp
     src/engine/mock_npu/mock_npu_embedding_engine.cpp
     src/engine/mock_npu/mock_npu_llm_engine.cpp
     src/engine/mock_npu/mock_npu_rerank_engine.cpp
@@ -131,10 +132,6 @@ set(FRAMEWORK_SRCS
     src/adapter/operator/operator_adapter.cpp
     src/adapter/company_c_adapter.cpp
 )
-
-if(LLM_EDGEFLOW_HAS_ONNXRUNTIME)
-  list(APPEND FRAMEWORK_SRCS src/engine/backends/onnxruntime/onnxruntime_backend.cpp)
-endif()
 
 # 1. 生成对外交付的动态算法库 (.so)
 add_library(alg_sdk SHARED ${FRAMEWORK_SRCS})

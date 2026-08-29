@@ -9,6 +9,22 @@
 
 namespace alg_framework {
 
+namespace onnxruntime_detail {
+
+// Neutral Tensor contract helpers are intentionally vendor-type free so the
+// strict boundary can be unit-tested even when ONNX Runtime is disabled.
+bool ValidateInputTensor(const Tensor& tensor, const TensorSpec& spec,
+                         const BatchPolicy& policy,
+                         std::string* diagnostic = nullptr) noexcept;
+
+bool ValidateOutputMetadata(ElementType element_type,
+                            const std::vector<int64_t>& shape,
+                            size_t runtime_element_count,
+                            const TensorSpec& spec, size_t expected_batch,
+                            std::string* diagnostic = nullptr) noexcept;
+
+}  // namespace onnxruntime_detail
+
 /**
  * @brief 基于 Microsoft ONNX Runtime 的 TensorGraph 执行协议推理后端
  *

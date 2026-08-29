@@ -1,5 +1,7 @@
 # Sharded Google Test runners and label-driven development test matrix.
 
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
+
 function(edgeflow_enable_test_pch target_name)
   target_precompile_headers(${target_name} PRIVATE
     <gtest/gtest.h>
@@ -43,6 +45,30 @@ target_link_libraries(edgeflow_test_core_runner PRIVATE
   alg_sdk GTest::gtest GTest::gtest_main)
 if(LLM_EDGEFLOW_HAS_ONNXRUNTIME)
   target_compile_definitions(edgeflow_test_core_runner PRIVATE HAVE_ONNXRUNTIME=1)
+  set(EDGEFLOW_STAGE3_FIXTURE_DIR
+      "${CMAKE_CURRENT_BINARY_DIR}/test-fixtures/stage3")
+  set(EDGEFLOW_STAGE3_ONNX_FIXTURE
+      "${EDGEFLOW_STAGE3_FIXTURE_DIR}/embedding_fixture.onnx")
+  set(EDGEFLOW_STAGE3_VOCAB_FIXTURE
+      "${EDGEFLOW_STAGE3_FIXTURE_DIR}/vocab.txt")
+  add_custom_command(
+    OUTPUT
+      "${EDGEFLOW_STAGE3_ONNX_FIXTURE}"
+      "${EDGEFLOW_STAGE3_VOCAB_FIXTURE}"
+    COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/scripts/generate_test_onnx_model.py"
+            --output-dir "${EDGEFLOW_STAGE3_FIXTURE_DIR}"
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/scripts/generate_test_onnx_model.py"
+    COMMENT "Generating deterministic stage-3 ONNX Runtime fixture"
+    VERBATIM)
+  add_custom_target(edgeflow_stage3_onnx_fixture
+    DEPENDS
+      "${EDGEFLOW_STAGE3_ONNX_FIXTURE}"
+      "${EDGEFLOW_STAGE3_VOCAB_FIXTURE}")
+  add_dependencies(edgeflow_test_core_runner edgeflow_stage3_onnx_fixture)
+  target_compile_definitions(edgeflow_test_core_runner PRIVATE
+    EDGEFLOW_STAGE3_ONNX_FIXTURE="${EDGEFLOW_STAGE3_ONNX_FIXTURE}"
+    EDGEFLOW_STAGE3_VOCAB_FIXTURE="${EDGEFLOW_STAGE3_VOCAB_FIXTURE}")
 endif()
 edgeflow_enable_test_pch(edgeflow_test_core_runner)
 
