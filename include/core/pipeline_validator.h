@@ -150,16 +150,35 @@ class PipelineValidator {
  public:
   static ValidatedPipelinePlan ValidateAndPlan(
       const nlohmann::json& root,
-      ValidationPolicy policy = ValidationPolicy::kStrict);
+      ValidationPolicy policy = ValidationPolicy::kStrict,
+      const std::string& model_root_dir = "");
 
   static ValidationReport Validate(
       const nlohmann::json& root,
-      ValidationPolicy policy = ValidationPolicy::kStrict);
+      ValidationPolicy policy = ValidationPolicy::kStrict,
+      const std::string& model_root_dir = "");
 
   /** Upgrade an implicit sequential pipeline to explicit DAG form. */
   static bool NormalizeExplicitDag(const nlohmann::json& root,
                                    nlohmann::json* output,
                                    ValidationDiagnostic* diagnostic = nullptr);
 };
+
+/**
+ * @brief 按 Schema Definition 校验用户配置对象并补齐默认值
+ * @param schema 字段定义列表
+ * @param input 原始用户传入的 JSON 配置
+ * @param normalized 输出归一化后的新 JSON 配置 (注入默认值)
+ * @param diagnostics 可选的诊断错误收集列表
+ * @param base_pointer JSON Pointer 基础前缀 (如 "/models/0/model_config")
+ * @param unknown_field_code 未知字段诊断码 (缺省为 kUnknownConfigField)
+ * @return true 校验通过且成功归一化，false 校验失败
+ */
+bool ValidateAndNormalizeConfig(
+    const std::vector<ConfigFieldDefinition>& schema,
+    const nlohmann::json& input, nlohmann::json* normalized,
+    std::vector<ValidationDiagnostic>* diagnostics,
+    const std::string& base_pointer = "",
+    DiagnosticCode unknown_field_code = DiagnosticCode::kUnknownConfigField);
 
 }  // namespace alg_framework
