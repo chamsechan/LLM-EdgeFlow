@@ -5,17 +5,17 @@
 #include <vector>
 
 #include "engine/engine_interface.h"
-#include "engine/fixed_batch_executor.h"
+#include "engine/model_interface.h"
 
 namespace alg_framework {
 
 /**
- * @brief 基于微软开源 ONNX Runtime 的特征向量提取引擎
+ * @brief 基于统一 Model/Backend 架构的旧版 IEmbeddingEngine 适配器
  *
  * 架构隔离性：
- * - 实现 Layer 4 的 IEmbeddingEngine 纯虚基类接口；
- * - 仅在内部使用 ONNX Runtime C/C++ API，上层算子和调度层无感知；
- * - 结合 FixedBatchExecutor 满足硬件/固定 Batch 调度。
+ * - 实现 Layer 4 的 IEmbeddingEngine 纯虚基类接口，仅供过渡期使用；
+ * - 内部完全转调 OnnxRuntimeBackend 与 BgeEmbeddingModel，无自身 ONNX 逻辑；
+ * - 完全不引入 onnxruntime_cxx_api.h，实现单点维护。
  */
 class OnnxEmbeddingEngine : public IEmbeddingEngine {
  public:
@@ -37,21 +37,13 @@ class OnnxEmbeddingEngine : public IEmbeddingEngine {
       override;
 
  private:
-  int RawOnnxHardwareInfer(const std::vector<std::string>& batch_inputs,
-                           std::vector<std::vector<float>>* batch_outputs);
-
-  std::vector<float> GenerateEmbedding(const std::string& text);
-
- private:
   std::string model_path_;
   int device_id_ = -1;
   size_t max_batch_size_ = 4;
-  size_t embedding_dim_ = 128;
+  size_t embedding_dim_ = 384;
   bool is_loaded_ = false;
 
-  // 内部 PIMPL / 引擎私有状态指针（完全屏蔽内部三方头文件泄露）
-  struct Impl;
-  std::unique_ptr<Impl> pimpl_;
+  std::shared_ptr<IEmbeddingModel> model_;
 };
 
 }  // namespace alg_framework
