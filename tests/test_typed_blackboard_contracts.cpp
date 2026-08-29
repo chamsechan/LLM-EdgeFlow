@@ -1,7 +1,10 @@
 #include <gtest/gtest.h>
 
+#include <atomic>
 #include <string>
 #include <thread>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
 #include "core/alg_context.h"
@@ -109,6 +112,87 @@ TEST_F(TypedBlackboardContractsTest, ContextClearAndResetSemantics) {
   EXPECT_EQ(ctx.Get(kKey), nullptr);
   EXPECT_TRUE(ctx.IsOk());
   EXPECT_EQ(ctx.GetErrorCode(), 0);
+}
+
+// 5. 验证单次发布拒绝静默覆盖，兼容 Get 只返回只读视图
+TEST_F(TypedBlackboardContractsTest, PublishIsWriteOnceAndGetIsReadOnly) {
+  constexpr BlackboardKey<int> kCount{"count", "int"};
+  static_assert(
+      std::is_same_v<decltype(std::declval<AlgContext&>().Get(kCount)),
+                     const int*>);
+
+  AlgContext ctx;
+  EXPECT_TRUE(ctx.Publish(kCount, 1));
+  EXPECT_FALSE(ctx.Publish(kCount, 2));
+
+  const int* value = ctx.Read(kCount);
+  ASSERT_NE(value, nullptr);
+  EXPECT_EQ(*value, 1);
+}
+
+// 6. 验证兼容替换、删除和清空不会使已经返回的只读快照悬空
+TEST_F(TypedBlackboardContractsTest,
+       ReadSnapshotsRemainStableUntilDestruction) {
+  constexpr BlackboardKey<std::string> kValue{"value", "string"};
+
+  AlgContext ctx;
+  ASSERT_TRUE(ctx.Publish(kValue, std::string("first")));
+  const std::string* first = ctx.Read(kValue);
+  ASSERT_NE(first, nullptr);
+
+  ctx.Set(kValue, std::string("second"));
+  const std::string* second = ctx.Read(kValue);
+  ASSERT_NE(second, nullptr);
+  EXPECT_EQ(*first, "first");
+  EXPECT_EQ(*second, "second");
+
+  ctx.Erase(kValue);
+  EXPECT_EQ(ctx.Read(kValue), nullptr);
+  EXPECT_EQ(*first, "first");
+  EXPECT_EQ(*second, "second");
+
+  ctx.Set(kValue, std::string("third"));
+  const std::string* third = ctx.Read(kValue);
+  ASSERT_NE(third, nullptr);
+  ctx.Clear();
+  EXPECT_EQ(*third, "third");
+  EXPECT_EQ(*first, "first");
+}
+
+// 7. 验证并发替换不会修改或释放已经发放的只读快照
+TEST_F(TypedBlackboardContractsTest,
+       ConcurrentReplacementKeepsIssuedReadViewStable) {
+  AlgContext ctx;
+  ASSERT_TRUE(ctx.Publish("counter", 0));
+  const int* initial = ctx.Read<int>("counter");
+  ASSERT_NE(initial, nullptr);
+
+  std::atomic<bool> done{false};
+  std::atomic<int> failures{0};
+  std::thread writer([&]() {
+    for (int value = 1; value <= 2000; ++value) {
+      ctx.Set("counter", value);
+    }
+    done.store(true, std::memory_order_release);
+  });
+  std::thread reader([&]() {
+    while (!done.load(std::memory_order_acquire)) {
+      if (*initial != 0) {
+        failures.fetch_add(1, std::memory_order_relaxed);
+      }
+      const int* current = ctx.Read<int>("counter");
+      if (!current || *current < 0) {
+        failures.fetch_add(1, std::memory_order_relaxed);
+      }
+    }
+  });
+
+  writer.join();
+  reader.join();
+  EXPECT_EQ(failures.load(), 0);
+  EXPECT_EQ(*initial, 0);
+  ASSERT_NE(ctx.Read<int>("counter"), nullptr);
+  EXPECT_EQ(*ctx.Read<int>("counter"), 2000);
 }
 
 }  // namespace alg_framework

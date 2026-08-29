@@ -123,10 +123,10 @@ class DocQaAdapter : public IBizAdapter {
       return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     }
 
-    const auto* answers = ctx->Get(kLlmAnswers);
-    const auto* intent_matches = ctx->Get(kIntentMatches);
-    const auto* chunk_counts = ctx->Get(kDocChunkCounts);
-    const auto* raw_req_ids = ctx->Get(kRawRequestIds);
+    const auto* answers = ctx->Read(kLlmAnswers);
+    const auto* intent_matches = ctx->Read(kIntentMatches);
+    const auto* chunk_counts = ctx->Read(kDocChunkCounts);
+    const auto* raw_req_ids = ctx->Read(kRawRequestIds);
 
     if (!answers) {
       if (out_status) {

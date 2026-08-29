@@ -4,6 +4,7 @@
 #include <cstring>
 #include <iostream>
 #include <memory>
+#include <mutex>
 #include <nlohmann/json.hpp>
 #include <string>
 #include <vector>
@@ -94,6 +95,22 @@ struct LifetimeProbe {
 
 // 3. 辅助深度 DAG 算子定义
 static std::mutex s_deep_dag_mutex;
+static std::vector<std::string> s_deep_dag_trace;
+
+static void ResetDeepDagTrace() {
+  std::lock_guard<std::mutex> lock(s_deep_dag_mutex);
+  s_deep_dag_trace.clear();
+}
+
+static void AppendDeepDagTrace(const std::string& node_name) {
+  std::lock_guard<std::mutex> lock(s_deep_dag_mutex);
+  s_deep_dag_trace.push_back(node_name);
+}
+
+static std::vector<std::string> SnapshotDeepDagTrace() {
+  std::lock_guard<std::mutex> lock(s_deep_dag_mutex);
+  return s_deep_dag_trace;
+}
 
 class DeepDagNode : public INode {
  public:
@@ -106,13 +123,7 @@ class DeepDagNode : public INode {
   }
 
   int Process(AlgContext* req_ctx) override {
-    {
-      std::lock_guard<std::mutex> lock(s_deep_dag_mutex);
-      auto* trace = req_ctx->Get<std::vector<std::string>>("deep_trace");
-      if (trace) {
-        trace->push_back(name_);
-      }
-    }
+    AppendDeepDagTrace(name_);
     req_ctx->Set("out_" + name_, std::string("DataFrom_") + name_);
     return 0;
   }
@@ -259,14 +270,13 @@ TEST_F(EngineFaultToleranceAndLifecycleTest, Deep5LayerWavefrontDagExecution) {
   EXPECT_EQ(layers[4].size(), 1);  // Layer 4: Final
 
   AlgContext req_ctx;
-  req_ctx.Set("deep_trace", std::vector<std::string>{});
+  ResetDeepDagTrace();
 
   int ret = pipeline.Execute(&req_ctx);
   EXPECT_EQ(ret, 0);
 
-  auto* trace = req_ctx.Get<std::vector<std::string>>("deep_trace");
-  ASSERT_NE(trace, nullptr);
-  EXPECT_EQ(trace->size(), 11);
+  const auto trace = SnapshotDeepDagTrace();
+  EXPECT_EQ(trace.size(), 11);
 
   // 验证所有节点的黑板产出均已写入
   EXPECT_TRUE(req_ctx.Has("out_R1"));

@@ -102,9 +102,9 @@ class OcrDocQaAdapter : public IBizAdapter {
       return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     }
 
-    const auto* invoice_jsons = ctx->Get(kExtractedInvoiceJson);
-    const auto* ocr_docs = ctx->Get(kOcrDocs);
-    const auto* raw_req_ids = ctx->Get(kRawRequestIds);
+    const auto* invoice_jsons = ctx->Read(kExtractedInvoiceJson);
+    const auto* ocr_docs = ctx->Read(kOcrDocs);
+    const auto* raw_req_ids = ctx->Read(kRawRequestIds);
 
     if (!invoice_jsons) {
       if (out_status) {

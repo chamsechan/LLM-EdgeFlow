@@ -73,6 +73,7 @@ doc/rfcs/NNNN-<kebab-case-title>.md
 | **RFC-0015** | 模型能力与推理运行时解耦实施规范 | `Completed` | `v5.0.0` | Layer 2 ~ Layer 4 | [0015-model-capability-backend-decoupling.md](0015-model-capability-backend-decoupling.md) |
 | **RFC-0016** | 构建与测试工作流收敛 | `Completed` | `v5.1.0` | Tooling / Test Infrastructure | [0016-build-and-test-workflow-convergence.md](0016-build-and-test-workflow-convergence.md) |
 | **RFC-0017** | 开发治理与 Agent 工作流收敛 | `Completed` | `v5.2.0` | Tooling / Governance | [0017-development-governance-convergence.md](0017-development-governance-convergence.md) |
+| **RFC-0018** | 请求黑板与算法句柄并发契约收敛 | `Completed` | `v5.3.0` | Layer 1 ~ Layer 2 | [0018-request-context-and-handle-concurrency-contracts.md](0018-request-context-and-handle-concurrency-contracts.md) |
 
 ---
 

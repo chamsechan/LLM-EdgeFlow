@@ -45,14 +45,14 @@ class BoundInput {
   const std::string& TypeId() const { return type_id_; }
   bool IsBound() const { return is_bound_; }
 
-  const T* Get(const AlgContext& ctx) const { return ctx.Get<T>(actual_key_); }
+  const T* Get(const AlgContext& ctx) const { return ctx.Read<T>(actual_key_); }
 
   bool Has(const AlgContext& ctx) const { return ctx.Has(actual_key_); }
 
   const T* Require(AlgContext& ctx, int error_code,
                    std::string_view semantic = {}) const {
     const bool key_exists = ctx.Has(actual_key_);
-    const T* val = ctx.Get<T>(actual_key_);
+    const T* val = ctx.Read<T>(actual_key_);
     if (!val) {
       std::string msg = (key_exists ? "Type mismatch for input port '"
                                     : "Missing required input port '") +
@@ -98,7 +98,10 @@ class BoundOutput {
   bool IsBound() const { return is_bound_; }
 
   void Set(AlgContext& ctx, T value) const {
-    ctx.Set(actual_key_, std::move(value));
+    if (!ctx.Publish(actual_key_, std::move(value))) {
+      throw std::logic_error("Duplicate output publication for key '" +
+                             actual_key_ + "'");
+    }
   }
 
  private:
@@ -246,7 +249,7 @@ class NodeBase : public INode {
   const T* Require(AlgContext& ctx, const BlackboardKey<T>& key, int error_code,
                    std::string_view semantic = {}) const {
     const bool key_exists = ctx.Has(key);
-    const T* val = ctx.Get(key);
+    const T* val = ctx.Read(key);
     if (!val) {
       std::string msg = node_name_ +
                         (key_exists ? ": type mismatch for input key '"
@@ -263,7 +266,10 @@ class NodeBase : public INode {
 
   template <typename T>
   void Publish(AlgContext& ctx, const BlackboardKey<T>& key, T value) const {
-    ctx.Set(key, std::move(value));
+    if (!ctx.Publish(key, std::move(value))) {
+      throw std::logic_error("Duplicate output publication for key '" +
+                             std::string(key.name) + "'");
+    }
   }
 
   int Fail(AlgContext& ctx, int error_code,

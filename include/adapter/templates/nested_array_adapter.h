@@ -141,7 +141,7 @@ class TemplateNestedArrayAdapter : public IBusinessAdapter {
            AdapterStatus* out_status = nullptr) const override {
     if (!ctx) return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
 
-    auto* res = ctx->Get<std::vector<TemplateNestedArrayResultDto>>(
+    const auto* res = ctx->Read<std::vector<TemplateNestedArrayResultDto>>(
         "nested_array_outputs");
     if (!res) return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
 
