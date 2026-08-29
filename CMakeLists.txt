@@ -448,6 +448,16 @@ target_link_libraries(alg_show PRIVATE nlohmann_json::nlohmann_json)
 add_executable(alg_pipeline_tool src/tools/alg_pipeline_tool.cpp)
 target_link_libraries(alg_pipeline_tool PRIVATE alg_sdk)
 
+# Validation parity tests exercise deterministic test-only Model/Backend
+# definitions. Keep those registrations out of the production CLI and SDK by
+# linking them into a dedicated test executable.
+add_executable(alg_pipeline_tool_test
+    src/tools/alg_pipeline_tool.cpp
+    tests/support/inference/test_tensor_backend.cpp
+    tests/support/inference/test_causal_lm_backend.cpp
+    tests/support/inference/test_business_models.cpp)
+target_link_libraries(alg_pipeline_tool_test PRIVATE alg_sdk)
+
 # 7. 独立物理真实模型端到端测试套件 (阶段性/物理硬件压测，隔离于默认日常 CTest)
 option(ENABLE_REAL_MODEL_TESTS "Enable real model weights E2E test suite" OFF)
 if(ENABLE_REAL_MODEL_TESTS)

@@ -345,7 +345,7 @@ set_tests_properties(VisualizerServerTest PROPERTIES
   WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
   LABELS "${_edgeflow_tier4}"
   ENVIRONMENT
-    "LLM_EDGEFLOW_PIPELINE_TOOL=$<TARGET_FILE:alg_pipeline_tool>;LLM_EDGEFLOW_DEMO_BINARY=$<TARGET_FILE:alg_demo>")
+    "LLM_EDGEFLOW_PIPELINE_TOOL=$<TARGET_FILE:alg_pipeline_tool_test>;LLM_EDGEFLOW_DEMO_BINARY=$<TARGET_FILE:alg_demo>")
 
 add_test(NAME DemoSmokeTest COMMAND $<TARGET_FILE:alg_demo> --suite smoke)
 set_tests_properties(DemoSmokeTest PROPERTIES

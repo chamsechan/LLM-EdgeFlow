@@ -84,6 +84,7 @@ Catalog。
 | `./scripts/format.sh --check` + `git diff --check` | PASS |
 | Release CTest | **84/84 PASS** |
 | `./scripts/run_all_tests.sh --full` | **84/84 PASS，6/6 门禁 PASS** |
+| 干净重链接后的 Visualizer/CLI 诊断矩阵 | **6/6 PASS** |
 | `LLM_EDGEFLOW_SANITIZERS=undefined ./scripts/run_sanitizers.sh --fast` | **80/80 PASS** |
 | `./build/alg_demo --suite smoke` | **7/7 profiles PASS** |
 | 生产 Pipeline `validate + plan` | **9/9 PASS** |
@@ -112,9 +113,10 @@ Linux CI 仍应执行 ASan/LSan，本地 UBSan 已完整通过。
 
 `alg_pipeline_tool` 属于生产目标，对 `test_business_*` /
 `test_*_backend` 返回 unknown 是预期的隔离行为。Stage 7 fixture 的
-validate/plan/build 由显式链接测试注册项的 GTest 目标和 `alg_demo` 完成；
-不得为了让生产 CLI 识别 fixture 而把测试 Model/Backend 链入
-`alg_sdk`。
+validate/plan/build 由显式链接测试注册项的 GTest 目标、`alg_demo` 和
+仅供诊断矩阵使用的 `alg_pipeline_tool_test` 完成；测试 CLI 与生产 CLI
+共用同一入口源码，但只有测试 CLI 链接测试注册项。不得为了让生产 CLI
+识别 fixture 而把测试 Model/Backend 链入 `alg_sdk`。
 
 ## 6. 合入结论
 
