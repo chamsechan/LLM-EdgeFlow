@@ -151,7 +151,7 @@ C++ Operator API：NamedIoBatch + Operator 镜像 C 结构 ─┘
   1. **配置驱动与执行计划**：通过 `PipelineValidator::ValidateAndPlan` 一次性完成 JSON 解析、业务契约查找、拓扑排序生成 `ValidatedPipelinePlan`，杜绝重复解析与排序；
   2. **三级状态管理**：
      - `SessionContext`：句柄级常驻状态，管理单句柄加载的多个模型实例（`ModelManager`）；
-     - `AlgContext`：请求级强类型黑板（`BlackboardKey<T>`），零内存拷贝传递特征；
+     - `AlgContext`：请求级强类型黑板（`BlackboardKey<T>`），通过移动与共享所有权避免可避免的深拷贝；
      - `TraceableItem<T>`：样本溯源标签（`req_id` + `sub_id`），保证 1对N 裂变后可严格 1:1 对齐回原请求；
   3. **自注册 SSOT 机制**：Node、Model 与 Backend 分别通过 `REGISTER_NODE_WITH_DEFINITION`、`REGISTER_MODEL_WITH_DEFINITION` 和 `REGISTER_BACKEND_WITH_DEFINITION` 就地声明，`PipelineCatalog` 仅聚合这三类定义。
 
@@ -182,7 +182,7 @@ sequenceDiagram
     participant Adapter as C 适配层 (L1)
     participant Pipe as Pipeline 调度器 (L2)
     participant Ctx as AlgContext 黑板 (L2)
-    participant Node as 业务算子 NodeBase (L3)
+    participant Node as 通用能力 NodeBase (L3)
     participant Model as 强类型模型能力 (L4)
     participant Backend as 中性协议 Backend 会话 (L4)
     participant HW as 底层硬件 NPU/GPU (L4)

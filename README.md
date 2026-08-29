@@ -35,7 +35,7 @@ LLM-EdgeFlow 通过声明式 Pipeline，把纯 C ABI 接入、DAG 调度、可�
 | :--- | :--- | :--- |
 | **Layer 1：C ABI 与 Operator 接入** | 解包、输入输出契约、生命周期和异常隔离 | `company_alg_interface.h`、Adapter、Operator |
 | **Layer 2：Pipeline 与黑板** | 配置校验、DAG 计划、调度与请求状态 | `Pipeline`、`PipelineValidator`、`AlgContext` |
-| **Layer 3：通用能力节点** | 无请求状态的前处理、推理调用和后处理 | `NodeBase`、`src/common_nodes/`、`src/biz/` |
+| **Layer 3：通用能力节点** | 无请求状态的前处理、推理调用和后处理 | `NodeBase`、`src/common_nodes/`、`include/nodes/` |
 | **Layer 4：模型与 Backend** | 模型能力、中性执行协议和硬件批调度 | `IModel`、`IInferenceBackend`、`FixedBatchExecutor` |
 
 完整的职责边界、数据流和类图参见[架构设计](doc/architecture.md)，扩展实现参见[开发者指南](doc/developer_guide.md)。
@@ -106,17 +106,20 @@ cmake --build build -j$(nproc)
 | 查阅需求设计与验收记录 | [RFC 索引](doc/rfcs/README.md) |
 | 浏览全部项目文档 | [文档目录](doc/README.md) |
 | 查看版本演进摘要 | [Changelog](CHANGELOG.md) |
+| 参与开发与交付 | [Contributing](CONTRIBUTING.md) |
 
 ## 开发与交付
 
-新增需求或架构改动须先提交 RFC，并在独立分支上同步实现与测试。提交前运行：
+开发前先按变更风险判断是否需要 RFC，并在独立分支实施。交付前运行唯一完整门禁：
 
 ```bash
-./scripts/format.sh
 ./scripts/run_all_tests.sh
 ```
 
-完整治理流程见 [RFC 目录](doc/rfcs/README.md) 和 [AGENTS.md](AGENTS.md)。当前架构里程碑为 **v5.1.0**；仓库尚未发布对应 Git tag，版本演进以 [Changelog](CHANGELOG.md) 和已完成 RFC 为准。
+完整生命周期见 [Contributing](CONTRIBUTING.md)，Agent 架构与路由见
+[AGENTS.md](AGENTS.md)，长期设计决策见 [RFC 目录](doc/rfcs/README.md)。当前架构里程碑
+为 **v5.1.0**；仓库尚未发布对应 Git tag，版本演进以 [Changelog](CHANGELOG.md) 和已完成
+RFC 为准。
 
 ## License
 

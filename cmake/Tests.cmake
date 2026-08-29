@@ -322,6 +322,8 @@ add_test(NAME ArchitectureDocsDriftTest
   COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_architecture_docs.sh)
 add_test(NAME ArchitectureDocsDriftGateSelfTest
   COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_architecture_docs_drift_gate.sh)
+add_test(NAME GovernanceConsistencyTest
+  COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_governance.sh)
 add_test(NAME DiagramAssetsCheckTest
   COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/render_architecture_diagrams.sh --check)
 add_test(NAME DiagramRenderGateSelfTest
@@ -330,7 +332,8 @@ add_test(NAME ScriptGeneratorDetectionTest
   COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_script_generator_detection.sh)
 set_tests_properties(
   LayerGuardTest LayerGuardSelfTest ArchitectureDocsDriftTest
-  ArchitectureDocsDriftGateSelfTest ScriptGeneratorDetectionTest
+  ArchitectureDocsDriftGateSelfTest GovernanceConsistencyTest
+  ScriptGeneratorDetectionTest
   PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
   LABELS "tier1;static-gate;dev-fast;sanitizer-compatible")
 set_tests_properties(DiagramAssetsCheckTest DiagramRenderGateSelfTest

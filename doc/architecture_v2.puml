@@ -84,10 +84,10 @@ package "Layer 1: Dual Facades & Shared Algorithm Runtime" as L1 {
   component "Operator Facade\nOperatorFunc + NamedIoBatch\nCompanyConfResolver\nOperatorBizBridgeRegistry" as PlatformFacade <<Operator API>>
   component "Shared Algorithm Runtime\nSharedAlgorithmRuntime\nSingle Unpack-Execute-Pack" as SharedRuntime
   artifact "Business-Specific\nPure C Structs" as CStructs
-  component "BusinessAdapterRegistry" as AdapterRegistry
-  interface "IBusinessAdapter\nDescriptor / ValidateBatch\nUnpack / Pack" as IBusinessAdapter
-  component "Business Adapters\nStatically Linked" as BusinessAdapters
-  artifact "Internal Business DTOs" as InternalDtos
+  component "BizAdapterRegistry" as AdapterRegistry
+  interface "IBizAdapter\nDescriptor / ValidateBatch\nUnpack / Pack" as IBizAdapter
+  component "Biz Adapters\nStatically Linked" as BizAdapters
+  artifact "Common Typed Contracts" as CommonContracts
 }
 
 Caller --> CAbi : pure C calls
@@ -95,12 +95,12 @@ PlatformScheduler --> PlatformFacade : OperatorFunc calls
 PlatformFacade --> SharedRuntime : convert NamedIo to C ptrs
 CAbi --> SharedRuntime : forward C params
 SharedRuntime --> AdapterRegistry : dispatch by business_id / name
-AdapterRegistry o-- IBusinessAdapter
-BusinessAdapters ..|> IBusinessAdapter
-BusinessAdapters --> CStructs : validate / unpack / pack
-BusinessAdapters --> InternalDtos : map to domain data
+AdapterRegistry o-- IBizAdapter
+BizAdapters ..|> IBizAdapter
+BizAdapters --> CStructs : validate / unpack / pack
+BizAdapters --> CommonContracts : map to typed values
 Manifest --> AdapterRegistry : registration metadata
-Scaffolder --> BusinessAdapters : generate scaffold
+Scaffolder --> BizAdapters : generate scaffold
 
 ' Layer 2
 package "Layer 2: Validated Pipeline Runtime & State" as L2 {
@@ -124,8 +124,8 @@ PipelineRuntime *-- SessionContext
 SessionContext *-- ModelManager
 SessionContext o-- RuntimeOptions
 PipelineRuntime --> Status : structured failures
-BusinessAdapters --> RequestContext : inject / extract
-InternalDtos --> RequestContext
+BizAdapters --> RequestContext : inject / extract
+CommonContracts --> RequestContext
 
 ' Layer 3
 package "Layer 3: Contracted Operator Layer" as L3 {
@@ -133,8 +133,8 @@ package "Layer 3: Contracted Operator Layer" as L3 {
   component "NodeBase\nfinal noexcept lifecycle" as NodeBase <<Implemented>>
   component "ModelBoundNode / TraceableUnaryInferenceNode" as NodeSupport <<Implemented>>
   component "NodeRegistry\n(NodeFactory)" as NodeRegistry
-  component "Platform-Owned\nCommon Nodes" as CommonNodes
-  component "Business-Owned\nBusiness Nodes" as BusinessNodes
+  component "Registered\nCommon Nodes" as CommonNodes
+  component "Optional Domain Node\n(none currently registered)" as DomainNodes
   artifact "NodeDescriptor\n(NodeDefinition in Catalog)" as NodeDescriptor
 }
 
@@ -142,18 +142,19 @@ NodeRegistry o-- INode
 INode <|-- NodeBase
 NodeBase <|-- NodeSupport
 CommonNodes ..|> INode
-BusinessNodes ..|> INode
+DomainNodes ..|> INode
 NodeDescriptor --> NodeRegistry : registration metadata
 Catalog o-- NodeDescriptor
 PipelineBuilder --> NodeRegistry : create nodes
 INode --> TypedPorts : declared access only
 INode --> SessionContext : models / resources
-BizTests --> BusinessNodes : contract tests
+BizTests --> CommonNodes : composition contract tests
 
-note right of BusinessNodes
+note right of DomainNodes
   Request state only in RequestContext
   No Layer 1 C structs
   No concrete Backend implementations
+  Requires RFC justification
 end note
 
 ' Layer 4
