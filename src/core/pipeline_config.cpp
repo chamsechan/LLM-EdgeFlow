@@ -170,7 +170,9 @@ bool ParsePipelineConfig(const nlohmann::json& root,
     }
 
     const std::unordered_set<std::string> allowed_model_keys = {
-        "model_id", "engine_type", "model_path", "config", "comment"};
+        "model_id",     "engine_type",   "model_path", "config",
+        "comment",      "capability",    "model_type", "backend",
+        "model_config", "backend_config"};
     std::unordered_set<std::string> seen_model_ids;
 
     for (size_t i = 0; i < root["models"].size(); ++i) {
@@ -233,29 +235,117 @@ bool ParsePipelineConfig(const nlohmann::json& root,
       }
       seen_model_ids.insert(model_cfg.model_id);
 
-      // engine_type (必填非空字符串)
-      if (!model_elem.contains("engine_type")) {
-        SetDiag(diagnostic, PipelineErrorCode::kMissingField,
-                model_path_prefix + "/engine_type",
-                "Missing required field 'engine_type'");
-        return false;
-      }
-      if (!model_elem["engine_type"].is_string()) {
-        SetDiag(diagnostic, PipelineErrorCode::kFieldType,
-                model_path_prefix + "/engine_type",
-                "Field 'engine_type' must be a string");
-        return false;
-      }
-      model_cfg.engine_type = model_elem["engine_type"].get<std::string>();
-      if (model_cfg.engine_type.empty()) {
-        SetDiag(diagnostic, PipelineErrorCode::kFieldRange,
-                model_path_prefix + "/engine_type",
-                "Field 'engine_type' cannot be empty");
+      // 方言检测与混用检查
+      bool has_legacy_keys =
+          model_elem.contains("engine_type") || model_elem.contains("config");
+      bool has_mb_keys = model_elem.contains("capability") ||
+                         model_elem.contains("model_type") ||
+                         model_elem.contains("backend") ||
+                         model_elem.contains("model_config") ||
+                         model_elem.contains("backend_config");
+
+      if (has_legacy_keys && has_mb_keys) {
+        std::string offending_key;
+        if (model_elem.contains("engine_type") ||
+            model_elem.contains("config")) {
+          for (const auto& k : {"capability", "model_type", "backend",
+                                "model_config", "backend_config"}) {
+            if (model_elem.contains(k)) {
+              offending_key = k;
+              break;
+            }
+          }
+        }
+        if (offending_key.empty()) {
+          for (const auto& k : {"engine_type", "config"}) {
+            if (model_elem.contains(k)) {
+              offending_key = k;
+              break;
+            }
+          }
+        }
+        SetDiag(diagnostic, PipelineErrorCode::kInvalidCombination,
+                model_path_prefix + "/" + offending_key,
+                "Cannot mix legacy engine configuration with model/backend "
+                "field '" +
+                    offending_key + "'");
         return false;
       }
 
-      // model_path (可选字符串)
-      if (model_elem.contains("model_path")) {
+      if (has_mb_keys) {
+        // Model/Backend 方言 (RFC 0015)
+        model_cfg.dialect = ModelConfigDialect::kModelBackend;
+
+        // capability (必填非空字符串)
+        if (!model_elem.contains("capability")) {
+          SetDiag(diagnostic, PipelineErrorCode::kMissingField,
+                  model_path_prefix + "/capability",
+                  "Missing required field 'capability'");
+          return false;
+        }
+        if (!model_elem["capability"].is_string()) {
+          SetDiag(diagnostic, PipelineErrorCode::kFieldType,
+                  model_path_prefix + "/capability",
+                  "Field 'capability' must be a string");
+          return false;
+        }
+        model_cfg.capability = model_elem["capability"].get<std::string>();
+        if (model_cfg.capability.empty()) {
+          SetDiag(diagnostic, PipelineErrorCode::kFieldRange,
+                  model_path_prefix + "/capability",
+                  "Field 'capability' cannot be empty");
+          return false;
+        }
+
+        // model_type (必填非空字符串)
+        if (!model_elem.contains("model_type")) {
+          SetDiag(diagnostic, PipelineErrorCode::kMissingField,
+                  model_path_prefix + "/model_type",
+                  "Missing required field 'model_type'");
+          return false;
+        }
+        if (!model_elem["model_type"].is_string()) {
+          SetDiag(diagnostic, PipelineErrorCode::kFieldType,
+                  model_path_prefix + "/model_type",
+                  "Field 'model_type' must be a string");
+          return false;
+        }
+        model_cfg.model_type = model_elem["model_type"].get<std::string>();
+        if (model_cfg.model_type.empty()) {
+          SetDiag(diagnostic, PipelineErrorCode::kFieldRange,
+                  model_path_prefix + "/model_type",
+                  "Field 'model_type' cannot be empty");
+          return false;
+        }
+
+        // backend (必填非空字符串)
+        if (!model_elem.contains("backend")) {
+          SetDiag(diagnostic, PipelineErrorCode::kMissingField,
+                  model_path_prefix + "/backend",
+                  "Missing required field 'backend'");
+          return false;
+        }
+        if (!model_elem["backend"].is_string()) {
+          SetDiag(diagnostic, PipelineErrorCode::kFieldType,
+                  model_path_prefix + "/backend",
+                  "Field 'backend' must be a string");
+          return false;
+        }
+        model_cfg.backend = model_elem["backend"].get<std::string>();
+        if (model_cfg.backend.empty()) {
+          SetDiag(diagnostic, PipelineErrorCode::kFieldRange,
+                  model_path_prefix + "/backend",
+                  "Field 'backend' cannot be empty");
+          return false;
+        }
+
+        // model_path (必填非空字符串)
+        if (!model_elem.contains("model_path")) {
+          SetDiag(diagnostic, PipelineErrorCode::kMissingField,
+                  model_path_prefix + "/model_path",
+                  "Missing required field 'model_path'");
+          return false;
+        }
         if (!model_elem["model_path"].is_string()) {
           SetDiag(diagnostic, PipelineErrorCode::kFieldType,
                   model_path_prefix + "/model_path",
@@ -263,19 +353,86 @@ bool ParsePipelineConfig(const nlohmann::json& root,
           return false;
         }
         model_cfg.model_path = model_elem["model_path"].get<std::string>();
-      }
-
-      // config (可选对象)
-      if (model_elem.contains("config")) {
-        if (!model_elem["config"].is_object()) {
-          SetDiag(diagnostic, PipelineErrorCode::kFieldType,
-                  model_path_prefix + "/config",
-                  "Field 'config' must be an object");
+        if (model_cfg.model_path.empty()) {
+          SetDiag(diagnostic, PipelineErrorCode::kFieldRange,
+                  model_path_prefix + "/model_path",
+                  "Field 'model_path' cannot be empty");
           return false;
         }
-        model_cfg.config = model_elem["config"];
+
+        // model_config (可选对象)
+        if (model_elem.contains("model_config")) {
+          if (!model_elem["model_config"].is_object()) {
+            SetDiag(diagnostic, PipelineErrorCode::kFieldType,
+                    model_path_prefix + "/model_config",
+                    "Field 'model_config' must be an object");
+            return false;
+          }
+          model_cfg.model_config = model_elem["model_config"];
+        } else {
+          model_cfg.model_config = nlohmann::json::object();
+        }
+
+        // backend_config (可选对象)
+        if (model_elem.contains("backend_config")) {
+          if (!model_elem["backend_config"].is_object()) {
+            SetDiag(diagnostic, PipelineErrorCode::kFieldType,
+                    model_path_prefix + "/backend_config",
+                    "Field 'backend_config' must be an object");
+            return false;
+          }
+          model_cfg.backend_config = model_elem["backend_config"];
+        } else {
+          model_cfg.backend_config = nlohmann::json::object();
+        }
       } else {
-        model_cfg.config = nlohmann::json::object();
+        // Legacy Engine 方言 (默认或显式 engine_type)
+        model_cfg.dialect = ModelConfigDialect::kLegacyEngine;
+
+        // engine_type (必填非空字符串)
+        if (!model_elem.contains("engine_type")) {
+          SetDiag(diagnostic, PipelineErrorCode::kMissingField,
+                  model_path_prefix + "/engine_type",
+                  "Missing required field 'engine_type'");
+          return false;
+        }
+        if (!model_elem["engine_type"].is_string()) {
+          SetDiag(diagnostic, PipelineErrorCode::kFieldType,
+                  model_path_prefix + "/engine_type",
+                  "Field 'engine_type' must be a string");
+          return false;
+        }
+        model_cfg.engine_type = model_elem["engine_type"].get<std::string>();
+        if (model_cfg.engine_type.empty()) {
+          SetDiag(diagnostic, PipelineErrorCode::kFieldRange,
+                  model_path_prefix + "/engine_type",
+                  "Field 'engine_type' cannot be empty");
+          return false;
+        }
+
+        // model_path (可选字符串)
+        if (model_elem.contains("model_path")) {
+          if (!model_elem["model_path"].is_string()) {
+            SetDiag(diagnostic, PipelineErrorCode::kFieldType,
+                    model_path_prefix + "/model_path",
+                    "Field 'model_path' must be a string");
+            return false;
+          }
+          model_cfg.model_path = model_elem["model_path"].get<std::string>();
+        }
+
+        // config (可选对象)
+        if (model_elem.contains("config")) {
+          if (!model_elem["config"].is_object()) {
+            SetDiag(diagnostic, PipelineErrorCode::kFieldType,
+                    model_path_prefix + "/config",
+                    "Field 'config' must be an object");
+            return false;
+          }
+          model_cfg.config = model_elem["config"];
+        } else {
+          model_cfg.config = nlohmann::json::object();
+        }
       }
 
       result.models.push_back(std::move(model_cfg));

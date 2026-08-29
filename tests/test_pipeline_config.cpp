@@ -492,6 +492,204 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
           {"pipeline", valid_pipe}},
       PipelineErrorCode::kUnknownEngineType, "/models/0/engine_type"});
 
+  // --- Model/Backend 方言及混用校验 (RFC 0015) ---
+  cases.push_back(NegativeTestCase{
+      "ModelBackendMissingCapability",
+      nlohmann::json{
+          {"biz_name", "test"},
+          {"models", nlohmann::json::array({{{"model_id", "m1"},
+                                             {"model_type", "bge_embedding"},
+                                             {"backend", "onnxruntime"},
+                                             {"model_path", "./model.onnx"}}})},
+          {"pipeline", valid_pipe}},
+      PipelineErrorCode::kMissingField, "/models/0/capability"});
+  cases.push_back(NegativeTestCase{
+      "ModelBackendEmptyCapability",
+      nlohmann::json{
+          {"biz_name", "test"},
+          {"models", nlohmann::json::array({{{"model_id", "m1"},
+                                             {"capability", ""},
+                                             {"model_type", "bge_embedding"},
+                                             {"backend", "onnxruntime"},
+                                             {"model_path", "./model.onnx"}}})},
+          {"pipeline", valid_pipe}},
+      PipelineErrorCode::kFieldRange, "/models/0/capability"});
+  cases.push_back(NegativeTestCase{
+      "ModelBackendWrongTypeCapability",
+      nlohmann::json{
+          {"biz_name", "test"},
+          {"models", nlohmann::json::array({{{"model_id", "m1"},
+                                             {"capability", 123},
+                                             {"model_type", "bge_embedding"},
+                                             {"backend", "onnxruntime"},
+                                             {"model_path", "./model.onnx"}}})},
+          {"pipeline", valid_pipe}},
+      PipelineErrorCode::kFieldType, "/models/0/capability"});
+  cases.push_back(NegativeTestCase{
+      "ModelBackendMissingModelType",
+      nlohmann::json{
+          {"biz_name", "test"},
+          {"models", nlohmann::json::array({{{"model_id", "m1"},
+                                             {"capability", "embedding"},
+                                             {"backend", "onnxruntime"},
+                                             {"model_path", "./model.onnx"}}})},
+          {"pipeline", valid_pipe}},
+      PipelineErrorCode::kMissingField, "/models/0/model_type"});
+  cases.push_back(NegativeTestCase{
+      "ModelBackendEmptyModelType",
+      nlohmann::json{
+          {"biz_name", "test"},
+          {"models", nlohmann::json::array({{{"model_id", "m1"},
+                                             {"capability", "embedding"},
+                                             {"model_type", ""},
+                                             {"backend", "onnxruntime"},
+                                             {"model_path", "./model.onnx"}}})},
+          {"pipeline", valid_pipe}},
+      PipelineErrorCode::kFieldRange, "/models/0/model_type"});
+  cases.push_back(NegativeTestCase{
+      "ModelBackendWrongTypeModelType",
+      nlohmann::json{
+          {"biz_name", "test"},
+          {"models", nlohmann::json::array({{{"model_id", "m1"},
+                                             {"capability", "embedding"},
+                                             {"model_type", true},
+                                             {"backend", "onnxruntime"},
+                                             {"model_path", "./model.onnx"}}})},
+          {"pipeline", valid_pipe}},
+      PipelineErrorCode::kFieldType, "/models/0/model_type"});
+  cases.push_back(NegativeTestCase{
+      "ModelBackendMissingBackend",
+      nlohmann::json{
+          {"biz_name", "test"},
+          {"models", nlohmann::json::array({{{"model_id", "m1"},
+                                             {"capability", "embedding"},
+                                             {"model_type", "bge_embedding"},
+                                             {"model_path", "./model.onnx"}}})},
+          {"pipeline", valid_pipe}},
+      PipelineErrorCode::kMissingField, "/models/0/backend"});
+  cases.push_back(NegativeTestCase{
+      "ModelBackendEmptyBackend",
+      nlohmann::json{
+          {"biz_name", "test"},
+          {"models", nlohmann::json::array({{{"model_id", "m1"},
+                                             {"capability", "embedding"},
+                                             {"model_type", "bge_embedding"},
+                                             {"backend", ""},
+                                             {"model_path", "./model.onnx"}}})},
+          {"pipeline", valid_pipe}},
+      PipelineErrorCode::kFieldRange, "/models/0/backend"});
+  cases.push_back(NegativeTestCase{
+      "ModelBackendWrongTypeBackend",
+      nlohmann::json{
+          {"biz_name", "test"},
+          {"models", nlohmann::json::array({{{"model_id", "m1"},
+                                             {"capability", "embedding"},
+                                             {"model_type", "bge_embedding"},
+                                             {"backend", 456},
+                                             {"model_path", "./model.onnx"}}})},
+          {"pipeline", valid_pipe}},
+      PipelineErrorCode::kFieldType, "/models/0/backend"});
+  cases.push_back(NegativeTestCase{
+      "ModelBackendMissingModelPath",
+      nlohmann::json{
+          {"biz_name", "test"},
+          {"models", nlohmann::json::array({{{"model_id", "m1"},
+                                             {"capability", "embedding"},
+                                             {"model_type", "bge_embedding"},
+                                             {"backend", "onnxruntime"}}})},
+          {"pipeline", valid_pipe}},
+      PipelineErrorCode::kMissingField, "/models/0/model_path"});
+  cases.push_back(NegativeTestCase{
+      "ModelBackendEmptyModelPath",
+      nlohmann::json{
+          {"biz_name", "test"},
+          {"models", nlohmann::json::array({{{"model_id", "m1"},
+                                             {"capability", "embedding"},
+                                             {"model_type", "bge_embedding"},
+                                             {"backend", "onnxruntime"},
+                                             {"model_path", ""}}})},
+          {"pipeline", valid_pipe}},
+      PipelineErrorCode::kFieldRange, "/models/0/model_path"});
+  cases.push_back(NegativeTestCase{
+      "ModelBackendWrongTypeModelPath",
+      nlohmann::json{
+          {"biz_name", "test"},
+          {"models", nlohmann::json::array({{{"model_id", "m1"},
+                                             {"capability", "embedding"},
+                                             {"model_type", "bge_embedding"},
+                                             {"backend", "onnxruntime"},
+                                             {"model_path", 789}}})},
+          {"pipeline", valid_pipe}},
+      PipelineErrorCode::kFieldType, "/models/0/model_path"});
+  cases.push_back(NegativeTestCase{
+      "ModelBackendModelConfigNotObject",
+      nlohmann::json{
+          {"biz_name", "test"},
+          {"models", nlohmann::json::array({{{"model_id", "m1"},
+                                             {"capability", "embedding"},
+                                             {"model_type", "bge_embedding"},
+                                             {"backend", "onnxruntime"},
+                                             {"model_path", "./model.onnx"},
+                                             {"model_config", "not_object"}}})},
+          {"pipeline", valid_pipe}},
+      PipelineErrorCode::kFieldType, "/models/0/model_config"});
+  cases.push_back(NegativeTestCase{
+      "ModelBackendBackendConfigNotObject",
+      nlohmann::json{
+          {"biz_name", "test"},
+          {"models", nlohmann::json::array({{{"model_id", "m1"},
+                                             {"capability", "embedding"},
+                                             {"model_type", "bge_embedding"},
+                                             {"backend", "onnxruntime"},
+                                             {"model_path", "./model.onnx"},
+                                             {"backend_config", 123}}})},
+          {"pipeline", valid_pipe}},
+      PipelineErrorCode::kFieldType, "/models/0/backend_config"});
+  cases.push_back(NegativeTestCase{
+      "ModelBackendUnknownField",
+      nlohmann::json{
+          {"biz_name", "test"},
+          {"models", nlohmann::json::array({{{"model_id", "m1"},
+                                             {"capability", "embedding"},
+                                             {"model_type", "bge_embedding"},
+                                             {"backend", "onnxruntime"},
+                                             {"model_path", "./model.onnx"},
+                                             {"unsupported_opt", true}}})},
+          {"pipeline", valid_pipe}},
+      PipelineErrorCode::kUnknownField, "/models/0/unsupported_opt"});
+  cases.push_back(NegativeTestCase{
+      "MixedDialectEngineTypeAndCapability",
+      nlohmann::json{
+          {"biz_name", "test"},
+          {"models", nlohmann::json::array({{{"model_id", "m1"},
+                                             {"engine_type", "counting_engine"},
+                                             {"capability", "embedding"}}})},
+          {"pipeline", valid_pipe}},
+      PipelineErrorCode::kInvalidCombination, "/models/0/capability"});
+  cases.push_back(NegativeTestCase{
+      "MixedDialectEngineTypeAndBackend",
+      nlohmann::json{
+          {"biz_name", "test"},
+          {"models", nlohmann::json::array({{{"model_id", "m1"},
+                                             {"engine_type", "counting_engine"},
+                                             {"backend", "onnxruntime"}}})},
+          {"pipeline", valid_pipe}},
+      PipelineErrorCode::kInvalidCombination, "/models/0/backend"});
+  cases.push_back(NegativeTestCase{
+      "MixedDialectConfigAndModelConfig",
+      nlohmann::json{
+          {"biz_name", "test"},
+          {"models", nlohmann::json::array(
+                         {{{"model_id", "m1"},
+                           {"capability", "embedding"},
+                           {"model_type", "bge_embedding"},
+                           {"backend", "onnxruntime"},
+                           {"model_path", "./model.onnx"},
+                           {"config", nlohmann::json::object()},
+                           {"model_config", nlohmann::json::object()}}})},
+          {"pipeline", valid_pipe}},
+      PipelineErrorCode::kInvalidCombination, "/models/0/capability"});
+
   // --- Pipeline Nodes 校验 ---
   cases.push_back(
       NegativeTestCase{"MissingPipeline", nlohmann::json{{"biz_name", "test"}},
@@ -981,6 +1179,77 @@ TEST_F(PipelineConfigTest, ParallelModeWorkersBoundaries) {
                                 ValidationPolicy::kPrivateExtensionCompatible));
     EXPECT_EQ(p.GetExecutionMode(), Pipeline::ExecutionMode::PARALLEL);
   }
+}
+
+// 8. 双轨方言解析正例测试 (RFC 0015)
+TEST_F(PipelineConfigTest, DualTrackDialectPositiveParsing) {
+  nlohmann::json root = {
+      {"biz_name", "dual_dialect_test"},
+      {"models", nlohmann::json::array({
+                     {{"model_id", "m_legacy"},
+                      {"engine_type", "counting_engine"},
+                      {"model_path", "./path/to/legacy"},
+                      {"config", {{"batch_size", 4}}}},
+                     {{"model_id", "m_mb_full"},
+                      {"capability", "embedding"},
+                      {"model_type", "bge_embedding"},
+                      {"backend", "onnxruntime"},
+                      {"model_path", "./models/bge/model.onnx"},
+                      {"model_config", {{"max_length", 512}}},
+                      {"backend_config", {{"device", "cpu"}}}},
+                     {{"model_id", "m_mb_minimal"},
+                      {"capability", "rerank"},
+                      {"model_type", "bge_reranker"},
+                      {"backend", "onnxruntime"},
+                      {"model_path", "./models/rerank/model.onnx"}},
+                 })},
+      {"pipeline",
+       nlohmann::json::array({{{"id", "n0"},
+                               {"node_type", "CountingNode"},
+                               {"depends_on", nlohmann::json::array()}}})}};
+
+  ParsedPipelineConfig parsed_cfg;
+  PipelineDiagnostic diag;
+  EXPECT_TRUE(ParsePipelineConfig(root, &parsed_cfg, &diag));
+  EXPECT_EQ(diag.code, PipelineErrorCode::kOk);
+  ASSERT_EQ(parsed_cfg.models.size(), 3u);
+
+  // Model 0: Legacy Engine Dialect
+  const auto& m0 = parsed_cfg.models[0];
+  EXPECT_EQ(m0.dialect, ModelConfigDialect::kLegacyEngine);
+  EXPECT_EQ(m0.model_id, "m_legacy");
+  EXPECT_EQ(m0.engine_type, "counting_engine");
+  EXPECT_EQ(m0.model_path, "./path/to/legacy");
+  EXPECT_EQ(m0.config.value("batch_size", 0), 4);
+  EXPECT_EQ(m0.source_index, 0u);
+
+  // Model 1: Model/Backend Dialect (Full)
+  const auto& m1 = parsed_cfg.models[1];
+  EXPECT_EQ(m1.dialect, ModelConfigDialect::kModelBackend);
+  EXPECT_EQ(m1.model_id, "m_mb_full");
+  EXPECT_EQ(m1.capability, "embedding");
+  EXPECT_EQ(m1.model_type, "bge_embedding");
+  EXPECT_EQ(m1.backend, "onnxruntime");
+  EXPECT_EQ(m1.model_path, "./models/bge/model.onnx");
+  EXPECT_TRUE(m1.model_config.is_object());
+  EXPECT_EQ(m1.model_config.value("max_length", 0), 512);
+  EXPECT_TRUE(m1.backend_config.is_object());
+  EXPECT_EQ(m1.backend_config.value("device", ""), "cpu");
+  EXPECT_EQ(m1.source_index, 1u);
+
+  // Model 2: Model/Backend Dialect (Minimal with default empty configs)
+  const auto& m2 = parsed_cfg.models[2];
+  EXPECT_EQ(m2.dialect, ModelConfigDialect::kModelBackend);
+  EXPECT_EQ(m2.model_id, "m_mb_minimal");
+  EXPECT_EQ(m2.capability, "rerank");
+  EXPECT_EQ(m2.model_type, "bge_reranker");
+  EXPECT_EQ(m2.backend, "onnxruntime");
+  EXPECT_EQ(m2.model_path, "./models/rerank/model.onnx");
+  EXPECT_TRUE(m2.model_config.is_object());
+  EXPECT_TRUE(m2.model_config.empty());
+  EXPECT_TRUE(m2.backend_config.is_object());
+  EXPECT_TRUE(m2.backend_config.empty());
+  EXPECT_EQ(m2.source_index, 2u);
 }
 
 }  // namespace alg_framework
