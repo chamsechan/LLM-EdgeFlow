@@ -51,6 +51,14 @@ jobs:
             ccache-${{ runner.os }}-${{ github.ref }}-
             ccache-${{ runner.os }}-
 
+      - name: Restore/Save Verified Dependency Archives
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/_deps/*-subbuild/*-populate-prefix/src/*.tar.gz
+            build/_deps/*-subbuild/*-populate-prefix/src/*.tgz
+          key: fetchcontent-${{ runner.os }}-${{ hashFiles('cmake/*.cmake') }}
+
       - name: Run Unified Full Quality Gate with mold
         run: |
           ccache -z
