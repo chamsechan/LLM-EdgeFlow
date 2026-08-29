@@ -6,7 +6,7 @@ include(FetchContent)
 # ------------------------------------------------------------------------------
 # 1. ONNX Runtime 开源推理引擎配置 (用于特征向量与精排打分模型)
 # ------------------------------------------------------------------------------
-option(ENABLE_ONNXRUNTIME "Enable ONNX Runtime engine (auto-download from GitHub)" ON)
+set(LLM_EDGEFLOW_HAS_ONNXRUNTIME OFF)
 
 if(ENABLE_ONNXRUNTIME)
   message(STATUS "[Engine Layer] Enabling ONNX Runtime engine support...")
@@ -51,6 +51,7 @@ if(ENABLE_ONNXRUNTIME)
 
   if(EXISTS "${ONNXRUNTIME_INCLUDE_DIR}" AND EXISTS "${ONNXRUNTIME_LIB}")
     message(STATUS "[Engine Layer] ONNX Runtime successfully loaded from: ${onnxruntime_prebuilt_SOURCE_DIR}")
+    set(LLM_EDGEFLOW_HAS_ONNXRUNTIME ON)
     include_directories(SYSTEM ${ONNXRUNTIME_INCLUDE_DIR})
     link_directories("${onnxruntime_prebuilt_SOURCE_DIR}/lib")
     set(CMAKE_BUILD_RPATH "${CMAKE_BUILD_RPATH};${onnxruntime_prebuilt_SOURCE_DIR}/lib")
@@ -58,7 +59,7 @@ if(ENABLE_ONNXRUNTIME)
     set(THIRD_PARTY_ENGINE_LIBS ${THIRD_PARTY_ENGINE_LIBS} ${ONNXRUNTIME_LIB})
     add_definitions(-DHAVE_ONNXRUNTIME=1)
   else()
-    message(WARNING "[Engine Layer] ONNX Runtime library or headers not found in downloaded package, falling back to stub.")
+    message(WARNING "[Engine Layer] ONNX Runtime library or headers not found in downloaded package.")
   endif()
 endif()
 
