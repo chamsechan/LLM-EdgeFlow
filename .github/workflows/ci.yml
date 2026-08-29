@@ -23,6 +23,8 @@ jobs:
       CCACHE_MAXSIZE: "500M"
       CCACHE_BASEDIR: ${{ github.workspace }}
       CCACHE_NOHASHDIR: "true"
+      CMAKE_C_COMPILER_LAUNCHER: ccache
+      CMAKE_CXX_COMPILER_LAUNCHER: ccache
 
     steps:
       - name: Checkout Code
@@ -51,17 +53,9 @@ jobs:
             ccache-${{ runner.os }}-${{ github.ref }}-
             ccache-${{ runner.os }}-
 
-      - name: Restore/Save Verified Dependency Archives
-        uses: actions/cache@v4
-        with:
-          path: |
-            build/_deps/*-subbuild/*-populate-prefix/src/*.tar.gz
-            build/_deps/*-subbuild/*-populate-prefix/src/*.tgz
-          key: fetchcontent-${{ runner.os }}-${{ hashFiles('cmake/*.cmake') }}
-
       - name: Run Unified Full Quality Gate with mold
         run: |
           ccache -z
           LLM_EDGEFLOW_LINKER=mold LLM_EDGEFLOW_JOBS=4 \
-            ./scripts/run_all_tests.sh --full
+            ./scripts/run_all_tests.sh
           ccache -s

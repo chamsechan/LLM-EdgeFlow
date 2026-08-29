@@ -86,11 +86,8 @@ if(ENABLE_LLAMACPP)
   set(GGML_AVX512_BF16 OFF CACHE BOOL "Enable AVX512_BF16" FORCE)
   set(GGML_METAL ${LLM_EDGEFLOW_LLAMACPP_METAL} CACHE BOOL
       "Enable Metal backend for llama.cpp" FORCE)
-  # ggml 有独立的 ccache 开关。顶层明确关闭编译缓存时必须同步关闭，
-  # 避免子工程绕过 LLM_EDGEFLOW_USE_CCACHE 并访问不可写的默认缓存目录。
-  if(DEFINED LLM_EDGEFLOW_USE_CCACHE AND NOT LLM_EDGEFLOW_USE_CCACHE)
-    set(GGML_CCACHE OFF CACHE BOOL "Use ccache for ggml" FORCE)
-  endif()
+  # 编译缓存由顶层编译器/launcher 统一控制，禁用 ggml 的二次自动发现。
+  set(GGML_CCACHE OFF CACHE BOOL "Use ccache for ggml" FORCE)
 
   set(LLM_EDGEFLOW_LLAMACPP_COMMIT
       "70adb1b4cea5ee39f867792c78dc59320921eda7")
@@ -101,11 +98,6 @@ if(ENABLE_LLAMACPP)
     URL https://github.com/ggml-org/llama.cpp/archive/${LLM_EDGEFLOW_LLAMACPP_COMMIT}.tar.gz
     URL_HASH SHA256=94d215f1fd85ded40f4674eccdbd3caf4a9b0daa00b6d72255efec922c6d94a4
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE
-    PATCH_COMMAND
-      ${CMAKE_COMMAND}
-      "-DLLM_EDGEFLOW_LLAMA_SOURCE_DIR=<SOURCE_DIR>"
-      "-DLLM_EDGEFLOW_LLAMA_COMMIT=${LLM_EDGEFLOW_LLAMACPP_COMMIT}"
-      -P "${CMAKE_CURRENT_LIST_DIR}/PatchLlamaCppBuildInfo.cmake"
   )
   FetchContent_MakeAvailable(llama_cpp_source)
 

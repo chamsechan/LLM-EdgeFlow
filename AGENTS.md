@@ -106,8 +106,8 @@ When performing specific tasks, you **MUST** reference and execute the correspon
 # 1. Format code
 ./scripts/format.sh
 
-# 2. Fast parallel build (Ninja + ccache) and run all CTest suites in parallel
-cmake -B build -G Ninja -DLLM_EDGEFLOW_USE_CCACHE=ON && cmake --build build -j$(nproc) && ctest --test-dir build -j$(nproc) --output-on-failure
+# 2. Build and run all CTest suites in parallel (ccache is environment-managed)
+cmake -B build -G Ninja && cmake --build build -j$(nproc) && ctest --test-dir build -j$(nproc) --output-on-failure
 
 # 3. Run full end-to-end multi-modal demo
 ./build/alg_demo
