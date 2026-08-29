@@ -5,10 +5,11 @@
 
 #include "engine/engine_interface.h"
 #include "engine/fixed_batch_executor.h"
+#include "engine/model_interface.h"
 
 namespace alg_framework {
 
-class MockNpuOcrEngine : public IOcrEngine {
+class MockNpuOcrEngine : public IOcrEngine, public IOcrModel {
  public:
   inline static constexpr char kEngineType[] = "mock_npu_ocr";
 
@@ -17,8 +18,11 @@ class MockNpuOcrEngine : public IOcrEngine {
 
   bool Load(const std::string& model_path,
             const nlohmann::json& engine_config) override;
-  size_t GetMaxBatchSize() const override { return max_batch_size_; }
+  size_t GetMaxBatchSize() const noexcept override { return max_batch_size_; }
   const std::string& EngineType() const override;
+  const std::string& ModelType() const noexcept override;
+  const std::string& Capability() const noexcept override;
+  InferenceConcurrency Concurrency() const noexcept override;
   const std::string& GetLoadedModelPath() const override { return model_path_; }
   int GetDeviceId() const override { return device_id_; }
 
@@ -26,6 +30,9 @@ class MockNpuOcrEngine : public IOcrEngine {
       const std::vector<TraceableItem<std::string>>& input_image_paths,
       std::vector<TraceableItem<std::vector<OcrBoxItem>>>* output_boxes)
       override;
+
+  int Recognize(const ImageRefBatch& images,
+                OcrDocumentBatch* outputs) noexcept override;
 
  private:
   int RawNpuOcrHardwareInfer(const std::vector<std::string>& batch_images,

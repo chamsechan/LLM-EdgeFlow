@@ -88,11 +88,6 @@ set(FRAMEWORK_SRCS
     src/engine/runtime/backend_registry.cpp
     src/engine/runtime/model_runtime_factory.cpp
     src/engine/backends/onnxruntime/onnxruntime_backend.cpp
-    src/engine/mock_npu/mock_npu_embedding_engine.cpp
-    src/engine/mock_npu/mock_npu_llm_engine.cpp
-    src/engine/mock_npu/mock_npu_rerank_engine.cpp
-    src/engine/mock_npu/mock_npu_ocr_engine.cpp
-    src/engine/mock_npu/mock_npu_asr_engine.cpp
     src/engine/onnx/onnx_embedding_engine.cpp
     src/engine/backends/llama_cpp/llama_cpp_backend.cpp
     src/engine/models/bge_embedding/bert_wordpiece_tokenizer.cpp
@@ -176,6 +171,11 @@ set(ALG_DEMO_SRCS
     demo/biz/ocr_doc_qa_demo.cpp
     demo/biz/audio_asr_demo.cpp
     demo/biz/cross_rerank_demo.cpp
+    tests/support/inference/legacy_mock_npu/mock_npu_embedding_engine.cpp
+    tests/support/inference/legacy_mock_npu/mock_npu_llm_engine.cpp
+    tests/support/inference/legacy_mock_npu/mock_npu_rerank_engine.cpp
+    tests/support/inference/legacy_mock_npu/mock_npu_ocr_engine.cpp
+    tests/support/inference/legacy_mock_npu/mock_npu_asr_engine.cpp
 )
 add_executable(alg_demo ${ALG_DEMO_SRCS})
 target_link_libraries(alg_demo PRIVATE alg_sdk)

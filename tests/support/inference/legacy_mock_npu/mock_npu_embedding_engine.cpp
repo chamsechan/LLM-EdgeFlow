@@ -1,4 +1,4 @@
-#include "engine/mock_npu/mock_npu_embedding_engine.h"
+#include "tests/support/inference/legacy_mock_npu/mock_npu_embedding_engine.h"
 
 #include <cmath>
 #include <numeric>

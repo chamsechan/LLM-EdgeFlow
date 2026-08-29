@@ -1,4 +1,4 @@
-#include "engine/mock_npu/mock_npu_llm_engine.h"
+#include "tests/support/inference/legacy_mock_npu/mock_npu_llm_engine.h"
 
 #include "company_alg_log.h"
 #include "engine/engine_registry.h"

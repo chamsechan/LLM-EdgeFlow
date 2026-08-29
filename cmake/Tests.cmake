@@ -42,7 +42,12 @@ set(EDGEFLOW_TEST_CORE_SRCS
   tests/test_qwen_causal_lm_model.cpp
   tests/test_llama_cpp_backend.cpp
   tests/support/inference/test_tensor_backend.cpp
-  tests/support/inference/test_causal_lm_backend.cpp)
+  tests/support/inference/test_causal_lm_backend.cpp
+  tests/support/inference/legacy_mock_npu/mock_npu_embedding_engine.cpp
+  tests/support/inference/legacy_mock_npu/mock_npu_llm_engine.cpp
+  tests/support/inference/legacy_mock_npu/mock_npu_rerank_engine.cpp
+  tests/support/inference/legacy_mock_npu/mock_npu_ocr_engine.cpp
+  tests/support/inference/legacy_mock_npu/mock_npu_asr_engine.cpp)
 add_executable(edgeflow_test_core_runner ${EDGEFLOW_TEST_CORE_SRCS})
 target_link_libraries(edgeflow_test_core_runner PRIVATE
   alg_sdk GTest::gtest GTest::gtest_main)
@@ -99,7 +104,12 @@ set(EDGEFLOW_TEST_NODE_SRCS
   tests/test_text_rule_match_node.cpp
   tests/test_structured_json_parse_node.cpp
   tests/test_text_corpus_source_node.cpp
-  tests/test_common_nodes.cpp)
+  tests/test_common_nodes.cpp
+  tests/support/inference/legacy_mock_npu/mock_npu_embedding_engine.cpp
+  tests/support/inference/legacy_mock_npu/mock_npu_llm_engine.cpp
+  tests/support/inference/legacy_mock_npu/mock_npu_rerank_engine.cpp
+  tests/support/inference/legacy_mock_npu/mock_npu_ocr_engine.cpp
+  tests/support/inference/legacy_mock_npu/mock_npu_asr_engine.cpp)
 add_executable(edgeflow_test_nodes_runner ${EDGEFLOW_TEST_NODE_SRCS})
 target_link_libraries(edgeflow_test_nodes_runner PRIVATE
   alg_sdk GTest::gtest GTest::gtest_main)
@@ -117,7 +127,12 @@ set(EDGEFLOW_TEST_ADAPTER_SRCS
   tests/test_operator_value_registry.cpp
   tests/test_operator_biz_bridge_registry.cpp
   tests/test_operator_golden.cpp
-  tests/test_adapter_purity.cpp)
+  tests/test_adapter_purity.cpp
+  tests/support/inference/legacy_mock_npu/mock_npu_embedding_engine.cpp
+  tests/support/inference/legacy_mock_npu/mock_npu_llm_engine.cpp
+  tests/support/inference/legacy_mock_npu/mock_npu_rerank_engine.cpp
+  tests/support/inference/legacy_mock_npu/mock_npu_ocr_engine.cpp
+  tests/support/inference/legacy_mock_npu/mock_npu_asr_engine.cpp)
 add_executable(edgeflow_test_adapter_runner ${EDGEFLOW_TEST_ADAPTER_SRCS})
 target_link_libraries(edgeflow_test_adapter_runner PRIVATE
   alg_sdk GTest::gtest GTest::gtest_main)
@@ -138,7 +153,12 @@ set(EDGEFLOW_TEST_TOOLING_SRCS
   demo/biz/dialogue_audit_demo.cpp
   demo/biz/ocr_doc_qa_demo.cpp
   demo/biz/audio_asr_demo.cpp
-  demo/biz/cross_rerank_demo.cpp)
+  demo/biz/cross_rerank_demo.cpp
+  tests/support/inference/legacy_mock_npu/mock_npu_embedding_engine.cpp
+  tests/support/inference/legacy_mock_npu/mock_npu_llm_engine.cpp
+  tests/support/inference/legacy_mock_npu/mock_npu_rerank_engine.cpp
+  tests/support/inference/legacy_mock_npu/mock_npu_ocr_engine.cpp
+  tests/support/inference/legacy_mock_npu/mock_npu_asr_engine.cpp)
 add_executable(edgeflow_test_tooling_runner ${EDGEFLOW_TEST_TOOLING_SRCS})
 target_link_libraries(edgeflow_test_tooling_runner PRIVATE
   alg_sdk GTest::gtest GTest::gtest_main)

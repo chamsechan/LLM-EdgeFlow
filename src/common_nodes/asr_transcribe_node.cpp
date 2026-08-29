@@ -1,23 +1,21 @@
-#include <vector>
-
 #include "company_alg_log.h"
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
-#include "engine/engine_interface.h"
+#include "engine/model_interface.h"
 #include "nodes/model_bound_node.h"
 
 namespace alg_framework {
 
 /**
  * @brief 语音识别 ASR 文本转写通用算子 (AsrTranscribeNode, 调用绑定的
- * IAudioAsrEngine)
+ * IAsrModel)
  */
-class AsrTranscribeNode final : public ModelBoundNode<IAudioAsrEngine> {
+class AsrTranscribeNode final : public ModelBoundNode<IAsrModel> {
  public:
   inline static constexpr char kNodeType[] = "AsrTranscribeNode";
 
   AsrTranscribeNode()
-      : ModelBoundNode<IAudioAsrEngine>(kNodeType),
+      : ModelBoundNode<IAsrModel>(kNodeType),
         in_audio_("audio"),
         out_text_("text") {}
 
@@ -42,23 +40,27 @@ class AsrTranscribeNode final : public ModelBoundNode<IAudioAsrEngine> {
       return 0;
     }
 
-    std::vector<TraceableItem<IAudioAsrEngine::AudioPcmData>> engine_items;
-    engine_items.reserve(audio_items->size());
-    for (const auto& item : *audio_items) {
-      engine_items.emplace_back(item.req_id, item.sub_id,
-                                IAudioAsrEngine::AudioPcmData{
-                                    item.data.pcm_data, item.data.sample_rate});
-    }
-
     TextBatch transcripts;
     ALG_LOG_DEBUG(
         "[AsrTranscribeNode] Inferring transcripts for %zu audio "
         "streams...\n",
-        engine_items.size());
+        audio_items->size());
 
-    int ret = engine()->InferTraceableBatch(engine_items, &transcripts);
+    int ret = model()->Transcribe(*audio_items, &transcripts);
     if (ret != 0) {
       return Fail(req_ctx, ret, "AsrTranscribeNode: ASR inference failed");
+    }
+
+    if (transcripts.size() != audio_items->size()) {
+      return Fail(req_ctx, -7002,
+                  "AsrTranscribeNode: transcript count mismatch");
+    }
+    for (size_t i = 0; i < transcripts.size(); ++i) {
+      if (transcripts[i].req_id != (*audio_items)[i].req_id ||
+          transcripts[i].sub_id != (*audio_items)[i].sub_id) {
+        return Fail(req_ctx, -7003,
+                    "AsrTranscribeNode: transcript provenance mismatch");
+      }
     }
 
     out_text_.Set(req_ctx, std::move(transcripts));
@@ -81,7 +83,7 @@ NodeDefinition MakeAsrTranscribeNodeDefinition() {
   def.outputs = {OutputPort("text", BlackboardKey<TextBatch>{"", "TextBatch"},
                             false, "1:1", "preserve", "request")};
   def.config_fields = {ConfigFieldDefinition{
-      "bind_model", ConfigValueKind::kString, false, "mock_asr_model"}};
+      "bind_model", ConfigValueKind::kString, false, "asr_model_v1"}};
   def.model_capability = "asr";
   def.model_config_field = "bind_model";
   def.parallel_safe = true;

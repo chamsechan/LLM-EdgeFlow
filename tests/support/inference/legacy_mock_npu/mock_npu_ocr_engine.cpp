@@ -1,4 +1,4 @@
-#include "engine/mock_npu/mock_npu_ocr_engine.h"
+#include "tests/support/inference/legacy_mock_npu/mock_npu_ocr_engine.h"
 
 #include <vector>
 
@@ -25,6 +25,48 @@ bool MockNpuOcrEngine::Load(const std::string& model_path,
 const std::string& MockNpuOcrEngine::EngineType() const {
   static const std::string type = kEngineType;
   return type;
+}
+
+const std::string& MockNpuOcrEngine::ModelType() const noexcept {
+  static const std::string type = kEngineType;
+  return type;
+}
+
+const std::string& MockNpuOcrEngine::Capability() const noexcept {
+  static const std::string capability = "ocr";
+  return capability;
+}
+
+InferenceConcurrency MockNpuOcrEngine::Concurrency() const noexcept {
+  return InferenceConcurrency::kSerialized;
+}
+
+int MockNpuOcrEngine::Recognize(const ImageRefBatch& images,
+                                OcrDocumentBatch* outputs) noexcept {
+  if (!outputs) return -1;
+  outputs->clear();
+  try {
+    std::vector<TraceableItem<std::vector<OcrBoxItem>>> raw_boxes;
+    const int result = InferTraceableBatch(images, &raw_boxes);
+    if (result != 0) return result;
+    outputs->reserve(raw_boxes.size());
+    for (auto& raw_item : raw_boxes) {
+      OcrDocumentItem document;
+      document.boxes.reserve(raw_item.data.size());
+      for (auto& box : raw_item.data) {
+        if (!document.combined_text.empty()) document.combined_text += "\n";
+        document.combined_text += box.text;
+        document.boxes.push_back({box.x, box.y, box.width, box.height,
+                                  std::move(box.text), box.confidence});
+      }
+      outputs->emplace_back(raw_item.req_id, raw_item.sub_id,
+                            std::move(document));
+    }
+    return 0;
+  } catch (...) {
+    outputs->clear();
+    return -1;
+  }
 }
 
 int MockNpuOcrEngine::InferTraceableBatch(

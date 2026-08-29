@@ -59,7 +59,7 @@ TEST_F(CatalogContractSsotTest, AllProductionNodesHaveValidDefinitions) {
 // 2. 验证所有推理引擎均具备合法的 EngineDefinition 元数据
 TEST_F(CatalogContractSsotTest, AllInferenceEnginesHaveValidDefinitions) {
   const auto& engines = PipelineCatalog::Engines();
-  EXPECT_GE(engines.size(), 6U);
+  EXPECT_GE(engines.size(), 1U);
 
   std::set<std::string> seen_engines;
   for (const auto& engine_def : engines) {
@@ -85,15 +85,42 @@ TEST_F(CatalogContractSsotTest, AllInferenceEnginesHaveValidDefinitions) {
     EXPECT_EQ(found->capability, engine_def.capability);
   }
 
-  // 必须包含全部 Mock 与 Real 引擎类型
-  EXPECT_TRUE(seen_engines.count("mock_npu_embedding"));
-  EXPECT_TRUE(seen_engines.count("mock_npu_llm"));
-  EXPECT_TRUE(seen_engines.count("mock_npu_rerank"));
-  EXPECT_TRUE(seen_engines.count("mock_npu_ocr"));
-  EXPECT_TRUE(seen_engines.count("mock_npu_asr"));
+  // 生产 Catalog 不得暴露 test/mock runtime capability。
+  EXPECT_FALSE(seen_engines.count("mock_npu_embedding"));
+  EXPECT_FALSE(seen_engines.count("mock_npu_llm"));
+  EXPECT_FALSE(seen_engines.count("mock_npu_rerank"));
+  EXPECT_FALSE(seen_engines.count("mock_npu_ocr"));
+  EXPECT_FALSE(seen_engines.count("mock_npu_asr"));
+  EXPECT_FALSE(seen_engines.count("test_tensor_backend"));
+  EXPECT_FALSE(seen_engines.count("test_causal_lm_backend"));
   EXPECT_TRUE(seen_engines.count("onnx_embedding"));
   EXPECT_FALSE(seen_engines.count("onnx_rerank"));
   EXPECT_FALSE(seen_engines.count("llama_cpp"));
+}
+
+TEST_F(CatalogContractSsotTest, ProductionModelBackendCatalogHasNoFixtures) {
+  std::set<std::string> model_types;
+  for (const auto& model : PipelineCatalog::Models()) {
+    EXPECT_FALSE(model.model_type.empty());
+    EXPECT_FALSE(model.capability.empty());
+    EXPECT_TRUE(model_types.insert(model.model_type).second);
+  }
+  EXPECT_TRUE(model_types.count("bge_embedding"));
+  EXPECT_TRUE(model_types.count("bge_reranker"));
+  EXPECT_TRUE(model_types.count("qwen_causal_lm"));
+  EXPECT_FALSE(model_types.count("test_ocr_model"));
+  EXPECT_FALSE(model_types.count("test_asr_model"));
+
+  std::set<std::string> backend_types;
+  for (const auto& backend : PipelineCatalog::Backends()) {
+    EXPECT_FALSE(backend.backend_type.empty());
+    EXPECT_FALSE(backend.supported_protocols.empty());
+    EXPECT_TRUE(backend_types.insert(backend.backend_type).second);
+    EXPECT_EQ(backend.backend_type.find("test_"), std::string::npos);
+    EXPECT_EQ(backend.backend_type.find("mock"), std::string::npos);
+  }
+  EXPECT_TRUE(backend_types.count("onnxruntime"));
+  EXPECT_TRUE(backend_types.count("llama_cpp"));
 }
 
 // 3. 验证 7 种业务契约在 PipelineCatalog 中完整注册
@@ -155,9 +182,11 @@ TEST_F(CatalogContractSsotTest, ToJsonSerializationAndFiltering) {
   EXPECT_EQ(full_catalog["schema_version"], 1);
   EXPECT_TRUE(full_catalog["nodes"].is_array());
   EXPECT_TRUE(full_catalog["engines"].is_array());
+  EXPECT_TRUE(full_catalog["models"].is_array());
+  EXPECT_TRUE(full_catalog["backends"].is_array());
   EXPECT_TRUE(full_catalog["bizs"].is_array());
   EXPECT_GE(full_catalog["nodes"].size(), 11U);
-  EXPECT_GE(full_catalog["engines"].size(), 6U);
+  EXPECT_GE(full_catalog["engines"].size(), 1U);
   EXPECT_GE(full_catalog["bizs"].size(), 7U);
   EXPECT_GE(full_catalog["bizs"].size(), 7U);
   for (const auto& engine : full_catalog["engines"]) {

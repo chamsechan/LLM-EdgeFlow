@@ -1,4 +1,4 @@
-#include "engine/mock_npu/mock_npu_asr_engine.h"
+#include "tests/support/inference/legacy_mock_npu/mock_npu_asr_engine.h"
 
 #include <vector>
 
@@ -25,6 +25,39 @@ bool MockNpuAsrEngine::Load(const std::string& model_path,
 const std::string& MockNpuAsrEngine::EngineType() const {
   static const std::string type = kEngineType;
   return type;
+}
+
+const std::string& MockNpuAsrEngine::ModelType() const noexcept {
+  static const std::string type = kEngineType;
+  return type;
+}
+
+const std::string& MockNpuAsrEngine::Capability() const noexcept {
+  static const std::string capability = "asr";
+  return capability;
+}
+
+InferenceConcurrency MockNpuAsrEngine::Concurrency() const noexcept {
+  return InferenceConcurrency::kSerialized;
+}
+
+int MockNpuAsrEngine::Transcribe(const AudioPcmBatch& audio,
+                                 TextBatch* outputs) noexcept {
+  if (!outputs) return -1;
+  outputs->clear();
+  try {
+    std::vector<TraceableItem<AudioPcmData>> legacy_audio;
+    legacy_audio.reserve(audio.size());
+    for (const auto& item : audio) {
+      legacy_audio.emplace_back(
+          item.req_id, item.sub_id,
+          AudioPcmData{item.data.pcm_data, item.data.sample_rate});
+    }
+    return InferTraceableBatch(legacy_audio, outputs);
+  } catch (...) {
+    outputs->clear();
+    return -1;
+  }
 }
 
 int MockNpuAsrEngine::InferTraceableBatch(

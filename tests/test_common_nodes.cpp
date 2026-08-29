@@ -12,6 +12,7 @@
 #include "core/session_context.h"
 #include "engine/engine_interface.h"
 #include "engine/engine_registry.h"
+#include "tests/support/inference/test_capability_models.h"
 
 namespace alg_framework {
 
@@ -45,17 +46,15 @@ class CommonNodesTest : public ::testing::Test {
     ASSERT_TRUE(session_ctx_->GetModelManager().RegisterModel(
         "llm_model_v1", std::move(llm_engine)));
 
-    auto asr_engine = EngineFactory::Instance().Create("mock_npu_asr");
-    ASSERT_NE(asr_engine, nullptr);
-    asr_engine->Load("./models/paraformer.bin", {{"max_batch_size", 2}});
+    auto asr_model = std::make_shared<test::TestAsrModel>();
     ASSERT_TRUE(session_ctx_->GetModelManager().RegisterModel(
-        "mock_asr_model", std::move(asr_engine)));
+        "asr_model_v1", std::move(asr_model), "test-revision", "test_asr_model",
+        "asr", "test_tensor_backend"));
 
-    auto ocr_engine = EngineFactory::Instance().Create("mock_npu_ocr");
-    ASSERT_NE(ocr_engine, nullptr);
-    ocr_engine->Load("./models/ch_ppocr.bin", {{"max_batch_size", 2}});
+    auto ocr_model = std::make_shared<test::TestOcrModel>();
     ASSERT_TRUE(session_ctx_->GetModelManager().RegisterModel(
-        "ocr_model_v1", std::move(ocr_engine)));
+        "ocr_model_v1", std::move(ocr_model), "test-revision", "test_ocr_model",
+        "ocr", "test_tensor_backend"));
   }
 
   std::unique_ptr<SessionContext> session_ctx_;
@@ -626,7 +625,7 @@ TEST_F(CommonNodesTest, AsrTranscribeNodeComprehensive) {
   auto node = NodeFactory::Instance().Create("AsrTranscribeNode");
   ASSERT_NE(node, nullptr);
 
-  nlohmann::json cfg = {{"bind_model", "mock_asr_model"}};
+  nlohmann::json cfg = {{"bind_model", "asr_model_v1"}};
   EXPECT_TRUE(node->Init(cfg, session_ctx_.get()));
 
   AlgContext ctx;
