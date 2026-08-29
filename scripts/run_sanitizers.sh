@@ -77,11 +77,13 @@ if command -v ccache >/dev/null 2>&1; then
   mkdir -p "${CCACHE_DIR}"
 fi
 
+NCPU="$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)"
+
 cmake -S "${PROJECT_ROOT}" -B "${BUILD_DIR}" "${COMMON_CMAKE_ARGS[@]}"
 if [[ "${MODE}" == "fast" ]]; then
-  cmake --build "${BUILD_DIR}" --target edgeflow_dev_tests -j"$(nproc)"
+  cmake --build "${BUILD_DIR}" --target edgeflow_dev_tests -j"${NCPU}"
 else
-  cmake --build "${BUILD_DIR}" -j"$(nproc)"
+  cmake --build "${BUILD_DIR}" -j"${NCPU}"
 fi
 
 if [[ "${SANITIZERS}" == *"thread"* ]]; then
@@ -114,7 +116,7 @@ fi
 
 CTEST_ARGS=(
   --test-dir "${BUILD_DIR}"
-  -j"$(nproc)"
+  -j"${NCPU}"
   --output-on-failure
 )
 if [[ "${MODE}" == "fast" ]]; then

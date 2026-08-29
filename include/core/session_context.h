@@ -48,15 +48,26 @@ struct ModelRegistration {
 };
 
 /**
+ * @brief 存量模型引擎会话级注册元数据
+ */
+struct LegacyEngineRegistration {
+  std::string model_id;
+  std::shared_ptr<IModelEngine> engine;
+  std::string revision;
+};
+
+/**
  * @brief 单句柄持有的模型实例资源池 (ModelManager)
  */
 class ModelManager {
  public:
   /**
-   * @brief 单锁内原子批量注册模型实例 (staging -> commit)
+   * @brief 单锁内原子批量提交全部模型和存量引擎实例 (跨方言统一强原子性)
    */
-  bool RegisterBatch(const std::vector<ModelRegistration>& models) {
-    if (models.empty()) return true;
+  bool RegisterBatchUnified(
+      const std::vector<ModelRegistration>& models,
+      const std::vector<LegacyEngineRegistration>& legacy_engines = {}) {
+    if (models.empty() && legacy_engines.empty()) return true;
 
     std::unordered_set<std::string> staged_ids;
     std::vector<ModelRegistration> staged_registrations;
@@ -95,6 +106,24 @@ class ModelManager {
       staged_registrations.push_back(std::move(reg));
     }
 
+    std::vector<LegacyEngineRegistration> staged_legacy;
+    staged_legacy.reserve(legacy_engines.size());
+    for (const auto& item : legacy_engines) {
+      if (item.model_id.empty() || !item.engine) {
+        return false;
+      }
+      if (!staged_ids.insert(item.model_id).second) {
+        return false;  // staging 内重复
+      }
+      std::string rev = item.revision;
+      if (rev.empty()) {
+        rev = std::to_string(reinterpret_cast<uintptr_t>(item.engine.get()));
+      }
+      LegacyEngineRegistration reg = item;
+      reg.revision = std::move(rev);
+      staged_legacy.push_back(std::move(reg));
+    }
+
     std::lock_guard<std::mutex> lock(mutex_);
     for (const auto& item : staged_registrations) {
       // 新旧模型共用同一个 ID 冲突域。
@@ -103,9 +132,16 @@ class ModelManager {
         return false;
       }
     }
+    for (const auto& item : staged_legacy) {
+      if (models_.find(item.model_id) != models_.end() ||
+          legacy_engines_.find(item.model_id) != legacy_engines_.end()) {
+        return false;
+      }
+    }
 
     // 所有可能失败的准备工作在临时容器完成，最终通过 noexcept swap 提交。
     auto new_models = models_;
+    auto new_legacy = legacy_engines_;
     auto new_revisions = revisions_;
     auto new_registrations = registrations_;
 
@@ -117,11 +153,26 @@ class ModelManager {
       new_revisions[model_id] = revision;
       new_registrations[model_id] = std::move(item);
     }
+    for (auto& item : staged_legacy) {
+      const std::string model_id = item.model_id;
+      const std::string revision = item.revision;
+
+      new_legacy[model_id] = item.engine;
+      new_revisions[model_id] = revision;
+    }
 
     models_.swap(new_models);
+    legacy_engines_.swap(new_legacy);
     revisions_.swap(new_revisions);
     registrations_.swap(new_registrations);
     return true;
+  }
+
+  /**
+   * @brief 单锁内原子批量注册模型实例 (staging -> commit)
+   */
+  bool RegisterBatch(const std::vector<ModelRegistration>& models) {
+    return RegisterBatchUnified(models, {});
   }
 
   /**

@@ -11,6 +11,7 @@
 #include "core/session_context.h"
 #include "engine/engine_interface.h"
 #include "engine/engine_registry.h"
+#include "engine/llama_cpp/llama_cpp_engine.h"
 
 static std::string GetConfigPath(const std::string& rel_path) {
   FILE* fp = fopen(rel_path.c_str(), "r");
@@ -172,6 +173,31 @@ TEST_F(QwenEnginesComparisonTest, CAbiPipelineSwitching) {
     ret = Alg_Destroy(handle_llama);
     EXPECT_EQ(ret, 0);
   }
+}
+
+TEST_F(QwenEnginesComparisonTest, Utf8TruncationSafety) {
+  // Verify that any partial multi-byte UTF-8 bytes at string end are cleaned
+  // by calling the actual production implementation in LlamaCppEngine.
+  std::string chinese =
+      "企业级算法框架";  // Each Chinese char is 3 bytes in UTF-8
+  std::string truncated = chinese.substr(
+      0, chinese.size() - 1);  // Truncate last byte of "架" (0x9E)
+
+  // Call the production implementation directly
+  LlamaCppEngine::StripIncompleteUtf8Trailing(truncated);
+
+  // Directly serialize truncated string with nlohmann::json - should succeed
+  // without throwing type_error
+  nlohmann::json j;
+  EXPECT_NO_THROW({
+    j["text"] = truncated;
+    std::string dumped = j.dump();
+    EXPECT_FALSE(dumped.empty());
+  });
+
+  // Verify that the truncated last character "架" was cleanly stripped, leaving
+  // "企业级算法框"
+  EXPECT_EQ(truncated, "企业级算法框");
 }
 
 }  // namespace alg_framework

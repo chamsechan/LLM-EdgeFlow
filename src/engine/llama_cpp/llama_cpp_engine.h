@@ -40,6 +40,12 @@ class LlamaCppEngine : public ILlmEngine {
       const GenerateOption& option,
       std::vector<TraceableItem<std::string>>* output_texts) override;
 
+  /**
+   * @brief 剔除由于 max_tokens 截断可能导致字符串末尾残留的不完整多字节 UTF-8
+   * 序列
+   */
+  static void StripIncompleteUtf8Trailing(std::string& s);
+
  private:
   int RawLlamaHardwareInfer(const std::vector<std::string>& batch_prompts,
                             const GenerateOption& option,

@@ -14,6 +14,7 @@
 #include "core/node_registry.h"
 #include "core/pipeline_validator.h"
 #include "engine/engine_registry.h"
+#include "engine/model_runtime_factory.h"
 
 namespace alg_framework {
 
@@ -221,7 +222,8 @@ bool Pipeline::BuildInternal(const nlohmann::json& root_config,
   }
 
   // 唯一单趟校验与执行计划生成 (Single-Pass Validate and Plan)
-  plan_ = PipelineValidator::ValidateAndPlan(root_config, policy);
+  plan_ = PipelineValidator::ValidateAndPlan(
+      root_config, policy, session_ctx_.GetRuntimeOptions().model_root_dir);
 
   if (!plan_.report.ok) {
     if (!plan_.report.diagnostics.empty()) {
@@ -243,8 +245,74 @@ bool Pipeline::BuildInternal(const nlohmann::json& root_config,
   business_name_ = parsed_cfg.biz_name;
 
   // 1. 加载配置中声明的所有模型 (支持多模型加载到 ModelManager)
+  // 跨方言统一强原子性：新 Model 与 Legacy Engine 统一在 local staging
+  // 向量中完成 创建与 Load，仅当全部成功后单锁原子提交到 ModelManager。
+  std::vector<ModelRegistration> staged_new_models;
+  staged_new_models.reserve(plan_.models.size());
+
+  // 1.1 Model/Backend 解耦方言：按 ValidatedPipelinePlan.models 批量物化并暂存
+  for (const auto& model_plan : plan_.models) {
+    ModelLoadSpec spec;
+    spec.model_type = model_plan.model_type;
+    spec.backend_type = model_plan.backend;
+    spec.model_path = model_plan.resolved_model_path;
+    spec.model_config = model_plan.normalized_model_config;
+    spec.backend_config = model_plan.normalized_backend_config;
+
+    std::string factory_diag;
+    std::shared_ptr<IModel> model;
+    try {
+      model = ModelRuntimeFactory::Create(spec, &factory_diag);
+    } catch (const std::exception& e) {
+      if (diagnostic) {
+        diagnostic->code = PipelineErrorCode::kEngineLoadFailed;
+        diagnostic->path = "/models/" + std::to_string(model_plan.source_index);
+        diagnostic->message = "Exception creating model '" +
+                              model_plan.model_id + "': " + e.what();
+      }
+      return false;
+    } catch (...) {
+      if (diagnostic) {
+        diagnostic->code = PipelineErrorCode::kEngineLoadFailed;
+        diagnostic->path = "/models/" + std::to_string(model_plan.source_index);
+        diagnostic->message =
+            "Unknown exception creating model '" + model_plan.model_id + "'";
+      }
+      return false;
+    }
+
+    if (!model) {
+      if (diagnostic) {
+        diagnostic->code = PipelineErrorCode::kEngineLoadFailed;
+        diagnostic->path = "/models/" + std::to_string(model_plan.source_index);
+        diagnostic->message =
+            "ModelRuntimeFactory failed to load model: " + model_plan.model_id +
+            (factory_diag.empty() ? "" : (" (" + factory_diag + ")"));
+      }
+      ALG_LOG_ERROR("[Pipeline] Failed to load model [%s]: %s\n",
+                    model_plan.model_id.c_str(), factory_diag.c_str());
+      return false;
+    }
+
+    ModelRegistration reg;
+    reg.model_id = model_plan.model_id;
+    reg.model_type = model_plan.model_type;
+    reg.capability = model_plan.capability;
+    reg.backend_type = model_plan.backend;
+    reg.resolved_model_path = model_plan.resolved_model_path;
+    reg.normalized_model_config = model_plan.normalized_model_config;
+    reg.normalized_backend_config = model_plan.normalized_backend_config;
+    reg.model = std::move(model);
+    staged_new_models.push_back(std::move(reg));
+  }
+
+  // 1.2 Legacy Engine 方言兼容：创建并 Load 后暂存
+  std::vector<LegacyEngineRegistration> staged_legacy_engines;
   const auto& options = session_ctx_.GetRuntimeOptions();
   for (const auto& model_cfg : parsed_cfg.models) {
+    if (model_cfg.dialect != ModelConfigDialect::kLegacyEngine) {
+      continue;
+    }
     std::unique_ptr<IModelEngine> engine;
     try {
       engine = EngineFactory::Instance().Create(model_cfg.engine_type);
@@ -355,21 +423,27 @@ bool Pipeline::BuildInternal(const nlohmann::json& root_config,
     const std::string model_revision = std::to_string(std::hash<std::string>{}(
         model_cfg.engine_type + "\n" + resolved_model_path + "\n" +
         custom_cfg.dump()));
-    if (!session_ctx_.GetModelManager().RegisterModel(
-            model_cfg.model_id,
-            std::shared_ptr<IModelEngine>(std::move(engine)), model_revision)) {
-      if (diagnostic) {
-        diagnostic->code = PipelineErrorCode::kDuplicateModelId;
-        diagnostic->path =
-            "/models/" + std::to_string(model_cfg.source_index) + "/model_id";
-        diagnostic->message =
-            "Failed to register model in ModelManager: " + model_cfg.model_id;
-      }
-      return false;
-    }
+    LegacyEngineRegistration legacy_reg;
+    legacy_reg.model_id = model_cfg.model_id;
+    legacy_reg.engine = std::shared_ptr<IModelEngine>(std::move(engine));
+    legacy_reg.revision = model_revision;
+    staged_legacy_engines.push_back(std::move(legacy_reg));
 
-    ALG_LOG_INFO("[Pipeline] Successfully loaded model [%s] with engine [%s]\n",
-                 model_cfg.model_id.c_str(), model_cfg.engine_type.c_str());
+    ALG_LOG_INFO(
+        "[Pipeline] Successfully staged legacy model [%s] with engine [%s]\n",
+        model_cfg.model_id.c_str(), model_cfg.engine_type.c_str());
+  }
+
+  // 1.3 统一单锁原子提交到 Session ModelManager
+  if (!session_ctx_.GetModelManager().RegisterBatchUnified(
+          staged_new_models, staged_legacy_engines)) {
+    if (diagnostic) {
+      diagnostic->code = PipelineErrorCode::kDuplicateModelId;
+      diagnostic->path = "/models";
+      diagnostic->message =
+          "Failed to atomically register batch models/engines in ModelManager";
+    }
+    return false;
   }
 
   // 2. 解析 execution_mode 执行策略与线程池

@@ -341,6 +341,10 @@ add_executable(test_model_backend_decoupling
 target_link_libraries(test_model_backend_decoupling PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
 add_test(NAME ModelBackendDecouplingTest COMMAND test_model_backend_decoupling)
 
+add_executable(test_model_backend_pipeline tests/test_model_backend_pipeline.cpp)
+target_link_libraries(test_model_backend_pipeline PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME ModelBackendPipelineTest COMMAND test_model_backend_pipeline)
+
 # RFC 0012 11 类 Common Nodes 独立测试套件与 Operator Golden / Adapter Purity 测试
 add_executable(test_text_chunk_node tests/test_text_chunk_node.cpp)
 target_link_libraries(test_text_chunk_node PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
@@ -412,7 +416,7 @@ set_tests_properties(
   DocQaRerankTest RerankRefineNodeTest PipelineStudioTest VisualizerServerTest
   DemoRunnerTest CatalogContractSsotTest TypedBlackboardContractsTest
   ValidatedPipelinePlanTest NodeBaseContractsTest NodeOwnershipAndReuseTest
-  DefinitionSchemaValidationTest ModelBackendDecouplingTest TextChunkNodeTest TextEmbeddingNodeTest
+  DefinitionSchemaValidationTest ModelBackendDecouplingTest ModelBackendPipelineTest TextChunkNodeTest TextEmbeddingNodeTest
   VectorTopKNodeTest TextRerankNodeTest TextTemplateNodeTest
   LlmGenerateNodeTest AsrTranscribeNodeTest OcrDetectNodeTest
   TextRuleMatchNodeTest StructuredJsonParseNodeTest TextCorpusSourceNodeTest

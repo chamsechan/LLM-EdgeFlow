@@ -12,6 +12,33 @@
 
 namespace alg_framework {
 
+void LlamaCppEngine::StripIncompleteUtf8Trailing(std::string& s) {
+  if (s.empty()) return;
+  size_t len = s.size();
+  size_t lookback = std::min<size_t>(len, 4);
+  for (size_t k = 0; k < lookback; ++k) {
+    unsigned char c = static_cast<unsigned char>(s[len - 1 - k]);
+    if ((c & 0x80) == 0x00) {
+      return;
+    }
+    if ((c & 0xC0) == 0xC0) {
+      size_t seq_len = 0;
+      if ((c & 0xE0) == 0xC0) {
+        seq_len = 2;
+      } else if ((c & 0xF0) == 0xE0) {
+        seq_len = 3;
+      } else if ((c & 0xF8) == 0xF0) {
+        seq_len = 4;
+      }
+      size_t actual_bytes = k + 1;
+      if (actual_bytes < seq_len) {
+        s.erase(len - 1 - k);
+      }
+      return;
+    }
+  }
+}
+
 struct LlamaCppEngine::Impl {
 #ifdef HAVE_LLAMACPP
   llama_model* model = nullptr;
@@ -210,6 +237,7 @@ std::string LlamaCppEngine::GenerateLlamaResponse(
     }
 
     llama_sampler_free(smpl);
+    StripIncompleteUtf8Trailing(result);
     return result;
   }
 #endif

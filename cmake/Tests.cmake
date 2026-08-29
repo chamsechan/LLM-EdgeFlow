@@ -34,6 +34,7 @@ set(EDGEFLOW_TEST_CORE_SRCS
   tests/test_node_ownership_and_reuse.cpp
   tests/test_definition_schema_validation.cpp
   tests/test_model_backend_decoupling.cpp
+  tests/test_model_backend_pipeline.cpp
   tests/support/inference/test_tensor_backend.cpp
   tests/support/inference/test_causal_lm_backend.cpp)
 add_executable(edgeflow_test_core_runner ${EDGEFLOW_TEST_CORE_SRCS})
@@ -158,6 +159,8 @@ edgeflow_add_runner_test(DefinitionSchemaValidationTest edgeflow_test_core_runne
   "DefinitionSchemaValidationTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(ModelBackendDecouplingTest edgeflow_test_core_runner
   "ModelBackendDecouplingTest.*" "${_edgeflow_tier1}")
+edgeflow_add_runner_test(ModelBackendPipelineTest edgeflow_test_core_runner
+  "ModelBackendPipelineTest.*" "${_edgeflow_tier1}")
 
 edgeflow_add_runner_test(TextChunkNodeTest edgeflow_test_nodes_runner
   "TextChunkNodeTest.*" "${_edgeflow_tier1}")
