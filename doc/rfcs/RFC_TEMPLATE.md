@@ -3,7 +3,7 @@
 - **RFC 编号**：<如 0005-your-feature-name>
 - **创建日期**：YYYY-MM-DD
 - **文档状态**：Draft | Proposed | In Implementation | Completed | Deprecated
-- **关联分支**：`feat/<feature-name>`
+- **关联分支**：`feat/<feature-name>` | `fix/<name>` | `refactor/<name>`
 - **目标版本**：vX.Y.Z
 - **负责人 / 作者**：<作者或团队>
 
@@ -31,11 +31,11 @@
 ## 3. 总体技术方案与架构设计 (Architecture & Technical Design)
 
 ### 3.1 架构分层映射 (4-Tier Mapping)
-说明新增/改动内容分别归属于哪一层：
-- **Layer 1 (C ABI / Platform Adapter)**: 
-- **Layer 2 (Pipeline & Blackboard)**: 
-- **Layer 3 (Business & Common Nodes)**: 
-- **Layer 4 (Engines & Hardware Acceleration)**: 
+只填写实际涉及的层；纯 Tooling/Governance 变更可明确写为不修改运行时四层：
+- **Layer 1 (C ABI / Platform Adapter)**:
+- **Layer 2 (Pipeline & Blackboard)**:
+- **Layer 3 (Stateless Capability Nodes)**:
+- **Layer 4 (Models & Inference Backends)**:
 
 ### 3.2 核心接口与数据流设计 (Interface & Data Flow)
 ```cpp
@@ -49,7 +49,7 @@ sequenceDiagram
     participant L1 as Layer 1 (C ABI Adapter)
     participant L2 as Layer 2 (Pipeline & Blackboard)
     participant L3 as Layer 3 (Nodes)
-    participant L4 as Layer 4 (Engine)
+    participant L4 as Layer 4 (Model / Backend)
     Host->>L1: Request
     L1->>L2: Unpack to AlgContext
     L2->>L3: Execute Wavefront
@@ -69,29 +69,30 @@ sequenceDiagram
 2. **异常安全与错误传播**：
    - Layer 1 是否严格遵守 `noexcept` + `try-catch` 边界？
    - 错误码如何统一映射？
-3. **零拷贝与性能影响**：
-   - 黑板存取是否存在多余深拷贝？
+3. **拷贝与性能影响**：
+   - 黑板存取是否存在可避免的深拷贝？
    - 是否满足固定 Batch DMA 调度对齐？
 
 ---
 
 ## 5. 测试与质量验收计划 (Testing & Verification Plan)
 
-根据项目质量规范，任何新特性必须具备对应 Google Test 套件并纳入 CTest：
+列出能证明本 RFC 不变量的最小测试集合。优先扩展已有责任明确的套件；只有独立能力才
+创建新的测试目标。交付前统一运行 `./scripts/run_all_tests.sh`：
 
-- [ ] **单元测试套件**：`tests/test_<feature>.cpp`
+- [ ] **单元/契约测试**：列出新增或扩展的测试套件
 - [ ] **异常与边界测试**：空输入、越界、并发安全、异常回调回滚测试
 - [ ] **端到端集成测试**：纳入 `./scripts/run_all_tests.sh` 全量回归
-- [ ] **内存泄漏检查**：ASan / LSan / Valgrind 0 泄漏验证
+- [ ] **专项验证（按风险）**：Sanitizer、真实模型、硬件、性能或兼容性证据
 
 ---
 
 ## 6. 实施路线与里程碑 (Implementation Milestones)
 
-1. [ ] **阶段一：RFC 评审与设计定稿**（在分支 `feat/<name>` 中编写 RFC 并完成自评）
+1. [ ] **阶段一：RFC 评审与设计定稿**（在独立分支中编写 RFC 并完成自评）
 2. [ ] **阶段二：核心功能实现与单元测试编写**
-3. [ ] **阶段三：全量 CTest (100% Pass) 与 6 阶段回归验证**
-4. [ ] **阶段四：更新 RFC 状态为 Completed，提交 PR 并合并至 `main`**
+3. [ ] **阶段三：运行一次统一完整质量门禁**
+4. [ ] **阶段四：更新 RFC 状态为 Completed，按用户授权创建 PR 或合并**
 
 ---
 

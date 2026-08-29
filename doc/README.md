@@ -16,13 +16,14 @@
 
 ## 快速导航
 
-1. **[4 层抽象架构规范](architecture.md#1-框架整体-4-层抽象架构)**：L1 平台接入、L2 管线调度、L3 业务算子、L4 多后端引擎。
+1. **[4 层抽象架构规范](architecture.md#1-框架整体-4-层抽象架构)**：L1 平台接入、L2 管线调度、L3 通用能力节点、L4 Model / Backend。
 2. **[物理代码 UML 类图](architecture.puml)**：精确对应当前 C++ 类的组合、继承与调用关系。
 3. **[平台目标演进全景图](architecture_v2.puml)**：Control Plane（Manifest/Catalog/Validator）与 4 层平台的长远演进蓝图。
 4. **[时序与数据流转](architecture.md#3-数据流转与调用时序-runtime-sequence)**：外部请求进出与内部算子/固定 Batch 推理流转。
 5. **[新算子与新业务扩展指引](developer_guide.md)**：算法工程师 3 步快速上手模板。
 6. **[公共日志 API](logging.md)**：C/C++ 接入、日志等级与 Demo 环境变量。
 7. **[RFC 需求与设计规范](rfcs/README.md)**：所有新功能与需求的设计文档生命周期管理。
+8. **[开发与交付流程](../CONTRIBUTING.md)**：任务分级、分支、RFC 阈值、验证和远程交付授权。
 8. **[DAG 可视化工作台](../tools/visualizer/README.md)**：终端查看、Web 编辑与草稿运行。
 
 两个 SVG 均由 PlantUML `1.2024.7` 生成，禁止手工编辑。更新源文件后运行：

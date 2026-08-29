@@ -180,6 +180,7 @@ add_test(NAME LayerGuardSelfTest COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/che
 # 4.1 架构文档防漂移测试 (ArchitectureDocsDriftTest)
 add_test(NAME ArchitectureDocsDriftTest COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_architecture_docs.sh)
 add_test(NAME ArchitectureDocsDriftGateSelfTest COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_architecture_docs_drift_gate.sh)
+add_test(NAME GovernanceConsistencyTest COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_governance.sh)
 
 # 4.2 架构图资产一致性检查测试 (DiagramAssetsCheckTest)
 add_test(NAME DiagramAssetsCheckTest COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/render_architecture_diagrams.sh --check)

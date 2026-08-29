@@ -1,100 +1,36 @@
 ---
 name: github-branch-merge
-description: >-
-  Standardized GitHub branch-and-merge workflow. Enforces mandatory full test regression pass,
-  major changelog tracking in README, creating a dedicated feature/fix branch,
-  pushing to remote, creating and merging a pull request (or merging into main), and verifying clean sync.
-  Use whenever uploading changes to GitHub to ensure safe branch isolation.
+description: Deliver verified LLM-EdgeFlow changes through an isolated GitHub branch and PR. Use only when the user explicitly requests upload, PR creation, or merge; PR-only is the default and merge requires explicit authorization.
 ---
 
-# GitHub Branch-and-Merge Workflow Skill
+# GitHub Branch and PR Delivery
 
-This skill enforces a robust, enterprise-grade branch-and-merge workflow when uploading code, documentation, or configuration changes to GitHub repositories.
+This skill governs remote delivery, not ordinary local implementation. Read
+[`CONTRIBUTING.md`](../../../CONTRIBUTING.md) before acting; it owns branch, RFC, documentation,
+and verification policy. Do not repeat those decisions here.
 
-## Workflow Overview
+## Preconditions
 
-```text
-[Working Tree] ➔ [1. Format Code] ➔ [2. Mandatory Full Test Gate (100% Pass)]
-    ➔ [3. Update README Changelog if Major Feature] ➔ [4. Create Feature Branch]
-    ➔ [5. Commit & Push] ➔ [6. Merge PR into Main] ➔ [7. Clean Up Branch]
-```
+- The user explicitly authorized the requested remote action.
+- Work is already on an approved non-`main` branch.
+- The diff contains only intended work and any applicable RFC/index/`CHANGELOG.md` updates.
+- The canonical local gate has passed on the exact commit set to deliver.
 
----
+If any precondition fails, correct it locally or report the blocker. Do not push a partial or
+known-failing change.
 
-## 🔒 Two Mandatory Rules
+## Delivery
 
-### Rule 1: Mandatory Full Test Gate (必须全量测试通过才允许合并)
-- Before creating a branch or merging, the agent **MUST** run the full test suite (`./scripts/run_all_tests.sh` or `ctest --output-on-failure`).
-- If any test fails, **ABORT the workflow immediately**. Never push broken code to `main`!
+Use the repository script; do not reproduce its Git/GitHub sequence manually:
 
-### Rule 2: Major Release Changelog Maintenance (重大特性更新日志维护)
-- **What constitutes a major change?**
-  - New C ABI business modalities or data structures (Layer 1).
-  - Architecture core mechanism upgrades / dynamic blackboard additions (Layer 2).
-  - New business operator packages (Layer 3).
-  - New hardware inference engines (TensorRT, Ascend, ONNX, llama.cpp) (Layer 4).
-  - Major test framework or developer toolchain additions.
-- **Action**: When major changes occur, prepend the version entry to `## 📝 更新日志 (Changelog)` in `README.md`.
-- **Minor changes** (e.g. documentation typos, formatting, tiny bugfixes) do **NOT** require a Changelog entry.
-
-### Rule 3: RFC Lifecycle Status Update (doc/rfcs/)
-- If the feature implements a requirement with an RFC in `doc/rfcs/NNNN-<name>.md`:
-  - Update the RFC document status header to **`Completed`**.
-  - Update the RFC index table in [`doc/rfcs/README.md`](doc/rfcs/README.md).
-  - Ensure the RFC is committed along with the feature implementation.
-
----
-
-## Step-by-Step Execution Guide
-
-### Step 1: Pre-Commit Quality & Test Gate
 ```bash
-# 1. Format code (Google C++ Style)
-./scripts/format.sh
+# Upload, create PR, and verify CI; default stops before merge.
+./scripts/git_branch_upload.sh "<type>(<scope>): <summary>" "<branch-type>"
 
-# 2. Run full regression test suite (Mandatory Test Gate)
-./scripts/run_all_tests.sh
-# Or in build directory:
-# ctest --output-on-failure
+# Only when the user explicitly requested merge.
+./scripts/git_branch_upload.sh "<type>(<scope>): <summary>" "<branch-type>" --merge
 ```
 
-### Step 2: Update Changelog (If Major Feature)
-Check if changes involve major architectural or capability additions. If so, update `## 📝 更新日志 (Changelog)` in `README.md`.
-
-### Step 3: Create a Dedicated Work Branch
-```bash
-# Sync local main with origin
-git checkout main
-git pull origin main
-
-# Create and switch to new branch
-BRANCH_NAME="feat/sync-$(date +%Y%m%d-%H%M%S)"
-git checkout -b "$BRANCH_NAME"
-```
-
-### Step 4: Stage and Commit Changes
-Follow Conventional Commits format (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`):
-```bash
-git add .
-git commit -m "<type>(<scope>): <clear descriptive commit message>"
-```
-
-### Step 5: Push Branch to Remote GitHub
-```bash
-git push -u origin "$BRANCH_NAME"
-```
-
-### Step 6: Create & Merge Pull Request (or Fast-Forward)
-```bash
-# Using GitHub CLI
-gh pr create --title "<Commit Title>" --body "<Summary>" --base main --head "$BRANCH_NAME"
-gh pr merge "$BRANCH_NAME" --merge --delete-branch --admin || gh pr merge "$BRANCH_NAME" --merge --delete-branch
-```
-
-### Step 7: Post-Verification
-```bash
-git checkout main
-git pull origin main
-git status
-```
-Ensure working tree is clean and `main` is strictly synchronized with `origin/main`.
+The script is the executable source of delivery behavior. It must never fall back to direct
+`main` pushes, local merges, admin merges, or merging without registered successful CI checks.
+On failure, preserve the branch and PR for correction and report the exact stopped stage.

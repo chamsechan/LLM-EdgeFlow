@@ -61,7 +61,7 @@ package "Layer 1: 双门面与 C ABI 安全适配层 (Dual Facades & C Adapter)"
 
   class "SharedAlgorithmRuntime" as SharedRuntime <<(R,#10B981) Shared Runtime>> {
     - pipeline_: std::unique_ptr<Pipeline>
-    - adapter_: std::shared_ptr<IBusinessAdapter>
+    - adapter_: std::shared_ptr<IBizAdapter>
     + ExecuteBatch(inputs, num_inputs, outputs, num_outputs, err): int
     + ExecuteControl(cmd, json_param, err): int
   }
@@ -70,13 +70,13 @@ package "Layer 1: 双门面与 C ABI 安全适配层 (Dual Facades & C Adapter)"
     + runtime: std::unique_ptr<SharedAlgorithmRuntime>
   }
 
-  class "BusinessAdapterRegistry" as AdapterRegistry <<(S,#EC4899) Singleton>> {
-    + Register(type: int, adapter: shared_ptr<IBusinessAdapter>): void
-    + Get(type: int): std::shared_ptr<IBusinessAdapter>
+  class "BizAdapterRegistry" as AdapterRegistry <<(S,#EC4899) Singleton>> {
+    + Register(type: int, adapter: shared_ptr<IBizAdapter>): void
+    + Get(type: int): std::shared_ptr<IBizAdapter>
     + HasConflict(): bool
   }
 
-  interface "IBusinessAdapter" as IAdapter {
+  interface "IBizAdapter" as IAdapter {
     + {abstract} GetDescriptor(): AdapterDescriptor
     + {abstract} ValidateBatch(in, num_in, out, num_out, status): bool
     + {abstract} Unpack(in, num_in, ctx, status): bool
@@ -162,9 +162,9 @@ package "Layer 2: 核心编排与动态黑板层 (Pipeline & Blackboard)" as L2 
 }
 
 ' ==============================================================================
-' Layer 3: 业务专属算子池
+' Layer 3: 通用能力节点
 ' ==============================================================================
-package "Layer 3: 业务专属算子池 (Pluggable Nodes)" as L3 {
+package "Layer 3: 通用能力节点 (Stateless Capability Nodes)" as L3 {
   interface INode {
     + {abstract} Init(config: json, session_ctx: SessionContext*): bool
     + {abstract} Process(req_ctx: AlgContext*): int
@@ -196,8 +196,7 @@ package "Layer 3: 业务专属算子池 (Pluggable Nodes)" as L3 {
     + HasConflict(): bool
   }
 
-  class "Common Nodes\nLlmGenerateNode" as CommonNodes
-  class "Business Nodes\n26 production nodes\n(query PipelineCatalog for exact list)" as BusinessNodes
+  class "Registered Common Nodes\n(query PipelineCatalog for exact list)" as CommonNodes
 }
 
 ' ==============================================================================
@@ -324,11 +323,9 @@ INode <|-- NodeBase
 NodeBase <|-- ModelBoundNode
 ModelBoundNode <|-- TraceableUnaryNode
 NodeBase <|.. CommonNodes
-NodeBase <|.. BusinessNodes
 NodeFactory ..> INode : 动态反射创建 (Fail-Closed)
 
 CommonNodes ..> AlgContext : Typed Key 读写
-BusinessNodes ..> AlgContext : Typed Key 读写
 ModelBoundNode ..> ModelManager : 索取纯虚能力接口
 
 IModel <|-- IEmbeddingModel

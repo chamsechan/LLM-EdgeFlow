@@ -1,49 +1,41 @@
 # LLM-EdgeFlow RFC 需求与技术设计文档库 (RFC Directory)
 
-本目录（`doc/rfcs/`）是 **LLM-EdgeFlow** 项目所有**待实现需求、重大架构重构、接口协议演进及技术设计规范**的唯一事实源（Single Source of Truth）。
+本目录是需要长期保留的架构与接口决策及其验收记录。它不是所有需求、Bug 或任务的
+流水账；共享开发生命周期由 [`CONTRIBUTING.md`](../../CONTRIBUTING.md) 定义。
 
 ---
 
-## 🧭 1. RFC 驱动开发治理流程 (RFC-Driven Development)
+## 1. RFC 触发条件与生命周期
 
-在 LLM-EdgeFlow 中，任何新需求、新特性或架构改动均须严格遵守以下 **5 步生命周期规范**：
+以下变更必须先建立 RFC：
 
-```text
-[ 1. 创建特性分支 ]
-       │  (git checkout -b feat/<feature-name>)
-       ▼
-[ 2. 撰写 RFC 设计文档 ]
-       │  (复制 RFC_TEMPLATE.md -> doc/rfcs/NNNN-<feature-name>.md，状态为 Proposed / In Implementation)
-       ▼
-[ 3. 隔离分支开发与测试编写 ]
-       │  (严格遵循 4 层架构隔离，同步编写 Google Test 测试套件)
-       ▼
-[ 4. 全量回归测试门禁 ]
-       │  (100% CTest 通过 + ./scripts/run_all_tests.sh 六阶段全量通过 + format.sh)
-       ▼
-[ 5. 更新 RFC 状态并合入 main ]
-       │  (更新 RFC 状态为 Completed，提交 PR 并合并至 main 分支)
-       ▼
-[ 6. 需求正式发布闭环 ]
-```
+- 公共 C ABI、Operator 契约、持久 Pipeline Schema 或兼容行为；
+- 跨层责任、依赖方向或需要多层协同的架构机制；
+- 新的 Node、Model capability、Backend、模态或重大工具链；
+- 难以回退的所有权、生命周期、并发、安全或性能决策；
+- 需要下游协同的迁移与废弃。
+
+局部 Bug、测试补强、文档修正、无行为机械重构，以及复用现有节点的 Pipeline 配置通常
+不需要 RFC。先在独立分支创建并索引 RFC，再实现；交付前只运行
+`./scripts/run_all_tests.sh` 这一完整本地门禁，避免重复执行其内部的 format/CTest 步骤。
 
 ---
 
-## 🏷️ 2. RFC 生命周期状态定义 (Lifecycle States)
+## 2. RFC 生命周期状态
 
 每个 RFC 文档头部必须包含标准的 Metadata 状态标识：
 
 | 状态 (Status) | 说明 |
 | :--- | :--- |
 | **`Draft`** | 草案阶段：需求初步提出，方案正在探索与讨论中。 |
-| **`Proposed`** | 评审阶段：技术方案已成型，等待团队或架构师评审通过。 |
-| **`In Implementation`** | 实现阶段：已在特性分支（`feat/*`）中进行代码与测试用例开发。 |
-| **`Completed`** | 已完成：功能已完整实现并通过 100% 测试门禁，已成功合入 `main` 主分支。 |
+| **`Proposed`** | 方案已成型，等待设计决策。 |
+| **`In Implementation`** | 方案已采用，代码、测试或迁移正在实施。 |
+| **`Completed`** | RFC 范围已实现，要求的验证已通过，同一提交集已具备合入条件。Git 合入状态不在文档中重复维护。 |
 | **`Deprecated`** / **`Rejected`** | 已废弃 / 已否决：方案被后续 RFC 取代或评审未通过。 |
 
 ---
 
-## 📑 3. RFC 文件命名规范
+## 3. RFC 文件命名规范
 
 RFC 文档统一存放在 `doc/rfcs/` 根目录下，采用 **四位自增编号 + 英文小写破折号** 命名：
 
@@ -56,11 +48,11 @@ doc/rfcs/NNNN-<kebab-case-title>.md
 - `doc/rfcs/0004-platform-operator-interface-compatibility.md`
 - `doc/rfcs/0005-audio-stream-vsl-support.md`
 
-> 💡 **编写模板**：请直接复制并参考 [`RFC_TEMPLATE.md`](RFC_TEMPLATE.md) 进行撰写。
+使用 [`RFC_TEMPLATE.md`](RFC_TEMPLATE.md)；删除不适用章节，不要为满足模板而制造空洞内容。
 
 ---
 
-## 📚 4. 历史与现存 RFC 索引目录 (RFC Index)
+## 4. RFC 索引
 
 | 编号 | 标题 | 状态 | 目标版本 | 核心涉及层级 | 链接 |
 | :--- | :--- | :---: | :---: | :--- | :--- |
@@ -80,10 +72,11 @@ doc/rfcs/NNNN-<kebab-case-title>.md
 | **RFC-0014** | 独立公共日志 API 与核心日志统一 | `Completed` | `v4.3.0` | Cross-Cutting / Layer 1 ~ Layer 4 | [0014-public-log-api.md](0014-public-log-api.md) |
 | **RFC-0015** | 模型能力与推理运行时解耦实施规范 | `Completed` | `v5.0.0` | Layer 2 ~ Layer 4 | [0015-model-capability-backend-decoupling.md](0015-model-capability-backend-decoupling.md) |
 | **RFC-0016** | 构建与测试工作流收敛 | `Completed` | `v5.1.0` | Tooling / Test Infrastructure | [0016-build-and-test-workflow-convergence.md](0016-build-and-test-workflow-convergence.md) |
+| **RFC-0017** | 开发治理与 Agent 工作流收敛 | `Completed` | `v5.2.0` | Tooling / Governance | [0017-development-governance-convergence.md](0017-development-governance-convergence.md) |
 
 ---
 
-## 🔍 5. 专项验收与评审归档 (Reviews & Acceptance)
+## 5. 专项验收与评审归档
 
 重大特性的独立评审与验收记录归档于 `doc/rfcs/reviews/`：
 

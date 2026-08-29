@@ -9,10 +9,10 @@ Use the runtime Catalog and Validator as the only source of node, port, paramete
 
 ## Workflow
 
-1. Build `alg_pipeline_tool` if it is unavailable, then query the target business contract and its filtered assets:
+1. Build `alg_pipeline_tool` if it is unavailable, then query the target biz contract and its filtered assets. Prefer the current `--biz` spelling; `--business` is compatibility-only:
 
    ```bash
-   ./build/alg_pipeline_tool catalog --business <business_name>
+   ./build/alg_pipeline_tool catalog --biz <biz_name>
    ```
 
 2. Inspect each plausible node before using it:
@@ -24,11 +24,12 @@ Use the runtime Catalog and Validator as the only source of node, port, paramete
 3. Prefer cloning a compatible Profile; otherwise create an empty draft. Modify only Pipeline JSON and reuse registered nodes.
 
    ```bash
-   ./build/alg_pipeline_tool init --business <business_name> --profile <profile_name>
-   ./build/alg_pipeline_tool init --business <business_name> --empty
+   ./build/alg_pipeline_tool init --biz <biz_name> --profile <profile_name>
+   ./build/alg_pipeline_tool init --biz <biz_name> --empty
    ```
 
-4. For a legacy ordered pipeline, normalize through C++ before structural DAG edits:
+4. Runtime validation requires explicit `id` and `depends_on`. For a legacy ordered document,
+   normalize through C++ before structural DAG edits; do not rely on implicit sequential parsing:
 
    ```bash
    ./build/alg_pipeline_tool normalize --explicit-dag <pipeline.json>
@@ -55,4 +56,6 @@ For human composition, use `./show --web` or `./show <pipeline.json> --web`. For
 - Do not hand-edit a Catalog, Web node list, or this skill when nodes change; registration and Definition data must make assets discoverable.
 - Do not generate node implementation code during configuration composition.
 - If no Catalog composition can satisfy the contract, report the exact missing input/output or capability, stop editing Pipeline JSON, and route the task to `llm-edgeflow-developer-guide` for the relevant layer.
-- Do not invoke the GitHub upload workflow unless the user explicitly asks to upload or merge.
+- Configuration-only composition normally does not require an RFC. Follow
+  [`CONTRIBUTING.md`](../../../CONTRIBUTING.md) for branch, verification, documentation, and
+  delivery decisions; do not invoke remote delivery unless the user explicitly asks.

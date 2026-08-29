@@ -6,7 +6,9 @@
 
 ## Unreleased
 
-- 暂无已确认变更。
+- 收敛 Agent、技能、RFC、测试与 GitHub 交付治理，消除重复门禁和架构漂移。
+- GitHub 交付默认停在已验证 PR；合并需显式授权，不再回退直接推送 `main`。
+- 设计依据：[RFC-0017](doc/rfcs/0017-development-governance-convergence.md)。
 
 ## 5.1.0 - 2026-08
 

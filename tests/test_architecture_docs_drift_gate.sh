@@ -44,5 +44,12 @@ if run_fixture_gate; then
   echo "❌ Docs drift gate missed a fictitious production node"
   exit 1
 fi
+cp doc/developer_guide.md "${FIXTURE_DOC_ROOT}/developer_guide.md"
+
+echo "IModelEngine" >> "${FIXTURE_DOC_ROOT}/developer_guide.md"
+if run_fixture_gate; then
+  echo "❌ Docs drift gate missed a removed architecture identifier"
+  exit 1
+fi
 
 echo "✅ Architecture docs drift gate negative self-tests passed."
