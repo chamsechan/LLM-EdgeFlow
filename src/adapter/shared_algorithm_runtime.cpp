@@ -9,7 +9,8 @@
 #include "core/alg_context.h"
 #include "core/node_registry.h"
 #include "core/session_context.h"
-#include "engine/engine_registry.h"
+#include "engine/backend_registry.h"
+#include "engine/model_registry.h"
 
 namespace alg_framework {
 
@@ -31,11 +32,12 @@ int SharedAlgorithmRuntime::GlobalInit() noexcept {
       return COMPANY_ALG_ERR_REGISTRY_CONFLICT;  // -6
     }
 
-    // 3. EngineFactory 冲突审计
-    if (EngineFactory::Instance().HasConflict()) {
+    // 3. Model/Backend Registry 冲突审计
+    if (ModelRegistry::Instance().HasConflict() ||
+        BackendRegistry::Instance().HasConflict()) {
       ALG_LOG_ERROR(
           "[SharedAlgorithmRuntime] GlobalInit failed: Registration conflict "
-          "in EngineFactory.\n");
+          "in ModelRegistry or BackendRegistry.\n");
       return COMPANY_ALG_ERR_REGISTRY_CONFLICT;  // -6
     }
 

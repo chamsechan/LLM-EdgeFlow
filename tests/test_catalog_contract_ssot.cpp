@@ -8,7 +8,8 @@
 #include "adapter/biz_adapter_registry.h"
 #include "core/node_registry.h"
 #include "core/pipeline_catalog.h"
-#include "engine/engine_registry.h"
+#include "engine/backend_registry.h"
+#include "engine/model_registry.h"
 
 namespace alg_framework {
 
@@ -56,44 +57,31 @@ TEST_F(CatalogContractSsotTest, AllProductionNodesHaveValidDefinitions) {
   EXPECT_TRUE(seen_types.count("TextCorpusSourceNode"));
 }
 
-// 2. 验证所有推理引擎均具备合法的 EngineDefinition 元数据
-TEST_F(CatalogContractSsotTest, AllInferenceEnginesHaveValidDefinitions) {
-  const auto& engines = PipelineCatalog::Engines();
-  EXPECT_GE(engines.size(), 8U);
-
-  std::set<std::string> seen_engines;
-  for (const auto& engine_def : engines) {
-    EXPECT_FALSE(engine_def.engine_type.empty());
-    EXPECT_FALSE(engine_def.capability.empty());
-    EXPECT_FALSE(engine_def.description.empty());
-    EXPECT_TRUE(seen_engines.insert(engine_def.engine_type).second)
-        << "Duplicate engine definition in catalog: " << engine_def.engine_type;
-
-    // 必须在 EngineFactory 中可实例化
-    EXPECT_TRUE(EngineFactory::Instance().Has(engine_def.engine_type))
-        << "Engine type in catalog but missing in EngineFactory: "
-        << engine_def.engine_type;
-    auto instance = EngineFactory::Instance().Create(engine_def.engine_type);
-    ASSERT_NE(instance, nullptr)
-        << "Failed to create engine instance: " << engine_def.engine_type;
-    EXPECT_EQ(instance->EngineType(), engine_def.engine_type);
-
-    // FindEngine 查询一致性
-    const auto* found = PipelineCatalog::FindEngine(engine_def.engine_type);
-    ASSERT_NE(found, nullptr);
-    EXPECT_EQ(found->engine_type, engine_def.engine_type);
-    EXPECT_EQ(found->capability, engine_def.capability);
+TEST_F(CatalogContractSsotTest, ProductionModelBackendCatalogHasNoFixtures) {
+  std::set<std::string> model_types;
+  for (const auto& model : PipelineCatalog::Models()) {
+    EXPECT_FALSE(model.model_type.empty());
+    EXPECT_FALSE(model.capability.empty());
+    EXPECT_TRUE(model_types.insert(model.model_type).second);
+  }
+  EXPECT_TRUE(model_types.count("bge_embedding"));
+  EXPECT_TRUE(model_types.count("bge_reranker"));
+  EXPECT_TRUE(model_types.count("qwen_causal_lm"));
+  for (const auto& model_type : model_types) {
+    EXPECT_EQ(model_type.find("test_"), std::string::npos);
+    EXPECT_EQ(model_type.find("mock"), std::string::npos);
   }
 
-  // 必须包含全部 Mock 与 Real 引擎类型
-  EXPECT_TRUE(seen_engines.count("mock_npu_embedding"));
-  EXPECT_TRUE(seen_engines.count("mock_npu_llm"));
-  EXPECT_TRUE(seen_engines.count("mock_npu_rerank"));
-  EXPECT_TRUE(seen_engines.count("mock_npu_ocr"));
-  EXPECT_TRUE(seen_engines.count("mock_npu_asr"));
-  EXPECT_TRUE(seen_engines.count("onnx_embedding"));
-  EXPECT_TRUE(seen_engines.count("onnx_rerank"));
-  EXPECT_TRUE(seen_engines.count("llama_cpp"));
+  std::set<std::string> backend_types;
+  for (const auto& backend : PipelineCatalog::Backends()) {
+    EXPECT_FALSE(backend.backend_type.empty());
+    EXPECT_FALSE(backend.supported_protocols.empty());
+    EXPECT_TRUE(backend_types.insert(backend.backend_type).second);
+    EXPECT_EQ(backend.backend_type.find("test_"), std::string::npos);
+    EXPECT_EQ(backend.backend_type.find("mock"), std::string::npos);
+    EXPECT_TRUE(backend.backend_type == "onnxruntime" ||
+                backend.backend_type == "llama_cpp");
+  }
 }
 
 // 3. 验证 7 种业务契约在 PipelineCatalog 中完整注册
@@ -125,7 +113,10 @@ TEST_F(CatalogContractSsotTest, AllBusinessDefinitionsAreRegistered) {
 // 4. 验证不存在类型查询返回 nullptr
 TEST_F(CatalogContractSsotTest, FindReturnsNullptrForNonexistentEntities) {
   EXPECT_EQ(PipelineCatalog::FindNode("NonExistentNode12345"), nullptr);
-  EXPECT_EQ(PipelineCatalog::FindEngine("non_existent_engine_999"), nullptr);
+  EXPECT_FALSE(
+      PipelineCatalog::FindModel("non_existent_model_999").has_value());
+  EXPECT_FALSE(
+      PipelineCatalog::FindBackend("non_existent_backend_999").has_value());
   EXPECT_EQ(PipelineCatalog::FindBiz("non_existent_biz_xyz"), nullptr);
 }
 
@@ -153,16 +144,12 @@ TEST_F(CatalogContractSsotTest, ToJsonSerializationAndFiltering) {
   auto full_catalog = PipelineCatalog::ToJson();
   EXPECT_EQ(full_catalog["schema_version"], 1);
   EXPECT_TRUE(full_catalog["nodes"].is_array());
-  EXPECT_TRUE(full_catalog["engines"].is_array());
+  EXPECT_FALSE(full_catalog.contains("engines"));
+  EXPECT_TRUE(full_catalog["models"].is_array());
+  EXPECT_TRUE(full_catalog["backends"].is_array());
   EXPECT_TRUE(full_catalog["bizs"].is_array());
   EXPECT_GE(full_catalog["nodes"].size(), 11U);
-  EXPECT_GE(full_catalog["engines"].size(), 8U);
   EXPECT_GE(full_catalog["bizs"].size(), 7U);
-  for (const auto& engine : full_catalog["engines"]) {
-    ASSERT_TRUE(engine.contains("thread_model"));
-    EXPECT_TRUE(engine["thread_model"] == "serialized" ||
-                engine["thread_model"] == "concurrent");
-  }
 
   // 业务过滤查询
   auto km_catalog = PipelineCatalog::ToJson("keyword_match_v1");

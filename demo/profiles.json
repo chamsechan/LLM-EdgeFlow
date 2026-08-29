@@ -3,7 +3,7 @@
   "profiles": {
     "entity_extract_mock": {
       "business": "entity_extract",
-      "config": "configs/pipeline_entity_extract.conf",
+      "config": "tests/fixtures/stage7/smoke/pipeline_entity_extract.conf",
       "dataset": "data/corpus_entity_extract.txt",
       "suite": "smoke",
       "batch_size": 1,
@@ -33,7 +33,7 @@
     },
     "doc_qa_mock": {
       "business": "doc_qa",
-      "config": "configs/pipeline_doc_qa.conf",
+      "config": "tests/fixtures/stage7/smoke/pipeline_doc_qa.conf",
       "dataset": "data/corpus_doc_qa.txt",
       "suite": "smoke",
       "batch_size": 1,
@@ -45,7 +45,7 @@
       "business": "doc_qa",
       "config": "configs/pipeline_doc_qa_onnx.conf",
       "dataset": "data/corpus_doc_qa.txt",
-      "suite": "smoke",
+      "suite": "real",
       "batch_size": 1,
       "device_id": 0,
       "chip": "cpu_generic",
@@ -53,7 +53,7 @@
     },
     "doc_qa_rerank": {
       "business": "doc_qa",
-      "config": "configs/pipeline_doc_qa_rerank.conf",
+      "config": "tests/fixtures/stage7/smoke/pipeline_doc_qa_rerank.conf",
       "dataset": "data/corpus_doc_qa.txt",
       "suite": "smoke",
       "batch_size": 1,
@@ -73,7 +73,7 @@
     },
     "dialogue_audit_mock": {
       "business": "dialogue_audit",
-      "config": "configs/pipeline_dialogue_audit.conf",
+      "config": "tests/fixtures/stage7/smoke/pipeline_dialogue_audit.conf",
       "dataset": "data/corpus_dialogue_audit.txt",
       "suite": "smoke",
       "batch_size": 1,
@@ -83,7 +83,7 @@
     },
     "ocr_doc_qa_mock": {
       "business": "ocr_doc_qa",
-      "config": "configs/pipeline_ocr_doc_qa.conf",
+      "config": "tests/fixtures/stage7/smoke/pipeline_ocr_doc_qa.conf",
       "dataset": "data/corpus_ocr_doc_qa.txt",
       "suite": "smoke",
       "batch_size": 1,
@@ -93,7 +93,7 @@
     },
     "audio_asr_mock": {
       "business": "audio_asr",
-      "config": "configs/pipeline_audio_asr_intent.conf",
+      "config": "tests/fixtures/stage7/smoke/pipeline_audio_asr_intent.conf",
       "dataset": "data/corpus_audio_asr.txt",
       "suite": "smoke",
       "batch_size": 1,
@@ -105,7 +105,7 @@
       "business": "cross_rerank",
       "config": "configs/pipeline_cross_rerank.conf",
       "dataset": "data/corpus_cross_rerank.txt",
-      "suite": "smoke",
+      "suite": "real",
       "batch_size": 1,
       "device_id": 0,
       "chip": "ax650",

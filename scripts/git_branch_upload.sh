@@ -70,7 +70,8 @@ else
         if [[ -n "${GEN_ARG_STR}" ]]; then
             read -r -a CMAKE_GEN_ARGS <<< "${GEN_ARG_STR}"
         fi
-        cd build && cmake -DLLM_EDGEFLOW_USE_CCACHE=ON "${CMAKE_GEN_ARGS[@]}" .. && cmake --build . -j"$(nproc)" && ctest -j"$(nproc)" --output-on-failure && cd ..
+        NCPU=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
+        cd build && cmake -DLLM_EDGEFLOW_USE_CCACHE=ON "${CMAKE_GEN_ARGS[@]}" .. && cmake --build . -j"${NCPU}" && ctest -j"${NCPU}" --output-on-failure && cd ..
     fi
 fi
 echo "✓ [TEST GATE PASSED] All test suites and CTest passed 100%!"

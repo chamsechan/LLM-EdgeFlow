@@ -1,5 +1,7 @@
 # Sharded Google Test runners and label-driven development test matrix.
 
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
+
 function(edgeflow_enable_test_pch target_name)
   target_precompile_headers(${target_name} PRIVATE
     <gtest/gtest.h>
@@ -32,10 +34,58 @@ set(EDGEFLOW_TEST_CORE_SRCS
   tests/test_validated_pipeline_plan.cpp
   tests/test_node_base_contracts.cpp
   tests/test_node_ownership_and_reuse.cpp
-  tests/test_definition_schema_validation.cpp)
+  tests/test_definition_schema_validation.cpp
+  tests/test_model_backend_decoupling.cpp
+  tests/test_model_backend_pipeline.cpp
+  tests/test_onnx_and_embedding_model.cpp
+  tests/test_onnx_and_reranker_model.cpp
+  tests/test_qwen_causal_lm_model.cpp
+  tests/test_llama_cpp_backend.cpp
+  tests/support/inference/test_tensor_backend.cpp
+  tests/support/inference/test_causal_lm_backend.cpp
+  tests/support/inference/test_business_models.cpp)
 add_executable(edgeflow_test_core_runner ${EDGEFLOW_TEST_CORE_SRCS})
 target_link_libraries(edgeflow_test_core_runner PRIVATE
   alg_sdk GTest::gtest GTest::gtest_main)
+if(LLM_EDGEFLOW_HAS_ONNXRUNTIME)
+  set(EDGEFLOW_STAGE3_FIXTURE_DIR
+      "${CMAKE_CURRENT_BINARY_DIR}/test-fixtures/stage3")
+  set(EDGEFLOW_STAGE3_ONNX_FIXTURE
+      "${EDGEFLOW_STAGE3_FIXTURE_DIR}/embedding_fixture.onnx")
+  set(EDGEFLOW_STAGE3_VOCAB_FIXTURE
+      "${EDGEFLOW_STAGE3_FIXTURE_DIR}/vocab.txt")
+  set(EDGEFLOW_STAGE4_RERANK_ONNX_FIXTURE
+      "${EDGEFLOW_STAGE3_FIXTURE_DIR}/rerank_fixture.onnx")
+  file(MAKE_DIRECTORY "${EDGEFLOW_STAGE3_FIXTURE_DIR}")
+  add_custom_command(
+    OUTPUT
+      "${EDGEFLOW_STAGE3_ONNX_FIXTURE}"
+      "${EDGEFLOW_STAGE4_RERANK_ONNX_FIXTURE}"
+      "${EDGEFLOW_STAGE3_VOCAB_FIXTURE}"
+    COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/scripts/generate_test_onnx_model.py"
+            --output-dir "${EDGEFLOW_STAGE3_FIXTURE_DIR}"
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/scripts/generate_test_onnx_model.py"
+    COMMENT "Generating deterministic stage-3 and stage-4 ONNX Runtime fixtures"
+    VERBATIM)
+  add_custom_target(edgeflow_stage3_onnx_fixture
+    DEPENDS
+      "${EDGEFLOW_STAGE3_ONNX_FIXTURE}"
+      "${EDGEFLOW_STAGE4_RERANK_ONNX_FIXTURE}"
+      "${EDGEFLOW_STAGE3_VOCAB_FIXTURE}")
+  configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/stage4/pipeline_cross_rerank_fixture.json"
+    "${EDGEFLOW_STAGE3_FIXTURE_DIR}/pipeline_cross_rerank_fixture.json"
+    COPYONLY)
+  configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/stage4/pipeline_cross_rerank_fixture.conf"
+    "${EDGEFLOW_STAGE3_FIXTURE_DIR}/pipeline_cross_rerank_fixture.conf"
+    COPYONLY)
+  configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/stage4/pipeline_cross_rerank_missing_model.conf"
+    "${EDGEFLOW_STAGE3_FIXTURE_DIR}/pipeline_cross_rerank_missing_model.conf"
+    COPYONLY)
+endif()
 edgeflow_enable_test_pch(edgeflow_test_core_runner)
 
 set(EDGEFLOW_TEST_NODE_SRCS
@@ -50,7 +100,10 @@ set(EDGEFLOW_TEST_NODE_SRCS
   tests/test_text_rule_match_node.cpp
   tests/test_structured_json_parse_node.cpp
   tests/test_text_corpus_source_node.cpp
-  tests/test_common_nodes.cpp)
+  tests/test_common_nodes.cpp
+  tests/support/inference/test_tensor_backend.cpp
+  tests/support/inference/test_causal_lm_backend.cpp
+  tests/support/inference/test_business_models.cpp)
 add_executable(edgeflow_test_nodes_runner ${EDGEFLOW_TEST_NODE_SRCS})
 target_link_libraries(edgeflow_test_nodes_runner PRIVATE
   alg_sdk GTest::gtest GTest::gtest_main)
@@ -68,7 +121,10 @@ set(EDGEFLOW_TEST_ADAPTER_SRCS
   tests/test_operator_value_registry.cpp
   tests/test_operator_biz_bridge_registry.cpp
   tests/test_operator_golden.cpp
-  tests/test_adapter_purity.cpp)
+  tests/test_adapter_purity.cpp
+  tests/support/inference/test_tensor_backend.cpp
+  tests/support/inference/test_causal_lm_backend.cpp
+  tests/support/inference/test_business_models.cpp)
 add_executable(edgeflow_test_adapter_runner ${EDGEFLOW_TEST_ADAPTER_SRCS})
 target_link_libraries(edgeflow_test_adapter_runner PRIVATE
   alg_sdk GTest::gtest GTest::gtest_main)
@@ -89,11 +145,30 @@ set(EDGEFLOW_TEST_TOOLING_SRCS
   demo/biz/dialogue_audit_demo.cpp
   demo/biz/ocr_doc_qa_demo.cpp
   demo/biz/audio_asr_demo.cpp
-  demo/biz/cross_rerank_demo.cpp)
+  demo/biz/cross_rerank_demo.cpp
+  tests/support/inference/test_tensor_backend.cpp
+  tests/support/inference/test_causal_lm_backend.cpp
+  tests/support/inference/test_business_models.cpp)
 add_executable(edgeflow_test_tooling_runner ${EDGEFLOW_TEST_TOOLING_SRCS})
 target_link_libraries(edgeflow_test_tooling_runner PRIVATE
   alg_sdk GTest::gtest GTest::gtest_main)
 edgeflow_enable_test_pch(edgeflow_test_tooling_runner)
+
+if(LLM_EDGEFLOW_HAS_ONNXRUNTIME)
+  foreach(target
+      edgeflow_test_core_runner
+      edgeflow_test_nodes_runner
+      edgeflow_test_adapter_runner
+      edgeflow_test_tooling_runner)
+    add_dependencies(${target} edgeflow_stage3_onnx_fixture)
+    target_compile_definitions(${target} PRIVATE
+      HAVE_ONNXRUNTIME=1
+      EDGEFLOW_STAGE3_ONNX_FIXTURE="${EDGEFLOW_STAGE3_ONNX_FIXTURE}"
+      EDGEFLOW_STAGE4_RERANK_ONNX_FIXTURE="${EDGEFLOW_STAGE4_RERANK_ONNX_FIXTURE}"
+      EDGEFLOW_STAGE3_VOCAB_FIXTURE="${EDGEFLOW_STAGE3_VOCAB_FIXTURE}")
+  endforeach()
+  add_dependencies(alg_demo edgeflow_stage3_onnx_fixture)
+endif()
 
 # Process-isolated targets. Registry conflict intentionally runs each dirty
 # singleton scenario in its own process.
@@ -104,9 +179,9 @@ add_executable(test_registry_conflict tests/test_registry_conflict.cpp)
 target_link_libraries(test_registry_conflict PRIVATE
   alg_sdk GTest::gtest GTest::gtest_main)
 
-add_executable(test_qwen_engines_comparison
-  tests/test_qwen_engines_comparison.cpp)
-target_link_libraries(test_qwen_engines_comparison PRIVATE
+add_executable(test_model_backend_registry_conflict
+  tests/test_model_backend_registry_conflict.cpp)
+target_link_libraries(test_model_backend_registry_conflict PRIVATE
   alg_sdk GTest::gtest GTest::gtest_main)
 
 add_executable(test_catalog_contract_ssot
@@ -122,7 +197,7 @@ set(_edgeflow_tier4 "tier4;tooling;dev-fast;sanitizer-compatible")
 edgeflow_add_runner_test(BatchExecutorTest edgeflow_test_core_runner
   "FixedBatchExecutorTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(FrameworkCoreTest edgeflow_test_core_runner
-  "AlgContextTest.*:TraceableItemTest.*:NodeRegistryTest.*:EngineRegistryTest.*:PipelineTest.*"
+  "AlgContextTest.*:TraceableItemTest.*:NodeRegistryTest.*:ModelManagerTest.*:PipelineTest.*"
   "${_edgeflow_tier1}")
 edgeflow_add_runner_test(CompanyAlgLogTest edgeflow_test_core_runner
   "CompanyAlgLogTest.*:CompanyAlgLogNameOverrideTest.*"
@@ -148,6 +223,14 @@ edgeflow_add_runner_test(NodeOwnershipAndReuseTest edgeflow_test_core_runner
   "NodeOwnershipAndReuseTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(DefinitionSchemaValidationTest edgeflow_test_core_runner
   "DefinitionSchemaValidationTest.*" "${_edgeflow_tier1}")
+edgeflow_add_runner_test(ModelBackendDecouplingTest edgeflow_test_core_runner
+  "ModelBackendDecouplingTest.*" "${_edgeflow_tier1}")
+edgeflow_add_runner_test(ModelBackendPipelineTest edgeflow_test_core_runner
+  "ModelBackendPipelineTest.*" "${_edgeflow_tier1}")
+edgeflow_add_runner_test(OnnxAndEmbeddingModelTest edgeflow_test_core_runner
+  "OnnxAndEmbeddingModelTest.*" "${_edgeflow_tier1}")
+edgeflow_add_runner_test(OnnxAndRerankerModelTest edgeflow_test_core_runner
+  "OnnxAndRerankerModelTest.*" "${_edgeflow_tier1}")
 
 edgeflow_add_runner_test(TextChunkNodeTest edgeflow_test_nodes_runner
   "TextChunkNodeTest.*" "${_edgeflow_tier1}")
@@ -215,16 +298,20 @@ edgeflow_add_runner_test(DemoRunnerTest edgeflow_test_tooling_runner
 
 add_test(NAME RegistryConflictNodeTest COMMAND test_registry_conflict
   --gtest_filter=RegistryConflictNodeTest.*)
-add_test(NAME RegistryConflictEngineTest COMMAND test_registry_conflict
-  --gtest_filter=RegistryConflictEngineTest.*)
-set_tests_properties(RegistryConflictNodeTest RegistryConflictEngineTest
+add_test(NAME RegistryConflictModelTest COMMAND test_registry_conflict
+  --gtest_filter=RegistryConflictModelTest.*)
+set_tests_properties(RegistryConflictNodeTest RegistryConflictModelTest
   PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
   LABELS "${_edgeflow_tier1}" TIMEOUT 5)
 
-add_test(NAME QwenEnginesComparisonTest COMMAND test_qwen_engines_comparison)
-set_tests_properties(QwenEnginesComparisonTest PROPERTIES
-  WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-  LABELS "tier3;integration;slow;external-engine")
+edgeflow_add_runner_test(ModelBackendRegistryConflictTest
+  test_model_backend_registry_conflict "ModelBackendRegistryConflictTest.*"
+  "${_edgeflow_tier1}")
+
+edgeflow_add_runner_test(QwenCausalLmModelTest edgeflow_test_core_runner
+  "QwenCausalLmModelTest.*" "${_edgeflow_tier1}")
+edgeflow_add_runner_test(LlamaCppBackendTest edgeflow_test_core_runner
+  "LlamaCppBackendTest.*" "${_edgeflow_tier1}")
 
 # Architecture and source-governance gates.
 add_test(NAME LayerGuardTest
@@ -258,36 +345,74 @@ set_tests_properties(VisualizerServerTest PROPERTIES
   WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
   LABELS "${_edgeflow_tier4}"
   ENVIRONMENT
-    "LLM_EDGEFLOW_PIPELINE_TOOL=$<TARGET_FILE:alg_pipeline_tool>;LLM_EDGEFLOW_DEMO_BINARY=$<TARGET_FILE:alg_demo>")
+    "LLM_EDGEFLOW_PIPELINE_TOOL=$<TARGET_FILE:alg_pipeline_tool_test>;LLM_EDGEFLOW_DEMO_BINARY=$<TARGET_FILE:alg_demo>")
 
 add_test(NAME DemoSmokeTest COMMAND $<TARGET_FILE:alg_demo> --suite smoke)
 set_tests_properties(DemoSmokeTest PROPERTIES
   WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
   LABELS "${_edgeflow_tier3}")
 
+if(LLM_EDGEFLOW_HAS_ONNXRUNTIME)
+  add_test(
+    NAME CrossRerankDemoFixtureTest
+    COMMAND $<TARGET_FILE:alg_demo>
+            --business cross_rerank
+            --config
+            "${EDGEFLOW_STAGE3_FIXTURE_DIR}/pipeline_cross_rerank_fixture.conf"
+            --dataset
+            "${CMAKE_CURRENT_SOURCE_DIR}/data/corpus_cross_rerank.txt"
+            --output-dir
+            "${CMAKE_CURRENT_BINARY_DIR}/test-results/stage4-rerank-demo")
+  add_test(
+    NAME CrossRerankDemoMissingModelFailsClosedTest
+    COMMAND $<TARGET_FILE:alg_demo>
+            --business cross_rerank
+            --config
+            "${EDGEFLOW_STAGE3_FIXTURE_DIR}/pipeline_cross_rerank_missing_model.conf"
+            --dataset
+            "${CMAKE_CURRENT_SOURCE_DIR}/data/corpus_cross_rerank.txt"
+            --allow-fallback-sample
+            --output-dir
+            "${CMAKE_CURRENT_BINARY_DIR}/test-results/stage4-rerank-missing")
+  set_tests_properties(
+    CrossRerankDemoFixtureTest
+    CrossRerankDemoMissingModelFailsClosedTest
+    PROPERTIES
+      WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+      LABELS "${_edgeflow_tier3}")
+  set_tests_properties(
+    CrossRerankDemoMissingModelFailsClosedTest
+    PROPERTIES WILL_FAIL TRUE)
+endif()
+
 set(EDGEFLOW_PIPELINE_CONFIGS
-  pipeline_keyword_match.json
-  pipeline_entity_extract.json
-  pipeline_doc_qa.json
-  pipeline_dialogue_audit.json
-  pipeline_doc_qa_onnx.json
-  pipeline_doc_qa_rerank.json
-  pipeline_doc_qa_rerank_real.json
-  pipeline_entity_extract_llamacpp.json
-  pipeline_ocr_doc_qa.json
-  pipeline_audio_asr_intent.json
-  pipeline_cross_rerank.json)
-foreach(config_name IN LISTS EDGEFLOW_PIPELINE_CONFIGS)
-  string(REPLACE ".json" "" config_stem "${config_name}")
-  add_test(NAME PythonCli_${config_stem}
-    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/show
-            configs/${config_name})
+  configs/pipeline_keyword_match.json
+  configs/pipeline_entity_extract.json
+  configs/pipeline_doc_qa.json
+  configs/pipeline_dialogue_audit.json
+  configs/pipeline_doc_qa_onnx.json
+  configs/pipeline_doc_qa_rerank.json
+  configs/pipeline_doc_qa_rerank_real.json
+  configs/pipeline_entity_extract_llamacpp.json
+  tests/fixtures/stage7/smoke/pipeline_ocr_doc_qa.json
+  tests/fixtures/stage7/smoke/pipeline_audio_asr_intent.json
+  configs/pipeline_cross_rerank.json)
+foreach(config_path IN LISTS EDGEFLOW_PIPELINE_CONFIGS)
+  get_filename_component(config_stem "${config_path}" NAME_WE)
   add_test(NAME NativeCli_${config_stem}
     COMMAND $<TARGET_FILE:alg_show>
-            ${CMAKE_CURRENT_SOURCE_DIR}/configs/${config_name})
-  set_tests_properties(PythonCli_${config_stem} NativeCli_${config_stem}
+            ${CMAKE_CURRENT_SOURCE_DIR}/${config_path})
+  set_tests_properties(NativeCli_${config_stem}
     PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
     LABELS "${_edgeflow_tier4}")
+  if(config_path MATCHES "^configs/")
+    add_test(NAME PythonCli_${config_stem}
+      COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/show
+              ${config_path})
+    set_tests_properties(PythonCli_${config_stem}
+      PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+      LABELS "${_edgeflow_tier4}")
+  endif()
 endforeach()
 
 add_test(NAME PipelineToolCatalogTest COMMAND $<TARGET_FILE:alg_pipeline_tool>
@@ -300,6 +425,7 @@ set_tests_properties(PipelineToolCatalogTest PipelineToolValidateTest
 
 add_custom_target(edgeflow_dev_tests DEPENDS
   alg_demo alg_pipeline_tool alg_show test_c11_abi_compliance
-  test_registry_conflict test_catalog_contract_ssot edgeflow_test_core_runner
+  test_registry_conflict test_model_backend_registry_conflict
+  test_catalog_contract_ssot edgeflow_test_core_runner
   edgeflow_test_nodes_runner edgeflow_test_adapter_runner
   edgeflow_test_tooling_runner)

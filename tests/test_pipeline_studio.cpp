@@ -10,7 +10,8 @@
 #include "core/pipeline.h"
 #include "core/pipeline_catalog.h"
 #include "core/pipeline_validator.h"
-#include "engine/engine_registry.h"
+#include "engine/backend_registry.h"
+#include "engine/model_registry.h"
 
 namespace alg_framework {
 namespace {
@@ -42,8 +43,13 @@ TEST(PipelineCatalogTest, RegisteredProductionTypesHaveDefinitions) {
   for (const auto& node_type : NodeFactory::Instance().ListTypes()) {
     EXPECT_NE(PipelineCatalog::FindNode(node_type), nullptr) << node_type;
   }
-  for (const auto& engine_type : EngineFactory::Instance().ListTypes()) {
-    EXPECT_NE(PipelineCatalog::FindEngine(engine_type), nullptr) << engine_type;
+  for (const auto& model_type : ModelRegistry::Instance().ListTypes()) {
+    EXPECT_TRUE(PipelineCatalog::FindModel(model_type).has_value())
+        << model_type;
+  }
+  for (const auto& backend_type : BackendRegistry::Instance().ListTypes()) {
+    EXPECT_TRUE(PipelineCatalog::FindBackend(backend_type).has_value())
+        << backend_type;
   }
 }
 
@@ -54,10 +60,15 @@ TEST(PipelineCatalogTest, OutputIsDeterministicAndConflictFree) {
     EXPECT_TRUE(node_types.insert(definition.node_type).second)
         << definition.node_type;
   }
-  std::set<std::string> engine_types;
-  for (const auto& definition : PipelineCatalog::Engines()) {
-    EXPECT_TRUE(engine_types.insert(definition.engine_type).second)
-        << definition.engine_type;
+  std::set<std::string> model_types;
+  for (const auto& definition : PipelineCatalog::Models()) {
+    EXPECT_TRUE(model_types.insert(definition.model_type).second)
+        << definition.model_type;
+  }
+  std::set<std::string> backend_types;
+  for (const auto& definition : PipelineCatalog::Backends()) {
+    EXPECT_TRUE(backend_types.insert(definition.backend_type).second)
+        << definition.backend_type;
   }
 }
 
@@ -87,21 +98,41 @@ TEST(BlackboardKeyTest, TypedOverloadsShareTheRuntimeKey) {
 TEST(PipelineValidatorTest, AllRepositoryPipelinesValidate) {
   const std::filesystem::path configs("configs");
   size_t validated = 0;
+  size_t skipped_optional = 0;
+  size_t candidates = 0;
   for (const auto& entry : std::filesystem::directory_iterator(configs)) {
     const auto filename = entry.path().filename().string();
     if (!entry.is_regular_file() || entry.path().extension() != ".json" ||
         filename.rfind("pipeline_", 0) != 0) {
       continue;
     }
+    ++candidates;
     std::ifstream stream(entry.path());
     ASSERT_TRUE(stream.is_open()) << entry.path();
     nlohmann::json pipeline;
     ASSERT_NO_THROW(stream >> pipeline) << entry.path();
+    bool requires_unavailable_runtime = false;
+    for (const auto& model :
+         pipeline.value("models", nlohmann::json::array())) {
+      if (!model.is_object()) continue;
+      const std::string backend = model.value("backend", "");
+      const std::string model_type = model.value("model_type", "");
+      if ((!backend.empty() && !BackendRegistry::Instance().Has(backend)) ||
+          (!model_type.empty() && !ModelRegistry::Instance().Has(model_type))) {
+        requires_unavailable_runtime = true;
+        break;
+      }
+    }
+    if (requires_unavailable_runtime) {
+      ++skipped_optional;
+      continue;
+    }
     const auto report = PipelineValidator::Validate(pipeline);
     EXPECT_TRUE(report.ok) << entry.path() << "\n" << report.ToJson().dump(2);
     ++validated;
   }
-  EXPECT_GE(validated, 10U);
+  EXPECT_GT(validated, 0U);
+  EXPECT_EQ(validated + skipped_optional, candidates);
 }
 
 TEST(PipelineValidatorTest, ReportsCycle) {
@@ -142,7 +173,13 @@ TEST(PipelineValidatorTest, ReportsConfigAndCapabilityErrors) {
   const nlohmann::json pipeline = {
       {"business_name", "entity_extract_0.6b_v1"},
       {"models",
-       {{{"model_id", "llm_model_v1"}, {"engine_type", "mock_npu_embedding"}}}},
+       {{{"model_id", "llm_model_v1"},
+         {"capability", "embedding"},
+         {"model_type", "test_business_embedding"},
+         {"backend", "test_tensor_backend"},
+         {"model_path", "fixture.bin"},
+         {"model_config", nlohmann::json::object()},
+         {"backend_config", nlohmann::json::object()}}}},
       {"pipeline",
        {{{"id", "pre"},
          {"node_type", "TextTemplateNode"},

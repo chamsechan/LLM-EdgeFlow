@@ -257,7 +257,8 @@ TEST_F(AdapterContractSecurityTest, PipelineBindingFailClosedAndExactMatch) {
       adapter->ValidatePipelineBinding("dialogue_compliance_audit_v1"));
 
   // 6.3 Alg_Create 阶段使用串用配置创建句柄立即失败 (-5)
-  std::string wrong_cfg = GetConfigPath("configs/pipeline_dialogue_audit.json");
+  std::string wrong_cfg =
+      GetConfigPath("tests/fixtures/stage7/smoke/pipeline_dialogue_audit.json");
   CompanyAlgParamCreate param;
   param.config_file_path = wrong_cfg.c_str();
   param.model_root_dir = "./models";

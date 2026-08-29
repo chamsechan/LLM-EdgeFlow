@@ -10,8 +10,7 @@
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
 #include "core/session_context.h"
-#include "engine/engine_interface.h"
-#include "engine/engine_registry.h"
+#include "tests/support/inference/test_capability_models.h"
 
 namespace alg_framework {
 
@@ -21,13 +20,13 @@ class AsrTranscribeNodeTest : public ::testing::Test {
     ASSERT_EQ(SharedAlgorithmRuntime::GlobalInit(), 0);
     session_ctx_ = std::make_unique<SessionContext>();
 
-    auto asr_engine = EngineFactory::Instance().Create("mock_npu_asr");
-    ASSERT_NE(asr_engine, nullptr);
-    asr_engine->Load("./models/paraformer.bin", {{"max_batch_size", 2}});
+    asr_model_ = std::make_shared<test::TestAsrModel>();
     ASSERT_TRUE(session_ctx_->GetModelManager().RegisterModel(
-        "mock_asr_model", std::move(asr_engine)));
+        "asr_model_v1", asr_model_, "test-revision", "test_asr_model", "asr",
+        "test_tensor_backend"));
   }
   std::unique_ptr<SessionContext> session_ctx_;
+  std::shared_ptr<test::TestAsrModel> asr_model_;
 };
 
 // 1. Process Audio Transcription
@@ -35,7 +34,7 @@ TEST_F(AsrTranscribeNodeTest, ProcessAudioTranscription) {
   auto node = NodeFactory::Instance().Create("AsrTranscribeNode");
   ASSERT_NE(node, nullptr);
 
-  nlohmann::json cfg = {{"bind_model", "mock_asr_model"}};
+  nlohmann::json cfg = {{"bind_model", "asr_model_v1"}};
   EXPECT_TRUE(node->Init(cfg, session_ctx_.get()));
 
   AlgContext ctx;
@@ -48,15 +47,16 @@ TEST_F(AsrTranscribeNodeTest, ProcessAudioTranscription) {
   const auto* out = ctx.Get<TextBatch>("text");
   ASSERT_NE(out, nullptr);
   ASSERT_EQ(out->size(), 1u);
-  EXPECT_FALSE((*out)[0].data.empty());
+  EXPECT_EQ((*out)[0].req_id, 1u);
+  EXPECT_EQ((*out)[0].sub_id, 0u);
+  EXPECT_EQ((*out)[0].data, "transcript:16000:16000");
 }
 
 // 2. Empty Audio Yields Empty Transcript
 TEST_F(AsrTranscribeNodeTest, EmptyAudioInput) {
   auto node = NodeFactory::Instance().Create("AsrTranscribeNode");
   ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(
-      node->Init({{"bind_model", "mock_asr_model"}}, session_ctx_.get()));
+  ASSERT_TRUE(node->Init({{"bind_model", "asr_model_v1"}}, session_ctx_.get()));
 
   AlgContext ctx;
   ctx.Set("audio", AudioPcmBatch{});
@@ -71,11 +71,30 @@ TEST_F(AsrTranscribeNodeTest, EmptyAudioInput) {
 TEST_F(AsrTranscribeNodeTest, MissingInputFailsClosed) {
   auto node = NodeFactory::Instance().Create("AsrTranscribeNode");
   ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(
-      node->Init({{"bind_model", "mock_asr_model"}}, session_ctx_.get()));
+  ASSERT_TRUE(node->Init({{"bind_model", "asr_model_v1"}}, session_ctx_.get()));
 
   AlgContext empty_ctx;
   EXPECT_NE(node->Process(&empty_ctx), 0);
+}
+
+TEST_F(AsrTranscribeNodeTest, InvalidModelOutputFailsClosed) {
+  auto node = NodeFactory::Instance().Create("AsrTranscribeNode");
+  ASSERT_NE(node, nullptr);
+  ASSERT_TRUE(node->Init({{"bind_model", "asr_model_v1"}}, session_ctx_.get()));
+
+  AudioPcmBatch audio;
+  audio.emplace_back(9, 3, AudioPcmPayload({0.1f, 0.2f}, 8000));
+
+  AlgContext count_ctx;
+  count_ctx.Set("audio", audio);
+  asr_model_->return_wrong_count_ = true;
+  EXPECT_EQ(node->Process(&count_ctx), -7002);
+
+  asr_model_->return_wrong_count_ = false;
+  asr_model_->corrupt_provenance_ = true;
+  AlgContext provenance_ctx;
+  provenance_ctx.Set("audio", audio);
+  EXPECT_EQ(node->Process(&provenance_ctx), -7003);
 }
 
 }  // namespace alg_framework

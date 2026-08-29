@@ -7,8 +7,9 @@
 #include <utility>
 #include <vector>
 
+#include "contracts/inference_payloads.h"
+#include "contracts/traceable_item.h"
 #include "core/blackboard_key.h"
-#include "core/traceable_item.h"
 
 namespace alg_framework {
 
@@ -26,20 +27,10 @@ inline constexpr int kControlCmdUpdateParams = 4;
 // ==============================================================================
 
 /**
- * @brief 标准可溯源文本批次 (TextBatch)
- */
-using TextBatch = std::vector<TraceableItem<std::string>>;
-
-/**
  * @brief 文本命名标量属性批次 (TextAttributesBatch)
  */
 using TextAttributesBatch =
     std::vector<TraceableItem<std::unordered_map<std::string, std::string>>>;
-
-/**
- * @brief 标准可溯源浮点特征向量批次 (EmbeddingBatch)
- */
-using EmbeddingBatch = std::vector<TraceableItem<std::vector<float>>>;
 
 /**
  * @brief 带打分与排名的排序候选载荷 (RankedCandidate)
@@ -114,9 +105,6 @@ enum class JsonParseStatus {
 /**
  * @brief 结构化文档/JSON 解析单项载荷 (JsonDocumentItem)
  */
-/**
- * @brief 结构化文档/JSON 解析单项载荷 (JsonDocumentItem)
- */
 struct JsonDocumentItem {
   std::string json_payload;
   nlohmann::json structured_data = nlohmann::json::object();
@@ -148,75 +136,6 @@ struct JsonDocumentItem {
  */
 using JsonDocumentBatch = std::vector<TraceableItem<JsonDocumentItem>>;
 using StructuredDocumentBatch = JsonDocumentBatch;
-
-/**
- * @brief 音频 PCM 浮点时序载荷 (AudioPcmPayload)
- */
-struct AudioPcmPayload {
-  std::vector<float> pcm_data;
-  int sample_rate = 16000;
-
-  AudioPcmPayload() = default;
-  AudioPcmPayload(std::vector<float> data, int rate = 16000)
-      : pcm_data(std::move(data)), sample_rate(rate) {}
-};
-
-/**
- * @brief 标准可溯源音频批次 (AudioPcmBatch)
- */
-using AudioPcmBatch = std::vector<TraceableItem<AudioPcmPayload>>;
-
-/**
- * @brief 图像文件路径或引用批次 (ImageRefBatch) - 具有强类型特质
- */
-struct ImageRefBatch : public std::vector<TraceableItem<std::string>> {
-  using std::vector<TraceableItem<std::string>>::vector;
-  ImageRefBatch() = default;
-  ImageRefBatch(std::vector<TraceableItem<std::string>> v)
-      : std::vector<TraceableItem<std::string>>(std::move(v)) {}
-};
-
-/**
- * @brief OCR 矩形边界与文本识别框 (OcrBoxRecord)
- */
-struct OcrBoxRecord {
-  float x = 0.0f;
-  float y = 0.0f;
-  float width = 0.0f;
-  float height = 0.0f;
-  std::string text;
-  float confidence = 0.0f;
-};
-
-/**
- * @brief OCR 文档识别结果项 (OcrDocumentItem)
- */
-struct OcrDocumentItem {
-  std::vector<OcrBoxRecord> boxes;
-  std::string combined_text;
-};
-
-/**
- * @brief 标准可溯源 OCR 识别文档批次 (OcrDocumentBatch)
- */
-using OcrDocumentBatch = std::vector<TraceableItem<OcrDocumentItem>>;
-
-/**
- * @brief 查询-候选样本对载荷 (QueryCandidatePair)
- */
-struct QueryCandidatePair {
-  std::string query;
-  std::string candidate;
-
-  QueryCandidatePair() = default;
-  QueryCandidatePair(std::string q, std::string c)
-      : query(std::move(q)), candidate(std::move(c)) {}
-};
-
-/**
- * @brief 标准可溯源精排样本对批次 (QueryCandidatesBatch)
- */
-using QueryCandidatesBatch = std::vector<TraceableItem<QueryCandidatePair>>;
 
 // ==============================================================================
 // 3. 编译期类型萃取特化 (BlackboardTypeTraits Specializations)

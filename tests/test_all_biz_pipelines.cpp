@@ -29,7 +29,8 @@ class AllBizPipelinesTest : public ::testing::Test {
 // 1. 业务 3 (智能长文档切片问答 RAG) 细粒度断言测试 (DocChunk -> Embedding ->
 // VectorSearch -> Prompt -> LLM)
 TEST_F(AllBizPipelinesTest, DocQaPipelineExecution) {
-  std::string cfg_path = GetConfigPath("configs/pipeline_doc_qa.json");
+  std::string cfg_path =
+      GetConfigPath("tests/fixtures/stage7/smoke/pipeline_doc_qa.json");
   CompanyAlgParamCreate param;
   param.config_file_path = cfg_path.c_str();
   param.model_root_dir = "./models";
@@ -85,7 +86,8 @@ TEST_F(AllBizPipelinesTest, DocQaPipelineExecution) {
 
 // 2. 业务 4 (智能对话风控质检 - 3模型6节点级联) 细粒度高危与合规样本双向校验
 TEST_F(AllBizPipelinesTest, DialogueComplianceAuditPipeline) {
-  std::string cfg_path = GetConfigPath("configs/pipeline_dialogue_audit.json");
+  std::string cfg_path =
+      GetConfigPath("tests/fixtures/stage7/smoke/pipeline_dialogue_audit.json");
   CompanyAlgParamCreate param;
   param.config_file_path = cfg_path.c_str();
   param.model_root_dir = "./models";

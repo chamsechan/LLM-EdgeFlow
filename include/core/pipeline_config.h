@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <nlohmann/json.hpp>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "core/pipeline_diagnostic.h"
@@ -10,14 +11,19 @@
 namespace alg_framework {
 
 /**
- * @brief 解析后的单模型配置
+ * @brief 解析后的单模型配置 (RFC 0015 解耦标准契约)
  */
 struct ParsedModelConfig {
   std::string model_id;
-  std::string engine_type;
-  std::string model_path;
-  nlohmann::json config = nlohmann::json::object();
   size_t source_index = 0;
+
+  // RFC 0015 解耦标准字段 (Model/Backend 方言)
+  std::string capability;
+  std::string model_type;
+  std::string backend;
+  std::string model_path;
+  nlohmann::json model_config = nlohmann::json::object();
+  nlohmann::json backend_config = nlohmann::json::object();
 };
 
 /**

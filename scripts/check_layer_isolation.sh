@@ -109,6 +109,41 @@ if [ -n "$VIOLATIONS_DEMO_INTERNAL" ]; then
 fi
 echo "✅ [LayerGuard PASS] Zero Demo -> Internal SDK header violations."
 
+# Rule 6: RFC-0015 LLM vendor/semantic boundary.
+LLAMA_VENDOR_OUTSIDE_BACKEND=$(grep -rnE '#include\s*["<]llama\.h[">]' \
+  "$REPO_ROOT/include" "$REPO_ROOT/src" \
+  --exclude-dir=backends 2>/dev/null || true)
+if [ -n "$LLAMA_VENDOR_OUTSIDE_BACKEND" ]; then
+  echo "❌ [LayerGuard ERROR] llama.h may only be included by the llama.cpp backend implementation:"
+  echo "$LLAMA_VENDOR_OUTSIDE_BACKEND"
+  exit 1
+fi
+
+LLAMA_BACKEND_SEMANTICS=$(grep -rnE 'ChatML|<\|im_start\|>|top_p|stop_words|AlgContext|Pipeline' \
+  "$REPO_ROOT/src/engine/backends/llama_cpp" 2>/dev/null || true)
+if [ -n "$LLAMA_BACKEND_SEMANTICS" ]; then
+  echo "❌ [LayerGuard ERROR] llama.cpp backend contains model or pipeline semantics:"
+  echo "$LLAMA_BACKEND_SEMANTICS"
+  exit 1
+fi
+
+QWEN_VENDOR_INCLUDE=$(grep -rnE '#include\s*["<]llama\.h[">]' \
+  "$REPO_ROOT/src/engine/models/qwen_causal_lm" 2>/dev/null || true)
+if [ -n "$QWEN_VENDOR_INCLUDE" ]; then
+  echo "❌ [LayerGuard ERROR] Qwen model must only depend on ICausalLmSession:"
+  echo "$QWEN_VENDOR_INCLUDE"
+  exit 1
+fi
+
+LLM_NODE_LEGACY=$(grep -nE 'ILlmEngine|engine_interface' \
+  "$REPO_ROOT/src/common_nodes/llm_generate_node.cpp" 2>/dev/null || true)
+if [ -n "$LLM_NODE_LEGACY" ]; then
+  echo "❌ [LayerGuard ERROR] LlmGenerateNode still depends on the legacy engine interface:"
+  echo "$LLM_NODE_LEGACY"
+  exit 1
+fi
+echo "✅ [LayerGuard PASS] llama.cpp vendor resources and Qwen generation semantics are isolated."
+
 echo "======================================================================"
 echo " All LayerGuard architectural isolation checks passed successfully!"
 echo "======================================================================"

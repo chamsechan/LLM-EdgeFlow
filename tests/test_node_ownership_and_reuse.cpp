@@ -11,7 +11,7 @@
 #include "core/node_registry.h"
 #include "core/pipeline_catalog.h"
 #include "core/session_context.h"
-#include "engine/engine_interface.h"
+#include "engine/model_interface.h"
 
 namespace alg_framework {
 
@@ -40,18 +40,23 @@ TEST(NodeOwnershipAndReuseTest, CatalogCategoriesAndOwnership) {
 
 // Mock Embedding Engine that computes distinct vector based on string hash /
 // features
-class DistinctMockEmbeddingEngine : public IEmbeddingEngine {
+class DistinctMockEmbeddingModel : public IEmbeddingModel {
  public:
-  bool Load(const std::string&, const nlohmann::json&) override { return true; }
-  size_t GetMaxBatchSize() const override { return 16; }
-  const std::string& EngineType() const override {
+  size_t GetMaxBatchSize() const noexcept override { return 16; }
+  const std::string& ModelType() const noexcept override {
     static const std::string t = "mock_embedding";
     return t;
   }
+  const std::string& Capability() const noexcept override {
+    static const std::string capability = "embedding";
+    return capability;
+  }
+  InferenceConcurrency Concurrency() const noexcept override {
+    return InferenceConcurrency::kConcurrent;
+  }
 
-  int InferTraceableBatch(
-      const std::vector<TraceableItem<std::string>>& inputs,
-      std::vector<TraceableItem<std::vector<float>>>* outputs) override {
+  int Embed(const TextBatch& inputs, const EmbeddingOptions&,
+            EmbeddingBatch* outputs) noexcept override {
     if (!outputs) return -1;
     outputs->clear();
     for (const auto& item : inputs) {
@@ -77,7 +82,8 @@ class DistinctMockEmbeddingEngine : public IEmbeddingEngine {
 TEST(NodeOwnershipAndReuseTest, CommonEmbeddingAndVectorTopKExecution) {
   SessionContext session_ctx;
   session_ctx.GetModelManager().RegisterModel(
-      "embed_model_v2", std::make_shared<DistinctMockEmbeddingEngine>());
+      "embed_model_v2", std::make_shared<DistinctMockEmbeddingModel>(),
+      "test-v1");
 
   auto embed_node = NodeFactory::Instance().Create("TextEmbeddingNode");
   ASSERT_NE(embed_node, nullptr);

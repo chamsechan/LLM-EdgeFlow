@@ -59,6 +59,19 @@ COMMON_CMAKE_ARGS=(
   -DLLM_EDGEFLOW_SHARDED_TEST_RUNNERS=ON
   -DLLM_EDGEFLOW_LINKER="${LLM_EDGEFLOW_LINKER:-auto}"
 )
+# Reuse already-fetched source trees when available. This keeps sanitizer
+# builds deterministic in restricted/offline development environments while
+# preserving FetchContent's normal download behavior on a clean checkout.
+if [[ -d "${PROJECT_ROOT}/build/_deps/nlohmann_json-src" ]]; then
+  COMMON_CMAKE_ARGS+=(
+    -DFETCHCONTENT_SOURCE_DIR_NLOHMANN_JSON="${PROJECT_ROOT}/build/_deps/nlohmann_json-src"
+  )
+fi
+if [[ -d "${PROJECT_ROOT}/build/_deps/googletest-src" ]]; then
+  COMMON_CMAKE_ARGS+=(
+    -DFETCHCONTENT_SOURCE_DIR_GOOGLETEST="${PROJECT_ROOT}/build/_deps/googletest-src"
+  )
+fi
 GEN_ARG_STR=$("${SCRIPT_DIR}/detect_cmake_generator.sh" "${BUILD_DIR}")
 if [[ -n "${GEN_ARG_STR}" ]]; then
   read -r -a GENERATOR_ARGS <<< "${GEN_ARG_STR}"
@@ -77,11 +90,13 @@ if command -v ccache >/dev/null 2>&1; then
   mkdir -p "${CCACHE_DIR}"
 fi
 
+NCPU="$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)"
+
 cmake -S "${PROJECT_ROOT}" -B "${BUILD_DIR}" "${COMMON_CMAKE_ARGS[@]}"
 if [[ "${MODE}" == "fast" ]]; then
-  cmake --build "${BUILD_DIR}" --target edgeflow_dev_tests -j"$(nproc)"
+  cmake --build "${BUILD_DIR}" --target edgeflow_dev_tests -j"${NCPU}"
 else
-  cmake --build "${BUILD_DIR}" -j"$(nproc)"
+  cmake --build "${BUILD_DIR}" -j"${NCPU}"
 fi
 
 if [[ "${SANITIZERS}" == *"thread"* ]]; then
@@ -114,7 +129,7 @@ fi
 
 CTEST_ARGS=(
   --test-dir "${BUILD_DIR}"
-  -j"$(nproc)"
+  -j"${NCPU}"
   --output-on-failure
 )
 if [[ "${MODE}" == "fast" ]]; then
@@ -126,7 +141,11 @@ fi
 if [[ "${DETECT_LEAKS:-0}" == "1" ]] || [[ "${SANITIZERS}" == *"thread"* ]]; then
   CTEST_ARGS+=( -E '^VisualizerServerTest$' )
 fi
-"${ARCH_PREFIX[@]}" ctest "${CTEST_ARGS[@]}"
+if [[ ${#ARCH_PREFIX[@]} -gt 0 ]]; then
+  "${ARCH_PREFIX[@]}" ctest "${CTEST_ARGS[@]}"
+else
+  ctest "${CTEST_ARGS[@]}"
+fi
 
 echo "=================================================="
 echo " 🎉 Sanitizer set [${SANITIZERS}] checks PASSED! (Mode: ${MODE})"

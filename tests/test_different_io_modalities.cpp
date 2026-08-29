@@ -2,6 +2,8 @@
 
 #include <cmath>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <memory>
 #include <nlohmann/json.hpp>
@@ -10,6 +12,7 @@
 
 #include "company_alg_cpp.hpp"
 #include "company_alg_interface.h"
+#include "engine/backend_registry.h"
 
 static std::string GetConfigPath(const std::string& rel_path) {
   FILE* fp = fopen(rel_path.c_str(), "r");
@@ -30,7 +33,8 @@ class DifferentIoModalitiesTest : public ::testing::Test {
 
 // 1. 验证业务 5: 多模态图文票据问答 (Image + Query -> OCR BBox -> LLM JSON)
 TEST_F(DifferentIoModalitiesTest, OcrDocQa) {
-  std::string cfg_path = GetConfigPath("configs/pipeline_ocr_doc_qa.json");
+  std::string cfg_path =
+      GetConfigPath("tests/fixtures/stage7/smoke/pipeline_ocr_doc_qa.json");
   CompanyAlgParamCreate param;
   param.config_file_path = cfg_path.c_str();
   param.model_root_dir = "./models";
@@ -69,8 +73,8 @@ TEST_F(DifferentIoModalitiesTest, OcrDocQa) {
 // 2. 验证业务 6: 语音识别与时序意图槽位抽取 (Float PCM Buffer -> Speech Text ->
 // NLU Intent/Slots)
 TEST_F(DifferentIoModalitiesTest, AudioAsrIntent) {
-  std::string cfg_path =
-      GetConfigPath("configs/pipeline_audio_asr_intent.json");
+  std::string cfg_path = GetConfigPath(
+      "tests/fixtures/stage7/smoke/pipeline_audio_asr_intent.json");
   CompanyAlgParamCreate param;
   param.config_file_path = cfg_path.c_str();
   param.model_root_dir = "./models";
@@ -113,10 +117,37 @@ TEST_F(DifferentIoModalitiesTest, AudioAsrIntent) {
 // 3. 验证业务 7: 纯语义精排矩阵打分 (1 Query + N Candidate Passages -> Matrix
 // Scores -> Top-K Indices)
 TEST_F(DifferentIoModalitiesTest, CrossRerankBatch) {
+#ifndef HAVE_ONNXRUNTIME
+  GTEST_SKIP() << "ONNX Runtime disabled in this build";
+#else
+  if (!alg_framework::BackendRegistry::Instance()
+           .Find("onnxruntime")
+           .has_value()) {
+    GTEST_SKIP() << "ONNX Runtime backend disabled in this build";
+  }
+
   std::string cfg_path = GetConfigPath("configs/pipeline_cross_rerank.json");
+  std::ifstream json_in(cfg_path);
+  ASSERT_TRUE(json_in.good());
+  nlohmann::json pipe_json;
+  json_in >> pipe_json;
+  pipe_json["models"][0]["model_path"] = EDGEFLOW_STAGE4_RERANK_ONNX_FIXTURE;
+  pipe_json["models"][0]["model_config"]["tokenizer_file"] =
+      EDGEFLOW_STAGE3_VOCAB_FIXTURE;
+  pipe_json["models"][0]["model_config"]["max_length"] = 32;
+
+  auto temp_dir = std::filesystem::temp_directory_path() /
+                  ("test_different_io_rerank_" + std::to_string(rand()));
+  std::filesystem::create_directories(temp_dir);
+  auto temp_cfg_path = temp_dir / "pipeline_cross_rerank.json";
+  std::ofstream json_out(temp_cfg_path);
+  json_out << pipe_json.dump(2);
+  json_out.close();
+
+  std::string temp_cfg_str = temp_cfg_path.string();
   CompanyAlgParamCreate param;
-  param.config_file_path = cfg_path.c_str();
-  param.model_root_dir = "./models";
+  param.config_file_path = temp_cfg_str.c_str();
+  param.model_root_dir = "";
   param.device_id = 0;
   param.biz_type = ALG_BIZ_TYPE_CROSS_RERANK;
 
@@ -155,6 +186,9 @@ TEST_F(DifferentIoModalitiesTest, CrossRerankBatch) {
 
   ret = Alg_Destroy(handle);
   EXPECT_EQ(ret, 0);
+  std::error_code ec;
+  std::filesystem::remove_all(temp_dir, ec);
+#endif
 }
 
 }  // namespace alg_framework

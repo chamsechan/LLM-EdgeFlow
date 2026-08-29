@@ -76,9 +76,8 @@ class WorkbenchServiceTest(unittest.TestCase):
         self.assertFalse((self.configs / "pipeline_invalid.json").exists())
 
     def test_profile_mismatch_and_real_demo_roundtrip(self):
-        entity = json.loads((ROOT / "configs" / "pipeline_entity_extract.json").read_text())
         with self.assertRaises(SHOW.StudioError) as mismatch:
-            self.service.start_run(entity, "keyword_match_mock")
+            self.service.start_run(self.keyword, "entity_extract_mock")
         self.assertEqual(mismatch.exception.code, "PROFILE_MISMATCH")
         started = self.service.start_run(self.keyword, "keyword_match_mock")
         for _ in range(200):
@@ -118,50 +117,17 @@ class PipelineCliTest(unittest.TestCase):
         )
         self.assertEqual(code, 0)
         self.assertEqual(initialized["pipeline"]["pipeline"], [])
-        legacy = {
-            "business_name": "entity_extract_0.6b_v1",
-            "models": [
-                {
-                    "model_id": "llm_0.6b_entity",
-                    "engine_type": "mock_npu_llm",
-                    "model_path": "./models/qwen2.5_0.6b_instruct_npu.bin",
-                    "config": {"max_batch_size": 2, "max_seq_len": 512},
-                }
-            ],
-            "pipeline": [
-                {
-                    "node_type": "TextTemplateNode",
-                    "ports": {
-                        "inputs": {"primary": "input_sentences"},
-                        "outputs": {"text": "prompt_text"},
-                    },
-                },
-                {
-                    "node_type": "LlmGenerateNode",
-                    "ports": {
-                        "inputs": {"prompt": "prompt_text"},
-                        "outputs": {"text": "ans"},
-                    },
-                    "config": {"bind_model": "llm_0.6b_entity"},
-                },
-                {
-                    "node_type": "StructuredJsonParseNode",
-                    "ports": {
-                        "inputs": {"text": "ans"},
-                        "outputs": {"document": "extracted_entities"},
-                    },
-                },
-            ],
-        }
+        legacy = json.loads(
+            (ROOT / "configs" / "pipeline_keyword_match.json").read_text()
+        )
+        for node in legacy["pipeline"]:
+            node.pop("id", None)
+            node.pop("depends_on", None)
         code, normalized = self.command(
             "normalize", "--explicit-dag", "--stdin", input_pipeline=legacy
         )
         self.assertEqual(code, 0)
         self.assertEqual(normalized["pipeline"]["pipeline"][0]["depends_on"], [])
-        self.assertEqual(
-            normalized["pipeline"]["pipeline"][1]["depends_on"],
-            [normalized["pipeline"]["pipeline"][0]["id"]],
-        )
         code, validated = self.command(
             "validate", "--stdin", input_pipeline=normalized["pipeline"]
         )

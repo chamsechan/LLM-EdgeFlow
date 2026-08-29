@@ -148,8 +148,8 @@ package "Layer 2: 核心编排与动态黑板层 (Pipeline & Blackboard)" as L2 
   }
 
   class ModelManager {
-    - models_: std::unordered_map<string, std::shared_ptr<IModelEngine>>
-    + RegisterModel(id: string, engine: shared_ptr<IModelEngine>): void
+    - models_: map<string, ModelRegistration>
+    + RegisterBatch(models): bool
     + GetModel<T>(id: string): std::shared_ptr<T>
     + HasModel(id: string): bool
   }
@@ -181,8 +181,8 @@ package "Layer 3: 业务专属算子池 (Pluggable Nodes)" as L3 {
   }
 
   class "ModelBoundNode<E>" as ModelBoundNode <<(M,#10B981) Model Template>> {
-    # engine(): shared_ptr<E>
-    # bind_model_id(): const string&
+    # model(): shared_ptr<E>
+    # model_id(): const string&
   }
 
   class "TraceableUnaryInferenceNode<E, In, Out>" as TraceableUnaryNode <<(U,#8B5CF6) Unary Template>> {
@@ -201,58 +201,83 @@ package "Layer 3: 业务专属算子池 (Pluggable Nodes)" as L3 {
 }
 
 ' ==============================================================================
-' Layer 4: 异构引擎与分批调度层
+' Layer 4: 模型语义与推理 Backend 层
 ' ==============================================================================
-package "Layer 4: 异构引擎与硬件批调度层 (Engine Layer)" as L4 {
-  interface IModelEngine {
-    + {abstract} Load(path: string, config: json): bool
+package "Layer 4: 模型语义与推理 Backend 层 (Model & Backend)" as L4 {
+  interface IModel {
+    + {abstract} ModelType(): const string&
+    + {abstract} Capability(): const string&
+    + {abstract} Concurrency(): InferenceConcurrency
     + {abstract} GetMaxBatchSize(): size_t
-    + {abstract} EngineType(): const string&
-    + {abstract} GetLoadedModelPath(): const string&
-    + {abstract} GetDeviceId(): int
   }
 
-  interface IEmbeddingEngine {
-    + {abstract} InferTraceableBatch(inputs: vector<TraceableItem<string>>, outputs: vector<TraceableItem<vector<float>>>*): int
+  interface IEmbeddingModel {
+    + {abstract} Embed(inputs: TextBatch, options, outputs): int
   }
 
-  interface ILlmEngine {
-    + {abstract} Generate(prompt: string, opt: GenerateOption, out: string*): int
-    + {abstract} InferTraceableBatch(prompts: vector<TraceableItem<string>>, opt: GenerateOption, out: vector<TraceableItem<string>>*): int
+  interface IRerankModel {
+    + {abstract} Score(inputs: QueryCandidatesBatch, outputs: ScoreBatch*): int
   }
 
-  interface IRerankEngine {
-    + {abstract} ScoreTraceableBatch(pairs: vector<TraceableItem<PairInput>>, scores: vector<TraceableItem<float>>*): int
+  interface ILlmModel {
+    + {abstract} Generate(prompts: TextBatch, options, outputs: TextBatch*): int
   }
 
-  interface IOcrEngine {
-    + {abstract} InferTraceableBatch(images: vector<TraceableItem<string>>, boxes: vector<TraceableItem<vector<OcrBoxItem>>>*): int
+  interface IOcrModel {
+    + {abstract} Recognize(images: ImageRefBatch, outputs: OcrDocumentBatch*): int
   }
 
-  interface IAudioAsrEngine {
-    + {abstract} InferTraceableBatch(audios: vector<TraceableItem<AudioPcmData>>, transcripts: vector<TraceableItem<string>>*): int
+  interface IAsrModel {
+    + {abstract} Transcribe(audio: AudioPcmBatch, outputs: TextBatch*): int
   }
 
-  class EngineFactory <<(S,#EC4899) Singleton>> {
-    + {static} Instance(): EngineFactory&
-    + Register(type: string, creator: Func): void
-    + Create(type: string): std::unique_ptr<IModelEngine>
-    + HasConflict(): bool
+  interface IBackendSession {
+    + {abstract} BackendType(): const string&
+    + {abstract} Protocol(): ExecutionProtocol
+    + {abstract} Concurrency(): InferenceConcurrency
+    + {abstract} GetBatchPolicy(): BatchPolicy
   }
+
+  interface ITensorGraphSession {
+    + {abstract} Inputs(): vector<TensorSpec>
+    + {abstract} Outputs(): vector<TensorSpec>
+    + {abstract} Run(inputs: TensorMap, outputs: TensorMap*): int
+  }
+
+  interface ICausalLmSession {
+    + {abstract} TokenCodec(): ITokenCodec&
+    + {abstract} MaxContextTokens(): size_t
+    + {abstract} CreateSequence(): unique_ptr<ISequenceState>
+    + {abstract} Evaluate(tokens, state, logits): int
+  }
+
+  interface IInferenceBackend {
+    + {abstract} BackendType(): const string&
+    + {abstract} Load(spec: BackendLoadSpec): shared_ptr<IBackendSession>
+  }
+
+  class ModelRegistry <<(S,#EC4899) Singleton>> {
+    + Register(definition: ModelDefinition, creator): bool
+    + Create(model_type: string, context): shared_ptr<IModel>
+  }
+
+  class BackendRegistry <<(S,#EC4899) Singleton>> {
+    + Register(definition: BackendDefinition, creator): bool
+    + Create(backend_type: string): unique_ptr<IInferenceBackend>
+  }
+
+  class ModelRuntimeFactory {
+    + {static} Create(config, runtime_options): ModelRegistration
+  }
+
+  class BgeEmbeddingModel
+  class BgeRerankerModel
+  class QwenCausalLmModel
+  class OnnxRuntimeBackend
+  class LlamaCppBackend
 
   class FixedBatchExecutor <<(T,#F59E0B) Generic Template>> {
     + {static} Execute<TIn, TOut>(inputs: vector<TraceableItem<TIn>>, max_batch: size_t, pad: TIn, kernel: Func, outputs: vector<TraceableItem<TOut>>*): int
-  }
-
-  package "Engine Implementations (PIMPL)" as EngineImpls {
-    class OnnxEmbeddingEngine
-    class OnnxRerankEngine
-    class LlamaCppEngine
-    class MockNpuEmbeddingEngine
-    class MockNpuLlmEngine
-    class MockNpuRerankEngine
-    class MockNpuOcrEngine
-    class MockNpuAsrEngine
   }
 }
 
@@ -293,7 +318,7 @@ Pipeline *-- INode : 显式 DAG 拓扑执行
 Pipeline ..> PipelineConfig : 强类型解析
 Pipeline ..> PipelineValidator : 静态校验与规范化
 SessionContext *-- ModelManager
-ModelManager o-- IModelEngine
+ModelManager o-- IModel
 
 INode <|-- NodeBase
 NodeBase <|-- ModelBoundNode
@@ -306,23 +331,33 @@ CommonNodes ..> AlgContext : Typed Key 读写
 BusinessNodes ..> AlgContext : Typed Key 读写
 ModelBoundNode ..> ModelManager : 索取纯虚能力接口
 
-IModelEngine <|-- IEmbeddingEngine
-IModelEngine <|-- ILlmEngine
-IModelEngine <|-- IRerankEngine
-IModelEngine <|-- IOcrEngine
-IModelEngine <|-- IAudioAsrEngine
+IModel <|-- IEmbeddingModel
+IModel <|-- IRerankModel
+IModel <|-- ILlmModel
+IModel <|-- IOcrModel
+IModel <|-- IAsrModel
+IEmbeddingModel <|.. BgeEmbeddingModel
+IRerankModel <|.. BgeRerankerModel
+ILlmModel <|.. QwenCausalLmModel
 
-IEmbeddingEngine <|.. OnnxEmbeddingEngine
-IEmbeddingEngine <|.. MockNpuEmbeddingEngine
-IRerankEngine <|.. OnnxRerankEngine
-IRerankEngine <|.. MockNpuRerankEngine
-ILlmEngine <|.. LlamaCppEngine
-ILlmEngine <|.. MockNpuLlmEngine
-IOcrEngine <|.. MockNpuOcrEngine
-IAudioAsrEngine <|.. MockNpuAsrEngine
+IBackendSession <|-- ITensorGraphSession
+IBackendSession <|-- ICausalLmSession
+IInferenceBackend <|.. OnnxRuntimeBackend
+IInferenceBackend <|.. LlamaCppBackend
+OnnxRuntimeBackend ..> ITensorGraphSession : 创建中性协议会话
+LlamaCppBackend ..> ICausalLmSession : 创建 Causal LM 会话
+BgeEmbeddingModel ..> ITensorGraphSession : 仅依赖 Tensor 协议
+BgeRerankerModel ..> ITensorGraphSession : 仅依赖 Tensor 协议
+QwenCausalLmModel ..> ICausalLmSession : ChatML / 采样 / 生成循环
 
-EngineFactory ..> IModelEngine : 动态反射创建 (Fail-Closed)
-EngineImpls ..> FixedBatchExecutor : 调用定长硬件分批模板
+ModelRuntimeFactory ..> BackendRegistry : backend 创建与加载
+ModelRuntimeFactory ..> ModelRegistry : model 语义对象创建
+BackendRegistry ..> IInferenceBackend : 自描述注册 (Fail-Closed)
+ModelRegistry ..> IModel : 自描述注册 (Fail-Closed)
+
+BgeEmbeddingModel ..> FixedBatchExecutor : 定长分批与溯源
+BgeRerankerModel ..> FixedBatchExecutor : 定长分批与溯源
+QwenCausalLmModel ..> FixedBatchExecutor : 批次切分与溯源
 FixedBatchExecutor ..> TraceableItem : 样本切块/补齐/剥离/溯源
 
 WebStudio ..> PipelineTool : 交互式编排调用

@@ -9,8 +9,9 @@
 #include "core/pipeline.h"
 #include "core/session_context.h"
 #include "core/traceable_item.h"
-#include "engine/engine_registry.h"
 #include "engine/fixed_batch_executor.h"
+#include "engine/model_interface.h"
+#include "tests/support/inference/test_business_models.h"
 
 namespace alg_framework {
 
@@ -93,56 +94,25 @@ TEST(NodeRegistryTest, DynamicReflection) {
   EXPECT_EQ(invalid_node, nullptr);
 }
 
-// 4. 测试 EngineFactory 与 ModelManager 多模型管理机制
-TEST(EngineRegistryTest, ModelManagerAndEngines) {
+// 4. 测试 ModelManager 的强类型多模型管理机制
+TEST(ModelManagerTest, TypedModels) {
   ModelManager manager;
-  auto& engine_factory = EngineFactory::Instance();
-
-  auto embed_engine = engine_factory.Create("mock_npu_embedding");
-  ASSERT_NE(embed_engine, nullptr);
-
-  auto rerank_engine = engine_factory.Create("mock_npu_rerank");
-  ASSERT_NE(rerank_engine, nullptr);
-
-  auto llm_engine = engine_factory.Create("mock_npu_llm");
-  ASSERT_NE(llm_engine, nullptr);
-
-  auto ocr_engine = engine_factory.Create("mock_npu_ocr");
-  ASSERT_NE(ocr_engine, nullptr);
-
-  auto asr_engine = engine_factory.Create("mock_npu_asr");
-  ASSERT_NE(asr_engine, nullptr);
-
-  auto onnx_engine = engine_factory.Create("onnx_embedding");
-  ASSERT_NE(onnx_engine, nullptr);
-  EXPECT_EQ(onnx_engine->EngineType(), "onnx_embedding");
-
-  auto onnx_rerank = engine_factory.Create("onnx_rerank");
-  ASSERT_NE(onnx_rerank, nullptr);
-  EXPECT_EQ(onnx_rerank->EngineType(), "onnx_rerank");
-
-  auto llama_engine = engine_factory.Create("llama_cpp");
-  ASSERT_NE(llama_engine, nullptr);
-  EXPECT_EQ(llama_engine->EngineType(), "llama_cpp");
-
-  // 模型装载与提取
-  nlohmann::json cfg = {{"max_batch_size", 4}, {"embedding_dim", 128}};
-  embed_engine->Load("./models/test_embed.bin", cfg);
-  manager.RegisterModel("my_embed_v1",
-                        std::shared_ptr<IModelEngine>(std::move(embed_engine)));
-
-  nlohmann::json onnx_cfg = {{"max_batch_size", 4}, {"embedding_dim", 128}};
-  onnx_engine->Load("./models/bge_base.onnx", onnx_cfg);
-  manager.RegisterModel("onnx_embed_model",
-                        std::shared_ptr<IModelEngine>(std::move(onnx_engine)));
+  ASSERT_TRUE(manager.RegisterModel(
+      "my_embed_v1", std::make_shared<test::TestBusinessEmbeddingModel>(128, 4),
+      "test-v1"));
+  ASSERT_TRUE(manager.RegisterModel(
+      "my_rerank_v1", std::make_shared<test::TestBusinessRerankModel>(4),
+      "test-v1"));
 
   EXPECT_TRUE(manager.HasModel("my_embed_v1"));
-  EXPECT_TRUE(manager.HasModel("onnx_embed_model"));
+  EXPECT_TRUE(manager.HasModel("my_rerank_v1"));
   EXPECT_FALSE(manager.HasModel("unknown_model"));
 
-  auto retrieved = manager.GetModel<IEmbeddingEngine>("onnx_embed_model");
+  auto retrieved = manager.GetModel<IRerankModel>("my_rerank_v1");
   ASSERT_NE(retrieved, nullptr);
   EXPECT_EQ(retrieved->GetMaxBatchSize(), 4);
+  EXPECT_EQ(retrieved->Capability(), "rerank");
+  EXPECT_EQ(manager.GetModel<IEmbeddingModel>("my_rerank_v1"), nullptr);
 }
 
 // 5. 测试 Pipeline 解析异常与健壮性拦截
@@ -159,8 +129,8 @@ TEST(PipelineTest, ErrorHandlingAndRobustness) {
   EXPECT_FALSE(ok);
 }
 
-// 6. 测试 RuntimeOptions 路径规范化与设备 ID 优先级渗透 (REV2-004)
-TEST(PipelineTest, RuntimeOptionsPropagationAndPrecedence) {
+// 6. 测试 RuntimeOptions 与 Model/Backend 新方言构建
+TEST(PipelineTest, RuntimeOptionsWithModelBackendDialect) {
   Pipeline pipe;
   RuntimeOptions opts;
   opts.model_root_dir = "/opt/custom_models";
@@ -172,28 +142,33 @@ TEST(PipelineTest, RuntimeOptionsPropagationAndPrecedence) {
                              {"execution_mode", "sequential"},
                              {"models",
                               {{{"model_id", "test_mock_llm"},
-                                {"engine_type", "mock_npu_llm"},
+                                {"capability", "llm"},
+                                {"model_type", "test_business_llm"},
+                                {"backend", "test_causal_lm_backend"},
                                 {"model_path", "./models/qwen.bin"},
-                                {"config", {{"max_batch_size", 2}}}}}},
+                                {"model_config", {{"max_batch_size", 2}}},
+                                {"backend_config", nlohmann::json::object()}}}},
                              {"pipeline",
                               {{{"id", "node_0_TextChunkNode"},
                                 {"node_type", "TextChunkNode"},
                                 {"depends_on", nlohmann::json::array()}}}}};
 
-  bool ok = pipe.BuildFromJson(root_cfg, nullptr,
+  PipelineDiagnostic diag;
+  bool ok = pipe.BuildFromJson(root_cfg, &diag,
                                ValidationPolicy::kPrivateExtensionCompatible);
-  EXPECT_TRUE(ok);
+  EXPECT_TRUE(ok) << "Build failed: " << diag.message
+                  << " (code: " << static_cast<int>(diag.code)
+                  << ", path: " << diag.path << ")";
 
-  auto model_engine =
-      pipe.GetSessionContext().GetModelManager().GetModel<IModelEngine>(
+  auto model = pipe.GetSessionContext().GetModelManager().GetModel<ILlmModel>(
+      "test_mock_llm");
+  ASSERT_NE(model, nullptr);
+  EXPECT_EQ(model->ModelType(), "test_business_llm");
+  const auto metadata =
+      pipe.GetSessionContext().GetModelManager().GetModelRegistration(
           "test_mock_llm");
-  ASSERT_NE(model_engine, nullptr);
-
-  // 断言 1: 设备 ID 正确透传 (REV2-004)
-  EXPECT_EQ(model_engine->GetDeviceId(), 2);
-
-  // 断言 2: 模型相对路径被 /opt/custom_models 规范化拼接 (REV2-004)
-  EXPECT_EQ(model_engine->GetLoadedModelPath(), "/opt/custom_models/qwen.bin");
+  ASSERT_TRUE(metadata.has_value());
+  EXPECT_EQ(metadata->backend_type, "test_causal_lm_backend");
 }
 
 }  // namespace alg_framework

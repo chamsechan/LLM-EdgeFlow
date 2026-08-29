@@ -9,8 +9,10 @@
 #include <utility>
 #include <vector>
 
+#include "company_alg_log.h"
 #include "core/alg_context.h"
 #include "core/blackboard_key.h"
+#include "core/common_contracts.h"
 #include "core/node_base.h"
 #include "core/pipeline_validator.h"
 #include "core/session_context.h"
@@ -121,7 +123,13 @@ class NodeBase : public INode {
                           : (init_ctx.plan ? init_ctx.plan->normalized_config
                                            : empty_config_);
       return InitNode(init_ctx, cfg, *init_ctx.session_ctx);
+    } catch (const std::exception& e) {
+      ALG_LOG_ERROR("[NodeBase] Exception in InitNode for %s: %s\n",
+                    node_name_.c_str(), e.what());
+      return false;
     } catch (...) {
+      ALG_LOG_ERROR("[NodeBase] Unknown exception in InitNode for %s\n",
+                    node_name_.c_str());
       return false;
     }
   }
@@ -191,7 +199,9 @@ class NodeBase : public INode {
       if (binding) {
         if (binding->type_id != in_port.TypeId()) {
           throw std::invalid_argument("Input port TypeId mismatch for " +
-                                      in_port.LogicalName());
+                                      in_port.LogicalName() +
+                                      " (expected: " + in_port.TypeId() +
+                                      ", bound: " + binding->type_id + ")");
         }
         in_port.Resolve(binding->blackboard_key);
       }
@@ -207,7 +217,9 @@ class NodeBase : public INode {
       if (binding) {
         if (binding->type_id != out_port.TypeId()) {
           throw std::invalid_argument("Output port TypeId mismatch for " +
-                                      out_port.LogicalName());
+                                      out_port.LogicalName() +
+                                      " (expected: " + out_port.TypeId() +
+                                      ", bound: " + binding->type_id + ")");
         }
         out_port.Resolve(binding->blackboard_key);
       }

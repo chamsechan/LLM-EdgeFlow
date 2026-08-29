@@ -331,8 +331,7 @@ NodeDefinition MakeTextRuleMatchNodeDefinition() {
   NodeDefinition def;
   def.node_type = TextRuleMatchNode::kNodeType;
   def.category = "common";
-  def.description =
-      "Keyword and rule matching engine node with regex slot capture";
+  def.description = "Keyword and rule matching node with regex slot capture";
   def.inputs = {RequiredInputPort("text",
                                   BlackboardKey<TextBatch>{"", "TextBatch"},
                                   "1:1", "preserve", "request")};

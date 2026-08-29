@@ -2,13 +2,25 @@
   "biz_name": "entity_extract_0.6b_v1",
   "models": [
     {
-      "config": {
-        "max_batch_size": 2,
-        "max_seq_len": 512
+      "capability": "llm",
+      "model_type": "qwen_causal_lm",
+      "backend": "llama_cpp",
+      "model_config": {
+        "chat_template": "qwen_chatml",
+        "system_prompt": "",
+        "add_bos": false,
+        "random_seed": -1
       },
-      "engine_type": "mock_npu_llm",
+      "backend_config": {
+        "context_size": 512,
+        "decode_batch_size": 512,
+        "n_threads": 0,
+        "n_threads_batch": 0,
+        "n_gpu_layers": 0,
+        "check_tensors": false
+      },
       "model_id": "llm_0.6b_entity",
-      "model_path": "./models/qwen2.5_0.6b_instruct_npu.bin"
+      "model_path": "./models/qwen2.5-0.5b-instruct-q4_k_m.gguf"
     }
   ],
   "pipeline": [

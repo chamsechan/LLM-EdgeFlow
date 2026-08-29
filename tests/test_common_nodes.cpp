@@ -10,8 +10,9 @@
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
 #include "core/session_context.h"
-#include "engine/engine_interface.h"
-#include "engine/engine_registry.h"
+#include "engine/model_interface.h"
+#include "tests/support/inference/test_business_models.h"
+#include "tests/support/inference/test_capability_models.h"
 
 namespace alg_framework {
 
@@ -24,38 +25,27 @@ class CommonNodesTest : public ::testing::Test {
     options.device_id = 0;
     session_ctx_->SetRuntimeOptions(options);
 
-    // Register Mock Engines
-    auto emb_engine = EngineFactory::Instance().Create("mock_npu_embedding");
-    ASSERT_NE(emb_engine, nullptr);
-    emb_engine->Load("./models/bge_base.bin",
-                     {{"max_batch_size", 4}, {"embedding_dim", 384}});
     ASSERT_TRUE(session_ctx_->GetModelManager().RegisterModel(
-        "embed_model_v1", std::move(emb_engine)));
+        "embed_model_v1",
+        std::make_shared<test::TestBusinessEmbeddingModel>(384, 4), "test-v1"));
 
-    auto rerank_engine = EngineFactory::Instance().Create("mock_npu_rerank");
-    ASSERT_NE(rerank_engine, nullptr);
-    rerank_engine->Load("./models/bge_reranker.bin", {{"max_batch_size", 4}});
     ASSERT_TRUE(session_ctx_->GetModelManager().RegisterModel(
-        "rerank_model_v1", std::move(rerank_engine)));
+        "rerank_model_v1", std::make_shared<test::TestBusinessRerankModel>(4),
+        "test-v1"));
 
-    auto llm_engine = EngineFactory::Instance().Create("mock_npu_llm");
-    ASSERT_NE(llm_engine, nullptr);
-    llm_engine->Load("./models/qwen.bin",
-                     {{"max_batch_size", 2}, {"max_seq_len", 512}});
     ASSERT_TRUE(session_ctx_->GetModelManager().RegisterModel(
-        "llm_model_v1", std::move(llm_engine)));
+        "llm_model_v1", std::make_shared<test::TestBusinessLlmModel>(2),
+        "test-v1"));
 
-    auto asr_engine = EngineFactory::Instance().Create("mock_npu_asr");
-    ASSERT_NE(asr_engine, nullptr);
-    asr_engine->Load("./models/paraformer.bin", {{"max_batch_size", 2}});
+    auto asr_model = std::make_shared<test::TestAsrModel>();
     ASSERT_TRUE(session_ctx_->GetModelManager().RegisterModel(
-        "mock_asr_model", std::move(asr_engine)));
+        "asr_model_v1", std::move(asr_model), "test-revision", "test_asr_model",
+        "asr", "test_tensor_backend"));
 
-    auto ocr_engine = EngineFactory::Instance().Create("mock_npu_ocr");
-    ASSERT_NE(ocr_engine, nullptr);
-    ocr_engine->Load("./models/ch_ppocr.bin", {{"max_batch_size", 2}});
+    auto ocr_model = std::make_shared<test::TestOcrModel>();
     ASSERT_TRUE(session_ctx_->GetModelManager().RegisterModel(
-        "ocr_model_v1", std::move(ocr_engine)));
+        "ocr_model_v1", std::move(ocr_model), "test-revision", "test_ocr_model",
+        "ocr", "test_tensor_backend"));
   }
 
   std::unique_ptr<SessionContext> session_ctx_;
@@ -377,7 +367,9 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
   nlohmann::json valid_pipeline_pairs = {
       {"business_name", "custom_rerank_test"},
       {"models",
-       {{{"engine_type", "mock_npu_rerank"},
+       {{{"capability", "rerank"},
+         {"model_type", "test_business_rerank"},
+         {"backend", "test_tensor_backend"},
          {"model_id", "rerank_model_v1"},
          {"model_path", "./models/rerank.bin"}}}},
       {"pipeline",
@@ -396,7 +388,9 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
   nlohmann::json valid_pipeline_qc = {
       {"business_name", "custom_rerank_test"},
       {"models",
-       {{{"engine_type", "mock_npu_rerank"},
+       {{{"capability", "rerank"},
+         {"model_type", "test_business_rerank"},
+         {"backend", "test_tensor_backend"},
          {"model_id", "rerank_model_v1"},
          {"model_path", "./models/rerank.bin"}}}},
       {"pipeline",
@@ -416,7 +410,9 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
   nlohmann::json valid_pipeline_qct = {
       {"business_name", "custom_rerank_test"},
       {"models",
-       {{{"engine_type", "mock_npu_rerank"},
+       {{{"capability", "rerank"},
+         {"model_type", "test_business_rerank"},
+         {"backend", "test_tensor_backend"},
          {"model_id", "rerank_model_v1"},
          {"model_path", "./models/rerank.bin"}}}},
       {"pipeline",
@@ -437,7 +433,9 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
   nlohmann::json bad_pipeline_1 = {
       {"business_name", "custom_rerank_test"},
       {"models",
-       {{{"engine_type", "mock_npu_rerank"},
+       {{{"capability", "rerank"},
+         {"model_type", "test_business_rerank"},
+         {"backend", "test_tensor_backend"},
          {"model_id", "rerank_model_v1"},
          {"model_path", "./models/rerank.bin"}}}},
       {"pipeline",
@@ -457,7 +455,9 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
   nlohmann::json bad_pipeline_2 = {
       {"business_name", "custom_rerank_test"},
       {"models",
-       {{{"engine_type", "mock_npu_rerank"},
+       {{{"capability", "rerank"},
+         {"model_type", "test_business_rerank"},
+         {"backend", "test_tensor_backend"},
          {"model_id", "rerank_model_v1"},
          {"model_path", "./models/rerank.bin"}}}},
       {"pipeline",
@@ -477,7 +477,9 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
   nlohmann::json bad_pipeline_3 = {
       {"business_name", "custom_rerank_test"},
       {"models",
-       {{{"engine_type", "mock_npu_rerank"},
+       {{{"capability", "rerank"},
+         {"model_type", "test_business_rerank"},
+         {"backend", "test_tensor_backend"},
          {"model_id", "rerank_model_v1"},
          {"model_path", "./models/rerank.bin"}}}},
       {"pipeline",
@@ -498,7 +500,9 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
   nlohmann::json bad_pipeline_4 = {
       {"business_name", "custom_rerank_test"},
       {"models",
-       {{{"engine_type", "mock_npu_rerank"},
+       {{{"capability", "rerank"},
+         {"model_type", "test_business_rerank"},
+         {"backend", "test_tensor_backend"},
          {"model_id", "rerank_model_v1"},
          {"model_path", "./models/rerank.bin"}}}},
       {"pipeline",
@@ -520,19 +524,24 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
 
 namespace {
 
-class CountingEmbeddingEngine final : public IEmbeddingEngine {
+class CountingEmbeddingModel final : public IEmbeddingModel {
  public:
   std::atomic<int> infer_calls{0};
-  std::string engine_type_ = "counting_mock_embedding";
+  const std::string& ModelType() const noexcept override {
+    static const std::string type = "counting_embedding";
+    return type;
+  }
+  const std::string& Capability() const noexcept override {
+    static const std::string capability = "embedding";
+    return capability;
+  }
+  InferenceConcurrency Concurrency() const noexcept override {
+    return InferenceConcurrency::kConcurrent;
+  }
+  size_t GetMaxBatchSize() const noexcept override { return 4; }
 
-  bool Load(const std::string&, const nlohmann::json&) override { return true; }
-  size_t GetMaxBatchSize() const override { return 4; }
-  const std::string& EngineType() const override { return engine_type_; }
-
-  int InferTraceableBatch(
-      const std::vector<TraceableItem<std::string>>& input_texts,
-      std::vector<TraceableItem<std::vector<float>>>* output_embeddings)
-      override {
+  int Embed(const TextBatch& input_texts, const EmbeddingOptions&,
+            EmbeddingBatch* output_embeddings) noexcept override {
     infer_calls++;
     output_embeddings->clear();
     for (const auto& in : input_texts) {
@@ -547,9 +556,9 @@ class CountingEmbeddingEngine final : public IEmbeddingEngine {
 
 // 7.2 TextEmbeddingNode single-flight session caching concurrency test
 TEST_F(CommonNodesTest, TextEmbeddingNodeSingleFlightSessionCaching) {
-  auto counting_engine = std::make_shared<CountingEmbeddingEngine>();
+  auto counting_model = std::make_shared<CountingEmbeddingModel>();
   ASSERT_TRUE(session_ctx_->GetModelManager().RegisterModel(
-      "counting_embed_model", counting_engine));
+      "counting_embed_model", counting_model, "test-v1"));
 
   auto node = NodeFactory::Instance().Create("TextEmbeddingNode");
   ASSERT_NE(node, nullptr);
@@ -564,7 +573,8 @@ TEST_F(CommonNodesTest, TextEmbeddingNodeSingleFlightSessionCaching) {
   std::atomic<int> success_count{0};
 
   for (int i = 0; i < kNumThreads; ++i) {
-    threads.emplace_back([&, i]() {
+    (void)i;
+    threads.emplace_back([&]() {
       AlgContext ctx;
       TextBatch corpus;
       corpus.emplace_back(100, 0, "Static policy clause 1");
@@ -585,7 +595,7 @@ TEST_F(CommonNodesTest, TextEmbeddingNodeSingleFlightSessionCaching) {
     t.join();
   }
   EXPECT_EQ(success_count.load(), kNumThreads);
-  EXPECT_EQ(counting_engine->infer_calls.load(), 1);
+  EXPECT_EQ(counting_model->infer_calls.load(), 1);
 
   // Invalidation test: changing corpus triggers recomputation
   {
@@ -596,7 +606,7 @@ TEST_F(CommonNodesTest, TextEmbeddingNodeSingleFlightSessionCaching) {
 
     int ret = node->Process(&ctx);
     EXPECT_EQ(ret, 0);
-    EXPECT_EQ(counting_engine->infer_calls.load(), 2);
+    EXPECT_EQ(counting_model->infer_calls.load(), 2);
   }
 }
 
@@ -626,7 +636,7 @@ TEST_F(CommonNodesTest, AsrTranscribeNodeComprehensive) {
   auto node = NodeFactory::Instance().Create("AsrTranscribeNode");
   ASSERT_NE(node, nullptr);
 
-  nlohmann::json cfg = {{"bind_model", "mock_asr_model"}};
+  nlohmann::json cfg = {{"bind_model", "asr_model_v1"}};
   EXPECT_TRUE(node->Init(cfg, session_ctx_.get()));
 
   AlgContext ctx;

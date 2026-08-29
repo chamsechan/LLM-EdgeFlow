@@ -3,21 +3,21 @@
 
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
-#include "engine/engine_interface.h"
+#include "engine/model_interface.h"
 #include "nodes/model_bound_node.h"
 
 namespace alg_framework {
 
 /**
  * @brief OCR 视觉文档检测与文字识别通用算子 (OcrDetectNode, 调用绑定的
- * IOcrEngine)
+ * IOcrModel)
  */
-class OcrDetectNode final : public ModelBoundNode<IOcrEngine> {
+class OcrDetectNode final : public ModelBoundNode<IOcrModel> {
  public:
   inline static constexpr char kNodeType[] = "OcrDetectNode";
 
   OcrDetectNode()
-      : ModelBoundNode<IOcrEngine>(kNodeType),
+      : ModelBoundNode<IOcrModel>(kNodeType),
         in_images_("images"),
         out_doc_("document"),
         out_text_("text") {}
@@ -45,37 +45,31 @@ class OcrDetectNode final : public ModelBoundNode<IOcrEngine> {
       return 0;
     }
 
-    std::vector<TraceableItem<std::vector<IOcrEngine::OcrBoxItem>>> raw_boxes;
+    OcrDocumentBatch doc_batch;
     ALG_LOG_DEBUG(
         "[OcrDetectNode] Executing OCR text detection for %zu image files...\n",
         image_items->size());
 
-    int ret = engine()->InferTraceableBatch(*image_items, &raw_boxes);
+    int ret = model()->Recognize(*image_items, &doc_batch);
     if (ret != 0) {
       return Fail(req_ctx, ret, "OcrDetectNode: OCR inference failed");
     }
 
-    OcrDocumentBatch doc_batch;
+    if (doc_batch.size() != image_items->size()) {
+      return Fail(req_ctx, -7102, "OcrDetectNode: document count mismatch");
+    }
+
     TextBatch text_batch;
-    doc_batch.reserve(raw_boxes.size());
-    text_batch.reserve(raw_boxes.size());
-
-    for (const auto& item : raw_boxes) {
-      OcrDocumentItem doc_item;
-      doc_item.boxes.reserve(item.data.size());
-      std::string combined;
-
-      for (size_t b = 0; b < item.data.size(); ++b) {
-        const auto& box = item.data[b];
-        doc_item.boxes.push_back(
-            {box.x, box.y, box.width, box.height, box.text, box.confidence});
-        if (b > 0) combined += "\n";
-        combined += box.text;
+    text_batch.reserve(doc_batch.size());
+    for (size_t i = 0; i < doc_batch.size(); ++i) {
+      const auto& document = doc_batch[i];
+      const auto& image = (*image_items)[i];
+      if (document.req_id != image.req_id || document.sub_id != image.sub_id) {
+        return Fail(req_ctx, -7103,
+                    "OcrDetectNode: document provenance mismatch");
       }
-      doc_item.combined_text = combined;
-
-      doc_batch.emplace_back(item.req_id, item.sub_id, std::move(doc_item));
-      text_batch.emplace_back(item.req_id, item.sub_id, std::move(combined));
+      text_batch.emplace_back(document.req_id, document.sub_id,
+                              document.data.combined_text);
     }
 
     out_doc_.Set(req_ctx, std::move(doc_batch));

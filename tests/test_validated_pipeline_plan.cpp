@@ -11,8 +11,9 @@
 #include "core/pipeline.h"
 #include "core/pipeline_catalog.h"
 #include "core/pipeline_validator.h"
-#include "engine/engine_interface.h"
-#include "engine/engine_registry.h"
+#include "engine/backend_registry.h"
+#include "engine/model_interface.h"
+#include "engine/model_registry.h"
 
 namespace alg_framework {
 
@@ -38,29 +39,40 @@ NodeDefinition MakePlanTestNodeDefinition() {
 
 REGISTER_NODE_WITH_DEFINITION(PlanTestNode, MakePlanTestNodeDefinition());
 
-class SerializedPlanTestEngine : public IModelEngine {
+class SerializedPlanTestModel : public IModel {
  public:
-  inline static constexpr char kEngineType[] = "serialized_plan_test";
+  inline static constexpr char kModelType[] = "serialized_plan_test";
 
-  bool Load(const std::string&, const nlohmann::json&) override { return true; }
-  size_t GetMaxBatchSize() const override { return 1; }
-  const std::string& EngineType() const override {
-    static const std::string type = kEngineType;
+  static std::shared_ptr<IModel> Create(const ModelCreateContext&,
+                                        std::string*) {
+    return std::make_shared<SerializedPlanTestModel>();
+  }
+  size_t GetMaxBatchSize() const noexcept override { return 1; }
+  const std::string& ModelType() const noexcept override {
+    static const std::string type = kModelType;
     return type;
+  }
+  const std::string& Capability() const noexcept override {
+    static const std::string capability = "plan_test";
+    return capability;
+  }
+  InferenceConcurrency Concurrency() const noexcept override {
+    return InferenceConcurrency::kSerialized;
   }
 };
 
-EngineDefinition MakeSerializedPlanTestEngineDefinition() {
-  EngineDefinition def;
-  def.engine_type = SerializedPlanTestEngine::kEngineType;
+ModelDefinition MakeSerializedPlanTestModelDefinition() {
+  ModelDefinition def;
+  def.model_type = SerializedPlanTestModel::kModelType;
   def.capability = "plan_test";
-  def.description = "Serialized engine used by plan validation tests";
-  def.thread_model = EngineThreadModel::kSerialized;
+  def.description = "Serialized model used by plan validation tests";
+  def.required_protocol = ExecutionProtocol::kTensorGraph;
+  def.concurrency = InferenceConcurrency::kSerialized;
   return def;
 }
 
-REGISTER_ENGINE_WITH_DEFINITION(SerializedPlanTestEngine,
-                                MakeSerializedPlanTestEngineDefinition());
+REGISTER_MODEL_WITH_DEFINITION(SerializedPlanTestModel,
+                               MakeSerializedPlanTestModelDefinition());
 
 class ModelBoundPlanTestNode : public INode {
  public:
@@ -154,7 +166,6 @@ TEST(ValidatedPipelinePlanTest, DiagnosticCodeNameTableDriven) {
       {DiagnosticCode::kDuplicateNodeId, "DUPLICATE_NODE_ID"},
       {DiagnosticCode::kUnknownBusiness, "UNKNOWN_BUSINESS"},
       {DiagnosticCode::kUnknownNodeType, "UNKNOWN_NODE_TYPE"},
-      {DiagnosticCode::kUnknownEngineType, "UNKNOWN_ENGINE_TYPE"},
       {DiagnosticCode::kInvalidDependency, "INVALID_DEPENDENCY"},
       {DiagnosticCode::kDuplicateDependency, "DUPLICATE_DEPENDENCY"},
       {DiagnosticCode::kDagCycle, "DAG_CYCLE"},
@@ -172,8 +183,8 @@ TEST(ValidatedPipelinePlanTest, DiagnosticCodeNameTableDriven) {
       {DiagnosticCode::kMissingBusinessOutput, "MISSING_BUSINESS_OUTPUT"},
       {DiagnosticCode::kNodeNotParallelSafe, "NODE_NOT_PARALLEL_SAFE"},
       {DiagnosticCode::kParallelWriteConflict, "PARALLEL_WRITE_CONFLICT"},
-      {DiagnosticCode::kSerializedEngineConcurrency,
-       "SERIALIZED_ENGINE_CONCURRENCY"},
+      {DiagnosticCode::kSerializedModelConcurrency,
+       "SERIALIZED_MODEL_CONCURRENCY"},
       {DiagnosticCode::kPortCardinalityMismatch, "PORT_CARDINALITY_MISMATCH"},
       {DiagnosticCode::kPortProvenanceMismatch, "PORT_PROVENANCE_MISMATCH"},
       {DiagnosticCode::kPortLifetimeMismatch, "PORT_LIFETIME_MISMATCH"},
@@ -227,7 +238,12 @@ TEST(ValidatedPipelinePlanTest, ResolvesConfiguredPortLifetimeBeforePlanning) {
       {"business_name", "smart_doc_qa_v1"},
       {"models",
        nlohmann::json::array({{{"model_id", "embed_model_v1"},
-                               {"engine_type", "mock_npu_embedding"}}})},
+                               {"capability", "embedding"},
+                               {"model_type", "test_business_embedding"},
+                               {"backend", "test_tensor_backend"},
+                               {"model_path", "fixture.bin"},
+                               {"model_config", nlohmann::json::object()},
+                               {"backend_config", nlohmann::json::object()}}})},
       {"pipeline",
        nlohmann::json::array(
            {{{"id", "session_embedding"},
@@ -304,14 +320,18 @@ TEST(ValidatedPipelinePlanTest, MultiLayerWavefrontTopology) {
   EXPECT_EQ(plan.topological_layers[1][0], "node_c");
 }
 
-TEST(ValidatedPipelinePlanTest, RejectsSharedSerializedEngineInParallelLayer) {
+TEST(ValidatedPipelinePlanTest, RejectsSharedSerializedModelInParallelLayer) {
   nlohmann::json pipeline_json = {
       {"business_name", "unregistered_test_biz"},
       {"execution_mode", "parallel"},
-      {"models",
-       nlohmann::json::array(
-           {{{"model_id", "shared"},
-             {"engine_type", SerializedPlanTestEngine::kEngineType}}})},
+      {"models", nlohmann::json::array(
+                     {{{"model_id", "shared"},
+                       {"capability", "plan_test"},
+                       {"model_type", SerializedPlanTestModel::kModelType},
+                       {"backend", "test_tensor_backend"},
+                       {"model_path", "serialized.bin"},
+                       {"model_config", nlohmann::json::object()},
+                       {"backend_config", nlohmann::json::object()}}})},
       {"pipeline",
        nlohmann::json::array({{{"id", "node_a"},
                                {"node_type", ModelBoundPlanTestNode::kNodeType},
@@ -328,7 +348,7 @@ TEST(ValidatedPipelinePlanTest, RejectsSharedSerializedEngineInParallelLayer) {
   auto diagnostic = std::find_if(
       plan.report.diagnostics.begin(), plan.report.diagnostics.end(),
       [](const auto& item) {
-        return item.code == DiagnosticCode::kSerializedEngineConcurrency;
+        return item.code == DiagnosticCode::kSerializedModelConcurrency;
       });
   ASSERT_NE(diagnostic, plan.report.diagnostics.end());
   EXPECT_EQ(diagnostic->node_id, "node_b");
@@ -373,6 +393,105 @@ TEST(ValidatedPipelinePlanTest, RejectsNodeFromDifferentBusiness) {
                   return item.code == DiagnosticCode::kNodeBusinessMismatch;
                 }),
             plan.report.diagnostics.end());
+}
+
+TEST(ValidatedPipelinePlanTest,
+     DeterministicModelPathResolutionWithoutFilesystemProbing) {
+  if (!BackendRegistry::Instance().Find("mock_path_backend").has_value()) {
+    BackendDefinition bdef;
+    bdef.backend_type = "mock_path_backend";
+    bdef.supported_protocols = {ExecutionProtocol::kTensorGraph};
+    bdef.concurrency = InferenceConcurrency::kConcurrent;
+    BackendRegistry::Instance().Register(
+        bdef, []() -> std::unique_ptr<IInferenceBackend> { return nullptr; });
+  }
+
+  if (!ModelRegistry::Instance().Find("mock_path_model").has_value()) {
+    ModelDefinition mdef;
+    mdef.model_type = "mock_path_model";
+    mdef.capability = "rerank";
+    mdef.required_protocol = ExecutionProtocol::kTensorGraph;
+    mdef.concurrency = InferenceConcurrency::kConcurrent;
+    ModelRegistry::Instance().Register(
+        mdef,
+        [](const ModelCreateContext&, std::string*) -> std::shared_ptr<IModel> {
+          return nullptr;
+        });
+  }
+
+  nlohmann::json pipeline_json = {
+      {"biz_name", "dense_cross_rerank_scoring"},
+      {"models",
+       nlohmann::json::array({{{"model_id", "m_rel"},
+                               {"capability", "rerank"},
+                               {"model_type", "mock_path_model"},
+                               {"backend", "mock_path_backend"},
+                               {"model_path", "./models/sub/model.onnx"},
+                               {"model_config", nlohmann::json::object()}},
+                              {{"model_id", "m_abs"},
+                               {"capability", "rerank"},
+                               {"model_type", "mock_path_model"},
+                               {"backend", "mock_path_backend"},
+                               {"model_path", "/opt/models/fixed.onnx"},
+                               {"model_config", nlohmann::json::object()}},
+                              {{"model_id", "m_direct"},
+                               {"capability", "rerank"},
+                               {"model_type", "mock_path_model"},
+                               {"backend", "mock_path_backend"},
+                               {"model_path", "model_direct.onnx"},
+                               {"model_config", nlohmann::json::object()}}})},
+      {"pipeline",
+       nlohmann::json::array({{{"id", "node_0_TextRerankNode"},
+                               {"node_type", "TextRerankNode"},
+                               {"depends_on", nlohmann::json::array()},
+                               {"ports",
+                                {{"inputs",
+                                  {{"queries", "rerank_queries"},
+                                   {"candidates", "rerank_candidates"}}},
+                                 {"outputs", {{"ranked", "ranked_results"}}}}},
+                               {"config", {{"bind_model", "m_rel"}}}}})}};
+
+  // 1. 无 model_root_dir
+  auto plan_no_root = PipelineValidator::ValidateAndPlan(
+      pipeline_json, ValidationPolicy::kPrivateExtensionCompatible, "");
+  ASSERT_TRUE(plan_no_root.report.ok) << plan_no_root.report.ToJson().dump();
+  EXPECT_EQ(plan_no_root.models[0].resolved_model_path,
+            "models/sub/model.onnx");
+  EXPECT_EQ(plan_no_root.models[1].resolved_model_path,
+            "/opt/models/fixed.onnx");
+  EXPECT_EQ(plan_no_root.models[2].resolved_model_path, "model_direct.onnx");
+
+  // 2. 指定自定义 model_root_dir
+  auto plan_with_root = PipelineValidator::ValidateAndPlan(
+      pipeline_json, ValidationPolicy::kPrivateExtensionCompatible,
+      "/custom/root");
+  ASSERT_TRUE(plan_with_root.report.ok);
+  EXPECT_EQ(plan_with_root.models[0].resolved_model_path,
+            "/custom/root/models/sub/model.onnx");
+  EXPECT_EQ(plan_with_root.models[1].resolved_model_path,
+            "/opt/models/fixed.onnx");
+  EXPECT_EQ(plan_with_root.models[2].resolved_model_path,
+            "/custom/root/model_direct.onnx");
+
+  // 3. 确定性保证：重复多次规划结果绝对一致
+  auto plan_with_root_repeat = PipelineValidator::ValidateAndPlan(
+      pipeline_json, ValidationPolicy::kPrivateExtensionCompatible,
+      "/custom/root");
+  ASSERT_TRUE(plan_with_root_repeat.report.ok);
+  EXPECT_EQ(plan_with_root_repeat.models[0].resolved_model_path,
+            plan_with_root.models[0].resolved_model_path);
+  EXPECT_EQ(plan_with_root_repeat.models[1].resolved_model_path,
+            plan_with_root.models[1].resolved_model_path);
+  EXPECT_EQ(plan_with_root_repeat.models[2].resolved_model_path,
+            plan_with_root.models[2].resolved_model_path);
+
+  // 4. 路径逃逸检测
+  nlohmann::json escape_json = pipeline_json;
+  escape_json["models"][0]["model_path"] = "../escape.onnx";
+  auto plan_escape = PipelineValidator::ValidateAndPlan(
+      escape_json, ValidationPolicy::kPrivateExtensionCompatible,
+      "/custom/root");
+  EXPECT_FALSE(plan_escape.report.ok);
 }
 
 }  // namespace alg_framework

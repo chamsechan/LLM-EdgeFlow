@@ -18,8 +18,16 @@
 #include "adapter/operator/operator_output_pool.h"
 #include "adapter/operator/operator_value_type_registry.h"
 #include "company_alg_interface.h"
+#include "engine/backend_registry.h"
 #include "operator/company_operator_types.h"
 #include "operator/operator_interface.h"
+
+#ifndef EDGEFLOW_STAGE4_RERANK_ONNX_FIXTURE
+#define EDGEFLOW_STAGE4_RERANK_ONNX_FIXTURE "models/rerank_fixture.onnx"
+#endif
+#ifndef EDGEFLOW_STAGE3_VOCAB_FIXTURE
+#define EDGEFLOW_STAGE3_VOCAB_FIXTURE "models/vocab.txt"
+#endif
 
 using namespace llm_edgeflow::operator_api;
 
@@ -55,6 +63,49 @@ class ScopedTempDirectory {
 
 class OperatorApiTest : public ::testing::Test {
  protected:
+  static std::pair<std::shared_ptr<ScopedTempDirectory>, std::string>
+  PrepareCrossRerankFixtureConfig() {
+    auto temp_dir = std::make_shared<ScopedTempDirectory>();
+    auto models_dir = temp_dir->path() / "models";
+    std::filesystem::create_directories(models_dir);
+
+    std::error_code ec;
+    std::filesystem::copy_file(
+        EDGEFLOW_STAGE4_RERANK_ONNX_FIXTURE,
+        models_dir / "bge_reranker_large.onnx",
+        std::filesystem::copy_options::overwrite_existing, ec);
+    std::filesystem::copy_file(
+        EDGEFLOW_STAGE3_VOCAB_FIXTURE, models_dir / "vocab.txt",
+        std::filesystem::copy_options::overwrite_existing, ec);
+
+    std::string root_dir = GetConfDir();
+    std::ifstream json_in(root_dir + "/configs/pipeline_cross_rerank.json");
+    nlohmann::json pipe_json;
+    json_in >> pipe_json;
+    pipe_json["models"][0]["model_path"] = "models/bge_reranker_large.onnx";
+    pipe_json["models"][0]["model_config"]["tokenizer_file"] = "vocab.txt";
+    pipe_json["models"][0]["model_config"]["max_length"] = 32;
+
+    auto temp_json_path = temp_dir->path() / "pipeline_cross_rerank.json";
+    std::ofstream json_out(temp_json_path);
+    json_out << pipe_json.dump(2);
+    json_out.close();
+
+    std::ifstream conf_in(root_dir + "/configs/pipeline_cross_rerank.conf");
+    nlohmann::json conf_json;
+    conf_in >> conf_json;
+    conf_json["data"]["pipe_path"] = "pipeline_cross_rerank.json";
+    conf_json["data"]["model_paths"]["rerank_model_v1"] =
+        "models/bge_reranker_large.onnx";
+
+    auto temp_conf_path = temp_dir->path() / "pipeline_cross_rerank.conf";
+    std::ofstream conf_out(temp_conf_path);
+    conf_out << conf_json.dump(2);
+    conf_out.close();
+
+    return {temp_dir, "pipeline_cross_rerank.conf"};
+  }
+
   void SetUp() override {
     ops_ = Get_LLM_EDGEFLOW_OperatorTable();
     ASSERT_NE(ops_.Init, nullptr);
@@ -228,7 +279,8 @@ TEST_F(OperatorApiTest, StronglyTypedControlValidation) {
   // 3.5 在包含 TextTemplateNode 的管线上测试 kSwitchPrompt 成功路径
   CreateParam entity_param{};
   entity_param.model_path = root_dir.c_str();
-  entity_param.cfg_file_name = "configs/pipeline_entity_extract.conf";
+  entity_param.cfg_file_name =
+      "tests/fixtures/stage7/smoke/pipeline_entity_extract.conf";
   entity_param.device_id = 0;
   entity_param.compute_platform = ComputePlatform::kCpu;
 
@@ -372,7 +424,7 @@ TEST_F(OperatorApiTest, EndToEndOcrDocQaMultiSlot) {
   std::string root_dir = GetConfDir();
   CreateParam param{};
   param.model_path = root_dir.c_str();
-  param.cfg_file_name = "configs/pipeline_ocr_doc_qa.conf";
+  param.cfg_file_name = "tests/fixtures/stage7/smoke/pipeline_ocr_doc_qa.conf";
   param.device_id = 0;
   param.compute_platform = ComputePlatform::kAx650;
   param.max_frame_depth = 25;
@@ -415,7 +467,7 @@ TEST_F(OperatorApiTest, EndToEndDocQa) {
   std::string root_dir = GetConfDir();
   CreateParam param{};
   param.model_path = root_dir.c_str();
-  param.cfg_file_name = "configs/pipeline_doc_qa.conf";
+  param.cfg_file_name = "tests/fixtures/stage7/smoke/pipeline_doc_qa.conf";
   param.device_id = 0;
   param.compute_platform = ComputePlatform::kAx650;
   param.max_frame_depth = 25;
@@ -455,7 +507,8 @@ TEST_F(OperatorApiTest, EndToEndComplianceAudit) {
   std::string root_dir = GetConfDir();
   CreateParam param{};
   param.model_path = root_dir.c_str();
-  param.cfg_file_name = "configs/pipeline_dialogue_audit.conf";
+  param.cfg_file_name =
+      "tests/fixtures/stage7/smoke/pipeline_dialogue_audit.conf";
   param.device_id = 0;
   param.compute_platform = ComputePlatform::kAx650;
   param.max_frame_depth = 25;
@@ -495,7 +548,8 @@ TEST_F(OperatorApiTest, EndToEndAudioAsrIntent) {
   std::string root_dir = GetConfDir();
   CreateParam param{};
   param.model_path = root_dir.c_str();
-  param.cfg_file_name = "configs/pipeline_audio_asr_intent.conf";
+  param.cfg_file_name =
+      "tests/fixtures/stage7/smoke/pipeline_audio_asr_intent.conf";
   param.device_id = 0;
   param.compute_platform = ComputePlatform::kAx650;
   param.max_frame_depth = 25;
@@ -528,10 +582,16 @@ TEST_F(OperatorApiTest, EndToEndAudioAsrIntent) {
 
 // 11. 纯语义精排业务 (Cross Rerank)
 TEST_F(OperatorApiTest, EndToEndCrossRerank) {
-  std::string root_dir = GetConfDir();
+  if (!alg_framework::BackendRegistry::Instance()
+           .Find("onnxruntime")
+           .has_value()) {
+    GTEST_SKIP() << "ONNX Runtime backend disabled in this build";
+  }
+  auto temp_cfg = PrepareCrossRerankFixtureConfig();
+  std::string model_path_str = temp_cfg.first->path().string();
   CreateParam param{};
-  param.model_path = root_dir.c_str();
-  param.cfg_file_name = "configs/pipeline_cross_rerank.conf";
+  param.model_path = model_path_str.c_str();
+  param.cfg_file_name = temp_cfg.second.c_str();
   param.device_id = 0;
   param.compute_platform = ComputePlatform::kAx650;
   param.max_frame_depth = 25;
@@ -753,7 +813,8 @@ TEST_F(OperatorApiTest, EndToEndEntityExtract) {
   std::string root_dir = GetConfDir();
   CreateParam param{};
   param.model_path = root_dir.c_str();
-  param.cfg_file_name = "configs/pipeline_entity_extract.conf";
+  param.cfg_file_name =
+      "tests/fixtures/stage7/smoke/pipeline_entity_extract.conf";
   param.device_id = 0;
   param.compute_platform = ComputePlatform::kAx650;
   param.max_frame_depth = 25;
@@ -1379,7 +1440,7 @@ TEST_F(OperatorApiTest, MultiBusinessMaxBatchBoundarySuite) {
   {
     CreateParam param{};
     param.model_path = root_dir.c_str();
-    param.cfg_file_name = "configs/pipeline_doc_qa.conf";
+    param.cfg_file_name = "tests/fixtures/stage7/smoke/pipeline_doc_qa.conf";
     param.device_id = 0;
     param.compute_platform = ComputePlatform::kAx650;
     param.max_frame_depth = 8;
@@ -1431,7 +1492,8 @@ TEST_F(OperatorApiTest, MultiBusinessMaxBatchBoundarySuite) {
   {
     CreateParam param{};
     param.model_path = root_dir.c_str();
-    param.cfg_file_name = "configs/pipeline_dialogue_audit.conf";
+    param.cfg_file_name =
+        "tests/fixtures/stage7/smoke/pipeline_dialogue_audit.conf";
     param.device_id = 0;
     param.compute_platform = ComputePlatform::kAx650;
     param.max_frame_depth = 8;
@@ -1481,7 +1543,8 @@ TEST_F(OperatorApiTest, MultiBusinessMaxBatchBoundarySuite) {
   {
     CreateParam param{};
     param.model_path = root_dir.c_str();
-    param.cfg_file_name = "configs/pipeline_audio_asr_intent.conf";
+    param.cfg_file_name =
+        "tests/fixtures/stage7/smoke/pipeline_audio_asr_intent.conf";
     param.device_id = 0;
     param.compute_platform = ComputePlatform::kAx650;
     param.max_frame_depth = 8;
@@ -1528,10 +1591,14 @@ TEST_F(OperatorApiTest, MultiBusinessMaxBatchBoundarySuite) {
   }
 
   // 4. CrossRerank 最大 Batch 压测
-  {
+  if (alg_framework::BackendRegistry::Instance()
+          .Find("onnxruntime")
+          .has_value()) {
+    auto temp_cfg = PrepareCrossRerankFixtureConfig();
+    std::string rerank_model_path_str = temp_cfg.first->path().string();
     CreateParam param{};
-    param.model_path = root_dir.c_str();
-    param.cfg_file_name = "configs/pipeline_cross_rerank.conf";
+    param.model_path = rerank_model_path_str.c_str();
+    param.cfg_file_name = temp_cfg.second.c_str();
     param.device_id = 0;
     param.compute_platform = ComputePlatform::kAx650;
     param.max_frame_depth = 8;
@@ -1594,7 +1661,8 @@ TEST_F(OperatorApiTest, MultiBusinessMaxBatchBoundarySuite) {
   {
     CreateParam param{};
     param.model_path = root_dir.c_str();
-    param.cfg_file_name = "configs/pipeline_ocr_doc_qa.conf";
+    param.cfg_file_name =
+        "tests/fixtures/stage7/smoke/pipeline_ocr_doc_qa.conf";
     param.device_id = 0;
     param.compute_platform = ComputePlatform::kAx650;
     param.max_frame_depth = 8;
@@ -1645,7 +1713,8 @@ TEST_F(OperatorApiTest, MultiBusinessMaxBatchBoundarySuite) {
   {
     CreateParam param{};
     param.model_path = root_dir.c_str();
-    param.cfg_file_name = "configs/pipeline_entity_extract.conf";
+    param.cfg_file_name =
+        "tests/fixtures/stage7/smoke/pipeline_entity_extract.conf";
     param.device_id = 0;
     param.compute_platform = ComputePlatform::kAx650;
     param.max_frame_depth = 8;
@@ -1802,14 +1871,16 @@ TEST_F(OperatorApiTest, ModelPathNonExistentFileAllowedWhileEscapeRejected) {
   const std::filesystem::path root = temp_root.path();
   const std::filesystem::path outside = temp_outside.path();
   std::filesystem::create_directories(root / "configs");
+  const std::filesystem::path canonical_root = std::filesystem::canonical(root);
   const std::filesystem::path source_root = GetConfDir();
   std::string err;
 
   // 1. model_paths 和 Pipeline 原始 model_path 都指向尚未部署的模型；
   // Resolver 只规范化引用，不能创建或要求模型文件存在。
   {
-    std::filesystem::copy_file(source_root / "configs/pipeline_doc_qa.json",
-                               root / "configs/pipeline_doc_qa.json");
+    std::filesystem::copy_file(
+        source_root / "tests/fixtures/stage7/smoke/pipeline_doc_qa.json",
+        root / "configs/pipeline_doc_qa.json");
     std::ofstream conf(root / "configs/model_paths.conf");
     conf << R"({
       "data": {
@@ -1840,7 +1911,7 @@ TEST_F(OperatorApiTest, ModelPathNonExistentFileAllowedWhileEscapeRejected) {
       const auto path =
           std::filesystem::path(model["model_path"].get<std::string>());
       EXPECT_TRUE(path.is_absolute());
-      EXPECT_EQ(path.lexically_relative(root).string().rfind("..", 0),
+      EXPECT_EQ(path.lexically_relative(canonical_root).string().rfind("..", 0),
                 std::string::npos);
       EXPECT_FALSE(std::filesystem::exists(path));
     }
@@ -1850,7 +1921,8 @@ TEST_F(OperatorApiTest, ModelPathNonExistentFileAllowedWhileEscapeRejected) {
   // 2. 单 model_path override 同样允许最终模型文件不存在。
   {
     std::filesystem::copy_file(
-        source_root / "configs/pipeline_audio_asr_intent.json",
+        source_root /
+            "tests/fixtures/stage7/smoke/pipeline_audio_asr_intent.json",
         root / "configs/pipeline_audio_asr_intent.json");
     std::ofstream conf(root / "configs/single_model.conf");
     conf << R"({
@@ -1877,7 +1949,7 @@ TEST_F(OperatorApiTest, ModelPathNonExistentFileAllowedWhileEscapeRejected) {
         resolved.synthetic_pipeline_json["models"][0]["model_path"]
             .get<std::string>());
     EXPECT_EQ(resolved_model,
-              root / "deployment/asr_model_will_arrive_later.bin");
+              canonical_root / "deployment/asr_model_will_arrive_later.bin");
     EXPECT_FALSE(std::filesystem::exists(resolved_model));
   }
 
@@ -1889,7 +1961,7 @@ TEST_F(OperatorApiTest, ModelPathNonExistentFileAllowedWhileEscapeRejected) {
         alg_framework::CompanyConfResolver::ResolveModelReferenceUnderRoot(
             root, "safe/missing_model.bin", "model_path", &resolved, &err),
         0);
-    EXPECT_EQ(resolved, root / "safe/missing_model.bin");
+    EXPECT_EQ(resolved, canonical_root / "safe/missing_model.bin");
     EXPECT_FALSE(std::filesystem::exists(resolved));
 
     for (const char* bad :

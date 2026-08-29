@@ -24,8 +24,14 @@ run_fixture_renderer() {
 ./scripts/render_architecture_diagrams.sh --check >/dev/null 2>&1
 
 # A syntactically valid source change must make the committed asset stale.
-sed -i '/@enduml/i class SourceDriftProbe' \
-  "${FIXTURE_DOC_ROOT}/architecture.puml"
+if sed --version >/dev/null 2>&1; then
+  sed -i '/@enduml/i class SourceDriftProbe' \
+    "${FIXTURE_DOC_ROOT}/architecture.puml"
+else
+  sed -i '' '/@enduml/i\
+class SourceDriftProbe
+' "${FIXTURE_DOC_ROOT}/architecture.puml"
+fi
 if run_fixture_renderer --check; then
   echo "❌ Render gate missed source/asset drift"
   exit 1

@@ -1,12 +1,22 @@
 #include <gtest/gtest.h>
 
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <nlohmann/json.hpp>
 #include <string>
 #include <vector>
 
 #include "company_alg_interface.h"
+#include "engine/backend_registry.h"
 #include "operator/operator_interface.h"
+
+#ifndef EDGEFLOW_STAGE4_RERANK_ONNX_FIXTURE
+#define EDGEFLOW_STAGE4_RERANK_ONNX_FIXTURE "models/rerank_fixture.onnx"
+#endif
+#ifndef EDGEFLOW_STAGE3_VOCAB_FIXTURE
+#define EDGEFLOW_STAGE3_VOCAB_FIXTURE "models/vocab.txt"
+#endif
 
 namespace alg_framework {
 
@@ -27,7 +37,7 @@ TEST_F(OperatorGoldenTest, DocQaGolden) {
   using namespace llm_edgeflow::operator_api;
   CreateParam param{};
   param.model_path = ".";
-  param.cfg_file_name = "configs/pipeline_doc_qa.conf";
+  param.cfg_file_name = "tests/fixtures/stage7/smoke/pipeline_doc_qa.conf";
   param.device_id = 0;
   param.compute_platform = ComputePlatform::kCpu;
 
@@ -129,7 +139,8 @@ TEST_F(OperatorGoldenTest, EntityExtractGolden) {
   using namespace llm_edgeflow::operator_api;
   CreateParam param{};
   param.model_path = ".";
-  param.cfg_file_name = "configs/pipeline_entity_extract.conf";
+  param.cfg_file_name =
+      "tests/fixtures/stage7/smoke/pipeline_entity_extract.conf";
   param.device_id = 0;
   param.compute_platform = ComputePlatform::kCpu;
 
@@ -171,7 +182,8 @@ TEST_F(OperatorGoldenTest, ComplianceAuditGolden) {
   using namespace llm_edgeflow::operator_api;
   CreateParam param{};
   param.model_path = ".";
-  param.cfg_file_name = "configs/pipeline_dialogue_audit.conf";
+  param.cfg_file_name =
+      "tests/fixtures/stage7/smoke/pipeline_dialogue_audit.conf";
   param.device_id = 0;
   param.compute_platform = ComputePlatform::kCpu;
 
@@ -220,7 +232,7 @@ TEST_F(OperatorGoldenTest, OcrDocQaGolden) {
   using namespace llm_edgeflow::operator_api;
   CreateParam param{};
   param.model_path = ".";
-  param.cfg_file_name = "configs/pipeline_ocr_doc_qa.conf";
+  param.cfg_file_name = "tests/fixtures/stage7/smoke/pipeline_ocr_doc_qa.conf";
   param.device_id = 0;
   param.compute_platform = ComputePlatform::kCpu;
 
@@ -266,7 +278,8 @@ TEST_F(OperatorGoldenTest, AudioAsrIntentSlotExtractionGolden) {
   using namespace llm_edgeflow::operator_api;
   CreateParam param{};
   param.model_path = ".";
-  param.cfg_file_name = "configs/pipeline_audio_asr_intent.conf";
+  param.cfg_file_name =
+      "tests/fixtures/stage7/smoke/pipeline_audio_asr_intent.conf";
   param.device_id = 0;
   param.compute_platform = ComputePlatform::kCpu;
 
@@ -371,10 +384,54 @@ TEST_F(OperatorGoldenTest, AudioAsrIntentSlotExtractionGolden) {
 
 // Golden Test 7: CrossRerank (Biz 7)
 TEST_F(OperatorGoldenTest, CrossRerankGolden) {
+  if (!BackendRegistry::Instance().Find("onnxruntime").has_value()) {
+    GTEST_SKIP() << "ONNX Runtime backend disabled in this build";
+  }
+  auto temp_dir = std::filesystem::temp_directory_path() /
+                  ("test_golden_rerank_" + std::to_string(rand()));
+  auto models_dir = temp_dir / "models";
+  std::filesystem::create_directories(models_dir);
+
+  std::error_code ec;
+  std::filesystem::copy_file(EDGEFLOW_STAGE4_RERANK_ONNX_FIXTURE,
+                             models_dir / "bge_reranker_large.onnx",
+                             std::filesystem::copy_options::overwrite_existing,
+                             ec);
+  std::filesystem::copy_file(
+      EDGEFLOW_STAGE3_VOCAB_FIXTURE, models_dir / "vocab.txt",
+      std::filesystem::copy_options::overwrite_existing, ec);
+
+  std::ifstream json_in("configs/pipeline_cross_rerank.json");
+  ASSERT_TRUE(json_in.good());
+  nlohmann::json pipe_json;
+  json_in >> pipe_json;
+  pipe_json["models"][0]["model_path"] = "models/bge_reranker_large.onnx";
+  pipe_json["models"][0]["model_config"]["tokenizer_file"] = "vocab.txt";
+  pipe_json["models"][0]["model_config"]["max_length"] = 32;
+
+  auto temp_json_path = temp_dir / "pipeline_cross_rerank.json";
+  std::ofstream json_out(temp_json_path);
+  json_out << pipe_json.dump(2);
+  json_out.close();
+
+  std::ifstream conf_in("configs/pipeline_cross_rerank.conf");
+  ASSERT_TRUE(conf_in.good());
+  nlohmann::json conf_json;
+  conf_in >> conf_json;
+  conf_json["data"]["pipe_path"] = "pipeline_cross_rerank.json";
+  conf_json["data"]["model_paths"]["rerank_model_v1"] =
+      "models/bge_reranker_large.onnx";
+
+  auto temp_conf_path = temp_dir / "pipeline_cross_rerank.conf";
+  std::ofstream conf_out(temp_conf_path);
+  conf_out << conf_json.dump(2);
+  conf_out.close();
+
   using namespace llm_edgeflow::operator_api;
+  std::string temp_dir_str = temp_dir.string();
   CreateParam param{};
-  param.model_path = ".";
-  param.cfg_file_name = "configs/pipeline_cross_rerank.conf";
+  param.model_path = temp_dir_str.c_str();
+  param.cfg_file_name = "pipeline_cross_rerank.conf";
   param.device_id = 0;
   param.compute_platform = ComputePlatform::kCpu;
 
@@ -415,6 +472,7 @@ TEST_F(OperatorGoldenTest, CrossRerankGolden) {
   outputs.clear();
   out_sp.reset();
   EXPECT_EQ(ops_.Destroy(handle), 0);
+  std::filesystem::remove_all(temp_dir, ec);
 }
 
 }  // namespace alg_framework

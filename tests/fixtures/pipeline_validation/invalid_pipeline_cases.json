@@ -49,7 +49,7 @@
       "pipeline": {
         "biz_name": "entity_extract_0.6b_v1",
         "models": [
-          {"model_id": "llm", "engine_type": "mock_npu_llm"}
+          {"model_id": "llm", "capability": "llm", "model_type": "test_business_llm", "backend": "test_causal_lm_backend", "model_path": "fixture.gguf"}
         ],
         "pipeline": [
           {
@@ -85,7 +85,7 @@
       "pipeline": {
         "biz_name": "entity_extract_0.6b_v1",
         "models": [
-          {"model_id": "llm", "engine_type": "mock_npu_llm"}
+          {"model_id": "llm", "capability": "llm", "model_type": "test_business_llm", "backend": "test_causal_lm_backend", "model_path": "fixture.gguf"}
         ],
         "pipeline": [
           {
@@ -121,7 +121,7 @@
       "pipeline": {
         "biz_name": "entity_extract_0.6b_v1",
         "models": [
-          {"model_id": "embedding", "engine_type": "mock_npu_embedding"}
+          {"model_id": "embedding", "capability": "embedding", "model_type": "test_business_embedding", "backend": "test_tensor_backend", "model_path": "fixture.onnx"}
         ],
         "pipeline": [
           {
@@ -165,7 +165,7 @@
       "required_codes": ["DAG_CYCLE"],
       "primary_code": "DAG_CYCLE",
       "primary_path": "/pipeline",
-      "pipeline_error_code": 14,
+      "pipeline_error_code": 15,
       "runtime_error_code": -2
     },
     {
@@ -231,13 +231,13 @@
       "runtime_error_code": -2
     },
     {
-      "name": "serialized_engine_concurrency",
+      "name": "serialized_model_concurrency",
       "biz_type": 3,
       "pipeline": {
         "biz_name": "entity_extract_0.6b_v1",
         "execution_mode": "parallel",
         "models": [
-          {"model_id": "serialized_llm", "engine_type": "mock_npu_llm"}
+          {"model_id": "serialized_llm", "capability": "llm", "model_type": "test_business_llm", "backend": "test_causal_lm_backend", "model_path": "fixture.gguf"}
         ],
         "pipeline": [
           {
@@ -280,8 +280,8 @@
           }
         ]
       },
-      "required_codes": ["SERIALIZED_ENGINE_CONCURRENCY"],
-      "primary_code": "SERIALIZED_ENGINE_CONCURRENCY",
+      "required_codes": ["SERIALIZED_MODEL_CONCURRENCY"],
+      "primary_code": "SERIALIZED_MODEL_CONCURRENCY",
       "primary_path": "/pipeline/2/config/bind_model",
       "pipeline_error_code": 8,
       "runtime_error_code": -2

@@ -8,8 +8,8 @@
 #include "core/node_registry.h"
 #include "core/pipeline.h"
 #include "core/pipeline_diagnostic.h"
-#include "engine/engine_interface.h"
-#include "engine/engine_registry.h"
+#include "engine/model_interface.h"
+#include "engine/model_registry.h"
 
 namespace alg_framework {
 
@@ -22,12 +22,13 @@ inline NodeDefinition MakeTestNodeDef(const std::string& type) {
   return def;
 }
 
-inline EngineDefinition MakeTestEngineDef(const std::string& type) {
-  EngineDefinition def;
-  def.engine_type = type;
-  def.capability = "test";
-  def.description = "test engine " + type;
-  def.thread_model = EngineThreadModel::kConcurrent;
+inline ModelDefinition MakeTestModelDef(const std::string& type) {
+  ModelDefinition def;
+  def.model_type = type;
+  def.capability = "embedding";
+  def.description = "test model " + type;
+  def.required_protocol = ExecutionProtocol::kTensorGraph;
+  def.concurrency = InferenceConcurrency::kConcurrent;
   return def;
 }
 
@@ -46,79 +47,79 @@ class DummyNode : public INode {
 };
 REGISTER_NODE_WITH_DEFINITION(DummyNode, MakeTestNodeDef(DummyNode::kNodeType));
 
-class DummyEngine : public IModelEngine {
+class DummyModel : public IEmbeddingModel {
  public:
-  inline static constexpr char kEngineType[] = "dummy_engine";
-
-  bool Load(const std::string&, const nlohmann::json&) override { return true; }
-  size_t GetMaxBatchSize() const override { return 1; }
-  const std::string& EngineType() const override {
-    static const std::string type = kEngineType;
+  inline static constexpr char kModelType[] = "dummy_model";
+  static std::shared_ptr<IModel> Create(const ModelCreateContext&,
+                                        std::string*) {
+    return std::make_shared<DummyModel>();
+  }
+  size_t GetMaxBatchSize() const noexcept override { return 1; }
+  const std::string& ModelType() const noexcept override {
+    static const std::string type = kModelType;
     return type;
   }
+  const std::string& Capability() const noexcept override {
+    static const std::string capability = "embedding";
+    return capability;
+  }
+  InferenceConcurrency Concurrency() const noexcept override {
+    return InferenceConcurrency::kConcurrent;
+  }
+  int Embed(const TextBatch&, const EmbeddingOptions&,
+            EmbeddingBatch*) noexcept override {
+    return 0;
+  }
 };
-REGISTER_ENGINE_WITH_DEFINITION(DummyEngine,
-                                MakeTestEngineDef(DummyEngine::kEngineType));
+REGISTER_MODEL_WITH_DEFINITION(DummyModel,
+                               MakeTestModelDef(DummyModel::kModelType));
 
-// FINAL-R1-002: 独立 TEST 隔离 Node 冲突与 Engine 冲突，杜绝跨套件污染
-
-// 1. 独立验证 Node 注册冲突与 fail-closed
 TEST(RegistryConflictNodeTest, DuplicateNodeFailClosed) {
   ASSERT_FALSE(NodeFactory::Instance().HasConflict());
-  ASSERT_FALSE(EngineFactory::Instance().HasConflict());
-
-  bool dup_node = NodeFactory::Instance().Register(
-      "DummyNode", []() { return std::make_unique<DummyNode>(); },
-      MakeTestNodeDef("DummyNode"));
-  EXPECT_FALSE(dup_node);
+  ASSERT_FALSE(ModelRegistry::Instance().HasConflict());
+  EXPECT_FALSE(NodeFactory::Instance().Register(
+      DummyNode::kNodeType, []() { return std::make_unique<DummyNode>(); },
+      MakeTestNodeDef(DummyNode::kNodeType)));
   EXPECT_TRUE(NodeFactory::Instance().HasConflict());
+  EXPECT_NE(NodeFactory::Instance().Create(DummyNode::kNodeType), nullptr);
 
-  // 首次注册必须保留
-  auto node_inst = NodeFactory::Instance().Create("DummyNode");
-  EXPECT_NE(node_inst, nullptr);
-
-  // Pipeline 构建 fail-closed 并定位至 /pipeline
   Pipeline pipe;
   PipelineDiagnostic diag;
   nlohmann::json cfg = {
       {"business_name", "conflict_node_test"},
       {"pipeline",
        nlohmann::json::array({{{"id", "node_0_DummyNode"},
-                               {"node_type", "DummyNode"},
+                               {"node_type", DummyNode::kNodeType},
                                {"depends_on", nlohmann::json::array()}}})}};
-
   EXPECT_FALSE(pipe.BuildFromJson(
       cfg, &diag, ValidationPolicy::kPrivateExtensionCompatible));
   EXPECT_EQ(diag.code, PipelineErrorCode::kRegistryConflict);
   EXPECT_EQ(diag.path, "/pipeline");
 }
 
-// 2. 独立验证 Engine 注册冲突与 fail-closed
-TEST(RegistryConflictEngineTest, DuplicateEngineFailClosed) {
+TEST(RegistryConflictModelTest, DuplicateModelFailClosed) {
   ASSERT_FALSE(NodeFactory::Instance().HasConflict());
-  ASSERT_FALSE(EngineFactory::Instance().HasConflict());
+  ASSERT_FALSE(ModelRegistry::Instance().HasConflict());
+  EXPECT_FALSE(ModelRegistry::Instance().Register(
+      MakeTestModelDef(DummyModel::kModelType), DummyModel::Create));
+  EXPECT_TRUE(ModelRegistry::Instance().HasConflict());
 
-  bool dup_engine = EngineFactory::Instance().Register(
-      "dummy_engine", []() { return std::make_unique<DummyEngine>(); },
-      MakeTestEngineDef("dummy_engine"));
-  EXPECT_FALSE(dup_engine);
-  EXPECT_TRUE(EngineFactory::Instance().HasConflict());
-
-  auto engine_inst = EngineFactory::Instance().Create("dummy_engine");
-  EXPECT_NE(engine_inst, nullptr);
-
-  // Pipeline 构建 fail-closed 并定位至 /models
   Pipeline pipe;
   PipelineDiagnostic diag;
   nlohmann::json cfg = {
-      {"business_name", "conflict_engine_test"},
-      {"models", nlohmann::json::array(
-                     {{{"model_id", "m1"}, {"engine_type", "dummy_engine"}}})},
+      {"business_name", "conflict_model_test"},
+      {"models",
+       nlohmann::json::array({{{"model_id", "m1"},
+                               {"capability", "embedding"},
+                               {"model_type", DummyModel::kModelType},
+                               {"backend", "unused_backend"},
+                               {"model_path", "unused.bin"},
+                               {"model_config", nlohmann::json::object()},
+                               {"backend_config", nlohmann::json::object()}}})},
       {"pipeline",
        nlohmann::json::array({{{"id", "node_0_DummyNode"},
-                               {"node_type", "DummyNode"},
+                               {"node_type", DummyNode::kNodeType},
                                {"depends_on", nlohmann::json::array()}}})}};
-
   EXPECT_FALSE(pipe.BuildFromJson(
       cfg, &diag, ValidationPolicy::kPrivateExtensionCompatible));
   EXPECT_EQ(diag.code, PipelineErrorCode::kRegistryConflict);

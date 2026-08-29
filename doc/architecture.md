@@ -34,7 +34,7 @@ graph TD
             S_Ctx["SessionContext (句柄级持久状态)<br>• ModelManager 多模型池<br>• 句柄共享缓存资源"]
             R_Ctx["AlgContext (请求级瞬态黑板)<br>• std::any 类型安全擦除<br>• 自动生命周期析构"]
             TraceTag["TraceableItem 溯源追踪<br>• req_id (请求索引)<br>• sub_id (1对N分片索引)"]
-            Factory["NodeFactory & EngineFactory<br>• *_WITH_DEFINITION 就地注册"]
+            Factory["NodeFactory / ModelRegistry / BackendRegistry<br>• *_WITH_DEFINITION 就地注册"]
         end
     end
 
@@ -60,18 +60,22 @@ graph TD
     end
 
     %% Level 4
-    subgraph L4["Layer 4: 多后端模型引擎与批处理调度层 (Multi-Backend Engine & Batch Layer)"]
-        EngineBase["IModelEngine 基础引擎抽象"]
-        LlmIntf["ILlmEngine<br>(Generate / Stream)"]
-        EmbedIntf["IEmbeddingEngine<br>(BatchEncode)"]
+    subgraph L4["Layer 4: 模型能力与推理 Backend 层 (Model & Backend Layer)"]
+        ModelBase["IModel 强类型能力抽象"]
+        BackendBase["IInferenceBackend / IBackendSession<br>中性执行协议"]
+        LlmIntf["ILlmModel + ICausalLmSession<br>(Generate / Token Evaluate)"]
+        EmbedIntf["IEmbeddingModel / IRerankModel<br>+ ITensorGraphSession"]
         
         BatchExec["FixedBatchExecutor (硬件固定 Batch 调度器)<br>• 样本自动 Chunking 分块<br>• 末尾 Dummy Pad 自动补齐<br>• 推理后剥离 Pad 并保留溯源标签"]
         
-        subgraph HardwareBackends["底层硬件与引擎适配器 (src/engine/)"]
-            NpuEmbed["MockNpuEmbeddingEngine<br>(NPU CANN/RKNN, Batch=4)"]
-            NpuLlm["MockNpuLlmEngine<br>(NPU LLM, Batch=2)"]
-            OnnxEngine["OnnxEmbedding / OnnxRerank<br>(ONNX Runtime, CPU/CUDA)"]
-            LlamaCpp["LlamaCppEngine<br>(llama.cpp GGUF)"]
+        subgraph ModelSemantics["模型语义实现 (src/engine/models/)"]
+            BgeModels["BgeEmbeddingModel / BgeRerankerModel"]
+            QwenModel["QwenCausalLmModel<br>(ChatML / sampling / generation loop)"]
+        end
+
+        subgraph HardwareBackends["硬件推理 Backend (src/engine/backends/)"]
+            OnnxBackend["OnnxRuntimeBackend<br>(TensorGraph, CPU/CUDA)"]
+            LlamaCpp["LlamaCppBackend<br>(Causal LM, GGUF runtime)"]
         end
     end
 
@@ -88,15 +92,17 @@ graph TD
     NodeBase -.-> BizNodes
     CommonNodes & BizNodes -->|读写特征与溯源数据| R_Ctx
     CommonNodes & BizNodes -->|从 ModelManager 获取模型| S_Ctx
-    CommonNodes & BizNodes -->|调用模型推理| LlmIntf & EmbedIntf
-    LlmIntf & EmbedIntf --> BatchExec
-    BatchExec --> HardwareBackends
+    CommonNodes & BizNodes -->|调用强类型模型能力| LlmIntf & EmbedIntf
+    LlmIntf & EmbedIntf --> ModelSemantics
+    ModelSemantics -->|仅依赖中性协议| BackendBase
+    BackendBase --> HardwareBackends
+    ModelSemantics --> BatchExec
 
     class Caller ext;
     class C_API,C_Adapter l1;
     class PipeCore,S_Ctx,R_Ctx,TraceTag,Factory l2;
     class NodeApi,NodeBase,ModelNode,CommonNodes,BizNodes,LlmNode,PromptNode,VecSearchNode,RerankNode,PreNode,RuleNode,PostNode l3;
-    class EngineBase,LlmIntf,EmbedIntf,BatchExec,NpuEmbed,NpuLlm,OnnxEngine,LlamaCpp l4;
+    class ModelBase,BackendBase,LlmIntf,EmbedIntf,BatchExec,BgeModels,QwenModel,OnnxBackend,LlamaCpp l4;
 ```
 
 ---
@@ -126,7 +132,7 @@ C++ Operator API：NamedIoBatch + Operator 镜像 C 结构 ─┘
   `OperatorValueTypeRegistry` 负责“后缀到外部 C 类型”的唯一绑定，
   `OperatorBizBridgeDescriptor` 负责按业务和方向收集一个或多个槽位，再转换为
   内部 DTO；两种协议不得通过 `reinterpret_cast` 混用布局。
-- 命名解耦设计：`Integration -> Operator -> Pipeline -> Node -> Engine -> Platform`。
+- 命名解耦设计：`Integration -> Operator -> Pipeline -> Node -> Model -> Backend -> Platform`。
   `Operator` 表达对外交付的算法实例，`Platform`（`ComputePlatform`）表达底层硬件执行平台（CPU、CUDA、AX650、Ascend 等）。
 - 同一业务可以使用一个聚合结构槽位，也可以由多个原子槽位组成；支持多槽位解绑。
 - `CompanyString` 只表达无嵌入 NUL 的文本；任意二进制数据使用 `CompanyBuffer`。
@@ -134,7 +140,7 @@ C++ Operator API：NamedIoBatch + Operator 镜像 C 结构 ─┘
 - 输出由算法库在 Create 期按 `max_frame_depth` 预分配；Process 返回带自定义
   deleter 的 shared_ptr，最后一个引用析构后 reset 并回池；deleter 只捕获池状态的
   weak lifetime token，避免 Destroy 后解引用已释放句柄或池。
-- 值类型表、业务桥接表和内存池只属于 Layer 1，不得进入 Blackboard、Node 或 Engine。
+- 值类型表、业务桥接表和内存池只属于 Layer 1，不得进入 Blackboard、Node、Model 或 Backend。
 - 目标共享库输出名称为 `company_alg_sdk`，SOVERSION 为 4。
 - v4 Create 和配置预检都以必填部署根 `model_path` 加相对 `cfg_file_name` 解析；
   `.conf` 的 `data.mem_que` 归一化输出后缀、metadata 容量和嵌套字段容量。
@@ -147,7 +153,7 @@ C++ Operator API：NamedIoBatch + Operator 镜像 C 结构 ─┘
      - `SessionContext`：句柄级常驻状态，管理单句柄加载的多个模型实例（`ModelManager`）；
      - `AlgContext`：请求级强类型黑板（`BlackboardKey<T>`），零内存拷贝传递特征；
      - `TraceableItem<T>`：样本溯源标签（`req_id` + `sub_id`），保证 1对N 裂变后可严格 1:1 对齐回原请求；
-  3. **自注册 SSOT 机制**：`REGISTER_NODE_WITH_DEFINITION` 与 `REGISTER_ENGINE_WITH_DEFINITION`，自动向 `PipelineCatalog` 注册输入输出契约。
+  3. **自注册 SSOT 机制**：Node、Model 与 Backend 分别通过 `REGISTER_NODE_WITH_DEFINITION`、`REGISTER_MODEL_WITH_DEFINITION` 和 `REGISTER_BACKEND_WITH_DEFINITION` 就地声明，`PipelineCatalog` 仅聚合这三类定义。
 
 ### Layer 3: 通用能力算子层 (Stateless Capability Nodes)
 - **代码位置**：`src/common_nodes/`，`include/nodes/`
@@ -156,12 +162,14 @@ C++ Operator API：NamedIoBatch + Operator 镜像 C 结构 ─┘
   2. **异常安全屏障**：`NodeBase::Init` 和 `NodeBase::Process` 设为 `final noexcept`，派生类覆写 `InitNode` 与 `ProcessNode`，提供 `Require`、`Publish`、`Fail` 辅助方法；
   3. **模块化与配置组合**：11 类核心通用算子（`LlmGenerateNode`, `TextChunkNode`, `TextRuleMatchNode`, `TextEmbeddingNode`, `VectorTopKNode`, `TextRerankNode`, `TextTemplateNode`, `StructuredJsonParseNode`, `AsrTranscribeNode`, `OcrDetectNode`, `TextCorpusSourceNode`）全部收敛在 `src/common_nodes/`，通过 JSON Pipeline 自由编排。
 
-### Layer 4: 多后端模型引擎与批处理调度层 (Multi-Backend Engine & Batch)
+### Layer 4: 模型能力与推理 Backend 层 (Model & Backend)
 - **代码位置**：`include/engine/`，`src/engine/`
 - **核心职责**：
-  1. 纯虚接口屏蔽硬件差异（`ILlmEngine`, `IEmbeddingEngine`, `IOcrEngine`, `IRerankEngine`, `IAudioAsrEngine`）；
-  2. **固定 Max Batch 自动调度（`FixedBatchExecutor`）**：解决端侧 NPU 静态编译 `max_batch_size` 限制，自动完成批次切分、末尾补齐 Dummy Pad、推理后剔除 Pad 与结果回溯对齐；
-  3. 切换底层芯片（NPU/GPU/CPU）只需改动 JSON 配置中的 `engine_type`，业务代码 0 修改。
+  1. `IEmbeddingModel`、`IRerankModel`、`ILlmModel`、`IOcrModel` 和 `IAsrModel` 表达模型语义，Node 只依赖所需能力；
+  2. `ITensorGraphSession` 与 `ICausalLmSession` 表达中性执行协议，Backend 负责模型资源加载和硬件会话，模型实现不包含 ONNX Runtime/llama.cpp 具体类型；
+  3. `ModelRuntimeFactory` 依据 `model_type + backend` 组合模型与 Backend，校验协议和并发契约后再原子注册到 `ModelManager`；
+  4. **固定 Max Batch 自动调度（`FixedBatchExecutor`）**：完成批次切分、Dummy Pad、Pad 剔除和 `(req_id, sub_id)` 溯源；
+  5. 切换 NPU/GPU/CPU 只改 JSON 中的 `backend` 与 `backend_config`，不改业务 Node 或模型语义实现。
 
 ---
 
@@ -175,7 +183,8 @@ sequenceDiagram
     participant Pipe as Pipeline 调度器 (L2)
     participant Ctx as AlgContext 黑板 (L2)
     participant Node as 业务算子 NodeBase (L3)
-    participant Engine as 模型引擎 & Batch调度器 (L4)
+    participant Model as 强类型模型能力 (L4)
+    participant Backend as 中性协议 Backend 会话 (L4)
     participant HW as 底层硬件 NPU/GPU (L4)
 
     App->>Adapter: Alg_Process(inputs: const void**, num_inputs, outputs: void**, &num_outputs)
@@ -186,12 +195,14 @@ sequenceDiagram
         Pipe->>Node: Process(ctx)
         Node->>Ctx: Require(ctx, key, error_code) 读取上游特征
         opt 需要模型推理
-            Node->>Engine: InferTraceableBatch(items)
-            Engine->>Engine: 固定 Batch 切块 + Dummy Pad 补齐
-            Engine->>HW: 执行硬件推理 (固定 batch_size)
-            HW-->>Engine: 返回硬件 Raw 输出
-            Engine->>Engine: 剥离 Pad，恢复 (req_id, sub_id) 溯源标签
-            Engine-->>Node: 返回强类型对齐输出
+            Node->>Model: Embed / Score / Generate / Recognize / Transcribe
+            Model->>Model: 固定 Batch 切块 + Dummy Pad 补齐
+            Model->>Backend: 通过 TensorGraph / CausalLm 协议执行
+            Backend->>HW: 调用硬件推理时
+            HW-->>Backend: 返回原始执行结果
+            Backend-->>Model: 返回中性 Tensor / Token 结果
+            Model->>Model: 剥离 Pad，恢复 (req_id, sub_id) 溯源标签
+            Model-->>Node: 返回强类型对齐输出
         end
         Node->>Node: 处理业务私有逻辑 / 规则字典匹配
         Node->>Ctx: Publish(ctx, key, value) 写回中间特征或最终结果
@@ -278,8 +289,12 @@ REGISTER_NODE_WITH_DEFINITION(MyCustomNode, MakeMyCustomNodeDefinition());
   "models": [
     {
       "model_id": "my_llm",
-      "engine_type": "mock_npu_llm",
-      "model_path": "./models/my_llm.bin"
+      "capability": "llm",
+      "model_type": "qwen_causal_lm",
+      "backend": "llama_cpp",
+      "model_path": "./models/my_llm.gguf",
+      "model_config": {},
+      "backend_config": {"n_ctx": 2048}
     }
   ],
   "pipeline": [

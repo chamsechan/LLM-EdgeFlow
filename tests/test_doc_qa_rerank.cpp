@@ -35,7 +35,8 @@ TEST_F(DocQaRerankPipelineTest, ExecuteDocQaWithRerankerAndLlm) {
   std::string root_dir = GetConfDir();
   CreateParam param{};
   param.model_path = root_dir.c_str();
-  param.cfg_file_name = "configs/pipeline_doc_qa_rerank.conf";
+  param.cfg_file_name =
+      "tests/fixtures/stage7/smoke/pipeline_doc_qa_rerank.conf";
   param.compute_platform = ComputePlatform::kAx650;
   param.max_frame_depth = 25;
 

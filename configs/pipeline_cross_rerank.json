@@ -2,12 +2,25 @@
   "biz_name": "dense_cross_rerank_scoring",
   "models": [
     {
-      "config": {
+      "model_id": "rerank_model_v1",
+      "capability": "rerank",
+      "model_type": "bge_reranker",
+      "backend": "onnxruntime",
+      "model_path": "./models/bge_reranker_large.onnx",
+      "model_config": {
+        "tokenizer_file": "vocab.txt",
+        "do_lower_case": true,
+        "max_length": 512,
+        "output_name": "logits",
+        "score_activation": "sigmoid",
         "max_batch_size": 4
       },
-      "engine_type": "onnx_rerank",
-      "model_id": "rerank_model_v1",
-      "model_path": "./models/bge_reranker_large.onnx"
+      "backend_config": {
+        "max_batch_size": 4,
+        "intra_op_num_threads": 2,
+        "inter_op_num_threads": 1,
+        "graph_optimization_level": "all"
+      }
     }
   ],
   "pipeline": [

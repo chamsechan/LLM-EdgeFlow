@@ -145,7 +145,8 @@ TEST_F(TextTemplateNodeTest, PipelineEnforcesPublishedControlSchema) {
   Pipeline pipeline;
   PipelineDiagnostic diagnostic;
   ASSERT_TRUE(pipeline.BuildFromConfigFile(
-      ResolveConfigPath("configs/pipeline_doc_qa.json"), &diagnostic))
+      ResolveConfigPath("tests/fixtures/stage7/smoke/pipeline_doc_qa.json"),
+      &diagnostic))
       << diagnostic.message;
 
   EXPECT_NE(pipeline.Control(kControlCmdUpdatePrompt, "{}"), 0);

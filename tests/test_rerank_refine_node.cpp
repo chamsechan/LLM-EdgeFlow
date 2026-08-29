@@ -12,48 +12,46 @@
 #include "core/node_registry.h"
 #include "core/session_context.h"
 #include "core/traceable_item.h"
-#include "engine/engine_interface.h"
+#include "engine/model_interface.h"
 
 namespace alg_framework {
 
 /**
  * @brief 专用于测试 TextRerankNode 重排序与 Top-K 行为的可控 Mock 引擎
  */
-class ControllableMockRerankEngine : public IRerankEngine {
+class ControllableMockRerankModel : public IRerankModel {
  public:
-  bool Load(const std::string& model_path,
-            const nlohmann::json& config) override {
-    (void)model_path;
-    (void)config;
-    return true;
+  const std::string& ModelType() const noexcept override {
+    static const std::string type = "controllable_mock_rerank";
+    return type;
   }
+  const std::string& Capability() const noexcept override {
+    static const std::string capability = "rerank";
+    return capability;
+  }
+  InferenceConcurrency Concurrency() const noexcept override {
+    return InferenceConcurrency::kConcurrent;
+  }
+  size_t GetMaxBatchSize() const noexcept override { return 16; }
 
-  int ScoreTraceableBatch(
-      const std::vector<TraceableItem<PairInput>>& input_pairs,
-      std::vector<TraceableItem<float>>* output_scores) override {
+  int Score(const QueryCandidatesBatch& input_pairs,
+            ScoreBatch* output_scores) noexcept override {
     if (!output_scores) return -1;
     output_scores->clear();
     for (const auto& item : input_pairs) {
       float score = 0.5f;
-      if (item.data.passage.find("SCORE_0.9") != std::string::npos) {
+      if (item.data.candidate.find("SCORE_0.9") != std::string::npos) {
         score = 0.9f;
-      } else if (item.data.passage.find("SCORE_0.7") != std::string::npos) {
+      } else if (item.data.candidate.find("SCORE_0.7") != std::string::npos) {
         score = 0.7f;
-      } else if (item.data.passage.find("SCORE_0.3") != std::string::npos) {
+      } else if (item.data.candidate.find("SCORE_0.3") != std::string::npos) {
         score = 0.3f;
-      } else if (item.data.passage.find("SCORE_0.1") != std::string::npos) {
+      } else if (item.data.candidate.find("SCORE_0.1") != std::string::npos) {
         score = 0.1f;
       }
       output_scores->emplace_back(item.req_id, item.sub_id, score);
     }
     return 0;
-  }
-
-  size_t GetMaxBatchSize() const override { return 16; }
-
-  const std::string& EngineType() const override {
-    static const std::string type = "controllable_mock_rerank";
-    return type;
   }
 };
 
@@ -61,16 +59,16 @@ class TextRerankNodeTest : public ::testing::Test {
  protected:
   void SetUp() override {
     Alg_Init();
-    mock_engine_ = std::make_shared<ControllableMockRerankEngine>();
+    mock_model_ = std::make_shared<ControllableMockRerankModel>();
     session_ctx_.GetModelManager().RegisterModel("test_rerank_model",
-                                                 mock_engine_);
+                                                 mock_model_, "test-v1");
     node_ = NodeFactory::Instance().Create("TextRerankNode");
     ASSERT_NE(node_, nullptr);
   }
 
   void TearDown() override { Alg_DeInit(); }
 
-  std::shared_ptr<ControllableMockRerankEngine> mock_engine_;
+  std::shared_ptr<ControllableMockRerankModel> mock_model_;
   SessionContext session_ctx_;
   std::unique_ptr<INode> node_;
 };

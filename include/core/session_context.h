@@ -4,10 +4,14 @@
 #include <cstdint>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
+#include <utility>
+#include <vector>
 
-#include "engine/engine_interface.h"
+#include "engine/model_interface.h"
 
 namespace alg_framework {
 
@@ -28,34 +32,118 @@ struct RuntimeOptions {
 };
 
 /**
- * @brief 单句柄持有的模型实例资源池
+ * @brief 模型会话级注册元数据
+ */
+struct ModelRegistration {
+  std::string model_id;
+  std::string model_type;
+  std::string capability;
+  std::string backend_type;
+  std::string revision;
+  std::shared_ptr<IModel> model;
+  std::string resolved_model_path;
+  nlohmann::json normalized_model_config = nlohmann::json::object();
+  nlohmann::json normalized_backend_config = nlohmann::json::object();
+};
+
+/**
+ * @brief 单句柄持有的模型实例资源池 (ModelManager)
  */
 class ModelManager {
  public:
-  bool RegisterModel(const std::string& model_id,
-                     std::shared_ptr<IModelEngine> engine,
-                     std::string revision = {}) {
+  bool RegisterBatch(const std::vector<ModelRegistration>& models) {
+    if (models.empty()) return true;
+
+    std::unordered_set<std::string> staged_ids;
+    std::vector<ModelRegistration> staged_registrations;
+    staged_registrations.reserve(models.size());
+    for (const auto& item : models) {
+      if (item.model_id.empty() || !item.model) {
+        return false;
+      }
+      if (!staged_ids.insert(item.model_id).second) {
+        return false;  // staging 内重复
+      }
+      // 核对注册元数据与模型自身身份一致性
+      if (!item.model_type.empty() &&
+          item.model->ModelType() != item.model_type) {
+        return false;
+      }
+      if (!item.capability.empty() &&
+          item.model->Capability() != item.capability) {
+        return false;
+      }
+      std::string rev = item.revision;
+      if (rev.empty()) {
+        if (item.model_type.empty() || item.backend_type.empty() ||
+            item.resolved_model_path.empty() ||
+            !item.normalized_model_config.is_object() ||
+            !item.normalized_backend_config.is_object()) {
+          return false;
+        }
+        rev = item.model_type + "\n" + item.backend_type + "\n" +
+              item.resolved_model_path + "\n" +
+              item.normalized_model_config.dump() + "\n" +
+              item.normalized_backend_config.dump();
+      }
+      ModelRegistration reg = item;
+      reg.revision = std::move(rev);
+      staged_registrations.push_back(std::move(reg));
+    }
+
     std::lock_guard<std::mutex> lock(mutex_);
-    if (model_id.empty() || !engine) {
-      return false;
+    for (const auto& item : staged_registrations) {
+      if (models_.find(item.model_id) != models_.end()) {
+        return false;
+      }
     }
-    if (models_.find(model_id) != models_.end()) {
-      return false;
+
+    // 所有可能失败的准备工作在临时容器完成，最终通过 noexcept swap 提交。
+    auto new_models = models_;
+    auto new_revisions = revisions_;
+    auto new_registrations = registrations_;
+
+    for (auto& item : staged_registrations) {
+      const std::string model_id = item.model_id;
+      const std::string revision = item.revision;
+
+      new_models[model_id] = item.model;
+      new_revisions[model_id] = revision;
+      new_registrations[model_id] = std::move(item);
     }
-    if (revision.empty()) {
-      revision = std::to_string(reinterpret_cast<uintptr_t>(engine.get()));
-    }
-    models_[model_id] = std::move(engine);
-    revisions_[model_id] = std::move(revision);
+    models_.swap(new_models);
+    revisions_.swap(new_revisions);
+    registrations_.swap(new_registrations);
     return true;
+  }
+
+  /**
+   * @brief 注册单个模型实例
+   */
+  bool RegisterModel(const std::string& model_id, std::shared_ptr<IModel> model,
+                     std::string revision = {}, std::string model_type = {},
+                     std::string capability = {},
+                     std::string backend_type = {}) {
+    if (model_id.empty() || !model) return false;
+    ModelRegistration reg;
+    reg.model_id = model_id;
+    reg.model_type = std::move(model_type);
+    reg.capability = std::move(capability);
+    reg.backend_type = std::move(backend_type);
+    reg.revision = std::move(revision);
+    reg.model = std::move(model);
+    return RegisterBatch({std::move(reg)});
   }
 
   template <typename T>
   std::shared_ptr<T> GetModel(const std::string& model_id) const {
     std::lock_guard<std::mutex> lock(mutex_);
     auto it = models_.find(model_id);
-    if (it == models_.end()) return nullptr;
-    return std::dynamic_pointer_cast<T>(it->second);
+    if (it != models_.end()) {
+      auto res = std::dynamic_pointer_cast<T>(it->second);
+      if (res) return res;
+    }
+    return nullptr;
   }
 
   bool HasModel(const std::string& model_id) const {
@@ -69,35 +157,51 @@ class ModelManager {
     return it == revisions_.end() ? std::string() : it->second;
   }
 
+  std::optional<ModelRegistration> GetModelRegistration(
+      const std::string& model_id) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = registrations_.find(model_id);
+    if (it == registrations_.end()) return std::nullopt;
+    return it->second;
+  }
+
   bool UpdateModelRevision(const std::string& model_id, std::string revision) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (revision.empty() || models_.find(model_id) == models_.end()) {
       return false;
     }
     revisions_[model_id] = std::move(revision);
+    if (registrations_.find(model_id) != registrations_.end()) {
+      registrations_[model_id].revision = revisions_[model_id];
+    }
     return true;
   }
 
-  std::unordered_map<std::string, std::shared_ptr<IModelEngine>> GetAllModels()
+  std::unordered_map<std::string, std::shared_ptr<IModel>> GetAllModels()
       const {
     std::lock_guard<std::mutex> lock(mutex_);
     return models_;
   }
 
+  std::vector<ModelRegistration> GetAllRegistrations() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<ModelRegistration> result;
+    result.reserve(registrations_.size());
+    for (const auto& pair : registrations_) {
+      result.push_back(pair.second);
+    }
+    return result;
+  }
+
  private:
   mutable std::mutex mutex_;
-  std::unordered_map<std::string, std::shared_ptr<IModelEngine>> models_;
+  std::unordered_map<std::string, std::shared_ptr<IModel>> models_;
+  std::unordered_map<std::string, ModelRegistration> registrations_;
   std::unordered_map<std::string, std::string> revisions_;
 };
 
 /**
  * @brief 句柄级会话上下文 (SessionContext)
- *
- * 生命周期与算法句柄绑定 (从 Alg_Create 到 Alg_Destroy)。
- * 负责存放：
- * 1. 句柄加载的多个模型实例 (ModelManager)
- * 2. 句柄级全局资源 (共享词典、预分配缓存、全局配置等)
- * 3. 句柄运行时参数 (RuntimeOptions: model_root_dir, device_id, chip_type 等)
  */
 class SessionContext {
  public:

@@ -1,0 +1,46 @@
+{
+  "biz_name": "dense_cross_rerank_scoring",
+  "models": [
+    {
+      "model_id": "rerank_model_v1",
+      "capability": "rerank",
+      "model_type": "bge_reranker",
+      "backend": "onnxruntime",
+      "model_path": "rerank_fixture.onnx",
+      "model_config": {
+        "tokenizer_file": "vocab.txt",
+        "do_lower_case": true,
+        "max_length": 16,
+        "output_name": "logits",
+        "score_activation": "sigmoid",
+        "max_batch_size": 4
+      },
+      "backend_config": {
+        "max_batch_size": 4,
+        "intra_op_num_threads": 1,
+        "inter_op_num_threads": 1,
+        "graph_optimization_level": "all"
+      }
+    }
+  ],
+  "pipeline": [
+    {
+      "id": "node_0_TextRerankNode",
+      "node_type": "TextRerankNode",
+      "depends_on": [],
+      "ports": {
+        "inputs": {
+          "queries": "rerank_queries",
+          "candidates": "rerank_candidates"
+        },
+        "outputs": {
+          "ranked": "ranked_results"
+        }
+      },
+      "config": {
+        "bind_model": "rerank_model_v1",
+        "top_k": 8
+      }
+    }
+  ]
+}
