@@ -95,7 +95,7 @@ set(FRAMEWORK_SRCS
     src/engine/onnx/onnx_embedding_engine.cpp
     src/engine/onnx/onnx_rerank_engine.cpp
     src/engine/llama_cpp/llama_cpp_engine.cpp
-    src/engine/backends/onnxruntime/onnxruntime_backend.cpp
+    src/engine/models/bge_embedding/bert_wordpiece_tokenizer.cpp
     src/engine/models/bge_embedding/bge_embedding_model.cpp
     src/common_nodes/text_template_node.cpp
     src/common_nodes/text_chunk_node.cpp
@@ -131,6 +131,10 @@ set(FRAMEWORK_SRCS
     src/adapter/operator/operator_adapter.cpp
     src/adapter/company_c_adapter.cpp
 )
+
+if(LLM_EDGEFLOW_HAS_ONNXRUNTIME)
+  list(APPEND FRAMEWORK_SRCS src/engine/backends/onnxruntime/onnxruntime_backend.cpp)
+endif()
 
 # 1. 生成对外交付的动态算法库 (.so)
 add_library(alg_sdk SHARED ${FRAMEWORK_SRCS})
