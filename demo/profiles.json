@@ -45,7 +45,7 @@
       "business": "doc_qa",
       "config": "configs/pipeline_doc_qa_onnx.conf",
       "dataset": "data/corpus_doc_qa.txt",
-      "suite": "smoke",
+      "suite": "real",
       "batch_size": 1,
       "device_id": 0,
       "chip": "cpu_generic",

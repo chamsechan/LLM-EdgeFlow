@@ -2,13 +2,26 @@
   "biz_name": "smart_doc_qa_onnx_llamacpp_v1",
   "models": [
     {
-      "config": {
-        "embedding_dim": 128,
-        "max_batch_size": 4
-      },
-      "engine_type": "onnx_embedding",
       "model_id": "embed_model_onnx",
-      "model_path": "./models/bge_base_zh_v1.5.onnx"
+      "capability": "embedding",
+      "model_type": "bge_embedding",
+      "backend": "onnxruntime",
+      "model_path": "./models/bge_base_zh_v1.5.onnx",
+      "model_config": {
+        "tokenizer_file": "vocab.txt",
+        "do_lower_case": true,
+        "max_length": 512,
+        "pooling_strategy": "cls",
+        "normalize": true,
+        "output_name": "last_hidden_state",
+        "embedding_dim": 128
+      },
+      "backend_config": {
+        "max_batch_size": 4,
+        "intra_op_num_threads": 2,
+        "inter_op_num_threads": 1,
+        "graph_optimization_level": "all"
+      }
     },
     {
       "config": {
