@@ -162,6 +162,8 @@ edgeflow_add_runner_test(ModelBackendDecouplingTest edgeflow_test_core_runner
   "ModelBackendDecouplingTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(ModelBackendPipelineTest edgeflow_test_core_runner
   "ModelBackendPipelineTest.*" "${_edgeflow_tier1}")
+edgeflow_add_runner_test(OnnxAndEmbeddingModelTest edgeflow_test_core_runner
+  "OnnxAndEmbeddingModelTest.*" "${_edgeflow_tier1}")
 
 edgeflow_add_runner_test(TextChunkNodeTest edgeflow_test_nodes_runner
   "TextChunkNodeTest.*" "${_edgeflow_tier1}")
