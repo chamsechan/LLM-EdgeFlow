@@ -243,6 +243,9 @@ src/engine/models/bge_embedding/
 
 ## 6. 阶段四：Reranker 复用 ONNX Backend
 
+详细的文件级步骤、固定契约、测试矩阵和完成门禁见
+[阶段 4：Rerank 复用 ONNX Backend 可执行实施指南](0015-stage4-rerank-implementation-guide-20260829.md)。
+
 1. 新增 `BgeRerankerModel`，复用同一个 `ITensorGraphSession` 协议；
 2. 实现 query/candidate tokenize、pair packing、score 提取；
 3. `TextRerankNode` 改绑 `IRerankModel`；

@@ -7,6 +7,7 @@
 - **审查依据**：[RFC-0015 桩实现审查与整改清单](0015-model-capability-backend-decoupling-stub-review-20260828.md)
 - **后续实现**：[RFC-0015 后续实现指南](0015-model-capability-backend-decoupling-continuation-guide-20260829.md)
 - **阶段 3 验收与整改**：[ONNX Embedding 验收结论与实施设计](0015-stage3-onnx-embedding-acceptance-remediation-20260829.md)
+- **阶段 4 实施指南**：[Rerank 复用 ONNX Backend 可执行实施指南](0015-stage4-rerank-implementation-guide-20260829.md)
 
 ## 1. 整改目标
 
