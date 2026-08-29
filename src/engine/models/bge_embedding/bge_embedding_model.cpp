@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <cstring>
+#include <filesystem>
 #include <string>
 #include <utility>
 #include <vector>
@@ -13,71 +14,101 @@ namespace alg_framework {
 
 namespace {
 
-// 简易且确定性的中英文字符分词器 (映射至 BERT 基础词表空间)
-void SimpleBertTokenize(const std::string& text, size_t max_len,
-                        std::vector<int64_t>* input_ids,
-                        std::vector<int64_t>* attention_mask) {
-  input_ids->assign(max_len, 0);
-  attention_mask->assign(max_len, 0);
+bool ValidateEmbeddingOutput(const Tensor& tensor, size_t expected_batch,
+                             size_t expected_dim, const float** data_ptr,
+                             std::string* diagnostic) noexcept {
+  if (!tensor.buffer || tensor.buffer->Data() == nullptr) {
+    if (diagnostic) *diagnostic = "Output tensor buffer is null";
+    return false;
+  }
 
-  size_t idx = 0;
-  (*input_ids)[idx] = 101;  // [CLS]
-  (*attention_mask)[idx] = 1;
-  idx++;
-
-  size_t text_len = text.size();
-  size_t byte_idx = 0;
-
-  while (byte_idx < text_len && idx + 1 < max_len) {
-    unsigned char c = static_cast<unsigned char>(text[byte_idx]);
-    int64_t token_id = 0;
-    if (c < 0x80) {
-      token_id = static_cast<int64_t>(c) + 1000;
-      byte_idx += 1;
-    } else if ((c & 0xE0) == 0xC0 && byte_idx + 1 < text_len) {
-      token_id = 10000 + ((c & 0x1F) << 6) +
-                 (static_cast<unsigned char>(text[byte_idx + 1]) & 0x3F);
-      byte_idx += 2;
-    } else if ((c & 0xF0) == 0xE0 && byte_idx + 2 < text_len) {
-      token_id =
-          20000 + ((c & 0x0F) << 12) +
-          ((static_cast<unsigned char>(text[byte_idx + 1]) & 0x3F) << 6) +
-          (static_cast<unsigned char>(text[byte_idx + 2]) & 0x3F);
-      byte_idx += 3;
-    } else if ((c & 0xF8) == 0xF0 && byte_idx + 3 < text_len) {
-      token_id =
-          50000 + ((c & 0x07) << 18) +
-          ((static_cast<unsigned char>(text[byte_idx + 1]) & 0x3F) << 12) +
-          ((static_cast<unsigned char>(text[byte_idx + 2]) & 0x3F) << 6) +
-          (static_cast<unsigned char>(text[byte_idx + 3]) & 0x3F);
-      byte_idx += 4;
-    } else {
-      token_id = 100;  // [UNK]
-      byte_idx += 1;
+  if (tensor.desc.element_type != ElementType::kFloat32) {
+    if (diagnostic) {
+      *diagnostic = "Output tensor element type is not Float32";
     }
-    (*input_ids)[idx] = token_id;
-    (*attention_mask)[idx] = 1;
-    idx++;
+    return false;
   }
 
-  if (idx < max_len) {
-    (*input_ids)[idx] = 102;  // [SEP]
-    (*attention_mask)[idx] = 1;
+  const auto& shape = tensor.desc.shape;
+  if (shape.size() != 2 && shape.size() != 3) {
+    if (diagnostic) {
+      *diagnostic = "Output tensor rank must be 2 or 3, got: " +
+                    std::to_string(shape.size());
+    }
+    return false;
   }
+
+  if (shape[0] < 0 || static_cast<size_t>(shape[0]) != expected_batch) {
+    if (diagnostic) {
+      *diagnostic = "Output tensor batch dimension mismatch. Expected: " +
+                    std::to_string(expected_batch) +
+                    ", got: " + std::to_string(shape[0]);
+    }
+    return false;
+  }
+
+  size_t dim = 0;
+  size_t total_elements = 0;
+
+  if (shape.size() == 2) {
+    if (shape[1] < 0) {
+      if (diagnostic) *diagnostic = "Output tensor dimension 1 is negative";
+      return false;
+    }
+    dim = static_cast<size_t>(shape[1]);
+    total_elements = expected_batch * dim;
+  } else {
+    if (shape[1] <= 0 || shape[2] < 0) {
+      if (diagnostic) {
+        *diagnostic = "Output tensor sequence or dim dimension is invalid";
+      }
+      return false;
+    }
+    size_t seq_len = static_cast<size_t>(shape[1]);
+    dim = static_cast<size_t>(shape[2]);
+    total_elements = expected_batch * seq_len * dim;
+  }
+
+  if (dim != expected_dim) {
+    if (diagnostic) {
+      *diagnostic = "Output tensor embedding_dim mismatch. Expected: " +
+                    std::to_string(expected_dim) +
+                    ", got: " + std::to_string(dim);
+    }
+    return false;
+  }
+
+  size_t expected_byte_size = total_elements * sizeof(float);
+  if (tensor.buffer->ByteSize() < expected_byte_size) {
+    if (diagnostic) {
+      *diagnostic =
+          "Output tensor buffer byte size is smaller than expected. "
+          "Expected: " +
+          std::to_string(expected_byte_size) +
+          ", got: " + std::to_string(tensor.buffer->ByteSize());
+    }
+    return false;
+  }
+
+  *data_ptr = static_cast<const float*>(tensor.buffer->Data());
+  return true;
 }
 
 }  // namespace
 
 BgeEmbeddingModel::BgeEmbeddingModel(
-    std::shared_ptr<ITensorGraphSession> session, size_t max_length,
-    std::string pooling_strategy, bool normalize, size_t max_batch_size,
-    size_t embedding_dim)
+    std::shared_ptr<ITensorGraphSession> session,
+    BertWordPieceTokenizer tokenizer, size_t max_length,
+    std::string pooling_strategy, bool normalize, std::string output_name,
+    size_t embedding_dim, size_t max_batch_size)
     : session_(std::move(session)),
+      tokenizer_(std::move(tokenizer)),
       max_length_(max_length),
       pooling_strategy_(std::move(pooling_strategy)),
       default_normalize_(normalize),
-      max_batch_size_(max_batch_size),
-      embedding_dim_(embedding_dim) {}
+      output_name_(std::move(output_name)),
+      embedding_dim_(embedding_dim),
+      max_batch_size_(max_batch_size) {}
 
 std::shared_ptr<IModel> BgeEmbeddingModel::Create(const ModelCreateContext& ctx,
                                                   std::string* diagnostic) {
@@ -96,15 +127,55 @@ std::shared_ptr<IModel> BgeEmbeddingModel::Create(const ModelCreateContext& ctx,
     return nullptr;
   }
 
+  if (!ctx.model_config.contains("embedding_dim") ||
+      !ctx.model_config["embedding_dim"].is_number_integer()) {
+    if (diagnostic) {
+      *diagnostic = "Required field 'embedding_dim' is missing or not integer";
+    }
+    return nullptr;
+  }
+  size_t embedding_dim = ctx.model_config["embedding_dim"].get<size_t>();
+
+  std::string tokenizer_file =
+      ctx.model_config.value("tokenizer_file", "vocab.txt");
+  bool do_lower_case = ctx.model_config.value("do_lower_case", true);
   size_t max_length = ctx.model_config.value("max_length", 512);
   std::string pooling = ctx.model_config.value("pooling_strategy", "cls");
   bool normalize = ctx.model_config.value("normalize", true);
+  std::string output_name =
+      ctx.model_config.value("output_name", "last_hidden_state");
   size_t max_batch_size = ctx.model_config.value("max_batch_size", 4);
-  size_t embedding_dim = ctx.model_config.value("embedding_dim", 384);
+
+  // 解析并加载词表 sidecar 文件
+  std::filesystem::path tok_p(tokenizer_file);
+  std::filesystem::path resolved_vocab_path;
+
+  if (tok_p.is_absolute()) {
+    resolved_vocab_path = tok_p.lexically_normal();
+  } else {
+    std::string tok_str = tok_p.lexically_normal().string();
+    if (tok_str == ".." || tok_str.rfind("../", 0) == 0 ||
+        tok_str.rfind("..\\", 0) == 0) {
+      if (diagnostic) {
+        *diagnostic =
+            "Tokenizer file path cannot escape root: " + tokenizer_file;
+      }
+      return nullptr;
+    }
+    std::filesystem::path root_p(ctx.model_resource_root);
+    resolved_vocab_path = (root_p / tok_p).lexically_normal();
+  }
+
+  BertWordPieceTokenizer tokenizer;
+  if (!tokenizer.Load(resolved_vocab_path.string(), do_lower_case,
+                      diagnostic)) {
+    return nullptr;
+  }
 
   return std::make_shared<BgeEmbeddingModel>(
-      std::move(tensor_session), max_length, std::move(pooling), normalize,
-      max_batch_size, embedding_dim);
+      std::move(tensor_session), std::move(tokenizer), max_length,
+      std::move(pooling), normalize, std::move(output_name), embedding_dim,
+      max_batch_size);
 }
 
 const std::string& BgeEmbeddingModel::ModelType() const noexcept {
@@ -122,6 +193,10 @@ InferenceConcurrency BgeEmbeddingModel::Concurrency() const noexcept {
 }
 
 size_t BgeEmbeddingModel::GetMaxBatchSize() const noexcept {
+  if (session_) {
+    auto policy = session_->GetBatchPolicy();
+    return std::min(max_batch_size_, policy.max_batch_size);
+  }
   return max_batch_size_;
 }
 
@@ -142,8 +217,10 @@ int BgeEmbeddingModel::Embed(const TextBatch& inputs,
   std::string dummy_pad = "<PAD>";
   bool should_normalize = options.normalize && default_normalize_;
 
+  size_t effective_batch_size = GetMaxBatchSize();
+
   return FixedBatchExecutor::Execute<std::string, std::vector<float>>(
-      inputs, max_batch_size_, dummy_pad,
+      inputs, effective_batch_size, dummy_pad,
       [this, should_normalize](
           const std::vector<std::string>& batch_texts,
           std::vector<std::vector<float>>* batch_embeddings) {
@@ -193,8 +270,7 @@ int BgeEmbeddingModel::RawEmbedBatch(
     std::vector<int64_t> sample_mask(max_length_, 0);
 
     for (size_t b = 0; b < batch_size; ++b) {
-      SimpleBertTokenize(batch_texts[b], max_length_, &sample_ids,
-                         &sample_mask);
+      tokenizer_.Encode(batch_texts[b], max_length_, &sample_ids, &sample_mask);
       std::memcpy(ids_ptr + b * max_length_, sample_ids.data(),
                   max_length_ * sizeof(int64_t));
       std::memcpy(mask_ptr + b * max_length_, sample_mask.data(),
@@ -222,24 +298,26 @@ int BgeEmbeddingModel::RawEmbedBatch(
       return ret;
     }
 
-    // 提取输出 Tensor
-    const Tensor* out_tensor = nullptr;
-    auto it_last_hidden = output_map.find("last_hidden_state");
-    if (it_last_hidden != output_map.end()) {
-      out_tensor = &it_last_hidden->second;
-    } else if (!output_map.empty()) {
-      out_tensor = &output_map.begin()->second;
-    }
-
-    if (!out_tensor || !out_tensor->buffer ||
-        out_tensor->desc.element_type != ElementType::kFloat32) {
-      ALG_LOG_ERROR("[BgeEmbeddingModel] Invalid output tensor from session\n");
+    // 严格按 output_name_ 提取输出 Tensor
+    auto it_out = output_map.find(output_name_);
+    if (it_out == output_map.end()) {
+      ALG_LOG_ERROR(
+          "[BgeEmbeddingModel] Expected output tensor '%s' not found in "
+          "session "
+          "outputs\n",
+          output_name_.c_str());
       return -1;
     }
 
-    const float* data = static_cast<const float*>(out_tensor->buffer->Data());
-    const auto& shape = out_tensor->desc.shape;
+    const float* data = nullptr;
+    if (!ValidateEmbeddingOutput(it_out->second, batch_size, embedding_dim_,
+                                 &data, &diag)) {
+      ALG_LOG_ERROR("[BgeEmbeddingModel] ValidateEmbeddingOutput failed: %s\n",
+                    diag.c_str());
+      return -1;
+    }
 
+    const auto& shape = it_out->second.desc.shape;
     batch_embeddings->resize(batch_size);
 
     if (shape.size() == 3) {
@@ -300,10 +378,6 @@ int BgeEmbeddingModel::RawEmbedBatch(
           }
         }
       }
-    } else {
-      ALG_LOG_ERROR("[BgeEmbeddingModel] Unexpected output tensor rank: %zu\n",
-                    shape.size());
-      return -1;
     }
 
     return 0;
@@ -327,7 +401,9 @@ static const ModelDefinition kBgeEmbeddingModelDefinition = [] {
   def.required_protocol = ExecutionProtocol::kTensorGraph;
   def.concurrency = InferenceConcurrency::kConcurrent;
   def.config_fields = {
-      {"max_length", ConfigValueKind::kInteger, false, 512, 1.0, 4096.0},
+      {"tokenizer_file", ConfigValueKind::kString, false, "vocab.txt"},
+      {"do_lower_case", ConfigValueKind::kBoolean, false, true},
+      {"max_length", ConfigValueKind::kInteger, false, 512, 2.0, 4096.0},
       {"pooling_strategy",
        ConfigValueKind::kString,
        false,
@@ -336,8 +412,10 @@ static const ModelDefinition kBgeEmbeddingModelDefinition = [] {
        std::nullopt,
        {"cls", "mean"}},
       {"normalize", ConfigValueKind::kBoolean, false, true},
-      {"max_batch_size", ConfigValueKind::kInteger, false, 4, 1.0, 64.0},
-      {"embedding_dim", ConfigValueKind::kInteger, false, 384, 1.0, 4096.0},
+      {"output_name", ConfigValueKind::kString, false, "last_hidden_state"},
+      {"embedding_dim", ConfigValueKind::kInteger, true, nlohmann::json(), 1.0,
+       65536.0},
+      {"max_batch_size", ConfigValueKind::kInteger, false, 4, 1.0, 1024.0},
   };
   return def;
 }();
