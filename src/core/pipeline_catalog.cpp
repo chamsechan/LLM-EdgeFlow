@@ -18,11 +18,6 @@ std::vector<NodeDefinition>& RegisteredNodes() {
   return definitions;
 }
 
-std::vector<EngineDefinition>& RegisteredEngines() {
-  static std::vector<EngineDefinition> definitions;
-  return definitions;
-}
-
 std::vector<BizDefinition>& RegisteredBizs() {
   static std::vector<BizDefinition> definitions;
   return definitions;
@@ -79,16 +74,6 @@ nlohmann::json FieldJson(const ConfigFieldDefinition& field) {
 }
 
 }  // namespace
-
-const char* EngineThreadModelName(EngineThreadModel model) {
-  switch (model) {
-    case EngineThreadModel::kSerialized:
-      return "serialized";
-    case EngineThreadModel::kConcurrent:
-      return "concurrent";
-  }
-  return "unknown";
-}
 
 const char* PortConstraintKindName(PortConstraintKind kind) {
   switch (kind) {
@@ -271,29 +256,6 @@ bool PipelineCatalog::RegisterNodeDefinition(const NodeDefinition& definition) {
   return true;
 }
 
-bool PipelineCatalog::RegisterEngineDefinition(
-    const EngineDefinition& definition) {
-  if (definition.engine_type.empty()) return false;
-  std::unordered_set<std::string> seen_field_names;
-  for (const auto& field : definition.config_fields) {
-    if (!ValidateFieldDefinition(field, seen_field_names)) return false;
-  }
-  std::lock_guard<std::mutex> lock(CatalogMutex());
-  auto& definitions = RegisteredEngines();
-  if (std::any_of(definitions.begin(), definitions.end(),
-                  [&](const auto& item) {
-                    return item.engine_type == definition.engine_type;
-                  })) {
-    return false;
-  }
-  definitions.push_back(definition);
-  std::sort(definitions.begin(), definitions.end(),
-            [](const auto& lhs, const auto& rhs) {
-              return lhs.engine_type < rhs.engine_type;
-            });
-  return true;
-}
-
 bool PipelineCatalog::RegisterBizDefinition(const BizDefinition& definition) {
   return RegisterBizDefinitions({definition});
 }
@@ -332,11 +294,6 @@ const std::vector<NodeDefinition>& PipelineCatalog::Nodes() {
   return RegisteredNodes();
 }
 
-const std::vector<EngineDefinition>& PipelineCatalog::Engines() {
-  std::lock_guard<std::mutex> lock(CatalogMutex());
-  return RegisteredEngines();
-}
-
 std::vector<ModelDefinition> PipelineCatalog::Models() {
   return ModelRegistry::Instance().ListDefinitions();
 }
@@ -357,16 +314,6 @@ const NodeDefinition* PipelineCatalog::FindNode(const std::string& node_type) {
     return item.node_type == node_type;
   });
   return it == nodes.end() ? nullptr : &*it;
-}
-
-const EngineDefinition* PipelineCatalog::FindEngine(
-    const std::string& engine_type) {
-  std::lock_guard<std::mutex> lock(CatalogMutex());
-  const auto& engines = RegisteredEngines();
-  auto it = std::find_if(engines.begin(), engines.end(), [&](const auto& item) {
-    return item.engine_type == engine_type;
-  });
-  return it == engines.end() ? nullptr : &*it;
 }
 
 std::optional<ModelDefinition> PipelineCatalog::FindModel(
@@ -391,7 +338,6 @@ const BizDefinition* PipelineCatalog::FindBiz(const std::string& biz_name) {
 void PipelineCatalog::ClearForTesting() {
   std::lock_guard<std::mutex> lock(CatalogMutex());
   RegisteredNodes().clear();
-  RegisteredEngines().clear();
   RegisteredBizs().clear();
 }
 
@@ -470,19 +416,6 @@ nlohmann::json PipelineCatalog::ToJson(const std::string& biz_filter) {
     nodes.push_back(NodeToJson(item));
   }
 
-  nlohmann::json engines = nlohmann::json::array();
-  for (const auto& item : Engines()) {
-    nlohmann::json fields = nlohmann::json::array();
-    for (const auto& field : item.config_fields)
-      fields.push_back(FieldJson(field));
-    engines.push_back(
-        {{"engine_type", item.engine_type},
-         {"capability", item.capability},
-         {"description", item.description},
-         {"thread_model", EngineThreadModelName(item.thread_model)},
-         {"config_fields", std::move(fields)}});
-  }
-
   nlohmann::json models = nlohmann::json::array();
   for (const auto& item : Models()) {
     models.push_back(ModelToJson(item));
@@ -511,7 +444,6 @@ nlohmann::json PipelineCatalog::ToJson(const std::string& biz_filter) {
 
   return {{"schema_version", 1},
           {"nodes", std::move(nodes)},
-          {"engines", std::move(engines)},
           {"models", std::move(models)},
           {"backends", std::move(backends)},
           {"bizs", bizs},

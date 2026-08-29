@@ -89,29 +89,30 @@ TEST(DemoRunnerTest, LogLevelEnvironmentConfiguration) {
 
 // 1. 测试 CLI 命令行解析
 TEST(DemoRunnerTest, CommandLineParsingSuccess) {
-  const char* argv[] = {"alg_demo",
-                        "--profile",
-                        "entity_extract_mock",
-                        "--business",
-                        "entity_extract",
-                        "--config",
-                        "configs/pipeline_entity_extract.conf",
-                        "--dataset",
-                        "data/corpus_entity_extract.txt",
-                        "--output-dir",
-                        "./results/test_out",
-                        "--batch-size",
-                        "4",
-                        "--device-id",
-                        "1",
-                        "--chip",
-                        "cpu_generic",
-                        "--depth",
-                        "2",
-                        "--suite",
-                        "smoke",
-                        "--append",
-                        "--allow-fallback-sample"};
+  const char* argv[] = {
+      "alg_demo",
+      "--profile",
+      "entity_extract_mock",
+      "--business",
+      "entity_extract",
+      "--config",
+      "tests/fixtures/stage7/smoke/pipeline_entity_extract.conf",
+      "--dataset",
+      "data/corpus_entity_extract.txt",
+      "--output-dir",
+      "./results/test_out",
+      "--batch-size",
+      "4",
+      "--device-id",
+      "1",
+      "--chip",
+      "cpu_generic",
+      "--depth",
+      "2",
+      "--suite",
+      "smoke",
+      "--append",
+      "--allow-fallback-sample"};
   int argc = sizeof(argv) / sizeof(argv[0]);
 
   DemoOptions opts;
@@ -120,7 +121,8 @@ TEST(DemoRunnerTest, CommandLineParsingSuccess) {
   EXPECT_EQ(ret, 0);
   EXPECT_EQ(opts.profile, "entity_extract_mock");
   EXPECT_EQ(opts.business, "entity_extract");
-  EXPECT_EQ(opts.config_path, "configs/pipeline_entity_extract.conf");
+  EXPECT_EQ(opts.config_path,
+            "tests/fixtures/stage7/smoke/pipeline_entity_extract.conf");
   EXPECT_EQ(opts.dataset_path, "data/corpus_entity_extract.txt");
   EXPECT_EQ(opts.output_dir, "./results/test_out");
   EXPECT_EQ(opts.batch_size, 4);
@@ -248,7 +250,8 @@ TEST(DemoRunnerTest, ProfileLoadAndMerge) {
   EXPECT_EQ(ret, 0) << "Error: " << err;
 
   EXPECT_EQ(merged.business, "entity_extract");
-  EXPECT_EQ(merged.config_path, "configs/pipeline_entity_extract.conf");
+  EXPECT_EQ(merged.config_path,
+            "tests/fixtures/stage7/smoke/pipeline_entity_extract.conf");
   EXPECT_EQ(merged.dataset_path, "data/corpus_entity_extract.txt");
   EXPECT_EQ(merged.chip, "ax650");
   EXPECT_EQ(merged.batch_size, 8);  // CLI 覆盖 Profile 的默认 1
@@ -326,7 +329,7 @@ TEST(DemoRunnerTest, ProfileSchemaStrictValidation) {
       "profiles": {
         "bad_prof": {
           "business": "entity_extract",
-          "config": "configs/pipeline_entity_extract.conf",
+          "config": "tests/fixtures/stage7/smoke/pipeline_entity_extract.conf",
           "dataset": "data/corpus_entity_extract.txt",
           "suite": "invalid_suite"
         }
@@ -370,7 +373,7 @@ TEST(DemoRunnerTest, ProfileSchemaStrictValidation) {
       "profiles": {
         "overflow_prof": {
           "business": "entity_extract",
-          "config": "configs/pipeline_entity_extract.conf",
+          "config": "tests/fixtures/stage7/smoke/pipeline_entity_extract.conf",
           "dataset": "data/corpus_entity_extract.txt",
           "batch_size": 4294967297
         }
@@ -537,22 +540,26 @@ TEST(DemoRunnerTest, ConfigBusinessMatchValidation) {
 
   // 正确匹配
   EXPECT_TRUE(ValidateConfigBusinessMatch(
-      "configs/pipeline_entity_extract.conf", "entity_extract", &err));
-  EXPECT_TRUE(ValidateConfigBusinessMatch("configs/pipeline_doc_qa.conf",
-                                          "doc_qa", &err));
-  EXPECT_TRUE(ValidateConfigBusinessMatch("configs/pipeline_doc_qa_rerank.conf",
-                                          "doc_qa", &err));
+      "tests/fixtures/stage7/smoke/pipeline_entity_extract.conf",
+      "entity_extract", &err));
+  EXPECT_TRUE(ValidateConfigBusinessMatch(
+      "tests/fixtures/stage7/smoke/pipeline_doc_qa.conf", "doc_qa", &err));
+  EXPECT_TRUE(ValidateConfigBusinessMatch(
+      "tests/fixtures/stage7/smoke/pipeline_doc_qa_rerank.conf", "doc_qa",
+      &err));
   EXPECT_TRUE(ValidateConfigBusinessMatch("configs/pipeline_keyword_match.conf",
                                           "keyword_match", &err));
 
   // 错误匹配 -> 快速失败
-  EXPECT_FALSE(ValidateConfigBusinessMatch("configs/pipeline_doc_qa.conf",
-                                           "entity_extract", &err));
+  EXPECT_FALSE(ValidateConfigBusinessMatch(
+      "tests/fixtures/stage7/smoke/pipeline_doc_qa.conf", "entity_extract",
+      &err));
   EXPECT_NE(err.find("Business mismatch"), std::string::npos);
 
   // P1-3: cross_rerank 绝不应该匹配 doc_qa_rerank (即使名字里有 rerank)
   EXPECT_FALSE(ValidateConfigBusinessMatch(
-      "configs/pipeline_doc_qa_rerank.conf", "cross_rerank", &err));
+      "tests/fixtures/stage7/smoke/pipeline_doc_qa_rerank.conf", "cross_rerank",
+      &err));
   EXPECT_NE(err.find("Business mismatch"), std::string::npos);
 
   // P1-2 探针测试: .conf 中 pipe_path 为数字 123 (必须返回 false，不抛异常崩溃)
@@ -573,13 +580,15 @@ TEST(DemoRunnerTest, ConfigBusinessMatchValidation) {
     root_dir = "..";
   }
   EXPECT_EQ(ValidateOperatorConfigBinding(
-                root_dir.c_str(), "configs/pipeline_entity_extract.conf",
+                root_dir.c_str(),
+                "tests/fixtures/stage7/smoke/pipeline_entity_extract.conf",
                 static_cast<int32_t>(ALG_BIZ_TYPE_ENTITY_EXTRACT), err_buf,
                 sizeof(err_buf)),
             0);
   EXPECT_EQ(
       ValidateOperatorConfigBinding(
-          root_dir.c_str(), "configs/pipeline_entity_extract.conf",
+          root_dir.c_str(),
+          "tests/fixtures/stage7/smoke/pipeline_entity_extract.conf",
           static_cast<int32_t>(ALG_BIZ_TYPE_DOC_QA), err_buf, sizeof(err_buf)),
       -3);
   EXPECT_EQ(

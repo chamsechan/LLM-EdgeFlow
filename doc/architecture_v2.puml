@@ -60,7 +60,7 @@ actor "Platform Developer" as PlatformDev
 package "Control Plane: Business Development Surface" as ControlPlane {
   artifact "Business Manifest\nJSON Schema" as Manifest <<Planned>>
   artifact "Pipeline Config\nExplicit DAG JSON" as PipelineConfig <<Implemented>>
-  artifact "Node / Engine / Business Catalog\nPipelineCatalog (JSON Export)" as Catalog <<Implemented>>
+  artifact "Node / Model / Backend / Business Catalog\nPipelineCatalog (JSON Export)" as Catalog <<Implemented>>
   component "Business Scaffolder\nTemplates" as Scaffolder <<Planned>>
   component "Static Validator\nPipelineValidator" as Validator <<Partial>>
   component "Business Test Harness\nGoogleTest Suites / CTest" as BizTests <<Implemented>>
@@ -153,35 +153,46 @@ BizTests --> BusinessNodes : contract tests
 note right of BusinessNodes
   Request state only in RequestContext
   No Layer 1 C structs
-  No concrete Engine implementations
+  No concrete Backend implementations
 end note
 
 ' Layer 4
-package "Layer 4: Engine Capabilities & Hardware Scheduling" as L4 {
-  interface "IModelEngine\n+ capability interfaces" as IModelEngine
-  component "EngineRegistry\n(EngineFactory)" as EngineRegistry
+package "Layer 4: Model Semantics & Inference Backends" as L4 {
+  interface "IModel\nIEmbeddingModel / IRerankModel / ILlmModel\nIOcrModel / IAsrModel" as IModel
+  interface "IBackendSession\nTensorGraph / CausalLm protocols" as IBackendSession
+  interface "IInferenceBackend\nloads backend sessions" as IInferenceBackend
+  component "ModelRegistry" as ModelRegistry
+  component "BackendRegistry" as BackendRegistry
+  component "ModelRuntimeFactory\ncompose model_type + backend" as ModelRuntimeFactory
   component "FixedBatchExecutor\nchunk / pad / strip\nreq_id / sub_id provenance" as FixedBatchExecutor
-  component "Mock NPU Engines" as MockEngines
-  component "ONNX Runtime Engines" as OnnxEngines
-  component "llama.cpp Engine" as LlamaEngine
-  component "Future Hardware Backends" as FutureEngines
-  artifact "EngineDescriptor\nEngineDefinition + thread_model" as EngineDescriptor <<Implemented>>
+  component "BGE Embedding / Reranker Models" as BgeModels
+  component "Qwen Causal LM Model" as QwenModel
+  component "ONNX Runtime Backend" as OnnxBackend
+  component "llama.cpp Backend" as LlamaBackend
+  component "Future Hardware Backends" as FutureBackends
+  artifact "ModelDefinition / BackendDefinition\nprotocol + concurrency contracts" as InferenceDescriptors <<Implemented>>
 }
 
-EngineRegistry o-- IModelEngine
-EngineDescriptor --> EngineRegistry : registration metadata
-Catalog o-- EngineDescriptor
-PipelineBuilder --> EngineRegistry : create models
-ModelManager o-- IModelEngine
-INode --> IModelEngine : capability interfaces only
-MockEngines ..|> IModelEngine
-OnnxEngines ..|> IModelEngine
-LlamaEngine ..|> IModelEngine
-FutureEngines ..|> IModelEngine
-MockEngines --> FixedBatchExecutor
-OnnxEngines --> FixedBatchExecutor
-LlamaEngine --> FixedBatchExecutor
-FutureEngines --> FixedBatchExecutor
+ModelRegistry o-- IModel
+BackendRegistry o-- IInferenceBackend
+IInferenceBackend --> IBackendSession : load
+InferenceDescriptors --> ModelRegistry : model metadata
+InferenceDescriptors --> BackendRegistry : backend metadata
+Catalog o-- InferenceDescriptors
+PipelineBuilder --> ModelRuntimeFactory : create models
+ModelRuntimeFactory --> ModelRegistry
+ModelRuntimeFactory --> BackendRegistry
+ModelManager o-- IModel
+INode --> IModel : capability interfaces only
+BgeModels ..|> IModel
+QwenModel ..|> IModel
+OnnxBackend ..|> IInferenceBackend
+LlamaBackend ..|> IInferenceBackend
+FutureBackends ..|> IInferenceBackend
+BgeModels --> IBackendSession : TensorGraph protocol
+QwenModel --> IBackendSession : CausalLm protocol
+BgeModels --> FixedBatchExecutor
+QwenModel --> FixedBatchExecutor
 
 note right of L4
   Platform-owned extension surface
@@ -199,10 +210,11 @@ package "Cross-Cutting Platform Contracts" as CrossCutting {
 Versioning ..> Manifest
 Versioning ..> CAbi
 Versioning ..> NodeDescriptor
-Versioning ..> EngineDescriptor
+Versioning ..> InferenceDescriptors
 Observability ..> CAbi
 Observability ..> PipelineRuntime
-Observability ..> IModelEngine
+Observability ..> IModel
+Observability ..> IInferenceBackend
 LayerGuard ..> L1
 LayerGuard ..> L2
 LayerGuard ..> L3

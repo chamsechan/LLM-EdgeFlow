@@ -37,7 +37,7 @@ TEST_F(OperatorGoldenTest, DocQaGolden) {
   using namespace llm_edgeflow::operator_api;
   CreateParam param{};
   param.model_path = ".";
-  param.cfg_file_name = "configs/pipeline_doc_qa.conf";
+  param.cfg_file_name = "tests/fixtures/stage7/smoke/pipeline_doc_qa.conf";
   param.device_id = 0;
   param.compute_platform = ComputePlatform::kCpu;
 
@@ -139,7 +139,8 @@ TEST_F(OperatorGoldenTest, EntityExtractGolden) {
   using namespace llm_edgeflow::operator_api;
   CreateParam param{};
   param.model_path = ".";
-  param.cfg_file_name = "configs/pipeline_entity_extract.conf";
+  param.cfg_file_name =
+      "tests/fixtures/stage7/smoke/pipeline_entity_extract.conf";
   param.device_id = 0;
   param.compute_platform = ComputePlatform::kCpu;
 
@@ -181,7 +182,8 @@ TEST_F(OperatorGoldenTest, ComplianceAuditGolden) {
   using namespace llm_edgeflow::operator_api;
   CreateParam param{};
   param.model_path = ".";
-  param.cfg_file_name = "configs/pipeline_dialogue_audit.conf";
+  param.cfg_file_name =
+      "tests/fixtures/stage7/smoke/pipeline_dialogue_audit.conf";
   param.device_id = 0;
   param.compute_platform = ComputePlatform::kCpu;
 
@@ -230,7 +232,7 @@ TEST_F(OperatorGoldenTest, OcrDocQaGolden) {
   using namespace llm_edgeflow::operator_api;
   CreateParam param{};
   param.model_path = ".";
-  param.cfg_file_name = "configs/pipeline_ocr_doc_qa.conf";
+  param.cfg_file_name = "tests/fixtures/stage7/smoke/pipeline_ocr_doc_qa.conf";
   param.device_id = 0;
   param.compute_platform = ComputePlatform::kCpu;
 
@@ -276,7 +278,8 @@ TEST_F(OperatorGoldenTest, AudioAsrIntentSlotExtractionGolden) {
   using namespace llm_edgeflow::operator_api;
   CreateParam param{};
   param.model_path = ".";
-  param.cfg_file_name = "configs/pipeline_audio_asr_intent.conf";
+  param.cfg_file_name =
+      "tests/fixtures/stage7/smoke/pipeline_audio_asr_intent.conf";
   param.device_id = 0;
   param.compute_platform = ComputePlatform::kCpu;
 

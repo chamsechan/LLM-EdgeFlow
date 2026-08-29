@@ -33,7 +33,8 @@ class DifferentIoModalitiesTest : public ::testing::Test {
 
 // 1. 验证业务 5: 多模态图文票据问答 (Image + Query -> OCR BBox -> LLM JSON)
 TEST_F(DifferentIoModalitiesTest, OcrDocQa) {
-  std::string cfg_path = GetConfigPath("configs/pipeline_ocr_doc_qa.json");
+  std::string cfg_path =
+      GetConfigPath("tests/fixtures/stage7/smoke/pipeline_ocr_doc_qa.json");
   CompanyAlgParamCreate param;
   param.config_file_path = cfg_path.c_str();
   param.model_root_dir = "./models";
@@ -72,8 +73,8 @@ TEST_F(DifferentIoModalitiesTest, OcrDocQa) {
 // 2. 验证业务 6: 语音识别与时序意图槽位抽取 (Float PCM Buffer -> Speech Text ->
 // NLU Intent/Slots)
 TEST_F(DifferentIoModalitiesTest, AudioAsrIntent) {
-  std::string cfg_path =
-      GetConfigPath("configs/pipeline_audio_asr_intent.json");
+  std::string cfg_path = GetConfigPath(
+      "tests/fixtures/stage7/smoke/pipeline_audio_asr_intent.json");
   CompanyAlgParamCreate param;
   param.config_file_path = cfg_path.c_str();
   param.model_root_dir = "./models";

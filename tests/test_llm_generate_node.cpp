@@ -10,8 +10,7 @@
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
 #include "core/session_context.h"
-#include "engine/engine_interface.h"
-#include "engine/engine_registry.h"
+#include "tests/support/inference/test_business_models.h"
 
 namespace alg_framework {
 
@@ -21,12 +20,9 @@ class LlmGenerateNodeTest : public ::testing::Test {
     ASSERT_EQ(SharedAlgorithmRuntime::GlobalInit(), 0);
     session_ctx_ = std::make_unique<SessionContext>();
 
-    auto llm_engine = EngineFactory::Instance().Create("mock_npu_llm");
-    ASSERT_NE(llm_engine, nullptr);
-    llm_engine->Load("./models/qwen.bin",
-                     {{"max_batch_size", 2}, {"max_seq_len", 512}});
     ASSERT_TRUE(session_ctx_->GetModelManager().RegisterModel(
-        "llm_model_v1", std::move(llm_engine)));
+        "llm_model_v1", std::make_shared<test::TestBusinessLlmModel>(2),
+        "test-v1"));
   }
   std::unique_ptr<SessionContext> session_ctx_;
 };

@@ -10,7 +10,6 @@
 #include "core/pipeline_catalog.h"
 #include "core/pipeline_config.h"
 #include "engine/backend_registry.h"
-#include "engine/engine_registry.h"
 #include "engine/model_registry.h"
 
 namespace alg_framework {
@@ -43,8 +42,6 @@ const char* DiagnosticCodeName(DiagnosticCode code) noexcept {
       return "UNKNOWN_BUSINESS";
     case DiagnosticCode::kUnknownNodeType:
       return "UNKNOWN_NODE_TYPE";
-    case DiagnosticCode::kUnknownEngineType:
-      return "UNKNOWN_ENGINE_TYPE";
     case DiagnosticCode::kUnknownModelType:
       return "UNKNOWN_MODEL_TYPE";
     case DiagnosticCode::kUnknownBackend:
@@ -89,8 +86,8 @@ const char* DiagnosticCodeName(DiagnosticCode code) noexcept {
       return "NODE_NOT_PARALLEL_SAFE";
     case DiagnosticCode::kParallelWriteConflict:
       return "PARALLEL_WRITE_CONFLICT";
-    case DiagnosticCode::kSerializedEngineConcurrency:
-      return "SERIALIZED_ENGINE_CONCURRENCY";
+    case DiagnosticCode::kSerializedModelConcurrency:
+      return "SERIALIZED_MODEL_CONCURRENCY";
     case DiagnosticCode::kPortCardinalityMismatch:
       return "PORT_CARDINALITY_MISMATCH";
     case DiagnosticCode::kPortProvenanceMismatch:
@@ -131,17 +128,17 @@ DiagnosticCode PipelineErrorCodeToDiagnosticCode(PipelineErrorCode code) {
       return DiagnosticCode::kDuplicateNodeId;
     case PipelineErrorCode::kUnknownNodeType:
       return DiagnosticCode::kUnknownNodeType;
-    case PipelineErrorCode::kUnknownEngineType:
-      return DiagnosticCode::kUnknownEngineType;
+    case PipelineErrorCode::kUnknownModelType:
+      return DiagnosticCode::kUnknownModelType;
+    case PipelineErrorCode::kUnknownBackend:
+      return DiagnosticCode::kUnknownBackend;
     case PipelineErrorCode::kInvalidDependency:
       return DiagnosticCode::kInvalidDependency;
     case PipelineErrorCode::kDagCycle:
       return DiagnosticCode::kDagCycle;
     case PipelineErrorCode::kRegistryConflict:
       return DiagnosticCode::kRegistryConflict;
-    case PipelineErrorCode::kEngineCreateFailed:
-      return DiagnosticCode::kUnknownEngineType;
-    case PipelineErrorCode::kEngineLoadFailed:
+    case PipelineErrorCode::kModelMaterializationFailed:
       return DiagnosticCode::kUnknownModelReference;
     case PipelineErrorCode::kNodeCreateFailed:
       return DiagnosticCode::kUnknownNodeType;
@@ -393,14 +390,14 @@ namespace {
 void ValidateConfigFields(const std::vector<ConfigFieldDefinition>& definitions,
                           const nlohmann::json& config,
                           const std::string& path_prefix,
-                          const std::string& node_or_engine_id,
+                          const std::string& subject_id,
                           ValidationReport* report) {
   std::vector<ValidationDiagnostic> diags;
   nlohmann::json normalized;
   ValidateAndNormalizeConfig(definitions, config, &normalized, &diags,
                              path_prefix);
   for (auto& d : diags) {
-    d.node_id = node_or_engine_id;
+    d.node_id = subject_id;
     report->diagnostics.push_back(std::move(d));
   }
 }
@@ -521,10 +518,6 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
     Add(&report, DiagnosticCode::kRegistryConflict, "/pipeline",
         "Node registry contains registration conflicts");
   }
-  if (EngineFactory::Instance().HasConflict()) {
-    Add(&report, DiagnosticCode::kRegistryConflict, "/models",
-        "Engine registry contains registration conflicts");
-  }
   if (ModelRegistry::Instance().HasConflict()) {
     Add(&report, DiagnosticCode::kRegistryConflict, "/models",
         "Model registry contains registration conflicts");
@@ -535,147 +528,123 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
   }
 
   std::unordered_map<std::string, std::string> model_capabilities;
-  std::unordered_map<std::string, EngineThreadModel> model_thread_models;
+  std::unordered_map<std::string, InferenceConcurrency> model_concurrency;
   for (const auto& model : parsed.models) {
-    if (model.dialect == ModelConfigDialect::kModelBackend) {
-      auto model_def_opt = ModelRegistry::Instance().Find(model.model_type);
-      bool has_model = ModelRegistry::Instance().Has(model.model_type);
-      if (!has_model ||
-          (!model_def_opt.has_value() && policy == ValidationPolicy::kStrict)) {
-        Add(&report, DiagnosticCode::kUnknownModelType,
-            "/models/" + std::to_string(model.source_index) + "/model_type",
-            "Unknown model_type: " + model.model_type);
+    auto model_def_opt = ModelRegistry::Instance().Find(model.model_type);
+    bool has_model = ModelRegistry::Instance().Has(model.model_type);
+    if (!has_model ||
+        (!model_def_opt.has_value() && policy == ValidationPolicy::kStrict)) {
+      Add(&report, DiagnosticCode::kUnknownModelType,
+          "/models/" + std::to_string(model.source_index) + "/model_type",
+          "Unknown model_type: " + model.model_type);
+    }
+
+    auto backend_def_opt = BackendRegistry::Instance().Find(model.backend);
+    bool has_backend = BackendRegistry::Instance().Has(model.backend);
+    if (!has_backend ||
+        (!backend_def_opt.has_value() && policy == ValidationPolicy::kStrict)) {
+      Add(&report, DiagnosticCode::kUnknownBackend,
+          "/models/" + std::to_string(model.source_index) + "/backend",
+          "Unknown backend: " + model.backend);
+    }
+
+    if (model_def_opt && backend_def_opt) {
+      if (model.capability != model_def_opt->capability) {
+        Add(&report, DiagnosticCode::kModelCapabilityMismatch,
+            "/models/" + std::to_string(model.source_index) + "/capability",
+            "Model capability mismatch: declared '" + model.capability +
+                "' but ModelDefinition specifies '" +
+                model_def_opt->capability + "'");
       }
 
-      auto backend_def_opt = BackendRegistry::Instance().Find(model.backend);
-      bool has_backend = BackendRegistry::Instance().Has(model.backend);
-      if (!has_backend || (!backend_def_opt.has_value() &&
-                           policy == ValidationPolicy::kStrict)) {
-        Add(&report, DiagnosticCode::kUnknownBackend,
+      const auto& supported_protocols = backend_def_opt->supported_protocols;
+      bool protocol_supported =
+          std::find(supported_protocols.begin(), supported_protocols.end(),
+                    model_def_opt->required_protocol) !=
+          supported_protocols.end();
+      if (!protocol_supported) {
+        Add(&report, DiagnosticCode::kBackendProtocolMismatch,
             "/models/" + std::to_string(model.source_index) + "/backend",
-            "Unknown backend: " + model.backend);
+            "Backend '" + model.backend +
+                "' does not support required protocol '" +
+                std::string(
+                    ExecutionProtocolName(model_def_opt->required_protocol)) +
+                "' for model '" + model.model_type + "'");
       }
 
-      if (model_def_opt && backend_def_opt) {
-        if (model.capability != model_def_opt->capability) {
-          Add(&report, DiagnosticCode::kModelCapabilityMismatch,
-              "/models/" + std::to_string(model.source_index) + "/capability",
-              "Model capability mismatch: declared '" + model.capability +
-                  "' but ModelDefinition specifies '" +
-                  model_def_opt->capability + "'");
-        }
-
-        const auto& supported_protocols = backend_def_opt->supported_protocols;
-        bool protocol_supported =
-            std::find(supported_protocols.begin(), supported_protocols.end(),
-                      model_def_opt->required_protocol) !=
-            supported_protocols.end();
-        if (!protocol_supported) {
-          Add(&report, DiagnosticCode::kBackendProtocolMismatch,
-              "/models/" + std::to_string(model.source_index) + "/backend",
-              "Backend '" + model.backend +
-                  "' does not support required protocol '" +
-                  std::string(
-                      ExecutionProtocolName(model_def_opt->required_protocol)) +
-                  "' for model '" + model.model_type + "'");
-        }
-
-        nlohmann::json normalized_mcfg = nlohmann::json::object();
-        std::vector<ValidationDiagnostic> mcfg_diags;
-        ValidateAndNormalizeConfig(
-            model_def_opt->config_fields, model.model_config, &normalized_mcfg,
-            &mcfg_diags,
-            "/models/" + std::to_string(model.source_index) + "/model_config",
-            DiagnosticCode::kUnknownModelConfigField);
-        for (auto& d : mcfg_diags) {
-          report.diagnostics.push_back(std::move(d));
-        }
-
-        nlohmann::json normalized_bcfg = nlohmann::json::object();
-        std::vector<ValidationDiagnostic> bcfg_diags;
-        ValidateAndNormalizeConfig(
-            backend_def_opt->config_fields, model.backend_config,
-            &normalized_bcfg, &bcfg_diags,
-            "/models/" + std::to_string(model.source_index) + "/backend_config",
-            DiagnosticCode::kUnknownBackendConfigField);
-        for (auto& d : bcfg_diags) {
-          report.diagnostics.push_back(std::move(d));
-        }
-
-        // 8. 路径归一化、根目录拼接与防逃逸检查 (RFC 0015)
-        std::filesystem::path raw_p(model.model_path);
-        std::filesystem::path norm_p = raw_p.lexically_normal();
-        std::string resolved_path;
-
-        if (norm_p.is_absolute()) {
-          resolved_path = norm_p.lexically_normal().string();
-        } else if (!model_root_dir.empty()) {
-          std::string norm_str = norm_p.string();
-          if (norm_str == ".." || norm_str.rfind("../", 0) == 0 ||
-              norm_str.rfind("..\\", 0) == 0) {
-            Add(&report, DiagnosticCode::kFieldRange,
-                "/models/" + std::to_string(model.source_index) + "/model_path",
-                "Model path cannot traverse outside model root directory: " +
-                    model.model_path);
-          }
-          std::filesystem::path root_p(model_root_dir);
-          resolved_path = (root_p / norm_p).lexically_normal().string();
-        } else {
-          std::string norm_str = norm_p.string();
-          if (norm_str == ".." || norm_str.rfind("../", 0) == 0 ||
-              norm_str.rfind("..\\", 0) == 0) {
-            Add(&report, DiagnosticCode::kFieldRange,
-                "/models/" + std::to_string(model.source_index) + "/model_path",
-                "Model path cannot traverse outside model root directory: " +
-                    model.model_path);
-          }
-          resolved_path = norm_p.lexically_normal().string();
-        }
-
-        InferenceConcurrency effective_concurrency =
-            (model_def_opt->concurrency == InferenceConcurrency::kSerialized ||
-             backend_def_opt->concurrency == InferenceConcurrency::kSerialized)
-                ? InferenceConcurrency::kSerialized
-                : InferenceConcurrency::kConcurrent;
-
-        model_capabilities[model.model_id] = model.capability;
-        model_thread_models[model.model_id] =
-            (effective_concurrency == InferenceConcurrency::kSerialized)
-                ? EngineThreadModel::kSerialized
-                : EngineThreadModel::kConcurrent;
-
-        ValidatedModelPlan model_plan;
-        model_plan.model_id = model.model_id;
-        model_plan.capability = model.capability;
-        model_plan.model_type = model.model_type;
-        model_plan.backend = model.backend;
-        model_plan.resolved_model_path = std::move(resolved_path);
-        model_plan.normalized_model_config = std::move(normalized_mcfg);
-        model_plan.normalized_backend_config = std::move(normalized_bcfg);
-        model_plan.protocol = model_def_opt->required_protocol;
-        model_plan.effective_concurrency = effective_concurrency;
-        model_plan.source_index = model.source_index;
-        plan.models.push_back(std::move(model_plan));
+      nlohmann::json normalized_mcfg = nlohmann::json::object();
+      std::vector<ValidationDiagnostic> mcfg_diags;
+      ValidateAndNormalizeConfig(
+          model_def_opt->config_fields, model.model_config, &normalized_mcfg,
+          &mcfg_diags,
+          "/models/" + std::to_string(model.source_index) + "/model_config",
+          DiagnosticCode::kUnknownModelConfigField);
+      for (auto& d : mcfg_diags) {
+        report.diagnostics.push_back(std::move(d));
       }
-    } else {
-      // Legacy Engine 方言
-      const auto* engine = PipelineCatalog::FindEngine(model.engine_type);
-      bool factory_has = EngineFactory::Instance().Has(model.engine_type);
-      if (!factory_has || (!engine && policy == ValidationPolicy::kStrict)) {
-        Add(&report, DiagnosticCode::kUnknownEngineType,
-            "/models/" + std::to_string(model.source_index) + "/engine_type",
-            "Unknown engine_type: " + model.engine_type);
-        continue;
-      }
-      if (engine) {
-        model_capabilities[model.model_id] = engine->capability;
-        model_thread_models[model.model_id] = engine->thread_model;
 
-        ValidateConfigFields(
-            engine->config_fields, model.config,
-            "/models/" + std::to_string(model.source_index) + "/config", "",
-            &report);
+      nlohmann::json normalized_bcfg = nlohmann::json::object();
+      std::vector<ValidationDiagnostic> bcfg_diags;
+      ValidateAndNormalizeConfig(
+          backend_def_opt->config_fields, model.backend_config,
+          &normalized_bcfg, &bcfg_diags,
+          "/models/" + std::to_string(model.source_index) + "/backend_config",
+          DiagnosticCode::kUnknownBackendConfigField);
+      for (auto& d : bcfg_diags) {
+        report.diagnostics.push_back(std::move(d));
       }
+
+      // 8. 路径归一化、根目录拼接与防逃逸检查 (RFC 0015)
+      std::filesystem::path raw_p(model.model_path);
+      std::filesystem::path norm_p = raw_p.lexically_normal();
+      std::string resolved_path;
+
+      if (norm_p.is_absolute()) {
+        resolved_path = norm_p.lexically_normal().string();
+      } else if (!model_root_dir.empty()) {
+        std::string norm_str = norm_p.string();
+        if (norm_str == ".." || norm_str.rfind("../", 0) == 0 ||
+            norm_str.rfind("..\\", 0) == 0) {
+          Add(&report, DiagnosticCode::kFieldRange,
+              "/models/" + std::to_string(model.source_index) + "/model_path",
+              "Model path cannot traverse outside model root directory: " +
+                  model.model_path);
+        }
+        std::filesystem::path root_p(model_root_dir);
+        resolved_path = (root_p / norm_p).lexically_normal().string();
+      } else {
+        std::string norm_str = norm_p.string();
+        if (norm_str == ".." || norm_str.rfind("../", 0) == 0 ||
+            norm_str.rfind("..\\", 0) == 0) {
+          Add(&report, DiagnosticCode::kFieldRange,
+              "/models/" + std::to_string(model.source_index) + "/model_path",
+              "Model path cannot traverse outside model root directory: " +
+                  model.model_path);
+        }
+        resolved_path = norm_p.lexically_normal().string();
+      }
+
+      InferenceConcurrency effective_concurrency =
+          (model_def_opt->concurrency == InferenceConcurrency::kSerialized ||
+           backend_def_opt->concurrency == InferenceConcurrency::kSerialized)
+              ? InferenceConcurrency::kSerialized
+              : InferenceConcurrency::kConcurrent;
+
+      model_capabilities[model.model_id] = model.capability;
+      model_concurrency[model.model_id] = effective_concurrency;
+
+      ValidatedModelPlan model_plan;
+      model_plan.model_id = model.model_id;
+      model_plan.capability = model.capability;
+      model_plan.model_type = model.model_type;
+      model_plan.backend = model.backend;
+      model_plan.resolved_model_path = std::move(resolved_path);
+      model_plan.normalized_model_config = std::move(normalized_mcfg);
+      model_plan.normalized_backend_config = std::move(normalized_bcfg);
+      model_plan.protocol = model_def_opt->required_protocol;
+      model_plan.effective_concurrency = effective_concurrency;
+      model_plan.source_index = model.source_index;
+      plan.models.push_back(std::move(model_plan));
     }
   }
 
@@ -1022,14 +991,14 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
         }
         auto model_id = model_id_by_node.find(id);
         if (layer.size() > 1 && model_id != model_id_by_node.end()) {
-          auto thread_model = model_thread_models.find(model_id->second);
-          if (thread_model != model_thread_models.end() &&
-              thread_model->second == EngineThreadModel::kSerialized) {
+          auto concurrency = model_concurrency.find(model_id->second);
+          if (concurrency != model_concurrency.end() &&
+              concurrency->second == InferenceConcurrency::kSerialized) {
             auto inserted =
                 serialized_model_users.emplace(model_id->second, id);
             if (!inserted.second) {
               const auto& node = *node_by_id.at(id);
-              Add(&report, DiagnosticCode::kSerializedEngineConcurrency,
+              Add(&report, DiagnosticCode::kSerializedModelConcurrency,
                   "/pipeline/" + std::to_string(node.source_index) +
                       "/config/" + def_it->second->model_config_field,
                   "Parallel layer shares serialized model instance: " +

@@ -26,7 +26,7 @@
 
 - 🛡️ **标准纯 C ABI 隔离与安全屏障**：导出标准 6 大 C 接口，内置 `noexcept` 异常防火墙，彻底杜绝下游宿主崩溃。
 - 🎯 **定长硬件 DMA 批处理调度 (`FixedBatchExecutor`)**：专为端侧/NPU 定长 Batch 设计，全泛型自动切块、补齐 Dummy Pad、推理后剥离并保持 `(req_id, sub_id)` 样本溯源。
-- ⚡ **异构推理引擎 PIMPL 解耦**：原生封装 **ONNX Runtime**、**llama.cpp (GGUF)** 与 **专有 NPU DMA 内核**，切换芯片/引擎无需改动任何业务代码，纯 JSON 配置热插拔。
+- ⚡ **Model / Backend 能力解耦**：模型语义对象只依赖中性执行协议，**ONNX Runtime**、**llama.cpp (GGUF)** 与未来 NPU Backend 可通过 `model_type + backend` 组合，切换硬件不改业务 Node。
 - 🧠 **动态类型安全黑板 (`AlgContext`)**：基于 `std::any` 传递多模态复杂张量与结构体，零冗余内存拷贝，请求结束自动释放。
 - 🩺 **公共六级日志 API**：纯 C11 公共头统一 FATAL 到 VERBOSE 输出，支持线程安全的进程级动态阈值。
 - 📊 **图形化算法方案闭环**：C++ Definition/Catalog 驱动统一 CLI 与 **交互式 Web DAG 工作台 (`./show --web`)**，支持方案创建、结构编辑、静态校验、原子保存及隔离的真实 Demo 草稿运行。
@@ -40,7 +40,7 @@
 | **Layer 1: C ABI 适配层** | 客户端解包、类型强转与 `noexcept` 异常屏障 | `include/company_alg_interface.h`<br>`src/adapter/company_c_adapter.cpp` |
 | **Layer 2: 管线与黑板层** | DAG 拓扑执行、请求级动态黑板与模型容器 | `Pipeline`, `AlgContext`, `SessionContext`, `TraceableItem<T>` |
 | **Layer 3: 通用能力算子池** | 前处理分片、模型调用封装、规则快筛与结构化解析 | `INode`, `NodeBase`, `src/common_nodes/*` (11类通用算子) |
-| **Layer 4: 异构引擎层** | 纯虚能力接口、定长批调度模板与三方引擎实现 | `FixedBatchExecutor`, `ONNX Runtime`, `llama.cpp`, `MockNPU` |
+| **Layer 4: 模型与推理 Backend 层** | 强类型模型能力、中性执行协议、Backend 会话与定长批调度 | `IModel`, `IInferenceBackend`, `ModelRuntimeFactory`, `FixedBatchExecutor` |
 
 <details>
 <summary><b>🔍 查看详细 UML 类图设计 (Class Diagram)</b></summary>
@@ -65,9 +65,11 @@
 | **Biz 2 (`ALG_BIZ_TYPE_KEYWORD_MATCH`)** | **关注词规则匹配** | 文本句子 | 纯规则树快筛 (零模型) | 命中的类别与词 JSON | [`pipeline_keyword_match.json`](configs/pipeline_keyword_match.json) |
 | **Biz 3 (`ALG_BIZ_TYPE_ENTITY_EXTRACT`)** | **实体名词抽取** | 文本句子 | 0.6B Qwen / llama.cpp | 抽取的名词列表 JSON | [`pipeline_entity_extract.json`](configs/pipeline_entity_extract.json) |
 | **Biz 4 (`ALG_BIZ_TYPE_COMPLIANCE_AUDIT`)** | **对话风控质检** | 对话流+渠道 | Embedding + Rerank + 7B LLM | 风险分+等级+质检判决 | [`pipeline_dialogue_audit.json`](configs/pipeline_dialogue_audit.json) |
-| **Biz 5 (`ALG_BIZ_TYPE_OCR_DOC_QA`)** | **多模态发票抽取** | 图像路径+Query | OCR 框检测识别 + LLM | 识别框数+结构化发票 JSON | [`pipeline_ocr_doc_qa.json`](configs/pipeline_ocr_doc_qa.json) |
-| **Biz 6 (`ALG_BIZ_TYPE_AUDIO_ASR_INTENT`)** | **语音识别与槽位抽取** | 原始音频 PCM | Speech ASR + NLU 槽位提取器 | 转写文本+意图槽位 JSON | [`pipeline_audio_asr_intent.json`](configs/pipeline_audio_asr_intent.json) |
+| **Biz 5 (`ALG_BIZ_TYPE_OCR_DOC_QA`)** | **多模态发票抽取** | 图像路径+Query | OCR 框检测识别 + LLM | 识别框数+结构化发票 JSON | [Stage 7 测试配置](tests/fixtures/stage7/smoke/pipeline_ocr_doc_qa.json) |
+| **Biz 6 (`ALG_BIZ_TYPE_AUDIO_ASR_INTENT`)** | **语音识别与槽位抽取** | 原始音频 PCM | Speech ASR + NLU 槽位提取器 | 转写文本+意图槽位 JSON | [Stage 7 测试配置](tests/fixtures/stage7/smoke/pipeline_audio_asr_intent.json) |
 | **Biz 7 (`ALG_BIZ_TYPE_CROSS_RERANK`)** | **纯语义精排矩阵打分** | 1 Query + N 候选 | ONNX Cross-Encoder 矩阵计算 | Top-K 打分与排序索引 | [`pipeline_cross_rerank.json`](configs/pipeline_cross_rerank.json) |
+
+> OCR/ASR 的强类型 Node 与 Model 契约已完成；仓库尚未交付真实 OCR/ASR 模型产物与生产 Backend，因此它们的确定性实现仅用于测试和 Smoke Demo，不发布到 `configs/` 生产 Catalog。
 
 ---
 
@@ -127,7 +129,7 @@ LLMEDGEFLOW_LEVEL=4 ./build/alg_demo --suite smoke
 
 ```bash
 # 1. 嵌入式/终端原生 ASCII 拓扑打印 (纯 C++ 零依赖)
-./build/alg_show configs/pipeline_ocr_doc_qa.json
+./build/alg_show configs/pipeline_doc_qa.json
 
 # 2. 打开方案列表或直接打开指定方案
 ./show --web
@@ -157,23 +159,23 @@ LLM-EdgeFlow/
 │   ├── company_alg_log.h        # 公共六级日志 API
 │   ├── core/                    # Layer 2: 框架核心 (AlgContext, Pipeline, TraceableItem)
 │   ├── operator/                # Layer 1: Operator 门面接口 (operator_interface.h)
-│   └── engine/                  # Layer 4: 引擎接口 (FixedBatchExecutor, IModelEngine)
+│   └── engine/                  # Layer 4: Model/Backend 接口、中性协议与定长批调度
 ├── src/
 │   ├── adapter/                 # Layer 1: C ABI 与 Operator 安全胶水层
 │   ├── core/                    # Layer 2: Pipeline 调度器与配置校验器实现
 │   ├── biz/                     # Layer 3: 7 大多模态业务算子库 (前处理/后处理/业务编排)
 │   ├── common_nodes/            # Layer 3: 通用跨业务算子 (LlmGenerateNode 等)
-│   ├── engine/                  # Layer 4: 异构引擎实现 (mock_npu, onnx, llama_cpp)
+│   ├── engine/                  # Layer 4: 模型语义实现与推理 Backend (ONNX Runtime, llama.cpp)
 │   └── tools/                   # C++ 工具集 (alg_show.cpp, alg_pipeline_tool.cpp)
 ├── doc/
 │   ├── developer_guide.md       # 4 层扩展开发说明书
-│   └── rfcs/                    # RFC 架构演进与治理文档 (RFC 0001 ~ 0014)
-├── configs/                     # 11 大标准化业务配置 (JSON & .conf)
+│   └── rfcs/                    # RFC 架构演进与治理文档 (RFC 0001 ~ 0015)
+├── configs/                     # 只依赖真实模型实现的生产 Pipeline 配置
 ├── demo/                        # 参数化多业务端到端演示与 Runner
 │   ├── profiles.json            # 预定义执行 Profile 清单 (单一事实源)
 │   ├── common/                  # 通用参数解析、注册表、数据读取、结果落盘与 RAII Runner
 │   └── biz/                     # 7 大独立业务 Demo 适配实现 (*_demo.cpp)
-├── tests/                       # Google Test / CTest 测试套件 (78 项)
+├── tests/                       # Google Test / CTest 与隔离的确定性推理 fixture
 ├── scripts/                     # 自动化测试、Demo 调度与代码格式化工具
 └── tools/visualizer/            # 交互式 Web DAG 可视化平台
 ```
@@ -182,11 +184,13 @@ LLM-EdgeFlow/
 
 ## 📝 更新日志 (Changelog)
 
-- **v5.0.0（模型能力与推理 Backend 解耦 - RFC 0015，实施中）** *(2026-08)*
+- **v5.0.0（模型能力与推理 Backend 解耦 - RFC 0015，已完成）** *(2026-08)*
   - 🧩 **Model / Backend 双注册体系**：新增 `ModelRegistry`、`BackendRegistry`、中性执行协议与 `ModelRuntimeFactory`，Pipeline 可按 `model_type + backend` 组合模型语义和硬件执行资源。
   - ♻️ **ONNX Runtime Backend 复用**：`BgeEmbeddingModel` 与 `BgeRerankerModel` 共享 `OnnxRuntimeBackend` 和 `ITensorGraphSession`，Rerank Node 仅依赖 `IRerankModel`，旧 `OnnxRerankEngine` 已移除。
   - 🛡️ **创建期与运行期双重契约**：模型加载时严格校验 tensor metadata、批次策略和 sidecar 路径，运行时继续校验 shape、字节数、对齐、有限值及 `(req_id, sub_id)` 溯源。
-  - 🧪 **可复现 Rerank 交付门禁**：构建期生成确定性 ONNX/vocab fixture，覆盖真实 Pipeline、Operator/C ABI、真实 Demo 成功链路及缺模型 fail-close；RFC 仍保持 `In Implementation`，LLM/OCR/ASR 与最终清理将在后续阶段完成。
+  - 🧠 **强类型五能力契约**：Embedding、Rerank、LLM、OCR 与 ASR Node 分别依赖 `IEmbeddingModel`、`IRerankModel`、`ILlmModel`、`IOcrModel` 与 `IAsrModel`，不再透出 Backend 实现。
+  - 🧹 **旧 Engine 路径彻底移除**：删除 `IModelEngine`、`EngineFactory`、旧 ONNX/MockNPU Engine、双语法解析与 `engine_type`；Pipeline、Validator、Catalog、CLI 和 Studio 只消费 Model/Backend SSOT。
+  - 🧪 **生产与测试 fixture 隔离**：真实 ONNX/llama.cpp 配置留在 `configs/`，OCR/ASR 等确定性替身只链接测试与 Smoke Demo，不进入生产库或 Catalog。
 
 - **v4.3.0 (独立公共日志 API - RFC 0014)** *(2026-08)*
   - 🩺 **纯 C11 六级日志契约**：新增 `company_alg_log.h`，提供 FATAL、ERROR、WARNING、INFO、DEBUG、VERBOSE 宏和线程安全全局等级 API，不引入 STL 或第三方日志依赖。

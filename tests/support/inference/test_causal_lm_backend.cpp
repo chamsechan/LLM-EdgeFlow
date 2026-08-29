@@ -102,5 +102,8 @@ std::shared_ptr<IBackendSession> TestCausalLmBackend::Load(
   }
 }
 
+REGISTER_BACKEND_WITH_DEFINITION(TestCausalLmBackend,
+                                 TestCausalLmBackend::MakeDefinition());
+
 }  // namespace test
 }  // namespace alg_framework

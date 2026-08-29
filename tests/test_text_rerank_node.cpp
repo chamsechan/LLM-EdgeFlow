@@ -12,8 +12,6 @@
 #include "core/node_registry.h"
 #include "core/pipeline_validator.h"
 #include "core/session_context.h"
-#include "engine/engine_interface.h"
-#include "engine/engine_registry.h"
 #include "engine/model_interface.h"
 
 namespace alg_framework {
@@ -84,13 +82,6 @@ class TextRerankNodeTest : public ::testing::Test {
     ASSERT_TRUE(session_ctx_->GetModelManager().RegisterModel(
         "fake_rerank_model", fake_model_, "v1", "fake_reranker", "rerank",
         "mock"));
-
-    // 同时注册 Mock NPU 引擎用于测试 Legacy 适配路径
-    auto rerank_engine = EngineFactory::Instance().Create("mock_npu_rerank");
-    ASSERT_NE(rerank_engine, nullptr);
-    rerank_engine->Load("./models/bge_reranker.bin", {{"max_batch_size", 4}});
-    ASSERT_TRUE(session_ctx_->GetModelManager().RegisterModel(
-        "legacy_rerank_engine", std::move(rerank_engine)));
   }
 
   std::shared_ptr<FakeRerankModel> fake_model_;
@@ -210,12 +201,12 @@ TEST_F(TextRerankNodeTest, MultiRequestGrouping) {
   EXPECT_EQ((*ranked)[1].data.text, "Q2 HIGH");
 }
 
-// 5. Legacy Engine Adapter Path
-TEST_F(TextRerankNodeTest, LegacyEngineAdapterPath) {
+// 5. Typed Model pair-input path
+TEST_F(TextRerankNodeTest, TypedModelPairInputPath) {
   auto node = NodeFactory::Instance().Create("TextRerankNode");
   ASSERT_NE(node, nullptr);
 
-  nlohmann::json cfg = {{"bind_model", "legacy_rerank_engine"}, {"top_k", 1}};
+  nlohmann::json cfg = {{"bind_model", "fake_rerank_model"}, {"top_k", 1}};
   EXPECT_TRUE(node->Init(cfg, session_ctx_.get()));
 
   AlgContext ctx;
@@ -271,7 +262,9 @@ TEST_F(TextRerankNodeTest, PortConstraintsValidation) {
   nlohmann::json bad_pipeline = {
       {"biz_name", "cross_rerank_matrix_v1"},
       {"models",
-       {{{"engine_type", "mock_npu_rerank"},
+       {{{"capability", "rerank"},
+         {"model_type", "test_business_rerank"},
+         {"backend", "test_tensor_backend"},
          {"model_id", "rerank_model_v1"},
          {"model_path", "./models/rerank.bin"}}}},
       {"pipeline",

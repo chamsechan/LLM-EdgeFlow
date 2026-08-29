@@ -12,8 +12,10 @@
 #include "core/pipeline.h"
 #include "core/pipeline_catalog.h"
 #include "core/pipeline_validator.h"
-#include "engine/engine_interface.h"
-#include "engine/engine_registry.h"
+#include "engine/backend_interface.h"
+#include "engine/backend_registry.h"
+#include "engine/model_interface.h"
+#include "engine/model_registry.h"
 
 namespace alg_framework {
 namespace {
@@ -66,30 +68,65 @@ NodeDefinition MakeSchemaProbeNodeDefinition() {
 
 REGISTER_NODE_WITH_DEFINITION(SchemaProbeNode, MakeSchemaProbeNodeDefinition());
 
-class SchemaProbeEngine : public IModelEngine {
+class SchemaProbeModel : public IModel {
  public:
-  inline static constexpr char kEngineType[] = "schema_probe_engine";
-  static inline int s_load_count = 0;
+  inline static constexpr char kModelType[] = "schema_probe_model";
+  static inline int s_create_count = 0;
 
-  static void ResetCounts() { s_load_count = 0; }
+  static void ResetCounts() { s_create_count = 0; }
 
-  bool Load(const std::string&, const nlohmann::json&) override {
-    ++s_load_count;
-    return true;
+  static std::shared_ptr<IModel> Create(const ModelCreateContext&,
+                                        std::string*) {
+    ++s_create_count;
+    return std::make_shared<SchemaProbeModel>();
   }
-  size_t GetMaxBatchSize() const override { return 4; }
-  const std::string& EngineType() const override {
-    static const std::string type = kEngineType;
+  size_t GetMaxBatchSize() const noexcept override { return 4; }
+  const std::string& ModelType() const noexcept override {
+    static const std::string type = kModelType;
     return type;
+  }
+  const std::string& Capability() const noexcept override {
+    static const std::string capability = "schema_probe";
+    return capability;
+  }
+  InferenceConcurrency Concurrency() const noexcept override {
+    return InferenceConcurrency::kConcurrent;
   }
 };
 
-EngineDefinition MakeSchemaProbeEngineDefinition() {
-  EngineDefinition def;
-  def.engine_type = SchemaProbeEngine::kEngineType;
+ModelDefinition MakeSchemaProbeModelDefinition() {
+  ModelDefinition def;
+  def.model_type = SchemaProbeModel::kModelType;
   def.capability = "schema_probe";
-  def.description = "Schema probe test engine";
-  def.thread_model = EngineThreadModel::kConcurrent;
+  def.description = "Schema probe test model";
+  def.required_protocol = ExecutionProtocol::kTensorGraph;
+  def.concurrency = InferenceConcurrency::kConcurrent;
+  return def;
+}
+
+class SchemaProbeBackend : public IInferenceBackend {
+ public:
+  inline static constexpr char kBackendType[] = "schema_probe_backend";
+  static inline int s_load_count = 0;
+
+  static void ResetCounts() { s_load_count = 0; }
+  const std::string& BackendType() const noexcept override {
+    static const std::string type = kBackendType;
+    return type;
+  }
+  std::shared_ptr<IBackendSession> Load(const BackendLoadSpec&,
+                                        std::string*) noexcept override {
+    ++s_load_count;
+    return nullptr;
+  }
+};
+
+BackendDefinition MakeSchemaProbeBackendDefinition() {
+  BackendDefinition def;
+  def.backend_type = SchemaProbeBackend::kBackendType;
+  def.description = "Schema probe test backend";
+  def.supported_protocols = {ExecutionProtocol::kTensorGraph};
+  def.concurrency = InferenceConcurrency::kConcurrent;
   def.config_fields = {
       ConfigFieldDefinition{
           "device_id", ConfigValueKind::kInteger, /*required=*/false,
@@ -103,8 +140,10 @@ EngineDefinition MakeSchemaProbeEngineDefinition() {
   return def;
 }
 
-REGISTER_ENGINE_WITH_DEFINITION(SchemaProbeEngine,
-                                MakeSchemaProbeEngineDefinition());
+REGISTER_MODEL_WITH_DEFINITION(SchemaProbeModel,
+                               MakeSchemaProbeModelDefinition());
+REGISTER_BACKEND_WITH_DEFINITION(SchemaProbeBackend,
+                                 MakeSchemaProbeBackendDefinition());
 
 }  // namespace
 
@@ -178,14 +217,18 @@ TEST(DefinitionSchemaValidationTest, EnforcesStringEnumValues) {
   EXPECT_EQ(it->path, "/pipeline/0/config/enum_mode");
 }
 
-TEST(DefinitionSchemaValidationTest, EnforcesEngineConfigConstraints) {
+TEST(DefinitionSchemaValidationTest, EnforcesBackendConfigConstraints) {
   nlohmann::json pipeline = {
       {"business_name", "unregistered_test_biz"},
       {"models",
        nlohmann::json::array(
            {{{"model_id", "probe_model"},
-             {"engine_type", SchemaProbeEngine::kEngineType},
-             {"config",
+             {"capability", "schema_probe"},
+             {"model_type", SchemaProbeModel::kModelType},
+             {"backend", SchemaProbeBackend::kBackendType},
+             {"model_path", "probe.bin"},
+             {"model_config", nlohmann::json::object()},
+             {"backend_config",
               {{"device_id", 999}, {"precision", "invalid_prec"}}}}})},
       {"pipeline",
        nlohmann::json::array({{{"id", "node_0"},
@@ -201,11 +244,11 @@ TEST(DefinitionSchemaValidationTest, EnforcesEngineConfigConstraints) {
   bool has_enum = false;
   for (const auto& diag : plan.report.diagnostics) {
     if (diag.code == DiagnosticCode::kConfigFieldRange &&
-        diag.path == "/models/0/config/device_id") {
+        diag.path == "/models/0/backend_config/device_id") {
       has_range = true;
     }
     if (diag.code == DiagnosticCode::kConfigFieldEnum &&
-        diag.path == "/models/0/config/precision") {
+        diag.path == "/models/0/backend_config/precision") {
       has_enum = true;
     }
   }
@@ -215,14 +258,19 @@ TEST(DefinitionSchemaValidationTest, EnforcesEngineConfigConstraints) {
 
 TEST(DefinitionSchemaValidationTest, ValidationFailureHasZeroSideEffects) {
   SchemaProbeNode::ResetCounts();
-  SchemaProbeEngine::ResetCounts();
+  SchemaProbeModel::ResetCounts();
+  SchemaProbeBackend::ResetCounts();
 
   nlohmann::json invalid_pipeline = {
       {"business_name", "unregistered_test_biz"},
       {"models",
        nlohmann::json::array({{{"model_id", "probe_model"},
-                               {"engine_type", SchemaProbeEngine::kEngineType},
-                               {"config", {{"device_id", -10}}}}})},
+                               {"capability", "schema_probe"},
+                               {"model_type", SchemaProbeModel::kModelType},
+                               {"backend", SchemaProbeBackend::kBackendType},
+                               {"model_path", "probe.bin"},
+                               {"model_config", nlohmann::json::object()},
+                               {"backend_config", {{"device_id", -10}}}}})},
       {"pipeline",
        nlohmann::json::array({{{"id", "node_0"},
                                {"node_type", SchemaProbeNode::kNodeType},
@@ -237,7 +285,8 @@ TEST(DefinitionSchemaValidationTest, ValidationFailureHasZeroSideEffects) {
   EXPECT_EQ(pipeline.GetState(), Pipeline::State::kFailed);
 
   // 严格零模型加载、零节点初始化、零推理副作用
-  EXPECT_EQ(SchemaProbeEngine::s_load_count, 0);
+  EXPECT_EQ(SchemaProbeBackend::s_load_count, 0);
+  EXPECT_EQ(SchemaProbeModel::s_create_count, 0);
   EXPECT_EQ(SchemaProbeNode::s_init_count, 0);
   EXPECT_EQ(SchemaProbeNode::s_process_count, 0);
 }
@@ -425,19 +474,19 @@ TEST(DefinitionSchemaValidationTest, ProductionCatalogSelfCheck) {
     }
   }
 
-  const auto& engines = PipelineCatalog::Engines();
-  EXPECT_FALSE(engines.empty());
-  for (const auto& engine : engines) {
-    EXPECT_FALSE(engine.engine_type.empty());
+  const auto backends = PipelineCatalog::Backends();
+  EXPECT_FALSE(backends.empty());
+  for (const auto& backend : backends) {
+    EXPECT_FALSE(backend.backend_type.empty());
     std::unordered_set<std::string> seen_names;
-    for (const auto& field : engine.config_fields) {
+    for (const auto& field : backend.config_fields) {
       EXPECT_FALSE(field.name.empty());
       EXPECT_TRUE(seen_names.insert(field.name).second)
-          << "Duplicate config field '" << field.name << "' in engine "
-          << engine.engine_type;
+          << "Duplicate config field '" << field.name << "' in backend "
+          << backend.backend_type;
       if (field.minimum && field.maximum) {
         EXPECT_LE(*field.minimum, *field.maximum)
-            << "Inverted range in engine " << engine.engine_type << "."
+            << "Inverted range in backend " << backend.backend_type << "."
             << field.name;
       }
     }

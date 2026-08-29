@@ -77,21 +77,22 @@ int main(int argc, char* argv[]) {
     for (size_t i = 0; i < models.size(); ++i) {
       std::string prefix = (i == models.size() - 1) ? "  └──" : "  ├──";
       std::string mid = models[i].value("model_id", "unknown");
-      std::string etype = models[i].value("engine_type", "unknown");
+      std::string model_type = models[i].value("model_type", "unknown");
+      std::string backend = models[i].value("backend", "unknown");
       std::string mpath = models[i].value("model_path", "");
       size_t pos = mpath.find_last_of("/\\");
       if (pos != std::string::npos) mpath = mpath.substr(pos + 1);
 
       int max_b = 1;
-      if (models[i].contains("config")) {
-        max_b = models[i]["config"].value("max_batch_size", 1);
+      if (models[i].contains("model_config")) {
+        max_b = models[i]["model_config"].value("max_batch_size", 1);
       }
 
       std::cout << prefix << " " << COLOR_MAGENTA << "🧠 " << mid << COLOR_RESET
-                << " (" << COLOR_CYAN << "Engine: " << etype << COLOR_RESET
-                << ", " << COLOR_YELLOW << "FixedMaxBatch: " << max_b
-                << COLOR_RESET << ", Path: " << COLOR_DIM << mpath
-                << COLOR_RESET << ")\n";
+                << " (" << COLOR_CYAN << "Model: " << model_type
+                << ", Backend: " << backend << COLOR_RESET << ", "
+                << COLOR_YELLOW << "FixedMaxBatch: " << max_b << COLOR_RESET
+                << ", Path: " << COLOR_DIM << mpath << COLOR_RESET << ")\n";
     }
     std::cout << "\n";
   }

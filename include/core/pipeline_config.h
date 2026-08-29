@@ -11,18 +11,9 @@
 namespace alg_framework {
 
 /**
- * @brief 模型配置方言标识 (过渡期支持)
- */
-enum class ModelConfigDialect {
-  kLegacyEngine,  ///< 旧版组合 Engine 配置 (阶段 2-6 保留，阶段 7 移除)
-  kModelBackend,  ///< RFC-0015 Model/Backend 解耦标准配置
-};
-
-/**
  * @brief 解析后的单模型配置 (RFC 0015 解耦标准契约)
  */
 struct ParsedModelConfig {
-  ModelConfigDialect dialect = ModelConfigDialect::kModelBackend;
   std::string model_id;
   size_t source_index = 0;
 
@@ -33,10 +24,6 @@ struct ParsedModelConfig {
   std::string model_path;
   nlohmann::json model_config = nlohmann::json::object();
   nlohmann::json backend_config = nlohmann::json::object();
-
-  // 兼容过渡字段 (Legacy Engine 方言，阶段 2-6 保留，阶段 7 收口删除)
-  std::string engine_type;
-  nlohmann::json config = nlohmann::json::object();
 };
 
 /**

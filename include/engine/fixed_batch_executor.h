@@ -98,7 +98,7 @@ class FixedBatchExecutor {
   }
 
   /**
-   * @brief 经典固定 Dummy Pad 输入批处理适配接口 (兼容存量 Node/Engine 逻辑)
+   * @brief 经典固定 Dummy Pad 输入批处理适配接口
    */
   template <typename TIn, typename TOut>
   static int Execute(const std::vector<TraceableItem<TIn>>& all_items,

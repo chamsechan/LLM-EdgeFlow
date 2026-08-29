@@ -9,7 +9,7 @@
 #include "core/blackboard_key.h"
 #include "core/pipeline_catalog.h"
 #include "core/session_context.h"
-#include "engine/engine_interface.h"
+#include "engine/model_interface.h"
 #include "nodes/model_bound_node.h"
 #include "nodes/node_support.h"
 #include "nodes/traceable_unary_inference_node.h"
@@ -154,17 +154,22 @@ TEST(NodeBaseContractsTest, BindingRejectsDefinitionRuntimeTypeDrift) {
 }
 
 // 3. Mock Model Engine for ModelBoundNode and TraceableUnaryInferenceNode
-class MockAsrEngine : public IAudioAsrEngine {
+class MockAsrModel : public IAsrModel {
  public:
-  bool Load(const std::string&, const nlohmann::json&) override { return true; }
-  size_t GetMaxBatchSize() const override { return 16; }
-  const std::string& EngineType() const override {
+  size_t GetMaxBatchSize() const noexcept override { return 16; }
+  const std::string& ModelType() const noexcept override {
     static const std::string t = "mock_asr";
     return t;
   }
-  int InferTraceableBatch(
-      const std::vector<TraceableItem<AudioPcmData>>& inputs,
-      std::vector<TraceableItem<std::string>>* outputs) override {
+  const std::string& Capability() const noexcept override {
+    static const std::string capability = "asr";
+    return capability;
+  }
+  InferenceConcurrency Concurrency() const noexcept override {
+    return InferenceConcurrency::kConcurrent;
+  }
+  int Transcribe(const AudioPcmBatch& inputs,
+                 TextBatch* outputs) noexcept override {
     if (!outputs) return -1;
     outputs->clear();
     for (const auto& item : inputs) {
@@ -174,15 +179,14 @@ class MockAsrEngine : public IAudioAsrEngine {
   }
 };
 
-inline constexpr BlackboardKey<
-    std::vector<TraceableItem<IAudioAsrEngine::AudioPcmData>>>
-    kTestAudioInputs{"test_audio_inputs", "traceable<pcm>[]"};
-inline constexpr BlackboardKey<std::vector<TraceableItem<std::string>>>
-    kTestTranscripts{"test_transcripts", "traceable<string>[]"};
+inline constexpr BlackboardKey<AudioPcmBatch> kTestAudioInputs{
+    "test_audio_inputs", "traceable<pcm>[]"};
+inline constexpr BlackboardKey<TextBatch> kTestTranscripts{
+    "test_transcripts", "traceable<string>[]"};
 
 class MockTraceableAsrNode
-    : public TraceableUnaryInferenceNode<
-          IAudioAsrEngine, IAudioAsrEngine::AudioPcmData, std::string> {
+    : public TraceableUnaryInferenceNode<IAsrModel, AudioPcmPayload,
+                                         std::string> {
  public:
   inline static constexpr char kNodeType[] = "MockTraceableAsrNode";
   MockTraceableAsrNode()
@@ -191,14 +195,14 @@ class MockTraceableAsrNode
 
  protected:
   int InferBatch(const InputBatch& input, OutputBatch* output) override {
-    return engine()->InferTraceableBatch(input, output);
+    return model()->Transcribe(input, output);
   }
 };
 
 TEST(NodeBaseContractsTest, TraceableUnaryInferenceNodeWorkflow) {
   NodeDefinition definition;
   definition.node_type = MockTraceableAsrNode::kNodeType;
-  definition.model_capability = "audio_asr";
+  definition.model_capability = "asr";
   definition.model_config_field = "bind_model";
   definition.config_fields = {ConfigFieldDefinition{
       "bind_model", ConfigValueKind::kString, false, "test_asr_model"}};
@@ -206,14 +210,14 @@ TEST(NodeBaseContractsTest, TraceableUnaryInferenceNodeWorkflow) {
 
   SessionContext session_ctx;
   session_ctx.GetModelManager().RegisterModel(
-      "test_asr_model", std::make_shared<MockAsrEngine>());
+      "test_asr_model", std::make_shared<MockAsrModel>(), "test-v1");
 
   MockTraceableAsrNode node;
   ASSERT_TRUE(node.Init(nlohmann::json::object(), &session_ctx));
 
   AlgContext ctx;
-  std::vector<TraceableItem<IAudioAsrEngine::AudioPcmData>> audios;
-  audios.emplace_back(0, 0, IAudioAsrEngine::AudioPcmData{});
+  AudioPcmBatch audios;
+  audios.emplace_back(0, 0, AudioPcmPayload{});
   ctx.Set(kTestAudioInputs, std::move(audios));
 
   int ret = node.Process(&ctx);

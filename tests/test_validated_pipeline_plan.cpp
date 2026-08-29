@@ -12,8 +12,7 @@
 #include "core/pipeline_catalog.h"
 #include "core/pipeline_validator.h"
 #include "engine/backend_registry.h"
-#include "engine/engine_interface.h"
-#include "engine/engine_registry.h"
+#include "engine/model_interface.h"
 #include "engine/model_registry.h"
 
 namespace alg_framework {
@@ -40,29 +39,40 @@ NodeDefinition MakePlanTestNodeDefinition() {
 
 REGISTER_NODE_WITH_DEFINITION(PlanTestNode, MakePlanTestNodeDefinition());
 
-class SerializedPlanTestEngine : public IModelEngine {
+class SerializedPlanTestModel : public IModel {
  public:
-  inline static constexpr char kEngineType[] = "serialized_plan_test";
+  inline static constexpr char kModelType[] = "serialized_plan_test";
 
-  bool Load(const std::string&, const nlohmann::json&) override { return true; }
-  size_t GetMaxBatchSize() const override { return 1; }
-  const std::string& EngineType() const override {
-    static const std::string type = kEngineType;
+  static std::shared_ptr<IModel> Create(const ModelCreateContext&,
+                                        std::string*) {
+    return std::make_shared<SerializedPlanTestModel>();
+  }
+  size_t GetMaxBatchSize() const noexcept override { return 1; }
+  const std::string& ModelType() const noexcept override {
+    static const std::string type = kModelType;
     return type;
+  }
+  const std::string& Capability() const noexcept override {
+    static const std::string capability = "plan_test";
+    return capability;
+  }
+  InferenceConcurrency Concurrency() const noexcept override {
+    return InferenceConcurrency::kSerialized;
   }
 };
 
-EngineDefinition MakeSerializedPlanTestEngineDefinition() {
-  EngineDefinition def;
-  def.engine_type = SerializedPlanTestEngine::kEngineType;
+ModelDefinition MakeSerializedPlanTestModelDefinition() {
+  ModelDefinition def;
+  def.model_type = SerializedPlanTestModel::kModelType;
   def.capability = "plan_test";
-  def.description = "Serialized engine used by plan validation tests";
-  def.thread_model = EngineThreadModel::kSerialized;
+  def.description = "Serialized model used by plan validation tests";
+  def.required_protocol = ExecutionProtocol::kTensorGraph;
+  def.concurrency = InferenceConcurrency::kSerialized;
   return def;
 }
 
-REGISTER_ENGINE_WITH_DEFINITION(SerializedPlanTestEngine,
-                                MakeSerializedPlanTestEngineDefinition());
+REGISTER_MODEL_WITH_DEFINITION(SerializedPlanTestModel,
+                               MakeSerializedPlanTestModelDefinition());
 
 class ModelBoundPlanTestNode : public INode {
  public:
@@ -156,7 +166,6 @@ TEST(ValidatedPipelinePlanTest, DiagnosticCodeNameTableDriven) {
       {DiagnosticCode::kDuplicateNodeId, "DUPLICATE_NODE_ID"},
       {DiagnosticCode::kUnknownBusiness, "UNKNOWN_BUSINESS"},
       {DiagnosticCode::kUnknownNodeType, "UNKNOWN_NODE_TYPE"},
-      {DiagnosticCode::kUnknownEngineType, "UNKNOWN_ENGINE_TYPE"},
       {DiagnosticCode::kInvalidDependency, "INVALID_DEPENDENCY"},
       {DiagnosticCode::kDuplicateDependency, "DUPLICATE_DEPENDENCY"},
       {DiagnosticCode::kDagCycle, "DAG_CYCLE"},
@@ -174,8 +183,8 @@ TEST(ValidatedPipelinePlanTest, DiagnosticCodeNameTableDriven) {
       {DiagnosticCode::kMissingBusinessOutput, "MISSING_BUSINESS_OUTPUT"},
       {DiagnosticCode::kNodeNotParallelSafe, "NODE_NOT_PARALLEL_SAFE"},
       {DiagnosticCode::kParallelWriteConflict, "PARALLEL_WRITE_CONFLICT"},
-      {DiagnosticCode::kSerializedEngineConcurrency,
-       "SERIALIZED_ENGINE_CONCURRENCY"},
+      {DiagnosticCode::kSerializedModelConcurrency,
+       "SERIALIZED_MODEL_CONCURRENCY"},
       {DiagnosticCode::kPortCardinalityMismatch, "PORT_CARDINALITY_MISMATCH"},
       {DiagnosticCode::kPortProvenanceMismatch, "PORT_PROVENANCE_MISMATCH"},
       {DiagnosticCode::kPortLifetimeMismatch, "PORT_LIFETIME_MISMATCH"},
@@ -229,7 +238,12 @@ TEST(ValidatedPipelinePlanTest, ResolvesConfiguredPortLifetimeBeforePlanning) {
       {"business_name", "smart_doc_qa_v1"},
       {"models",
        nlohmann::json::array({{{"model_id", "embed_model_v1"},
-                               {"engine_type", "mock_npu_embedding"}}})},
+                               {"capability", "embedding"},
+                               {"model_type", "test_business_embedding"},
+                               {"backend", "test_tensor_backend"},
+                               {"model_path", "fixture.bin"},
+                               {"model_config", nlohmann::json::object()},
+                               {"backend_config", nlohmann::json::object()}}})},
       {"pipeline",
        nlohmann::json::array(
            {{{"id", "session_embedding"},
@@ -306,14 +320,18 @@ TEST(ValidatedPipelinePlanTest, MultiLayerWavefrontTopology) {
   EXPECT_EQ(plan.topological_layers[1][0], "node_c");
 }
 
-TEST(ValidatedPipelinePlanTest, RejectsSharedSerializedEngineInParallelLayer) {
+TEST(ValidatedPipelinePlanTest, RejectsSharedSerializedModelInParallelLayer) {
   nlohmann::json pipeline_json = {
       {"business_name", "unregistered_test_biz"},
       {"execution_mode", "parallel"},
-      {"models",
-       nlohmann::json::array(
-           {{{"model_id", "shared"},
-             {"engine_type", SerializedPlanTestEngine::kEngineType}}})},
+      {"models", nlohmann::json::array(
+                     {{{"model_id", "shared"},
+                       {"capability", "plan_test"},
+                       {"model_type", SerializedPlanTestModel::kModelType},
+                       {"backend", "test_tensor_backend"},
+                       {"model_path", "serialized.bin"},
+                       {"model_config", nlohmann::json::object()},
+                       {"backend_config", nlohmann::json::object()}}})},
       {"pipeline",
        nlohmann::json::array({{{"id", "node_a"},
                                {"node_type", ModelBoundPlanTestNode::kNodeType},
@@ -330,7 +348,7 @@ TEST(ValidatedPipelinePlanTest, RejectsSharedSerializedEngineInParallelLayer) {
   auto diagnostic = std::find_if(
       plan.report.diagnostics.begin(), plan.report.diagnostics.end(),
       [](const auto& item) {
-        return item.code == DiagnosticCode::kSerializedEngineConcurrency;
+        return item.code == DiagnosticCode::kSerializedModelConcurrency;
       });
   ASSERT_NE(diagnostic, plan.report.diagnostics.end());
   EXPECT_EQ(diagnostic->node_id, "node_b");

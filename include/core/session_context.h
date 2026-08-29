@@ -11,7 +11,6 @@
 #include <utility>
 #include <vector>
 
-#include "engine/engine_interface.h"
 #include "engine/model_interface.h"
 
 namespace alg_framework {
@@ -48,199 +47,12 @@ struct ModelRegistration {
 };
 
 /**
- * @brief 存量模型引擎会话级注册元数据
- */
-struct LegacyEngineRegistration {
-  std::string model_id;
-  std::shared_ptr<IModelEngine> engine;
-  std::string revision;
-};
-
-namespace detail {
-
-class LegacyEmbeddingEngineAdapter : public IEmbeddingModel {
- public:
-  explicit LegacyEmbeddingEngineAdapter(std::shared_ptr<IEmbeddingEngine> eng)
-      : eng_(std::move(eng)) {}
-
-  const std::string& ModelType() const noexcept override {
-    static const std::string empty;
-    return eng_ ? eng_->EngineType() : empty;
-  }
-  const std::string& Capability() const noexcept override {
-    static const std::string cap = "embedding";
-    return cap;
-  }
-  InferenceConcurrency Concurrency() const noexcept override {
-    return InferenceConcurrency::kConcurrent;
-  }
-  size_t GetMaxBatchSize() const noexcept override {
-    return eng_ ? eng_->GetMaxBatchSize() : 1;
-  }
-
-  int Embed(const TextBatch& inputs, const EmbeddingOptions& options,
-            EmbeddingBatch* outputs) noexcept override {
-    if (!outputs) return -1;
-    outputs->clear();
-    if (inputs.empty()) return 0;
-    if (!eng_) return -1;
-    int ret = eng_->InferTraceableBatch(inputs, outputs);
-    if (ret != 0) {
-      outputs->clear();
-      return ret;
-    }
-    if (options.normalize) {
-      for (auto& item : *outputs) {
-        float norm = 0.0f;
-        for (float v : item.data) norm += v * v;
-        norm = std::sqrt(norm);
-        if (norm > 1e-12f) {
-          for (float& v : item.data) v /= norm;
-        }
-      }
-    }
-    return 0;
-  }
-
- private:
-  std::shared_ptr<IEmbeddingEngine> eng_;
-};
-
-class LegacyRerankEngineAdapter : public IRerankModel {
- public:
-  explicit LegacyRerankEngineAdapter(std::shared_ptr<IRerankEngine> eng)
-      : eng_(std::move(eng)) {}
-
-  const std::string& ModelType() const noexcept override {
-    static const std::string empty;
-    return eng_ ? eng_->EngineType() : empty;
-  }
-  const std::string& Capability() const noexcept override {
-    static const std::string cap = "rerank";
-    return cap;
-  }
-  InferenceConcurrency Concurrency() const noexcept override {
-    return InferenceConcurrency::kConcurrent;
-  }
-  size_t GetMaxBatchSize() const noexcept override {
-    return eng_ ? eng_->GetMaxBatchSize() : 1;
-  }
-
-  int Score(const QueryCandidatesBatch& inputs,
-            ScoreBatch* outputs) noexcept override {
-    if (!outputs) return -1;
-    outputs->clear();
-    if (inputs.empty()) return 0;
-    if (!eng_) return -1;
-
-    try {
-      std::vector<TraceableItem<IRerankEngine::PairInput>> engine_inputs;
-      engine_inputs.reserve(inputs.size());
-      for (const auto& item : inputs) {
-        engine_inputs.emplace_back(
-            item.req_id, item.sub_id,
-            IRerankEngine::PairInput{item.data.query, item.data.candidate});
-      }
-
-      std::vector<TraceableItem<float>> engine_scores;
-      int ret = eng_->ScoreTraceableBatch(engine_inputs, &engine_scores);
-      if (ret != 0) {
-        outputs->clear();
-        return ret;
-      }
-      if (engine_scores.size() != inputs.size()) {
-        outputs->clear();
-        return -1;
-      }
-      for (size_t i = 0; i < inputs.size(); ++i) {
-        if (engine_scores[i].req_id != inputs[i].req_id ||
-            engine_scores[i].sub_id != inputs[i].sub_id) {
-          outputs->clear();
-          return -1;
-        }
-      }
-      *outputs = std::move(engine_scores);
-      return 0;
-    } catch (...) {
-      outputs->clear();
-      return -1;
-    }
-  }
-
- private:
-  std::shared_ptr<IRerankEngine> eng_;
-};
-
-class LegacyLlmEngineAdapter : public ILlmModel {
- public:
-  explicit LegacyLlmEngineAdapter(std::shared_ptr<ILlmEngine> eng)
-      : eng_(std::move(eng)) {}
-
-  const std::string& ModelType() const noexcept override {
-    static const std::string empty;
-    return eng_ ? eng_->EngineType() : empty;
-  }
-  const std::string& Capability() const noexcept override {
-    static const std::string cap = "llm";
-    return cap;
-  }
-  InferenceConcurrency Concurrency() const noexcept override {
-    return InferenceConcurrency::kConcurrent;
-  }
-  size_t GetMaxBatchSize() const noexcept override {
-    return eng_ ? eng_->GetMaxBatchSize() : 1;
-  }
-
-  int Generate(const TextBatch& prompts, const GenerateOptions& options,
-               TextBatch* outputs) noexcept override {
-    if (!outputs) return -1;
-    outputs->clear();
-    if (prompts.empty()) return 0;
-    if (!eng_) return -1;
-    try {
-      ILlmEngine::GenerateOption legacy_options;
-      legacy_options.max_tokens = options.max_tokens;
-      legacy_options.temperature = options.temperature;
-      legacy_options.top_p = options.top_p;
-      legacy_options.stop_words = options.stop_words;
-      const int result =
-          eng_->InferTraceableBatch(prompts, legacy_options, outputs);
-      if (result != 0 || outputs->size() != prompts.size()) {
-        outputs->clear();
-        return result != 0 ? result : -1;
-      }
-      for (size_t i = 0; i < prompts.size(); ++i) {
-        if ((*outputs)[i].req_id != prompts[i].req_id ||
-            (*outputs)[i].sub_id != prompts[i].sub_id) {
-          outputs->clear();
-          return -1;
-        }
-      }
-      return 0;
-    } catch (...) {
-      outputs->clear();
-      return -1;
-    }
-  }
-
- private:
-  std::shared_ptr<ILlmEngine> eng_;
-};
-
-}  // namespace detail
-
-/**
  * @brief 单句柄持有的模型实例资源池 (ModelManager)
  */
 class ModelManager {
  public:
-  /**
-   * @brief 单锁内原子批量提交全部模型和存量引擎实例 (跨方言统一强原子性)
-   */
-  bool RegisterBatchUnified(
-      const std::vector<ModelRegistration>& models,
-      const std::vector<LegacyEngineRegistration>& legacy_engines = {}) {
-    if (models.empty() && legacy_engines.empty()) return true;
+  bool RegisterBatch(const std::vector<ModelRegistration>& models) {
+    if (models.empty()) return true;
 
     std::unordered_set<std::string> staged_ids;
     std::vector<ModelRegistration> staged_registrations;
@@ -279,42 +91,15 @@ class ModelManager {
       staged_registrations.push_back(std::move(reg));
     }
 
-    std::vector<LegacyEngineRegistration> staged_legacy;
-    staged_legacy.reserve(legacy_engines.size());
-    for (const auto& item : legacy_engines) {
-      if (item.model_id.empty() || !item.engine) {
-        return false;
-      }
-      if (!staged_ids.insert(item.model_id).second) {
-        return false;  // staging 内重复
-      }
-      std::string rev = item.revision;
-      if (rev.empty()) {
-        rev = std::to_string(reinterpret_cast<uintptr_t>(item.engine.get()));
-      }
-      LegacyEngineRegistration reg = item;
-      reg.revision = std::move(rev);
-      staged_legacy.push_back(std::move(reg));
-    }
-
     std::lock_guard<std::mutex> lock(mutex_);
     for (const auto& item : staged_registrations) {
-      // 新旧模型共用同一个 ID 冲突域。
-      if (models_.find(item.model_id) != models_.end() ||
-          legacy_engines_.find(item.model_id) != legacy_engines_.end()) {
-        return false;
-      }
-    }
-    for (const auto& item : staged_legacy) {
-      if (models_.find(item.model_id) != models_.end() ||
-          legacy_engines_.find(item.model_id) != legacy_engines_.end()) {
+      if (models_.find(item.model_id) != models_.end()) {
         return false;
       }
     }
 
     // 所有可能失败的准备工作在临时容器完成，最终通过 noexcept swap 提交。
     auto new_models = models_;
-    auto new_legacy = legacy_engines_;
     auto new_revisions = revisions_;
     auto new_registrations = registrations_;
 
@@ -326,26 +111,10 @@ class ModelManager {
       new_revisions[model_id] = revision;
       new_registrations[model_id] = std::move(item);
     }
-    for (auto& item : staged_legacy) {
-      const std::string model_id = item.model_id;
-      const std::string revision = item.revision;
-
-      new_legacy[model_id] = item.engine;
-      new_revisions[model_id] = revision;
-    }
-
     models_.swap(new_models);
-    legacy_engines_.swap(new_legacy);
     revisions_.swap(new_revisions);
     registrations_.swap(new_registrations);
     return true;
-  }
-
-  /**
-   * @brief 单锁内原子批量注册模型实例 (staging -> commit)
-   */
-  bool RegisterBatch(const std::vector<ModelRegistration>& models) {
-    return RegisterBatchUnified(models, {});
   }
 
   /**
@@ -366,26 +135,6 @@ class ModelManager {
     return RegisterBatch({std::move(reg)});
   }
 
-  /**
-   * @brief 兼容存量 IModelEngine 注册
-   */
-  bool RegisterModel(const std::string& model_id,
-                     std::shared_ptr<IModelEngine> engine,
-                     std::string revision = {}) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (model_id.empty() || !engine) return false;
-    if (legacy_engines_.find(model_id) != legacy_engines_.end() ||
-        models_.find(model_id) != models_.end()) {
-      return false;
-    }
-    if (revision.empty()) {
-      revision = std::to_string(reinterpret_cast<uintptr_t>(engine.get()));
-    }
-    legacy_engines_[model_id] = engine;
-    revisions_[model_id] = revision;
-    return true;
-  }
-
   template <typename T>
   std::shared_ptr<T> GetModel(const std::string& model_id) const {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -394,39 +143,12 @@ class ModelManager {
       auto res = std::dynamic_pointer_cast<T>(it->second);
       if (res) return res;
     }
-    auto leg_it = legacy_engines_.find(model_id);
-    if (leg_it != legacy_engines_.end()) {
-      auto direct = std::dynamic_pointer_cast<T>(leg_it->second);
-      if (direct) return direct;
-
-      if constexpr (std::is_same_v<T, IEmbeddingModel>) {
-        auto emb_eng =
-            std::dynamic_pointer_cast<IEmbeddingEngine>(leg_it->second);
-        if (emb_eng) {
-          return std::make_shared<detail::LegacyEmbeddingEngineAdapter>(
-              emb_eng);
-        }
-      } else if constexpr (std::is_same_v<T, IRerankModel>) {
-        auto rerank_eng =
-            std::dynamic_pointer_cast<IRerankEngine>(leg_it->second);
-        if (rerank_eng) {
-          return std::make_shared<detail::LegacyRerankEngineAdapter>(
-              rerank_eng);
-        }
-      } else if constexpr (std::is_same_v<T, ILlmModel>) {
-        auto llm_eng = std::dynamic_pointer_cast<ILlmEngine>(leg_it->second);
-        if (llm_eng) {
-          return std::make_shared<detail::LegacyLlmEngineAdapter>(llm_eng);
-        }
-      }
-    }
     return nullptr;
   }
 
   bool HasModel(const std::string& model_id) const {
     std::lock_guard<std::mutex> lock(mutex_);
-    return models_.find(model_id) != models_.end() ||
-           legacy_engines_.find(model_id) != legacy_engines_.end();
+    return models_.find(model_id) != models_.end();
   }
 
   std::string GetModelRevision(const std::string& model_id) const {
@@ -445,9 +167,7 @@ class ModelManager {
 
   bool UpdateModelRevision(const std::string& model_id, std::string revision) {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (revision.empty() ||
-        (models_.find(model_id) == models_.end() &&
-         legacy_engines_.find(model_id) == legacy_engines_.end())) {
+    if (revision.empty() || models_.find(model_id) == models_.end()) {
       return false;
     }
     revisions_[model_id] = std::move(revision);
@@ -476,8 +196,6 @@ class ModelManager {
  private:
   mutable std::mutex mutex_;
   std::unordered_map<std::string, std::shared_ptr<IModel>> models_;
-  std::unordered_map<std::string, std::shared_ptr<IModelEngine>>
-      legacy_engines_;
   std::unordered_map<std::string, ModelRegistration> registrations_;
   std::unordered_map<std::string, std::string> revisions_;
 };

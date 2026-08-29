@@ -76,11 +76,8 @@ class WorkbenchServiceTest(unittest.TestCase):
         self.assertFalse((self.configs / "pipeline_invalid.json").exists())
 
     def test_profile_mismatch_and_real_demo_roundtrip(self):
-        entity = json.loads(
-            (ROOT / "configs" / "pipeline_entity_extract_llamacpp.json").read_text()
-        )
         with self.assertRaises(SHOW.StudioError) as mismatch:
-            self.service.start_run(entity, "keyword_match_mock")
+            self.service.start_run(self.keyword, "entity_extract_mock")
         self.assertEqual(mismatch.exception.code, "PROFILE_MISMATCH")
         started = self.service.start_run(self.keyword, "keyword_match_mock")
         for _ in range(200):

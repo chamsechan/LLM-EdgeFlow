@@ -24,7 +24,6 @@
 #include "engine/backend_interface.h"
 #include "engine/backend_registry.h"
 #include "engine/backends/onnxruntime/onnxruntime_backend.h"
-#include "engine/engine_registry.h"
 #include "engine/fixed_batch_executor.h"
 #include "engine/model_interface.h"
 #include "engine/model_registry.h"
@@ -890,9 +889,8 @@ TEST_F(OnnxAndRerankerModelTest, CatalogRegistrations) {
   EXPECT_EQ(mdef_opt->required_protocol, ExecutionProtocol::kTensorGraph);
   EXPECT_EQ(mdef_opt->concurrency, InferenceConcurrency::kConcurrent);
 
-  // 确认旧 onnx_rerank 引擎已不再存在
-  EXPECT_FALSE(EngineFactory::Instance().Has("onnx_rerank"));
-  EXPECT_EQ(PipelineCatalog::FindEngine("onnx_rerank"), nullptr);
+  // 确认旧组合型名称未被伪装成 Model 注册。
+  EXPECT_FALSE(PipelineCatalog::FindModel("onnx_rerank").has_value());
 }
 
 // =============================================================================

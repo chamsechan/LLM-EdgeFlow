@@ -279,7 +279,8 @@ TEST_F(OperatorApiTest, StronglyTypedControlValidation) {
   // 3.5 在包含 TextTemplateNode 的管线上测试 kSwitchPrompt 成功路径
   CreateParam entity_param{};
   entity_param.model_path = root_dir.c_str();
-  entity_param.cfg_file_name = "configs/pipeline_entity_extract.conf";
+  entity_param.cfg_file_name =
+      "tests/fixtures/stage7/smoke/pipeline_entity_extract.conf";
   entity_param.device_id = 0;
   entity_param.compute_platform = ComputePlatform::kCpu;
 
@@ -423,7 +424,7 @@ TEST_F(OperatorApiTest, EndToEndOcrDocQaMultiSlot) {
   std::string root_dir = GetConfDir();
   CreateParam param{};
   param.model_path = root_dir.c_str();
-  param.cfg_file_name = "configs/pipeline_ocr_doc_qa.conf";
+  param.cfg_file_name = "tests/fixtures/stage7/smoke/pipeline_ocr_doc_qa.conf";
   param.device_id = 0;
   param.compute_platform = ComputePlatform::kAx650;
   param.max_frame_depth = 25;
@@ -466,7 +467,7 @@ TEST_F(OperatorApiTest, EndToEndDocQa) {
   std::string root_dir = GetConfDir();
   CreateParam param{};
   param.model_path = root_dir.c_str();
-  param.cfg_file_name = "configs/pipeline_doc_qa.conf";
+  param.cfg_file_name = "tests/fixtures/stage7/smoke/pipeline_doc_qa.conf";
   param.device_id = 0;
   param.compute_platform = ComputePlatform::kAx650;
   param.max_frame_depth = 25;
@@ -506,7 +507,8 @@ TEST_F(OperatorApiTest, EndToEndComplianceAudit) {
   std::string root_dir = GetConfDir();
   CreateParam param{};
   param.model_path = root_dir.c_str();
-  param.cfg_file_name = "configs/pipeline_dialogue_audit.conf";
+  param.cfg_file_name =
+      "tests/fixtures/stage7/smoke/pipeline_dialogue_audit.conf";
   param.device_id = 0;
   param.compute_platform = ComputePlatform::kAx650;
   param.max_frame_depth = 25;
@@ -546,7 +548,8 @@ TEST_F(OperatorApiTest, EndToEndAudioAsrIntent) {
   std::string root_dir = GetConfDir();
   CreateParam param{};
   param.model_path = root_dir.c_str();
-  param.cfg_file_name = "configs/pipeline_audio_asr_intent.conf";
+  param.cfg_file_name =
+      "tests/fixtures/stage7/smoke/pipeline_audio_asr_intent.conf";
   param.device_id = 0;
   param.compute_platform = ComputePlatform::kAx650;
   param.max_frame_depth = 25;
@@ -810,7 +813,8 @@ TEST_F(OperatorApiTest, EndToEndEntityExtract) {
   std::string root_dir = GetConfDir();
   CreateParam param{};
   param.model_path = root_dir.c_str();
-  param.cfg_file_name = "configs/pipeline_entity_extract.conf";
+  param.cfg_file_name =
+      "tests/fixtures/stage7/smoke/pipeline_entity_extract.conf";
   param.device_id = 0;
   param.compute_platform = ComputePlatform::kAx650;
   param.max_frame_depth = 25;
@@ -1436,7 +1440,7 @@ TEST_F(OperatorApiTest, MultiBusinessMaxBatchBoundarySuite) {
   {
     CreateParam param{};
     param.model_path = root_dir.c_str();
-    param.cfg_file_name = "configs/pipeline_doc_qa.conf";
+    param.cfg_file_name = "tests/fixtures/stage7/smoke/pipeline_doc_qa.conf";
     param.device_id = 0;
     param.compute_platform = ComputePlatform::kAx650;
     param.max_frame_depth = 8;
@@ -1488,7 +1492,8 @@ TEST_F(OperatorApiTest, MultiBusinessMaxBatchBoundarySuite) {
   {
     CreateParam param{};
     param.model_path = root_dir.c_str();
-    param.cfg_file_name = "configs/pipeline_dialogue_audit.conf";
+    param.cfg_file_name =
+        "tests/fixtures/stage7/smoke/pipeline_dialogue_audit.conf";
     param.device_id = 0;
     param.compute_platform = ComputePlatform::kAx650;
     param.max_frame_depth = 8;
@@ -1538,7 +1543,8 @@ TEST_F(OperatorApiTest, MultiBusinessMaxBatchBoundarySuite) {
   {
     CreateParam param{};
     param.model_path = root_dir.c_str();
-    param.cfg_file_name = "configs/pipeline_audio_asr_intent.conf";
+    param.cfg_file_name =
+        "tests/fixtures/stage7/smoke/pipeline_audio_asr_intent.conf";
     param.device_id = 0;
     param.compute_platform = ComputePlatform::kAx650;
     param.max_frame_depth = 8;
@@ -1655,7 +1661,8 @@ TEST_F(OperatorApiTest, MultiBusinessMaxBatchBoundarySuite) {
   {
     CreateParam param{};
     param.model_path = root_dir.c_str();
-    param.cfg_file_name = "configs/pipeline_ocr_doc_qa.conf";
+    param.cfg_file_name =
+        "tests/fixtures/stage7/smoke/pipeline_ocr_doc_qa.conf";
     param.device_id = 0;
     param.compute_platform = ComputePlatform::kAx650;
     param.max_frame_depth = 8;
@@ -1706,7 +1713,8 @@ TEST_F(OperatorApiTest, MultiBusinessMaxBatchBoundarySuite) {
   {
     CreateParam param{};
     param.model_path = root_dir.c_str();
-    param.cfg_file_name = "configs/pipeline_entity_extract.conf";
+    param.cfg_file_name =
+        "tests/fixtures/stage7/smoke/pipeline_entity_extract.conf";
     param.device_id = 0;
     param.compute_platform = ComputePlatform::kAx650;
     param.max_frame_depth = 8;
@@ -1870,8 +1878,9 @@ TEST_F(OperatorApiTest, ModelPathNonExistentFileAllowedWhileEscapeRejected) {
   // 1. model_paths 和 Pipeline 原始 model_path 都指向尚未部署的模型；
   // Resolver 只规范化引用，不能创建或要求模型文件存在。
   {
-    std::filesystem::copy_file(source_root / "configs/pipeline_doc_qa.json",
-                               root / "configs/pipeline_doc_qa.json");
+    std::filesystem::copy_file(
+        source_root / "tests/fixtures/stage7/smoke/pipeline_doc_qa.json",
+        root / "configs/pipeline_doc_qa.json");
     std::ofstream conf(root / "configs/model_paths.conf");
     conf << R"({
       "data": {
@@ -1912,7 +1921,8 @@ TEST_F(OperatorApiTest, ModelPathNonExistentFileAllowedWhileEscapeRejected) {
   // 2. 单 model_path override 同样允许最终模型文件不存在。
   {
     std::filesystem::copy_file(
-        source_root / "configs/pipeline_audio_asr_intent.json",
+        source_root /
+            "tests/fixtures/stage7/smoke/pipeline_audio_asr_intent.json",
         root / "configs/pipeline_audio_asr_intent.json");
     std::ofstream conf(root / "configs/single_model.conf");
     conf << R"({

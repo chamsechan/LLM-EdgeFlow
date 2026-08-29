@@ -14,8 +14,8 @@
 #include "core/node_base.h"
 #include "core/node_registry.h"
 #include "core/pipeline.h"
-#include "engine/engine_interface.h"
 #include "engine/fixed_batch_executor.h"
+#include "engine/model_interface.h"
 
 static std::string GetConfigPath(const std::string& rel_path) {
   FILE* fp = fopen(rel_path.c_str(), "r");
@@ -29,42 +29,37 @@ static std::string GetConfigPath(const std::string& rel_path) {
 namespace alg_framework {
 
 // 1. 模拟硬件故障的推理引擎 (可动态注入硬件故障)
-class MockFaultyHardwareEngine : public IEmbeddingEngine {
+class MockFaultyHardwareModel : public IEmbeddingModel {
  public:
-  bool Load(const std::string& model_path,
-            const nlohmann::json& custom_config) override {
-    (void)model_path;
-    should_fail_ = custom_config.value("inject_failure", false);
-    error_code_to_return_ = custom_config.value("failure_error_code", -777);
-    return true;
+  const std::string& ModelType() const noexcept override {
+    static const std::string type = "mock_faulty_model";
+    return type;
   }
+  const std::string& Capability() const noexcept override {
+    static const std::string capability = "embedding";
+    return capability;
+  }
+  InferenceConcurrency Concurrency() const noexcept override {
+    return InferenceConcurrency::kConcurrent;
+  }
+  size_t GetMaxBatchSize() const noexcept override { return 4; }
 
-  int InferTraceableBatch(
-      const std::vector<TraceableItem<std::string>>& input_texts,
-      std::vector<TraceableItem<std::vector<float>>>* output_embeddings)
-      override {
+  int Embed(const TextBatch& input_texts, const EmbeddingOptions&,
+            EmbeddingBatch* output_embeddings) noexcept override {
     if (should_fail_) {
       // 模拟底层硬件 NPU DMA 超时或驱动错误
       return error_code_to_return_;
     }
 
-    std::string dummy_pad = "<PAD>";
     return FixedBatchExecutor::Execute<std::string, std::vector<float>>(
-        input_texts, GetMaxBatchSize(), dummy_pad,
-        [](const std::vector<std::string>& batch_in,
+        input_texts, BatchPolicy{GetMaxBatchSize(), GetMaxBatchSize()},
+        [](const BatchSlice& slice,
            std::vector<std::vector<float>>* batch_out) -> int {
-          for (size_t i = 0; i < batch_in.size(); ++i) {
-            batch_out->push_back(std::vector<float>(128, 0.5f));
-          }
+          batch_out->assign(slice.execution_count,
+                            std::vector<float>(128, 0.5f));
           return 0;
         },
         output_embeddings);
-  }
-
-  size_t GetMaxBatchSize() const override { return 4; }
-  const std::string& EngineType() const override {
-    static const std::string type = "mock_faulty_hw";
-    return type;
   }
 
   void SetFault(bool fail, int err_code = -777) {
@@ -159,9 +154,8 @@ TEST_F(EngineFaultToleranceAndLifecycleTest,
        HardwareFaultInjectionAndErrorPropagation) {
   using namespace alg_framework;
 
-  auto engine = std::make_shared<MockFaultyHardwareEngine>();
-  ASSERT_TRUE(engine->Load(
-      "dummy_path", {{"inject_failure", true}, {"failure_error_code", -505}}));
+  auto model = std::make_shared<MockFaultyHardwareModel>();
+  model->SetFault(true, -505);
 
   std::vector<TraceableItem<std::string>> input_items;
   for (int i = 0; i < 5; ++i) {
@@ -175,13 +169,13 @@ TEST_F(EngineFaultToleranceAndLifecycleTest,
   std::vector<TraceableItem<std::vector<float>>> output_embeddings;
 
   // 执行批推理，底层硬件故障应被拦截并返回 -505
-  int ret = engine->InferTraceableBatch(input_items, &output_embeddings);
+  int ret = model->Embed(input_items, EmbeddingOptions{}, &output_embeddings);
   EXPECT_EQ(ret, -505);
 
   // 恢复硬件正常状态后重试
-  engine->SetFault(false);
+  model->SetFault(false);
   output_embeddings.clear();
-  ret = engine->InferTraceableBatch(input_items, &output_embeddings);
+  ret = model->Embed(input_items, EmbeddingOptions{}, &output_embeddings);
   EXPECT_EQ(ret, 0);
   EXPECT_EQ(output_embeddings.size(), 5U);
   EXPECT_EQ(output_embeddings[0].data.size(), 128U);

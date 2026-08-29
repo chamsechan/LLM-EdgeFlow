@@ -11,7 +11,7 @@
 | **Layer 1: C ABI 适配层** | 新增业务枚举、输入/输出纯 C 结构体与专属适配器 | `include/company_alg_interface.h`<br>`src/adapter/adapters/<biz>_adapter.cpp` | `CompanyAlgBizType`<br>`IBusinessAdapter`<br>`REGISTER_BUSINESS_ADAPTER` |
 | **Layer 2: 核心编排层** | 扩展动态黑板、会话模型管理与全局资源 | `include/core/alg_context.h`<br>`include/core/session_context.h` | `AlgContext::Set<T>()`<br>`SessionContext::SetResource()` |
 | **Layer 3: 通用能力算子池** | 新增通用能力算子 (分片/向量检索/重排/模板/规则/解析) | `src/common_nodes/*.cpp`<br>`include/nodes/*.h` | `NodeBase`<br>`REGISTER_NODE_WITH_DEFINITION(NodeName, def)` |
-| **Layer 4: 异构引擎层** | 接入新芯片或推理后端 (如 Ascend/RKNN/TensorRT) | `include/engine/engine_interface.h`<br>`src/engine/<backend>/*_engine.cpp` | `IModelEngine`<br>`REGISTER_ENGINE_WITH_DEFINITION(Cls, def)`<br>`FixedBatchExecutor` |
+| **Layer 4: Model / Backend 层** | 新增模型语义或接入新推理后端 | `include/engine/model_interface.h`<br>`include/engine/backend_interface.h`<br>`src/engine/models/`<br>`src/engine/backends/` | `REGISTER_MODEL_WITH_DEFINITION`<br>`REGISTER_BACKEND_WITH_DEFINITION`<br>`ModelRuntimeFactory`<br>`FixedBatchExecutor` |
 
 ---
 
@@ -38,7 +38,7 @@ Operator 扩展分为两步：先在 `OperatorValueTypeRegistry` 中建立“规
 结构不得替换或渗透内部 DTO。输入转换只读取 `.get()` 指针并复制数据值；输出由
 Create 期固定池分配，Process 只向空输出槽位提交池化 shared_ptr。输出 deleter 只
 持有池状态的 weak lifetime token，Destroy 后不得访问输出数据。任何需要修改
-Blackboard、Node 或 Engine 才能识别 Operator 结构的方案均违反分层要求。
+Blackboard、Node、Model 或 Backend 才能识别 Operator 结构的方案均违反分层要求。
 
 目标交付共享库为 `company_alg_sdk`，SOVERSION 为 4。
 Operator v4 的 Create 和配置预检都使用部署根 `model_path` 加相对
@@ -190,7 +190,7 @@ Layer 2 负责请求黑板生命周期与 DAG 管线单趟构建：
 ```cpp
 // src/common_nodes/my_custom_node.cpp
 #include "core/node_registry.h"
-#include "engine/engine_interface.h"
+#include "engine/model_interface.h"
 #include "nodes/model_bound_node.h"
 #include "nodes/node_support.h"
 
@@ -199,14 +199,16 @@ namespace alg_framework {
 inline constexpr BlackboardKey<std::string> kQueryText{"query_text", "string"};
 inline constexpr BlackboardKey<std::string> kCustomResultJson{"custom_result_json", "string"};
 
-class MyCustomNode final : public ModelBoundNode<ILlmEngine> {
+class MyCustomNode final : public ModelBoundNode<ILlmModel> {
  public:
   inline static constexpr char kNodeType[] = "MyCustomNode";
 
-  MyCustomNode() : ModelBoundNode<ILlmEngine>(kNodeType, "my_model_v1") {}
+  MyCustomNode() : ModelBoundNode<ILlmModel>(kNodeType) {}
 
  protected:
-  bool InitNode(const nlohmann::json& config, SessionContext& session_ctx) override {
+  bool InitModelNode(const nlohmann::json& config,
+                     SessionContext& session_ctx) override {
+    (void)session_ctx;
     threshold_ = config.value("threshold", 0.85f);
     return true;
   }
@@ -215,14 +217,15 @@ class MyCustomNode final : public ModelBoundNode<ILlmEngine> {
     const auto* query = Require(req_ctx, kQueryText, -9001);
     if (!query) return -9001;
 
-    // 按需调用已绑定的 Layer 4 模型引擎
-    if (engine()) {
-      std::string llm_out;
-      ILlmEngine::GenerateOption opt;
-      engine()->Generate(*query, opt, &llm_out);
+    TextBatch prompts{{0, 0, *query}};
+    TextBatch outputs;
+    GenerateOptions options;
+    if (!model() || model()->Generate(prompts, options, &outputs) != 0 ||
+        outputs.size() != 1) {
+      return Fail(req_ctx, -9002, "LLM generation failed");
     }
 
-    Publish(req_ctx, kCustomResultJson, std::string("{\"verdict\":\"PASS\"}"));
+    Publish(req_ctx, kCustomResultJson, outputs.front().data);
     return 0;
   }
 
@@ -267,68 +270,89 @@ REGISTER_NODE_WITH_DEFINITION(MyCustomNode, MakeMyCustomNodeDefinition());
 
 ---
 
-## 3. Layer 4: 如何新增一个硬件推理引擎 (Engine)
+## 3. Layer 4: 如何新增模型语义或推理 Backend
+
+Layer 4 必须保持两个独立扩展面：
+
+- **Model** 实现 Embedding/Rerank/LLM/OCR/ASR 语义，只依赖
+  `ITensorGraphSession` 或 `ICausalLmSession` 等中性协议。
+- **Backend** 封装 ONNX Runtime、llama.cpp、TensorRT 或 NPU SDK，加载后返回
+  `IBackendSession`，不实现业务模型语义。
+
+已有 Model 能力只是切换硬件时，只新增 Backend；已有 Backend
+协议能支持新模型时，只新增 Model。不得再创建同时包含模型语义和
+第三方运行时的 `*Engine`。
+
+Backend 自注册骨架：
 
 ```cpp
-// src/engine/my_backend/my_backend_llm_engine.cpp
-#include "engine/engine_interface.h"
-#include "engine/engine_registry.h"
-#include "engine/fixed_batch_executor.h"
+#include "engine/backend_interface.h"
+#include "engine/backend_registry.h"
 
-namespace alg_framework {
-
-class MyBackendLlmEngine : public ILlmEngine {
+class MyTensorBackend final : public IInferenceBackend {
  public:
-  bool Load(const std::string& model_path, const nlohmann::json& config) override {
-    max_batch_size_ = config.value("max_batch_size", 4);
-    // 初始化驱动硬件
-    return true;
+  inline static const std::string kBackendType = "my_tensor_backend";
+
+  const std::string& BackendType() const noexcept override {
+    return kBackendType;
   }
 
-  int Generate(const std::string& prompt, const GenerateOption& opt, std::string* output) override {
-    *output = "Inference result for: " + prompt;
-    return 0;
-  }
-
-  int InferTraceableBatch(const std::vector<TraceableItem<std::string>>& prompts,
-                          const GenerateOption& opt,
-                          std::vector<TraceableItem<std::string>>* outputs) override {
-    // 调用定长硬件分批模板 (FixedBatchExecutor)
-    return FixedBatchExecutor::Execute<std::string, std::string>(
-        prompts, max_batch_size_, "<PAD>",
-        [this](const std::vector<std::string>& in, std::vector<std::string>* out) {
-          out->resize(in.size());
-          for (size_t i = 0; i < in.size(); ++i) (*out)[i] = "Output: " + in[i];
-          return 0;
-        },
-        outputs);
-  }
-
-  size_t GetMaxBatchSize() const override { return max_batch_size_; }
-  const std::string& EngineType() const override {
-    static const std::string type = "my_backend_llm";
-    return type;
-  }
-
- private:
-  size_t max_batch_size_ = 4;
+  std::shared_ptr<IBackendSession> Load(
+      const BackendLoadSpec& spec,
+      std::string* diagnostic) noexcept override;
 };
 
-EngineDefinition MakeMyBackendLlmEngineDefinition() {
-  EngineDefinition def;
-  def.engine_type = "my_backend_llm";
-  def.capability = "llm";
-  def.hardware_backend = "custom_npu";
-  def.description = "Custom backend LLM engine";
-  def.config_fields = {
-      ConfigFieldDefinition{"max_batch_size", ConfigValueKind::kInteger, false, 4, 1.0, 64.0}};
+BackendDefinition MakeMyTensorBackendDefinition() {
+  BackendDefinition def;
+  def.backend_type = MyTensorBackend::kBackendType;
+  def.description = "Custom TensorGraph backend";
+  def.supported_protocols = {ExecutionProtocol::kTensorGraph};
+  def.concurrency = InferenceConcurrency::kConcurrent;
+  def.config_fields = {{"max_batch_size", ConfigValueKind::kInteger,
+                        false, 4, 1.0, 64.0}};
   return def;
 }
 
-REGISTER_ENGINE_WITH_DEFINITION(MyBackendLlmEngine, MakeMyBackendLlmEngineDefinition());
-
-} // namespace alg_framework
+REGISTER_BACKEND_WITH_DEFINITION(MyTensorBackend,
+                                 MakeMyTensorBackendDefinition());
 ```
+
+Model 自注册需实现 `IModel` 的某一强类型能力，提供
+`Create(const ModelCreateContext&, std::string*)` 工厂，并声明所需协议：
+
+```cpp
+ModelDefinition MakeMyModelDefinition() {
+  ModelDefinition def;
+  def.model_type = "my_embedding_model";
+  def.capability = "embedding";
+  def.description = "My embedding model semantics";
+  def.required_protocol = ExecutionProtocol::kTensorGraph;
+  def.concurrency = InferenceConcurrency::kConcurrent;
+  def.config_fields = {{"embedding_dim", ConfigValueKind::kInteger,
+                        true, nlohmann::json(), 1.0, 65536.0}};
+  return def;
+}
+
+REGISTER_MODEL_WITH_DEFINITION(MyEmbeddingModel, MakeMyModelDefinition());
+```
+
+Pipeline 配置只使用 Model/Backend 语法：
+
+```json
+{
+  "model_id": "embedding_v1",
+  "capability": "embedding",
+  "model_type": "my_embedding_model",
+  "backend": "my_tensor_backend",
+  "model_path": "models/embedding/model.bin",
+  "model_config": {"embedding_dim": 768},
+  "backend_config": {"max_batch_size": 4}
+}
+```
+
+`ModelRuntimeFactory` 会验证 Model 能力、执行协议、并发模型与配置字段，
+再把构建好的 `IModel` 原子注册到 `ModelManager`。参考实现：
+`src/engine/models/bge_embedding/` 与 `src/engine/backends/onnxruntime/`。
 
 ---
 
@@ -351,5 +375,5 @@ REGISTER_ENGINE_WITH_DEFINITION(MyBackendLlmEngine, MakeMyBackendLlmEngineDefini
    ```
 4. **一键分支合并上传**：
    ```bash
-   ./scripts/git_branch_upload.sh "feat(custom): add new business and engine" "feat"
+   ./scripts/git_branch_upload.sh "feat(custom): add business model backend" "feat"
    ```

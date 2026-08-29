@@ -2,9 +2,7 @@
 
 #include <algorithm>
 #include <cstdint>
-#include <filesystem>
 #include <fstream>
-#include <functional>
 #include <future>
 #include <queue>
 #include <unordered_map>
@@ -13,7 +11,6 @@
 #include "company_alg_log.h"
 #include "core/node_registry.h"
 #include "core/pipeline_validator.h"
-#include "engine/engine_registry.h"
 #include "engine/model_runtime_factory.h"
 
 namespace alg_framework {
@@ -53,7 +50,7 @@ PipelineErrorCode ValidationCodeToPipelineCode(DiagnosticCode code) {
     case DiagnosticCode::kMissingBusinessOutput:
     case DiagnosticCode::kNodeNotParallelSafe:
     case DiagnosticCode::kParallelWriteConflict:
-    case DiagnosticCode::kSerializedEngineConcurrency:
+    case DiagnosticCode::kSerializedModelConcurrency:
     case DiagnosticCode::kPortCardinalityMismatch:
     case DiagnosticCode::kPortProvenanceMismatch:
     case DiagnosticCode::kPortLifetimeMismatch:
@@ -64,10 +61,10 @@ PipelineErrorCode ValidationCodeToPipelineCode(DiagnosticCode code) {
       return PipelineErrorCode::kDuplicateNodeId;
     case DiagnosticCode::kUnknownNodeType:
       return PipelineErrorCode::kUnknownNodeType;
-    case DiagnosticCode::kUnknownEngineType:
     case DiagnosticCode::kUnknownModelType:
+      return PipelineErrorCode::kUnknownModelType;
     case DiagnosticCode::kUnknownBackend:
-      return PipelineErrorCode::kUnknownEngineType;
+      return PipelineErrorCode::kUnknownBackend;
     case DiagnosticCode::kBackendProtocolMismatch:
       return PipelineErrorCode::kInvalidCombination;
     case DiagnosticCode::kUnknownModelConfigField:
@@ -244,13 +241,12 @@ bool Pipeline::BuildInternal(const nlohmann::json& root_config,
   biz_name_ = parsed_cfg.biz_name;
   business_name_ = parsed_cfg.biz_name;
 
-  // 1. 加载配置中声明的所有模型 (支持多模型加载到 ModelManager)
-  // 跨方言统一强原子性：新 Model 与 Legacy Engine 统一在 local staging
-  // 向量中完成 创建与 Load，仅当全部成功后单锁原子提交到 ModelManager。
+  // 1. 加载配置中声明的所有模型：先在局部 staging 向量完成
+  // Backend/Model 创建，仅当全部成功后原子提交到 ModelManager。
   std::vector<ModelRegistration> staged_new_models;
   staged_new_models.reserve(plan_.models.size());
 
-  // 1.1 Model/Backend 解耦方言：按 ValidatedPipelinePlan.models 批量物化并暂存
+  // 按 ValidatedPipelinePlan.models 批量物化并暂存。
   for (const auto& model_plan : plan_.models) {
     ModelLoadSpec spec;
     spec.model_type = model_plan.model_type;
@@ -265,7 +261,7 @@ bool Pipeline::BuildInternal(const nlohmann::json& root_config,
       model = ModelRuntimeFactory::Create(spec, &factory_diag);
     } catch (const std::exception& e) {
       if (diagnostic) {
-        diagnostic->code = PipelineErrorCode::kEngineLoadFailed;
+        diagnostic->code = PipelineErrorCode::kModelMaterializationFailed;
         diagnostic->path = "/models/" + std::to_string(model_plan.source_index);
         diagnostic->message = "Exception creating model '" +
                               model_plan.model_id + "': " + e.what();
@@ -273,7 +269,7 @@ bool Pipeline::BuildInternal(const nlohmann::json& root_config,
       return false;
     } catch (...) {
       if (diagnostic) {
-        diagnostic->code = PipelineErrorCode::kEngineLoadFailed;
+        diagnostic->code = PipelineErrorCode::kModelMaterializationFailed;
         diagnostic->path = "/models/" + std::to_string(model_plan.source_index);
         diagnostic->message =
             "Unknown exception creating model '" + model_plan.model_id + "'";
@@ -283,7 +279,7 @@ bool Pipeline::BuildInternal(const nlohmann::json& root_config,
 
     if (!model) {
       if (diagnostic) {
-        diagnostic->code = PipelineErrorCode::kEngineLoadFailed;
+        diagnostic->code = PipelineErrorCode::kModelMaterializationFailed;
         diagnostic->path = "/models/" + std::to_string(model_plan.source_index);
         diagnostic->message =
             "ModelRuntimeFactory failed to load model: " + model_plan.model_id +
@@ -306,142 +302,13 @@ bool Pipeline::BuildInternal(const nlohmann::json& root_config,
     staged_new_models.push_back(std::move(reg));
   }
 
-  // 1.2 Legacy Engine 方言兼容：创建并 Load 后暂存
-  std::vector<LegacyEngineRegistration> staged_legacy_engines;
-  const auto& options = session_ctx_.GetRuntimeOptions();
-  for (const auto& model_cfg : parsed_cfg.models) {
-    if (model_cfg.dialect != ModelConfigDialect::kLegacyEngine) {
-      continue;
-    }
-    std::unique_ptr<IModelEngine> engine;
-    try {
-      engine = EngineFactory::Instance().Create(model_cfg.engine_type);
-    } catch (const std::exception& e) {
-      if (diagnostic) {
-        diagnostic->code = PipelineErrorCode::kEngineCreateFailed;
-        diagnostic->path = "/models/" + std::to_string(model_cfg.source_index) +
-                           "/engine_type";
-        diagnostic->message = "Exception creating engine '" +
-                              model_cfg.engine_type + "': " + e.what();
-      }
-      return false;
-    } catch (...) {
-      if (diagnostic) {
-        diagnostic->code = PipelineErrorCode::kEngineCreateFailed;
-        diagnostic->path = "/models/" + std::to_string(model_cfg.source_index) +
-                           "/engine_type";
-        diagnostic->message =
-            "Unknown exception creating engine '" + model_cfg.engine_type + "'";
-      }
-      return false;
-    }
-
-    if (!engine) {
-      if (diagnostic) {
-        diagnostic->code = PipelineErrorCode::kEngineCreateFailed;
-        diagnostic->path = "/models/" + std::to_string(model_cfg.source_index) +
-                           "/engine_type";
-        diagnostic->message = "EngineFactory returned null for engine_type: " +
-                              model_cfg.engine_type;
-      }
-      return false;
-    }
-
-    // 根据 RuntimeOptions 自动解析相对模型路径并注入 device_id
-    std::string resolved_model_path = model_cfg.model_path;
-    if (!model_cfg.model_path.empty()) {
-      std::filesystem::path model_p(model_cfg.model_path);
-      if (model_p.is_absolute()) {
-        resolved_model_path = model_p.lexically_normal().string();
-      } else if (!options.model_root_dir.empty()) {
-        std::filesystem::path root_p(options.model_root_dir);
-
-        std::string stripped_rel = model_cfg.model_path;
-        if (stripped_rel.rfind("./models/", 0) == 0) {
-          stripped_rel = stripped_rel.substr(9);
-        } else if (stripped_rel.rfind("models/", 0) == 0) {
-          stripped_rel = stripped_rel.substr(7);
-        }
-
-        std::filesystem::path cand_stripped = root_p / stripped_rel;
-        std::filesystem::path cand_direct = root_p / model_p;
-        std::filesystem::path cand_filename = root_p / model_p.filename();
-
-        if (std::filesystem::exists(cand_stripped)) {
-          resolved_model_path = cand_stripped.lexically_normal().string();
-        } else if (std::filesystem::exists(cand_direct)) {
-          resolved_model_path = cand_direct.lexically_normal().string();
-        } else if (std::filesystem::exists(cand_filename)) {
-          resolved_model_path = cand_filename.lexically_normal().string();
-        } else if (std::filesystem::exists(model_p)) {
-          resolved_model_path = model_p.lexically_normal().string();
-        } else {
-          resolved_model_path = cand_stripped.lexically_normal().string();
-        }
-      }
-    }
-
-    nlohmann::json custom_cfg = model_cfg.config;
-    if (options.has_device_id && (!custom_cfg.contains("device_id") ||
-                                  custom_cfg["device_id"].is_null())) {
-      custom_cfg["device_id"] = options.device_id;
-    }
-
-    bool load_ok = false;
-    try {
-      load_ok = engine->Load(resolved_model_path, custom_cfg);
-    } catch (const std::exception& e) {
-      if (diagnostic) {
-        diagnostic->code = PipelineErrorCode::kEngineLoadFailed;
-        diagnostic->path = "/models/" + std::to_string(model_cfg.source_index);
-        diagnostic->message =
-            "Exception loading model '" + model_cfg.model_id + "': " + e.what();
-      }
-      return false;
-    } catch (...) {
-      if (diagnostic) {
-        diagnostic->code = PipelineErrorCode::kEngineLoadFailed;
-        diagnostic->path = "/models/" + std::to_string(model_cfg.source_index);
-        diagnostic->message =
-            "Unknown exception loading model '" + model_cfg.model_id + "'";
-      }
-      return false;
-    }
-
-    if (!load_ok) {
-      if (diagnostic) {
-        diagnostic->code = PipelineErrorCode::kEngineLoadFailed;
-        diagnostic->path = "/models/" + std::to_string(model_cfg.source_index);
-        diagnostic->message = "Failed to load model: " + model_cfg.model_id +
-                              " at path: " + resolved_model_path;
-      }
-      ALG_LOG_ERROR("[Pipeline] Failed to load model: %s at path: %s\n",
-                    model_cfg.model_id.c_str(), resolved_model_path.c_str());
-      return false;
-    }
-
-    const std::string model_revision = std::to_string(std::hash<std::string>{}(
-        model_cfg.engine_type + "\n" + resolved_model_path + "\n" +
-        custom_cfg.dump()));
-    LegacyEngineRegistration legacy_reg;
-    legacy_reg.model_id = model_cfg.model_id;
-    legacy_reg.engine = std::shared_ptr<IModelEngine>(std::move(engine));
-    legacy_reg.revision = model_revision;
-    staged_legacy_engines.push_back(std::move(legacy_reg));
-
-    ALG_LOG_INFO(
-        "[Pipeline] Successfully staged legacy model [%s] with engine [%s]\n",
-        model_cfg.model_id.c_str(), model_cfg.engine_type.c_str());
-  }
-
-  // 1.3 统一单锁原子提交到 Session ModelManager
-  if (!session_ctx_.GetModelManager().RegisterBatchUnified(
-          staged_new_models, staged_legacy_engines)) {
+  // 统一单锁原子提交到 Session ModelManager。
+  if (!session_ctx_.GetModelManager().RegisterBatch(staged_new_models)) {
     if (diagnostic) {
       diagnostic->code = PipelineErrorCode::kDuplicateModelId;
       diagnostic->path = "/models";
       diagnostic->message =
-          "Failed to atomically register batch models/engines in ModelManager";
+          "Failed to atomically register batch models in ModelManager";
     }
     return false;
   }

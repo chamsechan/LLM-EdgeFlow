@@ -20,11 +20,6 @@ class ModelBoundNode : public NodeBase {
     return model_;
   }
 
-  // 兼容别名
-  const std::shared_ptr<ModelCapability>& engine() const noexcept {
-    return model_;
-  }
-
   const std::string& model_id() const noexcept { return model_id_; }
 
   virtual bool InitModelNode(const NodeInitContext& init_ctx,

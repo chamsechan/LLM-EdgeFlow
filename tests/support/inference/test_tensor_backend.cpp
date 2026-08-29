@@ -58,5 +58,8 @@ std::shared_ptr<IBackendSession> TestTensorBackend::Load(
   }
 }
 
+REGISTER_BACKEND_WITH_DEFINITION(TestTensorBackend,
+                                 TestTensorBackend::MakeDefinition());
+
 }  // namespace test
 }  // namespace alg_framework

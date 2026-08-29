@@ -198,7 +198,8 @@ TEST_F(CAbiSafetyTest, AdapterRegistryConflictDetectionAndDescriptor) {
 
 // 7. 测试 RuntimeOptions 与设备参数贯通 (ACC-004)
 TEST_F(CAbiSafetyTest, RuntimeOptionsAndDevicePropagation) {
-  std::string cfg = GetConfigPath("configs/pipeline_doc_qa.json");
+  std::string cfg =
+      GetConfigPath("tests/fixtures/stage7/smoke/pipeline_doc_qa.json");
   CompanyAlgParamCreate param;
   param.config_file_path = cfg.c_str();
   param.model_root_dir = "./models";

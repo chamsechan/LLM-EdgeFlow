@@ -11,11 +11,6 @@
 
 namespace alg_framework {
 
-enum class EngineThreadModel {
-  kSerialized = 0,
-  kConcurrent = 1,
-};
-
 struct PortDefinition {
   std::string key;
   std::string type_id;
@@ -170,14 +165,6 @@ struct NodeDefinition {
   std::vector<std::string> biz_names;
 };
 
-struct EngineDefinition {
-  std::string engine_type;
-  std::string capability;
-  std::string description;
-  std::vector<ConfigFieldDefinition> config_fields;
-  EngineThreadModel thread_model = EngineThreadModel::kSerialized;
-};
-
 struct BizDefinition {
   std::string biz_name;
   std::string demo_biz;
@@ -201,7 +188,6 @@ using BusinessDefinition = BizDefinition;
 class PipelineCatalog {
  public:
   static bool RegisterNodeDefinition(const NodeDefinition& definition);
-  static bool RegisterEngineDefinition(const EngineDefinition& definition);
   static bool RegisterBizDefinition(const BizDefinition& definition);
   static bool RegisterBizDefinitions(
       const std::vector<BizDefinition>& definitions);
@@ -215,14 +201,12 @@ class PipelineCatalog {
   }
 
   static const std::vector<NodeDefinition>& Nodes();
-  static const std::vector<EngineDefinition>& Engines();
   static std::vector<ModelDefinition> Models();
   static std::vector<BackendDefinition> Backends();
   static const std::vector<BizDefinition>& Bizs();
   static const std::vector<BizDefinition>& Businesses() { return Bizs(); }
 
   static const NodeDefinition* FindNode(const std::string& node_type);
-  static const EngineDefinition* FindEngine(const std::string& engine_type);
   static std::optional<ModelDefinition> FindModel(
       const std::string& model_type);
   static std::optional<BackendDefinition> FindBackend(
@@ -240,7 +224,6 @@ class PipelineCatalog {
   static nlohmann::json BackendToJson(const BackendDefinition& definition);
 };
 
-const char* EngineThreadModelName(EngineThreadModel model);
 const char* PortConstraintKindName(PortConstraintKind kind);
 
 }  // namespace alg_framework

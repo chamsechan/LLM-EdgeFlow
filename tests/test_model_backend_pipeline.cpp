@@ -13,8 +13,6 @@
 #include "core/pipeline_validator.h"
 #include "engine/backend_interface.h"
 #include "engine/backend_registry.h"
-#include "engine/engine_interface.h"
-#include "engine/engine_registry.h"
 #include "engine/model_interface.h"
 #include "engine/model_registry.h"
 
@@ -539,7 +537,7 @@ TEST_F(ModelBackendPipelineTest,
       cfg, &diag, ValidationPolicy::kPrivateExtensionCompatible);
 
   EXPECT_FALSE(ok);
-  EXPECT_EQ(diag.code, PipelineErrorCode::kEngineLoadFailed);
+  EXPECT_EQ(diag.code, PipelineErrorCode::kModelMaterializationFailed);
 
   // Verify that failing_backend truly attempted to load (preventing false
   // positives)
@@ -555,71 +553,6 @@ TEST_F(ModelBackendPipelineTest,
   EXPECT_EQ(pipeline.GetSessionContext().GetModelManager().GetModel<IModel>(
                 "bad_model"),
             nullptr);
-}
-
-class FailingLegacyEngine : public IModelEngine {
- public:
-  bool Load(const std::string&, const nlohmann::json&) override {
-    return false;
-  }
-  const std::string& EngineType() const override {
-    static const std::string type = "failing_legacy_engine";
-    return type;
-  }
-  size_t GetMaxBatchSize() const override { return 1; }
-};
-
-TEST_F(ModelBackendPipelineTest,
-       PipelineBuildAtomicRollbackDualDialectWhenLegacyEngineFails) {
-  // Register failing legacy engine
-  static EngineDefinition edef;
-  edef.engine_type = "failing_legacy_engine";
-  edef.capability = "embedding";
-  EngineFactory::Instance().Register(
-      "failing_legacy_engine",
-      []() { return std::make_unique<FailingLegacyEngine>(); }, &edef);
-
-  nlohmann::json cfg = {
-      {"biz_name", "pipeline_dual_atomic_rollback"},
-      {"models", nlohmann::json::array({
-                     {
-                         {"model_id", "good_mb_model"},
-                         {"capability", "embedding"},
-                         {"model_type", "mock_bge_embedding"},
-                         {"backend", "mock_test_backend"},
-                         {"model_path", "./models/good.onnx"},
-                     },
-                     {
-                         {"model_id", "bad_legacy_model"},
-                         {"engine_type", "failing_legacy_engine"},
-                         {"model_path", "./models/bad.bin"},
-                     },
-                 })},
-      {"pipeline", nlohmann::json::array({{
-                       {"id", "node1"},
-                       {"node_type", "MockEmbeddingConsumerNode"},
-                       {"depends_on", nlohmann::json::array()},
-                       {"config", {{"bind_model", "good_mb_model"}}},
-                   }})},
-  };
-
-  Pipeline pipeline;
-  PipelineDiagnostic diag;
-  bool ok = pipeline.BuildFromJson(
-      cfg, &diag, ValidationPolicy::kPrivateExtensionCompatible);
-
-  EXPECT_FALSE(ok);
-  EXPECT_EQ(diag.code, PipelineErrorCode::kEngineLoadFailed);
-
-  // Verify that neither good_mb_model nor bad_legacy_model is committed to
-  // ModelManager!
-  EXPECT_EQ(pipeline.GetSessionContext().GetModelManager().GetModel<IModel>(
-                "good_mb_model"),
-            nullptr);
-  EXPECT_EQ(
-      pipeline.GetSessionContext().GetModelManager().GetModel<IModelEngine>(
-          "bad_legacy_model"),
-      nullptr);
 }
 
 TEST_F(ModelBackendPipelineTest, ValidatorRejectsModelPathEscapingRoot) {

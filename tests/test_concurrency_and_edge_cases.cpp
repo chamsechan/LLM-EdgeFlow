@@ -162,8 +162,8 @@ TEST_F(ConcurrencyAndEdgeCasesTest, EdgeCasesAndFaultTolerance) {
 
   // Case C: 音频 0 采样点边界
   {
-    std::string cfg_path =
-        GetConfigPath("configs/pipeline_audio_asr_intent.json");
+    std::string cfg_path = GetConfigPath(
+        "tests/fixtures/stage7/smoke/pipeline_audio_asr_intent.json");
     CompanyAlgParamCreate param;
     param.config_file_path = cfg_path.c_str();
     param.model_root_dir = "./models";

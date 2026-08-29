@@ -11,7 +11,7 @@
 #include "core/pipeline_catalog.h"
 #include "core/pipeline_validator.h"
 #include "engine/backend_registry.h"
-#include "engine/engine_registry.h"
+#include "engine/model_registry.h"
 
 namespace alg_framework {
 namespace {
@@ -43,8 +43,13 @@ TEST(PipelineCatalogTest, RegisteredProductionTypesHaveDefinitions) {
   for (const auto& node_type : NodeFactory::Instance().ListTypes()) {
     EXPECT_NE(PipelineCatalog::FindNode(node_type), nullptr) << node_type;
   }
-  for (const auto& engine_type : EngineFactory::Instance().ListTypes()) {
-    EXPECT_NE(PipelineCatalog::FindEngine(engine_type), nullptr) << engine_type;
+  for (const auto& model_type : ModelRegistry::Instance().ListTypes()) {
+    EXPECT_TRUE(PipelineCatalog::FindModel(model_type).has_value())
+        << model_type;
+  }
+  for (const auto& backend_type : BackendRegistry::Instance().ListTypes()) {
+    EXPECT_TRUE(PipelineCatalog::FindBackend(backend_type).has_value())
+        << backend_type;
   }
 }
 
@@ -55,10 +60,15 @@ TEST(PipelineCatalogTest, OutputIsDeterministicAndConflictFree) {
     EXPECT_TRUE(node_types.insert(definition.node_type).second)
         << definition.node_type;
   }
-  std::set<std::string> engine_types;
-  for (const auto& definition : PipelineCatalog::Engines()) {
-    EXPECT_TRUE(engine_types.insert(definition.engine_type).second)
-        << definition.engine_type;
+  std::set<std::string> model_types;
+  for (const auto& definition : PipelineCatalog::Models()) {
+    EXPECT_TRUE(model_types.insert(definition.model_type).second)
+        << definition.model_type;
+  }
+  std::set<std::string> backend_types;
+  for (const auto& definition : PipelineCatalog::Backends()) {
+    EXPECT_TRUE(backend_types.insert(definition.backend_type).second)
+        << definition.backend_type;
   }
 }
 
@@ -106,10 +116,9 @@ TEST(PipelineValidatorTest, AllRepositoryPipelinesValidate) {
          pipeline.value("models", nlohmann::json::array())) {
       if (!model.is_object()) continue;
       const std::string backend = model.value("backend", "");
-      const std::string engine = model.value("engine_type", "");
-      if ((!backend.empty() &&
-           !BackendRegistry::Instance().Find(backend).has_value()) ||
-          (!engine.empty() && !EngineFactory::Instance().Has(engine))) {
+      const std::string model_type = model.value("model_type", "");
+      if ((!backend.empty() && !BackendRegistry::Instance().Has(backend)) ||
+          (!model_type.empty() && !ModelRegistry::Instance().Has(model_type))) {
         requires_unavailable_runtime = true;
         break;
       }
@@ -164,7 +173,13 @@ TEST(PipelineValidatorTest, ReportsConfigAndCapabilityErrors) {
   const nlohmann::json pipeline = {
       {"business_name", "entity_extract_0.6b_v1"},
       {"models",
-       {{{"model_id", "llm_model_v1"}, {"engine_type", "mock_npu_embedding"}}}},
+       {{{"model_id", "llm_model_v1"},
+         {"capability", "embedding"},
+         {"model_type", "test_business_embedding"},
+         {"backend", "test_tensor_backend"},
+         {"model_path", "fixture.bin"},
+         {"model_config", nlohmann::json::object()},
+         {"backend_config", nlohmann::json::object()}}}},
       {"pipeline",
        {{{"id", "pre"},
          {"node_type", "TextTemplateNode"},

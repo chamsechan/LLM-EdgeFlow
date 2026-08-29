@@ -43,11 +43,7 @@ set(EDGEFLOW_TEST_CORE_SRCS
   tests/test_llama_cpp_backend.cpp
   tests/support/inference/test_tensor_backend.cpp
   tests/support/inference/test_causal_lm_backend.cpp
-  tests/support/inference/legacy_mock_npu/mock_npu_embedding_engine.cpp
-  tests/support/inference/legacy_mock_npu/mock_npu_llm_engine.cpp
-  tests/support/inference/legacy_mock_npu/mock_npu_rerank_engine.cpp
-  tests/support/inference/legacy_mock_npu/mock_npu_ocr_engine.cpp
-  tests/support/inference/legacy_mock_npu/mock_npu_asr_engine.cpp)
+  tests/support/inference/test_business_models.cpp)
 add_executable(edgeflow_test_core_runner ${EDGEFLOW_TEST_CORE_SRCS})
 target_link_libraries(edgeflow_test_core_runner PRIVATE
   alg_sdk GTest::gtest GTest::gtest_main)
@@ -105,11 +101,9 @@ set(EDGEFLOW_TEST_NODE_SRCS
   tests/test_structured_json_parse_node.cpp
   tests/test_text_corpus_source_node.cpp
   tests/test_common_nodes.cpp
-  tests/support/inference/legacy_mock_npu/mock_npu_embedding_engine.cpp
-  tests/support/inference/legacy_mock_npu/mock_npu_llm_engine.cpp
-  tests/support/inference/legacy_mock_npu/mock_npu_rerank_engine.cpp
-  tests/support/inference/legacy_mock_npu/mock_npu_ocr_engine.cpp
-  tests/support/inference/legacy_mock_npu/mock_npu_asr_engine.cpp)
+  tests/support/inference/test_tensor_backend.cpp
+  tests/support/inference/test_causal_lm_backend.cpp
+  tests/support/inference/test_business_models.cpp)
 add_executable(edgeflow_test_nodes_runner ${EDGEFLOW_TEST_NODE_SRCS})
 target_link_libraries(edgeflow_test_nodes_runner PRIVATE
   alg_sdk GTest::gtest GTest::gtest_main)
@@ -128,11 +122,9 @@ set(EDGEFLOW_TEST_ADAPTER_SRCS
   tests/test_operator_biz_bridge_registry.cpp
   tests/test_operator_golden.cpp
   tests/test_adapter_purity.cpp
-  tests/support/inference/legacy_mock_npu/mock_npu_embedding_engine.cpp
-  tests/support/inference/legacy_mock_npu/mock_npu_llm_engine.cpp
-  tests/support/inference/legacy_mock_npu/mock_npu_rerank_engine.cpp
-  tests/support/inference/legacy_mock_npu/mock_npu_ocr_engine.cpp
-  tests/support/inference/legacy_mock_npu/mock_npu_asr_engine.cpp)
+  tests/support/inference/test_tensor_backend.cpp
+  tests/support/inference/test_causal_lm_backend.cpp
+  tests/support/inference/test_business_models.cpp)
 add_executable(edgeflow_test_adapter_runner ${EDGEFLOW_TEST_ADAPTER_SRCS})
 target_link_libraries(edgeflow_test_adapter_runner PRIVATE
   alg_sdk GTest::gtest GTest::gtest_main)
@@ -154,11 +146,9 @@ set(EDGEFLOW_TEST_TOOLING_SRCS
   demo/biz/ocr_doc_qa_demo.cpp
   demo/biz/audio_asr_demo.cpp
   demo/biz/cross_rerank_demo.cpp
-  tests/support/inference/legacy_mock_npu/mock_npu_embedding_engine.cpp
-  tests/support/inference/legacy_mock_npu/mock_npu_llm_engine.cpp
-  tests/support/inference/legacy_mock_npu/mock_npu_rerank_engine.cpp
-  tests/support/inference/legacy_mock_npu/mock_npu_ocr_engine.cpp
-  tests/support/inference/legacy_mock_npu/mock_npu_asr_engine.cpp)
+  tests/support/inference/test_tensor_backend.cpp
+  tests/support/inference/test_causal_lm_backend.cpp
+  tests/support/inference/test_business_models.cpp)
 add_executable(edgeflow_test_tooling_runner ${EDGEFLOW_TEST_TOOLING_SRCS})
 target_link_libraries(edgeflow_test_tooling_runner PRIVATE
   alg_sdk GTest::gtest GTest::gtest_main)
@@ -207,7 +197,7 @@ set(_edgeflow_tier4 "tier4;tooling;dev-fast;sanitizer-compatible")
 edgeflow_add_runner_test(BatchExecutorTest edgeflow_test_core_runner
   "FixedBatchExecutorTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(FrameworkCoreTest edgeflow_test_core_runner
-  "AlgContextTest.*:TraceableItemTest.*:NodeRegistryTest.*:EngineRegistryTest.*:PipelineTest.*"
+  "AlgContextTest.*:TraceableItemTest.*:NodeRegistryTest.*:ModelManagerTest.*:PipelineTest.*"
   "${_edgeflow_tier1}")
 edgeflow_add_runner_test(CompanyAlgLogTest edgeflow_test_core_runner
   "CompanyAlgLogTest.*:CompanyAlgLogNameOverrideTest.*"
@@ -308,9 +298,9 @@ edgeflow_add_runner_test(DemoRunnerTest edgeflow_test_tooling_runner
 
 add_test(NAME RegistryConflictNodeTest COMMAND test_registry_conflict
   --gtest_filter=RegistryConflictNodeTest.*)
-add_test(NAME RegistryConflictEngineTest COMMAND test_registry_conflict
-  --gtest_filter=RegistryConflictEngineTest.*)
-set_tests_properties(RegistryConflictNodeTest RegistryConflictEngineTest
+add_test(NAME RegistryConflictModelTest COMMAND test_registry_conflict
+  --gtest_filter=RegistryConflictModelTest.*)
+set_tests_properties(RegistryConflictNodeTest RegistryConflictModelTest
   PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
   LABELS "${_edgeflow_tier1}" TIMEOUT 5)
 
@@ -396,28 +386,33 @@ if(LLM_EDGEFLOW_HAS_ONNXRUNTIME)
 endif()
 
 set(EDGEFLOW_PIPELINE_CONFIGS
-  pipeline_keyword_match.json
-  pipeline_entity_extract.json
-  pipeline_doc_qa.json
-  pipeline_dialogue_audit.json
-  pipeline_doc_qa_onnx.json
-  pipeline_doc_qa_rerank.json
-  pipeline_doc_qa_rerank_real.json
-  pipeline_entity_extract_llamacpp.json
-  pipeline_ocr_doc_qa.json
-  pipeline_audio_asr_intent.json
-  pipeline_cross_rerank.json)
-foreach(config_name IN LISTS EDGEFLOW_PIPELINE_CONFIGS)
-  string(REPLACE ".json" "" config_stem "${config_name}")
-  add_test(NAME PythonCli_${config_stem}
-    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/show
-            configs/${config_name})
+  configs/pipeline_keyword_match.json
+  configs/pipeline_entity_extract.json
+  configs/pipeline_doc_qa.json
+  configs/pipeline_dialogue_audit.json
+  configs/pipeline_doc_qa_onnx.json
+  configs/pipeline_doc_qa_rerank.json
+  configs/pipeline_doc_qa_rerank_real.json
+  configs/pipeline_entity_extract_llamacpp.json
+  tests/fixtures/stage7/smoke/pipeline_ocr_doc_qa.json
+  tests/fixtures/stage7/smoke/pipeline_audio_asr_intent.json
+  configs/pipeline_cross_rerank.json)
+foreach(config_path IN LISTS EDGEFLOW_PIPELINE_CONFIGS)
+  get_filename_component(config_stem "${config_path}" NAME_WE)
   add_test(NAME NativeCli_${config_stem}
     COMMAND $<TARGET_FILE:alg_show>
-            ${CMAKE_CURRENT_SOURCE_DIR}/configs/${config_name})
-  set_tests_properties(PythonCli_${config_stem} NativeCli_${config_stem}
+            ${CMAKE_CURRENT_SOURCE_DIR}/${config_path})
+  set_tests_properties(NativeCli_${config_stem}
     PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
     LABELS "${_edgeflow_tier4}")
+  if(config_path MATCHES "^configs/")
+    add_test(NAME PythonCli_${config_stem}
+      COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/show
+              ${config_path})
+    set_tests_properties(PythonCli_${config_stem}
+      PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+      LABELS "${_edgeflow_tier4}")
+  endif()
 endforeach()
 
 add_test(NAME PipelineToolCatalogTest COMMAND $<TARGET_FILE:alg_pipeline_tool>

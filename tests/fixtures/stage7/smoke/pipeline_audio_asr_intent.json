@@ -2,12 +2,15 @@
   "biz_name": "speech_audio_asr_intent_slot",
   "models": [
     {
-      "config": {
+      "capability": "asr",
+      "model_type": "test_business_asr",
+      "backend": "test_tensor_backend",
+      "model_config": {
         "max_batch_size": 2
       },
-      "engine_type": "mock_npu_asr",
+      "backend_config": {},
       "model_id": "asr_model_v1",
-      "model_path": "./models/paraformer_asr_npu.bin"
+      "model_path": "tests/fixtures/stage7/artifacts/neutral-asr.fixture"
     }
   ],
   "pipeline": [
