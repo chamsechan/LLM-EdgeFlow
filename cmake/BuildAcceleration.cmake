@@ -1,9 +1,5 @@
 # Developer build acceleration options shared by first-party and fetched targets.
 
-option(LLM_EDGEFLOW_FAST_BUILD
-       "Use a debug-friendly -O1 optimization profile for development builds"
-       OFF)
-
 set(LLM_EDGEFLOW_LINKER "auto" CACHE STRING
     "Linker selection: auto, mold, lld, or system")
 set_property(CACHE LLM_EDGEFLOW_LINKER PROPERTY STRINGS auto mold lld system)
@@ -81,19 +77,3 @@ endif()
 set(LLM_EDGEFLOW_SELECTED_LINKER "${_edgeflow_selected_linker}" CACHE INTERNAL
     "Resolved linker used by LLM-EdgeFlow targets" FORCE)
 message(STATUS "LLM-EdgeFlow linker: ${LLM_EDGEFLOW_SELECTED_LINKER}")
-
-if(LLM_EDGEFLOW_FAST_BUILD)
-  if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
-    add_compile_options(
-      $<$<COMPILE_LANGUAGE:C>:-O1>
-      $<$<COMPILE_LANGUAGE:C>:-g>
-      $<$<COMPILE_LANGUAGE:C>:-fno-omit-frame-pointer>)
-  endif()
-  if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-    add_compile_options(
-      $<$<COMPILE_LANGUAGE:CXX>:-O1>
-      $<$<COMPILE_LANGUAGE:CXX>:-g>
-      $<$<COMPILE_LANGUAGE:CXX>:-fno-omit-frame-pointer>)
-  endif()
-  message(STATUS "LLM-EdgeFlow fast development profile enabled (-O1)")
-endif()

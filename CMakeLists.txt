@@ -13,11 +13,6 @@ if("${CMAKE_SOURCE_DIR}" STREQUAL "${CMAKE_BINARY_DIR}")
   ")
 endif()
 
-# 编译加速开关 (允许通过 -DLLM_EDGEFLOW_USE_CCACHE=OFF 显式关闭)
-option(LLM_EDGEFLOW_USE_CCACHE "Enable ccache compiler launcher if available" ON)
-include(cmake/CompilerCache.cmake)
-edgeflow_enable_compiler_cache()
-
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_STANDARD 17)

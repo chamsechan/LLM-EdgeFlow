@@ -328,16 +328,9 @@ add_test(NAME DiagramRenderGateSelfTest
   COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_diagram_render_gate.sh)
 add_test(NAME ScriptGeneratorDetectionTest
   COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_script_generator_detection.sh)
-add_test(NAME CompilerCacheDetectionTest
-  COMMAND ${CMAKE_COMMAND}
-          -DEDGEFLOW_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
-          -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_compiler_cache_detection.cmake)
-add_test(NAME BuildWorkflowContractTest
-  COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_build_workflow_contract.sh)
 set_tests_properties(
   LayerGuardTest LayerGuardSelfTest ArchitectureDocsDriftTest
   ArchitectureDocsDriftGateSelfTest ScriptGeneratorDetectionTest
-  CompilerCacheDetectionTest BuildWorkflowContractTest
   PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
   LABELS "tier1;static-gate;dev-fast;sanitizer-compatible")
 set_tests_properties(DiagramAssetsCheckTest DiagramRenderGateSelfTest

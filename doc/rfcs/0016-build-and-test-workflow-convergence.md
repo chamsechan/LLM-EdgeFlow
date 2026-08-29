@@ -3,159 +3,109 @@
 - **RFC 编号**：0016-build-and-test-workflow-convergence
 - **创建日期**：2026-08-29
 - **文档状态**：Completed
-- **关联分支**：`feat/build-test-workflow-optimization`
+- **关联分支**：`feat/build-test-workflow-optimization`、`refactor/build-workflow-simplification`
 - **目标版本**：v5.1.0
-- **负责人 / 作者**：LLM-EdgeFlow Team
 
----
+## 1. 背景与动机
 
-## 1. 背景与动机 (Motivation & Context)
-
-RFC-0013 已引入分片测试 Runner、PCH、CTest 标签、ccache 和 fast/full
-门禁。RFC-0015 完成后，构建矩阵新增 ONNX Runtime 与 llama.cpp 后端，日常
-反馈闭环出现以下可复现问题：
-
-1. `--fast` 同时改变构建类型、优化等级、后端能力和测试范围，语义过载；
-2. `edgeflow_dev_tests` 未构建 `VisualizerServerTest` 依赖的
-   `alg_pipeline_tool_test`，干净 fast 构建只能通过 79/80 项测试；
-3. ccache launcher 与用户 PATH 中的 ccache compiler wrapper 可能重复包装；
-4. FetchContent URL 缺少哈希，llama.cpp 追踪浮动 `master`，破坏离线复用、
-   供应链校验和可复现构建；
-5. quick 与 full 使用不同构建目录，增量开发无法复用完整后端构建产物。
-
-在 AppleClang 16、Ninja、`-j8`、关闭 ccache 且复用同一依赖源码的基准中：
+RFC-0015 引入 ONNX Runtime 与 llama.cpp 后，旧 `--fast` 同时改变构建类型、
+后端能力、构建目录和测试范围，形成了第二套日常构建语义。实测结果如下：
 
 | 场景 | 旧 fast | full |
 | :--- | ---: | ---: |
 | 干净配置 | 2.11s | 3.13s |
 | 干净构建 | 47.53s | 64.80s |
-| 编译任务 | 约 164 | 378 |
 | 增量配置 + 无变化构建 | 1.58s | 1.85s |
-| `dev-fast` 标签测试 | 0.77s / 80 项 | 0.84s / 82 项 |
-| 全量测试 | 不含 slow gate | 6.71s / 84 项 |
+| 标签测试 | 0.77s / 80 项 | 0.84s / 82 项 |
 
-结果表明：完整后端的干净构建成本仍需保留显式 minimal 逃生路径，但日常 quick
-测试可以直接复用 full-capability 构建，无需维护第二套常用构建树。
+17 秒的首次构建收益不足以抵消双构建树和双配置语义的维护成本。同时发现：
 
-## 2. 设计范围与边界 (Scope & Non-Goals)
+1. 干净 `edgeflow_dev_tests` 缺少 `alg_pipeline_tool_test`，测试目标闭包不完整；
+2. 第三方归档缺少 SHA256，llama.cpp 跟踪浮动分支；
+3. 项目显式设置 ccache launcher，与环境 compiler wrapper 职责重叠。
 
-### 2.1 范围内 (In-Scope)
+## 2. 范围与非目标
 
-- [x] `--quick` 与 `--full` 共享 `build/` 和完整后端能力；无参数仍为 full。
-- [x] 旧 `--fast` 保留为 `--quick` 兼容别名，避免现有自动化立即失效。
-- [x] 新增显式 `--minimal`，在独立构建目录中关闭 ONNX Runtime/llama.cpp，
-      验证可选后端关闭时的编译与测试能力。
-- [x] 修复 `edgeflow_dev_tests` 的完整依赖闭包并增加静态工作流契约测试。
-- [x] ccache 继续使用 `find_program` 跨平台发现；不写死程序或缓存路径；编译器
-      已是 ccache wrapper 时跳过 launcher，避免双重包装。
-- [x] 固定所有 FetchContent URL 的 SHA256；llama.cpp 固定到确定提交；使用
-      现代 FetchContent API，并允许 minimal/sanitizer 复用已获取的源码目录。
-- [x] 为所有默认测试设置有限超时，避免门禁无限挂起。
-- [x] 更新 README 开发命令、Changelog、RFC 索引与 CI 缓存键。
+### 2.1 范围内
 
-### 2.2 非目标 (Non-Goals / Out-of-Scope)
+- `run_all_tests.sh` 只保留一个完整后端、完整 CTest 门禁。
+- 修复 `edgeflow_dev_tests` 的目标依赖闭包。
+- 为默认测试设置有限超时。
+- 固定 FetchContent 版本和 SHA256，并使用 `FetchContent_MakeAvailable`。
+- ccache 由 compiler wrapper 或标准 CMake launcher 管理。
 
-- 不修改 Layer 1 C ABI、Layer 2 Pipeline/Blackboard、Layer 3 Node 或 Layer 4
-  Engine 的运行时行为。
-- 不降低默认 full 门禁覆盖率，不将 quick/minimal 作为交付门禁替代品。
-- 不引入 Unity Build，不改变测试进程隔离和 Registry 冲突测试语义。
-- 不强制开发者使用仓库内 `CCACHE_DIR`，也不假设固定平台安装路径。
-- 不把真实模型权重测试并入默认本地门禁。
+### 2.2 非目标
 
-## 3. 总体技术方案与架构设计 (Architecture & Technical Design)
+- 不修改 C ABI、Pipeline、Node 或 Engine 运行时行为。
+- 不在项目中管理 ccache 安装位置、缓存目录或 CI 缓存实现。
+- 不为构建脚本增加通过 grep 检查源码文本的契约测试。
+- 不维护 quick/minimal 等收益有限的第二套门禁。
 
-### 3.1 架构分层映射 (4-Tier Mapping)
+## 3. 架构与数据流
 
-- **Layer 1 (C ABI / Platform Adapter)**：无生产变更，继续执行 C11 与异常安全门禁。
-- **Layer 2 (Pipeline & Blackboard)**：无生产变更，继续执行 core/validator 测试。
-- **Layer 3 (Business & Common Nodes)**：无生产变更，继续执行 nodes 与 Demo smoke。
-- **Layer 4 (Engines & Hardware Acceleration)**：不改变后端接口；仅固定第三方源码
-  版本并保留 enabled/disabled 双配置编译验证。
-- **Tooling / Test Infrastructure**：本 RFC 的实现归属。
+### 3.1 四层映射
 
-### 3.2 核心接口与数据流设计 (Interface & Data Flow)
+- **Layer 1**：无生产变更，继续执行 C11 与异常安全测试。
+- **Layer 2**：无生产变更，继续执行 Pipeline/Validator 测试。
+- **Layer 3**：无生产变更，继续执行 Node 与 Demo smoke。
+- **Layer 4**：不改变后端接口，仅固定第三方源码版本。
+- **Tooling**：本 RFC 的实现归属。
+
+### 3.2 唯一门禁
 
 ```text
-run_all_tests.sh [--quick|--fast]
+run_all_tests.sh
   -> build/ (Release, ONNX Runtime ON, llama.cpp ON)
-  -> build edgeflow_dev_tests
-  -> ctest -L dev-fast
-
-run_all_tests.sh [--full]  # 默认
-  -> build/ (与 quick 同一配置和产物)
-  -> build all
+  -> build all targets
   -> ctest all labels
-
-run_all_tests.sh --minimal
-  -> build-minimal/ (Debug + O1, optional engines OFF)
-  -> build edgeflow_dev_tests
-  -> ctest -L dev-fast
-
-CMake compiler cache selection
-  -> find_program(ccache)
-  -> resolve compiler and ccache real paths
-  -> compiler already resolves to ccache ? skip launcher : set launcher
 ```
 
-### 3.3 依赖获取与离线复用
+可选后端或特殊 sanitizer 组合仍可直接通过 CMake 选项验证，不进入主测试脚本。
 
-所有归档 URL 必须声明 `URL_HASH SHA256=<digest>`。llama.cpp 使用确定提交归档，
-禁止使用分支浮动 URL。已有合法源码树可以通过标准
-`FETCHCONTENT_SOURCE_DIR_<NAME>` 覆盖，离线环境在源码齐备后可启用
-`FETCHCONTENT_FULLY_DISCONNECTED=ON`。
+### 3.3 ccache 边界
 
-## 4. 关键设计考量与权衡 (Design Trade-offs & Invariants)
+项目不调用 `find_program(ccache)`，也不设置 `CCACHE_DIR`：
 
-1. **默认门禁不变**：无参数 `run_all_tests.sh` 仍等价于 `--full`。
-2. **常用构建复用**：quick/full 的 CMake 能力与构建类型完全一致，切换测试范围
-   不触发后端重配或大规模重编译。
-3. **最小配置可验证**：minimal 明确承担后端关闭、离线和 stub 路径的兼容验证。
-4. **ccache 环境自治**：项目只负责发现和 launcher 选择；缓存目录由 ccache、用户
-   或 CI 环境管理。
-5. **依赖可复现**：任何第三方版本变化都必须通过 URL/提交与 SHA256 的代码审查。
-6. **完整目标闭包**：被 quick 标签测试引用的每个可执行文件都必须属于
-   `edgeflow_dev_tests` 依赖。
-7. **Fail-Closed**：依赖哈希不匹配、显式 linker 不可用或测试超时必须使门禁失败。
+- compiler 已是 ccache wrapper 时，编译自然经过 ccache；
+- CI 或其他环境可设置 `CMAKE_C_COMPILER_LAUNCHER` 和
+  `CMAKE_CXX_COMPILER_LAUNCHER`；
+- ggml 自身的二次 ccache 探测关闭，避免重复策略。
 
-## 5. 测试与质量验收计划 (Testing & Verification Plan)
+## 4. 设计不变量
 
-- [x] CMake 脚本测试：普通编译器启用 launcher，ccache wrapper 跳过 launcher。
-- [x] 工作流契约测试：quick/full 共享 `build/`，minimal 使用隔离目录，旧 fast
-      映射 quick，dev target 包含 `alg_pipeline_tool_test`。
-- [x] 干净 minimal 构建与 `dev-fast` CTest 100% 通过。
-- [x] `./scripts/run_all_tests.sh --quick` 100% 通过。
-- [x] `./scripts/run_all_tests.sh --full` 全量 CTest 100% 通过。
-- [x] `LLM_EDGEFLOW_SANITIZERS=undefined ./scripts/run_sanitizers.sh --fast` 100% 通过；
-      本机 ASan 因 macOS 26.6.2 搭配 Apple Clang 16 / macOS 15 SDK，在最小独立
-      探针进入 `main()` 前即触发 `asan_init_is_running`，记录为宿主工具链阻塞，
-      不是项目测试失败。
-- [x] `./scripts/format.sh --check`、`git diff --check`、LayerGuard 全部通过。
-- [x] 复验 Pipeline catalog/validate/plan 与 Demo smoke，确认生产运行时无变化。
+1. 只有一个交付门禁和一个常用构建目录。
+2. 门禁始终构建完整后端并运行全部 CTest。
+3. 测试引用的二进制必须属于相应构建目标依赖闭包。
+4. 所有远端归档声明固定版本与 SHA256。
+5. ccache 与依赖下载缓存由环境负责，项目只描述标准接入点。
+6. 哈希不匹配、测试失败或测试超时必须使门禁失败。
 
-### 5.1 实际验收结果（2026-08-29）
+## 5. 验收结果
 
-| 门禁 | 结果 | 观测 |
+- [x] 干净最小后端构建验证通过（82/82，方案收敛前基线）。
+- [x] 完整后端构建与全部 CTest 通过。
+- [x] `edgeflow_dev_tests` 包含 `alg_pipeline_tool_test`。
+- [x] nlohmann/json、GoogleTest、ONNX Runtime、llama.cpp 均固定 SHA256。
+- [x] UBSan 82/82 通过。
+- [x] Pipeline catalog/validate/plan 与 Demo smoke 通过。
+- [x] 格式化、LayerGuard、`git diff --check` 通过。
+
+本机 macOS 26.6.2 搭配 Apple Clang 16/macOS 15 SDK 时，独立最小 ASan 探针
+在进入 `main()` 前触发 `asan_init_is_running`。该问题属于宿主工具链兼容性，
+不作为项目代码失败记录。
+
+## 6. 实施结果
+
+1. [x] 记录 fast/full 基线并创建 RFC。
+2. [x] 修复测试目标闭包和默认超时。
+3. [x] 固定第三方依赖版本与哈希。
+4. [x] 将测试入口收敛为单一完整门禁。
+5. [x] 删除 ccache 检测封装、源码文本契约测试和内部 FetchContent 缓存策略。
+6. [x] 更新 README、CI 与 Changelog。
+
+## 7. 变更记录
+
+| 日期 | 版本 | 变更 |
 | :--- | :--- | :--- |
-| 全新 `--minimal` | 通过 | 82/82，约 62s |
-| 首次全能力 `--quick` | 通过 | 84/84，约 96s（含 llama.cpp 重编译） |
-| 热构建 `--fast` 兼容入口 | 通过 | 84/84，约 7s |
-| 热构建 `--full` | 通过 | 86/86，约 13s；差异为 2 个 slow gate |
-| 固定 ggml build-info 后 `--full` | 通过 | 86/86，日志提交为 `70adb1b4...` |
-| UBSan fast | 通过 | 82/82 |
-| Pipeline catalog/validate/plan + Demo | 通过 | `keyword_match_mock` 输出符合预期 |
-
-## 6. 实施路线与里程碑 (Implementation Milestones)
-
-1. [x] 创建隔离分支并记录基线数据与 RFC。
-2. [x] 固定第三方依赖、收敛 ccache launcher 选择并补充测试。
-3. [x] 收敛 quick/full/minimal 脚本语义并修复 dev target 依赖闭包。
-4. [x] 更新 README、CI、RFC 索引与 Changelog。
-5. [x] 完成独立 review、格式化、全量和 sanitizer 门禁。
-6. [x] 标记 RFC Completed；标准上传、合并与远端 main 同步由交付脚本执行。
-
-## 7. 变更记录 (Changelog)
-
-| 日期 | 版本 | 变更内容 | 作者 |
-| :--- | :--- | :--- | :--- |
-| 2026-08-29 | v5.1.0 | 初始 RFC 与构建测试工作流收敛方案 | LLM-EdgeFlow Team |
-| 2026-08-29 | v5.1.0 | 实现完成；full 86/86、UBSan 82/82 与运行时 smoke 通过 | LLM-EdgeFlow Team |
+| 2026-08-29 | v5.1.0 | 完成构建与测试工作流收敛 |
+| 2026-08-29 | v5.1.0 | 精简为单一门禁和环境自治的 ccache 策略 |

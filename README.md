@@ -76,36 +76,29 @@
 ## 🚀 快速开始 (Quick Start)
 
 ```bash
-# 1. 编译工程（自动选择 mold/lld，均不可用时回退系统链接器）
-cmake -B build -G Ninja -DLLM_EDGEFLOW_USE_CCACHE=ON \
-  -DLLM_EDGEFLOW_LINKER=auto
+# 1. 编译工程（ccache 可由 compiler wrapper 或 CMake launcher 提供）
+cmake -B build -G Ninja -DLLM_EDGEFLOW_LINKER=auto
 cmake --build build -j$(nproc)
 
-# 2. 日常快速收敛（与 full 共享完整后端 build，仅跳过 slow gate）
-./scripts/run_all_tests.sh --quick
+# 2. 唯一质量门禁：完整构建并运行全部 CTest
+./scripts/run_all_tests.sh
 
-# 3. 交付前完整六阶段门禁（无参数调用同样默认为 --full）
-./scripts/run_all_tests.sh --full
-
-# 4. 可选后端关闭兼容检查（独立 build-minimal、Debug -O1）
-./scripts/run_all_tests.sh --minimal
-
-# 5. 运行 7 大业务端到端全链路集成演示 (默认 Smoke 组合)
+# 3. 运行 7 大业务端到端全链路集成演示 (默认 Smoke 组合)
 ./alg_demo
 
-# 6. 基于 Profile 运行特定业务配置
+# 4. 基于 Profile 运行特定业务配置
 ./alg_demo --profile entity_extract_mock
 ./alg_demo --profile doc_qa_onnx
 
-# 7. 查看所有支持的业务与 Profile 清单
+# 5. 查看所有支持的业务与 Profile 清单
 ./alg_demo --list
 
-# 8. 批量自动化执行全部 Demo 套件 (Smoke / Real / All)
+# 6. 批量自动化执行全部 Demo 套件 (Smoke / Real / All)
 cd .. && ./scripts/run_all_demos.sh smoke
 ```
 
-`--fast` 保留为 `--quick` 的兼容别名。ccache 由 CMake 自动发现，不要求固定
-安装路径；缓存目录遵循 ccache、开发环境或 CI 的本地策略。
+项目不设置 ccache 程序或缓存路径；本地环境可使用 compiler wrapper，CI 可设置
+`CMAKE_C_COMPILER_LAUNCHER` / `CMAKE_CXX_COMPILER_LAUNCHER`。
 
 ---
 
@@ -191,10 +184,10 @@ LLM-EdgeFlow/
 ## 📝 更新日志 (Changelog)
 
 - **v5.1.0（构建与测试工作流收敛 - RFC 0016）** *(2026-08)*
-  - ⚡ **Quick/Full 构建复用**：日常 quick 与交付 full 共享完整后端 `build/`，只通过 CTest 标签切换测试范围；无参数仍执行 full，关闭可选后端的能力验证收敛为独立 `--minimal`。
-  - 🧰 **ccache 跨平台自治**：继续通过 CMake 自动发现 ccache，不写死程序或缓存路径；编译器已是 ccache wrapper 时跳过 launcher，避免双重包装。
+  - ⚡ **单一质量门禁**：`run_all_tests.sh` 只维护完整后端构建与全部 CTest，不再维护收益有限的 quick/minimal 分支。
+  - 🧰 **ccache 环境自治**：项目不探测 ccache 或设置缓存路径，由 compiler wrapper 或标准 CMake launcher 控制。
   - 🔒 **第三方依赖可复现**：nlohmann/json、GoogleTest、ONNX Runtime 与 llama.cpp 归档全部校验 SHA256，llama.cpp 从浮动 `master` 固定到已验证提交。
-  - 🧪 **干净开发门禁闭环**：`edgeflow_dev_tests` 补齐 Pipeline Tool 测试二进制依赖，新增编译缓存与工作流契约测试，并为默认 CTest 设置有限超时。
+  - 🧪 **干净构建闭环**：`edgeflow_dev_tests` 补齐 Pipeline Tool 测试二进制依赖，并为默认 CTest 设置有限超时。
 
 - **v5.0.0（模型能力与推理 Backend 解耦 - RFC 0015，已完成）** *(2026-08)*
   - 🧩 **Model / Backend 双注册体系**：新增 `ModelRegistry`、`BackendRegistry`、中性执行协议与 `ModelRuntimeFactory`，Pipeline 可按 `model_type + backend` 组合模型语义和硬件执行资源。
