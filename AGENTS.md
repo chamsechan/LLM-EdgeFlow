@@ -96,7 +96,8 @@ When performing specific tasks, you **MUST** reference and execute the correspon
    - **DO NOT** commit precompiled binaries, `.so` libraries, or third-party source files into the repository.
    - All third-party dependencies (GoogleTest, nlohmann/json, ONNX Runtime, llama.cpp) **MUST** be fetched dynamically via CMake `FetchContent` in `cmake/*.cmake`.
 4. **Changelog Maintenance**:
-   - When introducing major architectural changes, new C ABI modalities, or new hardware backends, update `## 📝 更新日志 (Changelog)` in `README.md`.
+   - When introducing major architectural changes, new C ABI modalities, or new hardware backends, update the root [`CHANGELOG.md`](CHANGELOG.md) with a concise user-visible summary and link to the corresponding RFC.
+   - Keep `README.md` focused on the current project overview, quick start, capability maturity, and documentation navigation; do not append the full release history there.
 
 ---
 
