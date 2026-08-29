@@ -43,6 +43,16 @@ const char* DiagnosticCodeName(DiagnosticCode code) noexcept {
       return "UNKNOWN_NODE_TYPE";
     case DiagnosticCode::kUnknownEngineType:
       return "UNKNOWN_ENGINE_TYPE";
+    case DiagnosticCode::kUnknownModelType:
+      return "UNKNOWN_MODEL_TYPE";
+    case DiagnosticCode::kUnknownBackend:
+      return "UNKNOWN_BACKEND";
+    case DiagnosticCode::kBackendProtocolMismatch:
+      return "BACKEND_PROTOCOL_MISMATCH";
+    case DiagnosticCode::kUnknownModelConfigField:
+      return "UNKNOWN_MODEL_CONFIG_FIELD";
+    case DiagnosticCode::kUnknownBackendConfigField:
+      return "UNKNOWN_BACKEND_CONFIG_FIELD";
     case DiagnosticCode::kInvalidDependency:
       return "INVALID_DEPENDENCY";
     case DiagnosticCode::kDuplicateDependency:

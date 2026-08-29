@@ -2,7 +2,7 @@
 
 - **RFC 编号**：0015-model-capability-backend-decoupling
 - **创建日期**：2026-08-28
-- **文档状态**：Proposed
+- **文档状态**：In Implementation
 - **关联分支**：`feat/model-backend-decoupling-rfc`
 - **目标版本**：v5.0.0
 - **负责人 / 作者**：LLM-EdgeFlow Team

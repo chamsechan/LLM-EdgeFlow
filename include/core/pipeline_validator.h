@@ -2,9 +2,11 @@
 
 #include <nlohmann/json.hpp>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "core/pipeline_config.h"
+#include "engine/inference_definition.h"
 
 namespace alg_framework {
 
@@ -29,6 +31,12 @@ enum class DiagnosticCode {
   kUnknownBusiness = kUnknownBiz,
   kUnknownNodeType,
   kUnknownEngineType,
+  kUnknownModelType,
+  kUnknownBackend,
+  kModelCapabilityMismatch,
+  kBackendProtocolMismatch,
+  kUnknownModelConfigField,
+  kUnknownBackendConfigField,
   kInvalidDependency,
   kDuplicateDependency,
   kDagCycle,
@@ -39,7 +47,6 @@ enum class DiagnosticCode {
   kConfigFieldRange,
   kConfigFieldEnum,
   kUnknownModelReference,
-  kModelCapabilityMismatch,
   kNodeBizMismatch,
   kNodeBusinessMismatch = kNodeBizMismatch,
   kMissingInputProducer,
@@ -91,6 +98,20 @@ struct ResolvedPortBinding {
   PortDirection direction = PortDirection::kInput;
 };
 
+struct ValidatedModelPlan {
+  std::string model_id;
+  std::string capability;
+  std::string model_type;
+  std::string backend;
+  std::string resolved_model_path;
+  nlohmann::json normalized_model_config = nlohmann::json::object();
+  nlohmann::json normalized_backend_config = nlohmann::json::object();
+  ExecutionProtocol protocol = ExecutionProtocol::kTensorGraph;
+  InferenceConcurrency effective_concurrency =
+      InferenceConcurrency::kSerialized;
+  size_t source_index = 0;
+};
+
 struct ValidatedNodePlan {
   ParsedNodeConfig node;
   nlohmann::json normalized_config;
@@ -118,6 +139,7 @@ struct ValidatedNodePlan {
 
 struct ValidatedPipelinePlan {
   ParsedPipelineConfig config;
+  std::vector<ValidatedModelPlan> models;
   std::vector<std::string> topological_order;
   std::vector<std::vector<std::string>> topological_layers;
   std::unordered_map<std::string, ValidatedNodePlan> node_plans;

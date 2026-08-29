@@ -5,6 +5,9 @@
 #include <unordered_set>
 #include <utility>
 
+#include "engine/backend_registry.h"
+#include "engine/model_registry.h"
+
 namespace alg_framework {
 namespace {
 
@@ -76,24 +79,6 @@ nlohmann::json FieldJson(const ConfigFieldDefinition& field) {
 }
 
 }  // namespace
-
-const char* ConfigValueKindName(ConfigValueKind kind) {
-  switch (kind) {
-    case ConfigValueKind::kString:
-      return "string";
-    case ConfigValueKind::kInteger:
-      return "integer";
-    case ConfigValueKind::kNumber:
-      return "number";
-    case ConfigValueKind::kBoolean:
-      return "boolean";
-    case ConfigValueKind::kObject:
-      return "object";
-    case ConfigValueKind::kArray:
-      return "array";
-  }
-  return "unknown";
-}
 
 const char* EngineThreadModelName(EngineThreadModel model) {
   switch (model) {
@@ -352,6 +337,14 @@ const std::vector<EngineDefinition>& PipelineCatalog::Engines() {
   return RegisteredEngines();
 }
 
+std::vector<ModelDefinition> PipelineCatalog::Models() {
+  return ModelRegistry::Instance().ListDefinitions();
+}
+
+std::vector<BackendDefinition> PipelineCatalog::Backends() {
+  return BackendRegistry::Instance().ListDefinitions();
+}
+
 const std::vector<BizDefinition>& PipelineCatalog::Bizs() {
   std::lock_guard<std::mutex> lock(CatalogMutex());
   return RegisteredBizs();
@@ -374,6 +367,16 @@ const EngineDefinition* PipelineCatalog::FindEngine(
     return item.engine_type == engine_type;
   });
   return it == engines.end() ? nullptr : &*it;
+}
+
+std::optional<ModelDefinition> PipelineCatalog::FindModel(
+    const std::string& model_type) {
+  return ModelRegistry::Instance().Find(model_type);
+}
+
+std::optional<BackendDefinition> PipelineCatalog::FindBackend(
+    const std::string& backend_type) {
+  return BackendRegistry::Instance().Find(backend_type);
 }
 
 const BizDefinition* PipelineCatalog::FindBiz(const std::string& biz_name) {
@@ -421,6 +424,41 @@ nlohmann::json PipelineCatalog::NodeToJson(const NodeDefinition& definition) {
           {"business_names", definition.biz_names}};
 }
 
+nlohmann::json PipelineCatalog::ModelToJson(const ModelDefinition& definition) {
+  nlohmann::json fields = nlohmann::json::array();
+  for (const auto& field : definition.config_fields) {
+    fields.push_back(FieldJson(field));
+  }
+  return {
+      {"model_type", definition.model_type},
+      {"capability", definition.capability},
+      {"description", definition.description},
+      {"required_protocol",
+       ExecutionProtocolName(definition.required_protocol)},
+      {"concurrency", InferenceConcurrencyName(definition.concurrency)},
+      {"config_fields", std::move(fields)},
+  };
+}
+
+nlohmann::json PipelineCatalog::BackendToJson(
+    const BackendDefinition& definition) {
+  nlohmann::json fields = nlohmann::json::array();
+  for (const auto& field : definition.config_fields) {
+    fields.push_back(FieldJson(field));
+  }
+  nlohmann::json protocols = nlohmann::json::array();
+  for (auto p : definition.supported_protocols) {
+    protocols.push_back(ExecutionProtocolName(p));
+  }
+  return {
+      {"backend_type", definition.backend_type},
+      {"description", definition.description},
+      {"supported_protocols", std::move(protocols)},
+      {"concurrency", InferenceConcurrencyName(definition.concurrency)},
+      {"config_fields", std::move(fields)},
+  };
+}
+
 nlohmann::json PipelineCatalog::ToJson(const std::string& biz_filter) {
   nlohmann::json nodes = nlohmann::json::array();
   for (const auto& item : Nodes()) {
@@ -445,6 +483,16 @@ nlohmann::json PipelineCatalog::ToJson(const std::string& biz_filter) {
          {"config_fields", std::move(fields)}});
   }
 
+  nlohmann::json models = nlohmann::json::array();
+  for (const auto& item : Models()) {
+    models.push_back(ModelToJson(item));
+  }
+
+  nlohmann::json backends = nlohmann::json::array();
+  for (const auto& item : Backends()) {
+    backends.push_back(BackendToJson(item));
+  }
+
   nlohmann::json bizs = nlohmann::json::array();
   for (const auto& item : Bizs()) {
     if (!biz_filter.empty() && item.biz_name != biz_filter) continue;
@@ -464,6 +512,8 @@ nlohmann::json PipelineCatalog::ToJson(const std::string& biz_filter) {
   return {{"schema_version", 1},
           {"nodes", std::move(nodes)},
           {"engines", std::move(engines)},
+          {"models", std::move(models)},
+          {"backends", std::move(backends)},
           {"bizs", bizs},
           {"businesses", std::move(bizs)}};
 }

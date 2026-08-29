@@ -84,8 +84,13 @@ else
   )
 fi
 
-cmake -S "$ROOT_DIR" -B "$BUILD_DIR" "${CMAKE_ARGS[@]}" \
-  "${CMAKE_GEN_ARGS[@]}"
+if [[ ${#CMAKE_GEN_ARGS[@]} -gt 0 ]]; then
+  cmake -S "$ROOT_DIR" -B "$BUILD_DIR" "${CMAKE_ARGS[@]}" \
+    "${CMAKE_GEN_ARGS[@]}"
+else
+  # macOS 自带 Bash 3.2 在 set -u 下不能展开空数组。
+  cmake -S "$ROOT_DIR" -B "$BUILD_DIR" "${CMAKE_ARGS[@]}"
+fi
 if [[ "$MODE" == "fast" ]]; then
   cmake --build "$BUILD_DIR" --target edgeflow_dev_tests -j"$JOBS"
 else

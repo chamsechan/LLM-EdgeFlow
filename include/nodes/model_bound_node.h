@@ -9,15 +9,20 @@
 
 namespace alg_framework {
 
-template <typename EngineCapability>
+template <typename ModelCapability>
 class ModelBoundNode : public NodeBase {
  public:
   explicit ModelBoundNode(std::string node_name)
       : NodeBase(std::move(node_name)) {}
 
  protected:
-  const std::shared_ptr<EngineCapability>& engine() const noexcept {
-    return engine_;
+  const std::shared_ptr<ModelCapability>& model() const noexcept {
+    return model_;
+  }
+
+  // 兼容别名
+  const std::shared_ptr<ModelCapability>& engine() const noexcept {
+    return model_;
   }
 
   const std::string& model_id() const noexcept { return model_id_; }
@@ -54,16 +59,15 @@ class ModelBoundNode : public NodeBase {
       }
     }
     if (model_id_.empty()) return false;
-    engine_ =
-        session_ctx.GetModelManager().GetModel<EngineCapability>(model_id_);
-    if (!engine_) {
+    model_ = session_ctx.GetModelManager().GetModel<ModelCapability>(model_id_);
+    if (!model_) {
       return false;
     }
     return InitModelNode(init_ctx, config, session_ctx);
   }
 
   std::string model_id_;
-  std::shared_ptr<EngineCapability> engine_;
+  std::shared_ptr<ModelCapability> model_;
 };
 
 }  // namespace alg_framework

@@ -25,12 +25,46 @@ echo "================================================================"
 echo " [Architecture Diagram Renderer & Gate] Mode: ${MODE}"
 echo "================================================================"
 
-for command_name in java sha256sum; do
-  if ! command -v "${command_name}" >/dev/null 2>&1; then
-    echo "❌ Required diagram tool is unavailable: ${command_name}"
-    exit 1
+resolve_java() {
+  local candidate
+  for candidate in \
+    "${LLM_EDGEFLOW_JAVA_BIN:-}" \
+    "$(command -v java 2>/dev/null || true)" \
+    "/opt/homebrew/opt/openjdk@17/bin/java" \
+    "/usr/local/opt/openjdk@17/bin/java"; do
+    if [[ -n "${candidate}" && -x "${candidate}" ]] && \
+        "${candidate}" -version >/dev/null 2>&1; then
+      echo "${candidate}"
+      return 0
+    fi
+  done
+  return 1
+}
+
+if ! JAVA_BIN="$(resolve_java)"; then
+  echo "❌ Required diagram tool is unavailable: Java Runtime 17+"
+  exit 1
+fi
+if ! command -v sha256sum >/dev/null 2>&1 && \
+    ! command -v shasum >/dev/null 2>&1; then
+  echo "❌ Required diagram hash tool is unavailable: sha256sum or shasum"
+  exit 1
+fi
+
+sha256_file() {
+  local file_path="$1"
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "${file_path}" | awk '{print $1}'
+  else
+    shasum -a 256 "${file_path}" | awk '{print $1}'
   fi
-done
+}
+
+verify_sha256() {
+  local file_path="$1"
+  local expected="$2"
+  [[ "$(sha256_file "${file_path}")" == "${expected}" ]]
+}
 
 for source_file in "${CLASS_SOURCE}" "${FLOW_SOURCE}"; do
   if [[ ! -s "${source_file}" ]]; then
@@ -50,13 +84,15 @@ if [[ ! -f "${PLANTUML_JAR}" ]]; then
   echo "Downloading pinned PlantUML ${PLANTUML_VERSION}..."
   curl --fail --location --silent --show-error "${PLANTUML_URL}" \
     --output "${DOWNLOAD_FILE}"
-  echo "${PLANTUML_SHA256}  ${DOWNLOAD_FILE}" | sha256sum --check --status
+  if ! verify_sha256 "${DOWNLOAD_FILE}" "${PLANTUML_SHA256}"; then
+    echo "❌ Downloaded PlantUML checksum mismatch: ${DOWNLOAD_FILE}"
+    exit 1
+  fi
   mv "${DOWNLOAD_FILE}" "${PLANTUML_JAR}"
   trap - EXIT
 fi
 
-if ! echo "${PLANTUML_SHA256}  ${PLANTUML_JAR}" | \
-    sha256sum --check --status; then
+if ! verify_sha256 "${PLANTUML_JAR}" "${PLANTUML_SHA256}"; then
   echo "❌ PlantUML checksum mismatch: ${PLANTUML_JAR}"
   exit 1
 fi
@@ -70,7 +106,8 @@ trap cleanup EXIT INT TERM
 # Render SVGs directly to isolated temporary directory in a single pass with
 # parallel threads and fast TieredCompilation startup. Syntax errors are caught
 # immediately via -failfast2 without polluting workspace.
-java -Djava.awt.headless=true -XX:+TieredCompilation -XX:TieredStopAtLevel=1 \
+"${JAVA_BIN}" -Djava.awt.headless=true -XX:+TieredCompilation \
+  -XX:TieredStopAtLevel=1 \
   -jar "${PLANTUML_JAR}" -nbthread auto \
   -charset UTF-8 -failfast2 -nometadata -tsvg \
   "${CLASS_SOURCE}" "${FLOW_SOURCE}" -o "${TMP_RENDER_DIR}"
@@ -102,15 +139,21 @@ for required_flow in PipelineCatalog PipelineValidator NodeBase FixedBatchExecut
   fi
 done
 
-CLASS_SOURCE_SHA="$(sha256sum "${CLASS_SOURCE}" | awk '{print $1}')"
-FLOW_SOURCE_SHA="$(sha256sum "${FLOW_SOURCE}" | awk '{print $1}')"
+CLASS_SOURCE_SHA="$(sha256_file "${CLASS_SOURCE}")"
+FLOW_SOURCE_SHA="$(sha256_file "${FLOW_SOURCE}")"
 CLASS_PROVENANCE="LLM-EdgeFlow-PlantUML-Source-SHA256:${CLASS_SOURCE_SHA};Generator:${PLANTUML_VERSION}"
 FLOW_PROVENANCE="LLM-EdgeFlow-PlantUML-Source-SHA256:${FLOW_SOURCE_SHA};Generator:${PLANTUML_VERSION}"
 
 annotate_generated_asset() {
   local generated_file="$1"
   local provenance="$2"
-  sed -i "1i<!-- ${provenance} -->" "${generated_file}"
+  if sed --version >/dev/null 2>&1; then
+    sed -i "1i<!-- ${provenance} -->" "${generated_file}"
+  else
+    sed -i '' "1i\\
+<!-- ${provenance} -->
+" "${generated_file}"
+  fi
 }
 
 validate_committed_asset() {

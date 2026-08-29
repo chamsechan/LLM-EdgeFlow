@@ -78,7 +78,7 @@ doc/rfcs/NNNN-<kebab-case-title>.md
 | **RFC-0012** | I/O 契约驱动的通用 Node 架构 | `Completed` | `v4.1.0` | Layer 1 ~ Layer 4 / Tooling | [0012-node-authoring-experience.md](0012-node-authoring-experience.md) |
 | **RFC-0013** | 开发反馈闭环加速 | `Completed` | `v4.2.0` | Tooling / Test Infrastructure | [0013-developer-feedback-loop-acceleration.md](0013-developer-feedback-loop-acceleration.md) |
 | **RFC-0014** | 独立公共日志 API 与核心日志统一 | `Completed` | `v4.3.0` | Cross-Cutting / Layer 1 ~ Layer 4 | [0014-public-log-api.md](0014-public-log-api.md) |
-| **RFC-0015** | 模型能力与推理运行时解耦实施规范 | `Proposed` | `v5.0.0` | Layer 2 ~ Layer 4 | [0015-model-capability-backend-decoupling.md](0015-model-capability-backend-decoupling.md) |
+| **RFC-0015** | 模型能力与推理运行时解耦实施规范 | `In Implementation` | `v5.0.0` | Layer 2 ~ Layer 4 | [0015-model-capability-backend-decoupling.md](0015-model-capability-backend-decoupling.md) |
 
 ---
 

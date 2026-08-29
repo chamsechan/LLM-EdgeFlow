@@ -64,7 +64,14 @@ PipelineErrorCode ValidationCodeToPipelineCode(DiagnosticCode code) {
     case DiagnosticCode::kUnknownNodeType:
       return PipelineErrorCode::kUnknownNodeType;
     case DiagnosticCode::kUnknownEngineType:
+    case DiagnosticCode::kUnknownModelType:
+    case DiagnosticCode::kUnknownBackend:
       return PipelineErrorCode::kUnknownEngineType;
+    case DiagnosticCode::kBackendProtocolMismatch:
+      return PipelineErrorCode::kInvalidCombination;
+    case DiagnosticCode::kUnknownModelConfigField:
+    case DiagnosticCode::kUnknownBackendConfigField:
+      return PipelineErrorCode::kUnknownField;
     case DiagnosticCode::kInvalidDependency:
     case DiagnosticCode::kDuplicateDependency:
       return PipelineErrorCode::kInvalidDependency;

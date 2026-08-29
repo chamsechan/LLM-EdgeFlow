@@ -84,6 +84,9 @@ set(FRAMEWORK_SRCS
     src/core/pipeline_config.cpp
     src/core/pipeline_validator.cpp
     src/core/pipeline.cpp
+    src/engine/runtime/model_registry.cpp
+    src/engine/runtime/backend_registry.cpp
+    src/engine/runtime/model_runtime_factory.cpp
     src/engine/mock_npu/mock_npu_embedding_engine.cpp
     src/engine/mock_npu/mock_npu_llm_engine.cpp
     src/engine/mock_npu/mock_npu_rerank_engine.cpp
@@ -331,6 +334,13 @@ add_executable(test_definition_schema_validation tests/test_definition_schema_va
 target_link_libraries(test_definition_schema_validation PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
 add_test(NAME DefinitionSchemaValidationTest COMMAND test_definition_schema_validation)
 
+add_executable(test_model_backend_decoupling
+    tests/test_model_backend_decoupling.cpp
+    tests/support/inference/test_tensor_backend.cpp
+    tests/support/inference/test_causal_lm_backend.cpp)
+target_link_libraries(test_model_backend_decoupling PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME ModelBackendDecouplingTest COMMAND test_model_backend_decoupling)
+
 # RFC 0012 11 类 Common Nodes 独立测试套件与 Operator Golden / Adapter Purity 测试
 add_executable(test_text_chunk_node tests/test_text_chunk_node.cpp)
 target_link_libraries(test_text_chunk_node PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
@@ -402,7 +412,7 @@ set_tests_properties(
   DocQaRerankTest RerankRefineNodeTest PipelineStudioTest VisualizerServerTest
   DemoRunnerTest CatalogContractSsotTest TypedBlackboardContractsTest
   ValidatedPipelinePlanTest NodeBaseContractsTest NodeOwnershipAndReuseTest
-  DefinitionSchemaValidationTest TextChunkNodeTest TextEmbeddingNodeTest
+  DefinitionSchemaValidationTest ModelBackendDecouplingTest TextChunkNodeTest TextEmbeddingNodeTest
   VectorTopKNodeTest TextRerankNodeTest TextTemplateNodeTest
   LlmGenerateNodeTest AsrTranscribeNodeTest OcrDetectNodeTest
   TextRuleMatchNodeTest StructuredJsonParseNodeTest TextCorpusSourceNodeTest

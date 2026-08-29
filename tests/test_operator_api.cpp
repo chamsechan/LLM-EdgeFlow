@@ -1802,6 +1802,7 @@ TEST_F(OperatorApiTest, ModelPathNonExistentFileAllowedWhileEscapeRejected) {
   const std::filesystem::path root = temp_root.path();
   const std::filesystem::path outside = temp_outside.path();
   std::filesystem::create_directories(root / "configs");
+  const std::filesystem::path canonical_root = std::filesystem::canonical(root);
   const std::filesystem::path source_root = GetConfDir();
   std::string err;
 
@@ -1840,7 +1841,7 @@ TEST_F(OperatorApiTest, ModelPathNonExistentFileAllowedWhileEscapeRejected) {
       const auto path =
           std::filesystem::path(model["model_path"].get<std::string>());
       EXPECT_TRUE(path.is_absolute());
-      EXPECT_EQ(path.lexically_relative(root).string().rfind("..", 0),
+      EXPECT_EQ(path.lexically_relative(canonical_root).string().rfind("..", 0),
                 std::string::npos);
       EXPECT_FALSE(std::filesystem::exists(path));
     }
@@ -1877,7 +1878,7 @@ TEST_F(OperatorApiTest, ModelPathNonExistentFileAllowedWhileEscapeRejected) {
         resolved.synthetic_pipeline_json["models"][0]["model_path"]
             .get<std::string>());
     EXPECT_EQ(resolved_model,
-              root / "deployment/asr_model_will_arrive_later.bin");
+              canonical_root / "deployment/asr_model_will_arrive_later.bin");
     EXPECT_FALSE(std::filesystem::exists(resolved_model));
   }
 
@@ -1889,7 +1890,7 @@ TEST_F(OperatorApiTest, ModelPathNonExistentFileAllowedWhileEscapeRejected) {
         alg_framework::CompanyConfResolver::ResolveModelReferenceUnderRoot(
             root, "safe/missing_model.bin", "model_path", &resolved, &err),
         0);
-    EXPECT_EQ(resolved, root / "safe/missing_model.bin");
+    EXPECT_EQ(resolved, canonical_root / "safe/missing_model.bin");
     EXPECT_FALSE(std::filesystem::exists(resolved));
 
     for (const char* bad :

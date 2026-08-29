@@ -32,7 +32,10 @@ set(EDGEFLOW_TEST_CORE_SRCS
   tests/test_validated_pipeline_plan.cpp
   tests/test_node_base_contracts.cpp
   tests/test_node_ownership_and_reuse.cpp
-  tests/test_definition_schema_validation.cpp)
+  tests/test_definition_schema_validation.cpp
+  tests/test_model_backend_decoupling.cpp
+  tests/support/inference/test_tensor_backend.cpp
+  tests/support/inference/test_causal_lm_backend.cpp)
 add_executable(edgeflow_test_core_runner ${EDGEFLOW_TEST_CORE_SRCS})
 target_link_libraries(edgeflow_test_core_runner PRIVATE
   alg_sdk GTest::gtest GTest::gtest_main)
@@ -104,6 +107,11 @@ add_executable(test_registry_conflict tests/test_registry_conflict.cpp)
 target_link_libraries(test_registry_conflict PRIVATE
   alg_sdk GTest::gtest GTest::gtest_main)
 
+add_executable(test_model_backend_registry_conflict
+  tests/test_model_backend_registry_conflict.cpp)
+target_link_libraries(test_model_backend_registry_conflict PRIVATE
+  alg_sdk GTest::gtest GTest::gtest_main)
+
 add_executable(test_qwen_engines_comparison
   tests/test_qwen_engines_comparison.cpp)
 target_link_libraries(test_qwen_engines_comparison PRIVATE
@@ -148,6 +156,8 @@ edgeflow_add_runner_test(NodeOwnershipAndReuseTest edgeflow_test_core_runner
   "NodeOwnershipAndReuseTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(DefinitionSchemaValidationTest edgeflow_test_core_runner
   "DefinitionSchemaValidationTest.*" "${_edgeflow_tier1}")
+edgeflow_add_runner_test(ModelBackendDecouplingTest edgeflow_test_core_runner
+  "ModelBackendDecouplingTest.*" "${_edgeflow_tier1}")
 
 edgeflow_add_runner_test(TextChunkNodeTest edgeflow_test_nodes_runner
   "TextChunkNodeTest.*" "${_edgeflow_tier1}")
@@ -220,6 +230,10 @@ add_test(NAME RegistryConflictEngineTest COMMAND test_registry_conflict
 set_tests_properties(RegistryConflictNodeTest RegistryConflictEngineTest
   PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
   LABELS "${_edgeflow_tier1}" TIMEOUT 5)
+
+edgeflow_add_runner_test(ModelBackendRegistryConflictTest
+  test_model_backend_registry_conflict "ModelBackendRegistryConflictTest.*"
+  "${_edgeflow_tier1}")
 
 add_test(NAME QwenEnginesComparisonTest COMMAND test_qwen_engines_comparison)
 set_tests_properties(QwenEnginesComparisonTest PROPERTIES
@@ -300,6 +314,7 @@ set_tests_properties(PipelineToolCatalogTest PipelineToolValidateTest
 
 add_custom_target(edgeflow_dev_tests DEPENDS
   alg_demo alg_pipeline_tool alg_show test_c11_abi_compliance
-  test_registry_conflict test_catalog_contract_ssot edgeflow_test_core_runner
+  test_registry_conflict test_model_backend_registry_conflict
+  test_catalog_contract_ssot edgeflow_test_core_runner
   edgeflow_test_nodes_runner edgeflow_test_adapter_runner
   edgeflow_test_tooling_runner)

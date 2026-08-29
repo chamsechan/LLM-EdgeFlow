@@ -5,18 +5,11 @@
 #include <string>
 #include <vector>
 
+#include "contracts/config_schema.h"
 #include "core/blackboard_key.h"
+#include "engine/inference_definition.h"
 
 namespace alg_framework {
-
-enum class ConfigValueKind {
-  kString,
-  kInteger,
-  kNumber,
-  kBoolean,
-  kObject,
-  kArray,
-};
 
 enum class EngineThreadModel {
   kSerialized = 0,
@@ -113,34 +106,6 @@ inline PortDefinition OutputPort(std::string logical_name,
                         std::move(lifetime),
                         std::move(lifetime_config_field)};
 }
-
-struct ConfigFieldDefinition {
-  std::string name;
-  ConfigValueKind kind = ConfigValueKind::kString;
-  bool required = false;
-  nlohmann::json default_value;
-  std::optional<double> minimum;
-  std::optional<double> maximum;
-  std::vector<std::string> enum_values;
-  std::string semantic;
-
-  ConfigFieldDefinition() = default;
-  ConfigFieldDefinition(std::string field_name, ConfigValueKind value_kind,
-                        bool is_required = false,
-                        nlohmann::json field_default = nlohmann::json(),
-                        std::optional<double> field_minimum = std::nullopt,
-                        std::optional<double> field_maximum = std::nullopt,
-                        std::vector<std::string> allowed_values = {},
-                        std::string field_semantic = {})
-      : name(std::move(field_name)),
-        kind(value_kind),
-        required(is_required),
-        default_value(std::move(field_default)),
-        minimum(field_minimum),
-        maximum(field_maximum),
-        enum_values(std::move(allowed_values)),
-        semantic(std::move(field_semantic)) {}
-};
 
 enum class PortConstraintKind {
   kAtLeastOneOf = 0,
@@ -251,11 +216,17 @@ class PipelineCatalog {
 
   static const std::vector<NodeDefinition>& Nodes();
   static const std::vector<EngineDefinition>& Engines();
+  static std::vector<ModelDefinition> Models();
+  static std::vector<BackendDefinition> Backends();
   static const std::vector<BizDefinition>& Bizs();
   static const std::vector<BizDefinition>& Businesses() { return Bizs(); }
 
   static const NodeDefinition* FindNode(const std::string& node_type);
   static const EngineDefinition* FindEngine(const std::string& engine_type);
+  static std::optional<ModelDefinition> FindModel(
+      const std::string& model_type);
+  static std::optional<BackendDefinition> FindBackend(
+      const std::string& backend_type);
   static const BizDefinition* FindBiz(const std::string& biz_name);
   static const BizDefinition* FindBusiness(const std::string& biz_name) {
     return FindBiz(biz_name);
@@ -265,9 +236,10 @@ class PipelineCatalog {
 
   static nlohmann::json ToJson(const std::string& biz_filter = std::string());
   static nlohmann::json NodeToJson(const NodeDefinition& definition);
+  static nlohmann::json ModelToJson(const ModelDefinition& definition);
+  static nlohmann::json BackendToJson(const BackendDefinition& definition);
 };
 
-const char* ConfigValueKindName(ConfigValueKind kind);
 const char* EngineThreadModelName(EngineThreadModel model);
 const char* PortConstraintKindName(PortConstraintKind kind);
 
