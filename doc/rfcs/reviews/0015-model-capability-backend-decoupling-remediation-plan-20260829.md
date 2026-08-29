@@ -6,6 +6,7 @@
 - **当前状态**：阶段一基础整改已完成，RFC 实现进行中
 - **审查依据**：[RFC-0015 桩实现审查与整改清单](0015-model-capability-backend-decoupling-stub-review-20260828.md)
 - **后续实现**：[RFC-0015 后续实现指南](0015-model-capability-backend-decoupling-continuation-guide-20260829.md)
+- **阶段 3 验收与整改**：[ONNX Embedding 验收结论与实施设计](0015-stage3-onnx-embedding-acceptance-remediation-20260829.md)
 
 ## 1. 整改目标
 
@@ -199,47 +200,47 @@
 
 ### 5.1 OnnxRuntimeBackend
 
-- [ ] vendor 头文件仅位于 `src/engine/backends/onnxruntime/`；
-- [ ] 真实加载 ONNX 文件；
-- [ ] 真实读取 I/O metadata；
-- [ ] 验证 input name、dtype、rank、shape、batch、buffer 和 byte size；
-- [ ] 真实执行 Session Run；
-- [ ] 验证全部输出；
-- [ ] 捕获 vendor 异常；
-- [ ] model path 不存在或格式错误时失败；
-- [ ] 未编译 ONNX Runtime 时不注册 `onnxruntime`；
-- [ ] Backend 不包含 tokenizer、pooling、normalize 或模型类型分支。
+- [x] vendor 头文件仅位于 `src/engine/backends/onnxruntime/`；
+- [x] 真实加载 ONNX 文件；
+- [x] 真实读取 I/O metadata；
+- [x] 验证 input name、dtype、rank、shape、batch、buffer 和 byte size；
+- [x] 真实执行 Session Run；
+- [x] 验证全部输出；
+- [x] 捕获 vendor 异常；
+- [x] model path 不存在或格式错误时失败；
+- [x] 未编译 ONNX Runtime 时不注册 `onnxruntime`；
+- [x] Backend 不包含 tokenizer、pooling、normalize 或模型类型分支。
 
 ### 5.2 BgeEmbeddingModel
 
-- [ ] 加载 Definition 声明的 tokenizer sidecar；
-- [ ] 实现 tokenize、truncate、padding；
-- [ ] 构造 Tensor Graph 输入；
-- [ ] 调用 `FixedBatchExecutor::Execute`；
-- [ ] 调用 `ITensorGraphSession::Run`；
-- [ ] 实现 output 选择、pooling、normalize；
-- [ ] 验证输出维度；
-- [ ] 保持 provenance；
-- [ ] 失败时清空全部输出；
-- [ ] 捕获全部预后处理异常。
+- [x] 加载 Definition 声明的 tokenizer sidecar；
+- [x] 实现 tokenize、truncate、padding；
+- [x] 构造 Tensor Graph 输入；
+- [x] 调用 `FixedBatchExecutor::Execute`；
+- [x] 调用 `ITensorGraphSession::Run`；
+- [x] 实现 output 选择、pooling、normalize；
+- [x] 验证输出维度；
+- [x] 保持 provenance；
+- [x] 失败时清空全部输出；
+- [x] 捕获全部预后处理异常。
 
 ### 5.3 TextEmbeddingNode
 
-- [ ] 改用 `ModelBoundNode<IEmbeddingModel>`；
-- [ ] 调用 `model()->Embed`；
-- [ ] 把 normalize 作为 `EmbeddingOptions` 传入 Model；
-- [ ] Node 不再自行 normalize；
-- [ ] 保留现有端口、缓存、lifetime 和 revision 语义；
-- [ ] NodeDefinition 不改变 capability、bind field 和 typed ports。
+- [x] 改用 `ModelBoundNode<IEmbeddingModel>`；
+- [x] 调用 `model()->Embed`；
+- [x] 把 normalize 作为 `EmbeddingOptions` 传入 Model；
+- [x] Node 不再自行 normalize；
+- [x] 保留现有端口、缓存、lifetime 和 revision 语义；
+- [x] NodeDefinition 不改变 capability、bind field 和 typed ports。
 
 ### 5.4 阶段三完成条件
 
-- [ ] Embedding Node 和 DAG 契约不变；
-- [ ] ONNX 加载与 Run 只存在于 Backend；
-- [ ] Model 语义只存在于 BgeEmbeddingModel；
-- [ ] 真实/条件 ONNX 测试通过；
-- [ ] 不存在 production fallback；
-- [ ] 配置 validate、plan、build、smoke 全部通过。
+- [x] Embedding Node 和 DAG 契约不变；
+- [x] ONNX 加载与 Run 只存在于 Backend；
+- [x] Model 语义只存在于 BgeEmbeddingModel；
+- [x] 真实/条件 ONNX 测试通过；
+- [x] 不存在 production fallback；
+- [x] 配置 validate、plan、build、smoke 全部通过。
 
 ---
 
