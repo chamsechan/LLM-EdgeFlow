@@ -675,7 +675,38 @@ Studio、CLI 和 Web 不维护兼容矩阵或名称列表。Model 与 Backend �
 
 ## 8. Pipeline 配置与 Validator
 
-### 8.1 配置格式
+### 8.1 配置格式与过渡期双轨方言
+
+为了在真实 Model/Backend 完全实现并迁移现有生产管线前，保持全量 Demo 和既有测试不中断，阶段 2–6 引入明确的**双轨配置方言（Dual-Track Configuration Dialects）**。
+
+#### 8.1.1 方言定义
+
+```cpp
+enum class ModelConfigDialect {
+  kLegacyEngine,  // 旧版组合 Engine 配置 (阶段 2-6 过渡期保留，阶段 7 收口删除)
+  kModelBackend,   // RFC-0015 标准 Model/Backend 解耦配置
+};
+```
+
+1. **Legacy Engine 方言 (`kLegacyEngine`)**：
+   - 允许字段集合：`model_id` (必填非空字符串), `engine_type` (必填非空字符串), `model_path` (可选字符串), `config` (可选对象，缺省为 `{}`), `comment` (可选字符串)；
+   - 严禁出现任何 Model/Backend 新字段。
+
+2. **Model/Backend 方言 (`kModelBackend`)**：
+   - 允许字段集合：`model_id` (必填非空字符串), `capability` (必填非空字符串), `model_type` (必填非空字符串), `backend` (必填非空字符串), `model_path` (必填非空字符串), `model_config` (可选对象，缺省为 `{}`), `backend_config` (可选对象，缺省为 `{}`), `comment` (可选字符串)；
+   - 严禁出现任何 Legacy 字段。
+
+#### 8.1.2 严格互斥与零混用规则 (Strict Non-Mixing Rules)
+
+在单项模型配置中，Legacy 字段与 Model/Backend 字段**绝对不可混用**：
+
+- 若出现 `engine_type` 或旧 `config`，该项被判定为 `kLegacyEngine`。此时若出现 `capability`、`model_type`、`backend`、`model_config` 或 `backend_config` 中任意字段，Parser/Validator 必须立即拒绝并返回 `PipelineErrorCode::kInvalidCombination`；
+- 若出现 `capability`、`model_type`、`backend`、`model_config` 或 `backend_config` 中任意字段，该项被判定为 `kModelBackend`。此时若出现 `engine_type` 或旧 `config` 中任意字段，Parser/Validator 必须立即拒绝并返回 `PipelineErrorCode::kInvalidCombination`；
+- 两种方言均严格拒绝未知字段（返回 `PipelineErrorCode::kUnknownField`）；
+- 错误信息必须提供精确的 JSON Pointer（如 `/models/0/engine_type`、`/models/1/backend`）和修复建议；
+- 阶段 7 收口时彻底删除 `ModelConfigDialect`、`kLegacyEngine`、旧字段和 legacy build 路径。
+
+#### 8.1.3 标准 Model/Backend 配置格式
 
 ```json
 {
@@ -721,20 +752,28 @@ ModelDefinition 声明的 sidecar path 字段相对于 `model_path` 的父目录
 
 ```cpp
 struct ParsedModelConfig {
+  ModelConfigDialect dialect = ModelConfigDialect::kModelBackend;
   std::string model_id;
+  size_t source_index = 0;
+
+  // Legacy dialect (阶段 2-6 过渡期使用，阶段 7 收口删除)
+  std::string engine_type;
+  nlohmann::json legacy_config = nlohmann::json::object();
+
+  // Model/Backend dialect (RFC 0015 标准)
   std::string capability;
   std::string model_type;
   std::string backend;
   std::string model_path;
-  nlohmann::json model_config;
-  nlohmann::json backend_config;
-  size_t source_index = 0;
+  nlohmann::json model_config = nlohmann::json::object();
+  nlohmann::json backend_config = nlohmann::json::object();
 };
 ```
 
 Parser 只处理 JSON 结构：
 
-- 拒绝未知字段；
+- 根据字段特征严格识别方言，执行方言字段白名单与零混用检查；
+- 拒绝未知字段与混用字段（返回 `kUnknownField` 或 `kInvalidCombination`）；
 - 校验必填、类型、非空字符串和 model_id 唯一；
 - `model_config`、`backend_config` 缺省为 `{}`，存在时只校验为 object；
 - 不查询 Registry；
@@ -773,7 +812,7 @@ PipelineValidator 在任何副作用前执行：
 5. 校验 Model required_protocol 被 Backend 支持；
 6. 按 ModelDefinition 校验并归一化 model_config；
 7. 按 BackendDefinition 校验并归一化 backend_config；
-8. 解析 model_path；
+8. 解析 model_path（结合可选的 `model_root_dir` 进行根目录拼接与防逃逸校验，产出最终 `resolved_model_path`）；
 9. 校验 Node `bind_model` 引用存在；
 10. 校验 NodeDefinition.model_capability 与模型 capability 一致；
 11. 以 Model/Backend 更严格的一方计算 effective_concurrency；
@@ -813,6 +852,7 @@ kModelCapabilityMismatch
 kBackendProtocolMismatch
 kUnknownModelConfigField
 kUnknownBackendConfigField
+kInvalidCombination (方言混用或非法字段组合)
 ```
 
 每个错误必须提供稳定 code、准确 JSON Pointer、message 和 suggestion。例如：
@@ -1292,11 +1332,11 @@ backend。生产构建下相同测试 backend 名称必须校验为 unknown back
 | `include/engine/engine_interface.h` | 替换为 model_interface/backend_interface；迁移完成后删除 |
 | `include/engine/engine_registry.h` | 替换为 ModelRegistry/BackendRegistry；迁移完成后删除 |
 | `include/engine/fixed_batch_executor.h` | 按 BatchSlice/BatchPolicy 改造，不移动文件 |
-| `include/core/pipeline_config.h` | ParsedModelConfig 使用七个新字段 |
-| `src/core/pipeline_config.cpp` | 严格解析新 models schema |
-| `include/core/pipeline_validator.h` | 增加 ValidatedModelPlan 和诊断码 |
-| `src/core/pipeline_validator.cpp` | 双 Registry、capability、protocol、双 config 校验 |
-| `include/core/session_context.h` | ModelManager 保存 IModel 并增加 RegisterBatch |
+| `include/core/pipeline_config.h` | ParsedModelConfig 支持 ModelConfigDialect 双轨方言与严格互斥字段定义 |
+| `src/core/pipeline_config.cpp` | 解析 models schema，严格区分 legacy 与 model/backend 方言，拒绝混用与未知字段 |
+| `include/core/pipeline_validator.h` | 增加 ValidatedModelPlan 和诊断码（含 kInvalidCombination 混用诊断） |
+| `src/core/pipeline_validator.cpp` | 双 Registry、capability、protocol、双 config 校验，按 Definition 校验归一化配置 |
+| `include/core/session_context.h` | ModelManager 保存 IModel 并增加 RegisterBatch 强原子提交 |
 | `src/core/pipeline.cpp` | 消费 ValidatedModelPlan、调用 RuntimeFactory、原子提交；删除 device_id 注入 |
 | `include/nodes/model_bound_node.h` | EngineCapability/engine() 改为 ModelCapability/model() |
 | `include/nodes/traceable_unary_inference_node.h` | 同步 Model capability 命名 |
@@ -1327,15 +1367,16 @@ backend。生产构建下相同测试 backend 名称必须校验为 unknown back
 
 ### 阶段 2：Pipeline 规划与物化
 
-1. 更新 ParsedModelConfig；
-2. 增加 ValidatedModelPlan；
-3. 实现双 Definition 校验和 protocol 匹配；
-4. 实现 ModelRuntimeFactory；
-5. 实现 ModelManager::RegisterBatch；
-6. Pipeline 改为 staging + atomic commit；
-7. 增加配置、回滚和生命周期测试。
+1. 更新 ParsedModelConfig，增加 ModelConfigDialect 并明确严格互斥规则；
+2. Parser 实现严格双轨解析，拒绝 legacy/new 混用与未知字段；
+3. 共享 config value 校验与归一化（ValidateAndNormalizeConfig）；
+4. 增加 ValidatedModelPlan 并完善 Validator 双 Definition / protocol 匹配；
+5. 实现 ModelRuntimeFactory 完整前置校验；
+6. 实现 ModelManager::RegisterBatch 强原子提交；
+7. Pipeline 改为 staging + atomic commit；
+8. 增加配置、回滚和生命周期测试。
 
-完成条件：使用 test backend/model 可完成一条 Pipeline 的 Build 和失败回滚。
+完成条件：使用 test backend/model 可完成一条 Pipeline 的 Build 和失败回滚，现有 legacy 回归保持通过。
 
 ### 阶段 3：ONNX Runtime + Embedding
 
@@ -1381,7 +1422,7 @@ backend。生产构建下相同测试 backend 名称必须校验为 unknown back
 ### 阶段 7：收口
 
 1. 删除 IModelEngine、EngineFactory、EngineDefinition 和组合 Engine；
-2. 删除配置中的 `engine_type`；
+2. 删除配置中的 `engine_type`、旧 `config` 字段以及 `ModelConfigDialect`，移除 legacy 解析与 Build 分支；
 3. 更新所有配置、测试、CLI、Studio、README 和 architecture；
 4. 执行格式化、CTest、全量脚本和 Demo；
 5. 验收后更新 RFC 状态为 Completed。
@@ -1518,3 +1559,4 @@ state 无泄漏、UAF 或 double free。
 | 日期 | 版本 | 变更内容 | 作者 |
 | :--- | :--- | :--- | :--- |
 | 2026-08-28 | v1.0.0 | 定义模型能力与推理运行时解耦的最终实施规范 | LLM-EdgeFlow Team |
+| 2026-08-29 | v1.1.0 | 明确过渡期双轨配置方言 (ModelConfigDialect) 与 Legacy/New 字段严格互斥规则 | LLM-EdgeFlow Team |
