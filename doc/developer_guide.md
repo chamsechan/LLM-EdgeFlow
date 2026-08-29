@@ -11,7 +11,7 @@
 | 架构层级 | 新增什么？ | 核心修改文件 | 关键宏 / 核心类 |
 | :--- | :--- | :--- | :--- |
 | **Layer 1: C ABI 适配层** | 新增业务枚举、输入/输出纯 C 结构体与专属适配器 | `include/company_alg_interface.h`<br>`src/adapter/adapters/<biz>_adapter.cpp` | `CompanyAlgBizType`<br>`IBizAdapter`<br>`REGISTER_BIZ_ADAPTER` |
-| **Layer 2: 核心编排层** | 扩展动态黑板、会话模型管理与全局资源 | `include/core/alg_context.h`<br>`include/core/session_context.h` | `AlgContext::Set<T>()`<br>`SessionContext::SetResource()` |
+| **Layer 2: 核心编排层** | 扩展动态黑板、会话模型管理与全局资源 | `include/core/alg_context.h`<br>`include/core/session_context.h` | `AlgContext::Read/Publish`<br>`SessionContext::SetResource()` |
 | **Layer 3: 通用能力算子池** | 新增通用能力算子 (分片/向量检索/重排/模板/规则/解析) | `src/common_nodes/*.cpp`<br>`include/nodes/*.h` | `NodeBase`<br>`REGISTER_NODE_WITH_DEFINITION(NodeName, def)` |
 | **Layer 4: Model / Backend 层** | 新增模型语义或接入新推理后端 | `include/engine/model_interface.h`<br>`include/engine/backend_interface.h`<br>`src/engine/models/`<br>`src/engine/backends/` | `REGISTER_MODEL_WITH_DEFINITION`<br>`REGISTER_BACKEND_WITH_DEFINITION`<br>`ModelRuntimeFactory`<br>`FixedBatchExecutor` |
 
@@ -69,6 +69,12 @@ JSON 键。
 Layer 2 负责请求黑板生命周期与 DAG 管线单趟构建：
 - **`ValidatedPipelinePlan`**：`PipelineValidator::ValidateAndPlan()` 单趟静态校验与 DAG 拓扑排序输出的不可变执行计划，`Pipeline::BuildInternal()` 直接消费该计划，杜绝运行时二次解析或隐式 DAG 计算。
 - **`BlackboardKey<T>`**：强类型黑板键，各算子间通过 `Require` 与 `Publish` 交换数据，杜绝无类型内存乱序。
+- **`AlgContext` 并发契约**：输入使用 `Read` 获取只读快照，输出通过 typed port 单次
+  `Publish`；普通 Node 不直接调用 `Set/Erase/Clear`。聚合行为由专用 Node 读取上游端口并
+  发布新的输出 key，不原地修改已经发布的值。
+
+Node 作者仍使用 `BoundInput<T>::Require` 与 `BoundOutput<T>::Set`；端口包装负责执行
+`Read/Publish`，无需在业务 Node 中管理锁或快照。
 
 ---
 

@@ -150,8 +150,8 @@ class TemplateTaggedUnionAdapter : public IBusinessAdapter {
            AdapterStatus* out_status = nullptr) const override {
     if (!ctx) return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
 
-    auto* res =
-        ctx->Get<std::vector<TemplateUnionResultDto>>("tagged_union_outputs");
+    const auto* res =
+        ctx->Read<std::vector<TemplateUnionResultDto>>("tagged_union_outputs");
     if (!res) return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
 
     int count = static_cast<int>(res->size());

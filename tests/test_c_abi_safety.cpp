@@ -1,8 +1,10 @@
 #include <gtest/gtest.h>
 
+#include <atomic>
 #include <cstring>
 #include <iostream>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "adapter/biz_adapter_registry.h"
@@ -289,5 +291,56 @@ TEST_F(CAbiSafetyTest, AdapterDescriptorMaxBatchSizeEnforcement) {
       Alg_Process(handle, inputs.data(), 65, outputs.data(), &num_outputs);
   EXPECT_EQ(ret, -3);
 
+  EXPECT_EQ(Alg_Destroy(handle), 0);
+}
+
+// 11. 同一 handle 的并发 Process 由 Layer 1 串行化，停流 join 后才允许 Destroy
+TEST_F(CAbiSafetyTest, SameHandleConcurrentProcessAndQuiescedDestroy) {
+  std::string cfg = GetConfigPath("configs/pipeline_keyword_match.json");
+  CompanyAlgParamCreate param;
+  param.config_file_path = cfg.c_str();
+  param.model_root_dir = "./models";
+  param.device_id = 0;
+  param.biz_type = ALG_BIZ_TYPE_KEYWORD_MATCH;
+
+  void* handle = nullptr;
+  ASSERT_EQ(Alg_Create(&handle, &param), 0);
+  ASSERT_NE(handle, nullptr);
+
+  constexpr int kThreadCount = 8;
+  constexpr int kCallsPerThread = 40;
+  std::atomic<bool> start{false};
+  std::atomic<int> failures{0};
+  std::vector<std::thread> workers;
+  workers.reserve(kThreadCount);
+
+  for (int thread_index = 0; thread_index < kThreadCount; ++thread_index) {
+    workers.emplace_back([&, thread_index]() {
+      while (!start.load(std::memory_order_acquire)) {
+        std::this_thread::yield();
+      }
+      for (int call_index = 0; call_index < kCallsPerThread; ++call_index) {
+        const uint64_t request_id =
+            static_cast<uint64_t>(thread_index * kCallsPerThread + call_index);
+        CompanyKeywordInputStruct input{request_id, "same handle request"};
+        CompanyKeywordOutputStruct output{};
+        const void* inputs[1] = {&input};
+        void* outputs[1] = {&output};
+        int num_outputs = 1;
+        const int ret = Alg_Process(handle, inputs, 1, outputs, &num_outputs);
+        if (ret != COMPANY_ALG_SUCCESS || num_outputs != 1 ||
+            output.request_id != request_id) {
+          failures.fetch_add(1, std::memory_order_relaxed);
+        }
+      }
+    });
+  }
+
+  start.store(true, std::memory_order_release);
+  for (auto& worker : workers) {
+    worker.join();
+  }
+
+  EXPECT_EQ(failures.load(), 0);
   EXPECT_EQ(Alg_Destroy(handle), 0);
 }

@@ -100,8 +100,8 @@ class TemplateFlatStructAdapter : public IBusinessAdapter {
            AdapterStatus* out_status = nullptr) const override {
     if (!ctx) return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
 
-    auto* res =
-        ctx->Get<std::vector<TemplateFlatResultDto>>("flat_final_outputs");
+    const auto* res =
+        ctx->Read<std::vector<TemplateFlatResultDto>>("flat_final_outputs");
     if (!res) return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
 
     int count = static_cast<int>(res->size());

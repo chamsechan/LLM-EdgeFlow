@@ -97,8 +97,13 @@ TEST_F(CommonNodesTest, TextTemplateNodeComprehensive) {
       node->Control(kControlCmdUpdatePrompt, update_json.dump());
   EXPECT_EQ(c_res.status, NodeControlStatus::kHandled);
 
-  EXPECT_EQ(node->Process(&ctx), 0);
-  const auto* out2 = ctx.Get<TextBatch>("text");
+  // Control affects the next request; each request owns a fresh write-once
+  // output namespace.
+  AlgContext updated_ctx;
+  updated_ctx.Set("primary", primary);
+  updated_ctx.Set("context", context);
+  EXPECT_EQ(node->Process(&updated_ctx), 0);
+  const auto* out2 = updated_ctx.Get<TextBatch>("text");
   ASSERT_NE(out2, nullptr);
   EXPECT_EQ((*out2)[0].data, "NewTemplate: What is LLM?");
 }

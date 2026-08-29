@@ -99,9 +99,9 @@ class ComplianceAuditAdapter : public IBizAdapter {
       return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     }
 
-    const auto* verdicts = ctx->Get(kStructuredVerdicts);
-    const auto* matched_policies = ctx->Get(kMatchedPolicy);
-    const auto* raw_req_ids = ctx->Get(kRawRequestIds);
+    const auto* verdicts = ctx->Read(kStructuredVerdicts);
+    const auto* matched_policies = ctx->Read(kMatchedPolicy);
+    const auto* raw_req_ids = ctx->Read(kRawRequestIds);
 
     if (!verdicts) {
       if (out_status) {

@@ -23,7 +23,7 @@ graph TD
     %% Level 1
     subgraph L1["Layer 1: Operator 接入与 C-ABI 适配层 (Operator & C-ABI Adapter Layer)"]
         C_API["公司统一标准 C ABI 接口<br>• Alg_Init / Alg_DeInit<br>• Alg_Create / Alg_Destroy<br>• Alg_Process(const void** inputs, num_inputs, void** outputs, num_outputs)<br>• Alg_Control"]
-        C_Adapter["company_c_adapter.cpp<br>• 句柄生命周期托管 (Handle)<br>• 异常拦截屏障 (noexcept 安全防护)<br>• 外部输入解包 / 输出结构体强转打包"]
+        C_Adapter["company_c_adapter.cpp<br>• 同句柄 Process / Control 串行化<br>• 异常拦截屏障 (noexcept 安全防护)<br>• 外部输入解包 / 输出结构体强转打包"]
     end
 
     %% Level 2
@@ -32,7 +32,7 @@ graph TD
         
         subgraph StateMgr["三级状态与注册管理器"]
             S_Ctx["SessionContext (句柄级持久状态)<br>• ModelManager 多模型池<br>• 句柄共享缓存资源"]
-            R_Ctx["AlgContext (请求级瞬态黑板)<br>• std::any 类型安全擦除<br>• 自动生命周期析构"]
+            R_Ctx["AlgContext (请求级瞬态黑板)<br>• Read / Publish 不可变快照<br>• 只读视图随请求生命周期稳定"]
             TraceTag["TraceableItem 溯源追踪<br>• req_id (请求索引)<br>• sub_id (1对N分片索引)"]
             Factory["NodeFactory / ModelRegistry / BackendRegistry<br>• *_WITH_DEFINITION 就地注册"]
         end
@@ -128,6 +128,8 @@ C++ Operator API：NamedIoBatch + Operator 镜像 C 结构 ─┘
 ```
 
 - 纯 C ABI 继续保持 C11、固定布局和现有六函数契约，其 ABI V2 保持源码与符号兼容。
+- 同一 C ABI handle 的 `Alg_Process` 与 `Alg_Control` 串行执行；不同 handle 可并行。
+  `Alg_Destroy` 前调用方必须停止提交并等待该 handle 上所有调用返回，返回后句柄永久失效。
 - C++ Operator API 根据 Key 的最后一个点号解析类型后缀：
   `OperatorValueTypeRegistry` 负责“后缀到外部 C 类型”的唯一绑定，
   `OperatorBizBridgeDescriptor` 负责按业务和方向收集一个或多个槽位，再转换为
@@ -151,7 +153,8 @@ C++ Operator API：NamedIoBatch + Operator 镜像 C 结构 ─┘
   1. **配置驱动与执行计划**：通过 `PipelineValidator::ValidateAndPlan` 一次性完成 JSON 解析、业务契约查找、拓扑排序生成 `ValidatedPipelinePlan`，杜绝重复解析与排序；
   2. **三级状态管理**：
      - `SessionContext`：句柄级常驻状态，管理单句柄加载的多个模型实例（`ModelManager`）；
-     - `AlgContext`：请求级强类型黑板（`BlackboardKey<T>`），通过移动与共享所有权避免可避免的深拷贝；
+     - `AlgContext`：请求级强类型黑板（`BlackboardKey<T>`），`Read` 返回请求生命周期内
+       稳定的只读快照，`Publish` 拒绝重复生产；兼容 `Set` 仅用于执行前输入装载与迁移；
      - `TraceableItem<T>`：样本溯源标签（`req_id` + `sub_id`），保证 1对N 裂变后可严格 1:1 对齐回原请求；
   3. **自注册 SSOT 机制**：Node、Model 与 Backend 分别通过 `REGISTER_NODE_WITH_DEFINITION`、`REGISTER_MODEL_WITH_DEFINITION` 和 `REGISTER_BACKEND_WITH_DEFINITION` 就地声明，`PipelineCatalog` 仅聚合这三类定义。
 

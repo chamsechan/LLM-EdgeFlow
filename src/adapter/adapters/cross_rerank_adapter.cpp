@@ -122,8 +122,8 @@ class CrossRerankAdapter : public IBizAdapter {
       return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     }
 
-    const auto* res = ctx->Get(kRankedResults);
-    const auto* raw_req_ids = ctx->Get(kRawRequestIds);
+    const auto* res = ctx->Read(kRankedResults);
+    const auto* raw_req_ids = ctx->Read(kRawRequestIds);
     if (!res) {
       if (out_status) {
         *out_status = AdapterStatus::BufferTooSmall(

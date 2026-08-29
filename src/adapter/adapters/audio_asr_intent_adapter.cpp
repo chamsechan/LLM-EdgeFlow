@@ -116,9 +116,9 @@ class AudioAsrIntentAdapter : public IBizAdapter {
       return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     }
 
-    const auto* transcripts = ctx->Get(kTranscripts);
-    const auto* intent_slots = ctx->Get(kIntentSlots);
-    const auto* raw_req_ids = ctx->Get(kRawRequestIds);
+    const auto* transcripts = ctx->Read(kTranscripts);
+    const auto* intent_slots = ctx->Read(kIntentSlots);
+    const auto* raw_req_ids = ctx->Read(kRawRequestIds);
 
     if (!transcripts) {
       if (out_status) {

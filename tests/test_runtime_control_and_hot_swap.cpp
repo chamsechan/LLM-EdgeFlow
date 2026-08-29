@@ -91,7 +91,7 @@ TEST_F(RuntimeControlAndHotSwapTest, KeywordMatcherDynamicHotSwap) {
   Alg_Destroy(handle);
 }
 
-// 2. 在线并发执行与热控制竞争测试 (Process and Control Concurrency)
+// 2. 同一 handle 的 Process/Control 由 C ABI 层串行化，停流 join 后再销毁
 TEST_F(RuntimeControlAndHotSwapTest, ConcurrentProcessAndHotControl) {
   std::string cfg_path = GetConfigPath("configs/pipeline_keyword_match.json");
   CompanyAlgParamCreate param;
@@ -154,7 +154,7 @@ TEST_F(RuntimeControlAndHotSwapTest, ConcurrentProcessAndHotControl) {
   EXPECT_GT(process_count.load(), 50);
   EXPECT_GT(control_count.load(), 10);
 
-  Alg_Destroy(handle);
+  EXPECT_EQ(Alg_Destroy(handle), 0);
 }
 
 // 3. 非法控制指令与边界容错测试

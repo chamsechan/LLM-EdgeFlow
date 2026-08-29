@@ -107,6 +107,14 @@ TEST(NodeBaseContractsTest, RequireAndPublishHelpers) {
     const auto* out_val = ctx.Get(kTestOutputKey);
     ASSERT_NE(out_val, nullptr);
     EXPECT_EQ(*out_val, "hello_processed");
+
+    // A second producer invocation in the same request cannot silently
+    // overwrite the already published output.
+    EXPECT_EQ(node.Process(&ctx),
+              static_cast<int>(NodeRuntimeCode::kUnhandledException));
+    EXPECT_EQ(*out_val, "hello_processed");
+    EXPECT_TRUE(ctx.GetErrorMessage().find("Duplicate output publication") !=
+                std::string::npos);
   }
 
   // Existing key with an incompatible runtime type.

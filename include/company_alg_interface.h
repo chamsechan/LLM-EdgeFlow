@@ -206,18 +206,24 @@ int Alg_Create(void** hndl,
  * @param[in] num_inputs 输入样本数量
  * @param[out] outputs 多个输出结构体指针数组
  * @param[in,out] num_outputs 输入为 outputs 容量，输出为实际填充的样本数量
+ * @note 同一 hndl 上的 Alg_Process 与 Alg_Control
+ * 由实现串行执行；不同句柄可并行。
  */
 int Alg_Process(void* hndl, const void** inputs, int num_inputs, void** outputs,
                 int* num_outputs) COMPANY_ALG_NOEXCEPT;
 
 /**
  * @brief 运行时动态控制或参数调整
+ * @note 与同一 hndl 上的 Alg_Process/Alg_Control 串行执行。
  */
 int Alg_Control(void* hndl, const CompanyAlgParamControl* param_control)
     COMPANY_ALG_NOEXCEPT;
 
 /**
  * @brief 销毁算法句柄实例
+ * @pre 调用方必须先停止向 hndl 提交新调用，并等待该 hndl 上已有的
+ * Alg_Process/Alg_Control 全部返回。
+ * @post 返回后 hndl 永久失效，不得再次传给任何 Alg_* 函数。
  */
 int Alg_Destroy(void* hndl) COMPANY_ALG_NOEXCEPT;
 

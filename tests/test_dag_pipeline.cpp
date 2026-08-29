@@ -1,8 +1,10 @@
 #include <gtest/gtest.h>
 
 #include <iostream>
+#include <mutex>
 #include <nlohmann/json.hpp>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "core/alg_context.h"
@@ -13,6 +15,22 @@
 namespace alg_framework {
 
 static std::mutex s_trace_mutex;
+static std::vector<std::string> s_execution_trace;
+
+static void ResetExecutionTrace() {
+  std::lock_guard<std::mutex> lock(s_trace_mutex);
+  s_execution_trace.clear();
+}
+
+static void AppendExecutionTrace(std::string node_name) {
+  std::lock_guard<std::mutex> lock(s_trace_mutex);
+  s_execution_trace.push_back(std::move(node_name));
+}
+
+static std::vector<std::string> SnapshotExecutionTrace() {
+  std::lock_guard<std::mutex> lock(s_trace_mutex);
+  return s_execution_trace;
+}
 
 inline NodeDefinition MakeDagNodeDef(const std::string& type,
                                      std::vector<PortDefinition> inputs,
@@ -38,13 +56,7 @@ class DagTestNodeA : public INode {
     return true;
   }
   int Process(AlgContext* req_ctx) override {
-    {
-      std::lock_guard<std::mutex> lock(s_trace_mutex);
-      auto* trace = req_ctx->Get<std::vector<std::string>>("exec_trace");
-      if (trace) {
-        trace->push_back("NodeA");
-      }
-    }
+    AppendExecutionTrace("NodeA");
     req_ctx->Set("node_a_out", std::string("DataFromA"));
     return 0;
   }
@@ -72,13 +84,7 @@ class DagTestNodeB : public INode {
     return true;
   }
   int Process(AlgContext* req_ctx) override {
-    {
-      std::lock_guard<std::mutex> lock(s_trace_mutex);
-      auto* trace = req_ctx->Get<std::vector<std::string>>("exec_trace");
-      if (trace) {
-        trace->push_back("NodeB");
-      }
-    }
+    AppendExecutionTrace("NodeB");
     // 必须依赖 NodeA 的输出
     auto* a_out = req_ctx->Get<std::string>("node_a_out");
     if (!a_out) return -101;
@@ -110,13 +116,7 @@ class DagTestNodeC : public INode {
     return true;
   }
   int Process(AlgContext* req_ctx) override {
-    {
-      std::lock_guard<std::mutex> lock(s_trace_mutex);
-      auto* trace = req_ctx->Get<std::vector<std::string>>("exec_trace");
-      if (trace) {
-        trace->push_back("NodeC");
-      }
-    }
+    AppendExecutionTrace("NodeC");
     // 依赖 NodeA 的输出 (分支 2)
     auto* a_out = req_ctx->Get<std::string>("node_a_out");
     if (!a_out) return -102;
@@ -148,13 +148,7 @@ class DagTestNodeD : public INode {
     return true;
   }
   int Process(AlgContext* req_ctx) override {
-    {
-      std::lock_guard<std::mutex> lock(s_trace_mutex);
-      auto* trace = req_ctx->Get<std::vector<std::string>>("exec_trace");
-      if (trace) {
-        trace->push_back("NodeD");
-      }
-    }
+    AppendExecutionTrace("NodeD");
     // 汇聚 NodeB 和 NodeC 两个分支
     auto* b_out = req_ctx->Get<std::string>("node_b_out");
     auto* c_out = req_ctx->Get<std::string>("node_c_out");
@@ -215,16 +209,15 @@ TEST_F(DagPipelineTest, ShuffledOrderTopologicalSort) {
 
   // 执行管线并验证执行轨迹
   AlgContext req_ctx;
-  req_ctx.Set("exec_trace", std::vector<std::string>{});
+  ResetExecutionTrace();
 
   int ret = pipeline.Execute(&req_ctx);
   EXPECT_EQ(ret, 0);
 
-  auto* trace = req_ctx.Get<std::vector<std::string>>("exec_trace");
-  ASSERT_NE(trace, nullptr);
-  ASSERT_EQ(trace->size(), 4);
-  EXPECT_EQ((*trace)[0], "NodeA");
-  EXPECT_EQ((*trace)[3], "NodeD");
+  const auto trace = SnapshotExecutionTrace();
+  ASSERT_EQ(trace.size(), 4);
+  EXPECT_EQ(trace[0], "NodeA");
+  EXPECT_EQ(trace[3], "NodeD");
 
   auto* final_res = req_ctx.Get<std::string>("final_dag_result");
   ASSERT_NE(final_res, nullptr);
@@ -251,16 +244,15 @@ TEST_F(DagPipelineTest, DiamondBranchAndMerge) {
       config, nullptr, ValidationPolicy::kPrivateExtensionCompatible));
 
   AlgContext req_ctx;
-  req_ctx.Set("exec_trace", std::vector<std::string>{});
+  ResetExecutionTrace();
 
   int ret = pipeline.Execute(&req_ctx);
   EXPECT_EQ(ret, 0);
 
-  auto* trace = req_ctx.Get<std::vector<std::string>>("exec_trace");
-  ASSERT_NE(trace, nullptr);
-  ASSERT_EQ(trace->size(), 4);
-  EXPECT_EQ((*trace)[0], "NodeA");
-  EXPECT_EQ((*trace)[3], "NodeD");
+  const auto trace = SnapshotExecutionTrace();
+  ASSERT_EQ(trace.size(), 4);
+  EXPECT_EQ(trace[0], "NodeA");
+  EXPECT_EQ(trace[3], "NodeD");
 }
 
 // 3. 循环依赖死锁检测 (Cycle Detection: A -> B -> C -> A)
@@ -368,7 +360,7 @@ TEST_F(DagPipelineTest, ParallelWavefrontExecution) {
   EXPECT_EQ(layers[2].size(), 1);  // Layer 2: node_d
 
   AlgContext req_ctx;
-  req_ctx.Set("exec_trace", std::vector<std::string>{});
+  ResetExecutionTrace();
 
   int ret = pipeline.Execute(&req_ctx);
   EXPECT_EQ(ret, 0);
@@ -396,7 +388,7 @@ TEST_F(DagPipelineTest, ThreadSafeAlgContextStressTest) {
         req_ctx.Set(my_key, i * 100 + t);
 
         // 并发读取
-        int* val = req_ctx.Get<int>(my_key);
+        const int* val = req_ctx.Get<int>(my_key);
         if (val) {
           EXPECT_GE(*val, 0);
         }

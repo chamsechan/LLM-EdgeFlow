@@ -1,5 +1,6 @@
 #include <cstring>
 #include <memory>
+#include <mutex>
 
 #include "adapter/shared_algorithm_runtime.h"
 #include "company_alg_interface.h"
@@ -9,6 +10,9 @@
  * @brief C ABI 句柄内部实例数据结构 (委托至 SharedAlgorithmRuntime)
  */
 struct AlgHandleInstance {
+  // Same-handle Process/Control calls are intentionally serialized. Destroy is
+  // only valid after the host has stopped submissions and joined all callers.
+  std::mutex call_mutex;
   std::unique_ptr<alg_framework::SharedAlgorithmRuntime> runtime;
 };
 
@@ -87,6 +91,7 @@ int Alg_Process(void* hndl, const void** inputs, int num_inputs, void** outputs,
     }
 
     auto* instance = static_cast<AlgHandleInstance*>(hndl);
+    std::lock_guard<std::mutex> call_lock(instance->call_mutex);
     if (!instance->runtime) {
       ALG_LOG_ERROR(
           "[Company C Adapter] Alg_Process failed: Null inner runtime.\n");
@@ -115,6 +120,7 @@ int Alg_Control(void* hndl, const CompanyAlgParamControl* param_control)
     if (!param_control->json_param_str) return -2;
 
     auto* instance = static_cast<AlgHandleInstance*>(hndl);
+    std::lock_guard<std::mutex> call_lock(instance->call_mutex);
     if (!instance->runtime) return -1;
 
     std::string err_msg;

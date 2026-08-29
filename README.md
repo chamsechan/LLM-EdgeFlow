@@ -18,9 +18,9 @@ LLM-EdgeFlow 通过声明式 Pipeline，把纯 C ABI 接入、DAG 调度、可�
 
 ## 核心能力
 
-- **安全接入**：6 个标准 C 导出函数均由 `noexcept` 异常屏障保护，公共头文件保持纯 C ABI。
+- **安全接入**：6 个标准 C 导出函数均由 `noexcept` 异常屏障保护，公共头文件保持纯 C ABI；同一 handle 的 Process/Control 串行执行。
 - **声明式编排**：Pipeline 在执行前完成 Schema、端口类型、DAG 和并发写冲突校验，并直接消费不可变执行计划。
-- **请求级黑板**：`AlgContext` 使用 `BlackboardKey<T>` 传递强类型数据，保留 `(req_id, sub_id)` 样本溯源。
+- **请求级黑板**：`AlgContext` 通过 `Read/Publish` 传递不可变强类型快照，保留 `(req_id, sub_id)` 样本溯源。
 - **能力与硬件解耦**：模型语义通过中性协议连接 ONNX Runtime、llama.cpp 和后续 NPU Backend。
 - **定长硬件批处理**：`FixedBatchExecutor` 统一负责切块、Dummy Padding、结果剥离与样本映射。
 - **统一工具链**：Catalog、Validator、命令行工具和 Web DAG 工作台共享同一套 C++ Definition。
