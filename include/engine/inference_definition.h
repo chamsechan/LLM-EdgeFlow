@@ -137,6 +137,21 @@ inline size_t ElementTypeByteSize(ElementType type) noexcept {
   }
 }
 
+inline const char* ElementTypeToString(ElementType type) noexcept {
+  switch (type) {
+    case ElementType::kFloat32:
+      return "float32";
+    case ElementType::kInt32:
+      return "int32";
+    case ElementType::kInt64:
+      return "int64";
+    case ElementType::kUInt8:
+      return "uint8";
+    default:
+      return "unknown";
+  }
+}
+
 /**
  * @brief 原生 C++ 类型到 ElementType 映射特化
  */

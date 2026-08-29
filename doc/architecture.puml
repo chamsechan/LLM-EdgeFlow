@@ -148,8 +148,9 @@ package "Layer 2: 核心编排与动态黑板层 (Pipeline & Blackboard)" as L2 
   }
 
   class ModelManager {
-    - models_: std::unordered_map<string, std::shared_ptr<IModelEngine>>
-    + RegisterModel(id: string, engine: shared_ptr<IModelEngine>): void
+    - models_: map<string, ModelRegistration>
+    - legacy_engines_: map<string, LegacyEngineRegistration>
+    + RegisterBatchUnified(models, legacy_engines): bool
     + GetModel<T>(id: string): std::shared_ptr<T>
     + HasModel(id: string): bool
   }
@@ -204,6 +205,62 @@ package "Layer 3: 业务专属算子池 (Pluggable Nodes)" as L3 {
 ' Layer 4: 异构引擎与分批调度层
 ' ==============================================================================
 package "Layer 4: 异构引擎与硬件批调度层 (Engine Layer)" as L4 {
+  interface IModel {
+    + {abstract} ModelType(): const string&
+    + {abstract} Capability(): const string&
+    + {abstract} Concurrency(): InferenceConcurrency
+    + {abstract} GetMaxBatchSize(): size_t
+  }
+
+  interface IEmbeddingModel {
+    + {abstract} Embed(inputs: TextBatch, options, outputs): int
+  }
+
+  interface IRerankModel {
+    + {abstract} Score(inputs: QueryCandidatesBatch, outputs: ScoreBatch*): int
+  }
+
+  interface ILlmModel {
+    + {abstract} Generate(prompts: TextBatch, options, outputs: TextBatch*): int
+  }
+
+  interface IBackendSession {
+    + {abstract} BackendType(): const string&
+    + {abstract} Protocol(): ExecutionProtocol
+    + {abstract} Concurrency(): InferenceConcurrency
+    + {abstract} GetBatchPolicy(): BatchPolicy
+  }
+
+  interface ITensorGraphSession {
+    + {abstract} Inputs(): vector<TensorSpec>
+    + {abstract} Outputs(): vector<TensorSpec>
+    + {abstract} Run(inputs: TensorMap, outputs: TensorMap*): int
+  }
+
+  interface IInferenceBackend {
+    + {abstract} BackendType(): const string&
+    + {abstract} Load(spec: BackendLoadSpec): shared_ptr<IBackendSession>
+  }
+
+  class ModelRegistry <<(S,#EC4899) Singleton>> {
+    + Register(definition: ModelDefinition, creator): bool
+    + Create(model_type: string, context): shared_ptr<IModel>
+  }
+
+  class BackendRegistry <<(S,#EC4899) Singleton>> {
+    + Register(definition: BackendDefinition, creator): bool
+    + Create(backend_type: string): unique_ptr<IInferenceBackend>
+  }
+
+  class ModelRuntimeFactory {
+    + {static} Create(config, runtime_options): ModelRegistration
+  }
+
+  class BgeEmbeddingModel
+  class BgeRerankerModel
+  class OnnxRuntimeBackend
+
+  ' Legacy engine interfaces remain during RFC-0015 migration.
   interface IModelEngine {
     + {abstract} Load(path: string, config: json): bool
     + {abstract} GetMaxBatchSize(): size_t
@@ -246,7 +303,6 @@ package "Layer 4: 异构引擎与硬件批调度层 (Engine Layer)" as L4 {
 
   package "Engine Implementations (PIMPL)" as EngineImpls {
     class OnnxEmbeddingEngine
-    class OnnxRerankEngine
     class LlamaCppEngine
     class MockNpuEmbeddingEngine
     class MockNpuLlmEngine
@@ -293,6 +349,7 @@ Pipeline *-- INode : 显式 DAG 拓扑执行
 Pipeline ..> PipelineConfig : 强类型解析
 Pipeline ..> PipelineValidator : 静态校验与规范化
 SessionContext *-- ModelManager
+ModelManager o-- IModel
 ModelManager o-- IModelEngine
 
 INode <|-- NodeBase
@@ -306,6 +363,23 @@ CommonNodes ..> AlgContext : Typed Key 读写
 BusinessNodes ..> AlgContext : Typed Key 读写
 ModelBoundNode ..> ModelManager : 索取纯虚能力接口
 
+IModel <|-- IEmbeddingModel
+IModel <|-- IRerankModel
+IModel <|-- ILlmModel
+IEmbeddingModel <|.. BgeEmbeddingModel
+IRerankModel <|.. BgeRerankerModel
+
+IBackendSession <|-- ITensorGraphSession
+IInferenceBackend <|.. OnnxRuntimeBackend
+OnnxRuntimeBackend ..> ITensorGraphSession : 创建中性协议会话
+BgeEmbeddingModel ..> ITensorGraphSession : 仅依赖 Tensor 协议
+BgeRerankerModel ..> ITensorGraphSession : 仅依赖 Tensor 协议
+
+ModelRuntimeFactory ..> BackendRegistry : backend 创建与加载
+ModelRuntimeFactory ..> ModelRegistry : model 语义对象创建
+BackendRegistry ..> IInferenceBackend : 自描述注册 (Fail-Closed)
+ModelRegistry ..> IModel : 自描述注册 (Fail-Closed)
+
 IModelEngine <|-- IEmbeddingEngine
 IModelEngine <|-- ILlmEngine
 IModelEngine <|-- IRerankEngine
@@ -314,7 +388,6 @@ IModelEngine <|-- IAudioAsrEngine
 
 IEmbeddingEngine <|.. OnnxEmbeddingEngine
 IEmbeddingEngine <|.. MockNpuEmbeddingEngine
-IRerankEngine <|.. OnnxRerankEngine
 IRerankEngine <|.. MockNpuRerankEngine
 ILlmEngine <|.. LlamaCppEngine
 ILlmEngine <|.. MockNpuLlmEngine

@@ -94,10 +94,10 @@ set(FRAMEWORK_SRCS
     src/engine/mock_npu/mock_npu_ocr_engine.cpp
     src/engine/mock_npu/mock_npu_asr_engine.cpp
     src/engine/onnx/onnx_embedding_engine.cpp
-    src/engine/onnx/onnx_rerank_engine.cpp
     src/engine/llama_cpp/llama_cpp_engine.cpp
     src/engine/models/bge_embedding/bert_wordpiece_tokenizer.cpp
     src/engine/models/bge_embedding/bge_embedding_model.cpp
+    src/engine/models/bge_reranker/bge_reranker_model.cpp
     src/common_nodes/text_template_node.cpp
     src/common_nodes/text_chunk_node.cpp
     src/common_nodes/text_rule_match_node.cpp

@@ -1,25 +1,29 @@
 #include <algorithm>
 #include <map>
 #include <string>
+#include <unordered_map>
+#include <utility>
 #include <vector>
 
+#include "company_alg_log.h"
+#include "contracts/inference_payloads.h"
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
-#include "engine/engine_interface.h"
+#include "engine/model_interface.h"
 #include "nodes/model_bound_node.h"
 
 namespace alg_framework {
 
 /**
  * @brief Cross-Encoder 语义精排通用算子 (TextRerankNode, 调用绑定的
- * IRerankEngine)
+ * IRerankModel)
  */
-class TextRerankNode final : public ModelBoundNode<IRerankEngine> {
+class TextRerankNode final : public ModelBoundNode<IRerankModel> {
  public:
   inline static constexpr char kNodeType[] = "TextRerankNode";
 
   TextRerankNode()
-      : ModelBoundNode<IRerankEngine>(kNodeType),
+      : ModelBoundNode<IRerankModel>(kNodeType),
         in_queries_("queries"),
         in_candidates_("candidates"),
         in_candidate_texts_("candidate_texts"),
@@ -50,7 +54,7 @@ class TextRerankNode final : public ModelBoundNode<IRerankEngine> {
       return -7001;
     }
 
-    std::vector<TraceableItem<IRerankEngine::PairInput>> pair_items;
+    QueryCandidatesBatch pair_items;
     struct CandidatePayload {
       uint32_t req_id;
       uint32_t sub_id;
@@ -64,7 +68,7 @@ class TextRerankNode final : public ModelBoundNode<IRerankEngine> {
       for (const auto& item : *pairs) {
         pair_items.emplace_back(
             item.req_id, item.sub_id,
-            IRerankEngine::PairInput{item.data.query, item.data.candidate});
+            QueryCandidatePair{item.data.query, item.data.candidate});
         cand_payloads.push_back(
             {item.req_id, item.sub_id, item.data.candidate});
       }
@@ -83,7 +87,7 @@ class TextRerankNode final : public ModelBoundNode<IRerankEngine> {
                               : "";
           pair_items.emplace_back(
               c.req_id, c.sub_id,
-              IRerankEngine::PairInput{std::move(q), c.data.text});
+              QueryCandidatePair{std::move(q), c.data.text});
           cand_payloads.push_back({c.req_id, c.sub_id, c.data.text});
         }
       } else if (candidate_texts && !candidate_texts->empty()) {
@@ -93,9 +97,8 @@ class TextRerankNode final : public ModelBoundNode<IRerankEngine> {
           std::string q = (query_map.find(c.req_id) != query_map.end())
                               ? query_map[c.req_id]
                               : "";
-          pair_items.emplace_back(
-              c.req_id, c.sub_id,
-              IRerankEngine::PairInput{std::move(q), c.data});
+          pair_items.emplace_back(c.req_id, c.sub_id,
+                                  QueryCandidatePair{std::move(q), c.data});
           cand_payloads.push_back({c.req_id, c.sub_id, c.data});
         }
       }
@@ -106,15 +109,26 @@ class TextRerankNode final : public ModelBoundNode<IRerankEngine> {
       return 0;
     }
 
-    std::vector<TraceableItem<float>> pair_scores;
+    ScoreBatch pair_scores;
     ALG_LOG_DEBUG(
         "[TextRerankNode] Scoring %zu candidate (query, passage) "
         "pairs with Reranker...\n",
         pair_items.size());
 
-    int ret = engine()->ScoreTraceableBatch(pair_items, &pair_scores);
+    int ret = model()->Score(pair_items, &pair_scores);
     if (ret != 0) {
-      return Fail(req_ctx, ret, "TextRerankNode: engine scoring failed");
+      return Fail(req_ctx, ret, "TextRerankNode: model scoring failed");
+    }
+
+    if (pair_scores.size() != cand_payloads.size()) {
+      return Fail(req_ctx, -1, "TextRerankNode: score count mismatch");
+    }
+
+    for (size_t i = 0; i < pair_scores.size(); ++i) {
+      if (pair_scores[i].req_id != cand_payloads[i].req_id ||
+          pair_scores[i].sub_id != cand_payloads[i].sub_id) {
+        return Fail(req_ctx, -1, "TextRerankNode: score provenance mismatch");
+      }
     }
 
     // 按 req_id 分组排序
@@ -200,4 +214,3 @@ NodeDefinition MakeTextRerankNodeDefinition() {
 REGISTER_NODE_WITH_DEFINITION(TextRerankNode, MakeTextRerankNodeDefinition());
 
 }  // namespace alg_framework
-#include "company_alg_log.h"

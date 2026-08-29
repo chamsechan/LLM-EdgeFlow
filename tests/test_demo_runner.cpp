@@ -272,7 +272,7 @@ TEST(DemoRunnerTest, CliOverridesProfileEvenWithExplicitDefault) {
   ret = LoadAndMergeProfiles("demo/profiles.json", cli_opts, &merged, &err);
   ASSERT_EQ(ret, 0) << "Error: " << err;
 
-  // cross_rerank_mock profile 中的 batch_size 为 4, CLI 显式指定的 1 必须胜出
+  // 即使 CLI 显式给出默认值 1，也必须保留该显式覆盖语义。
   EXPECT_EQ(merged.batch_size, 1);
 }
 
@@ -657,14 +657,13 @@ TEST(DemoRunnerTest, OperatorBatchChunking) {
 }
 
 // 8. 测试全业务 Demo Case 执行 (集成测试)
-TEST(DemoRunnerTest, EndToEndAllSevenSmokeBusinesses) {
+TEST(DemoRunnerTest, EndToEndAllMockSmokeBusinesses) {
   OperatorFunc ops = Get_LLM_EDGEFLOW_OperatorTable();
   ASSERT_EQ(ops.Init(), 0);
 
   std::vector<std::string> smoke_profiles = {
       "entity_extract_mock", "keyword_match_mock", "doc_qa_mock",
-      "dialogue_audit_mock", "ocr_doc_qa_mock",    "audio_asr_mock",
-      "cross_rerank_mock"};
+      "dialogue_audit_mock", "ocr_doc_qa_mock",    "audio_asr_mock"};
 
   for (const auto& prof_name : smoke_profiles) {
     DemoOptions cli_opt;

@@ -608,7 +608,7 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
         std::string resolved_path;
 
         if (norm_p.is_absolute()) {
-          resolved_path = norm_p.string();
+          resolved_path = norm_p.lexically_normal().string();
         } else if (!model_root_dir.empty()) {
           std::string norm_str = norm_p.string();
           if (norm_str == ".." || norm_str.rfind("../", 0) == 0 ||
@@ -629,7 +629,7 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
                 "Model path cannot traverse outside model root directory: " +
                     model.model_path);
           }
-          resolved_path = norm_str;
+          resolved_path = norm_p.lexically_normal().string();
         }
 
         InferenceConcurrency effective_concurrency =

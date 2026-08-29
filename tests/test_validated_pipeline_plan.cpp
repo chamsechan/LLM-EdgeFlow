@@ -11,8 +11,10 @@
 #include "core/pipeline.h"
 #include "core/pipeline_catalog.h"
 #include "core/pipeline_validator.h"
+#include "engine/backend_registry.h"
 #include "engine/engine_interface.h"
 #include "engine/engine_registry.h"
+#include "engine/model_registry.h"
 
 namespace alg_framework {
 
@@ -373,6 +375,105 @@ TEST(ValidatedPipelinePlanTest, RejectsNodeFromDifferentBusiness) {
                   return item.code == DiagnosticCode::kNodeBusinessMismatch;
                 }),
             plan.report.diagnostics.end());
+}
+
+TEST(ValidatedPipelinePlanTest,
+     DeterministicModelPathResolutionWithoutFilesystemProbing) {
+  if (!BackendRegistry::Instance().Find("mock_path_backend").has_value()) {
+    BackendDefinition bdef;
+    bdef.backend_type = "mock_path_backend";
+    bdef.supported_protocols = {ExecutionProtocol::kTensorGraph};
+    bdef.concurrency = InferenceConcurrency::kConcurrent;
+    BackendRegistry::Instance().Register(
+        bdef, []() -> std::unique_ptr<IInferenceBackend> { return nullptr; });
+  }
+
+  if (!ModelRegistry::Instance().Find("mock_path_model").has_value()) {
+    ModelDefinition mdef;
+    mdef.model_type = "mock_path_model";
+    mdef.capability = "rerank";
+    mdef.required_protocol = ExecutionProtocol::kTensorGraph;
+    mdef.concurrency = InferenceConcurrency::kConcurrent;
+    ModelRegistry::Instance().Register(
+        mdef,
+        [](const ModelCreateContext&, std::string*) -> std::shared_ptr<IModel> {
+          return nullptr;
+        });
+  }
+
+  nlohmann::json pipeline_json = {
+      {"biz_name", "dense_cross_rerank_scoring"},
+      {"models",
+       nlohmann::json::array({{{"model_id", "m_rel"},
+                               {"capability", "rerank"},
+                               {"model_type", "mock_path_model"},
+                               {"backend", "mock_path_backend"},
+                               {"model_path", "./models/sub/model.onnx"},
+                               {"model_config", nlohmann::json::object()}},
+                              {{"model_id", "m_abs"},
+                               {"capability", "rerank"},
+                               {"model_type", "mock_path_model"},
+                               {"backend", "mock_path_backend"},
+                               {"model_path", "/opt/models/fixed.onnx"},
+                               {"model_config", nlohmann::json::object()}},
+                              {{"model_id", "m_direct"},
+                               {"capability", "rerank"},
+                               {"model_type", "mock_path_model"},
+                               {"backend", "mock_path_backend"},
+                               {"model_path", "model_direct.onnx"},
+                               {"model_config", nlohmann::json::object()}}})},
+      {"pipeline",
+       nlohmann::json::array({{{"id", "node_0_TextRerankNode"},
+                               {"node_type", "TextRerankNode"},
+                               {"depends_on", nlohmann::json::array()},
+                               {"ports",
+                                {{"inputs",
+                                  {{"queries", "rerank_queries"},
+                                   {"candidates", "rerank_candidates"}}},
+                                 {"outputs", {{"ranked", "ranked_results"}}}}},
+                               {"config", {{"bind_model", "m_rel"}}}}})}};
+
+  // 1. 无 model_root_dir
+  auto plan_no_root = PipelineValidator::ValidateAndPlan(
+      pipeline_json, ValidationPolicy::kPrivateExtensionCompatible, "");
+  ASSERT_TRUE(plan_no_root.report.ok) << plan_no_root.report.ToJson().dump();
+  EXPECT_EQ(plan_no_root.models[0].resolved_model_path,
+            "models/sub/model.onnx");
+  EXPECT_EQ(plan_no_root.models[1].resolved_model_path,
+            "/opt/models/fixed.onnx");
+  EXPECT_EQ(plan_no_root.models[2].resolved_model_path, "model_direct.onnx");
+
+  // 2. 指定自定义 model_root_dir
+  auto plan_with_root = PipelineValidator::ValidateAndPlan(
+      pipeline_json, ValidationPolicy::kPrivateExtensionCompatible,
+      "/custom/root");
+  ASSERT_TRUE(plan_with_root.report.ok);
+  EXPECT_EQ(plan_with_root.models[0].resolved_model_path,
+            "/custom/root/models/sub/model.onnx");
+  EXPECT_EQ(plan_with_root.models[1].resolved_model_path,
+            "/opt/models/fixed.onnx");
+  EXPECT_EQ(plan_with_root.models[2].resolved_model_path,
+            "/custom/root/model_direct.onnx");
+
+  // 3. 确定性保证：重复多次规划结果绝对一致
+  auto plan_with_root_repeat = PipelineValidator::ValidateAndPlan(
+      pipeline_json, ValidationPolicy::kPrivateExtensionCompatible,
+      "/custom/root");
+  ASSERT_TRUE(plan_with_root_repeat.report.ok);
+  EXPECT_EQ(plan_with_root_repeat.models[0].resolved_model_path,
+            plan_with_root.models[0].resolved_model_path);
+  EXPECT_EQ(plan_with_root_repeat.models[1].resolved_model_path,
+            plan_with_root.models[1].resolved_model_path);
+  EXPECT_EQ(plan_with_root_repeat.models[2].resolved_model_path,
+            plan_with_root.models[2].resolved_model_path);
+
+  // 4. 路径逃逸检测
+  nlohmann::json escape_json = pipeline_json;
+  escape_json["models"][0]["model_path"] = "../escape.onnx";
+  auto plan_escape = PipelineValidator::ValidateAndPlan(
+      escape_json, ValidationPolicy::kPrivateExtensionCompatible,
+      "/custom/root");
+  EXPECT_FALSE(plan_escape.report.ok);
 }
 
 }  // namespace alg_framework

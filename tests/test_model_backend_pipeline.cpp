@@ -169,54 +169,54 @@ class ModelBackendPipelineTest : public ::testing::Test {
     g_backend_load_count = 0;
     g_model_create_count = 0;
 
-    BackendRegistry::Instance().ClearForTesting();
-    ModelRegistry::Instance().ClearForTesting();
+    if (!BackendRegistry::Instance()
+             .Find(MockInferenceBackend::kBackendType)
+             .has_value()) {
+      BackendDefinition bdef;
+      bdef.backend_type = MockInferenceBackend::kBackendType;
+      bdef.description = "Mock backend for tests";
+      bdef.supported_protocols = {ExecutionProtocol::kTensorGraph};
+      bdef.concurrency = InferenceConcurrency::kConcurrent;
+      bdef.config_fields = {
+          {"device",
+           ConfigValueKind::kString,
+           false,
+           "cpu",
+           std::nullopt,
+           std::nullopt,
+           {"cpu", "cuda"}},
+          {"threads", ConfigValueKind::kInteger, false, 4, 1.0, 64.0},
+      };
+      BackendRegistry::Instance().Register(bdef, []() {
+        g_backend_create_count.fetch_add(1);
+        return std::make_unique<MockInferenceBackend>();
+      });
+    }
 
-    // Register standard mock backend
-    BackendDefinition bdef;
-    bdef.backend_type = MockInferenceBackend::kBackendType;
-    bdef.description = "Mock backend for tests";
-    bdef.supported_protocols = {ExecutionProtocol::kTensorGraph};
-    bdef.concurrency = InferenceConcurrency::kConcurrent;
-    bdef.config_fields = {
-        {"device",
-         ConfigValueKind::kString,
-         false,
-         "cpu",
-         std::nullopt,
-         std::nullopt,
-         {"cpu", "cuda"}},
-        {"threads", ConfigValueKind::kInteger, false, 4, 1.0, 64.0},
-    };
-    BackendRegistry::Instance().Register(bdef, []() {
-      g_backend_create_count.fetch_add(1);
-      return std::make_unique<MockInferenceBackend>();
-    });
-
-    // Register standard mock model
-    ModelDefinition mdef;
-    mdef.model_type = MockEmbeddingModel::kModelType;
-    mdef.capability = MockEmbeddingModel::kCapability;
-    mdef.description = "Mock embedding model for tests";
-    mdef.required_protocol = ExecutionProtocol::kTensorGraph;
-    mdef.concurrency = InferenceConcurrency::kConcurrent;
-    mdef.config_fields = {
-        {"max_length", ConfigValueKind::kInteger, false, 512, 1.0, 4096.0},
-        {"normalize", ConfigValueKind::kBoolean, false, true},
-    };
-    ModelRegistry::Instance().Register(
-        mdef, [](const ModelCreateContext& ctx, std::string*) {
-          g_model_create_count.fetch_add(1);
-          return std::make_shared<MockEmbeddingModel>(
-              MockEmbeddingModel::kModelType, MockEmbeddingModel::kCapability,
-              InferenceConcurrency::kConcurrent, ctx.model_config);
-        });
+    if (!ModelRegistry::Instance()
+             .Find(MockEmbeddingModel::kModelType)
+             .has_value()) {
+      ModelDefinition mdef;
+      mdef.model_type = MockEmbeddingModel::kModelType;
+      mdef.capability = MockEmbeddingModel::kCapability;
+      mdef.description = "Mock embedding model for tests";
+      mdef.required_protocol = ExecutionProtocol::kTensorGraph;
+      mdef.concurrency = InferenceConcurrency::kConcurrent;
+      mdef.config_fields = {
+          {"max_length", ConfigValueKind::kInteger, false, 512, 1.0, 4096.0},
+          {"normalize", ConfigValueKind::kBoolean, false, true},
+      };
+      ModelRegistry::Instance().Register(
+          mdef, [](const ModelCreateContext& ctx, std::string*) {
+            g_model_create_count.fetch_add(1);
+            return std::make_shared<MockEmbeddingModel>(
+                MockEmbeddingModel::kModelType, MockEmbeddingModel::kCapability,
+                InferenceConcurrency::kConcurrent, ctx.model_config);
+          });
+    }
   }
 
-  void TearDown() override {
-    BackendRegistry::Instance().ClearForTesting();
-    ModelRegistry::Instance().ClearForTesting();
-  }
+  void TearDown() override {}
 };
 
 // 1. ValidateAndNormalizeConfig Unit Tests

@@ -105,7 +105,7 @@
       "business": "cross_rerank",
       "config": "configs/pipeline_cross_rerank.conf",
       "dataset": "data/corpus_cross_rerank.txt",
-      "suite": "smoke",
+      "suite": "real",
       "batch_size": 1,
       "device_id": 0,
       "chip": "ax650",

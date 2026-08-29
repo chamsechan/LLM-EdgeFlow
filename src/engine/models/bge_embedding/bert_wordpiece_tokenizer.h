@@ -55,6 +55,18 @@ class BertWordPieceTokenizer {
               std::vector<int64_t>* attention_mask,
               std::string* diagnostic = nullptr) const;
 
+  /**
+   * @brief 对 (Query, Candidate) 样本对进行分词、截断并填充至 max_length
+   * 遵循 BERT Cross-Encoder 规范：[CLS] query [SEP] candidate [SEP] [PAD]...
+   * token_type_ids: query 侧为 0，candidate 与尾部 [SEP] 侧为 1，padding 为 0
+   * 截断策略：longest-first 优先截断较长一侧，长度相同时优先截断 candidate
+   */
+  bool EncodePair(const std::string& query, const std::string& candidate,
+                  size_t max_length, std::vector<int64_t>* input_ids,
+                  std::vector<int64_t>* attention_mask,
+                  std::vector<int64_t>* token_type_ids,
+                  std::string* diagnostic = nullptr) const;
+
   int64_t PadTokenId() const noexcept { return pad_token_id_; }
   int64_t UnkTokenId() const noexcept { return unk_token_id_; }
   int64_t ClsTokenId() const noexcept { return cls_token_id_; }

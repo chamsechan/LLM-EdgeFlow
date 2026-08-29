@@ -280,9 +280,15 @@ TEST_F(PipelineConfigTest, PositiveNineFormalConfigs) {
                           << diag.message << " at " << diag.path;
     EXPECT_EQ(diag.code, PipelineErrorCode::kOk);
 
-    if (cfg_file == "configs/pipeline_doc_qa_onnx.json" &&
+    if ((cfg_file == "configs/pipeline_doc_qa_onnx.json" ||
+         cfg_file == "configs/pipeline_cross_rerank.json") &&
         !BackendRegistry::Instance().Find("onnxruntime").has_value()) {
       // Optional backend is deliberately absent in ONNX-disabled builds.
+      continue;
+    }
+    if (cfg_file == "configs/pipeline_entity_extract_llamacpp.json" &&
+        !EngineFactory::Instance().Has("llama_cpp")) {
+      // Optional engine is absent in llama.cpp-disabled builds.
       continue;
     }
 

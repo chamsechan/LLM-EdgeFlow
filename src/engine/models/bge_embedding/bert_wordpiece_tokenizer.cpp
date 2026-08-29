@@ -379,4 +379,94 @@ bool BertWordPieceTokenizer::Encode(const std::string& text, size_t max_length,
   return true;
 }
 
+bool BertWordPieceTokenizer::EncodePair(
+    const std::string& query, const std::string& candidate, size_t max_length,
+    std::vector<int64_t>* input_ids, std::vector<int64_t>* attention_mask,
+    std::vector<int64_t>* token_type_ids, std::string* diagnostic) const {
+  if (!input_ids || !attention_mask || !token_type_ids) {
+    if (diagnostic) *diagnostic = "Output pointers cannot be null";
+    return false;
+  }
+  input_ids->clear();
+  attention_mask->clear();
+  token_type_ids->clear();
+
+  if (!is_loaded_) {
+    if (diagnostic) *diagnostic = "Tokenizer is not loaded";
+    return false;
+  }
+
+  if (max_length < 3) {
+    if (diagnostic) {
+      *diagnostic =
+          "max_length must be at least 3 for pair encoding ([CLS], [SEP], "
+          "[SEP])";
+    }
+    return false;
+  }
+
+  std::vector<std::string> query_words;
+  if (!BasicTokenize(query, &query_words, diagnostic)) {
+    input_ids->clear();
+    attention_mask->clear();
+    token_type_ids->clear();
+    return false;
+  }
+  std::vector<std::string> cand_words;
+  if (!BasicTokenize(candidate, &cand_words, diagnostic)) {
+    input_ids->clear();
+    attention_mask->clear();
+    token_type_ids->clear();
+    return false;
+  }
+
+  std::vector<int64_t> query_ids = WordPieceTokenize(query_words);
+  std::vector<int64_t> cand_ids = WordPieceTokenize(cand_words);
+
+  size_t max_total_tokens = max_length - 3;
+  while (query_ids.size() + cand_ids.size() > max_total_tokens) {
+    if (query_ids.size() > cand_ids.size()) {
+      query_ids.pop_back();
+    } else {
+      cand_ids.pop_back();
+    }
+  }
+
+  input_ids->assign(max_length, pad_token_id_);
+  attention_mask->assign(max_length, 0);
+  token_type_ids->assign(max_length, 0);
+
+  size_t cur = 0;
+  (*input_ids)[cur] = cls_token_id_;
+  (*attention_mask)[cur] = 1;
+  (*token_type_ids)[cur] = 0;
+  ++cur;
+
+  for (size_t i = 0; i < query_ids.size(); ++i) {
+    (*input_ids)[cur] = query_ids[i];
+    (*attention_mask)[cur] = 1;
+    (*token_type_ids)[cur] = 0;
+    ++cur;
+  }
+
+  (*input_ids)[cur] = sep_token_id_;
+  (*attention_mask)[cur] = 1;
+  (*token_type_ids)[cur] = 0;
+  ++cur;
+
+  for (size_t j = 0; j < cand_ids.size(); ++j) {
+    (*input_ids)[cur] = cand_ids[j];
+    (*attention_mask)[cur] = 1;
+    (*token_type_ids)[cur] = 1;
+    ++cur;
+  }
+
+  (*input_ids)[cur] = sep_token_id_;
+  (*attention_mask)[cur] = 1;
+  (*token_type_ids)[cur] = 1;
+  ++cur;
+
+  return true;
+}
+
 }  // namespace alg_framework

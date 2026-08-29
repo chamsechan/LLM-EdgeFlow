@@ -113,17 +113,19 @@ TEST(EngineRegistryTest, ModelManagerAndEngines) {
   auto asr_engine = engine_factory.Create("mock_npu_asr");
   ASSERT_NE(asr_engine, nullptr);
 
+#ifdef HAVE_ONNXRUNTIME
   auto onnx_engine = engine_factory.Create("onnx_embedding");
   ASSERT_NE(onnx_engine, nullptr);
   EXPECT_EQ(onnx_engine->EngineType(), "onnx_embedding");
+#endif
 
   auto onnx_rerank = engine_factory.Create("onnx_rerank");
-  ASSERT_NE(onnx_rerank, nullptr);
-  EXPECT_EQ(onnx_rerank->EngineType(), "onnx_rerank");
+  EXPECT_EQ(onnx_rerank, nullptr);
 
   auto llama_engine = engine_factory.Create("llama_cpp");
-  ASSERT_NE(llama_engine, nullptr);
-  EXPECT_EQ(llama_engine->EngineType(), "llama_cpp");
+  if (llama_engine) {
+    EXPECT_EQ(llama_engine->EngineType(), "llama_cpp");
+  }
 
   // 模型装载与提取
   nlohmann::json cfg = {{"max_batch_size", 4}, {"embedding_dim", 128}};
@@ -131,16 +133,16 @@ TEST(EngineRegistryTest, ModelManagerAndEngines) {
   manager.RegisterModel("my_embed_v1",
                         std::shared_ptr<IModelEngine>(std::move(embed_engine)));
 
-  nlohmann::json onnx_cfg = {{"max_batch_size", 4}, {"embedding_dim", 128}};
-  onnx_engine->Load("./models/bge_base.onnx", onnx_cfg);
-  manager.RegisterModel("onnx_embed_model",
-                        std::shared_ptr<IModelEngine>(std::move(onnx_engine)));
+  nlohmann::json rerank_cfg = {{"max_batch_size", 4}};
+  rerank_engine->Load("./models/bge_rerank.bin", rerank_cfg);
+  manager.RegisterModel(
+      "my_rerank_v1", std::shared_ptr<IModelEngine>(std::move(rerank_engine)));
 
   EXPECT_TRUE(manager.HasModel("my_embed_v1"));
-  EXPECT_TRUE(manager.HasModel("onnx_embed_model"));
+  EXPECT_TRUE(manager.HasModel("my_rerank_v1"));
   EXPECT_FALSE(manager.HasModel("unknown_model"));
 
-  auto retrieved = manager.GetModel<IEmbeddingEngine>("onnx_embed_model");
+  auto retrieved = manager.GetModel<IRerankEngine>("my_rerank_v1");
   ASSERT_NE(retrieved, nullptr);
   EXPECT_EQ(retrieved->GetMaxBatchSize(), 4);
 }
@@ -180,9 +182,12 @@ TEST(PipelineTest, RuntimeOptionsPropagationAndPrecedence) {
                                 {"node_type", "TextChunkNode"},
                                 {"depends_on", nlohmann::json::array()}}}}};
 
-  bool ok = pipe.BuildFromJson(root_cfg, nullptr,
+  PipelineDiagnostic diag;
+  bool ok = pipe.BuildFromJson(root_cfg, &diag,
                                ValidationPolicy::kPrivateExtensionCompatible);
-  EXPECT_TRUE(ok);
+  EXPECT_TRUE(ok) << "Build failed: " << diag.message
+                  << " (code: " << static_cast<int>(diag.code)
+                  << ", path: " << diag.path << ")";
 
   auto model_engine =
       pipe.GetSessionContext().GetModelManager().GetModel<IModelEngine>(

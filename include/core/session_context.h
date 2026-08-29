@@ -106,6 +106,71 @@ class LegacyEmbeddingEngineAdapter : public IEmbeddingModel {
   std::shared_ptr<IEmbeddingEngine> eng_;
 };
 
+class LegacyRerankEngineAdapter : public IRerankModel {
+ public:
+  explicit LegacyRerankEngineAdapter(std::shared_ptr<IRerankEngine> eng)
+      : eng_(std::move(eng)) {}
+
+  const std::string& ModelType() const noexcept override {
+    static const std::string empty;
+    return eng_ ? eng_->EngineType() : empty;
+  }
+  const std::string& Capability() const noexcept override {
+    static const std::string cap = "rerank";
+    return cap;
+  }
+  InferenceConcurrency Concurrency() const noexcept override {
+    return InferenceConcurrency::kConcurrent;
+  }
+  size_t GetMaxBatchSize() const noexcept override {
+    return eng_ ? eng_->GetMaxBatchSize() : 1;
+  }
+
+  int Score(const QueryCandidatesBatch& inputs,
+            ScoreBatch* outputs) noexcept override {
+    if (!outputs) return -1;
+    outputs->clear();
+    if (inputs.empty()) return 0;
+    if (!eng_) return -1;
+
+    try {
+      std::vector<TraceableItem<IRerankEngine::PairInput>> engine_inputs;
+      engine_inputs.reserve(inputs.size());
+      for (const auto& item : inputs) {
+        engine_inputs.emplace_back(
+            item.req_id, item.sub_id,
+            IRerankEngine::PairInput{item.data.query, item.data.candidate});
+      }
+
+      std::vector<TraceableItem<float>> engine_scores;
+      int ret = eng_->ScoreTraceableBatch(engine_inputs, &engine_scores);
+      if (ret != 0) {
+        outputs->clear();
+        return ret;
+      }
+      if (engine_scores.size() != inputs.size()) {
+        outputs->clear();
+        return -1;
+      }
+      for (size_t i = 0; i < inputs.size(); ++i) {
+        if (engine_scores[i].req_id != inputs[i].req_id ||
+            engine_scores[i].sub_id != inputs[i].sub_id) {
+          outputs->clear();
+          return -1;
+        }
+      }
+      *outputs = std::move(engine_scores);
+      return 0;
+    } catch (...) {
+      outputs->clear();
+      return -1;
+    }
+  }
+
+ private:
+  std::shared_ptr<IRerankEngine> eng_;
+};
+
 }  // namespace detail
 
 /**
@@ -284,6 +349,13 @@ class ModelManager {
         if (emb_eng) {
           return std::make_shared<detail::LegacyEmbeddingEngineAdapter>(
               emb_eng);
+        }
+      } else if constexpr (std::is_same_v<T, IRerankModel>) {
+        auto rerank_eng =
+            std::dynamic_pointer_cast<IRerankEngine>(leg_it->second);
+        if (rerank_eng) {
+          return std::make_shared<detail::LegacyRerankEngineAdapter>(
+              rerank_eng);
         }
       }
     }

@@ -6,18 +6,18 @@
       "capability": "rerank",
       "model_type": "bge_reranker",
       "backend": "onnxruntime",
-      "model_path": "./models/bge_reranker_large.onnx",
+      "model_path": "rerank_fixture.onnx",
       "model_config": {
         "tokenizer_file": "vocab.txt",
         "do_lower_case": true,
-        "max_length": 512,
+        "max_length": 16,
         "output_name": "logits",
         "score_activation": "sigmoid",
         "max_batch_size": 4
       },
       "backend_config": {
         "max_batch_size": 4,
-        "intra_op_num_threads": 2,
+        "intra_op_num_threads": 1,
         "inter_op_num_threads": 1,
         "graph_optimization_level": "all"
       }

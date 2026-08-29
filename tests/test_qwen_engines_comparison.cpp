@@ -118,7 +118,7 @@ TEST_F(QwenEnginesComparisonTest, CAbiPipelineSwitching) {
     std::string cfg_npu = GetConfigPath("configs/pipeline_entity_extract.json");
     CompanyAlgParamCreate param_npu;
     param_npu.config_file_path = cfg_npu.c_str();
-    param_npu.model_root_dir = "./models";
+    param_npu.model_root_dir = "";
     param_npu.device_id = 0;
     param_npu.biz_type = ALG_BIZ_TYPE_ENTITY_EXTRACT;
 
@@ -149,7 +149,7 @@ TEST_F(QwenEnginesComparisonTest, CAbiPipelineSwitching) {
         GetConfigPath("configs/pipeline_entity_extract_llamacpp.json");
     CompanyAlgParamCreate param_llama;
     param_llama.config_file_path = cfg_llama.c_str();
-    param_llama.model_root_dir = "./models";
+    param_llama.model_root_dir = "";
     param_llama.device_id = 0;
     param_llama.biz_type = ALG_BIZ_TYPE_ENTITY_EXTRACT;
 

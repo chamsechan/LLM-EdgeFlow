@@ -38,37 +38,50 @@ set(EDGEFLOW_TEST_CORE_SRCS
   tests/test_model_backend_decoupling.cpp
   tests/test_model_backend_pipeline.cpp
   tests/test_onnx_and_embedding_model.cpp
+  tests/test_onnx_and_reranker_model.cpp
   tests/support/inference/test_tensor_backend.cpp
   tests/support/inference/test_causal_lm_backend.cpp)
 add_executable(edgeflow_test_core_runner ${EDGEFLOW_TEST_CORE_SRCS})
 target_link_libraries(edgeflow_test_core_runner PRIVATE
   alg_sdk GTest::gtest GTest::gtest_main)
 if(LLM_EDGEFLOW_HAS_ONNXRUNTIME)
-  target_compile_definitions(edgeflow_test_core_runner PRIVATE HAVE_ONNXRUNTIME=1)
   set(EDGEFLOW_STAGE3_FIXTURE_DIR
       "${CMAKE_CURRENT_BINARY_DIR}/test-fixtures/stage3")
   set(EDGEFLOW_STAGE3_ONNX_FIXTURE
       "${EDGEFLOW_STAGE3_FIXTURE_DIR}/embedding_fixture.onnx")
   set(EDGEFLOW_STAGE3_VOCAB_FIXTURE
       "${EDGEFLOW_STAGE3_FIXTURE_DIR}/vocab.txt")
+  set(EDGEFLOW_STAGE4_RERANK_ONNX_FIXTURE
+      "${EDGEFLOW_STAGE3_FIXTURE_DIR}/rerank_fixture.onnx")
+  file(MAKE_DIRECTORY "${EDGEFLOW_STAGE3_FIXTURE_DIR}")
   add_custom_command(
     OUTPUT
       "${EDGEFLOW_STAGE3_ONNX_FIXTURE}"
+      "${EDGEFLOW_STAGE4_RERANK_ONNX_FIXTURE}"
       "${EDGEFLOW_STAGE3_VOCAB_FIXTURE}"
     COMMAND "${Python3_EXECUTABLE}"
             "${CMAKE_CURRENT_SOURCE_DIR}/scripts/generate_test_onnx_model.py"
             --output-dir "${EDGEFLOW_STAGE3_FIXTURE_DIR}"
     DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/scripts/generate_test_onnx_model.py"
-    COMMENT "Generating deterministic stage-3 ONNX Runtime fixture"
+    COMMENT "Generating deterministic stage-3 and stage-4 ONNX Runtime fixtures"
     VERBATIM)
   add_custom_target(edgeflow_stage3_onnx_fixture
     DEPENDS
       "${EDGEFLOW_STAGE3_ONNX_FIXTURE}"
+      "${EDGEFLOW_STAGE4_RERANK_ONNX_FIXTURE}"
       "${EDGEFLOW_STAGE3_VOCAB_FIXTURE}")
-  add_dependencies(edgeflow_test_core_runner edgeflow_stage3_onnx_fixture)
-  target_compile_definitions(edgeflow_test_core_runner PRIVATE
-    EDGEFLOW_STAGE3_ONNX_FIXTURE="${EDGEFLOW_STAGE3_ONNX_FIXTURE}"
-    EDGEFLOW_STAGE3_VOCAB_FIXTURE="${EDGEFLOW_STAGE3_VOCAB_FIXTURE}")
+  configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/stage4/pipeline_cross_rerank_fixture.json"
+    "${EDGEFLOW_STAGE3_FIXTURE_DIR}/pipeline_cross_rerank_fixture.json"
+    COPYONLY)
+  configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/stage4/pipeline_cross_rerank_fixture.conf"
+    "${EDGEFLOW_STAGE3_FIXTURE_DIR}/pipeline_cross_rerank_fixture.conf"
+    COPYONLY)
+  configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/stage4/pipeline_cross_rerank_missing_model.conf"
+    "${EDGEFLOW_STAGE3_FIXTURE_DIR}/pipeline_cross_rerank_missing_model.conf"
+    COPYONLY)
 endif()
 edgeflow_enable_test_pch(edgeflow_test_core_runner)
 
@@ -128,6 +141,22 @@ add_executable(edgeflow_test_tooling_runner ${EDGEFLOW_TEST_TOOLING_SRCS})
 target_link_libraries(edgeflow_test_tooling_runner PRIVATE
   alg_sdk GTest::gtest GTest::gtest_main)
 edgeflow_enable_test_pch(edgeflow_test_tooling_runner)
+
+if(LLM_EDGEFLOW_HAS_ONNXRUNTIME)
+  foreach(target
+      edgeflow_test_core_runner
+      edgeflow_test_nodes_runner
+      edgeflow_test_adapter_runner
+      edgeflow_test_tooling_runner)
+    add_dependencies(${target} edgeflow_stage3_onnx_fixture)
+    target_compile_definitions(${target} PRIVATE
+      HAVE_ONNXRUNTIME=1
+      EDGEFLOW_STAGE3_ONNX_FIXTURE="${EDGEFLOW_STAGE3_ONNX_FIXTURE}"
+      EDGEFLOW_STAGE4_RERANK_ONNX_FIXTURE="${EDGEFLOW_STAGE4_RERANK_ONNX_FIXTURE}"
+      EDGEFLOW_STAGE3_VOCAB_FIXTURE="${EDGEFLOW_STAGE3_VOCAB_FIXTURE}")
+  endforeach()
+  add_dependencies(alg_demo edgeflow_stage3_onnx_fixture)
+endif()
 
 # Process-isolated targets. Registry conflict intentionally runs each dirty
 # singleton scenario in its own process.
@@ -193,6 +222,8 @@ edgeflow_add_runner_test(ModelBackendPipelineTest edgeflow_test_core_runner
   "ModelBackendPipelineTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(OnnxAndEmbeddingModelTest edgeflow_test_core_runner
   "OnnxAndEmbeddingModelTest.*" "${_edgeflow_tier1}")
+edgeflow_add_runner_test(OnnxAndRerankerModelTest edgeflow_test_core_runner
+  "OnnxAndRerankerModelTest.*" "${_edgeflow_tier1}")
 
 edgeflow_add_runner_test(TextChunkNodeTest edgeflow_test_nodes_runner
   "TextChunkNodeTest.*" "${_edgeflow_tier1}")
@@ -313,6 +344,39 @@ add_test(NAME DemoSmokeTest COMMAND $<TARGET_FILE:alg_demo> --suite smoke)
 set_tests_properties(DemoSmokeTest PROPERTIES
   WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
   LABELS "${_edgeflow_tier3}")
+
+if(LLM_EDGEFLOW_HAS_ONNXRUNTIME)
+  add_test(
+    NAME CrossRerankDemoFixtureTest
+    COMMAND $<TARGET_FILE:alg_demo>
+            --business cross_rerank
+            --config
+            "${EDGEFLOW_STAGE3_FIXTURE_DIR}/pipeline_cross_rerank_fixture.conf"
+            --dataset
+            "${CMAKE_CURRENT_SOURCE_DIR}/data/corpus_cross_rerank.txt"
+            --output-dir
+            "${CMAKE_CURRENT_BINARY_DIR}/test-results/stage4-rerank-demo")
+  add_test(
+    NAME CrossRerankDemoMissingModelFailsClosedTest
+    COMMAND $<TARGET_FILE:alg_demo>
+            --business cross_rerank
+            --config
+            "${EDGEFLOW_STAGE3_FIXTURE_DIR}/pipeline_cross_rerank_missing_model.conf"
+            --dataset
+            "${CMAKE_CURRENT_SOURCE_DIR}/data/corpus_cross_rerank.txt"
+            --allow-fallback-sample
+            --output-dir
+            "${CMAKE_CURRENT_BINARY_DIR}/test-results/stage4-rerank-missing")
+  set_tests_properties(
+    CrossRerankDemoFixtureTest
+    CrossRerankDemoMissingModelFailsClosedTest
+    PROPERTIES
+      WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+      LABELS "${_edgeflow_tier3}")
+  set_tests_properties(
+    CrossRerankDemoMissingModelFailsClosedTest
+    PROPERTIES WILL_FAIL TRUE)
+endif()
 
 set(EDGEFLOW_PIPELINE_CONFIGS
   pipeline_keyword_match.json

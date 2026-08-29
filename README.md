@@ -182,6 +182,12 @@ LLM-EdgeFlow/
 
 ## 📝 更新日志 (Changelog)
 
+- **v5.0.0（模型能力与推理 Backend 解耦 - RFC 0015，实施中）** *(2026-08)*
+  - 🧩 **Model / Backend 双注册体系**：新增 `ModelRegistry`、`BackendRegistry`、中性执行协议与 `ModelRuntimeFactory`，Pipeline 可按 `model_type + backend` 组合模型语义和硬件执行资源。
+  - ♻️ **ONNX Runtime Backend 复用**：`BgeEmbeddingModel` 与 `BgeRerankerModel` 共享 `OnnxRuntimeBackend` 和 `ITensorGraphSession`，Rerank Node 仅依赖 `IRerankModel`，旧 `OnnxRerankEngine` 已移除。
+  - 🛡️ **创建期与运行期双重契约**：模型加载时严格校验 tensor metadata、批次策略和 sidecar 路径，运行时继续校验 shape、字节数、对齐、有限值及 `(req_id, sub_id)` 溯源。
+  - 🧪 **可复现 Rerank 交付门禁**：构建期生成确定性 ONNX/vocab fixture，覆盖真实 Pipeline、Operator/C ABI、真实 Demo 成功链路及缺模型 fail-close；RFC 仍保持 `In Implementation`，LLM/OCR/ASR 与最终清理将在后续阶段完成。
+
 - **v4.3.0 (独立公共日志 API - RFC 0014)** *(2026-08)*
   - 🩺 **纯 C11 六级日志契约**：新增 `company_alg_log.h`，提供 FATAL、ERROR、WARNING、INFO、DEBUG、VERBOSE 宏和线程安全全局等级 API，不引入 STL 或第三方日志依赖。
   - 🎚️ **Demo 运行时配置**：`LLMEDGEFLOW_LEVEL=0..5` 在 Demo 初始化前设置进程级阈值，缺失或非法值默认为 WARNING。

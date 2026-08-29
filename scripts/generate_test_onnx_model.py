@@ -157,6 +157,63 @@ def generate_onnx_model(model_path: Path, hidden_dim: int = 128) -> None:
     model_path.write_bytes(model)
 
 
+def generate_rerank_onnx_model(model_path: Path) -> None:
+    # TensorProto.FLOAT = 1, TensorProto.INT64 = 7.
+    axes_raw = struct.pack("<q", 1)
+    scale_cand_raw = struct.pack("<f", 0.01)
+    scale_all_raw = struct.pack("<f", 0.001)
+
+    graph = bytearray()
+    graph += _message_field(
+        1, _node("Cast", ["input_ids"], ["ids_float"],
+                 [_attribute_int("to", 1)]))
+    graph += _message_field(
+        1, _node("Cast", ["attention_mask"], ["mask_float"],
+                 [_attribute_int("to", 1)]))
+    graph += _message_field(
+        1, _node("Cast", ["token_type_ids"], ["type_float"],
+                 [_attribute_int("to", 1)]))
+    graph += _message_field(
+        1, _node("Mul", ["ids_float", "mask_float"], ["masked_ids"]))
+    graph += _message_field(
+        1, _node("Mul", ["masked_ids", "type_float"], ["cand_ids"]))
+    graph += _message_field(
+        1, _node("ReduceSum", ["cand_ids", "reduce_axes"], ["cand_sum"],
+                 [_attribute_int("keepdims", 1)]))
+    graph += _message_field(
+        1, _node("ReduceSum", ["masked_ids", "reduce_axes"], ["all_sum"],
+                 [_attribute_int("keepdims", 1)]))
+    graph += _message_field(
+        1, _node("Mul", ["cand_sum", "scale_cand"], ["cand_scaled"]))
+    graph += _message_field(
+        1, _node("Mul", ["all_sum", "scale_all"], ["all_scaled"]))
+    graph += _message_field(
+        1, _node("Add", ["cand_scaled", "all_scaled"], ["logits"]))
+
+    graph += _string_field(2, "edgeflow_rerank_fixture")
+    graph += _message_field(5, _tensor("reduce_axes", 7, [1], axes_raw))
+    graph += _message_field(5, _tensor("scale_cand", 1, [1, 1], scale_cand_raw))
+    graph += _message_field(5, _tensor("scale_all", 1, [1, 1], scale_all_raw))
+
+    graph += _message_field(
+        11, _value_info("input_ids", 7, ["batch", "sequence"]))
+    graph += _message_field(
+        11, _value_info("attention_mask", 7, ["batch", "sequence"]))
+    graph += _message_field(
+        11, _value_info("token_type_ids", 7, ["batch", "sequence"]))
+    graph += _message_field(
+        12, _value_info("logits", 1, ["batch", 1]))
+
+    model = bytearray()
+    model += _int_field(1, 8)  # ModelProto.ir_version
+    model += _string_field(2, "edgeflow_test_generator")
+    model += _message_field(7, bytes(graph))
+    model += _message_field(8, _int_field(2, 13))  # default opset 13
+
+    model_path.parent.mkdir(parents=True, exist_ok=True)
+    model_path.write_bytes(model)
+
+
 def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -166,17 +223,22 @@ def main() -> None:
     parser.add_argument(
         "--output-dir",
         default=os.path.join(os.path.dirname(__file__), "..", "models"),
-        help="Directory receiving embedding_fixture.onnx and vocab.txt",
+        help="Directory receiving fixtures and vocab.txt",
     )
     args = parser.parse_args()
 
     output_dir = Path(args.output_dir).resolve()
     model_path = output_dir / "embedding_fixture.onnx"
+    rerank_path = output_dir / "rerank_fixture.onnx"
     vocab_path = output_dir / "vocab.txt"
     generate_vocab(vocab_path)
     generate_onnx_model(model_path)
+    generate_rerank_onnx_model(rerank_path)
+
     print(f"ONNX_FIXTURE={model_path}")
     print(f"ONNX_SHA256={_sha256(model_path)}")
+    print(f"RERANK_ONNX_FIXTURE={rerank_path}")
+    print(f"RERANK_ONNX_SHA256={_sha256(rerank_path)}")
     print(f"VOCAB_FIXTURE={vocab_path}")
     print(f"VOCAB_SHA256={_sha256(vocab_path)}")
 
