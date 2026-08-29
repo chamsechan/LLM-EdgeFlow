@@ -35,6 +35,7 @@ set(EDGEFLOW_TEST_CORE_SRCS
   tests/test_definition_schema_validation.cpp
   tests/test_model_backend_decoupling.cpp
   tests/test_model_backend_pipeline.cpp
+  tests/test_onnx_and_embedding_model.cpp
   tests/support/inference/test_tensor_backend.cpp
   tests/support/inference/test_causal_lm_backend.cpp)
 add_executable(edgeflow_test_core_runner ${EDGEFLOW_TEST_CORE_SRCS})

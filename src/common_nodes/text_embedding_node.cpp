@@ -5,21 +5,21 @@
 
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
-#include "engine/engine_interface.h"
+#include "engine/model_interface.h"
 #include "nodes/model_bound_node.h"
 
 namespace alg_framework {
 
 /**
  * @brief 文本特征向量提取通用算子 (TextEmbeddingNode, 调用绑定的
- * IEmbeddingEngine) 支持 session 级别静态语料缓存与归一化
+ * IEmbeddingModel) 支持 session 级别静态语料缓存与归一化
  */
-class TextEmbeddingNode final : public ModelBoundNode<IEmbeddingEngine> {
+class TextEmbeddingNode final : public ModelBoundNode<IEmbeddingModel> {
  public:
   inline static constexpr char kNodeType[] = "TextEmbeddingNode";
 
   TextEmbeddingNode()
-      : ModelBoundNode<IEmbeddingEngine>(kNodeType),
+      : ModelBoundNode<IEmbeddingModel>(kNodeType),
         in_text_("text"),
         out_embedding_("embedding") {}
 
@@ -49,6 +49,9 @@ class TextEmbeddingNode final : public ModelBoundNode<IEmbeddingEngine> {
       return 0;
     }
 
+    EmbeddingOptions opts;
+    opts.normalize = normalize_;
+
     if (lifetime_ == "session" && session_ctx_) {
       std::string digest = ComputeDigest(*text_items);
       const std::string model_revision =
@@ -60,13 +63,10 @@ class TextEmbeddingNode final : public ModelBoundNode<IEmbeddingEngine> {
       auto cached = session_ctx_->GetOrCreateResource<EmbeddingBatch>(
           cache_key, [&]() -> std::shared_ptr<EmbeddingBatch> {
             auto output = std::make_shared<EmbeddingBatch>();
-            int ret = engine()->InferTraceableBatch(*text_items, output.get());
+            int ret = model()->Embed(*text_items, opts, output.get());
             if (ret != 0) {
               infer_err = ret;
               return nullptr;
-            }
-            if (normalize_) {
-              Normalize(*output);
             }
             return output;
           });
@@ -81,16 +81,12 @@ class TextEmbeddingNode final : public ModelBoundNode<IEmbeddingEngine> {
     EmbeddingBatch output_embeddings;
     ALG_LOG_DEBUG(
         "[TextEmbeddingNode] Inferring embeddings for %zu text "
-        "items using engine...\n",
+        "items using model...\n",
         text_items->size());
 
-    int ret = engine()->InferTraceableBatch(*text_items, &output_embeddings);
+    int ret = model()->Embed(*text_items, opts, &output_embeddings);
     if (ret != 0) {
       return Fail(req_ctx, ret, "TextEmbeddingNode: inference failed");
-    }
-
-    if (normalize_) {
-      Normalize(output_embeddings);
     }
 
     out_embedding_.Set(req_ctx, std::move(output_embeddings));
@@ -98,17 +94,6 @@ class TextEmbeddingNode final : public ModelBoundNode<IEmbeddingEngine> {
   }
 
  private:
-  static void Normalize(EmbeddingBatch& batch) {
-    for (auto& item : batch) {
-      float norm = 0.0f;
-      for (float v : item.data) norm += v * v;
-      if (norm > 0.0f) {
-        float inv = 1.0f / std::sqrt(norm);
-        for (float& v : item.data) v *= inv;
-      }
-    }
-  }
-
   static std::string ComputeDigest(const TextBatch& items) {
     size_t hash = 14695981039346656037ULL;
     for (const auto& item : items) {

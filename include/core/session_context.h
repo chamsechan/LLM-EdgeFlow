@@ -56,6 +56,58 @@ struct LegacyEngineRegistration {
   std::string revision;
 };
 
+namespace detail {
+
+class LegacyEmbeddingEngineAdapter : public IEmbeddingModel {
+ public:
+  explicit LegacyEmbeddingEngineAdapter(std::shared_ptr<IEmbeddingEngine> eng)
+      : eng_(std::move(eng)) {}
+
+  const std::string& ModelType() const noexcept override {
+    static const std::string empty;
+    return eng_ ? eng_->EngineType() : empty;
+  }
+  const std::string& Capability() const noexcept override {
+    static const std::string cap = "embedding";
+    return cap;
+  }
+  InferenceConcurrency Concurrency() const noexcept override {
+    return InferenceConcurrency::kConcurrent;
+  }
+  size_t GetMaxBatchSize() const noexcept override {
+    return eng_ ? eng_->GetMaxBatchSize() : 1;
+  }
+
+  int Embed(const TextBatch& inputs, const EmbeddingOptions& options,
+            EmbeddingBatch* outputs) noexcept override {
+    if (!outputs) return -1;
+    outputs->clear();
+    if (inputs.empty()) return 0;
+    if (!eng_) return -1;
+    int ret = eng_->InferTraceableBatch(inputs, outputs);
+    if (ret != 0) {
+      outputs->clear();
+      return ret;
+    }
+    if (options.normalize) {
+      for (auto& item : *outputs) {
+        float norm = 0.0f;
+        for (float v : item.data) norm += v * v;
+        norm = std::sqrt(norm);
+        if (norm > 1e-12f) {
+          for (float& v : item.data) v /= norm;
+        }
+      }
+    }
+    return 0;
+  }
+
+ private:
+  std::shared_ptr<IEmbeddingEngine> eng_;
+};
+
+}  // namespace detail
+
 /**
  * @brief 单句柄持有的模型实例资源池 (ModelManager)
  */
@@ -218,11 +270,22 @@ class ModelManager {
     std::lock_guard<std::mutex> lock(mutex_);
     auto it = models_.find(model_id);
     if (it != models_.end()) {
-      return std::dynamic_pointer_cast<T>(it->second);
+      auto res = std::dynamic_pointer_cast<T>(it->second);
+      if (res) return res;
     }
     auto leg_it = legacy_engines_.find(model_id);
     if (leg_it != legacy_engines_.end()) {
-      return std::dynamic_pointer_cast<T>(leg_it->second);
+      auto direct = std::dynamic_pointer_cast<T>(leg_it->second);
+      if (direct) return direct;
+
+      if constexpr (std::is_same_v<T, IEmbeddingModel>) {
+        auto emb_eng =
+            std::dynamic_pointer_cast<IEmbeddingEngine>(leg_it->second);
+        if (emb_eng) {
+          return std::make_shared<detail::LegacyEmbeddingEngineAdapter>(
+              emb_eng);
+        }
+      }
     }
     return nullptr;
   }
