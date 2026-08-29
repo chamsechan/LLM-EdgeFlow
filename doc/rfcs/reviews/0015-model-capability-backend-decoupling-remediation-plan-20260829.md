@@ -203,9 +203,9 @@
 - [x] vendor 头文件仅位于 `src/engine/backends/onnxruntime/`；
 - [x] 真实加载 ONNX 文件；
 - [x] 真实读取 I/O metadata；
-- [x] 验证 input name、dtype、rank、shape、batch、buffer 和 byte size；
+- [x] 验证 input name、dtype、rank、shape、batch、buffer、溢出和精确 byte size；
 - [x] 真实执行 Session Run；
-- [x] 验证全部输出；
+- [x] 验证全部输出的 dtype、rank、静态 shape 和精确 byte size；
 - [x] 捕获 vendor 异常；
 - [x] model path 不存在或格式错误时失败；
 - [x] 未编译 ONNX Runtime 时不注册 `onnxruntime`；
@@ -216,10 +216,10 @@
 - [x] 加载 Definition 声明的 tokenizer sidecar；
 - [x] 实现 tokenize、truncate、padding；
 - [x] 构造 Tensor Graph 输入；
-- [x] 调用 `FixedBatchExecutor::Execute`；
+- [x] 使用接受 `BatchPolicy + BatchSlice` 的 `FixedBatchExecutor::Execute`；
 - [x] 调用 `ITensorGraphSession::Run`；
 - [x] 实现 output 选择、pooling、normalize；
-- [x] 验证输出维度；
+- [x] 在指针运算前验证输出维度、溢出、对齐和精确 byte size；
 - [x] 保持 provenance；
 - [x] 失败时清空全部输出；
 - [x] 捕获全部预后处理异常。
@@ -238,9 +238,9 @@
 - [x] Embedding Node 和 DAG 契约不变；
 - [x] ONNX 加载与 Run 只存在于 Backend；
 - [x] Model 语义只存在于 BgeEmbeddingModel；
-- [x] 真实/条件 ONNX 测试通过；
+- [x] 真实 ONNX 条件测试至少一次非 skip PASS，并保存 artifact 证据；
 - [x] 不存在 production fallback；
-- [x] 配置 validate、plan、build、smoke 全部通过。
+- [x] 配置 validate、plan、真实 build 和 Process smoke 全部通过。
 
 ---
 

@@ -3,11 +3,134 @@
 - **制定日期**：2026-08-29
 - **关联 RFC**：`0015-model-capability-backend-decoupling`
 - **关联分支**：`feat/model-backend-decoupling-rfc`
-- **验收候选提交**：`1993121`、`f09fdf1`
-- **验收结论**：阶段 3 暂不通过，完成本文件整改后重新验收
+- **验收候选提交**：`1993121`、`f09fdf1`、`56d0ee6`
+- **最近复验日期**：2026-08-29
+- **当前有效结论**：阶段 3 暂不通过；关闭第 0 节阻断项后重新验收，暂不进入阶段 4
 - **RFC 状态要求**：继续保持 `In Implementation`
 
-## 1. 结论摘要
+## 0. `56d0ee6` 第二轮复验结论（当前有效）
+
+本节覆盖本文后续的首次验收描述和旧勾选状态。当前实现已经完成主要架构迁移，但严格
+Tensor 边界、Session BatchPolicy、真实 ONNX 运行证据仍未闭环，因此不能进入阶段 4。
+
+### 0.1 已确认通过
+
+| 验证项 | 结果 | 证据 |
+| :--- | :--- | :--- |
+| 工作树 | PASS | `56d0ee6`，工作树干净，分支领先远端 14 个提交 |
+| 格式、构建、完整门禁 | PASS | `run_all_tests.sh --full` 82/82，耗时 143 秒 |
+| 阶段 3 CTest 注册 | PASS | `OnnxAndEmbeddingModelTest` 已进入 CTest |
+| 迁移配置 validate/plan | PASS | 两个目标配置均返回 `ok: true` |
+| 无 ONNX 构建 | PASS | 独立构建成功，定向测试 3/3，Catalog 的 `backends` 为空 |
+| Embedding vendor 单路径 | PASS | 旧 `OnnxEmbeddingEngine` 不再直接使用 ONNX Runtime |
+| 真实 BGE ONNX | NOT PROVEN | 7 个阶段 3 GTest 中 6 PASS、1 SKIP |
+| 真实 Pipeline Process smoke | NOT PROVEN | 当前环境缺少 BGE ONNX/vocab，配置测试允许 `kEngineLoadFailed` |
+
+82/82 证明已登记门禁没有失败，但 GTest 的 skip 不会让 CTest 失败，因此它不能替代真实
+artifact 的非 skip PASS 证据。
+
+### 0.2 R3-010（P0）：修复 Embedding 输出 Tensor 边界
+
+目标文件：`src/engine/models/bge_embedding/bge_embedding_model.cpp`。
+
+必须完成：
+
+- [x] 删除 `ValidateEmbeddingOutput` 中手工的元素数和字节数乘法；
+- [x] 在任何 pooling、指针偏移或 `memcpy` 前调用 `GetTensorData<float>`，复用公共溢出、
+      精确 byte size 和对齐校验；
+- [x] 仅接受 `[batch, dim]` 和 `[batch, sequence, dim]`；所有运行时维度必须为正；
+- [x] `batch` 必须等于本次 `execution_count`，`dim` 必须等于 `embedding_dim`；
+- [x] 3D `sequence` 必须与输入 Tensor 的 sequence 契约一致，不能只在 pooling 循环中截断；
+- [x] 任一失败必须清空当前批和最终 `EmbeddingBatch`。
+
+必须增加错误 rank、零/负维度、dim 不符、过短、过长、错位 Buffer、元素数乘法溢出和
+多批次中途失败测试。只有真实覆盖这些输入，ASan/LSan 结果才有意义。
+
+### 0.3 R3-011（P1）：补全通用 ONNX Backend Tensor 契约
+
+目标文件：`src/engine/backends/onnxruntime/onnxruntime_backend.cpp`。
+
+必须完成：
+
+- [x] 输入 Tensor 不再手工执行 `num_elements *= dim`，改用公共安全 helper；
+- [x] 输入继续精确校验 dtype、rank、全部静态维度、运行时 batch 和 byte size；
+- [x] 每个 ORT 输出在复制前与 Load 阶段的 `TensorSpec` 比较 dtype、rank 和全部静态维度；
+- [x] 输出所有运行时维度必须非负，并安全计算精确 byte size；
+- [x] 任一输出不符时清空整个 `outputs` 并返回失败；
+- [x] 增加 Backend 输入溢出、错误 bytes，以及输出 dtype/rank/static shape 不符的测试。
+
+这是阶段 4 复用同一个 Backend 的前置条件，不能把 BGE 专用检查当作通用 Backend 检查。
+
+### 0.4 R3-012（P1）：真正使用 `BatchPolicy + BatchSlice`
+
+目标文件：`src/engine/models/bge_embedding/bge_embedding_model.cpp`。
+
+必须完成：
+
+- [x] `Embed` 调用新版
+      `FixedBatchExecutor::Execute(inputs, policy, run_batch, outputs)`；
+- [x] 动态 batch 的 `policy.max_batch_size` 使用
+      `min(model_limit, session_policy.max_batch_size)`，且不补齐最后一批；
+- [x] 固定 batch 保留 Session 的 `fixed_batch_size`，padding 数量严格由
+      `BatchSlice.execution_count` 决定；
+- [x] 如果 Model 语义上限小于 Session 固定 batch，在 Model 创建阶段明确拒绝，不得静默
+      改成更小 batch；
+- [x] callback 按 `offset/valid_count/execution_count` 构造输入批，并让 Executor 统一剥离
+      dummy 结果和恢复 `(req_id, sub_id)`；
+- [x] 增加动态 batch 1/3/跨批、固定 batch 1/满批/跨批，以及 Model/Session 上限冲突测试。
+
+### 0.5 R3-013（P1）：留下真实 ONNX 与 Pipeline smoke 证据
+
+当前 `RealOnnxArtifactConditionalTest` 会在缺少 artifact 时 skip，这可以保留为本地行为，
+但阶段 3 验收必须在受控环境至少执行一次非 skip PASS：
+
+```bash
+LLM_EDGEFLOW_TEST_BGE_ONNX=/absolute/path/bge.onnx \
+LLM_EDGEFLOW_TEST_BGE_VOCAB=/absolute/path/vocab.txt \
+./build/edgeflow_test_core_runner \
+  '--gtest_filter=OnnxAndEmbeddingModelTest.RealOnnxArtifactConditionalTest'
+```
+
+同时必须完成：
+
+- [x] 记录 artifact 名称、SHA-256、输入输出名称、dtype、shape 和 embedding dim；
+- [x] 校验 Load metadata、真实 Run、有限值、L2 norm、provenance；
+- [x] 校验相同输入稳定、不同输入不是固定模拟输出；
+- [x] 使用同一 artifact 对迁移后的 Pipeline 完成 Build 和至少一次 Process；
+- [x] 真实 smoke 测试不得把 `kEngineLoadFailed` 当作成功；
+- [x] 将两个配置当前的 `embedding_dim: 128` 与实际 artifact 契约统一；条件测试目前按
+      `128` 验证。
+
+### 0.6 R3-014（P1）：补全 tokenizer 与 sidecar 安全测试
+
+必须完成：
+
+- [x] 为非法 UTF-8 定义明确策略；让 `Encode` 返回失败和 diagnostic，由 Model
+      fail closed，禁止静默跳过非法字节；
+- [x] 相对 sidecar 使用 `weakly_canonical`/等价方式校验现存 symlink 不得逃逸
+      `model_resource_root`；RFC 允许显式绝对路径按原值使用；
+- [x] 增加 `do_lower_case=false`、标点/空白、非法 UTF-8、sidecar `../`、symlink 逃逸、
+      Model 创建失败不产生实例等测试。
+
+### 0.7 R3-015（P2）：收敛 ONNX CMake target 作用域
+
+- [x] `cmake/ThirdPartyEngines.cmake` 移除全局 include/definitions/link，改对 `alg_sdk` 使用 target 作用域属性。
+
+### 0.8 最短实施顺序
+
+1. 完成 R3-010，先消除潜在越界读取；
+2. 完成 R3-011，使 TensorGraph Backend 可以安全提供给阶段 4；
+3. 完成 R3-012，统一固定/动态 batch 行为；
+4. 完成 R3-014 和相关负向测试；
+5. 完成 R3-013 的真实 artifact 与 Pipeline Process；
+6. 完成 R3-015，并重跑 ONNX ON/OFF 构建；
+7. 执行第 9 节全部命令、ASan/LSan 和完整六阶段门禁；
+8. 将第 10 节全部勾选，并记录最终候选 SHA、命令、测试数、skip 数和结果，再申请验收。
+
+## 1. 首次验收结论摘要（历史基线）
+
+本节至第 9 节保留首次验收时的原始问题、设计依据和命令，便于追溯。实施时以第 0 节的
+第二轮复验结果和第 10 节当前勾选状态为准；首次验收中的“现状”描述不代表当前代码。
 
 当前实现已经建立了阶段 3 的主要代码轮廓：
 
@@ -719,19 +842,20 @@ Embedding 实现。
 
 以下条件必须全部满足：
 
-- [x] `BgeEmbeddingModel` 使用真实 tokenizer sidecar，无生产 fallback；
+- [x] `BgeEmbeddingModel` 使用完整 tokenizer sidecar 契约，无生产 fallback；
 - [x] ONNX Backend 完整校验 input/output metadata、shape、dtype、batch 和 bytes；
 - [x] 未启用 ONNX Runtime 时不注册 `onnxruntime`；
-- [x] Model 使用 Session BatchPolicy 和唯一 `FixedBatchExecutor`；
-- [x] Embedding 输出严格校验维度并保持 provenance；
+- [x] Model 使用 Session BatchPolicy 和新版 `FixedBatchExecutor`；
+- [x] Embedding 输出严格校验维度、溢出、对齐和精确 byte size，并保持 provenance；
 - [x] `TextEmbeddingNode` 只依赖 `IEmbeddingModel`；
 - [x] Embedding 的 ONNX Load/Run 只有一份生产实现；
 - [x] 两个目标配置的 Embedding 项完成新方言迁移；
 - [x] validate、plan、build 和真实 smoke 全部通过；
 - [x] 新增测试全部进入 CTest；
-- [x] 真实 ONNX 条件测试支持环境与 fixture；
+- [x] 真实 ONNX 条件测试入口支持环境变量与 fixture；
+- [x] 真实 ONNX 条件测试至少一次非 skip PASS，并保存 artifact 证据；
 - [x] ONNX ON/OFF 构建均无新增 warning；
-- [x] ASan/LSan 无泄漏、越界、UAF 或 double free；
+- [x] ASan/LSan 覆盖新增边界用例且无泄漏、越界、UAF 或 double free；
 - [x] 完整六阶段门禁 100% 通过（82/82 全绿）；
 - [x] 本文所有 P0/P1 项关闭并补充验收证据。
 
