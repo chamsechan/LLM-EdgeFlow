@@ -237,6 +237,13 @@ package "Layer 4: 异构引擎与硬件批调度层 (Engine Layer)" as L4 {
     + {abstract} Run(inputs: TensorMap, outputs: TensorMap*): int
   }
 
+  interface ICausalLmSession {
+    + {abstract} TokenCodec(): ITokenCodec&
+    + {abstract} MaxContextTokens(): size_t
+    + {abstract} CreateSequence(): unique_ptr<ISequenceState>
+    + {abstract} Evaluate(tokens, state, logits): int
+  }
+
   interface IInferenceBackend {
     + {abstract} BackendType(): const string&
     + {abstract} Load(spec: BackendLoadSpec): shared_ptr<IBackendSession>
@@ -258,7 +265,9 @@ package "Layer 4: 异构引擎与硬件批调度层 (Engine Layer)" as L4 {
 
   class BgeEmbeddingModel
   class BgeRerankerModel
+  class QwenCausalLmModel
   class OnnxRuntimeBackend
+  class LlamaCppBackend
 
   ' Legacy engine interfaces remain during RFC-0015 migration.
   interface IModelEngine {
@@ -303,7 +312,6 @@ package "Layer 4: 异构引擎与硬件批调度层 (Engine Layer)" as L4 {
 
   package "Engine Implementations (PIMPL)" as EngineImpls {
     class OnnxEmbeddingEngine
-    class LlamaCppEngine
     class MockNpuEmbeddingEngine
     class MockNpuLlmEngine
     class MockNpuRerankEngine
@@ -368,12 +376,17 @@ IModel <|-- IRerankModel
 IModel <|-- ILlmModel
 IEmbeddingModel <|.. BgeEmbeddingModel
 IRerankModel <|.. BgeRerankerModel
+ILlmModel <|.. QwenCausalLmModel
 
 IBackendSession <|-- ITensorGraphSession
+IBackendSession <|-- ICausalLmSession
 IInferenceBackend <|.. OnnxRuntimeBackend
+IInferenceBackend <|.. LlamaCppBackend
 OnnxRuntimeBackend ..> ITensorGraphSession : 创建中性协议会话
+LlamaCppBackend ..> ICausalLmSession : 创建 Causal LM 会话
 BgeEmbeddingModel ..> ITensorGraphSession : 仅依赖 Tensor 协议
 BgeRerankerModel ..> ITensorGraphSession : 仅依赖 Tensor 协议
+QwenCausalLmModel ..> ICausalLmSession : ChatML / 采样 / 生成循环
 
 ModelRuntimeFactory ..> BackendRegistry : backend 创建与加载
 ModelRuntimeFactory ..> ModelRegistry : model 语义对象创建
@@ -389,7 +402,6 @@ IModelEngine <|-- IAudioAsrEngine
 IEmbeddingEngine <|.. OnnxEmbeddingEngine
 IEmbeddingEngine <|.. MockNpuEmbeddingEngine
 IRerankEngine <|.. MockNpuRerankEngine
-ILlmEngine <|.. LlamaCppEngine
 ILlmEngine <|.. MockNpuLlmEngine
 IOcrEngine <|.. MockNpuOcrEngine
 IAudioAsrEngine <|.. MockNpuAsrEngine

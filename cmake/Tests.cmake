@@ -39,6 +39,8 @@ set(EDGEFLOW_TEST_CORE_SRCS
   tests/test_model_backend_pipeline.cpp
   tests/test_onnx_and_embedding_model.cpp
   tests/test_onnx_and_reranker_model.cpp
+  tests/test_qwen_causal_lm_model.cpp
+  tests/test_llama_cpp_backend.cpp
   tests/support/inference/test_tensor_backend.cpp
   tests/support/inference/test_causal_lm_backend.cpp)
 add_executable(edgeflow_test_core_runner ${EDGEFLOW_TEST_CORE_SRCS})
@@ -172,11 +174,6 @@ add_executable(test_model_backend_registry_conflict
 target_link_libraries(test_model_backend_registry_conflict PRIVATE
   alg_sdk GTest::gtest GTest::gtest_main)
 
-add_executable(test_qwen_engines_comparison
-  tests/test_qwen_engines_comparison.cpp)
-target_link_libraries(test_qwen_engines_comparison PRIVATE
-  alg_sdk GTest::gtest GTest::gtest_main)
-
 add_executable(test_catalog_contract_ssot
   tests/test_catalog_contract_ssot.cpp)
 target_link_libraries(test_catalog_contract_ssot PRIVATE
@@ -301,10 +298,10 @@ edgeflow_add_runner_test(ModelBackendRegistryConflictTest
   test_model_backend_registry_conflict "ModelBackendRegistryConflictTest.*"
   "${_edgeflow_tier1}")
 
-add_test(NAME QwenEnginesComparisonTest COMMAND test_qwen_engines_comparison)
-set_tests_properties(QwenEnginesComparisonTest PROPERTIES
-  WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-  LABELS "tier3;integration;slow;external-engine")
+edgeflow_add_runner_test(QwenCausalLmModelTest edgeflow_test_core_runner
+  "QwenCausalLmModelTest.*" "${_edgeflow_tier1}")
+edgeflow_add_runner_test(LlamaCppBackendTest edgeflow_test_core_runner
+  "LlamaCppBackendTest.*" "${_edgeflow_tier1}")
 
 # Architecture and source-governance gates.
 add_test(NAME LayerGuardTest

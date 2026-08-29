@@ -63,6 +63,9 @@ endif()
 # 2. llama.cpp 开源大语言模型推理引擎配置 (用于 GGUF 自回归 LLM 生成)
 # ------------------------------------------------------------------------------
 option(ENABLE_LLAMACPP "Enable llama.cpp LLM engine (auto-download from GitHub)" ON)
+option(LLM_EDGEFLOW_LLAMACPP_METAL
+       "Enable llama.cpp Metal backend (requires a usable Metal device)" OFF)
+set(LLM_EDGEFLOW_HAS_LLAMACPP OFF)
 
 if(ENABLE_LLAMACPP)
   message(STATUS "[Engine Layer] Enabling llama.cpp engine support...")
@@ -79,6 +82,8 @@ if(ENABLE_LLAMACPP)
   set(GGML_AVX512_VBMI OFF CACHE BOOL "Enable AVX512_VBMI" FORCE)
   set(GGML_AVX512_VNNI OFF CACHE BOOL "Enable AVX512_VNNI" FORCE)
   set(GGML_AVX512_BF16 OFF CACHE BOOL "Enable AVX512_BF16" FORCE)
+  set(GGML_METAL ${LLM_EDGEFLOW_LLAMACPP_METAL} CACHE BOOL
+      "Enable Metal backend for llama.cpp" FORCE)
   # ggml 有独立的 ccache 开关。顶层明确关闭编译缓存时必须同步关闭，
   # 避免子工程绕过 LLM_EDGEFLOW_USE_CCACHE 并访问不可写的默认缓存目录。
   if(DEFINED LLM_EDGEFLOW_USE_CCACHE AND NOT LLM_EDGEFLOW_USE_CCACHE)
@@ -100,16 +105,20 @@ if(ENABLE_LLAMACPP)
   # 将 llama.cpp 作为三方子工程引入
   if(EXISTS "${llama_cpp_source_SOURCE_DIR}/CMakeLists.txt")
     add_subdirectory(${llama_cpp_source_SOURCE_DIR} ${llama_cpp_source_BINARY_DIR} EXCLUDE_FROM_ALL)
-    include_directories(SYSTEM ${llama_cpp_source_SOURCE_DIR}/include ${llama_cpp_source_SOURCE_DIR}/ggml/include)
-    
     # 链接 llama 静态库
     if(TARGET llama)
       set(THIRD_PARTY_ENGINE_LIBS ${THIRD_PARTY_ENGINE_LIBS} llama)
-      add_definitions(-DHAVE_LLAMACPP=1)
+      set(LLM_EDGEFLOW_HAS_LLAMACPP ON)
+      set(LLAMACPP_INCLUDE_DIRS
+          ${llama_cpp_source_SOURCE_DIR}/include
+          ${llama_cpp_source_SOURCE_DIR}/ggml/include)
       message(STATUS "[Engine Layer] llama.cpp target configured successfully.")
     elseif(TARGET ggml)
       set(THIRD_PARTY_ENGINE_LIBS ${THIRD_PARTY_ENGINE_LIBS} ggml)
-      add_definitions(-DHAVE_LLAMACPP=1)
+      set(LLM_EDGEFLOW_HAS_LLAMACPP ON)
+      set(LLAMACPP_INCLUDE_DIRS
+          ${llama_cpp_source_SOURCE_DIR}/include
+          ${llama_cpp_source_SOURCE_DIR}/ggml/include)
     endif()
   else()
     message(WARNING "[Engine Layer] llama.cpp CMakeLists.txt not found, falling back to stub.")

@@ -59,7 +59,7 @@ TEST_F(CatalogContractSsotTest, AllProductionNodesHaveValidDefinitions) {
 // 2. 验证所有推理引擎均具备合法的 EngineDefinition 元数据
 TEST_F(CatalogContractSsotTest, AllInferenceEnginesHaveValidDefinitions) {
   const auto& engines = PipelineCatalog::Engines();
-  EXPECT_GE(engines.size(), 7U);
+  EXPECT_GE(engines.size(), 6U);
 
   std::set<std::string> seen_engines;
   for (const auto& engine_def : engines) {
@@ -93,7 +93,7 @@ TEST_F(CatalogContractSsotTest, AllInferenceEnginesHaveValidDefinitions) {
   EXPECT_TRUE(seen_engines.count("mock_npu_asr"));
   EXPECT_TRUE(seen_engines.count("onnx_embedding"));
   EXPECT_FALSE(seen_engines.count("onnx_rerank"));
-  EXPECT_TRUE(seen_engines.count("llama_cpp"));
+  EXPECT_FALSE(seen_engines.count("llama_cpp"));
 }
 
 // 3. 验证 7 种业务契约在 PipelineCatalog 中完整注册
@@ -157,7 +157,7 @@ TEST_F(CatalogContractSsotTest, ToJsonSerializationAndFiltering) {
   EXPECT_TRUE(full_catalog["engines"].is_array());
   EXPECT_TRUE(full_catalog["bizs"].is_array());
   EXPECT_GE(full_catalog["nodes"].size(), 11U);
-  EXPECT_GE(full_catalog["engines"].size(), 7U);
+  EXPECT_GE(full_catalog["engines"].size(), 6U);
   EXPECT_GE(full_catalog["bizs"].size(), 7U);
   EXPECT_GE(full_catalog["bizs"].size(), 7U);
   for (const auto& engine : full_catalog["engines"]) {

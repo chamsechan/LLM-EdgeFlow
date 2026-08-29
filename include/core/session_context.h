@@ -171,6 +171,62 @@ class LegacyRerankEngineAdapter : public IRerankModel {
   std::shared_ptr<IRerankEngine> eng_;
 };
 
+class LegacyLlmEngineAdapter : public ILlmModel {
+ public:
+  explicit LegacyLlmEngineAdapter(std::shared_ptr<ILlmEngine> eng)
+      : eng_(std::move(eng)) {}
+
+  const std::string& ModelType() const noexcept override {
+    static const std::string empty;
+    return eng_ ? eng_->EngineType() : empty;
+  }
+  const std::string& Capability() const noexcept override {
+    static const std::string cap = "llm";
+    return cap;
+  }
+  InferenceConcurrency Concurrency() const noexcept override {
+    return InferenceConcurrency::kConcurrent;
+  }
+  size_t GetMaxBatchSize() const noexcept override {
+    return eng_ ? eng_->GetMaxBatchSize() : 1;
+  }
+
+  int Generate(const TextBatch& prompts, const GenerateOptions& options,
+               TextBatch* outputs) noexcept override {
+    if (!outputs) return -1;
+    outputs->clear();
+    if (prompts.empty()) return 0;
+    if (!eng_) return -1;
+    try {
+      ILlmEngine::GenerateOption legacy_options;
+      legacy_options.max_tokens = options.max_tokens;
+      legacy_options.temperature = options.temperature;
+      legacy_options.top_p = options.top_p;
+      legacy_options.stop_words = options.stop_words;
+      const int result =
+          eng_->InferTraceableBatch(prompts, legacy_options, outputs);
+      if (result != 0 || outputs->size() != prompts.size()) {
+        outputs->clear();
+        return result != 0 ? result : -1;
+      }
+      for (size_t i = 0; i < prompts.size(); ++i) {
+        if ((*outputs)[i].req_id != prompts[i].req_id ||
+            (*outputs)[i].sub_id != prompts[i].sub_id) {
+          outputs->clear();
+          return -1;
+        }
+      }
+      return 0;
+    } catch (...) {
+      outputs->clear();
+      return -1;
+    }
+  }
+
+ private:
+  std::shared_ptr<ILlmEngine> eng_;
+};
+
 }  // namespace detail
 
 /**
@@ -356,6 +412,11 @@ class ModelManager {
         if (rerank_eng) {
           return std::make_shared<detail::LegacyRerankEngineAdapter>(
               rerank_eng);
+        }
+      } else if constexpr (std::is_same_v<T, ILlmModel>) {
+        auto llm_eng = std::dynamic_pointer_cast<ILlmEngine>(leg_it->second);
+        if (llm_eng) {
+          return std::make_shared<detail::LegacyLlmEngineAdapter>(llm_eng);
         }
       }
     }

@@ -61,9 +61,9 @@ graph TD
 
     %% Level 4
     subgraph L4["Layer 4: 多后端模型引擎与批处理调度层 (Multi-Backend Engine & Batch Layer)"]
-        EngineBase["IModelEngine 基础引擎抽象"]
-        LlmIntf["ILlmEngine<br>(Generate / Stream)"]
-        EmbedIntf["IEmbeddingEngine<br>(BatchEncode)"]
+        EngineBase["IModel / IBackendSession 中性抽象"]
+        LlmIntf["ILlmModel + ICausalLmSession<br>(Generate / Token Evaluate)"]
+        EmbedIntf["IEmbeddingModel + ITensorGraphSession<br>(BatchEncode / Tensor Run)"]
         
         BatchExec["FixedBatchExecutor (硬件固定 Batch 调度器)<br>• 样本自动 Chunking 分块<br>• 末尾 Dummy Pad 自动补齐<br>• 推理后剥离 Pad 并保留溯源标签"]
         
@@ -71,7 +71,7 @@ graph TD
             NpuEmbed["MockNpuEmbeddingEngine<br>(NPU CANN/RKNN, Batch=4)"]
             NpuLlm["MockNpuLlmEngine<br>(NPU LLM, Batch=2)"]
             OnnxEngine["OnnxEmbedding / OnnxRerank<br>(ONNX Runtime, CPU/CUDA)"]
-            LlamaCpp["LlamaCppEngine<br>(llama.cpp GGUF)"]
+            LlamaCpp["QwenCausalLmModel → LlamaCppBackend<br>(ChatML semantics / GGUF runtime)"]
         end
     end
 

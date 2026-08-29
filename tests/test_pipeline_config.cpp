@@ -286,9 +286,10 @@ TEST_F(PipelineConfigTest, PositiveNineFormalConfigs) {
       // Optional backend is deliberately absent in ONNX-disabled builds.
       continue;
     }
-    if (cfg_file == "configs/pipeline_entity_extract_llamacpp.json" &&
-        !EngineFactory::Instance().Has("llama_cpp")) {
-      // Optional engine is absent in llama.cpp-disabled builds.
+    if ((cfg_file == "configs/pipeline_entity_extract_llamacpp.json" ||
+         cfg_file == "configs/pipeline_doc_qa_onnx.json") &&
+        !BackendRegistry::Instance().Find("llama_cpp").has_value()) {
+      // Optional backend is absent in llama.cpp-disabled builds.
       continue;
     }
 

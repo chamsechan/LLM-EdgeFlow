@@ -930,6 +930,14 @@ TEST_F(OnnxAndEmbeddingModelTest, OnnxRuntimeFixturePassEvidence) {
   pipeline_config["models"][0]["model_config"]["tokenizer_file"] =
       vocab_path.string();
   pipeline_config["models"][0]["model_config"]["max_length"] = 32;
+  // This test proves the ONNX embedding path and must not depend on an
+  // external GGUF asset. Keep the same LLM node, but replace only its test
+  // model registration with the explicit legacy Mock fixture.
+  pipeline_config["models"][1] = {
+      {"model_id", "llm_model_llamacpp"},
+      {"engine_type", "mock_npu_llm"},
+      {"model_path", "./models/test-qwen-mock.bin"},
+      {"config", {{"max_batch_size", 2}, {"max_seq_len", 512}}}};
   const auto smoke_config_path = temp_dir_ / "pipeline_fixture_smoke.json";
   std::ofstream config_out(smoke_config_path);
   config_out << pipeline_config.dump(2);

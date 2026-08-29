@@ -185,8 +185,7 @@ concurrency          = kSerialized
 | `n_threads` | integer | `0` | `0..1024`，0 表示 runtime 默认 | Backend |
 | `n_threads_batch` | integer | `0` | `0..1024` | Backend |
 | `n_gpu_layers` | integer | `0` | `0..1048576` | Backend |
-| `use_mmap` | boolean | `true` | - | Backend |
-| `use_mlock` | boolean | `false` | - | Backend |
+| `check_tensors` | boolean | `false` | 加载时校验 GGUF tensors | Backend |
 
 不要继续使用旧 Engine 的 `max_batch_size` 和 `max_seq_len` 名称。请求批处理由 Model/Executor 管理，Backend 的 `decode_batch_size` 是 llama.cpp token decode 容量，不是业务请求 batch。
 

@@ -7,9 +7,8 @@
 
 #include "company_alg_cpp.hpp"
 #include "company_alg_interface.h"
-#include "engine/engine_interface.h"
-#include "engine/engine_registry.h"
-#include "engine/llama_cpp/llama_cpp_engine.h"
+#include "engine/model_interface.h"
+#include "engine/model_runtime_factory.h"
 
 namespace alg_framework {
 
@@ -33,6 +32,22 @@ class RealModelE2ETest : public ::testing::Test {
 
   std::string model_path_;
   bool model_available_ = false;
+
+  std::shared_ptr<ILlmModel> CreateModel() const {
+    ModelLoadSpec spec;
+    spec.model_type = "qwen_causal_lm";
+    spec.backend_type = "llama_cpp";
+    spec.model_path = model_path_;
+    spec.model_config = {{"chat_template", "qwen_chatml"},
+                         {"add_bos", false},
+                         {"random_seed", 17}};
+    spec.backend_config = {
+        {"context_size", 512}, {"decode_batch_size", 512}, {"n_gpu_layers", 0}};
+    std::string diagnostic;
+    auto model = ModelRuntimeFactory::Create(spec, &diagnostic);
+    EXPECT_NE(model, nullptr) << diagnostic;
+    return std::dynamic_pointer_cast<ILlmModel>(model);
+  }
 };
 
 // 1. 真实 Qwen GGUF 物理前向与自回归 Token 生成测试
@@ -44,29 +59,29 @@ TEST_F(RealModelE2ETest, RealQwenGgufTextGeneration) {
     GTEST_SKIP();
   }
 
-  LlamaCppEngine engine;
-  nlohmann::json cfg = {{"max_batch_size", 1}, {"max_seq_len", 512}};
-  ASSERT_TRUE(engine.Load(model_path_, cfg));
+  auto model = CreateModel();
+  ASSERT_NE(model, nullptr);
 
   std::string prompt = "你好，请用一句话告诉我什么是人工智能？";
-  ILlmEngine::GenerateOption opt;
+  GenerateOptions opt;
   opt.max_tokens = 64;
   opt.temperature = 0.7f;
 
-  std::string output;
+  TextBatch output;
   auto t_start = std::chrono::high_resolution_clock::now();
-  int ret = engine.Generate(prompt, opt, &output);
+  int ret = model->Generate({{1, 0, prompt}}, opt, &output);
   auto t_end = std::chrono::high_resolution_clock::now();
 
   double elapsed_ms =
       std::chrono::duration<double, std::milli>(t_end - t_start).count();
 
   EXPECT_EQ(ret, 0);
-  EXPECT_FALSE(output.empty());
+  ASSERT_EQ(output.size(), 1U);
+  EXPECT_FALSE(output[0].data.empty());
   std::cout << "\n=================================================="
             << std::endl;
   std::cout << "  [Real Model E2E] Prompt : " << prompt << std::endl;
-  std::cout << "  [Real Model E2E] Output : " << output << std::endl;
+  std::cout << "  [Real Model E2E] Output : " << output[0].data << std::endl;
   std::cout << "  [Real Model E2E] Latency: " << elapsed_ms << " ms"
             << std::endl;
   std::cout << "=================================================="
@@ -79,12 +94,10 @@ TEST_F(RealModelE2ETest, RealQwenBatchExecutionWithPadding) {
     GTEST_SKIP();
   }
 
-  LlamaCppEngine engine;
-  nlohmann::json cfg = {{"max_batch_size", 2}, {"max_seq_len", 512}};
-  ASSERT_TRUE(engine.Load(model_path_, cfg));
+  auto model = CreateModel();
+  ASSERT_NE(model, nullptr);
 
-  // 构造 3 条请求，Fixed Batch = 2 (触发 2 个硬件 Batch，最后 1 个 Batch 包含 1
-  // 个 Dummy Pad)
+  // 构造 3 条请求，验证独立 sequence 与 provenance。
   std::vector<TraceableItem<std::string>> input_batch = {
       {101, 0, "中国的首都是哪里？"},
       {102, 0, "1+1等于几？"},
@@ -92,11 +105,11 @@ TEST_F(RealModelE2ETest, RealQwenBatchExecutionWithPadding) {
   };
 
   std::vector<TraceableItem<std::string>> output_batch;
-  ILlmEngine::GenerateOption opt;
+  GenerateOptions opt;
   opt.max_tokens = 32;
   opt.temperature = 0.1f;
 
-  int ret = engine.InferTraceableBatch(input_batch, opt, &output_batch);
+  int ret = model->Generate(input_batch, opt, &output_batch);
   EXPECT_EQ(ret, 0);
   ASSERT_EQ(output_batch.size(), 3);
 
@@ -126,8 +139,9 @@ TEST_F(RealModelE2ETest, RealModelCAbiEndToEnd) {
 
   ASSERT_EQ(Alg_Init(), 0);
 
-  std::string cfg_path = GetConfigPath("configs/pipeline_entity_extract.json");
-  std::string model_root = GetConfigPath("models");
+  std::string cfg_path =
+      GetConfigPath("configs/pipeline_entity_extract_llamacpp.json");
+  std::string model_root;
 
   CompanyAlgParamCreate create_param;
   create_param.config_file_path = cfg_path.c_str();

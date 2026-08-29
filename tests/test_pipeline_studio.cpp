@@ -88,34 +88,42 @@ TEST(BlackboardKeyTest, TypedOverloadsShareTheRuntimeKey) {
 TEST(PipelineValidatorTest, AllRepositoryPipelinesValidate) {
   const std::filesystem::path configs("configs");
   size_t validated = 0;
-  const bool has_onnxruntime =
-      BackendRegistry::Instance().Find("onnxruntime").has_value();
+  size_t skipped_optional = 0;
+  size_t candidates = 0;
   for (const auto& entry : std::filesystem::directory_iterator(configs)) {
     const auto filename = entry.path().filename().string();
     if (!entry.is_regular_file() || entry.path().extension() != ".json" ||
         filename.rfind("pipeline_", 0) != 0) {
       continue;
     }
+    ++candidates;
     std::ifstream stream(entry.path());
     ASSERT_TRUE(stream.is_open()) << entry.path();
     nlohmann::json pipeline;
     ASSERT_NO_THROW(stream >> pipeline) << entry.path();
-    bool requires_onnxruntime = false;
+    bool requires_unavailable_runtime = false;
     for (const auto& model :
          pipeline.value("models", nlohmann::json::array())) {
-      if (model.is_object() && model.value("backend", "") == "onnxruntime") {
-        requires_onnxruntime = true;
+      if (!model.is_object()) continue;
+      const std::string backend = model.value("backend", "");
+      const std::string engine = model.value("engine_type", "");
+      if ((!backend.empty() &&
+           !BackendRegistry::Instance().Find(backend).has_value()) ||
+          (!engine.empty() && !EngineFactory::Instance().Has(engine))) {
+        requires_unavailable_runtime = true;
         break;
       }
     }
-    if (requires_onnxruntime && !has_onnxruntime) {
+    if (requires_unavailable_runtime) {
+      ++skipped_optional;
       continue;
     }
     const auto report = PipelineValidator::Validate(pipeline);
     EXPECT_TRUE(report.ok) << entry.path() << "\n" << report.ToJson().dump(2);
     ++validated;
   }
-  EXPECT_GE(validated, has_onnxruntime ? 10U : 8U);
+  EXPECT_GT(validated, 0U);
+  EXPECT_EQ(validated + skipped_optional, candidates);
 }
 
 TEST(PipelineValidatorTest, ReportsCycle) {

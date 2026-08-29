@@ -94,10 +94,11 @@ set(FRAMEWORK_SRCS
     src/engine/mock_npu/mock_npu_ocr_engine.cpp
     src/engine/mock_npu/mock_npu_asr_engine.cpp
     src/engine/onnx/onnx_embedding_engine.cpp
-    src/engine/llama_cpp/llama_cpp_engine.cpp
+    src/engine/backends/llama_cpp/llama_cpp_backend.cpp
     src/engine/models/bge_embedding/bert_wordpiece_tokenizer.cpp
     src/engine/models/bge_embedding/bge_embedding_model.cpp
     src/engine/models/bge_reranker/bge_reranker_model.cpp
+    src/engine/models/qwen_causal_lm/qwen_causal_lm_model.cpp
     src/common_nodes/text_template_node.cpp
     src/common_nodes/text_chunk_node.cpp
     src/common_nodes/text_rule_match_node.cpp
@@ -140,6 +141,10 @@ if(LLM_EDGEFLOW_HAS_ONNXRUNTIME)
   target_include_directories(alg_sdk PRIVATE SYSTEM "${ONNXRUNTIME_INCLUDE_DIR}")
   target_compile_definitions(alg_sdk PRIVATE HAVE_ONNXRUNTIME=1)
   target_link_libraries(alg_sdk PRIVATE "${ONNXRUNTIME_LIB}")
+endif()
+if(LLM_EDGEFLOW_HAS_LLAMACPP)
+  target_include_directories(alg_sdk SYSTEM PRIVATE ${LLAMACPP_INCLUDE_DIRS})
+  target_compile_definitions(alg_sdk PRIVATE HAVE_LLAMACPP=1)
 endif()
 if(THIRD_PARTY_ENGINE_LIBS)
   target_link_libraries(alg_sdk PRIVATE ${THIRD_PARTY_ENGINE_LIBS})
@@ -216,9 +221,13 @@ add_executable(test_c_abi_safety tests/test_c_abi_safety.cpp)
 target_link_libraries(test_c_abi_safety PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
 add_test(NAME CAbiSafetyTest COMMAND test_c_abi_safety)
 
-add_executable(test_qwen_engines_comparison tests/test_qwen_engines_comparison.cpp)
-target_link_libraries(test_qwen_engines_comparison PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
-add_test(NAME QwenEnginesComparisonTest COMMAND test_qwen_engines_comparison)
+add_executable(test_qwen_causal_lm_model tests/test_qwen_causal_lm_model.cpp)
+target_link_libraries(test_qwen_causal_lm_model PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME QwenCausalLmModelTest COMMAND test_qwen_causal_lm_model)
+
+add_executable(test_llama_cpp_backend tests/test_llama_cpp_backend.cpp)
+target_link_libraries(test_llama_cpp_backend PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
+add_test(NAME LlamaCppBackendTest COMMAND test_llama_cpp_backend)
 
 add_executable(test_different_io_modalities tests/test_different_io_modalities.cpp)
 target_link_libraries(test_different_io_modalities PRIVATE alg_sdk GTest::gtest GTest::gtest_main)
@@ -415,7 +424,7 @@ set_tests_properties(
   C11AbiComplianceTest LayerGuardTest ArchitectureDocsDriftTest
   ArchitectureDocsDriftGateSelfTest DiagramAssetsCheckTest
   DiagramRenderGateSelfTest BatchExecutorTest FrameworkCoreTest
-  CAbiSafetyTest CompanyAlgLogTest QwenEnginesComparisonTest DifferentIoModalitiesTest
+  CAbiSafetyTest CompanyAlgLogTest QwenCausalLmModelTest LlamaCppBackendTest DifferentIoModalitiesTest
   AllBizPipelinesTest ConcurrencyAndEdgeCasesTest DagPipelineTest
   RuntimeControlAndHotSwapTest EngineFaultToleranceAndLifecycleTest
   AdapterContractSecurityTest PipelineConfigTest RegistryConflictNodeTest

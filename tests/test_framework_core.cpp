@@ -122,10 +122,7 @@ TEST(EngineRegistryTest, ModelManagerAndEngines) {
   auto onnx_rerank = engine_factory.Create("onnx_rerank");
   EXPECT_EQ(onnx_rerank, nullptr);
 
-  auto llama_engine = engine_factory.Create("llama_cpp");
-  if (llama_engine) {
-    EXPECT_EQ(llama_engine->EngineType(), "llama_cpp");
-  }
+  EXPECT_EQ(engine_factory.Create("llama_cpp"), nullptr);
 
   // 模型装载与提取
   nlohmann::json cfg = {{"max_batch_size", 4}, {"embedding_dim", 128}};
