@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "engine/backend_interface.h"
+#include "engine/fixed_batch_executor.h"
 #include "engine/model_interface.h"
 #include "engine/model_registry.h"
 #include "engine/models/bge_embedding/bert_wordpiece_tokenizer.h"
@@ -50,9 +51,14 @@ class BgeEmbeddingModel final : public IEmbeddingModel {
   const BertWordPieceTokenizer& Tokenizer() const noexcept {
     return tokenizer_;
   }
+  size_t EmbeddingDim() const noexcept { return embedding_dim_; }
+  size_t MaxLength() const noexcept { return max_length_; }
+  const std::string& PoolingStrategy() const noexcept {
+    return pooling_strategy_;
+  }
 
  private:
-  int RawEmbedBatch(const std::vector<std::string>& batch_texts,
+  int RawEmbedSlice(const TextBatch& all_inputs, const BatchSlice& slice,
                     std::vector<std::vector<float>>* batch_embeddings,
                     bool normalize_flag) noexcept;
 

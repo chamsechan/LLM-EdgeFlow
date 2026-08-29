@@ -209,8 +209,12 @@ bool BertWordPieceTokenizer::InitializeVocab(
   return true;
 }
 
-std::vector<std::string> BertWordPieceTokenizer::BasicTokenize(
-    const std::string& text) const {
+bool BertWordPieceTokenizer::BasicTokenize(const std::string& text,
+                                           std::vector<std::string>* words,
+                                           std::string* diagnostic) const {
+  if (!words) return false;
+  words->clear();
+
   std::string clean_text;
   clean_text.reserve(text.size() * 2);
 
@@ -222,10 +226,14 @@ std::vector<std::string> BertWordPieceTokenizer::BasicTokenize(
     uint32_t cp = 0;
     size_t consumed = DecodeUtf8CodePoint(ptr + offset, len - offset, &cp);
     if (consumed == 0) {
-      // 非法 UTF-8 字节，跳过该字节并插入空格
-      clean_text.push_back(' ');
-      offset += 1;
-      continue;
+      // 严格 Fail-Closed：输入包含非法 UTF-8 字节序列时立即拒绝
+      if (diagnostic) {
+        *diagnostic =
+            "Invalid UTF-8 byte sequence detected in input text at byte "
+            "offset " +
+            std::to_string(offset);
+      }
+      return false;
     }
 
     offset += consumed;
@@ -258,13 +266,12 @@ std::vector<std::string> BertWordPieceTokenizer::BasicTokenize(
     }
   }
 
-  std::vector<std::string> words;
   std::stringstream ss(clean_text);
   std::string word;
   while (ss >> word) {
-    words.push_back(std::move(word));
+    words->push_back(std::move(word));
   }
-  return words;
+  return true;
 }
 
 std::vector<int64_t> BertWordPieceTokenizer::WordPieceTokenize(
@@ -327,10 +334,14 @@ std::vector<int64_t> BertWordPieceTokenizer::WordPieceTokenize(
   return token_ids;
 }
 
-void BertWordPieceTokenizer::Encode(
-    const std::string& text, size_t max_length, std::vector<int64_t>* input_ids,
-    std::vector<int64_t>* attention_mask) const {
-  if (!input_ids || !attention_mask) return;
+bool BertWordPieceTokenizer::Encode(const std::string& text, size_t max_length,
+                                    std::vector<int64_t>* input_ids,
+                                    std::vector<int64_t>* attention_mask,
+                                    std::string* diagnostic) const {
+  if (!input_ids || !attention_mask) {
+    if (diagnostic) *diagnostic = "Output pointers cannot be null";
+    return false;
+  }
   input_ids->assign(max_length, pad_token_id_);
   attention_mask->assign(max_length, 0);
 
@@ -339,10 +350,14 @@ void BertWordPieceTokenizer::Encode(
       (*input_ids)[0] = cls_token_id_;
       (*attention_mask)[0] = 1;
     }
-    return;
+    return true;
   }
 
-  std::vector<std::string> words = BasicTokenize(text);
+  std::vector<std::string> words;
+  if (!BasicTokenize(text, &words, diagnostic)) {
+    return false;
+  }
+
   std::vector<int64_t> body_ids = WordPieceTokenize(words);
 
   size_t max_body_len = max_length - 2;
@@ -350,7 +365,6 @@ void BertWordPieceTokenizer::Encode(
     body_ids.resize(max_body_len);
   }
 
-  size_t total_len = body_ids.size() + 2;
   (*input_ids)[0] = cls_token_id_;
   (*attention_mask)[0] = 1;
 
@@ -362,7 +376,7 @@ void BertWordPieceTokenizer::Encode(
   (*input_ids)[1 + body_ids.size()] = sep_token_id_;
   (*attention_mask)[1 + body_ids.size()] = 1;
 
-  (void)total_len;
+  return true;
 }
 
 }  // namespace alg_framework

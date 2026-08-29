@@ -17,15 +17,8 @@ namespace {
 bool ValidateEmbeddingOutput(const Tensor& tensor, size_t expected_batch,
                              size_t expected_dim, const float** data_ptr,
                              std::string* diagnostic) noexcept {
-  if (!tensor.buffer || tensor.buffer->Data() == nullptr) {
-    if (diagnostic) *diagnostic = "Output tensor buffer is null";
-    return false;
-  }
-
-  if (tensor.desc.element_type != ElementType::kFloat32) {
-    if (diagnostic) {
-      *diagnostic = "Output tensor element type is not Float32";
-    }
+  if (expected_batch == 0 || expected_dim == 0) {
+    if (diagnostic) *diagnostic = "Expected batch and dim must be positive";
     return false;
   }
 
@@ -38,7 +31,18 @@ bool ValidateEmbeddingOutput(const Tensor& tensor, size_t expected_batch,
     return false;
   }
 
-  if (shape[0] < 0 || static_cast<size_t>(shape[0]) != expected_batch) {
+  for (size_t d = 0; d < shape.size(); ++d) {
+    if (shape[d] <= 0) {
+      if (diagnostic) {
+        *diagnostic =
+            "Output tensor dimension " + std::to_string(d) +
+            " must be strictly positive, got: " + std::to_string(shape[d]);
+      }
+      return false;
+    }
+  }
+
+  if (static_cast<size_t>(shape[0]) != expected_batch) {
     if (diagnostic) {
       *diagnostic = "Output tensor batch dimension mismatch. Expected: " +
                     std::to_string(expected_batch) +
@@ -47,28 +51,8 @@ bool ValidateEmbeddingOutput(const Tensor& tensor, size_t expected_batch,
     return false;
   }
 
-  size_t dim = 0;
-  size_t total_elements = 0;
-
-  if (shape.size() == 2) {
-    if (shape[1] < 0) {
-      if (diagnostic) *diagnostic = "Output tensor dimension 1 is negative";
-      return false;
-    }
-    dim = static_cast<size_t>(shape[1]);
-    total_elements = expected_batch * dim;
-  } else {
-    if (shape[1] <= 0 || shape[2] < 0) {
-      if (diagnostic) {
-        *diagnostic = "Output tensor sequence or dim dimension is invalid";
-      }
-      return false;
-    }
-    size_t seq_len = static_cast<size_t>(shape[1]);
-    dim = static_cast<size_t>(shape[2]);
-    total_elements = expected_batch * seq_len * dim;
-  }
-
+  size_t dim = (shape.size() == 2) ? static_cast<size_t>(shape[1])
+                                   : static_cast<size_t>(shape[2]);
   if (dim != expected_dim) {
     if (diagnostic) {
       *diagnostic = "Output tensor embedding_dim mismatch. Expected: " +
@@ -78,19 +62,16 @@ bool ValidateEmbeddingOutput(const Tensor& tensor, size_t expected_batch,
     return false;
   }
 
-  size_t expected_byte_size = total_elements * sizeof(float);
-  if (tensor.buffer->ByteSize() < expected_byte_size) {
-    if (diagnostic) {
-      *diagnostic =
-          "Output tensor buffer byte size is smaller than expected. "
-          "Expected: " +
-          std::to_string(expected_byte_size) +
-          ", got: " + std::to_string(tensor.buffer->ByteSize());
-    }
+  // 使用公共安全访问器 GetTensorData<float> 统一完成 dtype、对齐、溢出与精确
+  // byte size 校验
+  const float* data = GetTensorData<float>(tensor, diagnostic);
+  if (!data) {
     return false;
   }
 
-  *data_ptr = static_cast<const float*>(tensor.buffer->Data());
+  if (data_ptr) {
+    *data_ptr = data;
+  }
   return true;
 }
 
@@ -135,6 +116,20 @@ std::shared_ptr<IModel> BgeEmbeddingModel::Create(const ModelCreateContext& ctx,
     return nullptr;
   }
   size_t embedding_dim = ctx.model_config["embedding_dim"].get<size_t>();
+  size_t max_batch_size = ctx.model_config.value("max_batch_size", 4);
+
+  // 严格 Batch 契约：若 Session 为固定 Batch 且 Model 配置上限小于 Session 固定
+  // Batch，明确拒绝
+  auto session_policy = tensor_session->GetBatchPolicy();
+  if (session_policy.fixed_batch_size > 0 &&
+      max_batch_size < session_policy.fixed_batch_size) {
+    if (diagnostic) {
+      *diagnostic = "Model max_batch_size (" + std::to_string(max_batch_size) +
+                    ") cannot be smaller than Session fixed_batch_size (" +
+                    std::to_string(session_policy.fixed_batch_size) + ")";
+    }
+    return nullptr;
+  }
 
   std::string tokenizer_file =
       ctx.model_config.value("tokenizer_file", "vocab.txt");
@@ -144,26 +139,26 @@ std::shared_ptr<IModel> BgeEmbeddingModel::Create(const ModelCreateContext& ctx,
   bool normalize = ctx.model_config.value("normalize", true);
   std::string output_name =
       ctx.model_config.value("output_name", "last_hidden_state");
-  size_t max_batch_size = ctx.model_config.value("max_batch_size", 4);
 
-  // 解析并加载词表 sidecar 文件
+  // 解析并加载词表 sidecar 文件 (使用 weakly_canonical 防止符号链接/路径逃逸)
   std::filesystem::path tok_p(tokenizer_file);
   std::filesystem::path resolved_vocab_path;
 
   if (tok_p.is_absolute()) {
     resolved_vocab_path = tok_p.lexically_normal();
   } else {
-    std::string tok_str = tok_p.lexically_normal().string();
-    if (tok_str == ".." || tok_str.rfind("../", 0) == 0 ||
-        tok_str.rfind("..\\", 0) == 0) {
+    std::filesystem::path root_p =
+        std::filesystem::weakly_canonical(ctx.model_resource_root);
+    resolved_vocab_path = std::filesystem::weakly_canonical(root_p / tok_p);
+    std::string root_str = root_p.string();
+    std::string res_str = resolved_vocab_path.string();
+    if (res_str.rfind(root_str, 0) != 0) {
       if (diagnostic) {
         *diagnostic =
             "Tokenizer file path cannot escape root: " + tokenizer_file;
       }
       return nullptr;
     }
-    std::filesystem::path root_p(ctx.model_resource_root);
-    resolved_vocab_path = (root_p / tok_p).lexically_normal();
   }
 
   BertWordPieceTokenizer tokenizer;
@@ -214,37 +209,39 @@ int BgeEmbeddingModel::Embed(const TextBatch& inputs,
     return -1;
   }
 
-  std::string dummy_pad = "<PAD>";
   bool should_normalize = options.normalize && default_normalize_;
+  BatchPolicy policy = session_->GetBatchPolicy();
 
-  size_t effective_batch_size = GetMaxBatchSize();
+  if (policy.fixed_batch_size == 0) {
+    policy.max_batch_size = std::min(max_batch_size_, policy.max_batch_size);
+  }
 
   return FixedBatchExecutor::Execute<std::string, std::vector<float>>(
-      inputs, effective_batch_size, dummy_pad,
-      [this, should_normalize](
-          const std::vector<std::string>& batch_texts,
+      inputs, policy,
+      [this, should_normalize, &inputs](
+          const BatchSlice& slice,
           std::vector<std::vector<float>>* batch_embeddings) {
-        return this->RawEmbedBatch(batch_texts, batch_embeddings,
+        return this->RawEmbedSlice(inputs, slice, batch_embeddings,
                                    should_normalize);
       },
       outputs);
 }
 
-int BgeEmbeddingModel::RawEmbedBatch(
-    const std::vector<std::string>& batch_texts,
+int BgeEmbeddingModel::RawEmbedSlice(
+    const TextBatch& all_inputs, const BatchSlice& slice,
     std::vector<std::vector<float>>* batch_embeddings,
     bool normalize_flag) noexcept {
   if (!batch_embeddings) return -1;
   batch_embeddings->clear();
 
-  size_t batch_size = batch_texts.size();
-  if (batch_size == 0) return 0;
+  size_t exec_count = slice.execution_count;
+  if (exec_count == 0) return 0;
 
   try {
     std::string diag;
     TensorDesc in_desc;
     in_desc.element_type = ElementType::kInt64;
-    in_desc.shape = {static_cast<int64_t>(batch_size),
+    in_desc.shape = {static_cast<int64_t>(exec_count),
                      static_cast<int64_t>(max_length_)};
 
     Tensor input_ids_tensor;
@@ -269,13 +266,26 @@ int BgeEmbeddingModel::RawEmbedBatch(
     std::vector<int64_t> sample_ids(max_length_, 0);
     std::vector<int64_t> sample_mask(max_length_, 0);
 
-    for (size_t b = 0; b < batch_size; ++b) {
-      tokenizer_.Encode(batch_texts[b], max_length_, &sample_ids, &sample_mask);
-      std::memcpy(ids_ptr + b * max_length_, sample_ids.data(),
+    for (size_t i = 0; i < exec_count; ++i) {
+      if (i < slice.valid_count) {
+        const auto& text = all_inputs[slice.offset + i].data;
+        if (!tokenizer_.Encode(text, max_length_, &sample_ids, &sample_mask,
+                               &diag)) {
+          ALG_LOG_ERROR("[BgeEmbeddingModel] Tokenizer encode error: %s\n",
+                        diag.c_str());
+          batch_embeddings->clear();
+          return -1;
+        }
+      } else {
+        // Dummy padding item
+        tokenizer_.Encode("", max_length_, &sample_ids, &sample_mask, nullptr);
+      }
+
+      std::memcpy(ids_ptr + i * max_length_, sample_ids.data(),
                   max_length_ * sizeof(int64_t));
-      std::memcpy(mask_ptr + b * max_length_, sample_mask.data(),
+      std::memcpy(mask_ptr + i * max_length_, sample_mask.data(),
                   max_length_ * sizeof(int64_t));
-      std::memset(type_ptr + b * max_length_, 0, max_length_ * sizeof(int64_t));
+      std::memset(type_ptr + i * max_length_, 0, max_length_ * sizeof(int64_t));
     }
 
     TensorMap input_map;
@@ -295,6 +305,7 @@ int BgeEmbeddingModel::RawEmbedBatch(
     if (ret != 0) {
       ALG_LOG_ERROR("[BgeEmbeddingModel] session_->Run failed: %s\n",
                     diag.c_str());
+      batch_embeddings->clear();
       return ret;
     }
 
@@ -306,26 +317,28 @@ int BgeEmbeddingModel::RawEmbedBatch(
           "session "
           "outputs\n",
           output_name_.c_str());
+      batch_embeddings->clear();
       return -1;
     }
 
     const float* data = nullptr;
-    if (!ValidateEmbeddingOutput(it_out->second, batch_size, embedding_dim_,
+    if (!ValidateEmbeddingOutput(it_out->second, exec_count, embedding_dim_,
                                  &data, &diag)) {
       ALG_LOG_ERROR("[BgeEmbeddingModel] ValidateEmbeddingOutput failed: %s\n",
                     diag.c_str());
+      batch_embeddings->clear();
       return -1;
     }
 
     const auto& shape = it_out->second.desc.shape;
-    batch_embeddings->resize(batch_size);
+    batch_embeddings->resize(exec_count);
 
     if (shape.size() == 3) {
-      // 3D 结构 [batch_size, seq_len, dim]
+      // 3D 结构 [exec_count, seq_len, dim]
       size_t seq_len = static_cast<size_t>(shape[1]);
       size_t dim = static_cast<size_t>(shape[2]);
 
-      for (size_t b = 0; b < batch_size; ++b) {
+      for (size_t b = 0; b < exec_count; ++b) {
         std::vector<float>& vec = (*batch_embeddings)[b];
         vec.assign(dim, 0.0f);
 
@@ -362,9 +375,9 @@ int BgeEmbeddingModel::RawEmbedBatch(
         }
       }
     } else if (shape.size() == 2) {
-      // 2D 结构 [batch_size, dim]
+      // 2D 结构 [exec_count, dim]
       size_t dim = static_cast<size_t>(shape[1]);
-      for (size_t b = 0; b < batch_size; ++b) {
+      for (size_t b = 0; b < exec_count; ++b) {
         std::vector<float>& vec = (*batch_embeddings)[b];
         vec.assign(dim, 0.0f);
         std::memcpy(vec.data(), data + b * dim, dim * sizeof(float));
@@ -382,12 +395,12 @@ int BgeEmbeddingModel::RawEmbedBatch(
 
     return 0;
   } catch (const std::exception& e) {
-    ALG_LOG_ERROR("[BgeEmbeddingModel] RawEmbedBatch exception: %s\n",
+    ALG_LOG_ERROR("[BgeEmbeddingModel] RawEmbedSlice exception: %s\n",
                   e.what());
     batch_embeddings->clear();
     return -1;
   } catch (...) {
-    ALG_LOG_ERROR("[BgeEmbeddingModel] RawEmbedBatch unknown exception\n");
+    ALG_LOG_ERROR("[BgeEmbeddingModel] RawEmbedSlice unknown exception\n");
     batch_embeddings->clear();
     return -1;
   }

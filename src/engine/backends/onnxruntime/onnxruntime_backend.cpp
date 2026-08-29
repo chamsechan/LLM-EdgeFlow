@@ -117,15 +117,16 @@ bool ValidateRuntimeTensor(const Tensor& tensor, const TensorSpec& spec,
   }
 
   size_t elem_size = ElementTypeByteSize(tensor.desc.element_type);
-  size_t num_elements = 1;
-  for (int64_t dim : tensor.desc.shape) {
-    num_elements *= static_cast<size_t>(dim);
+  size_t expected_bytes = 0;
+  if (!inference_detail::ComputeTensorByteSize(tensor.desc, elem_size,
+                                               &expected_bytes, diagnostic)) {
+    return false;
   }
 
-  if (tensor.buffer->ByteSize() != num_elements * elem_size) {
+  if (tensor.buffer->ByteSize() != expected_bytes) {
     if (diagnostic) {
       *diagnostic = "Input tensor buffer byte size mismatch for: " + spec.name +
-                    ". Expected: " + std::to_string(num_elements * elem_size) +
+                    ". Expected: " + std::to_string(expected_bytes) +
                     ", got: " + std::to_string(tensor.buffer->ByteSize());
     }
     return false;
@@ -251,18 +252,46 @@ class OnnxTensorGraphSession : public ITensorGraphSession {
 
         auto type_info = ort_out.GetTensorTypeAndShapeInfo();
         auto elem_type_opt = TryMapOnnxElementType(type_info.GetElementType());
-        if (!elem_type_opt.has_value()) {
+        if (!elem_type_opt.has_value() || *elem_type_opt != spec.element_type) {
           if (diagnostic) {
             *diagnostic =
-                "Output tensor has unsupported element type: " + spec.name;
+                "Output tensor element type mismatch for: " + spec.name;
           }
           outputs->clear();
           return -1;
         }
 
+        auto shape = type_info.GetShape();
+        if (shape.size() != spec.shape.size()) {
+          if (diagnostic) {
+            *diagnostic = "Output tensor rank mismatch for: " + spec.name;
+          }
+          outputs->clear();
+          return -1;
+        }
+
+        for (size_t d = 0; d < spec.shape.size(); ++d) {
+          if (shape[d] < 0) {
+            if (diagnostic) {
+              *diagnostic =
+                  "Output tensor has negative runtime dimension: " + spec.name;
+            }
+            outputs->clear();
+            return -1;
+          }
+          if (spec.shape[d] >= 0 && shape[d] != spec.shape[d]) {
+            if (diagnostic) {
+              *diagnostic =
+                  "Output tensor static dimension mismatch for: " + spec.name;
+            }
+            outputs->clear();
+            return -1;
+          }
+        }
+
         TensorDesc out_desc;
         out_desc.element_type = *elem_type_opt;
-        out_desc.shape = type_info.GetShape();
+        out_desc.shape = shape;
 
         Tensor host_tensor;
         if (!CreateHostTensor(out_desc, &host_tensor, diagnostic)) {

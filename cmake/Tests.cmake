@@ -41,6 +41,9 @@ set(EDGEFLOW_TEST_CORE_SRCS
 add_executable(edgeflow_test_core_runner ${EDGEFLOW_TEST_CORE_SRCS})
 target_link_libraries(edgeflow_test_core_runner PRIVATE
   alg_sdk GTest::gtest GTest::gtest_main)
+if(LLM_EDGEFLOW_HAS_ONNXRUNTIME)
+  target_compile_definitions(edgeflow_test_core_runner PRIVATE HAVE_ONNXRUNTIME=1)
+endif()
 edgeflow_enable_test_pch(edgeflow_test_core_runner)
 
 set(EDGEFLOW_TEST_NODE_SRCS

@@ -56,6 +56,7 @@ lib/
 !models/
 !models/.gitkeep
 !models/README.md
+models/vocab.txt
 
 # ------------------------------------------------------------------------------
 # 4. 测试报告与运行日志 (Test Reports, GTest Outputs & Logs)
