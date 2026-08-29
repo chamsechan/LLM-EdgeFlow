@@ -328,9 +328,16 @@ add_test(NAME DiagramRenderGateSelfTest
   COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_diagram_render_gate.sh)
 add_test(NAME ScriptGeneratorDetectionTest
   COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_script_generator_detection.sh)
+add_test(NAME CompilerCacheDetectionTest
+  COMMAND ${CMAKE_COMMAND}
+          -DEDGEFLOW_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+          -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_compiler_cache_detection.cmake)
+add_test(NAME BuildWorkflowContractTest
+  COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_build_workflow_contract.sh)
 set_tests_properties(
   LayerGuardTest LayerGuardSelfTest ArchitectureDocsDriftTest
   ArchitectureDocsDriftGateSelfTest ScriptGeneratorDetectionTest
+  CompilerCacheDetectionTest BuildWorkflowContractTest
   PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
   LABELS "tier1;static-gate;dev-fast;sanitizer-compatible")
 set_tests_properties(DiagramAssetsCheckTest DiagramRenderGateSelfTest
@@ -424,8 +431,17 @@ set_tests_properties(PipelineToolCatalogTest PipelineToolValidateTest
   LABELS "${_edgeflow_tier4}")
 
 add_custom_target(edgeflow_dev_tests DEPENDS
-  alg_demo alg_pipeline_tool alg_show test_c11_abi_compliance
+  alg_demo alg_pipeline_tool alg_pipeline_tool_test alg_show
+  test_c11_abi_compliance
   test_registry_conflict test_model_backend_registry_conflict
   test_catalog_contract_ssot edgeflow_test_core_runner
   edgeflow_test_nodes_runner edgeflow_test_adapter_runner
   edgeflow_test_tooling_runner)
+
+get_property(_edgeflow_registered_tests DIRECTORY PROPERTY TESTS)
+set_tests_properties(${_edgeflow_registered_tests} PROPERTIES TIMEOUT 120)
+set_tests_properties(RegistryConflictNodeTest RegistryConflictModelTest
+  PROPERTIES TIMEOUT 5)
+if(ENABLE_REAL_MODEL_TESTS)
+  set_tests_properties(RealModelE2ETest PROPERTIES TIMEOUT 1800)
+endif()

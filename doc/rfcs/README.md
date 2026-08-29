@@ -79,7 +79,7 @@ doc/rfcs/NNNN-<kebab-case-title>.md
 | **RFC-0013** | 开发反馈闭环加速 | `Completed` | `v4.2.0` | Tooling / Test Infrastructure | [0013-developer-feedback-loop-acceleration.md](0013-developer-feedback-loop-acceleration.md) |
 | **RFC-0014** | 独立公共日志 API 与核心日志统一 | `Completed` | `v4.3.0` | Cross-Cutting / Layer 1 ~ Layer 4 | [0014-public-log-api.md](0014-public-log-api.md) |
 | **RFC-0015** | 模型能力与推理运行时解耦实施规范 | `Completed` | `v5.0.0` | Layer 2 ~ Layer 4 | [0015-model-capability-backend-decoupling.md](0015-model-capability-backend-decoupling.md) |
-| **RFC-0016** | 构建与测试工作流收敛 | `In Implementation` | `v5.1.0` | Tooling / Test Infrastructure | [0016-build-and-test-workflow-convergence.md](0016-build-and-test-workflow-convergence.md) |
+| **RFC-0016** | 构建与测试工作流收敛 | `Completed` | `v5.1.0` | Tooling / Test Infrastructure | [0016-build-and-test-workflow-convergence.md](0016-build-and-test-workflow-convergence.md) |
 
 ---
 

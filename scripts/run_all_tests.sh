@@ -9,23 +9,29 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 
 MODE="full"
+LEGACY_FAST_ALIAS=0
 if [[ $# -gt 1 ]]; then
-  echo "Usage: $0 [--fast | --full]"
+  echo "Usage: $0 [--quick | --fast | --minimal | --full]"
   exit 2
 fi
 if [[ $# -eq 1 ]]; then
   case "$1" in
-    --fast) MODE="fast" ;;
+    --quick) MODE="quick" ;;
+    --fast)
+      MODE="quick"
+      LEGACY_FAST_ALIAS=1
+      ;;
+    --minimal) MODE="minimal" ;;
     --full) MODE="full" ;;
     *)
-      echo "Usage: $0 [--fast | --full]"
+      echo "Usage: $0 [--quick | --fast | --minimal | --full]"
       exit 2
       ;;
   esac
 fi
 
-if [[ "$MODE" == "fast" ]]; then
-  BUILD_DIR="$ROOT_DIR/build-fast"
+if [[ "$MODE" == "minimal" ]]; then
+  BUILD_DIR="$ROOT_DIR/build-minimal"
 else
   BUILD_DIR="$ROOT_DIR/build"
 fi
@@ -46,6 +52,9 @@ echo -e "${BOLD}${CYAN}=========================================================
 echo -e "${BOLD}${CYAN}  LLM-EdgeFlow Unified Quality Gate                              ${NC}"
 echo -e "${BOLD}${CYAN}  Mode: $MODE | Build: $BUILD_DIR | Linker: $SELECTED_LINKER${NC}"
 echo -e "${BOLD}${CYAN}==================================================================${NC}\n"
+if [[ "$LEGACY_FAST_ALIAS" -eq 1 ]]; then
+  echo -e "${CYAN}Note: --fast is a compatibility alias for --quick.${NC}\n"
+fi
 
 echo -e "${BOLD}[ Step 1/6: Shell syntax, Google C++ format and Git diff gates ]${NC}"
 for sh_file in "$SCRIPT_DIR"/*.sh; do
@@ -68,13 +77,23 @@ CMAKE_ARGS=(
   -DLLM_EDGEFLOW_LINKER="$SELECTED_LINKER"
   -DENABLE_REAL_MODEL_TESTS=OFF
 )
-if [[ "$MODE" == "fast" ]]; then
+if [[ "$MODE" == "minimal" ]]; then
   CMAKE_ARGS+=(
     -DCMAKE_BUILD_TYPE=Debug
     -DLLM_EDGEFLOW_FAST_BUILD=ON
     -DENABLE_LLAMACPP=OFF
     -DENABLE_ONNXRUNTIME=OFF
   )
+  if [[ -d "$ROOT_DIR/build/_deps/nlohmann_json-src" ]]; then
+    CMAKE_ARGS+=(
+      -DFETCHCONTENT_SOURCE_DIR_NLOHMANN_JSON="$ROOT_DIR/build/_deps/nlohmann_json-src"
+    )
+  fi
+  if [[ -d "$ROOT_DIR/build/_deps/googletest-src" ]]; then
+    CMAKE_ARGS+=(
+      -DFETCHCONTENT_SOURCE_DIR_GOOGLETEST="$ROOT_DIR/build/_deps/googletest-src"
+    )
+  fi
 else
   CMAKE_ARGS+=(
     -DCMAKE_BUILD_TYPE=Release
@@ -91,10 +110,10 @@ else
   # macOS 自带 Bash 3.2 在 set -u 下不能展开空数组。
   cmake -S "$ROOT_DIR" -B "$BUILD_DIR" "${CMAKE_ARGS[@]}"
 fi
-if [[ "$MODE" == "fast" ]]; then
-  cmake --build "$BUILD_DIR" --target edgeflow_dev_tests -j"$JOBS"
-else
+if [[ "$MODE" == "full" ]]; then
   cmake --build "$BUILD_DIR" -j"$JOBS"
+else
+  cmake --build "$BUILD_DIR" --target edgeflow_dev_tests -j"$JOBS"
 fi
 echo -e "${GREEN}✓ Build completed.${NC}\n"
 
@@ -106,7 +125,7 @@ CTEST_ARGS=(
   -j"$JOBS"
   --output-on-failure
 )
-if [[ "$MODE" == "fast" ]]; then
+if [[ "$MODE" != "full" ]]; then
   CTEST_ARGS+=( -L dev-fast )
 fi
 ctest "${CTEST_ARGS[@]}"

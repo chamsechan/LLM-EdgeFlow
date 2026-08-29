@@ -2,7 +2,7 @@
 
 - **RFC 编号**：0016-build-and-test-workflow-convergence
 - **创建日期**：2026-08-29
-- **文档状态**：In Implementation
+- **文档状态**：Completed
 - **关联分支**：`feat/build-test-workflow-optimization`
 - **目标版本**：v5.1.0
 - **负责人 / 作者**：LLM-EdgeFlow Team
@@ -41,17 +41,17 @@ RFC-0013 已引入分片测试 Runner、PCH、CTest 标签、ccache 和 fast/ful
 
 ### 2.1 范围内 (In-Scope)
 
-- [ ] `--quick` 与 `--full` 共享 `build/` 和完整后端能力；无参数仍为 full。
-- [ ] 旧 `--fast` 保留为 `--quick` 兼容别名，避免现有自动化立即失效。
-- [ ] 新增显式 `--minimal`，在独立构建目录中关闭 ONNX Runtime/llama.cpp，
+- [x] `--quick` 与 `--full` 共享 `build/` 和完整后端能力；无参数仍为 full。
+- [x] 旧 `--fast` 保留为 `--quick` 兼容别名，避免现有自动化立即失效。
+- [x] 新增显式 `--minimal`，在独立构建目录中关闭 ONNX Runtime/llama.cpp，
       验证可选后端关闭时的编译与测试能力。
-- [ ] 修复 `edgeflow_dev_tests` 的完整依赖闭包并增加静态工作流契约测试。
-- [ ] ccache 继续使用 `find_program` 跨平台发现；不写死程序或缓存路径；编译器
+- [x] 修复 `edgeflow_dev_tests` 的完整依赖闭包并增加静态工作流契约测试。
+- [x] ccache 继续使用 `find_program` 跨平台发现；不写死程序或缓存路径；编译器
       已是 ccache wrapper 时跳过 launcher，避免双重包装。
-- [ ] 固定所有 FetchContent URL 的 SHA256；llama.cpp 固定到确定提交；使用
+- [x] 固定所有 FetchContent URL 的 SHA256；llama.cpp 固定到确定提交；使用
       现代 FetchContent API，并允许 minimal/sanitizer 复用已获取的源码目录。
-- [ ] 为所有默认测试设置有限超时，避免门禁无限挂起。
-- [ ] 更新 README 开发命令、Changelog、RFC 索引与 CI 缓存键。
+- [x] 为所有默认测试设置有限超时，避免门禁无限挂起。
+- [x] 更新 README 开发命令、Changelog、RFC 索引与 CI 缓存键。
 
 ### 2.2 非目标 (Non-Goals / Out-of-Scope)
 
@@ -119,27 +119,43 @@ CMake compiler cache selection
 
 ## 5. 测试与质量验收计划 (Testing & Verification Plan)
 
-- [ ] CMake 脚本测试：普通编译器启用 launcher，ccache wrapper 跳过 launcher。
-- [ ] 工作流契约测试：quick/full 共享 `build/`，minimal 使用隔离目录，旧 fast
+- [x] CMake 脚本测试：普通编译器启用 launcher，ccache wrapper 跳过 launcher。
+- [x] 工作流契约测试：quick/full 共享 `build/`，minimal 使用隔离目录，旧 fast
       映射 quick，dev target 包含 `alg_pipeline_tool_test`。
-- [ ] 干净 minimal 构建与 `dev-fast` CTest 100% 通过。
-- [ ] `./scripts/run_all_tests.sh --quick` 100% 通过。
-- [ ] `./scripts/run_all_tests.sh --full` 全量 CTest 100% 通过。
-- [ ] `./scripts/run_sanitizers.sh --fast` 100% 通过。
-- [ ] `./scripts/format.sh --check`、`git diff --check`、LayerGuard 全部通过。
-- [ ] 复验 Pipeline catalog/validate/plan 与 Demo smoke，确认生产运行时无变化。
+- [x] 干净 minimal 构建与 `dev-fast` CTest 100% 通过。
+- [x] `./scripts/run_all_tests.sh --quick` 100% 通过。
+- [x] `./scripts/run_all_tests.sh --full` 全量 CTest 100% 通过。
+- [x] `LLM_EDGEFLOW_SANITIZERS=undefined ./scripts/run_sanitizers.sh --fast` 100% 通过；
+      本机 ASan 因 macOS 26.6.2 搭配 Apple Clang 16 / macOS 15 SDK，在最小独立
+      探针进入 `main()` 前即触发 `asan_init_is_running`，记录为宿主工具链阻塞，
+      不是项目测试失败。
+- [x] `./scripts/format.sh --check`、`git diff --check`、LayerGuard 全部通过。
+- [x] 复验 Pipeline catalog/validate/plan 与 Demo smoke，确认生产运行时无变化。
+
+### 5.1 实际验收结果（2026-08-29）
+
+| 门禁 | 结果 | 观测 |
+| :--- | :--- | :--- |
+| 全新 `--minimal` | 通过 | 82/82，约 62s |
+| 首次全能力 `--quick` | 通过 | 84/84，约 96s（含 llama.cpp 重编译） |
+| 热构建 `--fast` 兼容入口 | 通过 | 84/84，约 7s |
+| 热构建 `--full` | 通过 | 86/86，约 13s；差异为 2 个 slow gate |
+| 固定 ggml build-info 后 `--full` | 通过 | 86/86，日志提交为 `70adb1b4...` |
+| UBSan fast | 通过 | 82/82 |
+| Pipeline catalog/validate/plan + Demo | 通过 | `keyword_match_mock` 输出符合预期 |
 
 ## 6. 实施路线与里程碑 (Implementation Milestones)
 
 1. [x] 创建隔离分支并记录基线数据与 RFC。
-2. [ ] 固定第三方依赖、收敛 ccache launcher 选择并补充测试。
-3. [ ] 收敛 quick/full/minimal 脚本语义并修复 dev target 依赖闭包。
-4. [ ] 更新 README、CI、RFC 索引与 Changelog。
-5. [ ] 完成独立 review、格式化、全量和 sanitizer 门禁。
-6. [ ] 标记 RFC Completed，使用标准上传脚本创建/合并变更并验证远端 main。
+2. [x] 固定第三方依赖、收敛 ccache launcher 选择并补充测试。
+3. [x] 收敛 quick/full/minimal 脚本语义并修复 dev target 依赖闭包。
+4. [x] 更新 README、CI、RFC 索引与 Changelog。
+5. [x] 完成独立 review、格式化、全量和 sanitizer 门禁。
+6. [x] 标记 RFC Completed；标准上传、合并与远端 main 同步由交付脚本执行。
 
 ## 7. 变更记录 (Changelog)
 
 | 日期 | 版本 | 变更内容 | 作者 |
 | :--- | :--- | :--- | :--- |
 | 2026-08-29 | v5.1.0 | 初始 RFC 与构建测试工作流收敛方案 | LLM-EdgeFlow Team |
+| 2026-08-29 | v5.1.0 | 实现完成；full 86/86、UBSan 82/82 与运行时 smoke 通过 | LLM-EdgeFlow Team |

@@ -7,6 +7,8 @@ include(FetchContent)
 # 1. ONNX Runtime 开源推理引擎配置 (用于特征向量与精排打分模型)
 # ------------------------------------------------------------------------------
 set(LLM_EDGEFLOW_HAS_ONNXRUNTIME OFF)
+option(ENABLE_ONNXRUNTIME
+       "Enable ONNX Runtime engine (auto-download official release)" OFF)
 
 if(ENABLE_ONNXRUNTIME)
   message(STATUS "[Engine Layer] Enabling ONNX Runtime engine support...")
@@ -15,26 +17,26 @@ if(ENABLE_ONNXRUNTIME)
   if(APPLE)
     if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
       set(ORT_URL "https://github.com/microsoft/onnxruntime/releases/download/v1.17.3/onnxruntime-osx-arm64-1.17.3.tgz")
+      set(ORT_SHA256 "236c49c9065213b0ec9dec874e3619da3d01cbc8b984bb24291247293454d0f4")
     else()
       set(ORT_URL "https://github.com/microsoft/onnxruntime/releases/download/v1.17.3/onnxruntime-osx-x86_64-1.17.3.tgz")
+      set(ORT_SHA256 "6292ad3d2e095b54b012a9fce7361f39fbac0b75fb6e9b1d9c320874515182e8")
     endif()
   elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
     set(ORT_URL "https://github.com/microsoft/onnxruntime/releases/download/v1.17.3/onnxruntime-linux-aarch64-1.17.3.tgz")
+    set(ORT_SHA256 "9f801577bd99676d1d821022e52b1f4554f56339ae3606c7b5ff3155f443c921")
   else()
     set(ORT_URL "https://github.com/microsoft/onnxruntime/releases/download/v1.17.3/onnxruntime-linux-x64-1.17.3.tgz")
+    set(ORT_SHA256 "f2f11f9da1e3e19b22a8b378b9af57a58433f40e3db6a803e75c0ec0eba97a20")
   endif()
 
   FetchContent_Declare(
     onnxruntime_prebuilt
     URL ${ORT_URL}
+    URL_HASH SHA256=${ORT_SHA256}
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE
   )
-
-  FetchContent_GetProperties(onnxruntime_prebuilt)
-  if(NOT onnxruntime_prebuilt_POPULATED)
-    message(STATUS "[Engine Layer] Downloading ONNX Runtime C/C++ release from GitHub: ${ORT_URL} ...")
-    FetchContent_Populate(onnxruntime_prebuilt)
-  endif()
+  FetchContent_MakeAvailable(onnxruntime_prebuilt)
 
   set(ONNXRUNTIME_INCLUDE_DIR "${onnxruntime_prebuilt_SOURCE_DIR}/include")
   if(APPLE)
@@ -90,21 +92,25 @@ if(ENABLE_LLAMACPP)
     set(GGML_CCACHE OFF CACHE BOOL "Use ccache for ggml" FORCE)
   endif()
 
+  set(LLM_EDGEFLOW_LLAMACPP_COMMIT
+      "70adb1b4cea5ee39f867792c78dc59320921eda7")
+  set(LLAMA_BUILD_COMMIT "${LLM_EDGEFLOW_LLAMACPP_COMMIT}"
+      CACHE STRING "Pinned llama.cpp source commit" FORCE)
   FetchContent_Declare(
     llama_cpp_source
-    URL https://github.com/ggerganov/llama.cpp/archive/refs/heads/master.tar.gz
+    URL https://github.com/ggml-org/llama.cpp/archive/${LLM_EDGEFLOW_LLAMACPP_COMMIT}.tar.gz
+    URL_HASH SHA256=94d215f1fd85ded40f4674eccdbd3caf4a9b0daa00b6d72255efec922c6d94a4
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    PATCH_COMMAND
+      ${CMAKE_COMMAND}
+      "-DLLM_EDGEFLOW_LLAMA_SOURCE_DIR=<SOURCE_DIR>"
+      "-DLLM_EDGEFLOW_LLAMA_COMMIT=${LLM_EDGEFLOW_LLAMACPP_COMMIT}"
+      -P "${CMAKE_CURRENT_LIST_DIR}/PatchLlamaCppBuildInfo.cmake"
   )
-
-  FetchContent_GetProperties(llama_cpp_source)
-  if(NOT llama_cpp_source_POPULATED)
-    message(STATUS "[Engine Layer] Downloading llama.cpp source code from GitHub: https://github.com/ggerganov/llama.cpp ...")
-    FetchContent_Populate(llama_cpp_source)
-  endif()
+  FetchContent_MakeAvailable(llama_cpp_source)
 
   # 将 llama.cpp 作为三方子工程引入
   if(EXISTS "${llama_cpp_source_SOURCE_DIR}/CMakeLists.txt")
-    add_subdirectory(${llama_cpp_source_SOURCE_DIR} ${llama_cpp_source_BINARY_DIR} EXCLUDE_FROM_ALL)
     # 链接 llama 静态库
     if(TARGET llama)
       set(THIRD_PARTY_ENGINE_LIBS ${THIRD_PARTY_ENGINE_LIBS} llama)
