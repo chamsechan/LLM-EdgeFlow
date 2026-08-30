@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <set>
@@ -133,6 +134,26 @@ TEST(PipelineValidatorTest, AllRepositoryPipelinesValidate) {
   EXPECT_EQ(validated + skipped_optional, candidates);
 }
 
+TEST(PipelineValidatorTest, RejectsRemovedRuleCategoriesField) {
+  std::ifstream stream("configs/pipeline_keyword_match.json");
+  ASSERT_TRUE(stream.is_open());
+  nlohmann::json pipeline;
+  stream >> pipeline;
+  ASSERT_FALSE(pipeline["pipeline"].empty());
+  auto& config = pipeline["pipeline"][0]["config"];
+  config["default_categories"] = config["categories"];
+  config.erase("categories");
+
+  const auto report = PipelineValidator::Validate(pipeline);
+  ASSERT_FALSE(report.ok);
+  EXPECT_TRUE(std::any_of(
+      report.diagnostics.begin(), report.diagnostics.end(),
+      [](const ValidationDiagnostic& diagnostic) {
+        return diagnostic.code == DiagnosticCode::kUnknownConfigField &&
+               diagnostic.path == "/pipeline/0/config/default_categories";
+      }));
+}
+
 TEST(PipelineValidatorTest, ReportsCycle) {
   const nlohmann::json pipeline = {{"biz_name", "keyword_match_v1"},
                                    {"pipeline",
@@ -165,23 +186,6 @@ TEST(PipelineValidatorTest, ReportsDuplicateEdge) {
   EXPECT_EQ(report.diagnostics.front().code,
             DiagnosticCode::kInvalidDependency);
   EXPECT_EQ(report.diagnostics.front().path, "/pipeline/1/depends_on/1");
-}
-
-TEST(PipelineValidatorTest, NormalizeRejectsNonObjectNodeWithStablePath) {
-  const nlohmann::json pipeline = {
-      {"biz_name", "keyword_match_v1"},
-      {"pipeline",
-       nlohmann::json::array({{{"node_type", "TextRuleMatchNode"}},
-                              nullptr,
-                              {{"node_type", "TextRuleMatchNode"}}})}};
-  nlohmann::json normalized;
-  ValidationDiagnostic diagnostic;
-
-  EXPECT_FALSE(PipelineValidator::NormalizeExplicitDag(pipeline, &normalized,
-                                                       &diagnostic));
-  EXPECT_EQ(diagnostic.code, DiagnosticCode::kFieldType);
-  EXPECT_EQ(diagnostic.path, "/pipeline/1");
-  EXPECT_EQ(diagnostic.message, "Node item must be an object");
 }
 
 TEST(PipelineValidatorTest, ReportsConfigAndCapabilityErrors) {

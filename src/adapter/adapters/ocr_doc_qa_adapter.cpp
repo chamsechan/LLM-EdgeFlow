@@ -133,7 +133,7 @@ class OcrDocQaAdapter : public IBizAdapter {
       if (!AdapterValidationHelper::CheckedStringCopy(
               out_ptr->extracted_invoice_json,
               sizeof(out_ptr->extracted_invoice_json),
-              (*invoice_jsons)[i].data.c_str(),
+              (*invoice_jsons)[i].data.json_payload.c_str(),
               "outputs[i].extracted_invoice_json", i, BizName(), out_status)) {
         return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
       }

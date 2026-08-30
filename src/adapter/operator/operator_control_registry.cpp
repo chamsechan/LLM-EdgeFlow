@@ -97,7 +97,7 @@ int OperatorControlRegistry::ResolveControlParam(
           prompt_id = param->prompt_id;
         }
         nlohmann::json j;
-        j["prompt_template"] = param->prompt_template_str;
+        j["template"] = param->prompt_template_str;
         if (!prompt_id.empty()) {
           j["prompt_id"] = prompt_id;
         }

@@ -3,6 +3,7 @@
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #include "core/alg_context.h"
@@ -19,7 +20,7 @@
 
 namespace alg_framework {
 
-TEST(NodeErrorCodesTest, PreservesNumericCompatibility) {
+TEST(NodeErrorCodesTest, UsesDistinctNodeDomains) {
   EXPECT_EQ(node_error::control::kInvalidRequest, -1);
   EXPECT_EQ(node_error::vector_top_k::kMissingInput, -3101);
   EXPECT_EQ(node_error::text_chunk::kMissingInput, -4001);
@@ -36,13 +37,44 @@ TEST(NodeErrorCodesTest, PreservesNumericCompatibility) {
   EXPECT_EQ(node_error::text_template::kRenderedOutputTooLong, -6201);
   EXPECT_EQ(node_error::text_template::kMissingVariable, -6202);
   EXPECT_EQ(node_error::text_rerank::kMissingInput, -7001);
-  EXPECT_EQ(node_error::text_rerank::kModelOutputMismatch, -1);
-  EXPECT_EQ(node_error::asr_transcribe::kMissingInput, -7001);
-  EXPECT_EQ(node_error::asr_transcribe::kOutputCountMismatch, -7002);
-  EXPECT_EQ(node_error::asr_transcribe::kOutputProvenanceMismatch, -7003);
+  EXPECT_EQ(node_error::text_rerank::kModelOutputMismatch, -7002);
   EXPECT_EQ(node_error::ocr_detect::kMissingInput, -7101);
   EXPECT_EQ(node_error::ocr_detect::kOutputCountMismatch, -7102);
   EXPECT_EQ(node_error::ocr_detect::kOutputProvenanceMismatch, -7103);
+  EXPECT_EQ(node_error::asr_transcribe::kMissingInput, -7201);
+  EXPECT_EQ(node_error::asr_transcribe::kOutputCountMismatch, -7202);
+  EXPECT_EQ(node_error::asr_transcribe::kOutputProvenanceMismatch, -7203);
+
+  const std::vector<int> codes = {
+      node_error::control::kInvalidRequest,
+      node_error::vector_top_k::kMissingInput,
+      node_error::text_chunk::kMissingInput,
+      node_error::text_chunk::kInvalidUtf8,
+      node_error::text_embedding::kMissingInput,
+      node_error::text_embedding::kOutputCountMismatch,
+      node_error::text_embedding::kOutputProvenanceMismatch,
+      node_error::text_embedding::kSessionInferenceFailed,
+      node_error::llm_generate::kMissingInput,
+      node_error::llm_generate::kOutputCountMismatch,
+      node_error::llm_generate::kOutputProvenanceMismatch,
+      node_error::text_rule_match::kMissingInput,
+      node_error::text_rule_match::kRegexExecutionFailed,
+      node_error::structured_json_parse::kMissingInput,
+      node_error::structured_json_parse::kParseFailed,
+      node_error::text_template::kRenderedOutputTooLong,
+      node_error::text_template::kMissingVariable,
+      node_error::text_template::kInvalidUtf8,
+      node_error::text_rerank::kMissingInput,
+      node_error::text_rerank::kModelOutputMismatch,
+      node_error::ocr_detect::kMissingInput,
+      node_error::ocr_detect::kOutputCountMismatch,
+      node_error::ocr_detect::kOutputProvenanceMismatch,
+      node_error::asr_transcribe::kMissingInput,
+      node_error::asr_transcribe::kOutputCountMismatch,
+      node_error::asr_transcribe::kOutputProvenanceMismatch,
+  };
+  EXPECT_EQ(std::unordered_set<int>(codes.begin(), codes.end()).size(),
+            codes.size());
 }
 
 // 1. Exception Test Node

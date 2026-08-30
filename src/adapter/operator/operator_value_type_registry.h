@@ -180,7 +180,6 @@ using DestroyExternalFn = std::function<void(OwnedExternalBlock* block)>;
  */
 struct OperatorValueTypeBinding {
   std::string canonical_suffix;
-  std::vector<std::string> aliases;
   std::string external_c_type_name;
   IoDirection direction = IoDirection::kUnknown;
   OperatorOutputLayoutDescriptor output_layout;
@@ -268,12 +267,7 @@ class OperatorValueTypeRegistry {
   bool RegisterBinding(const OperatorValueTypeBinding& binding);
 
   /**
-   * @brief 根据规范后缀或别名获取规范后缀 (若未知返回空字符串)
-   */
-  std::string NormalizeSuffix(const std::string& suffix) const;
-
-  /**
-   * @brief 根据规范后缀或别名获取绑定描述符
+   * @brief 根据规范后缀获取绑定描述符
    */
   const OperatorValueTypeBinding* GetBindingBySuffix(
       const std::string& suffix) const;
@@ -287,8 +281,6 @@ class OperatorValueTypeRegistry {
   enum class RegistryExceptionInjectPoint {
     kNone = 0,
     kCopyCanonicalMap,
-    kCopyAliasMap,
-    kSecondAliasInsert,
     kCanonicalInsert,
     kPublish
   };
@@ -301,7 +293,6 @@ class OperatorValueTypeRegistry {
   mutable std::mutex mutex_;
   std::unordered_map<std::string, OperatorValueTypeBinding>
       bindings_by_canonical_;
-  std::unordered_map<std::string, std::string> alias_to_canonical_;
   bool has_conflict_ = false;
   bool audited_ = false;
 };

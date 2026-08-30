@@ -106,8 +106,8 @@ class TextTemplateNode final : public NodeBase {
                                            "Control payload must be an object");
         }
         static const std::unordered_set<std::string> kAllowedFields = {
-            "template", "prompt_template",          "prompt_id",
-            "values",   "allow_dynamic_attributes", "missing_variable_policy"};
+            "template", "prompt_id", "values", "allow_dynamic_attributes",
+            "missing_variable_policy"};
         for (auto it = root.begin(); it != root.end(); ++it) {
           if (!kAllowedFields.count(it.key())) {
             return NodeControlResult::Failed(
@@ -115,8 +115,7 @@ class TextTemplateNode final : public NodeBase {
                 "Unknown field in Control payload: " + it.key());
           }
         }
-        if (!root.contains("template") && !root.contains("prompt_template") &&
-            !root.contains("values") &&
+        if (!root.contains("template") && !root.contains("values") &&
             !root.contains("allow_dynamic_attributes") &&
             !root.contains("missing_variable_policy") &&
             !root.contains("prompt_id")) {
@@ -125,8 +124,6 @@ class TextTemplateNode final : public NodeBase {
               "No recognized update field in Control payload");
         }
         if ((root.contains("template") && !root["template"].is_string()) ||
-            (root.contains("prompt_template") &&
-             !root["prompt_template"].is_string()) ||
             (root.contains("prompt_id") && !root["prompt_id"].is_string()) ||
             (root.contains("values") && !root["values"].is_object()) ||
             (root.contains("allow_dynamic_attributes") &&
@@ -155,9 +152,6 @@ class TextTemplateNode final : public NodeBase {
 
         if (root.contains("template") && root["template"].is_string()) {
           new_tmpl = root["template"].get<std::string>();
-        } else if (root.contains("prompt_template") &&
-                   root["prompt_template"].is_string()) {
-          new_tmpl = root["prompt_template"].get<std::string>();
         }
         if (root.contains("allow_dynamic_attributes") &&
             root["allow_dynamic_attributes"].is_boolean()) {
@@ -584,7 +578,6 @@ NodeDefinition MakeTextTemplateNodeDefinition() {
           {"additionalProperties", false},
           {"properties",
            {{"template", {{"type", "string"}}},
-            {"prompt_template", {{"type", "string"}}},
             {"prompt_id", {{"type", "string"}}},
             {"values",
              {{"type", "object"},

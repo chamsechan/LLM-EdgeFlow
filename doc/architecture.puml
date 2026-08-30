@@ -118,7 +118,6 @@ package "Layer 2: 核心编排与动态黑板层 (Pipeline & Blackboard)" as L2 
   class PipelineValidator <<(V,#0284C7) Static Validator>> {
     + {static} ValidateAndPlan(json_obj, policy): ValidatedPipelinePlan
     + {static} Validate(json_obj, policy): ValidationReport
-    + {static} NormalizeExplicitDag(json_obj): json
   }
 
   class ValidatedPipelinePlan <<(P,#38BDF8) Immutable Plan>> {
@@ -287,7 +286,7 @@ package "Layer 4: 模型语义与推理 Backend 层 (Model & Backend)" as L4 {
 ' ==============================================================================
 package "Platform Tooling & Visualizer Studio (Tools & Demo)" as Tools {
   class "alg_pipeline_tool (CLI)" as PipelineTool <<(T,#38BDF8) C++ Tool>> {
-    + catalog / describe-node / init / normalize / validate / plan
+    + catalog / describe-node / init / validate / plan
   }
   class "alg_show (CLI)" as AlgShow <<(T,#38BDF8) C++ Tool>> {
     + Native ASCII DAG print

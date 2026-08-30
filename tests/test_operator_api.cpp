@@ -1153,6 +1153,54 @@ TEST_F(OperatorApiTest, MemQueConfigValidationFailClosed) {
     })";
   }
   EXPECT_EQ(ops_.Create(&handle, &param), -2);
+
+  // 5. 旧的根级 pipe_path 结构不再接受 -> -2
+  {
+    std::ofstream ofs(conf_path);
+    ofs << R"({
+      "pipe_path": "configs/pipeline_keyword_match.json",
+      "mem_que": {
+        "type": "keyword_out",
+        "meta_num": 0,
+        "metadata_type_id": 0
+      }
+    })";
+  }
+  EXPECT_EQ(ops_.Create(&handle, &param), -2);
+
+  // 6. data.model_path 单值字段已被 model_paths 映射取代 -> -2
+  {
+    std::ofstream ofs(conf_path);
+    ofs << R"({
+      "data": {
+        "pipe_path": "configs/pipeline_keyword_match.json",
+        "model_path": "models/unused.bin",
+        "mem_que": {
+          "type": "keyword_out",
+          "meta_num": 0,
+          "metadata_type_id": 0
+        }
+      }
+    })";
+  }
+  EXPECT_EQ(ops_.Create(&handle, &param), -2);
+
+  // 7. .conf 根对象仅允许 data -> -2
+  {
+    std::ofstream ofs(conf_path);
+    ofs << R"({
+      "data": {
+        "pipe_path": "configs/pipeline_keyword_match.json",
+        "mem_que": {
+          "type": "keyword_out",
+          "meta_num": 0,
+          "metadata_type_id": 0
+        }
+      },
+      "comment": "not part of the runtime contract"
+    })";
+  }
+  EXPECT_EQ(ops_.Create(&handle, &param), -2);
 }
 
 // 22. SSO 短字符串 (1~7 字节) 与跨批次指针绝对地址稳定性测试 (R9-001)
@@ -1918,7 +1966,7 @@ TEST_F(OperatorApiTest, ModelPathNonExistentFileAllowedWhileEscapeRejected) {
     EXPECT_FALSE(std::filesystem::exists(root / "models"));
   }
 
-  // 2. 单 model_path override 同样允许最终模型文件不存在。
+  // 2. 只覆盖一个模型时仍使用 model_paths 映射，且允许最终文件尚未部署。
   {
     std::filesystem::copy_file(
         source_root /
@@ -1928,7 +1976,9 @@ TEST_F(OperatorApiTest, ModelPathNonExistentFileAllowedWhileEscapeRejected) {
     conf << R"({
       "data": {
         "pipe_path": "configs/pipeline_audio_asr_intent.json",
-        "model_path": "deployment/asr_model_will_arrive_later.bin",
+        "model_paths": {
+          "asr_model_v1": "deployment/asr_model_will_arrive_later.bin"
+        },
         "mem_que": {
           "type": "audio_out",
           "meta_num": 0,

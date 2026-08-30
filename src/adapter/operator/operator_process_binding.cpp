@@ -37,8 +37,7 @@ int ConvertOperatorInputs(
           }
           return -3;
         }
-        if (OperatorValueTypeRegistry::Instance().NormalizeSuffix(suffix) !=
-            required_slot.type_suffix) {
+        if (suffix != required_slot.type_suffix) {
           continue;
         }
         if (!found_key.empty()) {
@@ -137,8 +136,7 @@ int ResolveOperatorOutputs(
           }
           return -4;
         }
-        if (OperatorValueTypeRegistry::Instance().NormalizeSuffix(suffix) !=
-            required_slot.type_suffix) {
+        if (suffix != required_slot.type_suffix) {
           continue;
         }
         if (!found_key.empty()) {

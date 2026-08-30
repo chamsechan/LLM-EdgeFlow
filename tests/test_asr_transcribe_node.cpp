@@ -10,6 +10,7 @@
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
 #include "core/session_context.h"
+#include "nodes/node_error_codes.h"
 #include "tests/support/inference/test_capability_models.h"
 #include "tests/support/node_test_utils.h"
 
@@ -77,7 +78,8 @@ TEST_F(AsrTranscribeNodeTest, MissingInputFailsClosed) {
                               session_ctx_.get()));
 
   AlgContext empty_ctx;
-  EXPECT_EQ(node->Process(&empty_ctx), -7001);
+  EXPECT_EQ(node->Process(&empty_ctx),
+            node_error::asr_transcribe::kMissingInput);
 }
 
 TEST_F(AsrTranscribeNodeTest, InvalidModelOutputFailsClosed) {
@@ -92,13 +94,15 @@ TEST_F(AsrTranscribeNodeTest, InvalidModelOutputFailsClosed) {
   AlgContext count_ctx;
   count_ctx.Publish("audio", audio);
   asr_model_->return_wrong_count_ = true;
-  EXPECT_EQ(node->Process(&count_ctx), -7002);
+  EXPECT_EQ(node->Process(&count_ctx),
+            node_error::asr_transcribe::kOutputCountMismatch);
 
   asr_model_->return_wrong_count_ = false;
   asr_model_->corrupt_provenance_ = true;
   AlgContext provenance_ctx;
   provenance_ctx.Publish("audio", audio);
-  EXPECT_EQ(node->Process(&provenance_ctx), -7003);
+  EXPECT_EQ(node->Process(&provenance_ctx),
+            node_error::asr_transcribe::kOutputProvenanceMismatch);
 }
 
 }  // namespace alg_framework

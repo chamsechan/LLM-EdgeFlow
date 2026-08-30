@@ -117,8 +117,8 @@ class EntityExtractAdapter : public IBizAdapter {
 
       if (!AdapterValidationHelper::CheckedStringCopy(
               out_ptr->entities_json, sizeof(out_ptr->entities_json),
-              (*res)[i].data.c_str(), "outputs[i].entities_json", i, BizName(),
-              out_status)) {
+              (*res)[i].data.json_payload.c_str(), "outputs[i].entities_json",
+              i, BizName(), out_status)) {
         return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
       }
     }

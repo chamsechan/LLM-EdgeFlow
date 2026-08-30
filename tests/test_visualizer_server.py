@@ -128,24 +128,25 @@ class PipelineCliTest(unittest.TestCase):
             check=False,
         )
         self.assertEqual(rejected.returncode, 2)
-        legacy = json.loads(
+        removed_normalizer = subprocess.run(
+            [str(PIPELINE_TOOL), "normalize", "--explicit-dag", "--stdin"],
+            input="{}",
+            text=True,
+            capture_output=True,
+            cwd=ROOT,
+            check=False,
+        )
+        self.assertEqual(removed_normalizer.returncode, 2)
+        pipeline = json.loads(
             (ROOT / "configs" / "pipeline_keyword_match.json").read_text()
         )
-        for node in legacy["pipeline"]:
-            node.pop("id", None)
-            node.pop("depends_on", None)
-        code, normalized = self.command(
-            "normalize", "--explicit-dag", "--stdin", input_pipeline=legacy
-        )
-        self.assertEqual(code, 0)
-        self.assertEqual(normalized["pipeline"]["pipeline"][0]["depends_on"], [])
         code, validated = self.command(
-            "validate", "--stdin", input_pipeline=normalized["pipeline"]
+            "validate", "--stdin", input_pipeline=pipeline
         )
         self.assertEqual(code, 0)
         self.assertTrue(validated["ok"])
         code, plan = self.command(
-            "plan", "--stdin", input_pipeline=normalized["pipeline"]
+            "plan", "--stdin", input_pipeline=pipeline
         )
         self.assertEqual(code, 0)
         self.assertNotIn("diagnostics", plan)

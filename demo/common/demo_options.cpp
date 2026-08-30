@@ -126,14 +126,14 @@ int ParseCommandLine(int argc, char* argv[], DemoOptions* out_options,
       }
       out_options->suite = suite_str;
       out_options->has_suite = true;
-    } else if (arg == "-c" || arg == "--config" || arg == "--conf") {
+    } else if (arg == "-c" || arg == "--config") {
       if (i + 1 >= argc) {
         if (error_msg) *error_msg = "Missing value for argument: " + arg;
         return 2;
       }
       out_options->config_path = argv[++i];
       out_options->has_config_path = true;
-    } else if (arg == "-d" || arg == "--dataset" || arg == "--data") {
+    } else if (arg == "-d" || arg == "--dataset") {
       if (i + 1 >= argc) {
         if (error_msg) *error_msg = "Missing value for argument: " + arg;
         return 2;
@@ -534,8 +534,8 @@ void PrintHelp(const char* program_name) {
       << "Direct Execution Options:\n"
       << "  -b, --biz <name>           Target biz (e.g. entity_extract, "
          "doc_qa)\n"
-      << "  -c, --config, --conf <path> Operator deployment .conf path\n"
-      << "  -d, --dataset, --data <path> Business dataset path\n"
+      << "  -c, --config <path>         Operator deployment .conf path\n"
+      << "  -d, --dataset <path>        Business dataset path\n"
       << "  -o, --output-dir <path>    Results output directory (default: "
          "./results)\n\n"
       << "Execution Tuning Options:\n"
