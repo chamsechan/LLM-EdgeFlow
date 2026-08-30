@@ -282,7 +282,7 @@ int QwenCausalLmModel::GenerateOne(const TraceableItem<std::string>& prompt,
     auto state = session_->CreateSequence(&diagnostic);
     if (!state) return -1;
     std::vector<float> logits;
-    if (session_->Evaluate(prompt_tokens, *state, &logits, &diagnostic) != 0 ||
+    if (state->Evaluate(prompt_tokens, &logits, &diagnostic) != 0 ||
         !ValidateLogits(logits)) {
       return -1;
     }
@@ -320,7 +320,7 @@ int QwenCausalLmModel::GenerateOne(const TraceableItem<std::string>& prompt,
         break;
       }
       if (step + 1 < steps) {
-        if (session_->Evaluate({token}, *state, &logits, &diagnostic) != 0 ||
+        if (state->Evaluate({token}, &logits, &diagnostic) != 0 ||
             !ValidateLogits(logits)) {
           output->clear();
           return -1;

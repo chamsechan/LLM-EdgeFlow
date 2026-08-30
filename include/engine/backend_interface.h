@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <memory>
 #include <nlohmann/json.hpp>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -20,6 +21,8 @@ class IBackendSession {
 
   virtual const std::string& BackendType() const noexcept = 0;
   virtual ExecutionProtocol Protocol() const noexcept = 0;
+
+  // Describes the concrete runtime resource's concurrency capability.
   virtual InferenceConcurrency Concurrency() const noexcept = 0;
   virtual BatchPolicy GetBatchPolicy() const noexcept = 0;
 };
@@ -52,11 +55,19 @@ class ITokenCodec {
 };
 
 /**
- * @brief 独立请求序列状态句柄 (如 KV Cache 上下文)
+ * @brief 独立请求序列执行对象 (如持有 KV Cache 的生成上下文)
+ *
+ * Sequence 同时拥有状态和执行行为，避免调用方把一个 Session 创建的状态误传给
+ * 另一个 Session。具体 Backend 必须保证 Sequence 所依赖的模型资源和串行锁至少与
+ * Sequence 同寿命。
  */
-class ISequenceState {
+class ICausalLmSequence {
  public:
-  virtual ~ISequenceState() = default;
+  virtual ~ICausalLmSequence() = default;
+
+  virtual int Evaluate(const std::vector<int32_t>& tokens,
+                       std::vector<float>* logits,
+                       std::string* diagnostic = nullptr) noexcept = 0;
 };
 
 /**
@@ -67,12 +78,8 @@ class ICausalLmSession : public IBackendSession {
   virtual ITokenCodec& TokenCodec() noexcept = 0;
   virtual size_t MaxContextTokens() const noexcept = 0;
 
-  virtual std::unique_ptr<ISequenceState> CreateSequence(
+  virtual std::unique_ptr<ICausalLmSequence> CreateSequence(
       std::string* diagnostic = nullptr) noexcept = 0;
-
-  virtual int Evaluate(const std::vector<int32_t>& tokens,
-                       ISequenceState& state, std::vector<float>* logits,
-                       std::string* diagnostic = nullptr) noexcept = 0;
 };
 
 /**
@@ -81,6 +88,7 @@ class ICausalLmSession : public IBackendSession {
 struct BackendLoadSpec {
   std::string model_path;
   nlohmann::json backend_config = nlohmann::json::object();
+  std::optional<ExecutionProtocol> requested_protocol;
 };
 
 /**

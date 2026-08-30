@@ -246,8 +246,11 @@ package "Layer 4: 模型语义与推理 Backend 层 (Model & Backend)" as L4 {
   interface ICausalLmSession {
     + {abstract} TokenCodec(): ITokenCodec&
     + {abstract} MaxContextTokens(): size_t
-    + {abstract} CreateSequence(): unique_ptr<ISequenceState>
-    + {abstract} Evaluate(tokens, state, logits): int
+    + {abstract} CreateSequence(): unique_ptr<ICausalLmSequence>
+  }
+
+  interface ICausalLmSequence {
+    + {abstract} Evaluate(tokens, logits): int
   }
 
   interface IInferenceBackend {
@@ -276,7 +279,7 @@ package "Layer 4: 模型语义与推理 Backend 层 (Model & Backend)" as L4 {
   class LlamaCppBackend
 
   class FixedBatchExecutor <<(T,#F59E0B) Generic Template>> {
-    + {static} Execute<TIn, TOut>(inputs: vector<TraceableItem<TIn>>, max_batch: size_t, pad: TIn, kernel: Func, outputs: vector<TraceableItem<TOut>>*): int
+    + {static} Execute<TIn, TOut>(inputs, policy: BatchPolicy, callback: BatchSlice, outputs): int
   }
 }
 
@@ -339,13 +342,15 @@ ILlmModel <|.. QwenCausalLmModel
 
 IBackendSession <|-- ITensorGraphSession
 IBackendSession <|-- ICausalLmSession
+ICausalLmSession ..> ICausalLmSequence : 创建独立执行序列
 IInferenceBackend <|.. OnnxRuntimeBackend
 IInferenceBackend <|.. LlamaCppBackend
 OnnxRuntimeBackend ..> ITensorGraphSession : 创建中性协议会话
 LlamaCppBackend ..> ICausalLmSession : 创建 Causal LM 会话
 BgeEmbeddingModel ..> ITensorGraphSession : 仅依赖 Tensor 协议
 BgeRerankerModel ..> ITensorGraphSession : 仅依赖 Tensor 协议
-QwenCausalLmModel ..> ICausalLmSession : ChatML / 采样 / 生成循环
+QwenCausalLmModel ..> ICausalLmSession : codec / context 上限
+QwenCausalLmModel ..> ICausalLmSequence : token evaluate
 
 ModelRuntimeFactory ..> BackendRegistry : backend 创建与加载
 ModelRuntimeFactory ..> ModelRegistry : model 语义对象创建

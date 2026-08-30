@@ -6,6 +6,13 @@
 
 ## Unreleased
 
+- Causal LM 序列改为自带执行行为和资源生命周期的中性协议，Backend 加载时
+  可显式校验 Model 请求的执行协议。
+- ONNX 批策略改为综合全部输入/输出 metadata；BGE Model 共用 BERT 构造期与
+  输出张量基础契约，统一并发语义并拒绝非有限 Embedding 输出。
+- 删除未被生产路径使用的旧 `FixedBatchExecutor` 重载，保留唯一
+  `BatchPolicy + BatchSlice` 作者入口。
+- 设计依据：[RFC-0021](rfcs/0021-layer4-authoring-and-protocol-convergence.md)。
 - 移除不再支持的 Claude Code 与 Gemini CLI 专用 Agent 入口，并将版本演进摘要归档至 `doc/CHANGELOG.md`。
 - 将 Node Definition 默认值归一化结果设为 Pipeline 运行时配置的单一事实源。
 - 收敛 Operator 绑定/发布事务、Model/Backend Registry 与 BERT 模型公共机制，公共 ABI 和 Catalog 保持不变。

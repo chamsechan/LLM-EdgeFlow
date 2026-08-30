@@ -9,6 +9,7 @@
 #include <memory>
 #include <nlohmann/json.hpp>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "company_alg_interface.h"
@@ -197,7 +198,7 @@ class FakeRerankTensorGraphSession : public ITensorGraphSession {
     return ExecutionProtocol::kTensorGraph;
   }
   InferenceConcurrency Concurrency() const noexcept override {
-    return InferenceConcurrency::kConcurrent;
+    return concurrency_;
   }
   BatchPolicy GetBatchPolicy() const noexcept override { return policy_; }
   const std::vector<TensorSpec>& Inputs() const noexcept override {
@@ -319,6 +320,7 @@ class FakeRerankTensorGraphSession : public ITensorGraphSession {
   bool inject_inf_ = false;
   bool inject_extreme_values_ = false;
   int fail_on_run_ = 0;
+  InferenceConcurrency concurrency_ = InferenceConcurrency::kConcurrent;
   std::vector<size_t> observed_batch_sizes_;
 
   void ResetFaults() noexcept {
@@ -633,6 +635,18 @@ TEST_F(OnnxAndRerankerModelTest, ModelScoringActivationAndNumericalStability) {
                             4);
   EXPECT_EQ(model_1d.Score(inputs, &outputs), 0);
   ASSERT_EQ(outputs.size(), 2u);
+}
+
+TEST_F(OnnxAndRerankerModelTest, BgeRerankerConcurrencyReflectsModelSemantics) {
+  auto session = std::make_shared<FakeRerankTensorGraphSession>(true);
+  session->concurrency_ = InferenceConcurrency::kSerialized;
+  BertWordPieceTokenizer tokenizer;
+  ASSERT_TRUE(
+      tokenizer.LoadFromTokens({"[PAD]", "[UNK]", "[CLS]", "[SEP]"}, true));
+
+  BgeRerankerModel model(session, std::move(tokenizer), 16, "logits", "sigmoid",
+                         4);
+  EXPECT_EQ(model.Concurrency(), InferenceConcurrency::kConcurrent);
 }
 
 TEST_F(OnnxAndRerankerModelTest, ModelStrictTensorBoundaryFailures) {

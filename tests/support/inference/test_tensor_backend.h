@@ -1,6 +1,8 @@
 #pragma once
 
+#include <atomic>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -55,6 +57,8 @@ class TestTensorBackend : public IInferenceBackend {
   static constexpr const char* kBackendType = "test_tensor_backend";
 
   static BackendDefinition MakeDefinition();
+  static void ResetRequestedProtocol() noexcept;
+  static std::optional<ExecutionProtocol> RequestedProtocol() noexcept;
 
   ~TestTensorBackend() override = default;
 
@@ -66,6 +70,9 @@ class TestTensorBackend : public IInferenceBackend {
   std::shared_ptr<IBackendSession> Load(
       const BackendLoadSpec& spec,
       std::string* diagnostic = nullptr) noexcept override;
+
+ private:
+  static std::atomic<int> requested_protocol_;
 };
 
 }  // namespace test

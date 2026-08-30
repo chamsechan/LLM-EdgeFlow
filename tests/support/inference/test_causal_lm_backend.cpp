@@ -47,23 +47,11 @@ bool TestCausalLmCodec::IsEndToken(int32_t token) const noexcept {
 TestCausalLmSession::TestCausalLmSession(std::string model_path)
     : model_path_(std::move(model_path)) {}
 
-std::unique_ptr<ISequenceState> TestCausalLmSession::CreateSequence(
-    std::string* diagnostic) noexcept {
-  (void)diagnostic;
-  try {
-    return std::make_unique<TestCausalLmSequenceState>();
-  } catch (...) {
-    return nullptr;
-  }
-}
-
-int TestCausalLmSession::Evaluate(const std::vector<int32_t>& tokens,
-                                  ISequenceState& state,
-                                  std::vector<float>* logits,
-                                  std::string* diagnostic) noexcept {
+int TestCausalLmSequence::Evaluate(const std::vector<int32_t>& tokens,
+                                   std::vector<float>* logits,
+                                   std::string* diagnostic) noexcept {
   try {
     (void)tokens;
-    (void)state;
     (void)diagnostic;
     if (!logits) return -1;
     logits->assign(32000, 0.0f);
@@ -75,6 +63,16 @@ int TestCausalLmSession::Evaluate(const std::vector<int32_t>& tokens,
     } catch (...) {
     }
     return -2;
+  }
+}
+
+std::unique_ptr<ICausalLmSequence> TestCausalLmSession::CreateSequence(
+    std::string* diagnostic) noexcept {
+  (void)diagnostic;
+  try {
+    return std::make_unique<TestCausalLmSequence>();
+  } catch (...) {
+    return nullptr;
   }
 }
 

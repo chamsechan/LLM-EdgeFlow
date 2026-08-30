@@ -5,6 +5,8 @@
 namespace alg_framework {
 namespace test {
 
+std::atomic<int> TestTensorBackend::requested_protocol_{-1};
+
 TestTensorSession::TestTensorSession(std::string model_path)
     : model_path_(std::move(model_path)) {
   input_specs_ = {
@@ -48,10 +50,25 @@ BackendDefinition TestTensorBackend::MakeDefinition() {
   return def;
 }
 
+void TestTensorBackend::ResetRequestedProtocol() noexcept {
+  requested_protocol_.store(-1, std::memory_order_relaxed);
+}
+
+std::optional<ExecutionProtocol>
+TestTensorBackend::RequestedProtocol() noexcept {
+  const int value = requested_protocol_.load(std::memory_order_relaxed);
+  if (value < 0) return std::nullopt;
+  return static_cast<ExecutionProtocol>(value);
+}
+
 std::shared_ptr<IBackendSession> TestTensorBackend::Load(
     const BackendLoadSpec& spec, std::string* diagnostic) noexcept {
   (void)diagnostic;
   try {
+    requested_protocol_.store(spec.requested_protocol
+                                  ? static_cast<int>(*spec.requested_protocol)
+                                  : -1,
+                              std::memory_order_relaxed);
     return std::make_shared<TestTensorSession>(spec.model_path);
   } catch (...) {
     return nullptr;

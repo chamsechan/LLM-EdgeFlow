@@ -169,23 +169,88 @@ class LlamaCppTokenCodec final : public ITokenCodec {
   const llama_vocab* vocab_ = nullptr;
 };
 
-class LlamaCppSequenceState final : public ISequenceState {
+class LlamaCppSequence final : public ICausalLmSequence {
  public:
-  explicit LlamaCppSequenceState(LlamaContextPtr context)
-      : context_(std::move(context)) {}
+  LlamaCppSequence(std::shared_ptr<llama_model> model, LlamaContextPtr context,
+                   size_t context_size, size_t decode_batch_size,
+                   std::shared_ptr<std::mutex> evaluate_mutex)
+      : model_(std::move(model)),
+        context_(std::move(context)),
+        context_size_(context_size),
+        decode_batch_size_(decode_batch_size),
+        evaluate_mutex_(std::move(evaluate_mutex)) {}
 
-  llama_context* Context() const noexcept { return context_.get(); }
-  size_t TokenCount() const noexcept { return token_count_; }
-  void AddTokens(size_t count) noexcept { token_count_ += count; }
+  int Evaluate(const std::vector<int32_t>& tokens, std::vector<float>* logits,
+               std::string* diagnostic) noexcept override {
+    if (!logits) {
+      SetDiagnostic(diagnostic, "Logits output pointer is null");
+      return -1;
+    }
+    logits->clear();
+    if (!model_ || !context_ || !evaluate_mutex_) {
+      SetDiagnostic(diagnostic, "llama.cpp sequence is not initialized");
+      return -1;
+    }
+    if (tokens.empty()) {
+      SetDiagnostic(diagnostic, "Causal LM Evaluate tokens cannot be empty");
+      return -1;
+    }
+    try {
+      std::lock_guard<std::mutex> lock(*evaluate_mutex_);
+      if (tokens.size() >
+          context_size_ - std::min(context_size_, token_count_)) {
+        SetDiagnostic(diagnostic, "llama.cpp context token limit exceeded");
+        return -1;
+      }
+      std::vector<llama_token> vendor_tokens(tokens.begin(), tokens.end());
+      for (size_t offset = 0; offset < vendor_tokens.size();
+           offset += decode_batch_size_) {
+        const size_t chunk_size =
+            std::min(decode_batch_size_, vendor_tokens.size() - offset);
+        llama_batch batch = llama_batch_get_one(
+            vendor_tokens.data() + offset, static_cast<int32_t>(chunk_size));
+        const int32_t result = llama_decode(context_.get(), batch);
+        if (result != 0) {
+          SetDiagnostic(diagnostic, "llama.cpp decode failed with code " +
+                                        std::to_string(result));
+          return -1;
+        }
+      }
+
+      float* vendor_logits = llama_get_logits_ith(context_.get(), -1);
+      const llama_vocab* vocab = llama_model_get_vocab(model_.get());
+      const int32_t vocab_size = vocab ? llama_vocab_n_tokens(vocab) : 0;
+      if (!vendor_logits || vocab_size <= 0) {
+        SetDiagnostic(diagnostic, "llama.cpp returned invalid logits");
+        return -1;
+      }
+      logits->assign(vendor_logits, vendor_logits + vocab_size);
+      token_count_ += tokens.size();
+      return 0;
+    } catch (const std::exception& e) {
+      logits->clear();
+      SetDiagnostic(diagnostic,
+                    std::string("llama.cpp Evaluate exception: ") + e.what());
+      return -1;
+    } catch (...) {
+      logits->clear();
+      SetDiagnostic(diagnostic, "Unknown llama.cpp Evaluate exception");
+      return -1;
+    }
+  }
 
  private:
+  std::shared_ptr<llama_model> model_;
   LlamaContextPtr context_;
+  size_t context_size_ = 2048;
+  size_t decode_batch_size_ = 512;
   size_t token_count_ = 0;
+  std::shared_ptr<std::mutex> evaluate_mutex_;
 };
 
 class LlamaCppSession final : public ICausalLmSession {
  public:
-  LlamaCppSession(LlamaModelPtr model, size_t context_size,
+  LlamaCppSession(std::shared_ptr<llama_model> model, size_t context_size,
                   size_t decode_batch_size, int n_threads, int n_threads_batch)
       : model_(std::move(model)),
         codec_(model_ ? llama_model_get_vocab(model_.get()) : nullptr),
@@ -215,7 +280,7 @@ class LlamaCppSession final : public ICausalLmSession {
 
   size_t MaxContextTokens() const noexcept override { return context_size_; }
 
-  std::unique_ptr<ISequenceState> CreateSequence(
+  std::unique_ptr<ICausalLmSequence> CreateSequence(
       std::string* diagnostic) noexcept override {
     if (!model_) {
       SetDiagnostic(diagnostic, "llama.cpp model is null");
@@ -235,7 +300,9 @@ class LlamaCppSession final : public ICausalLmSession {
         SetDiagnostic(diagnostic, "llama.cpp context creation failed");
         return nullptr;
       }
-      return std::make_unique<LlamaCppSequenceState>(std::move(context));
+      return std::make_unique<LlamaCppSequence>(
+          model_, std::move(context), context_size_, decode_batch_size_,
+          evaluate_mutex_);
     } catch (const std::exception& e) {
       SetDiagnostic(diagnostic,
                     std::string("llama.cpp context exception: ") + e.what());
@@ -246,77 +313,14 @@ class LlamaCppSession final : public ICausalLmSession {
     }
   }
 
-  int Evaluate(const std::vector<int32_t>& tokens, ISequenceState& state,
-               std::vector<float>* logits,
-               std::string* diagnostic) noexcept override {
-    if (!logits) {
-      SetDiagnostic(diagnostic, "Logits output pointer is null");
-      return -1;
-    }
-    logits->clear();
-    if (tokens.empty()) {
-      SetDiagnostic(diagnostic, "Causal LM Evaluate tokens cannot be empty");
-      return -1;
-    }
-
-    auto* llama_state = dynamic_cast<LlamaCppSequenceState*>(&state);
-    if (!llama_state || !llama_state->Context()) {
-      SetDiagnostic(diagnostic, "Invalid llama.cpp sequence state");
-      return -1;
-    }
-    if (tokens.size() >
-        context_size_ - std::min(context_size_, llama_state->TokenCount())) {
-      SetDiagnostic(diagnostic, "llama.cpp context token limit exceeded");
-      return -1;
-    }
-
-    try {
-      std::lock_guard<std::mutex> lock(evaluate_mutex_);
-      std::vector<llama_token> vendor_tokens(tokens.begin(), tokens.end());
-      for (size_t offset = 0; offset < vendor_tokens.size();
-           offset += decode_batch_size_) {
-        const size_t chunk_size =
-            std::min(decode_batch_size_, vendor_tokens.size() - offset);
-        llama_batch batch = llama_batch_get_one(
-            vendor_tokens.data() + offset, static_cast<int32_t>(chunk_size));
-        const int32_t result = llama_decode(llama_state->Context(), batch);
-        if (result != 0) {
-          SetDiagnostic(diagnostic, "llama.cpp decode failed with code " +
-                                        std::to_string(result));
-          return -1;
-        }
-      }
-
-      float* vendor_logits = llama_get_logits_ith(llama_state->Context(), -1);
-      const llama_vocab* vocab = llama_model_get_vocab(model_.get());
-      const int32_t vocab_size = vocab ? llama_vocab_n_tokens(vocab) : 0;
-      if (!vendor_logits || vocab_size <= 0) {
-        SetDiagnostic(diagnostic, "llama.cpp returned invalid logits");
-        return -1;
-      }
-      logits->assign(vendor_logits, vendor_logits + vocab_size);
-      llama_state->AddTokens(tokens.size());
-      return 0;
-    } catch (const std::exception& e) {
-      logits->clear();
-      SetDiagnostic(diagnostic,
-                    std::string("llama.cpp Evaluate exception: ") + e.what());
-      return -1;
-    } catch (...) {
-      logits->clear();
-      SetDiagnostic(diagnostic, "Unknown llama.cpp Evaluate exception");
-      return -1;
-    }
-  }
-
  private:
-  LlamaModelPtr model_;
+  std::shared_ptr<llama_model> model_;
   LlamaCppTokenCodec codec_;
   size_t context_size_ = 2048;
   size_t decode_batch_size_ = 512;
   int n_threads_ = 0;
   int n_threads_batch_ = 0;
-  std::mutex evaluate_mutex_;
+  std::shared_ptr<std::mutex> evaluate_mutex_ = std::make_shared<std::mutex>();
 };
 
 #endif  // HAVE_LLAMACPP
@@ -330,6 +334,14 @@ const std::string& LlamaCppBackend::BackendType() const noexcept {
 
 std::shared_ptr<IBackendSession> LlamaCppBackend::Load(
     const BackendLoadSpec& spec, std::string* diagnostic) noexcept {
+  if (spec.requested_protocol.has_value() &&
+      *spec.requested_protocol != ExecutionProtocol::kCausalLm) {
+    SetDiagnostic(
+        diagnostic,
+        "llama.cpp backend does not support requested protocol: " +
+            std::string(ExecutionProtocolName(*spec.requested_protocol)));
+    return nullptr;
+  }
 #ifndef HAVE_LLAMACPP
   (void)spec;
   SetDiagnostic(diagnostic,
@@ -398,8 +410,10 @@ std::shared_ptr<IBackendSession> LlamaCppBackend::Load(
       return nullptr;
     }
 
+    std::shared_ptr<llama_model> shared_model(model.release(),
+                                              LlamaModelDeleter{});
     return std::make_shared<LlamaCppSession>(
-        std::move(model), static_cast<size_t>(context_size),
+        std::move(shared_model), static_cast<size_t>(context_size),
         static_cast<size_t>(decode_batch_size), n_threads, n_threads_batch);
   } catch (const std::exception& e) {
     SetDiagnostic(diagnostic,

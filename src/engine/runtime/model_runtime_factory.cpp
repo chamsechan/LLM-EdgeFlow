@@ -73,6 +73,7 @@ std::shared_ptr<IModel> ModelRuntimeFactory::Create(
     BackendLoadSpec load_spec;
     load_spec.model_path = spec.model_path;
     load_spec.backend_config = spec.backend_config;
+    load_spec.requested_protocol = model_def_opt->required_protocol;
 
     std::string backend_diag;
     auto session = backend->Load(load_spec, &backend_diag);
