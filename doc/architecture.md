@@ -63,7 +63,7 @@ graph TD
     subgraph L4["Layer 4: 模型能力与推理 Backend 层 (Model & Backend Layer)"]
         ModelBase["IModel 强类型能力抽象"]
         BackendBase["IInferenceBackend / IBackendSession<br>中性执行协议"]
-        LlmIntf["ILlmModel + ICausalLmSession<br>(Generate / Token Evaluate)"]
+        LlmIntf["ILlmModel + ICausalLmSession / ICausalLmSequence<br>(Generate / Token Evaluate)"]
         EmbedIntf["IEmbeddingModel / IRerankModel<br>+ ITensorGraphSession"]
         
         BatchExec["FixedBatchExecutor (硬件固定 Batch 调度器)<br>• 样本自动 Chunking 分块<br>• 末尾 Dummy Pad 自动补齐<br>• 推理后剥离 Pad 并保留溯源标签"]
@@ -169,7 +169,7 @@ C++ Operator API：NamedIoBatch + Operator 镜像 C 结构 ─┘
 - **代码位置**：`include/engine/`，`src/engine/`
 - **核心职责**：
   1. `IEmbeddingModel`、`IRerankModel`、`ILlmModel`、`IOcrModel` 和 `IAsrModel` 表达模型语义，Node 只依赖所需能力；
-  2. `ITensorGraphSession` 与 `ICausalLmSession` 表达中性执行协议，Backend 负责模型资源加载和硬件会话，模型实现不包含 ONNX Runtime/llama.cpp 具体类型；
+  2. `ITensorGraphSession` 与 `ICausalLmSession` / `ICausalLmSequence` 表达中性执行协议；因果序列同时封装状态、执行行为和所需资源生命周期，Backend 负责模型资源加载和硬件会话，模型实现不包含 ONNX Runtime/llama.cpp 具体类型；
   3. `ModelRuntimeFactory` 依据 `model_type + backend` 组合模型与 Backend，校验协议和并发契约后再原子注册到 `ModelManager`；
   4. **固定 Max Batch 自动调度（`FixedBatchExecutor`）**：完成批次切分、Dummy Pad、Pad 剔除和 `(req_id, sub_id)` 溯源；
   5. 切换 NPU/GPU/CPU 只改 JSON 中的 `backend` 与 `backend_config`，不改业务 Node 或模型语义实现。

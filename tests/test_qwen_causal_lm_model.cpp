@@ -48,9 +48,17 @@ class ScriptedCodec final : public ITokenCodec {
   std::vector<std::string> encoded_texts;
 };
 
-class ScriptedState final : public ISequenceState {
+class ScriptedSession;
+
+class ScriptedSequence final : public ICausalLmSequence {
  public:
-  explicit ScriptedState(size_t state_id) : id(state_id) {}
+  ScriptedSequence(ScriptedSession* owner, size_t state_id)
+      : owner_(owner), id(state_id) {}
+
+  int Evaluate(const std::vector<int32_t>& tokens, std::vector<float>* logits,
+               std::string* diagnostic) noexcept override;
+
+  ScriptedSession* owner_ = nullptr;
   size_t id = 0;
   size_t step = 0;
 };
@@ -71,51 +79,16 @@ class ScriptedSession final : public ICausalLmSession {
   ITokenCodec& TokenCodec() noexcept override { return codec; }
   size_t MaxContextTokens() const noexcept override { return max_context; }
 
-  std::unique_ptr<ISequenceState> CreateSequence(
+  std::unique_ptr<ICausalLmSequence> CreateSequence(
       std::string* diagnostic) noexcept override {
     (void)diagnostic;
     if (fail_create) return nullptr;
     try {
       const size_t id = next_state_id++;
       histories.resize(next_state_id);
-      return std::make_unique<ScriptedState>(id);
+      return std::make_unique<ScriptedSequence>(this, id);
     } catch (...) {
       return nullptr;
-    }
-  }
-
-  int Evaluate(const std::vector<int32_t>& tokens, ISequenceState& state,
-               std::vector<float>* logits,
-               std::string* diagnostic) noexcept override {
-    (void)diagnostic;
-    auto* scripted_state = dynamic_cast<ScriptedState*>(&state);
-    if (!logits || !scripted_state || tokens.empty() ||
-        scripted_state->id == fail_state_id) {
-      if (logits) logits->clear();
-      return -1;
-    }
-    try {
-      histories[scripted_state->id].push_back(tokens);
-      if (emit_empty_logits) {
-        logits->clear();
-        return 0;
-      }
-      const int32_t token = scripted_state->step < scripted_tokens.size()
-                                ? scripted_tokens[scripted_state->step]
-                                : 2;
-      ++scripted_state->step;
-      logits->assign(128, -20.0f);
-      if (emit_nan_logits) {
-        (*logits)[0] = std::numeric_limits<float>::quiet_NaN();
-      } else if (token >= 0 && static_cast<size_t>(token) < logits->size()) {
-        (*logits)[static_cast<size_t>(token)] = 20.0f;
-      } else {
-        return -1;
-      }
-      return 0;
-    } catch (...) {
-      logits->clear();
-      return -1;
     }
   }
 
@@ -130,6 +103,39 @@ class ScriptedSession final : public ICausalLmSession {
   bool emit_empty_logits = false;
   bool emit_nan_logits = false;
 };
+
+int ScriptedSequence::Evaluate(const std::vector<int32_t>& tokens,
+                               std::vector<float>* logits,
+                               std::string* diagnostic) noexcept {
+  (void)diagnostic;
+  if (!owner_ || !logits || tokens.empty() || id == owner_->fail_state_id) {
+    if (logits) logits->clear();
+    return -1;
+  }
+  try {
+    owner_->histories[id].push_back(tokens);
+    if (owner_->emit_empty_logits) {
+      logits->clear();
+      return 0;
+    }
+    const int32_t token = step < owner_->scripted_tokens.size()
+                              ? owner_->scripted_tokens[step]
+                              : 2;
+    ++step;
+    logits->assign(128, -20.0f);
+    if (owner_->emit_nan_logits) {
+      (*logits)[0] = std::numeric_limits<float>::quiet_NaN();
+    } else if (token >= 0 && static_cast<size_t>(token) < logits->size()) {
+      (*logits)[static_cast<size_t>(token)] = 20.0f;
+    } else {
+      return -1;
+    }
+    return 0;
+  } catch (...) {
+    logits->clear();
+    return -1;
+  }
+}
 
 GenerateOptions GreedyOptions() {
   GenerateOptions options;

@@ -23,6 +23,11 @@ bool ValidateOutputMetadata(ElementType element_type,
                             const TensorSpec& spec, size_t expected_batch,
                             std::string* diagnostic = nullptr) noexcept;
 
+bool InferBatchPolicy(const std::vector<TensorSpec>& inputs,
+                      const std::vector<TensorSpec>& outputs,
+                      size_t configured_max_batch, BatchPolicy* policy,
+                      std::string* diagnostic = nullptr) noexcept;
+
 }  // namespace onnxruntime_detail
 
 /**

@@ -17,42 +17,10 @@ namespace {
 bool ValidateRerankOutput(const Tensor& tensor, size_t expected_batch,
                           const float** data_ptr,
                           std::string* diagnostic) noexcept {
-  if (expected_batch == 0) {
-    if (diagnostic) {
-      *diagnostic = "Expected batch must be positive";
-    }
+  if (!ValidateRuntimeBatchTensor(tensor, expected_batch, 1, 2, diagnostic)) {
     return false;
   }
-
   const auto& shape = tensor.desc.shape;
-  if (shape.size() != 1 && shape.size() != 2) {
-    if (diagnostic) {
-      *diagnostic = "Output tensor rank must be 1 or 2, got: " +
-                    std::to_string(shape.size());
-    }
-    return false;
-  }
-
-  for (size_t d = 0; d < shape.size(); ++d) {
-    if (shape[d] <= 0) {
-      if (diagnostic) {
-        *diagnostic =
-            "Output tensor dimension " + std::to_string(d) +
-            " must be strictly positive, got: " + std::to_string(shape[d]);
-      }
-      return false;
-    }
-  }
-
-  if (static_cast<size_t>(shape[0]) != expected_batch) {
-    if (diagnostic) {
-      *diagnostic = "Output tensor batch dimension mismatch. Expected: " +
-                    std::to_string(expected_batch) +
-                    ", got: " + std::to_string(shape[0]);
-    }
-    return false;
-  }
-
   if (shape.size() == 2 && shape[1] != 1) {
     if (diagnostic) {
       *diagnostic = "Output tensor second dimension must be 1, got: " +
@@ -139,163 +107,14 @@ std::shared_ptr<IModel> BgeRerankerModel::Create(const ModelCreateContext& ctx,
     return nullptr;
   }
 
-  const auto validate_batch_dimension =
-      [&](int64_t dimension, const std::string& tensor_kind,
-          const std::string& tensor_name) -> bool {
-    if (dimension == 0) {
-      if (diagnostic) {
-        *diagnostic = "BgeRerankerModel " + tensor_kind + " '" + tensor_name +
-                      "' batch dimension cannot be 0";
-      }
-      return false;
-    }
-    if (dimension < 0) {
-      return true;
-    }
-
-    const size_t static_batch = static_cast<size_t>(dimension);
-    if (session_policy.fixed_batch_size > 0 &&
-        static_batch != session_policy.fixed_batch_size) {
-      if (diagnostic) {
-        *diagnostic = "BgeRerankerModel " + tensor_kind + " '" + tensor_name +
-                      "' static batch " + std::to_string(static_batch) +
-                      " does not match fixed_batch_size " +
-                      std::to_string(session_policy.fixed_batch_size);
-      }
-      return false;
-    }
-    if (static_batch > session_policy.max_batch_size) {
-      if (diagnostic) {
-        *diagnostic = "BgeRerankerModel " + tensor_kind + " '" + tensor_name +
-                      "' static batch " + std::to_string(static_batch) +
-                      " exceeds session max_batch_size " +
-                      std::to_string(session_policy.max_batch_size);
-      }
-      return false;
-    }
-    return true;
-  };
-
-  // 1. 校验 Session 输入元数据 (严格非空与契约匹配)
-  if (tensor_session->Inputs().empty()) {
-    if (diagnostic) {
-      *diagnostic = "BgeRerankerModel session input metadata cannot be empty";
-    }
+  if (!ValidateBertInputMetadata(*tensor_session, max_length,
+                                 "BgeRerankerModel", diagnostic)) {
     return nullptr;
   }
 
-  bool has_input_ids = false;
-  bool has_attention_mask = false;
-  for (const auto& in_spec : tensor_session->Inputs()) {
-    if (in_spec.name == "input_ids") {
-      has_input_ids = true;
-    } else if (in_spec.name == "attention_mask") {
-      has_attention_mask = true;
-    } else if (in_spec.name == "token_type_ids") {
-      // 标准可选输入
-    } else {
-      if (diagnostic) {
-        *diagnostic =
-            "BgeRerankerModel session declares unrecognized required input: '" +
-            in_spec.name + "'";
-      }
-      return nullptr;
-    }
-
-    if (in_spec.element_type != ElementType::kInt64) {
-      if (diagnostic) {
-        *diagnostic = "BgeRerankerModel input '" + in_spec.name +
-                      "' dtype must be int64, got: " +
-                      ElementTypeToString(in_spec.element_type);
-      }
-      return nullptr;
-    }
-
-    if (in_spec.shape.size() != 2) {
-      if (diagnostic) {
-        *diagnostic = "BgeRerankerModel input '" + in_spec.name +
-                      "' rank must be 2 [batch, sequence], got rank: " +
-                      std::to_string(in_spec.shape.size());
-      }
-      return nullptr;
-    }
-
-    if (in_spec.shape[1] == 0) {
-      if (diagnostic) {
-        *diagnostic = "BgeRerankerModel input '" + in_spec.name +
-                      "' sequence dimension cannot be 0";
-      }
-      return nullptr;
-    }
-
-    // 静态 sequence 维度校验；负数表示动态维度，0 不是合法动态维度。
-    if (in_spec.shape[1] > 0 &&
-        static_cast<size_t>(in_spec.shape[1]) != max_length) {
-      if (diagnostic) {
-        *diagnostic = "BgeRerankerModel input '" + in_spec.name +
-                      "' static sequence length " +
-                      std::to_string(in_spec.shape[1]) +
-                      " does not match configured max_length " +
-                      std::to_string(max_length);
-      }
-      return nullptr;
-    }
-
-    if (!validate_batch_dimension(in_spec.shape[0], "input", in_spec.name)) {
-      return nullptr;
-    }
-  }
-
-  if (!has_input_ids || !has_attention_mask) {
-    if (diagnostic) {
-      *diagnostic =
-          "BgeRerankerModel session missing required inputs (input_ids or "
-          "attention_mask)";
-    }
-    return nullptr;
-  }
-
-  // 2. 校验 Session 输出元数据 (严格非空与契约匹配)
-  if (tensor_session->Outputs().empty()) {
-    if (diagnostic) {
-      *diagnostic = "BgeRerankerModel session output metadata cannot be empty";
-    }
-    return nullptr;
-  }
-
-  const TensorSpec* target_output = nullptr;
-  for (const auto& out_spec : tensor_session->Outputs()) {
-    if (out_spec.name == output_name) {
-      target_output = &out_spec;
-      break;
-    }
-  }
-  if (!target_output) {
-    if (diagnostic) {
-      *diagnostic =
-          "BgeRerankerModel session outputs missing expected output tensor: '" +
-          output_name + "'";
-    }
-    return nullptr;
-  }
-
-  if (target_output->element_type != ElementType::kFloat32) {
-    if (diagnostic) {
-      *diagnostic = "BgeRerankerModel output '" + output_name +
-                    "' dtype must be float32, got: " +
-                    ElementTypeToString(target_output->element_type);
-    }
-    return nullptr;
-  }
-
-  if (target_output->shape.size() != 1 && target_output->shape.size() != 2) {
-    if (diagnostic) {
-      *diagnostic = "BgeRerankerModel output '" + output_name +
-                    "' rank must be 1 or 2, got: " +
-                    std::to_string(target_output->shape.size());
-    }
-    return nullptr;
-  }
+  const TensorSpec* target_output = RequireFloatOutputMetadata(
+      *tensor_session, output_name, "BgeRerankerModel", 1, 2, diagnostic);
+  if (!target_output) return nullptr;
 
   if (target_output->shape.size() == 2) {
     if (target_output->shape[1] == 0) {
@@ -313,11 +132,6 @@ std::shared_ptr<IModel> BgeRerankerModel::Create(const ModelCreateContext& ctx,
       }
       return nullptr;
     }
-  }
-
-  if (!validate_batch_dimension(target_output->shape[0], "output",
-                                output_name)) {
-    return nullptr;
   }
 
   BertWordPieceTokenizer tokenizer;
@@ -342,7 +156,7 @@ const std::string& BgeRerankerModel::Capability() const noexcept {
 }
 
 InferenceConcurrency BgeRerankerModel::Concurrency() const noexcept {
-  return session_ ? session_->Concurrency() : InferenceConcurrency::kConcurrent;
+  return InferenceConcurrency::kConcurrent;
 }
 
 size_t BgeRerankerModel::GetMaxBatchSize() const noexcept {
@@ -387,7 +201,10 @@ int BgeRerankerModel::RawScoreSlice(const QueryCandidatesBatch& all_inputs,
   try {
     std::string diag;
     BertInputTensors input_tensors;
-    if (!input_tensors.Create(exec_count, max_length_, &diag)) {
+    const bool include_token_type_ids =
+        HasTensorInput(session_->Inputs(), "token_type_ids");
+    if (!input_tensors.Create(exec_count, max_length_, include_token_type_ids,
+                              &diag)) {
       ALG_LOG_ERROR("[BgeRerankerModel] Failed to create input tensors: %s\n",
                     diag.c_str());
       return -1;
@@ -426,12 +243,13 @@ int BgeRerankerModel::RawScoreSlice(const QueryCandidatesBatch& all_inputs,
                   max_length_ * sizeof(int64_t));
       std::memcpy(mask_ptr + i * max_length_, sample_mask.data(),
                   max_length_ * sizeof(int64_t));
-      std::memcpy(type_ptr + i * max_length_, sample_type.data(),
-                  max_length_ * sizeof(int64_t));
+      if (type_ptr) {
+        std::memcpy(type_ptr + i * max_length_, sample_type.data(),
+                    max_length_ * sizeof(int64_t));
+      }
     }
 
-    TensorMap input_map = input_tensors.ReleaseToMap(
-        HasTensorInput(session_->Inputs(), "token_type_ids"));
+    TensorMap input_map = input_tensors.ReleaseToMap();
 
     TensorMap output_map;
     int ret = session_->Run(input_map, &output_map, &diag);

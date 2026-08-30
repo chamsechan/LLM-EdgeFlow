@@ -26,9 +26,12 @@ class TestCausalLmCodec : public ITokenCodec {
   bool IsEndToken(int32_t token) const noexcept override;
 };
 
-class TestCausalLmSequenceState : public ISequenceState {
+class TestCausalLmSequence : public ICausalLmSequence {
  public:
-  ~TestCausalLmSequenceState() override = default;
+  ~TestCausalLmSequence() override = default;
+
+  int Evaluate(const std::vector<int32_t>& tokens, std::vector<float>* logits,
+               std::string* diagnostic = nullptr) noexcept override;
 };
 
 class TestCausalLmSession : public ICausalLmSession {
@@ -57,12 +60,8 @@ class TestCausalLmSession : public ICausalLmSession {
 
   size_t MaxContextTokens() const noexcept override { return 2048; }
 
-  std::unique_ptr<ISequenceState> CreateSequence(
+  std::unique_ptr<ICausalLmSequence> CreateSequence(
       std::string* diagnostic = nullptr) noexcept override;
-
-  int Evaluate(const std::vector<int32_t>& tokens, ISequenceState& state,
-               std::vector<float>* logits,
-               std::string* diagnostic = nullptr) noexcept override;
 
  private:
   std::string model_path_;

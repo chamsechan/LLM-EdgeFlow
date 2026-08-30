@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <random>
 #include <string>
 
 #include "company_alg_interface.h"
@@ -66,9 +67,16 @@ class BgeModelTestBase : public ::testing::Test {
  protected:
   void SetUp() override {
     Alg_Init();
-    temp_dir_ = std::filesystem::temp_directory_path() /
-                ("test_bge_model_" + std::to_string(rand()));
-    std::filesystem::create_directories(temp_dir_);
+    std::random_device entropy;
+    for (size_t attempt = 0; attempt < 32; ++attempt) {
+      temp_dir_ = std::filesystem::temp_directory_path() /
+                  ("test_bge_model_" + std::to_string(entropy()) + "_" +
+                   std::to_string(entropy()));
+      std::error_code error;
+      if (std::filesystem::create_directory(temp_dir_, error)) return;
+      ASSERT_FALSE(error) << error.message();
+    }
+    FAIL() << "Failed to create a unique BGE model test directory";
   }
 
   void TearDown() override {

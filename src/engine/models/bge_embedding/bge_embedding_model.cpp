@@ -25,35 +25,10 @@ bool ValidateEmbeddingOutput(const Tensor& tensor, size_t expected_batch,
     return false;
   }
 
+  if (!ValidateRuntimeBatchTensor(tensor, expected_batch, 2, 3, diagnostic)) {
+    return false;
+  }
   const auto& shape = tensor.desc.shape;
-  if (shape.size() != 2 && shape.size() != 3) {
-    if (diagnostic) {
-      *diagnostic = "Output tensor rank must be 2 or 3, got: " +
-                    std::to_string(shape.size());
-    }
-    return false;
-  }
-
-  for (size_t d = 0; d < shape.size(); ++d) {
-    if (shape[d] <= 0) {
-      if (diagnostic) {
-        *diagnostic =
-            "Output tensor dimension " + std::to_string(d) +
-            " must be strictly positive, got: " + std::to_string(shape[d]);
-      }
-      return false;
-    }
-  }
-
-  if (static_cast<size_t>(shape[0]) != expected_batch) {
-    if (diagnostic) {
-      *diagnostic = "Output tensor batch dimension mismatch. Expected: " +
-                    std::to_string(expected_batch) +
-                    ", got: " + std::to_string(shape[0]);
-    }
-    return false;
-  }
-
   size_t dim = (shape.size() == 2) ? static_cast<size_t>(shape[1])
                                    : static_cast<size_t>(shape[2]);
   if (shape.size() == 3 && static_cast<size_t>(shape[1]) != expected_sequence) {
@@ -80,8 +55,70 @@ bool ValidateEmbeddingOutput(const Tensor& tensor, size_t expected_batch,
     return false;
   }
 
+  const size_t element_count = tensor.buffer->ByteSize() / sizeof(float);
+  for (size_t i = 0; i < element_count; ++i) {
+    if (!std::isfinite(data[i])) {
+      if (diagnostic) {
+        *diagnostic =
+            "Output tensor contains NaN or Inf at index " + std::to_string(i);
+      }
+      return false;
+    }
+  }
+
   if (data_ptr) {
     *data_ptr = data;
+  }
+  return true;
+}
+
+bool ValidateEmbeddingOutputMetadata(const ITensorGraphSession& session,
+                                     const std::string& output_name,
+                                     size_t max_length, size_t embedding_dim,
+                                     std::string* diagnostic) {
+  const TensorSpec* output = RequireFloatOutputMetadata(
+      session, output_name, "BgeEmbeddingModel", 2, 3, diagnostic);
+  if (!output) return false;
+
+  if (output->shape.size() == 3) {
+    if (output->shape[1] == 0) {
+      if (diagnostic) {
+        *diagnostic = "BgeEmbeddingModel output '" + output_name +
+                      "' sequence dimension cannot be 0";
+      }
+      return false;
+    }
+    if (output->shape[1] > 0 &&
+        static_cast<size_t>(output->shape[1]) != max_length) {
+      if (diagnostic) {
+        *diagnostic = "BgeEmbeddingModel output '" + output_name +
+                      "' static sequence length " +
+                      std::to_string(output->shape[1]) +
+                      " does not match configured max_length " +
+                      std::to_string(max_length);
+      }
+      return false;
+    }
+  }
+
+  const size_t dimension_index = output->shape.size() - 1;
+  if (output->shape[dimension_index] == 0) {
+    if (diagnostic) {
+      *diagnostic = "BgeEmbeddingModel output '" + output_name +
+                    "' embedding dimension cannot be 0";
+    }
+    return false;
+  }
+  if (output->shape[dimension_index] > 0 &&
+      static_cast<size_t>(output->shape[dimension_index]) != embedding_dim) {
+    if (diagnostic) {
+      *diagnostic = "BgeEmbeddingModel output '" + output_name +
+                    "' static embedding dimension " +
+                    std::to_string(output->shape[dimension_index]) +
+                    " does not match configured embedding_dim " +
+                    std::to_string(embedding_dim);
+    }
+    return false;
   }
   return true;
 }
@@ -117,12 +154,6 @@ std::shared_ptr<IModel> BgeEmbeddingModel::Create(const ModelCreateContext& ctx,
   }
   size_t embedding_dim = ctx.model_config["embedding_dim"].get<size_t>();
   size_t max_batch_size = ctx.model_config.value("max_batch_size", 4);
-
-  if (!ValidateModelBatchLimit(tensor_session->GetBatchPolicy(), max_batch_size,
-                               diagnostic)) {
-    return nullptr;
-  }
-
   std::string tokenizer_file =
       ctx.model_config.value("tokenizer_file", "vocab.txt");
   bool do_lower_case = ctx.model_config.value("do_lower_case", true);
@@ -131,6 +162,15 @@ std::shared_ptr<IModel> BgeEmbeddingModel::Create(const ModelCreateContext& ctx,
   bool normalize = ctx.model_config.value("normalize", true);
   std::string output_name =
       ctx.model_config.value("output_name", "last_hidden_state");
+
+  if (!ValidateModelBatchLimit(tensor_session->GetBatchPolicy(), max_batch_size,
+                               diagnostic) ||
+      !ValidateBertInputMetadata(*tensor_session, max_length,
+                                 "BgeEmbeddingModel", diagnostic) ||
+      !ValidateEmbeddingOutputMetadata(*tensor_session, output_name, max_length,
+                                       embedding_dim, diagnostic)) {
+    return nullptr;
+  }
 
   BertWordPieceTokenizer tokenizer;
   if (!LoadBertTokenizer(ctx.model_resource_root, tokenizer_file, do_lower_case,
@@ -155,7 +195,7 @@ const std::string& BgeEmbeddingModel::Capability() const noexcept {
 }
 
 InferenceConcurrency BgeEmbeddingModel::Concurrency() const noexcept {
-  return session_ ? session_->Concurrency() : InferenceConcurrency::kConcurrent;
+  return InferenceConcurrency::kConcurrent;
 }
 
 size_t BgeEmbeddingModel::GetMaxBatchSize() const noexcept {
@@ -205,7 +245,10 @@ int BgeEmbeddingModel::RawEmbedSlice(
   try {
     std::string diag;
     BertInputTensors input_tensors;
-    if (!input_tensors.Create(exec_count, max_length_, &diag)) {
+    const bool include_token_type_ids =
+        HasTensorInput(session_->Inputs(), "token_type_ids");
+    if (!input_tensors.Create(exec_count, max_length_, include_token_type_ids,
+                              &diag)) {
       ALG_LOG_ERROR("[BgeEmbeddingModel] Failed to create input tensors: %s\n",
                     diag.c_str());
       return -1;
@@ -236,11 +279,13 @@ int BgeEmbeddingModel::RawEmbedSlice(
                   max_length_ * sizeof(int64_t));
       std::memcpy(mask_ptr + i * max_length_, sample_mask.data(),
                   max_length_ * sizeof(int64_t));
-      std::memset(type_ptr + i * max_length_, 0, max_length_ * sizeof(int64_t));
+      if (type_ptr) {
+        std::memset(type_ptr + i * max_length_, 0,
+                    max_length_ * sizeof(int64_t));
+      }
     }
 
-    TensorMap input_map = input_tensors.ReleaseToMap(
-        HasTensorInput(session_->Inputs(), "token_type_ids"));
+    TensorMap input_map = input_tensors.ReleaseToMap();
 
     TensorMap output_map;
     int ret = session_->Run(input_map, &output_map, &diag);

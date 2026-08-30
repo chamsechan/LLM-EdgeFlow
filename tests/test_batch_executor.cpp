@@ -14,17 +14,21 @@ TEST(FixedBatchExecutorTest, OddItemCountChunkAndPaddingStripping) {
       {1, 0, 40}, {1, 1, 50}, {1, 2, 60}, {1, 3, 70}  // Request 1 的 4 个分片
   };
 
-  size_t fixed_batch_size = 4;
-  int dummy_pad = -999;
+  const size_t fixed_batch_size = 4;
+  const int dummy_pad = -999;
   int hardware_call_count = 0;
 
   std::vector<TraceableItem<int>> outputs;
 
   int ret = FixedBatchExecutor::Execute<int, int>(
-      inputs, fixed_batch_size, dummy_pad,
-      [&hardware_call_count, fixed_batch_size](const std::vector<int>& batch_in,
-                                               std::vector<int>* batch_out) {
+      inputs, BatchPolicy{fixed_batch_size, fixed_batch_size},
+      [&hardware_call_count, fixed_batch_size, dummy_pad, &inputs](
+          const BatchSlice& slice, std::vector<int>* batch_out) {
         hardware_call_count++;
+        std::vector<int> batch_in(fixed_batch_size, dummy_pad);
+        for (size_t i = 0; i < slice.valid_count; ++i) {
+          batch_in[i] = inputs[slice.offset + i].data;
+        }
         EXPECT_EQ(batch_in.size(), fixed_batch_size);
         batch_out->resize(fixed_batch_size);
         for (size_t i = 0; i < fixed_batch_size; ++i) {
@@ -57,17 +61,21 @@ TEST(FixedBatchExecutorTest, ExactMultipleBatchSize) {
                                                     {102, 0, "gamma"},
                                                     {102, 1, "delta"}};
 
-  size_t fixed_batch_size = 2;
-  std::string dummy_pad = "<PAD>";
+  const size_t fixed_batch_size = 2;
+  const std::string dummy_pad = "<PAD>";
   int call_count = 0;
 
   std::vector<TraceableItem<std::string>> outputs;
 
   int ret = FixedBatchExecutor::Execute<std::string, std::string>(
-      inputs, fixed_batch_size, dummy_pad,
-      [&call_count, fixed_batch_size](const std::vector<std::string>& batch_in,
-                                      std::vector<std::string>* batch_out) {
+      inputs, BatchPolicy{fixed_batch_size, fixed_batch_size},
+      [&call_count, fixed_batch_size, &dummy_pad, &inputs](
+          const BatchSlice& slice, std::vector<std::string>* batch_out) {
         call_count++;
+        std::vector<std::string> batch_in(fixed_batch_size, dummy_pad);
+        for (size_t i = 0; i < slice.valid_count; ++i) {
+          batch_in[i] = inputs[slice.offset + i].data;
+        }
         EXPECT_EQ(batch_in.size(), fixed_batch_size);
         batch_out->resize(fixed_batch_size);
         for (size_t i = 0; i < fixed_batch_size; ++i) {
@@ -90,9 +98,9 @@ TEST(FixedBatchExecutorTest, EmptyInputHandling) {
   std::vector<TraceableItem<float>> outputs;
 
   int ret = FixedBatchExecutor::Execute<float, float>(
-      empty_inputs, 4, 0.0f,
-      [](const std::vector<float>& in, std::vector<float>* out) {
-        (void)in;
+      empty_inputs, BatchPolicy{4, 4},
+      [](const BatchSlice& slice, std::vector<float>* out) {
+        (void)slice;
         (void)out;
         return 0;
       },
@@ -108,9 +116,9 @@ TEST(FixedBatchExecutorTest, ErrorPropagationFromKernel) {
   std::vector<TraceableItem<int>> outputs;
 
   int ret = FixedBatchExecutor::Execute<int, int>(
-      inputs, 2, -1,
-      [](const std::vector<int>& in, std::vector<int>* out) {
-        (void)in;
+      inputs, BatchPolicy{2, 2},
+      [](const BatchSlice& slice, std::vector<int>* out) {
+        (void)slice;
         (void)out;
         return -9999;  // 模拟硬件错误
       },

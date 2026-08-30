@@ -170,6 +170,75 @@ bool ValidateOutputMetadata(ElementType element_type,
   return true;
 }
 
+bool InferBatchPolicy(const std::vector<TensorSpec>& inputs,
+                      const std::vector<TensorSpec>& outputs,
+                      size_t configured_max_batch, BatchPolicy* policy,
+                      std::string* diagnostic) noexcept {
+  if (!policy) {
+    if (diagnostic) *diagnostic = "Output BatchPolicy pointer is null";
+    return false;
+  }
+  *policy = {};
+  if (configured_max_batch == 0) {
+    if (diagnostic) *diagnostic = "Configured max_batch_size must be positive";
+    return false;
+  }
+
+  try {
+    std::optional<size_t> static_batch;
+    const auto inspect = [&](const std::vector<TensorSpec>& specs,
+                             const char* kind) -> bool {
+      for (const auto& spec : specs) {
+        if (spec.shape.empty()) {
+          if (diagnostic) {
+            *diagnostic = std::string("ONNX ") + kind +
+                          " tensor has rank 0: " + spec.name;
+          }
+          return false;
+        }
+        const int64_t batch_dimension = spec.shape.front();
+        if (batch_dimension == 0) {
+          if (diagnostic) {
+            *diagnostic = std::string("ONNX ") + kind +
+                          " tensor batch dimension cannot be 0: " + spec.name;
+          }
+          return false;
+        }
+        if (batch_dimension < 0) continue;
+
+        const size_t candidate = static_cast<size_t>(batch_dimension);
+        if (static_batch.has_value() && *static_batch != candidate) {
+          if (diagnostic) {
+            *diagnostic =
+                "Conflicting static ONNX batch dimensions. Expected " +
+                std::to_string(*static_batch) + ", got " +
+                std::to_string(candidate) + " for " + kind +
+                " tensor: " + spec.name;
+          }
+          return false;
+        }
+        static_batch = candidate;
+      }
+      return true;
+    };
+
+    if (!inspect(inputs, "input") || !inspect(outputs, "output")) {
+      return false;
+    }
+
+    if (static_batch.has_value()) {
+      *policy = BatchPolicy{*static_batch, *static_batch};
+    } else {
+      *policy = BatchPolicy{configured_max_batch, 0};
+    }
+    return true;
+  } catch (...) {
+    *policy = {};
+    if (diagnostic) *diagnostic = "Exception inferring ONNX BatchPolicy";
+    return false;
+  }
+}
+
 }  // namespace onnxruntime_detail
 
 #ifdef HAVE_ONNXRUNTIME
@@ -424,6 +493,15 @@ const std::string& OnnxRuntimeBackend::BackendType() const noexcept {
 
 std::shared_ptr<IBackendSession> OnnxRuntimeBackend::Load(
     const BackendLoadSpec& spec, std::string* diagnostic) noexcept {
+  if (spec.requested_protocol.has_value() &&
+      *spec.requested_protocol != ExecutionProtocol::kTensorGraph) {
+    if (diagnostic) {
+      *diagnostic =
+          "ONNX Runtime backend does not support requested protocol: " +
+          std::string(ExecutionProtocolName(*spec.requested_protocol));
+    }
+    return nullptr;
+  }
 #ifndef HAVE_ONNXRUNTIME
   static_cast<void>(spec);
   if (diagnostic) {
@@ -550,16 +628,12 @@ std::shared_ptr<IBackendSession> OnnxRuntimeBackend::Load(
       outputs.push_back(std::move(out_spec));
     }
 
+    const size_t config_max_batch =
+        spec.backend_config.value("max_batch_size", 4);
     BatchPolicy policy;
-    size_t config_max_batch = spec.backend_config.value("max_batch_size", 4);
-
-    if (!inputs.empty() && !inputs[0].shape.empty() && inputs[0].shape[0] > 0) {
-      size_t fixed_batch = static_cast<size_t>(inputs[0].shape[0]);
-      policy.fixed_batch_size = fixed_batch;
-      policy.max_batch_size = fixed_batch;
-    } else {
-      policy.fixed_batch_size = 0;
-      policy.max_batch_size = config_max_batch;
+    if (!onnxruntime_detail::InferBatchPolicy(inputs, outputs, config_max_batch,
+                                              &policy, diagnostic)) {
+      return nullptr;
     }
 
     return std::make_shared<OnnxTensorGraphSession>(

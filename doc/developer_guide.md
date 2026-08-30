@@ -112,6 +112,13 @@ Model 自注册需实现 `IModel` 的某一强类型能力并声明所需协议�
 `IInferenceBackend` 并只返回中性 `IBackendSession`。二者分别提供完整
 `ModelDefinition` / `BackendDefinition` 并使用对应 `REGISTER_*_WITH_DEFINITION` 宏。
 
+其中，Model 的 `Concurrency()` 只声明语义对象是否可重入，Backend Session 的
+`Concurrency()` 声明具体运行时资源能力，Pipeline 以二者更严格的值调度。
+`ModelRuntimeFactory` 会将 Model 要求写入 `BackendLoadSpec::requested_protocol`，Backend
+必须在创建厂商资源前拒绝不支持的显式协议。因果协议由
+`ICausalLmSession` 创建 `ICausalLmSequence`，序列自己提供 `Evaluate`
+并保持其状态、模型资源和必要的执行锁生命周期。
+
 Pipeline 配置只使用 Model/Backend 语法：
 
 ```json

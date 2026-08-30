@@ -3,7 +3,6 @@
 #include <algorithm>
 #include <cstddef>
 #include <exception>
-#include <functional>
 #include <utility>
 #include <vector>
 
@@ -95,66 +94,6 @@ class FixedBatchExecutor {
       outputs->clear();
       return -5;
     }
-  }
-
-  /**
-   * @brief 经典固定 Dummy Pad 输入批处理适配接口
-   */
-  template <typename TIn, typename TOut>
-  static int Execute(const std::vector<TraceableItem<TIn>>& all_items,
-                     size_t fixed_max_batch, const TIn& dummy_pad_input,
-                     std::function<int(const std::vector<TIn>& batch_in,
-                                       std::vector<TOut>* batch_out)>
-                         raw_infer_func,
-                     std::vector<TraceableItem<TOut>>* all_outputs) {
-    if (!all_outputs) return -1;
-    all_outputs->clear();
-    if (all_items.empty()) return 0;
-    if (fixed_max_batch == 0) return -2;
-
-    all_outputs->reserve(all_items.size());
-    size_t total = all_items.size();
-    size_t num_batches = (total + fixed_max_batch - 1) / fixed_max_batch;
-
-    std::vector<TIn> batch_in(fixed_max_batch);
-    std::vector<TOut> batch_out;
-
-    for (size_t b = 0; b < num_batches; ++b) {
-      size_t start_idx = b * fixed_max_batch;
-      size_t valid_count = std::min(fixed_max_batch, total - start_idx);
-
-      // 1. 填充输入批次 (有效项 + Dummy Pad 项)
-      for (size_t i = 0; i < fixed_max_batch; ++i) {
-        if (i < valid_count) {
-          batch_in[i] = all_items[start_idx + i].data;
-        } else {
-          batch_in[i] = dummy_pad_input;
-        }
-      }
-
-      // 2. 调用底层固定 Batch 硬件推理函数
-      batch_out.clear();
-      int ret = raw_infer_func(batch_in, &batch_out);
-      if (ret != 0) {
-        all_outputs->clear();
-        return ret;
-      }
-
-      // 3. 校验底层输出数量是否符合要求
-      if (batch_out.size() < fixed_max_batch) {
-        all_outputs->clear();
-        return -3;  // 底层引擎未返回完整 batch 输出
-      }
-
-      // 4. 剥离 Pad 项，保留有效结果并继承原始溯源元数据
-      for (size_t i = 0; i < valid_count; ++i) {
-        const auto& src = all_items[start_idx + i];
-        all_outputs->emplace_back(src.req_id, src.sub_id,
-                                  std::move(batch_out[i]));
-      }
-    }
-
-    return 0;
   }
 };
 

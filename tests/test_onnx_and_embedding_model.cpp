@@ -9,6 +9,7 @@
 #include <memory>
 #include <nlohmann/json.hpp>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "company_alg_interface.h"
@@ -26,6 +27,7 @@
 #include "engine/model_interface.h"
 #include "engine/model_registry.h"
 #include "engine/model_runtime_factory.h"
+#include "engine/models/bge_common/bert_model_support.h"
 #include "engine/models/bge_embedding/bert_wordpiece_tokenizer.h"
 #include "engine/models/bge_embedding/bge_embedding_model.h"
 #include "tests/support/inference/bge_model_test_support.h"
@@ -155,6 +157,24 @@ TEST_F(OnnxAndEmbeddingModelTest, TokenizerCaseAndSidecarSecurity) {
 // 2. FakeTensorGraphSession 与 BgeEmbeddingModel 边界测试 (R3-010, R3-012)
 // =============================================================================
 
+TEST_F(OnnxAndEmbeddingModelTest,
+       BertInputTensorsAllocateOnlyDeclaredOptionalInput) {
+  std::string diag;
+  BertInputTensors without_types;
+  ASSERT_TRUE(without_types.Create(2, 16, false, &diag)) << diag;
+  EXPECT_EQ(without_types.types, nullptr);
+  EXPECT_EQ(without_types.token_type_ids.buffer, nullptr);
+  TensorMap without_types_map = without_types.ReleaseToMap();
+  EXPECT_EQ(without_types_map.count("token_type_ids"), 0u);
+
+  BertInputTensors with_types;
+  ASSERT_TRUE(with_types.Create(2, 16, true, &diag)) << diag;
+  EXPECT_NE(with_types.types, nullptr);
+  EXPECT_NE(with_types.token_type_ids.buffer, nullptr);
+  TensorMap with_types_map = with_types.ReleaseToMap();
+  EXPECT_EQ(with_types_map.count("token_type_ids"), 1u);
+}
+
 class FakeTensorGraphSession : public ITensorGraphSession {
  public:
   FakeTensorGraphSession(int64_t hidden_dim = 4, bool is_3d = true,
@@ -185,7 +205,7 @@ class FakeTensorGraphSession : public ITensorGraphSession {
     return ExecutionProtocol::kTensorGraph;
   }
   InferenceConcurrency Concurrency() const noexcept override {
-    return InferenceConcurrency::kConcurrent;
+    return concurrency_;
   }
   BatchPolicy GetBatchPolicy() const noexcept override { return policy_; }
   const std::vector<TensorSpec>& Inputs() const noexcept override {
@@ -282,6 +302,9 @@ class FakeTensorGraphSession : public ITensorGraphSession {
         for (size_t i = 0; i < total_elements; ++i) {
           data[i] = static_cast<float>(i % 10 + 1) * 0.1f;
         }
+        if (non_finite_output_ && total_elements > 0) {
+          data[0] = std::numeric_limits<float>::infinity();
+        }
       }
     }
 
@@ -306,8 +329,17 @@ class FakeTensorGraphSession : public ITensorGraphSession {
   int corrupt_byte_delta_ = 0;
   bool corrupt_misalignment_ = false;
   bool corrupt_null_data_ = false;
+  bool non_finite_output_ = false;
   int fail_on_run_ = 0;
+  InferenceConcurrency concurrency_ = InferenceConcurrency::kConcurrent;
   std::vector<size_t> observed_batch_sizes_;
+
+  void SetInputs(std::vector<TensorSpec> inputs) {
+    inputs_ = std::move(inputs);
+  }
+  void SetOutputs(std::vector<TensorSpec> outputs) {
+    outputs_ = std::move(outputs);
+  }
 
   void ResetFaults() noexcept {
     fail_run_ = false;
@@ -322,6 +354,7 @@ class FakeTensorGraphSession : public ITensorGraphSession {
     corrupt_byte_delta_ = 0;
     corrupt_misalignment_ = false;
     corrupt_null_data_ = false;
+    non_finite_output_ = false;
     fail_on_run_ = 0;
   }
 
@@ -385,6 +418,59 @@ TEST_F(OnnxAndEmbeddingModelTest, ModelSidecarContainmentSecurity) {
       (sibling_root / "vocab.txt").string();
   diag.clear();
   EXPECT_NE(BgeEmbeddingModel::Create(context, &diag), nullptr) << diag;
+}
+
+TEST_F(OnnxAndEmbeddingModelTest,
+       BgeEmbeddingModelValidatesSessionMetadataAtCreation) {
+  WriteTestVocab(temp_dir_ / "vocab.txt");
+  auto session = std::make_shared<FakeTensorGraphSession>(4, true);
+
+  ModelCreateContext context;
+  context.backend_session = session;
+  context.model_resource_root = temp_dir_.string();
+  context.model_config = {
+      {"tokenizer_file", "vocab.txt"},
+      {"embedding_dim", 4},
+      {"max_length", 16},
+  };
+
+  std::string diag;
+  ASSERT_NE(BgeEmbeddingModel::Create(context, &diag), nullptr) << diag;
+
+  context.model_config["max_batch_size"] = 0;
+  EXPECT_EQ(BgeEmbeddingModel::Create(context, &diag), nullptr);
+  EXPECT_NE(diag.find("max_batch_size must be at least 1"), std::string::npos);
+  context.model_config["max_batch_size"] = 4;
+
+  session->SetInputs({
+      {"input_ids", ElementType::kInt64, {-1, 16}},
+      {"unexpected", ElementType::kInt64, {-1, 16}},
+  });
+  EXPECT_EQ(BgeEmbeddingModel::Create(context, &diag), nullptr);
+  EXPECT_NE(diag.find("unrecognized required input"), std::string::npos);
+
+  session->SetInputs({
+      {"input_ids", ElementType::kInt64, {-1, 16}},
+      {"attention_mask", ElementType::kInt64, {-1, 16}},
+  });
+  session->SetOutputs(
+      {{"last_hidden_state", ElementType::kFloat32, {-1, 16, 8}}});
+  EXPECT_EQ(BgeEmbeddingModel::Create(context, &diag), nullptr);
+  EXPECT_NE(diag.find("does not match configured embedding_dim"),
+            std::string::npos);
+}
+
+TEST_F(OnnxAndEmbeddingModelTest,
+       BgeEmbeddingConcurrencyReflectsModelSemantics) {
+  auto session = std::make_shared<FakeTensorGraphSession>(4, true);
+  session->concurrency_ = InferenceConcurrency::kSerialized;
+  BertWordPieceTokenizer tokenizer;
+  ASSERT_TRUE(
+      tokenizer.LoadFromTokens({"[PAD]", "[UNK]", "[CLS]", "[SEP]"}, true));
+
+  BgeEmbeddingModel model(session, std::move(tokenizer), 16, "cls", true,
+                          "last_hidden_state", 4, 2);
+  EXPECT_EQ(model.Concurrency(), InferenceConcurrency::kConcurrent);
 }
 
 TEST_F(OnnxAndEmbeddingModelTest, BgeEmbeddingModelCLSAndMeanPooling) {
@@ -528,7 +614,13 @@ TEST_F(OnnxAndEmbeddingModelTest,
   EXPECT_NE(model.Embed(inputs, opts, &outputs), 0);
   EXPECT_TRUE(outputs.empty());
 
-  // 9. 跨批第二批失败时不得暴露第一批的部分结果。
+  // 9. 非有限输出必须在池化和归一化之前拒绝。
+  fake_session->ResetFaults();
+  fake_session->non_finite_output_ = true;
+  EXPECT_NE(model.Embed(inputs, opts, &outputs), 0);
+  EXPECT_TRUE(outputs.empty());
+
+  // 10. 跨批第二批失败时不得暴露第一批的部分结果。
   fake_session->ResetFaults();
   fake_session->ResetMetrics();
   fake_session->fail_on_run_ = 2;
@@ -747,6 +839,55 @@ TEST_F(OnnxAndEmbeddingModelTest, OnnxBackendNeutralTensorValidation) {
        std::numeric_limits<int64_t>::max()},
       0, TensorSpec{"overflow", ElementType::kFloat32, {-1, -1, -1}}, 1,
       &diag));
+}
+
+TEST_F(OnnxAndEmbeddingModelTest, OnnxBatchPolicyUsesAllTensorMetadata) {
+  using onnxruntime_detail::InferBatchPolicy;
+
+  const TensorSpec dynamic_input{"input_ids", ElementType::kInt64, {-1, 16}};
+  const TensorSpec dynamic_output{
+      "embeddings", ElementType::kFloat32, {-1, 384}};
+  BatchPolicy policy;
+  std::string diag;
+
+  ASSERT_TRUE(
+      InferBatchPolicy({dynamic_input}, {dynamic_output}, 4, &policy, &diag));
+  EXPECT_EQ(policy.max_batch_size, 4u);
+  EXPECT_EQ(policy.fixed_batch_size, 0u);
+
+  const TensorSpec fixed_input{"attention_mask", ElementType::kInt64, {2, 16}};
+  ASSERT_TRUE(InferBatchPolicy({dynamic_input, fixed_input}, {dynamic_output},
+                               4, &policy, &diag));
+  EXPECT_EQ(policy.max_batch_size, 2u);
+  EXPECT_EQ(policy.fixed_batch_size, 2u);
+
+  const TensorSpec fixed_output{"embeddings", ElementType::kFloat32, {3, 384}};
+  ASSERT_TRUE(
+      InferBatchPolicy({dynamic_input}, {fixed_output}, 4, &policy, &diag));
+  EXPECT_EQ(policy.max_batch_size, 3u);
+  EXPECT_EQ(policy.fixed_batch_size, 3u);
+
+  EXPECT_FALSE(
+      InferBatchPolicy({fixed_input}, {fixed_output}, 4, &policy, &diag));
+  EXPECT_NE(diag.find("Conflicting static ONNX batch dimensions"),
+            std::string::npos);
+
+  EXPECT_FALSE(
+      InferBatchPolicy({TensorSpec{"zero", ElementType::kInt64, {0, 16}}},
+                       {dynamic_output}, 4, &policy, &diag));
+  EXPECT_FALSE(InferBatchPolicy({TensorSpec{"scalar", ElementType::kInt64, {}}},
+                                {dynamic_output}, 4, &policy, &diag));
+}
+
+TEST_F(OnnxAndEmbeddingModelTest,
+       OnnxBackendRejectsUnsupportedRequestedProtocolBeforeLoading) {
+  OnnxRuntimeBackend backend;
+  BackendLoadSpec spec;
+  spec.model_path = "./models/does-not-exist.onnx";
+  spec.requested_protocol = ExecutionProtocol::kCausalLm;
+  std::string diag;
+  EXPECT_EQ(backend.Load(spec, &diag), nullptr);
+  EXPECT_NE(diag.find("requested protocol"), std::string::npos);
 }
 
 TEST_F(OnnxAndEmbeddingModelTest, OnnxRuntimeFixturePassEvidence) {

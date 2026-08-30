@@ -365,8 +365,22 @@ TEST(ModelBackendDecouplingTest, PipelineCatalogConcurrentSnapshotSafety) {
 // 5. ModelRuntimeFactory 规范物化与错误诊断测试
 // ==============================================================================
 
+TEST(ModelBackendDecouplingTest, CausalSequenceOwnsItsEvaluationLifetime) {
+  auto session =
+      std::make_shared<test::TestCausalLmSession>("/tmp/test-model.bin");
+  auto sequence = session->CreateSequence();
+  ASSERT_NE(sequence, nullptr);
+  session.reset();
+
+  std::vector<float> logits;
+  std::string diag;
+  EXPECT_EQ(sequence->Evaluate({1, 42}, &logits, &diag), 0) << diag;
+  EXPECT_FALSE(logits.empty());
+}
+
 TEST(ModelBackendDecouplingTest, ModelRuntimeFactoryEndToEnd) {
   ASSERT_TRUE(EnsureTestModelAndTensorBackendRegistered());
+  test::TestTensorBackend::ResetRequestedProtocol();
 
   ModelLoadSpec spec;
   spec.model_type = TestEmbeddingModel::kModelType;
@@ -378,6 +392,9 @@ TEST(ModelBackendDecouplingTest, ModelRuntimeFactoryEndToEnd) {
   std::string diag;
   auto model = ModelRuntimeFactory::Create(spec, &diag);
   ASSERT_NE(model, nullptr);
+  ASSERT_TRUE(test::TestTensorBackend::RequestedProtocol().has_value());
+  EXPECT_EQ(*test::TestTensorBackend::RequestedProtocol(),
+            ExecutionProtocol::kTensorGraph);
   EXPECT_EQ(model->ModelType(), TestEmbeddingModel::kModelType);
   EXPECT_EQ(model->Capability(), "embedding");
 

@@ -30,12 +30,15 @@ TEST(LlamaCppBackendTest, MissingInvalidPathAndUnknownConfigFailClosed) {
   if (!backend) GTEST_SKIP() << "llama.cpp support is disabled";
 
   std::string diagnostic;
-  EXPECT_EQ(backend->Load({"./models/does-not-exist.gguf", {}}, &diagnostic),
-            nullptr);
+  BackendLoadSpec missing;
+  missing.model_path = "./models/does-not-exist.gguf";
+  EXPECT_EQ(backend->Load(missing, &diagnostic), nullptr);
   EXPECT_FALSE(diagnostic.empty());
 
   diagnostic.clear();
-  EXPECT_EQ(backend->Load({".", {}}, &diagnostic), nullptr);
+  BackendLoadSpec directory;
+  directory.model_path = ".";
+  EXPECT_EQ(backend->Load(directory, &diagnostic), nullptr);
   EXPECT_FALSE(diagnostic.empty());
 
   diagnostic.clear();
@@ -44,6 +47,13 @@ TEST(LlamaCppBackendTest, MissingInvalidPathAndUnknownConfigFailClosed) {
   unknown.backend_config = {{"business_answer", true}};
   EXPECT_EQ(backend->Load(unknown, &diagnostic), nullptr);
   EXPECT_NE(diagnostic.find("Unknown"), std::string::npos);
+
+  diagnostic.clear();
+  BackendLoadSpec wrong_protocol;
+  wrong_protocol.model_path = "./models/does-not-exist.gguf";
+  wrong_protocol.requested_protocol = ExecutionProtocol::kTensorGraph;
+  EXPECT_EQ(backend->Load(wrong_protocol, &diagnostic), nullptr);
+  EXPECT_NE(diagnostic.find("requested protocol"), std::string::npos);
 }
 
 TEST(LlamaCppBackendTest, PublicHeaderDoesNotExposeVendorTypes) {
@@ -82,8 +92,7 @@ TEST(LlamaCppBackendTest, RealGgufLoadCodecAndEvaluate) {
       << diagnostic;
   ASSERT_FALSE(tokens.empty());
   std::vector<float> logits;
-  EXPECT_EQ(session->Evaluate(tokens, *state, &logits, &diagnostic), 0)
-      << diagnostic;
+  EXPECT_EQ(state->Evaluate(tokens, &logits, &diagnostic), 0) << diagnostic;
   EXPECT_FALSE(logits.empty());
 
   QwenCausalLmModel model(session, "", false, 17);
