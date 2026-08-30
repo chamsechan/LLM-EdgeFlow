@@ -38,8 +38,8 @@ const char* DiagnosticCodeName(DiagnosticCode code) noexcept {
       return "DUPLICATE_MODEL_ID";
     case DiagnosticCode::kDuplicateNodeId:
       return "DUPLICATE_NODE_ID";
-    case DiagnosticCode::kUnknownBusiness:
-      return "UNKNOWN_BUSINESS";
+    case DiagnosticCode::kUnknownBiz:
+      return "UNKNOWN_BIZ";
     case DiagnosticCode::kUnknownNodeType:
       return "UNKNOWN_NODE_TYPE";
     case DiagnosticCode::kUnknownModelType:
@@ -74,14 +74,14 @@ const char* DiagnosticCodeName(DiagnosticCode code) noexcept {
       return "UNKNOWN_MODEL_REFERENCE";
     case DiagnosticCode::kModelCapabilityMismatch:
       return "MODEL_CAPABILITY_MISMATCH";
-    case DiagnosticCode::kNodeBusinessMismatch:
-      return "NODE_BUSINESS_MISMATCH";
+    case DiagnosticCode::kNodeBizMismatch:
+      return "NODE_BIZ_MISMATCH";
     case DiagnosticCode::kMissingInputProducer:
       return "MISSING_INPUT_PRODUCER";
     case DiagnosticCode::kDuplicatePortProducer:
       return "DUPLICATE_PORT_PRODUCER";
-    case DiagnosticCode::kMissingBusinessOutput:
-      return "MISSING_BUSINESS_OUTPUT";
+    case DiagnosticCode::kMissingBizOutput:
+      return "MISSING_BIZ_OUTPUT";
     case DiagnosticCode::kNodeNotParallelSafe:
       return "NODE_NOT_PARALLEL_SAFE";
     case DiagnosticCode::kParallelWriteConflict:

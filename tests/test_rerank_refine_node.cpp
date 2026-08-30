@@ -13,6 +13,7 @@
 #include "core/session_context.h"
 #include "core/traceable_item.h"
 #include "engine/model_interface.h"
+#include "tests/support/node_test_utils.h"
 
 namespace alg_framework {
 
@@ -79,14 +80,14 @@ TEST_F(TextRerankNodeTest, ReorderAndTopKFiltering) {
       {"bind_model", "test_rerank_model"},
       {"top_k", 2},
   };
-  ASSERT_TRUE(node_->Init(cfg, &session_ctx_));
+  ASSERT_TRUE(InitNodeForTest(*node_, cfg, &session_ctx_));
 
   AlgContext ctx;
   TextBatch raw_queries = {
       TraceableItem<std::string>{0, 0, "什么是深度学习？"},
       TraceableItem<std::string>{1, 0, "退款流程？"},
   };
-  ctx.Set(BlackboardKey<TextBatch>{"queries", "TextBatch"}, raw_queries);
+  ctx.Publish(BlackboardKey<TextBatch>{"queries", "TextBatch"}, raw_queries);
 
   // 故意将低分样本放在前面，高分样本放在后面，测试重排序
   RankedTextBatch input_candidates = {
@@ -98,14 +99,14 @@ TEST_F(TextRerankNodeTest, ReorderAndTopKFiltering) {
       {1, 0, RankedCandidate("候选 D (SCORE_0.3)", 0.3f, 1, 0)},
       {1, 1, RankedCandidate("候选 E (SCORE_0.9)", 0.9f, 2, 1)},
   };
-  ctx.Set(BlackboardKey<RankedTextBatch>{"candidates", "RankedTextBatch"},
-          input_candidates);
+  ctx.Publish(BlackboardKey<RankedTextBatch>{"candidates", "RankedTextBatch"},
+              input_candidates);
 
   int ret = node_->Process(&ctx);
   EXPECT_EQ(ret, 0);
 
   auto* result =
-      ctx.Get(BlackboardKey<RankedTextBatch>{"ranked", "RankedTextBatch"});
+      ctx.Read(BlackboardKey<RankedTextBatch>{"ranked", "RankedTextBatch"});
   ASSERT_NE(result, nullptr);
   // 每个请求保留 top_k=2，共 4 个输出
   ASSERT_EQ(result->size(), 4U);
@@ -132,13 +133,13 @@ TEST_F(TextRerankNodeTest, ReorderAndTopKFiltering) {
 // 2. 验证空候选集鲁棒性
 TEST_F(TextRerankNodeTest, EmptyCandidatesHandling) {
   nlohmann::json cfg = {{"bind_model", "test_rerank_model"}, {"top_k", 1}};
-  ASSERT_TRUE(node_->Init(cfg, &session_ctx_));
+  ASSERT_TRUE(InitNodeForTest(*node_, cfg, &session_ctx_));
 
   AlgContext ctx;
   TextBatch raw_queries = {TraceableItem<std::string>{0, 0, "Query"}};
-  ctx.Set(BlackboardKey<TextBatch>{"queries", "TextBatch"}, raw_queries);
-  ctx.Set(BlackboardKey<RankedTextBatch>{"candidates", "RankedTextBatch"},
-          RankedTextBatch{});
+  ctx.Publish(BlackboardKey<TextBatch>{"queries", "TextBatch"}, raw_queries);
+  ctx.Publish(BlackboardKey<RankedTextBatch>{"candidates", "RankedTextBatch"},
+              RankedTextBatch{});
 
   int ret = node_->Process(&ctx);
   EXPECT_EQ(ret, 0);
@@ -147,7 +148,7 @@ TEST_F(TextRerankNodeTest, EmptyCandidatesHandling) {
 // 3. 验证缺失黑板 Key 拦截
 TEST_F(TextRerankNodeTest, MissingContextKeyHandling) {
   nlohmann::json cfg = {{"bind_model", "test_rerank_model"}};
-  ASSERT_TRUE(node_->Init(cfg, &session_ctx_));
+  ASSERT_TRUE(InitNodeForTest(*node_, cfg, &session_ctx_));
 
   AlgContext ctx;  // 空黑板
   int ret = node_->Process(&ctx);

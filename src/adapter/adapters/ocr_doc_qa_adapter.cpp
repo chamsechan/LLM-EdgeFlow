@@ -8,8 +8,7 @@
 
 namespace alg_framework {
 
-inline static constexpr char kOcrDocQaBusinessName[] =
-    "multimodal_ocr_invoice_qa";
+inline static constexpr char kOcrDocQaBizName[] = "multimodal_ocr_invoice_qa";
 
 class OcrDocQaAdapter : public IBizAdapter {
  public:
@@ -28,7 +27,7 @@ class OcrDocQaAdapter : public IBizAdapter {
         OwnershipPolicy::kCopyIn,
         ThreadModel::kStatelessThreadSafe,
         OutputCardinality::kOneToOne,
-        {{kOcrDocQaBusinessName,
+        {{kOcrDocQaBizName,
           "ocr_doc_qa",
           "OCR 票据问答",
           {RequiredInput(kRawRequestIds), RequiredInput(kImagePaths),
@@ -83,9 +82,16 @@ class OcrDocQaAdapter : public IBizAdapter {
           in_ocr->query_prompt ? in_ocr->query_prompt : "");
     }
 
-    ctx->Set(kRawRequestIds, std::move(raw_req_ids));
-    ctx->Set(kImagePaths, std::move(raw_images));
-    ctx->Set(kUserQueries, std::move(raw_queries));
+    if (!AdapterValidationHelper::PublishContextValue(*ctx, kRawRequestIds,
+                                                      std::move(raw_req_ids),
+                                                      BizName(), out_status) ||
+        !AdapterValidationHelper::PublishContextValue(
+            *ctx, kImagePaths, std::move(raw_images), BizName(), out_status) ||
+        !AdapterValidationHelper::PublishContextValue(*ctx, kUserQueries,
+                                                      std::move(raw_queries),
+                                                      BizName(), out_status)) {
+      return COMPANY_ALG_ERR_INVALID_INPUT;
+    }
     return COMPANY_ALG_SUCCESS;
   }
 

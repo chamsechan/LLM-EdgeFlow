@@ -57,24 +57,9 @@ class INode {
   virtual ~INode() = default;
 
   /**
-   * @brief 节点初始化 (新标准签名，接收完整上下文)
+   * @brief 节点初始化，配置、Session 与已校验端口绑定均由上下文提供。
    */
-  virtual bool Init(const NodeInitContext& init_ctx) {
-    if (!init_ctx.session_ctx) return false;
-    static const nlohmann::json empty_cfg = nlohmann::json::object();
-    const nlohmann::json& cfg = init_ctx.config ? *init_ctx.config : empty_cfg;
-    return Init(cfg, init_ctx.session_ctx);
-  }
-
-  /**
-   * @brief 兼容旧式初始化的辅助重载
-   */
-  virtual bool Init(const nlohmann::json& node_config,
-                    SessionContext* session_ctx) {
-    (void)node_config;
-    (void)session_ctx;
-    return true;
-  }
+  virtual bool Init(const NodeInitContext& init_ctx) = 0;
 
   /**
    * @brief 节点执行计算

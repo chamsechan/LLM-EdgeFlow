@@ -152,10 +152,8 @@ class CountingNode : public INode {
 
   CountingNode() { create_count.fetch_add(1); }
 
-  bool Init(const nlohmann::json& config,
-            SessionContext* session_ctx) override {
-    (void)config;
-    init_session_ctx = session_ctx;
+  bool Init(const NodeInitContext& init_ctx) override {
+    init_session_ctx = init_ctx.session_ctx;
     init_count.fetch_add(1);
     return true;
   }
@@ -237,7 +235,7 @@ class ThrowingCtorNode : public INode {
   ThrowingCtorNode() {
     throw std::runtime_error("ThrowingCtorNode constructor exception");
   }
-  bool Init(const nlohmann::json&, SessionContext*) override { return true; }
+  bool Init(const NodeInitContext&) override { return true; }
   int Process(AlgContext*) override { return 0; }
   NodeControlResult Control(int, const std::string&) override {
     return NodeControlResult::Handled(0);
@@ -254,7 +252,7 @@ class ThrowingInitNode : public INode {
  public:
   inline static constexpr char kNodeType[] = "ThrowingInitNode";
   ThrowingInitNode() = default;
-  bool Init(const nlohmann::json&, SessionContext*) override {
+  bool Init(const NodeInitContext&) override {
     throw std::runtime_error("ThrowingInitNode Init exception");
   }
   int Process(AlgContext*) override { return 0; }
@@ -273,7 +271,7 @@ class FailingInitNode : public INode {
  public:
   inline static constexpr char kNodeType[] = "FailingInitNode";
   FailingInitNode() = default;
-  bool Init(const nlohmann::json&, SessionContext*) override { return false; }
+  bool Init(const NodeInitContext&) override { return false; }
   int Process(AlgContext*) override { return 0; }
   NodeControlResult Control(int, const std::string&) override {
     return NodeControlResult::Handled(0);
@@ -405,7 +403,7 @@ TEST_F(PipelineConfigTest, RejectsPipelineWithoutIdOrDependsOn) {
   EXPECT_EQ(diag.path, "/pipeline/0/id");
 }
 
-TEST_F(PipelineConfigTest, AcceptsLegacyBusinessNameField) {
+TEST_F(PipelineConfigTest, RejectsLegacyBusinessNameField) {
   nlohmann::json root = {
       {"business_name", "legacy_compat_test"},
       {"pipeline",
@@ -415,9 +413,9 @@ TEST_F(PipelineConfigTest, AcceptsLegacyBusinessNameField) {
 
   ParsedPipelineConfig parsed_cfg;
   PipelineDiagnostic diag;
-  EXPECT_TRUE(ParsePipelineConfig(root, &parsed_cfg, &diag));
-  EXPECT_EQ(parsed_cfg.biz_name, "legacy_compat_test");
-  EXPECT_EQ(parsed_cfg.business_name, "legacy_compat_test");
+  EXPECT_FALSE(ParsePipelineConfig(root, &parsed_cfg, &diag));
+  EXPECT_EQ(diag.code, PipelineErrorCode::kUnknownField);
+  EXPECT_EQ(diag.path, "/business_name");
 }
 
 // 3. 表驱动负例测试：结构、类型、字段、组合、DAG 负例与零副作用断言
@@ -1041,7 +1039,7 @@ TEST_F(PipelineConfigTest, MaterializationExceptionsAndFineGrainedDiagnostics) {
   {
     std::string bad_json_path = "/tmp/bad_syntax_test.json";
     std::ofstream ofs(bad_json_path);
-    ofs << "{ business_name: invalid_json, }";
+    ofs << "{ biz_name: invalid_json, }";
     ofs.close();
 
     Pipeline p;

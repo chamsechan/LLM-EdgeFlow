@@ -106,7 +106,7 @@ package "Layer 2: 核心编排与动态黑板层 (Pipeline & Blackboard)" as L2 
   class Pipeline {
     - nodes_: std::vector<std::unique_ptr<INode>>
     - session_context_: SessionContext
-    - business_name_: std::string
+    - plan_: std::unique_ptr<ValidatedPipelinePlan>
     - state_: State {kEmpty, kBuilding, kReady, kFailed}
     - execution_layers_: std::vector<std::vector<size_t>>
     + BuildFromConfigFile(config_path: string): bool
@@ -133,11 +133,10 @@ package "Layer 2: 核心编排与动态黑板层 (Pipeline & Blackboard)" as L2 
     - mutable rw_mutex_: std::shared_mutex
     - error_code_: int
     - error_message_: std::string
-    + Set<T>(key: BlackboardKey<T>, value: T): void
-    + Get<T>(key: BlackboardKey<T>): const T*
+    + Publish<T>(key: BlackboardKey<T>, value: T): bool
+    + Read<T>(key: BlackboardKey<T>): const T*
     + Has<T>(key: BlackboardKey<T>): bool
     + SetError(code: int, msg: string): void
-    + Clear(): void
   }
 
   class SessionContext {
@@ -166,7 +165,7 @@ package "Layer 2: 核心编排与动态黑板层 (Pipeline & Blackboard)" as L2 
 ' ==============================================================================
 package "Layer 3: 通用能力节点 (Stateless Capability Nodes)" as L3 {
   interface INode {
-    + {abstract} Init(config: json, session_ctx: SessionContext*): bool
+    + {abstract} Init(init_ctx: const NodeInitContext&): bool
     + {abstract} Process(req_ctx: AlgContext*): int
     + {abstract} Control(cmd: int, json_param: const string&): int
     + {abstract} Name(): const string&
@@ -174,7 +173,7 @@ package "Layer 3: 通用能力节点 (Stateless Capability Nodes)" as L3 {
 
   class NodeBase <<(B,#38BDF8) Base Class>> {
     # {abstract} ProcessNode(req_ctx: AlgContext&): int
-    # {abstract} InitNode(config, session_ctx): bool
+    # InitNode(init_ctx, config, session_ctx): bool
     # Require<T>(ctx, key, err_code): const T*
     # Publish<T>(ctx, key, val): void
     # Fail(ctx, err_code, msg): int

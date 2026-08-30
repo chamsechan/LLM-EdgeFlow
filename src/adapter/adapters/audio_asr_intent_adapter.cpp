@@ -8,7 +8,7 @@
 
 namespace alg_framework {
 
-inline static constexpr char kAudioAsrBusinessName[] =
+inline static constexpr char kAudioAsrBizName[] =
     "speech_audio_asr_intent_slot";
 
 class AudioAsrIntentAdapter : public IBizAdapter {
@@ -30,7 +30,7 @@ class AudioAsrIntentAdapter : public IBizAdapter {
         OwnershipPolicy::kCopyIn,
         ThreadModel::kStatelessThreadSafe,
         OutputCardinality::kOneToOne,
-        {{kAudioAsrBusinessName,
+        {{kAudioAsrBizName,
           "audio_asr",
           "语音识别与意图槽位",
           {RequiredInput(kRawRequestIds), RequiredInput(kAudioInputs)},
@@ -98,8 +98,13 @@ class AudioAsrIntentAdapter : public IBizAdapter {
       raw_audios.emplace_back(static_cast<uint32_t>(i), 0, std::move(pcm_dto));
     }
 
-    ctx->Set(kRawRequestIds, std::move(raw_req_ids));
-    ctx->Set(kAudioInputs, std::move(raw_audios));
+    if (!AdapterValidationHelper::PublishContextValue(*ctx, kRawRequestIds,
+                                                      std::move(raw_req_ids),
+                                                      BizName(), out_status) ||
+        !AdapterValidationHelper::PublishContextValue(
+            *ctx, kAudioInputs, std::move(raw_audios), BizName(), out_status)) {
+      return COMPANY_ALG_ERR_INVALID_INPUT;
+    }
     return COMPANY_ALG_SUCCESS;
   }
 

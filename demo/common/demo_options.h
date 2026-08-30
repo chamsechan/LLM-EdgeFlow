@@ -24,7 +24,7 @@ void ConfigureLogLevelFromEnvironment() noexcept;
  */
 struct DemoOptions {
   std::string profile;  // 预定义运行配置 Profile 标识
-  std::string business;  // 业务标识名 (如 entity_extract, keyword_match 等)
+  std::string biz;  // 业务标识名 (如 entity_extract, keyword_match 等)
   std::string config_path;               // Operator .conf 路径
   std::string dataset_path;              // 业务测试集文件路径
   std::string output_dir = "./results";  // 结果输出根目录
@@ -41,13 +41,10 @@ struct DemoOptions {
   bool list_only = false;  // 是否仅列出可用 Business 和 Profile
   bool show_help = false;  // 是否显示帮助信息
 
-  // 兼容性字段 (旧版 --biz 1..7 数字支持)
-  int legacy_biz_id = 0;
-
   // 显式跟踪 CLI 是否显式提供了特定参数 (解决 CLI 默认值无法可靠覆盖 Profile
   // 问题)
   bool has_profile = false;
-  bool has_business = false;
+  bool has_biz = false;
   bool has_config_path = false;
   bool has_dataset_path = false;
   bool has_output_dir = false;

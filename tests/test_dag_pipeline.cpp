@@ -55,15 +55,13 @@ inline NodeDefinition MakeDagNodeDef(const std::string& type,
 class DagTestNodeA : public INode {
  public:
   inline static constexpr char kNodeType[] = "DagTestNodeA";
-  bool Init(const nlohmann::json& config,
-            SessionContext* session_ctx) override {
-    (void)config;
-    (void)session_ctx;
+  bool Init(const NodeInitContext& init_ctx) override {
+    (void)init_ctx;
     return true;
   }
   int Process(AlgContext* req_ctx) override {
     AppendExecutionTrace("NodeA");
-    req_ctx->Set("node_a_out", std::string("DataFromA"));
+    req_ctx->Publish("node_a_out", std::string("DataFromA"));
     return 0;
   }
   NodeControlResult Control(int cmd, const std::string& param) override {
@@ -83,18 +81,16 @@ REGISTER_NODE_WITH_DEFINITION(DagTestNodeA,
 class DagTestNodeB : public INode {
  public:
   inline static constexpr char kNodeType[] = "DagTestNodeB";
-  bool Init(const nlohmann::json& config,
-            SessionContext* session_ctx) override {
-    (void)config;
-    (void)session_ctx;
+  bool Init(const NodeInitContext& init_ctx) override {
+    (void)init_ctx;
     return true;
   }
   int Process(AlgContext* req_ctx) override {
     AppendExecutionTrace("NodeB");
     // 必须依赖 NodeA 的输出
-    auto* a_out = req_ctx->Get<std::string>("node_a_out");
+    auto* a_out = req_ctx->Read<std::string>("node_a_out");
     if (!a_out) return -101;
-    req_ctx->Set("node_b_out", std::string("DataFromB_after_") + *a_out);
+    req_ctx->Publish("node_b_out", std::string("DataFromB_after_") + *a_out);
     return 0;
   }
   NodeControlResult Control(int cmd, const std::string& param) override {
@@ -115,18 +111,16 @@ REGISTER_NODE_WITH_DEFINITION(DagTestNodeB,
 class DagTestNodeC : public INode {
  public:
   inline static constexpr char kNodeType[] = "DagTestNodeC";
-  bool Init(const nlohmann::json& config,
-            SessionContext* session_ctx) override {
-    (void)config;
-    (void)session_ctx;
+  bool Init(const NodeInitContext& init_ctx) override {
+    (void)init_ctx;
     return true;
   }
   int Process(AlgContext* req_ctx) override {
     AppendExecutionTrace("NodeC");
     // 依赖 NodeA 的输出 (分支 2)
-    auto* a_out = req_ctx->Get<std::string>("node_a_out");
+    auto* a_out = req_ctx->Read<std::string>("node_a_out");
     if (!a_out) return -102;
-    req_ctx->Set("node_c_out", std::string("DataFromC_after_") + *a_out);
+    req_ctx->Publish("node_c_out", std::string("DataFromC_after_") + *a_out);
     return 0;
   }
   NodeControlResult Control(int cmd, const std::string& param) override {
@@ -147,20 +141,18 @@ REGISTER_NODE_WITH_DEFINITION(DagTestNodeC,
 class DagTestNodeD : public INode {
  public:
   inline static constexpr char kNodeType[] = "DagTestNodeD";
-  bool Init(const nlohmann::json& config,
-            SessionContext* session_ctx) override {
-    (void)config;
-    (void)session_ctx;
+  bool Init(const NodeInitContext& init_ctx) override {
+    (void)init_ctx;
     return true;
   }
   int Process(AlgContext* req_ctx) override {
     AppendExecutionTrace("NodeD");
     // 汇聚 NodeB 和 NodeC 两个分支
-    auto* b_out = req_ctx->Get<std::string>("node_b_out");
-    auto* c_out = req_ctx->Get<std::string>("node_c_out");
+    auto* b_out = req_ctx->Read<std::string>("node_b_out");
+    auto* c_out = req_ctx->Read<std::string>("node_c_out");
     if (!b_out || !c_out) return -103;
 
-    req_ctx->Set("final_dag_result", *b_out + " + " + *c_out);
+    req_ctx->Publish("final_dag_result", *b_out + " + " + *c_out);
     return 0;
   }
   NodeControlResult Control(int cmd, const std::string& param) override {
@@ -182,7 +174,7 @@ REGISTER_NODE_WITH_DEFINITION(DagTestNodeD,
 class ThrowingProcessDagNode : public INode {
  public:
   inline static constexpr char kNodeType[] = "ThrowingProcessDagNode";
-  bool Init(const nlohmann::json&, SessionContext*) override { return true; }
+  bool Init(const NodeInitContext&) override { return true; }
   int Process(AlgContext*) override {
     throw std::runtime_error("parallel process failure");
   }
@@ -221,7 +213,7 @@ class GatedProcessDagNode : public INode {
 
   static bool Completed() { return completed_.load(); }
 
-  bool Init(const nlohmann::json&, SessionContext*) override { return true; }
+  bool Init(const NodeInitContext&) override { return true; }
   int Process(AlgContext*) override {
     {
       std::unique_lock<std::mutex> lock(mutex_);
@@ -286,7 +278,7 @@ class ParallelFailureCoordinator {
 class FirstFailingDagNode : public INode {
  public:
   inline static constexpr char kNodeType[] = "FirstFailingDagNode";
-  bool Init(const nlohmann::json&, SessionContext*) override { return true; }
+  bool Init(const NodeInitContext&) override { return true; }
   int Process(AlgContext* req_ctx) override {
     req_ctx->SetError(-8101, "first parallel failure");
     ParallelFailureCoordinator::MarkFirstAndWaitForSecond();
@@ -304,7 +296,7 @@ REGISTER_NODE_WITH_DEFINITION(FirstFailingDagNode,
 class SecondFailingDagNode : public INode {
  public:
   inline static constexpr char kNodeType[] = "SecondFailingDagNode";
-  bool Init(const nlohmann::json&, SessionContext*) override { return true; }
+  bool Init(const NodeInitContext&) override { return true; }
   int Process(AlgContext* req_ctx) override {
     ParallelFailureCoordinator::WaitForFirst();
     req_ctx->SetError(-8102, "second parallel failure");
@@ -328,7 +320,7 @@ class DagPipelineTest : public ::testing::Test {};
 // 1. 乱序书写自动拓扑重排 (Shuffled JSON -> Correct Order)
 TEST_F(DagPipelineTest, ShuffledOrderTopologicalSort) {
   // JSON 中故意将 D 写在最前，B 和 C 其次，A 写在最后 (逆序输入)
-  nlohmann::json config = {{"business_name", "shuffled_dag_test"},
+  nlohmann::json config = {{"biz_name", "shuffled_dag_test"},
                            {"pipeline",
                             {{{"id", "node_d"},
                               {"node_type", "DagTestNodeD"},
@@ -366,7 +358,7 @@ TEST_F(DagPipelineTest, ShuffledOrderTopologicalSort) {
   EXPECT_EQ(trace[0], "NodeA");
   EXPECT_EQ(trace[3], "NodeD");
 
-  auto* final_res = req_ctx.Get<std::string>("final_dag_result");
+  auto* final_res = req_ctx.Read<std::string>("final_dag_result");
   ASSERT_NE(final_res, nullptr);
   EXPECT_EQ(*final_res,
             "DataFromB_after_DataFromA + DataFromC_after_DataFromA");
@@ -375,7 +367,7 @@ TEST_F(DagPipelineTest, ShuffledOrderTopologicalSort) {
 // 2. 钻石分支与汇聚拓扑测试 (Diamond Branch & Merge)
 TEST_F(DagPipelineTest, DiamondBranchAndMerge) {
   nlohmann::json config = {
-      {"business_name", "diamond_dag_test"},
+      {"biz_name", "diamond_dag_test"},
       {"pipeline",
        {{{"id", "A"},
          {"node_type", "DagTestNodeA"},
@@ -405,7 +397,7 @@ TEST_F(DagPipelineTest, DiamondBranchAndMerge) {
 // 3. 循环依赖死锁检测 (Cycle Detection: A -> B -> C -> A)
 TEST_F(DagPipelineTest, CycleDetectionRejection) {
   nlohmann::json cyclic_config = {
-      {"business_name", "cyclic_pipeline"},
+      {"biz_name", "cyclic_pipeline"},
       {"pipeline",
        {
            {{"id", "A"},
@@ -429,7 +421,7 @@ TEST_F(DagPipelineTest, CycleDetectionRejection) {
 // 4. 自环死锁检测 (Self Loop: A -> A)
 TEST_F(DagPipelineTest, SelfLoopCycleRejection) {
   nlohmann::json self_loop_config = {
-      {"business_name", "self_loop_pipeline"},
+      {"biz_name", "self_loop_pipeline"},
       {"pipeline",
        {{{"id", "A"}, {"node_type", "DagTestNodeA"}, {"depends_on", {"A"}}}}}};
 
@@ -442,7 +434,7 @@ TEST_F(DagPipelineTest, SelfLoopCycleRejection) {
 // 5. 非法依赖 ID 校验 (Non-existent Dependency ID)
 TEST_F(DagPipelineTest, InvalidDependencyRejection) {
   nlohmann::json invalid_dep_config = {
-      {"business_name", "invalid_dep_pipeline"},
+      {"biz_name", "invalid_dep_pipeline"},
       {"pipeline",
        {{{"id", "A"},
          {"node_type", "DagTestNodeA"},
@@ -456,7 +448,7 @@ TEST_F(DagPipelineTest, InvalidDependencyRejection) {
 
 // 6. 拦截旧式未显式声明 id/depends_on 的配置
 TEST_F(DagPipelineTest, RejectsLegacyPipelineWithoutIdOrDependsOn) {
-  nlohmann::json legacy_config = {{"business_name", "legacy_linear_pipeline"},
+  nlohmann::json legacy_config = {{"biz_name", "legacy_linear_pipeline"},
                                   {"pipeline",
                                    {{{"node_type", "DagTestNodeA"}},
                                     {{"node_type", "DagTestNodeB"}},
@@ -474,7 +466,7 @@ TEST_F(DagPipelineTest, RejectsLegacyPipelineWithoutIdOrDependsOn) {
 // 7. 异步波前分层并发调度测试 (Parallel Wavefront Execution)
 TEST_F(DagPipelineTest, ParallelWavefrontExecution) {
   nlohmann::json parallel_config = {
-      {"business_name", "parallel_wavefront_dag"},
+      {"biz_name", "parallel_wavefront_dag"},
       {"execution_mode", "parallel"},
       {"max_parallel_workers", 4},
       {"pipeline",
@@ -512,7 +504,7 @@ TEST_F(DagPipelineTest, ParallelWavefrontExecution) {
   int ret = pipeline.Execute(&req_ctx);
   EXPECT_EQ(ret, 0);
 
-  auto* final_res = req_ctx.Get<std::string>("final_dag_result");
+  auto* final_res = req_ctx.Read<std::string>("final_dag_result");
   ASSERT_NE(final_res, nullptr);
   EXPECT_EQ(*final_res,
             "DataFromB_after_DataFromA + DataFromC_after_DataFromA");
@@ -520,7 +512,7 @@ TEST_F(DagPipelineTest, ParallelWavefrontExecution) {
 
 TEST_F(DagPipelineTest, ParallelExceptionWaitsForAllSubmittedNodes) {
   const nlohmann::json config = {
-      {"business_name", "parallel_exception_test"},
+      {"biz_name", "parallel_exception_test"},
       {"execution_mode", "parallel"},
       {"max_parallel_workers", 2},
       {"pipeline",
@@ -553,7 +545,7 @@ TEST_F(DagPipelineTest, ParallelExceptionWaitsForAllSubmittedNodes) {
 
 TEST_F(DagPipelineTest, ParallelFailuresKeepCodeAndMessageFromSameNode) {
   const nlohmann::json config = {
-      {"business_name", "parallel_error_diagnostic_test"},
+      {"biz_name", "parallel_error_diagnostic_test"},
       {"execution_mode", "parallel"},
       {"max_parallel_workers", 2},
       {"pipeline",
@@ -589,19 +581,19 @@ TEST_F(DagPipelineTest, ThreadSafeAlgContextStressTest) {
       for (int i = 0; i < ops_per_thread; ++i) {
         std::string my_key =
             "thread_" + std::to_string(t) + "_key_" + std::to_string(i % 10);
-        req_ctx.Set(my_key, i * 100 + t);
+        req_ctx.Publish(my_key, i * 100 + t);
 
         // 并发读取
-        const int* val = req_ctx.Get<int>(my_key);
+        const int* val = req_ctx.Read<int>(my_key);
         if (val) {
           EXPECT_GE(*val, 0);
         }
 
         // 并发交叉读取共享 Key
         if (req_ctx.Has("shared_counter")) {
-          req_ctx.Get<int>("shared_counter");
+          req_ctx.Read<int>("shared_counter");
         } else {
-          req_ctx.Set("shared_counter", 1);
+          req_ctx.Publish("shared_counter", 1);
         }
       }
     });

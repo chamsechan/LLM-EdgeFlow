@@ -22,8 +22,9 @@ class PlanTestNode : public INode {
   inline static constexpr char kNodeType[] = "PlanTestNode";
   inline static nlohmann::json observed_config = nlohmann::json::object();
 
-  bool Init(const nlohmann::json& config, SessionContext*) override {
-    observed_config = config;
+  bool Init(const NodeInitContext& init_ctx) override {
+    if (!init_ctx.config) return false;
+    observed_config = *init_ctx.config;
     return true;
   }
   int Process(AlgContext*) override { return 0; }
@@ -85,7 +86,7 @@ REGISTER_MODEL_WITH_DEFINITION(SerializedPlanTestModel,
 class ModelBoundPlanTestNode : public INode {
  public:
   inline static constexpr char kNodeType[] = "ModelBoundPlanTestNode";
-  bool Init(const nlohmann::json&, SessionContext*) override { return true; }
+  bool Init(const NodeInitContext&) override { return true; }
   int Process(AlgContext*) override { return 0; }
   const std::string& Name() const override {
     static const std::string name = kNodeType;
@@ -111,7 +112,7 @@ REGISTER_NODE_WITH_DEFINITION(ModelBoundPlanTestNode,
 class FlowContractProducerNode : public INode {
  public:
   inline static constexpr char kNodeType[] = "FlowContractProducerNode";
-  bool Init(const nlohmann::json&, SessionContext*) override { return true; }
+  bool Init(const NodeInitContext&) override { return true; }
   int Process(AlgContext*) override { return 0; }
   const std::string& Name() const override {
     static const std::string name = kNodeType;
@@ -122,7 +123,7 @@ class FlowContractProducerNode : public INode {
 class FlowContractConsumerNode : public INode {
  public:
   inline static constexpr char kNodeType[] = "FlowContractConsumerNode";
-  bool Init(const nlohmann::json&, SessionContext*) override { return true; }
+  bool Init(const NodeInitContext&) override { return true; }
   int Process(AlgContext*) override { return 0; }
   const std::string& Name() const override {
     static const std::string name = kNodeType;
@@ -135,7 +136,7 @@ NodeDefinition MakeFlowContractProducerDefinition() {
   def.node_type = FlowContractProducerNode::kNodeType;
   def.category = "test";
   def.description = "Produces a generated request-scoped collection";
-  def.outputs = {PortDefinition{"flow", "TextBatch", true, true, "1:N",
+  def.outputs = {PortDefinition{"flow", "TextBatch", true, "1:N",
                                 "generate_sub_id", "request"}};
   return def;
 }
@@ -145,8 +146,8 @@ NodeDefinition MakeFlowContractConsumerDefinition() {
   def.node_type = FlowContractConsumerNode::kNodeType;
   def.category = "test";
   def.description = "Requires incompatible flow metadata";
-  def.inputs = {PortDefinition{"flow", "TextBatch", true, false, "1:1",
-                               "independent", "session"}};
+  def.inputs = {PortDefinition{"flow", "TextBatch", true, "1:1", "independent",
+                               "session"}};
   return def;
 }
 
@@ -172,7 +173,7 @@ TEST(ValidatedPipelinePlanTest, DiagnosticCodeNameTableDriven) {
       {DiagnosticCode::kInvalidCombination, "INVALID_COMBINATION"},
       {DiagnosticCode::kDuplicateModelId, "DUPLICATE_MODEL_ID"},
       {DiagnosticCode::kDuplicateNodeId, "DUPLICATE_NODE_ID"},
-      {DiagnosticCode::kUnknownBusiness, "UNKNOWN_BUSINESS"},
+      {DiagnosticCode::kUnknownBiz, "UNKNOWN_BIZ"},
       {DiagnosticCode::kUnknownNodeType, "UNKNOWN_NODE_TYPE"},
       {DiagnosticCode::kInvalidDependency, "INVALID_DEPENDENCY"},
       {DiagnosticCode::kDuplicateDependency, "DUPLICATE_DEPENDENCY"},
@@ -185,10 +186,10 @@ TEST(ValidatedPipelinePlanTest, DiagnosticCodeNameTableDriven) {
       {DiagnosticCode::kConfigFieldEnum, "CONFIG_FIELD_ENUM"},
       {DiagnosticCode::kUnknownModelReference, "UNKNOWN_MODEL_REFERENCE"},
       {DiagnosticCode::kModelCapabilityMismatch, "MODEL_CAPABILITY_MISMATCH"},
-      {DiagnosticCode::kNodeBusinessMismatch, "NODE_BUSINESS_MISMATCH"},
+      {DiagnosticCode::kNodeBizMismatch, "NODE_BIZ_MISMATCH"},
       {DiagnosticCode::kMissingInputProducer, "MISSING_INPUT_PRODUCER"},
       {DiagnosticCode::kDuplicatePortProducer, "DUPLICATE_PORT_PRODUCER"},
-      {DiagnosticCode::kMissingBusinessOutput, "MISSING_BUSINESS_OUTPUT"},
+      {DiagnosticCode::kMissingBizOutput, "MISSING_BIZ_OUTPUT"},
       {DiagnosticCode::kNodeNotParallelSafe, "NODE_NOT_PARALLEL_SAFE"},
       {DiagnosticCode::kParallelWriteConflict, "PARALLEL_WRITE_CONFLICT"},
       {DiagnosticCode::kSerializedModelConcurrency,
@@ -209,7 +210,7 @@ TEST(ValidatedPipelinePlanTest, DiagnosticCodeNameTableDriven) {
 
 TEST(ValidatedPipelinePlanTest, RejectsIncompatiblePortExecutionContracts) {
   nlohmann::json pipeline_json = {
-      {"business_name", "unregistered_test_biz"},
+      {"biz_name", "unregistered_test_biz"},
       {"models", nlohmann::json::array()},
       {"pipeline",
        nlohmann::json::array(
@@ -244,7 +245,7 @@ TEST(ValidatedPipelinePlanTest, RejectsIncompatiblePortExecutionContracts) {
 TEST(ValidatedPipelinePlanTest,
      RejectsDuplicateProducerEvenWhenDefinitionAllowsOverride) {
   nlohmann::json pipeline_json = {
-      {"business_name", "unregistered_test_biz"},
+      {"biz_name", "unregistered_test_biz"},
       {"models", nlohmann::json::array()},
       {"pipeline", nlohmann::json::array(
                        {{{"id", "first"},
@@ -270,7 +271,7 @@ TEST(ValidatedPipelinePlanTest,
 
 TEST(ValidatedPipelinePlanTest, ResolvesConfiguredPortLifetimeBeforePlanning) {
   nlohmann::json pipeline_json = {
-      {"business_name", "smart_doc_qa_v1"},
+      {"biz_name", "smart_doc_qa_v1"},
       {"models",
        nlohmann::json::array({{{"model_id", "embed_model_v1"},
                                {"capability", "embedding"},
@@ -305,7 +306,7 @@ TEST(ValidatedPipelinePlanTest, ResolvesConfiguredPortLifetimeBeforePlanning) {
 TEST(ValidatedPipelinePlanTest, StrictVsCompatiblePolicy) {
   // 1. Unregistered business with strict policy fails
   nlohmann::json unreg_biz_json = {
-      {"business_name", "unregistered_test_biz"},
+      {"biz_name", "unregistered_test_biz"},
       {"models", nlohmann::json::array()},
       {"pipeline",
        nlohmann::json::array({{{"id", "node_0"},
@@ -317,7 +318,7 @@ TEST(ValidatedPipelinePlanTest, StrictVsCompatiblePolicy) {
   EXPECT_FALSE(strict_plan.report.ok);
   ASSERT_FALSE(strict_plan.report.diagnostics.empty());
   EXPECT_EQ(strict_plan.report.diagnostics.front().code,
-            DiagnosticCode::kUnknownBusiness);
+            DiagnosticCode::kUnknownBiz);
 
   auto compat_plan = PipelineValidator::ValidateAndPlan(
       unreg_biz_json, ValidationPolicy::kPrivateExtensionCompatible);
@@ -328,7 +329,7 @@ TEST(ValidatedPipelinePlanTest, StrictVsCompatiblePolicy) {
 
 TEST(ValidatedPipelinePlanTest, NormalizedNodeConfigIsRuntimeSingleSource) {
   nlohmann::json pipeline_json = {
-      {"business_name", "unregistered_test_biz"},
+      {"biz_name", "unregistered_test_biz"},
       {"models", nlohmann::json::array()},
       {"pipeline",
        nlohmann::json::array({{{"id", "node_0"},
@@ -358,7 +359,7 @@ TEST(ValidatedPipelinePlanTest, NormalizedNodeConfigIsRuntimeSingleSource) {
 TEST(ValidatedPipelinePlanTest, MultiLayerWavefrontTopology) {
   // Test DAG Wavefront layers calculation
   nlohmann::json dag_json = {
-      {"business_name", "unregistered_test_biz"},
+      {"biz_name", "unregistered_test_biz"},
       {"models", nlohmann::json::array()},
       {"pipeline",
        nlohmann::json::array({
@@ -386,7 +387,7 @@ TEST(ValidatedPipelinePlanTest, MultiLayerWavefrontTopology) {
 
 TEST(ValidatedPipelinePlanTest, RejectsSharedSerializedModelInParallelLayer) {
   nlohmann::json pipeline_json = {
-      {"business_name", "unregistered_test_biz"},
+      {"biz_name", "unregistered_test_biz"},
       {"execution_mode", "parallel"},
       {"models", nlohmann::json::array(
                      {{{"model_id", "shared"},
@@ -422,7 +423,7 @@ TEST(ValidatedPipelinePlanTest, RejectsSharedSerializedModelInParallelLayer) {
 class RestrictedBusinessNode : public INode {
  public:
   inline static constexpr char kNodeType[] = "RestrictedBusinessNode";
-  bool Init(const nlohmann::json&, SessionContext*) override { return true; }
+  bool Init(const NodeInitContext&) override { return true; }
   int Process(AlgContext*) override { return 0; }
   const std::string& Name() const override {
     static const std::string n = kNodeType;
@@ -442,7 +443,7 @@ REGISTER_NODE_WITH_DEFINITION(RestrictedBusinessNode, MakeRestrictedNodeDef());
 
 TEST(ValidatedPipelinePlanTest, RejectsNodeFromDifferentBusiness) {
   nlohmann::json pipeline_json = {
-      {"business_name", "smart_doc_qa_v1"},
+      {"biz_name", "smart_doc_qa_v1"},
       {"models", nlohmann::json::array()},
       {"pipeline",
        nlohmann::json::array({{{"id", "wrong_business_node"},
@@ -451,11 +452,11 @@ TEST(ValidatedPipelinePlanTest, RejectsNodeFromDifferentBusiness) {
 
   auto plan = PipelineValidator::ValidateAndPlan(pipeline_json);
   EXPECT_FALSE(plan.report.ok);
-  EXPECT_NE(std::find_if(
-                plan.report.diagnostics.begin(), plan.report.diagnostics.end(),
-                [](const auto& item) {
-                  return item.code == DiagnosticCode::kNodeBusinessMismatch;
-                }),
+  EXPECT_NE(std::find_if(plan.report.diagnostics.begin(),
+                         plan.report.diagnostics.end(),
+                         [](const auto& item) {
+                           return item.code == DiagnosticCode::kNodeBizMismatch;
+                         }),
             plan.report.diagnostics.end());
 }
 

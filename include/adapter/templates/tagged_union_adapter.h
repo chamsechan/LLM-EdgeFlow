@@ -56,7 +56,7 @@ struct TemplateUnionResultDto {
   std::string verdict;
 };
 
-class TemplateTaggedUnionAdapter : public IBusinessAdapter {
+class TemplateTaggedUnionAdapter : public IBizAdapter {
  public:
   CompanyAlgBizType BizType() const override {
     return static_cast<CompanyAlgBizType>(102);
@@ -75,8 +75,8 @@ class TemplateTaggedUnionAdapter : public IBusinessAdapter {
         OwnershipPolicy::kCopyIn,
         ThreadModel::kStatelessThreadSafe,
         OutputCardinality::kOneToOne,
-        {BusinessDefinition{"TemplateTaggedUnion",
-                            "template_tagged_union_pipeline_v1"}}};
+        {BizDefinition{"TemplateTaggedUnion",
+                       "template_tagged_union_pipeline_v1"}}};
     return desc;
   }
 
@@ -139,7 +139,11 @@ class TemplateTaggedUnionAdapter : public IBusinessAdapter {
       items.push_back(std::move(item));
     }
 
-    ctx->Set("tagged_union_items", std::move(items));
+    if (!AdapterValidationHelper::PublishContextValue(
+            *ctx, "tagged_union_items", std::move(items), BizName(),
+            out_status)) {
+      return COMPANY_ALG_ERR_INVALID_INPUT;
+    }
     return COMPANY_ALG_SUCCESS;
   }
 

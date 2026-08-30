@@ -63,7 +63,7 @@ NodeDefinition MakeTextCorpusSourceNodeDefinition() {
                                   BlackboardKey<TextBatch>{"", "TextBatch"},
                                   "1:1", "preserve", "request")};
   def.outputs = {OutputPort("corpus", BlackboardKey<TextBatch>{"", "TextBatch"},
-                            false, "1:N", "generate_sub_id", "session")};
+                            "1:N", "generate_sub_id", "session")};
   def.config_fields = {
       ConfigFieldDefinition{"corpus", ConfigValueKind::kArray, false}};
   def.parallel_safe = true;

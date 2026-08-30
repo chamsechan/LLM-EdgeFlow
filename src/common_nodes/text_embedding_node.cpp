@@ -170,7 +170,7 @@ NodeDefinition MakeTextEmbeddingNodeDefinition() {
                                   "N:M", "preserve", "request", "lifetime")};
   def.outputs = {OutputPort("embedding",
                             BlackboardKey<EmbeddingBatch>{"", "EmbeddingBatch"},
-                            false, "N:M", "preserve", "request", "lifetime")};
+                            "N:M", "preserve", "request", "lifetime")};
   def.config_fields = {
       ConfigFieldDefinition{"bind_model", ConfigValueKind::kString, false,
                             "embed_model_v1"},

@@ -321,9 +321,6 @@ int CompanyConfResolver::Resolve(
     if (pipe_json.is_object() && pipe_json.contains("biz_name") &&
         pipe_json["biz_name"].is_string()) {
       biz_name = pipe_json["biz_name"].get<std::string>();
-    } else if (pipe_json.is_object() && pipe_json.contains("business_name") &&
-               pipe_json["business_name"].is_string()) {
-      biz_name = pipe_json["business_name"].get<std::string>();
     } else {
       if (error_msg)
         *error_msg = "Pipeline JSON must contain string 'biz_name'";

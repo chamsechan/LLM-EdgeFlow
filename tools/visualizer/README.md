@@ -46,7 +46,7 @@ cmake --build build -j$(nproc)
 ## 自动化 CLI
 
 ```bash
-./build/alg_pipeline_tool catalog --business smart_doc_qa_v1
+./build/alg_pipeline_tool catalog --biz smart_doc_qa_v1
 ./build/alg_pipeline_tool describe-node TextEmbeddingNode
 ./build/alg_pipeline_tool validate configs/pipeline_doc_qa.json
 ./build/alg_pipeline_tool plan configs/pipeline_doc_qa.json

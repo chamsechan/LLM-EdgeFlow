@@ -8,7 +8,7 @@
 
 namespace alg_framework {
 
-inline static constexpr char kKeywordMatchBusinessName[] = "keyword_match_v1";
+inline static constexpr char kKeywordMatchBizName[] = "keyword_match_v1";
 
 class KeywordMatchAdapter : public IBizAdapter {
  public:
@@ -29,7 +29,7 @@ class KeywordMatchAdapter : public IBizAdapter {
         OwnershipPolicy::kCopyIn,
         ThreadModel::kStatelessThreadSafe,
         OutputCardinality::kOneToOne,
-        {{kKeywordMatchBusinessName,
+        {{kKeywordMatchBizName,
           "keyword_match",
           "关注词匹配",
           {RequiredInput(kRawRequestIds), RequiredInput(kInputSentences)},
@@ -71,8 +71,13 @@ class KeywordMatchAdapter : public IBizAdapter {
       sentences.emplace_back(static_cast<uint32_t>(i), 0, in->sentence_text);
     }
 
-    ctx->Set(kRawRequestIds, std::move(req_ids));
-    ctx->Set(kInputSentences, std::move(sentences));
+    if (!AdapterValidationHelper::PublishContextValue(
+            *ctx, kRawRequestIds, std::move(req_ids), BizName(), out_status) ||
+        !AdapterValidationHelper::PublishContextValue(*ctx, kInputSentences,
+                                                      std::move(sentences),
+                                                      BizName(), out_status)) {
+      return COMPANY_ALG_ERR_INVALID_INPUT;
+    }
     return COMPANY_ALG_SUCCESS;
   }
 

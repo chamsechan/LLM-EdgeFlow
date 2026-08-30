@@ -19,22 +19,22 @@ namespace alg_framework {
 TEST(AlgContextTest, BasicAndTypeSafety) {
   AlgContext ctx;
   EXPECT_FALSE(ctx.Has("non_existent_key"));
-  EXPECT_EQ(ctx.Get<int>("non_existent_key"), nullptr);
+  EXPECT_EQ(ctx.Read<int>("non_existent_key"), nullptr);
 
   // 写入基础类型
-  ctx.Set("user_id", 12345);
-  ctx.Set("user_name", std::string("Alice"));
+  ASSERT_TRUE(ctx.Publish("user_id", 12345));
+  ASSERT_TRUE(ctx.Publish("user_name", std::string("Alice")));
   EXPECT_TRUE(ctx.Has("user_id"));
-  EXPECT_EQ(*ctx.Get<int>("user_id"), 12345);
-  EXPECT_EQ(*ctx.Get<std::string>("user_name"), "Alice");
+  EXPECT_EQ(*ctx.Read<int>("user_id"), 12345);
+  EXPECT_EQ(*ctx.Read<std::string>("user_name"), "Alice");
 
   // 类型不匹配时的安全性检查（不能崩溃，必须返回 nullptr）
-  EXPECT_EQ(ctx.Get<double>("user_id"), nullptr);
+  EXPECT_EQ(ctx.Read<double>("user_id"), nullptr);
 
   // 复杂结构测试
   std::vector<std::string> tags = {"NLP", "NPU", "LLM"};
-  ctx.Set("tags", tags);
-  auto* retrieved_tags = ctx.Get<std::vector<std::string>>("tags");
+  ASSERT_TRUE(ctx.Publish("tags", tags));
+  auto* retrieved_tags = ctx.Read<std::vector<std::string>>("tags");
   ASSERT_NE(retrieved_tags, nullptr);
   EXPECT_EQ(retrieved_tags->size(), 3U);
   EXPECT_EQ((*retrieved_tags)[1], "NPU");
@@ -44,10 +44,9 @@ TEST(AlgContextTest, BasicAndTypeSafety) {
   EXPECT_EQ(ctx.GetErrorCode(), -5001);
   EXPECT_EQ(ctx.GetErrorMessage(), "Simulated error");
 
-  // 清空黑板
-  ctx.Clear();
-  EXPECT_FALSE(ctx.Has("user_id"));
-  EXPECT_EQ(ctx.GetErrorCode(), 0);
+  // 请求值和诊断在本请求上下文生命周期内保持稳定。
+  EXPECT_TRUE(ctx.Has("user_id"));
+  EXPECT_EQ(ctx.GetErrorCode(), -5001);
 }
 
 // 2. 测试 TraceableItem 样本溯源机制
@@ -138,7 +137,7 @@ TEST(PipelineTest, RuntimeOptionsWithModelBackendDialect) {
   opts.has_device_id = true;
   pipe.GetSessionContext().SetRuntimeOptions(opts);
 
-  nlohmann::json root_cfg = {{"business_name", "test_runtime_opts"},
+  nlohmann::json root_cfg = {{"biz_name", "test_runtime_opts"},
                              {"execution_mode", "sequential"},
                              {"models",
                               {{{"model_id", "test_mock_llm"},

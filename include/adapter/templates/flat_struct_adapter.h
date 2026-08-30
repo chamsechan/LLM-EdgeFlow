@@ -31,7 +31,7 @@ struct TemplateFlatResultDto {
 };
 
 // 3. 模板适配器实现
-class TemplateFlatStructAdapter : public IBusinessAdapter {
+class TemplateFlatStructAdapter : public IBizAdapter {
  public:
   CompanyAlgBizType BizType() const override {
     return static_cast<CompanyAlgBizType>(101);
@@ -50,8 +50,7 @@ class TemplateFlatStructAdapter : public IBusinessAdapter {
         OwnershipPolicy::kCopyIn,
         ThreadModel::kStatelessThreadSafe,
         OutputCardinality::kOneToOne,
-        {BusinessDefinition{"TemplateFlatStruct",
-                            "template_flat_pipeline_v1"}}};
+        {BizDefinition{"TemplateFlatStruct", "template_flat_pipeline_v1"}}};
     return desc;
   }
 
@@ -88,8 +87,14 @@ class TemplateFlatStructAdapter : public IBusinessAdapter {
       sentences.push_back(in->sentence_text);  // COPY_IN 深拷贝
     }
 
-    ctx->Set("raw_request_ids", std::move(req_ids));
-    ctx->Set("raw_sentences", std::move(sentences));
+    if (!AdapterValidationHelper::PublishContextValue(*ctx, "raw_request_ids",
+                                                      std::move(req_ids),
+                                                      BizName(), out_status) ||
+        !AdapterValidationHelper::PublishContextValue(*ctx, "raw_sentences",
+                                                      std::move(sentences),
+                                                      BizName(), out_status)) {
+      return COMPANY_ALG_ERR_INVALID_INPUT;
+    }
     return COMPANY_ALG_SUCCESS;
   }
 

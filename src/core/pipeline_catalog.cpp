@@ -32,7 +32,6 @@ nlohmann::json PortJson(const PortDefinition& port) {
   nlohmann::json result = {{"key", port.key},
                            {"type_id", port.type_id},
                            {"required", port.required},
-                           {"allow_override", port.allow_override},
                            {"cardinality", port.cardinality},
                            {"provenance_policy", port.provenance_policy},
                            {"lifetime", port.lifetime}};
@@ -366,8 +365,7 @@ nlohmann::json PipelineCatalog::NodeToJson(const NodeDefinition& definition) {
           {"model_capability", definition.model_capability},
           {"model_config_field", definition.model_config_field},
           {"parallel_safe", definition.parallel_safe},
-          {"biz_names", definition.biz_names},
-          {"business_names", definition.biz_names}};
+          {"biz_names", definition.biz_names}};
 }
 
 nlohmann::json PipelineCatalog::ModelToJson(const ModelDefinition& definition) {
@@ -434,20 +432,17 @@ nlohmann::json PipelineCatalog::ToJson(const std::string& biz_filter) {
     for (const auto& port : item.ingress) ingress.push_back(PortJson(port));
     for (const auto& port : item.egress) egress.push_back(PortJson(port));
     bizs.push_back({{"biz_name", item.biz_name},
-                    {"business_name", item.biz_name},
                     {"demo_biz", item.demo_biz},
-                    {"demo_business", item.demo_biz},
                     {"display_name", item.display_name},
                     {"ingress", std::move(ingress)},
                     {"egress", std::move(egress)}});
   }
 
-  return {{"schema_version", 1},
+  return {{"schema_version", 2},
           {"nodes", std::move(nodes)},
           {"models", std::move(models)},
           {"backends", std::move(backends)},
-          {"bizs", bizs},
-          {"businesses", std::move(bizs)}};
+          {"bizs", std::move(bizs)}};
 }
 
 }  // namespace alg_framework

@@ -980,15 +980,15 @@ TEST_F(OnnxAndRerankerModelTest, RealPipelineBuildAndExecuteSmoke) {
       {1002, 0, RankedCandidate("edgeflow high performance pipeline", 0.0f)},
       {1002, 1, RankedCandidate("unrelated candidate document", 0.0f)},
   };
-  ctx.Set("rerank_queries", queries);
-  ctx.Set("rerank_candidates", candidates);
+  ctx.Publish("rerank_queries", queries);
+  ctx.Publish("rerank_candidates", candidates);
 
   // 6. Pipeline Execute
   int exec_ret = pipeline.Execute(&ctx);
   EXPECT_EQ(exec_ret, 0);
 
   // 7. 校验 RankedTextBatch 输出
-  const auto* ranked = ctx.Get<RankedTextBatch>("ranked_results");
+  const auto* ranked = ctx.Read<RankedTextBatch>("ranked_results");
   ASSERT_NE(ranked, nullptr);
   // top_k=2，每个 request 截取 top 2，总共 4 条
   ASSERT_EQ(ranked->size(), 4u);

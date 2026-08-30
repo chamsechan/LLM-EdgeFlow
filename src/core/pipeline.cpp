@@ -39,13 +39,13 @@ PipelineErrorCode ValidationCodeToPipelineCode(DiagnosticCode code) {
       return PipelineErrorCode::kFieldRange;
     case DiagnosticCode::kInvalidCombination:
     case DiagnosticCode::kConfigFieldEnum:
-    case DiagnosticCode::kUnknownBusiness:
+    case DiagnosticCode::kUnknownBiz:
     case DiagnosticCode::kUnknownModelReference:
     case DiagnosticCode::kModelCapabilityMismatch:
-    case DiagnosticCode::kNodeBusinessMismatch:
+    case DiagnosticCode::kNodeBizMismatch:
     case DiagnosticCode::kMissingInputProducer:
     case DiagnosticCode::kDuplicatePortProducer:
-    case DiagnosticCode::kMissingBusinessOutput:
+    case DiagnosticCode::kMissingBizOutput:
     case DiagnosticCode::kNodeNotParallelSafe:
     case DiagnosticCode::kParallelWriteConflict:
     case DiagnosticCode::kSerializedModelConcurrency:

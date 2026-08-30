@@ -10,6 +10,7 @@
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
 #include "core/session_context.h"
+#include "tests/support/node_test_utils.h"
 
 namespace alg_framework {
 
@@ -30,18 +31,18 @@ TEST_F(TextRuleMatchNodeTest, ProcessKeywordAndCategoryMatching) {
   nlohmann::json cfg = {{"categories",
                          {{"COMPLAINT", {"退款", "投诉", "差评"}},
                           {"CONSULT", {"如何", "怎么", "咨询"}}}}};
-  EXPECT_TRUE(node->Init(cfg, session_ctx_.get()));
+  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
 
   AlgContext ctx;
   TextBatch inputs;
   inputs.emplace_back(1, 0, "我要申请退款并投诉服务");
   inputs.emplace_back(2, 0, "请问如何升级会员账号");
   inputs.emplace_back(3, 0, "今天天气真好");
-  ctx.Set("text", inputs);
+  ctx.Publish("text", inputs);
 
   EXPECT_EQ(node->Process(&ctx), 0);
 
-  const auto* matches = ctx.Get<RuleMatchBatch>("matches");
+  const auto* matches = ctx.Read<RuleMatchBatch>("matches");
   ASSERT_NE(matches, nullptr);
   ASSERT_EQ(matches->size(), 3u);
 
@@ -56,7 +57,8 @@ TEST_F(TextRuleMatchNodeTest, ProcessKeywordAndCategoryMatching) {
 TEST_F(TextRuleMatchNodeTest, ControlCommandDynamicRules) {
   auto node = NodeFactory::Instance().Create("TextRuleMatchNode");
   ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(node->Init(nlohmann::json::object(), session_ctx_.get()));
+  ASSERT_TRUE(
+      InitNodeForTest(*node, nlohmann::json::object(), session_ctx_.get()));
 
   // Valid update
   nlohmann::json update_payload = {
@@ -75,7 +77,8 @@ TEST_F(TextRuleMatchNodeTest, ControlCommandDynamicRules) {
 TEST_F(TextRuleMatchNodeTest, CombinedControlUpdateIsAtomic) {
   auto node = NodeFactory::Instance().Create("TextRuleMatchNode");
   ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(node->Init(nlohmann::json::object(), session_ctx_.get()));
+  ASSERT_TRUE(
+      InitNodeForTest(*node, nlohmann::json::object(), session_ctx_.get()));
 
   const nlohmann::json combined_update = {
       {"categories", {{"SECURITY", {"密码"}}}},
@@ -92,9 +95,9 @@ TEST_F(TextRuleMatchNodeTest, CombinedControlUpdateIsAtomic) {
   TextBatch updated_inputs;
   updated_inputs.emplace_back(1, 0, "密码泄露");
   updated_inputs.emplace_back(2, 0, "data breach");
-  updated_ctx.Set("text", std::move(updated_inputs));
+  updated_ctx.Publish("text", std::move(updated_inputs));
   ASSERT_EQ(node->Process(&updated_ctx), 0);
-  const auto* updated = updated_ctx.Get<RuleMatchBatch>("matches");
+  const auto* updated = updated_ctx.Read<RuleMatchBatch>("matches");
   ASSERT_NE(updated, nullptr);
   ASSERT_EQ(updated->size(), 2u);
   EXPECT_EQ((*updated)[0].data.category, "SECURITY");
@@ -118,9 +121,9 @@ TEST_F(TextRuleMatchNodeTest, CombinedControlUpdateIsAtomic) {
   preserved_inputs.emplace_back(3, 0, "密码泄露");
   preserved_inputs.emplace_back(4, 0, "data breach");
   preserved_inputs.emplace_back(5, 0, "new");
-  preserved_ctx.Set("text", std::move(preserved_inputs));
+  preserved_ctx.Publish("text", std::move(preserved_inputs));
   ASSERT_EQ(node->Process(&preserved_ctx), 0);
-  const auto* preserved = preserved_ctx.Get<RuleMatchBatch>("matches");
+  const auto* preserved = preserved_ctx.Read<RuleMatchBatch>("matches");
   ASSERT_NE(preserved, nullptr);
   ASSERT_EQ(preserved->size(), 3u);
   EXPECT_EQ((*preserved)[0].data.category, "SECURITY");
@@ -141,17 +144,17 @@ TEST_F(TextRuleMatchNodeTest, SupportsLookbehindAndNamedCaptures) {
                            {"strategy", "regex"},
                            {"pattern", R"((?<!not_)(?<word>risk))"},
                            {"category", "RISK"}}}}};
-  ASSERT_TRUE(node->Init(cfg, session_ctx_.get()));
+  ASSERT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
 
   AlgContext ctx;
   TextBatch inputs;
   inputs.emplace_back(11, 1, "本次金额:123元");
   inputs.emplace_back(12, 2, "not_risk");
   inputs.emplace_back(13, 3, "plain risk");
-  ctx.Set("text", inputs);
+  ctx.Publish("text", inputs);
 
   ASSERT_EQ(node->Process(&ctx), 0);
-  const auto* matches = ctx.Get<RuleMatchBatch>("matches");
+  const auto* matches = ctx.Read<RuleMatchBatch>("matches");
   ASSERT_NE(matches, nullptr);
   ASSERT_EQ(matches->size(), 3u);
 
@@ -173,16 +176,16 @@ TEST_F(TextRuleMatchNodeTest, PreservesLookbehindWhenLaterGreaterThanExists) {
                            {"strategy", "regex"},
                            {"pattern", R"((?<=不存在)(?<value>请帮我>联系))"},
                            {"category", "RISK"}}}}};
-  ASSERT_TRUE(node->Init(cfg, session_ctx_.get()));
+  ASSERT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
 
   AlgContext ctx;
   TextBatch inputs;
   inputs.emplace_back(21, 0, "请帮我联系一下");
   inputs.emplace_back(22, 0, "不存在请帮我>联系");
-  ctx.Set("text", inputs);
+  ctx.Publish("text", inputs);
 
   ASSERT_EQ(node->Process(&ctx), 0);
-  const auto* matches = ctx.Get<RuleMatchBatch>("matches");
+  const auto* matches = ctx.Read<RuleMatchBatch>("matches");
   ASSERT_NE(matches, nullptr);
   ASSERT_EQ(matches->size(), 2u);
   EXPECT_EQ((*matches)[0].data.is_hit, 0);
@@ -193,7 +196,8 @@ TEST_F(TextRuleMatchNodeTest, PreservesLookbehindWhenLaterGreaterThanExists) {
 TEST_F(TextRuleMatchNodeTest, RegexErrorsFailClosed) {
   auto node = NodeFactory::Instance().Create("TextRuleMatchNode");
   ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(node->Init(nlohmann::json::object(), session_ctx_.get()));
+  ASSERT_TRUE(
+      InitNodeForTest(*node, nlohmann::json::object(), session_ctx_.get()));
 
   nlohmann::json invalid_update = {{"rules",
                                     {{{"id", "invalid"},
@@ -214,16 +218,17 @@ TEST_F(TextRuleMatchNodeTest, RegexErrorsFailClosed) {
   AlgContext ctx;
   TextBatch inputs;
   inputs.emplace_back(31, 0, std::string("ok") + "\xE4\xB8");
-  ctx.Set("text", inputs);
+  ctx.Publish("text", inputs);
   EXPECT_EQ(node->Process(&ctx), -5002);
-  EXPECT_EQ(ctx.Get<RuleMatchBatch>("matches"), nullptr);
+  EXPECT_EQ(ctx.Read<RuleMatchBatch>("matches"), nullptr);
 }
 
 // 3. Missing Input Fails Closed
 TEST_F(TextRuleMatchNodeTest, MissingInputFailsClosed) {
   auto node = NodeFactory::Instance().Create("TextRuleMatchNode");
   ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(node->Init(nlohmann::json::object(), session_ctx_.get()));
+  ASSERT_TRUE(
+      InitNodeForTest(*node, nlohmann::json::object(), session_ctx_.get()));
 
   AlgContext empty_ctx;
   EXPECT_EQ(node->Process(&empty_ctx), -5001);

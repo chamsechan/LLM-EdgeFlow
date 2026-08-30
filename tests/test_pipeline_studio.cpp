@@ -19,7 +19,7 @@ namespace {
 class StudioCatalogProbeNode : public INode {
  public:
   inline static constexpr char kNodeType[] = "StudioCatalogProbeNode";
-  bool Init(const nlohmann::json&, SessionContext*) override { return true; }
+  bool Init(const NodeInitContext&) override { return true; }
   int Process(AlgContext*) override { return 0; }
   const std::string& Name() const override {
     static const std::string name = kNodeType;
@@ -87,12 +87,10 @@ TEST(BlackboardKeyTest, TypedOverloadsShareTheRuntimeKey) {
   constexpr BlackboardKey<std::vector<std::string>> key{
       "studio_values", "std::vector<std::string>"};
   AlgContext context;
-  context.Set(key, std::vector<std::string>{"a", "b"});
+  ASSERT_TRUE(context.Publish(key, std::vector<std::string>{"a", "b"}));
   ASSERT_TRUE(context.Has(key));
-  ASSERT_NE(context.Get(key), nullptr);
-  EXPECT_EQ(*context.Get(key), (std::vector<std::string>{"a", "b"}));
-  context.Erase(key);
-  EXPECT_FALSE(context.Has(key));
+  ASSERT_NE(context.Read(key), nullptr);
+  EXPECT_EQ(*context.Read(key), (std::vector<std::string>{"a", "b"}));
 }
 
 TEST(PipelineValidatorTest, AllRepositoryPipelinesValidate) {
@@ -136,7 +134,7 @@ TEST(PipelineValidatorTest, AllRepositoryPipelinesValidate) {
 }
 
 TEST(PipelineValidatorTest, ReportsCycle) {
-  const nlohmann::json pipeline = {{"business_name", "keyword_match_v1"},
+  const nlohmann::json pipeline = {{"biz_name", "keyword_match_v1"},
                                    {"pipeline",
                                     {{{"id", "a"},
                                       {"node_type", "TextRuleMatchNode"},
@@ -153,7 +151,7 @@ TEST(PipelineValidatorTest, ReportsCycle) {
 }
 
 TEST(PipelineValidatorTest, ReportsDuplicateEdge) {
-  const nlohmann::json pipeline = {{"business_name", "keyword_match_v1"},
+  const nlohmann::json pipeline = {{"biz_name", "keyword_match_v1"},
                                    {"pipeline",
                                     {{{"id", "a"},
                                       {"node_type", "TextRuleMatchNode"},
@@ -171,7 +169,7 @@ TEST(PipelineValidatorTest, ReportsDuplicateEdge) {
 
 TEST(PipelineValidatorTest, NormalizeRejectsNonObjectNodeWithStablePath) {
   const nlohmann::json pipeline = {
-      {"business_name", "keyword_match_v1"},
+      {"biz_name", "keyword_match_v1"},
       {"pipeline",
        nlohmann::json::array({{{"node_type", "TextRuleMatchNode"}},
                               nullptr,
@@ -188,7 +186,7 @@ TEST(PipelineValidatorTest, NormalizeRejectsNonObjectNodeWithStablePath) {
 
 TEST(PipelineValidatorTest, ReportsConfigAndCapabilityErrors) {
   const nlohmann::json pipeline = {
-      {"business_name", "entity_extract_0.6b_v1"},
+      {"biz_name", "entity_extract_0.6b_v1"},
       {"models",
        {{{"model_id", "llm_model_v1"},
          {"capability", "embedding"},

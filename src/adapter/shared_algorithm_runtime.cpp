@@ -120,7 +120,7 @@ int SharedAlgorithmRuntime::CreateFromConfigFile(
     options.device_id = device_id;
     options.has_device_id = (device_id >= 0);
     options.biz_type = static_cast<int>(biz_type);
-    options.business_name = adapter->BizName();
+    options.biz_name = adapter->BizName();
 
     runtime->pipeline_->GetSessionContext().SetRuntimeOptions(options);
 
@@ -140,11 +140,9 @@ int SharedAlgorithmRuntime::CreateFromConfigFile(
       return COMPANY_ALG_ERR_INVALID_INPUT;  // -3
     }
 
-    if (!adapter->ValidatePipelineBinding(
-            runtime->pipeline_->GetBusinessName())) {
+    if (!adapter->ValidatePipelineBinding(runtime->pipeline_->GetBizName())) {
       if (out_error) {
-        *out_error = "Pipeline business_name '" +
-                     runtime->pipeline_->GetBusinessName() +
+        *out_error = "Pipeline biz_name '" + runtime->pipeline_->GetBizName() +
                      "' does not match adapter '" + adapter->BizName() + "'";
       }
       return COMPANY_ALG_ERR_UNSUPPORTED_BIZ;  // -5
@@ -204,7 +202,7 @@ int SharedAlgorithmRuntime::CreateFromPipelineJson(
     options.device_id = device_id;
     options.has_device_id = (device_id >= 0);
     options.biz_type = static_cast<int>(biz_type);
-    options.business_name = adapter->BizName();
+    options.biz_name = adapter->BizName();
 
     runtime->pipeline_->GetSessionContext().SetRuntimeOptions(options);
 
@@ -222,11 +220,9 @@ int SharedAlgorithmRuntime::CreateFromPipelineJson(
       return COMPANY_ALG_ERR_INVALID_PARAM;  // -2
     }
 
-    if (!adapter->ValidatePipelineBinding(
-            runtime->pipeline_->GetBusinessName())) {
+    if (!adapter->ValidatePipelineBinding(runtime->pipeline_->GetBizName())) {
       if (out_error) {
-        *out_error = "Pipeline business_name '" +
-                     runtime->pipeline_->GetBusinessName() +
+        *out_error = "Pipeline biz_name '" + runtime->pipeline_->GetBizName() +
                      "' does not match adapter '" + adapter->BizName() + "'";
       }
       return COMPANY_ALG_ERR_UNSUPPORTED_BIZ;  // -5

@@ -39,8 +39,12 @@ bool ParsePipelineConfig(const nlohmann::json& root,
 
   // 2. 拒绝根节点未知字段
   const std::unordered_set<std::string> allowed_root_keys = {
-      "biz_name",       "business_name",        "models", "pipeline",
-      "execution_mode", "max_parallel_workers", "comment"};
+      "biz_name",
+      "models",
+      "pipeline",
+      "execution_mode",
+      "max_parallel_workers",
+      "comment"};
   for (auto it = root.begin(); it != root.end(); ++it) {
     if (allowed_root_keys.find(it.key()) == allowed_root_keys.end()) {
       SetDiag(diagnostic, PipelineErrorCode::kUnknownField, "/" + it.key(),
@@ -58,55 +62,23 @@ bool ParsePipelineConfig(const nlohmann::json& root,
 
   ParsedPipelineConfig result;
 
-  // 3. 解析 biz_name / business_name: 必须存在且为非空字符串
-  bool has_biz_name = root.contains("biz_name");
-  bool has_business_name = root.contains("business_name");
-
-  if (!has_biz_name && !has_business_name) {
+  // 3. biz_name 是 v6 唯一业务标识字段，必须存在且为非空字符串。
+  if (!root.contains("biz_name")) {
     SetDiag(diagnostic, PipelineErrorCode::kMissingField, "/biz_name",
             "Missing required field 'biz_name'");
     return false;
   }
-
-  std::string resolved_biz_name;
-  if (has_biz_name) {
-    if (!root["biz_name"].is_string()) {
-      SetDiag(diagnostic, PipelineErrorCode::kFieldType, "/biz_name",
-              "Field 'biz_name' must be a string");
-      return false;
-    }
-    resolved_biz_name = root["biz_name"].get<std::string>();
-    if (resolved_biz_name.empty()) {
-      SetDiag(diagnostic, PipelineErrorCode::kFieldRange, "/biz_name",
-              "Field 'biz_name' cannot be empty");
-      return false;
-    }
+  if (!root["biz_name"].is_string()) {
+    SetDiag(diagnostic, PipelineErrorCode::kFieldType, "/biz_name",
+            "Field 'biz_name' must be a string");
+    return false;
   }
-
-  if (has_business_name) {
-    if (!root["business_name"].is_string()) {
-      SetDiag(diagnostic, PipelineErrorCode::kFieldType, "/business_name",
-              "Field 'business_name' must be a string");
-      return false;
-    }
-    std::string b_name = root["business_name"].get<std::string>();
-    if (b_name.empty()) {
-      SetDiag(diagnostic, PipelineErrorCode::kFieldRange, "/business_name",
-              "Field 'business_name' cannot be empty");
-      return false;
-    }
-    if (has_biz_name && resolved_biz_name != b_name) {
-      SetDiag(diagnostic, PipelineErrorCode::kFieldRange, "/biz_name",
-              "Conflict: 'biz_name' and 'business_name' have different values");
-      return false;
-    }
-    if (!has_biz_name) {
-      resolved_biz_name = b_name;
-    }
+  result.biz_name = root["biz_name"].get<std::string>();
+  if (result.biz_name.empty()) {
+    SetDiag(diagnostic, PipelineErrorCode::kFieldRange, "/biz_name",
+            "Field 'biz_name' cannot be empty");
+    return false;
   }
-
-  result.biz_name = resolved_biz_name;
-  result.business_name = resolved_biz_name;
 
   // 4. 解析 execution_mode: 可选字符串，仅支持 "sequential" 与 "parallel"
   if (root.contains("execution_mode")) {

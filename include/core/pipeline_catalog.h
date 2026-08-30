@@ -15,9 +15,6 @@ struct PortDefinition {
   std::string key;
   std::string type_id;
   bool required = true;
-  // Kept for source/catalog compatibility. Runtime output publication is
-  // write-once, so PipelineValidator rejects duplicate producers regardless.
-  bool allow_override = false;
   std::string cardinality = "1:1";
   std::string provenance_policy = "preserve";
   std::string lifetime = "request";
@@ -27,13 +24,12 @@ struct PortDefinition {
 
   PortDefinition() = default;
   PortDefinition(std::string k, std::string t, bool req = true,
-                 bool allow_ovr = false, std::string card = "1:1",
-                 std::string prov = "preserve", std::string life = "request",
+                 std::string card = "1:1", std::string prov = "preserve",
+                 std::string life = "request",
                  std::string life_config_field = {})
       : key(std::move(k)),
         type_id(std::move(t)),
         required(req),
-        allow_override(allow_ovr),
         cardinality(std::move(card)),
         provenance_policy(std::move(prov)),
         lifetime(std::move(life)),
@@ -42,18 +38,17 @@ struct PortDefinition {
 
 template <typename T>
 inline PortDefinition RequiredInput(const BlackboardKey<T>& key) {
-  return PortDefinition{key.name, key.type_id, true, false};
+  return PortDefinition{key.name, key.type_id, true};
 }
 
 template <typename T>
 inline PortDefinition OptionalInput(const BlackboardKey<T>& key) {
-  return PortDefinition{key.name, key.type_id, false, false};
+  return PortDefinition{key.name, key.type_id, false};
 }
 
 template <typename T>
-inline PortDefinition Output(const BlackboardKey<T>& key,
-                             bool allow_override = false) {
-  return PortDefinition{key.name, key.type_id, true, allow_override};
+inline PortDefinition Output(const BlackboardKey<T>& key) {
+  return PortDefinition{key.name, key.type_id, true};
 }
 
 template <typename T>
@@ -64,7 +59,6 @@ inline PortDefinition RequiredInputPort(
   return PortDefinition{std::move(logical_name),
                         key_type.type_id,
                         true,
-                        false,
                         std::move(cardinality),
                         std::move(provenance),
                         std::move(lifetime),
@@ -79,7 +73,6 @@ inline PortDefinition OptionalInputPort(
   return PortDefinition{std::move(logical_name),
                         key_type.type_id,
                         false,
-                        false,
                         std::move(cardinality),
                         std::move(provenance),
                         std::move(lifetime),
@@ -89,7 +82,6 @@ inline PortDefinition OptionalInputPort(
 template <typename T>
 inline PortDefinition OutputPort(std::string logical_name,
                                  const BlackboardKey<T>& key_type,
-                                 bool allow_override = false,
                                  std::string cardinality = "1:1",
                                  std::string provenance = "preserve",
                                  std::string lifetime = "request",
@@ -97,7 +89,6 @@ inline PortDefinition OutputPort(std::string logical_name,
   return PortDefinition{std::move(logical_name),
                         key_type.type_id,
                         true,
-                        allow_override,
                         std::move(cardinality),
                         std::move(provenance),
                         std::move(lifetime),
@@ -185,8 +176,6 @@ struct BizDefinition {
         egress(std::move(out)) {}
 };
 
-using BusinessDefinition = BizDefinition;
-
 class PipelineCatalog {
  public:
   static bool RegisterNodeDefinition(const NodeDefinition& definition);
@@ -194,19 +183,10 @@ class PipelineCatalog {
   static bool RegisterBizDefinitions(
       const std::vector<BizDefinition>& definitions);
 
-  static bool RegisterBusinessDefinition(const BizDefinition& definition) {
-    return RegisterBizDefinition(definition);
-  }
-  static bool RegisterBusinessDefinitions(
-      const std::vector<BizDefinition>& definitions) {
-    return RegisterBizDefinitions(definitions);
-  }
-
   static const std::vector<NodeDefinition>& Nodes();
   static std::vector<ModelDefinition> Models();
   static std::vector<BackendDefinition> Backends();
   static const std::vector<BizDefinition>& Bizs();
-  static const std::vector<BizDefinition>& Businesses() { return Bizs(); }
 
   static const NodeDefinition* FindNode(const std::string& node_type);
   static std::optional<ModelDefinition> FindModel(
@@ -214,9 +194,6 @@ class PipelineCatalog {
   static std::optional<BackendDefinition> FindBackend(
       const std::string& backend_type);
   static const BizDefinition* FindBiz(const std::string& biz_name);
-  static const BizDefinition* FindBusiness(const std::string& biz_name) {
-    return FindBiz(biz_name);
-  }
 
   static void ClearForTesting();
 

@@ -192,8 +192,8 @@ NodeDefinition MakeVectorTopKNodeDefinition() {
                         BlackboardKey<TextBatch>{"", "TextBatch"}, "N:1",
                         "preserve", "request")};
   def.outputs = {OutputPort(
-      "ranked", BlackboardKey<RankedTextBatch>{"", "RankedTextBatch"}, false,
-      "1:N", "generate_sub_id", "request")};
+      "ranked", BlackboardKey<RankedTextBatch>{"", "RankedTextBatch"}, "1:N",
+      "generate_sub_id", "request")};
   def.config_fields = {
       ConfigFieldDefinition{"top_k", ConfigValueKind::kInteger, false, 1, 1.0,
                             1000.0},

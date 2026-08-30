@@ -85,7 +85,7 @@ cmake --build build -j$(nproc)
 ./build/alg_show configs/pipeline_doc_qa.json
 
 # 查询 Catalog、校验配置和查看执行计划
-./build/alg_pipeline_tool catalog --business smart_doc_qa_v1
+./build/alg_pipeline_tool catalog --biz smart_doc_qa_v1
 ./build/alg_pipeline_tool validate configs/pipeline_doc_qa.json
 ./build/alg_pipeline_tool plan configs/pipeline_doc_qa.json
 
@@ -118,7 +118,7 @@ cmake --build build -j$(nproc)
 
 完整生命周期见 [Contributing](CONTRIBUTING.md)，Agent 架构与路由见
 [AGENTS.md](AGENTS.md)，长期设计决策见 [RFC 目录](doc/rfcs/README.md)。当前架构里程碑
-为 **v5.1.0**；仓库尚未发布对应 Git tag，版本演进以 [Changelog](doc/CHANGELOG.md) 和已完成
+为 **v6.0.0**；仓库尚未发布对应 Git tag，版本演进以 [Changelog](doc/CHANGELOG.md) 和已完成
 RFC 为准。
 
 ## License

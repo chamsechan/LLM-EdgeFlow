@@ -16,7 +16,7 @@ namespace alg_framework {
 
 class TypedBlackboardContractsTest : public ::testing::Test {};
 
-// 1. 验证强类型 BlackboardKey 的 Set/Get/Has/Erase 操作与类型匹配
+// 1. 验证强类型 BlackboardKey 的 Publish/Read/Has 操作与类型匹配
 TEST_F(TypedBlackboardContractsTest, TypedKeyOperations) {
   constexpr BlackboardKey<std::vector<std::string>> kTestStrings{"test_strings",
                                                                  "string[]"};
@@ -24,28 +24,22 @@ TEST_F(TypedBlackboardContractsTest, TypedKeyOperations) {
 
   AlgContext ctx;
   EXPECT_FALSE(ctx.Has(kTestStrings));
-  EXPECT_EQ(ctx.Get(kTestStrings), nullptr);
+  EXPECT_EQ(ctx.Read(kTestStrings), nullptr);
 
   std::vector<std::string> sample_data = {"alpha", "beta", "gamma"};
-  ctx.Set(kTestStrings, sample_data);
-  ctx.Set(kTestInt, 42);
+  ASSERT_TRUE(ctx.Publish(kTestStrings, sample_data));
+  ASSERT_TRUE(ctx.Publish(kTestInt, 42));
 
   EXPECT_TRUE(ctx.Has(kTestStrings));
   EXPECT_TRUE(ctx.Has(kTestInt));
 
-  auto* retrieved_strings = ctx.Get(kTestStrings);
+  auto* retrieved_strings = ctx.Read(kTestStrings);
   ASSERT_NE(retrieved_strings, nullptr);
   EXPECT_EQ(*retrieved_strings, sample_data);
 
-  auto* retrieved_int = ctx.Get(kTestInt);
+  auto* retrieved_int = ctx.Read(kTestInt);
   ASSERT_NE(retrieved_int, nullptr);
   EXPECT_EQ(*retrieved_int, 42);
-
-  // 删除操作
-  ctx.Erase(kTestInt);
-  EXPECT_FALSE(ctx.Has(kTestInt));
-  EXPECT_EQ(ctx.Get(kTestInt), nullptr);
-  EXPECT_TRUE(ctx.Has(kTestStrings));
 }
 
 // 2. 验证类型不匹配时安全返回 nullptr
@@ -54,13 +48,13 @@ TEST_F(TypedBlackboardContractsTest, TypeMismatchReturnsNullptr) {
   constexpr BlackboardKey<int> kIntKey{"poly_key", "int"};
 
   AlgContext ctx;
-  ctx.Set(kStringKey, std::string("hello world"));
+  ASSERT_TRUE(ctx.Publish(kStringKey, std::string("hello world")));
 
   EXPECT_TRUE(ctx.Has(kStringKey));
-  EXPECT_NE(ctx.Get(kStringKey), nullptr);
+  EXPECT_NE(ctx.Read(kStringKey), nullptr);
 
   // 尝试用不同类型读取同名 key，应安全返回 nullptr
-  auto* int_view = ctx.Get(kIntKey);
+  auto* int_view = ctx.Read(kIntKey);
   EXPECT_EQ(int_view, nullptr);
 }
 
@@ -71,8 +65,8 @@ TEST_F(TypedBlackboardContractsTest, CommonContractsAndTraceableProvenance) {
   std::vector<uint64_t> raw_req_ids = {1001, 1002};
   TextBatch queries = {TraceableItem<std::string>{1001, 0, "query 1"},
                        TraceableItem<std::string>{1002, 0, "query 2"}};
-  ctx.Set(kRawRequestIds, raw_req_ids);
-  ctx.Set(kRawQueries, queries);
+  ASSERT_TRUE(ctx.Publish(kRawRequestIds, raw_req_ids));
+  ASSERT_TRUE(ctx.Publish(kRawQueries, queries));
 
   EXPECT_TRUE(ctx.Has(kRawRequestIds));
   EXPECT_TRUE(ctx.Has(kRawQueries));
@@ -81,9 +75,9 @@ TEST_F(TypedBlackboardContractsTest, CommonContractsAndTraceableProvenance) {
   std::vector<TraceableItem<std::string>> prompts = {
       TraceableItem<std::string>{1001, 0, "Prompt for 1001-0"},
       TraceableItem<std::string>{1002, 0, "Prompt for 1002-0"}};
-  ctx.Set(kLlmInputPrompts, prompts);
+  ASSERT_TRUE(ctx.Publish(kLlmInputPrompts, prompts));
 
-  auto* retrieved_prompts = ctx.Get(kLlmInputPrompts);
+  auto* retrieved_prompts = ctx.Read(kLlmInputPrompts);
   ASSERT_NE(retrieved_prompts, nullptr);
   ASSERT_EQ(retrieved_prompts->size(), 2U);
   EXPECT_EQ((*retrieved_prompts)[0].req_id, 1001U);
@@ -94,12 +88,12 @@ TEST_F(TypedBlackboardContractsTest, CommonContractsAndTraceableProvenance) {
   EXPECT_EQ((*retrieved_prompts)[1].data, "Prompt for 1002-0");
 }
 
-// 4. 验证 AlgContext 状态重置与 Clear 生命周期
-TEST_F(TypedBlackboardContractsTest, ContextClearAndResetSemantics) {
+// 4. 验证错误状态与 write-once 请求值共享同一请求生命周期
+TEST_F(TypedBlackboardContractsTest, ErrorStateDoesNotMutatePublishedValues) {
   constexpr BlackboardKey<std::string> kKey{"greeting", "string"};
 
   AlgContext ctx;
-  ctx.Set(kKey, std::string("welcome"));
+  ASSERT_TRUE(ctx.Publish(kKey, std::string("welcome")));
   ctx.SetError(-500, "sample error");
 
   EXPECT_TRUE(ctx.Has(kKey));
@@ -107,18 +101,21 @@ TEST_F(TypedBlackboardContractsTest, ContextClearAndResetSemantics) {
   EXPECT_EQ(ctx.GetErrorCode(), -500);
   EXPECT_EQ(ctx.GetErrorMessage(), "sample error");
 
-  ctx.Clear();
-  EXPECT_FALSE(ctx.Has(kKey));
-  EXPECT_EQ(ctx.Get(kKey), nullptr);
-  EXPECT_TRUE(ctx.IsOk());
-  EXPECT_EQ(ctx.GetErrorCode(), 0);
+  const auto* value = ctx.Read(kKey);
+  ASSERT_NE(value, nullptr);
+  EXPECT_EQ(*value, "welcome");
+
+  AlgContext next_request;
+  EXPECT_FALSE(next_request.Has(kKey));
+  EXPECT_TRUE(next_request.IsOk());
+  EXPECT_EQ(next_request.GetErrorCode(), 0);
 }
 
-// 5. 验证单次发布拒绝静默覆盖，兼容 Get 只返回只读视图
-TEST_F(TypedBlackboardContractsTest, PublishIsWriteOnceAndGetIsReadOnly) {
+// 5. 验证单次发布拒绝静默覆盖，Read 只返回只读视图
+TEST_F(TypedBlackboardContractsTest, PublishIsWriteOnceAndReadIsReadOnly) {
   constexpr BlackboardKey<int> kCount{"count", "int"};
   static_assert(
-      std::is_same_v<decltype(std::declval<AlgContext&>().Get(kCount)),
+      std::is_same_v<decltype(std::declval<AlgContext&>().Read(kCount)),
                      const int*>);
 
   AlgContext ctx;
@@ -130,9 +127,8 @@ TEST_F(TypedBlackboardContractsTest, PublishIsWriteOnceAndGetIsReadOnly) {
   EXPECT_EQ(*value, 1);
 }
 
-// 6. 验证兼容替换、删除和清空不会使已经返回的只读快照悬空
-TEST_F(TypedBlackboardContractsTest,
-       ReadSnapshotsRemainStableUntilDestruction) {
+// 6. 验证重复发布和容器扩容不会使已经返回的只读视图悬空
+TEST_F(TypedBlackboardContractsTest, ReadViewsRemainStableAcrossPublications) {
   constexpr BlackboardKey<std::string> kValue{"value", "string"};
 
   AlgContext ctx;
@@ -140,28 +136,19 @@ TEST_F(TypedBlackboardContractsTest,
   const std::string* first = ctx.Read(kValue);
   ASSERT_NE(first, nullptr);
 
-  ctx.Set(kValue, std::string("second"));
-  const std::string* second = ctx.Read(kValue);
-  ASSERT_NE(second, nullptr);
-  EXPECT_EQ(*first, "first");
-  EXPECT_EQ(*second, "second");
-
-  ctx.Erase(kValue);
-  EXPECT_EQ(ctx.Read(kValue), nullptr);
-  EXPECT_EQ(*first, "first");
-  EXPECT_EQ(*second, "second");
-
-  ctx.Set(kValue, std::string("third"));
-  const std::string* third = ctx.Read(kValue);
-  ASSERT_NE(third, nullptr);
-  ctx.Clear();
-  EXPECT_EQ(*third, "third");
+  EXPECT_FALSE(ctx.Publish(kValue, std::string("second")));
+  for (int i = 0; i < 4096; ++i) {
+    ASSERT_TRUE(ctx.Publish("additional_" + std::to_string(i), i));
+  }
+  const std::string* current = ctx.Read(kValue);
+  ASSERT_NE(current, nullptr);
+  EXPECT_EQ(current, first);
   EXPECT_EQ(*first, "first");
 }
 
-// 7. 验证并发替换不会修改或释放已经发放的只读快照
+// 7. 验证并发发布不同 key 时已经发放的只读视图保持稳定
 TEST_F(TypedBlackboardContractsTest,
-       ConcurrentReplacementKeepsIssuedReadViewStable) {
+       ConcurrentPublicationsKeepIssuedReadViewStable) {
   AlgContext ctx;
   ASSERT_TRUE(ctx.Publish("counter", 0));
   const int* initial = ctx.Read<int>("counter");
@@ -171,7 +158,9 @@ TEST_F(TypedBlackboardContractsTest,
   std::atomic<int> failures{0};
   std::thread writer([&]() {
     for (int value = 1; value <= 2000; ++value) {
-      ctx.Set("counter", value);
+      if (!ctx.Publish("counter_" + std::to_string(value), value)) {
+        failures.fetch_add(1, std::memory_order_relaxed);
+      }
     }
     done.store(true, std::memory_order_release);
   });
@@ -181,7 +170,7 @@ TEST_F(TypedBlackboardContractsTest,
         failures.fetch_add(1, std::memory_order_relaxed);
       }
       const int* current = ctx.Read<int>("counter");
-      if (!current || *current < 0) {
+      if (current != initial || !current || *current != 0) {
         failures.fetch_add(1, std::memory_order_relaxed);
       }
     }
@@ -191,8 +180,8 @@ TEST_F(TypedBlackboardContractsTest,
   reader.join();
   EXPECT_EQ(failures.load(), 0);
   EXPECT_EQ(*initial, 0);
-  ASSERT_NE(ctx.Read<int>("counter"), nullptr);
-  EXPECT_EQ(*ctx.Read<int>("counter"), 2000);
+  ASSERT_NE(ctx.Read<int>("counter_2000"), nullptr);
+  EXPECT_EQ(*ctx.Read<int>("counter_2000"), 2000);
 }
 
 }  // namespace alg_framework

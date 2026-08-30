@@ -231,12 +231,6 @@ class BizAdapterRegistry {
     return nullptr;
   }
 
-  std::shared_ptr<IBizAdapter> GetAdapterByBusinessName(
-      const std::string& biz_name,
-      AdapterLookupStatus* out_status = nullptr) const {
-    return GetAdapterByBizName(biz_name, out_status);
-  }
-
   size_t AdapterCount() const {
     std::lock_guard<std::mutex> lock(mutex_);
     return adapters_.size();
@@ -280,8 +274,6 @@ class BizAdapterRegistry {
   std::unordered_map<int, std::shared_ptr<IBizAdapter>> adapters_;
 };
 
-using BusinessAdapterRegistry = BizAdapterRegistry;
-
 /**
  * @brief 自动注册宏 (零异常抛出保证，若发生异常记录错误并标记冲突)
  */
@@ -301,7 +293,5 @@ using BusinessAdapterRegistry = BizAdapterRegistry;
       return false;                                                            \
     }                                                                          \
   }()
-
-#define REGISTER_BUSINESS_ADAPTER(Class) REGISTER_BIZ_ADAPTER(Class)
 
 }  // namespace alg_framework

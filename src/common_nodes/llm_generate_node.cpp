@@ -67,7 +67,7 @@ NodeDefinition MakeLlmGenerateNodeDefinition() {
                                   BlackboardKey<TextBatch>{"", "TextBatch"},
                                   "1:1", "preserve", "request")};
   def.outputs = {OutputPort("text", BlackboardKey<TextBatch>{"", "TextBatch"},
-                            false, "1:1", "preserve", "request")};
+                            "1:1", "preserve", "request")};
   def.config_fields = {
       ConfigFieldDefinition{"bind_model", ConfigValueKind::kString, false,
                             "llm_model_v1"},

@@ -9,7 +9,7 @@
 
 namespace alg_framework {
 
-inline static constexpr char kDialogueAuditBusinessName[] =
+inline static constexpr char kDialogueAuditBizName[] =
     "dialogue_compliance_audit_v1";
 
 class ComplianceAuditAdapter : public IBizAdapter {
@@ -31,7 +31,7 @@ class ComplianceAuditAdapter : public IBizAdapter {
         OwnershipPolicy::kCopyIn,
         ThreadModel::kStatelessThreadSafe,
         OutputCardinality::kOneToOne,
-        {{kDialogueAuditBusinessName,
+        {{kDialogueAuditBizName,
           "dialogue_audit",
           "对话合规审核",
           {RequiredInput(kRawRequestIds), RequiredInput(kUserTexts),
@@ -80,9 +80,15 @@ class ComplianceAuditAdapter : public IBizAdapter {
                                  in->channel_name ? in->channel_name : "");
     }
 
-    ctx->Set(kRawRequestIds, std::move(req_ids));
-    ctx->Set(kUserTexts, std::move(user_texts));
-    ctx->Set(kChannelNames, std::move(channel_names));
+    if (!AdapterValidationHelper::PublishContextValue(
+            *ctx, kRawRequestIds, std::move(req_ids), BizName(), out_status) ||
+        !AdapterValidationHelper::PublishContextValue(
+            *ctx, kUserTexts, std::move(user_texts), BizName(), out_status) ||
+        !AdapterValidationHelper::PublishContextValue(*ctx, kChannelNames,
+                                                      std::move(channel_names),
+                                                      BizName(), out_status)) {
+      return COMPANY_ALG_ERR_INVALID_INPUT;
+    }
     return COMPANY_ALG_SUCCESS;
   }
 

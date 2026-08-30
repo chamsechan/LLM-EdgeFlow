@@ -116,7 +116,7 @@ class NodeBase : public INode {
   explicit NodeBase(std::string node_name) : node_name_(std::move(node_name)) {}
   ~NodeBase() override = default;
 
-  bool Init(const NodeInitContext& init_ctx) noexcept override {
+  bool Init(const NodeInitContext& init_ctx) noexcept final {
     if (!init_ctx.session_ctx) {
       return false;
     }
@@ -135,14 +135,6 @@ class NodeBase : public INode {
                     node_name_.c_str());
       return false;
     }
-  }
-
-  bool Init(const nlohmann::json& config,
-            SessionContext* session_ctx) noexcept override {
-    NodeInitContext ctx;
-    ctx.config = &config;
-    ctx.session_ctx = session_ctx;
-    return Init(ctx);
   }
 
   int Process(AlgContext* req_ctx) noexcept final {
@@ -177,11 +169,8 @@ class NodeBase : public INode {
                         const nlohmann::json& config,
                         SessionContext& session_ctx) {
     (void)init_ctx;
-    return InitNode(config, session_ctx);
-  }
-
-  virtual bool InitNode(const nlohmann::json& /*config*/,
-                        SessionContext& /*session_ctx*/) {
+    (void)config;
+    (void)session_ctx;
     return true;
   }
 
