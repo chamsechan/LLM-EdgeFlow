@@ -9,6 +9,7 @@
 #include "adapter/operator/operator_biz_bridge_registry.h"
 #include "adapter/operator/operator_control_registry.h"
 #include "adapter/operator/operator_output_pool.h"
+#include "adapter/operator/operator_process_binding.h"
 #include "adapter/operator/operator_value_type_registry.h"
 #include "adapter/shared_algorithm_runtime.h"
 #include "operator/operator_interface.h"
@@ -323,187 +324,32 @@ int Operator_Process(void* handle, const NamedIoBatch& inputs,
     size_t batch_size = inputs.size();
     alg_framework::ProcessLocalShadowStorage shadow_storage;
     std::vector<const void*> internal_in_dtos(batch_size, nullptr);
-
-    // 1. 逐帧校验输入槽位并转换为局部 Shadow DTO
-    for (size_t i = 0; i < batch_size; ++i) {
-      const auto& in_map = inputs[i];
-      std::unordered_map<std::string, const void*> slots_by_logical;
-      std::unordered_set<std::string> recognized_in_keys;
-
-      for (const auto& req_slot : h->bridge->input_slots) {
-        std::string found_key;
-        const void* payload_ptr = nullptr;
-
-        for (const auto& [k, v] : in_map) {
-          std::string ns, suffix;
-          if (!alg_framework::OperatorValueTypeRegistry::ParseKey(k, &ns,
-                                                                  &suffix)) {
-            SetLastError("Invalid input key format in frame " +
-                         std::to_string(i) + ": " + k);
-            return -3;
-          }
-          std::string can_suffix =
-              alg_framework::OperatorValueTypeRegistry::Instance()
-                  .NormalizeSuffix(suffix);
-          if (can_suffix == req_slot.type_suffix) {
-            if (!found_key.empty()) {
-              SetLastError("Duplicate input slot mapping for suffix '" +
-                           req_slot.type_suffix + "' in frame " +
-                           std::to_string(i));
-              return -3;
-            }
-            found_key = k;
-            if (!v || !v.get()) {
-              SetLastError("Null input shared_ptr for key: " + k);
-              return -3;
-            }
-            payload_ptr = v.get();
-            recognized_in_keys.insert(k);
-          }
-        }
-
-        if (!payload_ptr && req_slot.required) {
-          SetLastError("Missing required input slot for suffix '" +
-                       req_slot.type_suffix + "' in frame " +
-                       std::to_string(i));
-          return -3;
-        }
-
-        if (payload_ptr) {
-          const auto* binding =
-              alg_framework::OperatorValueTypeRegistry::Instance()
-                  .GetBindingBySuffix(req_slot.type_suffix);
-          if (binding && binding->validate_external) {
-            std::string val_err;
-            int val_ret = binding->validate_external(
-                payload_ptr, h->resolved_conf.input_limits, &val_err);
-            if (val_ret != 0) {
-              SetLastError("Validation failed for input key " + found_key +
-                           ": " + val_err);
-              return val_ret;
-            }
-          }
-          slots_by_logical[req_slot.logical_name] = payload_ptr;
-        }
-      }
-
-      if (recognized_in_keys.size() != in_map.size()) {
-        SetLastError("Unknown extra input keys present in frame " +
-                     std::to_string(i));
-        return -3;
-      }
-
-      std::string conv_in_err;
-      int conv_in_ret = h->bridge->convert_sample_input(
-          slots_by_logical, shadow_storage, &internal_in_dtos[i], &conv_in_err);
-      if (conv_in_ret != 0 || !internal_in_dtos[i]) {
-        SetLastError("ConvertSampleInput failed in frame " + std::to_string(i) +
-                     ": " + conv_in_err);
-        return conv_in_ret != 0 ? conv_in_ret : -3;
-      }
+    std::string binding_error;
+    int binding_result = alg_framework::ConvertOperatorInputs(
+        inputs, *h->bridge, h->resolved_conf.input_limits, &shadow_storage,
+        &internal_in_dtos, &binding_error);
+    if (binding_result != 0) {
+      SetLastError(binding_error);
+      return binding_result;
     }
 
-    // 2. 校验输出槽位占位 (必须全部为预置的空 shared_ptr<void>)
-    struct FrameOutputKeyBinding {
-      std::string key;
-      std::string canonical_suffix;
-      const alg_framework::OperatorBizSlot* slot = nullptr;
-    };
-    std::vector<std::vector<FrameOutputKeyBinding>> frame_out_bindings(
-        batch_size);
-
-    for (size_t i = 0; i < batch_size; ++i) {
-      const auto& out_map = outputs[i];
-      std::unordered_set<std::string> recognized_out_keys;
-
-      for (const auto& req_slot : h->bridge->output_slots) {
-        std::string found_key;
-
-        for (const auto& [k, v] : out_map) {
-          std::string ns, suffix;
-          if (!alg_framework::OperatorValueTypeRegistry::ParseKey(k, &ns,
-                                                                  &suffix)) {
-            SetLastError("Invalid output key format in frame " +
-                         std::to_string(i) + ": " + k);
-            return -4;
-          }
-          std::string can_suffix =
-              alg_framework::OperatorValueTypeRegistry::Instance()
-                  .NormalizeSuffix(suffix);
-          if (can_suffix == req_slot.type_suffix) {
-            if (!found_key.empty()) {
-              SetLastError("Duplicate output slot mapping for suffix '" +
-                           req_slot.type_suffix + "' in frame " +
-                           std::to_string(i));
-              return -4;
-            }
-            found_key = k;
-            if (v && v.get() != nullptr) {
-              SetLastError("Output slot key '" + k +
-                           "' must be initialized to empty shared_ptr<void>");
-              return -4;
-            }
-            recognized_out_keys.insert(k);
-          }
-        }
-
-        if (found_key.empty() && req_slot.required) {
-          SetLastError("Missing required output slot key for suffix '" +
-                       req_slot.type_suffix + "' in frame " +
-                       std::to_string(i));
-          return -4;
-        }
-
-        if (!found_key.empty()) {
-          FrameOutputKeyBinding b;
-          b.key = found_key;
-          b.canonical_suffix = req_slot.type_suffix;
-          b.slot = &req_slot;
-          frame_out_bindings[i].push_back(std::move(b));
-        }
-      }
-
-      if (recognized_out_keys.size() != out_map.size()) {
-        SetLastError("Unknown extra output keys present in frame " +
-                     std::to_string(i));
-        return -4;
-      }
+    std::vector<std::vector<alg_framework::FrameOutputBinding>>
+        frame_out_bindings;
+    binding_result = alg_framework::ResolveOperatorOutputs(
+        outputs, *h->bridge, &frame_out_bindings, &binding_error);
+    if (binding_result != 0) {
+      SetLastError(binding_error);
+      return binding_result;
     }
 
-    // 3. 从内存池预先租用块 (带 RAII 自动回滚与非分配跟踪)
-    size_t total_out_slots = 0;
-    for (size_t i = 0; i < batch_size; ++i) {
-      total_out_slots += frame_out_bindings[i].size();
-    }
     alg_framework::ScopedOutputLeaseGuard lease_guard;
-    lease_guard.Reserve(total_out_slots);
-    struct AcquiredSlotBlock {
-      size_t frame_idx;
-      std::string key;
-      std::shared_ptr<alg_framework::OutputPoolState> pool;
-      void* raw_block = nullptr;
-    };
-    std::vector<AcquiredSlotBlock> acquired_blocks;
-    acquired_blocks.reserve(total_out_slots);
-
-    for (size_t i = 0; i < batch_size; ++i) {
-      for (const auto& ob : frame_out_bindings[i]) {
-        auto pool_it = h->output_pools.find(ob.canonical_suffix);
-        if (pool_it == h->output_pools.end() || !pool_it->second) {
-          SetLastError("Output pool not found for suffix: " +
-                       ob.canonical_suffix);
-          return -4;
-        }
-        void* raw_block = nullptr;
-        int acq_ret = pool_it->second->Acquire(&raw_block);
-        if (acq_ret != 0 || !raw_block) {
-          SetLastError("Failed to acquire output block from pool for suffix " +
-                       ob.canonical_suffix);
-          return -4;
-        }
-        lease_guard.Track(pool_it->second, raw_block);
-        acquired_blocks.push_back({i, ob.key, pool_it->second, raw_block});
-      }
+    std::vector<alg_framework::AcquiredOutputBlock> acquired_blocks;
+    binding_result = alg_framework::AcquireOperatorOutputBlocks(
+        frame_out_bindings, h->output_pools, &lease_guard, &acquired_blocks,
+        &binding_error);
+    if (binding_result != 0) {
+      SetLastError(binding_error);
+      return binding_result;
     }
 
     // 4. 执行内部 Runtime 计算
@@ -548,39 +394,8 @@ int Operator_Process(void* handle, const NamedIoBatch& inputs,
       }
     }
 
-    // 6. 两阶段原子发布：先在局部 pending 中完成全部控制块构造与所有权转移
-    struct PendingOutput {
-      std::shared_ptr<void>* destination = nullptr;
-      std::shared_ptr<void> value;
-    };
-    std::vector<PendingOutput> pending_outputs;
-    pending_outputs.reserve(acquired_blocks.size());
-
-    for (const auto& acq : acquired_blocks) {
-      if (alg_framework::OutputPoolState::GetPublishFailureCountdown() >= 0) {
-        if (alg_framework::OutputPoolState::GetPublishFailureCountdown() == 0) {
-          alg_framework::OutputPoolState::SetPublishFailureCountdown(-1);
-          throw std::bad_alloc();
-        }
-        alg_framework::OutputPoolState::SetPublishFailureCountdown(
-            alg_framework::OutputPoolState::GetPublishFailureCountdown() - 1);
-      }
-      alg_framework::OutputPoolDeleter deleter{acq.pool, acq.raw_block};
-      auto sp = std::shared_ptr<void>(acq.raw_block, deleter);
-      auto* dest = &outputs[acq.frame_idx][acq.key];
-      lease_guard.Untrack(acq.raw_block);
-      pending_outputs.push_back({dest, std::move(sp)});
-    }
-
-    // 提交租约保护
-    lease_guard.Commit();
-
-    // 不抛异常的移动赋值原子发布至 outputs
-    for (auto& p : pending_outputs) {
-      if (p.destination) {
-        *p.destination = std::move(p.value);
-      }
-    }
+    alg_framework::PublishOperatorOutputs(acquired_blocks, &outputs,
+                                          &lease_guard);
     return 0;
   } catch (const std::exception& e) {
     SetLastError(std::string("Process exception: ") + e.what());

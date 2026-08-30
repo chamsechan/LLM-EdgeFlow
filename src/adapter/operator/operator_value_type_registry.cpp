@@ -64,6 +64,29 @@ inline void DeleteTypedObject(void* p) noexcept {
   delete static_cast<T*>(p);
 }
 
+void RegisterCleanup(OwnedExternalBlock* block, CleanupAction action);
+
+template <typename T>
+T* AllocateRootOutput(size_t cleanup_capacity, OwnedExternalBlock* block) {
+  if (OutputPoolState::GetFailureStageProbe() ==
+      OutputPoolState::FailureStage::kRootStructAlloc) {
+    return nullptr;
+  }
+  block->cleanups.reserve(cleanup_capacity);
+  CheckAllocFailureProbe();
+  std::unique_ptr<T, decltype(&DeleteTypedObject<T>)> holder(
+      new T(), DeleteTypedObject<T>);
+  OutputPoolState::RecordConstructed();
+  T* raw = holder.get();
+  RegisterCleanup(block, {raw, DeleteTypedObject<T>});
+  holder.release();
+  return raw;
+}
+
+void DestroyExternalBlock(OwnedExternalBlock* block) noexcept {
+  if (block) block->Destroy();
+}
+
 void RegisterCleanup(OwnedExternalBlock* block, CleanupAction action) {
   if (OutputPoolState::GetFailureStageProbe() ==
           OutputPoolState::FailureStage::kCleanupRegister &&
@@ -777,19 +800,8 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
     b.allocate_external = [](const ResolvedOutputPoolSpec& spec,
                              OwnedExternalBlock* out_block,
                              std::string* /*err*/) -> int {
-      if (OutputPoolState::GetFailureStageProbe() ==
-          OutputPoolState::FailureStage::kRootStructAlloc) {
-        return -4;
-      }
-      out_block->cleanups.reserve(5);
-      CheckAllocFailureProbe();
-      std::unique_ptr<CompanyOdOutput,
-                      decltype(&DeleteTypedObject<CompanyOdOutput>)>
-          raw_holder(new CompanyOdOutput(), DeleteTypedObject<CompanyOdOutput>);
-      OutputPoolState::RecordConstructed();
-      auto* raw = raw_holder.get();
-      RegisterCleanup(out_block, {raw, DeleteTypedObject<CompanyOdOutput>});
-      raw_holder.release();
+      auto* raw = AllocateRootOutput<CompanyOdOutput>(5, out_block);
+      if (!raw) return -4;
 
       raw->request_id = 0;
       raw->detected_box_count = 0;
@@ -811,9 +823,7 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
       ResetNestedCompanyString(raw->result_json);
       ResetNestedCompanyAny(raw->metadata);
     };
-    b.destroy_external = [](OwnedExternalBlock* block) noexcept {
-      if (block) block->Destroy();
-    };
+    b.destroy_external = DestroyExternalBlock;
     RegisterBinding(b);
   }
 
@@ -851,22 +861,9 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
     b.allocate_external = [](const ResolvedOutputPoolSpec& spec,
                              OwnedExternalBlock* out_block,
                              std::string* /*err*/) -> int {
-      if (OutputPoolState::GetFailureStageProbe() ==
-          OutputPoolState::FailureStage::kRootStructAlloc) {
-        return -4;
-      }
-      out_block->cleanups.reserve(3);
-      CheckAllocFailureProbe();
-      std::unique_ptr<
-          CompanyOperatorKeywordOutput,
-          decltype(&DeleteTypedObject<CompanyOperatorKeywordOutput>)>
-          raw_holder(new CompanyOperatorKeywordOutput(),
-                     DeleteTypedObject<CompanyOperatorKeywordOutput>);
-      OutputPoolState::RecordConstructed();
-      auto* raw = raw_holder.get();
-      RegisterCleanup(out_block,
-                      {raw, DeleteTypedObject<CompanyOperatorKeywordOutput>});
-      raw_holder.release();
+      auto* raw =
+          AllocateRootOutput<CompanyOperatorKeywordOutput>(3, out_block);
+      if (!raw) return -4;
 
       raw->request_id = 0;
       raw->is_hit = 0;
@@ -883,9 +880,7 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
       raw->is_hit = 0;
       ResetNestedCompanyString(raw->match_result_json);
     };
-    b.destroy_external = [](OwnedExternalBlock* block) noexcept {
-      if (block) block->Destroy();
-    };
+    b.destroy_external = DestroyExternalBlock;
     RegisterBinding(b);
   }
 
@@ -922,21 +917,8 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
     b.allocate_external = [](const ResolvedOutputPoolSpec& spec,
                              OwnedExternalBlock* out_block,
                              std::string* /*err*/) -> int {
-      if (OutputPoolState::GetFailureStageProbe() ==
-          OutputPoolState::FailureStage::kRootStructAlloc) {
-        return -4;
-      }
-      out_block->cleanups.reserve(3);
-      CheckAllocFailureProbe();
-      std::unique_ptr<CompanyOperatorEntityOutput,
-                      decltype(&DeleteTypedObject<CompanyOperatorEntityOutput>)>
-          raw_holder(new CompanyOperatorEntityOutput(),
-                     DeleteTypedObject<CompanyOperatorEntityOutput>);
-      OutputPoolState::RecordConstructed();
-      auto* raw = raw_holder.get();
-      RegisterCleanup(out_block,
-                      {raw, DeleteTypedObject<CompanyOperatorEntityOutput>});
-      raw_holder.release();
+      auto* raw = AllocateRootOutput<CompanyOperatorEntityOutput>(3, out_block);
+      if (!raw) return -4;
 
       raw->request_id = 0;
       raw->status_code = 0;
@@ -953,9 +935,7 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
       raw->status_code = 0;
       ResetNestedCompanyString(raw->entities_json);
     };
-    b.destroy_external = [](OwnedExternalBlock* block) noexcept {
-      if (block) block->Destroy();
-    };
+    b.destroy_external = DestroyExternalBlock;
     RegisterBinding(b);
   }
 
@@ -998,21 +978,8 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
     b.allocate_external = [](const ResolvedOutputPoolSpec& spec,
                              OwnedExternalBlock* out_block,
                              std::string* /*err*/) -> int {
-      if (OutputPoolState::GetFailureStageProbe() ==
-          OutputPoolState::FailureStage::kRootStructAlloc) {
-        return -4;
-      }
-      out_block->cleanups.reserve(5);
-      CheckAllocFailureProbe();
-      std::unique_ptr<CompanyOperatorDocOutput,
-                      decltype(&DeleteTypedObject<CompanyOperatorDocOutput>)>
-          raw_holder(new CompanyOperatorDocOutput(),
-                     DeleteTypedObject<CompanyOperatorDocOutput>);
-      OutputPoolState::RecordConstructed();
-      auto* raw = raw_holder.get();
-      RegisterCleanup(out_block,
-                      {raw, DeleteTypedObject<CompanyOperatorDocOutput>});
-      raw_holder.release();
+      auto* raw = AllocateRootOutput<CompanyOperatorDocOutput>(5, out_block);
+      if (!raw) return -4;
 
       raw->request_id = 0;
       raw->confidence = 0.0f;
@@ -1036,9 +1003,7 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
       ResetNestedCompanyString(raw->intent_name);
       ResetNestedCompanyString(raw->answer_text);
     };
-    b.destroy_external = [](OwnedExternalBlock* block) noexcept {
-      if (block) block->Destroy();
-    };
+    b.destroy_external = DestroyExternalBlock;
     RegisterBinding(b);
   }
 
@@ -1082,21 +1047,8 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
     b.allocate_external = [](const ResolvedOutputPoolSpec& spec,
                              OwnedExternalBlock* out_block,
                              std::string* /*err*/) -> int {
-      if (OutputPoolState::GetFailureStageProbe() ==
-          OutputPoolState::FailureStage::kRootStructAlloc) {
-        return -4;
-      }
-      out_block->cleanups.reserve(7);
-      CheckAllocFailureProbe();
-      std::unique_ptr<CompanyOperatorAuditOutput,
-                      decltype(&DeleteTypedObject<CompanyOperatorAuditOutput>)>
-          raw_holder(new CompanyOperatorAuditOutput(),
-                     DeleteTypedObject<CompanyOperatorAuditOutput>);
-      OutputPoolState::RecordConstructed();
-      auto* raw = raw_holder.get();
-      RegisterCleanup(out_block,
-                      {raw, DeleteTypedObject<CompanyOperatorAuditOutput>});
-      raw_holder.release();
+      auto* raw = AllocateRootOutput<CompanyOperatorAuditOutput>(7, out_block);
+      if (!raw) return -4;
 
       raw->request_id = 0;
       raw->risk_score = 0.0f;
@@ -1121,9 +1073,7 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
       ResetNestedCompanyString(raw->matched_policy_clause);
       ResetNestedCompanyString(raw->audit_verdict_json);
     };
-    b.destroy_external = [](OwnedExternalBlock* block) noexcept {
-      if (block) block->Destroy();
-    };
+    b.destroy_external = DestroyExternalBlock;
     RegisterBinding(b);
   }
 
@@ -1177,21 +1127,8 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
     b.allocate_external = [](const ResolvedOutputPoolSpec& spec,
                              OwnedExternalBlock* out_block,
                              std::string* /*err*/) -> int {
-      if (OutputPoolState::GetFailureStageProbe() ==
-          OutputPoolState::FailureStage::kRootStructAlloc) {
-        return -4;
-      }
-      out_block->cleanups.reserve(5);
-      CheckAllocFailureProbe();
-      std::unique_ptr<CompanyOperatorAudioOutput,
-                      decltype(&DeleteTypedObject<CompanyOperatorAudioOutput>)>
-          raw_holder(new CompanyOperatorAudioOutput(),
-                     DeleteTypedObject<CompanyOperatorAudioOutput>);
-      OutputPoolState::RecordConstructed();
-      auto* raw = raw_holder.get();
-      RegisterCleanup(out_block,
-                      {raw, DeleteTypedObject<CompanyOperatorAudioOutput>});
-      raw_holder.release();
+      auto* raw = AllocateRootOutput<CompanyOperatorAudioOutput>(5, out_block);
+      if (!raw) return -4;
 
       raw->request_id = 0;
       raw->status_code = 0;
@@ -1211,9 +1148,7 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
       ResetNestedCompanyString(raw->transcribed_text);
       ResetNestedCompanyString(raw->intent_slot_json);
     };
-    b.destroy_external = [](OwnedExternalBlock* block) noexcept {
-      if (block) block->Destroy();
-    };
+    b.destroy_external = DestroyExternalBlock;
     RegisterBinding(b);
   }
 
@@ -1272,21 +1207,8 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
     b.allocate_external = [](const ResolvedOutputPoolSpec& /*spec*/,
                              OwnedExternalBlock* out_block,
                              std::string* /*err*/) -> int {
-      if (OutputPoolState::GetFailureStageProbe() ==
-          OutputPoolState::FailureStage::kRootStructAlloc) {
-        return -4;
-      }
-      out_block->cleanups.reserve(1);
-      CheckAllocFailureProbe();
-      std::unique_ptr<CompanyOperatorRerankOutput,
-                      decltype(&DeleteTypedObject<CompanyOperatorRerankOutput>)>
-          raw_holder(new CompanyOperatorRerankOutput(),
-                     DeleteTypedObject<CompanyOperatorRerankOutput>);
-      OutputPoolState::RecordConstructed();
-      auto* raw = raw_holder.get();
-      RegisterCleanup(out_block,
-                      {raw, DeleteTypedObject<CompanyOperatorRerankOutput>});
-      raw_holder.release();
+      auto* raw = AllocateRootOutput<CompanyOperatorRerankOutput>(1, out_block);
+      if (!raw) return -4;
 
       raw->request_id = 0;
       raw->count = 0;
@@ -1310,9 +1232,7 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
         raw->sorted_indices[i] = -1;
       }
     };
-    b.destroy_external = [](OwnedExternalBlock* block) noexcept {
-      if (block) block->Destroy();
-    };
+    b.destroy_external = DestroyExternalBlock;
     RegisterBinding(b);
   }
 }

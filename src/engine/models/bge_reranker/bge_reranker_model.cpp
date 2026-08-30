@@ -9,6 +9,7 @@
 
 #include "company_alg_log.h"
 #include "engine/fixed_batch_executor.h"
+#include "engine/models/bge_common/bert_model_support.h"
 
 namespace alg_framework {
 
@@ -148,13 +149,7 @@ std::shared_ptr<IModel> BgeRerankerModel::Create(const ModelCreateContext& ctx,
   // 严格 Batch 契约：若 Session 为固定 Batch 且 Model 配置上限小于 Session 固定
   // Batch，明确拒绝
   auto session_policy = tensor_session->GetBatchPolicy();
-  if (session_policy.fixed_batch_size > 0 &&
-      max_batch_size < session_policy.fixed_batch_size) {
-    if (diagnostic) {
-      *diagnostic = "Model max_batch_size (" + std::to_string(max_batch_size) +
-                    ") cannot be smaller than Session fixed_batch_size (" +
-                    std::to_string(session_policy.fixed_batch_size) + ")";
-    }
+  if (!ValidateModelBatchLimit(session_policy, max_batch_size, diagnostic)) {
     return nullptr;
   }
 
@@ -339,47 +334,10 @@ std::shared_ptr<IModel> BgeRerankerModel::Create(const ModelCreateContext& ctx,
     return nullptr;
   }
 
-  // 解析并加载词表 sidecar 文件
-  std::filesystem::path tok_p(tokenizer_file);
   std::filesystem::path resolved_vocab_path;
-
-  if (tok_p.is_absolute()) {
-    resolved_vocab_path = tok_p.lexically_normal();
-  } else {
-    std::error_code ec;
-    std::filesystem::path root_p = std::filesystem::weakly_canonical(
-        std::filesystem::path(ctx.model_resource_root), ec);
-    if (ec) {
-      if (diagnostic) {
-        *diagnostic = "Failed to canonicalize model resource root: " +
-                      ctx.model_resource_root;
-      }
-      return nullptr;
-    }
-    resolved_vocab_path = std::filesystem::weakly_canonical(root_p / tok_p, ec);
-    if (ec) {
-      if (diagnostic) {
-        *diagnostic =
-            "Failed to canonicalize tokenizer file: " + tokenizer_file;
-      }
-      return nullptr;
-    }
-
-    auto root_it = root_p.begin();
-    auto candidate_it = resolved_vocab_path.begin();
-    while (root_it != root_p.end() &&
-           candidate_it != resolved_vocab_path.end() &&
-           *root_it == *candidate_it) {
-      ++root_it;
-      ++candidate_it;
-    }
-    if (root_it != root_p.end()) {
-      if (diagnostic) {
-        *diagnostic =
-            "Tokenizer file path cannot escape root: " + tokenizer_file;
-      }
-      return nullptr;
-    }
+  if (!ResolveTokenizerResourcePath(ctx.model_resource_root, tokenizer_file,
+                                    &resolved_vocab_path, diagnostic)) {
+    return nullptr;
   }
 
   BertWordPieceTokenizer tokenizer;
@@ -453,29 +411,15 @@ int BgeRerankerModel::RawScoreSlice(const QueryCandidatesBatch& all_inputs,
 
   try {
     std::string diag;
-    TensorDesc in_desc;
-    in_desc.element_type = ElementType::kInt64;
-    in_desc.shape = {static_cast<int64_t>(exec_count),
-                     static_cast<int64_t>(max_length_)};
-
-    Tensor input_ids_tensor;
-    Tensor attention_mask_tensor;
-    Tensor token_type_ids_tensor;
-
-    if (!CreateHostTensor(in_desc, &input_ids_tensor, &diag) ||
-        !CreateHostTensor(in_desc, &attention_mask_tensor, &diag) ||
-        !CreateHostTensor(in_desc, &token_type_ids_tensor, &diag)) {
+    BertInputTensors input_tensors;
+    if (!input_tensors.Create(exec_count, max_length_, &diag)) {
       ALG_LOG_ERROR("[BgeRerankerModel] Failed to create input tensors: %s\n",
                     diag.c_str());
       return -1;
     }
-
-    int64_t* ids_ptr =
-        static_cast<int64_t*>(input_ids_tensor.buffer->MutableData());
-    int64_t* mask_ptr =
-        static_cast<int64_t*>(attention_mask_tensor.buffer->MutableData());
-    int64_t* type_ptr =
-        static_cast<int64_t*>(token_type_ids_tensor.buffer->MutableData());
+    int64_t* ids_ptr = input_tensors.ids;
+    int64_t* mask_ptr = input_tensors.mask;
+    int64_t* type_ptr = input_tensors.types;
 
     std::vector<int64_t> sample_ids;
     std::vector<int64_t> sample_mask;
@@ -511,16 +455,8 @@ int BgeRerankerModel::RawScoreSlice(const QueryCandidatesBatch& all_inputs,
                   max_length_ * sizeof(int64_t));
     }
 
-    TensorMap input_map;
-    input_map["input_ids"] = std::move(input_ids_tensor);
-    input_map["attention_mask"] = std::move(attention_mask_tensor);
-
-    for (const auto& in_spec : session_->Inputs()) {
-      if (in_spec.name == "token_type_ids") {
-        input_map["token_type_ids"] = std::move(token_type_ids_tensor);
-        break;
-      }
-    }
+    TensorMap input_map = input_tensors.ReleaseToMap(
+        HasTensorInput(session_->Inputs(), "token_type_ids"));
 
     TensorMap output_map;
     int ret = session_->Run(input_map, &output_map, &diag);

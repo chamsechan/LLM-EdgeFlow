@@ -85,8 +85,7 @@ PipelineErrorCode ValidationCodeToPipelineCode(DiagnosticCode code) {
 
 }  // namespace
 
-Pipeline::Pipeline()
-    : biz_name_("default_biz"), business_name_("default_biz") {}
+Pipeline::Pipeline() = default;
 
 bool Pipeline::BuildFromConfigFile(const std::string& config_file_path,
                                    PipelineDiagnostic* diagnostic,
@@ -238,8 +237,6 @@ bool Pipeline::BuildInternal(const nlohmann::json& root_config,
   }
 
   const auto& parsed_cfg = plan_.config;
-  biz_name_ = parsed_cfg.biz_name;
-  business_name_ = parsed_cfg.biz_name;
 
   // 1. 加载配置中声明的所有模型：先在局部 staging 向量完成
   // Backend/Model 创建，仅当全部成功后原子提交到 ModelManager。
@@ -328,9 +325,6 @@ bool Pipeline::BuildInternal(const nlohmann::json& root_config,
   }
 
   // 3. 按照波前拓扑层直接物化算子节点
-  topological_order_ = plan_.topological_order;
-  topological_layers_ids_ = plan_.topological_layers;
-
   std::unordered_map<std::string, const ParsedNodeConfig*> node_by_id;
   for (const auto& node_cfg : parsed_cfg.nodes) {
     node_by_id[node_cfg.id] = &node_cfg;
@@ -390,7 +384,8 @@ bool Pipeline::BuildInternal(const nlohmann::json& root_config,
 
         NodeInitContext init_ctx;
         init_ctx.plan = node_plan_ptr;
-        init_ctx.config = &meta.config;
+        init_ctx.config =
+            node_plan_ptr ? &node_plan_ptr->normalized_config : &meta.config;
         init_ctx.session_ctx = &session_ctx_;
 
         init_ok = node->Init(init_ctx);
@@ -438,11 +433,11 @@ bool Pipeline::BuildInternal(const nlohmann::json& root_config,
   ALG_LOG_DEBUG(
       "[Pipeline] DAG Wavefront Topology created with %zu execution layers:\n",
       node_layers_.size());
-  for (size_t i = 0; i < topological_layers_ids_.size(); ++i) {
+  for (size_t i = 0; i < plan_.topological_layers.size(); ++i) {
     std::string node_ids;
-    for (size_t j = 0; j < topological_layers_ids_[i].size(); ++j) {
-      node_ids += topological_layers_ids_[i][j];
-      if (j + 1 < topological_layers_ids_[i].size()) node_ids += ", ";
+    for (size_t j = 0; j < plan_.topological_layers[i].size(); ++j) {
+      node_ids += plan_.topological_layers[i][j];
+      if (j + 1 < plan_.topological_layers[i].size()) node_ids += ", ";
     }
     ALG_LOG_DEBUG("  Layer %zu [%s]: %s\n", i,
                   node_layers_[i].size() > 1 ? "Parallel" : "Sequential",
