@@ -46,7 +46,7 @@ struct TemplateNestedArrayResultDto {
   std::string summary;
 };
 
-class TemplateNestedArrayAdapter : public IBusinessAdapter {
+class TemplateNestedArrayAdapter : public IBizAdapter {
  public:
   CompanyAlgBizType BizType() const override {
     return static_cast<CompanyAlgBizType>(103);
@@ -65,8 +65,8 @@ class TemplateNestedArrayAdapter : public IBusinessAdapter {
         OwnershipPolicy::kCopyIn,
         ThreadModel::kStatelessThreadSafe,
         OutputCardinality::kOneToOne,
-        {BusinessDefinition{"TemplateNestedArray",
-                            "template_nested_array_pipeline_v1"}}};
+        {BizDefinition{"TemplateNestedArray",
+                       "template_nested_array_pipeline_v1"}}};
     return desc;
   }
 
@@ -130,7 +130,11 @@ class TemplateNestedArrayAdapter : public IBusinessAdapter {
       items.push_back(std::move(item));
     }
 
-    ctx->Set("nested_array_items", std::move(items));
+    if (!AdapterValidationHelper::PublishContextValue(
+            *ctx, "nested_array_items", std::move(items), BizName(),
+            out_status)) {
+      return COMPANY_ALG_ERR_INVALID_INPUT;
+    }
     return COMPANY_ALG_SUCCESS;
   }
 

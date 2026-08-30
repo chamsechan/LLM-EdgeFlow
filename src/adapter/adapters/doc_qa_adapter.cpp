@@ -8,10 +8,10 @@
 
 namespace alg_framework {
 
-inline static constexpr char kDocQaBusinessName[] = "smart_doc_qa_v1";
-inline static constexpr char kDocQaOnnxBusinessName[] =
+inline static constexpr char kDocQaBizName[] = "smart_doc_qa_v1";
+inline static constexpr char kDocQaOnnxBizName[] =
     "smart_doc_qa_onnx_llamacpp_v1";
-inline static constexpr char kDocQaRerankBusinessName[] =
+inline static constexpr char kDocQaRerankBizName[] =
     "smart_doc_qa_rerank_llm_v1";
 
 class DocQaAdapter : public IBizAdapter {
@@ -31,21 +31,21 @@ class DocQaAdapter : public IBizAdapter {
         OwnershipPolicy::kCopyIn,
         ThreadModel::kStatelessThreadSafe,
         OutputCardinality::kOneToOne,
-        {{kDocQaBusinessName,
+        {{kDocQaBizName,
           "doc_qa",
           "智能文档问答",
           {RequiredInput(kRawRequestIds), RequiredInput(kRawDocs),
            RequiredInput(kRawQueries)},
           {Output(kLlmAnswers), Output(kIntentMatches),
            Output(kDocChunkCounts)}},
-         {kDocQaOnnxBusinessName,
+         {kDocQaOnnxBizName,
           "doc_qa",
           "智能文档问答（ONNX/llama.cpp）",
           {RequiredInput(kRawRequestIds), RequiredInput(kRawDocs),
            RequiredInput(kRawQueries)},
           {Output(kLlmAnswers), Output(kIntentMatches),
            Output(kDocChunkCounts)}},
-         {kDocQaRerankBusinessName,
+         {kDocQaRerankBizName,
           "doc_qa",
           "智能文档问答（精排）",
           {RequiredInput(kRawRequestIds), RequiredInput(kRawDocs),
@@ -104,9 +104,15 @@ class DocQaAdapter : public IBizAdapter {
                                in_doc->query_text ? in_doc->query_text : "");
     }
 
-    ctx->Set(kRawRequestIds, std::move(raw_req_ids));
-    ctx->Set(kRawDocs, std::move(raw_docs));
-    ctx->Set(kRawQueries, std::move(raw_queries));
+    if (!AdapterValidationHelper::PublishContextValue(*ctx, kRawRequestIds,
+                                                      std::move(raw_req_ids),
+                                                      BizName(), out_status) ||
+        !AdapterValidationHelper::PublishContextValue(
+            *ctx, kRawDocs, std::move(raw_docs), BizName(), out_status) ||
+        !AdapterValidationHelper::PublishContextValue(
+            *ctx, kRawQueries, std::move(raw_queries), BizName(), out_status)) {
+      return COMPANY_ALG_ERR_INVALID_INPUT;
+    }
     return COMPANY_ALG_SUCCESS;
   }
 

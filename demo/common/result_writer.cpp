@@ -13,7 +13,7 @@ std::string ResultWriter::GetTargetOutputDir() const {
   std::filesystem::path root(options_.output_dir.empty() ? "./results"
                                                          : options_.output_dir);
   std::string sub_name =
-      options_.profile.empty() ? options_.business : options_.profile;
+      options_.profile.empty() ? options_.biz : options_.profile;
   if (sub_name.empty()) sub_name = "default";
   return (root / sub_name).string();
 }
@@ -36,7 +36,7 @@ int ResultWriter::WriteResults(const std::vector<DemoSampleResult>& results,
   }
 
   std::string profile_name =
-      options_.profile.empty() ? options_.business : options_.profile;
+      options_.profile.empty() ? options_.biz : options_.profile;
   std::string jsonl_path = (fs::path(dir_path) / "results.jsonl").string();
   std::string summary_path = (fs::path(dir_path) / "summary.json").string();
 
@@ -73,7 +73,7 @@ int ResultWriter::WriteResults(const std::vector<DemoSampleResult>& results,
       nlohmann::json record;
       record["schema_version"] = 1;
       record["profile"] = profile_name;
-      record["business"] = options_.business;
+      record["biz"] = options_.biz;
       record["request_id"] = sample.request_id;
       record["status"] = sample.status;
       record["latency_ms"] = sample.latency_ms;
@@ -151,7 +151,7 @@ int ResultWriter::WriteResults(const std::vector<DemoSampleResult>& results,
     nlohmann::json summary;
     summary["schema_version"] = 1;
     summary["profile"] = profile_name;
-    summary["business"] = options_.business;
+    summary["biz"] = options_.biz;
     summary["config_path"] = options_.config_path;
     summary["dataset_path"] = options_.dataset_path;
     summary["total_samples"] = cum_total_samples;

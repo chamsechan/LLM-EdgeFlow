@@ -41,7 +41,7 @@ class ReentrantNode : public INode {
     volatile bool has = NodeFactory::Instance().Has("ReentrantNode");
     (void)has;
   }
-  bool Init(const nlohmann::json&, SessionContext*) override { return true; }
+  bool Init(const NodeInitContext&) override { return true; }
   int Process(AlgContext*) override { return 0; }
   NodeControlResult Control(int, const std::string&) override {
     return NodeControlResult::Handled(0);
@@ -93,7 +93,7 @@ TEST(RegistryReentrantTest, ReentrantCreationZeroDeadlock) {
     Pipeline p;
     PipelineDiagnostic diag;
     nlohmann::json cfg = {
-        {"business_name", "reentrant_node_test"},
+        {"biz_name", "reentrant_node_test"},
         {"pipeline",
          nlohmann::json::array({{{"id", "node_0_ReentrantNode"},
                                  {"node_type", "ReentrantNode"},
@@ -108,7 +108,7 @@ TEST(RegistryReentrantTest, ReentrantCreationZeroDeadlock) {
     Pipeline p;
     PipelineDiagnostic diag;
     nlohmann::json cfg = {
-        {"business_name", "reentrant_model_test"},
+        {"biz_name", "reentrant_model_test"},
         {"models", nlohmann::json::array(
                        {{{"model_id", "m1"},
                          {"capability", "embedding"},

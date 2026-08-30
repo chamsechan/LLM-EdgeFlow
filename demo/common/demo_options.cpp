@@ -23,27 +23,6 @@ std::string ToLower(std::string str) {
   return str;
 }
 
-const char* LegacyBizIdToName(int biz_id) {
-  switch (biz_id) {
-    case 1:
-      return "entity_extract";
-    case 2:
-      return "keyword_match";
-    case 3:
-      return "doc_qa";
-    case 4:
-      return "dialogue_audit";
-    case 5:
-      return "ocr_doc_qa";
-    case 6:
-      return "audio_asr";
-    case 7:
-      return "cross_rerank";
-    default:
-      return "";
-  }
-}
-
 /**
  * @brief 严格整数解析函数，拒绝包含尾随非法字符的字符串 (P2-1)
  */
@@ -125,13 +104,13 @@ int ParseCommandLine(int argc, char* argv[], DemoOptions* out_options,
       }
       out_options->profile = argv[++i];
       out_options->has_profile = true;
-    } else if (arg == "-b" || arg == "--business") {
+    } else if (arg == "-b" || arg == "--biz") {
       if (i + 1 >= argc) {
         if (error_msg) *error_msg = "Missing value for argument: " + arg;
         return 2;
       }
-      out_options->business = argv[++i];
-      out_options->has_business = true;
+      out_options->biz = argv[++i];
+      out_options->has_biz = true;
     } else if (arg == "--suite") {
       if (i + 1 >= argc) {
         if (error_msg) *error_msg = "Missing value for argument: " + arg;
@@ -147,29 +126,6 @@ int ParseCommandLine(int argc, char* argv[], DemoOptions* out_options,
       }
       out_options->suite = suite_str;
       out_options->has_suite = true;
-    } else if (arg == "--biz") {
-      if (i + 1 >= argc) {
-        if (error_msg) *error_msg = "Missing value for argument: " + arg;
-        return 2;
-      }
-      int64_t val = 0;
-      if (!ParseStrictInt64(argv[++i], &val) || val < 1 || val > 7) {
-        if (error_msg) {
-          *error_msg = "Unsupported legacy --biz ID: " + std::string(argv[i]) +
-                       " (Must be integer 1..7)";
-        }
-        return 2;
-      }
-      int id = static_cast<int>(val);
-      out_options->legacy_biz_id = id;
-      std::string mapped = LegacyBizIdToName(id);
-      std::cerr << "[DEPRECATION WARNING] Flag '--biz " << id
-                << "' is deprecated. Please use '--business " << mapped
-                << "' instead." << std::endl;
-      if (!out_options->has_business) {
-        out_options->business = mapped;
-        out_options->has_business = true;
-      }
     } else if (arg == "-c" || arg == "--config" || arg == "--conf") {
       if (i + 1 >= argc) {
         if (error_msg) *error_msg = "Missing value for argument: " + arg;
@@ -315,11 +271,11 @@ int LoadAndValidateProfilesDocument(const std::string& profiles_path,
     return 3;
   }
 
-  if (root["schema_version"].get<int>() != 1) {
+  if (root["schema_version"].get<int>() != 2) {
     if (error_msg) {
       *error_msg = "Unsupported schema_version: " +
                    std::to_string(root["schema_version"].get<int>()) +
-                   " (Expected: 1)";
+                   " (Expected: 2)";
     }
     return 3;
   }
@@ -346,9 +302,7 @@ int LoadAndValidateProfilesDocument(const std::string& profiles_path,
     }
     bool has_biz = p.contains("biz") && p["biz"].is_string() &&
                    !p["biz"].get<std::string>().empty();
-    bool has_business = p.contains("business") && p["business"].is_string() &&
-                        !p["business"].get<std::string>().empty();
-    if (!has_biz && !has_business) {
+    if (!has_biz) {
       if (error_msg)
         *error_msg =
             "Profile '" + name + "' must contain non-empty string 'biz'";
@@ -517,24 +471,22 @@ int LoadAndMergeProfiles(const std::string& profiles_path,
   }
 
   const auto& p = profiles[cli_options.profile];
-  std::string prof_biz = p.contains("biz") ? p["biz"].get<std::string>()
-                                           : p["business"].get<std::string>();
+  std::string prof_biz = p["biz"].get<std::string>();
   std::string prof_cfg = p["config"].get<std::string>();
   std::string prof_data = p["dataset"].get<std::string>();
 
-  // 冲突检查：若 CLI 显式提供了 --business，必须与 Profile business 完全一致
-  if (cli_options.has_business && cli_options.business != prof_biz) {
+  // 冲突检查：若 CLI 显式提供了 --biz，必须与 Profile biz 完全一致
+  if (cli_options.has_biz && cli_options.biz != prof_biz) {
     if (error_msg) {
-      *error_msg = "Business conflict: CLI specified '--business " +
-                   cli_options.business + "' but profile '" +
-                   cli_options.profile + "' requires '" + prof_biz + "'";
+      *error_msg = "Biz conflict: CLI specified '--biz " + cli_options.biz +
+                   "' but profile '" + cli_options.profile + "' requires '" +
+                   prof_biz + "'";
     }
     return 3;
   }
 
   // 严格合并优先级：默认值 < Profile < CLI显式参数 (P1-1)
-  out_options->business =
-      cli_options.has_business ? cli_options.business : prof_biz;
+  out_options->biz = cli_options.has_biz ? cli_options.biz : prof_biz;
   out_options->config_path =
       cli_options.has_config_path ? cli_options.config_path : prof_cfg;
   out_options->dataset_path =
@@ -577,10 +529,10 @@ void PrintHelp(const char* program_name) {
       << "Profile & Suite Options:\n"
       << "  -p, --profile <name>       Run with a pre-configured profile\n"
       << "  --suite <smoke|real|all>   Run an entire suite of profiles\n"
-      << "  -l, --list                 List all available business cases and "
+      << "  -l, --list                 List all available biz cases and "
          "profiles\n\n"
       << "Direct Execution Options:\n"
-      << "  -b, --business <name>      Target business (e.g. entity_extract, "
+      << "  -b, --biz <name>           Target biz (e.g. entity_extract, "
          "doc_qa)\n"
       << "  -c, --config, --conf <path> Operator deployment .conf path\n"
       << "  -d, --dataset, --data <path> Business dataset path\n"
@@ -602,9 +554,6 @@ void PrintHelp(const char* program_name) {
       << "  --allow-fallback-sample    Allow using fallback inline samples if "
          "dataset is missing\n"
       << "  -h, --help                 Display this help message\n\n"
-      << "Legacy Compatibility:\n"
-      << "  --biz <1..7>               Deprecated: Select business by numeric "
-         "ID\n"
       << std::endl;
 }
 

@@ -28,12 +28,12 @@ static std::string GetConfigPath(const std::string& rel_path) {
 class AdapterContractSecurityTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    BusinessAdapterRegistry::Instance().ResetConflictForTesting();
+    BizAdapterRegistry::Instance().ResetConflictForTesting();
     Alg_Init();
   }
   void TearDown() override {
     Alg_DeInit();
-    BusinessAdapterRegistry::Instance().ResetConflictForTesting();
+    BizAdapterRegistry::Instance().ResetConflictForTesting();
   }
 };
 
@@ -70,7 +70,7 @@ TEST_F(AdapterContractSecurityTest, TaggedUnionAndEnumValidation) {
   int ret = adapter.Unpack(inputs, 1, &ctx, &unpack_status);
   EXPECT_EQ(ret, COMPANY_ALG_SUCCESS);
   auto* items =
-      ctx.Get<std::vector<TemplateUnionItemDto>>("tagged_union_items");
+      ctx.Read<std::vector<TemplateUnionItemDto>>("tagged_union_items");
   ASSERT_NE(items, nullptr);
   ASSERT_EQ(items->size(), 1U);
   EXPECT_EQ((*items)[0].text_content, "Hello Tagged Union");
@@ -124,7 +124,7 @@ TEST_F(AdapterContractSecurityTest, NestedArrayAndIntegerOverflowProtection) {
   int ret = adapter.Unpack(inputs, 1, &ctx, &unpack_status);
   EXPECT_EQ(ret, COMPANY_ALG_SUCCESS);
   auto* array_items =
-      ctx.Get<std::vector<TemplateNestedArrayItemDto>>("nested_array_items");
+      ctx.Read<std::vector<TemplateNestedArrayItemDto>>("nested_array_items");
   ASSERT_NE(array_items, nullptr);
   ASSERT_EQ(array_items->size(), 1);
   EXPECT_EQ((*array_items)[0].tags.size(), 2);
@@ -161,7 +161,8 @@ TEST_F(AdapterContractSecurityTest, NestedPointerTreeDepthProtection) {
   AdapterStatus status;
   int ret = adapter.Unpack(inputs, 1, &ctx, &status);
   EXPECT_EQ(ret, COMPANY_ALG_SUCCESS);
-  auto* tree_dtos = ctx.Get<std::vector<TemplateTreeNodeDto>>("tree_root_dtos");
+  auto* tree_dtos =
+      ctx.Read<std::vector<TemplateTreeNodeDto>>("tree_root_dtos");
   ASSERT_NE(tree_dtos, nullptr);
   ASSERT_EQ(tree_dtos->size(), 1);
   EXPECT_EQ((*tree_dtos)[0].children.size(), 2);
@@ -181,8 +182,8 @@ TEST_F(AdapterContractSecurityTest, NestedPointerTreeDepthProtection) {
 // 4. COPY_IN 内存所有权深度隔离测试 (ADP-002, RECHECK-006)
 // ---------------------------------------------------------------------------
 TEST_F(AdapterContractSecurityTest, DirectUnpackMemoryIsolation) {
-  auto adapter = BusinessAdapterRegistry::Instance().GetAdapter(
-      ALG_BIZ_TYPE_KEYWORD_MATCH);
+  auto adapter =
+      BizAdapterRegistry::Instance().GetAdapter(ALG_BIZ_TYPE_KEYWORD_MATCH);
   ASSERT_NE(adapter, nullptr);
 
   // 创建动态可修改的原始缓冲区
@@ -204,7 +205,7 @@ TEST_F(AdapterContractSecurityTest, DirectUnpackMemoryIsolation) {
   caller_buf[sizeof(caller_buf) - 1] = '\0';
 
   // 验证 AlgContext 中的 DTO 保持原有数据完全不受外界内存修改影响 (物理深拷贝)
-  auto* sentences = ctx.Get(kInputSentences);
+  auto* sentences = ctx.Read(kInputSentences);
   ASSERT_NE(sentences, nullptr);
   ASSERT_EQ(sentences->size(), 1U);
   EXPECT_EQ((*sentences)[0].data, "设备系统初始化自检正常");
@@ -223,7 +224,7 @@ TEST_F(AdapterContractSecurityTest, OutputStringTruncationRejection) {
   // 构造长度超过 512 字节的超长 JSON 结果
   std::string huge_json(1024, 'A');
   results.push_back({5001, 0, huge_json});
-  ctx.Set("flat_final_outputs", results);
+  ctx.Publish("flat_final_outputs", results);
 
   TemplateFlatOutput out_slot;
   void* outputs[1] = {&out_slot};
@@ -241,8 +242,8 @@ TEST_F(AdapterContractSecurityTest, OutputStringTruncationRejection) {
 // 6. Pipeline 绑定精确白名单与 Fail-Closed 校验 (RECHECK-002)
 // ---------------------------------------------------------------------------
 TEST_F(AdapterContractSecurityTest, PipelineBindingFailClosedAndExactMatch) {
-  auto adapter = BusinessAdapterRegistry::Instance().GetAdapter(
-      ALG_BIZ_TYPE_KEYWORD_MATCH);
+  auto adapter =
+      BizAdapterRegistry::Instance().GetAdapter(ALG_BIZ_TYPE_KEYWORD_MATCH);
   ASSERT_NE(adapter, nullptr);
 
   // 6.1 精确匹配成功
@@ -276,7 +277,7 @@ TEST_F(AdapterContractSecurityTest, PipelineBindingFailClosedAndExactMatch) {
 // 7. Registry 拒绝不支持的 Descriptor 策略组合 (RECHECK-003)
 // ---------------------------------------------------------------------------
 TEST_F(AdapterContractSecurityTest, RegistryRejectsUnsupportedPolicies) {
-  class UnsupportedPolicyAdapter : public IBusinessAdapter {
+  class UnsupportedPolicyAdapter : public IBizAdapter {
    public:
     CompanyAlgBizType BizType() const override {
       return static_cast<CompanyAlgBizType>(201);
@@ -293,7 +294,7 @@ TEST_F(AdapterContractSecurityTest, RegistryRejectsUnsupportedPolicies) {
           OwnershipPolicy::kBorrowDuringProcess,  // 当前未开放策略
           ThreadModel::kStatelessThreadSafe,
           OutputCardinality::kOneToOne,
-          {BusinessDefinition{"UnsupportedPolicy", "pipeline_v1"}}};
+          {BizDefinition{"UnsupportedPolicy", "pipeline_v1"}}};
       return desc;
     }
     int Unpack(const void** i, int n, AlgContext* c,
@@ -314,10 +315,9 @@ TEST_F(AdapterContractSecurityTest, RegistryRejectsUnsupportedPolicies) {
   };
 
   auto bad_adapter = std::make_shared<UnsupportedPolicyAdapter>();
-  bool reg_ret =
-      BusinessAdapterRegistry::Instance().RegisterAdapter(bad_adapter);
+  bool reg_ret = BizAdapterRegistry::Instance().RegisterAdapter(bad_adapter);
   EXPECT_FALSE(reg_ret);
-  EXPECT_TRUE(BusinessAdapterRegistry::Instance().HasRegistrationConflict());
+  EXPECT_TRUE(BizAdapterRegistry::Instance().HasRegistrationConflict());
 }
 
 // ---------------------------------------------------------------------------

@@ -13,6 +13,7 @@
 #include "core/pipeline_validator.h"
 #include "core/session_context.h"
 #include "engine/model_interface.h"
+#include "tests/support/node_test_utils.h"
 
 namespace alg_framework {
 
@@ -94,7 +95,7 @@ TEST_F(TextRerankNodeTest, ProcessQueriesAndCandidates) {
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {{"bind_model", "fake_rerank_model"}, {"top_k", 2}};
-  EXPECT_TRUE(node->Init(cfg, session_ctx_.get()));
+  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
 
   AlgContext ctx;
   TextBatch queries;
@@ -108,11 +109,11 @@ TEST_F(TextRerankNodeTest, ProcessQueriesAndCandidates) {
   candidates.emplace_back(1, 2,
                           RankedCandidate("Contact Support MID", 0.5f, 3, 2));
 
-  ctx.Set("queries", queries);
-  ctx.Set("candidates", candidates);
+  ctx.Publish("queries", queries);
+  ctx.Publish("candidates", candidates);
 
   EXPECT_EQ(node->Process(&ctx), 0);
-  const auto* ranked = ctx.Get<RankedTextBatch>("ranked");
+  const auto* ranked = ctx.Read<RankedTextBatch>("ranked");
   ASSERT_NE(ranked, nullptr);
   ASSERT_EQ(ranked->size(), 2u);
   EXPECT_EQ((*ranked)[0].data.text, "Refund Policy Guide HIGH");
@@ -127,16 +128,16 @@ TEST_F(TextRerankNodeTest, ProcessPairsInput) {
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {{"bind_model", "fake_rerank_model"}, {"top_k", 1}};
-  EXPECT_TRUE(node->Init(cfg, session_ctx_.get()));
+  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
 
   AlgContext ctx;
   QueryCandidatesBatch pairs;
   pairs.emplace_back(1, 10, QueryCandidatePair("Query A", "Candidate LOW"));
   pairs.emplace_back(1, 20, QueryCandidatePair("Query A", "Candidate HIGH"));
-  ctx.Set("pairs", pairs);
+  ctx.Publish("pairs", pairs);
 
   EXPECT_EQ(node->Process(&ctx), 0);
-  const auto* ranked = ctx.Get<RankedTextBatch>("ranked");
+  const auto* ranked = ctx.Read<RankedTextBatch>("ranked");
   ASSERT_NE(ranked, nullptr);
   ASSERT_EQ(ranked->size(), 1u);
   EXPECT_EQ((*ranked)[0].data.text, "Candidate HIGH");
@@ -149,7 +150,7 @@ TEST_F(TextRerankNodeTest, ProcessQueriesAndCandidateTexts) {
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {{"bind_model", "fake_rerank_model"}, {"top_k", 2}};
-  EXPECT_TRUE(node->Init(cfg, session_ctx_.get()));
+  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
 
   AlgContext ctx;
   TextBatch queries = {{10, 0, "Query 10"}};
@@ -159,11 +160,11 @@ TEST_F(TextRerankNodeTest, ProcessQueriesAndCandidateTexts) {
       {10, 7, "Doc HIGH"},
   };
 
-  ctx.Set("queries", queries);
-  ctx.Set("candidate_texts", candidate_texts);
+  ctx.Publish("queries", queries);
+  ctx.Publish("candidate_texts", candidate_texts);
 
   EXPECT_EQ(node->Process(&ctx), 0);
-  const auto* ranked = ctx.Get<RankedTextBatch>("ranked");
+  const auto* ranked = ctx.Read<RankedTextBatch>("ranked");
   ASSERT_NE(ranked, nullptr);
   ASSERT_EQ(ranked->size(), 2u);
   EXPECT_EQ((*ranked)[0].data.text, "Doc HIGH");
@@ -178,7 +179,7 @@ TEST_F(TextRerankNodeTest, MultiRequestGrouping) {
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {{"bind_model", "fake_rerank_model"}, {"top_k", 1}};
-  EXPECT_TRUE(node->Init(cfg, session_ctx_.get()));
+  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
 
   AlgContext ctx;
   TextBatch queries = {{1, 0, "Q1"}, {2, 0, "Q2"}};
@@ -188,11 +189,11 @@ TEST_F(TextRerankNodeTest, MultiRequestGrouping) {
       {2, 0, "Q2 HIGH"},
       {2, 1, "Q2 MID"},
   };
-  ctx.Set("queries", queries);
-  ctx.Set("candidate_texts", cand_texts);
+  ctx.Publish("queries", queries);
+  ctx.Publish("candidate_texts", cand_texts);
 
   EXPECT_EQ(node->Process(&ctx), 0);
-  const auto* ranked = ctx.Get<RankedTextBatch>("ranked");
+  const auto* ranked = ctx.Read<RankedTextBatch>("ranked");
   ASSERT_NE(ranked, nullptr);
   ASSERT_EQ(ranked->size(), 2u);
   EXPECT_EQ((*ranked)[0].req_id, 1u);
@@ -207,15 +208,15 @@ TEST_F(TextRerankNodeTest, TypedModelPairInputPath) {
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {{"bind_model", "fake_rerank_model"}, {"top_k", 1}};
-  EXPECT_TRUE(node->Init(cfg, session_ctx_.get()));
+  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
 
   AlgContext ctx;
   QueryCandidatesBatch pairs;
   pairs.emplace_back(1, 0, QueryCandidatePair("Query", "Passage"));
-  ctx.Set("pairs", pairs);
+  ctx.Publish("pairs", pairs);
 
   EXPECT_EQ(node->Process(&ctx), 0);
-  const auto* ranked = ctx.Get<RankedTextBatch>("ranked");
+  const auto* ranked = ctx.Read<RankedTextBatch>("ranked");
   ASSERT_NE(ranked, nullptr);
   ASSERT_EQ(ranked->size(), 1u);
 }
@@ -225,14 +226,14 @@ TEST_F(TextRerankNodeTest, FailuresAndProvenanceMismatch) {
   auto node = NodeFactory::Instance().Create("TextRerankNode");
   ASSERT_NE(node, nullptr);
   nlohmann::json cfg = {{"bind_model", "fake_rerank_model"}, {"top_k", 1}};
-  EXPECT_TRUE(node->Init(cfg, session_ctx_.get()));
+  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
 
   AlgContext ctx;
   QueryCandidatesBatch pairs = {
       {1, 0, QueryCandidatePair("Q", "HIGH")},
       {1, 1, QueryCandidatePair("Q", "LOW")},
   };
-  ctx.Set("pairs", pairs);
+  ctx.Publish("pairs", pairs);
 
   // Score error
   fake_model_->fail_score_ = true;

@@ -154,7 +154,7 @@ C++ Operator API：NamedIoBatch + Operator 镜像 C 结构 ─┘
   2. **三级状态管理**：
      - `SessionContext`：句柄级常驻状态，管理单句柄加载的多个模型实例（`ModelManager`）；
      - `AlgContext`：请求级强类型黑板（`BlackboardKey<T>`），`Read` 返回请求生命周期内
-       稳定的只读快照，`Publish` 拒绝重复生产；兼容 `Set` 仅用于执行前输入装载与迁移；
+       稳定的只读视图，`Publish` 拒绝重复生产；Adapter 与 Node 使用同一 write-once 契约；
      - `TraceableItem<T>`：样本溯源标签（`req_id` + `sub_id`），保证 1对N 裂变后可严格 1:1 对齐回原请求；
   3. **自注册 SSOT 机制**：Node、Model 与 Backend 分别通过 `REGISTER_NODE_WITH_DEFINITION`、`REGISTER_MODEL_WITH_DEFINITION` 和 `REGISTER_BACKEND_WITH_DEFINITION` 就地声明，`PipelineCatalog` 仅聚合这三类定义。
 
@@ -288,7 +288,7 @@ REGISTER_NODE_WITH_DEFINITION(MyCustomNode, MakeMyCustomNodeDefinition());
 
 ```json
 {
-  "business_name": "my_new_business",
+  "biz_name": "my_new_biz",
   "models": [
     {
       "model_id": "my_llm",

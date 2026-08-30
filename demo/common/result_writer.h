@@ -26,7 +26,7 @@ struct DemoSampleResult {
 struct DemoRunSummary {
   int schema_version = 1;
   std::string profile;
-  std::string business;
+  std::string biz;
   std::string config_path;
   std::string dataset_path;
   int total_samples = 0;

@@ -1,6 +1,6 @@
 # 📚 Adapter 4 大复杂数据结构标准开发范式与可编译模板 (ADP-010, RECHECK-005)
 
-针对企业级 C ABI 中常见的 4 类复杂数据结构，`LLM-EdgeFlow` 提供了统一的安全解析规范与标准开发模板。所有模板均包含独立的纯 C 结构体定义、内部 DTO、`IBusinessAdapter` 完整实现与契约测试。
+针对企业级 C ABI 中常见的 4 类复杂数据结构，`LLM-EdgeFlow` 提供了统一的安全解析规范与标准开发模板。所有模板均包含独立的纯 C 结构体定义、内部 DTO、`IBizAdapter` 完整实现与契约测试。
 
 所有模板代码均在工程中作为真实头文件维护并直接参与自动化编译与测试：
 - 范式一 (Flat Struct)：[`include/adapter/templates/flat_struct_adapter.h`](file:///home/ubuntu/project/llm-ops-agy/include/adapter/templates/flat_struct_adapter.h)
@@ -16,7 +16,7 @@
 
 ```cpp
 #include "adapter/adapter_validation_helper.h"
-#include "adapter/business_adapter_interface.h"
+#include "adapter/biz_adapter_interface.h"
 
 namespace alg_framework {
 namespace template_examples {
@@ -41,7 +41,7 @@ struct TemplateFlatResultDto {
 };
 
 // 3. 适配器标准实现
-class TemplateFlatStructAdapter : public IBusinessAdapter {
+class TemplateFlatStructAdapter : public IBizAdapter {
  public:
   CompanyAlgBizType BizType() const override { return static_cast<CompanyAlgBizType>(101); }
   const char* BizName() const override { return "TemplateFlatStruct"; }
@@ -77,15 +77,19 @@ class TemplateFlatStructAdapter : public IBusinessAdapter {
       req_ids.push_back(in->request_id);
       sentences.push_back(in->sentence_text); // COPY_IN 深拷贝
     }
-    ctx->Set("raw_request_ids", std::move(req_ids));
-    ctx->Set("raw_sentences", std::move(sentences));
+    if (!AdapterValidationHelper::PublishContextValue(
+            *ctx, "raw_request_ids", std::move(req_ids), BizName(), out_status) ||
+        !AdapterValidationHelper::PublishContextValue(
+            *ctx, "raw_sentences", std::move(sentences), BizName(), out_status)) {
+      return COMPANY_ALG_ERR_INVALID_INPUT;
+    }
     return COMPANY_ALG_SUCCESS;
   }
 
   int Pack(AlgContext* ctx, void** outputs, int* num_outputs,
            AdapterStatus* out_status = nullptr) const override {
     if (!ctx) return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
-    auto* res = ctx->Get<std::vector<TemplateFlatResultDto>>("flat_final_outputs");
+    auto* res = ctx->Read<std::vector<TemplateFlatResultDto>>("flat_final_outputs");
     if (!res) return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
 
     int count = static_cast<int>(res->size());

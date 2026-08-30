@@ -115,16 +115,15 @@ static std::vector<std::string> SnapshotDeepDagTrace() {
 class DeepDagNode : public INode {
  public:
   inline static constexpr char kNodeType[] = "DeepDagNode";
-  bool Init(const nlohmann::json& config,
-            SessionContext* session_ctx) override {
-    (void)session_ctx;
-    name_ = config.value("node_name", "DeepDagNode");
+  bool Init(const NodeInitContext& init_ctx) override {
+    if (!init_ctx.config || !init_ctx.session_ctx) return false;
+    name_ = init_ctx.config->value("node_name", "DeepDagNode");
     return true;
   }
 
   int Process(AlgContext* req_ctx) override {
     AppendDeepDagTrace(name_);
-    req_ctx->Set("out_" + name_, std::string("DataFrom_") + name_);
+    req_ctx->Publish("out_" + name_, std::string("DataFrom_") + name_);
     return 0;
   }
 
@@ -203,7 +202,7 @@ TEST_F(EngineFaultToleranceAndLifecycleTest, Deep5LayerWavefrontDagExecution) {
   // Layer 2: M1, M2 (依赖 A1, A2, A3)
   // Layer 3: B1, B2, B3 (依赖 M1, M2)
   // Layer 4: Final (依赖 B1, B2, B3)
-  nlohmann::json deep_dag_config = {{"business_name", "deep_5_layer_dag"},
+  nlohmann::json deep_dag_config = {{"biz_name", "deep_5_layer_dag"},
                                     {"execution_mode", "parallel"},
                                     {"max_parallel_workers", 4},
                                     {"pipeline",
@@ -298,12 +297,12 @@ TEST_F(EngineFaultToleranceAndLifecycleTest, LargePayloadRaiiDestruction) {
   for (int i = 0; i < test_cycles; ++i) {
     {
       AlgContext ctx;
-      ctx.Set("probe_1", LifetimeProbe(20000));
-      ctx.Set("probe_2", LifetimeProbe(20000));
+      ctx.Publish("probe_1", LifetimeProbe(20000));
+      ctx.Publish("probe_2", LifetimeProbe(20000));
 
       EXPECT_TRUE(ctx.Has("probe_1"));
       EXPECT_TRUE(ctx.Has("probe_2"));
-      auto* p1 = ctx.Get<LifetimeProbe>("probe_1");
+      auto* p1 = ctx.Read<LifetimeProbe>("probe_1");
       ASSERT_NE(p1, nullptr);
       EXPECT_EQ(p1->large_payload.size(), 20000);
       // 作用域退出，ctx 销毁

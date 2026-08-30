@@ -365,7 +365,7 @@ NodeDefinition MakeTextRuleMatchNodeDefinition() {
                                   "1:1", "preserve", "request")};
   def.outputs = {OutputPort("matches",
                             BlackboardKey<RuleMatchBatch>{"", "RuleMatchBatch"},
-                            false, "1:1", "preserve", "request")};
+                            "1:1", "preserve", "request")};
   def.control_commands = {ControlCommandDefinition(
       kControlCmdUpdateRules, "update_rules",
       "Update matching rules and categories dynamically",

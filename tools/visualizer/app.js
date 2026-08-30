@@ -7,7 +7,7 @@ const state = {
   filename: "",
   revision: "",
   dirty: false,
-  catalog: { nodes: [], businesses: [], profiles: [] },
+  catalog: { nodes: [], bizs: [], profiles: [] },
   profiles: [],
   selected: "",
   jobId: "",
@@ -33,7 +33,7 @@ function setDirty(value) {
   $("#documentTitle").textContent = state.filename || "未命名方案";
 }
 
-function positionsKey() { return `edgeflow.positions.${state.filename || state.pipeline?.business_name || "draft"}`; }
+function positionsKey() { return `edgeflow.positions.${state.filename || state.pipeline?.biz_name || "draft"}`; }
 function restorePositions() {
   try { graph.positions = JSON.parse(localStorage.getItem(positionsKey()) || "{}"); }
   catch { graph.positions = {}; }
@@ -117,8 +117,8 @@ function parseField(input) {
   return input.value;
 }
 
-async function loadCatalog(business = "") {
-  state.catalog = await api(`/catalog${business ? `?business=${encodeURIComponent(business)}` : ""}`);
+async function loadCatalog(biz = "") {
+  state.catalog = await api(`/catalog${biz ? `?biz=${encodeURIComponent(biz)}` : ""}`);
   renderOperators();
 }
 
@@ -146,23 +146,23 @@ function addNode(definition) {
 
 async function refreshLists() {
   const [allCatalog, profiles, pipelines] = await Promise.all([api("/catalog"), api("/profiles"), api("/pipelines")]);
-  state.catalog = state.pipeline ? await api(`/catalog?business=${encodeURIComponent(state.pipeline.business_name)}`) : allCatalog;
+  state.catalog = state.pipeline ? await api(`/catalog?biz=${encodeURIComponent(state.pipeline.biz_name)}`) : allCatalog;
   state.profiles = profiles.profiles;
-  const business = $("#businessSelect"); business.replaceChildren();
-  for (const item of allCatalog.businesses) business.add(new Option(`${item.display_name} · ${item.business_name}`, item.business_name));
-  if (state.pipeline) business.value = state.pipeline.business_name;
+  const biz = $("#bizSelect"); biz.replaceChildren();
+  for (const item of allCatalog.bizs) biz.add(new Option(`${item.display_name} · ${item.biz_name}`, item.biz_name));
+  if (state.pipeline) biz.value = state.pipeline.biz_name;
   const schemes = $("#pipelineSelect"); schemes.replaceChildren(new Option("选择方案", ""));
-  for (const item of pipelines.pipelines) schemes.add(new Option(`${item.filename} · ${item.business_name}`, item.filename));
+  for (const item of pipelines.pipelines) schemes.add(new Option(`${item.filename} · ${item.biz_name}`, item.filename));
   renderOperators(); filterProfiles();
 }
 
 function filterProfiles() {
-  const businessName = state.pipeline?.business_name || $("#businessSelect").value;
+  const bizName = state.pipeline?.biz_name || $("#bizSelect").value;
   const matching = state.catalog.profiles?.length ? state.catalog.profiles : [];
   for (const selector of [$("#cloneProfile"), $("#runProfile")]) {
     const previous = selector.value; selector.replaceChildren();
     if (selector.id === "cloneProfile") selector.add(new Option("空图", ""));
-    for (const profile of matching.filter(item => item.pipeline_business === businessName)) selector.add(new Option(`${profile.name} · ${profile.suite}`, profile.name));
+    for (const profile of matching.filter(item => item.pipeline_biz === bizName)) selector.add(new Option(`${profile.name} · ${profile.suite}`, profile.name));
     if ([...selector.options].some(item => item.value === previous)) selector.value = previous;
   }
 }
@@ -172,16 +172,16 @@ async function openPipeline(filename) {
   if (state.dirty && !confirm("当前草稿尚未保存，确认丢弃并打开其他方案？")) return;
   const result = await api(`/pipeline?filename=${encodeURIComponent(filename)}`);
   state.pipeline = result.pipeline; state.filename = result.filename; state.revision = result.revision; state.selected = "";
-  await loadCatalog(state.pipeline.business_name); restorePositions(); setDirty(false); renderAll();
-  $("#businessSelect").value = state.pipeline.business_name;
+  await loadCatalog(state.pipeline.biz_name); restorePositions(); setDirty(false); renderAll();
+  $("#bizSelect").value = state.pipeline.biz_name;
 }
 
 async function createPipeline() {
   if (state.dirty && !confirm("当前草稿尚未保存，确认新建？")) return;
-  const business = $("#businessSelect").value, profile = $("#cloneProfile").value;
-  const result = await write("/init", "POST", { business, profile, empty: !profile });
+  const biz = $("#bizSelect").value, profile = $("#cloneProfile").value;
+  const result = await write("/init", "POST", { biz, profile, empty: !profile });
   state.pipeline = result.pipeline; state.filename = ""; state.revision = ""; state.selected = "";
-  await loadCatalog(business); restorePositions(); setDirty(true); renderAll();
+  await loadCatalog(biz); restorePositions(); setDirty(true); renderAll();
 }
 
 async function save(saveAs) {
@@ -247,7 +247,7 @@ $("#saveButton").addEventListener("click", () => save(false));
 $("#saveAsButton").addEventListener("click", () => save(true));
 $("#layoutButton").addEventListener("click", () => { graph.layout(effectiveNodes(), true); graph.render(effectiveNodes(), state.selected); });
 $("#operatorSearch").addEventListener("input", renderOperators);
-$("#businessSelect").addEventListener("change", filterProfiles);
+$("#bizSelect").addEventListener("change", filterProfiles);
 $("#validateButton").addEventListener("click", validate);
 $("#runButton").addEventListener("click", runDraft);
 $("#cancelButton").addEventListener("click", async () => { if (state.jobId) await write(`/runs/${state.jobId}`, "DELETE", {}); });

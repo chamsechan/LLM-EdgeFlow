@@ -11,6 +11,7 @@
 #include "core/node_registry.h"
 #include "core/session_context.h"
 #include "tests/support/inference/test_capability_models.h"
+#include "tests/support/node_test_utils.h"
 
 namespace alg_framework {
 
@@ -35,16 +36,16 @@ TEST_F(OcrDetectNodeTest, ProcessOcrDetection) {
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {{"bind_model", "ocr_model_v1"}};
-  EXPECT_TRUE(node->Init(cfg, session_ctx_.get()));
+  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
 
   AlgContext ctx;
   ImageRefBatch images;
   images.emplace_back(1, 0, "mock_invoice.jpg");
-  ctx.Set("images", images);
+  ctx.Publish("images", images);
 
   EXPECT_EQ(node->Process(&ctx), 0);
-  const auto* out_doc = ctx.Get<OcrDocumentBatch>("document");
-  const auto* out_text = ctx.Get<TextBatch>("text");
+  const auto* out_doc = ctx.Read<OcrDocumentBatch>("document");
+  const auto* out_text = ctx.Read<TextBatch>("text");
   ASSERT_NE(out_doc, nullptr);
   ASSERT_NE(out_text, nullptr);
   ASSERT_EQ(out_doc->size(), 1u);
@@ -57,7 +58,8 @@ TEST_F(OcrDetectNodeTest, ProcessOcrDetection) {
 TEST_F(OcrDetectNodeTest, MissingInputFailsClosed) {
   auto node = NodeFactory::Instance().Create("OcrDetectNode");
   ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(node->Init({{"bind_model", "ocr_model_v1"}}, session_ctx_.get()));
+  ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "ocr_model_v1"}},
+                              session_ctx_.get()));
 
   AlgContext empty_ctx;
   EXPECT_EQ(node->Process(&empty_ctx), -7101);
@@ -66,20 +68,21 @@ TEST_F(OcrDetectNodeTest, MissingInputFailsClosed) {
 TEST_F(OcrDetectNodeTest, InvalidModelOutputFailsClosed) {
   auto node = NodeFactory::Instance().Create("OcrDetectNode");
   ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(node->Init({{"bind_model", "ocr_model_v1"}}, session_ctx_.get()));
+  ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "ocr_model_v1"}},
+                              session_ctx_.get()));
 
   ImageRefBatch images;
   images.emplace_back(7, 2, "neutral-image-ref");
 
   AlgContext count_ctx;
-  count_ctx.Set("images", images);
+  count_ctx.Publish("images", images);
   ocr_model_->return_wrong_count_ = true;
   EXPECT_EQ(node->Process(&count_ctx), -7102);
 
   ocr_model_->return_wrong_count_ = false;
   ocr_model_->corrupt_provenance_ = true;
   AlgContext provenance_ctx;
-  provenance_ctx.Set("images", images);
+  provenance_ctx.Publish("images", images);
   EXPECT_EQ(node->Process(&provenance_ctx), -7103);
 }
 

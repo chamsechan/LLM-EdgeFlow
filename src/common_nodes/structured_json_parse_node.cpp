@@ -304,7 +304,7 @@ NodeDefinition MakeStructuredJsonParseNodeDefinition() {
   def.outputs = {OutputPort(
       "document",
       BlackboardKey<StructuredDocumentBatch>{"", "StructuredDocumentBatch"},
-      false, "1:1", "preserve", "request")};
+      "1:1", "preserve", "request")};
   def.config_fields = {
       ConfigFieldDefinition{"fallback_json", ConfigValueKind::kString, false,
                             "{}"},

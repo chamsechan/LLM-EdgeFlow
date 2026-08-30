@@ -15,16 +15,12 @@ using DemoRunFunction = int (*)(const DemoOptions& options);
 
 struct DemoDescriptor {
   std::string biz_name;       // 业务标识名 (如 entity_extract, doc_qa)
-  std::string business_name;  // alias
   std::string display_title;  // 终端展示标题 (如 "实体/名词提取业务")
   DemoRunFunction run = nullptr;
 
   DemoDescriptor() = default;
   DemoDescriptor(std::string name, std::string title, DemoRunFunction func)
-      : biz_name(name),
-        business_name(std::move(name)),
-        display_title(std::move(title)),
-        run(func) {}
+      : biz_name(std::move(name)), display_title(std::move(title)), run(func) {}
 };
 
 class DemoRegistry {
@@ -54,7 +50,6 @@ class DemoRegistry {
    * @brief 列出所有已注册的业务名称列表
    */
   std::vector<std::string> ListBizNames() const;
-  std::vector<std::string> ListBusinessNames() const { return ListBizNames(); }
 
   /**
    * @brief 是否发生过注册冲突
@@ -87,8 +82,5 @@ class DemoRegisterHelper {
 #define REGISTER_DEMO_BIZ(biz_name, title, run_func)                           \
   static ::alg_demo::DemoRegisterHelper g_demo_reg_##run_func(biz_name, title, \
                                                               run_func);
-
-#define REGISTER_DEMO_BUSINESS(biz_name, title, run_func) \
-  REGISTER_DEMO_BIZ(biz_name, title, run_func)
 
 }  // namespace alg_demo

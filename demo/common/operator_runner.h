@@ -22,7 +22,7 @@ namespace alg_demo {
 /**
  * @brief 将 Demo 业务名映射为标准 CompanyAlgBizType 枚举
  */
-inline CompanyAlgBizType DemoBusinessToBizType(std::string_view demo_biz) {
+inline CompanyAlgBizType DemoBizToBizType(std::string_view demo_biz) {
   if (demo_biz == "entity_extract") return ALG_BIZ_TYPE_ENTITY_EXTRACT;
   if (demo_biz == "keyword_match") return ALG_BIZ_TYPE_KEYWORD_MATCH;
   if (demo_biz == "doc_qa") return ALG_BIZ_TYPE_DOC_QA;
@@ -81,13 +81,13 @@ inline bool ResolveModelRootAndConfig(const std::string& conf_path,
 /**
  * @brief 校验 .conf 与 Pipeline JSON 中的 biz_name 是否与 Demo Case 兼容
  */
-inline bool ValidateConfigBusinessMatch(const std::string& conf_path,
-                                        std::string_view expected_biz,
-                                        std::string* error_msg) {
-  CompanyAlgBizType expected_type = DemoBusinessToBizType(expected_biz);
+inline bool ValidateConfigBizMatch(const std::string& conf_path,
+                                   std::string_view expected_biz,
+                                   std::string* error_msg) {
+  CompanyAlgBizType expected_type = DemoBizToBizType(expected_biz);
   if (expected_type == ALG_BIZ_TYPE_UNKNOWN) {
     if (error_msg) {
-      *error_msg = "Unknown demo business: " + std::string(expected_biz);
+      *error_msg = "Unknown demo biz: " + std::string(expected_biz);
     }
     return false;
   }
@@ -155,8 +155,7 @@ int RunOperatorWithExtractor(
   }
 
   std::string err;
-  if (!ValidateConfigBusinessMatch(options.config_path, options.business,
-                                   &err)) {
+  if (!ValidateConfigBizMatch(options.config_path, options.biz, &err)) {
     std::cerr << "[OperatorRunner ERROR] Config validation failed: " << err
               << std::endl;
     return 3;

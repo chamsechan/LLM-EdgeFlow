@@ -43,7 +43,7 @@ struct TemplateTreeResultDto {
   std::string traversal_path;
 };
 
-class TemplateNestedPointerTreeAdapter : public IBusinessAdapter {
+class TemplateNestedPointerTreeAdapter : public IBizAdapter {
  public:
   CompanyAlgBizType BizType() const override {
     return static_cast<CompanyAlgBizType>(104);
@@ -62,8 +62,8 @@ class TemplateNestedPointerTreeAdapter : public IBusinessAdapter {
         OwnershipPolicy::kCopyIn,
         ThreadModel::kStatelessThreadSafe,
         OutputCardinality::kOneToOne,
-        {BusinessDefinition{"TemplateNestedPointerTree",
-                            "template_nested_tree_pipeline_v1"}}};
+        {BizDefinition{"TemplateNestedPointerTree",
+                       "template_nested_tree_pipeline_v1"}}};
     return desc;
   }
 
@@ -157,8 +157,14 @@ class TemplateNestedPointerTreeAdapter : public IBusinessAdapter {
       root_dtos.push_back(std::move(root_dto));
     }
 
-    ctx->Set("raw_request_ids", std::move(req_ids));
-    ctx->Set("tree_root_dtos", std::move(root_dtos));
+    if (!AdapterValidationHelper::PublishContextValue(*ctx, "raw_request_ids",
+                                                      std::move(req_ids),
+                                                      BizName(), out_status) ||
+        !AdapterValidationHelper::PublishContextValue(*ctx, "tree_root_dtos",
+                                                      std::move(root_dtos),
+                                                      BizName(), out_status)) {
+      return COMPANY_ALG_ERR_INVALID_INPUT;
+    }
     return COMPANY_ALG_SUCCESS;
   }
 

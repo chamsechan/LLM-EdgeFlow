@@ -26,11 +26,8 @@ class ModelBoundNode : public NodeBase {
                              const nlohmann::json& config,
                              SessionContext& session_ctx) {
     (void)init_ctx;
-    return InitModelNode(config, session_ctx);
-  }
-
-  virtual bool InitModelNode(const nlohmann::json& /*config*/,
-                             SessionContext& /*session_ctx*/) {
+    (void)config;
+    (void)session_ctx;
     return true;
   }
 

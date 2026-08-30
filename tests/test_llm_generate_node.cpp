@@ -11,6 +11,7 @@
 #include "core/node_registry.h"
 #include "core/session_context.h"
 #include "engine/model_interface.h"
+#include "tests/support/node_test_utils.h"
 
 namespace alg_framework {
 
@@ -78,16 +79,16 @@ TEST_F(LlmGenerateNodeTest, ProcessBatchPromptInference) {
   nlohmann::json cfg = {{"bind_model", "llm_model_v1"},
                         {"temperature", 0.7},
                         {"max_tokens", 128}};
-  EXPECT_TRUE(node->Init(cfg, session_ctx_.get()));
+  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
 
   AlgContext ctx;
   TextBatch prompts;
   prompts.emplace_back(1, 0, "Explain quantum physics");
   prompts.emplace_back(2, 0, "Summarize article");
-  ctx.Set("prompt", prompts);
+  ctx.Publish("prompt", prompts);
 
   EXPECT_EQ(node->Process(&ctx), 0);
-  const auto* out = ctx.Get<TextBatch>("text");
+  const auto* out = ctx.Read<TextBatch>("text");
   ASSERT_NE(out, nullptr);
   ASSERT_EQ(out->size(), 2u);
   EXPECT_FALSE((*out)[0].data.empty());
@@ -100,7 +101,8 @@ TEST_F(LlmGenerateNodeTest, ProcessBatchPromptInference) {
 TEST_F(LlmGenerateNodeTest, MissingInputFailsClosed) {
   auto node = NodeFactory::Instance().Create("LlmGenerateNode");
   ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(node->Init({{"bind_model", "llm_model_v1"}}, session_ctx_.get()));
+  ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "llm_model_v1"}},
+                              session_ctx_.get()));
 
   AlgContext empty_ctx;
   EXPECT_EQ(node->Process(&empty_ctx), -4301);
@@ -109,12 +111,13 @@ TEST_F(LlmGenerateNodeTest, MissingInputFailsClosed) {
 TEST_F(LlmGenerateNodeTest, EmptyBatchSkipsInference) {
   auto node = NodeFactory::Instance().Create("LlmGenerateNode");
   ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(node->Init({{"bind_model", "llm_model_v1"}}, session_ctx_.get()));
+  ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "llm_model_v1"}},
+                              session_ctx_.get()));
 
   AlgContext ctx;
-  ctx.Set("prompt", TextBatch{});
+  ctx.Publish("prompt", TextBatch{});
   EXPECT_EQ(node->Process(&ctx), 0);
-  const auto* output = ctx.Get<TextBatch>("text");
+  const auto* output = ctx.Read<TextBatch>("text");
   ASSERT_NE(output, nullptr);
   EXPECT_TRUE(output->empty());
   EXPECT_EQ(model_->infer_calls, 0);
@@ -123,22 +126,23 @@ TEST_F(LlmGenerateNodeTest, EmptyBatchSkipsInference) {
 TEST_F(LlmGenerateNodeTest, InvalidModelOutputFailsClosed) {
   auto node = NodeFactory::Instance().Create("LlmGenerateNode");
   ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(node->Init({{"bind_model", "llm_model_v1"}}, session_ctx_.get()));
+  ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "llm_model_v1"}},
+                              session_ctx_.get()));
 
   TextBatch prompts = {{3, 0, "first"}, {3, 1, "second"}};
 
   model_->return_wrong_count = true;
   AlgContext count_ctx;
-  count_ctx.Set("prompt", prompts);
+  count_ctx.Publish("prompt", prompts);
   EXPECT_EQ(node->Process(&count_ctx), -4302);
-  EXPECT_EQ(count_ctx.Get<TextBatch>("text"), nullptr);
+  EXPECT_EQ(count_ctx.Read<TextBatch>("text"), nullptr);
 
   model_->return_wrong_count = false;
   model_->corrupt_provenance = true;
   AlgContext provenance_ctx;
-  provenance_ctx.Set("prompt", prompts);
+  provenance_ctx.Publish("prompt", prompts);
   EXPECT_EQ(node->Process(&provenance_ctx), -4303);
-  EXPECT_EQ(provenance_ctx.Get<TextBatch>("text"), nullptr);
+  EXPECT_EQ(provenance_ctx.Read<TextBatch>("text"), nullptr);
 }
 
 }  // namespace alg_framework

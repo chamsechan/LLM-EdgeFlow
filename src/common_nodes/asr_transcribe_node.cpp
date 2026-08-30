@@ -84,7 +84,7 @@ NodeDefinition MakeAsrTranscribeNodeDefinition() {
       "audio", BlackboardKey<AudioPcmBatch>{"", "AudioPcmBatch"}, "1:1",
       "preserve", "request")};
   def.outputs = {OutputPort("text", BlackboardKey<TextBatch>{"", "TextBatch"},
-                            false, "1:1", "preserve", "request")};
+                            "1:1", "preserve", "request")};
   def.config_fields = {ConfigFieldDefinition{
       "bind_model", ConfigValueKind::kString, false, "asr_model_v1"}};
   def.model_capability = "asr";

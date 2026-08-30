@@ -6,6 +6,13 @@
 
 ## Unreleased
 
+- v6 只保留 `biz_name`、`--biz` 与 Biz C++ API；Catalog 升级为 schema v2，并删除
+  Business 双字段、双输出和类型/方法别名。
+- Node 只保留 `Init(const NodeInitContext&)`；`AlgContext` 只保留 write-once
+  `Publish/Read` 请求值契约，删除覆盖快照链与 `Set/Get/Erase/Clear` 迁移接口。
+- 删除不参与 Validator 决策的 `PortDefinition::allow_override`，重复生产者继续统一
+  fail-closed。
+- 设计依据：[RFC-0023](rfcs/0023-v6-contract-convergence.md)。
 - `TextTemplateNode` 的截断策略改为只在 UTF-8 code point 边界结束，不再产生残缺的中文或 emoji 字节序列。
 - `TextRuleMatchNode` 支持原子地联合更新 categories 与 rules；任一候选无效时保留完整旧配置。
 - 并行波前为每个 Node 捕获独立错误诊断，首个失败节点的错误码与消息不再被同层其他失败覆盖。

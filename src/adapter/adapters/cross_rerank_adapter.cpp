@@ -9,7 +9,7 @@
 
 namespace alg_framework {
 
-inline static constexpr char kCrossRerankBusinessName[] =
+inline static constexpr char kCrossRerankBizName[] =
     "dense_cross_rerank_scoring";
 
 class CrossRerankAdapter : public IBizAdapter {
@@ -31,7 +31,7 @@ class CrossRerankAdapter : public IBizAdapter {
         OwnershipPolicy::kCopyIn,
         ThreadModel::kStatelessThreadSafe,
         OutputCardinality::kOneToOne,
-        {{kCrossRerankBusinessName,
+        {{kCrossRerankBizName,
           "cross_rerank",
           "Cross-Encoder 精排",
           {RequiredInput(kRawRequestIds), RequiredInput(kRerankQueries),
@@ -102,10 +102,18 @@ class CrossRerankAdapter : public IBizAdapter {
       }
     }
 
-    ctx->Set(kRawRequestIds, std::move(raw_req_ids));
-    ctx->Set(kRerankQueries, std::move(queries));
-    ctx->Set(kRerankCandidates, std::move(candidates));
-    ctx->Set(kRerankPairs, std::move(pairs));
+    if (!AdapterValidationHelper::PublishContextValue(*ctx, kRawRequestIds,
+                                                      std::move(raw_req_ids),
+                                                      BizName(), out_status) ||
+        !AdapterValidationHelper::PublishContextValue(
+            *ctx, kRerankQueries, std::move(queries), BizName(), out_status) ||
+        !AdapterValidationHelper::PublishContextValue(*ctx, kRerankCandidates,
+                                                      std::move(candidates),
+                                                      BizName(), out_status) ||
+        !AdapterValidationHelper::PublishContextValue(
+            *ctx, kRerankPairs, std::move(pairs), BizName(), out_status)) {
+      return COMPANY_ALG_ERR_INVALID_INPUT;
+    }
     return COMPANY_ALG_SUCCESS;
   }
 

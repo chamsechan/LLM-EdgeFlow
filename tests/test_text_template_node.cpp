@@ -12,6 +12,7 @@
 #include "core/node_registry.h"
 #include "core/pipeline.h"
 #include "core/session_context.h"
+#include "tests/support/node_test_utils.h"
 
 namespace alg_framework {
 
@@ -42,7 +43,7 @@ TEST_F(TextTemplateNodeTest, ProcessMultiInputAggregation) {
       {"template",
        "Query: {{primary}}\nContext: {{context}}\nCategory: {{matches}}"},
       {"separator", " | "}};
-  EXPECT_TRUE(node->Init(cfg, session_ctx_.get()));
+  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
 
   AlgContext ctx;
   TextBatch primary;
@@ -55,12 +56,12 @@ TEST_F(TextTemplateNodeTest, ProcessMultiInputAggregation) {
   RuleMatchBatch matches;
   matches.emplace_back(1, 0, RuleMatchItem(1, "ACCOUNT_UPGRADE", "upgrade"));
 
-  ctx.Set("primary", primary);
-  ctx.Set("context", context);
-  ctx.Set("matches", matches);
+  ctx.Publish("primary", primary);
+  ctx.Publish("context", context);
+  ctx.Publish("matches", matches);
 
   EXPECT_EQ(node->Process(&ctx), 0);
-  const auto* out = ctx.Get<TextBatch>("text");
+  const auto* out = ctx.Read<TextBatch>("text");
   ASSERT_NE(out, nullptr);
   ASSERT_EQ(out->size(), 1u);
   EXPECT_NE((*out)[0].data.find("Go to settings | Step 2: Click upgrade"),
@@ -76,7 +77,7 @@ TEST_F(TextTemplateNodeTest, MissingRequiredVariableFailsClosed) {
   nlohmann::json cfg = {{"template", "Hello {user_name}, welcome!"},
                         {"allow_dynamic_attributes", true},
                         {"missing_variable_policy", "fail"}};
-  EXPECT_TRUE(node->Init(cfg, session_ctx_.get()));
+  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
 
   // Attributes missing required variable 'user_name'
   AlgContext ctx;
@@ -84,7 +85,7 @@ TEST_F(TextTemplateNodeTest, MissingRequiredVariableFailsClosed) {
   attrs.emplace_back(
       1, 0,
       std::unordered_map<std::string, std::string>{{"other_key", "value"}});
-  ctx.Set("attributes", attrs);
+  ctx.Publish("attributes", attrs);
 
   EXPECT_EQ(node->Process(&ctx), -6202);
 }
@@ -96,17 +97,17 @@ TEST_F(TextTemplateNodeTest, DynamicAttributeRendered) {
 
   nlohmann::json cfg = {{"template", "Hello {user_name}, welcome!"},
                         {"allow_dynamic_attributes", true}};
-  EXPECT_TRUE(node->Init(cfg, session_ctx_.get()));
+  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
 
   AlgContext ctx;
   TextAttributesBatch attrs;
   attrs.emplace_back(
       1, 0,
       std::unordered_map<std::string, std::string>{{"user_name", "Alice"}});
-  ctx.Set("attributes", attrs);
+  ctx.Publish("attributes", attrs);
 
   EXPECT_EQ(node->Process(&ctx), 0);
-  const auto* out = ctx.Get<TextBatch>("text");
+  const auto* out = ctx.Read<TextBatch>("text");
   ASSERT_NE(out, nullptr);
   EXPECT_EQ((*out)[0].data, "Hello Alice, welcome!");
 }
@@ -114,19 +115,20 @@ TEST_F(TextTemplateNodeTest, DynamicAttributeRendered) {
 TEST_F(TextTemplateNodeTest, TruncatePreservesUtf8CodePointBoundaries) {
   auto node = NodeFactory::Instance().Create("TextTemplateNode");
   ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(node->Init({{"template", "{{primary}}"},
-                          {"max_length", 4},
-                          {"overflow_policy", "truncate"}},
-                         session_ctx_.get()));
+  ASSERT_TRUE(InitNodeForTest(*node,
+                              {{"template", "{{primary}}"},
+                               {"max_length", 4},
+                               {"overflow_policy", "truncate"}},
+                              session_ctx_.get()));
 
   AlgContext ctx;
   TextBatch primary;
   primary.emplace_back(1, 0, u8"中文");
   primary.emplace_back(2, 0, u8"A🙂B");
-  ctx.Set("primary", std::move(primary));
+  ctx.Publish("primary", std::move(primary));
 
   ASSERT_EQ(node->Process(&ctx), 0);
-  const auto* out = ctx.Get<TextBatch>("text");
+  const auto* out = ctx.Read<TextBatch>("text");
   ASSERT_NE(out, nullptr);
   ASSERT_EQ(out->size(), 2u);
   EXPECT_EQ((*out)[0].data, u8"中");
@@ -136,25 +138,27 @@ TEST_F(TextTemplateNodeTest, TruncatePreservesUtf8CodePointBoundaries) {
 TEST_F(TextTemplateNodeTest, TruncateRejectsInvalidUtf8) {
   auto node = NodeFactory::Instance().Create("TextTemplateNode");
   ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(node->Init({{"template", "{{primary}}"},
-                          {"max_length", 2},
-                          {"overflow_policy", "truncate"}},
-                         session_ctx_.get()));
+  ASSERT_TRUE(InitNodeForTest(*node,
+                              {{"template", "{{primary}}"},
+                               {"max_length", 2},
+                               {"overflow_policy", "truncate"}},
+                              session_ctx_.get()));
 
   AlgContext ctx;
   TextBatch primary;
   primary.emplace_back(1, 0, std::string("A") + "\xF0\x9F");
-  ctx.Set("primary", std::move(primary));
+  ctx.Publish("primary", std::move(primary));
 
   EXPECT_EQ(node->Process(&ctx), -6203);
-  EXPECT_EQ(ctx.Get<TextBatch>("text"), nullptr);
+  EXPECT_EQ(ctx.Read<TextBatch>("text"), nullptr);
 }
 
 // 4. Control Command Hot-Swap & Bogus Rejection
 TEST_F(TextTemplateNodeTest, ControlCommandHotSwapAndBogusRejection) {
   auto node = NodeFactory::Instance().Create("TextTemplateNode");
   ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(node->Init({{"template", "{{primary}}"}}, session_ctx_.get()));
+  ASSERT_TRUE(InitNodeForTest(*node, {{"template", "{{primary}}"}},
+                              session_ctx_.get()));
 
   // Valid update
   nlohmann::json valid_update = {

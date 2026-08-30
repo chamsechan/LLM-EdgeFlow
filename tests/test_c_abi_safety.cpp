@@ -23,14 +23,12 @@ static std::string GetConfigPath(const std::string& rel_path) {
 class CAbiSafetyTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    alg_framework::BusinessAdapterRegistry::Instance()
-        .ResetConflictForTesting();
+    alg_framework::BizAdapterRegistry::Instance().ResetConflictForTesting();
     Alg_Init();
   }
   void TearDown() override {
     Alg_DeInit();
-    alg_framework::BusinessAdapterRegistry::Instance()
-        .ResetConflictForTesting();
+    alg_framework::BizAdapterRegistry::Instance().ResetConflictForTesting();
   }
 };
 
@@ -182,7 +180,7 @@ TEST_F(CAbiSafetyTest, NullSlotInBatchInputsOrOutputs) {
 
 // 6. 测试 Adapter 注册冲突防护与 Descriptor 机器可读性 (ACC-005)
 TEST_F(CAbiSafetyTest, AdapterRegistryConflictDetectionAndDescriptor) {
-  auto& registry = alg_framework::BusinessAdapterRegistry::Instance();
+  auto& registry = alg_framework::BizAdapterRegistry::Instance();
   auto doc_adapter = registry.GetAdapter(ALG_BIZ_TYPE_DOC_QA);
   ASSERT_NE(doc_adapter, nullptr);
 
@@ -242,7 +240,7 @@ TEST_F(CAbiSafetyTest, UnknownAndUnregisteredBizRejectionInCreate) {
 
 // 9. 测试 Registry 冲突 fail-closed 导致 Alg_Init 失败 (REV2-003)
 TEST_F(CAbiSafetyTest, FailClosedRegistryConflictAndInitFailure) {
-  auto& registry = alg_framework::BusinessAdapterRegistry::Instance();
+  auto& registry = alg_framework::BizAdapterRegistry::Instance();
   registry.ResetConflictForTesting();
 
   // 初始干净状态 Alg_Init 成功

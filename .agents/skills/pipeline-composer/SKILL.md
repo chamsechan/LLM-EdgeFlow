@@ -9,7 +9,7 @@ Use the runtime Catalog and Validator as the only source of node, port, paramete
 
 ## Workflow
 
-1. Build `alg_pipeline_tool` if it is unavailable, then query the target biz contract and its filtered assets. Prefer the current `--biz` spelling; `--business` is compatibility-only:
+1. Build `alg_pipeline_tool` if it is unavailable, then query the target biz contract and its filtered assets. Use the v6 `--biz` spelling:
 
    ```bash
    ./build/alg_pipeline_tool catalog --biz <biz_name>

@@ -10,6 +10,7 @@
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
 #include "core/session_context.h"
+#include "tests/support/node_test_utils.h"
 
 namespace alg_framework {
 
@@ -28,15 +29,15 @@ TEST_F(VectorTopKNodeTest, InitAndConfigValidation) {
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {{"top_k", 2}, {"min_score", 0.0}, {"metric", "cosine"}};
-  EXPECT_TRUE(node->Init(cfg, session_ctx_.get()));
+  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
 }
 
 // 2. Process Top-K Ranking with Shared Candidates
 TEST_F(VectorTopKNodeTest, ProcessRankingSharedCandidates) {
   auto node = NodeFactory::Instance().Create("VectorTopKNode");
   ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(
-      node->Init({{"top_k", 2}, {"min_score", 0.0}}, session_ctx_.get()));
+  ASSERT_TRUE(InitNodeForTest(*node, {{"top_k", 2}, {"min_score", 0.0}},
+                              session_ctx_.get()));
 
   AlgContext ctx;
   EmbeddingBatch queries;
@@ -52,13 +53,13 @@ TEST_F(VectorTopKNodeTest, ProcessRankingSharedCandidates) {
   cand_texts.emplace_back(0, 1, "Doc B (Low Sim)");
   cand_texts.emplace_back(0, 2, "Doc C (Mid Sim)");
 
-  ctx.Set("queries", queries);
-  ctx.Set("candidates", candidates);
-  ctx.Set("candidate_texts", cand_texts);
+  ctx.Publish("queries", queries);
+  ctx.Publish("candidates", candidates);
+  ctx.Publish("candidate_texts", cand_texts);
 
   EXPECT_EQ(node->Process(&ctx), 0);
 
-  const auto* ranked = ctx.Get<RankedTextBatch>("ranked");
+  const auto* ranked = ctx.Read<RankedTextBatch>("ranked");
   ASSERT_NE(ranked, nullptr);
   ASSERT_EQ(ranked->size(), 2u);
   EXPECT_EQ((*ranked)[0].data.text, "Doc A (High Sim)");
@@ -69,7 +70,7 @@ TEST_F(VectorTopKNodeTest, ProcessRankingSharedCandidates) {
 TEST_F(VectorTopKNodeTest, MissingInputFailsClosed) {
   auto node = NodeFactory::Instance().Create("VectorTopKNode");
   ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(node->Init({{"top_k", 2}}, session_ctx_.get()));
+  ASSERT_TRUE(InitNodeForTest(*node, {{"top_k", 2}}, session_ctx_.get()));
 
   AlgContext empty_ctx;
   EXPECT_EQ(node->Process(&empty_ctx), -3101);

@@ -114,12 +114,7 @@ class WorkbenchService:
             items.append(
                 {
                     "filename": checked.name,
-                    "biz_name": pipeline.get(
-                        "biz_name", pipeline.get("business_name", "")
-                    ),
-                    "business_name": pipeline.get(
-                        "biz_name", pipeline.get("business_name", "")
-                    ),
+                    "biz_name": pipeline.get("biz_name", ""),
                     "revision": revision_for(raw),
                 }
             )
@@ -162,10 +157,10 @@ class WorkbenchService:
                 500,
             ) from error
 
-    def catalog(self, business: str = "") -> dict[str, Any]:
+    def catalog(self, biz: str = "") -> dict[str, Any]:
         args = ["catalog"]
-        if business:
-            args.extend(["--business", business])
+        if biz:
+            args.extend(["--biz", biz])
         return self.invoke_tool(args)
 
     def profiles(self) -> dict[str, Any]:
@@ -184,9 +179,9 @@ class WorkbenchService:
         return self.invoke_tool(["normalize", "--explicit-dag", "--stdin"], pipeline)
 
     def init_pipeline(
-        self, business: str, profile: str = "", empty: bool = False
+        self, biz: str, profile: str = "", empty: bool = False
     ) -> dict[str, Any]:
-        args = ["init", "--business", business]
+        args = ["init", "--biz", biz]
         if profile:
             args.extend(["--profile", profile])
         elif empty:
@@ -253,8 +248,8 @@ class WorkbenchService:
             else:
                 original_pipeline_path = profile_conf.parent / original_pipeline_path
         original = read_json(original_pipeline_path.resolve())
-        orig_biz = original.get("biz_name", original.get("business_name"))
-        curr_biz = pipeline.get("biz_name", pipeline.get("business_name"))
+        orig_biz = original.get("biz_name")
+        curr_biz = pipeline.get("biz_name")
         if orig_biz != curr_biz:
             raise StudioError("PROFILE_MISMATCH", "Profile 与业务契约不匹配")
         with self.job_lock:
@@ -301,8 +296,8 @@ class WorkbenchService:
             dataset = PROJECT_ROOT / profile["dataset"]
             args = [
                 str(DEMO_BINARY),
-                "--business",
-                str(profile["business"]),
+                "--biz",
+                str(profile["biz"]),
                 "--config",
                 str(conf_path),
                 "--dataset",
@@ -439,7 +434,7 @@ def make_handler(service: WorkbenchService):
             if method in ("POST", "PUT", "DELETE"):
                 body = self._body()
             if method == "GET" and path == "/api/v1/catalog":
-                payload = service.catalog(query.get("business", [""])[0])
+                payload = service.catalog(query.get("biz", [""])[0])
             elif method == "GET" and path == "/api/v1/profiles":
                 payload = service.profiles()
             elif method == "GET" and path == "/api/v1/pipelines":
@@ -454,7 +449,7 @@ def make_handler(service: WorkbenchService):
                 payload = service.normalize(body.get("pipeline"))
             elif method == "POST" and path == "/api/v1/init":
                 payload = service.init_pipeline(
-                    body.get("business", ""), body.get("profile", ""), body.get("empty", False)
+                    body.get("biz", ""), body.get("profile", ""), body.get("empty", False)
                 )
             elif method == "POST" and path == "/api/v1/pipelines":
                 payload = service.save_pipeline(
@@ -518,7 +513,7 @@ def make_handler(service: WorkbenchService):
 
 def render_terminal(path: Path, pipeline: dict[str, Any]) -> None:
     print(f"\nLLM-EdgeFlow Pipeline: {path}")
-    biz = pipeline.get("biz_name", pipeline.get("business_name", "unknown"))
+    biz = pipeline.get("biz_name", "unknown")
     print(f"Biz: {biz}")
     nodes = pipeline.get("pipeline", [])
     for index, node in enumerate(nodes):

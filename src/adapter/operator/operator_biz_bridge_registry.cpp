@@ -172,7 +172,7 @@ int OperatorBizBridgeRegistry::GlobalInit() {
       has_conflict_ = true;
       return -6;
     }
-    // 校验业务名匹配 adapter->BizName() 或 pipeline business_name
+    // 校验业务名匹配 adapter->BizName() 或 pipeline biz_name
     bool biz_name_matched = (desc.biz_name == adapter->BizName());
     if (!biz_name_matched) {
       for (const auto& p : adapter_desc.pipelines) {

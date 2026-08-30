@@ -85,7 +85,7 @@ TEST_F(CatalogContractSsotTest, ProductionModelBackendCatalogHasNoFixtures) {
 }
 
 // 3. 验证 7 种业务契约在 PipelineCatalog 中完整注册
-TEST_F(CatalogContractSsotTest, AllBusinessDefinitionsAreRegistered) {
+TEST_F(CatalogContractSsotTest, AllBizDefinitionsAreRegistered) {
   const auto& bizs = PipelineCatalog::Bizs();
   EXPECT_GE(bizs.size(), 7U);
 
@@ -142,26 +142,38 @@ TEST_F(CatalogContractSsotTest, BusinessBatchRegistrationIsAtomic) {
 // 5. 验证 PipelineCatalog::ToJson 序列化规范性与过滤逻辑
 TEST_F(CatalogContractSsotTest, ToJsonSerializationAndFiltering) {
   auto full_catalog = PipelineCatalog::ToJson();
-  EXPECT_EQ(full_catalog["schema_version"], 1);
+  EXPECT_EQ(full_catalog["schema_version"], 2);
   EXPECT_TRUE(full_catalog["nodes"].is_array());
   EXPECT_FALSE(full_catalog.contains("engines"));
   EXPECT_TRUE(full_catalog["models"].is_array());
   EXPECT_TRUE(full_catalog["backends"].is_array());
   EXPECT_TRUE(full_catalog["bizs"].is_array());
+  EXPECT_FALSE(full_catalog.contains("businesses"));
   EXPECT_GE(full_catalog["nodes"].size(), 11U);
   EXPECT_GE(full_catalog["bizs"].size(), 7U);
+  for (const auto& node : full_catalog["nodes"]) {
+    for (const auto& port : node["inputs"]) {
+      EXPECT_FALSE(port.contains("allow_override"));
+    }
+    for (const auto& port : node["outputs"]) {
+      EXPECT_FALSE(port.contains("allow_override"));
+    }
+  }
 
   // 业务过滤查询
   auto km_catalog = PipelineCatalog::ToJson("keyword_match_v1");
-  EXPECT_EQ(km_catalog["schema_version"], 1);
+  EXPECT_EQ(km_catalog["schema_version"], 2);
   EXPECT_FALSE(km_catalog["nodes"].empty());
-  EXPECT_EQ(km_catalog["businesses"].size(), 1U);
-  EXPECT_EQ(km_catalog["businesses"][0]["business_name"], "keyword_match_v1");
+  EXPECT_EQ(km_catalog["bizs"].size(), 1U);
+  EXPECT_EQ(km_catalog["bizs"][0]["biz_name"], "keyword_match_v1");
+  EXPECT_FALSE(km_catalog["bizs"][0].contains("business_name"));
+  EXPECT_FALSE(km_catalog["bizs"][0].contains("demo_business"));
 
   bool found_match_node = false;
   for (const auto& item : km_catalog["nodes"]) {
     if (item["node_type"] == "TextRuleMatchNode") {
       found_match_node = true;
+      EXPECT_FALSE(item.contains("business_names"));
     }
   }
   EXPECT_TRUE(found_match_node);

@@ -31,6 +31,7 @@
 #include "engine/models/bge_embedding/bert_wordpiece_tokenizer.h"
 #include "engine/models/bge_embedding/bge_embedding_model.h"
 #include "tests/support/inference/bge_model_test_support.h"
+#include "tests/support/node_test_utils.h"
 
 #ifndef EDGEFLOW_STAGE3_ONNX_FIXTURE
 #define EDGEFLOW_STAGE3_ONNX_FIXTURE "models/embedding_fixture.onnx"
@@ -770,17 +771,17 @@ TEST_F(OnnxAndEmbeddingModelTest, TextEmbeddingNodeBoundToModel) {
   ASSERT_NE(node, nullptr);
 
   nlohmann::json node_cfg = {{"bind_model", "test_bge"}, {"normalize", true}};
-  bool init_ok = node->Init(node_cfg, &session_ctx);
+  bool init_ok = InitNodeForTest(*node, node_cfg, &session_ctx);
   ASSERT_TRUE(init_ok);
 
   AlgContext ctx;
   TextBatch texts = {{101, 0, "query"}, {102, 0, "doc"}};
-  ctx.Set("text", texts);
+  ctx.Publish("text", texts);
 
   int proc_ret = node->Process(&ctx);
   EXPECT_EQ(proc_ret, 0);
 
-  const auto* result = ctx.Get<EmbeddingBatch>("embedding");
+  const auto* result = ctx.Read<EmbeddingBatch>("embedding");
   ASSERT_NE(result, nullptr);
   ASSERT_EQ(result->size(), 2u);
   EXPECT_EQ((*result)[0].req_id, 101);
@@ -1035,13 +1036,13 @@ TEST_F(OnnxAndEmbeddingModelTest, OnnxRuntimeFixturePassEvidence) {
   AlgContext pipeline_ctx;
   TextBatch doc_texts = {{1, 0, "智能长文档问答系统设计与实现"}};
   TextBatch query_texts = {{1, 0, "系统设计"}};
-  pipeline_ctx.Set("raw_docs", doc_texts);
-  pipeline_ctx.Set("raw_queries", query_texts);
+  pipeline_ctx.Publish("raw_docs", doc_texts);
+  pipeline_ctx.Publish("raw_queries", query_texts);
 
   int run_ret = pipeline.Execute(&pipeline_ctx);
   EXPECT_EQ(run_ret, 0);
 
-  const auto* query_emb = pipeline_ctx.Get<EmbeddingBatch>("query_embeddings");
+  const auto* query_emb = pipeline_ctx.Read<EmbeddingBatch>("query_embeddings");
   ASSERT_NE(query_emb, nullptr);
   ASSERT_EQ(query_emb->size(), 1u);
   EXPECT_EQ((*query_emb)[0].data.size(), 128u);

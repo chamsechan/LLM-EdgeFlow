@@ -13,6 +13,7 @@
 #include "engine/model_interface.h"
 #include "tests/support/inference/test_business_models.h"
 #include "tests/support/inference/test_capability_models.h"
+#include "tests/support/node_test_utils.h"
 
 namespace alg_framework {
 
@@ -58,7 +59,7 @@ TEST_F(CommonNodesTest, TextTemplateNodeComprehensive) {
 
   // 1.1 Invalid placeholder should fail init
   nlohmann::json invalid_cfg = {{"template", "Hello {{unknown_variable}}!"}};
-  EXPECT_FALSE(node->Init(invalid_cfg, session_ctx_.get()));
+  EXPECT_FALSE(InitNodeForTest(*node, invalid_cfg, session_ctx_.get()));
 
   // 1.2 Valid placeholder and static values
   nlohmann::json valid_cfg = {
@@ -67,23 +68,23 @@ TEST_F(CommonNodesTest, TextTemplateNodeComprehensive) {
       {"values", {{"tag", "TEST_TAG"}}},
       {"overflow_policy", "truncate"},
       {"max_length", 128}};
-  EXPECT_TRUE(node->Init(valid_cfg, session_ctx_.get()));
+  EXPECT_TRUE(InitNodeForTest(*node, valid_cfg, session_ctx_.get()));
 
   AlgContext ctx;
   TextBatch primary;
   primary.emplace_back(1, 0, "What is LLM?");
   primary.emplace_back(2, 0, "How to build?");
-  ctx.Set("primary", primary);
+  ctx.Publish("primary", primary);
 
   RankedTextBatch context;
   context.emplace_back(
       1, 0, RankedCandidate("LLM is Large Language Model", 0.95f, 1));
   context.emplace_back(
       2, 0, RankedCandidate("Follow 4-layer architecture", 0.90f, 1));
-  ctx.Set("context", context);
+  ctx.Publish("context", context);
 
   EXPECT_EQ(node->Process(&ctx), 0);
-  const auto* out = ctx.Get<TextBatch>("text");
+  const auto* out = ctx.Read<TextBatch>("text");
   ASSERT_NE(out, nullptr);
   ASSERT_EQ(out->size(), 2u);
   EXPECT_NE((*out)[0].data.find("TEST_TAG"), std::string::npos);
@@ -100,10 +101,10 @@ TEST_F(CommonNodesTest, TextTemplateNodeComprehensive) {
   // Control affects the next request; each request owns a fresh write-once
   // output namespace.
   AlgContext updated_ctx;
-  updated_ctx.Set("primary", primary);
-  updated_ctx.Set("context", context);
+  updated_ctx.Publish("primary", primary);
+  updated_ctx.Publish("context", context);
   EXPECT_EQ(node->Process(&updated_ctx), 0);
-  const auto* out2 = updated_ctx.Get<TextBatch>("text");
+  const auto* out2 = updated_ctx.Read<TextBatch>("text");
   ASSERT_NE(out2, nullptr);
   EXPECT_EQ((*out2)[0].data, "NewTemplate: What is LLM?");
 }
@@ -117,13 +118,13 @@ TEST_F(CommonNodesTest, TextTemplateNodeAttributesAndSubIdPreservation) {
       {"template", "User: {{primary}} | Role: {{role}} | Loc: {{location}}"},
       {"allow_dynamic_attributes", true},
       {"overflow_policy", "fail"}};
-  EXPECT_TRUE(node->Init(cfg, session_ctx_.get()));
+  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
 
   AlgContext ctx;
   TextBatch primary;
   primary.emplace_back(100, 0, "Alice");
   primary.emplace_back(100, 1, "Bob");
-  ctx.Set("primary", primary);
+  ctx.Publish("primary", primary);
 
   TextAttributesBatch attrs;
   attrs.emplace_back(100, 0,
@@ -132,10 +133,10 @@ TEST_F(CommonNodesTest, TextTemplateNodeAttributesAndSubIdPreservation) {
   attrs.emplace_back(100, 1,
                      std::unordered_map<std::string, std::string>{
                          {"role", "User"}, {"location", "Shanghai"}});
-  ctx.Set("attributes", attrs);
+  ctx.Publish("attributes", attrs);
 
   EXPECT_EQ(node->Process(&ctx), 0);
-  const auto* out = ctx.Get<TextBatch>("text");
+  const auto* out = ctx.Read<TextBatch>("text");
   ASSERT_NE(out, nullptr);
   ASSERT_EQ(out->size(), 2u);
   EXPECT_EQ((*out)[0].req_id, 100u);
@@ -152,15 +153,15 @@ TEST_F(CommonNodesTest, TextChunkNodeComprehensive) {
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {{"chunk_size", 10}, {"overlap", 2}};
-  EXPECT_TRUE(node->Init(cfg, session_ctx_.get()));
+  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
 
   AlgContext ctx;
   TextBatch input;
   input.emplace_back(101, 0, "0123456789abcdefghij");  // 20 chars
-  ctx.Set("text", input);
+  ctx.Publish("text", input);
 
   EXPECT_EQ(node->Process(&ctx), 0);
-  const auto* out = ctx.Get<TextBatch>("chunks");
+  const auto* out = ctx.Read<TextBatch>("chunks");
   ASSERT_NE(out, nullptr);
   ASSERT_GE(out->size(), 2u);
   EXPECT_EQ((*out)[0].req_id, 101u);
@@ -182,16 +183,16 @@ TEST_F(CommonNodesTest, TextRuleMatchNodeComprehensive) {
                            {"category", "NAVIGATION"},
                            {"score", 1.0},
                            {"constants", {{"avoid_toll", "false"}}}}}}};
-  EXPECT_TRUE(node->Init(cfg, session_ctx_.get()));
+  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
 
   AlgContext ctx;
   TextBatch input;
   input.emplace_back(1, 0, "你好，请帮我导航到北京天安门");
   input.emplace_back(2, 0, "今天天气怎么样");
-  ctx.Set("text", input);
+  ctx.Publish("text", input);
 
   EXPECT_EQ(node->Process(&ctx), 0);
-  const auto* out = ctx.Get<RuleMatchBatch>("matches");
+  const auto* out = ctx.Read<RuleMatchBatch>("matches");
   ASSERT_NE(out, nullptr);
   ASSERT_EQ(out->size(), 2u);
 
@@ -218,9 +219,9 @@ TEST_F(CommonNodesTest, TextRuleMatchNodeComprehensive) {
   AlgContext ctx2;
   TextBatch input2;
   input2.emplace_back(3, 0, "北京天气怎么样");
-  ctx2.Set("text", input2);
+  ctx2.Publish("text", input2);
   EXPECT_EQ(node->Process(&ctx2), 0);
-  const auto* out2 = ctx2.Get<RuleMatchBatch>("matches");
+  const auto* out2 = ctx2.Read<RuleMatchBatch>("matches");
   ASSERT_NE(out2, nullptr);
   EXPECT_EQ((*out2)[0].data.is_hit, 1);
   EXPECT_EQ((*out2)[0].data.captures.at("city"), "北京");
@@ -235,7 +236,7 @@ TEST_F(CommonNodesTest, StructuredJsonParseNodeComprehensive) {
   nlohmann::json cfg = {{"fallback_json", "{\"entities\":[]}"},
                         {"extract_json_block", true},
                         {"failure_policy", "configured_fallback"}};
-  EXPECT_TRUE(node->Init(cfg, session_ctx_.get()));
+  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
 
   AlgContext ctx;
   TextBatch input;
@@ -249,10 +250,10 @@ TEST_F(CommonNodesTest, StructuredJsonParseNodeComprehensive) {
   input.emplace_back(3, 0, "Found entities: [\"TensorFlow\", \"PyTorch\"");
   // 4. Broken text
   input.emplace_back(4, 0, "No valid json here at all");
-  ctx.Set("text", input);
+  ctx.Publish("text", input);
 
   EXPECT_EQ(node->Process(&ctx), 0);
-  const auto* out = ctx.Get<StructuredDocumentBatch>("document");
+  const auto* out = ctx.Read<StructuredDocumentBatch>("document");
   ASSERT_NE(out, nullptr);
   ASSERT_EQ(out->size(), 4u);
 
@@ -272,24 +273,24 @@ TEST_F(CommonNodesTest, TextEmbeddingNodeComprehensive) {
   nlohmann::json cfg = {{"bind_model", "embed_model_v1"},
                         {"normalize", true},
                         {"lifetime", "session"}};
-  EXPECT_TRUE(node->Init(cfg, session_ctx_.get()));
+  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
 
   AlgContext ctx1;
   TextBatch input;
   input.emplace_back(1, 0, "Static Policy Document 1");
   input.emplace_back(1, 1, "Static Policy Document 2");
-  ctx1.Set("text", input);
+  ctx1.Publish("text", input);
 
   EXPECT_EQ(node->Process(&ctx1), 0);
-  const auto* out1 = ctx1.Get<EmbeddingBatch>("embedding");
+  const auto* out1 = ctx1.Read<EmbeddingBatch>("embedding");
   ASSERT_NE(out1, nullptr);
   ASSERT_EQ(out1->size(), 2u);
 
   // Subsequent call should reuse session cache seamlessly
   AlgContext ctx2;
-  ctx2.Set("text", input);
+  ctx2.Publish("text", input);
   EXPECT_EQ(node->Process(&ctx2), 0);
-  const auto* out2 = ctx2.Get<EmbeddingBatch>("embedding");
+  const auto* out2 = ctx2.Read<EmbeddingBatch>("embedding");
   ASSERT_NE(out2, nullptr);
   ASSERT_EQ(out2->size(), 2u);
   EXPECT_EQ((*out1)[0].data, (*out2)[0].data);
@@ -301,12 +302,12 @@ TEST_F(CommonNodesTest, VectorTopKNodeComprehensive) {
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {{"top_k", 2}, {"min_score", 0.0}, {"metric", "cosine"}};
-  EXPECT_TRUE(node->Init(cfg, session_ctx_.get()));
+  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
 
   AlgContext ctx;
   EmbeddingBatch queries;
   queries.emplace_back(1, 0, std::vector<float>{1.0f, 0.0f, 0.0f});
-  ctx.Set("queries", queries);
+  ctx.Publish("queries", queries);
 
   EmbeddingBatch candidates;
   candidates.emplace_back(0, 0,
@@ -315,16 +316,16 @@ TEST_F(CommonNodesTest, VectorTopKNodeComprehensive) {
       0, 1, std::vector<float>{0.707f, 0.707f, 0.0f});  // sim 0.707
   candidates.emplace_back(0, 2,
                           std::vector<float>{0.0f, 1.0f, 0.0f});  // sim 0.0
-  ctx.Set("candidates", candidates);
+  ctx.Publish("candidates", candidates);
 
   TextBatch cand_texts;
   cand_texts.emplace_back(0, 0, "Exact match passage");
   cand_texts.emplace_back(0, 1, "Partial match passage");
   cand_texts.emplace_back(0, 2, "Orthogonal passage");
-  ctx.Set("candidate_texts", cand_texts);
+  ctx.Publish("candidate_texts", cand_texts);
 
   EXPECT_EQ(node->Process(&ctx), 0);
-  const auto* out = ctx.Get<RankedTextBatch>("ranked");
+  const auto* out = ctx.Read<RankedTextBatch>("ranked");
   ASSERT_NE(out, nullptr);
   ASSERT_EQ(out->size(), 2u);
   EXPECT_EQ((*out)[0].data.text, "Exact match passage");
@@ -338,20 +339,20 @@ TEST_F(CommonNodesTest, TextRerankNodeComprehensive) {
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {{"bind_model", "rerank_model_v1"}, {"top_k", 1}};
-  EXPECT_TRUE(node->Init(cfg, session_ctx_.get()));
+  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
 
   AlgContext ctx;
   TextBatch queries;
   queries.emplace_back(1, 0, "user query");
-  ctx.Set("queries", queries);
+  ctx.Publish("queries", queries);
 
   RankedTextBatch candidates;
   candidates.emplace_back(1, 0, RankedCandidate("Candidate A", 0.5f, 1));
   candidates.emplace_back(1, 1, RankedCandidate("Candidate B", 0.8f, 2));
-  ctx.Set("candidates", candidates);
+  ctx.Publish("candidates", candidates);
 
   EXPECT_EQ(node->Process(&ctx), 0);
-  const auto* out = ctx.Get<RankedTextBatch>("ranked");
+  const auto* out = ctx.Read<RankedTextBatch>("ranked");
   ASSERT_NE(out, nullptr);
   ASSERT_EQ(out->size(), 1u);
 }
@@ -370,7 +371,7 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
 
   // Test valid scheme 1: 'pairs' input only
   nlohmann::json valid_pipeline_pairs = {
-      {"business_name", "custom_rerank_test"},
+      {"biz_name", "custom_rerank_test"},
       {"models",
        {{{"capability", "rerank"},
          {"model_type", "test_business_rerank"},
@@ -391,7 +392,7 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
 
   // Test valid scheme 2: 'queries' + 'candidates'
   nlohmann::json valid_pipeline_qc = {
-      {"business_name", "custom_rerank_test"},
+      {"biz_name", "custom_rerank_test"},
       {"models",
        {{{"capability", "rerank"},
          {"model_type", "test_business_rerank"},
@@ -413,7 +414,7 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
 
   // Test valid scheme 3: 'queries' + 'candidate_texts'
   nlohmann::json valid_pipeline_qct = {
-      {"business_name", "custom_rerank_test"},
+      {"biz_name", "custom_rerank_test"},
       {"models",
        {{{"capability", "rerank"},
          {"model_type", "test_business_rerank"},
@@ -436,7 +437,7 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
 
   // Test invalid case 1: only candidates, missing queries
   nlohmann::json bad_pipeline_1 = {
-      {"business_name", "custom_rerank_test"},
+      {"biz_name", "custom_rerank_test"},
       {"models",
        {{{"capability", "rerank"},
          {"model_type", "test_business_rerank"},
@@ -458,7 +459,7 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
 
   // Test invalid case 2: only queries, missing candidates
   nlohmann::json bad_pipeline_2 = {
-      {"business_name", "custom_rerank_test"},
+      {"biz_name", "custom_rerank_test"},
       {"models",
        {{{"capability", "rerank"},
          {"model_type", "test_business_rerank"},
@@ -480,7 +481,7 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
 
   // Test invalid case 3: pairs + candidates (ambiguous/conflicting combination)
   nlohmann::json bad_pipeline_3 = {
-      {"business_name", "custom_rerank_test"},
+      {"biz_name", "custom_rerank_test"},
       {"models",
        {{{"capability", "rerank"},
          {"model_type", "test_business_rerank"},
@@ -503,7 +504,7 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
 
   // Test invalid case 4: queries + candidates + candidate_texts (conflicting)
   nlohmann::json bad_pipeline_4 = {
-      {"business_name", "custom_rerank_test"},
+      {"biz_name", "custom_rerank_test"},
       {"models",
        {{{"capability", "rerank"},
          {"model_type", "test_business_rerank"},
@@ -571,7 +572,7 @@ TEST_F(CommonNodesTest, TextEmbeddingNodeSingleFlightSessionCaching) {
   nlohmann::json cfg = {{"bind_model", "counting_embed_model"},
                         {"normalize", true},
                         {"lifetime", "session"}};
-  EXPECT_TRUE(node->Init(cfg, session_ctx_.get()));
+  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
 
   constexpr int kNumThreads = 8;
   std::vector<std::thread> threads;
@@ -584,11 +585,11 @@ TEST_F(CommonNodesTest, TextEmbeddingNodeSingleFlightSessionCaching) {
       TextBatch corpus;
       corpus.emplace_back(100, 0, "Static policy clause 1");
       corpus.emplace_back(100, 1, "Static policy clause 2");
-      ctx.Set("text", corpus);
+      ctx.Publish("text", corpus);
 
       int ret = node->Process(&ctx);
       if (ret == 0) {
-        const auto* out = ctx.Get<EmbeddingBatch>("embedding");
+        const auto* out = ctx.Read<EmbeddingBatch>("embedding");
         if (out && out->size() == 2u) {
           success_count++;
         }
@@ -607,7 +608,7 @@ TEST_F(CommonNodesTest, TextEmbeddingNodeSingleFlightSessionCaching) {
     AlgContext ctx;
     TextBatch updated_corpus;
     updated_corpus.emplace_back(100, 0, "Brand new updated policy text");
-    ctx.Set("text", updated_corpus);
+    ctx.Publish("text", updated_corpus);
 
     int ret = node->Process(&ctx);
     EXPECT_EQ(ret, 0);
@@ -622,15 +623,15 @@ TEST_F(CommonNodesTest, LlmGenerateNodeComprehensive) {
 
   nlohmann::json cfg = {
       {"bind_model", "llm_model_v1"}, {"temperature", 0.5}, {"max_tokens", 64}};
-  EXPECT_TRUE(node->Init(cfg, session_ctx_.get()));
+  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
 
   AlgContext ctx;
   TextBatch prompts;
   prompts.emplace_back(1, 0, "Explain quantum physics");
-  ctx.Set("prompt", prompts);
+  ctx.Publish("prompt", prompts);
 
   EXPECT_EQ(node->Process(&ctx), 0);
-  const auto* out = ctx.Get<TextBatch>("text");
+  const auto* out = ctx.Read<TextBatch>("text");
   ASSERT_NE(out, nullptr);
   ASSERT_EQ(out->size(), 1u);
   EXPECT_FALSE((*out)[0].data.empty());
@@ -642,16 +643,16 @@ TEST_F(CommonNodesTest, AsrTranscribeNodeComprehensive) {
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {{"bind_model", "asr_model_v1"}};
-  EXPECT_TRUE(node->Init(cfg, session_ctx_.get()));
+  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
 
   AlgContext ctx;
   AudioPcmBatch audio;
   audio.emplace_back(1, 0,
                      AudioPcmPayload(std::vector<float>(16000, 0.1f), 16000));
-  ctx.Set("audio", audio);
+  ctx.Publish("audio", audio);
 
   EXPECT_EQ(node->Process(&ctx), 0);
-  const auto* out = ctx.Get<TextBatch>("text");
+  const auto* out = ctx.Read<TextBatch>("text");
   ASSERT_NE(out, nullptr);
   ASSERT_EQ(out->size(), 1u);
   EXPECT_FALSE((*out)[0].data.empty());
@@ -663,16 +664,16 @@ TEST_F(CommonNodesTest, OcrDetectNodeComprehensive) {
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {{"bind_model", "ocr_model_v1"}};
-  EXPECT_TRUE(node->Init(cfg, session_ctx_.get()));
+  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
 
   AlgContext ctx;
   ImageRefBatch images;
   images.emplace_back(1, 0, "mock_invoice.jpg");
-  ctx.Set("images", images);
+  ctx.Publish("images", images);
 
   EXPECT_EQ(node->Process(&ctx), 0);
-  const auto* out_doc = ctx.Get<OcrDocumentBatch>("document");
-  const auto* out_text = ctx.Get<TextBatch>("text");
+  const auto* out_doc = ctx.Read<OcrDocumentBatch>("document");
+  const auto* out_text = ctx.Read<TextBatch>("text");
   ASSERT_NE(out_doc, nullptr);
   ASSERT_NE(out_text, nullptr);
   ASSERT_EQ(out_doc->size(), 1u);
@@ -686,11 +687,11 @@ TEST_F(CommonNodesTest, TextCorpusSourceNodeComprehensive) {
 
   nlohmann::json cfg = {
       {"corpus", {"Clause 1: Compliance", "Clause 2: Security"}}};
-  EXPECT_TRUE(node->Init(cfg, session_ctx_.get()));
+  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
 
   AlgContext ctx;
   EXPECT_EQ(node->Process(&ctx), 0);
-  const auto* out = ctx.Get<TextBatch>("corpus");
+  const auto* out = ctx.Read<TextBatch>("corpus");
   ASSERT_NE(out, nullptr);
   ASSERT_EQ(out->size(), 2u);
   EXPECT_EQ((*out)[0].data, "Clause 1: Compliance");
@@ -704,16 +705,16 @@ TEST_F(CommonNodesTest, StructuredJsonParseNodeRequiredFields) {
 
   nlohmann::json cfg = {{"required_fields", {"risk_level", "risk_score"}},
                         {"failure_policy", "fail"}};
-  EXPECT_TRUE(node->Init(cfg, session_ctx_.get()));
+  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
 
   // Valid sample with required fields
   {
     AlgContext ctx;
     TextBatch inputs;
     inputs.emplace_back(1, 0, "{\"risk_level\":\"HIGH\",\"risk_score\":0.95}");
-    ctx.Set("text", inputs);
+    ctx.Publish("text", inputs);
     EXPECT_EQ(node->Process(&ctx), 0);
-    const auto* doc = ctx.Get<StructuredDocumentBatch>("document");
+    const auto* doc = ctx.Read<StructuredDocumentBatch>("document");
     ASSERT_NE(doc, nullptr);
     ASSERT_EQ(doc->size(), 1u);
     EXPECT_TRUE((*doc)[0].data.is_valid);
@@ -724,7 +725,7 @@ TEST_F(CommonNodesTest, StructuredJsonParseNodeRequiredFields) {
     AlgContext ctx;
     TextBatch inputs;
     inputs.emplace_back(1, 0, "{\"risk_level\":\"HIGH\"}");
-    ctx.Set("text", inputs);
+    ctx.Publish("text", inputs);
     EXPECT_NE(node->Process(&ctx), 0);
   }
 }
@@ -737,7 +738,7 @@ TEST_F(CommonNodesTest, TextTemplateNodeMissingVariableFail) {
   // allow_dynamic_attributes is false by default
   nlohmann::json cfg = {{"template", "Hello {user_name}, welcome!"},
                         {"allow_dynamic_attributes", true}};
-  EXPECT_TRUE(node->Init(cfg, session_ctx_.get()));
+  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
 
   // Attributes provided
   {
@@ -746,9 +747,9 @@ TEST_F(CommonNodesTest, TextTemplateNodeMissingVariableFail) {
     attrs.emplace_back(
         1, 0,
         std::unordered_map<std::string, std::string>{{"user_name", "Alice"}});
-    ctx.Set("attributes", attrs);
+    ctx.Publish("attributes", attrs);
     EXPECT_EQ(node->Process(&ctx), 0);
-    const auto* out = ctx.Get<TextBatch>("text");
+    const auto* out = ctx.Read<TextBatch>("text");
     ASSERT_NE(out, nullptr);
     EXPECT_EQ((*out)[0].data, "Hello Alice, welcome!");
   }

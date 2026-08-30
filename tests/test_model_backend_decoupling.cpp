@@ -237,9 +237,9 @@ TEST(ModelBackendDecouplingTest, NeutralContractsAndBlackboardTypeIdentity) {
 
   AlgContext ctx;
   TextBatch texts = {{1, 0, "test prompt"}};
-  ctx.Set(kInputSentences, texts);
+  ctx.Publish(kInputSentences, texts);
 
-  const auto* retrieved = ctx.Get(kInputSentences);
+  const auto* retrieved = ctx.Read(kInputSentences);
   ASSERT_NE(retrieved, nullptr);
   ASSERT_EQ(retrieved->size(), 1U);
   EXPECT_EQ((*retrieved)[0].data, "test prompt");

@@ -15,6 +15,7 @@
 #include "nodes/node_support.h"
 #include "nodes/traceable_batch_validation.h"
 #include "nodes/traceable_unary_inference_node.h"
+#include "tests/support/node_test_utils.h"
 
 namespace alg_framework {
 
@@ -52,7 +53,8 @@ class ExceptionThrowingNode : public NodeBase {
       : NodeBase(kNodeType), throw_in_init_(throw_in_init) {}
 
  protected:
-  bool InitNode(const nlohmann::json&, SessionContext&) override {
+  bool InitNode(const NodeInitContext&, const nlohmann::json&,
+                SessionContext&) override {
     if (throw_in_init_) {
       throw std::runtime_error("Simulated Init failure");
     }
@@ -71,16 +73,18 @@ TEST(NodeBaseContractsTest, NullContextSafety) {
   ExceptionThrowingNode node;
   EXPECT_EQ(node.Process(nullptr),
             static_cast<int>(NodeRuntimeCode::kInvalidContext));
-  EXPECT_FALSE(node.Init(nlohmann::json::object(), nullptr));
+  EXPECT_FALSE(InitNodeForTest(node, nlohmann::json::object(), nullptr));
 }
 
 TEST(NodeBaseContractsTest, InitAndProcessExceptionSafety) {
   ExceptionThrowingNode fail_init_node(true);
   SessionContext session_ctx;
-  EXPECT_FALSE(fail_init_node.Init(nlohmann::json::object(), &session_ctx));
+  EXPECT_FALSE(
+      InitNodeForTest(fail_init_node, nlohmann::json::object(), &session_ctx));
 
   ExceptionThrowingNode fail_proc_node(false);
-  EXPECT_TRUE(fail_proc_node.Init(nlohmann::json::object(), &session_ctx));
+  EXPECT_TRUE(
+      InitNodeForTest(fail_proc_node, nlohmann::json::object(), &session_ctx));
 
   AlgContext ctx;
   int ret = fail_proc_node.Process(&ctx);
@@ -114,7 +118,7 @@ class HelperTestNode : public NodeBase {
 TEST(NodeBaseContractsTest, RequireAndPublishHelpers) {
   HelperTestNode node;
   SessionContext session_ctx;
-  ASSERT_TRUE(node.Init(nlohmann::json::object(), &session_ctx));
+  ASSERT_TRUE(InitNodeForTest(node, nlohmann::json::object(), &session_ctx));
 
   // Missing input key
   {
@@ -129,10 +133,10 @@ TEST(NodeBaseContractsTest, RequireAndPublishHelpers) {
   // Success path
   {
     AlgContext ctx;
-    ctx.Set(kTestInputKey, std::string("hello"));
+    ctx.Publish(kTestInputKey, std::string("hello"));
     int ret = node.Process(&ctx);
     EXPECT_EQ(ret, 0);
-    const auto* out_val = ctx.Get(kTestOutputKey);
+    const auto* out_val = ctx.Read(kTestOutputKey);
     ASSERT_NE(out_val, nullptr);
     EXPECT_EQ(*out_val, "hello_processed");
 
@@ -148,7 +152,7 @@ TEST(NodeBaseContractsTest, RequireAndPublishHelpers) {
   // Existing key with an incompatible runtime type.
   {
     AlgContext ctx;
-    ctx.Set(std::string(kTestInputKey.name), 42);
+    ctx.Publish(std::string(kTestInputKey.name), 42);
     int ret = node.Process(&ctx);
     EXPECT_EQ(ret, -9901);
     EXPECT_EQ(ctx.GetErrorCode(), -9901);
@@ -261,27 +265,27 @@ TEST(NodeBaseContractsTest, TraceableUnaryInferenceNodeWorkflow) {
                                               "test-v1");
 
   MockTraceableAsrNode node;
-  ASSERT_TRUE(node.Init(nlohmann::json::object(), &session_ctx));
+  ASSERT_TRUE(InitNodeForTest(node, nlohmann::json::object(), &session_ctx));
 
   AlgContext ctx;
   AudioPcmBatch audios;
   audios.emplace_back(0, 0, AudioPcmPayload{});
   audios.emplace_back(0, 1, AudioPcmPayload{});
-  ctx.Set(kTestAudioInputs, std::move(audios));
+  ctx.Publish(kTestAudioInputs, std::move(audios));
 
   int ret = node.Process(&ctx);
   EXPECT_EQ(ret, 0);
 
-  const auto* results = ctx.Get(kTestTranscripts);
+  const auto* results = ctx.Read(kTestTranscripts);
   ASSERT_NE(results, nullptr);
   ASSERT_EQ(results->size(), 2u);
   EXPECT_EQ((*results)[0].data, "mock_transcription");
   EXPECT_EQ(model->infer_calls_, 1);
 
   AlgContext empty_ctx;
-  empty_ctx.Set(kTestAudioInputs, AudioPcmBatch{});
+  empty_ctx.Publish(kTestAudioInputs, AudioPcmBatch{});
   EXPECT_EQ(node.Process(&empty_ctx), 0);
-  const auto* empty_results = empty_ctx.Get(kTestTranscripts);
+  const auto* empty_results = empty_ctx.Read(kTestTranscripts);
   ASSERT_NE(empty_results, nullptr);
   EXPECT_TRUE(empty_results->empty());
   EXPECT_EQ(model->infer_calls_, 1);
@@ -292,13 +296,13 @@ TEST(NodeBaseContractsTest, TraceableUnaryInferenceNodeWorkflow) {
 
   model->return_wrong_count_ = true;
   AlgContext count_ctx;
-  count_ctx.Set(kTestAudioInputs, invalid_audios);
+  count_ctx.Publish(kTestAudioInputs, invalid_audios);
   EXPECT_EQ(node.Process(&count_ctx), -6202);
 
   model->return_wrong_count_ = false;
   model->corrupt_provenance_ = true;
   AlgContext provenance_ctx;
-  provenance_ctx.Set(kTestAudioInputs, invalid_audios);
+  provenance_ctx.Publish(kTestAudioInputs, invalid_audios);
   EXPECT_EQ(node.Process(&provenance_ctx), -6203);
 }
 

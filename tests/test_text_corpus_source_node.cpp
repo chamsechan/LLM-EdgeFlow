@@ -10,6 +10,7 @@
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
 #include "core/session_context.h"
+#include "tests/support/node_test_utils.h"
 
 namespace alg_framework {
 
@@ -29,11 +30,11 @@ TEST_F(TextCorpusSourceNodeTest, ProcessStaticCorpusEmission) {
 
   nlohmann::json cfg = {
       {"corpus", {"Clause 1: Compliance", "Clause 2: Security"}}};
-  EXPECT_TRUE(node->Init(cfg, session_ctx_.get()));
+  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
 
   AlgContext ctx;
   EXPECT_EQ(node->Process(&ctx), 0);
-  const auto* out = ctx.Get<TextBatch>("corpus");
+  const auto* out = ctx.Read<TextBatch>("corpus");
   ASSERT_NE(out, nullptr);
   ASSERT_EQ(out->size(), 2u);
   EXPECT_EQ((*out)[0].data, "Clause 1: Compliance");
@@ -44,11 +45,12 @@ TEST_F(TextCorpusSourceNodeTest, ProcessStaticCorpusEmission) {
 TEST_F(TextCorpusSourceNodeTest, EmptyCorpusConfig) {
   auto node = NodeFactory::Instance().Create("TextCorpusSourceNode");
   ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(node->Init(nlohmann::json::object(), session_ctx_.get()));
+  ASSERT_TRUE(
+      InitNodeForTest(*node, nlohmann::json::object(), session_ctx_.get()));
 
   AlgContext ctx;
   EXPECT_EQ(node->Process(&ctx), 0);
-  const auto* out = ctx.Get<TextBatch>("corpus");
+  const auto* out = ctx.Read<TextBatch>("corpus");
   ASSERT_NE(out, nullptr);
   EXPECT_TRUE(out->empty());
 }

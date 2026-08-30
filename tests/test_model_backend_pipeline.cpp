@@ -127,11 +127,10 @@ class MockEmbeddingConsumerNode : public INode {
  public:
   inline static constexpr char kNodeType[] = "MockEmbeddingConsumerNode";
 
-  bool Init(const nlohmann::json& config,
-            SessionContext* session_ctx) override {
-    if (!session_ctx) return false;
-    std::string model_id = config.value("bind_model", "");
-    model_ = session_ctx->GetModelManager().GetModel<IModel>(model_id);
+  bool Init(const NodeInitContext& init_ctx) override {
+    if (!init_ctx.config || !init_ctx.session_ctx) return false;
+    std::string model_id = init_ctx.config->value("bind_model", "");
+    model_ = init_ctx.session_ctx->GetModelManager().GetModel<IModel>(model_id);
     return model_ != nullptr;
   }
 

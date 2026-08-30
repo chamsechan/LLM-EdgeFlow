@@ -33,9 +33,9 @@ TEST_F(AdapterPurityTest, DocQaAdapterPurity) {
   AdapterStatus status;
   ASSERT_EQ(adapter->Unpack(inputs, 1, &ctx, &status), 0);
 
-  const auto* req_ids = ctx.Get(kRawRequestIds);
-  const auto* docs = ctx.Get(kRawDocs);
-  const auto* queries = ctx.Get(kRawQueries);
+  const auto* req_ids = ctx.Read(kRawRequestIds);
+  const auto* docs = ctx.Read(kRawDocs);
+  const auto* queries = ctx.Read(kRawQueries);
   ASSERT_NE(req_ids, nullptr);
   ASSERT_NE(docs, nullptr);
   ASSERT_NE(queries, nullptr);
@@ -46,16 +46,16 @@ TEST_F(AdapterPurityTest, DocQaAdapterPurity) {
   // Pack check
   TextBatch answers;
   answers.emplace_back(0, 0, "Model Generated Answer");
-  ctx.Set(kLlmAnswers, std::move(answers));
+  ctx.Publish(kLlmAnswers, std::move(answers));
 
   RuleMatchBatch intents;
   intents.emplace_back(0, 0,
                        RuleMatchItem(1, "GENERAL_QA", "query", "{}", 0.95f));
-  ctx.Set(kIntentMatches, std::move(intents));
+  ctx.Publish(kIntentMatches, std::move(intents));
 
   Int32Batch chunk_counts;
   chunk_counts.emplace_back(0, 0, 1);
-  ctx.Set(kDocChunkCounts, std::move(chunk_counts));
+  ctx.Publish(kDocChunkCounts, std::move(chunk_counts));
 
   CompanyDocOutputStruct out{};
   void* outputs[] = {&out};
@@ -86,8 +86,8 @@ TEST_F(AdapterPurityTest, KeywordMatchAdapterPurity) {
   AdapterStatus status;
   ASSERT_EQ(adapter->Unpack(inputs, 1, &ctx, &status), 0);
 
-  const auto* req_ids = ctx.Get(kRawRequestIds);
-  const auto* text_batch = ctx.Get(kInputSentences);
+  const auto* req_ids = ctx.Read(kRawRequestIds);
+  const auto* text_batch = ctx.Read(kInputSentences);
   ASSERT_NE(req_ids, nullptr);
   ASSERT_NE(text_batch, nullptr);
   EXPECT_EQ((*req_ids)[0], 12345u);
@@ -98,7 +98,7 @@ TEST_F(AdapterPurityTest, KeywordMatchAdapterPurity) {
   RuleMatchItem match_item(1, "TEST_CAT", "测试", "{\"intent\":\"TEST_CAT\"}",
                            1.0f);
   match_batch.emplace_back(0, 0, std::move(match_item));
-  ctx.Set(kRuleMatches, std::move(match_batch));
+  ctx.Publish(kRuleMatches, std::move(match_batch));
 
   CompanyKeywordOutputStruct output{};
   void* outputs[] = {&output};
@@ -127,7 +127,7 @@ TEST_F(AdapterPurityTest, EntityExtractAdapterPurity) {
 
   StructuredDocumentBatch entities;
   entities.emplace_back(0, 0, JsonDocumentItem("[\"张三\",\"阿里巴巴\"]"));
-  ctx.Set(kExtractedEntities, std::move(entities));
+  ctx.Publish(kExtractedEntities, std::move(entities));
 
   CompanyEntityOutputStruct out{};
   void* outputs[] = {&out};
@@ -162,12 +162,12 @@ TEST_F(AdapterPurityTest, ComplianceAuditAdapterPurity) {
       0, 0,
       JsonDocumentItem("{\"risk_level\":\"HIGH_RISK\",\"risk_score\":0.92}",
                        true, JsonParseStatus::kOk, "", structured_obj));
-  ctx.Set(kStructuredVerdicts, std::move(verdicts));
+  ctx.Publish(kStructuredVerdicts, std::move(verdicts));
 
   RankedTextBatch policies;
   policies.emplace_back(0, 0,
                         RankedCandidate("Clause 9.1 Refund Policy", 0.95f, 1));
-  ctx.Set(kMatchedPolicy, std::move(policies));
+  ctx.Publish(kMatchedPolicy, std::move(policies));
 
   CompanyAuditOutputStruct out{};
   void* outputs[] = {&out};
@@ -200,11 +200,11 @@ TEST_F(AdapterPurityTest, OcrDocQaAdapterPurity) {
   OcrDocumentItem doc_item;
   doc_item.boxes.push_back({10, 20, 100, 30, "总计 500 元", 0.99f});
   ocr_docs.emplace_back(0, 0, std::move(doc_item));
-  ctx.Set(kOcrDocs, std::move(ocr_docs));
+  ctx.Publish(kOcrDocs, std::move(ocr_docs));
 
   StructuredDocumentBatch invoices;
   invoices.emplace_back(0, 0, JsonDocumentItem("{\"total\":500}"));
-  ctx.Set(kExtractedInvoiceJson, std::move(invoices));
+  ctx.Publish(kExtractedInvoiceJson, std::move(invoices));
 
   CompanyOcrDocOutputStruct out{};
   void* outputs[] = {&out};
@@ -236,7 +236,7 @@ TEST_F(AdapterPurityTest, AudioAsrIntentAdapterPurity) {
 
   TextBatch transcripts;
   transcripts.emplace_back(0, 0, "导航到清华科技园");
-  ctx.Set(kTranscripts, std::move(transcripts));
+  ctx.Publish(kTranscripts, std::move(transcripts));
 
   RuleMatchBatch slots;
   slots.emplace_back(0, 0,
@@ -244,7 +244,7 @@ TEST_F(AdapterPurityTest, AudioAsrIntentAdapterPurity) {
                                    "{\"intent\":\"NAVIGATION\",\"slots\":{"
                                    "\"destination\":\"清华科技园\"}}",
                                    1.0f));
-  ctx.Set(kIntentSlots, std::move(slots));
+  ctx.Publish(kIntentSlots, std::move(slots));
 
   CompanyAudioOutputStruct out{};
   void* outputs[] = {&out};
@@ -281,7 +281,7 @@ TEST_F(AdapterPurityTest, CrossRerankAdapterPurity) {
   RankedTextBatch results;
   results.emplace_back(0, 0, RankedCandidate(p0, 0.98f, 1, 0));
   results.emplace_back(0, 1, RankedCandidate(p1, 0.12f, 2, 1));
-  ctx.Set(kRankedResults, std::move(results));
+  ctx.Publish(kRankedResults, std::move(results));
 
   CompanyRerankBatchOutputStruct out{};
   void* outputs[] = {&out};
@@ -311,7 +311,7 @@ TEST_F(AdapterPurityTest, DocQaAdapter_FailClosedWhenMissingOutputs) {
   // Case 2: has llm_answers but missing intent_matches -> MUST fail-closed
   TextBatch answers;
   answers.emplace_back(0, 0, "Some answer");
-  ctx.Set(kLlmAnswers, std::move(answers));
+  ctx.Publish(kLlmAnswers, std::move(answers));
   EXPECT_EQ(adapter->Pack(&ctx, outputs, &num_out, &status),
             COMPANY_ALG_ERR_INVALID_INPUT);
 
@@ -319,14 +319,14 @@ TEST_F(AdapterPurityTest, DocQaAdapter_FailClosedWhenMissingOutputs) {
   // -> MUST fail-closed (the adapter may not derive business data).
   RuleMatchBatch intents;
   intents.emplace_back(0, 0, RuleMatchItem(1, "GENERAL_QA", "", "{}", 0.9f));
-  ctx.Set(kIntentMatches, std::move(intents));
+  ctx.Publish(kIntentMatches, std::move(intents));
   EXPECT_EQ(adapter->Pack(&ctx, outputs, &num_out, &status),
             COMPANY_ALG_ERR_INVALID_INPUT);
 
   // Case 4: all business outputs exist but input request provenance is absent.
   Int32Batch chunk_counts;
   chunk_counts.emplace_back(0, 0, 1);
-  ctx.Set(kDocChunkCounts, std::move(chunk_counts));
+  ctx.Publish(kDocChunkCounts, std::move(chunk_counts));
   EXPECT_EQ(adapter->Pack(&ctx, outputs, &num_out, &status),
             COMPANY_ALG_ERR_INVALID_INPUT);
 }
@@ -353,11 +353,11 @@ TEST_F(AdapterPurityTest,
   verdicts.emplace_back(
       0, 0,
       JsonDocumentItem("{}", true, JsonParseStatus::kOk, "", incomplete_obj));
-  ctx.Set(kStructuredVerdicts, std::move(verdicts));
+  ctx.Publish(kStructuredVerdicts, std::move(verdicts));
 
   RankedTextBatch policies;
   policies.emplace_back(0, 0, RankedCandidate("Clause", 1.0f, 1));
-  ctx.Set(kMatchedPolicy, std::move(policies));
+  ctx.Publish(kMatchedPolicy, std::move(policies));
 
   EXPECT_EQ(adapter->Pack(&ctx, outputs, &num_out, &status),
             COMPANY_ALG_ERR_INVALID_INPUT);

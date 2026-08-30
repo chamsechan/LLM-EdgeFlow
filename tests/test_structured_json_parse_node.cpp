@@ -10,6 +10,7 @@
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
 #include "core/session_context.h"
+#include "tests/support/node_test_utils.h"
 
 namespace alg_framework {
 
@@ -29,17 +30,17 @@ TEST_F(StructuredJsonParseNodeTest, ProcessMarkdownJsonBlockExtraction) {
 
   nlohmann::json cfg = {{"extract_json_block", true},
                         {"failure_policy", "fail"}};
-  EXPECT_TRUE(node->Init(cfg, session_ctx_.get()));
+  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
 
   AlgContext ctx;
   TextBatch inputs;
   inputs.emplace_back(1, 0,
                       "Here is the result:\n```json\n{\"verdict\": \"合规\", "
                       "\"risk_level\": \"SAFE\", \"risk_score\": 0.10}\n```");
-  ctx.Set("text", inputs);
+  ctx.Publish("text", inputs);
 
   EXPECT_EQ(node->Process(&ctx), 0);
-  const auto* doc = ctx.Get<StructuredDocumentBatch>("document");
+  const auto* doc = ctx.Read<StructuredDocumentBatch>("document");
   ASSERT_NE(doc, nullptr);
   ASSERT_EQ(doc->size(), 1u);
   EXPECT_TRUE((*doc)[0].data.is_valid);
@@ -55,14 +56,14 @@ TEST_F(StructuredJsonParseNodeTest, RequiredFieldsAndFieldTypesValidation) {
       {"required_fields", {"risk_level", "risk_score"}},
       {"field_types", {{"risk_level", "string"}, {"risk_score", "number"}}},
       {"failure_policy", "fail"}};
-  EXPECT_TRUE(node->Init(cfg, session_ctx_.get()));
+  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
 
   // Valid sample
   {
     AlgContext ctx;
     TextBatch inputs;
     inputs.emplace_back(1, 0, "{\"risk_level\":\"HIGH\",\"risk_score\":0.95}");
-    ctx.Set("text", inputs);
+    ctx.Publish("text", inputs);
     EXPECT_EQ(node->Process(&ctx), 0);
   }
 
@@ -72,7 +73,7 @@ TEST_F(StructuredJsonParseNodeTest, RequiredFieldsAndFieldTypesValidation) {
     TextBatch inputs;
     inputs.emplace_back(
         1, 0, "{\"risk_level\":\"HIGH\",\"risk_score\":\"invalid_number\"}");
-    ctx.Set("text", inputs);
+    ctx.Publish("text", inputs);
     EXPECT_EQ(node->Process(&ctx), -6102);
   }
 
@@ -81,7 +82,7 @@ TEST_F(StructuredJsonParseNodeTest, RequiredFieldsAndFieldTypesValidation) {
     AlgContext ctx;
     TextBatch inputs;
     inputs.emplace_back(1, 0, "{\"risk_level\":\"HIGH\"}");
-    ctx.Set("text", inputs);
+    ctx.Publish("text", inputs);
     EXPECT_EQ(node->Process(&ctx), -6102);
   }
 }
@@ -89,7 +90,8 @@ TEST_F(StructuredJsonParseNodeTest, RequiredFieldsAndFieldTypesValidation) {
 TEST_F(StructuredJsonParseNodeTest, MissingInputFailsClosed) {
   auto node = NodeFactory::Instance().Create("StructuredJsonParseNode");
   ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(node->Init({{"failure_policy", "fail"}}, session_ctx_.get()));
+  ASSERT_TRUE(
+      InitNodeForTest(*node, {{"failure_policy", "fail"}}, session_ctx_.get()));
 
   AlgContext empty_ctx;
   EXPECT_EQ(node->Process(&empty_ctx), -6101);
@@ -102,15 +104,15 @@ TEST_F(StructuredJsonParseNodeTest, FallbackPolicyOnMalformedInput) {
 
   nlohmann::json cfg = {{"fallback_json", "{\"status\":\"FALLBACK\"}"},
                         {"failure_policy", "configured_fallback"}};
-  EXPECT_TRUE(node->Init(cfg, session_ctx_.get()));
+  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
 
   AlgContext ctx;
   TextBatch inputs;
   inputs.emplace_back(1, 0, "not a valid json at all");
-  ctx.Set("text", inputs);
+  ctx.Publish("text", inputs);
 
   EXPECT_EQ(node->Process(&ctx), 0);
-  const auto* doc = ctx.Get<StructuredDocumentBatch>("document");
+  const auto* doc = ctx.Read<StructuredDocumentBatch>("document");
   ASSERT_NE(doc, nullptr);
   ASSERT_EQ(doc->size(), 1u);
   EXPECT_EQ((*doc)[0].data.structured_data["status"], "FALLBACK");
@@ -119,24 +121,25 @@ TEST_F(StructuredJsonParseNodeTest, FallbackPolicyOnMalformedInput) {
 TEST_F(StructuredJsonParseNodeTest, RejectsInvalidFieldTypeContracts) {
   auto unknown_type = NodeFactory::Instance().Create("StructuredJsonParseNode");
   ASSERT_NE(unknown_type, nullptr);
-  EXPECT_FALSE(unknown_type->Init({{"field_types", {{"risk", "decimal"}}}},
-                                  session_ctx_.get()));
+  EXPECT_FALSE(InitNodeForTest(*unknown_type,
+                               {{"field_types", {{"risk", "decimal"}}}},
+                               session_ctx_.get()));
 
   auto non_string_type =
       NodeFactory::Instance().Create("StructuredJsonParseNode");
   ASSERT_NE(non_string_type, nullptr);
-  EXPECT_FALSE(non_string_type->Init({{"field_types", {{"risk", 7}}}},
-                                     session_ctx_.get()));
+  EXPECT_FALSE(InitNodeForTest(
+      *non_string_type, {{"field_types", {{"risk", 7}}}}, session_ctx_.get()));
 
   auto invalid_fallback =
       NodeFactory::Instance().Create("StructuredJsonParseNode");
   ASSERT_NE(invalid_fallback, nullptr);
-  EXPECT_FALSE(
-      invalid_fallback->Init({{"required_fields", {"risk"}},
-                              {"field_types", {{"risk", "number"}}},
-                              {"fallback_json", R"({"risk":"not-a-number"})"},
-                              {"failure_policy", "configured_fallback"}},
-                             session_ctx_.get()));
+  EXPECT_FALSE(InitNodeForTest(*invalid_fallback,
+                               {{"required_fields", {"risk"}},
+                                {"field_types", {{"risk", "number"}}},
+                                {"fallback_json", R"({"risk":"not-a-number"})"},
+                                {"failure_policy", "configured_fallback"}},
+                               session_ctx_.get()));
 }
 
 }  // namespace alg_framework

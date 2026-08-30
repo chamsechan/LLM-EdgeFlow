@@ -98,10 +98,10 @@ NodeDefinition MakeOcrDetectNodeDefinition() {
       "preserve", "request")};
   def.outputs = {
       OutputPort("document",
-                 BlackboardKey<OcrDocumentBatch>{"", "OcrDocumentBatch"}, false,
-                 "1:1", "preserve", "request"),
-      OutputPort("text", BlackboardKey<TextBatch>{"", "TextBatch"},
-                 /*allow_override=*/false, "1:1", "preserve", "request")};
+                 BlackboardKey<OcrDocumentBatch>{"", "OcrDocumentBatch"}, "1:1",
+                 "preserve", "request"),
+      OutputPort("text", BlackboardKey<TextBatch>{"", "TextBatch"}, "1:1",
+                 "preserve", "request")};
   def.config_fields = {ConfigFieldDefinition{
       "bind_model", ConfigValueKind::kString, false, "ocr_model_v1"}};
   def.model_capability = "ocr";

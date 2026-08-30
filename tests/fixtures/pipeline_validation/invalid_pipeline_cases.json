@@ -16,8 +16,8 @@
           }
         ]
       },
-      "required_codes": ["UNKNOWN_BUSINESS"],
-      "primary_code": "UNKNOWN_BUSINESS",
+      "required_codes": ["UNKNOWN_BIZ"],
+      "primary_code": "UNKNOWN_BIZ",
       "primary_path": "/biz_name",
       "pipeline_error_code": 8,
       "runtime_error_code": -2

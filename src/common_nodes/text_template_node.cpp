@@ -569,7 +569,7 @@ NodeDefinition MakeTextTemplateNodeDefinition() {
           BlackboardKey<TextAttributesBatch>{"", "TextAttributesBatch"}, "1:1",
           "preserve", "request")};
   def.outputs = {OutputPort("text", BlackboardKey<TextBatch>{"", "TextBatch"},
-                            false, "1:1", "preserve", "request")};
+                            "1:1", "preserve", "request")};
   def.port_constraints = {PortGroupConstraint(
       PortConstraintKind::kAtLeastOneOf,
       {"primary", "context", "context_text", "matches", "document",

@@ -10,6 +10,7 @@
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
 #include "core/session_context.h"
+#include "tests/support/node_test_utils.h"
 
 namespace alg_framework {
 
@@ -28,20 +29,23 @@ TEST_F(TextChunkNodeTest, InitAndConfigValidation) {
   ASSERT_NE(node, nullptr);
 
   // Default config
-  EXPECT_TRUE(node->Init(nlohmann::json::object(), session_ctx_.get()));
+  EXPECT_TRUE(
+      InitNodeForTest(*node, nlohmann::json::object(), session_ctx_.get()));
 
   // Custom valid config
   nlohmann::json cfg = {{"chunk_size", 50}, {"overlap", 10}};
-  EXPECT_TRUE(node->Init(cfg, session_ctx_.get()));
+  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
 
   auto invalid_chunk = NodeFactory::Instance().Create("TextChunkNode");
   ASSERT_NE(invalid_chunk, nullptr);
-  EXPECT_FALSE(invalid_chunk->Init({{"chunk_size", 0}}, session_ctx_.get()));
+  EXPECT_FALSE(
+      InitNodeForTest(*invalid_chunk, {{"chunk_size", 0}}, session_ctx_.get()));
 
   auto invalid_overlap = NodeFactory::Instance().Create("TextChunkNode");
   ASSERT_NE(invalid_overlap, nullptr);
-  EXPECT_FALSE(invalid_overlap->Init({{"chunk_size", 10}, {"overlap", 10}},
-                                     session_ctx_.get()));
+  EXPECT_FALSE(InitNodeForTest(*invalid_overlap,
+                               {{"chunk_size", 10}, {"overlap", 10}},
+                               session_ctx_.get()));
 }
 
 // 2. Process Single and Batch Chunks with ChunkCounts
@@ -50,7 +54,7 @@ TEST_F(TextChunkNodeTest, ProcessBatchAndChunkCounts) {
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {{"chunk_size", 20}, {"overlap", 0}};
-  ASSERT_TRUE(node->Init(cfg, session_ctx_.get()));
+  ASSERT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
 
   AlgContext ctx;
   TextBatch input_batch;
@@ -59,11 +63,11 @@ TEST_F(TextChunkNodeTest, ProcessBatchAndChunkCounts) {
       101, 0, "12345678901234567890123456789012345678901234567890");
   // Item 1: 10 chars -> 1 chunk
   input_batch.emplace_back(102, 0, "1234567890");
-  ctx.Set("text", input_batch);
+  ctx.Publish("text", input_batch);
 
   EXPECT_EQ(node->Process(&ctx), 0);
 
-  const auto* chunks = ctx.Get<TextBatch>("chunks");
+  const auto* chunks = ctx.Read<TextBatch>("chunks");
   ASSERT_NE(chunks, nullptr);
   EXPECT_EQ(chunks->size(), 4u);
   EXPECT_EQ((*chunks)[0].req_id, 101u);
@@ -75,7 +79,7 @@ TEST_F(TextChunkNodeTest, ProcessBatchAndChunkCounts) {
   EXPECT_EQ((*chunks)[3].req_id, 102u);
   EXPECT_EQ((*chunks)[3].sub_id, 0u);
 
-  const auto* counts = ctx.Get<Int32Batch>("chunk_counts");
+  const auto* counts = ctx.Read<Int32Batch>("chunk_counts");
   ASSERT_NE(counts, nullptr);
   ASSERT_EQ(counts->size(), 2u);
   EXPECT_EQ((*counts)[0].data, 3);
@@ -86,20 +90,21 @@ TEST_F(TextChunkNodeTest, ProcessBatchAndChunkCounts) {
 TEST_F(TextChunkNodeTest, ProcessEmptyStrings) {
   auto node = NodeFactory::Instance().Create("TextChunkNode");
   ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(node->Init(nlohmann::json::object(), session_ctx_.get()));
+  ASSERT_TRUE(
+      InitNodeForTest(*node, nlohmann::json::object(), session_ctx_.get()));
 
   AlgContext ctx;
   TextBatch input_batch;
   input_batch.emplace_back(1, 0, "");
-  ctx.Set("text", input_batch);
+  ctx.Publish("text", input_batch);
 
   EXPECT_EQ(node->Process(&ctx), 0);
-  const auto* chunks = ctx.Get<TextBatch>("chunks");
+  const auto* chunks = ctx.Read<TextBatch>("chunks");
   ASSERT_NE(chunks, nullptr);
   ASSERT_EQ(chunks->size(), 1u);
   EXPECT_TRUE((*chunks)[0].data.empty());
 
-  const auto* counts = ctx.Get<Int32Batch>("chunk_counts");
+  const auto* counts = ctx.Read<Int32Batch>("chunk_counts");
   ASSERT_NE(counts, nullptr);
   ASSERT_EQ(counts->size(), 1u);
   EXPECT_EQ((*counts)[0].data, 1);
@@ -108,16 +113,16 @@ TEST_F(TextChunkNodeTest, ProcessEmptyStrings) {
 TEST_F(TextChunkNodeTest, ChunksOnUnicodeCodePointBoundaries) {
   auto node = NodeFactory::Instance().Create("TextChunkNode");
   ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(
-      node->Init({{"chunk_size", 3}, {"overlap", 1}}, session_ctx_.get()));
+  ASSERT_TRUE(InitNodeForTest(*node, {{"chunk_size", 3}, {"overlap", 1}},
+                              session_ctx_.get()));
 
   AlgContext ctx;
   TextBatch input_batch;
   input_batch.emplace_back(7, 4, "A中🙂B");
-  ctx.Set("text", input_batch);
+  ctx.Publish("text", input_batch);
 
   ASSERT_EQ(node->Process(&ctx), 0);
-  const auto* chunks = ctx.Get<TextBatch>("chunks");
+  const auto* chunks = ctx.Read<TextBatch>("chunks");
   ASSERT_NE(chunks, nullptr);
   ASSERT_EQ(chunks->size(), 2u);
   EXPECT_EQ((*chunks)[0].data, "A中🙂");
@@ -127,7 +132,7 @@ TEST_F(TextChunkNodeTest, ChunksOnUnicodeCodePointBoundaries) {
   EXPECT_EQ((*chunks)[1].req_id, 7u);
   EXPECT_EQ((*chunks)[1].sub_id, 1u);
 
-  const auto* counts = ctx.Get<Int32Batch>("chunk_counts");
+  const auto* counts = ctx.Read<Int32Batch>("chunk_counts");
   ASSERT_NE(counts, nullptr);
   ASSERT_EQ(counts->size(), 1u);
   EXPECT_EQ((*counts)[0].data, 2);
@@ -136,23 +141,25 @@ TEST_F(TextChunkNodeTest, ChunksOnUnicodeCodePointBoundaries) {
 TEST_F(TextChunkNodeTest, InvalidUtf8FailsClosed) {
   auto node = NodeFactory::Instance().Create("TextChunkNode");
   ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(node->Init(nlohmann::json::object(), session_ctx_.get()));
+  ASSERT_TRUE(
+      InitNodeForTest(*node, nlohmann::json::object(), session_ctx_.get()));
 
   AlgContext ctx;
   TextBatch input_batch;
   input_batch.emplace_back(8, 0, std::string("ok") + "\xE4\xB8");
-  ctx.Set("text", input_batch);
+  ctx.Publish("text", input_batch);
 
   EXPECT_EQ(node->Process(&ctx), -4002);
-  EXPECT_EQ(ctx.Get<TextBatch>("chunks"), nullptr);
-  EXPECT_EQ(ctx.Get<Int32Batch>("chunk_counts"), nullptr);
+  EXPECT_EQ(ctx.Read<TextBatch>("chunks"), nullptr);
+  EXPECT_EQ(ctx.Read<Int32Batch>("chunk_counts"), nullptr);
 }
 
 // 4. Missing Input Fails Closed
 TEST_F(TextChunkNodeTest, MissingInputFailsClosed) {
   auto node = NodeFactory::Instance().Create("TextChunkNode");
   ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(node->Init(nlohmann::json::object(), session_ctx_.get()));
+  ASSERT_TRUE(
+      InitNodeForTest(*node, nlohmann::json::object(), session_ctx_.get()));
 
   AlgContext empty_ctx;
   EXPECT_EQ(node->Process(&empty_ctx), -4001);

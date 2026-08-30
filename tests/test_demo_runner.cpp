@@ -93,7 +93,7 @@ TEST(DemoRunnerTest, CommandLineParsingSuccess) {
       "alg_demo",
       "--profile",
       "entity_extract_mock",
-      "--business",
+      "--biz",
       "entity_extract",
       "--config",
       "tests/fixtures/stage7/smoke/pipeline_entity_extract.conf",
@@ -120,7 +120,7 @@ TEST(DemoRunnerTest, CommandLineParsingSuccess) {
   int ret = ParseCommandLine(argc, const_cast<char**>(argv), &opts, &err);
   EXPECT_EQ(ret, 0);
   EXPECT_EQ(opts.profile, "entity_extract_mock");
-  EXPECT_EQ(opts.business, "entity_extract");
+  EXPECT_EQ(opts.biz, "entity_extract");
   EXPECT_EQ(opts.config_path,
             "tests/fixtures/stage7/smoke/pipeline_entity_extract.conf");
   EXPECT_EQ(opts.dataset_path, "data/corpus_entity_extract.txt");
@@ -138,16 +138,24 @@ TEST(DemoRunnerTest, CommandLineParsingSuccess) {
   EXPECT_TRUE(opts.allow_fallback_sample);
 }
 
-TEST(DemoRunnerTest, CommandLineLegacyBizMapping) {
-  const char* argv[] = {"alg_demo", "--biz", "1"};
+TEST(DemoRunnerTest, CommandLineBizName) {
+  const char* argv[] = {"alg_demo", "--biz", "entity_extract"};
   int argc = 3;
 
   DemoOptions opts;
   std::string err;
   int ret = ParseCommandLine(argc, const_cast<char**>(argv), &opts, &err);
   EXPECT_EQ(ret, 0);
-  EXPECT_EQ(opts.business, "entity_extract");
-  EXPECT_EQ(opts.legacy_biz_id, 1);
+  EXPECT_EQ(opts.biz, "entity_extract");
+  EXPECT_TRUE(opts.has_biz);
+}
+
+TEST(DemoRunnerTest, RejectsLegacyBusinessFlag) {
+  const char* argv[] = {"alg_demo", "--business", "entity_extract"};
+  DemoOptions opts;
+  std::string err;
+  EXPECT_EQ(ParseCommandLine(3, const_cast<char**>(argv), &opts, &err), 2);
+  EXPECT_NE(err.find("Unknown CLI option"), std::string::npos);
 }
 
 // P2-1: 测试 CLI 参数严格解析 (尾随字符拦截与错误退出码 2)
@@ -189,12 +197,6 @@ TEST(DemoRunnerTest, CommandLineParsingErrors) {
       ParseCommandLine(3, const_cast<char**>(argv_depth_trailing), &opts, &err),
       2);
 
-  // P2-1: 非法 legacy biz (含尾随字符 "1bar")
-  const char* argv_biz_trailing[] = {"alg_demo", "--biz", "1bar"};
-  EXPECT_EQ(
-      ParseCommandLine(3, const_cast<char**>(argv_biz_trailing), &opts, &err),
-      2);
-
   // 非法 chip
   const char* argv4[] = {"alg_demo", "--chip", "unsupported_dsp"};
   EXPECT_EQ(ParseCommandLine(3, const_cast<char**>(argv4), &opts, &err), 2);
@@ -202,10 +204,6 @@ TEST(DemoRunnerTest, CommandLineParsingErrors) {
   // 非法 suite
   const char* argv5[] = {"alg_demo", "--suite", "invalid_suite"};
   EXPECT_EQ(ParseCommandLine(3, const_cast<char**>(argv5), &opts, &err), 2);
-
-  // 非法 legacy biz 超界
-  const char* argv6[] = {"alg_demo", "--biz", "99"};
-  EXPECT_EQ(ParseCommandLine(3, const_cast<char**>(argv6), &opts, &err), 2);
 }
 
 // 2. 测试芯片白名单解析
@@ -249,7 +247,7 @@ TEST(DemoRunnerTest, ProfileLoadAndMerge) {
   int ret = LoadAndMergeProfiles("demo/profiles.json", cli_opts, &merged, &err);
   EXPECT_EQ(ret, 0) << "Error: " << err;
 
-  EXPECT_EQ(merged.business, "entity_extract");
+  EXPECT_EQ(merged.biz, "entity_extract");
   EXPECT_EQ(merged.config_path,
             "tests/fixtures/stage7/smoke/pipeline_entity_extract.conf");
   EXPECT_EQ(merged.dataset_path, "data/corpus_entity_extract.txt");
@@ -279,17 +277,17 @@ TEST(DemoRunnerTest, CliOverridesProfileEvenWithExplicitDefault) {
   EXPECT_EQ(merged.batch_size, 1);
 }
 
-TEST(DemoRunnerTest, ProfileBusinessMismatchRejection) {
+TEST(DemoRunnerTest, ProfileBizMismatchRejection) {
   DemoOptions cli_opts;
   cli_opts.profile = "entity_extract_mock";
-  cli_opts.business = "doc_qa";  // 冲突的业务名
-  cli_opts.has_business = true;
+  cli_opts.biz = "doc_qa";  // 冲突的业务名
+  cli_opts.has_biz = true;
 
   DemoOptions merged;
   std::string err;
   int ret = LoadAndMergeProfiles("demo/profiles.json", cli_opts, &merged, &err);
   EXPECT_EQ(ret, 3);
-  EXPECT_NE(err.find("Business conflict"), std::string::npos);
+  EXPECT_NE(err.find("Biz conflict"), std::string::npos);
 }
 
 TEST(DemoRunnerTest, ProfileNotFound) {
@@ -325,10 +323,10 @@ TEST(DemoRunnerTest, ProfileSchemaStrictValidation) {
   {
     std::ofstream ofs(temp_invalid_json);
     ofs << R"({
-      "schema_version": 1,
+      "schema_version": 2,
       "profiles": {
         "bad_prof": {
-          "business": "entity_extract",
+          "biz": "entity_extract",
           "config": "tests/fixtures/stage7/smoke/pipeline_entity_extract.conf",
           "dataset": "data/corpus_entity_extract.txt",
           "suite": "invalid_suite"
@@ -345,10 +343,10 @@ TEST(DemoRunnerTest, ProfileSchemaStrictValidation) {
   {
     std::ofstream ofs(temp_invalid_json);
     ofs << R"({
-      "schema_version": 1,
+      "schema_version": 2,
       "profiles": {
         "bad_suite_type": {
-          "business": "keyword_match",
+          "biz": "keyword_match",
           "config": "configs/pipeline_keyword_match.conf",
           "dataset": "data/corpus_keyword_match.txt",
           "suite": 123
@@ -369,10 +367,10 @@ TEST(DemoRunnerTest, ProfileSchemaStrictValidation) {
   {
     std::ofstream ofs(temp_invalid_json);
     ofs << R"({
-      "schema_version": 1,
+      "schema_version": 2,
       "profiles": {
         "overflow_prof": {
-          "business": "entity_extract",
+          "biz": "entity_extract",
           "config": "tests/fixtures/stage7/smoke/pipeline_entity_extract.conf",
           "dataset": "data/corpus_entity_extract.txt",
           "batch_size": 4294967297
@@ -441,7 +439,7 @@ TEST(DemoRunnerTest, DatasetReaderFunctions) {
 TEST(DemoRunnerTest, ResultWriterAtomicOutputAndCumulativeAppend) {
   DemoOptions opts;
   opts.profile = "test_profile_unit";
-  opts.business = "unit_test";
+  opts.biz = "unit_test";
   opts.output_dir = "./results/test_out_unit";
   opts.append = false;
 
@@ -485,6 +483,7 @@ TEST(DemoRunnerTest, ResultWriterAtomicOutputAndCumulativeAppend) {
       auto obj = nlohmann::json::parse(line);
       EXPECT_EQ(obj["schema_version"], 1);
       EXPECT_EQ(obj["profile"], "test_profile_unit");
+      EXPECT_EQ(obj["biz"], "unit_test");
       if (obj["request_id"] == 9002) {
         EXPECT_EQ(obj["status"], 5);
         EXPECT_EQ(obj["error"], "Mock inference error for sample");
@@ -499,6 +498,7 @@ TEST(DemoRunnerTest, ResultWriterAtomicOutputAndCumulativeAppend) {
     nlohmann::json summary_obj;
     s_ifs >> summary_obj;
     EXPECT_EQ(summary_obj["schema_version"], 1);
+    EXPECT_EQ(summary_obj["biz"], "unit_test");
     EXPECT_EQ(summary_obj["total_samples"], 2);
     EXPECT_EQ(summary_obj["success_count"], 1);
     EXPECT_EQ(summary_obj["failed_count"], 1);
@@ -533,34 +533,34 @@ TEST(DemoRunnerTest, ResultWriterAtomicOutputAndCumulativeAppend) {
   }
 }
 
-// 7. 测试 Config 与 Business 匹配校验、P1-2 pipe_path 类型异常与 P1-3 Operator
+// 7. 测试 Config 与 Biz 匹配校验、P1-2 pipe_path 类型异常与 P1-3 Operator
 // 公开预检 API
-TEST(DemoRunnerTest, ConfigBusinessMatchValidation) {
+TEST(DemoRunnerTest, ConfigBizMatchValidation) {
   std::string err;
 
   // 正确匹配
-  EXPECT_TRUE(ValidateConfigBusinessMatch(
+  EXPECT_TRUE(ValidateConfigBizMatch(
       "tests/fixtures/stage7/smoke/pipeline_entity_extract.conf",
       "entity_extract", &err));
-  EXPECT_TRUE(ValidateConfigBusinessMatch(
+  EXPECT_TRUE(ValidateConfigBizMatch(
       "tests/fixtures/stage7/smoke/pipeline_doc_qa.conf", "doc_qa", &err));
-  EXPECT_TRUE(ValidateConfigBusinessMatch(
+  EXPECT_TRUE(ValidateConfigBizMatch(
       "tests/fixtures/stage7/smoke/pipeline_doc_qa_rerank.conf", "doc_qa",
       &err));
-  EXPECT_TRUE(ValidateConfigBusinessMatch("configs/pipeline_keyword_match.conf",
-                                          "keyword_match", &err));
+  EXPECT_TRUE(ValidateConfigBizMatch("configs/pipeline_keyword_match.conf",
+                                     "keyword_match", &err));
 
   // 错误匹配 -> 快速失败
-  EXPECT_FALSE(ValidateConfigBusinessMatch(
-      "tests/fixtures/stage7/smoke/pipeline_doc_qa.conf", "entity_extract",
-      &err));
-  EXPECT_NE(err.find("Business mismatch"), std::string::npos);
+  EXPECT_FALSE(
+      ValidateConfigBizMatch("tests/fixtures/stage7/smoke/pipeline_doc_qa.conf",
+                             "entity_extract", &err));
+  EXPECT_NE(err.find("Biz mismatch"), std::string::npos);
 
   // P1-3: cross_rerank 绝不应该匹配 doc_qa_rerank (即使名字里有 rerank)
-  EXPECT_FALSE(ValidateConfigBusinessMatch(
+  EXPECT_FALSE(ValidateConfigBizMatch(
       "tests/fixtures/stage7/smoke/pipeline_doc_qa_rerank.conf", "cross_rerank",
       &err));
-  EXPECT_NE(err.find("Business mismatch"), std::string::npos);
+  EXPECT_NE(err.find("Biz mismatch"), std::string::npos);
 
   // P1-2 探针测试: .conf 中 pipe_path 为数字 123 (必须返回 false，不抛异常崩溃)
   std::string bad_conf_path = "./results/bad_pipe_path.conf";
@@ -568,8 +568,7 @@ TEST(DemoRunnerTest, ConfigBusinessMatchValidation) {
     std::ofstream ofs(bad_conf_path);
     ofs << R"({"data": {"pipe_path": 123}})";
   }
-  EXPECT_FALSE(
-      ValidateConfigBusinessMatch(bad_conf_path, "keyword_match", &err));
+  EXPECT_FALSE(ValidateConfigBizMatch(bad_conf_path, "keyword_match", &err));
   EXPECT_NE(err.find("pipe_path"), std::string::npos);
   std::filesystem::remove(bad_conf_path);
 
@@ -686,9 +685,8 @@ TEST(DemoRunnerTest, EndToEndAllMockSmokeBusinesses) {
     ASSERT_EQ(ret, 0) << "Profile merge failed for " << prof_name << ": "
                       << err;
 
-    const auto* desc = DemoRegistry::Instance().Find(merged_opt.business);
-    ASSERT_NE(desc, nullptr)
-        << "Business not registered: " << merged_opt.business;
+    const auto* desc = DemoRegistry::Instance().Find(merged_opt.biz);
+    ASSERT_NE(desc, nullptr) << "Business not registered: " << merged_opt.biz;
 
     int run_ret = desc->run(merged_opt);
     EXPECT_EQ(run_ret, 0) << "Execution failed for profile: " << prof_name;

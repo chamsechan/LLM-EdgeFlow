@@ -69,7 +69,7 @@ class WorkbenchServiceTest(unittest.TestCase):
         with self.assertRaises(SHOW.StudioError) as link:
             self.service.open_pipeline("pipeline_link.json")
         self.assertEqual(link.exception.code, "SYMLINK_REJECTED")
-        invalid = {"business_name": "keyword_match_v1", "pipeline": []}
+        invalid = {"biz_name": "keyword_match_v1", "pipeline": []}
         with self.assertRaises(SHOW.StudioError) as validation:
             self.service.save_pipeline("pipeline_invalid.json", invalid, None, True)
         self.assertEqual(validation.exception.code, "VALIDATION_FAILED")
@@ -101,22 +101,33 @@ class PipelineCliTest(unittest.TestCase):
             check=False,
         )
         payload = json.loads(process.stdout)
-        self.assertEqual(payload["schema_version"], 1)
+        expected_schema = 2 if args[0] in ("catalog", "describe-node") else 1
+        self.assertEqual(payload["schema_version"], expected_schema)
         return process.returncode, payload
 
     def test_all_commands_return_versioned_json(self):
-        first_code, first = self.command("catalog", "--business", "keyword_match_v1")
-        second_code, second = self.command("catalog", "--business", "keyword_match_v1")
+        first_code, first = self.command("catalog", "--biz", "keyword_match_v1")
+        second_code, second = self.command("catalog", "--biz", "keyword_match_v1")
         self.assertEqual((first_code, first), (second_code, second))
         self.assertTrue(first["nodes"])
         code, described = self.command("describe-node", "TextRuleMatchNode")
         self.assertEqual(code, 0)
         self.assertEqual(described["node_type"], "TextRuleMatchNode")
         code, initialized = self.command(
-            "init", "--business", "keyword_match_v1", "--empty"
+            "init", "--biz", "keyword_match_v1", "--empty"
         )
         self.assertEqual(code, 0)
         self.assertEqual(initialized["pipeline"]["pipeline"], [])
+        self.assertEqual(initialized["pipeline"]["biz_name"], "keyword_match_v1")
+        self.assertNotIn("business_name", initialized["pipeline"])
+        rejected = subprocess.run(
+            [str(PIPELINE_TOOL), "catalog", "--business", "keyword_match_v1"],
+            text=True,
+            capture_output=True,
+            cwd=ROOT,
+            check=False,
+        )
+        self.assertEqual(rejected.returncode, 2)
         legacy = json.loads(
             (ROOT / "configs" / "pipeline_keyword_match.json").read_text()
         )

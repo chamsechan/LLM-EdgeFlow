@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <cstring>
+#include <utility>
 #include <vector>
 
 #include "adapter/adapter_status.h"
@@ -170,6 +171,28 @@ class AdapterValidationHelper {
                            field_path, biz_name);
     }
     return value;
+  }
+
+  template <typename T, typename U>
+  static bool PublishContextValue(AlgContext& ctx, const BlackboardKey<T>& key,
+                                  U&& value, const char* biz_name,
+                                  AdapterStatus* out_status) {
+    if (ctx.Publish(key, std::forward<U>(value))) return true;
+    ReturnInvalidInput(
+        out_status,
+        std::string("Duplicate AlgContext publication: ") + key.name, key.name,
+        biz_name);
+    return false;
+  }
+
+  template <typename T>
+  static bool PublishContextValue(AlgContext& ctx, const std::string& key,
+                                  T&& value, const char* biz_name,
+                                  AdapterStatus* out_status) {
+    if (ctx.Publish(key, std::forward<T>(value))) return true;
+    ReturnInvalidInput(out_status, "Duplicate AlgContext publication: " + key,
+                       key, biz_name);
+    return false;
   }
 
   // =========================================================================

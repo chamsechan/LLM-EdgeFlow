@@ -34,11 +34,11 @@ struct OperatorGlobalGuard {
   }
 };
 
-void ListProfilesAndBusinesses() {
-  std::cout << "\n=== Registered Business Cases ===" << std::endl;
+void ListProfilesAndBizs() {
+  std::cout << "\n=== Registered Biz Cases ===" << std::endl;
   auto descs = DemoRegistry::Instance().ListDescriptors();
   for (const auto& d : descs) {
-    std::cout << "  - " << d.business_name << " (" << d.display_title << ")"
+    std::cout << "  - " << d.biz_name << " (" << d.display_title << ")"
               << std::endl;
   }
 
@@ -48,7 +48,7 @@ void ListProfilesAndBusinesses() {
   std::string err;
   if (LoadAndValidateProfilesDocument("", &root, &err) == 0) {
     for (const auto& [name, p] : root["profiles"].items()) {
-      std::string biz = p["business"].get<std::string>();
+      std::string biz = p["biz"].get<std::string>();
       std::string suite =
           p.contains("suite") ? p["suite"].get<std::string>() : "smoke";
       std::string cfg = p["config"].get<std::string>();
@@ -97,9 +97,9 @@ int RunSuite(const std::string& suite_name, const DemoOptions& base_cli_opts) {
       return ret;
     }
 
-    const auto* desc = DemoRegistry::Instance().Find(merged_opt.business);
+    const auto* desc = DemoRegistry::Instance().Find(merged_opt.biz);
     if (!desc) {
-      std::cerr << "[Main ERROR] Business '" << merged_opt.business
+      std::cerr << "[Main ERROR] Biz '" << merged_opt.biz
                 << "' not registered for profile '" << prof << "'" << std::endl;
       return 3;
     }
@@ -142,7 +142,7 @@ int main(int argc, char* argv[]) {
   }
 
   if (cli_options.list_only) {
-    ListProfilesAndBusinesses();
+    ListProfilesAndBizs();
     return 0;
   }
 
@@ -158,7 +158,7 @@ int main(int argc, char* argv[]) {
   if (cli_options.has_suite) {
     return RunSuite(cli_options.suite, cli_options);
   }
-  if (!cli_options.has_profile && !cli_options.has_business &&
+  if (!cli_options.has_profile && !cli_options.has_biz &&
       !cli_options.has_config_path) {
     return RunSuite("smoke", cli_options);
   }
@@ -172,18 +172,18 @@ int main(int argc, char* argv[]) {
     return merge_ret;
   }
 
-  if (options.business.empty()) {
-    std::cerr << "[Main ERROR] No business specified. Use --profile <name> or "
-                 "--business <name>."
+  if (options.biz.empty()) {
+    std::cerr << "[Main ERROR] No biz specified. Use --profile <name> or "
+                 "--biz <name>."
               << std::endl;
     return 2;
   }
 
   // 5. 查找并分发业务
-  const auto* desc = DemoRegistry::Instance().Find(options.business);
+  const auto* desc = DemoRegistry::Instance().Find(options.biz);
   if (!desc) {
-    std::cerr << "[Main ERROR] Unsupported or unregistered business: '"
-              << options.business << "'" << std::endl;
+    std::cerr << "[Main ERROR] Unsupported or unregistered biz: '"
+              << options.biz << "'" << std::endl;
     return 3;
   }
 

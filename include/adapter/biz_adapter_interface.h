@@ -136,6 +136,4 @@ class IBizAdapter {
                    AdapterStatus* out_status = nullptr) const = 0;
 };
 
-using IBusinessAdapter = IBizAdapter;
-
 }  // namespace alg_framework

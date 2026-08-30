@@ -209,7 +209,6 @@ int Operator_Create(void** handle, const CreateParam* param) noexcept {
     runtime_options.has_device_id = (param->device_id >= 0);
     runtime_options.biz_type = static_cast<int>(resolved_conf.biz_type);
     runtime_options.biz_name = resolved_conf.biz_name;
-    runtime_options.business_name = resolved_conf.biz_name;
 
     // 3. 构建内部共享运行时
     std::unique_ptr<alg_framework::SharedAlgorithmRuntime> runtime;
@@ -556,7 +555,7 @@ int ValidateOperatorConfigBinding(const char* model_path,
     if (out_error_msg && error_buf_size > 0) {
       std::snprintf(
           out_error_msg, error_buf_size,
-          "Business mismatch: Config resolves to biz_type %d, but expected %d",
+          "Biz mismatch: Config resolves to biz_type %d, but expected %d",
           static_cast<int>(resolved.biz_type), expected_biz_type);
     }
     return -3;

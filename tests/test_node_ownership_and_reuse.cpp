@@ -12,6 +12,7 @@
 #include "core/pipeline_catalog.h"
 #include "core/session_context.h"
 #include "engine/model_interface.h"
+#include "tests/support/node_test_utils.h"
 
 namespace alg_framework {
 
@@ -90,18 +91,18 @@ TEST(NodeOwnershipAndReuseTest, CommonEmbeddingAndVectorTopKExecution) {
 
   nlohmann::json node_cfg = {{"bind_model", "embed_model_v2"},
                              {"normalize", true}};
-  ASSERT_TRUE(embed_node->Init(node_cfg, &session_ctx));
+  ASSERT_TRUE(InitNodeForTest(*embed_node, node_cfg, &session_ctx));
 
   AlgContext ctx;
   TextBatch query_batch = {
       TraceableItem<std::string>{0, 0, "请把钱私下转账给我"}};
-  ctx.Set(BlackboardKey<TextBatch>{"text", "TextBatch"}, query_batch);
+  ctx.Publish(BlackboardKey<TextBatch>{"text", "TextBatch"}, query_batch);
 
   int ret = embed_node->Process(&ctx);
   EXPECT_EQ(ret, 0);
 
   const auto* q_embed =
-      ctx.Get(BlackboardKey<EmbeddingBatch>{"embedding", "EmbeddingBatch"});
+      ctx.Read(BlackboardKey<EmbeddingBatch>{"embedding", "EmbeddingBatch"});
   ASSERT_NE(q_embed, nullptr);
   ASSERT_EQ(q_embed->size(), 1u);
   EXPECT_GT((*q_embed)[0].data[0], 0.5f);

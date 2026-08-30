@@ -43,8 +43,7 @@ int RunOcrDocQaDemo(const DemoOptions& options) {
     }
   }
 
-  if (!ValidateConfigBusinessMatch(options.config_path, options.business,
-                                   &err)) {
+  if (!ValidateConfigBizMatch(options.config_path, options.biz, &err)) {
     std::cerr << "[OcrDocQaDemo ERROR] Config validation failed: " << err
               << std::endl;
     return 3;

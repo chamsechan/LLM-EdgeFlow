@@ -31,7 +31,7 @@ class SchemaProbeNode : public INode {
     s_process_count = 0;
   }
 
-  bool Init(const nlohmann::json&, SessionContext*) override {
+  bool Init(const NodeInitContext&) override {
     ++s_init_count;
     return true;
   }
@@ -149,7 +149,7 @@ REGISTER_BACKEND_WITH_DEFINITION(SchemaProbeBackend,
 
 TEST(DefinitionSchemaValidationTest, EnforcesRequiredField) {
   nlohmann::json pipeline = {
-      {"business_name", "unregistered_test_biz"},
+      {"biz_name", "unregistered_test_biz"},
       {"models", nlohmann::json::array()},
       {"pipeline",
        nlohmann::json::array({{{"id", "node_0"},
@@ -173,7 +173,7 @@ TEST(DefinitionSchemaValidationTest, EnforcesRequiredField) {
 
 TEST(DefinitionSchemaValidationTest, EnforcesFieldTypeAndRange) {
   nlohmann::json pipeline = {
-      {"business_name", "unregistered_test_biz"},
+      {"biz_name", "unregistered_test_biz"},
       {"models", nlohmann::json::array()},
       {"pipeline",
        nlohmann::json::array(
@@ -196,7 +196,7 @@ TEST(DefinitionSchemaValidationTest, EnforcesFieldTypeAndRange) {
 
 TEST(DefinitionSchemaValidationTest, EnforcesStringEnumValues) {
   nlohmann::json pipeline = {
-      {"business_name", "unregistered_test_biz"},
+      {"biz_name", "unregistered_test_biz"},
       {"models", nlohmann::json::array()},
       {"pipeline",
        nlohmann::json::array(
@@ -219,7 +219,7 @@ TEST(DefinitionSchemaValidationTest, EnforcesStringEnumValues) {
 
 TEST(DefinitionSchemaValidationTest, EnforcesBackendConfigConstraints) {
   nlohmann::json pipeline = {
-      {"business_name", "unregistered_test_biz"},
+      {"biz_name", "unregistered_test_biz"},
       {"models",
        nlohmann::json::array(
            {{{"model_id", "probe_model"},
@@ -262,7 +262,7 @@ TEST(DefinitionSchemaValidationTest, ValidationFailureHasZeroSideEffects) {
   SchemaProbeBackend::ResetCounts();
 
   nlohmann::json invalid_pipeline = {
-      {"business_name", "unregistered_test_biz"},
+      {"biz_name", "unregistered_test_biz"},
       {"models",
        nlohmann::json::array({{{"model_id", "probe_model"},
                                {"capability", "schema_probe"},
@@ -419,9 +419,8 @@ TEST(DefinitionSchemaValidationTest, RejectsInvalidDefinitionAtRegistration) {
   // only framework lifetimes.
   NodeDefinition invalid_lifetime_override;
   invalid_lifetime_override.node_type = "InvalidLifetimeOverrideNode";
-  invalid_lifetime_override.inputs = {PortDefinition{"text", "TextBatch", true,
-                                                     false, "1:1", "preserve",
-                                                     "request", "lifetime"}};
+  invalid_lifetime_override.inputs = {PortDefinition{
+      "text", "TextBatch", true, "1:1", "preserve", "request", "lifetime"}};
   invalid_lifetime_override.config_fields = {
       ConfigFieldDefinition{"lifetime",
                             ConfigValueKind::kString,

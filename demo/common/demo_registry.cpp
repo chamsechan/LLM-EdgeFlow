@@ -12,13 +12,6 @@ DemoRegistry& DemoRegistry::Instance() {
 bool DemoRegistry::Register(DemoDescriptor descriptor) {
   std::lock_guard<std::mutex> lock(mutex_);
 
-  if (descriptor.biz_name.empty() && !descriptor.business_name.empty()) {
-    descriptor.biz_name = descriptor.business_name;
-  }
-  if (descriptor.business_name.empty() && !descriptor.biz_name.empty()) {
-    descriptor.business_name = descriptor.biz_name;
-  }
-
   if (descriptor.biz_name.empty()) {
     std::cerr << "[DemoRegistry ERROR] Empty biz_name provided" << std::endl;
     has_conflict_ = true;
