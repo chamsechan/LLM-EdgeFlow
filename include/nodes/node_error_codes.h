@@ -15,6 +15,7 @@ inline constexpr int kMissingInput = -3101;
 
 namespace text_chunk {
 inline constexpr int kMissingInput = -4001;
+inline constexpr int kInvalidUtf8 = -4002;
 }  // namespace text_chunk
 
 namespace text_embedding {
@@ -32,6 +33,7 @@ inline constexpr int kOutputProvenanceMismatch = -4303;
 
 namespace text_rule_match {
 inline constexpr int kMissingInput = -5001;
+inline constexpr int kRegexExecutionFailed = -5002;
 }  // namespace text_rule_match
 
 namespace structured_json_parse {

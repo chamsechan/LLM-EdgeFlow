@@ -119,6 +119,14 @@ TEST_F(OnnxAndEmbeddingModelTest, TokenizerBasicAndWordPiece) {
   EXPECT_FALSE(tokenizer.Encode(bad_utf8, 8, &ids, &mask, &diag));
   EXPECT_FALSE(diag.empty());
   EXPECT_TRUE(diag.find("Invalid UTF-8") != std::string::npos);
+
+  std::string incomplete_code_point = "\xE4\xB8";
+  EXPECT_FALSE(tokenizer.Encode(incomplete_code_point, 8, &ids, &mask, &diag));
+  EXPECT_TRUE(diag.find("Invalid UTF-8") != std::string::npos);
+
+  std::string isolated_continuation = "\xAD";
+  EXPECT_FALSE(tokenizer.Encode(isolated_continuation, 8, &ids, &mask, &diag));
+  EXPECT_TRUE(diag.find("Invalid UTF-8") != std::string::npos);
 }
 
 TEST_F(OnnxAndEmbeddingModelTest, TokenizerCaseAndSidecarSecurity) {

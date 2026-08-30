@@ -63,6 +63,9 @@ endif()
 # 引入第三方 JSON 库 (nlohmann/json) 自动下载配置
 include(cmake/NlohmannJson.cmake)
 
+# 引入 Unicode 正则库（TextRuleMatchNode lookbehind / 命名捕获）
+include(cmake/Pcre2.cmake)
+
 # 引入第三方开源推理引擎 (ONNX Runtime & llama.cpp) 自动下载配置
 include(cmake/ThirdPartyEngines.cmake)
 
@@ -76,6 +79,7 @@ set(FRAMEWORK_SRCS
     src/engine/runtime/model_registry.cpp
     src/engine/runtime/backend_registry.cpp
     src/engine/runtime/model_runtime_factory.cpp
+    src/engine/text/utf8.cpp
     src/engine/backends/onnxruntime/onnxruntime_backend.cpp
     src/engine/backends/llama_cpp/llama_cpp_backend.cpp
     src/engine/models/bge_embedding/bert_wordpiece_tokenizer.cpp
@@ -86,6 +90,7 @@ set(FRAMEWORK_SRCS
     src/common_nodes/text_template_node.cpp
     src/common_nodes/text_chunk_node.cpp
     src/common_nodes/text_rule_match_node.cpp
+    src/common_nodes/support/compiled_text_regex.cpp
     src/common_nodes/structured_json_parse_node.cpp
     src/common_nodes/text_embedding_node.cpp
     src/common_nodes/vector_top_k_node.cpp
@@ -121,7 +126,9 @@ set(FRAMEWORK_SRCS
 
 # 1. 生成对外交付的动态算法库 (.so)
 add_library(alg_sdk SHARED ${FRAMEWORK_SRCS})
-target_link_libraries(alg_sdk PUBLIC nlohmann_json::nlohmann_json)
+target_link_libraries(alg_sdk
+    PUBLIC nlohmann_json::nlohmann_json
+    PRIVATE edgeflow_pcre2)
 if(LLM_EDGEFLOW_HAS_ONNXRUNTIME)
   target_include_directories(alg_sdk PRIVATE SYSTEM "${ONNXRUNTIME_INCLUDE_DIR}")
   target_compile_definitions(alg_sdk PRIVATE HAVE_ONNXRUNTIME=1)

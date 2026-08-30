@@ -1,7 +1,6 @@
 #include <algorithm>
 #include <mutex>
 #include <nlohmann/json.hpp>
-#include <regex>
 #include <shared_mutex>
 #include <string>
 #include <unordered_map>
@@ -9,6 +8,7 @@
 #include <utility>
 #include <vector>
 
+#include "common_nodes/support/compiled_text_regex.h"
 #include "company_alg_log.h"
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
@@ -33,8 +33,7 @@ class TextRuleMatchNode final : public NodeBase {
     float score = 1.0f;
     std::unordered_map<std::string, std::string> constants;
     std::unordered_map<std::string, nlohmann::json> constants_json;
-    std::regex compiled_regex;
-    std::vector<std::string> named_groups;
+    CompiledTextRegex compiled_regex;
   };
 
   TextRuleMatchNode()
@@ -156,17 +155,17 @@ class TextRuleMatchNode final : public NodeBase {
         std::unordered_map<std::string, std::string> rule_captures;
 
         if (rule.strategy == "regex") {
-          std::smatch m;
-          if (std::regex_search(sentence, m, rule.compiled_regex)) {
-            rule_matched = true;
-            for (size_t g = 0; g < rule.named_groups.size() && g + 1 < m.size();
-                 ++g) {
-              const std::string& gname = rule.named_groups[g];
-              if (!gname.empty()) {
-                rule_captures[gname] = m[g + 1].str();
-              }
-            }
+          std::string diagnostic;
+          const TextRegexSearchStatus status =
+              rule.compiled_regex.Search(sentence, &rule_captures, &diagnostic);
+          if (status == TextRegexSearchStatus::kError) {
+            ALG_LOG_ERROR(
+                "[TextRuleMatchNode] Regex execution failed for rule '%s': "
+                "%s\n",
+                rule.id.c_str(), diagnostic.c_str());
+            return node_error::text_rule_match::kRegexExecutionFailed;
           }
+          rule_matched = status == TextRegexSearchStatus::kMatched;
         } else if (rule.strategy == "exact") {
           if (sentence == rule.pattern) {
             rule_matched = true;
@@ -286,35 +285,10 @@ class TextRuleMatchNode final : public NodeBase {
       }
 
       if (spec.strategy == "regex" && !spec.pattern.empty()) {
-        std::string raw_pat = spec.pattern;
-        std::string converted_pat;
-        std::vector<std::string> group_names;
-
-        size_t pos = 0;
-        while (pos < raw_pat.size()) {
-          if (raw_pat.substr(pos, 3) == "(?<" ||
-              raw_pat.substr(pos, 4) == "(?P<") {
-            size_t name_start = (raw_pat[pos + 2] == 'P') ? pos + 4 : pos + 3;
-            size_t name_end = raw_pat.find('>', name_start);
-            if (name_end != std::string::npos) {
-              std::string gname =
-                  raw_pat.substr(name_start, name_end - name_start);
-              group_names.push_back(std::move(gname));
-              converted_pat += "(";
-              pos = name_end + 1;
-              continue;
-            }
-          }
-          converted_pat += raw_pat[pos];
-          pos++;
-        }
-
-        spec.named_groups = std::move(group_names);
-        try {
-          spec.compiled_regex = std::regex(converted_pat);
-        } catch (const std::exception& e) {
+        std::string diagnostic;
+        if (!spec.compiled_regex.Compile(spec.pattern, &diagnostic)) {
           ALG_LOG_ERROR("[TextRuleMatchNode] Invalid regex: %s (%s)\n",
-                        spec.pattern.c_str(), e.what());
+                        spec.pattern.c_str(), diagnostic.c_str());
           return false;
         }
       }
@@ -340,7 +314,8 @@ NodeDefinition MakeTextRuleMatchNodeDefinition() {
   NodeDefinition def;
   def.node_type = TextRuleMatchNode::kNodeType;
   def.category = "common";
-  def.description = "Keyword and rule matching node with regex slot capture";
+  def.description =
+      "Keyword and Unicode regex matching with lookbehind and named captures";
   def.inputs = {RequiredInputPort("text",
                                   BlackboardKey<TextBatch>{"", "TextBatch"},
                                   "1:1", "preserve", "request")};

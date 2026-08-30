@@ -7,6 +7,8 @@
 #include <sstream>
 #include <utility>
 
+#include "engine/text/utf8.h"
+
 namespace alg_framework {
 
 namespace {
@@ -51,44 +53,6 @@ bool IsCJK(uint32_t cp) noexcept {
          (cp >= 0x20000 && cp <= 0x2A6DF) || (cp >= 0x2A700 && cp <= 0x2B73F) ||
          (cp >= 0x2B740 && cp <= 0x2B81F) || (cp >= 0x2B820 && cp <= 0x2CEAF) ||
          (cp >= 0xF900 && cp <= 0xFAFF) || (cp >= 0x2F800 && cp <= 0x2FA1F);
-}
-
-// 解码 UTF-8 单个 code point，返回消耗字节数 (0 表示非法)
-size_t DecodeUtf8CodePoint(const char* s, size_t len, uint32_t* cp) noexcept {
-  if (len == 0 || s == nullptr || cp == nullptr) return 0;
-  unsigned char c0 = static_cast<unsigned char>(s[0]);
-  if (c0 < 0x80) {
-    *cp = c0;
-    return 1;
-  } else if ((c0 & 0xE0) == 0xC0) {
-    if (len < 2) return 0;
-    unsigned char c1 = static_cast<unsigned char>(s[1]);
-    if ((c1 & 0xC0) != 0x80) return 0;
-    *cp = ((c0 & 0x1F) << 6) | (c1 & 0x3F);
-    if (*cp < 0x80) return 0;  // 过长编码
-    return 2;
-  } else if ((c0 & 0xF0) == 0xE0) {
-    if (len < 3) return 0;
-    unsigned char c1 = static_cast<unsigned char>(s[1]);
-    unsigned char c2 = static_cast<unsigned char>(s[2]);
-    if ((c1 & 0xC0) != 0x80 || (c2 & 0xC0) != 0x80) return 0;
-    *cp = ((c0 & 0x0F) << 12) | ((c1 & 0x3F) << 6) | (c2 & 0x3F);
-    if (*cp < 0x800 || (*cp >= 0xD800 && *cp <= 0xDFFF)) return 0;
-    return 3;
-  } else if ((c0 & 0xF8) == 0xF0) {
-    if (len < 4) return 0;
-    unsigned char c1 = static_cast<unsigned char>(s[1]);
-    unsigned char c2 = static_cast<unsigned char>(s[2]);
-    unsigned char c3 = static_cast<unsigned char>(s[3]);
-    if ((c1 & 0xC0) != 0x80 || (c2 & 0xC0) != 0x80 || (c3 & 0xC0) != 0x80) {
-      return 0;
-    }
-    *cp = ((c0 & 0x07) << 18) | ((c1 & 0x3F) << 12) | ((c2 & 0x3F) << 6) |
-          (c3 & 0x3F);
-    if (*cp < 0x10000 || *cp > 0x10FFFF) return 0;
-    return 4;
-  }
-  return 0;
 }
 
 // 编码 Unicode code point 到 UTF-8
@@ -224,7 +188,7 @@ bool BertWordPieceTokenizer::BasicTokenize(const std::string& text,
 
   while (offset < len) {
     uint32_t cp = 0;
-    size_t consumed = DecodeUtf8CodePoint(ptr + offset, len - offset, &cp);
+    size_t consumed = utf8::DecodeCodePoint(ptr + offset, len - offset, &cp);
     if (consumed == 0) {
       // 严格 Fail-Closed：输入包含非法 UTF-8 字节序列时立即拒绝
       if (diagnostic) {

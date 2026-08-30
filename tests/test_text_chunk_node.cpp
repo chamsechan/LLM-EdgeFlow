@@ -33,6 +33,15 @@ TEST_F(TextChunkNodeTest, InitAndConfigValidation) {
   // Custom valid config
   nlohmann::json cfg = {{"chunk_size", 50}, {"overlap", 10}};
   EXPECT_TRUE(node->Init(cfg, session_ctx_.get()));
+
+  auto invalid_chunk = NodeFactory::Instance().Create("TextChunkNode");
+  ASSERT_NE(invalid_chunk, nullptr);
+  EXPECT_FALSE(invalid_chunk->Init({{"chunk_size", 0}}, session_ctx_.get()));
+
+  auto invalid_overlap = NodeFactory::Instance().Create("TextChunkNode");
+  ASSERT_NE(invalid_overlap, nullptr);
+  EXPECT_FALSE(invalid_overlap->Init({{"chunk_size", 10}, {"overlap", 10}},
+                                     session_ctx_.get()));
 }
 
 // 2. Process Single and Batch Chunks with ChunkCounts
@@ -94,6 +103,49 @@ TEST_F(TextChunkNodeTest, ProcessEmptyStrings) {
   ASSERT_NE(counts, nullptr);
   ASSERT_EQ(counts->size(), 1u);
   EXPECT_EQ((*counts)[0].data, 1);
+}
+
+TEST_F(TextChunkNodeTest, ChunksOnUnicodeCodePointBoundaries) {
+  auto node = NodeFactory::Instance().Create("TextChunkNode");
+  ASSERT_NE(node, nullptr);
+  ASSERT_TRUE(
+      node->Init({{"chunk_size", 3}, {"overlap", 1}}, session_ctx_.get()));
+
+  AlgContext ctx;
+  TextBatch input_batch;
+  input_batch.emplace_back(7, 4, "A中🙂B");
+  ctx.Set("text", input_batch);
+
+  ASSERT_EQ(node->Process(&ctx), 0);
+  const auto* chunks = ctx.Get<TextBatch>("chunks");
+  ASSERT_NE(chunks, nullptr);
+  ASSERT_EQ(chunks->size(), 2u);
+  EXPECT_EQ((*chunks)[0].data, "A中🙂");
+  EXPECT_EQ((*chunks)[1].data, "🙂B");
+  EXPECT_EQ((*chunks)[0].req_id, 7u);
+  EXPECT_EQ((*chunks)[0].sub_id, 0u);
+  EXPECT_EQ((*chunks)[1].req_id, 7u);
+  EXPECT_EQ((*chunks)[1].sub_id, 1u);
+
+  const auto* counts = ctx.Get<Int32Batch>("chunk_counts");
+  ASSERT_NE(counts, nullptr);
+  ASSERT_EQ(counts->size(), 1u);
+  EXPECT_EQ((*counts)[0].data, 2);
+}
+
+TEST_F(TextChunkNodeTest, InvalidUtf8FailsClosed) {
+  auto node = NodeFactory::Instance().Create("TextChunkNode");
+  ASSERT_NE(node, nullptr);
+  ASSERT_TRUE(node->Init(nlohmann::json::object(), session_ctx_.get()));
+
+  AlgContext ctx;
+  TextBatch input_batch;
+  input_batch.emplace_back(8, 0, std::string("ok") + "\xE4\xB8");
+  ctx.Set("text", input_batch);
+
+  EXPECT_EQ(node->Process(&ctx), -4002);
+  EXPECT_EQ(ctx.Get<TextBatch>("chunks"), nullptr);
+  EXPECT_EQ(ctx.Get<Int32Batch>("chunk_counts"), nullptr);
 }
 
 // 4. Missing Input Fails Closed
