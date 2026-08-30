@@ -19,11 +19,15 @@ inline constexpr int kMissingInput = -4001;
 
 namespace text_embedding {
 inline constexpr int kMissingInput = -4101;
+inline constexpr int kOutputCountMismatch = -4102;
+inline constexpr int kOutputProvenanceMismatch = -4103;
 inline constexpr int kSessionInferenceFailed = -5101;
 }  // namespace text_embedding
 
 namespace llm_generate {
 inline constexpr int kMissingInput = -4301;
+inline constexpr int kOutputCountMismatch = -4302;
+inline constexpr int kOutputProvenanceMismatch = -4303;
 }  // namespace llm_generate
 
 namespace text_rule_match {

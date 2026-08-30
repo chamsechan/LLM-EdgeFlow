@@ -6,6 +6,7 @@
 
 #include "contracts/traceable_item.h"
 #include "nodes/model_bound_node.h"
+#include "nodes/traceable_batch_validation.h"
 
 namespace alg_framework {
 
@@ -18,20 +19,28 @@ class TraceableUnaryInferenceNode : public ModelBoundNode<ModelCapability> {
   TraceableUnaryInferenceNode(std::string node_name,
                               std::string input_port_name,
                               std::string output_port_name,
-                              int missing_input_error)
+                              int missing_input_error,
+                              int count_mismatch_error = -1,
+                              int provenance_mismatch_error = -1)
       : ModelBoundNode<ModelCapability>(std::move(node_name)),
         in_port_(std::move(input_port_name)),
         out_port_(std::move(output_port_name)),
-        missing_input_error_(missing_input_error) {}
+        missing_input_error_(missing_input_error),
+        count_mismatch_error_(count_mismatch_error),
+        provenance_mismatch_error_(provenance_mismatch_error) {}
 
   TraceableUnaryInferenceNode(std::string node_name,
                               const BlackboardKey<InputBatch>& input_key,
                               const BlackboardKey<OutputBatch>& output_key,
-                              int missing_input_error)
+                              int missing_input_error,
+                              int count_mismatch_error = -1,
+                              int provenance_mismatch_error = -1)
       : ModelBoundNode<ModelCapability>(std::move(node_name)),
         in_port_(input_key.name),
         out_port_(output_key.name),
-        missing_input_error_(missing_input_error) {}
+        missing_input_error_(missing_input_error),
+        count_mismatch_error_(count_mismatch_error),
+        provenance_mismatch_error_(provenance_mismatch_error) {}
 
   virtual int InferBatch(const InputBatch& input, OutputBatch* output) = 0;
 
@@ -50,9 +59,23 @@ class TraceableUnaryInferenceNode : public ModelBoundNode<ModelCapability> {
       return missing_input_error_;
     }
     OutputBatch outputs;
+    if (inputs->empty()) {
+      out_port_.Set(req_ctx, std::move(outputs));
+      return 0;
+    }
     int ret = InferBatch(*inputs, &outputs);
     if (ret != 0) {
       return this->Fail(req_ctx, ret, this->Name() + " inference failed");
+    }
+    const auto alignment =
+        ValidatePreservedTraceableAlignment(*inputs, outputs);
+    if (alignment.error == TraceableAlignmentError::kCountMismatch) {
+      return this->Fail(req_ctx, count_mismatch_error_,
+                        this->Name() + " output count mismatch");
+    }
+    if (alignment.error == TraceableAlignmentError::kProvenanceMismatch) {
+      return this->Fail(req_ctx, provenance_mismatch_error_,
+                        this->Name() + " output provenance mismatch");
     }
     out_port_.Set(req_ctx, std::move(outputs));
     return 0;
@@ -61,6 +84,8 @@ class TraceableUnaryInferenceNode : public ModelBoundNode<ModelCapability> {
   BoundInput<InputBatch> in_port_;
   BoundOutput<OutputBatch> out_port_;
   const int missing_input_error_;
+  const int count_mismatch_error_;
+  const int provenance_mismatch_error_;
 };
 
 }  // namespace alg_framework
