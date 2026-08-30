@@ -72,7 +72,7 @@ TEST_F(VectorTopKNodeTest, MissingInputFailsClosed) {
   ASSERT_TRUE(node->Init({{"top_k", 2}}, session_ctx_.get()));
 
   AlgContext empty_ctx;
-  EXPECT_NE(node->Process(&empty_ctx), 0);
+  EXPECT_EQ(node->Process(&empty_ctx), -3101);
 }
 
 }  // namespace alg_framework

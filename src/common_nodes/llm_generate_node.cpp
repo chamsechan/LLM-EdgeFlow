@@ -2,6 +2,7 @@
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
 #include "engine/model_interface.h"
+#include "nodes/node_error_codes.h"
 #include "nodes/traceable_unary_inference_node.h"
 
 namespace alg_framework {
@@ -15,7 +16,8 @@ class LlmGenerateNode final
   inline static constexpr char kNodeType[] = "LlmGenerateNode";
 
   LlmGenerateNode()
-      : TraceableUnaryInferenceNode(kNodeType, "prompt", "text", -4301) {}
+      : TraceableUnaryInferenceNode(kNodeType, "prompt", "text",
+                                    node_error::llm_generate::kMissingInput) {}
 
  protected:
   bool InitModelNode(const NodeInitContext& init_ctx,

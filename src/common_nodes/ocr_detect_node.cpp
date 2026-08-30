@@ -1,10 +1,12 @@
 #include <string>
 #include <vector>
 
+#include "company_alg_log.h"
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
 #include "engine/model_interface.h"
 #include "nodes/model_bound_node.h"
+#include "nodes/node_error_codes.h"
 
 namespace alg_framework {
 
@@ -34,9 +36,10 @@ class OcrDetectNode final : public ModelBoundNode<IOcrModel> {
 
   int ProcessNode(AlgContext& req_ctx) override {
     const auto* image_items =
-        in_images_.Require(req_ctx, -7101, "OcrDetectNode image input");
+        in_images_.Require(req_ctx, node_error::ocr_detect::kMissingInput,
+                           "OcrDetectNode image input");
     if (!image_items) {
-      return -7101;
+      return node_error::ocr_detect::kMissingInput;
     }
 
     if (image_items->empty()) {
@@ -56,7 +59,8 @@ class OcrDetectNode final : public ModelBoundNode<IOcrModel> {
     }
 
     if (doc_batch.size() != image_items->size()) {
-      return Fail(req_ctx, -7102, "OcrDetectNode: document count mismatch");
+      return Fail(req_ctx, node_error::ocr_detect::kOutputCountMismatch,
+                  "OcrDetectNode: document count mismatch");
     }
 
     TextBatch text_batch;
@@ -65,7 +69,7 @@ class OcrDetectNode final : public ModelBoundNode<IOcrModel> {
       const auto& document = doc_batch[i];
       const auto& image = (*image_items)[i];
       if (document.req_id != image.req_id || document.sub_id != image.sub_id) {
-        return Fail(req_ctx, -7103,
+        return Fail(req_ctx, node_error::ocr_detect::kOutputProvenanceMismatch,
                     "OcrDetectNode: document provenance mismatch");
       }
       text_batch.emplace_back(document.req_id, document.sub_id,
@@ -108,4 +112,3 @@ NodeDefinition MakeOcrDetectNodeDefinition() {
 REGISTER_NODE_WITH_DEFINITION(OcrDetectNode, MakeOcrDetectNodeDefinition());
 
 }  // namespace alg_framework
-#include "company_alg_log.h"

@@ -3,8 +3,10 @@
 #include <unordered_set>
 #include <vector>
 
+#include "company_alg_log.h"
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
+#include "nodes/node_error_codes.h"
 #include "nodes/node_support.h"
 
 namespace alg_framework {
@@ -75,10 +77,11 @@ class StructuredJsonParseNode final : public NodeBase {
   }
 
   int ProcessNode(AlgContext& req_ctx) override {
-    const auto* text_items =
-        in_text_.Require(req_ctx, -6101, "StructuredJsonParseNode input");
+    const auto* text_items = in_text_.Require(
+        req_ctx, node_error::structured_json_parse::kMissingInput,
+        "StructuredJsonParseNode input");
     if (!text_items) {
-      return -6101;
+      return node_error::structured_json_parse::kMissingInput;
     }
 
     StructuredDocumentBatch output_docs;
@@ -99,7 +102,8 @@ class StructuredJsonParseNode final : public NodeBase {
 
       if (!ok) {
         if (failure_policy_ == "fail") {
-          return Fail(req_ctx, -6102, "JSON parse failed for sample: " + diag);
+          return Fail(req_ctx, node_error::structured_json_parse::kParseFailed,
+                      "JSON parse failed for sample: " + diag);
         } else if (failure_policy_ == "emit_diagnostic") {
           output_docs.emplace_back(
               item.req_id, item.sub_id,
@@ -324,4 +328,3 @@ REGISTER_NODE_WITH_DEFINITION(StructuredJsonParseNode,
                               MakeStructuredJsonParseNodeDefinition());
 
 }  // namespace alg_framework
-#include "company_alg_log.h"

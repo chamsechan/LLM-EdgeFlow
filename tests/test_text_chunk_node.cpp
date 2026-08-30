@@ -103,7 +103,7 @@ TEST_F(TextChunkNodeTest, MissingInputFailsClosed) {
   ASSERT_TRUE(node->Init(nlohmann::json::object(), session_ctx_.get()));
 
   AlgContext empty_ctx;
-  EXPECT_NE(node->Process(&empty_ctx), 0);
+  EXPECT_EQ(node->Process(&empty_ctx), -4001);
 }
 
 }  // namespace alg_framework

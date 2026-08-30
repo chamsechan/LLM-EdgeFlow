@@ -60,7 +60,7 @@ TEST_F(OcrDetectNodeTest, MissingInputFailsClosed) {
   ASSERT_TRUE(node->Init({{"bind_model", "ocr_model_v1"}}, session_ctx_.get()));
 
   AlgContext empty_ctx;
-  EXPECT_NE(node->Process(&empty_ctx), 0);
+  EXPECT_EQ(node->Process(&empty_ctx), -7101);
 }
 
 TEST_F(OcrDetectNodeTest, InvalidModelOutputFailsClosed) {

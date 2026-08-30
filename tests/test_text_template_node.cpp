@@ -86,7 +86,7 @@ TEST_F(TextTemplateNodeTest, MissingRequiredVariableFailsClosed) {
       std::unordered_map<std::string, std::string>{{"other_key", "value"}});
   ctx.Set("attributes", attrs);
 
-  EXPECT_NE(node->Process(&ctx), 0);
+  EXPECT_EQ(node->Process(&ctx), -6202);
 }
 
 // 3. Dynamic Attribute Successfully Rendered

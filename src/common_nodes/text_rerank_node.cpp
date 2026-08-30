@@ -11,6 +11,7 @@
 #include "core/node_registry.h"
 #include "engine/model_interface.h"
 #include "nodes/model_bound_node.h"
+#include "nodes/node_error_codes.h"
 
 namespace alg_framework {
 
@@ -51,7 +52,7 @@ class TextRerankNode final : public ModelBoundNode<IRerankModel> {
     const auto* pairs = in_pairs_.Get(req_ctx);
 
     if (!pairs && !queries) {
-      return -7001;
+      return node_error::text_rerank::kMissingInput;
     }
 
     QueryCandidatesBatch pair_items;
@@ -121,13 +122,15 @@ class TextRerankNode final : public ModelBoundNode<IRerankModel> {
     }
 
     if (pair_scores.size() != cand_payloads.size()) {
-      return Fail(req_ctx, -1, "TextRerankNode: score count mismatch");
+      return Fail(req_ctx, node_error::text_rerank::kModelOutputMismatch,
+                  "TextRerankNode: score count mismatch");
     }
 
     for (size_t i = 0; i < pair_scores.size(); ++i) {
       if (pair_scores[i].req_id != cand_payloads[i].req_id ||
           pair_scores[i].sub_id != cand_payloads[i].sub_id) {
-        return Fail(req_ctx, -1, "TextRerankNode: score provenance mismatch");
+        return Fail(req_ctx, node_error::text_rerank::kModelOutputMismatch,
+                    "TextRerankNode: score provenance mismatch");
       }
     }
 

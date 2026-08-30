@@ -3,10 +3,12 @@
 #include <string>
 #include <vector>
 
+#include "company_alg_log.h"
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
 #include "engine/model_interface.h"
 #include "nodes/model_bound_node.h"
+#include "nodes/node_error_codes.h"
 
 namespace alg_framework {
 
@@ -39,9 +41,10 @@ class TextEmbeddingNode final : public ModelBoundNode<IEmbeddingModel> {
 
   int ProcessNode(AlgContext& req_ctx) override {
     const auto* text_items =
-        in_text_.Require(req_ctx, -4101, "TextEmbeddingNode input");
+        in_text_.Require(req_ctx, node_error::text_embedding::kMissingInput,
+                         "TextEmbeddingNode input");
     if (!text_items) {
-      return -4101;
+      return node_error::text_embedding::kMissingInput;
     }
 
     if (text_items->empty()) {
@@ -71,7 +74,10 @@ class TextEmbeddingNode final : public ModelBoundNode<IEmbeddingModel> {
             return output;
           });
       if (!cached) {
-        return Fail(req_ctx, infer_err != 0 ? infer_err : -5101,
+        return Fail(req_ctx,
+                    infer_err != 0
+                        ? infer_err
+                        : node_error::text_embedding::kSessionInferenceFailed,
                     "TextEmbeddingNode: single-flight inference failed");
       }
       out_embedding_.Set(req_ctx, *cached);
@@ -151,4 +157,3 @@ REGISTER_NODE_WITH_DEFINITION(TextEmbeddingNode,
                               MakeTextEmbeddingNodeDefinition());
 
 }  // namespace alg_framework
-#include "company_alg_log.h"

@@ -3,6 +3,7 @@
 #include "core/node_registry.h"
 #include "engine/model_interface.h"
 #include "nodes/model_bound_node.h"
+#include "nodes/node_error_codes.h"
 
 namespace alg_framework {
 
@@ -30,9 +31,10 @@ class AsrTranscribeNode final : public ModelBoundNode<IAsrModel> {
 
   int ProcessNode(AlgContext& req_ctx) override {
     const auto* audio_items =
-        in_audio_.Require(req_ctx, -7001, "AsrTranscribeNode audio input");
+        in_audio_.Require(req_ctx, node_error::asr_transcribe::kMissingInput,
+                          "AsrTranscribeNode audio input");
     if (!audio_items) {
-      return -7001;
+      return node_error::asr_transcribe::kMissingInput;
     }
 
     if (audio_items->empty()) {
@@ -52,13 +54,14 @@ class AsrTranscribeNode final : public ModelBoundNode<IAsrModel> {
     }
 
     if (transcripts.size() != audio_items->size()) {
-      return Fail(req_ctx, -7002,
+      return Fail(req_ctx, node_error::asr_transcribe::kOutputCountMismatch,
                   "AsrTranscribeNode: transcript count mismatch");
     }
     for (size_t i = 0; i < transcripts.size(); ++i) {
       if (transcripts[i].req_id != (*audio_items)[i].req_id ||
           transcripts[i].sub_id != (*audio_items)[i].sub_id) {
-        return Fail(req_ctx, -7003,
+        return Fail(req_ctx,
+                    node_error::asr_transcribe::kOutputProvenanceMismatch,
                     "AsrTranscribeNode: transcript provenance mismatch");
       }
     }

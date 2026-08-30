@@ -236,17 +236,17 @@ TEST_F(TextRerankNodeTest, FailuresAndProvenanceMismatch) {
 
   // Score error
   fake_model_->fail_score_ = true;
-  EXPECT_NE(node->Process(&ctx), 0);
+  EXPECT_EQ(node->Process(&ctx), -1);
 
   // Score count mismatch
   fake_model_->fail_score_ = false;
   fake_model_->return_wrong_count_ = true;
-  EXPECT_NE(node->Process(&ctx), 0);
+  EXPECT_EQ(node->Process(&ctx), -1);
 
   // Score provenance mismatch
   fake_model_->return_wrong_count_ = false;
   fake_model_->corrupt_provenance_ = true;
-  EXPECT_NE(node->Process(&ctx), 0);
+  EXPECT_EQ(node->Process(&ctx), -1);
 }
 
 // 7. Port Constraints Validation Check

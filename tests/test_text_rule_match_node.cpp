@@ -79,7 +79,7 @@ TEST_F(TextRuleMatchNodeTest, MissingInputFailsClosed) {
   ASSERT_TRUE(node->Init(nlohmann::json::object(), session_ctx_.get()));
 
   AlgContext empty_ctx;
-  EXPECT_NE(node->Process(&empty_ctx), 0);
+  EXPECT_EQ(node->Process(&empty_ctx), -5001);
 }
 
 }  // namespace alg_framework
