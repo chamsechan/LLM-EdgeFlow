@@ -96,7 +96,7 @@ NodeDefinition MakeTextChunkNodeDefinition() {
       OutputPort("chunks", BlackboardKey<TextBatch>{"", "TextBatch"}, false,
                  "1:N", "generate_sub_id", "request"),
       OutputPort("chunk_counts", BlackboardKey<Int32Batch>{"", "Int32Batch"},
-                 /*allow_override=*/true, "1:1", "preserve", "request")};
+                 /*allow_override=*/false, "1:1", "preserve", "request")};
   def.config_fields = {
       ConfigFieldDefinition{"chunk_size", ConfigValueKind::kInteger, false, 100,
                             1.0, 1000000.0},

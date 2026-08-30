@@ -142,10 +142,12 @@ class CountingNode : public INode {
   inline static constexpr char kNodeType[] = "CountingNode";
   static inline std::atomic<int> create_count{0};
   static inline std::atomic<int> init_count{0};
+  static inline SessionContext* init_session_ctx = nullptr;
 
   static void Reset() {
     create_count.store(0);
     init_count.store(0);
+    init_session_ctx = nullptr;
   }
 
   CountingNode() { create_count.fetch_add(1); }
@@ -153,7 +155,7 @@ class CountingNode : public INode {
   bool Init(const nlohmann::json& config,
             SessionContext* session_ctx) override {
     (void)config;
-    (void)session_ctx;
+    init_session_ctx = session_ctx;
     init_count.fetch_add(1);
     return true;
   }
@@ -1172,6 +1174,42 @@ TEST_F(PipelineConfigTest, MaterializationExceptionsAndFineGrainedDiagnostics) {
                 std::string::npos);
     EXPECT_EQ(p.GetState(), Pipeline::State::kFailed);
   }
+}
+
+TEST_F(PipelineConfigTest, FailedNodeInitDoesNotPublishStagedModels) {
+  const nlohmann::json config = {
+      {"biz_name", "transaction_test"},
+      {"models", nlohmann::json::array({CountingModelEntry("staged_model")})},
+      {"pipeline",
+       nlohmann::json::array({{{"id", "failing_node"},
+                               {"node_type", FailingInitNode::kNodeType},
+                               {"depends_on", nlohmann::json::array()}}})}};
+
+  Pipeline pipeline;
+  PipelineDiagnostic diagnostic;
+  EXPECT_FALSE(pipeline.BuildFromJson(
+      config, &diagnostic, ValidationPolicy::kPrivateExtensionCompatible));
+  EXPECT_EQ(diagnostic.code, PipelineErrorCode::kNodeInitFailed);
+  EXPECT_EQ(CountingModel::create_count.load(), 1);
+  EXPECT_FALSE(
+      pipeline.GetSessionContext().GetModelManager().HasModel("staged_model"));
+  EXPECT_TRUE(
+      pipeline.GetSessionContext().GetModelManager().GetAllModels().empty());
+  EXPECT_EQ(pipeline.GetState(), Pipeline::State::kFailed);
+}
+
+TEST_F(PipelineConfigTest, CommittedSessionKeepsNodeInitAddressStable) {
+  const nlohmann::json config = {
+      {"biz_name", "address_stability_test"},
+      {"pipeline",
+       nlohmann::json::array({{{"id", "counting_node"},
+                               {"node_type", CountingNode::kNodeType},
+                               {"depends_on", nlohmann::json::array()}}})}};
+
+  Pipeline pipeline;
+  ASSERT_TRUE(pipeline.BuildFromJson(
+      config, nullptr, ValidationPolicy::kPrivateExtensionCompatible));
+  EXPECT_EQ(CountingNode::init_session_ctx, &pipeline.GetSessionContext());
 }
 
 // 5. 一次性构建契约与生命周期状态机测试 (R1-ACC-002 & RECHECK-R1-001)

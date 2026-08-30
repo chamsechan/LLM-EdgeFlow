@@ -919,10 +919,10 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
                                  output.lifetime, PortDirection::kOutput});
 
       auto& existing = producers[actual_key];
-      if (!existing.empty() && !output.allow_override) {
+      if (!existing.empty()) {
         Add(&report, DiagnosticCode::kDuplicatePortProducer,
             "/pipeline/" + std::to_string(node.source_index),
-            "Port is produced more than once without override permission: " +
+            "Write-once Blackboard port is produced more than once: " +
                 actual_key,
             id, output.key, {existing.back().first});
       }
@@ -1021,10 +1021,19 @@ bool PipelineValidator::NormalizeExplicitDag(const nlohmann::json& root,
 
   nlohmann::json normalized = root;
   auto& pipeline = normalized["pipeline"];
+  for (size_t i = 0; i < pipeline.size(); ++i) {
+    if (pipeline[i].is_object()) continue;
+    if (diagnostic) {
+      diagnostic->code = DiagnosticCode::kFieldType;
+      diagnostic->path = "/pipeline/" + std::to_string(i);
+      diagnostic->message = "Node item must be an object";
+    }
+    return false;
+  }
+
   std::vector<std::string> ids;
   ids.reserve(pipeline.size());
   for (size_t i = 0; i < pipeline.size(); ++i) {
-    if (!pipeline[i].is_object()) continue;
     std::string id = pipeline[i].contains("id") &&
                              pipeline[i]["id"].is_string() &&
                              !pipeline[i]["id"].get<std::string>().empty()
@@ -1036,7 +1045,6 @@ bool PipelineValidator::NormalizeExplicitDag(const nlohmann::json& root,
   }
 
   for (size_t i = 0; i < pipeline.size(); ++i) {
-    if (!pipeline[i].is_object()) continue;
     if (!pipeline[i].contains("depends_on") ||
         !pipeline[i]["depends_on"].is_array()) {
       pipeline[i]["depends_on"] = i == 0 ? nlohmann::json::array()

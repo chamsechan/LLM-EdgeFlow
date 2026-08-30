@@ -1,9 +1,15 @@
 #include <gtest/gtest.h>
 
+#include <atomic>
+#include <chrono>
+#include <condition_variable>
+#include <future>
 #include <iostream>
 #include <mutex>
 #include <nlohmann/json.hpp>
+#include <stdexcept>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -172,6 +178,75 @@ REGISTER_NODE_WITH_DEFINITION(DagTestNodeD,
                                              {{"node_b_out", "string"},
                                               {"node_c_out", "string"}},
                                              {{"final_dag_result", "string"}}));
+
+class ThrowingProcessDagNode : public INode {
+ public:
+  inline static constexpr char kNodeType[] = "ThrowingProcessDagNode";
+  bool Init(const nlohmann::json&, SessionContext*) override { return true; }
+  int Process(AlgContext*) override {
+    throw std::runtime_error("parallel process failure");
+  }
+  const std::string& Name() const override {
+    static const std::string name = kNodeType;
+    return name;
+  }
+};
+REGISTER_NODE_WITH_DEFINITION(ThrowingProcessDagNode,
+                              MakeDagNodeDef(ThrowingProcessDagNode::kNodeType,
+                                             {}, {}));
+
+class GatedProcessDagNode : public INode {
+ public:
+  inline static constexpr char kNodeType[] = "GatedProcessDagNode";
+
+  static void Reset() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    started_ = false;
+    released_ = false;
+    completed_.store(false);
+  }
+
+  static bool WaitUntilStarted(std::chrono::milliseconds timeout) {
+    std::unique_lock<std::mutex> lock(mutex_);
+    return condition_.wait_for(lock, timeout, []() { return started_; });
+  }
+
+  static void Release() {
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      released_ = true;
+    }
+    condition_.notify_all();
+  }
+
+  static bool Completed() { return completed_.load(); }
+
+  bool Init(const nlohmann::json&, SessionContext*) override { return true; }
+  int Process(AlgContext*) override {
+    {
+      std::unique_lock<std::mutex> lock(mutex_);
+      started_ = true;
+      condition_.notify_all();
+      condition_.wait(lock, []() { return released_; });
+    }
+    completed_.store(true);
+    return 0;
+  }
+  const std::string& Name() const override {
+    static const std::string name = kNodeType;
+    return name;
+  }
+
+ private:
+  static inline std::mutex mutex_;
+  static inline std::condition_variable condition_;
+  static inline bool started_ = false;
+  static inline bool released_ = false;
+  static inline std::atomic<bool> completed_{false};
+};
+REGISTER_NODE_WITH_DEFINITION(GatedProcessDagNode,
+                              MakeDagNodeDef(GatedProcessDagNode::kNodeType, {},
+                                             {}));
 
 // -----------------------------------------------------------------------------
 // GTest 测试套件
@@ -369,6 +444,39 @@ TEST_F(DagPipelineTest, ParallelWavefrontExecution) {
   ASSERT_NE(final_res, nullptr);
   EXPECT_EQ(*final_res,
             "DataFromB_after_DataFromA + DataFromC_after_DataFromA");
+}
+
+TEST_F(DagPipelineTest, ParallelExceptionWaitsForAllSubmittedNodes) {
+  const nlohmann::json config = {
+      {"business_name", "parallel_exception_test"},
+      {"execution_mode", "parallel"},
+      {"max_parallel_workers", 2},
+      {"pipeline",
+       nlohmann::json::array({{{"id", "throwing"},
+                               {"node_type", ThrowingProcessDagNode::kNodeType},
+                               {"depends_on", nlohmann::json::array()}},
+                              {{"id", "gated"},
+                               {"node_type", GatedProcessDagNode::kNodeType},
+                               {"depends_on", nlohmann::json::array()}}})}};
+
+  GatedProcessDagNode::Reset();
+  Pipeline pipeline;
+  ASSERT_TRUE(pipeline.BuildFromJson(
+      config, nullptr, ValidationPolicy::kPrivateExtensionCompatible));
+
+  AlgContext context;
+  auto execution = std::async(std::launch::async,
+                              [&]() { return pipeline.Execute(&context); });
+  EXPECT_TRUE(GatedProcessDagNode::WaitUntilStarted(std::chrono::seconds(1)));
+  EXPECT_EQ(execution.wait_for(std::chrono::milliseconds(50)),
+            std::future_status::timeout);
+
+  GatedProcessDagNode::Release();
+  EXPECT_EQ(execution.get(), -1);
+  EXPECT_TRUE(GatedProcessDagNode::Completed());
+  EXPECT_FALSE(context.IsOk());
+  EXPECT_NE(context.GetErrorMessage().find("parallel process failure"),
+            std::string::npos);
 }
 
 // 8. 黑板高并发读写线程安全性压测 (Thread-Safe AlgContext Stress Test)

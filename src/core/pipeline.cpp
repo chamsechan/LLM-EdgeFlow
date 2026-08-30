@@ -2,11 +2,9 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <exception>
 #include <fstream>
 #include <future>
-#include <queue>
-#include <unordered_map>
-#include <unordered_set>
 
 #include "company_alg_log.h"
 #include "core/node_registry.h"
@@ -83,9 +81,227 @@ PipelineErrorCode ValidationCodeToPipelineCode(DiagnosticCode code) {
   return PipelineErrorCode::kInvalidCombination;
 }
 
+struct RuntimeAssembly {
+  std::unique_ptr<ValidatedPipelinePlan> plan;
+  std::unique_ptr<SessionContext> session;
+  Pipeline::ExecutionMode execution_mode = Pipeline::ExecutionMode::SEQUENTIAL;
+  size_t max_parallel_workers = 4;
+  std::vector<std::unique_ptr<INode>> nodes;
+  std::vector<std::vector<INode*>> node_layers;
+  std::unique_ptr<ThreadPool> thread_pool;
+};
+
+struct NodeExecutionResult {
+  int code = 0;
+  std::string message;
+};
+
+bool MaterializeModels(const ValidatedPipelinePlan& plan,
+                       SessionContext* session,
+                       PipelineDiagnostic* diagnostic) {
+  std::vector<ModelRegistration> staged_models;
+  staged_models.reserve(plan.models.size());
+
+  for (const auto& model_plan : plan.models) {
+    ModelLoadSpec spec;
+    spec.model_type = model_plan.model_type;
+    spec.backend_type = model_plan.backend;
+    spec.model_path = model_plan.resolved_model_path;
+    spec.model_config = model_plan.normalized_model_config;
+    spec.backend_config = model_plan.normalized_backend_config;
+
+    std::string factory_diag;
+    auto model = ModelRuntimeFactory::Create(spec, &factory_diag);
+    if (!model) {
+      if (diagnostic) {
+        diagnostic->code = PipelineErrorCode::kModelMaterializationFailed;
+        diagnostic->path = "/models/" + std::to_string(model_plan.source_index);
+        diagnostic->message =
+            "ModelRuntimeFactory failed to load model: " + model_plan.model_id +
+            (factory_diag.empty() ? "" : (" (" + factory_diag + ")"));
+      }
+      ALG_LOG_ERROR("[Pipeline] Failed to load model [%s]: %s\n",
+                    model_plan.model_id.c_str(), factory_diag.c_str());
+      return false;
+    }
+
+    ModelRegistration registration;
+    registration.model_id = model_plan.model_id;
+    registration.model_type = model_plan.model_type;
+    registration.capability = model_plan.capability;
+    registration.backend_type = model_plan.backend;
+    registration.resolved_model_path = model_plan.resolved_model_path;
+    registration.normalized_model_config = model_plan.normalized_model_config;
+    registration.normalized_backend_config =
+        model_plan.normalized_backend_config;
+    registration.model = std::move(model);
+    staged_models.push_back(std::move(registration));
+  }
+
+  if (!session->GetModelManager().RegisterBatch(staged_models)) {
+    if (diagnostic) {
+      diagnostic->code = PipelineErrorCode::kDuplicateModelId;
+      diagnostic->path = "/models";
+      diagnostic->message =
+          "Failed to atomically register batch models in ModelManager";
+    }
+    return false;
+  }
+  return true;
+}
+
+void ConfigureExecutor(const ParsedPipelineConfig& config,
+                       RuntimeAssembly* assembly) {
+  if (config.execution_mode == "parallel") {
+    assembly->execution_mode = Pipeline::ExecutionMode::PARALLEL;
+    assembly->max_parallel_workers = config.max_parallel_workers;
+    assembly->thread_pool =
+        std::make_unique<ThreadPool>(assembly->max_parallel_workers);
+    ALG_LOG_INFO(
+        "[Pipeline] Parallel Wavefront Execution Mode enabled (workers: %zu)\n",
+        assembly->max_parallel_workers);
+    return;
+  }
+
+  assembly->execution_mode = Pipeline::ExecutionMode::SEQUENTIAL;
+  assembly->thread_pool.reset();
+  ALG_LOG_INFO("[Pipeline] Sequential Execution Mode active\n");
+}
+
+bool MaterializeNodes(RuntimeAssembly* assembly,
+                      PipelineDiagnostic* diagnostic) {
+  const auto& plan = *assembly->plan;
+  for (size_t layer_index = 0; layer_index < plan.topological_layers.size();
+       ++layer_index) {
+    std::vector<INode*> layer_nodes;
+    for (const auto& node_id : plan.topological_layers[layer_index]) {
+      auto plan_it = plan.node_plans.find(node_id);
+      if (plan_it == plan.node_plans.end()) {
+        if (diagnostic) {
+          diagnostic->code = PipelineErrorCode::kInternalException;
+          diagnostic->path = "/pipeline";
+          diagnostic->message =
+              "Validated plan is missing node materialization data: " + node_id;
+        }
+        return false;
+      }
+
+      const auto& node_plan = plan_it->second;
+      const auto& node_config = node_plan.node;
+      std::unique_ptr<INode> node;
+      try {
+        node = NodeFactory::Instance().Create(node_config.node_type);
+      } catch (const std::exception& e) {
+        if (diagnostic) {
+          diagnostic->code = PipelineErrorCode::kNodeCreateFailed;
+          diagnostic->path = "/pipeline/" +
+                             std::to_string(node_config.source_index) +
+                             "/node_type";
+          diagnostic->message = "Exception creating node '" +
+                                node_config.node_type + "': " + e.what();
+        }
+        return false;
+      } catch (...) {
+        if (diagnostic) {
+          diagnostic->code = PipelineErrorCode::kNodeCreateFailed;
+          diagnostic->path = "/pipeline/" +
+                             std::to_string(node_config.source_index) +
+                             "/node_type";
+          diagnostic->message =
+              "Unknown exception creating node '" + node_config.node_type + "'";
+        }
+        return false;
+      }
+
+      if (!node) {
+        if (diagnostic) {
+          diagnostic->code = PipelineErrorCode::kNodeCreateFailed;
+          diagnostic->path = "/pipeline/" +
+                             std::to_string(node_config.source_index) +
+                             "/node_type";
+          diagnostic->message = "NodeFactory returned null for node_type: " +
+                                node_config.node_type;
+        }
+        ALG_LOG_ERROR("[Pipeline] Failed to create node: %s\n",
+                      node_config.node_type.c_str());
+        return false;
+      }
+
+      bool init_ok = false;
+      try {
+        NodeInitContext init_ctx;
+        init_ctx.plan = &node_plan;
+        init_ctx.config = &node_plan.normalized_config;
+        init_ctx.session_ctx = assembly->session.get();
+        init_ok = node->Init(init_ctx);
+      } catch (const std::exception& e) {
+        if (diagnostic) {
+          diagnostic->code = PipelineErrorCode::kNodeInitFailed;
+          diagnostic->path = "/pipeline/" +
+                             std::to_string(node_config.source_index) +
+                             "/config";
+          diagnostic->message = "Exception initializing node '" +
+                                node_config.node_type + "': " + e.what();
+        }
+        return false;
+      } catch (...) {
+        if (diagnostic) {
+          diagnostic->code = PipelineErrorCode::kNodeInitFailed;
+          diagnostic->path = "/pipeline/" +
+                             std::to_string(node_config.source_index) +
+                             "/config";
+          diagnostic->message = "Unknown exception initializing node '" +
+                                node_config.node_type + "'";
+        }
+        return false;
+      }
+
+      if (!init_ok) {
+        if (diagnostic) {
+          diagnostic->code = PipelineErrorCode::kNodeInitFailed;
+          diagnostic->path = "/pipeline/" +
+                             std::to_string(node_config.source_index) +
+                             "/config";
+          diagnostic->message = "Failed to initialize node '" +
+                                node_config.node_type +
+                                "' (id: " + node_config.id + ")";
+        }
+        ALG_LOG_ERROR("[Pipeline] Failed to initialize node: %s (id: %s)\n",
+                      node_config.node_type.c_str(), node_config.id.c_str());
+        return false;
+      }
+
+      layer_nodes.push_back(node.get());
+      assembly->nodes.push_back(std::move(node));
+      ALG_LOG_DEBUG("[Pipeline] Initialized node [%s] (id: %s, layer: %zu)\n",
+                    node_config.node_type.c_str(), node_config.id.c_str(),
+                    layer_index);
+    }
+    assembly->node_layers.push_back(std::move(layer_nodes));
+  }
+
+  ALG_LOG_DEBUG(
+      "[Pipeline] DAG Wavefront Topology created with %zu execution layers:\n",
+      assembly->node_layers.size());
+  for (size_t i = 0; i < plan.topological_layers.size(); ++i) {
+    std::string node_ids;
+    for (size_t j = 0; j < plan.topological_layers[i].size(); ++j) {
+      node_ids += plan.topological_layers[i][j];
+      if (j + 1 < plan.topological_layers[i].size()) node_ids += ", ";
+    }
+    ALG_LOG_DEBUG(
+        "  Layer %zu [%s]: %s\n", i,
+        assembly->node_layers[i].size() > 1 ? "Parallel" : "Sequential",
+        node_ids.c_str());
+  }
+  return true;
+}
+
 }  // namespace
 
-Pipeline::Pipeline() = default;
+Pipeline::Pipeline()
+    : session_ctx_(std::make_unique<SessionContext>()),
+      plan_(std::make_unique<ValidatedPipelinePlan>()) {}
 
 bool Pipeline::BuildFromConfigFile(const std::string& config_file_path,
                                    PipelineDiagnostic* diagnostic,
@@ -217,13 +433,15 @@ bool Pipeline::BuildInternal(const nlohmann::json& root_config,
     test_internal_hook_();
   }
 
-  // 唯一单趟校验与执行计划生成 (Single-Pass Validate and Plan)
-  plan_ = PipelineValidator::ValidateAndPlan(
-      root_config, policy, session_ctx_.GetRuntimeOptions().model_root_dir);
+  RuntimeAssembly assembly;
+  assembly.plan = std::make_unique<ValidatedPipelinePlan>(
+      PipelineValidator::ValidateAndPlan(
+          root_config, policy,
+          session_ctx_->GetRuntimeOptions().model_root_dir));
 
-  if (!plan_.report.ok) {
-    if (!plan_.report.diagnostics.empty()) {
-      const auto& item = plan_.report.diagnostics.front();
+  if (!assembly.plan->report.ok) {
+    if (!assembly.plan->report.diagnostics.empty()) {
+      const auto& item = assembly.plan->report.diagnostics.front();
       const char* code_str = DiagnosticCodeName(item.code);
       if (diagnostic) {
         diagnostic->code = ValidationCodeToPipelineCode(item.code);
@@ -236,214 +454,27 @@ bool Pipeline::BuildInternal(const nlohmann::json& root_config,
     return false;
   }
 
-  const auto& parsed_cfg = plan_.config;
+  assembly.session = std::make_unique<SessionContext>();
+  assembly.session->SetRuntimeOptions(session_ctx_->GetRuntimeOptions());
 
-  // 1. 加载配置中声明的所有模型：先在局部 staging 向量完成
-  // Backend/Model 创建，仅当全部成功后原子提交到 ModelManager。
-  std::vector<ModelRegistration> staged_new_models;
-  staged_new_models.reserve(plan_.models.size());
-
-  // 按 ValidatedPipelinePlan.models 批量物化并暂存。
-  for (const auto& model_plan : plan_.models) {
-    ModelLoadSpec spec;
-    spec.model_type = model_plan.model_type;
-    spec.backend_type = model_plan.backend;
-    spec.model_path = model_plan.resolved_model_path;
-    spec.model_config = model_plan.normalized_model_config;
-    spec.backend_config = model_plan.normalized_backend_config;
-
-    std::string factory_diag;
-    std::shared_ptr<IModel> model;
-    try {
-      model = ModelRuntimeFactory::Create(spec, &factory_diag);
-    } catch (const std::exception& e) {
-      if (diagnostic) {
-        diagnostic->code = PipelineErrorCode::kModelMaterializationFailed;
-        diagnostic->path = "/models/" + std::to_string(model_plan.source_index);
-        diagnostic->message = "Exception creating model '" +
-                              model_plan.model_id + "': " + e.what();
-      }
-      return false;
-    } catch (...) {
-      if (diagnostic) {
-        diagnostic->code = PipelineErrorCode::kModelMaterializationFailed;
-        diagnostic->path = "/models/" + std::to_string(model_plan.source_index);
-        diagnostic->message =
-            "Unknown exception creating model '" + model_plan.model_id + "'";
-      }
-      return false;
-    }
-
-    if (!model) {
-      if (diagnostic) {
-        diagnostic->code = PipelineErrorCode::kModelMaterializationFailed;
-        diagnostic->path = "/models/" + std::to_string(model_plan.source_index);
-        diagnostic->message =
-            "ModelRuntimeFactory failed to load model: " + model_plan.model_id +
-            (factory_diag.empty() ? "" : (" (" + factory_diag + ")"));
-      }
-      ALG_LOG_ERROR("[Pipeline] Failed to load model [%s]: %s\n",
-                    model_plan.model_id.c_str(), factory_diag.c_str());
-      return false;
-    }
-
-    ModelRegistration reg;
-    reg.model_id = model_plan.model_id;
-    reg.model_type = model_plan.model_type;
-    reg.capability = model_plan.capability;
-    reg.backend_type = model_plan.backend;
-    reg.resolved_model_path = model_plan.resolved_model_path;
-    reg.normalized_model_config = model_plan.normalized_model_config;
-    reg.normalized_backend_config = model_plan.normalized_backend_config;
-    reg.model = std::move(model);
-    staged_new_models.push_back(std::move(reg));
-  }
-
-  // 统一单锁原子提交到 Session ModelManager。
-  if (!session_ctx_.GetModelManager().RegisterBatch(staged_new_models)) {
-    if (diagnostic) {
-      diagnostic->code = PipelineErrorCode::kDuplicateModelId;
-      diagnostic->path = "/models";
-      diagnostic->message =
-          "Failed to atomically register batch models in ModelManager";
-    }
+  if (!MaterializeModels(*assembly.plan, assembly.session.get(), diagnostic)) {
     return false;
   }
-
-  // 2. 解析 execution_mode 执行策略与线程池
-  if (parsed_cfg.execution_mode == "parallel") {
-    execution_mode_ = ExecutionMode::PARALLEL;
-    max_parallel_workers_ = parsed_cfg.max_parallel_workers;
-    thread_pool_ = std::make_unique<ThreadPool>(max_parallel_workers_);
-    ALG_LOG_INFO(
-        "[Pipeline] Parallel Wavefront Execution Mode enabled (workers: %zu)\n",
-        max_parallel_workers_);
-  } else {
-    execution_mode_ = ExecutionMode::SEQUENTIAL;
-    thread_pool_.reset();
-    ALG_LOG_INFO("[Pipeline] Sequential Execution Mode active\n");
+  if (!MaterializeNodes(&assembly, diagnostic)) {
+    return false;
   }
+  ConfigureExecutor(assembly.plan->config, &assembly);
 
-  // 3. 按照波前拓扑层直接物化算子节点
-  std::unordered_map<std::string, const ParsedNodeConfig*> node_by_id;
-  for (const auto& node_cfg : parsed_cfg.nodes) {
-    node_by_id[node_cfg.id] = &node_cfg;
-  }
-
-  for (size_t layer_idx = 0; layer_idx < plan_.topological_layers.size();
-       ++layer_idx) {
-    std::vector<INode*> layer_ptrs;
-    for (const auto& node_id : plan_.topological_layers[layer_idx]) {
-      auto it = node_by_id.find(node_id);
-      if (it == node_by_id.end() || !it->second) continue;
-      const auto& meta = *it->second;
-
-      std::unique_ptr<INode> node;
-      try {
-        node = NodeFactory::Instance().Create(meta.node_type);
-      } catch (const std::exception& e) {
-        if (diagnostic) {
-          diagnostic->code = PipelineErrorCode::kNodeCreateFailed;
-          diagnostic->path =
-              "/pipeline/" + std::to_string(meta.source_index) + "/node_type";
-          diagnostic->message =
-              "Exception creating node '" + meta.node_type + "': " + e.what();
-        }
-        return false;
-      } catch (...) {
-        if (diagnostic) {
-          diagnostic->code = PipelineErrorCode::kNodeCreateFailed;
-          diagnostic->path =
-              "/pipeline/" + std::to_string(meta.source_index) + "/node_type";
-          diagnostic->message =
-              "Unknown exception creating node '" + meta.node_type + "'";
-        }
-        return false;
-      }
-
-      if (!node) {
-        if (diagnostic) {
-          diagnostic->code = PipelineErrorCode::kNodeCreateFailed;
-          diagnostic->path =
-              "/pipeline/" + std::to_string(meta.source_index) + "/node_type";
-          diagnostic->message =
-              "NodeFactory returned null for node_type: " + meta.node_type;
-        }
-        ALG_LOG_ERROR("[Pipeline] Failed to create node: %s\n",
-                      meta.node_type.c_str());
-        return false;
-      }
-
-      bool init_ok = false;
-      try {
-        const ValidatedNodePlan* node_plan_ptr = nullptr;
-        auto np_it = plan_.node_plans.find(meta.id);
-        if (np_it != plan_.node_plans.end()) {
-          node_plan_ptr = &np_it->second;
-        }
-
-        NodeInitContext init_ctx;
-        init_ctx.plan = node_plan_ptr;
-        init_ctx.config =
-            node_plan_ptr ? &node_plan_ptr->normalized_config : &meta.config;
-        init_ctx.session_ctx = &session_ctx_;
-
-        init_ok = node->Init(init_ctx);
-      } catch (const std::exception& e) {
-        if (diagnostic) {
-          diagnostic->code = PipelineErrorCode::kNodeInitFailed;
-          diagnostic->path =
-              "/pipeline/" + std::to_string(meta.source_index) + "/config";
-          diagnostic->message = "Exception initializing node '" +
-                                meta.node_type + "': " + e.what();
-        }
-        return false;
-      } catch (...) {
-        if (diagnostic) {
-          diagnostic->code = PipelineErrorCode::kNodeInitFailed;
-          diagnostic->path =
-              "/pipeline/" + std::to_string(meta.source_index) + "/config";
-          diagnostic->message =
-              "Unknown exception initializing node '" + meta.node_type + "'";
-        }
-        return false;
-      }
-
-      if (!init_ok) {
-        if (diagnostic) {
-          diagnostic->code = PipelineErrorCode::kNodeInitFailed;
-          diagnostic->path =
-              "/pipeline/" + std::to_string(meta.source_index) + "/config";
-          diagnostic->message = "Failed to initialize node '" + meta.node_type +
-                                "' (id: " + meta.id + ")";
-        }
-        ALG_LOG_ERROR("[Pipeline] Failed to initialize node: %s (id: %s)\n",
-                      meta.node_type.c_str(), meta.id.c_str());
-        return false;
-      }
-
-      layer_ptrs.push_back(node.get());
-      nodes_.push_back(std::move(node));
-      ALG_LOG_DEBUG("[Pipeline] Initialized node [%s] (id: %s, layer: %zu)\n",
-                    meta.node_type.c_str(), meta.id.c_str(), layer_idx);
-    }
-    node_layers_.push_back(std::move(layer_ptrs));
-  }
-
-  ALG_LOG_DEBUG(
-      "[Pipeline] DAG Wavefront Topology created with %zu execution layers:\n",
-      node_layers_.size());
-  for (size_t i = 0; i < plan_.topological_layers.size(); ++i) {
-    std::string node_ids;
-    for (size_t j = 0; j < plan_.topological_layers[i].size(); ++j) {
-      node_ids += plan_.topological_layers[i][j];
-      if (j + 1 < plan_.topological_layers[i].size()) node_ids += ", ";
-    }
-    ALG_LOG_DEBUG("  Layer %zu [%s]: %s\n", i,
-                  node_layers_[i].size() > 1 ? "Parallel" : "Sequential",
-                  node_ids.c_str());
-  }
-
+  // The pointed-to Plan and Session objects keep the same addresses across
+  // this ownership transfer, so pointers retained by initialized Nodes stay
+  // valid. No Pipeline runtime state is published before this point.
+  plan_ = std::move(assembly.plan);
+  session_ctx_ = std::move(assembly.session);
+  execution_mode_ = assembly.execution_mode;
+  max_parallel_workers_ = assembly.max_parallel_workers;
+  nodes_ = std::move(assembly.nodes);
+  node_layers_ = std::move(assembly.node_layers);
+  thread_pool_ = std::move(assembly.thread_pool);
   return true;
 }
 
@@ -470,29 +501,78 @@ int Pipeline::Execute(AlgContext* req_ctx) {
         }
       }
     } else {
-      // 多节点并发层：分发到线程池并发执行，并等待本波前汇聚
-      std::vector<std::future<int>> futures;
+      // 多节点并发层：每个任务都有异常屏障，且所有已提交任务都会在
+      // Execute 返回前完成，避免后台任务继续访问调用方持有的 req_ctx。
+      std::vector<std::future<NodeExecutionResult>> futures;
       futures.reserve(layer.size());
 
-      for (auto* node : layer) {
-        futures.push_back(thread_pool_->Submit(
-            [node, req_ctx]() { return node->Process(req_ctx); }));
-      }
-
-      int first_error = 0;
-      for (size_t i = 0; i < futures.size(); ++i) {
-        int ret = futures[i].get();
-        if (ret != 0 && first_error == 0) {
-          first_error = ret;
-          ALG_LOG_ERROR(
-              "[Pipeline] Parallel Node [%s] failed with error code: %d, "
-              "msg: %s\n",
-              layer[i]->Name().c_str(), ret,
-              req_ctx->GetErrorMessage().c_str());
+      std::string submission_error;
+      for (size_t i = 0; i < layer.size(); ++i) {
+        auto* node = layer[i];
+        try {
+          futures.push_back(thread_pool_->Submit([node, req_ctx]() {
+            try {
+              const int code = node->Process(req_ctx);
+              return NodeExecutionResult{
+                  code, code == 0 ? std::string{} : req_ctx->GetErrorMessage()};
+            } catch (const std::exception& e) {
+              return NodeExecutionResult{
+                  -1, std::string("Unhandled exception in node Process: ") +
+                          e.what()};
+            } catch (...) {
+              return NodeExecutionResult{-1,
+                                         "Unknown exception in node Process"};
+            }
+          }));
+        } catch (const std::exception& e) {
+          submission_error = "Failed to submit parallel node '" + node->Name() +
+                             "': " + e.what();
+          break;
+        } catch (...) {
+          submission_error = "Failed to submit parallel node '" + node->Name() +
+                             "': unknown exception";
+          break;
         }
       }
 
+      int first_error = 0;
+      std::string first_error_message;
+      std::string first_error_node;
+      for (size_t i = 0; i < futures.size(); ++i) {
+        NodeExecutionResult result;
+        try {
+          result = futures[i].get();
+        } catch (const std::exception& e) {
+          result = {-1,
+                    std::string("Failed to collect parallel node result: ") +
+                        e.what()};
+        } catch (...) {
+          result = {-1,
+                    "Failed to collect parallel node result: unknown "
+                    "exception"};
+        }
+
+        if (result.code != 0 && first_error == 0) {
+          first_error = result.code;
+          first_error_message = std::move(result.message);
+          first_error_node = layer[i]->Name();
+        }
+      }
+
+      if (first_error == 0 && !submission_error.empty()) {
+        first_error = -1;
+        first_error_message = std::move(submission_error);
+        first_error_node = "executor";
+      }
       if (first_error != 0) {
+        if (first_error_message.empty()) {
+          first_error_message = "Parallel node execution failed";
+        }
+        req_ctx->SetError(first_error, first_error_message);
+        ALG_LOG_ERROR(
+            "[Pipeline] Parallel Node [%s] failed with error code: %d, "
+            "msg: %s\n",
+            first_error_node.c_str(), first_error, first_error_message.c_str());
         return first_error;
       }
     }

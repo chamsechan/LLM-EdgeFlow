@@ -15,6 +15,8 @@ struct PortDefinition {
   std::string key;
   std::string type_id;
   bool required = true;
+  // Kept for source/catalog compatibility. Runtime output publication is
+  // write-once, so PipelineValidator rejects duplicate producers regardless.
   bool allow_override = false;
   std::string cardinality = "1:1";
   std::string provenance_policy = "preserve";
