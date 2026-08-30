@@ -1,8 +1,27 @@
 #include "engine/models/bge_common/bert_model_support.h"
 
+#include <algorithm>
 #include <utility>
 
+#include "engine/models/bge_embedding/bert_wordpiece_tokenizer.h"
+
 namespace alg_framework {
+
+std::shared_ptr<ITensorGraphSession> RequireTensorGraphSession(
+    const std::shared_ptr<IBackendSession>& backend_session,
+    std::string* diagnostic) {
+  auto session =
+      std::dynamic_pointer_cast<ITensorGraphSession>(backend_session);
+  if (session) return session;
+  if (diagnostic) {
+    *diagnostic = backend_session ? "Backend session does not implement "
+                                    "ITensorGraphSession protocol"
+                                  : "Backend session is null";
+  }
+  return nullptr;
+}
+
+namespace {
 
 bool ResolveTokenizerResourcePath(const std::string& model_resource_root,
                                   const std::string& tokenizer_file,
@@ -57,6 +76,18 @@ bool ResolveTokenizerResourcePath(const std::string& model_resource_root,
   return true;
 }
 
+}  // namespace
+
+bool LoadBertTokenizer(const std::string& model_resource_root,
+                       const std::string& tokenizer_file, bool do_lower_case,
+                       BertWordPieceTokenizer* tokenizer,
+                       std::string* diagnostic) {
+  std::filesystem::path resolved_path;
+  return ResolveTokenizerResourcePath(model_resource_root, tokenizer_file,
+                                      &resolved_path, diagnostic) &&
+         tokenizer->Load(resolved_path.string(), do_lower_case, diagnostic);
+}
+
 bool ValidateModelBatchLimit(const BatchPolicy& session_policy,
                              size_t model_max_batch_size,
                              std::string* diagnostic) {
@@ -71,6 +102,14 @@ bool ValidateModelBatchLimit(const BatchPolicy& session_policy,
                   std::to_string(session_policy.fixed_batch_size) + ")";
   }
   return false;
+}
+
+BatchPolicy ConstrainModelBatchPolicy(const ITensorGraphSession* session,
+                                      size_t model_max_batch_size) noexcept {
+  BatchPolicy policy{model_max_batch_size, 0};
+  if (session) policy = session->GetBatchPolicy();
+  policy.max_batch_size = std::min(model_max_batch_size, policy.max_batch_size);
+  return policy;
 }
 
 bool HasTensorInput(const std::vector<TensorSpec>& inputs,

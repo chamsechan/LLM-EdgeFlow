@@ -2,7 +2,6 @@
 
 #include <cmath>
 #include <cstring>
-#include <filesystem>
 #include <string>
 #include <utility>
 #include <vector>
@@ -89,20 +88,9 @@ BgeRerankerModel::BgeRerankerModel(std::shared_ptr<ITensorGraphSession> session,
 
 std::shared_ptr<IModel> BgeRerankerModel::Create(const ModelCreateContext& ctx,
                                                  std::string* diagnostic) {
-  if (!ctx.backend_session) {
-    if (diagnostic) *diagnostic = "Backend session is null";
-    return nullptr;
-  }
-
   auto tensor_session =
-      std::dynamic_pointer_cast<ITensorGraphSession>(ctx.backend_session);
-  if (!tensor_session) {
-    if (diagnostic) {
-      *diagnostic =
-          "Backend session does not implement ITensorGraphSession protocol";
-    }
-    return nullptr;
-  }
+      RequireTensorGraphSession(ctx.backend_session, diagnostic);
+  if (!tensor_session) return nullptr;
 
   std::string tokenizer_file =
       ctx.model_config.value("tokenizer_file", "vocab.txt");
@@ -146,8 +134,6 @@ std::shared_ptr<IModel> BgeRerankerModel::Create(const ModelCreateContext& ctx,
     return nullptr;
   }
 
-  // 严格 Batch 契约：若 Session 为固定 Batch 且 Model 配置上限小于 Session 固定
-  // Batch，明确拒绝
   auto session_policy = tensor_session->GetBatchPolicy();
   if (!ValidateModelBatchLimit(session_policy, max_batch_size, diagnostic)) {
     return nullptr;
@@ -334,15 +320,9 @@ std::shared_ptr<IModel> BgeRerankerModel::Create(const ModelCreateContext& ctx,
     return nullptr;
   }
 
-  std::filesystem::path resolved_vocab_path;
-  if (!ResolveTokenizerResourcePath(ctx.model_resource_root, tokenizer_file,
-                                    &resolved_vocab_path, diagnostic)) {
-    return nullptr;
-  }
-
   BertWordPieceTokenizer tokenizer;
-  if (!tokenizer.Load(resolved_vocab_path.string(), do_lower_case,
-                      diagnostic)) {
+  if (!LoadBertTokenizer(ctx.model_resource_root, tokenizer_file, do_lower_case,
+                         &tokenizer, diagnostic)) {
     return nullptr;
   }
 
@@ -366,11 +346,8 @@ InferenceConcurrency BgeRerankerModel::Concurrency() const noexcept {
 }
 
 size_t BgeRerankerModel::GetMaxBatchSize() const noexcept {
-  if (session_) {
-    auto policy = session_->GetBatchPolicy();
-    return std::min(max_batch_size_, policy.max_batch_size);
-  }
-  return max_batch_size_;
+  return ConstrainModelBatchPolicy(session_.get(), max_batch_size_)
+      .max_batch_size;
 }
 
 int BgeRerankerModel::Score(const QueryCandidatesBatch& inputs,
@@ -386,10 +363,8 @@ int BgeRerankerModel::Score(const QueryCandidatesBatch& inputs,
     return -1;
   }
 
-  BatchPolicy policy = session_->GetBatchPolicy();
-  if (policy.fixed_batch_size == 0) {
-    policy.max_batch_size = std::min(max_batch_size_, policy.max_batch_size);
-  }
+  BatchPolicy policy =
+      ConstrainModelBatchPolicy(session_.get(), max_batch_size_);
 
   return FixedBatchExecutor::Execute<QueryCandidatePair, float>(
       inputs, policy,
