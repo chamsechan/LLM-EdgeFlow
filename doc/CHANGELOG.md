@@ -6,6 +6,8 @@
 
 ## Unreleased
 
+- Operator 值类型 Binding 统一持有显式 I/O 方向、输出字符串容量 Schema 和池预算；
+  业务 Bridge 完整性改为按已注册 Adapter 快照审计，新增业务不再维护中央 ID 列表。
 - `TextRuleMatchNode` 改用 Unicode PCRE2 语义，正确支持正/负 lookbehind 与命名捕获，
   消除 `(?<` 字符串重写导致的静默规则篡改。
 - `TextChunkNode` 按 Unicode code point 执行 `chunk_size` 与 `overlap`，不再截断

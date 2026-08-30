@@ -76,7 +76,7 @@ void RegisterOcrDocQaBridge(OperatorBizBridgeRegistry& reg) {
 
     return OperatorBizBridgeRegistry::CopyToPooledString(
         in_dto->extracted_invoice_json, out->result_json,
-        spec.GetCapacity("result_json", 2047), "result_json", err);
+        spec.GetCapacity("result_json"), "result_json", err);
   };
 
   desc.create_shadow_output_dto = [](ProcessLocalShadowStorage& s) -> void* {

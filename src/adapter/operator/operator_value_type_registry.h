@@ -15,6 +15,8 @@
 
 namespace alg_framework {
 
+enum class IoDirection { kUnknown, kInput, kOutput };
+
 inline constexpr uint32_t kDefaultOutputPoolDepth = 25;
 inline constexpr uint32_t kMaxOutputPoolDepth = 1024;
 inline constexpr size_t kMaxHandlePoolPayloadBytes =
@@ -84,13 +86,29 @@ struct ResolvedOutputPoolSpec {
   int32_t metadata_type_id = 0;
   std::unordered_map<std::string, uint32_t> capacities;
 
-  uint32_t GetCapacity(const std::string& field, uint32_t default_val) const {
+  uint32_t GetCapacity(const std::string& field) const noexcept {
     auto it = capacities.find(field);
-    if (it != capacities.end() && it->second > 0) {
-      return it->second;
-    }
-    return default_val;
+    return it != capacities.end() ? it->second : 0;
   }
+};
+
+struct OutputCapacityFieldConfig {
+  uint32_t default_capacity = 0;
+  uint32_t max_capacity = 0;
+};
+
+using ComputeOutputBlockPayloadBytesFn = std::function<bool(
+    const ResolvedOutputPoolSpec& spec, size_t* out_bytes, std::string* err)>;
+
+/**
+ * @brief Operator 输出类型的容量与内存布局契约
+ */
+struct OperatorOutputLayoutDescriptor {
+  // 每个字段对应输出镜像结构中的一个 CompanyString 指针。
+  std::unordered_map<std::string, OutputCapacityFieldConfig>
+      string_capacity_fields;
+  uint32_t max_metadata_elements = 0;
+  ComputeOutputBlockPayloadBytesFn compute_block_payload_bytes;
 };
 
 /**
@@ -145,17 +163,6 @@ struct OwnedExternalBlock {
   }
 };
 
-/**
- * @brief 计算输出池预分配业务载荷的确定性字节数 (checked add/multiply)
- *
- * 计入外层 Operator 镜像结构、嵌套 CompanyString/CompanyAny 结构及其数据区；
- * 不把 STL 容器、allocator、控制块等实现相关管理开销伪装成可精确计算的载荷。
- */
-bool ComputeOutputPoolPayloadBytes(const std::string& suffix,
-                                   const ResolvedOutputPoolSpec& spec,
-                                   uint32_t depth, size_t* out_bytes,
-                                   std::string* err) noexcept;
-
 using ValidateExternalFn = std::function<int(
     const void* ptr, const ResolvedInputLimits& limits, std::string* err)>;
 
@@ -175,11 +182,37 @@ struct OperatorValueTypeBinding {
   std::string canonical_suffix;
   std::vector<std::string> aliases;
   std::string external_c_type_name;
+  IoDirection direction = IoDirection::kUnknown;
+  OperatorOutputLayoutDescriptor output_layout;
   ValidateExternalFn validate_external;
   AllocateExternalFn allocate_external;
   ResetExternalFn reset_external;
   DestroyExternalFn destroy_external;
 };
+
+/**
+ * @brief 按值类型 Schema 校验并补齐输出池规范
+ */
+bool ResolveOutputPoolSpec(const OperatorValueTypeBinding& binding,
+                           const ResolvedOutputPoolSpec& requested,
+                           ResolvedOutputPoolSpec* resolved,
+                           std::string* err) noexcept;
+
+/**
+ * @brief 计算输出池预分配业务载荷的确定性字节数
+ *
+ * 计入外层 Operator 镜像结构、嵌套 CompanyString/CompanyAny 结构及其数据区；
+ * 不把 STL 容器、allocator、控制块等实现相关管理开销伪装成可精确计算的载荷。
+ */
+bool ComputeOutputPoolPayloadBytes(const OperatorValueTypeBinding& binding,
+                                   const ResolvedOutputPoolSpec& spec,
+                                   uint32_t depth, size_t* out_bytes,
+                                   std::string* err) noexcept;
+
+bool ComputeOutputPoolPayloadBytes(const std::string& suffix,
+                                   const ResolvedOutputPoolSpec& spec,
+                                   uint32_t depth, size_t* out_bytes,
+                                   std::string* err) noexcept;
 
 /**
  * @brief Operator 全局值类型表 (SSOT)

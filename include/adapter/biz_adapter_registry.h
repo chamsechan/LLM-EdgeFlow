@@ -162,6 +162,20 @@ class BizAdapterRegistry {
     return nullptr;
   }
 
+  /**
+   * @brief 获取线程安全的已注册 Adapter 快照，供跨注册表完整性审计使用
+   */
+  std::vector<std::shared_ptr<IBizAdapter>> GetAdaptersSnapshot() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<std::shared_ptr<IBizAdapter>> snapshot;
+    snapshot.reserve(adapters_.size());
+    for (const auto& [biz_type, adapter] : adapters_) {
+      (void)biz_type;
+      snapshot.push_back(adapter);
+    }
+    return snapshot;
+  }
+
   enum class AdapterLookupStatus {
     kSuccess = 0,
     kNotFound = 1,

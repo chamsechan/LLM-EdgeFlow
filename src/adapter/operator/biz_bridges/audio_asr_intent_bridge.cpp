@@ -65,12 +65,12 @@ void RegisterAudioAsrIntentBridge(OperatorBizBridgeRegistry& reg) {
 
     int ret = OperatorBizBridgeRegistry::CopyToPooledString(
         in_dto->transcribed_text, out->transcribed_text,
-        spec.GetCapacity("transcribed_text", 511), "transcribed_text", err);
+        spec.GetCapacity("transcribed_text"), "transcribed_text", err);
     if (ret != 0) return ret;
 
     return OperatorBizBridgeRegistry::CopyToPooledString(
         in_dto->intent_slot_json, out->intent_slot_json,
-        spec.GetCapacity("intent_slot_json", 1023), "intent_slot_json", err);
+        spec.GetCapacity("intent_slot_json"), "intent_slot_json", err);
   };
 
   desc.create_shadow_output_dto = [](ProcessLocalShadowStorage& s) -> void* {

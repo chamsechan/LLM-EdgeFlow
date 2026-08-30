@@ -81,6 +81,11 @@ bool OperatorBizBridgeRegistry::RegisterBridge(
   }
 
   std::unordered_set<std::string> out_names, out_suffixes;
+  // 当前 conf 只有一个 data.mem_que，因而每个业务只能声明一个输出池。
+  if (desc.output_slots.size() != 1) {
+    has_conflict_ = true;
+    return false;
+  }
   for (const auto& s : desc.output_slots) {
     if (s.logical_name.empty() || s.type_suffix.empty()) {
       has_conflict_ = true;
@@ -126,27 +131,38 @@ int OperatorBizBridgeRegistry::GlobalInit() {
     return 0;
   }
 
-  // 校验全部 7 类核心业务均已就地自注册到位
-  for (int biz_id = 1; biz_id <= 7; ++biz_id) {
-    if (bridges_by_biz_type_.find(biz_id) == bridges_by_biz_type_.end()) {
-      has_conflict_ = true;
-      return -6;
-    }
+  // 以实际 Adapter 注册快照为完整性事实源，新业务无需维护中央 ID 范围。
+  const auto adapters = BizAdapterRegistry::Instance().GetAdaptersSnapshot();
+  if (adapters.empty()) {
+    has_conflict_ = true;
+    return -6;
   }
 
-  // 全面原子审计：BizType, Adapter, 内部 DTO
-  // 类型，业务名一致性，槽位规范后缀与生命周期函数
-  for (const auto& [biz_type, desc] : bridges_by_biz_type_) {
-    auto adapter = BizAdapterRegistry::Instance().GetAdapter(
-        static_cast<CompanyAlgBizType>(biz_type));
+  std::unordered_set<int32_t> adapter_biz_types;
+  adapter_biz_types.reserve(adapters.size());
+  for (const auto& adapter : adapters) {
     if (!adapter) {
       has_conflict_ = true;
       return -6;
     }
-    if (adapter->BizType() != static_cast<CompanyAlgBizType>(biz_type)) {
+    const int32_t biz_type = static_cast<int32_t>(adapter->BizType());
+    if (biz_type == static_cast<int32_t>(ALG_BIZ_TYPE_UNKNOWN) ||
+        !adapter_biz_types.insert(biz_type).second) {
       has_conflict_ = true;
       return -6;
     }
+
+    auto bridge_it = bridges_by_biz_type_.find(biz_type);
+    if (bridge_it == bridges_by_biz_type_.end()) {
+      has_conflict_ = true;
+      return -6;
+    }
+    const auto& desc = bridge_it->second;
+    if (desc.biz_type != adapter->BizType()) {
+      has_conflict_ = true;
+      return -6;
+    }
+
     const auto& adapter_desc = adapter->GetDescriptor();
     if (desc.internal_input_type_name != adapter_desc.input_type_name) {
       has_conflict_ = true;
@@ -180,6 +196,7 @@ int OperatorBizBridgeRegistry::GlobalInit() {
           OperatorValueTypeRegistry::Instance().GetBindingBySuffix(
               slot.type_suffix);
       if (!binding || binding->canonical_suffix != slot.type_suffix ||
+          binding->direction != IoDirection::kInput ||
           !binding->validate_external) {
         has_conflict_ = true;
         return -6;
@@ -194,11 +211,22 @@ int OperatorBizBridgeRegistry::GlobalInit() {
           OperatorValueTypeRegistry::Instance().GetBindingBySuffix(
               slot.type_suffix);
       if (!binding || binding->canonical_suffix != slot.type_suffix ||
+          binding->direction != IoDirection::kOutput ||
+          !binding->output_layout.compute_block_payload_bytes ||
           !binding->allocate_external || !binding->reset_external ||
           !binding->destroy_external) {
         has_conflict_ = true;
         return -6;
       }
+    }
+  }
+
+  // 反向拒绝没有 Adapter 的孤儿 Bridge。
+  for (const auto& [biz_type, desc] : bridges_by_biz_type_) {
+    (void)desc;
+    if (adapter_biz_types.find(biz_type) == adapter_biz_types.end()) {
+      has_conflict_ = true;
+      return -6;
     }
   }
   audited_ = true;

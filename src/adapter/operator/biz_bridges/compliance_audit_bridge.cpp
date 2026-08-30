@@ -58,20 +58,19 @@ void RegisterComplianceAuditBridge(OperatorBizBridgeRegistry& reg) {
     out->status_code = in_dto->status_code;
 
     int ret = OperatorBizBridgeRegistry::CopyToPooledString(
-        in_dto->risk_level, out->risk_level, spec.GetCapacity("risk_level", 31),
+        in_dto->risk_level, out->risk_level, spec.GetCapacity("risk_level"),
         "risk_level", err);
     if (ret != 0) return ret;
 
     ret = OperatorBizBridgeRegistry::CopyToPooledString(
         in_dto->matched_policy_clause, out->matched_policy_clause,
-        spec.GetCapacity("matched_policy_clause", 255), "matched_policy_clause",
+        spec.GetCapacity("matched_policy_clause"), "matched_policy_clause",
         err);
     if (ret != 0) return ret;
 
     return OperatorBizBridgeRegistry::CopyToPooledString(
         in_dto->audit_verdict_json, out->audit_verdict_json,
-        spec.GetCapacity("audit_verdict_json", 1023), "audit_verdict_json",
-        err);
+        spec.GetCapacity("audit_verdict_json"), "audit_verdict_json", err);
   };
 
   desc.create_shadow_output_dto = [](ProcessLocalShadowStorage& s) -> void* {

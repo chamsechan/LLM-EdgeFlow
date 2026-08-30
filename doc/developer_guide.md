@@ -30,11 +30,13 @@
 | 纯 C ABI DTO | `Alg_Process` 与 BizAdapter | 声明纯 C 类型，使用 `IBizAdapter` 转换并注册 |
 | Operator 镜像 C 结构 | C++ `NamedIoBatch` Process 边界 | 注册值类型、业务槽位桥接、双向转换和输出池操作 |
 
-Operator 扩展分为两步：先在 `OperatorValueTypeRegistry` 中建立“规范后缀 -> 外部 C
-类型 + validate/allocate/reset/destroy”的唯一绑定，再通过
-`OperatorBizBridgeDescriptor` 声明业务、方向和一个或多个逻辑槽位，并完成与
-内部 DTO 的逐字段转换。不要把 `.frame` 或 `.string` 直接绑定成整套业务 DTO，
-也不要恢复“一帧恰好一个输入/输出组”的限制。
+Operator 扩展分为两步：先在 `OperatorValueTypeRegistry` 中建立“规范后缀 -> 显式
+I/O 方向 + 外部 C 类型 + 校验/分配生命周期”的唯一绑定。输出 Binding 还必须统一声明
+每个 `CompanyString` 字段的默认/最大容量、metadata 上限及池载荷预算，Resolver 和输出池
+只消费这份 Schema，不维护第二套按后缀分支。再通过 `OperatorBizBridgeDescriptor` 声明
+业务及逻辑槽位，并完成与内部 DTO 的逐字段转换。Bridge 完整性按实际注册的 Adapter
+快照审计，新增业务无需修改中央业务 ID 列表。不要把 `.frame` 或 `.string` 直接绑定成
+整套业务 DTO，也不要恢复“一帧恰好一个输入/输出组”的限制。
 
 `CompanyString` 只用于无嵌入 NUL 的文本，二进制内容使用 `CompanyBuffer`。Operator 镜像
 结构不得替换或渗透内部 DTO。输入转换只读取 `.get()` 指针并复制数据值；输出由
@@ -46,7 +48,8 @@ Blackboard、Node、Model 或 Backend 才能识别 Operator 结构的方案均�
 Operator v4 的 Create 和配置预检都使用部署根 `model_path` 加相对
 `cfg_file_name`。每份 `.conf` 必须提供 `data.mem_que`，由 Resolver 归一化规范
 输出后缀、`meta_num`、metadata type 和字段容量；业务桥接与输出池不得直接读取原始
-JSON 键。
+JSON 键，也不得为缺失容量提供本地 fallback。当前配置只有一个 `data.mem_que`，因此
+每个业务只允许一个输出池；支持多输出池前必须先扩展并版本化配置 Schema。
 
 ### Adapter 实施检查表
 

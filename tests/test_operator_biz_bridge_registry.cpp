@@ -9,12 +9,37 @@
 namespace alg_framework {
 namespace {
 
-TEST(OperatorBizBridgeRegistryTest, AllSevenBusinessesSelfRegistered) {
+std::vector<CompanyAlgBizType> RegisteredBizTypes() {
+  std::vector<CompanyAlgBizType> result;
+  for (const auto& adapter :
+       BizAdapterRegistry::Instance().GetAdaptersSnapshot()) {
+    if (adapter) result.push_back(adapter->BizType());
+  }
+  return result;
+}
+
+ResolvedOutputPoolSpec MakeDefaultOutputPoolSpec(const std::string& suffix) {
+  ResolvedOutputPoolSpec requested;
+  requested.type = suffix;
+  ResolvedOutputPoolSpec resolved;
+  std::string error;
+  const auto* binding =
+      OperatorValueTypeRegistry::Instance().GetBindingBySuffix(suffix);
+  EXPECT_NE(binding, nullptr);
+  if (!binding) return requested;
+  EXPECT_TRUE(ResolveOutputPoolSpec(*binding, requested, &resolved, &error))
+      << error;
+  return resolved;
+}
+
+TEST(OperatorBizBridgeRegistryTest, AllRegisteredBusinessesSelfRegistered) {
   const auto& reg = OperatorBizBridgeRegistry::Instance();
-  for (int biz_id = 1; biz_id <= 7; ++biz_id) {
-    auto biz_type = static_cast<CompanyAlgBizType>(biz_id);
+  const auto biz_types = RegisteredBizTypes();
+  ASSERT_FALSE(biz_types.empty());
+  for (const auto biz_type : biz_types) {
     const auto* desc = reg.GetBridge(biz_type);
-    ASSERT_NE(desc, nullptr) << "Business " << biz_id << " must be registered";
+    ASSERT_NE(desc, nullptr)
+        << "Business " << static_cast<int>(biz_type) << " must be registered";
     EXPECT_EQ(desc->biz_type, biz_type);
     EXPECT_FALSE(desc->biz_name.empty());
     EXPECT_FALSE(desc->internal_input_type_name.empty());
@@ -30,6 +55,7 @@ TEST(OperatorBizBridgeRegistryTest, AllSevenBusinessesSelfRegistered) {
 
 TEST(OperatorBizBridgeRegistryTest, GlobalInitIsIdempotentAndThreadSafe) {
   auto& reg = OperatorBizBridgeRegistry::Instance();
+  const auto biz_types = RegisteredBizTypes();
   EXPECT_EQ(reg.GlobalInit(), 0);
   EXPECT_EQ(reg.GlobalInit(), 0);
   EXPECT_FALSE(reg.HasConflict());
@@ -38,9 +64,8 @@ TEST(OperatorBizBridgeRegistryTest, GlobalInitIsIdempotentAndThreadSafe) {
   for (int i = 0; i < 8; ++i) {
     workers.emplace_back([&]() {
       for (int k = 0; k < 100; ++k) {
-        for (int biz_id = 1; biz_id <= 7; ++biz_id) {
-          const auto* desc =
-              reg.GetBridge(static_cast<CompanyAlgBizType>(biz_id));
+        for (const auto biz_type : biz_types) {
+          const auto* desc = reg.GetBridge(biz_type);
           EXPECT_NE(desc, nullptr);
         }
       }
@@ -52,14 +77,31 @@ TEST(OperatorBizBridgeRegistryTest, GlobalInitIsIdempotentAndThreadSafe) {
 }
 
 TEST(OperatorBizBridgeRegistryTest,
+     IsolatedRegistryRejectsMissingBridgeForRegisteredAdapter) {
+  OperatorBizBridgeRegistry local_reg;
+  const auto& global_reg = OperatorBizBridgeRegistry::Instance();
+  const auto biz_types = RegisteredBizTypes();
+  ASSERT_GT(biz_types.size(), 1u);
+
+  // 故意漏掉一个已注册 Adapter 对应的 Bridge；审计必须从 Adapter 快照发现它。
+  for (size_t i = 1; i < biz_types.size(); ++i) {
+    const auto* desc = global_reg.GetBridge(biz_types[i]);
+    ASSERT_NE(desc, nullptr);
+    ASSERT_TRUE(local_reg.RegisterBridge(*desc));
+  }
+
+  EXPECT_EQ(local_reg.GlobalInit(), -6);
+  EXPECT_TRUE(local_reg.HasConflict());
+}
+
+TEST(OperatorBizBridgeRegistryTest,
      IsolatedRegistryIdempotencyAndLateRegistration) {
   OperatorBizBridgeRegistry local_reg;
 
   // Copy bridges from global instance to local registry
   const auto& global_reg = OperatorBizBridgeRegistry::Instance();
-  for (int biz_id = 1; biz_id <= 7; ++biz_id) {
-    const auto* desc =
-        global_reg.GetBridge(static_cast<CompanyAlgBizType>(biz_id));
+  for (const auto biz_type : RegisteredBizTypes()) {
+    const auto* desc = global_reg.GetBridge(biz_type);
     ASSERT_NE(desc, nullptr);
     EXPECT_TRUE(local_reg.RegisterBridge(*desc));
   }
@@ -162,8 +204,7 @@ TEST(OperatorBizBridgeRegistryTest,
     const auto* desc = reg.GetBridge(ALG_BIZ_TYPE_KEYWORD_MATCH);
     ASSERT_NE(desc, nullptr);
     ProcessLocalShadowStorage storage;
-    ResolvedOutputPoolSpec spec;
-    spec.type = "keyword_out";
+    ResolvedOutputPoolSpec spec = MakeDefaultOutputPoolSpec("keyword_out");
 
     std::vector<std::string> raw_strings(kNumSamples);
     std::vector<CompanyString> c_strings(kNumSamples);
@@ -226,8 +267,7 @@ TEST(OperatorBizBridgeRegistryTest,
     const auto* desc = reg.GetBridge(ALG_BIZ_TYPE_ENTITY_EXTRACT);
     ASSERT_NE(desc, nullptr);
     ProcessLocalShadowStorage storage;
-    ResolvedOutputPoolSpec spec;
-    spec.type = "entity_out";
+    ResolvedOutputPoolSpec spec = MakeDefaultOutputPoolSpec("entity_out");
 
     for (size_t i = 0; i < kNumSamples; ++i) {
       std::string raw_str = (i < 10) ? ("E" + std::to_string(i))
@@ -269,8 +309,7 @@ TEST(OperatorBizBridgeRegistryTest,
     const auto* desc = reg.GetBridge(ALG_BIZ_TYPE_DOC_QA);
     ASSERT_NE(desc, nullptr);
     ProcessLocalShadowStorage storage;
-    ResolvedOutputPoolSpec spec;
-    spec.type = "doc_out";
+    ResolvedOutputPoolSpec spec = MakeDefaultOutputPoolSpec("doc_out");
 
     for (size_t i = 0; i < kNumSamples; ++i) {
       std::string q_str = "Question #" + std::to_string(i);
@@ -322,8 +361,7 @@ TEST(OperatorBizBridgeRegistryTest,
     const auto* desc = reg.GetBridge(ALG_BIZ_TYPE_COMPLIANCE_AUDIT);
     ASSERT_NE(desc, nullptr);
     ProcessLocalShadowStorage storage;
-    ResolvedOutputPoolSpec spec;
-    spec.type = "audit_out";
+    ResolvedOutputPoolSpec spec = MakeDefaultOutputPoolSpec("audit_out");
 
     for (size_t i = 0; i < kNumSamples; ++i) {
       std::string u_str = "Audit user prompt text #" + std::to_string(i);
@@ -377,8 +415,7 @@ TEST(OperatorBizBridgeRegistryTest,
     const auto* desc = reg.GetBridge(ALG_BIZ_TYPE_AUDIO_ASR_INTENT);
     ASSERT_NE(desc, nullptr);
     ProcessLocalShadowStorage storage;
-    ResolvedOutputPoolSpec spec;
-    spec.type = "audio_out";
+    ResolvedOutputPoolSpec spec = MakeDefaultOutputPoolSpec("audio_out");
 
     std::vector<std::vector<float>> pcm_pool(kNumSamples,
                                              std::vector<float>(16000));
@@ -428,8 +465,7 @@ TEST(OperatorBizBridgeRegistryTest,
     const auto* desc = reg.GetBridge(ALG_BIZ_TYPE_CROSS_RERANK);
     ASSERT_NE(desc, nullptr);
     ProcessLocalShadowStorage storage;
-    ResolvedOutputPoolSpec spec;
-    spec.type = "rerank_out";
+    ResolvedOutputPoolSpec spec = MakeDefaultOutputPoolSpec("rerank_out");
 
     for (size_t i = 0; i < kNumSamples; ++i) {
       std::string q_str = "Rerank Query #" + std::to_string(i);
@@ -489,8 +525,7 @@ TEST(OperatorBizBridgeRegistryTest,
     const auto* desc = reg.GetBridge(ALG_BIZ_TYPE_OCR_DOC_QA);
     ASSERT_NE(desc, nullptr);
     ProcessLocalShadowStorage storage;
-    ResolvedOutputPoolSpec spec;
-    spec.type = "od_out";
+    ResolvedOutputPoolSpec spec = MakeDefaultOutputPoolSpec("od_out");
 
     for (size_t i = 0; i < kNumSamples; ++i) {
       std::string uri_str = "data/invoices/inv_" + std::to_string(i) + ".jpg";
@@ -551,12 +586,26 @@ TEST(OperatorBizBridgeRegistryTest,
   EXPECT_EQ(local_reg.GlobalInit(), -6);
 }
 
+TEST(OperatorBizBridgeRegistryTest,
+     IsolatedRegistryRejectsMultipleOutputPoolsUntilConfigSupportsThem) {
+  OperatorBizBridgeRegistry local_reg;
+  const auto* orig_desc =
+      OperatorBizBridgeRegistry::Instance().GetBridge(ALG_BIZ_TYPE_DOC_QA);
+  ASSERT_NE(orig_desc, nullptr);
+
+  OperatorBizBridgeDescriptor bad_desc = *orig_desc;
+  bad_desc.output_slots.push_back(bad_desc.output_slots.front());
+  bad_desc.output_slots.back().logical_name = "secondary_output";
+  EXPECT_FALSE(local_reg.RegisterBridge(std::move(bad_desc)));
+  EXPECT_TRUE(local_reg.HasConflict());
+}
+
 TEST(OperatorBizBridgeRegistryTest, ConcurrentReadFreezeInterleavingTSan) {
   OperatorBizBridgeRegistry local_reg;
   const auto& global_reg = OperatorBizBridgeRegistry::Instance();
-  for (int biz_id = 1; biz_id <= 7; ++biz_id) {
-    const auto* desc =
-        global_reg.GetBridge(static_cast<CompanyAlgBizType>(biz_id));
+  const auto biz_types = RegisteredBizTypes();
+  for (const auto biz_type : biz_types) {
+    const auto* desc = global_reg.GetBridge(biz_type);
     ASSERT_NE(desc, nullptr);
     EXPECT_TRUE(local_reg.RegisterBridge(*desc));
   }
@@ -566,9 +615,8 @@ TEST(OperatorBizBridgeRegistryTest, ConcurrentReadFreezeInterleavingTSan) {
   for (int i = 0; i < 4; ++i) {
     readers.emplace_back([&]() {
       while (!stop_flag.load()) {
-        for (int biz_id = 1; biz_id <= 7; ++biz_id) {
-          const auto* desc =
-              local_reg.GetBridge(static_cast<CompanyAlgBizType>(biz_id));
+        for (const auto biz_type : biz_types) {
+          const auto* desc = local_reg.GetBridge(biz_type);
           EXPECT_NE(desc, nullptr);
         }
       }
