@@ -6,6 +6,7 @@
 
 ## Unreleased
 
+- 统一 Traceable 推理批次的数量与 provenance 校验；LLM、Embedding、Rerank、OCR、ASR 对无效模型输出一致 fail-close，且无效 Embedding 结果不进入 Session 缓存。
 - Layer 2 Pipeline 改为局部事务式装配，Node Init 失败不再向公开 Session
   暴露部分模型或执行资源。
 - Validator 与 Blackboard 统一为 write-once 输出语义，并修复 DAG Normalizer

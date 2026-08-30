@@ -4,6 +4,7 @@
 #include "engine/model_interface.h"
 #include "nodes/model_bound_node.h"
 #include "nodes/node_error_codes.h"
+#include "nodes/traceable_batch_validation.h"
 
 namespace alg_framework {
 
@@ -53,17 +54,16 @@ class AsrTranscribeNode final : public ModelBoundNode<IAsrModel> {
       return Fail(req_ctx, ret, "AsrTranscribeNode: ASR inference failed");
     }
 
-    if (transcripts.size() != audio_items->size()) {
+    const auto alignment =
+        ValidatePreservedTraceableAlignment(*audio_items, transcripts);
+    if (alignment.error == TraceableAlignmentError::kCountMismatch) {
       return Fail(req_ctx, node_error::asr_transcribe::kOutputCountMismatch,
                   "AsrTranscribeNode: transcript count mismatch");
     }
-    for (size_t i = 0; i < transcripts.size(); ++i) {
-      if (transcripts[i].req_id != (*audio_items)[i].req_id ||
-          transcripts[i].sub_id != (*audio_items)[i].sub_id) {
-        return Fail(req_ctx,
-                    node_error::asr_transcribe::kOutputProvenanceMismatch,
-                    "AsrTranscribeNode: transcript provenance mismatch");
-      }
+    if (alignment.error == TraceableAlignmentError::kProvenanceMismatch) {
+      return Fail(req_ctx,
+                  node_error::asr_transcribe::kOutputProvenanceMismatch,
+                  "AsrTranscribeNode: transcript provenance mismatch");
     }
 
     out_text_.Set(req_ctx, std::move(transcripts));

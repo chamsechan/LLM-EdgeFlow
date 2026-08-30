@@ -7,6 +7,7 @@
 #include "engine/model_interface.h"
 #include "nodes/model_bound_node.h"
 #include "nodes/node_error_codes.h"
+#include "nodes/traceable_batch_validation.h"
 
 namespace alg_framework {
 
@@ -58,20 +59,20 @@ class OcrDetectNode final : public ModelBoundNode<IOcrModel> {
       return Fail(req_ctx, ret, "OcrDetectNode: OCR inference failed");
     }
 
-    if (doc_batch.size() != image_items->size()) {
+    const auto alignment =
+        ValidatePreservedTraceableAlignment(*image_items, doc_batch);
+    if (alignment.error == TraceableAlignmentError::kCountMismatch) {
       return Fail(req_ctx, node_error::ocr_detect::kOutputCountMismatch,
                   "OcrDetectNode: document count mismatch");
+    }
+    if (alignment.error == TraceableAlignmentError::kProvenanceMismatch) {
+      return Fail(req_ctx, node_error::ocr_detect::kOutputProvenanceMismatch,
+                  "OcrDetectNode: document provenance mismatch");
     }
 
     TextBatch text_batch;
     text_batch.reserve(doc_batch.size());
-    for (size_t i = 0; i < doc_batch.size(); ++i) {
-      const auto& document = doc_batch[i];
-      const auto& image = (*image_items)[i];
-      if (document.req_id != image.req_id || document.sub_id != image.sub_id) {
-        return Fail(req_ctx, node_error::ocr_detect::kOutputProvenanceMismatch,
-                    "OcrDetectNode: document provenance mismatch");
-      }
+    for (const auto& document : doc_batch) {
       text_batch.emplace_back(document.req_id, document.sub_id,
                               document.data.combined_text);
     }

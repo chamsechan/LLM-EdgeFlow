@@ -12,6 +12,7 @@
 #include "engine/model_interface.h"
 #include "nodes/model_bound_node.h"
 #include "nodes/node_error_codes.h"
+#include "nodes/traceable_batch_validation.h"
 
 namespace alg_framework {
 
@@ -121,17 +122,15 @@ class TextRerankNode final : public ModelBoundNode<IRerankModel> {
       return Fail(req_ctx, ret, "TextRerankNode: model scoring failed");
     }
 
-    if (pair_scores.size() != cand_payloads.size()) {
+    const auto alignment =
+        ValidatePreservedTraceableAlignment(pair_items, pair_scores);
+    if (alignment.error == TraceableAlignmentError::kCountMismatch) {
       return Fail(req_ctx, node_error::text_rerank::kModelOutputMismatch,
                   "TextRerankNode: score count mismatch");
     }
-
-    for (size_t i = 0; i < pair_scores.size(); ++i) {
-      if (pair_scores[i].req_id != cand_payloads[i].req_id ||
-          pair_scores[i].sub_id != cand_payloads[i].sub_id) {
-        return Fail(req_ctx, node_error::text_rerank::kModelOutputMismatch,
-                    "TextRerankNode: score provenance mismatch");
-      }
+    if (alignment.error == TraceableAlignmentError::kProvenanceMismatch) {
+      return Fail(req_ctx, node_error::text_rerank::kModelOutputMismatch,
+                  "TextRerankNode: score provenance mismatch");
     }
 
     // 按 req_id 分组排序

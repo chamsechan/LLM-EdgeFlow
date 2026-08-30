@@ -40,8 +40,17 @@ class CountingEmbeddingModel final : public IEmbeddingModel {
       output_embeddings->emplace_back(in.req_id, in.sub_id,
                                       std::vector<float>(384, 0.1f));
     }
+    if (return_wrong_count && !output_embeddings->empty()) {
+      output_embeddings->pop_back();
+    }
+    if (corrupt_provenance && output_embeddings->size() > 1) {
+      ++(*output_embeddings)[1].sub_id;
+    }
     return 0;
   }
+
+  bool return_wrong_count = false;
+  bool corrupt_provenance = false;
 };
 
 class TextEmbeddingNodeTest : public ::testing::Test {
@@ -153,6 +162,66 @@ TEST_F(TextEmbeddingNodeTest, MissingInputFailsClosed) {
 
   AlgContext empty_ctx;
   EXPECT_EQ(node->Process(&empty_ctx), -4101);
+}
+
+TEST_F(TextEmbeddingNodeTest, EmptyBatchSkipsInference) {
+  auto node = NodeFactory::Instance().Create("TextEmbeddingNode");
+  ASSERT_NE(node, nullptr);
+  ASSERT_TRUE(
+      node->Init({{"bind_model", "embed_model_v1"}}, session_ctx_.get()));
+
+  AlgContext ctx;
+  ctx.Set("text", TextBatch{});
+  EXPECT_EQ(node->Process(&ctx), 0);
+  const auto* output = ctx.Get<EmbeddingBatch>("embedding");
+  ASSERT_NE(output, nullptr);
+  EXPECT_TRUE(output->empty());
+  EXPECT_EQ(counting_model_->infer_calls.load(), 0);
+}
+
+TEST_F(TextEmbeddingNodeTest, InvalidRequestOutputFailsClosed) {
+  auto node = NodeFactory::Instance().Create("TextEmbeddingNode");
+  ASSERT_NE(node, nullptr);
+  ASSERT_TRUE(
+      node->Init({{"bind_model", "embed_model_v1"}}, session_ctx_.get()));
+
+  TextBatch inputs = {{8, 0, "first"}, {8, 1, "second"}};
+
+  counting_model_->return_wrong_count = true;
+  AlgContext count_ctx;
+  count_ctx.Set("text", inputs);
+  EXPECT_EQ(node->Process(&count_ctx), -4102);
+  EXPECT_EQ(count_ctx.Get<EmbeddingBatch>("embedding"), nullptr);
+
+  counting_model_->return_wrong_count = false;
+  counting_model_->corrupt_provenance = true;
+  AlgContext provenance_ctx;
+  provenance_ctx.Set("text", inputs);
+  EXPECT_EQ(node->Process(&provenance_ctx), -4103);
+  EXPECT_EQ(provenance_ctx.Get<EmbeddingBatch>("embedding"), nullptr);
+}
+
+TEST_F(TextEmbeddingNodeTest, InvalidSessionOutputIsNotCached) {
+  auto node = NodeFactory::Instance().Create("TextEmbeddingNode");
+  ASSERT_NE(node, nullptr);
+  ASSERT_TRUE(
+      node->Init({{"bind_model", "embed_model_v1"}, {"lifetime", "session"}},
+                 session_ctx_.get()));
+
+  TextBatch inputs = {{9, 0, "static first"}, {9, 1, "static second"}};
+  counting_model_->return_wrong_count = true;
+
+  AlgContext invalid_ctx;
+  invalid_ctx.Set("text", inputs);
+  EXPECT_EQ(node->Process(&invalid_ctx), -4102);
+  EXPECT_EQ(counting_model_->infer_calls.load(), 1);
+
+  counting_model_->return_wrong_count = false;
+  AlgContext retry_ctx;
+  retry_ctx.Set("text", inputs);
+  EXPECT_EQ(node->Process(&retry_ctx), 0);
+  EXPECT_NE(retry_ctx.Get<EmbeddingBatch>("embedding"), nullptr);
+  EXPECT_EQ(counting_model_->infer_calls.load(), 2);
 }
 
 }  // namespace alg_framework

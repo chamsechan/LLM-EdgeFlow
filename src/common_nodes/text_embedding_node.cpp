@@ -9,6 +9,7 @@
 #include "engine/model_interface.h"
 #include "nodes/model_bound_node.h"
 #include "nodes/node_error_codes.h"
+#include "nodes/traceable_batch_validation.h"
 
 namespace alg_framework {
 
@@ -71,9 +72,20 @@ class TextEmbeddingNode final : public ModelBoundNode<IEmbeddingModel> {
               infer_err = ret;
               return nullptr;
             }
+            const auto alignment =
+                ValidatePreservedTraceableAlignment(*text_items, *output);
+            if (!alignment.IsAligned()) {
+              infer_err = AlignmentErrorCode(alignment.error);
+              return nullptr;
+            }
             return output;
           });
       if (!cached) {
+        if (infer_err == node_error::text_embedding::kOutputCountMismatch ||
+            infer_err ==
+                node_error::text_embedding::kOutputProvenanceMismatch) {
+          return FailAlignment(req_ctx, infer_err);
+        }
         return Fail(req_ctx,
                     infer_err != 0
                         ? infer_err
@@ -94,12 +106,36 @@ class TextEmbeddingNode final : public ModelBoundNode<IEmbeddingModel> {
     if (ret != 0) {
       return Fail(req_ctx, ret, "TextEmbeddingNode: inference failed");
     }
+    const auto alignment =
+        ValidatePreservedTraceableAlignment(*text_items, output_embeddings);
+    if (!alignment.IsAligned()) {
+      return FailAlignment(req_ctx, AlignmentErrorCode(alignment.error));
+    }
 
     out_embedding_.Set(req_ctx, std::move(output_embeddings));
     return 0;
   }
 
  private:
+  static int AlignmentErrorCode(TraceableAlignmentError error) noexcept {
+    switch (error) {
+      case TraceableAlignmentError::kCountMismatch:
+        return node_error::text_embedding::kOutputCountMismatch;
+      case TraceableAlignmentError::kProvenanceMismatch:
+        return node_error::text_embedding::kOutputProvenanceMismatch;
+      case TraceableAlignmentError::kNone:
+        return 0;
+    }
+    return 0;
+  }
+
+  int FailAlignment(AlgContext& req_ctx, int error_code) const noexcept {
+    return Fail(req_ctx, error_code,
+                error_code == node_error::text_embedding::kOutputCountMismatch
+                    ? "TextEmbeddingNode: embedding count mismatch"
+                    : "TextEmbeddingNode: embedding provenance mismatch");
+  }
+
   static std::string ComputeDigest(const TextBatch& items) {
     size_t hash = 14695981039346656037ULL;
     for (const auto& item : items) {
