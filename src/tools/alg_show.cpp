@@ -110,10 +110,9 @@ int main(int argc, char* argv[]) {
   for (size_t i = 0; i < pipeline.size(); ++i) {
     const auto& node = pipeline[i];
     std::string ntype = node.value("node_type", "UnknownNode");
-    std::string bind_m = node.value("bind_model", "");
-    if (bind_m.empty() && node.contains("config")) {
-      bind_m = node["config"].value("bind_model", "");
-    }
+    std::string bind_m = node.contains("config") && node["config"].is_object()
+                             ? node["config"].value("bind_model", "")
+                             : "";
 
     std::string card_color = bind_m.empty() ? COLOR_BLUE : COLOR_MAGENTA;
 

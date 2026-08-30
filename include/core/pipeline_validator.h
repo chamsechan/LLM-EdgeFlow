@@ -153,11 +153,6 @@ class PipelineValidator {
       const nlohmann::json& root,
       ValidationPolicy policy = ValidationPolicy::kStrict,
       const std::string& model_root_dir = "");
-
-  /** Upgrade an implicit sequential pipeline to explicit DAG form. */
-  static bool NormalizeExplicitDag(const nlohmann::json& root,
-                                   nlohmann::json* output,
-                                   ValidationDiagnostic* diagnostic = nullptr);
 };
 
 /**

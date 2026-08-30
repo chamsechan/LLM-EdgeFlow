@@ -6,7 +6,6 @@
 #include <memory>
 #include <new>
 #include <stdexcept>
-#include <unordered_set>
 
 #include "adapter/operator/operator_output_pool.h"
 #include "company_alg_interface.h"
@@ -184,11 +183,10 @@ void ResetNestedCompanyAny(CompanyAny* any) noexcept {
 }
 
 OperatorValueTypeBinding MakeInputBinding(
-    std::string canonical_suffix, std::vector<std::string> aliases,
-    std::string external_c_type_name, ValidateExternalFn validate_external) {
+    std::string canonical_suffix, std::string external_c_type_name,
+    ValidateExternalFn validate_external) {
   OperatorValueTypeBinding binding;
   binding.canonical_suffix = std::move(canonical_suffix);
-  binding.aliases = std::move(aliases);
   binding.external_c_type_name = std::move(external_c_type_name);
   binding.direction = IoDirection::kInput;
   binding.validate_external = std::move(validate_external);
@@ -241,15 +239,13 @@ bool ComputeStandardOutputBlockPayloadBytes(size_t root_struct_bytes,
 }
 
 OperatorValueTypeBinding MakeOutputBinding(
-    std::string canonical_suffix, std::vector<std::string> aliases,
-    std::string external_c_type_name,
+    std::string canonical_suffix, std::string external_c_type_name,
     std::unordered_map<std::string, OutputCapacityFieldConfig>
         string_capacity_fields,
     uint32_t max_metadata_elements, size_t root_struct_bytes,
     AllocateExternalFn allocate_external, ResetExternalFn reset_external) {
   OperatorValueTypeBinding binding;
   binding.canonical_suffix = std::move(canonical_suffix);
-  binding.aliases = std::move(aliases);
   binding.external_c_type_name = std::move(external_c_type_name);
   binding.direction = IoDirection::kOutput;
   binding.output_layout.string_capacity_fields =
@@ -655,6 +651,7 @@ int OperatorValueTypeRegistry::GlobalInit() {
     return 0;
   }
   for (const auto& [suffix, binding] : bindings_by_canonical_) {
+    (void)suffix;
     if (binding.canonical_suffix.empty() ||
         binding.external_c_type_name.empty()) {
       has_conflict_ = true;
@@ -684,13 +681,6 @@ int OperatorValueTypeRegistry::GlobalInit() {
       has_conflict_ = true;
       return -6;
     }
-    for (const auto& a : binding.aliases) {
-      auto it = alias_to_canonical_.find(a);
-      if (it == alias_to_canonical_.end() || it->second != suffix) {
-        has_conflict_ = true;
-        return -6;
-      }
-    }
   }
   audited_ = true;
   return 0;
@@ -708,48 +698,14 @@ bool OperatorValueTypeRegistry::RegisterBinding(
     return false;
   }
 
-  // 1. 检查 canonical 是否与已有 canonical 冲突
+  // 检查 canonical 是否与已有 canonical 冲突
   if (bindings_by_canonical_.find(binding.canonical_suffix) !=
       bindings_by_canonical_.end()) {
     has_conflict_ = true;
     return false;
   }
 
-  // 2. 检查 canonical 是否与已有 alias 冲突
-  if (alias_to_canonical_.find(binding.canonical_suffix) !=
-      alias_to_canonical_.end()) {
-    has_conflict_ = true;
-    return false;
-  }
-
-  // 3. 检查本次别名集内部无重复且不等于 canonical
-  try {
-    std::unordered_set<std::string> current_aliases;
-    for (const auto& a : binding.aliases) {
-      if (a.empty() || a == binding.canonical_suffix) {
-        has_conflict_ = true;
-        return false;
-      }
-      if (!current_aliases.insert(a).second) {
-        has_conflict_ = true;
-        return false;
-      }
-      // 检查 alias 是否与已有 canonical 冲突
-      if (bindings_by_canonical_.find(a) != bindings_by_canonical_.end()) {
-        has_conflict_ = true;
-        return false;
-      }
-      // 检查 alias 是否与已有 alias 冲突
-      if (alias_to_canonical_.find(a) != alias_to_canonical_.end()) {
-        has_conflict_ = true;
-        return false;
-      }
-    }
-  } catch (...) {
-    return false;
-  }
-
-  // 4. 原子预检通过后，通过 Copy-and-Swap 一次性提交
+  // 原子预检通过后，通过 Copy-and-Swap 一次性提交
   try {
     if (g_registry_inject_point.load() ==
         OperatorValueTypeRegistry::RegistryExceptionInjectPoint::
@@ -757,23 +713,6 @@ bool OperatorValueTypeRegistry::RegisterBinding(
       throw std::runtime_error("Injected failure copying canonical map");
     }
     auto temp_bindings = bindings_by_canonical_;
-
-    if (g_registry_inject_point.load() ==
-        OperatorValueTypeRegistry::RegistryExceptionInjectPoint::
-            kCopyAliasMap) {
-      throw std::runtime_error("Injected failure copying alias map");
-    }
-    auto temp_aliases = alias_to_canonical_;
-
-    for (size_t i = 0; i < binding.aliases.size(); ++i) {
-      if (g_registry_inject_point.load() ==
-              OperatorValueTypeRegistry::RegistryExceptionInjectPoint::
-                  kSecondAliasInsert &&
-          i == 1) {
-        throw std::runtime_error("Injected failure on second alias insert");
-      }
-      temp_aliases[binding.aliases[i]] = binding.canonical_suffix;
-    }
 
     if (g_registry_inject_point.load() ==
         OperatorValueTypeRegistry::RegistryExceptionInjectPoint::
@@ -787,18 +726,11 @@ bool OperatorValueTypeRegistry::RegisterBinding(
       throw std::runtime_error("Injected failure before registry publish");
     }
     bindings_by_canonical_.swap(temp_bindings);
-    alias_to_canonical_.swap(temp_aliases);
   } catch (...) {
     // 资源分配或复制异常不污染契约冲突状态，原快照保持不变
     return false;
   }
   return true;
-}
-
-std::string OperatorValueTypeRegistry::NormalizeSuffix(
-    const std::string& suffix) const {
-  const auto* b = GetBindingBySuffix(suffix);
-  return b ? b->canonical_suffix : "";
 }
 
 const OperatorValueTypeBinding* OperatorValueTypeRegistry::GetBindingBySuffix(
@@ -808,13 +740,6 @@ const OperatorValueTypeBinding* OperatorValueTypeRegistry::GetBindingBySuffix(
   if (it_can != bindings_by_canonical_.end()) {
     return &it_can->second;
   }
-  auto it_alias = alias_to_canonical_.find(suffix);
-  if (it_alias != alias_to_canonical_.end()) {
-    auto it_target = bindings_by_canonical_.find(it_alias->second);
-    if (it_target != bindings_by_canonical_.end()) {
-      return &it_target->second;
-    }
-  }
   return nullptr;
 }
 
@@ -823,9 +748,9 @@ OperatorValueTypeRegistry::OperatorValueTypeRegistry() {
 }
 
 void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
-  // 1. string -> CompanyString (RFC 6.3: aliases: {})
+  // 1. string -> CompanyString
   RegisterBinding(MakeInputBinding(
-      "string", {}, "CompanyString",
+      "string", "CompanyString",
       [](const void* ptr, const ResolvedInputLimits& limits,
          std::string* err) -> int {
         if (!ptr) {
@@ -836,9 +761,9 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
                                      limits.max_text_bytes, "string", err);
       }));
 
-  // 2. buffer -> CompanyBuffer (RFC 6.3: aliases: {})
+  // 2. buffer -> CompanyBuffer
   RegisterBinding(MakeInputBinding(
-      "buffer", {}, "CompanyBuffer",
+      "buffer", "CompanyBuffer",
       [](const void* ptr, const ResolvedInputLimits& limits,
          std::string* err) -> int {
         if (!ptr) {
@@ -849,9 +774,9 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
                                      limits.max_buffer_bytes, "buffer", err);
       }));
 
-  // 3. any -> CompanyAny (RFC 6.3: aliases: {})
+  // 3. any -> CompanyAny
   RegisterBinding(MakeInputBinding(
-      "any", {}, "CompanyAny",
+      "any", "CompanyAny",
       [](const void* ptr, const ResolvedInputLimits& limits,
          std::string* err) -> int {
         if (!ptr) {
@@ -862,9 +787,9 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
                                          limits.max_any_bytes, "any", err);
       }));
 
-  // 4. frame -> CompanyFrame (RFC 6.3: aliases: {"image_in"})
+  // 4. frame -> CompanyFrame
   RegisterBinding(MakeInputBinding(
-      "frame", {"image_in"}, "CompanyFrame",
+      "frame", "CompanyFrame",
       [](const void* ptr, const ResolvedInputLimits& limits,
          std::string* err) -> int {
         if (!ptr) {
@@ -888,10 +813,10 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
         return 0;
       }));
 
-  // 5. od_out -> CompanyOdOutput (RFC 6.3: aliases: {"ocr_out"})
+  // 5. od_out -> CompanyOdOutput
   RegisterBinding(MakeOutputBinding(
-      "od_out", {"ocr_out"}, "CompanyOdOutput",
-      {{"result_json", {2047, 65536}}}, 65536, sizeof(CompanyOdOutput),
+      "od_out", "CompanyOdOutput", {{"result_json", {2047, 65536}}}, 65536,
+      sizeof(CompanyOdOutput),
       [](const ResolvedOutputPoolSpec& spec, OwnedExternalBlock* out_block,
          std::string* /*err*/) -> int {
         auto* raw = AllocateRootOutput<CompanyOdOutput>(5, out_block);
@@ -917,10 +842,9 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
         ResetNestedCompanyAny(raw->metadata);
       }));
 
-  // 6. keyword_in -> CompanyOperatorKeywordInput (RFC 6.3: aliases:
-  // {"sentence_in"})
+  // 6. keyword_in -> CompanyOperatorKeywordInput
   RegisterBinding(MakeInputBinding(
-      "keyword_in", {"sentence_in"}, "CompanyOperatorKeywordInput",
+      "keyword_in", "CompanyOperatorKeywordInput",
       [](const void* ptr, const ResolvedInputLimits& limits,
          std::string* err) -> int {
         if (!ptr) {
@@ -936,10 +860,9 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
                                      "sentence_text", err);
       }));
 
-  // 7. keyword_out -> CompanyOperatorKeywordOutput (RFC 6.3: aliases:
-  // {"match_out"})
+  // 7. keyword_out -> CompanyOperatorKeywordOutput
   RegisterBinding(MakeOutputBinding(
-      "keyword_out", {"match_out"}, "CompanyOperatorKeywordOutput",
+      "keyword_out", "CompanyOperatorKeywordOutput",
       {{"match_result_json", {2047, 65536}}}, 0,
       sizeof(CompanyOperatorKeywordOutput),
       [](const ResolvedOutputPoolSpec& spec, OwnedExternalBlock* out_block,
@@ -963,9 +886,9 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
         ResetNestedCompanyString(raw->match_result_json);
       }));
 
-  // 8. entity_in -> CompanyOperatorEntityInput (RFC 6.3: aliases: {"text_in"})
+  // 8. entity_in -> CompanyOperatorEntityInput
   RegisterBinding(MakeInputBinding(
-      "entity_in", {"text_in"}, "CompanyOperatorEntityInput",
+      "entity_in", "CompanyOperatorEntityInput",
       [](const void* ptr, const ResolvedInputLimits& limits,
          std::string* err) -> int {
         if (!ptr) {
@@ -981,10 +904,9 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
                                      "sentence_text", err);
       }));
 
-  // 9. entity_out -> CompanyOperatorEntityOutput (RFC 6.3: aliases:
-  // {"extracted_out"})
+  // 9. entity_out -> CompanyOperatorEntityOutput
   RegisterBinding(MakeOutputBinding(
-      "entity_out", {"extracted_out"}, "CompanyOperatorEntityOutput",
+      "entity_out", "CompanyOperatorEntityOutput",
       {{"entities_json", {2047, 65536}}}, 0,
       sizeof(CompanyOperatorEntityOutput),
       [](const ResolvedOutputPoolSpec& spec, OwnedExternalBlock* out_block,
@@ -1008,9 +930,9 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
         ResetNestedCompanyString(raw->entities_json);
       }));
 
-  // 10. doc_in -> CompanyOperatorDocInput (RFC 6.3: aliases: {"qa_in"})
+  // 10. doc_in -> CompanyOperatorDocInput
   RegisterBinding(MakeInputBinding(
-      "doc_in", {"qa_in"}, "CompanyOperatorDocInput",
+      "doc_in", "CompanyOperatorDocInput",
       [](const void* ptr, const ResolvedInputLimits& limits,
          std::string* err) -> int {
         if (!ptr) {
@@ -1033,9 +955,9 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
         return 0;
       }));
 
-  // 11. doc_out -> CompanyOperatorDocOutput (RFC 6.3: aliases: {"qa_out"})
+  // 11. doc_out -> CompanyOperatorDocOutput
   RegisterBinding(MakeOutputBinding(
-      "doc_out", {"qa_out"}, "CompanyOperatorDocOutput",
+      "doc_out", "CompanyOperatorDocOutput",
       {{"intent_name", {63, 255}}, {"answer_text", {1023, 65536}}}, 0,
       sizeof(CompanyOperatorDocOutput),
       [](const ResolvedOutputPoolSpec& spec, OwnedExternalBlock* out_block,
@@ -1065,10 +987,9 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
         ResetNestedCompanyString(raw->answer_text);
       }));
 
-  // 12. audit_in -> CompanyOperatorAuditInput (RFC 6.3: aliases:
-  // {"dialogue_in"})
+  // 12. audit_in -> CompanyOperatorAuditInput
   RegisterBinding(MakeInputBinding(
-      "audit_in", {"dialogue_in"}, "CompanyOperatorAuditInput",
+      "audit_in", "CompanyOperatorAuditInput",
       [](const void* ptr, const ResolvedInputLimits& limits,
          std::string* err) -> int {
         if (!ptr) {
@@ -1091,10 +1012,9 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
         return 0;
       }));
 
-  // 13. audit_out -> CompanyOperatorAuditOutput (RFC 6.3: aliases:
-  // {"verdict_out"})
+  // 13. audit_out -> CompanyOperatorAuditOutput
   RegisterBinding(MakeOutputBinding(
-      "audit_out", {"verdict_out"}, "CompanyOperatorAuditOutput",
+      "audit_out", "CompanyOperatorAuditOutput",
       {{"risk_level", {31, 255}},
        {"matched_policy_clause", {255, 4096}},
        {"audit_verdict_json", {1023, 65536}}},
@@ -1128,10 +1048,9 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
         ResetNestedCompanyString(raw->audit_verdict_json);
       }));
 
-  // 14. audio_in -> CompanyOperatorAudioInput (RFC 6.3: aliases:
-  // {"pcm_stream"})
+  // 14. audio_in -> CompanyOperatorAudioInput
   RegisterBinding(MakeInputBinding(
-      "audio_in", {"pcm_stream"}, "CompanyOperatorAudioInput",
+      "audio_in", "CompanyOperatorAudioInput",
       [](const void* ptr, const ResolvedInputLimits& limits,
          std::string* err) -> int {
         if (!ptr) {
@@ -1164,9 +1083,9 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
         return 0;
       }));
 
-  // 15. audio_out -> CompanyOperatorAudioOutput (RFC 6.3: aliases: {"asr_out"})
+  // 15. audio_out -> CompanyOperatorAudioOutput
   RegisterBinding(MakeOutputBinding(
-      "audio_out", {"asr_out"}, "CompanyOperatorAudioOutput",
+      "audio_out", "CompanyOperatorAudioOutput",
       {{"transcribed_text", {511, 16384}}, {"intent_slot_json", {1023, 65536}}},
       0, sizeof(CompanyOperatorAudioOutput),
       [](const ResolvedOutputPoolSpec& spec, OwnedExternalBlock* out_block,
@@ -1193,9 +1112,9 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
         ResetNestedCompanyString(raw->intent_slot_json);
       }));
 
-  // 16. rerank_in -> CompanyOperatorRerankInput (RFC 6.3: aliases: {"pair_in"})
+  // 16. rerank_in -> CompanyOperatorRerankInput
   RegisterBinding(MakeInputBinding(
-      "rerank_in", {"pair_in"}, "CompanyOperatorRerankInput",
+      "rerank_in", "CompanyOperatorRerankInput",
       [](const void* ptr, const ResolvedInputLimits& limits,
          std::string* err) -> int {
         if (!ptr) {
@@ -1233,10 +1152,9 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
         return 0;
       }));
 
-  // 17. rerank_out -> CompanyOperatorRerankOutput (RFC 6.3: aliases:
-  // {"scores_out"})
+  // 17. rerank_out -> CompanyOperatorRerankOutput
   RegisterBinding(MakeOutputBinding(
-      "rerank_out", {"scores_out"}, "CompanyOperatorRerankOutput", {}, 0,
+      "rerank_out", "CompanyOperatorRerankOutput", {}, 0,
       sizeof(CompanyOperatorRerankOutput),
       [](const ResolvedOutputPoolSpec& /*spec*/, OwnedExternalBlock* out_block,
          std::string* /*err*/) -> int {

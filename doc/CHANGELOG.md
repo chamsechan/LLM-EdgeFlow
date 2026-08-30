@@ -6,6 +6,10 @@
 
 ## Unreleased
 
+- v7 在正式接入前删除未被外部使用的历史兼容层：Operator 后缀别名、
+  `.conf` 双结构/单模型简写、隐式顺序 Pipeline 转换、Node 双字段与类型别名、
+  重叠错误码，以及 Demo/CLI/Studio 兼容入口。当前契约对旧形状一律 fail-closed。
+- 设计依据：[RFC-0024](rfcs/0024-pre-release-contract-cleanup.md)。
 - v6 只保留 `biz_name`、`--biz` 与 Biz C++ API；Catalog 升级为 schema v2，并删除
   Business 双字段、双输出和类型/方法别名。
 - Node 只保留 `Init(const NodeInitContext&)`；`AlgContext` 只保留 write-once
@@ -26,8 +30,8 @@
 - 统一 Traceable 推理批次的数量与 provenance 校验；LLM、Embedding、Rerank、OCR、ASR 对无效模型输出一致 fail-close，且无效 Embedding 结果不进入 Session 缓存。
 - Layer 2 Pipeline 改为局部事务式装配，Node Init 失败不再向公开 Session
   暴露部分模型或执行资源。
-- Validator 与 Blackboard 统一为 write-once 输出语义，并修复 DAG Normalizer
-  非 object 项的越界边界。
+- Validator 与 Blackboard 统一为 write-once 输出语义，显式 DAG 文档按严格
+  object 与字段契约 fail-closed。
 - 并行波前在节点异常时会等待同层已提交任务全部结束，再返回稳定错误。
 - 设计依据：[RFC-0020](rfcs/0020-layer2-runtime-convergence.md)。
 - Causal LM 序列改为自带执行行为和资源生命周期的中性协议，Backend 加载时

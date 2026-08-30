@@ -1,6 +1,6 @@
 ---
 name: pipeline-composer
-description: Compose or modify LLM-EdgeFlow algorithm workflows using existing registered nodes and Pipeline JSON. Use for configuration-only pipeline creation, validation, planning, normalization, and smoke execution; route missing operator capabilities to llm-edgeflow-developer-guide.
+description: Compose or modify LLM-EdgeFlow algorithm workflows using existing registered nodes and explicit-DAG Pipeline JSON. Use for configuration-only pipeline creation, validation, planning, and smoke execution; route missing operator capabilities to llm-edgeflow-developer-guide.
 ---
 
 # Pipeline Composer
@@ -28,21 +28,14 @@ Use the runtime Catalog and Validator as the only source of node, port, paramete
    ./build/alg_pipeline_tool init --biz <biz_name> --empty
    ```
 
-4. Runtime validation requires explicit `id` and `depends_on`. For a legacy ordered document,
-   normalize through C++ before structural DAG edits; do not rely on implicit sequential parsing:
-
-   ```bash
-   ./build/alg_pipeline_tool normalize --explicit-dag <pipeline.json>
-   ```
-
-5. Validate after every meaningful edit. Use diagnostic `code`, JSON `path`, `node_id`, `port`, `related_nodes`, and `suggestions` to repair the document; do not reproduce validation rules in scripts or prompts.
+4. Every node must declare a non-empty `id` and an explicit `depends_on` array. Validate after every meaningful edit. Use diagnostic `code`, JSON `path`, `node_id`, `port`, `related_nodes`, and `suggestions` to repair the document; do not reproduce validation rules in scripts or prompts.
 
    ```bash
    ./build/alg_pipeline_tool validate <pipeline.json>
    ./build/alg_pipeline_tool plan <pipeline.json>
    ```
 
-6. Run the matching Smoke Profile only after validation succeeds:
+5. Run the matching Smoke Profile only after validation succeeds:
 
    ```bash
    ./build/alg_demo --profile <smoke_profile>

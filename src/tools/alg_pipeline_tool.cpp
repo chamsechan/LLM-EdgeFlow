@@ -59,7 +59,12 @@ std::optional<fs::path> ProfilePipeline(
   if (!conf_stream.is_open()) return std::nullopt;
   nlohmann::json conf;
   conf_stream >> conf;
-  const auto& data = conf.contains("data") ? conf["data"] : conf;
+  if (!conf.is_object() || conf.size() != 1 || !conf.contains("data") ||
+      !conf["data"].is_object() || !conf["data"].contains("pipe_path") ||
+      !conf["data"]["pipe_path"].is_string()) {
+    return std::nullopt;
+  }
+  const auto& data = conf["data"];
   fs::path pipe_path = data["pipe_path"].get<std::string>();
   if (pipe_path.is_relative()) {
     if (!fs::exists(pipe_path)) {
@@ -106,7 +111,6 @@ void Usage() {
             << "  alg_pipeline_tool describe-node NODE_TYPE\n"
             << "  alg_pipeline_tool init [--biz|-b] NAME [--profile "
                "NAME|--empty]\n"
-            << "  alg_pipeline_tool normalize --explicit-dag FILE|--stdin\n"
             << "  alg_pipeline_tool validate FILE|--stdin\n"
             << "  alg_pipeline_tool plan FILE|--stdin\n";
 }
@@ -205,41 +209,16 @@ int main(int argc, char** argv) {
     return 0;
   }
 
-  if (command == "validate" || command == "plan" || command == "normalize") {
-    int path_index = 2;
-    if (command == "normalize") {
-      if (argc != 4 || std::string(argv[2]) != "--explicit-dag") {
-        Usage();
-        return 2;
-      }
-      path_index = 3;
-    } else if (argc != 3) {
+  if (command == "validate" || command == "plan") {
+    if (argc != 3) {
       Usage();
       return 2;
     }
     nlohmann::json root;
     std::string error;
-    if (!ReadJson(argv[path_index], &root, &error)) {
+    if (!ReadJson(argv[2], &root, &error)) {
       std::cout << Error("JSON_READ", error).dump(2) << std::endl;
       return 1;
-    }
-    if (command == "normalize") {
-      nlohmann::json normalized;
-      alg_framework::ValidationDiagnostic diagnostic;
-      if (!PipelineValidator::NormalizeExplicitDag(root, &normalized,
-                                                   &diagnostic)) {
-        std::cout << Error(DiagnosticCodeName(diagnostic.code),
-                           diagnostic.message)
-                         .dump(2)
-                  << std::endl;
-        return 1;
-      }
-      std::cout << nlohmann::json({{"schema_version", 1},
-                                   {"ok", true},
-                                   {"pipeline", std::move(normalized)}})
-                       .dump(2)
-                << std::endl;
-      return 0;
     }
     auto report = PipelineValidator::Validate(root);
     auto result = report.ToJson();

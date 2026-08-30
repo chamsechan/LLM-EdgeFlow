@@ -183,7 +183,7 @@ include(cmake/Tests.cmake)
 add_executable(alg_show src/tools/alg_show.cpp)
 target_link_libraries(alg_show PRIVATE nlohmann_json::nlohmann_json)
 
-# 6.1 Pipeline Catalog / Validator / Normalizer machine-readable CLI
+# 6.1 Pipeline Catalog / Validator / Planner machine-readable CLI
 add_executable(alg_pipeline_tool src/tools/alg_pipeline_tool.cpp)
 target_link_libraries(alg_pipeline_tool PRIVATE alg_sdk)
 

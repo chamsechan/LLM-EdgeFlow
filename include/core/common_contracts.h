@@ -122,20 +122,12 @@ struct JsonDocumentItem {
         is_valid(valid),
         parse_status(status),
         diagnostic(std::move(diag)) {}
-
-  const char* c_str() const { return json_payload.c_str(); }
-  const std::string& str() const { return json_payload; }
-
-  // 兼容直接字符串转换
-  operator const std::string&() const { return json_payload; }
 };
 
 /**
- * @brief 标准可溯源结构化文档/JSON 批次 (JsonDocumentBatch /
- * StructuredDocumentBatch)
+ * @brief 标准可溯源结构化文档/JSON 批次
  */
-using JsonDocumentBatch = std::vector<TraceableItem<JsonDocumentItem>>;
-using StructuredDocumentBatch = JsonDocumentBatch;
+using StructuredDocumentBatch = std::vector<TraceableItem<JsonDocumentItem>>;
 
 // ==============================================================================
 // 3. 编译期类型萃取特化 (BlackboardTypeTraits Specializations)
@@ -167,7 +159,7 @@ struct BlackboardTypeTraits<RuleMatchBatch> {
 };
 
 template <>
-struct BlackboardTypeTraits<JsonDocumentBatch> {
+struct BlackboardTypeTraits<StructuredDocumentBatch> {
   static constexpr const char* TypeName() { return "StructuredDocumentBatch"; }
 };
 

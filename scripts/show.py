@@ -175,9 +175,6 @@ class WorkbenchService:
     def validate(self, pipeline: Any) -> dict[str, Any]:
         return self.invoke_tool(["validate", "--stdin"], pipeline)
 
-    def normalize(self, pipeline: Any) -> dict[str, Any]:
-        return self.invoke_tool(["normalize", "--explicit-dag", "--stdin"], pipeline)
-
     def init_pipeline(
         self, biz: str, profile: str = "", empty: bool = False
     ) -> dict[str, Any]:
@@ -240,7 +237,15 @@ class WorkbenchService:
             raise StudioError("UNKNOWN_PROFILE", profile_name)
         profile_conf = PROJECT_ROOT / profile["config"]
         conf = read_json(profile_conf)
-        data = conf.get("data", conf)
+        if (
+            not isinstance(conf, dict)
+            or set(conf) != {"data"}
+            or not isinstance(conf["data"], dict)
+        ):
+            raise StudioError(
+                "INVALID_PROFILE_CONFIG", "Profile .conf 必须仅包含 data 对象"
+            )
+        data = conf["data"]
         original_pipeline_path = Path(data["pipe_path"])
         if not original_pipeline_path.is_absolute():
             if (PROJECT_ROOT / original_pipeline_path).exists():
@@ -286,10 +291,7 @@ class WorkbenchService:
                 json.dumps(pipeline, ensure_ascii=False, indent=2), encoding="utf-8"
             )
             temp_conf = copy.deepcopy(conf)
-            if "data" in temp_conf:
-                temp_conf["data"]["pipe_path"] = "pipeline.json"
-            else:
-                temp_conf["pipe_path"] = "pipeline.json"
+            temp_conf["data"]["pipe_path"] = "pipeline.json"
             conf_path = temp_root / "pipeline.conf"
             conf_path.write_text(json.dumps(temp_conf, indent=2), encoding="utf-8")
             output_dir = temp_root / "results"
@@ -445,8 +447,6 @@ def make_handler(service: WorkbenchService):
                 payload = service.run_status(path.rsplit("/", 1)[-1])
             elif method == "POST" and path == "/api/v1/validate":
                 payload = service.validate(body.get("pipeline"))
-            elif method == "POST" and path == "/api/v1/normalize":
-                payload = service.normalize(body.get("pipeline"))
             elif method == "POST" and path == "/api/v1/init":
                 payload = service.init_pipeline(
                     body.get("biz", ""), body.get("profile", ""), body.get("empty", False)
@@ -517,16 +517,9 @@ def render_terminal(path: Path, pipeline: dict[str, Any]) -> None:
     print(f"Biz: {biz}")
     nodes = pipeline.get("pipeline", [])
     for index, node in enumerate(nodes):
-        node_id = node.get("id", f"node_{index}_{node.get('node_type', 'unknown')}")
-        depends = node.get("depends_on")
-        if depends is None and index:
-            previous = nodes[index - 1]
-            depends = [
-                previous.get(
-                    "id", f"node_{index - 1}_{previous.get('node_type', 'unknown')}"
-                )
-            ]
-        print(f"  [{index}] {node_id}: {node.get('node_type', 'unknown')} <- {depends or []}")
+        node_id = node.get("id", "<missing-id>")
+        depends = node.get("depends_on", "<missing-depends_on>")
+        print(f"  [{index}] {node_id}: {node.get('node_type', 'unknown')} <- {depends}")
     print()
 
 
@@ -554,7 +547,7 @@ def launch_web(initial: Path | None, port: int) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="LLM-EdgeFlow Pipeline viewer/studio")
     parser.add_argument("pipeline", nargs="?", help="configs/pipeline_*.json")
-    parser.add_argument("--web", "--ui", action="store_true", dest="web")
+    parser.add_argument("--web", action="store_true")
     parser.add_argument("--port", type=int, default=8080)
     args = parser.parse_args()
     selected: Path | None = None

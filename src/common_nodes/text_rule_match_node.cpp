@@ -114,11 +114,7 @@ class TextRuleMatchNode final : public NodeBase {
     default_category_ = config.value("default_category", "");
     default_score_ = config.value("default_score", 1.0f);
 
-    if (config.contains("default_categories") &&
-        config["default_categories"].is_object()) {
-      if (!UpdateCategories(config["default_categories"])) return false;
-    } else if (config.contains("categories") &&
-               config["categories"].is_object()) {
+    if (config.contains("categories") && config["categories"].is_object()) {
       if (!UpdateCategories(config["categories"])) return false;
     }
 
@@ -381,8 +377,6 @@ NodeDefinition MakeTextRuleMatchNodeDefinition() {
                             ""},
       ConfigFieldDefinition{"default_score", ConfigValueKind::kNumber, false,
                             1.0, 0.0, 1.0},
-      ConfigFieldDefinition{"default_categories", ConfigValueKind::kObject,
-                            false},
       ConfigFieldDefinition{"categories", ConfigValueKind::kObject, false},
       ConfigFieldDefinition{"rules", ConfigValueKind::kArray, false}};
   def.parallel_safe = true;

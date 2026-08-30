@@ -216,79 +216,26 @@ TEST(OperatorValueRegistryTest, RegisterBindingAtomicPrecheckAndFreeze) {
   EXPECT_FALSE(reg.RegisterBinding(late_binding));
 }
 
-// 7. RFC 6.3 槽位类型与别名表完整性校验 (R9-011)
-TEST(OperatorValueRegistryTest, RFC63AliasesCompliance) {
+// 7. Operator 槽位只接受唯一规范后缀
+TEST(OperatorValueRegistryTest, CanonicalSuffixesOnly) {
   auto& reg = OperatorValueTypeRegistry::Instance();
+  const std::vector<std::string> canonical_suffixes = {
+      "string",     "buffer",      "any",       "frame",      "od_out",
+      "keyword_in", "keyword_out", "entity_in", "entity_out", "doc_in",
+      "doc_out",    "audit_in",    "audit_out", "audio_in",   "audio_out",
+      "rerank_in",  "rerank_out"};
+  for (const auto& suffix : canonical_suffixes) {
+    const auto* binding = reg.GetBindingBySuffix(suffix);
+    ASSERT_NE(binding, nullptr) << suffix;
+    EXPECT_EQ(binding->canonical_suffix, suffix);
+  }
 
-  // 1. string -> 没有别名
-  EXPECT_EQ(reg.NormalizeSuffix("string"), "string");
-  EXPECT_EQ(reg.NormalizeSuffix("text"), "");
-  EXPECT_EQ(reg.NormalizeSuffix("str"), "");
-
-  // 2. buffer -> 没有别名
-  EXPECT_EQ(reg.NormalizeSuffix("buffer"), "buffer");
-  EXPECT_EQ(reg.NormalizeSuffix("bin"), "");
-
-  // 3. any -> 没有别名
-  EXPECT_EQ(reg.NormalizeSuffix("any"), "any");
-  EXPECT_EQ(reg.NormalizeSuffix("metadata"), "");
-
-  // 4. frame -> aliases: {"image_in"}
-  EXPECT_EQ(reg.NormalizeSuffix("frame"), "frame");
-  EXPECT_EQ(reg.NormalizeSuffix("image_in"), "frame");
-  EXPECT_EQ(reg.NormalizeSuffix("image"), "");
-
-  // 5. od_out -> aliases: {"ocr_out"}
-  EXPECT_EQ(reg.NormalizeSuffix("od_out"), "od_out");
-  EXPECT_EQ(reg.NormalizeSuffix("ocr_out"), "od_out");
-
-  // 6. keyword_in -> aliases: {"sentence_in"}
-  EXPECT_EQ(reg.NormalizeSuffix("keyword_in"), "keyword_in");
-  EXPECT_EQ(reg.NormalizeSuffix("sentence_in"), "keyword_in");
-
-  // 7. keyword_out -> aliases: {"match_out"}
-  EXPECT_EQ(reg.NormalizeSuffix("keyword_out"), "keyword_out");
-  EXPECT_EQ(reg.NormalizeSuffix("match_out"), "keyword_out");
-
-  // 8. entity_in -> aliases: {"text_in"}
-  EXPECT_EQ(reg.NormalizeSuffix("entity_in"), "entity_in");
-  EXPECT_EQ(reg.NormalizeSuffix("text_in"), "entity_in");
-
-  // 9. entity_out -> aliases: {"extracted_out"}
-  EXPECT_EQ(reg.NormalizeSuffix("entity_out"), "entity_out");
-  EXPECT_EQ(reg.NormalizeSuffix("extracted_out"), "entity_out");
-
-  // 10. doc_in -> aliases: {"qa_in"}
-  EXPECT_EQ(reg.NormalizeSuffix("doc_in"), "doc_in");
-  EXPECT_EQ(reg.NormalizeSuffix("qa_in"), "doc_in");
-
-  // 11. doc_out -> aliases: {"qa_out"}
-  EXPECT_EQ(reg.NormalizeSuffix("doc_out"), "doc_out");
-  EXPECT_EQ(reg.NormalizeSuffix("qa_out"), "doc_out");
-
-  // 12. audit_in -> aliases: {"dialogue_in"}
-  EXPECT_EQ(reg.NormalizeSuffix("audit_in"), "audit_in");
-  EXPECT_EQ(reg.NormalizeSuffix("dialogue_in"), "audit_in");
-
-  // 13. audit_out -> aliases: {"verdict_out"}
-  EXPECT_EQ(reg.NormalizeSuffix("audit_out"), "audit_out");
-  EXPECT_EQ(reg.NormalizeSuffix("verdict_out"), "audit_out");
-
-  // 14. audio_in -> aliases: {"pcm_stream"}
-  EXPECT_EQ(reg.NormalizeSuffix("audio_in"), "audio_in");
-  EXPECT_EQ(reg.NormalizeSuffix("pcm_stream"), "audio_in");
-
-  // 15. audio_out -> aliases: {"asr_out"}
-  EXPECT_EQ(reg.NormalizeSuffix("audio_out"), "audio_out");
-  EXPECT_EQ(reg.NormalizeSuffix("asr_out"), "audio_out");
-
-  // 16. rerank_in -> aliases: {"pair_in"}
-  EXPECT_EQ(reg.NormalizeSuffix("rerank_in"), "rerank_in");
-  EXPECT_EQ(reg.NormalizeSuffix("pair_in"), "rerank_in");
-
-  // 17. rerank_out -> aliases: {"scores_out"}
-  EXPECT_EQ(reg.NormalizeSuffix("rerank_out"), "rerank_out");
-  EXPECT_EQ(reg.NormalizeSuffix("scores_out"), "rerank_out");
+  for (const auto* noncanonical :
+       {"image_in", "ocr_out", "sentence_in", "match_out", "text_in",
+        "extracted_out", "qa_in", "qa_out", "dialogue_in", "verdict_out",
+        "pcm_stream", "asr_out", "pair_in", "scores_out"}) {
+    EXPECT_EQ(reg.GetBindingBySuffix(noncanonical), nullptr) << noncanonical;
+  }
 }
 
 // 8. ComputeOutputPoolPayloadBytes 预算计算与边界检测 (R9-005)
@@ -373,10 +320,9 @@ TEST(OperatorValueRegistryTest, AllSevenOutputTypesFootprintAndBudget) {
 TEST(OperatorValueRegistryTest, IsolatedValueTypeRegistryAtomicRollback) {
   OperatorValueTypeRegistry local_reg;
 
-  // 1. 测试别名冲突 (alias 与已有 canonical "string" 冲突)
+  // 1. 重复 canonical 必须 fail-closed
   OperatorValueTypeBinding bad_b1;
-  bad_b1.canonical_suffix = "my_custom";
-  bad_b1.aliases = {"string"};  // 与已存在的 "string" canonical 冲突
+  bad_b1.canonical_suffix = "string";
   EXPECT_FALSE(local_reg.RegisterBinding(bad_b1));
   EXPECT_TRUE(local_reg.HasConflict());
   EXPECT_EQ(local_reg.GlobalInit(), -6);
@@ -394,51 +340,6 @@ TEST(OperatorValueRegistryTest, IsolatedValueTypeRegistryAtomicRollback) {
   EXPECT_FALSE(clean_reg.RegisterBinding(late_b));
   EXPECT_EQ(clean_reg.GlobalInit(), 0);
   EXPECT_FALSE(clean_reg.HasConflict());
-}
-
-// 10. Canonical 与 Alias 冲突矩阵测试
-TEST(OperatorValueRegistryTest, CanonicalAndAliasConflictMatrix) {
-  // 1. Canonical / Canonical 冲突
-  {
-    OperatorValueTypeRegistry reg;
-    OperatorValueTypeBinding b;
-    b.canonical_suffix = "doc_in";  // 已存在
-    EXPECT_FALSE(reg.RegisterBinding(b));
-    EXPECT_TRUE(reg.HasConflict());
-    EXPECT_EQ(reg.GlobalInit(), -6);
-  }
-
-  // 2. Canonical / Alias 冲突 (新 canonical 与已有 alias "qa_in" 冲突)
-  {
-    OperatorValueTypeRegistry reg;
-    OperatorValueTypeBinding b;
-    b.canonical_suffix = "qa_in";
-    EXPECT_FALSE(reg.RegisterBinding(b));
-    EXPECT_TRUE(reg.HasConflict());
-    EXPECT_EQ(reg.GlobalInit(), -6);
-  }
-
-  // 3. Alias / Alias 冲突 (新 alias 与已有 alias "scores_out" 冲突)
-  {
-    OperatorValueTypeRegistry reg;
-    OperatorValueTypeBinding b;
-    b.canonical_suffix = "new_score_type";
-    b.aliases = {"scores_out"};
-    EXPECT_FALSE(reg.RegisterBinding(b));
-    EXPECT_TRUE(reg.HasConflict());
-    EXPECT_EQ(reg.GlobalInit(), -6);
-  }
-
-  // 4. 重复 Alias (在同一个 binding 内部重复)
-  {
-    OperatorValueTypeRegistry reg;
-    OperatorValueTypeBinding b;
-    b.canonical_suffix = "unique_suffix";
-    b.aliases = {"dup_alias", "dup_alias"};
-    EXPECT_FALSE(reg.RegisterBinding(b));
-    EXPECT_TRUE(reg.HasConflict());
-    EXPECT_EQ(reg.GlobalInit(), -6);
-  }
 }
 
 // 11. 缺少 Validator 或 Output Factory 时的 Fail-Closed 审计 (分项独立测试)
@@ -541,9 +442,6 @@ TEST(OperatorValueRegistryTest, NamedExceptionInjectionRollbackZeroCorruption) {
   const auto points = {
       OperatorValueTypeRegistry::RegistryExceptionInjectPoint::
           kCopyCanonicalMap,
-      OperatorValueTypeRegistry::RegistryExceptionInjectPoint::kCopyAliasMap,
-      OperatorValueTypeRegistry::RegistryExceptionInjectPoint::
-          kSecondAliasInsert,
       OperatorValueTypeRegistry::RegistryExceptionInjectPoint::kCanonicalInsert,
       OperatorValueTypeRegistry::RegistryExceptionInjectPoint::kPublish,
   };
@@ -554,7 +452,6 @@ TEST(OperatorValueRegistryTest, NamedExceptionInjectionRollbackZeroCorruption) {
 
     OperatorValueTypeBinding b;
     b.canonical_suffix = "injected_custom_out";
-    b.aliases = {"alias_one", "alias_two"};
     b.external_c_type_name = "InjectedCustomOutput";
     SetMinimalOutputContract(&b);
     b.allocate_external = [](const ResolvedOutputPoolSpec&, OwnedExternalBlock*,
@@ -569,8 +466,6 @@ TEST(OperatorValueRegistryTest, NamedExceptionInjectionRollbackZeroCorruption) {
 
     // 状态无污染
     EXPECT_FALSE(reg.HasConflict());
-    EXPECT_EQ(reg.NormalizeSuffix("alias_one"), "");
-    EXPECT_EQ(reg.NormalizeSuffix("alias_two"), "");
     EXPECT_EQ(reg.GetBindingBySuffix("injected_custom_out"), nullptr);
     EXPECT_EQ(reg.GlobalInit(), 0);
   }
@@ -762,7 +657,7 @@ TEST(OperatorValueRegistryTest, TSanConcurrentQueryAndFreeze) {
       while (!stop_flag.load()) {
         const auto* b = reg.GetBindingBySuffix("doc_out");
         EXPECT_NE(b, nullptr);
-        EXPECT_EQ(reg.NormalizeSuffix("qa_out"), "doc_out");
+        EXPECT_EQ(reg.GetBindingBySuffix("qa_out"), nullptr);
       }
     });
   }

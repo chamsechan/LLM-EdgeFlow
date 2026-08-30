@@ -314,22 +314,4 @@ int RunOperatorWithExtractor(
   return 0;
 }
 
-/**
- * @brief 向后兼容别名函数
- */
-template <typename TInput, typename TOutput, typename TResultExtractor>
-inline int RunPlatformOperatorWithExtractor(
-    const DemoOptions& options, std::string_view input_slot,
-    std::string_view output_slot, const std::vector<TInput>& inputs,
-    TResultExtractor&& extractor,
-    std::vector<double>* out_latencies_ms = nullptr,
-    llm_edgeflow::operator_api::ControlCommand ctrl_cmd =
-        llm_edgeflow::operator_api::ControlCommand::kUpdateRules,
-    const char* default_ctrl_json = nullptr) {
-  return RunOperatorWithExtractor<TInput, TOutput, TResultExtractor>(
-      options, input_slot, output_slot, inputs,
-      std::forward<TResultExtractor>(extractor), out_latencies_ms, ctrl_cmd,
-      default_ctrl_json);
-}
-
 }  // namespace alg_demo

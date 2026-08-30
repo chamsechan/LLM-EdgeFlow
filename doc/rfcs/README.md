@@ -79,6 +79,7 @@ doc/rfcs/NNNN-<kebab-case-title>.md
 | **RFC-0021** | Layer 4 作者体验与执行协议收敛 | `Completed` | `v5.6.0` | Layer 4 | [0021-layer4-authoring-and-protocol-convergence.md](0021-layer4-authoring-and-protocol-convergence.md) |
 | **RFC-0022** | 文本规则与 UTF-8 分块安全收敛 | `Completed` | `v5.7.0` | Layer 3 / Layer 4 Text Support | [0022-text-processing-safety.md](0022-text-processing-safety.md) |
 | **RFC-0023** | v6 运行时契约破坏性收敛 | `Completed` | `v6.0.0` | Layer 1 ~ Layer 3 / Tooling | [0023-v6-contract-convergence.md](0023-v6-contract-convergence.md) |
+| **RFC-0024** | 正式接入前历史兼容契约清理 | `Completed` | `v7.0.0` | Layer 1 ~ Layer 3 / Tooling | [0024-pre-release-contract-cleanup.md](0024-pre-release-contract-cleanup.md) |
 
 ---
 

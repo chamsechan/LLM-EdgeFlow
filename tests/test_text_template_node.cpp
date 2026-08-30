@@ -172,6 +172,11 @@ TEST_F(TextTemplateNodeTest, ControlCommandHotSwapAndBogusRejection) {
       kControlCmdUpdatePrompt, nlohmann::json{{"prompt_id", "qa-v2"}}.dump());
   EXPECT_EQ(prompt_id_res.status, NodeControlStatus::kHandled);
 
+  NodeControlResult removed_field_res =
+      node->Control(kControlCmdUpdatePrompt,
+                    nlohmann::json{{"prompt_template", "removed"}}.dump());
+  EXPECT_EQ(removed_field_res.status, NodeControlStatus::kFailed);
+
   NodeControlResult invalid_policy_res = node->Control(
       kControlCmdUpdatePrompt,
       nlohmann::json{{"missing_variable_policy", "invent"}}.dump());

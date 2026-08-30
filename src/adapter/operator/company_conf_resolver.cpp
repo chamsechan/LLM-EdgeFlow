@@ -278,15 +278,24 @@ int CompanyConfResolver::Resolve(
       return -2;
     }
 
-    const nlohmann::json* data_obj = nullptr;
-    if (conf_json.contains("data")) {
-      if (!conf_json["data"].is_object()) {
-        if (error_msg) *error_msg = "Field 'data' in conf must be an object";
+    if (conf_json.size() != 1 || !conf_json.contains("data") ||
+        !conf_json["data"].is_object()) {
+      if (error_msg) {
+        *error_msg =
+            "Conf root must contain only the required object field 'data'";
+      }
+      return -2;
+    }
+    const nlohmann::json* data_obj = &conf_json["data"];
+    static const std::unordered_set<std::string> kAllowedDataFields = {
+        "pipe_path", "model_paths", "mem_que"};
+    for (auto it = data_obj->begin(); it != data_obj->end(); ++it) {
+      if (kAllowedDataFields.find(it.key()) == kAllowedDataFields.end()) {
+        if (error_msg) {
+          *error_msg = "Unknown field in conf data: '" + it.key() + "'";
+        }
         return -2;
       }
-      data_obj = &conf_json["data"];
-    } else {
-      data_obj = &conf_json;
     }
 
     if (!data_obj->contains("pipe_path") ||
@@ -513,39 +522,7 @@ int CompanyConfResolver::Resolve(
       }
     }
 
-    // 2. 解析与校验模型路径 (model_path 与 model_paths)
-    std::unordered_set<std::string> overridden_model_ids;
-    bool has_single_model_override = false;
-    std::string single_override_path;
-
-    size_t model_count = 0;
-    if (pipe_json.contains("models") && pipe_json["models"].is_array()) {
-      model_count = pipe_json["models"].size();
-    }
-
-    if (data_obj->contains("model_path")) {
-      if (!(*data_obj)["model_path"].is_string()) {
-        if (error_msg) *error_msg = "'model_path' in conf must be a string";
-        return -2;
-      }
-      std::string single_mpath = (*data_obj)["model_path"].get<std::string>();
-      std::filesystem::path full_mpath;
-      ret = ResolveModelReferenceUnderRoot(
-          canon_root, single_mpath, "model_path", &full_mpath, error_msg);
-      if (ret != 0) return ret;
-
-      if (model_count == 1) {
-        has_single_model_override = true;
-        single_override_path = full_mpath.string();
-      } else if (model_count > 1) {
-        if (error_msg) {
-          *error_msg = "Conf specifies single 'model_path' but pipeline has " +
-                       std::to_string(model_count) + " models";
-        }
-        return -2;
-      }
-    }
-
+    // 2. 解析与校验规范 model_id -> model_path 映射
     std::unordered_map<std::string, std::string> map_overrides;
     if (data_obj->contains("model_paths")) {
       if (!(*data_obj)["model_paths"].is_object()) {
@@ -568,7 +545,6 @@ int CompanyConfResolver::Resolve(
           for (auto& item : pipe_json["models"]) {
             if (item.contains("model_id") && item["model_id"] == mid) {
               map_overrides[mid] = full_mpath.string();
-              overridden_model_ids.insert(mid);
               matched = true;
               break;
             }
@@ -590,10 +566,7 @@ int CompanyConfResolver::Resolve(
             item.contains("model_id") && item["model_id"].is_string()
                 ? item["model_id"].get<std::string>()
                 : "";
-        if (has_single_model_override) {
-          item["model_path"] = single_override_path;
-        } else if (!mid.empty() &&
-                   map_overrides.find(mid) != map_overrides.end()) {
+        if (!mid.empty() && map_overrides.find(mid) != map_overrides.end()) {
           item["model_path"] = map_overrides[mid];
         } else if (item.contains("model_path") &&
                    item["model_path"].is_string()) {

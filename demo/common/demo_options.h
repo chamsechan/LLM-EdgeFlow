@@ -67,15 +67,6 @@ bool ParseComputePlatform(
     llm_edgeflow::operator_api::ComputePlatform* out_type) noexcept;
 
 /**
- * @brief 保持向后兼容的别名函数
- */
-inline bool ParseChipType(
-    const std::string& chip_str,
-    llm_edgeflow::operator_api::ComputePlatform* out_type) noexcept {
-  return ParseComputePlatform(chip_str, out_type);
-}
-
-/**
  * @brief 解析命令行参数填充 DemoOptions
  * @param argc 命令行参数数量
  * @param argv 命令行参数数组

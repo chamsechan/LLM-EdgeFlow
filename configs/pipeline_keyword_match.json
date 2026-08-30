@@ -15,7 +15,7 @@
         }
       },
       "config": {
-        "default_categories": {
+        "categories": {
           "SYSTEM_INIT": [
             "初始化",
             "自检"

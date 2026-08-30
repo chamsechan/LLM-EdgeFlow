@@ -144,9 +144,4 @@ class NodeFactory {
         &definition);                                                       \
   }()
 
-#define REGISTER_NODE(NodeType)                                        \
-  static_assert(false,                                                 \
-                "REGISTER_NODE without definition is deprecated. Use " \
-                "REGISTER_NODE_WITH_DEFINITION instead.")
-
 }  // namespace alg_framework

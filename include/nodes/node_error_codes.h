@@ -3,8 +3,7 @@
 namespace alg_framework {
 namespace node_error {
 
-// These values are part of the existing node runtime contract. Keep node
-// semantics named independently even when legacy values overlap.
+// Runtime node errors use non-overlapping per-node numeric ranges.
 namespace control {
 inline constexpr int kInvalidRequest = -1;
 }  // namespace control
@@ -49,20 +48,20 @@ inline constexpr int kInvalidUtf8 = -6203;
 
 namespace text_rerank {
 inline constexpr int kMissingInput = -7001;
-inline constexpr int kModelOutputMismatch = -1;
+inline constexpr int kModelOutputMismatch = -7002;
 }  // namespace text_rerank
-
-namespace asr_transcribe {
-inline constexpr int kMissingInput = -7001;
-inline constexpr int kOutputCountMismatch = -7002;
-inline constexpr int kOutputProvenanceMismatch = -7003;
-}  // namespace asr_transcribe
 
 namespace ocr_detect {
 inline constexpr int kMissingInput = -7101;
 inline constexpr int kOutputCountMismatch = -7102;
 inline constexpr int kOutputProvenanceMismatch = -7103;
 }  // namespace ocr_detect
+
+namespace asr_transcribe {
+inline constexpr int kMissingInput = -7201;
+inline constexpr int kOutputCountMismatch = -7202;
+inline constexpr int kOutputProvenanceMismatch = -7203;
+}  // namespace asr_transcribe
 
 }  // namespace node_error
 }  // namespace alg_framework
