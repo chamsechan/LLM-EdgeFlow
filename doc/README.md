@@ -1,6 +1,6 @@
 # LLM-EdgeFlow 文档目录
 
-本目录维护 LLM-EdgeFlow 的架构、开发、接口和 RFC 文档。项目概览与最短上手路径位于仓库根目录的 [README](../README.md)，版本演进摘要位于 [Changelog](../CHANGELOG.md)。
+本目录维护 LLM-EdgeFlow 的架构、开发、接口和 RFC 文档。项目概览与最短上手路径位于仓库根目录的 [README](../README.md)，版本演进摘要位于 [Changelog](CHANGELOG.md)。
 
 - **[architecture.md](architecture.md)**：框架 4 层抽象架构说明书、模块详细职责、运行时时序图（Mermaid）及算子开发上手规范。
 - **[architecture.puml](architecture.puml)**：框架代码库当前物理实现的精确 PlantUML 类图（As-Is 白盒类与接口视图）。
@@ -9,6 +9,7 @@
 - **[assets/architecture_flow.svg](assets/architecture_flow.svg)**：由 `architecture_v2.puml` 固定版本生成的 Target 全景图资产。
 - **[developer_guide.md](developer_guide.md)**：算法开发人员与平台接入人员完整研发上手指南。
 - **[logging.md](logging.md)**：纯 C11 公共日志 API、等级、环境变量和接口约束。
+- **[CHANGELOG.md](CHANGELOG.md)**：架构里程碑与用户可感知变更摘要。
 - **[rfcs/ (RFC 需求与设计库)](rfcs/README.md)**：所有待实现需求、架构演进 RFC 设计文档及模板规范（`doc/rfcs/`）。
 - **[Pipeline Studio](../tools/visualizer/README.md)**：DAG 终端视图、Web 工作台、自动化 CLI 与安全边界。
 

@@ -105,7 +105,7 @@ cmake --build build -j$(nproc)
 | 查看或编辑 Pipeline DAG | [Pipeline Studio 指南](tools/visualizer/README.md) |
 | 查阅需求设计与验收记录 | [RFC 索引](doc/rfcs/README.md) |
 | 浏览全部项目文档 | [文档目录](doc/README.md) |
-| 查看版本演进摘要 | [Changelog](CHANGELOG.md) |
+| 查看版本演进摘要 | [Changelog](doc/CHANGELOG.md) |
 | 参与开发与交付 | [Contributing](CONTRIBUTING.md) |
 
 ## 开发与交付
@@ -118,7 +118,7 @@ cmake --build build -j$(nproc)
 
 完整生命周期见 [Contributing](CONTRIBUTING.md)，Agent 架构与路由见
 [AGENTS.md](AGENTS.md)，长期设计决策见 [RFC 目录](doc/rfcs/README.md)。当前架构里程碑
-为 **v5.1.0**；仓库尚未发布对应 Git tag，版本演进以 [Changelog](CHANGELOG.md) 和已完成
+为 **v5.1.0**；仓库尚未发布对应 Git tag，版本演进以 [Changelog](doc/CHANGELOG.md) 和已完成
 RFC 为准。
 
 ## License

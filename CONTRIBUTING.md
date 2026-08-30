@@ -58,7 +58,7 @@ scope, invariants, decisions, and verification current while implementing.
 ## 5. Update durable documentation proportionally
 
 - Keep active architecture and developer documentation aligned with the implementation.
-- Update `CHANGELOG.md` for user-visible capabilities, public behavior, architecture, or major
+- Update `doc/CHANGELOG.md` for user-visible capabilities, public behavior, architecture, or major
   developer-tool changes; do not add entries for typo-only or internal mechanical changes.
 - Update README only when the current overview, capability maturity, quick start, or navigation
   changes.

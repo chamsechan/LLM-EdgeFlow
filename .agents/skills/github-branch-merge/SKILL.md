@@ -13,7 +13,7 @@ and verification policy. Do not repeat those decisions here.
 
 - The user explicitly authorized the requested remote action.
 - Work is already on an approved non-`main` branch.
-- The diff contains only intended work and any applicable RFC/index/`CHANGELOG.md` updates.
+- The diff contains only intended work and any applicable RFC/index/`doc/CHANGELOG.md` updates.
 - The canonical local gate has passed on the exact commit set to deliver.
 
 If any precondition fails, correct it locally or report the blocker. Do not push a partial or

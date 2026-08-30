@@ -1,16 +1,4 @@
-# Cursor AI Rules for LLM-EdgeFlow
+# Cursor AI rules
 
-Please strictly follow the development directives defined in `AGENTS.md` and `CLAUDE.md`.
-
-## Key Commands
-- Build: `mkdir -p build && cd build && cmake .. && make -j4`
-- Format: `./scripts/format.sh`
-- Test: `cd build && ctest --output-on-failure` && `./scripts/run_all_tests.sh`
-- Branch & PR: `./scripts/git_branch_upload.sh "<msg>" "<type>"`
-
-## Architecture
-- Layer 1: Pure C ABI in `include/company_alg_interface.h` (pure C only, `noexcept` firewall).
-- Layer 2: Dynamic blackboard `AlgContext` and `Pipeline`.
-- Layer 3: Nodes inheriting `INode` + `REGISTER_NODE`.
-- Layer 4: Heterogeneous engines with `FixedBatchExecutor`.
-- All third-party dependencies must be fetched via CMake `FetchContent`.
+Follow `AGENTS.md` for current architecture constraints and task routing, then follow
+`CONTRIBUTING.md` for the development and delivery lifecycle. Do not duplicate those rules here.
