@@ -63,18 +63,18 @@ class Pipeline {
   State GetState() const { return state_; }
   bool IsReady() const { return state_ == State::kReady; }
 
-  SessionContext& GetSessionContext() { return session_ctx_; }
-  const SessionContext& GetSessionContext() const { return session_ctx_; }
-  const std::string& GetBizName() const { return plan_.config.biz_name; }
+  SessionContext& GetSessionContext() { return *session_ctx_; }
+  const SessionContext& GetSessionContext() const { return *session_ctx_; }
+  const std::string& GetBizName() const { return plan_->config.biz_name; }
   const std::string& GetBusinessName() const { return GetBizName(); }
   ExecutionMode GetExecutionMode() const { return execution_mode_; }
   const std::vector<std::string>& GetTopologicalOrder() const {
-    return plan_.topological_order;
+    return plan_->topological_order;
   }
   const std::vector<std::vector<std::string>>& GetTopologicalLayers() const {
-    return plan_.topological_layers;
+    return plan_->topological_layers;
   }
-  const ValidatedPipelinePlan& GetPlan() const { return plan_; }
+  const ValidatedPipelinePlan& GetPlan() const { return *plan_; }
 
  private:
   bool BuildInternal(const nlohmann::json& root_config,
@@ -86,8 +86,10 @@ class Pipeline {
   State state_ = State::kEmpty;
   ExecutionMode execution_mode_ = ExecutionMode::SEQUENTIAL;
   size_t max_parallel_workers_ = 4;
-  SessionContext session_ctx_;
-  ValidatedPipelinePlan plan_;
+  // Heap ownership keeps addresses handed to initialized Nodes stable while a
+  // fully staged runtime assembly is committed into this façade.
+  std::unique_ptr<SessionContext> session_ctx_;
+  std::unique_ptr<ValidatedPipelinePlan> plan_;
 
   std::vector<std::unique_ptr<INode>> nodes_;
   std::vector<std::vector<INode*>> node_layers_;

@@ -135,7 +135,7 @@ NodeDefinition MakeFlowContractProducerDefinition() {
   def.node_type = FlowContractProducerNode::kNodeType;
   def.category = "test";
   def.description = "Produces a generated request-scoped collection";
-  def.outputs = {PortDefinition{"flow", "TextBatch", true, false, "1:N",
+  def.outputs = {PortDefinition{"flow", "TextBatch", true, true, "1:N",
                                 "generate_sub_id", "request"}};
   return def;
 }
@@ -239,6 +239,33 @@ TEST(ValidatedPipelinePlanTest, RejectsIncompatiblePortExecutionContracts) {
     }
   }
   for (const auto code : expected) EXPECT_TRUE(actual.count(code));
+}
+
+TEST(ValidatedPipelinePlanTest,
+     RejectsDuplicateProducerEvenWhenDefinitionAllowsOverride) {
+  nlohmann::json pipeline_json = {
+      {"business_name", "unregistered_test_biz"},
+      {"models", nlohmann::json::array()},
+      {"pipeline", nlohmann::json::array(
+                       {{{"id", "first"},
+                         {"node_type", FlowContractProducerNode::kNodeType},
+                         {"depends_on", nlohmann::json::array()}},
+                        {{"id", "second"},
+                         {"node_type", FlowContractProducerNode::kNodeType},
+                         {"depends_on", nlohmann::json::array({"first"})}}})}};
+
+  const auto plan = PipelineValidator::ValidateAndPlan(
+      pipeline_json, ValidationPolicy::kPrivateExtensionCompatible);
+  ASSERT_FALSE(plan.report.ok);
+  const auto diagnostic =
+      std::find_if(plan.report.diagnostics.begin(),
+                   plan.report.diagnostics.end(), [](const auto& item) {
+                     return item.code == DiagnosticCode::kDuplicatePortProducer;
+                   });
+  ASSERT_NE(diagnostic, plan.report.diagnostics.end());
+  EXPECT_EQ(diagnostic->node_id, "second");
+  EXPECT_EQ(diagnostic->port, "flow");
+  EXPECT_EQ(diagnostic->related_nodes, std::vector<std::string>({"first"}));
 }
 
 TEST(ValidatedPipelinePlanTest, ResolvesConfiguredPortLifetimeBeforePlanning) {

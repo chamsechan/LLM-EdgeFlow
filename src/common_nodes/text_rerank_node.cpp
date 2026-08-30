@@ -194,7 +194,7 @@ NodeDefinition MakeTextRerankNodeDefinition() {
           "1:1", "preserve", "request")};
   def.outputs = {OutputPort(
       "ranked", BlackboardKey<RankedTextBatch>{"", "RankedTextBatch"},
-      /*allow_override=*/true, "1:N", "generate_sub_id", "request")};
+      /*allow_override=*/false, "1:N", "generate_sub_id", "request")};
   def.port_constraints = {PortGroupConstraint::Groups(
       PortConstraintKind::kExactOneGroupOf,
       {{"pairs"}, {"queries", "candidates"}, {"queries", "candidate_texts"}},

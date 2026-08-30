@@ -169,6 +169,23 @@ TEST(PipelineValidatorTest, ReportsDuplicateEdge) {
   EXPECT_EQ(report.diagnostics.front().path, "/pipeline/1/depends_on/1");
 }
 
+TEST(PipelineValidatorTest, NormalizeRejectsNonObjectNodeWithStablePath) {
+  const nlohmann::json pipeline = {
+      {"business_name", "keyword_match_v1"},
+      {"pipeline",
+       nlohmann::json::array({{{"node_type", "TextRuleMatchNode"}},
+                              nullptr,
+                              {{"node_type", "TextRuleMatchNode"}}})}};
+  nlohmann::json normalized;
+  ValidationDiagnostic diagnostic;
+
+  EXPECT_FALSE(PipelineValidator::NormalizeExplicitDag(pipeline, &normalized,
+                                                       &diagnostic));
+  EXPECT_EQ(diagnostic.code, DiagnosticCode::kFieldType);
+  EXPECT_EQ(diagnostic.path, "/pipeline/1");
+  EXPECT_EQ(diagnostic.message, "Node item must be an object");
+}
+
 TEST(PipelineValidatorTest, ReportsConfigAndCapabilityErrors) {
   const nlohmann::json pipeline = {
       {"business_name", "entity_extract_0.6b_v1"},

@@ -75,6 +75,7 @@ doc/rfcs/NNNN-<kebab-case-title>.md
 | **RFC-0017** | 开发治理与 Agent 工作流收敛 | `Completed` | `v5.2.0` | Tooling / Governance | [0017-development-governance-convergence.md](0017-development-governance-convergence.md) |
 | **RFC-0018** | 请求黑板与算法句柄并发契约收敛 | `Completed` | `v5.3.0` | Layer 1 ~ Layer 2 | [0018-request-context-and-handle-concurrency-contracts.md](0018-request-context-and-handle-concurrency-contracts.md) |
 | **RFC-0019** | 高优先级分层代码收敛 | `Completed` | `v5.4.0` | Layer 1 ~ Layer 4 / Tooling | [0019-high-priority-layer-convergence.md](0019-high-priority-layer-convergence.md) |
+| **RFC-0020** | Layer 2 运行时一致性与事务化构建收敛 | `Completed` | `v5.5.0` | Layer 2 / Layer 3 Definition | [0020-layer2-runtime-convergence.md](0020-layer2-runtime-convergence.md) |
 | **RFC-0021** | Layer 4 作者体验与执行协议收敛 | `Completed` | `v5.6.0` | Layer 4 | [0021-layer4-authoring-and-protocol-convergence.md](0021-layer4-authoring-and-protocol-convergence.md) |
 
 ---

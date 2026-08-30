@@ -6,6 +6,12 @@
 
 ## Unreleased
 
+- Layer 2 Pipeline 改为局部事务式装配，Node Init 失败不再向公开 Session
+  暴露部分模型或执行资源。
+- Validator 与 Blackboard 统一为 write-once 输出语义，并修复 DAG Normalizer
+  非 object 项的越界边界。
+- 并行波前在节点异常时会等待同层已提交任务全部结束，再返回稳定错误。
+- 设计依据：[RFC-0020](rfcs/0020-layer2-runtime-convergence.md)。
 - Causal LM 序列改为自带执行行为和资源生命周期的中性协议，Backend 加载时
   可显式校验 Model 请求的执行协议。
 - ONNX 批策略改为综合全部输入/输出 metadata；BGE Model 共用 BERT 构造期与
