@@ -6,6 +6,11 @@
 
 ## Unreleased
 
+- `TextRuleMatchNode` 改用 Unicode PCRE2 语义，正确支持正/负 lookbehind 与命名捕获，
+  消除 `(?<` 字符串重写导致的静默规则篡改。
+- `TextChunkNode` 按 Unicode code point 执行 `chunk_size` 与 `overlap`，不再截断
+  UTF-8 多字节字符；非法 UTF-8 输入统一 fail-close。
+- 设计依据：[RFC-0022](rfcs/0022-text-processing-safety.md)。
 - 统一 Traceable 推理批次的数量与 provenance 校验；LLM、Embedding、Rerank、OCR、ASR 对无效模型输出一致 fail-close，且无效 Embedding 结果不进入 Session 缓存。
 - Layer 2 Pipeline 改为局部事务式装配，Node Init 失败不再向公开 Session
   暴露部分模型或执行资源。

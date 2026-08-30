@@ -123,4 +123,5 @@ RFC 为准。
 
 ## License
 
-[MIT License](LICENSE)
+[MIT License](LICENSE). Third-party component notices are listed in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

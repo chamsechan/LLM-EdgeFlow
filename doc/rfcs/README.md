@@ -77,6 +77,7 @@ doc/rfcs/NNNN-<kebab-case-title>.md
 | **RFC-0019** | 高优先级分层代码收敛 | `Completed` | `v5.4.0` | Layer 1 ~ Layer 4 / Tooling | [0019-high-priority-layer-convergence.md](0019-high-priority-layer-convergence.md) |
 | **RFC-0020** | Layer 2 运行时一致性与事务化构建收敛 | `Completed` | `v5.5.0` | Layer 2 / Layer 3 Definition | [0020-layer2-runtime-convergence.md](0020-layer2-runtime-convergence.md) |
 | **RFC-0021** | Layer 4 作者体验与执行协议收敛 | `Completed` | `v5.6.0` | Layer 4 | [0021-layer4-authoring-and-protocol-convergence.md](0021-layer4-authoring-and-protocol-convergence.md) |
+| **RFC-0022** | 文本规则与 UTF-8 分块安全收敛 | `Completed` | `v5.7.0` | Layer 3 / Layer 4 Text Support | [0022-text-processing-safety.md](0022-text-processing-safety.md) |
 
 ---
 

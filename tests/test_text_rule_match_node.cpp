@@ -72,6 +72,97 @@ TEST_F(TextRuleMatchNodeTest, ControlCommandDynamicRules) {
   EXPECT_EQ(bogus_res.status, NodeControlStatus::kFailed);
 }
 
+TEST_F(TextRuleMatchNodeTest, SupportsLookbehindAndNamedCaptures) {
+  auto node = NodeFactory::Instance().Create("TextRuleMatchNode");
+  ASSERT_NE(node, nullptr);
+
+  nlohmann::json cfg = {{"rules",
+                         {{{"id", "amount"},
+                           {"strategy", "regex"},
+                           {"pattern", R"((?<=金额:)(?P<amount>\d+))"},
+                           {"category", "AMOUNT"}},
+                          {{"id", "risk"},
+                           {"strategy", "regex"},
+                           {"pattern", R"((?<!not_)(?<word>risk))"},
+                           {"category", "RISK"}}}}};
+  ASSERT_TRUE(node->Init(cfg, session_ctx_.get()));
+
+  AlgContext ctx;
+  TextBatch inputs;
+  inputs.emplace_back(11, 1, "本次金额:123元");
+  inputs.emplace_back(12, 2, "not_risk");
+  inputs.emplace_back(13, 3, "plain risk");
+  ctx.Set("text", inputs);
+
+  ASSERT_EQ(node->Process(&ctx), 0);
+  const auto* matches = ctx.Get<RuleMatchBatch>("matches");
+  ASSERT_NE(matches, nullptr);
+  ASSERT_EQ(matches->size(), 3u);
+
+  EXPECT_EQ((*matches)[0].req_id, 11u);
+  EXPECT_EQ((*matches)[0].sub_id, 1u);
+  EXPECT_EQ((*matches)[0].data.category, "AMOUNT");
+  EXPECT_EQ((*matches)[0].data.captures.at("amount"), "123");
+  EXPECT_EQ((*matches)[1].data.is_hit, 0);
+  EXPECT_EQ((*matches)[2].data.category, "RISK");
+  EXPECT_EQ((*matches)[2].data.captures.at("word"), "risk");
+}
+
+TEST_F(TextRuleMatchNodeTest, PreservesLookbehindWhenLaterGreaterThanExists) {
+  auto node = NodeFactory::Instance().Create("TextRuleMatchNode");
+  ASSERT_NE(node, nullptr);
+
+  nlohmann::json cfg = {{"rules",
+                         {{{"id", "regression"},
+                           {"strategy", "regex"},
+                           {"pattern", R"((?<=不存在)(?<value>请帮我>联系))"},
+                           {"category", "RISK"}}}}};
+  ASSERT_TRUE(node->Init(cfg, session_ctx_.get()));
+
+  AlgContext ctx;
+  TextBatch inputs;
+  inputs.emplace_back(21, 0, "请帮我联系一下");
+  inputs.emplace_back(22, 0, "不存在请帮我>联系");
+  ctx.Set("text", inputs);
+
+  ASSERT_EQ(node->Process(&ctx), 0);
+  const auto* matches = ctx.Get<RuleMatchBatch>("matches");
+  ASSERT_NE(matches, nullptr);
+  ASSERT_EQ(matches->size(), 2u);
+  EXPECT_EQ((*matches)[0].data.is_hit, 0);
+  EXPECT_EQ((*matches)[1].data.is_hit, 1);
+  EXPECT_EQ((*matches)[1].data.captures.at("value"), "请帮我>联系");
+}
+
+TEST_F(TextRuleMatchNodeTest, RegexErrorsFailClosed) {
+  auto node = NodeFactory::Instance().Create("TextRuleMatchNode");
+  ASSERT_NE(node, nullptr);
+  ASSERT_TRUE(node->Init(nlohmann::json::object(), session_ctx_.get()));
+
+  nlohmann::json invalid_update = {{"rules",
+                                    {{{"id", "invalid"},
+                                      {"strategy", "regex"},
+                                      {"pattern", R"((?<=a+)b)"},
+                                      {"category", "INVALID"}}}}};
+  EXPECT_EQ(node->Control(kControlCmdUpdateRules, invalid_update.dump()).status,
+            NodeControlStatus::kFailed);
+
+  nlohmann::json valid_update = {{"rules",
+                                  {{{"id", "utf8"},
+                                    {"strategy", "regex"},
+                                    {"pattern", "."},
+                                    {"category", "ANY"}}}}};
+  ASSERT_EQ(node->Control(kControlCmdUpdateRules, valid_update.dump()).status,
+            NodeControlStatus::kHandled);
+
+  AlgContext ctx;
+  TextBatch inputs;
+  inputs.emplace_back(31, 0, std::string("ok") + "\xE4\xB8");
+  ctx.Set("text", inputs);
+  EXPECT_EQ(node->Process(&ctx), -5002);
+  EXPECT_EQ(ctx.Get<RuleMatchBatch>("matches"), nullptr);
+}
+
 // 3. Missing Input Fails Closed
 TEST_F(TextRuleMatchNodeTest, MissingInputFailsClosed) {
   auto node = NodeFactory::Instance().Create("TextRuleMatchNode");

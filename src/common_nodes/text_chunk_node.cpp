@@ -5,6 +5,7 @@
 #include "company_alg_log.h"
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
+#include "engine/text/utf8.h"
 #include "nodes/node_error_codes.h"
 #include "nodes/node_support.h"
 
@@ -30,10 +31,14 @@ class TextChunkNode final : public NodeBase {
     BindPort(init_ctx, out_chunks_);
     BindPort(init_ctx, out_chunk_counts_);
 
-    chunk_size_ = config.value("chunk_size", 100);
-    overlap_ = config.value("overlap", 0);
-    if (chunk_size_ == 0) chunk_size_ = 100;
-    if (overlap_ >= chunk_size_) overlap_ = 0;
+    const int64_t chunk_size = config.value<int64_t>("chunk_size", 100);
+    const int64_t overlap = config.value<int64_t>("overlap", 0);
+    if (chunk_size <= 0 || chunk_size > 1000000 || overlap < 0 ||
+        overlap > 100000 || overlap >= chunk_size) {
+      return false;
+    }
+    chunk_size_ = static_cast<size_t>(chunk_size);
+    overlap_ = static_cast<size_t>(overlap);
     return true;
   }
 
@@ -60,8 +65,22 @@ class TextChunkNode final : public NodeBase {
         chunked_items.emplace_back(req_id, sub_id++, "");
         count_for_req = 1;
       } else {
-        for (size_t pos = 0; pos < str.size(); pos += step) {
-          std::string slice = str.substr(pos, chunk_size_);
+        std::vector<size_t> boundaries;
+        size_t invalid_offset = 0;
+        if (!utf8::BuildCodePointBoundaries(str, &boundaries,
+                                            &invalid_offset)) {
+          ALG_LOG_ERROR(
+              "[TextChunkNode] Invalid UTF-8 input for req_id=%u at byte "
+              "offset %zu.\n",
+              req_id, invalid_offset);
+          return node_error::text_chunk::kInvalidUtf8;
+        }
+
+        const size_t code_point_count = boundaries.size() - 1;
+        for (size_t pos = 0; pos < code_point_count; pos += step) {
+          const size_t end = std::min(pos + chunk_size_, code_point_count);
+          std::string slice =
+              str.substr(boundaries[pos], boundaries[end] - boundaries[pos]);
           chunked_items.emplace_back(req_id, sub_id++, std::move(slice));
           count_for_req++;
         }
@@ -90,7 +109,8 @@ NodeDefinition MakeTextChunkNodeDefinition() {
   NodeDefinition def;
   def.node_type = TextChunkNode::kNodeType;
   def.category = "common";
-  def.description = "Text chunking and slicing pre-processing node";
+  def.description =
+      "UTF-8 code-point-safe text chunking with overlap and provenance";
   def.inputs = {RequiredInputPort("text",
                                   BlackboardKey<TextBatch>{"", "TextBatch"},
                                   "1:1", "preserve", "request")};
