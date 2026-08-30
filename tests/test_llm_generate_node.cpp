@@ -58,7 +58,7 @@ TEST_F(LlmGenerateNodeTest, MissingInputFailsClosed) {
   ASSERT_TRUE(node->Init({{"bind_model", "llm_model_v1"}}, session_ctx_.get()));
 
   AlgContext empty_ctx;
-  EXPECT_NE(node->Process(&empty_ctx), 0);
+  EXPECT_EQ(node->Process(&empty_ctx), -4301);
 }
 
 }  // namespace alg_framework

@@ -2,8 +2,10 @@
 #include <string>
 #include <vector>
 
+#include "company_alg_log.h"
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
+#include "nodes/node_error_codes.h"
 #include "nodes/node_support.h"
 
 namespace alg_framework {
@@ -36,10 +38,10 @@ class TextChunkNode final : public NodeBase {
   }
 
   int ProcessNode(AlgContext& req_ctx) override {
-    const auto* text_items =
-        in_text_.Require(req_ctx, -4001, "TextChunkNode input");
+    const auto* text_items = in_text_.Require(
+        req_ctx, node_error::text_chunk::kMissingInput, "TextChunkNode input");
     if (!text_items) {
-      return -4001;
+      return node_error::text_chunk::kMissingInput;
     }
 
     TextBatch chunked_items;
@@ -109,4 +111,3 @@ NodeDefinition MakeTextChunkNodeDefinition() {
 REGISTER_NODE_WITH_DEFINITION(TextChunkNode, MakeTextChunkNodeDefinition());
 
 }  // namespace alg_framework
-#include "company_alg_log.h"

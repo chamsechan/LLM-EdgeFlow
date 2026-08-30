@@ -4,8 +4,10 @@
 #include <unordered_map>
 #include <vector>
 
+#include "company_alg_log.h"
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
+#include "nodes/node_error_codes.h"
 #include "nodes/node_support.h"
 
 namespace alg_framework {
@@ -40,11 +42,13 @@ class VectorTopKNode final : public NodeBase {
 
   int ProcessNode(AlgContext& req_ctx) override {
     const auto* queries =
-        in_queries_.Require(req_ctx, -3101, "VectorTopKNode queries");
+        in_queries_.Require(req_ctx, node_error::vector_top_k::kMissingInput,
+                            "VectorTopKNode queries");
     const auto* candidates =
-        in_candidates_.Require(req_ctx, -3101, "VectorTopKNode candidates");
+        in_candidates_.Require(req_ctx, node_error::vector_top_k::kMissingInput,
+                               "VectorTopKNode candidates");
     if (!queries || !candidates) {
-      return -3101;
+      return node_error::vector_top_k::kMissingInput;
     }
 
     const auto* candidate_texts = in_candidate_texts_.Get(req_ctx);
@@ -209,4 +213,3 @@ NodeDefinition MakeVectorTopKNodeDefinition() {
 REGISTER_NODE_WITH_DEFINITION(VectorTopKNode, MakeVectorTopKNodeDefinition());
 
 }  // namespace alg_framework
-#include "company_alg_log.h"

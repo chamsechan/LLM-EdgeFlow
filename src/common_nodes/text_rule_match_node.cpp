@@ -9,8 +9,10 @@
 #include <utility>
 #include <vector>
 
+#include "company_alg_log.h"
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
+#include "nodes/node_error_codes.h"
 #include "nodes/node_support.h"
 
 namespace alg_framework {
@@ -45,28 +47,34 @@ class TextRuleMatchNode final : public NodeBase {
         nlohmann::json root = nlohmann::json::parse(json_param);
         if (!root.is_object()) {
           return NodeControlResult::Failed(
-              -1, "Control payload must be a JSON object");
+              node_error::control::kInvalidRequest,
+              "Control payload must be a JSON object");
         }
         if (root.contains("categories")) {
           if (!root["categories"].is_object() ||
               !UpdateCategories(root["categories"])) {
-            return NodeControlResult::Failed(-1, "Invalid categories payload");
+            return NodeControlResult::Failed(
+                node_error::control::kInvalidRequest,
+                "Invalid categories payload");
           }
           return NodeControlResult::Handled(
               0, "TextRuleMatchNode categories updated");
         } else if (root.contains("rules")) {
           if (!root["rules"].is_array() || !UpdateRules(root["rules"])) {
             return NodeControlResult::Failed(
-                -1, "Invalid rules payload or regular expression syntax");
+                node_error::control::kInvalidRequest,
+                "Invalid rules payload or regular expression syntax");
           }
           return NodeControlResult::Handled(0,
                                             "TextRuleMatchNode rules updated");
         }
         return NodeControlResult::Failed(
-            -1, "Control payload must contain 'categories' or 'rules'");
+            node_error::control::kInvalidRequest,
+            "Control payload must contain 'categories' or 'rules'");
       } catch (const std::exception& e) {
         return NodeControlResult::Failed(
-            -1, std::string("JSON parse error in Control: ") + e.what());
+            node_error::control::kInvalidRequest,
+            std::string("JSON parse error in Control: ") + e.what());
       }
     }
     return NodeControlResult::Unsupported();
@@ -97,9 +105,10 @@ class TextRuleMatchNode final : public NodeBase {
 
   int ProcessNode(AlgContext& req_ctx) override {
     const auto* text_items =
-        in_text_.Require(req_ctx, -5001, "TextRuleMatchNode input");
+        in_text_.Require(req_ctx, node_error::text_rule_match::kMissingInput,
+                         "TextRuleMatchNode input");
     if (!text_items) {
-      return -5001;
+      return node_error::text_rule_match::kMissingInput;
     }
 
     std::shared_lock<std::shared_mutex> lock(rw_mutex_);
@@ -363,4 +372,3 @@ REGISTER_NODE_WITH_DEFINITION(TextRuleMatchNode,
                               MakeTextRuleMatchNodeDefinition());
 
 }  // namespace alg_framework
-#include "company_alg_log.h"

@@ -11,10 +11,33 @@
 #include "core/session_context.h"
 #include "engine/model_interface.h"
 #include "nodes/model_bound_node.h"
+#include "nodes/node_error_codes.h"
 #include "nodes/node_support.h"
 #include "nodes/traceable_unary_inference_node.h"
 
 namespace alg_framework {
+
+TEST(NodeErrorCodesTest, PreservesNumericCompatibility) {
+  EXPECT_EQ(node_error::control::kInvalidRequest, -1);
+  EXPECT_EQ(node_error::vector_top_k::kMissingInput, -3101);
+  EXPECT_EQ(node_error::text_chunk::kMissingInput, -4001);
+  EXPECT_EQ(node_error::text_embedding::kMissingInput, -4101);
+  EXPECT_EQ(node_error::text_embedding::kSessionInferenceFailed, -5101);
+  EXPECT_EQ(node_error::llm_generate::kMissingInput, -4301);
+  EXPECT_EQ(node_error::text_rule_match::kMissingInput, -5001);
+  EXPECT_EQ(node_error::structured_json_parse::kMissingInput, -6101);
+  EXPECT_EQ(node_error::structured_json_parse::kParseFailed, -6102);
+  EXPECT_EQ(node_error::text_template::kRenderedOutputTooLong, -6201);
+  EXPECT_EQ(node_error::text_template::kMissingVariable, -6202);
+  EXPECT_EQ(node_error::text_rerank::kMissingInput, -7001);
+  EXPECT_EQ(node_error::text_rerank::kModelOutputMismatch, -1);
+  EXPECT_EQ(node_error::asr_transcribe::kMissingInput, -7001);
+  EXPECT_EQ(node_error::asr_transcribe::kOutputCountMismatch, -7002);
+  EXPECT_EQ(node_error::asr_transcribe::kOutputProvenanceMismatch, -7003);
+  EXPECT_EQ(node_error::ocr_detect::kMissingInput, -7101);
+  EXPECT_EQ(node_error::ocr_detect::kOutputCountMismatch, -7102);
+  EXPECT_EQ(node_error::ocr_detect::kOutputProvenanceMismatch, -7103);
+}
 
 // 1. Exception Test Node
 class ExceptionThrowingNode : public NodeBase {

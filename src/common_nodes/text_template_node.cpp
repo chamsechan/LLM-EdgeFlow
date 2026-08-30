@@ -10,8 +10,10 @@
 #include <utility>
 #include <vector>
 
+#include "company_alg_log.h"
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
+#include "nodes/node_error_codes.h"
 #include "nodes/node_support.h"
 
 namespace alg_framework {
@@ -99,7 +101,7 @@ class TextTemplateNode final : public NodeBase {
       try {
         nlohmann::json root = nlohmann::json::parse(json_param);
         if (!root.is_object()) {
-          return NodeControlResult::Failed(-1,
+          return NodeControlResult::Failed(node_error::control::kInvalidRequest,
                                            "Control payload must be an object");
         }
         static const std::unordered_set<std::string> kAllowedFields = {
@@ -108,7 +110,8 @@ class TextTemplateNode final : public NodeBase {
         for (auto it = root.begin(); it != root.end(); ++it) {
           if (!kAllowedFields.count(it.key())) {
             return NodeControlResult::Failed(
-                -1, "Unknown field in Control payload: " + it.key());
+                node_error::control::kInvalidRequest,
+                "Unknown field in Control payload: " + it.key());
           }
         }
         if (!root.contains("template") && !root.contains("prompt_template") &&
@@ -117,7 +120,8 @@ class TextTemplateNode final : public NodeBase {
             !root.contains("missing_variable_policy") &&
             !root.contains("prompt_id")) {
           return NodeControlResult::Failed(
-              -1, "No recognized update field in Control payload");
+              node_error::control::kInvalidRequest,
+              "No recognized update field in Control payload");
         }
         if ((root.contains("template") && !root["template"].is_string()) ||
             (root.contains("prompt_template") &&
@@ -129,7 +133,8 @@ class TextTemplateNode final : public NodeBase {
             (root.contains("missing_variable_policy") &&
              !root["missing_variable_policy"].is_string())) {
           return NodeControlResult::Failed(
-              -1, "Control payload field has an invalid type");
+              node_error::control::kInvalidRequest,
+              "Control payload field has an invalid type");
         }
 
         std::string new_tmpl;
@@ -164,7 +169,8 @@ class TextTemplateNode final : public NodeBase {
           if (new_missing_policy != "fail" && new_missing_policy != "empty" &&
               new_missing_policy != "preserve") {
             return NodeControlResult::Failed(
-                -1, "Invalid missing_variable_policy in Control payload");
+                node_error::control::kInvalidRequest,
+                "Invalid missing_variable_policy in Control payload");
           }
         }
         if (root.contains("prompt_id") && root["prompt_id"].is_string()) {
@@ -175,7 +181,8 @@ class TextTemplateNode final : public NodeBase {
                ++it) {
             if (!it.value().is_string()) {
               return NodeControlResult::Failed(
-                  -1, "Control values entries must be strings");
+                  node_error::control::kInvalidRequest,
+                  "Control values entries must be strings");
             }
             new_values[it.key()] = it.value().get<std::string>();
           }
@@ -185,7 +192,8 @@ class TextTemplateNode final : public NodeBase {
         if (!CompileTemplate(new_tmpl, new_values, new_allow_dynamic,
                              &new_tokens)) {
           return NodeControlResult::Failed(
-              -1, "Invalid template placeholders or syntax in Control");
+              node_error::control::kInvalidRequest,
+              "Invalid template placeholders or syntax in Control");
         }
 
         std::unique_lock<std::shared_mutex> lock(rw_mutex_);
@@ -198,7 +206,8 @@ class TextTemplateNode final : public NodeBase {
         return NodeControlResult::Handled(0, "Template updated successfully");
       } catch (const std::exception& e) {
         return NodeControlResult::Failed(
-            -1, std::string("JSON parse error: ") + e.what());
+            node_error::control::kInvalidRequest,
+            std::string("JSON parse error: ") + e.what());
       }
     }
     return NodeControlResult::Unsupported();
@@ -374,7 +383,7 @@ class TextTemplateNode final : public NodeBase {
             rendered += static_values_.at(var);
           } else {
             if (missing_variable_policy_ == "fail") {
-              return Fail(req_ctx, -6202,
+              return Fail(req_ctx, node_error::text_template::kMissingVariable,
                           "Missing required template variable: " + var);
             } else if (missing_variable_policy_ == "preserve") {
               rendered += "{" + var + "}";
@@ -385,7 +394,8 @@ class TextTemplateNode final : public NodeBase {
 
       if (rendered.size() > max_length_) {
         if (overflow_policy_ == "fail") {
-          return Fail(req_ctx, -6201,
+          return Fail(req_ctx,
+                      node_error::text_template::kRenderedOutputTooLong,
                       "Rendered prompt exceeds max_length of " +
                           std::to_string(max_length_));
         }
@@ -603,4 +613,3 @@ REGISTER_NODE_WITH_DEFINITION(TextTemplateNode,
                               MakeTextTemplateNodeDefinition());
 
 }  // namespace alg_framework
-#include "company_alg_log.h"

@@ -73,7 +73,7 @@ TEST_F(StructuredJsonParseNodeTest, RequiredFieldsAndFieldTypesValidation) {
     inputs.emplace_back(
         1, 0, "{\"risk_level\":\"HIGH\",\"risk_score\":\"invalid_number\"}");
     ctx.Set("text", inputs);
-    EXPECT_NE(node->Process(&ctx), 0);
+    EXPECT_EQ(node->Process(&ctx), -6102);
   }
 
   // Missing required field
@@ -82,8 +82,17 @@ TEST_F(StructuredJsonParseNodeTest, RequiredFieldsAndFieldTypesValidation) {
     TextBatch inputs;
     inputs.emplace_back(1, 0, "{\"risk_level\":\"HIGH\"}");
     ctx.Set("text", inputs);
-    EXPECT_NE(node->Process(&ctx), 0);
+    EXPECT_EQ(node->Process(&ctx), -6102);
   }
+}
+
+TEST_F(StructuredJsonParseNodeTest, MissingInputFailsClosed) {
+  auto node = NodeFactory::Instance().Create("StructuredJsonParseNode");
+  ASSERT_NE(node, nullptr);
+  ASSERT_TRUE(node->Init({{"failure_policy", "fail"}}, session_ctx_.get()));
+
+  AlgContext empty_ctx;
+  EXPECT_EQ(node->Process(&empty_ctx), -6101);
 }
 
 // 3. Fallback Policy on Malformed Input

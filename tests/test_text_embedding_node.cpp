@@ -152,7 +152,7 @@ TEST_F(TextEmbeddingNodeTest, MissingInputFailsClosed) {
       node->Init({{"bind_model", "embed_model_v1"}}, session_ctx_.get()));
 
   AlgContext empty_ctx;
-  EXPECT_NE(node->Process(&empty_ctx), 0);
+  EXPECT_EQ(node->Process(&empty_ctx), -4101);
 }
 
 }  // namespace alg_framework
