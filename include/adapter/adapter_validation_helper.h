@@ -129,6 +129,28 @@ class AdapterValidationHelper {
     return COMPANY_ALG_SUCCESS;
   }
 
+  static int ReturnInvalidInput(AdapterStatus* out_status, std::string message,
+                                std::string field_path, const char* biz_name,
+                                int sample_index = -1) {
+    if (out_status) {
+      *out_status =
+          AdapterStatus::InvalidInput(std::move(message), std::move(field_path),
+                                      sample_index, biz_name ? biz_name : "");
+    }
+    return COMPANY_ALG_ERR_INVALID_INPUT;
+  }
+
+  static int ReturnBufferTooSmall(AdapterStatus* out_status,
+                                  std::string message, std::string field_path,
+                                  const char* biz_name, int sample_index = -1) {
+    if (out_status) {
+      *out_status = AdapterStatus::BufferTooSmall(
+          std::move(message), std::move(field_path), sample_index,
+          biz_name ? biz_name : "");
+    }
+    return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
+  }
+
   // =========================================================================
   // 结构化字段级安全解析工具集 (ADP-001, ADP-005, RECHECK-001, RECHECK-004)
   // =========================================================================

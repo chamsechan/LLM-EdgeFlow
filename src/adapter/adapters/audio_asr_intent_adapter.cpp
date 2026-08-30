@@ -43,12 +43,9 @@ class AudioAsrIntentAdapter : public IBizAdapter {
     int valid_ret = AdapterValidationHelper::ValidateBatchInputs(
         inputs, num_inputs, GetDescriptor().max_batch_size, BizName());
     if (valid_ret != 0 || !ctx) {
-      if (out_status) {
-        *out_status = AdapterStatus::InvalidInput(
-            "Batch envelope validation failed or null AlgContext", "inputs", -1,
-            BizName());
-      }
-      return COMPANY_ALG_ERR_INVALID_INPUT;
+      return AdapterValidationHelper::ReturnInvalidInput(
+          out_status, "Batch envelope validation failed or null AlgContext",
+          "inputs", BizName());
     }
 
     std::vector<uint64_t> raw_req_ids;
@@ -109,11 +106,8 @@ class AudioAsrIntentAdapter : public IBizAdapter {
   int Pack(AlgContext* ctx, void** outputs, int* num_outputs,
            AdapterStatus* out_status = nullptr) const override {
     if (!ctx) {
-      if (out_status) {
-        *out_status = AdapterStatus::BufferTooSmall(
-            "Null AlgContext passed to Pack", "ctx", -1, BizName());
-      }
-      return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
+      return AdapterValidationHelper::ReturnBufferTooSmall(
+          out_status, "Null AlgContext passed to Pack", "ctx", BizName());
     }
 
     const auto* transcripts = ctx->Read(kTranscripts);
@@ -121,23 +115,18 @@ class AudioAsrIntentAdapter : public IBizAdapter {
     const auto* raw_req_ids = ctx->Read(kRawRequestIds);
 
     if (!transcripts) {
-      if (out_status) {
-        *out_status =
-            AdapterStatus::BufferTooSmall("transcripts not found in AlgContext",
-                                          "transcripts", -1, BizName());
-      }
-      return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
+      return AdapterValidationHelper::ReturnBufferTooSmall(
+          out_status, "transcripts not found in AlgContext", "transcripts",
+          BizName());
     }
 
     int count = static_cast<int>(transcripts->size());
     int valid_ret = AdapterValidationHelper::ValidateBatchOutputs(
         outputs, num_outputs, count, BizName());
     if (valid_ret != 0) {
-      if (out_status) {
-        *out_status = AdapterStatus::BufferTooSmall(
-            "Output slots insufficient or null", "outputs", -1, BizName());
-      }
-      return valid_ret;
+      return AdapterValidationHelper::ReturnBufferTooSmall(
+          out_status, "Output slots insufficient or null", "outputs",
+          BizName());
     }
 
     for (int i = 0; i < count; ++i) {
