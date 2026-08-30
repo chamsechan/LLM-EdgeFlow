@@ -12,12 +12,15 @@ echo "================================================================"
 FAILED=0
 
 report_matches() {
-  if [[ -z "$1" ]]; then
-    echo "✅ $3"
+  local matches="$1"
+  local failure_message="$2"
+  local success_message="$3"
+  if [[ -z "${matches}" ]]; then
+    echo "✅ ${success_message}"
     return
   fi
-  echo "❌ $2"
-  echo "$1"
+  echo "❌ ${failure_message}"
+  echo "${matches}"
   FAILED=1
 }
 
@@ -26,10 +29,20 @@ require_concepts() {
   local concept
   shift
   for concept in "$@"; do
-    grep -q "${concept}" "${document}" && continue
-    echo "❌ ${document#"${ROOT_DIR}/"} is missing reference to '${concept}'"
-    FAILED=1
+    if ! grep -q "${concept}" "${document}"; then
+      echo "❌ ${document#"${ROOT_DIR}/"} is missing reference to '${concept}'"
+      FAILED=1
+    fi
   done
+}
+
+find_deprecated_registration_macros() {
+  grep -rnE "\bREGISTER_NODE\([A-Za-z0-9_]+\)" \
+    "${ACTIVE_DOCS[@]}" 2>/dev/null | grep -v "#define REGISTER_NODE" || true
+  grep -rnE "\bREGISTER_ENGINE\([A-Za-z0-9_]+,[[:space:]]*[A-Za-z0-9_]+\)" \
+    "${ACTIVE_DOCS[@]}" 2>/dev/null | grep -v "#define REGISTER_ENGINE" || true
+  grep -rnE '\bREGISTER_ENGINE_WITH_DEFINITION[[:space:]]*\([[:space:]]*"' \
+    "${ACTIVE_DOCS[@]}" 2>/dev/null || true
 }
 
 ACTIVE_DOCS=(
@@ -60,9 +73,7 @@ report_matches "${LEGACY_BIZ}" \
 
 # 2. 检查旧注册宏 (REGISTER_NODE( / REGISTER_ENGINE( / REGISTER_ENGINE_WITH_DEFINITION("str", ...))
 echo "[Check 2/7] Checking for deprecated registration macros..."
-LEGACY_MACROS=$(grep -rnE \
-  '\b(REGISTER_NODE\([A-Za-z0-9_]+\)|REGISTER_ENGINE\([A-Za-z0-9_]+,[[:space:]]*[A-Za-z0-9_]+\)|REGISTER_ENGINE_WITH_DEFINITION[[:space:]]*\([[:space:]]*")' \
-  "${ACTIVE_DOCS[@]}" 2>/dev/null | grep -vE '#define REGISTER_(NODE|ENGINE)' || true)
+LEGACY_MACROS="$(find_deprecated_registration_macros)"
 report_matches "${LEGACY_MACROS}" \
   "Found deprecated registration macro invocations:" \
   "No deprecated registration macro invocations found in active docs/source."
