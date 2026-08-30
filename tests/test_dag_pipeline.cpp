@@ -248,6 +248,78 @@ REGISTER_NODE_WITH_DEFINITION(GatedProcessDagNode,
                               MakeDagNodeDef(GatedProcessDagNode::kNodeType, {},
                                              {}));
 
+class ParallelFailureCoordinator {
+ public:
+  static void Reset() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    first_error_set_ = false;
+    second_error_set_ = false;
+  }
+
+  static void MarkFirstAndWaitForSecond() {
+    std::unique_lock<std::mutex> lock(mutex_);
+    first_error_set_ = true;
+    condition_.notify_all();
+    condition_.wait(lock, []() { return second_error_set_; });
+  }
+
+  static void WaitForFirst() {
+    std::unique_lock<std::mutex> lock(mutex_);
+    condition_.wait(lock, []() { return first_error_set_; });
+  }
+
+  static void MarkSecond() {
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      second_error_set_ = true;
+    }
+    condition_.notify_all();
+  }
+
+ private:
+  static inline std::mutex mutex_;
+  static inline std::condition_variable condition_;
+  static inline bool first_error_set_ = false;
+  static inline bool second_error_set_ = false;
+};
+
+class FirstFailingDagNode : public INode {
+ public:
+  inline static constexpr char kNodeType[] = "FirstFailingDagNode";
+  bool Init(const nlohmann::json&, SessionContext*) override { return true; }
+  int Process(AlgContext* req_ctx) override {
+    req_ctx->SetError(-8101, "first parallel failure");
+    ParallelFailureCoordinator::MarkFirstAndWaitForSecond();
+    return -8101;
+  }
+  const std::string& Name() const override {
+    static const std::string name = kNodeType;
+    return name;
+  }
+};
+REGISTER_NODE_WITH_DEFINITION(FirstFailingDagNode,
+                              MakeDagNodeDef(FirstFailingDagNode::kNodeType, {},
+                                             {}));
+
+class SecondFailingDagNode : public INode {
+ public:
+  inline static constexpr char kNodeType[] = "SecondFailingDagNode";
+  bool Init(const nlohmann::json&, SessionContext*) override { return true; }
+  int Process(AlgContext* req_ctx) override {
+    ParallelFailureCoordinator::WaitForFirst();
+    req_ctx->SetError(-8102, "second parallel failure");
+    ParallelFailureCoordinator::MarkSecond();
+    return -8102;
+  }
+  const std::string& Name() const override {
+    static const std::string name = kNodeType;
+    return name;
+  }
+};
+REGISTER_NODE_WITH_DEFINITION(SecondFailingDagNode,
+                              MakeDagNodeDef(SecondFailingDagNode::kNodeType,
+                                             {}, {}));
+
 // -----------------------------------------------------------------------------
 // GTest 测试套件
 // -----------------------------------------------------------------------------
@@ -477,6 +549,30 @@ TEST_F(DagPipelineTest, ParallelExceptionWaitsForAllSubmittedNodes) {
   EXPECT_FALSE(context.IsOk());
   EXPECT_NE(context.GetErrorMessage().find("parallel process failure"),
             std::string::npos);
+}
+
+TEST_F(DagPipelineTest, ParallelFailuresKeepCodeAndMessageFromSameNode) {
+  const nlohmann::json config = {
+      {"business_name", "parallel_error_diagnostic_test"},
+      {"execution_mode", "parallel"},
+      {"max_parallel_workers", 2},
+      {"pipeline",
+       nlohmann::json::array({{{"id", "first"},
+                               {"node_type", FirstFailingDagNode::kNodeType},
+                               {"depends_on", nlohmann::json::array()}},
+                              {{"id", "second"},
+                               {"node_type", SecondFailingDagNode::kNodeType},
+                               {"depends_on", nlohmann::json::array()}}})}};
+
+  ParallelFailureCoordinator::Reset();
+  Pipeline pipeline;
+  ASSERT_TRUE(pipeline.BuildFromJson(
+      config, nullptr, ValidationPolicy::kPrivateExtensionCompatible));
+
+  AlgContext context;
+  EXPECT_EQ(pipeline.Execute(&context), -8101);
+  EXPECT_EQ(context.GetErrorCode(), -8101);
+  EXPECT_EQ(context.GetErrorMessage(), "first parallel failure");
 }
 
 // 8. 黑板高并发读写线程安全性压测 (Thread-Safe AlgContext Stress Test)

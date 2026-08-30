@@ -447,7 +447,11 @@ TEST(DefinitionSchemaValidationTest, NodeToJsonExportsConstraintsAndCommands) {
   auto rule_json = PipelineCatalog::NodeToJson(*rule_def);
   EXPECT_TRUE(rule_json.contains("control_commands"));
   EXPECT_TRUE(rule_json["control_commands"].is_array());
-  EXPECT_FALSE(rule_json["control_commands"].empty());
+  ASSERT_FALSE(rule_json["control_commands"].empty());
+  const auto& rule_payload_schema =
+      rule_json["control_commands"][0]["payload_schema"];
+  EXPECT_EQ(rule_payload_schema["minProperties"], 1);
+  EXPECT_EQ(rule_payload_schema["additionalProperties"], false);
 
   const auto* embedding_def = PipelineCatalog::FindNode("TextEmbeddingNode");
   ASSERT_NE(embedding_def, nullptr);

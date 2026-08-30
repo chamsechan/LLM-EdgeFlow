@@ -6,6 +6,9 @@
 
 ## Unreleased
 
+- `TextTemplateNode` 的截断策略改为只在 UTF-8 code point 边界结束，不再产生残缺的中文或 emoji 字节序列。
+- `TextRuleMatchNode` 支持原子地联合更新 categories 与 rules；任一候选无效时保留完整旧配置。
+- 并行波前为每个 Node 捕获独立错误诊断，首个失败节点的错误码与消息不再被同层其他失败覆盖。
 - Operator 值类型 Binding 统一持有显式 I/O 方向、输出字符串容量 Schema 和池预算；
   业务 Bridge 完整性改为按已注册 Adapter 快照审计，新增业务不再维护中央 ID 列表。
 - `TextRuleMatchNode` 改用 Unicode PCRE2 语义，正确支持正/负 lookbehind 与命名捕获，

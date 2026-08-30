@@ -5,6 +5,7 @@
 #include <mutex>
 #include <shared_mutex>
 #include <string>
+#include <thread>
 #include <type_traits>
 #include <unordered_map>
 #include <utility>
@@ -14,6 +15,8 @@
 
 namespace alg_framework {
 
+class Pipeline;
+
 /**
  * @brief 请求级动态黑板上下文 (RequestContext)
  *
@@ -22,7 +25,7 @@ namespace alg_framework {
  * 2. Read 返回的视图在本 AlgContext 析构前保持有效且内容稳定
  * 3. Publish 对新 key 执行单次发布
  * 4. Set/Get/Erase/Clear 保留为迁移兼容接口
- * 5. 支持全局错误码与错误信息传递
+ * 5. 支持最终错误状态，并为并行 Node 保留线程内诊断快照
  */
 class AlgContext {
  public:
@@ -149,13 +152,15 @@ class AlgContext {
     data_map_.clear();
     err_code_ = 0;
     err_msg_ = "OK";
+    thread_errors_.clear();
   }
 
-  // 设置错误状态
+  // 设置最终错误状态，同时记录当前执行线程的诊断供 Pipeline 隔离收集。
   void SetError(int err_code, const std::string& err_msg) {
     std::unique_lock<std::shared_mutex> lock(mutex_);
     err_code_ = err_code;
     err_msg_ = err_msg;
+    thread_errors_[std::this_thread::get_id()] = {err_code, err_msg};
   }
 
   int GetErrorCode() const {
@@ -174,6 +179,20 @@ class AlgContext {
   }
 
  private:
+  struct ErrorState {
+    int code = 0;
+    std::string message;
+  };
+
+  ErrorState TakeCurrentThreadError() {
+    std::unique_lock<std::shared_mutex> lock(mutex_);
+    auto it = thread_errors_.find(std::this_thread::get_id());
+    if (it == thread_errors_.end()) return {};
+    ErrorState result = std::move(it->second);
+    thread_errors_.erase(it);
+    return result;
+  }
+
   using Snapshot = std::shared_ptr<const std::any>;
 
   template <typename T>
@@ -192,6 +211,9 @@ class AlgContext {
   std::vector<Snapshot> retired_snapshots_;
   int err_code_ = 0;
   std::string err_msg_ = "OK";
+  std::unordered_map<std::thread::id, ErrorState> thread_errors_;
+
+  friend class Pipeline;
 };
 
 }  // namespace alg_framework

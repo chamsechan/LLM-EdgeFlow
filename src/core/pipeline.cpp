@@ -511,15 +511,19 @@ int Pipeline::Execute(AlgContext* req_ctx) {
         auto* node = layer[i];
         try {
           futures.push_back(thread_pool_->Submit([node, req_ctx]() {
+            (void)req_ctx->TakeCurrentThreadError();
             try {
               const int code = node->Process(req_ctx);
+              auto error = req_ctx->TakeCurrentThreadError();
               return NodeExecutionResult{
-                  code, code == 0 ? std::string{} : req_ctx->GetErrorMessage()};
+                  code, code == 0 ? std::string{} : std::move(error.message)};
             } catch (const std::exception& e) {
+              (void)req_ctx->TakeCurrentThreadError();
               return NodeExecutionResult{
                   -1, std::string("Unhandled exception in node Process: ") +
                           e.what()};
             } catch (...) {
+              (void)req_ctx->TakeCurrentThreadError();
               return NodeExecutionResult{-1,
                                          "Unknown exception in node Process"};
             }
