@@ -183,6 +183,32 @@ void ResetNestedCompanyAny(CompanyAny* any) noexcept {
   }
 }
 
+OperatorValueTypeBinding MakeInputBinding(
+    std::string canonical_suffix, std::vector<std::string> aliases,
+    std::string external_c_type_name, ValidateExternalFn validate_external) {
+  OperatorValueTypeBinding binding;
+  binding.canonical_suffix = std::move(canonical_suffix);
+  binding.aliases = std::move(aliases);
+  binding.external_c_type_name = std::move(external_c_type_name);
+  binding.validate_external = std::move(validate_external);
+  return binding;
+}
+
+OperatorValueTypeBinding MakeOutputBinding(std::string canonical_suffix,
+                                           std::vector<std::string> aliases,
+                                           std::string external_c_type_name,
+                                           AllocateExternalFn allocate_external,
+                                           ResetExternalFn reset_external) {
+  OperatorValueTypeBinding binding;
+  binding.canonical_suffix = std::move(canonical_suffix);
+  binding.aliases = std::move(aliases);
+  binding.external_c_type_name = std::move(external_c_type_name);
+  binding.allocate_external = std::move(allocate_external);
+  binding.reset_external = std::move(reset_external);
+  binding.destroy_external = DestroyExternalBlock;
+  return binding;
+}
+
 }  // namespace
 
 bool ComputeOutputPoolPayloadBytes(const std::string& suffix,
@@ -708,533 +734,433 @@ OperatorValueTypeRegistry::OperatorValueTypeRegistry() {
 
 void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
   // 1. string -> CompanyString (RFC 6.3: aliases: {})
-  {
-    OperatorValueTypeBinding b;
-    b.canonical_suffix = "string";
-    b.aliases = {};
-    b.external_c_type_name = "CompanyString";
-    b.validate_external = [](const void* ptr, const ResolvedInputLimits& limits,
-                             std::string* err) -> int {
-      if (!ptr) {
-        if (err) *err = "CompanyString pointer is null";
-        return -3;
-      }
-      return ValidateCompanyString(static_cast<const CompanyString*>(ptr),
-                                   limits.max_text_bytes, "string", err);
-    };
-    RegisterBinding(b);
-  }
+  RegisterBinding(MakeInputBinding(
+      "string", {}, "CompanyString",
+      [](const void* ptr, const ResolvedInputLimits& limits,
+         std::string* err) -> int {
+        if (!ptr) {
+          if (err) *err = "CompanyString pointer is null";
+          return -3;
+        }
+        return ValidateCompanyString(static_cast<const CompanyString*>(ptr),
+                                     limits.max_text_bytes, "string", err);
+      }));
 
   // 2. buffer -> CompanyBuffer (RFC 6.3: aliases: {})
-  {
-    OperatorValueTypeBinding b;
-    b.canonical_suffix = "buffer";
-    b.aliases = {};
-    b.external_c_type_name = "CompanyBuffer";
-    b.validate_external = [](const void* ptr, const ResolvedInputLimits& limits,
-                             std::string* err) -> int {
-      if (!ptr) {
-        if (err) *err = "CompanyBuffer pointer is null";
-        return -3;
-      }
-      return ValidateCompanyBuffer(static_cast<const CompanyBuffer*>(ptr),
-                                   limits.max_buffer_bytes, "buffer", err);
-    };
-    RegisterBinding(b);
-  }
+  RegisterBinding(MakeInputBinding(
+      "buffer", {}, "CompanyBuffer",
+      [](const void* ptr, const ResolvedInputLimits& limits,
+         std::string* err) -> int {
+        if (!ptr) {
+          if (err) *err = "CompanyBuffer pointer is null";
+          return -3;
+        }
+        return ValidateCompanyBuffer(static_cast<const CompanyBuffer*>(ptr),
+                                     limits.max_buffer_bytes, "buffer", err);
+      }));
 
   // 3. any -> CompanyAny (RFC 6.3: aliases: {})
-  {
-    OperatorValueTypeBinding b;
-    b.canonical_suffix = "any";
-    b.aliases = {};
-    b.external_c_type_name = "CompanyAny";
-    b.validate_external = [](const void* ptr, const ResolvedInputLimits& limits,
-                             std::string* err) -> int {
-      if (!ptr) {
-        if (err) *err = "CompanyAny pointer is null";
-        return -3;
-      }
-      return ValidateCompanyAnyPayload(static_cast<const CompanyAny*>(ptr),
-                                       limits.max_any_bytes, "any", err);
-    };
-    RegisterBinding(b);
-  }
+  RegisterBinding(MakeInputBinding(
+      "any", {}, "CompanyAny",
+      [](const void* ptr, const ResolvedInputLimits& limits,
+         std::string* err) -> int {
+        if (!ptr) {
+          if (err) *err = "CompanyAny pointer is null";
+          return -3;
+        }
+        return ValidateCompanyAnyPayload(static_cast<const CompanyAny*>(ptr),
+                                         limits.max_any_bytes, "any", err);
+      }));
 
   // 4. frame -> CompanyFrame (RFC 6.3: aliases: {"image_in"})
-  {
-    OperatorValueTypeBinding b;
-    b.canonical_suffix = "frame";
-    b.aliases = {"image_in"};
-    b.external_c_type_name = "CompanyFrame";
-    b.validate_external = [](const void* ptr, const ResolvedInputLimits& limits,
-                             std::string* err) -> int {
-      if (!ptr) {
-        if (err) *err = "CompanyFrame pointer is null";
-        return -3;
-      }
-      const auto* f = static_cast<const CompanyFrame*>(ptr);
-      if (!f->image_uri) {
-        if (err) *err = "CompanyFrame.image_uri is null";
-        return -3;
-      }
-      int ret = ValidateCompanyString(f->image_uri, limits.max_image_uri_bytes,
-                                      "CompanyFrame.image_uri", err);
-      if (ret != 0) return ret;
-      if (f->metadata) {
-        ret = ValidateCompanyAnyPayload(f->metadata, limits.max_any_bytes,
-                                        "CompanyFrame.metadata", err);
+  RegisterBinding(MakeInputBinding(
+      "frame", {"image_in"}, "CompanyFrame",
+      [](const void* ptr, const ResolvedInputLimits& limits,
+         std::string* err) -> int {
+        if (!ptr) {
+          if (err) *err = "CompanyFrame pointer is null";
+          return -3;
+        }
+        const auto* f = static_cast<const CompanyFrame*>(ptr);
+        if (!f->image_uri) {
+          if (err) *err = "CompanyFrame.image_uri is null";
+          return -3;
+        }
+        int ret =
+            ValidateCompanyString(f->image_uri, limits.max_image_uri_bytes,
+                                  "CompanyFrame.image_uri", err);
         if (ret != 0) return ret;
-      }
-      return 0;
-    };
-    RegisterBinding(b);
-  }
+        if (f->metadata) {
+          ret = ValidateCompanyAnyPayload(f->metadata, limits.max_any_bytes,
+                                          "CompanyFrame.metadata", err);
+          if (ret != 0) return ret;
+        }
+        return 0;
+      }));
 
   // 5. od_out -> CompanyOdOutput (RFC 6.3: aliases: {"ocr_out"})
-  {
-    OperatorValueTypeBinding b;
-    b.canonical_suffix = "od_out";
-    b.aliases = {"ocr_out"};
-    b.external_c_type_name = "CompanyOdOutput";
-    b.allocate_external = [](const ResolvedOutputPoolSpec& spec,
-                             OwnedExternalBlock* out_block,
-                             std::string* /*err*/) -> int {
-      auto* raw = AllocateRootOutput<CompanyOdOutput>(5, out_block);
-      if (!raw) return -4;
+  RegisterBinding(MakeOutputBinding(
+      "od_out", {"ocr_out"}, "CompanyOdOutput",
+      [](const ResolvedOutputPoolSpec& spec, OwnedExternalBlock* out_block,
+         std::string* /*err*/) -> int {
+        auto* raw = AllocateRootOutput<CompanyOdOutput>(5, out_block);
+        if (!raw) return -4;
 
-      raw->request_id = 0;
-      raw->detected_box_count = 0;
-      raw->status_code = 0;
-      raw->result_json = AllocateNestedCompanyString(
-          spec.GetCapacity("result_json", 2047), out_block);
-      raw->metadata = AllocateNestedCompanyAny(
-          spec.meta_num, spec.metadata_type_id, out_block);
-      out_block->raw_struct = raw;
-      return 0;
-    };
-    b.reset_external = [](void* ptr,
-                          const ResolvedOutputPoolSpec& /*spec*/) noexcept {
-      if (!ptr) return;
-      auto* raw = static_cast<CompanyOdOutput*>(ptr);
-      raw->request_id = 0;
-      raw->detected_box_count = 0;
-      raw->status_code = 0;
-      ResetNestedCompanyString(raw->result_json);
-      ResetNestedCompanyAny(raw->metadata);
-    };
-    b.destroy_external = DestroyExternalBlock;
-    RegisterBinding(b);
-  }
+        raw->request_id = 0;
+        raw->detected_box_count = 0;
+        raw->status_code = 0;
+        raw->result_json = AllocateNestedCompanyString(
+            spec.GetCapacity("result_json", 2047), out_block);
+        raw->metadata = AllocateNestedCompanyAny(
+            spec.meta_num, spec.metadata_type_id, out_block);
+        out_block->raw_struct = raw;
+        return 0;
+      },
+      [](void* ptr, const ResolvedOutputPoolSpec& /*spec*/) noexcept {
+        if (!ptr) return;
+        auto* raw = static_cast<CompanyOdOutput*>(ptr);
+        raw->request_id = 0;
+        raw->detected_box_count = 0;
+        raw->status_code = 0;
+        ResetNestedCompanyString(raw->result_json);
+        ResetNestedCompanyAny(raw->metadata);
+      }));
 
   // 6. keyword_in -> CompanyOperatorKeywordInput (RFC 6.3: aliases:
   // {"sentence_in"})
-  {
-    OperatorValueTypeBinding b;
-    b.canonical_suffix = "keyword_in";
-    b.aliases = {"sentence_in"};
-    b.external_c_type_name = "CompanyOperatorKeywordInput";
-    b.validate_external = [](const void* ptr, const ResolvedInputLimits& limits,
-                             std::string* err) -> int {
-      if (!ptr) {
-        if (err) *err = "CompanyOperatorKeywordInput pointer is null";
-        return -3;
-      }
-      const auto* in = static_cast<const CompanyOperatorKeywordInput*>(ptr);
-      if (!in->sentence_text) {
-        if (err) *err = "sentence_text pointer is null";
-        return -3;
-      }
-      return ValidateCompanyString(in->sentence_text, limits.max_text_bytes,
-                                   "sentence_text", err);
-    };
-    RegisterBinding(b);
-  }
+  RegisterBinding(MakeInputBinding(
+      "keyword_in", {"sentence_in"}, "CompanyOperatorKeywordInput",
+      [](const void* ptr, const ResolvedInputLimits& limits,
+         std::string* err) -> int {
+        if (!ptr) {
+          if (err) *err = "CompanyOperatorKeywordInput pointer is null";
+          return -3;
+        }
+        const auto* in = static_cast<const CompanyOperatorKeywordInput*>(ptr);
+        if (!in->sentence_text) {
+          if (err) *err = "sentence_text pointer is null";
+          return -3;
+        }
+        return ValidateCompanyString(in->sentence_text, limits.max_text_bytes,
+                                     "sentence_text", err);
+      }));
 
   // 7. keyword_out -> CompanyOperatorKeywordOutput (RFC 6.3: aliases:
   // {"match_out"})
-  {
-    OperatorValueTypeBinding b;
-    b.canonical_suffix = "keyword_out";
-    b.aliases = {"match_out"};
-    b.external_c_type_name = "CompanyOperatorKeywordOutput";
-    b.allocate_external = [](const ResolvedOutputPoolSpec& spec,
-                             OwnedExternalBlock* out_block,
-                             std::string* /*err*/) -> int {
-      auto* raw =
-          AllocateRootOutput<CompanyOperatorKeywordOutput>(3, out_block);
-      if (!raw) return -4;
+  RegisterBinding(MakeOutputBinding(
+      "keyword_out", {"match_out"}, "CompanyOperatorKeywordOutput",
+      [](const ResolvedOutputPoolSpec& spec, OwnedExternalBlock* out_block,
+         std::string* /*err*/) -> int {
+        auto* raw =
+            AllocateRootOutput<CompanyOperatorKeywordOutput>(3, out_block);
+        if (!raw) return -4;
 
-      raw->request_id = 0;
-      raw->is_hit = 0;
-      raw->match_result_json = AllocateNestedCompanyString(
-          spec.GetCapacity("match_result_json", 2047), out_block);
-      out_block->raw_struct = raw;
-      return 0;
-    };
-    b.reset_external = [](void* ptr,
-                          const ResolvedOutputPoolSpec& /*spec*/) noexcept {
-      if (!ptr) return;
-      auto* raw = static_cast<CompanyOperatorKeywordOutput*>(ptr);
-      raw->request_id = 0;
-      raw->is_hit = 0;
-      ResetNestedCompanyString(raw->match_result_json);
-    };
-    b.destroy_external = DestroyExternalBlock;
-    RegisterBinding(b);
-  }
+        raw->request_id = 0;
+        raw->is_hit = 0;
+        raw->match_result_json = AllocateNestedCompanyString(
+            spec.GetCapacity("match_result_json", 2047), out_block);
+        out_block->raw_struct = raw;
+        return 0;
+      },
+      [](void* ptr, const ResolvedOutputPoolSpec& /*spec*/) noexcept {
+        if (!ptr) return;
+        auto* raw = static_cast<CompanyOperatorKeywordOutput*>(ptr);
+        raw->request_id = 0;
+        raw->is_hit = 0;
+        ResetNestedCompanyString(raw->match_result_json);
+      }));
 
   // 8. entity_in -> CompanyOperatorEntityInput (RFC 6.3: aliases: {"text_in"})
-  {
-    OperatorValueTypeBinding b;
-    b.canonical_suffix = "entity_in";
-    b.aliases = {"text_in"};
-    b.external_c_type_name = "CompanyOperatorEntityInput";
-    b.validate_external = [](const void* ptr, const ResolvedInputLimits& limits,
-                             std::string* err) -> int {
-      if (!ptr) {
-        if (err) *err = "CompanyOperatorEntityInput pointer is null";
-        return -3;
-      }
-      const auto* in = static_cast<const CompanyOperatorEntityInput*>(ptr);
-      if (!in->sentence_text) {
-        if (err) *err = "sentence_text pointer is null";
-        return -3;
-      }
-      return ValidateCompanyString(in->sentence_text, limits.max_text_bytes,
-                                   "sentence_text", err);
-    };
-    RegisterBinding(b);
-  }
+  RegisterBinding(MakeInputBinding(
+      "entity_in", {"text_in"}, "CompanyOperatorEntityInput",
+      [](const void* ptr, const ResolvedInputLimits& limits,
+         std::string* err) -> int {
+        if (!ptr) {
+          if (err) *err = "CompanyOperatorEntityInput pointer is null";
+          return -3;
+        }
+        const auto* in = static_cast<const CompanyOperatorEntityInput*>(ptr);
+        if (!in->sentence_text) {
+          if (err) *err = "sentence_text pointer is null";
+          return -3;
+        }
+        return ValidateCompanyString(in->sentence_text, limits.max_text_bytes,
+                                     "sentence_text", err);
+      }));
 
   // 9. entity_out -> CompanyOperatorEntityOutput (RFC 6.3: aliases:
   // {"extracted_out"})
-  {
-    OperatorValueTypeBinding b;
-    b.canonical_suffix = "entity_out";
-    b.aliases = {"extracted_out"};
-    b.external_c_type_name = "CompanyOperatorEntityOutput";
-    b.allocate_external = [](const ResolvedOutputPoolSpec& spec,
-                             OwnedExternalBlock* out_block,
-                             std::string* /*err*/) -> int {
-      auto* raw = AllocateRootOutput<CompanyOperatorEntityOutput>(3, out_block);
-      if (!raw) return -4;
+  RegisterBinding(MakeOutputBinding(
+      "entity_out", {"extracted_out"}, "CompanyOperatorEntityOutput",
+      [](const ResolvedOutputPoolSpec& spec, OwnedExternalBlock* out_block,
+         std::string* /*err*/) -> int {
+        auto* raw =
+            AllocateRootOutput<CompanyOperatorEntityOutput>(3, out_block);
+        if (!raw) return -4;
 
-      raw->request_id = 0;
-      raw->status_code = 0;
-      raw->entities_json = AllocateNestedCompanyString(
-          spec.GetCapacity("entities_json", 2047), out_block);
-      out_block->raw_struct = raw;
-      return 0;
-    };
-    b.reset_external = [](void* ptr,
-                          const ResolvedOutputPoolSpec& /*spec*/) noexcept {
-      if (!ptr) return;
-      auto* raw = static_cast<CompanyOperatorEntityOutput*>(ptr);
-      raw->request_id = 0;
-      raw->status_code = 0;
-      ResetNestedCompanyString(raw->entities_json);
-    };
-    b.destroy_external = DestroyExternalBlock;
-    RegisterBinding(b);
-  }
+        raw->request_id = 0;
+        raw->status_code = 0;
+        raw->entities_json = AllocateNestedCompanyString(
+            spec.GetCapacity("entities_json", 2047), out_block);
+        out_block->raw_struct = raw;
+        return 0;
+      },
+      [](void* ptr, const ResolvedOutputPoolSpec& /*spec*/) noexcept {
+        if (!ptr) return;
+        auto* raw = static_cast<CompanyOperatorEntityOutput*>(ptr);
+        raw->request_id = 0;
+        raw->status_code = 0;
+        ResetNestedCompanyString(raw->entities_json);
+      }));
 
   // 10. doc_in -> CompanyOperatorDocInput (RFC 6.3: aliases: {"qa_in"})
-  {
-    OperatorValueTypeBinding b;
-    b.canonical_suffix = "doc_in";
-    b.aliases = {"qa_in"};
-    b.external_c_type_name = "CompanyOperatorDocInput";
-    b.validate_external = [](const void* ptr, const ResolvedInputLimits& limits,
-                             std::string* err) -> int {
-      if (!ptr) {
-        if (err) *err = "CompanyOperatorDocInput pointer is null";
-        return -3;
-      }
-      const auto* in = static_cast<const CompanyOperatorDocInput*>(ptr);
-      if (!in->query_text) {
-        if (err) *err = "query_text pointer is null";
-        return -3;
-      }
-      int ret = ValidateCompanyString(in->query_text, limits.max_text_bytes,
-                                      "query_text", err);
-      if (ret != 0) return ret;
-      if (in->doc_text) {
-        ret = ValidateCompanyString(in->doc_text, limits.max_doc_text_bytes,
-                                    "doc_text", err);
+  RegisterBinding(MakeInputBinding(
+      "doc_in", {"qa_in"}, "CompanyOperatorDocInput",
+      [](const void* ptr, const ResolvedInputLimits& limits,
+         std::string* err) -> int {
+        if (!ptr) {
+          if (err) *err = "CompanyOperatorDocInput pointer is null";
+          return -3;
+        }
+        const auto* in = static_cast<const CompanyOperatorDocInput*>(ptr);
+        if (!in->query_text) {
+          if (err) *err = "query_text pointer is null";
+          return -3;
+        }
+        int ret = ValidateCompanyString(in->query_text, limits.max_text_bytes,
+                                        "query_text", err);
         if (ret != 0) return ret;
-      }
-      return 0;
-    };
-    RegisterBinding(b);
-  }
+        if (in->doc_text) {
+          ret = ValidateCompanyString(in->doc_text, limits.max_doc_text_bytes,
+                                      "doc_text", err);
+          if (ret != 0) return ret;
+        }
+        return 0;
+      }));
 
   // 11. doc_out -> CompanyOperatorDocOutput (RFC 6.3: aliases: {"qa_out"})
-  {
-    OperatorValueTypeBinding b;
-    b.canonical_suffix = "doc_out";
-    b.aliases = {"qa_out"};
-    b.external_c_type_name = "CompanyOperatorDocOutput";
-    b.allocate_external = [](const ResolvedOutputPoolSpec& spec,
-                             OwnedExternalBlock* out_block,
-                             std::string* /*err*/) -> int {
-      auto* raw = AllocateRootOutput<CompanyOperatorDocOutput>(5, out_block);
-      if (!raw) return -4;
+  RegisterBinding(MakeOutputBinding(
+      "doc_out", {"qa_out"}, "CompanyOperatorDocOutput",
+      [](const ResolvedOutputPoolSpec& spec, OwnedExternalBlock* out_block,
+         std::string* /*err*/) -> int {
+        auto* raw = AllocateRootOutput<CompanyOperatorDocOutput>(5, out_block);
+        if (!raw) return -4;
 
-      raw->request_id = 0;
-      raw->confidence = 0.0f;
-      raw->chunk_count = 0;
-      raw->status_code = 0;
-      raw->intent_name = AllocateNestedCompanyString(
-          spec.GetCapacity("intent_name", 63), out_block);
-      raw->answer_text = AllocateNestedCompanyString(
-          spec.GetCapacity("answer_text", 1023), out_block);
-      out_block->raw_struct = raw;
-      return 0;
-    };
-    b.reset_external = [](void* ptr,
-                          const ResolvedOutputPoolSpec& /*spec*/) noexcept {
-      if (!ptr) return;
-      auto* raw = static_cast<CompanyOperatorDocOutput*>(ptr);
-      raw->request_id = 0;
-      raw->confidence = 0.0f;
-      raw->chunk_count = 0;
-      raw->status_code = 0;
-      ResetNestedCompanyString(raw->intent_name);
-      ResetNestedCompanyString(raw->answer_text);
-    };
-    b.destroy_external = DestroyExternalBlock;
-    RegisterBinding(b);
-  }
+        raw->request_id = 0;
+        raw->confidence = 0.0f;
+        raw->chunk_count = 0;
+        raw->status_code = 0;
+        raw->intent_name = AllocateNestedCompanyString(
+            spec.GetCapacity("intent_name", 63), out_block);
+        raw->answer_text = AllocateNestedCompanyString(
+            spec.GetCapacity("answer_text", 1023), out_block);
+        out_block->raw_struct = raw;
+        return 0;
+      },
+      [](void* ptr, const ResolvedOutputPoolSpec& /*spec*/) noexcept {
+        if (!ptr) return;
+        auto* raw = static_cast<CompanyOperatorDocOutput*>(ptr);
+        raw->request_id = 0;
+        raw->confidence = 0.0f;
+        raw->chunk_count = 0;
+        raw->status_code = 0;
+        ResetNestedCompanyString(raw->intent_name);
+        ResetNestedCompanyString(raw->answer_text);
+      }));
 
   // 12. audit_in -> CompanyOperatorAuditInput (RFC 6.3: aliases:
   // {"dialogue_in"})
-  {
-    OperatorValueTypeBinding b;
-    b.canonical_suffix = "audit_in";
-    b.aliases = {"dialogue_in"};
-    b.external_c_type_name = "CompanyOperatorAuditInput";
-    b.validate_external = [](const void* ptr, const ResolvedInputLimits& limits,
-                             std::string* err) -> int {
-      if (!ptr) {
-        if (err) *err = "CompanyOperatorAuditInput pointer is null";
-        return -3;
-      }
-      const auto* in = static_cast<const CompanyOperatorAuditInput*>(ptr);
-      if (!in->user_text) {
-        if (err) *err = "user_text pointer is null";
-        return -3;
-      }
-      int ret = ValidateCompanyString(in->user_text, limits.max_text_bytes,
-                                      "user_text", err);
-      if (ret != 0) return ret;
-      if (in->channel_name) {
-        ret = ValidateCompanyString(in->channel_name, 256, "channel_name", err);
+  RegisterBinding(MakeInputBinding(
+      "audit_in", {"dialogue_in"}, "CompanyOperatorAuditInput",
+      [](const void* ptr, const ResolvedInputLimits& limits,
+         std::string* err) -> int {
+        if (!ptr) {
+          if (err) *err = "CompanyOperatorAuditInput pointer is null";
+          return -3;
+        }
+        const auto* in = static_cast<const CompanyOperatorAuditInput*>(ptr);
+        if (!in->user_text) {
+          if (err) *err = "user_text pointer is null";
+          return -3;
+        }
+        int ret = ValidateCompanyString(in->user_text, limits.max_text_bytes,
+                                        "user_text", err);
         if (ret != 0) return ret;
-      }
-      return 0;
-    };
-    RegisterBinding(b);
-  }
+        if (in->channel_name) {
+          ret =
+              ValidateCompanyString(in->channel_name, 256, "channel_name", err);
+          if (ret != 0) return ret;
+        }
+        return 0;
+      }));
 
   // 13. audit_out -> CompanyOperatorAuditOutput (RFC 6.3: aliases:
   // {"verdict_out"})
-  {
-    OperatorValueTypeBinding b;
-    b.canonical_suffix = "audit_out";
-    b.aliases = {"verdict_out"};
-    b.external_c_type_name = "CompanyOperatorAuditOutput";
-    b.allocate_external = [](const ResolvedOutputPoolSpec& spec,
-                             OwnedExternalBlock* out_block,
-                             std::string* /*err*/) -> int {
-      auto* raw = AllocateRootOutput<CompanyOperatorAuditOutput>(7, out_block);
-      if (!raw) return -4;
+  RegisterBinding(MakeOutputBinding(
+      "audit_out", {"verdict_out"}, "CompanyOperatorAuditOutput",
+      [](const ResolvedOutputPoolSpec& spec, OwnedExternalBlock* out_block,
+         std::string* /*err*/) -> int {
+        auto* raw =
+            AllocateRootOutput<CompanyOperatorAuditOutput>(7, out_block);
+        if (!raw) return -4;
 
-      raw->request_id = 0;
-      raw->risk_score = 0.0f;
-      raw->status_code = 0;
-      raw->risk_level = AllocateNestedCompanyString(
-          spec.GetCapacity("risk_level", 31), out_block);
-      raw->matched_policy_clause = AllocateNestedCompanyString(
-          spec.GetCapacity("matched_policy_clause", 255), out_block);
-      raw->audit_verdict_json = AllocateNestedCompanyString(
-          spec.GetCapacity("audit_verdict_json", 1023), out_block);
-      out_block->raw_struct = raw;
-      return 0;
-    };
-    b.reset_external = [](void* ptr,
-                          const ResolvedOutputPoolSpec& /*spec*/) noexcept {
-      if (!ptr) return;
-      auto* raw = static_cast<CompanyOperatorAuditOutput*>(ptr);
-      raw->request_id = 0;
-      raw->risk_score = 0.0f;
-      raw->status_code = 0;
-      ResetNestedCompanyString(raw->risk_level);
-      ResetNestedCompanyString(raw->matched_policy_clause);
-      ResetNestedCompanyString(raw->audit_verdict_json);
-    };
-    b.destroy_external = DestroyExternalBlock;
-    RegisterBinding(b);
-  }
+        raw->request_id = 0;
+        raw->risk_score = 0.0f;
+        raw->status_code = 0;
+        raw->risk_level = AllocateNestedCompanyString(
+            spec.GetCapacity("risk_level", 31), out_block);
+        raw->matched_policy_clause = AllocateNestedCompanyString(
+            spec.GetCapacity("matched_policy_clause", 255), out_block);
+        raw->audit_verdict_json = AllocateNestedCompanyString(
+            spec.GetCapacity("audit_verdict_json", 1023), out_block);
+        out_block->raw_struct = raw;
+        return 0;
+      },
+      [](void* ptr, const ResolvedOutputPoolSpec& /*spec*/) noexcept {
+        if (!ptr) return;
+        auto* raw = static_cast<CompanyOperatorAuditOutput*>(ptr);
+        raw->request_id = 0;
+        raw->risk_score = 0.0f;
+        raw->status_code = 0;
+        ResetNestedCompanyString(raw->risk_level);
+        ResetNestedCompanyString(raw->matched_policy_clause);
+        ResetNestedCompanyString(raw->audit_verdict_json);
+      }));
 
   // 14. audio_in -> CompanyOperatorAudioInput (RFC 6.3: aliases:
   // {"pcm_stream"})
-  {
-    OperatorValueTypeBinding b;
-    b.canonical_suffix = "audio_in";
-    b.aliases = {"pcm_stream"};
-    b.external_c_type_name = "CompanyOperatorAudioInput";
-    b.validate_external = [](const void* ptr, const ResolvedInputLimits& limits,
-                             std::string* err) -> int {
-      if (!ptr) {
-        if (err) *err = "CompanyOperatorAudioInput pointer is null";
-        return -3;
-      }
-      const auto* in = static_cast<const CompanyOperatorAudioInput*>(ptr);
-      if (in->sample_rate < limits.min_sample_rate ||
-          in->sample_rate > limits.max_sample_rate) {
-        if (err) {
-          *err = "sample_rate " + std::to_string(in->sample_rate) +
-                 " out of valid range [" +
-                 std::to_string(limits.min_sample_rate) + ", " +
-                 std::to_string(limits.max_sample_rate) + "]";
-        }
-        return -3;
-      }
-      if (in->pcm_length <= 0 ||
-          in->pcm_length > limits.max_audio_pcm_samples) {
-        if (err)
-          *err = "pcm_length " + std::to_string(in->pcm_length) +
-                 " invalid or exceeds limit " +
-                 std::to_string(limits.max_audio_pcm_samples);
-        return -3;
-      }
-      if (!in->pcm_buffer) {
-        if (err) *err = "pcm_buffer pointer is null";
-        return -3;
-      }
-      return 0;
-    };
-    RegisterBinding(b);
-  }
-
-  // 15. audio_out -> CompanyOperatorAudioOutput (RFC 6.3: aliases: {"asr_out"})
-  {
-    OperatorValueTypeBinding b;
-    b.canonical_suffix = "audio_out";
-    b.aliases = {"asr_out"};
-    b.external_c_type_name = "CompanyOperatorAudioOutput";
-    b.allocate_external = [](const ResolvedOutputPoolSpec& spec,
-                             OwnedExternalBlock* out_block,
-                             std::string* /*err*/) -> int {
-      auto* raw = AllocateRootOutput<CompanyOperatorAudioOutput>(5, out_block);
-      if (!raw) return -4;
-
-      raw->request_id = 0;
-      raw->status_code = 0;
-      raw->transcribed_text = AllocateNestedCompanyString(
-          spec.GetCapacity("transcribed_text", 511), out_block);
-      raw->intent_slot_json = AllocateNestedCompanyString(
-          spec.GetCapacity("intent_slot_json", 1023), out_block);
-      out_block->raw_struct = raw;
-      return 0;
-    };
-    b.reset_external = [](void* ptr,
-                          const ResolvedOutputPoolSpec& /*spec*/) noexcept {
-      if (!ptr) return;
-      auto* raw = static_cast<CompanyOperatorAudioOutput*>(ptr);
-      raw->request_id = 0;
-      raw->status_code = 0;
-      ResetNestedCompanyString(raw->transcribed_text);
-      ResetNestedCompanyString(raw->intent_slot_json);
-    };
-    b.destroy_external = DestroyExternalBlock;
-    RegisterBinding(b);
-  }
-
-  // 16. rerank_in -> CompanyOperatorRerankInput (RFC 6.3: aliases: {"pair_in"})
-  {
-    OperatorValueTypeBinding b;
-    b.canonical_suffix = "rerank_in";
-    b.aliases = {"pair_in"};
-    b.external_c_type_name = "CompanyOperatorRerankInput";
-    b.validate_external = [](const void* ptr, const ResolvedInputLimits& limits,
-                             std::string* err) -> int {
-      if (!ptr) {
-        if (err) *err = "CompanyOperatorRerankInput pointer is null";
-        return -3;
-      }
-      const auto* in = static_cast<const CompanyOperatorRerankInput*>(ptr);
-      if (!in->query_text) {
-        if (err) *err = "query_text pointer is null";
-        return -3;
-      }
-      int ret = ValidateCompanyString(in->query_text, limits.max_text_bytes,
-                                      "query_text", err);
-      if (ret != 0) return ret;
-      if (in->candidate_count <= 0 ||
-          in->candidate_count > COMPANY_OPERATOR_MAX_RERANK_CANDIDATES) {
-        if (err) {
-          *err = "candidate_count " + std::to_string(in->candidate_count) +
-                 " out of valid range [1, " +
-                 std::to_string(COMPANY_OPERATOR_MAX_RERANK_CANDIDATES) + "]";
-        }
-        return -3;
-      }
-      for (int i = 0; i < in->candidate_count; ++i) {
-        if (!in->candidate_passages[i]) {
-          if (err)
-            *err = "candidate_passages[" + std::to_string(i) + "] is null";
+  RegisterBinding(MakeInputBinding(
+      "audio_in", {"pcm_stream"}, "CompanyOperatorAudioInput",
+      [](const void* ptr, const ResolvedInputLimits& limits,
+         std::string* err) -> int {
+        if (!ptr) {
+          if (err) *err = "CompanyOperatorAudioInput pointer is null";
           return -3;
         }
-        ret = ValidateCompanyString(
-            in->candidate_passages[i], limits.max_doc_text_bytes,
-            ("candidate_passages[" + std::to_string(i) + "]").c_str(), err);
+        const auto* in = static_cast<const CompanyOperatorAudioInput*>(ptr);
+        if (in->sample_rate < limits.min_sample_rate ||
+            in->sample_rate > limits.max_sample_rate) {
+          if (err) {
+            *err = "sample_rate " + std::to_string(in->sample_rate) +
+                   " out of valid range [" +
+                   std::to_string(limits.min_sample_rate) + ", " +
+                   std::to_string(limits.max_sample_rate) + "]";
+          }
+          return -3;
+        }
+        if (in->pcm_length <= 0 ||
+            in->pcm_length > limits.max_audio_pcm_samples) {
+          if (err)
+            *err = "pcm_length " + std::to_string(in->pcm_length) +
+                   " invalid or exceeds limit " +
+                   std::to_string(limits.max_audio_pcm_samples);
+          return -3;
+        }
+        if (!in->pcm_buffer) {
+          if (err) *err = "pcm_buffer pointer is null";
+          return -3;
+        }
+        return 0;
+      }));
+
+  // 15. audio_out -> CompanyOperatorAudioOutput (RFC 6.3: aliases: {"asr_out"})
+  RegisterBinding(MakeOutputBinding(
+      "audio_out", {"asr_out"}, "CompanyOperatorAudioOutput",
+      [](const ResolvedOutputPoolSpec& spec, OwnedExternalBlock* out_block,
+         std::string* /*err*/) -> int {
+        auto* raw =
+            AllocateRootOutput<CompanyOperatorAudioOutput>(5, out_block);
+        if (!raw) return -4;
+
+        raw->request_id = 0;
+        raw->status_code = 0;
+        raw->transcribed_text = AllocateNestedCompanyString(
+            spec.GetCapacity("transcribed_text", 511), out_block);
+        raw->intent_slot_json = AllocateNestedCompanyString(
+            spec.GetCapacity("intent_slot_json", 1023), out_block);
+        out_block->raw_struct = raw;
+        return 0;
+      },
+      [](void* ptr, const ResolvedOutputPoolSpec& /*spec*/) noexcept {
+        if (!ptr) return;
+        auto* raw = static_cast<CompanyOperatorAudioOutput*>(ptr);
+        raw->request_id = 0;
+        raw->status_code = 0;
+        ResetNestedCompanyString(raw->transcribed_text);
+        ResetNestedCompanyString(raw->intent_slot_json);
+      }));
+
+  // 16. rerank_in -> CompanyOperatorRerankInput (RFC 6.3: aliases: {"pair_in"})
+  RegisterBinding(MakeInputBinding(
+      "rerank_in", {"pair_in"}, "CompanyOperatorRerankInput",
+      [](const void* ptr, const ResolvedInputLimits& limits,
+         std::string* err) -> int {
+        if (!ptr) {
+          if (err) *err = "CompanyOperatorRerankInput pointer is null";
+          return -3;
+        }
+        const auto* in = static_cast<const CompanyOperatorRerankInput*>(ptr);
+        if (!in->query_text) {
+          if (err) *err = "query_text pointer is null";
+          return -3;
+        }
+        int ret = ValidateCompanyString(in->query_text, limits.max_text_bytes,
+                                        "query_text", err);
         if (ret != 0) return ret;
-      }
-      return 0;
-    };
-    RegisterBinding(b);
-  }
+        if (in->candidate_count <= 0 ||
+            in->candidate_count > COMPANY_OPERATOR_MAX_RERANK_CANDIDATES) {
+          if (err) {
+            *err = "candidate_count " + std::to_string(in->candidate_count) +
+                   " out of valid range [1, " +
+                   std::to_string(COMPANY_OPERATOR_MAX_RERANK_CANDIDATES) + "]";
+          }
+          return -3;
+        }
+        for (int i = 0; i < in->candidate_count; ++i) {
+          if (!in->candidate_passages[i]) {
+            if (err)
+              *err = "candidate_passages[" + std::to_string(i) + "] is null";
+            return -3;
+          }
+          ret = ValidateCompanyString(
+              in->candidate_passages[i], limits.max_doc_text_bytes,
+              ("candidate_passages[" + std::to_string(i) + "]").c_str(), err);
+          if (ret != 0) return ret;
+        }
+        return 0;
+      }));
 
   // 17. rerank_out -> CompanyOperatorRerankOutput (RFC 6.3: aliases:
   // {"scores_out"})
-  {
-    OperatorValueTypeBinding b;
-    b.canonical_suffix = "rerank_out";
-    b.aliases = {"scores_out"};
-    b.external_c_type_name = "CompanyOperatorRerankOutput";
-    b.allocate_external = [](const ResolvedOutputPoolSpec& /*spec*/,
-                             OwnedExternalBlock* out_block,
-                             std::string* /*err*/) -> int {
-      auto* raw = AllocateRootOutput<CompanyOperatorRerankOutput>(1, out_block);
-      if (!raw) return -4;
+  RegisterBinding(MakeOutputBinding(
+      "rerank_out", {"scores_out"}, "CompanyOperatorRerankOutput",
+      [](const ResolvedOutputPoolSpec& /*spec*/, OwnedExternalBlock* out_block,
+         std::string* /*err*/) -> int {
+        auto* raw =
+            AllocateRootOutput<CompanyOperatorRerankOutput>(1, out_block);
+        if (!raw) return -4;
 
-      raw->request_id = 0;
-      raw->count = 0;
-      raw->status_code = 0;
-      for (int i = 0; i < COMPANY_OPERATOR_MAX_RERANK_CANDIDATES; ++i) {
-        raw->scores[i] = 0.0f;
-        raw->sorted_indices[i] = -1;
-      }
-      out_block->raw_struct = raw;
-      return 0;
-    };
-    b.reset_external = [](void* ptr,
-                          const ResolvedOutputPoolSpec& /*spec*/) noexcept {
-      if (!ptr) return;
-      auto* raw = static_cast<CompanyOperatorRerankOutput*>(ptr);
-      raw->request_id = 0;
-      raw->count = 0;
-      raw->status_code = 0;
-      for (int i = 0; i < COMPANY_OPERATOR_MAX_RERANK_CANDIDATES; ++i) {
-        raw->scores[i] = 0.0f;
-        raw->sorted_indices[i] = -1;
-      }
-    };
-    b.destroy_external = DestroyExternalBlock;
-    RegisterBinding(b);
-  }
+        raw->request_id = 0;
+        raw->count = 0;
+        raw->status_code = 0;
+        for (int i = 0; i < COMPANY_OPERATOR_MAX_RERANK_CANDIDATES; ++i) {
+          raw->scores[i] = 0.0f;
+          raw->sorted_indices[i] = -1;
+        }
+        out_block->raw_struct = raw;
+        return 0;
+      },
+      [](void* ptr, const ResolvedOutputPoolSpec& /*spec*/) noexcept {
+        if (!ptr) return;
+        auto* raw = static_cast<CompanyOperatorRerankOutput*>(ptr);
+        raw->request_id = 0;
+        raw->count = 0;
+        raw->status_code = 0;
+        for (int i = 0; i < COMPANY_OPERATOR_MAX_RERANK_CANDIDATES; ++i) {
+          raw->scores[i] = 0.0f;
+          raw->sorted_indices[i] = -1;
+        }
+      }));
 }
 
 }  // namespace alg_framework
