@@ -59,7 +59,7 @@ void RegisterKeywordMatchBridge(OperatorBizBridgeRegistry& reg) {
 
     return OperatorBizBridgeRegistry::CopyToPooledString(
         in_dto->match_result_json, out->match_result_json,
-        spec.GetCapacity("match_result_json", 2047), "match_result_json", err);
+        spec.GetCapacity("match_result_json"), "match_result_json", err);
   };
 
   desc.create_shadow_output_dto = [](ProcessLocalShadowStorage& s) -> void* {

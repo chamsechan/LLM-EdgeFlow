@@ -1,11 +1,28 @@
 #include <gtest/gtest.h>
 
 #include <limits>
+#include <stdexcept>
 #include <thread>
 
 #include "adapter/operator/operator_value_type_registry.h"
 
 namespace alg_framework {
+
+namespace {
+
+void SetMinimalOutputContract(OperatorValueTypeBinding* binding) {
+  ASSERT_NE(binding, nullptr);
+  binding->direction = IoDirection::kOutput;
+  binding->output_layout.compute_block_payload_bytes =
+      [](const ResolvedOutputPoolSpec&, size_t* out_bytes,
+         std::string*) noexcept {
+        if (!out_bytes) return false;
+        *out_bytes = 1;
+        return true;
+      };
+}
+
+}  // namespace
 
 // 1. Any 类型白名单与尺寸查找
 TEST(OperatorValueRegistryTest, CompanyAnyTypeWhitelistAndSizes) {
@@ -432,6 +449,7 @@ TEST(OperatorValueRegistryTest, MissingValidatorOrFactoryAuditRejection) {
     OperatorValueTypeBinding b;
     b.canonical_suffix = "custom_in";
     b.external_c_type_name = "CustomInput";
+    b.direction = IoDirection::kInput;
     b.validate_external = nullptr;
     EXPECT_TRUE(reg.RegisterBinding(b));
     EXPECT_EQ(reg.GlobalInit(), -6);
@@ -444,6 +462,7 @@ TEST(OperatorValueRegistryTest, MissingValidatorOrFactoryAuditRejection) {
     OperatorValueTypeBinding b;
     b.canonical_suffix = "custom_out1";
     b.external_c_type_name = "CustomOutput1";
+    SetMinimalOutputContract(&b);
     b.allocate_external = nullptr;
     b.reset_external = [](void*, const ResolvedOutputPoolSpec&) {};
     b.destroy_external = [](OwnedExternalBlock*) {};
@@ -458,6 +477,7 @@ TEST(OperatorValueRegistryTest, MissingValidatorOrFactoryAuditRejection) {
     OperatorValueTypeBinding b;
     b.canonical_suffix = "custom_out2";
     b.external_c_type_name = "CustomOutput2";
+    SetMinimalOutputContract(&b);
     b.allocate_external = [](const ResolvedOutputPoolSpec&, OwnedExternalBlock*,
                              std::string*) { return 0; };
     b.reset_external = nullptr;
@@ -473,6 +493,7 @@ TEST(OperatorValueRegistryTest, MissingValidatorOrFactoryAuditRejection) {
     OperatorValueTypeBinding b;
     b.canonical_suffix = "custom_out3";
     b.external_c_type_name = "CustomOutput3";
+    SetMinimalOutputContract(&b);
     b.allocate_external = [](const ResolvedOutputPoolSpec&, OwnedExternalBlock*,
                              std::string*) { return 0; };
     b.reset_external = [](void*, const ResolvedOutputPoolSpec&) {};
@@ -482,12 +503,29 @@ TEST(OperatorValueRegistryTest, MissingValidatorOrFactoryAuditRejection) {
     EXPECT_TRUE(reg.HasConflict());
   }
 
-  // 5. 空 external_c_type_name 拒绝
+  // 5. 输出类型缺少预算回调
   {
     OperatorValueTypeRegistry reg;
     OperatorValueTypeBinding b;
     b.canonical_suffix = "custom_out4";
+    b.external_c_type_name = "CustomOutput4";
+    b.direction = IoDirection::kOutput;
+    b.allocate_external = [](const ResolvedOutputPoolSpec&, OwnedExternalBlock*,
+                             std::string*) { return 0; };
+    b.reset_external = [](void*, const ResolvedOutputPoolSpec&) {};
+    b.destroy_external = [](OwnedExternalBlock*) {};
+    EXPECT_TRUE(reg.RegisterBinding(b));
+    EXPECT_EQ(reg.GlobalInit(), -6);
+    EXPECT_TRUE(reg.HasConflict());
+  }
+
+  // 6. 空 external_c_type_name 拒绝
+  {
+    OperatorValueTypeRegistry reg;
+    OperatorValueTypeBinding b;
+    b.canonical_suffix = "custom_out5";
     b.external_c_type_name = "";  // empty
+    SetMinimalOutputContract(&b);
     b.allocate_external = [](const ResolvedOutputPoolSpec&, OwnedExternalBlock*,
                              std::string*) { return 0; };
     b.reset_external = [](void*, const ResolvedOutputPoolSpec&) {};
@@ -518,6 +556,7 @@ TEST(OperatorValueRegistryTest, NamedExceptionInjectionRollbackZeroCorruption) {
     b.canonical_suffix = "injected_custom_out";
     b.aliases = {"alias_one", "alias_two"};
     b.external_c_type_name = "InjectedCustomOutput";
+    SetMinimalOutputContract(&b);
     b.allocate_external = [](const ResolvedOutputPoolSpec&, OwnedExternalBlock*,
                              std::string*) { return 0; };
     b.reset_external = [](void*, const ResolvedOutputPoolSpec&) {};
@@ -590,25 +629,32 @@ TEST(OperatorValueRegistryTest,
                                                &out_bytes, &err));
   }
 
-  // 7. depth=1 时构造精确 64 MiB 载荷，边界必须允许；再加 1 字节拒绝。
+  // 7. Schema 最大字符串容量下，64 MiB 总预算边界仍由统一预算器拦截。
   {
-    constexpr size_t kFixedPayload =
-        sizeof(CompanyOperatorKeywordOutput) + sizeof(CompanyString) + 1;
-    static_assert(kMaxHandlePoolPayloadBytes > kFixedPayload);
-    const auto exact_capacity =
-        static_cast<uint32_t>(kMaxHandlePoolPayloadBytes - kFixedPayload);
+    constexpr uint32_t kMaxKeywordCapacity = 65536;
+    constexpr size_t kBlockPayload = sizeof(CompanyOperatorKeywordOutput) +
+                                     sizeof(CompanyString) +
+                                     kMaxKeywordCapacity + 1;
+    constexpr uint32_t kLargestAllowedDepth =
+        static_cast<uint32_t>(kMaxHandlePoolPayloadBytes / kBlockPayload);
+    static_assert(kLargestAllowedDepth > 0);
+    static_assert(kLargestAllowedDepth < kMaxOutputPoolDepth);
 
     ResolvedOutputPoolSpec spec;
     spec.type = "keyword_out";
-    spec.capacities["match_result_json"] = exact_capacity;
-    EXPECT_TRUE(ComputeOutputPoolPayloadBytes("keyword_out", spec, 1,
-                                              &out_bytes, &err));
-    EXPECT_EQ(out_bytes, kMaxHandlePoolPayloadBytes);
+    spec.capacities["match_result_json"] = kMaxKeywordCapacity;
+    EXPECT_TRUE(ComputeOutputPoolPayloadBytes(
+        "keyword_out", spec, kLargestAllowedDepth, &out_bytes, &err));
+    EXPECT_EQ(out_bytes, kBlockPayload * kLargestAllowedDepth);
 
-    spec.capacities["match_result_json"] = exact_capacity + 1;
+    EXPECT_FALSE(ComputeOutputPoolPayloadBytes(
+        "keyword_out", spec, kLargestAllowedDepth + 1, &out_bytes, &err));
+    EXPECT_NE(err.find("64 MiB"), std::string::npos);
+
+    spec.capacities["match_result_json"] = kMaxKeywordCapacity + 1;
     EXPECT_FALSE(ComputeOutputPoolPayloadBytes("keyword_out", spec, 1,
                                                &out_bytes, &err));
-    EXPECT_NE(err.find("64 MiB"), std::string::npos);
+    EXPECT_NE(err.find("max hard limit"), std::string::npos);
   }
 
   // 8. checked arithmetic 与多池累加边界。
@@ -632,6 +678,77 @@ TEST(OperatorValueRegistryTest,
     EXPECT_FALSE(
         ComputeOutputPoolPayloadBytes("doc_out", spec, 1, &out_bytes, &err));
   }
+}
+
+TEST(OperatorValueRegistryTest,
+     OutputBindingOwnsDirectionDefaultsAndCapacityLimits) {
+  const auto* binding =
+      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("doc_out");
+  ASSERT_NE(binding, nullptr);
+  EXPECT_EQ(binding->direction, IoDirection::kOutput);
+  ASSERT_EQ(binding->output_layout.string_capacity_fields.size(), 2u);
+
+  ResolvedOutputPoolSpec requested;
+  requested.type = "doc_out";
+  requested.capacities["intent_name"] = 100;
+  ResolvedOutputPoolSpec resolved;
+  std::string err;
+  ASSERT_TRUE(ResolveOutputPoolSpec(*binding, requested, &resolved, &err))
+      << err;
+  EXPECT_EQ(resolved.GetCapacity("intent_name"), 100u);
+  EXPECT_EQ(resolved.GetCapacity("answer_text"), 1023u);
+
+  requested.capacities["unknown_field"] = 1;
+  EXPECT_FALSE(ResolveOutputPoolSpec(*binding, requested, &resolved, &err));
+  EXPECT_NE(err.find("Unknown capacity field"), std::string::npos);
+
+  requested.capacities.erase("unknown_field");
+  requested.capacities["answer_text"] = 65537;
+  EXPECT_FALSE(ResolveOutputPoolSpec(*binding, requested, &resolved, &err));
+  EXPECT_NE(err.find("max hard limit"), std::string::npos);
+}
+
+TEST(OperatorValueRegistryTest, DirectionDoesNotDependOnSuffixNaming) {
+  OperatorValueTypeRegistry reg;
+  OperatorValueTypeBinding binding;
+  binding.canonical_suffix = "opaque_payload";
+  binding.external_c_type_name = "OpaquePayload";
+  binding.direction = IoDirection::kInput;
+  binding.validate_external = [](const void*, const ResolvedInputLimits&,
+                                 std::string*) { return 0; };
+
+  ASSERT_TRUE(reg.RegisterBinding(binding));
+  EXPECT_EQ(reg.GlobalInit(), 0);
+  EXPECT_FALSE(reg.HasConflict());
+}
+
+TEST(OperatorValueRegistryTest, OutputBudgetCallbackFailsClosed) {
+  OperatorValueTypeBinding binding;
+  binding.canonical_suffix = "throwing_output";
+  binding.external_c_type_name = "ThrowingOutput";
+  binding.direction = IoDirection::kOutput;
+  binding.output_layout.compute_block_payload_bytes =
+      [](const ResolvedOutputPoolSpec&, size_t*, std::string*) -> bool {
+    throw std::runtime_error("injected budget failure");
+  };
+
+  ResolvedOutputPoolSpec spec;
+  spec.type = binding.canonical_suffix;
+  size_t out_bytes = 0;
+  std::string err;
+  EXPECT_FALSE(
+      ComputeOutputPoolPayloadBytes(binding, spec, 1, &out_bytes, &err));
+  EXPECT_EQ(out_bytes, 0u);
+  EXPECT_NE(err.find("injected budget failure"), std::string::npos);
+
+  binding.output_layout.compute_block_payload_bytes =
+      [](const ResolvedOutputPoolSpec&, size_t* bytes, std::string*) noexcept {
+        *bytes = 0;
+        return true;
+      };
+  EXPECT_FALSE(
+      ComputeOutputPoolPayloadBytes(binding, spec, 1, &out_bytes, &err));
+  EXPECT_NE(err.find("payload is zero"), std::string::npos);
 }
 
 // 14. TSan 并发查询与冻结交错测试

@@ -58,13 +58,13 @@ void RegisterDocQaBridge(OperatorBizBridgeRegistry& reg) {
     out->status_code = in_dto->status_code;
 
     int ret = OperatorBizBridgeRegistry::CopyToPooledString(
-        in_dto->intent_name, out->intent_name,
-        spec.GetCapacity("intent_name", 63), "intent_name", err);
+        in_dto->intent_name, out->intent_name, spec.GetCapacity("intent_name"),
+        "intent_name", err);
     if (ret != 0) return ret;
 
     return OperatorBizBridgeRegistry::CopyToPooledString(
-        in_dto->answer_text, out->answer_text,
-        spec.GetCapacity("answer_text", 1023), "answer_text", err);
+        in_dto->answer_text, out->answer_text, spec.GetCapacity("answer_text"),
+        "answer_text", err);
   };
 
   desc.create_shadow_output_dto = [](ProcessLocalShadowStorage& s) -> void* {

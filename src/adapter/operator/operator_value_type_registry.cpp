@@ -190,19 +190,77 @@ OperatorValueTypeBinding MakeInputBinding(
   binding.canonical_suffix = std::move(canonical_suffix);
   binding.aliases = std::move(aliases);
   binding.external_c_type_name = std::move(external_c_type_name);
+  binding.direction = IoDirection::kInput;
   binding.validate_external = std::move(validate_external);
   return binding;
 }
 
-OperatorValueTypeBinding MakeOutputBinding(std::string canonical_suffix,
-                                           std::vector<std::string> aliases,
-                                           std::string external_c_type_name,
-                                           AllocateExternalFn allocate_external,
-                                           ResetExternalFn reset_external) {
+bool ComputeStandardOutputBlockPayloadBytes(size_t root_struct_bytes,
+                                            const ResolvedOutputPoolSpec& spec,
+                                            size_t* out_bytes,
+                                            std::string* err) noexcept {
+  if (!out_bytes) {
+    if (err) *err = "Null output block payload pointer";
+    return false;
+  }
+  *out_bytes = 0;
+
+  size_t block_bytes = root_struct_bytes;
+  for (const auto& [field, capacity] : spec.capacities) {
+    size_t string_bytes = 0;
+    if (!CheckedAdd(static_cast<size_t>(capacity), 1, &string_bytes) ||
+        !CheckedAdd(string_bytes, sizeof(CompanyString), &string_bytes) ||
+        !CheckedAdd(block_bytes, string_bytes, &block_bytes)) {
+      if (err) {
+        *err = spec.type + " capacity calculation overflowed for field '" +
+               field + "'";
+      }
+      return false;
+    }
+  }
+
+  if (spec.meta_num > 0) {
+    const auto* metadata_desc = FindCompanyAnyType(spec.metadata_type_id);
+    if (!metadata_desc || metadata_desc->element_size == 0) {
+      if (err) *err = "Metadata type is not registered";
+      return false;
+    }
+    size_t metadata_payload = 0;
+    size_t metadata_bytes = 0;
+    if (!CheckedMultiply(spec.meta_num, metadata_desc->element_size,
+                         &metadata_payload) ||
+        !CheckedAdd(metadata_payload, sizeof(CompanyAny), &metadata_bytes) ||
+        !CheckedAdd(block_bytes, metadata_bytes, &block_bytes)) {
+      if (err) *err = spec.type + " metadata calculation overflowed";
+      return false;
+    }
+  }
+
+  *out_bytes = block_bytes;
+  return true;
+}
+
+OperatorValueTypeBinding MakeOutputBinding(
+    std::string canonical_suffix, std::vector<std::string> aliases,
+    std::string external_c_type_name,
+    std::unordered_map<std::string, OutputCapacityFieldConfig>
+        string_capacity_fields,
+    uint32_t max_metadata_elements, size_t root_struct_bytes,
+    AllocateExternalFn allocate_external, ResetExternalFn reset_external) {
   OperatorValueTypeBinding binding;
   binding.canonical_suffix = std::move(canonical_suffix);
   binding.aliases = std::move(aliases);
   binding.external_c_type_name = std::move(external_c_type_name);
+  binding.direction = IoDirection::kOutput;
+  binding.output_layout.string_capacity_fields =
+      std::move(string_capacity_fields);
+  binding.output_layout.max_metadata_elements = max_metadata_elements;
+  binding.output_layout.compute_block_payload_bytes =
+      [root_struct_bytes](const ResolvedOutputPoolSpec& spec, size_t* out_bytes,
+                          std::string* err) noexcept {
+        return ComputeStandardOutputBlockPayloadBytes(root_struct_bytes, spec,
+                                                      out_bytes, err);
+      };
   binding.allocate_external = std::move(allocate_external);
   binding.reset_external = std::move(reset_external);
   binding.destroy_external = DestroyExternalBlock;
@@ -211,7 +269,95 @@ OperatorValueTypeBinding MakeOutputBinding(std::string canonical_suffix,
 
 }  // namespace
 
-bool ComputeOutputPoolPayloadBytes(const std::string& suffix,
+bool ResolveOutputPoolSpec(const OperatorValueTypeBinding& binding,
+                           const ResolvedOutputPoolSpec& requested,
+                           ResolvedOutputPoolSpec* resolved,
+                           std::string* err) noexcept {
+  try {
+    if (!resolved) {
+      if (err) *err = "Null resolved output pool spec pointer";
+      return false;
+    }
+    *resolved = ResolvedOutputPoolSpec{};
+
+    if (binding.direction != IoDirection::kOutput ||
+        binding.canonical_suffix.empty()) {
+      if (err) *err = "Value type binding is not a valid output binding";
+      return false;
+    }
+    if (requested.type.empty() || requested.type != binding.canonical_suffix) {
+      if (err) {
+        *err = "Output pool spec type '" + requested.type +
+               "' does not match binding suffix '" + binding.canonical_suffix +
+               "'";
+      }
+      return false;
+    }
+
+    ResolvedOutputPoolSpec candidate = requested;
+    for (const auto& [field, capacity] : requested.capacities) {
+      const auto schema_it =
+          binding.output_layout.string_capacity_fields.find(field);
+      if (schema_it == binding.output_layout.string_capacity_fields.end()) {
+        if (err) {
+          *err = "Unknown capacity field '" + field + "' for output type '" +
+                 binding.canonical_suffix + "'";
+        }
+        return false;
+      }
+      if (capacity == 0 || capacity > schema_it->second.max_capacity) {
+        if (err) {
+          *err = "Capacity for field '" + field + "' (" +
+                 std::to_string(capacity) +
+                 ") is zero or exceeds max hard limit (" +
+                 std::to_string(schema_it->second.max_capacity) + ")";
+        }
+        return false;
+      }
+    }
+    for (const auto& [field, field_config] :
+         binding.output_layout.string_capacity_fields) {
+      if (candidate.capacities.find(field) == candidate.capacities.end()) {
+        candidate.capacities[field] = field_config.default_capacity;
+      }
+    }
+
+    if ((candidate.meta_num == 0) != (candidate.metadata_type_id == 0)) {
+      if (err) *err = "Metadata count and type must both be zero or non-zero";
+      return false;
+    }
+    if (candidate.meta_num > binding.output_layout.max_metadata_elements) {
+      if (err) {
+        *err = "Metadata count " + std::to_string(candidate.meta_num) +
+               " exceeds max limit " +
+               std::to_string(binding.output_layout.max_metadata_elements) +
+               " for output type '" + binding.canonical_suffix + "'";
+      }
+      return false;
+    }
+    if (candidate.meta_num > 0 &&
+        !FindCompanyAnyType(candidate.metadata_type_id)) {
+      if (err) {
+        *err = "Metadata type " + std::to_string(candidate.metadata_type_id) +
+               " is invalid or not whitelisted";
+      }
+      return false;
+    }
+
+    *resolved = std::move(candidate);
+    return true;
+  } catch (const std::exception& e) {
+    if (err) {
+      *err = std::string("Exception resolving output pool spec: ") + e.what();
+    }
+    return false;
+  } catch (...) {
+    if (err) *err = "Unknown exception resolving output pool spec";
+    return false;
+  }
+}
+
+bool ComputeOutputPoolPayloadBytes(const OperatorValueTypeBinding& binding,
                                    const ResolvedOutputPoolSpec& spec,
                                    uint32_t depth, size_t* out_bytes,
                                    std::string* err) noexcept {
@@ -221,16 +367,11 @@ bool ComputeOutputPoolPayloadBytes(const std::string& suffix,
   }
   *out_bytes = 0;
 
-  // 1. 校验 spec.type 与 suffix 必须严格一致 (空字符串同样拒绝，R9-005)
-  if (spec.type.empty() || spec.type != suffix) {
-    if (err) {
-      *err = "Output pool spec type '" + spec.type +
-             "' is invalid or does not match requested suffix '" + suffix + "'";
-    }
+  ResolvedOutputPoolSpec resolved;
+  if (!ResolveOutputPoolSpec(binding, spec, &resolved, err)) {
     return false;
   }
 
-  // 2. 深度校验与归一化 (depth == 0 归一化为默认 25，上限 1024)
   uint32_t effective_depth = (depth == 0) ? kDefaultOutputPoolDepth : depth;
   if (effective_depth > kMaxOutputPoolDepth) {
     if (err) {
@@ -240,115 +381,38 @@ bool ComputeOutputPoolPayloadBytes(const std::string& suffix,
     return false;
   }
 
-  if (suffix != "od_out" &&
-      (spec.meta_num != 0 || spec.metadata_type_id != 0)) {
+  if (!binding.output_layout.compute_block_payload_bytes) {
     if (err) {
-      *err =
-          "Metadata capacity is unsupported for output suffix '" + suffix + "'";
+      *err = "Missing output block budget callback for suffix '" +
+             binding.canonical_suffix + "'";
     }
     return false;
   }
 
   size_t single_block_bytes = 0;
-
-  if (suffix == "doc_out") {
-    single_block_bytes = sizeof(CompanyOperatorDocOutput);
-    uint32_t cap_intent = spec.GetCapacity("intent_name", 63);
-    uint32_t cap_answer = spec.GetCapacity("answer_text", 1023);
-    size_t str_bytes = 0;
-    if (!CheckedAdd(static_cast<size_t>(cap_intent), 1, &str_bytes) ||
-        !CheckedAdd(str_bytes, static_cast<size_t>(cap_answer) + 1,
-                    &str_bytes) ||
-        !CheckedAdd(str_bytes, sizeof(CompanyString) * 2, &str_bytes) ||
-        !CheckedAdd(single_block_bytes, str_bytes, &single_block_bytes)) {
-      if (err) *err = "doc_out capacity calculation overflowed";
+  try {
+    if (!binding.output_layout.compute_block_payload_bytes(
+            resolved, &single_block_bytes, err)) {
       return false;
     }
-  } else if (suffix == "keyword_out") {
-    single_block_bytes = sizeof(CompanyOperatorKeywordOutput);
-    uint32_t cap_match = spec.GetCapacity("match_result_json", 2047);
-    size_t str_bytes = 0;
-    if (!CheckedAdd(static_cast<size_t>(cap_match), 1, &str_bytes) ||
-        !CheckedAdd(str_bytes, sizeof(CompanyString), &str_bytes) ||
-        !CheckedAdd(single_block_bytes, str_bytes, &single_block_bytes)) {
-      if (err) *err = "keyword_out capacity calculation overflowed";
-      return false;
+  } catch (const std::exception& e) {
+    if (err) {
+      *err = "Exception computing output block payload for suffix '" +
+             binding.canonical_suffix + "': " + e.what();
     }
-  } else if (suffix == "entity_out") {
-    single_block_bytes = sizeof(CompanyOperatorEntityOutput);
-    uint32_t cap_entities = spec.GetCapacity("entities_json", 2047);
-    size_t str_bytes = 0;
-    if (!CheckedAdd(static_cast<size_t>(cap_entities), 1, &str_bytes) ||
-        !CheckedAdd(str_bytes, sizeof(CompanyString), &str_bytes) ||
-        !CheckedAdd(single_block_bytes, str_bytes, &single_block_bytes)) {
-      if (err) *err = "entity_out capacity calculation overflowed";
-      return false;
+    return false;
+  } catch (...) {
+    if (err) {
+      *err = "Unknown exception computing output block payload for suffix '" +
+             binding.canonical_suffix + "'";
     }
-  } else if (suffix == "audit_out") {
-    single_block_bytes = sizeof(CompanyOperatorAuditOutput);
-    uint32_t cap_risk = spec.GetCapacity("risk_level", 31);
-    uint32_t cap_clause = spec.GetCapacity("matched_policy_clause", 255);
-    uint32_t cap_verdict = spec.GetCapacity("audit_verdict_json", 1023);
-    size_t str_bytes = 0;
-    if (!CheckedAdd(static_cast<size_t>(cap_risk), 1, &str_bytes) ||
-        !CheckedAdd(str_bytes, static_cast<size_t>(cap_clause) + 1,
-                    &str_bytes) ||
-        !CheckedAdd(str_bytes, static_cast<size_t>(cap_verdict) + 1,
-                    &str_bytes) ||
-        !CheckedAdd(str_bytes, sizeof(CompanyString) * 3, &str_bytes) ||
-        !CheckedAdd(single_block_bytes, str_bytes, &single_block_bytes)) {
-      if (err) *err = "audit_out capacity calculation overflowed";
-      return false;
+    return false;
+  }
+  if (single_block_bytes == 0) {
+    if (err) {
+      *err = "Output block payload is zero for suffix '" +
+             binding.canonical_suffix + "'";
     }
-  } else if (suffix == "od_out") {
-    single_block_bytes = sizeof(CompanyOdOutput);
-    uint32_t cap_res = spec.GetCapacity("result_json", 2047);
-    size_t str_bytes = 0;
-    if (!CheckedAdd(static_cast<size_t>(cap_res), 1, &str_bytes) ||
-        !CheckedAdd(str_bytes, sizeof(CompanyString), &str_bytes) ||
-        !CheckedAdd(single_block_bytes, str_bytes, &single_block_bytes)) {
-      if (err) *err = "od_out capacity calculation overflowed";
-      return false;
-    }
-    if ((spec.meta_num == 0) != (spec.metadata_type_id == 0)) {
-      if (err) *err = "Metadata count and type must both be zero or non-zero";
-      return false;
-    }
-    if (spec.meta_num > 0) {
-      const auto* mdesc = FindCompanyAnyType(spec.metadata_type_id);
-      if (!mdesc || mdesc->element_size == 0) {
-        if (err) *err = "Metadata type is not registered";
-        return false;
-      }
-      size_t meta_payload = 0;
-      if (!CheckedMultiply(spec.meta_num, mdesc->element_size, &meta_payload)) {
-        if (err) *err = "Metadata payload calculation overflowed";
-        return false;
-      }
-      size_t meta_total = 0;
-      if (!CheckedAdd(meta_payload, sizeof(CompanyAny), &meta_total) ||
-          !CheckedAdd(single_block_bytes, meta_total, &single_block_bytes)) {
-        if (err) *err = "Metadata total calculation overflowed";
-        return false;
-      }
-    }
-  } else if (suffix == "audio_out") {
-    single_block_bytes = sizeof(CompanyOperatorAudioOutput);
-    uint32_t cap_trans = spec.GetCapacity("transcribed_text", 511);
-    uint32_t cap_intent = spec.GetCapacity("intent_slot_json", 1023);
-    size_t str_bytes = 0;
-    if (!CheckedAdd(static_cast<size_t>(cap_trans), 1, &str_bytes) ||
-        !CheckedAdd(str_bytes, static_cast<size_t>(cap_intent) + 1,
-                    &str_bytes) ||
-        !CheckedAdd(str_bytes, sizeof(CompanyString) * 2, &str_bytes) ||
-        !CheckedAdd(single_block_bytes, str_bytes, &single_block_bytes)) {
-      if (err) *err = "audio_out capacity calculation overflowed";
-      return false;
-    }
-  } else if (suffix == "rerank_out") {
-    single_block_bytes = sizeof(CompanyOperatorRerankOutput);
-  } else {
-    if (err) *err = "Unknown output suffix '" + suffix + "' for pool budgeting";
     return false;
   }
 
@@ -370,6 +434,22 @@ bool ComputeOutputPoolPayloadBytes(const std::string& suffix,
 
   *out_bytes = total_pool_bytes;
   return true;
+}
+
+bool ComputeOutputPoolPayloadBytes(const std::string& suffix,
+                                   const ResolvedOutputPoolSpec& spec,
+                                   uint32_t depth, size_t* out_bytes,
+                                   std::string* err) noexcept {
+  const auto* binding =
+      OperatorValueTypeRegistry::Instance().GetBindingBySuffix(suffix);
+  if (!binding || binding->canonical_suffix != suffix) {
+    if (out_bytes) *out_bytes = 0;
+    if (err) {
+      *err = "Unknown or non-canonical output suffix '" + suffix + "'";
+    }
+    return false;
+  }
+  return ComputeOutputPoolPayloadBytes(*binding, spec, depth, out_bytes, err);
 }
 
 void OperatorValueTypeRegistry::SetAllocationFailureCountdown(
@@ -580,19 +660,29 @@ int OperatorValueTypeRegistry::GlobalInit() {
       has_conflict_ = true;
       return -6;
     }
-    bool is_output =
-        (suffix.size() >= 4 && suffix.rfind("_out") == suffix.size() - 4);
-    if (is_output) {
+    if (binding.direction == IoDirection::kOutput) {
       if (!binding.allocate_external || !binding.reset_external ||
-          !binding.destroy_external) {
+          !binding.destroy_external ||
+          !binding.output_layout.compute_block_payload_bytes) {
         has_conflict_ = true;
         return -6;
       }
-    } else {
+      for (const auto& [field, config] :
+           binding.output_layout.string_capacity_fields) {
+        if (field.empty() || config.default_capacity == 0 ||
+            config.max_capacity < config.default_capacity) {
+          has_conflict_ = true;
+          return -6;
+        }
+      }
+    } else if (binding.direction == IoDirection::kInput) {
       if (!binding.validate_external) {
         has_conflict_ = true;
         return -6;
       }
+    } else {
+      has_conflict_ = true;
+      return -6;
     }
     for (const auto& a : binding.aliases) {
       auto it = alias_to_canonical_.find(a);
@@ -801,6 +891,7 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
   // 5. od_out -> CompanyOdOutput (RFC 6.3: aliases: {"ocr_out"})
   RegisterBinding(MakeOutputBinding(
       "od_out", {"ocr_out"}, "CompanyOdOutput",
+      {{"result_json", {2047, 65536}}}, 65536, sizeof(CompanyOdOutput),
       [](const ResolvedOutputPoolSpec& spec, OwnedExternalBlock* out_block,
          std::string* /*err*/) -> int {
         auto* raw = AllocateRootOutput<CompanyOdOutput>(5, out_block);
@@ -810,7 +901,7 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
         raw->detected_box_count = 0;
         raw->status_code = 0;
         raw->result_json = AllocateNestedCompanyString(
-            spec.GetCapacity("result_json", 2047), out_block);
+            spec.GetCapacity("result_json"), out_block);
         raw->metadata = AllocateNestedCompanyAny(
             spec.meta_num, spec.metadata_type_id, out_block);
         out_block->raw_struct = raw;
@@ -849,6 +940,8 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
   // {"match_out"})
   RegisterBinding(MakeOutputBinding(
       "keyword_out", {"match_out"}, "CompanyOperatorKeywordOutput",
+      {{"match_result_json", {2047, 65536}}}, 0,
+      sizeof(CompanyOperatorKeywordOutput),
       [](const ResolvedOutputPoolSpec& spec, OwnedExternalBlock* out_block,
          std::string* /*err*/) -> int {
         auto* raw =
@@ -858,7 +951,7 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
         raw->request_id = 0;
         raw->is_hit = 0;
         raw->match_result_json = AllocateNestedCompanyString(
-            spec.GetCapacity("match_result_json", 2047), out_block);
+            spec.GetCapacity("match_result_json"), out_block);
         out_block->raw_struct = raw;
         return 0;
       },
@@ -892,6 +985,8 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
   // {"extracted_out"})
   RegisterBinding(MakeOutputBinding(
       "entity_out", {"extracted_out"}, "CompanyOperatorEntityOutput",
+      {{"entities_json", {2047, 65536}}}, 0,
+      sizeof(CompanyOperatorEntityOutput),
       [](const ResolvedOutputPoolSpec& spec, OwnedExternalBlock* out_block,
          std::string* /*err*/) -> int {
         auto* raw =
@@ -901,7 +996,7 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
         raw->request_id = 0;
         raw->status_code = 0;
         raw->entities_json = AllocateNestedCompanyString(
-            spec.GetCapacity("entities_json", 2047), out_block);
+            spec.GetCapacity("entities_json"), out_block);
         out_block->raw_struct = raw;
         return 0;
       },
@@ -941,6 +1036,8 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
   // 11. doc_out -> CompanyOperatorDocOutput (RFC 6.3: aliases: {"qa_out"})
   RegisterBinding(MakeOutputBinding(
       "doc_out", {"qa_out"}, "CompanyOperatorDocOutput",
+      {{"intent_name", {63, 255}}, {"answer_text", {1023, 65536}}}, 0,
+      sizeof(CompanyOperatorDocOutput),
       [](const ResolvedOutputPoolSpec& spec, OwnedExternalBlock* out_block,
          std::string* /*err*/) -> int {
         auto* raw = AllocateRootOutput<CompanyOperatorDocOutput>(5, out_block);
@@ -951,9 +1048,9 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
         raw->chunk_count = 0;
         raw->status_code = 0;
         raw->intent_name = AllocateNestedCompanyString(
-            spec.GetCapacity("intent_name", 63), out_block);
+            spec.GetCapacity("intent_name"), out_block);
         raw->answer_text = AllocateNestedCompanyString(
-            spec.GetCapacity("answer_text", 1023), out_block);
+            spec.GetCapacity("answer_text"), out_block);
         out_block->raw_struct = raw;
         return 0;
       },
@@ -998,6 +1095,10 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
   // {"verdict_out"})
   RegisterBinding(MakeOutputBinding(
       "audit_out", {"verdict_out"}, "CompanyOperatorAuditOutput",
+      {{"risk_level", {31, 255}},
+       {"matched_policy_clause", {255, 4096}},
+       {"audit_verdict_json", {1023, 65536}}},
+      0, sizeof(CompanyOperatorAuditOutput),
       [](const ResolvedOutputPoolSpec& spec, OwnedExternalBlock* out_block,
          std::string* /*err*/) -> int {
         auto* raw =
@@ -1008,11 +1109,11 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
         raw->risk_score = 0.0f;
         raw->status_code = 0;
         raw->risk_level = AllocateNestedCompanyString(
-            spec.GetCapacity("risk_level", 31), out_block);
+            spec.GetCapacity("risk_level"), out_block);
         raw->matched_policy_clause = AllocateNestedCompanyString(
-            spec.GetCapacity("matched_policy_clause", 255), out_block);
+            spec.GetCapacity("matched_policy_clause"), out_block);
         raw->audit_verdict_json = AllocateNestedCompanyString(
-            spec.GetCapacity("audit_verdict_json", 1023), out_block);
+            spec.GetCapacity("audit_verdict_json"), out_block);
         out_block->raw_struct = raw;
         return 0;
       },
@@ -1066,6 +1167,8 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
   // 15. audio_out -> CompanyOperatorAudioOutput (RFC 6.3: aliases: {"asr_out"})
   RegisterBinding(MakeOutputBinding(
       "audio_out", {"asr_out"}, "CompanyOperatorAudioOutput",
+      {{"transcribed_text", {511, 16384}}, {"intent_slot_json", {1023, 65536}}},
+      0, sizeof(CompanyOperatorAudioOutput),
       [](const ResolvedOutputPoolSpec& spec, OwnedExternalBlock* out_block,
          std::string* /*err*/) -> int {
         auto* raw =
@@ -1075,9 +1178,9 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
         raw->request_id = 0;
         raw->status_code = 0;
         raw->transcribed_text = AllocateNestedCompanyString(
-            spec.GetCapacity("transcribed_text", 511), out_block);
+            spec.GetCapacity("transcribed_text"), out_block);
         raw->intent_slot_json = AllocateNestedCompanyString(
-            spec.GetCapacity("intent_slot_json", 1023), out_block);
+            spec.GetCapacity("intent_slot_json"), out_block);
         out_block->raw_struct = raw;
         return 0;
       },
@@ -1133,7 +1236,8 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
   // 17. rerank_out -> CompanyOperatorRerankOutput (RFC 6.3: aliases:
   // {"scores_out"})
   RegisterBinding(MakeOutputBinding(
-      "rerank_out", {"scores_out"}, "CompanyOperatorRerankOutput",
+      "rerank_out", {"scores_out"}, "CompanyOperatorRerankOutput", {}, 0,
+      sizeof(CompanyOperatorRerankOutput),
       [](const ResolvedOutputPoolSpec& /*spec*/, OwnedExternalBlock* out_block,
          std::string* /*err*/) -> int {
         auto* raw =

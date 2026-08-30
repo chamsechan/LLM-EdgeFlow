@@ -1,6 +1,7 @@
 #include "adapter/operator/company_conf_resolver.h"
 
 #include <fstream>
+#include <limits>
 #include <sstream>
 #include <unordered_map>
 #include <unordered_set>
@@ -10,47 +11,6 @@
 namespace alg_framework {
 
 namespace {
-
-struct OutputFieldCapacityConfig {
-  uint32_t default_capacity;
-  uint32_t max_capacity;
-};
-
-const std::unordered_map<
-    std::string, std::unordered_map<std::string, OutputFieldCapacityConfig>>&
-GetOutputCapacityConfigs() {
-  static const std::unordered_map<
-      std::string, std::unordered_map<std::string, OutputFieldCapacityConfig>>
-      kConfigs = {
-          {"od_out", {{"result_json", {2047, 65536}}}},
-          {"keyword_out", {{"match_result_json", {2047, 65536}}}},
-          {"entity_out", {{"entities_json", {2047, 65536}}}},
-          {"doc_out",
-           {{"intent_name", {63, 255}}, {"answer_text", {1023, 65536}}}},
-          {"audit_out",
-           {{"risk_level", {31, 255}},
-            {"matched_policy_clause", {255, 4096}},
-            {"audit_verdict_json", {1023, 65536}}}},
-          {"audio_out",
-           {{"transcribed_text", {511, 16384}},
-            {"intent_slot_json", {1023, 65536}}}},
-          {"rerank_out", {}},
-      };
-  return kConfigs;
-}
-
-void PopulateDefaultCapacities(const std::string& type_suffix,
-                               ResolvedOutputPoolSpec* spec) {
-  const auto& all_configs = GetOutputCapacityConfigs();
-  auto it = all_configs.find(type_suffix);
-  if (it != all_configs.end()) {
-    for (const auto& [field, config] : it->second) {
-      if (spec->capacities.find(field) == spec->capacities.end()) {
-        spec->capacities[field] = config.default_capacity;
-      }
-    }
-  }
-}
 
 int ResolveContainedPath(const std::filesystem::path& canonical_root,
                          const std::string& relative_value,
@@ -425,8 +385,19 @@ int CompanyConfResolver::Resolve(
       return -2;
     }
 
-    ResolvedOutputPoolSpec pool_spec;
-    pool_spec.type = mem_type;
+    const auto* pool_binding =
+        OperatorValueTypeRegistry::Instance().GetBindingBySuffix(mem_type);
+    if (!pool_binding || pool_binding->canonical_suffix != mem_type ||
+        pool_binding->direction != IoDirection::kOutput) {
+      if (error_msg) {
+        *error_msg = "No canonical output value binding for mem_que.type '" +
+                     mem_type + "'";
+      }
+      return -2;
+    }
+
+    ResolvedOutputPoolSpec requested_pool_spec;
+    requested_pool_spec.type = mem_type;
 
     if (mem_que.contains("meta_num")) {
       if (!mem_que["meta_num"].is_number_unsigned()) {
@@ -435,11 +406,11 @@ int CompanyConfResolver::Resolve(
         return -2;
       }
       uint64_t mnum = mem_que["meta_num"].get<uint64_t>();
-      if (mnum > 65536) {
-        if (error_msg) *error_msg = "mem_que.meta_num exceeds max limit 65536";
+      if (mnum > std::numeric_limits<uint32_t>::max()) {
+        if (error_msg) *error_msg = "mem_que.meta_num exceeds uint32 range";
         return -2;
       }
-      pool_spec.meta_num = static_cast<uint32_t>(mnum);
+      requested_pool_spec.meta_num = static_cast<uint32_t>(mnum);
     }
 
     if (mem_que.contains("metadata_type_id")) {
@@ -447,30 +418,9 @@ int CompanyConfResolver::Resolve(
         if (error_msg) *error_msg = "mem_que.metadata_type_id must be integer";
         return -2;
       }
-      pool_spec.metadata_type_id = mem_que["metadata_type_id"].get<int32_t>();
+      requested_pool_spec.metadata_type_id =
+          mem_que["metadata_type_id"].get<int32_t>();
     }
-
-    if (pool_spec.meta_num == 0) {
-      if (pool_spec.metadata_type_id != 0) {
-        if (error_msg) {
-          *error_msg = "metadata_type_id must be 0 when meta_num == 0";
-        }
-        return -2;
-      }
-    } else {
-      if (pool_spec.metadata_type_id == 0 ||
-          !FindCompanyAnyType(pool_spec.metadata_type_id)) {
-        if (error_msg) {
-          *error_msg = "mem_que.metadata_type_id " +
-                       std::to_string(pool_spec.metadata_type_id) +
-                       " is invalid or not whitelisted";
-        }
-        return -2;
-      }
-    }
-
-    const auto& all_configs = GetOutputCapacityConfigs();
-    auto cfg_it = all_configs.find(mem_type);
 
     if (mem_que.contains("capacities")) {
       if (!mem_que["capacities"].is_object()) {
@@ -478,14 +428,6 @@ int CompanyConfResolver::Resolve(
         return -2;
       }
       for (const auto& [cap_field, cap_val] : mem_que["capacities"].items()) {
-        if (cfg_it == all_configs.end() ||
-            cfg_it->second.find(cap_field) == cfg_it->second.end()) {
-          if (error_msg) {
-            *error_msg = "Unknown capacity field '" + cap_field +
-                         "' for output type '" + mem_type + "'";
-          }
-          return -2;
-        }
         if (!cap_val.is_number_unsigned()) {
           if (error_msg) {
             *error_msg = "Capacity for field '" + cap_field +
@@ -494,33 +436,44 @@ int CompanyConfResolver::Resolve(
           return -2;
         }
         uint64_t uval = cap_val.get<uint64_t>();
-        if (uval == 0) {
+        if (uval == 0 || uval > std::numeric_limits<uint32_t>::max()) {
           if (error_msg) {
-            *error_msg = "Capacity for field '" + cap_field + "' cannot be 0";
+            *error_msg = "Capacity for field '" + cap_field +
+                         "' must fit a positive uint32";
           }
           return -2;
         }
-        const auto& field_cfg = cfg_it->second.at(cap_field);
-        if (uval > field_cfg.max_capacity) {
-          if (error_msg) {
-            *error_msg = "Capacity for field '" + cap_field + "' (" +
-                         std::to_string(uval) + ") exceeds max hard limit (" +
-                         std::to_string(field_cfg.max_capacity) + ")";
-          }
-          return -2;
-        }
-        pool_spec.capacities[cap_field] = static_cast<uint32_t>(uval);
+        requested_pool_spec.capacities[cap_field] = static_cast<uint32_t>(uval);
       }
     }
 
-    PopulateDefaultCapacities(mem_type, &pool_spec);
+    ResolvedOutputPoolSpec pool_spec;
+    std::string spec_error;
+    if (!ResolveOutputPoolSpec(*pool_binding, requested_pool_spec, &pool_spec,
+                               &spec_error)) {
+      if (error_msg) {
+        *error_msg = "Invalid output pool configuration: " + spec_error;
+      }
+      return -2;
+    }
 
     // 计算实际深度下的单句柄所有输出池总预算校验 (Checked Add/Multiply)
     size_t total_handle_pool_bytes = 0;
     for (const auto& out_slot : bridge_desc->output_slots) {
+      const auto* output_binding =
+          OperatorValueTypeRegistry::Instance().GetBindingBySuffix(
+              out_slot.type_suffix);
+      if (!output_binding ||
+          output_binding->direction != IoDirection::kOutput) {
+        if (error_msg) {
+          *error_msg = "Missing output value binding for suffix '" +
+                       out_slot.type_suffix + "'";
+        }
+        return -2;
+      }
       size_t slot_pool_bytes = 0;
       std::string budget_err;
-      if (!ComputeOutputPoolPayloadBytes(out_slot.type_suffix, pool_spec,
+      if (!ComputeOutputPoolPayloadBytes(*output_binding, pool_spec,
                                          effective_depth, &slot_pool_bytes,
                                          &budget_err)) {
         if (error_msg) {

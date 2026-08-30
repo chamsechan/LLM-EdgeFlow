@@ -15,8 +15,6 @@
 
 namespace alg_framework {
 
-enum class IoDirection { kInput, kOutput };
-
 /**
  * @brief Process 执行期局部影子 DTO 存储器
  * (保证执行期间指针生命周期与地址绝对稳定)

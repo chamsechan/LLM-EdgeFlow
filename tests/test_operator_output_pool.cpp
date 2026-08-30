@@ -402,10 +402,12 @@ TEST_F(OperatorOutputPoolTest, StrictSpecTypeAndMemoryBudgetBoundary) {
   {
     ResolvedOutputPoolSpec spec;
     spec.type = "doc_out";
-    spec.capacities["answer_text"] = 100 * 1024 * 1024;  // 100 MiB per block
+    spec.capacities["intent_name"] = 255;
+    spec.capacities["answer_text"] = 65536;
     std::shared_ptr<OutputPoolState> pool;
     std::string err;
-    int ret = OutputPoolState::Create("doc_out", 5, spec, binding, &pool, &err);
+    int ret = OutputPoolState::Create("doc_out", kMaxOutputPoolDepth, spec,
+                                      binding, &pool, &err);
     EXPECT_EQ(ret, -2);
     EXPECT_EQ(pool, nullptr);
     EXPECT_NE(err.find("64 MiB"), std::string::npos);

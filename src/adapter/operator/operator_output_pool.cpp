@@ -77,8 +77,9 @@ int OutputPoolState::Create(const std::string& suffix, uint32_t depth,
   }
   *out_pool = nullptr;
 
-  if (!binding || !binding->allocate_external || !binding->reset_external ||
-      !binding->destroy_external) {
+  if (!binding || binding->direction != IoDirection::kOutput ||
+      binding->canonical_suffix != suffix || !binding->allocate_external ||
+      !binding->reset_external || !binding->destroy_external) {
     if (err) *err = "Invalid or incomplete binding for suffix: " + suffix;
     return -2;
   }
@@ -92,9 +93,14 @@ int OutputPoolState::Create(const std::string& suffix, uint32_t depth,
     return -2;
   }
 
+  ResolvedOutputPoolSpec resolved_spec;
+  if (!ResolveOutputPoolSpec(*binding, spec, &resolved_spec, err)) {
+    return -2;
+  }
+
   size_t estimated_bytes = 0;
-  if (!ComputeOutputPoolPayloadBytes(suffix, spec, depth, &estimated_bytes,
-                                     err)) {
+  if (!ComputeOutputPoolPayloadBytes(*binding, resolved_spec, depth,
+                                     &estimated_bytes, err)) {
     return -2;
   }
 
@@ -109,7 +115,7 @@ int OutputPoolState::Create(const std::string& suffix, uint32_t depth,
     if (g_failure_stage.load() == FailureStage::kSpecCopy) {
       throw std::bad_alloc();
     }
-    pool->spec_ = spec;
+    pool->spec_ = resolved_spec;
     pool->type_binding_ = binding;
 
     if (g_failure_stage.load() == FailureStage::kAllBlocksReserve) {
@@ -137,7 +143,7 @@ int OutputPoolState::Create(const std::string& suffix, uint32_t depth,
       }
 
       OwnedExternalBlock block;
-      int ret = binding->allocate_external(spec, &block, err);
+      int ret = binding->allocate_external(resolved_spec, &block, err);
       if (ret != 0 || !block.raw_struct) {
         pool->DestroyBlocks();
         if (out_pool) *out_pool = nullptr;

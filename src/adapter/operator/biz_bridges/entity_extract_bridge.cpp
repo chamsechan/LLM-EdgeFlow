@@ -57,7 +57,7 @@ void RegisterEntityExtractBridge(OperatorBizBridgeRegistry& reg) {
 
     return OperatorBizBridgeRegistry::CopyToPooledString(
         in_dto->entities_json, out->entities_json,
-        spec.GetCapacity("entities_json", 2047), "entities_json", err);
+        spec.GetCapacity("entities_json"), "entities_json", err);
   };
 
   desc.create_shadow_output_dto = [](ProcessLocalShadowStorage& s) -> void* {
