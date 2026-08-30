@@ -8,14 +8,23 @@
 
 namespace alg_framework {
 
-bool ResolveTokenizerResourcePath(const std::string& model_resource_root,
-                                  const std::string& tokenizer_file,
-                                  std::filesystem::path* resolved_path,
-                                  std::string* diagnostic);
+class BertWordPieceTokenizer;
+
+std::shared_ptr<ITensorGraphSession> RequireTensorGraphSession(
+    const std::shared_ptr<IBackendSession>& backend_session,
+    std::string* diagnostic);
+
+bool LoadBertTokenizer(const std::string& model_resource_root,
+                       const std::string& tokenizer_file, bool do_lower_case,
+                       BertWordPieceTokenizer* tokenizer,
+                       std::string* diagnostic);
 
 bool ValidateModelBatchLimit(const BatchPolicy& session_policy,
                              size_t model_max_batch_size,
                              std::string* diagnostic);
+
+BatchPolicy ConstrainModelBatchPolicy(const ITensorGraphSession* session,
+                                      size_t model_max_batch_size) noexcept;
 
 bool HasTensorInput(const std::vector<TensorSpec>& inputs,
                     const std::string& name) noexcept;

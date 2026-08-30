@@ -2,7 +2,6 @@
 
 #include <cmath>
 #include <cstring>
-#include <filesystem>
 #include <string>
 #include <utility>
 #include <vector>
@@ -105,20 +104,9 @@ BgeEmbeddingModel::BgeEmbeddingModel(
 
 std::shared_ptr<IModel> BgeEmbeddingModel::Create(const ModelCreateContext& ctx,
                                                   std::string* diagnostic) {
-  if (!ctx.backend_session) {
-    if (diagnostic) *diagnostic = "Backend session is null";
-    return nullptr;
-  }
-
   auto tensor_session =
-      std::dynamic_pointer_cast<ITensorGraphSession>(ctx.backend_session);
-  if (!tensor_session) {
-    if (diagnostic) {
-      *diagnostic =
-          "Backend session does not implement ITensorGraphSession protocol";
-    }
-    return nullptr;
-  }
+      RequireTensorGraphSession(ctx.backend_session, diagnostic);
+  if (!tensor_session) return nullptr;
 
   if (!ctx.model_config.contains("embedding_dim") ||
       !ctx.model_config["embedding_dim"].is_number_integer()) {
@@ -130,10 +118,8 @@ std::shared_ptr<IModel> BgeEmbeddingModel::Create(const ModelCreateContext& ctx,
   size_t embedding_dim = ctx.model_config["embedding_dim"].get<size_t>();
   size_t max_batch_size = ctx.model_config.value("max_batch_size", 4);
 
-  // 严格 Batch 契约：若 Session 为固定 Batch 且 Model 配置上限小于 Session 固定
-  // Batch，明确拒绝
-  auto session_policy = tensor_session->GetBatchPolicy();
-  if (!ValidateModelBatchLimit(session_policy, max_batch_size, diagnostic)) {
+  if (!ValidateModelBatchLimit(tensor_session->GetBatchPolicy(), max_batch_size,
+                               diagnostic)) {
     return nullptr;
   }
 
@@ -146,15 +132,9 @@ std::shared_ptr<IModel> BgeEmbeddingModel::Create(const ModelCreateContext& ctx,
   std::string output_name =
       ctx.model_config.value("output_name", "last_hidden_state");
 
-  std::filesystem::path resolved_vocab_path;
-  if (!ResolveTokenizerResourcePath(ctx.model_resource_root, tokenizer_file,
-                                    &resolved_vocab_path, diagnostic)) {
-    return nullptr;
-  }
-
   BertWordPieceTokenizer tokenizer;
-  if (!tokenizer.Load(resolved_vocab_path.string(), do_lower_case,
-                      diagnostic)) {
+  if (!LoadBertTokenizer(ctx.model_resource_root, tokenizer_file, do_lower_case,
+                         &tokenizer, diagnostic)) {
     return nullptr;
   }
 
@@ -179,11 +159,8 @@ InferenceConcurrency BgeEmbeddingModel::Concurrency() const noexcept {
 }
 
 size_t BgeEmbeddingModel::GetMaxBatchSize() const noexcept {
-  if (session_) {
-    auto policy = session_->GetBatchPolicy();
-    return std::min(max_batch_size_, policy.max_batch_size);
-  }
-  return max_batch_size_;
+  return ConstrainModelBatchPolicy(session_.get(), max_batch_size_)
+      .max_batch_size;
 }
 
 int BgeEmbeddingModel::Embed(const TextBatch& inputs,
@@ -201,11 +178,8 @@ int BgeEmbeddingModel::Embed(const TextBatch& inputs,
   }
 
   bool should_normalize = options.normalize && default_normalize_;
-  BatchPolicy policy = session_->GetBatchPolicy();
-
-  if (policy.fixed_batch_size == 0) {
-    policy.max_batch_size = std::min(max_batch_size_, policy.max_batch_size);
-  }
+  BatchPolicy policy =
+      ConstrainModelBatchPolicy(session_.get(), max_batch_size_);
 
   return FixedBatchExecutor::Execute<std::string, std::vector<float>>(
       inputs, policy,
