@@ -65,14 +65,14 @@ class Pipeline {
 
   SessionContext& GetSessionContext() { return session_ctx_; }
   const SessionContext& GetSessionContext() const { return session_ctx_; }
-  const std::string& GetBizName() const { return biz_name_; }
-  const std::string& GetBusinessName() const { return biz_name_; }
+  const std::string& GetBizName() const { return plan_.config.biz_name; }
+  const std::string& GetBusinessName() const { return GetBizName(); }
   ExecutionMode GetExecutionMode() const { return execution_mode_; }
   const std::vector<std::string>& GetTopologicalOrder() const {
-    return topological_order_;
+    return plan_.topological_order;
   }
   const std::vector<std::vector<std::string>>& GetTopologicalLayers() const {
-    return topological_layers_ids_;
+    return plan_.topological_layers;
   }
   const ValidatedPipelinePlan& GetPlan() const { return plan_; }
 
@@ -84,8 +84,6 @@ class Pipeline {
   std::function<void()> test_internal_hook_;
 
   State state_ = State::kEmpty;
-  std::string biz_name_;
-  std::string business_name_;
   ExecutionMode execution_mode_ = ExecutionMode::SEQUENTIAL;
   size_t max_parallel_workers_ = 4;
   SessionContext session_ctx_;
@@ -93,8 +91,6 @@ class Pipeline {
 
   std::vector<std::unique_ptr<INode>> nodes_;
   std::vector<std::vector<INode*>> node_layers_;
-  std::vector<std::string> topological_order_;
-  std::vector<std::vector<std::string>> topological_layers_ids_;
 
   std::unique_ptr<ThreadPool> thread_pool_;
 };

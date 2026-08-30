@@ -20,7 +20,12 @@ namespace alg_framework {
 class PlanTestNode : public INode {
  public:
   inline static constexpr char kNodeType[] = "PlanTestNode";
-  bool Init(const nlohmann::json&, SessionContext*) override { return true; }
+  inline static nlohmann::json observed_config = nlohmann::json::object();
+
+  bool Init(const nlohmann::json& config, SessionContext*) override {
+    observed_config = config;
+    return true;
+  }
   int Process(AlgContext*) override { return 0; }
   const std::string& Name() const override {
     static const std::string name = kNodeType;
@@ -33,6 +38,9 @@ NodeDefinition MakePlanTestNodeDefinition() {
   def.node_type = PlanTestNode::kNodeType;
   def.category = "test";
   def.description = "Plan test node";
+  def.config_fields = {{"retry_limit", ConfigValueKind::kInteger,
+                        /*required=*/false, /*default_value=*/3,
+                        /*minimum=*/0.0, /*maximum=*/10.0}};
   def.parallel_safe = true;
   return def;
 }
@@ -289,6 +297,35 @@ TEST(ValidatedPipelinePlanTest, StrictVsCompatiblePolicy) {
   EXPECT_TRUE(compat_plan.report.ok);
   EXPECT_EQ(compat_plan.topological_order.size(), 1u);
   EXPECT_EQ(compat_plan.topological_layers.size(), 1u);
+}
+
+TEST(ValidatedPipelinePlanTest, NormalizedNodeConfigIsRuntimeSingleSource) {
+  nlohmann::json pipeline_json = {
+      {"business_name", "unregistered_test_biz"},
+      {"models", nlohmann::json::array()},
+      {"pipeline",
+       nlohmann::json::array({{{"id", "node_0"},
+                               {"node_type", PlanTestNode::kNodeType},
+                               {"depends_on", nlohmann::json::array()}}})}};
+
+  auto plan = PipelineValidator::ValidateAndPlan(
+      pipeline_json, ValidationPolicy::kPrivateExtensionCompatible);
+  ASSERT_TRUE(plan.report.ok);
+  ASSERT_TRUE(plan.node_plans.at("node_0").node.config.empty());
+  EXPECT_EQ(plan.node_plans.at("node_0").normalized_config.at("retry_limit"),
+            3);
+
+  PlanTestNode::observed_config = nlohmann::json::object();
+  Pipeline pipeline;
+  PipelineDiagnostic diagnostic;
+  ASSERT_TRUE(
+      pipeline.BuildFromJson(pipeline_json, &diagnostic,
+                             ValidationPolicy::kPrivateExtensionCompatible))
+      << diagnostic.message;
+  EXPECT_EQ(PlanTestNode::observed_config.at("retry_limit"), 3);
+  EXPECT_EQ(pipeline.GetBizName(), "unregistered_test_biz");
+  EXPECT_EQ(pipeline.GetTopologicalOrder(),
+            std::vector<std::string>({"node_0"}));
 }
 
 TEST(ValidatedPipelinePlanTest, MultiLayerWavefrontTopology) {

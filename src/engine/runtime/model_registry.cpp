@@ -5,21 +5,9 @@
 #include <utility>
 
 #include "contracts/config_schema_validation.h"
+#include "engine/runtime/registry_support.h"
 
 namespace alg_framework {
-
-namespace {
-
-void SetDiagnostic(std::string* diagnostic,
-                   const std::string& message) noexcept {
-  if (!diagnostic) return;
-  try {
-    *diagnostic = message;
-  } catch (...) {
-  }
-}
-
-}  // namespace
 
 ModelRegistry& ModelRegistry::Instance() {
   static ModelRegistry instance;
@@ -27,15 +15,8 @@ ModelRegistry& ModelRegistry::Instance() {
 }
 
 void ModelRegistry::RecordConflict(std::string error) noexcept {
-  try {
-    std::lock_guard<std::mutex> lock(mutex_);
-    has_conflict_ = true;
-    try {
-      conflict_errors_.push_back(std::move(error));
-    } catch (...) {
-    }
-  } catch (...) {
-  }
+  registry_support::RecordConflict(mutex_, has_conflict_, conflict_errors_,
+                                   std::move(error));
 }
 
 bool ModelRegistry::Register(const ModelDefinition& definition,
@@ -106,14 +87,8 @@ bool ModelRegistry::Register(const ModelDefinition& definition,
 
 std::optional<ModelDefinition> ModelRegistry::Find(
     const std::string& model_type) const noexcept {
-  try {
-    std::lock_guard<std::mutex> lock(mutex_);
-    auto it = entries_.find(model_type);
-    if (it == entries_.end()) return std::nullopt;
-    return it->second.definition;
-  } catch (...) {
-    return std::nullopt;
-  }
+  return registry_support::FindDefinition<ModelDefinition>(mutex_, entries_,
+                                                           model_type);
 }
 
 std::shared_ptr<IModel> ModelRegistry::Create(
@@ -125,7 +100,8 @@ std::shared_ptr<IModel> ModelRegistry::Create(
       std::lock_guard<std::mutex> lock(mutex_);
       auto it = entries_.find(model_type);
       if (it == entries_.end()) {
-        SetDiagnostic(diagnostic, "Unknown model type: " + model_type);
+        registry_support::SetDiagnostic(diagnostic,
+                                        "Unknown model type: " + model_type);
         return nullptr;
       }
       creator = it->second.creator;
@@ -134,76 +110,56 @@ std::shared_ptr<IModel> ModelRegistry::Create(
     try {
       return creator(context, diagnostic);
     } catch (const std::exception& error) {
-      SetDiagnostic(diagnostic, "Exception creating model " + model_type +
-                                    ": " + error.what());
+      registry_support::SetDiagnostic(
+          diagnostic,
+          "Exception creating model " + model_type + ": " + error.what());
       return nullptr;
     } catch (...) {
-      SetDiagnostic(diagnostic,
-                    "Unknown exception creating model " + model_type);
+      registry_support::SetDiagnostic(
+          diagnostic, "Unknown exception creating model " + model_type);
       return nullptr;
     }
   } catch (const std::exception& error) {
     try {
-      SetDiagnostic(diagnostic, "Exception preparing model " + model_type +
-                                    ": " + error.what());
+      registry_support::SetDiagnostic(
+          diagnostic,
+          "Exception preparing model " + model_type + ": " + error.what());
     } catch (...) {
-      SetDiagnostic(diagnostic, "Exception preparing model");
+      registry_support::SetDiagnostic(diagnostic, "Exception preparing model");
     }
     return nullptr;
   } catch (...) {
-    SetDiagnostic(diagnostic, "Unknown exception preparing model");
+    registry_support::SetDiagnostic(diagnostic,
+                                    "Unknown exception preparing model");
     return nullptr;
   }
 }
 
 bool ModelRegistry::Has(const std::string& model_type) const noexcept {
-  try {
-    std::lock_guard<std::mutex> lock(mutex_);
-    return entries_.find(model_type) != entries_.end();
-  } catch (...) {
-    return false;
-  }
+  return registry_support::HasType(mutex_, entries_, model_type);
 }
 
 std::vector<std::string> ModelRegistry::ListTypes() const {
-  std::lock_guard<std::mutex> lock(mutex_);
-  std::vector<std::string> result;
-  result.reserve(entries_.size());
-  for (const auto& item : entries_) result.push_back(item.first);
-  std::sort(result.begin(), result.end());
-  return result;
+  return registry_support::ListTypes(mutex_, entries_);
 }
 
 std::vector<ModelDefinition> ModelRegistry::ListDefinitions() const {
-  std::lock_guard<std::mutex> lock(mutex_);
-  std::vector<ModelDefinition> result;
-  result.reserve(entries_.size());
-  for (const auto& item : entries_) result.push_back(item.second.definition);
-  std::sort(result.begin(), result.end(), [](const auto& lhs, const auto& rhs) {
-    return lhs.model_type < rhs.model_type;
-  });
-  return result;
+  return registry_support::ListDefinitions<ModelDefinition>(
+      mutex_, entries_, [](const auto& lhs, const auto& rhs) {
+        return lhs.model_type < rhs.model_type;
+      });
 }
 
 bool ModelRegistry::HasConflict() const noexcept {
-  try {
-    std::lock_guard<std::mutex> lock(mutex_);
-    return has_conflict_;
-  } catch (...) {
-    return true;
-  }
+  return registry_support::HasConflict(mutex_, has_conflict_);
 }
 
 std::vector<std::string> ModelRegistry::GetConflictErrors() const {
-  std::lock_guard<std::mutex> lock(mutex_);
-  return conflict_errors_;
+  return registry_support::GetConflictErrors(mutex_, conflict_errors_);
 }
 
 void ModelRegistry::ClearForTesting() {
-  std::lock_guard<std::mutex> lock(mutex_);
-  entries_.clear();
-  has_conflict_ = false;
-  conflict_errors_.clear();
+  registry_support::Clear(mutex_, entries_, has_conflict_, conflict_errors_);
 }
 
 }  // namespace alg_framework

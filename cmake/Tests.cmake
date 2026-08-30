@@ -1,5 +1,13 @@
 # Sharded Google Test runners and label-driven development test matrix.
 
+include(cmake/TestInventory.cmake)
+
+if(NOT LLM_EDGEFLOW_SHARDED_TEST_RUNNERS)
+  include(cmake/IndividualTests.cmake)
+  edgeflow_assert_required_test_inventory()
+  return()
+endif()
+
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
 function(edgeflow_enable_test_pch target_name)
@@ -441,3 +449,5 @@ set_tests_properties(RegistryConflictNodeTest RegistryConflictModelTest
 if(ENABLE_REAL_MODEL_TESTS)
   set_tests_properties(RealModelE2ETest PROPERTIES TIMEOUT 1800)
 endif()
+
+edgeflow_assert_required_test_inventory()

@@ -6,6 +6,10 @@
 
 ## Unreleased
 
+- 将 Node Definition 默认值归一化结果设为 Pipeline 运行时配置的单一事实源。
+- 收敛 Operator 绑定/发布事务、Model/Backend Registry 与 BERT 模型公共机制，公共 ABI 和 Catalog 保持不变。
+- 统一分片与逐测试模式的必备契约清单并补齐模式间遗漏。
+- 设计依据：[RFC-0019](doc/rfcs/0019-high-priority-layer-convergence.md)。
 - 收敛请求黑板为稳定只读快照与单次发布契约，保留现有业务的兼容迁移入口。
 - 同一 C ABI handle 的 Process/Control 改为串行执行，并明确 Destroy 前停流与等待契约。
 - 设计依据：[RFC-0018](doc/rfcs/0018-request-context-and-handle-concurrency-contracts.md)。

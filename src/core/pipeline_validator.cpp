@@ -387,19 +387,32 @@ bool ValidateAndNormalizeConfig(
 
 namespace {
 
-void ValidateConfigFields(const std::vector<ConfigFieldDefinition>& definitions,
-                          const nlohmann::json& config,
-                          const std::string& path_prefix,
-                          const std::string& subject_id,
-                          ValidationReport* report) {
+nlohmann::json ValidateConfigFields(
+    const std::vector<ConfigFieldDefinition>& definitions,
+    const nlohmann::json& config, const std::string& path_prefix,
+    const std::string& subject_id, ValidationReport* report) {
   std::vector<ValidationDiagnostic> diags;
-  nlohmann::json normalized;
-  ValidateAndNormalizeConfig(definitions, config, &normalized, &diags,
-                             path_prefix);
+  nlohmann::json normalized = nlohmann::json::object();
+  if (config.is_object()) {
+    for (const auto& field : definitions) {
+      if (config.contains(field.name)) {
+        normalized[field.name] = config[field.name];
+      } else if (!field.default_value.is_null()) {
+        normalized[field.name] = field.default_value;
+      }
+    }
+  }
+
+  nlohmann::json validated;
+  if (ValidateAndNormalizeConfig(definitions, config, &validated, &diags,
+                                 path_prefix)) {
+    normalized = std::move(validated);
+  }
   for (auto& d : diags) {
     d.node_id = subject_id;
     report->diagnostics.push_back(std::move(d));
   }
+  return normalized;
 }
 
 const std::vector<ParsedNodeConfig>& EffectiveNodes(
@@ -651,6 +664,7 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
   auto nodes = EffectiveNodes(parsed);
   std::unordered_map<std::string, const ParsedNodeConfig*> node_by_id;
   std::unordered_map<std::string, const NodeDefinition*> def_by_id;
+  std::unordered_map<std::string, nlohmann::json> normalized_config_by_node;
   std::unordered_map<std::string, std::string> model_id_by_node;
   for (const auto& node : nodes) {
     node_by_id[node.id] = &node;
@@ -674,28 +688,18 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
             "Node type is not declared for biz: " + parsed.biz_name, node.id);
       }
 
-      ValidateConfigFields(
+      auto normalized_config = ValidateConfigFields(
           definition->config_fields, node.config,
           "/pipeline/" + std::to_string(node.source_index) + "/config", node.id,
           &report);
+      normalized_config_by_node[node.id] = normalized_config;
 
       if (!definition->model_capability.empty()) {
         std::string model_id;
-        if (node.config.contains(definition->model_config_field) &&
-            node.config[definition->model_config_field].is_string()) {
-          model_id =
-              node.config[definition->model_config_field].get<std::string>();
-        } else {
-          auto field = std::find_if(
-              definition->config_fields.begin(),
-              definition->config_fields.end(), [&](const auto& item) {
-                return item.name == definition->model_config_field;
-              });
-          if (field != definition->config_fields.end() &&
-              field->default_value.is_string() &&
-              !field->default_value.get<std::string>().empty()) {
-            model_id = field->default_value.get<std::string>();
-          }
+        if (normalized_config.contains(definition->model_config_field) &&
+            normalized_config[definition->model_config_field].is_string()) {
+          model_id = normalized_config[definition->model_config_field]
+                         .get<std::string>();
         }
         auto capability = model_capabilities.find(model_id);
         if (!model_id.empty()) model_id_by_node[node.id] = model_id;
@@ -757,10 +761,15 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
     if (def_it == def_by_id.end()) continue;
     const auto& definition = *def_it->second;
     const auto& node = *node_by_id[id];
+    const auto normalized_it = normalized_config_by_node.find(id);
+    const nlohmann::json& normalized_config =
+        normalized_it == normalized_config_by_node.end()
+            ? node.config
+            : normalized_it->second;
 
     ValidatedNodePlan node_plan;
     node_plan.node = node;
-    node_plan.normalized_config = node.config;
+    node_plan.normalized_config = normalized_config;
 
     // 校验未声明的输入端口映射
     for (const auto& entry : node.ports.inputs) {
@@ -796,8 +805,8 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
 
     std::unordered_set<std::string> bound_input_ports;
     for (const auto& declared_input : definition.inputs) {
-      const auto input =
-          EffectivePortDefinition(declared_input, definition, node.config);
+      const auto input = EffectivePortDefinition(declared_input, definition,
+                                                 normalized_config);
       std::string actual_key = input.key;
       bool explicitly_bound = false;
       auto port_it = node.ports.inputs.find(input.key);
@@ -935,8 +944,8 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
     }
 
     for (const auto& declared_output : definition.outputs) {
-      const auto output =
-          EffectivePortDefinition(declared_output, definition, node.config);
+      const auto output = EffectivePortDefinition(declared_output, definition,
+                                                  normalized_config);
       std::string actual_key = output.key;
       auto port_it = node.ports.outputs.find(output.key);
       if (port_it != node.ports.outputs.end()) {
