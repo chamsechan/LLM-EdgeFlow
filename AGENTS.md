@@ -69,5 +69,5 @@ from prose. Query `alg_pipeline_tool`; registrations and Definitions are the exe
 - `./scripts/run_all_tests.sh` is the canonical pre-delivery local gate. It already checks shell
   syntax, formatting, Git whitespace, configures/builds the complete default backend set, and
   runs all CTest tests. Do not routinely precede or follow it with duplicate full gates.
-- Update `CHANGELOG.md` only for user-visible or architectural changes. Keep README focused on
+- Update `doc/CHANGELOG.md` only for user-visible or architectural changes. Keep README focused on
   the current product and navigation.

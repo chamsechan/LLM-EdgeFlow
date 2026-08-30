@@ -6,7 +6,6 @@ ROOT_DIR="${LLM_EDGEFLOW_GOVERNANCE_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.
 required_files=(
   "AGENTS.md"
   "CONTRIBUTING.md"
-  "CLAUDE.md"
   ".github/copilot-instructions.md"
   ".agents/skills/pipeline-composer/SKILL.md"
   ".agents/skills/llm-edgeflow-developer-guide/SKILL.md"
@@ -23,7 +22,7 @@ for relative_path in "${required_files[@]}"; do
   fi
 done
 
-for shim in "CLAUDE.md" ".github/copilot-instructions.md"; do
+for shim in ".github/copilot-instructions.md"; do
   if ! grep -q 'AGENTS.md' "${ROOT_DIR}/${shim}" || \
      ! grep -q 'CONTRIBUTING.md' "${ROOT_DIR}/${shim}"; then
     echo "Error: ${shim} must route to AGENTS.md and CONTRIBUTING.md"
@@ -68,7 +67,6 @@ fi
 if grep -rnE '(six-stage|6-stage|六阶段|7 CTest|src/business/|src/biz/|IModelEngine|REGISTER_ENGINE_WITH_DEFINITION)' \
   "${ROOT_DIR}/AGENTS.md" \
   "${ROOT_DIR}/CONTRIBUTING.md" \
-  "${ROOT_DIR}/CLAUDE.md" \
   "${ROOT_DIR}/.github/copilot-instructions.md" \
   "${ROOT_DIR}/.agents/skills" \
   "${ROOT_DIR}/doc/rfcs/README.md"; then

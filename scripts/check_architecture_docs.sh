@@ -21,7 +21,6 @@ ACTIVE_DOCS=(
   "${DOC_ROOT}/assets/architecture_flow.svg"
   "${ROOT_DIR}/README.md"
   "${ROOT_DIR}/CONTRIBUTING.md"
-  "${ROOT_DIR}/CLAUDE.md"
   "${ROOT_DIR}/AGENTS.md"
   "${ROOT_DIR}/.github/copilot-instructions.md"
   "${ROOT_DIR}/.agents/skills"
