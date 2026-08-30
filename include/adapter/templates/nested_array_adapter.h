@@ -75,11 +75,8 @@ class TemplateNestedArrayAdapter : public IBusinessAdapter {
     int valid_ret = AdapterValidationHelper::ValidateBatchInputs(
         inputs, num_inputs, GetDescriptor().max_batch_size, BizName());
     if (valid_ret != 0 || !ctx) {
-      if (out_status) {
-        *out_status = AdapterStatus::InvalidInput(
-            "Batch envelope validation failed", "inputs", -1, BizName());
-      }
-      return COMPANY_ALG_ERR_INVALID_INPUT;
+      return AdapterValidationHelper::ReturnInvalidInput(
+          out_status, "Batch envelope validation failed", "inputs", BizName());
     }
 
     std::vector<TemplateNestedArrayItemDto> items;

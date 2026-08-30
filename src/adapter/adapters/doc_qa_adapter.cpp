@@ -60,12 +60,9 @@ class DocQaAdapter : public IBizAdapter {
     int valid_ret = AdapterValidationHelper::ValidateBatchInputs(
         inputs, num_inputs, GetDescriptor().max_batch_size, BizName());
     if (valid_ret != 0 || !ctx) {
-      if (out_status) {
-        *out_status = AdapterStatus::InvalidInput(
-            "Batch envelope validation failed or null AlgContext", "inputs", -1,
-            BizName());
-      }
-      return COMPANY_ALG_ERR_INVALID_INPUT;
+      return AdapterValidationHelper::ReturnInvalidInput(
+          out_status, "Batch envelope validation failed or null AlgContext",
+          "inputs", BizName());
     }
 
     std::vector<uint64_t> raw_req_ids;
@@ -116,11 +113,8 @@ class DocQaAdapter : public IBizAdapter {
   int Pack(AlgContext* ctx, void** outputs, int* num_outputs,
            AdapterStatus* out_status = nullptr) const override {
     if (!ctx) {
-      if (out_status) {
-        *out_status = AdapterStatus::BufferTooSmall(
-            "Null AlgContext passed to Pack", "ctx", -1, BizName());
-      }
-      return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
+      return AdapterValidationHelper::ReturnBufferTooSmall(
+          out_status, "Null AlgContext passed to Pack", "ctx", BizName());
     }
 
     const auto* answers = ctx->Read(kLlmAnswers);
@@ -129,50 +123,37 @@ class DocQaAdapter : public IBizAdapter {
     const auto* raw_req_ids = ctx->Read(kRawRequestIds);
 
     if (!answers) {
-      if (out_status) {
-        *out_status =
-            AdapterStatus::BufferTooSmall("llm_answers not found in AlgContext",
-                                          "llm_answers", -1, BizName());
-      }
-      return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
+      return AdapterValidationHelper::ReturnBufferTooSmall(
+          out_status, "llm_answers not found in AlgContext", "llm_answers",
+          BizName());
     }
 
     int count = static_cast<int>(answers->size());
     int valid_ret = AdapterValidationHelper::ValidateBatchOutputs(
         outputs, num_outputs, count, BizName());
     if (valid_ret != 0) {
-      if (out_status) {
-        *out_status = AdapterStatus::BufferTooSmall(
-            "Output slots insufficient or null", "outputs", -1, BizName());
-      }
-      return valid_ret;
+      return AdapterValidationHelper::ReturnBufferTooSmall(
+          out_status, "Output slots insufficient or null", "outputs",
+          BizName());
     }
 
     if (!intent_matches ||
         intent_matches->size() != static_cast<size_t>(count)) {
-      if (out_status) {
-        *out_status = AdapterStatus::InvalidInput(
-            "intent_matches missing or count mismatch in AlgContext",
-            "intent_matches", -1, BizName());
-      }
-      return COMPANY_ALG_ERR_INVALID_INPUT;
+      return AdapterValidationHelper::ReturnInvalidInput(
+          out_status, "intent_matches missing or count mismatch in AlgContext",
+          "intent_matches", BizName());
     }
 
     if (!chunk_counts || chunk_counts->size() != static_cast<size_t>(count)) {
-      if (out_status) {
-        *out_status = AdapterStatus::InvalidInput(
-            "doc_chunk_counts missing or count mismatch in AlgContext",
-            "doc_chunk_counts", -1, BizName());
-      }
-      return COMPANY_ALG_ERR_INVALID_INPUT;
+      return AdapterValidationHelper::ReturnInvalidInput(
+          out_status,
+          "doc_chunk_counts missing or count mismatch in AlgContext",
+          "doc_chunk_counts", BizName());
     }
     if (!raw_req_ids || raw_req_ids->size() != static_cast<size_t>(count)) {
-      if (out_status) {
-        *out_status = AdapterStatus::InvalidInput(
-            "raw_request_ids missing or count mismatch in AlgContext",
-            "raw_request_ids", -1, BizName());
-      }
-      return COMPANY_ALG_ERR_INVALID_INPUT;
+      return AdapterValidationHelper::ReturnInvalidInput(
+          out_status, "raw_request_ids missing or count mismatch in AlgContext",
+          "raw_request_ids", BizName());
     }
 
     for (int i = 0; i < count; ++i) {

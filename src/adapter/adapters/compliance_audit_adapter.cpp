@@ -46,12 +46,9 @@ class ComplianceAuditAdapter : public IBizAdapter {
     int valid_ret = AdapterValidationHelper::ValidateBatchInputs(
         inputs, num_inputs, GetDescriptor().max_batch_size, BizName());
     if (valid_ret != 0 || !ctx) {
-      if (out_status) {
-        *out_status = AdapterStatus::InvalidInput(
-            "Batch envelope validation failed or null AlgContext", "inputs", -1,
-            BizName());
-      }
-      return COMPANY_ALG_ERR_INVALID_INPUT;
+      return AdapterValidationHelper::ReturnInvalidInput(
+          out_status, "Batch envelope validation failed or null AlgContext",
+          "inputs", BizName());
     }
 
     std::vector<uint64_t> req_ids;
@@ -92,11 +89,8 @@ class ComplianceAuditAdapter : public IBizAdapter {
   int Pack(AlgContext* ctx, void** outputs, int* num_outputs,
            AdapterStatus* out_status = nullptr) const override {
     if (!ctx) {
-      if (out_status) {
-        *out_status = AdapterStatus::BufferTooSmall(
-            "Null AlgContext passed to Pack", "ctx", -1, BizName());
-      }
-      return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
+      return AdapterValidationHelper::ReturnBufferTooSmall(
+          out_status, "Null AlgContext passed to Pack", "ctx", BizName());
     }
 
     const auto* verdicts = ctx->Read(kStructuredVerdicts);
@@ -104,33 +98,26 @@ class ComplianceAuditAdapter : public IBizAdapter {
     const auto* raw_req_ids = ctx->Read(kRawRequestIds);
 
     if (!verdicts) {
-      if (out_status) {
-        *out_status = AdapterStatus::BufferTooSmall(
-            "structured_verdicts not found in AlgContext",
-            "structured_verdicts", -1, BizName());
-      }
-      return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
+      return AdapterValidationHelper::ReturnBufferTooSmall(
+          out_status, "structured_verdicts not found in AlgContext",
+          "structured_verdicts", BizName());
     }
 
     int count = static_cast<int>(verdicts->size());
     int valid_ret = AdapterValidationHelper::ValidateBatchOutputs(
         outputs, num_outputs, count, BizName());
     if (valid_ret != 0) {
-      if (out_status) {
-        *out_status = AdapterStatus::BufferTooSmall(
-            "Output slots insufficient or null", "outputs", -1, BizName());
-      }
-      return valid_ret;
+      return AdapterValidationHelper::ReturnBufferTooSmall(
+          out_status, "Output slots insufficient or null", "outputs",
+          BizName());
     }
 
     if (!matched_policies ||
         matched_policies->size() < static_cast<size_t>(count)) {
-      if (out_status) {
-        *out_status = AdapterStatus::InvalidInput(
-            "matched_policies missing or count mismatch in AlgContext",
-            "matched_policies", -1, BizName());
-      }
-      return COMPANY_ALG_ERR_INVALID_INPUT;
+      return AdapterValidationHelper::ReturnInvalidInput(
+          out_status,
+          "matched_policies missing or count mismatch in AlgContext",
+          "matched_policies", BizName());
     }
 
     for (int i = 0; i < count; ++i) {
@@ -146,12 +133,10 @@ class ComplianceAuditAdapter : public IBizAdapter {
           !verdict_item.structured_data.contains("risk_score") ||
           !verdict_item.structured_data["risk_level"].is_string() ||
           !verdict_item.structured_data["risk_score"].is_number()) {
-        if (out_status) {
-          *out_status = AdapterStatus::InvalidInput(
-              "structured_data missing or invalid risk_level/risk_score types",
-              "structured_verdicts", i, BizName());
-        }
-        return COMPANY_ALG_ERR_INVALID_INPUT;
+        return AdapterValidationHelper::ReturnInvalidInput(
+            out_status,
+            "structured_data missing or invalid risk_level/risk_score types",
+            "structured_verdicts", BizName(), i);
       }
 
       std::string risk_level =
