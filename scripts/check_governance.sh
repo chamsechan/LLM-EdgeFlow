@@ -8,57 +8,67 @@ fail() {
   exit 1
 }
 
+required_skills=(
+  ".agents/skills/pipeline-composer/SKILL.md"
+  ".agents/skills/llm-edgeflow-developer-guide/SKILL.md"
+  ".agents/skills/github-branch-merge/SKILL.md"
+)
+
 required_files=(
   "AGENTS.md"
   "CONTRIBUTING.md"
   ".github/copilot-instructions.md"
-  ".agents/skills/pipeline-composer/SKILL.md"
-  ".agents/skills/llm-edgeflow-developer-guide/SKILL.md"
-  ".agents/skills/github-branch-merge/SKILL.md"
+  "${required_skills[@]}"
   "doc/rfcs/README.md"
   "scripts/run_all_tests.sh"
   "scripts/git_branch_upload.sh"
 )
 
 for relative_path in "${required_files[@]}"; do
-  [[ -s "${ROOT_DIR}/${relative_path}" ]] || fail "missing governance source ${relative_path}"
+  if [[ ! -s "${ROOT_DIR}/${relative_path}" ]]; then
+    fail "missing governance source ${relative_path}"
+  fi
 done
 
 shim=".github/copilot-instructions.md"
-grep -q 'AGENTS.md' "${ROOT_DIR}/${shim}" && \
-  grep -q 'CONTRIBUTING.md' "${ROOT_DIR}/${shim}" || \
+if ! grep -q 'AGENTS.md' "${ROOT_DIR}/${shim}" || \
+   ! grep -q 'CONTRIBUTING.md' "${ROOT_DIR}/${shim}"; then
   fail "${shim} must route to AGENTS.md and CONTRIBUTING.md"
+fi
 
-for skill in \
-  ".agents/skills/pipeline-composer/SKILL.md" \
-  ".agents/skills/llm-edgeflow-developer-guide/SKILL.md" \
-  ".agents/skills/github-branch-merge/SKILL.md"; do
-  grep -q '^name:' "${ROOT_DIR}/${skill}" && \
-    grep -q '^description:' "${ROOT_DIR}/${skill}" || \
+for skill in "${required_skills[@]}"; do
+  if ! grep -q '^name:' "${ROOT_DIR}/${skill}" || \
+     ! grep -q '^description:' "${ROOT_DIR}/${skill}"; then
     fail "${skill} is missing required skill frontmatter"
+  fi
 done
 
 DELIVERY_SCRIPT="${ROOT_DIR}/scripts/git_branch_upload.sh"
 bash -n "${DELIVERY_SCRIPT}"
-grep -nE -- \
+if grep -nE -- \
   '(git (checkout|switch) main|git push.*[[:space:]]main([[:space:]]|$)|git merge --no-ff|--admin)' \
-  "${DELIVERY_SCRIPT}" && \
+  "${DELIVERY_SCRIPT}"; then
   fail "GitHub delivery script contains a forbidden main/admin fallback"
-grep -q -- '--pr-only' "${DELIVERY_SCRIPT}" && \
-  grep -q -- '--merge' "${DELIVERY_SCRIPT}" || \
+fi
+if ! grep -q -- '--pr-only' "${DELIVERY_SCRIPT}" || \
+   ! grep -q -- '--merge' "${DELIVERY_SCRIPT}"; then
   fail "GitHub delivery script must expose PR-only and explicit merge modes"
-grep -Fq 'DELIVERY_MODE="${3:---pr-only}"' "${DELIVERY_SCRIPT}" || \
+fi
+if ! grep -Fq 'DELIVERY_MODE="${3:---pr-only}"' "${DELIVERY_SCRIPT}"; then
   fail "GitHub delivery must default to PR-only mode"
+fi
 QUALITY_GATE_CALLS="$(grep -c 'run_all_tests.sh' "${DELIVERY_SCRIPT}")"
-[[ "${QUALITY_GATE_CALLS}" -eq 1 ]] || \
+if [[ "${QUALITY_GATE_CALLS}" -ne 1 ]]; then
   fail "GitHub delivery must invoke the canonical quality gate exactly once"
+fi
 
-grep -rnE '(six-stage|6-stage|六阶段|7 CTest|src/business/|src/biz/|IModelEngine|REGISTER_ENGINE_WITH_DEFINITION)' \
+if grep -rnE '(six-stage|6-stage|六阶段|7 CTest|src/business/|src/biz/|IModelEngine|REGISTER_ENGINE_WITH_DEFINITION)' \
   "${ROOT_DIR}/AGENTS.md" \
   "${ROOT_DIR}/CONTRIBUTING.md" \
   "${ROOT_DIR}/.github/copilot-instructions.md" \
   "${ROOT_DIR}/.agents/skills" \
-  "${ROOT_DIR}/doc/rfcs/README.md" && \
+  "${ROOT_DIR}/doc/rfcs/README.md"; then
   fail "active governance contains obsolete architecture or test-count guidance"
+fi
 
 echo "Governance sources, routing, and delivery safety invariants are consistent."
