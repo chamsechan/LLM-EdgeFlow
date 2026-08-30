@@ -7,6 +7,7 @@
 #include "adapter/adapter_status.h"
 #include "company_alg_interface.h"
 #include "company_alg_log.h"
+#include "core/alg_context.h"
 
 namespace alg_framework {
 
@@ -113,18 +114,24 @@ class AdapterValidationHelper {
 
   static int ValidateBatchOutputs(void** outputs, int* num_outputs,
                                   int required_count,
-                                  const char* biz_name = nullptr) {
-    (void)biz_name;
+                                  const char* biz_name = nullptr,
+                                  AdapterStatus* out_status = nullptr) {
     if (!num_outputs || *num_outputs < 0) {
-      return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
+      return ReturnBufferTooSmall(
+          out_status, "Output slots insufficient or null", "outputs", biz_name);
     }
     int capacity = *num_outputs;
     if (capacity < required_count || !outputs) {
       *num_outputs = required_count;
-      return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
+      return ReturnBufferTooSmall(
+          out_status, "Output slots insufficient or null", "outputs", biz_name);
     }
     for (int i = 0; i < required_count; ++i) {
-      if (!outputs[i]) return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
+      if (!outputs[i]) {
+        return ReturnBufferTooSmall(out_status,
+                                    "Output slots insufficient or null",
+                                    "outputs", biz_name);
+      }
     }
     return COMPANY_ALG_SUCCESS;
   }
@@ -149,6 +156,20 @@ class AdapterValidationHelper {
           biz_name ? biz_name : "");
     }
     return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
+  }
+
+  template <typename T>
+  static const T* ReadRequiredContextValue(const AlgContext& ctx,
+                                           const BlackboardKey<T>& key,
+                                           const char* biz_name,
+                                           AdapterStatus* out_status) {
+    const T* value = ctx.Read(key);
+    if (!value) {
+      const std::string field_path = key.name;
+      ReturnBufferTooSmall(out_status, field_path + " not found in AlgContext",
+                           field_path, biz_name);
+    }
+    return value;
   }
 
   // =========================================================================

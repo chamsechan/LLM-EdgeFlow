@@ -96,24 +96,18 @@ class OcrDocQaAdapter : public IBizAdapter {
           out_status, "Null AlgContext passed to Pack", "ctx", BizName());
     }
 
-    const auto* invoice_jsons = ctx->Read(kExtractedInvoiceJson);
+    const auto* invoice_jsons =
+        AdapterValidationHelper::ReadRequiredContextValue(
+            *ctx, kExtractedInvoiceJson, BizName(), out_status);
+    if (!invoice_jsons) return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
+
     const auto* ocr_docs = ctx->Read(kOcrDocs);
     const auto* raw_req_ids = ctx->Read(kRawRequestIds);
 
-    if (!invoice_jsons) {
-      return AdapterValidationHelper::ReturnBufferTooSmall(
-          out_status, "extracted_invoice_json not found in AlgContext",
-          "extracted_invoice_json", BizName());
-    }
-
     int count = static_cast<int>(invoice_jsons->size());
     int valid_ret = AdapterValidationHelper::ValidateBatchOutputs(
-        outputs, num_outputs, count, BizName());
-    if (valid_ret != 0) {
-      return AdapterValidationHelper::ReturnBufferTooSmall(
-          out_status, "Output slots insufficient or null", "outputs",
-          BizName());
-    }
+        outputs, num_outputs, count, BizName(), out_status);
+    if (valid_ret != 0) return valid_ret;
 
     for (int i = 0; i < count; ++i) {
       auto* out_ptr = static_cast<CompanyOcrDocOutputStruct*>(outputs[i]);

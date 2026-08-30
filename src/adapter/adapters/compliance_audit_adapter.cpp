@@ -93,24 +93,17 @@ class ComplianceAuditAdapter : public IBizAdapter {
           out_status, "Null AlgContext passed to Pack", "ctx", BizName());
     }
 
-    const auto* verdicts = ctx->Read(kStructuredVerdicts);
+    const auto* verdicts = AdapterValidationHelper::ReadRequiredContextValue(
+        *ctx, kStructuredVerdicts, BizName(), out_status);
+    if (!verdicts) return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
+
     const auto* matched_policies = ctx->Read(kMatchedPolicy);
     const auto* raw_req_ids = ctx->Read(kRawRequestIds);
 
-    if (!verdicts) {
-      return AdapterValidationHelper::ReturnBufferTooSmall(
-          out_status, "structured_verdicts not found in AlgContext",
-          "structured_verdicts", BizName());
-    }
-
     int count = static_cast<int>(verdicts->size());
     int valid_ret = AdapterValidationHelper::ValidateBatchOutputs(
-        outputs, num_outputs, count, BizName());
-    if (valid_ret != 0) {
-      return AdapterValidationHelper::ReturnBufferTooSmall(
-          out_status, "Output slots insufficient or null", "outputs",
-          BizName());
-    }
+        outputs, num_outputs, count, BizName(), out_status);
+    if (valid_ret != 0) return valid_ret;
 
     if (!matched_policies ||
         matched_policies->size() < static_cast<size_t>(count)) {
