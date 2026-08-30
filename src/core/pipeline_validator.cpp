@@ -222,6 +222,12 @@ int LifetimeRank(const std::string& lifetime) {
   return -1;
 }
 
+bool TraversesParent(const std::filesystem::path& path) {
+  const std::string normalized = path.string();
+  return normalized == ".." || normalized.rfind("../", 0) == 0 ||
+         normalized.rfind("..\\", 0) == 0;
+}
+
 bool LifetimeCompatible(const std::string& producer,
                         const std::string& consumer) {
   return LifetimeRank(producer) >= LifetimeRank(consumer);
@@ -276,6 +282,14 @@ bool ValidateAndNormalizeConfig(
   }
 
   bool ok = true;
+  const auto reject = [&](DiagnosticCode code, std::string path,
+                          std::string message) {
+    ok = false;
+    if (diagnostics) {
+      diagnostics->push_back(
+          {code, std::move(path), std::move(message), "error", {}, {}, {}, {}});
+    }
+  };
   nlohmann::json result = nlohmann::json::object();
 
   // 1. 未知字段校验与 suggestions 生成
@@ -306,14 +320,8 @@ bool ValidateAndNormalizeConfig(
                                  : (base_pointer + "/" + field.name);
     if (!input.contains(field.name)) {
       if (field.required) {
-        ok = false;
-        if (diagnostics) {
-          ValidationDiagnostic diag;
-          diag.code = DiagnosticCode::kMissingConfigField;
-          diag.path = field_path;
-          diag.message = "Missing required config field: " + field.name;
-          diagnostics->push_back(std::move(diag));
-        }
+        reject(DiagnosticCode::kMissingConfigField, field_path,
+               "Missing required config field: " + field.name);
       } else if (!field.default_value.is_null()) {
         result[field.name] = field.default_value;
       }
@@ -322,40 +330,21 @@ bool ValidateAndNormalizeConfig(
 
     const auto& val = input[field.name];
     if (!MatchesKind(val, field.kind)) {
-      ok = false;
-      if (diagnostics) {
-        ValidationDiagnostic diag;
-        diag.code = DiagnosticCode::kConfigFieldType;
-        diag.path = field_path;
-        diag.message =
-            "Expected " + std::string(ConfigValueKindName(field.kind));
-        diagnostics->push_back(std::move(diag));
-      }
+      reject(DiagnosticCode::kConfigFieldType, field_path,
+             "Expected " + std::string(ConfigValueKindName(field.kind)));
       continue;
     }
 
     if (val.is_number()) {
       double num_val = val.get<double>();
       if (field.minimum.has_value() && num_val < *field.minimum) {
-        ok = false;
-        if (diagnostics) {
-          ValidationDiagnostic diag;
-          diag.code = DiagnosticCode::kConfigFieldRange;
-          diag.path = field_path;
-          diag.message = "Numeric value is below minimum " +
-                         std::to_string(*field.minimum);
-          diagnostics->push_back(std::move(diag));
-        }
+        reject(
+            DiagnosticCode::kConfigFieldRange, field_path,
+            "Numeric value is below minimum " + std::to_string(*field.minimum));
       } else if (field.maximum.has_value() && num_val > *field.maximum) {
-        ok = false;
-        if (diagnostics) {
-          ValidationDiagnostic diag;
-          diag.code = DiagnosticCode::kConfigFieldRange;
-          diag.path = field_path;
-          diag.message =
-              "Numeric value exceeds maximum " + std::to_string(*field.maximum);
-          diagnostics->push_back(std::move(diag));
-        }
+        reject(
+            DiagnosticCode::kConfigFieldRange, field_path,
+            "Numeric value exceeds maximum " + std::to_string(*field.maximum));
       }
     }
 
@@ -364,15 +353,8 @@ bool ValidateAndNormalizeConfig(
       std::string str_val = val.get<std::string>();
       if (std::find(field.enum_values.begin(), field.enum_values.end(),
                     str_val) == field.enum_values.end()) {
-        ok = false;
-        if (diagnostics) {
-          ValidationDiagnostic diag;
-          diag.code = DiagnosticCode::kConfigFieldEnum;
-          diag.path = field_path;
-          diag.message =
-              "String value '" + str_val + "' not in allowed enum values";
-          diagnostics->push_back(std::move(diag));
-        }
+        reject(DiagnosticCode::kConfigFieldEnum, field_path,
+               "String value '" + str_val + "' not in allowed enum values");
       }
     }
 
@@ -413,11 +395,6 @@ nlohmann::json ValidateConfigFields(
     report->diagnostics.push_back(std::move(d));
   }
   return normalized;
-}
-
-const std::vector<ParsedNodeConfig>& EffectiveNodes(
-    const ParsedPipelineConfig& parsed) {
-  return parsed.nodes;
 }
 
 bool ResolveTopology(const std::vector<ParsedNodeConfig>& nodes,
@@ -608,34 +585,18 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
       }
 
       // 8. 路径归一化、根目录拼接与防逃逸检查 (RFC 0015)
-      std::filesystem::path raw_p(model.model_path);
-      std::filesystem::path norm_p = raw_p.lexically_normal();
-      std::string resolved_path;
-
-      if (norm_p.is_absolute()) {
-        resolved_path = norm_p.lexically_normal().string();
-      } else if (!model_root_dir.empty()) {
-        std::string norm_str = norm_p.string();
-        if (norm_str == ".." || norm_str.rfind("../", 0) == 0 ||
-            norm_str.rfind("..\\", 0) == 0) {
-          Add(&report, DiagnosticCode::kFieldRange,
-              "/models/" + std::to_string(model.source_index) + "/model_path",
-              "Model path cannot traverse outside model root directory: " +
-                  model.model_path);
-        }
-        std::filesystem::path root_p(model_root_dir);
-        resolved_path = (root_p / norm_p).lexically_normal().string();
-      } else {
-        std::string norm_str = norm_p.string();
-        if (norm_str == ".." || norm_str.rfind("../", 0) == 0 ||
-            norm_str.rfind("..\\", 0) == 0) {
-          Add(&report, DiagnosticCode::kFieldRange,
-              "/models/" + std::to_string(model.source_index) + "/model_path",
-              "Model path cannot traverse outside model root directory: " +
-                  model.model_path);
-        }
-        resolved_path = norm_p.lexically_normal().string();
+      const auto normalized_path =
+          std::filesystem::path(model.model_path).lexically_normal();
+      if (!normalized_path.is_absolute() && TraversesParent(normalized_path)) {
+        Add(&report, DiagnosticCode::kFieldRange,
+            "/models/" + std::to_string(model.source_index) + "/model_path",
+            "Model path cannot traverse outside model root directory: " +
+                model.model_path);
       }
+      const auto resolved_path =
+          normalized_path.is_absolute() || model_root_dir.empty()
+              ? normalized_path
+              : std::filesystem::path(model_root_dir) / normalized_path;
 
       InferenceConcurrency effective_concurrency =
           (model_def_opt->concurrency == InferenceConcurrency::kSerialized ||
@@ -651,7 +612,8 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
       model_plan.capability = model.capability;
       model_plan.model_type = model.model_type;
       model_plan.backend = model.backend;
-      model_plan.resolved_model_path = std::move(resolved_path);
+      model_plan.resolved_model_path =
+          resolved_path.lexically_normal().string();
       model_plan.normalized_model_config = std::move(normalized_mcfg);
       model_plan.normalized_backend_config = std::move(normalized_bcfg);
       model_plan.protocol = model_def_opt->required_protocol;
@@ -661,7 +623,7 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
     }
   }
 
-  auto nodes = EffectiveNodes(parsed);
+  const auto& nodes = parsed.nodes;
   std::unordered_map<std::string, const ParsedNodeConfig*> node_by_id;
   std::unordered_map<std::string, const NodeDefinition*> def_by_id;
   std::unordered_map<std::string, nlohmann::json> normalized_config_by_node;
