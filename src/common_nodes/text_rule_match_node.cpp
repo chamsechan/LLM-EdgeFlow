@@ -49,27 +49,53 @@ class TextRuleMatchNode final : public NodeBase {
               node_error::control::kInvalidRequest,
               "Control payload must be a JSON object");
         }
-        if (root.contains("categories")) {
-          if (!root["categories"].is_object() ||
-              !UpdateCategories(root["categories"])) {
+        static const std::unordered_set<std::string> kAllowedFields = {
+            "categories", "rules"};
+        for (auto it = root.begin(); it != root.end(); ++it) {
+          if (!kAllowedFields.count(it.key())) {
             return NodeControlResult::Failed(
                 node_error::control::kInvalidRequest,
-                "Invalid categories payload");
+                "Unknown field in Control payload: " + it.key());
           }
-          return NodeControlResult::Handled(
-              0, "TextRuleMatchNode categories updated");
-        } else if (root.contains("rules")) {
-          if (!root["rules"].is_array() || !UpdateRules(root["rules"])) {
-            return NodeControlResult::Failed(
-                node_error::control::kInvalidRequest,
-                "Invalid rules payload or regular expression syntax");
-          }
-          return NodeControlResult::Handled(0,
-                                            "TextRuleMatchNode rules updated");
         }
-        return NodeControlResult::Failed(
-            node_error::control::kInvalidRequest,
-            "Control payload must contain 'categories' or 'rules'");
+
+        const bool has_categories = root.contains("categories");
+        const bool has_rules = root.contains("rules");
+        if (!has_categories && !has_rules) {
+          return NodeControlResult::Failed(
+              node_error::control::kInvalidRequest,
+              "Control payload must contain 'categories' or 'rules'");
+        }
+
+        CategoryList new_categories;
+        std::vector<RuleSpec> new_rules;
+        if (has_categories &&
+            (!root["categories"].is_object() ||
+             !BuildCategories(root["categories"], &new_categories))) {
+          return NodeControlResult::Failed(node_error::control::kInvalidRequest,
+                                           "Invalid categories payload");
+        }
+        if (has_rules && (!root["rules"].is_array() ||
+                          !BuildRules(root["rules"], &new_rules))) {
+          return NodeControlResult::Failed(
+              node_error::control::kInvalidRequest,
+              "Invalid rules payload or regular expression syntax");
+        }
+
+        {
+          std::unique_lock<std::shared_mutex> lock(rw_mutex_);
+          if (has_categories) {
+            category_keywords_list_ = std::move(new_categories);
+          }
+          if (has_rules) {
+            rules_list_ = std::move(new_rules);
+          }
+        }
+        return NodeControlResult::Handled(
+            0, has_categories && has_rules
+                   ? "TextRuleMatchNode categories and rules updated"
+               : has_categories ? "TextRuleMatchNode categories updated"
+                                : "TextRuleMatchNode rules updated");
       } catch (const std::exception& e) {
         return NodeControlResult::Failed(
             node_error::control::kInvalidRequest,
@@ -236,10 +262,13 @@ class TextRuleMatchNode final : public NodeBase {
   }
 
  private:
-  bool UpdateCategories(const nlohmann::json& categories_json) {
-    if (!categories_json.is_object()) return false;
-    std::vector<std::pair<std::string, std::vector<std::string>>>
-        temp_categories;
+  using CategoryList =
+      std::vector<std::pair<std::string, std::vector<std::string>>>;
+
+  static bool BuildCategories(const nlohmann::json& categories_json,
+                              CategoryList* out_categories) {
+    if (!out_categories || !categories_json.is_object()) return false;
+    CategoryList temp_categories;
     for (auto it = categories_json.begin(); it != categories_json.end(); ++it) {
       if (!it.value().is_array()) return false;
       std::vector<std::string> words;
@@ -249,13 +278,13 @@ class TextRuleMatchNode final : public NodeBase {
       }
       temp_categories.push_back({it.key(), std::move(words)});
     }
-    std::unique_lock<std::shared_mutex> lock(rw_mutex_);
-    category_keywords_list_ = std::move(temp_categories);
+    *out_categories = std::move(temp_categories);
     return true;
   }
 
-  bool UpdateRules(const nlohmann::json& rules_json) {
-    if (!rules_json.is_array()) return false;
+  static bool BuildRules(const nlohmann::json& rules_json,
+                         std::vector<RuleSpec>* out_rules) {
+    if (!out_rules || !rules_json.is_array()) return false;
     static const std::unordered_set<std::string> kValidStrategies = {
         "contains", "exact", "regex"};
     std::vector<RuleSpec> temp_rules;
@@ -294,6 +323,21 @@ class TextRuleMatchNode final : public NodeBase {
       }
       temp_rules.push_back(std::move(spec));
     }
+    *out_rules = std::move(temp_rules);
+    return true;
+  }
+
+  bool UpdateCategories(const nlohmann::json& categories_json) {
+    CategoryList temp_categories;
+    if (!BuildCategories(categories_json, &temp_categories)) return false;
+    std::unique_lock<std::shared_mutex> lock(rw_mutex_);
+    category_keywords_list_ = std::move(temp_categories);
+    return true;
+  }
+
+  bool UpdateRules(const nlohmann::json& rules_json) {
+    std::vector<RuleSpec> temp_rules;
+    if (!BuildRules(rules_json, &temp_rules)) return false;
     std::unique_lock<std::shared_mutex> lock(rw_mutex_);
     rules_list_ = std::move(temp_rules);
     return true;
@@ -328,7 +372,9 @@ NodeDefinition MakeTextRuleMatchNodeDefinition() {
       nlohmann::json{{"type", "object"},
                      {"properties",
                       {{"categories", {{"type", "object"}}},
-                       {"rules", {{"type", "array"}}}}}},
+                       {"rules", {{"type", "array"}}}}},
+                     {"minProperties", 1},
+                     {"additionalProperties", false}},
       true)};
   def.config_fields = {
       ConfigFieldDefinition{"default_category", ConfigValueKind::kString, false,

@@ -13,6 +13,7 @@
 #include "company_alg_log.h"
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
+#include "engine/text/utf8.h"
 #include "nodes/node_error_codes.h"
 #include "nodes/node_support.h"
 
@@ -399,7 +400,17 @@ class TextTemplateNode final : public NodeBase {
                       "Rendered prompt exceeds max_length of " +
                           std::to_string(max_length_));
         }
-        rendered.resize(max_length_);
+        std::vector<size_t> boundaries;
+        size_t invalid_offset = 0;
+        if (!utf8::BuildCodePointBoundaries(rendered, &boundaries,
+                                            &invalid_offset)) {
+          return Fail(req_ctx, node_error::text_template::kInvalidUtf8,
+                      "Rendered prompt contains invalid UTF-8 at byte offset " +
+                          std::to_string(invalid_offset));
+        }
+        const auto boundary =
+            std::upper_bound(boundaries.begin(), boundaries.end(), max_length_);
+        rendered.resize(*(boundary - 1));
       }
 
       output_batch.emplace_back(req_id, sub_id, std::move(rendered));

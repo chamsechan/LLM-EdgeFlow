@@ -72,6 +72,62 @@ TEST_F(TextRuleMatchNodeTest, ControlCommandDynamicRules) {
   EXPECT_EQ(bogus_res.status, NodeControlStatus::kFailed);
 }
 
+TEST_F(TextRuleMatchNodeTest, CombinedControlUpdateIsAtomic) {
+  auto node = NodeFactory::Instance().Create("TextRuleMatchNode");
+  ASSERT_NE(node, nullptr);
+  ASSERT_TRUE(node->Init(nlohmann::json::object(), session_ctx_.get()));
+
+  const nlohmann::json combined_update = {
+      {"categories", {{"SECURITY", {"密码"}}}},
+      {"rules",
+       {{{"id", "breach"},
+         {"strategy", "contains"},
+         {"pattern", "breach"},
+         {"category", "INCIDENT"}}}}};
+  ASSERT_EQ(
+      node->Control(kControlCmdUpdateRules, combined_update.dump()).status,
+      NodeControlStatus::kHandled);
+
+  AlgContext updated_ctx;
+  TextBatch updated_inputs;
+  updated_inputs.emplace_back(1, 0, "密码泄露");
+  updated_inputs.emplace_back(2, 0, "data breach");
+  updated_ctx.Set("text", std::move(updated_inputs));
+  ASSERT_EQ(node->Process(&updated_ctx), 0);
+  const auto* updated = updated_ctx.Get<RuleMatchBatch>("matches");
+  ASSERT_NE(updated, nullptr);
+  ASSERT_EQ(updated->size(), 2u);
+  EXPECT_EQ((*updated)[0].data.category, "SECURITY");
+  EXPECT_EQ((*updated)[1].data.category, "INCIDENT");
+  EXPECT_EQ((*updated)[1].data.rule_id, "breach");
+
+  const nlohmann::json invalid_combined_update = {
+      {"categories", {{"REPLACED", {"new"}}}},
+      {"rules",
+       {{{"id", "invalid"},
+         {"strategy", "regex"},
+         {"pattern", R"((?<=a+)b)"},
+         {"category", "INVALID"}}}}};
+  EXPECT_EQ(
+      node->Control(kControlCmdUpdateRules, invalid_combined_update.dump())
+          .status,
+      NodeControlStatus::kFailed);
+
+  AlgContext preserved_ctx;
+  TextBatch preserved_inputs;
+  preserved_inputs.emplace_back(3, 0, "密码泄露");
+  preserved_inputs.emplace_back(4, 0, "data breach");
+  preserved_inputs.emplace_back(5, 0, "new");
+  preserved_ctx.Set("text", std::move(preserved_inputs));
+  ASSERT_EQ(node->Process(&preserved_ctx), 0);
+  const auto* preserved = preserved_ctx.Get<RuleMatchBatch>("matches");
+  ASSERT_NE(preserved, nullptr);
+  ASSERT_EQ(preserved->size(), 3u);
+  EXPECT_EQ((*preserved)[0].data.category, "SECURITY");
+  EXPECT_EQ((*preserved)[1].data.category, "INCIDENT");
+  EXPECT_EQ((*preserved)[2].data.is_hit, 0);
+}
+
 TEST_F(TextRuleMatchNodeTest, SupportsLookbehindAndNamedCaptures) {
   auto node = NodeFactory::Instance().Create("TextRuleMatchNode");
   ASSERT_NE(node, nullptr);

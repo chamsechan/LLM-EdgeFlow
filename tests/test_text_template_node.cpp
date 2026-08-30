@@ -111,6 +111,45 @@ TEST_F(TextTemplateNodeTest, DynamicAttributeRendered) {
   EXPECT_EQ((*out)[0].data, "Hello Alice, welcome!");
 }
 
+TEST_F(TextTemplateNodeTest, TruncatePreservesUtf8CodePointBoundaries) {
+  auto node = NodeFactory::Instance().Create("TextTemplateNode");
+  ASSERT_NE(node, nullptr);
+  ASSERT_TRUE(node->Init({{"template", "{{primary}}"},
+                          {"max_length", 4},
+                          {"overflow_policy", "truncate"}},
+                         session_ctx_.get()));
+
+  AlgContext ctx;
+  TextBatch primary;
+  primary.emplace_back(1, 0, u8"中文");
+  primary.emplace_back(2, 0, u8"A🙂B");
+  ctx.Set("primary", std::move(primary));
+
+  ASSERT_EQ(node->Process(&ctx), 0);
+  const auto* out = ctx.Get<TextBatch>("text");
+  ASSERT_NE(out, nullptr);
+  ASSERT_EQ(out->size(), 2u);
+  EXPECT_EQ((*out)[0].data, u8"中");
+  EXPECT_EQ((*out)[1].data, "A");
+}
+
+TEST_F(TextTemplateNodeTest, TruncateRejectsInvalidUtf8) {
+  auto node = NodeFactory::Instance().Create("TextTemplateNode");
+  ASSERT_NE(node, nullptr);
+  ASSERT_TRUE(node->Init({{"template", "{{primary}}"},
+                          {"max_length", 2},
+                          {"overflow_policy", "truncate"}},
+                         session_ctx_.get()));
+
+  AlgContext ctx;
+  TextBatch primary;
+  primary.emplace_back(1, 0, std::string("A") + "\xF0\x9F");
+  ctx.Set("primary", std::move(primary));
+
+  EXPECT_EQ(node->Process(&ctx), -6203);
+  EXPECT_EQ(ctx.Get<TextBatch>("text"), nullptr);
+}
+
 // 4. Control Command Hot-Swap & Bogus Rejection
 TEST_F(TextTemplateNodeTest, ControlCommandHotSwapAndBogusRejection) {
   auto node = NodeFactory::Instance().Create("TextTemplateNode");
