@@ -116,13 +116,11 @@ class CrossRerankAdapter : public IBizAdapter {
           out_status, "Null AlgContext passed to Pack", "ctx", BizName());
     }
 
-    const auto* res = ctx->Read(kRankedResults);
+    const auto* res = AdapterValidationHelper::ReadRequiredContextValue(
+        *ctx, kRankedResults, BizName(), out_status);
+    if (!res) return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
+
     const auto* raw_req_ids = ctx->Read(kRawRequestIds);
-    if (!res) {
-      return AdapterValidationHelper::ReturnBufferTooSmall(
-          out_status, "ranked_results not found in AlgContext",
-          "ranked_results", BizName());
-    }
 
     // 按 req_id 分组
     std::unordered_map<uint32_t, std::vector<RankedCandidate>> req_map;
@@ -133,12 +131,8 @@ class CrossRerankAdapter : public IBizAdapter {
     int count = raw_req_ids ? static_cast<int>(raw_req_ids->size())
                             : static_cast<int>(req_map.size());
     int valid_ret = AdapterValidationHelper::ValidateBatchOutputs(
-        outputs, num_outputs, count, BizName());
-    if (valid_ret != 0) {
-      return AdapterValidationHelper::ReturnBufferTooSmall(
-          out_status, "Output slots insufficient or null", "outputs",
-          BizName());
-    }
+        outputs, num_outputs, count, BizName(), out_status);
+    if (valid_ret != 0) return valid_ret;
 
     for (int i = 0; i < count; ++i) {
       auto* out_ptr = static_cast<CompanyRerankBatchOutputStruct*>(outputs[i]);

@@ -117,25 +117,18 @@ class DocQaAdapter : public IBizAdapter {
           out_status, "Null AlgContext passed to Pack", "ctx", BizName());
     }
 
-    const auto* answers = ctx->Read(kLlmAnswers);
+    const auto* answers = AdapterValidationHelper::ReadRequiredContextValue(
+        *ctx, kLlmAnswers, BizName(), out_status);
+    if (!answers) return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
+
     const auto* intent_matches = ctx->Read(kIntentMatches);
     const auto* chunk_counts = ctx->Read(kDocChunkCounts);
     const auto* raw_req_ids = ctx->Read(kRawRequestIds);
 
-    if (!answers) {
-      return AdapterValidationHelper::ReturnBufferTooSmall(
-          out_status, "llm_answers not found in AlgContext", "llm_answers",
-          BizName());
-    }
-
     int count = static_cast<int>(answers->size());
     int valid_ret = AdapterValidationHelper::ValidateBatchOutputs(
-        outputs, num_outputs, count, BizName());
-    if (valid_ret != 0) {
-      return AdapterValidationHelper::ReturnBufferTooSmall(
-          out_status, "Output slots insufficient or null", "outputs",
-          BizName());
-    }
+        outputs, num_outputs, count, BizName(), out_status);
+    if (valid_ret != 0) return valid_ret;
 
     if (!intent_matches ||
         intent_matches->size() != static_cast<size_t>(count)) {

@@ -172,7 +172,7 @@ class TemplateNestedPointerTreeAdapter : public IBusinessAdapter {
 
     int count = static_cast<int>(res->size());
     int valid_ret = AdapterValidationHelper::ValidateBatchOutputs(
-        outputs, num_outputs, count, BizName());
+        outputs, num_outputs, count, BizName(), out_status);
     if (valid_ret != 0) return valid_ret;
 
     for (int i = 0; i < count; ++i) {
