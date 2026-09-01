@@ -593,7 +593,7 @@ TEST_F(OperatorApiTest, EndToEndCrossRerank) {
   param.model_path = model_path_str.c_str();
   param.cfg_file_name = temp_cfg.second.c_str();
   param.device_id = 0;
-  param.compute_platform = ComputePlatform::kAx650;
+  param.compute_platform = ComputePlatform::kCpu;
   param.max_frame_depth = 25;
 
   void* handle = nullptr;
@@ -1648,7 +1648,7 @@ TEST_F(OperatorApiTest, MultiBusinessMaxBatchBoundarySuite) {
     param.model_path = rerank_model_path_str.c_str();
     param.cfg_file_name = temp_cfg.second.c_str();
     param.device_id = 0;
-    param.compute_platform = ComputePlatform::kAx650;
+    param.compute_platform = ComputePlatform::kCpu;
     param.max_frame_depth = 8;
 
     void* handle = nullptr;
@@ -1951,8 +1951,7 @@ TEST_F(OperatorApiTest, ModelPathNonExistentFileAllowedWhileEscapeRejected) {
 
     alg_framework::ResolvedCompanyConfig resolved;
     int ret = alg_framework::CompanyConfResolver::Resolve(
-        root_string.c_str(), "configs/model_paths.conf", 0,
-        ComputePlatform::kAx650, &resolved, &err);
+        root_string.c_str(), "configs/model_paths.conf", &resolved, &err);
     EXPECT_EQ(ret, 0) << "Error: " << err;
     ASSERT_EQ(resolved.synthetic_pipeline_json["models"].size(), 2u);
     for (const auto& model : resolved.synthetic_pipeline_json["models"]) {
@@ -1992,8 +1991,7 @@ TEST_F(OperatorApiTest, ModelPathNonExistentFileAllowedWhileEscapeRejected) {
 
     alg_framework::ResolvedCompanyConfig resolved;
     int ret = alg_framework::CompanyConfResolver::Resolve(
-        root_string.c_str(), "configs/single_model.conf", 0,
-        ComputePlatform::kAx650, &resolved, &err);
+        root_string.c_str(), "configs/single_model.conf", &resolved, &err);
     ASSERT_EQ(ret, 0) << err;
     const auto resolved_model = std::filesystem::path(
         resolved.synthetic_pipeline_json["models"][0]["model_path"]
@@ -2045,8 +2043,7 @@ TEST_F(OperatorApiTest, ModelPathNonExistentFileAllowedWhileEscapeRejected) {
     const std::string root_string = root.string();
     alg_framework::ResolvedCompanyConfig resolved;
     EXPECT_EQ(alg_framework::CompanyConfResolver::Resolve(
-                  root_string.c_str(), "configs/missing.conf", 0,
-                  ComputePlatform::kAx650, &resolved, &err),
+                  root_string.c_str(), "configs/missing.conf", &resolved, &err),
               -2);
 
     std::ofstream conf(root / "configs/missing_pipe.conf");
@@ -2057,10 +2054,10 @@ TEST_F(OperatorApiTest, ModelPathNonExistentFileAllowedWhileEscapeRejected) {
       }
     })";
     conf.close();
-    EXPECT_EQ(alg_framework::CompanyConfResolver::Resolve(
-                  root_string.c_str(), "configs/missing_pipe.conf", 0,
-                  ComputePlatform::kAx650, &resolved, &err),
-              -2);
+    EXPECT_EQ(
+        alg_framework::CompanyConfResolver::Resolve(
+            root_string.c_str(), "configs/missing_pipe.conf", &resolved, &err),
+        -2);
 
     // cfg symlink 到根外 regular file 仍是逃逸，不能因为目标存在而接受。
     std::ofstream outside_conf(outside / "outside.conf");
@@ -2071,8 +2068,7 @@ TEST_F(OperatorApiTest, ModelPathNonExistentFileAllowedWhileEscapeRejected) {
                                     root / "configs/outside.conf", ec);
     ASSERT_FALSE(ec) << ec.message();
     EXPECT_EQ(alg_framework::CompanyConfResolver::Resolve(
-                  root_string.c_str(), "configs/outside.conf", 0,
-                  ComputePlatform::kAx650, &resolved, &err),
+                  root_string.c_str(), "configs/outside.conf", &resolved, &err),
               -2);
 
     // pipe 的绝对路径、目录和根外 symlink 也必须由同一 required-file
@@ -2095,8 +2091,8 @@ TEST_F(OperatorApiTest, ModelPathNonExistentFileAllowedWhileEscapeRejected) {
              {"mem_que", {{"type", "keyword_out"}}}}}});
       invalid_conf.close();
       EXPECT_EQ(alg_framework::CompanyConfResolver::Resolve(
-                    root_string.c_str(), "configs/invalid_pipe.conf", 0,
-                    ComputePlatform::kAx650, &resolved, &err),
+                    root_string.c_str(), "configs/invalid_pipe.conf", &resolved,
+                    &err),
                 -2)
           << pipe_path;
     }

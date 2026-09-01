@@ -486,8 +486,7 @@ nlohmann::json ValidationReport::ToJson() const {
 }
 
 ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
-    const nlohmann::json& root, ValidationPolicy policy,
-    const std::string& model_root_dir) {
+    const nlohmann::json& root, ValidationPolicy policy) {
   ValidatedPipelinePlan plan;
   ValidationReport& report = plan.report;
   PipelineDiagnostic parse_diag;
@@ -584,7 +583,8 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
         report.diagnostics.push_back(std::move(d));
       }
 
-      // 8. 路径归一化、根目录拼接与防逃逸检查 (RFC 0015)
+      // 8. Layer 2 only performs environment-neutral lexical path checks.
+      // Deployment roots are resolved by Layer 1 before runtime validation.
       const auto normalized_path =
           std::filesystem::path(model.model_path).lexically_normal();
       if (!normalized_path.is_absolute() && TraversesParent(normalized_path)) {
@@ -593,11 +593,6 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
             "Model path cannot traverse outside model root directory: " +
                 model.model_path);
       }
-      const auto resolved_path =
-          normalized_path.is_absolute() || model_root_dir.empty()
-              ? normalized_path
-              : std::filesystem::path(model_root_dir) / normalized_path;
-
       InferenceConcurrency effective_concurrency =
           (model_def_opt->concurrency == InferenceConcurrency::kSerialized ||
            backend_def_opt->concurrency == InferenceConcurrency::kSerialized)
@@ -612,8 +607,7 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
       model_plan.capability = model.capability;
       model_plan.model_type = model.model_type;
       model_plan.backend = model.backend;
-      model_plan.resolved_model_path =
-          resolved_path.lexically_normal().string();
+      model_plan.resolved_model_path = normalized_path.string();
       model_plan.normalized_model_config = std::move(normalized_mcfg);
       model_plan.normalized_backend_config = std::move(normalized_bcfg);
       model_plan.protocol = model_def_opt->required_protocol;
@@ -996,10 +990,9 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
   return plan;
 }
 
-ValidationReport PipelineValidator::Validate(
-    const nlohmann::json& root, ValidationPolicy policy,
-    const std::string& model_root_dir) {
-  return ValidateAndPlan(root, policy, model_root_dir).report;
+ValidationReport PipelineValidator::Validate(const nlohmann::json& root,
+                                             ValidationPolicy policy) {
+  return ValidateAndPlan(root, policy).report;
 }
 
 }  // namespace alg_framework

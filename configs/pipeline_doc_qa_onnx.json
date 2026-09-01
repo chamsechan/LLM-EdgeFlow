@@ -6,15 +6,15 @@
       "capability": "embedding",
       "model_type": "bge_embedding",
       "backend": "onnxruntime",
-      "model_path": "./models/bge_base_zh_v1.5.onnx",
+      "model_path": "bge_base_zh_v1.5.onnx",
       "model_config": {
-        "tokenizer_file": "vocab.txt",
+        "tokenizer_file": "bge_base_zh_v1.5_vocab.txt",
         "do_lower_case": true,
         "max_length": 512,
         "pooling_strategy": "cls",
         "normalize": true,
         "output_name": "last_hidden_state",
-        "embedding_dim": 128
+        "embedding_dim": 768
       },
       "backend_config": {
         "max_batch_size": 4,
@@ -28,7 +28,7 @@
       "capability": "llm",
       "model_type": "qwen_causal_lm",
       "backend": "llama_cpp",
-      "model_path": "./models/qwen2.5_1.5b_instruct_q4_k_m.gguf",
+      "model_path": "qwen2.5-0.5b-instruct-q4_k_m.gguf",
       "model_config": {
         "chat_template": "qwen_chatml",
         "system_prompt": "",

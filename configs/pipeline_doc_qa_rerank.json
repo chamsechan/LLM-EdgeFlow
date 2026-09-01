@@ -6,28 +6,28 @@
       "model_type": "bge_embedding",
       "backend": "onnxruntime",
       "model_config": {
-        "tokenizer_file": "vocab.txt",
-        "embedding_dim": 128
+        "tokenizer_file": "bge_base_zh_v1.5_vocab.txt",
+        "embedding_dim": 768
       },
       "backend_config": {
         "max_batch_size": 4
       },
       "model_id": "embed_model_v1",
-      "model_path": "./models/bge_base_zh_v1.5.onnx"
+      "model_path": "bge_base_zh_v1.5.onnx"
     },
     {
       "capability": "rerank",
       "model_type": "bge_reranker",
       "backend": "onnxruntime",
       "model_config": {
-        "tokenizer_file": "vocab.txt",
+        "tokenizer_file": "ms_marco_bert_vocab.txt",
         "max_batch_size": 4
       },
       "backend_config": {
         "max_batch_size": 4
       },
       "model_id": "rerank_model_v1",
-      "model_path": "./models/bge_reranker_large.onnx"
+      "model_path": "ms_marco_tinybert_l2_v2_quantized.onnx"
     },
     {
       "capability": "llm",
@@ -48,7 +48,7 @@
         "check_tensors": false
       },
       "model_id": "llm_model_v1",
-      "model_path": "./models/qwen2.5-0.5b-instruct-q4_k_m.gguf"
+      "model_path": "qwen2.5-0.5b-instruct-q4_k_m.gguf"
     }
   ],
   "pipeline": [

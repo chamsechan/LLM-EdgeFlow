@@ -56,6 +56,20 @@ TEST(LlamaCppBackendTest, MissingInvalidPathAndUnknownConfigFailClosed) {
   EXPECT_NE(diagnostic.find("requested protocol"), std::string::npos);
 }
 
+TEST(LlamaCppBackendTest, UnsupportedExecutionTargetFailsBeforeFilesystem) {
+  auto backend = BackendRegistry::Instance().Create("llama_cpp");
+  if (!backend) GTEST_SKIP() << "llama.cpp support is disabled";
+
+  BackendLoadSpec spec;
+  spec.model_path = "./models/does-not-exist.gguf";
+  spec.execution_target.platform = "AX650";
+  spec.execution_target.device_id = 7;
+  std::string diagnostic;
+  EXPECT_EQ(backend->Load(spec, &diagnostic), nullptr);
+  EXPECT_NE(diagnostic.find("does not support requested platform"),
+            std::string::npos);
+}
+
 TEST(LlamaCppBackendTest, PublicHeaderDoesNotExposeVendorTypes) {
   std::ifstream header("src/engine/backends/llama_cpp/llama_cpp_backend.h");
   ASSERT_TRUE(header.is_open());

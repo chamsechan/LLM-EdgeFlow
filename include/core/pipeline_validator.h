@@ -146,13 +146,11 @@ class PipelineValidator {
  public:
   static ValidatedPipelinePlan ValidateAndPlan(
       const nlohmann::json& root,
-      ValidationPolicy policy = ValidationPolicy::kStrict,
-      const std::string& model_root_dir = "");
+      ValidationPolicy policy = ValidationPolicy::kStrict);
 
   static ValidationReport Validate(
       const nlohmann::json& root,
-      ValidationPolicy policy = ValidationPolicy::kStrict,
-      const std::string& model_root_dir = "");
+      ValidationPolicy policy = ValidationPolicy::kStrict);
 };
 
 /**

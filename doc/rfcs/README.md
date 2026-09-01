@@ -80,6 +80,7 @@ doc/rfcs/NNNN-<kebab-case-title>.md
 | **RFC-0022** | 文本规则与 UTF-8 分块安全收敛 | `Completed` | `v5.7.0` | Layer 3 / Layer 4 Text Support | [0022-text-processing-safety.md](0022-text-processing-safety.md) |
 | **RFC-0023** | v6 运行时契约破坏性收敛 | `Completed` | `v6.0.0` | Layer 1 ~ Layer 3 / Tooling | [0023-v6-contract-convergence.md](0023-v6-contract-convergence.md) |
 | **RFC-0024** | 正式接入前历史兼容契约清理 | `Completed` | `v7.0.0` | Layer 1 ~ Layer 3 / Tooling | [0024-pre-release-contract-cleanup.md](0024-pre-release-contract-cleanup.md) |
+| **RFC-0025** | 部署路径、执行目标与可复现验收契约收敛 | `Completed` | `v8.0.0` | Layer 1 ~ Layer 4 / Tooling | [0025-deployment-runtime-contract-convergence.md](0025-deployment-runtime-contract-convergence.md) |
 
 ---
 
@@ -100,5 +101,6 @@ doc/rfcs/NNNN-<kebab-case-title>.md
 - [RFC-0015 阶段 5 llama.cpp + Qwen LLM 验收](reviews/0015-stage5-llm-acceptance-20260829.md)
 - [RFC-0015 阶段 6 OCR/ASR 与测试替身验收](reviews/0015-stage6-ocr-asr-fixtures-acceptance-20260829.md)
 - [RFC-0015 阶段 7 收口与最终验收](reviews/0015-stage7-closeout-acceptance-20260829.md)
+- [RFC-0025 部署运行时契约收敛验收](reviews/0025-deployment-runtime-contract-convergence-acceptance-20260901.md)
 - [框架全面审查方案](reviews/framework_comprehensive_review_plan.md)
 - [框架全面审查与问题收敛报告](reviews/framework_comprehensive_review_report.md)

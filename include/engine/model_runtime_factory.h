@@ -4,6 +4,7 @@
 #include <nlohmann/json.hpp>
 #include <string>
 
+#include "engine/backend_interface.h"
 #include "engine/model_interface.h"
 
 namespace alg_framework {
@@ -17,6 +18,7 @@ struct ModelLoadSpec {
   std::string model_path;
   nlohmann::json model_config = nlohmann::json::object();
   nlohmann::json backend_config = nlohmann::json::object();
+  ExecutionTarget execution_target;
 };
 
 /**

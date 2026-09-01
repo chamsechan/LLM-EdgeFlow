@@ -143,7 +143,8 @@ C++ Operator API：NamedIoBatch + Operator 镜像 C 结构 ─┘
   deleter 的 shared_ptr，最后一个引用析构后 reset 并回池；deleter 只捕获池状态的
   weak lifetime token，避免 Destroy 后解引用已释放句柄或池。
 - 值类型表、业务桥接表和内存池只属于 Layer 1，不得进入 Blackboard、Node、Model 或 Backend。
-- 目标共享库输出名称为 `company_alg_sdk`，SOVERSION 为 4。
+- 目标共享库输出名称为 `company_alg_sdk`，产品 VERSION 为 8.0.0，
+  SOVERSION/C ABI major 为 5。
 - v4 Create 和配置预检都以必填部署根 `model_path` 加相对 `cfg_file_name` 解析；
   `.conf` 的 `data.mem_que` 归一化输出后缀、metadata 容量和嵌套字段容量。
 
@@ -295,7 +296,7 @@ REGISTER_NODE_WITH_DEFINITION(MyCustomNode, MakeMyCustomNodeDefinition());
       "capability": "llm",
       "model_type": "qwen_causal_lm",
       "backend": "llama_cpp",
-      "model_path": "./models/my_llm.gguf",
+      "model_path": "my_llm.gguf",
       "model_config": {},
       "backend_config": {"n_ctx": 2048}
     }

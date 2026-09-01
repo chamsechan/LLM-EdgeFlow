@@ -463,6 +463,7 @@ TEST(ModelBackendDecouplingTest, ModelManagerAtomicCommitAndCollision) {
                      test::TestTensorBackend::kBackendType,
                      "/tmp/test.bin",
                      {},
+                     {},
                      {}};
   auto m1 = ModelRuntimeFactory::Create(spec);
   ASSERT_NE(m1, nullptr);

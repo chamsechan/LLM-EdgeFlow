@@ -132,7 +132,6 @@ TEST(PipelineTest, ErrorHandlingAndRobustness) {
 TEST(PipelineTest, RuntimeOptionsWithModelBackendDialect) {
   Pipeline pipe;
   RuntimeOptions opts;
-  opts.model_root_dir = "/opt/custom_models";
   opts.device_id = 2;
   opts.has_device_id = true;
   pipe.GetSessionContext().SetRuntimeOptions(opts);

@@ -71,15 +71,16 @@ class SharedAlgorithmRuntime {
   const Pipeline* GetPipeline() const { return pipeline_.get(); }
   std::shared_ptr<IBizAdapter> GetAdapter() const { return adapter_; }
   CompanyAlgBizType GetBizType() const { return biz_type_; }
-  int GetDeviceId() const { return device_id_; }
+  int GetDeviceId() const {
+    return pipeline_
+               ? pipeline_->GetSessionContext().GetRuntimeOptions().device_id
+               : -1;
+  }
 
  private:
   std::unique_ptr<Pipeline> pipeline_;
   std::shared_ptr<IBizAdapter> adapter_;
   CompanyAlgBizType biz_type_ = ALG_BIZ_TYPE_UNKNOWN;
-  int device_id_ = 0;
-  std::string model_root_dir_;
-  std::string config_file_path_;
 };
 
 }  // namespace alg_framework

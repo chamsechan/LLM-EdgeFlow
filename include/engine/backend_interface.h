@@ -83,12 +83,21 @@ class ICausalLmSession : public IBackendSession {
 };
 
 /**
+ * @brief Vendor-neutral execution target selected by the deployment ingress.
+ */
+struct ExecutionTarget {
+  std::optional<int> device_id;
+  std::string platform;
+};
+
+/**
  * @brief 后端加载参数规格
  */
 struct BackendLoadSpec {
   std::string model_path;
   nlohmann::json backend_config = nlohmann::json::object();
   std::optional<ExecutionProtocol> requested_protocol;
+  ExecutionTarget execution_target;
 };
 
 /**

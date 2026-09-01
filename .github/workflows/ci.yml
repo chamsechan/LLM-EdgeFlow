@@ -59,3 +59,93 @@ jobs:
           LLM_EDGEFLOW_LINKER=mold LLM_EDGEFLOW_JOBS=4 \
             ./scripts/run_all_tests.sh
           ccache -s
+
+  sanitizer:
+    name: Production Backends ASan & UBSan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Build Environment
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            ccache \
+            cmake \
+            curl \
+            default-jre-headless \
+            mold \
+            ninja-build \
+            python3
+
+      - name: Run Full Sanitizer Suite
+        run: |
+          LLM_EDGEFLOW_LINKER=mold LLM_EDGEFLOW_SANITIZERS=address,undefined \
+            ./scripts/run_sanitizers.sh --full
+
+  real-c-abi-and-profile:
+    name: Real GGUF C ABI & Profile
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Build Environment
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            ccache \
+            cmake \
+            curl \
+            mold \
+            ninja-build \
+            python3
+
+      - name: Cache Pinned GGUF
+        uses: actions/cache@v4
+        with:
+          path: models/qwen2.5-0.5b-instruct-q4_k_m.gguf
+          key: qwen2.5-0.5b-q4-k-m-74a4da8c9fdb
+
+      - name: Fetch and Verify Pinned GGUF
+        run: ./scripts/fetch_real_test_models.sh --gguf-only
+
+      - name: Run Real C ABI and Public Profile
+        run: LLM_EDGEFLOW_LINKER=mold ./scripts/run_real_model_e2e.sh
+
+  acceptance-evidence:
+    name: Exact-SHA Acceptance Evidence
+    if: always()
+    needs: [build-and-test, sanitizer, real-c-abi-and-profile]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Generate RFC-0025 Evidence
+        run: |
+          git fetch origin main --quiet
+          ./scripts/generate_acceptance_evidence.sh \
+            build/acceptance/rfc-0025.json \
+            "${{ needs.build-and-test.result }}" \
+            "${{ needs.sanitizer.result }}" \
+            "${{ needs.real-c-abi-and-profile.result }}"
+
+      - name: Upload RFC-0025 Evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: rfc-0025-acceptance-${{ github.sha }}
+          path: build/acceptance/rfc-0025.json
+
+      - name: Enforce Required Job Results
+        if: >-
+          needs.build-and-test.result != 'success' ||
+          needs.sanitizer.result != 'success' ||
+          needs.real-c-abi-and-profile.result != 'success'
+        run: exit 1

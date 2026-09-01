@@ -47,11 +47,9 @@ class CompanyConfResolver {
   /**
    * @brief 基于 model_path 根目录与相对 cfg_file_name 解析配置
    */
-  static int Resolve(
-      const char* model_path, const char* cfg_file_name, int32_t device_id,
-      llm_edgeflow::operator_api::ComputePlatform compute_platform,
-      ResolvedCompanyConfig* result, std::string* error_msg,
-      uint32_t max_frame_depth = 25) noexcept;
+  static int Resolve(const char* model_path, const char* cfg_file_name,
+                     ResolvedCompanyConfig* result, std::string* error_msg,
+                     uint32_t max_frame_depth = 25) noexcept;
 };
 
 }  // namespace alg_framework

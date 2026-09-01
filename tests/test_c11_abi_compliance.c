@@ -12,6 +12,10 @@
 #include <string.h>
 
 #include "company_alg_interface.h"
+
+#if COMPANY_ALG_ABI_VERSION_MAJOR != 5
+#error "Unexpected public C ABI major"
+#endif
 #include "company_alg_log.h"
 #include "operator/company_operator_types.h"
 

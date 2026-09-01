@@ -200,11 +200,11 @@ int CompanyConfResolver::ResolveModelReferenceUnderRoot(
   }
 }
 
-int CompanyConfResolver::Resolve(
-    const char* model_path, const char* cfg_file_name, int32_t device_id,
-    llm_edgeflow::operator_api::ComputePlatform /*compute_platform*/,
-    ResolvedCompanyConfig* result, std::string* error_msg,
-    uint32_t max_frame_depth) noexcept {
+int CompanyConfResolver::Resolve(const char* model_path,
+                                 const char* cfg_file_name,
+                                 ResolvedCompanyConfig* result,
+                                 std::string* error_msg,
+                                 uint32_t max_frame_depth) noexcept {
   try {
     if (!result) {
       if (error_msg) *error_msg = "Null output result pointer";
@@ -576,11 +576,6 @@ int CompanyConfResolver::Resolve(
               canon_root, mp, "pipeline model_path", &full_mpath, error_msg);
           if (ret != 0) return ret;
           item["model_path"] = full_mpath.string();
-        }
-        if (device_id >= 0) {
-          if (item.contains("config") && item["config"].is_object()) {
-            item["config"]["device_id"] = device_id;
-          }
         }
       }
     }

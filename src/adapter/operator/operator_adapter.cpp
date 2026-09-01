@@ -186,8 +186,8 @@ int Operator_Create(void** handle, const CreateParam* param) noexcept {
     alg_framework::ResolvedCompanyConfig resolved_conf;
     std::string resolve_err;
     int res_code = alg_framework::CompanyConfResolver::Resolve(
-        param->model_path, param->cfg_file_name, param->device_id,
-        param->compute_platform, &resolved_conf, &resolve_err, effective_depth);
+        param->model_path, param->cfg_file_name, &resolved_conf, &resolve_err,
+        effective_depth);
     if (res_code != 0) {
       SetLastError("CompanyConfResolver failed: " + resolve_err);
       return res_code;
@@ -542,7 +542,7 @@ int ValidateOperatorConfigBinding(const char* model_path,
   alg_framework::ResolvedCompanyConfig resolved;
   std::string err;
   int ret = alg_framework::CompanyConfResolver::Resolve(
-      model_path, cfg_file_name, 0, ComputePlatform::kCpu, &resolved, &err);
+      model_path, cfg_file_name, &resolved, &err);
   if (ret != 0) {
     if (out_error_msg && error_buf_size > 0) {
       std::snprintf(out_error_msg, error_buf_size, "%s", err.c_str());

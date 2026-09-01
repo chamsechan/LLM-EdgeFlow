@@ -81,6 +81,12 @@ if [[ "${MODE}" == "fast" ]]; then
     -DENABLE_ONNXRUNTIME=OFF
     -DENABLE_REAL_MODEL_TESTS=OFF
   )
+else
+  COMMON_CMAKE_ARGS+=(
+    -DENABLE_LLAMACPP=ON
+    -DENABLE_ONNXRUNTIME=ON
+    -DENABLE_REAL_MODEL_TESTS=OFF
+  )
 fi
 
 if command -v ccache >/dev/null 2>&1; then

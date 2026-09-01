@@ -4,6 +4,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#define COMPANY_ALG_PRODUCT_VERSION "8.0.0"
+#define COMPANY_ALG_ABI_VERSION "5.0.0"
+#define COMPANY_ALG_ABI_VERSION_MAJOR 5
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -30,9 +34,9 @@ typedef enum {
 // 句柄创建参数结构体
 typedef struct {
   const char* config_file_path;  // 业务配置文件路径 (JSON)
-  const char* model_root_dir;    // 模型根目录
-  int device_id;                 // 目标加速设备 ID (如 NPU 0, GPU 0)
-  CompanyAlgBizType biz_type;    // 业务类型
+  const char* model_root_dir;  // 直接包含模型 artifact 与 sidecar 的部署目录
+  int device_id;               // 目标加速设备 ID (如 NPU 0, GPU 0)
+  CompanyAlgBizType biz_type;  // 业务类型
 } CompanyAlgParamCreate;
 
 // 运行时动态控制参数结构体

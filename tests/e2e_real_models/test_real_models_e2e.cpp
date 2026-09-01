@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <filesystem>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -15,29 +16,27 @@ namespace alg_framework {
 class RealModelE2ETest : public ::testing::Test {
  protected:
   void SetUp() override {
-    // 验证真实模型文件是否存在
-    model_path_ = "./models/qwen2.5-0.5b-instruct-q4_k_m.gguf";
-    FILE* fp = fopen(model_path_.c_str(), "rb");
-    if (!fp) {
-      model_path_ = "../models/qwen2.5-0.5b-instruct-q4_k_m.gguf";
-      fp = fopen(model_path_.c_str(), "rb");
-    }
-    if (fp) {
-      fclose(fp);
-      model_available_ = true;
-    } else {
-      model_available_ = false;
-    }
+    project_root_ =
+        std::filesystem::weakly_canonical(std::filesystem::path(__FILE__)
+                                              .parent_path()
+                                              .parent_path()
+                                              .parent_path());
+    model_root_ = project_root_ / "models";
+    model_path_ = model_root_ / "qwen2.5-0.5b-instruct-q4_k_m.gguf";
+    ASSERT_TRUE(std::filesystem::is_regular_file(model_path_))
+        << "ENABLE_REAL_MODEL_TESTS requires pinned artifacts; run "
+           "./scripts/fetch_real_test_models.sh --gguf-only";
   }
 
-  std::string model_path_;
-  bool model_available_ = false;
+  std::filesystem::path project_root_;
+  std::filesystem::path model_root_;
+  std::filesystem::path model_path_;
 
   std::shared_ptr<ILlmModel> CreateModel() const {
     ModelLoadSpec spec;
     spec.model_type = "qwen_causal_lm";
     spec.backend_type = "llama_cpp";
-    spec.model_path = model_path_;
+    spec.model_path = model_path_.string();
     spec.model_config = {{"chat_template", "qwen_chatml"},
                          {"add_bos", false},
                          {"random_seed", 17}};
@@ -52,13 +51,6 @@ class RealModelE2ETest : public ::testing::Test {
 
 // 1. 真实 Qwen GGUF 物理前向与自回归 Token 生成测试
 TEST_F(RealModelE2ETest, RealQwenGgufTextGeneration) {
-  if (!model_available_) {
-    std::cout << "[SKIPPED] Real GGUF model file not found at " << model_path_
-              << ", run ./scripts/fetch_real_test_models.sh first."
-              << std::endl;
-    GTEST_SKIP();
-  }
-
   auto model = CreateModel();
   ASSERT_NE(model, nullptr);
 
@@ -90,10 +82,6 @@ TEST_F(RealModelE2ETest, RealQwenGgufTextGeneration) {
 
 // 2. 真实 Qwen 模型在 FixedBatchExecutor 定长对齐批推理压测
 TEST_F(RealModelE2ETest, RealQwenBatchExecutionWithPadding) {
-  if (!model_available_) {
-    GTEST_SKIP();
-  }
-
   auto model = CreateModel();
   ASSERT_NE(model, nullptr);
 
@@ -122,26 +110,14 @@ TEST_F(RealModelE2ETest, RealQwenBatchExecutionWithPadding) {
   }
 }
 
-static std::string GetConfigPath(const std::string& rel_path) {
-  FILE* fp = fopen(rel_path.c_str(), "r");
-  if (fp) {
-    fclose(fp);
-    return rel_path;
-  }
-  return "../" + rel_path;
-}
-
 // 3. 真实模型接入 C ABI 全链路端到端验证
 TEST_F(RealModelE2ETest, RealModelCAbiEndToEnd) {
-  if (!model_available_) {
-    GTEST_SKIP();
-  }
-
   ASSERT_EQ(Alg_Init(), 0);
 
-  std::string cfg_path =
-      GetConfigPath("configs/pipeline_entity_extract_llamacpp.json");
-  std::string model_root;
+  const std::string cfg_path =
+      (project_root_ / "configs/pipeline_entity_extract_llamacpp.json")
+          .string();
+  const std::string model_root = model_root_.string();
 
   CompanyAlgParamCreate create_param;
   create_param.config_file_path = cfg_path.c_str();

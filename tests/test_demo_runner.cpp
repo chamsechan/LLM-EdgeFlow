@@ -208,6 +208,8 @@ TEST(DemoRunnerTest, CommandLineParsingErrors) {
 
 // 2. 测试芯片白名单解析
 TEST(DemoRunnerTest, ComputePlatformWhitelistValidation) {
+  EXPECT_EQ(DemoOptions{}.chip, "cpu");
+
   ComputePlatform type;
 
   EXPECT_TRUE(ParseComputePlatform("ax650", &type));
@@ -251,14 +253,14 @@ TEST(DemoRunnerTest, ProfileLoadAndMerge) {
   EXPECT_EQ(merged.config_path,
             "tests/fixtures/stage7/smoke/pipeline_entity_extract.conf");
   EXPECT_EQ(merged.dataset_path, "data/corpus_entity_extract.txt");
-  EXPECT_EQ(merged.chip, "ax650");
+  EXPECT_EQ(merged.chip, "cpu");
   EXPECT_EQ(merged.batch_size, 8);  // CLI 覆盖 Profile 的默认 1
 }
 
 // P1-1: 验证 CLI 显式传入默认值 (例如 --batch-size 1) 可以可靠覆盖 Profile 中非
 // 1 的 batch_size
 TEST(DemoRunnerTest, CliOverridesProfileEvenWithExplicitDefault) {
-  const char* argv[] = {"alg_demo", "--profile", "cross_rerank_mock",
+  const char* argv[] = {"alg_demo", "--profile", "cross_rerank_onnx",
                         "--batch-size", "1"};
   int argc = 5;
 
