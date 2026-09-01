@@ -104,14 +104,17 @@ TEST_F(RuntimeControlAndHotSwapTest, ConcurrentProcessAndHotControl) {
   ASSERT_EQ(Alg_Create(&handle, &param), 0);
   ASSERT_NE(handle, nullptr);
 
-  std::atomic<bool> stop_flag{false};
+  std::atomic<bool> start_flag{false};
   std::atomic<int> process_count{0};
   std::atomic<int> control_count{0};
+  constexpr int kProcessIterations = 64;
+  constexpr int kControlIterations = 16;
 
   // 线程 1: 持续发起推理
   std::thread process_thread([&]() {
+    while (!start_flag.load()) std::this_thread::yield();
     const char* text = "测试动态控制下的并发推理稳定性，含有VIP关键词";
-    while (!stop_flag.load()) {
+    for (int iteration = 0; iteration < kProcessIterations; ++iteration) {
       CompanyKeywordInputStruct in_req{10003, text};
       std::vector<void*> inputs = {&in_req};
       CompanyKeywordOutputStruct out_res;
@@ -120,14 +123,13 @@ TEST_F(RuntimeControlAndHotSwapTest, ConcurrentProcessAndHotControl) {
       if (ret == 0) {
         process_count.fetch_add(1);
       }
-      std::this_thread::sleep_for(std::chrono::microseconds(100));
     }
   });
 
   // 线程 2: 持续发起词表热更新
   std::thread control_thread([&]() {
-    int iter = 0;
-    while (!stop_flag.load()) {
+    while (!start_flag.load()) std::this_thread::yield();
+    for (int iter = 0; iter < kControlIterations; ++iter) {
       nlohmann::json ctrl_json = {{"categories",
                                    {{"DYNAMIC_CAT_" + std::to_string(iter % 5),
                                      {"VIP", "测试", "动态"}}}}};
@@ -139,20 +141,16 @@ TEST_F(RuntimeControlAndHotSwapTest, ConcurrentProcessAndHotControl) {
       if (ret == 0) {
         control_count.fetch_add(1);
       }
-      iter++;
-      std::this_thread::sleep_for(std::chrono::microseconds(500));
     }
   });
 
-  // 运行 200 毫秒高频并发交互
-  std::this_thread::sleep_for(std::chrono::milliseconds(200));
-  stop_flag.store(true);
+  start_flag.store(true);
 
   process_thread.join();
   control_thread.join();
 
-  EXPECT_GT(process_count.load(), 50);
-  EXPECT_GT(control_count.load(), 10);
+  EXPECT_EQ(process_count.load(), kProcessIterations);
+  EXPECT_EQ(control_count.load(), kControlIterations);
 
   EXPECT_EQ(Alg_Destroy(handle), 0);
 }

@@ -1,8 +1,10 @@
 #include "adapter/shared_algorithm_runtime.h"
 
 #include <cstring>
+#include <fstream>
 
 #include "adapter/biz_adapter_registry.h"
+#include "adapter/deployment_model_resolver.h"
 #include "adapter/operator/operator_biz_bridge_registry.h"
 #include "adapter/operator/operator_value_type_registry.h"
 #include "company_alg_log.h"
@@ -13,6 +15,28 @@
 #include "engine/model_registry.h"
 
 namespace alg_framework {
+namespace {
+
+bool ReadPipelineJson(const std::string& config_path,
+                      nlohmann::json* pipeline_json, std::string* diagnostic) {
+  std::ifstream stream(config_path);
+  if (!stream.is_open()) {
+    if (diagnostic) *diagnostic = "Failed to open config file: " + config_path;
+    return false;
+  }
+  try {
+    stream >> *pipeline_json;
+    return true;
+  } catch (const std::exception& exception) {
+    if (diagnostic) {
+      *diagnostic =
+          "JSON parse exception in " + config_path + ": " + exception.what();
+    }
+    return false;
+  }
+}
+
+}  // namespace
 
 int SharedAlgorithmRuntime::GlobalInit() noexcept {
   try {
@@ -106,17 +130,26 @@ int SharedAlgorithmRuntime::CreateFromConfigFile(
       return COMPANY_ALG_ERR_INVALID_PARAM;  // -2
     }
 
+    nlohmann::json pipeline_json;
+    std::string deployment_error;
+    if (!ReadPipelineJson(config_path, &pipeline_json, &deployment_error)) {
+      if (out_error) *out_error = deployment_error;
+      return COMPANY_ALG_ERR_INVALID_INPUT;
+    }
+    nlohmann::json resolved_pipeline_json;
+    if (!ResolveDeploymentModelPaths(pipeline_json, model_root_dir,
+                                     &resolved_pipeline_json,
+                                     &deployment_error)) {
+      if (out_error) *out_error = deployment_error;
+      return COMPANY_ALG_ERR_INVALID_INPUT;
+    }
+
     auto runtime = std::make_unique<SharedAlgorithmRuntime>();
     runtime->biz_type_ = biz_type;
-    runtime->device_id_ = device_id;
-    runtime->model_root_dir_ = model_root_dir;
-    runtime->config_file_path_ = config_path;
     runtime->adapter_ = adapter;
     runtime->pipeline_ = std::make_unique<Pipeline>();
 
     RuntimeOptions options;
-    options.config_file_path = config_path;
-    options.model_root_dir = model_root_dir;
     options.device_id = device_id;
     options.has_device_id = (device_id >= 0);
     options.biz_type = static_cast<int>(biz_type);
@@ -125,7 +158,8 @@ int SharedAlgorithmRuntime::CreateFromConfigFile(
     runtime->pipeline_->GetSessionContext().SetRuntimeOptions(options);
 
     PipelineDiagnostic diagnostic;
-    if (!runtime->pipeline_->BuildFromConfigFile(config_path, &diagnostic)) {
+    if (!runtime->pipeline_->BuildFromJson(resolved_pipeline_json,
+                                           &diagnostic)) {
       if (out_error) {
         *out_error =
             "Failed to build pipeline from config: " + diagnostic.message +
@@ -186,10 +220,17 @@ int SharedAlgorithmRuntime::CreateFromPipelineJson(
       return COMPANY_ALG_ERR_UNSUPPORTED_BIZ;  // -5
     }
 
+    nlohmann::json resolved_pipeline_json;
+    std::string deployment_error;
+    if (!ResolveDeploymentModelPaths(pipeline_json, model_root_dir,
+                                     &resolved_pipeline_json,
+                                     &deployment_error)) {
+      if (out_error) *out_error = deployment_error;
+      return COMPANY_ALG_ERR_INVALID_PARAM;
+    }
+
     auto runtime = std::make_unique<SharedAlgorithmRuntime>();
     runtime->biz_type_ = biz_type;
-    runtime->device_id_ = device_id;
-    runtime->model_root_dir_ = model_root_dir;
     runtime->adapter_ = adapter;
     runtime->pipeline_ = std::make_unique<Pipeline>();
 
@@ -197,8 +238,6 @@ int SharedAlgorithmRuntime::CreateFromPipelineJson(
     if (extra_runtime_options) {
       options = *extra_runtime_options;
     }
-    options.config_file_path = "<in_memory_json>";
-    options.model_root_dir = model_root_dir;
     options.device_id = device_id;
     options.has_device_id = (device_id >= 0);
     options.biz_type = static_cast<int>(biz_type);
@@ -207,7 +246,8 @@ int SharedAlgorithmRuntime::CreateFromPipelineJson(
     runtime->pipeline_->GetSessionContext().SetRuntimeOptions(options);
 
     PipelineDiagnostic diagnostic;
-    if (!runtime->pipeline_->BuildFromJson(pipeline_json, &diagnostic)) {
+    if (!runtime->pipeline_->BuildFromJson(resolved_pipeline_json,
+                                           &diagnostic)) {
       if (out_error) {
         *out_error =
             "Failed to build pipeline from JSON: " + diagnostic.message +

@@ -1,6 +1,7 @@
 #include "engine/backends/llama_cpp/llama_cpp_backend.h"
 
 #include <algorithm>
+#include <cctype>
 #include <exception>
 #include <filesystem>
 #include <limits>
@@ -27,6 +28,13 @@ void SetDiagnostic(std::string* diagnostic,
     *diagnostic = message;
   } catch (...) {
   }
+}
+
+std::string NormalizePlatform(std::string platform) {
+  std::transform(
+      platform.begin(), platform.end(), platform.begin(),
+      [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
+  return platform;
 }
 
 #ifdef HAVE_LLAMACPP
@@ -342,6 +350,26 @@ std::shared_ptr<IBackendSession> LlamaCppBackend::Load(
             std::string(ExecutionProtocolName(*spec.requested_protocol)));
     return nullptr;
   }
+  const std::string platform =
+      NormalizePlatform(spec.execution_target.platform);
+  if (!platform.empty() && platform != "UNKNOWN" && platform != "CPU" &&
+      platform != "CPU_GENERIC" && platform != "CUDA") {
+    SetDiagnostic(diagnostic,
+                  "llama.cpp backend does not support requested platform: " +
+                      spec.execution_target.platform);
+    return nullptr;
+  }
+  const int device_id = spec.execution_target.device_id.value_or(0);
+  if (device_id < 0) {
+    SetDiagnostic(diagnostic, "llama.cpp device_id must be non-negative");
+    return nullptr;
+  }
+  if ((platform == "CPU" || platform == "CPU_GENERIC") && device_id != 0) {
+    SetDiagnostic(diagnostic,
+                  "llama.cpp CPU execution only accepts device_id 0; got: " +
+                      std::to_string(device_id));
+    return nullptr;
+  }
 #ifndef HAVE_LLAMACPP
   (void)spec;
   SetDiagnostic(diagnostic,
@@ -394,9 +422,27 @@ std::shared_ptr<IBackendSession> LlamaCppBackend::Load(
       return nullptr;
     }
 
+    if (n_gpu_layers == 0 && device_id != 0) {
+      SetDiagnostic(diagnostic,
+                    "llama.cpp CPU execution only accepts device_id 0; got: " +
+                        std::to_string(device_id));
+      return nullptr;
+    }
+    if (n_gpu_layers == 0 && platform == "CUDA") {
+      SetDiagnostic(diagnostic,
+                    "llama.cpp CUDA execution requires n_gpu_layers > 0");
+      return nullptr;
+    }
+    if (n_gpu_layers > 0 && (platform == "CPU" || platform == "CPU_GENERIC")) {
+      SetDiagnostic(diagnostic,
+                    "llama.cpp n_gpu_layers requires a GPU execution platform");
+      return nullptr;
+    }
+
     (void)GetLlamaRuntime();
     llama_model_params model_params = llama_model_default_params();
     model_params.n_gpu_layers = n_gpu_layers;
+    model_params.main_gpu = device_id;
     model_params.check_tensors = check_tensors;
     LlamaModelPtr model(
         llama_model_load_from_file(spec.model_path.c_str(), model_params));

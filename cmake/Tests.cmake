@@ -64,11 +64,14 @@ if(LLM_EDGEFLOW_HAS_ONNXRUNTIME)
       "${EDGEFLOW_STAGE3_FIXTURE_DIR}/vocab.txt")
   set(EDGEFLOW_STAGE4_RERANK_ONNX_FIXTURE
       "${EDGEFLOW_STAGE3_FIXTURE_DIR}/rerank_fixture.onnx")
+  set(EDGEFLOW_STAGE3_NON_TENSOR_ONNX_FIXTURE
+      "${EDGEFLOW_STAGE3_FIXTURE_DIR}/non_tensor_output_fixture.onnx")
   file(MAKE_DIRECTORY "${EDGEFLOW_STAGE3_FIXTURE_DIR}")
   add_custom_command(
     OUTPUT
       "${EDGEFLOW_STAGE3_ONNX_FIXTURE}"
       "${EDGEFLOW_STAGE4_RERANK_ONNX_FIXTURE}"
+      "${EDGEFLOW_STAGE3_NON_TENSOR_ONNX_FIXTURE}"
       "${EDGEFLOW_STAGE3_VOCAB_FIXTURE}"
     COMMAND "${Python3_EXECUTABLE}"
             "${CMAKE_CURRENT_SOURCE_DIR}/scripts/generate_test_onnx_model.py"
@@ -80,6 +83,7 @@ if(LLM_EDGEFLOW_HAS_ONNXRUNTIME)
     DEPENDS
       "${EDGEFLOW_STAGE3_ONNX_FIXTURE}"
       "${EDGEFLOW_STAGE4_RERANK_ONNX_FIXTURE}"
+      "${EDGEFLOW_STAGE3_NON_TENSOR_ONNX_FIXTURE}"
       "${EDGEFLOW_STAGE3_VOCAB_FIXTURE}")
   configure_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/stage4/pipeline_cross_rerank_fixture.json"
@@ -173,6 +177,7 @@ if(LLM_EDGEFLOW_HAS_ONNXRUNTIME)
       HAVE_ONNXRUNTIME=1
       EDGEFLOW_STAGE3_ONNX_FIXTURE="${EDGEFLOW_STAGE3_ONNX_FIXTURE}"
       EDGEFLOW_STAGE4_RERANK_ONNX_FIXTURE="${EDGEFLOW_STAGE4_RERANK_ONNX_FIXTURE}"
+      EDGEFLOW_STAGE3_NON_TENSOR_ONNX_FIXTURE="${EDGEFLOW_STAGE3_NON_TENSOR_ONNX_FIXTURE}"
       EDGEFLOW_STAGE3_VOCAB_FIXTURE="${EDGEFLOW_STAGE3_VOCAB_FIXTURE}")
   endforeach()
   add_dependencies(alg_demo edgeflow_stage3_onnx_fixture)
@@ -446,8 +451,4 @@ get_property(_edgeflow_registered_tests DIRECTORY PROPERTY TESTS)
 set_tests_properties(${_edgeflow_registered_tests} PROPERTIES TIMEOUT 120)
 set_tests_properties(RegistryConflictNodeTest RegistryConflictModelTest
   PROPERTIES TIMEOUT 5)
-if(ENABLE_REAL_MODEL_TESTS)
-  set_tests_properties(RealModelE2ETest PROPERTIES TIMEOUT 1800)
-endif()
-
 edgeflow_assert_required_test_inventory()

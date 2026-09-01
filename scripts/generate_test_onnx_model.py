@@ -73,6 +73,16 @@ def _value_info(name: str, element_type: int,
     return _string_field(1, name) + _message_field(2, type_proto)
 
 
+def _sequence_value_info(name: str, element_type: int,
+                         dimensions: List[Union[int, str]]) -> bytes:
+    tensor_type = _int_field(1, element_type)
+    tensor_type += _message_field(2, _tensor_shape(dimensions))
+    element_type_proto = _message_field(1, tensor_type)
+    sequence_type = _message_field(1, element_type_proto)
+    type_proto = _message_field(4, sequence_type)
+    return _string_field(1, name) + _message_field(2, type_proto)
+
+
 def _tensor(name: str, element_type: int, dimensions: List[int],
             raw_data: bytes) -> bytes:
     tensor = bytearray()
@@ -214,6 +224,27 @@ def generate_rerank_onnx_model(model_path: Path) -> None:
     model_path.write_bytes(model)
 
 
+def generate_non_tensor_output_model(model_path: Path) -> None:
+    graph = bytearray()
+    graph += _message_field(
+        1, _node("SequenceConstruct", ["input_ids"], ["sequence_output"]))
+    graph += _string_field(2, "edgeflow_non_tensor_output_fixture")
+    graph += _message_field(
+        11, _value_info("input_ids", 7, ["batch", "sequence"]))
+    graph += _message_field(
+        12, _sequence_value_info("sequence_output", 7,
+                                 ["batch", "sequence"]))
+
+    model = bytearray()
+    model += _int_field(1, 8)
+    model += _string_field(2, "edgeflow_test_generator")
+    model += _message_field(7, bytes(graph))
+    model += _message_field(8, _int_field(2, 13))
+
+    model_path.parent.mkdir(parents=True, exist_ok=True)
+    model_path.write_bytes(model)
+
+
 def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -230,15 +261,19 @@ def main() -> None:
     output_dir = Path(args.output_dir).resolve()
     model_path = output_dir / "embedding_fixture.onnx"
     rerank_path = output_dir / "rerank_fixture.onnx"
+    non_tensor_path = output_dir / "non_tensor_output_fixture.onnx"
     vocab_path = output_dir / "vocab.txt"
     generate_vocab(vocab_path)
     generate_onnx_model(model_path)
     generate_rerank_onnx_model(rerank_path)
+    generate_non_tensor_output_model(non_tensor_path)
 
     print(f"ONNX_FIXTURE={model_path}")
     print(f"ONNX_SHA256={_sha256(model_path)}")
     print(f"RERANK_ONNX_FIXTURE={rerank_path}")
     print(f"RERANK_ONNX_SHA256={_sha256(rerank_path)}")
+    print(f"NON_TENSOR_ONNX_FIXTURE={non_tensor_path}")
+    print(f"NON_TENSOR_ONNX_SHA256={_sha256(non_tensor_path)}")
     print(f"VOCAB_FIXTURE={vocab_path}")
     print(f"VOCAB_SHA256={_sha256(vocab_path)}")
 

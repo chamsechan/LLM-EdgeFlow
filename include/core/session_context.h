@@ -19,8 +19,6 @@ namespace alg_framework {
  * @brief 句柄级运行时配置与资源参数
  */
 struct RuntimeOptions {
-  std::string config_file_path;
-  std::string model_root_dir;
   int device_id = -1;  // -1 表示未指定/默认，>=0 表示物理设备 ID
   bool has_device_id = false;
   int biz_type = 0;
@@ -92,26 +90,18 @@ class ModelManager {
 
     std::lock_guard<std::mutex> lock(mutex_);
     for (const auto& item : staged_registrations) {
-      if (models_.find(item.model_id) != models_.end()) {
+      if (registrations_.find(item.model_id) != registrations_.end()) {
         return false;
       }
     }
 
     // 所有可能失败的准备工作在临时容器完成，最终通过 noexcept swap 提交。
-    auto new_models = models_;
-    auto new_revisions = revisions_;
     auto new_registrations = registrations_;
 
     for (auto& item : staged_registrations) {
       const std::string model_id = item.model_id;
-      const std::string revision = item.revision;
-
-      new_models[model_id] = item.model;
-      new_revisions[model_id] = revision;
       new_registrations[model_id] = std::move(item);
     }
-    models_.swap(new_models);
-    revisions_.swap(new_revisions);
     registrations_.swap(new_registrations);
     return true;
   }
@@ -137,9 +127,9 @@ class ModelManager {
   template <typename T>
   std::shared_ptr<T> GetModel(const std::string& model_id) const {
     std::lock_guard<std::mutex> lock(mutex_);
-    auto it = models_.find(model_id);
-    if (it != models_.end()) {
-      auto res = std::dynamic_pointer_cast<T>(it->second);
+    auto it = registrations_.find(model_id);
+    if (it != registrations_.end()) {
+      auto res = std::dynamic_pointer_cast<T>(it->second.model);
       if (res) return res;
     }
     return nullptr;
@@ -147,13 +137,13 @@ class ModelManager {
 
   bool HasModel(const std::string& model_id) const {
     std::lock_guard<std::mutex> lock(mutex_);
-    return models_.find(model_id) != models_.end();
+    return registrations_.find(model_id) != registrations_.end();
   }
 
   std::string GetModelRevision(const std::string& model_id) const {
     std::lock_guard<std::mutex> lock(mutex_);
-    auto it = revisions_.find(model_id);
-    return it == revisions_.end() ? std::string() : it->second;
+    auto it = registrations_.find(model_id);
+    return it == registrations_.end() ? std::string() : it->second.revision;
   }
 
   std::optional<ModelRegistration> GetModelRegistration(
@@ -166,20 +156,23 @@ class ModelManager {
 
   bool UpdateModelRevision(const std::string& model_id, std::string revision) {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (revision.empty() || models_.find(model_id) == models_.end()) {
+    auto it = registrations_.find(model_id);
+    if (revision.empty() || it == registrations_.end()) {
       return false;
     }
-    revisions_[model_id] = std::move(revision);
-    if (registrations_.find(model_id) != registrations_.end()) {
-      registrations_[model_id].revision = revisions_[model_id];
-    }
+    it->second.revision = std::move(revision);
     return true;
   }
 
   std::unordered_map<std::string, std::shared_ptr<IModel>> GetAllModels()
       const {
     std::lock_guard<std::mutex> lock(mutex_);
-    return models_;
+    std::unordered_map<std::string, std::shared_ptr<IModel>> result;
+    result.reserve(registrations_.size());
+    for (const auto& pair : registrations_) {
+      result.emplace(pair.first, pair.second.model);
+    }
+    return result;
   }
 
   std::vector<ModelRegistration> GetAllRegistrations() const {
@@ -194,9 +187,7 @@ class ModelManager {
 
  private:
   mutable std::mutex mutex_;
-  std::unordered_map<std::string, std::shared_ptr<IModel>> models_;
   std::unordered_map<std::string, ModelRegistration> registrations_;
-  std::unordered_map<std::string, std::string> revisions_;
 };
 
 /**

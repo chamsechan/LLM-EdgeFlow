@@ -461,7 +461,7 @@ TEST(ValidatedPipelinePlanTest, RejectsNodeFromDifferentBusiness) {
 }
 
 TEST(ValidatedPipelinePlanTest,
-     DeterministicModelPathResolutionWithoutFilesystemProbing) {
+     DeterministicLexicalModelPathValidationWithoutDeploymentContext) {
   if (!BackendRegistry::Instance().Find("mock_path_backend").has_value()) {
     BackendDefinition bdef;
     bdef.backend_type = "mock_path_backend";
@@ -516,46 +516,30 @@ TEST(ValidatedPipelinePlanTest,
                                  {"outputs", {{"ranked", "ranked_results"}}}}},
                                {"config", {{"bind_model", "m_rel"}}}}})}};
 
-  // 1. 无 model_root_dir
-  auto plan_no_root = PipelineValidator::ValidateAndPlan(
-      pipeline_json, ValidationPolicy::kPrivateExtensionCompatible, "");
-  ASSERT_TRUE(plan_no_root.report.ok) << plan_no_root.report.ToJson().dump();
-  EXPECT_EQ(plan_no_root.models[0].resolved_model_path,
-            "models/sub/model.onnx");
-  EXPECT_EQ(plan_no_root.models[1].resolved_model_path,
-            "/opt/models/fixed.onnx");
-  EXPECT_EQ(plan_no_root.models[2].resolved_model_path, "model_direct.onnx");
+  // Layer 2 only performs deterministic lexical normalization. Deployment
+  // roots are a Layer 1 concern.
+  auto plan = PipelineValidator::ValidateAndPlan(
+      pipeline_json, ValidationPolicy::kPrivateExtensionCompatible);
+  ASSERT_TRUE(plan.report.ok) << plan.report.ToJson().dump();
+  EXPECT_EQ(plan.models[0].resolved_model_path, "models/sub/model.onnx");
+  EXPECT_EQ(plan.models[1].resolved_model_path, "/opt/models/fixed.onnx");
+  EXPECT_EQ(plan.models[2].resolved_model_path, "model_direct.onnx");
 
-  // 2. 指定自定义 model_root_dir
-  auto plan_with_root = PipelineValidator::ValidateAndPlan(
-      pipeline_json, ValidationPolicy::kPrivateExtensionCompatible,
-      "/custom/root");
-  ASSERT_TRUE(plan_with_root.report.ok);
-  EXPECT_EQ(plan_with_root.models[0].resolved_model_path,
-            "/custom/root/models/sub/model.onnx");
-  EXPECT_EQ(plan_with_root.models[1].resolved_model_path,
-            "/opt/models/fixed.onnx");
-  EXPECT_EQ(plan_with_root.models[2].resolved_model_path,
-            "/custom/root/model_direct.onnx");
+  auto plan_repeat = PipelineValidator::ValidateAndPlan(
+      pipeline_json, ValidationPolicy::kPrivateExtensionCompatible);
+  ASSERT_TRUE(plan_repeat.report.ok);
+  EXPECT_EQ(plan_repeat.models[0].resolved_model_path,
+            plan.models[0].resolved_model_path);
+  EXPECT_EQ(plan_repeat.models[1].resolved_model_path,
+            plan.models[1].resolved_model_path);
+  EXPECT_EQ(plan_repeat.models[2].resolved_model_path,
+            plan.models[2].resolved_model_path);
 
-  // 3. 确定性保证：重复多次规划结果绝对一致
-  auto plan_with_root_repeat = PipelineValidator::ValidateAndPlan(
-      pipeline_json, ValidationPolicy::kPrivateExtensionCompatible,
-      "/custom/root");
-  ASSERT_TRUE(plan_with_root_repeat.report.ok);
-  EXPECT_EQ(plan_with_root_repeat.models[0].resolved_model_path,
-            plan_with_root.models[0].resolved_model_path);
-  EXPECT_EQ(plan_with_root_repeat.models[1].resolved_model_path,
-            plan_with_root.models[1].resolved_model_path);
-  EXPECT_EQ(plan_with_root_repeat.models[2].resolved_model_path,
-            plan_with_root.models[2].resolved_model_path);
-
-  // 4. 路径逃逸检测
+  // Parent traversal remains invalid even before deployment resolution.
   nlohmann::json escape_json = pipeline_json;
   escape_json["models"][0]["model_path"] = "../escape.onnx";
   auto plan_escape = PipelineValidator::ValidateAndPlan(
-      escape_json, ValidationPolicy::kPrivateExtensionCompatible,
-      "/custom/root");
+      escape_json, ValidationPolicy::kPrivateExtensionCompatible);
   EXPECT_FALSE(plan_escape.report.ok);
 }
 

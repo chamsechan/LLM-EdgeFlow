@@ -1,6 +1,7 @@
 #include "engine/backends/onnxruntime/onnxruntime_backend.h"
 
 #include <algorithm>
+#include <cctype>
 #include <filesystem>
 #include <memory>
 #include <optional>
@@ -240,6 +241,40 @@ bool InferBatchPolicy(const std::vector<TensorSpec>& inputs,
 }
 
 }  // namespace onnxruntime_detail
+
+namespace {
+
+std::string NormalizePlatform(std::string platform) {
+  std::transform(
+      platform.begin(), platform.end(), platform.begin(),
+      [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
+  return platform;
+}
+
+bool ValidateExecutionTarget(const ExecutionTarget& target,
+                             std::string* diagnostic) {
+  const std::string platform = NormalizePlatform(target.platform);
+  if (!platform.empty() && platform != "UNKNOWN" && platform != "CPU" &&
+      platform != "CPU_GENERIC") {
+    if (diagnostic) {
+      *diagnostic =
+          "ONNX Runtime backend only supports CPU execution in this "
+          "build; requested platform: " +
+          target.platform;
+    }
+    return false;
+  }
+  if (target.device_id.has_value() && *target.device_id != 0) {
+    if (diagnostic) {
+      *diagnostic = "ONNX Runtime CPU backend only accepts device_id 0; got: " +
+                    std::to_string(*target.device_id);
+    }
+    return false;
+  }
+  return true;
+}
+
+}  // namespace
 
 #ifdef HAVE_ONNXRUNTIME
 
@@ -502,6 +537,9 @@ std::shared_ptr<IBackendSession> OnnxRuntimeBackend::Load(
     }
     return nullptr;
   }
+  if (!ValidateExecutionTarget(spec.execution_target, diagnostic)) {
+    return nullptr;
+  }
 #ifndef HAVE_ONNXRUNTIME
   static_cast<void>(spec);
   if (diagnostic) {
@@ -569,6 +607,12 @@ std::shared_ptr<IBackendSession> OnnxRuntimeBackend::Load(
       }
 
       auto type_info = session->GetInputTypeInfo(i);
+      if (type_info.GetONNXType() != ONNX_TYPE_TENSOR) {
+        if (diagnostic) {
+          *diagnostic = "Model input is not a tensor: " + name;
+        }
+        return nullptr;
+      }
       auto tensor_info = type_info.GetTensorTypeAndShapeInfo();
       auto elem_type_opt = TryMapOnnxElementType(tensor_info.GetElementType());
       if (!elem_type_opt.has_value()) {
@@ -605,6 +649,12 @@ std::shared_ptr<IBackendSession> OnnxRuntimeBackend::Load(
       }
 
       auto type_info = session->GetOutputTypeInfo(i);
+      if (type_info.GetONNXType() != ONNX_TYPE_TENSOR) {
+        if (diagnostic) {
+          *diagnostic = "Model output is not a tensor: " + name;
+        }
+        return nullptr;
+      }
       auto tensor_info = type_info.GetTensorTypeAndShapeInfo();
       auto elem_type_opt = TryMapOnnxElementType(tensor_info.GetElementType());
       if (!elem_type_opt.has_value()) {

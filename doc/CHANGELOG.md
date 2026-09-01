@@ -8,6 +8,23 @@
 
 - 引入统一 `3rdparty/` 持久化预编译归档体系，支持 llama.cpp、ONNX Runtime、GoogleTest、nlohmann/json 及 PCRE2 的本地静态库与头文件秒级复用，消除 clean build 与日常开发中的重复下载与源码重新编译耗时。
 
+## 8.0.0 - 2026-09
+
+- 冻结 `model_root_dir` 为直接包含 artifact 与 sidecar 的部署目录，并在 Layer 1
+  将 C ABI、内存 JSON 与 Operator 路径统一解析为沙箱内绝对路径；Layer 2 不再解释
+  部署根目录。
+- 新增中性 `ExecutionTarget`，将 device/platform 贯通至生产 ONNX Runtime 与
+  llama.cpp Backend；不支持的组合以稳定诊断 fail-closed。
+- `ModelManager` 改为单一 registration 状态源；ONNX 非 Tensor I/O 在 metadata
+  边界显式拒绝。
+- real Profile 改用与当前 tokenizer 实现匹配的固定模型，并提供固定上游 Commit 与
+  SHA-256 的 artifact/sidecar 获取脚本；mock Profile 统一声明 CPU emulator。
+- 默认 CI 新增完整生产 Backend sanitizer、真实 GGUF C ABI 与 public real Profile
+  job。
+- 产品与共享库版本统一为 8.0.0，SONAME/C ABI major 统一为 5；内部 Biz Adapter
+  descriptor 版本保持其独立的 2.0.0 契约。
+- 设计依据：[RFC-0025](rfcs/0025-deployment-runtime-contract-convergence.md)。
+
 - v7 在正式接入前删除未被外部使用的历史兼容层：Operator 后缀别名、
   `.conf` 双结构/单模型简写、隐式顺序 Pipeline 转换、Node 双字段与类型别名、
   重叠错误码，以及 Demo/CLI/Studio 兼容入口。当前契约对旧形状一律 fail-closed。

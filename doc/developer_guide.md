@@ -45,7 +45,8 @@ Create 期固定池分配，Process 只向空输出槽位提交池化 shared_ptr
 持有池状态的 weak lifetime token，Destroy 后不得访问输出数据。任何需要修改
 Blackboard、Node、Model 或 Backend 才能识别 Operator 结构的方案均违反分层要求。
 
-目标交付共享库为 `company_alg_sdk`，SOVERSION 为 4。
+目标交付共享库为 `company_alg_sdk`，产品 VERSION 为 8.0.0，
+SOVERSION/C ABI major 为 5。
 Operator v4 的 Create 和配置预检都使用部署根 `model_path` 加相对
 `cfg_file_name`。每份 `.conf` 的根对象只能包含 `data`，`data` 只接受
 `pipe_path`、`model_paths` 和 `mem_que`；单模型覆盖也必须使用以 `model_id` 为键的
@@ -133,7 +134,7 @@ Pipeline 配置只使用 Model/Backend 语法：
   "capability": "embedding",
   "model_type": "my_embedding_model",
   "backend": "my_tensor_backend",
-  "model_path": "models/embedding/model.bin",
+  "model_path": "embedding/model.bin",
   "model_config": {"embedding_dim": 768},
   "backend_config": {"max_batch_size": 4}
 }

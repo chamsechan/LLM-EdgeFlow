@@ -39,6 +39,10 @@
 #ifndef EDGEFLOW_STAGE3_VOCAB_FIXTURE
 #define EDGEFLOW_STAGE3_VOCAB_FIXTURE "models/vocab.txt"
 #endif
+#ifndef EDGEFLOW_STAGE3_NON_TENSOR_ONNX_FIXTURE
+#define EDGEFLOW_STAGE3_NON_TENSOR_ONNX_FIXTURE \
+  "models/non_tensor_output_fixture.onnx"
+#endif
 
 namespace alg_framework {
 
@@ -899,6 +903,32 @@ TEST_F(OnnxAndEmbeddingModelTest,
   EXPECT_NE(diag.find("requested protocol"), std::string::npos);
 }
 
+TEST_F(OnnxAndEmbeddingModelTest,
+       OnnxBackendRejectsUnsupportedExecutionTargetBeforeLoading) {
+  OnnxRuntimeBackend backend;
+  BackendLoadSpec spec;
+  spec.model_path = "./models/does-not-exist.onnx";
+  spec.execution_target.platform = "AX650";
+  spec.execution_target.device_id = 2;
+  std::string diag;
+  EXPECT_EQ(backend.Load(spec, &diag), nullptr);
+  EXPECT_NE(diag.find("only supports CPU execution"), std::string::npos);
+}
+
+TEST_F(OnnxAndEmbeddingModelTest,
+       OnnxBackendRejectsNonTensorMetadataWithStableDiagnostic) {
+#ifndef HAVE_ONNXRUNTIME
+  GTEST_SKIP() << "ONNX Runtime not compiled into this build.";
+#else
+  OnnxRuntimeBackend backend;
+  BackendLoadSpec spec;
+  spec.model_path = EDGEFLOW_STAGE3_NON_TENSOR_ONNX_FIXTURE;
+  std::string diag;
+  EXPECT_EQ(backend.Load(spec, &diag), nullptr);
+  EXPECT_EQ(diag, "Model output is not a tensor: sequence_output");
+#endif
+}
+
 TEST_F(OnnxAndEmbeddingModelTest, OnnxRuntimeFixturePassEvidence) {
 #ifndef HAVE_ONNXRUNTIME
   GTEST_SKIP() << "ONNX Runtime not compiled into this build.";
@@ -1000,8 +1030,8 @@ TEST_F(OnnxAndEmbeddingModelTest, OnnxRuntimeFixturePassEvidence) {
   }
   EXPECT_TRUE(is_different);
 
-  // 3. 使用同一 fixture 完成 Pipeline Build 与 Execute。测试副本只替换
-  // artifact 路径和序列长度，不修改生产配置。
+  // 3. 使用同一 fixture 完成 Pipeline Build 与 Execute。测试副本替换
+  // artifact、sidecar 和 fixture 固有的模型维度，不修改生产文件。
   std::ifstream config_in("configs/pipeline_doc_qa_onnx.json");
   ASSERT_TRUE(config_in.good());
   nlohmann::json pipeline_config;
@@ -1010,6 +1040,7 @@ TEST_F(OnnxAndEmbeddingModelTest, OnnxRuntimeFixturePassEvidence) {
   pipeline_config["models"][0]["model_config"]["tokenizer_file"] =
       vocab_path.string();
   pipeline_config["models"][0]["model_config"]["max_length"] = 32;
+  pipeline_config["models"][0]["model_config"]["embedding_dim"] = 128;
   // This test proves the ONNX embedding path and must not depend on an
   // external GGUF asset. Keep the same LLM node, but replace only its test
   // model registration with an explicit typed Model/Backend fixture.

@@ -6,7 +6,7 @@
       "capability": "llm",
       "model_type": "qwen_causal_lm",
       "backend": "llama_cpp",
-      "model_path": "./models/qwen2.5-0.5b-instruct-q4_k_m.gguf",
+      "model_path": "qwen2.5-0.5b-instruct-q4_k_m.gguf",
       "model_config": {
         "chat_template": "qwen_chatml",
         "system_prompt": "",

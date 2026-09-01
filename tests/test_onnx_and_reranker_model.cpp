@@ -953,7 +953,7 @@ TEST_F(OnnxAndRerankerModelTest, RealPipelineBuildAndExecuteSmoke) {
 
   // 3. PipelineValidator Validate/Plan
   auto planned_plan = PipelineValidator::ValidateAndPlan(
-      pipe_json, ValidationPolicy::kPrivateExtensionCompatible, "");
+      pipe_json, ValidationPolicy::kPrivateExtensionCompatible);
   ASSERT_TRUE(planned_plan.report.ok) << planned_plan.report.ToJson().dump();
   ASSERT_EQ(planned_plan.topological_order.size(), 1u);
   EXPECT_EQ(planned_plan.topological_order[0], "node_0_TextRerankNode");

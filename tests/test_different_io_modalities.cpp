@@ -152,7 +152,13 @@ TEST_F(DifferentIoModalitiesTest, CrossRerankBatch) {
   param.biz_type = ALG_BIZ_TYPE_CROSS_RERANK;
 
   void* handle = nullptr;
+  param.device_id = 1;
   int ret = Alg_Create(&handle, &param);
+  EXPECT_NE(ret, 0);
+  EXPECT_EQ(handle, nullptr);
+
+  param.device_id = 0;
+  ret = Alg_Create(&handle, &param);
   ASSERT_EQ(ret, 0);
   ASSERT_NE(handle, nullptr);
 

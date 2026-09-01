@@ -31,7 +31,7 @@ struct DemoOptions {
 
   int batch_size = 1;  // 最大批大小 (支持按批分块分发)
   int device_id = 0;   // 设备 ID
-  std::string chip = "ax650";  // 计算平台芯片类型字符串 (受严格白名单校验)
+  std::string chip = "cpu";  // 计算平台芯片类型字符串 (受严格白名单校验)
   uint32_t depth_num = 1;  // 输出结构体预分配深度
 
   std::optional<std::string> control_file;  // 运行时 Control JSON 文件路径

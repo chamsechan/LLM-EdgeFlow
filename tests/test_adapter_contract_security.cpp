@@ -1,7 +1,9 @@
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <string>
 #include <thread>
 #include <vector>
@@ -9,6 +11,8 @@
 #include "adapter/adapter_status.h"
 #include "adapter/adapter_validation_helper.h"
 #include "adapter/biz_adapter_registry.h"
+#include "adapter/deployment_model_resolver.h"
+#include "adapter/shared_algorithm_runtime.h"
 #include "adapter/templates/flat_struct_adapter.h"
 #include "adapter/templates/nested_array_adapter.h"
 #include "adapter/templates/nested_pointer_tree_adapter.h"
@@ -36,6 +40,109 @@ class AdapterContractSecurityTest : public ::testing::Test {
     BizAdapterRegistry::Instance().ResetConflictForTesting();
   }
 };
+
+TEST_F(AdapterContractSecurityTest, DeploymentModelRootContractIsSandboxed) {
+  const std::string root_input = GetConfigPath("models");
+  const auto root = std::filesystem::absolute(root_input);
+  ASSERT_TRUE(std::filesystem::is_directory(root));
+
+  nlohmann::json pipeline_json = {
+      {"models", nlohmann::json::array({{{"model_path", "artifact.onnx"}}})}};
+  nlohmann::json resolved;
+  std::string diagnostic;
+
+  ASSERT_TRUE(ResolveDeploymentModelPaths(pipeline_json, root_input, &resolved,
+                                          &diagnostic))
+      << diagnostic;
+  EXPECT_EQ(std::filesystem::path(
+                resolved["models"][0]["model_path"].get<std::string>()),
+            std::filesystem::weakly_canonical(root / "artifact.onnx"));
+
+  diagnostic.clear();
+  EXPECT_FALSE(
+      ResolveDeploymentModelPaths(pipeline_json, "", &resolved, &diagnostic));
+  EXPECT_NE(diagnostic.find("requires non-empty model_root_dir"),
+            std::string::npos);
+
+  pipeline_json["models"][0]["model_path"] = "../escape.onnx";
+  diagnostic.clear();
+  EXPECT_FALSE(ResolveDeploymentModelPaths(pipeline_json, root.string(),
+                                           &resolved, &diagnostic));
+  EXPECT_NE(diagnostic.find("cannot traverse"), std::string::npos);
+
+  const auto unique_suffix = std::to_string(
+      std::chrono::steady_clock::now().time_since_epoch().count());
+  const auto temp_base = std::filesystem::temp_directory_path() /
+                         ("edgeflow_resolver_" + unique_suffix);
+  const auto sandbox = temp_base / "sandbox";
+  const auto outside = temp_base / "outside";
+  std::filesystem::create_directories(sandbox);
+  std::filesystem::create_directories(outside);
+  std::filesystem::create_directory_symlink(outside, sandbox / "escape_link");
+  pipeline_json["models"][0]["model_path"] = "escape_link/artifact.onnx";
+  diagnostic.clear();
+  EXPECT_FALSE(ResolveDeploymentModelPaths(pipeline_json, sandbox.string(),
+                                           &resolved, &diagnostic));
+  EXPECT_NE(diagnostic.find("escapes model_root_dir"), std::string::npos);
+  std::filesystem::remove_all(temp_base);
+
+  pipeline_json["models"][0]["model_path"] =
+      std::filesystem::weakly_canonical(root / "absolute.onnx").string();
+  diagnostic.clear();
+  EXPECT_TRUE(
+      ResolveDeploymentModelPaths(pipeline_json, "", &resolved, &diagnostic))
+      << diagnostic;
+
+  diagnostic.clear();
+  const nlohmann::json model_less_pipeline = {
+      {"biz_name", "model_less"}, {"models", nlohmann::json::array()}};
+  EXPECT_TRUE(ResolveDeploymentModelPaths(model_less_pipeline,
+                                          "/path/unused/by/model-less-pipeline",
+                                          &resolved, &diagnostic))
+      << diagnostic;
+}
+
+TEST_F(AdapterContractSecurityTest,
+       InMemoryEntryResolvesArtifactRootBeforeCore) {
+  const std::string config_path =
+      GetConfigPath("tests/fixtures/stage7/smoke/pipeline_doc_qa.json");
+  std::ifstream config_stream(config_path);
+  ASSERT_TRUE(config_stream.is_open());
+  nlohmann::json pipeline_json;
+  config_stream >> pipeline_json;
+  ASSERT_EQ(pipeline_json["models"].size(), 2u);
+  pipeline_json["models"][0]["model_path"] = "embedding.fixture";
+  pipeline_json["models"][1]["model_path"] = "llm.fixture";
+
+  const std::filesystem::path model_root =
+      std::filesystem::weakly_canonical(GetConfigPath("models"));
+  std::unique_ptr<SharedAlgorithmRuntime> runtime;
+  std::string diagnostic;
+  ASSERT_EQ(SharedAlgorithmRuntime::CreateFromPipelineJson(
+                pipeline_json, 0, model_root.string(), ALG_BIZ_TYPE_DOC_QA,
+                &runtime, &diagnostic),
+            COMPANY_ALG_SUCCESS)
+      << diagnostic;
+  ASSERT_NE(runtime, nullptr);
+
+  const auto embedding_registration =
+      runtime->GetPipeline()
+          ->GetSessionContext()
+          .GetModelManager()
+          .GetModelRegistration("embed_model_v1");
+  const auto llm_registration = runtime->GetPipeline()
+                                    ->GetSessionContext()
+                                    .GetModelManager()
+                                    .GetModelRegistration("llm_model_v1");
+  ASSERT_TRUE(embedding_registration.has_value());
+  ASSERT_TRUE(llm_registration.has_value());
+  EXPECT_EQ(embedding_registration->resolved_model_path,
+            std::filesystem::weakly_canonical(model_root / "embedding.fixture")
+                .string());
+  EXPECT_EQ(
+      llm_registration->resolved_model_path,
+      std::filesystem::weakly_canonical(model_root / "llm.fixture").string());
+}
 
 // ---------------------------------------------------------------------------
 // 1. Tagged Union & 模板适配器真实运行与非法枚举拦截 (ADP-001, ADP-010,

@@ -23,6 +23,7 @@ namespace test_mb {
 static std::atomic<int> g_backend_create_count{0};
 static std::atomic<int> g_backend_load_count{0};
 static std::atomic<int> g_model_create_count{0};
+static BackendLoadSpec g_last_backend_load_spec;
 
 // Mock Backend Session
 class MockBackendSession : public IBackendSession {
@@ -73,6 +74,7 @@ class MockInferenceBackend : public IInferenceBackend {
       const BackendLoadSpec& spec, std::string* diagnostic) noexcept override {
     g_backend_load_count.fetch_add(1);
     last_loaded_spec = spec;
+    g_last_backend_load_spec = spec;
     if (should_fail_load_) {
       if (diagnostic) *diagnostic = "Intentional load failure";
       return nullptr;
@@ -165,6 +167,7 @@ class ModelBackendPipelineTest : public ::testing::Test {
     g_backend_create_count = 0;
     g_backend_load_count = 0;
     g_model_create_count = 0;
+    g_last_backend_load_spec = BackendLoadSpec{};
 
     if (!BackendRegistry::Instance()
              .Find(MockInferenceBackend::kBackendType)
@@ -631,7 +634,7 @@ TEST_F(ModelBackendPipelineTest,
   EXPECT_TRUE(found_backend_cfg_diag);
 }
 
-TEST_F(ModelBackendPipelineTest, ValidatorResolvesPathWithModelRootDir) {
+TEST_F(ModelBackendPipelineTest, ValidatorNormalizesPathLexically) {
   nlohmann::json cfg = {
       {"biz_name", "model_root_dir_test"},
       {"models", nlohmann::json::array({{
@@ -649,24 +652,14 @@ TEST_F(ModelBackendPipelineTest, ValidatorResolvesPathWithModelRootDir) {
                    }})},
   };
 
-  // 1. Without model_root_dir (Offline check): normalized relative path
-  auto plan_offline = PipelineValidator::ValidateAndPlan(
-      cfg, ValidationPolicy::kPrivateExtensionCompatible, "");
-  EXPECT_TRUE(plan_offline.report.ok);
-  ASSERT_EQ(plan_offline.models.size(), 1u);
-  EXPECT_EQ(plan_offline.models[0].resolved_model_path,
-            "models/bge/model.onnx");
-
-  // 2. With model_root_dir (Runtime creation): resolved under model_root_dir
-  auto plan_runtime = PipelineValidator::ValidateAndPlan(
-      cfg, ValidationPolicy::kPrivateExtensionCompatible, "/opt/custom_models");
-  EXPECT_TRUE(plan_runtime.report.ok);
-  ASSERT_EQ(plan_runtime.models.size(), 1u);
-  EXPECT_EQ(plan_runtime.models[0].resolved_model_path,
-            "/opt/custom_models/models/bge/model.onnx");
+  auto plan = PipelineValidator::ValidateAndPlan(
+      cfg, ValidationPolicy::kPrivateExtensionCompatible);
+  EXPECT_TRUE(plan.report.ok);
+  ASSERT_EQ(plan.models.size(), 1u);
+  EXPECT_EQ(plan.models[0].resolved_model_path, "models/bge/model.onnx");
 }
 
-TEST_F(ModelBackendPipelineTest, PipelineBuildPassesModelRootDirToBackend) {
+TEST_F(ModelBackendPipelineTest, PipelinePassesResolvedPathAndTargetToBackend) {
   nlohmann::json cfg = {
       {"biz_name", "runtime_root_propagate_test"},
       {"models", nlohmann::json::array({{
@@ -674,7 +667,7 @@ TEST_F(ModelBackendPipelineTest, PipelineBuildPassesModelRootDirToBackend) {
                      {"capability", "embedding"},
                      {"model_type", "mock_bge_embedding"},
                      {"backend", "mock_test_backend"},
-                     {"model_path", "weights/bge.onnx"},
+                     {"model_path", "/deploy/edgeflow_root/weights/bge.onnx"},
                  }})},
       {"pipeline", nlohmann::json::array({{
                        {"id", "node1"},
@@ -686,7 +679,9 @@ TEST_F(ModelBackendPipelineTest, PipelineBuildPassesModelRootDirToBackend) {
 
   Pipeline pipeline;
   RuntimeOptions opts;
-  opts.model_root_dir = "/deploy/edgeflow_root";
+  opts.has_device_id = true;
+  opts.device_id = 3;
+  opts.chip_type = "TEST_ACCELERATOR";
   pipeline.GetSessionContext().SetRuntimeOptions(opts);
 
   PipelineDiagnostic diag;
@@ -695,12 +690,18 @@ TEST_F(ModelBackendPipelineTest, PipelineBuildPassesModelRootDirToBackend) {
   EXPECT_TRUE(ok);
   EXPECT_EQ(diag.code, PipelineErrorCode::kOk);
 
-  // Model registration in session carries the root-resolved path
+  // Session registration retains model identity metadata, while the
+  // execution target remains transient and is captured at the Backend load
+  // boundary below.
   auto reg =
       pipeline.GetSessionContext().GetModelManager().GetModelRegistration(
           "emb_model");
   ASSERT_TRUE(reg.has_value());
   EXPECT_EQ(reg->resolved_model_path, "/deploy/edgeflow_root/weights/bge.onnx");
+  ASSERT_TRUE(g_last_backend_load_spec.execution_target.device_id.has_value());
+  EXPECT_EQ(*g_last_backend_load_spec.execution_target.device_id, 3);
+  EXPECT_EQ(g_last_backend_load_spec.execution_target.platform,
+            "TEST_ACCELERATOR");
 }
 
 }  // namespace test_mb

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(AlgSdkFramework LANGUAGES C CXX)
+project(AlgSdkFramework VERSION 8.0.0 LANGUAGES C CXX)
 
 # 严格禁止 In-Source 构建 (防止误用 cmake . 污染源码目录并触发重复下载阻塞)
 if("${CMAKE_SOURCE_DIR}" STREQUAL "${CMAKE_BINARY_DIR}")
@@ -106,6 +106,7 @@ set(FRAMEWORK_SRCS
     src/adapter/adapters/ocr_doc_qa_adapter.cpp
     src/adapter/adapters/audio_asr_intent_adapter.cpp
     src/adapter/adapters/cross_rerank_adapter.cpp
+    src/adapter/deployment_model_resolver.cpp
     src/adapter/shared_algorithm_runtime.cpp
     src/adapter/operator/company_conf_resolver.cpp
     src/adapter/operator/operator_value_type_registry.cpp
@@ -143,8 +144,8 @@ if(THIRD_PARTY_ENGINE_LIBS)
 endif()
 set_target_properties(alg_sdk PROPERTIES
     OUTPUT_NAME "company_alg_sdk"
-    VERSION 4.3.0
-    SOVERSION 4
+    VERSION ${PROJECT_VERSION}
+    SOVERSION 5
 )
 
 # 引入 Google Test 框架 (自动下载或使用系统库)
@@ -205,5 +206,6 @@ if(ENABLE_REAL_MODEL_TESTS)
   add_test(NAME RealModelE2ETest COMMAND test_real_models_e2e)
   set_tests_properties(RealModelE2ETest PROPERTIES
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-    LABELS "tier3;slow;real-model")
+    LABELS "tier3;slow;real-model"
+    TIMEOUT 1800)
 endif()

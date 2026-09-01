@@ -109,6 +109,11 @@ bool MaterializeModels(const ValidatedPipelinePlan& plan,
     spec.model_path = model_plan.resolved_model_path;
     spec.model_config = model_plan.normalized_model_config;
     spec.backend_config = model_plan.normalized_backend_config;
+    const auto& runtime_options = session->GetRuntimeOptions();
+    if (runtime_options.has_device_id) {
+      spec.execution_target.device_id = runtime_options.device_id;
+    }
+    spec.execution_target.platform = runtime_options.chip_type;
 
     std::string factory_diag;
     auto model = ModelRuntimeFactory::Create(spec, &factory_diag);
@@ -435,9 +440,7 @@ bool Pipeline::BuildInternal(const nlohmann::json& root_config,
 
   RuntimeAssembly assembly;
   assembly.plan = std::make_unique<ValidatedPipelinePlan>(
-      PipelineValidator::ValidateAndPlan(
-          root_config, policy,
-          session_ctx_->GetRuntimeOptions().model_root_dir));
+      PipelineValidator::ValidateAndPlan(root_config, policy));
 
   if (!assembly.plan->report.ok) {
     if (!assembly.plan->report.diagnostics.empty()) {
