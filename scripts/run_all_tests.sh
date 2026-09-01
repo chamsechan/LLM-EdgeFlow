@@ -18,7 +18,7 @@ SELECTED_LINKER="${LLM_EDGEFLOW_LINKER:-auto}"
 JOBS="${LLM_EDGEFLOW_JOBS:-$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)}"
 SECONDS=0
 
-export LD_LIBRARY_PATH="$BUILD_DIR:$BUILD_DIR/_deps/onnxruntime_prebuilt-src/lib:${LD_LIBRARY_PATH:-}"
+export LD_LIBRARY_PATH="$ROOT_DIR/3rdparty/onnxruntime/lib:$BUILD_DIR:$BUILD_DIR/_deps/onnxruntime_prebuilt-src/lib:${LD_LIBRARY_PATH:-}"
 
 GREEN='\033[0;32m'
 CYAN='\033[0;36m'

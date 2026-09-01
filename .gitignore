@@ -10,6 +10,9 @@ build_*/
 build-*/
 cmake-build-*/
 _deps/
+3rdparty/*
+!3rdparty/README.md
+!3rdparty/.gitkeep
 CMakeFiles/
 CMakeCache.txt
 cmake_install.cmake
