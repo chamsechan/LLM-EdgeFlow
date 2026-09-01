@@ -6,6 +6,8 @@
 
 ## Unreleased
 
+- 引入统一 `3rdparty/` 持久化预编译归档体系，支持 llama.cpp、ONNX Runtime、GoogleTest、nlohmann/json 及 PCRE2 的本地静态库与头文件秒级复用，消除 clean build 与日常开发中的重复下载与源码重新编译耗时。
+
 - v7 在正式接入前删除未被外部使用的历史兼容层：Operator 后缀别名、
   `.conf` 双结构/单模型简写、隐式顺序 Pipeline 转换、Node 双字段与类型别名、
   重叠错误码，以及 Demo/CLI/Studio 兼容入口。当前契约对旧形状一律 fail-closed。

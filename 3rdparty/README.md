@@ -1,0 +1,44 @@
+# 3rdparty 依赖库目录规范
+
+本项目采用统一的 `3rdparty/` 本地持久化归档体系，用于缓存第三方开源依赖（包括预编译静态库 `.a`、动态库 `.so` 及对应的头文件）。
+
+> **注意**：除本 `README.md` 外，`3rdparty/` 下的所有自动生成与下载内容均已被 `.gitignore` 忽略，不会提交至 Git 仓库。
+
+---
+
+## 1. 目录结构规范
+
+```text
+3rdparty/
+├── llama_cpp/                  # llama.cpp 编译产物 (静态库与头文件)
+│   ├── include/                # llama.h, ggml.h, gguf.h 等
+│   └── lib/                    # libllama.a, libggml.a, libggml-base.a, libggml-cpu.a
+│
+├── onnxruntime/                # ONNX Runtime 官方预编译发行包
+│   ├── include/                # onnxruntime_c_api.h, onnxruntime_cxx_api.h 等
+│   └── lib/                    # libonnxruntime.so (Linux) 或 libonnxruntime.dylib (macOS)
+│
+├── googletest/                 # Google Test 单元测试框架
+│   ├── include/                # gtest/gtest.h 等
+│   └── lib/                    # libgtest.a, libgtest_main.a
+│
+└── nlohmann_json/              # nlohmann/json 现代化 C++ JSON 库 (Header-only)
+    └── include/                # nlohmann/json.hpp
+```
+
+---
+
+## 2. 自动化缓存与零重编机制
+
+1. **自动生成与归档**：
+   - 首次执行 CMake 构建（如 `cmake -B build`）且本地 `3rdparty/` 为空时，构建系统会自动拉取依赖并完成编译/规整，将产物保存到 `3rdparty/` 对应子目录中。
+2. **零编译 / 零下载秒级复用**：
+   - 当 `3rdparty/<lib>/` 存在有效库与头文件时，后续无论如何清理构建目录（如 `rm -rf build`）或新建其它构建目录（如 `build-fast/`, `build-sanitizers/`），CMake 均会直接以 `IMPORTED` 静态库/动态库秒级导入，**彻底跳过源码重新编译与 GitHub 下载**。
+3. **强制重新编译 / 刷新**：
+   - 如需更新或重新编译 llama.cpp，可在 CMake 中指定 `-DLLAMA_CPP_FORCE_REBUILD=ON`，或直接删除 `3rdparty/llama_cpp` 目录。
+
+---
+
+## 3. 离线与边缘硬件手动放置说明
+
+在无法连接公网的离线服务器或嵌入式边缘设备（如 ARM / NPU 板卡）上，可直接将提前交叉编译好的库与头文件按上述层级拷贝至 `3rdparty/<lib>/` 下，CMake 将直接检测并使用，无需任何外部网络连接。
