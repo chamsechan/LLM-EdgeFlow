@@ -22,7 +22,7 @@ echo "=================================================================="
 echo ">>> 正在编译 test_real_models_e2e..."
 mkdir -p "${BUILD_DIR}"
 cmake -S "${PROJECT_ROOT}" -B "${BUILD_DIR}" -DENABLE_REAL_MODEL_TESTS=ON
-cmake --build "${BUILD_DIR}" --target test_real_models_e2e \
+cmake --build "${BUILD_DIR}" --target test_real_models_e2e alg_demo \
   -j"${LLM_EDGEFLOW_JOBS:-4}"
 
 # 3. 运行物理真实模型端到端测试
