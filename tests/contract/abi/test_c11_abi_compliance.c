@@ -36,6 +36,11 @@ _Static_assert(E_ALG_BASE_LOG_LEVEL_VERBOSE == 5,
                "Verbose log level must remain 5");
 
 int main(void) {
+  if (strcmp(COMPANY_ALG_PRODUCT_VERSION, "10.0.0") != 0 ||
+      strcmp(COMPANY_ALG_ABI_VERSION, "5.0.0") != 0) {
+    fprintf(stderr, "[C11 ABI Test] Generated version contract drifted\n");
+    return 13;
+  }
   if (AlgBase_getLogLevelByName("LLM_EDGEFLOW") !=
       E_ALG_BASE_LOG_LEVEL_WARNING) {
     fprintf(stderr, "[C11 ABI Test] Public log default must be WARNING\n");

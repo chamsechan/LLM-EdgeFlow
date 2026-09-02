@@ -11,7 +11,7 @@ add_library(edgeflow_demo_objects OBJECT
   biz/audio_asr_demo.cpp
   biz/cross_rerank_demo.cpp)
 target_link_libraries(edgeflow_demo_objects PRIVATE
-  edgeflow_internal_headers llm_edgeflow::sdk)
+  edgeflow_internal_headers llm_edgeflow::internal_runtime)
 
 add_executable(alg_demo
   main.cpp
@@ -19,4 +19,4 @@ add_executable(alg_demo
   $<TARGET_OBJECTS:edgeflow_test_backend_fixtures>
   $<TARGET_OBJECTS:edgeflow_test_business_model_fixtures>)
 target_link_libraries(alg_demo PRIVATE
-  edgeflow_internal_headers llm_edgeflow::sdk)
+  edgeflow_internal_headers llm_edgeflow::internal_runtime)

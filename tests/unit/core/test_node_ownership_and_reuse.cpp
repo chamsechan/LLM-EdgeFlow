@@ -18,24 +18,24 @@ namespace llm_edgeflow {
 
 TEST(NodeOwnershipAndReuseTest, CatalogCategoriesAndOwnership) {
   // Common nodes in Phase 1
-  const auto* llm_gen = PipelineCatalog::FindNode("LlmGenerateNode");
-  ASSERT_NE(llm_gen, nullptr);
+  const auto llm_gen = PipelineCatalog::FindNode("LlmGenerateNode");
+  ASSERT_TRUE(llm_gen.has_value());
   EXPECT_EQ(llm_gen->category, "common");
 
-  const auto* text_tmpl = PipelineCatalog::FindNode("TextTemplateNode");
-  ASSERT_NE(text_tmpl, nullptr);
+  const auto text_tmpl = PipelineCatalog::FindNode("TextTemplateNode");
+  ASSERT_TRUE(text_tmpl.has_value());
   EXPECT_EQ(text_tmpl->category, "common");
 
-  const auto* text_chunk = PipelineCatalog::FindNode("TextChunkNode");
-  ASSERT_NE(text_chunk, nullptr);
+  const auto text_chunk = PipelineCatalog::FindNode("TextChunkNode");
+  ASSERT_TRUE(text_chunk.has_value());
   EXPECT_EQ(text_chunk->category, "common");
 
-  const auto* vec_topk = PipelineCatalog::FindNode("VectorTopKNode");
-  ASSERT_NE(vec_topk, nullptr);
+  const auto vec_topk = PipelineCatalog::FindNode("VectorTopKNode");
+  ASSERT_TRUE(vec_topk.has_value());
   EXPECT_EQ(vec_topk->category, "common");
 
-  const auto* text_rerank = PipelineCatalog::FindNode("TextRerankNode");
-  ASSERT_NE(text_rerank, nullptr);
+  const auto text_rerank = PipelineCatalog::FindNode("TextRerankNode");
+  ASSERT_TRUE(text_rerank.has_value());
   EXPECT_EQ(text_rerank->category, "common");
 }
 

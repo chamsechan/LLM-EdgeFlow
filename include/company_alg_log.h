@@ -1,6 +1,8 @@
 #ifndef COMPANY_ALG_LOG_H_
 #define COMPANY_ALG_LOG_H_
 
+#include "company_alg_export.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -35,13 +37,15 @@ typedef enum {
  * @param level Integer log level in the inclusive range [0, 5].
  * @return 0 on success, -1 when level is outside [0, 5].
  */
-int AlgBase_setLogLevelByName(const char* name, int level) ALG_LOG_NOEXCEPT;
+COMPANY_ALG_API int AlgBase_setLogLevelByName(const char* name,
+                                              int level) ALG_LOG_NOEXCEPT;
 
 /**
  * @brief Return the current process-wide log level.
  * @param name Compatibility name for the AlgBase logging contract.
  */
-int AlgBase_getLogLevelByName(const char* name) ALG_LOG_NOEXCEPT;
+COMPANY_ALG_API int AlgBase_getLogLevelByName(const char* name)
+    ALG_LOG_NOEXCEPT;
 
 /**
  * @brief Write one formatted log record to stderr.
@@ -49,8 +53,8 @@ int AlgBase_getLogLevelByName(const char* name) ALG_LOG_NOEXCEPT;
  * The function preserves fmt exactly and does not append a newline.
  */
 ALG_LOG_PRINTF_ATTRIBUTE(3, 4)
-void AlgBase_logPrint(const char* level_label, const char* name,
-                      const char* fmt, ...) ALG_LOG_NOEXCEPT;
+COMPANY_ALG_API void AlgBase_logPrint(const char* level_label, const char* name,
+                                      const char* fmt, ...) ALG_LOG_NOEXCEPT;
 
 #ifdef __cplusplus
 }

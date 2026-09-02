@@ -4,9 +4,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define COMPANY_ALG_PRODUCT_VERSION "8.0.0"
-#define COMPANY_ALG_ABI_VERSION "5.0.0"
-#define COMPANY_ALG_ABI_VERSION_MAJOR 5
+#include "company_alg_export.h"
+#include "company_alg_version.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -193,15 +192,16 @@ typedef struct {
 /**
  * @brief 全局资源初始化 (进程级)
  */
-int Alg_Init(void) COMPANY_ALG_NOEXCEPT;
+COMPANY_ALG_API int Alg_Init(void) COMPANY_ALG_NOEXCEPT;
 
 /**
  * @brief 创建算法处理句柄实例 (会话级)
  * @param[out] hndl 返回的句柄指针
  * @param[in] param_create 创建参数
  */
-int Alg_Create(void** hndl,
-               const CompanyAlgParamCreate* param_create) COMPANY_ALG_NOEXCEPT;
+COMPANY_ALG_API int Alg_Create(void** hndl,
+                               const CompanyAlgParamCreate* param_create)
+    COMPANY_ALG_NOEXCEPT;
 
 /**
  * @brief 批量执行算法计算 (纯 C 标准批处理接口)
@@ -213,14 +213,16 @@ int Alg_Create(void** hndl,
  * @note 同一 hndl 上的 Alg_Process 与 Alg_Control
  * 由实现串行执行；不同句柄可并行。
  */
-int Alg_Process(void* hndl, const void** inputs, int num_inputs, void** outputs,
-                int* num_outputs) COMPANY_ALG_NOEXCEPT;
+COMPANY_ALG_API int Alg_Process(void* hndl, const void** inputs, int num_inputs,
+                                void** outputs,
+                                int* num_outputs) COMPANY_ALG_NOEXCEPT;
 
 /**
  * @brief 运行时动态控制或参数调整
  * @note 与同一 hndl 上的 Alg_Process/Alg_Control 串行执行。
  */
-int Alg_Control(void* hndl, const CompanyAlgParamControl* param_control)
+COMPANY_ALG_API int Alg_Control(void* hndl,
+                                const CompanyAlgParamControl* param_control)
     COMPANY_ALG_NOEXCEPT;
 
 /**
@@ -229,12 +231,12 @@ int Alg_Control(void* hndl, const CompanyAlgParamControl* param_control)
  * Alg_Process/Alg_Control 全部返回。
  * @post 返回后 hndl 永久失效，不得再次传给任何 Alg_* 函数。
  */
-int Alg_Destroy(void* hndl) COMPANY_ALG_NOEXCEPT;
+COMPANY_ALG_API int Alg_Destroy(void* hndl) COMPANY_ALG_NOEXCEPT;
 
 /**
  * @brief 全局资源释放 (进程级)
  */
-int Alg_DeInit(void) COMPANY_ALG_NOEXCEPT;
+COMPANY_ALG_API int Alg_DeInit(void) COMPANY_ALG_NOEXCEPT;
 
 #ifdef __cplusplus
 }

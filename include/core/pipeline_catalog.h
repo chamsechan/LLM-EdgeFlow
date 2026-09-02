@@ -176,6 +176,14 @@ struct BizDefinition {
         egress(std::move(out)) {}
 };
 
+struct PipelineCatalogSnapshot {
+  std::vector<NodeDefinition> nodes;
+  std::vector<BizDefinition> bizs;
+
+  const NodeDefinition* FindNode(const std::string& node_type) const;
+  const BizDefinition* FindBiz(const std::string& biz_name) const;
+};
+
 class PipelineCatalog {
  public:
   static bool RegisterNodeDefinition(const NodeDefinition& definition);
@@ -183,17 +191,18 @@ class PipelineCatalog {
   static bool RegisterBizDefinitions(
       const std::vector<BizDefinition>& definitions);
 
-  static const std::vector<NodeDefinition>& Nodes();
+  static PipelineCatalogSnapshot Snapshot();
+  static std::vector<NodeDefinition> Nodes();
   static std::vector<ModelDefinition> Models();
   static std::vector<BackendDefinition> Backends();
-  static const std::vector<BizDefinition>& Bizs();
+  static std::vector<BizDefinition> Bizs();
 
-  static const NodeDefinition* FindNode(const std::string& node_type);
+  static std::optional<NodeDefinition> FindNode(const std::string& node_type);
   static std::optional<ModelDefinition> FindModel(
       const std::string& model_type);
   static std::optional<BackendDefinition> FindBackend(
       const std::string& backend_type);
-  static const BizDefinition* FindBiz(const std::string& biz_name);
+  static std::optional<BizDefinition> FindBiz(const std::string& biz_name);
 
   static void ClearForTesting();
 

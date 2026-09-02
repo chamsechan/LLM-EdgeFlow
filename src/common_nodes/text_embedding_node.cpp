@@ -63,9 +63,10 @@ class TextEmbeddingNode final : public ModelBoundNode<IEmbeddingModel> {
       std::string cache_key = "static_emb:" + bind_model_id_ + ":" +
                               model_revision + ":" +
                               std::to_string(normalize_) + ":" + digest;
+      SessionResourceKey<EmbeddingBatch> resource_key(std::move(cache_key));
       int infer_err = 0;
       auto cached = session_ctx_->GetOrCreateResource<EmbeddingBatch>(
-          cache_key, [&]() -> std::shared_ptr<EmbeddingBatch> {
+          resource_key, [&]() -> std::shared_ptr<EmbeddingBatch> {
             auto output = std::make_shared<EmbeddingBatch>();
             int ret = model()->Embed(*text_items, opts, output.get());
             if (ret != 0) {

@@ -434,15 +434,15 @@ TEST(DefinitionSchemaValidationTest, RejectsInvalidDefinitionAtRegistration) {
 }
 
 TEST(DefinitionSchemaValidationTest, NodeToJsonExportsConstraintsAndCommands) {
-  const auto* rerank_def = PipelineCatalog::FindNode("TextRerankNode");
-  ASSERT_NE(rerank_def, nullptr);
+  const auto rerank_def = PipelineCatalog::FindNode("TextRerankNode");
+  ASSERT_TRUE(rerank_def.has_value());
   auto json = PipelineCatalog::NodeToJson(*rerank_def);
   EXPECT_TRUE(json.contains("port_constraints"));
   EXPECT_TRUE(json["port_constraints"].is_array());
   EXPECT_FALSE(json["port_constraints"].empty());
 
-  const auto* rule_def = PipelineCatalog::FindNode("TextRuleMatchNode");
-  ASSERT_NE(rule_def, nullptr);
+  const auto rule_def = PipelineCatalog::FindNode("TextRuleMatchNode");
+  ASSERT_TRUE(rule_def.has_value());
   auto rule_json = PipelineCatalog::NodeToJson(*rule_def);
   EXPECT_TRUE(rule_json.contains("control_commands"));
   EXPECT_TRUE(rule_json["control_commands"].is_array());
@@ -452,8 +452,8 @@ TEST(DefinitionSchemaValidationTest, NodeToJsonExportsConstraintsAndCommands) {
   EXPECT_EQ(rule_payload_schema["minProperties"], 1);
   EXPECT_EQ(rule_payload_schema["additionalProperties"], false);
 
-  const auto* embedding_def = PipelineCatalog::FindNode("TextEmbeddingNode");
-  ASSERT_NE(embedding_def, nullptr);
+  const auto embedding_def = PipelineCatalog::FindNode("TextEmbeddingNode");
+  ASSERT_TRUE(embedding_def.has_value());
   auto embedding_json = PipelineCatalog::NodeToJson(*embedding_def);
   ASSERT_FALSE(embedding_json["inputs"].empty());
   EXPECT_EQ(embedding_json["inputs"][0]["lifetime_config_field"], "lifetime");

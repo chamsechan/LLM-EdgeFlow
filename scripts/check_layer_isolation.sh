@@ -84,14 +84,50 @@ fi
 echo "✅ [LayerGuard PASS] Zero Common Node -> Biz Node reverse include violations."
 
 # Rule 4: Pure C11 Syntax & ABI Compliance Check via standard C compiler
+GENERATED_VERSION_INCLUDE="$(mktemp -d "${TMPDIR:-/tmp}/edgeflow-version-header.XXXXXX")"
+cleanup_generated_version() {
+  rm -rf "${GENERATED_VERSION_INCLUDE}"
+}
+trap cleanup_generated_version EXIT INT TERM
+PRODUCT_VERSION="$(
+  sed -nE 's/^project\(LLMEdgeFlow VERSION ([0-9]+\.[0-9]+\.[0-9]+) LANGUAGES C CXX\)$/\1/p' \
+    "${REPO_ROOT}/CMakeLists.txt" | head -n 1
+)"
+ABI_VERSION="$(
+  sed -nE 's/^set\(LLM_EDGEFLOW_ABI_VERSION "([0-9]+\.[0-9]+\.[0-9]+)"\)$/\1/p' \
+    "${REPO_ROOT}/CMakeLists.txt" | head -n 1
+)"
+ABI_MAJOR="$(
+  sed -nE 's/^set\(LLM_EDGEFLOW_ABI_VERSION_MAJOR ([0-9]+)\)$/\1/p' \
+    "${REPO_ROOT}/CMakeLists.txt" | head -n 1
+)"
+if [[ -z "${PRODUCT_VERSION}" || -z "${ABI_VERSION}" || -z "${ABI_MAJOR}" ]]; then
+  echo "❌ [LayerGuard ERROR] Unable to derive public version header values from CMakeLists.txt"
+  exit 1
+fi
+sed \
+  -e "s/@PROJECT_VERSION@/${PRODUCT_VERSION}/g" \
+  -e "s/@LLM_EDGEFLOW_ABI_VERSION@/${ABI_VERSION}/g" \
+  -e "s/@LLM_EDGEFLOW_ABI_VERSION_MAJOR@/${ABI_MAJOR}/g" \
+  "${REPO_ROOT}/cmake/company_alg_version.h.in" > \
+  "${GENERATED_VERSION_INCLUDE}/company_alg_version.h"
+
 if command -v gcc >/dev/null 2>&1; then
-  gcc -std=c11 -pedantic-errors -fsyntax-only -x c -I"$REPO_ROOT/include" "$REPO_ROOT/include/company_alg_interface.h"
-  gcc -std=c11 -pedantic-errors -fsyntax-only -x c -I"$REPO_ROOT/include" "$REPO_ROOT/include/company_alg_log.h"
+  gcc -std=c11 -pedantic-errors -fsyntax-only -x c \
+    -I"${GENERATED_VERSION_INCLUDE}" -I"$REPO_ROOT/include" \
+    "$REPO_ROOT/include/company_alg_interface.h"
+  gcc -std=c11 -pedantic-errors -fsyntax-only -x c \
+    -I"${GENERATED_VERSION_INCLUDE}" -I"$REPO_ROOT/include" \
+    "$REPO_ROOT/include/company_alg_log.h"
   gcc -std=c11 -pedantic-errors -fsyntax-only -x c -I"$REPO_ROOT/include" "$REPO_ROOT/include/operator/company_operator_types.h"
   echo "✅ [LayerGuard PASS] GCC pure C11 strict syntax and ABI verification passed."
 elif command -v clang >/dev/null 2>&1; then
-  clang -std=c11 -pedantic-errors -fsyntax-only -x c -I"$REPO_ROOT/include" "$REPO_ROOT/include/company_alg_interface.h"
-  clang -std=c11 -pedantic-errors -fsyntax-only -x c -I"$REPO_ROOT/include" "$REPO_ROOT/include/company_alg_log.h"
+  clang -std=c11 -pedantic-errors -fsyntax-only -x c \
+    -I"${GENERATED_VERSION_INCLUDE}" -I"$REPO_ROOT/include" \
+    "$REPO_ROOT/include/company_alg_interface.h"
+  clang -std=c11 -pedantic-errors -fsyntax-only -x c \
+    -I"${GENERATED_VERSION_INCLUDE}" -I"$REPO_ROOT/include" \
+    "$REPO_ROOT/include/company_alg_log.h"
   clang -std=c11 -pedantic-errors -fsyntax-only -x c -I"$REPO_ROOT/include" "$REPO_ROOT/include/operator/company_operator_types.h"
   echo "✅ [LayerGuard PASS] Clang pure C11 strict syntax and ABI verification passed."
 else

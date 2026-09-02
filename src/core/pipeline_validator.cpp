@@ -498,7 +498,8 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
   }
   const auto& parsed = plan.config;
 
-  const auto* business = PipelineCatalog::FindBiz(parsed.biz_name);
+  const auto catalog = PipelineCatalog::Snapshot();
+  const auto* business = catalog.FindBiz(parsed.biz_name);
   if (!business && policy == ValidationPolicy::kStrict) {
     Add(&report, DiagnosticCode::kUnknownBiz, "/biz_name",
         "No registered biz contract accepts pipeline name: " + parsed.biz_name);
@@ -624,7 +625,7 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
   std::unordered_map<std::string, std::string> model_id_by_node;
   for (const auto& node : nodes) {
     node_by_id[node.id] = &node;
-    const auto* definition = PipelineCatalog::FindNode(node.node_type);
+    const auto* definition = catalog.FindNode(node.node_type);
     bool factory_has = NodeFactory::Instance().Has(node.node_type);
     if (!factory_has || (!definition && policy == ValidationPolicy::kStrict)) {
       Add(&report, DiagnosticCode::kUnknownNodeType,
@@ -782,9 +783,9 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
       bool found = false;
       auto producer_it = producers.find(actual_key);
       if (producer_it != producers.end()) {
-        // Blackboard keys use last-writer semantics. Resolve the nearest
-        // topologically preceding ancestor, including its type, instead of
-        // accepting an older producer that is shadowed at runtime.
+        // Blackboard keys are write-once. Duplicate producers are diagnosed
+        // below; resolve the nearest topologically preceding ancestor for
+        // deterministic type and flow-contract diagnostics.
         for (auto it = producer_it->second.rbegin();
              it != producer_it->second.rend(); ++it) {
           if (is_ancestor(it->first, id)) {
@@ -808,7 +809,7 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
       }
       if (!found && business) {
         std::vector<std::string> suggestions;
-        for (const auto& candidate : PipelineCatalog::Nodes()) {
+        for (const auto& candidate : catalog.nodes) {
           if (std::any_of(candidate.outputs.begin(), candidate.outputs.end(),
                           [&](const auto& output) {
                             return output.type_id == input.type_id;
@@ -908,17 +909,28 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
         actual_key = port_it->second;
       }
 
+      const std::string output_path = "/pipeline/" +
+                                      std::to_string(node.source_index) +
+                                      (port_it == node.ports.outputs.end()
+                                           ? std::string()
+                                           : "/ports/outputs/" + output.key);
+
       node_plan.ports.push_back({output.key, actual_key, output.type_id,
                                  output.cardinality, output.provenance_policy,
                                  output.lifetime, PortDirection::kOutput});
 
       auto& existing = producers[actual_key];
+      std::vector<std::string> conflicting_producers;
+      if (ingress.find(actual_key) != ingress.end()) {
+        conflicting_producers.push_back("$ingress");
+      }
       if (!existing.empty()) {
-        Add(&report, DiagnosticCode::kDuplicatePortProducer,
-            "/pipeline/" + std::to_string(node.source_index),
-            "Write-once Blackboard port is produced more than once: " +
-                actual_key,
-            id, output.key, {existing.back().first});
+        conflicting_producers.push_back(existing.back().first);
+      }
+      if (!conflicting_producers.empty()) {
+        Add(&report, DiagnosticCode::kDuplicatePortProducer, output_path,
+            "Write-once Blackboard port has multiple producers: " + actual_key,
+            id, output.key, std::move(conflicting_producers));
       }
       PortDefinition resolved_output = output;
       resolved_output.key = actual_key;

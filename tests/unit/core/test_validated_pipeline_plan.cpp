@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <fstream>
 #include <nlohmann/json.hpp>
 #include <string>
 #include <unordered_set>
@@ -267,6 +268,37 @@ TEST(ValidatedPipelinePlanTest,
   EXPECT_EQ(diagnostic->node_id, "second");
   EXPECT_EQ(diagnostic->port, "flow");
   EXPECT_EQ(diagnostic->related_nodes, std::vector<std::string>({"first"}));
+}
+
+TEST(ValidatedPipelinePlanTest, RejectsNodeOutputBoundToBusinessIngress) {
+  std::ifstream stream("configs/pipeline_doc_qa.json");
+  ASSERT_TRUE(stream.is_open());
+  nlohmann::json pipeline_json;
+  stream >> pipeline_json;
+  const size_t source_index = pipeline_json["pipeline"].size();
+  pipeline_json["pipeline"].push_back(
+      {{"id", "ingress_collision"},
+       {"node_type", "TextChunkNode"},
+       {"depends_on", nlohmann::json::array()},
+       {"ports",
+        {{"inputs", {{"text", "raw_docs"}}},
+         {"outputs",
+          {{"chunks", "raw_docs"}, {"chunk_counts", "audit_counts"}}}}},
+       {"config", {{"chunk_size", 60}}}});
+
+  const auto plan = PipelineValidator::ValidateAndPlan(pipeline_json);
+  ASSERT_FALSE(plan.report.ok);
+  const auto diagnostic =
+      std::find_if(plan.report.diagnostics.begin(),
+                   plan.report.diagnostics.end(), [](const auto& item) {
+                     return item.code == DiagnosticCode::kDuplicatePortProducer;
+                   });
+  ASSERT_NE(diagnostic, plan.report.diagnostics.end());
+  EXPECT_EQ(diagnostic->path, "/pipeline/" + std::to_string(source_index) +
+                                  "/ports/outputs/chunks");
+  EXPECT_EQ(diagnostic->node_id, "ingress_collision");
+  EXPECT_EQ(diagnostic->port, "chunks");
+  EXPECT_EQ(diagnostic->related_nodes, std::vector<std::string>({"$ingress"}));
 }
 
 TEST(ValidatedPipelinePlanTest, ResolvesConfiguredPortLifetimeBeforePlanning) {

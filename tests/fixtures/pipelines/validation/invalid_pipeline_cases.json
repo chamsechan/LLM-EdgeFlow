@@ -226,7 +226,7 @@
       },
       "required_codes": ["DUPLICATE_PORT_PRODUCER", "PARALLEL_WRITE_CONFLICT"],
       "primary_code": "DUPLICATE_PORT_PRODUCER",
-      "primary_path": "/pipeline/1",
+      "primary_path": "/pipeline/1/ports/outputs/matches",
       "pipeline_error_code": 8,
       "runtime_error_code": -2
     },

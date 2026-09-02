@@ -694,12 +694,12 @@ int Pipeline::Control(int cmd, const std::string& json_param) {
   int first_fail_code = 0;
 
   // Pass 1: Collect targets and validate payload across all targets
-  std::vector<std::pair<INode*, const ControlCommandDefinition*>> targets;
+  std::vector<INode*> targets;
   nlohmann::json parsed_payload;
   bool json_parsed = false;
 
   for (auto& node : nodes_) {
-    const auto* def = PipelineCatalog::FindNode(node->Name());
+    const auto def = PipelineCatalog::FindNode(node->Name());
     const ControlCommandDefinition* matched_cmd_def = nullptr;
     if (def) {
       for (const auto& cmd_def : def->control_commands) {
@@ -733,7 +733,7 @@ int Pipeline::Control(int cmd, const std::string& json_param) {
         return -1;
       }
     }
-    targets.emplace_back(node.get(), matched_cmd_def);
+    targets.push_back(node.get());
   }
 
   if (targets.empty()) {
@@ -742,7 +742,7 @@ int Pipeline::Control(int cmd, const std::string& json_param) {
   }
 
   // Pass 2: Dispatch command to all validated targets
-  for (auto& [node, cmd_def] : targets) {
+  for (auto* node : targets) {
     has_target = true;
     NodeControlResult res = node->Control(cmd, json_param);
     if (res.status == NodeControlStatus::kFailed) {

@@ -1,0 +1,17 @@
+LLM_EDGEFLOW_@LLM_EDGEFLOW_ABI_VERSION_MAJOR@ {
+  global:
+    Alg_Init;
+    Alg_Create;
+    Alg_Process;
+    Alg_Control;
+    Alg_Destroy;
+    Alg_DeInit;
+    AlgBase_setLogLevelByName;
+    AlgBase_getLogLevelByName;
+    AlgBase_logPrint;
+    _ZN12llm_edgeflow12operator_api30Get_LLM_EDGEFLOW_OperatorTableEv;
+    _ZN12llm_edgeflow12operator_api20GetOperatorLastErrorEv;
+    _ZN12llm_edgeflow12operator_api29ValidateOperatorConfigBindingEPKcS2_iPcm;
+  local:
+    *;
+};

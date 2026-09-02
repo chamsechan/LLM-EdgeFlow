@@ -4,9 +4,9 @@ add_library(edgeflow_test_backend_fixtures OBJECT
   inference/test_tensor_backend.cpp
   inference/test_causal_lm_backend.cpp)
 target_link_libraries(edgeflow_test_backend_fixtures PRIVATE
-  edgeflow_internal_headers llm_edgeflow::sdk)
+  edgeflow_internal_headers llm_edgeflow::internal_runtime)
 
 add_library(edgeflow_test_business_model_fixtures OBJECT
   inference/test_business_models.cpp)
 target_link_libraries(edgeflow_test_business_model_fixtures PRIVATE
-  edgeflow_internal_headers llm_edgeflow::sdk)
+  edgeflow_internal_headers llm_edgeflow::internal_runtime)

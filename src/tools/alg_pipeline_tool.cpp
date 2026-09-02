@@ -145,7 +145,7 @@ int main(int argc, char** argv) {
       Usage();
       return 2;
     }
-    const auto* definition = PipelineCatalog::FindNode(argv[2]);
+    const auto definition = PipelineCatalog::FindNode(argv[2]);
     if (!definition) {
       std::cout << Error("UNKNOWN_NODE_TYPE", argv[2]).dump(2) << std::endl;
       return 1;

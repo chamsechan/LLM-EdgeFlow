@@ -11,7 +11,7 @@
 | 架构层级 | 新增什么？ | 核心修改文件 | 关键宏 / 核心类 |
 | :--- | :--- | :--- | :--- |
 | **Layer 1: C ABI 适配层** | 新增业务枚举、输入/输出纯 C 结构体与专属适配器 | `include/company_alg_interface.h`<br>`src/adapter/adapters/<biz>_adapter.cpp` | `CompanyAlgBizType`<br>`IBizAdapter`<br>`REGISTER_BIZ_ADAPTER` |
-| **Layer 2: 核心编排层** | 扩展动态黑板、会话模型管理与全局资源 | `include/core/alg_context.h`<br>`include/core/session_context.h` | `AlgContext::Read/Publish`<br>`SessionContext::SetResource()` |
+| **Layer 2: 核心编排层** | 扩展动态黑板、会话模型管理与全局资源 | `include/core/alg_context.h`<br>`include/core/session_context.h` | `AlgContext::Read/Publish`<br>`SessionResourceKey<T>` |
 | **Layer 3: 通用能力算子池** | 新增通用能力算子 (分片/向量检索/重排/模板/规则/解析) | `src/common_nodes/*.cpp`<br>`include/nodes/*.h` | `NodeBase`<br>`REGISTER_NODE_WITH_DEFINITION(NodeName, def)` |
 | **Layer 4: Model / Backend 层** | 新增模型语义或接入新推理后端 | `include/engine/model_interface.h`<br>`include/engine/backend_interface.h`<br>`src/engine/models/`<br>`src/engine/backends/` | `REGISTER_MODEL_WITH_DEFINITION`<br>`REGISTER_BACKEND_WITH_DEFINITION`<br>`ModelRuntimeFactory`<br>`FixedBatchExecutor` |
 
@@ -47,6 +47,8 @@ Blackboard、Node、Model 或 Backend 才能识别 Operator 结构的方案均�
 
 目标交付共享库为 `company_alg_sdk`，产品 VERSION 为 10.0.0，
 SOVERSION/C ABI major 为 5。
+其正式动态符号面固定为 6 个 `Alg_*`、3 个 `AlgBase_*` 和 3 个 Operator 入口；
+仓库内 Node、Registry、Model、Backend 和第三方运行时是隐藏实现，不得被外部扩展直接链接。
 Operator v4 的 Create 和配置预检都使用部署根 `model_path` 加相对
 `cfg_file_name`。每份 `.conf` 的根对象只能包含 `data`，`data` 只接受
 `pipe_path`、`model_paths` 和 `mem_que`；单模型覆盖也必须使用以 `model_id` 为键的
@@ -79,6 +81,11 @@ Layer 2 负责请求黑板生命周期与 DAG 管线单趟构建：
 - **`AlgContext` 并发契约**：输入使用 `Read` 获取只读快照，输出通过 typed port 单次
   `Publish`；不存在覆盖、删除或清空请求值的迁移入口。聚合行为由专用 Node 读取上游端口并
   发布新的输出 key，不原地修改已经发布的值。
+- **`SessionResourceKey<T>`**：会话级共享资源必须使用带静态类型的 key；动态资源名也要先
+  构造 typed key。相同名称只能绑定同一种 `T`，类型不匹配会抛出 `std::logic_error`，
+  `GetOrCreateResource` 对同名同型资源提供 single-flight 创建。
+- **`PipelineCatalogSnapshot`**：需要跨多次查找保持一致视图时先调用 `Snapshot()`；普通
+  `Nodes/Bizs/FindNode/FindBiz` 返回独立值，不保存指向 Catalog 内部容器的引用或指针。
 
 Node 作者仍使用 `BoundInput<T>::Require` 与 `BoundOutput<T>::Set`；端口包装负责执行
 `Read/Publish`，无需在业务 Node 中管理锁或快照。

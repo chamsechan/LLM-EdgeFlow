@@ -1,4 +1,4 @@
-target_sources(alg_sdk PRIVATE
+target_sources(edgeflow_runtime_objects PRIVATE
   adapters/audio_asr_intent_adapter.cpp
   adapters/compliance_audit_adapter.cpp
   adapters/cross_rerank_adapter.cpp

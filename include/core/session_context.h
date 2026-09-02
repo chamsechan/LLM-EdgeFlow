@@ -5,7 +5,9 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <stdexcept>
 #include <string>
+#include <typeindex>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -14,6 +16,21 @@
 #include "engine/model_interface.h"
 
 namespace llm_edgeflow {
+
+template <typename T>
+class SessionResourceKey {
+ public:
+  explicit SessionResourceKey(std::string name) : name_(std::move(name)) {
+    if (name_.empty()) {
+      throw std::invalid_argument("Session resource key must not be empty");
+    }
+  }
+
+  const std::string& Name() const noexcept { return name_; }
+
+ private:
+  std::string name_;
+};
 
 /**
  * @brief 句柄级运行时配置与资源参数
@@ -213,40 +230,56 @@ class SessionContext {
   uint32_t GetDepthNum() const { return runtime_options_.depth_num; }
 
   template <typename T>
-  void SetResource(const std::string& key, std::shared_ptr<T> resource) {
+  void SetResource(const SessionResourceKey<T>& key,
+                   std::shared_ptr<T> resource) {
     std::lock_guard<std::mutex> lock(resource_mutex_);
-    resources_[key] = resource;
+    auto it = resources_.find(key.Name());
+    if (it != resources_.end()) {
+      RequireResourceType<T>(key.Name(), it->second.type);
+    }
+    auto flight = flights_.find(key.Name());
+    if (flight != flights_.end()) {
+      RequireResourceType<T>(key.Name(), flight->second->type);
+    }
+    resources_.insert_or_assign(
+        key.Name(),
+        ResourceEntry{std::move(resource), std::type_index(typeid(T))});
   }
 
   template <typename T>
-  std::shared_ptr<T> GetResource(const std::string& key) const {
+  std::shared_ptr<T> GetResource(const SessionResourceKey<T>& key) const {
     std::lock_guard<std::mutex> lock(resource_mutex_);
-    auto it = resources_.find(key);
+    auto it = resources_.find(key.Name());
     if (it == resources_.end()) return nullptr;
-    return std::static_pointer_cast<T>(it->second);
+    RequireResourceType<T>(key.Name(), it->second.type);
+    return std::static_pointer_cast<T>(it->second.value);
   }
 
   template <typename T, typename FactoryFunc>
-  std::shared_ptr<T> GetOrCreateResource(const std::string& key,
+  std::shared_ptr<T> GetOrCreateResource(const SessionResourceKey<T>& key,
                                          FactoryFunc&& factory) {
     std::shared_ptr<SingleFlightEntry> flight;
     {
       std::lock_guard<std::mutex> lock(resource_mutex_);
-      auto it = resources_.find(key);
+      auto it = resources_.find(key.Name());
       if (it != resources_.end()) {
-        return std::static_pointer_cast<T>(it->second);
+        RequireResourceType<T>(key.Name(), it->second.type);
+        return std::static_pointer_cast<T>(it->second.value);
       }
-      auto fit = flights_.find(key);
+      auto fit = flights_.find(key.Name());
       if (fit == flights_.end()) {
-        flight = std::make_shared<SingleFlightEntry>();
-        flights_[key] = flight;
+        flight =
+            std::make_shared<SingleFlightEntry>(std::type_index(typeid(T)));
+        flights_[key.Name()] = flight;
       } else {
         flight = fit->second;
+        RequireResourceType<T>(key.Name(), flight->type);
       }
     }
 
     std::lock_guard<std::mutex> key_lock(flight->mtx);
     if (flight->done) {
+      RequireResourceType<T>(key.Name(), flight->type);
       return std::static_pointer_cast<T>(flight->result);
     }
 
@@ -257,23 +290,44 @@ class SessionContext {
     {
       std::lock_guard<std::mutex> lock(resource_mutex_);
       if (created) {
-        resources_[key] = created;
+        resources_.insert_or_assign(
+            key.Name(), ResourceEntry{created, std::type_index(typeid(T))});
       }
-      flights_.erase(key);
+      flights_.erase(key.Name());
     }
     return created;
   }
 
  private:
+  struct ResourceEntry {
+    std::shared_ptr<void> value;
+    std::type_index type;
+  };
+
   struct SingleFlightEntry {
+    explicit SingleFlightEntry(std::type_index resource_type)
+        : type(resource_type) {}
+
     std::mutex mtx;
     std::shared_ptr<void> result;
+    std::type_index type;
     bool done = false;
   };
 
+  template <typename T>
+  static void RequireResourceType(const std::string& key,
+                                  std::type_index actual) {
+    const std::type_index expected(typeid(T));
+    if (actual != expected) {
+      throw std::logic_error("Session resource type mismatch for key '" + key +
+                             "' (expected " + expected.name() + ", stored " +
+                             actual.name() + ")");
+    }
+  }
+
   ModelManager model_manager_;
   mutable std::mutex resource_mutex_;
-  std::unordered_map<std::string, std::shared_ptr<void>> resources_;
+  std::unordered_map<std::string, ResourceEntry> resources_;
   std::unordered_map<std::string, std::shared_ptr<SingleFlightEntry>> flights_;
   RuntimeOptions runtime_options_;
 };

@@ -8,13 +8,20 @@
 
 ## 10.0.0 - 2026-09
 
+- Validator 现在把业务 ingress 视为 write-once producer，Node 输出绑定与 ingress
+  重名会在规划期以 `DUPLICATE_PORT_PRODUCER` 拒绝，不再延迟到运行时失败。
+- 产品版本与 ABI 版本由 CMake 单一生成；v10.0.0 / ABI 5 共享库只导出 6 个算法 C ABI、
+  3 个日志 C API 和 3 个 Operator API，内部工具和测试不再依赖泄漏的 C++ 动态符号。
+- `SessionContext` 资源改用 `SessionResourceKey<T>` 并在 cast 前校验类型；
+  `PipelineCatalog` 查询改为独立值/稳定快照，避免并发注册使引用和指针失效。
 - 在正式接入前将主体 C++ 根命名空间从历史 `alg_framework` 原子收敛为
   `llm_edgeflow`；六个纯 C ABI、Operator API、共享库文件名与 C ABI major 保持不变。
 - 生产库、Demo、开发 fixture、工具与测试改由所属目录显式管理 CMake 源码；新增
   `llm_edgeflow::sdk` target alias，并通过标准 `BUILD_TESTING` 隔离测试依赖。
 - 测试树按 unit、integration、contract、tooling 与 e2e 责任重组；sharded 与
   individual 模式共用单一源码清单，历史 stage fixture 路径改为稳定语义路径。
-- 设计依据：[RFC-0027](rfcs/0027-preproduction-source-layout-and-namespace-convergence.md)。
+- 设计依据：[RFC-0027](rfcs/0027-preproduction-source-layout-and-namespace-convergence.md)、
+  [RFC-0028](rfcs/0028-preproduction-runtime-and-abi-hardening.md)。
 
 ## 9.0.0 - 2026-09
 
