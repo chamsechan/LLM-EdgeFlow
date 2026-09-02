@@ -2,6 +2,8 @@
 
 include(${PROJECT_SOURCE_DIR}/cmake/TestInventory.cmake)
 
+option(LLM_EDGEFLOW_TEST_PCH "Enable precompiled headers for test runners" ON)
+
 add_test(NAME ThirdPartyCacheMetadataTest
   COMMAND ${CMAKE_COMMAND}
           -DPROJECT_SOURCE_DIR=${PROJECT_SOURCE_DIR}
@@ -20,6 +22,9 @@ endif()
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
 function(edgeflow_enable_test_pch target_name)
+  if(NOT LLM_EDGEFLOW_TEST_PCH)
+    return()
+  endif()
   target_precompile_headers(${target_name} PRIVATE
     <gtest/gtest.h>
     <nlohmann/json.hpp>
@@ -343,10 +348,12 @@ add_test(NAME DiagramRenderGateSelfTest
   COMMAND ${PROJECT_SOURCE_DIR}/tests/contract/architecture/test_diagram_render_gate.sh)
 add_test(NAME ScriptGeneratorDetectionTest
   COMMAND ${PROJECT_SOURCE_DIR}/tests/contract/architecture/test_script_generator_detection.sh)
+add_test(NAME SanitizerCcacheContractTest
+  COMMAND ${PROJECT_SOURCE_DIR}/tests/contract/architecture/test_sanitizer_ccache_contract.sh)
 set_tests_properties(
   LayerGuardTest LayerGuardSelfTest ArchitectureDocsDriftTest
   ArchitectureDocsDriftGateSelfTest GovernanceConsistencyTest
-  ScriptGeneratorDetectionTest
+  ScriptGeneratorDetectionTest SanitizerCcacheContractTest
   PROPERTIES WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
   LABELS "tier1;static-gate;dev-fast;sanitizer-compatible")
 set_tests_properties(DiagramAssetsCheckTest DiagramRenderGateSelfTest
