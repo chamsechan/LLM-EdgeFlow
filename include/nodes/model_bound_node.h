@@ -34,7 +34,7 @@ class ModelBoundNode : public NodeBase {
  private:
   bool InitNode(const NodeInitContext& init_ctx, const nlohmann::json& config,
                 SessionContext& session_ctx) final {
-    const NodeDefinition* definition = PipelineCatalog::FindNode(Name());
+    const auto definition = PipelineCatalog::FindNode(Name());
     if (!definition || definition->model_config_field.empty()) return false;
 
     const std::string& field_name = definition->model_config_field;

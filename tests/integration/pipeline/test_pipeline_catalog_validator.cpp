@@ -42,7 +42,7 @@ REGISTER_NODE_WITH_DEFINITION(StudioCatalogProbeNode,
 
 TEST(PipelineCatalogTest, RegisteredProductionTypesHaveDefinitions) {
   for (const auto& node_type : NodeFactory::Instance().ListTypes()) {
-    EXPECT_NE(PipelineCatalog::FindNode(node_type), nullptr) << node_type;
+    EXPECT_TRUE(PipelineCatalog::FindNode(node_type).has_value()) << node_type;
   }
   for (const auto& model_type : ModelRegistry::Instance().ListTypes()) {
     EXPECT_TRUE(PipelineCatalog::FindModel(model_type).has_value())
@@ -74,8 +74,8 @@ TEST(PipelineCatalogTest, OutputIsDeterministicAndConflictFree) {
 }
 
 TEST(PipelineCatalogTest, DefinitionRegistrationMakesNewNodeDiscoverable) {
-  const auto* definition = PipelineCatalog::FindNode("StudioCatalogProbeNode");
-  ASSERT_NE(definition, nullptr);
+  const auto definition = PipelineCatalog::FindNode("StudioCatalogProbeNode");
+  ASSERT_TRUE(definition.has_value());
   EXPECT_EQ(definition->description, "Catalog auto-discovery probe");
   const auto filtered = PipelineCatalog::ToJson("keyword_match_v1");
   EXPECT_TRUE(std::any_of(

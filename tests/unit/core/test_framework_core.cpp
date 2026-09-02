@@ -1,7 +1,10 @@
 #include <gtest/gtest.h>
 
+#include <atomic>
+#include <chrono>
 #include <memory>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "core/alg_context.h"
@@ -112,6 +115,46 @@ TEST(ModelManagerTest, TypedModels) {
   EXPECT_EQ(retrieved->GetMaxBatchSize(), 4);
   EXPECT_EQ(retrieved->Capability(), "rerank");
   EXPECT_EQ(manager.GetModel<IEmbeddingModel>("my_rerank_v1"), nullptr);
+}
+
+TEST(SessionContextTest, TypedDynamicResourcesRejectMismatchedAccess) {
+  SessionContext context;
+  SessionResourceKey<std::string> string_key("dynamic-resource");
+  SessionResourceKey<int> int_key("dynamic-resource");
+  context.SetResource(string_key, std::make_shared<std::string>("value"));
+
+  const auto stored = context.GetResource(string_key);
+  ASSERT_NE(stored, nullptr);
+  EXPECT_EQ(*stored, "value");
+  EXPECT_THROW(context.GetResource(int_key), std::logic_error);
+  EXPECT_THROW(context.SetResource(int_key, std::make_shared<int>(7)),
+               std::logic_error);
+  EXPECT_EQ(*context.GetResource(string_key), "value");
+}
+
+TEST(SessionContextTest, SingleFlightCreatesOneTypedResource) {
+  SessionContext context;
+  SessionResourceKey<std::string> key("single-flight");
+  std::atomic<int> factory_calls{0};
+  std::vector<std::shared_ptr<std::string>> results(8);
+  std::vector<std::thread> workers;
+  workers.reserve(results.size());
+  for (size_t i = 0; i < results.size(); ++i) {
+    workers.emplace_back([&, i]() {
+      results[i] = context.GetOrCreateResource<std::string>(key, [&]() {
+        ++factory_calls;
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        return std::make_shared<std::string>("shared");
+      });
+    });
+  }
+  for (auto& worker : workers) worker.join();
+
+  EXPECT_EQ(factory_calls.load(), 1);
+  ASSERT_NE(results.front(), nullptr);
+  for (const auto& result : results) {
+    EXPECT_EQ(result, results.front());
+  }
 }
 
 // 5. 测试 Pipeline 解析异常与健壮性拦截

@@ -19,6 +19,7 @@ LLM-EdgeFlow 通过声明式 Pipeline，把纯 C ABI 接入、DAG 调度、可�
 ## 核心能力
 
 - **安全接入**：6 个标准 C 导出函数均由 `noexcept` 异常屏障保护，公共头文件保持纯 C ABI；同一 handle 的 Process/Control 串行执行。
+- **受控导出**：v10.0.0 / ABI 5 共享库只承诺 12 个动态入口（6 个算法 C ABI、3 个日志 C API、3 个 Operator API）；其余 C++ 实现均为内部符号。
 - **声明式编排**：Pipeline 在执行前完成 Schema、端口类型、DAG 和并发写冲突校验，并直接消费不可变执行计划。
 - **请求级黑板**：`AlgContext` 通过 `Read/Publish` 传递不可变强类型快照，保留 `(req_id, sub_id)` 样本溯源。
 - **能力与硬件解耦**：模型语义通过中性协议连接 ONNX Runtime、llama.cpp 和后续 NPU Backend。
@@ -34,7 +35,7 @@ LLM-EdgeFlow 通过声明式 Pipeline，把纯 C ABI 接入、DAG 调度、可�
 | 分层 | 职责 | 核心组件 |
 | :--- | :--- | :--- |
 | **Layer 1：C ABI 与 Operator 接入** | 解包、输入输出契约、生命周期和异常隔离 | `company_alg_interface.h`、Adapter、Operator |
-| **Layer 2：Pipeline 与黑板** | 配置校验、DAG 计划、调度与请求状态 | `Pipeline`、`PipelineValidator`、`AlgContext` |
+| **Layer 2：Pipeline 与黑板** | 配置校验、DAG 计划、调度、请求状态与会话资源 | `Pipeline`、`PipelineValidator`、`AlgContext`、`SessionContext` |
 | **Layer 3：通用能力节点** | 无请求状态的前处理、推理调用和后处理 | `NodeBase`、`src/common_nodes/`、`include/nodes/` |
 | **Layer 4：模型与 Backend** | 模型能力、中性执行协议和硬件批调度 | `IModel`、`IInferenceBackend`、`FixedBatchExecutor` |
 

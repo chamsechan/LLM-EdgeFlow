@@ -1,8 +1,10 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <atomic>
 #include <set>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "adapter/biz_adapter_registry.h"
@@ -17,7 +19,7 @@ class CatalogContractSsotTest : public ::testing::Test {};
 
 // 1. 验证所有生产算子均具备合法的 NodeDefinition 元数据
 TEST_F(CatalogContractSsotTest, AllProductionNodesHaveValidDefinitions) {
-  const auto& nodes = PipelineCatalog::Nodes();
+  const auto nodes = PipelineCatalog::Nodes();
   EXPECT_GE(nodes.size(), 11U);
 
   std::set<std::string> seen_types;
@@ -37,8 +39,8 @@ TEST_F(CatalogContractSsotTest, AllProductionNodesHaveValidDefinitions) {
         << "Failed to create node instance: " << node_def.node_type;
 
     // FindNode 查询一致性
-    const auto* found = PipelineCatalog::FindNode(node_def.node_type);
-    ASSERT_NE(found, nullptr);
+    const auto found = PipelineCatalog::FindNode(node_def.node_type);
+    ASSERT_TRUE(found.has_value());
     EXPECT_EQ(found->node_type, node_def.node_type);
     EXPECT_EQ(found->category, node_def.category);
   }
@@ -86,7 +88,7 @@ TEST_F(CatalogContractSsotTest, ProductionModelBackendCatalogHasNoFixtures) {
 
 // 3. 验证 7 种业务契约在 PipelineCatalog 中完整注册
 TEST_F(CatalogContractSsotTest, AllBizDefinitionsAreRegistered) {
-  const auto& bizs = PipelineCatalog::Bizs();
+  const auto bizs = PipelineCatalog::Bizs();
   EXPECT_GE(bizs.size(), 7U);
 
   std::set<std::string> biz_names;
@@ -104,29 +106,29 @@ TEST_F(CatalogContractSsotTest, AllBizDefinitionsAreRegistered) {
   EXPECT_TRUE(biz_names.count("dense_cross_rerank_scoring"));
 
   for (const auto& name : biz_names) {
-    const auto* found = PipelineCatalog::FindBiz(name);
-    ASSERT_NE(found, nullptr) << "Missing biz definition: " << name;
+    const auto found = PipelineCatalog::FindBiz(name);
+    ASSERT_TRUE(found.has_value()) << "Missing biz definition: " << name;
     EXPECT_EQ(found->biz_name, name);
   }
 }
 
 // 4. 验证不存在类型查询返回 nullptr
-TEST_F(CatalogContractSsotTest, FindReturnsNullptrForNonexistentEntities) {
-  EXPECT_EQ(PipelineCatalog::FindNode("NonExistentNode12345"), nullptr);
+TEST_F(CatalogContractSsotTest, FindReturnsEmptyForNonexistentEntities) {
+  EXPECT_FALSE(PipelineCatalog::FindNode("NonExistentNode12345").has_value());
   EXPECT_FALSE(
       PipelineCatalog::FindModel("non_existent_model_999").has_value());
   EXPECT_FALSE(
       PipelineCatalog::FindBackend("non_existent_backend_999").has_value());
-  EXPECT_EQ(PipelineCatalog::FindBiz("non_existent_biz_xyz"), nullptr);
+  EXPECT_FALSE(PipelineCatalog::FindBiz("non_existent_biz_xyz").has_value());
 }
 
 TEST_F(CatalogContractSsotTest, BusinessBatchRegistrationIsAtomic) {
   const std::string first = "atomic_catalog_probe_first";
   const std::string last = "atomic_catalog_probe_last";
-  ASSERT_EQ(PipelineCatalog::FindBiz(first), nullptr);
-  ASSERT_EQ(PipelineCatalog::FindBiz(last), nullptr);
+  ASSERT_FALSE(PipelineCatalog::FindBiz(first).has_value());
+  ASSERT_FALSE(PipelineCatalog::FindBiz(last).has_value());
 
-  const auto& existing = PipelineCatalog::Bizs();
+  const auto existing = PipelineCatalog::Bizs();
   ASSERT_FALSE(existing.empty());
   std::vector<BizDefinition> batch = {
       BizDefinition{first, "probe"},
@@ -135,8 +137,35 @@ TEST_F(CatalogContractSsotTest, BusinessBatchRegistrationIsAtomic) {
   };
 
   EXPECT_FALSE(PipelineCatalog::RegisterBizDefinitions(batch));
-  EXPECT_EQ(PipelineCatalog::FindBiz(first), nullptr);
-  EXPECT_EQ(PipelineCatalog::FindBiz(last), nullptr);
+  EXPECT_FALSE(PipelineCatalog::FindBiz(first).has_value());
+  EXPECT_FALSE(PipelineCatalog::FindBiz(last).has_value());
+}
+
+TEST_F(CatalogContractSsotTest,
+       ValueSnapshotsRemainStableDuringConcurrentRegistration) {
+  const auto original = PipelineCatalog::Snapshot();
+  ASSERT_FALSE(original.bizs.empty());
+  const std::string original_first = original.bizs.front().biz_name;
+  std::atomic<bool> registration_ok{true};
+  std::thread registrar([&]() {
+    for (int i = 0; i < 16; ++i) {
+      if (!PipelineCatalog::RegisterBizDefinition(BizDefinition{
+              "snapshot_concurrency_probe_" + std::to_string(i), "probe"})) {
+        registration_ok = false;
+      }
+    }
+  });
+  for (int i = 0; i < 32; ++i) {
+    const auto current = PipelineCatalog::Snapshot();
+    EXPECT_NE(current.FindBiz(original_first), nullptr);
+  }
+  registrar.join();
+
+  EXPECT_TRUE(registration_ok.load());
+  EXPECT_EQ(original.bizs.front().biz_name, original_first);
+  EXPECT_EQ(original.FindBiz("snapshot_concurrency_probe_0"), nullptr);
+  EXPECT_TRUE(
+      PipelineCatalog::FindBiz("snapshot_concurrency_probe_0").has_value());
 }
 
 // 5. 验证 PipelineCatalog::ToJson 序列化规范性与过滤逻辑

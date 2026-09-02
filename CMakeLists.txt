@@ -1,6 +1,9 @@
 cmake_minimum_required(VERSION 3.16)
 project(LLMEdgeFlow VERSION 10.0.0 LANGUAGES C CXX)
 
+set(LLM_EDGEFLOW_ABI_VERSION "5.0.0")
+set(LLM_EDGEFLOW_ABI_VERSION_MAJOR 5)
+
 # 严格禁止 In-Source 构建 (防止误用 cmake . 污染源码目录并触发重复下载阻塞)
 if("${CMAKE_SOURCE_DIR}" STREQUAL "${CMAKE_BINARY_DIR}")
   message(FATAL_ERROR "
@@ -47,12 +50,33 @@ if(ENABLE_SANITIZERS)
       "${CMAKE_SHARED_LINKER_FLAGS} -fsanitize=${LLM_EDGEFLOW_SANITIZERS}")
 endif()
 
+# 产品版本和 ABI 版本均由 CMake 生成，公共 C 头不再维护副本。
+set(LLM_EDGEFLOW_GENERATED_INCLUDE_DIR
+    "${PROJECT_BINARY_DIR}/generated/include")
+file(MAKE_DIRECTORY "${LLM_EDGEFLOW_GENERATED_INCLUDE_DIR}")
+configure_file(
+  "${PROJECT_SOURCE_DIR}/cmake/company_alg_version.h.in"
+  "${LLM_EDGEFLOW_GENERATED_INCLUDE_DIR}/company_alg_version.h"
+  @ONLY)
+set(LLM_EDGEFLOW_SDK_VERSION_SCRIPT
+    "${PROJECT_BINARY_DIR}/company_alg_sdk.map")
+configure_file(
+  "${PROJECT_SOURCE_DIR}/cmake/company_alg_sdk.map.in"
+  "${LLM_EDGEFLOW_SDK_VERSION_SCRIPT}"
+  @ONLY)
+
+add_library(edgeflow_public_headers INTERFACE)
+target_include_directories(edgeflow_public_headers INTERFACE
+    $<BUILD_INTERFACE:${LLM_EDGEFLOW_GENERATED_INCLUDE_DIR}>
+    $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>)
+
 # 仓库内工具、Demo 与测试可以包含私有头；对外 SDK 只传播 include/。
 add_library(edgeflow_internal_headers INTERFACE)
 target_include_directories(edgeflow_internal_headers INTERFACE
     ${PROJECT_SOURCE_DIR}
-    ${PROJECT_SOURCE_DIR}/include
     ${PROJECT_SOURCE_DIR}/src)
+target_link_libraries(edgeflow_internal_headers INTERFACE
+    edgeflow_public_headers)
 
 if(APPLE AND CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang")
   if(EXISTS "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1")
@@ -74,35 +98,72 @@ include(cmake/ThirdPartyEngines.cmake)
 # this stable artifact layout.
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 
-# 1. 生成对外交付的动态算法库 (.so)
-add_library(alg_sdk SHARED)
-add_library(llm_edgeflow::sdk ALIAS alg_sdk)
-target_link_libraries(alg_sdk PRIVATE edgeflow_internal_headers)
-add_subdirectory(src)
-target_link_libraries(alg_sdk
-    PUBLIC nlohmann_json::nlohmann_json
-    PRIVATE edgeflow_pcre2)
+# 内部实现只编译一次。仓库工具和测试直接链接 OBJECT target，不依赖公共
+# 共享库的内部 C++ 动态符号。
+add_library(edgeflow_runtime_dependencies INTERFACE)
+target_link_libraries(edgeflow_runtime_dependencies INTERFACE
+    edgeflow_internal_headers
+    nlohmann_json::nlohmann_json
+    edgeflow_pcre2)
+
+add_library(edgeflow_runtime_objects OBJECT)
+add_library(llm_edgeflow::internal_runtime ALIAS edgeflow_runtime_objects)
+target_link_libraries(edgeflow_runtime_objects PUBLIC
+    edgeflow_runtime_dependencies)
+target_compile_definitions(edgeflow_runtime_objects PRIVATE
+    COMPANY_ALG_BUILDING_SDK=1)
+target_compile_definitions(edgeflow_runtime_objects INTERFACE
+    COMPANY_ALG_STATIC_LINK=1)
+set_target_properties(edgeflow_runtime_objects PROPERTIES
+    C_VISIBILITY_PRESET hidden
+    CXX_VISIBILITY_PRESET hidden
+    VISIBILITY_INLINES_HIDDEN YES)
+
 if(LLM_EDGEFLOW_HAS_ONNXRUNTIME)
-  target_include_directories(alg_sdk PRIVATE SYSTEM "${ONNXRUNTIME_INCLUDE_DIR}")
-  target_compile_definitions(alg_sdk PRIVATE HAVE_ONNXRUNTIME=1)
-  target_link_libraries(alg_sdk PRIVATE "${ONNXRUNTIME_LIB}")
+  target_include_directories(edgeflow_runtime_dependencies SYSTEM INTERFACE
+      "${ONNXRUNTIME_INCLUDE_DIR}")
+  target_compile_definitions(edgeflow_runtime_dependencies INTERFACE
+      HAVE_ONNXRUNTIME=1)
+  target_link_libraries(edgeflow_runtime_dependencies INTERFACE
+      "${ONNXRUNTIME_LIB}")
 endif()
 if(LLM_EDGEFLOW_HAS_KITELLM)
-  target_include_directories(alg_sdk SYSTEM PRIVATE "${KITELLM_INCLUDE_DIR}")
-  target_compile_definitions(alg_sdk PRIVATE HAVE_KITELLM=1)
-  target_link_libraries(alg_sdk PRIVATE "${KITELLM_LIBRARY}")
+  target_include_directories(edgeflow_runtime_dependencies SYSTEM INTERFACE
+      "${KITELLM_INCLUDE_DIR}")
+  target_compile_definitions(edgeflow_runtime_dependencies INTERFACE
+      HAVE_KITELLM=1)
+  target_link_libraries(edgeflow_runtime_dependencies INTERFACE
+      "${KITELLM_LIBRARY}")
 endif()
 if(LLM_EDGEFLOW_HAS_LLAMACPP)
-  target_include_directories(alg_sdk SYSTEM PRIVATE ${LLAMACPP_INCLUDE_DIRS})
-  target_compile_definitions(alg_sdk PRIVATE HAVE_LLAMACPP=1)
+  target_include_directories(edgeflow_runtime_dependencies SYSTEM INTERFACE
+      ${LLAMACPP_INCLUDE_DIRS})
+  target_compile_definitions(edgeflow_runtime_dependencies INTERFACE
+      HAVE_LLAMACPP=1)
 endif()
 if(THIRD_PARTY_ENGINE_LIBS)
-  target_link_libraries(alg_sdk PRIVATE ${THIRD_PARTY_ENGINE_LIBS})
+  target_link_libraries(edgeflow_runtime_dependencies INTERFACE
+      ${THIRD_PARTY_ENGINE_LIBS})
+endif()
+
+add_subdirectory(src)
+
+# 1. 生成对外交付的动态算法库 (.so)
+add_library(alg_sdk SHARED $<TARGET_OBJECTS:edgeflow_runtime_objects>)
+add_library(llm_edgeflow::sdk ALIAS alg_sdk)
+target_link_libraries(alg_sdk
+    PUBLIC edgeflow_public_headers
+    PRIVATE edgeflow_runtime_dependencies)
+if(UNIX AND NOT APPLE)
+  target_link_options(alg_sdk PRIVATE
+      "LINKER:--version-script=${LLM_EDGEFLOW_SDK_VERSION_SCRIPT}")
+  set_target_properties(alg_sdk PROPERTIES
+      LINK_DEPENDS "${LLM_EDGEFLOW_SDK_VERSION_SCRIPT}")
 endif()
 set_target_properties(alg_sdk PROPERTIES
     OUTPUT_NAME "company_alg_sdk"
     VERSION ${PROJECT_VERSION}
-    SOVERSION 5
+    SOVERSION ${LLM_EDGEFLOW_ABI_VERSION_MAJOR}
 )
 
 add_subdirectory(dev_support)

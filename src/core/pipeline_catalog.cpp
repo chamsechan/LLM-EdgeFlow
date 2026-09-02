@@ -288,7 +288,28 @@ bool PipelineCatalog::RegisterBizDefinitions(
   return true;
 }
 
-const std::vector<NodeDefinition>& PipelineCatalog::Nodes() {
+const NodeDefinition* PipelineCatalogSnapshot::FindNode(
+    const std::string& node_type) const {
+  auto it = std::find_if(nodes.begin(), nodes.end(), [&](const auto& item) {
+    return item.node_type == node_type;
+  });
+  return it == nodes.end() ? nullptr : &*it;
+}
+
+const BizDefinition* PipelineCatalogSnapshot::FindBiz(
+    const std::string& biz_name) const {
+  auto it = std::find_if(bizs.begin(), bizs.end(), [&](const auto& item) {
+    return item.biz_name == biz_name;
+  });
+  return it == bizs.end() ? nullptr : &*it;
+}
+
+PipelineCatalogSnapshot PipelineCatalog::Snapshot() {
+  std::lock_guard<std::mutex> lock(CatalogMutex());
+  return {RegisteredNodes(), RegisteredBizs()};
+}
+
+std::vector<NodeDefinition> PipelineCatalog::Nodes() {
   std::lock_guard<std::mutex> lock(CatalogMutex());
   return RegisteredNodes();
 }
@@ -301,18 +322,20 @@ std::vector<BackendDefinition> PipelineCatalog::Backends() {
   return BackendRegistry::Instance().ListDefinitions();
 }
 
-const std::vector<BizDefinition>& PipelineCatalog::Bizs() {
+std::vector<BizDefinition> PipelineCatalog::Bizs() {
   std::lock_guard<std::mutex> lock(CatalogMutex());
   return RegisteredBizs();
 }
 
-const NodeDefinition* PipelineCatalog::FindNode(const std::string& node_type) {
+std::optional<NodeDefinition> PipelineCatalog::FindNode(
+    const std::string& node_type) {
   std::lock_guard<std::mutex> lock(CatalogMutex());
   const auto& nodes = RegisteredNodes();
   auto it = std::find_if(nodes.begin(), nodes.end(), [&](const auto& item) {
     return item.node_type == node_type;
   });
-  return it == nodes.end() ? nullptr : &*it;
+  if (it == nodes.end()) return std::nullopt;
+  return *it;
 }
 
 std::optional<ModelDefinition> PipelineCatalog::FindModel(
@@ -325,13 +348,15 @@ std::optional<BackendDefinition> PipelineCatalog::FindBackend(
   return BackendRegistry::Instance().Find(backend_type);
 }
 
-const BizDefinition* PipelineCatalog::FindBiz(const std::string& biz_name) {
+std::optional<BizDefinition> PipelineCatalog::FindBiz(
+    const std::string& biz_name) {
   std::lock_guard<std::mutex> lock(CatalogMutex());
   const auto& bizs = RegisteredBizs();
   auto it = std::find_if(bizs.begin(), bizs.end(), [&](const auto& item) {
     return item.biz_name == biz_name;
   });
-  return it == bizs.end() ? nullptr : &*it;
+  if (it == bizs.end()) return std::nullopt;
+  return *it;
 }
 
 void PipelineCatalog::ClearForTesting() {
@@ -404,8 +429,9 @@ nlohmann::json PipelineCatalog::BackendToJson(
 }
 
 nlohmann::json PipelineCatalog::ToJson(const std::string& biz_filter) {
+  const auto snapshot = Snapshot();
   nlohmann::json nodes = nlohmann::json::array();
-  for (const auto& item : Nodes()) {
+  for (const auto& item : snapshot.nodes) {
     if (!biz_filter.empty() && !item.biz_names.empty() &&
         std::find(item.biz_names.begin(), item.biz_names.end(), biz_filter) ==
             item.biz_names.end()) {
@@ -425,7 +451,7 @@ nlohmann::json PipelineCatalog::ToJson(const std::string& biz_filter) {
   }
 
   nlohmann::json bizs = nlohmann::json::array();
-  for (const auto& item : Bizs()) {
+  for (const auto& item : snapshot.bizs) {
     if (!biz_filter.empty() && item.biz_name != biz_filter) continue;
     nlohmann::json ingress = nlohmann::json::array();
     nlohmann::json egress = nlohmann::json::array();

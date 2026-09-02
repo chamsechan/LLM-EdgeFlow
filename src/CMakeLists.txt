@@ -1,4 +1,4 @@
-target_sources(alg_sdk PRIVATE company_alg_log.cpp)
+target_sources(edgeflow_runtime_objects PRIVATE company_alg_log.cpp)
 
 add_subdirectory(core)
 add_subdirectory(engine)

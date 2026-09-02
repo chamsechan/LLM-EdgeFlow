@@ -1,4 +1,4 @@
-target_sources(alg_sdk PRIVATE
+target_sources(edgeflow_runtime_objects PRIVATE
   runtime/backend_registry.cpp
   runtime/model_registry.cpp
   runtime/model_runtime_factory.cpp

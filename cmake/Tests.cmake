@@ -54,7 +54,7 @@ add_executable(edgeflow_test_core_runner
   $<TARGET_OBJECTS:edgeflow_test_backend_fixtures>
   $<TARGET_OBJECTS:edgeflow_test_business_model_fixtures>)
 target_link_libraries(edgeflow_test_core_runner PRIVATE
-  alg_sdk GTest::gtest GTest::gtest_main)
+  llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
 if(LLM_EDGEFLOW_HAS_ONNXRUNTIME)
   set(EDGEFLOW_GENERATED_MODEL_FIXTURE_DIR
       "${CMAKE_CURRENT_BINARY_DIR}/test-fixtures/models")
@@ -118,7 +118,7 @@ add_executable(edgeflow_test_nodes_runner
   $<TARGET_OBJECTS:edgeflow_test_backend_fixtures>
   $<TARGET_OBJECTS:edgeflow_test_business_model_fixtures>)
 target_link_libraries(edgeflow_test_nodes_runner PRIVATE
-  alg_sdk GTest::gtest GTest::gtest_main)
+  llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
 edgeflow_enable_test_pch(edgeflow_test_nodes_runner)
 
 set(EDGEFLOW_TEST_ADAPTER_SRCS
@@ -139,7 +139,7 @@ add_executable(edgeflow_test_adapter_runner
   $<TARGET_OBJECTS:edgeflow_test_backend_fixtures>
   $<TARGET_OBJECTS:edgeflow_test_business_model_fixtures>)
 target_link_libraries(edgeflow_test_adapter_runner PRIVATE
-  alg_sdk GTest::gtest GTest::gtest_main)
+  llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
 edgeflow_enable_test_pch(edgeflow_test_adapter_runner)
 
 set(EDGEFLOW_TEST_TOOLING_SRCS
@@ -153,7 +153,7 @@ add_executable(edgeflow_test_tooling_runner
   $<TARGET_OBJECTS:edgeflow_test_backend_fixtures>
   $<TARGET_OBJECTS:edgeflow_test_business_model_fixtures>)
 target_link_libraries(edgeflow_test_tooling_runner PRIVATE
-  alg_sdk GTest::gtest GTest::gtest_main)
+  llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
 edgeflow_enable_test_pch(edgeflow_test_tooling_runner)
 
 if(LLM_EDGEFLOW_HAS_ONNXRUNTIME)
@@ -176,21 +176,21 @@ endif()
 # Process-isolated targets. Registry conflict intentionally runs each dirty
 # singleton scenario in its own process.
 add_executable(test_c11_abi_compliance ${EDGEFLOW_SOURCE_test_c11_abi_compliance})
-target_link_libraries(test_c11_abi_compliance PRIVATE alg_sdk)
+target_link_libraries(test_c11_abi_compliance PRIVATE llm_edgeflow::sdk)
 
 add_executable(test_registry_conflict ${EDGEFLOW_SOURCE_test_registry_conflict})
 target_link_libraries(test_registry_conflict PRIVATE
-  alg_sdk GTest::gtest GTest::gtest_main)
+  llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
 
 add_executable(test_model_backend_registry_conflict
   ${EDGEFLOW_SOURCE_test_model_backend_registry_conflict})
 target_link_libraries(test_model_backend_registry_conflict PRIVATE
-  alg_sdk GTest::gtest GTest::gtest_main)
+  llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
 
 add_executable(test_catalog_contract_ssot
   ${EDGEFLOW_SOURCE_test_catalog_contract_ssot})
 target_link_libraries(test_catalog_contract_ssot PRIVATE
-  alg_sdk GTest::gtest GTest::gtest_main)
+  llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
 
 set(_edgeflow_tier1 "tier1;dev-fast;sanitizer-compatible")
 set(_edgeflow_tier2 "tier2;dev-fast;sanitizer-compatible")

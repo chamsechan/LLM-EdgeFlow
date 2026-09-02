@@ -7,6 +7,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "company_alg_export.h"
 #include "operator/company_operator_types.h"
 
 namespace llm_edgeflow::operator_api {
@@ -137,12 +138,12 @@ struct OperatorFunc {
 /**
  * @brief 获取 Operator 函数表入口
  */
-OperatorFunc Get_LLM_EDGEFLOW_OperatorTable() noexcept;
+COMPANY_ALG_API OperatorFunc Get_LLM_EDGEFLOW_OperatorTable() noexcept;
 
 /**
  * @brief 获取当前线程最近一次 Operator 门面结构化诊断错误信息
  */
-const char* GetOperatorLastError() noexcept;
+COMPANY_ALG_API const char* GetOperatorLastError() noexcept;
 
 /**
  * @brief 校验部署配置 .conf 与预期业务类型是否兼容
@@ -155,10 +156,9 @@ const char* GetOperatorLastError() noexcept;
  * @return 0 校验通过且兼容, -1 参数非法, -2 配置解析或文件不存在/逃逸, -3
  * 业务不匹配
  */
-int ValidateOperatorConfigBinding(const char* model_path,
-                                  const char* cfg_file_name,
-                                  int32_t expected_biz_type,
-                                  char* out_error_msg = nullptr,
-                                  size_t error_buf_size = 0) noexcept;
+COMPANY_ALG_API int ValidateOperatorConfigBinding(
+    const char* model_path, const char* cfg_file_name,
+    int32_t expected_biz_type, char* out_error_msg = nullptr,
+    size_t error_buf_size = 0) noexcept;
 
 }  // namespace llm_edgeflow::operator_api

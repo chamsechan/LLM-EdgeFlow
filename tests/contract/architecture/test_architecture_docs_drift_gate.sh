@@ -51,5 +51,13 @@ if run_fixture_gate; then
   echo "❌ Docs drift gate missed a removed architecture identifier"
   exit 1
 fi
+cp doc/developer_guide.md "${FIXTURE_DOC_ROOT}/developer_guide.md"
+
+sed -i 's/10\.0\.0/99.0.0/g' \
+  "${FIXTURE_DOC_ROOT}/architecture.md"
+if run_fixture_gate; then
+  echo "❌ Docs drift gate missed a stale product version"
+  exit 1
+fi
 
 echo "✅ Architecture docs drift gate negative self-tests passed."
