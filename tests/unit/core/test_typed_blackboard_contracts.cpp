@@ -58,26 +58,30 @@ TEST_F(TypedBlackboardContractsTest, TypeMismatchReturnsNullptr) {
   EXPECT_EQ(int_view, nullptr);
 }
 
-// 3. 验证 CommonContracts 定义的公共 Key 的读写与 TraceableItem 支持
+// 3. 验证 CommonContracts 中性值类型的读写与 TraceableItem 支持
 TEST_F(TypedBlackboardContractsTest, CommonContractsAndTraceableProvenance) {
+  constexpr BlackboardKey<std::vector<uint64_t>> kRequestIds{"test_request_ids",
+                                                             "vector<uint64>"};
+  constexpr BlackboardKey<TextBatch> kQueries{"test_queries", "TextBatch"};
+  constexpr BlackboardKey<TextBatch> kPrompts{"test_prompts", "TextBatch"};
   AlgContext ctx;
 
   std::vector<uint64_t> raw_req_ids = {1001, 1002};
   TextBatch queries = {TraceableItem<std::string>{1001, 0, "query 1"},
                        TraceableItem<std::string>{1002, 0, "query 2"}};
-  ASSERT_TRUE(ctx.Publish(kRawRequestIds, raw_req_ids));
-  ASSERT_TRUE(ctx.Publish(kRawQueries, queries));
+  ASSERT_TRUE(ctx.Publish(kRequestIds, raw_req_ids));
+  ASSERT_TRUE(ctx.Publish(kQueries, queries));
 
-  EXPECT_TRUE(ctx.Has(kRawRequestIds));
-  EXPECT_TRUE(ctx.Has(kRawQueries));
+  EXPECT_TRUE(ctx.Has(kRequestIds));
+  EXPECT_TRUE(ctx.Has(kQueries));
 
   // TraceableItem 批处理样本可追溯性
   std::vector<TraceableItem<std::string>> prompts = {
       TraceableItem<std::string>{1001, 0, "Prompt for 1001-0"},
       TraceableItem<std::string>{1002, 0, "Prompt for 1002-0"}};
-  ASSERT_TRUE(ctx.Publish(kLlmInputPrompts, prompts));
+  ASSERT_TRUE(ctx.Publish(kPrompts, prompts));
 
-  auto* retrieved_prompts = ctx.Read(kLlmInputPrompts);
+  auto* retrieved_prompts = ctx.Read(kPrompts);
   ASSERT_NE(retrieved_prompts, nullptr);
   ASSERT_EQ(retrieved_prompts->size(), 2U);
   EXPECT_EQ((*retrieved_prompts)[0].req_id, 1001U);

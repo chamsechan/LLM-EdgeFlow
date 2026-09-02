@@ -14,8 +14,8 @@
 #include "core/blackboard_key.h"
 #include "core/common_contracts.h"
 #include "core/node_base.h"
-#include "core/pipeline_validator.h"
 #include "core/session_context.h"
+#include "core/validated_node_plan.h"
 
 namespace llm_edgeflow {
 

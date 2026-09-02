@@ -236,10 +236,12 @@ TEST(ModelBackendDecouplingTest, NeutralContractsAndBlackboardTypeIdentity) {
       "EmbeddingBatch must be std::vector<TraceableItem<std::vector<float>>>");
 
   AlgContext ctx;
+  constexpr BlackboardKey<TextBatch> kNeutralTexts{"neutral_texts",
+                                                   "TextBatch"};
   TextBatch texts = {{1, 0, "test prompt"}};
-  ctx.Publish(kInputSentences, texts);
+  ctx.Publish(kNeutralTexts, texts);
 
-  const auto* retrieved = ctx.Read(kInputSentences);
+  const auto* retrieved = ctx.Read(kNeutralTexts);
   ASSERT_NE(retrieved, nullptr);
   ASSERT_EQ(retrieved->size(), 1U);
   EXPECT_EQ((*retrieved)[0].data, "test prompt");

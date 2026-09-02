@@ -1,4 +1,4 @@
-target_sources(edgeflow_runtime_objects PRIVATE
+target_sources(edgeflow_layer4_engine_objects PRIVATE
   runtime/backend_registry.cpp
   runtime/model_registry.cpp
   runtime/model_runtime_factory.cpp

@@ -6,6 +6,16 @@
 
 ## Unreleased
 
+- 四层生产源码改为独立 OBJECT target 编译，并由显式 Composition Root 聚合；LayerGuard
+  同步校验源码归属、依赖方向及 Node 对轻量 `ValidatedNodePlan` 的使用。
+- 业务 ingress/egress Blackboard key 从 Core 迁至 Layer 1 Adapter，Core、Node 与
+  Engine 继续只持有中性值类型和逻辑端口契约。
+- 保留 `3rdparty/` 持久缓存和自动归档方案，为所有固定依赖增加来源与 ABI 兼容指纹；
+  缺失或不匹配的缓存不再被静默复用。
+- 设计依据：[RFC-0029](rfcs/0029-external-readiness-and-intranet-sdk-migration.md)、
+  [RFC-0030](rfcs/0030-compile-time-layer-boundaries.md)、
+  [RFC-0031](rfcs/0031-business-blackboard-key-ownership.md)。
+
 ## 10.0.0 - 2026-09
 
 - Validator 现在把业务 ingress 视为 write-once producer，Node 输出绑定与 ingress

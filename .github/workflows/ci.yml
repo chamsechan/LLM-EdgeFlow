@@ -128,20 +128,21 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Generate RFC-0025 Evidence
+      - name: Generate Project Quality Evidence
         run: |
           git fetch origin main --quiet
           ./scripts/generate_acceptance_evidence.sh \
-            build/acceptance/rfc-0025.json \
+            build/acceptance/project-quality-gate.json \
             "${{ needs.build-and-test.result }}" \
             "${{ needs.sanitizer.result }}" \
-            "${{ needs.real-c-abi-and-profile.result }}"
+            "${{ needs.real-c-abi-and-profile.result }}" \
+            project-quality-gate
 
-      - name: Upload RFC-0025 Evidence
+      - name: Upload Project Quality Evidence
         uses: actions/upload-artifact@v4
         with:
-          name: rfc-0025-acceptance-${{ github.sha }}
-          path: build/acceptance/rfc-0025.json
+          name: project-quality-acceptance-${{ github.sha }}
+          path: build/acceptance/project-quality-gate.json
 
       - name: Enforce Required Job Results
         if: >-

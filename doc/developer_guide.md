@@ -65,8 +65,9 @@ JSON 键，也不得为缺失容量提供本地 fallback。当前配置只有一
    `AdapterValidationHelper` 完成批次、指针、长度和输出容量校验。
 3. `AdapterDescriptor::pipelines` 使用完整 `BizDefinition` 声明合法 `biz_name` 及
    ingress/egress typed ports；通过 `REGISTER_BIZ_ADAPTER` 注册，不修改中心派发。
-4. `Unpack`/`Pack` 使用 `core/common_contracts.h` 中的共享值类型和
-   `BlackboardKey<T>`；不要引入业务专属内部 DTO 或裸字符串 Key 的第二套契约。
+4. `Unpack`/`Pack` 使用 `core/common_contracts.h` 中的中性值类型，并在
+   `adapter/biz_blackboard_keys.h` 集中声明业务 ingress/egress `BlackboardKey<T>`；
+   Core、Node 和 Engine 不得包含该业务 key 头。
 5. 以 [`entity_extract_adapter.cpp`](../src/adapter/adapters/entity_extract_adapter.cpp) 和
    [`cross_rerank_adapter.cpp`](../src/adapter/adapters/cross_rerank_adapter.cpp) 为当前模板，
    并扩展 Adapter/C ABI/Operator 对应契约测试。
@@ -76,7 +77,7 @@ JSON 键，也不得为缺失容量提供本地 fallback。当前配置只有一
 ## 2. Layer 2: 核心编排层与静态校验计划 (Pipeline & ValidatedPipelinePlan)
 
 Layer 2 负责请求黑板生命周期与 DAG 管线单趟构建：
-- **`ValidatedPipelinePlan`**：`PipelineValidator::ValidateAndPlan()` 单趟静态校验与 DAG 拓扑排序输出的不可变执行计划，`Pipeline::BuildInternal()` 直接消费该计划，杜绝运行时二次解析或隐式 DAG 计算。
+- **`ValidatedPipelinePlan`**：`PipelineValidator::ValidateAndPlan()` 单趟静态校验与 DAG 拓扑排序输出的不可变执行计划，`Pipeline::BuildInternal()` 直接消费该计划，杜绝运行时二次解析或隐式 DAG 计算；Node 支持代码只依赖其中抽出的 `ValidatedNodePlan` 轻量契约，不反向包含完整 Validator。
 - **`BlackboardKey<T>`**：强类型黑板键，各算子间通过 `Require` 与 `Publish` 交换数据，杜绝无类型内存乱序。
 - **`AlgContext` 并发契约**：输入使用 `Read` 获取只读快照，输出通过 typed port 单次
   `Publish`；不存在覆盖、删除或清空请求值的迁移入口。聚合行为由专用 Node 读取上游端口并

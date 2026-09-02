@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "core/pipeline_config.h"
+#include "core/validated_node_plan.h"
 #include "engine/inference_definition.h"
 
 namespace llm_edgeflow {
@@ -82,18 +83,6 @@ struct ValidationReport {
   nlohmann::json ToJson() const;
 };
 
-enum class PortDirection { kInput, kOutput };
-
-struct ResolvedPortBinding {
-  std::string logical_name;
-  std::string blackboard_key;
-  std::string type_id;
-  std::string cardinality;
-  std::string provenance_policy;
-  std::string lifetime;
-  PortDirection direction = PortDirection::kInput;
-};
-
 struct ValidatedModelPlan {
   std::string model_id;
   std::string capability;
@@ -106,31 +95,6 @@ struct ValidatedModelPlan {
   InferenceConcurrency effective_concurrency =
       InferenceConcurrency::kSerialized;
   size_t source_index = 0;
-};
-
-struct ValidatedNodePlan {
-  ParsedNodeConfig node;
-  nlohmann::json normalized_config;
-  std::vector<ResolvedPortBinding> ports;
-
-  std::string FindPortKey(const std::string& logical_name,
-                          PortDirection dir = PortDirection::kInput) const {
-    for (const auto& p : ports) {
-      if (p.logical_name == logical_name && p.direction == dir) {
-        return p.blackboard_key;
-      }
-    }
-    return {};
-  }
-
-  const ResolvedPortBinding* FindPort(
-      const std::string& logical_name,
-      PortDirection dir = PortDirection::kInput) const {
-    for (const auto& p : ports) {
-      if (p.logical_name == logical_name && p.direction == dir) return &p;
-    }
-    return nullptr;
-  }
 };
 
 struct ValidatedPipelinePlan {

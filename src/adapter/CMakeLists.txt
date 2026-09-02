@@ -1,4 +1,4 @@
-target_sources(edgeflow_runtime_objects PRIVATE
+target_sources(edgeflow_layer1_adapter_objects PRIVATE
   adapters/audio_asr_intent_adapter.cpp
   adapters/compliance_audit_adapter.cpp
   adapters/cross_rerank_adapter.cpp
@@ -21,5 +21,7 @@ target_sources(edgeflow_runtime_objects PRIVATE
   operator/operator_control_registry.cpp
   operator/operator_output_pool.cpp
   operator/operator_process_binding.cpp
-  operator/operator_value_type_registry.cpp
+  operator/operator_value_type_registry.cpp)
+
+target_sources(edgeflow_composition_objects PRIVATE
   shared_algorithm_runtime.cpp)

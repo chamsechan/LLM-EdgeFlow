@@ -84,6 +84,9 @@ doc/rfcs/NNNN-<kebab-case-title>.md
 | **RFC-0026** | 统一 LLM 文本生成协议与多 Backend 实现 | `Completed` | `v9.0.0` | Layer 3 ~ Layer 4 | [0026-unified-llm-generation-backends.md](0026-unified-llm-generation-backends.md) |
 | **RFC-0027** | 正式接入前源码布局与 C++ 命名空间收敛 | `Completed` | `v10.0.0` | Layer 1 ~ Layer 4 / Tooling | [0027-preproduction-source-layout-and-namespace-convergence.md](0027-preproduction-source-layout-and-namespace-convergence.md) |
 | **RFC-0028** | v10.0.0 预发布运行时与 ABI 收口 | `Completed` | `v10.0.0` | Layer 1 ~ Layer 4 / Tooling | [0028-preproduction-runtime-and-abi-hardening.md](0028-preproduction-runtime-and-abi-hardening.md) |
+| **RFC-0029** | 外网架构收口与内网 SDK 迁移分阶段整改 | `In Implementation` | `v10.x / 待定` | Layer 1 ~ Layer 4 / Tooling | [0029-external-readiness-and-intranet-sdk-migration.md](0029-external-readiness-and-intranet-sdk-migration.md) |
+| **RFC-0030** | 编译期分层边界与轻量运行时计划契约 | `Completed` | `v10.x` | Layer 1 ~ Layer 4 / Build | [0030-compile-time-layer-boundaries.md](0030-compile-time-layer-boundaries.md) |
+| **RFC-0031** | 业务 Blackboard Key 所有权拆分 | `Completed` | `v10.x` | Layer 1 ~ Layer 3 | [0031-business-blackboard-key-ownership.md](0031-business-blackboard-key-ownership.md) |
 
 ---
 

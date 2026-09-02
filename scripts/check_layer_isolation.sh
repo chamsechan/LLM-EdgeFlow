@@ -39,7 +39,23 @@ if [[ "${1:-}" == "--self-test" ]]; then
     exit 1
   fi
 
-  echo "✅ [LayerGuard Self-Test PASS] Successfully verified both missing-directory and violation injection detection."
+  # Test Case 3: Lower layers must not regain business-owned Blackboard keys.
+  : > "${TMP_TEST_DIR}/violation_repo/src/common_nodes/bad_node.cpp"
+  mkdir -p "${TMP_TEST_DIR}/violation_repo/src/core"
+  echo '#include "adapter/biz_blackboard_keys.h"' > \
+    "${TMP_TEST_DIR}/violation_repo/src/core/bad_core.cpp"
+  set +e
+  BUSINESS_KEY_OUTPUT=$(REPO_ROOT="${TMP_TEST_DIR}/violation_repo" \
+    bash "${SCRIPT_PATH}" 2>&1)
+  STATUS_BUSINESS_KEY=$?
+  set -e
+  if [ $STATUS_BUSINESS_KEY -eq 0 ] || \
+     ! grep -q "business Blackboard key" <<<"${BUSINESS_KEY_OUTPUT}"; then
+    echo "❌ [LayerGuard Self-Test FAIL] Business-key ownership violation was not detected!"
+    exit 1
+  fi
+
+  echo "✅ [LayerGuard Self-Test PASS] Missing paths and injected dependency violations were detected."
   exit 0
 fi
 
@@ -83,7 +99,68 @@ if [ -n "$VIOLATIONS_COMMON_BIZ" ]; then
 fi
 echo "✅ [LayerGuard PASS] Zero Common Node -> Biz Node reverse include violations."
 
-# Rule 4: Pure C11 Syntax & ABI Compliance Check via standard C compiler
+# Rule 4: Layer 1 owns business-facing Blackboard key names. Layers 2-4 may
+# depend only on neutral value contracts and resolved logical port bindings.
+LOWER_LAYER_PATHS=(
+  "$REPO_ROOT/include/core" "$REPO_ROOT/src/core"
+  "$REPO_ROOT/include/nodes" "$REPO_ROOT/src/common_nodes"
+  "$REPO_ROOT/include/engine" "$REPO_ROOT/src/engine"
+)
+VIOLATIONS_BIZ_KEYS=$(grep -rnE \
+  '#include\s*["<]adapter/biz_blackboard_keys\.h[">]' \
+  "${LOWER_LAYER_PATHS[@]}" 2>/dev/null || true)
+if [ -n "$VIOLATIONS_BIZ_KEYS" ]; then
+  echo "❌ [LayerGuard ERROR] Found lower-layer dependency on Layer 1 business Blackboard key ownership:"
+  echo "$VIOLATIONS_BIZ_KEYS"
+  exit 1
+fi
+echo "✅ [LayerGuard PASS] Business Blackboard keys remain owned by Layer 1."
+
+# Rule 5: Node support consumes the extracted validated-node plan, not the full
+# Layer 2 validator implementation contract.
+NODE_SUPPORT_HEADER="$REPO_ROOT/include/nodes/node_support.h"
+if [ ! -f "$NODE_SUPPORT_HEADER" ] || \
+   ! grep -q 'core/validated_node_plan.h' "$NODE_SUPPORT_HEADER" || \
+   grep -q 'core/pipeline_validator.h' "$NODE_SUPPORT_HEADER"; then
+  echo "❌ [LayerGuard ERROR] node_support.h must depend only on validated_node_plan.h."
+  exit 1
+fi
+echo "✅ [LayerGuard PASS] Node support is decoupled from PipelineValidator."
+
+# Rule 6: Source ownership in CMake must preserve the four compile-time layers
+# and the explicit composition root.
+for OWNERSHIP in \
+  "src/engine/CMakeLists.txt:edgeflow_layer4_engine_objects" \
+  "src/common_nodes/CMakeLists.txt:edgeflow_layer3_node_objects" \
+  "src/core/CMakeLists.txt:edgeflow_layer2_core_objects" \
+  "src/adapter/CMakeLists.txt:edgeflow_layer1_adapter_objects"; do
+  OWNERSHIP_FILE="${OWNERSHIP%%:*}"
+  OWNERSHIP_TARGET="${OWNERSHIP#*:}"
+  if [ ! -f "$REPO_ROOT/$OWNERSHIP_FILE" ] || \
+     ! grep -q "target_sources(${OWNERSHIP_TARGET}" "$REPO_ROOT/$OWNERSHIP_FILE"; then
+    echo "❌ [LayerGuard ERROR] $OWNERSHIP_FILE does not assign sources to $OWNERSHIP_TARGET."
+    exit 1
+  fi
+done
+LEGACY_SOURCE_OWNERSHIP=$(grep -rn 'target_sources(edgeflow_runtime_objects' \
+  "$REPO_ROOT/src" 2>/dev/null || true)
+if [ -n "$LEGACY_SOURCE_OWNERSHIP" ]; then
+  echo "❌ [LayerGuard ERROR] Layer sources still use the legacy aggregate target:"
+  echo "$LEGACY_SOURCE_OWNERSHIP"
+  exit 1
+fi
+if ! grep -q 'target_sources(edgeflow_composition_objects' \
+     "$REPO_ROOT/src/CMakeLists.txt" || \
+   ! grep -q 'target_sources(edgeflow_composition_objects' \
+     "$REPO_ROOT/src/adapter/CMakeLists.txt" || \
+   ! grep -q 'shared_algorithm_runtime.cpp' \
+     "$REPO_ROOT/src/adapter/CMakeLists.txt"; then
+  echo "❌ [LayerGuard ERROR] Composition-root source ownership is incomplete."
+  exit 1
+fi
+echo "✅ [LayerGuard PASS] CMake source ownership preserves all four layers and the composition root."
+
+# Rule 7: Pure C11 Syntax & ABI Compliance Check via standard C compiler
 GENERATED_VERSION_INCLUDE="$(mktemp -d "${TMPDIR:-/tmp}/edgeflow-version-header.XXXXXX")"
 cleanup_generated_version() {
   rm -rf "${GENERATED_VERSION_INCLUDE}"
@@ -134,7 +211,7 @@ else
   echo "⚠️ [LayerGuard WARN] Neither gcc nor clang found for C11 syntax-only check."
 fi
 
-# Rule 5: Demo Layer (demo/) MUST NEVER directly include internal SDK headers (adapter/, core/, biz/, business/, engine/, src/)
+# Rule 8: Demo Layer (demo/) MUST NEVER directly include internal SDK headers (adapter/, core/, biz/, business/, engine/, src/)
 VIOLATIONS_DEMO_INTERNAL=$(grep -rnE '#include\s*["<](adapter/|core/|biz/|business/|engine/|src/)' "$REPO_ROOT/demo" || true)
 
 if [ -n "$VIOLATIONS_DEMO_INTERNAL" ]; then
@@ -145,7 +222,7 @@ if [ -n "$VIOLATIONS_DEMO_INTERNAL" ]; then
 fi
 echo "✅ [LayerGuard PASS] Zero Demo -> Internal SDK header violations."
 
-# Rule 6: RFC-0015 LLM vendor/semantic boundary.
+# Rule 9: RFC-0015 LLM vendor/semantic boundary.
 LLAMA_VENDOR_OUTSIDE_BACKEND=$(grep -rnE '#include\s*["<]llama\.h[">]' \
   "$REPO_ROOT/include" "$REPO_ROOT/src" \
   --exclude-dir=backends 2>/dev/null || true)
