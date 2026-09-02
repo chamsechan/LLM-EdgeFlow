@@ -11,7 +11,7 @@
 #include "company_alg_interface.h"
 #include "operator/company_operator_types.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 namespace {
 
@@ -1185,4 +1185,4 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
       }));
 }
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

@@ -8,7 +8,7 @@
 
 #include "adapter/biz_adapter_registry.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 namespace {
 
@@ -600,4 +600,4 @@ int CompanyConfResolver::Resolve(const char* model_path,
   }
 }
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

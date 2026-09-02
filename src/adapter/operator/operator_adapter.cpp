@@ -23,14 +23,14 @@ thread_local std::string g_last_operator_error;
 void SetLastError(const std::string& err) { g_last_operator_error = err; }
 
 struct OperatorHandle {
-  std::unique_ptr<alg_framework::SharedAlgorithmRuntime> runtime;
+  std::unique_ptr<llm_edgeflow::SharedAlgorithmRuntime> runtime;
   uint32_t max_frame_depth = 25;
   uint32_t effective_process_batch_limit = 25;
   CompanyAlgBizType biz_type = ALG_BIZ_TYPE_UNKNOWN;
-  const alg_framework::OperatorBizBridgeDescriptor* bridge = nullptr;
-  alg_framework::ResolvedCompanyConfig resolved_conf;
+  const llm_edgeflow::OperatorBizBridgeDescriptor* bridge = nullptr;
+  llm_edgeflow::ResolvedCompanyConfig resolved_conf;
   std::unordered_map<std::string,
-                     std::shared_ptr<alg_framework::OutputPoolState>>
+                     std::shared_ptr<llm_edgeflow::OutputPoolState>>
       output_pools;
   std::mutex mutex;
 };
@@ -106,20 +106,20 @@ class OperatorHandleManager {
 
 int Operator_Init() noexcept {
   try {
-    int ret = alg_framework::SharedAlgorithmRuntime::GlobalInit();
+    int ret = llm_edgeflow::SharedAlgorithmRuntime::GlobalInit();
     if (ret != 0) {
       SetLastError(
           "GlobalInit failed: registration conflict in SharedAlgorithmRuntime");
       return ret;
     }
-    ret = alg_framework::OperatorValueTypeRegistry::Instance().GlobalInit();
+    ret = llm_edgeflow::OperatorValueTypeRegistry::Instance().GlobalInit();
     if (ret != 0) {
       SetLastError(
           "GlobalInit failed: registration conflict in "
           "OperatorValueTypeRegistry");
       return ret;
     }
-    ret = alg_framework::OperatorBizBridgeRegistry::Instance().GlobalInit();
+    ret = llm_edgeflow::OperatorBizBridgeRegistry::Instance().GlobalInit();
     if (ret != 0) {
       SetLastError(
           "GlobalInit failed: registration conflict in "
@@ -175,17 +175,17 @@ int Operator_Create(void** handle, const CreateParam* param) noexcept {
 
     uint32_t effective_depth =
         param->max_frame_depth > 0 ? param->max_frame_depth : 25;
-    if (effective_depth > alg_framework::kMaxOutputPoolDepth) {
+    if (effective_depth > llm_edgeflow::kMaxOutputPoolDepth) {
       SetLastError("max_frame_depth (" + std::to_string(effective_depth) +
                    ") exceeds hard limit " +
-                   std::to_string(alg_framework::kMaxOutputPoolDepth));
+                   std::to_string(llm_edgeflow::kMaxOutputPoolDepth));
       return -2;
     }
 
     // 1. 双路径安全解析 .conf
-    alg_framework::ResolvedCompanyConfig resolved_conf;
+    llm_edgeflow::ResolvedCompanyConfig resolved_conf;
     std::string resolve_err;
-    int res_code = alg_framework::CompanyConfResolver::Resolve(
+    int res_code = llm_edgeflow::CompanyConfResolver::Resolve(
         param->model_path, param->cfg_file_name, &resolved_conf, &resolve_err,
         effective_depth);
     if (res_code != 0) {
@@ -199,7 +199,7 @@ int Operator_Create(void** handle, const CreateParam* param) noexcept {
     uint32_t effective_batch_limit =
         std::min(effective_depth, adapter_max_batch);
 
-    alg_framework::RuntimeOptions runtime_options;
+    llm_edgeflow::RuntimeOptions runtime_options;
     runtime_options.chip_type =
         ComputePlatformToString(param->compute_platform);
     runtime_options.platform_max_batch =
@@ -211,10 +211,10 @@ int Operator_Create(void** handle, const CreateParam* param) noexcept {
     runtime_options.biz_name = resolved_conf.biz_name;
 
     // 3. 构建内部共享运行时
-    std::unique_ptr<alg_framework::SharedAlgorithmRuntime> runtime;
+    std::unique_ptr<llm_edgeflow::SharedAlgorithmRuntime> runtime;
     std::string create_err;
     int create_ret =
-        alg_framework::SharedAlgorithmRuntime::CreateFromPipelineJson(
+        llm_edgeflow::SharedAlgorithmRuntime::CreateFromPipelineJson(
             resolved_conf.synthetic_pipeline_json, param->device_id,
             "",  // 模型路径已全量绝对规范化
             resolved_conf.biz_type, &runtime, &create_err, &runtime_options);
@@ -226,19 +226,19 @@ int Operator_Create(void** handle, const CreateParam* param) noexcept {
 
     // 4. 预分配输出内存池
     std::unordered_map<std::string,
-                       std::shared_ptr<alg_framework::OutputPoolState>>
+                       std::shared_ptr<llm_edgeflow::OutputPoolState>>
         pools;
     for (const auto& out_slot : resolved_conf.bridge_descriptor->output_slots) {
-      const auto* binding = alg_framework::OperatorValueTypeRegistry::Instance()
+      const auto* binding = llm_edgeflow::OperatorValueTypeRegistry::Instance()
                                 .GetBindingBySuffix(out_slot.type_suffix);
       if (!binding) {
         SetLastError("Missing value type binding for output suffix: " +
                      out_slot.type_suffix);
         return -5;
       }
-      std::shared_ptr<alg_framework::OutputPoolState> pool;
+      std::shared_ptr<llm_edgeflow::OutputPoolState> pool;
       std::string pool_err;
-      int pool_ret = alg_framework::OutputPoolState::Create(
+      int pool_ret = llm_edgeflow::OutputPoolState::Create(
           out_slot.type_suffix, effective_depth, resolved_conf.output_pool_spec,
           binding, &pool, &pool_err);
       if (pool_ret != 0 || !pool) {
@@ -321,10 +321,10 @@ int Operator_Process(void* handle, const NamedIoBatch& inputs,
     }
 
     size_t batch_size = inputs.size();
-    alg_framework::ProcessLocalShadowStorage shadow_storage;
+    llm_edgeflow::ProcessLocalShadowStorage shadow_storage;
     std::vector<const void*> internal_in_dtos(batch_size, nullptr);
     std::string binding_error;
-    int binding_result = alg_framework::ConvertOperatorInputs(
+    int binding_result = llm_edgeflow::ConvertOperatorInputs(
         inputs, *h->bridge, h->resolved_conf.input_limits, &shadow_storage,
         &internal_in_dtos, &binding_error);
     if (binding_result != 0) {
@@ -332,18 +332,18 @@ int Operator_Process(void* handle, const NamedIoBatch& inputs,
       return binding_result;
     }
 
-    std::vector<std::vector<alg_framework::FrameOutputBinding>>
+    std::vector<std::vector<llm_edgeflow::FrameOutputBinding>>
         frame_out_bindings;
-    binding_result = alg_framework::ResolveOperatorOutputs(
+    binding_result = llm_edgeflow::ResolveOperatorOutputs(
         outputs, *h->bridge, &frame_out_bindings, &binding_error);
     if (binding_result != 0) {
       SetLastError(binding_error);
       return binding_result;
     }
 
-    alg_framework::ScopedOutputLeaseGuard lease_guard;
-    std::vector<alg_framework::AcquiredOutputBlock> acquired_blocks;
-    binding_result = alg_framework::AcquireOperatorOutputBlocks(
+    llm_edgeflow::ScopedOutputLeaseGuard lease_guard;
+    std::vector<llm_edgeflow::AcquiredOutputBlock> acquired_blocks;
+    binding_result = llm_edgeflow::AcquireOperatorOutputBlocks(
         frame_out_bindings, h->output_pools, &lease_guard, &acquired_blocks,
         &binding_error);
     if (binding_result != 0) {
@@ -393,8 +393,8 @@ int Operator_Process(void* handle, const NamedIoBatch& inputs,
       }
     }
 
-    alg_framework::PublishOperatorOutputs(acquired_blocks, &outputs,
-                                          &lease_guard);
+    llm_edgeflow::PublishOperatorOutputs(acquired_blocks, &outputs,
+                                         &lease_guard);
     return 0;
   } catch (const std::exception& e) {
     SetLastError(std::string("Process exception: ") + e.what());
@@ -429,7 +429,7 @@ int Operator_Control(void* handle, ControlCommand command,
     int cmd_id = 0;
     std::string json_str;
     std::string resolve_err;
-    int res_ret = alg_framework::OperatorControlRegistry::ResolveControlParam(
+    int res_ret = llm_edgeflow::OperatorControlRegistry::ResolveControlParam(
         command, control_param, &cmd_id, &json_str, &resolve_err);
     if (res_ret != 0) {
       SetLastError("ResolveControlParam failed: " + resolve_err);
@@ -495,7 +495,7 @@ int Operator_Destroy(void* handle) noexcept {
 int Operator_Deinit() noexcept {
   try {
     int cleanup_ret = OperatorHandleManager::Instance().DestroyAll();
-    int deinit_ret = alg_framework::SharedAlgorithmRuntime::GlobalDeinit();
+    int deinit_ret = llm_edgeflow::SharedAlgorithmRuntime::GlobalDeinit();
     return cleanup_ret != 0 ? cleanup_ret : deinit_ret;
   } catch (const std::exception& e) {
     SetLastError(std::string("Deinit exception: ") + e.what());
@@ -539,9 +539,9 @@ int ValidateOperatorConfigBinding(const char* model_path,
     return -2;
   }
 
-  alg_framework::ResolvedCompanyConfig resolved;
+  llm_edgeflow::ResolvedCompanyConfig resolved;
   std::string err;
-  int ret = alg_framework::CompanyConfResolver::Resolve(
+  int ret = llm_edgeflow::CompanyConfResolver::Resolve(
       model_path, cfg_file_name, &resolved, &err);
   if (ret != 0) {
     if (out_error_msg && error_buf_size > 0) {

@@ -12,7 +12,7 @@
 #include "core/session_context.h"
 #include "core/thread_pool.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 /**
  * @brief 算法管线调度核心引擎 (Pipeline)
@@ -96,4 +96,4 @@ class Pipeline {
   std::unique_ptr<ThreadPool> thread_pool_;
 };
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

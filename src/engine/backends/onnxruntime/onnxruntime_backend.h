@@ -7,7 +7,7 @@
 #include "engine/backend_interface.h"
 #include "engine/backend_registry.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 namespace onnxruntime_detail {
 
@@ -52,4 +52,4 @@ class OnnxRuntimeBackend : public IInferenceBackend {
       std::string* diagnostic = nullptr) noexcept override;
 };
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

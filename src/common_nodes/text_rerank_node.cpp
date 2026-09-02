@@ -14,7 +14,7 @@
 #include "nodes/node_error_codes.h"
 #include "nodes/traceable_batch_validation.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 /**
  * @brief Cross-Encoder 语义精排通用算子 (TextRerankNode, 调用绑定的
@@ -215,4 +215,4 @@ NodeDefinition MakeTextRerankNodeDefinition() {
 
 REGISTER_NODE_WITH_DEFINITION(TextRerankNode, MakeTextRerankNodeDefinition());
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

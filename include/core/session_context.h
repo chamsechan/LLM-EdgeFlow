@@ -13,7 +13,7 @@
 
 #include "engine/model_interface.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 /**
  * @brief 句柄级运行时配置与资源参数
@@ -278,4 +278,4 @@ class SessionContext {
   RuntimeOptions runtime_options_;
 };
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

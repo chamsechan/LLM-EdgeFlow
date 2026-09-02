@@ -9,7 +9,7 @@
 
 #include "adapter/operator/operator_value_type_registry.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 class OutputPoolState;
 
@@ -188,4 +188,4 @@ class ScopedOutputLeaseGuard {
   bool committed_ = false;
 };
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

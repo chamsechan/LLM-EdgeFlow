@@ -11,7 +11,7 @@
 #include "nodes/node_error_codes.h"
 #include "nodes/traceable_batch_validation.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 /**
  * @brief 文本特征向量提取通用算子 (TextEmbeddingNode, 调用绑定的
@@ -192,4 +192,4 @@ NodeDefinition MakeTextEmbeddingNodeDefinition() {
 REGISTER_NODE_WITH_DEFINITION(TextEmbeddingNode,
                               MakeTextEmbeddingNodeDefinition());
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

@@ -6,7 +6,7 @@
 #include "nodes/node_error_codes.h"
 #include "nodes/traceable_batch_validation.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 /**
  * @brief 语音识别 ASR 文本转写通用算子 (AsrTranscribeNode, 调用绑定的
@@ -96,4 +96,4 @@ NodeDefinition MakeAsrTranscribeNodeDefinition() {
 REGISTER_NODE_WITH_DEFINITION(AsrTranscribeNode,
                               MakeAsrTranscribeNodeDefinition());
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

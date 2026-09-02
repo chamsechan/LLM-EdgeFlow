@@ -10,7 +10,7 @@
 #include "company_alg_log.h"
 #include "core/alg_context.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 /**
  * @brief 业务适配器通用输入输出批量契约校验工具类 (Layer 1 内部)
@@ -353,4 +353,4 @@ class AdapterValidationHelper {
   }
 };
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

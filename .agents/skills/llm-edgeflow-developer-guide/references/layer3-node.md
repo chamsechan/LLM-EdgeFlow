@@ -11,4 +11,7 @@ Use this reference for a new or modified `INode` implementation.
 7. Validate configuration in `Init` as a defensive runtime boundary even though static validation runs first. Return errors; do not throw across framework boundaries.
 8. Add focused GoogleTest coverage for the affected configuration, port failures, outputs, provenance, concurrency declaration, Catalog visibility, and valid composition. Extend an existing suite when it already owns the contract.
 
-Use existing implementations in `src/common_nodes/` and their matching `tests/test_*_node.cpp` suites as current templates. Use `tests/test_pipeline_studio.cpp` for Catalog/Validator integration; do not copy implementations into documentation.
+Use existing implementations in `src/common_nodes/` and their matching
+`tests/unit/nodes/test_*_node.cpp` suites as current templates. Use
+`tests/integration/pipeline/test_pipeline_catalog_validator.cpp` for Catalog/Validator integration;
+do not copy implementations into documentation.

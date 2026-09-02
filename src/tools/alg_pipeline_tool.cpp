@@ -11,8 +11,8 @@
 
 namespace {
 
-using alg_framework::PipelineCatalog;
-using alg_framework::PipelineValidator;
+using llm_edgeflow::PipelineCatalog;
+using llm_edgeflow::PipelineValidator;
 namespace fs = std::filesystem;
 
 nlohmann::json Error(const std::string& code, const std::string& message) {

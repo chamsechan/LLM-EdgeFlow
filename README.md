@@ -49,8 +49,8 @@ LLM-EdgeFlow 通过声明式 Pipeline，把纯 C ABI 接入、DAG 调度、可�
 | 实体抽取 | 文本 | llama.cpp / Qwen | [生产配置](configs/pipeline_entity_extract.json) |
 | 对话合规审计 | 对话与渠道 | Embedding + Rerank + LLM | [生产配置](configs/pipeline_dialogue_audit.json) |
 | 跨编码器精排 | Query 与候选集 | ONNX Cross-Encoder | [生产配置](configs/pipeline_cross_rerank.json) |
-| OCR 文档问答 | 图像与问题 | OCR + LLM | [Smoke/Test 配置](tests/fixtures/stage7/smoke/pipeline_ocr_doc_qa.json) |
-| ASR 意图识别 | PCM 音频 | ASR + 槽位抽取 | [Smoke/Test 配置](tests/fixtures/stage7/smoke/pipeline_audio_asr_intent.json) |
+| OCR 文档问答 | 图像与问题 | OCR + LLM | [Smoke/Test 配置](demo/fixtures/mock/pipeline_ocr_doc_qa.json) |
+| ASR 意图识别 | PCM 音频 | ASR + 槽位抽取 | [Smoke/Test 配置](demo/fixtures/mock/pipeline_audio_asr_intent.json) |
 
 OCR 与 ASR 的强类型契约已经接入框架，但仓库尚未交付对应的生产模型与 Backend；当前确定性实现仅用于测试和 Smoke Demo。
 
@@ -106,6 +106,7 @@ cmake --build build -j$(nproc)
 | 查阅需求设计与验收记录 | [RFC 索引](doc/rfcs/README.md) |
 | 浏览全部项目文档 | [文档目录](doc/README.md) |
 | 查看版本演进摘要 | [Changelog](doc/CHANGELOG.md) |
+| 了解测试目录与双模式构建 | [Test layout](tests/README.md) |
 | 参与开发与交付 | [Contributing](CONTRIBUTING.md) |
 
 ## 开发与交付
@@ -118,7 +119,7 @@ cmake --build build -j$(nproc)
 
 完整生命周期见 [Contributing](CONTRIBUTING.md)，Agent 架构与路由见
 [AGENTS.md](AGENTS.md)，长期设计决策见 [RFC 目录](doc/rfcs/README.md)。当前架构里程碑
-为 **v6.0.0**；仓库尚未发布对应 Git tag，版本演进以 [Changelog](doc/CHANGELOG.md) 和已完成
+为 **v10.0.0**；仓库尚未发布对应 Git tag，版本演进以 [Changelog](doc/CHANGELOG.md) 和已完成
 RFC 为准。
 
 ## License

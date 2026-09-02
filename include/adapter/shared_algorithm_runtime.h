@@ -9,7 +9,7 @@
 #include "core/session_context.h"
 #include "nlohmann/json.hpp"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 /**
  * @brief 纯 C ABI 与 C++ 平台 Operator 门面共享的内部算法运行时句柄 (Layer 1
@@ -83,4 +83,4 @@ class SharedAlgorithmRuntime {
   CompanyAlgBizType biz_type_ = ALG_BIZ_TYPE_UNKNOWN;
 };
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

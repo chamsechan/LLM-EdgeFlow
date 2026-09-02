@@ -4,7 +4,7 @@
 
 #include "adapter/biz_adapter_registry.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 OperatorBizBridgeRegistry& OperatorBizBridgeRegistry::Instance() {
   static OperatorBizBridgeRegistry instance;
@@ -233,4 +233,4 @@ int OperatorBizBridgeRegistry::GlobalInit() {
   return 0;
 }
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

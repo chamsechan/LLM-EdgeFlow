@@ -5,7 +5,7 @@
 
 #include "engine/backend_interface.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 /**
  * @brief llama.cpp GGUF provider for the neutral text-generation protocol.
@@ -27,4 +27,4 @@ class LlamaCppBackend final : public IInferenceBackend {
       std::string* diagnostic = nullptr) noexcept override;
 };
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

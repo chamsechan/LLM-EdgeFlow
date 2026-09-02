@@ -9,7 +9,7 @@
 #include "adapter/operator/operator_output_pool.h"
 #include "operator/operator_interface.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 struct FrameOutputBinding {
   std::string key;
@@ -48,4 +48,4 @@ void PublishOperatorOutputs(
     llm_edgeflow::operator_api::NamedIoBatch* outputs,
     ScopedOutputLeaseGuard* lease_guard);
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

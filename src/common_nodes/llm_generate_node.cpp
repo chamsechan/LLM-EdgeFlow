@@ -9,7 +9,7 @@
 #include "nodes/node_error_codes.h"
 #include "nodes/traceable_unary_inference_node.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 /**
  * @brief LLM 推理生成公共算子 (LlmGenerateNode, 调用绑定的 ILlmModel)
@@ -107,4 +107,4 @@ NodeDefinition MakeLlmGenerateNodeDefinition() {
 
 REGISTER_NODE_WITH_DEFINITION(LlmGenerateNode, MakeLlmGenerateNodeDefinition());
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

@@ -11,7 +11,7 @@
 
 #include "engine/text/utf8.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 namespace text_generation {
 namespace {
 
@@ -279,4 +279,4 @@ int CommonAutoregressiveGenerator::Generate(
 }
 
 }  // namespace text_generation
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

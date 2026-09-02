@@ -7,7 +7,7 @@
 #include "engine/backend_registry.h"
 #include "engine/model_registry.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 namespace {
 
@@ -220,4 +220,4 @@ std::shared_ptr<IModel> ModelRuntimeFactory::Create(
   }
 }
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

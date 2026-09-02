@@ -4,7 +4,7 @@
 
 #include "operator/operator_interface.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 /**
  * @brief Operator 控制指令解析与参数适配器 (将 Operator 枚举与参数分发到
@@ -27,4 +27,4 @@ class OperatorControlRegistry {
       std::string* error_msg) noexcept;
 };
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

@@ -11,7 +11,7 @@
 #include "core/pipeline_validator.h"
 #include "engine/model_runtime_factory.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 namespace {
 
@@ -770,4 +770,4 @@ int Pipeline::Control(int cmd, const std::string& json_param) {
   return -7;
 }
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

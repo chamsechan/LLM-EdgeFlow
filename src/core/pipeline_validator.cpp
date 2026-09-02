@@ -12,7 +12,7 @@
 #include "engine/backend_registry.h"
 #include "engine/model_registry.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 const char* DiagnosticCodeName(DiagnosticCode code) noexcept {
   switch (code) {
@@ -995,4 +995,4 @@ ValidationReport PipelineValidator::Validate(const nlohmann::json& root,
   return ValidateAndPlan(root, policy).report;
 }
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

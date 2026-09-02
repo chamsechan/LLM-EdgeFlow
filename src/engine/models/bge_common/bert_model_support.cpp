@@ -5,7 +5,7 @@
 
 #include "engine/models/bge_embedding/bert_wordpiece_tokenizer.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 std::shared_ptr<ITensorGraphSession> RequireTensorGraphSession(
     const std::shared_ptr<IBackendSession>& backend_session,
@@ -369,4 +369,4 @@ TensorMap BertInputTensors::ReleaseToMap() {
   return inputs;
 }
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

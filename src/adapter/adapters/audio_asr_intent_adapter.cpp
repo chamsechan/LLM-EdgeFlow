@@ -6,7 +6,7 @@
 #include "company_alg_interface.h"
 #include "core/common_contracts.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 inline static constexpr char kAudioAsrBizName[] =
     "speech_audio_asr_intent_slot";
@@ -162,4 +162,4 @@ class AudioAsrIntentAdapter : public IBizAdapter {
 
 REGISTER_BIZ_ADAPTER(AudioAsrIntentAdapter);
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

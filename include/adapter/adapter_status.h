@@ -6,7 +6,7 @@
 
 #include "company_alg_interface.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 /**
  * @brief 输入内存所有权策略契约 (ADP-002)
@@ -104,4 +104,4 @@ class AdapterStatus {
   std::string biz_name_;
 };
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

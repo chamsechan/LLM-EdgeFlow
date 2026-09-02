@@ -11,7 +11,7 @@
 #include "nlohmann/json.hpp"
 #include "operator/operator_interface.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 /**
  * @brief 解析后的公司部署配置与合成 Pipeline JSON (v4 规范)
@@ -52,4 +52,4 @@ class CompanyConfResolver {
                      uint32_t max_frame_depth = 25) noexcept;
 };
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

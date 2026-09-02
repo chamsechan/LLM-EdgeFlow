@@ -8,7 +8,7 @@
 
 #include "contracts/inference_payloads.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 namespace text_generation {
 
 // Backend-private, vendor-neutral state for one autoregressive request. It is
@@ -45,4 +45,4 @@ class CommonAutoregressiveGenerator final {
 };
 
 }  // namespace text_generation
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

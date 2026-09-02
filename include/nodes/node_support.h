@@ -17,7 +17,7 @@
 #include "core/pipeline_validator.h"
 #include "core/session_context.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 enum class NodeRuntimeCode : int {
   kInvalidContext = -2901,
@@ -291,4 +291,4 @@ class NodeBase : public INode {
   static inline const nlohmann::json empty_config_ = nlohmann::json::object();
 };
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

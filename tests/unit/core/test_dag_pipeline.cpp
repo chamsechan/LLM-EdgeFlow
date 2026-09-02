@@ -1,0 +1,609 @@
+#include <gtest/gtest.h>
+
+#include <atomic>
+#include <chrono>
+#include <condition_variable>
+#include <future>
+#include <iostream>
+#include <mutex>
+#include <nlohmann/json.hpp>
+#include <stdexcept>
+#include <string>
+#include <thread>
+#include <utility>
+#include <vector>
+
+#include "core/alg_context.h"
+#include "core/node_base.h"
+#include "core/node_registry.h"
+#include "core/pipeline.h"
+
+namespace llm_edgeflow {
+
+static std::mutex s_trace_mutex;
+static std::vector<std::string> s_execution_trace;
+
+static void ResetExecutionTrace() {
+  std::lock_guard<std::mutex> lock(s_trace_mutex);
+  s_execution_trace.clear();
+}
+
+static void AppendExecutionTrace(std::string node_name) {
+  std::lock_guard<std::mutex> lock(s_trace_mutex);
+  s_execution_trace.push_back(std::move(node_name));
+}
+
+static std::vector<std::string> SnapshotExecutionTrace() {
+  std::lock_guard<std::mutex> lock(s_trace_mutex);
+  return s_execution_trace;
+}
+
+inline NodeDefinition MakeDagNodeDef(const std::string& type,
+                                     std::vector<PortDefinition> inputs,
+                                     std::vector<PortDefinition> outputs) {
+  NodeDefinition def;
+  def.node_type = type;
+  def.category = "test";
+  def.description = "test dag node";
+  def.inputs = std::move(inputs);
+  def.outputs = std::move(outputs);
+  def.parallel_safe = true;
+  return def;
+}
+
+// 辅助测试算子定义
+class DagTestNodeA : public INode {
+ public:
+  inline static constexpr char kNodeType[] = "DagTestNodeA";
+  bool Init(const NodeInitContext& init_ctx) override {
+    (void)init_ctx;
+    return true;
+  }
+  int Process(AlgContext* req_ctx) override {
+    AppendExecutionTrace("NodeA");
+    req_ctx->Publish("node_a_out", std::string("DataFromA"));
+    return 0;
+  }
+  NodeControlResult Control(int cmd, const std::string& param) override {
+    (void)cmd;
+    (void)param;
+    return NodeControlResult::Handled(0);
+  }
+  const std::string& Name() const override {
+    static const std::string name = kNodeType;
+    return name;
+  }
+};
+REGISTER_NODE_WITH_DEFINITION(DagTestNodeA,
+                              MakeDagNodeDef(DagTestNodeA::kNodeType, {},
+                                             {{"node_a_out", "string"}}));
+
+class DagTestNodeB : public INode {
+ public:
+  inline static constexpr char kNodeType[] = "DagTestNodeB";
+  bool Init(const NodeInitContext& init_ctx) override {
+    (void)init_ctx;
+    return true;
+  }
+  int Process(AlgContext* req_ctx) override {
+    AppendExecutionTrace("NodeB");
+    // 必须依赖 NodeA 的输出
+    auto* a_out = req_ctx->Read<std::string>("node_a_out");
+    if (!a_out) return -101;
+    req_ctx->Publish("node_b_out", std::string("DataFromB_after_") + *a_out);
+    return 0;
+  }
+  NodeControlResult Control(int cmd, const std::string& param) override {
+    (void)cmd;
+    (void)param;
+    return NodeControlResult::Handled(0);
+  }
+  const std::string& Name() const override {
+    static const std::string name = kNodeType;
+    return name;
+  }
+};
+REGISTER_NODE_WITH_DEFINITION(DagTestNodeB,
+                              MakeDagNodeDef(DagTestNodeB::kNodeType,
+                                             {{"node_a_out", "string"}},
+                                             {{"node_b_out", "string"}}));
+
+class DagTestNodeC : public INode {
+ public:
+  inline static constexpr char kNodeType[] = "DagTestNodeC";
+  bool Init(const NodeInitContext& init_ctx) override {
+    (void)init_ctx;
+    return true;
+  }
+  int Process(AlgContext* req_ctx) override {
+    AppendExecutionTrace("NodeC");
+    // 依赖 NodeA 的输出 (分支 2)
+    auto* a_out = req_ctx->Read<std::string>("node_a_out");
+    if (!a_out) return -102;
+    req_ctx->Publish("node_c_out", std::string("DataFromC_after_") + *a_out);
+    return 0;
+  }
+  NodeControlResult Control(int cmd, const std::string& param) override {
+    (void)cmd;
+    (void)param;
+    return NodeControlResult::Handled(0);
+  }
+  const std::string& Name() const override {
+    static const std::string name = kNodeType;
+    return name;
+  }
+};
+REGISTER_NODE_WITH_DEFINITION(DagTestNodeC,
+                              MakeDagNodeDef(DagTestNodeC::kNodeType,
+                                             {{"node_a_out", "string"}},
+                                             {{"node_c_out", "string"}}));
+
+class DagTestNodeD : public INode {
+ public:
+  inline static constexpr char kNodeType[] = "DagTestNodeD";
+  bool Init(const NodeInitContext& init_ctx) override {
+    (void)init_ctx;
+    return true;
+  }
+  int Process(AlgContext* req_ctx) override {
+    AppendExecutionTrace("NodeD");
+    // 汇聚 NodeB 和 NodeC 两个分支
+    auto* b_out = req_ctx->Read<std::string>("node_b_out");
+    auto* c_out = req_ctx->Read<std::string>("node_c_out");
+    if (!b_out || !c_out) return -103;
+
+    req_ctx->Publish("final_dag_result", *b_out + " + " + *c_out);
+    return 0;
+  }
+  NodeControlResult Control(int cmd, const std::string& param) override {
+    (void)cmd;
+    (void)param;
+    return NodeControlResult::Handled(0);
+  }
+  const std::string& Name() const override {
+    static const std::string name = kNodeType;
+    return name;
+  }
+};
+REGISTER_NODE_WITH_DEFINITION(DagTestNodeD,
+                              MakeDagNodeDef(DagTestNodeD::kNodeType,
+                                             {{"node_b_out", "string"},
+                                              {"node_c_out", "string"}},
+                                             {{"final_dag_result", "string"}}));
+
+class ThrowingProcessDagNode : public INode {
+ public:
+  inline static constexpr char kNodeType[] = "ThrowingProcessDagNode";
+  bool Init(const NodeInitContext&) override { return true; }
+  int Process(AlgContext*) override {
+    throw std::runtime_error("parallel process failure");
+  }
+  const std::string& Name() const override {
+    static const std::string name = kNodeType;
+    return name;
+  }
+};
+REGISTER_NODE_WITH_DEFINITION(ThrowingProcessDagNode,
+                              MakeDagNodeDef(ThrowingProcessDagNode::kNodeType,
+                                             {}, {}));
+
+class GatedProcessDagNode : public INode {
+ public:
+  inline static constexpr char kNodeType[] = "GatedProcessDagNode";
+
+  static void Reset() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    started_ = false;
+    released_ = false;
+    completed_.store(false);
+  }
+
+  static bool WaitUntilStarted(std::chrono::milliseconds timeout) {
+    std::unique_lock<std::mutex> lock(mutex_);
+    return condition_.wait_for(lock, timeout, []() { return started_; });
+  }
+
+  static void Release() {
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      released_ = true;
+    }
+    condition_.notify_all();
+  }
+
+  static bool Completed() { return completed_.load(); }
+
+  bool Init(const NodeInitContext&) override { return true; }
+  int Process(AlgContext*) override {
+    {
+      std::unique_lock<std::mutex> lock(mutex_);
+      started_ = true;
+      condition_.notify_all();
+      condition_.wait(lock, []() { return released_; });
+    }
+    completed_.store(true);
+    return 0;
+  }
+  const std::string& Name() const override {
+    static const std::string name = kNodeType;
+    return name;
+  }
+
+ private:
+  static inline std::mutex mutex_;
+  static inline std::condition_variable condition_;
+  static inline bool started_ = false;
+  static inline bool released_ = false;
+  static inline std::atomic<bool> completed_{false};
+};
+REGISTER_NODE_WITH_DEFINITION(GatedProcessDagNode,
+                              MakeDagNodeDef(GatedProcessDagNode::kNodeType, {},
+                                             {}));
+
+class ParallelFailureCoordinator {
+ public:
+  static void Reset() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    first_error_set_ = false;
+    second_error_set_ = false;
+  }
+
+  static void MarkFirstAndWaitForSecond() {
+    std::unique_lock<std::mutex> lock(mutex_);
+    first_error_set_ = true;
+    condition_.notify_all();
+    condition_.wait(lock, []() { return second_error_set_; });
+  }
+
+  static void WaitForFirst() {
+    std::unique_lock<std::mutex> lock(mutex_);
+    condition_.wait(lock, []() { return first_error_set_; });
+  }
+
+  static void MarkSecond() {
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      second_error_set_ = true;
+    }
+    condition_.notify_all();
+  }
+
+ private:
+  static inline std::mutex mutex_;
+  static inline std::condition_variable condition_;
+  static inline bool first_error_set_ = false;
+  static inline bool second_error_set_ = false;
+};
+
+class FirstFailingDagNode : public INode {
+ public:
+  inline static constexpr char kNodeType[] = "FirstFailingDagNode";
+  bool Init(const NodeInitContext&) override { return true; }
+  int Process(AlgContext* req_ctx) override {
+    req_ctx->SetError(-8101, "first parallel failure");
+    ParallelFailureCoordinator::MarkFirstAndWaitForSecond();
+    return -8101;
+  }
+  const std::string& Name() const override {
+    static const std::string name = kNodeType;
+    return name;
+  }
+};
+REGISTER_NODE_WITH_DEFINITION(FirstFailingDagNode,
+                              MakeDagNodeDef(FirstFailingDagNode::kNodeType, {},
+                                             {}));
+
+class SecondFailingDagNode : public INode {
+ public:
+  inline static constexpr char kNodeType[] = "SecondFailingDagNode";
+  bool Init(const NodeInitContext&) override { return true; }
+  int Process(AlgContext* req_ctx) override {
+    ParallelFailureCoordinator::WaitForFirst();
+    req_ctx->SetError(-8102, "second parallel failure");
+    ParallelFailureCoordinator::MarkSecond();
+    return -8102;
+  }
+  const std::string& Name() const override {
+    static const std::string name = kNodeType;
+    return name;
+  }
+};
+REGISTER_NODE_WITH_DEFINITION(SecondFailingDagNode,
+                              MakeDagNodeDef(SecondFailingDagNode::kNodeType,
+                                             {}, {}));
+
+// -----------------------------------------------------------------------------
+// GTest 测试套件
+// -----------------------------------------------------------------------------
+class DagPipelineTest : public ::testing::Test {};
+
+// 1. 乱序书写自动拓扑重排 (Shuffled JSON -> Correct Order)
+TEST_F(DagPipelineTest, ShuffledOrderTopologicalSort) {
+  // JSON 中故意将 D 写在最前，B 和 C 其次，A 写在最后 (逆序输入)
+  nlohmann::json config = {{"biz_name", "shuffled_dag_test"},
+                           {"pipeline",
+                            {{{"id", "node_d"},
+                              {"node_type", "DagTestNodeD"},
+                              {"depends_on", {"node_b", "node_c"}}},
+                             {{"id", "node_c"},
+                              {"node_type", "DagTestNodeC"},
+                              {"depends_on", {"node_a"}}},
+                             {{"id", "node_b"},
+                              {"node_type", "DagTestNodeB"},
+                              {"depends_on", {"node_a"}}},
+                             {{"id", "node_a"},
+                              {"node_type", "DagTestNodeA"},
+                              {"depends_on", nlohmann::json::array()}}}}};
+
+  Pipeline pipeline;
+  bool ok = pipeline.BuildFromJson(
+      config, nullptr, ValidationPolicy::kPrivateExtensionCompatible);
+  ASSERT_TRUE(ok);
+
+  // 校验拓扑序：node_a 必须在第一位，node_d 必须在最后一位
+  const auto& order = pipeline.GetTopologicalOrder();
+  ASSERT_EQ(order.size(), 4U);
+  EXPECT_EQ(order[0], "node_a");
+  EXPECT_EQ(order[3], "node_d");
+
+  // 执行管线并验证执行轨迹
+  AlgContext req_ctx;
+  ResetExecutionTrace();
+
+  int ret = pipeline.Execute(&req_ctx);
+  EXPECT_EQ(ret, 0);
+
+  const auto trace = SnapshotExecutionTrace();
+  ASSERT_EQ(trace.size(), 4);
+  EXPECT_EQ(trace[0], "NodeA");
+  EXPECT_EQ(trace[3], "NodeD");
+
+  auto* final_res = req_ctx.Read<std::string>("final_dag_result");
+  ASSERT_NE(final_res, nullptr);
+  EXPECT_EQ(*final_res,
+            "DataFromB_after_DataFromA + DataFromC_after_DataFromA");
+}
+
+// 2. 钻石分支与汇聚拓扑测试 (Diamond Branch & Merge)
+TEST_F(DagPipelineTest, DiamondBranchAndMerge) {
+  nlohmann::json config = {
+      {"biz_name", "diamond_dag_test"},
+      {"pipeline",
+       {{{"id", "A"},
+         {"node_type", "DagTestNodeA"},
+         {"depends_on", nlohmann::json::array()}},
+        {{"id", "B"}, {"node_type", "DagTestNodeB"}, {"depends_on", {"A"}}},
+        {{"id", "C"}, {"node_type", "DagTestNodeC"}, {"depends_on", {"A"}}},
+        {{"id", "D"},
+         {"node_type", "DagTestNodeD"},
+         {"depends_on", {"B", "C"}}}}}};
+
+  Pipeline pipeline;
+  ASSERT_TRUE(pipeline.BuildFromJson(
+      config, nullptr, ValidationPolicy::kPrivateExtensionCompatible));
+
+  AlgContext req_ctx;
+  ResetExecutionTrace();
+
+  int ret = pipeline.Execute(&req_ctx);
+  EXPECT_EQ(ret, 0);
+
+  const auto trace = SnapshotExecutionTrace();
+  ASSERT_EQ(trace.size(), 4);
+  EXPECT_EQ(trace[0], "NodeA");
+  EXPECT_EQ(trace[3], "NodeD");
+}
+
+// 3. 循环依赖死锁检测 (Cycle Detection: A -> B -> C -> A)
+TEST_F(DagPipelineTest, CycleDetectionRejection) {
+  nlohmann::json cyclic_config = {
+      {"biz_name", "cyclic_pipeline"},
+      {"pipeline",
+       {
+           {{"id", "A"},
+            {"node_type", "DagTestNodeA"},
+            {"depends_on", {"C"}}},  // A 依赖 C
+           {{"id", "B"},
+            {"node_type", "DagTestNodeB"},
+            {"depends_on", {"A"}}},  // B 依赖 A
+           {{"id", "C"},
+            {"node_type", "DagTestNodeC"},
+            {"depends_on", {"B"}}}  // C 依赖 B (构成闭环)
+       }}};
+
+  Pipeline pipeline;
+  bool ok = pipeline.BuildFromJson(
+      cyclic_config, nullptr, ValidationPolicy::kPrivateExtensionCompatible);
+  // 必须拦截成环并返回 false，禁止启动
+  EXPECT_FALSE(ok);
+}
+
+// 4. 自环死锁检测 (Self Loop: A -> A)
+TEST_F(DagPipelineTest, SelfLoopCycleRejection) {
+  nlohmann::json self_loop_config = {
+      {"biz_name", "self_loop_pipeline"},
+      {"pipeline",
+       {{{"id", "A"}, {"node_type", "DagTestNodeA"}, {"depends_on", {"A"}}}}}};
+
+  Pipeline pipeline;
+  EXPECT_FALSE(
+      pipeline.BuildFromJson(self_loop_config, nullptr,
+                             ValidationPolicy::kPrivateExtensionCompatible));
+}
+
+// 5. 非法依赖 ID 校验 (Non-existent Dependency ID)
+TEST_F(DagPipelineTest, InvalidDependencyRejection) {
+  nlohmann::json invalid_dep_config = {
+      {"biz_name", "invalid_dep_pipeline"},
+      {"pipeline",
+       {{{"id", "A"},
+         {"node_type", "DagTestNodeA"},
+         {"depends_on", {"ghost_non_existent_node"}}}}}};
+
+  Pipeline pipeline;
+  EXPECT_FALSE(
+      pipeline.BuildFromJson(invalid_dep_config, nullptr,
+                             ValidationPolicy::kPrivateExtensionCompatible));
+}
+
+// 6. 拦截旧式未显式声明 id/depends_on 的配置
+TEST_F(DagPipelineTest, RejectsLegacyPipelineWithoutIdOrDependsOn) {
+  nlohmann::json legacy_config = {{"biz_name", "legacy_linear_pipeline"},
+                                  {"pipeline",
+                                   {{{"node_type", "DagTestNodeA"}},
+                                    {{"node_type", "DagTestNodeB"}},
+                                    {{"node_type", "DagTestNodeC"}},
+                                    {{"node_type", "DagTestNodeD"}}}}};
+
+  Pipeline pipeline;
+  PipelineDiagnostic diag;
+  EXPECT_FALSE(pipeline.BuildFromJson(
+      legacy_config, &diag, ValidationPolicy::kPrivateExtensionCompatible));
+  EXPECT_EQ(diag.code, PipelineErrorCode::kMissingField);
+  EXPECT_EQ(diag.path, "/pipeline/0/id");
+}
+
+// 7. 异步波前分层并发调度测试 (Parallel Wavefront Execution)
+TEST_F(DagPipelineTest, ParallelWavefrontExecution) {
+  nlohmann::json parallel_config = {
+      {"biz_name", "parallel_wavefront_dag"},
+      {"execution_mode", "parallel"},
+      {"max_parallel_workers", 4},
+      {"pipeline",
+       {// Layer 0: Root 节点 A
+        {{"id", "node_a"},
+         {"node_type", "DagTestNodeA"},
+         {"depends_on", nlohmann::json::array()}},
+        // Layer 1: 兄弟节点 B 和 C 均依赖 A，在 Layer 1 并发执行
+        {{"id", "node_b"},
+         {"node_type", "DagTestNodeB"},
+         {"depends_on", {"node_a"}}},
+        {{"id", "node_c"},
+         {"node_type", "DagTestNodeC"},
+         {"depends_on", {"node_a"}}},
+        // Layer 2: 汇聚节点 D，依赖 B 和 C
+        {{"id", "node_d"},
+         {"node_type", "DagTestNodeD"},
+         {"depends_on", {"node_b", "node_c"}}}}}};
+
+  Pipeline pipeline;
+  ASSERT_TRUE(pipeline.BuildFromJson(
+      parallel_config, nullptr, ValidationPolicy::kPrivateExtensionCompatible));
+  EXPECT_EQ(pipeline.GetExecutionMode(), Pipeline::ExecutionMode::PARALLEL);
+
+  const auto& layers = pipeline.GetTopologicalLayers();
+  ASSERT_EQ(layers.size(), 3);
+  EXPECT_EQ(layers[0].size(), 1);  // Layer 0: node_a
+  EXPECT_EQ(layers[1].size(),
+            2);  // Layer 1: node_b, node_c (Parallel Wavefront)
+  EXPECT_EQ(layers[2].size(), 1);  // Layer 2: node_d
+
+  AlgContext req_ctx;
+  ResetExecutionTrace();
+
+  int ret = pipeline.Execute(&req_ctx);
+  EXPECT_EQ(ret, 0);
+
+  auto* final_res = req_ctx.Read<std::string>("final_dag_result");
+  ASSERT_NE(final_res, nullptr);
+  EXPECT_EQ(*final_res,
+            "DataFromB_after_DataFromA + DataFromC_after_DataFromA");
+}
+
+TEST_F(DagPipelineTest, ParallelExceptionWaitsForAllSubmittedNodes) {
+  const nlohmann::json config = {
+      {"biz_name", "parallel_exception_test"},
+      {"execution_mode", "parallel"},
+      {"max_parallel_workers", 2},
+      {"pipeline",
+       nlohmann::json::array({{{"id", "throwing"},
+                               {"node_type", ThrowingProcessDagNode::kNodeType},
+                               {"depends_on", nlohmann::json::array()}},
+                              {{"id", "gated"},
+                               {"node_type", GatedProcessDagNode::kNodeType},
+                               {"depends_on", nlohmann::json::array()}}})}};
+
+  GatedProcessDagNode::Reset();
+  Pipeline pipeline;
+  ASSERT_TRUE(pipeline.BuildFromJson(
+      config, nullptr, ValidationPolicy::kPrivateExtensionCompatible));
+
+  AlgContext context;
+  auto execution = std::async(std::launch::async,
+                              [&]() { return pipeline.Execute(&context); });
+  EXPECT_TRUE(GatedProcessDagNode::WaitUntilStarted(std::chrono::seconds(1)));
+  EXPECT_EQ(execution.wait_for(std::chrono::milliseconds(50)),
+            std::future_status::timeout);
+
+  GatedProcessDagNode::Release();
+  EXPECT_EQ(execution.get(), -1);
+  EXPECT_TRUE(GatedProcessDagNode::Completed());
+  EXPECT_FALSE(context.IsOk());
+  EXPECT_NE(context.GetErrorMessage().find("parallel process failure"),
+            std::string::npos);
+}
+
+TEST_F(DagPipelineTest, ParallelFailuresKeepCodeAndMessageFromSameNode) {
+  const nlohmann::json config = {
+      {"biz_name", "parallel_error_diagnostic_test"},
+      {"execution_mode", "parallel"},
+      {"max_parallel_workers", 2},
+      {"pipeline",
+       nlohmann::json::array({{{"id", "first"},
+                               {"node_type", FirstFailingDagNode::kNodeType},
+                               {"depends_on", nlohmann::json::array()}},
+                              {{"id", "second"},
+                               {"node_type", SecondFailingDagNode::kNodeType},
+                               {"depends_on", nlohmann::json::array()}}})}};
+
+  ParallelFailureCoordinator::Reset();
+  Pipeline pipeline;
+  ASSERT_TRUE(pipeline.BuildFromJson(
+      config, nullptr, ValidationPolicy::kPrivateExtensionCompatible));
+
+  AlgContext context;
+  EXPECT_EQ(pipeline.Execute(&context), -8101);
+  EXPECT_EQ(context.GetErrorCode(), -8101);
+  EXPECT_EQ(context.GetErrorMessage(), "first parallel failure");
+}
+
+// 8. 黑板高并发读写线程安全性压测 (Thread-Safe AlgContext Stress Test)
+TEST_F(DagPipelineTest, ThreadSafeAlgContextStressTest) {
+  AlgContext req_ctx;
+  const int num_threads = 16;
+  const int ops_per_thread = 500;
+
+  std::vector<std::thread> workers;
+  workers.reserve(num_threads);
+
+  for (int t = 0; t < num_threads; ++t) {
+    workers.emplace_back([&req_ctx, t]() {
+      for (int i = 0; i < ops_per_thread; ++i) {
+        std::string my_key =
+            "thread_" + std::to_string(t) + "_key_" + std::to_string(i % 10);
+        req_ctx.Publish(my_key, i * 100 + t);
+
+        // 并发读取
+        const int* val = req_ctx.Read<int>(my_key);
+        if (val) {
+          EXPECT_GE(*val, 0);
+        }
+
+        // 并发交叉读取共享 Key
+        if (req_ctx.Has("shared_counter")) {
+          req_ctx.Read<int>("shared_counter");
+        } else {
+          req_ctx.Publish("shared_counter", 1);
+        }
+      }
+    });
+  }
+
+  for (auto& w : workers) {
+    w.join();
+  }
+
+  EXPECT_TRUE(req_ctx.IsOk());
+}
+
+}  // namespace llm_edgeflow

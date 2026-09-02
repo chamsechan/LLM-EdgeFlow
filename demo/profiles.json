@@ -3,7 +3,7 @@
   "profiles": {
     "entity_extract_mock": {
       "biz": "entity_extract",
-      "config": "tests/fixtures/stage7/smoke/pipeline_entity_extract.conf",
+      "config": "demo/fixtures/mock/pipeline_entity_extract.conf",
       "dataset": "data/corpus_entity_extract.txt",
       "suite": "smoke",
       "batch_size": 1,
@@ -33,7 +33,7 @@
     },
     "doc_qa_mock": {
       "biz": "doc_qa",
-      "config": "tests/fixtures/stage7/smoke/pipeline_doc_qa.conf",
+      "config": "demo/fixtures/mock/pipeline_doc_qa.conf",
       "dataset": "data/corpus_doc_qa.txt",
       "suite": "smoke",
       "batch_size": 1,
@@ -53,7 +53,7 @@
     },
     "doc_qa_rerank_mock": {
       "biz": "doc_qa",
-      "config": "tests/fixtures/stage7/smoke/pipeline_doc_qa_rerank.conf",
+      "config": "demo/fixtures/mock/pipeline_doc_qa_rerank.conf",
       "dataset": "data/corpus_doc_qa.txt",
       "suite": "smoke",
       "batch_size": 1,
@@ -73,7 +73,7 @@
     },
     "dialogue_audit_mock": {
       "biz": "dialogue_audit",
-      "config": "tests/fixtures/stage7/smoke/pipeline_dialogue_audit.conf",
+      "config": "demo/fixtures/mock/pipeline_dialogue_audit.conf",
       "dataset": "data/corpus_dialogue_audit.txt",
       "suite": "smoke",
       "batch_size": 1,
@@ -83,7 +83,7 @@
     },
     "ocr_doc_qa_mock": {
       "biz": "ocr_doc_qa",
-      "config": "tests/fixtures/stage7/smoke/pipeline_ocr_doc_qa.conf",
+      "config": "demo/fixtures/mock/pipeline_ocr_doc_qa.conf",
       "dataset": "data/corpus_ocr_doc_qa.txt",
       "suite": "smoke",
       "batch_size": 1,
@@ -93,7 +93,7 @@
     },
     "audio_asr_mock": {
       "biz": "audio_asr",
-      "config": "tests/fixtures/stage7/smoke/pipeline_audio_asr_intent.conf",
+      "config": "demo/fixtures/mock/pipeline_audio_asr_intent.conf",
       "dataset": "data/corpus_audio_asr.txt",
       "suite": "smoke",
       "batch_size": 1,

@@ -6,7 +6,7 @@
 
 #include "engine/backend_interface.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 class BertWordPieceTokenizer;
 
@@ -66,4 +66,4 @@ struct BertInputTensors {
   bool include_token_type_ids_ = false;
 };
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

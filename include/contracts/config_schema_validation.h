@@ -9,7 +9,7 @@
 
 #include "contracts/config_schema.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 inline bool IsValidConfigValueKind(ConfigValueKind kind) noexcept {
   switch (kind) {
@@ -188,4 +188,4 @@ inline bool ValidateConfigFieldDefinitions(
   return true;
 }
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

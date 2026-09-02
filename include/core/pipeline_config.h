@@ -8,7 +8,7 @@
 
 #include "core/pipeline_diagnostic.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 /**
  * @brief 解析后的单模型配置 (RFC 0015 解耦标准契约)
@@ -68,4 +68,4 @@ bool ParsePipelineConfig(const nlohmann::json& root,
                          ParsedPipelineConfig* output,
                          PipelineDiagnostic* diagnostic = nullptr);
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

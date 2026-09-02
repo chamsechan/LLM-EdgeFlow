@@ -13,7 +13,7 @@
 
 #include "operator/company_operator_types.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 enum class IoDirection { kUnknown, kInput, kOutput };
 
@@ -297,4 +297,4 @@ class OperatorValueTypeRegistry {
   bool audited_ = false;
 };
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

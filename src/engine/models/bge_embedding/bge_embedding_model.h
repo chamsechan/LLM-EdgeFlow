@@ -10,7 +10,7 @@
 #include "engine/model_registry.h"
 #include "engine/models/bge_embedding/bert_wordpiece_tokenizer.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 /**
  * @brief 基于 ITensorGraphSession 协议与 WordPiece 分词器的 BGE
@@ -72,4 +72,4 @@ class BgeEmbeddingModel final : public IEmbeddingModel {
   size_t max_batch_size_ = 4;
 };
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

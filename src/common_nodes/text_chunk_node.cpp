@@ -9,7 +9,7 @@
 #include "nodes/node_error_codes.h"
 #include "nodes/node_support.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 /**
  * @brief 文本切片分块算子 (TextChunkNode, 1对N裂变与溯源绑定)
@@ -130,4 +130,4 @@ NodeDefinition MakeTextChunkNodeDefinition() {
 
 REGISTER_NODE_WITH_DEFINITION(TextChunkNode, MakeTextChunkNodeDefinition());
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

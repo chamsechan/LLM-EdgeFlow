@@ -14,7 +14,7 @@
 #include "engine/backend_registry.h"
 #include "engine/model_registry.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 namespace {
 
 bool ReadPipelineJson(const std::string& config_path,
@@ -362,4 +362,4 @@ int SharedAlgorithmRuntime::ExecuteControl(int cmd,
   }
 }
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

@@ -8,7 +8,7 @@
 #define PCRE2_CODE_UNIT_WIDTH 8
 #include <pcre2.h>
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 namespace {
 
@@ -142,4 +142,4 @@ TextRegexSearchStatus CompiledTextRegex::Search(
   return TextRegexSearchStatus::kMatched;
 }
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

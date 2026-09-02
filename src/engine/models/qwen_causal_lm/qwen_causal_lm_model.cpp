@@ -13,7 +13,7 @@
 #include "engine/fixed_batch_executor.h"
 #include "engine/text/utf8.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 namespace {
 
 uint64_t MixSeed(uint64_t seed, uint32_t req_id, uint32_t sub_id) noexcept {
@@ -218,4 +218,4 @@ static const ModelDefinition kQwenCausalLmModelDefinition = [] {
 
 REGISTER_MODEL_WITH_DEFINITION(QwenCausalLmModel, kQwenCausalLmModelDefinition);
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

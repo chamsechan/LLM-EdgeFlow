@@ -9,7 +9,7 @@
 #include "nodes/node_error_codes.h"
 #include "nodes/traceable_batch_validation.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 /**
  * @brief OCR 视觉文档检测与文字识别通用算子 (OcrDetectNode, 调用绑定的
@@ -112,4 +112,4 @@ NodeDefinition MakeOcrDetectNodeDefinition() {
 
 REGISTER_NODE_WITH_DEFINITION(OcrDetectNode, MakeOcrDetectNodeDefinition());
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

@@ -6,7 +6,7 @@
 #include "company_alg_interface.h"
 #include "core/common_contracts.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 inline static constexpr char kOcrDocQaBizName[] = "multimodal_ocr_invoice_qa";
 
@@ -145,4 +145,4 @@ class OcrDocQaAdapter : public IBizAdapter {
 
 REGISTER_BIZ_ADAPTER(OcrDocQaAdapter);
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

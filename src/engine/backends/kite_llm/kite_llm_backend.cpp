@@ -17,7 +17,7 @@
 #include "kitellm_edgeflow_adapter.h"
 #endif
 
-namespace alg_framework {
+namespace llm_edgeflow {
 namespace {
 
 void SetDiagnostic(std::string* diagnostic,
@@ -307,4 +307,4 @@ static const BackendDefinition kKiteLlmBackendDefinition = [] {
 REGISTER_BACKEND_WITH_DEFINITION(KiteLlmBackend, kKiteLlmBackendDefinition);
 #endif
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

@@ -15,7 +15,7 @@
 #include "nodes/node_error_codes.h"
 #include "nodes/node_support.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 /**
  * @brief 规则与关键词匹配通用算子 (TextRuleMatchNode)
@@ -386,4 +386,4 @@ NodeDefinition MakeTextRuleMatchNodeDefinition() {
 REGISTER_NODE_WITH_DEFINITION(TextRuleMatchNode,
                               MakeTextRuleMatchNodeDefinition());
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

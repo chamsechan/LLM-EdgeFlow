@@ -13,7 +13,7 @@
 #include "engine/inference_definition.h"
 #include "engine/model_interface.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 /**
  * @brief 模型创建上下文参数
@@ -70,24 +70,24 @@ class ModelRegistry {
   std::vector<std::string> conflict_errors_;
 };
 
-#define REGISTER_MODEL_WITH_DEFINITION(ModelClass, ...)                       \
-  static bool _registered_model_##ModelClass = []() noexcept {                \
-    try {                                                                     \
-      const auto definition = (__VA_ARGS__);                                  \
-      return ::alg_framework::ModelRegistry::Instance().Register(             \
-          definition,                                                         \
-          [](const ::alg_framework::ModelCreateContext& ctx,                  \
-             std::string* diag) -> std::shared_ptr<::alg_framework::IModel> { \
-            return ModelClass::Create(ctx, diag);                             \
-          });                                                                 \
-    } catch (const std::exception& e) {                                       \
-      ALG_LOG_ERROR("[ModelRegistry] Failed to register %s: %s\n",            \
-                    #ModelClass, e.what());                                   \
-      return false;                                                           \
-    } catch (...) {                                                           \
-      ALG_LOG_ERROR("[ModelRegistry] Failed to register %s\n", #ModelClass);  \
-      return false;                                                           \
-    }                                                                         \
+#define REGISTER_MODEL_WITH_DEFINITION(ModelClass, ...)                      \
+  static bool _registered_model_##ModelClass = []() noexcept {               \
+    try {                                                                    \
+      const auto definition = (__VA_ARGS__);                                 \
+      return ::llm_edgeflow::ModelRegistry::Instance().Register(             \
+          definition,                                                        \
+          [](const ::llm_edgeflow::ModelCreateContext& ctx,                  \
+             std::string* diag) -> std::shared_ptr<::llm_edgeflow::IModel> { \
+            return ModelClass::Create(ctx, diag);                            \
+          });                                                                \
+    } catch (const std::exception& e) {                                      \
+      ALG_LOG_ERROR("[ModelRegistry] Failed to register %s: %s\n",           \
+                    #ModelClass, e.what());                                  \
+      return false;                                                          \
+    } catch (...) {                                                          \
+      ALG_LOG_ERROR("[ModelRegistry] Failed to register %s\n", #ModelClass); \
+      return false;                                                          \
+    }                                                                        \
   }()
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

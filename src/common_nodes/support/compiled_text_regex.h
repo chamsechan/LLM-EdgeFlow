@@ -4,7 +4,7 @@
 #include <string>
 #include <unordered_map>
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 enum class TextRegexSearchStatus { kMatched, kNotMatched, kError };
 
@@ -31,4 +31,4 @@ class CompiledTextRegex final {
   std::unique_ptr<Impl> impl_;
 };
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

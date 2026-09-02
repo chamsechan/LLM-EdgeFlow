@@ -8,7 +8,7 @@
 #include "core/alg_context.h"
 #include "core/session_context.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 struct ValidatedNodePlan;
 
@@ -83,4 +83,4 @@ class INode {
   virtual const std::string& Name() const = 0;
 };
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

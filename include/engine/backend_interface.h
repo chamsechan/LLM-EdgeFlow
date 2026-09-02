@@ -11,7 +11,7 @@
 #include "contracts/inference_payloads.h"
 #include "engine/inference_definition.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 /**
  * @brief 推理后端会话实例基类 (持有单个加载的模型资源)
@@ -85,4 +85,4 @@ class IInferenceBackend {
       std::string* diagnostic = nullptr) noexcept = 0;
 };
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

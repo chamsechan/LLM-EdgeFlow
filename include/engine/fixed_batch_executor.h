@@ -9,7 +9,7 @@
 #include "contracts/traceable_item.h"
 #include "engine/inference_definition.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 /**
  * @brief 单批次分片切片元数据
@@ -97,4 +97,4 @@ class FixedBatchExecutor {
   }
 };
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

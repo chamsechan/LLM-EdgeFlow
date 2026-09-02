@@ -9,7 +9,7 @@
 
 #include "engine/text/utf8.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 namespace {
 
@@ -433,4 +433,4 @@ bool BertWordPieceTokenizer::EncodePair(
   return true;
 }
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

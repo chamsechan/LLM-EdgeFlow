@@ -2,7 +2,7 @@
 
 #include <atomic>
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 namespace {
 
@@ -303,4 +303,4 @@ void OutputPoolState::DestroyBlocks() noexcept {
   checked_out_count_ = 0;
 }
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

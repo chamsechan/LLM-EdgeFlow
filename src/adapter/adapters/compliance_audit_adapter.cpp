@@ -7,7 +7,7 @@
 #include "company_alg_interface.h"
 #include "core/common_contracts.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 inline static constexpr char kDialogueAuditBizName[] =
     "dialogue_compliance_audit_v1";
@@ -177,4 +177,4 @@ class ComplianceAuditAdapter : public IBizAdapter {
 
 REGISTER_BIZ_ADAPTER(ComplianceAuditAdapter);
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow
