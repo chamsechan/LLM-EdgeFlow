@@ -11,7 +11,7 @@
 - **[logging.md](logging.md)**：纯 C11 公共日志 API、等级、环境变量和接口约束。
 - **[CHANGELOG.md](CHANGELOG.md)**：架构里程碑与用户可感知变更摘要。
 - **[rfcs/ (RFC 需求与设计库)](rfcs/README.md)**：所有待实现需求、架构演进 RFC 设计文档及模板规范（`doc/rfcs/`）。
-- **[Pipeline Studio](../tools/visualizer/README.md)**：DAG 终端视图、Web 工作台、自动化 CLI 与安全边界。
+- **[Pipeline Studio](../tools/pipeline_studio/README.md)**：DAG 终端视图、Web 工作台、自动化 CLI 与安全边界。
 
 ---
 
@@ -25,7 +25,7 @@
 6. **[公共日志 API](logging.md)**：C/C++ 接入、日志等级与 Demo 环境变量。
 7. **[RFC 需求与设计规范](rfcs/README.md)**：所有新功能与需求的设计文档生命周期管理。
 8. **[开发与交付流程](../CONTRIBUTING.md)**：任务分级、分支、RFC 阈值、验证和远程交付授权。
-8. **[DAG 可视化工作台](../tools/visualizer/README.md)**：终端查看、Web 编辑与草稿运行。
+9. **[DAG 可视化工作台](../tools/pipeline_studio/README.md)**：终端查看、Web 编辑与草稿运行。
 
 两个 SVG 均由 PlantUML `1.2024.7` 生成，禁止手工编辑。更新源文件后运行：
 

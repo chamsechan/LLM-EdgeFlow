@@ -7,11 +7,11 @@
 #include <thread>
 #include <vector>
 
+#include "contracts/traceable_item.h"
 #include "core/alg_context.h"
 #include "core/node_registry.h"
 #include "core/pipeline.h"
 #include "core/session_context.h"
-#include "core/traceable_item.h"
 #include "dev_support/inference/test_business_models.h"
 #include "engine/fixed_batch_executor.h"
 #include "engine/model_interface.h"

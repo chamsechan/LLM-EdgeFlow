@@ -121,12 +121,12 @@ add_test(NAME PipelineStudioTest COMMAND test_pipeline_studio)
 
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
 add_test(
-  NAME VisualizerServerTest
-  COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tests/tooling/test_visualizer_server.py
+  NAME PipelineStudioServerTest
+  COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tests/tooling/test_pipeline_studio.py
 )
-set_tests_properties(VisualizerServerTest PROPERTIES
+set_tests_properties(PipelineStudioServerTest PROPERTIES
   ENVIRONMENT
-    "LLM_EDGEFLOW_PIPELINE_TOOL=$<TARGET_FILE:alg_pipeline_tool_test>;LLM_EDGEFLOW_DEMO_BINARY=$<TARGET_FILE:alg_demo>")
+    "LLM_EDGEFLOW_PIPELINE_TOOL=$<TARGET_FILE:alg_pipeline_tool_test>;LLM_EDGEFLOW_DEMO_BINARY=$<TARGET_FILE:alg_demo>;LLM_EDGEFLOW_ALG_SHOW=$<TARGET_FILE:alg_show>")
 
 # Demo Runner 参数化与结果落盘单元测试
 add_executable(test_demo_runner
@@ -311,7 +311,8 @@ set_tests_properties(
   AdapterContractSecurityTest PipelineConfigTest RegistryConflictNodeTest
   RegistryConflictModelTest RegistryReentrantTest OperatorApiTest
   OperatorOutputPoolTest OperatorValueRegistryTest OperatorBizBridgeRegistryTest
-  DocQaRerankTest RerankRefineNodeTest PipelineStudioTest VisualizerServerTest
+  DocQaRerankTest RerankRefineNodeTest PipelineStudioTest
+  PipelineStudioServerTest
   DemoRunnerTest CatalogContractSsotTest TypedBlackboardContractsTest
   ValidatedPipelinePlanTest NodeBaseContractsTest NodeOwnershipAndReuseTest
   DefinitionSchemaValidationTest ModelBackendDecouplingTest ModelBackendPipelineTest

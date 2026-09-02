@@ -7,10 +7,10 @@
 #include <utility>
 #include <vector>
 
+#include "contracts/traceable_item.h"
 #include "core/alg_context.h"
 #include "core/blackboard_key.h"
 #include "core/common_contracts.h"
-#include "core/traceable_item.h"
 
 namespace llm_edgeflow {
 

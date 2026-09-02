@@ -82,7 +82,7 @@ cmake --build build -j$(nproc)
 ## Pipeline 工具
 
 ```bash
-# 终端查看拓扑
+# 终端查看显式节点与依赖
 ./build/alg_show configs/pipeline_doc_qa.json
 
 # 查询 Catalog、校验配置和查看执行计划
@@ -94,7 +94,7 @@ cmake --build build -j$(nproc)
 ./show --web
 ```
 
-详细用法和安全边界参见 [Pipeline Studio 指南](tools/visualizer/README.md)。
+详细用法和安全边界参见 [Pipeline Studio 指南](tools/pipeline_studio/README.md)。
 
 ## 文档导航
 
@@ -103,7 +103,7 @@ cmake --build build -j$(nproc)
 | 了解系统边界与数据流 | [架构设计](doc/architecture.md) |
 | 扩展 Adapter、Pipeline、Node、Model 或 Backend | [开发者指南](doc/developer_guide.md) |
 | 使用公共 C 日志接口 | [Logging 指南](doc/logging.md) |
-| 查看或编辑 Pipeline DAG | [Pipeline Studio 指南](tools/visualizer/README.md) |
+| 查看或编辑 Pipeline DAG | [Pipeline Studio 指南](tools/pipeline_studio/README.md) |
 | 查阅需求设计与验收记录 | [RFC 索引](doc/rfcs/README.md) |
 | 浏览全部项目文档 | [文档目录](doc/README.md) |
 | 查看版本演进摘要 | [Changelog](doc/CHANGELOG.md) |
