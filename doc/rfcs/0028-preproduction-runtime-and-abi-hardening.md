@@ -120,10 +120,9 @@ Catalog 不冻结。`Nodes()`、`Bizs()` 返回 vector 值，`FindNode()`、`Fin
   未发现数据竞争。
 - `BUILD_TESTING=OFF` 可构建 SDK、Demo 与 Pipeline CLI；共享库 SONAME 为
   `libcompany_alg_sdk.so.5`，动态定义表与 12 符号 allowlist 完全一致。
-- `LLM_EDGEFLOW_SHARDED_TEST_RUNNERS=OFF` 可配置并构建本 RFC 的代表目标；
-  ingress 冲突、Catalog 快照、C11 ABI 与导出面聚焦测试通过。individual 模式中部分
-  历史测试仍缺少各自的 dev fixture object wiring，此既有测试基础设施问题不属于本 RFC
-  的运行时与对外 ABI 收口范围。
+- `LLM_EDGEFLOW_SHARDED_TEST_RUNNERS=OFF` 完整构建成功，61/61 CTest 通过；individual
+  目标与对应 sharded runner 使用相同的 dev fixture Registry 环境，同时保持 Registry
+  冲突与 Catalog 契约测试的进程隔离。
 - 真实模型资产、目标硬件、容量压力和性能基线未在本地门禁中执行，仍需在具体部署环境
   完成正式接入验收。
 

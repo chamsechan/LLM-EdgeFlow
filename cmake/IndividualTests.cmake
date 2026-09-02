@@ -124,13 +124,14 @@ add_test(
   NAME VisualizerServerTest
   COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tests/tooling/test_visualizer_server.py
 )
+set_tests_properties(VisualizerServerTest PROPERTIES
+  ENVIRONMENT
+    "LLM_EDGEFLOW_PIPELINE_TOOL=$<TARGET_FILE:alg_pipeline_tool_test>;LLM_EDGEFLOW_DEMO_BINARY=$<TARGET_FILE:alg_demo>")
 
 # Demo Runner 参数化与结果落盘单元测试
 add_executable(test_demo_runner
     ${EDGEFLOW_SOURCE_test_demo_runner}
-    $<TARGET_OBJECTS:edgeflow_demo_objects>
-    $<TARGET_OBJECTS:edgeflow_test_backend_fixtures>
-    $<TARGET_OBJECTS:edgeflow_test_business_model_fixtures>)
+    $<TARGET_OBJECTS:edgeflow_demo_objects>)
 target_link_libraries(test_demo_runner PRIVATE llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
 add_test(NAME DemoRunnerTest COMMAND test_demo_runner)
 
@@ -160,8 +161,7 @@ target_link_libraries(test_definition_schema_validation PRIVATE llm_edgeflow::in
 add_test(NAME DefinitionSchemaValidationTest COMMAND test_definition_schema_validation)
 
 add_executable(test_model_backend_decoupling
-    ${EDGEFLOW_SOURCE_test_model_backend_decoupling}
-    $<TARGET_OBJECTS:edgeflow_test_backend_fixtures>)
+    ${EDGEFLOW_SOURCE_test_model_backend_decoupling})
 target_link_libraries(test_model_backend_decoupling PRIVATE llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
 add_test(NAME ModelBackendDecouplingTest COMMAND test_model_backend_decoupling)
 
@@ -170,17 +170,13 @@ target_link_libraries(test_model_backend_pipeline PRIVATE llm_edgeflow::internal
 add_test(NAME ModelBackendPipelineTest COMMAND test_model_backend_pipeline)
 
 add_executable(test_onnx_and_embedding_model
-    ${EDGEFLOW_SOURCE_test_onnx_and_embedding_model}
-    $<TARGET_OBJECTS:edgeflow_test_backend_fixtures>
-    $<TARGET_OBJECTS:edgeflow_test_business_model_fixtures>)
+    ${EDGEFLOW_SOURCE_test_onnx_and_embedding_model})
 target_link_libraries(test_onnx_and_embedding_model PRIVATE
     llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
 add_test(NAME OnnxAndEmbeddingModelTest COMMAND test_onnx_and_embedding_model)
 
 add_executable(test_onnx_and_reranker_model
-    ${EDGEFLOW_SOURCE_test_onnx_and_reranker_model}
-    $<TARGET_OBJECTS:edgeflow_test_backend_fixtures>
-    $<TARGET_OBJECTS:edgeflow_test_business_model_fixtures>)
+    ${EDGEFLOW_SOURCE_test_onnx_and_reranker_model})
 target_link_libraries(test_onnx_and_reranker_model PRIVATE
     llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
 add_test(NAME OnnxAndRerankerModelTest COMMAND test_onnx_and_reranker_model)
@@ -248,6 +244,61 @@ add_test(NAME OperatorGoldenTest COMMAND test_operator_golden)
 add_executable(test_adapter_purity ${EDGEFLOW_SOURCE_test_adapter_purity})
 target_link_libraries(test_adapter_purity PRIVATE llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
 add_test(NAME AdapterPurityTest COMMAND test_adapter_purity)
+
+# Keep each individual executable's Registry environment aligned with the
+# corresponding sharded runner. Conflict and catalog-isolation executables are
+# intentionally absent because they must start without dev fixture registrars.
+set(EDGEFLOW_INDIVIDUAL_TESTS_WITH_RUNTIME_FIXTURES
+  test_framework_core
+  test_company_alg_log
+  test_c_abi_safety
+  test_qwen_causal_lm_model
+  test_llama_cpp_backend
+  test_different_io_modalities
+  test_all_biz_pipelines
+  test_concurrency_and_edge_cases
+  test_dag_pipeline
+  test_runtime_control_and_hot_swap
+  test_engine_fault_tolerance_and_lifecycle
+  test_adapter_contract_security
+  test_pipeline_config
+  test_registry_reentrant
+  test_operator_api
+  test_operator_output_pool
+  test_operator_value_registry
+  test_operator_biz_bridge_registry
+  test_doc_qa_rerank
+  test_rerank_refine_node
+  test_pipeline_studio
+  test_demo_runner
+  test_typed_blackboard_contracts
+  test_validated_pipeline_plan
+  test_node_base_contracts
+  test_node_ownership_and_reuse
+  test_definition_schema_validation
+  test_model_backend_decoupling
+  test_model_backend_pipeline
+  test_onnx_and_embedding_model
+  test_onnx_and_reranker_model
+  test_text_chunk_node
+  test_text_embedding_node
+  test_vector_top_k_node
+  test_text_rerank_node
+  test_text_template_node
+  test_llm_generate_node
+  test_asr_transcribe_node
+  test_ocr_detect_node
+  test_text_rule_match_node
+  test_structured_json_parse_node
+  test_text_corpus_source_node
+  test_common_nodes
+  test_operator_golden
+  test_adapter_purity)
+foreach(test_target IN LISTS EDGEFLOW_INDIVIDUAL_TESTS_WITH_RUNTIME_FIXTURES)
+  target_sources(${test_target} PRIVATE
+    $<TARGET_OBJECTS:edgeflow_test_backend_fixtures>
+    $<TARGET_OBJECTS:edgeflow_test_business_model_fixtures>)
+endforeach()
 
 # 设置所有测试工作目录为项目根目录，保证无论从何处运行 CTest，相对路径均一致解析
 set_tests_properties(
