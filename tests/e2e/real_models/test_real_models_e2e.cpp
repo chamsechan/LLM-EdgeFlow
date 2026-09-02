@@ -16,11 +16,8 @@ namespace llm_edgeflow {
 class RealModelE2ETest : public ::testing::Test {
  protected:
   void SetUp() override {
-    project_root_ =
-        std::filesystem::weakly_canonical(std::filesystem::path(__FILE__)
-                                              .parent_path()
-                                              .parent_path()
-                                              .parent_path());
+    project_root_ = std::filesystem::weakly_canonical(
+        std::filesystem::path(LLM_EDGEFLOW_PROJECT_SOURCE_DIR));
     model_root_ = project_root_ / "models";
     model_path_ = model_root_ / "qwen2.5-0.5b-instruct-q4_k_m.gguf";
     ASSERT_TRUE(std::filesystem::is_regular_file(model_path_))
