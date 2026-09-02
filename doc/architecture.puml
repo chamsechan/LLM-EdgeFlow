@@ -287,7 +287,7 @@ package "Platform Tooling & Visualizer Studio (Tools & Demo)" as Tools {
     + catalog / describe-node / init / validate / plan
   }
   class "alg_show (CLI)" as AlgShow <<(T,#38BDF8) C++ Tool>> {
-    + Native ASCII DAG print
+    + Native declared id / depends_on print
   }
   class "Web Visualizer Studio" as WebStudio <<(W,#10B981) Web App>> {
     + ./show --web (ES Modules + SVG Graph + Live Demo Draft)

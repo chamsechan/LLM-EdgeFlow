@@ -1,6 +1,8 @@
 # LLM-EdgeFlow Pipeline Studio
 
-Pipeline Studio 是面向本地开发的 DAG 查看与编辑工具。终端视图、Web 工作台和自动化 CLI 共享 C++ Catalog 与 Validator，避免工具端维护另一套 Pipeline 规则。
+本目录是 Pipeline Studio 的模块根目录，集中保存 Python 服务端、Web 资源和使用文档。
+根目录 `show` 是指向 `server.py` 的稳定启动入口。Web 工作台和自动化 CLI 调用 C++
+Catalog 与 Validator，避免工具端维护另一套 Pipeline 规则。
 
 ## 前置条件
 
@@ -17,7 +19,9 @@ cmake --build build -j$(nproc)
 ./build/alg_show configs/pipeline_doc_qa.json
 ```
 
-该命令输出业务名、节点 ID、节点类型和依赖关系，不启动 Web 服务。
+该命令忠实输出 JSON 中声明的业务名、节点 ID、节点类型和 `depends_on`，不推导执行
+计划，也不启动 Web 服务。需要经过校验的拓扑顺序和波前层时，应使用
+`alg_pipeline_tool plan`。
 
 ## Web 工作台
 

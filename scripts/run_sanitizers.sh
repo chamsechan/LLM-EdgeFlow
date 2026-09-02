@@ -143,7 +143,7 @@ else
   echo ">>> Running full sanitized CTest suite with [${SANITIZERS}] <<<"
 fi
 if [[ "${DETECT_LEAKS:-0}" == "1" ]] || [[ "${SANITIZERS}" == *"thread"* ]]; then
-  CTEST_ARGS+=( -E '^VisualizerServerTest$' )
+  CTEST_ARGS+=( -E '^PipelineStudioServerTest$' )
 fi
 if [[ ${#ARCH_PREFIX[@]} -gt 0 ]]; then
   "${ARCH_PREFIX[@]}" ctest "${CTEST_ARGS[@]}"

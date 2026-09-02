@@ -354,14 +354,14 @@ set_tests_properties(DiagramAssetsCheckTest DiagramRenderGateSelfTest
   LABELS "tier4;tooling;static-gate;slow")
 
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
-add_test(NAME VisualizerServerTest
+add_test(NAME PipelineStudioServerTest
   COMMAND ${Python3_EXECUTABLE}
-          ${PROJECT_SOURCE_DIR}/tests/tooling/test_visualizer_server.py)
-set_tests_properties(VisualizerServerTest PROPERTIES
+          ${PROJECT_SOURCE_DIR}/tests/tooling/test_pipeline_studio.py)
+set_tests_properties(PipelineStudioServerTest PROPERTIES
   WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
   LABELS "${_edgeflow_tier4}"
   ENVIRONMENT
-    "LLM_EDGEFLOW_PIPELINE_TOOL=$<TARGET_FILE:alg_pipeline_tool_test>;LLM_EDGEFLOW_DEMO_BINARY=$<TARGET_FILE:alg_demo>")
+    "LLM_EDGEFLOW_PIPELINE_TOOL=$<TARGET_FILE:alg_pipeline_tool_test>;LLM_EDGEFLOW_DEMO_BINARY=$<TARGET_FILE:alg_demo>;LLM_EDGEFLOW_ALG_SHOW=$<TARGET_FILE:alg_show>")
 
 add_test(NAME DemoSmokeTest COMMAND $<TARGET_FILE:alg_demo> --suite smoke)
 set_tests_properties(DemoSmokeTest PROPERTIES

@@ -19,7 +19,11 @@ PIPELINE_TOOL = Path(
         "LLM_EDGEFLOW_PIPELINE_TOOL", ROOT / "build" / "alg_pipeline_tool"
     )
 )
-SPEC = importlib.util.spec_from_file_location("edgeflow_show", ROOT / "scripts" / "show.py")
+ALG_SHOW = Path(
+    os.environ.get("LLM_EDGEFLOW_ALG_SHOW", ROOT / "build" / "alg_show")
+)
+STUDIO_SERVER = ROOT / "tools" / "pipeline_studio" / "server.py"
+SPEC = importlib.util.spec_from_file_location("edgeflow_show", STUDIO_SERVER)
 SHOW = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(SHOW)
 
@@ -151,6 +155,22 @@ class PipelineCliTest(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertNotIn("diagnostics", plan)
         self.assertTrue(plan["plan"]["topological_order"])
+
+    def test_native_viewer_preserves_explicit_dag_dependencies(self):
+        process = subprocess.run(
+            [str(ALG_SHOW), str(ROOT / "configs" / "pipeline_doc_qa.json")],
+            text=True,
+            capture_output=True,
+            cwd=ROOT,
+            check=False,
+        )
+        self.assertEqual(process.returncode, 0, process.stderr)
+        self.assertIn("node_1_QueryEmbeddingNode", process.stdout)
+        self.assertIn("depends_on: []", process.stdout)
+        self.assertIn(
+            'depends_on: ["node_0_TextChunkNode"]', process.stdout
+        )
+        self.assertIn("alg_pipeline_tool validate/plan", process.stdout)
 
 
 class HttpApiTest(unittest.TestCase):

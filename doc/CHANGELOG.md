@@ -6,6 +6,11 @@
 
 ## Unreleased
 
+- Pipeline Studio 的 Python 服务端、Web 资源与文档收敛到统一模块目录；根目录 `show`
+  保持稳定入口，原生 `alg_show` 改为忠实展示显式 `id` / `depends_on`，不再把 JSON
+  数组顺序误画成串行 DAG。
+- 删除仅用于过渡的 `core/traceable_item.h` 转发头，仓库内使用方直接依赖中立
+  `contracts/traceable_item.h`。
 - 四层生产源码改为独立 OBJECT target 编译，并由显式 Composition Root 聚合；LayerGuard
   同步校验源码归属、依赖方向及 Node 对轻量 `ValidatedNodePlan` 的使用。
 - 业务 ingress/egress Blackboard key 从 Core 迁至 Layer 1 Adapter，Core、Node 与

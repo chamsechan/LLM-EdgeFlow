@@ -7,11 +7,11 @@
 #include <vector>
 
 #include "company_alg_interface.h"
+#include "contracts/traceable_item.h"
 #include "core/alg_context.h"
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
 #include "core/session_context.h"
-#include "core/traceable_item.h"
 #include "engine/model_interface.h"
 #include "tests/support/node_test_utils.h"
 

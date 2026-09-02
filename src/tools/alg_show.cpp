@@ -1,5 +1,4 @@
 #include <fstream>
-#include <iomanip>
 #include <iostream>
 #include <nlohmann/json.hpp>
 #include <string>
@@ -7,7 +6,6 @@
 // 终端 ANSI 颜色定义
 #define COLOR_CYAN "\033[96m"
 #define COLOR_BLUE "\033[94m"
-#define COLOR_GREEN "\033[92m"
 #define COLOR_YELLOW "\033[93m"
 #define COLOR_MAGENTA "\033[95m"
 #define COLOR_RED "\033[91m"
@@ -55,15 +53,10 @@ int main(int argc, char* argv[]) {
 
   std::cout << "\n"
             << COLOR_BOLD << COLOR_CYAN
-            << "╔══════════════════════════════════════════════════════════════"
-               "════════════════════╗\n"
-            << "║  Alg-SDK Pipeline & DAG Visualizer (Embedded Native C++ "
-               "Standalone Edition)     ║\n"
-            << "║  ConfigFile: " << std::left << std::setw(30) << cfg_path
-            << " BizName: " << std::setw(26) << biz_name << " ║\n"
-            << "╚══════════════════════════════════════════════════════════════"
-               "════════════════════╝"
-            << COLOR_RESET << "\n\n";
+            << "LLM-EdgeFlow Declared Pipeline Viewer (Native Standalone)"
+            << COLOR_RESET << "\n"
+            << "ConfigFile: " << cfg_path << "\n"
+            << "BizName: " << biz_name << "\n\n";
 
   // 1. 模型资源池
   std::cout << COLOR_BOLD << "[ 1. 边缘设备挂载模型池 (ModelManager) ]"
@@ -96,66 +89,44 @@ int main(int argc, char* argv[]) {
     std::cout << "\n";
   }
 
-  // 2. DAG 拓扑流图
+  // 2. 显式 DAG 声明。这里不推导拓扑或重复 PipelineValidator 规则。
   std::cout << COLOR_BOLD
-            << "[ 2. 边缘端数据流向与 DAG 拓扑流图 (Data Flow & Nodes) ]"
-            << COLOR_RESET << "\n\n";
-  std::cout << "   " << COLOR_GREEN << "[外部请求输入: vector<void*> inputs]"
+            << "[ 2. 显式 DAG 节点与依赖 (Declared Nodes & Dependencies) ]"
             << COLOR_RESET << "\n";
-  std::cout << "         │\n";
-  std::cout << "         │  " << COLOR_DIM << "📥 解包原始结构体注入 AlgContext"
-            << COLOR_RESET << "\n";
-  std::cout << "         ▼\n";
+  std::cout
+      << COLOR_DIM
+      << "  本工具仅展示 JSON 声明；请使用 alg_pipeline_tool validate/plan "
+         "获取校验后的执行计划。"
+      << COLOR_RESET << "\n\n";
 
   for (size_t i = 0; i < pipeline.size(); ++i) {
     const auto& node = pipeline[i];
+    std::string node_id = node.value("id", "<missing-id>");
     std::string ntype = node.value("node_type", "UnknownNode");
+    std::string depends = node.contains("depends_on")
+                              ? node["depends_on"].dump()
+                              : "<missing-depends_on>";
     std::string bind_m = node.contains("config") && node["config"].is_object()
                              ? node["config"].value("bind_model", "")
                              : "";
 
     std::string card_color = bind_m.empty() ? COLOR_BLUE : COLOR_MAGENTA;
 
-    std::cout << "   " << card_color << "┌─ #" << (i < 9 ? "0" : "") << (i + 1)
-              << " " << ntype << " ──────────────────────────────────────────┐"
-              << COLOR_RESET << "\n";
+    std::cout << "  " << card_color << "[" << i << "] " << node_id
+              << COLOR_RESET << "\n"
+              << "      node_type: " << ntype << "\n"
+              << "      depends_on: " << depends << "\n";
 
     if (!bind_m.empty()) {
-      std::cout << "   " << card_color << "│" << COLOR_RESET << "  "
-                << COLOR_MAGENTA << "🧠 绑定硬件模型: " << bind_m
-                << " (SessionContext 依赖注入)" << COLOR_RESET << "\n";
-    } else {
-      std::cout << "   " << card_color << "│" << COLOR_RESET << "  "
-                << COLOR_CYAN << "⚡ 算子属性: 纯 CPU / 内存私有状态规则逻辑"
+      std::cout << "      bind_model: " << COLOR_MAGENTA << bind_m
                 << COLOR_RESET << "\n";
     }
 
     if (node.contains("config") && !node["config"].empty()) {
-      std::cout << "   " << card_color << "│" << COLOR_RESET << "  "
-                << COLOR_YELLOW << "⚙️ 私有参数: " << node["config"].dump()
+      std::cout << "      config: " << COLOR_YELLOW << node["config"].dump()
                 << COLOR_RESET << "\n";
     }
-
-    std::cout
-        << "   " << card_color
-        << "└─────────────────────────────────────────────────────────────┘"
-        << COLOR_RESET << "\n";
-
-    if (i < pipeline.size() - 1) {
-      std::cout << "         │\n";
-      std::cout << "         │  " << COLOR_DIM
-                << "📦 传递 TraceableItem 样本溯源数据" << COLOR_RESET << "\n";
-      std::cout << "         ▼\n";
-    } else {
-      std::cout << "         │\n";
-      std::cout << "         │  " << COLOR_DIM
-                << "📤 打包提取特征回写外部结构体" << COLOR_RESET << "\n";
-      std::cout << "         ▼\n";
-      std::cout
-          << "   " << COLOR_GREEN
-          << "[外部响应输出: vector<void*> outputs (状态: SUCCESS 200 OK)]"
-          << COLOR_RESET << "\n\n";
-    }
+    std::cout << "\n";
   }
 
   return 0;

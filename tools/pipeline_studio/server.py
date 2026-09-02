@@ -23,8 +23,8 @@ import uuid
 import webbrowser
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-WEB_ROOT = PROJECT_ROOT / "tools" / "visualizer"
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+WEB_ROOT = PROJECT_ROOT / "tools" / "pipeline_studio" / "web"
 CONFIG_ROOT = PROJECT_ROOT / "configs"
 PROFILE_FILE = PROJECT_ROOT / "demo" / "profiles.json"
 PIPELINE_TOOL = Path(

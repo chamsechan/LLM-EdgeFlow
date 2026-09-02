@@ -116,7 +116,20 @@ if [ -n "$VIOLATIONS_BIZ_KEYS" ]; then
 fi
 echo "✅ [LayerGuard PASS] Business Blackboard keys remain owned by Layer 1."
 
-# Rule 5: Node support consumes the extracted validated-node plan, not the full
+# Rule 5: The neutral TraceableItem contract has one canonical include path.
+LEGACY_TRACEABLE_HEADER="$REPO_ROOT/include/core/traceable_item.h"
+LEGACY_TRACEABLE_INCLUDES=$(grep -rnE \
+  '#include\s*["<]core/traceable_item\.h[">]' \
+  "$REPO_ROOT/include" "$REPO_ROOT/src" "$REPO_ROOT/demo" \
+  "$REPO_ROOT/dev_support" "$REPO_ROOT/tests" 2>/dev/null || true)
+if [ -e "$LEGACY_TRACEABLE_HEADER" ] || [ -n "$LEGACY_TRACEABLE_INCLUDES" ]; then
+  echo "❌ [LayerGuard ERROR] Legacy core/traceable_item.h compatibility path remains:"
+  echo "$LEGACY_TRACEABLE_INCLUDES"
+  exit 1
+fi
+echo "✅ [LayerGuard PASS] TraceableItem uses the neutral contracts include path."
+
+# Rule 6: Node support consumes the extracted validated-node plan, not the full
 # Layer 2 validator implementation contract.
 NODE_SUPPORT_HEADER="$REPO_ROOT/include/nodes/node_support.h"
 if [ ! -f "$NODE_SUPPORT_HEADER" ] || \
@@ -127,7 +140,7 @@ if [ ! -f "$NODE_SUPPORT_HEADER" ] || \
 fi
 echo "✅ [LayerGuard PASS] Node support is decoupled from PipelineValidator."
 
-# Rule 6: Source ownership in CMake must preserve the four compile-time layers
+# Rule 7: Source ownership in CMake must preserve the four compile-time layers
 # and the explicit composition root.
 for OWNERSHIP in \
   "src/engine/CMakeLists.txt:edgeflow_layer4_engine_objects" \
@@ -160,7 +173,7 @@ if ! grep -q 'target_sources(edgeflow_composition_objects' \
 fi
 echo "✅ [LayerGuard PASS] CMake source ownership preserves all four layers and the composition root."
 
-# Rule 7: Pure C11 Syntax & ABI Compliance Check via standard C compiler
+# Rule 8: Pure C11 Syntax & ABI Compliance Check via standard C compiler
 GENERATED_VERSION_INCLUDE="$(mktemp -d "${TMPDIR:-/tmp}/edgeflow-version-header.XXXXXX")"
 cleanup_generated_version() {
   rm -rf "${GENERATED_VERSION_INCLUDE}"
@@ -211,7 +224,7 @@ else
   echo "⚠️ [LayerGuard WARN] Neither gcc nor clang found for C11 syntax-only check."
 fi
 
-# Rule 8: Demo Layer (demo/) MUST NEVER directly include internal SDK headers (adapter/, core/, biz/, business/, engine/, src/)
+# Rule 9: Demo Layer (demo/) MUST NEVER directly include internal SDK headers (adapter/, core/, biz/, business/, engine/, src/)
 VIOLATIONS_DEMO_INTERNAL=$(grep -rnE '#include\s*["<](adapter/|core/|biz/|business/|engine/|src/)' "$REPO_ROOT/demo" || true)
 
 if [ -n "$VIOLATIONS_DEMO_INTERNAL" ]; then
@@ -222,7 +235,7 @@ if [ -n "$VIOLATIONS_DEMO_INTERNAL" ]; then
 fi
 echo "✅ [LayerGuard PASS] Zero Demo -> Internal SDK header violations."
 
-# Rule 9: RFC-0015 LLM vendor/semantic boundary.
+# Rule 10: RFC-0015 LLM vendor/semantic boundary.
 LLAMA_VENDOR_OUTSIDE_BACKEND=$(grep -rnE '#include\s*["<]llama\.h[">]' \
   "$REPO_ROOT/include" "$REPO_ROOT/src" \
   --exclude-dir=backends 2>/dev/null || true)
