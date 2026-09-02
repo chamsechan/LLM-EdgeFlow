@@ -1,6 +1,6 @@
 #include "adapter/operator/operator_biz_bridge_registry.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 void RegisterOcrDocQaBridge(OperatorBizBridgeRegistry& reg) {
   OperatorBizBridgeDescriptor desc;
@@ -88,4 +88,4 @@ void RegisterOcrDocQaBridge(OperatorBizBridgeRegistry& reg) {
 
 REGISTER_OPERATOR_BIZ_BRIDGE(RegisterOcrDocQaBridge);
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

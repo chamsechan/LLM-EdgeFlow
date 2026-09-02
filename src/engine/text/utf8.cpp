@@ -1,6 +1,6 @@
 #include "engine/text/utf8.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 namespace utf8 {
 
 size_t DecodeCodePoint(const char* data, size_t length,
@@ -114,4 +114,4 @@ void StripIncompleteSuffix(std::string* text) noexcept {
 }
 
 }  // namespace utf8
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

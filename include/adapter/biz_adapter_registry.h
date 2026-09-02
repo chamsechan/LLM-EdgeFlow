@@ -9,7 +9,7 @@
 #include "adapter/biz_adapter_interface.h"
 #include "company_alg_log.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 /**
  * @brief 业务适配器全局注册中心 (Layer 1 内部)
@@ -277,21 +277,21 @@ class BizAdapterRegistry {
 /**
  * @brief 自动注册宏 (零异常抛出保证，若发生异常记录错误并标记冲突)
  */
-#define REGISTER_BIZ_ADAPTER(Class)                                            \
-  static bool _registered_adapter_##Class = []() noexcept {                    \
-    try {                                                                      \
-      auto adapter = std::make_shared<Class>();                                \
-      return ::alg_framework::BizAdapterRegistry::Instance().RegisterAdapter(  \
-          adapter);                                                            \
-    } catch (const std::exception& e) {                                        \
-      ::alg_framework::BizAdapterRegistry::Instance().RecordRegistrationError( \
-          std::string("Exception registering " #Class ": ") + e.what());       \
-      return false;                                                            \
-    } catch (...) {                                                            \
-      ::alg_framework::BizAdapterRegistry::Instance().RecordRegistrationError( \
-          "Unknown exception registering " #Class);                            \
-      return false;                                                            \
-    }                                                                          \
+#define REGISTER_BIZ_ADAPTER(Class)                                           \
+  static bool _registered_adapter_##Class = []() noexcept {                   \
+    try {                                                                     \
+      auto adapter = std::make_shared<Class>();                               \
+      return ::llm_edgeflow::BizAdapterRegistry::Instance().RegisterAdapter(  \
+          adapter);                                                           \
+    } catch (const std::exception& e) {                                       \
+      ::llm_edgeflow::BizAdapterRegistry::Instance().RecordRegistrationError( \
+          std::string("Exception registering " #Class ": ") + e.what());      \
+      return false;                                                           \
+    } catch (...) {                                                           \
+      ::llm_edgeflow::BizAdapterRegistry::Instance().RecordRegistrationError( \
+          "Unknown exception registering " #Class);                           \
+      return false;                                                           \
+    }                                                                         \
   }()
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

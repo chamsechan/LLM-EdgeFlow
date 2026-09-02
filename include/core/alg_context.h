@@ -11,7 +11,7 @@
 
 #include "core/blackboard_key.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 class Pipeline;
 
@@ -129,4 +129,4 @@ class AlgContext {
   friend class Pipeline;
 };
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

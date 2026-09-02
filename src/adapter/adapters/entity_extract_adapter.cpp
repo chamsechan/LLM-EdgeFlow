@@ -6,7 +6,7 @@
 #include "company_alg_interface.h"
 #include "core/common_contracts.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 inline static constexpr char kEntityExtractBizName[] = "entity_extract_0.6b_v1";
 inline static constexpr char kEntityExtractLlamaCppBizName[] =
@@ -129,4 +129,4 @@ class EntityExtractAdapter : public IBizAdapter {
 
 REGISTER_BIZ_ADAPTER(EntityExtractAdapter);
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

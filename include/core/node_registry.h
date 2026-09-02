@@ -12,7 +12,7 @@
 #include "core/node_base.h"
 #include "core/pipeline_catalog.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 class NodeFactory {
  public:
@@ -139,9 +139,9 @@ class NodeFactory {
 #define REGISTER_NODE_WITH_DEFINITION(NodeType, ...)                        \
   static bool _reg_node_##NodeType = []() noexcept {                        \
     const auto definition = (__VA_ARGS__);                                  \
-    return ::alg_framework::NodeFactory::Instance().Register(               \
+    return ::llm_edgeflow::NodeFactory::Instance().Register(                \
         NodeType::kNodeType, []() { return std::make_unique<NodeType>(); }, \
         &definition);                                                       \
   }()
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

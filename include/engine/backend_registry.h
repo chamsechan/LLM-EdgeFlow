@@ -12,7 +12,7 @@
 #include "engine/backend_interface.h"
 #include "engine/inference_definition.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 /**
  * @brief 推理后端注册表 (BackendRegistry)
@@ -59,24 +59,24 @@ class BackendRegistry {
   std::vector<std::string> conflict_errors_;
 };
 
-#define REGISTER_BACKEND_WITH_DEFINITION(BackendClass, ...)             \
-  static bool _registered_backend_##BackendClass = []() noexcept {      \
-    try {                                                               \
-      const auto definition = (__VA_ARGS__);                            \
-      return ::alg_framework::BackendRegistry::Instance().Register(     \
-          definition,                                                   \
-          []() -> std::unique_ptr<::alg_framework::IInferenceBackend> { \
-            return std::make_unique<BackendClass>();                    \
-          });                                                           \
-    } catch (const std::exception& e) {                                 \
-      ALG_LOG_ERROR("[BackendRegistry] Failed to register %s: %s\n",    \
-                    #BackendClass, e.what());                           \
-      return false;                                                     \
-    } catch (...) {                                                     \
-      ALG_LOG_ERROR("[BackendRegistry] Failed to register %s\n",        \
-                    #BackendClass);                                     \
-      return false;                                                     \
-    }                                                                   \
+#define REGISTER_BACKEND_WITH_DEFINITION(BackendClass, ...)            \
+  static bool _registered_backend_##BackendClass = []() noexcept {     \
+    try {                                                              \
+      const auto definition = (__VA_ARGS__);                           \
+      return ::llm_edgeflow::BackendRegistry::Instance().Register(     \
+          definition,                                                  \
+          []() -> std::unique_ptr<::llm_edgeflow::IInferenceBackend> { \
+            return std::make_unique<BackendClass>();                   \
+          });                                                          \
+    } catch (const std::exception& e) {                                \
+      ALG_LOG_ERROR("[BackendRegistry] Failed to register %s: %s\n",   \
+                    #BackendClass, e.what());                          \
+      return false;                                                    \
+    } catch (...) {                                                    \
+      ALG_LOG_ERROR("[BackendRegistry] Failed to register %s\n",       \
+                    #BackendClass);                                    \
+      return false;                                                    \
+    }                                                                  \
   }()
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

@@ -17,7 +17,7 @@
 #include "llama.h"
 #endif
 
-namespace alg_framework {
+namespace llm_edgeflow {
 namespace {
 
 void SetDiagnostic(std::string* diagnostic,
@@ -488,4 +488,4 @@ static const BackendDefinition kLlamaCppBackendDefinition = [] {
 REGISTER_BACKEND_WITH_DEFINITION(LlamaCppBackend, kLlamaCppBackendDefinition);
 #endif
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

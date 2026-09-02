@@ -6,7 +6,7 @@
 
 #include "contracts/traceable_item.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 enum class TraceableAlignmentError {
   kNone,
@@ -47,4 +47,4 @@ template <typename Input, typename Output>
   return {TraceableAlignmentError::kNone, inputs.size()};
 }
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

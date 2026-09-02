@@ -8,7 +8,7 @@
 #include "contracts/inference_payloads.h"
 #include "engine/inference_definition.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 /**
  * @brief 所有模型语义对象的统一抽象基类
@@ -71,4 +71,4 @@ class IAsrModel : public IModel {
                          TextBatch* outputs) noexcept = 0;
 };
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

@@ -8,7 +8,7 @@
 #include "adapter/adapter_validation_helper.h"
 #include "adapter/biz_adapter_interface.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 namespace template_examples {
 
 struct TemplateTreeNode {
@@ -200,4 +200,4 @@ class TemplateNestedPointerTreeAdapter : public IBizAdapter {
 };
 
 }  // namespace template_examples
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

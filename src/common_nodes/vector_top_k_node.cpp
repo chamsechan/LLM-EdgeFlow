@@ -10,7 +10,7 @@
 #include "nodes/node_error_codes.h"
 #include "nodes/node_support.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 /**
  * @brief 向量相似度计算与 Top-K 检索排序算子 (VectorTopKNode)
@@ -212,4 +212,4 @@ NodeDefinition MakeVectorTopKNodeDefinition() {
 
 REGISTER_NODE_WITH_DEFINITION(VectorTopKNode, MakeVectorTopKNodeDefinition());
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

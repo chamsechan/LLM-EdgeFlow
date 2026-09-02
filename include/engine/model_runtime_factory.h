@@ -7,7 +7,7 @@
 #include "engine/backend_interface.h"
 #include "engine/model_interface.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 /**
  * @brief Layer 4 模型物化规格参数 (由 Pipeline 将 ValidatedModelPlan 映射而来)
@@ -38,4 +38,4 @@ class ModelRuntimeFactory {
       const ModelLoadSpec& spec, std::string* diagnostic = nullptr) noexcept;
 };
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

@@ -7,7 +7,7 @@
 
 #include "contracts/traceable_item.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 // ==============================================================================
 // 1. 标准可溯源推理载荷 (Standard Traceable Inference Payloads)
@@ -120,4 +120,4 @@ struct GenerateOptions {
   std::vector<std::string> stop_words;
 };
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

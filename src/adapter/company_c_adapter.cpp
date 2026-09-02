@@ -13,14 +13,14 @@ struct AlgHandleInstance {
   // Same-handle Process/Control calls are intentionally serialized. Destroy is
   // only valid after the host has stopped submissions and joined all callers.
   std::mutex call_mutex;
-  std::unique_ptr<alg_framework::SharedAlgorithmRuntime> runtime;
+  std::unique_ptr<llm_edgeflow::SharedAlgorithmRuntime> runtime;
 };
 
 extern "C" {
 
 int Alg_Init(void) COMPANY_ALG_NOEXCEPT {
   try {
-    int ret = alg_framework::SharedAlgorithmRuntime::GlobalInit();
+    int ret = llm_edgeflow::SharedAlgorithmRuntime::GlobalInit();
     if (ret == 0) {
       ALG_LOG_INFO(
           "[Company C Adapter] Alg_Init: Global runtime resources "
@@ -54,10 +54,10 @@ int Alg_Create(void** hndl,
 
     std::string model_root =
         param_create->model_root_dir ? param_create->model_root_dir : "";
-    std::unique_ptr<alg_framework::SharedAlgorithmRuntime> runtime;
+    std::unique_ptr<llm_edgeflow::SharedAlgorithmRuntime> runtime;
     std::string err_msg;
 
-    int ret = alg_framework::SharedAlgorithmRuntime::CreateFromConfigFile(
+    int ret = llm_edgeflow::SharedAlgorithmRuntime::CreateFromConfigFile(
         cfg_path, param_create->device_id, model_root, param_create->biz_type,
         &runtime, &err_msg);
     if (ret != 0) {
@@ -152,7 +152,7 @@ int Alg_Destroy(void* hndl) COMPANY_ALG_NOEXCEPT {
 
 int Alg_DeInit(void) COMPANY_ALG_NOEXCEPT {
   try {
-    int ret = alg_framework::SharedAlgorithmRuntime::GlobalDeinit();
+    int ret = llm_edgeflow::SharedAlgorithmRuntime::GlobalDeinit();
     ALG_LOG_INFO(
         "[Company C Adapter] Alg_DeInit: Global runtime resources released.\n");
     return ret;

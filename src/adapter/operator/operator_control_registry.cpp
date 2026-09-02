@@ -5,7 +5,7 @@
 
 #include "nlohmann/json.hpp"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 int OperatorControlRegistry::ResolveControlParam(
     llm_edgeflow::operator_api::ControlCommand command, void* control_param,
@@ -160,4 +160,4 @@ int OperatorControlRegistry::ResolveControlParam(
   }
 }
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

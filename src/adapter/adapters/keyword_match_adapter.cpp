@@ -6,7 +6,7 @@
 #include "company_alg_interface.h"
 #include "core/common_contracts.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 inline static constexpr char kKeywordMatchBizName[] = "keyword_match_v1";
 
@@ -123,4 +123,4 @@ class KeywordMatchAdapter : public IBizAdapter {
 
 REGISTER_BIZ_ADAPTER(KeywordMatchAdapter);
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

@@ -7,7 +7,7 @@
 #include "core/pipeline_catalog.h"
 #include "nodes/node_support.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 template <typename ModelCapability>
 class ModelBoundNode : public NodeBase {
@@ -62,4 +62,4 @@ class ModelBoundNode : public NodeBase {
   std::shared_ptr<ModelCapability> model_;
 };
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

@@ -54,7 +54,7 @@ echo " Project Root: ${PROJECT_ROOT}"
 echo " Formatter: ${CLANG_FORMAT_BIN} (${CLANG_FORMAT_VERSION})"
 echo "=================================================="
 
-FORMAT_DIRS=("include" "src" "demo" "tests")
+FORMAT_DIRS=("include" "src" "demo" "dev_support" "tests")
 
 for dir in "${FORMAT_DIRS[@]}"; do
     if [ -d "${PROJECT_ROOT}/${dir}" ]; then

@@ -9,7 +9,7 @@
 #include "core/blackboard_key.h"
 #include "engine/inference_definition.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 struct PortDefinition {
   std::string key;
@@ -205,4 +205,4 @@ class PipelineCatalog {
 
 const char* PortConstraintKindName(PortConstraintKind kind);
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

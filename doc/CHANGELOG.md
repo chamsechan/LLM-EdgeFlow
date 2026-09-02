@@ -6,6 +6,18 @@
 
 ## Unreleased
 
+## 10.0.0 - 2026-09
+
+- 在正式接入前将主体 C++ 根命名空间从历史 `alg_framework` 原子收敛为
+  `llm_edgeflow`；六个纯 C ABI、Operator API、共享库文件名与 C ABI major 保持不变。
+- 生产库、Demo、开发 fixture、工具与测试改由所属目录显式管理 CMake 源码；新增
+  `llm_edgeflow::sdk` target alias，并通过标准 `BUILD_TESTING` 隔离测试依赖。
+- 测试树按 unit、integration、contract、tooling 与 e2e 责任重组；sharded 与
+  individual 模式共用单一源码清单，历史 stage fixture 路径改为稳定语义路径。
+- 设计依据：[RFC-0027](rfcs/0027-preproduction-source-layout-and-namespace-convergence.md)。
+
+## 9.0.0 - 2026-09
+
 - 新增统一 `text_generation` Backend 协议与公共自回归采样器；同一
   `qwen_causal_lm` 可组合 llama.cpp 与条件 kiteLLM SDK，`LlmGenerateNode` 同步开放
   `top_k` 与 `repetition_penalty`；ONNX Runtime 保持强类型 `tensor_graph` 能力，Backend

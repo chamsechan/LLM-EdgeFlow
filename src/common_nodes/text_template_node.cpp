@@ -17,7 +17,7 @@
 #include "nodes/node_error_codes.h"
 #include "nodes/node_support.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 /**
  * @brief 纯文本与多模态上下文受限模板渲染算子 (TextTemplateNode)
@@ -616,4 +616,4 @@ NodeDefinition MakeTextTemplateNodeDefinition() {
 REGISTER_NODE_WITH_DEFINITION(TextTemplateNode,
                               MakeTextTemplateNodeDefinition());
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

@@ -7,7 +7,7 @@
 #include <utility>
 #include <vector>
 
-namespace alg_framework::registry_support {
+namespace llm_edgeflow::registry_support {
 
 inline void SetDiagnostic(std::string* diagnostic,
                           const std::string& message) noexcept {
@@ -104,4 +104,4 @@ void Clear(Mutex& mutex, EntryMap& entries, bool& has_conflict,
   errors.clear();
 }
 
-}  // namespace alg_framework::registry_support
+}  // namespace llm_edgeflow::registry_support

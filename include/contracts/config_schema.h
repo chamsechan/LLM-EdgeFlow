@@ -6,7 +6,7 @@
 #include <utility>
 #include <vector>
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 /**
  * @brief 配置字段取值类型枚举
@@ -70,4 +70,4 @@ inline const char* ConfigValueKindName(ConfigValueKind kind) noexcept {
   }
 }
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

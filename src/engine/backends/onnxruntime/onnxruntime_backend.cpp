@@ -15,7 +15,7 @@
 #include "onnxruntime_cxx_api.h"
 #endif
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 namespace onnxruntime_detail {
 
@@ -734,4 +734,4 @@ REGISTER_BACKEND_WITH_DEFINITION(OnnxRuntimeBackend,
                                  kOnnxRuntimeBackendDefinition);
 #endif
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

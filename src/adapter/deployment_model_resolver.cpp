@@ -4,7 +4,7 @@
 #include <filesystem>
 #include <system_error>
 
-namespace alg_framework {
+namespace llm_edgeflow {
 namespace {
 
 namespace fs = std::filesystem;
@@ -133,4 +133,4 @@ bool ResolveDeploymentModelPaths(const nlohmann::json& pipeline_json,
   }
 }
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

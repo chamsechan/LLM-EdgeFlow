@@ -13,7 +13,7 @@
 #include "adapter/operator/operator_value_type_registry.h"
 #include "company_alg_interface.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 /**
  * @brief Process 执行期局部影子 DTO 存储器
@@ -158,15 +158,14 @@ class OperatorBizBridgeRegistry {
 /**
  * @brief 就地业务自注册宏 (无需在中心维护列表)
  */
-#define REGISTER_OPERATOR_BIZ_BRIDGE(BridgeRegisterFn)                       \
-  namespace {                                                                \
-  struct AutoRegister_##BridgeRegisterFn {                                   \
-    AutoRegister_##BridgeRegisterFn() {                                      \
-      BridgeRegisterFn(                                                      \
-          ::alg_framework::OperatorBizBridgeRegistry::Instance());           \
-    }                                                                        \
-  };                                                                         \
-  static AutoRegister_##BridgeRegisterFn g_auto_register_##BridgeRegisterFn; \
+#define REGISTER_OPERATOR_BIZ_BRIDGE(BridgeRegisterFn)                         \
+  namespace {                                                                  \
+  struct AutoRegister_##BridgeRegisterFn {                                     \
+    AutoRegister_##BridgeRegisterFn() {                                        \
+      BridgeRegisterFn(::llm_edgeflow::OperatorBizBridgeRegistry::Instance()); \
+    }                                                                          \
+  };                                                                           \
+  static AutoRegister_##BridgeRegisterFn g_auto_register_##BridgeRegisterFn;   \
   }
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

@@ -3,7 +3,7 @@
 #include <cstdint>
 #include <utility>
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 /**
  * @brief 具备样本级溯源能力的包装结构体
@@ -32,4 +32,4 @@ struct TraceableItem {
   }
 };
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

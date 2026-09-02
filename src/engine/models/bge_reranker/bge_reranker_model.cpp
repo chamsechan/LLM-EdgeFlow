@@ -10,7 +10,7 @@
 #include "engine/fixed_batch_executor.h"
 #include "engine/models/bge_common/bert_model_support.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 namespace {
 
@@ -338,4 +338,4 @@ static const ModelDefinition kBgeRerankerModelDefinition = [] {
 
 REGISTER_MODEL_WITH_DEFINITION(BgeRerankerModel, kBgeRerankerModelDefinition);
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

@@ -3,7 +3,7 @@
 #include <nlohmann/json.hpp>
 #include <string>
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 /**
  * @brief Resolve deployment model references before entering Layer 2.
@@ -18,4 +18,4 @@ bool ResolveDeploymentModelPaths(const nlohmann::json& pipeline_json,
                                  nlohmann::json* resolved_pipeline_json,
                                  std::string* diagnostic) noexcept;
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

@@ -8,7 +8,7 @@
 #include "nodes/model_bound_node.h"
 #include "nodes/traceable_batch_validation.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 template <typename ModelCapability, typename Input, typename Output>
 class TraceableUnaryInferenceNode : public ModelBoundNode<ModelCapability> {
@@ -88,4 +88,4 @@ class TraceableUnaryInferenceNode : public ModelBoundNode<ModelCapability> {
   const int provenance_mismatch_error_;
 };
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

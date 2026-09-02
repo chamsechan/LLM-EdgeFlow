@@ -6,7 +6,7 @@
 #include <string_view>
 #include <vector>
 
-namespace alg_framework {
+namespace llm_edgeflow {
 namespace utf8 {
 
 // Returns the consumed byte count, or zero for an invalid UTF-8 sequence.
@@ -24,4 +24,4 @@ bool BuildCodePointBoundaries(std::string_view text,
 void StripIncompleteSuffix(std::string* text) noexcept;
 
 }  // namespace utf8
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

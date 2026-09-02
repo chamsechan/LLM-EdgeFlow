@@ -8,7 +8,7 @@
 #include "core/pipeline_config.h"
 #include "engine/inference_definition.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 enum class ValidationPolicy {
   kStrict,
@@ -170,4 +170,4 @@ bool ValidateAndNormalizeConfig(
     const std::string& base_pointer = "",
     DiagnosticCode unknown_field_code = DiagnosticCode::kUnknownConfigField);
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

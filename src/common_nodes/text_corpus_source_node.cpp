@@ -5,7 +5,7 @@
 #include "core/node_registry.h"
 #include "nodes/node_support.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 /**
  * @brief 静态或配置驱动语料知识库源算子 (TextCorpusSourceNode,
@@ -73,4 +73,4 @@ NodeDefinition MakeTextCorpusSourceNodeDefinition() {
 REGISTER_NODE_WITH_DEFINITION(TextCorpusSourceNode,
                               MakeTextCorpusSourceNodeDefinition());
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

@@ -6,7 +6,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 /**
  * @brief 遵循 BERT / BGE 规范的 WordPiece 分词器
@@ -95,4 +95,4 @@ class BertWordPieceTokenizer {
   int64_t sep_token_id_ = 102;
 };
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

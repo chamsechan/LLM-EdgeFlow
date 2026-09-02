@@ -2,7 +2,7 @@
 
 #include <string>
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 /**
  * @brief 类型化 Blackboard Key。名称与 C++ 类型共同构成节点端口契约。
@@ -21,4 +21,4 @@ struct BlackboardTypeTraits {
   static constexpr const char* TypeName() { return "Unknown"; }
 };
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

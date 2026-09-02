@@ -9,7 +9,7 @@
 #include "nodes/node_error_codes.h"
 #include "nodes/node_support.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 /**
  * @brief 结构化 JSON 解析与文本提取受控算子 (StructuredJsonParseNode)
@@ -327,4 +327,4 @@ NodeDefinition MakeStructuredJsonParseNodeDefinition() {
 REGISTER_NODE_WITH_DEFINITION(StructuredJsonParseNode,
                               MakeStructuredJsonParseNodeDefinition());
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

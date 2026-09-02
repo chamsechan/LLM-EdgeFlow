@@ -14,7 +14,7 @@
 
 #include "contracts/config_schema.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 /**
  * @brief 底层执行协议枚举
@@ -485,4 +485,4 @@ inline const char* ElementTypeName(ElementType type) noexcept {
   }
 }
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

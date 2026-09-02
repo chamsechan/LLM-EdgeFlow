@@ -10,4 +10,4 @@ Use this reference only for Core scheduling, lifecycle, validation, typed Blackb
 - Preserve the Pipeline state machine and one-shot build semantics. A failed preflight or materialization must leave the instance failed, not partially ready.
 - Avoid unnecessary request-data copies and upward dependencies from Core into concrete Nodes, Models, or Backends.
 
-Use `include/core/pipeline.h`, `src/core/pipeline.cpp`, `include/core/pipeline_validator.h`, `src/core/pipeline_validator.cpp`, `include/core/alg_context.h`, and `tests/test_pipeline_config.cpp` as current implementation references.
+Use `include/core/pipeline.h`, `src/core/pipeline.cpp`, `include/core/pipeline_validator.h`, `src/core/pipeline_validator.cpp`, `include/core/alg_context.h`, and `tests/unit/core/test_pipeline_config.cpp` as current implementation references.

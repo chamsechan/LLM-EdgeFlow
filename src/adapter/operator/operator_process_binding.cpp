@@ -4,7 +4,7 @@
 #include <unordered_set>
 #include <utility>
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 int ConvertOperatorInputs(
     const llm_edgeflow::operator_api::NamedIoBatch& inputs,
@@ -261,4 +261,4 @@ void PublishOperatorOutputs(
   }
 }
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

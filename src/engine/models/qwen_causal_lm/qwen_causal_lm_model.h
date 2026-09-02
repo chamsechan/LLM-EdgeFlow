@@ -8,7 +8,7 @@
 #include "engine/model_interface.h"
 #include "engine/model_registry.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 /**
  * @brief Qwen ChatML semantics over a neutral text-generation session.
@@ -51,4 +51,4 @@ class QwenCausalLmModel final : public ILlmModel {
   int64_t random_seed_ = -1;
 };
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

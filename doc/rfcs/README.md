@@ -82,6 +82,7 @@ doc/rfcs/NNNN-<kebab-case-title>.md
 | **RFC-0024** | 正式接入前历史兼容契约清理 | `Completed` | `v7.0.0` | Layer 1 ~ Layer 3 / Tooling | [0024-pre-release-contract-cleanup.md](0024-pre-release-contract-cleanup.md) |
 | **RFC-0025** | 部署路径、执行目标与可复现验收契约收敛 | `Completed` | `v8.0.0` | Layer 1 ~ Layer 4 / Tooling | [0025-deployment-runtime-contract-convergence.md](0025-deployment-runtime-contract-convergence.md) |
 | **RFC-0026** | 统一 LLM 文本生成协议与多 Backend 实现 | `Completed` | `v9.0.0` | Layer 3 ~ Layer 4 | [0026-unified-llm-generation-backends.md](0026-unified-llm-generation-backends.md) |
+| **RFC-0027** | 正式接入前源码布局与 C++ 命名空间收敛 | `Completed` | `v10.0.0` | Layer 1 ~ Layer 4 / Tooling | [0027-preproduction-source-layout-and-namespace-convergence.md](0027-preproduction-source-layout-and-namespace-convergence.md) |
 
 ---
 

@@ -7,7 +7,7 @@
 #include "contracts/config_schema_validation.h"
 #include "engine/runtime/registry_support.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 ModelRegistry& ModelRegistry::Instance() {
   static ModelRegistry instance;
@@ -162,4 +162,4 @@ void ModelRegistry::ClearForTesting() {
   registry_support::Clear(mutex_, entries_, has_conflict_, conflict_errors_);
 }
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

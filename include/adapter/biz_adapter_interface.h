@@ -9,7 +9,7 @@
 #include "core/alg_context.h"
 #include "core/pipeline_catalog.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 /**
  * @brief 业务适配器描述符 (Layer 1 机器可读元数据与契约声明, ADP-002, ADP-003,
@@ -136,4 +136,4 @@ class IBizAdapter {
                    AdapterStatus* out_status = nullptr) const = 0;
 };
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

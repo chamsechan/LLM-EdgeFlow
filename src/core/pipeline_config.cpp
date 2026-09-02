@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <unordered_set>
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 namespace {
 
@@ -559,4 +559,4 @@ bool ParsePipelineConfig(const nlohmann::json& root,
   return true;
 }
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

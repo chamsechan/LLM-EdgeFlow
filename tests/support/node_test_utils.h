@@ -5,7 +5,7 @@
 #include "core/node_base.h"
 #include "core/session_context.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 inline bool InitNodeForTest(INode& node, const nlohmann::json& config,
                             SessionContext* session_ctx) {
@@ -15,4 +15,4 @@ inline bool InitNodeForTest(INode& node, const nlohmann::json& config,
   return node.Init(init_ctx);
 }
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

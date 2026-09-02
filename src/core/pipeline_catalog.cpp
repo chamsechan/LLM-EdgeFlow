@@ -8,7 +8,7 @@
 #include "engine/backend_registry.h"
 #include "engine/model_registry.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 namespace {
 
 using Kind = ConfigValueKind;
@@ -445,4 +445,4 @@ nlohmann::json PipelineCatalog::ToJson(const std::string& biz_filter) {
           {"bizs", std::move(bizs)}};
 }
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

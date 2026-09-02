@@ -12,7 +12,7 @@
 #include <utility>
 #include <vector>
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 /**
  * @brief 轻量级高性能线程池 (专为波前 DAG 算子并发调度设计)
@@ -83,4 +83,4 @@ class ThreadPool {
   bool stop_;
 };
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

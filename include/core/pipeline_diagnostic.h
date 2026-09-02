@@ -2,7 +2,7 @@
 
 #include <string>
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 /**
  * @brief 结构化错误诊断码 (PipelineErrorCode)
@@ -49,4 +49,4 @@ struct PipelineDiagnostic {
   }
 };
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

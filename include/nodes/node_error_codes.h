@@ -1,6 +1,6 @@
 #pragma once
 
-namespace alg_framework {
+namespace llm_edgeflow {
 namespace node_error {
 
 // Runtime node errors use non-overlapping per-node numeric ranges.
@@ -64,4 +64,4 @@ inline constexpr int kOutputProvenanceMismatch = -7203;
 }  // namespace asr_transcribe
 
 }  // namespace node_error
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

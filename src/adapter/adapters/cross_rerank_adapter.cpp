@@ -7,7 +7,7 @@
 #include "company_alg_interface.h"
 #include "core/common_contracts.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 inline static constexpr char kCrossRerankBizName[] =
     "dense_cross_rerank_scoring";
@@ -168,4 +168,4 @@ class CrossRerankAdapter : public IBizAdapter {
 
 REGISTER_BIZ_ADAPTER(CrossRerankAdapter);
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

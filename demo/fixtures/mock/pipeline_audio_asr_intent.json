@@ -1,0 +1,143 @@
+{
+  "biz_name": "speech_audio_asr_intent_slot",
+  "models": [
+    {
+      "capability": "asr",
+      "model_type": "test_business_asr",
+      "backend": "test_tensor_backend",
+      "model_config": {
+        "max_batch_size": 2
+      },
+      "backend_config": {},
+      "model_id": "asr_model_v1",
+      "model_path": "demo/fixtures/mock/artifacts/neutral-asr.fixture"
+    }
+  ],
+  "pipeline": [
+    {
+      "id": "node_0_AsrTranscribeNode",
+      "node_type": "AsrTranscribeNode",
+      "depends_on": [],
+      "ports": {
+        "inputs": {
+          "audio": "audio_inputs"
+        },
+        "outputs": {
+          "text": "transcripts"
+        }
+      },
+      "config": {
+        "bind_model": "asr_model_v1"
+      }
+    },
+    {
+      "id": "node_1_TextRuleMatchNode",
+      "node_type": "TextRuleMatchNode",
+      "depends_on": [
+        "node_0_AsrTranscribeNode"
+      ],
+      "ports": {
+        "inputs": {
+          "text": "transcripts"
+        },
+        "outputs": {
+          "matches": "intent_slots"
+        }
+      },
+      "config": {
+        "default_category": "GENERAL_VOICE_CMD",
+        "default_score": 1.0,
+        "categories": {
+          "MUSIC_PLAY": [
+            "播放",
+            "音乐",
+            "我想听"
+          ],
+          "NAVIGATION": [
+            "导航",
+            "路线",
+            "去哪"
+          ],
+          "VEHICLE_HVAC_CONTROL": [
+            "空调",
+            "温度",
+            "风量",
+            "二档"
+          ]
+        },
+        "rules": [
+          {
+            "id": "nav_dest_avoid",
+            "strategy": "regex",
+            "pattern": "导航到(?<destination>.+?)(?:，|,|。|\\s|$).*?(?<avoid_traffic>避开拥堵)",
+            "category": "NAVIGATION",
+            "score": 1.0,
+            "constants": {
+              "avoid_toll": false,
+              "avoid_traffic": true
+            }
+          },
+          {
+            "id": "nav_dest",
+            "strategy": "regex",
+            "pattern": "导航到(?<destination>.+?)(?:，|,|。|\\s|$)",
+            "category": "NAVIGATION",
+            "score": 1.0,
+            "constants": {
+              "avoid_toll": false
+            }
+          },
+          {
+            "id": "hvac_temp_fan",
+            "strategy": "regex",
+            "pattern": "空调.*?(?:调到|设为)?(?<temperature>\\d+)度.*?(?<fan_speed>\\d+|一|二|三|四)档",
+            "category": "VEHICLE_HVAC_CONTROL",
+            "score": 1.0,
+            "constants": {
+              "temperature": 24,
+              "fan_speed": 2
+            }
+          },
+          {
+            "id": "hvac_temp_fan_general",
+            "strategy": "regex",
+            "pattern": "(?:调到|设为)?(?<temperature>\\d+)度.*?(?<fan_speed>\\d+|一|二|三|四)档",
+            "category": "VEHICLE_HVAC_CONTROL",
+            "score": 1.0,
+            "constants": {
+              "temperature": 24,
+              "fan_speed": 2
+            }
+          },
+          {
+            "id": "hvac_temp",
+            "strategy": "regex",
+            "pattern": "空调(?:调到|设为)?(?<temperature>\\d+)度",
+            "category": "VEHICLE_HVAC_CONTROL",
+            "score": 1.0,
+            "constants": {
+              "temperature": 24
+            }
+          },
+          {
+            "id": "hvac_fan",
+            "strategy": "regex",
+            "pattern": "风(?:速|量)?(?:开到)?(?<fan_speed>\\d+|一|二|三|四)档",
+            "category": "VEHICLE_HVAC_CONTROL",
+            "score": 1.0,
+            "constants": {
+              "fan_speed": 2
+            }
+          },
+          {
+            "id": "music_play",
+            "strategy": "regex",
+            "pattern": "播放歌曲(?<song_name>.+)",
+            "category": "MUSIC_PLAY",
+            "score": 1.0
+          }
+        ]
+      }
+    }
+  ]
+}

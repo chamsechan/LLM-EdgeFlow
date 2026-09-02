@@ -11,7 +11,7 @@
 #include "contracts/traceable_item.h"
 #include "core/blackboard_key.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 // ==============================================================================
 // 1. 标准控制命令常量 (Standard Named Control Commands)
@@ -276,4 +276,4 @@ inline constexpr BlackboardKey<TextBatch> kLlmInputPrompts{"llm_input_prompts",
 inline constexpr BlackboardKey<TextBatch> kGeneratedLlmAnswers{
     "generated_llm_answers", "TextBatch"};
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow

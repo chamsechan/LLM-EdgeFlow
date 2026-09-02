@@ -13,4 +13,4 @@ vendor runtime integration, or batch scheduling behavior.
 
 Use `src/engine/models/bge_embedding/`, `src/engine/models/qwen_causal_lm/`,
 `src/engine/backends/onnxruntime/`, `src/engine/backends/llama_cpp/`,
-`tests/test_model_backend_decoupling.cpp`, and `tests/test_batch_executor.cpp` as live templates.
+`tests/unit/engine/test_model_backend_decoupling.cpp`, and `tests/unit/engine/test_batch_executor.cpp` as live templates.

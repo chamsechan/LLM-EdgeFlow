@@ -5,7 +5,7 @@
 
 #include "engine/backend_interface.h"
 
-namespace alg_framework {
+namespace llm_edgeflow {
 
 class KiteLlmBackend final : public IInferenceBackend {
  public:
@@ -18,4 +18,4 @@ class KiteLlmBackend final : public IInferenceBackend {
       std::string* diagnostic = nullptr) noexcept override;
 };
 
-}  // namespace alg_framework
+}  // namespace llm_edgeflow
