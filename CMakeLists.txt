@@ -69,6 +69,11 @@ include(cmake/Pcre2.cmake)
 # 引入第三方开源推理引擎 (ONNX Runtime & llama.cpp) 自动下载配置
 include(cmake/ThirdPartyEngines.cmake)
 
+# Keep repository executables at build/ even though their CMake ownership is
+# delegated to source subdirectories. Public commands and CI scripts rely on
+# this stable artifact layout.
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+
 # 1. 生成对外交付的动态算法库 (.so)
 add_library(alg_sdk SHARED)
 add_library(llm_edgeflow::sdk ALIAS alg_sdk)
