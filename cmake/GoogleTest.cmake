@@ -3,8 +3,19 @@
 
 set(GTEST_3RDPARTY_DIR "${CMAKE_SOURCE_DIR}/3rdparty/googletest")
 option(GTEST_FORCE_REBUILD "Force rebuilding googletest even if cached in 3rdparty" OFF)
+include(cmake/ThirdPartyCacheMetadata.cmake)
+edgeflow_prepare_third_party_cache(
+  NAME googletest
+  VERSION 1.14.0
+  SOURCE_SHA256 8ad598c73ad796e0d8280b082cebd82a630d73e73cd3c70057938a6501bba5d7
+  CACHE_DIR "${GTEST_3RDPARTY_DIR}"
+  KIND STATIC
+  ABI_OPTIONS BUILD_GMOCK=OFF GTEST_FORCE_SHARED_CRT=ON
+  OUT_VALID _GTEST_CACHE_VALID
+  OUT_MARKER _GTEST_CACHE_MARKER)
 
-if(EXISTS "${GTEST_3RDPARTY_DIR}/lib/libgtest.a" AND
+if(_GTEST_CACHE_VALID AND
+   EXISTS "${GTEST_3RDPARTY_DIR}/lib/libgtest.a" AND
    EXISTS "${GTEST_3RDPARTY_DIR}/lib/libgtest_main.a" AND
    EXISTS "${GTEST_3RDPARTY_DIR}/include/gtest/gtest.h" AND
    NOT GTEST_FORCE_REBUILD)
@@ -55,6 +66,7 @@ else()
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:gtest>" "${GTEST_3RDPARTY_DIR}/lib/"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:gtest_main>" "${GTEST_3RDPARTY_DIR}/lib/"
     COMMAND ${CMAKE_COMMAND} -E copy_directory "${googletest_SOURCE_DIR}/googletest/include/gtest" "${GTEST_3RDPARTY_DIR}/include/gtest"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${_GTEST_CACHE_MARKER}" "${GTEST_3RDPARTY_DIR}/.edgeflow-cache-fingerprint"
     DEPENDS gtest gtest_main
     COMMENT "[3rdparty] Archiving GoogleTest static libraries to ${GTEST_3RDPARTY_DIR}"
   )

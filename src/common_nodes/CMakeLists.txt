@@ -1,4 +1,4 @@
-target_sources(edgeflow_runtime_objects PRIVATE
+target_sources(edgeflow_layer3_node_objects PRIVATE
   asr_transcribe_node.cpp
   llm_generate_node.cpp
   ocr_detect_node.cpp

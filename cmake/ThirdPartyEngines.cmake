@@ -2,6 +2,7 @@
 # 第三方推理引擎与条件 SDK (ONNX Runtime / llama.cpp / kiteLLM)
 
 include(FetchContent)
+include(cmake/ThirdPartyCacheMetadata.cmake)
 
 set(LLM_EDGEFLOW_3RDPARTY_DIR "${CMAKE_SOURCE_DIR}/3rdparty")
 
@@ -22,8 +23,35 @@ if(ENABLE_ONNXRUNTIME)
     set(ORT_LIB_NAME "libonnxruntime.so")
   endif()
 
+  # Select the pinned official package before inspecting the persistent cache,
+  # so the cache marker is tied to the exact platform archive.
+  if(APPLE)
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
+      set(ORT_URL "https://github.com/microsoft/onnxruntime/releases/download/v1.17.3/onnxruntime-osx-arm64-1.17.3.tgz")
+      set(ORT_SHA256 "236c49c9065213b0ec9dec874e3619da3d01cbc8b984bb24291247293454d0f4")
+    else()
+      set(ORT_URL "https://github.com/microsoft/onnxruntime/releases/download/v1.17.3/onnxruntime-osx-x86_64-1.17.3.tgz")
+      set(ORT_SHA256 "6292ad3d2e095b54b012a9fce7361f39fbac0b75fb6e9b1d9c320874515182e8")
+    endif()
+  elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
+    set(ORT_URL "https://github.com/microsoft/onnxruntime/releases/download/v1.17.3/onnxruntime-linux-aarch64-1.17.3.tgz")
+    set(ORT_SHA256 "9f801577bd99676d1d821022e52b1f4554f56339ae3606c7b5ff3155f443c921")
+  else()
+    set(ORT_URL "https://github.com/microsoft/onnxruntime/releases/download/v1.17.3/onnxruntime-linux-x64-1.17.3.tgz")
+    set(ORT_SHA256 "f2f11f9da1e3e19b22a8b378b9af57a58433f40e3db6a803e75c0ec0eba97a20")
+  endif()
+  edgeflow_prepare_third_party_cache(
+    NAME onnxruntime
+    VERSION 1.17.3
+    SOURCE_SHA256 "${ORT_SHA256}"
+    CACHE_DIR "${ORT_3RDPARTY_DIR}"
+    KIND PREBUILT
+    OUT_VALID _ORT_CACHE_VALID
+    OUT_MARKER _ORT_CACHE_MARKER)
+
   set(_ORT_FOUND OFF)
-  if(EXISTS "${ORT_3RDPARTY_DIR}/lib/${ORT_LIB_NAME}" AND
+  if(_ORT_CACHE_VALID AND
+     EXISTS "${ORT_3RDPARTY_DIR}/lib/${ORT_LIB_NAME}" AND
      EXISTS "${ORT_3RDPARTY_DIR}/include/onnxruntime_c_api.h")
     set(_ORT_FOUND ON)
     set(ONNXRUNTIME_INCLUDE_DIR "${ORT_3RDPARTY_DIR}/include")
@@ -32,23 +60,6 @@ if(ENABLE_ONNXRUNTIME)
   endif()
 
   if(NOT _ORT_FOUND)
-    # 根据目标系统与架构选择对应的官方 Release 包
-    if(APPLE)
-      if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
-        set(ORT_URL "https://github.com/microsoft/onnxruntime/releases/download/v1.17.3/onnxruntime-osx-arm64-1.17.3.tgz")
-        set(ORT_SHA256 "236c49c9065213b0ec9dec874e3619da3d01cbc8b984bb24291247293454d0f4")
-      else()
-        set(ORT_URL "https://github.com/microsoft/onnxruntime/releases/download/v1.17.3/onnxruntime-osx-x86_64-1.17.3.tgz")
-        set(ORT_SHA256 "6292ad3d2e095b54b012a9fce7361f39fbac0b75fb6e9b1d9c320874515182e8")
-      endif()
-    elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
-      set(ORT_URL "https://github.com/microsoft/onnxruntime/releases/download/v1.17.3/onnxruntime-linux-aarch64-1.17.3.tgz")
-      set(ORT_SHA256 "9f801577bd99676d1d821022e52b1f4554f56339ae3606c7b5ff3155f443c921")
-    else()
-      set(ORT_URL "https://github.com/microsoft/onnxruntime/releases/download/v1.17.3/onnxruntime-linux-x64-1.17.3.tgz")
-      set(ORT_SHA256 "f2f11f9da1e3e19b22a8b378b9af57a58433f40e3db6a803e75c0ec0eba97a20")
-    endif()
-
     FetchContent_Declare(
       onnxruntime_prebuilt
       URL ${ORT_URL}
@@ -62,6 +73,9 @@ if(ENABLE_ONNXRUNTIME)
     file(COPY "${onnxruntime_prebuilt_SOURCE_DIR}/include/" DESTINATION "${ORT_3RDPARTY_DIR}/include")
     file(GLOB _ort_downloaded_libs "${onnxruntime_prebuilt_SOURCE_DIR}/lib/*")
     file(COPY ${_ort_downloaded_libs} DESTINATION "${ORT_3RDPARTY_DIR}/lib")
+    configure_file("${_ORT_CACHE_MARKER}"
+                   "${ORT_3RDPARTY_DIR}/.edgeflow-cache-fingerprint"
+                   COPYONLY)
 
     set(ONNXRUNTIME_INCLUDE_DIR "${ORT_3RDPARTY_DIR}/include")
     if(EXISTS "${ORT_3RDPARTY_DIR}/lib/${ORT_LIB_NAME}")
@@ -95,8 +109,23 @@ if(ENABLE_LLAMACPP)
 
   set(LLAMA_3RDPARTY_DIR "${LLM_EDGEFLOW_3RDPARTY_DIR}/llama_cpp")
   set(_LLAMA_FOUND OFF)
+  set(LLM_EDGEFLOW_LLAMACPP_COMMIT
+      "70adb1b4cea5ee39f867792c78dc59320921eda7")
+  set(_LLAMA_SOURCE_SHA256
+      "94d215f1fd85ded40f4674eccdbd3caf4a9b0daa00b6d72255efec922c6d94a4")
+  edgeflow_prepare_third_party_cache(
+    NAME llama_cpp
+    VERSION "${LLM_EDGEFLOW_LLAMACPP_COMMIT}"
+    SOURCE_SHA256 "${_LLAMA_SOURCE_SHA256}"
+    CACHE_DIR "${LLAMA_3RDPARTY_DIR}"
+    KIND STATIC
+    ABI_OPTIONS GGML_NATIVE=OFF GGML_METAL=${LLM_EDGEFLOW_LLAMACPP_METAL}
+                BUILD_SHARED_LIBS=OFF
+    OUT_VALID _LLAMA_CACHE_VALID
+    OUT_MARKER _LLAMA_CACHE_MARKER)
 
-  if(EXISTS "${LLAMA_3RDPARTY_DIR}/lib/libllama.a" AND
+  if(_LLAMA_CACHE_VALID AND
+     EXISTS "${LLAMA_3RDPARTY_DIR}/lib/libllama.a" AND
      EXISTS "${LLAMA_3RDPARTY_DIR}/include/llama.h" AND
      NOT LLAMA_CPP_FORCE_REBUILD)
     set(_LLAMA_FOUND ON)
@@ -173,14 +202,12 @@ if(ENABLE_LLAMACPP)
         "Enable Metal backend for llama.cpp" FORCE)
     set(GGML_CCACHE OFF CACHE BOOL "Use ccache for ggml" FORCE)
 
-    set(LLM_EDGEFLOW_LLAMACPP_COMMIT
-        "70adb1b4cea5ee39f867792c78dc59320921eda7")
     set(LLAMA_BUILD_COMMIT "${LLM_EDGEFLOW_LLAMACPP_COMMIT}"
         CACHE STRING "Pinned llama.cpp source commit" FORCE)
     FetchContent_Declare(
       llama_cpp_source
       URL https://github.com/ggml-org/llama.cpp/archive/${LLM_EDGEFLOW_LLAMACPP_COMMIT}.tar.gz
-      URL_HASH SHA256=94d215f1fd85ded40f4674eccdbd3caf4a9b0daa00b6d72255efec922c6d94a4
+      URL_HASH SHA256=${_LLAMA_SOURCE_SHA256}
       DOWNLOAD_EXTRACT_TIMESTAMP TRUE
     )
     FetchContent_MakeAvailable(llama_cpp_source)
@@ -204,6 +231,7 @@ if(ENABLE_LLAMACPP)
           COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:ggml-cpu>" "${LLAMA_3RDPARTY_DIR}/lib/"
           COMMAND ${CMAKE_COMMAND} -E copy_directory "${llama_cpp_source_SOURCE_DIR}/include" "${LLAMA_3RDPARTY_DIR}/include"
           COMMAND ${CMAKE_COMMAND} -E copy_directory "${llama_cpp_source_SOURCE_DIR}/ggml/include" "${LLAMA_3RDPARTY_DIR}/include"
+          COMMAND ${CMAKE_COMMAND} -E copy_if_different "${_LLAMA_CACHE_MARKER}" "${LLAMA_3RDPARTY_DIR}/.edgeflow-cache-fingerprint"
           DEPENDS llama ggml ggml-base ggml-cpu
           COMMENT "[3rdparty] Archiving llama.cpp static libraries and headers to ${LLAMA_3RDPARTY_DIR}"
         )

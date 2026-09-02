@@ -2,8 +2,8 @@
 
 set -euo pipefail
 
-if [[ $# -ne 4 ]]; then
-  echo "Usage: $0 OUTPUT_JSON CANONICAL_GATE SANITIZER_GATE REAL_GATE"
+if [[ $# -lt 4 || $# -gt 5 ]]; then
+  echo "Usage: $0 OUTPUT_JSON CANONICAL_GATE SANITIZER_GATE REAL_GATE [SCOPE]"
   exit 2
 fi
 
@@ -13,6 +13,7 @@ OUTPUT_JSON="$1"
 CANONICAL_GATE="$2"
 SANITIZER_GATE="$3"
 REAL_GATE="$4"
+EVIDENCE_SCOPE="${5:-project-quality-gate}"
 
 sha256_stream() {
   if command -v sha256sum >/dev/null 2>&1; then
@@ -44,6 +45,7 @@ fi
 mkdir -p "$(dirname "${OUTPUT_JSON}")"
 export BASE_MAIN_SHA HEAD_SHA BRANCH SOURCE_TREE_SHA256 WORKTREE_CLEAN
 export CANONICAL_GATE SANITIZER_GATE REAL_GATE OUTPUT_JSON
+export EVIDENCE_SCOPE
 export EVIDENCE_GITHUB_SHA="${GITHUB_SHA:-}"
 python3 - <<'PY'
 import datetime
@@ -51,8 +53,8 @@ import json
 import os
 
 evidence = {
-    "schema_version": 1,
-    "rfc": "0025-deployment-runtime-contract-convergence",
+    "schema_version": 2,
+    "scope": os.environ["EVIDENCE_SCOPE"],
     "generated_at_utc": datetime.datetime.now(
         datetime.timezone.utc).isoformat(),
     "base_main_sha": os.environ["BASE_MAIN_SHA"],

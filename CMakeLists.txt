@@ -98,58 +98,112 @@ include(cmake/ThirdPartyEngines.cmake)
 # this stable artifact layout.
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 
-# 内部实现只编译一次。仓库工具和测试直接链接 OBJECT target，不依赖公共
-# 共享库的内部 C++ 动态符号。
-add_library(edgeflow_runtime_dependencies INTERFACE)
-target_link_libraries(edgeflow_runtime_dependencies INTERFACE
+# 轻量运行时契约位于所有实现层下方；各层依赖 interface 只向下传播。
+add_library(edgeflow_runtime_contracts INTERFACE)
+target_link_libraries(edgeflow_runtime_contracts INTERFACE
     edgeflow_internal_headers
-    nlohmann_json::nlohmann_json
+    nlohmann_json::nlohmann_json)
+
+add_library(edgeflow_layer4_dependencies INTERFACE)
+target_link_libraries(edgeflow_layer4_dependencies INTERFACE
+    edgeflow_runtime_contracts)
+
+add_library(edgeflow_layer3_dependencies INTERFACE)
+target_link_libraries(edgeflow_layer3_dependencies INTERFACE
+    edgeflow_runtime_contracts
+    edgeflow_layer4_dependencies
     edgeflow_pcre2)
 
-add_library(edgeflow_runtime_objects OBJECT)
-add_library(llm_edgeflow::internal_runtime ALIAS edgeflow_runtime_objects)
-target_link_libraries(edgeflow_runtime_objects PUBLIC
+add_library(edgeflow_layer2_dependencies INTERFACE)
+target_link_libraries(edgeflow_layer2_dependencies INTERFACE
+    edgeflow_runtime_contracts
+    edgeflow_layer3_dependencies)
+
+add_library(edgeflow_layer1_dependencies INTERFACE)
+target_link_libraries(edgeflow_layer1_dependencies INTERFACE
+    edgeflow_runtime_contracts
+    edgeflow_layer2_dependencies)
+
+add_library(edgeflow_runtime_dependencies INTERFACE)
+target_link_libraries(edgeflow_runtime_dependencies INTERFACE
+    edgeflow_layer1_dependencies)
+
+function(edgeflow_add_runtime_object_target target_name dependency_target)
+  add_library(${target_name} OBJECT)
+  target_link_libraries(${target_name} PUBLIC ${dependency_target})
+  target_compile_definitions(${target_name} PRIVATE
+      COMPANY_ALG_BUILDING_SDK=1)
+  target_compile_definitions(${target_name} INTERFACE
+      COMPANY_ALG_STATIC_LINK=1)
+  set_target_properties(${target_name} PROPERTIES
+      C_VISIBILITY_PRESET hidden
+      CXX_VISIBILITY_PRESET hidden
+      VISIBILITY_INLINES_HIDDEN YES)
+endfunction()
+
+edgeflow_add_runtime_object_target(edgeflow_layer4_engine_objects
+    edgeflow_layer4_dependencies)
+edgeflow_add_runtime_object_target(edgeflow_layer3_node_objects
+    edgeflow_layer3_dependencies)
+edgeflow_add_runtime_object_target(edgeflow_layer2_core_objects
+    edgeflow_layer2_dependencies)
+edgeflow_add_runtime_object_target(edgeflow_layer1_adapter_objects
+    edgeflow_layer1_dependencies)
+edgeflow_add_runtime_object_target(edgeflow_composition_objects
     edgeflow_runtime_dependencies)
-target_compile_definitions(edgeflow_runtime_objects PRIVATE
-    COMPANY_ALG_BUILDING_SDK=1)
+
+# 仓库工具和测试继续链接一个聚合 INTERFACE target，不依赖公共共享库的
+# 内部 C++ 动态符号。该 target 自身不拥有层内源码。
+add_library(edgeflow_runtime_objects INTERFACE)
+add_library(llm_edgeflow::internal_runtime ALIAS edgeflow_runtime_objects)
+target_link_libraries(edgeflow_runtime_objects INTERFACE
+    edgeflow_runtime_dependencies)
 target_compile_definitions(edgeflow_runtime_objects INTERFACE
     COMPANY_ALG_STATIC_LINK=1)
-set_target_properties(edgeflow_runtime_objects PROPERTIES
-    C_VISIBILITY_PRESET hidden
-    CXX_VISIBILITY_PRESET hidden
-    VISIBILITY_INLINES_HIDDEN YES)
 
 if(LLM_EDGEFLOW_HAS_ONNXRUNTIME)
-  target_include_directories(edgeflow_runtime_dependencies SYSTEM INTERFACE
+  target_include_directories(edgeflow_layer4_dependencies SYSTEM INTERFACE
       "${ONNXRUNTIME_INCLUDE_DIR}")
-  target_compile_definitions(edgeflow_runtime_dependencies INTERFACE
+  target_compile_definitions(edgeflow_layer4_dependencies INTERFACE
       HAVE_ONNXRUNTIME=1)
-  target_link_libraries(edgeflow_runtime_dependencies INTERFACE
+  target_link_libraries(edgeflow_layer4_dependencies INTERFACE
       "${ONNXRUNTIME_LIB}")
 endif()
 if(LLM_EDGEFLOW_HAS_KITELLM)
-  target_include_directories(edgeflow_runtime_dependencies SYSTEM INTERFACE
+  target_include_directories(edgeflow_layer4_dependencies SYSTEM INTERFACE
       "${KITELLM_INCLUDE_DIR}")
-  target_compile_definitions(edgeflow_runtime_dependencies INTERFACE
+  target_compile_definitions(edgeflow_layer4_dependencies INTERFACE
       HAVE_KITELLM=1)
-  target_link_libraries(edgeflow_runtime_dependencies INTERFACE
+  target_link_libraries(edgeflow_layer4_dependencies INTERFACE
       "${KITELLM_LIBRARY}")
 endif()
 if(LLM_EDGEFLOW_HAS_LLAMACPP)
-  target_include_directories(edgeflow_runtime_dependencies SYSTEM INTERFACE
+  target_include_directories(edgeflow_layer4_dependencies SYSTEM INTERFACE
       ${LLAMACPP_INCLUDE_DIRS})
-  target_compile_definitions(edgeflow_runtime_dependencies INTERFACE
+  target_compile_definitions(edgeflow_layer4_dependencies INTERFACE
       HAVE_LLAMACPP=1)
 endif()
 if(THIRD_PARTY_ENGINE_LIBS)
-  target_link_libraries(edgeflow_runtime_dependencies INTERFACE
+  target_link_libraries(edgeflow_layer4_dependencies INTERFACE
       ${THIRD_PARTY_ENGINE_LIBS})
 endif()
 
 add_subdirectory(src)
 
+target_sources(edgeflow_runtime_objects INTERFACE
+    $<TARGET_OBJECTS:edgeflow_layer4_engine_objects>
+    $<TARGET_OBJECTS:edgeflow_layer3_node_objects>
+    $<TARGET_OBJECTS:edgeflow_layer2_core_objects>
+    $<TARGET_OBJECTS:edgeflow_layer1_adapter_objects>
+    $<TARGET_OBJECTS:edgeflow_composition_objects>)
+
 # 1. 生成对外交付的动态算法库 (.so)
-add_library(alg_sdk SHARED $<TARGET_OBJECTS:edgeflow_runtime_objects>)
+add_library(alg_sdk SHARED
+    $<TARGET_OBJECTS:edgeflow_layer4_engine_objects>
+    $<TARGET_OBJECTS:edgeflow_layer3_node_objects>
+    $<TARGET_OBJECTS:edgeflow_layer2_core_objects>
+    $<TARGET_OBJECTS:edgeflow_layer1_adapter_objects>
+    $<TARGET_OBJECTS:edgeflow_composition_objects>)
 add_library(llm_edgeflow::sdk ALIAS alg_sdk)
 target_link_libraries(alg_sdk
     PUBLIC edgeflow_public_headers

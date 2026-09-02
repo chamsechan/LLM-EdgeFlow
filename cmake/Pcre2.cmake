@@ -3,8 +3,19 @@
 
 set(PCRE2_3RDPARTY_DIR "${CMAKE_SOURCE_DIR}/3rdparty/pcre2")
 option(PCRE2_FORCE_REBUILD "Force rebuilding pcre2 even if cached in 3rdparty" OFF)
+include(cmake/ThirdPartyCacheMetadata.cmake)
+edgeflow_prepare_third_party_cache(
+  NAME pcre2
+  VERSION 10.47
+  SOURCE_SHA256 c08ae2388ef333e8403e670ad70c0a11f1eed021fd88308d7e02f596fcd9dc16
+  CACHE_DIR "${PCRE2_3RDPARTY_DIR}"
+  KIND STATIC
+  ABI_OPTIONS PCRE2_BUILD_PCRE2_8=ON PCRE2_STATIC_PIC=ON
+  OUT_VALID _PCRE2_CACHE_VALID
+  OUT_MARKER _PCRE2_CACHE_MARKER)
 
-if(EXISTS "${PCRE2_3RDPARTY_DIR}/lib/libpcre2-8.a" AND
+if(_PCRE2_CACHE_VALID AND
+   EXISTS "${PCRE2_3RDPARTY_DIR}/lib/libpcre2-8.a" AND
    EXISTS "${PCRE2_3RDPARTY_DIR}/include/pcre2.h" AND
    NOT PCRE2_FORCE_REBUILD)
   message(STATUS "[3rdparty] Using cached PCRE2 from ${PCRE2_3RDPARTY_DIR}")
@@ -81,6 +92,7 @@ else()
     COMMAND ${CMAKE_COMMAND} -E make_directory "${PCRE2_3RDPARTY_DIR}/lib" "${PCRE2_3RDPARTY_DIR}/include"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:pcre2-8-static>" "${PCRE2_3RDPARTY_DIR}/lib/"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${pcre2_BINARY_DIR}/interface/pcre2.h" "${PCRE2_3RDPARTY_DIR}/include/"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${_PCRE2_CACHE_MARKER}" "${PCRE2_3RDPARTY_DIR}/.edgeflow-cache-fingerprint"
     DEPENDS pcre2-8-static
     COMMENT "[3rdparty] Archiving PCRE2 static library to ${PCRE2_3RDPARTY_DIR}"
   )

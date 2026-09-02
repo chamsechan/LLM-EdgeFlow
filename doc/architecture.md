@@ -181,6 +181,20 @@ C++ Operator API：NamedIoBatch + Operator 镜像 C 结构 ─┘
   4. **固定 Max Batch 自动调度（`FixedBatchExecutor`）**：完成批次切分、Dummy Pad、Pad 剔除和 `(req_id, sub_id)` 溯源；
   5. 切换 NPU/GPU/CPU 或 LLM 生成引擎只改 JSON 中的 `backend`、`model_path` 与 `backend_config`，不改业务 Node 或模型语义实现。
 
+### 编译期边界与 Composition Root
+
+四层不只依靠目录约定，还分别编译为
+`edgeflow_layer1_adapter_objects`、`edgeflow_layer2_core_objects`、
+`edgeflow_layer3_node_objects` 和 `edgeflow_layer4_engine_objects`。各层只链接其下方的
+dependency interface；根 `CMakeLists.txt` 是唯一 Composition Root，另以
+`edgeflow_composition_objects` 持有日志和共享运行时装配翻译单元。最终 SDK、仓库工具和
+测试只聚合这些对象，不重新声明层内源码。
+
+业务 ingress/egress 的 Blackboard key 名称由 Layer 1 的
+`adapter/biz_blackboard_keys.h` 持有；Layer 2 只提供 Blackboard 机制和中性值类型，
+Layer 3 通过 `ValidatedNodePlan` 中已经解析的逻辑端口工作。这样业务槽位命名不会成为
+Core、Node 或 Engine 的隐含依赖。
+
 ---
 
 ## 3. 数据流转与调用时序 (Runtime Sequence)

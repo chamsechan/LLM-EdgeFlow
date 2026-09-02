@@ -2,6 +2,15 @@
 
 include(${PROJECT_SOURCE_DIR}/cmake/TestInventory.cmake)
 
+add_test(NAME ThirdPartyCacheMetadataTest
+  COMMAND ${CMAKE_COMMAND}
+          -DPROJECT_SOURCE_DIR=${PROJECT_SOURCE_DIR}
+          -DTEST_ROOT=${PROJECT_BINARY_DIR}/third_party_cache_metadata_test
+          -P ${PROJECT_SOURCE_DIR}/tests/contract/architecture/test_third_party_cache_metadata.cmake)
+set_tests_properties(ThirdPartyCacheMetadataTest PROPERTIES
+  WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+  LABELS "tier1;static-gate;dev-fast;sanitizer-compatible")
+
 if(NOT LLM_EDGEFLOW_SHARDED_TEST_RUNNERS)
   include(${PROJECT_SOURCE_DIR}/cmake/IndividualTests.cmake)
   edgeflow_assert_required_test_inventory()

@@ -11,6 +11,7 @@
 #include "adapter/adapter_status.h"
 #include "adapter/adapter_validation_helper.h"
 #include "adapter/biz_adapter_registry.h"
+#include "adapter/biz_blackboard_keys.h"
 #include "adapter/deployment_model_resolver.h"
 #include "adapter/shared_algorithm_runtime.h"
 #include "adapter/templates/flat_struct_adapter.h"
@@ -19,7 +20,6 @@
 #include "adapter/templates/tagged_union_adapter.h"
 #include "company_alg_cpp.hpp"
 #include "company_alg_interface.h"
-#include "core/common_contracts.h"
 
 namespace llm_edgeflow {
 

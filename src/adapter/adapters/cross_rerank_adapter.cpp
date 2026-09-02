@@ -4,8 +4,8 @@
 
 #include "adapter/adapter_validation_helper.h"
 #include "adapter/biz_adapter_registry.h"
+#include "adapter/biz_blackboard_keys.h"
 #include "company_alg_interface.h"
-#include "core/common_contracts.h"
 
 namespace llm_edgeflow {
 

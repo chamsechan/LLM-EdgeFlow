@@ -64,6 +64,11 @@ from prose. Query `alg_pipeline_tool`; registrations and Definitions are the exe
   `main`.
 - Do not bundle third-party source or binaries. Dependency declarations remain pinned and
   verified through `cmake/`.
+- The current external workspace cannot access the company-internal SDK. Do not request, infer,
+  copy, or commit its headers, libraries, models, configuration, or credentials here. Prepare
+  only vendor-neutral migration and integration seams; actual SDK integration and target-hardware
+  acceptance begin only after the complete project moves into the authorized internal network.
+  Follow [RFC-0029](doc/rfcs/0029-external-readiness-and-intranet-sdk-migration.md).
 - Add or update the smallest tests that prove changed behavior; do not require a new executable
   when an existing focused suite is the correct home.
 - `./scripts/run_all_tests.sh` is the canonical pre-delivery local gate. It already checks shell
