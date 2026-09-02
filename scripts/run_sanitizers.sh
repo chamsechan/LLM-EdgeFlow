@@ -21,7 +21,7 @@ if [[ $# -eq 1 ]]; then
   esac
 fi
 BUILD_DIR_TAG="${SANITIZERS//,/-}"
-BUILD_DIR="${PROJECT_ROOT}/build-sanitizers-${BUILD_DIR_TAG}-${MODE}"
+BUILD_DIR="${LLM_EDGEFLOW_SANITIZER_BUILD_DIR:-${PROJECT_ROOT}/build-sanitizers-${BUILD_DIR_TAG}-${MODE}}"
 
 DETECT_LEAKS="${DETECT_LEAKS:-0}"
 
@@ -90,8 +90,22 @@ else
 fi
 
 if command -v ccache >/dev/null 2>&1; then
-  export CCACHE_DIR="${PROJECT_ROOT}/build/.ccache-sanitizers"
+  export CCACHE_DIR="${CCACHE_DIR:-${PROJECT_ROOT}/build/.ccache-sanitizers}"
+  export CCACHE_BASEDIR="${CCACHE_BASEDIR:-${PROJECT_ROOT}}"
+  export CCACHE_NOHASHDIR="${CCACHE_NOHASHDIR:-true}"
   mkdir -p "${CCACHE_DIR}"
+  COMMON_CMAKE_ARGS+=(
+    -DCMAKE_C_COMPILER_LAUNCHER=ccache
+    -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+    -DLLM_EDGEFLOW_TEST_PCH=OFF
+  )
+  ccache --zero-stats
+  report_ccache_stats() {
+    local exit_code=$?
+    ccache --show-stats || true
+    exit "${exit_code}"
+  }
+  trap report_ccache_stats EXIT
 fi
 
 NCPU="$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)"

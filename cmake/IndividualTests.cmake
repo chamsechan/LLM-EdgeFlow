@@ -17,6 +17,7 @@ add_test(NAME GovernanceConsistencyTest COMMAND ${PROJECT_SOURCE_DIR}/scripts/ch
 add_test(NAME DiagramAssetsCheckTest COMMAND ${PROJECT_SOURCE_DIR}/scripts/render_architecture_diagrams.sh --check)
 add_test(NAME DiagramRenderGateSelfTest COMMAND ${PROJECT_SOURCE_DIR}/tests/contract/architecture/test_diagram_render_gate.sh)
 add_test(NAME ScriptGeneratorDetectionTest COMMAND ${PROJECT_SOURCE_DIR}/tests/contract/architecture/test_script_generator_detection.sh)
+add_test(NAME SanitizerCcacheContractTest COMMAND ${PROJECT_SOURCE_DIR}/tests/contract/architecture/test_sanitizer_ccache_contract.sh)
 
 # 5. 单元测试与安全性测试集 (基于 Google Test & CTest)
 
@@ -304,7 +305,8 @@ endforeach()
 set_tests_properties(
   C11AbiComplianceTest LayerGuardTest ArchitectureDocsDriftTest
   ArchitectureDocsDriftGateSelfTest DiagramAssetsCheckTest
-  DiagramRenderGateSelfTest BatchExecutorTest FrameworkCoreTest
+  DiagramRenderGateSelfTest ScriptGeneratorDetectionTest
+  SanitizerCcacheContractTest BatchExecutorTest FrameworkCoreTest
   CAbiSafetyTest CompanyAlgLogTest QwenCausalLmModelTest LlamaCppBackendTest DifferentIoModalitiesTest
   AllBizPipelinesTest ConcurrencyAndEdgeCasesTest DagPipelineTest
   RuntimeControlAndHotSwapTest EngineFaultToleranceAndLifecycleTest

@@ -64,6 +64,13 @@ jobs:
     name: Production Backends ASan & UBSan
     runs-on: ubuntu-latest
 
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/build/.ccache-sanitizers
+      CCACHE_COMPRESS: "true"
+      CCACHE_MAXSIZE: "2G"
+      CCACHE_BASEDIR: ${{ github.workspace }}
+      CCACHE_NOHASHDIR: "true"
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -80,6 +87,15 @@ jobs:
             mold \
             ninja-build \
             python3
+
+      - name: Restore/Save Sanitizer CCache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: sanitizer-ccache-v1-${{ runner.os }}-${{ github.ref }}-${{ github.sha }}
+          restore-keys: |
+            sanitizer-ccache-v1-${{ runner.os }}-${{ github.ref }}-
+            sanitizer-ccache-v1-${{ runner.os }}-
 
       - name: Run Full Sanitizer Suite
         run: |
