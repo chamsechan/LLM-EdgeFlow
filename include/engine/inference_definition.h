@@ -21,7 +21,7 @@ namespace alg_framework {
  */
 enum class ExecutionProtocol {
   kTensorGraph,
-  kCausalLm,
+  kTextGeneration,
 };
 
 /**
@@ -35,7 +35,7 @@ enum class InferenceConcurrency {
 inline bool IsValidExecutionProtocol(ExecutionProtocol protocol) noexcept {
   switch (protocol) {
     case ExecutionProtocol::kTensorGraph:
-    case ExecutionProtocol::kCausalLm:
+    case ExecutionProtocol::kTextGeneration:
       return true;
     default:
       return false;
@@ -451,8 +451,8 @@ inline const char* ExecutionProtocolName(ExecutionProtocol protocol) noexcept {
   switch (protocol) {
     case ExecutionProtocol::kTensorGraph:
       return "tensor_graph";
-    case ExecutionProtocol::kCausalLm:
-      return "causal_lm";
+    case ExecutionProtocol::kTextGeneration:
+      return "text_generation";
     default:
       return "unknown";
   }

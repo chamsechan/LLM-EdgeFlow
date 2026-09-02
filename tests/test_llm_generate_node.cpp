@@ -32,10 +32,11 @@ class ContractLlmModel final : public ILlmModel {
   }
   size_t GetMaxBatchSize() const noexcept override { return 4; }
 
-  int Generate(const TextBatch& prompts, const GenerateOptions&,
+  int Generate(const TextBatch& prompts, const GenerateOptions& options,
                TextBatch* outputs) noexcept override {
     if (!outputs) return -1;
     ++infer_calls;
+    last_options = options;
     outputs->clear();
     for (const auto& prompt : prompts) {
       outputs->emplace_back(prompt.req_id, prompt.sub_id,
@@ -51,6 +52,7 @@ class ContractLlmModel final : public ILlmModel {
   }
 
   int infer_calls = 0;
+  GenerateOptions last_options;
   bool return_wrong_count = false;
   bool corrupt_provenance = false;
 };
@@ -78,7 +80,11 @@ TEST_F(LlmGenerateNodeTest, ProcessBatchPromptInference) {
 
   nlohmann::json cfg = {{"bind_model", "llm_model_v1"},
                         {"temperature", 0.7},
-                        {"max_tokens", 128}};
+                        {"max_tokens", 128},
+                        {"top_k", 32},
+                        {"top_p", 0.8},
+                        {"repetition_penalty", 1.15},
+                        {"stop_words", {"END"}}};
   EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
 
   AlgContext ctx;
@@ -95,6 +101,24 @@ TEST_F(LlmGenerateNodeTest, ProcessBatchPromptInference) {
   EXPECT_FALSE((*out)[1].data.empty());
   EXPECT_EQ((*out)[0].req_id, 1U);
   EXPECT_EQ((*out)[1].req_id, 2U);
+  EXPECT_EQ(model_->last_options.top_k, 32);
+  EXPECT_FLOAT_EQ(model_->last_options.top_p, 0.8f);
+  EXPECT_FLOAT_EQ(model_->last_options.repetition_penalty, 1.15f);
+  EXPECT_EQ(model_->last_options.stop_words, std::vector<std::string>({"END"}));
+}
+
+TEST_F(LlmGenerateNodeTest, RejectsInvalidUnifiedGenerationOptions) {
+  auto node = NodeFactory::Instance().Create("LlmGenerateNode");
+  ASSERT_NE(node, nullptr);
+  EXPECT_FALSE(InitNodeForTest(*node,
+                               {{"bind_model", "llm_model_v1"}, {"top_k", -1}},
+                               session_ctx_.get()));
+
+  node = NodeFactory::Instance().Create("LlmGenerateNode");
+  ASSERT_NE(node, nullptr);
+  EXPECT_FALSE(InitNodeForTest(
+      *node, {{"bind_model", "llm_model_v1"}, {"repetition_penalty", 0.0}},
+      session_ctx_.get()));
 }
 
 // 2. Missing Prompt Fails Closed

@@ -114,7 +114,9 @@ struct EmbeddingOptions {
 struct GenerateOptions {
   int max_tokens = 128;
   float temperature = 0.7f;
+  int top_k = 0;
   float top_p = 0.9f;
+  float repetition_penalty = 1.0f;
   std::vector<std::string> stop_words;
 };
 

@@ -2,8 +2,8 @@
 
 #include <atomic>
 #include <memory>
+#include <optional>
 #include <string>
-#include <vector>
 
 #include "engine/backend_interface.h"
 #include "engine/backend_registry.h"
@@ -12,29 +12,9 @@
 namespace alg_framework {
 namespace test {
 
-class TestCausalLmCodec : public ITokenCodec {
- public:
-  ~TestCausalLmCodec() override = default;
-
-  int Encode(const std::string& text, bool add_bos,
-             std::vector<int32_t>* tokens,
-             std::string* diagnostic = nullptr) noexcept override;
-
-  int DecodeToken(int32_t token, std::string* piece,
-                  std::string* diagnostic = nullptr) noexcept override;
-
-  bool IsEndToken(int32_t token) const noexcept override;
-};
-
-class TestCausalLmSequence : public ICausalLmSequence {
- public:
-  ~TestCausalLmSequence() override = default;
-
-  int Evaluate(const std::vector<int32_t>& tokens, std::vector<float>* logits,
-               std::string* diagnostic = nullptr) noexcept override;
-};
-
-class TestCausalLmSession : public ICausalLmSession {
+// The historic fixture name is kept to avoid changing persisted test profiles;
+// its execution protocol is the current text-generation contract.
+class TestCausalLmSession : public ITextGenerationSession {
  public:
   explicit TestCausalLmSession(std::string model_path);
   ~TestCausalLmSession() override = default;
@@ -43,29 +23,23 @@ class TestCausalLmSession : public ICausalLmSession {
     static const std::string type = "test_causal_lm_backend";
     return type;
   }
-
   ExecutionProtocol Protocol() const noexcept override {
-    return ExecutionProtocol::kCausalLm;
+    return ExecutionProtocol::kTextGeneration;
   }
-
   InferenceConcurrency Concurrency() const noexcept override {
     return InferenceConcurrency::kSerialized;
   }
-
   BatchPolicy GetBatchPolicy() const noexcept override {
     return BatchPolicy{1, 0};
   }
 
-  ITokenCodec& TokenCodec() noexcept override { return codec_; }
-
-  size_t MaxContextTokens() const noexcept override { return 2048; }
-
-  std::unique_ptr<ICausalLmSequence> CreateSequence(
-      std::string* diagnostic = nullptr) noexcept override;
+  int Generate(const std::string& formatted_prompt, bool add_bos,
+               const GenerateOptions& options, std::optional<uint64_t> seed,
+               std::string* output,
+               std::string* diagnostic = nullptr) noexcept override;
 
  private:
   std::string model_path_;
-  TestCausalLmCodec codec_;
 };
 
 class TestCausalLmBackend : public IInferenceBackend {

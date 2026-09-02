@@ -199,7 +199,7 @@ TestBusinessLlmModel::TestBusinessLlmModel(size_t max_batch_size)
     : max_batch_size_(max_batch_size) {}
 std::shared_ptr<IModel> TestBusinessLlmModel::Create(
     const ModelCreateContext& context, std::string* diagnostic) {
-  if (!RequireProtocol(context, ExecutionProtocol::kCausalLm, diagnostic))
+  if (!RequireProtocol(context, ExecutionProtocol::kTextGeneration, diagnostic))
     return nullptr;
   return std::make_shared<TestBusinessLlmModel>(
       ConfigSize(context.model_config, "max_batch_size", 2));
@@ -345,7 +345,7 @@ static const ModelDefinition kRerankDefinition =
                ExecutionProtocol::kTensorGraph, 4);
 static const ModelDefinition kLlmDefinition = [] {
   auto definition = Definition(TestBusinessLlmModel::kModelType, "llm",
-                               ExecutionProtocol::kCausalLm, 2);
+                               ExecutionProtocol::kTextGeneration, 2);
   definition.config_fields.push_back(
       {"max_seq_len", ConfigValueKind::kInteger, false, 512, 1.0, 1048576.0});
   return definition;

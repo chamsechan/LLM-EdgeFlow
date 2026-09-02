@@ -241,15 +241,12 @@ package "Layer 4: 模型语义与推理 Backend 层 (Model & Backend)" as L4 {
     + {abstract} Run(inputs: TensorMap, outputs: TensorMap*): int
   }
 
-  interface ICausalLmSession {
-    + {abstract} TokenCodec(): ITokenCodec&
-    + {abstract} MaxContextTokens(): size_t
-    + {abstract} CreateSequence(): unique_ptr<ICausalLmSequence>
+  interface ITextGenerationSession {
+    + {abstract} Generate(formatted_prompt, add_bos, options, seed, output): int
   }
 
-  interface ICausalLmSequence {
-    + {abstract} Evaluate(tokens, logits): int
-  }
+  interface IAutoregressiveDecoder <<(I,#F59E0B) Backend Private>>
+  class CommonAutoregressiveGenerator
 
   interface IInferenceBackend {
     + {abstract} BackendType(): const string&
@@ -275,6 +272,7 @@ package "Layer 4: 模型语义与推理 Backend 层 (Model & Backend)" as L4 {
   class QwenCausalLmModel
   class OnnxRuntimeBackend
   class LlamaCppBackend
+  class KiteLlmBackend
 
   class FixedBatchExecutor <<(T,#F59E0B) Generic Template>> {
     + {static} Execute<TIn, TOut>(inputs, policy: BatchPolicy, callback: BatchSlice, outputs): int
@@ -339,16 +337,18 @@ IRerankModel <|.. BgeRerankerModel
 ILlmModel <|.. QwenCausalLmModel
 
 IBackendSession <|-- ITensorGraphSession
-IBackendSession <|-- ICausalLmSession
-ICausalLmSession ..> ICausalLmSequence : 创建独立执行序列
+IBackendSession <|-- ITextGenerationSession
 IInferenceBackend <|.. OnnxRuntimeBackend
 IInferenceBackend <|.. LlamaCppBackend
+IInferenceBackend <|.. KiteLlmBackend
 OnnxRuntimeBackend ..> ITensorGraphSession : 创建中性协议会话
-LlamaCppBackend ..> ICausalLmSession : 创建 Causal LM 会话
+LlamaCppBackend ..> ITextGenerationSession : 公共采样生成
+KiteLlmBackend ..> ITextGenerationSession : 托管生成
+LlamaCppBackend ..> CommonAutoregressiveGenerator
+CommonAutoregressiveGenerator ..> IAutoregressiveDecoder
 BgeEmbeddingModel ..> ITensorGraphSession : 仅依赖 Tensor 协议
 BgeRerankerModel ..> ITensorGraphSession : 仅依赖 Tensor 协议
-QwenCausalLmModel ..> ICausalLmSession : codec / context 上限
-QwenCausalLmModel ..> ICausalLmSequence : token evaluate
+QwenCausalLmModel ..> ITextGenerationSession : 已格式化 prompt / 统一参数
 
 ModelRuntimeFactory ..> BackendRegistry : backend 创建与加载
 ModelRuntimeFactory ..> ModelRegistry : model 语义对象创建

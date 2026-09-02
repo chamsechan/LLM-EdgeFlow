@@ -1,5 +1,5 @@
 # cmake/ThirdPartyEngines.cmake
-# 第三方开源推理引擎 (ONNX Runtime & llama.cpp) 智能缓存与预编译复用配置
+# 第三方推理引擎与条件 SDK (ONNX Runtime / llama.cpp / kiteLLM)
 
 include(FetchContent)
 
@@ -212,4 +212,84 @@ if(ENABLE_LLAMACPP)
       message(WARNING "[Engine Layer] llama.cpp CMakeLists.txt not found, falling back to stub.")
     endif()
   endif()
+endif()
+
+# ------------------------------------------------------------------------------
+# 3. kiteLLM managed text-generation SDK (explicit local SDK bridge only)
+# ------------------------------------------------------------------------------
+option(ENABLE_KITELLM "Enable kiteLLM through its EdgeFlow C adapter" OFF)
+set(KITELLM_ROOT "" CACHE PATH
+    "kiteLLM SDK root containing include/kitellm_edgeflow_adapter.h and lib")
+set(LLM_EDGEFLOW_HAS_KITELLM OFF)
+
+if(ENABLE_KITELLM)
+  if(NOT KITELLM_ROOT)
+    message(FATAL_ERROR
+      "ENABLE_KITELLM=ON requires -DKITELLM_ROOT=<SDK adapter root>")
+  endif()
+  unset(KITELLM_INCLUDE_DIR CACHE)
+  unset(KITELLM_LIBRARY CACHE)
+  unset(KITELLM_EDGEFLOW_ADAPTER_COMPATIBLE CACHE)
+  find_path(KITELLM_INCLUDE_DIR
+    NAMES kitellm_edgeflow_adapter.h
+    PATHS "${KITELLM_ROOT}/include"
+    NO_DEFAULT_PATH)
+  find_library(KITELLM_LIBRARY
+    NAMES kitellm_edgeflow_adapter
+    PATHS "${KITELLM_ROOT}/lib" "${KITELLM_ROOT}/lib64"
+    NO_DEFAULT_PATH)
+  if(NOT KITELLM_INCLUDE_DIR OR NOT KITELLM_LIBRARY)
+    message(FATAL_ERROR
+      "kiteLLM adapter header/library not found below KITELLM_ROOT")
+  endif()
+
+  include(CheckCXXSourceCompiles)
+  set(_edgeflow_saved_required_includes "${CMAKE_REQUIRED_INCLUDES}")
+  set(_edgeflow_saved_required_libraries "${CMAKE_REQUIRED_LIBRARIES}")
+  set(CMAKE_REQUIRED_INCLUDES "${KITELLM_INCLUDE_DIR}")
+  set(CMAKE_REQUIRED_LIBRARIES "${KITELLM_LIBRARY}")
+  check_cxx_source_compiles([[
+    #include <cstddef>
+    #include "kitellm_edgeflow_adapter.h"
+    #if KITELLM_EDGEFLOW_ADAPTER_ABI_VERSION != 2
+    #error Unsupported kiteLLM EdgeFlow adapter ABI
+    #endif
+    int main() {
+      kitellm_edgeflow_handle* handle = nullptr;
+      kitellm_edgeflow_generate_options options{};
+      kitellm_edgeflow_result result{};
+      const char* stop_words[] = {"stop"};
+      const size_t stop_word_sizes[] = {4};
+      options.struct_size = sizeof(options);
+      options.max_tokens = 1;
+      options.temperature = 0.7f;
+      options.top_k = 0;
+      options.top_p = 0.9f;
+      options.repetition_penalty = 1.0f;
+      options.stop_words = stop_words;
+      options.stop_word_sizes = stop_word_sizes;
+      options.stop_word_count = 1;
+      result.struct_size = sizeof(result);
+      int status =
+        kitellm_edgeflow_create("model", "run-config.json", &handle);
+      status += kitellm_edgeflow_generate(handle, "prompt", 6, 0, &options,
+                                          &result);
+      (void)kitellm_edgeflow_last_error(handle);
+      kitellm_edgeflow_result_release(&result);
+      kitellm_edgeflow_destroy(handle);
+      return status;
+    }
+  ]] KITELLM_EDGEFLOW_ADAPTER_COMPATIBLE)
+  set(CMAKE_REQUIRED_INCLUDES "${_edgeflow_saved_required_includes}")
+  set(CMAKE_REQUIRED_LIBRARIES "${_edgeflow_saved_required_libraries}")
+  unset(_edgeflow_saved_required_includes)
+  unset(_edgeflow_saved_required_libraries)
+  if(NOT KITELLM_EDGEFLOW_ADAPTER_COMPATIBLE)
+    message(FATAL_ERROR
+      "kiteLLM adapter does not implement EdgeFlow adapter ABI version 2")
+  endif()
+
+  set(LLM_EDGEFLOW_HAS_KITELLM ON)
+  message(STATUS
+    "[Engine Layer] kiteLLM EdgeFlow adapter enabled: ${KITELLM_LIBRARY}")
 endif()

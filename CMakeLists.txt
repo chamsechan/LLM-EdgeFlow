@@ -80,8 +80,10 @@ set(FRAMEWORK_SRCS
     src/engine/runtime/backend_registry.cpp
     src/engine/runtime/model_runtime_factory.cpp
     src/engine/text/utf8.cpp
+    src/engine/text_generation/common_autoregressive_generator.cpp
     src/engine/backends/onnxruntime/onnxruntime_backend.cpp
     src/engine/backends/llama_cpp/llama_cpp_backend.cpp
+    src/engine/backends/kite_llm/kite_llm_backend.cpp
     src/engine/models/bge_embedding/bert_wordpiece_tokenizer.cpp
     src/engine/models/bge_common/bert_model_support.cpp
     src/engine/models/bge_embedding/bge_embedding_model.cpp
@@ -134,6 +136,11 @@ if(LLM_EDGEFLOW_HAS_ONNXRUNTIME)
   target_include_directories(alg_sdk PRIVATE SYSTEM "${ONNXRUNTIME_INCLUDE_DIR}")
   target_compile_definitions(alg_sdk PRIVATE HAVE_ONNXRUNTIME=1)
   target_link_libraries(alg_sdk PRIVATE "${ONNXRUNTIME_LIB}")
+endif()
+if(LLM_EDGEFLOW_HAS_KITELLM)
+  target_include_directories(alg_sdk SYSTEM PRIVATE "${KITELLM_INCLUDE_DIR}")
+  target_compile_definitions(alg_sdk PRIVATE HAVE_KITELLM=1)
+  target_link_libraries(alg_sdk PRIVATE "${KITELLM_LIBRARY}")
 endif()
 if(LLM_EDGEFLOW_HAS_LLAMACPP)
   target_include_directories(alg_sdk SYSTEM PRIVATE ${LLAMACPP_INCLUDE_DIRS})

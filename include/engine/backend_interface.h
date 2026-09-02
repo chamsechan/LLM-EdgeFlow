@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "contracts/inference_payloads.h"
 #include "engine/inference_definition.h"
 
 namespace alg_framework {
@@ -21,8 +22,6 @@ class IBackendSession {
 
   virtual const std::string& BackendType() const noexcept = 0;
   virtual ExecutionProtocol Protocol() const noexcept = 0;
-
-  // Describes the concrete runtime resource's concurrency capability.
   virtual InferenceConcurrency Concurrency() const noexcept = 0;
   virtual BatchPolicy GetBatchPolicy() const noexcept = 0;
 };
@@ -40,46 +39,18 @@ class ITensorGraphSession : public IBackendSession {
 };
 
 /**
- * @brief Token 编解码器接口 (由 Causal LM 后端提供分词原语)
- */
-class ITokenCodec {
- public:
-  virtual ~ITokenCodec() = default;
-
-  virtual int Encode(const std::string& text, bool add_bos,
-                     std::vector<int32_t>* tokens,
-                     std::string* diagnostic = nullptr) noexcept = 0;
-  virtual int DecodeToken(int32_t token, std::string* piece,
-                          std::string* diagnostic = nullptr) noexcept = 0;
-  virtual bool IsEndToken(int32_t token) const noexcept = 0;
-};
-
-/**
- * @brief 独立请求序列执行对象 (如持有 KV Cache 的生成上下文)
+ * @brief Vendor-neutral synchronous text generation session.
  *
- * Sequence 同时拥有状态和执行行为，避免调用方把一个 Session 创建的状态误传给
- * 另一个 Session。具体 Backend 必须保证 Sequence 所依赖的模型资源和串行锁至少与
- * Sequence 同寿命。
+ * The Model supplies an already formatted prompt. A concrete Backend may
+ * delegate the whole operation to a managed engine or use an internal
+ * autoregressive decoder and the shared sampler.
  */
-class ICausalLmSequence {
+class ITextGenerationSession : public IBackendSession {
  public:
-  virtual ~ICausalLmSequence() = default;
-
-  virtual int Evaluate(const std::vector<int32_t>& tokens,
-                       std::vector<float>* logits,
+  virtual int Generate(const std::string& formatted_prompt, bool add_bos,
+                       const GenerateOptions& options,
+                       std::optional<uint64_t> seed, std::string* output,
                        std::string* diagnostic = nullptr) noexcept = 0;
-};
-
-/**
- * @brief Causal LM 执行协议会话 (llama.cpp, vLLM 等)
- */
-class ICausalLmSession : public IBackendSession {
- public:
-  virtual ITokenCodec& TokenCodec() noexcept = 0;
-  virtual size_t MaxContextTokens() const noexcept = 0;
-
-  virtual std::unique_ptr<ICausalLmSequence> CreateSequence(
-      std::string* diagnostic = nullptr) noexcept = 0;
 };
 
 /**

@@ -365,17 +365,21 @@ TEST(ModelBackendDecouplingTest, PipelineCatalogConcurrentSnapshotSafety) {
 // 5. ModelRuntimeFactory 规范物化与错误诊断测试
 // ==============================================================================
 
-TEST(ModelBackendDecouplingTest, CausalSequenceOwnsItsEvaluationLifetime) {
-  auto session =
+TEST(ModelBackendDecouplingTest, TextGenerationSessionOwnsOutputLifetime) {
+  auto concrete =
       std::make_shared<test::TestCausalLmSession>("/tmp/test-model.bin");
-  auto sequence = session->CreateSequence();
-  ASSERT_NE(sequence, nullptr);
-  session.reset();
+  std::shared_ptr<ITextGenerationSession> session = concrete;
+  concrete.reset();
 
-  std::vector<float> logits;
+  GenerateOptions options;
+  options.max_tokens = 8;
+  std::string output;
   std::string diag;
-  EXPECT_EQ(sequence->Evaluate({1, 42}, &logits, &diag), 0) << diag;
-  EXPECT_FALSE(logits.empty());
+  EXPECT_EQ(
+      session->Generate("formatted prompt", false, options, 7, &output, &diag),
+      0)
+      << diag;
+  EXPECT_EQ(output, "test-generation");
 }
 
 TEST(ModelBackendDecouplingTest, ModelRuntimeFactoryEndToEnd) {
@@ -391,7 +395,7 @@ TEST(ModelBackendDecouplingTest, ModelRuntimeFactoryEndToEnd) {
 
   std::string diag;
   auto model = ModelRuntimeFactory::Create(spec, &diag);
-  ASSERT_NE(model, nullptr);
+  ASSERT_NE(model, nullptr) << diag;
   ASSERT_TRUE(test::TestTensorBackend::RequestedProtocol().has_value());
   EXPECT_EQ(*test::TestTensorBackend::RequestedProtocol(),
             ExecutionProtocol::kTensorGraph);
@@ -465,8 +469,9 @@ TEST(ModelBackendDecouplingTest, ModelManagerAtomicCommitAndCollision) {
                      {},
                      {},
                      {}};
-  auto m1 = ModelRuntimeFactory::Create(spec);
-  ASSERT_NE(m1, nullptr);
+  std::string diagnostic;
+  auto m1 = ModelRuntimeFactory::Create(spec, &diagnostic);
+  ASSERT_NE(m1, nullptr) << diagnostic;
 
   // 1. 成功原子注册
   std::vector<ModelRegistration> batch1 = {

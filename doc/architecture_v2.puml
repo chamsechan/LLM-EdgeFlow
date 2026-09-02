@@ -160,16 +160,17 @@ end note
 ' Layer 4
 package "Layer 4: Model Semantics & Inference Backends" as L4 {
   interface "IModel\nIEmbeddingModel / IRerankModel / ILlmModel\nIOcrModel / IAsrModel" as IModel
-  interface "IBackendSession\nTensorGraph / CausalLm protocols" as IBackendSession
+  interface "IBackendSession\nTensorGraph / TextGeneration protocols" as IBackendSession
   interface "IInferenceBackend\nloads backend sessions" as IInferenceBackend
   component "ModelRegistry" as ModelRegistry
   component "BackendRegistry" as BackendRegistry
   component "ModelRuntimeFactory\ncompose model_type + backend" as ModelRuntimeFactory
   component "FixedBatchExecutor\nchunk / pad / strip\nreq_id / sub_id provenance" as FixedBatchExecutor
   component "BGE Embedding / Reranker Models" as BgeModels
-  component "Qwen Causal LM Model" as QwenModel
+  component "Qwen Text Generation Model" as QwenModel
   component "ONNX Runtime Backend" as OnnxBackend
   component "llama.cpp Backend" as LlamaBackend
+  component "kiteLLM Backend\n(conditional SDK)" as KiteBackend
   component "Future Hardware Backends" as FutureBackends
   artifact "ModelDefinition / BackendDefinition\nprotocol + concurrency contracts" as InferenceDescriptors <<Implemented>>
 }
@@ -189,9 +190,10 @@ BgeModels ..|> IModel
 QwenModel ..|> IModel
 OnnxBackend ..|> IInferenceBackend
 LlamaBackend ..|> IInferenceBackend
+KiteBackend ..|> IInferenceBackend
 FutureBackends ..|> IInferenceBackend
 BgeModels --> IBackendSession : TensorGraph protocol
-QwenModel --> IBackendSession : CausalLm protocol
+QwenModel --> IBackendSession : TextGeneration protocol
 BgeModels --> FixedBatchExecutor
 QwenModel --> FixedBatchExecutor
 
