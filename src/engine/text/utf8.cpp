@@ -72,5 +72,46 @@ bool BuildCodePointBoundaries(std::string_view text,
   return true;
 }
 
+void StripIncompleteSuffix(std::string* text) noexcept {
+  if (!text || text->empty()) return;
+  try {
+    const size_t size = text->size();
+    size_t continuation_count = 0;
+    while (continuation_count < size &&
+           (static_cast<unsigned char>((*text)[size - continuation_count - 1]) &
+            0xC0U) == 0x80U) {
+      ++continuation_count;
+    }
+    if (continuation_count == size) {
+      text->clear();
+      return;
+    }
+
+    const size_t lead_position = size - continuation_count - 1;
+    const unsigned char lead =
+        static_cast<unsigned char>((*text)[lead_position]);
+    size_t expected = 1;
+    if ((lead & 0x80U) == 0) {
+      expected = 1;
+    } else if ((lead & 0xE0U) == 0xC0U) {
+      expected = 2;
+    } else if ((lead & 0xF0U) == 0xE0U) {
+      expected = 3;
+    } else if ((lead & 0xF8U) == 0xF0U) {
+      expected = 4;
+    } else {
+      text->resize(lead_position);
+      return;
+    }
+    if (expected == 1 && continuation_count > 0) {
+      text->resize(lead_position + 1);
+    } else if (continuation_count + 1 != expected) {
+      text->resize(lead_position);
+    }
+  } catch (...) {
+    text->clear();
+  }
+}
+
 }  // namespace utf8
 }  // namespace alg_framework

@@ -127,11 +127,27 @@ if [ -n "$LLAMA_BACKEND_SEMANTICS" ]; then
   exit 1
 fi
 
-QWEN_VENDOR_INCLUDE=$(grep -rnE '#include\s*["<]llama\.h[">]' \
+QWEN_VENDOR_INCLUDE=$(grep -rnE \
+  '#include\s*["<](llama\.h|onnxruntime_cxx_api\.h|kitellm_edgeflow_adapter\.h)[">]' \
   "$REPO_ROOT/src/engine/models/qwen_causal_lm" 2>/dev/null || true)
 if [ -n "$QWEN_VENDOR_INCLUDE" ]; then
-  echo "❌ [LayerGuard ERROR] Qwen model must only depend on ICausalLmSession:"
+  echo "❌ [LayerGuard ERROR] Qwen model must not include Backend vendor headers:"
   echo "$QWEN_VENDOR_INCLUDE"
+  exit 1
+fi
+
+QWEN_GENERATION_LOOP=$(grep -rnE \
+  'IAutoregressiveDecoder|CommonAutoregressiveGenerator|SampleNextToken|ApplyRepetitionPenalty' \
+  "$REPO_ROOT/src/engine/models/qwen_causal_lm" 2>/dev/null || true)
+if [ -n "$QWEN_GENERATION_LOOP" ]; then
+  echo "❌ [LayerGuard ERROR] Qwen model must delegate generation through ITextGenerationSession:"
+  echo "$QWEN_GENERATION_LOOP"
+  exit 1
+fi
+
+if ! grep -rq 'ITextGenerationSession' \
+  "$REPO_ROOT/src/engine/models/qwen_causal_lm"; then
+  echo "❌ [LayerGuard ERROR] Qwen model does not depend on the text_generation protocol."
   exit 1
 fi
 
@@ -142,7 +158,7 @@ if [ -n "$LLM_NODE_LEGACY" ]; then
   echo "$LLM_NODE_LEGACY"
   exit 1
 fi
-echo "✅ [LayerGuard PASS] llama.cpp vendor resources and Qwen generation semantics are isolated."
+echo "✅ [LayerGuard PASS] Backend vendor resources and Qwen generation semantics are isolated."
 
 echo "======================================================================"
 echo " All LayerGuard architectural isolation checks passed successfully!"

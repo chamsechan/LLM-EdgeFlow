@@ -107,7 +107,7 @@ typed port 契约时才新增 Node。Node 必须：
 Layer 4 必须保持两个独立扩展面：
 
 - **Model** 实现 Embedding/Rerank/LLM/OCR/ASR 语义，只依赖
-  `ITensorGraphSession` 或 `ICausalLmSession` 等中性协议。
+  `ITensorGraphSession` 或 `ITextGenerationSession` 等中性协议。
 - **Backend** 封装 ONNX Runtime、llama.cpp、TensorRT 或 NPU SDK，加载后返回
   `IBackendSession`，不实现业务模型语义。
 
@@ -122,9 +122,10 @@ Model 自注册需实现 `IModel` 的某一强类型能力并声明所需协议�
 其中，Model 的 `Concurrency()` 只声明语义对象是否可重入，Backend Session 的
 `Concurrency()` 声明具体运行时资源能力，Pipeline 以二者更严格的值调度。
 `ModelRuntimeFactory` 会将 Model 要求写入 `BackendLoadSpec::requested_protocol`，Backend
-必须在创建厂商资源前拒绝不支持的显式协议。因果协议由
-`ICausalLmSession` 创建 `ICausalLmSequence`，序列自己提供 `Evaluate`
-并保持其状态、模型资源和必要的执行锁生命周期。
+必须在创建厂商资源前拒绝不支持的显式协议。文本生成协议接收 Model 已格式化的 prompt、
+`add_bos`、统一采样参数和可选 seed；暴露 logits 的 Backend 通过 Backend 私有
+`IAutoregressiveDecoder` 复用 `CommonAutoregressiveGenerator`，托管生成 Backend 可直接
+实现会话。decoder 不进入 Catalog，vendor 类型不得离开 concrete Backend。
 
 Pipeline 配置只使用 Model/Backend 语法：
 

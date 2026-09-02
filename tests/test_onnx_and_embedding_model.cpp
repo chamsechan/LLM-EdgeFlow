@@ -897,7 +897,7 @@ TEST_F(OnnxAndEmbeddingModelTest,
   OnnxRuntimeBackend backend;
   BackendLoadSpec spec;
   spec.model_path = "./models/does-not-exist.onnx";
-  spec.requested_protocol = ExecutionProtocol::kCausalLm;
+  spec.requested_protocol = ExecutionProtocol::kTextGeneration;
   std::string diag;
   EXPECT_EQ(backend.Load(spec, &diag), nullptr);
   EXPECT_NE(diag.find("requested protocol"), std::string::npos);

@@ -8,7 +8,7 @@
 namespace alg_framework {
 
 /**
- * @brief llama.cpp GGUF runtime provider for the neutral Causal LM protocol.
+ * @brief llama.cpp GGUF provider for the neutral text-generation protocol.
  *
  * Vendor declarations are intentionally hidden in the implementation file.
  * This class owns no chat template, sampling, stop-word, or generation-loop

@@ -7,18 +7,17 @@
 #include <limits>
 #include <mutex>
 #include <string>
-#include <unordered_set>
 #include <utility>
 #include <vector>
 
 #include "engine/backend_registry.h"
+#include "engine/text_generation/common_autoregressive_generator.h"
 
 #ifdef HAVE_LLAMACPP
 #include "llama.h"
 #endif
 
 namespace alg_framework {
-
 namespace {
 
 void SetDiagnostic(std::string* diagnostic,
@@ -38,12 +37,23 @@ std::string NormalizePlatform(std::string platform) {
 }
 
 #ifdef HAVE_LLAMACPP
+const std::vector<ConfigFieldDefinition>& LlamaCppConfigFields() {
+  static const std::vector<ConfigFieldDefinition> fields = {
+      {"context_size", ConfigValueKind::kInteger, false, 2048, 16.0, 1048576.0},
+      {"decode_batch_size", ConfigValueKind::kInteger, false, 512, 1.0,
+       1048576.0},
+      {"n_threads", ConfigValueKind::kInteger, false, 0, 0.0, 1024.0},
+      {"n_threads_batch", ConfigValueKind::kInteger, false, 0, 0.0, 1024.0},
+      {"n_gpu_layers", ConfigValueKind::kInteger, false, 0, 0.0, 1048576.0},
+      {"check_tensors", ConfigValueKind::kBoolean, false, false},
+  };
+  return fields;
+}
 
 class LlamaRuntime final {
  public:
   LlamaRuntime() { llama_backend_init(); }
   ~LlamaRuntime() { llama_backend_free(); }
-
   LlamaRuntime(const LlamaRuntime&) = delete;
   LlamaRuntime& operator=(const LlamaRuntime&) = delete;
 };
@@ -68,9 +78,15 @@ struct LlamaContextDeleter {
 using LlamaModelPtr = std::unique_ptr<llama_model, LlamaModelDeleter>;
 using LlamaContextPtr = std::unique_ptr<llama_context, LlamaContextDeleter>;
 
-class LlamaCppTokenCodec final : public ITokenCodec {
+class LlamaCppDecoder final : public text_generation::IAutoregressiveDecoder {
  public:
-  explicit LlamaCppTokenCodec(const llama_vocab* vocab) : vocab_(vocab) {}
+  LlamaCppDecoder(std::shared_ptr<llama_model> model, LlamaContextPtr context,
+                  size_t context_size, size_t decode_batch_size)
+      : model_(std::move(model)),
+        context_(std::move(context)),
+        vocab_(model_ ? llama_model_get_vocab(model_.get()) : nullptr),
+        context_size_(context_size),
+        decode_batch_size_(decode_batch_size) {}
 
   int Encode(const std::string& text, bool add_bos,
              std::vector<int32_t>* tokens,
@@ -89,7 +105,6 @@ class LlamaCppTokenCodec final : public ITokenCodec {
       SetDiagnostic(diagnostic, "Text is too large for llama.cpp tokenizer");
       return -1;
     }
-
     try {
       int32_t capacity = static_cast<int32_t>(std::min<size_t>(
           text.size() + 16,
@@ -138,7 +153,6 @@ class LlamaCppTokenCodec final : public ITokenCodec {
       SetDiagnostic(diagnostic, "llama.cpp vocabulary is null");
       return -1;
     }
-
     try {
       std::vector<char> buffer(128);
       int32_t count =
@@ -173,20 +187,7 @@ class LlamaCppTokenCodec final : public ITokenCodec {
     return vocab_ && llama_vocab_is_eog(vocab_, token);
   }
 
- private:
-  const llama_vocab* vocab_ = nullptr;
-};
-
-class LlamaCppSequence final : public ICausalLmSequence {
- public:
-  LlamaCppSequence(std::shared_ptr<llama_model> model, LlamaContextPtr context,
-                   size_t context_size, size_t decode_batch_size,
-                   std::shared_ptr<std::mutex> evaluate_mutex)
-      : model_(std::move(model)),
-        context_(std::move(context)),
-        context_size_(context_size),
-        decode_batch_size_(decode_batch_size),
-        evaluate_mutex_(std::move(evaluate_mutex)) {}
+  size_t MaxContextTokens() const noexcept override { return context_size_; }
 
   int Evaluate(const std::vector<int32_t>& tokens, std::vector<float>* logits,
                std::string* diagnostic) noexcept override {
@@ -195,16 +196,15 @@ class LlamaCppSequence final : public ICausalLmSequence {
       return -1;
     }
     logits->clear();
-    if (!model_ || !context_ || !evaluate_mutex_) {
-      SetDiagnostic(diagnostic, "llama.cpp sequence is not initialized");
+    if (!model_ || !context_ || !vocab_) {
+      SetDiagnostic(diagnostic, "llama.cpp decoder is not initialized");
       return -1;
     }
     if (tokens.empty()) {
-      SetDiagnostic(diagnostic, "Causal LM Evaluate tokens cannot be empty");
+      SetDiagnostic(diagnostic, "Decoder Evaluate tokens cannot be empty");
       return -1;
     }
     try {
-      std::lock_guard<std::mutex> lock(*evaluate_mutex_);
       if (tokens.size() >
           context_size_ - std::min(context_size_, token_count_)) {
         SetDiagnostic(diagnostic, "llama.cpp context token limit exceeded");
@@ -226,8 +226,7 @@ class LlamaCppSequence final : public ICausalLmSequence {
       }
 
       float* vendor_logits = llama_get_logits_ith(context_.get(), -1);
-      const llama_vocab* vocab = llama_model_get_vocab(model_.get());
-      const int32_t vocab_size = vocab ? llama_vocab_n_tokens(vocab) : 0;
+      const int32_t vocab_size = llama_vocab_n_tokens(vocab_);
       if (!vendor_logits || vocab_size <= 0) {
         SetDiagnostic(diagnostic, "llama.cpp returned invalid logits");
         return -1;
@@ -250,18 +249,18 @@ class LlamaCppSequence final : public ICausalLmSequence {
  private:
   std::shared_ptr<llama_model> model_;
   LlamaContextPtr context_;
+  const llama_vocab* vocab_ = nullptr;
   size_t context_size_ = 2048;
   size_t decode_batch_size_ = 512;
   size_t token_count_ = 0;
-  std::shared_ptr<std::mutex> evaluate_mutex_;
 };
 
-class LlamaCppSession final : public ICausalLmSession {
+class LlamaCppTextGenerationSession final : public ITextGenerationSession {
  public:
-  LlamaCppSession(std::shared_ptr<llama_model> model, size_t context_size,
-                  size_t decode_batch_size, int n_threads, int n_threads_batch)
+  LlamaCppTextGenerationSession(std::shared_ptr<llama_model> model,
+                                size_t context_size, size_t decode_batch_size,
+                                int n_threads, int n_threads_batch)
       : model_(std::move(model)),
-        codec_(model_ ? llama_model_get_vocab(model_.get()) : nullptr),
         context_size_(context_size),
         decode_batch_size_(decode_batch_size),
         n_threads_(n_threads),
@@ -271,30 +270,30 @@ class LlamaCppSession final : public ICausalLmSession {
     static const std::string type = LlamaCppBackend::kBackendType;
     return type;
   }
-
   ExecutionProtocol Protocol() const noexcept override {
-    return ExecutionProtocol::kCausalLm;
+    return ExecutionProtocol::kTextGeneration;
   }
-
   InferenceConcurrency Concurrency() const noexcept override {
     return InferenceConcurrency::kSerialized;
   }
-
   BatchPolicy GetBatchPolicy() const noexcept override {
     return BatchPolicy{1, 0};
   }
 
-  ITokenCodec& TokenCodec() noexcept override { return codec_; }
-
-  size_t MaxContextTokens() const noexcept override { return context_size_; }
-
-  std::unique_ptr<ICausalLmSequence> CreateSequence(
-      std::string* diagnostic) noexcept override {
+  int Generate(const std::string& formatted_prompt, bool add_bos,
+               const GenerateOptions& options, std::optional<uint64_t> seed,
+               std::string* output, std::string* diagnostic) noexcept override {
+    if (!output) {
+      SetDiagnostic(diagnostic, "Text generation output pointer is null");
+      return -1;
+    }
+    output->clear();
     if (!model_) {
       SetDiagnostic(diagnostic, "llama.cpp model is null");
-      return nullptr;
+      return -1;
     }
     try {
+      std::lock_guard<std::mutex> lock(generate_mutex_);
       llama_context_params params = llama_context_default_params();
       params.n_ctx = static_cast<uint32_t>(context_size_);
       params.n_batch = static_cast<uint32_t>(decode_batch_size_);
@@ -306,29 +305,32 @@ class LlamaCppSession final : public ICausalLmSession {
       LlamaContextPtr context(llama_init_from_model(model_.get(), params));
       if (!context) {
         SetDiagnostic(diagnostic, "llama.cpp context creation failed");
-        return nullptr;
+        return -1;
       }
-      return std::make_unique<LlamaCppSequence>(
-          model_, std::move(context), context_size_, decode_batch_size_,
-          evaluate_mutex_);
+      LlamaCppDecoder decoder(model_, std::move(context), context_size_,
+                              decode_batch_size_);
+      return text_generation::CommonAutoregressiveGenerator::Generate(
+          decoder, formatted_prompt, add_bos, options, seed, output,
+          diagnostic);
     } catch (const std::exception& e) {
+      output->clear();
       SetDiagnostic(diagnostic,
-                    std::string("llama.cpp context exception: ") + e.what());
-      return nullptr;
+                    std::string("llama.cpp generation exception: ") + e.what());
+      return -1;
     } catch (...) {
-      SetDiagnostic(diagnostic, "Unknown llama.cpp context exception");
-      return nullptr;
+      output->clear();
+      SetDiagnostic(diagnostic, "Unknown llama.cpp generation exception");
+      return -1;
     }
   }
 
  private:
   std::shared_ptr<llama_model> model_;
-  LlamaCppTokenCodec codec_;
   size_t context_size_ = 2048;
   size_t decode_batch_size_ = 512;
   int n_threads_ = 0;
   int n_threads_batch_ = 0;
-  std::shared_ptr<std::mutex> evaluate_mutex_ = std::make_shared<std::mutex>();
+  std::mutex generate_mutex_;
 };
 
 #endif  // HAVE_LLAMACPP
@@ -343,7 +345,7 @@ const std::string& LlamaCppBackend::BackendType() const noexcept {
 std::shared_ptr<IBackendSession> LlamaCppBackend::Load(
     const BackendLoadSpec& spec, std::string* diagnostic) noexcept {
   if (spec.requested_protocol.has_value() &&
-      *spec.requested_protocol != ExecutionProtocol::kCausalLm) {
+      *spec.requested_protocol != ExecutionProtocol::kTextGeneration) {
     SetDiagnostic(
         diagnostic,
         "llama.cpp backend does not support requested protocol: " +
@@ -377,16 +379,17 @@ std::shared_ptr<IBackendSession> LlamaCppBackend::Load(
   return nullptr;
 #else
   try {
-    static const std::unordered_set<std::string> kAllowedFields = {
-        "context_size",    "decode_batch_size", "n_threads",
-        "n_threads_batch", "n_gpu_layers",      "check_tensors"};
     if (!spec.backend_config.is_object()) {
       SetDiagnostic(diagnostic, "llama.cpp backend_config must be an object");
       return nullptr;
     }
+    const auto& fields = LlamaCppConfigFields();
     for (const auto& [key, value] : spec.backend_config.items()) {
       (void)value;
-      if (kAllowedFields.count(key) == 0) {
+      const bool declared =
+          std::any_of(fields.begin(), fields.end(),
+                      [&key](const auto& field) { return field.name == key; });
+      if (!declared) {
         SetDiagnostic(diagnostic,
                       "Unknown llama.cpp backend_config field: " + key);
         return nullptr;
@@ -421,7 +424,6 @@ std::shared_ptr<IBackendSession> LlamaCppBackend::Load(
       SetDiagnostic(diagnostic, "Invalid llama.cpp backend configuration");
       return nullptr;
     }
-
     if (n_gpu_layers == 0 && device_id != 0) {
       SetDiagnostic(diagnostic,
                     "llama.cpp CPU execution only accepts device_id 0; got: " +
@@ -458,7 +460,7 @@ std::shared_ptr<IBackendSession> LlamaCppBackend::Load(
 
     std::shared_ptr<llama_model> shared_model(model.release(),
                                               LlamaModelDeleter{});
-    return std::make_shared<LlamaCppSession>(
+    return std::make_shared<LlamaCppTextGenerationSession>(
         std::move(shared_model), static_cast<size_t>(context_size),
         static_cast<size_t>(decode_batch_size), n_threads, n_threads_batch);
   } catch (const std::exception& e) {
@@ -476,18 +478,10 @@ std::shared_ptr<IBackendSession> LlamaCppBackend::Load(
 static const BackendDefinition kLlamaCppBackendDefinition = [] {
   BackendDefinition def;
   def.backend_type = LlamaCppBackend::kBackendType;
-  def.description = "llama.cpp GGUF Causal LM inference backend";
-  def.supported_protocols = {ExecutionProtocol::kCausalLm};
+  def.description = "llama.cpp GGUF text-generation backend";
+  def.supported_protocols = {ExecutionProtocol::kTextGeneration};
   def.concurrency = InferenceConcurrency::kSerialized;
-  def.config_fields = {
-      {"context_size", ConfigValueKind::kInteger, false, 2048, 16.0, 1048576.0},
-      {"decode_batch_size", ConfigValueKind::kInteger, false, 512, 1.0,
-       1048576.0},
-      {"n_threads", ConfigValueKind::kInteger, false, 0, 0.0, 1024.0},
-      {"n_threads_batch", ConfigValueKind::kInteger, false, 0, 0.0, 1024.0},
-      {"n_gpu_layers", ConfigValueKind::kInteger, false, 0, 0.0, 1048576.0},
-      {"check_tensors", ConfigValueKind::kBoolean, false, false},
-  };
+  def.config_fields = LlamaCppConfigFields();
   return def;
 }();
 

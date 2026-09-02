@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <atomic>
 #include <memory>
 #include <nlohmann/json.hpp>
@@ -368,16 +369,83 @@ TEST_F(ModelBackendPipelineTest, ValidatorProducesModelPlanAndZeroSideEffects) {
   EXPECT_EQ(g_model_create_count.load(), 0);
 }
 
+TEST_F(ModelBackendPipelineTest,
+       UnifiedQwenPlanAcceptsEveryRegisteredGenerationBackend) {
+  const auto model_definition =
+      ModelRegistry::Instance().Find("qwen_causal_lm");
+  ASSERT_TRUE(model_definition.has_value());
+  ASSERT_EQ(model_definition->required_protocol,
+            ExecutionProtocol::kTextGeneration);
+
+  size_t validated_backends = 0;
+  for (const auto& backend_definition :
+       BackendRegistry::Instance().ListDefinitions()) {
+    if (std::find(backend_definition.supported_protocols.begin(),
+                  backend_definition.supported_protocols.end(),
+                  ExecutionProtocol::kTextGeneration) ==
+        backend_definition.supported_protocols.end()) {
+      continue;
+    }
+    const std::string& backend_name = backend_definition.backend_type;
+
+    nlohmann::json config = {
+        {"biz_name", "unified_qwen_backend_swap_test"},
+        {"models",
+         nlohmann::json::array({{{"model_id", "llm"},
+                                 {"capability", "llm"},
+                                 {"model_type", "qwen_causal_lm"},
+                                 {"backend", backend_name},
+                                 {"model_path", "./models/qwen/model.bin"}}})},
+        {"pipeline",
+         nlohmann::json::array({{{"id", "generate"},
+                                 {"node_type", "LlmGenerateNode"},
+                                 {"depends_on", nlohmann::json::array()},
+                                 {"config", {{"bind_model", "llm"}}}}})},
+    };
+    const auto plan = PipelineValidator::ValidateAndPlan(
+        config, ValidationPolicy::kPrivateExtensionCompatible);
+    EXPECT_TRUE(plan.report.ok)
+        << backend_name << ": "
+        << (plan.report.diagnostics.empty()
+                ? "no diagnostic"
+                : plan.report.diagnostics.front().message);
+    if (plan.report.ok) {
+      ASSERT_EQ(plan.models.size(), 1U);
+      EXPECT_EQ(plan.models.front().protocol,
+                ExecutionProtocol::kTextGeneration);
+    }
+
+    config["models"][0]["backend_config"] = {{"misspelled_backend_setting", 1}};
+    const auto invalid_plan = PipelineValidator::ValidateAndPlan(
+        config, ValidationPolicy::kPrivateExtensionCompatible);
+    EXPECT_FALSE(invalid_plan.report.ok) << backend_name;
+    EXPECT_TRUE(std::any_of(
+        invalid_plan.report.diagnostics.begin(),
+        invalid_plan.report.diagnostics.end(),
+        [](const auto& diagnostic) {
+          return diagnostic.code ==
+                     DiagnosticCode::kUnknownBackendConfigField &&
+                 diagnostic.path ==
+                     "/models/0/backend_config/misspelled_backend_setting";
+        }))
+        << backend_name;
+    ++validated_backends;
+  }
+  if (validated_backends == 0) {
+    GTEST_SKIP() << "No text-generation backend enabled in this build";
+  }
+}
+
 TEST_F(ModelBackendPipelineTest, ValidatorRejectsProtocolMismatch) {
-  // Register backend that only supports CausalLm protocol
+  // Register a backend that only supports text generation.
   BackendDefinition bdef;
-  bdef.backend_type = "causal_lm_only_backend";
-  bdef.supported_protocols = {ExecutionProtocol::kCausalLm};
+  bdef.backend_type = "text_generation_only_backend";
+  bdef.supported_protocols = {ExecutionProtocol::kTextGeneration};
   bdef.concurrency = InferenceConcurrency::kConcurrent;
   BackendRegistry::Instance().Register(
       bdef, []() -> std::unique_ptr<IInferenceBackend> {
         return std::make_unique<MockInferenceBackend>(
-            "causal_lm_only_backend", ExecutionProtocol::kCausalLm);
+            "text_generation_only_backend", ExecutionProtocol::kTextGeneration);
       });
 
   nlohmann::json cfg = {
@@ -387,7 +455,7 @@ TEST_F(ModelBackendPipelineTest, ValidatorRejectsProtocolMismatch) {
            {"model_id", "emb_model"},
            {"capability", "embedding"},
            {"model_type", "mock_bge_embedding"},  // requires kTensorGraph
-           {"backend", "causal_lm_only_backend"},
+           {"backend", "text_generation_only_backend"},
            {"model_path", "./model.bin"},
        }})},
       {"pipeline", nlohmann::json::array({{

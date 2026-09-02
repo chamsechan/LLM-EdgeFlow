@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -17,6 +18,10 @@ size_t DecodeCodePoint(const char* data, size_t length,
 bool BuildCodePointBoundaries(std::string_view text,
                               std::vector<size_t>* boundaries,
                               size_t* invalid_offset = nullptr);
+
+// Removes only an incomplete or invalid trailing code unit sequence. Complete
+// UTF-8 content and any earlier bytes are left unchanged.
+void StripIncompleteSuffix(std::string* text) noexcept;
 
 }  // namespace utf8
 }  // namespace alg_framework

@@ -63,19 +63,20 @@ graph TD
     subgraph L4["Layer 4: 模型能力与推理 Backend 层 (Model & Backend Layer)"]
         ModelBase["IModel 强类型能力抽象"]
         BackendBase["IInferenceBackend / IBackendSession<br>中性执行协议"]
-        LlmIntf["ILlmModel + ICausalLmSession / ICausalLmSequence<br>(Generate / Token Evaluate)"]
+        LlmIntf["ILlmModel + ITextGenerationSession<br>(formatted prompt / unified options / text)"]
         EmbedIntf["IEmbeddingModel / IRerankModel<br>+ ITensorGraphSession"]
         
         BatchExec["FixedBatchExecutor (硬件固定 Batch 调度器)<br>• 样本自动 Chunking 分块<br>• 末尾 Dummy Pad 自动补齐<br>• 推理后剥离 Pad 并保留溯源标签"]
         
         subgraph ModelSemantics["模型语义实现 (src/engine/models/)"]
             BgeModels["BgeEmbeddingModel / BgeRerankerModel"]
-            QwenModel["QwenCausalLmModel<br>(ChatML / sampling / generation loop)"]
+            QwenModel["QwenCausalLmModel<br>(ChatML / provenance / protocol delegation)"]
         end
 
         subgraph HardwareBackends["硬件推理 Backend (src/engine/backends/)"]
             OnnxBackend["OnnxRuntimeBackend<br>(TensorGraph, CPU/CUDA)"]
-            LlamaCpp["LlamaCppBackend<br>(Causal LM, GGUF runtime)"]
+            LlamaCpp["LlamaCppBackend<br>(TextGeneration, GGUF runtime)"]
+            KiteLlm["KiteLlmBackend<br>(managed TextGeneration, conditional SDK)"]
         end
     end
 
@@ -102,7 +103,7 @@ graph TD
     class C_API,C_Adapter l1;
     class PipeCore,S_Ctx,R_Ctx,TraceTag,Factory l2;
     class NodeApi,NodeBase,ModelNode,CommonNodes,BizNodes,LlmNode,PromptNode,VecSearchNode,RerankNode,PreNode,RuleNode,PostNode l3;
-    class ModelBase,BackendBase,LlmIntf,EmbedIntf,BatchExec,BgeModels,QwenModel,OnnxBackend,LlamaCpp l4;
+    class ModelBase,BackendBase,LlmIntf,EmbedIntf,BatchExec,BgeModels,QwenModel,OnnxBackend,LlamaCpp,KiteLlm l4;
 ```
 
 ---
@@ -170,10 +171,10 @@ C++ Operator API：NamedIoBatch + Operator 镜像 C 结构 ─┘
 - **代码位置**：`include/engine/`，`src/engine/`
 - **核心职责**：
   1. `IEmbeddingModel`、`IRerankModel`、`ILlmModel`、`IOcrModel` 和 `IAsrModel` 表达模型语义，Node 只依赖所需能力；
-  2. `ITensorGraphSession` 与 `ICausalLmSession` / `ICausalLmSequence` 表达中性执行协议；因果序列同时封装状态、执行行为和所需资源生命周期，Backend 负责模型资源加载和硬件会话，模型实现不包含 ONNX Runtime/llama.cpp 具体类型；
+  2. `ITensorGraphSession` 与 `ITextGenerationSession` 表达中性执行协议；Qwen 只提交已格式化 prompt 与统一生成参数，llama.cpp 的低层 decoder 在 Backend 内复用公共自回归生成器，托管引擎可直接生成；ONNX Runtime 当前只提供 TensorGraph；
   3. `ModelRuntimeFactory` 依据 `model_type + backend` 组合模型与 Backend，校验协议和并发契约后再原子注册到 `ModelManager`；
   4. **固定 Max Batch 自动调度（`FixedBatchExecutor`）**：完成批次切分、Dummy Pad、Pad 剔除和 `(req_id, sub_id)` 溯源；
-  5. 切换 NPU/GPU/CPU 只改 JSON 中的 `backend` 与 `backend_config`，不改业务 Node 或模型语义实现。
+  5. 切换 NPU/GPU/CPU 或 LLM 生成引擎只改 JSON 中的 `backend`、`model_path` 与 `backend_config`，不改业务 Node 或模型语义实现。
 
 ---
 
@@ -201,10 +202,10 @@ sequenceDiagram
         opt 需要模型推理
             Node->>Model: Embed / Score / Generate / Recognize / Transcribe
             Model->>Model: 固定 Batch 切块 + Dummy Pad 补齐
-            Model->>Backend: 通过 TensorGraph / CausalLm 协议执行
+            Model->>Backend: 通过 TensorGraph / TextGeneration 协议执行
             Backend->>HW: 调用硬件推理时
             HW-->>Backend: 返回原始执行结果
-            Backend-->>Model: 返回中性 Tensor / Token 结果
+            Backend-->>Model: 返回中性 Tensor / Text 结果
             Model->>Model: 剥离 Pad，恢复 (req_id, sub_id) 溯源标签
             Model-->>Node: 返回强类型对齐输出
         end
@@ -298,7 +299,7 @@ REGISTER_NODE_WITH_DEFINITION(MyCustomNode, MakeMyCustomNodeDefinition());
       "backend": "llama_cpp",
       "model_path": "my_llm.gguf",
       "model_config": {},
-      "backend_config": {"n_ctx": 2048}
+      "backend_config": {"context_size": 2048}
     }
   ],
   "pipeline": [

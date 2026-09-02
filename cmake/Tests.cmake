@@ -322,7 +322,8 @@ edgeflow_add_runner_test(ModelBackendRegistryConflictTest
   "${_edgeflow_tier1}")
 
 edgeflow_add_runner_test(QwenCausalLmModelTest edgeflow_test_core_runner
-  "QwenCausalLmModelTest.*" "${_edgeflow_tier1}")
+  "QwenCausalLmModelTest.*:CommonAutoregressiveGeneratorTest.*"
+  "${_edgeflow_tier1}")
 edgeflow_add_runner_test(LlamaCppBackendTest edgeflow_test_core_runner
   "LlamaCppBackendTest.*" "${_edgeflow_tier1}")
 

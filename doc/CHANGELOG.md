@@ -6,6 +6,11 @@
 
 ## Unreleased
 
+- 新增统一 `text_generation` Backend 协议与公共自回归采样器；同一
+  `qwen_causal_lm` 可组合 llama.cpp 与条件 kiteLLM SDK，`LlmGenerateNode` 同步开放
+  `top_k` 与 `repetition_penalty`；ONNX Runtime 保持强类型 `tensor_graph` 能力，Backend
+  参数继续由各自 Definition 在规划期校验，kite 仅声明 SDK 原生 `run_config_file`。设计依据：
+  [RFC-0026](rfcs/0026-unified-llm-generation-backends.md)。
 - 引入统一 `3rdparty/` 持久化预编译归档体系，支持 llama.cpp、ONNX Runtime、GoogleTest、nlohmann/json 及 PCRE2 的本地静态库与头文件秒级复用，消除 clean build 与日常开发中的重复下载与源码重新编译耗时。
 
 ## 8.0.0 - 2026-09

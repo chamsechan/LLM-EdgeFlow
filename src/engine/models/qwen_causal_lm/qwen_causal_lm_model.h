@@ -11,12 +11,11 @@
 namespace alg_framework {
 
 /**
- * @brief Qwen ChatML and autoregressive generation semantics over a neutral
- * Causal LM backend session.
+ * @brief Qwen ChatML semantics over a neutral text-generation session.
  *
- * This model deliberately owns no llama.cpp or other vendor resource. Token
- * encoding, sequence state and logits evaluation are provided exclusively by
- * ICausalLmSession.
+ * This Model owns prompt formatting and provenance only. Tokenization,
+ * sampling, generation loops and vendor resources belong below the unified
+ * ITextGenerationSession boundary.
  */
 class QwenCausalLmModel final : public ILlmModel {
  public:
@@ -26,7 +25,7 @@ class QwenCausalLmModel final : public ILlmModel {
   static std::shared_ptr<IModel> Create(const ModelCreateContext& ctx,
                                         std::string* diagnostic);
 
-  QwenCausalLmModel(std::shared_ptr<ICausalLmSession> session,
+  QwenCausalLmModel(std::shared_ptr<ITextGenerationSession> session,
                     std::string system_prompt, bool add_bos,
                     int64_t random_seed);
   ~QwenCausalLmModel() override = default;
@@ -46,7 +45,7 @@ class QwenCausalLmModel final : public ILlmModel {
                   const GenerateOptions& options, std::string* output) noexcept;
   std::string ApplyChatTemplate(const std::string& prompt) const;
 
-  std::shared_ptr<ICausalLmSession> session_;
+  std::shared_ptr<ITextGenerationSession> session_;
   std::string system_prompt_;
   bool add_bos_ = false;
   int64_t random_seed_ = -1;

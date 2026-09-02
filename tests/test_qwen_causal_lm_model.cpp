@@ -1,8 +1,11 @@
 #include <gtest/gtest.h>
 
+#include <cmath>
 #include <cstdint>
+#include <initializer_list>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -11,146 +14,76 @@
 #include "engine/backend_interface.h"
 #include "engine/model_registry.h"
 #include "engine/models/qwen_causal_lm/qwen_causal_lm_model.h"
+#include "engine/text_generation/common_autoregressive_generator.h"
 
 namespace alg_framework {
 namespace {
 
-class ScriptedCodec final : public ITokenCodec {
+class ScriptedGenerationSession final : public ITextGenerationSession {
  public:
-  int Encode(const std::string& text, bool add_bos,
-             std::vector<int32_t>* tokens,
-             std::string* diagnostic) noexcept override {
-    (void)diagnostic;
-    if (!tokens || fail_encode) return -1;
-    tokens->clear();
-    if (add_bos) tokens->push_back(1);
-    tokens->push_back(42);
-    encoded_texts.push_back(text);
-    return 0;
-  }
+  struct Call {
+    std::string prompt;
+    bool add_bos = false;
+    GenerateOptions options;
+    std::optional<uint64_t> seed;
+  };
 
-  int DecodeToken(int32_t token, std::string* piece,
-                  std::string* diagnostic) noexcept override {
-    (void)diagnostic;
-    if (!piece || fail_decode) return -1;
-    piece->clear();
-    const auto it = pieces.find(token);
-    if (it == pieces.end()) return -1;
-    *piece = it->second;
-    return 0;
-  }
-
-  bool IsEndToken(int32_t token) const noexcept override { return token == 2; }
-
-  bool fail_encode = false;
-  bool fail_decode = false;
-  std::unordered_map<int32_t, std::string> pieces;
-  std::vector<std::string> encoded_texts;
-};
-
-class ScriptedSession;
-
-class ScriptedSequence final : public ICausalLmSequence {
- public:
-  ScriptedSequence(ScriptedSession* owner, size_t state_id)
-      : owner_(owner), id(state_id) {}
-
-  int Evaluate(const std::vector<int32_t>& tokens, std::vector<float>* logits,
-               std::string* diagnostic) noexcept override;
-
-  ScriptedSession* owner_ = nullptr;
-  size_t id = 0;
-  size_t step = 0;
-};
-
-class ScriptedSession final : public ICausalLmSession {
- public:
   const std::string& BackendType() const noexcept override {
-    static const std::string type = "scripted_causal";
+    static const std::string type = "scripted_text_generation";
     return type;
   }
   ExecutionProtocol Protocol() const noexcept override {
-    return ExecutionProtocol::kCausalLm;
+    return ExecutionProtocol::kTextGeneration;
   }
   InferenceConcurrency Concurrency() const noexcept override {
     return InferenceConcurrency::kSerialized;
   }
   BatchPolicy GetBatchPolicy() const noexcept override { return policy; }
-  ITokenCodec& TokenCodec() noexcept override { return codec; }
-  size_t MaxContextTokens() const noexcept override { return max_context; }
 
-  std::unique_ptr<ICausalLmSequence> CreateSequence(
-      std::string* diagnostic) noexcept override {
-    (void)diagnostic;
-    if (fail_create) return nullptr;
+  int Generate(const std::string& prompt, bool add_bos,
+               const GenerateOptions& options, std::optional<uint64_t> seed,
+               std::string* output, std::string* diagnostic) noexcept override {
+    if (!output) return -1;
+    output->clear();
     try {
-      const size_t id = next_state_id++;
-      histories.resize(next_state_id);
-      return std::make_unique<ScriptedSequence>(this, id);
-    } catch (...) {
-      return nullptr;
-    }
-  }
-
-  ScriptedCodec codec;
-  BatchPolicy policy{1, 0};
-  size_t max_context = 32;
-  std::vector<int32_t> scripted_tokens{2};
-  std::vector<std::vector<std::vector<int32_t>>> histories;
-  size_t next_state_id = 0;
-  size_t fail_state_id = std::numeric_limits<size_t>::max();
-  bool fail_create = false;
-  bool emit_empty_logits = false;
-  bool emit_nan_logits = false;
-};
-
-int ScriptedSequence::Evaluate(const std::vector<int32_t>& tokens,
-                               std::vector<float>* logits,
-                               std::string* diagnostic) noexcept {
-  (void)diagnostic;
-  if (!owner_ || !logits || tokens.empty() || id == owner_->fail_state_id) {
-    if (logits) logits->clear();
-    return -1;
-  }
-  try {
-    owner_->histories[id].push_back(tokens);
-    if (owner_->emit_empty_logits) {
-      logits->clear();
+      calls.push_back({prompt, add_bos, options, seed});
+      const size_t call_index = calls.size() - 1;
+      if (call_index == fail_call) {
+        if (diagnostic) *diagnostic = "scripted failure";
+        return -1;
+      }
+      *output = call_index < scripted_outputs.size()
+                    ? scripted_outputs[call_index]
+                    : "generated";
       return 0;
-    }
-    const int32_t token = step < owner_->scripted_tokens.size()
-                              ? owner_->scripted_tokens[step]
-                              : 2;
-    ++step;
-    logits->assign(128, -20.0f);
-    if (owner_->emit_nan_logits) {
-      (*logits)[0] = std::numeric_limits<float>::quiet_NaN();
-    } else if (token >= 0 && static_cast<size_t>(token) < logits->size()) {
-      (*logits)[static_cast<size_t>(token)] = 20.0f;
-    } else {
+    } catch (...) {
+      output->clear();
       return -1;
     }
-    return 0;
-  } catch (...) {
-    logits->clear();
-    return -1;
   }
-}
+
+  BatchPolicy policy{1, 0};
+  std::vector<std::string> scripted_outputs;
+  std::vector<Call> calls;
+  size_t fail_call = std::numeric_limits<size_t>::max();
+};
 
 GenerateOptions GreedyOptions() {
   GenerateOptions options;
   options.max_tokens = 8;
   options.temperature = 0.0f;
+  options.top_k = 0;
   options.top_p = 1.0f;
+  options.repetition_penalty = 1.0f;
   return options;
 }
 
-TEST(QwenCausalLmModelTest, DefinitionAndCreationRequireCausalProtocol) {
+TEST(QwenCausalLmModelTest, DefinitionAndCreationRequireTextGeneration) {
   const auto definition =
       ModelRegistry::Instance().Find(QwenCausalLmModel::kModelType);
   ASSERT_TRUE(definition.has_value());
   EXPECT_EQ(definition->capability, "llm");
-  EXPECT_EQ(definition->required_protocol, ExecutionProtocol::kCausalLm);
+  EXPECT_EQ(definition->required_protocol, ExecutionProtocol::kTextGeneration);
   EXPECT_EQ(definition->concurrency, InferenceConcurrency::kConcurrent);
 
   ModelCreateContext invalid;
@@ -158,7 +91,7 @@ TEST(QwenCausalLmModelTest, DefinitionAndCreationRequireCausalProtocol) {
   EXPECT_EQ(QwenCausalLmModel::Create(invalid, &diagnostic), nullptr);
   EXPECT_FALSE(diagnostic.empty());
 
-  auto session = std::make_shared<ScriptedSession>();
+  auto session = std::make_shared<ScriptedGenerationSession>();
   ModelCreateContext valid;
   valid.backend_session = session;
   valid.model_config = {{"chat_template", "qwen_chatml"},
@@ -168,107 +101,280 @@ TEST(QwenCausalLmModelTest, DefinitionAndCreationRequireCausalProtocol) {
   ASSERT_NE(model, nullptr) << diagnostic;
   EXPECT_EQ(model->ModelType(), "qwen_causal_lm");
   EXPECT_EQ(model->Concurrency(), InferenceConcurrency::kConcurrent);
+
+  session->policy = {1, 1};
+  EXPECT_EQ(QwenCausalLmModel::Create(valid, &diagnostic), nullptr);
 }
 
 TEST(QwenCausalLmModelTest,
-     GreedyGenerationPreservesProvenanceAndSequenceState) {
-  auto session = std::make_shared<ScriptedSession>();
-  session->scripted_tokens = {65, 66, 2};
-  session->codec.pieces = {{65, "A"}, {66, "B"}};
-  QwenCausalLmModel model(session, "System", false, 11);
+     DelegatesFormattedPromptOptionsSeedAndPreservesProvenance) {
+  auto session = std::make_shared<ScriptedGenerationSession>();
+  session->scripted_outputs = {"first-answer", "second-answer"};
+  QwenCausalLmModel model(session, "System", true, 11);
 
-  TextBatch prompts{{101, 3, "first"}, {202, 7, "second"}};
+  GenerateOptions options = GreedyOptions();
+  options.top_k = 17;
+  options.top_p = 0.75f;
+  options.repetition_penalty = 1.25f;
+  options.stop_words = {"STOP"};
   TextBatch outputs;
-  ASSERT_EQ(model.Generate(prompts, GreedyOptions(), &outputs), 0);
+  ASSERT_EQ(model.Generate({{101, 3, "first"}, {202, 7, "second"}}, options,
+                           &outputs),
+            0);
   ASSERT_EQ(outputs.size(), 2U);
   EXPECT_EQ(outputs[0].req_id, 101U);
   EXPECT_EQ(outputs[0].sub_id, 3U);
-  EXPECT_EQ(outputs[0].data, "AB");
+  EXPECT_EQ(outputs[0].data, "first-answer");
   EXPECT_EQ(outputs[1].req_id, 202U);
   EXPECT_EQ(outputs[1].sub_id, 7U);
-  EXPECT_EQ(outputs[1].data, "AB");
+  EXPECT_EQ(outputs[1].data, "second-answer");
 
-  ASSERT_EQ(session->histories.size(), 2U);
-  for (const auto& history : session->histories) {
-    ASSERT_EQ(history.size(), 3U);
-    EXPECT_EQ(history[1], std::vector<int32_t>({65}));
-    EXPECT_EQ(history[2], std::vector<int32_t>({66}));
-  }
-  ASSERT_EQ(session->codec.encoded_texts.size(), 2U);
-  EXPECT_NE(session->codec.encoded_texts[0].find(
-                "<|im_start|>system\nSystem<|im_end|>\n"),
-            std::string::npos);
+  ASSERT_EQ(session->calls.size(), 2U);
+  EXPECT_TRUE(session->calls[0].add_bos);
+  EXPECT_EQ(session->calls[0].options.top_k, 17);
+  EXPECT_FLOAT_EQ(session->calls[0].options.repetition_penalty, 1.25f);
+  EXPECT_EQ(session->calls[0].options.stop_words,
+            std::vector<std::string>({"STOP"}));
   EXPECT_NE(
-      session->codec.encoded_texts[0].find("<|im_start|>user\nfirst<|im_end|>\n"
-                                           "<|im_start|>assistant\n"),
+      session->calls[0].prompt.find("<|im_start|>system\nSystem<|im_end|>\n"),
       std::string::npos);
+  EXPECT_NE(session->calls[0].prompt.find("<|im_start|>user\nfirst<|im_end|>\n"
+                                          "<|im_start|>assistant\n"),
+            std::string::npos);
+  ASSERT_TRUE(session->calls[0].seed.has_value());
+  ASSERT_TRUE(session->calls[1].seed.has_value());
+  EXPECT_NE(session->calls[0].seed, session->calls[1].seed);
 }
 
-TEST(QwenCausalLmModelTest, StopWordMaySpanMultipleTokenPieces) {
-  auto session = std::make_shared<ScriptedSession>();
-  session->scripted_tokens = {10, 11, 12, 2};
-  session->codec.pieces = {{10, "prefixST"}, {11, "OP"}, {12, "ignored"}};
-  QwenCausalLmModel model(session, "", false, 0);
-
-  auto options = GreedyOptions();
-  options.stop_words = {"STOP"};
-  TextBatch outputs;
-  ASSERT_EQ(model.Generate({{1, 0, "prompt"}}, options, &outputs), 0);
-  ASSERT_EQ(outputs.size(), 1U);
-  EXPECT_EQ(outputs[0].data, "prefix");
-  ASSERT_EQ(session->histories.size(), 1U);
-  EXPECT_EQ(session->histories[0].size(), 2U);
-}
-
-TEST(QwenCausalLmModelTest, TopPSamplingPathIsDeterministicWithFixedSeed) {
-  auto session = std::make_shared<ScriptedSession>();
-  session->scripted_tokens = {65, 2};
-  session->codec.pieces = {{65, "A"}};
-  QwenCausalLmModel model(session, "", false, 1234);
-
-  auto options = GreedyOptions();
-  options.temperature = 0.7f;
-  options.top_p = 0.9f;
-  TextBatch first;
-  ASSERT_EQ(model.Generate({{7, 9, "prompt"}}, options, &first), 0);
-  ASSERT_EQ(first.size(), 1U);
-  EXPECT_EQ(first[0].data, "A");
-}
-
-TEST(QwenCausalLmModelTest, InvalidLogitsAndLaterRequestFailureRollbackBatch) {
-  auto session = std::make_shared<ScriptedSession>();
-  session->scripted_tokens = {65, 2};
-  session->codec.pieces = {{65, "A"}};
-  session->fail_state_id = 1;
-  QwenCausalLmModel model(session, "", false, 0);
+TEST(QwenCausalLmModelTest, RandomSeedAndLaterFailureRollbackBatch) {
+  auto session = std::make_shared<ScriptedGenerationSession>();
+  session->fail_call = 1;
+  QwenCausalLmModel model(session, "", false, -1);
 
   TextBatch outputs{{9, 9, "stale"}};
   EXPECT_NE(model.Generate({{1, 0, "first"}, {2, 0, "second"}}, GreedyOptions(),
                            &outputs),
             0);
   EXPECT_TRUE(outputs.empty());
+  ASSERT_EQ(session->calls.size(), 2U);
+  EXPECT_FALSE(session->calls[0].seed.has_value());
+  EXPECT_FALSE(session->calls[1].seed.has_value());
 
-  session->fail_state_id = std::numeric_limits<size_t>::max();
-  session->emit_nan_logits = true;
-  EXPECT_NE(model.Generate({{3, 0, "third"}}, GreedyOptions(), &outputs), 0);
+  EXPECT_NE(model.Generate({{3, 0, ""}}, GreedyOptions(), &outputs), 0);
   EXPECT_TRUE(outputs.empty());
 }
 
-TEST(QwenCausalLmModelTest, ValidatesOptionsContextAndUtf8Suffix) {
-  auto session = std::make_shared<ScriptedSession>();
-  session->codec.pieces = {{65, "A"}};
-  QwenCausalLmModel model(session, "", false, 0);
-  TextBatch outputs;
+class ScriptedDecoder final : public text_generation::IAutoregressiveDecoder {
+ public:
+  int Encode(const std::string& text, bool add_bos,
+             std::vector<int32_t>* tokens,
+             std::string* diagnostic) noexcept override {
+    (void)diagnostic;
+    if (!tokens || fail_encode) return -1;
+    encoded = text;
+    tokens->clear();
+    if (add_bos) tokens->push_back(1);
+    tokens->insert(tokens->end(), prompt_tokens.begin(), prompt_tokens.end());
+    return 0;
+  }
+  int DecodeToken(int32_t token, std::string* piece,
+                  std::string* diagnostic) noexcept override {
+    (void)diagnostic;
+    if (!piece || fail_decode) return -1;
+    const auto it = pieces.find(token);
+    if (it == pieces.end()) return -1;
+    *piece = it->second;
+    return 0;
+  }
+  bool IsEndToken(int32_t token) const noexcept override {
+    return token == eos_token;
+  }
+  size_t MaxContextTokens() const noexcept override { return max_context; }
+  int Evaluate(const std::vector<int32_t>& tokens, std::vector<float>* logits,
+               std::string* diagnostic) noexcept override {
+    (void)diagnostic;
+    if (!logits || tokens.empty() || fail_evaluate) return -1;
+    history.push_back(tokens);
+    if (emit_empty) {
+      logits->clear();
+      return 0;
+    }
+    if (step >= scripted_logits.size()) return -1;
+    *logits = scripted_logits[step++];
+    return 0;
+  }
 
-  auto invalid = GreedyOptions();
-  invalid.top_p = 0.0f;
-  EXPECT_NE(model.Generate({{1, 0, "prompt"}}, invalid, &outputs), 0);
-  EXPECT_TRUE(outputs.empty());
+  std::vector<int32_t> prompt_tokens{42};
+  std::unordered_map<int32_t, std::string> pieces;
+  std::vector<std::vector<float>> scripted_logits;
+  std::vector<std::vector<int32_t>> history;
+  std::string encoded;
+  size_t step = 0;
+  size_t max_context = 32;
+  int32_t eos_token = 2;
+  bool fail_encode = false;
+  bool fail_decode = false;
+  bool fail_evaluate = false;
+  bool emit_empty = false;
+};
 
-  session->max_context = 1;
-  EXPECT_NE(model.Generate({{1, 0, "prompt"}}, GreedyOptions(), &outputs), 0);
-  EXPECT_TRUE(outputs.empty());
+std::vector<float> Logits(size_t size,
+                          std::initializer_list<std::pair<size_t, float>> set) {
+  std::vector<float> logits(size, -20.0f);
+  for (const auto& [index, value] : set) logits[index] = value;
+  return logits;
+}
 
+TEST(CommonAutoregressiveGeneratorTest,
+     GreedyEosStopWordsAndIncrementalEvaluation) {
+  ScriptedDecoder decoder;
+  decoder.pieces = {{10, "prefixST"}, {11, "OP"}};
+  decoder.scripted_logits = {Logits(16, {{10, 20.0f}}),
+                             Logits(16, {{11, 20.0f}}),
+                             Logits(16, {{2, 20.0f}})};
+  auto options = GreedyOptions();
+  options.stop_words = {"STOP"};
+
+  std::string output;
+  std::string diagnostic;
+  ASSERT_EQ(text_generation::CommonAutoregressiveGenerator::Generate(
+                decoder, "formatted", false, options, 7, &output, &diagnostic),
+            0)
+      << diagnostic;
+  EXPECT_EQ(output, "prefix");
+  ASSERT_EQ(decoder.history.size(), 2U);
+  EXPECT_EQ(decoder.history[0], std::vector<int32_t>({42}));
+  EXPECT_EQ(decoder.history[1], std::vector<int32_t>({10}));
+}
+
+TEST(CommonAutoregressiveGeneratorTest,
+     TopKTopPTemperatureAndFixedSeedAreDeterministic) {
+  auto make_decoder = [] {
+    ScriptedDecoder decoder;
+    decoder.pieces = {{5, "A"}, {6, "B"}};
+    decoder.scripted_logits = {Logits(8, {{5, 5.0f}, {6, 4.0f}}),
+                               Logits(8, {{2, 8.0f}})};
+    return decoder;
+  };
+  GenerateOptions options = GreedyOptions();
+  options.temperature = 0.8f;
+  options.top_k = 2;
+  options.top_p = 0.9f;
+
+  auto first_decoder = make_decoder();
+  auto second_decoder = make_decoder();
+  std::string first;
+  std::string second;
+  ASSERT_EQ(text_generation::CommonAutoregressiveGenerator::Generate(
+                first_decoder, "prompt", false, options, 1234, &first),
+            0);
+  ASSERT_EQ(text_generation::CommonAutoregressiveGenerator::Generate(
+                second_decoder, "prompt", false, options, 1234, &second),
+            0);
+  EXPECT_EQ(first, second);
+
+  auto top_p_decoder = make_decoder();
+  options.top_k = 0;
+  options.top_p = 0.01f;
+  ASSERT_EQ(text_generation::CommonAutoregressiveGenerator::Generate(
+                top_p_decoder, "prompt", false, options, 99, &first),
+            0);
+  EXPECT_EQ(first, "A");
+
+  auto top_one_decoder = make_decoder();
+  options.top_k = 1;
+  options.top_p = 1.0f;
+  ASSERT_EQ(text_generation::CommonAutoregressiveGenerator::Generate(
+                top_one_decoder, "prompt", false, options, 99, &first),
+            0);
+  EXPECT_EQ(first, "A");
+}
+
+TEST(CommonAutoregressiveGeneratorTest, RepetitionPenaltyChangesGreedyChoice) {
+  ScriptedDecoder decoder;
+  decoder.prompt_tokens = {5};
+  decoder.pieces = {{5, "repeat"}, {6, "fresh"}};
+  decoder.scripted_logits = {Logits(8, {{5, 10.0f}, {6, 6.0f}}),
+                             Logits(8, {{2, 20.0f}})};
+  auto options = GreedyOptions();
+  options.repetition_penalty = 2.0f;
+  std::string output;
+  ASSERT_EQ(text_generation::CommonAutoregressiveGenerator::Generate(
+                decoder, "prompt", false, options, 0, &output),
+            0);
+  EXPECT_EQ(output, "fresh");
+}
+
+TEST(CommonAutoregressiveGeneratorTest,
+     RejectsInvalidOptionsContextAndExceptionalLogits) {
+  ScriptedDecoder decoder;
+  decoder.scripted_logits = {{0.0f, std::numeric_limits<float>::quiet_NaN()}};
+  auto options = GreedyOptions();
+  std::string output = "stale";
+  EXPECT_NE(text_generation::CommonAutoregressiveGenerator::Generate(
+                decoder, "prompt", false, options, 0, &output),
+            0);
+  EXPECT_TRUE(output.empty());
+
+  ScriptedDecoder infinite_decoder;
+  infinite_decoder.scripted_logits = {
+      {0.0f, std::numeric_limits<float>::infinity()}};
+  output = "stale";
+  EXPECT_NE(text_generation::CommonAutoregressiveGenerator::Generate(
+                infinite_decoder, "prompt", false, options, 0, &output),
+            0);
+  EXPECT_TRUE(output.empty());
+
+  ScriptedDecoder context_decoder;
+  context_decoder.max_context = 1;
+  context_decoder.scripted_logits = {Logits(4, {{2, 1.0f}})};
+  EXPECT_NE(text_generation::CommonAutoregressiveGenerator::Generate(
+                context_decoder, "prompt", false, options, 0, &output),
+            0);
+
+  ScriptedDecoder option_decoder;
+  option_decoder.scripted_logits = {Logits(4, {{2, 1.0f}})};
+  options.top_k = -1;
+  EXPECT_NE(text_generation::CommonAutoregressiveGenerator::Generate(
+                option_decoder, "prompt", false, options, 0, &output),
+            0);
+  options = GreedyOptions();
+  options.repetition_penalty = 0.0f;
+  EXPECT_NE(text_generation::CommonAutoregressiveGenerator::Generate(
+                option_decoder, "prompt", false, options, 0, &output),
+            0);
+}
+
+TEST(CommonAutoregressiveGeneratorTest,
+     DecoderFailuresAndEmptyLogitsRollbackOutput) {
+  const auto expect_failure = [](ScriptedDecoder* decoder) {
+    GenerateOptions options = GreedyOptions();
+    std::string output = "stale";
+    EXPECT_NE(text_generation::CommonAutoregressiveGenerator::Generate(
+                  *decoder, "prompt", false, options, 0, &output),
+              0);
+    EXPECT_TRUE(output.empty());
+  };
+
+  ScriptedDecoder encode_failure;
+  encode_failure.fail_encode = true;
+  expect_failure(&encode_failure);
+
+  ScriptedDecoder evaluate_failure;
+  evaluate_failure.fail_evaluate = true;
+  expect_failure(&evaluate_failure);
+
+  ScriptedDecoder empty_logits;
+  empty_logits.emit_empty = true;
+  expect_failure(&empty_logits);
+
+  ScriptedDecoder decode_failure;
+  decode_failure.fail_decode = true;
+  decode_failure.scripted_logits = {Logits(8, {{5, 10.0f}})};
+  expect_failure(&decode_failure);
+}
+
+TEST(QwenCausalLmModelTest, Utf8SuffixCompatibilityHelper) {
   std::string incomplete = std::string("ok") + "\xE4\xB8";
   QwenCausalLmModel::StripIncompleteUtf8Suffix(&incomplete);
   EXPECT_EQ(incomplete, "ok");
@@ -278,6 +384,14 @@ TEST(QwenCausalLmModelTest, ValidatesOptionsContextAndUtf8Suffix) {
   std::string dangling_continuation = std::string("ok") + "\x80";
   QwenCausalLmModel::StripIncompleteUtf8Suffix(&dangling_continuation);
   EXPECT_EQ(dangling_continuation, "ok");
+
+  auto session = std::make_shared<ScriptedGenerationSession>();
+  session->scripted_outputs = {std::string("managed") + "\xE4\xB8"};
+  QwenCausalLmModel model(session, "", false, 0);
+  TextBatch outputs;
+  ASSERT_EQ(model.Generate({{1, 0, "prompt"}}, GreedyOptions(), &outputs), 0);
+  ASSERT_EQ(outputs.size(), 1U);
+  EXPECT_EQ(outputs.front().data, "managed");
 }
 
 }  // namespace
