@@ -9,6 +9,7 @@
 - Pipeline Studio 的 Python 服务端、Web 资源与文档收敛到统一模块目录；根目录 `show`
   保持稳定入口，原生 `alg_show` 改为忠实展示显式 `id` / `depends_on`，不再把 JSON
   数组顺序误画成串行 DAG。
+- 修复 Pipeline Studio Web 工作台中已弃用的 `ensureExplicit` 残留调用导致的属性应用与节点删除未定义异常；实现基于 DAG 拓扑最长路径的自动分层布局（Topological Layering），补齐由 Catalog capability 约束的模型绑定与枚举字段下拉选择，并在 SVG 画布上提供可随草稿变更失效的校验错误节点联动高亮。
 - 删除仅用于过渡的 `core/traceable_item.h` 转发头，仓库内使用方直接依赖中立
   `contracts/traceable_item.h`。
 - 四层生产源码改为独立 OBJECT target 编译，并由显式 Composition Root 聚合；LayerGuard

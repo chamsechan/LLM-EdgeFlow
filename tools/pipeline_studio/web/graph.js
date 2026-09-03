@@ -8,6 +8,41 @@ function svg(tag, attrs = {}) {
   return element;
 }
 
+export function layeredPositions(nodes) {
+  const byId = new Map(nodes.map(node => [node.id, node]));
+  const indegree = new Map(nodes.map(node => [node.id, 0]));
+  const dependents = new Map(nodes.map(node => [node.id, []]));
+  const depths = new Map(nodes.map(node => [node.id, 0]));
+
+  for (const node of nodes) {
+    for (const dependency of node.depends_on || []) {
+      if (!byId.has(dependency)) continue;
+      indegree.set(node.id, indegree.get(node.id) + 1);
+      dependents.get(dependency).push(node.id);
+    }
+  }
+
+  const pending = nodes.filter(node => indegree.get(node.id) === 0).map(node => node.id);
+  for (let index = 0; index < pending.length; ++index) {
+    const id = pending[index];
+    for (const dependent of dependents.get(id)) {
+      depths.set(dependent, Math.max(depths.get(dependent), depths.get(id) + 1));
+      indegree.set(dependent, indegree.get(dependent) - 1);
+      if (indegree.get(dependent) === 0) pending.push(dependent);
+    }
+  }
+
+  const rows = new Map();
+  const positions = {};
+  for (const node of nodes) {
+    const depth = depths.get(node.id);
+    const row = rows.get(depth) || 0;
+    positions[node.id] = { x: 65 + depth * 300, y: 60 + row * 135 };
+    rows.set(depth, row + 1);
+  }
+  return positions;
+}
+
 export class GraphView {
   constructor(root, callbacks) {
     this.root = root;
@@ -47,7 +82,17 @@ export class GraphView {
         this.draftEdge.setAttribute("d", this.curve(source.x + WIDTH, source.y + HEIGHT / 2, point.x, point.y));
       }
     });
-    window.addEventListener("pointerup", () => { pan = null; this.cancelConnection(); });
+    window.addEventListener("pointerup", event => {
+      pan = null;
+      if (this.connecting) {
+        const target = document.elementFromPoint ? document.elementFromPoint(event.clientX, event.clientY) : null;
+        const inputPort = target?.closest ? target.closest(".port.input") : null;
+        if (inputPort && inputPort.dataset?.nodeId && inputPort.dataset.nodeId !== this.connecting) {
+          this.callbacks.connect(this.connecting, inputPort.dataset.nodeId);
+        }
+        this.cancelConnection();
+      }
+    });
   }
 
   localPoint(clientX, clientY) {
@@ -59,10 +104,23 @@ export class GraphView {
   transform() { this.viewport.setAttribute("transform", `translate(${this.offset.x} ${this.offset.y}) scale(${this.scale})`); }
 
   layout(nodes, force = false) {
-    nodes.forEach((node, index) => {
-      if (force || !this.positions[node.id]) this.positions[node.id] = { x: 65 + (index % 3) * 285, y: 60 + Math.floor(index / 3) * 145 };
-    });
-    this.callbacks.positionsChanged(this.positions);
+    const nodeIds = new Set(nodes.map(node => node.id));
+    let positionsChanged = false;
+    for (const id of Object.keys(this.positions)) {
+      if (!nodeIds.has(id)) {
+        delete this.positions[id];
+        positionsChanged = true;
+      }
+    }
+    const needsLayout = force || nodes.some(node => !this.positions[node.id]);
+    if (needsLayout) {
+      const proposed = layeredPositions(nodes);
+      for (const node of nodes) {
+        if (force || !this.positions[node.id]) this.positions[node.id] = proposed[node.id];
+      }
+      positionsChanged = true;
+    }
+    if (positionsChanged) this.callbacks.positionsChanged(this.positions);
   }
 
   curve(x1, y1, x2, y2) {
@@ -70,12 +128,15 @@ export class GraphView {
     return `M${x1},${y1} C${x1 + bend},${y1} ${x2 - bend},${y2} ${x2},${y2}`;
   }
 
-  render(nodes, selectedId) {
+  render(nodes, selectedId, errorIds = new Set(), modelIds = new Set()) {
     this.nodes = nodes;
+    this.errorIds = errorIds;
     this.layout(nodes);
     this.nodeLayer.replaceChildren();
     this.renderEdges(nodes);
-    nodes.forEach(node => this.nodeLayer.append(this.nodeElement(node, node.id === selectedId)));
+    nodes.forEach(node => this.nodeLayer.append(this.nodeElement(
+      node, node.id === selectedId, errorIds.has(node.id), modelIds.has(node.id)
+    )));
   }
 
   renderEdges(nodes) {
@@ -92,14 +153,19 @@ export class GraphView {
     }
   }
 
-  nodeElement(node, selected) {
+  nodeElement(node, selected, hasError = false, hasModel = false) {
     const position = this.positions[node.id];
-    const group = svg("g", { class: `node${selected ? " selected" : ""}`, transform: `translate(${position.x} ${position.y})` });
+    const group = svg("g", {
+      class: `node${selected ? " selected" : ""}${hasModel ? " has-model" : ""}${hasError ? " has-error" : ""}`,
+      transform: `translate(${position.x} ${position.y})`
+    });
     group.append(svg("rect", { class: "body", width: WIDTH, height: HEIGHT }));
     const title = svg("text", { x: 16, y: 29 }); title.textContent = node.node_type;
     const subtitle = svg("text", { class: "subtitle", x: 16, y: 53 }); subtitle.textContent = node.id;
     const input = svg("circle", { class: "port input", cx: 0, cy: HEIGHT / 2, r: 7 });
+    input.dataset.nodeId = node.id;
     const output = svg("circle", { class: "port output", cx: WIDTH, cy: HEIGHT / 2, r: 7 });
+    output.dataset.nodeId = node.id;
     input.addEventListener("pointerup", event => {
       event.stopPropagation();
       if (this.connecting && this.connecting !== node.id) this.callbacks.connect(this.connecting, node.id);
