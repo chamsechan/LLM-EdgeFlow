@@ -41,10 +41,13 @@ main { height: calc(100vh - 58px); display: grid; grid-template-columns: 250px m
 #documentTitle { color: var(--text); font-weight: 650; }
 #graph { width: 100%; flex: 1; background-color: #090e1a; background-image: radial-gradient(#253552 1px, transparent 1px); background-size: 22px 22px; touch-action: none; }
 #edges path { fill: none; stroke: #5b789f; stroke-width: 2.2; marker-end: url(#arrow); cursor: pointer; }
-#edges path:hover { stroke: var(--red); stroke-width: 4; }
+#edges path:hover { stroke: var(--red); stroke-width: 3.5; marker-end: url(#arrow-hover); }
 #arrow path { fill: #5b789f; }
 .node rect.body { fill: #18263e; stroke: #3a5276; stroke-width: 1.5; rx: 9; filter: drop-shadow(0 4px 8px #0008); }
+.node.has-model rect.body { stroke: #c084fc; }
+.node.has-error rect.body { stroke: var(--red); stroke-width: 2.2; }
 .node.selected rect.body { stroke: var(--blue); stroke-width: 2.5; }
+.node.selected.has-error rect.body { stroke: var(--red); stroke-width: 3; }
 .node text { fill: var(--text); pointer-events: none; }
 .node .subtitle { fill: var(--muted); font-size: 11px; }
 .node .port { fill: #091120; stroke: var(--blue); stroke-width: 2; cursor: crosshair; }

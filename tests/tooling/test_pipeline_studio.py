@@ -5,6 +5,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 import threading
@@ -14,18 +15,21 @@ import urllib.request
 
 
 ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_TOOL = ROOT / "build" / "alg_pipeline_tool_test"
+if not DEFAULT_TOOL.exists():
+    DEFAULT_TOOL = ROOT / "build" / "alg_pipeline_tool"
 PIPELINE_TOOL = Path(
-    os.environ.get(
-        "LLM_EDGEFLOW_PIPELINE_TOOL", ROOT / "build" / "alg_pipeline_tool"
-    )
+    os.environ.get("LLM_EDGEFLOW_PIPELINE_TOOL", DEFAULT_TOOL)
 )
 ALG_SHOW = Path(
     os.environ.get("LLM_EDGEFLOW_ALG_SHOW", ROOT / "build" / "alg_show")
 )
 STUDIO_SERVER = ROOT / "tools" / "pipeline_studio" / "server.py"
+WEB_ROOT = ROOT / "tools" / "pipeline_studio" / "web"
 SPEC = importlib.util.spec_from_file_location("edgeflow_show", STUDIO_SERVER)
 SHOW = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(SHOW)
+SHOW.PIPELINE_TOOL = PIPELINE_TOOL
 
 
 class WorkbenchServiceTest(unittest.TestCase):
@@ -33,7 +37,9 @@ class WorkbenchServiceTest(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.configs = Path(self.temporary.name)
         self.service = SHOW.WorkbenchService(self.configs)
-        self.keyword = json.loads((ROOT / "configs" / "pipeline_keyword_match.json").read_text())
+        self.keyword = json.loads(
+            (ROOT / "configs" / "pipeline_keyword_match.json").read_text()
+        )
 
     def tearDown(self):
         self.temporary.cleanup()
@@ -209,12 +215,83 @@ class HttpApiTest(unittest.TestCase):
         with urllib.request.urlopen(origin + "/index.html", timeout=5) as response:
             index = response.read().decode()
         self.assertIn('type="module" src="app.js"', index)
+        self.assertIn('id="arrow-hover"', index)
+        with urllib.request.urlopen(origin + "/styles.css", timeout=5) as response:
+            css = response.read().decode()
+        self.assertIn(".has-model", css)
+        self.assertIn(".has-error", css)
         with urllib.request.urlopen(origin + "/app.js", timeout=5) as response:
-            self.assertIn("new GraphView", response.read().decode())
+            app_js = response.read().decode()
+        self.assertIn("new GraphView", app_js)
+        self.assertIn('from "./workbench.js"', app_js)
+        self.assertNotIn("ensureExplicit", app_js)
         with self.post() as response:
             payload = json.load(response)
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["schema_version"], 1)
+
+    @unittest.skipUnless(shutil.which("node"), "Node.js is required for Web module tests")
+    def test_web_modules_apply_catalog_semantics_and_topological_layout(self):
+        script = f"""
+import assert from "node:assert/strict";
+import {{ readFileSync }} from "node:fs";
+
+const loadModule = async path => {{
+  const source = readFileSync(path, "utf8");
+  return import(`data:text/javascript;base64,${{Buffer.from(source).toString("base64")}}`);
+}};
+const workbench = await loadModule({json.dumps(str(WEB_ROOT / "workbench.js"))});
+const graph = await loadModule({json.dumps(str(WEB_ROOT / "graph.js"))});
+
+const models = [
+  {{ model_id: "embed", model_type: "embed_type", capability: "embedding" }},
+  {{ model_id: "llm", model_type: "llm_type", capability: "llm" }},
+  {{ model_id: "legacy_embed", model_type: "legacy_embed_type" }},
+];
+const modelDefinitions = [
+  {{ model_type: "legacy_embed_type", capability: "embedding" }},
+];
+const nodeDefinition = {{ model_capability: "embedding", model_config_field: "model_slot" }};
+assert.deepEqual(
+  workbench.compatibleModels(models, modelDefinitions, nodeDefinition).map(model => model.model_id),
+  ["embed", "legacy_embed"]
+);
+assert.deepEqual(
+  [...workbench.modelBoundNodeIds([
+    {{ id: "bound", node_type: "CustomNode", config: {{ model_slot: "embed" }} }},
+    {{ id: "hardcoded", node_type: "CustomNode", config: {{ bind_model: "llm" }} }},
+  ], [{{ node_type: "CustomNode", model_config_field: "model_slot" }}])],
+  ["bound"]
+);
+
+const positions = graph.layeredPositions([
+  {{ id: "sink", depends_on: ["middle"] }},
+  {{ id: "root", depends_on: [] }},
+  {{ id: "middle", depends_on: ["root"] }},
+  {{ id: "parallel_root", depends_on: [] }},
+]);
+assert.equal(positions.root.x, 65);
+assert.equal(positions.middle.x, 365);
+assert.equal(positions.sink.x, 665);
+assert.equal(positions.parallel_root.x, 65);
+assert.notEqual(positions.root.y, positions.parallel_root.y);
+
+let savedPositions;
+const view = {{
+  positions: {{ root: {{ x: 1, y: 2 }}, stale: {{ x: 3, y: 4 }} }},
+  callbacks: {{ positionsChanged: positions => {{ savedPositions = positions; }} }},
+}};
+graph.GraphView.prototype.layout.call(view, [{{ id: "root", depends_on: [] }}]);
+assert.deepEqual(savedPositions, {{ root: {{ x: 1, y: 2 }} }});
+"""
+        process = subprocess.run(
+            [shutil.which("node"), "--input-type=module", "-e", script],
+            text=True,
+            capture_output=True,
+            cwd=ROOT,
+            check=False,
+        )
+        self.assertEqual(process.returncode, 0, process.stderr)
 
     def test_invalid_fixtures_table_driven_parity_matrix(self):
         fixture_path = (
