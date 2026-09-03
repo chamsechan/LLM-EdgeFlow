@@ -1,6 +1,6 @@
 import { api, initialPipeline, write } from "./api.js";
 import { GraphView } from "./graph.js";
-import { compatibleModels, modelBoundNodeIds } from "./workbench.js";
+import { compatibleModels, createLatestRequestGate, modelBoundNodeIds } from "./workbench.js";
 
 const $ = selector => document.querySelector(selector);
 const state = {
@@ -15,6 +15,7 @@ const state = {
   errorNodeIds: new Set(),
   pipelineVersion: 0,
 };
+const catalogRequests = createLatestRequestGate();
 
 function toast(message, error = false) {
   const element = $("#toast");
@@ -136,7 +137,14 @@ function parseField(input) {
 }
 
 async function loadCatalog(biz = "") {
-  state.catalog = await api(`/catalog${biz ? `?biz=${encodeURIComponent(biz)}` : ""}`);
+  return catalogRequests.run(
+    () => api(`/catalog${biz ? `?biz=${encodeURIComponent(biz)}` : ""}`),
+    catalog => { state.catalog = catalog; renderOperators(); }
+  );
+}
+
+function clearCatalogSelection() {
+  state.catalog = { ...state.catalog, nodes: [], models: [], profiles: [] };
   renderOperators();
 }
 
@@ -164,14 +172,20 @@ function addNode(definition) {
 
 async function refreshLists() {
   const [allCatalog, profiles, pipelines] = await Promise.all([api("/catalog"), api("/profiles"), api("/pipelines")]);
-  state.catalog = state.pipeline ? await api(`/catalog?biz=${encodeURIComponent(state.pipeline.biz_name)}`) : allCatalog;
   state.profiles = profiles.profiles;
   const biz = $("#bizSelect"); biz.replaceChildren();
   for (const item of allCatalog.bizs) biz.add(new Option(`${item.display_name} · ${item.biz_name}`, item.biz_name));
   if (state.pipeline) biz.value = state.pipeline.biz_name;
   const schemes = $("#pipelineSelect"); schemes.replaceChildren(new Option("选择方案", ""));
   for (const item of pipelines.pipelines) schemes.add(new Option(`${item.filename} · ${item.biz_name}`, item.filename));
-  renderOperators(); filterProfiles();
+  if (state.pipeline) {
+    await loadCatalog(state.pipeline.biz_name);
+  } else {
+    catalogRequests.invalidate();
+    state.catalog = allCatalog;
+    renderOperators();
+  }
+  filterProfiles();
 }
 
 function filterProfiles() {
@@ -191,8 +205,9 @@ async function openPipeline(filename) {
   const result = await api(`/pipeline?filename=${encodeURIComponent(filename)}`);
   state.pipeline = result.pipeline; state.filename = result.filename; state.revision = result.revision; state.selected = "";
   state.pipelineVersion += 1;
-  await loadCatalog(state.pipeline.biz_name); restorePositions(); clearValidation(); setDirty(false); renderAll();
+  restorePositions(); clearValidation(); setDirty(false); clearCatalogSelection(); renderAll();
   $("#bizSelect").value = state.pipeline.biz_name;
+  if (await loadCatalog(state.pipeline.biz_name)) renderAll();
 }
 
 async function createPipeline() {
@@ -201,7 +216,8 @@ async function createPipeline() {
   const result = await write("/init", "POST", { biz, profile, empty: !profile });
   state.pipeline = result.pipeline; state.filename = ""; state.revision = ""; state.selected = "";
   state.pipelineVersion += 1;
-  await loadCatalog(biz); restorePositions(); clearValidation(); setDirty(true); renderAll();
+  restorePositions(); clearValidation(); setDirty(true); clearCatalogSelection(); renderAll();
+  if (await loadCatalog(biz)) renderAll();
 }
 
 async function save(saveAs) {
@@ -327,16 +343,16 @@ $("#applyJson").addEventListener("click", async () => {
   }
 
   const bizChanged = parsed.biz_name !== state.pipeline?.biz_name;
-  state.pipeline = parsed; state.selected = ""; markPipelineChanged(); renderAll();
+  state.pipeline = parsed; state.selected = ""; markPipelineChanged();
+  if (bizChanged) clearCatalogSelection();
+  renderAll();
   if (!bizChanged) return;
 
   $("#bizSelect").value = state.pipeline.biz_name;
   try {
-    await loadCatalog(state.pipeline.biz_name);
-    renderAll();
+    if (await loadCatalog(state.pipeline.biz_name)) renderAll();
   } catch (error) {
-    state.catalog = { ...state.catalog, nodes: [], models: [], profiles: [] };
-    renderOperators(); filterProfiles();
+    clearCatalogSelection(); filterProfiles();
     toast(`Catalog 加载失败：${error.message}`, true);
   }
 });

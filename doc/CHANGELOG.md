@@ -10,6 +10,7 @@
   保持稳定入口，原生 `alg_show` 改为忠实展示显式 `id` / `depends_on`，不再把 JSON
   数组顺序误画成串行 DAG。
 - 修复 Pipeline Studio Web 工作台中已弃用的 `ensureExplicit` 残留调用导致的属性应用与节点删除未定义异常；实现基于 DAG 拓扑最长路径的自动分层布局（Topological Layering），补齐由 Catalog capability 约束的模型绑定与枚举字段下拉选择，并在 SVG 画布上提供可随草稿变更失效的校验错误节点联动高亮。
+- 修复 Pipeline Studio 连续应用不同业务 Raw JSON 时 Catalog 异步响应乱序覆盖当前节点 Definition 的竞态；业务切换期间清空旧 Catalog 控件，并确保只有最新请求可更新工作台状态或报告错误。
 - 删除仅用于过渡的 `core/traceable_item.h` 转发头，仓库内使用方直接依赖中立
   `contracts/traceable_item.h`。
 - 四层生产源码改为独立 OBJECT target 编译，并由显式 Composition Root 聚合；LayerGuard

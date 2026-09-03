@@ -283,6 +283,48 @@ const view = {{
 }};
 graph.GraphView.prototype.layout.call(view, [{{ id: "root", depends_on: [] }}]);
 assert.deepEqual(savedPositions, {{ root: {{ x: 1, y: 2 }} }});
+
+const deferred = () => {{
+  let resolve;
+  let reject;
+  const promise = new Promise((resolvePromise, rejectPromise) => {{
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  }});
+  return {{ promise, resolve, reject }};
+}};
+const gate = workbench.createLatestRequestGate();
+const first = deferred();
+const second = deferred();
+let activeCatalog = "initial";
+const firstRun = gate.run(() => first.promise, value => {{ activeCatalog = value; }});
+const secondRun = gate.run(() => second.promise, value => {{ activeCatalog = value; }});
+second.resolve("newer");
+assert.equal(await secondRun, true);
+first.resolve("older");
+assert.equal(await firstRun, false);
+assert.equal(activeCatalog, "newer");
+
+const staleFailure = deferred();
+const currentSuccess = deferred();
+const staleFailureRun = gate.run(
+  () => staleFailure.promise,
+  value => {{ activeCatalog = value; }}
+);
+const currentSuccessRun = gate.run(
+  () => currentSuccess.promise,
+  value => {{ activeCatalog = value; }}
+);
+currentSuccess.resolve("current");
+assert.equal(await currentSuccessRun, true);
+staleFailure.reject(new Error("stale failure"));
+assert.equal(await staleFailureRun, false);
+assert.equal(activeCatalog, "current");
+
+await assert.rejects(
+  gate.run(() => Promise.reject(new Error("current failure")), () => {{}}),
+  /current failure/
+);
 """
         process = subprocess.run(
             [shutil.which("node"), "--input-type=module", "-e", script],
