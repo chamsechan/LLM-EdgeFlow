@@ -23,3 +23,22 @@ export function modelBoundNodeIds(nodes = [], nodeDefinitions = []) {
   }
   return result;
 }
+
+export function createLatestRequestGate() {
+  let generation = 0;
+  return {
+    invalidate() { generation += 1; },
+    async run(load, commit) {
+      const requestGeneration = ++generation;
+      try {
+        const value = await load();
+        if (requestGeneration !== generation) return false;
+        commit(value);
+        return true;
+      } catch (error) {
+        if (requestGeneration !== generation) return false;
+        throw error;
+      }
+    },
+  };
+}
