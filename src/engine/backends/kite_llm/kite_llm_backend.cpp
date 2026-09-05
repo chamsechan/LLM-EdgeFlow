@@ -1,10 +1,13 @@
 #include "engine/backends/kite_llm/kite_llm_backend.h"
 
+#include <algorithm>
 #include <exception>
 #include <filesystem>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
@@ -14,7 +17,7 @@
 #include "engine/text_generation/common_autoregressive_generator.h"
 
 #ifdef HAVE_KITELLM
-#include "kitellm_edgeflow_adapter.h"
+#include <kiteLLM.h>
 #endif
 
 namespace llm_edgeflow {
@@ -75,32 +78,44 @@ bool ResolveRunConfig(const std::string& model_path,
   return true;
 }
 
-struct KiteHandleDeleter {
-  void operator()(kitellm_edgeflow_handle* handle) const noexcept {
-    if (handle) kitellm_edgeflow_destroy(handle);
-  }
-};
-
-using KiteHandlePtr =
-    std::unique_ptr<kitellm_edgeflow_handle, KiteHandleDeleter>;
-
-class KiteResultGuard final {
+// Runtime must outlive every model handle, including failed session
+// construction.
+class KiteRuntime final {
  public:
-  explicit KiteResultGuard(kitellm_edgeflow_result* result) : result_(result) {}
-  ~KiteResultGuard() {
-    if (result_) kitellm_edgeflow_result_release(result_);
-  }
-  KiteResultGuard(const KiteResultGuard&) = delete;
-  KiteResultGuard& operator=(const KiteResultGuard&) = delete;
-
- private:
-  kitellm_edgeflow_result* result_ = nullptr;
+  KiteRuntime() { kiteLLM_Init(); }
+  ~KiteRuntime() { kiteLLM_DeInit(); }
+  KiteRuntime(const KiteRuntime&) = delete;
+  KiteRuntime& operator=(const KiteRuntime&) = delete;
 };
+
+template <void (*Release)(void*)>
+struct KiteDeleter {
+  void operator()(void* value) const noexcept {
+    if (value) Release(value);
+  }
+};
+
+using KiteHandlePtr = std::unique_ptr<void, KiteDeleter<kiteLLM_Unload>>;
+using KiteParameterPtr =
+    std::unique_ptr<void, KiteDeleter<kiteLLM_Parameter_Deallocate>>;
+using KiteInputPtr =
+    std::unique_ptr<void, KiteDeleter<kiteLLM_TaskInput_Deallocate>>;
+using KiteOutputPtr =
+    std::unique_ptr<void, KiteDeleter<kiteLLM_TaskOutput_Deallocate>>;
+
+void CheckKiteStatus(int status, const char* operation) {
+  if (status != KLLM_OK) {
+    throw std::runtime_error(std::string(operation) +
+                             " failed with kiteLLM status " +
+                             std::to_string(status));
+  }
+}
 
 class KiteTextGenerationSession final : public ITextGenerationSession {
  public:
-  explicit KiteTextGenerationSession(KiteHandlePtr handle)
-      : handle_(std::move(handle)) {}
+  KiteTextGenerationSession(std::shared_ptr<KiteRuntime> runtime,
+                            KiteHandlePtr handle)
+      : runtime_(std::move(runtime)), handle_(std::move(handle)) {}
 
   const std::string& BackendType() const noexcept override {
     static const std::string type = KiteLlmBackend::kBackendType;
@@ -130,7 +145,7 @@ class KiteTextGenerationSession final : public ITextGenerationSession {
     }
     if (seed.has_value()) {
       SetDiagnostic(diagnostic,
-                    "kiteLLM adapter does not support a fixed random seed");
+                    "kiteLLM does not support a fixed random seed per request");
       return -1;
     }
     if (formatted_prompt.empty()) {
@@ -142,42 +157,87 @@ class KiteTextGenerationSession final : public ITextGenerationSession {
     }
 
     try {
-      std::vector<const char*> stop_words;
-      std::vector<size_t> stop_word_sizes;
-      stop_words.reserve(options.stop_words.size());
-      stop_word_sizes.reserve(options.stop_words.size());
-      for (const auto& word : options.stop_words) {
-        stop_words.push_back(word.data());
-        stop_word_sizes.push_back(word.size());
-      }
-
-      kitellm_edgeflow_generate_options vendor_options{};
-      vendor_options.struct_size = sizeof(vendor_options);
-      vendor_options.max_tokens = options.max_tokens;
-      vendor_options.temperature = options.temperature;
-      vendor_options.top_k = options.top_k;
-      vendor_options.top_p = options.top_p;
-      vendor_options.repetition_penalty = options.repetition_penalty;
-      vendor_options.stop_words = stop_words.data();
-      vendor_options.stop_word_sizes = stop_word_sizes.data();
-      vendor_options.stop_word_count = stop_words.size();
-
-      kitellm_edgeflow_result vendor_result{};
-      vendor_result.struct_size = sizeof(vendor_result);
-      std::lock_guard<std::mutex> lock(generate_mutex_);
-      const int result = kitellm_edgeflow_generate(
-          handle_.get(), formatted_prompt.data(), formatted_prompt.size(),
-          add_bos ? 1 : 0, &vendor_options, &vendor_result);
-      KiteResultGuard result_guard(&vendor_result);
-      if (result != 0 || (!vendor_result.data && vendor_result.size > 0)) {
-        const char* error = kitellm_edgeflow_last_error(handle_.get());
+      if (formatted_prompt.size() >
+          static_cast<size_t>(std::numeric_limits<int>::max())) {
         SetDiagnostic(diagnostic,
-                      std::string("kiteLLM generation failed") +
-                          (error && *error ? ": " + std::string(error) : ""));
+                      "kiteLLM prompt exceeds tokenizer length limit");
         return -1;
       }
-      output->assign(vendor_result.data ? vendor_result.data : "",
-                     vendor_result.size);
+      std::lock_guard<std::mutex> lock(generate_mutex_);
+      // The Model already formatted the prompt. Token input preserves special
+      // tokens and the explicit BOS policy without a second chat template.
+      int token_count = 0;
+      const int probe = kiteLLM_Tokenizer_Encode(
+          handle_.get(), formatted_prompt.data(),
+          static_cast<int>(formatted_prompt.size()), nullptr, 0, &token_count,
+          add_bos ? 1 : 0, 1);
+      if (probe != KLLM_E_BUFFER_TOO_SMALL) CheckKiteStatus(probe, "Tokenize");
+      if (token_count <= 0) {
+        SetDiagnostic(diagnostic, "kiteLLM prompt produced no tokens");
+        return -1;
+      }
+      std::vector<int> tokens(static_cast<size_t>(token_count));
+      CheckKiteStatus(
+          kiteLLM_Tokenizer_Encode(handle_.get(), formatted_prompt.data(),
+                                   static_cast<int>(formatted_prompt.size()),
+                                   tokens.data(), token_count, &token_count,
+                                   add_bos ? 1 : 0, 1),
+          "Tokenize");
+      KiteInputPtr input(kiteLLM_TaskInput_Allocate());
+      if (!input) throw std::runtime_error("kiteLLM task allocation failed");
+      CheckKiteStatus(kiteLLM_TaskInput_SetPromptTokens(
+                          input.get(), tokens.data(), token_count),
+                      "SetPromptTokens");
+      CheckKiteStatus(
+          kiteLLM_TaskInput_SetMaxOutputTokens(input.get(), options.max_tokens),
+          "SetMaxOutputTokens");
+      CheckKiteStatus(
+          kiteLLM_TaskInput_SetTemperature(input.get(), options.temperature),
+          "SetTemperature");
+      CheckKiteStatus(kiteLLM_TaskInput_SetTopK(input.get(), options.top_k),
+                      "SetTopK");
+      CheckKiteStatus(kiteLLM_TaskInput_SetTopP(input.get(), options.top_p),
+                      "SetTopP");
+      CheckKiteStatus(kiteLLM_TaskInput_SetRepetitionPenalty(
+                          input.get(), options.repetition_penalty),
+                      "SetRepetitionPenalty");
+      void* raw_output = nullptr;
+      const int status = kiteLLM_Run(handle_.get(), input.get(), &raw_output);
+      KiteOutputPtr result(raw_output);
+      CheckKiteStatus(status, "Run");
+      if (!result)
+        throw std::runtime_error("kiteLLM returned a null task output");
+      int output_token_count = 0;
+      const int* output_tokens =
+          kiteLLM_TaskOutput_GetResultTokens(result.get(), &output_token_count);
+      if (output_token_count < 0 ||
+          (output_token_count > 0 && !output_tokens)) {
+        throw std::runtime_error("kiteLLM returned invalid output tokens");
+      }
+      if (output_token_count > 0) {
+        int text_size = 0;
+        const int decode_probe = kiteLLM_Tokenizer_Decode(
+            handle_.get(), output_tokens, output_token_count, nullptr, 0,
+            &text_size, 0);
+        if (decode_probe != KLLM_E_BUFFER_TOO_SMALL)
+          CheckKiteStatus(decode_probe, "Decode");
+        if (text_size < 0 || text_size == std::numeric_limits<int>::max()) {
+          throw std::runtime_error("kiteLLM returned invalid output length");
+        }
+        std::string decoded(static_cast<size_t>(text_size) + 1, '\0');
+        CheckKiteStatus(kiteLLM_Tokenizer_Decode(
+                            handle_.get(), output_tokens, output_token_count,
+                            decoded.data(), static_cast<int>(decoded.size()),
+                            &text_size, 0),
+                        "Decode");
+        decoded.resize(static_cast<size_t>(text_size));
+        size_t stop_position = decoded.size();
+        for (const auto& word : options.stop_words) {
+          stop_position = std::min(stop_position, decoded.find(word));
+        }
+        decoded.resize(stop_position);
+        *output = std::move(decoded);
+      }
       utf8::StripIncompleteSuffix(output);
       return 0;
     } catch (const std::exception& e) {
@@ -193,6 +253,7 @@ class KiteTextGenerationSession final : public ITextGenerationSession {
   }
 
  private:
+  std::shared_ptr<KiteRuntime> runtime_;
   KiteHandlePtr handle_;
   std::mutex generate_mutex_;
 };
@@ -235,9 +296,9 @@ std::shared_ptr<IBackendSession> KiteLlmBackend::Load(
       return nullptr;
     }
     std::error_code ec;
-    if (!std::filesystem::exists(spec.model_path, ec) || ec) {
-      SetDiagnostic(diagnostic,
-                    "kiteLLM model path does not exist: " + spec.model_path);
+    if (!std::filesystem::is_regular_file(spec.model_path, ec) || ec) {
+      SetDiagnostic(diagnostic, "kiteLLM model path is not a regular file: " +
+                                    spec.model_path);
       return nullptr;
     }
     if (!spec.backend_config.is_object()) {
@@ -260,19 +321,26 @@ std::shared_ptr<IBackendSession> KiteLlmBackend::Load(
       return nullptr;
     }
 
-    kitellm_edgeflow_handle* raw_handle = nullptr;
-    const int result = kitellm_edgeflow_create(
-        spec.model_path.c_str(), resolved_run_config.c_str(), &raw_handle);
-    KiteHandlePtr handle(raw_handle);
-    if (result != 0 || !handle) {
-      const char* error =
-          raw_handle ? kitellm_edgeflow_last_error(raw_handle) : nullptr;
-      SetDiagnostic(diagnostic,
-                    std::string("kiteLLM create failed") +
-                        (error && *error ? ": " + std::string(error) : ""));
+    auto runtime = std::make_shared<KiteRuntime>();
+    KiteParameterPtr parameters(kiteLLM_Parameter_Allocate());
+    if (!parameters) {
+      SetDiagnostic(diagnostic, "kiteLLM parameter allocation failed");
       return nullptr;
     }
-    return std::make_shared<KiteTextGenerationSession>(std::move(handle));
+    kiteLLM_Parameter_SetLoadFromFileSync(parameters.get(), 1);
+    if (!resolved_run_config.empty()) {
+      kiteLLM_Parameter_SetRunConfigFile(parameters.get(),
+                                         resolved_run_config.c_str());
+    }
+    KiteHandlePtr handle(
+        kiteLLM_LoadFromFile(spec.model_path.c_str(), parameters.get()));
+    if (!handle) {
+      SetDiagnostic(diagnostic,
+                    "kiteLLM model load failed: " + spec.model_path);
+      return nullptr;
+    }
+    return std::make_shared<KiteTextGenerationSession>(std::move(runtime),
+                                                       std::move(handle));
   } catch (const std::exception& e) {
     SetDiagnostic(diagnostic,
                   std::string("kiteLLM load exception: ") + e.what());

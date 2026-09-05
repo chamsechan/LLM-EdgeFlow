@@ -2,6 +2,9 @@
 
 本项目采用统一的 `3rdparty/` 本地持久化归档体系，用于缓存第三方开源依赖（包括预编译静态库 `.a`、动态库 `.so` 及对应的头文件）。
 
+用户指定的私有 GitHub kiteLLM 依赖使用 `kite_llm/<release>/<platform>/` 缓存已校验
+的 Release 归档；启用方式、读取授权和平台限制见 [kiteLLM 接入说明](../doc/kitellm.md)。
+
 > **注意**：除本 `README.md` 外，`3rdparty/` 下的所有自动生成与下载内容均已被 `.gitignore` 忽略，不会提交至 Git 仓库。
 
 ---

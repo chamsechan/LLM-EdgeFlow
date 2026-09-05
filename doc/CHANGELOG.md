@@ -6,6 +6,10 @@
 
 ## Unreleased
 
+- kiteLLM 改为从 GitHub 私有 Release 下载并校验固定版本，直接链接 `kiteLLM.h` /
+  `libkiteLLM.a`；移除外置 EdgeFlow C bridge 依赖。Linux x86_64/aarch64 可用，
+  因内含不同版本的 llama.cpp/ggml，与独立 llama_cpp 后端互斥。
+  使用与授权见 [接入说明](kitellm.md)，设计见 [RFC-0032](rfcs/0032-kitellm-direct-github-dependency.md)。
 - Pipeline Studio 的 Python 服务端、Web 资源与文档收敛到统一模块目录；根目录 `show`
   保持稳定入口，原生 `alg_show` 改为忠实展示显式 `id` / `depends_on`，不再把 JSON
   数组顺序误画成串行 DAG。

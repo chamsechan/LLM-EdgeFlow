@@ -82,7 +82,8 @@ TEST_F(CatalogContractSsotTest, ProductionModelBackendCatalogHasNoFixtures) {
     EXPECT_EQ(backend.backend_type.find("test_"), std::string::npos);
     EXPECT_EQ(backend.backend_type.find("mock"), std::string::npos);
     EXPECT_TRUE(backend.backend_type == "onnxruntime" ||
-                backend.backend_type == "llama_cpp");
+                backend.backend_type == "llama_cpp" ||
+                backend.backend_type == "kite_llm");
   }
 }
 
