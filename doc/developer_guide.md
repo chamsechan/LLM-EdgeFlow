@@ -115,7 +115,10 @@ typed port 契约时才新增 Node。Node 必须：
 Layer 4 必须保持两个独立扩展面：
 
 - **Model** 实现 Embedding/Rerank/LLM/OCR/ASR 语义，只依赖
-  `ITensorGraphSession` 或 `ITextGenerationSession` 等中性协议。
+  `ITensorGraphSession`、`ITextGenerationSession`、`IImageTextGenerationSession` 或
+  `IGeneratedTokenEmbeddingSession` 等中性协议。
+  `generated_text_embedding` 负责生成 token 向量的池化与归一化；Backend 只返回原始向量。
+  `vision_document` 将图像解码、补边和识别语义封装在 Model，Kite 类型仍只在 Backend 内出现。
 - **Backend** 封装 ONNX Runtime、llama.cpp、TensorRT 或 NPU SDK，加载后返回
   `IBackendSession`，不实现业务模型语义。
 

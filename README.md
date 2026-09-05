@@ -50,10 +50,10 @@ LLM-EdgeFlow 通过声明式 Pipeline，把纯 C ABI 接入、DAG 调度、可�
 | 实体抽取 | 文本 | llama.cpp / Qwen | [生产配置](configs/pipeline_entity_extract.json) |
 | 对话合规审计 | 对话与渠道 | Embedding + Rerank + LLM | [生产配置](configs/pipeline_dialogue_audit.json) |
 | 跨编码器精排 | Query 与候选集 | ONNX Cross-Encoder | [生产配置](configs/pipeline_cross_rerank.json) |
-| OCR 文档问答 | 图像与问题 | OCR + LLM | [Smoke/Test 配置](demo/fixtures/mock/pipeline_ocr_doc_qa.json) |
+| OCR 文档问答 | 图像与问题 | Kite 视觉转写 + LLM | [Kite 配置](configs/kite/pipeline_ocr_doc_qa.json) |
 | ASR 意图识别 | PCM 音频 | ASR + 槽位抽取 | [Smoke/Test 配置](demo/fixtures/mock/pipeline_audio_asr_intent.json) |
 
-OCR 与 ASR 的强类型契约已经接入框架，但仓库尚未交付对应的生产模型与 Backend；当前确定性实现仅用于测试和 Smoke Demo。
+OCR 已接入 Kite 图像文本推理，返回转写文本，不提供检测框或置信度；识别质量取决于视觉模型。ASR 仍仅有测试和 Smoke 实现。Kite 支持文本生成、图像转写及生成 token 向量；新增纯 Kite 问答配置用于向量接入验证，检索质量需按模型评估。Demo 用法见 [接入说明](doc/kitellm.md)。
 
 ## 快速开始
 

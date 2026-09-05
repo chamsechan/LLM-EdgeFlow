@@ -1,0 +1,226 @@
+{
+  "biz_name": "smart_doc_qa_rerank_llm_v1",
+  "models": [
+    {
+      "model_id": "embed_model_onnx",
+      "capability": "embedding",
+      "model_type": "bge_embedding",
+      "backend": "onnxruntime",
+      "model_path": "bge_base_zh_v1.5.onnx",
+      "model_config": {
+        "tokenizer_file": "bge_base_zh_v1.5_vocab.txt",
+        "do_lower_case": true,
+        "max_length": 512,
+        "pooling_strategy": "cls",
+        "normalize": true,
+        "output_name": "last_hidden_state",
+        "embedding_dim": 768
+      },
+      "backend_config": {
+        "max_batch_size": 4,
+        "intra_op_num_threads": 2,
+        "inter_op_num_threads": 1,
+        "graph_optimization_level": "all"
+      }
+    },
+    {
+      "model_id": "rerank_model_onnx",
+      "capability": "rerank",
+      "model_type": "bge_reranker",
+      "backend": "onnxruntime",
+      "model_path": "ms_marco_tinybert_l2_v2_quantized.onnx",
+      "model_config": {
+        "tokenizer_file": "ms_marco_bert_vocab.txt",
+        "do_lower_case": true,
+        "max_length": 512,
+        "output_name": "logits",
+        "score_activation": "sigmoid",
+        "max_batch_size": 4
+      },
+      "backend_config": {
+        "max_batch_size": 4,
+        "intra_op_num_threads": 2,
+        "inter_op_num_threads": 1,
+        "graph_optimization_level": "all"
+      }
+    },
+    {
+      "model_id": "llm_model_llamacpp",
+      "capability": "llm",
+      "model_type": "qwen_causal_lm",
+      "backend": "kite_llm",
+      "model_path": "qwen2.5-0.5b-instruct-q4_k_m.gguf",
+      "model_config": {
+        "random_seed": -1
+      },
+      "backend_config": {
+        "run_config_file": "kite_text_run.json"
+      }
+    }
+  ],
+  "pipeline": [
+    {
+      "id": "node_0_TextChunkNode",
+      "node_type": "TextChunkNode",
+      "depends_on": [],
+      "ports": {
+        "inputs": {
+          "text": "raw_docs"
+        },
+        "outputs": {
+          "chunks": "doc_chunks",
+          "chunk_counts": "doc_chunk_counts"
+        }
+      },
+      "config": {
+        "chunk_size": 60
+      }
+    },
+    {
+      "id": "node_1_QueryEmbeddingNode",
+      "node_type": "TextEmbeddingNode",
+      "depends_on": [],
+      "ports": {
+        "inputs": {
+          "text": "raw_queries"
+        },
+        "outputs": {
+          "embedding": "query_embeddings"
+        }
+      },
+      "config": {
+        "bind_model": "embed_model_onnx"
+      }
+    },
+    {
+      "id": "node_2_ChunkEmbeddingNode",
+      "node_type": "TextEmbeddingNode",
+      "depends_on": [
+        "node_0_TextChunkNode"
+      ],
+      "ports": {
+        "inputs": {
+          "text": "doc_chunks"
+        },
+        "outputs": {
+          "embedding": "chunk_embeddings"
+        }
+      },
+      "config": {
+        "bind_model": "embed_model_onnx"
+      }
+    },
+    {
+      "id": "node_3_VectorTopKNode",
+      "node_type": "VectorTopKNode",
+      "depends_on": [
+        "node_1_QueryEmbeddingNode",
+        "node_2_ChunkEmbeddingNode"
+      ],
+      "ports": {
+        "inputs": {
+          "queries": "query_embeddings",
+          "candidates": "chunk_embeddings",
+          "candidate_texts": "doc_chunks"
+        },
+        "outputs": {
+          "ranked": "coarse_contexts"
+        }
+      },
+      "config": {
+        "min_score": 0.0,
+        "top_k": 4
+      }
+    },
+    {
+      "id": "node_4_TextRerankNode",
+      "node_type": "TextRerankNode",
+      "depends_on": [
+        "node_3_VectorTopKNode"
+      ],
+      "ports": {
+        "inputs": {
+          "queries": "raw_queries",
+          "candidates": "coarse_contexts"
+        },
+        "outputs": {
+          "ranked": "fine_contexts"
+        }
+      },
+      "config": {
+        "bind_model": "rerank_model_onnx",
+        "top_k": 1
+      }
+    },
+    {
+      "id": "node_5_TextTemplateNode",
+      "node_type": "TextTemplateNode",
+      "depends_on": [
+        "node_4_TextRerankNode"
+      ],
+      "ports": {
+        "inputs": {
+          "primary": "raw_queries",
+          "context": "fine_contexts"
+        },
+        "outputs": {
+          "text": "prompt_text"
+        }
+      },
+      "config": {
+        "template": "【精准检索上下文】: {{context}}\n【用户提问】: {{primary}}\n请给出解答:"
+      }
+    },
+    {
+      "id": "node_6_TextRuleMatchNode",
+      "node_type": "TextRuleMatchNode",
+      "depends_on": [],
+      "ports": {
+        "inputs": {
+          "text": "raw_queries"
+        },
+        "outputs": {
+          "matches": "intent_matches"
+        }
+      },
+      "config": {
+        "categories": {
+          "AFTER_SALES_REFUND": [
+            "退款",
+            "退货",
+            "换货"
+          ],
+          "TECH_ARCHITECTURE": [
+            "架构",
+            "设计",
+            "C++",
+            "算法框架",
+            "ONNX",
+            "llama.cpp",
+            "Rerank"
+          ]
+        }
+      }
+    },
+    {
+      "id": "node_7_LlmGenerateNode",
+      "node_type": "LlmGenerateNode",
+      "depends_on": [
+        "node_5_TextTemplateNode"
+      ],
+      "ports": {
+        "inputs": {
+          "prompt": "prompt_text"
+        },
+        "outputs": {
+          "text": "llm_answers"
+        }
+      },
+      "config": {
+        "bind_model": "llm_model_llamacpp",
+        "max_tokens": 128,
+        "temperature": 0.0
+      }
+    }
+  ]
+}

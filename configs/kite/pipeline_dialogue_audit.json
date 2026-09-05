@@ -1,0 +1,234 @@
+{
+  "biz_name": "dialogue_compliance_audit_v1",
+  "models": [
+    {
+      "capability": "embedding",
+      "model_type": "bge_embedding",
+      "backend": "onnxruntime",
+      "model_config": {
+        "tokenizer_file": "bge_base_zh_v1.5_vocab.txt",
+        "embedding_dim": 768
+      },
+      "backend_config": {
+        "max_batch_size": 4
+      },
+      "model_id": "embed_model_v2",
+      "model_path": "bge_base_zh_v1.5.onnx"
+    },
+    {
+      "capability": "rerank",
+      "model_type": "bge_reranker",
+      "backend": "onnxruntime",
+      "model_config": {
+        "tokenizer_file": "ms_marco_bert_vocab.txt",
+        "max_batch_size": 4
+      },
+      "backend_config": {
+        "max_batch_size": 4
+      },
+      "model_id": "rerank_model_v1",
+      "model_path": "ms_marco_tinybert_l2_v2_quantized.onnx"
+    },
+    {
+      "capability": "llm",
+      "model_type": "qwen_causal_lm",
+      "backend": "kite_llm",
+      "model_config": {
+        "random_seed": -1,
+        "system_prompt": "You are a compliance classifier. Return only a valid JSON object. Never output explanations or Markdown."
+      },
+      "backend_config": {
+        "run_config_file": "kite_text_run.json"
+      },
+      "model_id": "audit_llm_v1",
+      "model_path": "qwen2.5-0.5b-instruct-q4_k_m.gguf"
+    }
+  ],
+  "pipeline": [
+    {
+      "id": "node_0_TextRuleMatchNode",
+      "node_type": "TextRuleMatchNode",
+      "depends_on": [],
+      "ports": {
+        "inputs": {
+          "text": "user_texts"
+        },
+        "outputs": {
+          "matches": "rule_matches"
+        }
+      },
+      "config": {
+        "categories": {
+          "BLACKLIST": [
+            "私下转账",
+            "加微信",
+            "索取密码",
+            "发送验证码",
+            "刷单返利"
+          ]
+        }
+      }
+    },
+    {
+      "id": "node_1_TextCorpusSourceNode",
+      "node_type": "TextCorpusSourceNode",
+      "depends_on": [],
+      "ports": {
+        "outputs": {
+          "corpus": "policy_corpus"
+        }
+      },
+      "config": {
+        "corpus": [
+          "制度条款101: 严禁引导客户进行私下转账、绕过平台交易或索取银行卡密码",
+          "制度条款102: 客服人员不得向客户索取手机动态短信验证码及支付密码",
+          "制度条款103: 严禁以任何理由向客户推介非官方指定的返利或刷单活动",
+          "制度条款104: 规范客服日常服务用语，严禁出现侮辱、辱骂或威胁客户的行为"
+        ]
+      }
+    },
+    {
+      "id": "node_2_QueryEmbeddingNode",
+      "node_type": "TextEmbeddingNode",
+      "depends_on": [],
+      "ports": {
+        "inputs": {
+          "text": "user_texts"
+        },
+        "outputs": {
+          "embedding": "query_embeddings"
+        }
+      },
+      "config": {
+        "bind_model": "embed_model_v2"
+      }
+    },
+    {
+      "id": "node_3_PolicyEmbeddingNode",
+      "node_type": "TextEmbeddingNode",
+      "depends_on": [
+        "node_1_TextCorpusSourceNode"
+      ],
+      "ports": {
+        "inputs": {
+          "text": "policy_corpus"
+        },
+        "outputs": {
+          "embedding": "policy_embeddings"
+        }
+      },
+      "config": {
+        "bind_model": "embed_model_v2",
+        "lifetime": "session"
+      }
+    },
+    {
+      "id": "node_4_VectorTopKNode",
+      "node_type": "VectorTopKNode",
+      "depends_on": [
+        "node_2_QueryEmbeddingNode",
+        "node_3_PolicyEmbeddingNode"
+      ],
+      "ports": {
+        "inputs": {
+          "queries": "query_embeddings",
+          "candidates": "policy_embeddings",
+          "candidate_texts": "policy_corpus"
+        },
+        "outputs": {
+          "ranked": "coarse_policy"
+        }
+      },
+      "config": {
+        "top_k": 3
+      }
+    },
+    {
+      "id": "node_5_TextRerankNode",
+      "node_type": "TextRerankNode",
+      "depends_on": [
+        "node_4_VectorTopKNode"
+      ],
+      "ports": {
+        "inputs": {
+          "queries": "user_texts",
+          "candidates": "coarse_policy"
+        },
+        "outputs": {
+          "ranked": "matched_policy"
+        }
+      },
+      "config": {
+        "bind_model": "rerank_model_v1",
+        "top_k": 1
+      }
+    },
+    {
+      "id": "node_6_TextTemplateNode",
+      "node_type": "TextTemplateNode",
+      "depends_on": [
+        "node_0_TextRuleMatchNode",
+        "node_5_TextRerankNode"
+      ],
+      "ports": {
+        "inputs": {
+          "primary": "user_texts",
+          "context": "matched_policy",
+          "matches": "rule_matches"
+        },
+        "outputs": {
+          "text": "prompt_text"
+        }
+      },
+      "config": {
+        "template": "判断下面客服对话是否存在违规行为。\n对话：{{primary}}\n制度参考：{{context}}\n规则匹配：{{matches}}\n只输出JSON，必须包含risk_level和risk_score两个字段。违规时risk_level为HIGH_RISK，合规时为SAFE；risk_score为0到1的数字。\n输出格式示例：{\"risk_level\":\"SAFE\",\"risk_score\":0.0}"
+      }
+    },
+    {
+      "id": "node_7_LlmGenerateNode",
+      "node_type": "LlmGenerateNode",
+      "depends_on": [
+        "node_6_TextTemplateNode"
+      ],
+      "ports": {
+        "inputs": {
+          "prompt": "prompt_text"
+        },
+        "outputs": {
+          "text": "llm_raw_verdict"
+        }
+      },
+      "config": {
+        "bind_model": "audit_llm_v1",
+        "max_tokens": 128,
+        "temperature": 0.0
+      }
+    },
+    {
+      "id": "node_8_StructuredJsonParseNode",
+      "node_type": "StructuredJsonParseNode",
+      "depends_on": [
+        "node_7_LlmGenerateNode"
+      ],
+      "ports": {
+        "inputs": {
+          "text": "llm_raw_verdict"
+        },
+        "outputs": {
+          "document": "structured_verdicts"
+        }
+      },
+      "config": {
+        "field_types": {
+          "risk_level": "string",
+          "risk_score": "number"
+        },
+        "required_fields": [
+          "risk_level",
+          "risk_score"
+        ],
+        "failure_policy": "fail"
+      }
+    }
+  ]
+}

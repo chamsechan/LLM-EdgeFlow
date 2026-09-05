@@ -64,19 +64,20 @@ graph TD
         ModelBase["IModel 强类型能力抽象"]
         BackendBase["IInferenceBackend / IBackendSession<br>中性执行协议"]
         LlmIntf["ILlmModel + ITextGenerationSession<br>(formatted prompt / unified options / text)"]
-        EmbedIntf["IEmbeddingModel / IRerankModel<br>+ ITensorGraphSession"]
+        EmbedIntf["IEmbeddingModel / IRerankModel<br>TensorGraph / GeneratedTokenEmbedding"]
         
         BatchExec["FixedBatchExecutor (硬件固定 Batch 调度器)<br>• 样本自动 Chunking 分块<br>• 末尾 Dummy Pad 自动补齐<br>• 推理后剥离 Pad 并保留溯源标签"]
         
         subgraph ModelSemantics["模型语义实现 (src/engine/models/)"]
             BgeModels["BgeEmbeddingModel / BgeRerankerModel"]
+            GeneratedEmbedModel["GeneratedTextEmbeddingModel<br>(generated token pooling / normalization)"]
             QwenModel["QwenCausalLmModel<br>(ChatML / provenance / protocol delegation)"]
         end
 
         subgraph HardwareBackends["硬件推理 Backend (src/engine/backends/)"]
             OnnxBackend["OnnxRuntimeBackend<br>(TensorGraph, CPU/CUDA)"]
             LlamaCpp["LlamaCppBackend<br>(TextGeneration, GGUF runtime)"]
-            KiteLlm["KiteLlmBackend<br>(managed TextGeneration, conditional SDK)"]
+            KiteLlm["KiteLlmBackend<br>(Text / ImageText / GeneratedTokenEmbedding, conditional SDK)"]
         end
     end
 
@@ -103,7 +104,7 @@ graph TD
     class C_API,C_Adapter l1;
     class PipeCore,S_Ctx,R_Ctx,TraceTag,Factory l2;
     class NodeApi,NodeBase,ModelNode,CommonNodes,BizNodes,LlmNode,PromptNode,VecSearchNode,RerankNode,PreNode,RuleNode,PostNode l3;
-    class ModelBase,BackendBase,LlmIntf,EmbedIntf,BatchExec,BgeModels,QwenModel,OnnxBackend,LlamaCpp,KiteLlm l4;
+    class ModelBase,BackendBase,LlmIntf,EmbedIntf,BatchExec,BgeModels,GeneratedEmbedModel,QwenModel,OnnxBackend,LlamaCpp,KiteLlm l4;
 ```
 
 ---
@@ -176,7 +177,7 @@ C++ Operator API：NamedIoBatch + Operator 镜像 C 结构 ─┘
 - **代码位置**：`include/engine/`，`src/engine/`
 - **核心职责**：
   1. `IEmbeddingModel`、`IRerankModel`、`ILlmModel`、`IOcrModel` 和 `IAsrModel` 表达模型语义，Node 只依赖所需能力；
-  2. `ITensorGraphSession` 与 `ITextGenerationSession` 表达中性执行协议；Qwen 只提交已格式化 prompt 与统一生成参数，llama.cpp 的低层 decoder 在 Backend 内复用公共自回归生成器，托管引擎可直接生成；ONNX Runtime 当前只提供 TensorGraph；
+  2. `ITensorGraphSession`、`ITextGenerationSession`、`IImageTextGenerationSession` 和 `IGeneratedTokenEmbeddingSession` 表达中性执行协议；Qwen 只提交已格式化 prompt 与统一生成参数，llama.cpp 的低层 decoder 在 Backend 内复用公共自回归生成器，托管引擎可直接生成；ONNX Runtime 当前只提供 TensorGraph；
   3. `ModelRuntimeFactory` 依据 `model_type + backend` 组合模型与 Backend，校验协议和并发契约后再原子注册到 `ModelManager`；
   4. **固定 Max Batch 自动调度（`FixedBatchExecutor`）**：完成批次切分、Dummy Pad、Pad 剔除和 `(req_id, sub_id)` 溯源；
   5. 切换 NPU/GPU/CPU 或 LLM 生成引擎只改 JSON 中的 `backend`、`model_path` 与 `backend_config`，不改业务 Node 或模型语义实现。
@@ -328,3 +329,13 @@ REGISTER_NODE_WITH_DEFINITION(MyCustomNode, MakeMyCustomNodeDefinition());
 ```
 
 ### 步骤 3：交付配置文件与算法库即可！
+
+图像文档识别沿用 `OcrDetectNode → IOcrModel`：`VisionDocumentModel` 在 Layer 4
+通过中性 `IImageTextGenerationSession` 调用 Kite，Model 负责图像解码与识别指令，
+Backend 负责原生 RGB/聊天输入映射和运行资源。识别结果仅填充 `combined_text`，不伪造
+`boxes` 或置信度；原有 C ABI/Operator、DAG 端口和请求溯源保持原样。
+
+生成向量接入遵循相同分层：`generated_text_embedding` 实现 `IEmbeddingModel`，
+经 `IGeneratedTokenEmbeddingSession` 获得生成 token 隐藏向量；Model 独占 prompt、
+池化及归一化语义，Backend 独占原生任务和输出内存。该向量空间与 BGE encoder
+不同，既有 ONNX 模型和配置保持可用，见 [RFC-0035](rfcs/0035-generated-token-embedding.md)。

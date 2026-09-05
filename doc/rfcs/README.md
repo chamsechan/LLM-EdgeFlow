@@ -88,6 +88,9 @@ doc/rfcs/NNNN-<kebab-case-title>.md
 | **RFC-0030** | 编译期分层边界与轻量运行时计划契约 | `Completed` | `v10.x` | Layer 1 ~ Layer 4 / Build | [0030-compile-time-layer-boundaries.md](0030-compile-time-layer-boundaries.md) |
 | **RFC-0031** | 业务 Blackboard Key 所有权拆分 | `Completed` | `v10.x` | Layer 1 ~ Layer 3 | [0031-business-blackboard-key-ownership.md](0031-business-blackboard-key-ownership.md) |
 | **RFC-0032** | 从 GitHub 发布包直接接入 kiteLLM | `Completed` | `v10.x` | Layer 4 / Build | [0032-kitellm-direct-github-dependency.md](0032-kitellm-direct-github-dependency.md) |
+| **RFC-0033** | 按 kiteLLM 原生接口传递设备选择 | `Completed` | `v10.x` | Layer 4 / Build | [0033-kitellm-native-device-contract.md](0033-kitellm-native-device-contract.md) |
+| **RFC-0034** | Kite 原生能力在现有业务中的完整接入 | `Completed` | `v10.x` | Layer 4 / Config / Build | [0034-kitellm-capability-coverage.md](0034-kitellm-capability-coverage.md) |
+| **RFC-0035** | Kite 生成 token 向量与中性 Embedding 接入 | `Completed` | `v10.x` | Layer 4 / Config / Build | [0035-generated-token-embedding.md](0035-generated-token-embedding.md) |
 
 ---
 

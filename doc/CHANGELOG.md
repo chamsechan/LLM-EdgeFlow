@@ -6,6 +6,20 @@
 
 ## Unreleased
 
+- Kite 新增 `generated_token_embedding` 中性协议和 `generated_text_embedding` Model，
+  接入原生生成 token 隐藏向量；Model 负责池化/归一化，复用现有 Embedding Node。
+  提供纯 Kite 问答配置，保留 BGE/ONNX 路径；生成向量不声明与 BGE 检索质量等价，见
+  [RFC-0035](rfcs/0035-generated-token-embedding.md)。
+
+- Kite 新增中性图像文本生成协议与 vision_document OCR Model，复用原有 OCR
+  Node/Operator，提供文本转写而不伪造检测框；补齐 Kite 文本、混合 ONNX 与图像
+  Demo 配置、独立 profiles 文件选择及固定视觉模型下载，见
+  [RFC-0034](rfcs/0034-kitellm-capability-coverage.md)。
+
+- kiteLLM 改用原生 `SetDeviceId` 接收现有执行目标，解除 run-config 独占设备的本地限制；
+  保留四层架构与 Operator 接口，使 CPU 设备 0 可通过既有 Demo/Operator 使用 Kite
+  文本生成。增加平台/运行配置冲突校验及真实模型 Demo 回归，见
+  [RFC-0033](rfcs/0033-kitellm-native-device-contract.md)。
 - CI 新增 kiteLLM 私有发布包下载、静态链接及真实 GGUF 回归任务，通过专用 Actions
   secret 授权；结果纳入验收记录，外部 fork / Dependabot 明确跳过私有任务。
 - kiteLLM 改为从 GitHub 私有 Release 下载并校验固定版本，直接链接 `kiteLLM.h` /

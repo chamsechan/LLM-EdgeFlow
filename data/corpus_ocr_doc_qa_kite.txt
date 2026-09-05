@@ -1,0 +1,4 @@
+[IMAGE]
+data/kite_invoice_sample.png
+[PROMPT]
+Return a JSON object containing the invoice number and total. Use only information present in the document.

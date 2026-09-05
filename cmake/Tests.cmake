@@ -15,6 +15,8 @@ set_tests_properties(ThirdPartyCacheMetadataTest PROPERTIES
 
 if(NOT LLM_EDGEFLOW_SHARDED_TEST_RUNNERS)
   include(${PROJECT_SOURCE_DIR}/cmake/IndividualTests.cmake)
+  # The opt-in real Kite deployment suite loads text, ONNX and vision models.
+  set_tests_properties(DemoRunnerTest PROPERTIES TIMEOUT 300)
   edgeflow_assert_required_test_inventory()
   return()
 endif()
@@ -458,4 +460,6 @@ get_property(_edgeflow_registered_tests DIRECTORY PROPERTY TESTS)
 set_tests_properties(${_edgeflow_registered_tests} PROPERTIES TIMEOUT 120)
 set_tests_properties(RegistryConflictNodeTest RegistryConflictModelTest
   PROPERTIES TIMEOUT 5)
+# The opt-in real Kite deployment suite loads text, ONNX and vision models.
+set_tests_properties(DemoRunnerTest PROPERTIES TIMEOUT 300)
 edgeflow_assert_required_test_inventory()

@@ -8,15 +8,16 @@ MODEL_DIR="${PROJECT_ROOT}/models"
 MODE="all"
 
 if [[ $# -gt 1 ]]; then
-  echo "Usage: $0 [--all | --gguf-only]"
+  echo "Usage: $0 [--all | --gguf-only | --kite]"
   exit 2
 fi
 if [[ $# -eq 1 ]]; then
   case "$1" in
     --all) MODE="all" ;;
     --gguf-only) MODE="gguf-only" ;;
+    --kite) MODE="kite" ;;
     *)
-      echo "Usage: $0 [--all | --gguf-only]"
+      echo "Usage: $0 [--all | --gguf-only | --kite]"
       exit 2
       ;;
   esac
@@ -80,7 +81,7 @@ download_verified \
   "74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db" \
   "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/9217f5db79a29953eb74d5343926648285ec7e67/qwen2.5-0.5b-instruct-q4_k_m.gguf"
 
-if [[ "${MODE}" == "all" ]]; then
+if [[ "${MODE}" == "all" || "${MODE}" == "kite" ]]; then
   download_verified \
     "bge_base_zh_v1.5.onnx" \
     "5e5619f7cca7380b824d329c157dba10bee7cc00d0c139e82fdb7906051b8e4f" \
@@ -97,6 +98,17 @@ if [[ "${MODE}" == "all" ]]; then
     "ms_marco_bert_vocab.txt" \
     "07eced375cec144d27c900241f3e339478dec958f92fddbc551f295c992038a3" \
     "https://huggingface.co/Xenova/ms-marco-TinyBERT-L-2-v2/resolve/b76bb5e1fefd66aa36cd108622d768e86c015ff1/vocab.txt"
+fi
+
+if [[ "${MODE}" == "kite" ]]; then
+  download_verified \
+    "SmolVLM-256M-Instruct-Q8_0.gguf" \
+    "2a31195d3769c0b0fd0a4906201666108834848db768af11de1d2cef7cd35e65" \
+    "https://huggingface.co/ggml-org/SmolVLM-256M-Instruct-GGUF/resolve/b9e4379657e1450d04d02eec8e345667265b0a00/SmolVLM-256M-Instruct-Q8_0.gguf"
+  download_verified \
+    "mmproj-SmolVLM-256M-Instruct-Q8_0.gguf" \
+    "7e943f7c53f0382a6fc41b6ee0c2def63ba4fded9ab8ed039cc9e2ab905e0edd" \
+    "https://huggingface.co/ggml-org/SmolVLM-256M-Instruct-GGUF/resolve/b9e4379657e1450d04d02eec8e345667265b0a00/mmproj-SmolVLM-256M-Instruct-Q8_0.gguf"
 fi
 
 echo "Pinned real-model artifact verification completed (${MODE})."

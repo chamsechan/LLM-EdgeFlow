@@ -23,7 +23,8 @@ void ConfigureLogLevelFromEnvironment() noexcept;
  * @brief Demo 运行参数对象 (由命令行参数、Profile 配置与默认安全值合并而成)
  */
 struct DemoOptions {
-  std::string profile;  // 预定义运行配置 Profile 标识
+  std::string profiles_file;  // Optional deployment-specific profile document
+  std::string profile;        // 预定义运行配置 Profile 标识
   std::string biz;  // 业务标识名 (如 entity_extract, keyword_match 等)
   std::string config_path;               // Operator .conf 路径
   std::string dataset_path;              // 业务测试集文件路径

@@ -10,7 +10,7 @@ Operator adapter and the C ABI adapter both submit absolute model paths to Core,
 but their public root parameters intentionally describe different directory
 layouts.
 
-Prepare every CPU real Profile artifact from pinned upstream commits with:
+Prepare the default CPU real Profile artifacts from pinned upstream commits with:
 
 ```bash
 ./scripts/fetch_real_test_models.sh --all
@@ -24,5 +24,17 @@ For the real GGUF C ABI/Profile gate only:
 ```
 
 The fetch script verifies SHA-256 before publishing a download into this
-directory. Model weights and tokenizer sidecars remain Git-ignored; only this
-documentation and `.gitkeep` are versioned.
+directory. Model weights and tokenizer sidecars remain Git-ignored; the deployment JSON sidecars and documentation are versioned.
+
+For Kite text, mixed ONNX/text and image/document profiles:
+
+```bash
+./scripts/fetch_real_test_models.sh --kite
+```
+
+This additionally fetches SmolVLM-256M-Instruct Q8_0 and its matching projector
+from `ggml-org/SmolVLM-256M-Instruct-GGUF` revision
+`b9e4379657e1450d04d02eec8e345667265b0a00`. Both SHA-256 values are pinned in
+the fetch script. `kite_vision_run.json` points to the projector relative to
+this directory. These small models support functional regression; document
+recognition accuracy must be evaluated on the intended data.

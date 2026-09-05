@@ -167,16 +167,23 @@ jobs:
             ninja-build \
             python3
 
-      # Only the public model is cached. Private kiteLLM headers, libraries and
+      # Only the public model artifacts are cached. Private kiteLLM headers, libraries and
       # linked executables must not enter this public repository's caches/artifacts.
-      - name: Cache Pinned GGUF
+      - name: Cache Pinned Kite Demo Models
         uses: actions/cache@v4
         with:
-          path: models/qwen2.5-0.5b-instruct-q4_k_m.gguf
-          key: qwen2.5-0.5b-q4-k-m-74a4da8c9fdb
+          path: |
+            models/qwen2.5-0.5b-instruct-q4_k_m.gguf
+            models/SmolVLM-256M-Instruct-Q8_0.gguf
+            models/mmproj-SmolVLM-256M-Instruct-Q8_0.gguf
+            models/bge_base_zh_v1.5.onnx
+            models/bge_base_zh_v1.5_vocab.txt
+            models/ms_marco_tinybert_l2_v2_quantized.onnx
+            models/ms_marco_bert_vocab.txt
+          key: kite-demo-models-${{ hashFiles('scripts/fetch_real_test_models.sh') }}
 
-      - name: Fetch and Verify Pinned GGUF
-        run: ./scripts/fetch_real_test_models.sh --gguf-only
+      - name: Fetch and Verify Pinned Text and Vision Models
+        run: ./scripts/fetch_real_test_models.sh --kite
 
       - name: Download Verified Private Release and Configure kiteLLM
         env:
@@ -198,17 +205,30 @@ jobs:
 
       - name: Verify Backend Registration and Real Model Tests
         env:
+          LLM_EDGEFLOW_TEST_KITELLM_DEMOS: "1"
+          LLM_EDGEFLOW_TEST_KITELLM_VISION_MODEL: ${{ github.workspace }}/models/SmolVLM-256M-Instruct-Q8_0.gguf
+          LLM_EDGEFLOW_TEST_KITELLM_VISION_CONFIG: kite_vision_run.json
           LLM_EDGEFLOW_TEST_KITELLM_MODEL: ${{ github.workspace }}/models/qwen2.5-0.5b-instruct-q4_k_m.gguf
         run: |
           test -s "${LLM_EDGEFLOW_TEST_KITELLM_MODEL}"
           ./build-kite/alg_pipeline_tool catalog > build-kite/catalog.json
           python3 - <<'PY'
           import json
+          import pathlib
+          import subprocess
           with open("build-kite/catalog.json", encoding="utf-8") as stream:
               catalog = json.load(stream)
           backends = {entry["backend_type"] for entry in catalog["backends"]}
           assert "kite_llm" in backends, "kiteLLM must be registered"
           assert "llama_cpp" not in backends, "Conflicting llama.cpp backend is enabled"
+          kite = next(b for b in catalog["backends"] if b["backend_type"] == "kite_llm")
+          assert "image_text_generation" in kite["supported_protocols"]
+          assert "generated_token_embedding" in kite["supported_protocols"]
+          assert any(m["model_type"] == "generated_text_embedding" for m in catalog["models"])
+          assert any(m["model_type"] == "vision_document" for m in catalog["models"])
+          for config in pathlib.Path("configs/kite").glob("*.json"):
+              for command in ("validate", "plan"):
+                  subprocess.run(["./build-kite/alg_pipeline_tool", command, str(config)], check=True)
           PY
           ctest --test-dir build-kite -j4 --output-on-failure
 
