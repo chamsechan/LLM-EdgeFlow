@@ -48,6 +48,10 @@ add_executable(test_llama_cpp_backend ${EDGEFLOW_SOURCE_test_llama_cpp_backend})
 target_link_libraries(test_llama_cpp_backend PRIVATE llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
 add_test(NAME LlamaCppBackendTest COMMAND test_llama_cpp_backend)
 
+add_executable(test_whisper_cpp_backend ${EDGEFLOW_SOURCE_test_whisper_cpp_backend})
+target_link_libraries(test_whisper_cpp_backend PRIVATE llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
+add_test(NAME WhisperCppBackendTest COMMAND test_whisper_cpp_backend)
+
 add_executable(test_different_io_modalities ${EDGEFLOW_SOURCE_test_different_io_modalities})
 target_link_libraries(test_different_io_modalities PRIVATE llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
 add_test(NAME DifferentIoModalitiesTest COMMAND test_different_io_modalities)
@@ -255,6 +259,7 @@ set(EDGEFLOW_INDIVIDUAL_TESTS_WITH_RUNTIME_FIXTURES
   test_c_abi_safety
   test_qwen_causal_lm_model
   test_llama_cpp_backend
+  test_whisper_cpp_backend
   test_different_io_modalities
   test_all_biz_pipelines
   test_concurrency_and_edge_cases

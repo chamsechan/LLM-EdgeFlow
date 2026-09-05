@@ -130,10 +130,11 @@ typedef struct {
 // 业务 6: 智能语音交互与意图槽位抽取结构体 (Audio PCM Stream + ASR + NLU)
 // -------------------------------------------------------------
 typedef struct {
-  uint64_t request_id;      // 外部请求唯一 ID
-  const float* pcm_buffer;  // 原始 PCM 浮点音频流数据
-  int pcm_length;           // 采样点长度
-  int sample_rate;          // 采样率 (如 16000)
+  uint64_t request_id;  // 外部请求唯一 ID
+  const float* pcm_buffer;  // 原始 PCM 浮点音频流数据 (单声道 float32 [-1,1],
+                            // 由调用方保证)
+  int pcm_length;   // 采样点长度
+  int sample_rate;  // 采样率 (如 16000)
 } CompanyAudioInputStruct;
 
 typedef struct {

@@ -38,3 +38,9 @@ from `ggml-org/SmolVLM-256M-Instruct-GGUF` revision
 the fetch script. `kite_vision_run.json` points to the projector relative to
 this directory. These small models support functional regression; document
 recognition accuracy must be evaluated on the intended data.
+
+For Whisper ASR models (`ggml-base.bin`, `ggml-tiny-q5_1.bin`):
+
+```bash
+./scripts/fetch_real_test_models.sh --whisper
+```

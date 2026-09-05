@@ -24,6 +24,7 @@ enum class ExecutionProtocol {
   kTextGeneration,
   kImageTextGeneration,
   kGeneratedTokenEmbedding,
+  kAudioTranscription,
 };
 
 /**
@@ -40,6 +41,7 @@ inline bool IsValidExecutionProtocol(ExecutionProtocol protocol) noexcept {
     case ExecutionProtocol::kTextGeneration:
     case ExecutionProtocol::kImageTextGeneration:
     case ExecutionProtocol::kGeneratedTokenEmbedding:
+    case ExecutionProtocol::kAudioTranscription:
       return true;
     default:
       return false;
@@ -461,6 +463,8 @@ inline const char* ExecutionProtocolName(ExecutionProtocol protocol) noexcept {
       return "image_text_generation";
     case ExecutionProtocol::kGeneratedTokenEmbedding:
       return "generated_token_embedding";
+    case ExecutionProtocol::kAudioTranscription:
+      return "audio_transcription";
     default:
       return "unknown";
   }

@@ -52,7 +52,8 @@ set(EDGEFLOW_REQUIRED_CONTRACT_TESTS
   RegistryConflictModelTest
   ModelBackendRegistryConflictTest
   QwenCausalLmModelTest
-  LlamaCppBackendTest)
+  LlamaCppBackendTest
+  WhisperCppBackendTest)
 
 # Source ownership is shared by sharded and individual runners. Keep each test
 # translation unit declared once here; mode-specific files only decide how to
@@ -86,6 +87,7 @@ set(EDGEFLOW_SOURCE_test_validated_pipeline_plan "${PROJECT_SOURCE_DIR}/tests/un
 set(EDGEFLOW_SOURCE_test_batch_executor "${PROJECT_SOURCE_DIR}/tests/unit/engine/test_batch_executor.cpp")
 set(EDGEFLOW_SOURCE_test_engine_fault_tolerance_and_lifecycle "${PROJECT_SOURCE_DIR}/tests/unit/engine/test_engine_fault_tolerance_and_lifecycle.cpp")
 set(EDGEFLOW_SOURCE_test_llama_cpp_backend "${PROJECT_SOURCE_DIR}/tests/unit/engine/test_llama_cpp_backend.cpp")
+set(EDGEFLOW_SOURCE_test_whisper_cpp_backend "${PROJECT_SOURCE_DIR}/tests/unit/engine/test_whisper_cpp_backend.cpp")
 set(EDGEFLOW_SOURCE_test_model_backend_decoupling "${PROJECT_SOURCE_DIR}/tests/unit/engine/test_model_backend_decoupling.cpp")
 set(EDGEFLOW_SOURCE_test_model_backend_pipeline "${PROJECT_SOURCE_DIR}/tests/unit/engine/test_model_backend_pipeline.cpp")
 set(EDGEFLOW_SOURCE_test_onnx_and_embedding_model "${PROJECT_SOURCE_DIR}/tests/unit/engine/test_onnx_and_embedding_model.cpp")

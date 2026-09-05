@@ -172,6 +172,11 @@ if(ENABLE_LLAMACPP)
       set(_llama_link_group ${_llama_sublibs})
     endif()
 
+    if(TARGET ggml)
+      set_target_properties(ggml PROPERTIES
+        INTERFACE_LINK_LIBRARIES "${_llama_link_group};${_llama_imported_deps}")
+    endif()
+
     if(NOT TARGET llama)
       add_library(llama STATIC IMPORTED GLOBAL)
       set_target_properties(llama PROPERTIES
@@ -243,3 +248,4 @@ if(ENABLE_LLAMACPP)
 endif()
 
 include(cmake/KiteLlm.cmake)
+include(cmake/WhisperCpp.cmake)

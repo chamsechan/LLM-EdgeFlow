@@ -134,6 +134,38 @@ jobs:
       - name: Run Real C ABI and Public Profile
         run: LLM_EDGEFLOW_LINKER=mold ./scripts/run_real_model_e2e.sh
 
+  whisper-asr:
+    name: Whisper ASR Backend & Real Profile
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Build Environment
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            ccache \
+            cmake \
+            curl \
+            mold \
+            ninja-build \
+            python3
+
+      - name: Cache Pinned Whisper Model
+        uses: actions/cache@v4
+        with:
+          path: models/ggml-base.bin
+          key: whisper-ggml-base-60ed5bc3dd14
+
+      - name: Fetch and Verify Pinned Whisper Model
+        run: ./scripts/fetch_real_test_models.sh --whisper
+
+      - name: Run Real Whisper E2E and Public Profile
+        run: LLM_EDGEFLOW_LINKER=mold ./scripts/run_real_model_e2e.sh --whisper
+
   kite-llm:
     name: kiteLLM Private Release & Real GGUF
     # Fork PRs and Dependabot do not receive repository secrets. Keep this job
@@ -235,7 +267,7 @@ jobs:
   acceptance-evidence:
     name: Exact-SHA Acceptance Evidence
     if: always()
-    needs: [build-and-test, sanitizer, real-c-abi-and-profile, kite-llm]
+    needs: [build-and-test, sanitizer, real-c-abi-and-profile, whisper-asr, kite-llm]
     runs-on: ubuntu-latest
 
     steps:
@@ -265,5 +297,6 @@ jobs:
           needs.build-and-test.result != 'success' ||
           needs.sanitizer.result != 'success' ||
           needs.real-c-abi-and-profile.result != 'success' ||
+          needs.whisper-asr.result != 'success' ||
           (needs.kite-llm.result != 'success' && needs.kite-llm.result != 'skipped')
         run: exit 1

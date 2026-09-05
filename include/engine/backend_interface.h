@@ -6,6 +6,7 @@
 #include <nlohmann/json.hpp>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "contracts/inference_payloads.h"
@@ -95,6 +96,21 @@ class IGeneratedTokenEmbeddingSession : public IBackendSession {
       const std::string& formatted_prompt, bool add_bos, int max_tokens,
       GeneratedTokenEmbeddings* output,
       std::string* diagnostic = nullptr) noexcept = 0;
+};
+
+struct AudioTranscriptionOptions {
+  std::string language = "zh";
+  size_t max_output_bytes = 65536;
+};
+
+class IAudioTranscriptionSession : public IBackendSession {
+ public:
+  virtual bool SupportsLanguage(std::string_view language) const noexcept = 0;
+
+  virtual int Transcribe(const AudioPcmPayload& audio,
+                         const AudioTranscriptionOptions& options,
+                         std::string* output,
+                         std::string* diagnostic = nullptr) noexcept = 0;
 };
 
 /**

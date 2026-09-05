@@ -70,6 +70,7 @@ TEST_F(CatalogContractSsotTest, ProductionModelBackendCatalogHasNoFixtures) {
   EXPECT_TRUE(model_types.count("bge_reranker"));
   EXPECT_TRUE(model_types.count("qwen_causal_lm"));
   EXPECT_TRUE(model_types.count("vision_document"));
+  EXPECT_TRUE(model_types.count("whisper_asr"));
   const auto embedding = PipelineCatalog::FindModel("generated_text_embedding");
   ASSERT_TRUE(embedding.has_value());
   EXPECT_EQ(embedding->capability, "embedding");
@@ -78,6 +79,10 @@ TEST_F(CatalogContractSsotTest, ProductionModelBackendCatalogHasNoFixtures) {
   const auto vision = PipelineCatalog::FindModel("vision_document");
   ASSERT_TRUE(vision.has_value());
   EXPECT_EQ(vision->required_protocol, ExecutionProtocol::kImageTextGeneration);
+  const auto asr = PipelineCatalog::FindModel("whisper_asr");
+  ASSERT_TRUE(asr.has_value());
+  EXPECT_EQ(asr->capability, "asr");
+  EXPECT_EQ(asr->required_protocol, ExecutionProtocol::kAudioTranscription);
   for (const auto& model_type : model_types) {
     EXPECT_EQ(model_type.find("test_"), std::string::npos);
     EXPECT_EQ(model_type.find("mock"), std::string::npos);
@@ -92,7 +97,8 @@ TEST_F(CatalogContractSsotTest, ProductionModelBackendCatalogHasNoFixtures) {
     EXPECT_EQ(backend.backend_type.find("mock"), std::string::npos);
     EXPECT_TRUE(backend.backend_type == "onnxruntime" ||
                 backend.backend_type == "llama_cpp" ||
-                backend.backend_type == "kite_llm");
+                backend.backend_type == "kite_llm" ||
+                backend.backend_type == "whisper_cpp");
   }
 }
 

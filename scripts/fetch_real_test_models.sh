@@ -8,7 +8,7 @@ MODEL_DIR="${PROJECT_ROOT}/models"
 MODE="all"
 
 if [[ $# -gt 1 ]]; then
-  echo "Usage: $0 [--all | --gguf-only | --kite]"
+  echo "Usage: $0 [--all | --gguf-only | --kite | --whisper]"
   exit 2
 fi
 if [[ $# -eq 1 ]]; then
@@ -16,8 +16,9 @@ if [[ $# -eq 1 ]]; then
     --all) MODE="all" ;;
     --gguf-only) MODE="gguf-only" ;;
     --kite) MODE="kite" ;;
+    --whisper) MODE="whisper" ;;
     *)
-      echo "Usage: $0 [--all | --gguf-only | --kite]"
+      echo "Usage: $0 [--all | --gguf-only | --kite | --whisper]"
       exit 2
       ;;
   esac
@@ -109,6 +110,17 @@ if [[ "${MODE}" == "kite" ]]; then
     "mmproj-SmolVLM-256M-Instruct-Q8_0.gguf" \
     "7e943f7c53f0382a6fc41b6ee0c2def63ba4fded9ab8ed039cc9e2ab905e0edd" \
     "https://huggingface.co/ggml-org/SmolVLM-256M-Instruct-GGUF/resolve/b9e4379657e1450d04d02eec8e345667265b0a00/mmproj-SmolVLM-256M-Instruct-Q8_0.gguf"
+fi
+
+if [[ "${MODE}" == "all" || "${MODE}" == "whisper" ]]; then
+  download_verified \
+    "ggml-base.bin" \
+    "60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe" \
+    "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin"
+  download_verified \
+    "ggml-tiny-q5_1.bin" \
+    "818710568da3ca15689e31a743197b520007872ff9576237bda97bd1b469c3d7" \
+    "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny-q5_1.bin"
 fi
 
 echo "Pinned real-model artifact verification completed (${MODE})."

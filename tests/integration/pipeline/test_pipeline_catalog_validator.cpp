@@ -286,5 +286,26 @@ TEST(PipelineValidatorTest, TableDrivenParityMatrix) {
   }
 }
 
+TEST(PipelineValidatorTest, WhisperPipelineValidationDependsOnBackend) {
+  std::ifstream stream("configs/pipeline_audio_asr_whisper.json");
+  ASSERT_TRUE(stream.is_open());
+  nlohmann::json pipeline;
+  stream >> pipeline;
+  const auto report = PipelineValidator::Validate(pipeline);
+#ifdef HAVE_WHISPERCPP
+  EXPECT_TRUE(report.ok) << report.ToJson().dump(2);
+  const auto plan = PipelineValidator::ValidateAndPlan(pipeline);
+  EXPECT_TRUE(plan.report.ok) << plan.report.ToJson().dump(2);
+#else
+  EXPECT_FALSE(report.ok);
+  EXPECT_TRUE(std::any_of(report.diagnostics.begin(), report.diagnostics.end(),
+                          [](const ValidationDiagnostic& diagnostic) {
+                            return diagnostic.code ==
+                                       DiagnosticCode::kUnknownBackend &&
+                                   diagnostic.path == "/models/0/backend";
+                          }));
+#endif
+}
+
 }  // namespace
 }  // namespace llm_edgeflow

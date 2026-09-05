@@ -101,6 +101,16 @@
       "chip": "cpu",
       "depth": 1
     },
+    "audio_asr_whisper": {
+      "biz": "audio_asr",
+      "config": "configs/pipeline_audio_asr_whisper.conf",
+      "dataset": "data/corpus_audio_asr_whisper.jsonl",
+      "suite": "real",
+      "batch_size": 1,
+      "device_id": 0,
+      "chip": "cpu",
+      "depth": 1
+    },
     "cross_rerank_onnx": {
       "biz": "cross_rerank",
       "config": "configs/pipeline_cross_rerank.conf",

@@ -182,6 +182,12 @@ if(LLM_EDGEFLOW_HAS_LLAMACPP)
   target_compile_definitions(edgeflow_layer4_dependencies INTERFACE
       HAVE_LLAMACPP=1)
 endif()
+if(LLM_EDGEFLOW_HAS_WHISPERCPP)
+  target_include_directories(edgeflow_layer4_dependencies SYSTEM INTERFACE
+      ${WHISPERCPP_INCLUDE_DIRS})
+  target_compile_definitions(edgeflow_layer4_dependencies INTERFACE
+      HAVE_WHISPERCPP=1)
+endif()
 if(THIRD_PARTY_ENGINE_LIBS)
   target_link_libraries(edgeflow_layer4_dependencies INTERFACE
       ${THIRD_PARTY_ENGINE_LIBS})
