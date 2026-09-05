@@ -115,20 +115,20 @@ class WhisperCppSession final : public IAudioTranscriptionSession {
       return -1;
     }
 
-    whisper_state* state = whisper_init_state(ctx_);
-    if (!state) {
-      SetDiagnostic(diagnostic, "Failed to initialize whisper_state");
-      return -1;
-    }
-
-    struct StateGuard {
-      whisper_state* s;
-      ~StateGuard() {
-        if (s) whisper_free_state(s);
-      }
-    } state_guard{state};
-
     try {
+      whisper_state* state = whisper_init_state(ctx_);
+      if (!state) {
+        SetDiagnostic(diagnostic, "Failed to initialize whisper_state");
+        return -1;
+      }
+
+      struct StateGuard {
+        whisper_state* s;
+        ~StateGuard() {
+          if (s) whisper_free_state(s);
+        }
+      } state_guard{state};
+
       auto params = whisper_full_default_params(WHISPER_SAMPLING_GREEDY);
       params.n_threads = n_threads_;
       std::string lang_str = options.language;
@@ -305,15 +305,24 @@ std::shared_ptr<IBackendSession> WhisperCppBackend::Load(
     cparams.use_gpu = false;
     cparams.flash_attn = false;
 
-    whisper_context* ctx = whisper_init_from_file_with_params_no_state(
+    whisper_context* raw_ctx = whisper_init_from_file_with_params_no_state(
         spec.model_path.c_str(), cparams);
-    if (!ctx) {
+    if (!raw_ctx) {
       SetDiagnostic(diagnostic, "Failed to load whisper model from file: " +
                                     spec.model_path);
       return nullptr;
     }
 
-    return std::make_shared<WhisperCppSession>(ctx, n_threads);
+    struct ContextGuard {
+      whisper_context* ctx = nullptr;
+      ~ContextGuard() {
+        if (ctx) whisper_free(ctx);
+      }
+    } context_guard{raw_ctx};
+
+    auto session = std::make_shared<WhisperCppSession>(raw_ctx, n_threads);
+    context_guard.ctx = nullptr;  // ownership transferred successfully
+    return session;
   } catch (const std::exception& e) {
     SetDiagnostic(diagnostic,
                   std::string("Exception loading whisper model: ") + e.what());
