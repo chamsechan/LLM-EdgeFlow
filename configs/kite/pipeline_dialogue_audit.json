@@ -34,7 +34,8 @@
       "model_type": "qwen_causal_lm",
       "backend": "kite_llm",
       "model_config": {
-        "random_seed": -1
+        "random_seed": -1,
+        "system_prompt": "You are a compliance classifier. Return only a valid JSON object. Never output explanations or Markdown."
       },
       "backend_config": {
         "run_config_file": "kite_text_run.json"
@@ -180,7 +181,7 @@
         }
       },
       "config": {
-        "template": "你是一个专业的智能客服合规风控质检大模型。请根据相关制度条款对客服与用户的对话进行合规判定并给出建议：\n【对话内容】: {{primary}}\n【相关制度】: {{context}}\n【规则初筛】: {{matches}}\n请严格按JSON格式输出判定：{\"verdict\": \"违规/合规\", \"risk_level\": \"HIGH_RISK/SAFE\", \"risk_score\": 0.0, \"suggestion\": \"...\"}\n【审核结论】:\n必须包含数字字段 risk_score，取值0到1；违规接近1，合规接近0。"
+        "template": "判断下面客服对话是否存在违规行为。\n对话：{{primary}}\n制度参考：{{context}}\n规则匹配：{{matches}}\n只输出JSON，必须包含risk_level和risk_score两个字段。违规时risk_level为HIGH_RISK，合规时为SAFE；risk_score为0到1的数字。\n输出格式示例：{\"risk_level\":\"SAFE\",\"risk_score\":0.0}"
       }
     },
     {
@@ -199,7 +200,7 @@
       },
       "config": {
         "bind_model": "audit_llm_v1",
-        "max_tokens": 256,
+        "max_tokens": 128,
         "temperature": 0.0
       }
     },
