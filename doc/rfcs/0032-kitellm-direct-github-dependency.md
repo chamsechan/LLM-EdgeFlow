@@ -60,13 +60,14 @@ stop-word setter，所以这不会提前终止上游同步推理。固定请求 
 1. [x] 基于 GitHub 真实源码/发布头核对接口并完成设计自评。
 2. [x] 完成 CMake 依赖和 Backend 替换，补充现有测试。
 3. [x] 完成专项验证和默认完整质量门禁。
-4. [x] 更新状态及使用文档；远端上传不在本次授权范围。
+4. [x] 更新状态及使用文档；按后续用户授权上传 PR 并补齐私有依赖 CI。
 
 ## 7. 变更记录
 
 | 日期 | 版本 | 变更内容 | 作者 |
 | :--- | :--- | :--- | :--- |
 | 2026-09-05 | v1.0.0 | GitHub 固定发布包、直接 C API 与静态依赖隔离决策 | LLM-EdgeFlow Team |
+| 2026-09-05 | v1.1.0 | 用户授权设置 Actions secret 和 kiteLLM 独立 CI，验收记录纳入任务结果 | LLM-EdgeFlow Team |
 
 ## 8. 验收记录
 
@@ -83,3 +84,16 @@ stop-word setter，所以这不会提前终止上游同步推理。固定请求 
 
 - 最终默认 `./scripts/run_all_tests.sh`：88/88 CTest 通过；kiteLLM + ONNX Runtime
   专项构建（启用真实 GGUF 用例）：88/88 CTest 通过。缓存复用配置未调用 GitHub 下载。
+
+## 9. 远程 CI 扩展
+
+用户后续授权配置跨私有仓库凭据及远程推理验证。将已有 gh 登录凭据通过 stdin 交给
+`gh secret set`，加密存储为 `KITELLM_GITHUB_TOKEN`；凭据不写文件、日志或 Git。
+该操作不改变原凭据权限和有效期，后续可轮换成仅有 kiteLLM Contents 读取权限的凭据。
+
+独立 kite-llm job 仅在非 fork、非 Dependabot 事件运行。它通过 step 级 `GH_TOKEN`
+执行固定发布包下载配置，然后在无该环境变量的步骤构建及运行真实 GGUF / 全部 CTest。
+私有依赖及其链接产物不进入公开 cache/artifact；只复用公开模型缓存。
+默认工作流三项门禁继续执行，最终验收记录增加 kiteLLM 状态；授权场景缺失/失效 secret
+必须失败，外部 fork / Dependabot 的跳过状态明确记录。实际远端运行结果以 PR checks
+及对应 commit 的 acceptance artifact 为准，不预先把配置存在当作下载或推理成功。

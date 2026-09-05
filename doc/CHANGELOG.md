@@ -6,6 +6,8 @@
 
 ## Unreleased
 
+- CI 新增 kiteLLM 私有发布包下载、静态链接及真实 GGUF 回归任务，通过专用 Actions
+  secret 授权；结果纳入验收记录，外部 fork / Dependabot 明确跳过私有任务。
 - kiteLLM 改为从 GitHub 私有 Release 下载并校验固定版本，直接链接 `kiteLLM.h` /
   `libkiteLLM.a`；移除外置 EdgeFlow C bridge 依赖。Linux x86_64/aarch64 可用，
   因内含不同版本的 llama.cpp/ggml，与独立 llama_cpp 后端互斥。

@@ -18,9 +18,19 @@ cmake --build build-kite -j8
 ./build-kite/alg_pipeline_tool catalog
 ```
 
-CI 通过 secret 注入具有该仓库读取权限的 `GH_TOKEN`，无需交互登录。当前工程的默认
-`GITHUB_TOKEN` 不保证能读取另一私有仓库。不要把 token 放在 CMake 参数、URL 或仓库文件中。
+CI 使用仓库 Actions secret `KITELLM_GITHUB_TOKEN`，仅在配置下载步骤将其注入为
+`GH_TOKEN`，无需交互登录。凭据必须能读取 `chamsechan/kiteLLM`；当前工程的默认
+`GITHUB_TOKEN` 不能代替该跨私有仓库授权。不要把 token 放在 CMake 参数、URL 或仓库文件中。
 新环境仍需网络和授权；GitHub 自动下载消除了对旧机器目录的依赖，不会绕过私有仓库权限。
+
+轮换时在仓库 Settings → Secrets and variables → Actions 更新
+`KITELLM_GITHUB_TOKEN`。新建凭据只需选择 kiteLLM 仓库并授予 Contents 读取权限。
+
+`kiteLLM Private Release & Real GGUF` 独立任务在 Linux x64 上下载校验发布包，构建
+kiteLLM + ONNX，确认 Catalog 注册并运行包含真实 GGUF 的完整 CTest。缺少或失效的
+凭据会使任务明确失败，结果写入验收记录。外部 fork PR 和 Dependabot 跳过此私有任务，
+其余默认 CI 保持执行；跳过状态在验收记录中保留。私有库、头文件和链接产物不上传为
+公开 artifact，也不进入 Actions cache，只有公开 GGUF 模型使用缓存。
 
 支持 Linux x86_64 与 aarch64；版本、平台包和 SHA-256 固定在
 [`cmake/KiteLlm.cmake`](../cmake/KiteLlm.cmake)。上游 v0.1.0 对应提交

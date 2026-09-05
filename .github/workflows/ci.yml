@@ -134,10 +134,88 @@ jobs:
       - name: Run Real C ABI and Public Profile
         run: LLM_EDGEFLOW_LINKER=mold ./scripts/run_real_model_e2e.sh
 
+  kite-llm:
+    name: kiteLLM Private Release & Real GGUF
+    # Fork PRs and Dependabot do not receive repository secrets. Keep this job
+    # on trusted events; do not switch it to pull_request_target.
+    if: >-
+      github.actor != 'dependabot[bot]' &&
+      (github.event_name != 'pull_request' ||
+       github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Build Environment
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            cmake \
+            curl \
+            default-jre-headless \
+            gh \
+            libgomp1 \
+            mold \
+            ninja-build \
+            python3
+
+      # Only the public model is cached. Private kiteLLM headers, libraries and
+      # linked executables must not enter this public repository's caches/artifacts.
+      - name: Cache Pinned GGUF
+        uses: actions/cache@v4
+        with:
+          path: models/qwen2.5-0.5b-instruct-q4_k_m.gguf
+          key: qwen2.5-0.5b-q4-k-m-74a4da8c9fdb
+
+      - name: Fetch and Verify Pinned GGUF
+        run: ./scripts/fetch_real_test_models.sh --gguf-only
+
+      - name: Download Verified Private Release and Configure kiteLLM
+        env:
+          GH_TOKEN: ${{ secrets.KITELLM_GITHUB_TOKEN }}
+        run: |
+          if [[ -z "${GH_TOKEN}" ]]; then
+            echo "::error::Set KITELLM_GITHUB_TOKEN with read access to chamsechan/kiteLLM."
+            exit 1
+          fi
+          cmake -S . -B build-kite -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DLLM_EDGEFLOW_LINKER=mold \
+            -DENABLE_KITELLM=ON \
+            -DENABLE_LLAMACPP=OFF \
+            -DENABLE_ONNXRUNTIME=ON
+
+      - name: Build kiteLLM SDK and Tests
+        run: cmake --build build-kite -j4
+
+      - name: Verify Backend Registration and Real Model Tests
+        env:
+          LLM_EDGEFLOW_TEST_KITELLM_MODEL: ${{ github.workspace }}/models/qwen2.5-0.5b-instruct-q4_k_m.gguf
+        run: |
+          test -s "${LLM_EDGEFLOW_TEST_KITELLM_MODEL}"
+          ./build-kite/alg_pipeline_tool catalog > build-kite/catalog.json
+          python3 - <<'PY'
+          import json
+          with open("build-kite/catalog.json", encoding="utf-8") as stream:
+              catalog = json.load(stream)
+          backends = {entry["backend_type"] for entry in catalog["backends"]}
+          assert "kite_llm" in backends, "kiteLLM must be registered"
+          assert "llama_cpp" not in backends, "Conflicting llama.cpp backend is enabled"
+          PY
+          ctest --test-dir build-kite -j4 --output-on-failure
+
   acceptance-evidence:
     name: Exact-SHA Acceptance Evidence
     if: always()
-    needs: [build-and-test, sanitizer, real-c-abi-and-profile]
+    needs: [build-and-test, sanitizer, real-c-abi-and-profile, kite-llm]
     runs-on: ubuntu-latest
 
     steps:
@@ -145,6 +223,8 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Generate Project Quality Evidence
+        env:
+          KITELLM_GATE_RESULT: ${{ needs.kite-llm.result }}
         run: |
           git fetch origin main --quiet
           ./scripts/generate_acceptance_evidence.sh \
@@ -164,5 +244,6 @@ jobs:
         if: >-
           needs.build-and-test.result != 'success' ||
           needs.sanitizer.result != 'success' ||
-          needs.real-c-abi-and-profile.result != 'success'
+          needs.real-c-abi-and-profile.result != 'success' ||
+          (needs.kite-llm.result != 'success' && needs.kite-llm.result != 'skipped')
         run: exit 1

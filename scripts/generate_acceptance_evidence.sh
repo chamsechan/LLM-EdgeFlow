@@ -69,6 +69,9 @@ evidence = {
         "real_c_abi_and_public_profile": os.environ["REAL_GATE"],
     },
 }
+if "KITELLM_GATE_RESULT" in os.environ:
+    evidence["gates"]["kitellm_private_release_and_real_gguf"] = os.environ[
+        "KITELLM_GATE_RESULT"]
 with open(os.environ["OUTPUT_JSON"], "w", encoding="utf-8") as stream:
     json.dump(evidence, stream, ensure_ascii=False, indent=2, sort_keys=True)
     stream.write("\n")
