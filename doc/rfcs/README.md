@@ -87,6 +87,7 @@ doc/rfcs/NNNN-<kebab-case-title>.md
 | **RFC-0029** | 外网架构收口与内网 SDK 迁移分阶段整改 | `In Implementation` | `v10.x / 待定` | Layer 1 ~ Layer 4 / Tooling | [0029-external-readiness-and-intranet-sdk-migration.md](0029-external-readiness-and-intranet-sdk-migration.md) |
 | **RFC-0030** | 编译期分层边界与轻量运行时计划契约 | `Completed` | `v10.x` | Layer 1 ~ Layer 4 / Build | [0030-compile-time-layer-boundaries.md](0030-compile-time-layer-boundaries.md) |
 | **RFC-0031** | 业务 Blackboard Key 所有权拆分 | `Completed` | `v10.x` | Layer 1 ~ Layer 3 | [0031-business-blackboard-key-ownership.md](0031-business-blackboard-key-ownership.md) |
+| **RFC-0032** | 从 GitHub 发布包直接接入 kiteLLM | `Completed` | `v10.x` | Layer 4 / Build | [0032-kitellm-direct-github-dependency.md](0032-kitellm-direct-github-dependency.md) |
 
 ---
 

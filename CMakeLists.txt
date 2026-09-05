@@ -170,12 +170,10 @@ if(LLM_EDGEFLOW_HAS_ONNXRUNTIME)
       "${ONNXRUNTIME_LIB}")
 endif()
 if(LLM_EDGEFLOW_HAS_KITELLM)
-  target_include_directories(edgeflow_layer4_dependencies SYSTEM INTERFACE
-      "${KITELLM_INCLUDE_DIR}")
   target_compile_definitions(edgeflow_layer4_dependencies INTERFACE
       HAVE_KITELLM=1)
   target_link_libraries(edgeflow_layer4_dependencies INTERFACE
-      "${KITELLM_LIBRARY}")
+      kiteLLM::kiteLLM)
 endif()
 if(LLM_EDGEFLOW_HAS_LLAMACPP)
   target_include_directories(edgeflow_layer4_dependencies SYSTEM INTERFACE

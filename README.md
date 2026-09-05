@@ -79,6 +79,9 @@ cmake --build build -j$(nproc)
 
 真实推理 Profile 需要相应模型资产；无需模型的确定性 Smoke Profile 可用于验证完整控制流。项目不设置 ccache 程序或缓存路径，本地可使用 compiler wrapper，CI 可使用标准 CMake launcher。
 
+kiteLLM 可从 GitHub 私有 Release 自动下载固定版本，直接引用头文件与静态库。
+授权、新环境构建和后端选择见 [kiteLLM 接入说明](doc/kitellm.md)。
+
 ## Pipeline 工具
 
 ```bash

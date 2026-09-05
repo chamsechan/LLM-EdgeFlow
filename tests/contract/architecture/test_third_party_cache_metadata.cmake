@@ -53,4 +53,24 @@ if(_valid)
   message(FATAL_ERROR "A modified cache marker must not be accepted")
 endif()
 
+# Dependency failures must be diagnosed before package loading or network I/O.
+function(expect_kite_failure expected)
+  execute_process(
+    COMMAND "${CMAKE_COMMAND}" -DENABLE_KITELLM=ON
+            -DENABLE_LLAMACPP=OFF -DCMAKE_SYSTEM_NAME=Linux
+            -DCMAKE_SYSTEM_PROCESSOR=x86_64
+            "-DLLM_EDGEFLOW_3RDPARTY_DIR=${TEST_ROOT}/deps"
+            ${ARGN} -P "${PROJECT_SOURCE_DIR}/cmake/KiteLlm.cmake"
+    RESULT_VARIABLE result OUTPUT_VARIABLE output ERROR_VARIABLE error)
+  if(result EQUAL 0 OR NOT "${output}${error}" MATCHES "${expected}")
+    message(FATAL_ERROR "Expected kiteLLM failure '${expected}': ${output}${error}")
+  endif()
+endfunction()
+expect_kite_failure("symbol collisions" -DENABLE_LLAMACPP=ON)
+expect_kite_failure("KITELLM_ROOT is obsolete" -DKITELLM_ROOT=/obsolete/sdk)
+expect_kite_failure("supports Linux" -DCMAKE_SYSTEM_NAME=UnsupportedOS)
+file(MAKE_DIRECTORY "${TEST_ROOT}/deps/kite_llm/v0.1.0/x64")
+file(WRITE "${TEST_ROOT}/deps/kite_llm/v0.1.0/x64/kiteLLM-x64.tar.gz" "tampered")
+expect_kite_failure("SHA-256 mismatch")
+
 file(REMOVE_RECURSE "${TEST_ROOT}")
