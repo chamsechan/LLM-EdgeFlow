@@ -111,6 +111,12 @@ int ParseCommandLine(int argc, char* argv[], DemoOptions* out_options,
       }
       out_options->biz = argv[++i];
       out_options->has_biz = true;
+    } else if (arg == "--profiles-file") {
+      if (i + 1 >= argc || !argv[i + 1][0]) {
+        if (error_msg) *error_msg = "--profiles-file requires a non-empty path";
+        return 2;
+      }
+      out_options->profiles_file = argv[++i];
     } else if (arg == "--suite") {
       if (i + 1 >= argc) {
         if (error_msg) *error_msg = "Missing value for argument: " + arg;
@@ -542,6 +548,8 @@ void PrintHelp(const char* program_name) {
       << "  --batch-size <n>           Max batch size for Operator execution "
          "(default: 1)\n"
       << "  --device-id <n>            Target hardware device ID (default: 0)\n"
+      << "  --profiles-file <path>     Profile document (default: "
+         "demo/profiles.json)\n"
       << "  --chip <name>              Compute platform name (ax650, "
          "ascend310p, "
          "ascend910b,\n"

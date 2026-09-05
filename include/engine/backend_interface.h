@@ -61,6 +61,42 @@ struct ExecutionTarget {
   std::string platform;
 };
 
+// Model-prepared RGB planes. The patch size describes the model's spatial
+// input layout; no vendor types or encoded image files cross this boundary.
+struct ImageTextInput {
+  std::string prompt;
+  int width = 0;
+  int height = 0;
+  int patch_size = 0;
+  std::vector<uint8_t> rgb_chw;
+};
+
+class IImageTextGenerationSession : public IBackendSession {
+ public:
+  virtual int Generate(const ImageTextInput& input,
+                       const GenerateOptions& options, std::string* output,
+                       std::string* diagnostic = nullptr) noexcept = 0;
+};
+
+// Owned, unpooled hidden states of generated tokens, in generation order.
+// These are not input-token states or a sentence embedding. Each row matches
+// one token_id; early EOS may return fewer rows than the requested limit.
+struct GeneratedTokenEmbeddings {
+  std::vector<int32_t> token_ids;
+  std::vector<std::vector<float>> values;
+};
+
+class IGeneratedTokenEmbeddingSession : public IBackendSession {
+ public:
+  // Greedy generation, without an implicit chat template. max_tokens: 1..64.
+  // Clear output on failure. Empty output is valid for immediate EOS; the
+  // consuming Model decides whether that represents a usable feature.
+  virtual int GenerateEmbeddings(
+      const std::string& formatted_prompt, bool add_bos, int max_tokens,
+      GeneratedTokenEmbeddings* output,
+      std::string* diagnostic = nullptr) noexcept = 0;
+};
+
 /**
  * @brief 后端加载参数规格
  */

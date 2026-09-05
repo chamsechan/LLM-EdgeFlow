@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "model": {
+    "context_size": 4096,
+    "threads": 4,
+    "threads_batch": 4,
+    "gpu_layers": 0
+  },
+  "logging": {
+    "level": "error"
+  }
+}

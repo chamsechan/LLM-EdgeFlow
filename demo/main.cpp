@@ -34,7 +34,7 @@ struct OperatorGlobalGuard {
   }
 };
 
-void ListProfilesAndBizs() {
+void ListProfilesAndBizs(const std::string& profiles_file) {
   std::cout << "\n=== Registered Biz Cases ===" << std::endl;
   auto descs = DemoRegistry::Instance().ListDescriptors();
   for (const auto& d : descs) {
@@ -42,11 +42,10 @@ void ListProfilesAndBizs() {
               << std::endl;
   }
 
-  std::cout << "\n=== Configured Profiles (demo/profiles.json) ==="
-            << std::endl;
+  std::cout << "\n=== Configured Profiles ===" << std::endl;
   nlohmann::json root;
   std::string err;
-  if (LoadAndValidateProfilesDocument("", &root, &err) == 0) {
+  if (LoadAndValidateProfilesDocument(profiles_file, &root, &err) == 0) {
     for (const auto& [name, p] : root["profiles"].items()) {
       std::string biz = p["biz"].get<std::string>();
       std::string suite =
@@ -64,7 +63,8 @@ void ListProfilesAndBizs() {
 int RunSuite(const std::string& suite_name, const DemoOptions& base_cli_opts) {
   std::vector<std::string> target_profiles;
   std::string err;
-  int ret = GetProfilesForSuite("", suite_name, &target_profiles, &err);
+  int ret = GetProfilesForSuite(base_cli_opts.profiles_file, suite_name,
+                                &target_profiles, &err);
   if (ret != 0) {
     std::cerr << "[Main ERROR] Failed to load suite '" << suite_name
               << "': " << err << std::endl;
@@ -90,7 +90,8 @@ int RunSuite(const std::string& suite_name, const DemoOptions& base_cli_opts) {
     cli_opt.has_profile = true;
 
     DemoOptions merged_opt;
-    ret = LoadAndMergeProfiles("", cli_opt, &merged_opt, &err);
+    ret =
+        LoadAndMergeProfiles(cli_opt.profiles_file, cli_opt, &merged_opt, &err);
     if (ret != 0) {
       std::cerr << "[Main ERROR] Failed to load profile '" << prof
                 << "': " << err << std::endl;
@@ -142,7 +143,7 @@ int main(int argc, char* argv[]) {
   }
 
   if (cli_options.list_only) {
-    ListProfilesAndBizs();
+    ListProfilesAndBizs(cli_options.profiles_file);
     return 0;
   }
 
@@ -166,7 +167,8 @@ int main(int argc, char* argv[]) {
   // 4. 合并 Profile 与命令行配置 (单 Profile / 单业务模式)
   DemoOptions options;
   std::string merge_err;
-  int merge_ret = LoadAndMergeProfiles("", cli_options, &options, &merge_err);
+  int merge_ret = LoadAndMergeProfiles(cli_options.profiles_file, cli_options,
+                                       &options, &merge_err);
   if (merge_ret != 0) {
     std::cerr << "[Config ERROR] " << merge_err << std::endl;
     return merge_ret;

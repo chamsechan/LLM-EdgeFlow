@@ -86,6 +86,7 @@ endif()
 
 # 引入第三方 JSON 库 (nlohmann/json) 自动下载配置
 include(cmake/NlohmannJson.cmake)
+include(cmake/StbImage.cmake)
 
 # 引入 Unicode 正则库（TextRuleMatchNode lookbehind / 命名捕获）
 include(cmake/Pcre2.cmake)

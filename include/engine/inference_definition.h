@@ -22,6 +22,8 @@ namespace llm_edgeflow {
 enum class ExecutionProtocol {
   kTensorGraph,
   kTextGeneration,
+  kImageTextGeneration,
+  kGeneratedTokenEmbedding,
 };
 
 /**
@@ -36,6 +38,8 @@ inline bool IsValidExecutionProtocol(ExecutionProtocol protocol) noexcept {
   switch (protocol) {
     case ExecutionProtocol::kTensorGraph:
     case ExecutionProtocol::kTextGeneration:
+    case ExecutionProtocol::kImageTextGeneration:
+    case ExecutionProtocol::kGeneratedTokenEmbedding:
       return true;
     default:
       return false;
@@ -453,6 +457,10 @@ inline const char* ExecutionProtocolName(ExecutionProtocol protocol) noexcept {
       return "tensor_graph";
     case ExecutionProtocol::kTextGeneration:
       return "text_generation";
+    case ExecutionProtocol::kImageTextGeneration:
+      return "image_text_generation";
+    case ExecutionProtocol::kGeneratedTokenEmbedding:
+      return "generated_token_embedding";
     default:
       return "unknown";
   }

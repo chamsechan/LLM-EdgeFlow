@@ -1,8 +1,10 @@
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -12,6 +14,7 @@
 #include "demo/common/demo_registry.h"
 #include "demo/common/operator_runner.h"
 #include "demo/common/result_writer.h"
+#include "engine/backend_registry.h"
 #include "nlohmann/json.hpp"
 #include "operator/operator_interface.h"
 
@@ -56,7 +59,99 @@ class DemoLogLevelGuard {
   int saved_level_;
 };
 
+class KiteDemoDirectory final {
+ public:
+  KiteDemoDirectory() {
+    path = std::filesystem::temp_directory_path() /
+           ("edgeflow-kite-demo-" +
+            std::to_string(
+                std::chrono::steady_clock::now().time_since_epoch().count()));
+    if (!std::filesystem::create_directory(path)) {
+      throw std::runtime_error("Cannot create Kite demo test directory");
+    }
+  }
+  ~KiteDemoDirectory() {
+    std::error_code ec;
+    std::filesystem::remove_all(path, ec);
+  }
+  std::filesystem::path path;
+};
+
 }  // namespace
+
+TEST(DemoRunnerTest, RealKiteEntityExtractionThroughOperator) {
+  if (!llm_edgeflow::BackendRegistry::Instance().Find("kite_llm")) {
+    GTEST_SKIP() << "kiteLLM SDK support is disabled";
+  }
+  const char* model_path = std::getenv("LLM_EDGEFLOW_TEST_KITELLM_MODEL");
+  if (!model_path || !*model_path) {
+    GTEST_SKIP()
+        << "Set LLM_EDGEFLOW_TEST_KITELLM_MODEL for the real demo gate";
+  }
+  ASSERT_TRUE(std::filesystem::is_regular_file(model_path));
+  KiteDemoDirectory temporary;
+  // Keep the artifact inside the deployment root without a symlink escape.
+  std::error_code ec;
+  std::filesystem::create_hard_link(std::filesystem::absolute(model_path),
+                                    temporary.path / "model.gguf", ec);
+  if (ec) {
+    ASSERT_TRUE(
+        std::filesystem::copy_file(model_path, temporary.path / "model.gguf"));
+  }
+
+  std::ifstream pipeline_input("configs/pipeline_entity_extract_llamacpp.json");
+  ASSERT_TRUE(pipeline_input.good());
+  auto pipeline = nlohmann::json::parse(pipeline_input);
+  auto& model = pipeline["models"][0];
+  model["backend"] = "kite_llm";
+  model["model_path"] = "model.gguf";
+  model["backend_config"] = {{"run_config_file", "run.json"}};
+  for (auto& node : pipeline["pipeline"]) {
+    if (node["node_type"] == "LlmGenerateNode") {
+      node["config"]["temperature"] = 0.0;
+    }
+    if (node["node_type"] == "StructuredJsonParseNode") {
+      node["config"].erase("fallback_json");
+      node["config"]["failure_policy"] = "fail";
+    }
+  }
+  std::ofstream(temporary.path / "pipeline.json") << pipeline.dump(2);
+  std::ifstream conf_input("configs/pipeline_entity_extract_llamacpp.conf");
+  ASSERT_TRUE(conf_input.good());
+  auto conf = nlohmann::json::parse(conf_input);
+  conf["data"]["pipe_path"] = "pipeline.json";
+  conf["data"]["model_paths"]["llm_0.6b_gguf"] = "model.gguf";
+  std::ofstream(temporary.path / "pipeline.conf") << conf.dump(2);
+  std::ofstream(temporary.path / "run.json")
+      << R"({"schema_version":1,"model":{"context_size":256,"threads":2,"threads_batch":2,"gpu_layers":0},"logging":{"level":"error"}})";
+  std::ofstream(temporary.path / "input.txt") << "张三在北京工作。\n";
+
+  DemoOptions opts;
+  opts.biz = "entity_extract";
+  opts.config_path = (temporary.path / "pipeline.conf").string();
+  opts.dataset_path = (temporary.path / "input.txt").string();
+  opts.output_dir = (temporary.path / "output").string();
+  opts.chip = "cpu_generic";
+  opts.device_id = 0;
+  opts.batch_size = 1;
+  const auto* desc = DemoRegistry::Instance().Find(opts.biz);
+  ASSERT_NE(desc, nullptr);
+  auto ops = Get_LLM_EDGEFLOW_OperatorTable();
+  ASSERT_EQ(ops.Init(), 0);
+  const int result = desc->run(opts);
+  EXPECT_EQ(ops.Deinit(), 0);
+  ASSERT_EQ(result, 0);
+
+  std::ifstream results(temporary.path / "output/entity_extract/results.jsonl");
+  ASSERT_TRUE(results.good());
+  std::string line;
+  ASSERT_TRUE(static_cast<bool>(std::getline(results, line)));
+  const auto sample = nlohmann::json::parse(line);
+  EXPECT_EQ(sample["request_id"], 30001);
+  EXPECT_EQ(sample["status"], 0);
+  ASSERT_TRUE(sample["output"].contains("entities"));
+  EXPECT_FALSE(sample["output"]["entities"].empty());
+}
 
 TEST(DemoRunnerTest, LogLevelEnvironmentConfiguration) {
   EnvironmentGuard environment_guard("LLMEDGEFLOW_LEVEL");
@@ -690,4 +785,58 @@ TEST(DemoRunnerTest, EndToEndAllMockSmokeBusinesses) {
   }
 
   ops.Deinit();
+}
+
+TEST(DemoRunnerTest, DeploymentProfilesFileSelection) {
+  const char* args[] = {"alg_demo", "--profiles-file",
+                        "demo/profiles_kite.json", "--profile",
+                        "entity_extract_kite"};
+  DemoOptions options;
+  std::string error;
+  ASSERT_EQ(ParseCommandLine(5, const_cast<char**>(args), &options, &error), 0);
+  EXPECT_EQ(options.profiles_file, "demo/profiles_kite.json");
+  DemoOptions merged;
+  ASSERT_EQ(
+      LoadAndMergeProfiles(options.profiles_file, options, &merged, &error), 0)
+      << error;
+  EXPECT_EQ(merged.biz, "entity_extract");
+  EXPECT_EQ(merged.config_path, "configs/kite/pipeline_entity_extract.conf");
+  std::vector<std::string> profiles;
+  ASSERT_EQ(
+      GetProfilesForSuite(options.profiles_file, "real", &profiles, &error), 0);
+  EXPECT_EQ(profiles.size(), 8U);
+  const char* missing[] = {"alg_demo", "--profiles-file"};
+  EXPECT_EQ(ParseCommandLine(2, const_cast<char**>(missing), &options, &error),
+            2);
+}
+
+TEST(DemoRunnerTest, RealKiteDeploymentProfiles) {
+  const char* enabled = std::getenv("LLM_EDGEFLOW_TEST_KITELLM_DEMOS");
+  if (!enabled || std::string(enabled) != "1")
+    GTEST_SKIP()
+        << "Set LLM_EDGEFLOW_TEST_KITELLM_DEMOS=1 after fetching --kite models";
+  ASSERT_TRUE(llm_edgeflow::BackendRegistry::Instance().Find("kite_llm"));
+  std::vector<std::string> profiles;
+  std::string error;
+  ASSERT_EQ(
+      GetProfilesForSuite("demo/profiles_kite.json", "real", &profiles, &error),
+      0)
+      << error;
+  auto ops = Get_LLM_EDGEFLOW_OperatorTable();
+  ASSERT_EQ(ops.Init(), 0);
+  for (const auto& name : profiles) {
+    DemoOptions cli;
+    cli.profile = name;
+    cli.output_dir = "results/kite-deployment-tests";
+    DemoOptions options;
+    const int merged =
+        LoadAndMergeProfiles("demo/profiles_kite.json", cli, &options, &error);
+    EXPECT_EQ(merged, 0) << error;
+    if (merged) continue;
+    const auto* descriptor = DemoRegistry::Instance().Find(options.biz);
+    EXPECT_NE(descriptor, nullptr);
+    if (!descriptor) continue;
+    EXPECT_EQ(descriptor->run(options), 0) << name;
+  }
+  EXPECT_EQ(ops.Deinit(), 0);
 }

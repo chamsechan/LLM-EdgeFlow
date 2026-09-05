@@ -1,0 +1,85 @@
+{
+  "schema_version": 2,
+  "profiles": {
+    "entity_extract_kite": {
+      "biz": "entity_extract",
+      "config": "configs/kite/pipeline_entity_extract.conf",
+      "dataset": "data/corpus_entity_extract.txt",
+      "suite": "real",
+      "batch_size": 1,
+      "device_id": 0,
+      "chip": "cpu_generic",
+      "depth": 1
+    },
+    "doc_qa_kite": {
+      "biz": "doc_qa",
+      "config": "configs/kite/pipeline_doc_qa.conf",
+      "dataset": "data/corpus_doc_qa.txt",
+      "suite": "real",
+      "batch_size": 1,
+      "device_id": 0,
+      "chip": "cpu_generic",
+      "depth": 1
+    },
+    "doc_qa_rerank_kite": {
+      "biz": "doc_qa",
+      "config": "configs/kite/pipeline_doc_qa_rerank.conf",
+      "dataset": "data/corpus_doc_qa.txt",
+      "suite": "real",
+      "batch_size": 1,
+      "device_id": 0,
+      "chip": "cpu_generic",
+      "depth": 1
+    },
+    "dialogue_audit_kite": {
+      "biz": "dialogue_audit",
+      "config": "configs/kite/pipeline_dialogue_audit.conf",
+      "dataset": "data/corpus_dialogue_audit.txt",
+      "suite": "real",
+      "batch_size": 1,
+      "device_id": 0,
+      "chip": "cpu_generic",
+      "depth": 1
+    },
+    "ocr_doc_qa_kite": {
+      "biz": "ocr_doc_qa",
+      "config": "configs/kite/pipeline_ocr_doc_qa.conf",
+      "dataset": "data/corpus_ocr_doc_qa_kite.txt",
+      "suite": "real",
+      "batch_size": 1,
+      "device_id": 0,
+      "chip": "cpu_generic",
+      "depth": 1
+    },
+    "keyword_match_mock": {
+      "biz": "keyword_match",
+      "config": "configs/pipeline_keyword_match.conf",
+      "dataset": "data/corpus_keyword_match.txt",
+      "suite": "real",
+      "batch_size": 2,
+      "device_id": 0,
+      "chip": "cpu",
+      "depth": 2
+    },
+    "cross_rerank_onnx": {
+      "biz": "cross_rerank",
+      "config": "configs/pipeline_cross_rerank.conf",
+      "dataset": "data/corpus_cross_rerank.txt",
+      "suite": "real",
+      "batch_size": 1,
+      "device_id": 0,
+      "chip": "cpu_generic",
+      "depth": 1
+    },
+    "doc_qa_kite_embeddings": {
+      "biz": "doc_qa",
+      "config": "configs/kite/pipeline_doc_qa_embeddings.conf",
+      "dataset": "data/corpus_doc_qa.txt",
+      "suite": "real",
+      "batch_size": 1,
+      "device_id": 0,
+      "chip": "cpu_generic",
+      "depth": 1
+    }
+  }
+}

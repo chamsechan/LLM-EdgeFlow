@@ -1,8 +1,12 @@
 #include <gtest/gtest.h>
 
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
+#include <filesystem>
+#include <fstream>
+#include <limits>
 #include <memory>
 #include <string>
 #include <thread>
@@ -25,6 +29,9 @@
 #include "engine/model_interface.h"
 #include "engine/model_registry.h"
 #include "engine/model_runtime_factory.h"
+#include "engine/models/generated_text_embedding/generated_text_embedding_model.h"
+#include "engine/models/vision_document/image_decode.h"
+#include "engine/models/vision_document/vision_document_model.h"
 
 using namespace llm_edgeflow;
 
@@ -598,3 +605,286 @@ TEST(ModelBackendDecouplingTest, FixedBatchExecutorStrictOutputsAndRollback) {
   EXPECT_EQ(ret, -4);
   EXPECT_TRUE(outputs.empty());
 }
+
+namespace {
+class DocumentImageFixture {
+ public:
+  DocumentImageFixture() {
+    directory =
+        std::filesystem::temp_directory_path() /
+        ("edgeflow-image-" +
+         std::to_string(
+             std::chrono::steady_clock::now().time_since_epoch().count()));
+    if (!std::filesystem::create_directory(directory))
+      throw std::runtime_error("Cannot create image fixture");
+    image = directory / "image.ppm";
+    std::ofstream file(image, std::ios::binary);
+    file << "P6\n2 1\n255\n";
+    const char pixels[] = {static_cast<char>(255), 0, 0, 0,
+                           static_cast<char>(255), 0};
+    file.write(pixels, sizeof(pixels));
+  }
+  ~DocumentImageFixture() {
+    std::error_code ec;
+    std::filesystem::remove_all(directory, ec);
+  }
+  std::filesystem::path directory, image;
+};
+
+class DocumentImageSession final : public IImageTextGenerationSession {
+ public:
+  const std::string& BackendType() const noexcept override {
+    static const std::string name = "test_image";
+    return name;
+  }
+  ExecutionProtocol Protocol() const noexcept override {
+    return ExecutionProtocol::kImageTextGeneration;
+  }
+  InferenceConcurrency Concurrency() const noexcept override {
+    return InferenceConcurrency::kSerialized;
+  }
+  BatchPolicy GetBatchPolicy() const noexcept override { return {1, 0}; }
+  int Generate(const ImageTextInput& input, const GenerateOptions&,
+               std::string* output, std::string*) noexcept override {
+    ++calls;
+    EXPECT_EQ(input.width, 2);
+    EXPECT_EQ(input.height, 2);
+    EXPECT_FALSE(input.prompt.empty());
+    *output = "TOTAL 12.50";
+    return fail ? -1 : 0;
+  }
+  int calls = 0;
+  bool fail = false;
+};
+}  // namespace
+
+TEST(ModelBackendDecouplingTest, DocumentImageDecodesPngSample) {
+  ImageTextInput image;
+  std::string error;
+  ASSERT_TRUE(DecodeDocumentImage("data/kite_invoice_sample.png", 16, 4194304,
+                                  &image, &error))
+      << error;
+  EXPECT_EQ(image.width, 640);
+  EXPECT_EQ(image.height, 320);
+  EXPECT_EQ(image.rgb_chw.size(), 640U * 320U * 3U);
+}
+
+TEST(ModelBackendDecouplingTest, DocumentImageDecodePadsAndConvertsRgbPlanes) {
+  DocumentImageFixture fixture;
+  ImageTextInput image;
+  std::string error;
+  ASSERT_TRUE(DecodeDocumentImage(fixture.image.string(), 2, 4, &image, &error))
+      << error;
+  EXPECT_EQ(image.width, 2);
+  EXPECT_EQ(image.height, 2);
+  EXPECT_EQ(image.patch_size, 2);
+  EXPECT_EQ(image.rgb_chw, (std::vector<uint8_t>{255, 0, 255, 255, 0, 255, 255,
+                                                 255, 0, 0, 255, 255}));
+  EXPECT_FALSE(
+      DecodeDocumentImage(fixture.image.string(), 2, 3, &image, &error));
+  EXPECT_TRUE(image.rgb_chw.empty());
+  EXPECT_FALSE(
+      DecodeDocumentImage(fixture.image.string(), 0, 4, &image, &error));
+  EXPECT_FALSE(DecodeDocumentImage((fixture.directory / "missing").string(), 2,
+                                   4, &image, &error));
+  std::ofstream(fixture.image, std::ios::binary)
+      << "P6\n2000000 2000000\n255\n";
+  EXPECT_FALSE(
+      DecodeDocumentImage(fixture.image.string(), 2, 4, &image, &error));
+  std::ofstream(fixture.image, std::ios::binary) << "not an image";
+  EXPECT_FALSE(
+      DecodeDocumentImage(fixture.image.string(), 2, 4, &image, &error));
+}
+
+TEST(ModelBackendDecouplingTest,
+     VisionDocumentPreservesIdsAndDoesNotInventBoxes) {
+  DocumentImageFixture fixture;
+  auto session = std::make_shared<DocumentImageSession>();
+  ModelCreateContext context;
+  context.backend_session = session;
+  context.model_config = {{"patch_size", 2}};
+  std::string error;
+  auto model = std::dynamic_pointer_cast<IOcrModel>(
+      VisionDocumentModel::Create(context, &error));
+  ASSERT_NE(model, nullptr) << error;
+  ImageRefBatch images{{123, 4, fixture.image.string()},
+                       {987, 6, fixture.image.string()}};
+  OcrDocumentBatch outputs;
+  ASSERT_EQ(model->Recognize(images, &outputs), 0);
+  ASSERT_EQ(outputs.size(), 2U);
+  EXPECT_EQ(outputs[0].req_id, 123U);
+  EXPECT_EQ(outputs[0].sub_id, 4U);
+  EXPECT_EQ(outputs[1].req_id, 987U);
+  EXPECT_EQ(outputs[1].sub_id, 6U);
+  EXPECT_EQ(outputs[0].data.combined_text, "TOTAL 12.50");
+  EXPECT_TRUE(outputs[0].data.boxes.empty());
+  images[1].data = (fixture.directory / "missing").string();
+  EXPECT_NE(model->Recognize(images, &outputs), 0);
+  EXPECT_TRUE(outputs.empty());
+  session->fail = true;
+  EXPECT_NE(model->Recognize({images[0]}, &outputs), 0);
+  EXPECT_TRUE(outputs.empty());
+  EXPECT_EQ(model->Recognize({}, &outputs), 0);
+  EXPECT_NE(model->Recognize({}, nullptr), 0);
+  context.model_config = {{"patch_size", 0}};
+  EXPECT_EQ(VisionDocumentModel::Create(context, &error), nullptr);
+  context.backend_session.reset();
+  EXPECT_EQ(VisionDocumentModel::Create(context, &error), nullptr);
+}
+
+TEST(ModelBackendDecouplingTest,
+     VisionDocumentRejectsTensorBackendBeforeLoading) {
+  ModelLoadSpec spec;
+  spec.model_type = "vision_document";
+  spec.backend_type = "onnxruntime";
+  spec.model_path = "does-not-exist.gguf";
+  std::string error;
+  if (!BackendRegistry::Instance().Find("onnxruntime")) GTEST_SKIP();
+  EXPECT_EQ(ModelRuntimeFactory::Create(spec, &error), nullptr);
+  EXPECT_NE(error.find("image_text_generation"), std::string::npos);
+}
+
+namespace llm_edgeflow {
+namespace {
+class GeneratedEmbeddingSession final : public IGeneratedTokenEmbeddingSession {
+ public:
+  const std::string& BackendType() const noexcept override {
+    static const std::string name = "test_generated_embedding";
+    return name;
+  }
+  ExecutionProtocol Protocol() const noexcept override { return protocol; }
+  InferenceConcurrency Concurrency() const noexcept override {
+    return InferenceConcurrency::kSerialized;
+  }
+  BatchPolicy GetBatchPolicy() const noexcept override { return policy; }
+  int GenerateEmbeddings(const std::string& prompt, bool bos, int limit,
+                         GeneratedTokenEmbeddings* output,
+                         std::string*) noexcept override {
+    prompts.push_back(prompt);
+    EXPECT_TRUE(bos);
+    EXPECT_EQ(limit, 3);
+    *output = response;
+    return prompts.size() == fail_call ? -7 : 0;
+  }
+  ExecutionProtocol protocol = ExecutionProtocol::kGeneratedTokenEmbedding;
+  BatchPolicy policy{1, 0};
+  GeneratedTokenEmbeddings response{{10, 11}, {{3, 0}, {0, 4}}};
+  std::vector<std::string> prompts;
+  size_t fail_call = 0;
+};
+ModelCreateContext EmbeddingContext(
+    const std::shared_ptr<GeneratedEmbeddingSession>& session) {
+  ModelCreateContext context;
+  context.backend_session = session;
+  context.model_config = {{"embedding_dim", 2},  {"max_tokens", 3},
+                          {"prefix", "prefix:"}, {"suffix", ":suffix"},
+                          {"add_bos", true},     {"pooling", "mean"}};
+  return context;
+}
+}  // namespace
+
+TEST(ModelBackendDecouplingTest,
+     GeneratedEmbeddingPoolsActualRowsAndPreservesProvenance) {
+  auto session = std::make_shared<GeneratedEmbeddingSession>();
+  auto context = EmbeddingContext(session);
+  std::string error;
+  auto model = std::dynamic_pointer_cast<IEmbeddingModel>(
+      GeneratedTextEmbeddingModel::Create(context, &error));
+  ASSERT_NE(model, nullptr) << error;
+  EmbeddingBatch output;
+  const TextBatch inputs{{41, 7, "one"}, {82, 3, "two"}};
+  ASSERT_EQ(model->Embed(inputs, {}, &output), 0);
+  ASSERT_EQ(output.size(), 2U);
+  EXPECT_EQ(output[0].req_id, 41U);
+  EXPECT_EQ(output[0].sub_id, 7U);
+  EXPECT_EQ(output[1].req_id, 82U);
+  EXPECT_EQ(output[1].sub_id, 3U);
+  EXPECT_EQ(session->prompts, (std::vector<std::string>{"prefix:one:suffix",
+                                                        "prefix:two:suffix"}));
+  EXPECT_NEAR(output[0].data[0], .6f, 1e-6f);
+  EXPECT_NEAR(output[0].data[1], .8f, 1e-6f);
+  ASSERT_EQ(model->Embed({inputs[0]}, {false}, &output), 0);
+  EXPECT_EQ(output[0].data, (std::vector<float>{1.5f, 2.0f}));
+  context.model_config["pooling"] = "last";
+  model = std::dynamic_pointer_cast<IEmbeddingModel>(
+      GeneratedTextEmbeddingModel::Create(context, &error));
+  ASSERT_NE(model, nullptr) << error;
+  ASSERT_EQ(model->Embed({inputs[0]}, {false}, &output), 0);
+  EXPECT_EQ(output[0].data, (std::vector<float>{0, 4}));
+  session->prompts.clear();
+  session->fail_call = 2;
+  EXPECT_EQ(model->Embed(inputs, {}, &output), -7);
+  EXPECT_TRUE(output.empty());
+  EXPECT_EQ(model->Embed({}, {}, &output), 0);
+  EXPECT_TRUE(output.empty());
+  EXPECT_NE(model->Embed({}, {}, nullptr), 0);
+}
+
+TEST(ModelBackendDecouplingTest,
+     GeneratedEmbeddingRejectsInvalidFeaturesWithoutPartialOutputs) {
+  auto session = std::make_shared<GeneratedEmbeddingSession>();
+  std::string error;
+  auto model = std::dynamic_pointer_cast<IEmbeddingModel>(
+      GeneratedTextEmbeddingModel::Create(EmbeddingContext(session), &error));
+  ASSERT_NE(model, nullptr) << error;
+  const std::vector<GeneratedTokenEmbeddings> invalid{
+      {},
+      {{1}, {}},
+      {{1}, {{1}}},
+      {{1}, {{1, 2, 3}}},
+      {{1}, {{std::numeric_limits<float>::quiet_NaN(), 2}}},
+      {{1}, {{1, std::numeric_limits<float>::infinity()}}},
+      {{1}, {{0, 0}}},
+      {{1, 2, 3, 4}, {{1, 2}, {1, 2}, {1, 2}, {1, 2}}}};
+  for (const auto& response : invalid) {
+    session->response = response;
+    EmbeddingBatch output{{99, 9, {42}}};
+    EXPECT_NE(model->Embed({{1, 0, "input"}}, {}, &output), 0);
+    EXPECT_TRUE(output.empty());
+  }
+  EmbeddingBatch output;
+  session->response = {{1}, {{1, 2}}};
+  EXPECT_NE(model->Embed({{1, 0, "valid"}, {2, 0, ""}}, {}, &output), 0);
+  EXPECT_TRUE(output.empty());
+}
+
+TEST(ModelBackendDecouplingTest,
+     GeneratedEmbeddingValidatesSessionAndConfiguration) {
+  auto session = std::make_shared<GeneratedEmbeddingSession>();
+  auto context = EmbeddingContext(session);
+  std::string error;
+  for (const auto& entry :
+       std::vector<nlohmann::json>{{{"embedding_dim", 0}},
+                                   {{"embedding_dim", 65537}},
+                                   {{"embedding_dim", uint64_t{4294967298ULL}}},
+                                   {{"embedding_dim", 2.5}},
+                                   {{"max_tokens", 0}},
+                                   {{"max_tokens", 65}},
+                                   {{"pooling", "cls"}}}) {
+    auto invalid = context;
+    invalid.model_config.update(entry);
+    EXPECT_EQ(GeneratedTextEmbeddingModel::Create(invalid, &error), nullptr);
+  }
+  context.model_config.erase("embedding_dim");
+  EXPECT_EQ(GeneratedTextEmbeddingModel::Create(context, &error), nullptr);
+  context = EmbeddingContext(session);
+  session->policy = {1, 1};
+  EXPECT_EQ(GeneratedTextEmbeddingModel::Create(context, &error), nullptr);
+  session->policy = {2, 0};
+  EXPECT_EQ(GeneratedTextEmbeddingModel::Create(context, &error), nullptr);
+  session->policy = {1, 0};
+  session->protocol = ExecutionProtocol::kTextGeneration;
+  EXPECT_EQ(GeneratedTextEmbeddingModel::Create(context, &error), nullptr);
+  context.backend_session.reset();
+  EXPECT_EQ(GeneratedTextEmbeddingModel::Create(context, &error), nullptr);
+  if (BackendRegistry::Instance().Find("onnxruntime")) {
+    ModelLoadSpec spec;
+    spec.model_type = "generated_text_embedding";
+    spec.backend_type = "onnxruntime";
+    spec.model_path = "does-not-exist";
+    spec.model_config = {{"embedding_dim", 2}};
+    EXPECT_EQ(ModelRuntimeFactory::Create(spec, &error), nullptr);
+    EXPECT_NE(error.find("generated_token_embedding"), std::string::npos);
+  }
+}
+}  // namespace llm_edgeflow

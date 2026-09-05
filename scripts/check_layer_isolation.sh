@@ -55,6 +55,34 @@ if [[ "${1:-}" == "--self-test" ]]; then
     exit 1
   fi
 
+  # Test Case 4: The direct Kite SDK header must remain in its own Backend.
+  : > "${TMP_TEST_DIR}/violation_repo/src/core/bad_core.cpp"
+  for KITE_INJECTION_PATH in \
+    "include/engine/bad_model.h" \
+    "src/engine/models/qwen_causal_lm/bad_model.cpp" \
+    "src/engine/backends/onnxruntime/bad_backend.cpp" \
+    "src/core/bad_core.cpp" \
+    "src/common_nodes/bad_node.cpp" \
+    "src/adapter/adapters/bad_adapter.cpp" \
+    "demo/bad_demo.cpp"; do
+    KITE_INJECTION_FILE="${TMP_TEST_DIR}/violation_repo/${KITE_INJECTION_PATH}"
+    mkdir -p "$(dirname "${KITE_INJECTION_FILE}")"
+    for KITE_INCLUDE in '#include <kiteLLM.h>' '# include "vendor/kiteLLM.h"'; do
+      echo "${KITE_INCLUDE}" > "${KITE_INJECTION_FILE}"
+      set +e
+      KITE_GUARD_OUTPUT=$(REPO_ROOT="${TMP_TEST_DIR}/violation_repo" \
+        bash "${SCRIPT_PATH}" 2>&1)
+      STATUS_KITE_GUARD=$?
+      set -e
+      if [ $STATUS_KITE_GUARD -eq 0 ] || \
+         ! grep -q "kiteLLM vendor header" <<<"${KITE_GUARD_OUTPUT}"; then
+        echo "❌ [LayerGuard Self-Test FAIL] Kite header escape was not detected: ${KITE_INJECTION_PATH}"
+        exit 1
+      fi
+    done
+    : > "${KITE_INJECTION_FILE}"
+  done
+
   echo "✅ [LayerGuard Self-Test PASS] Missing paths and injected dependency violations were detected."
   exit 0
 fi
@@ -115,6 +143,19 @@ if [ -n "$VIOLATIONS_BIZ_KEYS" ]; then
   exit 1
 fi
 echo "✅ [LayerGuard PASS] Business Blackboard keys remain owned by Layer 1."
+
+# Rule 4b: The direct Kite SDK belongs only to its concrete Backend. Check
+# before build-specific guards so the isolation self-test needs no SDK/build.
+KITE_VENDOR_OUTSIDE_BACKEND=$(grep -rnE \
+  '^[[:space:]]*#[[:space:]]*include[[:space:]]*["<]([^">]*/)?kiteLLM\.h[">]' \
+  "$REPO_ROOT/include" "$REPO_ROOT/src" "$REPO_ROOT/demo" 2>/dev/null | \
+  grep -vF "$REPO_ROOT/src/engine/backends/kite_llm/" || true)
+if [ -n "$KITE_VENDOR_OUTSIDE_BACKEND" ]; then
+  echo "❌ [LayerGuard ERROR] kiteLLM vendor header may only be included inside its concrete Backend:"
+  echo "$KITE_VENDOR_OUTSIDE_BACKEND"
+  exit 1
+fi
+echo "✅ [LayerGuard PASS] The kiteLLM vendor header stays inside its concrete Backend."
 
 # Rule 5: The neutral TraceableItem contract has one canonical include path.
 LEGACY_TRACEABLE_HEADER="$REPO_ROOT/include/core/traceable_item.h"
@@ -254,7 +295,7 @@ if [ -n "$LLAMA_BACKEND_SEMANTICS" ]; then
 fi
 
 QWEN_VENDOR_INCLUDE=$(grep -rnE \
-  '#include\s*["<](llama\.h|onnxruntime_cxx_api\.h|kitellm_edgeflow_adapter\.h)[">]' \
+  '#include\s*["<](llama\.h|onnxruntime_cxx_api\.h|kiteLLM\.h|kitellm_edgeflow_adapter\.h)[">]' \
   "$REPO_ROOT/src/engine/models/qwen_causal_lm" 2>/dev/null || true)
 if [ -n "$QWEN_VENDOR_INCLUDE" ]; then
   echo "❌ [LayerGuard ERROR] Qwen model must not include Backend vendor headers:"

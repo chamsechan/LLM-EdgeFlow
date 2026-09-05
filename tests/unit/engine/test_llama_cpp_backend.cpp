@@ -1,10 +1,14 @@
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <cctype>
 #include <chrono>
+#include <cmath>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <future>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -130,9 +134,11 @@ TEST(LlamaCppBackendTest, KiteRegistrationMatchesConditionalBuild) {
   auto registered = BackendRegistry::Instance().Create("kite_llm");
   EXPECT_EQ(definition.has_value(), registered != nullptr);
   if (definition.has_value()) {
-    EXPECT_EQ(
-        definition->supported_protocols,
-        std::vector<ExecutionProtocol>({ExecutionProtocol::kTextGeneration}));
+    EXPECT_EQ(definition->supported_protocols,
+              std::vector<ExecutionProtocol>(
+                  {ExecutionProtocol::kTextGeneration,
+                   ExecutionProtocol::kImageTextGeneration,
+                   ExecutionProtocol::kGeneratedTokenEmbedding}));
     EXPECT_EQ(definition->concurrency, InferenceConcurrency::kSerialized);
     ASSERT_EQ(definition->config_fields.size(), 1U);
     EXPECT_EQ(definition->config_fields[0].name, "run_config_file");
@@ -148,16 +154,44 @@ TEST(LlamaCppBackendTest, KiteRegistrationMatchesConditionalBuild) {
   EXPECT_NE(diagnostic.find("not compiled"), std::string::npos);
 }
 
-TEST(LlamaCppBackendTest, KiteExecutionTargetMustComeFromRunConfig) {
+TEST(LlamaCppBackendTest, KiteRejectsUnsupportedExecutionTargets) {
   KiteLlmBackend backend;
   BackendLoadSpec spec;
   spec.model_path = "./models/does-not-exist";
   spec.requested_protocol = ExecutionProtocol::kTextGeneration;
-  spec.execution_target.platform = "CUDA";
-  spec.execution_target.device_id = 1;
   std::string diagnostic;
+  for (const char* platform : {"CUDA", "ASCEND_310P", "AX650", "invalid"}) {
+    spec.execution_target.platform = platform;
+    EXPECT_EQ(backend.Load(spec, &diagnostic), nullptr);
+    EXPECT_NE(diagnostic.find("requested platform"), std::string::npos);
+  }
+  spec.execution_target.platform = "CPU";
+  spec.execution_target.device_id = 1;
   EXPECT_EQ(backend.Load(spec, &diagnostic), nullptr);
-  EXPECT_NE(diagnostic.find("run_config_file"), std::string::npos);
+  EXPECT_NE(diagnostic.find("only accepts device_id 0"), std::string::npos);
+  spec.execution_target.platform.clear();
+  spec.execution_target.device_id = -2;
+  EXPECT_EQ(backend.Load(spec, &diagnostic), nullptr);
+  EXPECT_NE(diagnostic.find("device_id must be >= -1"), std::string::npos);
+}
+
+TEST(LlamaCppBackendTest, KiteAcceptsCpuAndUnspecifiedExecutionTargets) {
+  KiteLlmBackend backend;
+  BackendLoadSpec spec;
+  spec.model_path = "./models/does-not-exist";
+  std::string diagnostic;
+  for (const char* platform : {"", "UNKNOWN", "CPU", "cpu_generic"}) {
+    spec.execution_target.platform = platform;
+    for (const auto device : {std::optional<int>{}, std::optional<int>{-1},
+                              std::optional<int>{0}}) {
+      spec.execution_target.device_id = device;
+      EXPECT_EQ(backend.Load(spec, &diagnostic), nullptr);
+      // A valid target reaches model validation (or the unavailable SDK).
+      EXPECT_TRUE(diagnostic.find("regular file") != std::string::npos ||
+                  diagnostic.find("not compiled") != std::string::npos)
+          << diagnostic;
+    }
+  }
 }
 
 TEST(LlamaCppBackendTest, KiteRejectsInvalidModelsAndRunConfigs) {
@@ -169,6 +203,19 @@ TEST(LlamaCppBackendTest, KiteRejectsInvalidModelsAndRunConfigs) {
   BackendLoadSpec spec;
   spec.model_path = model.string();
   std::string diagnostic;
+  EXPECT_EQ(backend->Load(spec, &diagnostic), nullptr);
+  EXPECT_NE(diagnostic.find("model load failed"), std::string::npos);
+  spec.execution_target.platform = "cpu_generic";
+  spec.execution_target.device_id = 0;
+  std::ofstream(temporary.path / "gpu.json")
+      << R"({"schema_version":1,"model":{"gpu_layers":1}})";
+  spec.backend_config = {{"run_config_file", "gpu.json"}};
+  EXPECT_EQ(backend->Load(spec, &diagnostic), nullptr);
+  EXPECT_NE(diagnostic.find("conflicts"), std::string::npos);
+  // A CPU-compatible file reaches the native model loader.
+  std::ofstream(temporary.path / "cpu.json")
+      << R"({"schema_version":1,"model":{"gpu_layers":0}})";
+  spec.backend_config = {{"run_config_file", "cpu.json"}};
   EXPECT_EQ(backend->Load(spec, &diagnostic), nullptr);
   EXPECT_NE(diagnostic.find("model load failed"), std::string::npos);
   spec.backend_config = {{"unknown", true}};
@@ -279,6 +326,29 @@ TEST(LlamaCppBackendTest, RealKiteSdkGenerationAndFixedSeedPolicy) {
   EXPECT_FALSE(output.empty());
   another.reset();
   EXPECT_NE(backend->Load(spec, &diagnostic), nullptr) << diagnostic;
+
+  // Exercise the native setter, both with and without an optional run-config.
+  // Release each session before changing native load parameters for this model.
+  for (const bool with_config : {true, false}) {
+    if (!with_config) spec.backend_config = nlohmann::json::object();
+    spec.execution_target.platform = "CPU";
+    spec.execution_target.device_id = 0;
+    auto explicit_cpu = std::dynamic_pointer_cast<ITextGenerationSession>(
+        backend->Load(spec, &diagnostic));
+    ASSERT_NE(explicit_cpu, nullptr) << diagnostic;
+    ASSERT_EQ(explicit_cpu->Generate(prompt, false, options, std::nullopt,
+                                     &output, &diagnostic),
+              0)
+        << diagnostic;
+    EXPECT_FALSE(output.empty());
+  }
+  spec.execution_target.platform.clear();
+  spec.execution_target.device_id = -1;
+  EXPECT_NE(backend->Load(spec, &diagnostic), nullptr) << diagnostic;
+  // A nonexistent native index must fail instead of silently using the CPU.
+  spec.execution_target.device_id = std::numeric_limits<int>::max();
+  EXPECT_EQ(backend->Load(spec, &diagnostic), nullptr);
+  EXPECT_NE(diagnostic.find("model load failed"), std::string::npos);
 }
 
 TEST(LlamaCppBackendTest, RealGgufLoadAndTextGeneration) {
@@ -323,4 +393,135 @@ TEST(LlamaCppBackendTest, RealGgufLoadAndTextGeneration) {
 }
 
 }  // namespace
+
+TEST(LlamaCppBackendTest, KiteImageProtocolRequiresSafeProjectorConfig) {
+  auto backend = BackendRegistry::Instance().Create("kite_llm");
+  if (!backend) GTEST_SKIP();
+  KiteTestDirectory temporary;
+  std::ofstream(temporary.path / "model.gguf") << "invalid";
+  BackendLoadSpec spec;
+  spec.model_path = (temporary.path / "model.gguf").string();
+  spec.requested_protocol = ExecutionProtocol::kImageTextGeneration;
+  std::string error;
+  EXPECT_EQ(backend->Load(spec, &error), nullptr);
+  EXPECT_NE(error.find("vision.mmproj"), std::string::npos);
+  spec.backend_config = {{"run_config_file", "run.json"}};
+  std::ofstream(temporary.path / "run.json")
+      << R"({"schema_version":1,"vision":{"mmproj":"../escape.gguf"}})";
+  EXPECT_EQ(backend->Load(spec, &error), nullptr);
+  EXPECT_NE(error.find("traverse"), std::string::npos);
+  std::ofstream(temporary.path / "run.json")
+      << R"({"schema_version":1,"vision":{"mmproj":"missing.gguf"}})";
+  EXPECT_EQ(backend->Load(spec, &error), nullptr);
+  EXPECT_NE(error.find("does not exist"), std::string::npos);
+}
+
+TEST(LlamaCppBackendTest, RealKiteImageTextGeneration) {
+  auto backend = BackendRegistry::Instance().Create("kite_llm");
+  const char* model = std::getenv("LLM_EDGEFLOW_TEST_KITELLM_VISION_MODEL");
+  const char* config = std::getenv("LLM_EDGEFLOW_TEST_KITELLM_VISION_CONFIG");
+  if (!backend || !model || !config)
+    GTEST_SKIP() << "Set Kite vision model/config for real image gate";
+  BackendLoadSpec spec;
+  spec.model_path = model;
+  spec.backend_config = {{"run_config_file", config}};
+  spec.execution_target = {0, "CPU"};
+  spec.requested_protocol = ExecutionProtocol::kImageTextGeneration;
+  std::string error;
+  auto session = std::dynamic_pointer_cast<IImageTextGenerationSession>(
+      backend->Load(spec, &error));
+  ASSERT_NE(session, nullptr) << error;
+  EXPECT_EQ(session->Protocol(), ExecutionProtocol::kImageTextGeneration);
+  ImageTextInput input;
+  input.prompt = "What color is this image? Answer with one color.";
+  input.width = 256;
+  input.height = 256;
+  input.patch_size = 16;
+  input.rgb_chw.assign(3 * 256 * 256, 0);
+  std::fill_n(input.rgb_chw.begin(), 256 * 256, 255);
+  GenerateOptions options;
+  options.temperature = 0;
+  options.top_p = 1;
+  options.max_tokens = 32;
+  std::string output;
+  ASSERT_EQ(session->Generate(input, options, &output, &error), 0) << error;
+  std::transform(output.begin(), output.end(), output.begin(),
+                 [](unsigned char c) { return std::tolower(c); });
+  EXPECT_NE(output.find("red"), std::string::npos) << output;
+  input.rgb_chw.pop_back();
+  EXPECT_NE(session->Generate(input, options, &output, &error), 0);
+  EXPECT_TRUE(output.empty());
+  EXPECT_NE(session->Generate(input, options, nullptr, &error), 0);
+}
+
+}  // namespace llm_edgeflow
+
+namespace llm_edgeflow {
+TEST(LlamaCppBackendTest, RealKiteGeneratedTokenEmbeddings) {
+  auto backend = BackendRegistry::Instance().Create("kite_llm");
+  if (!backend) GTEST_SKIP() << "kiteLLM SDK support is disabled";
+  const char* model_path = std::getenv("LLM_EDGEFLOW_TEST_KITELLM_MODEL");
+  if (!model_path || !*model_path)
+    GTEST_SKIP() << "Set LLM_EDGEFLOW_TEST_KITELLM_MODEL";
+  KiteTestDirectory temporary;
+  std::filesystem::create_symlink(std::filesystem::absolute(model_path),
+                                  temporary.path / "model.gguf");
+  std::ofstream(temporary.path / "run.json")
+      << R"({"schema_version":1,"model":{"context_size":256,"threads":2,"threads_batch":2},"logging":{"level":"error"}})";
+  BackendLoadSpec spec;
+  spec.model_path = (temporary.path / "model.gguf").string();
+  spec.backend_config = {{"run_config_file", "run.json"}};
+  spec.requested_protocol = ExecutionProtocol::kGeneratedTokenEmbedding;
+  std::string error;
+  auto session = std::dynamic_pointer_cast<IGeneratedTokenEmbeddingSession>(
+      backend->Load(spec, &error));
+  ASSERT_NE(session, nullptr) << error;
+  EXPECT_EQ(session->Protocol(), ExecutionProtocol::kGeneratedTokenEmbedding);
+  const std::string prompt =
+      "<|im_start|>user\nCount from one to "
+      "five.<|im_end|>\n<|im_start|>assistant\n";
+  GeneratedTokenEmbeddings output;
+  ASSERT_EQ(session->GenerateEmbeddings(prompt, false, 2, &output, &error), 0)
+      << error;
+  ASSERT_EQ(output.values.size(), 2U);
+  ASSERT_EQ(output.token_ids.size(), output.values.size());
+  const auto expected = output;
+  ASSERT_FALSE(output.values[0].empty());
+  for (const auto& row : output.values) {
+    ASSERT_EQ(row.size(), output.values[0].size());
+    double norm = 0;
+    for (float value : row) {
+      ASSERT_TRUE(std::isfinite(value));
+      norm += double(value) * value;
+    }
+    EXPECT_GT(norm, 0);
+  }
+  auto run = [&] {
+    GeneratedTokenEmbeddings result;
+    std::string diagnostic;
+    EXPECT_EQ(
+        session->GenerateEmbeddings(prompt, false, 2, &result, &diagnostic), 0)
+        << diagnostic;
+    return result;
+  };
+  auto first = std::async(std::launch::async, run);
+  auto second = std::async(std::launch::async, run);
+  for (auto result : {first.get(), second.get()}) {
+    EXPECT_EQ(result.token_ids, expected.token_ids);
+    ASSERT_EQ(result.values.size(), expected.values.size());
+    for (size_t r = 0; r < result.values.size(); ++r) {
+      ASSERT_EQ(result.values[r].size(), expected.values[r].size());
+      for (size_t d = 0; d < result.values[r].size(); ++d)
+        EXPECT_NEAR(result.values[r][d], expected.values[r][d], 1e-5f);
+    }
+  }
+  for (int limit : {0, 65}) {
+    EXPECT_NE(
+        session->GenerateEmbeddings(prompt, false, limit, &output, &error), 0);
+    EXPECT_TRUE(output.values.empty());
+    EXPECT_TRUE(output.token_ids.empty());
+  }
+  EXPECT_NE(session->GenerateEmbeddings("", false, 1, &output, &error), 0);
+  EXPECT_NE(session->GenerateEmbeddings(prompt, false, 1, nullptr, &error), 0);
+}
 }  // namespace llm_edgeflow

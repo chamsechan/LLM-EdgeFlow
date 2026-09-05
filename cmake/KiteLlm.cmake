@@ -107,9 +107,12 @@ check_cxx_source_compiles([[
     kiteLLM_Init();
     void* param = kiteLLM_Parameter_Allocate();
     kiteLLM_Parameter_SetLoadFromFileSync(param, 1);
+    kiteLLM_Parameter_SetDeviceId(param, 0);
     kiteLLM_Parameter_SetRunConfigFile(param, "run.json");
     void* model = kiteLLM_LoadFromFile("model.gguf", param);
     void* input = kiteLLM_TaskInput_Allocate();
+    kiteLLM_MultiModal_ChatHistory chat{};
+    kiteLLM_TaskInput_SetMultiModal_ChatHistory(input, &chat, 1);
     int count = 0, token = 0;
     int status = kiteLLM_Tokenizer_Encode(model, "x", 1, &token, 1, &count, 0, 1);
     status += kiteLLM_TaskInput_SetPromptTokens(input, &token, 1);
@@ -118,9 +121,13 @@ check_cxx_source_compiles([[
     status += kiteLLM_TaskInput_SetTopK(input, 0);
     status += kiteLLM_TaskInput_SetTopP(input, 1.0f);
     status += kiteLLM_TaskInput_SetRepetitionPenalty(input, 1.0f);
+    status += kiteLLM_TaskInput_SetBeamSize(input, 1);
+    status += kiteLLM_TaskInput_SetVerboseDataFlag(input, KLLM_VERBOSE_F_OUTPUT_EMBEDDING);
     void* output = nullptr;
     status += kiteLLM_Run(model, input, &output);
     const int* tokens = kiteLLM_TaskOutput_GetResultTokens(output, &count);
+    int rows = 0, dim = 0;
+    kiteLLM_TaskOutput_GetOutputEmbedding(output, &rows, &dim);
     int length = 0;
     status += kiteLLM_Tokenizer_Decode(model, tokens, count, nullptr, 0, &length, 0);
     kiteLLM_TaskOutput_Deallocate(output);

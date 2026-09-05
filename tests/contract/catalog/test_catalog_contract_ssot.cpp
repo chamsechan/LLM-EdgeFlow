@@ -69,6 +69,15 @@ TEST_F(CatalogContractSsotTest, ProductionModelBackendCatalogHasNoFixtures) {
   EXPECT_TRUE(model_types.count("bge_embedding"));
   EXPECT_TRUE(model_types.count("bge_reranker"));
   EXPECT_TRUE(model_types.count("qwen_causal_lm"));
+  EXPECT_TRUE(model_types.count("vision_document"));
+  const auto embedding = PipelineCatalog::FindModel("generated_text_embedding");
+  ASSERT_TRUE(embedding.has_value());
+  EXPECT_EQ(embedding->capability, "embedding");
+  EXPECT_EQ(embedding->required_protocol,
+            ExecutionProtocol::kGeneratedTokenEmbedding);
+  const auto vision = PipelineCatalog::FindModel("vision_document");
+  ASSERT_TRUE(vision.has_value());
+  EXPECT_EQ(vision->required_protocol, ExecutionProtocol::kImageTextGeneration);
   for (const auto& model_type : model_types) {
     EXPECT_EQ(model_type.find("test_"), std::string::npos);
     EXPECT_EQ(model_type.find("mock"), std::string::npos);
