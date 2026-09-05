@@ -1,10 +1,13 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <cstdlib>
+#include <exception>
 #include <filesystem>
 #include <fstream>
 #include <future>
 #include <memory>
+#include <new>
 #include <string>
 #include <vector>
 
@@ -84,6 +87,75 @@ TEST(WhisperCppBackendTest, UnsupportedExecutionTargetFailsBeforeFilesystem) {
   spec.execution_target.device_id = 1;
   EXPECT_EQ(backend.Load(spec, &diagnostic), nullptr);
   EXPECT_NE(diagnostic.find("device_id"), std::string::npos);
+}
+
+TEST(WhisperCppBackendTest, LoadExceptionBarrierProtectsEntireEntrypoint) {
+  WhisperCppBackend backend;
+
+  // Set a terminate handler to verify std::terminate is never called
+  // (reproducing the exit code 86 scenario)
+  static bool terminate_invoked = false;
+  terminate_invoked = false;
+  auto old_terminate = std::set_terminate([] {
+    terminate_invoked = true;
+    std::_Exit(86);
+  });
+
+  struct TerminateHandlerGuard {
+    std::terminate_handler old_handler;
+    ~TerminateHandlerGuard() { std::set_terminate(old_handler); }
+  } guard{old_terminate};
+
+  BackendLoadSpec spec;
+  spec.model_path = "./models/does-not-exist.bin";
+
+  // 1. bad_alloc exception at entrypoint (reproduces allocation failure during
+  // NormalizePlatform / string copies)
+  {
+    backend.SetLoadHook([] { throw std::bad_alloc(); });
+    std::string diagnostic;
+    EXPECT_EQ(backend.Load(spec, &diagnostic), nullptr);
+    EXPECT_FALSE(diagnostic.empty());
+    EXPECT_NE(diagnostic.find("Exception loading whisper model"),
+              std::string::npos);
+    EXPECT_FALSE(terminate_invoked);
+  }
+
+  // 2. bad_alloc with nullptr diagnostic
+  {
+    backend.SetLoadHook([] { throw std::bad_alloc(); });
+    EXPECT_EQ(backend.Load(spec, nullptr), nullptr);
+    EXPECT_FALSE(terminate_invoked);
+  }
+
+  // 3. standard runtime_error at entrypoint
+  {
+    backend.SetLoadHook(
+        [] { throw std::runtime_error("simulated entrypoint failure"); });
+    std::string diagnostic;
+    EXPECT_EQ(backend.Load(spec, &diagnostic), nullptr);
+    EXPECT_NE(diagnostic.find("simulated entrypoint failure"),
+              std::string::npos);
+    EXPECT_FALSE(terminate_invoked);
+  }
+
+  // 4. non-std exception at entrypoint
+  {
+    backend.SetLoadHook([] { throw 42; });
+    std::string diagnostic;
+    EXPECT_EQ(backend.Load(spec, &diagnostic), nullptr);
+    EXPECT_NE(diagnostic.find("Unknown exception loading whisper model"),
+              std::string::npos);
+    EXPECT_FALSE(terminate_invoked);
+  }
+
+  // 5. Clean hook reset allows normal failure handling
+  backend.SetLoadHook(nullptr);
+  std::string diagnostic;
+  EXPECT_EQ(backend.Load(spec, &diagnostic), nullptr);
+  EXPECT_NE(diagnostic.find("whisper_cpp model file not found"),
+            std::string::npos);
+  EXPECT_FALSE(terminate_invoked);
 }
 
 #ifdef HAVE_WHISPERCPP
