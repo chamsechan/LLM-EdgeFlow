@@ -1,0 +1,43 @@
+{
+  "biz_name": "speech_audio_asr_intent_slot",
+  "models": [
+    {
+      "model_id": "asr_model_v1",
+      "capability": "asr",
+      "model_type": "whisper_asr",
+      "backend": "whisper_cpp",
+      "model_path": "models/ggml-base.bin",
+      "model_config": {
+        "language": "zh",
+        "max_audio_seconds": 30,
+        "max_output_bytes": 65536
+      },
+      "backend_config": {"n_threads": 4}
+    }
+  ],
+  "pipeline": [
+    {
+      "id": "transcribe",
+      "node_type": "AsrTranscribeNode",
+      "depends_on": [],
+      "ports": {
+        "inputs": {"audio": "audio_inputs"},
+        "outputs": {"text": "transcripts"}
+      },
+      "config": {"bind_model": "asr_model_v1"}
+    },
+    {
+      "id": "intent",
+      "node_type": "TextRuleMatchNode",
+      "depends_on": ["transcribe"],
+      "ports": {
+        "inputs": {"text": "transcripts"},
+        "outputs": {"matches": "intent_slots"}
+      },
+      "config": {
+        "default_category": "UNCLASSIFIED",
+        "categories": {"NAVIGATION": ["导航", "導航"], "MUSIC_PLAY": ["播放"]}
+      }
+    }
+  ]
+}

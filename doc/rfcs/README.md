@@ -91,6 +91,7 @@ doc/rfcs/NNNN-<kebab-case-title>.md
 | **RFC-0033** | 按 kiteLLM 原生接口传递设备选择 | `Completed` | `v10.x` | Layer 4 / Build | [0033-kitellm-native-device-contract.md](0033-kitellm-native-device-contract.md) |
 | **RFC-0034** | Kite 原生能力在现有业务中的完整接入 | `Completed` | `v10.x` | Layer 4 / Config / Build | [0034-kitellm-capability-coverage.md](0034-kitellm-capability-coverage.md) |
 | **RFC-0035** | Kite 生成 token 向量与中性 Embedding 接入 | `Completed` | `v10.x` | Layer 4 / Config / Build | [0035-generated-token-embedding.md](0035-generated-token-embedding.md) |
+| **RFC-0036** | Whisper ASR 与 whisper.cpp Backend 接入设计及实施指南 | `In Implementation` | `v10.x` | Layer 4 / Config / Demo / Build | [0036-whisper-asr-backend.md](0036-whisper-asr-backend.md) |
 
 ---
 

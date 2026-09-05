@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -50,6 +51,22 @@ bool ParseTagSections(
  */
 bool ReadTextFile(const std::string& file_path, std::string* out_content,
                   std::string* error_msg = nullptr);
+
+struct AudioDatasetSample {
+  uint64_t request_id = 0;
+  std::string pcm_f32le;
+  int sample_rate = 16000;
+  std::string reference_text;
+  std::string expected_category;
+  std::vector<float> pcm_data;
+};
+
+/**
+ * @brief 从 UTF-8 JSONL 清单与原始 little-endian float32 PCM 文件读取音频数据集
+ */
+bool ReadAudioDataset(const std::string& manifest_path,
+                      std::vector<AudioDatasetSample>* out_samples,
+                      std::string* error_msg = nullptr);
 
 /**
  * @brief 终端高亮 Banner 与分割线排版

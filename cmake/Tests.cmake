@@ -64,7 +64,8 @@ set(EDGEFLOW_TEST_CORE_SRCS
   ${EDGEFLOW_SOURCE_test_onnx_and_embedding_model}
   ${EDGEFLOW_SOURCE_test_onnx_and_reranker_model}
   ${EDGEFLOW_SOURCE_test_qwen_causal_lm_model}
-  ${EDGEFLOW_SOURCE_test_llama_cpp_backend})
+  ${EDGEFLOW_SOURCE_test_llama_cpp_backend}
+  ${EDGEFLOW_SOURCE_test_whisper_cpp_backend})
 add_executable(edgeflow_test_core_runner
   ${EDGEFLOW_TEST_CORE_SRCS}
   $<TARGET_OBJECTS:edgeflow_test_backend_fixtures>
@@ -332,6 +333,8 @@ edgeflow_add_runner_test(QwenCausalLmModelTest edgeflow_test_core_runner
   "${_edgeflow_tier1}")
 edgeflow_add_runner_test(LlamaCppBackendTest edgeflow_test_core_runner
   "LlamaCppBackendTest.*" "${_edgeflow_tier1}")
+edgeflow_add_runner_test(WhisperCppBackendTest edgeflow_test_core_runner
+  "WhisperCppBackendTest.*" "${_edgeflow_tier1}")
 
 # Architecture and source-governance gates.
 add_test(NAME LayerGuardTest

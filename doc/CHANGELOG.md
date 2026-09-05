@@ -6,6 +6,12 @@
 
 ## Unreleased
 
+- 新增 `audio_transcription` 中性执行协议、`whisper_asr` Model 与可选 `whisper_cpp`
+  Backend，实现离线短语音识别接入；复用原有 `AsrTranscribeNode` 与既有 GGML 运行时
+  目标，补充 16 kHz 单声道 float32 PCM 前置校验、UTF-8 边界保障、RAII whisper state
+  生命周期管理与 `audio_asr_whisper` 真实模型 Demo 剖面，见
+  [RFC-0036](rfcs/0036-whisper-asr-backend.md)。
+
 - Kite 新增 `generated_token_embedding` 中性协议和 `generated_text_embedding` Model，
   接入原生生成 token 隐藏向量；Model 负责池化/归一化，复用现有 Embedding Node。
   提供纯 Kite 问答配置，保留 BGE/ONNX 路径；生成向量不声明与 BGE 检索质量等价，见

@@ -73,4 +73,17 @@ file(MAKE_DIRECTORY "${TEST_ROOT}/deps/kite_llm/v0.1.0/x64")
 file(WRITE "${TEST_ROOT}/deps/kite_llm/v0.1.0/x64/kiteLLM-x64.tar.gz" "tampered")
 expect_kite_failure("SHA-256 mismatch")
 
+function(expect_whisper_failure expected)
+  execute_process(
+    COMMAND "${CMAKE_COMMAND}" -DENABLE_WHISPERCPP=ON
+            "-DLLM_EDGEFLOW_3RDPARTY_DIR=${TEST_ROOT}/deps"
+            ${ARGN} -P "${PROJECT_SOURCE_DIR}/cmake/WhisperCpp.cmake"
+    RESULT_VARIABLE result OUTPUT_VARIABLE output ERROR_VARIABLE error)
+  if(result EQUAL 0 OR NOT "${output}${error}" MATCHES "${expected}")
+    message(FATAL_ERROR "Expected whisper.cpp failure '${expected}': ${output}${error}")
+  endif()
+endfunction()
+expect_whisper_failure("requires ENABLE_LLAMACPP=ON" -DENABLE_LLAMACPP=OFF)
+expect_whisper_failure("cannot coexist with ENABLE_KITELLM=ON" -DENABLE_LLAMACPP=ON -DENABLE_KITELLM=ON)
+
 file(REMOVE_RECURSE "${TEST_ROOT}")

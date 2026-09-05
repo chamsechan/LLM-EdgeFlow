@@ -15,6 +15,16 @@ int RunAudioAsrDemo(const DemoOptions& options) {
               "Conf: " + options.config_path);
 
   std::string err;
+  std::vector<AudioDatasetSample> dataset_samples;
+  std::vector<CompanyOperatorAudioInput> inputs;
+  std::vector<std::vector<float>> fallback_buffers;
+
+  const bool is_real_profile =
+      (options.suite == "real" ||
+       options.profile.find("whisper") != std::string::npos ||
+       options.config_path.find("whisper") != std::string::npos);
+
+  bool loaded_from_dataset = false;
   if (!options.dataset_path.empty()) {
     std::string resolved = ResolvePath(options.dataset_path);
     if (!std::filesystem::exists(resolved)) {
@@ -23,19 +33,61 @@ int RunAudioAsrDemo(const DemoOptions& options) {
                   << options.dataset_path << std::endl;
         return 4;
       }
+    } else if (resolved.rfind(".jsonl") != std::string::npos) {
+      std::string read_err;
+      if (!ReadAudioDataset(options.dataset_path, &dataset_samples,
+                            &read_err)) {
+        if (!options.allow_fallback_sample) {
+          std::cerr << "[AudioAsrDemo ERROR] Failed to read audio dataset: "
+                    << read_err << std::endl;
+          return 4;
+        }
+      } else {
+        loaded_from_dataset = true;
+      }
+    } else {
+      if (is_real_profile && !options.allow_fallback_sample) {
+        std::cerr << "[AudioAsrDemo ERROR] Real audio ASR profile requires a "
+                     ".jsonl dataset, got: "
+                  << options.dataset_path << std::endl;
+        return 4;
+      }
     }
   }
 
-  std::vector<float> pcm(16000, 0.01f);
-  std::vector<CompanyOperatorAudioInput> inputs = {
-      {70001, pcm.data(), static_cast<int32_t>(pcm.size()), 16000}};
+  if (is_real_profile && !loaded_from_dataset &&
+      !options.allow_fallback_sample) {
+    std::cerr << "[AudioAsrDemo ERROR] Real audio ASR profile requires a valid "
+                 "audio dataset and fallback sample is disabled."
+              << std::endl;
+    return 4;
+  }
+
+  if (loaded_from_dataset) {
+    inputs.reserve(dataset_samples.size());
+    for (const auto& sample : dataset_samples) {
+      inputs.push_back({sample.request_id, sample.pcm_data.data(),
+                        static_cast<int32_t>(sample.pcm_data.size()),
+                        sample.sample_rate});
+    }
+  } else {
+    if (is_real_profile && !options.allow_fallback_sample) {
+      std::cerr << "[AudioAsrDemo ERROR] Real audio ASR profile cannot use "
+                   "fallback fixed audio."
+                << std::endl;
+      return 4;
+    }
+    fallback_buffers.emplace_back(16000, 0.01f);
+    inputs.push_back({70001, fallback_buffers[0].data(),
+                      static_cast<int32_t>(fallback_buffers[0].size()), 16000});
+  }
 
   struct OutputSummary {
     uint64_t request_id = 0;
     std::string transcribed_text;
     std::string intent_slot_json;
   };
-  std::vector<OutputSummary> output_summaries(1);
+  std::vector<OutputSummary> output_summaries(inputs.size());
   std::vector<double> latencies;
 
   int ret = RunOperatorWithExtractor<CompanyOperatorAudioInput,
@@ -59,28 +111,39 @@ int RunAudioAsrDemo(const DemoOptions& options) {
 
   std::cout << "\n>>> 业务 6 执行结果验证 <<<" << std::endl;
   PrintDivider();
-  std::cout << "  Request ID     : " << output_summaries[0].request_id << "\n"
-            << "  ASR Text       : " << output_summaries[0].transcribed_text
-            << "\n"
-            << "  Intent / Slots : " << output_summaries[0].intent_slot_json
-            << std::endl;
-
   std::vector<DemoSampleResult> sample_results;
-  DemoSampleResult sample;
-  sample.request_id = output_summaries[0].request_id;
-  sample.status = 0;
-  sample.latency_ms = latencies.empty() ? 0.0 : latencies[0];
-  sample.output["transcribed_text"] = output_summaries[0].transcribed_text;
-  if (!output_summaries[0].intent_slot_json.empty()) {
-    auto parsed = nlohmann::json::parse(output_summaries[0].intent_slot_json,
-                                        nullptr, false);
-    if (parsed.is_discarded()) {
-      sample.output["intent_slot_raw"] = output_summaries[0].intent_slot_json;
-    } else {
-      sample.output["intent_slot"] = parsed;
+  sample_results.reserve(inputs.size());
+  for (size_t i = 0; i < inputs.size(); ++i) {
+    std::cout << "  Sample #" << i << "\n"
+              << "  Request ID     : " << output_summaries[i].request_id << "\n"
+              << "  ASR Text       : " << output_summaries[i].transcribed_text
+              << "\n"
+              << "  Intent / Slots : " << output_summaries[i].intent_slot_json
+              << std::endl;
+    if (loaded_from_dataset && !dataset_samples[i].reference_text.empty()) {
+      std::cout << "  Reference Text : " << dataset_samples[i].reference_text
+                << "\n"
+                << "  Expected Cat   : " << dataset_samples[i].expected_category
+                << std::endl;
     }
+    PrintDivider();
+
+    DemoSampleResult sample;
+    sample.request_id = output_summaries[i].request_id;
+    sample.status = 0;
+    sample.latency_ms = i < latencies.size() ? latencies[i] : 0.0;
+    sample.output["transcribed_text"] = output_summaries[i].transcribed_text;
+    if (!output_summaries[i].intent_slot_json.empty()) {
+      auto parsed = nlohmann::json::parse(output_summaries[i].intent_slot_json,
+                                          nullptr, false);
+      if (parsed.is_discarded()) {
+        sample.output["intent_slot_raw"] = output_summaries[i].intent_slot_json;
+      } else {
+        sample.output["intent_slot"] = parsed;
+      }
+    }
+    sample_results.push_back(std::move(sample));
   }
-  sample_results.push_back(sample);
 
   ResultWriter writer(options);
   int w_ret = writer.WriteResults(sample_results, 0.0, &err);

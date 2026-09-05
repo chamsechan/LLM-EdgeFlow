@@ -83,6 +83,33 @@ if [[ "${1:-}" == "--self-test" ]]; then
     : > "${KITE_INJECTION_FILE}"
   done
 
+  # Test Case 5: The direct whisper.h header must remain in its own Backend.
+  for WHISPER_INJECTION_PATH in \
+    "include/engine/bad_model.h" \
+    "src/engine/models/whisper_asr/bad_model.cpp" \
+    "src/engine/backends/onnxruntime/bad_backend.cpp" \
+    "src/core/bad_core.cpp" \
+    "src/common_nodes/bad_node.cpp" \
+    "src/adapter/adapters/bad_adapter.cpp" \
+    "demo/bad_demo.cpp"; do
+    WHISPER_INJECTION_FILE="${TMP_TEST_DIR}/violation_repo/${WHISPER_INJECTION_PATH}"
+    mkdir -p "$(dirname "${WHISPER_INJECTION_FILE}")"
+    for WHISPER_INCLUDE in '#include <whisper.h>' '# include "vendor/whisper.h"'; do
+      echo "${WHISPER_INCLUDE}" > "${WHISPER_INJECTION_FILE}"
+      set +e
+      WHISPER_GUARD_OUTPUT=$(REPO_ROOT="${TMP_TEST_DIR}/violation_repo" \
+        bash "${SCRIPT_PATH}" 2>&1)
+      STATUS_WHISPER_GUARD=$?
+      set -e
+      if [ $STATUS_WHISPER_GUARD -eq 0 ] || \
+         ! grep -q "whisper.h vendor header" <<<"${WHISPER_GUARD_OUTPUT}"; then
+        echo "❌ [LayerGuard Self-Test FAIL] Whisper header escape was not detected: ${WHISPER_INJECTION_PATH}"
+        exit 1
+      fi
+    done
+    : > "${WHISPER_INJECTION_FILE}"
+  done
+
   echo "✅ [LayerGuard Self-Test PASS] Missing paths and injected dependency violations were detected."
   exit 0
 fi
@@ -156,6 +183,18 @@ if [ -n "$KITE_VENDOR_OUTSIDE_BACKEND" ]; then
   exit 1
 fi
 echo "✅ [LayerGuard PASS] The kiteLLM vendor header stays inside its concrete Backend."
+
+# Rule 4c: The direct whisper.h header belongs only to its concrete Backend.
+WHISPER_VENDOR_OUTSIDE_BACKEND=$(grep -rnE \
+  '^[[:space:]]*#[[:space:]]*include[[:space:]]*["<]([^">]*/)?whisper\.h[">]' \
+  "$REPO_ROOT/include" "$REPO_ROOT/src" "$REPO_ROOT/demo" 2>/dev/null | \
+  grep -vF "$REPO_ROOT/src/engine/backends/whisper_cpp/" || true)
+if [ -n "$WHISPER_VENDOR_OUTSIDE_BACKEND" ]; then
+  echo "❌ [LayerGuard ERROR] whisper.h vendor header may only be included inside its concrete Backend:"
+  echo "$WHISPER_VENDOR_OUTSIDE_BACKEND"
+  exit 1
+fi
+echo "✅ [LayerGuard PASS] The whisper.h vendor header stays inside its concrete Backend."
 
 # Rule 5: The neutral TraceableItem contract has one canonical include path.
 LEGACY_TRACEABLE_HEADER="$REPO_ROOT/include/core/traceable_item.h"

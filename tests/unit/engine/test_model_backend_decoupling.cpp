@@ -32,6 +32,7 @@
 #include "engine/models/generated_text_embedding/generated_text_embedding_model.h"
 #include "engine/models/vision_document/image_decode.h"
 #include "engine/models/vision_document/vision_document_model.h"
+#include "engine/models/whisper_asr/whisper_asr_model.h"
 
 using namespace llm_edgeflow;
 
@@ -887,4 +888,266 @@ TEST(ModelBackendDecouplingTest,
     EXPECT_NE(error.find("generated_token_embedding"), std::string::npos);
   }
 }
+
+class FakeAudioTranscriptionSession : public IAudioTranscriptionSession {
+ public:
+  std::string backend_type = "fake_whisper";
+  ExecutionProtocol protocol = ExecutionProtocol::kAudioTranscription;
+  InferenceConcurrency concurrency = InferenceConcurrency::kSerialized;
+  BatchPolicy policy{1, 0};
+  std::set<std::string> supported_languages{"zh", "en", "auto"};
+  std::string transcript_to_return = "你好世界";
+  int return_code = 0;
+  bool return_embedded_nul = false;
+  bool return_invalid_utf8 = false;
+  size_t transcribe_call_count = 0;
+  std::optional<size_t> fail_on_call_index;
+
+  const std::string& BackendType() const noexcept override {
+    return backend_type;
+  }
+  ExecutionProtocol Protocol() const noexcept override { return protocol; }
+  InferenceConcurrency Concurrency() const noexcept override {
+    return concurrency;
+  }
+  BatchPolicy GetBatchPolicy() const noexcept override { return policy; }
+
+  bool SupportsLanguage(std::string_view language) const noexcept override {
+    return supported_languages.count(std::string(language)) > 0;
+  }
+
+  int Transcribe(const AudioPcmPayload& /*audio*/,
+                 const AudioTranscriptionOptions& /*options*/,
+                 std::string* output,
+                 std::string* diagnostic = nullptr) noexcept override {
+    ++transcribe_call_count;
+    if (fail_on_call_index.has_value() &&
+        transcribe_call_count == *fail_on_call_index) {
+      inference_detail::SetDiagnostic(diagnostic,
+                                      "Fake session error on designated call");
+      return -1;
+    }
+    if (return_code != 0) {
+      inference_detail::SetDiagnostic(diagnostic, "Fake session error");
+      return return_code;
+    }
+    if (return_embedded_nul) {
+      if (output) *output = std::string("abc\0def", 7);
+      return 0;
+    }
+    if (return_invalid_utf8) {
+      if (output) *output = "\xFF\xFE bad utf8";
+      return 0;
+    }
+    if (output) {
+      *output = transcript_to_return;
+    }
+    return 0;
+  }
+};
+
+TEST(ModelBackendDecouplingTest,
+     WhisperAsrModelValidatesSessionAndConfiguration) {
+  auto session = std::make_shared<FakeAudioTranscriptionSession>();
+  ModelCreateContext context;
+  context.backend_session = session;
+
+  std::string error;
+
+  // 1. Successful creation with defaults
+  auto model = WhisperAsrModel::Create(context, &error);
+  ASSERT_NE(model, nullptr) << error;
+  EXPECT_EQ(model->ModelType(), "whisper_asr");
+  EXPECT_EQ(model->Capability(), "asr");
+  EXPECT_EQ(model->Concurrency(), InferenceConcurrency::kConcurrent);
+  EXPECT_EQ(model->GetMaxBatchSize(), 1U);
+
+  // 2. Null session
+  ModelCreateContext null_ctx;
+  EXPECT_EQ(WhisperAsrModel::Create(null_ctx, &error), nullptr);
+
+  // 3. Wrong protocol
+  session->protocol = ExecutionProtocol::kTextGeneration;
+  EXPECT_EQ(WhisperAsrModel::Create(context, &error), nullptr);
+  session->protocol = ExecutionProtocol::kAudioTranscription;
+
+  // 4. Incompatible batch policy
+  session->policy = {2, 0};
+  EXPECT_EQ(WhisperAsrModel::Create(context, &error), nullptr);
+  session->policy = {1, 1};
+  EXPECT_EQ(WhisperAsrModel::Create(context, &error), nullptr);
+  session->policy = {1, 0};
+
+  // 5. Config validation: invalid language
+  context.model_config = {{"language", "fr"}};
+  EXPECT_EQ(WhisperAsrModel::Create(context, &error), nullptr);
+  context.model_config = {{"language", ""}};
+  EXPECT_EQ(WhisperAsrModel::Create(context, &error), nullptr);
+
+  // 6. Unsupported language by session
+  session->supported_languages = {"en"};
+  context.model_config = {{"language", "zh"}};
+  EXPECT_EQ(WhisperAsrModel::Create(context, &error), nullptr);
+  session->supported_languages = {"zh", "en", "auto"};
+
+  // 7. Config validation: max_audio_seconds bounds [1, 60]
+  context.model_config = {{"max_audio_seconds", 0}};
+  EXPECT_EQ(WhisperAsrModel::Create(context, &error), nullptr);
+  context.model_config = {{"max_audio_seconds", 61}};
+  EXPECT_EQ(WhisperAsrModel::Create(context, &error), nullptr);
+
+  // 8. Config validation: max_output_bytes bounds [1, 65536]
+  context.model_config = {{"max_output_bytes", 0}};
+  EXPECT_EQ(WhisperAsrModel::Create(context, &error), nullptr);
+  context.model_config = {{"max_output_bytes", 65537}};
+  EXPECT_EQ(WhisperAsrModel::Create(context, &error), nullptr);
+}
+
+TEST(ModelBackendDecouplingTest, WhisperAsrModelTranscribeInputsAndBatching) {
+  auto session = std::make_shared<FakeAudioTranscriptionSession>();
+  session->transcript_to_return = "  你好世界  \n";
+  ModelCreateContext context;
+  context.backend_session = session;
+  context.model_config = {{"language", "zh"},
+                          {"max_audio_seconds", 30},
+                          {"max_output_bytes", 1024}};
+
+  std::string error;
+  auto model = std::dynamic_pointer_cast<IAsrModel>(
+      WhisperAsrModel::Create(context, &error));
+  ASSERT_NE(model, nullptr) << error;
+
+  // 1. Null outputs pointer returns -1
+  AudioPcmBatch audio;
+  EXPECT_EQ(model->Transcribe(audio, nullptr), -1);
+
+  // 2. Empty batch returns 0, no session calls
+  TextBatch outputs;
+  EXPECT_EQ(model->Transcribe(audio, &outputs), 0);
+  EXPECT_TRUE(outputs.empty());
+  EXPECT_EQ(session->transcribe_call_count, 0U);
+
+  // 3. Item with empty PCM returns empty string, preserving req_id and sub_id
+  audio.emplace_back(10, 1, AudioPcmPayload({}, 16000));
+  EXPECT_EQ(model->Transcribe(audio, &outputs), 0);
+  ASSERT_EQ(outputs.size(), 1U);
+  EXPECT_EQ(outputs[0].req_id, 10U);
+  EXPECT_EQ(outputs[0].sub_id, 1U);
+  EXPECT_EQ(outputs[0].data, "");
+  EXPECT_EQ(session->transcribe_call_count,
+            0U);  // empty pcm skips backend call
+
+  // 4. Sample rate != 16000 fails closed before session call
+  audio.clear();
+  outputs.clear();
+  audio.emplace_back(11, 0,
+                     AudioPcmPayload(std::vector<float>(16000, 0.0f), 8000));
+  EXPECT_EQ(model->Transcribe(audio, &outputs), -1);
+  EXPECT_TRUE(outputs.empty());
+  EXPECT_EQ(session->transcribe_call_count, 0U);
+
+  // 5. Audio < 1600 samples (100ms) fails closed before session call
+  audio.clear();
+  audio.emplace_back(12, 0,
+                     AudioPcmPayload(std::vector<float>(1599, 0.0f), 16000));
+  EXPECT_EQ(model->Transcribe(audio, &outputs), -1);
+  EXPECT_TRUE(outputs.empty());
+  EXPECT_EQ(session->transcribe_call_count, 0U);
+
+  // 6. Audio > max_audio_seconds fails closed before session call
+  audio.clear();
+  audio.emplace_back(
+      13, 0, AudioPcmPayload(std::vector<float>(30 * 16000 + 1, 0.0f), 16000));
+  EXPECT_EQ(model->Transcribe(audio, &outputs), -1);
+  EXPECT_TRUE(outputs.empty());
+  EXPECT_EQ(session->transcribe_call_count, 0U);
+
+  // 7. Non-finite sample fails closed
+  audio.clear();
+  std::vector<float> nan_pcm(1600, 0.0f);
+  nan_pcm[10] = std::numeric_limits<float>::quiet_NaN();
+  audio.emplace_back(14, 0, AudioPcmPayload(std::move(nan_pcm), 16000));
+  EXPECT_EQ(model->Transcribe(audio, &outputs), -1);
+  EXPECT_TRUE(outputs.empty());
+  EXPECT_EQ(session->transcribe_call_count, 0U);
+
+  // 8. Sample outside [-1, 1] fails closed
+  audio.clear();
+  std::vector<float> overflow_pcm(1600, 0.0f);
+  overflow_pcm[5] = 1.05f;
+  audio.emplace_back(15, 0, AudioPcmPayload(std::move(overflow_pcm), 16000));
+  EXPECT_EQ(model->Transcribe(audio, &outputs), -1);
+  EXPECT_TRUE(outputs.empty());
+  EXPECT_EQ(session->transcribe_call_count, 0U);
+
+  // 9. Valid audio transcribes and trims whitespace
+  audio.clear();
+  audio.emplace_back(20, 0,
+                     AudioPcmPayload(std::vector<float>(16000, 0.1f), 16000));
+  EXPECT_EQ(model->Transcribe(audio, &outputs), 0);
+  ASSERT_EQ(outputs.size(), 1U);
+  EXPECT_EQ(outputs[0].req_id, 20U);
+  EXPECT_EQ(outputs[0].sub_id, 0U);
+  EXPECT_EQ(outputs[0].data, "你好世界");
+  EXPECT_EQ(session->transcribe_call_count, 1U);
+
+  // 10. Embedded NUL byte in output rejected and cleared
+  session->return_embedded_nul = true;
+  outputs.clear();
+  EXPECT_EQ(model->Transcribe(audio, &outputs), -1);
+  EXPECT_TRUE(outputs.empty());
+  session->return_embedded_nul = false;
+
+  // 11. Invalid UTF-8 in output rejected and cleared
+  session->return_invalid_utf8 = true;
+  outputs.clear();
+  EXPECT_EQ(model->Transcribe(audio, &outputs), -1);
+  EXPECT_TRUE(outputs.empty());
+  session->return_invalid_utf8 = false;
+
+  // 12. Output exceeds max_output_bytes rejected and cleared
+  session->transcript_to_return = std::string(2000, 'A');
+  outputs.clear();
+  EXPECT_EQ(model->Transcribe(audio, &outputs), -1);
+  EXPECT_TRUE(outputs.empty());
+  session->transcript_to_return = "你好世界";
+
+  // 13. Multi-item batch preserves ordering and provenance
+  audio.clear();
+  audio.emplace_back(100, 0,
+                     AudioPcmPayload(std::vector<float>(16000, 0.1f), 16000));
+  audio.emplace_back(100, 1,
+                     AudioPcmPayload(std::vector<float>(16000, 0.2f), 16000));
+  audio.emplace_back(101, 0,
+                     AudioPcmPayload(std::vector<float>(16000, 0.3f), 16000));
+  session->transcribe_call_count = 0;
+  outputs.clear();
+  EXPECT_EQ(model->Transcribe(audio, &outputs), 0);
+  ASSERT_EQ(outputs.size(), 3U);
+  EXPECT_EQ(outputs[0].req_id, 100U);
+  EXPECT_EQ(outputs[0].sub_id, 0U);
+  EXPECT_EQ(outputs[1].req_id, 100U);
+  EXPECT_EQ(outputs[1].sub_id, 1U);
+  EXPECT_EQ(outputs[2].req_id, 101U);
+  EXPECT_EQ(outputs[2].sub_id, 0U);
+  EXPECT_EQ(session->transcribe_call_count, 3U);
+
+  // 14. Second item fails during inference -> all outputs cleared (rollback)
+  session->fail_on_call_index = 2;
+  session->transcribe_call_count = 0;
+  outputs.clear();
+  EXPECT_EQ(model->Transcribe(audio, &outputs), -1);
+  EXPECT_TRUE(outputs.empty());
+  EXPECT_EQ(session->transcribe_call_count, 2U);
+  session->fail_on_call_index.reset();
+
+  // 15. Pre-validation on 3rd item failure -> session called 0 times
+  audio[2].data.sample_rate = 8000;
+  session->transcribe_call_count = 0;
+  outputs.clear();
+  EXPECT_EQ(model->Transcribe(audio, &outputs), -1);
+  EXPECT_TRUE(outputs.empty());
+  EXPECT_EQ(session->transcribe_call_count, 0U);
+}
+
 }  // namespace llm_edgeflow

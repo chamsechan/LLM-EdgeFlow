@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -142,5 +143,60 @@ TEST_F(RealModelE2ETest, RealModelCAbiEndToEnd) {
   EXPECT_EQ(Alg_Destroy(handle), 0);
   EXPECT_EQ(Alg_DeInit(), 0);
 }
+
+#ifdef HAVE_WHISPERCPP
+// 4. 真实 Whisper 模型音频转录端到端验证
+TEST_F(RealModelE2ETest, RealWhisperAsrTranscribe) {
+  const auto whisper_path = model_root_ / "ggml-base.bin";
+  ASSERT_TRUE(std::filesystem::is_regular_file(whisper_path))
+      << "ENABLE_REAL_MODEL_TESTS with HAVE_WHISPERCPP requires pinned "
+         "Whisper model; run ./scripts/fetch_real_test_models.sh --whisper";
+  const auto audio_path = project_root_ / "data/audio/nav_001.f32";
+  ASSERT_TRUE(std::filesystem::is_regular_file(audio_path))
+      << "Real audio file not found at " << audio_path;
+
+  ModelLoadSpec spec;
+  spec.model_type = "whisper_asr";
+  spec.backend_type = "whisper_cpp";
+  spec.model_path = whisper_path.string();
+  spec.model_config = {
+      {"language", "zh"},
+      {"max_audio_seconds", 30},
+      {"max_output_bytes", 65536},
+  };
+  spec.backend_config = {{"n_threads", 2}};
+
+  std::string diagnostic;
+  auto model = ModelRuntimeFactory::Create(spec, &diagnostic);
+  ASSERT_NE(model, nullptr) << diagnostic;
+  auto asr_model = std::dynamic_pointer_cast<IAsrModel>(model);
+  ASSERT_NE(asr_model, nullptr);
+
+  std::ifstream ifs(audio_path, std::ios::binary);
+  ASSERT_TRUE(ifs.is_open());
+  const auto sz = std::filesystem::file_size(audio_path);
+  std::vector<float> pcm(sz / sizeof(float));
+  ifs.read(reinterpret_cast<char*>(pcm.data()), sz);
+
+  AudioPcmPayload audio;
+  audio.sample_rate = 16000;
+  audio.pcm_data = std::move(pcm);
+
+  std::vector<TraceableItem<std::string>> output;
+  int ret = asr_model->Transcribe({{5001, 0, std::move(audio)}}, &output);
+  EXPECT_EQ(ret, 0);
+  ASSERT_EQ(output.size(), 1U);
+  EXPECT_EQ(output[0].req_id, 5001);
+  EXPECT_FALSE(output[0].data.empty());
+  EXPECT_TRUE(output[0].data.find("导航") != std::string::npos ||
+              output[0].data.find("導航") != std::string::npos);
+  std::cout << "\n=================================================="
+            << std::endl;
+  std::cout << "  [Real Model E2E Whisper] Output: " << output[0].data
+            << std::endl;
+  std::cout << "=================================================="
+            << std::endl;
+}
+#endif
 
 }  // namespace llm_edgeflow
