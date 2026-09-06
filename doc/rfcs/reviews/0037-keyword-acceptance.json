@@ -1,0 +1,210 @@
+{
+  "schema_version": 1,
+  "generated_at_utc": "2026-09-06T02:39:10.322206+00:00",
+  "selection_fingerprint": "d07a2029f09c504b3b8d87a31137852d0352d838b111420a927ea02ecd595065",
+  "test_fingerprint": "3d3a49e67df0286831608988d880223d12f8d66d24e6e3d2ed594a1ef57066f8",
+  "pipeline": {
+    "biz_name": "keyword_match_v1",
+    "models": [],
+    "pipeline": [
+      {
+        "id": "node_0_TextRuleMatchNode",
+        "node_type": "TextRuleMatchNode",
+        "depends_on": [],
+        "ports": {
+          "inputs": {
+            "text": "input_sentences"
+          },
+          "outputs": {
+            "matches": "rule_matches"
+          }
+        },
+        "config": {
+          "categories": {
+            "SYSTEM_INIT": [
+              "初始化",
+              "自检"
+            ]
+          }
+        }
+      }
+    ]
+  },
+  "selection": {
+    "schema_version": 1,
+    "ok": true,
+    "selection_fingerprint": "d07a2029f09c504b3b8d87a31137852d0352d838b111420a927ea02ecd595065",
+    "configuration": {
+      "diagnostics": [],
+      "ok": true,
+      "plan": {
+        "layers": [
+          [
+            "node_0_TextRuleMatchNode"
+          ]
+        ],
+        "topological_order": [
+          "node_0_TextRuleMatchNode"
+        ]
+      },
+      "schema_version": 1
+    },
+    "build": {
+      "enabled_backends": [
+        "llama_cpp",
+        "onnxruntime",
+        "whisper_cpp"
+      ],
+      "tool_sha256": "6fa7f3314953f7318d48ace288e06d8055ec878302a398423e15d530b8eea6c9",
+      "platform": "Linux-6.17.0-1020-oracle-aarch64-with-glibc2.39",
+      "variant": "default-cpu",
+      "status": "verified",
+      "expected_backends": [
+        "llama_cpp",
+        "onnxruntime",
+        "whisper_cpp"
+      ]
+    },
+    "models": [],
+    "effects": {
+      "status": "unverified"
+    },
+    "ready_for_business": false
+  },
+  "test_inputs": {
+    "spec": {
+      "schema_version": 1,
+      "name": "keyword-selected-config",
+      "biz_name": "keyword_match_v1",
+      "dataset": "keyword_inputs.txt",
+      "minimum_pass_rate": 1.0,
+      "samples": [
+        {
+          "request_id": 20001,
+          "expected": {
+            "/output/is_hit": true
+          }
+        },
+        {
+          "request_id": 20002,
+          "expected": {
+            "/output/is_hit": true
+          }
+        },
+        {
+          "request_id": 20003,
+          "expected": {
+            "/output/is_hit": false
+          }
+        },
+        {
+          "request_id": 20004,
+          "expected": {
+            "/output/is_hit": false
+          }
+        }
+      ]
+    },
+    "dataset_sha256": "c2c9f9e06889b3e7e63d2fb9568620879b79e662d6d67bb889bc7a0382c09845",
+    "mem_que": {
+      "type": "keyword_out",
+      "meta_num": 0,
+      "metadata_type_id": 0,
+      "capacities": {
+        "match_result_json": 2047
+      }
+    },
+    "demo_sha256": "6716b3e80d476af6b5488be2f1c0684e9d94d9913a1f0023acd52bc7a7568068",
+    "sdk": {
+      "libcompany_alg_sdk.so.10.0.0": "ad8a56fabfa56d4857109a482f0c00841fce2ff7089f8a2a4764805ceaf5f442"
+    },
+    "chip": "cpu",
+    "device_id": 0,
+    "no_default_control": true
+  },
+  "metrics": {
+    "status": "passed",
+    "metric": "selected_fields_exact_match",
+    "total": 4,
+    "passed": 4,
+    "pass_rate": 1.0,
+    "minimum_pass_rate": 1.0,
+    "failed_request_ids": []
+  },
+  "records": [
+    {
+      "biz": "keyword_match",
+      "latency_ms": 0.02984,
+      "output": {
+        "is_hit": true,
+        "match_result": {
+          "confidence": 1.0,
+          "intent": "SYSTEM_INIT",
+          "matched_word": "初始化",
+          "matches": [
+            {
+              "category": "SYSTEM_INIT",
+              "matched_word": "初始化"
+            }
+          ],
+          "slots": {}
+        }
+      },
+      "profile": "keyword_match",
+      "request_id": 20001,
+      "schema_version": 1,
+      "status": 0
+    },
+    {
+      "biz": "keyword_match",
+      "latency_ms": 0.01224,
+      "output": {
+        "is_hit": true,
+        "match_result": {
+          "confidence": 1.0,
+          "intent": "SYSTEM_INIT",
+          "matched_word": "自检",
+          "matches": [
+            {
+              "category": "SYSTEM_INIT",
+              "matched_word": "自检"
+            }
+          ],
+          "slots": {}
+        }
+      },
+      "profile": "keyword_match",
+      "request_id": 20002,
+      "schema_version": 1,
+      "status": 0
+    },
+    {
+      "biz": "keyword_match",
+      "latency_ms": 0.00532,
+      "output": {
+        "is_hit": false,
+        "match_result": {
+          "matches": []
+        }
+      },
+      "profile": "keyword_match",
+      "request_id": 20003,
+      "schema_version": 1,
+      "status": 0
+    },
+    {
+      "biz": "keyword_match",
+      "latency_ms": 0.00576,
+      "output": {
+        "is_hit": false,
+        "match_result": {
+          "matches": []
+        }
+      },
+      "profile": "keyword_match",
+      "request_id": 20004,
+      "schema_version": 1,
+      "status": 0
+    }
+  ]
+}

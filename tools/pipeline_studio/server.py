@@ -7,6 +7,7 @@ import argparse
 import copy
 import hashlib
 import http.server
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -38,6 +39,10 @@ DEMO_BINARY = Path(
         "LLM_EDGEFLOW_DEMO_BINARY", PROJECT_ROOT / "build" / "alg_demo"
     )
 )
+_SELECTION_SPEC = importlib.util.spec_from_file_location("edgeflow_selection", PROJECT_ROOT / "tools/verify_selection.py")
+SELECTION = importlib.util.module_from_spec(_SELECTION_SPEC)
+_SELECTION_SPEC.loader.exec_module(SELECTION)
+
 MANAGED_NAME = re.compile(r"^pipeline_[a-z0-9_]+\.json$")
 MAX_LOG_BYTES = 2 * 1024 * 1024
 
@@ -162,6 +167,15 @@ class WorkbenchService:
         if biz:
             args.extend(["--biz", biz])
         return self.invoke_tool(args)
+
+    def assets(self) -> dict[str, Any]:
+        return {"ok": True, **SELECTION.asset_catalog()}
+
+    def verify_selection(self, pipeline: Any, variant: str = "") -> dict[str, Any]:
+        try:
+            return SELECTION.inspect_selection(pipeline, PIPELINE_TOOL, PROJECT_ROOT / "models", variant=variant or None)
+        except (ValueError, KeyError, TypeError, OSError, subprocess.SubprocessError) as error:
+            raise StudioError("SELECTION_CHECK_FAILED", str(error)) from error
 
     def profiles(self) -> dict[str, Any]:
         root = read_json(PROFILE_FILE)
@@ -437,6 +451,10 @@ def make_handler(service: WorkbenchService):
                 body = self._body()
             if method == "GET" and path == "/api/v1/catalog":
                 payload = service.catalog(query.get("biz", [""])[0])
+            elif method == "GET" and path == "/api/v1/assets":
+                payload = service.assets()
+            elif method == "POST" and path == "/api/v1/selection":
+                payload = service.verify_selection(body.get("pipeline"), body.get("variant", ""))
             elif method == "GET" and path == "/api/v1/profiles":
                 payload = service.profiles()
             elif method == "GET" and path == "/api/v1/pipelines":

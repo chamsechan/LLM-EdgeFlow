@@ -10,6 +10,7 @@ const state = {
   dirty: false,
   catalog: { nodes: [], bizs: [], profiles: [] },
   profiles: [],
+  assets: [],
   selected: "",
   jobId: "",
   errorNodeIds: new Set(),
@@ -45,6 +46,7 @@ function clearValidation(message = "") {
 function markPipelineChanged() {
   state.pipelineVersion += 1;
   clearValidation("方案已修改，请重新校验");
+  $("#selectionReport").textContent = "方案已修改，资产与效果验收需要重新检查。";
   setDirty(true);
 }
 
@@ -168,7 +170,10 @@ function addNode(definition) {
 }
 
 async function refreshLists() {
-  const [allCatalog, profiles, pipelines] = await Promise.all([api("/catalog"), api("/profiles"), api("/pipelines")]);
+  const [allCatalog, profiles, pipelines, assets] = await Promise.all([api("/catalog"), api("/profiles"), api("/pipelines"), api("/assets")]);
+  state.assets = assets.selections;
+  const variants = $("#buildVariant"); variants.replaceChildren(new Option("按当前 Catalog 检查", ""));
+  for (const variant of assets.variants) variants.add(new Option(variant.name, variant.name));
   state.profiles = profiles.profiles;
   const biz = $("#bizSelect"); biz.replaceChildren();
   for (const item of allCatalog.bizs) biz.add(new Option(`${item.display_name} · ${item.biz_name}`, item.biz_name));
@@ -297,6 +302,13 @@ function loadModelEditor(id = "") {
   editingModelId = id;
   $("#modelSelect").value = id;
   const model = state.pipeline?.models?.find(item => item.model_id === id);
+  const assets = $("#assetSelect"); assets.replaceChildren(new Option("手动配置", ""));
+  for (const asset of state.assets) {
+    const supported = state.catalog.backends?.some(backend => backend.backend_type === asset.model.backend);
+    const availability = asset.availability === "missing" ? "资产缺失" : "文件存在，待验 SHA";
+    const option = new Option(`${asset.label} · ${supported ? availability : "此构建未启用"}`, asset.id);
+    option.disabled = !supported; assets.add(option);
+  }
   $("#modelId").value = model?.model_id || "";
   $("#modelPath").value = model?.model_path || "";
   const type = $("#modelType"); type.replaceChildren();
@@ -329,6 +341,25 @@ function readConfigFields(selector) {
   return config;
 }
 
+$("#assetSelect").addEventListener("change", event => {
+  const asset = state.assets.find(item => item.id === event.target.value);
+  if (!asset) return;
+  const model = structuredClone(asset.model);
+  $("#modelType").value = model.model_type; $("#modelPath").value = model.model_path;
+  if (!$("#modelId").value) $("#modelId").value = asset.id;
+  renderModelFields(model);
+});
+$("#verifySelection").addEventListener("click", async () => {
+  if (!state.pipeline) return;
+  const version = state.pipelineVersion;
+  $("#selectionReport").textContent = "正在计算资产散列并检查编译产物…";
+  try {
+    const report = await write("/selection", "POST", {pipeline: state.pipeline, variant: $("#buildVariant").value}, true);
+    if (version !== state.pipelineVersion) return;
+    const summary = [report.ok ? "配置、资产与构建检查通过。" : "选择检查未通过。", "业务效果：尚未验收。请使用 verify_selection.py evaluate 生成数据集验收记录。"];
+    $("#selectionReport").textContent = summary.join("\n") + "\n" + JSON.stringify(report, null, 2);
+  } catch (error) { if (version === state.pipelineVersion) $("#selectionReport").textContent = error.message; }
+});
 $("#modelSelect").addEventListener("change", event => loadModelEditor(event.target.value));
 $("#newModel").addEventListener("click", () => loadModelEditor());
 $("#modelType").addEventListener("change", () => renderModelFields());

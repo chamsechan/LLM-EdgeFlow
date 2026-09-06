@@ -363,7 +363,7 @@ TEST(NodeBaseContractsTest, TraceableAlignmentReportsFirstMismatch) {
 }  // namespace llm_edgeflow
 
 namespace llm_edgeflow {
-TEST(BoundInputTest, UnconnectedPlannedInputCannotReadDefaultKey) {
+TEST(NodeBaseContractsTest, UnconnectedPlannedInputCannotReadDefaultKey) {
   BoundInput<std::string> input("attributes");
   AlgContext ctx;
   ctx.Publish("attributes", std::string("unrelated"));

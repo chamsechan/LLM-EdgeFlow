@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-09-06 审计整改（阶段 5）
+
+- 资产组合与下载脚本共用 SHA-256 清单，包含权重、tokenizer、运行配置和 projector；Studio 可选资产组合并校验已应用方案的构建/文件身份。
+- 增加 default-cpu、kite-cpu、minimal 构建 preset；选择检查对比实际 Catalog 并记录执行文件指纹。
+- 增加基于真实 Demo 执行、标注字段比较及指纹过期检测的业务验收工具；关闭 Demo 默认覆盖，保证评估所选 Pipeline。
+- 收敛 Whisper 示例的模型根路径约定。新增资产损坏/缺失/变更、构建不匹配、实际效果与旧证据失效测试。
+- [交付记录](AUDIT_REMEDIATION_REPORT_2026-09-06.md) 与 [使用指南](VERIFIABLE_SELECTION.md) 说明实际验证范围和未完成的其他审计事项。
+
 ## 2026-09-06 审计整改（阶段 4）
 
 - 七个内置 Adapter 用同一份 PackTyped 逻辑生成固定 C ABI 输出与 Operator 可变长结果，去除 Operator 中间固定字符串数组瓶颈。

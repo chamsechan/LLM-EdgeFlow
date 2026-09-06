@@ -69,6 +69,7 @@
           <button id="newModel" type="button">新增模型实例</button>
           <form id="modelForm">
             <label>模型 ID<input id="modelId" required></label>
+            <label>资产组合<select id="assetSelect"><option value="">手动配置</option></select></label>
             <label>Model 类型<select id="modelType" required></select></label>
             <label>Backend<select id="modelBackend" required></select></label>
             <label>模型资产路径<input id="modelPath" required placeholder="相对于 model_root_dir 的路径"></label>
@@ -76,6 +77,9 @@
             <p>Backend 参数</p><div id="backendConfigFields"></div>
             <div class="row"><button type="submit" class="primary">应用模型</button><button id="deleteModel" type="button" class="danger">删除模型</button></div>
           </form>
+          <label>预期构建变体<select id="buildVariant"><option value="">按当前 Catalog 检查</option></select></label>
+          <button id="verifySelection" type="button" class="primary full">检查已应用方案的资产与构建</button>
+          <pre id="selectionReport" class="result">资产尚未校验；业务效果尚未验收。</pre>
         </section>
         <section id="jsonTab" class="tab scroll" hidden>
           <textarea id="rawJson" class="code" spellcheck="false"></textarea>

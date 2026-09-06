@@ -44,3 +44,8 @@ For Whisper ASR models (`ggml-base.bin`, `ggml-tiny-q5_1.bin`):
 ```bash
 ./scripts/fetch_real_test_models.sh --whisper
 ```
+
+The authoritative artifact pins and selectable Model/Backend starting points live
+in [asset_manifest.json](asset_manifest.json). The fetch script and selection
+checker consume that same manifest. See [verifiable selection](../doc/VERIFIABLE_SELECTION.md)
+for build presets, sidecar verification and dataset-based acceptance receipts.
