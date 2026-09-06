@@ -771,10 +771,6 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
           return -3;
         }
         const auto* in = static_cast<const CompanyOperatorKeywordInput*>(ptr);
-        if (!in->sentence_text) {
-          if (err) *err = "sentence_text pointer is null";
-          return -3;
-        }
         return ValidateCompanyString(in->sentence_text, limits.max_text_bytes,
                                      "sentence_text", err);
       }));
@@ -815,10 +811,6 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
           return -3;
         }
         const auto* in = static_cast<const CompanyOperatorEntityInput*>(ptr);
-        if (!in->sentence_text) {
-          if (err) *err = "sentence_text pointer is null";
-          return -3;
-        }
         return ValidateCompanyString(in->sentence_text, limits.max_text_bytes,
                                      "sentence_text", err);
       }));
@@ -859,10 +851,6 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
           return -3;
         }
         const auto* in = static_cast<const CompanyOperatorDocInput*>(ptr);
-        if (!in->query_text) {
-          if (err) *err = "query_text pointer is null";
-          return -3;
-        }
         int ret = ValidateCompanyString(in->query_text, limits.max_text_bytes,
                                         "query_text", err);
         if (ret != 0) return ret;
@@ -916,10 +904,6 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
           return -3;
         }
         const auto* in = static_cast<const CompanyOperatorAuditInput*>(ptr);
-        if (!in->user_text) {
-          if (err) *err = "user_text pointer is null";
-          return -3;
-        }
         int ret = ValidateCompanyString(in->user_text, limits.max_text_bytes,
                                         "user_text", err);
         if (ret != 0) return ret;
@@ -1041,10 +1025,6 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
           return -3;
         }
         const auto* in = static_cast<const CompanyOperatorRerankInput*>(ptr);
-        if (!in->query_text) {
-          if (err) *err = "query_text pointer is null";
-          return -3;
-        }
         int ret = ValidateCompanyString(in->query_text, limits.max_text_bytes,
                                         "query_text", err);
         if (ret != 0) return ret;

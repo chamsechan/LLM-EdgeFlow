@@ -27,10 +27,8 @@ int ConvertOperatorInputs(
       std::string found_key;
       const void* payload = nullptr;
       for (const auto& [key, value] : in_map) {
-        std::string key_namespace;
         std::string suffix;
-        if (!OperatorValueTypeRegistry::ParseKey(key, &key_namespace,
-                                                 &suffix)) {
+        if (!OperatorValueTypeRegistry::ParseKey(key, nullptr, &suffix)) {
           if (error) {
             *error = "Invalid input key format in frame " + std::to_string(i) +
                      ": " + key;
@@ -126,10 +124,8 @@ int ResolveOperatorOutputs(
     for (const auto& required_slot : bridge.output_slots) {
       std::string found_key;
       for (const auto& [key, value] : out_map) {
-        std::string key_namespace;
         std::string suffix;
-        if (!OperatorValueTypeRegistry::ParseKey(key, &key_namespace,
-                                                 &suffix)) {
+        if (!OperatorValueTypeRegistry::ParseKey(key, nullptr, &suffix)) {
           if (error) {
             *error = "Invalid output key format in frame " + std::to_string(i) +
                      ": " + key;

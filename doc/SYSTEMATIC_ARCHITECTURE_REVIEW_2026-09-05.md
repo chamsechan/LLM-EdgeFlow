@@ -327,7 +327,7 @@ Pipeline JSON 含 model_type/backend/model_path；`.conf` 又通过 model_id 覆
 
 建议明确三类成果：**通用能力 Node、可复用业务组合组件、少量领域语义 Node**。领域 Node 仍须无请求成员状态，通过 typed ports 和 IModel 能力协作；只负责领域语义，不包含外部结构体或 vendor 代码。先通过 RFC 建立一次稳定规则，避免每次新增常规业务都重复争论目录和抽象边界。
 
-按业务拆出值类型注册单元，并提供从当前生产模式生成的脚手架。现有 [Adapter templates](../include/adapter/templates/flat_struct_adapter.h#L19) 是示例协议，使用自身 DTO 和字符串 key，不是能直接复制后接现有通用 Node 的完整模板；应清晰标为示例，或补成可运行的最小作者样例。
+按业务拆出值类型注册单元，并提供从当前生产模式生成的脚手架。现有 [Adapter templates](../tests/support/adapter_examples/flat_struct_adapter.h#L19) 是示例协议，使用自身 DTO 和字符串 key，不是能直接复制后接现有通用 Node 的完整模板；应清晰标为示例，或补成可运行的最小作者样例。
 
 ### P2-07：同步执行边界清楚，但吞吐、超时与排障能力不足以支撑更广业务
 

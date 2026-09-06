@@ -34,13 +34,7 @@ struct ProcessLocalShadowStorage {
   }
 
   const char* StoreOptionalString(const CompanyString* cs) {
-    if (!cs) return nullptr;
-    if (cs->length <= 0 || !cs->data) {
-      strings.emplace_back("");
-      return strings.back().c_str();
-    }
-    strings.emplace_back(cs->data, cs->length);
-    return strings.back().c_str();
+    return cs ? StoreString(cs) : nullptr;
   }
 
   template <typename T>
