@@ -21,7 +21,8 @@ target_sources(edgeflow_layer1_adapter_objects PRIVATE
   operator/operator_control_registry.cpp
   operator/operator_output_pool.cpp
   operator/operator_process_binding.cpp
-  operator/operator_value_type_registry.cpp)
+  operator/operator_value_type_registry.cpp
+  operator/operator_builtin_value_types.cpp)
 
 target_sources(edgeflow_composition_objects PRIVATE
   shared_algorithm_runtime.cpp)

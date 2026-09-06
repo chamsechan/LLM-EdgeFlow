@@ -25,6 +25,25 @@ void SetMinimalOutputContract(OperatorValueTypeBinding* binding) {
 
 }  // namespace
 
+TEST(OperatorValueRegistryTest, BuiltinInputsPreserveNullDiagnostics) {
+  const char* suffixes[] = {"string",     "buffer",    "any",    "frame",
+                            "keyword_in", "entity_in", "doc_in", "audit_in",
+                            "audio_in",   "rerank_in"};
+  ResolvedInputLimits limits;
+  for (const char* suffix : suffixes) {
+    SCOPED_TRACE(suffix);
+    const auto* binding =
+        OperatorValueTypeRegistry::Instance().GetBindingBySuffix(suffix);
+    ASSERT_NE(binding, nullptr);
+    ASSERT_EQ(binding->direction, IoDirection::kInput);
+    ASSERT_TRUE(binding->validate_external);
+    std::string err;
+    EXPECT_EQ(binding->validate_external(nullptr, limits, &err), -3);
+    EXPECT_EQ(err, binding->external_c_type_name + " pointer is null");
+    EXPECT_EQ(binding->validate_external(nullptr, limits, nullptr), -3);
+  }
+}
+
 // 1. Any 类型白名单与尺寸查找
 TEST(OperatorValueRegistryTest, CompanyAnyTypeWhitelistAndSizes) {
   const auto* t0 = FindCompanyAnyType(0);
