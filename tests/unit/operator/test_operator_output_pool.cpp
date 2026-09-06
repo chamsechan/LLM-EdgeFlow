@@ -134,6 +134,7 @@ TEST_F(OperatorOutputPoolTest, AddressReuseAndResetContract) {
   auto* out1 = static_cast<CompanyOperatorKeywordOutput*>(b1);
   out1->request_id = 999;
   out1->is_hit = 1;
+  out1->status_code = -42;
   std::strcpy(out1->match_result_json->data, "hello world");
   out1->match_result_json->length = 11;
   char* original_data_addr = out1->match_result_json->data;
@@ -150,11 +151,67 @@ TEST_F(OperatorOutputPoolTest, AddressReuseAndResetContract) {
   // 验证 Reset 契约：内容重置为初始，但物理地址和容量完好保留
   EXPECT_EQ(out2->request_id, 0u);
   EXPECT_EQ(out2->is_hit, 0);
+  EXPECT_EQ(out2->status_code, 0);
   EXPECT_EQ(out2->match_result_json->length, 0);
   EXPECT_EQ(out2->match_result_json->data[0], '\0');
   EXPECT_EQ(out2->match_result_json->data, original_data_addr);
 
   pool->ReturnBlock(b2);
+}
+
+TEST_F(OperatorOutputPoolTest,
+       EntityOutputReusePreservesDefaultAndCustomCapacity) {
+  const auto* binding =
+      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("entity_out");
+  ASSERT_NE(binding, nullptr);
+  for (uint32_t capacity : {2047u, 100u}) {
+    SCOPED_TRACE(capacity);
+    ResolvedOutputPoolSpec spec;
+    spec.type = "entity_out";
+    if (capacity != 2047u) spec.capacities["entities_json"] = capacity;
+    std::shared_ptr<OutputPoolState> pool;
+    std::string err;
+    ASSERT_EQ(OutputPoolState::Create(spec.type, 1, spec, binding, &pool, &err),
+              0)
+        << err;
+    void* block = nullptr;
+    ASSERT_EQ(pool->Acquire(&block), 0);
+    auto* out = static_cast<CompanyOperatorEntityOutput*>(block);
+    EXPECT_EQ(out->request_id, 0u);
+    EXPECT_EQ(out->status_code, 0);
+    ASSERT_NE(out->entities_json, nullptr);
+    CompanyString* original_string = out->entities_json;
+    char* original_data = original_string->data;
+    ASSERT_NE(original_data, nullptr);
+    EXPECT_EQ(original_string->length, 0);
+    EXPECT_EQ(original_data[0], '\0');
+    out->request_id = 999;
+    out->status_code = -42;
+    std::memset(original_data, 'x', capacity);
+    original_data[capacity] = '\0';
+    original_string->length = static_cast<int32_t>(capacity);
+
+    void* reused = nullptr;
+    int result = -1;
+    bool allocated = false;
+    {
+      test_support::ScopedAllocationFailure failure(0);
+      pool->ReturnBlock(block);
+      result = pool->Acquire(&reused);
+      allocated = failure.Triggered();
+    }
+    ASSERT_EQ(result, 0);
+    EXPECT_FALSE(allocated);
+    EXPECT_EQ(reused, block);
+    out = static_cast<CompanyOperatorEntityOutput*>(reused);
+    EXPECT_EQ(out->request_id, 0u);
+    EXPECT_EQ(out->status_code, 0);
+    EXPECT_EQ(out->entities_json, original_string);
+    EXPECT_EQ(out->entities_json->data, original_data);
+    EXPECT_EQ(out->entities_json->length, 0);
+    EXPECT_EQ(original_data[0], '\0');
+    pool->ReturnBlock(reused);
+  }
 }
 
 // 4. ScopedOutputLeaseGuard 的 Untrack 与 Rollback 事务边界

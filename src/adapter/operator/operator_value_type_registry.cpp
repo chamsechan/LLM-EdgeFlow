@@ -215,6 +215,35 @@ OperatorValueTypeBinding MakeOutputBinding(
   return binding;
 }
 
+// For outputs with exactly one pooled string and no metadata. Scalar reset
+// rules remain explicit at each registration; allocation ownership stays here.
+template <typename T, typename ResetScalars>
+OperatorValueTypeBinding MakeSingleStringOutputBinding(
+    const char* suffix, const char* type_name, const char* field_name,
+    OutputCapacityFieldConfig capacity, CompanyString* T::*string_field,
+    ResetScalars reset_scalars) {
+  return MakeOutputBinding(
+      suffix, type_name, {{field_name, capacity}}, 0, sizeof(T),
+      [field_name, string_field](const ResolvedOutputPoolSpec& spec,
+                                 OwnedExternalBlock* block,
+                                 std::string*) -> int {
+        // Value initialization zeros scalars. Root, string and data each have
+        // one cleanup action, reserved before allocating the owned objects.
+        auto* raw = AllocateRootOutput<T>(3, block);
+        raw->*string_field =
+            AllocateNestedCompanyString(spec.GetCapacity(field_name), block);
+        block->raw_struct = raw;
+        return 0;
+      },
+      [string_field, reset_scalars](void* ptr,
+                                    const ResolvedOutputPoolSpec&) noexcept {
+        if (!ptr) return;
+        auto* raw = static_cast<T*>(ptr);
+        reset_scalars(*raw);
+        ResetNestedCompanyString(raw->*string_field);
+      });
+}
+
 }  // namespace
 
 bool ResolveOutputPoolSpec(const OperatorValueTypeBinding& binding,
@@ -776,29 +805,13 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
       }));
 
   // 7. keyword_out -> CompanyOperatorKeywordOutput
-  RegisterBinding(MakeOutputBinding(
-      "keyword_out", "CompanyOperatorKeywordOutput",
-      {{"match_result_json", {2047, 65536}}}, 0,
-      sizeof(CompanyOperatorKeywordOutput),
-      [](const ResolvedOutputPoolSpec& spec, OwnedExternalBlock* out_block,
-         std::string* /*err*/) -> int {
-        auto* raw =
-            AllocateRootOutput<CompanyOperatorKeywordOutput>(3, out_block);
-        if (!raw) return -4;
-
-        raw->request_id = 0;
-        raw->is_hit = 0;
-        raw->match_result_json = AllocateNestedCompanyString(
-            spec.GetCapacity("match_result_json"), out_block);
-        out_block->raw_struct = raw;
-        return 0;
-      },
-      [](void* ptr, const ResolvedOutputPoolSpec& /*spec*/) noexcept {
-        if (!ptr) return;
-        auto* raw = static_cast<CompanyOperatorKeywordOutput*>(ptr);
-        raw->request_id = 0;
-        raw->is_hit = 0;
-        ResetNestedCompanyString(raw->match_result_json);
+  RegisterBinding(MakeSingleStringOutputBinding(
+      "keyword_out", "CompanyOperatorKeywordOutput", "match_result_json",
+      {2047, 65536}, &CompanyOperatorKeywordOutput::match_result_json,
+      [](CompanyOperatorKeywordOutput& out) noexcept {
+        out.request_id = 0;
+        out.is_hit = 0;
+        out.status_code = 0;
       }));
 
   // 8. entity_in -> CompanyOperatorEntityInput
@@ -816,29 +829,12 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
       }));
 
   // 9. entity_out -> CompanyOperatorEntityOutput
-  RegisterBinding(MakeOutputBinding(
-      "entity_out", "CompanyOperatorEntityOutput",
-      {{"entities_json", {2047, 65536}}}, 0,
-      sizeof(CompanyOperatorEntityOutput),
-      [](const ResolvedOutputPoolSpec& spec, OwnedExternalBlock* out_block,
-         std::string* /*err*/) -> int {
-        auto* raw =
-            AllocateRootOutput<CompanyOperatorEntityOutput>(3, out_block);
-        if (!raw) return -4;
-
-        raw->request_id = 0;
-        raw->status_code = 0;
-        raw->entities_json = AllocateNestedCompanyString(
-            spec.GetCapacity("entities_json"), out_block);
-        out_block->raw_struct = raw;
-        return 0;
-      },
-      [](void* ptr, const ResolvedOutputPoolSpec& /*spec*/) noexcept {
-        if (!ptr) return;
-        auto* raw = static_cast<CompanyOperatorEntityOutput*>(ptr);
-        raw->request_id = 0;
-        raw->status_code = 0;
-        ResetNestedCompanyString(raw->entities_json);
+  RegisterBinding(MakeSingleStringOutputBinding(
+      "entity_out", "CompanyOperatorEntityOutput", "entities_json",
+      {2047, 65536}, &CompanyOperatorEntityOutput::entities_json,
+      [](CompanyOperatorEntityOutput& out) noexcept {
+        out.request_id = 0;
+        out.status_code = 0;
       }));
 
   // 10. doc_in -> CompanyOperatorDocInput

@@ -614,6 +614,43 @@ TEST(OperatorValueRegistryTest,
   EXPECT_NE(err.find("max hard limit"), std::string::npos);
 }
 
+TEST(OperatorValueRegistryTest, SingleStringOutputCapacityContracts) {
+  const struct {
+    const char* suffix;
+    const char* field;
+    size_t root_bytes;
+  } cases[] = {
+      {"keyword_out", "match_result_json",
+       sizeof(CompanyOperatorKeywordOutput)},
+      {"entity_out", "entities_json", sizeof(CompanyOperatorEntityOutput)}};
+  for (const auto& test : cases) {
+    SCOPED_TRACE(test.suffix);
+    const auto* binding =
+        OperatorValueTypeRegistry::Instance().GetBindingBySuffix(test.suffix);
+    ASSERT_NE(binding, nullptr);
+    ResolvedOutputPoolSpec requested;
+    requested.type = test.suffix;
+    ResolvedOutputPoolSpec resolved;
+    std::string err;
+    ASSERT_TRUE(ResolveOutputPoolSpec(*binding, requested, &resolved, &err));
+    ASSERT_EQ(resolved.capacities.size(), 1u);
+    EXPECT_EQ(resolved.GetCapacity(test.field), 2047u);
+    for (uint32_t capacity : {100u, 65536u}) {
+      requested.capacities[test.field] = capacity;
+      ASSERT_TRUE(ResolveOutputPoolSpec(*binding, requested, &resolved, &err));
+      EXPECT_EQ(resolved.GetCapacity(test.field), capacity);
+      size_t bytes = 0;
+      ASSERT_TRUE(
+          ComputeOutputPoolPayloadBytes(*binding, requested, 1, &bytes, &err));
+      EXPECT_EQ(bytes, test.root_bytes + sizeof(CompanyString) + capacity + 1);
+    }
+    for (uint32_t capacity : {0u, 65537u}) {
+      requested.capacities[test.field] = capacity;
+      EXPECT_FALSE(ResolveOutputPoolSpec(*binding, requested, &resolved, &err));
+    }
+  }
+}
+
 TEST(OperatorValueRegistryTest, DirectionDoesNotDependOnSuffixNaming) {
   OperatorValueTypeRegistry reg;
   OperatorValueTypeBinding binding;

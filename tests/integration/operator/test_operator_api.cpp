@@ -62,6 +62,17 @@ class ScopedTempDirectory {
 
 class OperatorApiTest : public ::testing::Test {
  protected:
+  CreateParam DefaultCreateParam(const char* config_file) const {
+    CreateParam param{};
+    param.model_path = config_root_.c_str();
+    // Callers below use string literals; the root is owned by this fixture.
+    param.cfg_file_name = config_file;
+    param.device_id = 0;
+    param.compute_platform = ComputePlatform::kAx650;
+    param.max_frame_depth = 25;
+    return param;
+  }
+
   static std::pair<std::shared_ptr<ScopedTempDirectory>, std::string>
   PrepareCrossRerankFixtureConfig() {
     auto temp_dir = std::make_shared<ScopedTempDirectory>();
@@ -123,6 +134,9 @@ class OperatorApiTest : public ::testing::Test {
   }
 
   OperatorFunc ops_{};
+
+ private:
+  const std::string config_root_ = GetConfDir();
 };
 
 // 1. 测试函数表完整性与空安全
@@ -374,13 +388,7 @@ TEST_F(OperatorApiTest, CompanyStringValidation) {
 
 // 6. 关注词匹配业务端到端 (Keyword Match)
 TEST_F(OperatorApiTest, EndToEndKeywordMatch) {
-  std::string root_dir = GetConfDir();
-  CreateParam param{};
-  param.model_path = root_dir.c_str();
-  param.cfg_file_name = "configs/pipeline_keyword_match.conf";
-  param.device_id = 0;
-  param.compute_platform = ComputePlatform::kAx650;
-  param.max_frame_depth = 25;
+  auto param = DefaultCreateParam("configs/pipeline_keyword_match.conf");
 
   void* handle = nullptr;
   ASSERT_EQ(ops_.Create(&handle, &param), 0);
@@ -462,13 +470,7 @@ TEST_F(OperatorApiTest, EndToEndOcrDocQaMultiSlot) {
 
 // 8. 智能长文档问答业务 (Doc QA)
 TEST_F(OperatorApiTest, EndToEndDocQa) {
-  std::string root_dir = GetConfDir();
-  CreateParam param{};
-  param.model_path = root_dir.c_str();
-  param.cfg_file_name = "demo/fixtures/mock/pipeline_doc_qa.conf";
-  param.device_id = 0;
-  param.compute_platform = ComputePlatform::kAx650;
-  param.max_frame_depth = 25;
+  auto param = DefaultCreateParam("demo/fixtures/mock/pipeline_doc_qa.conf");
 
   void* handle = nullptr;
   ASSERT_EQ(ops_.Create(&handle, &param), 0);
@@ -806,13 +808,8 @@ TEST_F(OperatorApiTest, ValidateOperatorConfigBindingApi) {
 
 // 16. 实体抽取业务端到端 (Entity Extract)
 TEST_F(OperatorApiTest, EndToEndEntityExtract) {
-  std::string root_dir = GetConfDir();
-  CreateParam param{};
-  param.model_path = root_dir.c_str();
-  param.cfg_file_name = "demo/fixtures/mock/pipeline_entity_extract.conf";
-  param.device_id = 0;
-  param.compute_platform = ComputePlatform::kAx650;
-  param.max_frame_depth = 25;
+  auto param =
+      DefaultCreateParam("demo/fixtures/mock/pipeline_entity_extract.conf");
 
   void* handle = nullptr;
   ASSERT_EQ(ops_.Create(&handle, &param), 0);
