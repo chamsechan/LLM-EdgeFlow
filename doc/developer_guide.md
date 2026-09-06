@@ -12,7 +12,7 @@
 | :--- | :--- | :--- | :--- |
 | **Layer 1: C ABI 适配层** | 新增业务枚举、输入/输出纯 C 结构体与专属适配器 | `include/company_alg_interface.h`<br>`src/adapter/adapters/<biz>_adapter.cpp` | `CompanyAlgBizType`<br>`IBizAdapter`<br>`REGISTER_BIZ_ADAPTER` |
 | **Layer 2: 核心编排层** | 扩展动态黑板、会话模型管理与全局资源 | `include/core/alg_context.h`<br>`include/core/session_context.h` | `AlgContext::Read/Publish`<br>`SessionResourceKey<T>` |
-| **Layer 3: 通用能力算子池** | 新增通用能力算子 (分片/向量检索/重排/模板/规则/解析) | `src/common_nodes/*.cpp`<br>`include/nodes/*.h` | `NodeBase`<br>`REGISTER_NODE_WITH_DEFINITION(NodeName, def)` |
+| **Layer 3: 能力节点** | 新增通用操作或可跨方案复用的领域算法 | `src/common_nodes/*.cpp`<br>`src/custom_nodes/*.cpp`<br>`include/nodes/*.h` | `NodeBase`<br>`REGISTER_NODE_WITH_DEFINITION(NodeName, def)` |
 | **Layer 4: Model / Backend 层** | 新增模型语义或接入新推理后端 | `include/engine/model_interface.h`<br>`include/engine/backend_interface.h`<br>`src/engine/models/`<br>`src/engine/backends/` | `REGISTER_MODEL_WITH_DEFINITION`<br>`REGISTER_BACKEND_WITH_DEFINITION`<br>`ModelRuntimeFactory`<br>`FixedBatchExecutor` |
 
 ---
@@ -93,12 +93,13 @@ Node 作者仍使用 `BoundInput<T>::Require` 与 `BoundOutput<T>::Set`；端口
 
 ---
 
-## 3. Layer 3: 如何新增通用能力 Node
+## 3. Layer 3: 如何新增通用或自定义 Node
 
 先运行 `alg_pipeline_tool catalog --biz <name>` 和 `describe-node`。只有现有操作无法闭合
 typed port 契约时才新增 Node。Node 必须：
 
-- 表达一个可命名、可测试且业务无关的操作，放在 `src/common_nodes/`；
+- 通用操作放在 `src/common_nodes/`；领域算法与特定前后处理放在 `src/custom_nodes/`，
+  默认按操作命名文件，不按业务建目录。自定义 Node 同样可以被多个方案复用；
 - 通过 `NodeBase`、`ModelBoundNode` 或 `TraceableUnaryInferenceNode` 使用已经解析的逻辑
   端口，不固定实际 Blackboard Key；
 - 把请求状态留在 `AlgContext`，成员只保存不可变配置或并发安全句柄；
@@ -107,6 +108,12 @@ typed port 契约时才新增 Node。Node 必须：
 
 以 [`llm_generate_node.cpp`](../src/common_nodes/llm_generate_node.cpp)、
 [`text_rerank_node.cpp`](../src/common_nodes/text_rerank_node.cpp) 及其同名测试为当前模板。
+
+自定义 Node 可以在一次处理内完成前处理、调用声明绑定的模型和后处理，沿用现有
+`ModelBoundNode`，无需新增专属基类。Definition 使用 `category = "custom"`；仅在存在
+真实业务契约限制时设置 `biz_names`。平台结构转换留在 Adapter，Core、Engine 和通用
+Node 不依赖自定义实现。编写、构建和复用步骤见
+[自定义 Node 接入指南](../src/custom_nodes/README.md)。
 
 ---
 

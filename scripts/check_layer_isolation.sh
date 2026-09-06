@@ -24,6 +24,7 @@ if [[ "${1:-}" == "--self-test" ]]; then
 
   # Test Case 2: Injected illegal include must cause script to fail
   mkdir -p "${TMP_TEST_DIR}/violation_repo/src/common_nodes"
+  mkdir -p "${TMP_TEST_DIR}/violation_repo/src/custom_nodes"
   mkdir -p "${TMP_TEST_DIR}/violation_repo/src/adapter/adapters"
   mkdir -p "${TMP_TEST_DIR}/violation_repo/demo"
   mkdir -p "${TMP_TEST_DIR}/violation_repo/include/operator"
@@ -63,6 +64,7 @@ if [[ "${1:-}" == "--self-test" ]]; then
     "src/engine/backends/onnxruntime/bad_backend.cpp" \
     "src/core/bad_core.cpp" \
     "src/common_nodes/bad_node.cpp" \
+    "src/custom_nodes/bad_node.cpp" \
     "src/adapter/adapters/bad_adapter.cpp" \
     "demo/bad_demo.cpp"; do
     KITE_INJECTION_FILE="${TMP_TEST_DIR}/violation_repo/${KITE_INJECTION_PATH}"
@@ -90,6 +92,7 @@ if [[ "${1:-}" == "--self-test" ]]; then
     "src/engine/backends/onnxruntime/bad_backend.cpp" \
     "src/core/bad_core.cpp" \
     "src/common_nodes/bad_node.cpp" \
+    "src/custom_nodes/bad_node.cpp" \
     "src/adapter/adapters/bad_adapter.cpp" \
     "demo/bad_demo.cpp"; do
     WHISPER_INJECTION_FILE="${TMP_TEST_DIR}/violation_repo/${WHISPER_INJECTION_PATH}"
@@ -110,6 +113,75 @@ if [[ "${1:-}" == "--self-test" ]]; then
     : > "${WHISPER_INJECTION_FILE}"
   done
 
+  # Test Case 6: Custom Nodes obey the same platform boundary as common Nodes.
+  for CUSTOM_INCLUDE in \
+    '#include "company_alg_interface.h"' \
+    '# include "../adapter/biz_blackboard_keys.h"' \
+    '#include "adapter/biz_adapter_interface.h"' \
+    '#include "operator/company_operator_types.h"'; do
+    echo "${CUSTOM_INCLUDE}" > "${TMP_TEST_DIR}/violation_repo/src/custom_nodes/bad_node.cpp"
+    set +e
+    CUSTOM_GUARD_OUTPUT=$(REPO_ROOT="${TMP_TEST_DIR}/violation_repo" \
+      bash "${SCRIPT_PATH}" 2>&1)
+    STATUS_CUSTOM_GUARD=$?
+    set -e
+    if [ $STATUS_CUSTOM_GUARD -eq 0 ] || \
+       ! grep -q "Layer 3 -> Layer 1" <<<"${CUSTOM_GUARD_OUTPUT}"; then
+      echo "❌ [LayerGuard Self-Test FAIL] Custom Node platform dependency was not detected: ${CUSTOM_INCLUDE}"
+      exit 1
+    fi
+  done
+  : > "${TMP_TEST_DIR}/violation_repo/src/custom_nodes/bad_node.cpp"
+
+  # Test Case 7: Reusable framework code must not depend on custom implementations.
+  for CUSTOM_CONSUMER in \
+    "src/common_nodes/bad_node.cpp" \
+    "include/nodes/bad_support.h" \
+    "src/core/bad_core.cpp" \
+    "include/core/bad_contract.h" \
+    "src/engine/models/bad_model.cpp" \
+    "include/engine/bad_model.h"; do
+    CUSTOM_CONSUMER_FILE="${TMP_TEST_DIR}/violation_repo/${CUSTOM_CONSUMER}"
+    mkdir -p "$(dirname "${CUSTOM_CONSUMER_FILE}")"
+    for CUSTOM_INCLUDE in \
+      '#include "custom_nodes/domain_node.h"' \
+      '# include "../custom_nodes/domain_node.h"'; do
+      echo "${CUSTOM_INCLUDE}" > "${CUSTOM_CONSUMER_FILE}"
+      set +e
+      CUSTOM_GUARD_OUTPUT=$(REPO_ROOT="${TMP_TEST_DIR}/violation_repo" \
+        bash "${SCRIPT_PATH}" 2>&1)
+      STATUS_CUSTOM_GUARD=$?
+      set -e
+      if [ $STATUS_CUSTOM_GUARD -eq 0 ] || \
+         ! grep -q "dependency on custom Node" <<<"${CUSTOM_GUARD_OUTPUT}"; then
+        echo "❌ [LayerGuard Self-Test FAIL] Framework dependency on custom Node was not detected: ${CUSTOM_CONSUMER}"
+        exit 1
+      fi
+    done
+    : > "${CUSTOM_CONSUMER_FILE}"
+  done
+
+  # Test Case 8: Custom source ownership is checked even before any nodes exist.
+  mkdir -p "${TMP_TEST_DIR}/violation_repo/include/nodes"
+  cp "${REPO_ROOT}/include/nodes/node_support.h" \
+    "${TMP_TEST_DIR}/violation_repo/include/nodes/node_support.h"
+  for CUSTOM_FIXTURE_LAYER in engine common_nodes core adapter; do
+    cp "${REPO_ROOT}/src/${CUSTOM_FIXTURE_LAYER}/CMakeLists.txt" \
+      "${TMP_TEST_DIR}/violation_repo/src/${CUSTOM_FIXTURE_LAYER}/CMakeLists.txt"
+  done
+  echo 'target_sources(edgeflow_layer2_core_objects PRIVATE misplaced.cpp)' > \
+    "${TMP_TEST_DIR}/violation_repo/src/custom_nodes/CMakeLists.txt"
+  set +e
+  CUSTOM_GUARD_OUTPUT=$(REPO_ROOT="${TMP_TEST_DIR}/violation_repo" \
+    bash "${SCRIPT_PATH}" 2>&1)
+  STATUS_CUSTOM_GUARD=$?
+  set -e
+  if [ $STATUS_CUSTOM_GUARD -eq 0 ] || \
+     ! grep -q "src/custom_nodes/CMakeLists.txt does not assign sources" <<<"${CUSTOM_GUARD_OUTPUT}"; then
+    echo "❌ [LayerGuard Self-Test FAIL] Custom Node source ownership violation was not detected!"
+    exit 1
+  fi
+
   echo "✅ [LayerGuard Self-Test PASS] Missing paths and injected dependency violations were detected."
   exit 0
 fi
@@ -118,17 +190,22 @@ echo "======================================================================"
 echo " [LayerGuard] Checking 4-Tier Architectural Isolation Directives..."
 echo "======================================================================"
 
-# Rule 1: Layer 3 (src/common_nodes/) MUST NEVER include Layer 1 header (company_alg_interface.h)
-if [ ! -d "$REPO_ROOT/src/common_nodes" ]; then
-  echo "❌ [LayerGuard ERROR] src/common_nodes directory not found!"
-  exit 1
-fi
-VIOLATIONS_L3_L1=$(grep -rnE '#include\s*["<]company_alg_interface\.h[">]' "$REPO_ROOT/src/common_nodes" || true)
+# Rule 1: All Layer 3 Nodes must keep platform structs and conversion in Layer 1.
+NODE_SOURCE_PATHS=("$REPO_ROOT/src/common_nodes" "$REPO_ROOT/src/custom_nodes")
+for NODE_SOURCE_PATH in "${NODE_SOURCE_PATHS[@]}"; do
+  if [ ! -d "$NODE_SOURCE_PATH" ]; then
+    echo "❌ [LayerGuard ERROR] ${NODE_SOURCE_PATH#"$REPO_ROOT/"} directory not found!"
+    exit 1
+  fi
+done
+VIOLATIONS_L3_L1=$(grep -rnE \
+  '^[[:space:]]*#[[:space:]]*include[[:space:]]*["<]([^">]*/)?(company_alg_interface\.h[">]|(adapter|operator)/)' \
+  "${NODE_SOURCE_PATHS[@]}" || true)
 
 if [ -n "$VIOLATIONS_L3_L1" ]; then
   echo "❌ [LayerGuard ERROR] Found Layer 3 -> Layer 1 reverse dependency violations:"
   echo "$VIOLATIONS_L3_L1"
-  echo "Directive: Layer 3 common nodes must strictly communicate via DTOs and AlgContext (ARCH-002)."
+  echo "Directive: All Layer 3 nodes must communicate via internal values and AlgContext."
   exit 1
 fi
 echo "✅ [LayerGuard PASS] Zero Layer 3 -> Layer 1 reverse include violations."
@@ -154,11 +231,24 @@ if [ -n "$VIOLATIONS_COMMON_BIZ" ]; then
 fi
 echo "✅ [LayerGuard PASS] Zero Common Node -> Biz Node reverse include violations."
 
+# Rule 3b: Framework code cannot acquire a dependency on custom Node implementations.
+VIOLATIONS_CUSTOM_DEPENDENCY=$(grep -rnE \
+  '^[[:space:]]*#[[:space:]]*include[[:space:]]*["<]([^">]*/)?custom_nodes/' \
+  "$REPO_ROOT/src/common_nodes" "$REPO_ROOT/include/nodes" \
+  "$REPO_ROOT/src/core" "$REPO_ROOT/include/core" \
+  "$REPO_ROOT/src/engine" "$REPO_ROOT/include/engine" 2>/dev/null || true)
+if [ -n "$VIOLATIONS_CUSTOM_DEPENDENCY" ]; then
+  echo "❌ [LayerGuard ERROR] Found framework dependency on custom Node implementations:"
+  echo "$VIOLATIONS_CUSTOM_DEPENDENCY"
+  exit 1
+fi
+echo "✅ [LayerGuard PASS] Framework code does not depend on custom Node implementations."
+
 # Rule 4: Layer 1 owns business-facing Blackboard key names. Layers 2-4 may
 # depend only on neutral value contracts and resolved logical port bindings.
 LOWER_LAYER_PATHS=(
   "$REPO_ROOT/include/core" "$REPO_ROOT/src/core"
-  "$REPO_ROOT/include/nodes" "$REPO_ROOT/src/common_nodes"
+  "$REPO_ROOT/include/nodes" "${NODE_SOURCE_PATHS[@]}"
   "$REPO_ROOT/include/engine" "$REPO_ROOT/src/engine"
 )
 VIOLATIONS_BIZ_KEYS=$(grep -rnE \
@@ -225,6 +315,7 @@ echo "✅ [LayerGuard PASS] Node support is decoupled from PipelineValidator."
 for OWNERSHIP in \
   "src/engine/CMakeLists.txt:edgeflow_layer4_engine_objects" \
   "src/common_nodes/CMakeLists.txt:edgeflow_layer3_node_objects" \
+  "src/custom_nodes/CMakeLists.txt:edgeflow_layer3_node_objects" \
   "src/core/CMakeLists.txt:edgeflow_layer2_core_objects" \
   "src/adapter/CMakeLists.txt:edgeflow_layer1_adapter_objects"; do
   OWNERSHIP_FILE="${OWNERSHIP%%:*}"

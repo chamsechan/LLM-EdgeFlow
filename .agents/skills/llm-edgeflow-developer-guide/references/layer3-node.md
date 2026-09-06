@@ -3,7 +3,7 @@
 Use this reference for a new or modified `INode` implementation.
 
 1. Query `alg_pipeline_tool catalog` and `describe-node` first. Add a node only when existing registered capabilities cannot close the required contract.
-2. Put production Nodes in `src/common_nodes/` when they express one reusable operation through typed ports. Business behavior belongs in Pipeline composition and Adapter boundaries. A truly non-configurable domain Node requires an RFC that proves common-node composition would violate semantics, atomicity, or performance; do not invent a directory or base class before that decision is accepted.
+2. Put framework-maintained neutral operations in `src/common_nodes/` and user-defined domain algorithms in `src/custom_nodes/`. Keep custom files organized by operation in the shared directory; they can be reused across businesses and need not be generalized for admission. Both use the same base classes and registration path. Follow `CONTRIBUTING.md` for RFC thresholds and [custom Node onboarding](../../../../src/custom_nodes/README.md) for authoring; platform conversion remains in Adapter, and Common Nodes/Core/Engine must not depend on custom implementations.
 3. Inherit `NodeBase` (or `ModelBoundNode`, `TraceableUnaryInferenceNode`); keep per-request state exclusively in `AlgContext`. Members may hold immutable configuration or safe shared handles, and the Definition must truthfully declare parallel safety.
 4. Declare inputs/outputs with the same `BlackboardKey<T>` objects used by `ProcessNode`. Never guess or duplicate key strings with inconsistent types.
 5. Provide a complete `NodeDefinition`: category, description, typed ports, configuration fields/defaults/ranges, model capability/reference field where relevant, biz applicability, override policy, and parallel safety.
@@ -11,7 +11,7 @@ Use this reference for a new or modified `INode` implementation.
 7. Validate configuration in `Init` as a defensive runtime boundary even though static validation runs first. Return errors; do not throw across framework boundaries.
 8. Add focused GoogleTest coverage for the affected configuration, port failures, outputs, provenance, concurrency declaration, Catalog visibility, and valid composition. Extend an existing suite when it already owns the contract.
 
-Use existing implementations in `src/common_nodes/` and their matching
+Use existing implementations in `src/common_nodes/`, the `src/custom_nodes/` authoring guide, and matching
 `tests/unit/nodes/test_*_node.cpp` suites as current templates. Use
 `tests/integration/pipeline/test_pipeline_catalog_validator.cpp` for Catalog/Validator integration;
 do not copy implementations into documentation.

@@ -28,12 +28,16 @@ Layer 4  Model semantics / neutral execution protocols / Backends
   `Pipeline` consumes `ValidatedPipelinePlan` without reparsing or resorting. Request values
   live in `AlgContext` behind typed ports/`BlackboardKey<T>`; session resources live in
   `SessionContext`.
-- **Layer 3** — `src/common_nodes/` and `include/nodes/`. Current production Nodes are
-  operation-defined, business-neutral, and request-stateless. They inherit `NodeBase` or its
-  shallow support classes and register constructor plus `NodeDefinition` through
-  `REGISTER_NODE_WITH_DEFINITION`. Business behavior is composed in Pipeline JSON; a future
-  domain Node requires RFC justification and must not duplicate a configurable common
-  operation.
+- **Layer 3** — `src/common_nodes/`, `src/custom_nodes/`, and `include/nodes/`. Common Nodes
+  provide framework-maintained, business-neutral operations; custom Nodes contain user-defined
+  domain algorithms and can be reused across Pipelines. Keep custom node files organized by
+  operation in one directory, not by business. Both are request-stateless, inherit `NodeBase`
+  or its shallow support classes, and register constructor plus `NodeDefinition` through
+  `REGISTER_NODE_WITH_DEFINITION`. Reuse Catalog operations before adding code; a domain
+  algorithm need not be generalized to enter `custom_nodes`. Common Nodes, Core and Engine
+  must not depend on custom implementations. All Nodes use typed logical ports and model
+  capabilities; platform structs and conversion remain in Layer 1. Follow `CONTRIBUTING.md`
+  for RFC thresholds and [custom Node onboarding](src/custom_nodes/README.md) for source layout.
 - **Layer 4** — `include/engine/` and `src/engine/`. Nodes depend on typed `IModel`
   capabilities. Models own preprocessing/model semantics and register through
   `REGISTER_MODEL_WITH_DEFINITION`; Backends own vendor runtime resources, implement neutral

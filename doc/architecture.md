@@ -39,10 +39,11 @@ graph TD
     end
 
     %% Level 3
-    subgraph L3["Layer 3: 无请求状态的通用能力算子与可复用节点层"]
+    subgraph L3["Layer 3: 无请求状态的通用与自定义节点层"]
         NodeApi["INode 运行时接口"]
         NodeBase["NodeBase<br>final noexcept 生命周期与 Typed I/O"]
         ModelNode["ModelBoundNode / TraceableUnaryInferenceNode"]
+        CustomNodes["自定义节点扩展目录 (src/custom_nodes/)<br>复用现有接口，按操作组织文件"]
         
         subgraph CommonNodes["通用能力算子池 (src/common_nodes/)"]
             LlmNode["LlmGenerateNode (大语言模型生成)"]
@@ -91,10 +92,10 @@ graph TD
     NodeApi --> NodeBase
     NodeBase --> ModelNode
     NodeBase -.-> CommonNodes
-    NodeBase -.-> BizNodes
-    CommonNodes & BizNodes -->|读写特征与溯源数据| R_Ctx
-    CommonNodes & BizNodes -->|从 ModelManager 获取模型| S_Ctx
-    CommonNodes & BizNodes -->|调用强类型模型能力| LlmIntf & EmbedIntf
+    NodeBase -.-> CustomNodes
+    CommonNodes & CustomNodes -->|读写特征与溯源数据| R_Ctx
+    CommonNodes & CustomNodes -->|从 ModelManager 获取模型| S_Ctx
+    CommonNodes & CustomNodes -->|调用强类型模型能力| LlmIntf & EmbedIntf
     LlmIntf & EmbedIntf --> ModelSemantics
     ModelSemantics -->|仅依赖中性协议| BackendBase
     BackendBase --> HardwareBackends
@@ -103,7 +104,7 @@ graph TD
     class Caller ext;
     class C_API,C_Adapter l1;
     class PipeCore,S_Ctx,R_Ctx,TraceTag,Factory l2;
-    class NodeApi,NodeBase,ModelNode,CommonNodes,BizNodes,LlmNode,PromptNode,VecSearchNode,RerankNode,PreNode,RuleNode,PostNode l3;
+    class NodeApi,NodeBase,ModelNode,CommonNodes,CustomNodes,LlmNode,ChunkNode,RuleNode,EmbedNode,TopKNode,RerankNode,TemplateNode,JsonNode,AsrNode,OcrNode,CorpusNode l3;
     class ModelBase,BackendBase,LlmIntf,EmbedIntf,BatchExec,BgeModels,GeneratedEmbedModel,QwenModel,OnnxBackend,LlamaCpp,KiteLlm l4;
 ```
 
@@ -166,12 +167,16 @@ C++ Operator API：NamedIoBatch + Operator 镜像 C 结构 ─┘
      - `TraceableItem<T>`：样本溯源标签（`req_id` + `sub_id`），保证 1对N 裂变后可严格 1:1 对齐回原请求；
   3. **自注册 SSOT 机制**：Node、Model 与 Backend 分别通过 `REGISTER_NODE_WITH_DEFINITION`、`REGISTER_MODEL_WITH_DEFINITION` 和 `REGISTER_BACKEND_WITH_DEFINITION` 就地声明；`PipelineCatalog` 查询返回值快照，Validator 每次规划只消费一次稳定的 Node/Biz Catalog 快照，后续注册不会使当前计划悬空。
 
-### Layer 3: 通用能力算子层 (Stateless Capability Nodes)
-- **代码位置**：`src/common_nodes/`，`include/nodes/`
+### Layer 3: 通用与自定义节点层 (Stateless Capability Nodes)
+- **代码位置**：`src/common_nodes/`，`src/custom_nodes/`，`include/nodes/`
 - **核心职责**：
   1. **算法工程师核心开发区**：算子继承 `NodeBase`，单模型算子继承 `ModelBoundNode`；
   2. **异常安全屏障**：`NodeBase::Init` 和 `NodeBase::Process` 设为 `final noexcept`，派生类覆写 `InitNode` 与 `ProcessNode`，提供 `Require`、`Publish`、`Fail` 辅助方法；
   3. **模块化与配置组合**：11 类核心通用算子（`LlmGenerateNode`, `TextChunkNode`, `TextRuleMatchNode`, `TextEmbeddingNode`, `VectorTopKNode`, `TextRerankNode`, `TextTemplateNode`, `StructuredJsonParseNode`, `AsrTranscribeNode`, `OcrDetectNode`, `TextCorpusSourceNode`）全部收敛在 `src/common_nodes/`，通过 JSON Pipeline 自由编排。
+  4. **领域扩展与复用**：用户算法集中在 `src/custom_nodes/`，按操作命名文件，可跨方案复用。
+     两类 Node 共用 Layer 3 构建目标、基类和注册机制；领域 Node 可完成前处理、声明绑定的
+     模型调用与后处理，平台结构转换仍属于 Adapter。Core、Engine 和通用 Node 不依赖
+     自定义实现。目录初始不注册新算法，接入步骤见[自定义 Node 指南](../src/custom_nodes/README.md)。
 
 ### Layer 4: 模型能力与推理 Backend 层 (Model & Backend)
 - **代码位置**：`include/engine/`，`src/engine/`
@@ -207,7 +212,7 @@ sequenceDiagram
     participant Adapter as C 适配层 (L1)
     participant Pipe as Pipeline 调度器 (L2)
     participant Ctx as AlgContext 黑板 (L2)
-    participant Node as 通用能力 NodeBase (L3)
+    participant Node as 通用或自定义 NodeBase (L3)
     participant Model as 强类型模型能力 (L4)
     participant Backend as 中性协议 Backend 会话 (L4)
     participant HW as 底层硬件 NPU/GPU (L4)
