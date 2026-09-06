@@ -302,6 +302,7 @@ TEST_F(CommonNodesTest, VectorTopKNodeComprehensive) {
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {{"top_k", 2}, {"min_score", 0.0}, {"metric", "cosine"}};
+  cfg["candidate_scope"] = "shared";
   EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
 
   AlgContext ctx;

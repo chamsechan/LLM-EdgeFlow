@@ -140,7 +140,8 @@
         }
       },
       "config": {
-        "top_k": 3
+        "top_k": 3,
+        "candidate_scope": "shared"
       }
     },
     {

@@ -5,6 +5,7 @@
 #include "adapter/adapter_validation_helper.h"
 #include "adapter/biz_adapter_registry.h"
 #include "adapter/biz_blackboard_keys.h"
+#include "adapter/result_validation.h"
 #include "company_alg_interface.h"
 
 namespace llm_edgeflow {
@@ -130,12 +131,29 @@ class CrossRerankAdapter : public IBizAdapter {
 
     const auto* raw_req_ids = ctx->Read(kRawRequestIds);
 
+    std::vector<const RankedTextBatch::value_type*> first;
+    if (!IndexResults(res, raw_req_ids, &first, "ranked_results", BizName(),
+                      out_status, true))
+      return COMPANY_ALG_ERR_INVALID_INPUT;
+
     // 按 req_id 分组
     std::unordered_map<uint32_t, std::vector<RankedCandidate>> req_map;
     for (const auto& item : *res) {
       req_map[item.req_id].push_back(item.data);
     }
 
+    for (auto& entry : req_map) {
+      auto& list = entry.second;
+      std::sort(list.begin(), list.end(),
+                [](const auto& a, const auto& b) { return a.rank < b.rank; });
+      for (size_t k = 0; k < list.size(); ++k) {
+        if (list.size() > 8 || list[k].rank != static_cast<int>(k + 1) ||
+            list[k].original_sub_id >= 8) {
+          return AdapterValidationHelper::ReturnInvalidInput(
+              out_status, "Invalid ranked result", "ranked_results", BizName());
+        }
+      }
+    }
     int count = raw_req_ids ? static_cast<int>(raw_req_ids->size())
                             : static_cast<int>(req_map.size());
     int valid_ret = AdapterValidationHelper::ValidateBatchOutputs(

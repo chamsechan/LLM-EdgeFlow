@@ -1,3 +1,4 @@
+#include <cmath>
 #include <cstring>
 #include <nlohmann/json.hpp>
 #include <vector>
@@ -5,6 +6,7 @@
 #include "adapter/adapter_validation_helper.h"
 #include "adapter/biz_adapter_registry.h"
 #include "adapter/biz_blackboard_keys.h"
+#include "adapter/result_validation.h"
 #include "company_alg_interface.h"
 
 namespace llm_edgeflow {
@@ -119,16 +121,28 @@ class ComplianceAuditAdapter : public IBizAdapter {
           "matched_policies", BizName());
     }
 
+    std::vector<const StructuredDocumentBatch::value_type*> verdicts_by_request;
+    if (!IndexResults(verdicts, raw_req_ids, &verdicts_by_request, "verdicts",
+                      BizName(), out_status))
+      return COMPANY_ALG_ERR_INVALID_INPUT;
+    std::vector<const RankedTextBatch::value_type*> matched_policies_by_request;
+    if (!IndexResults(matched_policies, raw_req_ids,
+                      &matched_policies_by_request, "matched_policies",
+                      BizName(), out_status, true))
+      return COMPANY_ALG_ERR_INVALID_INPUT;
+
     for (int i = 0; i < count; ++i) {
       auto* out_ptr = static_cast<CompanyAuditOutputStruct*>(outputs[i]);
       uint64_t req_id =
           (raw_req_ids && i < static_cast<int>(raw_req_ids->size()))
               ? (*raw_req_ids)[i]
-              : (*verdicts)[i].req_id;
+              : verdicts_by_request[i]->req_id;
       out_ptr->request_id = req_id;
 
-      const auto& verdict_item = (*verdicts)[i].data;
-      if (!verdict_item.structured_data.contains("risk_level") ||
+      const auto& verdict_item = verdicts_by_request[i]->data;
+      if (matched_policies_by_request[i]->data.rank != 1 ||
+          !IsSuccessfulDocument(verdict_item) ||
+          !verdict_item.structured_data.contains("risk_level") ||
           !verdict_item.structured_data.contains("risk_score") ||
           !verdict_item.structured_data["risk_level"].is_string() ||
           !verdict_item.structured_data["risk_score"].is_number()) {
@@ -142,9 +156,16 @@ class ComplianceAuditAdapter : public IBizAdapter {
           verdict_item.structured_data["risk_level"].get<std::string>();
       float risk_score =
           verdict_item.structured_data["risk_score"].get<float>();
+      if (!std::isfinite(risk_score) || risk_score < 0 || risk_score > 1 ||
+          (risk_level != "SAFE" && risk_level != "LOW_RISK" &&
+           risk_level != "MEDIUM_RISK" && risk_level != "HIGH_RISK")) {
+        return AdapterValidationHelper::ReturnInvalidInput(
+            out_status, "Invalid risk level or score", "structured_verdicts",
+            BizName(), i);
+      }
       const std::string& verdict_json = verdict_item.json_payload;
 
-      std::string policy_clause = (*matched_policies)[i].data.text;
+      std::string policy_clause = matched_policies_by_request[i]->data.text;
 
       out_ptr->risk_score = risk_score;
       out_ptr->status_code = 0;

@@ -4,6 +4,7 @@
 #include "adapter/adapter_validation_helper.h"
 #include "adapter/biz_adapter_registry.h"
 #include "adapter/biz_blackboard_keys.h"
+#include "adapter/result_validation.h"
 #include "company_alg_interface.h"
 
 namespace llm_edgeflow {
@@ -115,25 +116,40 @@ class OcrDocQaAdapter : public IBizAdapter {
         outputs, num_outputs, count, BizName(), out_status);
     if (valid_ret != 0) return valid_ret;
 
+    std::vector<const StructuredDocumentBatch::value_type*>
+        invoice_jsons_by_request;
+    if (!IndexResults(invoice_jsons, raw_req_ids, &invoice_jsons_by_request,
+                      "invoice_jsons", BizName(), out_status))
+      return COMPANY_ALG_ERR_INVALID_INPUT;
+    std::vector<const OcrDocumentBatch::value_type*> ocr_docs_by_request;
+    if (!IndexResults(ocr_docs, raw_req_ids, &ocr_docs_by_request, "ocr_docs",
+                      BizName(), out_status))
+      return COMPANY_ALG_ERR_INVALID_INPUT;
+
     for (int i = 0; i < count; ++i) {
       auto* out_ptr = static_cast<CompanyOcrDocOutputStruct*>(outputs[i]);
       uint64_t req_id =
           (raw_req_ids && i < static_cast<int>(raw_req_ids->size()))
               ? (*raw_req_ids)[i]
-              : (*invoice_jsons)[i].req_id;
+              : invoice_jsons_by_request[i]->req_id;
       out_ptr->request_id = req_id;
 
       int box_count = 0;
       if (ocr_docs && i < static_cast<int>(ocr_docs->size())) {
-        box_count = static_cast<int>((*ocr_docs)[i].data.boxes.size());
+        box_count = static_cast<int>(ocr_docs_by_request[i]->data.boxes.size());
       }
       out_ptr->detected_box_count = box_count;
+      if (!IsSuccessfulDocument(invoice_jsons_by_request[i]->data)) {
+        return AdapterValidationHelper::ReturnInvalidInput(
+            out_status, "Structured result failed or used fallback",
+            "invoice_jsons", BizName(), i);
+      }
       out_ptr->status_code = 0;
 
       if (!AdapterValidationHelper::CheckedStringCopy(
               out_ptr->extracted_invoice_json,
               sizeof(out_ptr->extracted_invoice_json),
-              (*invoice_jsons)[i].data.json_payload.c_str(),
+              invoice_jsons_by_request[i]->data.json_payload.c_str(),
               "outputs[i].extracted_invoice_json", i, BizName(), out_status)) {
         return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
       }

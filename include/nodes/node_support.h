@@ -40,14 +40,23 @@ class BoundInput {
     }
   }
 
+  void Unbind() {
+    actual_key_.clear();
+    is_bound_ = false;
+  }
+
   const std::string& LogicalName() const { return logical_name_; }
   const std::string& ActualKey() const { return actual_key_; }
   const std::string& TypeId() const { return type_id_; }
   bool IsBound() const { return is_bound_; }
 
-  const T* Get(const AlgContext& ctx) const { return ctx.Read<T>(actual_key_); }
+  const T* Get(const AlgContext& ctx) const {
+    return actual_key_.empty() ? nullptr : ctx.Read<T>(actual_key_);
+  }
 
-  bool Has(const AlgContext& ctx) const { return ctx.Has(actual_key_); }
+  bool Has(const AlgContext& ctx) const {
+    return !actual_key_.empty() && ctx.Has(actual_key_);
+  }
 
   const T* Require(AlgContext& ctx, int error_code,
                    std::string_view semantic = {}) const {
@@ -196,6 +205,8 @@ class NodeBase : public INode {
                                       ", bound: " + binding->type_id + ")");
         }
         in_port.Resolve(binding->blackboard_key);
+      } else {
+        in_port.Unbind();
       }
     }
   }

@@ -4,6 +4,7 @@
 #include "adapter/adapter_validation_helper.h"
 #include "adapter/biz_adapter_registry.h"
 #include "adapter/biz_blackboard_keys.h"
+#include "adapter/result_validation.h"
 #include "company_alg_interface.h"
 
 namespace llm_edgeflow {
@@ -106,19 +107,29 @@ class EntityExtractAdapter : public IBizAdapter {
         outputs, num_outputs, count, BizName(), out_status);
     if (valid_ret != 0) return valid_ret;
 
+    std::vector<const StructuredDocumentBatch::value_type*> res_by_request;
+    if (!IndexResults(res, raw_req_ids, &res_by_request, "res", BizName(),
+                      out_status))
+      return COMPANY_ALG_ERR_INVALID_INPUT;
+
     for (int i = 0; i < count; ++i) {
       auto* out_ptr = static_cast<CompanyEntityOutputStruct*>(outputs[i]);
       uint64_t req_id =
           (raw_req_ids && i < static_cast<int>(raw_req_ids->size()))
               ? (*raw_req_ids)[i]
-              : (*res)[i].req_id;
+              : res_by_request[i]->req_id;
       out_ptr->request_id = req_id;
+      if (!IsSuccessfulDocument(res_by_request[i]->data)) {
+        return AdapterValidationHelper::ReturnInvalidInput(
+            out_status, "Structured result failed or used fallback", "res",
+            BizName(), i);
+      }
       out_ptr->status_code = 0;
 
       if (!AdapterValidationHelper::CheckedStringCopy(
               out_ptr->entities_json, sizeof(out_ptr->entities_json),
-              (*res)[i].data.json_payload.c_str(), "outputs[i].entities_json",
-              i, BizName(), out_status)) {
+              res_by_request[i]->data.json_payload.c_str(),
+              "outputs[i].entities_json", i, BizName(), out_status)) {
         return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
       }
     }

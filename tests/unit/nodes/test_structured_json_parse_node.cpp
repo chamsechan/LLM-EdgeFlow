@@ -143,3 +143,18 @@ TEST_F(StructuredJsonParseNodeTest, RejectsInvalidFieldTypeContracts) {
 }
 
 }  // namespace llm_edgeflow
+
+namespace llm_edgeflow {
+TEST_F(StructuredJsonParseNodeTest, EmptyInputHonorsDiagnosticPolicy) {
+  auto node = NodeFactory::Instance().Create("StructuredJsonParseNode");
+  ASSERT_TRUE(InitNodeForTest(*node, {{"failure_policy", "emit_diagnostic"}},
+                              session_ctx_.get()));
+  AlgContext ctx;
+  ctx.Publish("text", TextBatch{{0, 0, ""}});
+  ASSERT_EQ(node->Process(&ctx), 0);
+  const auto* docs = ctx.Read<StructuredDocumentBatch>("document");
+  ASSERT_NE(docs, nullptr);
+  EXPECT_FALSE(docs->at(0).data.is_valid);
+  EXPECT_EQ(docs->at(0).data.parse_status, JsonParseStatus::kFailed);
+}
+}  // namespace llm_edgeflow

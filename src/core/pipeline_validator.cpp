@@ -775,11 +775,11 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
         bound_input_ports.insert(input.key);
       }
 
+      if (!input.required && !explicitly_bound) continue;
       node_plan.ports.push_back({input.key, actual_key, input.type_id,
                                  input.cardinality, input.provenance_policy,
                                  input.lifetime, PortDirection::kInput});
 
-      if (!input.required && !explicitly_bound) continue;
       bool found = false;
       auto producer_it = producers.find(actual_key);
       if (producer_it != producers.end()) {

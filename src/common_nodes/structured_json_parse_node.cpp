@@ -167,15 +167,8 @@ class StructuredJsonParseNode final : public NodeBase {
                           JsonParseStatus* out_status,
                           std::string* out_diag) const {
     if (input.empty()) {
-      if (failure_policy_ == "fail") {
-        *out_diag = "Empty input string";
-        return false;
-      }
-      *out_json = fallback_json_;
-      if (out_structured) *out_structured = fallback_structured_;
-      *out_status = JsonParseStatus::kFallbackApplied;
       *out_diag = "Empty input string";
-      return true;
+      return false;
     }
 
     // 1. 尝试直接完整解析

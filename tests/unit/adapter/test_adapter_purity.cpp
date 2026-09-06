@@ -364,3 +364,56 @@ TEST_F(AdapterPurityTest,
 }
 
 }  // namespace llm_edgeflow
+
+namespace llm_edgeflow {
+TEST_F(AdapterPurityTest, AuditJoinsRankOneByRequestAndRejectsFallback) {
+  auto adapter =
+      BizAdapterRegistry::Instance().GetAdapter(ALG_BIZ_TYPE_COMPLIANCE_AUDIT);
+  for (const auto parse_status :
+       {JsonParseStatus::kOk, JsonParseStatus::kFailed,
+        JsonParseStatus::kFallbackApplied}) {
+    AlgContext ctx;
+    ctx.Publish(kRawRequestIds, std::vector<uint64_t>{100, 200});
+    StructuredDocumentBatch verdicts;
+    for (uint32_t id : {1u, 0u}) {
+      verdicts.emplace_back(
+          id, 0,
+          JsonDocumentItem("{}", true, parse_status, "",
+                           {{"risk_level", "SAFE"}, {"risk_score", 0.1}}));
+    }
+    ctx.Publish(kStructuredVerdicts, std::move(verdicts));
+    ctx.Publish(kMatchedPolicy, RankedTextBatch{{0, 0, {"req0 first", 1, 1}},
+                                                {0, 1, {"req0 second", 0.5, 2}},
+                                                {1, 0, {"req1 first", 1, 1}}});
+    CompanyAuditOutputStruct out[2]{};
+    void* outputs[] = {&out[0], &out[1]};
+    int count = 2;
+    AdapterStatus status;
+    const int ret = adapter->Pack(&ctx, outputs, &count, &status);
+    if (parse_status == JsonParseStatus::kOk) {
+      ASSERT_EQ(ret, 0) << status.ToString();
+      EXPECT_EQ(out[1].request_id, 200u);
+      EXPECT_STREQ(out[1].matched_policy_clause, "req1 first");
+    } else {
+      EXPECT_NE(ret, 0);
+    }
+  }
+}
+TEST_F(AdapterPurityTest, OneToOneResultsRejectDuplicateAndOutOfRangeIds) {
+  auto adapter =
+      BizAdapterRegistry::Instance().GetAdapter(ALG_BIZ_TYPE_KEYWORD_MATCH);
+  for (const auto ids :
+       {std::vector<uint32_t>{0, 0}, std::vector<uint32_t>{0, 2}}) {
+    AlgContext ctx;
+    ctx.Publish(kRawRequestIds, std::vector<uint64_t>{100, 200});
+    RuleMatchBatch matches;
+    for (auto id : ids) matches.emplace_back(id, 0, RuleMatchItem{});
+    ctx.Publish(kRuleMatches, std::move(matches));
+    CompanyKeywordOutputStruct out[2]{};
+    void* outputs[] = {&out[0], &out[1]};
+    int count = 2;
+    EXPECT_EQ(adapter->Pack(&ctx, outputs, &count),
+              COMPANY_ALG_ERR_INVALID_INPUT);
+  }
+}
+}  // namespace llm_edgeflow
