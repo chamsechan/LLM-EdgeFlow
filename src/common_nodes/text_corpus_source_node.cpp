@@ -29,6 +29,8 @@ class TextCorpusSourceNode final : public NodeBase {
       for (const auto& elem : config["corpus"]) {
         if (elem.is_string()) {
           corpus_items_.push_back(elem.get<std::string>());
+        } else {
+          return false;
         }
       }
     }
@@ -58,6 +60,17 @@ NodeDefinition MakeTextCorpusSourceNodeDefinition() {
   NodeDefinition def;
   def.node_type = TextCorpusSourceNode::kNodeType;
   def.category = "common";
+  def.validate_config = [](const nlohmann::json& config, const auto&,
+                           std::string* diagnostic) {
+    if (config.contains("corpus"))
+      for (const auto& item : config.at("corpus")) {
+        if (!item.is_string()) {
+          if (diagnostic) *diagnostic = "corpus entries must be strings";
+          return false;
+        }
+      }
+    return true;
+  };
   def.description = "Static text corpus and knowledge database source node";
   def.inputs = {OptionalInputPort("trigger",
                                   BlackboardKey<TextBatch>{"", "TextBatch"},

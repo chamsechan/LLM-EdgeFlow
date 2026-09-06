@@ -37,7 +37,8 @@ class VectorTopKNode final : public NodeBase {
     top_k_ = config.value("top_k", 1);
     min_score_ = config.value("min_score", 0.0f);
     metric_ = config.value("metric", "cosine");
-    return true;
+    candidate_scope_ = config.value("candidate_scope", "request");
+    return candidate_scope_ == "request" || candidate_scope_ == "shared";
   }
 
   int ProcessNode(AlgContext& req_ctx) override {
@@ -69,10 +70,12 @@ class VectorTopKNode final : public NodeBase {
       req_candidate_indices[(*candidates)[i].req_id].push_back(i);
     }
 
-    // 检查是否为全局共享候选库 (即候选全部归属 req_id == 0)
-    bool is_shared_candidates =
-        (req_candidate_indices.size() == 1 &&
-         req_candidate_indices.find(0) != req_candidate_indices.end());
+    const bool is_shared_candidates = candidate_scope_ == "shared";
+    if (is_shared_candidates && !candidates->empty() &&
+        (req_candidate_indices.size() != 1 ||
+         !req_candidate_indices.count(0))) {
+      return Fail(req_ctx, -3102, "Shared candidates must use req_id 0");
+    }
 
     RankedTextBatch ranked_batch;
 
@@ -102,6 +105,14 @@ class VectorTopKNode final : public NodeBase {
 
       for (size_t c_idx : *cand_indices) {
         const auto& c_item = (*candidates)[c_idx];
+        if (q_vec.empty() || q_vec.size() != c_item.data.size() ||
+            !std::all_of(q_vec.begin(), q_vec.end(),
+                         [](float v) { return std::isfinite(v); }) ||
+            !std::all_of(c_item.data.begin(), c_item.data.end(),
+                         [](float v) { return std::isfinite(v); })) {
+          return Fail(req_ctx, -3102,
+                      "Invalid or mismatched embedding dimensions");
+        }
         float score = (metric_ == "dot_product")
                           ? DotProduct(q_vec, c_item.data)
                           : CosineSimilarity(q_vec, c_item.data);
@@ -111,8 +122,8 @@ class VectorTopKNode final : public NodeBase {
               (static_cast<uint64_t>(c_item.req_id) << 32) | c_item.sub_id;
           if (text_map.find(text_key) != text_map.end()) {
             text = text_map[text_key];
-          } else if (candidate_texts && c_idx < candidate_texts->size()) {
-            text = (*candidate_texts)[c_idx].data;
+          } else if (candidate_texts) {
+            return Fail(req_ctx, -3102, "Candidate text provenance is missing");
           }
           scored_list.push_back({c_idx, c_item.sub_id, score, std::move(text)});
         }
@@ -169,6 +180,7 @@ class VectorTopKNode final : public NodeBase {
   size_t top_k_ = 1;
   float min_score_ = 0.0f;
   std::string metric_ = "cosine";
+  std::string candidate_scope_ = "request";
 
   BoundInput<EmbeddingBatch> in_queries_;
   BoundInput<EmbeddingBatch> in_candidates_;
@@ -195,6 +207,13 @@ NodeDefinition MakeVectorTopKNodeDefinition() {
       "ranked", BlackboardKey<RankedTextBatch>{"", "RankedTextBatch"}, "1:N",
       "generate_sub_id", "request")};
   def.config_fields = {
+      ConfigFieldDefinition{"candidate_scope",
+                            ConfigValueKind::kString,
+                            false,
+                            "request",
+                            std::nullopt,
+                            std::nullopt,
+                            {"request", "shared"}},
       ConfigFieldDefinition{"top_k", ConfigValueKind::kInteger, false, 1, 1.0,
                             1000.0},
       ConfigFieldDefinition{"min_score", ConfigValueKind::kNumber, false, 0.0,

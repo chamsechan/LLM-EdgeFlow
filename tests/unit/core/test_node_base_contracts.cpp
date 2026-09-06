@@ -361,3 +361,17 @@ TEST(NodeBaseContractsTest, TraceableAlignmentReportsFirstMismatch) {
 }
 
 }  // namespace llm_edgeflow
+
+namespace llm_edgeflow {
+TEST(NodeBaseContractsTest, UnconnectedPlannedInputCannotReadDefaultKey) {
+  BoundInput<std::string> input("attributes");
+  AlgContext ctx;
+  ctx.Publish("attributes", std::string("unrelated"));
+  input.Unbind();
+  EXPECT_FALSE(input.IsBound());
+  EXPECT_FALSE(input.Has(ctx));
+  EXPECT_EQ(input.Get(ctx), nullptr);
+  input.Resolve("attributes");
+  EXPECT_EQ(*input.Get(ctx), "unrelated");
+}
+}  // namespace llm_edgeflow

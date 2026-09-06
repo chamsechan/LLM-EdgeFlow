@@ -4,6 +4,9 @@
 #include "adapter/adapter_validation_helper.h"
 #include "adapter/biz_adapter_registry.h"
 #include "adapter/biz_blackboard_keys.h"
+#include "adapter/biz_results.h"
+#include "adapter/result_packing_adapter.h"
+#include "adapter/result_validation.h"
 #include "company_alg_interface.h"
 
 namespace llm_edgeflow {
@@ -14,7 +17,9 @@ inline static constexpr char kDocQaOnnxBizName[] =
 inline static constexpr char kDocQaRerankBizName[] =
     "smart_doc_qa_rerank_llm_v1";
 
-class DocQaAdapter : public IBizAdapter {
+class DocQaAdapter
+    : public ResultPackingAdapter<DocQaAdapter, CompanyDocOutputStruct,
+                                  DocResult> {
  public:
   CompanyAlgBizType BizType() const override { return ALG_BIZ_TYPE_DOC_QA; }
 
@@ -116,8 +121,9 @@ class DocQaAdapter : public IBizAdapter {
     return COMPANY_ALG_SUCCESS;
   }
 
-  int Pack(AlgContext* ctx, void** outputs, int* num_outputs,
-           AdapterStatus* out_status = nullptr) const override {
+  template <typename Output>
+  int PackTyped(AlgContext* ctx, void** outputs, int* num_outputs,
+                AdapterStatus* out_status = nullptr) const {
     if (!ctx) {
       return AdapterValidationHelper::ReturnBufferTooSmall(
           out_status, "Null AlgContext passed to Pack", "ctx", BizName());
@@ -155,29 +161,40 @@ class DocQaAdapter : public IBizAdapter {
           "raw_request_ids", BizName());
     }
 
+    std::vector<const TextBatch::value_type*> answers_by_request;
+    if (!IndexResults(answers, raw_req_ids, &answers_by_request, "answers",
+                      BizName(), out_status))
+      return COMPANY_ALG_ERR_INVALID_INPUT;
+    std::vector<const RuleMatchBatch::value_type*> intent_matches_by_request;
+    if (!IndexResults(intent_matches, raw_req_ids, &intent_matches_by_request,
+                      "intent_matches", BizName(), out_status))
+      return COMPANY_ALG_ERR_INVALID_INPUT;
+    std::vector<const Int32Batch::value_type*> chunk_counts_by_request;
+    if (!IndexResults(chunk_counts, raw_req_ids, &chunk_counts_by_request,
+                      "chunk_counts", BizName(), out_status))
+      return COMPANY_ALG_ERR_INVALID_INPUT;
+
     for (int i = 0; i < count; ++i) {
-      auto* out_ptr = static_cast<CompanyDocOutputStruct*>(outputs[i]);
+      auto* out_ptr = static_cast<Output*>(outputs[i]);
       out_ptr->request_id = (*raw_req_ids)[i];
 
-      const auto& match = (*intent_matches)[i].data;
+      const auto& match = intent_matches_by_request[i]->data;
       const std::string& intent = match.category;
       float conf = match.score;
       out_ptr->confidence = conf;
 
-      out_ptr->chunk_count = (*chunk_counts)[i].data;
-      out_ptr->status_code = 0;
+      out_ptr->chunk_count = chunk_counts_by_request[i]->data;
+      out_ptr->status_code = match.status_code;
 
-      if (!AdapterValidationHelper::CheckedStringCopy(
-              out_ptr->intent_name, sizeof(out_ptr->intent_name),
-              intent.c_str(), "outputs[i].intent_name", i, BizName(),
-              out_status)) {
+      if (!CopyResultString(out_ptr->intent_name, intent.c_str(),
+                            "outputs[i].intent_name", i, BizName(),
+                            out_status)) {
         return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
       }
 
-      if (!AdapterValidationHelper::CheckedStringCopy(
-              out_ptr->answer_text, sizeof(out_ptr->answer_text),
-              (*answers)[i].data.c_str(), "outputs[i].answer_text", i,
-              BizName(), out_status)) {
+      if (!CopyResultString(
+              out_ptr->answer_text, answers_by_request[i]->data.c_str(),
+              "outputs[i].answer_text", i, BizName(), out_status)) {
         return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
       }
     }

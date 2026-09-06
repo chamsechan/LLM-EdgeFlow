@@ -36,8 +36,9 @@ TEST_F(VectorTopKNodeTest, InitAndConfigValidation) {
 TEST_F(VectorTopKNodeTest, ProcessRankingSharedCandidates) {
   auto node = NodeFactory::Instance().Create("VectorTopKNode");
   ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(InitNodeForTest(*node, {{"top_k", 2}, {"min_score", 0.0}},
-                              session_ctx_.get()));
+  ASSERT_TRUE(InitNodeForTest(
+      *node, {{"top_k", 2}, {"min_score", 0.0}, {"candidate_scope", "shared"}},
+      session_ctx_.get()));
 
   AlgContext ctx;
   EmbeddingBatch queries;
@@ -76,4 +77,28 @@ TEST_F(VectorTopKNodeTest, MissingInputFailsClosed) {
   EXPECT_EQ(node->Process(&empty_ctx), -3101);
 }
 
+}  // namespace llm_edgeflow
+
+namespace llm_edgeflow {
+TEST_F(VectorTopKNodeTest, PrivateRequestZeroCandidatesAreNotBroadcast) {
+  auto node = NodeFactory::Instance().Create("VectorTopKNode");
+  ASSERT_TRUE(
+      InitNodeForTest(*node, nlohmann::json::object(), session_ctx_.get()));
+  AlgContext ctx;
+  ctx.Publish("queries", EmbeddingBatch{{1, 0, {1.0f}}});
+  ctx.Publish("candidates", EmbeddingBatch{{0, 0, {1.0f}}});
+  ASSERT_EQ(node->Process(&ctx), 0);
+  ASSERT_NE(ctx.Read<RankedTextBatch>("ranked"), nullptr);
+  EXPECT_TRUE(ctx.Read<RankedTextBatch>("ranked")->empty());
+}
+TEST_F(VectorTopKNodeTest, RejectsDimensionMismatch) {
+  auto node = NodeFactory::Instance().Create("VectorTopKNode");
+  ASSERT_TRUE(
+      InitNodeForTest(*node, nlohmann::json::object(), session_ctx_.get()));
+  AlgContext ctx;
+  ctx.Publish("queries", EmbeddingBatch{{0, 0, {1.0f}}});
+  ctx.Publish("candidates", EmbeddingBatch{{0, 0, {1.0f, 0.0f}}});
+  EXPECT_NE(node->Process(&ctx), 0);
+  EXPECT_FALSE(ctx.Has("ranked"));
+}
 }  // namespace llm_edgeflow

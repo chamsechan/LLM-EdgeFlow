@@ -649,6 +649,25 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
           definition->config_fields, node.config,
           "/pipeline/" + std::to_string(node.source_index) + "/config", node.id,
           &report);
+      if (definition->validate_config) {
+        std::unordered_set<std::string> connected;
+        for (const auto& binding : node.ports.inputs)
+          connected.insert(binding.first);
+        std::string diagnostic;
+        try {
+          if (!definition->validate_config(normalized_config, connected,
+                                           &diagnostic)) {
+            Add(&report, DiagnosticCode::kInvalidCombination,
+                "/pipeline/" + std::to_string(node.source_index) + "/config",
+                diagnostic.empty() ? "Invalid node configuration" : diagnostic,
+                node.id);
+          }
+        } catch (const std::exception& e) {
+          Add(&report, DiagnosticCode::kConfigFieldType,
+              "/pipeline/" + std::to_string(node.source_index) + "/config",
+              e.what(), node.id);
+        }
+      }
       normalized_config_by_node[node.id] = normalized_config;
 
       if (!definition->model_capability.empty()) {
@@ -775,11 +794,11 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
         bound_input_ports.insert(input.key);
       }
 
+      if (!input.required && !explicitly_bound) continue;
       node_plan.ports.push_back({input.key, actual_key, input.type_id,
                                  input.cardinality, input.provenance_policy,
                                  input.lifetime, PortDirection::kInput});
 
-      if (!input.required && !explicitly_bound) continue;
       bool found = false;
       auto producer_it = producers.find(actual_key);
       if (producer_it != producers.end()) {

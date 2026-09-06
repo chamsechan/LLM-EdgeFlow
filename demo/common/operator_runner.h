@@ -221,7 +221,7 @@ int RunOperatorWithExtractor(
           << e.what() << std::endl;
       return 3;
     }
-  } else if (default_ctrl_json != nullptr) {
+  } else if (!options.no_default_control && default_ctrl_json != nullptr) {
     control_payload = default_ctrl_json;
   }
 

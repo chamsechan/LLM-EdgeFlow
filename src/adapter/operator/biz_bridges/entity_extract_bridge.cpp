@@ -1,28 +1,12 @@
+#include "adapter/biz_results.h"
 #include "adapter/operator/operator_biz_bridge_registry.h"
 
 namespace llm_edgeflow {
 
 void RegisterEntityExtractBridge(OperatorBizBridgeRegistry& reg) {
-  OperatorBizBridgeDescriptor desc;
-  desc.biz_type = ALG_BIZ_TYPE_ENTITY_EXTRACT;
-  desc.biz_name = "EntityExtract";
-  desc.internal_input_type_name = "CompanyEntityInputStruct";
-  desc.internal_output_type_name = "CompanyEntityOutputStruct";
-  desc.registration_identity = "builtin.entity_extract";
-
-  OperatorBizSlot in_slot;
-  in_slot.logical_name = "entity_in";
-  in_slot.type_suffix = "entity_in";
-  in_slot.direction = IoDirection::kInput;
-  in_slot.required = true;
-  desc.input_slots.push_back(in_slot);
-
-  OperatorBizSlot out_slot;
-  out_slot.logical_name = "entity_out";
-  out_slot.type_suffix = "entity_out";
-  out_slot.direction = IoDirection::kOutput;
-  out_slot.required = true;
-  desc.output_slots.push_back(out_slot);
+  auto desc = MakeSingleSlotBizBridge<EntityResult>(
+      ALG_BIZ_TYPE_ENTITY_EXTRACT, "EntityExtract", "CompanyEntityInputStruct",
+      "builtin.entity_extract", "entity_in", "entity_out");
 
   desc.convert_sample_input =
       [](const std::unordered_map<std::string, const void*>& slots,
@@ -48,20 +32,15 @@ void RegisterEntityExtractBridge(OperatorBizBridgeRegistry& reg) {
       if (err) *err = "Null internal DTO or external output struct pointer";
       return -4;
     }
-    const auto* in_dto =
-        static_cast<const CompanyEntityOutputStruct*>(internal_dto);
+    const auto* in_dto = static_cast<const EntityResult*>(internal_dto);
     auto* out =
         static_cast<CompanyOperatorEntityOutput*>(external_output_struct);
     out->request_id = in_dto->request_id;
     out->status_code = in_dto->status_code;
 
     return OperatorBizBridgeRegistry::CopyToPooledString(
-        in_dto->entities_json, out->entities_json,
+        in_dto->entities_json.c_str(), out->entities_json,
         spec.GetCapacity("entities_json"), "entities_json", err);
-  };
-
-  desc.create_shadow_output_dto = [](ProcessLocalShadowStorage& s) -> void* {
-    return s.AllocateShadowDto<CompanyEntityOutputStruct>();
   };
 
   reg.RegisterBridge(desc);

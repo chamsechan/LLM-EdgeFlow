@@ -5,6 +5,9 @@
 #include "adapter/adapter_validation_helper.h"
 #include "adapter/biz_adapter_registry.h"
 #include "adapter/biz_blackboard_keys.h"
+#include "adapter/biz_results.h"
+#include "adapter/result_packing_adapter.h"
+#include "adapter/result_validation.h"
 #include "company_alg_interface.h"
 
 namespace llm_edgeflow {
@@ -12,7 +15,9 @@ namespace llm_edgeflow {
 inline static constexpr char kCrossRerankBizName[] =
     "dense_cross_rerank_scoring";
 
-class CrossRerankAdapter : public IBizAdapter {
+class CrossRerankAdapter
+    : public ResultPackingAdapter<
+          CrossRerankAdapter, CompanyRerankBatchOutputStruct, RerankResult> {
  public:
   CompanyAlgBizType BizType() const override {
     return ALG_BIZ_TYPE_CROSS_RERANK;
@@ -117,8 +122,9 @@ class CrossRerankAdapter : public IBizAdapter {
     return COMPANY_ALG_SUCCESS;
   }
 
-  int Pack(AlgContext* ctx, void** outputs, int* num_outputs,
-           AdapterStatus* out_status = nullptr) const override {
+  template <typename Output>
+  int PackTyped(AlgContext* ctx, void** outputs, int* num_outputs,
+                AdapterStatus* out_status = nullptr) const {
     if (!ctx) {
       return AdapterValidationHelper::ReturnBufferTooSmall(
           out_status, "Null AlgContext passed to Pack", "ctx", BizName());
@@ -130,12 +136,29 @@ class CrossRerankAdapter : public IBizAdapter {
 
     const auto* raw_req_ids = ctx->Read(kRawRequestIds);
 
+    std::vector<const RankedTextBatch::value_type*> first;
+    if (!IndexResults(res, raw_req_ids, &first, "ranked_results", BizName(),
+                      out_status, true))
+      return COMPANY_ALG_ERR_INVALID_INPUT;
+
     // 按 req_id 分组
     std::unordered_map<uint32_t, std::vector<RankedCandidate>> req_map;
     for (const auto& item : *res) {
       req_map[item.req_id].push_back(item.data);
     }
 
+    for (auto& entry : req_map) {
+      auto& list = entry.second;
+      std::sort(list.begin(), list.end(),
+                [](const auto& a, const auto& b) { return a.rank < b.rank; });
+      for (size_t k = 0; k < list.size(); ++k) {
+        if (list.size() > 8 || list[k].rank != static_cast<int>(k + 1) ||
+            list[k].original_sub_id >= 8) {
+          return AdapterValidationHelper::ReturnInvalidInput(
+              out_status, "Invalid ranked result", "ranked_results", BizName());
+        }
+      }
+    }
     int count = raw_req_ids ? static_cast<int>(raw_req_ids->size())
                             : static_cast<int>(req_map.size());
     int valid_ret = AdapterValidationHelper::ValidateBatchOutputs(
@@ -143,7 +166,7 @@ class CrossRerankAdapter : public IBizAdapter {
     if (valid_ret != 0) return valid_ret;
 
     for (int i = 0; i < count; ++i) {
-      auto* out_ptr = static_cast<CompanyRerankBatchOutputStruct*>(outputs[i]);
+      auto* out_ptr = static_cast<Output*>(outputs[i]);
       uint64_t req_id =
           (raw_req_ids && i < static_cast<int>(raw_req_ids->size()))
               ? (*raw_req_ids)[i]

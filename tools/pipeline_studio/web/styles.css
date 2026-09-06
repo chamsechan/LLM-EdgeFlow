@@ -71,3 +71,5 @@ textarea { width: 100%; resize: vertical; line-height: 1.45; }
 #toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
 #toast.error { background: #881337; }
 @media (max-width: 1050px) { main { grid-template-columns: 200px minmax(360px, 1fr) 310px; } .toolbar select { max-width: 130px; } }
+
+.node .port-label { font-size: 11px; pointer-events: none; }

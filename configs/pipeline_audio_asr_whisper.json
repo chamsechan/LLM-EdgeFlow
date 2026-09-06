@@ -6,13 +6,15 @@
       "capability": "asr",
       "model_type": "whisper_asr",
       "backend": "whisper_cpp",
-      "model_path": "models/ggml-base.bin",
+      "model_path": "ggml-base.bin",
       "model_config": {
         "language": "zh",
         "max_audio_seconds": 30,
         "max_output_bytes": 65536
       },
-      "backend_config": {"n_threads": 4}
+      "backend_config": {
+        "n_threads": 4
+      }
     }
   ],
   "pipeline": [
@@ -21,22 +23,42 @@
       "node_type": "AsrTranscribeNode",
       "depends_on": [],
       "ports": {
-        "inputs": {"audio": "audio_inputs"},
-        "outputs": {"text": "transcripts"}
+        "inputs": {
+          "audio": "audio_inputs"
+        },
+        "outputs": {
+          "text": "transcripts"
+        }
       },
-      "config": {"bind_model": "asr_model_v1"}
+      "config": {
+        "bind_model": "asr_model_v1"
+      }
     },
     {
       "id": "intent",
       "node_type": "TextRuleMatchNode",
-      "depends_on": ["transcribe"],
+      "depends_on": [
+        "transcribe"
+      ],
       "ports": {
-        "inputs": {"text": "transcripts"},
-        "outputs": {"matches": "intent_slots"}
+        "inputs": {
+          "text": "transcripts"
+        },
+        "outputs": {
+          "matches": "intent_slots"
+        }
       },
       "config": {
         "default_category": "UNCLASSIFIED",
-        "categories": {"NAVIGATION": ["导航", "導航"], "MUSIC_PLAY": ["播放"]}
+        "categories": {
+          "NAVIGATION": [
+            "导航",
+            "導航"
+          ],
+          "MUSIC_PLAY": [
+            "播放"
+          ]
+        }
       }
     }
   ]

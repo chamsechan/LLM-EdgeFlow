@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "adapter/biz_adapter_registry.h"
+#include "adapter/biz_results.h"
 #include "adapter/operator/operator_biz_bridge_registry.h"
 
 namespace llm_edgeflow {
@@ -239,12 +240,11 @@ TEST(OperatorBizBridgeRegistryTest,
       EXPECT_STREQ(dto->sentence_text, raw_strings[i].c_str());
 
       // Output mirror conversion test
-      CompanyKeywordOutputStruct out_dto{};
+      KeywordResult out_dto{};
       out_dto.request_id = dto->request_id;
       out_dto.is_hit = (i % 2 == 0) ? 1 : 0;
-      std::snprintf(out_dto.match_result_json,
-                    sizeof(out_dto.match_result_json), "{\"match_idx\":%zu}",
-                    i);
+      out_dto.match_result_json =
+          std::string("{\"match_idx\":") + std::to_string(i) + "}";
 
       char out_buf[256] = {0};
       CompanyString out_cs{0, out_buf};
@@ -256,9 +256,10 @@ TEST(OperatorBizBridgeRegistryTest,
       EXPECT_EQ(out_struct.request_id, 1000 + i);
       EXPECT_EQ(out_struct.is_hit, out_dto.is_hit);
       EXPECT_STREQ(out_struct.match_result_json->data,
-                   out_dto.match_result_json);
-      EXPECT_EQ(out_struct.match_result_json->length,
-                static_cast<int32_t>(std::strlen(out_dto.match_result_json)));
+                   out_dto.match_result_json.c_str());
+      EXPECT_EQ(
+          out_struct.match_result_json->length,
+          static_cast<int32_t>(std::strlen(out_dto.match_result_json.c_str())));
     }
   }
 
@@ -287,10 +288,10 @@ TEST(OperatorBizBridgeRegistryTest,
       EXPECT_EQ(dto->request_id, 2000 + i);
       EXPECT_STREQ(dto->sentence_text, raw_str.c_str());
 
-      CompanyEntityOutputStruct out_dto{};
+      EntityResult out_dto{};
       out_dto.request_id = dto->request_id;
-      std::snprintf(out_dto.entities_json, sizeof(out_dto.entities_json),
-                    "[\"Entity_%zu\"]", i);
+      out_dto.entities_json =
+          std::string("[\"Entity_") + std::to_string(i) + "\"]";
 
       char out_buf[256] = {0};
       CompanyString out_cs{0, out_buf};
@@ -300,7 +301,8 @@ TEST(OperatorBizBridgeRegistryTest,
       ASSERT_EQ(desc->convert_sample_output(&out_dto, &out_struct, spec, &err),
                 0);
       EXPECT_EQ(out_struct.request_id, 2000 + i);
-      EXPECT_STREQ(out_struct.entities_json->data, out_dto.entities_json);
+      EXPECT_STREQ(out_struct.entities_json->data,
+                   out_dto.entities_json.c_str());
     }
   }
 
@@ -329,14 +331,12 @@ TEST(OperatorBizBridgeRegistryTest,
       EXPECT_STREQ(dto->query_text, q_str.c_str());
       EXPECT_STREQ(dto->doc_text, d_str.c_str());
 
-      CompanyDocOutputStruct out_dto{};
+      DocResult out_dto{};
       out_dto.request_id = dto->request_id;
       out_dto.confidence = 0.95f;
       out_dto.chunk_count = 4;
-      std::snprintf(out_dto.intent_name, sizeof(out_dto.intent_name),
-                    "INTENT_%zu", i);
-      std::snprintf(out_dto.answer_text, sizeof(out_dto.answer_text),
-                    "Answer_%zu", i);
+      out_dto.intent_name = std::string("INTENT_") + std::to_string(i) + "";
+      out_dto.answer_text = std::string("Answer_") + std::to_string(i) + "";
 
       char intent_buf[64] = {0};
       char answer_buf[1024] = {0};
@@ -351,8 +351,8 @@ TEST(OperatorBizBridgeRegistryTest,
       EXPECT_EQ(out_struct.request_id, 3000 + i);
       EXPECT_FLOAT_EQ(out_struct.confidence, 0.95f);
       EXPECT_EQ(out_struct.chunk_count, 4);
-      EXPECT_STREQ(out_struct.intent_name->data, out_dto.intent_name);
-      EXPECT_STREQ(out_struct.answer_text->data, out_dto.answer_text);
+      EXPECT_STREQ(out_struct.intent_name->data, out_dto.intent_name.c_str());
+      EXPECT_STREQ(out_struct.answer_text->data, out_dto.answer_text.c_str());
     }
   }
 
@@ -382,15 +382,14 @@ TEST(OperatorBizBridgeRegistryTest,
       EXPECT_STREQ(dto->user_text, u_str.c_str());
       EXPECT_STREQ(dto->channel_name, c_str.c_str());
 
-      CompanyAuditOutputStruct out_dto{};
+      AuditResult out_dto{};
       out_dto.request_id = dto->request_id;
       out_dto.risk_score = 0.1f * (i % 10);
-      std::snprintf(out_dto.risk_level, sizeof(out_dto.risk_level), "SAFE");
-      std::snprintf(out_dto.matched_policy_clause,
-                    sizeof(out_dto.matched_policy_clause), "Policy Clause #%zu",
-                    i);
-      std::snprintf(out_dto.audit_verdict_json,
-                    sizeof(out_dto.audit_verdict_json), "{\"verdict\":%zu}", i);
+      out_dto.risk_level = "SAFE";
+      out_dto.matched_policy_clause =
+          std::string("Policy Clause #") + std::to_string(i) + "";
+      out_dto.audit_verdict_json =
+          std::string("{\"verdict\":") + std::to_string(i) + "}";
 
       char r_buf[32] = {0}, p_buf[256] = {0}, v_buf[1024] = {0};
       CompanyString r_cs{0, r_buf}, p_cs{0, p_buf}, v_cs{0, v_buf};
@@ -404,9 +403,9 @@ TEST(OperatorBizBridgeRegistryTest,
       EXPECT_EQ(out_struct.request_id, 4000 + i);
       EXPECT_STREQ(out_struct.risk_level->data, "SAFE");
       EXPECT_STREQ(out_struct.matched_policy_clause->data,
-                   out_dto.matched_policy_clause);
+                   out_dto.matched_policy_clause.c_str());
       EXPECT_STREQ(out_struct.audit_verdict_json->data,
-                   out_dto.audit_verdict_json);
+                   out_dto.audit_verdict_json.c_str());
     }
   }
 
@@ -439,12 +438,12 @@ TEST(OperatorBizBridgeRegistryTest,
       EXPECT_FLOAT_EQ(dto->pcm_buffer[0], pcm_pool[i][0]);
       EXPECT_FLOAT_EQ(dto->pcm_buffer[15999], pcm_pool[i][15999]);
 
-      CompanyAudioOutputStruct out_dto{};
+      AudioResult out_dto{};
       out_dto.request_id = dto->request_id;
-      std::snprintf(out_dto.transcribed_text, sizeof(out_dto.transcribed_text),
-                    "Transcribed speech audio #%zu", i);
-      std::snprintf(out_dto.intent_slot_json, sizeof(out_dto.intent_slot_json),
-                    "{\"intent\":\"AUDIO_%zu\"}", i);
+      out_dto.transcribed_text =
+          std::string("Transcribed speech audio #") + std::to_string(i) + "";
+      out_dto.intent_slot_json =
+          std::string("{\"intent\":\"AUDIO_") + std::to_string(i) + "\"}";
 
       char t_buf[512] = {0}, slot_buf[1024] = {0};
       CompanyString t_cs{0, t_buf}, slot_cs{0, slot_buf};
@@ -455,8 +454,10 @@ TEST(OperatorBizBridgeRegistryTest,
       ASSERT_EQ(desc->convert_sample_output(&out_dto, &out_struct, spec, &err),
                 0);
       EXPECT_EQ(out_struct.request_id, 5000 + i);
-      EXPECT_STREQ(out_struct.transcribed_text->data, out_dto.transcribed_text);
-      EXPECT_STREQ(out_struct.intent_slot_json->data, out_dto.intent_slot_json);
+      EXPECT_STREQ(out_struct.transcribed_text->data,
+                   out_dto.transcribed_text.c_str());
+      EXPECT_STREQ(out_struct.intent_slot_json->data,
+                   out_dto.intent_slot_json.c_str());
     }
   }
 
@@ -500,7 +501,7 @@ TEST(OperatorBizBridgeRegistryTest,
         EXPECT_STREQ(dto->candidate_passages[c], c_strs[c].c_str());
       }
 
-      CompanyRerankBatchOutputStruct out_dto{};
+      RerankResult out_dto{};
       out_dto.request_id = dto->request_id;
       out_dto.count = 8;
       for (int c = 0; c < 8; ++c) {
@@ -548,12 +549,11 @@ TEST(OperatorBizBridgeRegistryTest,
       EXPECT_STREQ(dto->image_path, uri_str.c_str());
       EXPECT_STREQ(dto->query_prompt, q_str.c_str());
 
-      CompanyOcrDocOutputStruct out_dto{};
+      OcrDocResult out_dto{};
       out_dto.request_id = dto->request_id;
       out_dto.detected_box_count = static_cast<int>(i % 12);
-      std::snprintf(out_dto.extracted_invoice_json,
-                    sizeof(out_dto.extracted_invoice_json), "{\"inv_id\":%zu}",
-                    i);
+      out_dto.extracted_invoice_json =
+          std::string("{\"inv_id\":") + std::to_string(i) + "}";
 
       char res_buf[2048] = {0};
       CompanyString res_cs{0, res_buf};
@@ -565,7 +565,7 @@ TEST(OperatorBizBridgeRegistryTest,
       EXPECT_EQ(out_struct.request_id, 7000 + i);
       EXPECT_EQ(out_struct.detected_box_count, out_dto.detected_box_count);
       EXPECT_STREQ(out_struct.result_json->data,
-                   out_dto.extracted_invoice_json);
+                   out_dto.extracted_invoice_json.c_str());
     }
   }
 }

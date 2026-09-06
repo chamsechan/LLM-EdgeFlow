@@ -168,7 +168,7 @@ int OperatorBizBridgeRegistry::GlobalInit() {
       has_conflict_ = true;
       return -6;
     }
-    if (desc.internal_output_type_name != adapter_desc.output_type_name) {
+    if (desc.internal_output_type_name != adapter->ResultTypeName()) {
       has_conflict_ = true;
       return -6;
     }

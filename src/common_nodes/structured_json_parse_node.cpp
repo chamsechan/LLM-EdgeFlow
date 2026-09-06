@@ -14,19 +14,8 @@ namespace llm_edgeflow {
 /**
  * @brief 结构化 JSON 解析与文本提取受控算子 (StructuredJsonParseNode)
  */
-class StructuredJsonParseNode final : public NodeBase {
- public:
-  inline static constexpr char kNodeType[] = "StructuredJsonParseNode";
-
-  StructuredJsonParseNode()
-      : NodeBase(kNodeType), in_text_("text"), out_doc_("document") {}
-
- protected:
-  bool InitNode(const NodeInitContext& init_ctx, const nlohmann::json& config,
-                SessionContext& /*session_ctx*/) override {
-    BindPort(init_ctx, in_text_);
-    BindPort(init_ctx, out_doc_);
-
+struct StructuredJsonOptions {
+  bool Load(const nlohmann::json& config) {
     fallback_json_ = config.value("fallback_json", "{}");
     extract_json_block_ = config.value("extract_json_block", true);
     failure_policy_ = config.value("failure_policy", "configured_fallback");
@@ -75,62 +64,6 @@ class StructuredJsonParseNode final : public NodeBase {
     }
     return true;
   }
-
-  int ProcessNode(AlgContext& req_ctx) override {
-    const auto* text_items = in_text_.Require(
-        req_ctx, node_error::structured_json_parse::kMissingInput,
-        "StructuredJsonParseNode input");
-    if (!text_items) {
-      return node_error::structured_json_parse::kMissingInput;
-    }
-
-    StructuredDocumentBatch output_docs;
-    output_docs.reserve(text_items->size());
-
-    for (const auto& item : *text_items) {
-      std::string parsed_json_str;
-      nlohmann::json parsed_structured = nlohmann::json::object();
-      JsonParseStatus status = JsonParseStatus::kOk;
-      std::string diag;
-
-      bool ok = ParseOrExtractJson(item.data, &parsed_json_str,
-                                   &parsed_structured, &status, &diag);
-      if (ok && !ValidateStructuredFields(parsed_structured, &diag)) {
-        ok = false;
-        status = JsonParseStatus::kFailed;
-      }
-
-      if (!ok) {
-        if (failure_policy_ == "fail") {
-          return Fail(req_ctx, node_error::structured_json_parse::kParseFailed,
-                      "JSON parse failed for sample: " + diag);
-        } else if (failure_policy_ == "emit_diagnostic") {
-          output_docs.emplace_back(
-              item.req_id, item.sub_id,
-              JsonDocumentItem(fallback_json_, false, JsonParseStatus::kFailed,
-                               diag, fallback_structured_));
-          continue;
-        } else {  // configured_fallback
-          output_docs.emplace_back(
-              item.req_id, item.sub_id,
-              JsonDocumentItem(fallback_json_, true,
-                               JsonParseStatus::kFallbackApplied, diag,
-                               fallback_structured_));
-          continue;
-        }
-      }
-
-      output_docs.emplace_back(
-          item.req_id, item.sub_id,
-          JsonDocumentItem(std::move(parsed_json_str), true, status, diag,
-                           std::move(parsed_structured)));
-    }
-
-    out_doc_.Set(req_ctx, std::move(output_docs));
-    return 0;
-  }
-
- private:
   bool ValidateStructuredFields(const nlohmann::json& document,
                                 std::string* diagnostic) const {
     for (const auto& field : required_fields_) {
@@ -162,20 +95,93 @@ class StructuredJsonParseNode final : public NodeBase {
     return true;
   }
 
+  std::string fallback_json_ = "{}";
+  nlohmann::json fallback_structured_ = nlohmann::json::object();
+  bool extract_json_block_ = true;
+  std::string failure_policy_ = "configured_fallback";
+  std::vector<std::string> required_fields_;
+  std::unordered_map<std::string, std::string> field_types_;
+};
+
+class StructuredJsonParseNode final : public NodeBase {
+ public:
+  inline static constexpr char kNodeType[] = "StructuredJsonParseNode";
+
+  StructuredJsonParseNode()
+      : NodeBase(kNodeType), in_text_("text"), out_doc_("document") {}
+
+ protected:
+  bool InitNode(const NodeInitContext& init_ctx, const nlohmann::json& config,
+                SessionContext& /*session_ctx*/) override {
+    BindPort(init_ctx, in_text_);
+    BindPort(init_ctx, out_doc_);
+
+    return options_.Load(config);
+  }
+
+  int ProcessNode(AlgContext& req_ctx) override {
+    const auto* text_items = in_text_.Require(
+        req_ctx, node_error::structured_json_parse::kMissingInput,
+        "StructuredJsonParseNode input");
+    if (!text_items) {
+      return node_error::structured_json_parse::kMissingInput;
+    }
+
+    StructuredDocumentBatch output_docs;
+    output_docs.reserve(text_items->size());
+
+    for (const auto& item : *text_items) {
+      std::string parsed_json_str;
+      nlohmann::json parsed_structured = nlohmann::json::object();
+      JsonParseStatus status = JsonParseStatus::kOk;
+      std::string diag;
+
+      bool ok = ParseOrExtractJson(item.data, &parsed_json_str,
+                                   &parsed_structured, &status, &diag);
+      if (ok && !options_.ValidateStructuredFields(parsed_structured, &diag)) {
+        ok = false;
+        status = JsonParseStatus::kFailed;
+      }
+
+      if (!ok) {
+        if (options_.failure_policy_ == "fail") {
+          return Fail(req_ctx, node_error::structured_json_parse::kParseFailed,
+                      "JSON parse failed for sample: " + diag);
+        } else if (options_.failure_policy_ == "emit_diagnostic") {
+          output_docs.emplace_back(
+              item.req_id, item.sub_id,
+              JsonDocumentItem(options_.fallback_json_, false,
+                               JsonParseStatus::kFailed, diag,
+                               options_.fallback_structured_));
+          continue;
+        } else {  // configured_fallback
+          output_docs.emplace_back(
+              item.req_id, item.sub_id,
+              JsonDocumentItem(options_.fallback_json_, true,
+                               JsonParseStatus::kFallbackApplied, diag,
+                               options_.fallback_structured_));
+          continue;
+        }
+      }
+
+      output_docs.emplace_back(
+          item.req_id, item.sub_id,
+          JsonDocumentItem(std::move(parsed_json_str), true, status, diag,
+                           std::move(parsed_structured)));
+    }
+
+    out_doc_.Set(req_ctx, std::move(output_docs));
+    return 0;
+  }
+
+ private:
   bool ParseOrExtractJson(const std::string& input, std::string* out_json,
                           nlohmann::json* out_structured,
                           JsonParseStatus* out_status,
                           std::string* out_diag) const {
     if (input.empty()) {
-      if (failure_policy_ == "fail") {
-        *out_diag = "Empty input string";
-        return false;
-      }
-      *out_json = fallback_json_;
-      if (out_structured) *out_structured = fallback_structured_;
-      *out_status = JsonParseStatus::kFallbackApplied;
       *out_diag = "Empty input string";
-      return true;
+      return false;
     }
 
     // 1. 尝试直接完整解析
@@ -189,7 +195,7 @@ class StructuredJsonParseNode final : public NodeBase {
       *out_diag = e.what();
     }
 
-    if (!extract_json_block_) {
+    if (!options_.extract_json_block_) {
       return false;
     }
 
@@ -282,13 +288,7 @@ class StructuredJsonParseNode final : public NodeBase {
     return false;
   }
 
-  std::string fallback_json_ = "{}";
-  nlohmann::json fallback_structured_ = nlohmann::json::object();
-  bool extract_json_block_ = true;
-  std::string failure_policy_ = "configured_fallback";
-  std::vector<std::string> required_fields_;
-  std::unordered_map<std::string, std::string> field_types_;
-
+  StructuredJsonOptions options_;
   BoundInput<TextBatch> in_text_;
   BoundOutput<StructuredDocumentBatch> out_doc_;
 };
@@ -297,6 +297,14 @@ NodeDefinition MakeStructuredJsonParseNodeDefinition() {
   NodeDefinition def;
   def.node_type = StructuredJsonParseNode::kNodeType;
   def.category = "common";
+  def.validate_config = [](const nlohmann::json& config, const auto&,
+                           std::string* diagnostic) {
+    StructuredJsonOptions options;
+    const bool ok = options.Load(config);
+    if (!ok && diagnostic)
+      *diagnostic = "Invalid structured JSON fields, types or fallback";
+    return ok;
+  };
   def.description = "Structured JSON parser and validator node";
   def.inputs = {RequiredInputPort("text",
                                   BlackboardKey<TextBatch>{"", "TextBatch"},

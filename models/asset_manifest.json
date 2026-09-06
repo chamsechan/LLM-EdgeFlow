@@ -1,0 +1,309 @@
+{
+  "schema_version": 1,
+  "artifacts": {
+    "qwen2.5-0.5b-instruct-q4_k_m.gguf": {
+      "sha256": "74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db",
+      "url": "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/9217f5db79a29953eb74d5343926648285ec7e67/qwen2.5-0.5b-instruct-q4_k_m.gguf",
+      "download_groups": [
+        "all",
+        "gguf-only",
+        "kite",
+        "whisper"
+      ]
+    },
+    "bge_base_zh_v1.5.onnx": {
+      "sha256": "5e5619f7cca7380b824d329c157dba10bee7cc00d0c139e82fdb7906051b8e4f",
+      "url": "https://huggingface.co/Xenova/bge-base-zh-v1.5/resolve/71e50dc531959f9e04ebf190ea25b00261a0a186/onnx/model.onnx",
+      "download_groups": [
+        "all",
+        "kite"
+      ]
+    },
+    "bge_base_zh_v1.5_vocab.txt": {
+      "sha256": "45bbac6b341c319adc98a532532882e91a9cefc0329aa57bac9ae761c27b291c",
+      "url": "https://huggingface.co/Xenova/bge-base-zh-v1.5/resolve/71e50dc531959f9e04ebf190ea25b00261a0a186/vocab.txt",
+      "download_groups": [
+        "all",
+        "kite"
+      ]
+    },
+    "ms_marco_tinybert_l2_v2_quantized.onnx": {
+      "sha256": "026c2ec3257cd351696e45bbd6040bb83cf818ba89059b4344bd6350138b62ce",
+      "url": "https://huggingface.co/Xenova/ms-marco-TinyBERT-L-2-v2/resolve/b76bb5e1fefd66aa36cd108622d768e86c015ff1/onnx/model_quantized.onnx",
+      "download_groups": [
+        "all",
+        "kite"
+      ]
+    },
+    "ms_marco_bert_vocab.txt": {
+      "sha256": "07eced375cec144d27c900241f3e339478dec958f92fddbc551f295c992038a3",
+      "url": "https://huggingface.co/Xenova/ms-marco-TinyBERT-L-2-v2/resolve/b76bb5e1fefd66aa36cd108622d768e86c015ff1/vocab.txt",
+      "download_groups": [
+        "all",
+        "kite"
+      ]
+    },
+    "SmolVLM-256M-Instruct-Q8_0.gguf": {
+      "sha256": "2a31195d3769c0b0fd0a4906201666108834848db768af11de1d2cef7cd35e65",
+      "url": "https://huggingface.co/ggml-org/SmolVLM-256M-Instruct-GGUF/resolve/b9e4379657e1450d04d02eec8e345667265b0a00/SmolVLM-256M-Instruct-Q8_0.gguf",
+      "download_groups": [
+        "kite"
+      ]
+    },
+    "mmproj-SmolVLM-256M-Instruct-Q8_0.gguf": {
+      "sha256": "7e943f7c53f0382a6fc41b6ee0c2def63ba4fded9ab8ed039cc9e2ab905e0edd",
+      "url": "https://huggingface.co/ggml-org/SmolVLM-256M-Instruct-GGUF/resolve/b9e4379657e1450d04d02eec8e345667265b0a00/mmproj-SmolVLM-256M-Instruct-Q8_0.gguf",
+      "download_groups": [
+        "kite"
+      ]
+    },
+    "ggml-base.bin": {
+      "sha256": "60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe",
+      "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin",
+      "download_groups": [
+        "all",
+        "whisper"
+      ]
+    },
+    "ggml-tiny-q5_1.bin": {
+      "sha256": "818710568da3ca15689e31a743197b520007872ff9576237bda97bd1b469c3d7",
+      "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny-q5_1.bin",
+      "download_groups": [
+        "all",
+        "whisper"
+      ]
+    },
+    "kite_text_run.json": {
+      "sha256": "d5902ff1e0e670562ab9ef94504243ffb0cc4e32c56e36916bc663d9c188a075",
+      "source": "repository sidecar"
+    },
+    "kite_vision_run.json": {
+      "sha256": "62f3f1ce0e3a2c6ad22e86d0fda568b5f6a5cbe521076db79008f70f055e0a1d",
+      "source": "repository sidecar"
+    }
+  },
+  "selections": [
+    {
+      "id": "bge_embedding-onnxruntime",
+      "label": "bge_embedding / onnxruntime",
+      "model": {
+        "capability": "embedding",
+        "model_type": "bge_embedding",
+        "backend": "onnxruntime",
+        "model_config": {
+          "tokenizer_file": "bge_base_zh_v1.5_vocab.txt",
+          "embedding_dim": 768
+        },
+        "backend_config": {
+          "max_batch_size": 4
+        },
+        "model_id": "embed_model_v1",
+        "model_path": "bge_base_zh_v1.5.onnx"
+      },
+      "paths": {
+        "/model_path": "bge_base_zh_v1.5.onnx",
+        "/model_config/tokenizer_file": "bge_base_zh_v1.5_vocab.txt"
+      },
+      "files": [
+        "bge_base_zh_v1.5.onnx",
+        "bge_base_zh_v1.5_vocab.txt"
+      ]
+    },
+    {
+      "id": "qwen_causal_lm-llama_cpp",
+      "label": "qwen_causal_lm / llama_cpp",
+      "model": {
+        "capability": "llm",
+        "model_type": "qwen_causal_lm",
+        "backend": "llama_cpp",
+        "model_config": {
+          "chat_template": "qwen_chatml",
+          "system_prompt": "",
+          "add_bos": false,
+          "random_seed": -1
+        },
+        "backend_config": {
+          "context_size": 1024,
+          "decode_batch_size": 512,
+          "n_threads": 0,
+          "n_threads_batch": 0,
+          "n_gpu_layers": 0,
+          "check_tensors": false
+        },
+        "model_id": "llm_model_v1",
+        "model_path": "qwen2.5-0.5b-instruct-q4_k_m.gguf"
+      },
+      "paths": {
+        "/model_path": "qwen2.5-0.5b-instruct-q4_k_m.gguf"
+      },
+      "files": [
+        "qwen2.5-0.5b-instruct-q4_k_m.gguf"
+      ]
+    },
+    {
+      "id": "bge_reranker-onnxruntime",
+      "label": "bge_reranker / onnxruntime",
+      "model": {
+        "model_id": "rerank_model_v1",
+        "capability": "rerank",
+        "model_type": "bge_reranker",
+        "backend": "onnxruntime",
+        "model_path": "ms_marco_tinybert_l2_v2_quantized.onnx",
+        "model_config": {
+          "tokenizer_file": "ms_marco_bert_vocab.txt",
+          "do_lower_case": true,
+          "max_length": 512,
+          "output_name": "logits",
+          "score_activation": "sigmoid",
+          "max_batch_size": 4
+        },
+        "backend_config": {
+          "max_batch_size": 4,
+          "intra_op_num_threads": 2,
+          "inter_op_num_threads": 1,
+          "graph_optimization_level": "all"
+        }
+      },
+      "paths": {
+        "/model_path": "ms_marco_tinybert_l2_v2_quantized.onnx",
+        "/model_config/tokenizer_file": "ms_marco_bert_vocab.txt"
+      },
+      "files": [
+        "ms_marco_tinybert_l2_v2_quantized.onnx",
+        "ms_marco_bert_vocab.txt"
+      ]
+    },
+    {
+      "id": "vision_document-kite_llm",
+      "label": "vision_document / kite_llm",
+      "model": {
+        "capability": "ocr",
+        "model_type": "vision_document",
+        "backend": "kite_llm",
+        "model_config": {
+          "patch_size": 16,
+          "max_tokens": 256
+        },
+        "backend_config": {
+          "run_config_file": "kite_vision_run.json"
+        },
+        "model_id": "ocr_model_v1",
+        "model_path": "SmolVLM-256M-Instruct-Q8_0.gguf"
+      },
+      "paths": {
+        "/model_path": "SmolVLM-256M-Instruct-Q8_0.gguf",
+        "/backend_config/run_config_file": "kite_vision_run.json"
+      },
+      "files": [
+        "SmolVLM-256M-Instruct-Q8_0.gguf",
+        "kite_vision_run.json",
+        "mmproj-SmolVLM-256M-Instruct-Q8_0.gguf"
+      ]
+    },
+    {
+      "id": "qwen_causal_lm-kite_llm",
+      "label": "qwen_causal_lm / kite_llm",
+      "model": {
+        "capability": "llm",
+        "model_type": "qwen_causal_lm",
+        "backend": "kite_llm",
+        "model_config": {
+          "random_seed": -1
+        },
+        "backend_config": {
+          "run_config_file": "kite_text_run.json"
+        },
+        "model_id": "llm_model_v1",
+        "model_path": "qwen2.5-0.5b-instruct-q4_k_m.gguf"
+      },
+      "paths": {
+        "/model_path": "qwen2.5-0.5b-instruct-q4_k_m.gguf",
+        "/backend_config/run_config_file": "kite_text_run.json"
+      },
+      "files": [
+        "qwen2.5-0.5b-instruct-q4_k_m.gguf",
+        "kite_text_run.json"
+      ]
+    },
+    {
+      "id": "whisper_asr-whisper_cpp",
+      "label": "whisper_asr / whisper_cpp",
+      "model": {
+        "model_id": "asr_model_v1",
+        "capability": "asr",
+        "model_type": "whisper_asr",
+        "backend": "whisper_cpp",
+        "model_path": "ggml-base.bin",
+        "model_config": {
+          "language": "zh",
+          "max_audio_seconds": 30,
+          "max_output_bytes": 65536
+        },
+        "backend_config": {
+          "n_threads": 4
+        }
+      },
+      "paths": {
+        "/model_path": "ggml-base.bin"
+      },
+      "files": [
+        "ggml-base.bin"
+      ]
+    },
+    {
+      "id": "generated_text_embedding-kite_llm",
+      "label": "generated_text_embedding / kite_llm",
+      "model": {
+        "capability": "embedding",
+        "model_type": "generated_text_embedding",
+        "backend": "kite_llm",
+        "model_config": {
+          "embedding_dim": 896,
+          "max_tokens": 1,
+          "pooling": "last",
+          "prefix": "<|im_start|>user\n用一个词概括以下文本：\n",
+          "suffix": "<|im_end|>\n<|im_start|>assistant\n",
+          "add_bos": false
+        },
+        "backend_config": {
+          "run_config_file": "kite_text_run.json"
+        },
+        "model_id": "embed_model_v1",
+        "model_path": "qwen2.5-0.5b-instruct-q4_k_m.gguf"
+      },
+      "paths": {
+        "/model_path": "qwen2.5-0.5b-instruct-q4_k_m.gguf",
+        "/backend_config/run_config_file": "kite_text_run.json"
+      },
+      "files": [
+        "qwen2.5-0.5b-instruct-q4_k_m.gguf",
+        "kite_text_run.json"
+      ]
+    },
+    {
+      "id": "whisper_asr-whisper_cpp-tiny",
+      "label": "Whisper tiny Q5 / whisper_cpp",
+      "model": {
+        "model_id": "asr_model_v1",
+        "capability": "asr",
+        "model_type": "whisper_asr",
+        "backend": "whisper_cpp",
+        "model_path": "ggml-tiny-q5_1.bin",
+        "model_config": {
+          "language": "zh",
+          "max_audio_seconds": 30,
+          "max_output_bytes": 65536
+        },
+        "backend_config": {
+          "n_threads": 4
+        }
+      },
+      "paths": {
+        "/model_path": "ggml-tiny-q5_1.bin"
+      },
+      "files": [
+        "ggml-tiny-q5_1.bin"
+      ]
+    }
+  ]
+}

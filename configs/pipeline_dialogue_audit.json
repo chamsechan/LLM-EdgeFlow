@@ -147,7 +147,8 @@
         }
       },
       "config": {
-        "top_k": 3
+        "top_k": 3,
+        "candidate_scope": "shared"
       }
     },
     {
@@ -188,7 +189,7 @@
         }
       },
       "config": {
-        "template": "你是一个专业的智能客服合规风控质检大模型。请根据相关制度条款对客服与用户的对话进行合规判定并给出建议：\n【对话内容】: {{primary}}\n【相关制度】: {{context}}\n【规则初筛】: {{matches}}\n请严格按JSON格式输出判定：{\"verdict\": \"违规/合规\", \"risk_level\": \"HIGH_RISK/SAFE\", \"suggestion\": \"...\"}\n【审核结论】:"
+        "template": "你是一个专业的智能客服合规风控质检大模型。请根据相关制度条款对客服与用户的对话进行合规判定并给出建议：\n【对话内容】: {{primary}}\n【相关制度】: {{context}}\n【规则初筛】: {{matches}}\n请严格按JSON格式输出判定：{\"verdict\": \"违规/合规\", \"risk_level\": \"HIGH_RISK/SAFE\", \"suggestion\": \"...\"}\n【审核结论】:\nJSON 必须包含 risk_score 数值（0 到 1）。"
       }
     },
     {
@@ -234,7 +235,8 @@
         "required_fields": [
           "risk_level",
           "risk_score"
-        ]
+        ],
+        "failure_policy": "fail"
       }
     }
   ]

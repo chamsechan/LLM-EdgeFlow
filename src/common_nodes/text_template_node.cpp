@@ -43,6 +43,25 @@ class TextTemplateNode final : public NodeBase {
         in_attributes_("attributes"),
         out_text_("text") {}
 
+  static bool ValidateConfig(const nlohmann::json& config,
+                             const std::unordered_set<std::string>& connected,
+                             std::string* diagnostic) {
+    std::unordered_map<std::string, std::string> values;
+    if (config.contains("values"))
+      values = config.at("values").get<decltype(values)>();
+    std::vector<TemplateToken> compiled;
+    const bool ok =
+        CompileTemplate(config.value("template", "{{primary}}"), values,
+                        connected.count("attributes") ||
+                            config.value("allow_dynamic_attributes", false),
+                        &compiled);
+    if (!ok && diagnostic)
+      *diagnostic =
+          "Invalid template placeholder or missing static value; connect "
+          "attributes or declare values";
+    return ok;
+  }
+
  protected:
   bool InitNode(const NodeInitContext& init_ctx, const nlohmann::json& config,
                 SessionContext& /*session_ctx*/) override {
@@ -539,6 +558,7 @@ NodeDefinition MakeTextTemplateNodeDefinition() {
   NodeDefinition def;
   def.node_type = TextTemplateNode::kNodeType;
   def.category = "common";
+  def.validate_config = TextTemplateNode::ValidateConfig;
   def.description = "Text template rendering and prompt builder node";
   def.inputs = {
       OptionalInputPort("primary", BlackboardKey<TextBatch>{"", "TextBatch"},

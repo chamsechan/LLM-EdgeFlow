@@ -4,6 +4,9 @@
 #include "adapter/adapter_validation_helper.h"
 #include "adapter/biz_adapter_registry.h"
 #include "adapter/biz_blackboard_keys.h"
+#include "adapter/biz_results.h"
+#include "adapter/result_packing_adapter.h"
+#include "adapter/result_validation.h"
 #include "company_alg_interface.h"
 
 namespace llm_edgeflow {
@@ -11,7 +14,9 @@ namespace llm_edgeflow {
 inline static constexpr char kAudioAsrBizName[] =
     "speech_audio_asr_intent_slot";
 
-class AudioAsrIntentAdapter : public IBizAdapter {
+class AudioAsrIntentAdapter
+    : public ResultPackingAdapter<AudioAsrIntentAdapter,
+                                  CompanyAudioOutputStruct, AudioResult> {
  public:
   CompanyAlgBizType BizType() const override {
     return ALG_BIZ_TYPE_AUDIO_ASR_INTENT;
@@ -108,8 +113,9 @@ class AudioAsrIntentAdapter : public IBizAdapter {
     return COMPANY_ALG_SUCCESS;
   }
 
-  int Pack(AlgContext* ctx, void** outputs, int* num_outputs,
-           AdapterStatus* out_status = nullptr) const override {
+  template <typename Output>
+  int PackTyped(AlgContext* ctx, void** outputs, int* num_outputs,
+                AdapterStatus* out_status = nullptr) const {
     if (!ctx) {
       return AdapterValidationHelper::ReturnBufferTooSmall(
           out_status, "Null AlgContext passed to Pack", "ctx", BizName());
@@ -127,31 +133,39 @@ class AudioAsrIntentAdapter : public IBizAdapter {
         outputs, num_outputs, count, BizName(), out_status);
     if (valid_ret != 0) return valid_ret;
 
+    std::vector<const TextBatch::value_type*> transcripts_by_request;
+    if (!IndexResults(transcripts, raw_req_ids, &transcripts_by_request,
+                      "transcripts", BizName(), out_status))
+      return COMPANY_ALG_ERR_INVALID_INPUT;
+    std::vector<const RuleMatchBatch::value_type*> intent_slots_by_request;
+    if (!IndexResults(intent_slots, raw_req_ids, &intent_slots_by_request,
+                      "intent_slots", BizName(), out_status))
+      return COMPANY_ALG_ERR_INVALID_INPUT;
+
     for (int i = 0; i < count; ++i) {
-      auto* out_ptr = static_cast<CompanyAudioOutputStruct*>(outputs[i]);
+      auto* out_ptr = static_cast<Output*>(outputs[i]);
       uint64_t req_id =
           (raw_req_ids && i < static_cast<int>(raw_req_ids->size()))
               ? (*raw_req_ids)[i]
-              : (*transcripts)[i].req_id;
+              : transcripts_by_request[i]->req_id;
       out_ptr->request_id = req_id;
-      out_ptr->status_code = 0;
+      out_ptr->status_code = intent_slots_by_request[i]->data.status_code;
 
       std::string slot_json = "{}";
       if (intent_slots && i < static_cast<int>(intent_slots->size())) {
-        slot_json = (*intent_slots)[i].data.match_result_json;
+        slot_json = intent_slots_by_request[i]->data.match_result_json;
       }
 
-      if (!AdapterValidationHelper::CheckedStringCopy(
-              out_ptr->transcribed_text, sizeof(out_ptr->transcribed_text),
-              (*transcripts)[i].data.c_str(), "outputs[i].transcribed_text", i,
-              BizName(), out_status)) {
+      if (!CopyResultString(out_ptr->transcribed_text,
+                            transcripts_by_request[i]->data.c_str(),
+                            "outputs[i].transcribed_text", i, BizName(),
+                            out_status)) {
         return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
       }
 
-      if (!AdapterValidationHelper::CheckedStringCopy(
-              out_ptr->intent_slot_json, sizeof(out_ptr->intent_slot_json),
-              slot_json.c_str(), "outputs[i].intent_slot_json", i, BizName(),
-              out_status)) {
+      if (!CopyResultString(out_ptr->intent_slot_json, slot_json.c_str(),
+                            "outputs[i].intent_slot_json", i, BizName(),
+                            out_status)) {
         return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
       }
     }

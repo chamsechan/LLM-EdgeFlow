@@ -1,0 +1,83 @@
+{
+  "version": 2,
+  "configurePresets": [
+    {
+      "name": "default-cpu",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/variants/default-cpu",
+      "cacheVariables": {
+        "ENABLE_ONNXRUNTIME": "ON",
+        "ENABLE_LLAMACPP": "ON",
+        "ENABLE_WHISPERCPP": "ON",
+        "ENABLE_KITELLM": "OFF",
+        "CMAKE_BUILD_TYPE": "Release",
+        "ENABLE_REAL_MODEL_TESTS": "OFF",
+        "LLM_EDGEFLOW_SHARDED_TEST_RUNNERS": "ON"
+      },
+      "vendor": {
+        "llm-edgeflow/selection": {
+          "backends": [
+            "onnxruntime",
+            "llama_cpp",
+            "whisper_cpp"
+          ]
+        }
+      }
+    },
+    {
+      "name": "kite-cpu",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/variants/kite-cpu",
+      "cacheVariables": {
+        "ENABLE_ONNXRUNTIME": "ON",
+        "ENABLE_LLAMACPP": "OFF",
+        "ENABLE_WHISPERCPP": "OFF",
+        "ENABLE_KITELLM": "ON",
+        "CMAKE_BUILD_TYPE": "Release",
+        "ENABLE_REAL_MODEL_TESTS": "OFF",
+        "LLM_EDGEFLOW_SHARDED_TEST_RUNNERS": "ON"
+      },
+      "vendor": {
+        "llm-edgeflow/selection": {
+          "backends": [
+            "onnxruntime",
+            "kite_llm"
+          ]
+        }
+      }
+    },
+    {
+      "name": "minimal",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/variants/minimal",
+      "cacheVariables": {
+        "ENABLE_ONNXRUNTIME": "OFF",
+        "ENABLE_LLAMACPP": "OFF",
+        "ENABLE_WHISPERCPP": "OFF",
+        "ENABLE_KITELLM": "OFF",
+        "CMAKE_BUILD_TYPE": "Release",
+        "ENABLE_REAL_MODEL_TESTS": "OFF",
+        "LLM_EDGEFLOW_SHARDED_TEST_RUNNERS": "ON"
+      },
+      "vendor": {
+        "llm-edgeflow/selection": {
+          "backends": []
+        }
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "default-cpu",
+      "configurePreset": "default-cpu"
+    },
+    {
+      "name": "kite-cpu",
+      "configurePreset": "kite-cpu"
+    },
+    {
+      "name": "minimal",
+      "configurePreset": "minimal"
+    }
+  ]
+}

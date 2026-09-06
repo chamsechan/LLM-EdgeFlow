@@ -108,6 +108,29 @@ struct OperatorBizBridgeDescriptor {
   }
 };
 
+// The built-in one-input/one-output pattern needs only its conversions and
+// registered type names; slot boilerplate and result allocation are shared.
+template <typename Result>
+OperatorBizBridgeDescriptor MakeSingleSlotBizBridge(
+    CompanyAlgBizType biz_type, std::string biz_name, std::string input_type,
+    std::string identity, std::string input_slot, std::string output_slot) {
+  OperatorBizBridgeDescriptor desc;
+  desc.biz_type = biz_type;
+  desc.biz_name = std::move(biz_name);
+  desc.internal_input_type_name = std::move(input_type);
+  desc.internal_output_type_name = Result::kTypeName;
+  desc.registration_identity = std::move(identity);
+  desc.input_slots.push_back(
+      {input_slot, input_slot, IoDirection::kInput, true});
+  desc.output_slots.push_back(
+      {output_slot, output_slot, IoDirection::kOutput, true});
+  desc.create_shadow_output_dto =
+      [](ProcessLocalShadowStorage& storage) -> void* {
+    return storage.AllocateShadowDto<Result>();
+  };
+  return desc;
+}
+
 /**
  * @brief Operator 业务桥接注册表 (SSOT 与自注册中心)
  */

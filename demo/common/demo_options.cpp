@@ -221,6 +221,8 @@ int ParseCommandLine(int argc, char* argv[], DemoOptions* out_options,
       }
       out_options->control_file = argv[++i];
       out_options->has_control_file = true;
+    } else if (arg == "--no-default-control") {
+      out_options->no_default_control = true;
     } else if (arg == "--append") {
       out_options->append = true;
     } else if (arg == "--allow-fallback-sample") {
@@ -556,6 +558,8 @@ void PrintHelp(const char* program_name) {
       << "                             rk3588, cuda, cpu)\n"
       << "  --depth <n>                Output descriptor depth count (default: "
          "1)\n"
+      << "  --no-default-control       Do not apply demo default control "
+         "overrides\n"
       << "  --control-file <path>      Runtime control parameters JSON file\n"
       << "  --append                   Append output to existing results file "
          "instead of overwriting\n"

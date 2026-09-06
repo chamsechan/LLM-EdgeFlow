@@ -309,3 +309,85 @@ TEST(PipelineValidatorTest, WhisperPipelineValidationDependsOnBackend) {
 
 }  // namespace
 }  // namespace llm_edgeflow
+
+namespace llm_edgeflow {
+TEST(PipelineValidatorTest,
+     NestedAndCrossFieldErrorsFailBeforeMaterialization) {
+  const std::vector<std::pair<std::string, nlohmann::json>> cases = {
+      {"TextChunkNode", {{"chunk_size", 8}, {"overlap", 8}}},
+      {"TextTemplateNode", {{"values", {{"x", 42}}}}},
+      {"TextTemplateNode", {{"template", "{{unclosed"}}},
+      {"StructuredJsonParseNode", {{"field_types", {{"x", "unsupported"}}}}},
+      {"StructuredJsonParseNode",
+       {{"required_fields", {"risk"}}, {"fallback_json", "{}"}}},
+      {"TextCorpusSourceNode", {{"corpus", {"valid", 42}}}},
+      {"TextRuleMatchNode",
+       {{"rules", {{{"strategy", "regex"}, {"pattern", "["}}}}}},
+  };
+  for (const auto& [type, config] : cases) {
+    SCOPED_TRACE(type + config.dump());
+    std::ifstream stream("configs/pipeline_keyword_match.json");
+    nlohmann::json root;
+    stream >> root;
+    root["pipeline"].push_back({{"id", "invalid"},
+                                {"node_type", type},
+                                {"depends_on", nlohmann::json::array()},
+                                {"config", config}});
+    const auto report = PipelineValidator::Validate(root);
+    EXPECT_FALSE(report.ok);
+    EXPECT_TRUE(
+        std::any_of(report.diagnostics.begin(), report.diagnostics.end(),
+                    [](const auto& d) {
+                      return d.node_id == "invalid" &&
+                             (d.code == DiagnosticCode::kInvalidCombination ||
+                              d.code == DiagnosticCode::kConfigFieldType);
+                    }))
+        << report.ToJson();
+    Pipeline pipeline;
+    EXPECT_FALSE(pipeline.BuildFromJson(root));
+    auto node = NodeFactory::Instance().Create(type);
+    SessionContext session;
+    NodeInitContext init;
+    init.config = &config;
+    init.session_ctx = &session;
+    EXPECT_FALSE(node->Init(init));
+  }
+}
+
+TEST(PipelineValidatorTest, UnconnectedOptionalPortStaysAbsentAtRuntime) {
+  std::ifstream stream("configs/pipeline_keyword_match.json");
+  nlohmann::json root;
+  stream >> root;
+  root["pipeline"] = nlohmann::json::array(
+      {{{"id", "a"},
+        {"node_type", "TextTemplateNode"},
+        {"depends_on", nlohmann::json::array()},
+        {"config", {{"template", "UNDECLARED"}}},
+        {"ports",
+         {{"inputs", {{"primary", "input_sentences"}}},
+          {"outputs", {{"text", "context_text"}}}}}},
+       {{"id", "b"},
+        {"node_type", "TextTemplateNode"},
+        {"depends_on", nlohmann::json::array()},
+        {"config", {{"template", "{{primary}}|{{context}}"}}},
+        {"ports",
+         {{"inputs", {{"primary", "input_sentences"}}},
+          {"outputs", {{"text", "rendered"}}}}}},
+       {{"id", "rule"},
+        {"node_type", "TextRuleMatchNode"},
+        {"depends_on", {"b"}},
+        {"ports",
+         {{"inputs", {{"text", "rendered"}}},
+          {"outputs", {{"matches", "rule_matches"}}}}}}});
+  const auto plan = PipelineValidator::ValidateAndPlan(root);
+  ASSERT_TRUE(plan.report.ok) << plan.report.ToJson();
+  EXPECT_EQ(plan.node_plans.at("b").FindPort("context_text"), nullptr);
+  Pipeline pipeline;
+  ASSERT_TRUE(pipeline.BuildFromJson(root));
+  AlgContext ctx;
+  ctx.Publish("input_sentences", TextBatch{{0, 0, "USER"}});
+  ASSERT_EQ(pipeline.Execute(&ctx), 0);
+  ASSERT_NE(ctx.Read<TextBatch>("rendered"), nullptr);
+  EXPECT_EQ(ctx.Read<TextBatch>("rendered")->at(0).data, "USER|");
+}
+}  // namespace llm_edgeflow

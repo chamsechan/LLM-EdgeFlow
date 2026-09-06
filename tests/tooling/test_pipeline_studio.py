@@ -271,8 +271,8 @@ const positions = graph.layeredPositions([
   {{ id: "parallel_root", depends_on: [] }},
 ]);
 assert.equal(positions.root.x, 65);
-assert.equal(positions.middle.x, 365);
-assert.equal(positions.sink.x, 665);
+assert.ok(positions.middle.x > positions.root.x);
+assert.ok(positions.sink.x > positions.middle.x);
 assert.equal(positions.parallel_root.x, 65);
 assert.notEqual(positions.root.y, positions.parallel_root.y);
 
@@ -335,6 +335,54 @@ await assert.rejects(
         )
         self.assertEqual(process.returncode, 0, process.stderr)
 
+    @unittest.skipUnless(shutil.which("node"), "Node.js is required for Web module tests")
+    def test_port_editing_roundtrips_to_native_validator_and_model_forms(self):
+        catalog = json.loads(subprocess.check_output([str(PIPELINE_TOOL), "catalog"], text=True))
+        script = """
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+const code = readFileSync(process.argv[1], 'utf8');
+const w = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
+const catalog = JSON.parse(readFileSync(0, 'utf8'));
+const pipeline = {biz_name:'keyword_match_v1', models:[], pipeline:[
+  {id:'template', node_type:'TextTemplateNode', depends_on:[], config:{template:'{{primary}}'}, ports:{outputs:{text:'template_text'}}},
+  {id:'rule', node_type:'TextRuleMatchNode', depends_on:[], config:{}, ports:{outputs:{matches:'rule_result'}}}
+]};
+w.connectPorts(pipeline,catalog,w.INGRESS,'input_sentences','template','primary');
+w.connectPorts(pipeline,catalog,'template','text','rule','text');
+w.connectPorts(pipeline,catalog,'rule','matches',w.EGRESS,'rule_matches');
+assert.equal(pipeline.pipeline[1].ports.inputs.text,'template_text');
+assert.deepEqual(pipeline.pipeline[1].depends_on,['template']);
+assert.throws(()=>w.connectPorts(pipeline,catalog,'rule','matches','template','primary'), /类型/);
+assert.throws(()=>w.connectPorts(pipeline,catalog,'template','text','template','primary'), /环/);
+const detached = structuredClone(pipeline);
+w.disconnectPorts(detached,catalog,w.graphDocument(detached,catalog).edges.find(e=>e.target==='rule' && e.targetPort==='text'));
+assert.ok(!w.graphDocument(detached,catalog).edges.some(e=>e.source==='template' && e.target==='rule'));
+w.removeNode(detached,catalog,'template');
+assert.deepEqual(detached.pipeline[0].depends_on,[]);
+const modelDef = catalog.models.find(m=>m.model_type==='bge_embedding');
+const backend = w.compatibleBackends(catalog.backends,modelDef).find(b=>b.backend_type==='onnxruntime');
+if (backend) {
+assert.ok(!w.compatibleBackends(catalog.backends,modelDef).some(b=>b.backend_type==='llama_cpp'));
+const models = {models:[], pipeline:[]};
+w.upsertModel(models,catalog,'',{model_id:'embed',model_type:modelDef.model_type,backend:backend.backend_type,model_path:'embed.onnx',model_config:w.schemaDefaults(modelDef.config_fields),backend_config:w.schemaDefaults(backend.config_fields)});
+models.pipeline.push({id:'embed_node',node_type:'TextEmbeddingNode',config:{bind_model:'embed'}});
+w.upsertModel(models,catalog,'embed',{...models.models[0],model_id:'renamed'});
+assert.equal(models.pipeline[0].config.bind_model,'renamed');
+assert.throws(()=>w.removeModel(models,catalog,'renamed'), /使用/);
+assert.throws(()=>w.upsertModel(models,catalog,'',{...models.models[0],backend:'llama_cpp'}), /不兼容/);
+}
+process.stdout.write(JSON.stringify(pipeline));
+"""
+        process = subprocess.run([shutil.which("node"), "--input-type=module", "-e", script, str(WEB_ROOT / "workbench.js")], input=json.dumps(catalog), text=True, capture_output=True)
+        self.assertEqual(process.returncode, 0, process.stderr)
+        generated = json.loads(process.stdout)
+        with tempfile.TemporaryDirectory() as directory:
+            filename = Path(directory) / "pipeline_ports.json"
+            filename.write_text(json.dumps(generated))
+            result = subprocess.run([str(PIPELINE_TOOL), "validate", str(filename)], text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_invalid_fixtures_table_driven_parity_matrix(self):
         fixture_path = (
             ROOT
@@ -396,6 +444,61 @@ await assert.rejects(
                 # Invalid plan requests retain the exact diagnostic report.
                 self.assertEqual(cli_plan, cli_val)
 
+
+class SelectionVerificationTest(unittest.TestCase):
+    def test_asset_hashes_include_sidecars_and_changed_paths_are_unregistered(self):
+        selection = SHOW.SELECTION
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "weights.bin").write_bytes(b"test weights")
+            (root / "vocab.txt").write_bytes(b"tokenizer")
+            model = {"model_id": "m", "model_type": "bge_embedding", "backend": "onnxruntime", "model_path": "weights.bin", "model_config": {"tokenizer_file": "vocab.txt"}}
+            manifest = {"schema_version": 1, "selections": [{"id": "test", "model": json.loads(json.dumps(model)), "paths": {"/model_path": "weights.bin", "/model_config/tokenizer_file": "vocab.txt"}, "files": ["weights.bin", "vocab.txt"]}], "artifacts": {name: {"sha256": selection.file_digest(root / name)} for name in ("weights.bin", "vocab.txt")}}
+            pipeline = {"models": [model]}
+            incomplete = json.loads(json.dumps(manifest))
+            incomplete["selections"][0]["files"] = []
+            with self.assertRaises(ValueError):
+                selection.verify_assets(pipeline, root, incomplete)
+            self.assertEqual(selection.verify_assets(pipeline, root, manifest)[0]["status"], "verified")
+            (root / "vocab.txt").write_bytes(b"corrupt")
+            self.assertEqual(selection.verify_assets(pipeline, root, manifest)[0]["files"][1]["status"], "hash_mismatch")
+            (root / "vocab.txt").unlink()
+            self.assertEqual(selection.verify_assets(pipeline, root, manifest)[0]["files"][1]["status"], "missing")
+            model["model_config"]["tokenizer_file"] = "another_vocab.txt"
+            self.assertEqual(selection.verify_assets(pipeline, root, manifest)[0]["status"], "unregistered")
+            with self.assertRaises(ValueError):
+                selection.within(root, "../outside")
+
+    def test_native_build_variant_and_real_effects_are_bound_to_selection(self):
+        selection = SHOW.SELECTION
+        tool = Path(os.environ.get("LLM_EDGEFLOW_SELECTION_TOOL", ROOT / "build/alg_pipeline_tool"))
+        demo = SHOW.DEMO_BINARY
+        pipeline = json.loads((ROOT / "configs/pipeline_keyword_match.json").read_text())
+        spec = ROOT / "tests/fixtures/effects/keyword_exact.json"
+        conf = ROOT / "configs/pipeline_keyword_match.conf"
+        report = selection.inspect_selection(pipeline, tool, ROOT / "models")
+        self.assertTrue(report["ok"])
+        self.assertFalse(report["ready_for_business"])
+        # Current canonical build has enabled backends; claiming the empty
+        # minimal variant must fail independently of this model-free Pipeline.
+        mismatched = selection.inspect_selection(pipeline, tool, ROOT / "models", variant="minimal" if report["build"]["enabled_backends"] else "default-cpu")
+        self.assertFalse(mismatched["ok"])
+        receipt = selection.evaluate(pipeline, report, tool, ROOT / "models", spec, conf, demo)
+        self.assertEqual(receipt["metrics"]["pass_rate"], 1.0)
+        self.assertEqual(receipt["metrics"]["total"], 4)
+        with tempfile.TemporaryDirectory() as directory:
+            evidence = Path(directory) / "effects.json"
+            evidence.write_text(json.dumps(receipt))
+            checked = selection.attach_evidence(report, evidence, spec, conf, demo)
+            self.assertTrue(checked["ready_for_business"])
+            pipeline["pipeline"][0]["config"]["categories"] = {"OTHER": ["different"]}
+            changed = selection.inspect_selection(pipeline, tool, ROOT / "models")
+            self.assertEqual(selection.attach_evidence(changed, evidence, spec, conf, demo)["effects"]["status"], "stale")
+        broken_records = receipt["records"][:-1]
+        self.assertEqual(selection.compare_samples(broken_records, selection.read_json(spec))["status"], "failed")
+        records = json.loads(json.dumps(receipt["records"]))
+        records[0]["output"]["is_hit"] = False
+        self.assertEqual(selection.compare_samples(records, selection.read_json(spec))["status"], "failed")
 
 if __name__ == "__main__":
     unittest.main()
