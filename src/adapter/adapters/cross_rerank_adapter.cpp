@@ -5,6 +5,8 @@
 #include "adapter/adapter_validation_helper.h"
 #include "adapter/biz_adapter_registry.h"
 #include "adapter/biz_blackboard_keys.h"
+#include "adapter/biz_results.h"
+#include "adapter/result_packing_adapter.h"
 #include "adapter/result_validation.h"
 #include "company_alg_interface.h"
 
@@ -13,7 +15,9 @@ namespace llm_edgeflow {
 inline static constexpr char kCrossRerankBizName[] =
     "dense_cross_rerank_scoring";
 
-class CrossRerankAdapter : public IBizAdapter {
+class CrossRerankAdapter
+    : public ResultPackingAdapter<
+          CrossRerankAdapter, CompanyRerankBatchOutputStruct, RerankResult> {
  public:
   CompanyAlgBizType BizType() const override {
     return ALG_BIZ_TYPE_CROSS_RERANK;
@@ -118,8 +122,9 @@ class CrossRerankAdapter : public IBizAdapter {
     return COMPANY_ALG_SUCCESS;
   }
 
-  int Pack(AlgContext* ctx, void** outputs, int* num_outputs,
-           AdapterStatus* out_status = nullptr) const override {
+  template <typename Output>
+  int PackTyped(AlgContext* ctx, void** outputs, int* num_outputs,
+                AdapterStatus* out_status = nullptr) const {
     if (!ctx) {
       return AdapterValidationHelper::ReturnBufferTooSmall(
           out_status, "Null AlgContext passed to Pack", "ctx", BizName());
@@ -161,7 +166,7 @@ class CrossRerankAdapter : public IBizAdapter {
     if (valid_ret != 0) return valid_ret;
 
     for (int i = 0; i < count; ++i) {
-      auto* out_ptr = static_cast<CompanyRerankBatchOutputStruct*>(outputs[i]);
+      auto* out_ptr = static_cast<Output*>(outputs[i]);
       uint64_t req_id =
           (raw_req_ids && i < static_cast<int>(raw_req_ids->size()))
               ? (*raw_req_ids)[i]

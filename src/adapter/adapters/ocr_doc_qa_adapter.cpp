@@ -4,6 +4,8 @@
 #include "adapter/adapter_validation_helper.h"
 #include "adapter/biz_adapter_registry.h"
 #include "adapter/biz_blackboard_keys.h"
+#include "adapter/biz_results.h"
+#include "adapter/result_packing_adapter.h"
 #include "adapter/result_validation.h"
 #include "company_alg_interface.h"
 
@@ -11,7 +13,9 @@ namespace llm_edgeflow {
 
 inline static constexpr char kOcrDocQaBizName[] = "multimodal_ocr_invoice_qa";
 
-class OcrDocQaAdapter : public IBizAdapter {
+class OcrDocQaAdapter
+    : public ResultPackingAdapter<OcrDocQaAdapter, CompanyOcrDocOutputStruct,
+                                  OcrDocResult> {
  public:
   CompanyAlgBizType BizType() const override { return ALG_BIZ_TYPE_OCR_DOC_QA; }
 
@@ -96,8 +100,9 @@ class OcrDocQaAdapter : public IBizAdapter {
     return COMPANY_ALG_SUCCESS;
   }
 
-  int Pack(AlgContext* ctx, void** outputs, int* num_outputs,
-           AdapterStatus* out_status = nullptr) const override {
+  template <typename Output>
+  int PackTyped(AlgContext* ctx, void** outputs, int* num_outputs,
+                AdapterStatus* out_status = nullptr) const {
     if (!ctx) {
       return AdapterValidationHelper::ReturnBufferTooSmall(
           out_status, "Null AlgContext passed to Pack", "ctx", BizName());
@@ -127,7 +132,7 @@ class OcrDocQaAdapter : public IBizAdapter {
       return COMPANY_ALG_ERR_INVALID_INPUT;
 
     for (int i = 0; i < count; ++i) {
-      auto* out_ptr = static_cast<CompanyOcrDocOutputStruct*>(outputs[i]);
+      auto* out_ptr = static_cast<Output*>(outputs[i]);
       uint64_t req_id =
           (raw_req_ids && i < static_cast<int>(raw_req_ids->size()))
               ? (*raw_req_ids)[i]
@@ -146,9 +151,8 @@ class OcrDocQaAdapter : public IBizAdapter {
       }
       out_ptr->status_code = 0;
 
-      if (!AdapterValidationHelper::CheckedStringCopy(
+      if (!CopyResultString(
               out_ptr->extracted_invoice_json,
-              sizeof(out_ptr->extracted_invoice_json),
               invoice_jsons_by_request[i]->data.json_payload.c_str(),
               "outputs[i].extracted_invoice_json", i, BizName(), out_status)) {
         return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;

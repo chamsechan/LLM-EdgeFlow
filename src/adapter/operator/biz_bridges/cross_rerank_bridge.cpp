@@ -1,28 +1,12 @@
+#include "adapter/biz_results.h"
 #include "adapter/operator/operator_biz_bridge_registry.h"
 
 namespace llm_edgeflow {
 
 void RegisterCrossRerankBridge(OperatorBizBridgeRegistry& reg) {
-  OperatorBizBridgeDescriptor desc;
-  desc.biz_type = ALG_BIZ_TYPE_CROSS_RERANK;
-  desc.biz_name = "CrossRerank";
-  desc.internal_input_type_name = "CompanyRerankBatchInputStruct";
-  desc.internal_output_type_name = "CompanyRerankBatchOutputStruct";
-  desc.registration_identity = "builtin.cross_rerank";
-
-  OperatorBizSlot in_slot;
-  in_slot.logical_name = "rerank_in";
-  in_slot.type_suffix = "rerank_in";
-  in_slot.direction = IoDirection::kInput;
-  in_slot.required = true;
-  desc.input_slots.push_back(in_slot);
-
-  OperatorBizSlot out_slot;
-  out_slot.logical_name = "rerank_out";
-  out_slot.type_suffix = "rerank_out";
-  out_slot.direction = IoDirection::kOutput;
-  out_slot.required = true;
-  desc.output_slots.push_back(out_slot);
+  auto desc = MakeSingleSlotBizBridge<RerankResult>(
+      ALG_BIZ_TYPE_CROSS_RERANK, "CrossRerank", "CompanyRerankBatchInputStruct",
+      "builtin.cross_rerank", "rerank_in", "rerank_out");
 
   desc.convert_sample_input =
       [](const std::unordered_map<std::string, const void*>& slots,
@@ -61,8 +45,7 @@ void RegisterCrossRerankBridge(OperatorBizBridgeRegistry& reg) {
       if (err) *err = "Null internal DTO or external output struct pointer";
       return -4;
     }
-    const auto* in_dto =
-        static_cast<const CompanyRerankBatchOutputStruct*>(internal_dto);
+    const auto* in_dto = static_cast<const RerankResult*>(internal_dto);
     auto* out =
         static_cast<CompanyOperatorRerankOutput*>(external_output_struct);
     out->request_id = in_dto->request_id;
@@ -75,10 +58,6 @@ void RegisterCrossRerankBridge(OperatorBizBridgeRegistry& reg) {
       out->sorted_indices[i] = in_dto->sorted_indices[i];
     }
     return 0;
-  };
-
-  desc.create_shadow_output_dto = [](ProcessLocalShadowStorage& s) -> void* {
-    return s.AllocateShadowDto<CompanyRerankBatchOutputStruct>();
   };
 
   reg.RegisterBridge(desc);

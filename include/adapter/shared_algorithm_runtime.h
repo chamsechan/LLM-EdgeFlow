@@ -58,7 +58,8 @@ class SharedAlgorithmRuntime {
    * Pack)
    */
   int ExecuteBatch(const void** inputs, int num_inputs, void** outputs,
-                   int* num_outputs, std::string* out_error = nullptr) noexcept;
+                   int* num_outputs, std::string* out_error = nullptr,
+                   bool operator_results = false) noexcept;
 
   /**
    * @brief 运行时动态控制指令下发

@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-09-06 审计整改（阶段 4）
+
+- 七个内置 Adapter 用同一份 PackTyped 逻辑生成固定 C ABI 输出与 Operator 可变长结果，去除 Operator 中间固定字符串数组瓶颈。
+- 单槽 Operator bridge 共用描述符/槽位/结果分配构造函数；新增 [业务接入说明](BUSINESS_ONBOARDING.md)。
+- 新增长文档结果与真实 Operator 大结果、容量失败回滚/租约复用验证；统一门禁 89 项通过，公共 C11 ABI 与已有业务集成回归成功。
+
 ## 2026-09-06 审计整改（阶段 3）
 
 - Studio 显示业务输入/输出与逐个类型端口，拖线生成实际 ports 和 depends_on；拒绝类型不兼容、成环和重复业务输出生产者，支持断线及删除节点清理。

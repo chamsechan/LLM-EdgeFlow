@@ -134,6 +134,15 @@ class IBizAdapter {
    */
   virtual int Pack(AlgContext* ctx, void** outputs, int* num_outputs,
                    AdapterStatus* out_status = nullptr) const = 0;
+  // Internal Operator result path. Private adapters may retain their fixed
+  // representation; built-ins use ResultPackingAdapter for variable strings.
+  virtual const char* ResultTypeName() const {
+    return GetDescriptor().output_type_name.c_str();
+  }
+  virtual int PackResultBatch(AlgContext* ctx, void** outputs, int* count,
+                              AdapterStatus* status = nullptr) const {
+    return Pack(ctx, outputs, count, status);
+  }
 };
 
 }  // namespace llm_edgeflow

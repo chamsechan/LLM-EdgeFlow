@@ -15,12 +15,12 @@
 1. Layer 1 的输出以 `(req_id, sub_id)` 关联；一对一结果必须完整且唯一，审核策略取每请求 rank 1。结构化失败及回退不作为成功业务结果。Layer 2 不为未连接可选输入产生绑定，Layer 3 不读取其默认键。共享检索库使用显式 `candidate_scope=shared`，默认 `request`。
 2. 配置的语义校验由注册 Definition 提供无副作用校验函数，Validator 和 Node 初始化复用；规划后的端口绑定是运行时唯一来源。字段约束继续来自 Catalog。
 3. Studio 按 Catalog 的逻辑端口、类型和字段连接与编辑，生成实际 `ports`、`depends_on` 和 Model/Backend 配置；最终以 Validator 验证为准。
-4. Layer 1 允许 Operator 在 Pipeline 执行完成后直接从请求 Context 打包到已有池槽；C ABI 保留固定结构兼容路径。每业务结果转换与校验复用，池槽失败回滚和释放契约保持不变。无需改 Layer 2~4 的业务结果类型。
+4. Layer 1 在现有打包步骤中为 Operator 使用持有 std::string 的业务结果对象，再复制到已有池槽；C ABI 保留固定结构兼容路径。通过 ResultPackingAdapter 共用每业务 PackTyped 校验逻辑，避免新增 Context 生命周期回调。池槽失败回滚和释放契约保持不变。无需改 Layer 2~4 的业务结果类型。
 5. 工具对资产散列、构建启用的 Backend、已记录效果证据进行可复现检查；未知或未验收显式标识，不伪造模型质量或硬件验收结论。
 
 ## 3. 生命周期与迁移
 
-请求 Context 仅在执行回调期间借用，输出字符串复制到调用方已有缓冲区。共享候选配置需要显式迁移；旧公共 C ABI 不变。不接触内网 SDK 或资产。新增业务保持 Adapter/Operator 边界，不增加中央业务 switch。
+请求 Context 不向外借用；Operator 结果对象在本次 Process 内持有字符串，最后复制到调用方已有缓冲区。共享候选配置需要显式迁移；旧公共 C ABI 不变。不接触内网 SDK 或资产。新增业务保持 Adapter/Operator 边界，不增加中央业务 switch。
 
 ## 4. 验证
 
@@ -31,7 +31,7 @@
 - [x] 1. 结果与请求关联修复。
 - [x] 2. Validator / Runtime 配置与端口一致。
 - [x] 3. Studio 端口连线和模型表单。
-- [ ] 4. Operator 直接输出与业务接入简化。
+- [x] 4. Operator 直接输出与业务接入简化。
 - [ ] 5. 可验证的资产、构建与效果选择。
 
 ## 6. 变更记录

@@ -6,6 +6,8 @@
 #include "adapter/adapter_validation_helper.h"
 #include "adapter/biz_adapter_registry.h"
 #include "adapter/biz_blackboard_keys.h"
+#include "adapter/biz_results.h"
+#include "adapter/result_packing_adapter.h"
 #include "adapter/result_validation.h"
 #include "company_alg_interface.h"
 
@@ -14,7 +16,9 @@ namespace llm_edgeflow {
 inline static constexpr char kDialogueAuditBizName[] =
     "dialogue_compliance_audit_v1";
 
-class ComplianceAuditAdapter : public IBizAdapter {
+class ComplianceAuditAdapter
+    : public ResultPackingAdapter<ComplianceAuditAdapter,
+                                  CompanyAuditOutputStruct, AuditResult> {
  public:
   CompanyAlgBizType BizType() const override {
     return ALG_BIZ_TYPE_COMPLIANCE_AUDIT;
@@ -94,8 +98,9 @@ class ComplianceAuditAdapter : public IBizAdapter {
     return COMPANY_ALG_SUCCESS;
   }
 
-  int Pack(AlgContext* ctx, void** outputs, int* num_outputs,
-           AdapterStatus* out_status = nullptr) const override {
+  template <typename Output>
+  int PackTyped(AlgContext* ctx, void** outputs, int* num_outputs,
+                AdapterStatus* out_status = nullptr) const {
     if (!ctx) {
       return AdapterValidationHelper::ReturnBufferTooSmall(
           out_status, "Null AlgContext passed to Pack", "ctx", BizName());
@@ -132,7 +137,7 @@ class ComplianceAuditAdapter : public IBizAdapter {
       return COMPANY_ALG_ERR_INVALID_INPUT;
 
     for (int i = 0; i < count; ++i) {
-      auto* out_ptr = static_cast<CompanyAuditOutputStruct*>(outputs[i]);
+      auto* out_ptr = static_cast<Output*>(outputs[i]);
       uint64_t req_id =
           (raw_req_ids && i < static_cast<int>(raw_req_ids->size()))
               ? (*raw_req_ids)[i]
@@ -170,24 +175,21 @@ class ComplianceAuditAdapter : public IBizAdapter {
       out_ptr->risk_score = risk_score;
       out_ptr->status_code = 0;
 
-      if (!AdapterValidationHelper::CheckedStringCopy(
-              out_ptr->risk_level, sizeof(out_ptr->risk_level),
-              risk_level.c_str(), "outputs[i].risk_level", i, BizName(),
-              out_status)) {
+      if (!CopyResultString(out_ptr->risk_level, risk_level.c_str(),
+                            "outputs[i].risk_level", i, BizName(),
+                            out_status)) {
         return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
       }
 
-      if (!AdapterValidationHelper::CheckedStringCopy(
-              out_ptr->matched_policy_clause,
-              sizeof(out_ptr->matched_policy_clause), policy_clause.c_str(),
+      if (!CopyResultString(
+              out_ptr->matched_policy_clause, policy_clause.c_str(),
               "outputs[i].matched_policy_clause", i, BizName(), out_status)) {
         return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
       }
 
-      if (!AdapterValidationHelper::CheckedStringCopy(
-              out_ptr->audit_verdict_json, sizeof(out_ptr->audit_verdict_json),
-              verdict_json.c_str(), "outputs[i].audit_verdict_json", i,
-              BizName(), out_status)) {
+      if (!CopyResultString(out_ptr->audit_verdict_json, verdict_json.c_str(),
+                            "outputs[i].audit_verdict_json", i, BizName(),
+                            out_status)) {
         return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
       }
     }

@@ -363,7 +363,7 @@ int Operator_Process(void* handle, const NamedIoBatch& inputs,
     std::string exec_err;
     int exec_ret = h->runtime->ExecuteBatch(
         internal_in_dtos.data(), static_cast<int>(batch_size),
-        internal_out_dtos.data(), &num_outputs, &exec_err);
+        internal_out_dtos.data(), &num_outputs, &exec_err, true);
     if (exec_ret != 0) {
       SetLastError("ExecuteBatch failed: " + exec_err);
       return exec_ret;

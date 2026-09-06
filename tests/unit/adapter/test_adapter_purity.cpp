@@ -7,6 +7,7 @@
 
 #include "adapter/biz_adapter_registry.h"
 #include "adapter/biz_blackboard_keys.h"
+#include "adapter/biz_results.h"
 #include "adapter/shared_algorithm_runtime.h"
 #include "company_alg_interface.h"
 #include "core/alg_context.h"
@@ -415,5 +416,28 @@ TEST_F(AdapterPurityTest, OneToOneResultsRejectDuplicateAndOutOfRangeIds) {
     EXPECT_EQ(adapter->Pack(&ctx, outputs, &count),
               COMPANY_ALG_ERR_INVALID_INPUT);
   }
+}
+}  // namespace llm_edgeflow
+
+namespace llm_edgeflow {
+TEST_F(AdapterPurityTest, VariableDocResultPreservesLongAnswerAndCAbiLimit) {
+  auto adapter = BizAdapterRegistry::Instance().GetAdapter(ALG_BIZ_TYPE_DOC_QA);
+  AlgContext ctx;
+  const std::string answer(5000, 'a');
+  ctx.Publish(kRawRequestIds, std::vector<uint64_t>{10});
+  ctx.Publish(kLlmAnswers, TextBatch{{0, 0, answer}});
+  ctx.Publish(kIntentMatches, RuleMatchBatch{{0, 0, RuleMatchItem{}}});
+  ctx.Publish(kDocChunkCounts, Int32Batch{{0, 0, 1}});
+  CompanyDocOutputStruct fixed{};
+  void* fixed_outputs[] = {&fixed};
+  int count = 1;
+  EXPECT_EQ(adapter->Pack(&ctx, fixed_outputs, &count),
+            COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
+  DocResult variable;
+  void* variable_outputs[] = {&variable};
+  count = 1;
+  ASSERT_EQ(adapter->PackResultBatch(&ctx, variable_outputs, &count), 0);
+  EXPECT_EQ(variable.answer_text, answer);
+  EXPECT_EQ(variable.request_id, 10u);
 }
 }  // namespace llm_edgeflow

@@ -2088,3 +2088,70 @@ TEST_F(OperatorApiTest, ModelPathNonExistentFileAllowedWhileEscapeRejected) {
     }
   }
 }
+
+TEST_F(OperatorApiTest, VariableResultsUsePoolCapacityAndRollbackOnFailure) {
+  const std::string word(2300, 'x');
+  for (const int capacity : {16384, 1024}) {
+    ScopedTempDirectory temp;
+    nlohmann::json pipeline = {
+        {"biz_name", "keyword_match_v1"},
+        {"models", nlohmann::json::array()},
+        {"pipeline",
+         {{{"id", "rule"},
+           {"node_type", "TextRuleMatchNode"},
+           {"depends_on", nlohmann::json::array()},
+           {"ports",
+            {{"inputs", {{"text", "input_sentences"}}},
+             {"outputs", {{"matches", "rule_matches"}}}}},
+           {"config", {{"categories", {{"LONG", {word}}}}}}}}}};
+    std::ofstream(temp.path() / "pipeline.json") << pipeline;
+    std::ofstream(temp.path() / "pipeline.conf") << nlohmann::json(
+        {{"data",
+          {{"pipe_path", "pipeline.json"},
+           {"mem_que",
+            {{"type", "keyword_out"},
+             {"capacities", {{"match_result_json", capacity}}}}}}}});
+    const auto root = temp.path().string();
+    CreateParam param{};
+    param.model_path = root.c_str();
+    param.cfg_file_name = "pipeline.conf";
+    param.compute_platform = ComputePlatform::kCpu;
+    param.device_id = 0;
+    param.max_frame_depth = 1;
+    void* handle = nullptr;
+    ASSERT_EQ(ops_.Create(&handle, &param), 0) << GetOperatorLastError();
+    CompanyString text{static_cast<int32_t>(word.size()),
+                       const_cast<char*>(word.data())};
+    CompanyOperatorKeywordInput input{987, &text};
+    NamedIoBatch inputs(1), outputs(1);
+    inputs[0]["chan.keyword_in"] = MakeBorrowedOperatorInput(&input);
+    outputs[0]["chan.keyword_out"] = {};
+    for (int attempt = 0; attempt < 2; ++attempt) {
+      const int ret = ops_.Process(handle, inputs, outputs);
+      if (capacity > 2048) {
+        ASSERT_EQ(ret, 0) << GetOperatorLastError();
+        auto* result = static_cast<CompanyOperatorKeywordOutput*>(
+            outputs[0]["chan.keyword_out"].get());
+        ASSERT_NE(result, nullptr);
+        EXPECT_EQ(result->request_id, 987u);
+        EXPECT_GT(result->match_result_json->length, 2048);
+        const std::string json(result->match_result_json->data,
+                               result->match_result_json->length);
+        EXPECT_NE(json.find(word), std::string::npos);
+        EXPECT_TRUE(nlohmann::json::accept(json));
+        outputs[0]["chan.keyword_out"].reset();
+      } else {
+        EXPECT_EQ(ret, COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
+        EXPECT_EQ(outputs[0]["chan.keyword_out"], nullptr);
+      }
+    }
+    // Failed conversion must return the sole lease so a later small result
+    // works.
+    std::string short_word = "no match";
+    text = {static_cast<int32_t>(short_word.size()), short_word.data()};
+    EXPECT_EQ(ops_.Process(handle, inputs, outputs), 0)
+        << GetOperatorLastError();
+    outputs.clear();
+    EXPECT_EQ(ops_.Destroy(handle), 0);
+  }
+}

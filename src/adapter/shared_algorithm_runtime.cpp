@@ -281,7 +281,8 @@ int SharedAlgorithmRuntime::CreateFromPipelineJson(
 
 int SharedAlgorithmRuntime::ExecuteBatch(const void** inputs, int num_inputs,
                                          void** outputs, int* num_outputs,
-                                         std::string* out_error) noexcept {
+                                         std::string* out_error,
+                                         bool operator_results) noexcept {
   try {
     if (!adapter_) {
       if (out_error) *out_error = "Null business adapter in runtime instance";
@@ -325,7 +326,11 @@ int SharedAlgorithmRuntime::ExecuteBatch(const void** inputs, int num_inputs,
 
     // 4. 打包回 C 结构体输出
     AdapterStatus pack_status;
-    int pack_ret = adapter_->Pack(&req_ctx, outputs, num_outputs, &pack_status);
+    int pack_ret =
+        operator_results
+            ? adapter_->PackResultBatch(&req_ctx, outputs, num_outputs,
+                                        &pack_status)
+            : adapter_->Pack(&req_ctx, outputs, num_outputs, &pack_status);
     if (pack_ret != 0) {
       if (out_error) {
         *out_error = "Pack failed for " + std::string(adapter_->BizName()) +
