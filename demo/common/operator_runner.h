@@ -12,6 +12,7 @@
 #include "company_alg_interface.h"
 #include "demo/common/dataset_reader.h"
 #include "demo/common/demo_options.h"
+#include "demo/common/demo_registry.h"
 #include "demo/common/result_writer.h"
 #include "nlohmann/json.hpp"
 #include "operator/company_operator_types.h"
@@ -21,8 +22,13 @@ namespace alg_demo {
 
 /**
  * @brief 将 Demo 业务名映射为标准 CompanyAlgBizType 枚举
+ * 优先从 DemoRegistry 获取业务自注册的权威类型，避免集中维护分支列表
  */
 inline CompanyAlgBizType DemoBizToBizType(std::string_view demo_biz) {
+  const auto* desc = DemoRegistry::Instance().Find(demo_biz);
+  if (desc && desc->biz_type != ALG_BIZ_TYPE_UNKNOWN) {
+    return desc->biz_type;
+  }
   if (demo_biz == "entity_extract") return ALG_BIZ_TYPE_ENTITY_EXTRACT;
   if (demo_biz == "keyword_match") return ALG_BIZ_TYPE_KEYWORD_MATCH;
   if (demo_biz == "doc_qa") return ALG_BIZ_TYPE_DOC_QA;

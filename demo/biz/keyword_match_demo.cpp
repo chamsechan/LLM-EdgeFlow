@@ -130,6 +130,6 @@ int RunKeywordMatchDemo(const DemoOptions& options) {
 }
 
 REGISTER_DEMO_BIZ("keyword_match", "【业务 2 演示】关注词匹配业务",
-                  RunKeywordMatchDemo);
+                  RunKeywordMatchDemo, ALG_BIZ_TYPE_KEYWORD_MATCH);
 
 }  // namespace alg_demo

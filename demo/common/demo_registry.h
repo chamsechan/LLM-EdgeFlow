@@ -7,6 +7,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "company_alg_interface.h"
 #include "demo/common/demo_options.h"
 
 namespace alg_demo {
@@ -17,10 +18,15 @@ struct DemoDescriptor {
   std::string biz_name;       // 业务标识名 (如 entity_extract, doc_qa)
   std::string display_title;  // 终端展示标题 (如 "实体/名词提取业务")
   DemoRunFunction run = nullptr;
+  CompanyAlgBizType biz_type = ALG_BIZ_TYPE_UNKNOWN;
 
   DemoDescriptor() = default;
-  DemoDescriptor(std::string name, std::string title, DemoRunFunction func)
-      : biz_name(std::move(name)), display_title(std::move(title)), run(func) {}
+  DemoDescriptor(std::string name, std::string title, DemoRunFunction func,
+                 CompanyAlgBizType type = ALG_BIZ_TYPE_UNKNOWN)
+      : biz_name(std::move(name)),
+        display_title(std::move(title)),
+        run(func),
+        biz_type(type) {}
 };
 
 class DemoRegistry {
@@ -73,14 +79,14 @@ class DemoRegistry {
  */
 class DemoRegisterHelper {
  public:
-  DemoRegisterHelper(const char* name, const char* title,
-                     DemoRunFunction func) {
-    DemoRegistry::Instance().Register({name, title, func});
+  DemoRegisterHelper(const char* name, const char* title, DemoRunFunction func,
+                     CompanyAlgBizType type = ALG_BIZ_TYPE_UNKNOWN) {
+    DemoRegistry::Instance().Register({name, title, func, type});
   }
 };
 
-#define REGISTER_DEMO_BIZ(biz_name, title, run_func)                           \
-  static ::alg_demo::DemoRegisterHelper g_demo_reg_##run_func(biz_name, title, \
-                                                              run_func);
+#define REGISTER_DEMO_BIZ(biz_name, title, run_func, ...)      \
+  static ::alg_demo::DemoRegisterHelper g_demo_reg_##run_func( \
+      biz_name, title, run_func, ##__VA_ARGS__);
 
 }  // namespace alg_demo
