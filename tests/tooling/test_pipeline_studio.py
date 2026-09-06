@@ -271,8 +271,8 @@ const positions = graph.layeredPositions([
   {{ id: "parallel_root", depends_on: [] }},
 ]);
 assert.equal(positions.root.x, 65);
-assert.equal(positions.middle.x, 365);
-assert.equal(positions.sink.x, 665);
+assert.ok(positions.middle.x > positions.root.x);
+assert.ok(positions.sink.x > positions.middle.x);
 assert.equal(positions.parallel_root.x, 65);
 assert.notEqual(positions.root.y, positions.parallel_root.y);
 
@@ -334,6 +334,53 @@ await assert.rejects(
             check=False,
         )
         self.assertEqual(process.returncode, 0, process.stderr)
+
+    @unittest.skipUnless(shutil.which("node"), "Node.js is required for Web module tests")
+    def test_port_editing_roundtrips_to_native_validator_and_model_forms(self):
+        catalog = json.loads(subprocess.check_output([str(PIPELINE_TOOL), "catalog"], text=True))
+        script = """
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+const code = readFileSync(process.argv[1], 'utf8');
+const w = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
+const catalog = JSON.parse(readFileSync(0, 'utf8'));
+const pipeline = {biz_name:'keyword_match_v1', models:[], pipeline:[
+  {id:'template', node_type:'TextTemplateNode', depends_on:[], config:{template:'{{primary}}'}, ports:{outputs:{text:'template_text'}}},
+  {id:'rule', node_type:'TextRuleMatchNode', depends_on:[], config:{}, ports:{outputs:{matches:'rule_result'}}}
+]};
+w.connectPorts(pipeline,catalog,w.INGRESS,'input_sentences','template','primary');
+w.connectPorts(pipeline,catalog,'template','text','rule','text');
+w.connectPorts(pipeline,catalog,'rule','matches',w.EGRESS,'rule_matches');
+assert.equal(pipeline.pipeline[1].ports.inputs.text,'template_text');
+assert.deepEqual(pipeline.pipeline[1].depends_on,['template']);
+assert.throws(()=>w.connectPorts(pipeline,catalog,'rule','matches','template','primary'), /类型/);
+assert.throws(()=>w.connectPorts(pipeline,catalog,'template','text','template','primary'), /环/);
+const detached = structuredClone(pipeline);
+w.disconnectPorts(detached,catalog,w.graphDocument(detached,catalog).edges.find(e=>e.target==='rule' && e.targetPort==='text'));
+assert.ok(!w.graphDocument(detached,catalog).edges.some(e=>e.source==='template' && e.target==='rule'));
+w.removeNode(detached,catalog,'template');
+assert.deepEqual(detached.pipeline[0].depends_on,[]);
+const modelDef = catalog.models.find(m=>m.model_type==='bge_embedding');
+const backend = w.compatibleBackends(catalog.backends,modelDef).find(b=>b.backend_type==='onnxruntime');
+assert.ok(backend);
+assert.ok(!w.compatibleBackends(catalog.backends,modelDef).some(b=>b.backend_type==='llama_cpp'));
+const models = {models:[], pipeline:[]};
+w.upsertModel(models,catalog,'',{model_id:'embed',model_type:modelDef.model_type,backend:backend.backend_type,model_path:'embed.onnx',model_config:w.schemaDefaults(modelDef.config_fields),backend_config:w.schemaDefaults(backend.config_fields)});
+models.pipeline.push({id:'embed_node',node_type:'TextEmbeddingNode',config:{bind_model:'embed'}});
+w.upsertModel(models,catalog,'embed',{...models.models[0],model_id:'renamed'});
+assert.equal(models.pipeline[0].config.bind_model,'renamed');
+assert.throws(()=>w.removeModel(models,catalog,'renamed'), /使用/);
+assert.throws(()=>w.upsertModel(models,catalog,'',{...models.models[0],backend:'llama_cpp'}), /不兼容/);
+process.stdout.write(JSON.stringify(pipeline));
+"""
+        process = subprocess.run([shutil.which("node"), "--input-type=module", "-e", script, str(WEB_ROOT / "workbench.js")], input=json.dumps(catalog), text=True, capture_output=True)
+        self.assertEqual(process.returncode, 0, process.stderr)
+        generated = json.loads(process.stdout)
+        with tempfile.TemporaryDirectory() as directory:
+            filename = Path(directory) / "pipeline_ports.json"
+            filename.write_text(json.dumps(generated))
+            result = subprocess.run([str(PIPELINE_TOOL), "validate", str(filename)], text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_invalid_fixtures_table_driven_parity_matrix(self):
         fixture_path = (

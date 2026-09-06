@@ -1,6 +1,6 @@
 import { api, initialPipeline, write } from "./api.js";
 import { GraphView } from "./graph.js";
-import { compatibleModels, createLatestRequestGate, modelBoundNodeIds } from "./workbench.js";
+import { compatibleModels, createLatestRequestGate, modelBoundNodeIds, graphDocument, connectPorts, disconnectPorts, removeNode, compatibleBackends, upsertModel, removeModel } from "./workbench.js";
 
 const $ = selector => document.querySelector(selector);
 const state = {
@@ -56,39 +56,25 @@ function restorePositions() {
 
 const graph = new GraphView($("#graph"), {
   select: id => { state.selected = id; renderAll(); },
-  connect: (source, target) => {
-    const node = state.pipeline.pipeline.find(item => item.id === target);
-    if (!node || node.depends_on.includes(source)) return toast("重复连线已拒绝", true);
-    if (source === target || reaches(source, target)) return toast("成环连线已拒绝", true);
-    node.depends_on.push(source); markPipelineChanged(); renderAll();
+  connect: (source, sourcePort, target, targetPort) => {
+    try { connectPorts(state.pipeline, state.catalog, source, sourcePort, target, targetPort); markPipelineChanged(); renderAll(); }
+    catch (error) { toast(error.message, true); }
   },
-  deleteEdge: (source, target) => {
-    const node = state.pipeline.pipeline.find(item => item.id === target);
-    node.depends_on = node.depends_on.filter(id => id !== source); markPipelineChanged(); renderAll();
+  deleteEdge: edge => {
+    disconnectPorts(state.pipeline, state.catalog, edge); markPipelineChanged(); renderAll();
   },
   positionsChanged: positions => localStorage.setItem(positionsKey(), JSON.stringify(positions)),
 });
 
-function reaches(from, wanted) {
-  const byId = new Map(state.pipeline.pipeline.map(node => [node.id, node]));
-  const pending = [from], seen = new Set();
-  while (pending.length) {
-    const id = pending.pop();
-    if (id === wanted) return true;
-    if (seen.has(id)) continue;
-    seen.add(id);
-    for (const dep of byId.get(id)?.depends_on || []) pending.push(dep);
-  }
-  return false;
-}
-
 function renderAll() {
   const nodes = effectiveNodes();
   const modelIds = modelBoundNodeIds(nodes, state.catalog.nodes);
-  graph.render(nodes, state.selected, state.errorNodeIds, modelIds);
+  const document = graphDocument(state.pipeline, state.catalog);
+  graph.render(document.nodes, state.selected, state.errorNodeIds, modelIds, document.definitions, document.edges);
   $("#rawJson").value = state.pipeline ? JSON.stringify(state.pipeline, null, 2) : "";
   renderInspector(nodes.find(node => node.id === state.selected));
   filterProfiles();
+  refreshModelList();
 }
 
 function renderInspector(node) {
@@ -97,11 +83,16 @@ function renderInspector(node) {
   if (!node) return;
   $("#nodeId").value = node.id;
   $("#nodeType").textContent = node.node_type;
-  $("#configJson").value = JSON.stringify(node.config || {}, null, 2);
   const definition = state.catalog.nodes.find(item => item.node_type === node.node_type);
   const container = $("#configFields");
   container.replaceChildren();
   for (const field of definition?.config_fields || []) {
+    appendConfigField(container, field, node.config || {}, definition);
+
+  }
+}
+
+function appendConfigField(container, field, values, definition = null) {
     const label = document.createElement("label"); label.textContent = field.name;
     let input;
     if (field.semantic === "model_ref" || (definition?.model_config_field && field.name === definition.model_config_field)) {
@@ -122,14 +113,19 @@ function renderInspector(node) {
       if (field.maximum !== undefined) input.max = field.maximum;
     }
     input.dataset.field = field.name; input.dataset.type = field.type;
-    const value = (node.config || {})[field.name] ?? field.default;
+    input.required = Boolean(field.required);
+    if (input.type === "number") input.step = field.type === "integer" ? "1" : "any";
+    const value = values[field.name] ?? field.default;
     input.value = typeof value === "object" ? JSON.stringify(value) : value ?? "";
     label.append(input); container.append(label);
-  }
 }
 
 function parseField(input) {
-  if (input.dataset.type === "integer") return Number.parseInt(input.value, 10);
+  if (input.dataset.type === "integer") {
+    const value = Number(input.value);
+    if (!Number.isSafeInteger(value)) throw new Error("请输入有效整数");
+    return value;
+  }
   if (input.dataset.type === "number") return Number(input.value);
   if (input.dataset.type === "boolean") return input.value === "true";
   if (input.dataset.type === "object" || input.dataset.type === "array") return JSON.parse(input.value);
@@ -166,7 +162,8 @@ function addNode(definition) {
   while (ids.has(id)) id = `${base}_${index++}`;
   const config = {};
   for (const field of definition.config_fields || []) if (field.default !== undefined) config[field.name] = field.default;
-  state.pipeline.pipeline.push({ id, node_type: definition.node_type, depends_on: [], config });
+  const outputs = Object.fromEntries((definition.outputs || []).map(port => [port.key, `${id}__${port.key}`]));
+  state.pipeline.pipeline.push({ id, node_type: definition.node_type, depends_on: [], ports: { inputs: {}, outputs }, config });
   state.selected = id; markPipelineChanged(); renderAll();
 }
 
@@ -205,7 +202,7 @@ async function openPipeline(filename) {
   const result = await api(`/pipeline?filename=${encodeURIComponent(filename)}`);
   state.pipeline = result.pipeline; state.filename = result.filename; state.revision = result.revision; state.selected = "";
   state.pipelineVersion += 1;
-  restorePositions(); clearValidation(); setDirty(false); clearCatalogSelection(); renderAll();
+  restorePositions(); clearValidation(); setDirty(false); clearCatalogSelection();
   $("#bizSelect").value = state.pipeline.biz_name;
   if (await loadCatalog(state.pipeline.biz_name)) renderAll();
 }
@@ -216,7 +213,7 @@ async function createPipeline() {
   const result = await write("/init", "POST", { biz, profile, empty: !profile });
   state.pipeline = result.pipeline; state.filename = ""; state.revision = ""; state.selected = "";
   state.pipelineVersion += 1;
-  restorePositions(); clearValidation(); setDirty(true); clearCatalogSelection(); renderAll();
+  restorePositions(); clearValidation(); setDirty(true); clearCatalogSelection();
   if (await loadCatalog(biz)) renderAll();
 }
 
@@ -281,9 +278,86 @@ async function pollRun() {
   } catch (error) { toast(error.message, true); }
 }
 
+
+let editingModelId = "";
+let modelDocument = null;
+
+function refreshModelList() {
+  const select = $("#modelSelect"), previous = select.value;
+  select.replaceChildren(new Option("新增模型", ""));
+  for (const model of state.pipeline?.models || []) select.add(new Option(model.model_id, model.model_id));
+  select.value = previous;
+  if (modelDocument !== state.pipeline || !$("#modelType").options.length) {
+    modelDocument = state.pipeline;
+    loadModelEditor(state.pipeline?.models?.[0]?.model_id || "");
+  }
+}
+
+function loadModelEditor(id = "") {
+  editingModelId = id;
+  $("#modelSelect").value = id;
+  const model = state.pipeline?.models?.find(item => item.model_id === id);
+  $("#modelId").value = model?.model_id || "";
+  $("#modelPath").value = model?.model_path || "";
+  const type = $("#modelType"); type.replaceChildren();
+  for (const definition of state.catalog.models || []) type.add(new Option(`${definition.model_type} · ${definition.capability}`, definition.model_type));
+  if (model) type.value = model.model_type;
+  renderModelFields(model);
+}
+
+function renderModelFields(model = null) {
+  const definition = state.catalog.models?.find(item => item.model_type === $("#modelType").value);
+  const backend = $("#modelBackend"); backend.replaceChildren();
+  for (const item of compatibleBackends(state.catalog.backends || [], definition)) backend.add(new Option(item.backend_type, item.backend_type));
+  if (model) backend.value = model.backend;
+  const container = $("#modelConfigFields"); container.replaceChildren();
+  for (const field of definition?.config_fields || []) appendConfigField(container, field, model?.model_config || {});
+  renderBackendFields(model?.backend_config || {});
+}
+
+function renderBackendFields(values = {}) {
+  const definition = state.catalog.backends?.find(item => item.backend_type === $("#modelBackend").value);
+  const container = $("#backendConfigFields"); container.replaceChildren();
+  for (const field of definition?.config_fields || []) appendConfigField(container, field, values);
+}
+
+function readConfigFields(selector) {
+  const config = {};
+  for (const input of $(selector).querySelectorAll("[data-field]")) {
+    if (input.value !== "" || input.required) config[input.dataset.field] = parseField(input);
+  }
+  return config;
+}
+
+$("#modelSelect").addEventListener("change", event => loadModelEditor(event.target.value));
+$("#newModel").addEventListener("click", () => loadModelEditor());
+$("#modelType").addEventListener("change", () => renderModelFields());
+$("#modelBackend").addEventListener("change", () => renderBackendFields());
+$("#modelForm").addEventListener("submit", event => {
+  event.preventDefault();
+  if (!state.pipeline) return toast("请先新建或打开方案", true);
+  try {
+    const model = {
+      model_id: $("#modelId").value.trim(), model_type: $("#modelType").value,
+      backend: $("#modelBackend").value, model_path: $("#modelPath").value.trim(),
+      model_config: readConfigFields("#modelConfigFields"), backend_config: readConfigFields("#backendConfigFields"),
+    };
+    state.pipeline.models ??= [];
+    upsertModel(state.pipeline, state.catalog, editingModelId, model);
+    markPipelineChanged(); renderAll(); loadModelEditor(model.model_id); toast("模型已应用，请校验方案");
+  } catch (error) { toast(error.message, true); }
+});
+$("#deleteModel").addEventListener("click", () => {
+  if (!state.pipeline || !editingModelId) return;
+  try {
+    removeModel(state.pipeline, state.catalog, editingModelId);
+    markPipelineChanged(); renderAll(); loadModelEditor();
+  } catch (error) { toast(error.message, true); }
+});
+
 function switchTab(name) {
   document.querySelectorAll(".tabs button").forEach(button => button.classList.toggle("active", button.dataset.tab === name));
-  for (const tab of ["properties", "json", "validation", "run"]) $(`#${tab}Tab`).hidden = tab !== name;
+  for (const tab of ["properties", "models", "json", "validation", "run"]) $(`#${tab}Tab`).hidden = tab !== name;
 }
 
 $("#openButton").addEventListener("click", () => openPipeline($("#pipelineSelect").value).catch(error => toast(error.message, true)));
@@ -291,9 +365,8 @@ $("#newButton").addEventListener("click", () => createPipeline().catch(error => 
 $("#saveButton").addEventListener("click", () => save(false));
 $("#saveAsButton").addEventListener("click", () => save(true));
 $("#layoutButton").addEventListener("click", () => {
-  graph.layout(effectiveNodes(), true);
-  graph.render(effectiveNodes(), state.selected, state.errorNodeIds,
-    modelBoundNodeIds(effectiveNodes(), state.catalog.nodes));
+  graph.layout(graphDocument(state.pipeline, state.catalog).nodes, true);
+  renderAll();
 });
 $("#operatorSearch").addEventListener("input", renderOperators);
 $("#bizSelect").addEventListener("change", filterProfiles);
@@ -308,8 +381,7 @@ $("#nodeForm").addEventListener("submit", event => {
   const newId = $("#nodeId").value.trim();
   if (!newId || state.pipeline.pipeline.some(item => item !== node && item.id === newId)) return toast("节点 ID 为空或重复", true);
   try {
-    const config = JSON.parse($("#configJson").value || "{}");
-    for (const input of $("#configFields").querySelectorAll("[data-field]")) if (input.value !== "") config[input.dataset.field] = parseField(input);
+    const config = readConfigFields("#configFields");
     for (const item of state.pipeline.pipeline) item.depends_on = item.depends_on.map(id => id === node.id ? newId : id);
     if (newId !== node.id && graph.positions[node.id]) {
       graph.positions[newId] = graph.positions[node.id];
@@ -321,12 +393,7 @@ $("#nodeForm").addEventListener("submit", event => {
 });
 
 $("#deleteNode").addEventListener("click", () => {
-  state.pipeline.pipeline = state.pipeline.pipeline.filter(node => node.id !== state.selected);
-  for (const node of state.pipeline.pipeline) {
-    if (Array.isArray(node.depends_on)) {
-      node.depends_on = node.depends_on.filter(id => id !== state.selected);
-    }
-  }
+  removeNode(state.pipeline, state.catalog, state.selected);
   delete graph.positions[state.selected];
   graph.callbacks.positionsChanged(graph.positions);
   state.selected = ""; markPipelineChanged(); renderAll();
@@ -345,8 +412,7 @@ $("#applyJson").addEventListener("click", async () => {
   const bizChanged = parsed.biz_name !== state.pipeline?.biz_name;
   state.pipeline = parsed; state.selected = ""; markPipelineChanged();
   if (bizChanged) clearCatalogSelection();
-  renderAll();
-  if (!bizChanged) return;
+  if (!bizChanged) { renderAll(); return; }
 
   $("#bizSelect").value = state.pipeline.biz_name;
   try {

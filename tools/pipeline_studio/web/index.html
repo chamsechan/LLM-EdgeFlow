@@ -32,7 +32,7 @@
       <section class="canvas-panel">
         <div class="canvas-tools">
           <span id="documentTitle">请选择或新建方案</span>
-          <span>拖动节点 · 从右侧圆点拉到左侧圆点 · 点击连线删除 · 滚轮缩放</span>
+          <span>拖动节点 · 按端口名称连线（悬停查看类型） · 点击连线删除 · 滚轮缩放</span>
         </div>
         <svg id="graph" tabindex="0" aria-label="Pipeline DAG 画布">
           <defs>
@@ -50,6 +50,7 @@
       <aside class="inspector panel">
         <div class="tabs">
           <button data-tab="properties" class="active">属性</button>
+          <button data-tab="models">模型</button>
           <button data-tab="json">原始 JSON</button>
           <button data-tab="validation">校验</button>
           <button data-tab="run">运行</button>
@@ -60,8 +61,20 @@
             <label>节点 ID<input id="nodeId"></label>
             <div id="nodeType" class="node-type"></div>
             <div id="configFields"></div>
-            <label>复杂配置 / 完整 config<textarea id="configJson" rows="10"></textarea></label>
             <div class="row"><button id="applyNode" type="submit" class="primary">应用</button><button id="deleteNode" type="button" class="danger">删除节点</button></div>
+          </form>
+        </section>
+        <section id="modelsTab" class="tab scroll" hidden>
+          <label>模型实例<select id="modelSelect"></select></label>
+          <button id="newModel" type="button">新增模型实例</button>
+          <form id="modelForm">
+            <label>模型 ID<input id="modelId" required></label>
+            <label>Model 类型<select id="modelType" required></select></label>
+            <label>Backend<select id="modelBackend" required></select></label>
+            <label>模型资产路径<input id="modelPath" required placeholder="相对于 model_root_dir 的路径"></label>
+            <p>Model 参数</p><div id="modelConfigFields"></div>
+            <p>Backend 参数</p><div id="backendConfigFields"></div>
+            <div class="row"><button type="submit" class="primary">应用模型</button><button id="deleteModel" type="button" class="danger">删除模型</button></div>
           </form>
         </section>
         <section id="jsonTab" class="tab scroll" hidden>
