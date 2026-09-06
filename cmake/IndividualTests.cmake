@@ -244,7 +244,8 @@ add_executable(test_text_corpus_source_node ${EDGEFLOW_SOURCE_test_text_corpus_s
 target_link_libraries(test_text_corpus_source_node PRIVATE llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
 add_test(NAME TextCorpusSourceNodeTest COMMAND test_text_corpus_source_node)
 
-add_executable(test_common_nodes ${EDGEFLOW_SOURCE_test_common_nodes})
+add_executable(test_common_nodes ${EDGEFLOW_SOURCE_test_common_nodes}
+  ${EDGEFLOW_SCAFFOLD_FIXTURE_SOURCE})
 target_link_libraries(test_common_nodes PRIVATE llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
 add_test(NAME CommonNodesTest COMMAND test_common_nodes)
 

@@ -1,6 +1,7 @@
 # Sharded Google Test runners and label-driven development test matrix.
 
 include(${PROJECT_SOURCE_DIR}/cmake/TestInventory.cmake)
+include(${PROJECT_SOURCE_DIR}/cmake/ScaffoldFixtures.cmake)
 
 option(LLM_EDGEFLOW_TEST_PCH "Enable precompiled headers for test runners" ON)
 
@@ -131,6 +132,7 @@ set(EDGEFLOW_TEST_NODE_SRCS
   ${EDGEFLOW_SOURCE_test_text_corpus_source_node}
   ${EDGEFLOW_SOURCE_test_common_nodes})
 add_executable(edgeflow_test_nodes_runner
+  ${EDGEFLOW_SCAFFOLD_FIXTURE_SOURCE}
   ${EDGEFLOW_TEST_NODE_SRCS}
   $<TARGET_OBJECTS:edgeflow_test_backend_fixtures>
   $<TARGET_OBJECTS:edgeflow_test_business_model_fixtures>)
@@ -276,7 +278,7 @@ edgeflow_add_runner_test(StructuredJsonParseNodeTest edgeflow_test_nodes_runner
 edgeflow_add_runner_test(TextCorpusSourceNodeTest edgeflow_test_nodes_runner
   "TextCorpusSourceNodeTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(CommonNodesTest edgeflow_test_nodes_runner
-  "CommonNodesTest.*" "${_edgeflow_tier1}")
+  "CommonNodesTest.*:CustomNodeCatalogTest.*" "${_edgeflow_tier1}")
 
 add_test(NAME C11AbiComplianceTest COMMAND test_c11_abi_compliance)
 set_tests_properties(C11AbiComplianceTest PROPERTIES

@@ -24,6 +24,13 @@ bool DemoRegistry::Register(DemoDescriptor descriptor) {
     return false;
   }
 
+  if (descriptor.biz_type == ALG_BIZ_TYPE_UNKNOWN) {
+    std::cerr << "[DemoRegistry ERROR] Unknown biz_type for biz: "
+              << descriptor.biz_name << std::endl;
+    has_conflict_ = true;
+    return false;
+  }
+
   if (descriptors_.find(descriptor.biz_name) != descriptors_.end()) {
     std::cerr << "[DemoRegistry ERROR] Duplicate registration for biz: "
               << descriptor.biz_name << std::endl;

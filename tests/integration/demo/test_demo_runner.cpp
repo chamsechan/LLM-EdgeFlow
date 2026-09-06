@@ -484,6 +484,15 @@ TEST(DemoRunnerTest, ProfileSchemaStrictValidation) {
 // 4. 测试 DemoRegistry 注册与冲突检测
 TEST(DemoRunnerTest, RegistryLookupAndConflictDetection) {
   auto& reg = DemoRegistry::Instance();
+  struct RestoreRegistry {
+    std::vector<DemoDescriptor> saved;
+    ~RestoreRegistry() {
+      auto& registry = DemoRegistry::Instance();
+      registry.ResetForTesting();
+      for (const auto& descriptor : saved)
+        EXPECT_TRUE(registry.Register(descriptor));
+    }
+  } restore{reg.ListDescriptors()};
 
   // 验证 7 大业务均已静态注册且包含权威的 CompanyAlgBizType
   const auto* desc_entity = reg.Find("entity_extract");
@@ -522,18 +531,91 @@ TEST(DemoRunnerTest, RegistryLookupAndConflictDetection) {
   EXPECT_EQ(DemoBizToBizType("cross_rerank"), ALG_BIZ_TYPE_CROSS_RERANK);
 
   // 尝试重复注册已存在的业务名 -> 应该失败
-  bool ok = reg.Register(
-      {"entity_extract", "Duplicate", [](const DemoOptions&) { return 0; }});
+  bool ok = reg.Register({"entity_extract", "Duplicate",
+                          [](const DemoOptions&) { return 0; },
+                          ALG_BIZ_TYPE_ENTITY_EXTRACT});
   EXPECT_FALSE(ok);
   EXPECT_TRUE(reg.HasConflict());
 
   // 尝试注册非法空业务名 -> 应该失败
-  ok = reg.Register({"", "Empty", [](const DemoOptions&) { return 0; }});
+  ok = reg.Register({"", "Empty", [](const DemoOptions&) { return 0; },
+                     ALG_BIZ_TYPE_ENTITY_EXTRACT});
   EXPECT_FALSE(ok);
 
   // 尝试注册空函数 -> 应该失败
-  ok = reg.Register({"dummy_new", "NullFunc", nullptr});
+  ok = reg.Register(
+      {"dummy_new", "NullFunc", nullptr, ALG_BIZ_TYPE_ENTITY_EXTRACT});
   EXPECT_FALSE(ok);
+  EXPECT_FALSE(reg.Register({"missing_type", "Invalid type",
+                             [](const DemoOptions&) { return 0; },
+                             ALG_BIZ_TYPE_UNKNOWN}));
+  EXPECT_EQ(reg.Find("missing_type"), nullptr);
+  reg.ResetForTesting();
+  // Registered names have no fallback in the central runner.
+  EXPECT_EQ(DemoBizToBizType("entity_extract"), ALG_BIZ_TYPE_UNKNOWN);
+  EXPECT_TRUE(reg.Register({"new_domain_alias", "Domain",
+                            [](const DemoOptions&) { return 0; },
+                            ALG_BIZ_TYPE_ENTITY_EXTRACT}));
+  EXPECT_EQ(DemoBizToBizType("new_domain_alias"), ALG_BIZ_TYPE_ENTITY_EXTRACT);
+}
+
+TEST(DemoRunnerTest,
+     CustomNodeProfilesRunThroughOperatorAndPackExpectedResults) {
+  KiteDemoDirectory temporary;
+  auto ops = Get_LLM_EDGEFLOW_OperatorTable();
+  ASSERT_EQ(ops.Init(), 0);
+  for (const char* profile :
+       {"entity_extract_custom_mock", "doc_qa_custom_mock"}) {
+    SCOPED_TRACE(profile);
+    DemoOptions cli;
+    cli.profile = profile;
+    cli.output_dir = temporary.path.string();
+    cli.has_output_dir = true;
+    cli.batch_size = 2;
+    cli.has_batch_size = true;
+    DemoOptions options;
+    std::string error;
+    ASSERT_EQ(LoadAndMergeProfiles("demo/profiles.json", cli, &options, &error),
+              0)
+        << error;
+    const auto* descriptor = DemoRegistry::Instance().Find(options.biz);
+    ASSERT_NE(descriptor, nullptr);
+    ASSERT_EQ(descriptor->run(options), 0);
+    std::ifstream results(temporary.path / profile / "results.jsonl");
+    ASSERT_TRUE(results.good());
+    std::string line;
+    size_t index = 0;
+    while (std::getline(results, line)) {
+      const auto sample = nlohmann::json::parse(line);
+      EXPECT_EQ(sample["status"], 0);
+      const auto& output = sample["output"];
+      if (options.biz == "entity_extract") {
+        EXPECT_EQ(sample["request_id"], 30001 + index);
+        ASSERT_TRUE(output.contains("entities"));
+        EXPECT_EQ(output["entities"]["nouns"],
+                  nlohmann::json({"张三", "清华大学", "北京", "人工智能",
+                                  "算法工程师", "NPU", "芯片", "深度学习",
+                                  "大模型", "项目", "公司"}));
+      } else {
+        EXPECT_EQ(sample["request_id"], 10001 + index);
+        EXPECT_EQ(output["intent_name"],
+                  index == 0 ? "TECH_ARCHITECTURE" : "AFTER_SALES_REFUND");
+        EXPECT_EQ(output["answer_text"],
+                  index == 0 ? "【LLM总结】文档核心为现代软件工程化设计，包含松"
+                               "耦合、状态隔离与跨平台编译。"
+                             : "【LLM意图分析】检测到售后退款诉求。建议操作：7"
+                               "天无理由退货审核流程。");
+        EXPECT_GT(output["chunk_count"].get<int>(), 0);
+      }
+      ++index;
+    }
+    EXPECT_EQ(index, options.biz == "entity_extract" ? 1U : 2U);
+    std::ifstream summary_file(temporary.path / profile / "summary.json");
+    const auto summary = nlohmann::json::parse(summary_file);
+    EXPECT_EQ(summary["failed_count"], 0);
+    EXPECT_EQ(summary["success_count"], index);
+  }
+  EXPECT_EQ(ops.Deinit(), 0);
 }
 
 // 5. 测试 DatasetReader 数据读取

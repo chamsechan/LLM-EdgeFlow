@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <fstream>
 #include <memory>
 #include <nlohmann/json.hpp>
 #include <string>
@@ -757,175 +758,273 @@ TEST_F(CommonNodesTest, TextTemplateNodeMissingVariableFail) {
   }
 }
 
-// 15. PromptGuidedLlmNode: 自定义节点样例测试 (S1 闭环验证)
-TEST_F(CommonNodesTest, PromptGuidedLlmNodeCatalogAndExecution) {
-  // 15.1 Catalog 审计
-  auto def_opt = PipelineCatalog::FindNode("PromptGuidedLlmNode");
-  ASSERT_TRUE(def_opt.has_value());
-  EXPECT_EQ(def_opt->category, "custom");
-  EXPECT_EQ(def_opt->model_capability, "llm");
-  EXPECT_TRUE(def_opt->parallel_safe);
+namespace {
 
-  // 15.2 方案 A：单输入 (实体/意图风格提示词推理)
-  {
-    auto node = NodeFactory::Instance().Create("PromptGuidedLlmNode");
-    ASSERT_NE(node, nullptr);
-
-    nlohmann::json cfg = {
-        {"bind_model", "llm_model_v1"},
-        {"prompt_template", "【实体抽取任务】文本: {input}"},
-        {"strip_markdown", true},
-    };
-    EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
-
-    AlgContext ctx;
-    TextBatch inputs;
-    inputs.emplace_back(1001, 0, "张三在清华大学毕业");
-    ctx.Publish("input", inputs);
-
-    EXPECT_EQ(node->Process(&ctx), 0);
-    const auto* out = ctx.Read<TextBatch>("output");
-    ASSERT_NE(out, nullptr);
-    ASSERT_EQ(out->size(), 1u);
-    EXPECT_EQ((*out)[0].req_id, 1001u);
-    EXPECT_EQ((*out)[0].sub_id, 0);
-    EXPECT_FALSE((*out)[0].data.empty());
+class PromptContractModel final : public ILlmModel {
+ public:
+  const std::string& ModelType() const noexcept override {
+    static const std::string type = "prompt_contract";
+    return type;
   }
-
-  // 15.3 方案 B：双输入复用 (带上下文文档问答 RAG 风格提示词推理)
-  {
-    auto node = NodeFactory::Instance().Create("PromptGuidedLlmNode");
-    ASSERT_NE(node, nullptr);
-
-    nlohmann::json cfg = {
-        {"bind_model", "llm_model_v1"},
-        {"prompt_template", "背景文档: {context}\n问题: {input}\n解答:"},
-        {"system_prompt", "你是一个专业问答助手"},
-        {"strip_markdown", true},
-    };
-    EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
-
-    AlgContext ctx;
-    TextBatch inputs;
-    inputs.emplace_back(2001, 0, "EdgeFlow支持几层架构?");
-    ctx.Publish("input", inputs);
-
-    TextBatch contexts;
-    contexts.emplace_back(2001, 0, "LLM-EdgeFlow分为4层架构设计。");
-    ctx.Publish("context", contexts);
-
-    EXPECT_EQ(node->Process(&ctx), 0);
-    const auto* out = ctx.Read<TextBatch>("output");
-    ASSERT_NE(out, nullptr);
-    ASSERT_EQ(out->size(), 1u);
-    EXPECT_EQ((*out)[0].req_id, 2001u);
-    EXPECT_FALSE((*out)[0].data.empty());
+  const std::string& Capability() const noexcept override {
+    static const std::string capability = "llm";
+    return capability;
   }
-
-  // 15.4 缺失输入 Fail-closed 检查
-  {
-    auto node = NodeFactory::Instance().Create("PromptGuidedLlmNode");
-    ASSERT_NE(node, nullptr);
-
-    nlohmann::json cfg = {{"bind_model", "llm_model_v1"}};
-    EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
-
-    AlgContext empty_ctx;
-    EXPECT_EQ(node->Process(&empty_ctx), -8001);
-    EXPECT_FALSE(empty_ctx.IsOk());
-    EXPECT_EQ(empty_ctx.GetErrorCode(), -8001);
+  InferenceConcurrency Concurrency() const noexcept override {
+    return InferenceConcurrency::kSerialized;
   }
+  size_t GetMaxBatchSize() const noexcept override { return 2; }
+  int Generate(const TextBatch& input, const GenerateOptions& options,
+               TextBatch* output) noexcept override {
+    ++calls;
+    prompts = input;
+    last_options = options;
+    *output = input;
+    for (auto& item : *output) item.data = "```text\n" + item.data + "\n```";
+    if (wrong_count && !output->empty()) output->pop_back();
+    if (wrong_request && !output->empty()) ++output->back().req_id;
+    if (wrong_sub_id && !output->empty()) ++output->back().sub_id;
+    return result;
+  }
+  TextBatch prompts;
+  GenerateOptions last_options;
+  int calls = 0;
+  int result = 0;
+  bool wrong_count = false;
+  bool wrong_request = false;
+  bool wrong_sub_id = false;
+};
 
-  // 15.5 Fallback 机制测试 (当配置 fallback_text 时模型失败返回回退文本)
-  {
-    auto node = NodeFactory::Instance().Create("PromptGuidedLlmNode");
-    ASSERT_NE(node, nullptr);
+nlohmann::json CustomPipeline(const std::string& biz) {
+  std::ifstream file("demo/fixtures/mock/pipeline_" + biz + "_custom.json");
+  return nlohmann::json::parse(file);
+}
 
-    nlohmann::json cfg = {
-        {"bind_model", "llm_model_v1"},
-        {"fallback_text", "DEFAULT_FALLBACK_ANSWER"},
-    };
-    EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
-
-    AlgContext ctx;
-    TextBatch inputs;
-    inputs.emplace_back(3001, 0, "trigger fallback");
-    ctx.Publish("input", inputs);
-
-    EXPECT_EQ(node->Process(&ctx), 0);
-    const auto* out = ctx.Read<TextBatch>("output");
-    ASSERT_NE(out, nullptr);
-    ASSERT_EQ(out->size(), 1u);
-    EXPECT_EQ((*out)[0].req_id, 3001u);
+template <typename Input, typename Output>
+void CheckScaffoldExecution(const std::string& name, const std::string& model,
+                            SessionContext* session) {
+  auto node = NodeFactory::Instance().Create(name);
+  ASSERT_NE(node, nullptr);
+  // Resolved keys differ from logical names: exercise typed binding too.
+  ValidatedNodePlan plan;
+  plan.normalized_config = {{"bind_model", model}};
+  plan.ports = {{"input", "source", BlackboardTypeTraits<Input>::TypeName(),
+                 "1:1", "preserve", "request", PortDirection::kInput},
+                {"output", "result", BlackboardTypeTraits<Output>::TypeName(),
+                 "1:1", "preserve", "request", PortDirection::kOutput}};
+  ASSERT_TRUE(node->Init({&plan, nullptr, session}));
+  Input input;
+  for (const auto& id :
+       std::vector<std::pair<uint64_t, uint32_t>>{{7, 3}, {11, 9}, {7, 5}}) {
+    input.emplace_back(id.first, id.second,
+                       decltype(typename Input::value_type{}.data){});
+  }
+  AlgContext ctx;
+  ctx.Publish("source", input);
+  ASSERT_EQ(node->Process(&ctx), 0) << ctx.GetErrorMessage();
+  const auto* output = ctx.Read<Output>("result");
+  ASSERT_NE(output, nullptr);
+  ASSERT_EQ(output->size(), input.size());
+  for (size_t i = 0; i < input.size(); ++i) {
+    EXPECT_EQ((*output)[i].req_id, input[i].req_id);
+    EXPECT_EQ((*output)[i].sub_id, input[i].sub_id);
   }
 }
 
-// 16. PromptGuidedLlmNode: 两个不同业务方案中的无缝复用与校验验证 (S1 核心要求)
-TEST_F(CommonNodesTest, PromptGuidedLlmNodeDualPipelineReuseValidation) {
-  // 16.1 方案 1：用于实体抽取业务 (作为前处理+LLM两合一节点，替代
-  // TextTemplateNode + LlmGenerateNode)
-  nlohmann::json entity_pipeline_doc = {
-      {"biz_name", "entity_extract_0.6b_v1"},
-      {"models",
-       {{{"model_id", "llm_model_v1"},
-         {"capability", "llm"},
-         {"model_type", "test_business_llm"},
-         {"backend", "test_causal_lm_backend"},
-         {"model_path", "mock_llm.bin"}}}},
-      {"pipeline",
-       {{{"id", "node_0_CustomPromptLlm"},
-         {"node_type", "PromptGuidedLlmNode"},
-         {"depends_on", nlohmann::json::array()},
-         {"ports",
-          {{"inputs", {{"input", "input_sentences"}}},
-           {"outputs", {{"output", "llm_raw_answer"}}}}},
-         {"config",
-          {{"bind_model", "llm_model_v1"},
-           {"prompt_template", "抽取实体: {input}"},
-           {"strip_markdown", true}}}},
-        {{"id", "node_1_JsonParser"},
-         {"node_type", "StructuredJsonParseNode"},
-         {"depends_on", {"node_0_CustomPromptLlm"}},
-         {"ports",
-          {{"inputs", {{"text", "llm_raw_answer"}}},
-           {"outputs", {{"document", "extracted_entities"}}}}},
-         {"config", {{"fallback_json", "[]"}}}}}}};
+}  // namespace
 
-  auto plan_result_1 = PipelineValidator::ValidateAndPlan(entity_pipeline_doc);
-  EXPECT_TRUE(plan_result_1.report.ok);
+TEST_F(CommonNodesTest, PromptRendersOriginalTemplateAndIsolatesRequests) {
+  auto model = std::make_shared<PromptContractModel>();
+  ASSERT_TRUE(session_ctx_->GetModelManager().RegisterModel("prompt_contract",
+                                                            model, "v1"));
+  auto node = NodeFactory::Instance().Create("PromptGuidedLlmNode");
+  const nlohmann::json config = {
+      {"bind_model", "prompt_contract"},
+      {"system_prompt", "system {input}"},
+      {"prompt_template", "{{literal}} <{input}>|{context}|{input}"},
+      {"strip_markdown", true},
+      {"stop_words", {"END"}},
+      {"max_tokens", 23}};
+  ASSERT_TRUE(InitNodeForTest(*node, config, session_ctx_.get()));
+  AlgContext ctx;
+  ctx.Publish("input", TextBatch{{17, 4, "literal {context}"},
+                                 {29, 8, "second"},
+                                 {17, 6, "last"}});
+  ctx.Publish("context", TextBatch{{29, 2, "OTHER"},
+                                   {17, 3, "C{input}"},
+                                   {17, 9, "TAIL"},
+                                   {33, 0, "UNRELATED"}});
+  ASSERT_EQ(node->Process(&ctx), 0);
+  const auto* output = ctx.Read<TextBatch>("output");
+  ASSERT_NE(output, nullptr);
+  ASSERT_EQ(output->size(), 3U);
+  EXPECT_EQ((*output)[0].data,
+            "system {input}\n{literal} <literal "
+            "{context}>|C{input}\nTAIL|literal {context}");
+  EXPECT_EQ((*output)[1].data,
+            "system {input}\n{literal} <second>|OTHER|second");
+  EXPECT_EQ((*output)[2].data,
+            "system {input}\n{literal} <last>|C{input}\nTAIL|last");
+  EXPECT_EQ((*output)[0].req_id, 17U);
+  EXPECT_EQ((*output)[2].sub_id, 6U);
+  EXPECT_EQ(model->last_options.max_tokens, 23);
+  EXPECT_EQ(model->last_options.stop_words, std::vector<std::string>{"END"});
+  // Reuse the same Node with fresh request data; no prior context may survive.
+  AlgContext next;
+  next.Publish("input", TextBatch{{29, 1, "next"}});
+  next.Publish("context", TextBatch{});
+  ASSERT_EQ(node->Process(&next), 0);
+  EXPECT_EQ(next.Read<TextBatch>("output")->front().data,
+            "system {input}\n{literal} <next>||next");
+}
 
-  // 16.2 方案 2：用于智能问答与知识库业务 (双输入文档切片+上下文增强 RAG 方案)
-  nlohmann::json doc_qa_pipeline_doc = {
-      {"biz_name", "custom_rag_domain_biz"},
-      {"models",
-       {{{"model_id", "llm_model_v1"},
-         {"capability", "llm"},
-         {"model_type", "test_business_llm"},
-         {"backend", "test_causal_lm_backend"},
-         {"model_path", "mock_llm.bin"}}}},
-      {"pipeline",
-       {{{"id", "node_0_TextChunk"},
-         {"node_type", "TextChunkNode"},
-         {"depends_on", nlohmann::json::array()},
-         {"ports",
-          {{"inputs", {{"text", "raw_docs"}}},
-           {"outputs",
-            {{"chunks", "doc_chunks"}, {"chunk_counts", "doc_chunk_counts"}}}}},
-         {"config", {{"chunk_size", 60}}}},
-        {{"id", "node_1_CustomRagLlm"},
-         {"node_type", "PromptGuidedLlmNode"},
-         {"depends_on", {"node_0_TextChunk"}},
-         {"ports",
-          {{"inputs", {{"input", "raw_queries"}, {"context", "doc_chunks"}}},
-           {"outputs", {{"output", "rag_answers"}}}}},
-         {"config",
-          {{"bind_model", "llm_model_v1"},
-           {"prompt_template", "文档内容: {context}\n问题: {input}\n回答:"},
-           {"system_prompt", "你是一个专业问答助手"}}}}}}};
+TEST_F(CommonNodesTest, PromptAndGeneratedLlmNodesFailWithoutPublishing) {
+  auto model = std::make_shared<PromptContractModel>();
+  ASSERT_TRUE(session_ctx_->GetModelManager().RegisterModel("prompt_contract",
+                                                            model, "v1"));
+  for (const char* name : {"PromptGuidedLlmNode", "ScaffoldModelLlmNode",
+                           "ScaffoldUnaryLlmNode"}) {
+    SCOPED_TRACE(name);
+    auto node = NodeFactory::Instance().Create(name);
+    ASSERT_NE(node, nullptr);
+    ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "prompt_contract"}},
+                                session_ctx_.get()));
+    for (int fault = 0; fault < 6; ++fault) {
+      SCOPED_TRACE(fault);
+      model->result = fault == 2 ? -99 : 0;
+      model->wrong_count = fault == 3;
+      model->wrong_request = fault == 4;
+      model->wrong_sub_id = fault == 5;
+      AlgContext ctx;
+      if (fault == 1) ctx.Publish("input", Int32Batch{{1, 0, 123}});
+      if (fault >= 2)
+        ctx.Publish("input", TextBatch{{17, 4, "a"}, {29, 8, "b"}});
+      EXPECT_NE(node->Process(&ctx), 0);
+      EXPECT_FALSE(ctx.IsOk());
+      EXPECT_FALSE(ctx.Has("output"));
+    }
+    const int before = model->calls;
+    AlgContext empty;
+    empty.Publish("input", TextBatch{});
+    ASSERT_EQ(node->Process(&empty), 0);
+    ASSERT_NE(empty.Read<TextBatch>("output"), nullptr);
+    EXPECT_TRUE(empty.Read<TextBatch>("output")->empty());
+    EXPECT_EQ(model->calls, before);
+  }
+}
 
-  auto plan_result_2 = PipelineValidator::ValidateAndPlan(
-      doc_qa_pipeline_doc, ValidationPolicy::kPrivateExtensionCompatible);
-  EXPECT_TRUE(plan_result_2.report.ok);
+TEST_F(CommonNodesTest, PromptContextIsExplicitAndRequiredWhenUsed) {
+  auto node = NodeFactory::Instance().Create("PromptGuidedLlmNode");
+  auto model = std::make_shared<PromptContractModel>();
+  ASSERT_TRUE(session_ctx_->GetModelManager().RegisterModel("prompt_contract",
+                                                            model, "v1"));
+  ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "prompt_contract"}},
+                              session_ctx_.get()));
+  AlgContext implicit;
+  implicit.Publish("input", TextBatch{{1, 0, "input only"}});
+  implicit.Publish("context", TextBatch{{1, 0, "must not append"}});
+  ASSERT_EQ(node->Process(&implicit), 0);
+  EXPECT_EQ(model->prompts.front().data, "input only");
+  ASSERT_TRUE(InitNodeForTest(*node,
+                              {{"bind_model", "prompt_contract"},
+                               {"prompt_template", "{input}|{context}"}},
+                              session_ctx_.get()));
+  for (bool wrong_type : {false, true}) {
+    AlgContext missing;
+    missing.Publish("input", TextBatch{{1, 0, "input"}});
+    if (wrong_type) missing.Publish("context", Int32Batch{});
+    EXPECT_EQ(node->Process(&missing), -8001);
+    EXPECT_FALSE(missing.Has("output"));
+  }
+  EXPECT_EQ(model->calls, 1);
+}
+
+TEST_F(CommonNodesTest, PromptConfigurationRejectedByValidatorAndInit) {
+  const std::vector<nlohmann::json> bad_configs = {
+      {{"stop_words", {123, ""}}},
+      {{"stop_words", {""}}},
+      {{"stop_words", "END"}},
+      {{"fallback_text", "DEFAULT"}},
+      {{"max_tokens", 32769}},
+      {{"max_tokens", 2.5}},
+      {{"max_tokens", 4294967297ULL}},
+      {{"temperature", 2.1}},
+      {{"top_k", -1}},
+      {{"top_p", 0}},
+      {{"repetition_penalty", 101}},
+      {{"prompt_template", "{unknown}"}},
+      {{"prompt_template", "{input"}},
+      {{"prompt_template", "}"}},
+      {{"prompt_template", ""}}};
+  for (const auto& bad : bad_configs) {
+    SCOPED_TRACE(bad.dump());
+    auto doc = CustomPipeline("entity_extract");
+    doc["pipeline"][0]["config"].update(bad);
+    EXPECT_FALSE(PipelineValidator::ValidateAndPlan(doc).report.ok);
+    auto config = bad;
+    config["bind_model"] = "llm_model_v1";
+    auto node = NodeFactory::Instance().Create("PromptGuidedLlmNode");
+    EXPECT_FALSE(InitNodeForTest(*node, config, session_ctx_.get()));
+  }
+  auto doc = CustomPipeline("doc_qa");
+  doc["pipeline"][2]["ports"]["inputs"].erase("context");
+  EXPECT_FALSE(PipelineValidator::ValidateAndPlan(doc).report.ok);
+}
+
+TEST_F(CommonNodesTest, CustomAndGeneratedNodesUseStrictNativePlans) {
+  for (const char* biz : {"entity_extract", "doc_qa"}) {
+    auto plan = PipelineValidator::ValidateAndPlan(CustomPipeline(biz));
+    ASSERT_TRUE(plan.report.ok) << plan.report.ToJson().dump(2);
+  }
+  ASSERT_TRUE(session_ctx_->GetModelManager().RegisterModel(
+      "llm_0.6b_entity", std::make_shared<test::TestBusinessLlmModel>(2),
+      "v1"));
+  for (const char* name : {"ScaffoldComputeNode", "ScaffoldModelLlmNode",
+                           "ScaffoldUnaryLlmNode"}) {
+    auto doc = CustomPipeline("entity_extract");
+    doc["pipeline"][0]["node_type"] = name;
+    doc["pipeline"][0]["config"] =
+        std::string(name) == "ScaffoldComputeNode"
+            ? nlohmann::json::object()
+            : nlohmann::json{{"bind_model", "llm_0.6b_entity"}};
+    auto plan = PipelineValidator::ValidateAndPlan(doc);
+    ASSERT_TRUE(plan.report.ok) << plan.report.ToJson().dump(2);
+    auto node = NodeFactory::Instance().Create(name);
+    // Use the actual native plan, including normalized configuration and keys.
+    const auto& node_plan = plan.node_plans.at("custom_prompt");
+    ASSERT_TRUE(node->Init({&node_plan, nullptr, session_ctx_.get()}));
+    AlgContext ctx;
+    ctx.Publish("input_sentences", TextBatch{{31, 7, "实体"}});
+    ASSERT_EQ(node->Process(&ctx), 0);
+    ASSERT_NE(ctx.Read<TextBatch>("llm_raw_answer"), nullptr);
+    EXPECT_EQ(ctx.Read<TextBatch>("llm_raw_answer")->front().req_id, 31U);
+  }
+}
+
+TEST_F(CommonNodesTest, GeneratedCapabilityTemplatesCompileBindAndExecute) {
+  CheckScaffoldExecution<TextBatch, TextBatch>("ScaffoldComputeNode", "",
+                                               session_ctx_.get());
+  for (const std::string kind : {"Model", "Unary"}) {
+    CheckScaffoldExecution<TextBatch, TextBatch>(
+        "Scaffold" + kind + "LlmNode", "llm_model_v1", session_ctx_.get());
+    CheckScaffoldExecution<TextBatch, EmbeddingBatch>(
+        "Scaffold" + kind + "EmbeddingNode", "embed_model_v1",
+        session_ctx_.get());
+    CheckScaffoldExecution<AudioPcmBatch, TextBatch>(
+        "Scaffold" + kind + "AsrNode", "asr_model_v1", session_ctx_.get());
+    CheckScaffoldExecution<QueryCandidatesBatch, ScoreBatch>(
+        "Scaffold" + kind + "RerankNode", "rerank_model_v1",
+        session_ctx_.get());
+  }
+  CheckScaffoldExecution<ImageRefBatch, OcrDocumentBatch>(
+      "ScaffoldModelOcrNode", "ocr_model_v1", session_ctx_.get());
+  auto node = NodeFactory::Instance().Create("ScaffoldConversionNode");
+  ASSERT_TRUE(
+      InitNodeForTest(*node, nlohmann::json::object(), session_ctx_.get()));
+  AlgContext ctx;
+  ctx.Publish("input", TextBatch{{1, 0, "unimplemented"}});
+  EXPECT_NE(node->Process(&ctx), 0);
+  EXPECT_FALSE(ctx.Has("output"));
 }
 
 }  // namespace llm_edgeflow

@@ -1,0 +1,97 @@
+{
+  "biz_name": "smart_doc_qa_v1",
+  "models": [
+    {
+      "capability": "llm",
+      "model_type": "test_business_llm",
+      "backend": "test_causal_lm_backend",
+      "model_config": {
+        "max_batch_size": 2,
+        "max_seq_len": 1024
+      },
+      "backend_config": {},
+      "model_id": "llm_model_v1",
+      "model_path": "demo/fixtures/mock/artifacts/neutral-llm.fixture"
+    }
+  ],
+  "pipeline": [
+    {
+      "id": "node_0_TextChunkNode",
+      "node_type": "TextChunkNode",
+      "depends_on": [],
+      "ports": {
+        "inputs": {
+          "text": "raw_docs"
+        },
+        "outputs": {
+          "chunks": "doc_chunks",
+          "chunk_counts": "doc_chunk_counts"
+        }
+      },
+      "config": {
+        "chunk_size": 60
+      }
+    },
+    {
+      "id": "node_5_TextRuleMatchNode",
+      "node_type": "TextRuleMatchNode",
+      "depends_on": [],
+      "ports": {
+        "inputs": {
+          "text": "raw_queries"
+        },
+        "outputs": {
+          "matches": "intent_matches"
+        }
+      },
+      "config": {
+        "default_category": "GENERAL_QA",
+        "default_score": 0.9,
+        "categories": {
+          "AFTER_SALES_REFUND": [
+            "退款",
+            "退货",
+            "换货",
+            "发票"
+          ],
+          "LOGISTICS_STATUS": [
+            "快递",
+            "发货",
+            "物流",
+            "送到哪里"
+          ],
+          "TECH_ARCHITECTURE": [
+            "架构",
+            "设计",
+            "C++",
+            "算法框架",
+            "NPU"
+          ]
+        }
+      }
+    },
+    {
+      "id": "custom_prompt",
+      "node_type": "PromptGuidedLlmNode",
+      "depends_on": [
+        "node_0_TextChunkNode"
+      ],
+      "ports": {
+        "inputs": {
+          "input": "raw_queries",
+          "context": "doc_chunks"
+        },
+        "outputs": {
+          "output": "llm_answers"
+        }
+      },
+      "config": {
+        "bind_model": "llm_model_v1",
+        "prompt_template": "【参考片段】: {context}\n【用户提问】: {input}\n请基于参考片段给出精确解答:",
+        "strip_markdown": true,
+        "temperature": 0.3,
+        "max_tokens": 128
+      }
+    }
+  ]
+}

@@ -1,0 +1,57 @@
+{
+  "biz_name": "entity_extract_0.6b_v1",
+  "models": [
+    {
+      "capability": "llm",
+      "model_type": "test_business_llm",
+      "backend": "test_causal_lm_backend",
+      "model_config": {
+        "max_batch_size": 2,
+        "max_seq_len": 512
+      },
+      "backend_config": {},
+      "model_id": "llm_0.6b_entity",
+      "model_path": "demo/fixtures/mock/artifacts/neutral-llm.fixture"
+    }
+  ],
+  "pipeline": [
+    {
+      "id": "custom_prompt",
+      "node_type": "PromptGuidedLlmNode",
+      "depends_on": [],
+      "ports": {
+        "inputs": {
+          "input": "input_sentences"
+        },
+        "outputs": {
+          "output": "llm_raw_answer"
+        }
+      },
+      "config": {
+        "bind_model": "llm_0.6b_entity",
+        "prompt_template": "你是一个中文实体与名词抽取助手。请从以下句子中提取出所有名词与实体，并仅以JSON列表形式返回：\n输入文本：{input}\n提取结果：",
+        "strip_markdown": true,
+        "temperature": 0.1,
+        "max_tokens": 64
+      }
+    },
+    {
+      "id": "node_2_StructuredJsonParseNode",
+      "node_type": "StructuredJsonParseNode",
+      "depends_on": [
+        "custom_prompt"
+      ],
+      "ports": {
+        "inputs": {
+          "text": "llm_raw_answer"
+        },
+        "outputs": {
+          "document": "extracted_entities"
+        }
+      },
+      "config": {
+        "failure_policy": "fail"
+      }
+    }
+  ]
+}
