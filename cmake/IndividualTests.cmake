@@ -101,11 +101,11 @@ target_link_libraries(test_operator_api PRIVATE llm_edgeflow::internal_runtime G
 add_test(NAME OperatorApiTest COMMAND test_operator_api)
 
 add_executable(test_operator_output_pool ${EDGEFLOW_SOURCE_test_operator_output_pool})
-target_link_libraries(test_operator_output_pool PRIVATE llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
+target_link_libraries(test_operator_output_pool PRIVATE llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main edgeflow_test_allocation_failure)
 add_test(NAME OperatorOutputPoolTest COMMAND test_operator_output_pool)
 
 add_executable(test_operator_value_registry ${EDGEFLOW_SOURCE_test_operator_value_registry})
-target_link_libraries(test_operator_value_registry PRIVATE llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
+target_link_libraries(test_operator_value_registry PRIVATE llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main edgeflow_test_allocation_failure)
 add_test(NAME OperatorValueRegistryTest COMMAND test_operator_value_registry)
 
 add_executable(test_operator_biz_bridge_registry ${EDGEFLOW_SOURCE_test_operator_biz_bridge_registry})

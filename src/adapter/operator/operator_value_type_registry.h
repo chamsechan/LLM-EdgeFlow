@@ -272,23 +272,6 @@ class OperatorValueTypeRegistry {
   const OperatorValueTypeBinding* GetBindingBySuffix(
       const std::string& suffix) const;
 
-  /**
-   * @brief 测试专用的分配故障注入探针 (非公开 ABI，仅单测使用)
-   */
-  static void SetAllocationFailureCountdown(int count) noexcept;
-  static int GetAllocationFailureCountdown() noexcept;
-
-  enum class RegistryExceptionInjectPoint {
-    kNone = 0,
-    kCopyCanonicalMap,
-    kCanonicalInsert,
-    kPublish
-  };
-
-  static void SetExceptionInjectPoint(
-      RegistryExceptionInjectPoint point) noexcept;
-  static RegistryExceptionInjectPoint GetExceptionInjectPoint() noexcept;
-
  private:
   mutable std::mutex mutex_;
   std::unordered_map<std::string, OperatorValueTypeBinding>

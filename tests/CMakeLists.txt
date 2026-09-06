@@ -1,5 +1,12 @@
 link_libraries(edgeflow_internal_headers)
 
+# Allocation replacement is confined to the focused test executables. It is
+# never linked into runtime objects, the SDK, demos or repository tools.
+add_library(edgeflow_test_allocation_failure OBJECT
+  support/scoped_allocation_failure.cpp)
+target_include_directories(edgeflow_test_allocation_failure PUBLIC
+  "${CMAKE_CURRENT_SOURCE_DIR}/support")
+
 if(UNIX AND NOT APPLE)
   add_test(
     NAME SdkExportSurfaceTest
