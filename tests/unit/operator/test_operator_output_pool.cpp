@@ -47,7 +47,7 @@ TEST_F(OperatorOutputPoolTest, DepthZeroNormalizedTo25AndMaxLimitChecked) {
 }
 
 // 2. 状态账本防重复归还、防外部指针注入与无下溢
-TEST_F(OperatorOutputPoolTest, LedgerRejectsDuplicateAndForeignBlocks) {
+TEST_F(OperatorOutputPoolTest, LedgerPreservesFifoAndRejectsInvalidReturns) {
   const auto* binding =
       OperatorValueTypeRegistry::Instance().GetBindingBySuffix("keyword_out");
   ASSERT_NE(binding, nullptr);
@@ -58,29 +58,59 @@ TEST_F(OperatorOutputPoolTest, LedgerRejectsDuplicateAndForeignBlocks) {
   std::shared_ptr<OutputPoolState> pool;
   std::string err;
   ASSERT_EQ(
-      OutputPoolState::Create("keyword_out", 2, spec, binding, &pool, &err), 0);
-  ASSERT_EQ(pool->FreeBlockCount(), 2u);
+      OutputPoolState::Create("keyword_out", 3, spec, binding, &pool, &err), 0);
+  ASSERT_EQ(pool->FreeBlockCount(), 3u);
 
   void* block1 = nullptr;
   ASSERT_EQ(pool->Acquire(&block1), 0);
   ASSERT_NE(block1, nullptr);
-  EXPECT_EQ(pool->FreeBlockCount(), 1u);
+  EXPECT_EQ(pool->FreeBlockCount(), 2u);
   EXPECT_EQ(pool->CheckedOutCount(), 1u);
 
   // 正常归还 1 次
   pool->ReturnBlock(block1);
-  EXPECT_EQ(pool->FreeBlockCount(), 2u);
+  EXPECT_EQ(pool->FreeBlockCount(), 3u);
   EXPECT_EQ(pool->CheckedOutCount(), 0u);
 
   // 重复归还 block1 -> 应被账本拦截，不增加 free 数量，计数不下溢
   pool->ReturnBlock(block1);
-  EXPECT_EQ(pool->FreeBlockCount(), 2u);
+  EXPECT_EQ(pool->FreeBlockCount(), 3u);
   EXPECT_EQ(pool->CheckedOutCount(), 0u);
 
   // 归还非本池分配的野指针 -> 应被账本拦截
   int dummy = 123;
   pool->ReturnBlock(&dummy);
-  EXPECT_EQ(pool->FreeBlockCount(), 2u);
+  EXPECT_EQ(pool->FreeBlockCount(), 3u);
+  EXPECT_EQ(pool->CheckedOutCount(), 0u);
+
+  // Leave block1 queued; return the other two out of checkout order.
+  void *block2 = nullptr, *block3 = nullptr;
+  ASSERT_EQ(pool->Acquire(&block2), 0);
+  ASSERT_EQ(pool->Acquire(&block3), 0);
+  EXPECT_NE(block2, block1);
+  EXPECT_NE(block3, block1);
+  EXPECT_NE(block2, block3);
+  pool->ReturnBlock(block3);
+  pool->ReturnBlock(block2);
+  // Repeated rotations preserve FIFO addresses without allocating.
+  for (int round = 0; round < 3; ++round) {
+    for (void* expected : {block1, block3, block2}) {
+      ASSERT_GT(pool->FreeBlockCount(), 0u);
+      void* actual = nullptr;
+      int result = 0;
+      bool allocated = false;
+      {
+        test_support::ScopedAllocationFailure failure(0);
+        result = pool->Acquire(&actual);
+        pool->ReturnBlock(actual);
+        allocated = failure.Triggered();
+      }
+      ASSERT_EQ(result, 0);
+      EXPECT_EQ(actual, expected);
+      EXPECT_FALSE(allocated);
+    }
+  }
+  EXPECT_EQ(pool->FreeBlockCount(), 3u);
   EXPECT_EQ(pool->CheckedOutCount(), 0u);
 }
 

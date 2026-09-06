@@ -77,7 +77,6 @@ int OutputPoolState::Create(const std::string& suffix, uint32_t depth,
     }
 
     pool->free_head_ = 0;
-    pool->free_tail_ = 0;
     pool->free_count_ = effective_depth;
     pool->checked_out_count_ = 0;
     pool->closing_ = false;
@@ -167,8 +166,8 @@ void OutputPoolState::ReturnBlock(void* block) noexcept {
   --checked_out_count_;
 
   if (free_count_ < free_ring_.size()) {
-    free_ring_[free_tail_] = block;
-    free_tail_ = (free_tail_ + 1) % free_ring_.size();
+    const size_t tail = (free_head_ + free_count_) % free_ring_.size();
+    free_ring_[tail] = block;
     ++free_count_;
   }
 
@@ -200,7 +199,6 @@ void OutputPoolState::DestroyBlocks() noexcept {
   all_blocks_.clear();
   free_ring_.clear();
   free_head_ = 0;
-  free_tail_ = 0;
   free_count_ = 0;
   block_states_.clear();
   checked_out_count_ = 0;
