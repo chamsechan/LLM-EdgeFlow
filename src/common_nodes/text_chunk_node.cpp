@@ -11,6 +11,15 @@
 
 namespace llm_edgeflow {
 
+namespace {
+bool ValidChunkConfig(const nlohmann::json& config) {
+  const auto size = config.value<int64_t>("chunk_size", 100);
+  const auto overlap = config.value<int64_t>("overlap", 0);
+  return size > 0 && size <= 1000000 && overlap >= 0 && overlap <= 100000 &&
+         overlap < size;
+}
+}  // namespace
+
 /**
  * @brief 文本切片分块算子 (TextChunkNode, 1对N裂变与溯源绑定)
  */
@@ -33,8 +42,7 @@ class TextChunkNode final : public NodeBase {
 
     const int64_t chunk_size = config.value<int64_t>("chunk_size", 100);
     const int64_t overlap = config.value<int64_t>("overlap", 0);
-    if (chunk_size <= 0 || chunk_size > 1000000 || overlap < 0 ||
-        overlap > 100000 || overlap >= chunk_size) {
+    if (!ValidChunkConfig(config)) {
       return false;
     }
     chunk_size_ = static_cast<size_t>(chunk_size);
@@ -109,6 +117,14 @@ NodeDefinition MakeTextChunkNodeDefinition() {
   NodeDefinition def;
   def.node_type = TextChunkNode::kNodeType;
   def.category = "common";
+  def.validate_config = [](const nlohmann::json& config, const auto&,
+                           std::string* diagnostic) {
+    if (!ValidChunkConfig(config)) {
+      if (diagnostic) *diagnostic = "overlap must be smaller than chunk_size";
+      return false;
+    }
+    return true;
+  };
   def.description =
       "UTF-8 code-point-safe text chunking with overlap and provenance";
   def.inputs = {RequiredInputPort("text",

@@ -131,9 +131,8 @@ class NodeBase : public INode {
     }
     try {
       const nlohmann::json& cfg =
-          init_ctx.config ? *init_ctx.config
-                          : (init_ctx.plan ? init_ctx.plan->normalized_config
-                                           : empty_config_);
+          init_ctx.plan ? init_ctx.plan->normalized_config
+                        : (init_ctx.config ? *init_ctx.config : empty_config_);
       return InitNode(init_ctx, cfg, *init_ctx.session_ctx);
     } catch (const std::exception& e) {
       ALG_LOG_ERROR("[NodeBase] Exception in InitNode for %s: %s\n",

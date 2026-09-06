@@ -1,8 +1,10 @@
 #pragma once
 
+#include <functional>
 #include <nlohmann/json.hpp>
 #include <optional>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #include "contracts/config_schema.h"
@@ -143,6 +145,10 @@ struct ControlCommandDefinition {
         supports_hot_swap(hot_swap) {}
 };
 
+using NodeConfigValidator =
+    std::function<bool(const nlohmann::json&,
+                       const std::unordered_set<std::string>&, std::string*)>;
+
 struct NodeDefinition {
   std::string node_type;
   std::string category;
@@ -152,6 +158,8 @@ struct NodeDefinition {
   std::vector<PortGroupConstraint> port_constraints;
   std::vector<ControlCommandDefinition> control_commands;
   std::vector<ConfigFieldDefinition> config_fields;
+  // Pure semantic validation: no model/session allocation or external I/O.
+  NodeConfigValidator validate_config;
   std::string model_capability;
   std::string model_config_field;
   bool parallel_safe = false;

@@ -105,6 +105,19 @@ class TextRuleMatchNode final : public NodeBase {
     return NodeControlResult::Unsupported();
   }
 
+  static bool ValidateConfig(const nlohmann::json& config,
+                             const std::unordered_set<std::string>&,
+                             std::string* diagnostic) {
+    CategoryList categories;
+    std::vector<RuleSpec> rules;
+    const bool ok =
+        (!config.contains("categories") ||
+         BuildCategories(config.at("categories"), &categories)) &&
+        (!config.contains("rules") || BuildRules(config.at("rules"), &rules));
+    if (!ok && diagnostic) *diagnostic = "Invalid categories, rules or regex";
+    return ok;
+  }
+
  protected:
   bool InitNode(const NodeInitContext& init_ctx, const nlohmann::json& config,
                 SessionContext& /*session_ctx*/) override {
@@ -354,6 +367,7 @@ NodeDefinition MakeTextRuleMatchNodeDefinition() {
   NodeDefinition def;
   def.node_type = TextRuleMatchNode::kNodeType;
   def.category = "common";
+  def.validate_config = TextRuleMatchNode::ValidateConfig;
   def.description =
       "Keyword and Unicode regex matching with lookbehind and named captures";
   def.inputs = {RequiredInputPort("text",
