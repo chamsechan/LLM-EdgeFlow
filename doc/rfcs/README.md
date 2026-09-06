@@ -93,6 +93,7 @@ doc/rfcs/NNNN-<kebab-case-title>.md
 | **RFC-0035** | Kite 生成 token 向量与中性 Embedding 接入 | `Completed` | `v10.x` | Layer 4 / Config / Build | [0035-generated-token-embedding.md](0035-generated-token-embedding.md) |
 | **RFC-0036** | Whisper ASR 与 whisper.cpp Backend 接入设计及实施指南 | `In Implementation` | `v10.x` | Layer 4 / Config / Demo / Build | [0036-whisper-asr-backend.md](0036-whisper-asr-backend.md) |
 | **RFC-0037** | 审计问题的五阶段最小整改 | `Completed` | `v10.x` | Layer 1 ~ Layer 3 / Tooling | [0037-audit-remediation.md](0037-audit-remediation.md) |
+| **RFC-0038** | 自定义 Node 的统一源码扩展目录 | `Completed` | `v10.x` | Layer 3 / Build / Governance | [0038-custom-node-extension-directory.md](0038-custom-node-extension-directory.md) |
 
 ---
 

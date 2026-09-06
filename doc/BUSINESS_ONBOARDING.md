@@ -6,7 +6,7 @@
 2. **新的外部输入/输出结构**：在 Layer 1 增加业务 key/契约和注册 Adapter。`Unpack` 负责外部结构转 Traceable Batch；`PackTyped<Output>` 只写一次业务结果校验和映射。参考 `src/adapter/adapters/doc_qa_adapter.cpp`。
 3. **需要同时提供 C ABI 和 Operator**：Adapter 继承 `ResultPackingAdapter<Adapter, COutput, Result>`。COutput 使用公共固定数组契约，Result 使用 Layer 1 自有字符串。字段字符串通过 `CopyResultString` 写出：固定 C 数组不足返回错误，可变长结果完整保存。
 4. **Operator 接入**：单输入/单输出业务用 `MakeSingleSlotBizBridge<Result>` 生成描述符、槽声明及结果分配，只实现外部输入转换和结果到输出池的复制。多输入业务参考 OCR bridge。现有已注册输入/输出类型可复用；全新宿主结构仍需注册 ValueType 的容量、初始化与释放契约，这部分是内存安全边界，不能省略。
-5. **只有 Catalog 证明操作能力不足时才新增 Node**。当前业务规则/提示词/组合放在 Pipeline。新增模型语义或硬件 Backend 只针对确有协议能力缺口的情况。
+5. **只有 Catalog 证明操作能力不足时才新增 Node**。可配置的规则/提示词/组合放在 Pipeline；缺失的领域算法放在统一的 `src/custom_nodes/`，可在一个 Node 中完成前处理、调用已绑定模型和后处理，也可跨方案复用。框架通用操作继续放在 `src/common_nodes/`。详见[自定义 Node 接入指南](../src/custom_nodes/README.md)。新增模型语义或硬件 Backend 只针对确有协议能力缺口的情况。
 
 六个单槽 bridge 已使用共享构造函数；七个内置业务均使用共同的双出口打包基类。无需修改中央业务 dispatch switch；已有业务的新方案通常只改 JSON。
 
