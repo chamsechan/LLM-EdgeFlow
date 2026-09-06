@@ -8,6 +8,7 @@
 - **[assets/architecture_class_diagram.svg](assets/architecture_class_diagram.svg)**：由 `architecture.puml` 固定版本生成的 As-Is 类图资产。
 - **[assets/architecture_flow.svg](assets/architecture_flow.svg)**：由 `architecture_v2.puml` 固定版本生成的 Target 全景图资产。
 - **[developer_guide.md](developer_guide.md)**：算法开发人员与平台接入人员完整研发上手指南。
+- **[SOLUTION_DEVELOPER_ARCHITECTURE_PLAN.md](SOLUTION_DEVELOPER_ARCHITECTURE_PLAN.md)**：面向方案开发者的用户诉求、custom Node 复用边界、降低接入门槛的实施阶段与验收标准。
 - **[logging.md](logging.md)**：纯 C11 公共日志 API、等级、环境变量和接口约束。
 - **[CHANGELOG.md](CHANGELOG.md)**：架构里程碑与用户可感知变更摘要。
 - **[rfcs/ (RFC 需求与设计库)](rfcs/README.md)**：所有待实现需求、架构演进 RFC 设计文档及模板规范（`doc/rfcs/`）。
