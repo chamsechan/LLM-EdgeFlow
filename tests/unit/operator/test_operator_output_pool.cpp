@@ -214,6 +214,233 @@ TEST_F(OperatorOutputPoolTest,
   }
 }
 
+namespace {
+
+template <typename T, typename Mutate, typename Verify>
+void CheckMultiStringOutputReuse(const char* suffix,
+                                 std::vector<CompanyString * T::*> fields,
+                                 Mutate mutate, Verify verify) {
+  SCOPED_TRACE(suffix);
+  const auto* binding =
+      OperatorValueTypeRegistry::Instance().GetBindingBySuffix(suffix);
+  ASSERT_NE(binding, nullptr);
+  ResolvedOutputPoolSpec spec;
+  spec.type = suffix;
+  for (const auto& [name, config] :
+       binding->output_layout.string_capacity_fields) {
+    spec.capacities[name] = 17;
+  }
+  std::shared_ptr<OutputPoolState> pool;
+  std::string err;
+  ASSERT_EQ(OutputPoolState::Create(suffix, 1, spec, binding, &pool, &err), 0)
+      << err;
+  void* block = nullptr;
+  ASSERT_EQ(pool->Acquire(&block), 0);
+  auto* out = static_cast<T*>(block);
+  verify(*out);
+  mutate(*out);
+  std::vector<CompanyString*> strings;
+  std::vector<char*> buffers;
+  for (auto member : fields) {
+    auto* str = out->*member;
+    ASSERT_NE(str, nullptr);
+    ASSERT_NE(str->data, nullptr);
+    EXPECT_EQ(str->length, 0);
+    EXPECT_EQ(str->data[0], '\0');
+    strings.push_back(str);
+    buffers.push_back(str->data);
+    std::memset(str->data, 'x', 17);
+    str->data[17] = '\0';
+    str->length = 17;
+  }
+  void* reused = nullptr;
+  int result = -1;
+  bool allocated = false;
+  {
+    test_support::ScopedAllocationFailure failure(0);
+    pool->ReturnBlock(block);
+    result = pool->Acquire(&reused);
+    allocated = failure.Triggered();
+  }
+  ASSERT_EQ(result, 0);
+  EXPECT_FALSE(allocated);
+  ASSERT_EQ(reused, block);
+  out = static_cast<T*>(reused);
+  verify(*out);
+  for (size_t i = 0; i < fields.size(); ++i) {
+    auto* str = out->*fields[i];
+    ASSERT_EQ(str, strings[i]);
+    EXPECT_EQ(str->data, buffers[i]);
+    EXPECT_EQ(str->length, 0);
+    EXPECT_EQ(str->data[0], '\0');
+    // The whole configured buffer remains available after reuse.
+    std::memset(str->data, 'y', 17);
+    str->data[17] = '\0';
+  }
+  pool->ReturnBlock(reused);
+}
+
+}  // namespace
+
+TEST_F(OperatorOutputPoolTest,
+       MultiStringOutputsReuseAllFieldsWithoutAllocation) {
+  CheckMultiStringOutputReuse<CompanyOperatorDocOutput>(
+      "doc_out",
+      {&CompanyOperatorDocOutput::intent_name,
+       &CompanyOperatorDocOutput::answer_text},
+      [](auto& out) {
+        out.request_id = 99;
+        out.status_code = -42;
+        out.confidence = 0.9f;
+        out.chunk_count = 3;
+      },
+      [](const auto& out) {
+        EXPECT_EQ(out.request_id, 0u);
+        EXPECT_EQ(out.status_code, 0);
+        EXPECT_FLOAT_EQ(out.confidence, 0.0f);
+        EXPECT_EQ(out.chunk_count, 0);
+      });
+  CheckMultiStringOutputReuse<CompanyOperatorAuditOutput>(
+      "audit_out",
+      {&CompanyOperatorAuditOutput::risk_level,
+       &CompanyOperatorAuditOutput::matched_policy_clause,
+       &CompanyOperatorAuditOutput::audit_verdict_json},
+      [](auto& out) {
+        out.request_id = 99;
+        out.status_code = -42;
+        out.risk_score = 0.9f;
+      },
+      [](const auto& out) {
+        EXPECT_EQ(out.request_id, 0u);
+        EXPECT_EQ(out.status_code, 0);
+        EXPECT_FLOAT_EQ(out.risk_score, 0.0f);
+      });
+  CheckMultiStringOutputReuse<CompanyOperatorAudioOutput>(
+      "audio_out",
+      {&CompanyOperatorAudioOutput::transcribed_text,
+       &CompanyOperatorAudioOutput::intent_slot_json},
+      [](auto& out) {
+        out.request_id = 99;
+        out.status_code = -42;
+      },
+      [](const auto& out) {
+        EXPECT_EQ(out.request_id, 0u);
+        EXPECT_EQ(out.status_code, 0);
+      });
+}
+
+TEST_F(OperatorOutputPoolTest, OdOutputReusePreservesOptionalMetadataStorage) {
+  const auto* binding =
+      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("od_out");
+  ASSERT_NE(binding, nullptr);
+  for (int32_t type_id : {0, 1, 4}) {
+    SCOPED_TRACE(type_id);
+    ResolvedOutputPoolSpec spec;
+    spec.type = "od_out";
+    spec.metadata_type_id = type_id;
+    spec.meta_num = type_id == 0 ? 0 : 3;
+    std::shared_ptr<OutputPoolState> pool;
+    std::string err;
+    ASSERT_EQ(OutputPoolState::Create(spec.type, 1, spec, binding, &pool, &err),
+              0)
+        << err;
+    void* block = nullptr;
+    ASSERT_EQ(pool->Acquire(&block), 0);
+    auto* out = static_cast<CompanyOdOutput*>(block);
+    EXPECT_EQ(out->request_id, 0u);
+    EXPECT_EQ(out->detected_box_count, 0);
+    EXPECT_EQ(out->status_code, 0);
+    auto* metadata = out->metadata;
+    void* payload = nullptr;
+    if (type_id == 0) {
+      EXPECT_EQ(metadata, nullptr);
+    } else {
+      ASSERT_NE(metadata, nullptr);
+      EXPECT_EQ(metadata->type_id, type_id);
+      EXPECT_EQ(metadata->element_count, 0);
+      EXPECT_EQ(metadata->byte_length, 0);
+      payload = metadata->data;
+      ASSERT_NE(payload, nullptr);
+      metadata->element_count = spec.meta_num;
+      metadata->byte_length =
+          spec.meta_num * FindCompanyAnyType(type_id)->element_size;
+      std::memset(payload, 1, metadata->byte_length);
+    }
+    auto* str = out->result_json;
+    ASSERT_NE(str, nullptr);
+    auto* data = str->data;
+    ASSERT_NE(data, nullptr);
+    std::strcpy(data, "{}");
+    str->length = 2;
+    out->request_id = 99;
+    out->detected_box_count = 3;
+    out->status_code = -42;
+    void* reused = nullptr;
+    int result = -1;
+    bool allocated = false;
+    {
+      test_support::ScopedAllocationFailure failure(0);
+      pool->ReturnBlock(block);
+      result = pool->Acquire(&reused);
+      allocated = failure.Triggered();
+    }
+    ASSERT_EQ(result, 0);
+    EXPECT_FALSE(allocated);
+    ASSERT_EQ(reused, block);
+    EXPECT_EQ(out->request_id, 0u);
+    EXPECT_EQ(out->detected_box_count, 0);
+    EXPECT_EQ(out->status_code, 0);
+    ASSERT_EQ(out->result_json, str);
+    EXPECT_EQ(str->data, data);
+    EXPECT_EQ(str->length, 0);
+    EXPECT_EQ(data[0], '\0');
+    ASSERT_EQ(out->metadata, metadata);
+    if (metadata) {
+      EXPECT_EQ(metadata->type_id, type_id);
+      EXPECT_EQ(metadata->data, payload);
+      EXPECT_EQ(metadata->element_count, 0);
+      EXPECT_EQ(metadata->byte_length, 0);
+    }
+    pool->ReturnBlock(reused);
+  }
+}
+
+TEST_F(OperatorOutputPoolTest, RerankOutputInitialAndReusedIndicesAreMinusOne) {
+  const auto* binding =
+      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("rerank_out");
+  ASSERT_NE(binding, nullptr);
+  ResolvedOutputPoolSpec spec;
+  spec.type = "rerank_out";
+  std::shared_ptr<OutputPoolState> pool;
+  std::string err;
+  ASSERT_EQ(OutputPoolState::Create(spec.type, 1, spec, binding, &pool, &err),
+            0)
+      << err;
+  void* previous = nullptr;
+  for (int round = 0; round < 2; ++round) {
+    void* block = nullptr;
+    ASSERT_EQ(pool->Acquire(&block), 0);
+    if (previous) {
+      EXPECT_EQ(block, previous);
+    }
+    auto* out = static_cast<CompanyOperatorRerankOutput*>(block);
+    EXPECT_EQ(out->request_id, 0u);
+    EXPECT_EQ(out->count, 0);
+    EXPECT_EQ(out->status_code, 0);
+    out->request_id = 99;
+    out->count = COMPANY_OPERATOR_MAX_RERANK_CANDIDATES;
+    out->status_code = -42;
+    for (int i = 0; i < COMPANY_OPERATOR_MAX_RERANK_CANDIDATES; ++i) {
+      EXPECT_FLOAT_EQ(out->scores[i], 0.0f);
+      EXPECT_EQ(out->sorted_indices[i], -1);
+      out->scores[i] = 0.9f;
+      out->sorted_indices[i] = i;
+    }
+    pool->ReturnBlock(block);
+    previous = block;
+  }
+}
+
 // 4. ScopedOutputLeaseGuard 的 Untrack 与 Rollback 事务边界
 TEST_F(OperatorOutputPoolTest, LeaseGuardTransactionRollback) {
   const auto* binding =
