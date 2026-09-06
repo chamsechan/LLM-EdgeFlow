@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-09-06 方案开发者自定义 Node 脚手架与研发支持
+
+- 新增 `scripts/scaffold_custom_node.py` 脚手架工具，支持一键生成 compute、model 及 unary_inference 三类合规自定义节点源码框架。
+- 自动化生成类型端口契约、NodeDefinition、Layer 3 隔离头文件引用、(req_id, sub_id) 溯源保留循环与 Google Test 单元测试桩。
+- 支持 `--add-to-cmake` 自动登记至 `src/custom_nodes/CMakeLists.txt`，提供内置自测与 `tests/tooling/test_scaffold_custom_node.py` 回归覆盖。
+- 更新 `src/custom_nodes/README.md` 与方案开发者实施规划，闭环 S1 与 S2 阶段交付。
+
 ## 2026-09-06 自定义 Node 扩展目录
 
 - 新增 `src/custom_nodes/` 统一存放领域算法和特定前后处理，按操作组织文件，可跨方案复用。
