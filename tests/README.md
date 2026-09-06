@@ -21,3 +21,17 @@ must satisfy the same required CTest inventory.
 
 Add coverage to the narrowest existing suite that owns the behavior. Create a new executable only
 when process isolation or an independent runtime lifecycle is part of the contract.
+
+Operator allocation-failure tests use `support/scoped_allocation_failure.*`, linked only
+into the adapter runner and the individual output-pool/value-registry test executables.
+It replaces C++ allocation functions in those executables; the SDK, tools and demos use
+the normal allocator without test hooks. Injection is one-shot, thread-local and scoped,
+with automatic restoration for nested scopes and exception unwinding.
+
+Arm injection only around a synchronous operation, outside GoogleTest assertions. Sweep
+allocation positions until the operation succeeds without triggering injection; do not
+encode container names or fixed allocation counts. Check rollback, unchanged observable
+state and successful retry. For leak checks, destroy operation-owned objects while the
+scope is still alive, then require both `!Overflowed()` and `Outstanding() == 0`.
+The bounded pointer ledger observes C++ allocations on the current thread, not `malloc`
+or resources owned by other threads; sanitizer checks remain complementary.

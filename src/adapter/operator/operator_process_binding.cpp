@@ -238,14 +238,6 @@ void PublishOperatorOutputs(
   pending_outputs.reserve(acquired_blocks.size());
 
   for (const auto& acquired : acquired_blocks) {
-    if (OutputPoolState::GetPublishFailureCountdown() >= 0) {
-      if (OutputPoolState::GetPublishFailureCountdown() == 0) {
-        OutputPoolState::SetPublishFailureCountdown(-1);
-        throw std::bad_alloc();
-      }
-      OutputPoolState::SetPublishFailureCountdown(
-          OutputPoolState::GetPublishFailureCountdown() - 1);
-    }
     OutputPoolDeleter deleter{acquired.pool, acquired.raw_block};
     auto value = std::shared_ptr<void>(acquired.raw_block, deleter);
     auto* destination = &(*outputs)[acquired.frame_idx][acquired.key];

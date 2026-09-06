@@ -84,42 +84,8 @@ class OutputPoolState : public std::enable_shared_from_this<OutputPoolState> {
     return static_cast<uint32_t>(free_count_);
   }
 
-  /**
-   * @brief 测试专用的发布故障注入探针 (非公开 ABI，仅单测使用)
-   */
-  static void SetPublishFailureCountdown(int count) noexcept;
-  static int GetPublishFailureCountdown() noexcept;
-
-  /**
-   * @brief 测试专用的命名故障阶段注入与对称构造/析构计数探针
-   */
-  enum class FailureStage {
-    kNone = 0,
-    kPoolStateAlloc,
-    kSpecCopy,
-    kAllBlocksReserve,
-    kFreeRingResize,
-    kBlockStatesReserve,
-    kRootStructAlloc,
-    kNestedStringAlloc,
-    kNestedAnyAlloc,
-    kCleanupRegister,
-    kLedgerRegister,
-    kHistoryBlockN
-  };
-
-  static void SetFailureStageProbe(FailureStage stage,
-                                   int target_block_index = 0) noexcept;
-  static FailureStage GetFailureStageProbe() noexcept;
-  static int GetTargetBlockIndex() noexcept;
-  static uint64_t GetConstructedCount() noexcept;
-  static uint64_t GetDestroyedCount() noexcept;
-  static void ResetInstanceCounters() noexcept;
-  static void RecordConstructed() noexcept;
-  static void RecordDestroyed() noexcept;
-
  private:
-  OutputPoolState() noexcept { RecordConstructed(); }
+  OutputPoolState() noexcept = default;
 
   std::string canonical_suffix_;
   uint32_t depth_ = 0;

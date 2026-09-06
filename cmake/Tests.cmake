@@ -156,7 +156,8 @@ add_executable(edgeflow_test_adapter_runner
   $<TARGET_OBJECTS:edgeflow_test_backend_fixtures>
   $<TARGET_OBJECTS:edgeflow_test_business_model_fixtures>)
 target_link_libraries(edgeflow_test_adapter_runner PRIVATE
-  llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
+  llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main
+  edgeflow_test_allocation_failure)
 edgeflow_enable_test_pch(edgeflow_test_adapter_runner)
 
 set(EDGEFLOW_TEST_TOOLING_SRCS

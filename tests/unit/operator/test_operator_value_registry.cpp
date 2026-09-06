@@ -5,6 +5,7 @@
 #include <thread>
 
 #include "adapter/operator/operator_value_type_registry.h"
+#include "scoped_allocation_failure.h"
 
 namespace llm_edgeflow {
 
@@ -437,38 +438,48 @@ TEST(OperatorValueRegistryTest, MissingValidatorOrFactoryAuditRejection) {
   }
 }
 
-// 12. 命名异常注入与 Copy-and-Swap 事务回滚零污染测试 (R9-008, R9-010)
-TEST(OperatorValueRegistryTest, NamedExceptionInjectionRollbackZeroCorruption) {
-  const auto points = {
-      OperatorValueTypeRegistry::RegistryExceptionInjectPoint::
-          kCopyCanonicalMap,
-      OperatorValueTypeRegistry::RegistryExceptionInjectPoint::kCanonicalInsert,
-      OperatorValueTypeRegistry::RegistryExceptionInjectPoint::kPublish,
-  };
-
-  for (auto pt : points) {
+// Real allocation failures must leave registration retryable and the old
+// catalog unchanged, regardless of the containers used internally.
+TEST(OperatorValueRegistryTest,
+     AllocationFailurePreservesRegistryAndAllowsRetry) {
+  bool completed = false;
+  for (int step = 0; step < 4096; ++step) {
     OperatorValueTypeRegistry reg;
+    const auto* original = reg.GetBindingBySuffix("keyword_out");
+    ASSERT_NE(original, nullptr);
+    OperatorValueTypeBinding binding = *original;
+    binding.canonical_suffix = "custom_retry_output";
+    bool registered = false;
+    bool injected = false;
+    size_t outstanding = 0;
+    bool overflowed = false;
+    {
+      test_support::ScopedAllocationFailure failure(step);
+      registered = reg.RegisterBinding(binding);
+      injected = failure.Triggered();
+      outstanding = failure.Outstanding();
+      overflowed = failure.Overflowed();
+    }
+    ASSERT_FALSE(overflowed);
     EXPECT_FALSE(reg.HasConflict());
-
-    OperatorValueTypeBinding b;
-    b.canonical_suffix = "injected_custom_out";
-    b.external_c_type_name = "InjectedCustomOutput";
-    SetMinimalOutputContract(&b);
-    b.allocate_external = [](const ResolvedOutputPoolSpec&, OwnedExternalBlock*,
-                             std::string*) { return 0; };
-    b.reset_external = [](void*, const ResolvedOutputPoolSpec&) {};
-    b.destroy_external = [](OwnedExternalBlock*) {};
-
-    OperatorValueTypeRegistry::SetExceptionInjectPoint(pt);
-    EXPECT_FALSE(reg.RegisterBinding(b));
-    OperatorValueTypeRegistry::SetExceptionInjectPoint(
-        OperatorValueTypeRegistry::RegistryExceptionInjectPoint::kNone);
-
-    // 状态无污染
-    EXPECT_FALSE(reg.HasConflict());
-    EXPECT_EQ(reg.GetBindingBySuffix("injected_custom_out"), nullptr);
+    if (!injected) {
+      ASSERT_TRUE(registered);
+      ASSERT_NE(reg.GetBindingBySuffix(binding.canonical_suffix), nullptr);
+      EXPECT_EQ(reg.GlobalInit(), 0);
+      completed = true;
+      break;
+    }
+    SCOPED_TRACE(step);
+    EXPECT_FALSE(registered);
+    EXPECT_EQ(outstanding, 0u);
+    EXPECT_EQ(reg.GetBindingBySuffix("keyword_out"), original);
+    EXPECT_EQ(reg.GetBindingBySuffix(binding.canonical_suffix), nullptr);
+    ASSERT_TRUE(reg.RegisterBinding(binding));
+    EXPECT_NE(reg.GetBindingBySuffix(binding.canonical_suffix), nullptr);
     EXPECT_EQ(reg.GlobalInit(), 0);
   }
+  EXPECT_TRUE(completed)
+      << "Allocation sweep never reached successful registration";
 }
 
 // 13. ComputeOutputPoolPayloadBytes 穷尽预算公式与边界测试 (R9-005)

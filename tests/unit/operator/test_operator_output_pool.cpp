@@ -8,22 +8,15 @@
 #include <vector>
 
 #include "adapter/operator/operator_output_pool.h"
+#include "adapter/operator/operator_process_binding.h"
 #include "adapter/operator/operator_value_type_registry.h"
+#include "scoped_allocation_failure.h"
 
 namespace llm_edgeflow {
 
 class OperatorOutputPoolTest : public ::testing::Test {
  protected:
-  void SetUp() override {
-    OperatorValueTypeRegistry::Instance().GlobalInit();
-    OperatorValueTypeRegistry::SetAllocationFailureCountdown(-1);
-    OutputPoolState::SetPublishFailureCountdown(-1);
-  }
-
-  void TearDown() override {
-    OperatorValueTypeRegistry::SetAllocationFailureCountdown(-1);
-    OutputPoolState::SetPublishFailureCountdown(-1);
-  }
+  void SetUp() override { OperatorValueTypeRegistry::Instance().GlobalInit(); }
 };
 
 // 1. 深度 0 归一化为 25 且正常预分配，深度 > 1024 拦截
@@ -171,30 +164,6 @@ TEST_F(OperatorOutputPoolTest, LeaseGuardTransactionRollback) {
   EXPECT_EQ(pool->CheckedOutCount(), 1u);
 }
 
-// 5. 确定性分配失败注入与全量回滚零泄漏测试 (R9-006)
-TEST_F(OperatorOutputPoolTest, AllocatorFailureRollbackZeroLeak) {
-  const auto* binding =
-      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("od_out");
-  ASSERT_NE(binding, nullptr);
-
-  ResolvedOutputPoolSpec spec;
-  spec.type = "od_out";
-  spec.meta_num = 10;
-  spec.metadata_type_id = 1;  // float32
-  spec.capacities["result_json"] = 512;
-
-  // 针对 od_out（包含 1 个 root + 1 个 char buf + 1 个 cs + 1 个 meta buf + 1
-  // 个 meta struct） 逐个注入分配失败探针
-  for (int fail_step = 0; fail_step <= 5; ++fail_step) {
-    OperatorValueTypeRegistry::SetAllocationFailureCountdown(fail_step);
-    std::shared_ptr<OutputPoolState> pool;
-    std::string err;
-    int ret = OutputPoolState::Create("od_out", 3, spec, binding, &pool, &err);
-    EXPECT_NE(ret, 0) << "Failed at step: " << fail_step;
-    EXPECT_EQ(pool, nullptr);
-  }
-}
-
 // 6. 多线程并发归还与条件变量唤醒
 TEST_F(OperatorOutputPoolTest, ConcurrentAcquireReturnAndWakeup) {
   const auto* binding =
@@ -233,139 +202,6 @@ TEST_F(OperatorOutputPoolTest, ConcurrentAcquireReturnAndWakeup) {
   EXPECT_TRUE(worker_done);
   EXPECT_EQ(pool->FreeBlockCount(), 1u);
   EXPECT_EQ(pool->CheckedOutCount(), 0u);
-}
-
-// 7. 全部 7 类输出结构分配失败故障注入与零泄漏 (R9-002, R9-006)
-TEST_F(OperatorOutputPoolTest, AllocatorFailureAllOutputTypes) {
-  const char* types[] = {"keyword_out", "entity_out", "doc_out", "audit_out",
-                         "audio_out",   "rerank_out", "od_out"};
-
-  for (const char* t : types) {
-    const auto* binding =
-        OperatorValueTypeRegistry::Instance().GetBindingBySuffix(t);
-    ASSERT_NE(binding, nullptr) << "Missing binding for: " << t;
-
-    ResolvedOutputPoolSpec spec;
-    spec.type = t;
-    if (std::strcmp(t, "od_out") == 0) {
-      spec.meta_num = 5;
-      spec.metadata_type_id = 1;
-    }
-
-    for (int step = 0; step <= 25; ++step) {
-      OperatorValueTypeRegistry::SetAllocationFailureCountdown(step);
-      std::shared_ptr<OutputPoolState> pool;
-      std::string err;
-      int ret = OutputPoolState::Create(t, 4, spec, binding, &pool, &err);
-      if (ret != 0) {
-        EXPECT_EQ(pool, nullptr);
-        EXPECT_EQ(ret, -4);
-      } else {
-        ASSERT_NE(pool, nullptr);
-        EXPECT_EQ(pool->Depth(), 4u);
-        EXPECT_EQ(pool->FreeBlockCount(), 4u);
-        EXPECT_EQ(pool->CheckedOutCount(), 0u);
-        pool->DestroyBlocks();
-      }
-    }
-    OperatorValueTypeRegistry::SetAllocationFailureCountdown(-1);
-  }
-}
-
-// 8. 命名故障点全量注入与对称构造/析构计数断言 (R9-005, R9-006)
-TEST_F(OperatorOutputPoolTest, AllNamedFailureStagesWithSymmetricAccounting) {
-  const auto* binding =
-      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("od_out");
-  ASSERT_NE(binding, nullptr);
-
-  ResolvedOutputPoolSpec spec;
-  spec.type = "od_out";
-  spec.meta_num = 10;
-  spec.metadata_type_id = 1;
-  spec.capacities["result_json"] = 512;
-
-  const OutputPoolState::FailureStage stages[] = {
-      OutputPoolState::FailureStage::kPoolStateAlloc,
-      OutputPoolState::FailureStage::kSpecCopy,
-      OutputPoolState::FailureStage::kAllBlocksReserve,
-      OutputPoolState::FailureStage::kFreeRingResize,
-      OutputPoolState::FailureStage::kBlockStatesReserve,
-      OutputPoolState::FailureStage::kRootStructAlloc,
-      OutputPoolState::FailureStage::kNestedStringAlloc,
-      OutputPoolState::FailureStage::kNestedAnyAlloc,
-      OutputPoolState::FailureStage::kCleanupRegister,
-      OutputPoolState::FailureStage::kLedgerRegister,
-      OutputPoolState::FailureStage::kHistoryBlockN,
-  };
-
-  for (auto stage : stages) {
-    const std::vector<int> targets =
-        stage == OutputPoolState::FailureStage::kCleanupRegister
-            ? std::vector<int>{0, 1, 2, 3, 4}
-            : (stage == OutputPoolState::FailureStage::kHistoryBlockN
-                   ? std::vector<int>{0, 1, 2}
-                   : std::vector<int>{0});
-    for (int target_idx : targets) {
-      OutputPoolState::ResetInstanceCounters();
-      OutputPoolState::SetFailureStageProbe(stage, target_idx);
-
-      std::shared_ptr<OutputPoolState> pool;
-      std::string err;
-      int ret =
-          OutputPoolState::Create("od_out", 3, spec, binding, &pool, &err);
-      EXPECT_NE(ret, 0) << "Expected failure at stage "
-                        << static_cast<int>(stage) << " target block "
-                        << target_idx;
-      EXPECT_EQ(pool, nullptr);
-      EXPECT_FALSE(err.empty());
-
-      uint64_t constructed = OutputPoolState::GetConstructedCount();
-      uint64_t destroyed = OutputPoolState::GetDestroyedCount();
-      EXPECT_EQ(constructed, destroyed)
-          << "Constructed (" << constructed << ") and Destroyed (" << destroyed
-          << ") mismatch at stage " << static_cast<int>(stage) << " block "
-          << target_idx;
-    }
-  }
-  OutputPoolState::ResetInstanceCounters();
-}
-
-TEST_F(OperatorOutputPoolTest,
-       EveryOutputFactoryHonorsNamedRootNestedAndCleanupFailures) {
-  const std::vector<std::string> suffixes = {
-      "doc_out", "keyword_out", "entity_out", "audit_out",
-      "od_out",  "audio_out",   "rerank_out"};
-
-  for (const auto& suffix : suffixes) {
-    const auto* binding =
-        OperatorValueTypeRegistry::Instance().GetBindingBySuffix(suffix);
-    ASSERT_NE(binding, nullptr) << suffix;
-    ResolvedOutputPoolSpec spec;
-    spec.type = suffix;
-
-    std::vector<OutputPoolState::FailureStage> stages = {
-        OutputPoolState::FailureStage::kRootStructAlloc,
-        OutputPoolState::FailureStage::kCleanupRegister};
-    if (suffix != "rerank_out") {
-      stages.push_back(OutputPoolState::FailureStage::kNestedStringAlloc);
-    }
-
-    for (const auto stage : stages) {
-      OutputPoolState::ResetInstanceCounters();
-      OutputPoolState::SetFailureStageProbe(stage, 0);
-      std::shared_ptr<OutputPoolState> pool;
-      std::string err;
-      EXPECT_NE(OutputPoolState::Create(suffix, 1, spec, binding, &pool, &err),
-                0)
-          << suffix << " stage=" << static_cast<int>(stage);
-      EXPECT_EQ(pool, nullptr) << suffix;
-      EXPECT_FALSE(err.empty()) << suffix;
-      EXPECT_EQ(OutputPoolState::GetConstructedCount(),
-                OutputPoolState::GetDestroyedCount())
-          << suffix << " stage=" << static_cast<int>(stage);
-    }
-  }
-  OutputPoolState::ResetInstanceCounters();
 }
 
 // 9. 严格 spec.type 与 64 MiB 预算边界拦截 (R9-005)
@@ -412,6 +248,243 @@ TEST_F(OperatorOutputPoolTest, StrictSpecTypeAndMemoryBudgetBoundary) {
     EXPECT_EQ(pool, nullptr);
     EXPECT_NE(err.find("64 MiB"), std::string::npos);
   }
+}
+
+TEST_F(OperatorOutputPoolTest,
+       EveryAllocationFailureReleasesResourcesAndAllowsRetry) {
+  const char* types[] = {"keyword_out", "entity_out", "doc_out", "audit_out",
+                         "audio_out",   "rerank_out", "od_out"};
+  for (const char* type : types) {
+    const std::string suffix(type);
+    const auto* binding =
+        OperatorValueTypeRegistry::Instance().GetBindingBySuffix(suffix);
+    ASSERT_NE(binding, nullptr);
+    ResolvedOutputPoolSpec spec;
+    spec.type = suffix;
+    if (suffix == "od_out") {
+      spec.meta_num = 5;
+      spec.metadata_type_id = 1;
+    }
+    // Multiple blocks exercise rollback after earlier blocks have succeeded.
+    for (uint32_t depth : {1u, 3u}) {
+      bool completed = false;
+      for (int step = 0; step < 4096; ++step) {
+        SCOPED_TRACE(suffix + " depth=" + std::to_string(depth) +
+                     " allocation=" + std::to_string(step));
+        bool injected = false;
+        bool published = false;
+        bool ready = false;
+        bool overflowed = false;
+        size_t outstanding = 0;
+        int result = -4;
+        {
+          test_support::ScopedAllocationFailure failure(step);
+          {
+            std::shared_ptr<OutputPoolState> pool;
+            std::string error;
+            try {
+              result = OutputPoolState::Create(suffix, depth, spec, binding,
+                                               &pool, &error);
+            } catch (const std::bad_alloc&) {
+              // Preflight allocations may propagate to the Operator exception
+              // barrier; they must also leave no pool or leaked allocations.
+            }
+            failure.DisableFailure();
+            published = pool != nullptr;
+            ready = pool && pool->Depth() == depth &&
+                    pool->FreeBlockCount() == depth &&
+                    pool->CheckedOutCount() == 0;
+          }
+          injected = failure.Triggered();
+          outstanding = failure.Outstanding();
+          overflowed = failure.Overflowed();
+        }
+        ASSERT_FALSE(overflowed);
+        EXPECT_EQ(outstanding, 0u);
+        if (!injected) {
+          EXPECT_EQ(result, 0);
+          EXPECT_TRUE(ready);
+          completed = true;
+          break;
+        }
+        EXPECT_NE(result, 0);
+        EXPECT_FALSE(published);
+        std::shared_ptr<OutputPoolState> recovered;
+        std::string error;
+        ASSERT_EQ(OutputPoolState::Create(suffix, depth, spec, binding,
+                                          &recovered, &error),
+                  0)
+            << error;
+        EXPECT_EQ(recovered->FreeBlockCount(), depth);
+        EXPECT_EQ(recovered->CheckedOutCount(), 0u);
+      }
+      EXPECT_TRUE(completed)
+          << "Allocation sweep never reached successful creation";
+    }
+  }
+}
+
+TEST_F(OperatorOutputPoolTest,
+       PublicationAllocationFailuresRollbackWholeBatch) {
+  constexpr uint32_t kDepth = 3;
+  ResolvedOutputPoolSpec spec;
+  spec.type = "keyword_out";
+  const auto* binding =
+      OperatorValueTypeRegistry::Instance().GetBindingBySuffix(spec.type);
+  std::shared_ptr<OutputPoolState> pool;
+  std::string error;
+  ASSERT_EQ(
+      OutputPoolState::Create(spec.type, kDepth, spec, binding, &pool, &error),
+      0);
+  bool completed = false;
+  for (int step = 0; step < 4096; ++step) {
+    SCOPED_TRACE(step);
+    operator_api::NamedIoBatch outputs(kDepth);
+    std::vector<AcquiredOutputBlock> acquired;
+    ScopedOutputLeaseGuard lease;
+    lease.Reserve(kDepth);
+    ASSERT_EQ(pool->FreeBlockCount(), kDepth);
+    for (uint32_t i = 0; i < kDepth; ++i) {
+      outputs[i]["client.keyword_out"] = nullptr;
+      void* block = nullptr;
+      ASSERT_EQ(pool->Acquire(&block), 0);
+      lease.Track(pool, block);
+      acquired.push_back({i, "client.keyword_out", pool, block});
+    }
+    bool threw = false;
+    bool injected = false;
+    bool all_null = false;
+    bool all_present = false;
+    size_t outstanding = 0;
+    bool overflowed = false;
+    {
+      test_support::ScopedAllocationFailure failure(step);
+      try {
+        PublishOperatorOutputs(acquired, &outputs, &lease);
+      } catch (const std::bad_alloc&) {
+        threw = true;
+      }
+      failure.DisableFailure();
+      all_null = true;
+      all_present = true;
+      for (const auto& frame : outputs) {
+        all_null &= !frame.begin()->second;
+        all_present &= static_cast<bool>(frame.begin()->second);
+      }
+      // The same guard used by Process rolls back any unpublished leases.
+      lease.Rollback();
+      outputs.clear();
+      injected = failure.Triggered();
+      outstanding = failure.Outstanding();
+      overflowed = failure.Overflowed();
+    }
+    ASSERT_FALSE(overflowed);
+    EXPECT_EQ(outstanding, 0u);
+    EXPECT_EQ(pool->CheckedOutCount(), 0u);
+    ASSERT_EQ(pool->FreeBlockCount(), kDepth);
+    if (!injected) {
+      EXPECT_FALSE(threw);
+      EXPECT_TRUE(all_present);
+      completed = true;
+      break;
+    }
+    EXPECT_TRUE(threw);
+    EXPECT_TRUE(all_null);
+  }
+  EXPECT_TRUE(completed)
+      << "Allocation sweep never reached successful publication";
+}
+
+TEST_F(OperatorOutputPoolTest,
+       AllocationFailureScopeRestoresAndIsolatesThreads) {
+  std::atomic<bool> worker_start{false};
+  bool worker_ok = false;
+  std::thread worker([&] {
+    while (!worker_start.load()) std::this_thread::yield();
+    try {
+      void* ptr = ::operator new(32);
+      ::operator delete(ptr);
+      worker_ok = true;
+    } catch (...) {
+    }
+  });
+  bool inner_threw = false;
+  bool outer_threw = false;
+  bool inner_injected = false;
+  bool outer_injected = false;
+  {
+    test_support::ScopedAllocationFailure outer(0);
+    worker_start = true;
+    worker.join();
+    {
+      test_support::ScopedAllocationFailure inner(0);
+      try {
+        void* ptr = ::operator new(16);
+        ::operator delete(ptr);
+      } catch (const std::bad_alloc&) {
+        inner_threw = true;
+      }
+      inner_injected = inner.Triggered();
+    }
+    try {
+      void* ptr = ::operator new(16);
+      ::operator delete(ptr);
+    } catch (const std::bad_alloc&) {
+      outer_threw = true;
+    }
+    outer_injected = outer.Triggered();
+  }
+  EXPECT_TRUE(worker_ok);
+  EXPECT_TRUE(inner_threw && inner_injected);
+  EXPECT_TRUE(outer_threw && outer_injected);
+  // Unwinding an armed scope restores the default allocation behavior too.
+  try {
+    test_support::ScopedAllocationFailure failure(0);
+    throw 1;
+  } catch (int) {
+  }
+  EXPECT_NO_THROW({
+    void* ptr = ::operator new(16);
+    ::operator delete(ptr);
+  });
+}
+
+TEST_F(OperatorOutputPoolTest,
+       AllocationLedgerTracksScalarArrayAndAlignedStorage) {
+  size_t live = 0;
+  size_t released = 1;
+  bool overflowed = false;
+  bool nothrow_failed = false;
+  bool aligned = false;
+  {
+    test_support::ScopedAllocationFailure scope;
+    void* scalar = ::operator new(17);
+    void* array = ::operator new[](33, std::nothrow);
+    void* storage = ::operator new(65, std::align_val_t{64});
+    void* aligned_array =
+        ::operator new[](129, std::align_val_t{64}, std::nothrow);
+    aligned = reinterpret_cast<uintptr_t>(storage) % 64 == 0 &&
+              reinterpret_cast<uintptr_t>(aligned_array) % 64 == 0;
+    live = scope.Outstanding();
+    {
+      test_support::ScopedAllocationFailure nested(0);
+      void* failed = ::operator new(17, std::nothrow);
+      nothrow_failed = failed == nullptr && nested.Triggered();
+      ::operator delete(failed);
+      // Deallocation in a nested scope must also update its parent's ledger.
+      ::operator delete(scalar, size_t{17});
+      ::operator delete[](array);
+      ::operator delete(storage, size_t{65}, std::align_val_t{64});
+      ::operator delete[](aligned_array, std::align_val_t{64});
+    }
+    released = scope.Outstanding();
+    overflowed = scope.Overflowed();
+  }
+  EXPECT_EQ(live, 4u);
+  EXPECT_EQ(released, 0u);
+  EXPECT_FALSE(overflowed);
+  EXPECT_TRUE(nothrow_failed);
+  EXPECT_TRUE(aligned);
 }
 
 }  // namespace llm_edgeflow

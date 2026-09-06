@@ -15,7 +15,6 @@
 
 #include "adapter/operator/company_conf_resolver.h"
 #include "adapter/operator/operator_biz_bridge_registry.h"
-#include "adapter/operator/operator_output_pool.h"
 #include "adapter/operator/operator_value_type_registry.h"
 #include "company_alg_interface.h"
 #include "engine/backend_registry.h"
@@ -1251,60 +1250,6 @@ TEST_F(OperatorApiTest, ShortStringSsoAndAddressStability) {
   EXPECT_EQ(ops_.Destroy(handle), 0);
 }
 
-// 23. 控制块构造失败注入与两阶段原子发布回滚测试 (R9-002)
-TEST_F(OperatorApiTest, AtomicPublishFailureRollback) {
-  std::string root_dir = GetConfDir();
-  CreateParam param{};
-  param.model_path = root_dir.c_str();
-  param.cfg_file_name = "configs/pipeline_keyword_match.conf";
-  param.device_id = 0;
-  param.compute_platform = ComputePlatform::kAx650;
-  param.max_frame_depth = 5;
-
-  void* handle = nullptr;
-  ASSERT_EQ(ops_.Create(&handle, &param), 0);
-  ASSERT_NE(handle, nullptr);
-
-  char sent1[] = "VIP";
-  CompanyString cs1{3, sent1};
-  CompanyOperatorKeywordInput in1{80001, &cs1};
-
-  char sent2[] = "urgent";
-  CompanyString cs2{6, sent2};
-  CompanyOperatorKeywordInput in2{80002, &cs2};
-
-  NamedIoBatch batch_inputs(2);
-  batch_inputs[0]["client_channel.keyword_in"] =
-      MakeBorrowedOperatorInput(&in1);
-  batch_inputs[1]["client_channel.keyword_in"] =
-      MakeBorrowedOperatorInput(&in2);
-
-  NamedIoBatch batch_outputs(2);
-  batch_outputs[0]["client_channel.keyword_out"] = nullptr;
-  batch_outputs[1]["client_channel.keyword_out"] = nullptr;
-
-  // 注入探针：在发布第 2 个控制块 (index=1) 时模拟 bad_alloc 异常
-  llm_edgeflow::OutputPoolState::SetPublishFailureCountdown(1);
-
-  int ret = ops_.Process(handle, batch_inputs, batch_outputs);
-  // 必须返回异常捕获错误 -99
-  EXPECT_EQ(ret, -99);
-
-  // 验证两阶段发布原子性：任何一个失败，对外输出必须全部保持 null
-  EXPECT_EQ(batch_outputs[0]["client_channel.keyword_out"], nullptr);
-  EXPECT_EQ(batch_outputs[1]["client_channel.keyword_out"], nullptr);
-
-  // 验证池中块全量安全回退：下一次正常请求仍可完整获取所有块
-  llm_edgeflow::OutputPoolState::SetPublishFailureCountdown(-1);
-  ret = ops_.Process(handle, batch_inputs, batch_outputs);
-  EXPECT_EQ(ret, 0);
-  EXPECT_NE(batch_outputs[0]["client_channel.keyword_out"], nullptr);
-  EXPECT_NE(batch_outputs[1]["client_channel.keyword_out"], nullptr);
-
-  batch_outputs.clear();
-  EXPECT_EQ(ops_.Destroy(handle), 0);
-}
-
 // 24. 严格路径沙箱与非法路径拦截测试 (R9-003)
 TEST_F(OperatorApiTest, PathSandboxStrictBoundaries) {
   std::string root_dir = GetConfDir();
@@ -1386,94 +1331,6 @@ TEST_F(OperatorApiTest, DepthLimitAndTotalMemoryBudget) {
   void* handle = nullptr;
   EXPECT_EQ(ops_.Create(&handle, &param), -2);
   EXPECT_EQ(handle, nullptr);
-}
-
-// 26. 两阶段发布控制块在第 1 个/中间/最后 1 个块失败时的零泄漏与原子回退
-// (R9-002, R9-007)
-TEST_F(OperatorApiTest, AtomicPublishFailureFirstMiddleLast) {
-  std::string root_dir = GetConfDir();
-  CreateParam param{};
-  param.model_path = root_dir.c_str();
-  param.cfg_file_name = "configs/pipeline_keyword_match.conf";
-  param.device_id = 0;
-  param.compute_platform = ComputePlatform::kAx650;
-  param.max_frame_depth = 10;
-
-  void* handle = nullptr;
-  ASSERT_EQ(ops_.Create(&handle, &param), 0);
-  ASSERT_NE(handle, nullptr);
-
-  char s1[] = "one", s2[] = "two", s3[] = "three";
-  CompanyString cs1{3, s1}, cs2{3, s2}, cs3{5, s3};
-  CompanyOperatorKeywordInput in1{1, &cs1}, in2{2, &cs2}, in3{3, &cs3};
-
-  NamedIoBatch batch_inputs(3);
-  batch_inputs[0]["client.keyword_in"] = MakeBorrowedOperatorInput(&in1);
-  batch_inputs[1]["client.keyword_in"] = MakeBorrowedOperatorInput(&in2);
-  batch_inputs[2]["client.keyword_in"] = MakeBorrowedOperatorInput(&in3);
-
-  // 1. 在第 1 个控制块 (countdown=0) 时模拟 bad_alloc
-  {
-    NamedIoBatch batch_outputs(3);
-    batch_outputs[0]["client.keyword_out"] = nullptr;
-    batch_outputs[1]["client.keyword_out"] = nullptr;
-    batch_outputs[2]["client.keyword_out"] = nullptr;
-
-    llm_edgeflow::OutputPoolState::SetPublishFailureCountdown(0);
-    int ret = ops_.Process(handle, batch_inputs, batch_outputs);
-    EXPECT_EQ(ret, -99);
-    EXPECT_EQ(batch_outputs[0]["client.keyword_out"], nullptr);
-    EXPECT_EQ(batch_outputs[1]["client.keyword_out"], nullptr);
-    EXPECT_EQ(batch_outputs[2]["client.keyword_out"], nullptr);
-  }
-
-  // 2. 在中间第 2 个控制块 (countdown=1) 时模拟 bad_alloc
-  {
-    NamedIoBatch batch_outputs(3);
-    batch_outputs[0]["client.keyword_out"] = nullptr;
-    batch_outputs[1]["client.keyword_out"] = nullptr;
-    batch_outputs[2]["client.keyword_out"] = nullptr;
-
-    llm_edgeflow::OutputPoolState::SetPublishFailureCountdown(1);
-    int ret = ops_.Process(handle, batch_inputs, batch_outputs);
-    EXPECT_EQ(ret, -99);
-    EXPECT_EQ(batch_outputs[0]["client.keyword_out"], nullptr);
-    EXPECT_EQ(batch_outputs[1]["client.keyword_out"], nullptr);
-    EXPECT_EQ(batch_outputs[2]["client.keyword_out"], nullptr);
-  }
-
-  // 3. 在最后第 3 个控制块 (countdown=2) 时模拟 bad_alloc
-  {
-    NamedIoBatch batch_outputs(3);
-    batch_outputs[0]["client.keyword_out"] = nullptr;
-    batch_outputs[1]["client.keyword_out"] = nullptr;
-    batch_outputs[2]["client.keyword_out"] = nullptr;
-
-    llm_edgeflow::OutputPoolState::SetPublishFailureCountdown(2);
-    int ret = ops_.Process(handle, batch_inputs, batch_outputs);
-    EXPECT_EQ(ret, -99);
-    EXPECT_EQ(batch_outputs[0]["client.keyword_out"], nullptr);
-    EXPECT_EQ(batch_outputs[1]["client.keyword_out"], nullptr);
-    EXPECT_EQ(batch_outputs[2]["client.keyword_out"], nullptr);
-  }
-
-  // 4. 重置探针后正常执行全部 3 帧
-  {
-    llm_edgeflow::OutputPoolState::SetPublishFailureCountdown(-1);
-    NamedIoBatch batch_outputs(3);
-    batch_outputs[0]["client.keyword_out"] = nullptr;
-    batch_outputs[1]["client.keyword_out"] = nullptr;
-    batch_outputs[2]["client.keyword_out"] = nullptr;
-
-    int ret = ops_.Process(handle, batch_inputs, batch_outputs);
-    EXPECT_EQ(ret, 0);
-    EXPECT_NE(batch_outputs[0]["client.keyword_out"], nullptr);
-    EXPECT_NE(batch_outputs[1]["client.keyword_out"], nullptr);
-    EXPECT_NE(batch_outputs[2]["client.keyword_out"], nullptr);
-    batch_outputs.clear();
-  }
-
-  EXPECT_EQ(ops_.Destroy(handle), 0);
 }
 
 // 27. 全部 7 类核心业务最大 Batch 边界与两端样本读取正确性验证 (R9-001)

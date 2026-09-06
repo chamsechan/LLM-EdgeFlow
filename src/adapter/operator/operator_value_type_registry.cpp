@@ -1,32 +1,17 @@
 #include "adapter/operator/operator_value_type_registry.h"
 
-#include <atomic>
 #include <cstring>
 #include <limits>
 #include <memory>
 #include <new>
 #include <stdexcept>
 
-#include "adapter/operator/operator_output_pool.h"
 #include "company_alg_interface.h"
 #include "operator/company_operator_types.h"
 
 namespace llm_edgeflow {
 
 namespace {
-
-std::atomic<int> g_alloc_failure_countdown{-1};
-std::atomic<OperatorValueTypeRegistry::RegistryExceptionInjectPoint>
-    g_registry_inject_point{
-        OperatorValueTypeRegistry::RegistryExceptionInjectPoint::kNone};
-
-void CheckAllocFailureProbe() {
-  if (g_alloc_failure_countdown.load() >= 0) {
-    if (g_alloc_failure_countdown.fetch_sub(1) == 0) {
-      throw std::bad_alloc();
-    }
-  }
-}
 
 const CompanyAnyTypeDescriptor kBuiltinAnyTypes[] = {
     {0, 0, 1, "none"},
@@ -38,28 +23,23 @@ const CompanyAnyTypeDescriptor kBuiltinAnyTypes[] = {
 };
 
 inline void DeleteCharArray(void* p) noexcept {
-  OutputPoolState::RecordDestroyed();
   delete[] static_cast<char*>(p);
 }
 
 inline void DeleteCompanyString(void* p) noexcept {
-  OutputPoolState::RecordDestroyed();
   delete static_cast<CompanyString*>(p);
 }
 
 inline void DeleteCompanyAny(void* p) noexcept {
-  OutputPoolState::RecordDestroyed();
   delete static_cast<CompanyAny*>(p);
 }
 
 inline void DeleteAnyPayload(void* p) noexcept {
-  OutputPoolState::RecordDestroyed();
   delete[] static_cast<uint8_t*>(p);
 }
 
 template <typename T>
 inline void DeleteTypedObject(void* p) noexcept {
-  OutputPoolState::RecordDestroyed();
   delete static_cast<T*>(p);
 }
 
@@ -67,15 +47,9 @@ void RegisterCleanup(OwnedExternalBlock* block, CleanupAction action);
 
 template <typename T>
 T* AllocateRootOutput(size_t cleanup_capacity, OwnedExternalBlock* block) {
-  if (OutputPoolState::GetFailureStageProbe() ==
-      OutputPoolState::FailureStage::kRootStructAlloc) {
-    return nullptr;
-  }
   block->cleanups.reserve(cleanup_capacity);
-  CheckAllocFailureProbe();
   std::unique_ptr<T, decltype(&DeleteTypedObject<T>)> holder(
       new T(), DeleteTypedObject<T>);
-  OutputPoolState::RecordConstructed();
   T* raw = holder.get();
   RegisterCleanup(block, {raw, DeleteTypedObject<T>});
   holder.release();
@@ -87,30 +61,16 @@ void DestroyExternalBlock(OwnedExternalBlock* block) noexcept {
 }
 
 void RegisterCleanup(OwnedExternalBlock* block, CleanupAction action) {
-  if (OutputPoolState::GetFailureStageProbe() ==
-          OutputPoolState::FailureStage::kCleanupRegister &&
-      static_cast<int>(block->cleanups.size()) ==
-          OutputPoolState::GetTargetBlockIndex()) {
-    throw std::bad_alloc();
-  }
   block->cleanups.push_back(action);
 }
 
 CompanyString* AllocateNestedCompanyString(uint32_t capacity,
                                            OwnedExternalBlock* block) {
-  if (OutputPoolState::GetFailureStageProbe() ==
-      OutputPoolState::FailureStage::kNestedStringAlloc) {
-    throw std::bad_alloc();
-  }
-  CheckAllocFailureProbe();
   std::unique_ptr<CompanyString, decltype(&DeleteCompanyString)> str(
       new CompanyString(), DeleteCompanyString);
-  OutputPoolState::RecordConstructed();
-  CheckAllocFailureProbe();
   size_t alloc_bytes = static_cast<size_t>(capacity) + 1;
   std::unique_ptr<char[], decltype(&DeleteCharArray)> data(
       new char[alloc_bytes], DeleteCharArray);
-  OutputPoolState::RecordConstructed();
   std::memset(data.get(), 0, alloc_bytes);
 
   str->length = 0;
@@ -134,22 +94,14 @@ CompanyAny* AllocateNestedCompanyAny(uint32_t meta_num, int32_t type_id,
   if (!desc || desc->element_size == 0) {
     return nullptr;
   }
-  if (OutputPoolState::GetFailureStageProbe() ==
-      OutputPoolState::FailureStage::kNestedAnyAlloc) {
-    throw std::bad_alloc();
-  }
-  CheckAllocFailureProbe();
   std::unique_ptr<CompanyAny, decltype(&DeleteCompanyAny)> any(
       new CompanyAny(), DeleteCompanyAny);
-  OutputPoolState::RecordConstructed();
   size_t total_bytes = 0;
   if (!CheckedMultiply(meta_num, desc->element_size, &total_bytes)) {
     return nullptr;
   }
-  CheckAllocFailureProbe();
   std::unique_ptr<uint8_t[], decltype(&DeleteAnyPayload)> data(
       new uint8_t[total_bytes], DeleteAnyPayload);
-  OutputPoolState::RecordConstructed();
   std::memset(data.get(), 0, total_bytes);
 
   any->type_id = type_id;
@@ -448,25 +400,6 @@ bool ComputeOutputPoolPayloadBytes(const std::string& suffix,
   return ComputeOutputPoolPayloadBytes(*binding, spec, depth, out_bytes, err);
 }
 
-void OperatorValueTypeRegistry::SetAllocationFailureCountdown(
-    int count) noexcept {
-  g_alloc_failure_countdown.store(count);
-}
-
-int OperatorValueTypeRegistry::GetAllocationFailureCountdown() noexcept {
-  return g_alloc_failure_countdown.load();
-}
-
-void OperatorValueTypeRegistry::SetExceptionInjectPoint(
-    RegistryExceptionInjectPoint point) noexcept {
-  g_registry_inject_point.store(point);
-}
-
-OperatorValueTypeRegistry::RegistryExceptionInjectPoint
-OperatorValueTypeRegistry::GetExceptionInjectPoint() noexcept {
-  return g_registry_inject_point.load();
-}
-
 const CompanyAnyTypeDescriptor* FindCompanyAnyType(int32_t type_id) noexcept {
   for (const auto& item : kBuiltinAnyTypes) {
     if (item.type_id == type_id) {
@@ -707,24 +640,10 @@ bool OperatorValueTypeRegistry::RegisterBinding(
 
   // 原子预检通过后，通过 Copy-and-Swap 一次性提交
   try {
-    if (g_registry_inject_point.load() ==
-        OperatorValueTypeRegistry::RegistryExceptionInjectPoint::
-            kCopyCanonicalMap) {
-      throw std::runtime_error("Injected failure copying canonical map");
-    }
     auto temp_bindings = bindings_by_canonical_;
 
-    if (g_registry_inject_point.load() ==
-        OperatorValueTypeRegistry::RegistryExceptionInjectPoint::
-            kCanonicalInsert) {
-      throw std::runtime_error("Injected failure on canonical insert");
-    }
     temp_bindings[binding.canonical_suffix] = binding;
 
-    if (g_registry_inject_point.load() ==
-        OperatorValueTypeRegistry::RegistryExceptionInjectPoint::kPublish) {
-      throw std::runtime_error("Injected failure before registry publish");
-    }
     bindings_by_canonical_.swap(temp_bindings);
   } catch (...) {
     // 资源分配或复制异常不污染契约冲突状态，原快照保持不变

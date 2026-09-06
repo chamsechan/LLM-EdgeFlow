@@ -1,64 +1,6 @@
 #include "adapter/operator/operator_output_pool.h"
 
-#include <atomic>
-
 namespace llm_edgeflow {
-
-namespace {
-
-std::atomic<int> g_publish_failure_countdown{-1};
-std::atomic<OutputPoolState::FailureStage> g_failure_stage{
-    OutputPoolState::FailureStage::kNone};
-std::atomic<int> g_target_block_index{0};
-std::atomic<uint64_t> g_constructed_count{0};
-std::atomic<uint64_t> g_destroyed_count{0};
-
-}  // namespace
-
-void OutputPoolState::SetPublishFailureCountdown(int count) noexcept {
-  g_publish_failure_countdown.store(count);
-}
-
-int OutputPoolState::GetPublishFailureCountdown() noexcept {
-  return g_publish_failure_countdown.load();
-}
-
-void OutputPoolState::SetFailureStageProbe(FailureStage stage,
-                                           int target_block_index) noexcept {
-  g_failure_stage.store(stage);
-  g_target_block_index.store(target_block_index);
-}
-
-OutputPoolState::FailureStage OutputPoolState::GetFailureStageProbe() noexcept {
-  return g_failure_stage.load();
-}
-
-int OutputPoolState::GetTargetBlockIndex() noexcept {
-  return g_target_block_index.load();
-}
-
-uint64_t OutputPoolState::GetConstructedCount() noexcept {
-  return g_constructed_count.load();
-}
-
-uint64_t OutputPoolState::GetDestroyedCount() noexcept {
-  return g_destroyed_count.load();
-}
-
-void OutputPoolState::ResetInstanceCounters() noexcept {
-  g_constructed_count.store(0);
-  g_destroyed_count.store(0);
-  g_failure_stage.store(FailureStage::kNone);
-  g_target_block_index.store(0);
-}
-
-void OutputPoolState::RecordConstructed() noexcept {
-  g_constructed_count.fetch_add(1);
-}
-
-void OutputPoolState::RecordDestroyed() noexcept {
-  g_destroyed_count.fetch_add(1);
-}
 
 void OutputPoolDeleter::operator()(void*) const noexcept {
   if (auto pool = weak_pool.lock()) {
@@ -105,43 +47,18 @@ int OutputPoolState::Create(const std::string& suffix, uint32_t depth,
   }
 
   try {
-    if (g_failure_stage.load() == FailureStage::kPoolStateAlloc) {
-      throw std::bad_alloc();
-    }
-
     auto pool = std::shared_ptr<OutputPoolState>(new OutputPoolState());
     pool->canonical_suffix_ = suffix;
     pool->depth_ = effective_depth;
-    if (g_failure_stage.load() == FailureStage::kSpecCopy) {
-      throw std::bad_alloc();
-    }
     pool->spec_ = resolved_spec;
     pool->type_binding_ = binding;
 
-    if (g_failure_stage.load() == FailureStage::kAllBlocksReserve) {
-      throw std::bad_alloc();
-    }
     pool->all_blocks_.reserve(effective_depth);
-    if (g_failure_stage.load() == FailureStage::kFreeRingResize) {
-      throw std::bad_alloc();
-    }
     pool->free_ring_.resize(effective_depth, nullptr);
 
-    if (g_failure_stage.load() == FailureStage::kBlockStatesReserve) {
-      throw std::bad_alloc();
-    }
     pool->block_states_.reserve(effective_depth);
 
     for (uint32_t i = 0; i < effective_depth; ++i) {
-      if (g_failure_stage.load() == FailureStage::kHistoryBlockN &&
-          static_cast<int>(i) == g_target_block_index.load()) {
-        pool->DestroyBlocks();
-        if (out_pool) *out_pool = nullptr;
-        if (err)
-          *err = "Injected failure at history block " + std::to_string(i);
-        return -4;
-      }
-
       OwnedExternalBlock block;
       int ret = binding->allocate_external(resolved_spec, &block, err);
       if (ret != 0 || !block.raw_struct) {
@@ -151,17 +68,6 @@ int OutputPoolState::Create(const std::string& suffix, uint32_t depth,
           *err = "Failed allocating external block " + std::to_string(i);
         }
         return ret != 0 ? ret : -4;
-      }
-
-      if (g_failure_stage.load() == FailureStage::kLedgerRegister &&
-          static_cast<int>(i) == g_target_block_index.load()) {
-        block.Destroy();
-        pool->DestroyBlocks();
-        if (out_pool) *out_pool = nullptr;
-        if (err)
-          *err =
-              "Injected failure at ledger register block " + std::to_string(i);
-        return -4;
       }
 
       void* raw = block.raw_struct;
@@ -190,10 +96,7 @@ int OutputPoolState::Create(const std::string& suffix, uint32_t depth,
   }
 }
 
-OutputPoolState::~OutputPoolState() {
-  DestroyBlocks();
-  RecordDestroyed();
-}
+OutputPoolState::~OutputPoolState() { DestroyBlocks(); }
 
 int OutputPoolState::Acquire(void** out_block) {
   if (!out_block) return -2;
