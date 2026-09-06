@@ -14,12 +14,12 @@
 #include "adapter/biz_blackboard_keys.h"
 #include "adapter/deployment_model_resolver.h"
 #include "adapter/shared_algorithm_runtime.h"
-#include "adapter/templates/flat_struct_adapter.h"
-#include "adapter/templates/nested_array_adapter.h"
-#include "adapter/templates/nested_pointer_tree_adapter.h"
-#include "adapter/templates/tagged_union_adapter.h"
 #include "company_alg_cpp.hpp"
 #include "company_alg_interface.h"
+#include "tests/support/adapter_examples/flat_struct_adapter.h"
+#include "tests/support/adapter_examples/nested_array_adapter.h"
+#include "tests/support/adapter_examples/nested_pointer_tree_adapter.h"
+#include "tests/support/adapter_examples/tagged_union_adapter.h"
 
 namespace llm_edgeflow {
 
