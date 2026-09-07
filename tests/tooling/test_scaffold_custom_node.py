@@ -75,6 +75,22 @@ class ScaffoldCustomNodeTest(unittest.TestCase):
         self.assertIn("def.parallel_safe = false", result.stdout)
         self.assertNotIn('"adapter/', result.stdout)
 
+    def test_llm_starter_is_the_actual_generator_template(self):
+        source = SCAFFOLD.STARTER_LLM_TEMPLATE.read_text(encoding="utf-8")
+        generated = SCAFFOLD.render_model_node(
+            "StarterLlmNode", "LLM authoring starter", "llm",
+            ("input", "TextBatch", "1:1", "preserve"),
+            ("output", "TextBatch", "1:1", "preserve"))
+        self.assertEqual(generated, source)
+        result = self.run_cli("SwappedNode", "--kind", "model", "-m", "llm",
+                              "--in-port", "output:TextBatch", "--out-port", "input:TextBatch",
+                              "--description", 'StarterLlmNode "input"\n', "--dry-run")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertRegex(result.stdout, r'kInput\{"output",\s*"TextBatch"\}')
+        self.assertRegex(result.stdout, r'kOutput\{"input",\s*"TextBatch"\}')
+        self.assertIn('def.description = "StarterLlmNode \\"input\\"\\n";', result.stdout)
+        self.assertIn('class SwappedNode final', result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

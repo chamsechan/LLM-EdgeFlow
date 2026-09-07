@@ -103,6 +103,8 @@ kiteLLM 可从 GitHub 私有 Release 自动下载固定版本，直接引用头�
 
 | 目标 | 文档 |
 | :--- | :--- |
+| 第一次编写业务 Node：先改两个函数并跑通 Demo | [自定义 Node 入门](doc/dev_guide/first_custom_node.md) |
+| 理解端口、来源编号、模型绑定、Definition 和并发 | [Node 作者概念说明](doc/dev_guide/custom_node_concepts.md) |
 | 了解系统边界与数据流 | [架构设计](doc/architecture.md) |
 | 扩展 Adapter、Pipeline、Node、Model 或 Backend | [开发者指南](doc/developer_guide.md) |
 | 使用公共 C 日志接口 | [Logging 指南](doc/logging.md) |

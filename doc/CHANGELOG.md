@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-09-06 自定义 Node 渐进式入门
+
+- 新增[动手练习](dev_guide/first_custom_node.md)与[五个概念说明](dev_guide/custom_node_concepts.md)，从一次真实运行解释端口、来源编号、模型绑定、Definition 与并发声明。
+- `--kind model -m llm` 直接使用可阅读的轻量 C++ 模板，作者先填写 `BuildPrompt`、`FormatAnswer` 两个文本函数；保留既有基类、注册机制和失败检查。
+- 文档中的业务函数体进入现有 Node runner 编译和执行，验证提示词、回答清理、输入快照与来源；完整 PromptGuidedLlmNode 转为按需查阅的进阶参考。
+- 根目录、开发者指南和 custom Node 入口增加任务导航；教学模板只作为生成器输入和测试材料，未新增内置生产节点。
+
 ## 2026-09-06 自定义节点开发路径修复（RFC-0039）
 
 - 修复脚手架的 C++ 接口、端口数量关系解析、模型签名和注册测试片段；生成代码进入既有 Node runner 的编译和执行，默认保守声明并发能力。

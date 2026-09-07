@@ -780,7 +780,8 @@ class PromptContractModel final : public ILlmModel {
     prompts = input;
     last_options = options;
     *output = input;
-    for (auto& item : *output) item.data = "```text\n" + item.data + "\n```";
+    for (auto& item : *output)
+      item.data = response_prefix + item.data + response_suffix;
     if (wrong_count && !output->empty()) output->pop_back();
     if (wrong_request && !output->empty()) ++output->back().req_id;
     if (wrong_sub_id && !output->empty()) ++output->back().sub_id;
@@ -793,6 +794,8 @@ class PromptContractModel final : public ILlmModel {
   bool wrong_count = false;
   bool wrong_request = false;
   bool wrong_sub_id = false;
+  std::string response_prefix = "```text\n";
+  std::string response_suffix = "\n```";
 };
 
 nlohmann::json CustomPipeline(const std::string& biz) {
@@ -883,7 +886,7 @@ TEST_F(CommonNodesTest, PromptAndGeneratedLlmNodesFailWithoutPublishing) {
   ASSERT_TRUE(session_ctx_->GetModelManager().RegisterModel("prompt_contract",
                                                             model, "v1"));
   for (const char* name : {"PromptGuidedLlmNode", "ScaffoldModelLlmNode",
-                           "ScaffoldUnaryLlmNode"}) {
+                           "ScaffoldUnaryLlmNode", "ScaffoldTutorialLlmNode"}) {
     SCOPED_TRACE(name);
     auto node = NodeFactory::Instance().Create(name);
     ASSERT_NE(node, nullptr);
@@ -998,6 +1001,45 @@ TEST_F(CommonNodesTest, CustomAndGeneratedNodesUseStrictNativePlans) {
     ASSERT_EQ(node->Process(&ctx), 0);
     ASSERT_NE(ctx.Read<TextBatch>("llm_raw_answer"), nullptr);
     EXPECT_EQ(ctx.Read<TextBatch>("llm_raw_answer")->front().req_id, 31U);
+  }
+}
+
+TEST_F(CommonNodesTest, StarterTextFunctionsFollowTheDocumentedExercise) {
+  auto model = std::make_shared<PromptContractModel>();
+  model->response_prefix.clear();
+  model->response_suffix = "\n\n";
+  ASSERT_TRUE(session_ctx_->GetModelManager().RegisterModel("llm_0.6b_entity",
+                                                            model, "v1"));
+  auto document = CustomPipeline("entity_extract");
+  document["pipeline"][0]["node_type"] = "ScaffoldTutorialLlmNode";
+  document["pipeline"][0]["config"] = {{"bind_model", "llm_0.6b_entity"}};
+  const auto plan = PipelineValidator::ValidateAndPlan(document);
+  ASSERT_TRUE(plan.report.ok) << plan.report.ToJson().dump(2);
+  auto node = NodeFactory::Instance().Create("ScaffoldTutorialLlmNode");
+  ASSERT_NE(node, nullptr);
+  ASSERT_TRUE(node->Init(
+      {&plan.node_plans.at("custom_prompt"), nullptr, session_ctx_.get()}));
+
+  // Out-of-order request IDs and nonzero sub-IDs must survive both text
+  // functions.
+  const TextBatch inputs{{51, 8, "张三"}, {19, 3, "李四"}};
+  AlgContext ctx;
+  ctx.Publish("input_sentences", inputs);
+  ASSERT_EQ(node->Process(&ctx), 0);
+  ASSERT_EQ(model->prompts.size(), inputs.size());
+  const auto* output = ctx.Read<TextBatch>("llm_raw_answer");
+  ASSERT_NE(output, nullptr);
+  ASSERT_EQ(output->size(), inputs.size());
+  const auto* unchanged = ctx.Read<TextBatch>("input_sentences");
+  ASSERT_NE(unchanged, nullptr);
+  for (size_t i = 0; i < inputs.size(); ++i) {
+    const auto expected = "实体抽取：\n" + inputs[i].data;
+    EXPECT_EQ(model->prompts[i].data, expected);
+    EXPECT_EQ((*output)[i].data,
+              expected);  // Model's trailing newlines removed.
+    EXPECT_EQ((*output)[i].req_id, inputs[i].req_id);
+    EXPECT_EQ((*output)[i].sub_id, inputs[i].sub_id);
+    EXPECT_EQ((*unchanged)[i].data, inputs[i].data);
   }
 }
 
