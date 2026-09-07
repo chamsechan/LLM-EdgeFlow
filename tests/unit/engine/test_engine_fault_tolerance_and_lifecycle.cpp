@@ -12,7 +12,7 @@
 #include "company_alg_cpp.hpp"
 #include "company_alg_interface.h"
 #include "core/alg_context.h"
-#include "core/node_base.h"
+#include "core/node_interface.h"
 #include "core/node_registry.h"
 #include "core/pipeline.h"
 #include "engine/fixed_batch_executor.h"
@@ -258,7 +258,7 @@ TEST_F(EngineFaultToleranceAndLifecycleTest, Deep5LayerWavefrontDagExecution) {
   Pipeline pipeline;
   ASSERT_TRUE(pipeline.BuildFromJson(
       deep_dag_config, nullptr, ValidationPolicy::kPrivateExtensionCompatible));
-  EXPECT_EQ(pipeline.GetExecutionMode(), Pipeline::ExecutionMode::PARALLEL);
+  EXPECT_EQ(pipeline.GetExecutionMode(), Pipeline::ExecutionMode::kParallel);
 
   const auto& layers = pipeline.GetTopologicalLayers();
   ASSERT_EQ(layers.size(), 5);

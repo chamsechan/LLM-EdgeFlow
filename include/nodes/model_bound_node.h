@@ -5,7 +5,7 @@
 #include <utility>
 
 #include "core/pipeline_catalog.h"
-#include "nodes/node_support.h"
+#include "nodes/node_base.h"
 
 namespace llm_edgeflow {
 

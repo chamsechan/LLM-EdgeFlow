@@ -143,21 +143,6 @@ inline size_t ElementTypeByteSize(ElementType type) noexcept {
   }
 }
 
-inline const char* ElementTypeToString(ElementType type) noexcept {
-  switch (type) {
-    case ElementType::kFloat32:
-      return "float32";
-    case ElementType::kInt32:
-      return "int32";
-    case ElementType::kInt64:
-      return "int64";
-    case ElementType::kUInt8:
-      return "uint8";
-    default:
-      return "unknown";
-  }
-}
-
 /**
  * @brief 原生 C++ 类型到 ElementType 映射特化
  */
@@ -195,7 +180,9 @@ struct NativeTypeTraits<uint8_t> {
  */
 class HostTensorBuffer : public ITensorBuffer {
  public:
-  explicit HostTensorBuffer(size_t byte_size) {
+  // Retain the requested size on failure so a failed allocation is never
+  // mistaken for a valid zero-length buffer.
+  explicit HostTensorBuffer(size_t byte_size) : size_(byte_size) {
     if (byte_size > 0) {
       size_t alignment = 64;
       void* ptr = nullptr;
@@ -206,7 +193,6 @@ class HostTensorBuffer : public ITensorBuffer {
         std::memset(data_, 0, size_);
       } else {
         data_ = nullptr;
-        size_ = 0;
       }
     }
   }

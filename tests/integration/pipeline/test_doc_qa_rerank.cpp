@@ -47,7 +47,7 @@ TEST_F(DocQaRerankPipelineTest, ExecuteDocQaWithRerankerAndLlm) {
   std::string doc1 =
       "企业级算法框架设计规范：采用4层分层架构，包含C-"
       "ABI适配层、Pipeline调度层、通用算子池与底层硬件引擎抽象。"
-      "其中RerankRefineNode算子用于在粗筛后进行高精度的Cross-"
+      "其中TextRerankNode算子用于在粗筛后进行高精度的Cross-"
       "Encoder语义重排打分。";
   std::string query1 = "请问该框架中的Rerank算子有什么作用？";
   CompanyString doc1_cs{static_cast<int32_t>(doc1.size()),

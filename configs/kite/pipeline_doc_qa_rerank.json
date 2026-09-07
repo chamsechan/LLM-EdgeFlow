@@ -1,5 +1,5 @@
 {
-  "biz_name": "smart_doc_qa_rerank_llm_v1",
+  "biz_name": "smart_doc_qa_v1",
   "models": [
     {
       "model_id": "embed_model_onnx",

@@ -82,10 +82,10 @@ outputs.emplace_back(item.req_id, item.sub_id, new_value);
 | 字段 / 接口 | 练习中的值 | 说明 |
 | --- | --- | --- |
 | `capability` | `llm` | 模型提供哪一类能力 |
-| `model_type` | `test_business_llm` | 哪一种模型语义实现；本例为测试模型 |
+| `model_type` | `test_biz_llm` | 哪一种模型语义实现；本例为测试模型 |
 | `backend` | `test_causal_lm_backend` | 运行资源由哪一种后端实现提供；本例为测试后端 |
-| `model_id` | `llm_0.6b_entity` | Pipeline 为这个模型实例起的名字 |
-| 节点配置 `bind_model` | `llm_0.6b_entity` | 引用上面的模型实例，不是填写模型路径 |
+| `model_id` | `entity_llm` | Pipeline 为这个模型实例起的名字 |
+| 节点配置 `bind_model` | `entity_llm` | 引用上面的模型实例，不是填写模型路径 |
 | `ILlmModel` | C++ 接口 | 节点编译时依赖的能力约定 |
 
 模型类型和后端名称只是这个练习的已注册配置，其他环境以 Catalog 为准。
@@ -169,7 +169,7 @@ Definition 会帮助原生校验发现类型、字段和连线错误，但不会
 | 输出数量或来源不匹配 | 前后处理是否删项/换序/改编号，模型是否正确保留来源 |
 | 并行计划被拒绝 | 节点声明以及同层所使用模型的并发能力 |
 
-需要核对精确接口时，再查阅 [Node 支持代码](../../include/nodes/node_support.h)、
+需要核对精确接口时，再查阅 [Node 支持代码](../../include/nodes/node_base.h)、
 [模型绑定基类](../../include/nodes/model_bound_node.h)、
 [模型能力接口](../../include/engine/model_interface.h)和
 [Definition 声明](../../include/core/pipeline_catalog.h)。

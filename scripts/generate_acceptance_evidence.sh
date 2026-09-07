@@ -69,6 +69,8 @@ evidence = {
         "real_c_abi_and_public_profile": os.environ["REAL_GATE"],
     },
 }
+evidence["gates"]["whisper_asr_backend_and_real_profile"] = os.environ.get(
+    "WHISPER_GATE_RESULT", "not_run")
 if "KITELLM_GATE_RESULT" in os.environ:
     evidence["gates"]["kitellm_private_release_and_real_gguf"] = os.environ[
         "KITELLM_GATE_RESULT"]

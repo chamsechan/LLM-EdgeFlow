@@ -66,4 +66,9 @@ grep -Fq 'CCACHE_DIR: ${{ github.workspace }}/build/.ccache-sanitizers' \
 grep -Fq 'key: sanitizer-ccache-v1-' "${WORKFLOW}" ||
   fail "Workflow does not define a versioned sanitizer ccache key"
 
-echo "Sanitizer ccache contract passed."
+grep -Fq -- '-DBUILD_TESTING=ON' "${COMMAND_LOG}" ||
+  fail "Sanitizer configure must enable tests"
+grep -Fq -- '--no-tests=error' "${COMMAND_LOG}" ||
+  fail "Sanitizer CTest must reject an empty test collection"
+python3 "${SCRIPT_DIR}/test_quality_gate_contract.py"
+echo "Quality gate scripts and sanitizer ccache contracts passed."

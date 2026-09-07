@@ -7,7 +7,7 @@
 #include <unordered_set>
 #include <vector>
 
-#include "core/node_base.h"
+#include "core/node_interface.h"
 #include "core/node_registry.h"
 #include "core/pipeline.h"
 #include "core/pipeline_catalog.h"
@@ -307,7 +307,7 @@ TEST(ValidatedPipelinePlanTest, ResolvesConfiguredPortLifetimeBeforePlanning) {
       {"models",
        nlohmann::json::array({{{"model_id", "embed_model_v1"},
                                {"capability", "embedding"},
-                               {"model_type", "test_business_embedding"},
+                               {"model_type", "test_biz_embedding"},
                                {"backend", "test_tensor_backend"},
                                {"model_path", "fixture.bin"},
                                {"model_config", nlohmann::json::object()},

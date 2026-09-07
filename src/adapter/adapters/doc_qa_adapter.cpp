@@ -12,10 +12,6 @@
 namespace llm_edgeflow {
 
 inline static constexpr char kDocQaBizName[] = "smart_doc_qa_v1";
-inline static constexpr char kDocQaOnnxBizName[] =
-    "smart_doc_qa_onnx_llamacpp_v1";
-inline static constexpr char kDocQaRerankBizName[] =
-    "smart_doc_qa_rerank_llm_v1";
 
 class DocQaAdapter
     : public ResultPackingAdapter<DocQaAdapter, CompanyDocOutputStruct,
@@ -39,20 +35,6 @@ class DocQaAdapter
         {{kDocQaBizName,
           "doc_qa",
           "智能文档问答",
-          {RequiredInput(kRawRequestIds), RequiredInput(kRawDocs),
-           RequiredInput(kRawQueries)},
-          {Output(kLlmAnswers), Output(kIntentMatches),
-           Output(kDocChunkCounts)}},
-         {kDocQaOnnxBizName,
-          "doc_qa",
-          "智能文档问答（ONNX/llama.cpp）",
-          {RequiredInput(kRawRequestIds), RequiredInput(kRawDocs),
-           RequiredInput(kRawQueries)},
-          {Output(kLlmAnswers), Output(kIntentMatches),
-           Output(kDocChunkCounts)}},
-         {kDocQaRerankBizName,
-          "doc_qa",
-          "智能文档问答（精排）",
           {RequiredInput(kRawRequestIds), RequiredInput(kRawDocs),
            RequiredInput(kRawQueries)},
           {Output(kLlmAnswers), Output(kIntentMatches),

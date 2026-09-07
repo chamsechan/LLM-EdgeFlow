@@ -10,6 +10,56 @@
 #include "nodes/traceable_unary_inference_node.h"
 
 namespace llm_edgeflow {
+namespace {
+
+bool ParseGenerateOptions(const nlohmann::json& config,
+                          GenerateOptions* options, std::string* diagnostic) {
+  auto reject = [&](const std::string& message) {
+    if (diagnostic) *diagnostic = message;
+    return false;
+  };
+  try {
+    const auto max_tokens = config.value("max_tokens", nlohmann::json(128));
+    const auto top_k = config.value("top_k", nlohmann::json(0));
+    if (!max_tokens.is_number_integer() || max_tokens < 1 ||
+        max_tokens > 32768 || !top_k.is_number_integer() || top_k < 0 ||
+        top_k > std::numeric_limits<int32_t>::max()) {
+      return reject(
+          "max_tokens or top_k is outside the supported integer range");
+    }
+    const double temperature = config.value("temperature", 0.7);
+    const double top_p = config.value("top_p", 0.9);
+    const double repetition_penalty = config.value("repetition_penalty", 1.0);
+    if (!std::isfinite(temperature) || temperature < 0 || temperature > 2 ||
+        !std::isfinite(top_p) || top_p < 1.0e-9 || top_p > 1 ||
+        !std::isfinite(repetition_penalty) || repetition_penalty < 1.0e-9 ||
+        repetition_penalty > 100) {
+      return reject("Generation options are outside the supported range");
+    }
+    GenerateOptions parsed;
+    parsed.max_tokens = max_tokens.get<int>();
+    parsed.top_k = top_k.get<int>();
+    parsed.temperature = static_cast<float>(temperature);
+    parsed.top_p = static_cast<float>(top_p);
+    parsed.repetition_penalty = static_cast<float>(repetition_penalty);
+    if (config.contains("stop_words")) {
+      if (!config["stop_words"].is_array())
+        return reject("stop_words must be an array");
+      for (const auto& word : config["stop_words"]) {
+        if (!word.is_string() || word.get_ref<const std::string&>().empty()) {
+          return reject("stop_words must contain non-empty strings");
+        }
+        parsed.stop_words.push_back(word.get<std::string>());
+      }
+    }
+    if (options) *options = std::move(parsed);
+    return true;
+  } catch (const std::exception& error) {
+    return reject(error.what());
+  }
+}
+
+}  // namespace
 
 /**
  * @brief LLM 推理生成公共算子 (LlmGenerateNode, 调用绑定的 ILlmModel)
@@ -34,31 +84,7 @@ class LlmGenerateNode final
                                                     session_ctx)) {
       return false;
     }
-    gen_opt_.temperature = config.value("temperature", 0.7f);
-    gen_opt_.max_tokens = config.value("max_tokens", 128);
-    gen_opt_.top_k = config.value("top_k", 0);
-    gen_opt_.top_p = config.value("top_p", 0.9f);
-    gen_opt_.repetition_penalty = config.value("repetition_penalty", 1.0f);
-    if (gen_opt_.max_tokens <= 0 || !std::isfinite(gen_opt_.temperature) ||
-        gen_opt_.temperature < 0.0f || gen_opt_.temperature > 2.0f ||
-        gen_opt_.top_k < 0 || !std::isfinite(gen_opt_.top_p) ||
-        gen_opt_.top_p <= 0.0f || gen_opt_.top_p > 1.0f ||
-        !std::isfinite(gen_opt_.repetition_penalty) ||
-        gen_opt_.repetition_penalty <= 0.0f ||
-        gen_opt_.repetition_penalty > 100.0f) {
-      return false;
-    }
-    gen_opt_.stop_words.clear();
-    if (config.contains("stop_words")) {
-      if (!config["stop_words"].is_array()) return false;
-      for (const auto& stop_word : config["stop_words"]) {
-        if (!stop_word.is_string() || stop_word.get<std::string>().empty()) {
-          return false;
-        }
-        gen_opt_.stop_words.push_back(stop_word.get<std::string>());
-      }
-    }
-    return true;
+    return ParseGenerateOptions(config, &gen_opt_, nullptr);
   }
 
   int InferBatch(const InputBatch& prompts, OutputBatch* outputs) override {
@@ -77,6 +103,10 @@ NodeDefinition MakeLlmGenerateNodeDefinition() {
   NodeDefinition def;
   def.node_type = LlmGenerateNode::kNodeType;
   def.category = "common";
+  def.validate_config = [](const nlohmann::json& config, const auto&,
+                           std::string* diagnostic) {
+    return ParseGenerateOptions(config, nullptr, diagnostic);
+  };
   def.description = "LLM generate text inference node";
   def.inputs = {RequiredInputPort("prompt",
                                   BlackboardKey<TextBatch>{"", "TextBatch"},

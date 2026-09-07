@@ -14,8 +14,8 @@
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
 #include "engine/text/utf8.h"
+#include "nodes/node_base.h"
 #include "nodes/node_error_codes.h"
-#include "nodes/node_support.h"
 
 namespace llm_edgeflow {
 

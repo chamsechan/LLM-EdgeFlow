@@ -3,7 +3,7 @@
   "models": [
     {
       "capability": "asr",
-      "model_type": "test_business_asr",
+      "model_type": "test_biz_asr",
       "backend": "test_tensor_backend",
       "model_config": {
         "max_batch_size": 2

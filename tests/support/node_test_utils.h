@@ -2,7 +2,7 @@
 
 #include <nlohmann/json.hpp>
 
-#include "core/node_base.h"
+#include "core/node_interface.h"
 #include "core/session_context.h"
 
 namespace llm_edgeflow {

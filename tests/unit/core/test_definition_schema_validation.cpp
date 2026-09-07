@@ -7,7 +7,7 @@
 #include <vector>
 
 #include "core/common_contracts.h"
-#include "core/node_base.h"
+#include "core/node_interface.h"
 #include "core/node_registry.h"
 #include "core/pipeline.h"
 #include "core/pipeline_catalog.h"

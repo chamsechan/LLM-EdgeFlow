@@ -9,13 +9,13 @@
 namespace llm_edgeflow {
 namespace test {
 
-class TestBusinessEmbeddingModel final : public IEmbeddingModel {
+class TestBizEmbeddingModel final : public IEmbeddingModel {
  public:
-  inline static constexpr char kModelType[] = "test_business_embedding";
+  inline static constexpr char kModelType[] = "test_biz_embedding";
   static std::shared_ptr<IModel> Create(const ModelCreateContext& context,
                                         std::string* diagnostic);
 
-  TestBusinessEmbeddingModel(size_t embedding_dim, size_t max_batch_size);
+  TestBizEmbeddingModel(size_t embedding_dim, size_t max_batch_size);
   const std::string& ModelType() const noexcept override;
   const std::string& Capability() const noexcept override;
   InferenceConcurrency Concurrency() const noexcept override;
@@ -28,13 +28,13 @@ class TestBusinessEmbeddingModel final : public IEmbeddingModel {
   size_t max_batch_size_ = 4;
 };
 
-class TestBusinessRerankModel final : public IRerankModel {
+class TestBizRerankModel final : public IRerankModel {
  public:
-  inline static constexpr char kModelType[] = "test_business_rerank";
+  inline static constexpr char kModelType[] = "test_biz_rerank";
   static std::shared_ptr<IModel> Create(const ModelCreateContext& context,
                                         std::string* diagnostic);
 
-  explicit TestBusinessRerankModel(size_t max_batch_size);
+  explicit TestBizRerankModel(size_t max_batch_size);
   const std::string& ModelType() const noexcept override;
   const std::string& Capability() const noexcept override;
   InferenceConcurrency Concurrency() const noexcept override;
@@ -46,13 +46,13 @@ class TestBusinessRerankModel final : public IRerankModel {
   size_t max_batch_size_ = 4;
 };
 
-class TestBusinessLlmModel final : public ILlmModel {
+class TestBizLlmModel final : public ILlmModel {
  public:
-  inline static constexpr char kModelType[] = "test_business_llm";
+  inline static constexpr char kModelType[] = "test_biz_llm";
   static std::shared_ptr<IModel> Create(const ModelCreateContext& context,
                                         std::string* diagnostic);
 
-  explicit TestBusinessLlmModel(size_t max_batch_size);
+  explicit TestBizLlmModel(size_t max_batch_size);
   const std::string& ModelType() const noexcept override;
   const std::string& Capability() const noexcept override;
   InferenceConcurrency Concurrency() const noexcept override;
@@ -64,13 +64,13 @@ class TestBusinessLlmModel final : public ILlmModel {
   size_t max_batch_size_ = 2;
 };
 
-class TestBusinessOcrModel final : public IOcrModel {
+class TestBizOcrModel final : public IOcrModel {
  public:
-  inline static constexpr char kModelType[] = "test_business_ocr";
+  inline static constexpr char kModelType[] = "test_biz_ocr";
   static std::shared_ptr<IModel> Create(const ModelCreateContext& context,
                                         std::string* diagnostic);
 
-  explicit TestBusinessOcrModel(size_t max_batch_size);
+  explicit TestBizOcrModel(size_t max_batch_size);
   const std::string& ModelType() const noexcept override;
   const std::string& Capability() const noexcept override;
   InferenceConcurrency Concurrency() const noexcept override;
@@ -82,13 +82,13 @@ class TestBusinessOcrModel final : public IOcrModel {
   size_t max_batch_size_ = 2;
 };
 
-class TestBusinessAsrModel final : public IAsrModel {
+class TestBizAsrModel final : public IAsrModel {
  public:
-  inline static constexpr char kModelType[] = "test_business_asr";
+  inline static constexpr char kModelType[] = "test_biz_asr";
   static std::shared_ptr<IModel> Create(const ModelCreateContext& context,
                                         std::string* diagnostic);
 
-  explicit TestBusinessAsrModel(size_t max_batch_size);
+  explicit TestBizAsrModel(size_t max_batch_size);
   const std::string& ModelType() const noexcept override;
   const std::string& Capability() const noexcept override;
   InferenceConcurrency Concurrency() const noexcept override;

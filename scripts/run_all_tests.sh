@@ -47,6 +47,10 @@ if [[ -n "$GEN_ARG_STR" ]]; then
 fi
 
 CMAKE_ARGS=(
+  -DBUILD_TESTING=ON
+  -DENABLE_SANITIZERS=OFF
+  -DENABLE_KITELLM=OFF
+  -DENABLE_WHISPERCPP=OFF
   -DCMAKE_BUILD_TYPE=Release
   -DLLM_EDGEFLOW_SHARDED_TEST_RUNNERS=ON
   -DLLM_EDGEFLOW_LINKER="$SELECTED_LINKER"
@@ -68,7 +72,7 @@ echo -e "${GREEN}✓ Build completed.${NC}\n"
 # Steps 3-6 share one global scheduler. Labels retain stage ownership while
 # allowing slow integration and tooling tests to overlap safely.
 echo -e "${BOLD}[ Steps 3-6/6: Unified Tier 1-4 CTest scheduler ]${NC}"
-ctest --test-dir "$BUILD_DIR" -j"$JOBS" --output-on-failure
+ctest --test-dir "$BUILD_DIR" -j"$JOBS" --output-on-failure --no-tests=error
 
 echo -e "\n${BOLD}${GREEN}==================================================================${NC}"
 echo -e "${BOLD}${GREEN}  ✓ All required development gates passed in ${SECONDS}s.${NC}"

@@ -84,7 +84,7 @@ PipelineErrorCode ValidationCodeToPipelineCode(DiagnosticCode code) {
 struct RuntimeAssembly {
   std::unique_ptr<ValidatedPipelinePlan> plan;
   std::unique_ptr<SessionContext> session;
-  Pipeline::ExecutionMode execution_mode = Pipeline::ExecutionMode::SEQUENTIAL;
+  Pipeline::ExecutionMode execution_mode = Pipeline::ExecutionMode::kSequential;
   size_t max_parallel_workers = 4;
   std::vector<std::unique_ptr<INode>> nodes;
   std::vector<std::vector<INode*>> node_layers;
@@ -158,7 +158,7 @@ bool MaterializeModels(const ValidatedPipelinePlan& plan,
 void ConfigureExecutor(const ParsedPipelineConfig& config,
                        RuntimeAssembly* assembly) {
   if (config.execution_mode == "parallel") {
-    assembly->execution_mode = Pipeline::ExecutionMode::PARALLEL;
+    assembly->execution_mode = Pipeline::ExecutionMode::kParallel;
     assembly->max_parallel_workers = config.max_parallel_workers;
     assembly->thread_pool =
         std::make_unique<ThreadPool>(assembly->max_parallel_workers);
@@ -168,7 +168,7 @@ void ConfigureExecutor(const ParsedPipelineConfig& config,
     return;
   }
 
-  assembly->execution_mode = Pipeline::ExecutionMode::SEQUENTIAL;
+  assembly->execution_mode = Pipeline::ExecutionMode::kSequential;
   assembly->thread_pool.reset();
   ALG_LOG_INFO("[Pipeline] Sequential Execution Mode active\n");
 }
@@ -492,7 +492,7 @@ int Pipeline::Execute(AlgContext* req_ctx) {
     if (layer.empty()) continue;
 
     // 单节点层 或 顺序执行模式：直接主线程执行 (零线程切换开销)
-    if (layer.size() == 1 || execution_mode_ == ExecutionMode::SEQUENTIAL ||
+    if (layer.size() == 1 || execution_mode_ == ExecutionMode::kSequential ||
         !thread_pool_) {
       for (auto* node : layer) {
         int ret = node->Process(req_ctx);

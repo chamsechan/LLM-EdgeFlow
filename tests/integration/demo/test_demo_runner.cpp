@@ -120,7 +120,7 @@ TEST(DemoRunnerTest, RealKiteEntityExtractionThroughOperator) {
   ASSERT_TRUE(conf_input.good());
   auto conf = nlohmann::json::parse(conf_input);
   conf["data"]["pipe_path"] = "pipeline.json";
-  conf["data"]["model_paths"]["llm_0.6b_gguf"] = "model.gguf";
+  conf["data"]["model_paths"]["entity_llm"] = "model.gguf";
   std::ofstream(temporary.path / "pipeline.conf") << conf.dump(2);
   std::ofstream(temporary.path / "run.json")
       << R"({"schema_version":1,"model":{"context_size":256,"threads":2,"threads_batch":2,"gpu_layers":0},"logging":{"level":"error"}})";

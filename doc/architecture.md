@@ -205,6 +205,12 @@ dependency interface；根 `CMakeLists.txt` 是唯一 Composition Root，另以
 `edgeflow_composition_objects` 持有日志和共享运行时装配翻译单元。最终 SDK、仓库工具和
 测试只聚合这些对象，不重新声明层内源码。
 
+聚合 include 搜索路径用于仓库内构建，不是编译器访问权限。分层约束由
+`scripts/check_layer_dependencies.py` 按解析后的 include 路径检查，覆盖实现与公共头、
+相对路径、共享辅助头及具体 Backend 的 vendor 头。Node 可引用的中性 Core 契约使用
+显式清单；新增契约或改变依赖方向需同步设计与规则。LayerGuard 自测注入反向依赖，
+验证这些规则能够拒绝违规源码。
+
 业务 ingress/egress 的 Blackboard key 名称由接入适配层的
 `adapter/biz_blackboard_keys.h` 持有；流程编排层只提供 Blackboard 机制和中性值类型，
 能力节点层通过 `ValidatedNodePlan` 中已经解析的逻辑端口工作。这样业务槽位命名不会成为
@@ -264,7 +270,7 @@ Adapter/Definition、Pipeline JSON、GoogleTest，并通过完整门禁；不得
 
 ```cpp
 #include "core/node_registry.h"
-#include "nodes/node_support.h"
+#include "nodes/node_base.h"
 
 namespace llm_edgeflow {
 

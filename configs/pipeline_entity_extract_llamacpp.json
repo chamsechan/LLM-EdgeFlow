@@ -1,8 +1,8 @@
 {
-  "biz_name": "entity_extract_llamacpp_0.6b_v1",
+  "biz_name": "entity_extract_v1",
   "models": [
     {
-      "model_id": "llm_0.6b_gguf",
+      "model_id": "entity_llm",
       "capability": "llm",
       "model_type": "qwen_causal_lm",
       "backend": "llama_cpp",
@@ -55,7 +55,7 @@
         }
       },
       "config": {
-        "bind_model": "llm_0.6b_gguf",
+        "bind_model": "entity_llm",
         "max_tokens": 64,
         "temperature": 0.1
       }

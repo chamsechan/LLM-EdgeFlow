@@ -33,7 +33,7 @@
 先查询当前构建，确认要复用的业务和节点：
 
 ```bash
-./build/alg_pipeline_tool catalog --biz entity_extract_0.6b_v1
+./build/alg_pipeline_tool catalog --biz entity_extract_v1
 ./build/alg_pipeline_tool describe-node StructuredJsonParseNode
 ```
 
@@ -107,7 +107,7 @@ cp demo/fixtures/mock/pipeline_entity_extract_custom.conf demo/fixtures/mock/pip
   模板、清洗和采样配置字段。
 
 ```json
-{"bind_model": "llm_0.6b_entity"}
+{"bind_model": "entity_llm"}
 ```
 
 保留该节点的 `ports` 和 `depends_on`，以及其他模型与 JSON 解析节点。

@@ -190,11 +190,11 @@ TEST(PipelineValidatorTest, ReportsDuplicateEdge) {
 
 TEST(PipelineValidatorTest, ReportsConfigAndCapabilityErrors) {
   const nlohmann::json pipeline = {
-      {"biz_name", "entity_extract_0.6b_v1"},
+      {"biz_name", "entity_extract_v1"},
       {"models",
        {{{"model_id", "llm_model_v1"},
          {"capability", "embedding"},
-         {"model_type", "test_business_embedding"},
+         {"model_type", "test_biz_embedding"},
          {"backend", "test_tensor_backend"},
          {"model_path", "fixture.bin"},
          {"model_config", nlohmann::json::object()},

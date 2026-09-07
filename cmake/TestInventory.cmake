@@ -2,6 +2,7 @@
 # Mode-specific smoke/tooling tests may extend this set, but neither mode may
 # silently omit one of these core contracts.
 set(EDGEFLOW_REQUIRED_CONTRACT_TESTS
+  QualityGateScriptsContractTest
   BatchExecutorTest
   FrameworkCoreTest
   CompanyAlgLogTest
@@ -45,7 +46,6 @@ set(EDGEFLOW_REQUIRED_CONTRACT_TESTS
   OperatorGoldenTest
   AdapterPurityTest
   DocQaRerankTest
-  RerankRefineNodeTest
   PipelineStudioTest
   DemoRunnerTest
   RegistryConflictNodeTest
@@ -99,7 +99,6 @@ set(EDGEFLOW_SOURCE_test_asr_transcribe_node "${PROJECT_SOURCE_DIR}/tests/unit/n
 set(EDGEFLOW_SOURCE_test_common_nodes "${PROJECT_SOURCE_DIR}/tests/unit/nodes/test_common_nodes.cpp")
 set(EDGEFLOW_SOURCE_test_llm_generate_node "${PROJECT_SOURCE_DIR}/tests/unit/nodes/test_llm_generate_node.cpp")
 set(EDGEFLOW_SOURCE_test_ocr_detect_node "${PROJECT_SOURCE_DIR}/tests/unit/nodes/test_ocr_detect_node.cpp")
-set(EDGEFLOW_SOURCE_test_rerank_refine_node "${PROJECT_SOURCE_DIR}/tests/unit/nodes/test_rerank_refine_node.cpp")
 set(EDGEFLOW_SOURCE_test_structured_json_parse_node "${PROJECT_SOURCE_DIR}/tests/unit/nodes/test_structured_json_parse_node.cpp")
 set(EDGEFLOW_SOURCE_test_text_chunk_node "${PROJECT_SOURCE_DIR}/tests/unit/nodes/test_text_chunk_node.cpp")
 set(EDGEFLOW_SOURCE_test_text_corpus_source_node "${PROJECT_SOURCE_DIR}/tests/unit/nodes/test_text_corpus_source_node.cpp")

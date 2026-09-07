@@ -15,7 +15,7 @@
 #include "core/pipeline_catalog.h"
 #include "engine/model_interface.h"
 #include "nodes/model_bound_node.h"
-#include "nodes/node_support.h"
+#include "nodes/node_base.h"
 
 namespace llm_edgeflow {
 namespace custom_nodes {

@@ -478,19 +478,22 @@ class SelectionVerificationTest(unittest.TestCase):
         conf = ROOT / "configs/pipeline_keyword_match.conf"
         report = selection.inspect_selection(pipeline, tool, ROOT / "models")
         self.assertTrue(report["ok"])
-        self.assertFalse(report["ready_for_business"])
+        self.assertFalse(report["ready_for_biz"])
+        self.assertEqual(report["schema_version"], 2)
+        self.assertNotIn("ready_for_business", report)
         # Current canonical build has enabled backends; claiming the empty
         # minimal variant must fail independently of this model-free Pipeline.
         mismatched = selection.inspect_selection(pipeline, tool, ROOT / "models", variant="minimal" if report["build"]["enabled_backends"] else "default-cpu")
         self.assertFalse(mismatched["ok"])
         receipt = selection.evaluate(pipeline, report, tool, ROOT / "models", spec, conf, demo)
+        self.assertEqual(receipt["schema_version"], 2)
         self.assertEqual(receipt["metrics"]["pass_rate"], 1.0)
         self.assertEqual(receipt["metrics"]["total"], 4)
         with tempfile.TemporaryDirectory() as directory:
             evidence = Path(directory) / "effects.json"
             evidence.write_text(json.dumps(receipt))
             checked = selection.attach_evidence(report, evidence, spec, conf, demo)
-            self.assertTrue(checked["ready_for_business"])
+            self.assertTrue(checked["ready_for_biz"])
             pipeline["pipeline"][0]["config"]["categories"] = {"OTHER": ["different"]}
             changed = selection.inspect_selection(pipeline, tool, ROOT / "models")
             self.assertEqual(selection.attach_evidence(changed, evidence, spec, conf, demo)["effects"]["status"], "stale")

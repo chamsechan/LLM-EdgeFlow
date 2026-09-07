@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <utility>
 
-#include "engine/models/bge_embedding/bert_wordpiece_tokenizer.h"
+#include "engine/models/bge_common/bert_wordpiece_tokenizer.h"
 
 namespace llm_edgeflow {
 
@@ -197,7 +197,7 @@ bool ValidateBertInputMetadata(const ITensorGraphSession& session,
     if (spec.element_type != ElementType::kInt64) {
       return Reject(diagnostic, model_name + " input '" + spec.name +
                                     "' dtype must be int64, got: " +
-                                    ElementTypeToString(spec.element_type));
+                                    ElementTypeName(spec.element_type));
     }
     if (spec.shape.size() != 2) {
       return Reject(diagnostic,
@@ -257,7 +257,7 @@ const TensorSpec* RequireFloatOutputMetadata(const ITensorGraphSession& session,
   if (output->element_type != ElementType::kFloat32) {
     SetDiagnostic(diagnostic, model_name + " output '" + output_name +
                                   "' dtype must be float32, got: " +
-                                  ElementTypeToString(output->element_type));
+                                  ElementTypeName(output->element_type));
     return nullptr;
   }
   if (min_rank > max_rank || output->shape.size() < min_rank ||

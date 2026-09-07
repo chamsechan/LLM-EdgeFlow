@@ -1,5 +1,5 @@
 {
-  "biz_name": "entity_extract_0.6b_v1",
+  "biz_name": "entity_extract_v1",
   "models": [
     {
       "capability": "llm",
@@ -11,7 +11,7 @@
       "backend_config": {
         "run_config_file": "kite_text_run.json"
       },
-      "model_id": "llm_0.6b_entity",
+      "model_id": "entity_llm",
       "model_path": "qwen2.5-0.5b-instruct-q4_k_m.gguf"
     }
   ],
@@ -47,7 +47,7 @@
         }
       },
       "config": {
-        "bind_model": "llm_0.6b_entity",
+        "bind_model": "entity_llm",
         "max_tokens": 256,
         "temperature": 0.0
       }

@@ -6,7 +6,7 @@
 #include <vector>
 
 #include "core/alg_context.h"
-#include "core/node_base.h"
+#include "core/node_interface.h"
 #include "core/pipeline_diagnostic.h"
 #include "core/pipeline_validator.h"
 #include "core/session_context.h"
@@ -24,7 +24,7 @@ namespace llm_edgeflow {
  */
 class Pipeline {
  public:
-  enum class ExecutionMode { SEQUENTIAL, PARALLEL };
+  enum class ExecutionMode { kSequential, kParallel };
 
   /**
    * @brief Pipeline 实例状态机 (R1-ACC-002 一次性构建与就绪保护)
@@ -83,7 +83,7 @@ class Pipeline {
   std::function<void()> test_internal_hook_;
 
   State state_ = State::kEmpty;
-  ExecutionMode execution_mode_ = ExecutionMode::SEQUENTIAL;
+  ExecutionMode execution_mode_ = ExecutionMode::kSequential;
   size_t max_parallel_workers_ = 4;
   // Heap ownership keeps addresses handed to initialized Nodes stable while a
   // fully staged runtime assembly is committed into this façade.

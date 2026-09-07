@@ -499,8 +499,8 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
   const auto& parsed = plan.config;
 
   const auto catalog = PipelineCatalog::Snapshot();
-  const auto* business = catalog.FindBiz(parsed.biz_name);
-  if (!business && policy == ValidationPolicy::kStrict) {
+  const auto* biz = catalog.FindBiz(parsed.biz_name);
+  if (!biz && policy == ValidationPolicy::kStrict) {
     Add(&report, DiagnosticCode::kUnknownBiz, "/biz_name",
         "No registered biz contract accepts pipeline name: " + parsed.biz_name);
   }
@@ -637,7 +637,7 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
     if (definition) {
       def_by_id[node.id] = definition;
 
-      if (business && !definition->biz_names.empty() &&
+      if (biz && !definition->biz_names.empty() &&
           std::find(definition->biz_names.begin(), definition->biz_names.end(),
                     parsed.biz_name) == definition->biz_names.end()) {
         Add(&report, DiagnosticCode::kNodeBizMismatch,
@@ -701,7 +701,7 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
   plan.topological_layers = report.topological_layers;
 
   if (report.diagnostics.size() != pre_topology_errors ||
-      (policy == ValidationPolicy::kStrict && !business) ||
+      (policy == ValidationPolicy::kStrict && !biz) ||
       report.topological_order.size() != nodes.size()) {
     report.ok = report.diagnostics.empty();
     return plan;
@@ -726,8 +726,8 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
       };
 
   std::unordered_map<std::string, PortDefinition> ingress;
-  if (business) {
-    for (const auto& port : business->ingress) ingress[port.key] = port;
+  if (biz) {
+    for (const auto& port : biz->ingress) ingress[port.key] = port;
   }
   std::unordered_map<std::string,
                      std::vector<std::pair<std::string, PortDefinition>>>
@@ -826,7 +826,7 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
                                    "$ingress", &report);
         }
       }
-      if (!found && business) {
+      if (!found && biz) {
         std::vector<std::string> suggestions;
         for (const auto& candidate : catalog.nodes) {
           if (std::any_of(candidate.outputs.begin(), candidate.outputs.end(),
@@ -841,7 +841,7 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
                 ? ("/pipeline/" + std::to_string(node.source_index) +
                    "/ports/inputs/" + input.key)
                 : ("/pipeline/" + std::to_string(node.source_index)),
-            "No business ingress or ancestor node produces port '" + input.key +
+            "No biz ingress or ancestor node produces port '" + input.key +
                 "' (bound key: '" + actual_key + "') of type '" +
                 input.type_id + "'",
             id, input.key, {}, suggestions);
@@ -959,8 +959,8 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
     plan.node_plans[id] = std::move(node_plan);
   }
 
-  if (business) {
-    for (const auto& required : business->egress) {
+  if (biz) {
+    for (const auto& required : biz->egress) {
       bool found = false;
       auto it = producers.find(required.key);
       if (it != producers.end() && !it->second.empty()) {

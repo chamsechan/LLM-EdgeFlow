@@ -38,3 +38,9 @@ state and successful retry. For leak checks, destroy operation-owned objects whi
 scope is still alive, then require both `!Overflowed()` and `Outstanding() == 0`.
 The bounded pointer ledger observes C++ allocations on the current thread, not `malloc`
 or resources owned by other threads; sanitizer checks remain complementary.
+
+On ELF platforms the existing Model/Backend runner wraps `posix_memalign` at link time to
+exercise ENOMEM without requesting huge allocations. The thread-local one-shot failure switch
+is defined only in `test_model_backend_decoupling.cpp`; production binaries keep their allocator.
+`QualityGateScriptsContractTest` checks canonical and sanitizer script behavior, cached test
+settings, empty-test rejection, failure propagation and the CI evidence fields.

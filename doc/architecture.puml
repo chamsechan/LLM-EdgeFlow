@@ -71,16 +71,16 @@ package "接入适配层（Integration）" as Integration {
   }
 
   class "BizAdapterRegistry" as AdapterRegistry <<(S,#EC4899) Singleton>> {
-    + Register(type: int, adapter: shared_ptr<IBizAdapter>): void
-    + Get(type: int): std::shared_ptr<IBizAdapter>
+    + RegisterAdapter(adapter: shared_ptr<IBizAdapter>): bool
+    + GetAdapter(biz_type: CompanyAlgBizType): std::shared_ptr<IBizAdapter>
     + HasConflict(): bool
   }
 
   interface "IBizAdapter" as IAdapter {
-    + {abstract} GetDescriptor(): AdapterDescriptor
-    + {abstract} ValidateBatch(in, num_in, out, num_out, status): bool
-    + {abstract} Unpack(in, num_in, ctx, status): bool
-    + {abstract} Pack(ctx, out, num_out, status): bool
+    + {abstract} GetDescriptor(): const AdapterDescriptor&
+    + {abstract} ValidateBatch(in, num_in, out, num_out): int
+    + {abstract} Unpack(in, num_in, ctx, status): int
+    + {abstract} Pack(ctx, out, num_out, status): int
   }
 
   class "AdapterValidationHelper" as ValidationHelper {

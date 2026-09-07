@@ -48,12 +48,12 @@ export const EGRESS = "$egress";
 
 export function graphDocument(pipeline, catalog) {
   const nodes = pipeline?.pipeline || [];
-  const business = catalog.bizs?.find(biz => biz.biz_name === pipeline?.biz_name);
+  const biz = catalog.bizs?.find(biz => biz.biz_name === pipeline?.biz_name);
   const definitions = {};
   for (const node of nodes) definitions[node.id] = catalog.nodes?.find(def => def.node_type === node.node_type) || {};
-  definitions[INGRESS] = { outputs: business?.ingress || [], inputs: [] };
-  definitions[EGRESS] = { inputs: business?.egress || [], outputs: [] };
-  const producers = new Map((business?.ingress || []).map(port => [port.key, { source: INGRESS, sourcePort: port.key }]));
+  definitions[INGRESS] = { outputs: biz?.ingress || [], inputs: [] };
+  definitions[EGRESS] = { inputs: biz?.egress || [], outputs: [] };
+  const producers = new Map((biz?.ingress || []).map(port => [port.key, { source: INGRESS, sourcePort: port.key }]));
   for (const node of nodes) for (const port of definitions[node.id].outputs || []) {
     producers.set(node.ports?.outputs?.[port.key] || port.key, { source: node.id, sourcePort: port.key });
   }
@@ -67,7 +67,7 @@ export function graphDocument(pipeline, catalog) {
       if (!edges.some(edge => edge.source === source && edge.target === node.id)) edges.push({ source, target: node.id, dependency: true });
     }
   }
-  for (const port of business?.egress || []) {
+  for (const port of biz?.egress || []) {
     if (producers.has(port.key)) edges.push({ ...producers.get(port.key), target: EGRESS, targetPort: port.key });
   }
   return {

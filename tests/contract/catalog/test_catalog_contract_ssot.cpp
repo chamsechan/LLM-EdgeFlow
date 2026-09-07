@@ -59,6 +59,24 @@ TEST_F(CatalogContractSsotTest, AllProductionNodesHaveValidDefinitions) {
   EXPECT_TRUE(seen_types.count("TextCorpusSourceNode"));
 }
 
+TEST_F(CatalogContractSsotTest, BizContractsDoNotDependOnDeploymentVariants) {
+  for (const auto type : {ALG_BIZ_TYPE_ENTITY_EXTRACT, ALG_BIZ_TYPE_DOC_QA}) {
+    const auto adapter = BizAdapterRegistry::Instance().GetAdapter(type);
+    ASSERT_NE(adapter, nullptr);
+    EXPECT_EQ(adapter->GetDescriptor().pipelines.size(), 1U);
+  }
+  for (const char* name :
+       {"entity_extract_0.6b_v1", "entity_extract_llamacpp_0.6b_v1",
+        "smart_doc_qa_onnx_llamacpp_v1", "smart_doc_qa_rerank_llm_v1"}) {
+    EXPECT_FALSE(PipelineCatalog::FindBiz(name));
+    const auto adapter = BizAdapterRegistry::Instance().GetAdapter(
+        std::string(name).find("entity") == 0 ? ALG_BIZ_TYPE_ENTITY_EXTRACT
+                                              : ALG_BIZ_TYPE_DOC_QA);
+    ASSERT_NE(adapter, nullptr);
+    EXPECT_FALSE(adapter->ValidatePipelineBinding(name));
+  }
+}
+
 TEST_F(CatalogContractSsotTest, ProductionModelBackendCatalogHasNoFixtures) {
   std::set<std::string> model_types;
   for (const auto& model : PipelineCatalog::Models()) {
@@ -114,7 +132,7 @@ TEST_F(CatalogContractSsotTest, AllBizDefinitionsAreRegistered) {
   }
 
   EXPECT_TRUE(biz_names.count("keyword_match_v1"));
-  EXPECT_TRUE(biz_names.count("entity_extract_0.6b_v1"));
+  EXPECT_TRUE(biz_names.count("entity_extract_v1"));
   EXPECT_TRUE(biz_names.count("smart_doc_qa_v1"));
   EXPECT_TRUE(biz_names.count("dialogue_compliance_audit_v1"));
   EXPECT_TRUE(biz_names.count("multimodal_ocr_invoice_qa"));

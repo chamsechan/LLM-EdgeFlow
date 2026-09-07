@@ -29,7 +29,7 @@
 #include "engine/model_interface.h"
 #include "engine/model_registry.h"
 #include "engine/model_runtime_factory.h"
-#include "engine/models/bge_embedding/bert_wordpiece_tokenizer.h"
+#include "engine/models/bge_common/bert_wordpiece_tokenizer.h"
 #include "engine/models/bge_reranker/bge_reranker_model.h"
 
 #ifndef EDGEFLOW_RERANK_ONNX_FIXTURE

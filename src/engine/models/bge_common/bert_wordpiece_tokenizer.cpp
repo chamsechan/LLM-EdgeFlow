@@ -1,4 +1,4 @@
-#include "engine/models/bge_embedding/bert_wordpiece_tokenizer.h"
+#include "engine/models/bge_common/bert_wordpiece_tokenizer.h"
 
 #include <algorithm>
 #include <cctype>

@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-09-07 上线前审查修复（RFC-0040）
+
+- 修复 HostTensorBuffer 分配失败仍被视为成功的问题；LLM 生成参数在 Definition 预检与 Node 初始化中共用校验，非法 stop_words 在模型加载前拒绝。
+- 完整门禁显式开启 BUILD_TESTING，固定默认 Backend 与 sanitizer 选项，CTest 无测试时失败；CI 验收 JSON 补齐 Whisper 结果，增加脚本行为回归。
+- LayerGuard 增加按解析 include 路径的依赖矩阵与 vendor 所有权检查，覆盖公共 Node 头、Core/Engine 反向引用与局部辅助头。
+- 实体抽取 biz_name 统一为 `entity_extract_v1`，model_id 为 `entity_llm`；文档问答部署统一使用 `smart_doc_qa_v1`。旧规模/Backend 专属 biz_name 不再接受，仓库配置和 Demo 同步迁移，外部配置须同步修改。
+- INode/NodeBase 头文件按实际类型命名，共享 BERT tokenizer 移至 bge_common；合并 TextRerankNode 测试，统一测试替身的 TestBiz 名称及当前架构图签名。
+- 选择验证工具输出 schema_version 升为 2，`ready_for_business` 改为 `ready_for_biz`；消费者需更新字段名，旧效果证据需重新生成。
+
 ## 2026-09-07 架构职责命名统一
 
 - 统一使用接入适配层（Integration）、流程编排层（Orchestration）、能力节点层（Capability Nodes）、模型执行层（Model Execution），同步架构图、开发指南和 Agent 路由。

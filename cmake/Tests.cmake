@@ -70,7 +70,8 @@ set(EDGEFLOW_TEST_CORE_SRCS
 add_executable(edgeflow_test_core_runner
   ${EDGEFLOW_TEST_CORE_SRCS}
   $<TARGET_OBJECTS:edgeflow_test_backend_fixtures>
-  $<TARGET_OBJECTS:edgeflow_test_business_model_fixtures>)
+  $<TARGET_OBJECTS:edgeflow_test_biz_model_fixtures>)
+edgeflow_enable_aligned_allocation_failure(edgeflow_test_core_runner)
 target_link_libraries(edgeflow_test_core_runner PRIVATE
   llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
 if(LLM_EDGEFLOW_HAS_ONNXRUNTIME)
@@ -135,7 +136,7 @@ add_executable(edgeflow_test_nodes_runner
   ${EDGEFLOW_SCAFFOLD_FIXTURE_SOURCE}
   ${EDGEFLOW_TEST_NODE_SRCS}
   $<TARGET_OBJECTS:edgeflow_test_backend_fixtures>
-  $<TARGET_OBJECTS:edgeflow_test_business_model_fixtures>)
+  $<TARGET_OBJECTS:edgeflow_test_biz_model_fixtures>)
 target_link_libraries(edgeflow_test_nodes_runner PRIVATE
   llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
 edgeflow_enable_test_pch(edgeflow_test_nodes_runner)
@@ -156,7 +157,7 @@ set(EDGEFLOW_TEST_ADAPTER_SRCS
 add_executable(edgeflow_test_adapter_runner
   ${EDGEFLOW_TEST_ADAPTER_SRCS}
   $<TARGET_OBJECTS:edgeflow_test_backend_fixtures>
-  $<TARGET_OBJECTS:edgeflow_test_business_model_fixtures>)
+  $<TARGET_OBJECTS:edgeflow_test_biz_model_fixtures>)
 target_link_libraries(edgeflow_test_adapter_runner PRIVATE
   llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main
   edgeflow_test_allocation_failure)
@@ -164,14 +165,13 @@ edgeflow_enable_test_pch(edgeflow_test_adapter_runner)
 
 set(EDGEFLOW_TEST_TOOLING_SRCS
   ${EDGEFLOW_SOURCE_test_doc_qa_rerank}
-  ${EDGEFLOW_SOURCE_test_rerank_refine_node}
   ${EDGEFLOW_SOURCE_test_pipeline_catalog_validator}
   ${EDGEFLOW_SOURCE_test_demo_runner})
 add_executable(edgeflow_test_tooling_runner
   ${EDGEFLOW_TEST_TOOLING_SRCS}
   $<TARGET_OBJECTS:edgeflow_demo_objects>
   $<TARGET_OBJECTS:edgeflow_test_backend_fixtures>
-  $<TARGET_OBJECTS:edgeflow_test_business_model_fixtures>)
+  $<TARGET_OBJECTS:edgeflow_test_biz_model_fixtures>)
 target_link_libraries(edgeflow_test_tooling_runner PRIVATE
   llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
 edgeflow_enable_test_pch(edgeflow_test_tooling_runner)
@@ -262,7 +262,7 @@ edgeflow_add_runner_test(TextEmbeddingNodeTest edgeflow_test_nodes_runner
 edgeflow_add_runner_test(VectorTopKNodeTest edgeflow_test_nodes_runner
   "VectorTopKNodeTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(TextRerankNodeTest edgeflow_test_nodes_runner
-  "TextRerankNodeTest.*" "${_edgeflow_tier1}")
+  "TextRerankNodeTest.*:TextRerankRankingTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(TextTemplateNodeTest edgeflow_test_nodes_runner
   "TextTemplateNodeTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(LlmGenerateNodeTest edgeflow_test_nodes_runner
@@ -311,8 +311,6 @@ edgeflow_add_runner_test(AdapterPurityTest edgeflow_test_adapter_runner
 
 edgeflow_add_runner_test(DocQaRerankTest edgeflow_test_tooling_runner
   "DocQaRerankPipelineTest.*" "${_edgeflow_tier1}")
-edgeflow_add_runner_test(RerankRefineNodeTest edgeflow_test_tooling_runner
-  "TextRerankNodeTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(PipelineStudioTest edgeflow_test_tooling_runner
   "BlackboardKeyTest.*:PipelineCatalogTest.*:PipelineValidatorTest.*"
   "${_edgeflow_tier4}")
@@ -356,12 +354,10 @@ add_test(NAME DiagramRenderGateSelfTest
   COMMAND ${PROJECT_SOURCE_DIR}/tests/contract/architecture/test_diagram_render_gate.sh)
 add_test(NAME ScriptGeneratorDetectionTest
   COMMAND ${PROJECT_SOURCE_DIR}/tests/contract/architecture/test_script_generator_detection.sh)
-add_test(NAME SanitizerCcacheContractTest
-  COMMAND ${PROJECT_SOURCE_DIR}/tests/contract/architecture/test_sanitizer_ccache_contract.sh)
 set_tests_properties(
   LayerGuardTest LayerGuardSelfTest ArchitectureDocsDriftTest
   ArchitectureDocsDriftGateSelfTest GovernanceConsistencyTest
-  ScriptGeneratorDetectionTest SanitizerCcacheContractTest
+  ScriptGeneratorDetectionTest
   PROPERTIES WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
   LABELS "tier1;static-gate;dev-fast;sanitizer-compatible")
 set_tests_properties(DiagramAssetsCheckTest DiagramRenderGateSelfTest

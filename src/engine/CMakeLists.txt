@@ -9,7 +9,7 @@ target_sources(edgeflow_model_execution_objects PRIVATE
   backends/kite_llm/kite_llm_backend.cpp
   backends/whisper_cpp/whisper_cpp_backend.cpp
   models/bge_common/bert_model_support.cpp
-  models/bge_embedding/bert_wordpiece_tokenizer.cpp
+  models/bge_common/bert_wordpiece_tokenizer.cpp
   models/bge_embedding/bge_embedding_model.cpp
   models/bge_reranker/bge_reranker_model.cpp
   models/qwen_causal_lm/qwen_causal_lm_model.cpp

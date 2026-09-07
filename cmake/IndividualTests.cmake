@@ -116,10 +116,6 @@ add_executable(test_doc_qa_rerank ${EDGEFLOW_SOURCE_test_doc_qa_rerank})
 target_link_libraries(test_doc_qa_rerank PRIVATE llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
 add_test(NAME DocQaRerankTest COMMAND test_doc_qa_rerank)
 
-add_executable(test_rerank_refine_node ${EDGEFLOW_SOURCE_test_rerank_refine_node})
-target_link_libraries(test_rerank_refine_node PRIVATE llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
-add_test(NAME RerankRefineNodeTest COMMAND test_rerank_refine_node)
-
 add_executable(test_pipeline_studio ${EDGEFLOW_SOURCE_test_pipeline_catalog_validator})
 target_link_libraries(test_pipeline_studio PRIVATE llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
 add_test(NAME PipelineStudioTest COMMAND test_pipeline_studio)
@@ -173,6 +169,7 @@ add_test(NAME DefinitionSchemaValidationTest COMMAND test_definition_schema_vali
 
 add_executable(test_model_backend_decoupling
     ${EDGEFLOW_SOURCE_test_model_backend_decoupling})
+edgeflow_enable_aligned_allocation_failure(test_model_backend_decoupling)
 target_link_libraries(test_model_backend_decoupling PRIVATE llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
 add_test(NAME ModelBackendDecouplingTest COMMAND test_model_backend_decoupling)
 
@@ -281,7 +278,6 @@ set(EDGEFLOW_INDIVIDUAL_TESTS_WITH_RUNTIME_FIXTURES
   test_operator_value_registry
   test_operator_biz_bridge_registry
   test_doc_qa_rerank
-  test_rerank_refine_node
   test_pipeline_studio
   test_demo_runner
   test_typed_blackboard_contracts
@@ -310,7 +306,7 @@ set(EDGEFLOW_INDIVIDUAL_TESTS_WITH_RUNTIME_FIXTURES
 foreach(test_target IN LISTS EDGEFLOW_INDIVIDUAL_TESTS_WITH_RUNTIME_FIXTURES)
   target_sources(${test_target} PRIVATE
     $<TARGET_OBJECTS:edgeflow_test_backend_fixtures>
-    $<TARGET_OBJECTS:edgeflow_test_business_model_fixtures>)
+    $<TARGET_OBJECTS:edgeflow_test_biz_model_fixtures>)
 endforeach()
 
 # 设置所有测试工作目录为项目根目录，保证无论从何处运行 CTest，相对路径均一致解析
@@ -325,7 +321,7 @@ set_tests_properties(
   AdapterContractSecurityTest PipelineConfigTest RegistryConflictNodeTest
   RegistryConflictModelTest RegistryReentrantTest OperatorApiTest
   OperatorOutputPoolTest OperatorValueRegistryTest OperatorBizBridgeRegistryTest
-  DocQaRerankTest RerankRefineNodeTest PipelineStudioTest
+  DocQaRerankTest PipelineStudioTest
   PipelineStudioServerTest
   DemoRunnerTest CatalogContractSsotTest TypedBlackboardContractsTest
   ValidatedPipelinePlanTest NodeBaseContractsTest NodeOwnershipAndReuseTest
