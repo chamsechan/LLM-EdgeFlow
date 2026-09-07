@@ -1,138 +1,172 @@
-# 🚀 LLM-EdgeFlow
+# LLM-EdgeFlow
+
+**面向边缘与端侧应用的 C++ 算法编排框架。**
+
+[![CI](https://github.com/chamsechan/LLM-EdgeFlow/actions/workflows/ci.yml/badge.svg)](https://github.com/chamsechan/LLM-EdgeFlow/actions/workflows/ci.yml)
+[![C++17](https://img.shields.io/badge/C%2B%2B-17-blue)](CMakeLists.txt)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green)](LICENSE)
+
+LLM-EdgeFlow 将规则处理、向量检索、文本生成、图像转写和语音识别组织为可复用的算法节点，用 JSON 描述它们的连接关系，再通过统一的 C ABI 或 C++ Operator 接口供宿主程序调用。
+
+框架面向算法方案开发者：已有能力通过配置组合，领域算法在自定义 Node 中实现，平台输入输出由 Adapter 转换。模型语义与推理后端分别扩展，便于在不同方案中复用同一套算法代码。
+
+项目目前处于实际业务接入前的开发与验证阶段。仓库提供可运行示例和自动化测试；模型效果、性能及目标设备适配需按具体场景验收。
+
+[快速开始](#快速开始) · [架构与扩展](#架构与扩展) · [示例方案](#示例方案) · [开发文档](#开发文档)
 
 <p align="center">
-  <strong>High-Performance C++ Pipeline &amp; Heterogeneous Inference Framework for Edge AI &amp; LLMs</strong><br>
-  <em>面向边缘芯片与端侧场景的高性能 C++ 多模态推理编排框架</em>
+  <a href="doc/assets/framework_overview.svg">
+    <img src="doc/assets/framework_overview.svg" alt="LLM-EdgeFlow 工作原理：配置经校验后由 Pipeline 调度通用与自定义节点，处理宿主输入并返回结果，需要推理时通过 Model 调用 Backend。" width="100%"/>
+  </a>
 </p>
 
-<p align="center">
-  <a href="https://github.com/chamsechan/LLM-EdgeFlow/actions/workflows/ci.yml"><img src="https://github.com/chamsechan/LLM-EdgeFlow/actions/workflows/ci.yml/badge.svg" alt="CI Status"/></a>
-  <a href="https://en.cppreference.com/w/cpp/17"><img src="https://img.shields.io/badge/C%2B%2B-17-00599C?style=flat-square&logo=c%2B%2B" alt="C++17"/></a>
-  <a href="https://cmake.org/"><img src="https://img.shields.io/badge/CMake-3.16%2B-064F8C?style=flat-square&logo=cmake" alt="CMake"/></a>
-  <a href="https://github.com/microsoft/onnxruntime"><img src="https://img.shields.io/badge/Backend-ONNX%20Runtime-0078D4?style=flat-square&logo=microsoft" alt="ONNX Runtime"/></a>
-  <a href="https://github.com/ggerganov/llama.cpp"><img src="https://img.shields.io/badge/Backend-llama.cpp%20(GGUF)-F97316?style=flat-square" alt="llama.cpp"/></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-emerald?style=flat-square" alt="License"/></a>
-</p>
+## 框架提供什么
 
-LLM-EdgeFlow 通过声明式 Pipeline，把纯 C ABI 接入、DAG 调度、可复用能力节点与异构推理 Backend 组织成一条可校验、可观测、可替换的端侧推理链路。同一个算法库可以通过 JSON 配置组合不同业务，无需把硬件或模型细节写入业务节点。
-
-## 核心能力
-
-- **安全接入**：6 个标准 C 导出函数均由 `noexcept` 异常屏障保护，公共头文件保持纯 C ABI；同一 handle 的 Process/Control 串行执行。
-- **受控导出**：v10.0.0 / ABI 5 共享库只承诺 12 个动态入口（6 个算法 C ABI、3 个日志 C API、3 个 Operator API）；其余 C++ 实现均为内部符号。
-- **声明式编排**：Pipeline 在执行前完成 Schema、端口类型、DAG 和并发写冲突校验，并直接消费不可变执行计划。
-- **请求级黑板**：`AlgContext` 通过 `Read/Publish` 传递不可变强类型快照，保留 `(req_id, sub_id)` 样本溯源。
-- **能力与硬件解耦**：模型语义通过中性协议连接 ONNX Runtime、llama.cpp 和后续 NPU Backend。
-- **定长硬件批处理**：`FixedBatchExecutor` 统一负责切块、Dummy Padding、结果剥离与样本映射。
-- **统一工具链**：Catalog、Validator、命令行工具和 Web DAG 工作台共享同一套 C++ Definition。
-
-## 架构与职责
-
-**接入适配 → 流程编排 → 能力节点 → 模型执行**：外部契约、方案调度、算法操作和推理实现各有明确归属。
-
-<p align="center">
-  <img src="doc/assets/architecture_flow.svg" alt="LLM-EdgeFlow Architecture" width="100%"/>
-</p>
-
-| 架构层 | 职责 | 核心组件 |
-| :--- | :--- | :--- |
-| **接入适配层（Integration）** | 解包、输入输出契约、生命周期和异常隔离 | `company_alg_interface.h`、Adapter、Operator |
-| **流程编排层（Orchestration）** | 配置校验、DAG 计划、调度、请求状态与会话资源 | `Pipeline`、`PipelineValidator`、`AlgContext`、`SessionContext` |
-| **能力节点层（Capability Nodes）** | 无请求状态的通用操作与自定义算法，可跨方案复用 | `NodeBase`、`src/common_nodes/`、[`src/custom_nodes/`](src/custom_nodes/README.md) |
-| **模型执行层（Model Execution）** | 模型能力、中性执行协议和硬件批调度 | `IModel`、`IInferenceBackend`、`FixedBatchExecutor` |
-
-完整的职责边界、数据流和类图参见[架构设计](doc/architecture.md)，扩展实现参见[开发者指南](doc/developer_guide.md)。
-
-## 业务与成熟度
-
-| 业务 | 输入 | 主要能力 | 配置与状态 |
-| :--- | :--- | :--- | :--- |
-| 长文档问答 | 长文本与问题 | Embedding + LLM | [生产配置](configs/pipeline_doc_qa.json) |
-| 关注词匹配 | 文本 | 规则树快筛 | [生产配置](configs/pipeline_keyword_match.json) |
-| 实体抽取 | 文本 | llama.cpp / Qwen | [生产配置](configs/pipeline_entity_extract.json) |
-| 对话合规审计 | 对话与渠道 | Embedding + Rerank + LLM | [生产配置](configs/pipeline_dialogue_audit.json) |
-| 跨编码器精排 | Query 与候选集 | ONNX Cross-Encoder | [生产配置](configs/pipeline_cross_rerank.json) |
-| OCR 文档问答 | 图像与问题 | Kite 视觉转写 + LLM | [Kite 配置](configs/kite/pipeline_ocr_doc_qa.json) |
-| ASR 意图识别 | PCM 音频 | ASR + 槽位抽取 | [Smoke/Test 配置](demo/fixtures/mock/pipeline_audio_asr_intent.json) |
-
-OCR 已接入 Kite 图像文本推理，返回转写文本，不提供检测框或置信度；识别质量取决于视觉模型。ASR 仍仅有测试和 Smoke 实现。Kite 支持文本生成、图像转写及生成 token 向量；新增纯 Kite 问答配置用于向量接入验证，检索质量需按模型评估。Demo 用法见 [接入说明](doc/kitellm.md)。
+- **组合算法流程**：Pipeline 以有向无环图（DAG）描述节点依赖，可组合规则、检索、模型调用和结果处理。执行前统一检查端口类型、依赖关系和并发写冲突。
+- **复用算法实现**：通用 Node 与自定义 Node 使用相同的类型端口和注册机制；单个节点可用于多个 Pipeline。
+- **管理模型执行**：Model 负责模型预后处理与输出语义，Backend 负责推理运行时。节点通过模型能力接口调用推理。
+- **对接宿主程序**：C ABI 与 Operator 共用内部算法运行时，集中处理数据转换、资源生命周期和异常隔离。
+- **验证运行结果**：命令行工具与 Web 工作台共用 Catalog 和 Validator；统一 Demo 输出逐条结果与运行摘要，并保留请求来源编号。
 
 ## 快速开始
 
+以下以 Linux CPU 环境为例，所有命令均在仓库根目录执行。需要支持 C++17 的编译器、CMake 3.16+、Ninja、Python 3 和 Git。首次构建需联网获取固定版本的第三方依赖；模型权重另行准备。
+
+### 1. 获取并构建
+
 ```bash
-# 配置并构建
-cmake -B build -G Ninja -DLLM_EDGEFLOW_LINKER=auto
-cmake --build build -j$(nproc)
+git clone https://github.com/chamsechan/LLM-EdgeFlow.git
+cd LLM-EdgeFlow
 
-# 运行完整质量门禁
-./scripts/run_all_tests.sh
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+  -DENABLE_ONNXRUNTIME=ON -DENABLE_LLAMACPP=ON
+cmake --build build --parallel 4
+```
 
-# 查看可用业务与 Profile，并运行 Smoke 套件
+该构建启用 ONNX Runtime 与 llama.cpp。主要产物如下：
+
+| 产物 | 用途 |
+| :--- | :--- |
+| `build/libcompany_alg_sdk.so` | 集成到宿主程序的算法共享库 |
+| `build/alg_demo` | 使用统一入口运行示例方案 |
+| `build/alg_pipeline_tool` | 查询能力、校验 Pipeline、查看执行计划 |
+| `build/alg_show` | 在终端查看 Pipeline 的节点与连线 |
+
+### 2. 运行第一个方案
+
+从无需模型权重的关键词匹配开始。下面使用仓库自带的四条测试文本，执行配置中定义的规则：
+
+```bash
+./build/alg_pipeline_tool validate configs/pipeline_keyword_match.json
+./build/alg_demo --profile keyword_match_mock \
+  --dataset tests/fixtures/effects/keyword_inputs.txt \
+  --no-default-control --output-dir results/quickstart
+```
+
+预期四条输入均处理成功，前两条命中 `SYSTEM_INIT`，后两条未命中。结果位于：
+
+- `results/quickstart/keyword_match_mock/results.jsonl`：逐条请求的状态与匹配结果。
+- `results/quickstart/keyword_match_mock/summary.json`：样本数、成功数、失败数与耗时。
+
+`keyword_match_mock` 是 Demo 预设名称，这个方案使用真实规则节点。`--no-default-control` 关闭 Demo 内置的规则热更新，使结果对应当前 Pipeline 配置。
+
+### 3. 查看与编辑流程
+
+```bash
+# 查询当前构建中可用的业务契约与节点
+./build/alg_pipeline_tool catalog --biz keyword_match_v1
+./build/alg_pipeline_tool describe-node TextRuleMatchNode
+
+# 查看经过校验的执行计划
+./build/alg_pipeline_tool plan configs/pipeline_keyword_match.json
+
+# 打开本地 Web 工作台
+./show configs/pipeline_keyword_match.json --web
+```
+
+工作台绑定 `127.0.0.1`，支持节点连线、参数编辑、配置校验和草稿运行。下一步可跟随 [Studio 编排练习](tools/pipeline_studio/README.md#第一次编排)修改规则，并用 Demo 验证自己的方案。
+
+## 架构与扩展
+
+框架按职责划分为四层。通常先复用节点并编写 Pipeline，出现能力缺口后再扩展对应层。
+
+```mermaid
+flowchart TD
+    Integration["接入适配层 · Integration<br/>外部契约与数据转换"]
+    Orchestration["流程编排层 · Orchestration<br/>配置校验、调度与上下文"]
+    Nodes["能力节点层 · Capability Nodes<br/>通用操作与领域算法"]
+    Execution["模型执行层 · Model Execution<br/>模型语义与推理后端"]
+    Integration --> Orchestration --> Nodes --> Execution
+```
+
+| 职责 | 何时扩展 | 主要入口 |
+| :--- | :--- | :--- |
+| 接入适配层 | 宿主程序增加新的输入输出结构或调用约定 | `include/adapter/`、`include/operator/`、`src/adapter/` |
+| 流程编排层 | 现有校验、调度或上下文机制无法满足需求 | `include/core/`、`src/core/` |
+| 能力节点层 | 增加领域算法、数据处理或模型调用组合 | `src/custom_nodes/`；通用操作位于 `src/common_nodes/` |
+| 模型执行层 | 增加模型语义或接入新的推理运行时 | `src/engine/models/`、`src/engine/backends/` |
+
+完整职责、编译依赖和运行时数据流见[架构设计](doc/architecture.md)；首次编写算法见[自定义 Node 入门](doc/dev_guide/first_custom_node.md)。
+
+## 一个方案由哪些文件组成
+
+| 文件 | 负责什么 | 示例 |
+| :--- | :--- | :--- |
+| Pipeline JSON | 节点、依赖、类型端口、模型与算法参数 | [pipeline_keyword_match.json](configs/pipeline_keyword_match.json) |
+| 部署 `.conf` | Pipeline 路径、模型路径覆盖与输出容量 | [pipeline_keyword_match.conf](configs/pipeline_keyword_match.conf) |
+| Demo Profile（可选） | 运行预设：业务、配置、数据集和批大小等 | [demo/profiles.json](demo/profiles.json) |
+
+Profile 用于重复运行已有方案，也可以通过 Demo 参数直接指定配置和数据集。保存新的 Pipeline 后，需要让 `.conf` 指向它；具体步骤见[运行当前方案](tools/pipeline_studio/README.md#运行当前方案)。
+
+## 示例方案
+
+以下配置展示已有能力的组合方式。涉及模型的方案需要匹配的 Backend、权重及运行资源；实际可用的节点、模型和后端以目标构建的 `alg_pipeline_tool catalog` 为准。
+
+| 场景 | 处理方式 | 配置与运行条件 |
+| :--- | :--- | :--- |
+| 关键词匹配 | 文本规则匹配与分类 | [配置](configs/pipeline_keyword_match.json)；无需模型权重 |
+| 实体抽取 | LLM 生成与结构化结果解析 | [配置](configs/pipeline_entity_extract_llamacpp.json)；llama.cpp 与匹配的语言模型 |
+| 文档问答 | 文本分块、向量检索与 LLM 回答 | [配置](configs/pipeline_doc_qa.json)；ONNX Runtime、llama.cpp 与对应模型 |
+| 对话合规审计 | 检索、精排与 LLM 分析 | [配置](configs/pipeline_dialogue_audit.json)；向量、精排和语言模型 |
+| 文本精排 | 对问题与候选文本进行相关性评分 | [配置](configs/pipeline_cross_rerank.json)；ONNX Runtime 与精排模型 |
+| 图像文档问答 | 图像转写后进行问答 | [配置](configs/kite/pipeline_ocr_doc_qa.json)；Kite 与视觉、语言模型 |
+| 语音意图识别 | Whisper 转写与规则分类 | [配置](configs/pipeline_audio_asr_whisper.json)；启用 whisper.cpp 并准备语音模型 |
+
+Kite 的图像转写输出文本，不提供检测框或置信度。Kite、Whisper 等可选后端需单独选择构建配置；参考[构建变体与模型资产](doc/VERIFIABLE_SELECTION.md)和 [kiteLLM 接入说明](doc/kitellm.md)。
+
+查看全部 Demo 预设，或运行无需真实模型的 Smoke 套件：
+
+```bash
 ./build/alg_demo --list
 ./build/alg_demo --suite smoke
 ```
 
-运行特定 Profile：
+Smoke 验证执行链路；真实模型的业务效果需使用目标数据集另行验证，方法见[效果验收](doc/VERIFIABLE_SELECTION.md#业务效果验收)。
 
-```bash
-./build/alg_demo --profile entity_extract_mock
-./build/alg_demo --profile doc_qa_onnx
-```
+## 开发文档
 
-真实推理 Profile 需要相应模型资产；无需模型的确定性 Smoke Profile 可用于验证完整控制流。项目不设置 ccache 程序或缓存路径，本地可使用 compiler wrapper，CI 可使用标准 CMake launcher。
-
-kiteLLM 可从 GitHub 私有 Release 自动下载固定版本，直接引用头文件与静态库。
-授权、新环境构建和后端选择见 [kiteLLM 接入说明](doc/kitellm.md)。
-
-## Pipeline 工具
-
-```bash
-# 终端查看显式节点与依赖
-./build/alg_show configs/pipeline_doc_qa.json
-
-# 查询 Catalog、校验配置和查看执行计划
-./build/alg_pipeline_tool catalog --biz smart_doc_qa_v1
-./build/alg_pipeline_tool validate configs/pipeline_doc_qa.json
-./build/alg_pipeline_tool plan configs/pipeline_doc_qa.json
-
-# 启动仅绑定 127.0.0.1 的 Web DAG 工作台
-./show --web
-```
-
-详细用法和安全边界参见 [Pipeline Studio 指南](tools/pipeline_studio/README.md)。
-
-## 文档导航
-
-| 目标 | 文档 |
+| 目标 | 入口 |
 | :--- | :--- |
-| 用已有 Node 连线构造方案 | [Studio 编排练习](tools/pipeline_studio/README.md#第一次编排) |
-| 第一次编写业务 Node：先改两个函数并跑通 Demo | [自定义 Node 入门](doc/dev_guide/first_custom_node.md) |
-| 对接平台输入输出结构体 | [业务接入指南](doc/BUSINESS_ONBOARDING.md) |
-| 用统一 Demo 运行本次修改的方案并检查结果 | [运行当前方案](tools/pipeline_studio/README.md#运行当前方案) |
-| 理解端口、来源编号、模型绑定、Definition 和并发 | [Node 作者概念说明](doc/dev_guide/custom_node_concepts.md) |
-| 了解系统边界与数据流 | [架构设计](doc/architecture.md) |
-| 扩展 Adapter、Pipeline、Node、Model 或 Backend | [开发者指南](doc/developer_guide.md) |
-| 使用公共 C 日志接口 | [Logging 指南](doc/logging.md) |
-| 查阅需求设计与验收记录 | [RFC 索引](doc/rfcs/README.md) |
-| 浏览全部项目文档 | [文档目录](doc/README.md) |
-| 查看版本演进摘要 | [Changelog](doc/CHANGELOG.md) |
-| 了解测试目录与双模式构建 | [Test layout](tests/README.md) |
-| 参与开发与交付 | [Contributing](CONTRIBUTING.md) |
+| 用已有节点构建方案 | [Pipeline Studio](tools/pipeline_studio/README.md#第一次编排) |
+| 编写第一个自定义算法 | [自定义 Node 入门](doc/dev_guide/first_custom_node.md) · [节点作者的五个概念](doc/dev_guide/custom_node_concepts.md) |
+| 对接平台输入输出 | [业务接入指南](doc/BUSINESS_ONBOARDING.md) |
+| 扩展框架、模型或后端 | [开发者指南](doc/developer_guide.md) · [架构设计](doc/architecture.md) |
+| 准备模型并验证效果 | [模型、构建与效果验收](doc/VERIFIABLE_SELECTION.md) |
+| 了解设计决策与版本演进 | [RFC 索引](doc/rfcs/README.md) · [Changelog](doc/CHANGELOG.md) |
+| 查阅全部文档 | [文档目录](doc/README.md) |
 
-## 开发与交付
+## 参与开发
 
-开发前先按变更风险判断是否需要 RFC，并在独立分支实施。交付前运行唯一完整门禁：
+在独立分支上修改，并在交付前执行完整质量门禁：
 
 ```bash
 ./scripts/run_all_tests.sh
 ```
 
-完整生命周期见 [Contributing](CONTRIBUTING.md)，Agent 架构与路由见
-[AGENTS.md](AGENTS.md)，长期设计决策见 [RFC 目录](doc/rfcs/README.md)。当前架构里程碑
-为 **v10.0.0**；仓库尚未发布对应 Git tag，版本演进以 [Changelog](doc/CHANGELOG.md) 和已完成
-RFC 为准。
+该命令统一执行格式与静态检查、配置构建及 CTest 测试。环境需具备 clang-format 18，以及架构图检查所需的 Java 17+；详细流程见 [CONTRIBUTING.md](CONTRIBUTING.md)，测试组织见 [tests/README.md](tests/README.md)，Agent 开发约束见 [AGENTS.md](AGENTS.md)。
 
-## License
+当前产品版本为 **v10.0.0**，公共 **ABI major 为 5**。接口边界见[架构设计](doc/architecture.md)，版本记录见 [Changelog](doc/CHANGELOG.md)。
 
-[MIT License](LICENSE). Third-party component notices are listed in
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+## 许可证
+
+项目采用 [MIT License](LICENSE)。第三方组件及其许可见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

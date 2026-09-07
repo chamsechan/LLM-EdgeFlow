@@ -7,6 +7,7 @@
 - **[architecture_v2.puml](architecture_v2.puml)**：LLM-EdgeFlow 平台目标演进全景图（To-Be Target Blueprint，涵盖控制面交付与跨层契约）。
 - **[assets/architecture_class_diagram.svg](assets/architecture_class_diagram.svg)**：由 `architecture.puml` 固定版本生成的 As-Is 类图资产。
 - **[assets/architecture_flow.svg](assets/architecture_flow.svg)**：由 `architecture_v2.puml` 固定版本生成的 Target 全景图资产。
+- **[assets/framework_overview.svg](assets/framework_overview.svg)**：首页工作原理图，说明方案配置、节点组合与模型调用；直接维护 SVG 源码。
 - **[developer_guide.md](developer_guide.md)**：按任务选择开发入口，按需查询四层扩展边界和进阶接口。
 - **[第一个自定义 Node](dev_guide/first_custom_node.md)**：从两个文本处理函数开始，完成源码生成、编译、连线和统一 Demo 运行。
 - **[Node 作者的五个概念](dev_guide/custom_node_concepts.md)**：深入浅出解释类型端口、来源编号、模型绑定、Definition 和并发声明。
