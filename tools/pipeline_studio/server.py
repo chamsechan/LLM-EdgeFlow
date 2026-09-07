@@ -19,7 +19,7 @@ import tempfile
 import threading
 import time
 from typing import Any
-from urllib.parse import parse_qs, quote, urlparse
+from urllib.parse import parse_qs, urlparse
 import uuid
 import webbrowser
 
@@ -45,6 +45,7 @@ _SELECTION_SPEC.loader.exec_module(SELECTION)
 
 MANAGED_NAME = re.compile(r"^pipeline_[a-z0-9_]+\.json$")
 MAX_LOG_BYTES = 2 * 1024 * 1024
+MAX_DOCUMENT_BYTES = 4 * 1024 * 1024
 
 
 class StudioError(RuntimeError):
@@ -80,10 +81,29 @@ def read_json(path: Path) -> Any:
 class WorkbenchService:
     """State and filesystem boundary behind /api/v1."""
 
-    def __init__(self, config_root: Path = CONFIG_ROOT):
+    def __init__(self, config_root: Path = CONFIG_ROOT, initial: Path | None = None):
         self.config_root = config_root.resolve()
         self.jobs: dict[str, dict[str, Any]] = {}
         self.job_lock = threading.Lock()
+        self.initial_document = None
+        if initial is not None:
+            pipeline = read_pipeline_file(initial)
+            self.initial_document = json_result(
+                True, filename=initial.name, revision="", pipeline=pipeline, imported=True
+            )
+            # Only the existing managed file contract grants overwrite access.
+            try:
+                managed = self.managed_path(initial.name, must_exist=True)
+                if initial.resolve() == managed.resolve():
+                    self.initial_document = self.open_pipeline(initial.name)
+            except StudioError:
+                pass
+
+    def initial_pipeline(self) -> dict[str, Any]:
+        document = self.initial_document
+        if document is not None and not document.get("imported", False):
+            document = self.open_pipeline(document["filename"])
+        return json_result(True, document=document)
 
     def managed_path(self, requested: str, must_exist: bool = False) -> Path:
         path = Path(requested)
@@ -461,6 +481,8 @@ def make_handler(service: WorkbenchService):
                 payload = service.pipelines()
             elif method == "GET" and path == "/api/v1/pipeline":
                 payload = service.open_pipeline(query.get("filename", [""])[0])
+            elif method == "GET" and path == "/api/v1/initial":
+                payload = service.initial_pipeline()
             elif method == "GET" and path.startswith("/api/v1/runs/"):
                 payload = service.run_status(path.rsplit("/", 1)[-1])
             elif method == "POST" and path == "/api/v1/validate":
@@ -541,12 +563,29 @@ def render_terminal(path: Path, pipeline: dict[str, Any]) -> None:
     print()
 
 
+def read_pipeline_file(path: Path) -> dict[str, Any]:
+    if path.suffix.lower() != ".json" or not path.is_file():
+        raise StudioError("INVALID_PIPELINE_FILE", "请选择一个 Pipeline JSON 文件")
+    try:
+        with path.open("rb") as stream:
+            raw = stream.read(MAX_DOCUMENT_BYTES + 1)
+        if len(raw) > MAX_DOCUMENT_BYTES:
+            raise StudioError("DOCUMENT_TOO_LARGE", "方案文件超过 4 MiB")
+        pipeline = json.loads(raw)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise StudioError("INVALID_JSON", f"无法解析 JSON：{error}") from error
+    except OSError as error:
+        raise StudioError("PIPELINE_READ_FAILED", f"无法读取方案文件：{error}") from error
+    if not isinstance(pipeline, dict) or not isinstance(pipeline.get("pipeline"), list):
+        raise StudioError("INVALID_PIPELINE_DOCUMENT", "方案必须是包含 pipeline 数组的 JSON 对象")
+    return pipeline
+
+
 def launch_web(initial: Path | None, port: int) -> None:
-    service = WorkbenchService()
+    service = WorkbenchService(initial=initial)
     server = StudioHttpServer(("127.0.0.1", port), make_handler(service))
     actual_port = server.server_address[1]
-    fragment = f"#pipeline={quote(initial.name)}" if initial else ""
-    url = f"http://127.0.0.1:{actual_port}/index.html{fragment}"
+    url = f"http://127.0.0.1:{actual_port}/index.html"
     print("LLM-EdgeFlow Pipeline Studio 已启动")
     print(f"地址: {url}")
     print("服务仅绑定 127.0.0.1；Ctrl+C 停止。")
@@ -562,22 +601,17 @@ def launch_web(initial: Path | None, port: int) -> None:
         server.server_close()
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="LLM-EdgeFlow Pipeline viewer/studio")
-    parser.add_argument("pipeline", nargs="?", help="configs/pipeline_*.json")
-    parser.add_argument("--web", action="store_true")
-    parser.add_argument("--port", type=int, default=8080)
-    args = parser.parse_args()
-    selected: Path | None = None
-    if args.pipeline:
-        service = WorkbenchService()
-        selected = service.managed_path(args.pipeline, must_exist=True)
-        pipeline = read_json(selected)
-        if not args.web:
-            render_terminal(selected, pipeline)
+    parser.add_argument("pipeline", nargs="?", type=Path, help="要打开的 Pipeline JSON 文件")
+    parser.add_argument("--web", action="store_true", help="启动 Web 工作台；默认在终端显示文件")
+    parser.add_argument("--port", type=int, default=8080, help="Web 服务端口（默认 8080，仅 --web 使用）")
+    args = parser.parse_args(argv)
     if args.web:
-        launch_web(selected, args.port)
-    elif not args.pipeline:
+        launch_web(args.pipeline, args.port)
+    elif args.pipeline is not None:
+        render_terminal(args.pipeline, read_pipeline_file(args.pipeline))
+    else:
         parser.print_help()
 
 

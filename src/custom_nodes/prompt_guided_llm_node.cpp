@@ -16,6 +16,7 @@
 #include "engine/model_interface.h"
 #include "nodes/model_bound_node.h"
 #include "nodes/node_base.h"
+#include "nodes/text_template.h"
 
 namespace llm_edgeflow {
 namespace custom_nodes {
@@ -25,15 +26,53 @@ constexpr int kMissingInput = -8001;
 constexpr int kModelInferenceFailed = -8002;
 constexpr int kOutputProvenanceMismatch = -8003;
 
-struct PromptPart {
-  enum Kind { kLiteral, kInput, kContext } kind;
-  std::string text;
-};
+// Kept only for explicitly selected legacy syntax and unambiguous old
+// templates.
+bool ParseLegacyPromptTemplate(const std::string& pattern,
+                               std::vector<TextTemplateToken>* parts,
+                               std::string* error) {
+  auto reject = [&](const std::string& message) {
+    if (error) *error = message;
+    return false;
+  };
+  parts->clear();
+  std::string literal;
+  for (size_t i = 0; i < pattern.size();) {
+    const char c = pattern[i];
+    if ((c == '{' || c == '}') && i + 1 < pattern.size() &&
+        pattern[i + 1] == c) {
+      literal += c;
+      i += 2;
+    } else if (c == '{') {
+      const auto end = pattern.find('}', i + 1);
+      if (end == std::string::npos)
+        return reject("Unclosed prompt placeholder");
+      const auto token = pattern.substr(i + 1, end - i - 1);
+      if (token != "input" && token != "context") {
+        return reject("Unknown prompt placeholder: " + token);
+      }
+      parts->push_back({TextTemplateTokenType::kLiteral, std::move(literal)});
+      literal.clear();
+      parts->push_back({TextTemplateTokenType::kVariable, token});
+      i = end + 1;
+    } else if (c == '}') {
+      return reject(
+          "Unescaped } in legacy prompt template; choose "
+          "template_syntax=standard for literal JSON braces");
+    } else {
+      literal += c;
+      ++i;
+    }
+  }
+  parts->push_back({TextTemplateTokenType::kLiteral, std::move(literal)});
+  return true;
+}
 
 // Parse only the original template. Request values are always opaque text.
 bool ParsePromptConfig(const nlohmann::json& config,
-                       std::vector<PromptPart>* parts, GenerateOptions* options,
-                       bool* uses_context, std::string* error) {
+                       std::vector<TextTemplateToken>* parts,
+                       GenerateOptions* options, bool* uses_context,
+                       std::string* error) {
   auto reject = [&](const std::string& message) {
     if (error) *error = message;
     return false;
@@ -47,37 +86,30 @@ bool ParsePromptConfig(const nlohmann::json& config,
     *uses_context = false;
     const std::string pattern = config.value("prompt_template", "{input}");
     if (pattern.empty()) return reject("prompt_template must not be empty");
-    std::string literal;
-    for (size_t i = 0; i < pattern.size();) {
-      const char c = pattern[i];
-      if ((c == '{' || c == '}') && i + 1 < pattern.size() &&
-          pattern[i + 1] == c) {
-        literal += c;
-        i += 2;
-      } else if (c == '{') {
-        const auto end = pattern.find('}', i + 1);
-        if (end == std::string::npos)
-          return reject("Unclosed prompt placeholder");
-        const auto token = pattern.substr(i, end - i + 1);
-        if (token != "{input}" && token != "{context}") {
-          return reject("Unknown prompt placeholder: " + token);
-        }
-        parts->push_back({PromptPart::kLiteral, std::move(literal)});
-        literal.clear();
-        parts->push_back(
-            {token == "{input}" ? PromptPart::kInput : PromptPart::kContext,
-             {}});
-        *uses_context |= token == "{context}";
-        i = end + 1;
-      } else if (c == '}') {
-        return reject(
-            "Literal braces in prompt_template must be escaped as {{ or }}");
-      } else {
-        literal += c;
-        ++i;
-      }
+    const std::string syntax = config.value("template_syntax", "auto");
+    if (syntax != "auto" && syntax != "standard" && syntax != "legacy") {
+      return reject("template_syntax must be auto, standard or legacy");
     }
-    parts->push_back({PromptPart::kLiteral, std::move(literal)});
+    if (syntax == "auto" && (pattern.find("{{") != std::string::npos ||
+                             pattern.find("}}") != std::string::npos)) {
+      return reject(
+          "Ambiguous double braces in prompt_template: set "
+          "template_syntax=standard to substitute {{input}}/{{context}} "
+          "as in TextTemplateNode, or template_syntax=legacy to preserve "
+          "old {{ / }} literal-brace escaping");
+    }
+    if (syntax == "standard") {
+      if (!ParseTextTemplate(pattern, parts, error)) return false;
+    } else if (!ParseLegacyPromptTemplate(pattern, parts, error)) {
+      return false;
+    }
+    for (const auto& part : *parts) {
+      if (part.type != TextTemplateTokenType::kVariable) continue;
+      if (part.value != "input" && part.value != "context") {
+        return reject("Unknown prompt placeholder: " + part.value);
+      }
+      *uses_context |= part.value == "context";
+    }
     // Keep direct Node initialization as strict as native plan initialization.
     for (const char* field : {"max_tokens", "top_k"}) {
       if (config.contains(field) &&
@@ -240,16 +272,10 @@ class PromptGuidedLlmNode final : public ModelBoundNode<ILlmModel> {
       result += system_prompt_ + "\n";
     }
     for (const auto& part : prompt_parts_) {
-      switch (part.kind) {
-        case PromptPart::kInput:
-          result += input;
-          break;
-        case PromptPart::kContext:
-          result += context;
-          break;
-        case PromptPart::kLiteral:
-          result += part.text;
-          break;
+      if (part.type == TextTemplateTokenType::kLiteral) {
+        result += part.value;
+      } else {
+        result += part.value == "input" ? input : context;
       }
     }
     return result;
@@ -292,7 +318,7 @@ class PromptGuidedLlmNode final : public ModelBoundNode<ILlmModel> {
   BoundInput<TextBatch> context_port_;
   BoundOutput<TextBatch> out_port_;
 
-  std::vector<PromptPart> prompt_parts_;
+  std::vector<TextTemplateToken> prompt_parts_;
   bool uses_context_ = false;
   std::string system_prompt_;
   bool strip_markdown_ = false;
@@ -305,7 +331,9 @@ NodeDefinition MakePromptGuidedLlmNodeDefinition() {
   def.category = "custom";
   def.description =
       "Custom domain node combining prompt construction, LLM generation, "
-      "and response post-processing";
+      "and response post-processing; template_syntax=standard uses "
+      "{{name}}/{name} like TextTemplateNode, auto rejects ambiguous double "
+      "braces, legacy preserves old brace escaping";
   def.inputs = {
       RequiredInputPort("input", BlackboardKey<TextBatch>{"", "TextBatch"},
                         "1:1", "preserve", "request"),
@@ -321,6 +349,13 @@ NodeDefinition MakePromptGuidedLlmNodeDefinition() {
                             "llm_model_v1"},
       ConfigFieldDefinition{"prompt_template", ConfigValueKind::kString, false,
                             "{input}"},
+      ConfigFieldDefinition{"template_syntax",
+                            ConfigValueKind::kString,
+                            false,
+                            "auto",
+                            std::nullopt,
+                            std::nullopt,
+                            {"auto", "standard", "legacy"}},
       ConfigFieldDefinition{"system_prompt", ConfigValueKind::kString, false,
                             ""},
       ConfigFieldDefinition{"temperature", ConfigValueKind::kNumber, false, 0.7,
@@ -341,14 +376,14 @@ NodeDefinition MakePromptGuidedLlmNodeDefinition() {
   def.validate_config = [](const nlohmann::json& config,
                            const std::unordered_set<std::string>& inputs,
                            std::string* error) {
-    std::vector<PromptPart> parts;
+    std::vector<TextTemplateToken> parts;
     GenerateOptions options;
     bool uses_context = false;
     if (!ParsePromptConfig(config, &parts, &options, &uses_context, error))
       return false;
     if (uses_context && inputs.count("context") == 0) {
       if (error)
-        *error = "prompt_template uses {context} but context is not connected";
+        *error = "prompt_template uses context but context is not connected";
       return false;
     }
     return true;

@@ -5,7 +5,9 @@ target_link_libraries(test_c11_abi_compliance PRIVATE llm_edgeflow::sdk)
 add_test(NAME C11AbiComplianceTest COMMAND test_c11_abi_compliance)
 
 # 4. 架构分层防腐隔离测试 (LayerGuard)
-add_test(NAME LayerGuardTest COMMAND ${PROJECT_SOURCE_DIR}/scripts/check_layer_isolation.sh)
+add_test(NAME LayerGuardTest COMMAND ${CMAKE_COMMAND} -E env
+  "LLM_EDGEFLOW_LAYER_COMPILE_MANIFEST=${PROJECT_BINARY_DIR}/layer_includes/compile_checks_$<CONFIG>.cmake"
+  ${PROJECT_SOURCE_DIR}/scripts/check_layer_isolation.sh)
 add_test(NAME LayerGuardSelfTest COMMAND ${PROJECT_SOURCE_DIR}/scripts/check_layer_isolation.sh --self-test)
 
 # 4.1 架构文档防漂移测试 (ArchitectureDocsDriftTest)

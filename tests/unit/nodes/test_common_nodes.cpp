@@ -4,6 +4,8 @@
 #include <memory>
 #include <nlohmann/json.hpp>
 #include <string>
+#include <tuple>
+#include <utility>
 #include <vector>
 
 #include "adapter/shared_algorithm_runtime.h"
@@ -843,6 +845,7 @@ TEST_F(CommonNodesTest, PromptRendersOriginalTemplateAndIsolatesRequests) {
   const nlohmann::json config = {
       {"bind_model", "prompt_contract"},
       {"system_prompt", "system {input}"},
+      {"template_syntax", "legacy"},
       {"prompt_template", "{{literal}} <{input}>|{context}|{input}"},
       {"strip_markdown", true},
       {"stop_words", {"END"}},
@@ -878,6 +881,86 @@ TEST_F(CommonNodesTest, PromptRendersOriginalTemplateAndIsolatesRequests) {
   ASSERT_EQ(node->Process(&next), 0);
   EXPECT_EQ(next.Read<TextBatch>("output")->front().data,
             "system {input}\n{literal} <next>||next");
+}
+
+TEST_F(CommonNodesTest, PromptStandardSyntaxMatchesTextTemplateNode) {
+  auto model = std::make_shared<PromptContractModel>();
+  ASSERT_TRUE(session_ctx_->GetModelManager().RegisterModel("prompt_contract",
+                                                            model, "v1"));
+  const std::string value = "opaque {{input}} {context}";
+  const std::vector<std::pair<std::string, std::string>> cases = {
+      {"{{context}}|{ context }", value + "|" + value},
+      {R"({"nested":{"context":"{{ context }}"}})",
+       "{\"nested\":{\"context\":\"" + value + "\"}}"}};
+  for (const auto& [pattern, expected] : cases) {
+    SCOPED_TRACE(pattern);
+    auto common = NodeFactory::Instance().Create("TextTemplateNode");
+    auto custom = NodeFactory::Instance().Create("PromptGuidedLlmNode");
+    ASSERT_TRUE(
+        InitNodeForTest(*common, {{"template", pattern}}, session_ctx_.get()));
+    ASSERT_TRUE(InitNodeForTest(*custom,
+                                {{"bind_model", "prompt_contract"},
+                                 {"template_syntax", "standard"},
+                                 {"prompt_template", pattern}},
+                                session_ctx_.get()));
+    AlgContext common_ctx;
+    common_ctx.Publish("context_text", TextBatch{{17, 0, value}});
+    ASSERT_EQ(common->Process(&common_ctx), 0);
+    ASSERT_NE(common_ctx.Read<TextBatch>("text"), nullptr);
+    ASSERT_EQ(common_ctx.Read<TextBatch>("text")->size(), 1U);
+    EXPECT_EQ(common_ctx.Read<TextBatch>("text")->front().data, expected);
+
+    AlgContext custom_ctx;
+    custom_ctx.Publish("input", TextBatch{{17, 0, "unused"}});
+    custom_ctx.Publish("context", TextBatch{{17, 0, value}});
+    ASSERT_EQ(custom->Process(&custom_ctx), 0);
+    ASSERT_EQ(model->prompts.size(), 1U);
+    EXPECT_EQ(model->prompts.front().data, expected);
+  }
+}
+
+TEST_F(CommonNodesTest, PromptDoubleBracesRequireExplicitMigration) {
+  auto model = std::make_shared<PromptContractModel>();
+  ASSERT_TRUE(session_ctx_->GetModelManager().RegisterModel("prompt_contract",
+                                                            model, "v1"));
+  for (const std::string pattern :
+       {"{{input}}", "{{context}}", "{{literal}}", "{{\"value\": 1}}", "}}"}) {
+    SCOPED_TRACE(pattern);
+    for (bool explicit_auto : {false, true}) {
+      auto doc = CustomPipeline("entity_extract");
+      auto& config = doc["pipeline"][0]["config"];
+      config["prompt_template"] = pattern;
+      config.erase("template_syntax");
+      if (explicit_auto) config["template_syntax"] = "auto";
+      const auto result = PipelineValidator::ValidateAndPlan(doc);
+      EXPECT_FALSE(result.report.ok);
+      EXPECT_NE(result.report.ToJson().dump().find("template_syntax=standard"),
+                std::string::npos);
+      EXPECT_NE(result.report.ToJson().dump().find("template_syntax=legacy"),
+                std::string::npos);
+      config["bind_model"] = "prompt_contract";
+      auto node = NodeFactory::Instance().Create("PromptGuidedLlmNode");
+      EXPECT_FALSE(InitNodeForTest(*node, config, session_ctx_.get()));
+    }
+  }
+  for (const auto& [syntax, pattern, expected] :
+       std::vector<std::tuple<std::string, std::string, std::string>>{
+           {"auto", "{input}", "value"},
+           {"standard", "{{ input }}|{input}", "value|value"},
+           {"legacy", "{{input}}|{input}|{{\"value\": 1}}",
+            "{input}|value|{\"value\": 1}"}}) {
+    SCOPED_TRACE(syntax);
+    auto node = NodeFactory::Instance().Create("PromptGuidedLlmNode");
+    ASSERT_TRUE(InitNodeForTest(*node,
+                                {{"bind_model", "prompt_contract"},
+                                 {"template_syntax", syntax},
+                                 {"prompt_template", pattern}},
+                                session_ctx_.get()));
+    AlgContext ctx;
+    ctx.Publish("input", TextBatch{{17, 4, "value"}});
+    ASSERT_EQ(node->Process(&ctx), 0);
+    EXPECT_EQ(model->prompts.front().data, expected);
+  }
 }
 
 TEST_F(CommonNodesTest, PromptAndGeneratedLlmNodesFailWithoutPublishing) {
@@ -957,10 +1040,15 @@ TEST_F(CommonNodesTest, PromptConfigurationRejectedByValidatorAndInit) {
       {{"prompt_template", "{unknown}"}},
       {{"prompt_template", "{input"}},
       {{"prompt_template", "}"}},
-      {{"prompt_template", ""}}};
+      {{"prompt_template", ""}},
+      {{"template_syntax", "invalid"}},
+      {{"template_syntax", "standard"}, {"prompt_template", "{{unknown}}"}},
+      {{"template_syntax", "standard"}, {"prompt_template", "{{input}"}},
+      {{"template_syntax", "standard"}, {"prompt_template", "{{}}"}}};
   for (const auto& bad : bad_configs) {
     SCOPED_TRACE(bad.dump());
     auto doc = CustomPipeline("entity_extract");
+    doc["pipeline"][0]["config"]["template_syntax"] = "auto";
     doc["pipeline"][0]["config"].update(bad);
     EXPECT_FALSE(PipelineValidator::ValidateAndPlan(doc).report.ok);
     auto config = bad;

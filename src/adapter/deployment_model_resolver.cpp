@@ -4,28 +4,12 @@
 #include <filesystem>
 #include <system_error>
 
+#include "contracts/path_utils.h"
+
 namespace llm_edgeflow {
 namespace {
 
 namespace fs = std::filesystem;
-
-bool IsWithinRoot(const fs::path& root, const fs::path& candidate) {
-  auto root_it = root.begin();
-  auto candidate_it = candidate.begin();
-  while (root_it != root.end() && candidate_it != candidate.end() &&
-         *root_it == *candidate_it) {
-    ++root_it;
-    ++candidate_it;
-  }
-  return root_it == root.end();
-}
-
-bool TraversesParent(const fs::path& path) {
-  for (const auto& component : path) {
-    if (component == "..") return true;
-  }
-  return false;
-}
 
 void SetDiagnostic(std::string* diagnostic, const std::string& message) {
   if (diagnostic) *diagnostic = message;
@@ -88,7 +72,7 @@ bool ResolveDeploymentModelPaths(const nlohmann::json& pipeline_json,
 
       const std::string raw_path = model["model_path"].get<std::string>();
       const fs::path normalized = fs::path(raw_path).lexically_normal();
-      if (!normalized.is_absolute() && TraversesParent(normalized)) {
+      if (!normalized.is_absolute() && HasParentPathComponent(normalized)) {
         SetDiagnostic(diagnostic,
                       "Model path cannot traverse outside model_root_dir at "
                       "/models/" +
@@ -114,7 +98,8 @@ bool ResolveDeploymentModelPaths(const nlohmann::json& pipeline_json,
                           std::to_string(index) + "/model_path: " + raw_path);
         return false;
       }
-      if (!canonical_root.empty() && !IsWithinRoot(canonical_root, candidate)) {
+      if (!canonical_root.empty() &&
+          !IsPathWithinRoot(canonical_root, candidate)) {
         SetDiagnostic(diagnostic,
                       "Model path escapes model_root_dir at /models/" +
                           std::to_string(index) + "/model_path: " + raw_path);

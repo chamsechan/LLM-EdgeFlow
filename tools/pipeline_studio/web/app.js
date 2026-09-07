@@ -1,12 +1,13 @@
 import { api, initialPipeline, write } from "./api.js";
 import { GraphView } from "./graph.js";
 import { createHistory, createDrafts } from "./editor.js";
-import { compatibleModels, createLatestRequestGate, modelBoundNodeIds, graphDocument, connectPorts, disconnectPorts, removeNode, compatibleBackends, upsertModel, removeModel } from "./workbench.js";
+import { compatibleModels, createLatestRequestGate, modelBoundNodeIds, graphDocument, connectPorts, disconnectPorts, removeNode, compatibleBackends, modelAvailability, assertBrowsablePipeline, readPipelineFile, upsertModel, removeModel } from "./workbench.js";
 
 const $ = selector => document.querySelector(selector);
 const state = {
   pipeline: null,
   filename: "",
+  sourceName: "",
   revision: "",
   dirty: false,
   catalog: { nodes: [], bizs: [], profiles: [] },
@@ -36,13 +37,14 @@ function snapshot() { return { pipeline: state.pipeline, selected: state.selecte
 function updateEditorStatus() {
   const pending = drafts.pending;
   const badge = $("#dirtyBadge");
-  badge.textContent = state.loading ? "加载中…" : !state.pipeline ? "未打开" : pending ? "有未应用修改" : state.dirty ? "未保存" : "已保存";
+  badge.textContent = state.loading ? "加载中…" : !state.pipeline ? "未打开" : pending ? "有未应用修改" : state.dirty ? "未保存" : state.sourceName ? "已导入" : "已保存";
   badge.classList.toggle("dirty", pending || state.dirty);
   $("#undoButton").disabled = state.loading || pending || !history.canUndo;
   $("#redoButton").disabled = state.loading || pending || !history.canRedo;
   $("#saveButton").disabled = state.loading || state.saving || !state.pipeline;
   $("#saveAsButton").disabled = state.loading || state.saving || !state.pipeline;
   $("#openButton").disabled = state.loading;
+  $("#browseButton").disabled = state.loading;
   $("#newButton").disabled = state.loading;
   $("#rawJson").readOnly = state.loading || drafts.pendingExcept("json").length > 0;
   for (const [kind, form] of [["node", "#nodeForm"], ["model", "#modelForm"]]) {
@@ -50,6 +52,8 @@ function updateEditorStatus() {
       control.disabled = state.loading || !state.catalogReady || !state.pipeline || drafts.pendingExcept(kind).length > 0;
     }
   }
+  const modelDefinition = state.catalog.models?.find(item => item.model_type === $("#modelType").value);
+  if (!modelAvailability(state.catalog.backends || [], modelDefinition).available) $("#applyModel").disabled = true;
   $("#applyJson").disabled = state.loading || drafts.pendingExcept("json").length > 0;
   $("#modelSelect").disabled = state.loading || !state.catalogReady || drafts.pending;
   $("#newModel").disabled = state.loading || !state.catalogReady || drafts.pending;
@@ -97,7 +101,7 @@ function effectiveNodes() {
 function setDirty(value) {
   state.dirty = value;
   updateEditorStatus();
-  $("#documentTitle").textContent = state.filename || "未命名方案";
+  $("#documentTitle").textContent = state.filename || (state.sourceName ? `${state.sourceName}（导入）` : "未命名方案");
 }
 
 function clearValidation(message = "") {
@@ -114,7 +118,7 @@ function markPipelineChanged(record = true) {
   setDirty(JSON.stringify(state.pipeline) !== state.savedPipeline);
 }
 
-function positionsKey() { return `edgeflow.positions.${state.filename || state.pipeline?.biz_name || "draft"}`; }
+function positionsKey() { return `edgeflow.positions.${state.filename || state.sourceName || state.pipeline?.biz_name || "draft"}`; }
 function restorePositions() {
   try {
     const saved = JSON.parse(localStorage.getItem(positionsKey()) || "{}");
@@ -297,19 +301,29 @@ function filterProfiles() {
 
 async function openPipeline(filename) {
   if (!filename) return;
+  return openDocument(() => api(`/pipeline?filename=${encodeURIComponent(filename)}`));
+}
+
+async function openDocument(load) {
   if ((state.dirty || drafts.pending) && !confirm("当前修改尚未保存，确认丢弃并打开其他方案？")) return;
   const request = ++documentRequest;
   state.loading = true; graph.editable = false; updateEditorStatus();
   try {
-    const result = await api(`/pipeline?filename=${encodeURIComponent(filename)}`);
+    const result = await load();
     if (request !== documentRequest) return;
-    state.pipeline = result.pipeline; state.filename = result.filename; state.revision = result.revision; state.selected = "";
+    assertBrowsablePipeline(result.pipeline);
+    state.pipeline = result.pipeline;
+    state.filename = result.imported ? "" : result.filename;
+    state.sourceName = result.imported ? result.filename : "";
+    state.revision = result.revision; state.selected = "";
+    $("#pipelineSelect").value = state.filename;
     drafts.clear(); state.selectedEdge = null; state.documentVersion += 1;
     state.savedPipeline = JSON.stringify(state.pipeline); history.reset(snapshot());
     state.pipelineVersion += 1;
     restorePositions(); clearValidation(); setDirty(false); clearCatalogSelection();
     $("#bizSelect").value = state.pipeline.biz_name;
-    await loadCatalog(state.pipeline.biz_name);
+    try { await loadCatalog(state.pipeline.biz_name); }
+    catch (error) { toast(`文件已打开，Catalog 暂不可用：${error.message}`, true); }
   } finally {
     if (request === documentRequest) { state.loading = false; graph.editable = state.editing; renderAll(); }
   }
@@ -323,7 +337,7 @@ async function createPipeline() {
   try {
     const result = await write("/init", "POST", { biz, profile, empty: !profile });
     if (request !== documentRequest) return;
-    state.pipeline = result.pipeline; state.filename = ""; state.revision = ""; state.selected = "";
+    state.pipeline = result.pipeline; state.filename = ""; state.sourceName = ""; state.revision = ""; state.selected = "";
     drafts.clear(); state.selectedEdge = null; state.documentVersion += 1;
     state.savedPipeline = ""; history.reset(snapshot());
     state.pipelineVersion += 1;
@@ -339,7 +353,8 @@ async function save(saveAs) {
   if (state.saving || !requireApplied()) return;
   let filename = state.filename;
   if (saveAs || !filename) {
-    filename = prompt("方案文件名（pipeline_[a-z0-9_]+.json）", filename || "pipeline_new_solution.json");
+    const suggested = /^pipeline_[a-z0-9_]+\.json$/.test(state.sourceName) ? state.sourceName : "pipeline_new_solution.json";
+    filename = prompt("另存到 configs：方案文件名（pipeline_[a-z0-9_]+.json）", filename || suggested);
     if (!filename) return;
     saveAs = true;
   }
@@ -351,7 +366,7 @@ async function save(saveAs) {
       filename, pipeline, revision: state.revision,
     });
     if (documentVersion !== state.documentVersion) return;
-    state.filename = result.filename; state.revision = result.revision;
+    state.filename = result.filename; state.sourceName = ""; state.revision = result.revision;
     state.savedPipeline = JSON.stringify(pipeline);
     savePositions(graph.positions);
     setDirty(JSON.stringify(state.pipeline) !== state.savedPipeline);
@@ -438,7 +453,13 @@ function loadModelEditor(id = "") {
   $("#modelId").value = model?.model_id || "";
   $("#modelPath").value = model?.model_path || "";
   const type = $("#modelType"); type.replaceChildren();
-  for (const definition of state.catalog.models || []) type.add(new Option(`${definition.model_type} · ${definition.capability}`, definition.model_type));
+  for (const definition of state.catalog.models || []) {
+    const availability = modelAvailability(state.catalog.backends || [], definition);
+    const option = new Option(`${definition.model_type} · ${definition.capability}${availability.available ? "" : " · 当前构建无兼容 Backend"}`, definition.model_type);
+    option.title = availability.message;
+    type.add(option);
+  }
+  if (model && !state.catalog.models?.some(item => item.model_type === model.model_type)) type.add(new Option(`${model.model_type} · 当前构建未注册`, model.model_type));
   if (model) type.value = model.model_type;
   renderModelFields(model);
   updateEditorStatus();
@@ -447,7 +468,17 @@ function loadModelEditor(id = "") {
 function renderModelFields(model = null) {
   const definition = state.catalog.models?.find(item => item.model_type === $("#modelType").value);
   const backend = $("#modelBackend"); backend.replaceChildren();
-  for (const item of compatibleBackends(state.catalog.backends || [], definition)) backend.add(new Option(item.backend_type, item.backend_type));
+  const availability = modelAvailability(state.catalog.backends || [], definition);
+  const compatible = compatibleBackends(state.catalog.backends || [], definition);
+  for (const item of compatible) backend.add(new Option(item.backend_type, item.backend_type));
+  const hint = $("#modelAvailability"); hint.textContent = availability.message; hint.hidden = availability.available;
+  if (model && !compatible.some(item => item.backend_type === model.backend)) {
+    const option = new Option(`${model.backend} · 当前构建不可用或不兼容`, model.backend);
+    option.disabled = true; backend.add(option);
+    if (availability.available) { hint.hidden = false; hint.textContent = "当前 Backend 不可用或不兼容，请选择列表中的兼容 Backend。"; }
+  } else if (!compatible.length) {
+    const option = new Option("当前构建无兼容 Backend", ""); option.disabled = true; backend.add(option); option.selected = true;
+  }
   if (model) backend.value = model.backend;
   const container = $("#modelConfigFields"); container.replaceChildren();
   for (const field of definition?.config_fields || []) appendConfigField(container, field, model?.model_config || {});
@@ -458,6 +489,15 @@ function renderBackendFields(values = {}) {
   const definition = state.catalog.backends?.find(item => item.backend_type === $("#modelBackend").value);
   const container = $("#backendConfigFields"); container.replaceChildren();
   for (const field of definition?.config_fields || []) appendConfigField(container, field, values);
+}
+
+function updateBackendAvailability() {
+  const definition = state.catalog.models?.find(item => item.model_type === $("#modelType").value);
+  const availability = modelAvailability(state.catalog.backends || [], definition);
+  const selectedIsCompatible = compatibleBackends(state.catalog.backends || [], definition).some(item => item.backend_type === $("#modelBackend").value);
+  const hint = $("#modelAvailability");
+  hint.hidden = selectedIsCompatible;
+  hint.textContent = availability.available ? "当前 Backend 不可用或不兼容，请选择列表中的兼容 Backend。" : availability.message;
 }
 
 function readConfigFields(selector) {
@@ -493,7 +533,7 @@ $("#modelSelect").addEventListener("change", event => {
 });
 $("#newModel").addEventListener("click", () => { if (requireApplied()) loadModelEditor(); });
 $("#modelType").addEventListener("change", () => renderModelFields());
-$("#modelBackend").addEventListener("change", () => renderBackendFields());
+$("#modelBackend").addEventListener("change", () => { renderBackendFields(); updateBackendAvailability(); });
 $("#modelForm").addEventListener("submit", event => {
   event.preventDefault();
   if (!state.pipeline) return toast("请先新建或打开方案", true);
@@ -614,6 +654,14 @@ window.addEventListener("keydown", event => {
 });
 
 $("#openButton").addEventListener("click", () => openPipeline($("#pipelineSelect").value).catch(error => toast(error.message, true)));
+$("#browseButton").addEventListener("click", () => $("#pipelineFile").click());
+$("#pipelineFile").addEventListener("change", async event => {
+  const file = event.target.files?.[0];
+  event.target.value = "";
+  if (!file) return;
+  try { await openDocument(() => readPipelineFile(file)); }
+  catch (error) { toast(`打开文件失败：${error.message}`, true); }
+});
 $("#newButton").addEventListener("click", () => createPipeline().catch(error => toast(error.message, true)));
 $("#saveButton").addEventListener("click", () => save(false));
 $("#saveAsButton").addEventListener("click", () => save(true));
@@ -661,7 +709,7 @@ $("#applyJson").addEventListener("click", async () => {
   let parsed;
   try {
     parsed = JSON.parse($("#rawJson").value);
-    if (!parsed || !Array.isArray(parsed.pipeline)) throw new Error("pipeline 必须是数组");
+    assertBrowsablePipeline(parsed);
   } catch (error) {
     toast(`JSON 错误：${error.message}`, true);
     return;
@@ -688,8 +736,14 @@ window.addEventListener("beforeunload", event => { if (state.dirty || drafts.pen
 
 try {
   await refreshLists();
+} catch (error) { toast(`工具列表暂不可用，仍可浏览文件：${error.message}`, true); }
+
+try {
   if (initialPipeline) {
     $("#pipelineSelect").value = initialPipeline;
     await openPipeline(initialPipeline);
+  } else {
+    const initial = await api("/initial");
+    if (initial.document && documentRequest === 0) await openDocument(async () => initial.document);
   }
 } catch (error) { toast(error.message, true); }

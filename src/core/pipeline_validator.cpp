@@ -6,6 +6,7 @@
 #include <unordered_map>
 #include <unordered_set>
 
+#include "contracts/path_utils.h"
 #include "core/node_registry.h"
 #include "core/pipeline_catalog.h"
 #include "core/pipeline_config.h"
@@ -223,9 +224,9 @@ int LifetimeRank(const std::string& lifetime) {
 }
 
 bool TraversesParent(const std::filesystem::path& path) {
-  const std::string normalized = path.string();
-  return normalized == ".." || normalized.rfind("../", 0) == 0 ||
-         normalized.rfind("..\\", 0) == 0;
+  // Retain the portable leading Windows-parent check even on hosts whose
+  // native filesystem treats backslashes as ordinary filename characters.
+  return HasParentPathComponent(path) || path.string().rfind("..\\", 0) == 0;
 }
 
 bool LifetimeCompatible(const std::string& producer,

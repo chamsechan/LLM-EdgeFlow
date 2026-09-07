@@ -11,6 +11,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
 import urllib.request
 
 
@@ -98,6 +99,65 @@ class WorkbenchServiceTest(unittest.TestCase):
         self.assertEqual(job["status"], "completed", job)
         self.assertIn("summary.json", job["result"])
         self.assertIn("results.jsonl", job["result"])
+
+    def test_startup_opens_each_kite_file_without_backend_validation(self):
+        files = list((ROOT / "configs" / "kite").glob("pipeline_*.json"))
+        self.assertTrue(files)
+        for path in files:
+            with self.subTest(path=path):
+                service = SHOW.WorkbenchService(initial=path)
+                self.assertEqual(service.initial_document["pipeline"], json.loads(path.read_text()))
+                self.assertTrue(service.initial_document["imported"])
+                self.assertEqual(service.initial_document["revision"], "")
+
+    def test_startup_external_file_is_a_snapshot_without_write_binding(self):
+        path = self.configs / "arbitrary name.json"
+        path.write_text(json.dumps(self.keyword))
+        service = SHOW.WorkbenchService(initial=path)
+        path.write_text("{}")
+        self.assertEqual(service.initial_document["pipeline"], self.keyword)
+        self.assertTrue(service.initial_document["imported"])
+        with self.assertRaises(SHOW.StudioError):
+            service.managed_path(str(path))
+
+    def test_startup_managed_file_keeps_revision_and_save_contract(self):
+        path = self.configs / "pipeline_managed.json"
+        path.write_text(json.dumps(self.keyword))
+        service = SHOW.WorkbenchService(self.configs, initial=path)
+        self.assertEqual(service.initial_document, service.open_pipeline(path.name))
+        self.assertNotIn("imported", service.initial_document)
+        original_revision = service.initial_document["revision"]
+        changed = {**self.keyword, "comment": "edited after launch"}
+        saved = service.save_pipeline(path.name, changed, original_revision)
+        self.assertEqual(service.initial_pipeline()["document"], saved)
+        self.assertNotEqual(service.initial_pipeline()["document"]["revision"], original_revision)
+
+    def test_file_reader_rejects_directories_invalid_json_and_oversized_files(self):
+        with self.assertRaises(SHOW.StudioError):
+            SHOW.read_pipeline_file(self.configs)
+        path = self.configs / "invalid.json"
+        for content in ("{", "[]", '{"pipeline":{}}', " " * (SHOW.MAX_DOCUMENT_BYTES + 1)):
+            path.write_text(content)
+            with self.subTest(content=content[:30]), self.assertRaises(SHOW.StudioError):
+                SHOW.read_pipeline_file(path)
+
+    def test_cli_defaults_to_terminal_and_requires_web_flag_for_studio(self):
+        path = str(ROOT / "configs" / "kite" / "pipeline_doc_qa.json")
+        for args, selected, port in ((["--web"], None, 8080),
+                                     ([path, "--web", "--port", "0"], Path(path), 0)):
+            with self.subTest(args=args), mock.patch.object(SHOW, "launch_web") as launch, mock.patch.object(SHOW, "render_terminal") as render:
+                SHOW.main(args)
+                launch.assert_called_once_with(selected, port)
+                render.assert_not_called()
+        with mock.patch.object(SHOW, "launch_web") as launch, mock.patch.object(SHOW, "render_terminal") as render:
+            SHOW.main([path])
+            launch.assert_not_called()
+            render.assert_called_once_with(Path(path), json.loads(Path(path).read_text()))
+        with mock.patch.object(SHOW, "launch_web") as launch, mock.patch.object(SHOW, "render_terminal") as render, mock.patch.object(SHOW.argparse.ArgumentParser, "print_help") as help_text:
+            SHOW.main([])
+            launch.assert_not_called()
+            render.assert_not_called()
+            help_text.assert_called_once()
 
 
 class PipelineCliTest(unittest.TestCase):
@@ -267,6 +327,14 @@ class HttpApiTest(unittest.TestCase):
             payload = json.load(response)
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["schema_version"], 1)
+
+    def test_initial_endpoint_only_exposes_explicit_startup_document(self):
+        with urllib.request.urlopen(self.base + "/initial?filename=/etc/passwd", timeout=5) as response:
+            self.assertIsNone(json.load(response)["document"])
+        expected = {"filename": "chosen.json", "pipeline": {"pipeline": []}, "imported": True}
+        self.service.initial_document = expected
+        with urllib.request.urlopen(self.base + "/initial?filename=/etc/passwd", timeout=5) as response:
+            self.assertEqual(json.load(response)["document"], expected)
 
     @unittest.skipUnless(shutil.which("node"), "Node.js is required for Web module tests")
     def test_web_modules_apply_catalog_semantics_and_topological_layout(self):

@@ -17,6 +17,7 @@
 #include "engine/text/utf8.h"
 #include "nodes/node_base.h"
 #include "nodes/node_error_codes.h"
+#include "nodes/text_template.h"
 
 namespace llm_edgeflow {
 namespace {
@@ -44,11 +45,8 @@ class TextTemplateNode final : public NodeBase {
  public:
   inline static constexpr char kNodeType[] = "TextTemplateNode";
 
-  enum class TokenType { kLiteral, kVariable };
-  struct TemplateToken {
-    TokenType type = TokenType::kLiteral;
-    std::string value;
-  };
+  using TokenType = TextTemplateTokenType;
+  using TemplateToken = TextTemplateToken;
 
   TextTemplateNode()
       : NodeBase(kNodeType),
@@ -68,16 +66,10 @@ class TextTemplateNode final : public NodeBase {
     if (config.contains("values"))
       values = config.at("values").get<decltype(values)>();
     std::vector<TemplateToken> compiled;
-    const bool ok =
-        CompileTemplate(config.value("template", "{{primary}}"), values,
-                        connected.count("attributes") ||
-                            config.value("allow_dynamic_attributes", false),
-                        &compiled);
-    if (!ok && diagnostic)
-      *diagnostic =
-          "Invalid template placeholder or missing static value; connect "
-          "attributes or declare values";
-    return ok;
+    return CompileTemplate(config.value("template", "{{primary}}"), values,
+                           connected.count("attributes") ||
+                               config.value("allow_dynamic_attributes", false),
+                           &compiled, diagnostic);
   }
 
  protected:
@@ -395,103 +387,33 @@ class TextTemplateNode final : public NodeBase {
   }
 
  private:
-  static bool IsValidIdentifier(const std::string& str) {
-    if (str.empty()) return false;
-    for (char c : str) {
-      if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-            (c >= '0' && c <= '9') || c == '_')) {
-        return false;
-      }
-    }
-    return true;
-  }
-
   static bool CompileTemplate(
       const std::string& tmpl,
       const std::unordered_map<std::string, std::string>& static_vals,
-      bool allow_dynamic_attrs, std::vector<TemplateToken>* out_tokens) {
+      bool allow_dynamic_attrs, std::vector<TemplateToken>* out_tokens,
+      std::string* diagnostic = nullptr) {
     static const std::unordered_set<std::string> kBuiltins = {
         "primary", "context",  "context_text",
         "matches", "document", "document_text"};
-
-    out_tokens->clear();
-    size_t pos = 0;
-    while (pos < tmpl.size()) {
-      size_t open_pos = tmpl.find('{', pos);
-      if (open_pos == std::string::npos) {
-        out_tokens->push_back({TokenType::kLiteral, tmpl.substr(pos)});
-        break;
-      }
-
-      if (open_pos > pos) {
-        out_tokens->push_back(
-            {TokenType::kLiteral, tmpl.substr(pos, open_pos - pos)});
-      }
-
-      bool is_double =
-          (open_pos + 1 < tmpl.size() && tmpl[open_pos + 1] == '{');
-
-      if (is_double) {
-        size_t close_pos = tmpl.find("}}", open_pos + 2);
-        if (close_pos == std::string::npos) {
-          ALG_LOG_ERROR(
-              "[TextTemplateNode] Unclosed {{ placeholder in template at "
-              "%zu\n",
-              open_pos);
-          return false;
-        }
-        std::string raw_name =
-            tmpl.substr(open_pos + 2, close_pos - open_pos - 2);
-        size_t first = raw_name.find_first_not_of(" \t");
-        size_t last = raw_name.find_last_not_of(" \t");
-        if (first == std::string::npos) {
-          ALG_LOG_ERROR(
-              "[TextTemplateNode] Empty {{}} placeholder in template\n");
-          return false;
-        }
-        std::string var_name = raw_name.substr(first, last - first + 1);
-        if (!IsValidIdentifier(var_name) ||
-            (!allow_dynamic_attrs && !kBuiltins.count(var_name) &&
-             !static_vals.count(var_name))) {
-          ALG_LOG_ERROR("[TextTemplateNode] Unknown template placeholder: %s\n",
-                        var_name.c_str());
-          return false;
-        }
-        out_tokens->push_back({TokenType::kVariable, std::move(var_name)});
-        pos = close_pos + 2;
-        continue;
-      }
-
-      // Single { : check if it forms a valid identifier placeholder {var}
-      size_t close_pos = tmpl.find('}', open_pos + 1);
-      if (close_pos != std::string::npos) {
-        std::string raw_name =
-            tmpl.substr(open_pos + 1, close_pos - open_pos - 1);
-        size_t first = raw_name.find_first_not_of(" \t");
-        size_t last = raw_name.find_last_not_of(" \t");
-        if (first != std::string::npos) {
-          std::string var_name = raw_name.substr(first, last - first + 1);
-          if (IsValidIdentifier(var_name)) {
-            if (!allow_dynamic_attrs && !kBuiltins.count(var_name) &&
-                !static_vals.count(var_name)) {
-              ALG_LOG_ERROR(
-                  "[TextTemplateNode] Unknown template placeholder: %s\n",
-                  var_name.c_str());
-              return false;
-            }
-            out_tokens->push_back({TokenType::kVariable, std::move(var_name)});
-            pos = close_pos + 1;
-            continue;
-          }
+    std::string error;
+    bool ok = ParseTextTemplate(tmpl, out_tokens, &error);
+    if (ok) {
+      for (const auto& token : *out_tokens) {
+        if (token.type == TokenType::kVariable && !allow_dynamic_attrs &&
+            !kBuiltins.count(token.value) && !static_vals.count(token.value)) {
+          error = "Unknown template placeholder: " + token.value +
+                  "; connect attributes or declare values";
+          ok = false;
+          break;
         }
       }
-
-      // Not a valid variable placeholder (e.g. JSON literal '{'), emit literal
-      // '{'
-      out_tokens->push_back({TokenType::kLiteral, "{"});
-      pos = open_pos + 1;
     }
-    return true;
+    if (!ok) {
+      out_tokens->clear();
+      ALG_LOG_ERROR("[TextTemplateNode] %s\n", error.c_str());
+      if (diagnostic) *diagnostic = std::move(error);
+    }
+    return ok;
   }
 
   mutable std::shared_mutex rw_mutex_;
@@ -520,7 +442,9 @@ NodeDefinition MakeTextTemplateNodeDefinition() {
   def.node_type = TextTemplateNode::kNodeType;
   def.category = "common";
   def.validate_config = TextTemplateNode::ValidateConfig;
-  def.description = "Text template rendering and prompt builder node";
+  def.description =
+      "Text template rendering: {{name}} and {name} substitute variables; "
+      "JSON braces remain literal";
   def.inputs = {
       OptionalInputPort("primary", BlackboardKey<TextBatch>{"", "TextBatch"},
                         "1:1", "preserve", "request"),

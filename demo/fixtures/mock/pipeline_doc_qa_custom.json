@@ -87,7 +87,8 @@
       },
       "config": {
         "bind_model": "llm_model_v1",
-        "prompt_template": "【参考片段】: {context}\n【用户提问】: {input}\n请基于参考片段给出精确解答:",
+        "template_syntax": "standard",
+        "prompt_template": "【参考片段】: {{context}}\n【用户提问】: {{input}}\n请基于参考片段给出精确解答:",
         "strip_markdown": true,
         "temperature": 0.3,
         "max_tokens": 128

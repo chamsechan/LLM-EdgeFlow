@@ -29,7 +29,8 @@
       },
       "config": {
         "bind_model": "entity_llm",
-        "prompt_template": "你是一个中文实体与名词抽取助手。请从以下句子中提取出所有名词与实体，并仅以JSON列表形式返回：\n输入文本：{input}\n提取结果：",
+        "template_syntax": "standard",
+        "prompt_template": "你是一个中文实体与名词抽取助手。请从以下句子中提取出所有名词与实体，并仅以JSON列表形式返回：\n输入文本：{{input}}\n提取结果：",
         "strip_markdown": true,
         "temperature": 0.1,
         "max_tokens": 64

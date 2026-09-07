@@ -12,6 +12,8 @@
       <div class="pipeline-picker">
         <select id="pipelineSelect" aria-label="选择方案" title="选择已有方案"></select>
         <button id="openButton">打开</button>
+        <button id="browseButton" title="选择一个 JSON 文件进行浏览">浏览文件…</button>
+        <input id="pipelineFile" type="file" accept=".json,application/json" hidden>
       </div>
       <div class="toolbar">
         <span id="dirtyBadge" class="badge" role="status">未打开</span>
@@ -39,7 +41,7 @@
       <section class="canvas-panel" aria-label="方案流程图">
         <div class="canvas-tools">
           <div class="canvas-heading">
-            <div id="documentTitle">请选择或新建方案</div>
+            <div id="documentTitle">请选择、浏览或新建方案</div>
             <span id="graphSummary" class="graph-summary">打开方案，查看数据如何流动</span>
           </div>
           <div class="canvas-actions">
@@ -107,11 +109,12 @@
             <label>资产组合<select id="assetSelect"><option value="">手动配置</option></select></label>
             <label>Model 类型<select id="modelType" required></select></label>
             <label>Backend<select id="modelBackend" required></select></label>
+            <p id="modelAvailability" class="draft-hint" role="status" hidden></p>
             <label>模型资产路径<input id="modelPath" required placeholder="相对于 model_root_dir 的路径"></label>
             <p class="field-heading">Model 参数</p><div id="modelConfigFields"></div>
             <p class="field-heading">Backend 参数</p><div id="backendConfigFields"></div>
             <p id="modelDraftHint" class="draft-hint" role="status" hidden>模型配置已修改，应用后更新方案。</p>
-            <div class="row form-actions"><button type="submit" class="primary">应用模型</button><button id="discardModel" type="button" disabled>放弃修改</button><button id="deleteModel" type="button" class="danger">删除模型</button></div>
+            <div class="row form-actions"><button id="applyModel" type="submit" class="primary">应用模型</button><button id="discardModel" type="button" disabled>放弃修改</button><button id="deleteModel" type="button" class="danger">删除模型</button></div>
           </form>
           <label>预期构建变体<select id="buildVariant"><option value="">按当前 Catalog 检查</option></select></label>
           <button id="verifySelection" type="button" class="primary full">检查已应用方案的资产与构建</button>

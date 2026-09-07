@@ -154,6 +154,38 @@ TEST(PipelineValidatorTest, RejectsRemovedRuleCategoriesField) {
       }));
 }
 
+TEST(PipelineValidatorTest, ModelPathsUseLexicalChecksWithoutDeploymentRoots) {
+  std::ifstream stream("demo/fixtures/mock/pipeline_doc_qa.json");
+  ASSERT_TRUE(stream.is_open());
+  nlohmann::json pipeline;
+  ASSERT_NO_THROW(stream >> pipeline);
+
+  for (const std::string& safe_path :
+       {std::string("missing/artifact.bin"), std::string("..name/artifact.bin"),
+        std::string("missing/../artifact.bin"),
+        std::filesystem::absolute("missing/artifact.bin").string()}) {
+    pipeline["models"][0]["model_path"] = safe_path;
+    const auto report = PipelineValidator::Validate(pipeline);
+    EXPECT_TRUE(report.ok) << safe_path << "\n" << report.ToJson().dump(2);
+  }
+
+  for (const char* unsafe_path :
+       {"..", "../artifact.bin", "missing/../../artifact.bin",
+        "..\\artifact.bin"}) {
+    pipeline["models"][0]["model_path"] = unsafe_path;
+    const auto report = PipelineValidator::Validate(pipeline);
+    EXPECT_FALSE(report.ok) << unsafe_path;
+    EXPECT_TRUE(
+        std::any_of(report.diagnostics.begin(), report.diagnostics.end(),
+                    [](const ValidationDiagnostic& diagnostic) {
+                      return diagnostic.code == DiagnosticCode::kFieldRange &&
+                             diagnostic.path == "/models/0/model_path";
+                    }))
+        << unsafe_path << "\n"
+        << report.ToJson().dump(2);
+  }
+}
+
 TEST(PipelineValidatorTest, ReportsCycle) {
   const nlohmann::json pipeline = {{"biz_name", "keyword_match_v1"},
                                    {"pipeline",

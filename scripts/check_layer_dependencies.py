@@ -9,12 +9,9 @@ import tempfile
 
 # Header-only runtime and authoring contracts intentionally shared with Nodes.
 # Additions require an explicit ownership decision, not a directory-wide exemption.
-NODE_CORE_CONTRACTS = {
-    "alg_context.h", "blackboard_key.h", "common_contracts.h",
-    "node_interface.h", "node_registry.h", "pipeline_catalog.h",
-    "pipeline_config.h", "pipeline_diagnostic.h", "session_context.h",
-    "validated_node_plan.h",
-}
+NODE_CORE_CONTRACTS = set(
+    (Path(__file__).resolve().parents[1] / "cmake/node_core_contracts.txt")
+    .read_text(encoding="utf-8").splitlines())
 NODE_CORE_PATHS = {"include/core/" + name for name in NODE_CORE_CONTRACTS}
 SOURCE_SUFFIXES = {".h", ".hpp", ".c", ".cc", ".cpp"}
 INCLUDE = re.compile(r'^\s*#\s*include\s*["<]([^">]+)[">]', re.MULTILINE)

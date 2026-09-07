@@ -43,3 +43,30 @@ assert.equal(drafts.has("node"), true, "discarding JSON must not discard another
 drafts.clear();
 assert.equal(drafts.pending, false);
 console.log("Studio document history and pending editor buffer checks passed");
+
+const workbenchSource = readFileSync(new URL("../../tools/pipeline_studio/web/workbench.js", import.meta.url), "utf8");
+const { readPipelineFile, modelAvailability, upsertModel } = await import(`data:text/javascript;base64,${Buffer.from(workbenchSource).toString("base64")}`);
+const input = { biz_name: "unknown_biz_is_still_viewable", pipeline: [], models: [] };
+const file = { name: "selected.json", size: 30, text: async () => JSON.stringify(input) };
+assert.deepEqual(await readPipelineFile(file), { filename: "selected.json", revision: "", imported: true, pipeline: input });
+assert.deepEqual((await readPipelineFile({ ...file, text: async () => "\uFEFF" + JSON.stringify(input) })).pipeline, input);
+await assert.rejects(readPipelineFile({ ...file, name: "directory" }), /JSON/);
+await assert.rejects(readPipelineFile({ ...file, size: 4 * 1024 * 1024 + 1 }), /4 MiB/);
+await assert.rejects(readPipelineFile({ ...file, text: async () => "{" }), SyntaxError);
+await assert.rejects(readPipelineFile({ ...file, text: async () => "[]" }), /pipeline/);
+await assert.rejects(readPipelineFile({ ...file, text: async () => '{"pipeline":{}}' }), /pipeline/);
+for (const malformed of [{ pipeline: [null] }, { pipeline: [{ depends_on: 1 }] }, { pipeline: [], models: {} }]) {
+  await assert.rejects(readPipelineFile({ ...file, text: async () => JSON.stringify(malformed) }), /pipeline|models/);
+}
+
+const modelDefinition = { model_type: "vision", capability: "ocr", required_protocol: "image_text_generation" };
+assert.match(modelAvailability([], modelDefinition).message, /当前构建无兼容 Backend.*image_text_generation/);
+assert.equal(modelAvailability([{ supported_protocols: ["text_generation"] }], modelDefinition).available, false);
+assert.deepEqual(modelAvailability([{ supported_protocols: ["image_text_generation"] }], modelDefinition), { available: true, message: "" });
+assert.match(modelAvailability([], null).message, /未注册/);
+const pipeline = { models: [], pipeline: [] };
+assert.throws(() => upsertModel(pipeline, { models: [modelDefinition], backends: [], nodes: [] }, "", {
+  model_id: "vision", model_type: "vision", model_path: "model.bin", backend: "",
+}), /当前构建无兼容 Backend/);
+assert.deepEqual(pipeline, { models: [], pipeline: [] }, "unavailable model rejection must preserve the document");
+console.log("Studio single-file import and model availability checks passed");
