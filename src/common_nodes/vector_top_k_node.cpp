@@ -5,12 +5,40 @@
 #include <vector>
 
 #include "company_alg_log.h"
+#include "contracts/config_schema_validation.h"
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
 #include "nodes/node_base.h"
 #include "nodes/node_error_codes.h"
 
 namespace llm_edgeflow {
+
+namespace {
+
+const std::vector<ConfigFieldDefinition>& VectorTopKConfigFields() {
+  static const std::vector<ConfigFieldDefinition> kFields = {
+      ConfigFieldDefinition{"candidate_scope",
+                            ConfigValueKind::kString,
+                            false,
+                            "request",
+                            std::nullopt,
+                            std::nullopt,
+                            {"request", "shared"}},
+      ConfigFieldDefinition{"top_k", ConfigValueKind::kInteger, false, 1, 1.0,
+                            1000.0},
+      ConfigFieldDefinition{"min_score", ConfigValueKind::kNumber, false, 0.0,
+                            -100.0, 100.0},
+      ConfigFieldDefinition{"metric",
+                            ConfigValueKind::kString,
+                            false,
+                            "cosine",
+                            std::nullopt,
+                            std::nullopt,
+                            {"cosine", "dot_product"}}};
+  return kFields;
+}
+
+}  // namespace
 
 /**
  * @brief 向量相似度计算与 Top-K 检索排序算子 (VectorTopKNode)
@@ -29,15 +57,21 @@ class VectorTopKNode final : public NodeBase {
  protected:
   bool InitNode(const NodeInitContext& init_ctx, const nlohmann::json& config,
                 SessionContext& /*session_ctx*/) override {
+    nlohmann::json normalized;
+    if (!ValidateAndNormalizeFields(VectorTopKConfigFields(), config,
+                                    &normalized, nullptr)) {
+      return false;
+    }
+
     BindPort(init_ctx, in_queries_);
     BindPort(init_ctx, in_candidates_);
     BindPort(init_ctx, in_candidate_texts_);
     BindPort(init_ctx, out_ranked_);
 
-    top_k_ = config.value("top_k", 1);
-    min_score_ = config.value("min_score", 0.0f);
-    metric_ = config.value("metric", "cosine");
-    candidate_scope_ = config.value("candidate_scope", "request");
+    top_k_ = normalized["top_k"].get<int>();
+    min_score_ = normalized["min_score"].get<float>();
+    metric_ = normalized["metric"].get<std::string>();
+    candidate_scope_ = normalized["candidate_scope"].get<std::string>();
     return candidate_scope_ == "request" || candidate_scope_ == "shared";
   }
 
@@ -206,25 +240,7 @@ NodeDefinition MakeVectorTopKNodeDefinition() {
   def.outputs = {OutputPort(
       "ranked", BlackboardKey<RankedTextBatch>{"", "RankedTextBatch"}, "1:N",
       "generate_sub_id", "request")};
-  def.config_fields = {
-      ConfigFieldDefinition{"candidate_scope",
-                            ConfigValueKind::kString,
-                            false,
-                            "request",
-                            std::nullopt,
-                            std::nullopt,
-                            {"request", "shared"}},
-      ConfigFieldDefinition{"top_k", ConfigValueKind::kInteger, false, 1, 1.0,
-                            1000.0},
-      ConfigFieldDefinition{"min_score", ConfigValueKind::kNumber, false, 0.0,
-                            -100.0, 100.0},
-      ConfigFieldDefinition{"metric",
-                            ConfigValueKind::kString,
-                            false,
-                            "cosine",
-                            std::nullopt,
-                            std::nullopt,
-                            {"cosine", "dot_product"}}};
+  def.config_fields = VectorTopKConfigFields();
   def.parallel_safe = true;
   return def;
 }

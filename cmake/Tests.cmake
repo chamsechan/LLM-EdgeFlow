@@ -73,7 +73,8 @@ add_executable(edgeflow_test_core_runner
   $<TARGET_OBJECTS:edgeflow_test_biz_model_fixtures>)
 edgeflow_enable_aligned_allocation_failure(edgeflow_test_core_runner)
 target_link_libraries(edgeflow_test_core_runner PRIVATE
-  llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
+  llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main
+  edgeflow_test_allocation_failure)
 if(LLM_EDGEFLOW_HAS_ONNXRUNTIME)
   set(EDGEFLOW_GENERATED_MODEL_FIXTURE_DIR
       "${CMAKE_CURRENT_BINARY_DIR}/test-fixtures/models")

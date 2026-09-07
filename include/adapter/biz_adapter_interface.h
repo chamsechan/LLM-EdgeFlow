@@ -36,10 +36,9 @@ struct AdapterDescriptor {
  * (RECHECK-002)
  * 2. ValidateBatch: 在执行 Pipeline 之前预检批大小、输入输出槽位及缓冲区容量
  * (REV2-002, REV2-005)
- * 3. ValidateInput: 业务字段级安全与结构化状态诊断 (RECHECK-004)
- * 4. Unpack: 将业务专属纯 C 结构体解包并深拷贝到内部 DTO (强制
+ * 3. Unpack: 校验业务字段后，将纯 C 结构体解包并深拷贝到内部 DTO (强制
  * const，无状态共享)
- * 5. Pack: 打包内部 DTO 回 C 输出结构体，截断时严格拦截并返回错误码
+ * 4. Pack: 打包内部 DTO 回 C 输出结构体，截断时严格拦截并返回错误码
  * (RECHECK-001)
  */
 class IBizAdapter {
@@ -97,18 +96,6 @@ class IBizAdapter {
     return AdapterValidationHelper::ValidateBatchPreFlight(
         inputs, num_inputs, outputs, num_outputs,
         GetDescriptor().max_batch_size, required, BizName());
-  }
-
-  /**
-   * @brief 业务字段级安全校验与结构化状态诊断 (RECHECK-004)
-   */
-  virtual AdapterStatus ValidateInput(const void** inputs,
-                                      int num_inputs) const {
-    if (!inputs || num_inputs <= 0) {
-      return AdapterStatus::InvalidInput("Null or empty inputs array", "inputs",
-                                         -1, BizName());
-    }
-    return AdapterStatus::Ok();
   }
 
   /**

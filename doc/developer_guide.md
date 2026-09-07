@@ -69,6 +69,16 @@ JSON 键，也不得为缺失容量提供本地 fallback。当前配置只有一
 
 ### Adapter 实施检查表
 
+`Unpack` 负责业务字段校验及深拷贝；批次预检不能替代字段校验。RFC-0044 删除了未被
+运行时调用的内部 `IBizAdapter::ValidateInput`：已有扩展应把校验迁入 `Unpack`（或其局部
+辅助函数），移除 override，并重新编译。两种入口共用
+[`biz_input_constraints.h`](../include/adapter/biz_input_constraints.h) 的渠道和音频限制，
+分别处理 C 字符串与 Operator 显式长度；显式部署限制可更严格。
+
+Biz egress 描述 Adapter 消费的内部端口。普通一对一出口仍要求 `1:1 / preserve`；
+CrossRerank 的排名数组和 Compliance 的首项选择使用 `N:1 / aggregate`。
+预检检查声明兼容性，打包阶段仍检查实际请求来源、排名及输出容量。
+
 1. 在 `company_alg_interface.h` 中只声明 C11 枚举、定长结构、指针和明确所有权；公开
    结构体变更必须先有 RFC。
 2. 在 `src/adapter/adapters/` 实现无请求状态的 `IBizAdapter`，用

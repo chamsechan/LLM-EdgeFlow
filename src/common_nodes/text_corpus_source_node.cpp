@@ -1,11 +1,35 @@
 #include <string>
 #include <vector>
 
+#include "contracts/config_schema_validation.h"
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
 #include "nodes/node_base.h"
 
 namespace llm_edgeflow {
+
+namespace {
+
+const std::vector<ConfigFieldDefinition>& TextCorpusSourceConfigFields() {
+  static const std::vector<ConfigFieldDefinition> kFields = {
+      ConfigFieldDefinition{"corpus", ConfigValueKind::kArray, false}};
+  return kFields;
+}
+
+bool ValidateCorpusEntries(const nlohmann::json& config,
+                           std::string* diagnostic) {
+  if (config.contains("corpus")) {
+    for (const auto& item : config.at("corpus")) {
+      if (!item.is_string()) {
+        if (diagnostic) *diagnostic = "corpus entries must be strings";
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+}  // namespace
 
 /**
  * @brief 静态或配置驱动语料知识库源算子 (TextCorpusSourceNode,
@@ -21,17 +45,22 @@ class TextCorpusSourceNode final : public NodeBase {
  protected:
   bool InitNode(const NodeInitContext& init_ctx, const nlohmann::json& config,
                 SessionContext& /*session_ctx*/) override {
+    nlohmann::json normalized;
+    if (!ValidateAndNormalizeFields(TextCorpusSourceConfigFields(), config,
+                                    &normalized, nullptr)) {
+      return false;
+    }
+    if (!ValidateCorpusEntries(normalized, nullptr)) {
+      return false;
+    }
+
     BindPort(init_ctx, in_trigger_);
     BindPort(init_ctx, out_corpus_);
 
     corpus_items_.clear();
-    if (config.contains("corpus") && config["corpus"].is_array()) {
-      for (const auto& elem : config["corpus"]) {
-        if (elem.is_string()) {
-          corpus_items_.push_back(elem.get<std::string>());
-        } else {
-          return false;
-        }
+    if (normalized.contains("corpus")) {
+      for (const auto& elem : normalized["corpus"]) {
+        corpus_items_.push_back(elem.get<std::string>());
       }
     }
     return true;
@@ -62,14 +91,7 @@ NodeDefinition MakeTextCorpusSourceNodeDefinition() {
   def.category = "common";
   def.validate_config = [](const nlohmann::json& config, const auto&,
                            std::string* diagnostic) {
-    if (config.contains("corpus"))
-      for (const auto& item : config.at("corpus")) {
-        if (!item.is_string()) {
-          if (diagnostic) *diagnostic = "corpus entries must be strings";
-          return false;
-        }
-      }
-    return true;
+    return ValidateCorpusEntries(config, diagnostic);
   };
   def.description = "Static text corpus and knowledge database source node";
   def.inputs = {OptionalInputPort("trigger",
@@ -77,8 +99,7 @@ NodeDefinition MakeTextCorpusSourceNodeDefinition() {
                                   "1:1", "preserve", "request")};
   def.outputs = {OutputPort("corpus", BlackboardKey<TextBatch>{"", "TextBatch"},
                             "1:N", "generate_sub_id", "session")};
-  def.config_fields = {
-      ConfigFieldDefinition{"corpus", ConfigValueKind::kArray, false}};
+  def.config_fields = TextCorpusSourceConfigFields();
   def.parallel_safe = true;
   return def;
 }

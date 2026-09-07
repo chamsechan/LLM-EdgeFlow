@@ -57,12 +57,10 @@ class TextEmbeddingNode final : public ModelBoundNode<IEmbeddingModel> {
     opts.normalize = normalize_;
 
     if (lifetime_ == "session" && session_ctx_) {
-      std::string digest = ComputeDigest(*text_items);
       const std::string model_revision =
           session_ctx_->GetModelManager().GetModelRevision(bind_model_id_);
-      std::string cache_key = "static_emb:" + bind_model_id_ + ":" +
-                              model_revision + ":" +
-                              std::to_string(normalize_) + ":" + digest;
+      std::string cache_key = ConstructSessionCacheKey(
+          bind_model_id_, model_revision, normalize_, *text_items);
       SessionResourceKey<EmbeddingBatch> resource_key(std::move(cache_key));
       int infer_err = 0;
       auto cached = session_ctx_->GetOrCreateResource<EmbeddingBatch>(
@@ -92,6 +90,11 @@ class TextEmbeddingNode final : public ModelBoundNode<IEmbeddingModel> {
                         ? infer_err
                         : node_error::text_embedding::kSessionInferenceFailed,
                     "TextEmbeddingNode: single-flight inference failed");
+      }
+      const auto hit_alignment =
+          ValidatePreservedTraceableAlignment(*text_items, *cached);
+      if (!hit_alignment.IsAligned()) {
+        return FailAlignment(req_ctx, AlignmentErrorCode(hit_alignment.error));
       }
       out_embedding_.Set(req_ctx, *cached);
       return 0;
@@ -137,19 +140,31 @@ class TextEmbeddingNode final : public ModelBoundNode<IEmbeddingModel> {
                     : "TextEmbeddingNode: embedding provenance mismatch");
   }
 
-  static std::string ComputeDigest(const TextBatch& items) {
-    size_t hash = 14695981039346656037ULL;
-    for (const auto& item : items) {
-      hash ^= static_cast<size_t>(item.req_id);
-      hash *= 1099511628211ULL;
-      hash ^= static_cast<size_t>(item.sub_id);
-      hash *= 1099511628211ULL;
-      for (char c : item.data) {
-        hash ^= static_cast<size_t>(c);
-        hash *= 1099511628211ULL;
-      }
+  static void AppendUint64Le(std::string& buf, uint64_t value) {
+    for (unsigned shift = 0; shift < 64; shift += 8) {
+      buf.push_back(static_cast<char>((value >> shift) & 0xff));
     }
-    return std::to_string(hash);
+  }
+
+  static std::string ConstructSessionCacheKey(const std::string& model_id,
+                                              const std::string& revision,
+                                              bool normalize,
+                                              const TextBatch& items) {
+    std::string key;
+    key.append("SEM1", 4);
+    AppendUint64Le(key, model_id.size());
+    key.append(model_id.data(), model_id.size());
+    AppendUint64Le(key, revision.size());
+    key.append(revision.data(), revision.size());
+    key.push_back(normalize ? '\x01' : '\x00');
+    AppendUint64Le(key, items.size());
+    for (const auto& item : items) {
+      AppendUint64Le(key, item.req_id);
+      AppendUint64Le(key, item.sub_id);
+      AppendUint64Le(key, item.data.size());
+      key.append(item.data.data(), item.data.size());
+    }
+    return key;
   }
 
   bool normalize_ = true;

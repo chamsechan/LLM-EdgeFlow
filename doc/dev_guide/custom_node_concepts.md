@@ -126,7 +126,12 @@ Validator 和 Studio 自动使用注册结果，不需要你再维护 UI 节点�
 不用改。增加端口、参数、输出类型或改变数量关系时，必须一起更新声明和实现。
 
 Definition 会帮助原生校验发现类型、字段和连线错误，但不会自动实现业务代码。新增
-配置还要在初始化时读取和验证；复杂跨字段约束可以通过 `validate_config` 提前检查。
+配置初始化与 Definition 应共享同一份字段列表，通过
+`contracts/config_schema_validation.h` 的 `ValidateAndNormalizeFields` 校验未知字段、
+类型、范围、枚举并填入默认值，再读取规范化结果。`ModelBoundNode` 已在绑定模型前完成
+这一步；直接继承 `NodeBase` 的节点在自己的 `InitNode` 调用它。跨字段约束提取成局部函数，
+由 Init 与 `validate_config` 共用。直接 Init 不负责 DAG 或业务出口校验。
+节点执行失败使用 `Fail/Require`，让返回码与请求诊断一致。
 具体写法可按需参考 `PromptGuidedLlmNode`，第一天不必复制它的全部参数和解析逻辑。
 
 ## 5. 并发声明：保证两个执行过程不会互相污染

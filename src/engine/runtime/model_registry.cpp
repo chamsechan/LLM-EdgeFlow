@@ -14,7 +14,7 @@ ModelRegistry& ModelRegistry::Instance() {
   return instance;
 }
 
-void ModelRegistry::RecordConflict(std::string error) noexcept {
+void ModelRegistry::RecordConflict(std::string_view error) noexcept {
   registry_support::RecordConflict(mutex_, has_conflict_, conflict_errors_,
                                    std::move(error));
 }

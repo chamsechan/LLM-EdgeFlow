@@ -32,6 +32,8 @@ class StarterLlmNode final : public ModelBoundNode<ILlmModel> {
         output_(kOutput.name) {}
 
  protected:
+  // ModelBoundNode validates fields and applies Definition defaults before this
+  // hook.
   bool InitModelNode(const NodeInitContext& init_ctx, const nlohmann::json&,
                      SessionContext&) override {
     BindPort(init_ctx, input_);

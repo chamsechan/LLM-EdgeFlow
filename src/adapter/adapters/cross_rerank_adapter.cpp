@@ -41,7 +41,8 @@ class CrossRerankAdapter
           "Cross-Encoder 精排",
           {RequiredInput(kRawRequestIds), RequiredInput(kRerankQueries),
            RequiredInput(kRerankCandidates)},
-          {Output(kRankedResults)}}}};
+          {PortDefinition{kRankedResults.name, kRankedResults.type_id, true,
+                          "N:1", "aggregate", "request"}}}}};
     return desc;
   }
 

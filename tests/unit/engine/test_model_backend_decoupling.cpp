@@ -34,6 +34,7 @@
 #include "engine/models/vision_document/image_decode.h"
 #include "engine/models/vision_document/vision_document_model.h"
 #include "engine/models/whisper_asr/whisper_asr_model.h"
+#include "tests/support/scoped_allocation_failure.h"
 
 #if defined(LLM_EDGEFLOW_TEST_WRAP_POSIX_MEMALIGN)
 namespace {
@@ -1197,6 +1198,62 @@ TEST(ModelBackendDecouplingTest, WhisperAsrModelTranscribeInputsAndBatching) {
   EXPECT_EQ(model->Transcribe(audio, &outputs), -1);
   EXPECT_TRUE(outputs.empty());
   EXPECT_EQ(session->transcribe_call_count, 0U);
+}
+
+TEST(ModelBackendDecouplingTest,
+     GeneratedEmbeddingHandlesFiniteExtremesAndZero) {
+  auto session = std::make_shared<GeneratedEmbeddingSession>();
+  for (const char* pooling : {"mean", "last"}) {
+    auto context = EmbeddingContext(session);
+    context.model_config["pooling"] = pooling;
+    auto model = std::dynamic_pointer_cast<IEmbeddingModel>(
+        GeneratedTextEmbeddingModel::Create(context, nullptr));
+    ASSERT_NE(model, nullptr);
+    for (float value : {1e20f, std::numeric_limits<float>::max(), 0.0f}) {
+      session->response = {{1, 2}, {{value, value}, {value, value}}};
+      for (bool normalize : {false, true}) {
+        EmbeddingBatch output{{99, 0, {42}}};
+        int code = model->Embed({{7, 4, "hello"}}, {normalize}, &output);
+        if (normalize && value == 0) {
+          EXPECT_NE(code, 0);
+          EXPECT_TRUE(output.empty());
+        } else {
+          ASSERT_EQ(code, 0);
+          ASSERT_EQ(output.size(), 1U);
+          EXPECT_EQ(output[0].req_id, 7U);
+          EXPECT_EQ(output[0].sub_id, 4U);
+          for (float component : output[0].data) {
+            EXPECT_TRUE(std::isfinite(component));
+            EXPECT_FLOAT_EQ(component, normalize ? std::sqrt(0.5f) : value);
+          }
+        }
+      }
+    }
+  }
+}
+
+TEST(ModelBackendDecouplingTest,
+     BackendLoadSurvivesDiagnosticAllocationFailure) {
+  for (const char* type :
+       {"onnxruntime", "llama_cpp", "whisper_cpp", "kite_llm"}) {
+    if (!BackendRegistry::Instance().Has(type)) continue;
+    auto backend = BackendRegistry::Instance().Create(type);
+    ASSERT_NE(backend, nullptr);
+    BackendLoadSpec spec;
+    spec.requested_protocol = static_cast<ExecutionProtocol>(999);
+    bool injected = false;
+    for (int step = 0; step < 4; ++step) {
+      std::string diagnostic;
+      std::shared_ptr<IBackendSession> session;
+      {
+        test_support::ScopedAllocationFailure fail(step);
+        session = backend->Load(spec, &diagnostic);
+        injected |= fail.Triggered();
+      }
+      EXPECT_EQ(session, nullptr) << type;
+    }
+    EXPECT_TRUE(injected) << type;
+  }
 }
 
 }  // namespace llm_edgeflow

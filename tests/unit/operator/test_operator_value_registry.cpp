@@ -4,7 +4,10 @@
 #include <stdexcept>
 #include <thread>
 
+#include "adapter/biz_adapter_registry.h"
+#include "adapter/operator/operator_biz_bridge_registry.h"
 #include "adapter/operator/operator_value_type_registry.h"
+#include "core/alg_context.h"
 #include "scoped_allocation_failure.h"
 
 namespace llm_edgeflow {
@@ -745,6 +748,167 @@ TEST(OperatorValueRegistryTest, TSanConcurrentQueryAndFreeze) {
   }
   EXPECT_EQ(reg.GlobalInit(), 0);
   EXPECT_FALSE(reg.HasConflict());
+}
+
+// 15. RFC-0044 C02: noexcept 安全性与故障注入不抛出、不 terminate 测试
+TEST(OperatorValueRegistryTest, NoexceptOOMFaultTolerance) {
+  CompanyString str{-1, nullptr};
+  CompanyBuffer buf{-1, nullptr};
+  CompanyAny any{1, -1, 4, nullptr};
+  for (int operation = 0; operation < 4; ++operation) {
+    bool injected = false;
+    for (int step = 0; step < 4; ++step) {
+      std::string err;
+      int result = 0;
+      {
+        test_support::ScopedAllocationFailure fail(step);
+        switch (operation) {
+          case 0:
+            result = OperatorValueTypeRegistry::ValidateCompanyString(
+                &str, 10, "test", &err);
+            break;
+          case 1:
+            result = OperatorValueTypeRegistry::ValidateCompanyBuffer(
+                &buf, 10, "test", &err);
+            break;
+          case 2:
+            result = OperatorValueTypeRegistry::ValidateCompanyAnyPayload(
+                &any, 10, "test", &err);
+            break;
+          case 3:
+            result = OperatorBizBridgeRegistry::CopyToPooledString(
+                "source", nullptr, 1, "field", &err);
+            break;
+        }
+        injected |= fail.Triggered();
+      }
+      EXPECT_EQ(result, operation == 3 ? -4 : -3);
+    }
+    EXPECT_TRUE(injected);
+  }
+}
+
+// 16. RFC-0044 C05: audio_in zero-length accepts null buffer, rejects negative
+// length
+TEST(OperatorValueRegistryTest,
+     AudioInZeroLengthAcceptsNullBufferAndRejectsNegative) {
+  const auto* binding =
+      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("audio_in");
+  ASSERT_NE(binding, nullptr);
+  ASSERT_TRUE(binding->validate_external);
+
+  ResolvedInputLimits limits;
+  limits.min_sample_rate = 8000;
+  limits.max_sample_rate = 48000;
+  limits.max_audio_pcm_samples = 160000;
+
+  std::string err;
+
+  // Case 1: pcm_length == 0 with nullptr pcm_buffer -> success (0)
+  CompanyOperatorAudioInput zero_audio{};
+  zero_audio.sample_rate = 16000;
+  zero_audio.pcm_length = 0;
+  zero_audio.pcm_buffer = nullptr;
+  EXPECT_EQ(binding->validate_external(&zero_audio, limits, &err), 0) << err;
+
+  // Case 2: pcm_length < 0 -> rejected (-3)
+  CompanyOperatorAudioInput neg_audio{};
+  neg_audio.sample_rate = 16000;
+  neg_audio.pcm_length = -1;
+  neg_audio.pcm_buffer = nullptr;
+  err.clear();
+  EXPECT_EQ(binding->validate_external(&neg_audio, limits, &err), -3);
+  EXPECT_NE(err.find("invalid or exceeds limit"), std::string::npos);
+
+  // Case 3: pcm_length > 0 with nullptr pcm_buffer -> rejected (-3)
+  CompanyOperatorAudioInput null_buf_audio{};
+  null_buf_audio.sample_rate = 16000;
+  null_buf_audio.pcm_length = 100;
+  null_buf_audio.pcm_buffer = nullptr;
+  err.clear();
+  EXPECT_EQ(binding->validate_external(&null_buf_audio, limits, &err), -3);
+  EXPECT_EQ(err, "pcm_buffer pointer is null");
+
+  // Case 4: valid pcm_length and buffer -> success (0)
+  float dummy_pcm[100] = {0.0f};
+  CompanyOperatorAudioInput valid_audio{};
+  valid_audio.sample_rate = 16000;
+  valid_audio.pcm_length = 100;
+  valid_audio.pcm_buffer = dummy_pcm;
+  err.clear();
+  EXPECT_EQ(binding->validate_external(&valid_audio, limits, &err), 0);
+}
+
+TEST(OperatorValueRegistryTest, CAndOperatorAgreeOnChannelNameBoundaries) {
+  const auto* binding =
+      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("audit_in");
+  auto adapter =
+      BizAdapterRegistry::Instance().GetAdapter(ALG_BIZ_TYPE_COMPLIANCE_AUDIT);
+  ASSERT_NE(binding, nullptr);
+  ASSERT_NE(adapter, nullptr);
+  std::string query = "hello";
+  CompanyString text{static_cast<int32_t>(query.size()), query.data()};
+  for (int length : {-1, 0, 256, 257}) {
+    std::string channel(length < 0 ? 0 : length, 'c');
+    CompanyString named_channel{static_cast<int32_t>(channel.size()),
+                                channel.data()};
+    CompanyAuditInputStruct c_input{7, query.c_str(),
+                                    length < 0 ? nullptr : channel.c_str()};
+    CompanyOperatorAuditInput op_input{7, &text,
+                                       length < 0 ? nullptr : &named_channel};
+    const void* inputs[]{&c_input};
+    AlgContext ctx;
+    const bool expected = length <= 256;
+    EXPECT_EQ(adapter->Unpack(inputs, 1, &ctx) == 0, expected);
+    EXPECT_EQ(binding->validate_external(&op_input, {}, nullptr) == 0,
+              expected);
+  }
+}
+
+TEST(OperatorValueRegistryTest, CAndOperatorAgreeOnPcmBoundaries) {
+  const auto* binding =
+      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("audio_in");
+  auto adapter =
+      BizAdapterRegistry::Instance().GetAdapter(ALG_BIZ_TYPE_AUDIO_ASR_INTENT);
+  ASSERT_NE(binding, nullptr);
+  ASSERT_NE(adapter, nullptr);
+  std::vector<float> samples(biz_input::kMaxAudioPcmSamples, 0);
+  struct Case {
+    int length;
+    int rate;
+    bool has_buffer;
+    bool valid;
+  };
+  const Case cases[] = {
+      {0, 16000, false, true},
+      {0, 16000, true, true},
+      {-1, 16000, false, false},
+      {1, 16000, false, false},
+      {1, 16000, true, true},
+      {0, 7999, false, false},
+      {0, 192001, false, false},
+      {0, 8000, false, true},
+      {0, 192000, false, true},
+      {biz_input::kMaxAudioPcmSamples, 16000, true, true},
+      {biz_input::kMaxAudioPcmSamples + 1, 16000, true, false}};
+  for (const auto& test : cases) {
+    CompanyAudioInputStruct c_input{};
+    c_input.request_id = 7;
+    c_input.pcm_length = test.length;
+    c_input.sample_rate = test.rate;
+    c_input.pcm_buffer = test.has_buffer ? samples.data() : nullptr;
+    CompanyOperatorAudioInput op_input{7, c_input.pcm_buffer, test.length,
+                                       test.rate};
+    const void* inputs[]{&c_input};
+    AlgContext ctx;
+    EXPECT_EQ(adapter->Unpack(inputs, 1, &ctx) == 0, test.valid);
+    EXPECT_EQ(binding->validate_external(&op_input, {}, nullptr) == 0,
+              test.valid);
+  }
+  ResolvedInputLimits limits;
+  limits.max_audio_pcm_bytes = sizeof(float);
+  CompanyOperatorAudioInput input{7, samples.data(), 2, 16000};
+  EXPECT_NE(binding->validate_external(&input, limits, nullptr), 0);
 }
 
 }  // namespace llm_edgeflow

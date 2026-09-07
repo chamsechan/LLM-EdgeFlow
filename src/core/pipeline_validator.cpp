@@ -6,6 +6,7 @@
 #include <unordered_map>
 #include <unordered_set>
 
+#include "contracts/config_schema_validation.h"
 #include "contracts/path_utils.h"
 #include "core/node_registry.h"
 #include "core/pipeline_catalog.h"
@@ -162,24 +163,6 @@ void Add(ValidationReport* report, DiagnosticCode code, std::string path,
                                  std::move(related), std::move(suggestions)});
 }
 
-bool MatchesKind(const nlohmann::json& value, ConfigValueKind kind) {
-  switch (kind) {
-    case ConfigValueKind::kString:
-      return value.is_string();
-    case ConfigValueKind::kInteger:
-      return value.is_number_integer();
-    case ConfigValueKind::kNumber:
-      return value.is_number();
-    case ConfigValueKind::kBoolean:
-      return value.is_boolean();
-    case ConfigValueKind::kObject:
-      return value.is_object();
-    case ConfigValueKind::kArray:
-      return value.is_array();
-  }
-  return false;
-}
-
 PortDefinition EffectivePortDefinition(const PortDefinition& declared,
                                        const NodeDefinition& node_definition,
                                        const nlohmann::json& node_config) {
@@ -236,17 +219,16 @@ bool LifetimeCompatible(const std::string& producer,
 
 void ValidatePortFlowContract(const PortDefinition& producer,
                               const PortDefinition& consumer,
-                              const ParsedNodeConfig& node,
+                              const std::string& path,
+                              const std::string& node_id,
                               const std::string& logical_port,
                               const std::string& producer_id,
                               ValidationReport* report) {
-  const std::string path = "/pipeline/" + std::to_string(node.source_index) +
-                           "/ports/inputs/" + logical_port;
   if (!CardinalityCompatible(producer.cardinality, consumer.cardinality)) {
     Add(report, DiagnosticCode::kPortCardinalityMismatch, path,
         "Port cardinality mismatch: producer '" + producer.cardinality +
             "' cannot feed consumer '" + consumer.cardinality + "'",
-        node.id, logical_port, {producer_id});
+        node_id, logical_port, {producer_id});
   }
   if (!ProvenanceCompatible(producer.provenance_policy,
                             consumer.provenance_policy)) {
@@ -254,13 +236,13 @@ void ValidatePortFlowContract(const PortDefinition& producer,
         "Port provenance mismatch: producer policy '" +
             producer.provenance_policy + "' cannot satisfy consumer policy '" +
             consumer.provenance_policy + "'",
-        node.id, logical_port, {producer_id});
+        node_id, logical_port, {producer_id});
   }
   if (!LifetimeCompatible(producer.lifetime, consumer.lifetime)) {
     Add(report, DiagnosticCode::kPortLifetimeMismatch, path,
         "Port lifetime mismatch: producer lifetime '" + producer.lifetime +
             "' is shorter than consumer lifetime '" + consumer.lifetime + "'",
-        node.id, logical_port, {producer_id});
+        node_id, logical_port, {producer_id});
   }
 }
 
@@ -271,99 +253,43 @@ bool ValidateAndNormalizeConfig(
     const nlohmann::json& input, nlohmann::json* normalized,
     std::vector<ValidationDiagnostic>* diagnostics,
     const std::string& base_pointer, DiagnosticCode unknown_field_code) {
-  if (!input.is_object()) {
-    if (diagnostics) {
+  std::vector<ConfigFieldValidationError> field_errors;
+  bool ok =
+      ValidateAndNormalizeFields(schema, input, normalized, &field_errors);
+  if (!ok && diagnostics) {
+    for (const auto& err : field_errors) {
       ValidationDiagnostic diag;
-      diag.code = DiagnosticCode::kConfigFieldType;
-      diag.path = base_pointer;
-      diag.message = "Config must be a JSON object";
+      diag.path = err.kind == ConfigFieldErrorKind::kNotAnObject
+                      ? base_pointer
+                      : base_pointer + "/" + err.field_name;
+      diag.message = err.message;
+      switch (err.kind) {
+        case ConfigFieldErrorKind::kNotAnObject:
+          diag.code = DiagnosticCode::kConfigFieldType;
+          break;
+        case ConfigFieldErrorKind::kUnknownField:
+          diag.code = unknown_field_code;
+          for (const auto& field : schema) {
+            diag.suggestions.push_back(field.name);
+          }
+          break;
+        case ConfigFieldErrorKind::kMissingField:
+          diag.code = DiagnosticCode::kMissingConfigField;
+          break;
+        case ConfigFieldErrorKind::kTypeMismatch:
+          diag.code = DiagnosticCode::kConfigFieldType;
+          break;
+        case ConfigFieldErrorKind::kOutOfRange:
+        case ConfigFieldErrorKind::kNonFinite:
+          diag.code = DiagnosticCode::kConfigFieldRange;
+          break;
+        case ConfigFieldErrorKind::kInvalidEnum:
+          diag.code = DiagnosticCode::kConfigFieldEnum;
+          break;
+      }
+      diag.severity = "error";
       diagnostics->push_back(std::move(diag));
     }
-    return false;
-  }
-
-  bool ok = true;
-  const auto reject = [&](DiagnosticCode code, std::string path,
-                          std::string message) {
-    ok = false;
-    if (diagnostics) {
-      diagnostics->push_back(
-          {code, std::move(path), std::move(message), "error", {}, {}, {}, {}});
-    }
-  };
-  nlohmann::json result = nlohmann::json::object();
-
-  // 1. 未知字段校验与 suggestions 生成
-  for (auto it = input.begin(); it != input.end(); ++it) {
-    const std::string& key = it.key();
-    bool found = std::any_of(schema.begin(), schema.end(),
-                             [&](const auto& f) { return f.name == key; });
-    if (!found) {
-      ok = false;
-      if (diagnostics) {
-        ValidationDiagnostic diag;
-        diag.code = unknown_field_code;
-        diag.path =
-            base_pointer.empty() ? ("/" + key) : (base_pointer + "/" + key);
-        diag.message = "Unknown config field: " + key;
-        for (const auto& field : schema) {
-          diag.suggestions.push_back(field.name);
-        }
-        diagnostics->push_back(std::move(diag));
-      }
-    }
-  }
-
-  // 2. 已声明字段约束校验与默认值注入
-  for (const auto& field : schema) {
-    std::string field_path = base_pointer.empty()
-                                 ? ("/" + field.name)
-                                 : (base_pointer + "/" + field.name);
-    if (!input.contains(field.name)) {
-      if (field.required) {
-        reject(DiagnosticCode::kMissingConfigField, field_path,
-               "Missing required config field: " + field.name);
-      } else if (!field.default_value.is_null()) {
-        result[field.name] = field.default_value;
-      }
-      continue;
-    }
-
-    const auto& val = input[field.name];
-    if (!MatchesKind(val, field.kind)) {
-      reject(DiagnosticCode::kConfigFieldType, field_path,
-             "Expected " + std::string(ConfigValueKindName(field.kind)));
-      continue;
-    }
-
-    if (val.is_number()) {
-      double num_val = val.get<double>();
-      if (field.minimum.has_value() && num_val < *field.minimum) {
-        reject(
-            DiagnosticCode::kConfigFieldRange, field_path,
-            "Numeric value is below minimum " + std::to_string(*field.minimum));
-      } else if (field.maximum.has_value() && num_val > *field.maximum) {
-        reject(
-            DiagnosticCode::kConfigFieldRange, field_path,
-            "Numeric value exceeds maximum " + std::to_string(*field.maximum));
-      }
-    }
-
-    if (field.kind == ConfigValueKind::kString && !field.enum_values.empty() &&
-        val.is_string()) {
-      std::string str_val = val.get<std::string>();
-      if (std::find(field.enum_values.begin(), field.enum_values.end(),
-                    str_val) == field.enum_values.end()) {
-        reject(DiagnosticCode::kConfigFieldEnum, field_path,
-               "String value '" + str_val + "' not in allowed enum values");
-      }
-    }
-
-    result[field.name] = val;
-  }
-
-  if (ok && normalized) {
-    *normalized = std::move(result);
   }
   return ok;
 }
@@ -373,7 +299,8 @@ namespace {
 nlohmann::json ValidateConfigFields(
     const std::vector<ConfigFieldDefinition>& definitions,
     const nlohmann::json& config, const std::string& path_prefix,
-    const std::string& subject_id, ValidationReport* report) {
+    const std::string& subject_id, ValidationReport* report,
+    bool* out_valid = nullptr) {
   std::vector<ValidationDiagnostic> diags;
   nlohmann::json normalized = nlohmann::json::object();
   if (config.is_object()) {
@@ -387,10 +314,12 @@ nlohmann::json ValidateConfigFields(
   }
 
   nlohmann::json validated;
-  if (ValidateAndNormalizeConfig(definitions, config, &validated, &diags,
-                                 path_prefix)) {
+  bool ok = ValidateAndNormalizeConfig(definitions, config, &validated, &diags,
+                                       path_prefix);
+  if (ok) {
     normalized = std::move(validated);
   }
+  if (out_valid) *out_valid = ok;
   for (auto& d : diags) {
     d.node_id = subject_id;
     report->diagnostics.push_back(std::move(d));
@@ -664,11 +593,12 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
             "Node type is not declared for biz: " + parsed.biz_name, node.id);
       }
 
+      bool node_fields_valid = false;
       auto normalized_config = ValidateConfigFields(
           definition->config_fields, node.config,
           "/pipeline/" + std::to_string(node.source_index) + "/config", node.id,
-          &report);
-      if (definition->validate_config) {
+          &report, &node_fields_valid);
+      if (node_fields_valid && definition->validate_config) {
         std::unordered_set<std::string> connected;
         for (const auto& binding : node.ports.inputs)
           connected.insert(binding.first);
@@ -682,9 +612,14 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
                 node.id);
           }
         } catch (const std::exception& e) {
-          Add(&report, DiagnosticCode::kConfigFieldType,
+          Add(&report, DiagnosticCode::kInvalidCombination,
               "/pipeline/" + std::to_string(node.source_index) + "/config",
               e.what(), node.id);
+        } catch (...) {
+          Add(&report, DiagnosticCode::kInvalidCombination,
+              "/pipeline/" + std::to_string(node.source_index) + "/config",
+              "Node configuration validator threw an unknown exception",
+              node.id);
         }
       }
       normalized_config_by_node[node.id] = normalized_config;
@@ -818,6 +753,9 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
                                  input.cardinality, input.provenance_policy,
                                  input.lifetime, PortDirection::kInput});
 
+      const std::string input_path = "/pipeline/" +
+                                     std::to_string(node.source_index) +
+                                     "/ports/inputs/" + input.key;
       bool found = false;
       auto producer_it = producers.find(actual_key);
       if (producer_it != producers.end()) {
@@ -829,8 +767,8 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
           if (is_ancestor(it->first, id)) {
             if (it->second.type_id == input.type_id) {
               found = true;
-              ValidatePortFlowContract(it->second, input, node, input.key,
-                                       it->first, &report);
+              ValidatePortFlowContract(it->second, input, input_path, id,
+                                       input.key, it->first, &report);
             }
             break;
           }
@@ -841,8 +779,8 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
         if (root_port != ingress.end() &&
             root_port->second.type_id == input.type_id) {
           found = true;
-          ValidatePortFlowContract(root_port->second, input, node, input.key,
-                                   "$ingress", &report);
+          ValidatePortFlowContract(root_port->second, input, input_path, id,
+                                   input.key, "$ingress", &report);
         }
       }
       if (!found && biz) {
@@ -979,17 +917,36 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
   }
 
   if (biz) {
-    for (const auto& required : biz->egress) {
-      bool found = false;
-      auto it = producers.find(required.key);
-      if (it != producers.end() && !it->second.empty()) {
-        found = it->second.back().second.type_id == required.type_id;
+    for (const auto& consumer : biz->egress) {
+      auto it = producers.find(consumer.key);
+      if (it == producers.end() || it->second.empty()) {
+        if (consumer.required) {
+          Add(&report, DiagnosticCode::kMissingBizOutput, "/pipeline",
+              "Pipeline does not produce required biz output: " + consumer.key,
+              {}, consumer.key);
+        }
+        continue;
       }
-      if (!found) {
-        Add(&report, DiagnosticCode::kMissingBizOutput, "/pipeline",
-            "Pipeline does not produce required biz output: " + required.key,
-            {}, required.key);
+      const auto& [producer_id, producer_port] = it->second.back();
+      const auto& producer_node = *node_by_id.at(producer_id);
+      std::string output_path =
+          "/pipeline/" + std::to_string(producer_node.source_index);
+      for (const auto& [logical_key, actual_key] :
+           producer_node.ports.outputs) {
+        if (actual_key == consumer.key) {
+          output_path += "/ports/outputs/" + logical_key;
+          break;
+        }
       }
+      if (producer_port.type_id != consumer.type_id) {
+        Add(&report, DiagnosticCode::kMissingBizOutput, output_path,
+            "Biz output type mismatch for '" + consumer.key + "': expected '" +
+                consumer.type_id + "', got '" + producer_port.type_id + "'",
+            producer_id, consumer.key, {"$egress"});
+        continue;
+      }
+      ValidatePortFlowContract(producer_port, consumer, output_path,
+                               producer_id, consumer.key, "$egress", &report);
     }
   }
 

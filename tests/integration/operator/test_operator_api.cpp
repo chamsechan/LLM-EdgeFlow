@@ -649,8 +649,17 @@ TEST_F(OperatorApiTest, EndToEndAudioAsrIntent) {
   EXPECT_NE(out_ptr->transcribed_text, nullptr);
   EXPECT_GT(out_ptr->transcribed_text->length, 0);
 
-  out_b.clear();
   out_sp.reset();
+  out_b[0]["mic_0.audio_out"].reset();
+  in.pcm_buffer = nullptr;
+  in.pcm_length = 0;
+  ASSERT_EQ(ops_.Process(handle, in_b, out_b), 0);
+  auto* empty_output = static_cast<CompanyOperatorAudioOutput*>(
+      out_b[0]["mic_0.audio_out"].get());
+  ASSERT_NE(empty_output, nullptr);
+  EXPECT_EQ(empty_output->request_id, 70001U);
+  EXPECT_EQ(empty_output->status_code, 0);
+  out_b.clear();
   EXPECT_EQ(ops_.Destroy(handle), 0);
 }
 
@@ -2120,5 +2129,83 @@ TEST_F(OperatorApiTest, VariableResultsUsePoolCapacityAndRollbackOnFailure) {
         << GetOperatorLastError();
     outputs.clear();
     EXPECT_EQ(ops_.Destroy(handle), 0);
+  }
+}
+
+TEST_F(OperatorApiTest, MetadataTypeIdOutOfInt32RangeIsRejected) {
+  ScopedTempDirectory temp_root;
+  const auto root = temp_root.path();
+  std::filesystem::create_directories(root / "configs");
+  std::filesystem::copy_file(std::filesystem::path(GetConfDir()) /
+                                 "configs/pipeline_keyword_match.json",
+                             root / "configs/pipeline_keyword_match.json");
+
+  // 1. Unsigned integer > INT32_MAX
+  {
+    std::ofstream conf(root / "configs/pipe_overflow.conf");
+    conf << R"({
+      "data": {
+        "pipe_path": "configs/pipeline_keyword_match.json",
+        "mem_que": {
+          "type": "keyword_out",
+          "meta_num": 0,
+          "metadata_type_id": 3000000000
+        }
+      }
+    })";
+    conf.close();
+    llm_edgeflow::ResolvedCompanyConfig resolved;
+    std::string err;
+    EXPECT_EQ(llm_edgeflow::CompanyConfResolver::Resolve(
+                  root.string().c_str(), "configs/pipe_overflow.conf",
+                  &resolved, &err),
+              -2);
+    EXPECT_NE(err.find("exceeds int32 range"), std::string::npos);
+  }
+
+  // 2. Negative integer < INT32_MIN
+  {
+    std::ofstream conf(root / "configs/pipe_underflow.conf");
+    conf << R"({
+      "data": {
+        "pipe_path": "configs/pipeline_keyword_match.json",
+        "mem_que": {
+          "type": "keyword_out",
+          "meta_num": 0,
+          "metadata_type_id": -3000000000
+        }
+      }
+    })";
+    conf.close();
+    llm_edgeflow::ResolvedCompanyConfig resolved;
+    std::string err;
+    EXPECT_EQ(llm_edgeflow::CompanyConfResolver::Resolve(
+                  root.string().c_str(), "configs/pipe_underflow.conf",
+                  &resolved, &err),
+              -2);
+    EXPECT_NE(err.find("exceeds int32 range"), std::string::npos);
+  }
+
+  // 3. Non-integer (floating point or string)
+  {
+    std::ofstream conf(root / "configs/pipe_not_integer.conf");
+    conf << R"({
+      "data": {
+        "pipe_path": "configs/pipeline_keyword_match.json",
+        "mem_que": {
+          "type": "keyword_out",
+          "meta_num": 0,
+          "metadata_type_id": 1.5
+        }
+      }
+    })";
+    conf.close();
+    llm_edgeflow::ResolvedCompanyConfig resolved;
+    std::string err;
+    EXPECT_EQ(llm_edgeflow::CompanyConfResolver::Resolve(
+                  root.string().c_str(), "configs/pipe_not_integer.conf",
+                  &resolved, &err),
+              -2);
+    EXPECT_NE(err.find("must be integer"), std::string::npos);
   }
 }

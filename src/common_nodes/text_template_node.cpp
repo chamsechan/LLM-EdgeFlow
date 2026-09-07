@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "company_alg_log.h"
+#include "contracts/config_schema_validation.h"
 #include "contracts/control_payload.h"
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
@@ -26,6 +27,34 @@ constexpr char kDefaultTemplate[] = "{{primary}}";
 constexpr char kDefaultSeparator[] = "\n";
 constexpr int64_t kDefaultMaxLength = 65536;
 constexpr char kDefaultMissingPolicy[] = "fail";
+
+const std::vector<ConfigFieldDefinition>& TextTemplateConfigFields() {
+  static const std::vector<ConfigFieldDefinition> fields = {
+      ConfigFieldDefinition{"template", ConfigValueKind::kString, false,
+                            kDefaultTemplate},
+      ConfigFieldDefinition{"separator", ConfigValueKind::kString, false,
+                            kDefaultSeparator},
+      ConfigFieldDefinition{"max_length", ConfigValueKind::kInteger, false,
+                            kDefaultMaxLength, 1.0, 1048576.0},
+      ConfigFieldDefinition{"allow_dynamic_attributes",
+                            ConfigValueKind::kBoolean, false, false},
+      ConfigFieldDefinition{"overflow_policy",
+                            ConfigValueKind::kString,
+                            false,
+                            "fail",
+                            std::nullopt,
+                            std::nullopt,
+                            {"fail", "truncate"}},
+      ConfigFieldDefinition{"missing_variable_policy",
+                            ConfigValueKind::kString,
+                            false,
+                            kDefaultMissingPolicy,
+                            std::nullopt,
+                            std::nullopt,
+                            {"fail", "empty", "preserve"}},
+      ConfigFieldDefinition{"values", ConfigValueKind::kObject, false}};
+  return fields;
+}
 
 const std::unordered_map<std::string, std::vector<std::string>>&
 BuiltinInputs() {
@@ -127,39 +156,46 @@ class TextTemplateNode final : public NodeBase {
     BindPort(init_ctx, in_attributes_);
     BindPort(init_ctx, out_text_);
 
+    nlohmann::json normalized_config;
+    if (!ValidateAndNormalizeFields(TextTemplateConfigFields(), config,
+                                    &normalized_config, nullptr)) {
+      return false;
+    }
+
     std::unique_lock<std::shared_mutex> lock(rw_mutex_);
-    template_str_ = config.value("template", kDefaultTemplate);
-    separator_ = config.value("separator", kDefaultSeparator);
+    template_str_ = normalized_config.value("template", kDefaultTemplate);
+    separator_ = normalized_config.value("separator", kDefaultSeparator);
     const int64_t configured_max_length =
-        config.value<int64_t>("max_length", kDefaultMaxLength);
+        normalized_config.value<int64_t>("max_length", kDefaultMaxLength);
     if (configured_max_length < 1 || configured_max_length > 1048576) {
       return false;
     }
     max_length_ = static_cast<size_t>(configured_max_length);
-    overflow_policy_ = config.value("overflow_policy", "fail");
+    overflow_policy_ = normalized_config.value("overflow_policy", "fail");
     if (overflow_policy_ != "fail" && overflow_policy_ != "truncate") {
       return false;
     }
 
     static_values_.clear();
-    if (config.contains("values")) {
-      if (!config["values"].is_object()) return false;
-      for (auto it = config["values"].begin(); it != config["values"].end();
-           ++it) {
+    if (normalized_config.contains("values")) {
+      if (!normalized_config["values"].is_object()) return false;
+      for (auto it = normalized_config["values"].begin();
+           it != normalized_config["values"].end(); ++it) {
         if (!it.value().is_string()) return false;
         static_values_[it.key()] = it.value().get<std::string>();
       }
     }
 
-    missing_variable_policy_ =
-        config.value("missing_variable_policy", kDefaultMissingPolicy);
+    missing_variable_policy_ = normalized_config.value(
+        "missing_variable_policy", kDefaultMissingPolicy);
     if (missing_variable_policy_ != "fail" &&
         missing_variable_policy_ != "empty" &&
         missing_variable_policy_ != "preserve") {
       return false;
     }
-    allow_dynamic_attrs_ = in_attributes_.IsBound() ||
-                           config.value("allow_dynamic_attributes", false);
+    allow_dynamic_attrs_ =
+        in_attributes_.IsBound() ||
+        normalized_config.value("allow_dynamic_attributes", false);
 
     std::vector<TemplateToken> compiled;
     if (!CompileTemplate(template_str_, static_values_, allow_dynamic_attrs_,
@@ -543,30 +579,7 @@ NodeDefinition MakeTextTemplateNodeDefinition() {
       kControlCmdUpdatePrompt, "update_prompt",
       "Update template string dynamically", TemplateControlSchema(), true)};
   def.control_commands.front().shared_id = true;
-  def.config_fields = {
-      ConfigFieldDefinition{"template", ConfigValueKind::kString, false,
-                            kDefaultTemplate},
-      ConfigFieldDefinition{"separator", ConfigValueKind::kString, false,
-                            kDefaultSeparator},
-      ConfigFieldDefinition{"max_length", ConfigValueKind::kInteger, false,
-                            kDefaultMaxLength, 1.0, 1048576.0},
-      ConfigFieldDefinition{"allow_dynamic_attributes",
-                            ConfigValueKind::kBoolean, false, false},
-      ConfigFieldDefinition{"overflow_policy",
-                            ConfigValueKind::kString,
-                            false,
-                            "fail",
-                            std::nullopt,
-                            std::nullopt,
-                            {"fail", "truncate"}},
-      ConfigFieldDefinition{"missing_variable_policy",
-                            ConfigValueKind::kString,
-                            false,
-                            kDefaultMissingPolicy,
-                            std::nullopt,
-                            std::nullopt,
-                            {"fail", "empty", "preserve"}},
-      ConfigFieldDefinition{"values", ConfigValueKind::kObject, false}};
+  def.config_fields = TextTemplateConfigFields();
   def.parallel_safe = true;
   return def;
 }

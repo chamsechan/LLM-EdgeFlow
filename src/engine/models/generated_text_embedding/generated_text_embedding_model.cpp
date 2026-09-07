@@ -5,6 +5,7 @@
 
 #include "company_alg_log.h"
 #include "engine/fixed_batch_executor.h"
+#include "engine/models/common/embedding_numeric_support.h"
 
 namespace llm_edgeflow {
 
@@ -115,18 +116,13 @@ int GeneratedTextEmbeddingModel::Embed(const TextBatch& inputs,
               pooled[col] = values[col];
           }
         }
-        double norm_squared = 0;
         for (double& value : pooled) {
           if (pooling_ == "mean") value /= tokens.values.size();
-          norm_squared += value * value;
         }
-        const double norm = std::sqrt(norm_squared);
-        if (!std::isfinite(norm) || (options.normalize && norm == 0)) return -1;
         std::vector<float> vector;
-        vector.reserve(pooled.size());
-        for (double value : pooled) {
-          vector.push_back(
-              static_cast<float>(options.normalize ? value / norm : value));
+        if (!embedding_support::FinalizeEmbeddingVector(
+                pooled, options.normalize, &vector)) {
+          return -1;
         }
         batch->push_back(std::move(vector));
         return 0;

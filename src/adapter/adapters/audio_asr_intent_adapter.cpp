@@ -4,6 +4,7 @@
 #include "adapter/adapter_validation_helper.h"
 #include "adapter/biz_adapter_registry.h"
 #include "adapter/biz_blackboard_keys.h"
+#include "adapter/biz_input_constraints.h"
 #include "adapter/biz_results.h"
 #include "adapter/result_packing_adapter.h"
 #include "adapter/result_validation.h"
@@ -59,8 +60,6 @@ class AudioAsrIntentAdapter
     raw_req_ids.reserve(num_inputs);
     raw_audios.reserve(num_inputs);
 
-    constexpr int64_t kMaxAudioSamples = 16000 * 60;
-
     for (int i = 0; i < num_inputs; ++i) {
       auto* in_audio = static_cast<const CompanyAudioInputStruct*>(inputs[i]);
       if (!AdapterValidationHelper::RequireNotNull("inputs[i]", in_audio, i,
@@ -69,13 +68,14 @@ class AudioAsrIntentAdapter
       }
 
       if (!AdapterValidationHelper::RequireRange(
-              "inputs[i].sample_rate", in_audio->sample_rate, 8000, 192000, i,
+              "inputs[i].sample_rate", in_audio->sample_rate,
+              biz_input::kMinSampleRate, biz_input::kMaxSampleRate, i,
               BizName(), out_status)) {
         return COMPANY_ALG_ERR_INVALID_INPUT;
       }
       if (!AdapterValidationHelper::RequireRange(
-              "inputs[i].pcm_length", in_audio->pcm_length, 0, kMaxAudioSamples,
-              i, BizName(), out_status)) {
+              "inputs[i].pcm_length", in_audio->pcm_length, 0,
+              biz_input::kMaxAudioPcmSamples, i, BizName(), out_status)) {
         return COMPANY_ALG_ERR_INVALID_INPUT;
       }
 
@@ -87,7 +87,7 @@ class AudioAsrIntentAdapter
         }
         if (!AdapterValidationHelper::CheckedMultiply(
                 "inputs[i].pcm_buffer", in_audio->pcm_length, sizeof(float),
-                10 * 1024 * 1024, i, BizName(), out_status)) {
+                biz_input::kMaxAudioPcmBytes, i, BizName(), out_status)) {
           return COMPANY_ALG_ERR_INVALID_INPUT;
         }
       }

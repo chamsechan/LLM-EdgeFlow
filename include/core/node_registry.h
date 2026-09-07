@@ -5,6 +5,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -68,16 +69,10 @@ class NodeFactory {
       creators_[node_type] = std::move(creator);
       return true;
     } catch (const std::exception& e) {
-      std::lock_guard<std::mutex> lock(mutex_);
-      has_conflict_ = true;
-      conflict_errors_.push_back("Exception registering node " + node_type +
-                                 ": " + e.what());
+      RecordRegistrationFailure(e.what());
       return false;
     } catch (...) {
-      std::lock_guard<std::mutex> lock(mutex_);
-      has_conflict_ = true;
-      conflict_errors_.push_back("Unknown exception registering node " +
-                                 node_type);
+      RecordRegistrationFailure("Unknown exception registering node");
       return false;
     }
   }
@@ -131,6 +126,16 @@ class NodeFactory {
   }
 
  private:
+  void RecordRegistrationFailure(std::string_view message) noexcept {
+    try {
+      std::lock_guard<std::mutex> lock(mutex_);
+      has_conflict_ = true;
+      conflict_errors_.emplace_back(message);
+    } catch (...) {
+      // Registration remains failed even if its diagnostic cannot be stored.
+    }
+  }
+
   NodeFactory() = default;
   mutable std::mutex mutex_;
   std::unordered_map<std::string, CreatorFunc> creators_;

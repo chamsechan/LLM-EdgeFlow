@@ -5,6 +5,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -62,7 +63,7 @@ class ModelRegistry {
   };
 
   ModelRegistry() = default;
-  void RecordConflict(std::string error) noexcept;
+  void RecordConflict(std::string_view error) noexcept;
 
   mutable std::mutex mutex_;
   std::unordered_map<std::string, Entry> entries_;

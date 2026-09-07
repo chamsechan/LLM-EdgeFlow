@@ -12,6 +12,7 @@
 #include "adapter/operator/operator_process_binding.h"
 #include "adapter/operator/operator_value_type_registry.h"
 #include "adapter/shared_algorithm_runtime.h"
+#include "contracts/diagnostic.h"
 #include "operator/operator_interface.h"
 
 namespace llm_edgeflow::operator_api {
@@ -20,7 +21,9 @@ namespace {
 
 thread_local std::string g_last_operator_error;
 
-void SetLastError(const std::string& err) { g_last_operator_error = err; }
+void SetLastError(std::string_view err) noexcept {
+  SetDiagnosticNoexcept(&g_last_operator_error, err);
+}
 
 struct OperatorHandle {
   std::unique_ptr<llm_edgeflow::SharedAlgorithmRuntime> runtime;
@@ -128,7 +131,7 @@ int Operator_Init() noexcept {
     }
     return 0;
   } catch (const std::exception& e) {
-    SetLastError(std::string("Init exception: ") + e.what());
+    SetLastError(e.what());
     return -99;
   } catch (...) {
     SetLastError("Unknown exception in Init");
@@ -264,7 +267,7 @@ int Operator_Create(void** handle, const CreateParam* param) noexcept {
     *handle = static_cast<void*>(handle_instance.release());
     return 0;
   } catch (const std::exception& e) {
-    SetLastError(std::string("Create exception: ") + e.what());
+    SetLastError(e.what());
     if (handle) *handle = nullptr;
     return -99;
   } catch (...) {
@@ -397,7 +400,7 @@ int Operator_Process(void* handle, const NamedIoBatch& inputs,
                                          &lease_guard);
     return 0;
   } catch (const std::exception& e) {
-    SetLastError(std::string("Process exception: ") + e.what());
+    SetLastError(e.what());
     return -99;
   } catch (...) {
     SetLastError("Unknown exception in Process");
@@ -445,7 +448,7 @@ int Operator_Control(void* handle, ControlCommand command,
 
     return 0;
   } catch (const std::exception& e) {
-    SetLastError(std::string("Control exception: ") + e.what());
+    SetLastError(e.what());
     return -99;
   } catch (...) {
     SetLastError("Unknown exception in Control");
@@ -484,7 +487,7 @@ int Operator_Destroy(void* handle) noexcept {
 
     return 0;
   } catch (const std::exception& e) {
-    SetLastError(std::string("Destroy exception: ") + e.what());
+    SetLastError(e.what());
     return -99;
   } catch (...) {
     SetLastError("Unknown exception in Destroy");
@@ -498,7 +501,7 @@ int Operator_Deinit() noexcept {
     int deinit_ret = llm_edgeflow::SharedAlgorithmRuntime::GlobalDeinit();
     return cleanup_ret != 0 ? cleanup_ret : deinit_ret;
   } catch (const std::exception& e) {
-    SetLastError(std::string("Deinit exception: ") + e.what());
+    SetLastError(e.what());
     return -99;
   } catch (...) {
     SetLastError("Unknown exception in Deinit");
@@ -525,43 +528,58 @@ int ValidateOperatorConfigBinding(const char* model_path,
                                   int32_t expected_biz_type,
                                   char* out_error_msg,
                                   size_t error_buf_size) noexcept {
-  if (!model_path || model_path[0] == '\0') {
-    if (out_error_msg && error_buf_size > 0) {
-      std::snprintf(out_error_msg, error_buf_size, "Null or empty model_path");
+  try {
+    if (!model_path || model_path[0] == '\0') {
+      if (out_error_msg && error_buf_size > 0) {
+        std::snprintf(out_error_msg, error_buf_size,
+                      "Null or empty model_path");
+      }
+      return -2;
     }
-    return -2;
-  }
-  if (!cfg_file_name || cfg_file_name[0] == '\0') {
+    if (!cfg_file_name || cfg_file_name[0] == '\0') {
+      if (out_error_msg && error_buf_size > 0) {
+        std::snprintf(out_error_msg, error_buf_size,
+                      "Null or empty cfg_file_name");
+      }
+      return -2;
+    }
+
+    llm_edgeflow::ResolvedCompanyConfig resolved;
+    std::string err;
+    int ret = llm_edgeflow::CompanyConfResolver::Resolve(
+        model_path, cfg_file_name, &resolved, &err);
+    if (ret != 0) {
+      if (out_error_msg && error_buf_size > 0) {
+        std::snprintf(out_error_msg, error_buf_size, "%s", err.c_str());
+      }
+      return ret;
+    }
+
+    if (expected_biz_type != 0 &&
+        resolved.biz_type !=
+            static_cast<CompanyAlgBizType>(expected_biz_type)) {
+      if (out_error_msg && error_buf_size > 0) {
+        std::snprintf(
+            out_error_msg, error_buf_size,
+            "Biz mismatch: Config resolves to biz_type %d, but expected %d",
+            static_cast<int>(resolved.biz_type), expected_biz_type);
+      }
+      return -3;
+    }
+
+    return 0;
+  } catch (const std::exception& e) {
+    if (out_error_msg && error_buf_size > 0) {
+      std::snprintf(out_error_msg, error_buf_size, "Exception: %s", e.what());
+    }
+    return -99;
+  } catch (...) {
     if (out_error_msg && error_buf_size > 0) {
       std::snprintf(out_error_msg, error_buf_size,
-                    "Null or empty cfg_file_name");
+                    "Unknown exception in ValidateOperatorConfigBinding");
     }
-    return -2;
+    return -100;
   }
-
-  llm_edgeflow::ResolvedCompanyConfig resolved;
-  std::string err;
-  int ret = llm_edgeflow::CompanyConfResolver::Resolve(
-      model_path, cfg_file_name, &resolved, &err);
-  if (ret != 0) {
-    if (out_error_msg && error_buf_size > 0) {
-      std::snprintf(out_error_msg, error_buf_size, "%s", err.c_str());
-    }
-    return ret;
-  }
-
-  if (expected_biz_type != 0 &&
-      resolved.biz_type != static_cast<CompanyAlgBizType>(expected_biz_type)) {
-    if (out_error_msg && error_buf_size > 0) {
-      std::snprintf(
-          out_error_msg, error_buf_size,
-          "Biz mismatch: Config resolves to biz_type %d, but expected %d",
-          static_cast<int>(resolved.biz_type), expected_biz_type);
-    }
-    return -3;
-  }
-
-  return 0;
 }
 
 }  // namespace llm_edgeflow::operator_api

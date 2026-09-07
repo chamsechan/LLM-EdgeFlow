@@ -11,6 +11,7 @@
 
 #include "common_nodes/support/compiled_text_regex.h"
 #include "company_alg_log.h"
+#include "contracts/config_schema_validation.h"
 #include "contracts/control_payload.h"
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
@@ -20,6 +21,17 @@
 namespace llm_edgeflow {
 namespace {
 constexpr double kDefaultScore = 1.0;
+
+const std::vector<ConfigFieldDefinition>& TextRuleMatchConfigFields() {
+  static const std::vector<ConfigFieldDefinition> kFields = {
+      ConfigFieldDefinition{"default_category", ConfigValueKind::kString, false,
+                            ""},
+      ConfigFieldDefinition{"default_score", ConfigValueKind::kNumber, false,
+                            kDefaultScore, 0.0, 1.0},
+      ConfigFieldDefinition{"categories", ConfigValueKind::kObject, false},
+      ConfigFieldDefinition{"rules", ConfigValueKind::kArray, false}};
+  return kFields;
+}
 
 bool ReadScore(const nlohmann::json& config, const char* field, float* out) {
   if (config.contains(field) && !config.at(field).is_number()) return false;
@@ -129,18 +141,24 @@ class TextRuleMatchNode final : public NodeBase {
  protected:
   bool InitNode(const NodeInitContext& init_ctx, const nlohmann::json& config,
                 SessionContext& /*session_ctx*/) override {
+    nlohmann::json normalized;
+    if (!ValidateAndNormalizeFields(TextRuleMatchConfigFields(), config,
+                                    &normalized, nullptr)) {
+      return false;
+    }
+
     BindPort(init_ctx, in_text_);
     BindPort(init_ctx, out_matches_);
 
-    default_category_ = config.value("default_category", "");
-    if (!ReadScore(config, "default_score", &default_score_)) return false;
+    default_category_ = normalized.value("default_category", "");
+    if (!ReadScore(normalized, "default_score", &default_score_)) return false;
 
-    if (config.contains("categories") && config["categories"].is_object()) {
-      if (!UpdateCategories(config["categories"])) return false;
+    if (normalized.contains("categories")) {
+      if (!UpdateCategories(normalized["categories"])) return false;
     }
 
-    if (config.contains("rules") && config["rules"].is_array()) {
-      if (!UpdateRules(config["rules"])) return false;
+    if (normalized.contains("rules")) {
+      if (!UpdateRules(normalized["rules"])) return false;
     }
     return true;
   }
@@ -206,7 +224,10 @@ class TextRuleMatchNode final : public NodeBase {
                 "[TextRuleMatchNode] Regex execution failed for rule '%s': "
                 "%s\n",
                 rule.id.c_str(), diagnostic.c_str());
-            return node_error::text_rule_match::kRegexExecutionFailed;
+            return Fail(req_ctx,
+                        node_error::text_rule_match::kRegexExecutionFailed,
+                        "Regex execution failed for rule '" + rule.id +
+                            "': " + diagnostic);
           }
           rule_matched = status == TextRegexSearchStatus::kMatched;
         } else if (rule.strategy == "exact") {
@@ -389,13 +410,7 @@ NodeDefinition MakeTextRuleMatchNodeDefinition() {
       "Update matching rules and categories dynamically", RuleControlSchema(),
       true)};
   def.control_commands.front().shared_id = true;
-  def.config_fields = {
-      ConfigFieldDefinition{"default_category", ConfigValueKind::kString, false,
-                            ""},
-      ConfigFieldDefinition{"default_score", ConfigValueKind::kNumber, false,
-                            kDefaultScore, 0.0, 1.0},
-      ConfigFieldDefinition{"categories", ConfigValueKind::kObject, false},
-      ConfigFieldDefinition{"rules", ConfigValueKind::kArray, false}};
+  def.config_fields = TextRuleMatchConfigFields();
   def.parallel_safe = true;
   return def;
 }

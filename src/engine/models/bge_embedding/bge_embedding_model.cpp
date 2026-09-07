@@ -9,6 +9,7 @@
 #include "company_alg_log.h"
 #include "engine/fixed_batch_executor.h"
 #include "engine/models/bge_common/bert_model_support.h"
+#include "engine/models/common/embedding_numeric_support.h"
 
 namespace llm_edgeflow {
 
@@ -331,56 +332,47 @@ int BgeEmbeddingModel::RawEmbedSlice(
       size_t dim = static_cast<size_t>(shape[2]);
 
       for (size_t b = 0; b < exec_count; ++b) {
-        std::vector<float>& vec = (*batch_embeddings)[b];
-        vec.assign(dim, 0.0f);
+        std::vector<double> pooled(dim, 0.0);
 
         if (pooling_strategy_ == "mean") {
-          float sum_mask = 0.0f;
+          double sum_mask = 0.0;
           for (size_t s = 0; s < seq_len; ++s) {
             int64_t m = mask_ptr[b * max_length_ + s];
             if (m > 0) {
-              sum_mask += 1.0f;
+              sum_mask += 1.0;
               const float* token_vec = data + (b * seq_len + s) * dim;
               for (size_t d = 0; d < dim; ++d) {
-                vec[d] += token_vec[d];
+                pooled[d] += static_cast<double>(token_vec[d]);
               }
             }
           }
-          if (sum_mask > 0.0f) {
+          if (sum_mask > 0.0) {
             for (size_t d = 0; d < dim; ++d) {
-              vec[d] /= sum_mask;
+              pooled[d] /= sum_mask;
             }
           }
         } else {
           // CLS pooling: 取 [b, 0, :]
           const float* cls_vec = data + (b * seq_len + 0) * dim;
-          std::memcpy(vec.data(), cls_vec, dim * sizeof(float));
+          for (size_t d = 0; d < dim; ++d) {
+            pooled[d] = static_cast<double>(cls_vec[d]);
+          }
         }
 
-        if (normalize_flag) {
-          float norm_sq = 0.0f;
-          for (float v : vec) norm_sq += v * v;
-          float norm = std::sqrt(norm_sq);
-          if (norm > 1e-12f) {
-            for (float& v : vec) v /= norm;
-          }
+        if (!embedding_support::FinalizeEmbeddingVector(
+                pooled, normalize_flag, &(*batch_embeddings)[b])) {
+          batch_embeddings->clear();
+          return -1;
         }
       }
     } else if (shape.size() == 2) {
       // 2D 结构 [exec_count, dim]
       size_t dim = static_cast<size_t>(shape[1]);
       for (size_t b = 0; b < exec_count; ++b) {
-        std::vector<float>& vec = (*batch_embeddings)[b];
-        vec.assign(dim, 0.0f);
-        std::memcpy(vec.data(), data + b * dim, dim * sizeof(float));
-
-        if (normalize_flag) {
-          float norm_sq = 0.0f;
-          for (float v : vec) norm_sq += v * v;
-          float norm = std::sqrt(norm_sq);
-          if (norm > 1e-12f) {
-            for (float& v : vec) v /= norm;
-          }
+        if (!embedding_support::FinalizeEmbeddingVector(
+                data + b * dim, dim, normalize_flag, &(*batch_embeddings)[b])) {
+          batch_embeddings->clear();
+          return -1;
         }
       }
     }
