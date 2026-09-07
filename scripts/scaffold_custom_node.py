@@ -12,6 +12,10 @@ import re
 import sys
 
 
+STARTER_LLM_TEMPLATE = (Path(__file__).resolve().parents[1]
+                        / "dev_support/node_authoring/starter_llm_node.cpp")
+
+
 # Compile-time capability signatures; availability still comes from the Catalog.
 CAPABILITY_MAP = {
     "llm": ("ILlmModel", "TextBatch", "TextBatch", "Generate(input, GenerateOptions{}, output)"),
@@ -55,6 +59,20 @@ def get_item_type_for_batch(batch):
     return f"decltype({batch}::value_type{{}}.data)"
 
 
+def render_llm_starter(name, description, in_name, out_name):
+    """Use the readable, compiled starter as the single LLM model template."""
+    source = STARTER_LLM_TEMPLATE.read_text(encoding="utf-8")
+    source = source.replace("StarterLlmNode", name)
+    literals = {
+        '"input"': cpp_string(in_name),
+        '"output"': cpp_string(out_name),
+        '"LLM authoring starter"': cpp_string(description),
+    }
+    # One pass: a replacement may itself contain another placeholder's text.
+    return re.sub(r'"input"|"output"|"LLM authoring starter"',
+                  lambda match: literals[match.group()], source)
+
+
 def render_node(name, description, kind, capability, in_port, out_port):
     in_name, in_type, in_card, in_prov = in_port
     out_name, out_type, out_card, out_prov = out_port
@@ -69,6 +87,8 @@ def render_node(name, description, kind, capability, in_port, out_port):
             raise ValueError("Model templates require 1:1 preserve ports; customize batch changes in C++")
         if kind == "unary_inference" and capability == "ocr":
             raise ValueError("ImageRefBatch is a distinct container; use --kind model for OCR")
+    if kind == "model" and capability == "llm":
+        return render_llm_starter(name, description, in_name, out_name)
     base = "NodeBase" if kind == "compute" else f"ModelBoundNode<{signature[0]}>"
     if kind == "unary_inference":
         base = (f"TraceableUnaryInferenceNode<{signature[0]}, "
@@ -287,6 +307,8 @@ def main():
             if cmake_content is not None:
                 cmake_path.write_text(cmake_content, encoding="utf-8")
             print(f"Created {target}")
+            if args.kind == "model" and capability == "llm":
+                print("Next: edit BuildPrompt and FormatAnswer. Walkthrough: doc/dev_guide/first_custom_node.md")
         else:
             print(content)
         if args.generate_test:

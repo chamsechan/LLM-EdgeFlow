@@ -4,7 +4,22 @@
 默认一个操作一个 `*_node.cpp`，直接放在本目录；文件名描述操作，不按项目或业务建立目录。
 一个自定义 Node 可以被多个 Pipeline 使用，也可以与通用 Node 混合连线。
 
-## 最短开发路径
+## 第一次开发从这里开始
+
+| 你现在要做的事 | 推荐入口 |
+| --- | --- |
+| 已有能力连线组成方案 | [Pipeline Studio](../../tools/pipeline_studio/README.md) |
+| 写“前处理 → LLM → 后处理” | [第一个自定义 Node](../../doc/dev_guide/first_custom_node.md)：生成、修改两个函数、编译、连线、运行 |
+| 看不懂端口、来源编号、模型绑定等术语 | [五个概念说明](../../doc/dev_guide/custom_node_concepts.md)：结合一次请求解释用途和常见错误 |
+| 需要多输入、配置化模板和完整校验 | 本页下方的[完整参考样例](#完整参考样例) |
+| 对接新的平台输入输出结构 | [业务接入指南](../../doc/BUSINESS_ONBOARDING.md) |
+
+入门使用[轻量 C++ 模板](../../dev_support/node_authoring/starter_llm_node.cpp)。
+`--kind model -m llm` 直接从它生成代码；先填写 `BuildPrompt`、`FormatAnswer`，其余
+固定结构继续负责端口、模型调用和来源检查。该模板不作为新内置节点加入生产 Catalog，
+生成并登记到本目录后才成为你自己的操作。
+
+## 通用开发步骤速查
 
 1. 查询 `build/alg_pipeline_tool catalog --biz <biz_name>` 和 `describe-node`，优先复用
    已有操作；缺失的领域逻辑放在本目录，不要求先改造成通用算法。
@@ -14,10 +29,10 @@
    # 纯处理：默认生成保留来源的文本透传，在循环中替换为领域算法
    ./scripts/scaffold_custom_node.py CustomFilterNode --kind compute --add-to-cmake --generate-test
 
-   # 前处理 → 绑定模型 → 后处理；使用 ModelBoundNode<ILlmModel>
+   # 推荐入门：填写 BuildPrompt 和 FormatAnswer；使用 ModelBoundNode<ILlmModel>
    ./scripts/scaffold_custom_node.py DomainPromptNode --kind model -m llm --add-to-cmake --generate-test
 
-   # 一对一保序推理，基类负责空批次、错误与来源检查
+   # 已熟悉批处理接口后：一对一保序推理
    ./scripts/scaffold_custom_node.py FastAudioNode --kind unary_inference -m asr --add-to-cmake
    ```
 
@@ -52,10 +67,11 @@
   `--kind model -m ocr`。脚本会拒绝不适用的组合。
 - 自定义批类型应提供 `BlackboardTypeTraits`；生成代码通过编译期检查拒绝未知类型标识。
 
-## 可运行的复用样例
+## 完整参考样例
 
 [PromptGuidedLlmNode](prompt_guided_llm_node.cpp) 展示提示词构建、LLM 调用与代码围栏清理，
-是编写方式样例。纯提示词组合仍可直接复用通用 Node，无需为此开发新算法。
+承担进阶参考：多输入上下文、配置化模板、生成参数与严格校验。需要哪部分再参考哪部分，
+无需把整份解析逻辑复制到自己的节点。纯提示词组合仍可直接复用通用 Node。
 
 两份方案使用**同一个**注册节点和已有 Adapter / Operator bridge：
 

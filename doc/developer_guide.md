@@ -4,6 +4,9 @@
 接口签名、Definition 和注册宏以对应头文件及现有实现为准。开发生命周期见
 [`CONTRIBUTING.md`](../CONTRIBUTING.md)，Agent 路由见 [`AGENTS.md`](../AGENTS.md)。
 
+第一次编写业务 Node，建议先完成[动手练习](dev_guide/first_custom_node.md)，
+再按需查阅[五个概念说明](dev_guide/custom_node_concepts.md)。本页用于扩展边界和进阶接口查询。
+
 ---
 
 ## 4 层扩展速查表 (Quick Reference)
@@ -106,7 +109,11 @@ typed port 契约时才新增 Node。Node 必须：
 - 提供完整 `NodeDefinition` 并通过 `REGISTER_NODE_WITH_DEFINITION` 一次注册；
 - 在 Catalog 可见，并覆盖非法配置、端口缺失/类型错误、输出、provenance 和并发声明。
 
-以 [`llm_generate_node.cpp`](../src/common_nodes/llm_generate_node.cpp)、
+入门默认使用[轻量 LLM 模板](../dev_support/node_authoring/starter_llm_node.cpp)：
+脚手架生成后，先编写 `BuildPrompt` 和 `FormatAnswer` 两个普通文本函数；端口与来源
+处理保留在固定结构中。完整步骤见[第一个自定义 Node](dev_guide/first_custom_node.md)。
+
+熟悉基本流程后，以 [`llm_generate_node.cpp`](../src/common_nodes/llm_generate_node.cpp)、
 [`text_rerank_node.cpp`](../src/common_nodes/text_rerank_node.cpp) 及其同名测试为当前模板。
 
 自定义 Node 可以在一次处理内完成前处理、调用声明绑定的模型和后处理，沿用现有
