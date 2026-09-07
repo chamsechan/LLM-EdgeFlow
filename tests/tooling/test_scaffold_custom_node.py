@@ -92,6 +92,31 @@ class ScaffoldCustomNodeTest(unittest.TestCase):
         self.assertIn('def.description = "StarterLlmNode \\"input\\"\\n";', result.stdout)
         self.assertIn('class SwappedNode final', result.stdout)
 
+    def test_control_starter_and_business_test_generation(self):
+        generated = SCAFFOLD.render_node(
+            "StarterControlNode", "Control authoring starter", "compute", None,
+            ("input", "TextBatch", "1:1", "preserve"),
+            ("output", "TextBatch", "1:1", "preserve"), 1001)
+        self.assertEqual(generated, SCAFFOLD.STARTER_CONTROL_TEMPLATE.read_text())
+        result = self.run_cli("PrefixNode", "--control-id", "12345", "--dry-run",
+                              "--in-port", "source:TextBatch", "--out-port", "result:TextBatch",
+                              "--generate-test")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('kUpdatePrefix = 12345;', result.stdout)
+        self.assertIn('ctx.Publish("source"', result.stdout)
+        self.assertIn('ctx.Read<TextBatch>("result")', result.stdout)
+        self.assertIn('ControlChangesOutputAndPreservesOnFailure', result.stdout)
+
+    def test_control_starter_rejects_invalid_ids_and_non_text_signatures(self):
+        with tempfile.TemporaryDirectory() as temp:
+            for args in [["--control-id", "0"], ["--control-id", "999"],
+                         ["--control-id", "2147483648"],
+                         ["--control-id", "1001", "--kind", "model"],
+                         ["--control-id", "1001", "--out-port", "out:Int32Batch"]]:
+                result = self.run_cli("InvalidNode", "--output-dir", temp, *args)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(list(Path(temp).iterdir()), [])
+
 
 if __name__ == "__main__":
     unittest.main()

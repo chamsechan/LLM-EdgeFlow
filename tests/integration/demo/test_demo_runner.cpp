@@ -17,6 +17,7 @@
 #include "engine/backend_registry.h"
 #include "nlohmann/json.hpp"
 #include "operator/operator_interface.h"
+#include "tests/support/control_test_utils.h"
 
 using namespace alg_demo;
 using namespace llm_edgeflow::operator_api;
@@ -828,6 +829,83 @@ TEST(DemoRunnerTest, FailClosedOnMissingOrInvalidControlFile) {
   std::filesystem::remove(bad_json_file);
 
   ops.Deinit();
+}
+
+TEST(DemoRunnerTest, GenericControlCommandChangesCustomNodeOutput) {
+  KiteDemoDirectory temporary;
+  llm_edgeflow::test::WriteControlTestPipeline(temporary.path);
+  std::ofstream(temporary.path / "input.txt") << "sample\n";
+  std::ofstream(temporary.path / "control.json") << R"({"prefix":"VIP:"})";
+  DemoOptions options;
+  options.biz = "keyword_match";
+  options.config_path = (temporary.path / "pipeline.conf").string();
+  options.dataset_path = (temporary.path / "input.txt").string();
+  options.output_dir = (temporary.path / "results").string();
+  options.no_default_control = true;
+  options.control_cmd = 2000000041;
+  options.control_file = (temporary.path / "control.json").string();
+  const auto* demo = DemoRegistry::Instance().Find("keyword_match");
+  ASSERT_NE(demo, nullptr);
+  auto ops = Get_LLM_EDGEFLOW_OperatorTable();
+  ASSERT_EQ(ops.Init(), 0);
+  ASSERT_EQ(demo->run(options), 0);
+  std::ifstream results(temporary.path / "results/keyword_match/results.jsonl");
+  ASSERT_TRUE(results.good());
+  std::string line;
+  ASSERT_TRUE(static_cast<bool>(std::getline(results, line)));
+  const auto record = nlohmann::json::parse(line);
+  EXPECT_EQ(record["status"], 0);
+  EXPECT_EQ(record["output"]["is_hit"], true);
+  EXPECT_NE(record.dump().find("PREFIX_APPLIED"), std::string::npos);
+  options.control_file.reset();
+  EXPECT_EQ(demo->run(options),
+            3);  // Never substitute a default rules payload.
+  options.control_file = (temporary.path / "control.json").string();
+  options.control_cmd = 19999;
+  EXPECT_EQ(demo->run(options), 5);
+  EXPECT_EQ(ops.Deinit(), 0);
+}
+
+TEST(DemoRunnerTest, ControlCommandCliAndProfilePrecedence) {
+  KiteDemoDirectory temporary;
+  auto write_profile = [&](const nlohmann::json& cmd) {
+    const nlohmann::json document = {
+        {"schema_version", 2},
+        {"profiles",
+         {{"control",
+           {{"biz", "keyword_match"},
+            {"config", "configs/pipeline_keyword_match.conf"},
+            {"dataset", "data/corpus_keyword_match.txt"},
+            {"control_cmd", cmd},
+            {"control_file", "payload.json"}}}}}};
+    std::ofstream(temporary.path / "profiles.json") << document.dump();
+  };
+  const std::string path = (temporary.path / "profiles.json").string();
+  write_profile(2000000041);
+  DemoOptions cli, merged;
+  cli.profile = "control";
+  std::string error;
+  ASSERT_EQ(LoadAndMergeProfiles(path, cli, &merged, &error), 0) << error;
+  EXPECT_EQ(merged.control_cmd, 2000000041);
+  EXPECT_EQ(merged.control_file, "payload.json");
+  const char* args[] = {"alg_demo", "--profile", "control", "--control-cmd",
+                        "2000000042"};
+  ASSERT_EQ(ParseCommandLine(5, const_cast<char**>(args), &cli, &error), 0);
+  ASSERT_EQ(LoadAndMergeProfiles(path, cli, &merged, &error), 0) << error;
+  EXPECT_EQ(merged.control_cmd, 2000000042);
+  for (const char* value : {"0", "-1", "2000000041abc", "2147483648"}) {
+    const char* invalid[] = {"alg_demo", "--control-cmd", value};
+    DemoOptions options;
+    EXPECT_EQ(
+        ParseCommandLine(3, const_cast<char**>(invalid), &options, &error), 2);
+  }
+  for (const auto& invalid :
+       {nlohmann::json(0), nlohmann::json("2000000041"), nlohmann::json(1.5),
+        nlohmann::json(2147483648ULL)}) {
+    write_profile(invalid);
+    nlohmann::json output;
+    EXPECT_EQ(LoadAndValidateProfilesDocument(path, &output, &error), 3);
+  }
 }
 
 // P1-1: 测试多样本按 batch_size 进行分块调度 (Chunking)

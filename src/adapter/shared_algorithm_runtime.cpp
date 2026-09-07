@@ -357,7 +357,7 @@ int SharedAlgorithmRuntime::ExecuteControl(int cmd,
       if (out_error) *out_error = "Null pipeline in runtime instance";
       return COMPANY_ALG_ERR_INVALID_HANDLE;  // -1
     }
-    return pipeline_->Control(cmd, json_param_str);
+    return pipeline_->Control(cmd, json_param_str, out_error);
   } catch (const std::exception& e) {
     if (out_error) *out_error = std::string("Exception: ") + e.what();
     return COMPANY_ALG_ERR_EXCEPTION;

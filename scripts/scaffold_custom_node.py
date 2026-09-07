@@ -14,6 +14,8 @@ import sys
 
 STARTER_LLM_TEMPLATE = (Path(__file__).resolve().parents[1]
                         / "dev_support/node_authoring/starter_llm_node.cpp")
+STARTER_CONTROL_TEMPLATE = (Path(__file__).resolve().parents[1]
+                            / "dev_support/node_authoring/starter_control_node.cpp")
 
 
 # Compile-time capability signatures; availability still comes from the Catalog.
@@ -73,10 +75,23 @@ def render_llm_starter(name, description, in_name, out_name):
                   lambda match: literals[match.group()], source)
 
 
-def render_node(name, description, kind, capability, in_port, out_port):
+def render_node(name, description, kind, capability, in_port, out_port, control_id=None):
     in_name, in_type, in_card, in_prov = in_port
     out_name, out_type, out_card, out_prov = out_port
     signature = CAPABILITY_MAP.get(capability)
+    if control_id is not None:
+        if not 1000 <= control_id <= 2147483647:
+            raise ValueError("--control-id must be an unused custom ID in 1000..2147483647")
+        if (kind != "compute" or in_type != "TextBatch" or out_type != "TextBatch"
+                or (in_card, in_prov, out_card, out_prov) != ("1:1", "preserve", "1:1", "preserve")):
+            raise ValueError("Control starter requires --kind compute and TextBatch 1:1 preserve ports; copy its Control fragment for other Node kinds")
+        source = STARTER_CONTROL_TEMPLATE.read_text(encoding="utf-8")
+        source = source.replace("StarterControlNode", name)
+        source = re.sub(r"kUpdatePrefix = \d+;", f"kUpdatePrefix = {control_id};", source)
+        literals = {'"input"': cpp_string(in_name), '"output"': cpp_string(out_name),
+                    '"Control authoring starter"': cpp_string(description)}
+        return re.sub(r'"input"|"output"|"Control authoring starter"',
+                      lambda match: literals[match.group()], source)
     if kind != "compute":
         if not signature:
             raise ValueError("A model capability is required")
@@ -245,6 +260,46 @@ TEST(CustomNodeCatalogTest, {name}RegistrationAndInstantiation) {{
 """
 
 
+def render_control_test_stub(name, command_id, in_name, out_name):
+    return f'''#include <gtest/gtest.h>
+#include "core/common_contracts.h"
+#include "core/node_registry.h"
+#include "tests/support/node_test_utils.h"
+
+namespace llm_edgeflow {{
+TEST(CustomNodeCatalogTest, {name}ControlChangesOutputAndPreservesOnFailure) {{
+  auto node = NodeFactory::Instance().Create({cpp_string(name)});
+  ASSERT_NE(node, nullptr);
+  SessionContext session;
+  ASSERT_TRUE(InitNodeForTest(*node, nlohmann::json::object(), &session));
+  const auto check_output = [&](const std::string& expected) {{
+    AlgContext ctx;
+    TextBatch input;
+    input.emplace_back(17, 3, "sample");
+    ctx.Publish({cpp_string(in_name)}, std::move(input));
+    ASSERT_EQ(node->Process(&ctx), 0);
+    const auto* output = ctx.Read<TextBatch>({cpp_string(out_name)});
+    ASSERT_NE(output, nullptr);
+    ASSERT_EQ(output->size(), 1u);
+    EXPECT_EQ(output->at(0).req_id, 17u);
+    EXPECT_EQ(output->at(0).sub_id, 3u);
+    EXPECT_EQ(output->at(0).data, expected);
+  }};
+  check_output("sample");
+  const auto update = [&](const nlohmann::json& payload) {{
+    return node->Control({command_id}, payload.dump()).status;
+  }};
+  ASSERT_EQ(update({{{{"prefix", "new:"}}}}), NodeControlStatus::kHandled);
+  check_output("new:sample");
+  EXPECT_EQ(update({{{{"prefix", 12}}}}), NodeControlStatus::kFailed);
+  EXPECT_EQ(update({{{{"prefix", std::string(65, 'x')}}}}), NodeControlStatus::kFailed);
+  check_output("new:sample");
+  // Extend these assertions with the actual business input and expected result.
+}}
+}}  // namespace llm_edgeflow
+'''
+
+
 def updated_cmakelists(cmake_path, filename):
     content = cmake_path.read_text(encoding="utf-8")
     if re.search(r"(?m)^\s*" + re.escape(filename) + r"\s*$", content):
@@ -277,6 +332,7 @@ def main():
     parser.add_argument("-f", "--force", action="store_true")
     parser.add_argument("--add-to-cmake", action="store_true")
     parser.add_argument("--generate-test", action="store_true", help="Print a starter Google Test snippet; add it to an existing suite")
+    parser.add_argument("--control-id", type=int, help="Generate the text-prefix Control starter using an unused custom command ID (>=1000)")
     parser.add_argument("--self-test", action="store_true", help="Run the generator's Python tests")
     args = parser.parse_args()
     root = Path(__file__).resolve().parent.parent
@@ -294,7 +350,7 @@ def main():
         in_port = parse_port_spec(args.in_port or f"input:{signature[1]}", "input")
         out_port = parse_port_spec(args.out_port or f"output:{signature[2]}", "output")
         content = render_node(name, args.description or f"Custom algorithm node {name}.",
-                              args.kind, capability, in_port, out_port)
+                              args.kind, capability, in_port, out_port, args.control_id)
         target = root / args.output_dir / (to_snake_case(name) + ".cpp")
         if not args.dry_run:
             if target.exists() and not args.force:
@@ -307,6 +363,8 @@ def main():
             if cmake_content is not None:
                 cmake_path.write_text(cmake_content, encoding="utf-8")
             print(f"Created {target}")
+            if args.control_id is not None:
+                print("Next: edit ControlNode and its same-file schema. Walkthrough: doc/dev_guide/first_control.md")
             if args.kind == "model" and capability == "llm":
                 print("Next: edit BuildPrompt and FormatAnswer. Walkthrough: doc/dev_guide/first_custom_node.md")
         else:
@@ -314,6 +372,8 @@ def main():
         if args.generate_test:
             print("// Starter test snippet (add to an existing test suite):")
             print(render_test_stub(name))
+            if args.control_id is not None:
+                print(render_control_test_stub(name, args.control_id, in_port[0], out_port[0]))
     except (ValueError, OSError) as error:
         parser.error(str(error))
     return 0

@@ -57,10 +57,12 @@ class NodeFactory {
                       node_type.c_str());
         return false;
       }
-      if (!PipelineCatalog::RegisterNodeDefinition(*definition)) {
+      std::string definition_error;
+      if (!PipelineCatalog::RegisterNodeDefinition(*definition,
+                                                   &definition_error)) {
         has_conflict_ = true;
-        conflict_errors_.push_back("Invalid or duplicate node Definition: " +
-                                   node_type);
+        ALG_LOG_ERROR("[NodeFactory] %s\n", definition_error.c_str());
+        conflict_errors_.push_back(std::move(definition_error));
         return false;
       }
       creators_[node_type] = std::move(creator);

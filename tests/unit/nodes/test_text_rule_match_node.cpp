@@ -131,6 +131,30 @@ TEST_F(TextRuleMatchNodeTest, CombinedControlUpdateIsAtomic) {
   EXPECT_EQ((*preserved)[2].data.is_hit, 0);
 }
 
+TEST_F(TextRuleMatchNodeTest, MisspelledRuleCannotBecomeMatchAll) {
+  auto node = NodeFactory::Instance().Create("TextRuleMatchNode");
+  ASSERT_TRUE(InitNodeForTest(*node, {{"categories", {{"OLD", {"kept"}}}}},
+                              session_ctx_.get()));
+  const nlohmann::json invalid = {{"categories", {{"NEW", {"unrelated"}}}},
+                                  {"rules",
+                                   {{{"strategy", "contains"},
+                                     {"patern", "never"},
+                                     {"category", "WRONG"}}}}};
+  EXPECT_EQ(node->Control(kControlCmdUpdateRules, invalid.dump()).status,
+            NodeControlStatus::kFailed);
+  AlgContext ctx;
+  TextBatch input;
+  input.emplace_back(1, 0, "kept");
+  input.emplace_back(2, 0, "unrelated");
+  ctx.Publish("text", std::move(input));
+  ASSERT_EQ(node->Process(&ctx), 0);
+  const auto* output = ctx.Read<RuleMatchBatch>("matches");
+  ASSERT_NE(output, nullptr);
+  ASSERT_EQ(output->size(), 2u);
+  EXPECT_EQ(output->at(0).data.category, "OLD");
+  EXPECT_EQ(output->at(1).data.is_hit, 0);
+}
+
 TEST_F(TextRuleMatchNodeTest, SupportsLookbehindAndNamedCaptures) {
   auto node = NodeFactory::Instance().Create("TextRuleMatchNode");
   ASSERT_NE(node, nullptr);

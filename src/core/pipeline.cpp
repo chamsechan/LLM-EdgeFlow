@@ -7,6 +7,7 @@
 #include <future>
 
 #include "company_alg_log.h"
+#include "contracts/control_payload.h"
 #include "core/node_registry.h"
 #include "core/pipeline_validator.h"
 #include "engine/model_runtime_factory.h"
@@ -588,186 +589,79 @@ int Pipeline::Execute(AlgContext* req_ctx) {
   return 0;
 }
 
-namespace {
-
-bool ValidatePayloadSchema(const nlohmann::json& payload,
-                           const nlohmann::json& schema, std::string* err_msg) {
-  if (schema.empty() || !schema.is_object()) return true;
-
-  const auto fail = [&](const std::string& message) {
-    if (err_msg) *err_msg = message;
-    return false;
+int Pipeline::Control(int cmd, const std::string& json_param,
+                      std::string* error) {
+  if (error) error->clear();
+  const auto fail = [&](int code, const std::string& message) {
+    if (error) *error = message;
+    ALG_LOG_ERROR("[Pipeline] %s\n", message.c_str());
+    return code;
   };
-
-  if (schema.contains("type") && schema["type"].is_string()) {
-    const std::string type = schema["type"].get<std::string>();
-    const bool matches = (type == "object" && payload.is_object()) ||
-                         (type == "array" && payload.is_array()) ||
-                         (type == "string" && payload.is_string()) ||
-                         (type == "boolean" && payload.is_boolean()) ||
-                         (type == "number" && payload.is_number()) ||
-                         (type == "integer" && payload.is_number_integer()) ||
-                         (type == "null" && payload.is_null());
-    if (!matches)
-      return fail("Control payload does not match type '" + type + "'");
-  }
-
-  if (schema.contains("enum") && schema["enum"].is_array() &&
-      std::find(schema["enum"].begin(), schema["enum"].end(), payload) ==
-          schema["enum"].end()) {
-    return fail("Control payload value is not in the allowed enum");
-  }
-
-  if (payload.is_object()) {
-    if (schema.contains("minProperties") &&
-        schema["minProperties"].is_number_integer()) {
-      const auto minimum = schema["minProperties"].get<int64_t>();
-      if (minimum >= 0 && payload.size() < static_cast<size_t>(minimum)) {
-        return fail("Control payload has fewer properties than required");
-      }
-    }
-
-    if (schema.contains("required") && schema["required"].is_array()) {
-      for (const auto& req : schema["required"]) {
-        if (req.is_string()) {
-          std::string req_key = req.get<std::string>();
-          if (!payload.contains(req_key)) {
-            return fail("Missing required field in control payload: " +
-                        req_key);
-          }
-        }
-      }
-    }
-
-    const nlohmann::json empty_properties = nlohmann::json::object();
-    const auto& properties =
-        schema.contains("properties") && schema["properties"].is_object()
-            ? schema["properties"]
-            : empty_properties;
-    for (auto it = payload.begin(); it != payload.end(); ++it) {
-      if (properties.contains(it.key())) {
-        std::string nested_error;
-        if (!ValidatePayloadSchema(it.value(), properties[it.key()],
-                                   &nested_error)) {
-          return fail("Property '" + it.key() + "': " + nested_error);
-        }
-      } else if (schema.contains("additionalProperties")) {
-        const auto& additional = schema["additionalProperties"];
-        if (additional.is_boolean() && !additional.get<bool>()) {
-          return fail("Unknown property in control payload: " + it.key());
-        }
-        if (additional.is_object()) {
-          std::string nested_error;
-          if (!ValidatePayloadSchema(it.value(), additional, &nested_error)) {
-            return fail("Property '" + it.key() + "': " + nested_error);
-          }
-        }
-      }
-    }
-  }
-
-  if (payload.is_array() && schema.contains("items") &&
-      schema["items"].is_object()) {
-    for (size_t i = 0; i < payload.size(); ++i) {
-      std::string nested_error;
-      if (!ValidatePayloadSchema(payload[i], schema["items"], &nested_error)) {
-        return fail("Array item " + std::to_string(i) + ": " + nested_error);
-      }
-    }
-  }
-  return true;
-}
-
-}  // namespace
-
-int Pipeline::Control(int cmd, const std::string& json_param) {
-  // R1-ACC-002: 仅允许在 Ready 状态下执行
   if (state_ != State::kReady) {
-    return -1;
+    return fail(-1, "Control requires a Ready Pipeline");
   }
 
-  ALG_LOG_DEBUG("[Pipeline] Control cmd received: %d, params: %s\n", cmd,
-                json_param.c_str());
-
-  bool has_target = false;
-  bool has_handled = false;
-  int first_fail_code = 0;
-
-  // Pass 1: Collect targets and validate payload across all targets
-  std::vector<INode*> targets;
-  nlohmann::json parsed_payload;
-  bool json_parsed = false;
-
-  for (auto& node : nodes_) {
-    const auto def = PipelineCatalog::FindNode(node->Name());
-    const ControlCommandDefinition* matched_cmd_def = nullptr;
-    if (def) {
-      for (const auto& cmd_def : def->control_commands) {
-        if (cmd_def.cmd_id == cmd) {
-          matched_cmd_def = &cmd_def;
-          break;
-        }
+  struct Target {
+    INode* node;
+    std::string context;
+  };
+  std::vector<Target> targets;
+  nlohmann::json payload;
+  bool parsed = false;
+  size_t node_index = 0;
+  // Materialization uses this same layer/instance order. Keep diagnostics tied
+  // to instance IDs even when several instances have the same Node type.
+  for (const auto& layer : plan_->topological_layers) {
+    for (const auto& id : layer) {
+      auto* node = nodes_[node_index++].get();
+      const auto def = PipelineCatalog::FindNode(node->Name());
+      if (!def) continue;
+      const auto command = std::find_if(
+          def->control_commands.begin(), def->control_commands.end(),
+          [&](const auto& item) { return item.cmd_id == cmd; });
+      if (command == def->control_commands.end()) continue;
+      const std::string context = "Control " + std::to_string(cmd) +
+                                  ", node '" + id + "' (" + node->Name() +
+                                  "): ";
+      if (!command->payload_schema.empty() &&
+          command->payload_schema.is_object()) {
+        std::string detail;
+        const bool valid =
+            parsed ? ValidateControlPayload(payload, command->payload_schema,
+                                            &detail)
+                   : ParseControlPayload(json_param, command->payload_schema,
+                                         &payload, &detail);
+        if (!valid) return fail(-1, context + detail);
+        parsed = true;
       }
+      targets.push_back({node, context});
     }
-    if (!matched_cmd_def) {
-      continue;
-    }
-
-    if (!matched_cmd_def->payload_schema.empty() &&
-        matched_cmd_def->payload_schema.is_object()) {
-      if (!json_parsed) {
-        try {
-          parsed_payload = nlohmann::json::parse(json_param);
-          json_parsed = true;
-        } catch (const std::exception& e) {
-          ALG_LOG_ERROR("[Pipeline] Control payload JSON parse error: %s\n",
-                        e.what());
-          return -1;
-        }
-      }
-      std::string schema_err;
-      if (!ValidatePayloadSchema(
-              parsed_payload, matched_cmd_def->payload_schema, &schema_err)) {
-        ALG_LOG_ERROR("[Pipeline] Control payload schema violation: %s\n",
-                      schema_err.c_str());
-        return -1;
-      }
-    }
-    targets.push_back(node.get());
   }
-
   if (targets.empty()) {
-    ALG_LOG_ERROR("[Pipeline] Unsupported control command: %d\n", cmd);
-    return -7;  // COMPANY_ALG_ERR_UNSUPPORTED_CONTROL
+    return fail(-7, "Unsupported control command: " + std::to_string(cmd));
   }
 
-  // Pass 2: Dispatch command to all validated targets
-  for (auto* node : targets) {
-    has_target = true;
-    NodeControlResult res = node->Control(cmd, json_param);
-    if (res.status == NodeControlStatus::kFailed) {
-      ALG_LOG_ERROR(
-          "[Pipeline] Node [%s] Control failed with code: %d, msg: %s\n",
-          node->Name().c_str(), res.code, res.message.c_str());
-      if (first_fail_code == 0) {
-        first_fail_code = res.code != 0 ? res.code : -1;
-      }
-    } else if (res.status == NodeControlStatus::kHandled) {
-      has_handled = true;
+  // Broadcast remains best-effort: a later semantic failure does not undo an
+  // earlier update. Report each failure instead of hiding it behind an int.
+  bool handled = false;
+  int first_failure = 0;
+  std::string failures;
+  for (const auto& target : targets) {
+    const auto result = target.node->Control(cmd, json_param);
+    if (result.status == NodeControlStatus::kFailed) {
+      if (first_failure == 0) first_failure = result.code ? result.code : -1;
+      if (!failures.empty()) failures += "; ";
+      failures +=
+          target.context + (result.message.empty() ? "Node rejected the update"
+                                                   : result.message);
+    } else if (result.status == NodeControlStatus::kHandled) {
+      handled = true;
     }
   }
-
-  if (first_fail_code != 0) {
-    return first_fail_code;
-  }
-  if (has_handled) {
-    return 0;
-  }
-  if (!has_target) {
-    ALG_LOG_ERROR("[Pipeline] Unsupported control command: %d\n", cmd);
-    return -7;  // COMPANY_ALG_ERR_UNSUPPORTED_CONTROL
-  }
-  return -7;
+  if (first_failure != 0) return fail(first_failure, failures);
+  if (handled) return 0;
+  return fail(
+      -7, "Declared control command was not handled: " + std::to_string(cmd));
 }
 
 }  // namespace llm_edgeflow

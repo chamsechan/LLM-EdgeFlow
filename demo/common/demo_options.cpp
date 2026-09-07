@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <sstream>
 
 #include "company_alg_log.h"
@@ -214,6 +215,16 @@ int ParseCommandLine(int argc, char* argv[], DemoOptions* out_options,
       }
       out_options->depth_num = static_cast<uint32_t>(val);
       out_options->has_depth_num = true;
+    } else if (arg == "--control-cmd") {
+      int64_t value = 0;
+      if (i + 1 >= argc || !ParseStrictInt64(argv[++i], &value) || value <= 0 ||
+          value > std::numeric_limits<int>::max()) {
+        if (error_msg)
+          *error_msg = "--control-cmd requires a positive int32 command ID";
+        return 2;
+      }
+      out_options->control_cmd = static_cast<int>(value);
+      out_options->has_control_cmd = true;
     } else if (arg == "--control-file") {
       if (i + 1 >= argc) {
         if (error_msg) *error_msg = "Missing value for argument: " + arg;
@@ -414,6 +425,16 @@ int LoadAndValidateProfilesDocument(const std::string& profiles_path,
             "Profile '" + name + "' field 'control_file' must be a string";
       return 3;
     }
+    if (p.contains("control_cmd")) {
+      const auto& cmd = p["control_cmd"];
+      if (!cmd.is_number_integer() || cmd <= 0 ||
+          cmd > std::numeric_limits<int>::max()) {
+        if (error_msg)
+          *error_msg = "Profile '" + name +
+                       "' control_cmd must be a positive int32 command ID";
+        return 3;
+      }
+    }
   }
 
   *out_root = std::move(root);
@@ -518,6 +539,9 @@ int LoadAndMergeProfiles(const std::string& profiles_path,
   if (p.contains("control_file") && !cli_options.has_control_file) {
     out_options->control_file = p["control_file"].get<std::string>();
   }
+  if (p.contains("control_cmd") && !cli_options.has_control_cmd) {
+    out_options->control_cmd = p["control_cmd"].get<int>();
+  }
 
   // 终态芯片校验
   ComputePlatform dummy_chip;
@@ -561,6 +585,7 @@ void PrintHelp(const char* program_name) {
       << "  --no-default-control       Do not apply demo default control "
          "overrides\n"
       << "  --control-file <path>      Runtime control parameters JSON file\n"
+      << "  --control-cmd <id>         Node command ID for --control-file\n"
       << "  --append                   Append output to existing results file "
          "instead of overwriting\n"
       << "  --allow-fallback-sample    Allow using fallback inline samples if "

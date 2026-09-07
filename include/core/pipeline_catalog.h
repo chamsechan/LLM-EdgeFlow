@@ -133,6 +133,8 @@ struct ControlCommandDefinition {
   std::string description;
   nlohmann::json payload_schema = nlohmann::json::object();
   bool supports_hot_swap = false;
+  // Opt in on both definitions when sharing an identical command across types.
+  bool shared_id = false;
 
   ControlCommandDefinition() = default;
   ControlCommandDefinition(int id, std::string n, std::string desc = {},
@@ -194,7 +196,8 @@ struct PipelineCatalogSnapshot {
 
 class PipelineCatalog {
  public:
-  static bool RegisterNodeDefinition(const NodeDefinition& definition);
+  static bool RegisterNodeDefinition(const NodeDefinition& definition,
+                                     std::string* error = nullptr);
   static bool RegisterBizDefinition(const BizDefinition& definition);
   static bool RegisterBizDefinitions(
       const std::vector<BizDefinition>& definitions);

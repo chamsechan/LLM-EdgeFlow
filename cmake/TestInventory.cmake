@@ -65,8 +65,14 @@ set(EDGEFLOW_SOURCE_test_catalog_contract_ssot "${PROJECT_SOURCE_DIR}/tests/cont
 set(EDGEFLOW_SOURCE_test_model_backend_registry_conflict "${PROJECT_SOURCE_DIR}/tests/contract/catalog/test_model_backend_registry_conflict.cpp")
 set(EDGEFLOW_SOURCE_test_registry_conflict "${PROJECT_SOURCE_DIR}/tests/contract/catalog/test_registry_conflict.cpp")
 set(EDGEFLOW_SOURCE_test_real_models_e2e "${PROJECT_SOURCE_DIR}/tests/e2e/real_models/test_real_models_e2e.cpp")
-set(EDGEFLOW_SOURCE_test_demo_runner "${PROJECT_SOURCE_DIR}/tests/integration/demo/test_demo_runner.cpp")
-set(EDGEFLOW_SOURCE_test_operator_api "${PROJECT_SOURCE_DIR}/tests/integration/operator/test_operator_api.cpp")
+set(EDGEFLOW_CONTROL_FIXTURE_SOURCE
+  "${CMAKE_CURRENT_BINARY_DIR}/test-fixtures/control/test_control_node.cpp")
+set(EDGEFLOW_SOURCE_test_demo_runner
+  "${PROJECT_SOURCE_DIR}/tests/integration/demo/test_demo_runner.cpp"
+  "${EDGEFLOW_CONTROL_FIXTURE_SOURCE}")
+set(EDGEFLOW_SOURCE_test_operator_api
+  "${PROJECT_SOURCE_DIR}/tests/integration/operator/test_operator_api.cpp"
+  "${EDGEFLOW_CONTROL_FIXTURE_SOURCE}")
 set(EDGEFLOW_SOURCE_test_operator_golden "${PROJECT_SOURCE_DIR}/tests/integration/operator/test_operator_golden.cpp")
 set(EDGEFLOW_SOURCE_test_doc_qa_rerank "${PROJECT_SOURCE_DIR}/tests/integration/pipeline/test_doc_qa_rerank.cpp")
 set(EDGEFLOW_SOURCE_test_pipeline_catalog_validator "${PROJECT_SOURCE_DIR}/tests/integration/pipeline/test_pipeline_catalog_validator.cpp")

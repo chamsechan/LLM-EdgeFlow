@@ -36,7 +36,8 @@ struct DemoOptions {
   uint32_t depth_num = 1;  // 输出结构体预分配深度
 
   std::optional<std::string> control_file;  // 运行时 Control JSON 文件路径
-  std::string suite;  // 执行套件 ("smoke", "real", "all")
+  std::optional<int> control_cmd;  // 节点命令 ID；必须配合 control_file
+  std::string suite;               // 执行套件 ("smoke", "real", "all")
   bool no_default_control =
       false;            // Evaluate the selected Pipeline as configured.
   bool append = false;  // 结果文件是否追加模式
@@ -56,6 +57,7 @@ struct DemoOptions {
   bool has_chip = false;
   bool has_depth_num = false;
   bool has_control_file = false;
+  bool has_control_cmd = false;
   bool has_suite = false;
 };
 

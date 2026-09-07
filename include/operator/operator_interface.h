@@ -60,6 +60,7 @@ enum class ControlCommand : int32_t {
   kUpdateRules = 1,      // 更新词表 / 规则库
   kSwitchPrompt = 2,     // 切换提示词模板
   kUpdateThreshold = 3,  // 调整判定阈值
+  kJson = 4,  // 通用 JSON 传输；节点命令由 ControlJsonParam::cmd_id 指定
   // 后续命令只能追加，不能复用已有数值
 };
 
@@ -90,6 +91,16 @@ struct ControlSwitchPromptParam {
 struct ControlUpdateThresholdParam {
   const char* category_or_rule_name = nullptr;  // 目标规则名或分类名 (可选)
   float threshold = 0.0f;  // 判定阈值 (范围 0.0f ~ 1.0f)
+};
+
+/**
+ * @brief kJson 对应参数。同步调用返回前指针必须有效；实现拥有 payload 拷贝。
+ * json_param_str 必须为非空 JSON object，UTF-8 字节数 < 65536（不含终止符）。
+ * cmd_id 是节点声明的正整数；未声明命令返回 unsupported。
+ */
+struct ControlJsonParam {
+  int32_t cmd_id = 0;
+  const char* json_param_str = nullptr;
 };
 
 /**
