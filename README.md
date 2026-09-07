@@ -103,12 +103,14 @@ kiteLLM 可从 GitHub 私有 Release 自动下载固定版本，直接引用头�
 
 | 目标 | 文档 |
 | :--- | :--- |
+| 用已有 Node 连线构造方案 | [Studio 编排练习](tools/pipeline_studio/README.md#第一次编排) |
 | 第一次编写业务 Node：先改两个函数并跑通 Demo | [自定义 Node 入门](doc/dev_guide/first_custom_node.md) |
+| 对接平台输入输出结构体 | [业务接入指南](doc/BUSINESS_ONBOARDING.md) |
+| 用统一 Demo 运行本次修改的方案并检查结果 | [运行当前方案](tools/pipeline_studio/README.md#运行当前方案) |
 | 理解端口、来源编号、模型绑定、Definition 和并发 | [Node 作者概念说明](doc/dev_guide/custom_node_concepts.md) |
 | 了解系统边界与数据流 | [架构设计](doc/architecture.md) |
 | 扩展 Adapter、Pipeline、Node、Model 或 Backend | [开发者指南](doc/developer_guide.md) |
 | 使用公共 C 日志接口 | [Logging 指南](doc/logging.md) |
-| 查看或编辑 Pipeline DAG | [Pipeline Studio 指南](tools/pipeline_studio/README.md) |
 | 查阅需求设计与验收记录 | [RFC 索引](doc/rfcs/README.md) |
 | 浏览全部项目文档 | [文档目录](doc/README.md) |
 | 查看版本演进摘要 | [Changelog](doc/CHANGELOG.md) |

@@ -7,7 +7,7 @@
 - **[architecture_v2.puml](architecture_v2.puml)**：LLM-EdgeFlow 平台目标演进全景图（To-Be Target Blueprint，涵盖控制面交付与跨层契约）。
 - **[assets/architecture_class_diagram.svg](assets/architecture_class_diagram.svg)**：由 `architecture.puml` 固定版本生成的 As-Is 类图资产。
 - **[assets/architecture_flow.svg](assets/architecture_flow.svg)**：由 `architecture_v2.puml` 固定版本生成的 Target 全景图资产。
-- **[developer_guide.md](developer_guide.md)**：算法开发人员与平台接入人员完整研发上手指南。
+- **[developer_guide.md](developer_guide.md)**：按任务选择开发入口，按需查询四层扩展边界和进阶接口。
 - **[第一个自定义 Node](dev_guide/first_custom_node.md)**：从两个文本处理函数开始，完成源码生成、编译、连线和统一 Demo 运行。
 - **[Node 作者的五个概念](dev_guide/custom_node_concepts.md)**：深入浅出解释类型端口、来源编号、模型绑定、Definition 和并发声明。
 - **[SOLUTION_DEVELOPER_ARCHITECTURE_PLAN.md](SOLUTION_DEVELOPER_ARCHITECTURE_PLAN.md)**：面向方案开发者的用户诉求、custom Node 复用边界、降低接入门槛的实施阶段与验收标准。
@@ -19,6 +19,14 @@
 ---
 
 ## 快速导航
+
+方案开发者先按任务进入：
+[编排已有 Node](../tools/pipeline_studio/README.md#第一次编排) →
+[开发自定义 Node](dev_guide/first_custom_node.md) →
+[对接平台结构](BUSINESS_ONBOARDING.md) →
+[运行当前方案](../tools/pipeline_studio/README.md#运行当前方案)。
+只有遇到对应能力缺口才需要编写 Node 或 Adapter；真实业务效果另按
+[可验证选择指南](VERIFIABLE_SELECTION.md)验收。
 
 1. **[4 层抽象架构规范](architecture.md#1-框架整体-4-层抽象架构)**：L1 平台接入、L2 管线调度、L3 通用能力节点、L4 Model / Backend。
 2. **[物理代码 UML 类图](architecture.puml)**：精确对应当前 C++ 类的组合、继承与调用关系。

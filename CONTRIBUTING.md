@@ -12,7 +12,7 @@ Choose the smallest path that covers the change:
 | Change | Path |
 | :--- | :--- |
 | Read-only review or diagnosis | Inspect and report; no branch or write is required. |
-| Pipeline JSON using registered capabilities | Use `pipeline-composer`, Catalog, and Validator; no C++ and normally no RFC. |
+| Solution configuration using registered capabilities and biz contracts (Pipeline JSON, necessary `.conf`, optional Demo Profiles) | Use `pipeline-composer`, Catalog, and Validator; no C++ and normally no RFC. |
 | Local bug, test, documentation, or behavior-preserving refactor | Create a branch, implement, and add proportional tests; normally no RFC. |
 | Public contract, cross-layer architecture, compatibility/migration policy, new Node/Model/Backend capability, dependency, or high-risk ownership/concurrency/security/performance decision | Create a branch and RFC before implementation. |
 

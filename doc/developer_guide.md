@@ -4,8 +4,15 @@
 接口签名、Definition 和注册宏以对应头文件及现有实现为准。开发生命周期见
 [`CONTRIBUTING.md`](../CONTRIBUTING.md)，Agent 路由见 [`AGENTS.md`](../AGENTS.md)。
 
-第一次编写业务 Node，建议先完成[动手练习](dev_guide/first_custom_node.md)，
-再按需查阅[五个概念说明](dev_guide/custom_node_concepts.md)。本页用于扩展边界和进阶接口查询。
+方案开发从[Studio 编排练习](../tools/pipeline_studio/README.md#第一次编排)开始；已有能力
+和外部契约下，只需方案配置与必要的 `.conf`，Profile 可选。缺失业务算法时完成
+[自定义 Node 动手练习](dev_guide/first_custom_node.md)，按需查阅
+[五个概念说明](dev_guide/custom_node_concepts.md)。平台结构转换见
+[业务接入指南](BUSINESS_ONBOARDING.md)，结果检查见
+[运行当前方案](../tools/pipeline_studio/README.md#运行当前方案)。
+
+本页保留四层扩展边界与进阶接口查询。普通方案开发通常无需修改 Core、Model 或
+Backend；出现调度、模型语义或硬件能力缺口时，再查阅相应章节。
 
 ---
 
