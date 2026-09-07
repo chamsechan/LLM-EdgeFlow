@@ -178,6 +178,44 @@ class PipelineCliTest(unittest.TestCase):
         )
         self.assertIn("alg_pipeline_tool validate/plan", process.stdout)
 
+    def test_native_viewer_shows_declared_backend_batch_fields(self):
+        process = subprocess.run(
+            [str(ALG_SHOW), str(ROOT / "configs" / "pipeline_doc_qa_onnx.json")],
+            text=True,
+            capture_output=True,
+            cwd=ROOT,
+            check=False,
+        )
+        self.assertEqual(process.returncode, 0, process.stderr)
+        model_lines = process.stdout.splitlines()
+        embedding = next(line for line in model_lines if "embed_model_onnx" in line)
+        llm = next(line for line in model_lines if "llm_model_llamacpp" in line)
+        self.assertIn("backend_config.max_batch_size: 4", embedding)
+        self.assertIn("backend_config.decode_batch_size: 512", llm)
+        self.assertNotIn("max_batch_size", llm)
+        self.assertNotIn("FixedMaxBatch", process.stdout)
+
+    def test_native_viewer_does_not_invent_backend_batch_values(self):
+        pipeline = json.loads(
+            (ROOT / "configs" / "pipeline_doc_qa_onnx.json").read_text()
+        )
+        for model in pipeline["models"]:
+            model.pop("backend_config", None)
+            model["model_config"]["max_batch_size"] = 7
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / "pipeline_undeclared_batch.json"
+            config.write_text(json.dumps(pipeline))
+            process = subprocess.run(
+                [str(ALG_SHOW), str(config)],
+                text=True,
+                capture_output=True,
+                cwd=ROOT,
+                check=False,
+            )
+        self.assertEqual(process.returncode, 0, process.stderr)
+        self.assertNotIn("batch_size", process.stdout)
+        self.assertNotIn("FixedMaxBatch", process.stdout)
+
 
 class HttpApiTest(unittest.TestCase):
     def setUp(self):
@@ -334,6 +372,16 @@ await assert.rejects(
             check=False,
         )
         self.assertEqual(process.returncode, 0, process.stderr)
+
+    @unittest.skipUnless(shutil.which("node"), "Node.js is required for Web module tests")
+    def test_graph_navigation_routes_and_editor_history(self):
+        for filename in ("studio_graph_test.mjs", "studio_editor_test.mjs"):
+            with self.subTest(module=filename):
+                process = subprocess.run(
+                    [shutil.which("node"), str(Path(__file__).with_name(filename))],
+                    text=True, capture_output=True, cwd=ROOT, check=False,
+                )
+                self.assertEqual(process.returncode, 0, process.stdout + process.stderr)
 
     @unittest.skipUnless(shutil.which("node"), "Node.js is required for Web module tests")
     def test_port_editing_roundtrips_to_native_validator_and_model_forms(self):
