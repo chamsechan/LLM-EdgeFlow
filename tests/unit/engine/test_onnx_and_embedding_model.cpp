@@ -480,9 +480,71 @@ TEST_F(OnnxAndEmbeddingModelTest,
   ASSERT_TRUE(
       tokenizer.LoadFromTokens({"[PAD]", "[UNK]", "[CLS]", "[SEP]"}, true));
 
-  BgeEmbeddingModel model(session, std::move(tokenizer), 16, "cls", true,
+  BgeEmbeddingModel model(session, std::move(tokenizer), 16, "cls",
                           "last_hidden_state", 4, 2);
   EXPECT_EQ(model.Concurrency(), InferenceConcurrency::kConcurrent);
+}
+
+TEST_F(OnnxAndEmbeddingModelTest,
+       EmbeddingNodeOwnsNormalizationForSharedModel) {
+  SessionContext session_ctx;
+  auto fake_session = std::make_shared<FakeTensorGraphSession>(4, false);
+  BertWordPieceTokenizer tokenizer;
+  ASSERT_TRUE(tokenizer.LoadFromTokens(
+      {"[PAD]", "[UNK]", "[CLS]", "[SEP]", "hello"}, true));
+  auto model = std::make_shared<BgeEmbeddingModel>(
+      fake_session, tokenizer, 16, "cls", "last_hidden_state", 4, 2);
+  ASSERT_TRUE(
+      session_ctx.GetModelManager().RegisterModel("shared_bge", model, "v1"));
+  for (const std::string lifetime : {"request", "session"}) {
+    for (const bool normalize : {true, false, true}) {
+      SCOPED_TRACE(lifetime + (normalize ? ":normalized" : ":raw"));
+      auto node = NodeFactory::Instance().Create("TextEmbeddingNode");
+      ASSERT_TRUE(InitNodeForTest(*node,
+                                  {{"bind_model", "shared_bge"},
+                                   {"normalize", normalize},
+                                   {"lifetime", lifetime}},
+                                  &session_ctx));
+      AlgContext ctx;
+      ctx.Publish("text", TextBatch{{17, 3, "hello"}});
+      ASSERT_EQ(node->Process(&ctx), 0);
+      const auto* output = ctx.Read<EmbeddingBatch>("embedding");
+      ASSERT_NE(output, nullptr);
+      ASSERT_EQ(output->size(), 1u);
+      EXPECT_EQ(output->front().req_id, 17u);
+      EXPECT_EQ(output->front().sub_id, 3u);
+      const auto& vector = output->front().data;
+      ASSERT_EQ(vector.size(), 4u);
+      for (size_t i = 0; i < vector.size(); ++i) {
+        const float raw = static_cast<float>(i + 1) * 0.1f;
+        EXPECT_NEAR(vector[i], normalize ? raw / std::sqrt(0.3f) : raw, 1e-5f);
+      }
+    }
+  }
+}
+
+TEST_F(OnnxAndEmbeddingModelTest,
+       ModelNormalizationFieldRequiresNodeMigration) {
+  const auto definition = PipelineCatalog::FindModel("bge_embedding");
+  ASSERT_TRUE(definition.has_value());
+  for (const bool normalize : {false, true}) {
+    const nlohmann::json config = {{"embedding_dim", 4},
+                                   {"normalize", normalize}};
+    nlohmann::json normalized;
+    std::vector<ValidationDiagnostic> diagnostics;
+    EXPECT_FALSE(ValidateAndNormalizeConfig(
+        definition->config_fields, config, &normalized, &diagnostics,
+        "/models/0/model_config", DiagnosticCode::kUnknownModelConfigField));
+    ASSERT_FALSE(diagnostics.empty());
+    EXPECT_EQ(diagnostics.front().code,
+              DiagnosticCode::kUnknownModelConfigField);
+    EXPECT_EQ(diagnostics.front().path, "/models/0/model_config/normalize");
+    ModelCreateContext ctx;
+    ctx.model_config = config;
+    std::string error;
+    EXPECT_EQ(BgeEmbeddingModel::Create(ctx, &error), nullptr);
+    EXPECT_NE(error.find("EmbeddingOptions"), std::string::npos);
+  }
 }
 
 TEST_F(OnnxAndEmbeddingModelTest, BgeEmbeddingModelCLSAndMeanPooling) {
@@ -495,7 +557,7 @@ TEST_F(OnnxAndEmbeddingModelTest, BgeEmbeddingModelCLSAndMeanPooling) {
 
   // 1. CLS Pooling
   BgeEmbeddingModel model_cls(fake_session_3d, tokenizer, /*max_length=*/16,
-                              /*pooling_strategy=*/"cls", /*normalize=*/true,
+                              /*pooling_strategy=*/"cls",
                               /*output_name=*/"last_hidden_state",
                               /*embedding_dim=*/4, /*max_batch_size=*/2);
 
@@ -520,14 +582,14 @@ TEST_F(OnnxAndEmbeddingModelTest, BgeEmbeddingModelCLSAndMeanPooling) {
   EXPECT_NEAR(std::sqrt(sum_sq), 1.0f, 1e-4f);
 
   // 2. Mean Pooling
-  BgeEmbeddingModel model_mean(fake_session_3d, tokenizer, 16, "mean", true,
+  BgeEmbeddingModel model_mean(fake_session_3d, tokenizer, 16, "mean",
                                "last_hidden_state", 4, 2);
   EXPECT_EQ(model_mean.Embed(inputs, opts, &outputs), 0);
   ASSERT_EQ(outputs.size(), 2u);
 
   // 3. 2D 输出 Direct Embedding
   auto fake_session_2d = std::make_shared<FakeTensorGraphSession>(4, false);
-  BgeEmbeddingModel model_2d(fake_session_2d, tokenizer, 16, "cls", true,
+  BgeEmbeddingModel model_2d(fake_session_2d, tokenizer, 16, "cls",
                              "last_hidden_state", 4, 2);
   EXPECT_EQ(model_2d.Embed(inputs, opts, &outputs), 0);
   ASSERT_EQ(outputs.size(), 2u);
@@ -542,7 +604,7 @@ TEST_F(OnnxAndEmbeddingModelTest,
                                      "hello"};
   ASSERT_TRUE(tokenizer.LoadFromTokens(tokens, true));
 
-  BgeEmbeddingModel model(fake_session, tokenizer, 16, "cls", true,
+  BgeEmbeddingModel model(fake_session, tokenizer, 16, "cls",
                           "last_hidden_state", 4, 2);
 
   TextBatch inputs = {{1, 0, "hello"}};
@@ -653,7 +715,7 @@ TEST_F(OnnxAndEmbeddingModelTest, FixedAndDynamicBatchScheduling) {
                                      "a",     "b",     "c"};
   ASSERT_TRUE(tokenizer.LoadFromTokens(tokens, true));
 
-  BgeEmbeddingModel model_fixed(fake_fixed, tokenizer, 16, "cls", true,
+  BgeEmbeddingModel model_fixed(fake_fixed, tokenizer, 16, "cls",
                                 "last_hidden_state", 4, 2);
 
   // 输入 3 条样本 -> 应切分为 2 个批次 (每批执行 2 条，第 2 批自动 pad 1
@@ -692,7 +754,7 @@ TEST_F(OnnxAndEmbeddingModelTest, FixedAndDynamicBatchScheduling) {
   // 动态 batch：最后一批不得 padding，覆盖单条、3 条和跨批。
   auto fake_dynamic =
       std::make_shared<FakeTensorGraphSession>(4, true, /*fixed_batch=*/0, 2);
-  BgeEmbeddingModel model_dynamic(fake_dynamic, tokenizer, 16, "cls", true,
+  BgeEmbeddingModel model_dynamic(fake_dynamic, tokenizer, 16, "cls",
                                   "last_hidden_state", 4, 3);
   EXPECT_EQ(model_dynamic.Embed(one_input, opts, &outputs), 0);
   ASSERT_EQ(fake_dynamic->observed_batch_sizes_.size(), 1u);
@@ -764,8 +826,8 @@ TEST_F(OnnxAndEmbeddingModelTest, TextEmbeddingNodeBoundToModel) {
   ASSERT_TRUE(tokenizer.LoadFromTokens(tokens, true));
 
   auto model = std::make_shared<BgeEmbeddingModel>(
-      fake_session, tokenizer, /*max_length=*/16, "mean", /*normalize=*/true,
-      "last_hidden_state", /*embedding_dim=*/4, /*max_batch_size=*/2);
+      fake_session, tokenizer, /*max_length=*/16, "mean", "last_hidden_state",
+      /*embedding_dim=*/4, /*max_batch_size=*/2);
 
   session_ctx.GetModelManager().RegisterModel(
       "test_bge", model, "v1", "bge_embedding", "embedding", "fake_ort");
@@ -971,7 +1033,6 @@ TEST_F(OnnxAndEmbeddingModelTest, OnnxRuntimeFixturePassEvidence) {
       {"do_lower_case", true},
       {"max_length", 32},
       {"pooling_strategy", "mean"},
-      {"normalize", true},
       {"output_name", "last_hidden_state"},
       {"embedding_dim", 128},
       {"max_batch_size", 2},

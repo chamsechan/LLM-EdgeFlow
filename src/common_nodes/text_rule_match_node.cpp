@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <cmath>
 #include <mutex>
 #include <nlohmann/json.hpp>
 #include <shared_mutex>
@@ -18,6 +19,16 @@
 
 namespace llm_edgeflow {
 namespace {
+constexpr double kDefaultScore = 1.0;
+
+bool ReadScore(const nlohmann::json& config, const char* field, float* out) {
+  if (config.contains(field) && !config.at(field).is_number()) return false;
+  const double score = config.value<double>(field, kDefaultScore);
+  if (!std::isfinite(score) || score < 0.0 || score > 1.0) return false;
+  *out = static_cast<float>(score);
+  return true;
+}
+
 const nlohmann::json& RuleItemSchema() {
   static const nlohmann::json schema = {
       {"type", "object"},
@@ -29,7 +40,7 @@ const nlohmann::json& RuleItemSchema() {
          {{"type", "string"}, {"enum", {"contains", "exact", "regex"}}}},
         {"pattern", {{"type", "string"}}},
         {"category", {{"type", "string"}}},
-        {"score", {{"type", "number"}}},
+        {"score", {{"type", "number"}, {"minimum", 0.0}, {"maximum", 1.0}}},
         {"constants", {{"type", "object"}}}}}};
   return schema;
 }
@@ -61,7 +72,7 @@ class TextRuleMatchNode final : public NodeBase {
     std::string strategy;  // "contains", "exact", "regex"
     std::string pattern;
     std::string category;
-    float score = 1.0f;
+    float score = kDefaultScore;
     std::unordered_map<std::string, std::string> constants;
     std::unordered_map<std::string, nlohmann::json> constants_json;
     CompiledTextRegex compiled_regex;
@@ -91,7 +102,7 @@ class TextRuleMatchNode final : public NodeBase {
     if (has_rules && !BuildRules(root["rules"], &new_rules)) {
       return NodeControlResult::Failed(
           node_error::control::kInvalidRequest,
-          "Invalid rules payload or regular expression syntax");
+          "Invalid rules payload, score or regular expression syntax");
     }
     std::unique_lock<std::shared_mutex> lock(rw_mutex_);
     if (has_categories) category_keywords_list_ = std::move(new_categories);
@@ -104,11 +115,14 @@ class TextRuleMatchNode final : public NodeBase {
                              std::string* diagnostic) {
     CategoryList categories;
     std::vector<RuleSpec> rules;
+    float default_score = kDefaultScore;
     const bool ok =
+        ReadScore(config, "default_score", &default_score) &&
         (!config.contains("categories") ||
          BuildCategories(config.at("categories"), &categories)) &&
         (!config.contains("rules") || BuildRules(config.at("rules"), &rules));
-    if (!ok && diagnostic) *diagnostic = "Invalid categories, rules or regex";
+    if (!ok && diagnostic)
+      *diagnostic = "Invalid categories, rules, scores or regex";
     return ok;
   }
 
@@ -119,7 +133,7 @@ class TextRuleMatchNode final : public NodeBase {
     BindPort(init_ctx, out_matches_);
 
     default_category_ = config.value("default_category", "");
-    default_score_ = config.value("default_score", 1.0f);
+    if (!ReadScore(config, "default_score", &default_score_)) return false;
 
     if (config.contains("categories") && config["categories"].is_object()) {
       if (!UpdateCategories(config["categories"])) return false;
@@ -299,7 +313,7 @@ class TextRuleMatchNode final : public NodeBase {
       if (!kValidStrategies.count(spec.strategy)) return false;
       spec.pattern = r_elem.value("pattern", "");
       spec.category = r_elem.value("category", "");
-      spec.score = r_elem.value("score", 1.0f);
+      if (!ReadScore(r_elem, "score", &spec.score)) return false;
 
       if (r_elem.contains("constants") && r_elem["constants"].is_object()) {
         for (auto it = r_elem["constants"].begin();
@@ -351,7 +365,7 @@ class TextRuleMatchNode final : public NodeBase {
       category_keywords_list_;
   std::vector<RuleSpec> rules_list_;
   std::string default_category_;
-  float default_score_ = 1.0f;
+  float default_score_ = kDefaultScore;
 
   BoundInput<TextBatch> in_text_;
   BoundOutput<RuleMatchBatch> out_matches_;
@@ -379,7 +393,7 @@ NodeDefinition MakeTextRuleMatchNodeDefinition() {
       ConfigFieldDefinition{"default_category", ConfigValueKind::kString, false,
                             ""},
       ConfigFieldDefinition{"default_score", ConfigValueKind::kNumber, false,
-                            1.0, 0.0, 1.0},
+                            kDefaultScore, 0.0, 1.0},
       ConfigFieldDefinition{"categories", ConfigValueKind::kObject, false},
       ConfigFieldDefinition{"rules", ConfigValueKind::kArray, false}};
   def.parallel_safe = true;

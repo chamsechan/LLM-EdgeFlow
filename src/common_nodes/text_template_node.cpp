@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <mutex>
 #include <nlohmann/json.hpp>
+#include <optional>
 #include <regex>
 #include <set>
 #include <shared_mutex>
@@ -21,6 +22,44 @@
 
 namespace llm_edgeflow {
 namespace {
+constexpr char kDefaultTemplate[] = "{{primary}}";
+constexpr char kDefaultSeparator[] = "\n";
+constexpr int64_t kDefaultMaxLength = 65536;
+constexpr char kDefaultMissingPolicy[] = "fail";
+
+const std::unordered_map<std::string, std::vector<std::string>>&
+BuiltinInputs() {
+  static const std::unordered_map<std::string, std::vector<std::string>>
+      inputs = {{"primary", {"primary"}},
+                {"context", {"context", "context_text"}},
+                {"context_text", {"context", "context_text"}},
+                {"matches", {"matches"}},
+                {"document", {"document", "document_text"}},
+                {"document_text", {"document", "document_text"}}};
+  return inputs;
+}
+
+bool ValidateTemplateInputs(const std::vector<TextTemplateToken>& tokens,
+                            const std::unordered_set<std::string>& connected,
+                            const std::string& missing_policy,
+                            std::string* diagnostic = nullptr) {
+  if (missing_policy != "fail") return true;
+  for (const auto& token : tokens) {
+    if (token.type != TextTemplateTokenType::kVariable) continue;
+    const auto ports = BuiltinInputs().find(token.value);
+    if (ports == BuiltinInputs().end()) continue;
+    if (std::none_of(ports->second.begin(), ports->second.end(),
+                     [&](const auto& port) { return connected.count(port); })) {
+      if (diagnostic)
+        *diagnostic = "Template variable '" + token.value +
+                      "' requires a connected input or a non-failing "
+                      "missing_variable_policy";
+      return false;
+    }
+  }
+  return true;
+}
+
 const nlohmann::json& TemplateControlSchema() {
   static const nlohmann::json schema = nlohmann::json{
       {"type", "object"},
@@ -66,10 +105,14 @@ class TextTemplateNode final : public NodeBase {
     if (config.contains("values"))
       values = config.at("values").get<decltype(values)>();
     std::vector<TemplateToken> compiled;
-    return CompileTemplate(config.value("template", "{{primary}}"), values,
+    return CompileTemplate(config.value("template", kDefaultTemplate), values,
                            connected.count("attributes") ||
                                config.value("allow_dynamic_attributes", false),
-                           &compiled, diagnostic);
+                           &compiled, diagnostic) &&
+           ValidateTemplateInputs(
+               compiled, connected,
+               config.value("missing_variable_policy", kDefaultMissingPolicy),
+               diagnostic);
   }
 
  protected:
@@ -85,9 +128,10 @@ class TextTemplateNode final : public NodeBase {
     BindPort(init_ctx, out_text_);
 
     std::unique_lock<std::shared_mutex> lock(rw_mutex_);
-    template_str_ = config.value("template", "{{primary}}");
-    separator_ = config.value("separator", "\n");
-    const int64_t configured_max_length = config.value("max_length", 65536);
+    template_str_ = config.value("template", kDefaultTemplate);
+    separator_ = config.value("separator", kDefaultSeparator);
+    const int64_t configured_max_length =
+        config.value<int64_t>("max_length", kDefaultMaxLength);
     if (configured_max_length < 1 || configured_max_length > 1048576) {
       return false;
     }
@@ -107,7 +151,8 @@ class TextTemplateNode final : public NodeBase {
       }
     }
 
-    missing_variable_policy_ = config.value("missing_variable_policy", "fail");
+    missing_variable_policy_ =
+        config.value("missing_variable_policy", kDefaultMissingPolicy);
     if (missing_variable_policy_ != "fail" &&
         missing_variable_policy_ != "empty" &&
         missing_variable_policy_ != "preserve") {
@@ -120,6 +165,17 @@ class TextTemplateNode final : public NodeBase {
     if (!CompileTemplate(template_str_, static_values_, allow_dynamic_attrs_,
                          &compiled)) {
       return false;
+    }
+    connected_inputs_.reset();
+    if (init_ctx.plan) {
+      connected_inputs_.emplace();
+      for (const auto& port : init_ctx.plan->ports) {
+        if (port.direction == PortDirection::kInput)
+          connected_inputs_->insert(port.logical_name);
+      }
+      if (!ValidateTemplateInputs(compiled, *connected_inputs_,
+                                  missing_variable_policy_))
+        return false;
     }
     compiled_tokens_ = std::move(compiled);
     return true;
@@ -151,7 +207,8 @@ class TextTemplateNode final : public NodeBase {
     if (root.contains("template"))
       new_tmpl = root["template"].get<std::string>();
     if (root.contains("allow_dynamic_attributes")) {
-      new_allow_dynamic = root["allow_dynamic_attributes"].get<bool>();
+      new_allow_dynamic = in_attributes_.IsBound() ||
+                          root["allow_dynamic_attributes"].get<bool>();
     }
     if (root.contains("missing_variable_policy")) {
       new_missing_policy = root["missing_variable_policy"].get<std::string>();
@@ -165,7 +222,10 @@ class TextTemplateNode final : public NodeBase {
     }
     std::vector<TemplateToken> new_tokens;
     if (!CompileTemplate(new_tmpl, new_values, new_allow_dynamic,
-                         &new_tokens)) {
+                         &new_tokens) ||
+        (connected_inputs_ &&
+         !ValidateTemplateInputs(new_tokens, *connected_inputs_,
+                                 new_missing_policy))) {
       return NodeControlResult::Failed(
           node_error::control::kInvalidRequest,
           "Invalid template placeholders or syntax in Control");
@@ -336,18 +396,24 @@ class TextTemplateNode final : public NodeBase {
           rendered += token.value;
         } else {
           const std::string& var = token.value;
-          if (var == "primary" || var == "text") {
-            rendered += primary_str;
+          const std::string* value = nullptr;
+          if (var == "primary") {
+            if (p_it != primary_by_sample.end()) value = &primary_str;
           } else if (var == "context" || var == "context_text") {
-            rendered += context_str;
+            // A present aggregate batch may contain no results for this
+            // request.
+            if (context_items || context_text_items) value = &context_str;
           } else if (var == "matches") {
-            rendered += matches_str;
+            if (matches_items) value = &matches_str;
           } else if (var == "document" || var == "document_text") {
-            rendered += doc_str;
+            if (document_items || document_text_items) value = &doc_str;
           } else if (attrs_ptr && attrs_ptr->find(var) != attrs_ptr->end()) {
-            rendered += attrs_ptr->at(var);
+            value = &attrs_ptr->at(var);
           } else if (static_values_.find(var) != static_values_.end()) {
-            rendered += static_values_.at(var);
+            value = &static_values_.at(var);
+          }
+          if (value) {
+            rendered += *value;
           } else {
             if (missing_variable_policy_ == "fail") {
               return Fail(req_ctx, node_error::text_template::kMissingVariable,
@@ -392,15 +458,13 @@ class TextTemplateNode final : public NodeBase {
       const std::unordered_map<std::string, std::string>& static_vals,
       bool allow_dynamic_attrs, std::vector<TemplateToken>* out_tokens,
       std::string* diagnostic = nullptr) {
-    static const std::unordered_set<std::string> kBuiltins = {
-        "primary", "context",  "context_text",
-        "matches", "document", "document_text"};
     std::string error;
     bool ok = ParseTextTemplate(tmpl, out_tokens, &error);
     if (ok) {
       for (const auto& token : *out_tokens) {
         if (token.type == TokenType::kVariable && !allow_dynamic_attrs &&
-            !kBuiltins.count(token.value) && !static_vals.count(token.value)) {
+            !BuiltinInputs().count(token.value) &&
+            !static_vals.count(token.value)) {
           error = "Unknown template placeholder: " + token.value +
                   "; connect attributes or declare values";
           ok = false;
@@ -417,11 +481,12 @@ class TextTemplateNode final : public NodeBase {
   }
 
   mutable std::shared_mutex rw_mutex_;
-  std::string template_str_ = "{{primary}}";
-  std::string separator_ = "\n";
-  size_t max_length_ = 65536;
+  std::string template_str_ = kDefaultTemplate;
+  std::string separator_ = kDefaultSeparator;
+  size_t max_length_ = kDefaultMaxLength;
   std::string overflow_policy_ = "fail";
-  std::string missing_variable_policy_ = "fail";
+  std::string missing_variable_policy_ = kDefaultMissingPolicy;
+  std::optional<std::unordered_set<std::string>> connected_inputs_;
   std::string prompt_id_;
   bool allow_dynamic_attrs_ = false;
   std::unordered_map<std::string, std::string> static_values_;
@@ -480,10 +545,11 @@ NodeDefinition MakeTextTemplateNodeDefinition() {
   def.control_commands.front().shared_id = true;
   def.config_fields = {
       ConfigFieldDefinition{"template", ConfigValueKind::kString, false,
-                            "{{primary}}"},
-      ConfigFieldDefinition{"separator", ConfigValueKind::kString, false, "\n"},
+                            kDefaultTemplate},
+      ConfigFieldDefinition{"separator", ConfigValueKind::kString, false,
+                            kDefaultSeparator},
       ConfigFieldDefinition{"max_length", ConfigValueKind::kInteger, false,
-                            65536, 1.0, 1048576.0},
+                            kDefaultMaxLength, 1.0, 1048576.0},
       ConfigFieldDefinition{"allow_dynamic_attributes",
                             ConfigValueKind::kBoolean, false, false},
       ConfigFieldDefinition{"overflow_policy",
@@ -496,7 +562,7 @@ NodeDefinition MakeTextTemplateNodeDefinition() {
       ConfigFieldDefinition{"missing_variable_policy",
                             ConfigValueKind::kString,
                             false,
-                            "fail",
+                            kDefaultMissingPolicy,
                             std::nullopt,
                             std::nullopt,
                             {"fail", "empty", "preserve"}},

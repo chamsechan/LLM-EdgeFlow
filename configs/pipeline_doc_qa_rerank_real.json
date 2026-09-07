@@ -12,7 +12,6 @@
         "do_lower_case": true,
         "max_length": 512,
         "pooling_strategy": "cls",
-        "normalize": true,
         "output_name": "last_hidden_state",
         "embedding_dim": 768
       },

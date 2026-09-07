@@ -78,6 +78,11 @@ bool ParsePromptConfig(const nlohmann::json& config,
     return false;
   };
   try {
+    if (config.contains("system_prompt")) {
+      return reject(
+          "system_prompt was renamed to prompt_prefix; it is ordinary input "
+          "text, not a system message");
+    }
     if (config.contains("fallback_text")) {
       return reject(
           "fallback_text is unsupported: model failures must remain failures");
@@ -144,7 +149,7 @@ bool ParsePromptConfig(const nlohmann::json& config,
         options->stop_words.push_back(word.get<std::string>());
       }
     }
-    (void)config.value("system_prompt", std::string{});
+    (void)config.value("prompt_prefix", std::string{});
     (void)config.value("strip_markdown", false);
     return true;
   } catch (const std::exception& e) {
@@ -182,7 +187,7 @@ class PromptGuidedLlmNode final : public ModelBoundNode<ILlmModel> {
     }
     if (uses_context_ && init_ctx.plan && !context_port_.IsBound())
       return false;
-    system_prompt_ = config.value("system_prompt", "");
+    prompt_prefix_ = config.value("prompt_prefix", "");
     strip_markdown_ = config.value("strip_markdown", false);
     return true;
   }
@@ -268,8 +273,8 @@ class PromptGuidedLlmNode final : public ModelBoundNode<ILlmModel> {
   std::string RenderPrompt(const std::string& input,
                            const std::string& context) const {
     std::string result;
-    if (!system_prompt_.empty()) {
-      result += system_prompt_ + "\n";
+    if (!prompt_prefix_.empty()) {
+      result += prompt_prefix_ + "\n";
     }
     for (const auto& part : prompt_parts_) {
       if (part.type == TextTemplateTokenType::kLiteral) {
@@ -320,7 +325,7 @@ class PromptGuidedLlmNode final : public ModelBoundNode<ILlmModel> {
 
   std::vector<TextTemplateToken> prompt_parts_;
   bool uses_context_ = false;
-  std::string system_prompt_;
+  std::string prompt_prefix_;
   bool strip_markdown_ = false;
   GenerateOptions gen_opt_;
 };
@@ -356,7 +361,7 @@ NodeDefinition MakePromptGuidedLlmNodeDefinition() {
                             std::nullopt,
                             std::nullopt,
                             {"auto", "standard", "legacy"}},
-      ConfigFieldDefinition{"system_prompt", ConfigValueKind::kString, false,
+      ConfigFieldDefinition{"prompt_prefix", ConfigValueKind::kString, false,
                             ""},
       ConfigFieldDefinition{"temperature", ConfigValueKind::kNumber, false, 0.7,
                             0.0, 2.0},

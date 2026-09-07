@@ -411,6 +411,7 @@ TEST(PipelineValidatorTest, UnconnectedOptionalPortStaysAbsentAtRuntime) {
         {"ports",
          {{"inputs", {{"text", "rendered"}}},
           {"outputs", {{"matches", "rule_matches"}}}}}}});
+  root["pipeline"][1]["config"]["missing_variable_policy"] = "empty";
   const auto plan = PipelineValidator::ValidateAndPlan(root);
   ASSERT_TRUE(plan.report.ok) << plan.report.ToJson();
   EXPECT_EQ(plan.node_plans.at("b").FindPort("context_text"), nullptr);

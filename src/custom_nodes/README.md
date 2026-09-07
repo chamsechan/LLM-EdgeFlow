@@ -71,6 +71,34 @@
   `--kind model -m ocr`。脚本会拒绝不适用的组合。
 - 自定义批类型应提供 `BlackboardTypeTraits`；生成代码通过编译期检查拒绝未知类型标识。
 
+## 自定义参数的最小约定
+
+在节点同一文件的 `NodeDefinition.config_fields` 声明字段，在 `InitNode` 或
+`InitModelNode` 使用 `config.value<T>()` 读取；不需要参数宏或修改 Core/Studio。
+字段类型、默认值、范围和枚举进入 Catalog；新增字段需重新编译，已有字段改值只需
+重新创建 Pipeline/实例加载配置。运行中的更新仍需显式实现 Control。
+
+同一字段的默认值使用节点内共享常量，例如：
+
+```cpp
+constexpr double kDefaultThreshold = 0.8;
+// 添加到 Definition.config_fields：
+ConfigFieldDefinition{"threshold", ConfigValueKind::kNumber,
+                      false, kDefaultThreshold, 0.0, 1.0};
+// 在初始化中读取：
+threshold_ = config.value<double>("threshold", kDefaultThreshold);
+```
+
+只有缺失字段才使用默认值；类型、范围或字段组合错误应拒绝，不能静默回退。
+Validator 在物化前检查声明，初始化仍保留防御校验。复杂配置确实重复使用时，
+将解析和语义检查集中为节点自己的函数，供 `validate_config`、初始化以及适用的
+Control 路径复用。普通参数保存在节点配置成员，请求数据继续通过端口传递。
+
+涉及长度时写清单位：TextChunk 的 `chunk_size/overlap` 按 Unicode 码点计数，
+TextTemplate 的 `max_length` 是 UTF-8 字节预算，生成的 `max_tokens` 是 token 数。
+这些不同用途的参数不需要统一数值或名称。嵌套参数通过 JSON 配置，字段结构以节点
+声明及实际校验为准，不在前端维护独立规则。
+
 ## 完整参考样例
 
 [PromptGuidedLlmNode](prompt_guided_llm_node.cpp) 展示提示词构建、LLM 调用与代码围栏清理，
@@ -121,8 +149,16 @@ TextTemplate 的主文本叫 `primary`，本样例叫 `input`；复制模板时�
 
 使用 context 变量必须连入 context；按相同 `req_id` 合并片段，空上下文批次表示
 没有参考内容。默认模板只插入 input，不隐式追加 context。输入、上下文和
-system_prompt 中的花括号保留原文，不再作为模板解析。未知占位符、无效生成参数
+prompt_prefix 中的花括号保留原文，不再作为模板解析。未知占位符、无效生成参数
 和非法 stop_words 在原生校验与初始化时拒绝。
+
+`prompt_prefix` 是普通输入文本前缀，非空时在模板前追加一行；旧的节点字段
+`system_prompt` 已改名并拒绝使用。模型的 `model_config.system_prompt` 仍表示真正的
+system 消息，不能用节点前缀替代该角色。
+
+TextTemplate 的 `missing_variable_policy` 也适用于内置变量。`fail` 会拒绝未连接的
+引用或缺失的主输入样本；需要保留占位符或填空时显式使用 `preserve/empty`。
+聚合输入批次存在而某请求没有结果时，仍表示合法的空上下文。
 
 模型失败、输出数量不符或 `(req_id, sub_id)` 不符时，节点返回错误且不发布结果。
 `fallback_text` 已删除并明确拒绝；业务降级应携带可辨识的状态，不能伪装成功。

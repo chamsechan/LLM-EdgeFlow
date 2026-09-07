@@ -86,6 +86,54 @@ TEST_F(TextChunkNodeTest, ProcessBatchAndChunkCounts) {
   EXPECT_EQ((*counts)[1].data, 1);
 }
 
+TEST_F(TextChunkNodeTest, HighOverlapStopsWhenInputIsCovered) {
+  auto node = NodeFactory::Instance().Create("TextChunkNode");
+  ASSERT_TRUE(InitNodeForTest(*node, {{"chunk_size", 1000}, {"overlap", 999}},
+                              session_ctx_.get()));
+  AlgContext ctx;
+  const std::string shorter(999, 'a');
+  const std::string exact(1000, 'b');
+  const std::string longer(1001, 'c');
+  ctx.Publish("text",
+              TextBatch{{1, 0, shorter}, {2, 0, exact}, {3, 0, longer}});
+  ASSERT_EQ(node->Process(&ctx), 0);
+  const auto* chunks = ctx.Read<TextBatch>("chunks");
+  const auto* counts = ctx.Read<Int32Batch>("chunk_counts");
+  ASSERT_NE(chunks, nullptr);
+  ASSERT_NE(counts, nullptr);
+  ASSERT_EQ(chunks->size(), 4u);
+  ASSERT_EQ(counts->size(), 3u);
+  EXPECT_EQ(chunks->at(0).data, shorter);
+  EXPECT_EQ(chunks->at(1).data, exact);
+  EXPECT_EQ(chunks->at(2).data, longer.substr(0, 1000));
+  EXPECT_EQ(chunks->at(3).data, longer.substr(1));
+  EXPECT_EQ(chunks->at(2).req_id, 3u);
+  EXPECT_EQ(chunks->at(2).sub_id, 0u);
+  EXPECT_EQ(chunks->at(3).req_id, 3u);
+  EXPECT_EQ(chunks->at(3).sub_id, 1u);
+  EXPECT_EQ(counts->at(0).data, 1);
+  EXPECT_EQ(counts->at(1).data, 1);
+  EXPECT_EQ(counts->at(2).data, 2);
+}
+
+TEST_F(TextChunkNodeTest, OverlappingFinalPartialChunkIsEmittedOnce) {
+  auto node = NodeFactory::Instance().Create("TextChunkNode");
+  ASSERT_TRUE(InitNodeForTest(*node, {{"chunk_size", 5}, {"overlap", 3}},
+                              session_ctx_.get()));
+  AlgContext ctx;
+  ctx.Publish("text", TextBatch{{7, 0, "A中🙂BC文"}});
+  ASSERT_EQ(node->Process(&ctx), 0);
+  const auto* chunks = ctx.Read<TextBatch>("chunks");
+  ASSERT_NE(chunks, nullptr);
+  ASSERT_EQ(chunks->size(), 2u);
+  EXPECT_EQ(chunks->at(0).data, "A中🙂BC");
+  EXPECT_EQ(chunks->at(1).data, "🙂BC文");
+  const auto* counts = ctx.Read<Int32Batch>("chunk_counts");
+  ASSERT_NE(counts, nullptr);
+  ASSERT_EQ(counts->size(), 1u);
+  EXPECT_EQ(counts->at(0).data, 2);
+}
+
 // 3. Process Empty Input Strings
 TEST_F(TextChunkNodeTest, ProcessEmptyStrings) {
   auto node = NodeFactory::Instance().Create("TextChunkNode");

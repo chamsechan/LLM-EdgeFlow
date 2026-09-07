@@ -47,6 +47,114 @@ TEST_F(StructuredJsonParseNodeTest, ProcessMarkdownJsonBlockExtraction) {
   EXPECT_EQ((*doc)[0].data.structured_data["risk_level"], "SAFE");
 }
 
+TEST_F(StructuredJsonParseNodeTest, PreservesCompleteOuterContainers) {
+  auto node = NodeFactory::Instance().Create("StructuredJsonParseNode");
+  ASSERT_TRUE(
+      InitNodeForTest(*node, {{"failure_policy", "fail"}}, session_ctx_.get()));
+  for (const std::string text :
+       {R"([{"x":1},{"x":2}])",
+        R"({"text":"braces } [ and \"quotes\" \\","nested":[{"x":1}]})",
+        R"(["a","b"])"}) {
+    const auto expected = nlohmann::json::parse(text);
+    for (const std::string& input :
+         {text, text + " Done.", "Result: " + text + " Done.",
+          "```json\n" + text + "\n```",
+          "[Result]\n```json\n" + text + "\n```"}) {
+      SCOPED_TRACE(input);
+      AlgContext ctx;
+      ctx.Publish("text", TextBatch{{17, 3, input}});
+      ASSERT_EQ(node->Process(&ctx), 0);
+      const auto* docs = ctx.Read<StructuredDocumentBatch>("document");
+      ASSERT_NE(docs, nullptr);
+      ASSERT_EQ(docs->size(), 1u);
+      EXPECT_EQ(docs->at(0).req_id, 17u);
+      EXPECT_EQ(docs->at(0).sub_id, 3u);
+      EXPECT_TRUE(docs->at(0).data.is_valid);
+      EXPECT_EQ(docs->at(0).data.structured_data, expected);
+      EXPECT_EQ(nlohmann::json::parse(docs->at(0).data.json_payload), expected);
+      EXPECT_TRUE(docs->at(0).data.diagnostic.empty());
+    }
+  }
+}
+
+TEST_F(StructuredJsonParseNodeTest, RejectsTruncationAndQuotedProse) {
+  auto node = NodeFactory::Instance().Create("StructuredJsonParseNode");
+  ASSERT_TRUE(
+      InitNodeForTest(*node, {{"failure_policy", "fail"}}, session_ctx_.get()));
+  for (const std::string input :
+       {R"([{"x":1},{"x":2)", R"(Found entities: ["Alice", "Bob")",
+        R"(He mentioned "Alice" and "Bob".)", R"({"x":[1,2])", R"({"x":1,})",
+        R"({"x":[1,2})", "```json\n[{\"x\":1},{\"x\":2\n```",
+        "```json\n{\"x\":1}"}) {
+    SCOPED_TRACE(input);
+    AlgContext ctx;
+    ctx.Publish("text", TextBatch{{1, 0, input}});
+    EXPECT_EQ(node->Process(&ctx), -6102);
+    EXPECT_EQ(ctx.Read<StructuredDocumentBatch>("document"), nullptr);
+  }
+}
+
+TEST_F(StructuredJsonParseNodeTest,
+       InvalidDocumentHonorsFallbackAndDiagnostic) {
+  for (const std::string policy : {"configured_fallback", "emit_diagnostic"}) {
+    SCOPED_TRACE(policy);
+    auto node = NodeFactory::Instance().Create("StructuredJsonParseNode");
+    ASSERT_TRUE(InitNodeForTest(
+        *node,
+        {{"failure_policy", policy}, {"fallback_json", R"({"fallback":true})"}},
+        session_ctx_.get()));
+    for (const std::string input :
+         {R"([{"x":1},{"x":2)", R"(Result: {"x":[1,2})"}) {
+      SCOPED_TRACE(input);
+      AlgContext ctx;
+      ctx.Publish("text", TextBatch{{7, 2, input}});
+      ASSERT_EQ(node->Process(&ctx), 0);
+      const auto* docs = ctx.Read<StructuredDocumentBatch>("document");
+      ASSERT_NE(docs, nullptr);
+      ASSERT_EQ(docs->size(), 1u);
+      const bool fallback = policy == "configured_fallback";
+      EXPECT_EQ(docs->at(0).data.is_valid, fallback);
+      EXPECT_EQ(docs->at(0).data.parse_status,
+                fallback ? JsonParseStatus::kFallbackApplied
+                         : JsonParseStatus::kFailed);
+      EXPECT_EQ(docs->at(0).data.structured_data,
+                nlohmann::json({{"fallback", true}}));
+      EXPECT_FALSE(docs->at(0).data.diagnostic.empty());
+      EXPECT_EQ(docs->at(0).req_id, 7u);
+      EXPECT_EQ(docs->at(0).sub_id, 2u);
+    }
+  }
+}
+
+TEST_F(StructuredJsonParseNodeTest, ExtractionModeControlsSurroundingText) {
+  for (const bool extract : {true, false}) {
+    SCOPED_TRACE(extract);
+    auto node = NodeFactory::Instance().Create("StructuredJsonParseNode");
+    ASSERT_TRUE(InitNodeForTest(
+        *node, {{"extract_json_block", extract}, {"failure_policy", "fail"}},
+        session_ctx_.get()));
+    AlgContext direct_ctx;
+    direct_ctx.Publish("text", TextBatch{{1, 0, R"({"x":1})"}});
+    EXPECT_EQ(node->Process(&direct_ctx), 0);
+    for (const std::string input :
+         {R"(Result: {"x":1})", R"({"x":1} Done.)", R"({"x":1},{"x":2)",
+          R"(Result: {"x":1},{"x":2)", R"({"x":1}{"x":2})", R"({"x":1}])"}) {
+      SCOPED_TRACE(input);
+      AlgContext ctx;
+      ctx.Publish("text", TextBatch{{1, 0, input}});
+      EXPECT_EQ(node->Process(&ctx), extract ? 0 : -6102);
+      const auto* docs = ctx.Read<StructuredDocumentBatch>("document");
+      if (extract) {
+        ASSERT_NE(docs, nullptr);
+        ASSERT_EQ(docs->size(), 1u);
+        EXPECT_EQ(docs->at(0).data.structured_data, nlohmann::json({{"x", 1}}));
+      } else {
+        EXPECT_EQ(docs, nullptr);
+      }
+    }
+  }
+}
+
 // 2. Required Fields and Field Types Validation
 TEST_F(StructuredJsonParseNodeTest, RequiredFieldsAndFieldTypesValidation) {
   auto node = NodeFactory::Instance().Create("StructuredJsonParseNode");

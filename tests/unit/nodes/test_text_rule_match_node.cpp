@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
 
+#include <cmath>
+#include <limits>
 #include <memory>
 #include <nlohmann/json.hpp>
 #include <string>
@@ -51,6 +53,89 @@ TEST_F(TextRuleMatchNodeTest, ProcessKeywordAndCategoryMatching) {
   EXPECT_EQ((*matches)[1].data.is_hit, 1);
   EXPECT_EQ((*matches)[1].data.category, "CONSULT");
   EXPECT_EQ((*matches)[2].data.is_hit, 0);
+}
+
+TEST_F(TextRuleMatchNodeTest, RejectsInvalidRuleAndDefaultScores) {
+  const std::vector<nlohmann::json> invalid_scores = {
+      -0.01,
+      1.01,
+      1e100,
+      std::nextafter(1.0, 2.0),
+      std::numeric_limits<double>::infinity(),
+      std::numeric_limits<double>::quiet_NaN(),
+      "0.5",
+      nullptr};
+  for (const auto& score : invalid_scores) {
+    SCOPED_TRACE(score.dump());
+    auto rule_node = NodeFactory::Instance().Create("TextRuleMatchNode");
+    EXPECT_FALSE(InitNodeForTest(
+        *rule_node, {{"rules", {{{"pattern", "hit"}, {"score", score}}}}},
+        session_ctx_.get()));
+    auto default_node = NodeFactory::Instance().Create("TextRuleMatchNode");
+    EXPECT_FALSE(InitNodeForTest(*default_node, {{"default_score", score}},
+                                 session_ctx_.get()));
+  }
+}
+
+TEST_F(TextRuleMatchNodeTest, ScoreBoundsAndDefaultsRemainUsable) {
+  auto node = NodeFactory::Instance().Create("TextRuleMatchNode");
+  ASSERT_TRUE(InitNodeForTest(
+      *node,
+      {{"default_category", "FALLBACK"},
+       {"default_score", 0.25},
+       {"rules",
+        {{{"pattern", "zero"}, {"category", "ZERO"}, {"score", 0}},
+         {{"pattern", "one"}, {"category", "ONE"}, {"score", 1}},
+         {{"pattern", "default"}, {"category", "DEFAULT"}}}}},
+      session_ctx_.get()));
+  AlgContext ctx;
+  ctx.Publish(
+      "text",
+      TextBatch{
+          {1, 0, "zero"}, {2, 0, "one"}, {3, 0, "default"}, {4, 0, "miss"}});
+  ASSERT_EQ(node->Process(&ctx), 0);
+  const auto* matches = ctx.Read<RuleMatchBatch>("matches");
+  ASSERT_NE(matches, nullptr);
+  ASSERT_EQ(matches->size(), 4u);
+  EXPECT_FLOAT_EQ(matches->at(0).data.score, 0.0f);
+  EXPECT_FLOAT_EQ(matches->at(1).data.score, 1.0f);
+  EXPECT_FLOAT_EQ(matches->at(2).data.score, 1.0f);
+  EXPECT_FLOAT_EQ(matches->at(3).data.score, 0.25f);
+  for (const auto& match : *matches) {
+    EXPECT_TRUE(std::isfinite(match.data.score));
+    EXPECT_TRUE(match.data.details.at("confidence").is_number());
+  }
+}
+
+TEST_F(TextRuleMatchNodeTest, InvalidScoreControlPreservesCategoriesAndRules) {
+  auto node = NodeFactory::Instance().Create("TextRuleMatchNode");
+  ASSERT_TRUE(InitNodeForTest(
+      *node,
+      {{"categories", {{"OLD", {"kept"}}}},
+       {"rules",
+        {{{"pattern", "original"}, {"category", "RULE"}, {"score", 0.75}}}}},
+      session_ctx_.get()));
+  for (const double score : {-0.01, 1.01, 1e100, std::nextafter(1.0, 2.0)}) {
+    const nlohmann::json update = {{"categories", {{"NEW", {"replacement"}}}},
+                                   {"rules",
+                                    {{{"pattern", "replacement"},
+                                      {"category", "NEW"},
+                                      {"score", score}}}}};
+    EXPECT_EQ(node->Control(kControlCmdUpdateRules, update.dump()).status,
+              NodeControlStatus::kFailed);
+  }
+  AlgContext ctx;
+  ctx.Publish(
+      "text",
+      TextBatch{{1, 0, "kept"}, {2, 0, "original"}, {3, 0, "replacement"}});
+  ASSERT_EQ(node->Process(&ctx), 0);
+  const auto* matches = ctx.Read<RuleMatchBatch>("matches");
+  ASSERT_NE(matches, nullptr);
+  ASSERT_EQ(matches->size(), 3u);
+  EXPECT_EQ(matches->at(0).data.category, "OLD");
+  EXPECT_EQ(matches->at(1).data.category, "RULE");
+  EXPECT_FLOAT_EQ(matches->at(1).data.score, 0.75f);
+  EXPECT_EQ(matches->at(2).data.is_hit, 0);
 }
 
 // 2. Control Command Dynamic Rule Hot-Swap & Bogus Rejection

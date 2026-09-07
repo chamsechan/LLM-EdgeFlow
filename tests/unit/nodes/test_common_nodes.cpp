@@ -230,7 +230,7 @@ TEST_F(CommonNodesTest, TextRuleMatchNodeComprehensive) {
   EXPECT_EQ((*out2)[0].data.captures.at("city"), "北京");
 }
 
-// 4. StructuredJsonParseNode: direct, markdown block, auto-close, failure
+// 4. StructuredJsonParseNode: direct, markdown block, truncated input, failure
 // policies
 TEST_F(CommonNodesTest, StructuredJsonParseNodeComprehensive) {
   auto node = NodeFactory::Instance().Create("StructuredJsonParseNode");
@@ -249,7 +249,7 @@ TEST_F(CommonNodesTest, StructuredJsonParseNodeComprehensive) {
   input.emplace_back(
       2, 0,
       "Here is the result:\n```json\n{\"entities\": [\"DeepMind\"]}\n```");
-  // 3. Auto-close unclosed array
+  // 3. Unclosed array follows the configured failure policy
   input.emplace_back(3, 0, "Found entities: [\"TensorFlow\", \"PyTorch\"");
   // 4. Broken text
   input.emplace_back(4, 0, "No valid json here at all");
@@ -263,7 +263,8 @@ TEST_F(CommonNodesTest, StructuredJsonParseNodeComprehensive) {
   EXPECT_EQ((*out)[0].data.parse_status, JsonParseStatus::kOk);
   EXPECT_EQ((*out)[1].data.parse_status,
             JsonParseStatus::kExtractedFromMarkdown);
-  EXPECT_EQ((*out)[2].data.parse_status, JsonParseStatus::kAutoClosed);
+  EXPECT_EQ((*out)[2].data.parse_status, JsonParseStatus::kFallbackApplied);
+  EXPECT_EQ((*out)[2].data.json_payload, "{\"entities\":[]}");
   EXPECT_EQ((*out)[3].data.parse_status, JsonParseStatus::kFallbackApplied);
   EXPECT_EQ((*out)[3].data.json_payload, "{\"entities\":[]}");
 }
@@ -844,7 +845,7 @@ TEST_F(CommonNodesTest, PromptRendersOriginalTemplateAndIsolatesRequests) {
   auto node = NodeFactory::Instance().Create("PromptGuidedLlmNode");
   const nlohmann::json config = {
       {"bind_model", "prompt_contract"},
-      {"system_prompt", "system {input}"},
+      {"prompt_prefix", "system {input}"},
       {"template_syntax", "legacy"},
       {"prompt_template", "{{literal}} <{input}>|{context}|{input}"},
       {"strip_markdown", true},
@@ -1030,6 +1031,7 @@ TEST_F(CommonNodesTest, PromptConfigurationRejectedByValidatorAndInit) {
       {{"stop_words", {""}}},
       {{"stop_words", "END"}},
       {{"fallback_text", "DEFAULT"}},
+      {{"system_prompt", "Use prompt_prefix instead"}},
       {{"max_tokens", 32769}},
       {{"max_tokens", 2.5}},
       {{"max_tokens", 4294967297ULL}},

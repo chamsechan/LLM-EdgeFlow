@@ -332,6 +332,7 @@ class WorkbenchService:
             dataset = PROJECT_ROOT / profile["dataset"]
             args = [
                 str(DEMO_BINARY),
+                "--no-default-control",
                 "--biz",
                 str(profile["biz"]),
                 "--config",

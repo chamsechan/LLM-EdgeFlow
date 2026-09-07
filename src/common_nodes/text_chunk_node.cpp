@@ -12,9 +12,12 @@
 namespace llm_edgeflow {
 
 namespace {
+constexpr int64_t kDefaultChunkSize = 100;
+constexpr int64_t kDefaultOverlap = 0;
+
 bool ValidChunkConfig(const nlohmann::json& config) {
-  const auto size = config.value<int64_t>("chunk_size", 100);
-  const auto overlap = config.value<int64_t>("overlap", 0);
+  const auto size = config.value<int64_t>("chunk_size", kDefaultChunkSize);
+  const auto overlap = config.value<int64_t>("overlap", kDefaultOverlap);
   return size > 0 && size <= 1000000 && overlap >= 0 && overlap <= 100000 &&
          overlap < size;
 }
@@ -40,8 +43,9 @@ class TextChunkNode final : public NodeBase {
     BindPort(init_ctx, out_chunks_);
     BindPort(init_ctx, out_chunk_counts_);
 
-    const int64_t chunk_size = config.value<int64_t>("chunk_size", 100);
-    const int64_t overlap = config.value<int64_t>("overlap", 0);
+    const int64_t chunk_size =
+        config.value<int64_t>("chunk_size", kDefaultChunkSize);
+    const int64_t overlap = config.value<int64_t>("overlap", kDefaultOverlap);
     if (!ValidChunkConfig(config)) {
       return false;
     }
@@ -91,6 +95,7 @@ class TextChunkNode final : public NodeBase {
               str.substr(boundaries[pos], boundaries[end] - boundaries[pos]);
           chunked_items.emplace_back(req_id, sub_id++, std::move(slice));
           count_for_req++;
+          if (end == code_point_count) break;
         }
       }
       chunk_counts.emplace_back(req_id, 0, count_for_req);
@@ -105,8 +110,8 @@ class TextChunkNode final : public NodeBase {
   }
 
  private:
-  size_t chunk_size_ = 100;
-  size_t overlap_ = 0;
+  size_t chunk_size_ = kDefaultChunkSize;
+  size_t overlap_ = kDefaultOverlap;
 
   BoundInput<TextBatch> in_text_;
   BoundOutput<TextBatch> out_chunks_;
@@ -136,10 +141,10 @@ NodeDefinition MakeTextChunkNodeDefinition() {
       OutputPort("chunk_counts", BlackboardKey<Int32Batch>{"", "Int32Batch"},
                  "1:1", "preserve", "request")};
   def.config_fields = {
-      ConfigFieldDefinition{"chunk_size", ConfigValueKind::kInteger, false, 100,
-                            1.0, 1000000.0},
-      ConfigFieldDefinition{"overlap", ConfigValueKind::kInteger, false, 0, 0.0,
-                            100000.0}};
+      ConfigFieldDefinition{"chunk_size", ConfigValueKind::kInteger, false,
+                            kDefaultChunkSize, 1.0, 1000000.0},
+      ConfigFieldDefinition{"overlap", ConfigValueKind::kInteger, false,
+                            kDefaultOverlap, 0.0, 100000.0}};
   def.parallel_safe = true;
   return def;
 }

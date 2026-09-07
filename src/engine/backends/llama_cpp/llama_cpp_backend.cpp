@@ -37,17 +37,72 @@ std::string NormalizePlatform(std::string platform) {
 }
 
 #ifdef HAVE_LLAMACPP
+constexpr int64_t kDefaultContextSize = 2048;
+constexpr int64_t kDefaultDecodeBatchSize = 512;
+
 const std::vector<ConfigFieldDefinition>& LlamaCppConfigFields() {
   static const std::vector<ConfigFieldDefinition> fields = {
-      {"context_size", ConfigValueKind::kInteger, false, 2048, 16.0, 1048576.0},
-      {"decode_batch_size", ConfigValueKind::kInteger, false, 512, 1.0,
-       1048576.0},
+      {"context_size", ConfigValueKind::kInteger, false, kDefaultContextSize,
+       16.0, 1048576.0},
+      {"decode_batch_size", ConfigValueKind::kInteger, false,
+       kDefaultDecodeBatchSize, 1.0, 1048576.0},
       {"n_threads", ConfigValueKind::kInteger, false, 0, 0.0, 1024.0},
       {"n_threads_batch", ConfigValueKind::kInteger, false, 0, 0.0, 1024.0},
       {"n_gpu_layers", ConfigValueKind::kInteger, false, 0, 0.0, 1048576.0},
       {"check_tensors", ConfigValueKind::kBoolean, false, false},
   };
   return fields;
+}
+
+struct LlamaCppOptions {
+  int64_t context_size = kDefaultContextSize;
+  int64_t decode_batch_size = kDefaultDecodeBatchSize;
+  int n_threads = 0;
+  int n_threads_batch = 0;
+  int n_gpu_layers = 0;
+  bool check_tensors = false;
+};
+
+bool ParseLlamaCppConfig(const nlohmann::json& config, LlamaCppOptions* output,
+                         std::string* diagnostic) {
+  if (!config.is_object()) {
+    SetDiagnostic(diagnostic, "llama.cpp backend_config must be an object");
+    return false;
+  }
+  const auto& fields = LlamaCppConfigFields();
+  for (const auto& [key, value] : config.items()) {
+    const auto field =
+        std::find_if(fields.begin(), fields.end(),
+                     [&](const auto& item) { return item.name == key; });
+    if (field == fields.end()) {
+      SetDiagnostic(diagnostic,
+                    "Unknown llama.cpp backend_config field: " + key);
+      return false;
+    }
+    if (field->kind == ConfigValueKind::kBoolean) {
+      if (value.is_boolean()) continue;
+    } else if (value.is_number_integer()) {
+      const double number = value.get<double>();
+      if (number >= *field->minimum && number <= *field->maximum) continue;
+    }
+    SetDiagnostic(diagnostic, "Invalid llama.cpp backend_config field: " + key);
+    return false;
+  }
+  LlamaCppOptions options;
+  options.context_size =
+      config.value<int64_t>("context_size", kDefaultContextSize);
+  options.decode_batch_size =
+      config.value<int64_t>("decode_batch_size", kDefaultDecodeBatchSize);
+  options.n_threads = config.value<int>("n_threads", 0);
+  options.n_threads_batch = config.value<int>("n_threads_batch", 0);
+  options.n_gpu_layers = config.value<int>("n_gpu_layers", 0);
+  options.check_tensors = config.value<bool>("check_tensors", false);
+  if (options.decode_batch_size > options.context_size) {
+    SetDiagnostic(diagnostic, "decode_batch_size must not exceed context_size");
+    return false;
+  }
+  *output = options;
+  return true;
 }
 
 class LlamaRuntime final {
@@ -379,22 +434,9 @@ std::shared_ptr<IBackendSession> LlamaCppBackend::Load(
   return nullptr;
 #else
   try {
-    if (!spec.backend_config.is_object()) {
-      SetDiagnostic(diagnostic, "llama.cpp backend_config must be an object");
+    LlamaCppOptions options;
+    if (!ParseLlamaCppConfig(spec.backend_config, &options, diagnostic))
       return nullptr;
-    }
-    const auto& fields = LlamaCppConfigFields();
-    for (const auto& [key, value] : spec.backend_config.items()) {
-      (void)value;
-      const bool declared =
-          std::any_of(fields.begin(), fields.end(),
-                      [&key](const auto& field) { return field.name == key; });
-      if (!declared) {
-        SetDiagnostic(diagnostic,
-                      "Unknown llama.cpp backend_config field: " + key);
-        return nullptr;
-      }
-    }
     if (spec.model_path.empty()) {
       SetDiagnostic(diagnostic, "llama.cpp model path is empty");
       return nullptr;
@@ -407,35 +449,19 @@ std::shared_ptr<IBackendSession> LlamaCppBackend::Load(
       return nullptr;
     }
 
-    const int64_t context_size =
-        spec.backend_config.value("context_size", int64_t{2048});
-    const int64_t decode_batch_size =
-        spec.backend_config.value("decode_batch_size", int64_t{512});
-    const int n_threads = spec.backend_config.value("n_threads", 0);
-    const int n_threads_batch = spec.backend_config.value("n_threads_batch", 0);
-    const int n_gpu_layers = spec.backend_config.value("n_gpu_layers", 0);
-    const bool check_tensors =
-        spec.backend_config.value("check_tensors", false);
-
-    if (context_size < 16 || context_size > 1048576 || decode_batch_size < 1 ||
-        decode_batch_size > context_size || n_threads < 0 || n_threads > 1024 ||
-        n_threads_batch < 0 || n_threads_batch > 1024 || n_gpu_layers < 0 ||
-        n_gpu_layers > 1048576) {
-      SetDiagnostic(diagnostic, "Invalid llama.cpp backend configuration");
-      return nullptr;
-    }
-    if (n_gpu_layers == 0 && device_id != 0) {
+    if (options.n_gpu_layers == 0 && device_id != 0) {
       SetDiagnostic(diagnostic,
                     "llama.cpp CPU execution only accepts device_id 0; got: " +
                         std::to_string(device_id));
       return nullptr;
     }
-    if (n_gpu_layers == 0 && platform == "CUDA") {
+    if (options.n_gpu_layers == 0 && platform == "CUDA") {
       SetDiagnostic(diagnostic,
                     "llama.cpp CUDA execution requires n_gpu_layers > 0");
       return nullptr;
     }
-    if (n_gpu_layers > 0 && (platform == "CPU" || platform == "CPU_GENERIC")) {
+    if (options.n_gpu_layers > 0 &&
+        (platform == "CPU" || platform == "CPU_GENERIC")) {
       SetDiagnostic(diagnostic,
                     "llama.cpp n_gpu_layers requires a GPU execution platform");
       return nullptr;
@@ -443,9 +469,9 @@ std::shared_ptr<IBackendSession> LlamaCppBackend::Load(
 
     (void)GetLlamaRuntime();
     llama_model_params model_params = llama_model_default_params();
-    model_params.n_gpu_layers = n_gpu_layers;
+    model_params.n_gpu_layers = options.n_gpu_layers;
     model_params.main_gpu = device_id;
-    model_params.check_tensors = check_tensors;
+    model_params.check_tensors = options.check_tensors;
     LlamaModelPtr model(
         llama_model_load_from_file(spec.model_path.c_str(), model_params));
     if (!model) {
@@ -461,8 +487,9 @@ std::shared_ptr<IBackendSession> LlamaCppBackend::Load(
     std::shared_ptr<llama_model> shared_model(model.release(),
                                               LlamaModelDeleter{});
     return std::make_shared<LlamaCppTextGenerationSession>(
-        std::move(shared_model), static_cast<size_t>(context_size),
-        static_cast<size_t>(decode_batch_size), n_threads, n_threads_batch);
+        std::move(shared_model), static_cast<size_t>(options.context_size),
+        static_cast<size_t>(options.decode_batch_size), options.n_threads,
+        options.n_threads_batch);
   } catch (const std::exception& e) {
     SetDiagnostic(diagnostic,
                   std::string("llama.cpp load exception: ") + e.what());
@@ -482,6 +509,11 @@ static const BackendDefinition kLlamaCppBackendDefinition = [] {
   def.supported_protocols = {ExecutionProtocol::kTextGeneration};
   def.concurrency = InferenceConcurrency::kSerialized;
   def.config_fields = LlamaCppConfigFields();
+  def.validate_config = [](const nlohmann::json& config,
+                           std::string* diagnostic) {
+    LlamaCppOptions options;
+    return ParseLlamaCppConfig(config, &options, diagnostic);
+  };
   return def;
 }();
 

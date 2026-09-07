@@ -128,19 +128,25 @@ bool ValidateEmbeddingOutputMetadata(const ITensorGraphSession& session,
 BgeEmbeddingModel::BgeEmbeddingModel(
     std::shared_ptr<ITensorGraphSession> session,
     BertWordPieceTokenizer tokenizer, size_t max_length,
-    std::string pooling_strategy, bool normalize, std::string output_name,
-    size_t embedding_dim, size_t max_batch_size)
+    std::string pooling_strategy, std::string output_name, size_t embedding_dim,
+    size_t max_batch_size)
     : session_(std::move(session)),
       tokenizer_(std::move(tokenizer)),
       max_length_(max_length),
       pooling_strategy_(std::move(pooling_strategy)),
-      default_normalize_(normalize),
       output_name_(std::move(output_name)),
       embedding_dim_(embedding_dim),
       max_batch_size_(max_batch_size) {}
 
 std::shared_ptr<IModel> BgeEmbeddingModel::Create(const ModelCreateContext& ctx,
                                                   std::string* diagnostic) {
+  if (ctx.model_config.contains("normalize")) {
+    if (diagnostic)
+      *diagnostic =
+          "Set normalize in the embedding node config or EmbeddingOptions, not "
+          "model_config";
+    return nullptr;
+  }
   auto tensor_session =
       RequireTensorGraphSession(ctx.backend_session, diagnostic);
   if (!tensor_session) return nullptr;
@@ -159,7 +165,6 @@ std::shared_ptr<IModel> BgeEmbeddingModel::Create(const ModelCreateContext& ctx,
   bool do_lower_case = ctx.model_config.value("do_lower_case", true);
   size_t max_length = ctx.model_config.value("max_length", 512);
   std::string pooling = ctx.model_config.value("pooling_strategy", "cls");
-  bool normalize = ctx.model_config.value("normalize", true);
   std::string output_name =
       ctx.model_config.value("output_name", "last_hidden_state");
 
@@ -180,7 +185,7 @@ std::shared_ptr<IModel> BgeEmbeddingModel::Create(const ModelCreateContext& ctx,
 
   return std::make_shared<BgeEmbeddingModel>(
       std::move(tensor_session), std::move(tokenizer), max_length,
-      std::move(pooling), normalize, std::move(output_name), embedding_dim,
+      std::move(pooling), std::move(output_name), embedding_dim,
       max_batch_size);
 }
 
@@ -217,7 +222,7 @@ int BgeEmbeddingModel::Embed(const TextBatch& inputs,
     return -1;
   }
 
-  bool should_normalize = options.normalize && default_normalize_;
+  const bool should_normalize = options.normalize;
   BatchPolicy policy =
       ConstrainModelBatchPolicy(session_.get(), max_batch_size_);
 
@@ -411,7 +416,6 @@ static const ModelDefinition kBgeEmbeddingModelDefinition = [] {
        std::nullopt,
        std::nullopt,
        {"cls", "mean"}},
-      {"normalize", ConfigValueKind::kBoolean, false, true},
       {"output_name", ConfigValueKind::kString, false, "last_hidden_state"},
       {"embedding_dim", ConfigValueKind::kInteger, true, nlohmann::json(), 1.0,
        65536.0},
