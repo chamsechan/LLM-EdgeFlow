@@ -584,8 +584,8 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
         report.diagnostics.push_back(std::move(d));
       }
 
-      // 8. Layer 2 only performs environment-neutral lexical path checks.
-      // Deployment roots are resolved by Layer 1 before runtime validation.
+      // 8. Orchestration only performs environment-neutral lexical path checks.
+      // Deployment roots are resolved by Integration before runtime validation.
       const auto normalized_path =
           std::filesystem::path(model.model_path).lexically_normal();
       if (!normalized_path.is_absolute() && TraversesParent(normalized_path)) {

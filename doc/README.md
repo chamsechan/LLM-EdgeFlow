@@ -2,7 +2,7 @@
 
 本目录维护 LLM-EdgeFlow 的架构、开发、接口和 RFC 文档。项目概览与最短上手路径位于仓库根目录的 [README](../README.md)，版本演进摘要位于 [Changelog](CHANGELOG.md)。
 
-- **[architecture.md](architecture.md)**：框架 4 层抽象架构说明书、模块详细职责、运行时时序图（Mermaid）及算子开发上手规范。
+- **[architecture.md](architecture.md)**：框架职责划分与编译边界、模块详细职责、运行时时序图（Mermaid）及算子开发上手规范。
 - **[architecture.puml](architecture.puml)**：框架代码库当前物理实现的精确 PlantUML 类图（As-Is 白盒类与接口视图）。
 - **[architecture_v2.puml](architecture_v2.puml)**：LLM-EdgeFlow 平台目标演进全景图（To-Be Target Blueprint，涵盖控制面交付与跨层契约）。
 - **[assets/architecture_class_diagram.svg](assets/architecture_class_diagram.svg)**：由 `architecture.puml` 固定版本生成的 As-Is 类图资产。
@@ -28,7 +28,7 @@
 只有遇到对应能力缺口才需要编写 Node 或 Adapter；真实业务效果另按
 [可验证选择指南](VERIFIABLE_SELECTION.md)验收。
 
-1. **[4 层抽象架构规范](architecture.md#1-框架整体-4-层抽象架构)**：L1 平台接入、L2 管线调度、L3 通用能力节点、L4 Model / Backend。
+1. **[架构职责与扩展边界](architecture.md#1-架构总览)**：接入适配、流程编排、能力节点、模型执行。
 2. **[物理代码 UML 类图](architecture.puml)**：精确对应当前 C++ 类的组合、继承与调用关系。
 3. **[平台目标演进全景图](architecture_v2.puml)**：Control Plane（Manifest/Catalog/Validator）与 4 层平台的长远演进蓝图。
 4. **[时序与数据流转](architecture.md#3-数据流转与调用时序-runtime-sequence)**：外部请求进出与内部算子/固定 Batch 推理流转。

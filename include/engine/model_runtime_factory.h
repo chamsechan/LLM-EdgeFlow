@@ -10,7 +10,8 @@
 namespace llm_edgeflow {
 
 /**
- * @brief Layer 4 模型物化规格参数 (由 Pipeline 将 ValidatedModelPlan 映射而来)
+ * @brief 模型执行层模型物化规格参数 (由 Pipeline 将 ValidatedModelPlan
+ * 映射而来)
  */
 struct ModelLoadSpec {
   std::string model_type;

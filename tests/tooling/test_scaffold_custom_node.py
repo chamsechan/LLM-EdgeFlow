@@ -46,7 +46,8 @@ class ScaffoldCustomNodeTest(unittest.TestCase):
     def test_file_registration_overwrite_and_dry_run(self):
         with tempfile.TemporaryDirectory() as temp:
             cmake = Path(temp) / "CMakeLists.txt"
-            cmake.write_text("target_sources(edgeflow_layer3_node_objects PRIVATE\n  existing.cpp\n)\n")
+            original_cmake = (ROOT / "src/custom_nodes/CMakeLists.txt").read_text()
+            cmake.write_text(original_cmake)
             args = ["ExampleNode", "--output-dir", temp, "--add-to-cmake", "--generate-test"]
             dry = self.run_cli(*args, "--dry-run")
             self.assertEqual(dry.returncode, 0, dry.stderr)
@@ -60,7 +61,7 @@ class ScaffoldCustomNodeTest(unittest.TestCase):
             self.assertEqual(node.read_text(), "user changes")
             self.assertEqual(self.run_cli(*args, "--force").returncode, 0)
             self.assertEqual(cmake.read_text().count("example_node.cpp"), 1)
-            self.assertIn("existing.cpp", cmake.read_text())
+            self.assertEqual(cmake.read_text().replace("  example_node.cpp\n", ""), original_cmake)
 
     def test_bad_cmake_does_not_leave_partial_source(self):
         with tempfile.TemporaryDirectory() as temp:

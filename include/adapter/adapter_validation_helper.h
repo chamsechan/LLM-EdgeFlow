@@ -13,7 +13,7 @@
 namespace llm_edgeflow {
 
 /**
- * @brief 业务适配器通用输入输出批量契约校验工具类 (Layer 1 内部)
+ * @brief 业务适配器通用输入输出批量契约校验工具类 (接入适配层内部)
  *
  * 契约规则与安全解析工具集 (ADP-001, ADP-002, ADP-005, REV2-002, REV2-005)：
  * 1. ValidateBatchPreFlight (执行前严苛预检)：

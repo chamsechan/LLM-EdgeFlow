@@ -54,47 +54,49 @@ doc/rfcs/NNNN-<kebab-case-title>.md
 
 ## 4. RFC 索引
 
-| 编号 | 标题 | 状态 | 目标版本 | 核心涉及层级 | 链接 |
+索引使用当前[职责名称](../architecture.md#1-架构总览)标注范围；历史标题与正文保留决策当时的术语。
+
+| 编号 | 标题 | 状态 | 目标版本 | 涉及职责 | 链接 |
 | :--- | :--- | :---: | :---: | :--- | :--- |
-| **RFC-0001** | 4 层架构隔离与统一分层抽象基线 | `Completed` | `v1.0.0` | Layer 1 ~ Layer 4 | [0001-four-tier-architecture-foundation.md](0001-four-tier-architecture-foundation.md) |
-| **RFC-0002** | C ABI Adapter 契约安全与内存防越界加固 | `Completed` | `v1.1.0` | Layer 1 (C ABI Adapter) | [0002-c-abi-adapter-security-hardening.md](0002-c-abi-adapter-security-hardening.md) |
-| **RFC-0003** | Pipeline 严格解析、Fail-Closed 注册与结构化诊断 | `Completed` | `v1.2.0` | Layer 2 (Pipeline & Blackboard) | [0003-pipeline-dynamic-blackboard-rebaseline.md](0003-pipeline-dynamic-blackboard-rebaseline.md) |
-| **RFC-0004** | 平台 Operator 接口与命名 I/O 兼容层设计 | `Completed` | `v1.3.0` | Layer 1 (Platform Operator) | [0004-platform-operator-interface-compatibility.md](0004-platform-operator-interface-compatibility.md) |
+| **RFC-0001** | 4 层架构隔离与统一分层抽象基线 | `Completed` | `v1.0.0` | 接入适配层、流程编排层、能力节点层、模型执行层 | [0001-four-tier-architecture-foundation.md](0001-four-tier-architecture-foundation.md) |
+| **RFC-0002** | C ABI Adapter 契约安全与内存防越界加固 | `Completed` | `v1.1.0` | 接入适配层 (C ABI Adapter) | [0002-c-abi-adapter-security-hardening.md](0002-c-abi-adapter-security-hardening.md) |
+| **RFC-0003** | Pipeline 严格解析、Fail-Closed 注册与结构化诊断 | `Completed` | `v1.2.0` | 流程编排层 (Pipeline & Blackboard) | [0003-pipeline-dynamic-blackboard-rebaseline.md](0003-pipeline-dynamic-blackboard-rebaseline.md) |
+| **RFC-0004** | 平台 Operator 接口与命名 I/O 兼容层设计 | `Completed` | `v1.3.0` | 接入适配层 (Platform Operator) | [0004-platform-operator-interface-compatibility.md](0004-platform-operator-interface-compatibility.md) |
 | **RFC-0005** | 参数化业务 Demo Runner 与执行配置解耦 | `Completed` | `v1.4.0` | Demo / Integration Tooling | [0005-parameterized-business-demo-runner.md](0005-parameterized-business-demo-runner.md) |
-| **RFC-0006** | 图形化算法方案工作台与 Catalog/Validator 单一事实源 | `Completed` | `v1.5.0` | Layer 1 ~ Layer 4 / Tooling | [0006-visual-pipeline-studio.md](0006-visual-pipeline-studio.md) |
-| **RFC-0007** | 全库 Pipeline 配置文件显式 DAG 标准化与旧式配置维护解耦 | `Completed` | `v1.6.0` | Layer 2 ~ Layer 3 / Tooling | [0007-explicit-dag-standardization-and-legacy-deprecation.md](0007-explicit-dag-standardization-and-legacy-deprecation.md) |
-| **RFC-0008** | 架构契约收敛与文档一致性修复 | `Completed` | `v2.1.0` | Layer 1 ~ Layer 4 / Tooling | [0008-architecture-contract-consolidation.md](0008-architecture-contract-consolidation.md) |
-| **RFC-0009** | 公司平台 C 结构体槽位绑定与输出内存池 | `Completed` | `v3.0.0` | Layer 1 (Platform Operator) / Demo | [0009-company-string-and-slot-map-struct-binding.md](0009-company-string-and-slot-map-struct-binding.md) |
-| **RFC-0010** | 全栈统一业务命名为 biz | `Completed` | `v3.1.0` | Layer 1 ~ Layer 4 / Tooling | [0010-business-to-biz-naming-unification.md](0010-business-to-biz-naming-unification.md) |
-| **RFC-0011** | Operator 与计算 Platform 命名解耦 | `Completed` | `v4.0.0` | Layer 1 (Operator Adapter) / Demo / Layer 4 Terminology | [0011-operator-platform-naming-unification.md](0011-operator-platform-naming-unification.md) |
-| **RFC-0012** | I/O 契约驱动的通用 Node 架构 | `Completed` | `v4.1.0` | Layer 1 ~ Layer 4 / Tooling | [0012-node-authoring-experience.md](0012-node-authoring-experience.md) |
+| **RFC-0006** | 图形化算法方案工作台与 Catalog/Validator 单一事实源 | `Completed` | `v1.5.0` | 接入适配层、流程编排层、能力节点层、模型执行层 / Tooling | [0006-visual-pipeline-studio.md](0006-visual-pipeline-studio.md) |
+| **RFC-0007** | 全库 Pipeline 配置文件显式 DAG 标准化与旧式配置维护解耦 | `Completed` | `v1.6.0` | 流程编排层、能力节点层 / Tooling | [0007-explicit-dag-standardization-and-legacy-deprecation.md](0007-explicit-dag-standardization-and-legacy-deprecation.md) |
+| **RFC-0008** | 架构契约收敛与文档一致性修复 | `Completed` | `v2.1.0` | 接入适配层、流程编排层、能力节点层、模型执行层 / Tooling | [0008-architecture-contract-consolidation.md](0008-architecture-contract-consolidation.md) |
+| **RFC-0009** | 公司平台 C 结构体槽位绑定与输出内存池 | `Completed` | `v3.0.0` | 接入适配层 (Platform Operator) / Demo | [0009-company-string-and-slot-map-struct-binding.md](0009-company-string-and-slot-map-struct-binding.md) |
+| **RFC-0010** | 全栈统一业务命名为 biz | `Completed` | `v3.1.0` | 接入适配层、流程编排层、能力节点层、模型执行层 / Tooling | [0010-business-to-biz-naming-unification.md](0010-business-to-biz-naming-unification.md) |
+| **RFC-0011** | Operator 与计算 Platform 命名解耦 | `Completed` | `v4.0.0` | 接入适配层 (Operator Adapter) / Demo / 模型执行层 Terminology | [0011-operator-platform-naming-unification.md](0011-operator-platform-naming-unification.md) |
+| **RFC-0012** | I/O 契约驱动的通用 Node 架构 | `Completed` | `v4.1.0` | 接入适配层、流程编排层、能力节点层、模型执行层 / Tooling | [0012-node-authoring-experience.md](0012-node-authoring-experience.md) |
 | **RFC-0013** | 开发反馈闭环加速 | `Completed` | `v4.2.0` | Tooling / Test Infrastructure | [0013-developer-feedback-loop-acceleration.md](0013-developer-feedback-loop-acceleration.md) |
-| **RFC-0014** | 独立公共日志 API 与核心日志统一 | `Completed` | `v4.3.0` | Cross-Cutting / Layer 1 ~ Layer 4 | [0014-public-log-api.md](0014-public-log-api.md) |
-| **RFC-0015** | 模型能力与推理运行时解耦实施规范 | `Completed` | `v5.0.0` | Layer 2 ~ Layer 4 | [0015-model-capability-backend-decoupling.md](0015-model-capability-backend-decoupling.md) |
+| **RFC-0014** | 独立公共日志 API 与核心日志统一 | `Completed` | `v4.3.0` | Cross-Cutting / 接入适配层、流程编排层、能力节点层、模型执行层 | [0014-public-log-api.md](0014-public-log-api.md) |
+| **RFC-0015** | 模型能力与推理运行时解耦实施规范 | `Completed` | `v5.0.0` | 流程编排层、能力节点层、模型执行层 | [0015-model-capability-backend-decoupling.md](0015-model-capability-backend-decoupling.md) |
 | **RFC-0016** | 构建与测试工作流收敛 | `Completed` | `v5.1.0` | Tooling / Test Infrastructure | [0016-build-and-test-workflow-convergence.md](0016-build-and-test-workflow-convergence.md) |
 | **RFC-0017** | 开发治理与 Agent 工作流收敛 | `Completed` | `v5.2.0` | Tooling / Governance | [0017-development-governance-convergence.md](0017-development-governance-convergence.md) |
-| **RFC-0018** | 请求黑板与算法句柄并发契约收敛 | `Completed` | `v5.3.0` | Layer 1 ~ Layer 2 | [0018-request-context-and-handle-concurrency-contracts.md](0018-request-context-and-handle-concurrency-contracts.md) |
-| **RFC-0019** | 高优先级分层代码收敛 | `Completed` | `v5.4.0` | Layer 1 ~ Layer 4 / Tooling | [0019-high-priority-layer-convergence.md](0019-high-priority-layer-convergence.md) |
-| **RFC-0020** | Layer 2 运行时一致性与事务化构建收敛 | `Completed` | `v5.5.0` | Layer 2 / Layer 3 Definition | [0020-layer2-runtime-convergence.md](0020-layer2-runtime-convergence.md) |
-| **RFC-0021** | Layer 4 作者体验与执行协议收敛 | `Completed` | `v5.6.0` | Layer 4 | [0021-layer4-authoring-and-protocol-convergence.md](0021-layer4-authoring-and-protocol-convergence.md) |
-| **RFC-0022** | 文本规则与 UTF-8 分块安全收敛 | `Completed` | `v5.7.0` | Layer 3 / Layer 4 Text Support | [0022-text-processing-safety.md](0022-text-processing-safety.md) |
-| **RFC-0023** | v6 运行时契约破坏性收敛 | `Completed` | `v6.0.0` | Layer 1 ~ Layer 3 / Tooling | [0023-v6-contract-convergence.md](0023-v6-contract-convergence.md) |
-| **RFC-0024** | 正式接入前历史兼容契约清理 | `Completed` | `v7.0.0` | Layer 1 ~ Layer 3 / Tooling | [0024-pre-release-contract-cleanup.md](0024-pre-release-contract-cleanup.md) |
-| **RFC-0025** | 部署路径、执行目标与可复现验收契约收敛 | `Completed` | `v8.0.0` | Layer 1 ~ Layer 4 / Tooling | [0025-deployment-runtime-contract-convergence.md](0025-deployment-runtime-contract-convergence.md) |
-| **RFC-0026** | 统一 LLM 文本生成协议与多 Backend 实现 | `Completed` | `v9.0.0` | Layer 3 ~ Layer 4 | [0026-unified-llm-generation-backends.md](0026-unified-llm-generation-backends.md) |
-| **RFC-0027** | 正式接入前源码布局与 C++ 命名空间收敛 | `Completed` | `v10.0.0` | Layer 1 ~ Layer 4 / Tooling | [0027-preproduction-source-layout-and-namespace-convergence.md](0027-preproduction-source-layout-and-namespace-convergence.md) |
-| **RFC-0028** | v10.0.0 预发布运行时与 ABI 收口 | `Completed` | `v10.0.0` | Layer 1 ~ Layer 4 / Tooling | [0028-preproduction-runtime-and-abi-hardening.md](0028-preproduction-runtime-and-abi-hardening.md) |
-| **RFC-0029** | 外网架构收口与内网 SDK 迁移分阶段整改 | `In Implementation` | `v10.x / 待定` | Layer 1 ~ Layer 4 / Tooling | [0029-external-readiness-and-intranet-sdk-migration.md](0029-external-readiness-and-intranet-sdk-migration.md) |
-| **RFC-0030** | 编译期分层边界与轻量运行时计划契约 | `Completed` | `v10.x` | Layer 1 ~ Layer 4 / Build | [0030-compile-time-layer-boundaries.md](0030-compile-time-layer-boundaries.md) |
-| **RFC-0031** | 业务 Blackboard Key 所有权拆分 | `Completed` | `v10.x` | Layer 1 ~ Layer 3 | [0031-business-blackboard-key-ownership.md](0031-business-blackboard-key-ownership.md) |
-| **RFC-0032** | 从 GitHub 发布包直接接入 kiteLLM | `Completed` | `v10.x` | Layer 4 / Build | [0032-kitellm-direct-github-dependency.md](0032-kitellm-direct-github-dependency.md) |
-| **RFC-0033** | 按 kiteLLM 原生接口传递设备选择 | `Completed` | `v10.x` | Layer 4 / Build | [0033-kitellm-native-device-contract.md](0033-kitellm-native-device-contract.md) |
-| **RFC-0034** | Kite 原生能力在现有业务中的完整接入 | `Completed` | `v10.x` | Layer 4 / Config / Build | [0034-kitellm-capability-coverage.md](0034-kitellm-capability-coverage.md) |
-| **RFC-0035** | Kite 生成 token 向量与中性 Embedding 接入 | `Completed` | `v10.x` | Layer 4 / Config / Build | [0035-generated-token-embedding.md](0035-generated-token-embedding.md) |
-| **RFC-0036** | Whisper ASR 与 whisper.cpp Backend 接入设计及实施指南 | `In Implementation` | `v10.x` | Layer 4 / Config / Demo / Build | [0036-whisper-asr-backend.md](0036-whisper-asr-backend.md) |
-| **RFC-0037** | 审计问题的五阶段最小整改 | `Completed` | `v10.x` | Layer 1 ~ Layer 3 / Tooling | [0037-audit-remediation.md](0037-audit-remediation.md) |
-| **RFC-0038** | 自定义 Node 的统一源码扩展目录 | `Completed` | `v10.x` | Layer 3 / Build / Governance | [0038-custom-node-extension-directory.md](0038-custom-node-extension-directory.md) |
-| **RFC-0039** | 自定义节点开发路径与失败契约修复 | `Completed` | `v10.x` | Layer 1 ~ Layer 3 / Tooling / Demo | [0039-custom-node-authoring-closure.md](0039-custom-node-authoring-closure.md) |
+| **RFC-0018** | 请求黑板与算法句柄并发契约收敛 | `Completed` | `v5.3.0` | 接入适配层、流程编排层 | [0018-request-context-and-handle-concurrency-contracts.md](0018-request-context-and-handle-concurrency-contracts.md) |
+| **RFC-0019** | 高优先级分层代码收敛 | `Completed` | `v5.4.0` | 接入适配层、流程编排层、能力节点层、模型执行层 / Tooling | [0019-high-priority-layer-convergence.md](0019-high-priority-layer-convergence.md) |
+| **RFC-0020** | Layer 2 运行时一致性与事务化构建收敛 | `Completed` | `v5.5.0` | 流程编排层 / 能力节点层 Definition | [0020-layer2-runtime-convergence.md](0020-layer2-runtime-convergence.md) |
+| **RFC-0021** | Layer 4 作者体验与执行协议收敛 | `Completed` | `v5.6.0` | 模型执行层 | [0021-layer4-authoring-and-protocol-convergence.md](0021-layer4-authoring-and-protocol-convergence.md) |
+| **RFC-0022** | 文本规则与 UTF-8 分块安全收敛 | `Completed` | `v5.7.0` | 能力节点层 / 模型执行层 Text Support | [0022-text-processing-safety.md](0022-text-processing-safety.md) |
+| **RFC-0023** | v6 运行时契约破坏性收敛 | `Completed` | `v6.0.0` | 接入适配层、流程编排层、能力节点层 / Tooling | [0023-v6-contract-convergence.md](0023-v6-contract-convergence.md) |
+| **RFC-0024** | 正式接入前历史兼容契约清理 | `Completed` | `v7.0.0` | 接入适配层、流程编排层、能力节点层 / Tooling | [0024-pre-release-contract-cleanup.md](0024-pre-release-contract-cleanup.md) |
+| **RFC-0025** | 部署路径、执行目标与可复现验收契约收敛 | `Completed` | `v8.0.0` | 接入适配层、流程编排层、能力节点层、模型执行层 / Tooling | [0025-deployment-runtime-contract-convergence.md](0025-deployment-runtime-contract-convergence.md) |
+| **RFC-0026** | 统一 LLM 文本生成协议与多 Backend 实现 | `Completed` | `v9.0.0` | 能力节点层、模型执行层 | [0026-unified-llm-generation-backends.md](0026-unified-llm-generation-backends.md) |
+| **RFC-0027** | 正式接入前源码布局与 C++ 命名空间收敛 | `Completed` | `v10.0.0` | 接入适配层、流程编排层、能力节点层、模型执行层 / Tooling | [0027-preproduction-source-layout-and-namespace-convergence.md](0027-preproduction-source-layout-and-namespace-convergence.md) |
+| **RFC-0028** | v10.0.0 预发布运行时与 ABI 收口 | `Completed` | `v10.0.0` | 接入适配层、流程编排层、能力节点层、模型执行层 / Tooling | [0028-preproduction-runtime-and-abi-hardening.md](0028-preproduction-runtime-and-abi-hardening.md) |
+| **RFC-0029** | 外网架构收口与内网 SDK 迁移分阶段整改 | `In Implementation` | `v10.x / 待定` | 接入适配层、流程编排层、能力节点层、模型执行层 / Tooling | [0029-external-readiness-and-intranet-sdk-migration.md](0029-external-readiness-and-intranet-sdk-migration.md) |
+| **RFC-0030** | 编译期分层边界与轻量运行时计划契约 | `Completed` | `v10.x` | 接入适配层、流程编排层、能力节点层、模型执行层 / Build | [0030-compile-time-layer-boundaries.md](0030-compile-time-layer-boundaries.md) |
+| **RFC-0031** | 业务 Blackboard Key 所有权拆分 | `Completed` | `v10.x` | 接入适配层、流程编排层、能力节点层 | [0031-business-blackboard-key-ownership.md](0031-business-blackboard-key-ownership.md) |
+| **RFC-0032** | 从 GitHub 发布包直接接入 kiteLLM | `Completed` | `v10.x` | 模型执行层 / Build | [0032-kitellm-direct-github-dependency.md](0032-kitellm-direct-github-dependency.md) |
+| **RFC-0033** | 按 kiteLLM 原生接口传递设备选择 | `Completed` | `v10.x` | 模型执行层 / Build | [0033-kitellm-native-device-contract.md](0033-kitellm-native-device-contract.md) |
+| **RFC-0034** | Kite 原生能力在现有业务中的完整接入 | `Completed` | `v10.x` | 模型执行层 / Config / Build | [0034-kitellm-capability-coverage.md](0034-kitellm-capability-coverage.md) |
+| **RFC-0035** | Kite 生成 token 向量与中性 Embedding 接入 | `Completed` | `v10.x` | 模型执行层 / Config / Build | [0035-generated-token-embedding.md](0035-generated-token-embedding.md) |
+| **RFC-0036** | Whisper ASR 与 whisper.cpp Backend 接入设计及实施指南 | `In Implementation` | `v10.x` | 模型执行层 / Config / Demo / Build | [0036-whisper-asr-backend.md](0036-whisper-asr-backend.md) |
+| **RFC-0037** | 审计问题的五阶段最小整改 | `Completed` | `v10.x` | 接入适配层、流程编排层、能力节点层 / Tooling | [0037-audit-remediation.md](0037-audit-remediation.md) |
+| **RFC-0038** | 自定义 Node 的统一源码扩展目录 | `Completed` | `v10.x` | 能力节点层 / Build / Governance | [0038-custom-node-extension-directory.md](0038-custom-node-extension-directory.md) |
+| **RFC-0039** | 自定义节点开发路径与失败契约修复 | `Completed` | `v10.x` | 接入适配层、流程编排层、能力节点层 / Tooling / Demo | [0039-custom-node-authoring-closure.md](0039-custom-node-authoring-closure.md) |
 
 ---
 

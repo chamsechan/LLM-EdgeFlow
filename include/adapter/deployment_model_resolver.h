@@ -6,7 +6,7 @@
 namespace llm_edgeflow {
 
 /**
- * @brief Resolve deployment model references before entering Layer 2.
+ * @brief Resolve deployment model references before entering Orchestration.
  *
  * A non-empty model_root_dir denotes the directory that directly contains
  * model artifacts and sidecars. Relative model_path values are resolved under

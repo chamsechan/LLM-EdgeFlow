@@ -1,4 +1,4 @@
-# Layer 4: Models and Inference Backends
+# Model Execution
 
 Use this reference for Model semantics/capabilities, a new Backend or neutral execution protocol,
 vendor runtime integration, or batch scheduling behavior.

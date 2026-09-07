@@ -128,7 +128,7 @@ prefix/suffix、last/mean 池化和请求级 L2 归一化。Backend 负责 greed
 池化方式或生成上限会改变向量空间，已有索引需要重建，检索阈值与质量需要重新评估。
 
 现有 BGE ONNX 模型仍要求 `tensor_graph`，不能仅把 backend 名改为 Kite。后续如果
-Kite 提供 encoder/prefill 向量能力，应在 Layer 4 增加符合实际输出语义的协议/Model，
+Kite 提供 encoder/prefill 向量能力，应在模型执行层增加符合实际输出语义的协议/Model，
 保持 Node、Pipeline 和 Operator 使用能力接口。见 [RFC-0035](rfcs/0035-generated-token-embedding.md)。
 
 ### 图像文档识别

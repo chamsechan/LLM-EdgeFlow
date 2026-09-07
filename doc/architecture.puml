@@ -39,9 +39,9 @@ skinparam arrow {
 }
 
 ' ==============================================================================
-' Layer 1: C ABI 适配层与平台门面
+' Integration
 ' ==============================================================================
-package "Layer 1: 双门面与 C ABI 安全适配层 (Dual Facades & C Adapter)" as L1 {
+package "接入适配层（Integration）" as Integration {
   class "Company C ABI Exports" as C_ABI <<(C,#0284C7) API Export>> {
     + Alg_Init(): int noexcept
     + Alg_Create(void** hndl, const CompanyAlgParamCreate*): int noexcept
@@ -100,9 +100,9 @@ package "Layer 1: 双门面与 C ABI 安全适配层 (Dual Facades & C Adapter)"
 }
 
 ' ==============================================================================
-' Layer 2: 框架调度与黑板层
+' Orchestration
 ' ==============================================================================
-package "Layer 2: 核心编排与动态黑板层 (Pipeline & Blackboard)" as L2 {
+package "流程编排层（Orchestration）" as Orchestration {
   class Pipeline {
     - nodes_: std::vector<std::unique_ptr<INode>>
     - session_context_: SessionContext
@@ -160,9 +160,9 @@ package "Layer 2: 核心编排与动态黑板层 (Pipeline & Blackboard)" as L2 
 }
 
 ' ==============================================================================
-' Layer 3: 通用能力节点
+' Capability Nodes
 ' ==============================================================================
-package "Layer 3: 通用能力节点 (Stateless Capability Nodes)" as L3 {
+package "能力节点层（Capability Nodes）" as CapabilityNodes {
   interface INode {
     + {abstract} Init(init_ctx: const NodeInitContext&): bool
     + {abstract} Process(req_ctx: AlgContext*): int
@@ -198,9 +198,9 @@ package "Layer 3: 通用能力节点 (Stateless Capability Nodes)" as L3 {
 }
 
 ' ==============================================================================
-' Layer 4: 模型语义与推理 Backend 层
+' Model Execution
 ' ==============================================================================
-package "Layer 4: 模型语义与推理 Backend 层 (Model & Backend)" as L4 {
+package "模型执行层（Model Execution）" as ModelExecution {
   interface IModel {
     + {abstract} ModelType(): const string&
     + {abstract} Capability(): const string&
@@ -361,7 +361,7 @@ QwenCausalLmModel ..> FixedBatchExecutor : 批次切分与溯源
 FixedBatchExecutor ..> TraceableItem : 样本切块/补齐/剥离/溯源
 
 WebStudio ..> PipelineTool : 交互式编排调用
-Tools ..> L1 : 驱动 Demo 与 Operator API
-Tools ..> L2 : 静态校验与拓扑规划
+Tools ..> Integration : 驱动 Demo 与 Operator API
+Tools ..> Orchestration : 静态校验与拓扑规划
 
 @enduml

@@ -126,7 +126,7 @@ if [[ "${1:-}" == "--self-test" ]]; then
     STATUS_CUSTOM_GUARD=$?
     set -e
     if [ $STATUS_CUSTOM_GUARD -eq 0 ] || \
-       ! grep -q "Layer 3 -> Layer 1" <<<"${CUSTOM_GUARD_OUTPUT}"; then
+       ! grep -q "Capability Nodes -> Integration" <<<"${CUSTOM_GUARD_OUTPUT}"; then
       echo "❌ [LayerGuard Self-Test FAIL] Custom Node platform dependency was not detected: ${CUSTOM_INCLUDE}"
       exit 1
     fi
@@ -169,7 +169,7 @@ if [[ "${1:-}" == "--self-test" ]]; then
     cp "${REPO_ROOT}/src/${CUSTOM_FIXTURE_LAYER}/CMakeLists.txt" \
       "${TMP_TEST_DIR}/violation_repo/src/${CUSTOM_FIXTURE_LAYER}/CMakeLists.txt"
   done
-  echo 'target_sources(edgeflow_layer2_core_objects PRIVATE misplaced.cpp)' > \
+  echo 'target_sources(edgeflow_orchestration_objects PRIVATE misplaced.cpp)' > \
     "${TMP_TEST_DIR}/violation_repo/src/custom_nodes/CMakeLists.txt"
   set +e
   CUSTOM_GUARD_OUTPUT=$(REPO_ROOT="${TMP_TEST_DIR}/violation_repo" \
@@ -187,10 +187,10 @@ if [[ "${1:-}" == "--self-test" ]]; then
 fi
 
 echo "======================================================================"
-echo " [LayerGuard] Checking 4-Tier Architectural Isolation Directives..."
+echo " [LayerGuard] Checking Integration / Orchestration / Capability Nodes / Model Execution Boundaries..."
 echo "======================================================================"
 
-# Rule 1: All Layer 3 Nodes must keep platform structs and conversion in Layer 1.
+# Rule 1: All capability nodes must keep platform structs and conversion in Integration.
 NODE_SOURCE_PATHS=("$REPO_ROOT/src/common_nodes" "$REPO_ROOT/src/custom_nodes")
 for NODE_SOURCE_PATH in "${NODE_SOURCE_PATHS[@]}"; do
   if [ ! -d "$NODE_SOURCE_PATH" ]; then
@@ -198,28 +198,28 @@ for NODE_SOURCE_PATH in "${NODE_SOURCE_PATHS[@]}"; do
     exit 1
   fi
 done
-VIOLATIONS_L3_L1=$(grep -rnE \
+VIOLATIONS_NODES_INTEGRATION=$(grep -rnE \
   '^[[:space:]]*#[[:space:]]*include[[:space:]]*["<]([^">]*/)?(company_alg_interface\.h[">]|(adapter|operator)/)' \
   "${NODE_SOURCE_PATHS[@]}" || true)
 
-if [ -n "$VIOLATIONS_L3_L1" ]; then
-  echo "❌ [LayerGuard ERROR] Found Layer 3 -> Layer 1 reverse dependency violations:"
-  echo "$VIOLATIONS_L3_L1"
-  echo "Directive: All Layer 3 nodes must communicate via internal values and AlgContext."
+if [ -n "$VIOLATIONS_NODES_INTEGRATION" ]; then
+  echo "❌ [LayerGuard ERROR] Found Capability Nodes -> Integration reverse dependency violations:"
+  echo "$VIOLATIONS_NODES_INTEGRATION"
+  echo "Directive: All capability nodes must communicate via internal values and AlgContext."
   exit 1
 fi
-echo "✅ [LayerGuard PASS] Zero Layer 3 -> Layer 1 reverse include violations."
+echo "✅ [LayerGuard PASS] Zero Capability Nodes -> Integration reverse include violations."
 
-# Rule 2: Layer 1 Adapters (src/adapter/adapters/) MUST NEVER directly include Layer 4 Engine headers
-VIOLATIONS_L1_L4=$(grep -rnE '#include\s*["<](engine/|src/engine/)' "$REPO_ROOT/src/adapter/adapters" || true)
+# Rule 2: Integration Adapters (src/adapter/adapters/) MUST NEVER directly include Model Execution Engine headers
+VIOLATIONS_INTEGRATION_EXECUTION=$(grep -rnE '#include\s*["<](engine/|src/engine/)' "$REPO_ROOT/src/adapter/adapters" || true)
 
-if [ -n "$VIOLATIONS_L1_L4" ]; then
-  echo "❌ [LayerGuard ERROR] Found Layer 1 -> Layer 4 illegal bypass dependency violations:"
-  echo "$VIOLATIONS_L1_L4"
-  echo "Directive: Layer 1 adapters must only convert C structs to/from biz DTOs, not bypass Layer 3."
+if [ -n "$VIOLATIONS_INTEGRATION_EXECUTION" ]; then
+  echo "❌ [LayerGuard ERROR] Found Integration -> Model Execution illegal bypass dependency violations:"
+  echo "$VIOLATIONS_INTEGRATION_EXECUTION"
+  echo "Directive: Integration adapters must only convert C structs to/from biz DTOs, not bypass Capability Nodes."
   exit 1
 fi
-echo "✅ [LayerGuard PASS] Zero Layer 1 -> Layer 4 illegal engine include violations."
+echo "✅ [LayerGuard PASS] Zero Integration -> Model Execution illegal engine include violations."
 
 # Rule 3: Common Nodes (src/common_nodes/) MUST NEVER depend on biz-specific nodes
 VIOLATIONS_COMMON_BIZ=$(grep -rnE '#include\s*["<](biz/|src/biz/|business/|src/business/)' "$REPO_ROOT/src/common_nodes" || true)
@@ -244,7 +244,7 @@ if [ -n "$VIOLATIONS_CUSTOM_DEPENDENCY" ]; then
 fi
 echo "✅ [LayerGuard PASS] Framework code does not depend on custom Node implementations."
 
-# Rule 4: Layer 1 owns business-facing Blackboard key names. Layers 2-4 may
+# Rule 4: Integration owns business-facing Blackboard key names. Orchestration, Capability Nodes and Model Execution may
 # depend only on neutral value contracts and resolved logical port bindings.
 LOWER_LAYER_PATHS=(
   "$REPO_ROOT/include/core" "$REPO_ROOT/src/core"
@@ -255,11 +255,11 @@ VIOLATIONS_BIZ_KEYS=$(grep -rnE \
   '#include\s*["<]adapter/biz_blackboard_keys\.h[">]' \
   "${LOWER_LAYER_PATHS[@]}" 2>/dev/null || true)
 if [ -n "$VIOLATIONS_BIZ_KEYS" ]; then
-  echo "❌ [LayerGuard ERROR] Found lower-layer dependency on Layer 1 business Blackboard key ownership:"
+  echo "❌ [LayerGuard ERROR] Found lower-layer dependency on Integration business Blackboard key ownership:"
   echo "$VIOLATIONS_BIZ_KEYS"
   exit 1
 fi
-echo "✅ [LayerGuard PASS] Business Blackboard keys remain owned by Layer 1."
+echo "✅ [LayerGuard PASS] Business Blackboard keys remain owned by Integration."
 
 # Rule 4b: The direct Kite SDK belongs only to its concrete Backend. Check
 # before build-specific guards so the isolation self-test needs no SDK/build.
@@ -300,7 +300,7 @@ fi
 echo "✅ [LayerGuard PASS] TraceableItem uses the neutral contracts include path."
 
 # Rule 6: Node support consumes the extracted validated-node plan, not the full
-# Layer 2 validator implementation contract.
+# Orchestration validator implementation contract.
 NODE_SUPPORT_HEADER="$REPO_ROOT/include/nodes/node_support.h"
 if [ ! -f "$NODE_SUPPORT_HEADER" ] || \
    ! grep -q 'core/validated_node_plan.h' "$NODE_SUPPORT_HEADER" || \
@@ -313,11 +313,11 @@ echo "✅ [LayerGuard PASS] Node support is decoupled from PipelineValidator."
 # Rule 7: Source ownership in CMake must preserve the four compile-time layers
 # and the explicit composition root.
 for OWNERSHIP in \
-  "src/engine/CMakeLists.txt:edgeflow_layer4_engine_objects" \
-  "src/common_nodes/CMakeLists.txt:edgeflow_layer3_node_objects" \
-  "src/custom_nodes/CMakeLists.txt:edgeflow_layer3_node_objects" \
-  "src/core/CMakeLists.txt:edgeflow_layer2_core_objects" \
-  "src/adapter/CMakeLists.txt:edgeflow_layer1_adapter_objects"; do
+  "src/engine/CMakeLists.txt:edgeflow_model_execution_objects" \
+  "src/common_nodes/CMakeLists.txt:edgeflow_capability_nodes_objects" \
+  "src/custom_nodes/CMakeLists.txt:edgeflow_capability_nodes_objects" \
+  "src/core/CMakeLists.txt:edgeflow_orchestration_objects" \
+  "src/adapter/CMakeLists.txt:edgeflow_integration_objects"; do
   OWNERSHIP_FILE="${OWNERSHIP%%:*}"
   OWNERSHIP_TARGET="${OWNERSHIP#*:}"
   if [ ! -f "$REPO_ROOT/$OWNERSHIP_FILE" ] || \

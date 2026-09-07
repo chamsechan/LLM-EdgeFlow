@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-09-07 架构职责命名统一
+
+- 统一使用接入适配层（Integration）、流程编排层（Orchestration）、能力节点层（Capability Nodes）、模型执行层（Model Execution），同步架构图、开发指南和 Agent 路由。
+- 内部 CMake 对象与依赖目标改用职责名称；自定义节点脚手架和分层检查同步更新。SDK 产物、公共接口、配置格式和运行行为保持不变。
+- 开发 skill 参考文件改为 `integration.md`、`orchestration.md`、`capability-nodes.md`、`model-execution.md`，历史 RFC 和验收记录保留原始名称。
+
 ## 2026-09-06 自定义 Node 渐进式入门
 
 - 新增[动手练习](dev_guide/first_custom_node.md)与[五个概念说明](dev_guide/custom_node_concepts.md)，从一次真实运行解释端口、来源编号、模型绑定、Definition 与并发声明。

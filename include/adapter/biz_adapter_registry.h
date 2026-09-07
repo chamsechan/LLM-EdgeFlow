@@ -12,7 +12,7 @@
 namespace llm_edgeflow {
 
 /**
- * @brief 业务适配器全局注册中心 (Layer 1 内部)
+ * @brief 业务适配器全局注册中心 (接入适配层内部)
  */
 class BizAdapterRegistry {
  public:

@@ -34,7 +34,7 @@ bool InferBatchPolicy(const std::vector<TensorSpec>& inputs,
  * @brief 基于 Microsoft ONNX Runtime 的 TensorGraph 执行协议推理后端
  *
  * 架构隔离性：
- * - 实现 Layer 4 的 IInferenceBackend 与 ITensorGraphSession 纯虚接口；
+ * - 实现模型执行层的 IInferenceBackend 与 ITensorGraphSession 纯虚接口；
  * - 仅在 onnxruntime_backend.cpp 内部使用 onnxruntime_cxx_api.h；
  * - 上层 Model、Node、Pipeline 完全通过中性 TensorMap 交互。
  */

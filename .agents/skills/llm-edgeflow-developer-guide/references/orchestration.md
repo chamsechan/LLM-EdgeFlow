@@ -1,4 +1,4 @@
-# Layer 2: Pipeline, Validator, and Blackboard
+# Orchestration
 
 Use this reference only for Core scheduling, lifecycle, validation, typed Blackboard contracts, or session resources. Configuration-only workflows belong to `pipeline-composer` and must not modify Core.
 

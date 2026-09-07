@@ -12,7 +12,7 @@
 namespace llm_edgeflow {
 
 /**
- * @brief 纯 C ABI 与 C++ 平台 Operator 门面共享的内部算法运行时句柄 (Layer 1
+ * @brief 纯 C ABI 与 C++ 平台 Operator 门面共享的内部算法运行时句柄 (接入适配层
  * 内部)
  */
 class SharedAlgorithmRuntime {
