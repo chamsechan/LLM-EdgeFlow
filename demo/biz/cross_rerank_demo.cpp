@@ -132,6 +132,6 @@ int RunCrossRerankDemo(const DemoOptions& options) {
 }
 
 REGISTER_DEMO_BIZ("cross_rerank", "【业务 7 演示】纯语义精排打分业务",
-                  RunCrossRerankDemo);
+                  RunCrossRerankDemo, ALG_BIZ_TYPE_CROSS_RERANK);
 
 }  // namespace alg_demo

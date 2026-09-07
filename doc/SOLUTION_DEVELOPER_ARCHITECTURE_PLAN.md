@@ -60,10 +60,10 @@ Node；tokenizer、模型输入输出语义、张量与推理资源归 Model/Bac
 | 进一步压缩编写步骤的模板与辅助接口 | 待评估 | 先用真实样例识别重复代码，避免凭想象增加抽象 |
 | 真实业务效果与目标环境验收 | 按方案补齐 | 代码回归成功不等于业务效果、性能与部署验收完成 |
 
-一个具体的 Demo 接入缺口是：虽然已有 `DemoRegistry`，
-[operator_runner.h](../demo/common/operator_runner.h) 的 `DemoBizToBizType` 仍通过中央
-名称分支映射业务枚举。全新业务并未完全做到“只新增注册”。后续应把这个绑定放到
-合适的 Demo 描述符或复用已有权威元数据，避免再维护一份中央业务清单。
+在 Demo 接入方面：`DemoRegistry` 与 `DemoDescriptor` 已经支持携带 `biz_type`，
+[operator_runner.h](../demo/common/operator_runner.h) 的 `DemoBizToBizType` 优先通过
+`DemoRegistry` 自注册元数据解析业务类型枚举，消除了对中央名称分支的硬编码依赖，
+使全新业务在 Demo 层真正实现“只新增注册”。
 
 依据：[Studio](../tools/pipeline_studio/README.md)、
 [Node 支持接口](../include/nodes/node_support.h)、

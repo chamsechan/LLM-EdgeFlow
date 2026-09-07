@@ -158,6 +158,6 @@ int RunAudioAsrDemo(const DemoOptions& options) {
 }
 
 REGISTER_DEMO_BIZ("audio_asr", "【业务 6 演示】语音识别与意图槽位抽取",
-                  RunAudioAsrDemo);
+                  RunAudioAsrDemo, ALG_BIZ_TYPE_AUDIO_ASR_INTENT);
 
 }  // namespace alg_demo

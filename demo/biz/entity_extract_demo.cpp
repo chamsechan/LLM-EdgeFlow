@@ -115,6 +115,6 @@ int RunEntityExtractDemo(const DemoOptions& options) {
 }
 
 REGISTER_DEMO_BIZ("entity_extract", "【业务 1 演示】实体/名词提取业务",
-                  RunEntityExtractDemo);
+                  RunEntityExtractDemo, ALG_BIZ_TYPE_ENTITY_EXTRACT);
 
 }  // namespace alg_demo

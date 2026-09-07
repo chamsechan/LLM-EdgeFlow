@@ -485,14 +485,41 @@ TEST(DemoRunnerTest, ProfileSchemaStrictValidation) {
 TEST(DemoRunnerTest, RegistryLookupAndConflictDetection) {
   auto& reg = DemoRegistry::Instance();
 
-  // 验证 7 大业务均已静态注册
-  EXPECT_NE(reg.Find("entity_extract"), nullptr);
-  EXPECT_NE(reg.Find("keyword_match"), nullptr);
-  EXPECT_NE(reg.Find("doc_qa"), nullptr);
-  EXPECT_NE(reg.Find("dialogue_audit"), nullptr);
-  EXPECT_NE(reg.Find("ocr_doc_qa"), nullptr);
-  EXPECT_NE(reg.Find("audio_asr"), nullptr);
-  EXPECT_NE(reg.Find("cross_rerank"), nullptr);
+  // 验证 7 大业务均已静态注册且包含权威的 CompanyAlgBizType
+  const auto* desc_entity = reg.Find("entity_extract");
+  ASSERT_NE(desc_entity, nullptr);
+  EXPECT_EQ(desc_entity->biz_type, ALG_BIZ_TYPE_ENTITY_EXTRACT);
+  EXPECT_EQ(DemoBizToBizType("entity_extract"), ALG_BIZ_TYPE_ENTITY_EXTRACT);
+
+  const auto* desc_keyword = reg.Find("keyword_match");
+  ASSERT_NE(desc_keyword, nullptr);
+  EXPECT_EQ(desc_keyword->biz_type, ALG_BIZ_TYPE_KEYWORD_MATCH);
+  EXPECT_EQ(DemoBizToBizType("keyword_match"), ALG_BIZ_TYPE_KEYWORD_MATCH);
+
+  const auto* desc_doc_qa = reg.Find("doc_qa");
+  ASSERT_NE(desc_doc_qa, nullptr);
+  EXPECT_EQ(desc_doc_qa->biz_type, ALG_BIZ_TYPE_DOC_QA);
+  EXPECT_EQ(DemoBizToBizType("doc_qa"), ALG_BIZ_TYPE_DOC_QA);
+
+  const auto* desc_audit = reg.Find("dialogue_audit");
+  ASSERT_NE(desc_audit, nullptr);
+  EXPECT_EQ(desc_audit->biz_type, ALG_BIZ_TYPE_COMPLIANCE_AUDIT);
+  EXPECT_EQ(DemoBizToBizType("dialogue_audit"), ALG_BIZ_TYPE_COMPLIANCE_AUDIT);
+
+  const auto* desc_ocr = reg.Find("ocr_doc_qa");
+  ASSERT_NE(desc_ocr, nullptr);
+  EXPECT_EQ(desc_ocr->biz_type, ALG_BIZ_TYPE_OCR_DOC_QA);
+  EXPECT_EQ(DemoBizToBizType("ocr_doc_qa"), ALG_BIZ_TYPE_OCR_DOC_QA);
+
+  const auto* desc_asr = reg.Find("audio_asr");
+  ASSERT_NE(desc_asr, nullptr);
+  EXPECT_EQ(desc_asr->biz_type, ALG_BIZ_TYPE_AUDIO_ASR_INTENT);
+  EXPECT_EQ(DemoBizToBizType("audio_asr"), ALG_BIZ_TYPE_AUDIO_ASR_INTENT);
+
+  const auto* desc_rerank = reg.Find("cross_rerank");
+  ASSERT_NE(desc_rerank, nullptr);
+  EXPECT_EQ(desc_rerank->biz_type, ALG_BIZ_TYPE_CROSS_RERANK);
+  EXPECT_EQ(DemoBizToBizType("cross_rerank"), ALG_BIZ_TYPE_CROSS_RERANK);
 
   // 尝试重复注册已存在的业务名 -> 应该失败
   bool ok = reg.Register(
