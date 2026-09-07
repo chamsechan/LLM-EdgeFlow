@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-09-06 自定义节点开发路径修复（RFC-0039）
+
+- 修复脚手架的 C++ 接口、端口数量关系解析、模型签名和注册测试片段；生成代码进入既有 Node runner 的编译和执行，默认保守声明并发能力。
+- PromptGuidedLlmNode 只替换原始模板，校验 context 连接与 stop_words；模型失败、数量或来源异常时不发布输出。删除并拒绝 `fallback_text`，模板字面花括号使用 `{{` / `}}`，上下文通过 `{context}` 显式插入。
+- 新增实体抽取、文档问答两个 custom smoke Profile，复用同一节点与现有 Adapter，验证统一 Demo 输出内容及请求编号。
+- Demo 类型绑定完全由必填注册描述符提供，删除中央业务名兜底；明确新平台结构仍需 Layer 1 转换。
+- 更新[作者指南](../src/custom_nodes/README.md)和[实施规划](SOLUTION_DEVELOPER_ARCHITECTURE_PLAN.md)，区分工程路径、开发者试用与生产验收。
+
 ## 2026-09-06 方案开发者自定义 Node 脚手架与研发支持
 
 - 新增 `scripts/scaffold_custom_node.py` 脚手架工具，支持一键生成 compute、model 及 unary_inference 三类合规自定义节点源码框架。

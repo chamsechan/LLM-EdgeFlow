@@ -3,6 +3,7 @@
 #include <limits>
 #include <string>
 #include <string_view>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -19,22 +20,109 @@
 namespace llm_edgeflow {
 namespace custom_nodes {
 
-namespace error {
-inline constexpr int kMissingInput = -8001;
-inline constexpr int kModelInferenceFailed = -8002;
-inline constexpr int kOutputProvenanceMismatch = -8003;
-}  // namespace error
+namespace {
+constexpr int kMissingInput = -8001;
+constexpr int kModelInferenceFailed = -8002;
+constexpr int kOutputProvenanceMismatch = -8003;
 
-/**
- * @brief 方案开发者自定义节点样例：整合提示词构建、LLM推理与后处理清洗
- *
- * 满足 S1 阶段诉求：
- * 1. 绑定单一已注册模型能力 (ILlmModel, capability="llm")
- * 2. 在 ProcessNode
- * 内自包含完成前处理(Prompt模板替换)、模型调用与后处理(Markdown过滤/Fallback)
- * 3. 通过类型化端口输入输出，保留 (req_id, sub_id)
- * 溯源，线程安全且可被多方案复用
- */
+struct PromptPart {
+  enum Kind { kLiteral, kInput, kContext } kind;
+  std::string text;
+};
+
+// Parse only the original template. Request values are always opaque text.
+bool ParsePromptConfig(const nlohmann::json& config,
+                       std::vector<PromptPart>* parts, GenerateOptions* options,
+                       bool* uses_context, std::string* error) {
+  auto reject = [&](const std::string& message) {
+    if (error) *error = message;
+    return false;
+  };
+  try {
+    if (config.contains("fallback_text")) {
+      return reject(
+          "fallback_text is unsupported: model failures must remain failures");
+    }
+    parts->clear();
+    *uses_context = false;
+    const std::string pattern = config.value("prompt_template", "{input}");
+    if (pattern.empty()) return reject("prompt_template must not be empty");
+    std::string literal;
+    for (size_t i = 0; i < pattern.size();) {
+      const char c = pattern[i];
+      if ((c == '{' || c == '}') && i + 1 < pattern.size() &&
+          pattern[i + 1] == c) {
+        literal += c;
+        i += 2;
+      } else if (c == '{') {
+        const auto end = pattern.find('}', i + 1);
+        if (end == std::string::npos)
+          return reject("Unclosed prompt placeholder");
+        const auto token = pattern.substr(i, end - i + 1);
+        if (token != "{input}" && token != "{context}") {
+          return reject("Unknown prompt placeholder: " + token);
+        }
+        parts->push_back({PromptPart::kLiteral, std::move(literal)});
+        literal.clear();
+        parts->push_back(
+            {token == "{input}" ? PromptPart::kInput : PromptPart::kContext,
+             {}});
+        *uses_context |= token == "{context}";
+        i = end + 1;
+      } else if (c == '}') {
+        return reject(
+            "Literal braces in prompt_template must be escaped as {{ or }}");
+      } else {
+        literal += c;
+        ++i;
+      }
+    }
+    parts->push_back({PromptPart::kLiteral, std::move(literal)});
+    // Keep direct Node initialization as strict as native plan initialization.
+    for (const char* field : {"max_tokens", "top_k"}) {
+      if (config.contains(field) &&
+          (!config[field].is_number_integer() ||
+           config[field].get<double>() < 0 ||
+           config[field].get<double>() > std::numeric_limits<int32_t>::max())) {
+        return reject(std::string(field) + " must be a non-negative int32");
+      }
+    }
+    *options = GenerateOptions{};
+    options->temperature = config.value("temperature", 0.7f);
+    options->max_tokens = config.value("max_tokens", 512);
+    options->top_k = config.value("top_k", 0);
+    options->top_p = config.value("top_p", 0.9f);
+    options->repetition_penalty = config.value("repetition_penalty", 1.0f);
+    if (options->max_tokens <= 0 || options->max_tokens > 32768 ||
+        !std::isfinite(options->temperature) || options->temperature < 0 ||
+        options->temperature > 2 || !std::isfinite(options->top_p) ||
+        options->top_p < 1.0e-9f || options->top_p > 1 ||
+        !std::isfinite(options->repetition_penalty) ||
+        options->repetition_penalty < 1.0e-9f ||
+        options->repetition_penalty > 100) {
+      return reject("Generation options outside supported range");
+    }
+    if (config.contains("stop_words")) {
+      if (!config["stop_words"].is_array())
+        return reject("stop_words must be an array");
+      for (const auto& word : config["stop_words"]) {
+        if (!word.is_string() || word.get_ref<const std::string&>().empty()) {
+          return reject("stop_words must contain non-empty strings");
+        }
+        options->stop_words.push_back(word.get<std::string>());
+      }
+    }
+    (void)config.value("system_prompt", std::string{});
+    (void)config.value("strip_markdown", false);
+    return true;
+  } catch (const std::exception& e) {
+    return reject(e.what());
+  }
+}
+}  // namespace
+
+// Authoring example: local prompt processing, typed model call and response
+// cleanup.
 class PromptGuidedLlmNode final : public ModelBoundNode<ILlmModel> {
  public:
   inline static constexpr char kNodeType[] = "PromptGuidedLlmNode";
@@ -54,46 +142,34 @@ class PromptGuidedLlmNode final : public ModelBoundNode<ILlmModel> {
     BindPort(init_ctx, context_port_);
     BindPort(init_ctx, out_port_);
 
-    prompt_template_ = config.value("prompt_template", "{input}");
-    system_prompt_ = config.value("system_prompt", "");
-    fallback_text_ = config.value("fallback_text", "");
-    strip_markdown_ = config.value("strip_markdown", false);
-
-    gen_opt_.temperature = config.value("temperature", 0.7f);
-    gen_opt_.max_tokens = config.value("max_tokens", 512);
-    gen_opt_.top_k = config.value("top_k", 0);
-    gen_opt_.top_p = config.value("top_p", 0.9f);
-    gen_opt_.repetition_penalty = config.value("repetition_penalty", 1.0f);
-
-    if (gen_opt_.max_tokens <= 0 || !std::isfinite(gen_opt_.temperature) ||
-        gen_opt_.temperature < 0.0f || gen_opt_.temperature > 2.0f ||
-        gen_opt_.top_k < 0 || !std::isfinite(gen_opt_.top_p) ||
-        gen_opt_.top_p <= 0.0f || gen_opt_.top_p > 1.0f ||
-        !std::isfinite(gen_opt_.repetition_penalty) ||
-        gen_opt_.repetition_penalty <= 0.0f ||
-        gen_opt_.repetition_penalty > 100.0f) {
+    std::string error;
+    if (!ParsePromptConfig(config, &prompt_parts_, &gen_opt_, &uses_context_,
+                           &error)) {
+      ALG_LOG_ERROR("[PromptGuidedLlmNode] %s\n", error.c_str());
       return false;
     }
-
-    if (config.contains("stop_words") && config["stop_words"].is_array()) {
-      for (const auto& w : config["stop_words"]) {
-        if (w.is_string() && !w.get<std::string>().empty()) {
-          gen_opt_.stop_words.push_back(w.get<std::string>());
-        }
-      }
-    }
+    if (uses_context_ && init_ctx.plan && !context_port_.IsBound())
+      return false;
+    system_prompt_ = config.value("system_prompt", "");
+    strip_markdown_ = config.value("strip_markdown", false);
     return true;
   }
 
   int ProcessNode(AlgContext& req_ctx) override {
-    const auto* inputs =
-        in_port_.Require(req_ctx, error::kMissingInput, "input text");
+    const auto* inputs = in_port_.Require(req_ctx, kMissingInput, "input text");
     if (!inputs) {
-      return error::kMissingInput;
+      return kMissingInput;
     }
 
-    // 可选上下文港口
-    const auto* contexts = context_port_.Get(req_ctx);
+    if (inputs->empty()) {
+      out_port_.Set(req_ctx, TextBatch{});
+      return 0;
+    }
+    const auto* contexts =
+        uses_context_
+            ? context_port_.Require(req_ctx, kMissingInput, "prompt context")
+            : nullptr;
+    if (uses_context_ && !contexts) return kMissingInput;
 
     // 组装模型输入批次，严格保留来源 (req_id, sub_id)
     TextBatch prompts;
@@ -118,36 +194,18 @@ class PromptGuidedLlmNode final : public ModelBoundNode<ILlmModel> {
     TextBatch raw_outputs;
     int infer_ret = model()->Generate(prompts, gen_opt_, &raw_outputs);
     if (infer_ret != 0) {
-      if (!fallback_text_.empty()) {
-        TextBatch fallback_outputs;
-        fallback_outputs.reserve(prompts.size());
-        for (const auto& p : prompts) {
-          fallback_outputs.emplace_back(p.req_id, p.sub_id, fallback_text_);
-        }
-        out_port_.Set(req_ctx, std::move(fallback_outputs));
-        return 0;
-      }
-      req_ctx.SetError(error::kModelInferenceFailed,
+      req_ctx.SetError(kModelInferenceFailed,
                        Name() + ": model inference failed with code " +
                            std::to_string(infer_ret));
-      return error::kModelInferenceFailed;
+      return kModelInferenceFailed;
     }
 
     if (raw_outputs.size() != prompts.size()) {
-      if (!fallback_text_.empty()) {
-        TextBatch fallback_outputs;
-        fallback_outputs.reserve(prompts.size());
-        for (const auto& p : prompts) {
-          fallback_outputs.emplace_back(p.req_id, p.sub_id, fallback_text_);
-        }
-        out_port_.Set(req_ctx, std::move(fallback_outputs));
-        return 0;
-      }
-      req_ctx.SetError(error::kOutputProvenanceMismatch,
+      req_ctx.SetError(kOutputProvenanceMismatch,
                        Name() + ": model output count mismatch (expected " +
                            std::to_string(prompts.size()) + ", got " +
                            std::to_string(raw_outputs.size()) + ")");
-      return error::kOutputProvenanceMismatch;
+      return kOutputProvenanceMismatch;
     }
 
     TextBatch final_outputs;
@@ -156,11 +214,11 @@ class PromptGuidedLlmNode final : public ModelBoundNode<ILlmModel> {
       const auto& p = prompts[i];
       const auto& r = raw_outputs[i];
       if (r.req_id != p.req_id || r.sub_id != p.sub_id) {
-        req_ctx.SetError(error::kOutputProvenanceMismatch,
+        req_ctx.SetError(kOutputProvenanceMismatch,
                          Name() +
                              ": model output provenance mismatch for item " +
                              std::to_string(i));
-        return error::kOutputProvenanceMismatch;
+        return kOutputProvenanceMismatch;
       }
 
       std::string out_str = r.data;
@@ -181,28 +239,20 @@ class PromptGuidedLlmNode final : public ModelBoundNode<ILlmModel> {
     if (!system_prompt_.empty()) {
       result += system_prompt_ + "\n";
     }
-    if (prompt_template_ == "{input}" || prompt_template_.empty()) {
-      result += input;
-      if (!context.empty()) {
-        result += "\n" + context;
+    for (const auto& part : prompt_parts_) {
+      switch (part.kind) {
+        case PromptPart::kInput:
+          result += input;
+          break;
+        case PromptPart::kContext:
+          result += context;
+          break;
+        case PromptPart::kLiteral:
+          result += part.text;
+          break;
       }
-      return result;
     }
-    std::string body = prompt_template_;
-    ReplaceAll(body, "{input}", input);
-    ReplaceAll(body, "{context}", context);
-    result += body;
     return result;
-  }
-
-  static void ReplaceAll(std::string& str, std::string_view from,
-                         std::string_view to) {
-    if (from.empty()) return;
-    size_t pos = 0;
-    while ((pos = str.find(from, pos)) != std::string::npos) {
-      str.replace(pos, from.length(), to);
-      pos += to.length();
-    }
   }
 
   static bool StartsWith(std::string_view str, std::string_view prefix) {
@@ -242,9 +292,9 @@ class PromptGuidedLlmNode final : public ModelBoundNode<ILlmModel> {
   BoundInput<TextBatch> context_port_;
   BoundOutput<TextBatch> out_port_;
 
-  std::string prompt_template_;
+  std::vector<PromptPart> prompt_parts_;
+  bool uses_context_ = false;
   std::string system_prompt_;
-  std::string fallback_text_;
   bool strip_markdown_ = false;
   GenerateOptions gen_opt_;
 };
@@ -286,10 +336,23 @@ NodeDefinition MakePromptGuidedLlmNodeDefinition() {
                             false, 1.0, 1.0e-9, 100.0},
       ConfigFieldDefinition{"strip_markdown", ConfigValueKind::kBoolean, false,
                             false},
-      ConfigFieldDefinition{"fallback_text", ConfigValueKind::kString, false,
-                            ""},
       ConfigFieldDefinition{"stop_words", ConfigValueKind::kArray, false,
                             nlohmann::json::array()}};
+  def.validate_config = [](const nlohmann::json& config,
+                           const std::unordered_set<std::string>& inputs,
+                           std::string* error) {
+    std::vector<PromptPart> parts;
+    GenerateOptions options;
+    bool uses_context = false;
+    if (!ParsePromptConfig(config, &parts, &options, &uses_context, error))
+      return false;
+    if (uses_context && inputs.count("context") == 0) {
+      if (error)
+        *error = "prompt_template uses {context} but context is not connected";
+      return false;
+    }
+    return true;
+  };
   def.model_capability = "llm";
   def.model_config_field = "bind_model";
   def.parallel_safe = true;

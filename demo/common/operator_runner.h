@@ -22,21 +22,11 @@ namespace alg_demo {
 
 /**
  * @brief 将 Demo 业务名映射为标准 CompanyAlgBizType 枚举
- * 优先从 DemoRegistry 获取业务自注册的权威类型，避免集中维护分支列表
+ * 从 DemoRegistry 获取业务自注册的权威类型
  */
 inline CompanyAlgBizType DemoBizToBizType(std::string_view demo_biz) {
   const auto* desc = DemoRegistry::Instance().Find(demo_biz);
-  if (desc && desc->biz_type != ALG_BIZ_TYPE_UNKNOWN) {
-    return desc->biz_type;
-  }
-  if (demo_biz == "entity_extract") return ALG_BIZ_TYPE_ENTITY_EXTRACT;
-  if (demo_biz == "keyword_match") return ALG_BIZ_TYPE_KEYWORD_MATCH;
-  if (demo_biz == "doc_qa") return ALG_BIZ_TYPE_DOC_QA;
-  if (demo_biz == "dialogue_audit") return ALG_BIZ_TYPE_COMPLIANCE_AUDIT;
-  if (demo_biz == "ocr_doc_qa") return ALG_BIZ_TYPE_OCR_DOC_QA;
-  if (demo_biz == "audio_asr") return ALG_BIZ_TYPE_AUDIO_ASR_INTENT;
-  if (demo_biz == "cross_rerank") return ALG_BIZ_TYPE_CROSS_RERANK;
-  return ALG_BIZ_TYPE_UNKNOWN;
+  return desc ? desc->biz_type : ALG_BIZ_TYPE_UNKNOWN;
 }
 
 /**

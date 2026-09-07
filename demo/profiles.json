@@ -120,6 +120,26 @@
       "device_id": 0,
       "chip": "cpu_generic",
       "depth": 1
+    },
+    "entity_extract_custom_mock": {
+      "biz": "entity_extract",
+      "config": "demo/fixtures/mock/pipeline_entity_extract_custom.conf",
+      "dataset": "data/corpus_entity_extract.txt",
+      "suite": "smoke",
+      "batch_size": 1,
+      "device_id": 0,
+      "chip": "cpu",
+      "depth": 1
+    },
+    "doc_qa_custom_mock": {
+      "biz": "doc_qa",
+      "config": "demo/fixtures/mock/pipeline_doc_qa_custom.conf",
+      "dataset": "data/corpus_doc_qa.txt",
+      "suite": "smoke",
+      "batch_size": 1,
+      "device_id": 0,
+      "chip": "cpu",
+      "depth": 1
     }
   }
 }

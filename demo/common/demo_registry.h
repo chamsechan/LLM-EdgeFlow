@@ -22,7 +22,7 @@ struct DemoDescriptor {
 
   DemoDescriptor() = default;
   DemoDescriptor(std::string name, std::string title, DemoRunFunction func,
-                 CompanyAlgBizType type = ALG_BIZ_TYPE_UNKNOWN)
+                 CompanyAlgBizType type)
       : biz_name(std::move(name)),
         display_title(std::move(title)),
         run(func),
@@ -35,7 +35,7 @@ class DemoRegistry {
 
   /**
    * @brief 注册业务 Demo 描述符
-   * @param descriptor 业务描述符 (拒绝空名、空函数或重复注册)
+   * @param descriptor 业务描述符 (拒绝空名、空函数、未知类型或重复注册)
    * @return true 注册成功, false 注册失败 (冲突或非法)
    */
   bool Register(DemoDescriptor descriptor);
@@ -80,13 +80,13 @@ class DemoRegistry {
 class DemoRegisterHelper {
  public:
   DemoRegisterHelper(const char* name, const char* title, DemoRunFunction func,
-                     CompanyAlgBizType type = ALG_BIZ_TYPE_UNKNOWN) {
+                     CompanyAlgBizType type) {
     DemoRegistry::Instance().Register({name, title, func, type});
   }
 };
 
-#define REGISTER_DEMO_BIZ(biz_name, title, run_func, ...)      \
+#define REGISTER_DEMO_BIZ(biz_name, title, run_func, biz_type) \
   static ::alg_demo::DemoRegisterHelper g_demo_reg_##run_func( \
-      biz_name, title, run_func, ##__VA_ARGS__);
+      biz_name, title, run_func, biz_type);
 
 }  // namespace alg_demo

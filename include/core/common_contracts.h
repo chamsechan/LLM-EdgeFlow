@@ -179,6 +179,11 @@ struct BlackboardTypeTraits<QueryCandidatesBatch> {
 };
 
 template <>
+struct BlackboardTypeTraits<ScoreBatch> {
+  static constexpr const char* TypeName() { return "ScoreBatch"; }
+};
+
+template <>
 struct BlackboardTypeTraits<ImageRefBatch> {
   static constexpr const char* TypeName() { return "ImageRefBatch"; }
 };

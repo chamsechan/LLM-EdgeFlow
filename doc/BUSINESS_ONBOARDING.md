@@ -10,6 +10,17 @@
 
 六个单槽 bridge 已使用共享构造函数；七个内置业务均使用共同的双出口打包基类。无需修改中央业务 dispatch switch；已有业务的新方案通常只改 JSON。
 
+## 统一 Demo 接入
+
+已有外部结构的新方案添加 Pipeline / conf 和 `demo/profiles.json` 中的 Profile 即可，
+沿用对应数据集格式与 Demo 函数。可运行的双方案示例见[自定义 Node 指南](../src/custom_nodes/README.md)。
+
+新外部结构需要实现数据集到输入结构的转换，以及输出结构到结果字段的转换；继续复用
+`RunOperatorWithExtractor` 和 `ResultWriter`。通过
+`REGISTER_DEMO_BIZ(name, title, run_function, biz_type)` 注册，业务类型必须显式给出且非
+UNKNOWN。运行器只读取注册描述符，不维护中央业务名分支；这不能替代 Adapter 或
+Operator bridge 的协议注册与内存契约。
+
 ## 输出容量
 
 Operator 路径是 `Unpack → Pipeline → 可变长业务 Result → 已租用输出池`。Result 与请求 Context 均不跨 Process 保存。字符串上限由 `.conf` 的 `data.mem_que.capacities` 决定，不再受中间 `Company*OutputStruct` 的 512/1024/2048 字节数组限制。超过输出池容量时返回 `-4`，所有尚未发布的输出租约回滚。
