@@ -9,6 +9,7 @@
 #include "core/alg_context.h"
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
+#include "core/pipeline_validator.h"
 #include "core/session_context.h"
 #include "dev_support/inference/test_business_models.h"
 #include "dev_support/inference/test_capability_models.h"
@@ -754,6 +755,177 @@ TEST_F(CommonNodesTest, TextTemplateNodeMissingVariableFail) {
     ASSERT_NE(out, nullptr);
     EXPECT_EQ((*out)[0].data, "Hello Alice, welcome!");
   }
+}
+
+// 15. PromptGuidedLlmNode: 自定义节点样例测试 (S1 闭环验证)
+TEST_F(CommonNodesTest, PromptGuidedLlmNodeCatalogAndExecution) {
+  // 15.1 Catalog 审计
+  auto def_opt = PipelineCatalog::FindNode("PromptGuidedLlmNode");
+  ASSERT_TRUE(def_opt.has_value());
+  EXPECT_EQ(def_opt->category, "custom");
+  EXPECT_EQ(def_opt->model_capability, "llm");
+  EXPECT_TRUE(def_opt->parallel_safe);
+
+  // 15.2 方案 A：单输入 (实体/意图风格提示词推理)
+  {
+    auto node = NodeFactory::Instance().Create("PromptGuidedLlmNode");
+    ASSERT_NE(node, nullptr);
+
+    nlohmann::json cfg = {
+        {"bind_model", "llm_model_v1"},
+        {"prompt_template", "【实体抽取任务】文本: {input}"},
+        {"strip_markdown", true},
+    };
+    EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
+
+    AlgContext ctx;
+    TextBatch inputs;
+    inputs.emplace_back(1001, 0, "张三在清华大学毕业");
+    ctx.Publish("input", inputs);
+
+    EXPECT_EQ(node->Process(&ctx), 0);
+    const auto* out = ctx.Read<TextBatch>("output");
+    ASSERT_NE(out, nullptr);
+    ASSERT_EQ(out->size(), 1u);
+    EXPECT_EQ((*out)[0].req_id, 1001u);
+    EXPECT_EQ((*out)[0].sub_id, 0);
+    EXPECT_FALSE((*out)[0].data.empty());
+  }
+
+  // 15.3 方案 B：双输入复用 (带上下文文档问答 RAG 风格提示词推理)
+  {
+    auto node = NodeFactory::Instance().Create("PromptGuidedLlmNode");
+    ASSERT_NE(node, nullptr);
+
+    nlohmann::json cfg = {
+        {"bind_model", "llm_model_v1"},
+        {"prompt_template", "背景文档: {context}\n问题: {input}\n解答:"},
+        {"system_prompt", "你是一个专业问答助手"},
+        {"strip_markdown", true},
+    };
+    EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
+
+    AlgContext ctx;
+    TextBatch inputs;
+    inputs.emplace_back(2001, 0, "EdgeFlow支持几层架构?");
+    ctx.Publish("input", inputs);
+
+    TextBatch contexts;
+    contexts.emplace_back(2001, 0, "LLM-EdgeFlow分为4层架构设计。");
+    ctx.Publish("context", contexts);
+
+    EXPECT_EQ(node->Process(&ctx), 0);
+    const auto* out = ctx.Read<TextBatch>("output");
+    ASSERT_NE(out, nullptr);
+    ASSERT_EQ(out->size(), 1u);
+    EXPECT_EQ((*out)[0].req_id, 2001u);
+    EXPECT_FALSE((*out)[0].data.empty());
+  }
+
+  // 15.4 缺失输入 Fail-closed 检查
+  {
+    auto node = NodeFactory::Instance().Create("PromptGuidedLlmNode");
+    ASSERT_NE(node, nullptr);
+
+    nlohmann::json cfg = {{"bind_model", "llm_model_v1"}};
+    EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
+
+    AlgContext empty_ctx;
+    EXPECT_EQ(node->Process(&empty_ctx), -8001);
+    EXPECT_FALSE(empty_ctx.IsOk());
+    EXPECT_EQ(empty_ctx.GetErrorCode(), -8001);
+  }
+
+  // 15.5 Fallback 机制测试 (当配置 fallback_text 时模型失败返回回退文本)
+  {
+    auto node = NodeFactory::Instance().Create("PromptGuidedLlmNode");
+    ASSERT_NE(node, nullptr);
+
+    nlohmann::json cfg = {
+        {"bind_model", "llm_model_v1"},
+        {"fallback_text", "DEFAULT_FALLBACK_ANSWER"},
+    };
+    EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
+
+    AlgContext ctx;
+    TextBatch inputs;
+    inputs.emplace_back(3001, 0, "trigger fallback");
+    ctx.Publish("input", inputs);
+
+    EXPECT_EQ(node->Process(&ctx), 0);
+    const auto* out = ctx.Read<TextBatch>("output");
+    ASSERT_NE(out, nullptr);
+    ASSERT_EQ(out->size(), 1u);
+    EXPECT_EQ((*out)[0].req_id, 3001u);
+  }
+}
+
+// 16. PromptGuidedLlmNode: 两个不同业务方案中的无缝复用与校验验证 (S1 核心要求)
+TEST_F(CommonNodesTest, PromptGuidedLlmNodeDualPipelineReuseValidation) {
+  // 16.1 方案 1：用于实体抽取业务 (作为前处理+LLM两合一节点，替代
+  // TextTemplateNode + LlmGenerateNode)
+  nlohmann::json entity_pipeline_doc = {
+      {"biz_name", "entity_extract_0.6b_v1"},
+      {"models",
+       {{{"model_id", "llm_model_v1"},
+         {"capability", "llm"},
+         {"model_type", "test_business_llm"},
+         {"backend", "test_causal_lm_backend"},
+         {"model_path", "mock_llm.bin"}}}},
+      {"pipeline",
+       {{{"id", "node_0_CustomPromptLlm"},
+         {"node_type", "PromptGuidedLlmNode"},
+         {"depends_on", nlohmann::json::array()},
+         {"ports",
+          {{"inputs", {{"input", "input_sentences"}}},
+           {"outputs", {{"output", "llm_raw_answer"}}}}},
+         {"config",
+          {{"bind_model", "llm_model_v1"},
+           {"prompt_template", "抽取实体: {input}"},
+           {"strip_markdown", true}}}},
+        {{"id", "node_1_JsonParser"},
+         {"node_type", "StructuredJsonParseNode"},
+         {"depends_on", {"node_0_CustomPromptLlm"}},
+         {"ports",
+          {{"inputs", {{"text", "llm_raw_answer"}}},
+           {"outputs", {{"document", "extracted_entities"}}}}},
+         {"config", {{"fallback_json", "[]"}}}}}}};
+
+  auto plan_result_1 = PipelineValidator::ValidateAndPlan(entity_pipeline_doc);
+  EXPECT_TRUE(plan_result_1.report.ok);
+
+  // 16.2 方案 2：用于智能问答与知识库业务 (双输入文档切片+上下文增强 RAG 方案)
+  nlohmann::json doc_qa_pipeline_doc = {
+      {"biz_name", "custom_rag_domain_biz"},
+      {"models",
+       {{{"model_id", "llm_model_v1"},
+         {"capability", "llm"},
+         {"model_type", "test_business_llm"},
+         {"backend", "test_causal_lm_backend"},
+         {"model_path", "mock_llm.bin"}}}},
+      {"pipeline",
+       {{{"id", "node_0_TextChunk"},
+         {"node_type", "TextChunkNode"},
+         {"depends_on", nlohmann::json::array()},
+         {"ports",
+          {{"inputs", {{"text", "raw_docs"}}},
+           {"outputs",
+            {{"chunks", "doc_chunks"}, {"chunk_counts", "doc_chunk_counts"}}}}},
+         {"config", {{"chunk_size", 60}}}},
+        {{"id", "node_1_CustomRagLlm"},
+         {"node_type", "PromptGuidedLlmNode"},
+         {"depends_on", {"node_0_TextChunk"}},
+         {"ports",
+          {{"inputs", {{"input", "raw_queries"}, {"context", "doc_chunks"}}},
+           {"outputs", {{"output", "rag_answers"}}}}},
+         {"config",
+          {{"bind_model", "llm_model_v1"},
+           {"prompt_template", "文档内容: {context}\n问题: {input}\n回答:"},
+           {"system_prompt", "你是一个专业问答助手"}}}}}}};
+
+  auto plan_result_2 = PipelineValidator::ValidateAndPlan(
+      doc_qa_pipeline_doc, ValidationPolicy::kPrivateExtensionCompatible);
+  EXPECT_TRUE(plan_result_2.report.ok);
 }
 
 }  // namespace llm_edgeflow
