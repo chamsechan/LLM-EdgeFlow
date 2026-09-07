@@ -75,16 +75,20 @@ int main(int argc, char* argv[]) {
       size_t pos = mpath.find_last_of("/\\");
       if (pos != std::string::npos) mpath = mpath.substr(pos + 1);
 
-      int max_b = 1;
-      if (models[i].contains("model_config")) {
-        max_b = models[i]["model_config"].value("max_batch_size", 1);
-      }
-
       std::cout << prefix << " " << COLOR_MAGENTA << "🧠 " << mid << COLOR_RESET
                 << " (" << COLOR_CYAN << "Model: " << model_type
-                << ", Backend: " << backend << COLOR_RESET << ", "
-                << COLOR_YELLOW << "FixedMaxBatch: " << max_b << COLOR_RESET
-                << ", Path: " << COLOR_DIM << mpath << COLOR_RESET << ")\n";
+                << ", Backend: " << backend << COLOR_RESET;
+      if (models[i].contains("backend_config") &&
+          models[i]["backend_config"].is_object()) {
+        const auto& backend_config = models[i]["backend_config"];
+        for (const char* field : {"max_batch_size", "decode_batch_size"}) {
+          if (backend_config.contains(field)) {
+            std::cout << ", " << COLOR_YELLOW << "backend_config." << field
+                      << ": " << backend_config[field].dump() << COLOR_RESET;
+          }
+        }
+      }
+      std::cout << ", Path: " << COLOR_DIM << mpath << COLOR_RESET << ")\n";
     }
     std::cout << "\n";
   }

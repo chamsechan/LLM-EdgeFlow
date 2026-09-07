@@ -7,97 +7,135 @@
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
-    <header>
-      <div class="brand"><span>EF</span><div>算法方案工作台<small>Pipeline Studio · v2.5</small></div></div>
-      <div class="toolbar">
-        <select id="pipelineSelect" title="方案列表"></select>
+    <header class="app-header">
+      <div class="brand"><span aria-hidden="true">EF</span><div>算法方案工作台<small>LLM-EdgeFlow · Pipeline Studio</small></div></div>
+      <div class="pipeline-picker">
+        <select id="pipelineSelect" aria-label="选择方案" title="选择已有方案"></select>
         <button id="openButton">打开</button>
-        <select id="bizSelect" title="业务契约"></select>
-        <select id="cloneProfile" title="从 Profile 克隆"><option value="">空图</option></select>
-        <button id="newButton">新建</button>
-        <button id="saveButton" class="primary">保存</button>
-        <button id="saveAsButton">另存</button>
-        <button id="layoutButton">自动布局</button>
-        <span id="dirtyBadge" class="badge">未打开</span>
+      </div>
+      <div class="toolbar">
+        <span id="dirtyBadge" class="badge" role="status">未打开</span>
+        <button id="saveButton" class="primary edit-control" title="保存方案（Ctrl / ⌘ + S）">保存</button>
+        <button id="saveAsButton" class="edit-control">另存为</button>
+        <button id="editModeButton" class="mode-button" aria-pressed="false">编辑方案</button>
       </div>
     </header>
 
     <main>
-      <aside class="operators panel">
-        <div class="panel-title">算子区</div>
-        <input id="operatorSearch" placeholder="搜索实时 Catalog">
+      <aside class="operators panel" aria-label="算子与新建方案">
+        <details class="create-panel">
+          <summary>新建方案</summary>
+          <div class="create-fields">
+            <label>业务契约<select id="bizSelect" title="业务契约"></select></label>
+            <label>初始内容<select id="cloneProfile" title="从 Profile 克隆"><option value="">空图</option></select></label>
+            <button id="newButton" class="full">新建方案</button>
+          </div>
+        </details>
+        <div class="panel-heading"><div class="panel-title">能力节点</div><span class="panel-caption">点击添加</span></div>
+        <input id="operatorSearch" type="search" aria-label="搜索算子" placeholder="搜索名称或用途">
         <div id="operatorList" class="scroll"></div>
       </aside>
 
-      <section class="canvas-panel">
+      <section class="canvas-panel" aria-label="方案流程图">
         <div class="canvas-tools">
-          <span id="documentTitle">请选择或新建方案</span>
-          <span>拖动节点 · 按端口名称连线（悬停查看类型） · 点击连线删除 · 滚轮缩放</span>
+          <div class="canvas-heading">
+            <div id="documentTitle">请选择或新建方案</div>
+            <span id="graphSummary" class="graph-summary">打开方案，查看数据如何流动</span>
+          </div>
+          <div class="canvas-actions">
+            <div class="control-group panel-controls edit-control">
+              <button id="operatorsToggle" aria-pressed="true" title="显示或收起算子面板">算子</button>
+              <button id="inspectorToggle" aria-pressed="true" title="显示或收起属性面板">属性</button>
+            </div>
+            <div class="control-group history-controls edit-control" aria-label="编辑历史">
+              <button id="undoButton" class="icon-button" disabled aria-label="撤销" title="撤销（Ctrl / ⌘ + Z）">↶</button>
+              <button id="redoButton" class="icon-button" disabled aria-label="重做" title="重做（Ctrl / ⌘ + Shift + Z）">↷</button>
+            </div>
+            <div class="control-group zoom-controls" aria-label="画布缩放">
+              <button id="zoomOutButton" class="icon-button" aria-label="缩小" title="缩小">−</button>
+              <button id="actualSizeButton" title="恢复至 100% 大小" aria-label="恢复至 100% 大小"><span id="zoomLabel">100%</span></button>
+              <button id="zoomInButton" class="icon-button" aria-label="放大" title="放大">+</button>
+            </div>
+            <button id="fitButton" title="将整个流程图放入画布">适应画布</button>
+            <button id="layoutButton" title="重新排列节点并适应画布">自动布局</button>
+          </div>
         </div>
-        <svg id="graph" tabindex="0" aria-label="Pipeline DAG 画布">
+        <div id="edgeSelection" class="edge-selection" hidden>
+          <span id="edgeSelectionLabel">已选择连线</span>
+          <button id="deleteEdgeButton" class="danger" disabled>删除连线</button>
+        </div>
+        <svg id="graph" tabindex="0" aria-label="Pipeline 流程图。拖动空白处平移，滚轮缩放。">
           <defs>
             <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
               <path d="M0,0 L0,6 L8,3 z"></path>
             </marker>
             <marker id="arrow-hover" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
-              <path d="M0,0 L0,6 L8,3 z" fill="#fb7185"></path>
+              <path d="M0,0 L0,6 L8,3 z" fill="#60c8f0"></path>
             </marker>
           </defs>
           <g id="viewport"><g id="edges"></g><g id="nodes"></g><path id="draftEdge"></path></g>
         </svg>
+        <div class="canvas-footer">
+          <span id="canvasHint">拖动空白处平移 · 滚轮缩放 · 双击节点放大阅读</span>
+          <div class="graph-legend" aria-label="连线图例"><span><i class="legend-line"></i>数据流</span><span><i class="legend-line dependency"></i>执行依赖</span></div>
+        </div>
       </section>
 
-      <aside class="inspector panel">
-        <div class="tabs">
-          <button data-tab="properties" class="active">属性</button>
-          <button data-tab="models">模型</button>
-          <button data-tab="json">原始 JSON</button>
-          <button data-tab="validation">校验</button>
-          <button data-tab="run">运行</button>
+      <aside class="inspector panel" aria-label="方案属性与验证">
+        <div class="tabs" role="tablist" aria-label="方案设置">
+          <button data-tab="properties" class="active" role="tab" aria-selected="true" aria-controls="propertiesTab">属性</button>
+          <button data-tab="models" role="tab" aria-selected="false" aria-controls="modelsTab">模型</button>
+          <button data-tab="json" role="tab" aria-selected="false" aria-controls="jsonTab">JSON</button>
+          <button data-tab="validation" role="tab" aria-selected="false" aria-controls="validationTab">校验</button>
+          <button data-tab="run" role="tab" aria-selected="false" aria-controls="runTab">运行</button>
         </div>
-        <section id="propertiesTab" class="tab scroll">
-          <div id="emptyInspector" class="empty">选择画布节点后编辑属性</div>
+        <section id="propertiesTab" class="tab scroll" role="tabpanel" aria-label="节点属性">
+          <div id="emptyInspector" class="empty"><span class="empty-symbol" aria-hidden="true">◇</span>选择一个节点<span class="empty-description">在这里查看和编辑它的配置</span></div>
           <form id="nodeForm" hidden>
-            <label>节点 ID<input id="nodeId"></label>
+            <label>节点 ID<input id="nodeId" autocomplete="off"></label>
             <div id="nodeType" class="node-type"></div>
             <div id="configFields"></div>
-            <div class="row"><button id="applyNode" type="submit" class="primary">应用</button><button id="deleteNode" type="button" class="danger">删除节点</button></div>
+            <p id="nodeDraftHint" class="draft-hint" role="status" hidden>节点属性已修改，应用后更新方案。</p>
+            <div class="row form-actions"><button id="applyNode" type="submit" class="primary">应用</button><button id="discardNode" type="button" disabled>放弃修改</button><button id="deleteNode" type="button" class="danger">删除节点</button></div>
           </form>
         </section>
-        <section id="modelsTab" class="tab scroll" hidden>
+        <section id="modelsTab" class="tab scroll" role="tabpanel" aria-label="模型配置" hidden>
           <label>模型实例<select id="modelSelect"></select></label>
-          <button id="newModel" type="button">新增模型实例</button>
+          <button id="newModel" type="button" class="full">新增模型实例</button>
           <form id="modelForm">
-            <label>模型 ID<input id="modelId" required></label>
+            <label>模型 ID<input id="modelId" required autocomplete="off"></label>
             <label>资产组合<select id="assetSelect"><option value="">手动配置</option></select></label>
             <label>Model 类型<select id="modelType" required></select></label>
             <label>Backend<select id="modelBackend" required></select></label>
             <label>模型资产路径<input id="modelPath" required placeholder="相对于 model_root_dir 的路径"></label>
-            <p>Model 参数</p><div id="modelConfigFields"></div>
-            <p>Backend 参数</p><div id="backendConfigFields"></div>
-            <div class="row"><button type="submit" class="primary">应用模型</button><button id="deleteModel" type="button" class="danger">删除模型</button></div>
+            <p class="field-heading">Model 参数</p><div id="modelConfigFields"></div>
+            <p class="field-heading">Backend 参数</p><div id="backendConfigFields"></div>
+            <p id="modelDraftHint" class="draft-hint" role="status" hidden>模型配置已修改，应用后更新方案。</p>
+            <div class="row form-actions"><button type="submit" class="primary">应用模型</button><button id="discardModel" type="button" disabled>放弃修改</button><button id="deleteModel" type="button" class="danger">删除模型</button></div>
           </form>
           <label>预期构建变体<select id="buildVariant"><option value="">按当前 Catalog 检查</option></select></label>
           <button id="verifySelection" type="button" class="primary full">检查已应用方案的资产与构建</button>
           <pre id="selectionReport" class="result">资产尚未校验；业务效果尚未验收。</pre>
         </section>
-        <section id="jsonTab" class="tab scroll" hidden>
-          <textarea id="rawJson" class="code" spellcheck="false"></textarea>
-          <button id="applyJson" class="primary full">应用 JSON</button>
+        <section id="jsonTab" class="tab json-tab" role="tabpanel" aria-label="原始 JSON" hidden>
+          <p id="rawJsonHint" class="draft-hint" role="status" hidden>JSON 已修改，应用后更新流程图。</p>
+          <textarea id="rawJson" class="code" spellcheck="false" aria-label="方案原始 JSON"></textarea>
+          <div class="row"><button id="applyJson" class="primary">应用 JSON</button><button id="discardJson" disabled>放弃修改</button></div>
         </section>
-        <section id="validationTab" class="tab scroll" hidden>
-          <button id="validateButton" class="primary full">使用 C++ Validator 校验</button>
-          <div id="validationOutput"></div>
+        <section id="validationTab" class="tab scroll" role="tabpanel" aria-label="方案校验" hidden>
+          <p class="tab-description">检查节点配置、端口绑定与执行依赖。</p>
+          <button id="validateButton" class="primary full">校验方案</button>
+          <div id="validationOutput" aria-live="polite"></div>
         </section>
-        <section id="runTab" class="tab scroll" hidden>
-          <label>Profile<select id="runProfile"></select></label>
+        <section id="runTab" class="tab scroll" role="tabpanel" aria-label="运行方案" hidden>
+          <label>运行 Profile<select id="runProfile"></select></label>
           <div class="row"><button id="runButton" class="primary">运行草稿</button><button id="cancelButton" class="danger" disabled>取消</button></div>
           <pre id="runLog" class="log">尚未运行</pre>
           <pre id="runResult" class="result"></pre>
         </section>
       </aside>
     </main>
-    <div id="toast" role="status"></div>
+    <div id="toast" role="status" aria-live="polite"></div>
     <script type="module" src="app.js"></script>
   </body>
 </html>
