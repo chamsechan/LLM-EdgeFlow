@@ -2,6 +2,11 @@
 
 Use this reference for a new or modified `INode` implementation.
 
+For a first custom LLM Node using an existing model capability, start with the
+[two-function exercise](../../../../doc/dev_guide/first_custom_node.md) and its compiled starter.
+Use the [concept guide](../../../../doc/dev_guide/custom_node_concepts.md) as needed; multi-input,
+filtering or aggregation logic needs the full port and provenance contracts below.
+
 1. Query `alg_pipeline_tool catalog` and `describe-node` first. Add a node only when existing registered capabilities cannot close the required contract.
 2. Put framework-maintained neutral operations in `src/common_nodes/` and user-defined domain algorithms in `src/custom_nodes/`. Keep custom files organized by operation in the shared directory; they can be reused across businesses and need not be generalized for admission. Both use the same base classes and registration path. Follow `CONTRIBUTING.md` for RFC thresholds and [custom Node onboarding](../../../../src/custom_nodes/README.md) for authoring; platform conversion remains in Adapter, and Common Nodes/Core/Engine must not depend on custom implementations.
 3. Inherit `NodeBase` (or `ModelBoundNode`, `TraceableUnaryInferenceNode`); keep per-request state exclusively in `AlgContext`. Members may hold immutable configuration or safe shared handles, and the Definition must truthfully declare parallel safety.

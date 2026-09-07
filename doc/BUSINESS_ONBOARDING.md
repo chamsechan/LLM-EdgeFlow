@@ -10,12 +10,22 @@
 
 六个单槽 bridge 已使用共享构造函数；七个内置业务均使用共同的双出口打包基类。无需修改中央业务 dispatch switch；已有业务的新方案通常只改 JSON。
 
+按实际接入范围复用代码：修改已有 C ABI 路径，不必另建 Operator 或 Demo。但向当前
+共享 SDK 注册**全新生产 Adapter** 时，要补齐匹配的 bridge；
+[`OperatorBizBridgeRegistry::GlobalInit`](../src/adapter/operator/operator_biz_bridge_registry.cpp)
+会审计所有 Adapter，缺失 bridge 会使 Operator 初始化失败。当前没有仅注册 C ABI
+业务的豁免模式；若需这样的交付方式，应另行设计，不能通过省略注册绕过检查。
+
 ## 统一 Demo 接入
 
-已有外部结构的新方案添加 Pipeline / conf 和 `demo/profiles.json` 中的 Profile 即可，
-沿用对应数据集格式与 Demo 函数。可运行的双方案示例见[自定义 Node 指南](../src/custom_nodes/README.md)。
+已有外部结构的新方案沿用对应数据集格式与 Demo 函数。准备 Pipeline 和指向它的
+`.conf`，即可通过显式 `--biz`、`--config`、`--dataset` 运行；也可复用兼容 Profile
+并用 `--config` 覆盖原配置。只有需要保存可重复调用的预设或加入套件时，才在
+`demo/profiles.json` 中新增 Profile。命令、工具选择和结果检查见
+[运行当前方案](../tools/pipeline_studio/README.md#运行当前方案)，可运行的双方案示例见
+[自定义 Node 指南](../src/custom_nodes/README.md)。
 
-新外部结构需要实现数据集到输入结构的转换，以及输出结构到结果字段的转换；继续复用
+需要让统一 Demo 支持新外部结构时，实现数据集到输入结构的转换，以及输出结构到结果字段的转换；继续复用
 `RunOperatorWithExtractor` 和 `ResultWriter`。通过
 `REGISTER_DEMO_BIZ(name, title, run_function, biz_type)` 注册，业务类型必须显式给出且非
 UNKNOWN。运行器只读取注册描述符，不维护中央业务名分支；这不能替代 Adapter 或
@@ -31,5 +41,7 @@ Operator 路径是 `Unpack → Pipeline → 可变长业务 Result → 已租用
 
 - Adapter：乱序/重复/缺失请求、失败结果、两种输出表示的一致性。
 - Operator：超过旧 C 数组但在池容量内的完整输出；池容量不足时无部分发布且后续请求能复用租约。
-- 配置：`alg_pipeline_tool validate`、选定业务的端到端样本。
+- 配置与运行：按[工具选择](../tools/pipeline_studio/README.md#校验工具选择)执行 validate / plan，
+  再运行本次修改的方案并核对结果。仅使用 C ABI 的路径用对应端到端测试验证；统一 Demo
+  使用 Operator。真实模型效果和目标平台验收与 Smoke 结果分别记录。
 - 提交前：`./scripts/run_all_tests.sh`。

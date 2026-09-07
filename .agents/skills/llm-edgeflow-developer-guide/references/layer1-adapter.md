@@ -2,6 +2,15 @@
 
 Use this reference for new modalities, public C structures, Adapter behavior, business registration, or allowed Pipeline names.
 
+Start with [business onboarding](../../../../doc/BUSINESS_ONBOARDING.md) to select the requested
+integration path. Reuse the Adapter when the external contract is unchanged; an existing C ABI
+path edit does not automatically require a new Operator or Demo path. Adding a production
+Adapter to the current shared SDK does require a matching bridge: Operator `GlobalInit` audits
+all registered Adapters. For new Operator host types, also register ValueType capacity,
+initialization and release. An ABI-only registration mode would require separate design.
+Use the existing `ResultPackingAdapter` and `MakeSingleSlotBizBridge` helpers where applicable;
+the onboarding guide owns those implementation examples and optional Demo conversion steps.
+
 1. Public C ABI, Operator contract, or new modality changes meet the RFC threshold in
    `CONTRIBUTING.md`. Map the external contract, ownership, cardinality, batch bounds, and
    failure behavior before implementation.

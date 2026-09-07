@@ -1,19 +1,28 @@
 ---
 name: pipeline-composer
-description: Compose or modify LLM-EdgeFlow algorithm workflows using existing registered nodes and explicit-DAG Pipeline JSON. Use for configuration-only pipeline creation, validation, planning, and smoke execution; route missing operator capabilities to llm-edgeflow-developer-guide.
+description: Compose and run LLM-EdgeFlow solutions using registered nodes and biz contracts. Covers Pipeline JSON, necessary deployment conf files, optional Demo Profiles, validation and smoke execution; route capability gaps or new I/O conversion code to llm-edgeflow-developer-guide.
 ---
 
 # Pipeline Composer
 
-Use the runtime Catalog and Validator as the only source of node, port, parameter, engine, model-capability, and business-contract facts. Do not maintain or infer a parallel catalog in this skill.
+Use the runtime Catalog and Validator as the source of node, port, Pipeline parameter,
+Model/Backend and business-contract facts. Do not maintain a parallel catalog in this skill.
+For deployment `.conf` semantics, follow the [existing integration guide](../../../doc/developer_guide.md)
+and native Resolver; do not reproduce their validation rules.
 
 ## Workflow
 
-1. Build `alg_pipeline_tool` if it is unavailable, then query the target biz contract and its filtered assets. Use the v6 `--biz` spelling:
+1. Build the tool if unavailable, and rebuild after registration changes. Query the target biz
+   contract and its filtered assets:
 
    ```bash
    ./build/alg_pipeline_tool catalog --biz <biz_name>
    ```
+
+   Use the production tool for the target build. For fixtures deliberately using test-only
+   Models/Backends, use `alg_pipeline_tool_test` throughout discovery, init, validate and plan.
+   Do not switch to test registrations to bypass a production configuration failure; inspect
+   the diagnostics and target build's Catalog. [Tool selection and commands](../../../tools/pipeline_studio/README.md#校验工具选择).
 
 2. Inspect each plausible node before using it:
 
@@ -21,7 +30,9 @@ Use the runtime Catalog and Validator as the only source of node, port, paramete
    ./build/alg_pipeline_tool describe-node <node_type>
    ```
 
-3. Prefer cloning a compatible Profile; otherwise create an empty draft. Modify only Pipeline JSON and reuse registered nodes.
+3. Prefer cloning a compatible Profile; otherwise create an empty draft. Reuse registered nodes.
+   Limit edits to the requested Pipeline and necessary `.conf` / optional Profile configuration.
+   Cloning a Pipeline does not retarget the source Profile.
 
    ```bash
    ./build/alg_pipeline_tool init --biz <biz_name> --profile <profile_name>
@@ -35,11 +46,20 @@ Use the runtime Catalog and Validator as the only source of node, port, paramete
    ./build/alg_pipeline_tool plan <pipeline.json>
    ```
 
-5. Run the matching Smoke Profile only after validation succeeds:
+5. After validation, run the edited Pipeline through a compatible Demo. Follow
+   [running the current solution](../../../tools/pipeline_studio/README.md#运行当前方案): confirm
+   `.conf` `data.pipe_path` resolves to the edited JSON, inspect inherited model path overrides
+   and capacities, and select a matching biz and dataset. For example:
 
    ```bash
-   ./build/alg_demo --profile <smoke_profile>
+   ./build/alg_demo --profile <compatible_profile> --config <edited.conf> --no-default-control --output-dir <run_output_dir>
    ```
+
+   A new Profile is optional; explicit `--biz`, `--config` and `--dataset` also work. Use the
+   original Profile alone only when its configuration already points to the intended Pipeline.
+   `--no-default-control` prevents Demo example updates from replacing the selected rules or
+   prompts; provide a Control file only when it is part of the requested scenario. Verify
+   request IDs, status and expected output fields in `results.jsonl` and `summary.json`.
 
 For human composition, use `./show --web` or `./show <pipeline.json> --web`. For AI and automation, use `alg_pipeline_tool` and consume its versioned JSON output.
 
@@ -49,6 +69,10 @@ For human composition, use `./show --web` or `./show <pipeline.json> --web`. For
 - Do not hand-edit a Catalog, Web node list, or this skill when nodes change; registration and Definition data must make assets discoverable.
 - Do not generate node implementation code during configuration composition.
 - If no Catalog composition can satisfy the contract, report the exact missing input/output or capability, stop editing Pipeline JSON, and route the task to `llm-edgeflow-developer-guide` for the relevant layer.
+- Report configuration validation, actual execution/results and real-model or target-platform
+  acceptance separately. Smoke success does not prove business quality; use the
+  [selection and effects workflow](../../../doc/VERIFIABLE_SELECTION.md) when effects acceptance
+  is requested. Missing runtime assets leave execution unverified, even if static validation passes.
 - Configuration-only composition normally does not require an RFC. Follow
   [`CONTRIBUTING.md`](../../../CONTRIBUTING.md) for branch, verification, documentation, and
   delivery decisions; do not invoke remote delivery unless the user explicitly asks.

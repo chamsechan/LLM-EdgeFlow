@@ -4,6 +4,10 @@ This file is the single source of truth for current architecture constraints and
 The shared development lifecycle is defined in [CONTRIBUTING.md](CONTRIBUTING.md); do not
 duplicate it in agent-specific instruction files.
 
+The primary users are LLM solution developers: compose Pipelines, implement or reuse business
+Nodes, adapt platform I/O, and verify through the shared Demo. Keep ordinary solution work in
+those extension points; involve Core, Model or Backend changes only for a demonstrated gap.
+
 ## Current architecture invariants
 
 Dependencies flow downward only:
@@ -50,12 +54,14 @@ from prose. Query `alg_pipeline_tool`; registrations and Definitions are the exe
 
 ## Task routing
 
-- Pipeline JSON composition using existing capabilities: read and follow
-  [pipeline-composer](.agents/skills/pipeline-composer/SKILL.md). Do not write C++ until the
-  Catalog proves a capability gap.
+- Solution configuration using existing capabilities and biz contracts, including Pipeline JSON,
+  necessary `.conf` files and optional Demo Profiles: read and follow
+  [pipeline-composer](.agents/skills/pipeline-composer/SKILL.md). Reuse registered Nodes; route
+  capability gaps to implementation before writing C++.
 - C ABI/Adapter, Core/Pipeline, Node, Model, or Backend implementation: read and follow
   [llm-edgeflow-developer-guide](.agents/skills/llm-edgeflow-developer-guide/SKILL.md), loading
-  only affected-layer references.
+  only affected-layer references. New platform structures and Demo data conversion belong here;
+  preserve the current SDK's Adapter/Operator bridge registry completeness when adding a biz.
 - Upload, PR, or merge requested by the user: read and follow
   [github-branch-merge](.agents/skills/github-branch-merge/SKILL.md). Never upload or merge from
   an ordinary implementation request.
