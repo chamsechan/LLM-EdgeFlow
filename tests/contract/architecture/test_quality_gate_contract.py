@@ -16,6 +16,80 @@ def run(args, **kwargs):
     return subprocess.run(args, text=True, capture_output=True, **kwargs)
 
 
+def check_delivery_contract(root):
+    scripts = root / "delivery" / "scripts"
+    scripts.mkdir(parents=True)
+    shutil.copy2(ROOT / "scripts/git_branch_upload.sh", scripts)
+    binary = root / "delivery" / "bin"
+    binary.mkdir()
+    mock = '''#!/usr/bin/env python3
+import json, os, sys
+from pathlib import Path
+name, args = Path(sys.argv[0]).name, sys.argv[1:]
+log = Path(os.environ["EDGEFLOW_DELIVERY_COMMANDS"])
+with log.open("a") as stream:
+    stream.write(json.dumps([name, *args]) + "\\n")
+mode = os.environ["EDGEFLOW_DELIVERY_MODE"]
+if name == "git":
+    if args == ["branch", "--show-current"]: print("fix/delivery-test")
+    if args == ["diff", "--quiet", "origin/main...HEAD"]: sys.exit(1)
+elif name == "gh":
+    if args[:2] == ["pr", "view"]:
+        fields = args[args.index("--json") + 1]
+        if fields == "number": print("94")
+        elif fields == "statusCheckRollup": print("6")
+        elif fields == "mergeCommit":
+            assert args[2] == "94", "query the stable PR number after branch deletion"
+            print("" if mode == "missing-sha" else "a" * 40)
+    elif args[:2] == ["run", "list"]:
+        for flag, value in [("--workflow", "ci.yml"), ("--branch", "main"),
+                            ("--event", "push"), ("--commit", "a" * 40)]:
+            assert flag in args and args[args.index(flag) + 1] == value, args
+        calls = sum(json.loads(line)[:3] == ["gh", "run", "list"] for line in log.read_text().splitlines())
+        # No run for this SHA must not select a later main commit or the PR run.
+        if mode != "missing-run" and not (mode == "success" and calls == 1): print("123")
+    elif args[:2] == ["run", "watch"]:
+        assert args == ["run", "watch", "123", "--exit-status"], args
+        if mode in ("failure", "cancelled"): sys.exit(1)
+    elif args[:2] == ["run", "view"]:
+        assert args[2] == "123", args
+        if mode != "unconfirmed": print("https://example.invalid/actions/runs/123")
+'''
+    for path in [*(binary / name for name in ("git", "gh", "sleep")), scripts / "run_all_tests.sh"]:
+        path.write_text(mock)
+        path.chmod(0o755)
+    log = root / "delivery" / "commands.jsonl"
+    for mode in ("pr-only", "success", "failure", "cancelled", "missing-run", "missing-sha", "unconfirmed"):
+        log.write_text("")
+        env = {**os.environ, "PATH": str(binary) + os.pathsep + os.environ["PATH"],
+               "EDGEFLOW_DELIVERY_COMMANDS": str(log), "EDGEFLOW_DELIVERY_MODE": mode}
+        args = [str(scripts / "git_branch_upload.sh"), "fix(ci): delivery contract", "fix"]
+        if mode != "pr-only": args.append("--merge")
+        result = run(args, env=env, timeout=15)
+        assert (result.returncode == 0) == (mode in ("pr-only", "success")), (mode, result.stdout, result.stderr)
+        commands = [json.loads(line) for line in log.read_text().splitlines()]
+        assert sum(command[0] == "run_all_tests.sh" for command in commands) == 1
+        run_lists = [command for command in commands if command[:3] == ["gh", "run", "list"]]
+        watches = [command for command in commands if command[:3] == ["gh", "run", "watch"]]
+        if mode == "pr-only":
+            assert not run_lists and not watches
+            assert not any(command[:3] == ["gh", "pr", "merge"] for command in commands)
+        elif mode == "missing-sha":
+            assert not run_lists and not watches
+            assert "cannot confirm the merge SHA" in result.stdout
+        elif mode == "missing-run":
+            assert len(run_lists) == 12 and not watches
+            assert "is merged, but no main push CI" in result.stdout
+        else:
+            assert len(watches) == 1
+            if mode == "success":
+                assert len(run_lists) == 2
+                assert "main push CI passed for " + "a" * 40 in result.stdout
+            else:
+                assert "is merged, but main CI run 123" in result.stdout
+                assert "main push CI passed" not in result.stdout
+
+
 def main():
     real_cmake = shutil.which("cmake")
     real_ctest = shutil.which("ctest")
@@ -96,7 +170,8 @@ if Path(sys.argv[0]).name == "ctest":
                              "real_c_abi_and_public_profile": "cancelled",
                              "whisper_asr_backend_and_real_profile": state,
                              "kitellm_private_release_and_real_gguf": "skipped"}
-    print("Canonical gate, cached test option, failure propagation and CI evidence passed.")
+        check_delivery_contract(root)
+    print("Canonical gate, failure propagation, CI evidence and merge delivery checks passed.")
 
 
 if __name__ == "__main__":

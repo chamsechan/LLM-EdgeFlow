@@ -33,4 +33,6 @@ Use the repository script; do not reproduce its Git/GitHub sequence manually:
 
 The script is the executable source of delivery behavior. It must never fall back to direct
 `main` pushes, local merges, admin merges, or merging without registered successful CI checks.
-On failure, preserve the branch and PR for correction and report the exact stopped stage.
+Before merge, preserve the branch and PR on failure. For `--merge`, completion also requires
+successful main push CI for the exact merge SHA; report a post-merge failure as merged but
+unverified, without rollback or substituting a later main commit.
