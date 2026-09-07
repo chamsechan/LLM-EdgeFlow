@@ -110,6 +110,17 @@ TEST_F(RealModelE2ETest, RealQwenBatchExecutionWithPadding) {
 
 // 3. 真实模型接入 C ABI 全链路端到端验证
 TEST_F(RealModelE2ETest, RealModelCAbiEndToEnd) {
+  std::vector<std::string> sentences = {
+      "李雷在微软北京研发中心负责AI大模型芯片开发。"};
+  std::ifstream corpus(project_root_ / "data/corpus_entity_extract.txt");
+  ASSERT_TRUE(corpus.good());
+  std::string line;
+  while (std::getline(corpus, line)) {
+    const auto first = line.find_first_not_of(" \t\r\n");
+    if (first != std::string::npos && line[first] != '#')
+      sentences.push_back(line);
+  }
+  ASSERT_GT(sentences.size(), 1u) << "Public Profile corpus must not be empty";
   ASSERT_EQ(Alg_Init(), 0);
 
   const std::string cfg_path =
@@ -127,18 +138,25 @@ TEST_F(RealModelE2ETest, RealModelCAbiEndToEnd) {
   ASSERT_EQ(Alg_Create(&handle, &create_param), 0);
   ASSERT_NE(handle, nullptr);
 
-  CompanyEntityInputStruct req{99001,
-                               "李雷在微软北京研发中心负责AI大模型芯片开发。"};
-  std::vector<void*> inputs = {&req};
-
-  CompanyEntityOutputStruct out;
-  std::vector<void*> outputs = {&out};
-
-  int ret = Alg_Process(handle, inputs, outputs);
-  EXPECT_EQ(ret, 0);
-  EXPECT_EQ(out.request_id, 99001);
-
-  std::cout << "  [C ABI Real Model Output] " << out.entities_json << std::endl;
+  for (size_t i = 0; i < sentences.size(); ++i) {
+    SCOPED_TRACE(sentences[i]);
+    const uint64_t request_id = i == 0 ? 99001 : 30000 + i;
+    CompanyEntityInputStruct req{request_id, sentences[i].c_str()};
+    std::vector<void*> inputs = {&req};
+    CompanyEntityOutputStruct out{};
+    std::vector<void*> outputs = {&out};
+    const int ret = Alg_Process(handle, inputs, outputs);
+    EXPECT_EQ(ret, 0);
+    if (ret != 0) continue;
+    EXPECT_EQ(out.request_id, request_id);
+    EXPECT_EQ(out.status_code, 0);
+    const auto entities =
+        nlohmann::json::parse(out.entities_json, nullptr, false);
+    EXPECT_TRUE(entities.is_array()) << out.entities_json;
+    EXPECT_FALSE(entities.empty()) << out.entities_json;
+    std::cout << "  [C ABI Real Model Output] " << out.entities_json
+              << std::endl;
+  }
 
   EXPECT_EQ(Alg_Destroy(handle), 0);
   EXPECT_EQ(Alg_DeInit(), 0);

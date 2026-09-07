@@ -127,5 +127,38 @@ if [[ "${DELIVERY_MODE}" == "--pr-only" ]]; then
   exit 0
 fi
 
-gh pr merge "${BRANCH_NAME}" --merge --delete-branch
-gh pr view "${BRANCH_NAME}" --json number,url,state,mergedAt
+PR_NUMBER="$(gh pr view "${BRANCH_NAME}" --json number --jq '.number')"
+gh pr merge "${PR_NUMBER}" --merge --delete-branch
+if ! MERGE_SHA="$(gh pr view "${PR_NUMBER}" --json mergeCommit --jq '.mergeCommit.oid // empty')" || \
+   [[ -z "${MERGE_SHA}" ]]; then
+  echo "Error: cannot confirm the merge SHA of PR #${PR_NUMBER}; main CI was not verified."
+  exit 1
+fi
+
+echo "PR #${PR_NUMBER} merged as ${MERGE_SHA}; waiting up to 60 seconds for its main push CI..."
+RUN_ID=""
+for _ in $(seq 1 12); do
+  if ! RUN_ID="$(gh run list --workflow ci.yml --branch main --event push \
+    --commit "${MERGE_SHA}" --limit 1 --json databaseId --jq '.[0].databaseId // empty')"; then
+    echo "Error: PR #${PR_NUMBER} is merged, but its main CI could not be queried."
+    exit 1
+  fi
+  if [[ -n "${RUN_ID}" ]]; then
+    break
+  fi
+  sleep 5
+done
+if [[ -z "${RUN_ID}" ]]; then
+  echo "Error: PR #${PR_NUMBER} is merged, but no main push CI registered for ${MERGE_SHA}."
+  exit 1
+fi
+if ! gh run watch "${RUN_ID}" --exit-status; then
+  echo "Error: PR #${PR_NUMBER} is merged, but main CI run ${RUN_ID} did not pass for ${MERGE_SHA}."
+  exit 1
+fi
+if ! RUN_URL="$(gh run view "${RUN_ID}" --json conclusion,url \
+  --jq 'select(.conclusion == "success") | .url')" || [[ -z "${RUN_URL}" ]]; then
+  echo "Error: PR #${PR_NUMBER} is merged, but main CI run ${RUN_ID} has no confirmed success."
+  exit 1
+fi
+echo "PR #${PR_NUMBER} merged; main push CI passed for ${MERGE_SHA}: ${RUN_URL}"

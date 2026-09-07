@@ -114,5 +114,7 @@ Only when the user explicitly asks to merge, pass `--merge`:
 ./scripts/git_branch_upload.sh "<conventional commit message>" "<branch type>" --merge
 ```
 
-There is no direct-push or admin-merge fallback. A failed local gate, stale branch, missing
-GitHub CLI, absent CI checks, or failed CI leaves the branch/PR intact for correction.
+There is no direct-push or admin-merge fallback. Failures before merge leave the branch/PR
+intact for correction. After an authorized merge, delivery completes only when the `ci.yml`
+push run for that exact merge SHA succeeds; a failed, cancelled, or missing run must be
+reported as merged but unverified, without rollback or substitution of a later main commit.
