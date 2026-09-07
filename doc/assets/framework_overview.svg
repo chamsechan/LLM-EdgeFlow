@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="680" viewBox="0 0 1200 680" role="img" aria-labelledby="overview-title overview-description">
+  <title id="overview-title">LLM-EdgeFlow：从方案配置到算法结果</title>
+  <desc id="overview-description">通过 JSON 或 Pipeline Studio 定义方案，经统一校验形成执行计划。宿主输入由 C ABI 或 Operator 接入，Pipeline 组织并调度通用节点与自定义节点，结果经适配打包返回宿主。需要推理的节点通过 Model 调用 Backend。箭头表示构建与调用关系，不表示编译依赖。</desc>
+  <!-- Maintained directly as SVG source. The detailed architecture diagrams
+       are generated separately by scripts/render_architecture_diagrams.sh. -->
+  <defs>
+    <marker id="arrow-slate" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 1 1 L 9 5 L 1 9 Z" fill="#64748b"/>
+    </marker>
+    <marker id="arrow-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 1 1 L 9 5 L 1 9 Z" fill="#2563eb"/>
+    </marker>
+    <marker id="arrow-teal" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 1 1 L 9 5 L 1 9 Z" fill="#0f766e"/>
+    </marker>
+  </defs>
+
+  <rect x="1" y="1" width="1198" height="678" rx="20" fill="#ffffff" stroke="#dbe3ed" stroke-width="2"/>
+  <g font-family="'Noto Sans CJK SC', 'Microsoft YaHei', 'PingFang SC', sans-serif" fill="#172b4d">
+    <text x="40" y="53" font-size="30" font-weight="700">从方案配置到算法结果</text>
+    <text x="1160" y="50" text-anchor="end" font-size="20" font-weight="600" fill="#64748b">LLM-EdgeFlow</text>
+
+    <!-- Define a solution and validate it before execution. -->
+    <text x="40" y="130" font-size="23" font-weight="700" fill="#475569">方案定义</text>
+    <text x="40" y="160" font-size="18" fill="#64748b">配置与校验</text>
+
+    <rect x="264" y="92" width="270" height="96" rx="12" fill="#f8fafc" stroke="#cbd5e1" stroke-width="2"/>
+    <text x="288" y="132" font-size="22" font-weight="700">JSON / Studio</text>
+    <text x="288" y="164" font-size="18" fill="#475569">定义节点、连线与参数</text>
+
+    <path d="M 534 140 H 590" fill="none" stroke="#64748b" stroke-width="2.5" marker-end="url(#arrow-slate)"/>
+    <rect x="592" y="92" width="326" height="96" rx="12" fill="#f8fafc" stroke="#cbd5e1" stroke-width="2"/>
+    <text x="616" y="132" font-size="23" font-weight="700">统一校验</text>
+    <text x="616" y="164" font-size="18" fill="#475569">检查类型端口与依赖关系</text>
+    <path d="M 756 188 V 254" fill="none" stroke="#64748b" stroke-width="2.5" stroke-dasharray="6 5" marker-end="url(#arrow-slate)"/>
+    <text x="774" y="229" font-size="18" fill="#475569">执行计划</text>
+
+    <!-- The request passes through integration and the composed pipeline. -->
+    <text x="40" y="272" font-size="23" font-weight="700" fill="#1d4ed8">请求处理</text>
+
+    <rect x="40" y="302" width="166" height="108" rx="12" fill="#f8fafc" stroke="#cbd5e1" stroke-width="2"/>
+    <text x="123" y="344" text-anchor="middle" font-size="23" font-weight="700">宿主输入</text>
+    <text x="123" y="378" text-anchor="middle" font-size="17" fill="#475569">文本 / 图像 / 音频</text>
+    <path d="M 206 356 H 238" fill="none" stroke="#2563eb" stroke-width="2.5" marker-end="url(#arrow-blue)"/>
+
+    <rect x="240" y="302" width="200" height="108" rx="12" fill="#eff6ff" stroke="#93c5fd" stroke-width="2"/>
+    <text x="340" y="344" text-anchor="middle" font-size="23" font-weight="700">接入适配</text>
+    <text x="340" y="378" text-anchor="middle" font-size="19" fill="#475569">C ABI / Operator</text>
+    <path d="M 440 356 H 490" fill="none" stroke="#2563eb" stroke-width="2.5" marker-end="url(#arrow-blue)"/>
+
+    <rect x="492" y="256" width="426" height="204" rx="16" fill="#eff6ff" stroke="#60a5fa" stroke-width="2"/>
+    <text x="516" y="296" font-size="27" font-weight="700" fill="#1d4ed8">Pipeline</text>
+    <text x="894" y="296" text-anchor="end" font-size="19" fill="#475569">组织与调度算法节点</text>
+    <rect x="516" y="320" width="166" height="90" rx="10" fill="#ffffff" stroke="#bfdbfe" stroke-width="1.5"/>
+    <text x="599" y="356" text-anchor="middle" font-size="22" font-weight="700">通用 Node</text>
+    <text x="599" y="387" text-anchor="middle" font-size="18" fill="#475569">已有算法能力</text>
+    <text x="704" y="370" text-anchor="middle" font-size="26" fill="#64748b">+</text>
+    <rect x="726" y="320" width="168" height="90" rx="10" fill="#f5f3ff" stroke="#c4b5fd" stroke-width="1.5"/>
+    <text x="810" y="356" text-anchor="middle" font-size="22" font-weight="700" fill="#6d28d9">自定义 Node</text>
+    <text x="810" y="387" text-anchor="middle" font-size="18" fill="#475569">你的领域算法</text>
+    <text x="705" y="439" text-anchor="middle" font-size="18" fill="#475569">按需组合 · 跨方案复用</text>
+
+    <path d="M 918 356 H 972" fill="none" stroke="#2563eb" stroke-width="2.5" marker-end="url(#arrow-blue)"/>
+    <rect x="974" y="302" width="186" height="108" rx="12" fill="#f8fafc" stroke="#cbd5e1" stroke-width="2"/>
+    <text x="1067" y="344" text-anchor="middle" font-size="23" font-weight="700">结果输出</text>
+    <text x="1067" y="378" text-anchor="middle" font-size="18" fill="#475569">适配打包 → 宿主</text>
+
+    <!-- Inference is optional for a node; models own semantics, backends execution. -->
+    <text x="40" y="560" font-size="23" font-weight="700" fill="#0f766e">模型支撑</text>
+    <text x="40" y="590" font-size="18" fill="#64748b">需要模型的节点按需调用</text>
+
+    <path d="M 634 460 V 516" fill="none" stroke="#0f766e" stroke-width="2.5" marker-end="url(#arrow-teal)"/>
+    <text x="652" y="496" font-size="18" fill="#0f766e">模型能力接口</text>
+    <rect x="492" y="518" width="268" height="104" rx="12" fill="#f0fdfa" stroke="#99d5cb" stroke-width="2"/>
+    <text x="516" y="560" font-size="23" font-weight="700" fill="#115e59">Model 模型语义</text>
+    <text x="516" y="595" font-size="19" fill="#475569">预后处理与输出语义</text>
+    <path d="M 760 570 H 822" fill="none" stroke="#0f766e" stroke-width="2.5" marker-end="url(#arrow-teal)"/>
+    <rect x="824" y="518" width="336" height="104" rx="12" fill="#f0fdfa" stroke="#99d5cb" stroke-width="2"/>
+    <text x="848" y="560" font-size="23" font-weight="700" fill="#115e59">Backend 推理运行时</text>
+    <text x="848" y="595" font-size="19" fill="#475569">管理推理资源与设备执行</text>
+
+    <text x="40" y="655" font-size="16" fill="#64748b">工作原理概览 · 箭头表示方案构建与调用关系</text>
+  </g>
+</svg>
