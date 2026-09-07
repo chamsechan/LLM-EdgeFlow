@@ -2,7 +2,7 @@
 
 Use this reference for new modalities, public C structures, Adapter behavior, business registration, or allowed Pipeline names.
 
-Start with [business onboarding](../../../../doc/BUSINESS_ONBOARDING.md) to select the requested
+Start with [business onboarding](../../../../doc/dev_guide/business_onboarding.md) to select the requested
 integration path. Reuse the Adapter when the external contract is unchanged; an existing C ABI
 path edit does not automatically require a new Operator or Demo path. Adding a production
 Adapter to the current shared SDK does require a matching bridge: Operator `GlobalInit` audits

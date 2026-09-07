@@ -1,60 +1,28 @@
-# LLM-EdgeFlow RFC 需求与技术设计文档库 (RFC Directory)
+# RFC 架构与接口决策库
 
-本目录是需要长期保留的架构与接口决策及其验收记录。它不是所有需求、Bug 或任务的
-流水账；共享开发生命周期由 [`CONTRIBUTING.md`](../../CONTRIBUTING.md) 定义。
+本目录保存需要长期保留的架构与接口决策。首次开发从[任务导航](../README.md#按任务开始)
+进入；查阅历史 RFC 是为了理解决策背景，无需按编号通读。
 
----
+## 阅读顺序
 
-## 1. RFC 触发条件与生命周期
+- 查当前职责与接口：[架构设计](../architecture.md)和[开发者扩展指南](../developer_guide.md)。
+- 跟进尚未完成的设计或迁移：见下方进行中的 RFC。
+- 追溯已交付决策：从已完成索引进入正文；验证证据先看[评审归档入口](reviews/README.md)。
+- 查日期型审计与整改：[历史报告归档](../archive/README.md)。
 
-以下变更必须先建立 RFC：
+历史正文中的“当前”、阶段待办、代码路径与测试数量均对应当时基线。
+`Completed` 表示该 RFC 范围的实施与验证完成，不表示所有细节仍适用于最新版本，也不表示决策失效。
+索引使用当前职责名称；历史标题和正文保留决策时的术语。决策被后续 RFC 修改时，
+应明确取代范围，不能仅按编号或完成日期判断适用性。
 
-- 公共 C ABI、Operator 契约、持久 Pipeline Schema 或兼容行为；
-- 跨层责任、依赖方向或需要多层协同的架构机制；
-- 新的 Node、Model capability、Backend、模态或重大工具链；
-- 难以回退的所有权、生命周期、并发、安全或性能决策；
-- 需要下游协同的迁移与废弃。
+## 进行中的 RFC
 
-局部 Bug、测试补强、文档修正、无行为机械重构，以及复用现有节点的 Pipeline 配置通常
-不需要 RFC。先在独立分支创建并索引 RFC，再实现；交付前只运行
-`./scripts/run_all_tests.sh` 这一完整本地门禁，避免重复执行其内部的 format/CTest 步骤。
+| 编号 | 标题 | 状态 | 目标版本 | 涉及职责 | 链接 |
+| :--- | :--- | :---: | :---: | :--- | :--- |
+| **RFC-0029** | 外网架构收口与内网 SDK 迁移分阶段整改 | `In Implementation` | `v10.x / 待定` | 接入适配层、流程编排层、能力节点层、模型执行层 / Tooling | [0029-external-readiness-and-intranet-sdk-migration.md](0029-external-readiness-and-intranet-sdk-migration.md) |
+| **RFC-0036** | Whisper ASR 与 whisper.cpp Backend 接入设计及实施指南 | `In Implementation` | `v10.x` | 模型执行层 / Config / Demo / Build | [0036-whisper-asr-backend.md](0036-whisper-asr-backend.md) |
 
----
-
-## 2. RFC 生命周期状态
-
-每个 RFC 文档头部必须包含标准的 Metadata 状态标识：
-
-| 状态 (Status) | 说明 |
-| :--- | :--- |
-| **`Draft`** | 草案阶段：需求初步提出，方案正在探索与讨论中。 |
-| **`Proposed`** | 方案已成型，等待设计决策。 |
-| **`In Implementation`** | 方案已采用，代码、测试或迁移正在实施。 |
-| **`Completed`** | RFC 范围已实现，要求的验证已通过，同一提交集已具备合入条件。Git 合入状态不在文档中重复维护。 |
-| **`Deprecated`** / **`Rejected`** | 已废弃 / 已否决：方案被后续 RFC 取代或评审未通过。 |
-
----
-
-## 3. RFC 文件命名规范
-
-RFC 文档统一存放在 `doc/rfcs/` 根目录下，采用 **四位自增编号 + 英文小写破折号** 命名：
-
-```text
-doc/rfcs/NNNN-<kebab-case-title>.md
-```
-
-**示例**：
-- `doc/rfcs/0001-four-tier-architecture-foundation.md`
-- `doc/rfcs/0004-platform-operator-interface-compatibility.md`
-- `doc/rfcs/0005-audio-stream-vsl-support.md`
-
-使用 [`RFC_TEMPLATE.md`](RFC_TEMPLATE.md)；删除不适用章节，不要为满足模板而制造空洞内容。
-
----
-
-## 4. RFC 索引
-
-索引使用当前[职责名称](../architecture.md#1-架构总览)标注范围；历史标题与正文保留决策当时的术语。
+## 已完成的 RFC
 
 | 编号 | 标题 | 状态 | 目标版本 | 涉及职责 | 链接 |
 | :--- | :--- | :---: | :---: | :--- | :--- |
@@ -86,40 +54,46 @@ doc/rfcs/NNNN-<kebab-case-title>.md
 | **RFC-0026** | 统一 LLM 文本生成协议与多 Backend 实现 | `Completed` | `v9.0.0` | 能力节点层、模型执行层 | [0026-unified-llm-generation-backends.md](0026-unified-llm-generation-backends.md) |
 | **RFC-0027** | 正式接入前源码布局与 C++ 命名空间收敛 | `Completed` | `v10.0.0` | 接入适配层、流程编排层、能力节点层、模型执行层 / Tooling | [0027-preproduction-source-layout-and-namespace-convergence.md](0027-preproduction-source-layout-and-namespace-convergence.md) |
 | **RFC-0028** | v10.0.0 预发布运行时与 ABI 收口 | `Completed` | `v10.0.0` | 接入适配层、流程编排层、能力节点层、模型执行层 / Tooling | [0028-preproduction-runtime-and-abi-hardening.md](0028-preproduction-runtime-and-abi-hardening.md) |
-| **RFC-0029** | 外网架构收口与内网 SDK 迁移分阶段整改 | `In Implementation` | `v10.x / 待定` | 接入适配层、流程编排层、能力节点层、模型执行层 / Tooling | [0029-external-readiness-and-intranet-sdk-migration.md](0029-external-readiness-and-intranet-sdk-migration.md) |
 | **RFC-0030** | 编译期分层边界与轻量运行时计划契约 | `Completed` | `v10.x` | 接入适配层、流程编排层、能力节点层、模型执行层 / Build | [0030-compile-time-layer-boundaries.md](0030-compile-time-layer-boundaries.md) |
 | **RFC-0031** | 业务 Blackboard Key 所有权拆分 | `Completed` | `v10.x` | 接入适配层、流程编排层、能力节点层 | [0031-business-blackboard-key-ownership.md](0031-business-blackboard-key-ownership.md) |
 | **RFC-0032** | 从 GitHub 发布包直接接入 kiteLLM | `Completed` | `v10.x` | 模型执行层 / Build | [0032-kitellm-direct-github-dependency.md](0032-kitellm-direct-github-dependency.md) |
 | **RFC-0033** | 按 kiteLLM 原生接口传递设备选择 | `Completed` | `v10.x` | 模型执行层 / Build | [0033-kitellm-native-device-contract.md](0033-kitellm-native-device-contract.md) |
 | **RFC-0034** | Kite 原生能力在现有业务中的完整接入 | `Completed` | `v10.x` | 模型执行层 / Config / Build | [0034-kitellm-capability-coverage.md](0034-kitellm-capability-coverage.md) |
 | **RFC-0035** | Kite 生成 token 向量与中性 Embedding 接入 | `Completed` | `v10.x` | 模型执行层 / Config / Build | [0035-generated-token-embedding.md](0035-generated-token-embedding.md) |
-| **RFC-0036** | Whisper ASR 与 whisper.cpp Backend 接入设计及实施指南 | `In Implementation` | `v10.x` | 模型执行层 / Config / Demo / Build | [0036-whisper-asr-backend.md](0036-whisper-asr-backend.md) |
 | **RFC-0037** | 审计问题的五阶段最小整改 | `Completed` | `v10.x` | 接入适配层、流程编排层、能力节点层 / Tooling | [0037-audit-remediation.md](0037-audit-remediation.md) |
 | **RFC-0038** | 自定义 Node 的统一源码扩展目录 | `Completed` | `v10.x` | 能力节点层 / Build / Governance | [0038-custom-node-extension-directory.md](0038-custom-node-extension-directory.md) |
 | **RFC-0039** | 自定义节点开发路径与失败契约修复 | `Completed` | `v10.x` | 接入适配层、流程编排层、能力节点层 / Tooling / Demo | [0039-custom-node-authoring-closure.md](0039-custom-node-authoring-closure.md) |
-
 | **RFC-0040** | 上线前实现、验证与命名收敛 | `Completed` | `v10.x` | 四层 / Build / Tooling | [0040-prelaunch-audit-convergence.md](0040-prelaunch-audit-convergence.md) |
 | **RFC-0041** | Control 开发路径的最小收敛 | `Completed` | `v10.x` | 接入适配层、流程编排层、能力节点层 / Tooling / Demo | [0041-control-authoring.md](0041-control-authoring.md) |
 
----
+## 专项验收与评审归档
 
-## 5. 专项验收与评审归档
+[评审归档](reviews/README.md)按 RFC 聚合结论、验收证据和阶段材料。
+例如 RFC-0015 可先读决策摘要与阶段 7 最终验收，需要追溯某次迁移时再展开阶段记录。
+历史报告中的 FAIL、未勾选任务或旧生命周期说明保留原始上下文，不作为新任务直接执行。
 
-重大特性的独立评审与验收记录归档于 `doc/rfcs/reviews/`：
+## RFC 生命周期状态
 
-- [RFC-0001 初始架构验收评审报告](reviews/0001-four-tier-architecture-acceptance.md)
-- [RFC-0003 Pipeline 黑板重构验收报告](reviews/0003-pipeline-dynamic-blackboard-acceptance.md)
-- [RFC-0004 平台 Operator 兼容层验收报告](reviews/0004-platform-operator-interface-acceptance.md)
-- [RFC-0005 参数化业务 Demo Runner 验收评审报告](reviews/0005-parameterized-business-demo-runner-acceptance.md)
-- [RFC-0008 架构契约收敛剩余整改计划](reviews/0008-architecture-contract-consolidation-remediation-plan.md)
-- [RFC-0008 架构契约收敛独立验收报告](reviews/0008-architecture-contract-consolidation-acceptance.md)
-- [RFC-0008 架构契约收敛复审报告（2026-08-26）](reviews/0008-architecture-contract-consolidation-convergence-review-20260826.md)
-- [RFC-0012 Node 架构改造验收与整改指南（2026-08-27）](reviews/0012-node-authoring-experience-acceptance-review-20260827.md)
-- [RFC-0015 阶段 3 ONNX Embedding 验收与整改](reviews/0015-stage3-onnx-embedding-acceptance-remediation-20260829.md)
-- [RFC-0015 阶段 4 Rerank 验收](reviews/0015-stage4-rerank-acceptance-20260829.md)
-- [RFC-0015 阶段 5 llama.cpp + Qwen LLM 验收](reviews/0015-stage5-llm-acceptance-20260829.md)
-- [RFC-0015 阶段 6 OCR/ASR 与测试替身验收](reviews/0015-stage6-ocr-asr-fixtures-acceptance-20260829.md)
-- [RFC-0015 阶段 7 收口与最终验收](reviews/0015-stage7-closeout-acceptance-20260829.md)
-- [RFC-0025 部署运行时契约收敛验收](reviews/0025-deployment-runtime-contract-convergence-acceptance-20260901.md)
-- [框架全面审查方案](reviews/framework_comprehensive_review_plan.md)
-- [框架全面审查与问题收敛报告](reviews/framework_comprehensive_review_report.md)
+| 状态 | 说明 |
+| --- | --- |
+| `Draft` | 草案阶段，需求和方案仍在探索。 |
+| `Proposed` | 方案已成型，等待设计决策。 |
+| `In Implementation` | 方案已采用，代码、测试或迁移正在实施。 |
+| `Completed` | 范围内实现和要求的验证已完成，同一提交集具备合入条件；Git 合入状态不在文档中重复维护。 |
+| `Deprecated` / `Rejected` | 方案已废弃或被否决；注明原因及适用的后续决策。 |
+
+## 编写与维护
+
+是否需要 RFC，以及分支、实施和交付要求，统一遵循
+[CONTRIBUTING.md](../../CONTRIBUTING.md#3-design-only-when-the-decision-needs-a-durable-record)。
+局部修复、测试补强、文档修正、机械重构和复用已有能力的方案配置通常不需要 RFC。
+
+编号正文统一保留在 `doc/rfcs/NNNN-<kebab-case-title>.md`，使用四位自增编号，
+例如 `0041-control-authoring.md`。从 [RFC_TEMPLATE.md](RFC_TEMPLATE.md) 开始，
+删除不适用小节，按决策复杂度说明问题、方案、权衡和验收。
+
+- 每篇正文头部维护标准状态，索引中保留一行对应记录；状态变化时同步移动到相应分组。
+- 完成时优先在原 RFC 补充最终结果与现行指南链接，阶段进度直接更新原记录。
+- 独立评审确有额外证据时放入 `reviews/` 并更新其索引，不为普通进度另建接续指南。
+- 已完成 RFC 保留正文与编号路径；历史报告保留独有决策、失败证据、验收基线和验证限制。
+- 日期型审计、整改记录和已完成计划归入 `doc/archive/`；待完成的普通规划放在 `doc/plans/`。

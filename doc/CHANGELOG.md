@@ -35,7 +35,7 @@
 - PromptGuidedLlmNode 只替换原始模板，校验 context 连接与 stop_words；模型失败、数量或来源异常时不发布输出。删除并拒绝 `fallback_text`，模板字面花括号使用 `{{` / `}}`，上下文通过 `{context}` 显式插入。
 - 新增实体抽取、文档问答两个 custom smoke Profile，复用同一节点与现有 Adapter，验证统一 Demo 输出内容及请求编号。
 - Demo 类型绑定完全由必填注册描述符提供，删除中央业务名兜底；明确新平台结构仍需 Layer 1 转换。
-- 更新[作者指南](../src/custom_nodes/README.md)和[实施规划](SOLUTION_DEVELOPER_ARCHITECTURE_PLAN.md)，区分工程路径、开发者试用与生产验收。
+- 更新[作者指南](../src/custom_nodes/README.md)和[实施规划](plans/solution_developer_acceptance.md)，区分工程路径、开发者试用与生产验收。
 
 ## 2026-09-06 方案开发者自定义 Node 脚手架与研发支持
 
@@ -58,12 +58,12 @@
 - 增加 default-cpu、kite-cpu、minimal 构建 preset；选择检查对比实际 Catalog 并记录执行文件指纹。
 - 增加基于真实 Demo 执行、标注字段比较及指纹过期检测的业务验收工具；关闭 Demo 默认覆盖，保证评估所选 Pipeline。
 - 收敛 Whisper 示例的模型根路径约定。新增资产损坏/缺失/变更、构建不匹配、实际效果与旧证据失效测试。
-- [交付记录](AUDIT_REMEDIATION_REPORT_2026-09-06.md) 与 [使用指南](VERIFIABLE_SELECTION.md) 说明实际验证范围和未完成的其他审计事项。
+- [交付记录](archive/AUDIT_REMEDIATION_REPORT_2026-09-06.md) 与 [使用指南](VERIFIABLE_SELECTION.md) 说明实际验证范围和未完成的其他审计事项。
 
 ## 2026-09-06 审计整改（阶段 4）
 
 - 七个内置 Adapter 用同一份 PackTyped 逻辑生成固定 C ABI 输出与 Operator 可变长结果，去除 Operator 中间固定字符串数组瓶颈。
-- 单槽 Operator bridge 共用描述符/槽位/结果分配构造函数；新增 [业务接入说明](BUSINESS_ONBOARDING.md)。
+- 单槽 Operator bridge 共用描述符/槽位/结果分配构造函数；新增 [业务接入说明](dev_guide/business_onboarding.md)。
 - 新增长文档结果与真实 Operator 大结果、容量失败回滚/租约复用验证；统一门禁 89 项通过，公共 C11 ABI 与已有业务集成回归成功。
 
 ## 2026-09-06 审计整改（阶段 3）

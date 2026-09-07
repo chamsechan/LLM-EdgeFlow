@@ -8,7 +8,7 @@ description: Route LLM-EdgeFlow implementation across Integration, Orchestration
 First classify the requested change. Read only the references needed for the affected layer; do not load every reference by default.
 
 - New modality, C ABI structure/function behavior, Adapter, Operator bridge, or allowed runtime Pipeline name: read [Integration](references/integration.md).
-- Demo dataset/result conversion or registration: follow [business onboarding](../../../doc/BUSINESS_ONBOARDING.md#统一-demo-接入). Load Integration only if the external contract or bridge also changes.
+- Demo dataset/result conversion or registration: follow [business onboarding](../../../doc/dev_guide/business_onboarding.md#统一-demo-接入). Load Integration only if the external contract or bridge also changes.
 - Pipeline lifecycle, Validator, DAG planning, `AlgContext`, `BlackboardKey`, or session behavior: read [Orchestration](references/orchestration.md).
 - New or modified capability Node and its Definition: read [Capability Nodes](references/capability-nodes.md).
 - New Model semantics/capability, inference Backend, neutral protocol, or batch behavior: read [Model Execution](references/model-execution.md).

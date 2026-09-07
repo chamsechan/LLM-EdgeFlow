@@ -1,5 +1,9 @@
 # RFC 0009: 公司平台 C 结构体槽位绑定与输出内存池
 
+> 历史决策阅读提示：本文的类型、接口与迁移步骤对应决策当时的版本。
+> 当前接入方式见[业务接入指南](../dev_guide/business_onboarding.md)，
+> 原始验收与整改过程见[评审归档](reviews/README.md)。
+
 - **RFC 编号**：0009-company-string-and-slot-map-struct-binding
 - **创建日期**：2026-08-26
 - **文档状态**：Completed

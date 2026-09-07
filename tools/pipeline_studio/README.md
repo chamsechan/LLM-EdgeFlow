@@ -69,7 +69,7 @@ cmake --build build -j$(nproc)
 
 该练习复用已有 Node、Adapter 与数据集。缺失业务算法时转到
 [第一个自定义 Node](../../doc/dev_guide/first_custom_node.md)，新平台结构转到
-[业务接入指南](../../doc/BUSINESS_ONBOARDING.md)。
+[业务接入指南](../../doc/dev_guide/business_onboarding.md)。
 
 ## 自动化 CLI
 

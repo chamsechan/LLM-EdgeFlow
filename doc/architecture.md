@@ -198,6 +198,16 @@ C++ Operator API：NamedIoBatch + Operator 镜像 C 结构 ─┘
   4. **固定 Max Batch 自动调度（`FixedBatchExecutor`）**：完成批次切分、Dummy Pad、Pad 剔除和 `(req_id, sub_id)` 溯源；
   5. 切换 NPU/GPU/CPU 或 LLM 生成引擎只改 JSON 中的 `backend`、`model_path` 与 `backend_config`，不改业务 Node 或模型语义实现。
 
+图像文档识别沿用 `OcrDetectNode → IOcrModel`：`VisionDocumentModel` 在模型执行层
+通过中性 `IImageTextGenerationSession` 调用 Kite，Model 负责图像解码与识别指令，
+Backend 负责原生 RGB/聊天输入映射和运行资源。识别结果仅填充 `combined_text`，不伪造
+`boxes` 或置信度；原有 C ABI/Operator、DAG 端口和请求溯源保持原样。
+
+生成向量接入遵循相同分层：`generated_text_embedding` 实现 `IEmbeddingModel`，
+经 `IGeneratedTokenEmbeddingSession` 获得生成 token 隐藏向量；Model 独占 prompt、
+池化及归一化语义，Backend 独占原生任务和输出内存。该向量空间与 BGE encoder
+不同，既有 ONNX 模型和配置保持可用，见 [RFC-0035](rfcs/0035-generated-token-embedding.md)。
+
 ### 编译期边界与 Composition Root
 
 各层按总览表中的职责目标独立编译，只链接其下方的
@@ -260,102 +270,12 @@ sequenceDiagram
 
 ---
 
-## 4. 算法开发者新增节点示例
+## 4. 开发入口
 
-以下仅展示节点实现骨架。新增完整业务仍须按 RFC-first 流程同时提供 Business
-Adapter/Definition、Pipeline JSON、GoogleTest，并通过完整门禁；不得把本节理解为
-“三步即可交付一个业务”。
+节点实现与 Pipeline 连线的完整练习统一维护在[第一个自定义 Node](dev_guide/first_custom_node.md)，
+运行时更新见[第一个 Control](dev_guide/first_control.md)。源码布局、构建登记与复用见
+[自定义 Node 源码指南](../src/custom_nodes/README.md)。
 
-### 步骤 1：新建算子源文件并继承 `NodeBase`
-
-```cpp
-#include "core/node_registry.h"
-#include "nodes/node_base.h"
-
-namespace llm_edgeflow {
-
-inline constexpr BlackboardKey<std::string> kInputText{"input_text", "string"};
-inline constexpr BlackboardKey<std::string> kOutputText{"output_text", "string"};
-
-class MyCustomNode final : public NodeBase {
- public:
-  inline static constexpr char kNodeType[] = "MyCustomNode";
-
-  MyCustomNode() : NodeBase(kNodeType) {}
-
- protected:
-  // 1. 初始化：读取私有配置
-  bool InitNode(const nlohmann::json& config,
-                SessionContext& /*session_ctx*/) override {
-    threshold_ = config.value("threshold", 0.8f);
-    return true;
-  }
-
-  // 2. 执行业务计算：通过 Require / Publish 读写强类型黑板
-  int ProcessNode(AlgContext& req_ctx) override {
-    const auto* input = Require(req_ctx, kInputText, -9001);
-    if (!input) return -9001;
-
-    std::string result = *input + "_processed";
-    Publish(req_ctx, kOutputText, std::move(result));
-    return 0;
-  }
-
- private:
-  float threshold_ = 0.8f;
-};
-
-// 3. 声明元数据定义并自注册
-NodeDefinition MakeMyCustomNodeDefinition() {
-  NodeDefinition def;
-  def.node_type = MyCustomNode::kNodeType;
-  def.category = "business";
-  def.description = "My custom business processing node";
-  def.inputs = {RequiredInput(kInputText)};
-  def.outputs = {Output(kOutputText)};
-  def.config_fields = {ConfigFieldDefinition{
-      "threshold", ConfigValueKind::kNumber, false, 0.8, 0.0, 1.0}};
-  def.parallel_safe = true;
-  return def;
-}
-
-REGISTER_NODE_WITH_DEFINITION(MyCustomNode, MakeMyCustomNodeDefinition());
-
-} // namespace llm_edgeflow
-```
-
-### 步骤 2：编写业务配置文件（JSON）
-
-在 `configs/` 下新建配置文件，自由编排模型和算子顺序：
-
-```json
-{
-  "biz_name": "my_new_biz",
-  "models": [
-    {
-      "model_id": "my_llm",
-      "capability": "llm",
-      "model_type": "qwen_causal_lm",
-      "backend": "llama_cpp",
-      "model_path": "my_llm.gguf",
-      "model_config": {},
-      "backend_config": {"context_size": 2048}
-    }
-  ],
-  "pipeline": [
-    { "id": "node_0", "node_type": "MyCustomNode", "config": { "threshold": 0.9 } }
-  ]
-}
-```
-
-### 步骤 3：交付配置文件与算法库即可！
-
-图像文档识别沿用 `OcrDetectNode → IOcrModel`：`VisionDocumentModel` 在模型执行层
-通过中性 `IImageTextGenerationSession` 调用 Kite，Model 负责图像解码与识别指令，
-Backend 负责原生 RGB/聊天输入映射和运行资源。识别结果仅填充 `combined_text`，不伪造
-`boxes` 或置信度；原有 C ABI/Operator、DAG 端口和请求溯源保持原样。
-
-生成向量接入遵循相同分层：`generated_text_embedding` 实现 `IEmbeddingModel`，
-经 `IGeneratedTokenEmbeddingSession` 获得生成 token 隐藏向量；Model 独占 prompt、
-池化及归一化语义，Backend 独占原生任务和输出内存。该向量空间与 BGE encoder
-不同，既有 ONNX 模型和配置保持可用，见 [RFC-0035](rfcs/0035-generated-token-embedding.md)。
+已有外部契约的方案先复用 Catalog 操作；新增平台结构按[业务接入指南](dev_guide/business_onboarding.md)
+实现接入适配。进阶接口见[开发者扩展指南](developer_guide.md)，任务分级与验证见
+[CONTRIBUTING](../CONTRIBUTING.md)。

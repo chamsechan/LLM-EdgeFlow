@@ -14,6 +14,6 @@
 
 以参与编译的头文件为准，文档不再复制完整实现。
 
-新增生产业务时，参考[业务接入说明](../../BUSINESS_ONBOARDING.md)和
+新增生产业务时，参考[业务接入说明](../business_onboarding.md)和
 [现有 Adapter](../../../src/adapter/adapters/)，通过 `alg_pipeline_tool catalog`
 查询实际注册的业务与端口契约。

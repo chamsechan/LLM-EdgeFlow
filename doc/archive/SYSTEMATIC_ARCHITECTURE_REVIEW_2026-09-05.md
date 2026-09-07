@@ -1,5 +1,9 @@
 # LLM-EdgeFlow 系统性架构、业务适配与易用性审计报告
 
+> 历史审计：正文保留 2026-09-05 的问题与建议。选定整改项的后续结果见
+> [RFC-0037](../rfcs/0037-audit-remediation.md)与[五阶段交付记录](AUDIT_REMEDIATION_REPORT_2026-09-06.md)；
+> 这些整改不代表原报告所有建议均已完成。
+
 > 审计日期：2026-09-05。代码基线：`8e1be8ca0f53e6e2822c3a5d636441a8c9961e4e`。
 > 审计开始时 HEAD 为 `68f867d`，期间主线完成合并；两者 Git tree 内容一致，不影响本次证据。
 > 目标：判断后续开发能否集中在业务 Node、外部结构体转换和可视化方案组合，Model / Backend 主要通过选择复用。
@@ -53,7 +57,7 @@
 
 临时探针与原始输出位于 `/tmp/edgeflow-audit-20260905/`，统一门禁日志位于 `/tmp/edgeflow-audit-gate-20260905.log`。这些是本次工作区证据，不是交付依赖；本文已经保存输入场景、观察结果和源码位置。
 
-**没有执行或声称完成**：所有真实权重的端到端重验、目标 NPU/GPU 验收、大规模负载/内存基准、浏览器视觉或交互自动化、新一轮 sanitizer 全量运行。读取 CI 定义不代表远程 CI 已在本次审计中运行。公司内网 SDK 未访问；其接入继续受 [RFC-0029](rfcs/0029-external-readiness-and-intranet-sdk-migration.md) 的阶段边界约束。
+**没有执行或声称完成**：所有真实权重的端到端重验、目标 NPU/GPU 验收、大规模负载/内存基准、浏览器视觉或交互自动化、新一轮 sanitizer 全量运行。读取 CI 定义不代表远程 CI 已在本次审计中运行。公司内网 SDK 未访问；其接入继续受 [RFC-0029](../rfcs/0029-external-readiness-and-intranet-sdk-migration.md) 的阶段边界约束。
 
 ### 2.2 严重性定义
 
@@ -79,7 +83,7 @@
 - 固定批处理集中使用 `FixedBatchExecutor::Execute`，统一处理补齐移除、输出数量和来源标识。
 - 独立层级 OBJECT target、共享库符号控制、默认测试门禁和真实模型 CI 入口已经建立。
 
-证据：[构建目标](../CMakeLists.txt#L103)、[运行时组装](../src/core/pipeline.cpp#L438)、[黑板](../include/core/alg_context.h#L17)、[Session 资源](../include/core/session_context.h#L233)、[模型工厂](../src/engine/runtime/model_runtime_factory.cpp#L24)、[固定批执行](../include/engine/fixed_batch_executor.h#L27)。
+证据：[构建目标](../../CMakeLists.txt#L103)、[运行时组装](../../src/core/pipeline.cpp#L438)、[黑板](../../include/core/alg_context.h#L17)、[Session 资源](../../include/core/session_context.h#L233)、[模型工厂](../../src/engine/runtime/model_runtime_factory.cpp#L24)、[固定批执行](../../include/engine/fixed_batch_executor.h#L27)。
 
 ### 3.2 实际业务链路中的复杂度
 
@@ -111,13 +115,13 @@ flowchart LR
 
 | 历史问题 | 当前状态 |
 | --- | --- |
-| Node 输出覆盖 Adapter ingress 未被拦截 | 已有 `$ingress` 冲突检查，见 [Validator](../src/core/pipeline_validator.cpp#L923)。 |
-| 产品版本与公共头不同步 | 版本头已由 CMake 生成，见 [构建配置](../CMakeLists.txt#L52)。 |
+| Node 输出覆盖 Adapter ingress 未被拦截 | 已有 `$ingress` 冲突检查，见 [Validator](../../src/core/pipeline_validator.cpp#L923)。 |
+| 产品版本与公共头不同步 | 版本头已由 CMake 生成，见 [构建配置](../../CMakeLists.txt#L52)。 |
 | 大量 Node/厂商实现符号泄漏 | 版本脚本与 visibility 已生效；本次观察为 12 个函数导出。 |
 | 所有源文件直接塞入一个编译目标 | 已建立四层 OBJECT target 与 composition target；头可见性还有改进空间。 |
-| Core 存放业务 Blackboard keys | 已迁至 [Adapter keys](../include/adapter/biz_blackboard_keys.h)，下层包含受到门禁限制。 |
+| Core 存放业务 Blackboard keys | 已迁至 [Adapter keys](../../include/adapter/biz_blackboard_keys.h)，下层包含受到门禁限制。 |
 | Session 资源读取缺少类型检测 | 已有 `SessionResourceKey<T>` 和 `type_index` 检查。 |
-| Catalog 返回可能失效的内部引用 | 已改为值返回与快照，见 [Catalog](../src/core/pipeline_catalog.cpp#L306)。 |
+| Catalog 返回可能失效的内部引用 | 已改为值返回与快照，见 [Catalog](../../src/core/pipeline_catalog.cpp#L306)。 |
 
 ## 4. P1 问题：相关业务投产前处理
 
@@ -125,9 +129,9 @@ flowchart LR
 
 **性质：已复现的业务正确性缺陷。**
 
-默认 [对话审核配置](../configs/pipeline_dialogue_audit.json#L191) 的 Prompt 要求输出 `risk_level` 等字段，却没有要求输出下游必需的 `risk_score`。同一文件的 [解析配置](../configs/pipeline_dialogue_audit.json#L229) 要求 `risk_score`，没有显式指定 `failure_policy`，因此使用 `configured_fallback`，回退内容是“合规 / SAFE / 0.10 / 无违规内容”。
+默认 [对话审核配置](../../configs/pipeline_dialogue_audit.json#L191) 的 Prompt 要求输出 `risk_level` 等字段，却没有要求输出下游必需的 `risk_score`。同一文件的 [解析配置](../../configs/pipeline_dialogue_audit.json#L229) 要求 `risk_score`，没有显式指定 `failure_policy`，因此使用 `configured_fallback`，回退内容是“合规 / SAFE / 0.10 / 无违规内容”。
 
-[解析 Node](../src/common_nodes/structured_json_parse_node.cpp#L96) 在校验失败后产出回退文档；[审核 Adapter](../src/adapter/adapters/compliance_audit_adapter.cpp#L129) 只检查字段存在与类型，没有依据 `is_valid`、`parse_status` 决定输出状态，并在第 150 行设置 `status_code = 0`。
+[解析 Node](../../src/common_nodes/structured_json_parse_node.cpp#L96) 在校验失败后产出回退文档；[审核 Adapter](../../src/adapter/adapters/compliance_audit_adapter.cpp#L129) 只检查字段存在与类型，没有依据 `is_valid`、`parse_status` 决定输出状态，并在第 150 行设置 `status_code = 0`。
 
 **复现**：使用生产配置中的解析参数，输入 `{"risk_level":"HIGH_RISK"}`，再调用真实审核 Adapter 打包：
 
@@ -137,9 +141,9 @@ flowchart LR
 
 这证明缺失一个字段可以把高风险内容转成成功的安全结论；不需要猜测真实模型输出概率。若调用方据此自动放行，会产生业务漏判。
 
-**范围说明**：Kite 版本已经要求 `risk_score` 且显式使用 `failure_policy: "fail"`，见 [Kite 配置](../configs/kite/pipeline_dialogue_audit.json#L184)。本结论不把该改进错误归为未修复。该修复尚未统一到默认版本。
+**范围说明**：Kite 版本已经要求 `risk_score` 且显式使用 `failure_policy: "fail"`，见 [Kite 配置](../../configs/kite/pipeline_dialogue_audit.json#L184)。本结论不把该改进错误归为未修复。该修复尚未统一到默认版本。
 
-另有同根问题：`emit_diagnostic` 遇到空字符串时，[提前返回分支](../src/common_nodes/structured_json_parse_node.cpp#L169) 仍生成 `is_valid=true, parse_status=3`，而不是失败诊断。探针已复现。
+另有同根问题：`emit_diagnostic` 遇到空字符串时，[提前返回分支](../../src/common_nodes/structured_json_parse_node.cpp#L169) 仍生成 `is_valid=true, parse_status=3`，而不是失败诊断。探针已复现。
 
 **建议**：统一审核方案的必需字段；失败返回失败或明确的 `UNKNOWN/REVIEW_REQUIRED`，不能推断为 SAFE；Layer 1 必须保留或映射解析质量状态。风险等级枚举、分数有限性和 0–1 范围也应在业务契约中校验。对通用解析 Node 保留“可配置回退”能力，但由业务决定能否接受回退。
 
@@ -149,7 +153,7 @@ flowchart LR
 
 **性质：已复现的 Core/Node 契约缺陷。**
 
-[Validator](../src/core/pipeline_validator.cpp#L767) 为所有输入加入实际 key，即使可选端口没有显式绑定；随后第 782 行跳过该端口的生产者/依赖校验。[NodeBase 绑定](../include/nodes/node_support.h#L187) 则把这些端口视作已绑定，[`BoundInput::Get`](../include/nodes/node_support.h#L48) 无条件读取实际 key。[模板 Node](../src/common_nodes/text_template_node.cpp#L216) 会读取所有可选上下文端口。
+[Validator](../../src/core/pipeline_validator.cpp#L767) 为所有输入加入实际 key，即使可选端口没有显式绑定；随后第 782 行跳过该端口的生产者/依赖校验。[NodeBase 绑定](../../include/nodes/node_support.h#L187) 则把这些端口视作已绑定，[`BoundInput::Get`](../../include/nodes/node_support.h#L48) 无条件读取实际 key。[模板 Node](../../src/common_nodes/text_template_node.cpp#L216) 会读取所有可选上下文端口。
 
 **复现**：在合法的关键词 Pipeline 中增加两个模板 Node：
 
@@ -164,7 +168,7 @@ flowchart LR
 
 B 读取了配置中未声明的数据。若两者同波前并行，值是否可见还依赖调度时序；这一点是源码推断，本次没有把并行不确定性伪装成已经统计复现。
 
-该问题还使 [模板初始化](../src/common_nodes/text_template_node.cpp#L87) 的 `in_attributes_.IsBound()` 在普通已规划实例中为真，削弱 `allow_dynamic_attributes: false` 的预期约束。
+该问题还使 [模板初始化](../../src/common_nodes/text_template_node.cpp#L87) 的 `in_attributes_.IsBound()` 在普通已规划实例中为真，削弱 `allow_dynamic_attributes: false` 的预期约束。
 
 **建议**：`ResolvedPortBinding` 明确区分“实际连接”“必需端口默认绑定”“未连接可选端口”；未连接可选端口的 `Get/Has` 不应读取黑板。保留确实需要的必需端口默认语义；调整测试辅助初始化路径，避免用未规划 Node 的行为掩盖生产路径差异。
 
@@ -174,7 +178,7 @@ B 读取了配置中未声明的数据。若两者同波前并行，值是否可
 
 **性质：已复现的批处理关联缺陷。**
 
-[审核 Adapter](../src/adapter/adapters/compliance_audit_adapter.cpp#L114) 只要求 `matched_policies.size() >= verdicts.size()`，随后使用 `matched_policies[i]` 和 `raw_req_ids[i]` 打包，没有按 `req_id` 与候选排名关联。
+[审核 Adapter](../../src/adapter/adapters/compliance_audit_adapter.cpp#L114) 只要求 `matched_policies.size() >= verdicts.size()`，随后使用 `matched_policies[i]` 和 `raw_req_ids[i]` 打包，没有按 `req_id` 与候选排名关联。
 
 把生产审核方案的 Rerank `top_k` 从 1 改为 2，Validator 仍通过。两条请求的合法排名输出会按请求分组为：
 
@@ -189,9 +193,9 @@ req 1: TOP1, TOP2
 {"validate_topk2":true,"pack_ret":0,"request_id":200,"policy":"REQ0_TOP2"}
 ```
 
-探针分别验证了配置被接受和 Adapter 对合法形状数据的打包；没有运行真实 Embedding/Rerank 推理。Rerank 输出按请求分组的行为可见 [TextRerankNode](../src/common_nodes/text_rerank_node.cpp#L137)。
+探针分别验证了配置被接受和 Adapter 对合法形状数据的打包；没有运行真实 Embedding/Rerank 推理。Rerank 输出按请求分组的行为可见 [TextRerankNode](../../src/common_nodes/text_rerank_node.cpp#L137)。
 
-[业务 egress 校验](../src/core/pipeline_validator.cpp#L943) 目前只比较 key 与类型，没有闭合业务出口的 cardinality/provenance。其他 Adapter 也存在位置读取，不能只修单个下标而忽略整体出口协议。
+[业务 egress 校验](../../src/core/pipeline_validator.cpp#L943) 目前只比较 key 与类型，没有闭合业务出口的 cardinality/provenance。其他 Adapter 也存在位置读取，不能只修单个下标而忽略整体出口协议。
 
 **建议**：Layer 1 统一验证 `(req_id, sub_id)` 的数量、唯一性、范围和分组，按外部请求映射打包；一个外部字段只允许单条结果时，明确选择首名、聚合或拒绝多条。静态 egress 校验与运行时关联检查共同承担责任。不能直接要求所有 `1:N` Node 都不允许接业务出口，否则现有 `top_k=1` 的有效方案也会被误伤。
 
@@ -201,7 +205,7 @@ req 1: TOP1, TOP2
 
 **性质：已复现的隔离语义缺陷；触发条件明确。**
 
-[VectorTopKNode](../src/common_nodes/vector_top_k_node.cpp#L72) 把“候选只有一个请求分组，且 req_id 为 0”解释为全局共享候选库。但 Adapter 同样使用 `0` 表示批次中的第一条普通请求；数据标识与资源作用域复用了同一值。
+[VectorTopKNode](../../src/common_nodes/vector_top_k_node.cpp#L72) 把“候选只有一个请求分组，且 req_id 为 0”解释为全局共享候选库。但 Adapter 同样使用 `0` 表示批次中的第一条普通请求；数据标识与资源作用域复用了同一值。
 
 **复现**：query 属于 req 0 与 req 1，候选只有 req 0 的一条私有文本。Node 成功返回：
 
@@ -214,7 +218,7 @@ req 1: TOP1, TOP2
 
 当未来过滤 Node 去掉其他请求的候选、或业务采用稀疏候选输入时，会触发串用。现有 `TextCorpusSourceNode` 的静态共享语料确实需要广播，所以不能简单删除广播并宣布修复。当前默认文档分块对空文本仍生成一条空 chunk，本次没有证明默认 DocQA 路径必然触发此问题。
 
-**建议**：增加显式的共享/按请求作用域声明，或分离共享候选契约；规划与 Node 都消费同一声明，默认按请求隔离。共享库 ID 和请求 ID 不应依靠数值猜测。向量与候选文本也应严格按来源标识关联，去掉 [按数组位置找文本的 fallback](../src/common_nodes/vector_top_k_node.cpp#L114)。
+**建议**：增加显式的共享/按请求作用域声明，或分离共享候选契约；规划与 Node 都消费同一声明，默认按请求隔离。共享库 ID 和请求 ID 不应依靠数值猜测。向量与候选文本也应严格按来源标识关联，去掉 [按数组位置找文本的 fallback](../../src/common_nodes/vector_top_k_node.cpp#L114)。
 
 **验收**：缺少某请求候选时该请求为空结果或明确失败；只有明确声明共享语料的方案才广播。
 
@@ -222,7 +226,7 @@ req 1: TOP1, TOP2
 
 **性质：已复现的公开能力缺口及业务适配问题。**
 
-[Operator 类型注册](../src/adapter/operator/operator_value_type_registry.cpp#L959) 允许 `answer_text` 配置到 65536 字节；但 [DocQA Adapter](../src/adapter/adapters/doc_qa_adapter.cpp#L174) 先写入 `CompanyDocOutputStruct::answer_text[1024]`，随后 [Bridge](../src/adapter/operator/biz_bridges/doc_qa_bridge.cpp#L47) 才复制到动态字符串池。
+[Operator 类型注册](../../src/adapter/operator/operator_value_type_registry.cpp#L959) 允许 `answer_text` 配置到 65536 字节；但 [DocQA Adapter](../../src/adapter/adapters/doc_qa_adapter.cpp#L174) 先写入 `CompanyDocOutputStruct::answer_text[1024]`，随后 [Bridge](../../src/adapter/operator/biz_bridges/doc_qa_bridge.cpp#L47) 才复制到动态字符串池。
 
 **实际 Operator 全链路复现**：用无模型的合法 DocQA Pipeline 生成 2048 个 ASCII 字节，`.conf` 设置 `answer_text` 容量 4096：
 
@@ -238,7 +242,7 @@ req 1: TOP1, TOP2
 | DocQA `answer_text` | 1023 字节 | 65536 字节 |
 | ASR `transcribed_text` | 511 字节 | 16384 字节 |
 
-ASR 还有更明显的上游/出口落差：[生产 Whisper 配置](../configs/pipeline_audio_asr_whisper.json#L10) 允许 `max_output_bytes=65536`，而最终 C 输出最多 511 字节。不能按“字符数”理解这些字节限制。
+ASR 还有更明显的上游/出口落差：[生产 Whisper 配置](../../configs/pipeline_audio_asr_whisper.json#L10) 允许 `max_output_bytes=65536`，而最终 C 输出最多 511 字节。不能按“字符数”理解这些字节限制。
 
 **建议分两步**：短期在入口和配置预检中公开实际有效上限，拒绝误导性的容量组合；若明确支持长回答/长转写，长期让 C ABI 和 Operator 分别从中性业务结果打包，不让 Operator 经由固定 C 输出绕行。公共 ABI 不必立即全部破坏，先建立中性结果和两种出口适配。该调整属于跨层/所有权决策，应按 RFC 实施。
 
@@ -248,22 +252,22 @@ ASR 还有更明显的上游/出口落差：[生产 Whisper 配置](../configs/p
 
 ### P2-01：Definition 只能校验浅层字段，Validator 通过不代表配置语义有效
 
-**已复现。** [ConfigFieldDefinition](../include/contracts/config_schema.h#L25) 只有基础类型、范围、枚举，缺少数组元素、对象成员和跨字段约束。[统一校验](../src/core/pipeline_validator.cpp#L268) 也只处理这些内容。
+**已复现。** [ConfigFieldDefinition](../../include/contracts/config_schema.h#L25) 只有基础类型、范围、枚举，缺少数组元素、对象成员和跨字段约束。[统一校验](../../src/core/pipeline_validator.cpp#L268) 也只处理这些内容。
 
 两个合法关键词方案的附加 Node 配置：
 
 | 配置 | Validator | Build |
 | --- | --- | --- |
-| `TextChunkNode: chunk_size=8, overlap=8` | 成功 | 失败；[Node 初始化](../src/common_nodes/text_chunk_node.cpp#L33) 拒绝 overlap >= chunk_size。 |
-| `TextTemplateNode: values={"x":42}` | 成功 | 失败；[Node 初始化](../src/common_nodes/text_template_node.cpp#L72) 要求值为字符串。 |
+| `TextChunkNode: chunk_size=8, overlap=8` | 成功 | 失败；[Node 初始化](../../src/common_nodes/text_chunk_node.cpp#L33) 拒绝 overlap >= chunk_size。 |
+| `TextTemplateNode: values={"x":42}` | 成功 | 失败；[Node 初始化](../../src/common_nodes/text_template_node.cpp#L72) 要求值为字符串。 |
 
-失败发生在 Node 物化；[Pipeline](../src/core/pipeline.cpp#L463) 此前已加载 Model。这些错误本可在任何模型加载前发现，图形化编辑器也无法从现有 Definition 生成完整表单。
+失败发生在 Node 物化；[Pipeline](../../src/core/pipeline.cpp#L463) 此前已加载 Model。这些错误本可在任何模型加载前发现，图形化编辑器也无法从现有 Definition 生成完整表单。
 
 建议扩展声明式嵌套 schema 和必要的纯配置语义验证，由 Validator 唯一调用；Node 初始化复用同一归一化/验证函数作为防御，不在 UI 再实现规则。对存在性、设备可用性等环境检查提供独立 `preflight/doctor`，不要把静态 Validator 变成加载模型的重操作。
 
 ### P2-02：Control 缺少节点实例寻址，多目标失败可能留下部分更新
 
-**已复现。** [Pipeline::Control](../src/core/pipeline.cpp#L700) 按 `cmd_id` 找所有 Node，先做 payload schema 检查，再依次调用。schema 合法不代表每个 Node 的语义更新都成功；没有整体提交/回滚。模板中的 `prompt_id` 是被写入的元数据，不是目标选择器。
+**已复现。** [Pipeline::Control](../../src/core/pipeline.cpp#L700) 按 `cmd_id` 找所有 Node，先做 payload schema 检查，再依次调用。schema 合法不代表每个 Node 的语义更新都成功；没有整体提交/回滚。模板中的 `prompt_id` 是被写入的元数据，不是目标选择器。
 
 两个模板 Node 分别输出 A/B；A 有静态变量 `special`，B 没有。发送：
 
@@ -277,9 +281,9 @@ ASR 还有更明显的上游/出口落差：[生产 Whisper 配置](../configs/p
 
 ### P2-03：向量维度错误被当作零分，能力相同不等于语义可替换
 
-**维度行为已复现，效果兼容性为架构判断。** [VectorTopK](../src/common_nodes/vector_top_k_node.cpp#L146) 对非等长向量返回 0，而默认 `min_score=0` 会保留这个候选。2 维 query 与 3 维 candidate 的实际结果是 `ret=0, count=1, score=0`。
+**维度行为已复现，效果兼容性为架构判断。** [VectorTopK](../../src/common_nodes/vector_top_k_node.cpp#L146) 对非等长向量返回 0，而默认 `min_score=0` 会保留这个候选。2 维 query 与 3 维 candidate 的实际结果是 `ret=0, count=1, score=0`。
 
-另外，BGE embedding 与 [generated_text_embedding](../src/engine/models/generated_text_embedding/generated_text_embedding_model.cpp#L139) 都暴露 `embedding`，后者明确属于实验性的生成 token 隐状态池化。即使维度相同，也不能混合不同模型生成的 query/corpus 向量并认为分数具有意义。
+另外，BGE embedding 与 [generated_text_embedding](../../src/engine/models/generated_text_embedding/generated_text_embedding_model.cpp#L139) 都暴露 `embedding`，后者明确属于实验性的生成 token 隐状态池化。即使维度相同，也不能混合不同模型生成的 query/corpus 向量并认为分数具有意义。
 
 建议运行时拒绝维度不一致和非有限向量；资产元数据声明 `embedding_space_id`、维度、归一化和用途。切换 embedding 必须联动重建/失效候选向量与缓存。上述是建议新增元数据，不是当前 Catalog 已有字段。不应仅凭 capability 给出“可以无损替换”的 UI 提示。
 
@@ -287,7 +291,7 @@ ASR 还有更明显的上游/出口落差：[生产 Whisper 配置](../configs/p
 
 **源码确认的产品缺口，是本次易用性优化的最高优先级之一。**
 
-[Graph](../tools/pipeline_studio/web/graph.js#L165) 每个 Node 只有一个通用输入圆点和一个输出圆点，不呈现 Definition 中的多个 typed ports。[连线处理](../tools/pipeline_studio/web/app.js#L59) 只 `depends_on.push(source)`；[新建 Node](../tools/pipeline_studio/web/app.js#L161) 没有生成 `ports.inputs/outputs`。
+[Graph](../../tools/pipeline_studio/web/graph.js#L165) 每个 Node 只有一个通用输入圆点和一个输出圆点，不呈现 Definition 中的多个 typed ports。[连线处理](../../tools/pipeline_studio/web/app.js#L59) 只 `depends_on.push(source)`；[新建 Node](../../tools/pipeline_studio/web/app.js#L161) 没有生成 `ports.inputs/outputs`。
 
 因此从空图添加一个 TextRuleMatchNode，用户仍需知道业务入口叫 `input_sentences`、出口叫 `rule_matches`，手工填写映射。添加两个模板/分块节点还会遇到默认输出 key 冲突。现有表单支持 Node 基础参数和“已存在模型实例”的选择，但不提供完整的模型实例创建、Backend 参数和端口绑定工作流。
 
@@ -309,7 +313,7 @@ ASR 还有更明显的上游/出口落差：[生产 Whisper 配置](../configs/p
 
 Pipeline JSON 含 model_type/backend/model_path；`.conf` 又通过 model_id 覆盖路径；Profile 再选择 `.conf`、chip 和数据集。职责分离有合理性，但用户需要理解多份文档才能完成一次模型替换。`pipeline_doc_qa*` 和 `pipeline_entity_extract*` 存在多个大体相同的变体，更新公共 Prompt/失败策略时可能只修到其中一个，P1-01 就体现了这种漂移后果。
 
-另有构建限制：[Kite 与 llama.cpp 互斥](../cmake/KiteLlm.cmake#L8)，[Whisper 要求 llama.cpp 且与 Kite 互斥](../cmake/WhisperCpp.cmake#L12)。单进程组合“Whisper ASR + Kite LLM/OCR”当前不能只靠拖拽完成。这是已知依赖约束，不是证明中性协议设计失败。
+另有构建限制：[Kite 与 llama.cpp 互斥](../../cmake/KiteLlm.cmake#L8)，[Whisper 要求 llama.cpp 且与 Kite 互斥](../../cmake/WhisperCpp.cmake#L12)。单进程组合“Whisper ASR + Kite LLM/OCR”当前不能只靠拖拽完成。这是已知依赖约束，不是证明中性协议设计失败。
 
 建议增加受版本控制的模型资产清单和执行环境配置，由工具解析成现有显式 Pipeline；运行时继续消费唯一正式格式。UI 选择“经过验收的资产 + 当前可用执行环境”，展开高级参数给平台工程师。Catalog 输出明确的构建可用性/缺失协议提示；新业务类型与方案实例名分开，避免为相同业务的每个 Backend 变体扩展 C++ biz_name 白名单。
 
@@ -321,24 +325,24 @@ Pipeline JSON 含 model_type/backend/model_path；`.conf` 又通过 model_id 覆
 
 新增一种完整外部业务通常涉及：C ABI 枚举/结构体、Operator 镜像类型、业务 keys、Adapter/Definition、Bridge、值类型校验与输出池注册、CMake、方案、部署配置、Demo/Profile 和测试。并非每次业务变更都要修改这些位置：复用已有 I/O 契约的方案调整可以只改 JSON。
 
-[值类型 Registry](../src/adapter/operator/operator_value_type_registry.cpp#L750) 的内置类型集中注册约占一个大文件，包含业务校验、内存分配和字段容量。Registry 的查询机制是开放的，但内置作者路径仍引导开发者修改中心文件。
+[值类型 Registry](../../src/adapter/operator/operator_value_type_registry.cpp#L750) 的内置类型集中注册约占一个大文件，包含业务校验、内存分配和字段容量。Registry 的查询机制是开放的，但内置作者路径仍引导开发者修改中心文件。
 
 当前治理要求生产 Node 为业务无关操作，领域 Node 需 RFC 证明必要性。这能防止复制粘贴，也会让开发者倾向于给现有通用 Node 加越来越多业务参数。`TextTemplateNode` 已有文本、规则、OCR 文档、属性、聚合、解析模板和动态控制等多种职责，达到 619 行。业务逻辑若大量藏在字符串模板/JSON 中，也会降低可测试性。
 
 建议明确三类成果：**通用能力 Node、可复用业务组合组件、少量领域语义 Node**。领域 Node 仍须无请求成员状态，通过 typed ports 和 IModel 能力协作；只负责领域语义，不包含外部结构体或 vendor 代码。先通过 RFC 建立一次稳定规则，避免每次新增常规业务都重复争论目录和抽象边界。
 
-按业务拆出值类型注册单元，并提供从当前生产模式生成的脚手架。现有 [Adapter templates](../tests/support/adapter_examples/flat_struct_adapter.h#L19) 是示例协议，使用自身 DTO 和字符串 key，不是能直接复制后接现有通用 Node 的完整模板；应清晰标为示例，或补成可运行的最小作者样例。
+按业务拆出值类型注册单元，并提供从当前生产模式生成的脚手架。现有 [Adapter templates](../../tests/support/adapter_examples/flat_struct_adapter.h#L19) 是示例协议，使用自身 DTO 和字符串 key，不是能直接复制后接现有通用 Node 的完整模板；应清晰标为示例，或补成可运行的最小作者样例。
 
 ### P2-07：同步执行边界清楚，但吞吐、超时与排障能力不足以支撑更广业务
 
 **已确认能力边界；未量化的性能风险。**
 
-- [C ABI](../src/adapter/company_c_adapter.cpp#L94) 与 [Operator](../src/adapter/operator/operator_adapter.cpp#L316) 都串行化同句柄调用。单个 Pipeline 内部的波前并行不等于多请求并发，也不等于跨请求动态 batching。
+- [C ABI](../../src/adapter/company_c_adapter.cpp#L94) 与 [Operator](../../src/adapter/operator/operator_adapter.cpp#L316) 都串行化同句柄调用。单个 Pipeline 内部的波前并行不等于多请求并发，也不等于跨请求动态 batching。
 - 每个 Runtime 创建自己的 Pipeline 和 Model 实例；增加句柄可能重复加载权重，不能直接把“多开句柄”作为无成本吞吐扩展方案。
-- [波前调度](../src/core/pipeline.cpp#L490) 等待当前整层结束才推进，长短支路混合时有额外等待；暂未用基准证明它是当前主要瓶颈。
+- [波前调度](../../src/core/pipeline.cpp#L490) 等待当前整层结束才推进，长短支路混合时有额外等待；暂未用基准证明它是当前主要瓶颈。
 - 同步 Model/Backend 方法没有请求 deadline/cancel token。Studio 取消子进程不是 SDK 推理取消能力。一个慢推理也会延迟同句柄 Control。
 - 日志具备基础错误信息，但缺少统一的运行 ID、节点实例 ID、逐节点耗时、模型等待时间与可选中间结果摘要。`Name()` 多为 Node 类型名，多实例排障不够直接。
-- [静态 embedding cache](../src/common_nodes/text_embedding_node.cpp#L60) 命中后仍复制整个向量批次到请求黑板；Session 资源无通用淘汰/容量策略。固定小语料可接受，持续动态版本资源需要预算。
+- [静态 embedding cache](../../src/common_nodes/text_embedding_node.cpp#L60) 命中后仍复制整个向量批次到请求黑板；Session 资源无通用淘汰/容量策略。固定小语料可接受，持续动态版本资源需要预算。
 
 建议先做可观测性和基准：短/长输入、1/4/16 批次、1/2/4 句柄、冷/热模型，观察 P50/P95、RSS、初始化时间与模型等待。得到瓶颈证据后再决定会话共享、资源池、ready-queue 或异步协议。实时流式、循环推理、持久会话、重试分支若成为需求，应单独设计，不能假定目前 DAG 已具备。
 
@@ -346,10 +350,10 @@ Pipeline JSON 含 model_type/backend/model_path；`.conf` 又通过 model_id 覆
 
 **包含两个复现结果及数项源码确认的局部风险。**
 
-1. [路径规则](../tools/pipeline_studio/server.py#L83) 只接受 configs 根目录文件；实际调用 `open_pipeline("configs/kite/pipeline_doc_qa.json")` 返回 `INVALID_PIPELINE_PATH`。根目录可见 10 个方案，6 个 Kite 方案不可直接管理；[Profile 文件](../tools/pipeline_studio/server.py#L29) 也固定为 `demo/profiles.json`，CLI 同样硬编码该文件。
-2. [保存逻辑](../tools/pipeline_studio/server.py#L188) 的 revision 检查与 `os.replace` 之间没有串行化。两个线程使用同一个 revision，在替换前用 barrier 放大窗口，两个真实 `save_pipeline` 调用均成功，导致后写覆盖先写。原子替换保证文件完整，不能单独保证并发修改检测。
-3. [日志处理](../tools/pipeline_studio/server.py#L339) 先 `communicate()` 收集完整输出，再切到 2 MiB；因此只限制返回长度，未限制收集阶段内存。历史 job/result 也没有数量/大小上限。超时后仅 TERM 并再等待 5 秒，若仍不退出，异常路径没有明确 KILL/reap 收尾。这些为源码风险，本次未运行失控子进程复现。
-4. [诊断渲染](../tools/pipeline_studio/web/app.js#L254) 把路径和消息直接拼到 `innerHTML`。诊断可包含用户编辑的字符串，应使用 `textContent`；本次未执行浏览器 XSS 验证，不将其升级为已确认远程利用。
+1. [路径规则](../../tools/pipeline_studio/server.py#L83) 只接受 configs 根目录文件；实际调用 `open_pipeline("configs/kite/pipeline_doc_qa.json")` 返回 `INVALID_PIPELINE_PATH`。根目录可见 10 个方案，6 个 Kite 方案不可直接管理；[Profile 文件](../../tools/pipeline_studio/server.py#L29) 也固定为 `demo/profiles.json`，CLI 同样硬编码该文件。
+2. [保存逻辑](../../tools/pipeline_studio/server.py#L188) 的 revision 检查与 `os.replace` 之间没有串行化。两个线程使用同一个 revision，在替换前用 barrier 放大窗口，两个真实 `save_pipeline` 调用均成功，导致后写覆盖先写。原子替换保证文件完整，不能单独保证并发修改检测。
+3. [日志处理](../../tools/pipeline_studio/server.py#L339) 先 `communicate()` 收集完整输出，再切到 2 MiB；因此只限制返回长度，未限制收集阶段内存。历史 job/result 也没有数量/大小上限。超时后仅 TERM 并再等待 5 秒，若仍不退出，异常路径没有明确 KILL/reap 收尾。这些为源码风险，本次未运行失控子进程复现。
+4. [诊断渲染](../../tools/pipeline_studio/web/app.js#L254) 把路径和消息直接拼到 `innerHTML`。诊断可包含用户编辑的字符串，应使用 `textContent`；本次未执行浏览器 XSS 验证，不将其升级为已确认远程利用。
 
 建议支持受控的方案子目录/项目根与 Profile 参数；服务内按文件锁住 revision 检查到提交，并明确如何处理其他进程写入；日志使用有上限的流式尾缓冲，任务设置保留策略，取消/超时落实 TERM→KILL→wait；诊断使用文本节点。
 
@@ -357,11 +361,11 @@ Pipeline JSON 含 model_type/backend/model_path；`.conf` 又通过 model_id 覆
 
 ### P2-09：构建边界有进步，交付包和作者 SDK 边界仍不完整
 
-**源码确认。** 当前 `CMakeLists.txt` 与各子目录已明确 source target 归属，但 [runtime contracts](../CMakeLists.txt#L103) 传播整个内部头根，后端 include/编译定义也沿依赖向上传播。编译器仍可找到不应由该层使用的头，主要靠 [LayerGuard](../scripts/check_layer_isolation.sh#L223) 和代码规范阻止。不能把这称作“没有分层”，也不能称为彻底的编译可见性隔离。
+**源码确认。** 当前 `CMakeLists.txt` 与各子目录已明确 source target 归属，但 [runtime contracts](../../CMakeLists.txt#L103) 传播整个内部头根，后端 include/编译定义也沿依赖向上传播。编译器仍可找到不应由该层使用的头，主要靠 [LayerGuard](../../scripts/check_layer_isolation.sh#L223) 和代码规范阻止。不能把这称作“没有分层”，也不能称为彻底的编译可见性隔离。
 
 未发现正式 `install()`、CMake package export、`INSTALL_INTERFACE` 或明确的独立作者 SDK 包装。现在仓库内开发可以工作；交付给其他团队后，调用者与 Node 作者分别应该拿哪些头、如何链接、如何注册能力，仍需明确。外部 Node 作者不能依赖已经隐藏的 SDK 内部动态符号。
 
-依赖配置还会 [FORCE 修改全局 cache 选项](../cmake/ThirdPartyEngines.cmake#L195) 并使用源码树 `3rdparty/` 缓存，多个构建变体会共享这些资源。当前只有 `3rdparty/README.md` 被 Git 跟踪，没有证据表明第三方源码/二进制被提交进仓库；不要把工作区依赖缓存误报为违规打包。
+依赖配置还会 [FORCE 修改全局 cache 选项](../../cmake/ThirdPartyEngines.cmake#L195) 并使用源码树 `3rdparty/` 缓存，多个构建变体会共享这些资源。当前只有 `3rdparty/README.md` 被 Git 跟踪，没有证据表明第三方源码/二进制被提交进仓库；不要把工作区依赖缓存误报为违规打包。
 
 建议先明确“仓库内扩展并重编译”还是“独立作者 SDK”，再设计安装产物清单、版本信息、许可证和最小外部调用样例。为本地常用变体提供 Presets，逐步缩小 vendor includes 到具体 Backend 编译目标。仅为头文件隔离大搬目录，短期回报低于 P1 修复和 Studio 编排。
 
@@ -369,9 +373,9 @@ Pipeline JSON 含 model_type/backend/model_path；`.conf` 又通过 model_id 覆
 
 **门禁结果与源码确认。** 本次所有现有 CTest 成功，专项探针仍发现多个失败场景，说明应补“合法组件组合后的业务语义”测试，而不是继续增加重复的单节点正常路径。
 
-现有 [真实模型 E2E](../tests/e2e/real_models/test_real_models_e2e.cpp#L51) 确实存在；Whisper 也有真实音频及关键词断言。不能说“没有真实测试”。但通路成功、非空输出和一次关键词命中，并不能证明审核漏判率、检索质量或目标平台性能达标。
+现有 [真实模型 E2E](../../tests/e2e/real_models/test_real_models_e2e.cpp#L51) 确实存在；Whisper 也有真实音频及关键词断言。不能说“没有真实测试”。但通路成功、非空输出和一次关键词命中，并不能证明审核漏判率、检索质量或目标平台性能达标。
 
-成熟度文档也已滞后：[README](../README.md) 仍称 ASR 只有测试/Smoke 实现；当前 Catalog、生产配置和源码已有 Whisper。另一方面，[RFC-0036 开头](rfcs/0036-whisper-asr-backend.md#L11) 仍称新增协议未进入运行时，而后续实施清单又已勾选。`In Implementation` 状态可能仍有验收工作未完成，不能简单改成 Completed；应拆清“已实现”和“已验收”。
+成熟度文档也已滞后：[README](../../README.md) 仍称 ASR 只有测试/Smoke 实现；当前 Catalog、生产配置和源码已有 Whisper。另一方面，[RFC-0036 开头](../rfcs/0036-whisper-asr-backend.md#L11) 仍称新增协议未进入运行时，而后续实施清单又已勾选。`In Implementation` 状态可能仍有验收工作未完成，不能简单改成 Completed；应拆清“已实现”和“已验收”。
 
 建议把本报告探针变为既有测试套件的回归用例，尤其是 2 条以上请求、改变 Top-K、未连接端口、不同执行模式、失败 Control 和超长输出。业务 golden 集分别评估正确性、失败状态与模型效果。文档保留历史 RFC，不重写历史结论；当前能力表从构建 Catalog 与验收记录生成或校对。
 

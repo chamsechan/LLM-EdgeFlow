@@ -18,7 +18,8 @@
 
 ## 2. 生成能直接编译的例子
 
-从仓库根目录执行，先确认命令 ID 尚未使用：
+先按根目录 [README](../../README.md#快速开始)完成默认构建；本练习无需模型权重。
+以下命令都从仓库根目录执行，先确认命令 ID 尚未使用：
 
 ```bash
 ./build/alg_pipeline_tool catalog
@@ -69,7 +70,13 @@ cmake --build build --target alg_sdk alg_pipeline_tool alg_demo -j 4
 
 ## 5. 通过已有 Demo 下发
 
-创建 `build/control_tutorial/`。保存以下文件为 `pipeline.json`：
+创建练习目录：
+
+```bash
+mkdir -p build/control_tutorial
+```
+
+保存以下文件为 `build/control_tutorial/pipeline.json`：
 
 ```json
 {
@@ -104,7 +111,7 @@ cmake --build build --target alg_sdk alg_pipeline_tool alg_demo -j 4
 ```json
 {
   "data": {
-    "pipe_path": "pipeline.json",
+    "pipe_path": "build/control_tutorial/pipeline.json",
     "mem_que": {
       "type": "keyword_out",
       "meta_num": 0,
@@ -114,6 +121,11 @@ cmake --build build --target alg_sdk alg_pipeline_tool alg_demo -j 4
   }
 }
 ```
+
+`pipe_path` 相对部署根解析。本文从仓库根目录传入相对路径
+`--config build/control_tutorial/pipeline.conf`，Demo 据此使用仓库根作为部署根；
+因此这里填写 `build/control_tutorial/pipeline.json`，而不是只写文件名。
+宿主直接调用 Operator 时，部署根由 Create 的 `model_path` 指定。
 
 `input.txt` 保存一行 `sample`；`control.json` 保存：
 

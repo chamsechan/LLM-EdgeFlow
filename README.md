@@ -149,7 +149,8 @@ Smoke 验证执行链路；真实模型的业务效果需使用目标数据集�
 | :--- | :--- |
 | 用已有节点构建方案 | [Pipeline Studio](tools/pipeline_studio/README.md#第一次编排) |
 | 编写第一个自定义算法 | [自定义 Node 入门](doc/dev_guide/first_custom_node.md) · [节点作者的五个概念](doc/dev_guide/custom_node_concepts.md) |
-| 对接平台输入输出 | [业务接入指南](doc/BUSINESS_ONBOARDING.md) |
+| 给节点增加运行时控制 | [Control 入门](doc/dev_guide/first_control.md) |
+| 对接平台输入输出 | [业务接入指南](doc/dev_guide/business_onboarding.md) |
 | 扩展框架、模型或后端 | [开发者指南](doc/developer_guide.md) · [架构设计](doc/architecture.md) |
 | 准备模型并验证效果 | [模型、构建与效果验收](doc/VERIFIABLE_SELECTION.md) |
 | 了解设计决策与版本演进 | [RFC 索引](doc/rfcs/README.md) · [Changelog](doc/CHANGELOG.md) |

@@ -13,7 +13,7 @@
 | 为节点增加运行时参数更新 | [第一个 Control](../../doc/dev_guide/first_control.md)：声明、更新、失败保持、通过 Demo 下发 |
 | 看不懂端口、来源编号、模型绑定等术语 | [五个概念说明](../../doc/dev_guide/custom_node_concepts.md)：结合一次请求解释用途和常见错误 |
 | 需要多输入、配置化模板和完整校验 | 本页下方的[完整参考样例](#完整参考样例) |
-| 对接新的平台输入输出结构 | [业务接入指南](../../doc/BUSINESS_ONBOARDING.md) |
+| 对接新的平台输入输出结构 | [业务接入指南](../../doc/dev_guide/business_onboarding.md) |
 
 入门使用[轻量 C++ 模板](../../dev_support/node_authoring/starter_llm_node.cpp)。
 `--kind model -m llm` 直接从它生成代码；先填写 `BuildPrompt`、`FormatAnswer`，其余
@@ -52,7 +52,7 @@
    无需修改 Core、中央列表或 Studio。没加 `--add-to-cmake` 时，将文件名加入本目录
    [CMakeLists.txt](CMakeLists.txt) 的 `target_sources`。
 6. 编排 Pipeline，运行原生 `validate`、`plan` 和匹配 Demo。已有外部结构直接复用
-   Adapter；新结构走[业务接入指南](../../doc/BUSINESS_ONBOARDING.md)。交付执行
+   Adapter；新结构走[业务接入指南](../../doc/dev_guide/business_onboarding.md)。交付执行
    [CONTRIBUTING](../../CONTRIBUTING.md) 中的统一门禁。
 
 可用节点、模型、Backend 和参数以当前构建的 Catalog 为准。脚手架只提供编译期接口

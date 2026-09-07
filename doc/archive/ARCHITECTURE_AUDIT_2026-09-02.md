@@ -1,5 +1,9 @@
 # LLM-EdgeFlow 架构与实现审计报告
 
+> 历史审计：以下结论和代码行号对应 2026-09-02 基线。后续修复见
+> [RFC-0028](../rfcs/0028-preproduction-runtime-and-abi-hardening.md)，剩余工作见
+> [RFC-0029](../rfcs/0029-external-readiness-and-intranet-sdk-migration.md)。本文不作为当前发布结论。
+
 ## 1. 审计结论
 
 当前四层职责设计总体合理，运行时抽象也已有较好基础；但实现上更接近“按目录划分的模块化单体”，还没有形成由编译系统强制保证的分层架构。
@@ -23,13 +27,13 @@
 
 业务入口和节点输出分别记录：
 
-- 入口写入 `ingress`：[`src/core/pipeline_validator.cpp`](../src/core/pipeline_validator.cpp#L708)
-- 重复输出只检查节点 `producers`：[`src/core/pipeline_validator.cpp`](../src/core/pipeline_validator.cpp#L915)
+- 入口写入 `ingress`：[`src/core/pipeline_validator.cpp`](../../src/core/pipeline_validator.cpp#L708)
+- 重复输出只检查节点 `producers`：[`src/core/pipeline_validator.cpp`](../../src/core/pipeline_validator.cpp#L915)
 
 因此节点可以把输出绑定到已经由 Adapter 发布的业务入口键。Validator 返回成功，但 Blackboard 是写一次语义：
 
-- `AlgContext::Publish` 使用 `emplace` 拒绝重复键：[`include/core/alg_context.h`](../include/core/alg_context.h#L42)
-- `BoundOutput::Set` 遇到重复键直接抛异常：[`include/nodes/node_support.h`](../include/nodes/node_support.h#L100)
+- `AlgContext::Publish` 使用 `emplace` 拒绝重复键：[`include/core/alg_context.h`](../../include/core/alg_context.h#L42)
+- `BoundOutput::Set` 遇到重复键直接抛异常：[`include/nodes/node_support.h`](../../include/nodes/node_support.h#L100)
 
 动态复现方式是在 `pipeline_doc_qa.json` 中加入一个把输出重新绑定到业务入口 `raw_docs` 的 `TextChunkNode`，再通过 stdin 执行校验。重建后的 `alg_pipeline_tool` 仍返回：
 
@@ -50,10 +54,10 @@
 
 ### P0-2：公共产品版本存在多个事实源且已经漂移
 
-- CMake 产品版本是 `10.0.0`：[`CMakeLists.txt`](../CMakeLists.txt#L2)
-- README 当前里程碑是 `10.0.0`：[`README.md`](../README.md#L120)
-- 架构文档声明产品版本为 `10.0.0`：[`doc/architecture.md`](architecture.md#L147)
-- 公共 C 头仍声明 `8.0.0`：[`include/company_alg_interface.h`](../include/company_alg_interface.h#L7)
+- CMake 产品版本是 `10.0.0`：[`CMakeLists.txt`](../../CMakeLists.txt#L2)
+- README 当前里程碑是 `10.0.0`：[`README.md`](../../README.md#L120)
+- 架构文档声明产品版本为 `10.0.0`：[`doc/architecture.md`](../architecture.md#L147)
+- 公共 C 头仍声明 `8.0.0`：[`include/company_alg_interface.h`](../../include/company_alg_interface.h#L7)
 
 ABI major 和 `SOVERSION` 仍然都是 5，但客户端编译得到的产品版本与实际生成的 `libcompany_alg_sdk.so.10.0.0` 不一致。现有文档和 ABI 门禁均未检测这一漂移。
 
@@ -75,9 +79,9 @@ ABI major 和 `SOVERSION` 仍然都是 5，但客户端编译得到的产品版�
 | 名称匹配 `llm_edgeflow` | 1,186 |
 | 名称匹配 `llama`/`ggml` | 5,331 |
 
-实际导出包含 NodeFactory、BackendRegistry、具体 Node，以及大量 ggml/llama 实现，而公共头将标准 ABI 描述为 6 个纯 C 接口：[`include/company_alg_interface.h`](../include/company_alg_interface.h#L189)。
+实际导出包含 NodeFactory、BackendRegistry、具体 Node，以及大量 ggml/llama 实现，而公共头将标准 ABI 描述为 6 个纯 C 接口：[`include/company_alg_interface.h`](../../include/company_alg_interface.h#L189)。
 
-根源是所有实现和静态第三方库都链接进单个 SHARED target，且没有默认隐藏可见性或链接器版本脚本：[`CMakeLists.txt`](../CMakeLists.txt#L78)。这会扩大非预期 ABI、符号冲突、动态链接和兼容性风险。
+根源是所有实现和静态第三方库都链接进单个 SHARED target，且没有默认隐藏可见性或链接器版本脚本：[`CMakeLists.txt`](../../CMakeLists.txt#L78)。这会扩大非预期 ABI、符号冲突、动态链接和兼容性风险。
 
 建议：
 
@@ -98,10 +102,10 @@ target_sources(alg_sdk PRIVATE ...)
 
 示例：
 
-- [`src/core/CMakeLists.txt`](../src/core/CMakeLists.txt#L1)
-- [`src/common_nodes/CMakeLists.txt`](../src/common_nodes/CMakeLists.txt#L1)
-- [`src/engine/CMakeLists.txt`](../src/engine/CMakeLists.txt#L1)
-- [`src/adapter/CMakeLists.txt`](../src/adapter/CMakeLists.txt#L1)
+- [`src/core/CMakeLists.txt`](../../src/core/CMakeLists.txt#L1)
+- [`src/common_nodes/CMakeLists.txt`](../../src/common_nodes/CMakeLists.txt#L1)
+- [`src/engine/CMakeLists.txt`](../../src/engine/CMakeLists.txt#L1)
+- [`src/adapter/CMakeLists.txt`](../../src/adapter/CMakeLists.txt#L1)
 
 由此产生的影响：
 
@@ -110,9 +114,9 @@ target_sources(alg_sdk PRIVATE ...)
 - 无法单独测试、替换或裁剪某一层。
 - 最终共享库被迫包含全部 Node、Model 和 Backend。
 
-现有 LayerGuard 只检查少数路径和正则。例如它只禁止 `src/adapter/adapters/` 引入 Engine：[`scripts/check_layer_isolation.sh`](../scripts/check_layer_isolation.sh#L65)。但 Layer 1 的共享运行时组合实现直接依赖 Engine Registry：[`src/adapter/shared_algorithm_runtime.cpp`](../src/adapter/shared_algorithm_runtime.cpp#L11)。
+现有 LayerGuard 只检查少数路径和正则。例如它只禁止 `src/adapter/adapters/` 引入 Engine：[`scripts/check_layer_isolation.sh`](../../scripts/check_layer_isolation.sh#L65)。但 Layer 1 的共享运行时组合实现直接依赖 Engine Registry：[`src/adapter/shared_algorithm_runtime.cpp`](../../src/adapter/shared_algorithm_runtime.cpp#L11)。
 
-Layer 3 的 Node 支撑头又需要 Layer 2 的 AlgContext、NodeBase、SessionContext 和完整 Validator 定义：[`include/nodes/node_support.h`](../include/nodes/node_support.h#L12)。这说明当前层级图混合了运行时调用方向与编译期依赖方向。
+Layer 3 的 Node 支撑头又需要 Layer 2 的 AlgContext、NodeBase、SessionContext 和完整 Validator 定义：[`include/nodes/node_support.h`](../../include/nodes/node_support.h#L12)。这说明当前层级图混合了运行时调用方向与编译期依赖方向。
 
 建议明确两个当前缺失的架构角色：
 
@@ -123,7 +127,7 @@ Layer 3 的 Node 支撑头又需要 Layer 2 的 AlgContext、NodeBase、SessionC
 
 ### P1-2：Layer 2 的公共契约成为业务键和类型的集中仓库
 
-[`include/core/common_contracts.h`](../include/core/common_contracts.h#L202) 同时包含：
+[`include/core/common_contracts.h`](../../include/core/common_contracts.h#L202) 同时包含：
 
 - 通用 DTO 和类型 traits
 - 26 个全局 BlackboardKey
@@ -142,7 +146,7 @@ Layer 3 的 Node 支撑头又需要 Layer 2 的 AlgContext、NodeBase、SessionC
 
 ### P1-3：SessionContext 的资源接口丢失类型安全
 
-[`include/core/session_context.h`](../include/core/session_context.h#L215) 使用字符串键和 `shared_ptr<void>`，读取时直接执行 `static_pointer_cast<T>`。同一个键以错误类型读取不会被检测，可能产生未定义行为。
+[`include/core/session_context.h`](../../include/core/session_context.h#L215) 使用字符串键和 `shared_ptr<void>`，读取时直接执行 `static_pointer_cast<T>`。同一个键以错误类型读取不会被检测，可能产生未定义行为。
 
 建议引入 `SessionResourceKey<T>`，或在资源条目中保存 `std::type_index` 并在读取时校验，使 Session 资源与 Blackboard 的强类型设计保持一致。
 
@@ -150,8 +154,8 @@ Layer 3 的 Node 支撑头又需要 Layer 2 的 AlgContext、NodeBase、SessionC
 
 `Nodes()` 和 `Bizs()` 在释放互斥锁后返回内部 vector 引用；`FindNode()` 和 `FindBiz()` 返回 vector 元素指针：
 
-- [`src/core/pipeline_catalog.cpp`](../src/core/pipeline_catalog.cpp#L291)
-- [`src/core/pipeline_catalog.cpp`](../src/core/pipeline_catalog.cpp#L309)
+- [`src/core/pipeline_catalog.cpp`](../../src/core/pipeline_catalog.cpp#L291)
+- [`src/core/pipeline_catalog.cpp`](../../src/core/pipeline_catalog.cpp#L309)
 
 后续注册、扩容和排序可能使这些引用或指针失效。当前静态注册时序大多掩盖了问题，但不适合未来动态扩展或并发注册。
 
@@ -196,13 +200,13 @@ Layer 3 的 Node 支撑头又需要 Layer 2 的 AlgContext、NodeBase、SessionC
 
 ### 5.1 SDK target 的公共接口不完整
 
-`nlohmann_json` 被 `alg_sdk` 以 `PUBLIC` 传播：[`CMakeLists.txt`](../CMakeLists.txt#L82)，但 SDK target 没有完整的公共 include/install 接口，也没有发现 `install()`、CMake export 或 package config。
+`nlohmann_json` 被 `alg_sdk` 以 `PUBLIC` 传播：[`CMakeLists.txt`](../../CMakeLists.txt#L82)，但 SDK target 没有完整的公共 include/install 接口，也没有发现 `install()`、CMake export 或 package config。
 
 如果对外交付仅承诺 C ABI，应将 JSON 和内部 C++ 依赖保持为 PRIVATE。如果还需要正式 C++ authoring API，应建立独立 target 和明确的安装头集合。
 
 ### 5.2 第三方依赖构建会污染全局状态和源码树
 
-[`cmake/ThirdPartyEngines.cmake`](../cmake/ThirdPartyEngines.cmake#L160) 使用 `FORCE` 修改 `BUILD_SHARED_LIBS`、PIC 和多个 ggml/llama 全局 cache 变量。下载或编译完成后，还会把依赖复制回源码树的 `3rdparty/`。
+[`cmake/ThirdPartyEngines.cmake`](../../cmake/ThirdPartyEngines.cmake#L160) 使用 `FORCE` 修改 `BUILD_SHARED_LIBS`、PIC 和多个 ggml/llama 全局 cache 变量。下载或编译完成后，还会把依赖复制回源码树的 `3rdparty/`。
 
 建议：
 
@@ -222,7 +226,7 @@ Layer 3 的 Node 支撑头又需要 Layer 2 的 AlgContext、NodeBase、SessionC
 
 ## 6. 符合架构设计的部分
 
-- 六个 C ABI 函数都保留了 `noexcept`、`catch (const std::exception&)` 和 `catch (...)` 屏障：[`src/adapter/company_c_adapter.cpp`](../src/adapter/company_c_adapter.cpp#L21)。
+- 六个 C ABI 函数都保留了 `noexcept`、`catch (const std::exception&)` 和 `catch (...)` 屏障：[`src/adapter/company_c_adapter.cpp`](../../src/adapter/company_c_adapter.cpp#L21)。
 - 业务转换集中在 Adapter 和 Operator bridge，没有发现中央业务分派 switch。
 - Pipeline 在物化运行时对象前完成校验，并消费 `ValidatedPipelinePlan`。
 - 生产 Node 均通过 Definition 注册机制注册。
