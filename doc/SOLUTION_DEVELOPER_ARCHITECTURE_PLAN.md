@@ -70,7 +70,7 @@ Demo 描述符必须给出业务类型，运行器仅从注册表读取；缺失
 Operator bridge / ValueType 及 Demo 数据转换，不能把“注册无中央分支”理解为自动生成转换。
 
 依据：[Studio](../tools/pipeline_studio/README.md)、
-[Node 支持接口](../include/nodes/node_support.h)、
+[Node 支持接口](../include/nodes/node_base.h)、
 [模型绑定接口](../include/nodes/model_bound_node.h)、
 [业务接入指南](BUSINESS_ONBOARDING.md)、
 [RFC-0038](rfcs/0038-custom-node-extension-directory.md)、

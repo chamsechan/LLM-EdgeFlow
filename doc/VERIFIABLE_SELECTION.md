@@ -7,7 +7,7 @@
 1. Studio 的“模型”页选择“资产组合”，自动填充已有模型类型、权重路径、tokenizer 或运行配置，以及 Model/Backend 参数。也可手动配置。
 2. 选择 Backend 与模型实例，再将节点绑定到该实例；按端口名称连接业务输入、节点与业务输出。
 3. “检查资产与构建选择”验证**已应用到方案**的配置。Studio 固定检查当前工作区 `models/`，文件存在仅标记 `present_unverified`，点击检查后才计算散列。
-4. 在目标数据集上执行效果验收。未提供匹配的效果证据时，资产/构建通过也不会产生 `ready_for_business=true`。
+4. 在目标数据集上执行效果验收。未提供匹配的效果证据时，资产/构建通过也不会产生 `ready_for_biz=true`。
 
 ## 资产清单
 
@@ -28,7 +28,7 @@ python3 tools/verify_selection.py check \
   --output results/docqa-selection.json
 ```
 
-报告分别给出 `configuration`、`models`、`build`、`effects` 和 `ready_for_business`。普通 `check` 的退出码表示配置/资产/构建检查；发布门禁应增加 `--require-effects`，要求业务效果也通过。
+报告使用 `schema_version=2`；旧消费者须将 `ready_for_business` 改为 `ready_for_biz`，并重新生成效果证据。报告分别给出 `configuration`、`models`、`build`、`effects` 和 `ready_for_biz`。普通 `check` 的退出码表示配置/资产/构建检查；发布门禁应增加 `--require-effects`，要求业务效果也通过。
 
 ## 构建变体
 

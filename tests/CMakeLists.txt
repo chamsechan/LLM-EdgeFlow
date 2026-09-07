@@ -22,8 +22,23 @@ endif()
 add_executable(alg_pipeline_tool_test
   ${PROJECT_SOURCE_DIR}/src/tools/alg_pipeline_tool.cpp
   $<TARGET_OBJECTS:edgeflow_test_backend_fixtures>
-  $<TARGET_OBJECTS:edgeflow_test_business_model_fixtures>)
+  $<TARGET_OBJECTS:edgeflow_test_biz_model_fixtures>)
 target_link_libraries(alg_pipeline_tool_test PRIVATE llm_edgeflow::internal_runtime)
+
+# GNU-compatible link wrapping is confined to the existing model test runner.
+function(edgeflow_enable_aligned_allocation_failure target_name)
+  if(UNIX AND NOT APPLE)
+    target_compile_definitions(${target_name} PRIVATE
+      LLM_EDGEFLOW_TEST_WRAP_POSIX_MEMALIGN=1)
+    target_link_options(${target_name} PRIVATE "LINKER:--wrap=posix_memalign")
+  endif()
+endfunction()
+
+add_test(NAME QualityGateScriptsContractTest
+  COMMAND ${PROJECT_SOURCE_DIR}/tests/contract/architecture/test_quality_gate_contract.sh)
+set_tests_properties(QualityGateScriptsContractTest PROPERTIES
+  WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+  LABELS "tier1;static-gate;dev-fast;sanitizer-compatible")
 
 include(${PROJECT_SOURCE_DIR}/cmake/Tests.cmake)
 

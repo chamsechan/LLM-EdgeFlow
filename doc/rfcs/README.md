@@ -98,6 +98,8 @@ doc/rfcs/NNNN-<kebab-case-title>.md
 | **RFC-0038** | 自定义 Node 的统一源码扩展目录 | `Completed` | `v10.x` | 能力节点层 / Build / Governance | [0038-custom-node-extension-directory.md](0038-custom-node-extension-directory.md) |
 | **RFC-0039** | 自定义节点开发路径与失败契约修复 | `Completed` | `v10.x` | 接入适配层、流程编排层、能力节点层 / Tooling / Demo | [0039-custom-node-authoring-closure.md](0039-custom-node-authoring-closure.md) |
 
+| **RFC-0040** | 上线前实现、验证与命名收敛 | `Completed` | `v10.x` | 四层 / Build / Tooling | [0040-prelaunch-audit-convergence.md](0040-prelaunch-audit-convergence.md) |
+
 ---
 
 ## 5. 专项验收与评审归档

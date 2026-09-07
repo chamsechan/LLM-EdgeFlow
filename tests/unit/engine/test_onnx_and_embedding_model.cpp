@@ -29,7 +29,7 @@
 #include "engine/model_registry.h"
 #include "engine/model_runtime_factory.h"
 #include "engine/models/bge_common/bert_model_support.h"
-#include "engine/models/bge_embedding/bert_wordpiece_tokenizer.h"
+#include "engine/models/bge_common/bert_wordpiece_tokenizer.h"
 #include "engine/models/bge_embedding/bge_embedding_model.h"
 #include "tests/support/node_test_utils.h"
 
@@ -1046,7 +1046,7 @@ TEST_F(OnnxAndEmbeddingModelTest, OnnxRuntimeFixturePassEvidence) {
   pipeline_config["models"][1] = {
       {"model_id", "llm_model_llamacpp"},
       {"capability", "llm"},
-      {"model_type", "test_business_llm"},
+      {"model_type", "test_biz_llm"},
       {"backend", "test_causal_lm_backend"},
       {"model_path", "./models/test-qwen-mock.bin"},
       {"model_config", {{"max_batch_size", 2}, {"max_seq_len", 512}}},

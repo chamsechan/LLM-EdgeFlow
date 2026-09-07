@@ -12,7 +12,7 @@
 #include "core/node_registry.h"
 #include "core/pipeline_validator.h"
 #include "core/session_context.h"
-#include "dev_support/inference/test_business_models.h"
+#include "dev_support/inference/test_biz_models.h"
 #include "dev_support/inference/test_capability_models.h"
 #include "engine/model_interface.h"
 #include "tests/support/node_test_utils.h"
@@ -29,16 +29,15 @@ class CommonNodesTest : public ::testing::Test {
     session_ctx_->SetRuntimeOptions(options);
 
     ASSERT_TRUE(session_ctx_->GetModelManager().RegisterModel(
-        "embed_model_v1",
-        std::make_shared<test::TestBusinessEmbeddingModel>(384, 4), "test-v1"));
-
-    ASSERT_TRUE(session_ctx_->GetModelManager().RegisterModel(
-        "rerank_model_v1", std::make_shared<test::TestBusinessRerankModel>(4),
+        "embed_model_v1", std::make_shared<test::TestBizEmbeddingModel>(384, 4),
         "test-v1"));
 
     ASSERT_TRUE(session_ctx_->GetModelManager().RegisterModel(
-        "llm_model_v1", std::make_shared<test::TestBusinessLlmModel>(2),
+        "rerank_model_v1", std::make_shared<test::TestBizRerankModel>(4),
         "test-v1"));
+
+    ASSERT_TRUE(session_ctx_->GetModelManager().RegisterModel(
+        "llm_model_v1", std::make_shared<test::TestBizLlmModel>(2), "test-v1"));
 
     auto asr_model = std::make_shared<test::TestAsrModel>();
     ASSERT_TRUE(session_ctx_->GetModelManager().RegisterModel(
@@ -377,7 +376,7 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
       {"biz_name", "custom_rerank_test"},
       {"models",
        {{{"capability", "rerank"},
-         {"model_type", "test_business_rerank"},
+         {"model_type", "test_biz_rerank"},
          {"backend", "test_tensor_backend"},
          {"model_id", "rerank_model_v1"},
          {"model_path", "./models/rerank.bin"}}}},
@@ -398,7 +397,7 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
       {"biz_name", "custom_rerank_test"},
       {"models",
        {{{"capability", "rerank"},
-         {"model_type", "test_business_rerank"},
+         {"model_type", "test_biz_rerank"},
          {"backend", "test_tensor_backend"},
          {"model_id", "rerank_model_v1"},
          {"model_path", "./models/rerank.bin"}}}},
@@ -420,7 +419,7 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
       {"biz_name", "custom_rerank_test"},
       {"models",
        {{{"capability", "rerank"},
-         {"model_type", "test_business_rerank"},
+         {"model_type", "test_biz_rerank"},
          {"backend", "test_tensor_backend"},
          {"model_id", "rerank_model_v1"},
          {"model_path", "./models/rerank.bin"}}}},
@@ -443,7 +442,7 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
       {"biz_name", "custom_rerank_test"},
       {"models",
        {{{"capability", "rerank"},
-         {"model_type", "test_business_rerank"},
+         {"model_type", "test_biz_rerank"},
          {"backend", "test_tensor_backend"},
          {"model_id", "rerank_model_v1"},
          {"model_path", "./models/rerank.bin"}}}},
@@ -465,7 +464,7 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
       {"biz_name", "custom_rerank_test"},
       {"models",
        {{{"capability", "rerank"},
-         {"model_type", "test_business_rerank"},
+         {"model_type", "test_biz_rerank"},
          {"backend", "test_tensor_backend"},
          {"model_id", "rerank_model_v1"},
          {"model_path", "./models/rerank.bin"}}}},
@@ -487,7 +486,7 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
       {"biz_name", "custom_rerank_test"},
       {"models",
        {{{"capability", "rerank"},
-         {"model_type", "test_business_rerank"},
+         {"model_type", "test_biz_rerank"},
          {"backend", "test_tensor_backend"},
          {"model_id", "rerank_model_v1"},
          {"model_path", "./models/rerank.bin"}}}},
@@ -510,7 +509,7 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
       {"biz_name", "custom_rerank_test"},
       {"models",
        {{{"capability", "rerank"},
-         {"model_type", "test_business_rerank"},
+         {"model_type", "test_biz_rerank"},
          {"backend", "test_tensor_backend"},
          {"model_id", "rerank_model_v1"},
          {"model_path", "./models/rerank.bin"}}}},
@@ -980,8 +979,7 @@ TEST_F(CommonNodesTest, CustomAndGeneratedNodesUseStrictNativePlans) {
     ASSERT_TRUE(plan.report.ok) << plan.report.ToJson().dump(2);
   }
   ASSERT_TRUE(session_ctx_->GetModelManager().RegisterModel(
-      "llm_0.6b_entity", std::make_shared<test::TestBusinessLlmModel>(2),
-      "v1"));
+      "entity_llm", std::make_shared<test::TestBizLlmModel>(2), "v1"));
   for (const char* name : {"ScaffoldComputeNode", "ScaffoldModelLlmNode",
                            "ScaffoldUnaryLlmNode"}) {
     auto doc = CustomPipeline("entity_extract");
@@ -989,7 +987,7 @@ TEST_F(CommonNodesTest, CustomAndGeneratedNodesUseStrictNativePlans) {
     doc["pipeline"][0]["config"] =
         std::string(name) == "ScaffoldComputeNode"
             ? nlohmann::json::object()
-            : nlohmann::json{{"bind_model", "llm_0.6b_entity"}};
+            : nlohmann::json{{"bind_model", "entity_llm"}};
     auto plan = PipelineValidator::ValidateAndPlan(doc);
     ASSERT_TRUE(plan.report.ok) << plan.report.ToJson().dump(2);
     auto node = NodeFactory::Instance().Create(name);
@@ -1008,11 +1006,11 @@ TEST_F(CommonNodesTest, StarterTextFunctionsFollowTheDocumentedExercise) {
   auto model = std::make_shared<PromptContractModel>();
   model->response_prefix.clear();
   model->response_suffix = "\n\n";
-  ASSERT_TRUE(session_ctx_->GetModelManager().RegisterModel("llm_0.6b_entity",
-                                                            model, "v1"));
+  ASSERT_TRUE(
+      session_ctx_->GetModelManager().RegisterModel("entity_llm", model, "v1"));
   auto document = CustomPipeline("entity_extract");
   document["pipeline"][0]["node_type"] = "ScaffoldTutorialLlmNode";
-  document["pipeline"][0]["config"] = {{"bind_model", "llm_0.6b_entity"}};
+  document["pipeline"][0]["config"] = {{"bind_model", "entity_llm"}};
   const auto plan = PipelineValidator::ValidateAndPlan(document);
   ASSERT_TRUE(plan.report.ok) << plan.report.ToJson().dump(2);
   auto node = NodeFactory::Instance().Create("ScaffoldTutorialLlmNode");

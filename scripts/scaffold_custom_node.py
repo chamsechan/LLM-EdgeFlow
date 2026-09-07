@@ -168,7 +168,7 @@ def render_node(name, description, kind, capability, in_port, out_port):
 #include "core/pipeline_catalog.h"
 #include "engine/model_interface.h"
 #include "nodes/model_bound_node.h"
-#include "nodes/node_support.h"
+#include "nodes/node_base.h"
 #include "nodes/traceable_batch_validation.h"
 #include "nodes/traceable_unary_inference_node.h"
 

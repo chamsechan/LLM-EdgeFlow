@@ -147,9 +147,9 @@ def inspect_selection(pipeline, tool, model_root, manifest=MANIFEST, variant=Non
         build.update(expected_backends=expected, status="verified" if enabled == expected else "variant_mismatch")
     ok = validation.get("ok", False) and all(item["status"] == "verified" for item in assets) and build["status"] != "variant_mismatch"
     fingerprint = digest({"pipeline": pipeline, "assets": assets, "build": build})
-    return {"schema_version": 1, "ok": bool(ok), "selection_fingerprint": fingerprint,
+    return {"schema_version": 2, "ok": bool(ok), "selection_fingerprint": fingerprint,
             "configuration": validation, "build": build, "models": assets,
-            "effects": {"status": "unverified"}, "ready_for_business": False}
+            "effects": {"status": "unverified"}, "ready_for_biz": False}
 
 
 def compare_samples(records, spec):
@@ -233,7 +233,7 @@ def evaluate(pipeline, selection, tool, model_root, spec_path, conf_path, demo):
     if digest(effect_inputs(spec_path, conf_path, demo)[3]) != test_fingerprint:
         raise ValueError("Effect inputs or binaries changed during execution")
     metrics = compare_samples(records, spec)
-    return {"schema_version": 1, "generated_at_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    return {"schema_version": 2, "generated_at_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "selection_fingerprint": selection["selection_fingerprint"], "test_fingerprint": test_fingerprint,
             "pipeline": pipeline, "selection": selection, "test_inputs": test_inputs,
             "metrics": metrics, "records": records}
@@ -248,7 +248,7 @@ def attach_evidence(selection, evidence_path, spec_path, conf_path, demo):
     else:
         selection["effects"] = compare_samples(evidence["records"], spec)
         selection["effects"]["generated_at_utc"] = evidence.get("generated_at_utc")
-    selection["ready_for_business"] = selection["ok"] and selection["effects"]["status"] == "passed"
+    selection["ready_for_biz"] = selection["ok"] and selection["effects"]["status"] == "passed"
     return selection
 
 
@@ -284,7 +284,7 @@ def main():
                 if not args.effects:
                     parser.error("--evidence requires --effects")
                 attach_evidence(report, args.evidence, args.effects, conf, args.demo)
-            ok = report["ready_for_business"] if args.require_effects else report["ok"]
+            ok = report["ready_for_biz"] if args.require_effects else report["ok"]
         encoded = json.dumps(report, ensure_ascii=False, indent=2) + "\n"
         if args.output:
             args.output.parent.mkdir(parents=True, exist_ok=True)

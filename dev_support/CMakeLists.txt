@@ -6,7 +6,7 @@ add_library(edgeflow_test_backend_fixtures OBJECT
 target_link_libraries(edgeflow_test_backend_fixtures PRIVATE
   edgeflow_internal_headers llm_edgeflow::internal_runtime)
 
-add_library(edgeflow_test_business_model_fixtures OBJECT
-  inference/test_business_models.cpp)
-target_link_libraries(edgeflow_test_business_model_fixtures PRIVATE
+add_library(edgeflow_test_biz_model_fixtures OBJECT
+  inference/test_biz_models.cpp)
+target_link_libraries(edgeflow_test_biz_model_fixtures PRIVATE
   edgeflow_internal_headers llm_edgeflow::internal_runtime)

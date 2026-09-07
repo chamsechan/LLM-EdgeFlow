@@ -163,8 +163,8 @@ if [[ "${1:-}" == "--self-test" ]]; then
 
   # Test Case 8: Custom source ownership is checked even before any nodes exist.
   mkdir -p "${TMP_TEST_DIR}/violation_repo/include/nodes"
-  cp "${REPO_ROOT}/include/nodes/node_support.h" \
-    "${TMP_TEST_DIR}/violation_repo/include/nodes/node_support.h"
+  cp "${REPO_ROOT}/include/nodes/node_base.h" \
+    "${TMP_TEST_DIR}/violation_repo/include/nodes/node_base.h"
   for CUSTOM_FIXTURE_LAYER in engine common_nodes core adapter; do
     cp "${REPO_ROOT}/src/${CUSTOM_FIXTURE_LAYER}/CMakeLists.txt" \
       "${TMP_TEST_DIR}/violation_repo/src/${CUSTOM_FIXTURE_LAYER}/CMakeLists.txt"
@@ -181,6 +181,8 @@ if [[ "${1:-}" == "--self-test" ]]; then
     echo "❌ [LayerGuard Self-Test FAIL] Custom Node source ownership violation was not detected!"
     exit 1
   fi
+
+  python3 "$(dirname "${SCRIPT_PATH}")/check_layer_dependencies.py" --self-test
 
   echo "✅ [LayerGuard Self-Test PASS] Missing paths and injected dependency violations were detected."
   exit 0
@@ -301,11 +303,11 @@ echo "✅ [LayerGuard PASS] TraceableItem uses the neutral contracts include pat
 
 # Rule 6: Node support consumes the extracted validated-node plan, not the full
 # Orchestration validator implementation contract.
-NODE_SUPPORT_HEADER="$REPO_ROOT/include/nodes/node_support.h"
+NODE_SUPPORT_HEADER="$REPO_ROOT/include/nodes/node_base.h"
 if [ ! -f "$NODE_SUPPORT_HEADER" ] || \
    ! grep -q 'core/validated_node_plan.h' "$NODE_SUPPORT_HEADER" || \
    grep -q 'core/pipeline_validator.h' "$NODE_SUPPORT_HEADER"; then
-  echo "❌ [LayerGuard ERROR] node_support.h must depend only on validated_node_plan.h."
+  echo "❌ [LayerGuard ERROR] node_base.h must depend only on validated_node_plan.h."
   exit 1
 fi
 echo "✅ [LayerGuard PASS] Node support is decoupled from PipelineValidator."
@@ -456,6 +458,8 @@ if [ -n "$LLM_NODE_LEGACY" ]; then
   exit 1
 fi
 echo "✅ [LayerGuard PASS] Backend vendor resources and Qwen generation semantics are isolated."
+
+python3 "$(dirname "${BASH_SOURCE[0]}")/check_layer_dependencies.py" --root "${REPO_ROOT}"
 
 echo "======================================================================"
 echo " All LayerGuard architectural isolation checks passed successfully!"

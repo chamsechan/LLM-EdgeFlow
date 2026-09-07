@@ -3,7 +3,7 @@
   "models": [
     {
       "capability": "embedding",
-      "model_type": "test_business_embedding",
+      "model_type": "test_biz_embedding",
       "backend": "test_tensor_backend",
       "model_config": {
         "embedding_dim": 128,
@@ -15,7 +15,7 @@
     },
     {
       "capability": "llm",
-      "model_type": "test_business_llm",
+      "model_type": "test_biz_llm",
       "backend": "test_causal_lm_backend",
       "model_config": {
         "max_batch_size": 2,

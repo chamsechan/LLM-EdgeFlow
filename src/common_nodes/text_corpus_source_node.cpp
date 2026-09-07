@@ -3,7 +3,7 @@
 
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
-#include "nodes/node_support.h"
+#include "nodes/node_base.h"
 
 namespace llm_edgeflow {
 

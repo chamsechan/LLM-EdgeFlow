@@ -3,7 +3,7 @@
   "models": [
     {
       "capability": "llm",
-      "model_type": "test_business_llm",
+      "model_type": "test_biz_llm",
       "backend": "test_causal_lm_backend",
       "model_config": {
         "max_batch_size": 2,

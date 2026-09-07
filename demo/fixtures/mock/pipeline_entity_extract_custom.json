@@ -1,16 +1,16 @@
 {
-  "biz_name": "entity_extract_0.6b_v1",
+  "biz_name": "entity_extract_v1",
   "models": [
     {
       "capability": "llm",
-      "model_type": "test_business_llm",
+      "model_type": "test_biz_llm",
       "backend": "test_causal_lm_backend",
       "model_config": {
         "max_batch_size": 2,
         "max_seq_len": 512
       },
       "backend_config": {},
-      "model_id": "llm_0.6b_entity",
+      "model_id": "entity_llm",
       "model_path": "demo/fixtures/mock/artifacts/neutral-llm.fixture"
     }
   ],
@@ -28,7 +28,7 @@
         }
       },
       "config": {
-        "bind_model": "llm_0.6b_entity",
+        "bind_model": "entity_llm",
         "prompt_template": "你是一个中文实体与名词抽取助手。请从以下句子中提取出所有名词与实体，并仅以JSON列表形式返回：\n输入文本：{input}\n提取结果：",
         "strip_markdown": true,
         "temperature": 0.1,

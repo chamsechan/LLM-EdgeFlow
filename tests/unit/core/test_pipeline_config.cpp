@@ -8,7 +8,7 @@
 #include <string>
 #include <vector>
 
-#include "core/node_base.h"
+#include "core/node_interface.h"
 #include "core/node_registry.h"
 #include "core/pipeline.h"
 #include "core/pipeline_config.h"
@@ -1308,7 +1308,7 @@ TEST_F(PipelineConfigTest, ParallelModeWorkersBoundaries) {
     Pipeline p;
     EXPECT_TRUE(p.BuildFromJson(cfg, &diag,
                                 ValidationPolicy::kPrivateExtensionCompatible));
-    EXPECT_EQ(p.GetExecutionMode(), Pipeline::ExecutionMode::PARALLEL);
+    EXPECT_EQ(p.GetExecutionMode(), Pipeline::ExecutionMode::kParallel);
   }
 
   // workers = 64
@@ -1324,7 +1324,7 @@ TEST_F(PipelineConfigTest, ParallelModeWorkersBoundaries) {
     Pipeline p;
     EXPECT_TRUE(p.BuildFromJson(cfg, &diag,
                                 ValidationPolicy::kPrivateExtensionCompatible));
-    EXPECT_EQ(p.GetExecutionMode(), Pipeline::ExecutionMode::PARALLEL);
+    EXPECT_EQ(p.GetExecutionMode(), Pipeline::ExecutionMode::kParallel);
   }
 }
 

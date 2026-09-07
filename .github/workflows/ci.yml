@@ -276,6 +276,7 @@ jobs:
 
       - name: Generate Project Quality Evidence
         env:
+          WHISPER_GATE_RESULT: ${{ needs.whisper-asr.result }}
           KITELLM_GATE_RESULT: ${{ needs.kite-llm.result }}
         run: |
           git fetch origin main --quiet

@@ -9,6 +9,7 @@
 #include "core/alg_context.h"
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
+#include "core/pipeline_validator.h"
 #include "core/session_context.h"
 #include "engine/model_interface.h"
 #include "tests/support/node_test_utils.h"
@@ -119,6 +120,50 @@ TEST_F(LlmGenerateNodeTest, RejectsInvalidUnifiedGenerationOptions) {
   EXPECT_FALSE(InitNodeForTest(
       *node, {{"bind_model", "llm_model_v1"}, {"repetition_penalty", 0.0}},
       session_ctx_.get()));
+}
+
+TEST_F(LlmGenerateNodeTest, ValidatorAndInitializationRejectInvalidOptions) {
+  const std::vector<nlohmann::json> invalid = {
+      {{"stop_words", nlohmann::json::array({42})}},
+      {{"stop_words", nlohmann::json::array({""})}},
+      {{"stop_words", "END"}},
+      {{"max_tokens", 32769}},
+      {{"max_tokens", uint64_t{1} << 32}},
+      {{"top_k", -1}},
+      {{"top_p", 1.0e-10}},
+      {{"repetition_penalty", 0.0}}};
+  // No Model construction is needed to check the Node's preflight diagnostics.
+  for (auto config : invalid) {
+    SCOPED_TRACE(config.dump());
+    config["bind_model"] = "llm_model_v1";
+    const nlohmann::json pipeline = {
+        {"biz_name", "entity_extract_v1"},
+        {"pipeline",
+         nlohmann::json::array({{{"id", "generate"},
+                                 {"node_type", "LlmGenerateNode"},
+                                 {"depends_on", nlohmann::json::array()},
+                                 {"config", config}}})}};
+    const auto plan = PipelineValidator::ValidateAndPlan(pipeline);
+    EXPECT_FALSE(plan.report.ok);
+    bool config_rejected = false;
+    for (const auto& diagnostic : plan.report.diagnostics) {
+      if (diagnostic.path.rfind("/pipeline/0/config", 0) == 0 &&
+          diagnostic.code != DiagnosticCode::kUnknownModelReference)
+        config_rejected = true;
+    }
+    EXPECT_TRUE(config_rejected);
+    auto node = NodeFactory::Instance().Create("LlmGenerateNode");
+    ASSERT_NE(node, nullptr);
+    EXPECT_FALSE(InitNodeForTest(*node, config, session_ctx_.get()));
+  }
+  const auto definition = PipelineCatalog::FindNode("LlmGenerateNode");
+  ASSERT_TRUE(definition && definition->validate_config);
+  std::string diagnostic;
+  EXPECT_TRUE(definition->validate_config(
+      {{"stop_words", nlohmann::json::array({"END"})},
+       {"max_tokens", 32768},
+       {"top_p", 1.0e-9}},
+      {}, &diagnostic));
 }
 
 // 2. Missing Prompt Fails Closed

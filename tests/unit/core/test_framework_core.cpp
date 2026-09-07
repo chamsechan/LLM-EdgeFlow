@@ -12,7 +12,7 @@
 #include "core/node_registry.h"
 #include "core/pipeline.h"
 #include "core/session_context.h"
-#include "dev_support/inference/test_business_models.h"
+#include "dev_support/inference/test_biz_models.h"
 #include "engine/fixed_batch_executor.h"
 #include "engine/model_interface.h"
 
@@ -100,10 +100,10 @@ TEST(NodeRegistryTest, DynamicReflection) {
 TEST(ModelManagerTest, TypedModels) {
   ModelManager manager;
   ASSERT_TRUE(manager.RegisterModel(
-      "my_embed_v1", std::make_shared<test::TestBusinessEmbeddingModel>(128, 4),
+      "my_embed_v1", std::make_shared<test::TestBizEmbeddingModel>(128, 4),
       "test-v1"));
   ASSERT_TRUE(manager.RegisterModel(
-      "my_rerank_v1", std::make_shared<test::TestBusinessRerankModel>(4),
+      "my_rerank_v1", std::make_shared<test::TestBizRerankModel>(4),
       "test-v1"));
 
   EXPECT_TRUE(manager.HasModel("my_embed_v1"));
@@ -184,7 +184,7 @@ TEST(PipelineTest, RuntimeOptionsWithModelBackendDialect) {
                              {"models",
                               {{{"model_id", "test_mock_llm"},
                                 {"capability", "llm"},
-                                {"model_type", "test_business_llm"},
+                                {"model_type", "test_biz_llm"},
                                 {"backend", "test_causal_lm_backend"},
                                 {"model_path", "./models/qwen.bin"},
                                 {"model_config", {{"max_batch_size", 2}}},
@@ -204,7 +204,7 @@ TEST(PipelineTest, RuntimeOptionsWithModelBackendDialect) {
   auto model = pipe.GetSessionContext().GetModelManager().GetModel<ILlmModel>(
       "test_mock_llm");
   ASSERT_NE(model, nullptr);
-  EXPECT_EQ(model->ModelType(), "test_business_llm");
+  EXPECT_EQ(model->ModelType(), "test_biz_llm");
   const auto metadata =
       pipe.GetSessionContext().GetModelManager().GetModelRegistration(
           "test_mock_llm");

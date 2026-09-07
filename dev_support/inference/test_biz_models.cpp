@@ -1,4 +1,4 @@
-#include "dev_support/inference/test_business_models.h"
+#include "dev_support/inference/test_biz_models.h"
 
 #include <algorithm>
 #include <cmath>
@@ -32,7 +32,7 @@ size_t ConfigSize(const nlohmann::json& config, const char* key,
   return config.contains(key) ? config.at(key).get<size_t>() : fallback;
 }
 
-std::string GenerateBusinessResponse(const std::string& prompt) {
+std::string GenerateBizResponse(const std::string& prompt) {
   if (prompt.find("实体") != std::string::npos ||
       prompt.find("名词") != std::string::npos) {
     return R"({"nouns":["张三","清华大学","北京","人工智能","算法工程师","NPU","芯片","深度学习","大模型","项目","公司"]})";
@@ -80,37 +80,37 @@ ModelDefinition Definition(const char* model_type, const char* capability,
 
 }  // namespace
 
-TestBusinessEmbeddingModel::TestBusinessEmbeddingModel(size_t embedding_dim,
-                                                       size_t max_batch_size)
+TestBizEmbeddingModel::TestBizEmbeddingModel(size_t embedding_dim,
+                                             size_t max_batch_size)
     : embedding_dim_(embedding_dim), max_batch_size_(max_batch_size) {}
 
-std::shared_ptr<IModel> TestBusinessEmbeddingModel::Create(
+std::shared_ptr<IModel> TestBizEmbeddingModel::Create(
     const ModelCreateContext& context, std::string* diagnostic) {
   if (!RequireProtocol(context, ExecutionProtocol::kTensorGraph, diagnostic))
     return nullptr;
-  return std::make_shared<TestBusinessEmbeddingModel>(
+  return std::make_shared<TestBizEmbeddingModel>(
       ConfigSize(context.model_config, "embedding_dim", 384),
       ConfigSize(context.model_config, "max_batch_size", 4));
 }
 
-const std::string& TestBusinessEmbeddingModel::ModelType() const noexcept {
+const std::string& TestBizEmbeddingModel::ModelType() const noexcept {
   static const std::string type = kModelType;
   return type;
 }
-const std::string& TestBusinessEmbeddingModel::Capability() const noexcept {
+const std::string& TestBizEmbeddingModel::Capability() const noexcept {
   static const std::string capability = "embedding";
   return capability;
 }
-InferenceConcurrency TestBusinessEmbeddingModel::Concurrency() const noexcept {
+InferenceConcurrency TestBizEmbeddingModel::Concurrency() const noexcept {
   return InferenceConcurrency::kSerialized;
 }
-size_t TestBusinessEmbeddingModel::GetMaxBatchSize() const noexcept {
+size_t TestBizEmbeddingModel::GetMaxBatchSize() const noexcept {
   return max_batch_size_;
 }
 
-int TestBusinessEmbeddingModel::Embed(const TextBatch& inputs,
-                                      const EmbeddingOptions& options,
-                                      EmbeddingBatch* outputs) noexcept {
+int TestBizEmbeddingModel::Embed(const TextBatch& inputs,
+                                 const EmbeddingOptions& options,
+                                 EmbeddingBatch* outputs) noexcept {
   const BatchPolicy policy{max_batch_size_, max_batch_size_};
   return FixedBatchExecutor::Execute<std::string, std::vector<float>>(
       inputs, policy,
@@ -144,33 +144,33 @@ int TestBusinessEmbeddingModel::Embed(const TextBatch& inputs,
       outputs);
 }
 
-TestBusinessRerankModel::TestBusinessRerankModel(size_t max_batch_size)
+TestBizRerankModel::TestBizRerankModel(size_t max_batch_size)
     : max_batch_size_(max_batch_size) {}
 
-std::shared_ptr<IModel> TestBusinessRerankModel::Create(
+std::shared_ptr<IModel> TestBizRerankModel::Create(
     const ModelCreateContext& context, std::string* diagnostic) {
   if (!RequireProtocol(context, ExecutionProtocol::kTensorGraph, diagnostic))
     return nullptr;
-  return std::make_shared<TestBusinessRerankModel>(
+  return std::make_shared<TestBizRerankModel>(
       ConfigSize(context.model_config, "max_batch_size", 4));
 }
-const std::string& TestBusinessRerankModel::ModelType() const noexcept {
+const std::string& TestBizRerankModel::ModelType() const noexcept {
   static const std::string type = kModelType;
   return type;
 }
-const std::string& TestBusinessRerankModel::Capability() const noexcept {
+const std::string& TestBizRerankModel::Capability() const noexcept {
   static const std::string capability = "rerank";
   return capability;
 }
-InferenceConcurrency TestBusinessRerankModel::Concurrency() const noexcept {
+InferenceConcurrency TestBizRerankModel::Concurrency() const noexcept {
   return InferenceConcurrency::kSerialized;
 }
-size_t TestBusinessRerankModel::GetMaxBatchSize() const noexcept {
+size_t TestBizRerankModel::GetMaxBatchSize() const noexcept {
   return max_batch_size_;
 }
 
-int TestBusinessRerankModel::Score(const QueryCandidatesBatch& inputs,
-                                   ScoreBatch* outputs) noexcept {
+int TestBizRerankModel::Score(const QueryCandidatesBatch& inputs,
+                              ScoreBatch* outputs) noexcept {
   const BatchPolicy policy{max_batch_size_, max_batch_size_};
   return FixedBatchExecutor::Execute<QueryCandidatePair, float>(
       inputs, policy,
@@ -195,32 +195,31 @@ int TestBusinessRerankModel::Score(const QueryCandidatesBatch& inputs,
       outputs);
 }
 
-TestBusinessLlmModel::TestBusinessLlmModel(size_t max_batch_size)
+TestBizLlmModel::TestBizLlmModel(size_t max_batch_size)
     : max_batch_size_(max_batch_size) {}
-std::shared_ptr<IModel> TestBusinessLlmModel::Create(
+std::shared_ptr<IModel> TestBizLlmModel::Create(
     const ModelCreateContext& context, std::string* diagnostic) {
   if (!RequireProtocol(context, ExecutionProtocol::kTextGeneration, diagnostic))
     return nullptr;
-  return std::make_shared<TestBusinessLlmModel>(
+  return std::make_shared<TestBizLlmModel>(
       ConfigSize(context.model_config, "max_batch_size", 2));
 }
-const std::string& TestBusinessLlmModel::ModelType() const noexcept {
+const std::string& TestBizLlmModel::ModelType() const noexcept {
   static const std::string type = kModelType;
   return type;
 }
-const std::string& TestBusinessLlmModel::Capability() const noexcept {
+const std::string& TestBizLlmModel::Capability() const noexcept {
   static const std::string capability = "llm";
   return capability;
 }
-InferenceConcurrency TestBusinessLlmModel::Concurrency() const noexcept {
+InferenceConcurrency TestBizLlmModel::Concurrency() const noexcept {
   return InferenceConcurrency::kSerialized;
 }
-size_t TestBusinessLlmModel::GetMaxBatchSize() const noexcept {
+size_t TestBizLlmModel::GetMaxBatchSize() const noexcept {
   return max_batch_size_;
 }
-int TestBusinessLlmModel::Generate(const TextBatch& prompts,
-                                   const GenerateOptions&,
-                                   TextBatch* outputs) noexcept {
+int TestBizLlmModel::Generate(const TextBatch& prompts, const GenerateOptions&,
+                              TextBatch* outputs) noexcept {
   const BatchPolicy policy{max_batch_size_, max_batch_size_};
   return FixedBatchExecutor::Execute<std::string, std::string>(
       prompts, policy,
@@ -229,38 +228,38 @@ int TestBusinessLlmModel::Generate(const TextBatch& prompts,
         batch_outputs->assign(slice.execution_count, std::string());
         for (size_t i = 0; i < slice.valid_count; ++i) {
           (*batch_outputs)[i] =
-              GenerateBusinessResponse(prompts[slice.offset + i].data);
+              GenerateBizResponse(prompts[slice.offset + i].data);
         }
         return 0;
       },
       outputs);
 }
 
-TestBusinessOcrModel::TestBusinessOcrModel(size_t max_batch_size)
+TestBizOcrModel::TestBizOcrModel(size_t max_batch_size)
     : max_batch_size_(max_batch_size) {}
-std::shared_ptr<IModel> TestBusinessOcrModel::Create(
+std::shared_ptr<IModel> TestBizOcrModel::Create(
     const ModelCreateContext& context, std::string* diagnostic) {
   if (!RequireProtocol(context, ExecutionProtocol::kTensorGraph, diagnostic))
     return nullptr;
-  return std::make_shared<TestBusinessOcrModel>(
+  return std::make_shared<TestBizOcrModel>(
       ConfigSize(context.model_config, "max_batch_size", 2));
 }
-const std::string& TestBusinessOcrModel::ModelType() const noexcept {
+const std::string& TestBizOcrModel::ModelType() const noexcept {
   static const std::string type = kModelType;
   return type;
 }
-const std::string& TestBusinessOcrModel::Capability() const noexcept {
+const std::string& TestBizOcrModel::Capability() const noexcept {
   static const std::string capability = "ocr";
   return capability;
 }
-InferenceConcurrency TestBusinessOcrModel::Concurrency() const noexcept {
+InferenceConcurrency TestBizOcrModel::Concurrency() const noexcept {
   return InferenceConcurrency::kSerialized;
 }
-size_t TestBusinessOcrModel::GetMaxBatchSize() const noexcept {
+size_t TestBizOcrModel::GetMaxBatchSize() const noexcept {
   return max_batch_size_;
 }
-int TestBusinessOcrModel::Recognize(const ImageRefBatch& images,
-                                    OcrDocumentBatch* outputs) noexcept {
+int TestBizOcrModel::Recognize(const ImageRefBatch& images,
+                               OcrDocumentBatch* outputs) noexcept {
   const BatchPolicy policy{max_batch_size_, max_batch_size_};
   return FixedBatchExecutor::Execute<std::string, OcrDocumentItem>(
       images, policy,
@@ -287,31 +286,31 @@ int TestBusinessOcrModel::Recognize(const ImageRefBatch& images,
       outputs);
 }
 
-TestBusinessAsrModel::TestBusinessAsrModel(size_t max_batch_size)
+TestBizAsrModel::TestBizAsrModel(size_t max_batch_size)
     : max_batch_size_(max_batch_size) {}
-std::shared_ptr<IModel> TestBusinessAsrModel::Create(
+std::shared_ptr<IModel> TestBizAsrModel::Create(
     const ModelCreateContext& context, std::string* diagnostic) {
   if (!RequireProtocol(context, ExecutionProtocol::kTensorGraph, diagnostic))
     return nullptr;
-  return std::make_shared<TestBusinessAsrModel>(
+  return std::make_shared<TestBizAsrModel>(
       ConfigSize(context.model_config, "max_batch_size", 2));
 }
-const std::string& TestBusinessAsrModel::ModelType() const noexcept {
+const std::string& TestBizAsrModel::ModelType() const noexcept {
   static const std::string type = kModelType;
   return type;
 }
-const std::string& TestBusinessAsrModel::Capability() const noexcept {
+const std::string& TestBizAsrModel::Capability() const noexcept {
   static const std::string capability = "asr";
   return capability;
 }
-InferenceConcurrency TestBusinessAsrModel::Concurrency() const noexcept {
+InferenceConcurrency TestBizAsrModel::Concurrency() const noexcept {
   return InferenceConcurrency::kSerialized;
 }
-size_t TestBusinessAsrModel::GetMaxBatchSize() const noexcept {
+size_t TestBizAsrModel::GetMaxBatchSize() const noexcept {
   return max_batch_size_;
 }
-int TestBusinessAsrModel::Transcribe(const AudioPcmBatch& audio,
-                                     TextBatch* outputs) noexcept {
+int TestBizAsrModel::Transcribe(const AudioPcmBatch& audio,
+                                TextBatch* outputs) noexcept {
   const BatchPolicy policy{max_batch_size_, max_batch_size_};
   return FixedBatchExecutor::Execute<AudioPcmPayload, std::string>(
       audio, policy,
@@ -334,35 +333,32 @@ int TestBusinessAsrModel::Transcribe(const AudioPcmBatch& audio,
 }
 
 static const ModelDefinition kEmbeddingDefinition = [] {
-  auto definition = Definition(TestBusinessEmbeddingModel::kModelType,
-                               "embedding", ExecutionProtocol::kTensorGraph, 4);
+  auto definition = Definition(TestBizEmbeddingModel::kModelType, "embedding",
+                               ExecutionProtocol::kTensorGraph, 4);
   definition.config_fields.push_back(
       {"embedding_dim", ConfigValueKind::kInteger, false, 384, 1.0, 65536.0});
   return definition;
 }();
 static const ModelDefinition kRerankDefinition =
-    Definition(TestBusinessRerankModel::kModelType, "rerank",
+    Definition(TestBizRerankModel::kModelType, "rerank",
                ExecutionProtocol::kTensorGraph, 4);
 static const ModelDefinition kLlmDefinition = [] {
-  auto definition = Definition(TestBusinessLlmModel::kModelType, "llm",
+  auto definition = Definition(TestBizLlmModel::kModelType, "llm",
                                ExecutionProtocol::kTextGeneration, 2);
   definition.config_fields.push_back(
       {"max_seq_len", ConfigValueKind::kInteger, false, 512, 1.0, 1048576.0});
   return definition;
 }();
-static const ModelDefinition kOcrDefinition =
-    Definition(TestBusinessOcrModel::kModelType, "ocr",
-               ExecutionProtocol::kTensorGraph, 2);
-static const ModelDefinition kAsrDefinition =
-    Definition(TestBusinessAsrModel::kModelType, "asr",
-               ExecutionProtocol::kTensorGraph, 2);
+static const ModelDefinition kOcrDefinition = Definition(
+    TestBizOcrModel::kModelType, "ocr", ExecutionProtocol::kTensorGraph, 2);
+static const ModelDefinition kAsrDefinition = Definition(
+    TestBizAsrModel::kModelType, "asr", ExecutionProtocol::kTensorGraph, 2);
 
-REGISTER_MODEL_WITH_DEFINITION(TestBusinessEmbeddingModel,
-                               kEmbeddingDefinition);
-REGISTER_MODEL_WITH_DEFINITION(TestBusinessRerankModel, kRerankDefinition);
-REGISTER_MODEL_WITH_DEFINITION(TestBusinessLlmModel, kLlmDefinition);
-REGISTER_MODEL_WITH_DEFINITION(TestBusinessOcrModel, kOcrDefinition);
-REGISTER_MODEL_WITH_DEFINITION(TestBusinessAsrModel, kAsrDefinition);
+REGISTER_MODEL_WITH_DEFINITION(TestBizEmbeddingModel, kEmbeddingDefinition);
+REGISTER_MODEL_WITH_DEFINITION(TestBizRerankModel, kRerankDefinition);
+REGISTER_MODEL_WITH_DEFINITION(TestBizLlmModel, kLlmDefinition);
+REGISTER_MODEL_WITH_DEFINITION(TestBizOcrModel, kOcrDefinition);
+REGISTER_MODEL_WITH_DEFINITION(TestBizAsrModel, kAsrDefinition);
 
 }  // namespace test
 }  // namespace llm_edgeflow

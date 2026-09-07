@@ -9,7 +9,7 @@
 #include <vector>
 
 #include "company_alg_log.h"
-#include "core/node_base.h"
+#include "core/node_interface.h"
 #include "core/pipeline_catalog.h"
 
 namespace llm_edgeflow {

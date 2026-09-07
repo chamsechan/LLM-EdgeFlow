@@ -14,7 +14,7 @@
 #include <vector>
 
 #include "core/alg_context.h"
-#include "core/node_base.h"
+#include "core/node_interface.h"
 #include "core/node_registry.h"
 #include "core/pipeline.h"
 
@@ -489,7 +489,7 @@ TEST_F(DagPipelineTest, ParallelWavefrontExecution) {
   Pipeline pipeline;
   ASSERT_TRUE(pipeline.BuildFromJson(
       parallel_config, nullptr, ValidationPolicy::kPrivateExtensionCompatible));
-  EXPECT_EQ(pipeline.GetExecutionMode(), Pipeline::ExecutionMode::PARALLEL);
+  EXPECT_EQ(pipeline.GetExecutionMode(), Pipeline::ExecutionMode::kParallel);
 
   const auto& layers = pipeline.GetTopologicalLayers();
   ASSERT_EQ(layers.size(), 3);

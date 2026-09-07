@@ -51,6 +51,9 @@ fi
 echo "=================================================="
 
 COMMON_CMAKE_ARGS=(
+  -DBUILD_TESTING=ON
+  -DENABLE_KITELLM=OFF
+  -DENABLE_WHISPERCPP=OFF
   -DCMAKE_BUILD_TYPE=Debug
   -DENABLE_SANITIZERS=ON
   -DLLM_EDGEFLOW_SANITIZERS="${SANITIZERS}"
@@ -149,6 +152,7 @@ CTEST_ARGS=(
   --test-dir "${BUILD_DIR}"
   -j"${NCPU}"
   --output-on-failure
+  --no-tests=error
 )
 if [[ "${MODE}" == "fast" ]]; then
   CTEST_ARGS+=( -L sanitizer-compatible )

@@ -55,6 +55,17 @@ scope, invariants, decisions, and verification current while implementing.
 - During development, run the smallest relevant build/test command for fast feedback. This is
   not a delivery gate.
 
+### Source and identifier names
+
+Use `snake_case` C/C++ filenames that describe the primary type or operation. C++ types and
+ordinary functions use `PascalCase`, variables use `snake_case`, private data members end in
+`_`, and constants/enumerators use `kPascalCase`; conventional accessors may use `snake_case`.
+Keep public ABI and vendor-defined names unchanged. Use `biz` for new internal business
+identifiers. Share model helpers under a common owner, not inside a consuming model's directory.
+
+A `biz_name` identifies an I/O contract; model size and Backend selection belong in deployment
+configuration and Profiles. Preserve historical RFCs and acceptance records when renaming code.
+
 ## 5. Update durable documentation proportionally
 
 - Keep active architecture and developer documentation aligned with the implementation.

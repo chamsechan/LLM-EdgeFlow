@@ -8,7 +8,7 @@
 #include "engine/fixed_batch_executor.h"
 #include "engine/model_interface.h"
 #include "engine/model_registry.h"
-#include "engine/models/bge_embedding/bert_wordpiece_tokenizer.h"
+#include "engine/models/bge_common/bert_wordpiece_tokenizer.h"
 
 namespace llm_edgeflow {
 

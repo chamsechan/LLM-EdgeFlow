@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <array>
+#include <cerrno>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
@@ -33,6 +34,21 @@
 #include "engine/models/vision_document/image_decode.h"
 #include "engine/models/vision_document/vision_document_model.h"
 #include "engine/models/whisper_asr/whisper_asr_model.h"
+
+#if defined(LLM_EDGEFLOW_TEST_WRAP_POSIX_MEMALIGN)
+namespace {
+thread_local bool fail_next_aligned_allocation = false;
+}
+extern "C" int __real_posix_memalign(void**, size_t, size_t);
+extern "C" int __wrap_posix_memalign(void** pointer, size_t alignment,
+                                     size_t size) {
+  if (fail_next_aligned_allocation) {
+    fail_next_aligned_allocation = false;
+    return ENOMEM;
+  }
+  return __real_posix_memalign(pointer, alignment, size);
+}
+#endif
 
 using namespace llm_edgeflow;
 
@@ -286,6 +302,39 @@ TEST(ModelBackendDecouplingTest, HostTensorCreationAndTypedAccess) {
   EXPECT_EQ(bad_type_ptr, nullptr);
   EXPECT_FALSE(diag.empty());
 }
+
+TEST(ModelBackendDecouplingTest, EmptyHostTensorIsValid) {
+  Tensor tensor;
+  std::string diagnostic;
+  ASSERT_TRUE(
+      CreateHostTensor({ElementType::kFloat32, {0, 4}}, &tensor, &diagnostic));
+  ASSERT_NE(tensor.buffer, nullptr);
+  EXPECT_EQ(tensor.buffer->ByteSize(), 0U);
+  EXPECT_EQ(tensor.buffer->Data(), nullptr);
+  EXPECT_TRUE(diagnostic.empty());
+}
+
+#if defined(LLM_EDGEFLOW_TEST_WRAP_POSIX_MEMALIGN)
+TEST(ModelBackendDecouplingTest, AllocationFailureClearsTensorAndAllowsRetry) {
+  Tensor tensor;
+  std::string diagnostic;
+  const TensorDesc descriptor{ElementType::kFloat32, {2, 4}};
+  ASSERT_TRUE(CreateHostTensor(descriptor, &tensor, &diagnostic));
+  fail_next_aligned_allocation = true;
+  const bool created = CreateHostTensor(descriptor, &tensor, &diagnostic);
+  const bool injected = !fail_next_aligned_allocation;
+  fail_next_aligned_allocation = false;
+  EXPECT_TRUE(injected);
+  EXPECT_FALSE(created);
+  EXPECT_EQ(tensor.buffer, nullptr);
+  EXPECT_TRUE(tensor.desc.shape.empty());
+  EXPECT_NE(diagnostic.find("allocate"), std::string::npos);
+  diagnostic.clear();
+  ASSERT_TRUE(CreateHostTensor(descriptor, &tensor, &diagnostic));
+  EXPECT_NE(GetMutableTensorData<float>(&tensor), nullptr);
+  EXPECT_EQ(tensor.buffer->ByteSize(), 8 * sizeof(float));
+}
+#endif
 
 TEST(ModelBackendDecouplingTest, HostTensorFailClosedValidation) {
   Tensor tensor;

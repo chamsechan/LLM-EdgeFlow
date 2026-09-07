@@ -11,9 +11,7 @@
 
 namespace llm_edgeflow {
 
-inline static constexpr char kEntityExtractBizName[] = "entity_extract_0.6b_v1";
-inline static constexpr char kEntityExtractLlamaCppBizName[] =
-    "entity_extract_llamacpp_0.6b_v1";
+inline static constexpr char kEntityExtractBizName[] = "entity_extract_v1";
 
 class EntityExtractAdapter
     : public ResultPackingAdapter<EntityExtractAdapter,
@@ -39,11 +37,6 @@ class EntityExtractAdapter
         {{kEntityExtractBizName,
           "entity_extract",
           "实体抽取",
-          {RequiredInput(kRawRequestIds), RequiredInput(kInputSentences)},
-          {Output(kExtractedEntities)}},
-         {kEntityExtractLlamaCppBizName,
-          "entity_extract",
-          "实体抽取（llama.cpp）",
           {RequiredInput(kRawRequestIds), RequiredInput(kInputSentences)},
           {Output(kExtractedEntities)}}}};
     return desc;
