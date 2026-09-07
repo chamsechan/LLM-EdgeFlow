@@ -1,5 +1,8 @@
 # LLM-EdgeFlow 有明确收益的局部优化计划
 
+> 已完成计划：保留当轮基线、试点过程、收益与暂缓理由。实施证据见第 7 节；
+> 正文中的执行步骤不作为新的待办。当前维护流程见 [CONTRIBUTING](../../CONTRIBUTING.md)。
+
 - 日期：2026-09-06
 - 核查基线：`24a0b17`；后续实施前核对受影响代码是否已有变化。
 - 状态：本轮完成；A 保留两个类型的试点，B 完成三个场景整理，C 按需执行。针对性回归、专项内存检查和统一本地门禁均通过，实施证据见第 7 节。
@@ -8,7 +11,7 @@
 
 ## 1. 事实基线与判断
 
-统计仅包含 Git 跟踪文件。代码统计包含 C/C++ 源码、头文件、注释和空行；不包含第三方依赖与构建产物。各层目录按 [AGENTS.md](../AGENTS.md) 归属。
+统计仅包含 Git 跟踪文件。代码统计包含 C/C++ 源码、头文件、注释和空行；不包含第三方依赖与构建产物。各层目录按 [AGENTS.md](../../AGENTS.md) 归属。
 
 | 范围 | 行数 | 含义 |
 | --- | ---: | --- |
@@ -24,11 +27,11 @@ Layer 3＋4 合计 10,730 行；Layer 1 约为其 75%。测试与生产 C/C++ �
 
 本次确认的局部机会：
 
-- [Operator 类型注册](../src/adapter/operator/operator_value_type_registry.cpp) 共 1,087 行，`RegisterBuiltinBindings` 内多个输出类型重复编写分配、标量初始化和字符串重置流程。
-- [Operator 集成测试](../tests/integration/operator/test_operator_api.cpp) 共 2,014 行，多个场景重复准备 `CreateParam`、句柄及输入对象。
+- [Operator 类型注册](../../src/adapter/operator/operator_value_type_registry.cpp) 共 1,087 行，`RegisterBuiltinBindings` 内多个输出类型重复编写分配、标量初始化和字符串重置流程。
+- [Operator 集成测试](../../tests/integration/operator/test_operator_api.cpp) 共 2,014 行，多个场景重复准备 `CreateParam`、句柄及输入对象。
 - RFC 中约 47% 为历史评审与验收归档。应控制新增维护负担，无需仅为缩短目录而改写历史。
 
-已完成的收敛不重新立项：[ResultPackingAdapter](../include/adapter/result_packing_adapter.h) 已共享 C ABI 与 Operator 的业务打包校验；输出池已移除独立 FIFO 尾状态；示例 Adapter 已移至测试支持目录。
+已完成的收敛不重新立项：[ResultPackingAdapter](../../include/adapter/result_packing_adapter.h) 已共享 C ABI 与 Operator 的业务打包校验；输出池已移除独立 FIFO 尾状态；示例 Adapter 已移至测试支持目录。
 
 ## 2. 排序与投入边界
 
@@ -65,7 +68,7 @@ Layer 3＋4 合计 10,730 行；Layer 1 约为其 75%。测试与生产 C/C++ �
 
 ### 3.3 回归范围
 
-复用现有 [ValueRegistry 测试](../tests/unit/operator/test_operator_value_registry.cpp) 和 [OutputPool 测试](../tests/unit/operator/test_operator_output_pool.cpp)，仅补齐受改动影响而尚未覆盖的行为：
+复用现有 [ValueRegistry 测试](../../tests/unit/operator/test_operator_value_registry.cpp) 和 [OutputPool 测试](../../tests/unit/operator/test_operator_output_pool.cpp)，仅补齐受改动影响而尚未覆盖的行为：
 
 - 默认和自定义字符串容量、容量拒绝及内存预算与原实现一致。
 - 写入后归还、再次取出时，标量与字符串内容正确重置，嵌套缓冲区地址和容量保留。
@@ -96,7 +99,7 @@ Layer 3＋4 合计 10,730 行；Layer 1 约为其 75%。测试与生产 C/C++ �
 
 ## 5. C：文档按需收敛及明确暂缓项
 
-执行 [CONTRIBUTING.md](../CONTRIBUTING.md) 已有规则：局部机械重构、测试改进通常无需 RFC；历史 RFC 保留原始上下文；当前规则在权威入口维护，其他位置使用链接。可执行能力和字段查询 Catalog，不新增手工同步清单。
+执行 [CONTRIBUTING.md](../../CONTRIBUTING.md) 已有规则：局部机械重构、测试改进通常无需 RFC；历史 RFC 保留原始上下文；当前规则在权威入口维护，其他位置使用链接。可执行能力和字段查询 Catalog，不新增手工同步清单。
 
 本计划是带基线的任务记录，不成为新的架构规范。实施结果直接更新本文对应任务状态或放入交付说明，不为每个小步骤再生成一份评审报告。
 
@@ -108,7 +111,7 @@ Layer 3＋4 合计 10,730 行；Layer 1 约为其 75%。测试与生产 C/C++ �
 | 删除 C ABI 校验、异常屏障或池生命周期处理 | 这些承担明确外部契约，不能用行数目标替代 | 外部契约确需改变，按正式兼容性决策处理 |
 | 为减少拷贝改写完整请求数据路径 | 本次未测量拷贝耗时及端到端影响 | 在真实工作负载中定位到显著瓶颈后，另行设计与性能验收 |
 | 全库测试去重、新增测试框架或大规模归并套件 | 尚未识别跨全库的必要收益 | 有具体维护故障或反馈时间证据，按责任套件逐项处理 |
-| 提前改造内网 SDK 接入 | 当前缺少授权环境和真实契约 | 按 [RFC-0029](rfcs/0029-external-readiness-and-intranet-sdk-migration.md) 在内网阶段实施 |
+| 提前改造内网 SDK 接入 | 当前缺少授权环境和真实契约 | 按 [RFC-0029](../rfcs/0029-external-readiness-and-intranet-sdk-migration.md) 在内网阶段实施 |
 
 ## 6. 实施、验证与完成条件
 

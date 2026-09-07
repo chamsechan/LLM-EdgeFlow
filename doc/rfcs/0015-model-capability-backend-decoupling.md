@@ -1,5 +1,9 @@
 # RFC 0015: 模型能力与推理运行时解耦实施规范
 
+> 历史决策阅读提示：理解方案先读第 1 节，完成结果见
+> [阶段 7 最终验收](reviews/0015-stage7-closeout-acceptance-20260829.md)。
+> [阶段材料](reviews/README.md)保留迁移时的旧接口和待办；当前扩展方式见[开发者指南](../developer_guide.md)。
+
 - **RFC 编号**：0015-model-capability-backend-decoupling
 - **创建日期**：2026-08-28
 - **文档状态**：Completed

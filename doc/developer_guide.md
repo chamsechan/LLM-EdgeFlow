@@ -8,7 +8,7 @@
 和外部契约下，只需方案配置与必要的 `.conf`，Profile 可选。缺失业务算法时完成
 [自定义 Node 动手练习](dev_guide/first_custom_node.md)，按需查阅
 [五个概念说明](dev_guide/custom_node_concepts.md)。平台结构转换见
-[业务接入指南](BUSINESS_ONBOARDING.md)，结果检查见
+[业务接入指南](dev_guide/business_onboarding.md)，结果检查见
 [运行当前方案](../tools/pipeline_studio/README.md#运行当前方案)。
 
 本页保留四层扩展边界与进阶接口查询。普通方案开发通常无需修改 Core、Model 或

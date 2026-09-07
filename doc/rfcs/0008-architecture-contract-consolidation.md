@@ -1,5 +1,9 @@
 # RFC 0008: 架构契约收敛与文档一致性修复
 
+> 历史决策阅读提示：本文保留原始问题与实施范围。优先查看
+> [交付验收](reviews/0008-architecture-contract-consolidation-acceptance.md)，前序复审见
+> [评审归档](reviews/README.md)；当前接口与流程见[文档目录](../README.md)。
+
 - **RFC 编号**：0008-architecture-contract-consolidation
 - **创建日期**：2026-08-25
 - **文档状态**：Completed

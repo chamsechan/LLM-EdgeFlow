@@ -161,7 +161,7 @@ flowchart LR
 | --- | --- |
 | 端口、编号、模型绑定、Definition、并发是什么意思 | [五个概念说明](custom_node_concepts.md) |
 | 需要多个输入、配置化模板或复杂后处理 | [完整参考样例与能力边界](../../src/custom_nodes/README.md#完整参考样例) |
-| 需要接入全新的平台结构 | [业务接入指南](../BUSINESS_ONBOARDING.md) |
+| 需要接入全新的平台结构 | [业务接入指南](business_onboarding.md) |
 | 需要新增模型语义或硬件后端 | [开发者扩展指南](../developer_guide.md) |
 
 练习生成的节点与配置就是普通源码扩展。真正接入时用操作语义命名，例如“提取字段”或

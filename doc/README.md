@@ -1,47 +1,54 @@
 # LLM-EdgeFlow 文档目录
 
-本目录维护 LLM-EdgeFlow 的架构、开发、接口和 RFC 文档。项目概览与最短上手路径位于仓库根目录的 [README](../README.md)，版本演进摘要位于 [Changelog](CHANGELOG.md)。
+首次使用从仓库 [README](../README.md#快速开始) 开始。日常开发按下面的任务选择入口；
+可用节点、端口、模型、Backend 和业务契约以目标构建的 `alg_pipeline_tool catalog` 为准。
 
-- **[architecture.md](architecture.md)**：框架职责划分与编译边界、模块详细职责、运行时时序图（Mermaid）及算子开发上手规范。
-- **[architecture.puml](architecture.puml)**：框架代码库当前物理实现的精确 PlantUML 类图（As-Is 白盒类与接口视图）。
-- **[architecture_v2.puml](architecture_v2.puml)**：LLM-EdgeFlow 平台目标演进全景图（To-Be Target Blueprint，涵盖控制面交付与跨层契约）。
-- **[assets/architecture_class_diagram.svg](assets/architecture_class_diagram.svg)**：由 `architecture.puml` 固定版本生成的 As-Is 类图资产。
-- **[assets/architecture_flow.svg](assets/architecture_flow.svg)**：由 `architecture_v2.puml` 固定版本生成的 Target 全景图资产。
-- **[assets/framework_overview.svg](assets/framework_overview.svg)**：首页工作原理图，说明方案配置、节点组合与模型调用；直接维护 SVG 源码。
-- **[developer_guide.md](developer_guide.md)**：按任务选择开发入口，按需查询四层扩展边界和进阶接口。
-- **[第一个自定义 Node](dev_guide/first_custom_node.md)**：从两个文本处理函数开始，完成源码生成、编译、连线和统一 Demo 运行。
-- **[Node 作者的五个概念](dev_guide/custom_node_concepts.md)**：深入浅出解释类型端口、来源编号、模型绑定、Definition 和并发声明。
-- **[SOLUTION_DEVELOPER_ARCHITECTURE_PLAN.md](SOLUTION_DEVELOPER_ARCHITECTURE_PLAN.md)**：面向方案开发者的用户诉求、custom Node 复用边界、降低接入门槛的实施阶段与验收标准。
-- **[logging.md](logging.md)**：纯 C11 公共日志 API、等级、环境变量和接口约束。
-- **[CHANGELOG.md](CHANGELOG.md)**：架构里程碑与用户可感知变更摘要。
-- **[rfcs/ (RFC 需求与设计库)](rfcs/README.md)**：所有待实现需求、架构演进 RFC 设计文档及模板规范（`doc/rfcs/`）。
-- **[Pipeline Studio](../tools/pipeline_studio/README.md)**：DAG 终端视图、Web 工作台、自动化 CLI 与安全边界。
+## 按任务开始
 
----
+| 任务 | 阅读入口 |
+| --- | --- |
+| 用已有节点编排方案 | [Studio 编排练习](../tools/pipeline_studio/README.md#第一次编排) → [运行当前方案](../tools/pipeline_studio/README.md#运行当前方案) |
+| 编写第一个自定义 Node | [动手练习](dev_guide/first_custom_node.md) → [Node 作者的五个概念](dev_guide/custom_node_concepts.md) |
+| 给节点增加运行时控制 | [第一个 Control](dev_guide/first_control.md) |
+| 对接平台输入输出 | [业务接入指南](dev_guide/business_onboarding.md) → [Adapter 参考实现](dev_guide/adapter_templates/README.md) |
+| 准备模型、选择构建并验证效果 | [模型、构建与效果验收](VERIFIABLE_SELECTION.md) · [模型资产说明](../models/README.md) |
+| 扩展框架、模型或 Backend | [开发者扩展指南](developer_guide.md) · [架构职责与边界](architecture.md) |
 
-## 快速导航
+## 架构与参考
 
-方案开发者先按任务进入：
-[编排已有 Node](../tools/pipeline_studio/README.md#第一次编排) →
-[开发自定义 Node](dev_guide/first_custom_node.md) →
-[对接平台结构](BUSINESS_ONBOARDING.md) →
-[运行当前方案](../tools/pipeline_studio/README.md#运行当前方案)。
-只有遇到对应能力缺口才需要编写 Node 或 Adapter；真实业务效果另按
-[可验证选择指南](VERIFIABLE_SELECTION.md)验收。
+| 资料 | 职责 |
+| --- | --- |
+| [架构设计](architecture.md) | 四层职责、编译依赖与运行时数据流 |
+| [开发者扩展指南](developer_guide.md) | 按职责查阅进阶接口与扩展约束 |
+| [自定义 Node 源码指南](../src/custom_nodes/README.md) | 源码布局、构建登记、测试与跨方案复用 |
+| [公共日志 API](logging.md) | C/C++ 日志接入、等级与 Demo 环境变量 |
+| [kiteLLM 接入](kitellm.md) | 可选 Backend 的构建、部署示例与验证限制 |
+| [开发与交付流程](../CONTRIBUTING.md) · [测试指南](../tests/README.md) | 任务分级、RFC 阈值、验证与交付 |
 
-1. **[架构职责与扩展边界](architecture.md#1-架构总览)**：接入适配、流程编排、能力节点、模型执行。
-2. **[物理代码 UML 类图](architecture.puml)**：精确对应当前 C++ 类的组合、继承与调用关系。
-3. **[平台目标演进全景图](architecture_v2.puml)**：Control Plane（Manifest/Catalog/Validator）与 4 层平台的长远演进蓝图。
-4. **[时序与数据流转](architecture.md#3-数据流转与调用时序-runtime-sequence)**：外部请求进出与内部算子/固定 Batch 推理流转。
-5. **[自定义 Node 入门](dev_guide/first_custom_node.md)**：方案开发者的完整动手练习；进阶扩展见[开发者指南](developer_guide.md)。
-6. **[公共日志 API](logging.md)**：C/C++ 接入、日志等级与 Demo 环境变量。
-7. **[RFC 需求与设计规范](rfcs/README.md)**：所有新功能与需求的设计文档生命周期管理。
-8. **[开发与交付流程](../CONTRIBUTING.md)**：任务分级、分支、RFC 阈值、验证和远程交付授权。
-9. **[DAG 可视化工作台](../tools/pipeline_studio/README.md)**：终端查看、Web 编辑与草稿运行。
+架构图按用途区分：
 
-两个 SVG 均由 PlantUML `1.2024.7` 生成，禁止手工编辑。更新源文件后运行：
+- 当前实现类图：[PlantUML 源文件](architecture.puml) · [SVG](assets/architecture_class_diagram.svg)。
+- 目标演进图：[PlantUML 源文件](architecture_v2.puml) · [SVG](assets/architecture_flow.svg)；按图例区分 Implemented、Partial 与 Planned。
+- 首页工作原理图：[framework_overview.svg](assets/framework_overview.svg)，直接维护 SVG 源码。
+
+前两张 SVG 由 PlantUML `1.2024.7` 生成。修改对应源文件后运行：
 
 ```bash
 ./scripts/render_architecture_diagrams.sh --generate
 ./scripts/render_architecture_diagrams.sh --check
 ```
+
+## 规划、决策与历史
+
+| 需要了解什么 | 入口 |
+| --- | --- |
+| 尚待完成的开发者试用与生产验收 | [方案开发者验收计划](plans/solution_developer_acceptance.md) |
+| 架构与接口为何这样设计 | [RFC 索引](rfcs/README.md)，优先列出进行中的 RFC |
+| 用户可感知的版本变化 | [Changelog](CHANGELOG.md) |
+| 特定 RFC 当时的验证证据 | [评审与验收归档](rfcs/reviews/README.md) |
+| 日期型审计、整改与已完成计划 | [历史报告归档](archive/README.md) |
+
+`dev_guide/` 维护操作步骤，架构和参考文档维护当前规则，`plans/` 维护尚未完成的工作。
+历史 RFC 与报告按原始基线阅读；其中的命令、代码路径、测试数量和阶段待办不代表当前状态。
+文档维护遵循 [CONTRIBUTING](../CONTRIBUTING.md#5-update-durable-documentation-proportionally)，
+同一教程或规则在一个入口维护，其他位置链接引用。

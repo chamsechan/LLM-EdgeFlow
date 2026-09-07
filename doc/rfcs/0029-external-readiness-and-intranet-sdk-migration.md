@@ -162,7 +162,7 @@ Composition Root 负责，不能在中央 dispatch switch 中增加内部业务�
 
 ## 8. 关联记录
 
-- [2026-09-02 架构与实现审计报告](../ARCHITECTURE_AUDIT_2026-09-02.md)
+- [2026-09-02 架构与实现审计报告](../archive/ARCHITECTURE_AUDIT_2026-09-02.md)
 - [RFC-0028：v10.0.0 预发布运行时与 ABI 收口](0028-preproduction-runtime-and-abi-hardening.md)
 - [RFC-0025：部署路径、执行目标与可复现验收契约收敛](0025-deployment-runtime-contract-convergence.md)
 

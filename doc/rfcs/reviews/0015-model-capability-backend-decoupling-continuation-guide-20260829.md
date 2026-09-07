@@ -1,5 +1,8 @@
 # RFC-0015 后续实现指南
 
+> 历史阶段指南：本文保留当时的接口、执行顺序与未完成清单。该次迁移的闭环结果见
+> [阶段 7 最终验收](0015-stage7-closeout-acceptance-20260829.md)；当前开发从[文档目录](../../README.md)进入。
+
 - **制定日期**：2026-08-29
 - **适用分支**：`feat/model-backend-decoupling-rfc`
 - **关联 RFC**：[RFC-0015 模型能力与推理运行时解耦](../0015-model-capability-backend-decoupling.md)

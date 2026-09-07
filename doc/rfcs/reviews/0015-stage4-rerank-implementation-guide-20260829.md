@@ -1,5 +1,8 @@
 # RFC-0015 阶段 4：Rerank 复用 ONNX Backend 可执行实施指南
 
+> 历史阶段指南：本文保留当时的接口、执行顺序与未完成清单。该次迁移的闭环结果见
+> [阶段 7 最终验收](0015-stage7-closeout-acceptance-20260829.md)；当前开发从[文档目录](../../README.md)进入。
+
 - **制定日期**：2026-08-29
 - **关联 RFC**：`doc/rfcs/0015-model-capability-backend-decoupling.md`
 - **关联分支**：`feat/model-backend-decoupling-rfc`
