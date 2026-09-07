@@ -5,6 +5,7 @@
 #include <unordered_set>
 #include <utility>
 
+#include "contracts/config_schema_validation.h"
 #include "engine/backend_registry.h"
 #include "engine/model_registry.h"
 
@@ -91,101 +92,81 @@ const char* PortConstraintKindName(PortConstraintKind kind) {
   return "unknown";
 }
 
-bool MatchesKind(const nlohmann::json& value, ConfigValueKind kind) {
-  switch (kind) {
-    case ConfigValueKind::kString:
-      return value.is_string();
-    case ConfigValueKind::kInteger:
-      return value.is_number_integer();
-    case ConfigValueKind::kNumber:
-      return value.is_number();
-    case ConfigValueKind::kBoolean:
-      return value.is_boolean();
-    case ConfigValueKind::kObject:
-      return value.is_object();
-    case ConfigValueKind::kArray:
-      return value.is_array();
-  }
-  return false;
+namespace {
+const std::unordered_set<std::string>& ValidCardinalities() {
+  static const std::unordered_set<std::string> kValidCardinalities = {
+      "1:1", "1:N", "N:1", "N:M"};
+  return kValidCardinalities;
 }
 
-bool ValidateFieldDefinition(const ConfigFieldDefinition& field,
-                             std::unordered_set<std::string>& seen_names) {
-  if (field.name.empty()) return false;
-  if (!seen_names.insert(field.name).second) return false;
-  if (field.kind != ConfigValueKind::kInteger &&
-      field.kind != ConfigValueKind::kNumber) {
-    if (field.minimum.has_value() || field.maximum.has_value()) {
+const std::unordered_set<std::string>& ValidProvenance() {
+  static const std::unordered_set<std::string> kValidProvenance = {
+      "preserve", "generate_sub_id", "aggregate", "independent"};
+  return kValidProvenance;
+}
+
+const std::unordered_set<std::string>& ValidLifetimes() {
+  static const std::unordered_set<std::string> kValidLifetimes = {
+      "request", "session", "global"};
+  return kValidLifetimes;
+}
+
+bool ValidatePortDefinitions(const std::vector<PortDefinition>& ports,
+                             std::unordered_set<std::string>* seen_keys,
+                             std::string* error) {
+  for (const auto& port : ports) {
+    if (port.key.empty()) {
+      if (error) *error = "Port key cannot be empty";
       return false;
     }
-  }
-  if (field.minimum.has_value() && field.maximum.has_value() &&
-      *field.minimum > *field.maximum) {
-    return false;
-  }
-  if (!field.enum_values.empty()) {
-    if (field.kind != ConfigValueKind::kString) return false;
-    std::unordered_set<std::string> seen_enums;
-    for (const auto& ev : field.enum_values) {
-      if (ev.empty() || !seen_enums.insert(ev).second) return false;
+    if (port.type_id.empty()) {
+      if (error) *error = "Port type_id cannot be empty for port: " + port.key;
+      return false;
     }
-  }
-  if (!field.default_value.is_null()) {
-    if (!MatchesKind(field.default_value, field.kind)) return false;
-    if (field.kind == ConfigValueKind::kInteger ||
-        field.kind == ConfigValueKind::kNumber) {
-      double val = field.default_value.get<double>();
-      if (field.minimum.has_value() && val < *field.minimum) return false;
-      if (field.maximum.has_value() && val > *field.maximum) return false;
-    } else if (field.kind == ConfigValueKind::kString &&
-               !field.enum_values.empty()) {
-      std::string val = field.default_value.get<std::string>();
-      if (std::find(field.enum_values.begin(), field.enum_values.end(), val) ==
-          field.enum_values.end()) {
-        return false;
+    if (!ValidCardinalities().count(port.cardinality)) {
+      if (error) {
+        *error = "Invalid port cardinality '" + port.cardinality +
+                 "' in port: " + port.key;
       }
+      return false;
+    }
+    if (!ValidProvenance().count(port.provenance_policy)) {
+      if (error) {
+        *error = "Invalid port provenance policy '" + port.provenance_policy +
+                 "' in port: " + port.key;
+      }
+      return false;
+    }
+    if (!ValidLifetimes().count(port.lifetime)) {
+      if (error) {
+        *error = "Invalid port lifetime '" + port.lifetime +
+                 "' in port: " + port.key;
+      }
+      return false;
+    }
+    if (seen_keys && !seen_keys->insert(port.key).second) {
+      if (error) *error = "Duplicate port key: " + port.key;
+      return false;
     }
   }
   return true;
 }
+
+}  // namespace
 
 bool PipelineCatalog::RegisterNodeDefinition(const NodeDefinition& definition,
                                              std::string* error) {
   if (error)
     *error = "Invalid or duplicate NodeDefinition: " + definition.node_type;
   if (definition.node_type.empty()) return false;
-  static const std::unordered_set<std::string> kValidCardinalities = {
-      "1:1", "1:N", "N:1", "N:M"};
-  static const std::unordered_set<std::string> kValidProvenance = {
-      "preserve", "generate_sub_id", "aggregate", "independent"};
-  static const std::unordered_set<std::string> kValidLifetimes = {
-      "request", "session", "global"};
 
   std::unordered_set<std::string> seen_in_ports;
-  for (const auto& port : definition.inputs) {
-    if (port.key.empty() || port.type_id.empty()) return false;
-    if (!port.cardinality.empty() &&
-        !kValidCardinalities.count(port.cardinality))
-      return false;
-    if (!port.provenance_policy.empty() &&
-        !kValidProvenance.count(port.provenance_policy))
-      return false;
-    if (!port.lifetime.empty() && !kValidLifetimes.count(port.lifetime))
-      return false;
-    if (!seen_in_ports.insert(port.key).second) return false;
+  if (!ValidatePortDefinitions(definition.inputs, &seen_in_ports, error)) {
+    return false;
   }
   std::unordered_set<std::string> seen_out_ports;
-  for (const auto& port : definition.outputs) {
-    if (port.key.empty() || port.type_id.empty()) return false;
-    if (!port.cardinality.empty() &&
-        !kValidCardinalities.count(port.cardinality))
-      return false;
-    if (!port.provenance_policy.empty() &&
-        !kValidProvenance.count(port.provenance_policy))
-      return false;
-    if (!port.lifetime.empty() && !kValidLifetimes.count(port.lifetime))
-      return false;
-    if (!seen_out_ports.insert(port.key).second) return false;
+  if (!ValidatePortDefinitions(definition.outputs, &seen_out_ports, error)) {
+    return false;
   }
   for (const auto& constraint : definition.port_constraints) {
     if (constraint.kind == PortConstraintKind::kExactOneGroupOf) {
@@ -211,9 +192,10 @@ bool PipelineCatalog::RegisterNodeDefinition(const NodeDefinition& definition,
     if (!seen_cmd_ids.insert(cmd.cmd_id).second) return false;
     if (!seen_cmd_names.insert(cmd.name).second) return false;
   }
-  std::unordered_set<std::string> seen_field_names;
-  for (const auto& field : definition.config_fields) {
-    if (!ValidateFieldDefinition(field, seen_field_names)) return false;
+  std::string field_err;
+  if (!ValidateConfigFieldDefinitions(definition.config_fields, &field_err)) {
+    if (error) *error = field_err;
+    return false;
   }
   const auto validates_lifetime_override = [&](const PortDefinition& port) {
     if (port.lifetime_config_field.empty()) return true;
@@ -226,7 +208,7 @@ bool PipelineCatalog::RegisterNodeDefinition(const NodeDefinition& definition,
     }
     return std::all_of(
         it->enum_values.begin(), it->enum_values.end(),
-        [&](const auto& value) { return kValidLifetimes.count(value) != 0; });
+        [&](const auto& value) { return ValidLifetimes().count(value) != 0; });
   };
   if (!std::all_of(definition.inputs.begin(), definition.inputs.end(),
                    validates_lifetime_override) ||
@@ -302,6 +284,14 @@ bool PipelineCatalog::RegisterBizDefinitions(
                     [&](const auto& item) {
                       return item.biz_name == definition.biz_name;
                     })) {
+      return false;
+    }
+    std::unordered_set<std::string> seen_ingress;
+    if (!ValidatePortDefinitions(definition.ingress, &seen_ingress, nullptr)) {
+      return false;
+    }
+    std::unordered_set<std::string> seen_egress;
+    if (!ValidatePortDefinitions(definition.egress, &seen_egress, nullptr)) {
       return false;
     }
     batch_names.push_back(definition.biz_name);

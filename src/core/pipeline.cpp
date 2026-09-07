@@ -92,11 +92,6 @@ struct RuntimeAssembly {
   std::unique_ptr<ThreadPool> thread_pool;
 };
 
-struct NodeExecutionResult {
-  int code = 0;
-  std::string message;
-};
-
 bool MaterializeModels(const ValidatedPipelinePlan& plan,
                        SessionContext* session,
                        PipelineDiagnostic* diagnostic) {
@@ -305,6 +300,33 @@ bool MaterializeNodes(RuntimeAssembly* assembly,
 
 }  // namespace
 
+Pipeline::NodeExecutionResult Pipeline::ExecuteNodeSafely(INode* node,
+                                                          AlgContext* req_ctx) {
+  if (!node) return {-1, "Null node pointer in pipeline execution"};
+  if (!req_ctx) return {-1, "Null context in pipeline execution"};
+  (void)req_ctx->TakeCurrentThreadError();
+  try {
+    const int code = node->Process(req_ctx);
+    auto error = req_ctx->TakeCurrentThreadError();
+    if (code == 0) {
+      return {0, {}};
+    }
+    std::string msg = std::move(error.message);
+    if (msg.empty()) {
+      msg = "Node '" + node->Name() + "' failed with exit code " +
+            std::to_string(code);
+    }
+    return {code, std::move(msg)};
+  } catch (const std::exception& e) {
+    (void)req_ctx->TakeCurrentThreadError();
+    return {-1, std::string("Unhandled exception in node '") + node->Name() +
+                    "' Process: " + e.what()};
+  } catch (...) {
+    (void)req_ctx->TakeCurrentThreadError();
+    return {-1, "Unknown exception in node '" + node->Name() + "' Process"};
+  }
+}
+
 Pipeline::Pipeline()
     : session_ctx_(std::make_unique<SessionContext>()),
       plan_(std::make_unique<ValidatedPipelinePlan>()) {}
@@ -496,12 +518,13 @@ int Pipeline::Execute(AlgContext* req_ctx) {
     if (layer.size() == 1 || execution_mode_ == ExecutionMode::kSequential ||
         !thread_pool_) {
       for (auto* node : layer) {
-        int ret = node->Process(req_ctx);
-        if (ret != 0) {
+        NodeExecutionResult result = ExecuteNodeSafely(node, req_ctx);
+        if (result.code != 0) {
+          req_ctx->SetError(result.code, result.message);
           ALG_LOG_ERROR(
               "[Pipeline] Node [%s] failed with error code: %d, msg: %s\n",
-              node->Name().c_str(), ret, req_ctx->GetErrorMessage().c_str());
-          return ret;
+              node->Name().c_str(), result.code, result.message.c_str());
+          return result.code;
         }
       }
     } else {
@@ -509,29 +532,23 @@ int Pipeline::Execute(AlgContext* req_ctx) {
       // Execute 返回前完成，避免后台任务继续访问调用方持有的 req_ctx。
       std::vector<std::future<NodeExecutionResult>> futures;
       futures.reserve(layer.size());
+      struct SubmittedNodesGuard {
+        std::vector<std::future<NodeExecutionResult>>& futures;
+        ~SubmittedNodesGuard() {
+          // Diagnostic construction can also throw. Never let submitted tasks
+          // retain the caller's context after Execute has unwound.
+          for (auto& future : futures) {
+            if (future.valid()) future.wait();
+          }
+        }
+      } submitted_nodes_guard{futures};
 
       std::string submission_error;
       for (size_t i = 0; i < layer.size(); ++i) {
         auto* node = layer[i];
         try {
-          futures.push_back(thread_pool_->Submit([node, req_ctx]() {
-            (void)req_ctx->TakeCurrentThreadError();
-            try {
-              const int code = node->Process(req_ctx);
-              auto error = req_ctx->TakeCurrentThreadError();
-              return NodeExecutionResult{
-                  code, code == 0 ? std::string{} : std::move(error.message)};
-            } catch (const std::exception& e) {
-              (void)req_ctx->TakeCurrentThreadError();
-              return NodeExecutionResult{
-                  -1, std::string("Unhandled exception in node Process: ") +
-                          e.what()};
-            } catch (...) {
-              (void)req_ctx->TakeCurrentThreadError();
-              return NodeExecutionResult{-1,
-                                         "Unknown exception in node Process"};
-            }
-          }));
+          futures.push_back(thread_pool_->Submit(
+              [node, req_ctx]() { return ExecuteNodeSafely(node, req_ctx); }));
         } catch (const std::exception& e) {
           submission_error = "Failed to submit parallel node '" + node->Name() +
                              "': " + e.what();

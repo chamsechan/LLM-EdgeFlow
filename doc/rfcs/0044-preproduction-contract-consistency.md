@@ -2,8 +2,8 @@
 
 - **RFC 编号**：0044-preproduction-contract-consistency
 - **创建日期**：2026-09-07
-- **文档状态**：Proposed
-- **关联分支**：`docs/contract-consistency-rfc`（方案文档；实施另建隔离分支）
+- **文档状态**：Completed
+- **关联分支**：`fix/preproduction-contract-consistency`
 - **目标版本**：v10.x / 首次生产接入前
 - **负责人 / 作者**：LLM-EdgeFlow 维护团队 / Codex 辅助整理
 - **审计基线**：`f1053271de6a281ed51400e8fd71b7d7177b002e`
@@ -30,7 +30,7 @@
 
 此前默认质量门禁 89/89 项 CTest 成功，但其中 8 个内部测试因可选 Backend 或真实模型
 条件不足而跳过。本次针对性复现发现了门禁尚未覆盖的边界。
-**本文交付的是实施方案，不表示下列问题已经修复，也不表示真实模型或目标硬件通过验收。**
+**§1–§4 记录审计基线及采用的决策；实施和验收结果见 §5.3，不代表目标硬件生产验收。**
 
 ### 1.2 问题清单与优先级
 
@@ -393,7 +393,7 @@ Biz 注册不能只验证名称而允许空 key/type、重复端口或非法元�
 
 ### 4.1 最小验收矩阵
 
-以下项目为实施完成条件，当前均为待实施。优先扩展已有责任套件，不要求新增测试可执行文件。
+以下项目为实施完成条件，最终证据见 §5.3。优先扩展已有责任套件，不要求新增测试可执行文件。
 测试必须断言行为，不以扫描“是否出现某函数调用”替代运行验证。
 
 | ID | 放入现有测试位置 | 必须观察到的结果 |
@@ -459,21 +459,83 @@ S1 两项、S3 的纯输入修复、S4 的数值修复可以在不同隔离分�
 
 ### 5.2 实施检查表
 
-- [ ] C01 完整缓存身份与组合/并发/失败重试回归。
-- [ ] C02 受影响入口异常保护与分配失败验证。
-- [ ] C03 egress 流契约、ranked 声明与合法业务回归。
-- [ ] C04—C06 双入口字段边界和安全整数转换。
-- [ ] C07 节点失败诊断与统一执行包装。
-- [ ] C08 分块来源和计数契约。
-- [ ] C09 Embedding 数值/归一化契约。
-- [ ] C10 Definition/字段值/语义回调共用校验。
-- [ ] C11 Node 防御性 Init 与 Adapter 生命周期清理。
-- [ ] 受影响生产/测试方案的 validate、plan 与实际业务结果验证。
-- [ ] 作者文档、脚手架、实际变更的 CHANGELOG 同步。
-- [ ] 记录最终源码基线、门禁结果、可选构建证据与明确的未验证范围。
+- [x] C01 完整缓存身份与组合/并发/失败重试回归。
+- [x] C02 受影响入口异常保护与分配失败验证。
+- [x] C03 egress 流契约、ranked 声明与合法业务回归。
+- [x] C04—C06 双入口字段边界和安全整数转换。
+- [x] C07 节点失败诊断与统一执行包装。
+- [x] C08 分块来源和计数契约。
+- [x] C09 Embedding 数值/归一化契约。
+- [x] C10 Definition/字段值/语义回调共用校验。
+- [x] C11 Node 防御性 Init 与 Adapter 生命周期清理。
+- [x] 受影响生产/测试方案的 validate、plan 与实际业务结果验证。
+- [x] 作者文档、脚手架、实际变更的 CHANGELOG 同步。
+- [x] 记录最终源码基线、门禁结果、可选构建证据与明确的未验证范围。
 
-### 5.3 当前交付状态
+### 5.3 实施复核与验收结果（2026-09-08）
 
-当前仅完成审计结论整理和方案文档，状态为 **Proposed**，未实施源码修复。
-本节在实施后更新最终选择、验证结果、真实资产限制及现行指南链接；
-文档自身通过门禁不构成将本 RFC 标为 Completed 的依据。
+**结论：C01–C11 的修改必要且与既有分层相符；补修后完成本 RFC 的源码契约范围。**
+实施基于提案提交 `77282bd` 和 §1 的源码基线，代码、测试及本验收记录在关联分支一同交付；
+最终提交身份以 Git 历史为准。
+
+复核保留了完整缓存身份、共享字段校验、统一执行包装和模型数值辅助函数。
+它们各自消除已有重复规则或已复现错误；没有新增 Node、Model、Backend、依赖、配置语言、
+继承体系或测试可执行文件。Backend 的较大 diff 主要来自完整 try/catch 覆盖及缩进。
+同键缓存内存、业务错误码、模型能力差异和 Adapter 输出策略仍按 §1.3 的范围处理。
+
+对初版实施直接补修了以下缺口：
+
+| 缺口 | 最终处理与回归依据 |
+| --- | --- |
+| cache 长度先窄化到 uint32；组合回归仅直接调用 Embedding | 版本化小端 uint64 编码完整长度；真实 Corpus Node 经严格 Plan 初始化，覆盖碰撞文本、NUL、空串、Unicode、来源和选项变化，保留并发复用及失败重试测试 |
+| catch 中先拼接临时字符串；输出池/运行时/注册失败的保护未完整覆盖 | 共用 `SetDiagnosticNoexcept(string_view)`，诊断赋值内部捕获；完善所属边界。分配注入限定在被测调用内，断言移到注入区间之外 |
+| 可选 egress 类型错误被放过；Node 与 egress 重复流检查 | 共用 `ValidatePortFlowContract`，可选出口存在时检查类型；错误路径指向实际生产端绑定，保留 `$egress` 和既有诊断码 |
+| 双入口限制仍散落为字面量；Operator PCM 未检查显式字节上限 | Integration 共用 `biz_input_constraints.h`；渠道 256/257、空渠道、PCM 长度/指针/采样率及更严格字节上限有对照回归；零 PCM 经两种完整入口成功执行 |
+| signed integer 范围检查经过 double，空端口流元数据被接受 | signed/unsigned 原始整数分别转换比较；测试 2^53 附近的边界，Node 与 Biz 拒绝空 cardinality/provenance/lifetime |
+| chunk counts 可发生有符号溢出，sub_id 最后一个合法值被提前排除 | int32 计数在递增前检查；uint64 中间计数在发布 uint32 sub_id 前检查；counts 保留父项来源；Definition 与 Init 共用字段列表 |
+| 汇总并行失败时再次抛异常可提前离开，仍有任务访问请求 | 局部等待保护覆盖异常退出；测试诊断阶段抛出 bad_alloc 时，阻塞任务结束前 Execute 不返回；顺序、单节点并行和多节点失败归属均有回归 |
+| 数值测试的新 suite 未进入 CTest 注册过滤器，仅测辅助函数 | 归入已注册 `OnnxAndEmbeddingModelTest`；通过真实模型类和中性 session 替身覆盖 BGE 2D/3D、CLS/mean、generated mean/last 的大数、零和非有限值，以及输出清理/来源/固定批次填充移除 |
+| 变更记录含“64-bit 内存对齐”等失实表述，迁移说明缺失 | 删除无依据的保证，更新现行开发指南、技能参考与可编译 starter 的校验说明，明确 Unpack 生命周期及内部扩展重编译要求 |
+
+关键回归位置：
+[缓存组合](../../tests/unit/nodes/test_text_embedding_node.cpp)、
+[分块来源](../../tests/unit/nodes/test_text_chunk_node.cpp)、
+[字段与定义](../../tests/unit/core/test_definition_schema_validation.cpp)、
+[出口规划](../../tests/unit/core/test_validated_pipeline_plan.cpp)、
+[执行失败](../../tests/unit/core/test_dag_pipeline.cpp)、
+[双入口/分配失败](../../tests/unit/operator/test_operator_value_registry.cpp)、
+[BGE 数值](../../tests/unit/engine/test_onnx_and_embedding_model.cpp)、
+[generated 数值/Backend 分配失败](../../tests/unit/engine/test_model_backend_decoupling.cpp)。
+溢出分支采用源码边界复核，不声称实际分配了数十亿个切片进行压力验收。
+
+验证记录：
+
+- `./scripts/run_all_tests.sh`：89/89 CTest 通过，包括格式、分层、C11 ABI、所有默认构建、
+  集成、Demo、脚手架和文档工具检查。新增用例加入既有 suite；核心 runner 复用既有
+  allocation-failure 测试对象，没有增加测试可执行文件。
+- Catalog：默认构建实际注册 12 Node、6 Model、7 biz、2 Backend；没有增加生产能力。
+  使用各自匹配的生产/测试 Catalog 工具，对 24 份 Pipeline 执行 validate 和 plan，全部通过：
+  默认/测试构建 17 份、Kite 构建 6 份、Whisper 构建 1 份。默认构建对未启用 Backend 的
+  拒绝符合约束，未用测试注册覆盖生产配置。
+- 从 doc_qa 组合构造 TextChunk chunks → llm_answers 的反例；生产 CLI 的 validate/plan
+  均在 `/pipeline/0/ports/outputs/chunks` 报 `PORT_CARDINALITY_MISMATCH`，关联 `$egress`。
+- 关闭默认 Control 后执行 `doc_qa_mock`、`doc_qa_rerank_mock`、`dialogue_audit_mock`、
+  `audio_asr_mock`、`entity_extract_custom_mock`、`doc_qa_custom_mock`、`cross_rerank_onnx`
+  七个现有 Profile。11 条结果全部成功，核对请求 ID、状态及回答/计数/质检/意图/实体字段；
+  CrossRerank 保留全部三个候选排名。此项记录路径和字段正确性，不将 fixture 当成效果评估。
+- 当前源码的 Kite 构建（ONNX + Kite，llama/Whisper 关闭）完成 core runner 和生产工具构建；
+  DAG、ModelBackendDecoupling、ONNX/Embedding、LlamaCppBackend 四个相关 suite 通过。
+  当前源码的 Whisper 构建（ONNX + llama + Whisper，Kite 关闭）完成相同目标构建，
+  DAG、ModelBackendDecoupling、ONNX/Embedding、WhisperCppBackend 四个 suite 通过。
+  两组开关遵守仓库 GGML 版本隔离约束。
+- 使用本地已有 `qwen2.5-0.5b-instruct-q4_k_m.gguf` 额外执行并通过
+  `RealGgufLoadAndTextGeneration`、`RealKiteSdkGenerationAndFixedSeedPolicy`、
+  `RealKiteGeneratedTokenEmbeddings` 三项真实资产回归。没有引入或提交模型资产。
+
+默认门禁仍有 8 个因可选 Backend / 资产开关而跳过的内部测试；上面的补充运行仅覆盖已列出的
+对应项目，不把全部跳过项视作通过。Kite 视觉、所有真实业务效果、缓存负载/内存预算、
+公司内部 SDK 及目标硬件生产验收没有在本次完成。它们按既有范围管理，本 RFC 不替代 RFC-0029。
+
+现行编写规则见[开发指南](../developer_guide.md)及
+[Node 概念说明](../dev_guide/custom_node_concepts.md)；远程 PR 和合并 CI 状态由 Git/GitHub
+记录，用户本次额外授权的交付继续执行仓库标准 PR 流程。

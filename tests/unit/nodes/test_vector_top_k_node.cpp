@@ -30,6 +30,21 @@ TEST_F(VectorTopKNodeTest, InitAndConfigValidation) {
 
   nlohmann::json cfg = {{"top_k", 2}, {"min_score", 0.0}, {"metric", "cosine"}};
   EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
+
+  auto invalid_node1 = NodeFactory::Instance().Create("VectorTopKNode");
+  ASSERT_NE(invalid_node1, nullptr);
+  EXPECT_FALSE(
+      InitNodeForTest(*invalid_node1, {{"top_k", -1}}, session_ctx_.get()));
+
+  auto invalid_node2 = NodeFactory::Instance().Create("VectorTopKNode");
+  ASSERT_NE(invalid_node2, nullptr);
+  EXPECT_FALSE(InitNodeForTest(*invalid_node2, {{"metric", "invalid_metric"}},
+                               session_ctx_.get()));
+
+  auto invalid_node3 = NodeFactory::Instance().Create("VectorTopKNode");
+  ASSERT_NE(invalid_node3, nullptr);
+  EXPECT_FALSE(
+      InitNodeForTest(*invalid_node3, {{"top_k", 2.5}}, session_ctx_.get()));
 }
 
 // 2. Process Top-K Ranking with Shared Candidates

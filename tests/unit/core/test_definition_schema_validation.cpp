@@ -7,6 +7,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "contracts/config_schema_validation.h"
 #include "contracts/control_payload.h"
 #include "core/common_contracts.h"
 #include "core/node_interface.h"
@@ -69,6 +70,42 @@ NodeDefinition MakeSchemaProbeNodeDefinition() {
 }
 
 REGISTER_NODE_WITH_DEFINITION(SchemaProbeNode, MakeSchemaProbeNodeDefinition());
+
+class ThrowingValidateConfigNode : public INode {
+ public:
+  inline static constexpr char kNodeType[] = "ThrowingValidateConfigNode";
+  static inline bool s_called = false;
+  static inline int s_throw_mode = 0;
+
+  bool Init(const NodeInitContext&) override { return true; }
+  int Process(AlgContext*) override { return 0; }
+  const std::string& Name() const override {
+    static const std::string name = kNodeType;
+    return name;
+  }
+};
+
+NodeDefinition MakeThrowingValidateConfigNodeDefinition() {
+  NodeDefinition def;
+  def.node_type = ThrowingValidateConfigNode::kNodeType;
+  def.category = "test";
+  def.parallel_safe = true;
+  def.config_fields = {ConfigFieldDefinition{
+      "req_num", ConfigValueKind::kInteger, true, 10, 1.0, 100.0}};
+  def.validate_config = [](const nlohmann::json&, const auto&, std::string*) {
+    ThrowingValidateConfigNode::s_called = true;
+    if (ThrowingValidateConfigNode::s_throw_mode == 1) {
+      throw std::runtime_error("simulated config validation crash");
+    } else if (ThrowingValidateConfigNode::s_throw_mode == 2) {
+      throw 42;
+    }
+    return true;
+  };
+  return def;
+}
+
+REGISTER_NODE_WITH_DEFINITION(ThrowingValidateConfigNode,
+                              MakeThrowingValidateConfigNodeDefinition());
 
 class SchemaProbeModel : public IModel {
  public:
@@ -694,6 +731,176 @@ TEST(DefinitionSchemaValidationTest, ProductionCatalogSelfCheck) {
             << field.name;
       }
     }
+  }
+}
+
+TEST(DefinitionSchemaValidationTest, RejectsInvalidPortDefinitions) {
+  // Empty key
+  NodeDefinition empty_key_node;
+  empty_key_node.node_type = "EmptyKeyPortNode";
+  empty_key_node.inputs = {
+      PortDefinition{"", "TextBatch", true, "1:1", "preserve", "request"}};
+  EXPECT_FALSE(PipelineCatalog::RegisterNodeDefinition(empty_key_node));
+
+  // Empty type_id
+  NodeDefinition empty_type_node;
+  empty_type_node.node_type = "EmptyTypePortNode";
+  empty_type_node.inputs = {
+      PortDefinition{"text", "", true, "1:1", "preserve", "request"}};
+  EXPECT_FALSE(PipelineCatalog::RegisterNodeDefinition(empty_type_node));
+
+  // Invalid cardinality
+  NodeDefinition invalid_card_node;
+  invalid_card_node.node_type = "InvalidCardPortNode";
+  invalid_card_node.inputs = {
+      PortDefinition{"text", "TextBatch", true, "3:3", "preserve", "request"}};
+  EXPECT_FALSE(PipelineCatalog::RegisterNodeDefinition(invalid_card_node));
+
+  // Invalid provenance
+  NodeDefinition invalid_prov_node;
+  invalid_prov_node.node_type = "InvalidProvPortNode";
+  invalid_prov_node.inputs = {
+      PortDefinition{"text", "TextBatch", true, "1:1", "magic", "request"}};
+  EXPECT_FALSE(PipelineCatalog::RegisterNodeDefinition(invalid_prov_node));
+
+  // Invalid lifetime
+  NodeDefinition invalid_life_node;
+  invalid_life_node.node_type = "InvalidLifePortNode";
+  invalid_life_node.inputs = {
+      PortDefinition{"text", "TextBatch", true, "1:1", "preserve", "eternal"}};
+  EXPECT_FALSE(PipelineCatalog::RegisterNodeDefinition(invalid_life_node));
+
+  // Duplicate input port key
+  NodeDefinition dup_key_node;
+  dup_key_node.node_type = "DupKeyPortNode";
+  dup_key_node.inputs = {
+      PortDefinition{"text", "TextBatch", true, "1:1", "preserve", "request"},
+      PortDefinition{"text", "TextBatch", false, "1:1", "preserve", "request"}};
+  EXPECT_FALSE(PipelineCatalog::RegisterNodeDefinition(dup_key_node));
+
+  // Biz definition with invalid port
+  BizDefinition invalid_biz;
+  invalid_biz.biz_name = "invalid_port_biz";
+  invalid_biz.ingress = {
+      PortDefinition{"", "TextBatch", true, "1:1", "preserve", "request"}};
+  EXPECT_FALSE(PipelineCatalog::RegisterBizDefinition(invalid_biz));
+}
+
+TEST(DefinitionSchemaValidationTest, RejectsNonIntegerFloatsForIntegerField) {
+  nlohmann::json pipeline = {
+      {"biz_name", "unregistered_test_biz"},
+      {"models", nlohmann::json::array()},
+      {"pipeline",
+       nlohmann::json::array(
+           {{{"id", "node_0"},
+             {"node_type", SchemaProbeNode::kNodeType},
+             {"depends_on", nlohmann::json::array()},
+             {"config", {{"req_str", "hello"}, {"opt_int", 20.5}}}}})}};
+
+  auto plan = PipelineValidator::ValidateAndPlan(
+      pipeline, ValidationPolicy::kPrivateExtensionCompatible);
+  EXPECT_FALSE(plan.report.ok);
+  auto it = std::find_if(plan.report.diagnostics.begin(),
+                         plan.report.diagnostics.end(), [](const auto& item) {
+                           return item.code == DiagnosticCode::kConfigFieldType;
+                         });
+  ASSERT_NE(it, plan.report.diagnostics.end());
+  EXPECT_EQ(it->path, "/pipeline/0/config/opt_int");
+}
+
+TEST(DefinitionSchemaValidationTest,
+     ValidateConfigExceptionMappingAndShortCircuit) {
+  // Case 1: Field validation fails -> validate_config must NOT be called
+  ThrowingValidateConfigNode::s_called = false;
+  ThrowingValidateConfigNode::s_throw_mode = 1;
+  nlohmann::json pipeline_field_fail = {
+      {"biz_name", "unregistered_test_biz"},
+      {"models", nlohmann::json::array()},
+      {"pipeline",
+       nlohmann::json::array({{{"id", "node_0"},
+                               {"node_type", "ThrowingValidateConfigNode"},
+                               {"depends_on", nlohmann::json::array()},
+                               {"config", {{"req_num", "not_an_int"}}}}})}};
+  auto plan1 = PipelineValidator::ValidateAndPlan(
+      pipeline_field_fail, ValidationPolicy::kPrivateExtensionCompatible);
+  EXPECT_FALSE(plan1.report.ok);
+  EXPECT_FALSE(ThrowingValidateConfigNode::s_called);
+
+  // Case 2: Field validation passes, validate_config throws std::runtime_error
+  // -> mapped to kInvalidCombination
+  ThrowingValidateConfigNode::s_called = false;
+  ThrowingValidateConfigNode::s_throw_mode = 1;
+  nlohmann::json pipeline_std_throw = {
+      {"biz_name", "unregistered_test_biz"},
+      {"models", nlohmann::json::array()},
+      {"pipeline",
+       nlohmann::json::array({{{"id", "node_0"},
+                               {"node_type", "ThrowingValidateConfigNode"},
+                               {"depends_on", nlohmann::json::array()},
+                               {"config", {{"req_num", 50}}}}})}};
+  auto plan2 = PipelineValidator::ValidateAndPlan(
+      pipeline_std_throw, ValidationPolicy::kPrivateExtensionCompatible);
+  EXPECT_FALSE(plan2.report.ok);
+  EXPECT_TRUE(ThrowingValidateConfigNode::s_called);
+  auto it2 =
+      std::find_if(plan2.report.diagnostics.begin(),
+                   plan2.report.diagnostics.end(), [](const auto& item) {
+                     return item.code == DiagnosticCode::kInvalidCombination;
+                   });
+  ASSERT_NE(it2, plan2.report.diagnostics.end());
+  EXPECT_NE(it2->message.find("simulated config validation crash"),
+            std::string::npos);
+
+  // Case 3: Field validation passes, validate_config throws non-std exception
+  // -> mapped to kInvalidCombination
+  ThrowingValidateConfigNode::s_called = false;
+  ThrowingValidateConfigNode::s_throw_mode = 2;
+  auto plan3 = PipelineValidator::ValidateAndPlan(
+      pipeline_std_throw, ValidationPolicy::kPrivateExtensionCompatible);
+  EXPECT_FALSE(plan3.report.ok);
+  EXPECT_TRUE(ThrowingValidateConfigNode::s_called);
+  auto it3 =
+      std::find_if(plan3.report.diagnostics.begin(),
+                   plan3.report.diagnostics.end(), [](const auto& item) {
+                     return item.code == DiagnosticCode::kInvalidCombination;
+                   });
+  ASSERT_NE(it3, plan3.report.diagnostics.end());
+  EXPECT_NE(it3->message.find("unknown exception"), std::string::npos);
+}
+
+TEST(DefinitionSchemaValidationTest, IntegerBoundsDoNotRoundThroughDouble) {
+  const std::vector<ConfigFieldDefinition> fields = {
+      {"value", ConfigValueKind::kInteger, true, nullptr, -9007199254740992.0,
+       9007199254740992.0}};
+  nlohmann::json normalized;
+  for (const nlohmann::json& value :
+       {nlohmann::json(int64_t{9007199254740993}),
+        nlohmann::json(uint64_t{9007199254740993}),
+        nlohmann::json(int64_t{-9007199254740993})}) {
+    EXPECT_FALSE(ValidateAndNormalizeFields(fields, {{"value", value}},
+                                            &normalized, nullptr));
+    EXPECT_FALSE(ValidateAndNormalizeConfig(fields, {{"value", value}},
+                                            &normalized, nullptr));
+  }
+  EXPECT_TRUE(ValidateAndNormalizeFields(
+      fields, {{"value", int64_t{9007199254740992}}}, &normalized, nullptr));
+}
+
+TEST(DefinitionSchemaValidationTest, NodeAndBizRejectEmptyFlowMetadata) {
+  for (int field = 0; field < 3; ++field) {
+    PortDefinition port{"value", "TextBatch", true,
+                        "1:1",   "preserve",  "request"};
+    if (field == 0) port.cardinality.clear();
+    if (field == 1) port.provenance_policy.clear();
+    if (field == 2) port.lifetime.clear();
+    NodeDefinition node;
+    node.node_type = "invalid_empty_flow_node";
+    node.outputs = {port};
+    BizDefinition biz;
+    biz.biz_name = "invalid_empty_flow_biz";
+    biz.egress = {port};
+    EXPECT_FALSE(PipelineCatalog::RegisterNodeDefinition(node));
+    EXPECT_FALSE(PipelineCatalog::RegisterBizDefinition(biz));
   }
 }
 

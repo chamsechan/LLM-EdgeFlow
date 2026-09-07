@@ -79,6 +79,13 @@ class Pipeline {
   const ValidatedPipelinePlan& GetPlan() const { return *plan_; }
 
  private:
+  struct NodeExecutionResult {
+    int code = 0;
+    std::string message;
+  };
+  static NodeExecutionResult ExecuteNodeSafely(INode* node,
+                                               AlgContext* req_ctx);
+
   bool BuildInternal(const nlohmann::json& root_config,
                      PipelineDiagnostic* diagnostic, ValidationPolicy policy);
 

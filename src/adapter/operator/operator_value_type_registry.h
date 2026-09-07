@@ -11,6 +11,7 @@
 #include <utility>
 #include <vector>
 
+#include "adapter/biz_input_constraints.h"
 #include "operator/company_operator_types.h"
 
 namespace llm_edgeflow {
@@ -65,13 +66,14 @@ const CompanyAnyTypeDescriptor* FindCompanyAnyType(int32_t type_id) noexcept;
  * @brief 输入限制配置
  */
 struct ResolvedInputLimits {
-  size_t max_text_bytes = 64 * 1024;              // 64 KiB
-  size_t max_doc_text_bytes = 10 * 1024 * 1024;   // 10 MiB
-  size_t max_image_uri_bytes = 4096;              // 4 KiB
-  int32_t max_audio_pcm_samples = 960000;         // 960k samples
-  size_t max_audio_pcm_bytes = 10 * 1024 * 1024;  // 10 MiB
-  int32_t min_sample_rate = 8000;
-  int32_t max_sample_rate = 192000;
+  size_t max_text_bytes = 64 * 1024;             // 64 KiB
+  size_t max_doc_text_bytes = 10 * 1024 * 1024;  // 10 MiB
+  size_t max_image_uri_bytes = 4096;             // 4 KiB
+  int32_t max_audio_pcm_samples =
+      biz_input::kMaxAudioPcmSamples;                         // 960k samples
+  size_t max_audio_pcm_bytes = biz_input::kMaxAudioPcmBytes;  // 10 MiB
+  int32_t min_sample_rate = biz_input::kMinSampleRate;
+  int32_t max_sample_rate = biz_input::kMaxSampleRate;
   int32_t max_rerank_candidates = 8;
   size_t max_buffer_bytes = 10 * 1024 * 1024;  // 10 MiB
   size_t max_any_bytes = 10 * 1024 * 1024;     // 10 MiB

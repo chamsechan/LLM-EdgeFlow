@@ -575,4 +575,72 @@ TEST(ValidatedPipelinePlanTest,
   EXPECT_FALSE(plan_escape.report.ok);
 }
 
+TEST(ValidatedPipelinePlanTest,
+     RejectsIncompatibleEgressPortExecutionContracts) {
+  BizDefinition biz_def;
+  biz_def.biz_name = "test_egress_flow_biz";
+  biz_def.demo_biz = "test";
+  biz_def.egress = {PortDefinition{"flow", "TextBatch", true, "1:1",
+                                   "independent", "session"}};
+  ASSERT_TRUE(PipelineCatalog::RegisterBizDefinition(biz_def));
+
+  nlohmann::json pipeline_json = {
+      {"biz_name", "test_egress_flow_biz"},
+      {"models", nlohmann::json::array()},
+      {"pipeline", nlohmann::json::array(
+                       {{{"id", "producer"},
+                         {"node_type", FlowContractProducerNode::kNodeType},
+                         {"depends_on", nlohmann::json::array()}}})}};
+
+  auto plan = PipelineValidator::ValidateAndPlan(
+      pipeline_json, ValidationPolicy::kPrivateExtensionCompatible);
+  EXPECT_FALSE(plan.report.ok);
+
+  bool found_cardinality = false;
+  bool found_provenance = false;
+  bool found_lifetime = false;
+  for (const auto& diag : plan.report.diagnostics) {
+    if (diag.code == DiagnosticCode::kPortCardinalityMismatch) {
+      found_cardinality = true;
+      EXPECT_EQ(diag.related_nodes, std::vector<std::string>({"$egress"}));
+      EXPECT_EQ(diag.port, "flow");
+    } else if (diag.code == DiagnosticCode::kPortProvenanceMismatch) {
+      found_provenance = true;
+      EXPECT_EQ(diag.related_nodes, std::vector<std::string>({"$egress"}));
+      EXPECT_EQ(diag.port, "flow");
+    } else if (diag.code == DiagnosticCode::kPortLifetimeMismatch) {
+      found_lifetime = true;
+      EXPECT_EQ(diag.related_nodes, std::vector<std::string>({"$egress"}));
+      EXPECT_EQ(diag.port, "flow");
+    }
+  }
+  EXPECT_TRUE(found_cardinality);
+  EXPECT_TRUE(found_provenance);
+  EXPECT_TRUE(found_lifetime);
+}
+
+TEST(ValidatedPipelinePlanTest,
+     OptionalEgressMayBeAbsentButMustMatchWhenPresent) {
+  BizDefinition biz;
+  biz.biz_name = "test_optional_egress_type";
+  biz.egress = {PortDefinition{"optional", "Int32Batch", false, "N:M",
+                               "aggregate", "request"}};
+  ASSERT_TRUE(PipelineCatalog::RegisterBizDefinition(biz));
+  nlohmann::json config = {
+      {"biz_name", biz.biz_name},
+      {"pipeline",
+       {{{"id", "source"},
+         {"node_type", FlowContractProducerNode::kNodeType},
+         {"depends_on", nlohmann::json::array()}}}}};
+  EXPECT_TRUE(PipelineValidator::ValidateAndPlan(config).report.ok);
+  config["pipeline"][0]["ports"]["outputs"]["flow"] = "optional";
+  auto plan = PipelineValidator::ValidateAndPlan(config);
+  EXPECT_FALSE(plan.report.ok);
+  ASSERT_FALSE(plan.report.diagnostics.empty());
+  EXPECT_EQ(plan.report.diagnostics.back().code,
+            DiagnosticCode::kMissingBizOutput);
+  EXPECT_EQ(plan.report.diagnostics.back().related_nodes,
+            std::vector<std::string>{"$egress"});
+}
+
 }  // namespace llm_edgeflow

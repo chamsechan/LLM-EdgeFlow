@@ -10,6 +10,7 @@
 #include <utility>
 #include <vector>
 
+#include "contracts/diagnostic.h"
 #include "engine/backend_registry.h"
 #include "engine/text_generation/common_autoregressive_generator.h"
 
@@ -19,15 +20,6 @@
 
 namespace llm_edgeflow {
 namespace {
-
-void SetDiagnostic(std::string* diagnostic,
-                   const std::string& message) noexcept {
-  if (!diagnostic) return;
-  try {
-    *diagnostic = message;
-  } catch (...) {
-  }
-}
 
 std::string NormalizePlatform(std::string platform) {
   std::transform(
@@ -66,7 +58,8 @@ struct LlamaCppOptions {
 bool ParseLlamaCppConfig(const nlohmann::json& config, LlamaCppOptions* output,
                          std::string* diagnostic) {
   if (!config.is_object()) {
-    SetDiagnostic(diagnostic, "llama.cpp backend_config must be an object");
+    SetDiagnosticNoexcept(diagnostic,
+                          "llama.cpp backend_config must be an object");
     return false;
   }
   const auto& fields = LlamaCppConfigFields();
@@ -75,8 +68,8 @@ bool ParseLlamaCppConfig(const nlohmann::json& config, LlamaCppOptions* output,
         std::find_if(fields.begin(), fields.end(),
                      [&](const auto& item) { return item.name == key; });
     if (field == fields.end()) {
-      SetDiagnostic(diagnostic,
-                    "Unknown llama.cpp backend_config field: " + key);
+      SetDiagnosticNoexcept(diagnostic,
+                            "Unknown llama.cpp backend_config field: " + key);
       return false;
     }
     if (field->kind == ConfigValueKind::kBoolean) {
@@ -85,7 +78,8 @@ bool ParseLlamaCppConfig(const nlohmann::json& config, LlamaCppOptions* output,
       const double number = value.get<double>();
       if (number >= *field->minimum && number <= *field->maximum) continue;
     }
-    SetDiagnostic(diagnostic, "Invalid llama.cpp backend_config field: " + key);
+    SetDiagnosticNoexcept(diagnostic,
+                          "Invalid llama.cpp backend_config field: " + key);
     return false;
   }
   LlamaCppOptions options;
@@ -98,7 +92,8 @@ bool ParseLlamaCppConfig(const nlohmann::json& config, LlamaCppOptions* output,
   options.n_gpu_layers = config.value<int>("n_gpu_layers", 0);
   options.check_tensors = config.value<bool>("check_tensors", false);
   if (options.decode_batch_size > options.context_size) {
-    SetDiagnostic(diagnostic, "decode_batch_size must not exceed context_size");
+    SetDiagnosticNoexcept(diagnostic,
+                          "decode_batch_size must not exceed context_size");
     return false;
   }
   *output = options;
@@ -146,21 +141,23 @@ class LlamaCppDecoder final : public text_generation::IAutoregressiveDecoder {
   int Encode(const std::string& text, bool add_bos,
              std::vector<int32_t>* tokens,
              std::string* diagnostic) noexcept override {
-    if (!tokens) {
-      SetDiagnostic(diagnostic, "Token output pointer is null");
-      return -1;
-    }
-    tokens->clear();
-    if (!vocab_) {
-      SetDiagnostic(diagnostic, "llama.cpp vocabulary is null");
-      return -1;
-    }
-    if (text.size() >
-        static_cast<size_t>(std::numeric_limits<int32_t>::max())) {
-      SetDiagnostic(diagnostic, "Text is too large for llama.cpp tokenizer");
-      return -1;
-    }
     try {
+      if (!tokens) {
+        SetDiagnosticNoexcept(diagnostic, "Token output pointer is null");
+        return -1;
+      }
+      tokens->clear();
+      if (!vocab_) {
+        SetDiagnosticNoexcept(diagnostic, "llama.cpp vocabulary is null");
+        return -1;
+      }
+      if (text.size() >
+          static_cast<size_t>(std::numeric_limits<int32_t>::max())) {
+        SetDiagnosticNoexcept(diagnostic,
+                              "Text is too large for llama.cpp tokenizer");
+        return -1;
+      }
+
       int32_t capacity = static_cast<int32_t>(std::min<size_t>(
           text.size() + 16,
           static_cast<size_t>(std::numeric_limits<int32_t>::max())));
@@ -178,37 +175,37 @@ class LlamaCppDecoder final : public text_generation::IAutoregressiveDecoder {
             add_bos, true);
       }
       if (count < 0) {
-        SetDiagnostic(diagnostic, "llama.cpp tokenization failed");
+        SetDiagnosticNoexcept(diagnostic, "llama.cpp tokenization failed");
         return -1;
       }
       vendor_tokens.resize(static_cast<size_t>(count));
       tokens->assign(vendor_tokens.begin(), vendor_tokens.end());
       return 0;
     } catch (const std::exception& e) {
-      tokens->clear();
-      SetDiagnostic(
-          diagnostic,
-          std::string("llama.cpp tokenization exception: ") + e.what());
+      if (tokens) tokens->clear();
+      SetDiagnosticNoexcept(diagnostic, e.what());
       return -1;
     } catch (...) {
-      tokens->clear();
-      SetDiagnostic(diagnostic, "Unknown llama.cpp tokenization exception");
+      if (tokens) tokens->clear();
+      SetDiagnosticNoexcept(diagnostic,
+                            "Unknown llama.cpp tokenization exception");
       return -1;
     }
   }
 
   int DecodeToken(int32_t token, std::string* piece,
                   std::string* diagnostic) noexcept override {
-    if (!piece) {
-      SetDiagnostic(diagnostic, "Decoded piece pointer is null");
-      return -1;
-    }
-    piece->clear();
-    if (!vocab_) {
-      SetDiagnostic(diagnostic, "llama.cpp vocabulary is null");
-      return -1;
-    }
     try {
+      if (!piece) {
+        SetDiagnosticNoexcept(diagnostic, "Decoded piece pointer is null");
+        return -1;
+      }
+      piece->clear();
+      if (!vocab_) {
+        SetDiagnosticNoexcept(diagnostic, "llama.cpp vocabulary is null");
+        return -1;
+      }
+
       std::vector<char> buffer(128);
       int32_t count =
           llama_token_to_piece(vocab_, token, buffer.data(),
@@ -220,20 +217,19 @@ class LlamaCppDecoder final : public text_generation::IAutoregressiveDecoder {
                                  static_cast<int32_t>(buffer.size()), 0, false);
       }
       if (count < 0) {
-        SetDiagnostic(diagnostic, "llama.cpp token decode failed");
+        SetDiagnosticNoexcept(diagnostic, "llama.cpp token decode failed");
         return -1;
       }
       piece->assign(buffer.data(), static_cast<size_t>(count));
       return 0;
     } catch (const std::exception& e) {
-      piece->clear();
-      SetDiagnostic(
-          diagnostic,
-          std::string("llama.cpp token decode exception: ") + e.what());
+      if (piece) piece->clear();
+      SetDiagnosticNoexcept(diagnostic, e.what());
       return -1;
     } catch (...) {
-      piece->clear();
-      SetDiagnostic(diagnostic, "Unknown llama.cpp token decode exception");
+      if (piece) piece->clear();
+      SetDiagnosticNoexcept(diagnostic,
+                            "Unknown llama.cpp token decode exception");
       return -1;
     }
   }
@@ -247,22 +243,24 @@ class LlamaCppDecoder final : public text_generation::IAutoregressiveDecoder {
   int Evaluate(const std::vector<int32_t>& tokens, std::vector<float>* logits,
                std::string* diagnostic) noexcept override {
     if (!logits) {
-      SetDiagnostic(diagnostic, "Logits output pointer is null");
+      SetDiagnosticNoexcept(diagnostic, "Logits output pointer is null");
       return -1;
     }
     logits->clear();
     if (!model_ || !context_ || !vocab_) {
-      SetDiagnostic(diagnostic, "llama.cpp decoder is not initialized");
+      SetDiagnosticNoexcept(diagnostic, "llama.cpp decoder is not initialized");
       return -1;
     }
     if (tokens.empty()) {
-      SetDiagnostic(diagnostic, "Decoder Evaluate tokens cannot be empty");
+      SetDiagnosticNoexcept(diagnostic,
+                            "Decoder Evaluate tokens cannot be empty");
       return -1;
     }
     try {
       if (tokens.size() >
           context_size_ - std::min(context_size_, token_count_)) {
-        SetDiagnostic(diagnostic, "llama.cpp context token limit exceeded");
+        SetDiagnosticNoexcept(diagnostic,
+                              "llama.cpp context token limit exceeded");
         return -1;
       }
       std::vector<llama_token> vendor_tokens(tokens.begin(), tokens.end());
@@ -274,8 +272,9 @@ class LlamaCppDecoder final : public text_generation::IAutoregressiveDecoder {
             vendor_tokens.data() + offset, static_cast<int32_t>(chunk_size));
         const int32_t result = llama_decode(context_.get(), batch);
         if (result != 0) {
-          SetDiagnostic(diagnostic, "llama.cpp decode failed with code " +
-                                        std::to_string(result));
+          SetDiagnosticNoexcept(
+              diagnostic,
+              "llama.cpp decode failed with code " + std::to_string(result));
           return -1;
         }
       }
@@ -283,7 +282,7 @@ class LlamaCppDecoder final : public text_generation::IAutoregressiveDecoder {
       float* vendor_logits = llama_get_logits_ith(context_.get(), -1);
       const int32_t vocab_size = llama_vocab_n_tokens(vocab_);
       if (!vendor_logits || vocab_size <= 0) {
-        SetDiagnostic(diagnostic, "llama.cpp returned invalid logits");
+        SetDiagnosticNoexcept(diagnostic, "llama.cpp returned invalid logits");
         return -1;
       }
       logits->assign(vendor_logits, vendor_logits + vocab_size);
@@ -291,12 +290,11 @@ class LlamaCppDecoder final : public text_generation::IAutoregressiveDecoder {
       return 0;
     } catch (const std::exception& e) {
       logits->clear();
-      SetDiagnostic(diagnostic,
-                    std::string("llama.cpp Evaluate exception: ") + e.what());
+      SetDiagnosticNoexcept(diagnostic, e.what());
       return -1;
     } catch (...) {
       logits->clear();
-      SetDiagnostic(diagnostic, "Unknown llama.cpp Evaluate exception");
+      SetDiagnosticNoexcept(diagnostic, "Unknown llama.cpp Evaluate exception");
       return -1;
     }
   }
@@ -338,16 +336,18 @@ class LlamaCppTextGenerationSession final : public ITextGenerationSession {
   int Generate(const std::string& formatted_prompt, bool add_bos,
                const GenerateOptions& options, std::optional<uint64_t> seed,
                std::string* output, std::string* diagnostic) noexcept override {
-    if (!output) {
-      SetDiagnostic(diagnostic, "Text generation output pointer is null");
-      return -1;
-    }
-    output->clear();
-    if (!model_) {
-      SetDiagnostic(diagnostic, "llama.cpp model is null");
-      return -1;
-    }
     try {
+      if (!output) {
+        SetDiagnosticNoexcept(diagnostic,
+                              "Text generation output pointer is null");
+        return -1;
+      }
+      output->clear();
+      if (!model_) {
+        SetDiagnosticNoexcept(diagnostic, "llama.cpp model is null");
+        return -1;
+      }
+
       std::lock_guard<std::mutex> lock(generate_mutex_);
       llama_context_params params = llama_context_default_params();
       params.n_ctx = static_cast<uint32_t>(context_size_);
@@ -359,7 +359,7 @@ class LlamaCppTextGenerationSession final : public ITextGenerationSession {
 
       LlamaContextPtr context(llama_init_from_model(model_.get(), params));
       if (!context) {
-        SetDiagnostic(diagnostic, "llama.cpp context creation failed");
+        SetDiagnosticNoexcept(diagnostic, "llama.cpp context creation failed");
         return -1;
       }
       LlamaCppDecoder decoder(model_, std::move(context), context_size_,
@@ -369,12 +369,12 @@ class LlamaCppTextGenerationSession final : public ITextGenerationSession {
           diagnostic);
     } catch (const std::exception& e) {
       output->clear();
-      SetDiagnostic(diagnostic,
-                    std::string("llama.cpp generation exception: ") + e.what());
+      SetDiagnosticNoexcept(diagnostic, e.what());
       return -1;
     } catch (...) {
       output->clear();
-      SetDiagnostic(diagnostic, "Unknown llama.cpp generation exception");
+      SetDiagnosticNoexcept(diagnostic,
+                            "Unknown llama.cpp generation exception");
       return -1;
     }
   }
@@ -399,71 +399,76 @@ const std::string& LlamaCppBackend::BackendType() const noexcept {
 
 std::shared_ptr<IBackendSession> LlamaCppBackend::Load(
     const BackendLoadSpec& spec, std::string* diagnostic) noexcept {
-  if (spec.requested_protocol.has_value() &&
-      *spec.requested_protocol != ExecutionProtocol::kTextGeneration) {
-    SetDiagnostic(
-        diagnostic,
-        "llama.cpp backend does not support requested protocol: " +
-            std::string(ExecutionProtocolName(*spec.requested_protocol)));
-    return nullptr;
-  }
-  const std::string platform =
-      NormalizePlatform(spec.execution_target.platform);
-  if (!platform.empty() && platform != "UNKNOWN" && platform != "CPU" &&
-      platform != "CPU_GENERIC" && platform != "CUDA") {
-    SetDiagnostic(diagnostic,
-                  "llama.cpp backend does not support requested platform: " +
-                      spec.execution_target.platform);
-    return nullptr;
-  }
-  const int device_id = spec.execution_target.device_id.value_or(0);
-  if (device_id < 0) {
-    SetDiagnostic(diagnostic, "llama.cpp device_id must be non-negative");
-    return nullptr;
-  }
-  if ((platform == "CPU" || platform == "CPU_GENERIC") && device_id != 0) {
-    SetDiagnostic(diagnostic,
-                  "llama.cpp CPU execution only accepts device_id 0; got: " +
-                      std::to_string(device_id));
-    return nullptr;
-  }
-#ifndef HAVE_LLAMACPP
-  (void)spec;
-  SetDiagnostic(diagnostic,
-                "llama.cpp backend was not compiled into this build");
-  return nullptr;
-#else
   try {
+    if (spec.requested_protocol.has_value() &&
+        *spec.requested_protocol != ExecutionProtocol::kTextGeneration) {
+      SetDiagnosticNoexcept(
+          diagnostic,
+          "llama.cpp backend does not support requested protocol: " +
+              std::string(ExecutionProtocolName(*spec.requested_protocol)));
+      return nullptr;
+    }
+    const std::string platform =
+        NormalizePlatform(spec.execution_target.platform);
+    if (!platform.empty() && platform != "UNKNOWN" && platform != "CPU" &&
+        platform != "CPU_GENERIC" && platform != "CUDA") {
+      SetDiagnosticNoexcept(
+          diagnostic,
+          "llama.cpp backend does not support requested platform: " +
+              spec.execution_target.platform);
+      return nullptr;
+    }
+    const int device_id = spec.execution_target.device_id.value_or(0);
+    if (device_id < 0) {
+      SetDiagnosticNoexcept(diagnostic,
+                            "llama.cpp device_id must be non-negative");
+      return nullptr;
+    }
+    if ((platform == "CPU" || platform == "CPU_GENERIC") && device_id != 0) {
+      SetDiagnosticNoexcept(
+          diagnostic,
+          "llama.cpp CPU execution only accepts device_id 0; got: " +
+              std::to_string(device_id));
+      return nullptr;
+    }
+#ifndef HAVE_LLAMACPP
+    static_cast<void>(spec);
+    SetDiagnosticNoexcept(diagnostic,
+                          "llama.cpp backend was not compiled into this build");
+    return nullptr;
+#else
     LlamaCppOptions options;
     if (!ParseLlamaCppConfig(spec.backend_config, &options, diagnostic))
       return nullptr;
     if (spec.model_path.empty()) {
-      SetDiagnostic(diagnostic, "llama.cpp model path is empty");
+      SetDiagnosticNoexcept(diagnostic, "llama.cpp model path is empty");
       return nullptr;
     }
     std::error_code ec;
     if (!std::filesystem::is_regular_file(spec.model_path, ec) || ec) {
-      SetDiagnostic(diagnostic,
-                    "GGUF model does not exist or is not a regular file: " +
-                        spec.model_path);
+      SetDiagnosticNoexcept(
+          diagnostic, "GGUF model does not exist or is not a regular file: " +
+                          spec.model_path);
       return nullptr;
     }
 
     if (options.n_gpu_layers == 0 && device_id != 0) {
-      SetDiagnostic(diagnostic,
-                    "llama.cpp CPU execution only accepts device_id 0; got: " +
-                        std::to_string(device_id));
+      SetDiagnosticNoexcept(
+          diagnostic,
+          "llama.cpp CPU execution only accepts device_id 0; got: " +
+              std::to_string(device_id));
       return nullptr;
     }
     if (options.n_gpu_layers == 0 && platform == "CUDA") {
-      SetDiagnostic(diagnostic,
-                    "llama.cpp CUDA execution requires n_gpu_layers > 0");
+      SetDiagnosticNoexcept(
+          diagnostic, "llama.cpp CUDA execution requires n_gpu_layers > 0");
       return nullptr;
     }
     if (options.n_gpu_layers > 0 &&
         (platform == "CPU" || platform == "CPU_GENERIC")) {
-      SetDiagnostic(diagnostic,
-                    "llama.cpp n_gpu_layers requires a GPU execution platform");
+      SetDiagnosticNoexcept(
+          diagnostic,
+          "llama.cpp n_gpu_layers requires a GPU execution platform");
       return nullptr;
     }
 
@@ -475,12 +480,13 @@ std::shared_ptr<IBackendSession> LlamaCppBackend::Load(
     LlamaModelPtr model(
         llama_model_load_from_file(spec.model_path.c_str(), model_params));
     if (!model) {
-      SetDiagnostic(diagnostic,
-                    "llama.cpp failed to load GGUF model: " + spec.model_path);
+      SetDiagnosticNoexcept(
+          diagnostic,
+          "llama.cpp failed to load GGUF model: " + spec.model_path);
       return nullptr;
     }
     if (!llama_model_get_vocab(model.get())) {
-      SetDiagnostic(diagnostic, "Loaded GGUF model has no vocabulary");
+      SetDiagnosticNoexcept(diagnostic, "Loaded GGUF model has no vocabulary");
       return nullptr;
     }
 
@@ -490,15 +496,14 @@ std::shared_ptr<IBackendSession> LlamaCppBackend::Load(
         std::move(shared_model), static_cast<size_t>(options.context_size),
         static_cast<size_t>(options.decode_batch_size), options.n_threads,
         options.n_threads_batch);
+#endif
   } catch (const std::exception& e) {
-    SetDiagnostic(diagnostic,
-                  std::string("llama.cpp load exception: ") + e.what());
+    SetDiagnosticNoexcept(diagnostic, e.what());
     return nullptr;
   } catch (...) {
-    SetDiagnostic(diagnostic, "Unknown llama.cpp load exception");
+    SetDiagnosticNoexcept(diagnostic, "Unknown llama.cpp load exception");
     return nullptr;
   }
-#endif
 }
 
 #ifdef HAVE_LLAMACPP

@@ -3,6 +3,7 @@
 #include <type_traits>
 #include <vector>
 
+#include "adapter/biz_input_constraints.h"
 #include "adapter/operator/operator_value_type_registry.h"
 
 namespace llm_edgeflow {
@@ -392,8 +393,9 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
                                         "user_text", err);
         if (ret != 0) return ret;
         if (in.channel_name) {
-          ret =
-              ValidateCompanyString(in.channel_name, 256, "channel_name", err);
+          ret = ValidateCompanyString(in.channel_name,
+                                      biz_input::kMaxChannelNameBytes,
+                                      "channel_name", err);
           if (ret != 0) return ret;
         }
         return 0;
@@ -430,15 +432,16 @@ void OperatorValueTypeRegistry::RegisterBuiltinBindings() {
           }
           return -3;
         }
-        if (in.pcm_length <= 0 ||
-            in.pcm_length > limits.max_audio_pcm_samples) {
+        if (in.pcm_length < 0 || in.pcm_length > limits.max_audio_pcm_samples ||
+            static_cast<size_t>(in.pcm_length) >
+                limits.max_audio_pcm_bytes / sizeof(float)) {
           if (err)
             *err = "pcm_length " + std::to_string(in.pcm_length) +
                    " invalid or exceeds limit " +
                    std::to_string(limits.max_audio_pcm_samples);
           return -3;
         }
-        if (!in.pcm_buffer) {
+        if (in.pcm_length > 0 && !in.pcm_buffer) {
           if (err) *err = "pcm_buffer pointer is null";
           return -3;
         }

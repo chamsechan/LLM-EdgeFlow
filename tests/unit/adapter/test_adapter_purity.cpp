@@ -403,7 +403,7 @@ TEST_F(AdapterPurityTest, AuditJoinsRankOneByRequestAndRejectsFallback) {
 TEST_F(AdapterPurityTest, OneToOneResultsRejectDuplicateAndOutOfRangeIds) {
   auto adapter =
       BizAdapterRegistry::Instance().GetAdapter(ALG_BIZ_TYPE_KEYWORD_MATCH);
-  for (const auto ids :
+  for (const auto& ids :
        {std::vector<uint32_t>{0, 0}, std::vector<uint32_t>{0, 2}}) {
     AlgContext ctx;
     ctx.Publish(kRawRequestIds, std::vector<uint64_t>{100, 200});
@@ -414,6 +414,40 @@ TEST_F(AdapterPurityTest, OneToOneResultsRejectDuplicateAndOutOfRangeIds) {
     void* outputs[] = {&out[0], &out[1]};
     int count = 2;
     EXPECT_EQ(adapter->Pack(&ctx, outputs, &count),
+              COMPANY_ALG_ERR_INVALID_INPUT);
+  }
+}
+
+TEST_F(AdapterPurityTest, ComplianceAuditAdapter_RejectsOversizedChannelName) {
+  auto adapter =
+      BizAdapterRegistry::Instance().GetAdapter(ALG_BIZ_TYPE_COMPLIANCE_AUDIT);
+  ASSERT_NE(adapter, nullptr);
+
+  const std::string valid_channel(256, 'c');
+  const std::string oversized_channel(257, 'c');
+
+  // Valid length <= 256
+  {
+    CompanyAuditInputStruct in{};
+    in.request_id = 5001;
+    in.user_text = "test query";
+    in.channel_name = valid_channel.c_str();
+    const void* inputs[] = {&in};
+    AlgContext ctx;
+    AdapterStatus status;
+    EXPECT_EQ(adapter->Unpack(inputs, 1, &ctx, &status), COMPANY_ALG_SUCCESS);
+  }
+
+  // Oversized length > 256
+  {
+    CompanyAuditInputStruct in{};
+    in.request_id = 5002;
+    in.user_text = "test query";
+    in.channel_name = oversized_channel.c_str();
+    const void* inputs[] = {&in};
+    AlgContext ctx;
+    AdapterStatus status;
+    EXPECT_EQ(adapter->Unpack(inputs, 1, &ctx, &status),
               COMPANY_ALG_ERR_INVALID_INPUT);
   }
 }

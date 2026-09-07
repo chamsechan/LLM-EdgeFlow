@@ -31,6 +31,7 @@
 #include "engine/models/bge_common/bert_model_support.h"
 #include "engine/models/bge_common/bert_wordpiece_tokenizer.h"
 #include "engine/models/bge_embedding/bge_embedding_model.h"
+#include "engine/models/common/embedding_numeric_support.h"
 #include "tests/support/node_test_utils.h"
 
 #ifndef EDGEFLOW_EMBEDDING_ONNX_FIXTURE
@@ -312,7 +313,9 @@ class FakeTensorGraphSession : public ITensorGraphSession {
       if (data) {
         size_t total_elements = out_tensor.buffer->ByteSize() / sizeof(float);
         for (size_t i = 0; i < total_elements; ++i) {
-          data[i] = static_cast<float>(i % 10 + 1) * 0.1f;
+          data[i] = constant_output_.has_value()
+                        ? *constant_output_
+                        : static_cast<float>(i % 10 + 1) * 0.1f;
         }
         if (non_finite_output_ && total_elements > 0) {
           data[0] = std::numeric_limits<float>::infinity();
@@ -342,6 +345,7 @@ class FakeTensorGraphSession : public ITensorGraphSession {
   bool corrupt_misalignment_ = false;
   bool corrupt_null_data_ = false;
   bool non_finite_output_ = false;
+  std::optional<float> constant_output_;
   int fail_on_run_ = 0;
   InferenceConcurrency concurrency_ = InferenceConcurrency::kConcurrent;
   std::vector<size_t> observed_batch_sizes_;
@@ -1235,6 +1239,105 @@ TEST_F(OnnxAndEmbeddingModelTest, OnnxRuntimeBackendNegativeValidation) {
   EXPECT_NE(tensor_session->Run(inputs, &outputs, &diag), 0);
   EXPECT_TRUE(outputs.empty());
 #endif
+}
+
+TEST_F(OnnxAndEmbeddingModelTest, FinalizeEmbeddingVectorPrecisionAndBoundary) {
+  std::vector<float> output;
+
+  // 1. Valid normalized vector: unit norm
+  std::vector<float> input = {3.0f, 4.0f};
+  EXPECT_TRUE(embedding_support::FinalizeEmbeddingVector(input, true, &output));
+  ASSERT_EQ(output.size(), 2u);
+  EXPECT_NEAR(output[0], 0.6f, 1e-6);
+  EXPECT_NEAR(output[1], 0.8f, 1e-6);
+  float norm = std::sqrt(output[0] * output[0] + output[1] * output[1]);
+  EXPECT_NEAR(norm, 1.0f, 1e-6);
+
+  // 2. Unnormalized vector: preserves values
+  EXPECT_TRUE(
+      embedding_support::FinalizeEmbeddingVector(input, false, &output));
+  ASSERT_EQ(output.size(), 2u);
+  EXPECT_FLOAT_EQ(output[0], 3.0f);
+  EXPECT_FLOAT_EQ(output[1], 4.0f);
+
+  // 3. Zero vector with normalize=true fails
+  std::vector<float> zero_vec = {0.0f, 0.0f, 0.0f};
+  EXPECT_FALSE(
+      embedding_support::FinalizeEmbeddingVector(zero_vec, true, &output));
+
+  // 4. Zero vector with normalize=false succeeds
+  EXPECT_TRUE(
+      embedding_support::FinalizeEmbeddingVector(zero_vec, false, &output));
+  ASSERT_EQ(output.size(), 3u);
+  EXPECT_FLOAT_EQ(output[0], 0.0f);
+
+  // 5. Non-finite values fail
+  std::vector<float> nan_vec = {1.0f, std::numeric_limits<float>::quiet_NaN()};
+  EXPECT_FALSE(
+      embedding_support::FinalizeEmbeddingVector(nan_vec, true, &output));
+  EXPECT_FALSE(
+      embedding_support::FinalizeEmbeddingVector(nan_vec, false, &output));
+
+  std::vector<float> inf_vec = {1.0f, std::numeric_limits<float>::infinity()};
+  EXPECT_FALSE(
+      embedding_support::FinalizeEmbeddingVector(inf_vec, true, &output));
+  EXPECT_FALSE(
+      embedding_support::FinalizeEmbeddingVector(inf_vec, false, &output));
+
+  // 6. Null output or empty input fails
+  EXPECT_FALSE(
+      embedding_support::FinalizeEmbeddingVector(input, true, nullptr));
+  std::vector<float> empty_vec;
+  EXPECT_FALSE(
+      embedding_support::FinalizeEmbeddingVector(empty_vec, true, &output));
+  EXPECT_FALSE(embedding_support::FinalizeEmbeddingVector(
+      static_cast<const float*>(nullptr), 2, true, &output));
+
+  // 7. Double precision accumulation handles large elements
+  std::vector<double> large_vec = {1e20, 1e20};
+  EXPECT_TRUE(
+      embedding_support::FinalizeEmbeddingVector(large_vec, true, &output));
+  ASSERT_EQ(output.size(), 2u);
+  EXPECT_NEAR(output[0], static_cast<float>(1.0 / std::sqrt(2.0)), 1e-6);
+  EXPECT_NEAR(output[1], static_cast<float>(1.0 / std::sqrt(2.0)), 1e-6);
+}
+
+TEST_F(OnnxAndEmbeddingModelTest, BgePoolingHandlesFiniteExtremesAndZero) {
+  BertWordPieceTokenizer tokenizer;
+  ASSERT_TRUE(tokenizer.LoadFromTokens(
+      {"[PAD]", "[UNK]", "[CLS]", "[SEP]", "hello"}, true));
+  for (bool is_3d : {false, true}) {
+    for (const char* pooling : {"cls", "mean"}) {
+      auto session = std::make_shared<FakeTensorGraphSession>(4, is_3d, 2, 2);
+      BgeEmbeddingModel model(session, tokenizer, 16, pooling,
+                              "last_hidden_state", 4, 2);
+      const TextBatch input{{7, 4, "hello"}, {8, 5, "hello"}, {7, 6, "hello"}};
+      for (float value : {1e20f, std::numeric_limits<float>::max(), 0.0f,
+                          std::numeric_limits<float>::quiet_NaN(),
+                          std::numeric_limits<float>::infinity()}) {
+        session->constant_output_ = value;
+        for (bool normalize : {false, true}) {
+          EmbeddingBatch output{{99, 0, {42}}};
+          const int code = model.Embed(input, {normalize}, &output);
+          if (!std::isfinite(value) || (normalize && value == 0)) {
+            EXPECT_NE(code, 0);
+            EXPECT_TRUE(output.empty());
+            continue;
+          }
+          ASSERT_EQ(code, 0);
+          ASSERT_EQ(output.size(), input.size());
+          for (size_t i = 0; i < output.size(); ++i) {
+            EXPECT_EQ(output[i].req_id, input[i].req_id);
+            EXPECT_EQ(output[i].sub_id, input[i].sub_id);
+            for (float component : output[i].data) {
+              EXPECT_TRUE(std::isfinite(component));
+              EXPECT_FLOAT_EQ(component, normalize ? 0.5f : value);
+            }
+          }
+        }
+      }
+    }
+  }
 }
 
 }  // namespace llm_edgeflow

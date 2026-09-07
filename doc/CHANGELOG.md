@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-09-08 投产前契约一致性修复（RFC-0044）
+
+- session Embedding 缓存以版本、长度及完整内容编码身份，保留同键并发复用与失败重试，修复嵌入 NUL 的不同语料返回相同向量的问题。
+- 补齐 Operator、运行时、注册与 Backend 的异常保护；共享不可抛诊断赋值，避免错误处理中的分配失败穿透 `noexcept`。
+- PipelineValidator 对业务出口复用端口流校验，可选出口缺失允许、存在时仍检查类型；ranked 出口按 Adapter 的实际聚合行为声明。
+- C / Operator 共用渠道名称和音频限制：渠道名最多 256 字节，合法采样率的零长度 PCM 可使用空 buffer；metadata type ID 在窄化前检查 int32 范围。
+- 顺序和并行执行共用节点错误汇总，保留返回码与本次调用诊断；TextChunk 保留父项 counts 来源，生成切片在每个请求内不重号，并检查计数容量。
+- BGE / generated embedding 共用有限值与归一化规则，使用 double 累加，归一化拒绝零向量，失败不发布部分输出。
+- Node / Model / Backend 共用字段定义校验；Node 防御性 Init 与预检共用字段规则，语义回调异常转为诊断。删除内部 `IBizAdapter::ValidateInput`，字段校验归入 `Unpack`；自定义 Adapter 需迁移并重新编译。
+
 ## 2026-09-07 真实实体提取示例与合并后 CI 验证修复
 
 - 公开 llama.cpp 实体提取示例将生成预算从 64 调整为 256 token，并使用贪心解码，避免随机生成较长列表时截断 JSON；解析失败直接报错。真实 C ABI 回归覆盖公开 Profile 的长语料并检查非空 JSON 列表，继续通过 Demo 验证 Operator 路径。

@@ -7,6 +7,7 @@
 #include <unordered_set>
 
 #include "adapter/biz_adapter_registry.h"
+#include "contracts/diagnostic.h"
 #include "contracts/path_utils.h"
 
 namespace llm_edgeflow {
@@ -132,15 +133,10 @@ int ResolveContainedPath(const std::filesystem::path& canonical_root,
     *resolved = canon_p;
     return 0;
   } catch (const std::exception& e) {
-    if (error_msg) {
-      *error_msg = std::string("Filesystem exception in ") + field_name + ": " +
-                   e.what();
-    }
+    SetDiagnosticNoexcept(error_msg, e.what());
     return -2;
   } catch (...) {
-    if (error_msg) {
-      *error_msg = std::string("Unknown filesystem exception in ") + field_name;
-    }
+    SetDiagnosticNoexcept(error_msg, "Unknown exception");
     return -2;
   }
 }
@@ -181,15 +177,10 @@ int CompanyConfResolver::ResolveModelReferenceUnderRoot(
     return ResolveContainedPath(canonical_root, rel_or_abs, field_name, false,
                                 false, out_path, error_msg);
   } catch (const std::exception& e) {
-    if (error_msg) {
-      *error_msg = "Filesystem exception resolving model reference: " +
-                   std::string(e.what());
-    }
+    SetDiagnosticNoexcept(error_msg, e.what());
     return -2;
   } catch (...) {
-    if (error_msg) {
-      *error_msg = "Unknown filesystem exception resolving model reference";
-    }
+    SetDiagnosticNoexcept(error_msg, "Unknown exception");
     return -2;
   }
 }
@@ -414,12 +405,27 @@ int CompanyConfResolver::Resolve(const char* model_path,
     }
 
     if (mem_que.contains("metadata_type_id")) {
-      if (!mem_que["metadata_type_id"].is_number_integer()) {
+      if (mem_que["metadata_type_id"].is_number_unsigned()) {
+        uint64_t uval = mem_que["metadata_type_id"].get<uint64_t>();
+        if (uval > static_cast<uint64_t>(std::numeric_limits<int32_t>::max())) {
+          if (error_msg)
+            *error_msg = "mem_que.metadata_type_id exceeds int32 range";
+          return -2;
+        }
+        requested_pool_spec.metadata_type_id = static_cast<int32_t>(uval);
+      } else if (mem_que["metadata_type_id"].is_number_integer()) {
+        int64_t ival = mem_que["metadata_type_id"].get<int64_t>();
+        if (ival < std::numeric_limits<int32_t>::min() ||
+            ival > std::numeric_limits<int32_t>::max()) {
+          if (error_msg)
+            *error_msg = "mem_que.metadata_type_id exceeds int32 range";
+          return -2;
+        }
+        requested_pool_spec.metadata_type_id = static_cast<int32_t>(ival);
+      } else {
         if (error_msg) *error_msg = "mem_que.metadata_type_id must be integer";
         return -2;
       }
-      requested_pool_spec.metadata_type_id =
-          mem_que["metadata_type_id"].get<int32_t>();
     }
 
     if (mem_que.contains("capacities")) {
@@ -586,10 +592,10 @@ int CompanyConfResolver::Resolve(const char* model_path,
 
     return 0;
   } catch (const std::exception& e) {
-    if (error_msg) *error_msg = std::string("Exception: ") + e.what();
+    SetDiagnosticNoexcept(error_msg, e.what());
     return -2;
   } catch (...) {
-    if (error_msg) *error_msg = "Unknown exception in CompanyConfResolver";
+    SetDiagnosticNoexcept(error_msg, "Unknown exception");
     return -2;
   }
 }

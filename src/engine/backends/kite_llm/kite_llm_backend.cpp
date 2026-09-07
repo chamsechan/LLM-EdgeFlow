@@ -15,6 +15,7 @@
 #include <utility>
 #include <vector>
 
+#include "contracts/diagnostic.h"
 #include "engine/backend_registry.h"
 #include "engine/text/utf8.h"
 #include "engine/text_generation/common_autoregressive_generator.h"
@@ -26,15 +27,6 @@
 namespace llm_edgeflow {
 namespace {
 
-void SetDiagnostic(std::string* diagnostic,
-                   const std::string& message) noexcept {
-  if (!diagnostic) return;
-  try {
-    *diagnostic = message;
-  } catch (...) {
-  }
-}
-
 bool IsCpuPlatform(const std::string& platform) {
   return platform == "CPU" || platform == "CPU_GENERIC";
 }
@@ -45,22 +37,22 @@ bool ValidateExecutionTarget(const ExecutionTarget& target,
   std::transform(platform.begin(), platform.end(), platform.begin(),
                  [](unsigned char c) { return std::toupper(c); });
   if (!platform.empty() && platform != "UNKNOWN" && !IsCpuPlatform(platform)) {
-    SetDiagnostic(diagnostic,
-                  "Pinned kiteLLM release supports CPU execution only; "
-                  "requested platform: " +
-                      target.platform);
+    SetDiagnosticNoexcept(diagnostic,
+                          "Pinned kiteLLM release supports CPU execution only; "
+                          "requested platform: " +
+                              target.platform);
     return false;
   }
   if (target.device_id.has_value()) {
     const int device = *target.device_id;
     if (device < -1) {
-      SetDiagnostic(diagnostic, "kiteLLM device_id must be >= -1");
+      SetDiagnosticNoexcept(diagnostic, "kiteLLM device_id must be >= -1");
       return false;
     }
     if (IsCpuPlatform(platform) && device > 0) {
-      SetDiagnostic(diagnostic,
-                    "kiteLLM CPU execution only accepts device_id 0 or "
-                    "automatic selection (-1)");
+      SetDiagnosticNoexcept(diagnostic,
+                            "kiteLLM CPU execution only accepts device_id 0 or "
+                            "automatic selection (-1)");
       return false;
     }
   }
@@ -82,9 +74,9 @@ bool ValidateCpuRunConfig(const std::string& platform,
     const auto& model = config["model"];
     if (model.contains("gpu_layers") && model["gpu_layers"].is_number() &&
         model["gpu_layers"].get<double>() > 0) {
-      SetDiagnostic(diagnostic,
-                    "kiteLLM CPU execution conflicts with run-config "
-                    "model.gpu_layers > 0");
+      SetDiagnosticNoexcept(diagnostic,
+                            "kiteLLM CPU execution conflicts with run-config "
+                            "model.gpu_layers > 0");
       return false;
     }
   }
@@ -99,14 +91,14 @@ bool ResolveRunConfig(const std::string& model_path,
   if (relative.empty()) return true;
   const std::filesystem::path requested(relative);
   if (requested.is_absolute()) {
-    SetDiagnostic(diagnostic,
-                  "kiteLLM run_config_file must be relative to model_path");
+    SetDiagnosticNoexcept(
+        diagnostic, "kiteLLM run_config_file must be relative to model_path");
     return false;
   }
   for (const auto& component : requested) {
     if (component == "..") {
-      SetDiagnostic(diagnostic,
-                    "kiteLLM run_config_file cannot traverse model_path");
+      SetDiagnosticNoexcept(
+          diagnostic, "kiteLLM run_config_file cannot traverse model_path");
       return false;
     }
   }
@@ -119,15 +111,16 @@ bool ResolveRunConfig(const std::string& model_path,
   const auto candidate =
       std::filesystem::weakly_canonical(root / requested, ec);
   if (ec || !std::filesystem::is_regular_file(candidate, ec) || ec) {
-    SetDiagnostic(diagnostic,
-                  "kiteLLM run-config file does not exist: " + relative);
+    SetDiagnosticNoexcept(
+        diagnostic, "kiteLLM run-config file does not exist: " + relative);
     return false;
   }
   auto root_it = root.begin();
   auto candidate_it = candidate.begin();
   for (; root_it != root.end(); ++root_it, ++candidate_it) {
     if (candidate_it == candidate.end() || *root_it != *candidate_it) {
-      SetDiagnostic(diagnostic, "kiteLLM run_config_file escapes model_path");
+      SetDiagnosticNoexcept(diagnostic,
+                            "kiteLLM run_config_file escapes model_path");
       return false;
     }
   }
@@ -289,21 +282,22 @@ class KiteTextGenerationSession final : public KiteTextSessionBase {
                const GenerateOptions& options, std::optional<uint64_t> seed,
                std::string* output, std::string* diagnostic) noexcept override {
     if (!output) {
-      SetDiagnostic(diagnostic, "kiteLLM output pointer is null");
+      SetDiagnosticNoexcept(diagnostic, "kiteLLM output pointer is null");
       return -1;
     }
     output->clear();
     if (!handle_) {
-      SetDiagnostic(diagnostic, "kiteLLM handle is not initialized");
+      SetDiagnosticNoexcept(diagnostic, "kiteLLM handle is not initialized");
       return -1;
     }
     if (seed.has_value()) {
-      SetDiagnostic(diagnostic,
-                    "kiteLLM does not support a fixed random seed per request");
+      SetDiagnosticNoexcept(
+          diagnostic,
+          "kiteLLM does not support a fixed random seed per request");
       return -1;
     }
     if (formatted_prompt.empty()) {
-      SetDiagnostic(diagnostic, "Formatted prompt is empty");
+      SetDiagnosticNoexcept(diagnostic, "Formatted prompt is empty");
       return -1;
     }
     if (!text_generation::ValidateGenerateOptions(options, diagnostic)) {
@@ -313,8 +307,8 @@ class KiteTextGenerationSession final : public KiteTextSessionBase {
     try {
       if (formatted_prompt.size() >
           static_cast<size_t>(std::numeric_limits<int>::max())) {
-        SetDiagnostic(diagnostic,
-                      "kiteLLM prompt exceeds tokenizer length limit");
+        SetDiagnosticNoexcept(diagnostic,
+                              "kiteLLM prompt exceeds tokenizer length limit");
         return -1;
       }
       std::lock_guard<std::mutex> lock(session_mutex_);
@@ -323,12 +317,11 @@ class KiteTextGenerationSession final : public KiteTextSessionBase {
       return 0;
     } catch (const std::exception& e) {
       output->clear();
-      SetDiagnostic(diagnostic,
-                    std::string("kiteLLM generation exception: ") + e.what());
+      SetDiagnosticNoexcept(diagnostic, e.what());
       return -1;
     } catch (...) {
       output->clear();
-      SetDiagnostic(diagnostic, "Unknown kiteLLM generation exception");
+      SetDiagnosticNoexcept(diagnostic, "Unknown kiteLLM generation exception");
       return -1;
     }
   }
@@ -346,7 +339,8 @@ class KiteGeneratedTokenEmbeddingSession final
                          int max_tokens, GeneratedTokenEmbeddings* output,
                          std::string* diagnostic) noexcept override {
     if (!output) {
-      SetDiagnostic(diagnostic, "kiteLLM embedding output pointer is null");
+      SetDiagnosticNoexcept(diagnostic,
+                            "kiteLLM embedding output pointer is null");
       return -1;
     }
     *output = {};
@@ -391,10 +385,10 @@ class KiteGeneratedTokenEmbeddingSession final
       *output = std::move(staged);
       return 0;
     } catch (const std::exception& e) {
-      SetDiagnostic(diagnostic, e.what());
+      SetDiagnosticNoexcept(diagnostic, e.what());
       return -1;
     } catch (...) {
-      SetDiagnostic(diagnostic, "Unknown kiteLLM embedding exception");
+      SetDiagnosticNoexcept(diagnostic, "Unknown kiteLLM embedding exception");
       return -1;
     }
   }
@@ -410,7 +404,7 @@ class KiteImageTextGenerationSession final : public KiteImageSessionBase {
   int Generate(const ImageTextInput& request, const GenerateOptions& options,
                std::string* output, std::string* diagnostic) noexcept override {
     if (!output) {
-      SetDiagnostic(diagnostic, "kiteLLM output pointer is null");
+      SetDiagnosticNoexcept(diagnostic, "kiteLLM output pointer is null");
       return -1;
     }
     output->clear();
@@ -423,7 +417,7 @@ class KiteImageTextGenerationSession final : public KiteImageSessionBase {
           request.rgb_chw.size() > 64U * 1024U * 1024U ||
           static_cast<uint64_t>(request.width) * request.height * 3 !=
               request.rgb_chw.size()) {
-        SetDiagnostic(
+        SetDiagnosticNoexcept(
             diagnostic,
             "Invalid image-text input dimensions, RGB planes or prompt");
         return -1;
@@ -454,13 +448,12 @@ class KiteImageTextGenerationSession final : public KiteImageSessionBase {
       return 0;
     } catch (const std::exception& e) {
       output->clear();
-      SetDiagnostic(
-          diagnostic,
-          std::string("kiteLLM image generation exception: ") + e.what());
+      SetDiagnosticNoexcept(diagnostic, e.what());
       return -1;
     } catch (...) {
       output->clear();
-      SetDiagnostic(diagnostic, "Unknown kiteLLM image generation exception");
+      SetDiagnosticNoexcept(diagnostic,
+                            "Unknown kiteLLM image generation exception");
       return -1;
     }
   }
@@ -483,7 +476,7 @@ std::shared_ptr<IBackendSession> KiteLlmBackend::Load(
         *spec.requested_protocol != ExecutionProtocol::kImageTextGeneration &&
         *spec.requested_protocol !=
             ExecutionProtocol::kGeneratedTokenEmbedding) {
-      SetDiagnostic(
+      SetDiagnosticNoexcept(
           diagnostic,
           "kiteLLM does not support requested protocol: " +
               std::string(ExecutionProtocolName(*spec.requested_protocol)));
@@ -493,28 +486,31 @@ std::shared_ptr<IBackendSession> KiteLlmBackend::Load(
       return nullptr;
     }
 #ifndef HAVE_KITELLM
-    SetDiagnostic(diagnostic, "kiteLLM SDK was not compiled into this build");
+    SetDiagnosticNoexcept(diagnostic,
+                          "kiteLLM SDK was not compiled into this build");
     return nullptr;
 #else
     if (spec.model_path.empty()) {
-      SetDiagnostic(diagnostic, "kiteLLM model path is empty");
+      SetDiagnosticNoexcept(diagnostic, "kiteLLM model path is empty");
       return nullptr;
     }
     std::error_code ec;
     if (!std::filesystem::is_regular_file(spec.model_path, ec) || ec) {
-      SetDiagnostic(diagnostic, "kiteLLM model path is not a regular file: " +
-                                    spec.model_path);
+      SetDiagnosticNoexcept(
+          diagnostic,
+          "kiteLLM model path is not a regular file: " + spec.model_path);
       return nullptr;
     }
     if (!spec.backend_config.is_object()) {
-      SetDiagnostic(diagnostic, "kiteLLM backend_config must be an object");
+      SetDiagnosticNoexcept(diagnostic,
+                            "kiteLLM backend_config must be an object");
       return nullptr;
     }
     for (const auto& [key, value] : spec.backend_config.items()) {
       (void)value;
       if (key != "run_config_file") {
-        SetDiagnostic(diagnostic,
-                      "Unknown kiteLLM backend_config field: " + key);
+        SetDiagnosticNoexcept(diagnostic,
+                              "Unknown kiteLLM backend_config field: " + key);
         return nullptr;
       }
     }
@@ -541,8 +537,9 @@ std::shared_ptr<IBackendSession> KiteLlmBackend::Load(
     }
     if (image_protocol &&
         (!run_config.is_object() || !run_config.contains("vision"))) {
-      SetDiagnostic(diagnostic,
-                    "image_text_generation requires run-config vision.mmproj");
+      SetDiagnosticNoexcept(
+          diagnostic,
+          "image_text_generation requires run-config vision.mmproj");
       return nullptr;
     }
     if (run_config.is_object() && run_config.contains("vision")) {
@@ -550,7 +547,7 @@ std::shared_ptr<IBackendSession> KiteLlmBackend::Load(
       if (!vision.is_object() || !vision.contains("mmproj") ||
           !vision["mmproj"].is_string() ||
           vision["mmproj"].get<std::string>().empty()) {
-        SetDiagnostic(diagnostic, "Invalid run-config vision.mmproj");
+        SetDiagnosticNoexcept(diagnostic, "Invalid run-config vision.mmproj");
         return nullptr;
       }
       std::string projector;
@@ -563,7 +560,7 @@ std::shared_ptr<IBackendSession> KiteLlmBackend::Load(
     auto runtime = std::make_shared<KiteRuntime>();
     KiteParameterPtr parameters(kiteLLM_Parameter_Allocate());
     if (!parameters) {
-      SetDiagnostic(diagnostic, "kiteLLM parameter allocation failed");
+      SetDiagnosticNoexcept(diagnostic, "kiteLLM parameter allocation failed");
       return nullptr;
     }
     kiteLLM_Parameter_SetLoadFromFileSync(parameters.get(), 1);
@@ -578,8 +575,8 @@ std::shared_ptr<IBackendSession> KiteLlmBackend::Load(
     KiteHandlePtr handle(
         kiteLLM_LoadFromFile(spec.model_path.c_str(), parameters.get()));
     if (!handle) {
-      SetDiagnostic(diagnostic,
-                    "kiteLLM model load failed: " + spec.model_path);
+      SetDiagnosticNoexcept(diagnostic,
+                            "kiteLLM model load failed: " + spec.model_path);
       return nullptr;
     }
     if (spec.requested_protocol ==
@@ -595,11 +592,10 @@ std::shared_ptr<IBackendSession> KiteLlmBackend::Load(
                                                        std::move(handle));
 #endif
   } catch (const std::exception& e) {
-    SetDiagnostic(diagnostic,
-                  std::string("kiteLLM load exception: ") + e.what());
+    SetDiagnosticNoexcept(diagnostic, e.what());
     return nullptr;
   } catch (...) {
-    SetDiagnostic(diagnostic, "Unknown kiteLLM load exception");
+    SetDiagnosticNoexcept(diagnostic, "Unknown kiteLLM load exception");
     return nullptr;
   }
 }

@@ -4,6 +4,7 @@
 #include <string>
 #include <utility>
 
+#include "contracts/config_schema_validation.h"
 #include "core/pipeline_catalog.h"
 #include "nodes/node_base.h"
 
@@ -37,25 +38,23 @@ class ModelBoundNode : public NodeBase {
     const auto definition = PipelineCatalog::FindNode(Name());
     if (!definition || definition->model_config_field.empty()) return false;
 
+    nlohmann::json normalized;
+    if (!ValidateAndNormalizeFields(definition->config_fields, config,
+                                    &normalized, nullptr)) {
+      return false;
+    }
+
     const std::string& field_name = definition->model_config_field;
     model_id_.clear();
-    if (config.contains(field_name) && config[field_name].is_string()) {
-      model_id_ = config[field_name].get<std::string>();
-    }
-    if (model_id_.empty()) {
-      for (const auto& field : definition->config_fields) {
-        if (field.name == field_name && field.default_value.is_string()) {
-          model_id_ = field.default_value.get<std::string>();
-          break;
-        }
-      }
+    if (normalized.contains(field_name) && normalized[field_name].is_string()) {
+      model_id_ = normalized[field_name].get<std::string>();
     }
     if (model_id_.empty()) return false;
     model_ = session_ctx.GetModelManager().GetModel<ModelCapability>(model_id_);
     if (!model_) {
       return false;
     }
-    return InitModelNode(init_ctx, config, session_ctx);
+    return InitModelNode(init_ctx, normalized, session_ctx);
   }
 
   std::string model_id_;

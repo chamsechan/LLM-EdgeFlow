@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "company_alg_log.h"
+#include "contracts/diagnostic.h"
 
 #ifdef HAVE_ONNXRUNTIME
 #include "onnxruntime_cxx_api.h"
@@ -22,92 +23,102 @@ namespace onnxruntime_detail {
 bool ValidateInputTensor(const Tensor& tensor, const TensorSpec& spec,
                          const BatchPolicy& policy,
                          std::string* diagnostic) noexcept {
-  if (!tensor.buffer || tensor.buffer->Data() == nullptr) {
-    if (diagnostic) *diagnostic = "Input tensor buffer is null: " + spec.name;
-    return false;
-  }
-
-  if (tensor.desc.element_type != spec.element_type) {
-    if (diagnostic) {
-      *diagnostic = "Input tensor element type mismatch for: " + spec.name;
+  try {
+    if (!tensor.buffer || tensor.buffer->Data() == nullptr) {
+      if (diagnostic) *diagnostic = "Input tensor buffer is null: " + spec.name;
+      return false;
     }
-    return false;
-  }
 
-  if (tensor.desc.shape.size() != spec.shape.size()) {
-    if (diagnostic) {
-      *diagnostic = "Input tensor rank mismatch for: " + spec.name +
-                    ". Expected rank: " + std::to_string(spec.shape.size()) +
-                    ", got: " + std::to_string(tensor.desc.shape.size());
-    }
-    return false;
-  }
-
-  for (size_t d = 0; d < spec.shape.size(); ++d) {
-    if (tensor.desc.shape[d] < 0) {
+    if (tensor.desc.element_type != spec.element_type) {
       if (diagnostic) {
-        *diagnostic = "Input tensor has negative dimension " +
-                      std::to_string(d) + " for: " + spec.name;
+        *diagnostic = "Input tensor element type mismatch for: " + spec.name;
       }
       return false;
     }
-    if (spec.shape[d] >= 0 && tensor.desc.shape[d] != spec.shape[d]) {
-      if (diagnostic) {
-        *diagnostic = "Input tensor static dimension " + std::to_string(d) +
-                      " mismatch for: " + spec.name +
-                      ". Expected: " + std::to_string(spec.shape[d]) +
-                      ", got: " + std::to_string(tensor.desc.shape[d]);
-      }
-      return false;
-    }
-  }
 
-  if (!tensor.desc.shape.empty()) {
-    int64_t batch = tensor.desc.shape[0];
-    if (batch <= 0) {
+    if (tensor.desc.shape.size() != spec.shape.size()) {
       if (diagnostic) {
-        *diagnostic = "Input tensor batch must be positive for: " + spec.name;
+        *diagnostic = "Input tensor rank mismatch for: " + spec.name +
+                      ". Expected rank: " + std::to_string(spec.shape.size()) +
+                      ", got: " + std::to_string(tensor.desc.shape.size());
       }
       return false;
     }
-    if (policy.fixed_batch_size > 0 &&
-        static_cast<size_t>(batch) != policy.fixed_batch_size) {
+
+    for (size_t d = 0; d < spec.shape.size(); ++d) {
+      if (tensor.desc.shape[d] < 0) {
+        if (diagnostic) {
+          *diagnostic = "Input tensor has negative dimension " +
+                        std::to_string(d) + " for: " + spec.name;
+        }
+        return false;
+      }
+      if (spec.shape[d] >= 0 && tensor.desc.shape[d] != spec.shape[d]) {
+        if (diagnostic) {
+          *diagnostic = "Input tensor static dimension " + std::to_string(d) +
+                        " mismatch for: " + spec.name +
+                        ". Expected: " + std::to_string(spec.shape[d]) +
+                        ", got: " + std::to_string(tensor.desc.shape[d]);
+        }
+        return false;
+      }
+    }
+
+    if (!tensor.desc.shape.empty()) {
+      int64_t batch = tensor.desc.shape[0];
+      if (batch <= 0) {
+        if (diagnostic) {
+          *diagnostic = "Input tensor batch must be positive for: " + spec.name;
+        }
+        return false;
+      }
+      if (policy.fixed_batch_size > 0 &&
+          static_cast<size_t>(batch) != policy.fixed_batch_size) {
+        if (diagnostic) {
+          *diagnostic =
+              "Input tensor fixed batch size mismatch for: " + spec.name +
+              ". Expected: " + std::to_string(policy.fixed_batch_size) +
+              ", got: " + std::to_string(batch);
+        }
+        return false;
+      }
+      if (static_cast<size_t>(batch) > policy.max_batch_size) {
+        if (diagnostic) {
+          *diagnostic =
+              "Input tensor batch exceeds max_batch_size for: " + spec.name +
+              ". Max: " + std::to_string(policy.max_batch_size) +
+              ", got: " + std::to_string(batch);
+        }
+        return false;
+      }
+    }
+
+    size_t elem_size = ElementTypeByteSize(tensor.desc.element_type);
+    size_t expected_bytes = 0;
+    if (!inference_detail::ComputeTensorByteSize(tensor.desc, elem_size,
+                                                 &expected_bytes, diagnostic)) {
+      return false;
+    }
+
+    if (tensor.buffer->ByteSize() != expected_bytes) {
       if (diagnostic) {
         *diagnostic =
-            "Input tensor fixed batch size mismatch for: " + spec.name +
-            ". Expected: " + std::to_string(policy.fixed_batch_size) +
-            ", got: " + std::to_string(batch);
+            "Input tensor buffer byte size mismatch for: " + spec.name +
+            ". Expected: " + std::to_string(expected_bytes) +
+            ", got: " + std::to_string(tensor.buffer->ByteSize());
       }
       return false;
     }
-    if (static_cast<size_t>(batch) > policy.max_batch_size) {
-      if (diagnostic) {
-        *diagnostic =
-            "Input tensor batch exceeds max_batch_size for: " + spec.name +
-            ". Max: " + std::to_string(policy.max_batch_size) +
-            ", got: " + std::to_string(batch);
-      }
-      return false;
-    }
-  }
 
-  size_t elem_size = ElementTypeByteSize(tensor.desc.element_type);
-  size_t expected_bytes = 0;
-  if (!inference_detail::ComputeTensorByteSize(tensor.desc, elem_size,
-                                               &expected_bytes, diagnostic)) {
+    return true;
+  } catch (const std::exception& e) {
+    SetDiagnosticNoexcept(diagnostic, e.what());
+    return false;
+  } catch (...) {
+    SetDiagnosticNoexcept(diagnostic,
+                          "Unknown exception in ValidateInputTensor");
     return false;
   }
-
-  if (tensor.buffer->ByteSize() != expected_bytes) {
-    if (diagnostic) {
-      *diagnostic = "Input tensor buffer byte size mismatch for: " + spec.name +
-                    ". Expected: " + std::to_string(expected_bytes) +
-                    ", got: " + std::to_string(tensor.buffer->ByteSize());
-    }
-    return false;
-  }
-
-  return true;
 }
 
 bool ValidateOutputMetadata(ElementType element_type,
@@ -115,77 +126,88 @@ bool ValidateOutputMetadata(ElementType element_type,
                             size_t runtime_element_count,
                             const TensorSpec& spec, size_t expected_batch,
                             std::string* diagnostic) noexcept {
-  if (element_type != spec.element_type) {
-    if (diagnostic) {
-      *diagnostic = "Output tensor element type mismatch for: " + spec.name;
-    }
-    return false;
-  }
-
-  if (shape.size() != spec.shape.size()) {
-    if (diagnostic) {
-      *diagnostic = "Output tensor rank mismatch for: " + spec.name;
-    }
-    return false;
-  }
-
-  for (size_t d = 0; d < spec.shape.size(); ++d) {
-    if (shape[d] < 0) {
+  try {
+    if (element_type != spec.element_type) {
       if (diagnostic) {
-        *diagnostic =
-            "Output tensor has negative runtime dimension: " + spec.name;
+        *diagnostic = "Output tensor element type mismatch for: " + spec.name;
       }
       return false;
     }
-    if (spec.shape[d] >= 0 && shape[d] != spec.shape[d]) {
+
+    if (shape.size() != spec.shape.size()) {
       if (diagnostic) {
-        *diagnostic =
-            "Output tensor static dimension mismatch for: " + spec.name;
+        *diagnostic = "Output tensor rank mismatch for: " + spec.name;
       }
       return false;
     }
-  }
 
-  if (expected_batch > 0 &&
-      (shape.empty() || static_cast<size_t>(shape[0]) != expected_batch)) {
-    if (diagnostic) {
-      *diagnostic = "Output tensor batch dimension mismatch for: " + spec.name;
+    for (size_t d = 0; d < spec.shape.size(); ++d) {
+      if (shape[d] < 0) {
+        if (diagnostic) {
+          *diagnostic =
+              "Output tensor has negative runtime dimension: " + spec.name;
+        }
+        return false;
+      }
+      if (spec.shape[d] >= 0 && shape[d] != spec.shape[d]) {
+        if (diagnostic) {
+          *diagnostic =
+              "Output tensor static dimension mismatch for: " + spec.name;
+        }
+        return false;
+      }
     }
-    return false;
-  }
 
-  TensorDesc desc{element_type, shape};
-  const size_t element_size = ElementTypeByteSize(element_type);
-  size_t expected_bytes = 0;
-  if (!inference_detail::ComputeTensorByteSize(desc, element_size,
-                                               &expected_bytes, diagnostic)) {
-    return false;
-  }
-  if (element_size == 0 ||
-      expected_bytes / element_size != runtime_element_count) {
-    if (diagnostic) {
-      *diagnostic = "Output tensor element count mismatch for: " + spec.name;
+    if (expected_batch > 0 &&
+        (shape.empty() || static_cast<size_t>(shape[0]) != expected_batch)) {
+      if (diagnostic) {
+        *diagnostic =
+            "Output tensor batch dimension mismatch for: " + spec.name;
+      }
+      return false;
     }
+
+    TensorDesc desc{element_type, shape};
+    const size_t element_size = ElementTypeByteSize(element_type);
+    size_t expected_bytes = 0;
+    if (!inference_detail::ComputeTensorByteSize(desc, element_size,
+                                                 &expected_bytes, diagnostic)) {
+      return false;
+    }
+    if (element_size == 0 ||
+        expected_bytes / element_size != runtime_element_count) {
+      if (diagnostic) {
+        *diagnostic = "Output tensor element count mismatch for: " + spec.name;
+      }
+      return false;
+    }
+    return true;
+  } catch (const std::exception& e) {
+    SetDiagnosticNoexcept(diagnostic, e.what());
+    return false;
+  } catch (...) {
+    SetDiagnosticNoexcept(diagnostic,
+                          "Unknown exception in ValidateOutputMetadata");
     return false;
   }
-  return true;
 }
 
 bool InferBatchPolicy(const std::vector<TensorSpec>& inputs,
                       const std::vector<TensorSpec>& outputs,
                       size_t configured_max_batch, BatchPolicy* policy,
                       std::string* diagnostic) noexcept {
-  if (!policy) {
-    if (diagnostic) *diagnostic = "Output BatchPolicy pointer is null";
-    return false;
-  }
-  *policy = {};
-  if (configured_max_batch == 0) {
-    if (diagnostic) *diagnostic = "Configured max_batch_size must be positive";
-    return false;
-  }
-
   try {
+    if (!policy) {
+      SetDiagnosticNoexcept(diagnostic, "Output BatchPolicy pointer is null");
+      return false;
+    }
+    *policy = {};
+    if (configured_max_batch == 0) {
+      SetDiagnosticNoexcept(diagnostic,
+                            "Configured max_batch_size must be positive");
+      return false;
+    }
+
     std::optional<size_t> static_batch;
     const auto inspect = [&](const std::vector<TensorSpec>& specs,
                              const char* kind) -> bool {
@@ -233,9 +255,13 @@ bool InferBatchPolicy(const std::vector<TensorSpec>& inputs,
       *policy = BatchPolicy{configured_max_batch, 0};
     }
     return true;
+  } catch (const std::exception& e) {
+    if (policy) *policy = {};
+    SetDiagnosticNoexcept(diagnostic, e.what());
+    return false;
   } catch (...) {
-    *policy = {};
-    if (diagnostic) *diagnostic = "Exception inferring ONNX BatchPolicy";
+    if (policy) *policy = {};
+    SetDiagnosticNoexcept(diagnostic, "Exception inferring ONNX BatchPolicy");
     return false;
   }
 }
@@ -252,26 +278,34 @@ std::string NormalizePlatform(std::string platform) {
 }
 
 bool ValidateExecutionTarget(const ExecutionTarget& target,
-                             std::string* diagnostic) {
-  const std::string platform = NormalizePlatform(target.platform);
-  if (!platform.empty() && platform != "UNKNOWN" && platform != "CPU" &&
-      platform != "CPU_GENERIC") {
-    if (diagnostic) {
-      *diagnostic =
+                             std::string* diagnostic) noexcept {
+  try {
+    const std::string platform = NormalizePlatform(target.platform);
+    if (!platform.empty() && platform != "UNKNOWN" && platform != "CPU" &&
+        platform != "CPU_GENERIC") {
+      SetDiagnosticNoexcept(
+          diagnostic,
           "ONNX Runtime backend only supports CPU execution in this "
           "build; requested platform: " +
-          target.platform;
+              target.platform);
+      return false;
     }
+    if (target.device_id.has_value() && *target.device_id != 0) {
+      SetDiagnosticNoexcept(
+          diagnostic,
+          "ONNX Runtime CPU backend only accepts device_id 0; got: " +
+              std::to_string(*target.device_id));
+      return false;
+    }
+    return true;
+  } catch (const std::exception& e) {
+    SetDiagnosticNoexcept(diagnostic, e.what());
+    return false;
+  } catch (...) {
+    SetDiagnosticNoexcept(diagnostic,
+                          "Unknown error validating execution target");
     return false;
   }
-  if (target.device_id.has_value() && *target.device_id != 0) {
-    if (diagnostic) {
-      *diagnostic = "ONNX Runtime CPU backend only accepts device_id 0; got: " +
-                    std::to_string(*target.device_id);
-    }
-    return false;
-  }
-  return true;
 }
 
 }  // namespace
@@ -347,18 +381,19 @@ class OnnxTensorGraphSession : public ITensorGraphSession {
 
   int Run(const TensorMap& inputs, TensorMap* outputs,
           std::string* diagnostic = nullptr) noexcept override {
-    if (!outputs) {
-      if (diagnostic) *diagnostic = "Output TensorMap pointer is null";
-      return -1;
-    }
-    outputs->clear();
-
-    if (!session_) {
-      if (diagnostic) *diagnostic = "ONNX Runtime session is not initialized";
-      return -1;
-    }
-
     try {
+      if (!outputs) {
+        SetDiagnosticNoexcept(diagnostic, "Output TensorMap pointer is null");
+        return -1;
+      }
+      outputs->clear();
+
+      if (!session_) {
+        SetDiagnosticNoexcept(diagnostic,
+                              "ONNX Runtime session is not initialized");
+        return -1;
+      }
+
       Ort::MemoryInfo mem_info =
           Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
 
@@ -486,22 +521,17 @@ class OnnxTensorGraphSession : public ITensorGraphSession {
 
       return 0;
     } catch (const Ort::Exception& e) {
-      if (diagnostic) {
-        *diagnostic = std::string("ONNX Runtime Exception: ") + e.what();
-      }
-      outputs->clear();
+      SetDiagnosticNoexcept(diagnostic, e.what());
+      if (outputs) outputs->clear();
       return -1;
     } catch (const std::exception& e) {
-      if (diagnostic) {
-        *diagnostic = std::string("Standard Exception: ") + e.what();
-      }
-      outputs->clear();
+      SetDiagnosticNoexcept(diagnostic, e.what());
+      if (outputs) outputs->clear();
       return -1;
     } catch (...) {
-      if (diagnostic) {
-        *diagnostic = "Unknown error during ONNX Runtime execution";
-      }
-      outputs->clear();
+      SetDiagnosticNoexcept(diagnostic,
+                            "Unknown error during ONNX Runtime execution");
+      if (outputs) outputs->clear();
       return -1;
     }
   }
@@ -528,42 +558,39 @@ const std::string& OnnxRuntimeBackend::BackendType() const noexcept {
 
 std::shared_ptr<IBackendSession> OnnxRuntimeBackend::Load(
     const BackendLoadSpec& spec, std::string* diagnostic) noexcept {
-  if (spec.requested_protocol.has_value() &&
-      *spec.requested_protocol != ExecutionProtocol::kTensorGraph) {
-    if (diagnostic) {
-      *diagnostic =
-          "ONNX Runtime backend does not support requested protocol: " +
-          std::string(ExecutionProtocolName(*spec.requested_protocol));
-    }
-    return nullptr;
-  }
-  if (!ValidateExecutionTarget(spec.execution_target, diagnostic)) {
-    return nullptr;
-  }
-#ifndef HAVE_ONNXRUNTIME
-  static_cast<void>(spec);
-  if (diagnostic) {
-    *diagnostic =
-        "ONNX Runtime backend was not compiled into this build "
-        "(HAVE_ONNXRUNTIME missing)";
-  }
-  return nullptr;
-#else
-  if (spec.model_path.empty()) {
-    if (diagnostic) *diagnostic = "Model path is empty";
-    return nullptr;
-  }
-
-  std::error_code ec;
-  if (!std::filesystem::is_regular_file(spec.model_path, ec) || ec) {
-    if (diagnostic) {
-      *diagnostic = "Model file does not exist or is not a regular file: " +
-                    spec.model_path;
-    }
-    return nullptr;
-  }
-
   try {
+    if (spec.requested_protocol.has_value() &&
+        *spec.requested_protocol != ExecutionProtocol::kTensorGraph) {
+      SetDiagnosticNoexcept(
+          diagnostic,
+          "ONNX Runtime backend does not support requested protocol: " +
+              std::string(ExecutionProtocolName(*spec.requested_protocol)));
+      return nullptr;
+    }
+    if (!ValidateExecutionTarget(spec.execution_target, diagnostic)) {
+      return nullptr;
+    }
+#ifndef HAVE_ONNXRUNTIME
+    static_cast<void>(spec);
+    SetDiagnosticNoexcept(
+        diagnostic,
+        "ONNX Runtime backend was not compiled into this build "
+        "(HAVE_ONNXRUNTIME missing)");
+    return nullptr;
+#else
+    if (spec.model_path.empty()) {
+      SetDiagnosticNoexcept(diagnostic, "Model path is empty");
+      return nullptr;
+    }
+
+    std::error_code ec;
+    if (!std::filesystem::is_regular_file(spec.model_path, ec) || ec) {
+      SetDiagnosticNoexcept(
+          diagnostic, "Model file does not exist or is not a regular file: " +
+                          spec.model_path);
+      return nullptr;
+    }
+
     auto env = std::make_shared<Ort::Env>(ORT_LOGGING_LEVEL_WARNING,
                                           "OnnxRuntimeBackend");
 
@@ -689,23 +716,19 @@ std::shared_ptr<IBackendSession> OnnxRuntimeBackend::Load(
     return std::make_shared<OnnxTensorGraphSession>(
         std::move(env), std::move(session), std::move(inputs),
         std::move(outputs), policy);
+#endif
+#ifdef HAVE_ONNXRUNTIME
   } catch (const Ort::Exception& e) {
-    if (diagnostic) {
-      *diagnostic = std::string("ONNX Runtime Load Exception: ") + e.what();
-    }
+    SetDiagnosticNoexcept(diagnostic, e.what());
     return nullptr;
+#endif
   } catch (const std::exception& e) {
-    if (diagnostic) {
-      *diagnostic = std::string("Standard Exception: ") + e.what();
-    }
+    SetDiagnosticNoexcept(diagnostic, e.what());
     return nullptr;
   } catch (...) {
-    if (diagnostic) {
-      *diagnostic = "Unknown error during ONNX Runtime Load";
-    }
+    SetDiagnosticNoexcept(diagnostic, "Unknown error during ONNX Runtime Load");
     return nullptr;
   }
-#endif
 }
 
 #ifdef HAVE_ONNXRUNTIME

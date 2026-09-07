@@ -8,6 +8,7 @@
 #include "adapter/operator/operator_biz_bridge_registry.h"
 #include "adapter/operator/operator_value_type_registry.h"
 #include "company_alg_log.h"
+#include "contracts/diagnostic.h"
 #include "core/alg_context.h"
 #include "core/node_registry.h"
 #include "core/session_context.h"
@@ -185,10 +186,10 @@ int SharedAlgorithmRuntime::CreateFromConfigFile(
     *out_runtime = std::move(runtime);
     return COMPANY_ALG_SUCCESS;
   } catch (const std::exception& e) {
-    if (out_error) *out_error = std::string("Exception: ") + e.what();
+    SetDiagnosticNoexcept(out_error, e.what());
     return COMPANY_ALG_ERR_EXCEPTION;
   } catch (...) {
-    if (out_error) *out_error = "Unknown exception in CreateFromConfigFile";
+    SetDiagnosticNoexcept(out_error, "Unknown exception");
     return COMPANY_ALG_ERR_UNKNOWN;
   }
 }
@@ -271,10 +272,10 @@ int SharedAlgorithmRuntime::CreateFromPipelineJson(
     *out_runtime = std::move(runtime);
     return COMPANY_ALG_SUCCESS;
   } catch (const std::exception& e) {
-    if (out_error) *out_error = std::string("Exception: ") + e.what();
+    SetDiagnosticNoexcept(out_error, e.what());
     return COMPANY_ALG_ERR_EXCEPTION;
   } catch (...) {
-    if (out_error) *out_error = "Unknown exception in CreateFromPipelineJson";
+    SetDiagnosticNoexcept(out_error, "Unknown exception");
     return COMPANY_ALG_ERR_UNKNOWN;
   }
 }
@@ -341,10 +342,10 @@ int SharedAlgorithmRuntime::ExecuteBatch(const void** inputs, int num_inputs,
 
     return COMPANY_ALG_SUCCESS;
   } catch (const std::exception& e) {
-    if (out_error) *out_error = std::string("Exception: ") + e.what();
+    SetDiagnosticNoexcept(out_error, e.what());
     return COMPANY_ALG_ERR_EXCEPTION;
   } catch (...) {
-    if (out_error) *out_error = "Unknown exception in ExecuteBatch";
+    SetDiagnosticNoexcept(out_error, "Unknown exception");
     return COMPANY_ALG_ERR_UNKNOWN;
   }
 }
@@ -359,10 +360,10 @@ int SharedAlgorithmRuntime::ExecuteControl(int cmd,
     }
     return pipeline_->Control(cmd, json_param_str, out_error);
   } catch (const std::exception& e) {
-    if (out_error) *out_error = std::string("Exception: ") + e.what();
+    SetDiagnosticNoexcept(out_error, e.what());
     return COMPANY_ALG_ERR_EXCEPTION;
   } catch (...) {
-    if (out_error) *out_error = "Unknown exception in ExecuteControl";
+    SetDiagnosticNoexcept(out_error, "Unknown exception");
     return COMPANY_ALG_ERR_UNKNOWN;
   }
 }

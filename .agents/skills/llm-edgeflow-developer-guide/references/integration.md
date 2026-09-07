@@ -21,3 +21,9 @@ the onboarding guide owns those implementation examples and optional Demo conver
 6. Copy input data when the ABI lifetime requires it, store request-scoped values in `AlgContext`, and pack output only through the documented ownership contract.
 
 Use `tests/contract/abi/test_adapter_contract_security.cpp`, `tests/contract/abi/test_c_abi_safety.cpp`, `tests/contract/abi/test_c11_abi_compliance.c`, and existing modality adapters as live templates. If the change also adds nodes, read `capability-nodes.md`; if it changes Core contract behavior, read `orchestration.md`.
+
+RFC-0044 lifecycle: `Unpack` validates biz fields before converting to owned DTOs. The unused
+internal `IBizAdapter::ValidateInput` hook was removed; migrate custom overrides into `Unpack`
+and rebuild extensions. Reuse `adapter/biz_input_constraints.h` for channel/audio semantic limits.
+Egress metadata describes the Adapter's internal consumption, including ranked aggregation;
+retain runtime provenance and output-capacity checks after static validation.

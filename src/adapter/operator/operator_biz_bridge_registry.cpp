@@ -3,6 +3,7 @@
 #include <unordered_set>
 
 #include "adapter/biz_adapter_registry.h"
+#include "contracts/diagnostic.h"
 
 namespace llm_edgeflow {
 
@@ -16,28 +17,36 @@ int OperatorBizBridgeRegistry::CopyToPooledString(const char* src,
                                                   uint32_t capacity,
                                                   const char* field_name,
                                                   std::string* err) noexcept {
-  if (!dest || !dest->data) {
-    if (err)
-      *err = std::string(field_name) + " in destination pool block is null";
-    return -4;
-  }
-  if (!src) {
-    dest->length = 0;
-    dest->data[0] = '\0';
+  try {
+    if (!dest || !dest->data) {
+      if (err)
+        *err = std::string(field_name ? field_name : "string") +
+               " in destination pool block is null";
+      return -4;
+    }
+    if (!src) {
+      dest->length = 0;
+      dest->data[0] = '\0';
+      return 0;
+    }
+    size_t len = std::strlen(src);
+    if (len > capacity) {
+      if (err)
+        *err = std::string(field_name ? field_name : "string") +
+               " output length (" + std::to_string(len) +
+               ") exceeds pool capacity (" + std::to_string(capacity) + ")";
+      return -4;
+    }
+    std::memcpy(dest->data, src, len);
+    dest->data[len] = '\0';
+    dest->length = static_cast<int32_t>(len);
     return 0;
+  } catch (const std::exception& e) {
+    SetDiagnosticNoexcept(err, e.what());
+  } catch (...) {
+    SetDiagnosticNoexcept(err, "Failed to copy pooled string");
   }
-  size_t len = std::strlen(src);
-  if (len > capacity) {
-    if (err)
-      *err = std::string(field_name) + " output length (" +
-             std::to_string(len) + ") exceeds pool capacity (" +
-             std::to_string(capacity) + ")";
-    return -4;
-  }
-  std::memcpy(dest->data, src, len);
-  dest->data[len] = '\0';
-  dest->length = static_cast<int32_t>(len);
-  return 0;
+  return -4;
 }
 
 bool OperatorBizBridgeRegistry::RegisterBridge(

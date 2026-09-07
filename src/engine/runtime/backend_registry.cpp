@@ -15,7 +15,7 @@ BackendRegistry& BackendRegistry::Instance() {
   return instance;
 }
 
-void BackendRegistry::RecordConflict(std::string error) noexcept {
+void BackendRegistry::RecordConflict(std::string_view error) noexcept {
   registry_support::RecordConflict(mutex_, has_conflict_, conflict_errors_,
                                    std::move(error));
 }

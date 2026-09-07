@@ -4,29 +4,28 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
+
+#include "contracts/diagnostic.h"
 
 namespace llm_edgeflow::registry_support {
 
 inline void SetDiagnostic(std::string* diagnostic,
-                          const std::string& message) noexcept {
-  if (!diagnostic) return;
-  try {
-    *diagnostic = message;
-  } catch (...) {
-  }
+                          std::string_view message) noexcept {
+  SetDiagnosticNoexcept(diagnostic, message);
 }
 
 template <typename Mutex>
 void RecordConflict(Mutex& mutex, bool& has_conflict,
                     std::vector<std::string>& errors,
-                    std::string error) noexcept {
+                    std::string_view error) noexcept {
   try {
     std::lock_guard<Mutex> lock(mutex);
     has_conflict = true;
     try {
-      errors.push_back(std::move(error));
+      errors.emplace_back(error);
     } catch (...) {
     }
   } catch (...) {

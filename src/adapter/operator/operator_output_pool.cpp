@@ -1,5 +1,7 @@
 #include "adapter/operator/operator_output_pool.h"
 
+#include "contracts/diagnostic.h"
+
 namespace llm_edgeflow {
 
 void OutputPoolDeleter::operator()(void*) const noexcept {
@@ -85,12 +87,11 @@ int OutputPoolState::Create(const std::string& suffix, uint32_t depth,
     return 0;
   } catch (const std::exception& e) {
     if (out_pool) *out_pool = nullptr;
-    if (err)
-      *err = "Allocation failure in OutputPoolState: " + std::string(e.what());
+    SetDiagnosticNoexcept(err, e.what());
     return -4;
   } catch (...) {
     if (out_pool) *out_pool = nullptr;
-    if (err) *err = "Unknown allocation failure in OutputPoolState";
+    SetDiagnosticNoexcept(err, "Unknown exception");
     return -4;
   }
 }

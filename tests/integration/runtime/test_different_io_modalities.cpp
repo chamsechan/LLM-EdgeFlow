@@ -110,6 +110,15 @@ TEST_F(DifferentIoModalitiesTest, AudioAsrIntent) {
   EXPECT_EQ(j1["intent"], "NAVIGATION");
   EXPECT_EQ(j2["intent"], "VEHICLE_HVAC_CONTROL");
 
+  in_audio1.pcm_length = 0;
+  in_audio1.pcm_buffer = nullptr;
+  in_audio2.pcm_length = 0;
+  EXPECT_EQ(Alg_Process(handle, inputs, outputs), 0);
+  EXPECT_EQ(out1.request_id, 70001U);
+  EXPECT_EQ(out2.request_id, 70002U);
+  EXPECT_EQ(out1.status_code, 0);
+  EXPECT_EQ(out2.status_code, 0);
+
   ret = Alg_Destroy(handle);
   EXPECT_EQ(ret, 0);
 }

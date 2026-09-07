@@ -2,6 +2,7 @@
 
 #include <stdexcept>
 
+#include "contracts/diagnostic.h"
 #include "operator/company_operator_types.h"
 
 namespace llm_edgeflow {
@@ -97,12 +98,10 @@ bool ResolveOutputPoolSpec(const OperatorValueTypeBinding& binding,
     *resolved = std::move(candidate);
     return true;
   } catch (const std::exception& e) {
-    if (err) {
-      *err = std::string("Exception resolving output pool spec: ") + e.what();
-    }
+    SetDiagnosticNoexcept(err, e.what());
     return false;
   } catch (...) {
-    if (err) *err = "Unknown exception resolving output pool spec";
+    SetDiagnosticNoexcept(err, "Unknown exception resolving output pool spec");
     return false;
   }
 }
@@ -111,95 +110,108 @@ bool ComputeOutputPoolPayloadBytes(const OperatorValueTypeBinding& binding,
                                    const ResolvedOutputPoolSpec& spec,
                                    uint32_t depth, size_t* out_bytes,
                                    std::string* err) noexcept {
-  if (!out_bytes) {
-    if (err) *err = "Null out_bytes pointer";
-    return false;
-  }
-  *out_bytes = 0;
-
-  ResolvedOutputPoolSpec resolved;
-  if (!ResolveOutputPoolSpec(binding, spec, &resolved, err)) {
-    return false;
-  }
-
-  uint32_t effective_depth = (depth == 0) ? kDefaultOutputPoolDepth : depth;
-  if (effective_depth > kMaxOutputPoolDepth) {
-    if (err) {
-      *err = "Output pool depth " + std::to_string(effective_depth) +
-             " exceeds max limit " + std::to_string(kMaxOutputPoolDepth);
-    }
-    return false;
-  }
-
-  if (!binding.output_layout.compute_block_payload_bytes) {
-    if (err) {
-      *err = "Missing output block budget callback for suffix '" +
-             binding.canonical_suffix + "'";
-    }
-    return false;
-  }
-
-  size_t single_block_bytes = 0;
   try {
-    if (!binding.output_layout.compute_block_payload_bytes(
-            resolved, &single_block_bytes, err)) {
+    if (!out_bytes) {
+      if (err) *err = "Null out_bytes pointer";
       return false;
     }
-  } catch (const std::exception& e) {
-    if (err) {
-      *err = "Exception computing output block payload for suffix '" +
-             binding.canonical_suffix + "': " + e.what();
+    *out_bytes = 0;
+
+    ResolvedOutputPoolSpec resolved;
+    if (!ResolveOutputPoolSpec(binding, spec, &resolved, err)) {
+      return false;
     }
+
+    uint32_t effective_depth = (depth == 0) ? kDefaultOutputPoolDepth : depth;
+    if (effective_depth > kMaxOutputPoolDepth) {
+      if (err) {
+        *err = "Output pool depth " + std::to_string(effective_depth) +
+               " exceeds max limit " + std::to_string(kMaxOutputPoolDepth);
+      }
+      return false;
+    }
+
+    if (!binding.output_layout.compute_block_payload_bytes) {
+      if (err) {
+        *err = "Missing output block budget callback for suffix '" +
+               binding.canonical_suffix + "'";
+      }
+      return false;
+    }
+
+    size_t single_block_bytes = 0;
+    try {
+      if (!binding.output_layout.compute_block_payload_bytes(
+              resolved, &single_block_bytes, err)) {
+        return false;
+      }
+    } catch (const std::exception& e) {
+      SetDiagnosticNoexcept(err, e.what());
+      return false;
+    } catch (...) {
+      SetDiagnosticNoexcept(err,
+                            "Unknown exception computing output block payload");
+      return false;
+    }
+    if (single_block_bytes == 0) {
+      if (err) {
+        *err = "Output block payload is zero for suffix '" +
+               binding.canonical_suffix + "'";
+      }
+      return false;
+    }
+
+    size_t total_pool_bytes = 0;
+    if (!CheckedMultiply(effective_depth, single_block_bytes,
+                         &total_pool_bytes)) {
+      if (err) *err = "Total pool payload calculation overflowed";
+      return false;
+    }
+
+    if (total_pool_bytes > kMaxHandlePoolPayloadBytes) {
+      if (err) {
+        *err = "Total pool payload (" + std::to_string(total_pool_bytes) +
+               " bytes) exceeds maximum allowed payload budget " +
+               std::to_string(kMaxHandlePoolPayloadBytes) + " bytes (64 MiB)";
+      }
+      return false;
+    }
+
+    *out_bytes = total_pool_bytes;
+    return true;
+  } catch (const std::exception& e) {
+    SetDiagnosticNoexcept(err, e.what());
     return false;
   } catch (...) {
-    if (err) {
-      *err = "Unknown exception computing output block payload for suffix '" +
-             binding.canonical_suffix + "'";
-    }
+    SetDiagnosticNoexcept(
+        err, "Unknown exception computing output pool payload bytes");
     return false;
   }
-  if (single_block_bytes == 0) {
-    if (err) {
-      *err = "Output block payload is zero for suffix '" +
-             binding.canonical_suffix + "'";
-    }
-    return false;
-  }
-
-  size_t total_pool_bytes = 0;
-  if (!CheckedMultiply(effective_depth, single_block_bytes,
-                       &total_pool_bytes)) {
-    if (err) *err = "Total pool payload calculation overflowed";
-    return false;
-  }
-
-  if (total_pool_bytes > kMaxHandlePoolPayloadBytes) {
-    if (err) {
-      *err = "Total pool payload (" + std::to_string(total_pool_bytes) +
-             " bytes) exceeds maximum allowed payload budget " +
-             std::to_string(kMaxHandlePoolPayloadBytes) + " bytes (64 MiB)";
-    }
-    return false;
-  }
-
-  *out_bytes = total_pool_bytes;
-  return true;
 }
 
 bool ComputeOutputPoolPayloadBytes(const std::string& suffix,
                                    const ResolvedOutputPoolSpec& spec,
                                    uint32_t depth, size_t* out_bytes,
                                    std::string* err) noexcept {
-  const auto* binding =
-      OperatorValueTypeRegistry::Instance().GetBindingBySuffix(suffix);
-  if (!binding || binding->canonical_suffix != suffix) {
-    if (out_bytes) *out_bytes = 0;
-    if (err) {
-      *err = "Unknown or non-canonical output suffix '" + suffix + "'";
+  try {
+    const auto* binding =
+        OperatorValueTypeRegistry::Instance().GetBindingBySuffix(suffix);
+    if (!binding || binding->canonical_suffix != suffix) {
+      if (out_bytes) *out_bytes = 0;
+      if (err) {
+        *err = "Unknown or non-canonical output suffix '" + suffix + "'";
+      }
+      return false;
     }
+    return ComputeOutputPoolPayloadBytes(*binding, spec, depth, out_bytes, err);
+  } catch (const std::exception& e) {
+    SetDiagnosticNoexcept(err, e.what());
+    return false;
+  } catch (...) {
+    SetDiagnosticNoexcept(err,
+                          "Unknown exception in ComputeOutputPoolPayloadBytes");
     return false;
   }
-  return ComputeOutputPoolPayloadBytes(*binding, spec, depth, out_bytes, err);
 }
 
 const CompanyAnyTypeDescriptor* FindCompanyAnyType(int32_t type_id) noexcept {
@@ -219,157 +231,185 @@ OperatorValueTypeRegistry& OperatorValueTypeRegistry::Instance() {
 bool OperatorValueTypeRegistry::ParseKey(const std::string& key,
                                          std::string* out_namespace,
                                          std::string* out_suffix) noexcept {
-  if (key.empty()) return false;
-  size_t last_dot = key.rfind('.');
-  if (last_dot == std::string::npos || last_dot == 0 ||
-      last_dot == key.size() - 1) {
+  try {
+    if (key.empty()) return false;
+    size_t last_dot = key.rfind('.');
+    if (last_dot == std::string::npos || last_dot == 0 ||
+        last_dot == key.size() - 1) {
+      return false;
+    }
+    if (out_namespace) {
+      *out_namespace = key.substr(0, last_dot);
+    }
+    if (out_suffix) {
+      *out_suffix = key.substr(last_dot + 1);
+    }
+    return true;
+  } catch (...) {
     return false;
   }
-  if (out_namespace) {
-    *out_namespace = key.substr(0, last_dot);
-  }
-  if (out_suffix) {
-    *out_suffix = key.substr(last_dot + 1);
-  }
-  return true;
 }
 
 int OperatorValueTypeRegistry::ValidateCompanyString(
     const CompanyString* str, size_t max_bytes, const char* field_name,
     std::string* err) noexcept {
-  if (!str) {
-    if (err) *err = std::string(field_name) + " pointer is null";
-    return -3;
-  }
-  if (str->length < 0) {
-    if (err)
-      *err = std::string(field_name) + " has negative length " +
-             std::to_string(str->length);
-    return -3;
-  }
-  if (static_cast<size_t>(str->length) > max_bytes) {
-    if (err)
-      *err = std::string(field_name) + " length " +
-             std::to_string(str->length) + " exceeds max limit " +
-             std::to_string(max_bytes);
-    return -3;
-  }
-  if (str->length > 0) {
-    if (!str->data) {
-      if (err)
-        *err = std::string(field_name) + " length is " +
-               std::to_string(str->length) + " but data pointer is null";
+  try {
+    const char* name = field_name ? field_name : "string";
+    if (!str) {
+      if (err) *err = std::string(name) + " pointer is null";
       return -3;
     }
-    for (int32_t i = 0; i < str->length; ++i) {
-      if (str->data[i] == '\0') {
+    if (str->length < 0) {
+      if (err)
+        *err = std::string(name) + " has negative length " +
+               std::to_string(str->length);
+      return -3;
+    }
+    if (static_cast<size_t>(str->length) > max_bytes) {
+      if (err)
+        *err = std::string(name) + " length " + std::to_string(str->length) +
+               " exceeds max limit " + std::to_string(max_bytes);
+      return -3;
+    }
+    if (str->length > 0) {
+      if (!str->data) {
         if (err)
-          *err = std::string(field_name) +
-                 " contains forbidden embedded NUL at byte offset " +
-                 std::to_string(i);
+          *err = std::string(name) + " length is " +
+                 std::to_string(str->length) + " but data pointer is null";
         return -3;
       }
+      for (int32_t i = 0; i < str->length; ++i) {
+        if (str->data[i] == '\0') {
+          if (err)
+            *err = std::string(name) +
+                   " contains forbidden embedded NUL at byte offset " +
+                   std::to_string(i);
+          return -3;
+        }
+      }
     }
+    return 0;
+  } catch (const std::exception& e) {
+    SetDiagnosticNoexcept(err, e.what());
+    return -3;
+  } catch (...) {
+    SetDiagnosticNoexcept(err, "Unknown exception in ValidateCompanyString");
+    return -3;
   }
-  return 0;
 }
 
 int OperatorValueTypeRegistry::ValidateCompanyBuffer(
     const CompanyBuffer* buf, size_t max_bytes, const char* field_name,
     std::string* err) noexcept {
-  if (!buf) {
-    if (err) *err = std::string(field_name) + " pointer is null";
+  try {
+    const char* name = field_name ? field_name : "buffer";
+    if (!buf) {
+      if (err) *err = std::string(name) + " pointer is null";
+      return -3;
+    }
+    if (buf->length < 0) {
+      if (err)
+        *err = std::string(name) + " has negative length " +
+               std::to_string(buf->length);
+      return -3;
+    }
+    if (static_cast<size_t>(buf->length) > max_bytes) {
+      if (err)
+        *err = std::string(name) + " length exceeds max limit " +
+               std::to_string(max_bytes);
+      return -3;
+    }
+    if (buf->length > 0 && !buf->data) {
+      if (err) *err = std::string(name) + " data pointer is null";
+      return -3;
+    }
+    return 0;
+  } catch (const std::exception& e) {
+    SetDiagnosticNoexcept(err, e.what());
+    return -3;
+  } catch (...) {
+    SetDiagnosticNoexcept(err, "Unknown exception in ValidateCompanyBuffer");
     return -3;
   }
-  if (buf->length < 0) {
-    if (err)
-      *err = std::string(field_name) + " has negative length " +
-             std::to_string(buf->length);
-    return -3;
-  }
-  if (static_cast<size_t>(buf->length) > max_bytes) {
-    if (err)
-      *err = std::string(field_name) + " length exceeds max limit " +
-             std::to_string(max_bytes);
-    return -3;
-  }
-  if (buf->length > 0 && !buf->data) {
-    if (err) *err = std::string(field_name) + " data pointer is null";
-    return -3;
-  }
-  return 0;
 }
 
 int OperatorValueTypeRegistry::ValidateCompanyAnyPayload(
     const CompanyAny* any, size_t max_any_bytes, const char* field_name,
     std::string* err) noexcept {
-  if (!any) {
-    if (err) *err = std::string(field_name) + " pointer is null";
-    return -3;
-  }
-  if (any->element_count < 0 || any->byte_length < 0) {
-    if (err) {
-      *err = std::string(field_name) + " has negative count or length: count=" +
-             std::to_string(any->element_count) +
-             ", length=" + std::to_string(any->byte_length);
+  try {
+    const char* name = field_name ? field_name : "any";
+    if (!any) {
+      if (err) *err = std::string(name) + " pointer is null";
+      return -3;
     }
-    return -3;
-  }
-  if (static_cast<size_t>(any->byte_length) > max_any_bytes) {
-    if (err) {
-      *err = std::string(field_name) + " byte_length " +
-             std::to_string(any->byte_length) + " exceeds max limit " +
-             std::to_string(max_any_bytes);
-    }
-    return -3;
-  }
-  if (any->type_id == 0) {
-    if (any->element_count != 0 || any->byte_length != 0) {
+    if (any->element_count < 0 || any->byte_length < 0) {
       if (err) {
-        *err = std::string(field_name) +
-               " has type_id=0 but non-zero count/length";
+        *err = std::string(name) + " has negative count or length: count=" +
+               std::to_string(any->element_count) +
+               ", length=" + std::to_string(any->byte_length);
+      }
+      return -3;
+    }
+    if (static_cast<size_t>(any->byte_length) > max_any_bytes) {
+      if (err) {
+        *err = std::string(name) + " byte_length " +
+               std::to_string(any->byte_length) + " exceeds max limit " +
+               std::to_string(max_any_bytes);
+      }
+      return -3;
+    }
+    if (any->type_id == 0) {
+      if (any->element_count != 0 || any->byte_length != 0) {
+        if (err) {
+          *err = std::string(name) + " has type_id=0 but non-zero count/length";
+        }
+        return -3;
+      }
+      return 0;
+    }
+
+    const auto* desc = FindCompanyAnyType(any->type_id);
+    if (!desc) {
+      if (err) {
+        *err = std::string(name) + " has unknown or unwhitelisted type_id " +
+               std::to_string(any->type_id);
+      }
+      return -3;
+    }
+
+    size_t expected_bytes = 0;
+    if (!CheckedMultiply(static_cast<size_t>(any->element_count),
+                         desc->element_size, &expected_bytes)) {
+      if (err) {
+        *err = std::string(name) + " element_count multiplication overflowed";
+      }
+      return -3;
+    }
+    if (expected_bytes != static_cast<size_t>(any->byte_length)) {
+      if (err) {
+        *err = std::string(name) + " size equation mismatch: expected " +
+               std::to_string(expected_bytes) + " bytes for " +
+               std::to_string(any->element_count) + " elements of type " +
+               desc->debug_name + ", but byte_length is " +
+               std::to_string(any->byte_length);
+      }
+      return -3;
+    }
+    if (any->byte_length > 0 && !any->data) {
+      if (err) {
+        *err = std::string(name) + " non-empty payload has null data";
       }
       return -3;
     }
     return 0;
-  }
-
-  const auto* desc = FindCompanyAnyType(any->type_id);
-  if (!desc) {
-    if (err) {
-      *err = std::string(field_name) +
-             " has unknown or unwhitelisted type_id " +
-             std::to_string(any->type_id);
-    }
+  } catch (const std::exception& e) {
+    SetDiagnosticNoexcept(err, e.what());
+    return -3;
+  } catch (...) {
+    SetDiagnosticNoexcept(err,
+                          "Unknown exception in ValidateCompanyAnyPayload");
     return -3;
   }
-
-  size_t expected_bytes = 0;
-  if (!CheckedMultiply(static_cast<size_t>(any->element_count),
-                       desc->element_size, &expected_bytes)) {
-    if (err) {
-      *err =
-          std::string(field_name) + " element_count multiplication overflowed";
-    }
-    return -3;
-  }
-  if (expected_bytes != static_cast<size_t>(any->byte_length)) {
-    if (err) {
-      *err = std::string(field_name) + " size equation mismatch: expected " +
-             std::to_string(expected_bytes) + " bytes for " +
-             std::to_string(any->element_count) + " elements of type " +
-             desc->debug_name + ", but byte_length is " +
-             std::to_string(any->byte_length);
-    }
-    return -3;
-  }
-  if (any->byte_length > 0 && !any->data) {
-    if (err) {
-      *err = std::string(field_name) + " non-empty payload has null data";
-    }
-    return -3;
-  }
-  return 0;
 }
 
 bool OperatorValueTypeRegistry::HasConflict() const {

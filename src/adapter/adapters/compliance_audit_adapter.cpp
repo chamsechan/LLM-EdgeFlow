@@ -6,6 +6,7 @@
 #include "adapter/adapter_validation_helper.h"
 #include "adapter/biz_adapter_registry.h"
 #include "adapter/biz_blackboard_keys.h"
+#include "adapter/biz_input_constraints.h"
 #include "adapter/biz_results.h"
 #include "adapter/result_packing_adapter.h"
 #include "adapter/result_validation.h"
@@ -42,7 +43,9 @@ class ComplianceAuditAdapter
           "对话合规审核",
           {RequiredInput(kRawRequestIds), RequiredInput(kUserTexts),
            RequiredInput(kChannelNames)},
-          {Output(kStructuredVerdicts), Output(kMatchedPolicy),
+          {Output(kStructuredVerdicts),
+           PortDefinition{kMatchedPolicy.name, kMatchedPolicy.type_id, true,
+                          "N:1", "aggregate", "request"},
            Output(kRuleMatches)}}}};
     return desc;
   }
@@ -77,6 +80,13 @@ class ComplianceAuditAdapter
       if (!AdapterValidationHelper::RequireBoundedString(
               "inputs[i].user_text", in->user_text, kMaxTextLen, i, BizName(),
               out_status)) {
+        return COMPANY_ALG_ERR_INVALID_INPUT;
+      }
+
+      if (in->channel_name &&
+          !AdapterValidationHelper::RequireBoundedString(
+              "inputs[i].channel_name", in->channel_name,
+              biz_input::kMaxChannelNameBytes, i, BizName(), out_status)) {
         return COMPANY_ALG_ERR_INVALID_INPUT;
       }
 

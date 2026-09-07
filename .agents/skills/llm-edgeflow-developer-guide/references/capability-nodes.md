@@ -20,3 +20,8 @@ Use existing implementations in `src/common_nodes/`, the `src/custom_nodes/` aut
 `tests/unit/nodes/test_*_node.cpp` suites as current templates. Use
 `tests/integration/pipeline/test_pipeline_catalog_validator.cpp` for Catalog/Validator integration;
 do not copy implementations into documentation.
+
+RFC-0044 config contract: reuse `ValidateAndNormalizeFields` from `contracts` in defensive
+initialization, using the same field list as the Definition. `ModelBoundNode` already does this
+before model binding. Keep cross-field semantic checks in a shared local helper; do not call
+PipelineValidator from a Node. Report processing failures through `Fail` / `Require`.

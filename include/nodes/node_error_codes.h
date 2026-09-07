@@ -15,6 +15,9 @@ inline constexpr int kMissingInput = -3101;
 namespace text_chunk {
 inline constexpr int kMissingInput = -4001;
 inline constexpr int kInvalidUtf8 = -4002;
+inline constexpr int kDuplicateInput = -4003;
+inline constexpr int kSubIdOverflow = -4004;
+inline constexpr int kCountOverflow = -4005;
 }  // namespace text_chunk
 
 namespace text_embedding {

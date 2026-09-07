@@ -21,7 +21,6 @@
 | :--- | :--- | :---: | :---: | :--- | :--- |
 | **RFC-0029** | 外网架构收口与内网 SDK 迁移分阶段整改 | `In Implementation` | `v10.x / 待定` | 接入适配层、流程编排层、能力节点层、模型执行层 / Tooling | [0029-external-readiness-and-intranet-sdk-migration.md](0029-external-readiness-and-intranet-sdk-migration.md) |
 | **RFC-0036** | Whisper ASR 与 whisper.cpp Backend 接入设计及实施指南 | `In Implementation` | `v10.x` | 模型执行层 / Config / Demo / Build | [0036-whisper-asr-backend.md](0036-whisper-asr-backend.md) |
-| **RFC-0044** | 投产前跨实现契约一致性整改与实施指南 | `Proposed` | `v10.x` | 接入适配层、流程编排层、能力节点层、模型执行层 | [0044-preproduction-contract-consistency.md](0044-preproduction-contract-consistency.md) |
 
 ## 已完成的 RFC
 
@@ -68,6 +67,7 @@
 | **RFC-0041** | Control 开发路径的最小收敛 | `Completed` | `v10.x` | 接入适配层、流程编排层、能力节点层 / Tooling / Demo | [0041-control-authoring.md](0041-control-authoring.md) |
 | **RFC-0042** | 文件浏览、模板语义与构建边界修复 | `Completed` | `v10.x` | 四层 / Build / Tooling | [0042-studio-and-contract-boundaries.md](0042-studio-and-contract-boundaries.md) |
 | **RFC-0043** | 参数配置与执行行为的最小一致性整改 | `Completed` | `v10.x` | 流程编排层、能力节点层、模型执行层 / Tooling | [0043-config-parameter-consistency.md](0043-config-parameter-consistency.md) |
+| **RFC-0044** | 投产前跨实现契约一致性整改与实施指南 | `Completed` | `v10.x` | 接入适配层、流程编排层、能力节点层、模型执行层 | [0044-preproduction-contract-consistency.md](0044-preproduction-contract-consistency.md) |
 
 ## 专项验收与评审归档
 

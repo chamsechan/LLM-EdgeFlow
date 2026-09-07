@@ -175,10 +175,18 @@ class ThrowingProcessDagNode : public INode {
  public:
   inline static constexpr char kNodeType[] = "ThrowingProcessDagNode";
   bool Init(const NodeInitContext&) override { return true; }
-  int Process(AlgContext*) override {
+  static inline int failure_mode = 0;
+  int Process(AlgContext* ctx) override {
+    if (failure_mode == 1) throw 42;
+    if (failure_mode == 2) return -8103;
+    if (failure_mode == 3 || failure_mode == 4) {
+      ctx->SetError(-9999, "diagnostic from this invocation");
+      return -8104;
+    }
     throw std::runtime_error("parallel process failure");
   }
   const std::string& Name() const override {
+    if (failure_mode == 4) throw std::bad_alloc();
     static const std::string name = kNodeType;
     return name;
   }
@@ -604,6 +612,70 @@ TEST_F(DagPipelineTest, ThreadSafeAlgContextStressTest) {
   }
 
   EXPECT_TRUE(req_ctx.IsOk());
+}
+
+TEST_F(DagPipelineTest, SequentialAndSingleNodeParallelShareFailureContract) {
+  for (const char* mode : {"sequential", "parallel"}) {
+    for (int failure = 0; failure < 4; ++failure) {
+      ThrowingProcessDagNode::failure_mode = failure;
+      nlohmann::json config = {
+          {"biz_name", "invocation_failure_test"},
+          {"execution_mode", mode},
+          {"pipeline",
+           {{{"id", "failing"},
+             {"node_type", ThrowingProcessDagNode::kNodeType},
+             {"depends_on", nlohmann::json::array()}}}}};
+      Pipeline pipeline;
+      EXPECT_TRUE(pipeline.BuildFromJson(
+          config, nullptr, ValidationPolicy::kPrivateExtensionCompatible));
+      AlgContext ctx;
+      ctx.SetError(-9998, "stale diagnostic");
+      const int expected = failure < 2 ? -1 : (failure == 2 ? -8103 : -8104);
+      EXPECT_EQ(pipeline.Execute(&ctx), expected);
+      EXPECT_EQ(ctx.GetErrorCode(), expected);
+      EXPECT_FALSE(ctx.GetErrorMessage().empty());
+      EXPECT_EQ(ctx.GetErrorMessage().find("stale diagnostic"),
+                std::string::npos);
+      if (failure == 3) {
+        EXPECT_EQ(ctx.GetErrorMessage(), "diagnostic from this invocation");
+      }
+    }
+  }
+  ThrowingProcessDagNode::failure_mode = 0;
+}
+
+TEST_F(DagPipelineTest, DiagnosticFailureStillWaitsForSubmittedNodes) {
+  const nlohmann::json config = {
+      {"biz_name", "parallel_diagnostic_failure"},
+      {"execution_mode", "parallel"},
+      {"max_parallel_workers", 2},
+      {"pipeline",
+       {{{"id", "failing"},
+         {"node_type", ThrowingProcessDagNode::kNodeType},
+         {"depends_on", nlohmann::json::array()}},
+        {{"id", "gated"},
+         {"node_type", GatedProcessDagNode::kNodeType},
+         {"depends_on", nlohmann::json::array()}}}}};
+  GatedProcessDagNode::Reset();
+  Pipeline pipeline;
+  ASSERT_TRUE(pipeline.BuildFromJson(
+      config, nullptr, ValidationPolicy::kPrivateExtensionCompatible));
+  ThrowingProcessDagNode::failure_mode = 4;
+  AlgContext ctx;
+  auto execution = std::async(std::launch::async, [&] {
+    try {
+      return pipeline.Execute(&ctx);
+    } catch (const std::bad_alloc&) {
+      return -999;
+    }
+  });
+  EXPECT_TRUE(GatedProcessDagNode::WaitUntilStarted(std::chrono::seconds(1)));
+  EXPECT_EQ(execution.wait_for(std::chrono::milliseconds(50)),
+            std::future_status::timeout);
+  GatedProcessDagNode::Release();
+  EXPECT_EQ(execution.get(), -999);
+  EXPECT_TRUE(GatedProcessDagNode::Completed());
+  ThrowingProcessDagNode::failure_mode = 0;
 }
 
 }  // namespace llm_edgeflow

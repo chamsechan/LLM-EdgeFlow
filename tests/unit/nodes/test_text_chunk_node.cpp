@@ -46,6 +46,16 @@ TEST_F(TextChunkNodeTest, InitAndConfigValidation) {
   EXPECT_FALSE(InitNodeForTest(*invalid_overlap,
                                {{"chunk_size", 10}, {"overlap", 10}},
                                session_ctx_.get()));
+
+  auto float_chunk = NodeFactory::Instance().Create("TextChunkNode");
+  ASSERT_NE(float_chunk, nullptr);
+  EXPECT_FALSE(
+      InitNodeForTest(*float_chunk, {{"chunk_size", 2.5}}, session_ctx_.get()));
+
+  auto unknown_field = NodeFactory::Instance().Create("TextChunkNode");
+  ASSERT_NE(unknown_field, nullptr);
+  EXPECT_FALSE(InitNodeForTest(*unknown_field, {{"non_existent_field", 123}},
+                               session_ctx_.get()));
 }
 
 // 2. Process Single and Batch Chunks with ChunkCounts
@@ -211,6 +221,73 @@ TEST_F(TextChunkNodeTest, MissingInputFailsClosed) {
 
   AlgContext empty_ctx;
   EXPECT_EQ(node->Process(&empty_ctx), -4001);
+}
+
+TEST_F(TextChunkNodeTest, DuplicateInputFailsClosed) {
+  auto node = NodeFactory::Instance().Create("TextChunkNode");
+  ASSERT_NE(node, nullptr);
+  ASSERT_TRUE(
+      InitNodeForTest(*node, nlohmann::json::object(), session_ctx_.get()));
+
+  AlgContext ctx;
+  TextBatch input_batch;
+  input_batch.emplace_back(10, 0, "first message");
+  input_batch.emplace_back(10, 0, "second message with same req_id and sub_id");
+  ctx.Publish("text", input_batch);
+
+  EXPECT_EQ(node->Process(&ctx), -4003);
+  EXPECT_EQ(ctx.Read<TextBatch>("chunks"), nullptr);
+  EXPECT_EQ(ctx.Read<Int32Batch>("chunk_counts"), nullptr);
+}
+
+TEST_F(TextChunkNodeTest,
+       PreservesParentProvenanceAndContinuousSubIdPerRequest) {
+  auto node = NodeFactory::Instance().Create("TextChunkNode");
+  ASSERT_NE(node, nullptr);
+  ASSERT_TRUE(InitNodeForTest(*node, {{"chunk_size", 10}, {"overlap", 0}},
+                              session_ctx_.get()));
+
+  AlgContext ctx;
+  TextBatch input_batch;
+  // Request 10: item 0 has sub_id 5, produces 2 chunks (20 chars)
+  input_batch.emplace_back(10, 5, "12345678901234567890");
+  // Request 10: item 1 has sub_id 9, produces 1 chunk (10 chars)
+  input_batch.emplace_back(10, 9, "abcdefghij");
+  // Request 20: item 0 has sub_id 1, produces 1 chunk
+  input_batch.emplace_back(20, 1, "hello");
+  ctx.Publish("text", input_batch);
+
+  ASSERT_EQ(node->Process(&ctx), 0);
+
+  const auto* chunks = ctx.Read<TextBatch>("chunks");
+  ASSERT_NE(chunks, nullptr);
+  ASSERT_EQ(chunks->size(), 4u);
+  // Request 10 chunks must have continuous sub_ids: 0, 1, 2
+  EXPECT_EQ((*chunks)[0].req_id, 10u);
+  EXPECT_EQ((*chunks)[0].sub_id, 0u);
+  EXPECT_EQ((*chunks)[1].req_id, 10u);
+  EXPECT_EQ((*chunks)[1].sub_id, 1u);
+  EXPECT_EQ((*chunks)[2].req_id, 10u);
+  EXPECT_EQ((*chunks)[2].sub_id, 2u);
+  // Request 20 chunks must have sub_id: 0
+  EXPECT_EQ((*chunks)[3].req_id, 20u);
+  EXPECT_EQ((*chunks)[3].sub_id, 0u);
+
+  // chunk_counts must preserve parent (req_id, sub_id)
+  const auto* counts = ctx.Read<Int32Batch>("chunk_counts");
+  ASSERT_NE(counts, nullptr);
+  ASSERT_EQ(counts->size(), 3u);
+  EXPECT_EQ((*counts)[0].req_id, 10u);
+  EXPECT_EQ((*counts)[0].sub_id, 5u);
+  EXPECT_EQ((*counts)[0].data, 2);
+
+  EXPECT_EQ((*counts)[1].req_id, 10u);
+  EXPECT_EQ((*counts)[1].sub_id, 9u);
+  EXPECT_EQ((*counts)[1].data, 1);
+
+  EXPECT_EQ((*counts)[2].req_id, 20u);
+  EXPECT_EQ((*counts)[2].sub_id, 1u);
+  EXPECT_EQ((*counts)[2].data, 1);
 }
 
 }  // namespace llm_edgeflow

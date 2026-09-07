@@ -53,7 +53,8 @@ class TextRerankNode final : public ModelBoundNode<IRerankModel> {
     const auto* pairs = in_pairs_.Get(req_ctx);
 
     if (!pairs && !queries) {
-      return node_error::text_rerank::kMissingInput;
+      return Fail(req_ctx, node_error::text_rerank::kMissingInput,
+                  "TextRerankNode requires pairs or queries input");
     }
 
     QueryCandidatesBatch pair_items;

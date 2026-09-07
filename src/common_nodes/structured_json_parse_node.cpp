@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "company_alg_log.h"
+#include "contracts/config_schema_validation.h"
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
 #include "nodes/node_base.h"
@@ -14,6 +15,25 @@ namespace {
 constexpr char kDefaultFallbackJson[] = "{}";
 constexpr bool kDefaultExtractJsonBlock = true;
 constexpr char kDefaultFailurePolicy[] = "configured_fallback";
+
+const std::vector<ConfigFieldDefinition>& StructuredJsonParseConfigFields() {
+  static const std::vector<ConfigFieldDefinition> fields = {
+      ConfigFieldDefinition{"fallback_json", ConfigValueKind::kString, false,
+                            kDefaultFallbackJson},
+      ConfigFieldDefinition{"extract_json_block", ConfigValueKind::kBoolean,
+                            false, kDefaultExtractJsonBlock},
+      ConfigFieldDefinition{"required_fields", ConfigValueKind::kArray, false},
+      ConfigFieldDefinition{"field_types", ConfigValueKind::kObject, false},
+      ConfigFieldDefinition{
+          "failure_policy",
+          ConfigValueKind::kString,
+          false,
+          kDefaultFailurePolicy,
+          std::nullopt,
+          std::nullopt,
+          {"fail", "emit_diagnostic", "configured_fallback"}}};
+  return fields;
+}
 }  // namespace
 
 /**
@@ -21,31 +41,36 @@ constexpr char kDefaultFailurePolicy[] = "configured_fallback";
  */
 struct StructuredJsonOptions {
   bool Load(const nlohmann::json& config) {
+    nlohmann::json normalized;
+    if (!ValidateAndNormalizeFields(StructuredJsonParseConfigFields(), config,
+                                    &normalized, nullptr)) {
+      return false;
+    }
     fallback_json_ =
-        config.value<std::string>("fallback_json", kDefaultFallbackJson);
+        normalized.value<std::string>("fallback_json", kDefaultFallbackJson);
     extract_json_block_ =
-        config.value<bool>("extract_json_block", kDefaultExtractJsonBlock);
+        normalized.value<bool>("extract_json_block", kDefaultExtractJsonBlock);
     failure_policy_ =
-        config.value<std::string>("failure_policy", kDefaultFailurePolicy);
+        normalized.value<std::string>("failure_policy", kDefaultFailurePolicy);
     if (failure_policy_ != "fail" && failure_policy_ != "emit_diagnostic" &&
         failure_policy_ != "configured_fallback") {
       return false;
     }
 
     required_fields_.clear();
-    if (config.contains("required_fields")) {
-      if (!config["required_fields"].is_array()) return false;
-      for (const auto& f : config["required_fields"]) {
+    if (normalized.contains("required_fields")) {
+      if (!normalized["required_fields"].is_array()) return false;
+      for (const auto& f : normalized["required_fields"]) {
         if (!f.is_string() || f.get<std::string>().empty()) return false;
         required_fields_.push_back(f.get<std::string>());
       }
     }
 
     field_types_.clear();
-    if (config.contains("field_types")) {
-      if (!config["field_types"].is_object()) return false;
-      for (auto it = config["field_types"].begin();
-           it != config["field_types"].end(); ++it) {
+    if (normalized.contains("field_types")) {
+      if (!normalized["field_types"].is_object()) return false;
+      for (auto it = normalized["field_types"].begin();
+           it != normalized["field_types"].end(); ++it) {
         static const std::unordered_set<std::string> kSupportedTypes = {
             "string", "number", "boolean", "object", "array"};
         if (!it.value().is_string()) return false;
@@ -288,21 +313,7 @@ NodeDefinition MakeStructuredJsonParseNodeDefinition() {
       "document",
       BlackboardKey<StructuredDocumentBatch>{"", "StructuredDocumentBatch"},
       "1:1", "preserve", "request")};
-  def.config_fields = {
-      ConfigFieldDefinition{"fallback_json", ConfigValueKind::kString, false,
-                            kDefaultFallbackJson},
-      ConfigFieldDefinition{"extract_json_block", ConfigValueKind::kBoolean,
-                            false, kDefaultExtractJsonBlock},
-      ConfigFieldDefinition{"required_fields", ConfigValueKind::kArray, false},
-      ConfigFieldDefinition{"field_types", ConfigValueKind::kObject, false},
-      ConfigFieldDefinition{
-          "failure_policy",
-          ConfigValueKind::kString,
-          false,
-          kDefaultFailurePolicy,
-          std::nullopt,
-          std::nullopt,
-          {"fail", "emit_diagnostic", "configured_fallback"}}};
+  def.config_fields = StructuredJsonParseConfigFields();
   def.parallel_safe = true;
   return def;
 }
