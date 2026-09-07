@@ -339,7 +339,9 @@ edgeflow_add_runner_test(WhisperCppBackendTest edgeflow_test_core_runner
 
 # Architecture and source-governance gates.
 add_test(NAME LayerGuardTest
-  COMMAND ${PROJECT_SOURCE_DIR}/scripts/check_layer_isolation.sh)
+  COMMAND ${CMAKE_COMMAND} -E env
+          "LLM_EDGEFLOW_LAYER_COMPILE_MANIFEST=${PROJECT_BINARY_DIR}/layer_includes/compile_checks_$<CONFIG>.cmake"
+          ${PROJECT_SOURCE_DIR}/scripts/check_layer_isolation.sh)
 add_test(NAME LayerGuardSelfTest
   COMMAND ${PROJECT_SOURCE_DIR}/scripts/check_layer_isolation.sh --self-test)
 add_test(NAME ArchitectureDocsDriftTest

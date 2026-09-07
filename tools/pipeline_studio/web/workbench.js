@@ -151,6 +151,32 @@ export function compatibleBackends(backends, modelDefinition) {
   return backends.filter(backend => backend.supported_protocols.includes(modelDefinition?.required_protocol));
 }
 
+export function modelAvailability(backends, modelDefinition) {
+  if (!modelDefinition) return { available: false, message: "当前构建未注册此模型类型" };
+  const available = compatibleBackends(backends, modelDefinition).length > 0;
+  return {
+    available,
+    message: available ? "" : `当前构建无兼容 Backend（需要 ${modelDefinition.required_protocol} 协议）。可继续浏览；运行前请选择兼容模型或切换构建。`,
+  };
+}
+
+// Check only the container shapes consumed by the viewer. Catalog/Validator
+// still owns IDs, ports, fields, graph legality and model compatibility.
+export function assertBrowsablePipeline(pipeline) {
+  const object = value => value !== null && typeof value === "object" && !Array.isArray(value);
+  if (!object(pipeline) || !Array.isArray(pipeline.pipeline)) throw new Error("方案必须是包含 pipeline 数组的 JSON 对象");
+  if (pipeline.pipeline.some(node => !object(node) || (node.depends_on != null && !Array.isArray(node.depends_on)))) throw new Error("pipeline 节点必须是对象，depends_on 必须是数组");
+  if (pipeline.models != null && (!Array.isArray(pipeline.models) || pipeline.models.some(model => !object(model)))) throw new Error("models 必须是模型对象数组");
+}
+
+export async function readPipelineFile(file) {
+  if (!file || !file.name.toLowerCase().endsWith(".json")) throw new Error("请选择一个 Pipeline JSON 文件");
+  if (file.size > 4 * 1024 * 1024) throw new Error("方案文件超过 4 MiB");
+  const pipeline = JSON.parse((await file.text()).replace(/^\uFEFF/, ""));
+  assertBrowsablePipeline(pipeline);
+  return { pipeline, filename: file.name, revision: "", imported: true };
+}
+
 export function schemaDefaults(fields = []) {
   return Object.fromEntries(fields.filter(field => field.default !== undefined).map(field => [field.name, structuredClone(field.default)]));
 }
@@ -158,6 +184,8 @@ export function schemaDefaults(fields = []) {
 export function upsertModel(pipeline, catalog, previousId, model) {
   const definition = catalog.models.find(item => item.model_type === model.model_type);
   if (!model.model_id?.trim() || !model.model_path?.trim() || !definition) throw new Error("请填写模型 ID、资产路径并选择模型类型");
+  const availability = modelAvailability(catalog.backends, definition);
+  if (!availability.available) throw new Error(availability.message);
   if (!compatibleBackends(catalog.backends, definition).some(item => item.backend_type === model.backend)) throw new Error("Backend 与模型协议不兼容");
   if (pipeline.models.some(item => item.model_id === model.model_id && item.model_id !== previousId)) throw new Error("模型 ID 重复");
   for (const node of pipeline.pipeline) {

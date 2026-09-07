@@ -58,6 +58,17 @@ TEST_F(AdapterContractSecurityTest, DeploymentModelRootContractIsSandboxed) {
                 resolved["models"][0]["model_path"].get<std::string>()),
             std::filesystem::weakly_canonical(root / "artifact.onnx"));
 
+  for (const char* safe_path :
+       {"..name/artifact.onnx", "nested/../artifact.onnx"}) {
+    pipeline_json["models"][0]["model_path"] = safe_path;
+    ASSERT_TRUE(ResolveDeploymentModelPaths(pipeline_json, root_input,
+                                            &resolved, &diagnostic))
+        << safe_path << ": " << diagnostic;
+    EXPECT_EQ(std::filesystem::path(
+                  resolved["models"][0]["model_path"].get<std::string>()),
+              std::filesystem::weakly_canonical(root / safe_path));
+  }
+
   diagnostic.clear();
   EXPECT_FALSE(
       ResolveDeploymentModelPaths(pipeline_json, "", &resolved, &diagnostic));
@@ -84,6 +95,19 @@ TEST_F(AdapterContractSecurityTest, DeploymentModelRootContractIsSandboxed) {
   EXPECT_FALSE(ResolveDeploymentModelPaths(pipeline_json, sandbox.string(),
                                            &resolved, &diagnostic));
   EXPECT_NE(diagnostic.find("escapes model_root_dir"), std::string::npos);
+
+  pipeline_json["models"][0]["model_path"] =
+      (temp_base / "sandbox_extra/artifact.onnx").string();
+  diagnostic.clear();
+  EXPECT_FALSE(ResolveDeploymentModelPaths(pipeline_json, sandbox.string(),
+                                           &resolved, &diagnostic));
+  EXPECT_NE(diagnostic.find("escapes model_root_dir"), std::string::npos);
+
+  pipeline_json["models"][0]["model_path"] =
+      (sandbox / "absolute.onnx").string();
+  EXPECT_TRUE(ResolveDeploymentModelPaths(pipeline_json, sandbox.string(),
+                                          &resolved, &diagnostic))
+      << diagnostic;
   std::filesystem::remove_all(temp_base);
 
   pipeline_json["models"][0]["model_path"] =

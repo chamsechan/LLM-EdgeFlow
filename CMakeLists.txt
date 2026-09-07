@@ -100,9 +100,12 @@ include(cmake/ThirdPartyEngines.cmake)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 
 # 轻量运行时契约位于所有实现层下方；各层依赖 interface 只向下传播。
+include(cmake/LayerHeaderViews.cmake)
 add_library(edgeflow_runtime_contracts INTERFACE)
+target_include_directories(edgeflow_runtime_contracts INTERFACE
+    "${edgeflow_contracts_include_dir}"
+    "${LLM_EDGEFLOW_GENERATED_INCLUDE_DIR}")
 target_link_libraries(edgeflow_runtime_contracts INTERFACE
-    edgeflow_internal_headers
     nlohmann_json::nlohmann_json)
 
 add_library(edgeflow_model_execution_dependencies INTERFACE)
@@ -152,6 +155,14 @@ edgeflow_add_runtime_object_target(edgeflow_integration_objects
     edgeflow_integration_dependencies)
 edgeflow_add_runtime_object_target(edgeflow_composition_objects
     edgeflow_runtime_dependencies)
+
+foreach(layer model_execution capability_nodes orchestration integration)
+  target_include_directories(edgeflow_${layer}_objects PRIVATE
+      "${edgeflow_${layer}_include_dir}")
+endforeach()
+target_include_directories(edgeflow_composition_objects PRIVATE
+    "${edgeflow_integration_include_dir}")
+edgeflow_generate_layer_compile_manifest()
 
 # 仓库工具和测试继续链接一个聚合 INTERFACE target，不依赖公共共享库的
 # 内部 C++ 动态符号。该 target 自身不拥有层内源码。

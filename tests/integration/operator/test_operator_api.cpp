@@ -1933,8 +1933,23 @@ TEST_F(OperatorApiTest, ModelPathNonExistentFileAllowedWhileEscapeRejected) {
     EXPECT_EQ(resolved, canonical_root / "safe/missing_model.bin");
     EXPECT_FALSE(std::filesystem::exists(resolved));
 
+    // '..name' is a filename component, not traversal; normalized '..' may
+    // also stay inside the root. Model references need not exist yet.
+    for (const char* safe :
+         {"..name/missing_model.bin", "safe/../missing_model.bin", "."}) {
+      err.clear();
+      ASSERT_EQ(
+          llm_edgeflow::CompanyConfResolver::ResolveModelReferenceUnderRoot(
+              root, safe, "model_path", &resolved, &err),
+          0)
+          << safe << ": " << err;
+      EXPECT_EQ(resolved,
+                std::filesystem::weakly_canonical(canonical_root / safe));
+    }
+
     for (const char* bad :
          {"", "/absolute/model.bin", "C:\\models\\model.bin",
+          "C:relative_model.bin", "\\rooted\\model.bin",
           "\\\\server\\share\\model.bin", "../../escape_model.bin",
           "safe/../../../escape_model.bin"}) {
       err.clear();
@@ -2017,6 +2032,28 @@ TEST_F(OperatorApiTest, ModelPathNonExistentFileAllowedWhileEscapeRejected) {
           << pipe_path;
     }
   }
+}
+
+TEST_F(OperatorApiTest, DotDotPrefixedControlFileNamesStayWithinRoot) {
+  ScopedTempDirectory temp_root;
+  const auto root = temp_root.path();
+  std::filesystem::create_directories(root / "..configs");
+  std::filesystem::copy_file(std::filesystem::path(GetConfDir()) /
+                                 "configs/pipeline_keyword_match.json",
+                             root / "..configs/pipeline.json");
+  std::ofstream(root / "..configs/pipeline.conf")
+      << nlohmann::json({{"data",
+                          {{"pipe_path", "..configs/pipeline.json"},
+                           {"mem_que", {{"type", "keyword_out"}}}}}});
+
+  llm_edgeflow::ResolvedCompanyConfig resolved;
+  std::string error;
+  const auto root_string = root.string();
+  EXPECT_EQ(
+      llm_edgeflow::CompanyConfResolver::Resolve(
+          root_string.c_str(), "..configs/pipeline.conf", &resolved, &error),
+      0)
+      << error;
 }
 
 TEST_F(OperatorApiTest, VariableResultsUsePoolCapacityAndRollbackOnFailure) {

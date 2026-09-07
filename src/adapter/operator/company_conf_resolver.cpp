@@ -7,6 +7,7 @@
 #include <unordered_set>
 
 #include "adapter/biz_adapter_registry.h"
+#include "contracts/path_utils.h"
 
 namespace llm_edgeflow {
 
@@ -63,8 +64,7 @@ int ResolveContainedPath(const std::filesystem::path& canonical_root,
     std::error_code ec;
     std::filesystem::path combined =
         (canonical_root / rel_path).lexically_normal();
-    auto rel_check = combined.lexically_relative(canonical_root);
-    if (rel_check.empty() || rel_check.string().rfind("..", 0) == 0) {
+    if (!IsPathWithinRoot(canonical_root, combined)) {
       if (error_msg) {
         *error_msg =
             std::string(field_name) + " escapes model_path: " + relative_value;
@@ -101,18 +101,12 @@ int ResolveContainedPath(const std::filesystem::path& canonical_root,
     }
 
     // 组件级严格包含校验，杜绝前缀混淆 (/root/a vs /root/ab) 与 symlink 逃逸
-    auto it_root = canonical_root.begin();
-    auto it_p = canon_p.begin();
-    while (it_root != canonical_root.end()) {
-      if (it_p == canon_p.end() || *it_p != *it_root) {
-        if (error_msg) {
-          *error_msg = std::string(field_name) +
-                       " symlink escapes model_path: " + canon_p.string();
-        }
-        return -2;
+    if (!IsPathWithinRoot(canonical_root, canon_p)) {
+      if (error_msg) {
+        *error_msg = std::string(field_name) +
+                     " symlink escapes model_path: " + canon_p.string();
       }
-      ++it_root;
-      ++it_p;
+      return -2;
     }
 
     if (check_exists) {

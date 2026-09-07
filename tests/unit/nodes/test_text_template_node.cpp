@@ -187,6 +187,17 @@ TEST_F(TextTemplateNodeTest, ControlCommandHotSwapAndBogusRejection) {
   NodeControlResult bogus_res =
       node->Control(kControlCmdUpdatePrompt, bogus_update.dump());
   EXPECT_EQ(bogus_res.status, NodeControlStatus::kFailed);
+
+  EXPECT_EQ(node->Control(kControlCmdUpdatePrompt,
+                          nlohmann::json{{"template", "{{unclosed"}}.dump())
+                .status,
+            NodeControlStatus::kFailed);
+  AlgContext after_failure;
+  after_failure.Publish("primary", TextBatch{{17, 4, "{{context}}"}});
+  ASSERT_EQ(node->Process(&after_failure), 0);
+  ASSERT_NE(after_failure.Read<TextBatch>("text"), nullptr);
+  EXPECT_EQ(after_failure.Read<TextBatch>("text")->front().data,
+            "Updated: {{context}} []");
 }
 
 TEST_F(TextTemplateNodeTest, PipelineEnforcesPublishedControlSchema) {

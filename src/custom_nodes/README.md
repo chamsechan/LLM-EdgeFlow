@@ -100,10 +100,29 @@
 结果位于 `results/custom-node/<profile>/results.jsonl` 与 `summary.json`；两个 Profile
 也纳入 `--suite smoke`。测试模型用于验证编排、来源和输出转换，不能据此评价模型效果。
 
-样例模板使用 `{input}` / `{context}`，字面花括号用 `{{` / `}}` 转义。使用 `{context}`
-必须连入 context；按相同 `req_id` 合并片段，空上下文批次表示没有参考内容。默认模板
-只插入 input，不隐式追加 context。输入、上下文和 system_prompt 中的花括号保留原文。
-未知占位符、无效生成参数和非法 stop_words 在原生校验与初始化时拒绝。
+样例显式设置 `template_syntax: "standard"`，使用 `{{input}}` / `{{context}}`。
+它与 `TextTemplateNode` 共用解析器：`{{name}}` 与兼容写法 `{name}` 都替换变量，
+允许变量名两侧的空格；JSON 的普通花括号直接保留，例如
+`{"question":"{{input}}"}`。双花括号不再表示字面转义。变量名仍由各 Node 声明：
+TextTemplate 的主文本叫 `primary`，本样例叫 `input`；复制模板时应对应替换，
+两者共有的 `context` 保持相同语义，未知变量会报错。
+
+已有 PromptGuided 模板按以下规则迁移，避免旧模板的字面内容变成变量：
+
+| `template_syntax` | 语义与迁移方式 |
+| --- | --- |
+| `standard` | 推荐用于新方案；单双括号均为变量，JSON 花括号直接书写。 |
+| `auto`（默认） | 保留原先没有双花括号的模板行为；发现 `{{` 或 `}}` 就拒绝，并提示显式选择语法，不猜测含义。默认 `{input}` 无需迁移。 |
+| `legacy` | 明确保留旧模板：`{input}` / `{context}` 为变量，`{{` / `}}` 为字面花括号；例如 `{{input}}` 输出字面 `{input}`。 |
+
+旧 JSON 模板如 `{{"question":"{input}"}}` 可先设置 `legacy` 保持输出；迁移到
+`standard` 时改成 `{"question":"{{input}}"}`。不要只切换模式而保留旧转义文本。
+两种显式模式都由原生 Validator 与 Node 初始化使用同一条校验路径。
+
+使用 context 变量必须连入 context；按相同 `req_id` 合并片段，空上下文批次表示
+没有参考内容。默认模板只插入 input，不隐式追加 context。输入、上下文和
+system_prompt 中的花括号保留原文，不再作为模板解析。未知占位符、无效生成参数
+和非法 stop_words 在原生校验与初始化时拒绝。
 
 模型失败、输出数量不符或 `(req_id, sub_id)` 不符时，节点返回错误且不发布结果。
 `fallback_text` 已删除并明确拒绝；业务降级应携带可辨识的状态，不能伪装成功。

@@ -215,11 +215,17 @@ dependency interface；根 `CMakeLists.txt` 是唯一 Composition Root，另以
 `edgeflow_composition_objects` 持有日志和共享运行时装配翻译单元。最终 SDK、仓库工具和
 测试只聚合这些对象，不重新声明层内源码。
 
-聚合 include 搜索路径用于仓库内构建，不是编译器访问权限。分层约束由
-`scripts/check_layer_dependencies.py` 按解析后的 include 路径检查，覆盖实现与公共头、
-相对路径、共享辅助头及具体 Backend 的 vendor 头。Node 可引用的中性 Core 契约使用
-显式清单；新增契约或改变依赖方向需同步设计与规则。LayerGuard 自测注入反向依赖，
-验证这些规则能够拒绝违规源码。
+各层 OBJECT target 使用构建目录中的独立 include view，保留原有头文件写法，
+只暴露本层实现头、所需的下层 API 与共享契约；`root/`、`src/` 和完整 `include/`
+搜索路径仅由仓库工具、Demo 和测试显式使用，不再经运行时依赖传播。view 中的链接
+跟随源码编辑，新增或移除头文件会触发 CMake 重新生成。Model/Backend 私有头不向
+上层传播；Node 可引用的 Core 契约由 `cmake/node_core_contracts.txt` 唯一列举，
+CMake 与 LayerGuard 共用此清单。新增契约或改变依赖方向需同步设计与规则。
+
+include 搜索范围不是编译器访问权限。`scripts/check_layer_dependencies.py` 继续按
+解析后的 include 路径检查相对路径、共享辅助头及具体 Backend 的 vendor 头。
+LayerGuard 既注入反向依赖验证静态规则，也使用实际目标的 include 参数执行正反编译
+探针，确认正常下层 API 可用、普通反向 include 以及越层私有头无法编译。
 
 业务 ingress/egress 的 Blackboard key 名称由接入适配层的
 `adapter/biz_blackboard_keys.h` 持有；流程编排层只提供 Blackboard 机制和中性值类型，

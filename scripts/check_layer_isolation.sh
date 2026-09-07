@@ -461,6 +461,11 @@ echo "✅ [LayerGuard PASS] Backend vendor resources and Qwen generation semanti
 
 python3 "$(dirname "${BASH_SOURCE[0]}")/check_layer_dependencies.py" --root "${REPO_ROOT}"
 
+if [[ -n "${LLM_EDGEFLOW_LAYER_COMPILE_MANIFEST:-}" ]]; then
+  cmake "-DLAYER_COMPILE_MANIFEST=${LLM_EDGEFLOW_LAYER_COMPILE_MANIFEST}" \
+    -P "${REPO_ROOT}/tests/contract/architecture/test_layer_header_views.cmake"
+fi
+
 echo "======================================================================"
 echo " All LayerGuard architectural isolation checks passed successfully!"
 echo "======================================================================"
