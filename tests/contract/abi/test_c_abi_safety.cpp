@@ -291,7 +291,7 @@ TEST_F(CAbiSafetyTest, AdapterDescriptorMaxBatchSizeEnforcement) {
   EXPECT_EQ(Alg_Destroy(handle), 0);
 }
 
-// 11. 同一 handle 的并发 Process 由 Layer 1 串行化，停流 join 后才允许 Destroy
+// 11. 同一 handle 的并发 Process 由接入适配层串行化，停流 join 后才允许 Destroy
 TEST_F(CAbiSafetyTest, SameHandleConcurrentProcessAndQuiescedDestroy) {
   std::string cfg = GetConfigPath("configs/pipeline_keyword_match.json");
   CompanyAlgParamCreate param;

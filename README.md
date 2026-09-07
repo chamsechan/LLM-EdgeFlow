@@ -26,18 +26,20 @@ LLM-EdgeFlow 通过声明式 Pipeline，把纯 C ABI 接入、DAG 调度、可�
 - **定长硬件批处理**：`FixedBatchExecutor` 统一负责切块、Dummy Padding、结果剥离与样本映射。
 - **统一工具链**：Catalog、Validator、命令行工具和 Web DAG 工作台共享同一套 C++ Definition。
 
-## 四层架构
+## 架构与职责
+
+**接入适配 → 流程编排 → 能力节点 → 模型执行**：外部契约、方案调度、算法操作和推理实现各有明确归属。
 
 <p align="center">
   <img src="doc/assets/architecture_flow.svg" alt="LLM-EdgeFlow Architecture" width="100%"/>
 </p>
 
-| 分层 | 职责 | 核心组件 |
+| 架构层 | 职责 | 核心组件 |
 | :--- | :--- | :--- |
-| **Layer 1：C ABI 与 Operator 接入** | 解包、输入输出契约、生命周期和异常隔离 | `company_alg_interface.h`、Adapter、Operator |
-| **Layer 2：Pipeline 与黑板** | 配置校验、DAG 计划、调度、请求状态与会话资源 | `Pipeline`、`PipelineValidator`、`AlgContext`、`SessionContext` |
-| **Layer 3：能力节点** | 无请求状态的通用操作与自定义算法，可跨方案复用 | `NodeBase`、`src/common_nodes/`、[`src/custom_nodes/`](src/custom_nodes/README.md) |
-| **Layer 4：模型与 Backend** | 模型能力、中性执行协议和硬件批调度 | `IModel`、`IInferenceBackend`、`FixedBatchExecutor` |
+| **接入适配层（Integration）** | 解包、输入输出契约、生命周期和异常隔离 | `company_alg_interface.h`、Adapter、Operator |
+| **流程编排层（Orchestration）** | 配置校验、DAG 计划、调度、请求状态与会话资源 | `Pipeline`、`PipelineValidator`、`AlgContext`、`SessionContext` |
+| **能力节点层（Capability Nodes）** | 无请求状态的通用操作与自定义算法，可跨方案复用 | `NodeBase`、`src/common_nodes/`、[`src/custom_nodes/`](src/custom_nodes/README.md) |
+| **模型执行层（Model Execution）** | 模型能力、中性执行协议和硬件批调度 | `IModel`、`IInferenceBackend`、`FixedBatchExecutor` |
 
 完整的职责边界、数据流和类图参见[架构设计](doc/architecture.md)，扩展实现参见[开发者指南](doc/developer_guide.md)。
 

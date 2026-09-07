@@ -548,8 +548,8 @@ TEST(ValidatedPipelinePlanTest,
                                  {"outputs", {{"ranked", "ranked_results"}}}}},
                                {"config", {{"bind_model", "m_rel"}}}}})}};
 
-  // Layer 2 only performs deterministic lexical normalization. Deployment
-  // roots are a Layer 1 concern.
+  // Orchestration only performs deterministic lexical normalization. Deployment
+  // roots are an Integration concern.
   auto plan = PipelineValidator::ValidateAndPlan(
       pipeline_json, ValidationPolicy::kPrivateExtensionCompatible);
   ASSERT_TRUE(plan.report.ok) << plan.report.ToJson().dump();

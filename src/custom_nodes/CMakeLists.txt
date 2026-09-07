@@ -1,5 +1,5 @@
-# List custom node translation units here. They use the same Layer 3 target
+# List custom node translation units here. They use the same Capability Nodes target
 # and registration path as common nodes, including SDK, CLI and Demo consumers.
-target_sources(edgeflow_layer3_node_objects PRIVATE
+target_sources(edgeflow_capability_nodes_objects PRIVATE
   prompt_guided_llm_node.cpp
 )

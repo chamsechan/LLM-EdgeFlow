@@ -12,8 +12,8 @@
 namespace llm_edgeflow {
 
 /**
- * @brief 业务适配器描述符 (Layer 1 机器可读元数据与契约声明, ADP-002, ADP-003,
- * ADP-008, RECHECK-002)
+ * @brief 业务适配器描述符 (接入适配层机器可读元数据与契约声明, ADP-002,
+ * ADP-003, ADP-008, RECHECK-002)
  */
 struct AdapterDescriptor {
   CompanyAlgBizType biz_type = ALG_BIZ_TYPE_UNKNOWN;
@@ -29,7 +29,7 @@ struct AdapterDescriptor {
 };
 
 /**
- * @brief 业务适配器抽象接口 (Layer 1 内部)
+ * @brief 业务适配器抽象接口 (接入适配层内部)
  *
  * 职责与契约 (ADP-001 ~ ADP-011, RECHECK-001 ~ RECHECK-006)：
  * 1. ValidatePipelineBinding: 精确白名单校验，默认严格 fail-closed

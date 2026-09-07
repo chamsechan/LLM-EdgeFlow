@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate source-based Layer 3 extensions using the existing Node interfaces.
+"""Generate custom capability nodes using the existing Node interfaces.
 
 This is an authoring aid, not a second catalog or Pipeline validator. Rebuild and
 query alg_pipeline_tool to discover registrations and validate actual wiring.
@@ -249,9 +249,9 @@ def updated_cmakelists(cmake_path, filename):
     content = cmake_path.read_text(encoding="utf-8")
     if re.search(r"(?m)^\s*" + re.escape(filename) + r"\s*$", content):
         return content
-    match = re.search(r"(target_sources\(edgeflow_layer3_node_objects\s+PRIVATE[^)]*)(\))", content)
+    match = re.search(r"(target_sources\(edgeflow_capability_nodes_objects\s+PRIVATE[^)]*)(\))", content)
     if not match:
-        raise ValueError(f"No edgeflow_layer3_node_objects target_sources in {cmake_path}")
+        raise ValueError(f"No edgeflow_capability_nodes_objects target_sources in {cmake_path}")
     return content[:match.end(1)].rstrip() + f"\n  {filename}\n" + content[match.start(2):]
 
 

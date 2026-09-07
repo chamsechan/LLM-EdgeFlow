@@ -1,20 +1,20 @@
 ---
 name: llm-edgeflow-developer-guide
-description: Route LLM-EdgeFlow implementation across its four layers. Use for custom Nodes, platform I/O adapters and Operator bridges, Demo data conversion, Core, Models, Backends and verification; configuration-only solution work belongs to pipeline-composer.
+description: Route LLM-EdgeFlow implementation across Integration, Orchestration, Capability Nodes and Model Execution. Use for custom Nodes, platform I/O adapters and Operator bridges, Demo data conversion, Core, Models, Backends and verification; configuration-only solution work belongs to pipeline-composer.
 ---
 
 # LLM-EdgeFlow Developer Guide
 
 First classify the requested change. Read only the references needed for the affected layer; do not load every reference by default.
 
-- New modality, C ABI structure/function behavior, Adapter, Operator bridge, or allowed runtime Pipeline name: read [Layer 1](references/layer1-adapter.md).
-- Demo dataset/result conversion or registration: follow [business onboarding](../../../doc/BUSINESS_ONBOARDING.md#统一-demo-接入). Load Layer 1 only if the external contract or bridge also changes.
-- Pipeline lifecycle, Validator, DAG planning, `AlgContext`, `BlackboardKey`, or session behavior: read [Layer 2](references/layer2-pipeline.md).
-- New or modified capability Node and its Definition: read [Layer 3](references/layer3-node.md).
-- New Model semantics/capability, inference Backend, neutral protocol, or batch behavior: read [Layer 4](references/layer4-engine.md).
+- New modality, C ABI structure/function behavior, Adapter, Operator bridge, or allowed runtime Pipeline name: read [Integration](references/integration.md).
+- Demo dataset/result conversion or registration: follow [business onboarding](../../../doc/BUSINESS_ONBOARDING.md#统一-demo-接入). Load Integration only if the external contract or bridge also changes.
+- Pipeline lifecycle, Validator, DAG planning, `AlgContext`, `BlackboardKey`, or session behavior: read [Orchestration](references/orchestration.md).
+- New or modified capability Node and its Definition: read [Capability Nodes](references/capability-nodes.md).
+- New Model semantics/capability, inference Backend, neutral protocol, or batch behavior: read [Model Execution](references/model-execution.md).
 - Before completing any implementation, read [Verification](references/verification.md).
 
-Multi-layer features must preserve the dependency direction Layer 1 → Layer 2 → Layer 3 → Layer 4. Never introduce an upward dependency. Follow [`CONTRIBUTING.md`](../../../CONTRIBUTING.md) for RFC thresholds, branch lifecycle, documentation, verification, and delivery.
+Multi-layer features must preserve the dependency direction Integration → Orchestration → Capability Nodes → Model Execution. Never introduce an upward dependency. Follow [`CONTRIBUTING.md`](../../../CONTRIBUTING.md) for RFC thresholds, branch lifecycle, documentation, verification, and delivery.
 
 If the request only configures a solution using existing nodes and biz contracts, use
 `pipeline-composer`, including necessary `.conf` and optional Profile edits. Ordinary composition

@@ -4,8 +4,9 @@
 #include <string>
 
 namespace llm_edgeflow {
-// Layer 1 owned results. Strings have no C ABI array limit; the configured
-// Operator output pool remains the authoritative external capacity boundary.
+// Results owned by Integration. Strings have no C ABI array limit; the
+// configured Operator output pool remains the authoritative external capacity
+// boundary.
 
 struct AuditResult {
   inline static constexpr char kTypeName[] = "AuditResult";

@@ -1,4 +1,4 @@
-# Layer 1: C ABI and Adapter
+# Integration
 
 Use this reference for new modalities, public C structures, Adapter behavior, business registration, or allowed Pipeline names.
 
@@ -20,4 +20,4 @@ the onboarding guide owns those implementation examples and optional Demo conver
 5. Declare Adapter ingress/egress Blackboard ports and allowed runtime Pipeline names through its `BizDefinition` entries. The `biz_name` in Pipeline JSON must be accepted by the Adapter; a display name or Demo alias is not a substitute.
 6. Copy input data when the ABI lifetime requires it, store request-scoped values in `AlgContext`, and pack output only through the documented ownership contract.
 
-Use `tests/contract/abi/test_adapter_contract_security.cpp`, `tests/contract/abi/test_c_abi_safety.cpp`, `tests/contract/abi/test_c11_abi_compliance.c`, and existing modality adapters as live templates. If the change also adds nodes, read `layer3-node.md`; if it changes Core contract behavior, read `layer2-pipeline.md`.
+Use `tests/contract/abi/test_adapter_contract_security.cpp`, `tests/contract/abi/test_c_abi_safety.cpp`, `tests/contract/abi/test_c11_abi_compliance.c`, and existing modality adapters as live templates. If the change also adds nodes, read `capability-nodes.md`; if it changes Core contract behavior, read `orchestration.md`.

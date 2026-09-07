@@ -16,18 +16,18 @@ Backend；出现调度、模型语义或硬件能力缺口时，再查阅相应�
 
 ---
 
-## 4 层扩展速查表 (Quick Reference)
+## 按职责选择扩展入口
 
-| 架构层级 | 新增什么？ | 核心修改文件 | 关键宏 / 核心类 |
+| 架构层 | 新增什么？ | 核心修改文件 | 关键宏 / 核心类 |
 | :--- | :--- | :--- | :--- |
-| **Layer 1: C ABI 适配层** | 新增业务枚举、输入/输出纯 C 结构体与专属适配器 | `include/company_alg_interface.h`<br>`src/adapter/adapters/<biz>_adapter.cpp` | `CompanyAlgBizType`<br>`IBizAdapter`<br>`REGISTER_BIZ_ADAPTER` |
-| **Layer 2: 核心编排层** | 扩展动态黑板、会话模型管理与全局资源 | `include/core/alg_context.h`<br>`include/core/session_context.h` | `AlgContext::Read/Publish`<br>`SessionResourceKey<T>` |
-| **Layer 3: 能力节点** | 新增通用操作或可跨方案复用的领域算法 | `src/common_nodes/*.cpp`<br>`src/custom_nodes/*.cpp`<br>`include/nodes/*.h` | `NodeBase`<br>`REGISTER_NODE_WITH_DEFINITION(NodeName, def)` |
-| **Layer 4: Model / Backend 层** | 新增模型语义或接入新推理后端 | `include/engine/model_interface.h`<br>`include/engine/backend_interface.h`<br>`src/engine/models/`<br>`src/engine/backends/` | `REGISTER_MODEL_WITH_DEFINITION`<br>`REGISTER_BACKEND_WITH_DEFINITION`<br>`ModelRuntimeFactory`<br>`FixedBatchExecutor` |
+| **接入适配层（Integration）** | 新增业务枚举、输入/输出纯 C 结构体与专属适配器 | `include/company_alg_interface.h`<br>`src/adapter/adapters/<biz>_adapter.cpp` | `CompanyAlgBizType`<br>`IBizAdapter`<br>`REGISTER_BIZ_ADAPTER` |
+| **流程编排层（Orchestration）** | 扩展动态黑板、会话模型管理与全局资源 | `include/core/alg_context.h`<br>`include/core/session_context.h` | `AlgContext::Read/Publish`<br>`SessionResourceKey<T>` |
+| **能力节点层（Capability Nodes）** | 新增通用操作或可跨方案复用的领域算法 | `src/common_nodes/*.cpp`<br>`src/custom_nodes/*.cpp`<br>`include/nodes/*.h` | `NodeBase`<br>`REGISTER_NODE_WITH_DEFINITION(NodeName, def)` |
+| **模型执行层（Model Execution）** | 新增模型语义或接入新推理后端 | `include/engine/model_interface.h`<br>`include/engine/backend_interface.h`<br>`src/engine/models/`<br>`src/engine/backends/` | `REGISTER_MODEL_WITH_DEFINITION`<br>`REGISTER_BACKEND_WITH_DEFINITION`<br>`ModelRuntimeFactory`<br>`FixedBatchExecutor` |
 
 ---
 
-## 1. Layer 1: 如何新增一个业务的 C ABI 接口与专属 Adapter
+## 1. 接入适配层：如何新增一个业务的 C ABI 接口与专属 Adapter
 
 > ⚠️ **平台治理红线**：普通业务接入严禁修改中心分发文件 `src/adapter/company_c_adapter.cpp`，必须编写业务专属 Adapter 类并注册。
 
@@ -84,9 +84,9 @@ JSON 键，也不得为缺失容量提供本地 fallback。当前配置只有一
 
 ---
 
-## 2. Layer 2: 核心编排层与静态校验计划 (Pipeline & ValidatedPipelinePlan)
+## 2. 流程编排层：Pipeline 与静态校验计划
 
-Layer 2 负责请求黑板生命周期与 DAG 管线单趟构建：
+流程编排层负责请求黑板生命周期与 DAG 管线单趟构建：
 - **`ValidatedPipelinePlan`**：`PipelineValidator::ValidateAndPlan()` 单趟静态校验与 DAG 拓扑排序输出的不可变执行计划，`Pipeline::BuildInternal()` 直接消费该计划，杜绝运行时二次解析或隐式 DAG 计算；Node 支持代码只依赖其中抽出的 `ValidatedNodePlan` 轻量契约，不反向包含完整 Validator。
 - **`BlackboardKey<T>`**：强类型黑板键，各算子间通过 `Require` 与 `Publish` 交换数据，杜绝无类型内存乱序。
 - **`AlgContext` 并发契约**：输入使用 `Read` 获取只读快照，输出通过 typed port 单次
@@ -103,7 +103,7 @@ Node 作者仍使用 `BoundInput<T>::Require` 与 `BoundOutput<T>::Set`；端口
 
 ---
 
-## 3. Layer 3: 如何新增通用或自定义 Node
+## 3. 能力节点层：如何新增通用或自定义 Node
 
 先运行 `alg_pipeline_tool catalog --biz <name>` 和 `describe-node`。只有现有操作无法闭合
 typed port 契约时才新增 Node。Node 必须：
@@ -131,9 +131,9 @@ Node 不依赖自定义实现。编写、构建和复用步骤见
 
 ---
 
-## 4. Layer 4: 如何新增模型语义或推理 Backend
+## 4. 模型执行层：如何新增模型语义或推理 Backend
 
-Layer 4 必须保持两个独立扩展面：
+模型执行层必须保持两个独立扩展面：
 
 - **Model** 实现 Embedding/Rerank/LLM/OCR/ASR 语义，只依赖
   `ITensorGraphSession`、`ITextGenerationSession`、`IImageTextGenerationSession` 或

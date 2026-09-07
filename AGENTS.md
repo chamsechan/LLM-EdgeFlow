@@ -10,29 +10,33 @@ those extension points; involve Core, Model or Backend changes only for a demons
 
 ## Current architecture invariants
 
+Use responsibility names in active documentation, diagnostics, and build targets. The canonical
+Chinese/English names are 接入适配层 / Integration, 流程编排层 / Orchestration,
+能力节点层 / Capability Nodes, and 模型执行层 / Model Execution.
+
 Dependencies flow downward only:
 
 ```text
-Layer 1  C ABI / Operator / Biz adapters
+Integration       C ABI / Operator / Biz adapters
     ↓
-Layer 2  Pipeline / Validator / Catalog / Blackboard / Session
+Orchestration     Pipeline / Validator / Catalog / Blackboard / Session
     ↓
-Layer 3  Stateless capability Nodes
+Capability Nodes  Stateless capability Nodes
     ↓
-Layer 4  Model semantics / neutral execution protocols / Backends
+Model Execution   Model semantics / neutral execution protocols / Backends
 ```
 
-- **Layer 1** — `include/company_alg_interface.h`, `include/operator/`,
+- **Integration** — `include/company_alg_interface.h`, `include/operator/`,
   `include/adapter/`, and `src/adapter/`. Public C headers remain C11-only. All six exported
   `Alg_*` functions keep `noexcept`, `catch (const std::exception&)`, and `catch (...)`
   barriers. Biz-specific conversion belongs in registered `IBizAdapter` and Operator bridge
   implementations, not in central dispatch switches or lower layers.
-- **Layer 2** — `include/core/` and `src/core/`. `PipelineValidator` is the single validation
+- **Orchestration** — `include/core/` and `src/core/`. `PipelineValidator` is the single validation
   and planning implementation. Runtime Pipeline documents use explicit `id` and `depends_on`;
   `Pipeline` consumes `ValidatedPipelinePlan` without reparsing or resorting. Request values
   live in `AlgContext` behind typed ports/`BlackboardKey<T>`; session resources live in
   `SessionContext`.
-- **Layer 3** — `src/common_nodes/`, `src/custom_nodes/`, and `include/nodes/`. Common Nodes
+- **Capability Nodes** — `src/common_nodes/`, `src/custom_nodes/`, and `include/nodes/`. Common Nodes
   provide framework-maintained, business-neutral operations; custom Nodes contain user-defined
   domain algorithms and can be reused across Pipelines. Keep custom node files organized by
   operation in one directory, not by business. Both are request-stateless, inherit `NodeBase`
@@ -40,9 +44,9 @@ Layer 4  Model semantics / neutral execution protocols / Backends
   `REGISTER_NODE_WITH_DEFINITION`. Reuse Catalog operations before adding code; a domain
   algorithm need not be generalized to enter `custom_nodes`. Common Nodes, Core and Engine
   must not depend on custom implementations. All Nodes use typed logical ports and model
-  capabilities; platform structs and conversion remain in Layer 1. Follow `CONTRIBUTING.md`
+  capabilities; platform structs and conversion remain in Integration. Follow `CONTRIBUTING.md`
   for RFC thresholds and [custom Node onboarding](src/custom_nodes/README.md) for source layout.
-- **Layer 4** — `include/engine/` and `src/engine/`. Nodes depend on typed `IModel`
+- **Model Execution** — `include/engine/` and `src/engine/`. Nodes depend on typed `IModel`
   capabilities. Models own preprocessing/model semantics and register through
   `REGISTER_MODEL_WITH_DEFINITION`; Backends own vendor runtime resources, implement neutral
   execution protocols, and register through `REGISTER_BACKEND_WITH_DEFINITION`. Vendor headers

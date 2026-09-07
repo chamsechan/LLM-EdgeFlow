@@ -78,8 +78,8 @@ PipelineConfig --> Validator
 Catalog --> Validator
 Validator --> BizTests : validated package
 
-' Layer 1
-package "Layer 1: Dual Facades & Shared Algorithm Runtime" as L1 {
+' Integration
+package "接入适配层（Integration）" as Integration {
   component "Pure C ABI Facade\n6 lifecycle APIs\nnoexcept exception firewall" as CAbi <<C ABI>>
   component "Operator Facade\nOperatorFunc + NamedIoBatch\nCompanyConfResolver\nOperatorBizBridgeRegistry" as PlatformFacade <<Operator API>>
   component "Shared Algorithm Runtime\nSharedAlgorithmRuntime\nSingle Unpack-Execute-Pack" as SharedRuntime
@@ -102,8 +102,8 @@ BizAdapters --> CommonContracts : map to typed values
 Manifest --> AdapterRegistry : registration metadata
 Scaffolder --> BizAdapters : generate scaffold
 
-' Layer 2
-package "Layer 2: Validated Pipeline Runtime & State" as L2 {
+' Orchestration
+package "流程编排层（Orchestration）" as Orchestration {
   component "PipelineBuilder\nPipeline::BuildFromJson" as PipelineBuilder
   component "PipelineStaticValidator\nPipelineValidator\nDAG / ports / producers / parallel conflicts" as PipelineValidator
   component "Pipeline Runtime\nsequential / parallel wavefront" as PipelineRuntime
@@ -127,8 +127,8 @@ PipelineRuntime --> Status : structured failures
 BizAdapters --> RequestContext : inject / extract
 CommonContracts --> RequestContext
 
-' Layer 3
-package "Layer 3: Contracted Operator Layer" as L3 {
+' Capability Nodes
+package "能力节点层（Capability Nodes）" as CapabilityNodes {
   interface "INode\nInit / Process / Control / Name" as INode
   component "NodeBase\nfinal noexcept lifecycle" as NodeBase <<Implemented>>
   component "ModelBoundNode / TraceableUnaryInferenceNode" as NodeSupport <<Implemented>>
@@ -152,13 +152,13 @@ BizTests --> CommonNodes : composition contract tests
 
 note right of DomainNodes
   Request state only in RequestContext
-  No Layer 1 C structs
+  No Integration C structs
   No concrete Backend implementations
   Requires RFC justification
 end note
 
-' Layer 4
-package "Layer 4: Model Semantics & Inference Backends" as L4 {
+' Model Execution
+package "模型执行层（Model Execution）" as ModelExecution {
   interface "IModel\nIEmbeddingModel / IRerankModel / ILlmModel\nIOcrModel / IAsrModel" as IModel
   interface "IBackendSession\nTensorGraph / TextGeneration protocols" as IBackendSession
   interface "IInferenceBackend\nloads backend sessions" as IInferenceBackend
@@ -197,7 +197,7 @@ QwenModel --> IBackendSession : TextGeneration protocol
 BgeModels --> FixedBatchExecutor
 QwenModel --> FixedBatchExecutor
 
-note right of L4
+note right of ModelExecution
   Platform-owned extension surface
   Business developers do not modify by default
 end note
@@ -218,10 +218,10 @@ Observability ..> CAbi
 Observability ..> PipelineRuntime
 Observability ..> IModel
 Observability ..> IInferenceBackend
-LayerGuard ..> L1
-LayerGuard ..> L2
-LayerGuard ..> L3
-LayerGuard ..> L4
+LayerGuard ..> Integration
+LayerGuard ..> Orchestration
+LayerGuard ..> CapabilityNodes
+LayerGuard ..> ModelExecution
 Ownership ..> Composer
 Ownership ..> BizDev
 Ownership ..> AIAgent

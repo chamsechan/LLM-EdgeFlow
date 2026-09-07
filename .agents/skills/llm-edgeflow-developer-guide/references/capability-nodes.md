@@ -1,4 +1,4 @@
-# Layer 3: Capability Nodes
+# Capability Nodes
 
 Use this reference for a new or modified `INode` implementation.
 

@@ -1,4 +1,4 @@
-target_sources(edgeflow_layer2_core_objects PRIVATE
+target_sources(edgeflow_orchestration_objects PRIVATE
   pipeline.cpp
   pipeline_catalog.cpp
   pipeline_config.cpp

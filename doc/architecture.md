@@ -1,33 +1,44 @@
-# Alg-SDK Runtime 架构设计与分层规范文档
+# LLM-EdgeFlow 架构设计
 
-本文档详细描述了企业级算法交付与管线框架（Alg-SDK Runtime Pipeline Framework）的分层架构、设计模式、数据流转与多人协作规范。
+本文档说明 LLM-EdgeFlow 的职责边界、编译依赖和运行时数据流。算法方案由 Pipeline 组合能力节点，接入适配负责外部契约，模型执行负责模型语义与推理后端。
 
 ---
 
-## 1. 框架整体 4 层抽象架构
+## 1. 架构总览
 
-框架严格遵循职责单一与接口隔离原则，划分为 **4 个独立的抽象层次**：
+框架采用四层架构，统一按职责命名：**接入适配层 → 流程编排层 → 能力节点层 → 模型执行层**。
+
+| 职责名称 | 英文名称 | 源码归属 | 构建目标 |
+| :--- | :--- | :--- | :--- |
+| 接入适配层 | Integration | `include/adapter/`、`include/operator/`、`src/adapter/` 及公共 C ABI | `edgeflow_integration_objects` |
+| 流程编排层 | Orchestration | `include/core/`、`src/core/` | `edgeflow_orchestration_objects` |
+| 能力节点层 | Capability Nodes | `include/nodes/`、`src/common_nodes/`、`src/custom_nodes/` | `edgeflow_capability_nodes_objects` |
+| 模型执行层 | Model Execution | `include/engine/`、`src/engine/` | `edgeflow_model_execution_objects` |
+
+文档、工具诊断和构建目标使用上述职责名称。旧资料中的 Layer 1–4 按表格顺序对应这四层；编号仅用于阅读历史记录。源码目录继续按 Adapter、Core、Nodes、Engine 等组件组织。
+
+下图展示组件职责与调用关系；编译依赖由下文的构建边界约束。`include/core/` 中的中性运行时契约通过独立的 `edgeflow_runtime_contracts` 提供给实现层，不能将目录名称直接等同于完整编译依赖。
 
 ```mermaid
 graph TD
-    classDef l1 fill:#E3F2FD,stroke:#1565C0,stroke-width:2px,color:#0D47A1;
-    classDef l2 fill:#E8F5E9,stroke:#2E7D32,stroke-width:2px,color:#1B5E20;
-    classDef l3 fill:#FFF3E0,stroke:#E65100,stroke-width:2px,color:#E65100;
-    classDef l4 fill:#F3E5F5,stroke:#7B1FA2,stroke-width:2px,color:#4A148C;
+    classDef integration fill:#E3F2FD,stroke:#1565C0,stroke-width:2px,color:#0D47A1;
+    classDef orchestration fill:#E8F5E9,stroke:#2E7D32,stroke-width:2px,color:#1B5E20;
+    classDef capability_nodes fill:#FFF3E0,stroke:#E65100,stroke-width:2px,color:#E65100;
+    classDef model_execution fill:#F3E5F5,stroke:#7B1FA2,stroke-width:2px,color:#4A148C;
     classDef ext fill:#ECEFF1,stroke:#37474F,stroke-width:1px,color:#263238;
 
     subgraph External["外部调用方 (业务APP / 车机系统 / 边缘平台)"]
         Caller["下游集成程序 / 主控服务"]
     end
 
-    %% Level 1
-    subgraph L1["Layer 1: Operator 接入与 C-ABI 适配层 (Operator & C-ABI Adapter Layer)"]
+    %% Integration
+    subgraph Integration["接入适配层（Integration）"]
         C_API["公司统一标准 C ABI 接口<br>• Alg_Init / Alg_DeInit<br>• Alg_Create / Alg_Destroy<br>• Alg_Process(const void** inputs, num_inputs, void** outputs, num_outputs)<br>• Alg_Control"]
         C_Adapter["company_c_adapter.cpp<br>• 同句柄 Process / Control 串行化<br>• 异常拦截屏障 (noexcept 安全防护)<br>• 外部输入解包 / 输出结构体强转打包"]
     end
 
-    %% Level 2
-    subgraph L2["Layer 2: 管线调度与状态黑板层 (Pipeline & Multi-Level Context Layer)"]
+    %% Orchestration
+    subgraph Orchestration["流程编排层（Orchestration）"]
         PipeCore["Pipeline 核心调度器 (pipeline.cpp)<br>• 消费 ValidatedPipelinePlan<br>• 算子波前执行与错误熔断"]
         
         subgraph StateMgr["三级状态与注册管理器"]
@@ -38,8 +49,8 @@ graph TD
         end
     end
 
-    %% Level 3
-    subgraph L3["Layer 3: 无请求状态的通用与自定义节点层"]
+    %% Capability Nodes
+    subgraph CapabilityNodes["能力节点层（Capability Nodes）"]
         NodeApi["INode 运行时接口"]
         NodeBase["NodeBase<br>final noexcept 生命周期与 Typed I/O"]
         ModelNode["ModelBoundNode / TraceableUnaryInferenceNode"]
@@ -60,8 +71,8 @@ graph TD
         end
     end
 
-    %% Level 4
-    subgraph L4["Layer 4: 模型能力与推理 Backend 层 (Model & Backend Layer)"]
+    %% Model Execution
+    subgraph ModelExecution["模型执行层（Model Execution）"]
         ModelBase["IModel 强类型能力抽象"]
         BackendBase["IInferenceBackend / IBackendSession<br>中性执行协议"]
         LlmIntf["ILlmModel + ITextGenerationSession<br>(formatted prompt / unified options / text)"]
@@ -102,17 +113,17 @@ graph TD
     ModelSemantics --> BatchExec
 
     class Caller ext;
-    class C_API,C_Adapter l1;
-    class PipeCore,S_Ctx,R_Ctx,TraceTag,Factory l2;
-    class NodeApi,NodeBase,ModelNode,CommonNodes,CustomNodes,LlmNode,ChunkNode,RuleNode,EmbedNode,TopKNode,RerankNode,TemplateNode,JsonNode,AsrNode,OcrNode,CorpusNode l3;
-    class ModelBase,BackendBase,LlmIntf,EmbedIntf,BatchExec,BgeModels,GeneratedEmbedModel,QwenModel,OnnxBackend,LlamaCpp,KiteLlm l4;
+    class C_API,C_Adapter integration;
+    class PipeCore,S_Ctx,R_Ctx,TraceTag,Factory orchestration;
+    class NodeApi,NodeBase,ModelNode,CommonNodes,CustomNodes,LlmNode,ChunkNode,RuleNode,EmbedNode,TopKNode,RerankNode,TemplateNode,JsonNode,AsrNode,OcrNode,CorpusNode capability_nodes;
+    class ModelBase,BackendBase,LlmIntf,EmbedIntf,BatchExec,BgeModels,GeneratedEmbedModel,QwenModel,OnnxBackend,LlamaCpp,KiteLlm model_execution;
 ```
 
 ---
 
-## 2. 4 层抽象职责定义
+## 2. 职责与扩展边界
 
-### Layer 1: Operator 与 C-ABI 接入层 (Operator & C-ABI Adapter)
+### 接入适配层（Integration）
 - **代码位置**：`include/company_alg_interface.h`，`include/operator/`，`src/adapter/`
 - **核心职责**：
   1. 导出公司限定的标准 C 接口：`Alg_Init`, `Alg_Create`, `Alg_Process`, `Alg_Control`, `Alg_Destroy`, `Alg_DeInit`；
@@ -123,7 +134,7 @@ graph TD
 
 #### 双外部门面与单一内部运行时架构
 
-Layer 1 并行维护两个外部门面，统一由 `SharedAlgorithmRuntime` 执行调度：
+接入适配层并行维护两个外部门面，统一由 `SharedAlgorithmRuntime` 执行调度：
 
 ```text
 纯 C ABI：const void** / void** + 现有 CompanyAlg DTO ─┐
@@ -131,7 +142,7 @@ Layer 1 并行维护两个外部门面，统一由 `SharedAlgorithmRuntime` 执�
 C++ Operator API：NamedIoBatch + Operator 镜像 C 结构 ─┘
 ```
 
-- 纯 C ABI 继续保持 C11、固定布局和现有六函数契约，其 ABI V2 保持源码与符号兼容。
+- 纯 C ABI 继续保持 C11、固定布局和现有六函数契约，当前 ABI 版本见下文。
 - v10.0.0 / ABI 5 只承诺上述 12 个动态入口；Node、Registry、Model、Backend 及第三方
   运行时符号使用 hidden visibility，不构成稳定动态 ABI。
 - 同一 C ABI handle 的 `Alg_Process` 与 `Alg_Control` 串行执行；不同 handle 可并行。
@@ -140,7 +151,7 @@ C++ Operator API：NamedIoBatch + Operator 镜像 C 结构 ─┘
   `OperatorValueTypeRegistry` 负责“后缀到外部 C 类型”的唯一绑定，
   `OperatorBizBridgeDescriptor` 负责按业务和方向收集一个或多个槽位，再转换为
   内部 DTO；两种协议不得通过 `reinterpret_cast` 混用布局。
-- 命名解耦设计：`Integration -> Operator -> Pipeline -> Node -> Model -> Backend -> Platform`。
+- 组件调用关系：`外部调用方 → Operator / C ABI → Pipeline → Node → Model → Backend → Platform`。
   `Operator` 表达对外交付的算法实例，`Platform`（`ComputePlatform`）表达底层硬件执行平台（CPU、CUDA、AX650、Ascend 等）。
 - 同一业务可以使用一个聚合结构槽位，也可以由多个原子槽位组成；支持多槽位解绑。
 - `CompanyString` 只表达无嵌入 NUL 的文本；任意二进制数据使用 `CompanyBuffer`。
@@ -148,13 +159,13 @@ C++ Operator API：NamedIoBatch + Operator 镜像 C 结构 ─┘
 - 输出由算法库在 Create 期按 `max_frame_depth` 预分配；Process 返回带自定义
   deleter 的 shared_ptr，最后一个引用析构后 reset 并回池；deleter 只捕获池状态的
   weak lifetime token，避免 Destroy 后解引用已释放句柄或池。
-- 值类型表、业务桥接表和内存池只属于 Layer 1，不得进入 Blackboard、Node、Model 或 Backend。
+- 值类型表、业务桥接表和内存池只属于接入适配层，不得进入 Blackboard、Node、Model 或 Backend。
 - 目标共享库输出名称为 `company_alg_sdk`，产品 VERSION 为 10.0.0，
   SOVERSION/C ABI major 为 5。
 - v4 Create 和配置预检都以必填部署根 `model_path` 加相对 `cfg_file_name` 解析；
   `.conf` 的 `data.mem_que` 归一化输出后缀、metadata 容量和嵌套字段容量。
 
-### Layer 2: 管线调度与状态黑板层 (Pipeline & State Engine)
+### 流程编排层（Orchestration）
 - **代码位置**：`include/core/`，`src/core/`
 - **核心职责**：
   1. **配置驱动与执行计划**：通过 `PipelineValidator::ValidateAndPlan` 一次性完成 JSON 解析、业务契约查找、拓扑排序生成 `ValidatedPipelinePlan`，杜绝重复解析与排序；
@@ -167,18 +178,18 @@ C++ Operator API：NamedIoBatch + Operator 镜像 C 结构 ─┘
      - `TraceableItem<T>`：样本溯源标签（`req_id` + `sub_id`），保证 1对N 裂变后可严格 1:1 对齐回原请求；
   3. **自注册 SSOT 机制**：Node、Model 与 Backend 分别通过 `REGISTER_NODE_WITH_DEFINITION`、`REGISTER_MODEL_WITH_DEFINITION` 和 `REGISTER_BACKEND_WITH_DEFINITION` 就地声明；`PipelineCatalog` 查询返回值快照，Validator 每次规划只消费一次稳定的 Node/Biz Catalog 快照，后续注册不会使当前计划悬空。
 
-### Layer 3: 通用与自定义节点层 (Stateless Capability Nodes)
+### 能力节点层（Capability Nodes）
 - **代码位置**：`src/common_nodes/`，`src/custom_nodes/`，`include/nodes/`
 - **核心职责**：
   1. **算法工程师核心开发区**：算子继承 `NodeBase`，单模型算子继承 `ModelBoundNode`；
   2. **异常安全屏障**：`NodeBase::Init` 和 `NodeBase::Process` 设为 `final noexcept`，派生类覆写 `InitNode` 与 `ProcessNode`，提供 `Require`、`Publish`、`Fail` 辅助方法；
   3. **模块化与配置组合**：11 类核心通用算子（`LlmGenerateNode`, `TextChunkNode`, `TextRuleMatchNode`, `TextEmbeddingNode`, `VectorTopKNode`, `TextRerankNode`, `TextTemplateNode`, `StructuredJsonParseNode`, `AsrTranscribeNode`, `OcrDetectNode`, `TextCorpusSourceNode`）全部收敛在 `src/common_nodes/`，通过 JSON Pipeline 自由编排。
   4. **领域扩展与复用**：用户算法集中在 `src/custom_nodes/`，按操作命名文件，可跨方案复用。
-     两类 Node 共用 Layer 3 构建目标、基类和注册机制；领域 Node 可完成前处理、声明绑定的
+     两类 Node 共用能力节点层构建目标、基类和注册机制；领域 Node 可完成前处理、声明绑定的
      模型调用与后处理，平台结构转换仍属于 Adapter。Core、Engine 和通用 Node 不依赖
-     自定义实现。目录初始不注册新算法，接入步骤见[自定义 Node 指南](../src/custom_nodes/README.md)。
+     自定义实现。接入步骤见[自定义 Node 指南](../src/custom_nodes/README.md)。
 
-### Layer 4: 模型能力与推理 Backend 层 (Model & Backend)
+### 模型执行层（Model Execution）
 - **代码位置**：`include/engine/`，`src/engine/`
 - **核心职责**：
   1. `IEmbeddingModel`、`IRerankModel`、`ILlmModel`、`IOcrModel` 和 `IAsrModel` 表达模型语义，Node 只依赖所需能力；
@@ -189,16 +200,14 @@ C++ Operator API：NamedIoBatch + Operator 镜像 C 结构 ─┘
 
 ### 编译期边界与 Composition Root
 
-四层不只依靠目录约定，还分别编译为
-`edgeflow_layer1_adapter_objects`、`edgeflow_layer2_core_objects`、
-`edgeflow_layer3_node_objects` 和 `edgeflow_layer4_engine_objects`。各层只链接其下方的
+各层按总览表中的职责目标独立编译，只链接其下方的
 dependency interface；根 `CMakeLists.txt` 是唯一 Composition Root，另以
 `edgeflow_composition_objects` 持有日志和共享运行时装配翻译单元。最终 SDK、仓库工具和
 测试只聚合这些对象，不重新声明层内源码。
 
-业务 ingress/egress 的 Blackboard key 名称由 Layer 1 的
-`adapter/biz_blackboard_keys.h` 持有；Layer 2 只提供 Blackboard 机制和中性值类型，
-Layer 3 通过 `ValidatedNodePlan` 中已经解析的逻辑端口工作。这样业务槽位命名不会成为
+业务 ingress/egress 的 Blackboard key 名称由接入适配层的
+`adapter/biz_blackboard_keys.h` 持有；流程编排层只提供 Blackboard 机制和中性值类型，
+能力节点层通过 `ValidatedNodePlan` 中已经解析的逻辑端口工作。这样业务槽位命名不会成为
 Core、Node 或 Engine 的隐含依赖。
 
 ---
@@ -208,14 +217,14 @@ Core、Node 或 Engine 的隐含依赖。
 ```mermaid
 sequenceDiagram
     autonumber
-    participant App as 外部系统 (L1)
-    participant Adapter as C 适配层 (L1)
-    participant Pipe as Pipeline 调度器 (L2)
-    participant Ctx as AlgContext 黑板 (L2)
-    participant Node as 通用或自定义 NodeBase (L3)
-    participant Model as 强类型模型能力 (L4)
-    participant Backend as 中性协议 Backend 会话 (L4)
-    participant HW as 底层硬件 NPU/GPU (L4)
+    participant App as 外部调用方
+    participant Adapter as C 适配层 (Integration)
+    participant Pipe as Pipeline 调度器 (Orchestration)
+    participant Ctx as AlgContext 黑板 (Orchestration)
+    participant Node as 通用或自定义 NodeBase (Capability Nodes)
+    participant Model as 强类型模型能力 (Model Execution)
+    participant Backend as 中性协议 Backend 会话 (Model Execution)
+    participant HW as 底层硬件 NPU/GPU
 
     App->>Adapter: Alg_Process(inputs: const void**, num_inputs, outputs: void**, &num_outputs)
     Adapter->>Ctx: 1. 解包外部结构体，注入输入数据
@@ -335,7 +344,7 @@ REGISTER_NODE_WITH_DEFINITION(MyCustomNode, MakeMyCustomNodeDefinition());
 
 ### 步骤 3：交付配置文件与算法库即可！
 
-图像文档识别沿用 `OcrDetectNode → IOcrModel`：`VisionDocumentModel` 在 Layer 4
+图像文档识别沿用 `OcrDetectNode → IOcrModel`：`VisionDocumentModel` 在模型执行层
 通过中性 `IImageTextGenerationSession` 调用 Kite，Model 负责图像解码与识别指令，
 Backend 负责原生 RGB/聊天输入映射和运行资源。识别结果仅填充 `combined_text`，不伪造
 `boxes` 或置信度；原有 C ABI/Operator、DAG 端口和请求溯源保持原样。

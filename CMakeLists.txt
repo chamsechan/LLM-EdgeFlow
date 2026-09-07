@@ -105,29 +105,29 @@ target_link_libraries(edgeflow_runtime_contracts INTERFACE
     edgeflow_internal_headers
     nlohmann_json::nlohmann_json)
 
-add_library(edgeflow_layer4_dependencies INTERFACE)
-target_link_libraries(edgeflow_layer4_dependencies INTERFACE
+add_library(edgeflow_model_execution_dependencies INTERFACE)
+target_link_libraries(edgeflow_model_execution_dependencies INTERFACE
     edgeflow_runtime_contracts)
 
-add_library(edgeflow_layer3_dependencies INTERFACE)
-target_link_libraries(edgeflow_layer3_dependencies INTERFACE
+add_library(edgeflow_capability_nodes_dependencies INTERFACE)
+target_link_libraries(edgeflow_capability_nodes_dependencies INTERFACE
     edgeflow_runtime_contracts
-    edgeflow_layer4_dependencies
+    edgeflow_model_execution_dependencies
     edgeflow_pcre2)
 
-add_library(edgeflow_layer2_dependencies INTERFACE)
-target_link_libraries(edgeflow_layer2_dependencies INTERFACE
+add_library(edgeflow_orchestration_dependencies INTERFACE)
+target_link_libraries(edgeflow_orchestration_dependencies INTERFACE
     edgeflow_runtime_contracts
-    edgeflow_layer3_dependencies)
+    edgeflow_capability_nodes_dependencies)
 
-add_library(edgeflow_layer1_dependencies INTERFACE)
-target_link_libraries(edgeflow_layer1_dependencies INTERFACE
+add_library(edgeflow_integration_dependencies INTERFACE)
+target_link_libraries(edgeflow_integration_dependencies INTERFACE
     edgeflow_runtime_contracts
-    edgeflow_layer2_dependencies)
+    edgeflow_orchestration_dependencies)
 
 add_library(edgeflow_runtime_dependencies INTERFACE)
 target_link_libraries(edgeflow_runtime_dependencies INTERFACE
-    edgeflow_layer1_dependencies)
+    edgeflow_integration_dependencies)
 
 function(edgeflow_add_runtime_object_target target_name dependency_target)
   add_library(${target_name} OBJECT)
@@ -142,14 +142,14 @@ function(edgeflow_add_runtime_object_target target_name dependency_target)
       VISIBILITY_INLINES_HIDDEN YES)
 endfunction()
 
-edgeflow_add_runtime_object_target(edgeflow_layer4_engine_objects
-    edgeflow_layer4_dependencies)
-edgeflow_add_runtime_object_target(edgeflow_layer3_node_objects
-    edgeflow_layer3_dependencies)
-edgeflow_add_runtime_object_target(edgeflow_layer2_core_objects
-    edgeflow_layer2_dependencies)
-edgeflow_add_runtime_object_target(edgeflow_layer1_adapter_objects
-    edgeflow_layer1_dependencies)
+edgeflow_add_runtime_object_target(edgeflow_model_execution_objects
+    edgeflow_model_execution_dependencies)
+edgeflow_add_runtime_object_target(edgeflow_capability_nodes_objects
+    edgeflow_capability_nodes_dependencies)
+edgeflow_add_runtime_object_target(edgeflow_orchestration_objects
+    edgeflow_orchestration_dependencies)
+edgeflow_add_runtime_object_target(edgeflow_integration_objects
+    edgeflow_integration_dependencies)
 edgeflow_add_runtime_object_target(edgeflow_composition_objects
     edgeflow_runtime_dependencies)
 
@@ -163,51 +163,51 @@ target_compile_definitions(edgeflow_runtime_objects INTERFACE
     COMPANY_ALG_STATIC_LINK=1)
 
 if(LLM_EDGEFLOW_HAS_ONNXRUNTIME)
-  target_include_directories(edgeflow_layer4_dependencies SYSTEM INTERFACE
+  target_include_directories(edgeflow_model_execution_dependencies SYSTEM INTERFACE
       "${ONNXRUNTIME_INCLUDE_DIR}")
-  target_compile_definitions(edgeflow_layer4_dependencies INTERFACE
+  target_compile_definitions(edgeflow_model_execution_dependencies INTERFACE
       HAVE_ONNXRUNTIME=1)
-  target_link_libraries(edgeflow_layer4_dependencies INTERFACE
+  target_link_libraries(edgeflow_model_execution_dependencies INTERFACE
       "${ONNXRUNTIME_LIB}")
 endif()
 if(LLM_EDGEFLOW_HAS_KITELLM)
-  target_compile_definitions(edgeflow_layer4_dependencies INTERFACE
+  target_compile_definitions(edgeflow_model_execution_dependencies INTERFACE
       HAVE_KITELLM=1)
-  target_link_libraries(edgeflow_layer4_dependencies INTERFACE
+  target_link_libraries(edgeflow_model_execution_dependencies INTERFACE
       kiteLLM::kiteLLM)
 endif()
 if(LLM_EDGEFLOW_HAS_LLAMACPP)
-  target_include_directories(edgeflow_layer4_dependencies SYSTEM INTERFACE
+  target_include_directories(edgeflow_model_execution_dependencies SYSTEM INTERFACE
       ${LLAMACPP_INCLUDE_DIRS})
-  target_compile_definitions(edgeflow_layer4_dependencies INTERFACE
+  target_compile_definitions(edgeflow_model_execution_dependencies INTERFACE
       HAVE_LLAMACPP=1)
 endif()
 if(LLM_EDGEFLOW_HAS_WHISPERCPP)
-  target_include_directories(edgeflow_layer4_dependencies SYSTEM INTERFACE
+  target_include_directories(edgeflow_model_execution_dependencies SYSTEM INTERFACE
       ${WHISPERCPP_INCLUDE_DIRS})
-  target_compile_definitions(edgeflow_layer4_dependencies INTERFACE
+  target_compile_definitions(edgeflow_model_execution_dependencies INTERFACE
       HAVE_WHISPERCPP=1)
 endif()
 if(THIRD_PARTY_ENGINE_LIBS)
-  target_link_libraries(edgeflow_layer4_dependencies INTERFACE
+  target_link_libraries(edgeflow_model_execution_dependencies INTERFACE
       ${THIRD_PARTY_ENGINE_LIBS})
 endif()
 
 add_subdirectory(src)
 
 target_sources(edgeflow_runtime_objects INTERFACE
-    $<TARGET_OBJECTS:edgeflow_layer4_engine_objects>
-    $<TARGET_OBJECTS:edgeflow_layer3_node_objects>
-    $<TARGET_OBJECTS:edgeflow_layer2_core_objects>
-    $<TARGET_OBJECTS:edgeflow_layer1_adapter_objects>
+    $<TARGET_OBJECTS:edgeflow_model_execution_objects>
+    $<TARGET_OBJECTS:edgeflow_capability_nodes_objects>
+    $<TARGET_OBJECTS:edgeflow_orchestration_objects>
+    $<TARGET_OBJECTS:edgeflow_integration_objects>
     $<TARGET_OBJECTS:edgeflow_composition_objects>)
 
 # 1. 生成对外交付的动态算法库 (.so)
 add_library(alg_sdk SHARED
-    $<TARGET_OBJECTS:edgeflow_layer4_engine_objects>
-    $<TARGET_OBJECTS:edgeflow_layer3_node_objects>
-    $<TARGET_OBJECTS:edgeflow_layer2_core_objects>
-    $<TARGET_OBJECTS:edgeflow_layer1_adapter_objects>
+    $<TARGET_OBJECTS:edgeflow_model_execution_objects>
+    $<TARGET_OBJECTS:edgeflow_capability_nodes_objects>
+    $<TARGET_OBJECTS:edgeflow_orchestration_objects>
+    $<TARGET_OBJECTS:edgeflow_integration_objects>
     $<TARGET_OBJECTS:edgeflow_composition_objects>)
 add_library(llm_edgeflow::sdk ALIAS alg_sdk)
 target_link_libraries(alg_sdk

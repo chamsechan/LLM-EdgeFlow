@@ -7,8 +7,9 @@
 
 namespace llm_edgeflow {
 
-// Business-facing request and response slots belong to the Layer 1 adapters.
-// Lower layers consume logical port bindings and neutral value contracts only.
+// Business-facing request and response slots belong to the Integration
+// adapters. Lower layers consume logical port bindings and neutral value
+// contracts only.
 inline constexpr BlackboardKey<std::vector<uint64_t>> kRawRequestIds{
     "raw_request_ids", "vector<uint64>"};
 

@@ -1,4 +1,4 @@
-target_sources(edgeflow_layer4_engine_objects PRIVATE
+target_sources(edgeflow_model_execution_objects PRIVATE
   runtime/backend_registry.cpp
   runtime/model_registry.cpp
   runtime/model_runtime_factory.cpp
@@ -18,4 +18,4 @@ target_sources(edgeflow_layer4_engine_objects PRIVATE
   models/vision_document/image_decode.cpp
   models/whisper_asr/whisper_asr_model.cpp)
 
-target_link_libraries(edgeflow_layer4_engine_objects PRIVATE edgeflow_stb_image)
+target_link_libraries(edgeflow_model_execution_objects PRIVATE edgeflow_stb_image)
