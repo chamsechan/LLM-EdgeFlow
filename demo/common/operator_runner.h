@@ -196,6 +196,14 @@ int RunOperatorWithExtractor(
   OperatorHandleGuard guard(ops, raw_handle);
 
   std::string control_payload;
+  if (options.control_cmd.has_value() &&
+      (*options.control_cmd <= 0 || !options.control_file.has_value() ||
+       options.control_file->empty())) {
+    std::cerr << "[OperatorRunner ERROR] --control-cmd requires a positive ID "
+                 "and a non-empty --control-file"
+              << std::endl;
+    return 3;
+  }
   if (options.control_file.has_value() && !options.control_file->empty()) {
     if (!ReadTextFile(*options.control_file, &control_payload, &err)) {
       std::cerr
@@ -225,8 +233,10 @@ int RunOperatorWithExtractor(
     std::cout << "[OperatorRunner] Invoking ops.Control to dynamically push "
                  "parameters..."
               << std::endl;
-    ControlUpdateRulesParam ctrl_param{control_payload.c_str()};
-    int ctrl_ret = ops.Control(raw_handle, ctrl_cmd, &ctrl_param);
+    ControlJsonParam ctrl_param{
+        options.control_cmd.value_or(static_cast<int>(ctrl_cmd)),
+        control_payload.c_str()};
+    int ctrl_ret = ops.Control(raw_handle, ControlCommand::kJson, &ctrl_param);
     if (ctrl_ret != 0) {
       std::cerr << "[OperatorRunner ERROR] ops.Control failed: code="
                 << ctrl_ret << " (Operator error: " << GetOperatorLastError()

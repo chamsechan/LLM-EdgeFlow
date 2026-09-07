@@ -124,8 +124,12 @@ int Alg_Control(void* hndl, const CompanyAlgParamControl* param_control)
     if (!instance->runtime) return -1;
 
     std::string err_msg;
-    return instance->runtime->ExecuteControl(
+    const int ret = instance->runtime->ExecuteControl(
         param_control->control_cmd, param_control->json_param_str, &err_msg);
+    if (ret != 0 && !err_msg.empty()) {
+      ALG_LOG_ERROR("[Company C Adapter] %s\n", err_msg.c_str());
+    }
+    return ret;
   } catch (const std::exception& e) {
     ALG_LOG_ERROR("[Company C Adapter] Alg_Control exception: %s\n", e.what());
     return -99;

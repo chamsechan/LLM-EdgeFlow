@@ -17,6 +17,7 @@ for kind in ("model", "unary_inference"):
         tag = "Model" if kind == "model" else "Unary"
         cases.append((f"Scaffold{tag}{cap.capitalize()}Node", ["--kind", kind, "-m", cap]))
 cases.append(("ScaffoldTutorialLlmNode", ["--kind", "model", "-m", "llm"]))
+cases.append(("ScaffoldControlNode", ["--control-id", "2000000042"]))
 
 
 def apply_documented_text_functions(code):

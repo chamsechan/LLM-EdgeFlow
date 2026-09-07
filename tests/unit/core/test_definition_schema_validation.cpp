@@ -6,6 +6,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "contracts/control_payload.h"
 #include "core/common_contracts.h"
 #include "core/node_interface.h"
 #include "core/node_registry.h"
@@ -431,6 +432,72 @@ TEST(DefinitionSchemaValidationTest, RejectsInvalidDefinitionAtRegistration) {
                             {"request", "forever"}}};
   EXPECT_FALSE(
       PipelineCatalog::RegisterNodeDefinition(invalid_lifetime_override));
+}
+
+TEST(DefinitionSchemaValidationTest,
+     ControlIdsRequireExplicitIdenticalSharing) {
+  NodeDefinition first;
+  first.node_type = "PrivateControlOwner";
+  first.control_commands = {
+      ControlCommandDefinition(2000000101, "private_update")};
+  ASSERT_TRUE(PipelineCatalog::RegisterNodeDefinition(first));
+  auto duplicate = first;
+  duplicate.node_type = "PrivateControlDuplicate";
+  std::string error;
+  EXPECT_FALSE(PipelineCatalog::RegisterNodeDefinition(duplicate, &error));
+  EXPECT_NE(error.find("2000000101"), std::string::npos);
+  EXPECT_NE(error.find("PrivateControlOwner"), std::string::npos);
+
+  first.node_type = "SharedControlOwner";
+  first.control_commands.front().cmd_id = 2000000102;
+  first.control_commands.front().shared_id = true;
+  ASSERT_TRUE(PipelineCatalog::RegisterNodeDefinition(first));
+  duplicate = first;
+  duplicate.node_type = "SharedControlPeer";
+  EXPECT_TRUE(PipelineCatalog::RegisterNodeDefinition(duplicate));
+  duplicate.node_type = "SharedControlNameMismatch";
+  duplicate.control_commands.front().name = "different_semantics";
+  EXPECT_FALSE(PipelineCatalog::RegisterNodeDefinition(duplicate));
+  duplicate.control_commands = first.control_commands;
+  duplicate.node_type = "SharedControlSchemaMismatch";
+  duplicate.control_commands.front().payload_schema = {{"type", "string"}};
+  EXPECT_FALSE(PipelineCatalog::RegisterNodeDefinition(duplicate));
+  duplicate.control_commands = first.control_commands;
+  duplicate.node_type = "SharedControlMissingOptIn";
+  duplicate.control_commands.front().shared_id = false;
+  EXPECT_FALSE(PipelineCatalog::RegisterNodeDefinition(duplicate));
+
+  NodeDefinition invalid;
+  invalid.node_type = "NonObjectControlSchema";
+  invalid.control_commands = {
+      ControlCommandDefinition(2000000103, "invalid", "", false)};
+  EXPECT_FALSE(PipelineCatalog::RegisterNodeDefinition(invalid));
+}
+
+TEST(DefinitionSchemaValidationTest,
+     ControlPayloadParsingPreservesOutputOnFailure) {
+  const nlohmann::json schema = {
+      {"type", "object"},
+      {"required", {"values"}},
+      {"additionalProperties", false},
+      {"properties",
+       {{"values", {{"type", "array"}, {"items", {{"type", "string"}}}}}}}};
+  nlohmann::json output = {{"old", true}};
+  const auto before = output;
+  std::string error;
+  EXPECT_FALSE(ParseControlPayload("{", schema, &output, &error));
+  EXPECT_FALSE(error.empty());
+  EXPECT_EQ(output, before);
+  EXPECT_FALSE(
+      ParseControlPayload(R"({"values":[1]})", schema, &output, &error));
+  EXPECT_EQ(output, before);
+  EXPECT_FALSE(ParseControlPayload(R"({"values":[],"extra":1})", schema,
+                                   &output, &error));
+  EXPECT_EQ(output, before);
+  ASSERT_TRUE(
+      ParseControlPayload(R"({"values":["a"]})", schema, &output, &error));
+  EXPECT_EQ(output["values"][0], "a");
+  EXPECT_TRUE(error.empty());
 }
 
 TEST(DefinitionSchemaValidationTest, NodeToJsonExportsConstraintsAndCommands) {

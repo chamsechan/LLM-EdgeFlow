@@ -136,6 +136,10 @@ CLI 的 `--config` 覆盖 Profile 原配置，因此不需要新增 Profile。�
 当前方案；Pipeline 校验不代表部署资源可加载。`--no-default-control` 防止 Demo 内置
 热更新覆盖所选规则或提示词，显式 `--control-file` 仍会执行，应只在需要该更新时提供。
 
+新增节点命令可用 `--control-cmd <id> --control-file <payload.json>` 经同一 Demo 下发；
+命令必须在当前 Pipeline 的节点 Definition 中声明。Profile 可设置 `control_cmd`，CLI
+优先。详见[第一个 Control](../../doc/dev_guide/first_control.md)。
+
 Studio 会为当前草稿生成临时 JSON 和指向它的 `.conf`，但继承 Profile 的模型路径覆盖、
 容量和 Demo 默认 Control；它没有关闭默认 Control 的界面选项。草稿执行可用于检查
 控制流，严格验收所选配置时使用上述 CLI 或[效果验收工具](../../doc/VERIFIABLE_SELECTION.md)。

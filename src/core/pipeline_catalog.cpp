@@ -57,7 +57,8 @@ nlohmann::json ControlCommandJson(const ControlCommandDefinition& cmd) {
           {"name", cmd.name},
           {"description", cmd.description},
           {"payload_schema", cmd.payload_schema},
-          {"supports_hot_swap", cmd.supports_hot_swap}};
+          {"supports_hot_swap", cmd.supports_hot_swap},
+          {"shared_id", cmd.shared_id}};
 }
 
 nlohmann::json FieldJson(const ConfigFieldDefinition& field) {
@@ -148,7 +149,10 @@ bool ValidateFieldDefinition(const ConfigFieldDefinition& field,
   return true;
 }
 
-bool PipelineCatalog::RegisterNodeDefinition(const NodeDefinition& definition) {
+bool PipelineCatalog::RegisterNodeDefinition(const NodeDefinition& definition,
+                                             std::string* error) {
+  if (error)
+    *error = "Invalid or duplicate NodeDefinition: " + definition.node_type;
   if (definition.node_type.empty()) return false;
   static const std::unordered_set<std::string> kValidCardinalities = {
       "1:1", "1:N", "N:1", "N:M"};
@@ -203,6 +207,7 @@ bool PipelineCatalog::RegisterNodeDefinition(const NodeDefinition& definition) {
   std::unordered_set<std::string> seen_cmd_names;
   for (const auto& cmd : definition.control_commands) {
     if (cmd.cmd_id <= 0 || cmd.name.empty()) return false;
+    if (!cmd.payload_schema.is_object()) return false;
     if (!seen_cmd_ids.insert(cmd.cmd_id).second) return false;
     if (!seen_cmd_names.insert(cmd.name).second) return false;
   }
@@ -247,11 +252,32 @@ bool PipelineCatalog::RegisterNodeDefinition(const NodeDefinition& definition) {
                   })) {
     return false;
   }
+  for (const auto& existing : definitions) {
+    for (const auto& command : definition.control_commands) {
+      for (const auto& registered : existing.control_commands) {
+        if (command.cmd_id != registered.cmd_id) continue;
+        if (!command.shared_id || !registered.shared_id ||
+            command.name != registered.name ||
+            command.payload_schema != registered.payload_schema ||
+            command.supports_hot_swap != registered.supports_hot_swap) {
+          if (error) {
+            *error =
+                "Control ID " + std::to_string(command.cmd_id) +
+                " conflicts between " + existing.node_type + " and " +
+                definition.node_type +
+                "; shared commands require shared_id and identical contracts";
+          }
+          return false;
+        }
+      }
+    }
+  }
   definitions.push_back(definition);
   std::sort(definitions.begin(), definitions.end(),
             [](const auto& lhs, const auto& rhs) {
               return lhs.node_type < rhs.node_type;
             });
+  if (error) error->clear();
   return true;
 }
 

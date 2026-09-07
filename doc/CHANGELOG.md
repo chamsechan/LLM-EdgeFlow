@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-09-07 Control 开发路径收敛（RFC-0041）
+
+- Operator 新增固定结构的 `kJson` 入口，普通节点命令使用 `cmd_id + JSON`，保留既有强类型命令；Demo 增加 `--control-cmd` 和 Profile `control_cmd`。
+- Pipeline 与节点复用有限 payload schema 校验；Control 失败诊断包含节点实例与原因。规则元素拒绝未知字段和缺失 pattern，原先被忽略的错误字段需要修正。
+- 现有 Catalog 拒绝跨节点类型的命令 ID 冲突；共享同义命令要求双方显式 `shared_id` 且契约一致。
+- 新增可编译的 Control 模板、`--control-id` 脚手架选项和[入门练习](dev_guide/first_control.md)，生成业务测试验证更新生效与失败保持。模板不加入生产 Catalog。
+
 ## 2026-09-07 上线前审查修复（RFC-0040）
 
 - 修复 HostTensorBuffer 分配失败仍被视为成功的问题；LLM 生成参数在 Definition 预检与 Node 初始化中共用校验，非法 stop_words 在模型加载前拒绝。

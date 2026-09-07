@@ -3,6 +3,8 @@
 #include <cmath>
 #include <cstring>
 
+#include "contracts/control_payload.h"
+#include "core/common_contracts.h"
 #include "nlohmann/json.hpp"
 
 namespace llm_edgeflow {
@@ -25,43 +27,50 @@ int OperatorControlRegistry::ResolveControlParam(
     constexpr size_t kMaxStringLength = 65536;
 
     switch (command) {
-      case llm_edgeflow::operator_api::ControlCommand::kUpdateRules: {
-        const auto* param = static_cast<
-            const llm_edgeflow::operator_api::ControlUpdateRulesParam*>(
-            control_param);
-        if (!param->rules_json_str) {
+      case llm_edgeflow::operator_api::ControlCommand::kUpdateRules:
+      case llm_edgeflow::operator_api::ControlCommand::kJson: {
+        const char* payload = nullptr;
+        int cmd = kControlCmdUpdateRules;
+        if (command == llm_edgeflow::operator_api::ControlCommand::kJson) {
+          const auto* param =
+              static_cast<const llm_edgeflow::operator_api::ControlJsonParam*>(
+                  control_param);
+          cmd = param->cmd_id;
+          payload = param->json_param_str;
+          if (cmd <= 0) {
+            if (error_msg)
+              *error_msg = "ControlJsonParam::cmd_id must be positive";
+            return -2;
+          }
+        } else {
+          payload =
+              static_cast<
+                  const llm_edgeflow::operator_api::ControlUpdateRulesParam*>(
+                  control_param)
+                  ->rules_json_str;
+        }
+        if (!payload) {
           if (error_msg) {
-            *error_msg = "ControlUpdateRulesParam::rules_json_str is null";
+            *error_msg = "Control JSON payload is null";
           }
           return -2;
         }
-        size_t len = strnlen(param->rules_json_str, kMaxStringLength);
+        size_t len = strnlen(payload, kMaxStringLength);
         if (len == 0 || len >= kMaxStringLength) {
           if (error_msg) {
             *error_msg =
-                "ControlUpdateRulesParam::rules_json_str length invalid (empty "
+                "Control JSON payload length invalid (empty "
                 "or exceeds 64KB)";
           }
           return -2;
         }
-        try {
-          auto parsed = nlohmann::json::parse(param->rules_json_str);
-          if (!parsed.is_object()) {
-            if (error_msg) {
-              *error_msg = "ControlUpdateRulesParam JSON must be an object";
-            }
-            return -2;
-          }
-          *out_cmd_id = 1;
-          *out_json_str = parsed.dump();
-          return 0;
-        } catch (const std::exception& e) {
-          if (error_msg) {
-            *error_msg =
-                std::string("Invalid JSON in rules_json_str: ") + e.what();
-          }
+        nlohmann::json parsed;
+        if (!ParseControlPayload(std::string(payload, len),
+                                 {{"type", "object"}}, &parsed, error_msg))
           return -2;
-        }
+        *out_cmd_id = cmd;
+        *out_json_str = parsed.dump();
+        return 0;
       }
 
       case llm_edgeflow::operator_api::ControlCommand::kSwitchPrompt: {
@@ -101,7 +110,7 @@ int OperatorControlRegistry::ResolveControlParam(
         if (!prompt_id.empty()) {
           j["prompt_id"] = prompt_id;
         }
-        *out_cmd_id = 2;
+        *out_cmd_id = kControlCmdUpdatePrompt;
         *out_json_str = j.dump();
         return 0;
       }
@@ -138,7 +147,7 @@ int OperatorControlRegistry::ResolveControlParam(
         if (!cat.empty()) {
           j["category"] = cat;
         }
-        *out_cmd_id = 3;
+        *out_cmd_id = kControlCmdUpdateThreshold;
         *out_json_str = j.dump();
         return 0;
       }

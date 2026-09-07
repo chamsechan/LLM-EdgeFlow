@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "company_alg_log.h"
+#include "contracts/control_payload.h"
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
 #include "engine/text/utf8.h"
@@ -18,6 +19,23 @@
 #include "nodes/node_error_codes.h"
 
 namespace llm_edgeflow {
+namespace {
+const nlohmann::json& TemplateControlSchema() {
+  static const nlohmann::json schema = nlohmann::json{
+      {"type", "object"},
+      {"minProperties", 1},
+      {"additionalProperties", false},
+      {"properties",
+       {{"template", {{"type", "string"}}},
+        {"prompt_id", {{"type", "string"}}},
+        {"values",
+         {{"type", "object"}, {"additionalProperties", {{"type", "string"}}}}},
+        {"allow_dynamic_attributes", {{"type", "boolean"}}},
+        {"missing_variable_policy",
+         {{"type", "string"}, {"enum", {"fail", "empty", "preserve"}}}}}}};
+  return schema;
+}
+}  // namespace
 
 /**
  * @brief 纯文本与多模态上下文受限模板渲染算子 (TextTemplateNode)
@@ -117,114 +135,57 @@ class TextTemplateNode final : public NodeBase {
 
   NodeControlResult ControlNode(int cmd,
                                 const std::string& json_param) override {
-    if (cmd == kControlCmdUpdatePrompt) {
-      try {
-        nlohmann::json root = nlohmann::json::parse(json_param);
-        if (!root.is_object()) {
-          return NodeControlResult::Failed(node_error::control::kInvalidRequest,
-                                           "Control payload must be an object");
-        }
-        static const std::unordered_set<std::string> kAllowedFields = {
-            "template", "prompt_id", "values", "allow_dynamic_attributes",
-            "missing_variable_policy"};
-        for (auto it = root.begin(); it != root.end(); ++it) {
-          if (!kAllowedFields.count(it.key())) {
-            return NodeControlResult::Failed(
-                node_error::control::kInvalidRequest,
-                "Unknown field in Control payload: " + it.key());
-          }
-        }
-        if (!root.contains("template") && !root.contains("values") &&
-            !root.contains("allow_dynamic_attributes") &&
-            !root.contains("missing_variable_policy") &&
-            !root.contains("prompt_id")) {
-          return NodeControlResult::Failed(
-              node_error::control::kInvalidRequest,
-              "No recognized update field in Control payload");
-        }
-        if ((root.contains("template") && !root["template"].is_string()) ||
-            (root.contains("prompt_id") && !root["prompt_id"].is_string()) ||
-            (root.contains("values") && !root["values"].is_object()) ||
-            (root.contains("allow_dynamic_attributes") &&
-             !root["allow_dynamic_attributes"].is_boolean()) ||
-            (root.contains("missing_variable_policy") &&
-             !root["missing_variable_policy"].is_string())) {
-          return NodeControlResult::Failed(
-              node_error::control::kInvalidRequest,
-              "Control payload field has an invalid type");
-        }
-
-        std::string new_tmpl;
-        std::unordered_map<std::string, std::string> new_values;
-        bool new_allow_dynamic = allow_dynamic_attrs_;
-        std::string new_missing_policy = missing_variable_policy_;
-        std::string new_prompt_id = prompt_id_;
-
-        {
-          std::shared_lock<std::shared_mutex> lock(rw_mutex_);
-          new_tmpl = template_str_;
-          new_values = static_values_;
-          new_allow_dynamic = allow_dynamic_attrs_;
-          new_missing_policy = missing_variable_policy_;
-          new_prompt_id = prompt_id_;
-        }
-
-        if (root.contains("template") && root["template"].is_string()) {
-          new_tmpl = root["template"].get<std::string>();
-        }
-        if (root.contains("allow_dynamic_attributes") &&
-            root["allow_dynamic_attributes"].is_boolean()) {
-          new_allow_dynamic = root["allow_dynamic_attributes"].get<bool>();
-        }
-        if (root.contains("missing_variable_policy") &&
-            root["missing_variable_policy"].is_string()) {
-          new_missing_policy =
-              root["missing_variable_policy"].get<std::string>();
-          if (new_missing_policy != "fail" && new_missing_policy != "empty" &&
-              new_missing_policy != "preserve") {
-            return NodeControlResult::Failed(
-                node_error::control::kInvalidRequest,
-                "Invalid missing_variable_policy in Control payload");
-          }
-        }
-        if (root.contains("prompt_id") && root["prompt_id"].is_string()) {
-          new_prompt_id = root["prompt_id"].get<std::string>();
-        }
-        if (root.contains("values") && root["values"].is_object()) {
-          for (auto it = root["values"].begin(); it != root["values"].end();
-               ++it) {
-            if (!it.value().is_string()) {
-              return NodeControlResult::Failed(
-                  node_error::control::kInvalidRequest,
-                  "Control values entries must be strings");
-            }
-            new_values[it.key()] = it.value().get<std::string>();
-          }
-        }
-
-        std::vector<TemplateToken> new_tokens;
-        if (!CompileTemplate(new_tmpl, new_values, new_allow_dynamic,
-                             &new_tokens)) {
-          return NodeControlResult::Failed(
-              node_error::control::kInvalidRequest,
-              "Invalid template placeholders or syntax in Control");
-        }
-
-        std::unique_lock<std::shared_mutex> lock(rw_mutex_);
-        template_str_ = std::move(new_tmpl);
-        static_values_ = std::move(new_values);
-        allow_dynamic_attrs_ = new_allow_dynamic;
-        missing_variable_policy_ = std::move(new_missing_policy);
-        prompt_id_ = std::move(new_prompt_id);
-        compiled_tokens_ = std::move(new_tokens);
-        return NodeControlResult::Handled(0, "Template updated successfully");
-      } catch (const std::exception& e) {
-        return NodeControlResult::Failed(
-            node_error::control::kInvalidRequest,
-            std::string("JSON parse error: ") + e.what());
+    if (cmd != kControlCmdUpdatePrompt) return NodeControlResult::Unsupported();
+    nlohmann::json root;
+    std::string error;
+    if (!ParseControlPayload(json_param, TemplateControlSchema(), &root,
+                             &error)) {
+      return NodeControlResult::Failed(node_error::control::kInvalidRequest,
+                                       error);
+    }
+    std::string new_tmpl;
+    std::unordered_map<std::string, std::string> new_values;
+    bool new_allow_dynamic;
+    std::string new_missing_policy;
+    std::string new_prompt_id;
+    {
+      std::shared_lock<std::shared_mutex> lock(rw_mutex_);
+      new_tmpl = template_str_;
+      new_values = static_values_;
+      new_allow_dynamic = allow_dynamic_attrs_;
+      new_missing_policy = missing_variable_policy_;
+      new_prompt_id = prompt_id_;
+    }
+    if (root.contains("template"))
+      new_tmpl = root["template"].get<std::string>();
+    if (root.contains("allow_dynamic_attributes")) {
+      new_allow_dynamic = root["allow_dynamic_attributes"].get<bool>();
+    }
+    if (root.contains("missing_variable_policy")) {
+      new_missing_policy = root["missing_variable_policy"].get<std::string>();
+    }
+    if (root.contains("prompt_id"))
+      new_prompt_id = root["prompt_id"].get<std::string>();
+    if (root.contains("values")) {
+      for (auto it = root["values"].begin(); it != root["values"].end(); ++it) {
+        new_values[it.key()] = it.value().get<std::string>();
       }
     }
-    return NodeControlResult::Unsupported();
+    std::vector<TemplateToken> new_tokens;
+    if (!CompileTemplate(new_tmpl, new_values, new_allow_dynamic,
+                         &new_tokens)) {
+      return NodeControlResult::Failed(
+          node_error::control::kInvalidRequest,
+          "Invalid template placeholders or syntax in Control");
+    }
+    std::unique_lock<std::shared_mutex> lock(rw_mutex_);
+    template_str_ = std::move(new_tmpl);
+    static_values_ = std::move(new_values);
+    allow_dynamic_attrs_ = new_allow_dynamic;
+    missing_variable_policy_ = std::move(new_missing_policy);
+    prompt_id_ = std::move(new_prompt_id);
+    compiled_tokens_ = std::move(new_tokens);
+    return NodeControlResult::Handled();
   }
 
   int ProcessNode(AlgContext& req_ctx) override {
@@ -591,21 +552,8 @@ NodeDefinition MakeTextTemplateNodeDefinition() {
       "TextTemplateNode requires at least one dynamic input port to be bound")};
   def.control_commands = {ControlCommandDefinition(
       kControlCmdUpdatePrompt, "update_prompt",
-      "Update template string dynamically",
-      nlohmann::json{
-          {"type", "object"},
-          {"minProperties", 1},
-          {"additionalProperties", false},
-          {"properties",
-           {{"template", {{"type", "string"}}},
-            {"prompt_id", {{"type", "string"}}},
-            {"values",
-             {{"type", "object"},
-              {"additionalProperties", {{"type", "string"}}}}},
-            {"allow_dynamic_attributes", {{"type", "boolean"}}},
-            {"missing_variable_policy",
-             {{"type", "string"}, {"enum", {"fail", "empty", "preserve"}}}}}}},
-      true)};
+      "Update template string dynamically", TemplateControlSchema(), true)};
+  def.control_commands.front().shared_id = true;
   def.config_fields = {
       ConfigFieldDefinition{"template", ConfigValueKind::kString, false,
                             "{{primary}}"},

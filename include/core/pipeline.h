@@ -58,7 +58,10 @@ class Pipeline {
   /**
    * @brief 运行时动态控制
    */
-  int Control(int cmd, const std::string& json_param);
+  // Calls must be externally serialized with Execute/Control. Broadcast updates
+  // are not transactional; error identifies failed instances.
+  int Control(int cmd, const std::string& json_param,
+              std::string* error = nullptr);
 
   State GetState() const { return state_; }
   bool IsReady() const { return state_ == State::kReady; }

@@ -10,6 +10,7 @@
 | --- | --- |
 | 已有能力连线组成方案 | [Pipeline Studio](../../tools/pipeline_studio/README.md) |
 | 写“前处理 → LLM → 后处理” | [第一个自定义 Node](../../doc/dev_guide/first_custom_node.md)：生成、修改两个函数、编译、连线、运行 |
+| 为节点增加运行时参数更新 | [第一个 Control](../../doc/dev_guide/first_control.md)：声明、更新、失败保持、通过 Demo 下发 |
 | 看不懂端口、来源编号、模型绑定等术语 | [五个概念说明](../../doc/dev_guide/custom_node_concepts.md)：结合一次请求解释用途和常见错误 |
 | 需要多输入、配置化模板和完整校验 | 本页下方的[完整参考样例](#完整参考样例) |
 | 对接新的平台输入输出结构 | [业务接入指南](../../doc/BUSINESS_ONBOARDING.md) |
@@ -28,6 +29,9 @@
    ```bash
    # 纯处理：默认生成保留来源的文本透传，在循环中替换为领域算法
    ./scripts/scaffold_custom_node.py CustomFilterNode --kind compute --add-to-cmake --generate-test
+
+   # Control 入门：文本前缀更新，选择尚未使用的 custom 命令 ID
+   ./scripts/scaffold_custom_node.py PrefixControlNode --control-id 1001 --add-to-cmake --generate-test
 
    # 推荐入门：填写 BuildPrompt 和 FormatAnswer；使用 ModelBoundNode<ILlmModel>
    ./scripts/scaffold_custom_node.py DomainPromptNode --kind model -m llm --add-to-cmake --generate-test

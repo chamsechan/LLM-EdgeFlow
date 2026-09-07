@@ -17,9 +17,11 @@
 #include "adapter/operator/operator_biz_bridge_registry.h"
 #include "adapter/operator/operator_value_type_registry.h"
 #include "company_alg_interface.h"
+#include "core/common_contracts.h"
 #include "engine/backend_registry.h"
 #include "operator/company_operator_types.h"
 #include "operator/operator_interface.h"
+#include "tests/support/control_test_utils.h"
 
 #ifndef EDGEFLOW_RERANK_ONNX_FIXTURE
 #define EDGEFLOW_RERANK_ONNX_FIXTURE "models/rerank_fixture.onnx"
@@ -306,6 +308,80 @@ TEST_F(OperatorApiTest, StronglyTypedControlValidation) {
             0);
 
   ops_.Destroy(entity_handle);
+}
+
+TEST_F(OperatorApiTest, GenericJsonControlReachesCustomNodeAndReportsFailures) {
+  ScopedTempDirectory temporary;
+  llm_edgeflow::test::WriteControlTestPipeline(temporary.path());
+  const std::string root = temporary.path().string();
+  CreateParam param;
+  param.model_path = root.c_str();
+  param.cfg_file_name = "pipeline.conf";
+  param.compute_platform = ComputePlatform::kCpu;
+  void* handle = nullptr;
+  ASSERT_EQ(ops_.Create(&handle, &param), 0) << GetOperatorLastError();
+  // Ensure Destroy also runs if a fatal assertion exits this test early.
+  const auto owner =
+      std::shared_ptr<void>(handle, [this](void* h) { ops_.Destroy(h); });
+  const auto check = [&](int expected_hit) {
+    std::string text = "sample";
+    CompanyString cs{static_cast<int32_t>(text.size()), text.data()};
+    CompanyOperatorKeywordInput input{123, &cs};
+    NamedIoBatch inputs(1), outputs(1);
+    inputs[0]["control.keyword_in"] = MakeBorrowedOperatorInput(&input);
+    outputs[0]["control.keyword_out"] = nullptr;
+    ASSERT_EQ(ops_.Process(handle, inputs, outputs), 0)
+        << GetOperatorLastError();
+    const auto* output = static_cast<CompanyOperatorKeywordOutput*>(
+        outputs[0]["control.keyword_out"].get());
+    ASSERT_NE(output, nullptr);
+    EXPECT_EQ(output->request_id, 123u);
+    EXPECT_EQ(output->is_hit, expected_hit);
+  };
+  check(0);
+  std::string payload = R"({"prefix":"VIP:"})";
+  ControlJsonParam command{2000000041, payload.c_str()};
+  ASSERT_EQ(ops_.Control(handle, ControlCommand::kJson, &command), 0);
+  payload.assign(payload.size(), 'x');  // Caller memory is no longer needed.
+  check(1);
+
+  // Different command IDs update their own Nodes in the same Pipeline.
+  ControlJsonParam rules{
+      llm_edgeflow::kControlCmdUpdateRules,
+      R"({"categories":{"AFTER_RULE_UPDATE":["NEW:sample"]}})"};
+  ASSERT_EQ(ops_.Control(handle, ControlCommand::kJson, &rules), 0);
+  check(0);
+  command.json_param_str = R"({"prefix":"NEW:"})";
+  ASSERT_EQ(ops_.Control(handle, ControlCommand::kJson, &command), 0);
+  check(1);  // Updating the prefix preserves the matcher's new rules.
+
+  command.json_param_str = R"({"prefix":1})";
+  EXPECT_NE(ops_.Control(handle, ControlCommand::kJson, &command), 0);
+  EXPECT_NE(std::string(GetOperatorLastError()).find("node 'prefix'"),
+            std::string::npos);
+  EXPECT_NE(std::string(GetOperatorLastError()).find("prefix"),
+            std::string::npos);
+  payload = nlohmann::json{{"prefix", std::string(65, 'x')}}.dump();
+  command.json_param_str = payload.c_str();
+  EXPECT_NE(ops_.Control(handle, ControlCommand::kJson, &command), 0);
+  EXPECT_NE(std::string(GetOperatorLastError()).find("64 UTF-8 bytes"),
+            std::string::npos);
+  check(1);
+
+  for (const char* invalid :
+       {static_cast<const char*>(nullptr), "", "[]", "{"}) {
+    command.json_param_str = invalid;
+    EXPECT_EQ(ops_.Control(handle, ControlCommand::kJson, &command), -2);
+  }
+  payload.assign(65536, 'x');
+  command.json_param_str = payload.c_str();
+  EXPECT_EQ(ops_.Control(handle, ControlCommand::kJson, &command), -2);
+  command = {0, "{}"};
+  EXPECT_EQ(ops_.Control(handle, ControlCommand::kJson, &command), -2);
+  command = {19999, "{}"};
+  EXPECT_EQ(ops_.Control(handle, ControlCommand::kJson, &command), -7);
+  EXPECT_NE(std::string(GetOperatorLastError()).find("19999"),
+            std::string::npos);
 }
 
 // 4. 句柄生命周期与防护测试

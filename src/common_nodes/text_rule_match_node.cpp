@@ -10,12 +10,43 @@
 
 #include "common_nodes/support/compiled_text_regex.h"
 #include "company_alg_log.h"
+#include "contracts/control_payload.h"
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
 #include "nodes/node_base.h"
 #include "nodes/node_error_codes.h"
 
 namespace llm_edgeflow {
+namespace {
+const nlohmann::json& RuleItemSchema() {
+  static const nlohmann::json schema = {
+      {"type", "object"},
+      {"required", {"pattern"}},
+      {"additionalProperties", false},
+      {"properties",
+       {{"id", {{"type", "string"}}},
+        {"strategy",
+         {{"type", "string"}, {"enum", {"contains", "exact", "regex"}}}},
+        {"pattern", {{"type", "string"}}},
+        {"category", {{"type", "string"}}},
+        {"score", {{"type", "number"}}},
+        {"constants", {{"type", "object"}}}}}};
+  return schema;
+}
+const nlohmann::json& RuleControlSchema() {
+  static const nlohmann::json schema = {
+      {"type", "object"},
+      {"minProperties", 1},
+      {"additionalProperties", false},
+      {"properties",
+       {{"categories",
+         {{"type", "object"},
+          {"additionalProperties",
+           {{"type", "array"}, {"items", {{"type", "string"}}}}}}},
+        {"rules", {{"type", "array"}, {"items", RuleItemSchema()}}}}}};
+  return schema;
+}
+}  // namespace
 
 /**
  * @brief 规则与关键词匹配通用算子 (TextRuleMatchNode)
@@ -41,68 +72,31 @@ class TextRuleMatchNode final : public NodeBase {
 
   NodeControlResult ControlNode(int cmd,
                                 const std::string& json_param) override {
-    if (cmd == kControlCmdUpdateRules) {  // 1: 动态更新关注词/规则表
-      try {
-        nlohmann::json root = nlohmann::json::parse(json_param);
-        if (!root.is_object()) {
-          return NodeControlResult::Failed(
-              node_error::control::kInvalidRequest,
-              "Control payload must be a JSON object");
-        }
-        static const std::unordered_set<std::string> kAllowedFields = {
-            "categories", "rules"};
-        for (auto it = root.begin(); it != root.end(); ++it) {
-          if (!kAllowedFields.count(it.key())) {
-            return NodeControlResult::Failed(
-                node_error::control::kInvalidRequest,
-                "Unknown field in Control payload: " + it.key());
-          }
-        }
-
-        const bool has_categories = root.contains("categories");
-        const bool has_rules = root.contains("rules");
-        if (!has_categories && !has_rules) {
-          return NodeControlResult::Failed(
-              node_error::control::kInvalidRequest,
-              "Control payload must contain 'categories' or 'rules'");
-        }
-
-        CategoryList new_categories;
-        std::vector<RuleSpec> new_rules;
-        if (has_categories &&
-            (!root["categories"].is_object() ||
-             !BuildCategories(root["categories"], &new_categories))) {
-          return NodeControlResult::Failed(node_error::control::kInvalidRequest,
-                                           "Invalid categories payload");
-        }
-        if (has_rules && (!root["rules"].is_array() ||
-                          !BuildRules(root["rules"], &new_rules))) {
-          return NodeControlResult::Failed(
-              node_error::control::kInvalidRequest,
-              "Invalid rules payload or regular expression syntax");
-        }
-
-        {
-          std::unique_lock<std::shared_mutex> lock(rw_mutex_);
-          if (has_categories) {
-            category_keywords_list_ = std::move(new_categories);
-          }
-          if (has_rules) {
-            rules_list_ = std::move(new_rules);
-          }
-        }
-        return NodeControlResult::Handled(
-            0, has_categories && has_rules
-                   ? "TextRuleMatchNode categories and rules updated"
-               : has_categories ? "TextRuleMatchNode categories updated"
-                                : "TextRuleMatchNode rules updated");
-      } catch (const std::exception& e) {
-        return NodeControlResult::Failed(
-            node_error::control::kInvalidRequest,
-            std::string("JSON parse error in Control: ") + e.what());
-      }
+    if (cmd != kControlCmdUpdateRules) return NodeControlResult::Unsupported();
+    nlohmann::json root;
+    std::string error;
+    if (!ParseControlPayload(json_param, RuleControlSchema(), &root, &error)) {
+      return NodeControlResult::Failed(node_error::control::kInvalidRequest,
+                                       error);
     }
-    return NodeControlResult::Unsupported();
+    const bool has_categories = root.contains("categories");
+    const bool has_rules = root.contains("rules");
+    CategoryList new_categories;
+    std::vector<RuleSpec> new_rules;
+    if (has_categories &&
+        !BuildCategories(root["categories"], &new_categories)) {
+      return NodeControlResult::Failed(node_error::control::kInvalidRequest,
+                                       "Invalid categories payload");
+    }
+    if (has_rules && !BuildRules(root["rules"], &new_rules)) {
+      return NodeControlResult::Failed(
+          node_error::control::kInvalidRequest,
+          "Invalid rules payload or regular expression syntax");
+    }
+    std::unique_lock<std::shared_mutex> lock(rw_mutex_);
+    if (has_categories) category_keywords_list_ = std::move(new_categories);
+    if (has_rules) rules_list_ = std::move(new_rules);
+    return NodeControlResult::Handled();
   }
 
   static bool ValidateConfig(const nlohmann::json& config,
@@ -298,7 +292,7 @@ class TextRuleMatchNode final : public NodeBase {
         "contains", "exact", "regex"};
     std::vector<RuleSpec> temp_rules;
     for (const auto& r_elem : rules_json) {
-      if (!r_elem.is_object()) return false;
+      if (!ValidateControlPayload(r_elem, RuleItemSchema())) return false;
       RuleSpec spec;
       spec.id = r_elem.value("id", "");
       spec.strategy = r_elem.value("strategy", "contains");
@@ -378,14 +372,9 @@ NodeDefinition MakeTextRuleMatchNodeDefinition() {
                             "1:1", "preserve", "request")};
   def.control_commands = {ControlCommandDefinition(
       kControlCmdUpdateRules, "update_rules",
-      "Update matching rules and categories dynamically",
-      nlohmann::json{{"type", "object"},
-                     {"properties",
-                      {{"categories", {{"type", "object"}}},
-                       {"rules", {{"type", "array"}}}}},
-                     {"minProperties", 1},
-                     {"additionalProperties", false}},
+      "Update matching rules and categories dynamically", RuleControlSchema(),
       true)};
+  def.control_commands.front().shared_id = true;
   def.config_fields = {
       ConfigFieldDefinition{"default_category", ConfigValueKind::kString, false,
                             ""},

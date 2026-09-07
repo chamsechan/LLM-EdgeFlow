@@ -99,6 +99,7 @@ doc/rfcs/NNNN-<kebab-case-title>.md
 | **RFC-0039** | 自定义节点开发路径与失败契约修复 | `Completed` | `v10.x` | 接入适配层、流程编排层、能力节点层 / Tooling / Demo | [0039-custom-node-authoring-closure.md](0039-custom-node-authoring-closure.md) |
 
 | **RFC-0040** | 上线前实现、验证与命名收敛 | `Completed` | `v10.x` | 四层 / Build / Tooling | [0040-prelaunch-audit-convergence.md](0040-prelaunch-audit-convergence.md) |
+| **RFC-0041** | Control 开发路径的最小收敛 | `Completed` | `v10.x` | 接入适配层、流程编排层、能力节点层 / Tooling / Demo | [0041-control-authoring.md](0041-control-authoring.md) |
 
 ---
 
