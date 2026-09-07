@@ -8,25 +8,35 @@
 
 1. 查询 `build/alg_pipeline_tool catalog --biz <biz_name>` 和 `describe-node`，优先复用
    已有操作；缺失的领域逻辑放在本目录，不要求先改造成通用算法。
-2. 复用 `NodeBase` 编写处理逻辑；需要一个模型时使用 `ModelBoundNode<模型能力接口>`。
-   在 `ProcessNode` 中读取类型端口，完成前处理、调用已绑定的模型、后处理并发布输出。
-   对于输入输出一一对应且保留来源的推理，已有 `TraceableUnaryInferenceNode` 封装了
-   端口读取、输出发布和来源检查。接口和实现参考
-   [节点支持接口](../../include/nodes/node_support.h)、
-   [模型绑定接口](../../include/nodes/model_bound_node.h) 和
-   [LLM 节点](../common_nodes/llm_generate_node.cpp)。
-3. 在同一个源码文件声明完整 `NodeDefinition`，设置 `category = "custom"`，通过
+2. 使用脚手架脚本快速生成合规骨架与测试（亦可手动编写）：
+   ```bash
+   # 生成纯算法处理节点（继承 NodeBase）
+   ./scripts/scaffold_custom_node.py CustomFilterNode --kind compute --add-to-cmake --generate-test
+
+   # 生成绑定单一模型能力的节点（继承 ModelBoundNode<ILlmModel>）
+   ./scripts/scaffold_custom_node.py DomainPromptNode --kind model -m llm --add-to-cmake --generate-test
+
+   # 生成严格 1:1 溯源推理节点（继承 TraceableUnaryInferenceNode）
+   ./scripts/scaffold_custom_node.py FastAudioNode --kind unary_inference -m asr --add-to-cmake
+   ```
+3. 在生成的 `*_node.cpp` 中填充算法逻辑：
+   - 纯处理继承 `NodeBase`；
+   - 绑定单一模型继承 `ModelBoundNode<ILlmModel>`（可参考已落地的样例 [PromptGuidedLlmNode](prompt_guided_llm_node.cpp)）；
+   - 一对一保序推理继承 `TraceableUnaryInferenceNode`。
+   在 `ProcessNode` 中读取类型端口，完成前后处理并使用 `MakeTraceableItem(..., req_id, sub_id)` 保留溯源信息。
+4. 在同一个源码文件声明完整 `NodeDefinition`，设置 `category = "custom"`，通过
    `REGISTER_NODE_WITH_DEFINITION` 注册。声明真实的端口、配置、模型绑定和并发能力；
    `biz_names` 只用于确有必要的业务契约限制，通常留空以供多个方案复用。
-4. 将源码文件名加入本目录 [CMakeLists.txt](CMakeLists.txt) 的 `target_sources`。
+5. 将源码文件名加入本目录 [CMakeLists.txt](CMakeLists.txt) 的 `target_sources`（若脚手架未加 `--add-to-cmake`）。
    重新构建后通过 Catalog 查询；节点会沿用现有注册路径出现在 SDK、CLI 和 Studio 中，
    无需另写 UI 节点清单。
-5. 在 `configs/` 中编排方案，运行 `validate` 和 `plan`；沿用已有外部契约时复用
+6. 在 `configs/` 中编排方案，运行 `validate` 和 `plan`；沿用已有外部契约时复用
    Adapter 与 Demo Profile。新输入输出结构按[业务接入指南](../../doc/BUSINESS_ONBOARDING.md)
    处理。测试放入现有 `tests/unit/nodes/` 或对应集成套件，交付流程见
    [CONTRIBUTING](../../CONTRIBUTING.md)。
 
-本目录初始不注册具体算法。可用能力始终以当前构建的 Catalog 为准。
+可用能力始终以当前构建的 Catalog 为准。
+
 
 ## 复用与边界
 

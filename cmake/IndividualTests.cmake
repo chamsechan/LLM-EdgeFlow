@@ -133,6 +133,12 @@ set_tests_properties(PipelineStudioServerTest PROPERTIES
   ENVIRONMENT
     "LLM_EDGEFLOW_PIPELINE_TOOL=$<TARGET_FILE:alg_pipeline_tool_test>;LLM_EDGEFLOW_SELECTION_TOOL=$<TARGET_FILE:alg_pipeline_tool>;LLM_EDGEFLOW_DEMO_BINARY=$<TARGET_FILE:alg_demo>;LLM_EDGEFLOW_ALG_SHOW=$<TARGET_FILE:alg_show>")
 
+add_test(
+  NAME CustomNodeScaffoldTest
+  COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tests/tooling/test_scaffold_custom_node.py
+)
+
+
 # Demo Runner 参数化与结果落盘单元测试
 add_executable(test_demo_runner
     ${EDGEFLOW_SOURCE_test_demo_runner}
