@@ -90,6 +90,9 @@ class WorkbenchServiceTest(unittest.TestCase):
         with self.assertRaises(SHOW.StudioError) as mismatch:
             self.service.start_run(self.keyword, "entity_extract_mock")
         self.assertEqual(mismatch.exception.code, "PROFILE_MISMATCH")
+        self.keyword["pipeline"][0]["config"]["categories"] = {
+            "STUDIO_DRAFT": ["VIP"]
+        }
         started = self.service.start_run(self.keyword, "keyword_match_mock")
         for _ in range(200):
             job = self.service.run_status(started["job_id"])["job"]
@@ -99,6 +102,16 @@ class WorkbenchServiceTest(unittest.TestCase):
         self.assertEqual(job["status"], "completed", job)
         self.assertIn("summary.json", job["result"])
         self.assertIn("results.jsonl", job["result"])
+        results = job["result"]["results.jsonl"]
+        self.assertEqual(len(results), 2)
+        self.assertEqual([result["status"] for result in results], [0, 0])
+        self.assertEqual(len({result["request_id"] for result in results}), 2)
+        self.assertTrue(results[0]["output"]["is_hit"])
+        self.assertEqual(results[0]["output"]["match_result"]["intent"], "STUDIO_DRAFT")
+        self.assertEqual(results[0]["output"]["match_result"]["matches"], [
+            {"category": "STUDIO_DRAFT", "matched_word": "VIP"}
+        ])
+        self.assertFalse(results[1]["output"]["is_hit"])
 
     def test_startup_opens_each_kite_file_without_backend_validation(self):
         files = list((ROOT / "configs" / "kite").glob("pipeline_*.json"))

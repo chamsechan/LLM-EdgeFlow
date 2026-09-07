@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <exception>
+#include <functional>
 #include <limits>
 #include <memory>
 #include <string>
@@ -437,6 +438,9 @@ struct BackendDefinition {
   std::vector<ExecutionProtocol> supported_protocols;
   std::vector<ConfigFieldDefinition> config_fields;
   InferenceConcurrency concurrency = InferenceConcurrency::kSerialized;
+  // Pure validation of normalized config; no session allocation or external
+  // I/O.
+  std::function<bool(const nlohmann::json&, std::string*)> validate_config;
 };
 
 inline const char* ExecutionProtocolName(ExecutionProtocol protocol) noexcept {

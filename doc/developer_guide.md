@@ -151,6 +151,15 @@ Model 自注册需实现 `IModel` 的某一强类型能力并声明所需协议�
 `IInferenceBackend` 并只返回中性 `IBackendSession`。二者分别提供完整
 `ModelDefinition` / `BackendDefinition` 并使用对应 `REGISTER_*_WITH_DEFINITION` 宏。
 
+Embedding 的归一化选择由 `EmbeddingOptions.normalize` 决定，模型负责实际计算；
+TextEmbeddingNode 将 `config.normalize` 传给调用选项。BGE 不再接受重复的
+`model_config.normalize`，已有配置应将该选择移到消费节点。
+
+后端有跨字段约束时，通过 `BackendDefinition.validate_config` 注册纯配置校验函数。
+PipelineValidator 在字段检查和默认值展开后调用；Backend 初始化复用同一解析规则。
+回调不得加载模型或访问外部资源，例如 llama.cpp 的 `decode_batch_size` 不得大于
+`context_size`。环境、设备和资产可用性仍由实际加载路径检查。
+
 其中，Model 的 `Concurrency()` 只声明语义对象是否可重入，Backend Session 的
 `Concurrency()` 声明具体运行时资源能力，Pipeline 以二者更严格的值调度。
 `ModelRuntimeFactory` 会将 Model 要求写入 `BackendLoadSpec::requested_protocol`，Backend

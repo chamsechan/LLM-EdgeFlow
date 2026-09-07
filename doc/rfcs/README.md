@@ -66,6 +66,7 @@
 | **RFC-0040** | 上线前实现、验证与命名收敛 | `Completed` | `v10.x` | 四层 / Build / Tooling | [0040-prelaunch-audit-convergence.md](0040-prelaunch-audit-convergence.md) |
 | **RFC-0041** | Control 开发路径的最小收敛 | `Completed` | `v10.x` | 接入适配层、流程编排层、能力节点层 / Tooling / Demo | [0041-control-authoring.md](0041-control-authoring.md) |
 | **RFC-0042** | 文件浏览、模板语义与构建边界修复 | `Completed` | `v10.x` | 四层 / Build / Tooling | [0042-studio-and-contract-boundaries.md](0042-studio-and-contract-boundaries.md) |
+| **RFC-0043** | 参数配置与执行行为的最小一致性整改 | `Completed` | `v10.x` | 流程编排层、能力节点层、模型执行层 / Tooling | [0043-config-parameter-consistency.md](0043-config-parameter-consistency.md) |
 
 ## 专项验收与评审归档
 

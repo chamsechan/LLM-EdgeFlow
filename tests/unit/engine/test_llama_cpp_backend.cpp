@@ -59,6 +59,35 @@ TEST(LlamaCppBackendTest, RegistryAndDefinitionAreConsistentWithBuild) {
   EXPECT_EQ(definition->config_fields[5].name, "check_tensors");
 }
 
+TEST(LlamaCppBackendTest, ConfigPreflightAndLoadShareCombinationValidation) {
+  const auto definition = BackendRegistry::Instance().Find("llama_cpp");
+  auto backend = BackendRegistry::Instance().Create("llama_cpp");
+  if (!backend) GTEST_SKIP() << "llama.cpp support is disabled";
+  ASSERT_TRUE(definition.has_value());
+  ASSERT_TRUE(definition->validate_config);
+
+  for (const auto& config :
+       {nlohmann::json{{"context_size", 128}},
+        nlohmann::json{{"context_size", 128}, {"decode_batch_size", 512}}}) {
+    std::string preflight_diagnostic;
+    EXPECT_FALSE(definition->validate_config(config, &preflight_diagnostic));
+    EXPECT_EQ(preflight_diagnostic,
+              "decode_batch_size must not exceed context_size");
+    BackendLoadSpec spec;
+    spec.backend_config = config;
+    // The config error is returned even without a path, before model access.
+    std::string load_diagnostic;
+    EXPECT_EQ(backend->Load(spec, &load_diagnostic), nullptr);
+    EXPECT_EQ(load_diagnostic, preflight_diagnostic);
+  }
+  for (const auto& config :
+       {nlohmann::json::object(),
+        nlohmann::json{{"context_size", 128}, {"decode_batch_size", 128}}}) {
+    std::string diagnostic;
+    EXPECT_TRUE(definition->validate_config(config, &diagnostic)) << diagnostic;
+  }
+}
+
 TEST(LlamaCppBackendTest, MissingInvalidPathAndUnknownConfigFailClosed) {
   auto backend = BackendRegistry::Instance().Create("llama_cpp");
   if (!backend) GTEST_SKIP() << "llama.cpp support is disabled";

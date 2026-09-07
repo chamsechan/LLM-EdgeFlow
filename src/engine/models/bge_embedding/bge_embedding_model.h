@@ -34,9 +34,8 @@ class BgeEmbeddingModel final : public IEmbeddingModel {
 
   BgeEmbeddingModel(std::shared_ptr<ITensorGraphSession> session,
                     BertWordPieceTokenizer tokenizer, size_t max_length,
-                    std::string pooling_strategy, bool normalize,
-                    std::string output_name, size_t embedding_dim,
-                    size_t max_batch_size);
+                    std::string pooling_strategy, std::string output_name,
+                    size_t embedding_dim, size_t max_batch_size);
 
   ~BgeEmbeddingModel() override = default;
 
@@ -66,7 +65,6 @@ class BgeEmbeddingModel final : public IEmbeddingModel {
   BertWordPieceTokenizer tokenizer_;
   size_t max_length_ = 512;
   std::string pooling_strategy_ = "cls";
-  bool default_normalize_ = true;
   std::string output_name_ = "last_hidden_state";
   size_t embedding_dim_ = 384;
   size_t max_batch_size_ = 4;

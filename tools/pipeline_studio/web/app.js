@@ -1,6 +1,6 @@
 import { api, initialPipeline, write } from "./api.js";
 import { GraphView } from "./graph.js";
-import { createHistory, createDrafts } from "./editor.js";
+import { createHistory, createDrafts, appendConfigField, readConfigFields, readFormBuffer, restoreFormBuffer } from "./editor.js";
 import { compatibleModels, createLatestRequestGate, modelBoundNodeIds, graphDocument, connectPorts, disconnectPorts, removeNode, compatibleBackends, modelAvailability, assertBrowsablePipeline, readPipelineFile, upsertModel, removeModel } from "./workbench.js";
 
 const $ = selector => document.querySelector(selector);
@@ -71,19 +71,6 @@ function requireApplied(except = "") {
   toast(`请先应用或放弃${pending.map(kind => labels[kind]).join("、")}中的修改`, true);
   switchTab(pending[0] === "node" ? "properties" : pending[0] === "model" ? "models" : "json");
   return false;
-}
-
-function readFormBuffer(form) {
-  return Object.fromEntries([...form.querySelectorAll("input, select, textarea")]
-    .filter(input => input.id || input.dataset.field)
-    .map(input => [input.id || `${input.closest("#backendConfigFields") ? "backend" : "config"}.${input.dataset.field}`, input.value]));
-}
-
-function restoreFormBuffer(form, buffer) {
-  for (const input of form.querySelectorAll("input, select, textarea")) {
-    const key = input.id || `${input.closest("#backendConfigFields") ? "backend" : "config"}.${input.dataset.field}`;
-    if (Object.hasOwn(buffer, key)) input.value = buffer[key];
-  }
 }
 
 function toast(message, error = false) {
@@ -182,49 +169,11 @@ function renderInspector(node) {
   const container = $("#configFields");
   container.replaceChildren();
   for (const field of definition?.config_fields || []) {
-    appendConfigField(container, field, node.config || {}, definition);
+    const modelRef = field.semantic === "model_ref" || field.name === definition.model_config_field;
+    const choices = modelRef ? compatibleModels(state.pipeline.models, state.catalog.models, definition).map(model => model.model_id) : null;
+    appendConfigField(container, field, node.config || {}, choices);
   }
   if (drafts.has("node")) restoreFormBuffer($("#nodeForm"), drafts.get("node"));
-}
-
-function appendConfigField(container, field, values, definition = null) {
-    const label = document.createElement("label"); label.textContent = field.name;
-    let input;
-    if (field.semantic === "model_ref" || (definition?.model_config_field && field.name === definition.model_config_field)) {
-      input = document.createElement("select");
-      for (const model of compatibleModels(state.pipeline.models, state.catalog.models, definition)) {
-        const option = new Option(model.model_id, model.model_id); input.add(option);
-      }
-    } else if (Array.isArray(field.enum) && field.enum.length) {
-      input = document.createElement("select");
-      for (const opt of field.enum) input.add(new Option(opt, opt));
-    } else if (field.type === "boolean") {
-      input = document.createElement("select"); input.add(new Option("true", "true")); input.add(new Option("false", "false"));
-    } else if (field.type === "object" || field.type === "array") {
-      input = document.createElement("textarea"); input.rows = 3;
-    } else {
-      input = document.createElement("input"); input.type = field.type === "integer" || field.type === "number" ? "number" : "text";
-      if (field.minimum !== undefined) input.min = field.minimum;
-      if (field.maximum !== undefined) input.max = field.maximum;
-    }
-    input.dataset.field = field.name; input.dataset.type = field.type;
-    input.required = Boolean(field.required);
-    if (input.type === "number") input.step = field.type === "integer" ? "1" : "any";
-    const value = values[field.name] ?? field.default;
-    input.value = typeof value === "object" ? JSON.stringify(value) : value ?? "";
-    label.append(input); container.append(label);
-}
-
-function parseField(input) {
-  if (input.dataset.type === "integer") {
-    const value = Number(input.value);
-    if (!Number.isSafeInteger(value)) throw new Error("请输入有效整数");
-    return value;
-  }
-  if (input.dataset.type === "number") return Number(input.value);
-  if (input.dataset.type === "boolean") return input.value === "true";
-  if (input.dataset.type === "object" || input.dataset.type === "array") return JSON.parse(input.value);
-  return input.value;
 }
 
 async function loadCatalog(biz = "") {
@@ -500,14 +449,6 @@ function updateBackendAvailability() {
   hint.textContent = availability.available ? "当前 Backend 不可用或不兼容，请选择列表中的兼容 Backend。" : availability.message;
 }
 
-function readConfigFields(selector) {
-  const config = {};
-  for (const input of $(selector).querySelectorAll("[data-field]")) {
-    if (input.value !== "" || input.required) config[input.dataset.field] = parseField(input);
-  }
-  return config;
-}
-
 $("#assetSelect").addEventListener("change", event => {
   const asset = state.assets.find(item => item.id === event.target.value);
   if (!asset) return;
@@ -542,7 +483,7 @@ $("#modelForm").addEventListener("submit", event => {
     const model = {
       model_id: $("#modelId").value.trim(), model_type: $("#modelType").value,
       backend: $("#modelBackend").value, model_path: $("#modelPath").value.trim(),
-      model_config: readConfigFields("#modelConfigFields"), backend_config: readConfigFields("#backendConfigFields"),
+      model_config: readConfigFields($("#modelConfigFields")), backend_config: readConfigFields($("#backendConfigFields")),
     };
     state.pipeline.models ??= [];
     upsertModel(state.pipeline, state.catalog, editingModelId, model);
@@ -684,7 +625,7 @@ $("#nodeForm").addEventListener("submit", event => {
   const newId = $("#nodeId").value.trim();
   if (!newId || state.pipeline.pipeline.some(item => item !== node && item.id === newId)) return toast("节点 ID 为空或重复", true);
   try {
-    const config = readConfigFields("#configFields");
+    const config = readConfigFields($("#configFields"));
     for (const item of state.pipeline.pipeline) item.depends_on = item.depends_on.map(id => id === node.id ? newId : id);
     if (newId !== node.id && graph.positions[node.id]) {
       graph.positions[newId] = graph.positions[node.id];

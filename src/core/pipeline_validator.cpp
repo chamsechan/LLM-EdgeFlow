@@ -576,13 +576,31 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
 
       nlohmann::json normalized_bcfg = nlohmann::json::object();
       std::vector<ValidationDiagnostic> bcfg_diags;
-      ValidateAndNormalizeConfig(
+      const bool backend_fields_valid = ValidateAndNormalizeConfig(
           backend_def_opt->config_fields, model.backend_config,
           &normalized_bcfg, &bcfg_diags,
           "/models/" + std::to_string(model.source_index) + "/backend_config",
           DiagnosticCode::kUnknownBackendConfigField);
       for (auto& d : bcfg_diags) {
         report.diagnostics.push_back(std::move(d));
+      }
+
+      if (backend_fields_valid && backend_def_opt->validate_config) {
+        const std::string path =
+            "/models/" + std::to_string(model.source_index) + "/backend_config";
+        std::string diagnostic;
+        try {
+          if (!backend_def_opt->validate_config(normalized_bcfg, &diagnostic)) {
+            Add(&report, DiagnosticCode::kInvalidCombination, path,
+                diagnostic.empty() ? "Invalid backend configuration"
+                                   : diagnostic);
+          }
+        } catch (const std::exception& e) {
+          Add(&report, DiagnosticCode::kInvalidCombination, path, e.what());
+        } catch (...) {
+          Add(&report, DiagnosticCode::kInvalidCombination, path,
+              "Backend configuration validator threw an unknown exception");
+        }
       }
 
       // 8. Orchestration only performs environment-neutral lexical path checks.

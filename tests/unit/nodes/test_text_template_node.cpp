@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <memory>
 #include <nlohmann/json.hpp>
@@ -194,6 +195,7 @@ TEST_F(TextTemplateNodeTest, ControlCommandHotSwapAndBogusRejection) {
             NodeControlStatus::kFailed);
   AlgContext after_failure;
   after_failure.Publish("primary", TextBatch{{17, 4, "{{context}}"}});
+  after_failure.Publish("context", RankedTextBatch{});
   ASSERT_EQ(node->Process(&after_failure), 0);
   ASSERT_NE(after_failure.Read<TextBatch>("text"), nullptr);
   EXPECT_EQ(after_failure.Read<TextBatch>("text")->front().data,
@@ -221,6 +223,137 @@ TEST_F(TextTemplateNodeTest, PipelineEnforcesPublishedControlSchema) {
   EXPECT_EQ(pipeline.Control(kControlCmdUpdatePrompt,
                              nlohmann::json{{"prompt_id", "doc-qa-v2"}}.dump()),
             0);
+}
+
+namespace {
+nlohmann::json TemplatePipeline(const nlohmann::json& config) {
+  auto root = nlohmann::json::parse(R"({
+    "biz_name":"keyword_match_v1", "models":[], "pipeline":[
+      {"id":"template", "node_type":"TextTemplateNode", "depends_on":[],
+       "ports":{"inputs":{"primary":"input_sentences"},
+                "outputs":{"text":"rendered_text"}}, "config":{}},
+      {"id":"rules", "node_type":"TextRuleMatchNode", "depends_on":["template"],
+       "ports":{"inputs":{"text":"rendered_text"},
+                "outputs":{"matches":"rule_matches"}}, "config":{}}
+    ]})");
+  root["pipeline"][0]["config"] = config;
+  return root;
+}
+}  // namespace
+
+TEST_F(TextTemplateNodeTest, UnconnectedBuiltinUsesDeclaredMissingPolicy) {
+  for (const std::string variable :
+       {"context", "context_text", "matches", "document", "document_text"}) {
+    SCOPED_TRACE(variable);
+    const std::string pattern = "Q={{primary}}|V={{" + variable + "}}";
+    auto root = TemplatePipeline({{"template", pattern}});
+    const auto invalid = PipelineValidator::ValidateAndPlan(root);
+    ASSERT_FALSE(invalid.report.ok);
+    EXPECT_TRUE(
+        std::any_of(invalid.report.diagnostics.begin(),
+                    invalid.report.diagnostics.end(), [&](const auto& d) {
+                      return d.path == "/pipeline/0/config" &&
+                             d.message.find(variable) != std::string::npos;
+                    }));
+    for (const std::string policy : {"empty", "preserve"}) {
+      root["pipeline"][0]["config"]["missing_variable_policy"] = policy;
+      Pipeline pipeline;
+      PipelineDiagnostic diagnostic;
+      ASSERT_TRUE(pipeline.BuildFromJson(root, &diagnostic))
+          << diagnostic.message;
+      AlgContext ctx;
+      ctx.Publish("input_sentences", TextBatch{{1, 3, "hello"}});
+      ASSERT_EQ(pipeline.Execute(&ctx), 0);
+      ASSERT_NE(ctx.Read<TextBatch>("rendered_text"), nullptr);
+      EXPECT_EQ(ctx.Read<TextBatch>("rendered_text")->front().data,
+                "Q=hello|V=" + (policy == "empty" ? "" : "{" + variable + "}"));
+    }
+  }
+}
+
+TEST_F(TextTemplateNodeTest,
+       MissingRuntimeBuiltinFailsButEmptyAggregateIsValid) {
+  auto node = NodeFactory::Instance().Create("TextTemplateNode");
+  ASSERT_TRUE(InitNodeForTest(*node, {{"template", "{{primary}}|{{context}}"}},
+                              session_ctx_.get()));
+  AlgContext missing;
+  missing.Publish("primary", TextBatch{{1, 0, "Q"}});
+  EXPECT_EQ(node->Process(&missing), -6202);
+  EXPECT_FALSE(missing.Has("text"));
+
+  AlgContext empty;
+  empty.Publish("primary", TextBatch{{1, 0, "Q"}});
+  empty.Publish("context_text", TextBatch{});
+  ASSERT_EQ(node->Process(&empty), 0);
+  ASSERT_NE(empty.Read<TextBatch>("text"), nullptr);
+  EXPECT_EQ(empty.Read<TextBatch>("text")->front().data, "Q|");
+
+  AlgContext other_request;
+  other_request.Publish("primary", TextBatch{{1, 0, "Q"}});
+  other_request.Publish(
+      "context", RankedTextBatch{{2, 0, RankedCandidate("other", 1.0f)}});
+  ASSERT_EQ(node->Process(&other_request), 0);
+  EXPECT_EQ(other_request.Read<TextBatch>("text")->front().data, "Q|");
+}
+
+TEST_F(TextTemplateNodeTest, MissingPrimarySampleDoesNotPublishPartialOutput) {
+  auto node = NodeFactory::Instance().Create("TextTemplateNode");
+  ASSERT_TRUE(InitNodeForTest(*node, {{"template", "{{primary}}"}},
+                              session_ctx_.get()));
+  AlgContext ctx;
+  ctx.Publish("primary", TextBatch{{1, 0, ""}});
+  ctx.Publish("attributes", TextAttributesBatch{{2, 0, {}}});
+  EXPECT_EQ(node->Process(&ctx), -6202);
+  EXPECT_FALSE(ctx.Has("text"));
+
+  AlgContext valid_empty;
+  valid_empty.Publish("primary", TextBatch{{1, 0, ""}});
+  ASSERT_EQ(node->Process(&valid_empty), 0);
+  EXPECT_EQ(valid_empty.Read<TextBatch>("text")->front().data, "");
+}
+
+TEST_F(TextTemplateNodeTest,
+       ControlRejectsUnconnectedBuiltinAndRetainsConfiguration) {
+  Pipeline pipeline;
+  ASSERT_TRUE(
+      pipeline.BuildFromJson(TemplatePipeline({{"template", "{{primary}}"}})));
+  EXPECT_NE(pipeline.Control(kControlCmdUpdatePrompt,
+                             R"({"template":"{{context}}"})"),
+            0);
+  AlgContext original;
+  original.Publish("input_sentences", TextBatch{{1, 0, "Q"}});
+  ASSERT_EQ(pipeline.Execute(&original), 0);
+  EXPECT_EQ(original.Read<TextBatch>("rendered_text")->front().data, "Q");
+  EXPECT_EQ(
+      pipeline.Control(
+          kControlCmdUpdatePrompt,
+          R"({"template":"{{context}}","missing_variable_policy":"empty"})"),
+      0);
+  EXPECT_NE(pipeline.Control(kControlCmdUpdatePrompt,
+                             R"({"missing_variable_policy":"fail"})"),
+            0);
+  AlgContext after_failure;
+  after_failure.Publish("input_sentences", TextBatch{{2, 0, "Q"}});
+  ASSERT_EQ(pipeline.Execute(&after_failure), 0);
+  EXPECT_EQ(after_failure.Read<TextBatch>("rendered_text")->front().data, "");
+}
+
+TEST_F(TextTemplateNodeTest, ConnectedAttributesRemainAvailableAcrossControl) {
+  auto node = NodeFactory::Instance().Create("TextTemplateNode");
+  ValidatedNodePlan plan;
+  plan.normalized_config = {{"template", "{{name}}"},
+                            {"allow_dynamic_attributes", false}};
+  plan.ports.push_back({"attributes", "attrs", "TextAttributesBatch", "1:1",
+                        "preserve", "request", PortDirection::kInput});
+  ASSERT_TRUE(node->Init({&plan, nullptr, session_ctx_.get()}));
+  EXPECT_EQ(node->Control(kControlCmdUpdatePrompt,
+                          R"({"allow_dynamic_attributes":false})")
+                .status,
+            NodeControlStatus::kHandled);
+  AlgContext ctx;
+  ctx.Publish("attrs", TextAttributesBatch{{1, 0, {{"name", "Alice"}}}});
+  ASSERT_EQ(node->Process(&ctx), 0);
+  EXPECT_EQ(ctx.Read<TextBatch>("text")->front().data, "Alice");
 }
 
 }  // namespace llm_edgeflow

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 const source = readFileSync(new URL("../../tools/pipeline_studio/web/editor.js", import.meta.url), "utf8");
-const { createHistory, createDrafts } = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
+const { createHistory, createDrafts, appendConfigField, readConfigFields, readFormBuffer, restoreFormBuffer } = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
 const history = createHistory(3);
 const initial = { pipeline: { pipeline: [{ id: "root", depends_on: [] }] }, selected: "root" };
 const saved = JSON.stringify(initial.pipeline);
@@ -43,6 +43,87 @@ assert.equal(drafts.has("node"), true, "discarding JSON must not discard another
 drafts.clear();
 assert.equal(drafts.pending, false);
 console.log("Studio document history and pending editor buffer checks passed");
+
+// Keep the browser value-sanitization behavior that caused the original bug:
+// text inputs remove newlines; textarea values normalize CR/CRLF to LF.
+class FormElement {
+  constructor(tag) {
+    this.tagName = tag.toUpperCase(); this.type = "text"; this.dataset = {};
+    this.children = []; this.rawValue = "";
+  }
+  set value(value) {
+    value = String(value);
+    this.rawValue = this.tagName === "INPUT" && this.type === "text" ? value.replace(/[\r\n]/g, "")
+      : this.tagName === "TEXTAREA" ? value.replace(/\r\n?/g, "\n") : value;
+  }
+  get value() { return this.rawValue; }
+  append(...children) { for (const child of children) { child.parent = this; this.children.push(child); } }
+  add(child) { this.append(child); }
+  closest(selector) { return this.id === selector.slice(1) ? this : this.parent?.closest(selector); }
+  querySelectorAll(selector) {
+    return this.children.flatMap(child => [
+      ...(selector === "[data-field]" ? child.dataset.field
+        : ["INPUT", "SELECT", "TEXTAREA"].includes(child.tagName)) ? [child] : [],
+      ...child.querySelectorAll(selector),
+    ]);
+  }
+}
+globalThis.document = { createElement: tag => new FormElement(tag) };
+globalThis.Option = class extends FormElement {
+  constructor(text, value) { super("option"); this.textContent = text; this.value = value; }
+};
+const stringFields = [
+  { name: "template", type: "string", default: "{{primary}}" },
+  { name: "separator", type: "string", default: "\n" },
+  { name: "optional_prefix", type: "string" },
+];
+const configuredStrings = { template: "  第一行\r\n{{primary}}\n\t尾行\r", separator: "" };
+const renderFields = (values, fields = stringFields, id = "configFields") => {
+  const form = new FormElement("form"); form.id = id;
+  for (const field of fields) appendConfigField(form, field, values);
+  return form;
+};
+const field = (form, name) => form.querySelectorAll("[data-field]").find(input => input.dataset.field === name);
+const stringForm = renderFields(configuredStrings);
+assert.equal(field(stringForm, "template").tagName, "TEXTAREA");
+assert.equal(field(stringForm, "template").rows, 4);
+assert.equal(field(stringForm, "separator").rows, 1);
+assert.deepEqual(readConfigFields(stringForm), configuredStrings, "Apply must preserve whitespace, CRLF and explicit empty strings");
+const unconfiguredForm = renderFields({});
+assert.deepEqual(readConfigFields(unconfiguredForm), {}, "Apply must keep unset strings omitted, including those with defaults");
+field(unconfiguredForm, "separator").value = "";
+assert.deepEqual(readConfigFields(unconfiguredForm), { separator: "" }, "clearing a nonempty default must set an empty string");
+field(unconfiguredForm, "optional_prefix").value = "new prefix";
+assert.deepEqual(readConfigFields(unconfiguredForm), { separator: "", optional_prefix: "new prefix" });
+field(stringForm, "template").value = "Edited\n{{primary}}\n";
+const repaintedForm = renderFields(configuredStrings);
+restoreFormBuffer(repaintedForm, readFormBuffer(stringForm));
+assert.deepEqual(readConfigFields(repaintedForm), { template: "Edited\n{{primary}}\n", separator: "" });
+const untouchedRepaint = renderFields(configuredStrings);
+restoreFormBuffer(untouchedRepaint, readFormBuffer(renderFields(configuredStrings)));
+assert.deepEqual(readConfigFields(untouchedRepaint), configuredStrings);
+const requiredForm = renderFields({ value: "" }, [{ name: "value", type: "string", required: true }]);
+assert.deepEqual(readConfigFields(requiredForm), { value: "" });
+assert.equal(field(requiredForm, "value").required, false, "required means present, not nonempty");
+const enumForm = renderFields({ value: "fail" }, [{ name: "value", type: "string", enum: ["fail", "empty"] }]);
+assert.equal(field(enumForm, "value").dataset.originalValue, undefined, "select fields do not need original-text metadata");
+field(enumForm, "value").value = "empty";
+assert.deepEqual(readConfigFields(enumForm), { value: "empty" });
+const combinedForm = new FormElement("form");
+const modelForm = renderFields({ separator: "\n" }, [stringFields[1]], "modelConfigFields");
+const backendForm = renderFields({ separator: "" }, [stringFields[1]], "backendConfigFields");
+combinedForm.append(modelForm, backendForm);
+field(modelForm, "separator").value = "model separator";
+field(backendForm, "separator").value = "backend separator";
+const combinedBuffer = readFormBuffer(combinedForm);
+assert.equal(combinedBuffer["config.separator"], "model separator");
+assert.equal(combinedBuffer["backend.separator"], "backend separator");
+field(modelForm, "separator").value = "";
+field(backendForm, "separator").value = "";
+restoreFormBuffer(combinedForm, combinedBuffer);
+assert.deepEqual(readConfigFields(modelForm), { separator: "model separator" });
+assert.deepEqual(readConfigFields(backendForm), { separator: "backend separator" });
+console.log("Studio config string and form repaint checks passed");
 
 const workbenchSource = readFileSync(new URL("../../tools/pipeline_studio/web/workbench.js", import.meta.url), "utf8");
 const { readPipelineFile, modelAvailability, upsertModel } = await import(`data:text/javascript;base64,${Buffer.from(workbenchSource).toString("base64")}`);

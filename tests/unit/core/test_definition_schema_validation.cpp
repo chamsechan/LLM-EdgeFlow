@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <nlohmann/json.hpp>
+#include <stdexcept>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -109,8 +110,14 @@ class SchemaProbeBackend : public IInferenceBackend {
  public:
   inline static constexpr char kBackendType[] = "schema_probe_backend";
   static inline int s_load_count = 0;
+  static inline int s_validate_count = 0;
+  static inline nlohmann::json s_validated_config;
 
-  static void ResetCounts() { s_load_count = 0; }
+  static void ResetCounts() {
+    s_load_count = 0;
+    s_validate_count = 0;
+    s_validated_config = nullptr;
+  }
   const std::string& BackendType() const noexcept override {
     static const std::string type = kBackendType;
     return type;
@@ -138,7 +145,38 @@ BackendDefinition MakeSchemaProbeBackendDefinition() {
                             /*maximum=*/std::nullopt,
                             /*enum_values=*/{"fp16", "fp32", "int8"}},
   };
+  def.validate_config = [](const nlohmann::json& config,
+                           std::string* diagnostic) {
+    ++SchemaProbeBackend::s_validate_count;
+    SchemaProbeBackend::s_validated_config = config;
+    const int device_id = config.at("device_id").get<int>();
+    // Exercise both exception barriers using otherwise valid field values.
+    if (device_id == 15) throw std::runtime_error("probe validation exception");
+    if (device_id == 16) throw 16;
+    if (device_id == 0 && config.at("precision") == "int8") {
+      if (diagnostic) *diagnostic = "int8 requires device_id greater than zero";
+      return false;
+    }
+    return true;
+  };
   return def;
+}
+
+nlohmann::json MakeSchemaProbePipeline(const nlohmann::json& backend_config) {
+  return {{"biz_name", "unregistered_test_biz"},
+          {"models",
+           {{{"model_id", "probe_model"},
+             {"capability", "schema_probe"},
+             {"model_type", SchemaProbeModel::kModelType},
+             {"backend", SchemaProbeBackend::kBackendType},
+             {"model_path", "probe.bin"},
+             {"model_config", nlohmann::json::object()},
+             {"backend_config", backend_config}}}},
+          {"pipeline",
+           {{{"id", "node_0"},
+             {"node_type", SchemaProbeNode::kNodeType},
+             {"depends_on", nlohmann::json::array()},
+             {"config", {{"req_str", "valid"}}}}}}};
 }
 
 REGISTER_MODEL_WITH_DEFINITION(SchemaProbeModel,
@@ -255,6 +293,102 @@ TEST(DefinitionSchemaValidationTest, EnforcesBackendConfigConstraints) {
   }
   EXPECT_TRUE(has_range);
   EXPECT_TRUE(has_enum);
+}
+
+TEST(DefinitionSchemaValidationTest,
+     BackendCallbackReceivesNormalizedDefaults) {
+  for (const auto& config :
+       {nlohmann::json::object(),
+        nlohmann::json{{"device_id", 1}, {"precision", "int8"}}}) {
+    SchemaProbeBackend::ResetCounts();
+    SchemaProbeModel::ResetCounts();
+    SchemaProbeNode::ResetCounts();
+    const auto plan = PipelineValidator::ValidateAndPlan(
+        MakeSchemaProbePipeline(config),
+        ValidationPolicy::kPrivateExtensionCompatible);
+    EXPECT_TRUE(plan.report.ok);
+    EXPECT_EQ(SchemaProbeBackend::s_validate_count, 1);
+    EXPECT_EQ(SchemaProbeBackend::s_validated_config.at("device_id"),
+              config.value<int>("device_id", 0));
+    EXPECT_EQ(SchemaProbeBackend::s_validated_config.at("precision"),
+              config.value<std::string>("precision", "fp16"));
+    EXPECT_EQ(SchemaProbeBackend::s_load_count, 0);
+    EXPECT_EQ(SchemaProbeModel::s_create_count, 0);
+    EXPECT_EQ(SchemaProbeNode::s_init_count, 0);
+    EXPECT_EQ(SchemaProbeNode::s_process_count, 0);
+  }
+}
+
+TEST(DefinitionSchemaValidationTest,
+     BackendCombinationFailurePreventsMaterialization) {
+  SchemaProbeBackend::ResetCounts();
+  SchemaProbeModel::ResetCounts();
+  SchemaProbeNode::ResetCounts();
+  const auto input = MakeSchemaProbePipeline({{"precision", "int8"}});
+  const auto plan = PipelineValidator::ValidateAndPlan(
+      input, ValidationPolicy::kPrivateExtensionCompatible);
+  EXPECT_FALSE(plan.report.ok);
+  const auto diagnostic =
+      std::find_if(plan.report.diagnostics.begin(),
+                   plan.report.diagnostics.end(), [](const auto& item) {
+                     return item.code == DiagnosticCode::kInvalidCombination;
+                   });
+  ASSERT_NE(diagnostic, plan.report.diagnostics.end());
+  EXPECT_EQ(diagnostic->path, "/models/0/backend_config");
+  EXPECT_EQ(diagnostic->message, "int8 requires device_id greater than zero");
+  EXPECT_EQ(SchemaProbeBackend::s_validate_count, 1);
+  EXPECT_EQ(SchemaProbeBackend::s_validated_config.at("device_id"), 0);
+
+  Pipeline pipeline;
+  PipelineDiagnostic build_diagnostic;
+  EXPECT_FALSE(pipeline.BuildFromJson(
+      input, &build_diagnostic, ValidationPolicy::kPrivateExtensionCompatible));
+  EXPECT_EQ(pipeline.GetState(), Pipeline::State::kFailed);
+  EXPECT_EQ(SchemaProbeBackend::s_load_count, 0);
+  EXPECT_EQ(SchemaProbeModel::s_create_count, 0);
+  EXPECT_EQ(SchemaProbeNode::s_init_count, 0);
+  EXPECT_EQ(SchemaProbeNode::s_process_count, 0);
+}
+
+TEST(DefinitionSchemaValidationTest, InvalidBackendFieldsSkipSemanticCallback) {
+  for (const auto& config : {nlohmann::json{{"device_id", "wrong"}},
+                             nlohmann::json{{"device_id", 17}},
+                             nlohmann::json{{"precision", "unknown"}},
+                             nlohmann::json{{"undeclared", 1}}}) {
+    SCOPED_TRACE(config.dump());
+    SchemaProbeBackend::ResetCounts();
+    const auto plan = PipelineValidator::ValidateAndPlan(
+        MakeSchemaProbePipeline(config),
+        ValidationPolicy::kPrivateExtensionCompatible);
+    EXPECT_FALSE(plan.report.ok);
+    EXPECT_EQ(SchemaProbeBackend::s_validate_count, 0);
+    EXPECT_EQ(SchemaProbeBackend::s_load_count, 0);
+  }
+}
+
+TEST(DefinitionSchemaValidationTest,
+     BackendCallbackExceptionsBecomeDiagnostics) {
+  for (const int device_id : {15, 16}) {
+    SchemaProbeBackend::ResetCounts();
+    const auto plan = PipelineValidator::ValidateAndPlan(
+        MakeSchemaProbePipeline({{"device_id", device_id}}),
+        ValidationPolicy::kPrivateExtensionCompatible);
+    EXPECT_FALSE(plan.report.ok);
+    EXPECT_EQ(SchemaProbeBackend::s_validate_count, 1);
+    const auto diagnostic =
+        std::find_if(plan.report.diagnostics.begin(),
+                     plan.report.diagnostics.end(), [](const auto& item) {
+                       return item.code == DiagnosticCode::kInvalidCombination;
+                     });
+    ASSERT_NE(diagnostic, plan.report.diagnostics.end());
+    EXPECT_EQ(diagnostic->path, "/models/0/backend_config");
+    EXPECT_EQ(
+        diagnostic->message,
+        device_id == 15
+            ? "probe validation exception"
+            : "Backend configuration validator threw an unknown exception");
+    EXPECT_EQ(SchemaProbeBackend::s_load_count, 0);
+  }
 }
 
 TEST(DefinitionSchemaValidationTest, ValidationFailureHasZeroSideEffects) {
