@@ -12,7 +12,10 @@
 ## 替换模型后确认实际生效配置
 
 先查询目标构建的 Catalog，选择兼容 Model/Backend，修改 Pipeline 中对应实例的
-`model_path`、`model_config` / `backend_config`，必要时更新 Node 的 `model_id`。
+`model_path`、`model_config` / `backend_config`。需要改绑模型实例时，运行
+`describe-node <node_type>`，按返回的 `model_config_field` 更新 Node `config` 中的对应字段。
+例如 `LlmGenerateNode` 使用 `config.bind_model` 引用 `models[].model_id`；保留模型实例 ID
+只更换权重时，无需修改节点绑定。
 Node 的检索数、生成预算、模板等业务参数放在 Node `config`，字段说明与默认值通过
 `describe-node` 或 Studio 属性查看。未声明为 Control 的参数在重新创建 handle 后生效。
 
