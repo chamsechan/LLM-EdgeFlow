@@ -18,20 +18,55 @@ constexpr char kDefaultFailurePolicy[] = "configured_fallback";
 
 const std::vector<ConfigFieldDefinition>& StructuredJsonParseConfigFields() {
   static const std::vector<ConfigFieldDefinition> fields = {
-      ConfigFieldDefinition{"fallback_json", ConfigValueKind::kString, false,
-                            kDefaultFallbackJson},
-      ConfigFieldDefinition{"extract_json_block", ConfigValueKind::kBoolean,
-                            false, kDefaultExtractJsonBlock},
-      ConfigFieldDefinition{"required_fields", ConfigValueKind::kArray, false},
-      ConfigFieldDefinition{"field_types", ConfigValueKind::kObject, false},
+      ConfigFieldDefinition{"fallback_json",
+                            ConfigValueKind::kString,
+                            false,
+                            kDefaultFallbackJson,
+                            std::nullopt,
+                            std::nullopt,
+                            {},
+                            "失败时使用的 JSON 文本字符串，例如 "
+                            "\"{\\\"name\\\":\\\"unknown\\\"}\"；非 fail "
+                            "模式须满足配置的字段检查。"},
+      ConfigFieldDefinition{"extract_json_block",
+                            ConfigValueKind::kBoolean,
+                            false,
+                            kDefaultExtractJsonBlock,
+                            std::nullopt,
+                            std::nullopt,
+                            {},
+                            "允许从代码围栏或周围文本中提取完整 JSON "
+                            "对象/数组；false 时要求整段输入为 JSON。"},
+      ConfigFieldDefinition{"required_fields",
+                            ConfigValueKind::kArray,
+                            false,
+                            nlohmann::json(),
+                            std::nullopt,
+                            std::nullopt,
+                            {},
+                            "必须存在的顶层字段名数组，例如 [\"name\", "
+                            "\"score\"]；不使用 JSON Pointer 或点号路径。"},
       ConfigFieldDefinition{
-          "failure_policy",
-          ConfigValueKind::kString,
+          "field_types",
+          ConfigValueKind::kObject,
           false,
-          kDefaultFailurePolicy,
+          nlohmann::json(),
           std::nullopt,
           std::nullopt,
-          {"fail", "emit_diagnostic", "configured_fallback"}}};
+          {},
+          "顶层字段名到类型的映射，例如 "
+          "{\"name\":\"string\",\"score\":\"number\"}；还支持 "
+          "boolean/object/array，列出的字段须存在。"},
+      ConfigFieldDefinition{"failure_policy",
+                            ConfigValueKind::kString,
+                            false,
+                            kDefaultFailurePolicy,
+                            std::nullopt,
+                            std::nullopt,
+                            {"fail", "emit_diagnostic", "configured_fallback"},
+                            "fail 中止处理；emit_diagnostic "
+                            "输出失败状态和备用值；configured_fallback "
+                            "输出备用值并标记已使用回退。"}};
   return fields;
 }
 }  // namespace

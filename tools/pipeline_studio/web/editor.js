@@ -88,7 +88,12 @@ export function appendConfigField(container, field, values, modelChoices = null)
     input.dataset.displayValue = input.value;
     input.rows = Math.min(4, input.value.split("\n").length);
   }
-  label.append(input); container.append(label);
+  label.append(input);
+  if (field.semantic && field.semantic !== "model_ref") {
+    const help = document.createElement("small"); help.className = "field-help";
+    help.textContent = field.semantic; label.append(help);
+  }
+  container.append(label);
 }
 
 function parseField(input) {

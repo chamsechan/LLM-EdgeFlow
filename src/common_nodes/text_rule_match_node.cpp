@@ -24,12 +24,46 @@ constexpr double kDefaultScore = 1.0;
 
 const std::vector<ConfigFieldDefinition>& TextRuleMatchConfigFields() {
   static const std::vector<ConfigFieldDefinition> kFields = {
-      ConfigFieldDefinition{"default_category", ConfigValueKind::kString, false,
-                            ""},
-      ConfigFieldDefinition{"default_score", ConfigValueKind::kNumber, false,
-                            kDefaultScore, 0.0, 1.0},
-      ConfigFieldDefinition{"categories", ConfigValueKind::kObject, false},
-      ConfigFieldDefinition{"rules", ConfigValueKind::kArray, false}};
+      ConfigFieldDefinition{"default_category",
+                            ConfigValueKind::kString,
+                            false,
+                            "",
+                            std::nullopt,
+                            std::nullopt,
+                            {},
+                            "没有词表或规则命中时使用的类别；非空会将该输入标记"
+                            "为命中，并保留 raw_query。"},
+      ConfigFieldDefinition{"default_score",
+                            ConfigValueKind::kNumber,
+                            false,
+                            kDefaultScore,
+                            0.0,
+                            1.0,
+                            {},
+                            "仅 default_category 回退命中时使用的分数，范围 "
+                            "[0,1]；规则自身分数由 rules[].score 设置。"},
+      ConfigFieldDefinition{"categories",
+                            ConfigValueKind::kObject,
+                            false,
+                            nlohmann::json(),
+                            std::nullopt,
+                            std::nullopt,
+                            {},
+                            "类别到关键词数组的映射，按子串匹配，例如 "
+                            "{\"VIP\":[\"专席\",\"VIP\"]}；可通过 update_rules "
+                            "Control 整体替换。"},
+      ConfigFieldDefinition{
+          "rules",
+          ConfigValueKind::kArray,
+          false,
+          nlohmann::json(),
+          std::nullopt,
+          std::nullopt,
+          {},
+          "规则对象数组，pattern 必填；例如 "
+          "[{\"id\":\"r1\",\"strategy\":\"contains\",\"pattern\":\"VIP\","
+          "\"category\":\"优先\",\"score\":1,\"constants\":{\"route\":\"vip\"}}"
+          "]。strategy 还支持 exact/regex，score 范围 [0,1]。"}};
   return kFields;
 }
 

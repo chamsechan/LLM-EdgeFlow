@@ -21,10 +21,24 @@ constexpr int64_t kDefaultOverlap = 0;
 
 const std::vector<ConfigFieldDefinition>& TextChunkConfigFields() {
   static const std::vector<ConfigFieldDefinition> kFields = {
-      ConfigFieldDefinition{"chunk_size", ConfigValueKind::kInteger, false,
-                            kDefaultChunkSize, 1.0, 1000000.0},
-      ConfigFieldDefinition{"overlap", ConfigValueKind::kInteger, false,
-                            kDefaultOverlap, 0.0, 100000.0}};
+      ConfigFieldDefinition{"chunk_size",
+                            ConfigValueKind::kInteger,
+                            false,
+                            kDefaultChunkSize,
+                            1.0,
+                            1000000.0,
+                            {},
+                            "每块最多包含的 Unicode 码点数；按 UTF-8 "
+                            "字符边界切分，不是字节数或模型 token 数。"},
+      ConfigFieldDefinition{
+          "overlap",
+          ConfigValueKind::kInteger,
+          false,
+          kDefaultOverlap,
+          0.0,
+          100000.0,
+          {},
+          "相邻块重叠的 Unicode 码点数，必须小于 chunk_size；0 表示无重叠。"}};
   return kFields;
 }
 

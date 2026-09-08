@@ -188,17 +188,33 @@ NodeDefinition MakeTextEmbeddingNodeDefinition() {
                             BlackboardKey<EmbeddingBatch>{"", "EmbeddingBatch"},
                             "N:M", "preserve", "request", "lifetime")};
   def.config_fields = {
-      ConfigFieldDefinition{"bind_model", ConfigValueKind::kString, false,
-                            "embed_model_v1"},
-      ConfigFieldDefinition{"normalize", ConfigValueKind::kBoolean, false,
-                            true},
+      ConfigFieldDefinition{
+          "bind_model",
+          ConfigValueKind::kString,
+          false,
+          "embed_model_v1",
+          std::nullopt,
+          std::nullopt,
+          {},
+          "引用 models[].model_id；所选模型必须提供 embedding 文本向量能力。"},
+      ConfigFieldDefinition{"normalize",
+                            ConfigValueKind::kBoolean,
+                            false,
+                            true,
+                            std::nullopt,
+                            std::nullopt,
+                            {},
+                            "要求模型对输出向量做 L2 归一化。"},
       ConfigFieldDefinition{"lifetime",
                             ConfigValueKind::kString,
                             false,
                             "request",
                             std::nullopt,
                             std::nullopt,
-                            {"request", "session"}}};
+                            {"request", "session"},
+                            "request 每次请求计算；session "
+                            "按模型版本、归一化选项和输入缓存向量，输入须满足 "
+                            "session 生命周期契约。"}};
   def.model_capability = "embedding";
   def.model_config_field = "bind_model";
   def.parallel_safe = true;

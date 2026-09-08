@@ -103,11 +103,39 @@ static const ModelDefinition kVisionDocumentDefinition = [] {
   definition.required_protocol = ExecutionProtocol::kImageTextGeneration;
   definition.concurrency = InferenceConcurrency::kConcurrent;
   definition.config_fields = {
-      {"prompt", ConfigValueKind::kString, false, kPrompt},
-      {"patch_size", ConfigValueKind::kInteger, false, 16, 1.0, 256.0},
-      {"max_pixels", ConfigValueKind::kInteger, false, 4194304, 1.0,
-       16777216.0},
-      {"max_tokens", ConfigValueKind::kInteger, false, 512, 1.0, 4096.0}};
+      {"prompt",
+       ConfigValueKind::kString,
+       false,
+       kPrompt,
+       std::nullopt,
+       std::nullopt,
+       {},
+       "图像转文本的识别指令；须为非空文本，识别输出作为文档全文。"},
+      {"patch_size",
+       ConfigValueKind::kInteger,
+       false,
+       16,
+       1.0,
+       256.0,
+       {},
+       "图像块边长，单位为像素；解码后宽高补齐到其整数倍，须符合图像模型约定"
+       "。"},
+      {"max_pixels",
+       ConfigValueKind::kInteger,
+       false,
+       4194304,
+       1.0,
+       16777216.0,
+       {},
+       "允许的图像总像素数上限，同时检查原图与按 patch_size 补齐后的图像。"},
+      {"max_tokens",
+       ConfigValueKind::kInteger,
+       false,
+       512,
+       1.0,
+       4096.0,
+       {},
+       "每张图像识别时最多生成的文本 token 数；该路径使用贪心生成。"}};
   return definition;
 }();
 REGISTER_MODEL_WITH_DEFINITION(VisionDocumentModel, kVisionDocumentDefinition);

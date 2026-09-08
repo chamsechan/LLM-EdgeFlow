@@ -30,29 +30,72 @@ constexpr char kDefaultMissingPolicy[] = "fail";
 
 const std::vector<ConfigFieldDefinition>& TextTemplateConfigFields() {
   static const std::vector<ConfigFieldDefinition> fields = {
-      ConfigFieldDefinition{"template", ConfigValueKind::kString, false,
-                            kDefaultTemplate},
-      ConfigFieldDefinition{"separator", ConfigValueKind::kString, false,
-                            kDefaultSeparator},
-      ConfigFieldDefinition{"max_length", ConfigValueKind::kInteger, false,
-                            kDefaultMaxLength, 1.0, 1048576.0},
-      ConfigFieldDefinition{"allow_dynamic_attributes",
-                            ConfigValueKind::kBoolean, false, false},
+      ConfigFieldDefinition{
+          "template",
+          ConfigValueKind::kString,
+          false,
+          kDefaultTemplate,
+          std::nullopt,
+          std::nullopt,
+          {},
+          "文本模板，使用 {{primary}}/{{context}} 等变量；例如 "
+          "\"问题：{{primary}}\"，默认缺失策略要求连接变量对应的输入。"},
+      ConfigFieldDefinition{
+          "separator",
+          ConfigValueKind::kString,
+          false,
+          kDefaultSeparator,
+          std::nullopt,
+          std::nullopt,
+          {},
+          "同一请求聚合多个输入文本时使用的分隔字符串，例如换行。"},
+      ConfigFieldDefinition{
+          "max_length",
+          ConfigValueKind::kInteger,
+          false,
+          kDefaultMaxLength,
+          1.0,
+          1048576.0,
+          {},
+          "每条渲染结果的 UTF-8 字节上限；超出后按 overflow_policy 处理。"},
+      ConfigFieldDefinition{
+          "allow_dynamic_attributes",
+          ConfigValueKind::kBoolean,
+          false,
+          false,
+          std::nullopt,
+          std::nullopt,
+          {},
+          "允许静态 values 之外的自定义变量；连接 attributes "
+          "输入时自动允许，缺失值按 missing_variable_policy 处理。"},
       ConfigFieldDefinition{"overflow_policy",
                             ConfigValueKind::kString,
                             false,
                             "fail",
                             std::nullopt,
                             std::nullopt,
-                            {"fail", "truncate"}},
-      ConfigFieldDefinition{"missing_variable_policy",
-                            ConfigValueKind::kString,
-                            false,
-                            kDefaultMissingPolicy,
-                            std::nullopt,
-                            std::nullopt,
-                            {"fail", "empty", "preserve"}},
-      ConfigFieldDefinition{"values", ConfigValueKind::kObject, false}};
+                            {"fail", "truncate"},
+                            "fail 拒绝超过 max_length 的结果；truncate 按 "
+                            "UTF-8 字符边界截断到字节上限内。"},
+      ConfigFieldDefinition{
+          "missing_variable_policy",
+          ConfigValueKind::kString,
+          false,
+          kDefaultMissingPolicy,
+          std::nullopt,
+          std::nullopt,
+          {"fail", "empty", "preserve"},
+          "变量缺失时：fail 报错；empty 替换为空字符串；preserve 保留占位符。"},
+      ConfigFieldDefinition{
+          "values",
+          ConfigValueKind::kObject,
+          false,
+          nlohmann::json(),
+          std::nullopt,
+          std::nullopt,
+          {},
+          "静态变量名到字符串的映射，例如 {\"role\":\"客服\"}，可在模板中用 "
+          "{{role}} 引用。"}};
   return fields;
 }
 

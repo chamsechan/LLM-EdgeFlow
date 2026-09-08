@@ -108,6 +108,16 @@ const renderFields = (values, fields = stringFields, id = "configFields") => {
   return form;
 };
 const field = (form, name) => form.querySelectorAll("[data-field]").find(input => input.dataset.field === name);
+const describedForm = renderFields({}, [
+  { name: "threshold", type: "number", semantic: "最低匹配分数，越高越严格。" },
+  { name: "template", type: "string", semantic: unsafeText },
+  { name: "model_id", type: "string", semantic: "model_ref" },
+  { name: "undocumented", type: "string" },
+]);
+assert.equal(describedForm.children[0].children[1].textContent, "最低匹配分数，越高越严格。");
+assert.equal(describedForm.children[1].children[1].textContent, unsafeText);
+assert.equal(describedForm.children[2].children.length, 1, "model_ref is a binding marker, not user help");
+assert.equal(describedForm.children[3].children.length, 1);
 const stringForm = renderFields(configuredStrings);
 assert.equal(field(stringForm, "template").tagName, "TEXTAREA");
 assert.equal(field(stringForm, "template").rows, 4);

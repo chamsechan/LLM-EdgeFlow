@@ -127,6 +127,7 @@ textarea { resize: vertical; line-height: 1.55; }
 .json-tab .draft-hint { margin: 0; }
 #modelForm { padding: 16px 0; margin: 16px 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
 .field-heading { margin: 18px 0 12px; color: #d3e2f3; font-size: 12px; font-weight: 650; }
+.field-help { display: block; color: var(--muted); font-size: 11px; line-height: 1.6; font-weight: 400; }
 .diagnostic { margin: 11px 0; padding: 10px; border: 1px solid #653245; border-left: 3px solid var(--red); border-radius: 4px; background: #331d2b; overflow-wrap: anywhere; }
 .diagnostic code { color: #fecdd3; }
 .diagnostic.ok { border-color: #285b4d; border-left-color: var(--green); background: #102e28; }
