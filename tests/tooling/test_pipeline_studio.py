@@ -470,17 +470,19 @@ class PipelineCliTest(unittest.TestCase):
                 self.assertEqual(process.stdout, "")
 
     def test_resolve_conf_exposes_model_sources_defaults_and_native_pool_errors(self):
-        conf_path = ROOT / "configs/pipeline_entity_extract_llamacpp.conf"
+        # Resolver semantics must run in every backend variant, including Kite
+        # and minimal builds where llama.cpp is deliberately unavailable.
+        conf_path = ROOT / "demo/fixtures/mock/pipeline_entity_extract.conf"
         code, report = self.command("resolve-conf", str(conf_path.relative_to(ROOT)), "--root", str(ROOT), "--depth", "1")
         self.assertEqual(code, 0, report)
         configuration = report["configuration"]
         self.assertEqual(configuration["conf_path"], str(conf_path))
         self.assertEqual(configuration["model_paths"], [{
             "model_id": "entity_llm", "source": "conf.data.model_paths",
-            "resolved": str(ROOT / "models/qwen2.5-0.5b-instruct-q4_k_m.gguf"),
+            "resolved": str(ROOT / "models/qwen_0_6b_npu.bin"),
         }])
         llm_config = configuration["effective_pipeline"]["pipeline"][1]["config"]
-        self.assertEqual(llm_config["max_tokens"], 256)
+        self.assertEqual(llm_config["max_tokens"], 64)
         self.assertEqual(llm_config["top_p"], 0.9, "omitted defaults must come from the native validated plan")
         conf = json.loads(conf_path.read_text())
         with tempfile.TemporaryDirectory(prefix="resolve-conf-", dir=ROOT / "build") as directory:
