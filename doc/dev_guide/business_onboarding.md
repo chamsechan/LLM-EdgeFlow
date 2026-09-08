@@ -16,8 +16,8 @@
 | 修复已有 C ABI 的转换逻辑 | 修改对应 Adapter 并运行相关契约测试；仅影响该路径时，无需另建 Operator 或 Demo |
 
 当前共享 SDK 的 Operator 初始化会审计**所有已注册 Adapter**。新增生产 Adapter
-必须有匹配的 bridge，否则整个 Operator 初始化失败；目前没有仅注册 C ABI 业务的
-豁免模式。已有宿主类型可以复用其 ValueType 注册，全新类型才需要增加注册。
+必须有匹配的 bridge，否则整个 Operator 初始化失败；`GetOperatorLastError()` 会指出业务与缺失 bridge、
+不匹配类型或槽位原因。重复初始化保留首次冲突原因。目前没有仅注册 C ABI 业务的豁免模式。已有宿主类型可以复用其 ValueType 注册，全新类型才需要增加注册。
 
 ## 2. 用一个现有业务看清文件关系
 

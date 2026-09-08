@@ -4,9 +4,11 @@
 #include <cstring>
 #include <deque>
 #include <functional>
+#include <initializer_list>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -146,7 +148,7 @@ class OperatorBizBridgeRegistry {
   /**
    * @brief 全局初始化与一致性原子审计 (返回 -6 若存在任何冲突或缺漏)
    */
-  int GlobalInit();
+  int GlobalInit(std::string* diagnostic = nullptr);
 
   /**
    * @brief 检查是否存在冲突
@@ -166,9 +168,14 @@ class OperatorBizBridgeRegistry {
   OperatorBizBridgeRegistry() = default;
 
  private:
+  void RecordConflict(CompanyAlgBizType biz_type, std::string_view biz_name,
+                      std::initializer_list<std::string_view> reason) noexcept;
+  int ReportConflict(std::string* diagnostic) const noexcept;
+
   mutable std::mutex mutex_;
   bool has_conflict_ = false;
   bool audited_ = false;
+  std::string conflict_diagnostic_;
   std::unordered_map<int32_t, OperatorBizBridgeDescriptor> bridges_by_biz_type_;
 };
 

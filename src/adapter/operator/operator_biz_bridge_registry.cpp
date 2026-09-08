@@ -55,11 +55,14 @@ bool OperatorBizBridgeRegistry::RegisterBridge(
   if (audited_) {
     return false;
   }
+  const auto reject = [&](std::initializer_list<std::string_view> reason) {
+    RecordConflict(desc.biz_type, desc.biz_name, reason);
+    return false;
+  };
 
   int32_t key = static_cast<int32_t>(desc.biz_type);
   if (key == 0 || desc.biz_name.empty()) {
-    has_conflict_ = true;
-    return false;
+    return reject({"Bridge requires a nonzero BizType and nonempty biz_name"});
   }
   auto it = bridges_by_biz_type_.find(key);
   if (it != bridges_by_biz_type_.end()) {
@@ -67,54 +70,58 @@ bool OperatorBizBridgeRegistry::RegisterBridge(
         it->second == desc) {
       return true;
     }
-    has_conflict_ = true;
-    return false;
+    return reject({"Conflicting bridge registration '",
+                   desc.registration_identity, "'; already registered by '",
+                   it->second.registration_identity, "'"});
   }
 
   // 校验槽位命名唯一性与方向
   std::unordered_set<std::string> in_names, in_suffixes;
   for (const auto& s : desc.input_slots) {
     if (s.logical_name.empty() || s.type_suffix.empty()) {
-      has_conflict_ = true;
-      return false;
+      return reject(
+          {"Input slot requires nonempty logical_name and type_suffix; slot '",
+           s.logical_name, "', type '", s.type_suffix, "'"});
     }
     if (s.direction != IoDirection::kInput) {
-      has_conflict_ = true;
-      return false;
+      return reject({"Input slot '", s.logical_name, "' (", s.type_suffix,
+                     ") must have input direction"});
     }
     if (!in_names.insert(s.logical_name).second ||
         !in_suffixes.insert(s.type_suffix).second) {
-      has_conflict_ = true;
-      return false;
+      return reject({"Duplicate input slot name or type suffix: '",
+                     s.logical_name, "' (", s.type_suffix, ")"});
     }
   }
 
   std::unordered_set<std::string> out_names, out_suffixes;
   // 当前 conf 只有一个 data.mem_que，因而每个业务只能声明一个输出池。
   if (desc.output_slots.size() != 1) {
-    has_conflict_ = true;
-    return false;
+    return reject(
+        {"Bridge must declare exactly one output slot / output pool"});
   }
   for (const auto& s : desc.output_slots) {
     if (s.logical_name.empty() || s.type_suffix.empty()) {
-      has_conflict_ = true;
-      return false;
+      return reject(
+          {"Output slot requires nonempty logical_name and type_suffix; slot '",
+           s.logical_name, "', type '", s.type_suffix, "'"});
     }
     if (s.direction != IoDirection::kOutput) {
-      has_conflict_ = true;
-      return false;
+      return reject({"Output slot '", s.logical_name, "' (", s.type_suffix,
+                     ") must have output direction"});
     }
     if (!out_names.insert(s.logical_name).second ||
         !out_suffixes.insert(s.type_suffix).second) {
-      has_conflict_ = true;
-      return false;
+      return reject({"Duplicate output slot name or type suffix: '",
+                     s.logical_name, "' (", s.type_suffix, ")"});
     }
   }
 
   if (!desc.convert_sample_input || !desc.convert_sample_output ||
       !desc.create_shadow_output_dto) {
-    has_conflict_ = true;
-    return false;
+    return reject(
+        {"Bridge requires convert_sample_input, convert_sample_output "
+         "and create_shadow_output_dto callbacks"});
   }
 
   bridges_by_biz_type_[key] = std::move(desc);
@@ -131,55 +138,92 @@ const OperatorBizBridgeDescriptor* OperatorBizBridgeRegistry::GetBridge(
   return nullptr;
 }
 
-int OperatorBizBridgeRegistry::GlobalInit() {
+void OperatorBizBridgeRegistry::RecordConflict(
+    CompanyAlgBizType biz_type, std::string_view biz_name,
+    std::initializer_list<std::string_view> reason) noexcept {
+  if (has_conflict_) return;
+  has_conflict_ = true;
+  // A diagnostic allocation failure must not change a rejected registration
+  // into an exception or erase the first conflict with a later audit failure.
+  try {
+    conflict_diagnostic_ = "OperatorBizBridgeRegistry: biz '";
+    conflict_diagnostic_.append(biz_name);
+    conflict_diagnostic_ +=
+        "' (BizType " + std::to_string(static_cast<int32_t>(biz_type)) + "): ";
+    for (const auto part : reason) conflict_diagnostic_.append(part);
+  } catch (...) {
+    conflict_diagnostic_.clear();
+  }
+}
+
+int OperatorBizBridgeRegistry::ReportConflict(
+    std::string* diagnostic) const noexcept {
+  SetDiagnosticNoexcept(
+      diagnostic,
+      conflict_diagnostic_.empty()
+          ? std::string_view(
+                "OperatorBizBridgeRegistry registration or audit failed")
+          : std::string_view(conflict_diagnostic_));
+  return -6;
+}
+
+int OperatorBizBridgeRegistry::GlobalInit(std::string* diagnostic) {
   std::lock_guard<std::mutex> lock(mutex_);
+  SetDiagnosticNoexcept(diagnostic, "");
   if (has_conflict_) {
-    return -6;
+    return ReportConflict(diagnostic);
   }
   if (audited_) {
     return 0;
   }
+  const auto reject = [&](CompanyAlgBizType biz_type, std::string_view biz_name,
+                          std::initializer_list<std::string_view> reason) {
+    RecordConflict(biz_type, biz_name, reason);
+    return ReportConflict(diagnostic);
+  };
 
   // 以实际 Adapter 注册快照为完整性事实源，新业务无需维护中央 ID 范围。
   const auto adapters = BizAdapterRegistry::Instance().GetAdaptersSnapshot();
   if (adapters.empty()) {
-    has_conflict_ = true;
-    return -6;
+    return reject(ALG_BIZ_TYPE_UNKNOWN, "", {"No registered BizAdapters"});
   }
 
   std::unordered_set<int32_t> adapter_biz_types;
   adapter_biz_types.reserve(adapters.size());
   for (const auto& adapter : adapters) {
     if (!adapter) {
-      has_conflict_ = true;
-      return -6;
+      return reject(ALG_BIZ_TYPE_UNKNOWN, "", {"Null registered BizAdapter"});
     }
     const int32_t biz_type = static_cast<int32_t>(adapter->BizType());
     if (biz_type == static_cast<int32_t>(ALG_BIZ_TYPE_UNKNOWN) ||
         !adapter_biz_types.insert(biz_type).second) {
-      has_conflict_ = true;
-      return -6;
+      return reject(adapter->BizType(), adapter->BizName(),
+                    {"BizAdapter has an unknown or duplicate BizType"});
     }
 
     auto bridge_it = bridges_by_biz_type_.find(biz_type);
     if (bridge_it == bridges_by_biz_type_.end()) {
-      has_conflict_ = true;
-      return -6;
+      return reject(adapter->BizType(), adapter->BizName(),
+                    {"Missing Operator bridge for registered BizAdapter"});
     }
     const auto& desc = bridge_it->second;
     if (desc.biz_type != adapter->BizType()) {
-      has_conflict_ = true;
-      return -6;
+      return reject(adapter->BizType(), adapter->BizName(),
+                    {"Bridge BizType does not match its BizAdapter"});
     }
 
     const auto& adapter_desc = adapter->GetDescriptor();
     if (desc.internal_input_type_name != adapter_desc.input_type_name) {
-      has_conflict_ = true;
-      return -6;
+      return reject(desc.biz_type, desc.biz_name,
+                    {"Internal input type '", desc.internal_input_type_name,
+                     "' does not match BizAdapter type '",
+                     adapter_desc.input_type_name, "'"});
     }
     if (desc.internal_output_type_name != adapter->ResultTypeName()) {
-      has_conflict_ = true;
-      return -6;
+      return reject(desc.biz_type, desc.biz_name,
+                    {"Internal output type '", desc.internal_output_type_name,
+                     "' does not match BizAdapter result '",
+                     adapter->ResultTypeName(), "'"});
     }
     // 校验业务名匹配 adapter->BizName() 或 pipeline biz_name
     bool biz_name_matched = (desc.biz_name == adapter->BizName());
@@ -192,14 +236,16 @@ int OperatorBizBridgeRegistry::GlobalInit() {
       }
     }
     if (!biz_name_matched) {
-      has_conflict_ = true;
-      return -6;
+      return reject(desc.biz_type, desc.biz_name,
+                    {"Bridge biz_name does not match BizAdapter '",
+                     adapter->BizName(), "' or any of its Pipeline biz_names"});
     }
 
     for (const auto& slot : desc.input_slots) {
       if (slot.direction != IoDirection::kInput) {
-        has_conflict_ = true;
-        return -6;
+        return reject(
+            desc.biz_type, desc.biz_name,
+            {"Input slot '", slot.logical_name, "' must have input direction"});
       }
       const auto* binding =
           OperatorValueTypeRegistry::Instance().GetBindingBySuffix(
@@ -207,14 +253,17 @@ int OperatorBizBridgeRegistry::GlobalInit() {
       if (!binding || binding->canonical_suffix != slot.type_suffix ||
           binding->direction != IoDirection::kInput ||
           !binding->validate_external) {
-        has_conflict_ = true;
-        return -6;
+        return reject(desc.biz_type, desc.biz_name,
+                      {"Input slot '", slot.logical_name,
+                       "' requires canonical value type '", slot.type_suffix,
+                       "' with input direction and validate_external"});
       }
     }
     for (const auto& slot : desc.output_slots) {
       if (slot.direction != IoDirection::kOutput) {
-        has_conflict_ = true;
-        return -6;
+        return reject(desc.biz_type, desc.biz_name,
+                      {"Output slot '", slot.logical_name,
+                       "' must have output direction"});
       }
       const auto* binding =
           OperatorValueTypeRegistry::Instance().GetBindingBySuffix(
@@ -224,18 +273,20 @@ int OperatorBizBridgeRegistry::GlobalInit() {
           !binding->output_layout.compute_block_payload_bytes ||
           !binding->allocate_external || !binding->reset_external ||
           !binding->destroy_external) {
-        has_conflict_ = true;
-        return -6;
+        return reject(desc.biz_type, desc.biz_name,
+                      {"Output slot '", slot.logical_name,
+                       "' requires canonical value type '", slot.type_suffix,
+                       "' with output direction, layout and "
+                       "allocation/reset/destroy callbacks"});
       }
     }
   }
 
   // 反向拒绝没有 Adapter 的孤儿 Bridge。
   for (const auto& [biz_type, desc] : bridges_by_biz_type_) {
-    (void)desc;
     if (adapter_biz_types.find(biz_type) == adapter_biz_types.end()) {
-      has_conflict_ = true;
-      return -6;
+      return reject(desc.biz_type, desc.biz_name,
+                    {"Bridge has no registered BizAdapter"});
     }
   }
   audited_ = true;
