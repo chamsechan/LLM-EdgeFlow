@@ -204,6 +204,7 @@ Pipeline 配置只使用 Model/Backend 语法：
 
 ## 5. 验证与交付
 
-开发中运行最小相关测试，交付前运行一次 `./scripts/run_all_tests.sh`。是否需要 RFC、
+开发中运行最小相关测试。本地交付运行 `./scripts/run_all_tests.sh`；已授权的 PR 交付
+由交付脚本执行同一门禁，无需预先单独运行。是否需要 RFC、
 Changelog、PR 或合并，以及对应授权边界，统一遵循
 [`CONTRIBUTING.md`](../CONTRIBUTING.md)，本指南不维护第二套流程。

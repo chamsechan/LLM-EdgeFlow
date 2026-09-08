@@ -14,14 +14,16 @@ and verification policy. Do not repeat those decisions here.
 - The user explicitly authorized the requested remote action.
 - Work is already on an approved non-`main` branch.
 - The diff contains only intended work and any applicable RFC/index/`doc/CHANGELOG.md` updates.
-- The canonical local gate has passed on the exact commit set to deliver.
+- Implementation and required focused checks are complete; the intended changes are ready for
+  the delivery script's canonical local gate.
 
 If any precondition fails, correct it locally or report the blocker. Do not push a partial or
 known-failing change.
 
 ## Delivery
 
-Use the repository script; do not reproduce its Git/GitHub sequence manually:
+Use the repository script; it runs the canonical local gate before committing and pushing.
+Do not require a separate full gate before invoking it or reproduce its Git/GitHub sequence manually:
 
 ```bash
 # Upload, create PR, and verify CI; default stops before merge.

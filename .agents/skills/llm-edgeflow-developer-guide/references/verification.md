@@ -22,12 +22,10 @@ framework-specific evidence.
    [running the current solution](../../../../tools/pipeline_studio/README.md#运行当前方案)
    for `.conf` / Profile selection and Demo Control behavior; running an unchanged Profile
    does not verify a new JSON file.
-5. Run focused tests during development, then the canonical delivery gate once:
-
-   ```bash
-   ./scripts/run_all_tests.sh
-   ```
-
+5. Run focused tests during development. For the final gate, follow
+   [CONTRIBUTING](../../../../CONTRIBUTING.md#6-run-one-canonical-delivery-gate): run it directly
+   for a local handoff, or let the authorized delivery script run it before pushing. Do not
+   require both invocations for the same delivery.
 6. Record any non-default sanitizer, real-model, hardware, performance, or compatibility evidence required by the RFC. Do not substitute it for the canonical gate.
 7. Finish RFC status and durable documentation according to `CONTRIBUTING.md`. Remote delivery remains out of scope unless explicitly requested; if requested, use `github-branch-merge`.
 

@@ -167,6 +167,8 @@ Smoke 验证执行链路；真实模型的业务效果需使用目标数据集�
 ./scripts/run_all_tests.sh
 ```
 
+已授权的 PR 交付由交付脚本执行同一门禁，无需预先单独运行。
+
 该命令统一执行格式与静态检查、配置构建及 CTest 测试。环境需具备 clang-format 18，以及架构图检查所需的 Java 17+；详细流程见 [CONTRIBUTING.md](CONTRIBUTING.md)，测试组织见 [tests/README.md](tests/README.md)，Agent 开发约束见 [AGENTS.md](AGENTS.md)。
 
 当前产品版本为 **v10.0.0**，公共 **ABI major 为 5**。接口边界见[架构设计](doc/architecture.md)，版本记录见 [Changelog](doc/CHANGELOG.md)。

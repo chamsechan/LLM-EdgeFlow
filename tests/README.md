@@ -49,8 +49,9 @@ request input into a fresh `AlgContext`, call Process, and assert actual outputs
 `(req_id, sub_id)`; do not stop at factory creation. Cover the algorithm's empty/invalid input and
 failure behavior. The generator's `--generate-test` output is a starting point for an existing
 suite. Rebuild `alg_pipeline_tool` after a production registration/Definition change, and check
-the composed solution with the same build. Run `./scripts/run_all_tests.sh` once before delivery;
-it covers the complete default configuration even when first practice used a minimal build.
+the composed solution with the same build. The final gate covers the complete default configuration
+even when first practice used a minimal build. Follow [CONTRIBUTING](../CONTRIBUTING.md#6-run-one-canonical-delivery-gate)
+to run it directly for a local handoff or through the authorized PR delivery script.
 
 Operator allocation-failure tests use `support/scoped_allocation_failure.*`, linked only
 into the adapter runner and the individual output-pool/value-registry test executables.
