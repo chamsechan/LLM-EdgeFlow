@@ -85,7 +85,7 @@ For human composition, use `./show --web` or `./show <pipeline.json> --web`. For
 - Do not guess Blackboard Keys, types, node parameters, model IDs, engine capabilities, or Adapter ingress/egress.
 - Do not hand-edit a Catalog, Web node list, or this skill when nodes change; registration and Definition data must make assets discoverable.
 - Do not generate node implementation code during configuration composition.
-- If no Catalog composition can satisfy the contract, report the exact missing input/output or capability, stop editing Pipeline JSON, and route the task to `llm-edgeflow-developer-guide` for the relevant layer.
+- If no Catalog composition can satisfy the contract, identify the missing input/output or capability and use `llm-edgeflow-developer-guide` for the affected implementation. After it is built, resume composition and verify the requested solution; a routing handoff alone is not completion.
 - Report configuration validation, actual execution/results and real-model or target-platform
   acceptance separately. Smoke success does not prove business quality; use the
   [selection and effects workflow](../../../doc/VERIFIABLE_SELECTION.md) when effects acceptance

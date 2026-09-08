@@ -39,11 +39,14 @@ git clone https://github.com/chamsechan/LLM-EdgeFlow.git
 cd LLM-EdgeFlow
 
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
-  -DENABLE_ONNXRUNTIME=ON -DENABLE_LLAMACPP=ON
-cmake --build build --parallel 4
+  -DENABLE_ONNXRUNTIME=OFF -DENABLE_LLAMACPP=OFF \
+  -DENABLE_WHISPERCPP=OFF -DENABLE_KITELLM=OFF
+cmake --build build --target alg_sdk alg_demo alg_pipeline_tool alg_show --parallel 4
 ```
 
-该构建启用 ONNX Runtime 与 llama.cpp。主要产物如下：
+首次练习只构建规则、模板、数据处理与工具，不启用推理后端或构建全部测试。后续真实模型
+按[构建变体](doc/VERIFIABLE_SELECTION.md#构建变体)选择 Backend；若沿用 `build/`，重新
+配置对应 `ENABLE_*` 开关并重建即可。交付前仍执行完整默认门禁。主要产物如下：
 
 | 产物 | 用途 |
 | :--- | :--- |
@@ -60,7 +63,7 @@ cmake --build build --parallel 4
 ./build/alg_pipeline_tool validate configs/pipeline_keyword_match.json
 ./build/alg_demo --profile keyword_match_mock \
   --dataset tests/fixtures/effects/keyword_inputs.txt \
-  --no-default-control --output-dir results/quickstart
+  --output-dir results/quickstart
 ```
 
 预期四条输入均处理成功，前两条命中 `SYSTEM_INIT`，后两条未命中。结果位于：

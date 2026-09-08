@@ -131,7 +131,8 @@ Definition 会帮助原生校验发现类型、字段和连线错误，但不会
 类型、范围、枚举并填入默认值，再读取规范化结果。`ModelBoundNode` 已在绑定模型前完成
 这一步；直接继承 `NodeBase` 的节点在自己的 `InitNode` 调用它。跨字段约束提取成局部函数，
 由 Init 与 `validate_config` 共用。直接 Init 不负责 DAG 或业务出口校验。
-节点执行失败使用 `Fail/Require`，让返回码与请求诊断一致。
+节点执行失败使用 `Fail/Require`，让返回码与请求诊断一致；初始化用 `init_ctx.Fail(reason)`
+传递具体原因。
 具体写法可按需参考 `PromptGuidedLlmNode`，第一天不必复制它的全部参数和解析逻辑。
 
 ## 5. 并发声明：保证两个执行过程不会互相污染
@@ -155,6 +156,39 @@ Definition 会帮助原生校验发现类型、字段和连线错误，但不会
 准备设为 `true` 时，检查你的业务函数、调用的辅助对象和所有节点自有共享状态。
 `true` 只说明节点自身可以按该契约并行执行；所绑定模型及 Backend 的并发约束仍由
 框架独立检查，并不是这个布尔值能解除的限制。
+
+## 复杂算法仍按普通 C++ 函数组织
+
+当算法包含多个输入、循环推理或复杂后处理时，继续使用 `NodeBase`；需要模型句柄时用
+`ModelBoundNode`。`ProcessNode` 负责读端口、取得本次配置快照、调用你的算法函数、检查
+结果并发布。算法函数使用普通值、容器和局部变量；函数较多时拆成操作相关的 `.h/.cpp`，
+再登记同目录 CMake，保持 `custom_nodes` 按操作组织。复杂程度本身不要求修改 Core。
+
+从下面的现有实现中只取需要的部分：
+
+| 具体问题 | 可复用代码与边界 |
+| --- | --- |
+| 输入与模型输出一一对应 | [ValidatePreservedTraceableAlignment](../../include/nodes/traceable_batch_validation.h) 检查数量、顺序和两个来源编号；真实过滤/聚合不能套用 1:1 校验 |
+| 多个问题各自配多段材料 | [PromptGuidedLlmNode::ProcessNode](../../src/custom_nodes/prompt_guided_llm_node.cpp) 按 `req_id` 收集 context，主输出沿用 input 的 `(req_id, sub_id)` |
+| 候选打分、按请求分组、保留原候选来源 | [TextRerankNode::ProcessNode](../../src/common_nodes/text_rerank_node.cpp) 展示来源检查后再排序；新 rank 与原候选编号分别保存 |
+| 字段、默认值与范围 | [ValidateAndNormalizeFields](../../include/contracts/config_schema_validation.h)，Definition 与 Init 共用一份字段列表 |
+| 初值与运行时更新使用同一业务校验 | [Control 模板](../../dev_support/node_authoring/starter_control_node.cpp) 的局部解析函数，失败不替换旧配置 |
+| 提示词变量替换 | [现有模板工具](../../include/nodes/text_template.h)，只在实际需要模板语义时使用 |
+
+先声明结果数量和来源，再编码。例如“两条输入各输出一条”必须保留两组编号；“每个问题
+取前三个候选”要按请求分组并声明排名来源，不能用整个 batch 的前三项代替。
+多输入不能仅凭数组下标配对：一对一数据用两个编号关联，片段聚合按声明的请求关系处理。
+空批次、某个请求没有候选、模型少返回一项，都应在算法测试中有明确预期。
+
+把本次输出构造在局部变量中，全部成功后再 `Set`。失败通过 `Fail(req_ctx, code, reason)`
+返回，原因写明涉及的字段或来源；初始化失败使用 `init_ctx.Fail(reason)`，Pipeline 会补上
+实例 ID 和类型。`diagnostic` 只在 Init 调用期间有效，不保存它的指针。
+配置需要在线修改时，为一次请求取一致快照；含外部资源的更新应先设计资源生命周期。
+
+第一次测试可复用 [InitNodeForTest](../../tests/support/node_test_utils.h)，将断言加入现有
+Node 套件；命令见[局部测试路径](../../tests/README.md#fast-feedback-for-solution-authors)。
+先用两个不同请求、非零 `sub_id` 验证不会串结果，再检查算法自己的正常和失败输出。
+无需为了组织一个复杂 Node 再增加继承层、配置语言或专用测试执行器。
 
 ## 从一次运行看这些概念如何配合
 
