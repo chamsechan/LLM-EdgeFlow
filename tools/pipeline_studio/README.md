@@ -108,7 +108,8 @@ C++ 查看工具，展示更多声明信息：
    输入端口重新连接；也可以用“撤销”恢复刚删除的连线。
 3. 选择规则节点，在属性中将 `categories` 改为 `{"FIRST_RUN":["VIP"]}` 并点击“应用”。
    在“JSON”页确认端口映射；需要模型的方案则先在“模型”页应用实例，再在节点属性绑定它。
-4. 在“校验”页调用 C++ Validator，修复诊断后保存为 `pipeline_first_solution.json`。
+4. 在“校验”页调用 C++ Validator，修复诊断；在“运行”页选择 `keyword_match_mock`，
+   点击“另存为可运行方案”，输入 `pipeline_first_solution.json`，同时生成配套 `.conf`。
 5. 在“运行”页选择兼容 Profile 可执行草稿，查看日志和结构化结果。Demo 默认使用 Pipeline 配置，
    因此草稿会使用刚设置的 `FIRST_RUN` 规则。检查第一条命中 `FIRST_RUN`、
    第二条未命中；保存后也可使用下方[运行当前方案](#运行当前方案)中的命令验收。
@@ -156,7 +157,13 @@ LLM_EDGEFLOW_PIPELINE_TOOL=./build/alg_pipeline_tool_test ./show --web
 ### 运行当前方案
 
 Pipeline JSON 描述算法连线；`.conf` 描述部署路径和输出容量；Profile 保存 Demo 的
-业务、配置、数据集等预设。克隆或保存新 JSON 不会自动修改原 Profile 或 `.conf`。
+业务、配置、数据集等预设。“运行”页的“另存为可运行方案”会一起生成 JSON 和 `.conf`，
+并提供从项目根执行的完整命令；已有同名文件会拒绝覆盖。选择与业务匹配的 Profile，
+其数据集、运行选项和输出池容量会被复用。模型目录默认为 `models`；引用
+`demo/fixtures/...` 的测试方案填 `.`。模型路径按当前 Pipeline 重建，避免旧 Profile
+的路径覆盖刚选择的权重。最近一次运行或另存的展开区显示原生部署解析结果。
+
+普通“保存”/“另存”只写 JSON。若手动使用这条路径，需自行配套 `.conf`：
 
 完成上述练习后，复制 `configs/pipeline_keyword_match.conf` 为
 `configs/pipeline_first_solution.conf`（已有同名文件时直接编辑），将其中
@@ -190,8 +197,10 @@ CLI 的 `--config` 覆盖 Profile 原配置，因此不需要新增 Profile。�
 命令必须在当前 Pipeline 的节点 Definition 中声明。Profile 可设置 `control_cmd`，CLI
 优先。详见[第一个 Control](../../doc/dev_guide/first_control.md)。
 
-Studio 会为当前草稿生成临时 JSON 和指向它的 `.conf`，继承 Profile 的模型路径覆盖和
-容量，默认使用草稿参数；仅显式指定 Control 文件或 `--example-control` 时发送更新。
+Studio 为草稿生成项目内的临时 JSON 和 `.conf`，复用 Profile 输出池容量，按“模型目录”
+和当前 Pipeline 重建模型路径，并使用原生解析器预检；运行结束清理临时文件。草稿运行
+使用配置初值，Control 练习通过 CLI 显式下发。解析成功说明部署配置可接受，不代表模型
+已加载；日志和样本结果用于确认实际执行。
 需要显式 Control 测试时使用上述 CLI；业务效果验收使用
 [效果验收工具](../../doc/VERIFIABLE_SELECTION.md)。
 测试模型输出仅证明执行链路；真实模型效果和目标平台验收需单独记录。

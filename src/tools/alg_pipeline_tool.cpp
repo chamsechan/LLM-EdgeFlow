@@ -1,3 +1,4 @@
+#include <charconv>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -5,9 +6,11 @@
 #include <sstream>
 #include <string>
 
+#include "adapter/operator/company_conf_resolver.h"
 #include "core/pipeline_catalog.h"
 #include "core/pipeline_validator.h"
 #include "nlohmann/json.hpp"
+#include "operator/operator_interface.h"
 
 namespace {
 
@@ -105,6 +108,63 @@ nlohmann::json ProfilesJson(const std::string& biz_filter) {
   return result;
 }
 
+nlohmann::json ResolveConf(const std::string& file, const std::string& root,
+                           uint32_t depth) {
+  using namespace llm_edgeflow;
+  const auto ops = operator_api::Get_LLM_EDGEFLOW_OperatorTable();
+  if (ops.Init() != 0)
+    return Error("REGISTRY_CONFLICT", operator_api::GetOperatorLastError());
+  struct RegistryGuard {
+    operator_api::OperatorFunc ops;
+    ~RegistryGuard() { ops.Deinit(); }
+  } registry_guard{ops};
+  ResolvedCompanyConfig resolved;
+  std::string error;
+  if (CompanyConfResolver::Resolve(root.c_str(), file.c_str(), &resolved,
+                                   &error, depth) != 0)
+    return Error("DEPLOYMENT_CONFIG", error);
+  const auto plan =
+      PipelineValidator::ValidateAndPlan(resolved.synthetic_pipeline_json);
+  if (!plan.report.ok) return plan.report.ToJson();
+
+  auto effective = resolved.synthetic_pipeline_json;
+  for (const auto& [id, node] : plan.node_plans)
+    effective["pipeline"][node.node.source_index]["config"] =
+        node.normalized_config;
+  for (const auto& model : plan.models) {
+    effective["models"][model.source_index]["model_config"] =
+        model.normalized_model_config;
+    effective["models"][model.source_index]["backend_config"] =
+        model.normalized_backend_config;
+  }
+  nlohmann::json conf;
+  if (!ReadJson(resolved.conf_path.string(), &conf, &error))
+    return Error("JSON_READ", error);
+  const auto overrides =
+      conf["data"].value("model_paths", nlohmann::json::object());
+  nlohmann::json paths = nlohmann::json::array();
+  for (const auto& model : plan.models)
+    paths.push_back({{"model_id", model.model_id},
+                     {"source", overrides.contains(model.model_id)
+                                    ? "conf.data.model_paths"
+                                    : "pipeline.models.model_path"},
+                     {"resolved", model.resolved_model_path}});
+  const auto& pool = resolved.output_pool_spec;
+  return {{"schema_version", 1},
+          {"ok", true},
+          {"configuration",
+           {{"conf_path", resolved.conf_path.string()},
+            {"pipeline_path", resolved.pipeline_path.string()},
+            {"model_root", resolved.model_root_path.string()},
+            {"effective_pipeline", std::move(effective)},
+            {"model_paths", std::move(paths)},
+            {"output_pool",
+             {{"type", pool.type},
+              {"meta_num", pool.meta_num},
+              {"metadata_type_id", pool.metadata_type_id},
+              {"capacities", pool.capacities}}}}}};
+}
+
 void Usage() {
   std::cerr << "Usage:\n"
             << "  alg_pipeline_tool catalog [--biz|-b NAME]\n"
@@ -113,6 +173,8 @@ void Usage() {
                "NAME|--empty] [--raw]\n"
             << "  alg_pipeline_tool validate FILE|--stdin\n"
             << "  alg_pipeline_tool plan FILE|--stdin\n";
+  std::cerr
+      << "  alg_pipeline_tool resolve-conf FILE [--root DIR] [--depth N]\n";
 }
 
 }  // namespace
@@ -123,6 +185,45 @@ int main(int argc, char** argv) {
     return 2;
   }
   const std::string command = argv[1];
+
+  if (command == "resolve-conf") {
+    if (argc < 3 || argc % 2 == 0) {
+      Usage();
+      return 2;
+    }
+    std::string root = ".";
+    uint32_t depth = 25;
+    bool has_root = false;
+    bool has_depth = false;
+    for (int i = 3; i < argc; i += 2) {
+      const std::string option = argv[i];
+      const std::string value = argv[i + 1];
+      if (option == "--root" && !has_root && !value.empty()) {
+        root = value;
+        has_root = true;
+      } else if (option == "--depth" && !has_depth) {
+        const auto parsed =
+            std::from_chars(value.data(), value.data() + value.size(), depth);
+        if (parsed.ec != std::errc{} ||
+            parsed.ptr != value.data() + value.size()) {
+          Usage();
+          return 2;
+        }
+        has_depth = true;
+      } else {
+        Usage();
+        return 2;
+      }
+    }
+    nlohmann::json result;
+    try {
+      result = ResolveConf(argv[2], root, depth);
+    } catch (const std::exception& error) {
+      result = Error("DEPLOYMENT_CONFIG", error.what());
+    }
+    std::cout << result.dump(2) << std::endl;
+    return result.value("ok", false) ? 0 : 1;
+  }
 
   if (command == "catalog") {
     std::string biz;

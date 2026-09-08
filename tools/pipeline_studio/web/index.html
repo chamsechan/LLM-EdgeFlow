@@ -132,7 +132,12 @@
         </section>
         <section id="runTab" class="tab scroll" role="tabpanel" aria-label="运行方案" hidden>
           <label>运行 Profile<select id="runProfile"></select></label>
+          <label>模型目录（相对项目根）<input id="runModelRoot" value="models" placeholder="models"></label>
+          <p class="tab-description">Pipeline 的 model_path 相对该目录解析。使用 demo/fixtures 下的测试方案时填“.”。运行和另存均采用此设置。</p>
           <div class="row"><button id="runButton" class="primary">运行草稿</button><button id="cancelButton" class="danger" disabled>取消</button></div>
+          <button id="saveSolutionButton" class="full">另存为可运行方案（JSON + .conf）</button>
+          <pre id="savedCommand" class="result"></pre>
+          <details><summary>最近一次运行 / 另存的部署解析结果</summary><pre id="resolvedConfig" class="result">运行或另存后显示模型路径与生效参数</pre></details>
           <pre id="runLog" class="log">尚未运行</pre>
           <pre id="runResult" class="result"></pre>
         </section>

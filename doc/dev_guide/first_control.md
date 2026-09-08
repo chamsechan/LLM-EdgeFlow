@@ -174,7 +174,7 @@ Pipeline/Node 的 Control 时，由调用者序列化更新。裸 payload 广播
 {"$edgeflow_control":1,"node_id":"prefix","payload":{"prefix":"VIP:"}}
 ```
 
-把该对象存入 Demo 的 Control 文件，或作为 `ControlJsonParam.json` / C ABI 的 JSON
+把该对象存入 Demo 的 Control 文件，或作为 `ControlJsonParam.json_param_str` / C ABI 的 JSON
 字符串；`cmd_id` 仍放在原参数中。`$edgeflow_control` 是保留标记；信封必须且只能含上述
 三个字段，版本必须为整数 `1`，`node_id` 为非空的 Pipeline 实例 ID，`payload` 为对象。
 Node 只收到内部 `payload`，无需编写路由代码。未知 ID、该实例不支持命令或 schema

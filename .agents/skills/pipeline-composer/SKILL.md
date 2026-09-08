@@ -60,7 +60,12 @@ and native Resolver; do not reproduce their validation rules.
 5. After validation, run the edited Pipeline through a compatible Demo. Follow
    [running the current solution](../../../tools/pipeline_studio/README.md#运行当前方案): confirm
    `.conf` `data.pipe_path` resolves to the edited JSON, inspect inherited model path overrides
-   and capacities, and select a matching biz and dataset. For example:
+   and capacities, and select a matching biz and dataset. Use
+   `alg_pipeline_tool resolve-conf <edited.conf> --root <deployment_root> --depth <max_batch_or_depth>`
+   to inspect the native resolved paths, their sources and normalized defaults; it does not load
+   weights. Studio can save a JSON + `.conf` pair and command via “另存为可运行方案”; its model
+   directory is explicit (`models` normally, `.` for project-relative fixtures), and model paths
+   come from the edited Pipeline. For example:
 
    ```bash
    ./build/alg_demo --profile <compatible_profile> --config <edited.conf> --no-default-control --output-dir <run_output_dir>

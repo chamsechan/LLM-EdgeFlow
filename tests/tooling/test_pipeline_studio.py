@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import shlex
 import subprocess
 import tempfile
 import threading
@@ -13,6 +14,7 @@ import time
 import unittest
 from unittest import mock
 import urllib.request
+import uuid
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -173,6 +175,125 @@ class WorkbenchServiceTest(unittest.TestCase):
             help_text.assert_called_once()
 
 
+class RunnableSolutionTest(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory(prefix="studio-test-", dir=ROOT / "build")
+        self.root = Path(self.temporary.name)
+        self.configs = self.root / "configs"
+        self.service = SHOW.WorkbenchService(self.configs)
+        self.keyword = json.loads((ROOT / "configs/pipeline_keyword_match.json").read_text())
+
+    def tearDown(self):
+        self.temporary.cleanup()
+
+    def test_saved_pair_runs_the_selected_pipeline_with_explicit_arguments(self):
+        self.keyword["pipeline"][0]["config"]["categories"] = {"SAVED_RULE": ["VIP"]}
+        filename = f"pipeline_saved_{uuid.uuid4().hex}.json"
+        saved = self.service.save_solution(filename, self.keyword, "keyword_match_mock")
+        self.assertEqual(json.loads((self.configs / filename).read_text()), self.keyword)
+        conf = json.loads((self.configs / saved["conf_filename"]).read_text())
+        self.assertEqual(conf["data"]["pipe_path"], str((self.configs / filename).relative_to(ROOT)))
+        self.assertEqual(conf["data"]["model_paths"], {})
+        command = shlex.split(saved["command"])
+        self.assertEqual(command[:3], ["cd", str(ROOT), "&&"])
+        self.assertIn("--no-default-control", command)
+        self.assertFalse(Path(command[command.index("--config") + 1]).is_absolute())
+        output = Path(command[command.index("--output-dir") + 1])
+        try:
+            process = subprocess.run(command[3:], cwd=command[1], text=True, capture_output=True, timeout=30)
+            self.assertEqual(process.returncode, 0, process.stdout + process.stderr)
+            records = [json.loads(line) for line in (output / "keyword_match/results.jsonl").read_text().splitlines()]
+            self.assertEqual(records[0]["output"]["match_result"]["intent"], "SAVED_RULE")
+        finally:
+            shutil.rmtree(output, ignore_errors=True)
+
+    def test_conf_rebuilds_selected_model_paths_and_honors_explicit_root(self):
+        pipeline = json.loads((ROOT / "demo/fixtures/mock/pipeline_entity_extract.json").read_text())
+        selected = pipeline["models"][0]["model_path"]
+        saved = self.service.save_solution("pipeline_fixture.json", pipeline, "entity_extract_mock", ".")
+        self.assertEqual(saved["conf"]["data"]["model_paths"], {"entity_llm": selected})
+        pipeline["models"][0]["model_path"] = "replacement.gguf"
+        saved = self.service.save_solution("pipeline_replaced.json", pipeline, "entity_extract_mock", "models")
+        self.assertEqual(saved["conf"]["data"]["model_paths"], {"entity_llm": "models/replacement.gguf"})
+        self.assertEqual(json.loads((self.configs / "pipeline_replaced.json").read_text()), pipeline)
+
+    def test_draft_uses_the_same_selected_paths_under_project_root_and_cleans_up(self):
+        pipeline = json.loads((ROOT / "demo/fixtures/mock/pipeline_entity_extract.json").read_text())
+        observed = {}
+        original_popen = SHOW.subprocess.Popen
+        def inspect_launch(args, **kwargs):
+            if "--config" in args:
+                conf_path = ROOT / args[args.index("--config") + 1]
+                observed["directory"] = conf_path.parent
+                observed["conf"] = json.loads(conf_path.read_text())
+            return original_popen(args, **kwargs)
+        with mock.patch.object(SHOW.subprocess, "Popen", side_effect=inspect_launch):
+            started = self.service.start_run(pipeline, "entity_extract_mock", ".")
+            for _ in range(200):
+                job = self.service.run_status(started["job_id"])["job"]
+                if job["status"] in ("completed", "failed", "cancelled") and "directory" in observed and not observed["directory"].exists():
+                    break
+                time.sleep(0.05)
+        self.assertEqual(job["status"], "completed", job)
+        self.assertEqual(observed["conf"]["data"]["model_paths"], {"entity_llm": pipeline["models"][0]["model_path"]})
+        self.assertTrue(observed["conf"]["data"]["pipe_path"].startswith("build/"))
+        self.assertFalse(observed["directory"].exists())
+
+    def test_conflicts_bad_paths_and_mismatches_leave_no_new_files(self):
+        self.configs.mkdir()
+        for suffix in ("json", "conf"):
+            target = self.configs / f"pipeline_conflict.{suffix}"
+            target.write_text("keep this file")
+            with self.subTest(suffix=suffix), self.assertRaises(SHOW.StudioError) as error:
+                self.service.save_solution("pipeline_conflict.json", self.keyword, "keyword_match_mock")
+            self.assertEqual(error.exception.code, "FILE_EXISTS")
+            self.assertEqual(list(self.configs.iterdir()), [target])
+            self.assertEqual(target.read_text(), "keep this file")
+            target.unlink()
+        link = self.configs / "pipeline_link.conf"
+        link.symlink_to(self.root / "missing_target")
+        with self.assertRaises(SHOW.StudioError) as error:
+            self.service.save_solution("pipeline_link.json", self.keyword, "keyword_match_mock")
+        self.assertEqual(error.exception.code, "SYMLINK_REJECTED")
+        self.assertFalse((self.configs / "pipeline_link.json").exists())
+        link.unlink()
+        for filename, profile, model_root in (
+            ("../pipeline_escape.json", "keyword_match_mock", "models"),
+            ("pipeline_bad.json", "entity_extract_mock", "models"),
+            ("pipeline_bad.json", "keyword_match_mock", "../outside"),
+            ("pipeline_bad.json", "keyword_match_mock", str(ROOT / "models")),
+        ):
+            with self.subTest(filename=filename, profile=profile, model_root=model_root), self.assertRaises(SHOW.StudioError):
+                self.service.save_solution(filename, self.keyword, profile, model_root)
+            self.assertEqual(list(self.configs.iterdir()), [])
+
+    def test_second_file_write_failure_rolls_back_only_new_pair(self):
+        self.configs.mkdir()
+        unrelated = self.configs / "pipeline_keep.json"
+        unrelated.write_text("keep")
+        original_open = SHOW.os.open
+        def fail_conf(path, flags, mode=0o777):
+            if Path(path).suffix == ".conf":
+                raise OSError("simulated write failure")
+            return original_open(path, flags, mode)
+        with mock.patch.object(SHOW.os, "open", side_effect=fail_conf):
+            with self.assertRaises(SHOW.StudioError) as error:
+                self.service.save_solution("pipeline_new.json", self.keyword, "keyword_match_mock")
+        self.assertEqual(error.exception.code, "SAVE_FAILED")
+        self.assertEqual(list(self.configs.iterdir()), [unrelated])
+        self.assertEqual(unrelated.read_text(), "keep")
+
+    def test_native_deployment_rejection_rolls_back_the_pair(self):
+        profile, mem_que = self.service.profile_inputs(self.keyword, "keyword_match_mock")
+        mem_que["capacities"]["match_result_json"] = 0
+        with mock.patch.object(self.service, "profile_inputs", return_value=(profile, mem_que)):
+            with self.assertRaises(SHOW.StudioError) as error:
+                self.service.save_solution("pipeline_invalid_pool.json", self.keyword, "keyword_match_mock")
+        self.assertEqual(error.exception.code, "DEPLOYMENT_VALIDATION_FAILED")
+        self.assertIn("match_result_json", str(error.exception))
+        self.assertEqual(list(self.configs.iterdir()), [])
+
+
 class PipelineCliTest(unittest.TestCase):
     def command(self, *args, input_pipeline=None):
         process = subprocess.run(
@@ -279,6 +400,35 @@ class PipelineCliTest(unittest.TestCase):
                 self.assertEqual(process.returncode, 2)
                 self.assertIn("Usage:", process.stderr)
                 self.assertEqual(process.stdout, "")
+
+    def test_resolve_conf_exposes_model_sources_defaults_and_native_pool_errors(self):
+        conf_path = ROOT / "configs/pipeline_entity_extract_llamacpp.conf"
+        code, report = self.command("resolve-conf", str(conf_path.relative_to(ROOT)), "--root", str(ROOT), "--depth", "1")
+        self.assertEqual(code, 0, report)
+        configuration = report["configuration"]
+        self.assertEqual(configuration["conf_path"], str(conf_path))
+        self.assertEqual(configuration["model_paths"], [{
+            "model_id": "entity_llm", "source": "conf.data.model_paths",
+            "resolved": str(ROOT / "models/qwen2.5-0.5b-instruct-q4_k_m.gguf"),
+        }])
+        llm_config = configuration["effective_pipeline"]["pipeline"][1]["config"]
+        self.assertEqual(llm_config["max_tokens"], 256)
+        self.assertEqual(llm_config["top_p"], 0.9, "omitted defaults must come from the native validated plan")
+        conf = json.loads(conf_path.read_text())
+        with tempfile.TemporaryDirectory(prefix="resolve-conf-", dir=ROOT / "build") as directory:
+            changed = Path(directory) / "pipeline.conf"
+            conf["data"].pop("model_paths")
+            changed.write_text(json.dumps(conf))
+            code, direct = self.command("resolve-conf", str(changed.relative_to(ROOT)), "--root", str(ROOT))
+            self.assertEqual(code, 0, direct)
+            self.assertEqual(direct["configuration"]["model_paths"][0]["source"], "pipeline.models.model_path")
+            conf["data"]["mem_que"]["capacities"]["entities_json"] = 0
+            changed.write_text(json.dumps(conf))
+            code, rejected = self.command("resolve-conf", str(changed.relative_to(ROOT)), "--root", str(ROOT))
+            self.assertEqual(code, 1)
+            self.assertFalse(rejected["ok"])
+            self.assertEqual(rejected["diagnostics"][0]["code"], "DEPLOYMENT_CONFIG")
+            self.assertIn("entities_json", rejected["diagnostics"][0]["message"])
 
     def test_native_viewer_preserves_explicit_dag_dependencies(self):
         process = subprocess.run(
