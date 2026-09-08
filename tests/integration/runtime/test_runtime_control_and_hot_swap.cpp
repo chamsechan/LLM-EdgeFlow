@@ -6,10 +6,13 @@
 #include <nlohmann/json.hpp>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include "company_alg_cpp.hpp"
 #include "company_alg_interface.h"
+#include "core/common_contracts.h"
+#include "core/pipeline.h"
 
 static std::string GetConfigPath(const std::string& rel_path) {
   FILE* fp = fopen(rel_path.c_str(), "r");
@@ -25,6 +28,144 @@ class RuntimeControlAndHotSwapTest : public ::testing::Test {
   void SetUp() override { Alg_Init(); }
   void TearDown() override { Alg_DeInit(); }
 };
+
+namespace {
+
+nlohmann::json ControlInstancesPipeline() {
+  return nlohmann::json::parse(R"({
+    "biz_name":"keyword_match_v1", "models":[], "pipeline":[
+      {"id":"rules_a", "node_type":"TextRuleMatchNode", "depends_on":[],
+       "ports":{"inputs":{"text":"input_sentences"},
+                "outputs":{"matches":"first_matches"}},
+       "config":{"categories":{"INITIAL_A":["sample"]}}},
+      {"id":"rules_b", "node_type":"TextRuleMatchNode", "depends_on":[],
+       "ports":{"inputs":{"text":"input_sentences"},
+                "outputs":{"matches":"rule_matches"}},
+       "config":{"categories":{"INITIAL_B":["sample"]}}},
+      {"id":"template", "node_type":"TextTemplateNode", "depends_on":[],
+       "ports":{"inputs":{"primary":"input_sentences"},
+                "outputs":{"text":"rendered"}}}
+    ]})");
+}
+
+nlohmann::json TargetedRules(const std::string& id,
+                             const std::string& category) {
+  const nlohmann::json payload = {{"categories", {{category, {"sample"}}}}};
+  return {{"$edgeflow_control", 1}, {"node_id", id}, {"payload", payload}};
+}
+
+void ExpectRuleCategories(llm_edgeflow::Pipeline* pipeline,
+                          const std::string& first, const std::string& second) {
+  using namespace llm_edgeflow;
+  AlgContext context;
+  ASSERT_TRUE(context.Publish("input_sentences", TextBatch{{17, 0, "sample"}}));
+  ASSERT_EQ(pipeline->Execute(&context), 0);
+  const auto* first_matches = context.Read<RuleMatchBatch>("first_matches");
+  const auto* second_matches = context.Read<RuleMatchBatch>("rule_matches");
+  ASSERT_NE(first_matches, nullptr);
+  ASSERT_NE(second_matches, nullptr);
+  ASSERT_EQ(first_matches->size(), 1u);
+  ASSERT_EQ(second_matches->size(), 1u);
+  EXPECT_EQ(first_matches->front().req_id, 17u);
+  EXPECT_EQ(second_matches->front().req_id, 17u);
+  EXPECT_EQ(first_matches->front().data.category, first);
+  EXPECT_EQ(second_matches->front().data.category, second);
+}
+
+}  // namespace
+
+TEST_F(RuntimeControlAndHotSwapTest,
+       TargetedControlUpdatesOnlySelectedInstance) {
+  using namespace llm_edgeflow;
+  Pipeline pipeline;
+  PipelineDiagnostic diagnostic;
+  ASSERT_TRUE(pipeline.BuildFromJson(ControlInstancesPipeline(), &diagnostic))
+      << diagnostic.message;
+  ExpectRuleCategories(&pipeline, "INITIAL_A", "INITIAL_B");
+  std::string error;
+  ASSERT_EQ(
+      pipeline.Control(kControlCmdUpdateRules,
+                       TargetedRules("rules_a", "UPDATED_A").dump(), &error),
+      0)
+      << error;
+  ExpectRuleCategories(&pipeline, "UPDATED_A", "INITIAL_B");
+  ASSERT_EQ(
+      pipeline.Control(kControlCmdUpdateRules,
+                       TargetedRules("rules_b", "UPDATED_B").dump(), &error),
+      0)
+      << error;
+  ExpectRuleCategories(&pipeline, "UPDATED_A", "UPDATED_B");
+
+  // Unwrapped payloads retain their existing broadcast behavior.
+  ASSERT_EQ(
+      pipeline.Control(kControlCmdUpdateRules,
+                       R"({"categories":{"BROADCAST":["sample"]}})", &error),
+      0)
+      << error;
+  ExpectRuleCategories(&pipeline, "BROADCAST", "BROADCAST");
+}
+
+TEST_F(RuntimeControlAndHotSwapTest,
+       InvalidTargetedControlPreservesAllInstances) {
+  using namespace llm_edgeflow;
+  Pipeline pipeline;
+  PipelineDiagnostic diagnostic;
+  ASSERT_TRUE(pipeline.BuildFromJson(ControlInstancesPipeline(), &diagnostic))
+      << diagnostic.message;
+  const auto valid = TargetedRules("rules_a", "UPDATED");
+  std::vector<std::pair<nlohmann::json, std::string>> invalid;
+  for (const nlohmann::json& version :
+       {nlohmann::json(2), nlohmann::json(1.0), nlohmann::json("1"),
+        nlohmann::json(nullptr)}) {
+    auto envelope = valid;
+    envelope["$edgeflow_control"] = version;
+    invalid.emplace_back(std::move(envelope), "$edgeflow_control");
+  }
+  for (const char* missing : {"node_id", "payload"}) {
+    auto envelope = valid;
+    envelope.erase(missing);
+    invalid.emplace_back(std::move(envelope), missing);
+  }
+  for (const nlohmann::json& id :
+       {nlohmann::json(""), nlohmann::json(42), nlohmann::json("missing")}) {
+    auto envelope = valid;
+    envelope["node_id"] = id;
+    invalid.emplace_back(std::move(envelope), "node_id");
+  }
+  for (const nlohmann::json& payload :
+       {nlohmann::json::array(), nlohmann::json(nullptr),
+        nlohmann::json("update")}) {
+    auto envelope = valid;
+    envelope["payload"] = payload;
+    invalid.emplace_back(std::move(envelope), "payload");
+  }
+  auto envelope = valid;
+  envelope["extra"] = true;
+  invalid.emplace_back(envelope, "extra");
+  envelope = valid;
+  envelope["payload"] = {{"categories", {{"UPDATED", 123}}}};
+  invalid.emplace_back(envelope, "UPDATED");
+  envelope["payload"] = {{"rules", {{{"pattern", "sample"}, {"score", 1.5}}}}};
+  invalid.emplace_back(envelope, "maximum");
+  envelope["payload"] = {
+      {"rules", {{{"pattern", "("}, {"strategy", "regex"}}}}};
+  invalid.emplace_back(envelope, "rules_a");
+  for (const auto& [payload, field] : invalid) {
+    SCOPED_TRACE(payload.dump());
+    std::string error;
+    EXPECT_NE(pipeline.Control(kControlCmdUpdateRules, payload.dump(), &error),
+              0);
+    EXPECT_NE(error.find(field), std::string::npos) << error;
+    ExpectRuleCategories(&pipeline, "INITIAL_A", "INITIAL_B");
+  }
+  std::string error;
+  EXPECT_EQ(pipeline.Control(kControlCmdUpdateRules,
+                             TargetedRules("template", "WRONG_TARGET").dump(),
+                             &error),
+            -7);
+  EXPECT_NE(error.find("template"), std::string::npos) << error;
+  ExpectRuleCategories(&pipeline, "INITIAL_A", "INITIAL_B");
+}
 
 // 1. 关键词库运行时动态热更新与立即生效测试
 TEST_F(RuntimeControlAndHotSwapTest, KeywordMatcherDynamicHotSwap) {
@@ -54,7 +195,10 @@ TEST_F(RuntimeControlAndHotSwapTest, KeywordMatcherDynamicHotSwap) {
   nlohmann::json control_param = {{"categories",
                                    {{"VIP_URGENT", {"VIP", "专席"}},
                                     {"DISCOUNT_PROMO", {"返现", "优惠券"}}}}};
-  std::string param_str = control_param.dump();
+  const nlohmann::json envelope = {{"$edgeflow_control", 1},
+                                   {"node_id", "node_0_TextRuleMatchNode"},
+                                   {"payload", control_param}};
+  std::string param_str = envelope.dump();
 
   CompanyAlgParamControl ctrl;
   ctrl.control_cmd = 1;

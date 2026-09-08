@@ -634,14 +634,38 @@ int Pipeline::Control(int cmd, const std::string& json_param,
     std::string context;
   };
   std::vector<Target> targets;
-  nlohmann::json payload;
-  bool parsed = false;
+  nlohmann::json payload = nlohmann::json::parse(json_param, nullptr, false);
+  bool parsed = !payload.is_discarded();
+  std::string target_id;
+  std::string node_param = json_param;
+  if (parsed && payload.is_object() && payload.contains("$edgeflow_control")) {
+    static const nlohmann::json envelope_schema = {
+        {"type", "object"},
+        {"required", {"$edgeflow_control", "node_id", "payload"}},
+        {"additionalProperties", false},
+        {"properties",
+         {{"$edgeflow_control", {{"type", "integer"}, {"enum", {1}}}},
+          {"node_id", {{"type", "string"}}},
+          {"payload", {{"type", "object"}}}}}};
+    std::string detail;
+    if (!ValidateControlPayload(payload, envelope_schema, &detail))
+      return fail(-1, "Invalid targeted Control envelope: " + detail);
+    target_id = payload["node_id"].get<std::string>();
+    if (target_id.empty())
+      return fail(-1, "Targeted Control node_id must not be empty");
+    auto business_payload = payload["payload"];
+    payload = std::move(business_payload);
+    node_param = payload.dump();
+  }
+  bool target_found = false;
   size_t node_index = 0;
   // Materialization uses this same layer/instance order. Keep diagnostics tied
   // to instance IDs even when several instances have the same Node type.
   for (const auto& layer : plan_->topological_layers) {
     for (const auto& id : layer) {
       auto* node = nodes_[node_index++].get();
+      if (!target_id.empty() && id != target_id) continue;
+      target_found = true;
       const auto def = PipelineCatalog::FindNode(node->Name());
       if (!def) continue;
       const auto command = std::find_if(
@@ -657,7 +681,7 @@ int Pipeline::Control(int cmd, const std::string& json_param,
         const bool valid =
             parsed ? ValidateControlPayload(payload, command->payload_schema,
                                             &detail)
-                   : ParseControlPayload(json_param, command->payload_schema,
+                   : ParseControlPayload(node_param, command->payload_schema,
                                          &payload, &detail);
         if (!valid) return fail(-1, context + detail);
         parsed = true;
@@ -665,8 +689,13 @@ int Pipeline::Control(int cmd, const std::string& json_param,
       targets.push_back({node, context});
     }
   }
+  if (!target_id.empty() && !target_found) {
+    return fail(-1, "Unknown Control target node_id: '" + target_id + "'");
+  }
   if (targets.empty()) {
-    return fail(-7, "Unsupported control command: " + std::to_string(cmd));
+    return fail(-7,
+                "Unsupported control command: " + std::to_string(cmd) +
+                    (target_id.empty() ? "" : " for node '" + target_id + "'"));
   }
 
   // Broadcast remains best-effort: a later semantic failure does not undo an
@@ -675,7 +704,7 @@ int Pipeline::Control(int cmd, const std::string& json_param,
   int first_failure = 0;
   std::string failures;
   for (const auto& target : targets) {
-    const auto result = target.node->Control(cmd, json_param);
+    const auto result = target.node->Control(cmd, node_param);
     if (result.status == NodeControlStatus::kFailed) {
       if (first_failure == 0) first_failure = result.code ? result.code : -1;
       if (!failures.empty()) failures += "; ";

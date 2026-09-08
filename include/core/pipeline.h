@@ -60,7 +60,9 @@ class Pipeline {
    * @brief 运行时动态控制
    */
   // Calls must be externally serialized with Execute/Control. Broadcast updates
-  // are not transactional; error identifies failed instances.
+  // are not transactional; error identifies failed instances. A JSON envelope
+  // {"$edgeflow_control":1,"node_id":"id","payload":{...}} targets one
+  // instance.
   int Control(int cmd, const std::string& json_param,
               std::string* error = nullptr);
 

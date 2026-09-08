@@ -47,7 +47,8 @@ hot-swap 声明一致；通常直接复用同一份命令声明。重复使用�
 
 `def.control_commands` 引用 `PrefixCommand()`；`ParseControlPayload` 也引用其中的
 schema，避免重复维护字段检查。现有校验子集包括 `type`、`enum`、`required`、
-`properties`、`minProperties`、`additionalProperties` 和同类型 `items`。只使用这些
+`properties`、`minProperties`、`additionalProperties`、同类型 `items`、数值
+`minimum` / `maximum`。注册时拒绝无效或未支持的 schema 关键字；只使用这些
 关键字；字符串长度、字段关系、规则编译等约束使用普通 C++ 语义校验。它不是完整的
 JSON Schema 实现。
 
@@ -166,9 +167,21 @@ Demo 的 `--control-cmd` 也可配置为 Profile 的 `control_cmd`，CLI 显式�
 兼容选项，不影响显式文件，与 `--example-control` 同时使用会报错。
 
 同一 handle 的 C ABI / Operator 调用串行；多个线程提交不保证顺序。内部直接调用
-Pipeline/Node 的 Control 时，由调用者序列化更新。一次命令广播到所有声明支持它的
-实例，任一节点语义失败可能已让其他节点生效；多次 Control 也不组成事务。需要精确
-实例寻址或成套切换时应先提出独立需求。
+Pipeline/Node 的 Control 时，由调用者序列化更新。裸 payload 广播到所有声明支持该
+命令的实例。一个 Pipeline 有多个同类节点时，用下面的信封只更新 `id: prefix`：
+
+```json
+{"$edgeflow_control":1,"node_id":"prefix","payload":{"prefix":"VIP:"}}
+```
+
+把该对象存入 Demo 的 Control 文件，或作为 `ControlJsonParam.json` / C ABI 的 JSON
+字符串；`cmd_id` 仍放在原参数中。`$edgeflow_control` 是保留标记；信封必须且只能含上述
+三个字段，版本必须为整数 `1`，`node_id` 为非空的 Pipeline 实例 ID，`payload` 为对象。
+Node 只收到内部 `payload`，无需编写路由代码。未知 ID、该实例不支持命令或 schema
+校验失败会在调用 Node 前拒绝。
+
+广播仍是尽力更新：任一节点语义失败可能已让其他节点生效；多次 Control 也不组成事务。
+单节点应像模板一样先完成构造和校验，再替换配置。
 
 交付使用[统一开发流程](../../CONTRIBUTING.md)和 `./scripts/run_all_tests.sh`。对已有
 命令改变参数语义或公开接口时，先记录兼容决策；普通新命令不用修改中央分发代码。

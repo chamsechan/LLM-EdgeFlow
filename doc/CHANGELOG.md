@@ -12,6 +12,8 @@
 
 - Demo 默认保留 Pipeline 配置，内置规则更新改为 `--example-control` 显式启用；保留 `--no-default-control` 兼容，显式 Control 文件优先。
 
+- Control 支持版本化 JSON 信封按 `node_id` 定向更新，裸 payload 保留广播；C ABI、Operator、Demo 共用路由，未知目标和非法信封在更新前拒绝。
+
 ## 2026-09-08 投产前契约一致性修复（RFC-0044）
 
 - session Embedding 缓存以版本、长度及完整内容编码身份，保留同键并发复用与失败重试，修复嵌入 NUL 的不同语料返回相同向量的问题。
