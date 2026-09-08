@@ -21,7 +21,7 @@ Integration       C ABI / Operator / Biz adapters
     ↓
 Orchestration     Pipeline / Validator / Catalog / Blackboard / Session
     ↓
-Capability Nodes  Stateless capability Nodes
+Capability Nodes  Request-stateless Nodes
     ↓
 Model Execution   Model semantics / neutral execution protocols / Backends
 ```

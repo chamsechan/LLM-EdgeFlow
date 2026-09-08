@@ -68,13 +68,14 @@ and native Resolver; do not reproduce their validation rules.
    come from the edited Pipeline. For example:
 
    ```bash
-   ./build/alg_demo --profile <compatible_profile> --config <edited.conf> --no-default-control --output-dir <run_output_dir>
+   ./build/alg_demo --profile <compatible_profile> --config <edited.conf> --output-dir <run_output_dir>
    ```
 
    A new Profile is optional; explicit `--biz`, `--config` and `--dataset` also work. Use the
    original Profile alone only when its configuration already points to the intended Pipeline.
-   Demo uses the selected Pipeline defaults; `--no-default-control` remains a compatibility
-   option. Use `--example-control` only for the built-in update demonstration, and provide a
+   Demo uses the selected Pipeline defaults. The compatibility flag `--no-default-control`
+   is unnecessary and conflicts with `--example-control`. Use `--example-control` only for
+   the built-in update demonstration, and provide a
    Control file only when it is part of the requested scenario. Verify
    request IDs, status and expected output fields in `results.jsonl` and `summary.json`.
 

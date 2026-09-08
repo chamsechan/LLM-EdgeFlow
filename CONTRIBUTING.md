@@ -82,25 +82,34 @@ configuration and Profiles. Preserve historical RFCs and acceptance records when
 
 ## 6. Run one canonical delivery gate
 
-Before declaring a tracked change ready for review, run:
+Finish the intended changes and durable documentation, then choose the gate entrypoint:
+
+- For a local handoff without remote delivery, run:
 
 ```bash
 ./scripts/run_all_tests.sh
 ```
 
+- When the user has authorized PR delivery or merge, use the delivery script in section 7.
+  It runs this same gate before committing and pushing; do not run a separate full gate first.
+
 This single command is authoritative for the default deliverable: shell syntax, C/C++ format
 check, Git whitespace, complete default configuration/build, and all registered CTest tests.
 Do not also require separate full `ctest` or formatting passes unless diagnosing a failure or
 verifying a non-default build such as sanitizer or real-model execution.
+Changes after verification or a failed gate require revalidation. A prior local handoff does not
+bypass the delivery script's gate when remote delivery is requested later.
 
 Documentation-only changes still run the canonical gate before PR because documentation and
 governance checks are registered in CTest. If the environment cannot run the gate, report the
 exact missing prerequisite and do not claim full verification.
 
-After the gate succeeds, mark an applicable RFC `Completed` and update its index row. Here,
-`Completed` means the scoped implementation and required verification are complete and the same
-commit set is ready to land; GitHub merge state remains observable in Git rather than duplicated
-in RFC metadata.
+When an RFC's implementation and required focused/non-default checks are complete, prepare its
+`Completed` status and matching index row in the final diff submitted to the gate. Completion is
+confirmed only after the gate succeeds; on failure, restore `In Implementation` while correcting
+the remaining work. This keeps the RFC closeout in the verified changes. `Completed` means the
+scoped implementation and required verification are complete; GitHub merge state remains
+observable in Git rather than duplicated in RFC metadata.
 
 ## 7. Deliver only with explicit authorization
 

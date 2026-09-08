@@ -6,12 +6,10 @@ Catalog 与 Validator，避免工具端维护另一套 Pipeline 规则。
 
 ## 前置条件
 
-先从仓库根目录构建工具和 Demo：
-
-```bash
-cmake -B build -G Ninja -DLLM_EDGEFLOW_LINKER=auto
-cmake --build build -j$(nproc)
-```
+首次使用先按根目录 [README 的最小构建步骤](../../README.md#1-获取并构建)准备工具和 Demo；
+完成过快速开始后可直接继续。关键词编排练习无需推理后端或模型权重。
+需要运行真实模型时，再按[构建变体](../../doc/VERIFIABLE_SELECTION.md#构建变体)选择匹配的
+Backend 并重建对应产物。以下命令都从仓库根目录执行。
 
 ## 终端查看
 
