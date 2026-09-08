@@ -129,6 +129,17 @@
 
 ## 输出容量
 
+宿主输入是借用视图，底层字符串、数组和结构体必须保持有效直到 `Process` 返回。
+输出 `shared_ptr<void>` 持有的是当前 handle 的池租约，不延长 handle 的生命期。
+需要保存结果时，在本次调用后复制到自己的 `std::string` / 值对象，再清空输出容器。
+不要累积所有输出租约后在同一线程继续同步 `Process`：池满时调用会等待空闲块，
+该线程也就无法返回释放旧租约。池深用于控制同时持有的输出数量，不是结果存储空间。
+
+销毁顺序是：等待所有 `Process` / `Control` 返回 → 释放输出引用 → `Destroy`。
+有效 handle 即使因未归还输出而在 `Destroy` 返回错误，也已被消费，不得重试或再访问
+旧输出。参考 [Demo 的输出复制与释放](../../demo/biz/ocr_doc_qa_demo.cpp) 和
+[公开 Operator 契约](../../include/operator/operator_interface.h)。
+
 Operator 的输出路径是 `Pipeline → 可变长业务 Result → 已租用输出池`。
 Result 与请求 Context 均不跨 Process 保存。`.conf` 的 `data.mem_que.type` 选择已注册
 输出类型，`capacities` 设置它声明的字段容量。字符串不受中间 C 输出数组大小限制；
