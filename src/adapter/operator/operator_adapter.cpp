@@ -122,11 +122,11 @@ int Operator_Init() noexcept {
           "OperatorValueTypeRegistry");
       return ret;
     }
-    ret = llm_edgeflow::OperatorBizBridgeRegistry::Instance().GlobalInit();
+    std::string bridge_diagnostic;
+    ret = llm_edgeflow::OperatorBizBridgeRegistry::Instance().GlobalInit(
+        &bridge_diagnostic);
     if (ret != 0) {
-      SetLastError(
-          "GlobalInit failed: registration conflict in "
-          "OperatorBizBridgeRegistry");
+      SetLastError(bridge_diagnostic);
       return ret;
     }
     return 0;

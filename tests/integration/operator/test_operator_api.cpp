@@ -351,9 +351,17 @@ TEST_F(OperatorApiTest, GenericJsonControlReachesCustomNodeAndReportsFailures) {
       R"({"categories":{"AFTER_RULE_UPDATE":["NEW:sample"]}})"};
   ASSERT_EQ(ops_.Control(handle, ControlCommand::kJson, &rules), 0);
   check(0);
-  command.json_param_str = R"({"prefix":"NEW:"})";
+  command.json_param_str =
+      R"({"$edgeflow_control":1,"node_id":"prefix","payload":{"prefix":"NEW:"}})";
   ASSERT_EQ(ops_.Control(handle, ControlCommand::kJson, &command), 0);
   check(1);  // Updating the prefix preserves the matcher's new rules.
+
+  command.json_param_str =
+      R"({"$edgeflow_control":1,"node_id":"missing","payload":{"prefix":"BAD:"}})";
+  EXPECT_NE(ops_.Control(handle, ControlCommand::kJson, &command), 0);
+  EXPECT_NE(std::string(GetOperatorLastError()).find("missing"),
+            std::string::npos);
+  check(1);
 
   command.json_param_str = R"({"prefix":1})";
   EXPECT_NE(ops_.Control(handle, ControlCommand::kJson, &command), 0);

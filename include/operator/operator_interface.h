@@ -118,6 +118,9 @@ struct CreateParam {
 
 /**
  * @brief 命名 I/O 槽位容器类型定义
+ * 输入通常是仅在 Process 返回前有效的借用视图。输出是所属 handle 的池租约，
+ * shared_ptr 不会延长 handle 或池内存的生命周期。需要跨调用保存结果时，复制字段
+ * 到调用方持有的值，再清空输出容器；不得在 Destroy 后访问输出指针。
  */
 using OpaqueData = std::shared_ptr<void>;
 using NamedIo = std::unordered_map<std::string, OpaqueData>;
@@ -138,10 +141,14 @@ inline std::shared_ptr<void> MakeBorrowedOperatorInput(const T* ptr) {
 struct OperatorFunc {
   int (*Init)() noexcept;
   int (*Create)(void** handle, const CreateParam* param) noexcept;
+  // 输出占用池容量，释放最后一份输出引用才归还租约。池满时 Process 等待；
+  // 不要在同一线程持有全部旧租约时继续同步 Process，否则无法返回释放租约。
   int (*Process)(void* handle, const NamedIoBatch& inputs,
                  NamedIoBatch& outputs) noexcept;
   int (*Control)(void* handle, ControlCommand command,
                  void* control_param) noexcept;
+  // 调用前等待所有 Process/Control 返回并释放输出。有效 handle 一经 Destroy
+  // 即被消费，即使因未归还输出返回错误也不可重试 Destroy 或继续使用 handle。
   int (*Destroy)(void* handle) noexcept;
   int (*Deinit)() noexcept;
 };

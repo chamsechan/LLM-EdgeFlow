@@ -126,8 +126,9 @@ class NodeBase : public INode {
   ~NodeBase() override = default;
 
   bool Init(const NodeInitContext& init_ctx) noexcept final {
+    if (init_ctx.diagnostic) init_ctx.diagnostic->clear();
     if (!init_ctx.session_ctx) {
-      return false;
+      return init_ctx.Fail("Node initialization requires SessionContext");
     }
     try {
       const nlohmann::json& cfg =
@@ -137,11 +138,11 @@ class NodeBase : public INode {
     } catch (const std::exception& e) {
       ALG_LOG_ERROR("[NodeBase] Exception in InitNode for %s: %s\n",
                     node_name_.c_str(), e.what());
-      return false;
+      return init_ctx.Fail(e.what());
     } catch (...) {
       ALG_LOG_ERROR("[NodeBase] Unknown exception in InitNode for %s\n",
                     node_name_.c_str());
-      return false;
+      return init_ctx.Fail("Unknown exception in InitNode");
     }
   }
 

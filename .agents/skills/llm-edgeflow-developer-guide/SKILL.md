@@ -10,7 +10,8 @@ First classify the requested change. Read only the references needed for the aff
 - New modality, C ABI structure/function behavior, Adapter, Operator bridge, or allowed runtime Pipeline name: read [Integration](references/integration.md).
 - Demo dataset/result conversion or registration: follow [business onboarding](../../../doc/dev_guide/business_onboarding.md#统一-demo-接入). Load Integration only if the external contract or bridge also changes.
 - Pipeline lifecycle, Validator, DAG planning, `AlgContext`, `BlackboardKey`, or session behavior: read [Orchestration](references/orchestration.md).
-- New or modified capability Node and its Definition: read [Capability Nodes](references/capability-nodes.md).
+- New or modified capability Node, its parameters, or a Control handler: read [Capability Nodes](references/capability-nodes.md). Start Control work from the [compiled example](../../../doc/dev_guide/first_control.md); reuse transport and instance routing.
+- Parameter values or compatible model replacement with no implementation changes: use `pipeline-composer` and [native deployment inspection](../../../doc/VERIFIABLE_SELECTION.md#替换模型后确认实际生效配置).
 - New Model semantics/capability, inference Backend, neutral protocol, or batch behavior: read [Model Execution](references/model-execution.md).
 - Before completing any implementation, read [Verification](references/verification.md).
 
@@ -21,3 +22,8 @@ If the request only configures a solution using existing nodes and biz contracts
 must not modify Core or node implementations.
 
 Use `github-branch-merge` only when the user explicitly asks to upload, open a PR, or merge.
+
+After closing a capability or conversion gap, rebuild the Catalog and return to composition:
+validate and run the user's intended Pipeline with its own `.conf` and expected results. A compiled
+Node alone does not complete a request for a working solution. Routine custom Nodes that preserve
+existing contracts follow the lightweight path in `CONTRIBUTING.md`; add no extra approval step.

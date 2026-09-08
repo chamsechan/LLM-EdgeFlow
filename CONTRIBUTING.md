@@ -13,8 +13,8 @@ Choose the smallest path that covers the change:
 | :--- | :--- |
 | Read-only review or diagnosis | Inspect and report; no branch or write is required. |
 | Solution configuration using registered capabilities and biz contracts (Pipeline JSON, necessary `.conf`, optional Demo Profiles) | Use `pipeline-composer`, Catalog, and Validator; no C++ and normally no RFC. |
-| Local bug, test, documentation, or behavior-preserving refactor | Create a branch, implement, and add proportional tests; normally no RFC. |
-| Public contract, cross-layer architecture, compatibility/migration policy, new Node/Model/Backend capability, dependency, or high-risk ownership/concurrency/security/performance decision | Create a branch and RFC before implementation. |
+| Local bug, test, documentation, behavior-preserving refactor, or routine custom Node using existing contracts | Create a branch, implement, and add proportional tests; normally no RFC. |
+| Public contract, cross-layer architecture, compatibility/migration policy, new shared Node/Model/Backend capability, dependency, or high-risk ownership/concurrency/security/performance decision | Create a branch and RFC before implementation. |
 
 If classification changes during investigation, stop implementation at the newly discovered
 boundary and add the required RFC or route to the relevant layer guide.
@@ -33,13 +33,17 @@ An RFC is required when a change affects one or more of these boundaries:
 
 - public C ABI, Operator contract, persisted Pipeline schema, or compatibility behavior;
 - dependencies between architectural layers or responsibilities shared across layers;
-- new externally discoverable Node, Model capability, Backend, modality, or major toolchain;
+- new framework-maintained common Node, Model capability, Backend, modality, shared port type, or major toolchain;
 - data ownership, lifetime, concurrency, security, or performance decisions that are difficult
   to reverse;
 - a migration or deprecation that downstream users must coordinate.
 
 An RFC is not required for a contained bug fix, test improvement, documentation correction,
-mechanical refactor, or Pipeline composition that reuses existing registered contracts. A small
+mechanical refactor, or Pipeline composition that reuses existing registered contracts. A routine
+custom Node also needs no RFC when it uses existing port types/model capabilities and preserves
+public contracts, layer boundaries and established ownership/concurrency rules. Its Definition,
+change description and focused behavior tests record the extension. Registration alone does not
+trigger an RFC; a new shared contract or one of the boundaries above still does. A small
 change may still use an RFC when the decision is contentious or has lasting operational cost.
 
 Create RFCs from [RFC_TEMPLATE.md](doc/rfcs/RFC_TEMPLATE.md), add them to the index, and keep

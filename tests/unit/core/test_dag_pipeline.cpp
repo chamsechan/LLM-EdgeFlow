@@ -572,7 +572,9 @@ TEST_F(DagPipelineTest, ParallelFailuresKeepCodeAndMessageFromSameNode) {
   AlgContext context;
   EXPECT_EQ(pipeline.Execute(&context), -8101);
   EXPECT_EQ(context.GetErrorCode(), -8101);
-  EXPECT_EQ(context.GetErrorMessage(), "first parallel failure");
+  EXPECT_NE(context.GetErrorMessage().find("Node 'first'"), std::string::npos);
+  EXPECT_NE(context.GetErrorMessage().find("first parallel failure"),
+            std::string::npos);
 }
 
 // 8. 黑板高并发读写线程安全性压测 (Thread-Safe AlgContext Stress Test)
@@ -633,11 +635,13 @@ TEST_F(DagPipelineTest, SequentialAndSingleNodeParallelShareFailureContract) {
       const int expected = failure < 2 ? -1 : (failure == 2 ? -8103 : -8104);
       EXPECT_EQ(pipeline.Execute(&ctx), expected);
       EXPECT_EQ(ctx.GetErrorCode(), expected);
-      EXPECT_FALSE(ctx.GetErrorMessage().empty());
+      EXPECT_NE(ctx.GetErrorMessage().find("Node 'failing'"),
+                std::string::npos);
       EXPECT_EQ(ctx.GetErrorMessage().find("stale diagnostic"),
                 std::string::npos);
       if (failure == 3) {
-        EXPECT_EQ(ctx.GetErrorMessage(), "diagnostic from this invocation");
+        EXPECT_NE(ctx.GetErrorMessage().find("diagnostic from this invocation"),
+                  std::string::npos);
       }
     }
   }

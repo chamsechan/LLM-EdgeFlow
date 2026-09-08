@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <limits>
 #include <nlohmann/json.hpp>
 #include <stdexcept>
 #include <string>
@@ -669,6 +670,110 @@ TEST(DefinitionSchemaValidationTest,
       ParseControlPayload(R"({"values":["a"]})", schema, &output, &error));
   EXPECT_EQ(output["values"][0], "a");
   EXPECT_TRUE(error.empty());
+}
+
+TEST(DefinitionSchemaValidationTest, ControlSchemaRejectsInvalidDeclarations) {
+  const std::vector<std::pair<nlohmann::json, std::string>> invalid = {
+      {{{"type", "int"}}, "type"},
+      {{{"type", {"number", "null"}}}, "type"},
+      {{{"minimum", "0"}}, "minimum"},
+      {{{"maximum", std::numeric_limits<double>::infinity()}}, "maximum"},
+      {{{"minimum", 2}, {"maximum", 1}}, "minimum"},
+      {{{"minProperties", -1}}, "minProperties"},
+      {{{"minProperties", 1.5}}, "minProperties"},
+      {{{"enum", nlohmann::json::array()}}, "enum"},
+      {{{"enum", {1, 1}}}, "enum"},
+      {{{"required", "name"}}, "required"},
+      {{{"required", {1}}}, "required"},
+      {{{"required", {"name", "name"}}}, "required"},
+      {{{"properties", nlohmann::json::array()}}, "properties"},
+      {{{"properties", {{"score", {{"exclusiveMaximum", 1}}}}}}, "score"},
+      {{{"items", nlohmann::json::array()}}, "items"},
+      {{{"additionalProperties", "false"}}, "additionalProperties"},
+      {{{"items", {{"type", "invalid"}}}}, "items"},
+      {{{"additionalProperties", {{"pattern", ".*"}}}}, "additionalProperties"},
+      {{{"description", false}}, "description"},
+      {{{"examples", 1}}, "examples"},
+      {{{"readOnly", "true"}}, "readOnly"},
+      {{{"oneOf", nlohmann::json::array()}}, "oneOf"}};
+  for (const auto& [schema, field] : invalid) {
+    SCOPED_TRACE(schema.dump());
+    NodeDefinition node;
+    node.node_type = "InvalidControlSchemaProbe";
+    node.control_commands = {
+        ControlCommandDefinition(2000000110, "schema_probe", "", schema)};
+    std::string error;
+    EXPECT_FALSE(PipelineCatalog::RegisterNodeDefinition(node, &error));
+    EXPECT_NE(error.find(node.node_type), std::string::npos) << error;
+    EXPECT_NE(error.find("2000000110"), std::string::npos) << error;
+    EXPECT_NE(error.find(field), std::string::npos) << error;
+    EXPECT_FALSE(
+        ValidateControlPayload(nlohmann::json::object(), schema, &error));
+    EXPECT_FALSE(error.empty());
+  }
+}
+
+TEST(DefinitionSchemaValidationTest,
+     ControlSchemaAllowsDocumentaryAnnotations) {
+  const nlohmann::json schema = {
+      {"type", "object"},
+      {"title", "Control parameters"},
+      {"description", "Runtime update"},
+      {"$comment", "Only fields supplied by the caller are updated"},
+      {"default", {{"score", 0.5}}},
+      {"examples", {{{"score", 0.8}}}},
+      {"deprecated", false},
+      {"readOnly", false},
+      {"writeOnly", true},
+      {"properties",
+       {{"score", {{"type", "number"}, {"minimum", 0}, {"maximum", 1}}}}}};
+  NodeDefinition node;
+  node.node_type = "AnnotatedControlSchemaProbe";
+  node.control_commands = {
+      ControlCommandDefinition(2000000111, "annotated_update", "", schema)};
+  std::string error;
+  ASSERT_TRUE(PipelineCatalog::RegisterNodeDefinition(node, &error)) << error;
+  nlohmann::json payload;
+  ASSERT_TRUE(ParseControlPayload("{}", schema, &payload, &error)) << error;
+  EXPECT_EQ(payload, nlohmann::json::object());
+}
+
+TEST(DefinitionSchemaValidationTest,
+     ControlPayloadEnforcesPublishedNumberBounds) {
+  const auto definition = PipelineCatalog::FindNode("TextRuleMatchNode");
+  ASSERT_TRUE(definition.has_value());
+  ASSERT_FALSE(definition->control_commands.empty());
+  const auto& schema = definition->control_commands.front().payload_schema;
+  for (const double score : {0.0, 0.5, 1.0}) {
+    const nlohmann::json payload = {
+        {"rules", {{{"pattern", "VIP"}, {"score", score}}}}};
+    std::string error;
+    EXPECT_TRUE(ValidateControlPayload(payload, schema, &error)) << error;
+  }
+  for (const double score : {-0.01, 1.01}) {
+    const nlohmann::json payload = {
+        {"rules", {{{"pattern", "VIP"}, {"score", score}}}}};
+    std::string error;
+    EXPECT_FALSE(ValidateControlPayload(payload, schema, &error));
+    EXPECT_NE(error.find("rules"), std::string::npos) << error;
+    EXPECT_NE(error.find("Array item 0"), std::string::npos) << error;
+    EXPECT_NE(error.find("score"), std::string::npos) << error;
+    EXPECT_NE(error.find(score < 0 ? "minimum" : "maximum"), std::string::npos)
+        << error;
+  }
+  EXPECT_FALSE(ValidateControlPayload(std::numeric_limits<double>::quiet_NaN(),
+                                      {{"type", "number"}}));
+  EXPECT_FALSE(ValidateControlPayload(std::numeric_limits<double>::infinity(),
+                                      {{"type", "number"}}));
+  EXPECT_FALSE(ValidateControlPayload(
+      nlohmann::json::object(),
+      {{"minProperties", std::numeric_limits<uint64_t>::max()}}));
+  EXPECT_TRUE(ValidateControlPayload(
+      3, {{"type", "integer"}, {"minimum", 3}, {"maximum", 3}}));
+  EXPECT_FALSE(
+      ValidateControlPayload(2, {{"type", "integer"}, {"minimum", 3}}));
+  EXPECT_FALSE(
+      ValidateControlPayload(4, {{"type", "integer"}, {"maximum", 3}}));
 }
 
 TEST(DefinitionSchemaValidationTest, NodeToJsonExportsConstraintsAndCommands) {

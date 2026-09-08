@@ -1,5 +1,25 @@
 # Changelog
 
+## 2026-09-08 方案开发者工作路径修复（RFC-0045）
+
+- Studio 展示 Validator 的端口、相关节点和修复建议，保留节点定位；诊断文本按纯文本渲染。
+- CLI `init --raw` 直接输出可保存的 Pipeline 文档，默认版本化响应保持兼容；冲突、重复和缺值选项明确失败。
+- Operator 公开接口和接入教程说明输入借用、输出池租约、池满等待及 Destroy 后 handle 的失效语义，给出结果复制和释放顺序。
+- OCR 与单槽 Demo 共用 Control 处理；显式文件缺失、空路径、非法 JSON 或命令会失败，OCR 提示词更新在处理样本前实际执行。
+- Control schema 执行 `minimum` / `maximum` 范围；注册时拒绝无效或不支持的声明，诊断包含节点与命令，文档注解不自动修改 payload。
+- Node 初始化可通过 `NodeInitContext::Fail` 返回具体原因；Pipeline 顺序与并行执行错误均附实例 ID 和类型，保留原错误码。
+- Demo 默认保留 Pipeline 配置，内置规则更新改为 `--example-control` 显式启用；保留 `--no-default-control` 兼容，显式 Control 文件优先。
+- Control 支持版本化 JSON 信封按 `node_id` 定向更新，裸 payload 保留广播；C ABI、Operator、Demo 共用路由，未知目标和非法信封在更新前拒绝。
+- Studio 可另存 JSON、配套 `.conf` 与运行命令；草稿与效果验收共用配置生成，模型路径来自当前选择。新增 `resolve-conf` 复用原生部署解析器，展示路径来源、规范化默认值和输出池容量，避免旧配置覆盖及临时目录根路径错误。
+- 补齐生产 Node/Model/Backend 参数语义，Catalog 与 Studio 直接展示同一份说明，包含单位、嵌套示例、默认行为与重新创建要求；参数类型、默认值、范围不变。
+- 规则节点的预检、Init 与 Control 共用嵌套配置解析，错误包含字段、规则索引及正则编译位置；失败更新保留已生效值。
+- Operator bridge 注册与初始化错误保留首个具体原因，报告业务、DTO 类型或槽位冲突并传入 LastError；完整性审计和错误码保持不变。
+- Control 作者模板支持配置初值，Definition、Init 和 Control 共用字段规范化与业务解析；生成测试验证初值、在线更新、失败保持及初始化诊断。
+- 七个 Demo 保留 Operator 输出的逐样本状态，summary 按真实状态计数；控制台不再把调用完成表述为全部业务成功。
+- 首次上手使用无推理后端的最小构建；补齐复杂 Node 的普通 C++ 组织、局部测试、调参与模型替换入口。skill 在能力实现后继续完成方案验证，常规 custom Node 复用既有契约时不再仅因注册而要求 RFC。
+
+- Studio 当前会话创建的配套方案在普通保存时同步 JSON 与 `.conf`，双文件版本检查及预检防止旧权重覆盖与外部修改丢失；服务重启后对未接管的模型路径覆盖明确报错。
+
 ## 2026-09-08 投产前契约一致性修复（RFC-0044）
 
 - session Embedding 缓存以版本、长度及完整内容编码身份，保留同键并发复用与失败重试，修复嵌入 NUL 的不同语料返回相同向量的问题。

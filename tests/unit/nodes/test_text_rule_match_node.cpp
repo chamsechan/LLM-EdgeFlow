@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
 #include <memory>
@@ -11,6 +12,7 @@
 #include "core/alg_context.h"
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
+#include "core/pipeline_validator.h"
 #include "core/session_context.h"
 #include "tests/support/node_test_utils.h"
 
@@ -74,6 +76,92 @@ TEST_F(TextRuleMatchNodeTest, RejectsInvalidRuleAndDefaultScores) {
     auto default_node = NodeFactory::Instance().Create("TextRuleMatchNode");
     EXPECT_FALSE(InitNodeForTest(*default_node, {{"default_score", score}},
                                  session_ctx_.get()));
+  }
+}
+
+TEST_F(TextRuleMatchNodeTest, NestedDiagnosticsAgreeAcrossAuthoringAndControl) {
+  struct InvalidCase {
+    nlohmann::json config;
+    std::vector<std::string> expected;
+  };
+  const std::vector<InvalidCase> cases = {
+      {{{"categories", {{"VIP", 123}}}}, {"categories", "VIP", "array"}},
+      {{{"categories", {{"VIP", {"valid", false}}}}},
+       {"categories", "VIP", "Array item 1", "string"}},
+      {{{"rules",
+         {{{"pattern", "valid"}}, {{"pattern", "bad"}, {"scroe", 1}}}}},
+       {"rules", "Array item 1", "scroe"}},
+      {{{"categories", {{"NEW", {"replacement"}}}},
+        {"rules",
+         {{{"pattern", "valid"}},
+          {{"id", "broken"}, {"strategy", "regex"}, {"pattern", "("}}}}},
+       {"rules[1].pattern", "broken", "byte offset"}}};
+  auto root = nlohmann::json::parse(R"({
+    "biz_name":"keyword_match_v1", "models":[], "pipeline":[
+      {"id":"rules", "node_type":"TextRuleMatchNode", "depends_on":[],
+       "ports":{"inputs":{"text":"input_sentences"},
+                "outputs":{"matches":"rule_matches"}}}
+    ]})");
+  auto active = NodeFactory::Instance().Create("TextRuleMatchNode");
+  ASSERT_NE(active, nullptr);
+  ASSERT_TRUE(InitNodeForTest(*active, {{"categories", {{"OLD", {"kept"}}}}},
+                              session_ctx_.get()));
+  for (const auto& invalid : cases) {
+    SCOPED_TRACE(invalid.config.dump());
+    root["pipeline"][0]["config"] = invalid.config;
+    const auto report = PipelineValidator::Validate(root);
+    ASSERT_FALSE(report.ok);
+    EXPECT_TRUE(std::any_of(
+        report.diagnostics.begin(), report.diagnostics.end(),
+        [&](const auto& diagnostic) {
+          return diagnostic.path == "/pipeline/0/config" &&
+                 std::all_of(invalid.expected.begin(), invalid.expected.end(),
+                             [&](const auto& part) {
+                               return diagnostic.message.find(part) !=
+                                      std::string::npos;
+                             });
+        }))
+        << report.ToJson().dump(2);
+
+    // Direct authoring initialization reports the same offending nested value.
+    auto fresh = NodeFactory::Instance().Create("TextRuleMatchNode");
+    std::string diagnostic;
+    NodeInitContext init;
+    init.config = &invalid.config;
+    init.session_ctx = session_ctx_.get();
+    init.diagnostic = &diagnostic;
+    EXPECT_FALSE(fresh->Init(init));
+    const auto update =
+        active->Control(kControlCmdUpdateRules, invalid.config.dump());
+    EXPECT_EQ(update.status, NodeControlStatus::kFailed);
+    for (const auto& part : invalid.expected) {
+      EXPECT_NE(diagnostic.find(part), std::string::npos) << diagnostic;
+      EXPECT_NE(update.message.find(part), std::string::npos) << update.message;
+    }
+    AlgContext context;
+    context.Publish("text", TextBatch{{17, 0, "kept"}, {18, 0, "replacement"}});
+    ASSERT_EQ(active->Process(&context), 0);
+    const auto* matches = context.Read<RuleMatchBatch>("matches");
+    ASSERT_NE(matches, nullptr);
+    ASSERT_EQ(matches->size(), 2u);
+    EXPECT_EQ(matches->at(0).data.category, "OLD");
+    EXPECT_EQ(matches->at(1).data.is_hit, 0);
+  }
+}
+
+TEST_F(TextRuleMatchNodeTest, DirectInitReportsInvalidTopLevelField) {
+  for (const auto& [config, field] :
+       std::vector<std::pair<nlohmann::json, std::string>>{
+           {{{"default_score", "bad"}}, "default_score"},
+           {{{"category", "misspelled"}}, "category"}}) {
+    auto node = NodeFactory::Instance().Create("TextRuleMatchNode");
+    std::string diagnostic;
+    NodeInitContext init;
+    init.config = &config;
+    init.session_ctx = session_ctx_.get();
+    init.diagnostic = &diagnostic;
+    EXPECT_FALSE(node->Init(init));
+    EXPECT_NE(diagnostic.find(field), std::string::npos) << diagnostic;
   }
 }
 

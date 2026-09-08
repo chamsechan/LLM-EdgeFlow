@@ -229,11 +229,13 @@ bool MaterializeNodes(RuntimeAssembly* assembly,
       }
 
       bool init_ok = false;
+      std::string init_error;
       try {
         NodeInitContext init_ctx;
         init_ctx.plan = &node_plan;
         init_ctx.config = &node_plan.normalized_config;
         init_ctx.session_ctx = assembly->session.get();
+        init_ctx.diagnostic = &init_error;
         init_ok = node->Init(init_ctx);
       } catch (const std::exception& e) {
         if (diagnostic) {
@@ -266,6 +268,7 @@ bool MaterializeNodes(RuntimeAssembly* assembly,
           diagnostic->message = "Failed to initialize node '" +
                                 node_config.node_type +
                                 "' (id: " + node_config.id + ")";
+          if (!init_error.empty()) diagnostic->message += ": " + init_error;
         }
         ALG_LOG_ERROR("[Pipeline] Failed to initialize node: %s (id: %s)\n",
                       node_config.node_type.c_str(), node_config.id.c_str());
@@ -300,10 +303,14 @@ bool MaterializeNodes(RuntimeAssembly* assembly,
 
 }  // namespace
 
-Pipeline::NodeExecutionResult Pipeline::ExecuteNodeSafely(INode* node,
-                                                          AlgContext* req_ctx) {
+Pipeline::NodeExecutionResult Pipeline::ExecuteNodeSafely(
+    INode* node, AlgContext* req_ctx, std::string_view node_id) {
   if (!node) return {-1, "Null node pointer in pipeline execution"};
   if (!req_ctx) return {-1, "Null context in pipeline execution"};
+  const auto failure = [&](int code, const std::string& message) {
+    return NodeExecutionResult{code, "Node '" + std::string(node_id) + "' (" +
+                                         node->Name() + "): " + message};
+  };
   (void)req_ctx->TakeCurrentThreadError();
   try {
     const int code = node->Process(req_ctx);
@@ -316,14 +323,13 @@ Pipeline::NodeExecutionResult Pipeline::ExecuteNodeSafely(INode* node,
       msg = "Node '" + node->Name() + "' failed with exit code " +
             std::to_string(code);
     }
-    return {code, std::move(msg)};
+    return failure(code, msg);
   } catch (const std::exception& e) {
     (void)req_ctx->TakeCurrentThreadError();
-    return {-1, std::string("Unhandled exception in node '") + node->Name() +
-                    "' Process: " + e.what()};
+    return failure(-1, std::string("Unhandled Process exception: ") + e.what());
   } catch (...) {
     (void)req_ctx->TakeCurrentThreadError();
-    return {-1, "Unknown exception in node '" + node->Name() + "' Process"};
+    return failure(-1, "Unknown Process exception");
   }
 }
 
@@ -517,8 +523,10 @@ int Pipeline::Execute(AlgContext* req_ctx) {
     // 单节点层 或 顺序执行模式：直接主线程执行 (零线程切换开销)
     if (layer.size() == 1 || execution_mode_ == ExecutionMode::kSequential ||
         !thread_pool_) {
-      for (auto* node : layer) {
-        NodeExecutionResult result = ExecuteNodeSafely(node, req_ctx);
+      for (size_t i = 0; i < layer.size(); ++i) {
+        auto* node = layer[i];
+        NodeExecutionResult result = ExecuteNodeSafely(
+            node, req_ctx, plan_->topological_layers[layer_idx][i]);
         if (result.code != 0) {
           req_ctx->SetError(result.code, result.message);
           ALG_LOG_ERROR(
@@ -547,8 +555,11 @@ int Pipeline::Execute(AlgContext* req_ctx) {
       for (size_t i = 0; i < layer.size(); ++i) {
         auto* node = layer[i];
         try {
-          futures.push_back(thread_pool_->Submit(
-              [node, req_ctx]() { return ExecuteNodeSafely(node, req_ctx); }));
+          const std::string_view node_id =
+              plan_->topological_layers[layer_idx][i];
+          futures.push_back(thread_pool_->Submit([node, req_ctx, node_id]() {
+            return ExecuteNodeSafely(node, req_ctx, node_id);
+          }));
         } catch (const std::exception& e) {
           submission_error = "Failed to submit parallel node '" + node->Name() +
                              "': " + e.what();
@@ -623,14 +634,38 @@ int Pipeline::Control(int cmd, const std::string& json_param,
     std::string context;
   };
   std::vector<Target> targets;
-  nlohmann::json payload;
-  bool parsed = false;
+  nlohmann::json payload = nlohmann::json::parse(json_param, nullptr, false);
+  bool parsed = !payload.is_discarded();
+  std::string target_id;
+  std::string node_param = json_param;
+  if (parsed && payload.is_object() && payload.contains("$edgeflow_control")) {
+    static const nlohmann::json envelope_schema = {
+        {"type", "object"},
+        {"required", {"$edgeflow_control", "node_id", "payload"}},
+        {"additionalProperties", false},
+        {"properties",
+         {{"$edgeflow_control", {{"type", "integer"}, {"enum", {1}}}},
+          {"node_id", {{"type", "string"}}},
+          {"payload", {{"type", "object"}}}}}};
+    std::string detail;
+    if (!ValidateControlPayload(payload, envelope_schema, &detail))
+      return fail(-1, "Invalid targeted Control envelope: " + detail);
+    target_id = payload["node_id"].get<std::string>();
+    if (target_id.empty())
+      return fail(-1, "Targeted Control node_id must not be empty");
+    auto business_payload = payload["payload"];
+    payload = std::move(business_payload);
+    node_param = payload.dump();
+  }
+  bool target_found = false;
   size_t node_index = 0;
   // Materialization uses this same layer/instance order. Keep diagnostics tied
   // to instance IDs even when several instances have the same Node type.
   for (const auto& layer : plan_->topological_layers) {
     for (const auto& id : layer) {
       auto* node = nodes_[node_index++].get();
+      if (!target_id.empty() && id != target_id) continue;
+      target_found = true;
       const auto def = PipelineCatalog::FindNode(node->Name());
       if (!def) continue;
       const auto command = std::find_if(
@@ -646,7 +681,7 @@ int Pipeline::Control(int cmd, const std::string& json_param,
         const bool valid =
             parsed ? ValidateControlPayload(payload, command->payload_schema,
                                             &detail)
-                   : ParseControlPayload(json_param, command->payload_schema,
+                   : ParseControlPayload(node_param, command->payload_schema,
                                          &payload, &detail);
         if (!valid) return fail(-1, context + detail);
         parsed = true;
@@ -654,8 +689,13 @@ int Pipeline::Control(int cmd, const std::string& json_param,
       targets.push_back({node, context});
     }
   }
+  if (!target_id.empty() && !target_found) {
+    return fail(-1, "Unknown Control target node_id: '" + target_id + "'");
+  }
   if (targets.empty()) {
-    return fail(-7, "Unsupported control command: " + std::to_string(cmd));
+    return fail(-7,
+                "Unsupported control command: " + std::to_string(cmd) +
+                    (target_id.empty() ? "" : " for node '" + target_id + "'"));
   }
 
   // Broadcast remains best-effort: a later semantic failure does not undo an
@@ -664,7 +704,7 @@ int Pipeline::Control(int cmd, const std::string& json_param,
   int first_failure = 0;
   std::string failures;
   for (const auto& target : targets) {
-    const auto result = target.node->Control(cmd, json_param);
+    const auto result = target.node->Control(cmd, node_param);
     if (result.status == NodeControlStatus::kFailed) {
       if (first_failure == 0) first_failure = result.code ? result.code : -1;
       if (!failures.empty()) failures += "; ";

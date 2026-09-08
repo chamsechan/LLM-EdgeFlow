@@ -68,6 +68,7 @@ int RunCrossRerankDemo(const DemoOptions& options) {
   std::vector<CompanyOperatorRerankInput> inputs = {req};
   struct OutputSummary {
     uint64_t request_id = 0;
+    int32_t status_code = 0;
     int32_t count = 0;
     float scores[8] = {0};
     int32_t sorted_indices[8] = {0};
@@ -80,6 +81,7 @@ int RunCrossRerankDemo(const DemoOptions& options) {
       options, "ranker.rerank_in", "ranker.rerank_out", inputs,
       [&](size_t idx, const CompanyOperatorRerankOutput& out) {
         output_summaries[idx].request_id = out.request_id;
+        output_summaries[idx].status_code = out.status_code;
         output_summaries[idx].count = out.count;
         for (int i = 0; i < out.count && i < 8; ++i) {
           output_summaries[idx].scores[i] = out.scores[i];
@@ -98,7 +100,7 @@ int RunCrossRerankDemo(const DemoOptions& options) {
   std::vector<DemoSampleResult> sample_results;
   DemoSampleResult sample;
   sample.request_id = output_summaries[0].request_id;
-  sample.status = 0;
+  sample.status = output_summaries[0].status_code;
   sample.latency_ms = latencies.empty() ? 0.0 : latencies[0];
   sample.output["query"] = query;
 
@@ -127,7 +129,9 @@ int RunCrossRerankDemo(const DemoOptions& options) {
     return w_ret;
   }
 
-  std::cout << "[CrossRerankDemo] Completed successfully." << std::endl;
+  std::cout << "[CrossRerankDemo] Results written; see summary.json for sample "
+               "success/failure counts."
+            << std::endl;
   return 0;
 }
 

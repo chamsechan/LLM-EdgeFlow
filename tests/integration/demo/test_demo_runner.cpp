@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "company_alg_log.h"
+#include "core/node_registry.h"
 #include "demo/common/dataset_reader.h"
 #include "demo/common/demo_options.h"
 #include "demo/common/demo_registry.h"
@@ -16,11 +17,66 @@
 #include "demo/common/result_writer.h"
 #include "engine/backend_registry.h"
 #include "nlohmann/json.hpp"
+#include "nodes/node_base.h"
 #include "operator/operator_interface.h"
 #include "tests/support/control_test_utils.h"
 
 using namespace alg_demo;
 using namespace llm_edgeflow::operator_api;
+
+namespace llm_edgeflow::test {
+namespace {
+
+class TestDemoStatusNode final : public NodeBase {
+ public:
+  inline static constexpr char kNodeType[] = "TestDemoStatusNode";
+  TestDemoStatusNode()
+      : NodeBase(kNodeType), input_("text"), output_("matches") {}
+
+ protected:
+  bool InitNode(const NodeInitContext& init, const nlohmann::json&,
+                SessionContext&) override {
+    BindPort(init, input_);
+    BindPort(init, output_);
+    return true;
+  }
+  int ProcessNode(AlgContext& context) override {
+    const auto* input = input_.Require(context, -9001);
+    if (!input) return -9001;
+    RuleMatchBatch results;
+    for (const auto& item : *input) {
+      RuleMatchItem result;
+      result.status_code = item.data == "fail" ? -42 : 0;
+      result.match_result_json = "{}";
+      results.emplace_back(item.req_id, item.sub_id, std::move(result));
+    }
+    output_.Set(context, std::move(results));
+    return 0;
+  }
+
+ private:
+  BoundInput<TextBatch> input_;
+  BoundOutput<RuleMatchBatch> output_;
+};
+
+NodeDefinition DemoStatusDefinition() {
+  NodeDefinition definition;
+  definition.node_type = TestDemoStatusNode::kNodeType;
+  definition.category = "test";
+  definition.description = "Mixed per-sample status fixture for Demo output";
+  definition.inputs = {
+      RequiredInputPort("text", BlackboardKey<TextBatch>{"text", "TextBatch"},
+                        "1:1", "preserve", "request")};
+  definition.outputs = {OutputPort(
+      "matches", BlackboardKey<RuleMatchBatch>{"matches", "RuleMatchBatch"},
+      "1:1", "preserve", "request")};
+  return definition;
+}
+
+REGISTER_NODE_WITH_DEFINITION(TestDemoStatusNode, DemoStatusDefinition());
+
+}  // namespace
+}  // namespace llm_edgeflow::test
 
 namespace {
 
@@ -804,29 +860,29 @@ TEST(DemoRunnerTest, FailClosedOnMissingOrInvalidControlFile) {
   OperatorFunc ops = Get_LLM_EDGEFLOW_OperatorTable();
   ASSERT_EQ(ops.Init(), 0);
 
-  const auto* desc = DemoRegistry::Instance().Find("keyword_match");
-  ASSERT_NE(desc, nullptr);
+  KiteDemoDirectory temporary;
+  for (const char* profile : {"keyword_match_mock", "ocr_doc_qa_mock"}) {
+    SCOPED_TRACE(profile);
+    DemoOptions opts;
+    opts.profile = profile;
+    std::string err;
+    ASSERT_EQ(LoadAndMergeProfiles("demo/profiles.json", opts, &opts, &err), 0)
+        << err;
+    const auto* desc = DemoRegistry::Instance().Find(opts.biz);
+    ASSERT_NE(desc, nullptr);
 
-  DemoOptions opts;
-  opts.profile = "keyword_match_mock";
-  std::string err;
-  int ret = LoadAndMergeProfiles("demo/profiles.json", opts, &opts, &err);
-  ASSERT_EQ(ret, 0);
+    opts.control_file = (temporary.path / "missing.json").string();
+    EXPECT_EQ(desc->run(opts), 3);
+    opts.control_file = "";
+    EXPECT_EQ(desc->run(opts), 3);
 
-  // 显式指定不存在的 control 文件 -> 必须返回 3 报错退出
-  opts.control_file = "/private/tmp/definitely_missing_control_file_123.json";
-  opts.has_control_file = true;
-  EXPECT_EQ(desc->run(opts), 3);
-
-  // 显式指定非法 JSON 的 control 文件 -> 必须返回 3 报错退出
-  std::string bad_json_file = "./results/bad_control.json";
-  {
-    std::ofstream ofs(bad_json_file);
-    ofs << "NOT_VALID_JSON{{{";
+    const auto payload_path = temporary.path / "control.json";
+    opts.control_file = payload_path.string();
+    for (const char* payload : {"NOT_VALID_JSON{{{", "[]"}) {
+      std::ofstream(payload_path) << payload;
+      EXPECT_EQ(desc->run(opts), 3);
+    }
   }
-  opts.control_file = bad_json_file;
-  EXPECT_EQ(desc->run(opts), 3);
-  std::filesystem::remove(bad_json_file);
 
   ops.Deinit();
 }
@@ -863,6 +919,173 @@ TEST(DemoRunnerTest, GenericControlCommandChangesCustomNodeOutput) {
   options.control_file = (temporary.path / "control.json").string();
   options.control_cmd = 19999;
   EXPECT_EQ(demo->run(options), 5);
+  EXPECT_EQ(ops.Deinit(), 0);
+}
+
+TEST(DemoRunnerTest, PreservesMixedSampleStatusesAndFailureCounts) {
+  KiteDemoDirectory temporary;
+  std::ifstream pipeline_file("configs/pipeline_keyword_match.json");
+  ASSERT_TRUE(pipeline_file.good());
+  auto pipeline = nlohmann::json::parse(pipeline_file);
+  pipeline["pipeline"][0]["node_type"] = "TestDemoStatusNode";
+  pipeline["pipeline"][0].erase("config");
+  const auto pipeline_path = temporary.path / "pipeline.json";
+  std::ofstream(pipeline_path) << pipeline.dump();
+  std::ifstream conf_file("configs/pipeline_keyword_match.conf");
+  ASSERT_TRUE(conf_file.good());
+  auto conf = nlohmann::json::parse(conf_file);
+  conf["data"]["pipe_path"] = "pipeline.json";
+  std::ofstream(temporary.path / "pipeline.conf") << conf.dump();
+  std::ofstream(temporary.path / "input.txt") << "success\nfail\n";
+
+  DemoOptions options;
+  options.biz = "keyword_match";
+  options.config_path = (temporary.path / "pipeline.conf").string();
+  options.dataset_path = (temporary.path / "input.txt").string();
+  options.output_dir = temporary.path.string();
+  options.batch_size = 2;
+  const auto* demo = DemoRegistry::Instance().Find(options.biz);
+  ASSERT_NE(demo, nullptr);
+  auto ops = Get_LLM_EDGEFLOW_OperatorTable();
+  ASSERT_EQ(ops.Init(), 0);
+  ASSERT_EQ(demo->run(options), 0);
+
+  std::ifstream results(temporary.path / "keyword_match/results.jsonl");
+  ASSERT_TRUE(results.good());
+  std::string line;
+  for (int index = 0; index < 2; ++index) {
+    ASSERT_TRUE(static_cast<bool>(std::getline(results, line)));
+    const auto sample = nlohmann::json::parse(line);
+    EXPECT_EQ(sample["request_id"], 20001 + index);
+    EXPECT_EQ(sample["status"], index == 0 ? 0 : -42);
+  }
+  EXPECT_FALSE(static_cast<bool>(std::getline(results, line)));
+  std::ifstream summary_file(temporary.path / "keyword_match/summary.json");
+  ASSERT_TRUE(summary_file.good());
+  const auto summary = nlohmann::json::parse(summary_file);
+  EXPECT_EQ(summary["total_samples"], 2);
+  EXPECT_EQ(summary["success_count"], 1);
+  EXPECT_EQ(summary["failed_count"], 1);
+  EXPECT_EQ(ops.Deinit(), 0);
+}
+
+TEST(DemoRunnerTest, ExampleControlIsExplicitAndFileControlTakesPrecedence) {
+  KiteDemoDirectory temporary;
+  const auto dataset = temporary.path / "input.txt";
+  std::ofstream(dataset) << "初始化自检\nVIP专员\n";
+  DemoOptions options;
+  options.biz = "keyword_match";
+  options.config_path = "configs/pipeline_keyword_match.conf";
+  options.dataset_path = dataset.string();
+  options.output_dir = temporary.path.string();
+  const auto* demo = DemoRegistry::Instance().Find(options.biz);
+  ASSERT_NE(demo, nullptr);
+  auto ops = Get_LLM_EDGEFLOW_OperatorTable();
+  ASSERT_EQ(ops.Init(), 0);
+  auto run_and_read = [&]() {
+    EXPECT_EQ(demo->run(options), 0);
+    std::ifstream results(temporary.path / "keyword_match/results.jsonl");
+    std::vector<nlohmann::json> samples;
+    std::string line;
+    while (std::getline(results, line))
+      samples.push_back(nlohmann::json::parse(line));
+    return samples;
+  };
+
+  const auto configured = run_and_read();
+  ASSERT_EQ(configured.size(), 2U);
+  EXPECT_EQ(configured[0]["output"]["is_hit"], true);
+  EXPECT_NE(configured[0].dump().find("SYSTEM_INIT"), std::string::npos);
+  EXPECT_EQ(configured[1]["output"]["is_hit"], false);
+
+  options.example_control = true;
+  const auto example = run_and_read();
+  ASSERT_EQ(example.size(), 2U);
+  EXPECT_EQ(example[0]["output"]["is_hit"], false);
+  EXPECT_EQ(example[1]["output"]["is_hit"], true);
+  EXPECT_NE(example[1].dump().find("VIP_SERVICE"), std::string::npos);
+
+  const auto control_path = temporary.path / "control.json";
+  std::ofstream(control_path) << R"({"categories":{"FILE_RULE":["自检"]}})";
+  options.control_file = control_path.string();
+  const auto explicit_file = run_and_read();
+  ASSERT_EQ(explicit_file.size(), 2U);
+  EXPECT_EQ(explicit_file[0]["output"]["is_hit"], true);
+  EXPECT_NE(explicit_file[0].dump().find("FILE_RULE"), std::string::npos);
+  EXPECT_EQ(explicit_file[1]["output"]["is_hit"], false);
+  EXPECT_EQ(ops.Deinit(), 0);
+}
+
+TEST(DemoRunnerTest, ExampleControlCliAndCompatibilityFlag) {
+  std::string error;
+  for (const char* flag : {"--example-control", "--no-default-control"}) {
+    DemoOptions options;
+    const char* args[] = {"alg_demo", flag};
+    ASSERT_EQ(ParseCommandLine(2, const_cast<char**>(args), &options, &error),
+              0)
+        << error;
+    EXPECT_EQ(options.example_control,
+              std::string(flag) == "--example-control");
+    EXPECT_EQ(options.no_default_control,
+              std::string(flag) == "--no-default-control");
+  }
+  for (bool reverse : {false, true}) {
+    DemoOptions options;
+    const char* args[] = {
+        "alg_demo", reverse ? "--no-default-control" : "--example-control",
+        reverse ? "--example-control" : "--no-default-control"};
+    EXPECT_EQ(ParseCommandLine(3, const_cast<char**>(args), &options, &error),
+              2);
+    EXPECT_NE(error.find("conflicts"), std::string::npos);
+  }
+}
+
+TEST(DemoRunnerTest, OcrDemoAppliesExplicitControlBeforeProcessing) {
+  KiteDemoDirectory temporary;
+  DemoOptions cli;
+  cli.profile = "ocr_doc_qa_mock";
+  cli.output_dir = temporary.path.string();
+  cli.has_output_dir = true;
+  DemoOptions options;
+  std::string error;
+  ASSERT_EQ(LoadAndMergeProfiles("demo/profiles.json", cli, &options, &error),
+            0)
+      << error;
+  const auto* demo = DemoRegistry::Instance().Find(options.biz);
+  ASSERT_NE(demo, nullptr);
+  auto ops = Get_LLM_EDGEFLOW_OperatorTable();
+  ASSERT_EQ(ops.Init(), 0);
+
+  auto read_sample = [&]() {
+    std::ifstream results(temporary.path / "ocr_doc_qa_mock/results.jsonl");
+    std::string line;
+    std::getline(results, line);
+    return nlohmann::json::parse(line);
+  };
+  ASSERT_EQ(demo->run(options), 0);
+  const auto original = read_sample();
+  EXPECT_EQ(original["request_id"], 60001);
+  EXPECT_EQ(original["output"]["extracted_invoice"]["invoice_code"],
+            "011002200111");
+
+  const auto control_path = temporary.path / "control.json";
+  std::ofstream(control_path) << R"({"template":"提取实体：{{primary}}"})";
+  options.control_file = control_path.string();
+  // OCR defaults to its registered prompt update command when no ID is given.
+  ASSERT_EQ(demo->run(options), 0);
+  const auto updated = read_sample();
+  EXPECT_EQ(updated["status"], 0);
+  EXPECT_EQ(updated["request_id"], 60001);
+  EXPECT_TRUE(updated["output"]["extracted_invoice"]["nouns"].is_array());
+  EXPECT_FALSE(updated["output"]["extracted_invoice"].contains("invoice_code"));
+
+  options.control_cmd = 19999;
+  EXPECT_EQ(demo->run(options), 5);
+  options.control_cmd = 0;
+  EXPECT_EQ(demo->run(options), 3);
+  options.control_cmd = 2;
+  options.control_file.reset();
+  EXPECT_EQ(demo->run(options), 3);
   EXPECT_EQ(ops.Deinit(), 0);
 }
 

@@ -36,12 +36,15 @@ class ModelBoundNode : public NodeBase {
   bool InitNode(const NodeInitContext& init_ctx, const nlohmann::json& config,
                 SessionContext& session_ctx) final {
     const auto definition = PipelineCatalog::FindNode(Name());
-    if (!definition || definition->model_config_field.empty()) return false;
+    if (!definition || definition->model_config_field.empty())
+      return init_ctx.Fail("Node Definition has no model binding field");
 
     nlohmann::json normalized;
+    std::vector<ConfigFieldValidationError> errors;
     if (!ValidateAndNormalizeFields(definition->config_fields, config,
-                                    &normalized, nullptr)) {
-      return false;
+                                    &normalized, &errors)) {
+      return init_ctx.Fail(errors.empty() ? "Invalid model Node configuration"
+                                          : errors.front().message);
     }
 
     const std::string& field_name = definition->model_config_field;
@@ -49,10 +52,13 @@ class ModelBoundNode : public NodeBase {
     if (normalized.contains(field_name) && normalized[field_name].is_string()) {
       model_id_ = normalized[field_name].get<std::string>();
     }
-    if (model_id_.empty()) return false;
+    if (model_id_.empty())
+      return init_ctx.Fail("Model binding field '" + field_name + "' is empty");
     model_ = session_ctx.GetModelManager().GetModel<ModelCapability>(model_id_);
     if (!model_) {
-      return false;
+      return init_ctx.Fail(
+          "Model '" + model_id_ +
+          "' is unavailable or has an incompatible capability");
     }
     return InitModelNode(init_ctx, normalized, session_ctx);
   }

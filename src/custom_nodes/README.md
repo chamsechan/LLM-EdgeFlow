@@ -92,7 +92,9 @@ threshold_ = config.value<double>("threshold", kDefaultThreshold);
 只有缺失字段才使用默认值；类型、范围或字段组合错误应拒绝，不能静默回退。
 Validator 在物化前检查声明，初始化仍保留防御校验。复杂配置确实重复使用时，
 将解析和语义检查集中为节点自己的函数，供 `validate_config`、初始化以及适用的
-Control 路径复用。普通参数保存在节点配置成员，请求数据继续通过端口传递。
+Control 路径复用。可直接参考 [Control 模板](../../dev_support/node_authoring/starter_control_node.cpp)
+的 `PrefixConfigFields` / `ReadPrefix`，字段 `semantic` 写明用途、单位和嵌套结构，Catalog
+与 Studio 会显示同一说明。普通参数保存在节点配置成员，请求数据继续通过端口传递。
 
 涉及长度时写清单位：TextChunk 的 `chunk_size/overlap` 按 Unicode 码点计数，
 TextTemplate 的 `max_length` 是 UTF-8 字节预算，生成的 `max_tokens` 是 token 数。

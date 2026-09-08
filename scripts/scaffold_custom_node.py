@@ -271,7 +271,7 @@ TEST(CustomNodeCatalogTest, {name}ControlChangesOutputAndPreservesOnFailure) {{
   auto node = NodeFactory::Instance().Create({cpp_string(name)});
   ASSERT_NE(node, nullptr);
   SessionContext session;
-  ASSERT_TRUE(InitNodeForTest(*node, nlohmann::json::object(), &session));
+  ASSERT_TRUE(InitNodeForTest(*node, {{{{"prefix", "initial:"}}}}, &session));
   const auto check_output = [&](const std::string& expected) {{
     AlgContext ctx;
     TextBatch input;
@@ -285,7 +285,7 @@ TEST(CustomNodeCatalogTest, {name}ControlChangesOutputAndPreservesOnFailure) {{
     EXPECT_EQ(output->at(0).sub_id, 3u);
     EXPECT_EQ(output->at(0).data, expected);
   }};
-  check_output("sample");
+  check_output("initial:sample");
   const auto update = [&](const nlohmann::json& payload) {{
     return node->Control({command_id}, payload.dump()).status;
   }};
@@ -295,6 +295,26 @@ TEST(CustomNodeCatalogTest, {name}ControlChangesOutputAndPreservesOnFailure) {{
   EXPECT_EQ(update({{{{"prefix", std::string(65, 'x')}}}}), NodeControlStatus::kFailed);
   check_output("new:sample");
   // Extend these assertions with the actual business input and expected result.
+}}
+
+TEST(CustomNodeCatalogTest, {name}RejectsInvalidInitialPrefix) {{
+  const auto definition = PipelineCatalog::FindNode({cpp_string(name)});
+  ASSERT_TRUE(definition.has_value());
+  ASSERT_TRUE(static_cast<bool>(definition->validate_config));
+  std::string error;
+  EXPECT_TRUE(definition->validate_config(nlohmann::json::object(), {{}}, &error));
+  const nlohmann::json invalid = {{{{"prefix", std::string(65, 'x')}}}};
+  EXPECT_FALSE(definition->validate_config(invalid, {{}}, &error));
+  EXPECT_NE(error.find("prefix exceeds 64 UTF-8 bytes"), std::string::npos);
+  auto node = NodeFactory::Instance().Create({cpp_string(name)});
+  ASSERT_NE(node, nullptr);
+  SessionContext session;
+  NodeInitContext init;
+  init.config = &invalid;
+  init.session_ctx = &session;
+  init.diagnostic = &error;
+  EXPECT_FALSE(node->Init(init));
+  EXPECT_NE(error.find("prefix exceeds 64 UTF-8 bytes"), std::string::npos);
 }}
 }}  // namespace llm_edgeflow
 '''
@@ -364,7 +384,7 @@ def main():
                 cmake_path.write_text(cmake_content, encoding="utf-8")
             print(f"Created {target}")
             if args.control_id is not None:
-                print("Next: edit ControlNode and its same-file schema. Walkthrough: doc/dev_guide/first_control.md")
+                print("Next: edit ReadPrefix shared by config and Control, and its same-file schema. Walkthrough: doc/dev_guide/first_control.md")
             if args.kind == "model" and capability == "llm":
                 print("Next: edit BuildPrompt and FormatAnswer. Walkthrough: doc/dev_guide/first_custom_node.md")
         else:

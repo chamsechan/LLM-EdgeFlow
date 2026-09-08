@@ -86,7 +86,14 @@ NodeDefinition MakeAsrTranscribeNodeDefinition() {
   def.outputs = {OutputPort("text", BlackboardKey<TextBatch>{"", "TextBatch"},
                             "1:1", "preserve", "request")};
   def.config_fields = {ConfigFieldDefinition{
-      "bind_model", ConfigValueKind::kString, false, "asr_model_v1"}};
+      "bind_model",
+      ConfigValueKind::kString,
+      false,
+      "asr_model_v1",
+      std::nullopt,
+      std::nullopt,
+      {},
+      "引用 models[].model_id；所选模型必须提供 asr 转写能力。"}};
   def.model_capability = "asr";
   def.model_config_field = "bind_model";
   def.parallel_safe = true;

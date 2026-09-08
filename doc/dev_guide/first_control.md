@@ -18,7 +18,7 @@
 
 ## 2. 生成能直接编译的例子
 
-先按根目录 [README](../../README.md#快速开始)完成默认构建；本练习无需模型权重。
+先按根目录 [README](../../README.md#快速开始)完成快速开始构建；本练习无需模型权重。
 以下命令都从仓库根目录执行，先确认命令 ID 尚未使用：
 
 ```bash
@@ -37,17 +37,24 @@ hot-swap 声明一致；通常直接复用同一份命令声明。重复使用�
 1:1 保留来源的纯计算例子，不会改造任意已有 C++ 类。已有文件默认拒绝覆盖。
 `--generate-test` 打印注册及业务测试代码，请将它加入现有套件；不会自动修改测试文件。
 
-## 3. 阅读三个编辑点
+## 3. 阅读四个编辑点
 
 | 编辑点 | 作用 |
 | --- | --- |
 | `kUpdatePrefix` / `PrefixCommand()` | 同文件的具名 ID、命令说明和参数 schema |
-| `ControlNode()` | 解析到拥有数据的 JSON 值，构造新前缀，进行 64 字节限制的业务校验 |
+| `PrefixConfigFields()` / `ReadPrefix()` | 声明初值默认空字符串和字段说明，共享类型、默认值与 64 字节业务校验 |
+| `ControlNode()` | 解析拥有数据的 JSON 值，调用同一校验函数，成功后替换前缀 |
 | `ProcessNode()` | 为整批请求读取一次前缀，在保留 `(req_id, sub_id)` 的输出中使用它 |
 
 `def.control_commands` 引用 `PrefixCommand()`；`ParseControlPayload` 也引用其中的
-schema，避免重复维护字段检查。现有校验子集包括 `type`、`enum`、`required`、
-`properties`、`minProperties`、`additionalProperties` 和同类型 `items`。只使用这些
+schema，避免重复维护字段检查。`ReadPrefix` 同时用于 Definition 的 `validate_config`、
+`InitNode` 与 Control；初始配置写在节点的 `config`，例如 `{"prefix":"BASE:"}`。
+未设置时使用空字符串，Control 成功后替换该值；非法初始配置会在预检拒绝，直接 Init
+也通过 `ctx.Fail` 返回具体原因。初值和在线更新共享业务规则，不需要再写一套解析器。
+
+现有校验子集包括 `type`、`enum`、`required`、
+`properties`、`minProperties`、`additionalProperties`、同类型 `items`、数值
+`minimum` / `maximum`。注册时拒绝无效或未支持的 schema 关键字；只使用这些
 关键字；字符串长度、字段关系、规则编译等约束使用普通 C++ 语义校验。它不是完整的
 JSON Schema 实现。
 
@@ -161,13 +168,26 @@ UTF-8 字节数小于 65536，不含终止符。已有 Operator 命令 1/2/3 仍
 C ABI 继续直接使用 `CompanyAlgParamControl{cmd_id, json}`，不需要新增导出函数。
 
 Demo 的 `--control-cmd` 也可配置为 Profile 的 `control_cmd`，CLI 显式值优先；指定命令
-必须提供 `control_file`。省略命令时保留该 Demo 的默认命令。`--no-default-control`
-只关闭默认演示更新，显式文件仍执行。
+必须提供 `control_file`。省略命令时保留该 Demo 的默认命令。Demo 默认不发送内置演示
+更新；显式 `--example-control` 才启用，且显式文件优先。`--no-default-control` 保留为
+兼容选项，不影响显式文件，与 `--example-control` 同时使用会报错。
 
 同一 handle 的 C ABI / Operator 调用串行；多个线程提交不保证顺序。内部直接调用
-Pipeline/Node 的 Control 时，由调用者序列化更新。一次命令广播到所有声明支持它的
-实例，任一节点语义失败可能已让其他节点生效；多次 Control 也不组成事务。需要精确
-实例寻址或成套切换时应先提出独立需求。
+Pipeline/Node 的 Control 时，由调用者序列化更新。裸 payload 广播到所有声明支持该
+命令的实例。一个 Pipeline 有多个同类节点时，用下面的信封只更新 `id: prefix`：
+
+```json
+{"$edgeflow_control":1,"node_id":"prefix","payload":{"prefix":"VIP:"}}
+```
+
+把该对象存入 Demo 的 Control 文件，或作为 `ControlJsonParam.json_param_str` / C ABI 的 JSON
+字符串；`cmd_id` 仍放在原参数中。`$edgeflow_control` 是保留标记；信封必须且只能含上述
+三个字段，版本必须为整数 `1`，`node_id` 为非空的 Pipeline 实例 ID，`payload` 为对象。
+Node 只收到内部 `payload`，无需编写路由代码。未知 ID、该实例不支持命令或 schema
+校验失败会在调用 Node 前拒绝。
+
+广播仍是尽力更新：任一节点语义失败可能已让其他节点生效；多次 Control 也不组成事务。
+单节点应像模板一样先完成构造和校验，再替换配置。
 
 交付使用[统一开发流程](../../CONTRIBUTING.md)和 `./scripts/run_all_tests.sh`。对已有
 命令改变参数语义或公开接口时，先记录兼容决策；普通新命令不用修改中央分发代码。

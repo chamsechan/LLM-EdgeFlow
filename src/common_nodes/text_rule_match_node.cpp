@@ -24,21 +24,47 @@ constexpr double kDefaultScore = 1.0;
 
 const std::vector<ConfigFieldDefinition>& TextRuleMatchConfigFields() {
   static const std::vector<ConfigFieldDefinition> kFields = {
-      ConfigFieldDefinition{"default_category", ConfigValueKind::kString, false,
-                            ""},
-      ConfigFieldDefinition{"default_score", ConfigValueKind::kNumber, false,
-                            kDefaultScore, 0.0, 1.0},
-      ConfigFieldDefinition{"categories", ConfigValueKind::kObject, false},
-      ConfigFieldDefinition{"rules", ConfigValueKind::kArray, false}};
+      ConfigFieldDefinition{"default_category",
+                            ConfigValueKind::kString,
+                            false,
+                            "",
+                            std::nullopt,
+                            std::nullopt,
+                            {},
+                            "没有词表或规则命中时使用的类别；非空会将该输入标记"
+                            "为命中，并保留 raw_query。"},
+      ConfigFieldDefinition{"default_score",
+                            ConfigValueKind::kNumber,
+                            false,
+                            kDefaultScore,
+                            0.0,
+                            1.0,
+                            {},
+                            "仅 default_category 回退命中时使用的分数，范围 "
+                            "[0,1]；规则自身分数由 rules[].score 设置。"},
+      ConfigFieldDefinition{"categories",
+                            ConfigValueKind::kObject,
+                            false,
+                            nlohmann::json(),
+                            std::nullopt,
+                            std::nullopt,
+                            {},
+                            "类别到关键词数组的映射，按子串匹配，例如 "
+                            "{\"VIP\":[\"专席\",\"VIP\"]}；可通过 update_rules "
+                            "Control 整体替换。"},
+      ConfigFieldDefinition{
+          "rules",
+          ConfigValueKind::kArray,
+          false,
+          nlohmann::json(),
+          std::nullopt,
+          std::nullopt,
+          {},
+          "规则对象数组，pattern 必填；例如 "
+          "[{\"id\":\"r1\",\"strategy\":\"contains\",\"pattern\":\"VIP\","
+          "\"category\":\"优先\",\"score\":1,\"constants\":{\"route\":\"vip\"}}"
+          "]。strategy 还支持 exact/regex，score 范围 [0,1]。"}};
   return kFields;
-}
-
-bool ReadScore(const nlohmann::json& config, const char* field, float* out) {
-  if (config.contains(field) && !config.at(field).is_number()) return false;
-  const double score = config.value<double>(field, kDefaultScore);
-  if (!std::isfinite(score) || score < 0.0 || score > 1.0) return false;
-  *out = static_cast<float>(score);
-  return true;
 }
 
 const nlohmann::json& RuleItemSchema() {
@@ -107,14 +133,13 @@ class TextRuleMatchNode final : public NodeBase {
     CategoryList new_categories;
     std::vector<RuleSpec> new_rules;
     if (has_categories &&
-        !BuildCategories(root["categories"], &new_categories)) {
+        !BuildCategories(root["categories"], &new_categories, &error)) {
       return NodeControlResult::Failed(node_error::control::kInvalidRequest,
-                                       "Invalid categories payload");
+                                       error);
     }
-    if (has_rules && !BuildRules(root["rules"], &new_rules)) {
-      return NodeControlResult::Failed(
-          node_error::control::kInvalidRequest,
-          "Invalid rules payload, score or regular expression syntax");
+    if (has_rules && !BuildRules(root["rules"], &new_rules, &error)) {
+      return NodeControlResult::Failed(node_error::control::kInvalidRequest,
+                                       error);
     }
     std::unique_lock<std::shared_mutex> lock(rw_mutex_);
     if (has_categories) category_keywords_list_ = std::move(new_categories);
@@ -125,41 +150,28 @@ class TextRuleMatchNode final : public NodeBase {
   static bool ValidateConfig(const nlohmann::json& config,
                              const std::unordered_set<std::string>&,
                              std::string* diagnostic) {
+    nlohmann::json normalized;
     CategoryList categories;
     std::vector<RuleSpec> rules;
-    float default_score = kDefaultScore;
-    const bool ok =
-        ReadScore(config, "default_score", &default_score) &&
-        (!config.contains("categories") ||
-         BuildCategories(config.at("categories"), &categories)) &&
-        (!config.contains("rules") || BuildRules(config.at("rules"), &rules));
-    if (!ok && diagnostic)
-      *diagnostic = "Invalid categories, rules, scores or regex";
-    return ok;
+    return ParseConfig(config, &normalized, &categories, &rules, diagnostic);
   }
 
  protected:
   bool InitNode(const NodeInitContext& init_ctx, const nlohmann::json& config,
                 SessionContext& /*session_ctx*/) override {
     nlohmann::json normalized;
-    if (!ValidateAndNormalizeFields(TextRuleMatchConfigFields(), config,
-                                    &normalized, nullptr)) {
-      return false;
-    }
+    CategoryList categories;
+    std::vector<RuleSpec> rules;
+    std::string diagnostic;
+    if (!ParseConfig(config, &normalized, &categories, &rules, &diagnostic))
+      return init_ctx.Fail(diagnostic);
 
     BindPort(init_ctx, in_text_);
     BindPort(init_ctx, out_matches_);
-
-    default_category_ = normalized.value("default_category", "");
-    if (!ReadScore(normalized, "default_score", &default_score_)) return false;
-
-    if (normalized.contains("categories")) {
-      if (!UpdateCategories(normalized["categories"])) return false;
-    }
-
-    if (normalized.contains("rules")) {
-      if (!UpdateRules(normalized["rules"])) return false;
-    }
+    default_category_ = normalized["default_category"].get<std::string>();
+    default_score_ = normalized["default_score"].get<float>();
+    category_keywords_list_ = std::move(categories);
+    rules_list_ = std::move(rules);
     return true;
   }
 
@@ -304,14 +316,19 @@ class TextRuleMatchNode final : public NodeBase {
       std::vector<std::pair<std::string, std::vector<std::string>>>;
 
   static bool BuildCategories(const nlohmann::json& categories_json,
-                              CategoryList* out_categories) {
-    if (!out_categories || !categories_json.is_object()) return false;
+                              CategoryList* out_categories,
+                              std::string* diagnostic) {
+    std::string detail;
+    if (!ValidateControlPayload(categories_json,
+                                RuleControlSchema()["properties"]["categories"],
+                                &detail)) {
+      if (diagnostic) *diagnostic = "categories: " + detail;
+      return false;
+    }
     CategoryList temp_categories;
     for (auto it = categories_json.begin(); it != categories_json.end(); ++it) {
-      if (!it.value().is_array()) return false;
       std::vector<std::string> words;
       for (const auto& w : it.value()) {
-        if (!w.is_string()) return false;
         words.push_back(w.get<std::string>());
       }
       temp_categories.push_back({it.key(), std::move(words)});
@@ -321,20 +338,23 @@ class TextRuleMatchNode final : public NodeBase {
   }
 
   static bool BuildRules(const nlohmann::json& rules_json,
-                         std::vector<RuleSpec>* out_rules) {
-    if (!out_rules || !rules_json.is_array()) return false;
-    static const std::unordered_set<std::string> kValidStrategies = {
-        "contains", "exact", "regex"};
+                         std::vector<RuleSpec>* out_rules,
+                         std::string* diagnostic) {
+    std::string detail;
+    if (!ValidateControlPayload(
+            rules_json, RuleControlSchema()["properties"]["rules"], &detail)) {
+      if (diagnostic) *diagnostic = "rules: " + detail;
+      return false;
+    }
     std::vector<RuleSpec> temp_rules;
-    for (const auto& r_elem : rules_json) {
-      if (!ValidateControlPayload(r_elem, RuleItemSchema())) return false;
+    for (size_t index = 0; index < rules_json.size(); ++index) {
+      const auto& r_elem = rules_json[index];
       RuleSpec spec;
       spec.id = r_elem.value("id", "");
       spec.strategy = r_elem.value("strategy", "contains");
-      if (!kValidStrategies.count(spec.strategy)) return false;
       spec.pattern = r_elem.value("pattern", "");
       spec.category = r_elem.value("category", "");
-      if (!ReadScore(r_elem, "score", &spec.score)) return false;
+      spec.score = r_elem.value("score", static_cast<float>(kDefaultScore));
 
       if (r_elem.contains("constants") && r_elem["constants"].is_object()) {
         for (auto it = r_elem["constants"].begin();
@@ -352,10 +372,12 @@ class TextRuleMatchNode final : public NodeBase {
       }
 
       if (spec.strategy == "regex" && !spec.pattern.empty()) {
-        std::string diagnostic;
-        if (!spec.compiled_regex.Compile(spec.pattern, &diagnostic)) {
-          ALG_LOG_ERROR("[TextRuleMatchNode] Invalid regex: %s (%s)\n",
-                        spec.pattern.c_str(), diagnostic.c_str());
+        if (!spec.compiled_regex.Compile(spec.pattern, &detail)) {
+          if (diagnostic) {
+            *diagnostic = "rules[" + std::to_string(index) + "].pattern" +
+                          (spec.id.empty() ? "" : " (id='" + spec.id + "')") +
+                          ": Invalid regex: " + detail;
+          }
           return false;
         }
       }
@@ -365,20 +387,27 @@ class TextRuleMatchNode final : public NodeBase {
     return true;
   }
 
-  bool UpdateCategories(const nlohmann::json& categories_json) {
-    CategoryList temp_categories;
-    if (!BuildCategories(categories_json, &temp_categories)) return false;
-    std::unique_lock<std::shared_mutex> lock(rw_mutex_);
-    category_keywords_list_ = std::move(temp_categories);
-    return true;
-  }
-
-  bool UpdateRules(const nlohmann::json& rules_json) {
-    std::vector<RuleSpec> temp_rules;
-    if (!BuildRules(rules_json, &temp_rules)) return false;
-    std::unique_lock<std::shared_mutex> lock(rw_mutex_);
-    rules_list_ = std::move(temp_rules);
-    return true;
+  static bool ParseConfig(const nlohmann::json& config,
+                          nlohmann::json* normalized, CategoryList* categories,
+                          std::vector<RuleSpec>* rules,
+                          std::string* diagnostic) {
+    if (diagnostic) diagnostic->clear();
+    std::vector<ConfigFieldValidationError> errors;
+    if (!ValidateAndNormalizeFields(TextRuleMatchConfigFields(), config,
+                                    normalized, &errors)) {
+      if (diagnostic) {
+        const auto& error = errors.front();
+        *diagnostic = error.field_name.empty()
+                          ? error.message
+                          : error.field_name + ": " + error.message;
+      }
+      return false;
+    }
+    return (!normalized->contains("categories") ||
+            BuildCategories((*normalized)["categories"], categories,
+                            diagnostic)) &&
+           (!normalized->contains("rules") ||
+            BuildRules((*normalized)["rules"], rules, diagnostic));
   }
 
   mutable std::shared_mutex rw_mutex_;

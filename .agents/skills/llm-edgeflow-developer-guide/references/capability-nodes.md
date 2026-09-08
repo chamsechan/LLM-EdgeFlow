@@ -25,3 +25,11 @@ RFC-0044 config contract: reuse `ValidateAndNormalizeFields` from `contracts` in
 initialization, using the same field list as the Definition. `ModelBoundNode` already does this
 before model binding. Keep cross-field semantic checks in a shared local helper; do not call
 PipelineValidator from a Node. Report processing failures through `Fail` / `Require`.
+
+For initial configuration plus runtime Control, use the [Control starter](../../../../dev_support/node_authoring/starter_control_node.cpp):
+share field normalization and a local semantic parser, build the replacement before publishing it,
+and read a consistent configuration snapshot per request. Use `NodeInitContext::Fail` for an
+initialization reason; Pipeline adds the instance ID. Follow the [Control guide](../../../../doc/dev_guide/first_control.md)
+for schema limits, targeted payloads and the existing Operator/Demo path. Complex algorithms stay
+in ordinary functions; reuse [the documented helpers](../../../../doc/dev_guide/custom_node_concepts.md#复杂算法仍按普通-c-函数组织)
+when their grouping or provenance contract fits.

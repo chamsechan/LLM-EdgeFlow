@@ -67,6 +67,17 @@ def within(root, relative):
     return path
 
 
+def build_run_conf(pipeline, mem_que, pipe_path, model_root, bundle_root):
+    """Map the selected Pipeline's model paths into an explicit deployment root."""
+    bundle_root = Path(bundle_root).resolve()
+    model_root = within(bundle_root, model_root)
+    pipeline_path = within(bundle_root, pipe_path).relative_to(bundle_root)
+    model_paths = {model["model_id"]: str(within(model_root, model["model_path"]).relative_to(bundle_root))
+                   for model in pipeline.get("models", [])}
+    return {"data": {"pipe_path": str(pipeline_path),
+                     "model_paths": model_paths, "mem_que": mem_que}}
+
+
 def validate_manifest(manifest):
     if not isinstance(manifest, dict) or manifest.get("schema_version") != 1:
         raise ValueError("Unsupported asset manifest version")
@@ -217,10 +228,7 @@ def evaluate(pipeline, selection, tool, model_root, spec_path, conf_path, demo):
         temporary = Path(directory)
         relative = temporary.relative_to(bundle_root)
         (temporary / "pipeline.json").write_text(json.dumps(pipeline))
-        model_paths = {model["model_id"]: str(within(model_root, model["model_path"]).relative_to(bundle_root))
-                       for model in pipeline.get("models", [])}
-        generated_conf = {"data": {"pipe_path": str(relative / "pipeline.json"),
-                                   "model_paths": model_paths, "mem_que": mem_que}}
+        generated_conf = build_run_conf(pipeline, mem_que, relative / "pipeline.json", model_root, bundle_root)
         (temporary / "pipeline.conf").write_text(json.dumps(generated_conf))
         command = [str(Path(demo).resolve()), "--biz", biz, "--config", str(relative / "pipeline.conf"),
                    "--dataset", str(dataset), "--output-dir", str(temporary / "results"),

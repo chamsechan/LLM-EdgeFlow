@@ -25,6 +25,33 @@ must satisfy the same required CTest inventory.
 Add coverage to the narrowest existing suite that owns the behavior. Create a new executable only
 when process isolation or an independent runtime lifecycle is part of the contract.
 
+## Fast feedback for solution authors
+
+Use the default sharded runners below while developing; replace the filter with the suite/test
+you actually changed. Source inventory is in `cmake/TestInventory.cmake`, runner membership in
+`cmake/Tests.cmake`.
+
+| Change | Build target | Typical GoogleTest filter |
+| --- | --- | --- |
+| Node algorithm, fields or Control handler | `edgeflow_test_nodes_runner` | `CommonNodesTest.*` or the affected Node suite |
+| Init/Process diagnostic or planning | `edgeflow_test_core_runner` | `NodeBaseContractsTest.*` / `PipelineConfigTest.*` |
+| Adapter, protocol copies or Operator bridge | `edgeflow_test_adapter_runner` | `OperatorBizBridgeRegistryTest.*` / `OperatorApiTest.*` |
+| Demo result conversion or Pipeline integration | `edgeflow_test_tooling_runner` | `DemoRunnerTest.*` |
+
+```bash
+cmake --build build --target edgeflow_test_nodes_runner -j 4
+./build/edgeflow_test_nodes_runner --gtest_list_tests
+./build/edgeflow_test_nodes_runner --gtest_filter='CommonNodesTest.*'
+```
+
+The [Node helper](support/node_test_utils.h) initializes a registered Node with a Session. Put
+request input into a fresh `AlgContext`, call Process, and assert actual outputs and
+`(req_id, sub_id)`; do not stop at factory creation. Cover the algorithm's empty/invalid input and
+failure behavior. The generator's `--generate-test` output is a starting point for an existing
+suite. Rebuild `alg_pipeline_tool` after a production registration/Definition change, and check
+the composed solution with the same build. Run `./scripts/run_all_tests.sh` once before delivery;
+it covers the complete default configuration even when first practice used a minimal build.
+
 Operator allocation-failure tests use `support/scoped_allocation_failure.*`, linked only
 into the adapter runner and the individual output-pool/value-registry test executables.
 It replaces C++ allocation functions in those executables; the SDK, tools and demos use

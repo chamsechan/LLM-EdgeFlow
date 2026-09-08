@@ -12,6 +12,8 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
+import shutil
 import signal
 import socketserver
 import subprocess
@@ -85,6 +87,9 @@ class WorkbenchService:
         self.config_root = config_root.resolve()
         self.jobs: dict[str, dict[str, Any]] = {}
         self.job_lock = threading.Lock()
+        self.solution_lock = threading.Lock()
+        # Ownership is limited to pairs created by this server session.
+        self.generated_solutions: dict[str, dict[str, Any]] = {}
         self.initial_document = None
         if initial is not None:
             pipeline = read_pipeline_file(initial)
@@ -230,6 +235,8 @@ class WorkbenchService:
         if not report.get("ok"):
             raise StudioError("VALIDATION_FAILED", json.dumps(report, ensure_ascii=False))
         path = self.managed_path(requested)
+        if not save_as and path.name in self.generated_solutions:
+            return self.update_solution(path, pipeline, expected_revision)
         if path.exists() and not save_as:
             current = revision_for(path.read_bytes())
             if not expected_revision or current != expected_revision:
@@ -238,6 +245,7 @@ class WorkbenchService:
                     "文件已被 IDE 或 Git 修改，请重新加载或另存",
                     409,
                 )
+            self.check_unmanaged_deployment(path, pipeline)
         if save_as and path.exists():
             raise StudioError("FILE_EXISTS", "另存目标已存在", 409)
         encoded = (json.dumps(pipeline, ensure_ascii=False, indent=2) + "\n").encode()
@@ -261,10 +269,89 @@ class WorkbenchService:
             pipeline=pipeline,
         )
 
-    def start_run(self, pipeline: Any, profile_name: str) -> dict[str, Any]:
-        report = self.validate(pipeline)
-        if not report.get("ok"):
-            raise StudioError("VALIDATION_FAILED", json.dumps(report, ensure_ascii=False))
+    def check_unmanaged_deployment(self, path: Path, pipeline: Any) -> None:
+        """Do not silently preserve model overrides from an unowned sidecar."""
+        conf_path = path.with_suffix(".conf")
+        if not conf_path.is_file():
+            return
+        try:
+            data = read_json(conf_path).get("data", {})
+            reference = data.get("pipe_path")
+            overrides = data.get("model_paths")
+            points_here = isinstance(reference, str) and any(
+                (base / reference).resolve() == path.resolve()
+                for base in (PROJECT_ROOT, conf_path.parent)
+            )
+        except (OSError, ValueError, AttributeError, TypeError):
+            return
+        if points_here and isinstance(overrides, dict) and overrides:
+            def model_paths(document: Any) -> dict:
+                models = document.get("models", []) if isinstance(document, dict) else []
+                return {model.get("model_id"): model.get("model_path", "")
+                        for model in models if isinstance(model, dict)} if isinstance(models, list) else {}
+            if model_paths(read_json(path)) == model_paths(pipeline):
+                return
+            raise StudioError(
+                "DEPLOYMENT_CONFLICT",
+                f"{conf_path.name} 的 model_paths 可能覆盖本次模型修改。此配套配置不由当前会话管理；请在外部编辑器中检查并同步更新 JSON 与 .conf，或另存为可运行方案。",
+                409,
+            )
+
+    def update_solution(self, path: Path, pipeline: Any, expected_revision: str | None) -> dict[str, Any]:
+        with self.solution_lock:
+            managed = self.generated_solutions[path.name]
+            conf_path = path.with_suffix(".conf")
+
+            def check_revisions() -> tuple[bytes, bytes]:
+                if path.is_symlink() or conf_path.is_symlink() or not path.is_file() or not conf_path.is_file():
+                    raise StudioError("REVISION_CONFLICT", "配套 JSON 或 .conf 已被替换或删除，请重新检查文件", 409)
+                raw, conf_raw = path.read_bytes(), conf_path.read_bytes()
+                if revision_for(raw) != expected_revision or revision_for(conf_raw) != managed["conf_revision"]:
+                    raise StudioError("REVISION_CONFLICT", "配套 JSON 或 .conf 已被其他编辑器修改，请重新检查文件", 409)
+                return raw, conf_raw
+
+            old_json, _ = check_revisions()
+            profile = managed["profile"]
+            encoded = (json.dumps(pipeline, ensure_ascii=False, indent=2) + "\n").encode()
+            conf = self.run_conf(pipeline, managed["mem_que"], path, managed["model_root"])
+            conf_encoded = (json.dumps(conf, ensure_ascii=False, indent=2) + "\n").encode()
+            staging = Path(tempfile.mkdtemp(prefix=".studio-save-", dir=self.config_root))
+            preserve_backup = False
+            try:
+                staged_json = staging / "pipeline.json"
+                staged_conf = staging / "pipeline.conf"
+                backup_json = staging / "previous.json"
+                staged_json.write_bytes(encoded)
+                staged_conf.write_text(json.dumps(self.run_conf(pipeline, managed["mem_que"], staged_json, managed["model_root"])))
+                configuration = self.resolve_run_conf(staged_conf, profile)
+                # Native validation used the staged JSON; installed paths have
+                # the same model mappings and normalized node configuration.
+                configuration["conf_path"] = str(conf_path)
+                configuration["pipeline_path"] = str(path)
+                staged_conf.write_bytes(conf_encoded)
+                backup_json.write_bytes(old_json)
+                check_revisions()
+                os.replace(staged_json, path)
+                try:
+                    os.replace(staged_conf, conf_path)
+                except Exception:
+                    try:
+                        os.replace(backup_json, path)
+                    except OSError as rollback_error:
+                        preserve_backup = True
+                        raise StudioError("SAVE_ROLLBACK_FAILED", f"保存失败，旧 JSON 备份保留在 {backup_json}: {rollback_error}", 500) from rollback_error
+                    raise
+                managed["conf_revision"] = revision_for(conf_encoded)
+                return self.solution_result(path, pipeline, conf, encoded, profile, managed["model_root"], configuration)
+            except StudioError:
+                raise
+            except Exception as error:
+                raise StudioError("SAVE_FAILED", str(error), 500) from error
+            finally:
+                if not preserve_backup:
+                    shutil.rmtree(staging)
+
+    def profile_inputs(self, pipeline: Any, profile_name: str) -> tuple[dict, Any]:
         profiles = read_json(PROFILE_FILE).get("profiles", {})
         profile = profiles.get(profile_name)
         if not profile:
@@ -275,6 +362,8 @@ class WorkbenchService:
             not isinstance(conf, dict)
             or set(conf) != {"data"}
             or not isinstance(conf["data"], dict)
+            or not isinstance(conf["data"].get("pipe_path"), str)
+            or not isinstance(conf["data"].get("mem_que"), dict)
         ):
             raise StudioError(
                 "INVALID_PROFILE_CONFIG", "Profile .conf 必须仅包含 data 对象"
@@ -291,6 +380,90 @@ class WorkbenchService:
         curr_biz = pipeline.get("biz_name")
         if orig_biz != curr_biz:
             raise StudioError("PROFILE_MISMATCH", "Profile 与业务契约不匹配")
+        return copy.deepcopy(profile), copy.deepcopy(data["mem_que"])
+
+    def run_conf(self, pipeline: Any, mem_que: Any, pipe_path: Path, model_root: str) -> dict[str, Any]:
+        if not isinstance(model_root, str) or not model_root or Path(model_root).is_absolute():
+            raise StudioError("INVALID_MODEL_ROOT", "模型目录必须是项目内的相对路径（例如 models 或 .）")
+        try:
+            return SELECTION.build_run_conf(pipeline, mem_que, pipe_path, model_root, PROJECT_ROOT)
+        except (ValueError, TypeError, KeyError) as error:
+            raise StudioError("INVALID_DEPLOYMENT_PATH", str(error)) from error
+
+    def resolve_run_conf(self, conf_path: Path, profile: dict[str, Any]) -> dict[str, Any]:
+        depth = max(int(profile.get("batch_size", 1)), int(profile.get("depth", 1)))
+        report = self.invoke_tool(["resolve-conf", str(conf_path.relative_to(PROJECT_ROOT)), "--root", str(PROJECT_ROOT), "--depth", str(depth)])
+        if not report.get("ok"):
+            raise StudioError("DEPLOYMENT_VALIDATION_FAILED", json.dumps(report, ensure_ascii=False))
+        return report["configuration"]
+
+    @staticmethod
+    def demo_command(profile: dict[str, Any], conf_path: Path, output_dir: Path) -> list[str]:
+        return [
+            str(DEMO_BINARY), "--no-default-control", "--biz", str(profile["biz"]),
+            "--config", str(conf_path), "--dataset", str(PROJECT_ROOT / profile["dataset"]),
+            "--output-dir", str(output_dir), "--batch-size", str(profile.get("batch_size", 1)),
+            "--device-id", str(profile.get("device_id", 0)), "--chip", str(profile.get("chip", "ax650")),
+            "--depth", str(profile.get("depth", 1)),
+        ]
+
+    def save_solution(self, requested: str, pipeline: Any, profile_name: str, model_root: str = "models") -> dict[str, Any]:
+        report = self.validate(pipeline)
+        if not report.get("ok"):
+            raise StudioError("VALIDATION_FAILED", json.dumps(report, ensure_ascii=False))
+        path = self.managed_path(requested)
+        conf_path = path.with_suffix(".conf")
+        for target in (path, conf_path):
+            if target.is_symlink():
+                raise StudioError("SYMLINK_REJECTED", "拒绝写入符号链接方案")
+            if target.exists():
+                raise StudioError("FILE_EXISTS", f"另存目标已存在：{target.name}", 409)
+        profile, mem_que = self.profile_inputs(pipeline, profile_name)
+        conf = self.run_conf(pipeline, mem_que, path, model_root)
+        encoded = (json.dumps(pipeline, ensure_ascii=False, indent=2) + "\n").encode()
+        conf_encoded = (json.dumps(conf, ensure_ascii=False, indent=2) + "\n").encode()
+        created = []
+        self.config_root.mkdir(parents=True, exist_ok=True)
+        try:
+            for target, contents in ((path, encoded), (conf_path, conf_encoded)):
+                descriptor = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                created.append(target)
+                with os.fdopen(descriptor, "wb") as stream:
+                    stream.write(contents)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+            configuration = self.resolve_run_conf(conf_path, profile)
+        except Exception as error:
+            for target in created:
+                target.unlink(missing_ok=True)
+            if isinstance(error, FileExistsError):
+                raise StudioError("FILE_EXISTS", "另存目标已存在", 409) from error
+            if isinstance(error, StudioError):
+                raise
+            raise StudioError("SAVE_FAILED", str(error), 500) from error
+        self.generated_solutions[path.name] = {
+            "profile": profile, "mem_que": mem_que, "model_root": model_root,
+            "conf_revision": revision_for(conf_encoded),
+        }
+        return self.solution_result(path, pipeline, conf, encoded, profile, model_root, configuration)
+
+    def solution_result(self, path: Path, pipeline: Any, conf: Any, encoded: bytes, profile: dict[str, Any], model_root: str, configuration: Any) -> dict[str, Any]:
+        conf_path = path.with_suffix(".conf")
+        command = self.demo_command(profile, conf_path.relative_to(PROJECT_ROOT), PROJECT_ROOT / "output" / path.stem)
+        return json_result(
+            True, filename=path.name, conf_filename=conf_path.name, revision=revision_for(encoded),
+            pipeline=pipeline, conf=conf, model_root=model_root, configuration=configuration,
+            command=f"cd {shlex.quote(str(PROJECT_ROOT))} && {shlex.join(command)}",
+        )
+
+    def start_run(self, pipeline: Any, profile_name: str, model_root: str = "models") -> dict[str, Any]:
+        report = self.validate(pipeline)
+        if not report.get("ok"):
+            raise StudioError("VALIDATION_FAILED", json.dumps(report, ensure_ascii=False))
+        profile, mem_que = self.profile_inputs(pipeline, profile_name)
+        # Check the selected paths before creating a job. The worker only changes
+        # pipe_path to its own temporary document under the same deployment root.
+        conf = self.run_conf(pipeline, mem_que, "build/pipeline.json", model_root)
         with self.job_lock:
             if any(job["status"] in ("queued", "running") for job in self.jobs.values()):
                 raise StudioError("RUN_BUSY", "同一工作台最多运行一个任务", 409)
@@ -305,7 +478,7 @@ class WorkbenchService:
             }
         threading.Thread(
             target=self._run_job,
-            args=(job_id, pipeline, copy.deepcopy(profile), conf),
+            args=(job_id, copy.deepcopy(pipeline), profile, conf),
             daemon=True,
         ).start()
         return json_result(True, job_id=job_id, status="queued")
@@ -317,42 +490,28 @@ class WorkbenchService:
         profile: dict[str, Any],
         conf: dict[str, Any],
     ) -> None:
-        temporary = tempfile.TemporaryDirectory(prefix="llm-edgeflow-studio-")
-        temp_root = Path(temporary.name)
+        temporary = None
         try:
+            temporary_parent = PROJECT_ROOT / "build"
+            if not temporary_parent.is_dir():
+                temporary_parent = PROJECT_ROOT
+            temporary = tempfile.TemporaryDirectory(prefix=".studio-run-", dir=temporary_parent)
+            temp_root = Path(temporary.name)
             pipeline_path = temp_root / "pipeline.json"
             pipeline_path.write_text(
                 json.dumps(pipeline, ensure_ascii=False, indent=2), encoding="utf-8"
             )
             temp_conf = copy.deepcopy(conf)
-            temp_conf["data"]["pipe_path"] = "pipeline.json"
+            temp_conf["data"]["pipe_path"] = str(pipeline_path.relative_to(PROJECT_ROOT))
             conf_path = temp_root / "pipeline.conf"
             conf_path.write_text(json.dumps(temp_conf, indent=2), encoding="utf-8")
+            configuration = self.resolve_run_conf(conf_path, profile)
             output_dir = temp_root / "results"
-            dataset = PROJECT_ROOT / profile["dataset"]
-            args = [
-                str(DEMO_BINARY),
-                "--no-default-control",
-                "--biz",
-                str(profile["biz"]),
-                "--config",
-                str(conf_path),
-                "--dataset",
-                str(dataset),
-                "--output-dir",
-                str(output_dir),
-                "--batch-size",
-                str(profile.get("batch_size", 1)),
-                "--device-id",
-                str(profile.get("device_id", 0)),
-                "--chip",
-                str(profile.get("chip", "ax650")),
-                "--depth",
-                str(profile.get("depth", 1)),
-            ]
+            args = self.demo_command(profile, conf_path.relative_to(PROJECT_ROOT), output_dir)
             timeout = 300 if profile.get("suite", "smoke") == "smoke" else 1800
             with self.job_lock:
                 job = self.jobs[job_id]
+                job["configuration"] = configuration
                 if job["cancel_requested"]:
                     job["status"] = "cancelled"
                     return
@@ -413,7 +572,8 @@ class WorkbenchService:
                 job["finished_at"] = time.time()
                 job["process"] = None
         finally:
-            temporary.cleanup()
+            if temporary is not None:
+                temporary.cleanup()
 
     def run_status(self, job_id: str) -> dict[str, Any]:
         with self.job_lock:
@@ -496,6 +656,10 @@ def make_handler(service: WorkbenchService):
                 payload = service.save_pipeline(
                     body.get("filename", ""), body.get("pipeline"), None, save_as=True
                 )
+            elif method == "POST" and path == "/api/v1/solutions":
+                payload = service.save_solution(
+                    body.get("filename", ""), body.get("pipeline"), body.get("profile", ""), body.get("model_root", "models")
+                )
             elif method == "PUT" and path == "/api/v1/pipeline":
                 payload = service.save_pipeline(
                     body.get("filename", ""),
@@ -504,7 +668,7 @@ def make_handler(service: WorkbenchService):
                     save_as=False,
                 )
             elif method == "POST" and path == "/api/v1/runs":
-                payload = service.start_run(body.get("pipeline"), body.get("profile", ""))
+                payload = service.start_run(body.get("pipeline"), body.get("profile", ""), body.get("model_root", "models"))
             elif method == "DELETE" and path.startswith("/api/v1/runs/"):
                 payload = service.cancel_run(path.rsplit("/", 1)[-1])
             else:

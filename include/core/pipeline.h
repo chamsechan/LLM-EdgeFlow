@@ -3,6 +3,7 @@
 #include <memory>
 #include <nlohmann/json.hpp>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "core/alg_context.h"
@@ -59,7 +60,9 @@ class Pipeline {
    * @brief 运行时动态控制
    */
   // Calls must be externally serialized with Execute/Control. Broadcast updates
-  // are not transactional; error identifies failed instances.
+  // are not transactional; error identifies failed instances. A JSON envelope
+  // {"$edgeflow_control":1,"node_id":"id","payload":{...}} targets one
+  // instance.
   int Control(int cmd, const std::string& json_param,
               std::string* error = nullptr);
 
@@ -83,8 +86,8 @@ class Pipeline {
     int code = 0;
     std::string message;
   };
-  static NodeExecutionResult ExecuteNodeSafely(INode* node,
-                                               AlgContext* req_ctx);
+  static NodeExecutionResult ExecuteNodeSafely(INode* node, AlgContext* req_ctx,
+                                               std::string_view node_id);
 
   bool BuildInternal(const nlohmann::json& root_config,
                      PipelineDiagnostic* diagnostic, ValidationPolicy policy);

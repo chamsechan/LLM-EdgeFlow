@@ -12,7 +12,16 @@ namespace {
 
 const std::vector<ConfigFieldDefinition>& TextCorpusSourceConfigFields() {
   static const std::vector<ConfigFieldDefinition> kFields = {
-      ConfigFieldDefinition{"corpus", ConfigValueKind::kArray, false}};
+      ConfigFieldDefinition{
+          "corpus",
+          ConfigValueKind::kArray,
+          false,
+          nlohmann::json(),
+          std::nullopt,
+          std::nullopt,
+          {},
+          "静态语料字符串数组，例如 [\"开户步骤\", \"退款政策\"]；数组顺序对应 "
+          "sub_id，使用共享语料 req_id=0。"}};
   return kFields;
 }
 

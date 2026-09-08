@@ -739,16 +739,39 @@ static const BackendDefinition kOnnxRuntimeBackendDefinition = [] {
   def.supported_protocols = {ExecutionProtocol::kTensorGraph};
   def.concurrency = InferenceConcurrency::kConcurrent;
   def.config_fields = {
-      {"max_batch_size", ConfigValueKind::kInteger, false, 4, 1.0, 1024.0},
-      {"intra_op_num_threads", ConfigValueKind::kInteger, false, 2, 1.0, 64.0},
-      {"inter_op_num_threads", ConfigValueKind::kInteger, false, 1, 1.0, 64.0},
+      {"max_batch_size",
+       ConfigValueKind::kInteger,
+       false,
+       4,
+       1.0,
+       1024.0,
+       {},
+       "动态 batch 的样本数上限；静态 batch 模型使用张量形状声明的固定批次。"},
+      {"intra_op_num_threads",
+       ConfigValueKind::kInteger,
+       false,
+       2,
+       1.0,
+       64.0,
+       {},
+       "ONNX Runtime 单个算子内部的 CPU 线程数。"},
+      {"inter_op_num_threads",
+       ConfigValueKind::kInteger,
+       false,
+       1,
+       1.0,
+       64.0,
+       {},
+       "传给 ONNX Runtime 的算子间线程数；是否使用由运行时执行模式决定。"},
       {"graph_optimization_level",
        ConfigValueKind::kString,
        false,
        "all",
        std::nullopt,
        std::nullopt,
-       {"none", "basic", "extended", "all"}},
+       {"none", "basic", "extended", "all"},
+       "传给 ONNX Runtime 的图优化级别：none 关闭，basic/extended/all "
+       "依次选择对应优化集合。"},
   };
   return def;
 }();

@@ -16,8 +16,8 @@
 | 修复已有 C ABI 的转换逻辑 | 修改对应 Adapter 并运行相关契约测试；仅影响该路径时，无需另建 Operator 或 Demo |
 
 当前共享 SDK 的 Operator 初始化会审计**所有已注册 Adapter**。新增生产 Adapter
-必须有匹配的 bridge，否则整个 Operator 初始化失败；目前没有仅注册 C ABI 业务的
-豁免模式。已有宿主类型可以复用其 ValueType 注册，全新类型才需要增加注册。
+必须有匹配的 bridge，否则整个 Operator 初始化失败；`GetOperatorLastError()` 会指出业务与缺失 bridge、
+不匹配类型或槽位原因。重复初始化保留首次冲突原因。目前没有仅注册 C ABI 业务的豁免模式。已有宿主类型可以复用其 ValueType 注册，全新类型才需要增加注册。
 
 ## 2. 用一个现有业务看清文件关系
 
@@ -114,6 +114,8 @@
    保持字符串及数组在同步处理期间有效。
 2. 使用 `RunOperatorWithExtractor<Input, Output>`，传入 bridge 声明的槽位后缀；
    在 extractor 中把输出复制到本地结果值，再交给 `ResultWriter` 输出逐条记录。
+   同时复制真实 `status_code`，写入样本的 `status`，不能固定填零。Process 返回成功表示
+   调用完成，业务是否逐条成功还需检查 `results.jsonl` 和 `summary.json`。
    执行、参数解析和输出池管理继续复用运行器。
 3. 用 `REGISTER_DEMO_BIZ(name, title, run_function, biz_type)` 注册，`name` 与
    `BizDefinition` 的 Demo 名一致，业务类型显式给出且非 UNKNOWN；将源码加入
@@ -128,6 +130,17 @@
 详细命令见[运行当前方案](../../tools/pipeline_studio/README.md#运行当前方案)。
 
 ## 输出容量
+
+宿主输入是借用视图，底层字符串、数组和结构体必须保持有效直到 `Process` 返回。
+输出 `shared_ptr<void>` 持有的是当前 handle 的池租约，不延长 handle 的生命期。
+需要保存结果时，在本次调用后复制到自己的 `std::string` / 值对象，再清空输出容器。
+不要累积所有输出租约后在同一线程继续同步 `Process`：池满时调用会等待空闲块，
+该线程也就无法返回释放旧租约。池深用于控制同时持有的输出数量，不是结果存储空间。
+
+销毁顺序是：等待所有 `Process` / `Control` 返回 → 释放输出引用 → `Destroy`。
+有效 handle 即使因未归还输出而在 `Destroy` 返回错误，也已被消费，不得重试或再访问
+旧输出。参考 [Demo 的输出复制与释放](../../demo/biz/ocr_doc_qa_demo.cpp) 和
+[公开 Operator 契约](../../include/operator/operator_interface.h)。
 
 Operator 的输出路径是 `Pipeline → 可变长业务 Result → 已租用输出池`。
 Result 与请求 Context 均不跨 Process 保存。`.conf` 的 `data.mem_que.type` 选择已注册

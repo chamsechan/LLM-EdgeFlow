@@ -1,6 +1,6 @@
 import { api, initialPipeline, write } from "./api.js";
 import { GraphView } from "./graph.js";
-import { createHistory, createDrafts, appendConfigField, readConfigFields, readFormBuffer, restoreFormBuffer } from "./editor.js";
+import { createHistory, createDrafts, appendDiagnostic, appendConfigField, readConfigFields, readFormBuffer, restoreFormBuffer } from "./editor.js";
 import { compatibleModels, createLatestRequestGate, modelBoundNodeIds, graphDocument, connectPorts, disconnectPorts, removeNode, compatibleBackends, modelAvailability, assertBrowsablePipeline, readPipelineFile, upsertModel, removeModel } from "./workbench.js";
 
 const $ = selector => document.querySelector(selector);
@@ -43,6 +43,7 @@ function updateEditorStatus() {
   $("#redoButton").disabled = state.loading || pending || !history.canRedo;
   $("#saveButton").disabled = state.loading || state.saving || !state.pipeline;
   $("#saveAsButton").disabled = state.loading || state.saving || !state.pipeline;
+  $("#saveSolutionButton").disabled = state.loading || state.saving || !state.pipeline;
   $("#openButton").disabled = state.loading;
   $("#browseButton").disabled = state.loading;
   $("#newButton").disabled = state.loading;
@@ -297,9 +298,10 @@ async function createPipeline() {
   }
 }
 
-async function save(saveAs) {
+async function save(saveAs, runnable = false) {
   if (!state.pipeline) return toast("没有可保存的方案", true);
   if (state.saving || !requireApplied()) return;
+  if (runnable && !$("#runProfile").value) return toast("请先选择匹配业务的运行 Profile", true);
   let filename = state.filename;
   if (saveAs || !filename) {
     const suggested = /^pipeline_[a-z0-9_]+\.json$/.test(state.sourceName) ? state.sourceName : "pipeline_new_solution.json";
@@ -311,8 +313,9 @@ async function save(saveAs) {
   const pipeline = structuredClone(state.pipeline);
   state.saving = true; updateEditorStatus();
   try {
-    const result = await write(saveAs ? "/pipelines" : "/pipeline", saveAs ? "POST" : "PUT", {
+    const result = await write(runnable ? "/solutions" : saveAs ? "/pipelines" : "/pipeline", saveAs ? "POST" : "PUT", {
       filename, pipeline, revision: state.revision,
+      ...(runnable ? { profile: $("#runProfile").value, model_root: $("#runModelRoot").value } : {}),
     });
     if (documentVersion !== state.documentVersion) return;
     state.filename = result.filename; state.sourceName = ""; state.revision = result.revision;
@@ -323,8 +326,12 @@ async function save(saveAs) {
     const schemes = $("#pipelineSelect"); schemes.replaceChildren(new Option("选择方案", ""));
     for (const item of pipelines.pipelines) schemes.add(new Option(`${item.filename} · ${item.biz_name}`, item.filename));
     $("#pipelineSelect").value = state.filename;
+    if (result.conf_filename) {
+      $("#savedCommand").textContent = `已保存 ${result.filename} 和 ${result.conf_filename}。以下命令运行已保存版本：\n\n${result.command}`;
+      $("#resolvedConfig").textContent = JSON.stringify(result.configuration, null, 2);
+    }
     toast(state.dirty || drafts.pending ? "已保存提交时的版本，当前仍有新修改" : "方案已保存");
-  } catch (error) { toast(error.status === 409 ? "保存冲突：请重新加载或另存" : error.message, true); }
+  } catch (error) { toast(error.message, true); }
   finally { state.saving = false; updateEditorStatus(); }
 }
 
@@ -338,13 +345,14 @@ async function validate() {
     if (pipelineVersion !== state.pipelineVersion) return false;
     output.replaceChildren();
     state.errorNodeIds = new Set();
-    if (report.ok) output.innerHTML = `<div class="diagnostic ok">校验通过 · ${report.plan.topological_order.length} 个节点 · ${report.plan.layers.length} 个波前</div>`;
+    if (report.ok) {
+      const block = document.createElement("div"); block.className = "diagnostic ok";
+      block.textContent = `校验通过 · ${report.plan.topological_order.length} 个节点 · ${report.plan.layers.length} 个波前`;
+      output.append(block);
+    }
     for (const item of report.diagnostics || []) {
       if (item.node_id) state.errorNodeIds.add(item.node_id);
-      const block = document.createElement("div"); block.className = "diagnostic";
-      block.innerHTML = `<strong>${item.code}</strong><br><code>${item.path}</code><br>${item.message}`;
-      block.addEventListener("click", () => { if (item.node_id) { selectNode(item.node_id); switchTab("properties"); graph.focusNode?.(item.node_id); } });
-      output.append(block);
+      appendDiagnostic(output, item, id => { selectNode(id); switchTab("properties"); graph.focusNode?.(id); });
     }
     renderAll();
     return report.ok;
@@ -357,7 +365,8 @@ async function validate() {
 async function runDraft() {
   if (!state.pipeline || !requireApplied()) return;
   try {
-    const result = await write("/runs", "POST", { pipeline: state.pipeline, profile: $("#runProfile").value });
+    const result = await write("/runs", "POST", { pipeline: state.pipeline, profile: $("#runProfile").value, model_root: $("#runModelRoot").value });
+    $("#resolvedConfig").textContent = "正在解析本次运行的部署配置…";
     state.jobId = result.job_id; $("#cancelButton").disabled = false; pollRun();
   } catch (error) { toast(error.message, true); }
 }
@@ -368,6 +377,8 @@ async function pollRun() {
     const { job } = await api(`/runs/${state.jobId}`);
     $("#runLog").textContent = `${job.status}\n${job.logs || ""}${job.error ? `\n${JSON.stringify(job.error, null, 2)}` : ""}`;
     $("#runResult").textContent = job.result ? JSON.stringify(job.result, null, 2) : "";
+    if (job.configuration) $("#resolvedConfig").textContent = JSON.stringify(job.configuration, null, 2);
+    else if (job.error) $("#resolvedConfig").textContent = job.error.message;
     if (["completed", "failed", "cancelled"].includes(job.status)) { $("#cancelButton").disabled = true; return; }
     setTimeout(pollRun, 700);
   } catch (error) { toast(error.message, true); }
@@ -606,6 +617,7 @@ $("#pipelineFile").addEventListener("change", async event => {
 $("#newButton").addEventListener("click", () => createPipeline().catch(error => toast(error.message, true)));
 $("#saveButton").addEventListener("click", () => save(false));
 $("#saveAsButton").addEventListener("click", () => save(true));
+$("#saveSolutionButton").addEventListener("click", () => save(true, true));
 $("#layoutButton").addEventListener("click", () => {
   graph.layout(graphDocument(state.pipeline, state.catalog).nodes, true);
   renderAll();

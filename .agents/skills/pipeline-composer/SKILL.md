@@ -39,6 +39,17 @@ and native Resolver; do not reproduce their validation rules.
    ./build/alg_pipeline_tool init --biz <biz_name> --empty
    ```
 
+   `init` normally returns a versioned response containing `pipeline`. To save a
+   runtime document directly, use `--raw` and a new destination (do not overwrite
+   an existing solution):
+
+   ```bash
+   ./build/alg_pipeline_tool init --biz <biz_name> --profile <profile_name> --raw > <new_pipeline.json>
+   ```
+
+   Check the command's exit status before using the file, then validate the saved
+   document. An empty draft needs nodes and bindings before it can validate.
+
 4. Every node must declare a non-empty `id` and an explicit `depends_on` array. Validate after every meaningful edit. Use diagnostic `code`, JSON `path`, `node_id`, `port`, `related_nodes`, and `suggestions` to repair the document; do not reproduce validation rules in scripts or prompts.
 
    ```bash
@@ -49,7 +60,12 @@ and native Resolver; do not reproduce their validation rules.
 5. After validation, run the edited Pipeline through a compatible Demo. Follow
    [running the current solution](../../../tools/pipeline_studio/README.md#运行当前方案): confirm
    `.conf` `data.pipe_path` resolves to the edited JSON, inspect inherited model path overrides
-   and capacities, and select a matching biz and dataset. For example:
+   and capacities, and select a matching biz and dataset. Use
+   `alg_pipeline_tool resolve-conf <edited.conf> --root <deployment_root> --depth <max_batch_or_depth>`
+   to inspect the native resolved paths, their sources and normalized defaults; it does not load
+   weights. Studio can save a JSON + `.conf` pair and command via “另存为可运行方案”; its model
+   directory is explicit (`models` normally, `.` for project-relative fixtures), and model paths
+   come from the edited Pipeline. For example:
 
    ```bash
    ./build/alg_demo --profile <compatible_profile> --config <edited.conf> --no-default-control --output-dir <run_output_dir>
@@ -57,8 +73,9 @@ and native Resolver; do not reproduce their validation rules.
 
    A new Profile is optional; explicit `--biz`, `--config` and `--dataset` also work. Use the
    original Profile alone only when its configuration already points to the intended Pipeline.
-   `--no-default-control` prevents Demo example updates from replacing the selected rules or
-   prompts; provide a Control file only when it is part of the requested scenario. Verify
+   Demo uses the selected Pipeline defaults; `--no-default-control` remains a compatibility
+   option. Use `--example-control` only for the built-in update demonstration, and provide a
+   Control file only when it is part of the requested scenario. Verify
    request IDs, status and expected output fields in `results.jsonl` and `summary.json`.
 
 For human composition, use `./show --web` or `./show <pipeline.json> --web`. For AI and automation, use `alg_pipeline_tool` and consume its versioned JSON output.
@@ -68,7 +85,7 @@ For human composition, use `./show --web` or `./show <pipeline.json> --web`. For
 - Do not guess Blackboard Keys, types, node parameters, model IDs, engine capabilities, or Adapter ingress/egress.
 - Do not hand-edit a Catalog, Web node list, or this skill when nodes change; registration and Definition data must make assets discoverable.
 - Do not generate node implementation code during configuration composition.
-- If no Catalog composition can satisfy the contract, report the exact missing input/output or capability, stop editing Pipeline JSON, and route the task to `llm-edgeflow-developer-guide` for the relevant layer.
+- If no Catalog composition can satisfy the contract, identify the missing input/output or capability and use `llm-edgeflow-developer-guide` for the affected implementation. After it is built, resume composition and verify the requested solution; a routing handoff alone is not completion.
 - Report configuration validation, actual execution/results and real-model or target-platform
   acceptance separately. Smoke success does not prove business quality; use the
   [selection and effects workflow](../../../doc/VERIFIABLE_SELECTION.md) when effects acceptance

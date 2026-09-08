@@ -23,18 +23,36 @@ const std::vector<ConfigFieldDefinition>& VectorTopKConfigFields() {
                             "request",
                             std::nullopt,
                             std::nullopt,
-                            {"request", "shared"}},
-      ConfigFieldDefinition{"top_k", ConfigValueKind::kInteger, false, 1, 1.0,
-                            1000.0},
-      ConfigFieldDefinition{"min_score", ConfigValueKind::kNumber, false, 0.0,
-                            -100.0, 100.0},
+                            {"request", "shared"},
+                            "request 只检索相同 req_id 的候选；shared 使用所有 "
+                            "req_id=0 的共享候选。"},
+      ConfigFieldDefinition{"top_k",
+                            ConfigValueKind::kInteger,
+                            false,
+                            1,
+                            1.0,
+                            1000.0,
+                            {},
+                            "每条查询按向量相似度降序返回的候选条数上限，在 "
+                            "min_score 过滤之后应用。"},
+      ConfigFieldDefinition{
+          "min_score",
+          ConfigValueKind::kNumber,
+          false,
+          0.0,
+          -100.0,
+          100.0,
+          {},
+          "保留相似度大于等于此值的候选；分数含义随 metric 变化。"},
       ConfigFieldDefinition{"metric",
                             ConfigValueKind::kString,
                             false,
                             "cosine",
                             std::nullopt,
                             std::nullopt,
-                            {"cosine", "dot_product"}}};
+                            {"cosine", "dot_product"},
+                            "cosine 使用余弦相似度；dot_product "
+                            "使用原始向量点积，分数受向量模长影响。"}};
   return kFields;
 }
 
