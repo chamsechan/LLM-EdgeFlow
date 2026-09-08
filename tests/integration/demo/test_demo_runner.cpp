@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "company_alg_log.h"
+#include "core/node_registry.h"
 #include "demo/common/dataset_reader.h"
 #include "demo/common/demo_options.h"
 #include "demo/common/demo_registry.h"
@@ -16,11 +17,66 @@
 #include "demo/common/result_writer.h"
 #include "engine/backend_registry.h"
 #include "nlohmann/json.hpp"
+#include "nodes/node_base.h"
 #include "operator/operator_interface.h"
 #include "tests/support/control_test_utils.h"
 
 using namespace alg_demo;
 using namespace llm_edgeflow::operator_api;
+
+namespace llm_edgeflow::test {
+namespace {
+
+class TestDemoStatusNode final : public NodeBase {
+ public:
+  inline static constexpr char kNodeType[] = "TestDemoStatusNode";
+  TestDemoStatusNode()
+      : NodeBase(kNodeType), input_("text"), output_("matches") {}
+
+ protected:
+  bool InitNode(const NodeInitContext& init, const nlohmann::json&,
+                SessionContext&) override {
+    BindPort(init, input_);
+    BindPort(init, output_);
+    return true;
+  }
+  int ProcessNode(AlgContext& context) override {
+    const auto* input = input_.Require(context, -9001);
+    if (!input) return -9001;
+    RuleMatchBatch results;
+    for (const auto& item : *input) {
+      RuleMatchItem result;
+      result.status_code = item.data == "fail" ? -42 : 0;
+      result.match_result_json = "{}";
+      results.emplace_back(item.req_id, item.sub_id, std::move(result));
+    }
+    output_.Set(context, std::move(results));
+    return 0;
+  }
+
+ private:
+  BoundInput<TextBatch> input_;
+  BoundOutput<RuleMatchBatch> output_;
+};
+
+NodeDefinition DemoStatusDefinition() {
+  NodeDefinition definition;
+  definition.node_type = TestDemoStatusNode::kNodeType;
+  definition.category = "test";
+  definition.description = "Mixed per-sample status fixture for Demo output";
+  definition.inputs = {
+      RequiredInputPort("text", BlackboardKey<TextBatch>{"text", "TextBatch"},
+                        "1:1", "preserve", "request")};
+  definition.outputs = {OutputPort(
+      "matches", BlackboardKey<RuleMatchBatch>{"matches", "RuleMatchBatch"},
+      "1:1", "preserve", "request")};
+  return definition;
+}
+
+REGISTER_NODE_WITH_DEFINITION(TestDemoStatusNode, DemoStatusDefinition());
+
+}  // namespace
+}  // namespace llm_edgeflow::test
 
 namespace {
 
@@ -863,6 +919,53 @@ TEST(DemoRunnerTest, GenericControlCommandChangesCustomNodeOutput) {
   options.control_file = (temporary.path / "control.json").string();
   options.control_cmd = 19999;
   EXPECT_EQ(demo->run(options), 5);
+  EXPECT_EQ(ops.Deinit(), 0);
+}
+
+TEST(DemoRunnerTest, PreservesMixedSampleStatusesAndFailureCounts) {
+  KiteDemoDirectory temporary;
+  std::ifstream pipeline_file("configs/pipeline_keyword_match.json");
+  ASSERT_TRUE(pipeline_file.good());
+  auto pipeline = nlohmann::json::parse(pipeline_file);
+  pipeline["pipeline"][0]["node_type"] = "TestDemoStatusNode";
+  pipeline["pipeline"][0].erase("config");
+  const auto pipeline_path = temporary.path / "pipeline.json";
+  std::ofstream(pipeline_path) << pipeline.dump();
+  std::ifstream conf_file("configs/pipeline_keyword_match.conf");
+  ASSERT_TRUE(conf_file.good());
+  auto conf = nlohmann::json::parse(conf_file);
+  conf["data"]["pipe_path"] = "pipeline.json";
+  std::ofstream(temporary.path / "pipeline.conf") << conf.dump();
+  std::ofstream(temporary.path / "input.txt") << "success\nfail\n";
+
+  DemoOptions options;
+  options.biz = "keyword_match";
+  options.config_path = (temporary.path / "pipeline.conf").string();
+  options.dataset_path = (temporary.path / "input.txt").string();
+  options.output_dir = temporary.path.string();
+  options.batch_size = 2;
+  const auto* demo = DemoRegistry::Instance().Find(options.biz);
+  ASSERT_NE(demo, nullptr);
+  auto ops = Get_LLM_EDGEFLOW_OperatorTable();
+  ASSERT_EQ(ops.Init(), 0);
+  ASSERT_EQ(demo->run(options), 0);
+
+  std::ifstream results(temporary.path / "keyword_match/results.jsonl");
+  ASSERT_TRUE(results.good());
+  std::string line;
+  for (int index = 0; index < 2; ++index) {
+    ASSERT_TRUE(static_cast<bool>(std::getline(results, line)));
+    const auto sample = nlohmann::json::parse(line);
+    EXPECT_EQ(sample["request_id"], 20001 + index);
+    EXPECT_EQ(sample["status"], index == 0 ? 0 : -42);
+  }
+  EXPECT_FALSE(static_cast<bool>(std::getline(results, line)));
+  std::ifstream summary_file(temporary.path / "keyword_match/summary.json");
+  ASSERT_TRUE(summary_file.good());
+  const auto summary = nlohmann::json::parse(summary_file);
+  EXPECT_EQ(summary["total_samples"], 2);
+  EXPECT_EQ(summary["success_count"], 1);
+  EXPECT_EQ(summary["failed_count"], 1);
   EXPECT_EQ(ops.Deinit(), 0);
 }
 

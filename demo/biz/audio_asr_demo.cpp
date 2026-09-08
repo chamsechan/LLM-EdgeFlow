@@ -84,6 +84,7 @@ int RunAudioAsrDemo(const DemoOptions& options) {
 
   struct OutputSummary {
     uint64_t request_id = 0;
+    int32_t status_code = 0;
     std::string transcribed_text;
     std::string intent_slot_json;
   };
@@ -95,6 +96,7 @@ int RunAudioAsrDemo(const DemoOptions& options) {
       options, "mic_0.audio_in", "mic_0.audio_out", inputs,
       [&](size_t idx, const CompanyOperatorAudioOutput& out) {
         output_summaries[idx].request_id = out.request_id;
+        output_summaries[idx].status_code = out.status_code;
         if (out.transcribed_text && out.transcribed_text->data) {
           output_summaries[idx].transcribed_text.assign(
               out.transcribed_text->data, out.transcribed_text->length);
@@ -130,7 +132,7 @@ int RunAudioAsrDemo(const DemoOptions& options) {
 
     DemoSampleResult sample;
     sample.request_id = output_summaries[i].request_id;
-    sample.status = 0;
+    sample.status = output_summaries[i].status_code;
     sample.latency_ms = i < latencies.size() ? latencies[i] : 0.0;
     sample.output["transcribed_text"] = output_summaries[i].transcribed_text;
     if (!output_summaries[i].intent_slot_json.empty()) {
@@ -153,7 +155,9 @@ int RunAudioAsrDemo(const DemoOptions& options) {
     return w_ret;
   }
 
-  std::cout << "[AudioAsrDemo] Completed successfully." << std::endl;
+  std::cout << "[AudioAsrDemo] Results written; see summary.json for sample "
+               "success/failure counts."
+            << std::endl;
   return 0;
 }
 

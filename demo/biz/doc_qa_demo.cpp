@@ -66,6 +66,7 @@ int RunDocQaDemo(const DemoOptions& options) {
 
   struct OutputSummary {
     uint64_t request_id = 0;
+    int32_t status_code = 0;
     std::string intent_name;
     float confidence = 0.0f;
     std::string answer_text;
@@ -79,6 +80,7 @@ int RunDocQaDemo(const DemoOptions& options) {
       options, "rag_channel.doc_in", "rag_channel.doc_out", inputs,
       [&](size_t idx, const CompanyOperatorDocOutput& out) {
         output_summaries[idx].request_id = out.request_id;
+        output_summaries[idx].status_code = out.status_code;
         output_summaries[idx].confidence = out.confidence;
         output_summaries[idx].chunk_count = out.chunk_count;
         if (out.intent_name && out.intent_name->data) {
@@ -116,7 +118,7 @@ int RunDocQaDemo(const DemoOptions& options) {
 
     DemoSampleResult sample;
     sample.request_id = output_summaries[i].request_id;
-    sample.status = 0;
+    sample.status = output_summaries[i].status_code;
     sample.latency_ms = (i < latencies.size()) ? latencies[i] : 0.0;
     sample.output["chunk_count"] = output_summaries[i].chunk_count;
     sample.output["intent_name"] = output_summaries[i].intent_name;
@@ -133,7 +135,9 @@ int RunDocQaDemo(const DemoOptions& options) {
     return w_ret;
   }
 
-  std::cout << "[DocQaDemo] Completed successfully." << std::endl;
+  std::cout << "[DocQaDemo] Results written; see summary.json for sample "
+               "success/failure counts."
+            << std::endl;
   return 0;
 }
 

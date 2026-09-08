@@ -61,6 +61,7 @@ int RunKeywordMatchDemo(const DemoOptions& options) {
 
   struct OutputSummary {
     uint64_t request_id = 0;
+    int32_t status_code = 0;
     int32_t is_hit = 0;
     std::string match_result_json;
   };
@@ -73,6 +74,7 @@ int RunKeywordMatchDemo(const DemoOptions& options) {
       inputs,
       [&](size_t idx, const CompanyOperatorKeywordOutput& out) {
         output_summaries[idx].request_id = out.request_id;
+        output_summaries[idx].status_code = out.status_code;
         output_summaries[idx].is_hit = out.is_hit;
         if (out.match_result_json && out.match_result_json->data) {
           output_summaries[idx].match_result_json.assign(
@@ -101,7 +103,7 @@ int RunKeywordMatchDemo(const DemoOptions& options) {
 
     DemoSampleResult sample;
     sample.request_id = output_summaries[i].request_id;
-    sample.status = 0;
+    sample.status = output_summaries[i].status_code;
     sample.latency_ms = (i < latencies.size()) ? latencies[i] : 0.0;
     sample.output["is_hit"] = (output_summaries[i].is_hit != 0);
     if (!output_summaries[i].match_result_json.empty()) {
@@ -125,7 +127,9 @@ int RunKeywordMatchDemo(const DemoOptions& options) {
     return w_ret;
   }
 
-  std::cout << "[KeywordMatchDemo] Completed successfully." << std::endl;
+  std::cout << "[KeywordMatchDemo] Results written; see summary.json for "
+               "sample success/failure counts."
+            << std::endl;
   return 0;
 }
 

@@ -341,8 +341,8 @@ int RunOperatorWithExtractor(
   }
 
   std::cout << "[OperatorRunner] All " << total_inputs
-            << " sample(s) processed successfully in " << total_elapsed_ms
-            << " ms." << std::endl;
+            << " sample(s) dispatched in " << total_elapsed_ms << " ms."
+            << std::endl;
   return 0;
 }
 

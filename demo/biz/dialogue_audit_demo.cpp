@@ -66,6 +66,7 @@ int RunDialogueAuditDemo(const DemoOptions& options) {
 
   struct OutputSummary {
     uint64_t request_id = 0;
+    int32_t status_code = 0;
     std::string risk_level;
     float risk_score = 0.0f;
     std::string matched_policy_clause;
@@ -79,6 +80,7 @@ int RunDialogueAuditDemo(const DemoOptions& options) {
       options, "audit_channel.audit_in", "audit_channel.audit_out", inputs,
       [&](size_t idx, const CompanyOperatorAuditOutput& out) {
         output_summaries[idx].request_id = out.request_id;
+        output_summaries[idx].status_code = out.status_code;
         output_summaries[idx].risk_score = out.risk_score;
         if (out.risk_level && out.risk_level->data) {
           output_summaries[idx].risk_level.assign(out.risk_level->data,
@@ -122,7 +124,7 @@ int RunDialogueAuditDemo(const DemoOptions& options) {
 
     DemoSampleResult sample;
     sample.request_id = output_summaries[i].request_id;
-    sample.status = 0;
+    sample.status = output_summaries[i].status_code;
     sample.latency_ms = (i < latencies.size()) ? latencies[i] : 0.0;
     sample.output["channel"] = channels[i];
     sample.output["risk_level"] = output_summaries[i].risk_level;
@@ -149,7 +151,9 @@ int RunDialogueAuditDemo(const DemoOptions& options) {
     return w_ret;
   }
 
-  std::cout << "[DialogueAuditDemo] Completed successfully." << std::endl;
+  std::cout << "[DialogueAuditDemo] Results written; see summary.json for "
+               "sample success/failure counts."
+            << std::endl;
   return 0;
 }
 

@@ -114,6 +114,8 @@
    保持字符串及数组在同步处理期间有效。
 2. 使用 `RunOperatorWithExtractor<Input, Output>`，传入 bridge 声明的槽位后缀；
    在 extractor 中把输出复制到本地结果值，再交给 `ResultWriter` 输出逐条记录。
+   同时复制真实 `status_code`，写入样本的 `status`，不能固定填零。Process 返回成功表示
+   调用完成，业务是否逐条成功还需检查 `results.jsonl` 和 `summary.json`。
    执行、参数解析和输出池管理继续复用运行器。
 3. 用 `REGISTER_DEMO_BIZ(name, title, run_function, biz_type)` 注册，`name` 与
    `BizDefinition` 的 Demo 名一致，业务类型显式给出且非 UNKNOWN；将源码加入

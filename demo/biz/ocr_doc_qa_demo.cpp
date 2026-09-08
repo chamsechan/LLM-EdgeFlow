@@ -130,6 +130,7 @@ int RunOcrDocQaDemo(const DemoOptions& options) {
 
   uint64_t req_id = out_ptr->request_id;
   int32_t box_count = out_ptr->detected_box_count;
+  int32_t status_code = out_ptr->status_code;
   std::string result_json = (out_ptr->result_json && out_ptr->result_json->data)
                                 ? std::string(out_ptr->result_json->data,
                                               out_ptr->result_json->length)
@@ -140,13 +141,14 @@ int RunOcrDocQaDemo(const DemoOptions& options) {
   std::cout << "\n>>> 业务 5 执行结果验证 <<<" << std::endl;
   PrintDivider();
   std::cout << "  Request ID     : " << req_id << "\n"
+            << "  Status Code    : " << status_code << "\n"
             << "  OCR Box Count  : " << box_count << "\n"
             << "  Extracted JSON : " << result_json << std::endl;
 
   std::vector<DemoSampleResult> sample_results;
   DemoSampleResult sample;
   sample.request_id = req_id;
-  sample.status = 0;
+  sample.status = status_code;
   sample.latency_ms = latency_ms;
   sample.output["detected_box_count"] = box_count;
   if (!result_json.empty()) {
@@ -167,7 +169,9 @@ int RunOcrDocQaDemo(const DemoOptions& options) {
     return w_ret;
   }
 
-  std::cout << "[OcrDocQaDemo] Completed successfully." << std::endl;
+  std::cout << "[OcrDocQaDemo] Results written; see summary.json for sample "
+               "success/failure counts."
+            << std::endl;
   return 0;
 }
 

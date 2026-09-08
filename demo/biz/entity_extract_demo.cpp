@@ -55,6 +55,7 @@ int RunEntityExtractDemo(const DemoOptions& options) {
 
   struct OutputSummary {
     uint64_t request_id = 0;
+    int32_t status_code = 0;
     std::string entities_json;
   };
   std::vector<OutputSummary> output_summaries(lines.size());
@@ -65,6 +66,7 @@ int RunEntityExtractDemo(const DemoOptions& options) {
       options, "nlp_node.entity_in", "nlp_node.entity_out", inputs,
       [&](size_t idx, const CompanyOperatorEntityOutput& out) {
         output_summaries[idx].request_id = out.request_id;
+        output_summaries[idx].status_code = out.status_code;
         if (out.entities_json && out.entities_json->data) {
           output_summaries[idx].entities_json.assign(out.entities_json->data,
                                                      out.entities_json->length);
@@ -88,7 +90,7 @@ int RunEntityExtractDemo(const DemoOptions& options) {
 
     DemoSampleResult sample;
     sample.request_id = output_summaries[i].request_id;
-    sample.status = 0;
+    sample.status = output_summaries[i].status_code;
     sample.latency_ms = (i < latencies.size()) ? latencies[i] : 0.0;
     if (!output_summaries[i].entities_json.empty()) {
       auto parsed = nlohmann::json::parse(output_summaries[i].entities_json,
@@ -110,7 +112,9 @@ int RunEntityExtractDemo(const DemoOptions& options) {
     return w_ret;
   }
 
-  std::cout << "[EntityExtractDemo] Completed successfully." << std::endl;
+  std::cout << "[EntityExtractDemo] Results written; see summary.json for "
+               "sample success/failure counts."
+            << std::endl;
   return 0;
 }
 
