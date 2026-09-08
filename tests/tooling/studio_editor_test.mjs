@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 const source = readFileSync(new URL("../../tools/pipeline_studio/web/editor.js", import.meta.url), "utf8");
-const { createHistory, createDrafts, appendConfigField, readConfigFields, readFormBuffer, restoreFormBuffer } = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
+const { createHistory, createDrafts, appendDiagnostic, appendConfigField, readConfigFields, readFormBuffer, restoreFormBuffer } = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
 const history = createHistory(3);
 const initial = { pipeline: { pipeline: [{ id: "root", depends_on: [] }] }, selected: "root" };
 const saved = JSON.stringify(initial.pipeline);
@@ -49,8 +49,10 @@ console.log("Studio document history and pending editor buffer checks passed");
 class FormElement {
   constructor(tag) {
     this.tagName = tag.toUpperCase(); this.type = "text"; this.dataset = {};
-    this.children = []; this.rawValue = "";
+    this.children = []; this.rawValue = ""; this.listeners = {};
   }
+  set innerHTML(value) { throw new Error("Render user-provided content with textContent"); }
+  addEventListener(name, callback) { this.listeners[name] = callback; }
   set value(value) {
     value = String(value);
     this.rawValue = this.tagName === "INPUT" && this.type === "text" ? value.replace(/[\r\n]/g, "")
@@ -72,6 +74,28 @@ globalThis.document = { createElement: tag => new FormElement(tag) };
 globalThis.Option = class extends FormElement {
   constructor(text, value) { super("option"); this.textContent = text; this.value = value; }
 };
+const diagnostics = new FormElement("div");
+const unsafeText = '<img src=x onerror="alert(1)">';
+let selectedDiagnosticNode = "";
+appendDiagnostic(diagnostics, {
+  code: "PORT_TYPE_MISMATCH", path: `/pipeline/${unsafeText}`, message: unsafeText,
+  node_id: "consumer", port: "input", related_nodes: ["producer", unsafeText],
+  suggestions: ["连接类型兼容的输出", unsafeText],
+}, id => { selectedDiagnosticNode = id; });
+const diagnostic = diagnostics.children[0];
+const diagnosticText = element => [element.textContent || "", ...element.children.map(diagnosticText)].join("\n");
+assert.match(diagnosticText(diagnostic), /PORT_TYPE_MISMATCH/);
+assert.match(diagnosticText(diagnostic), /节点：consumer/);
+assert.match(diagnosticText(diagnostic), /端口：input/);
+assert.match(diagnosticText(diagnostic), /相关节点：producer/);
+assert.equal(diagnostic.children.find(child => child.tagName === "P").textContent, unsafeText);
+assert.deepEqual(diagnostic.children.find(child => child.tagName === "UL").children.map(child => child.textContent), ["连接类型兼容的输出", unsafeText]);
+diagnostic.listeners.click();
+assert.equal(selectedDiagnosticNode, "consumer", "diagnostics must retain navigation to the affected node");
+appendDiagnostic(diagnostics, { code: "ROOT_TYPE", path: "/", message: "expected object" }, () => assert.fail("root diagnostics have no node"));
+assert.equal(diagnostics.children[1].listeners.click, undefined);
+console.log("Studio diagnostic details and safe text rendering checks passed");
+
 const stringFields = [
   { name: "template", type: "string", default: "{{primary}}" },
   { name: "separator", type: "string", default: "\n" },

@@ -31,6 +31,32 @@ export function createDrafts() {
   };
 }
 
+// Validator text may include user-provided identifiers and values. Keep it as
+// text while retaining the node navigation offered by the diagnostic card.
+export function appendDiagnostic(container, item, selectNode) {
+  const block = document.createElement("div"); block.className = "diagnostic";
+  const appendText = (tag, value) => {
+    const element = document.createElement(tag); element.textContent = value;
+    block.append(element);
+  };
+  appendText("strong", item.code);
+  appendText("div", item.path);
+  appendText("p", item.message);
+  if (item.node_id) appendText("div", `节点：${item.node_id}`);
+  if (item.port) appendText("div", `端口：${item.port}`);
+  if (item.related_nodes?.length) appendText("div", `相关节点：${item.related_nodes.join("、")}`);
+  if (item.suggestions?.length) {
+    appendText("div", "修复建议：");
+    const list = document.createElement("ul");
+    for (const suggestion of item.suggestions) {
+      const entry = document.createElement("li"); entry.textContent = suggestion; list.append(entry);
+    }
+    block.append(list);
+  }
+  if (item.node_id) block.addEventListener("click", () => selectNode(item.node_id));
+  container.append(block);
+}
+
 // Config fields share the same editor for Node, Model and Backend parameters.
 export function appendConfigField(container, field, values, modelChoices = null) {
   const label = document.createElement("label"); label.textContent = field.name;

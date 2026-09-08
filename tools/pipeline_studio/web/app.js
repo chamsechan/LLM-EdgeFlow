@@ -1,6 +1,6 @@
 import { api, initialPipeline, write } from "./api.js";
 import { GraphView } from "./graph.js";
-import { createHistory, createDrafts, appendConfigField, readConfigFields, readFormBuffer, restoreFormBuffer } from "./editor.js";
+import { createHistory, createDrafts, appendDiagnostic, appendConfigField, readConfigFields, readFormBuffer, restoreFormBuffer } from "./editor.js";
 import { compatibleModels, createLatestRequestGate, modelBoundNodeIds, graphDocument, connectPorts, disconnectPorts, removeNode, compatibleBackends, modelAvailability, assertBrowsablePipeline, readPipelineFile, upsertModel, removeModel } from "./workbench.js";
 
 const $ = selector => document.querySelector(selector);
@@ -338,13 +338,14 @@ async function validate() {
     if (pipelineVersion !== state.pipelineVersion) return false;
     output.replaceChildren();
     state.errorNodeIds = new Set();
-    if (report.ok) output.innerHTML = `<div class="diagnostic ok">校验通过 · ${report.plan.topological_order.length} 个节点 · ${report.plan.layers.length} 个波前</div>`;
+    if (report.ok) {
+      const block = document.createElement("div"); block.className = "diagnostic ok";
+      block.textContent = `校验通过 · ${report.plan.topological_order.length} 个节点 · ${report.plan.layers.length} 个波前`;
+      output.append(block);
+    }
     for (const item of report.diagnostics || []) {
       if (item.node_id) state.errorNodeIds.add(item.node_id);
-      const block = document.createElement("div"); block.className = "diagnostic";
-      block.innerHTML = `<strong>${item.code}</strong><br><code>${item.path}</code><br>${item.message}`;
-      block.addEventListener("click", () => { if (item.node_id) { selectNode(item.node_id); switchTab("properties"); graph.focusNode?.(item.node_id); } });
-      output.append(block);
+      appendDiagnostic(output, item, id => { selectNode(id); switchTab("properties"); graph.focusNode?.(id); });
     }
     renderAll();
     return report.ok;
