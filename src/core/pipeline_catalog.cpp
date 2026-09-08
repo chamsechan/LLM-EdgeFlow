@@ -6,6 +6,7 @@
 #include <utility>
 
 #include "contracts/config_schema_validation.h"
+#include "contracts/control_payload.h"
 #include "engine/backend_registry.h"
 #include "engine/model_registry.h"
 
@@ -188,7 +189,15 @@ bool PipelineCatalog::RegisterNodeDefinition(const NodeDefinition& definition,
   std::unordered_set<std::string> seen_cmd_names;
   for (const auto& cmd : definition.control_commands) {
     if (cmd.cmd_id <= 0 || cmd.name.empty()) return false;
-    if (!cmd.payload_schema.is_object()) return false;
+    std::string schema_error;
+    if (!ValidateControlSchema(cmd.payload_schema, &schema_error)) {
+      if (error) {
+        *error = "Node '" + definition.node_type + "', Control " +
+                 std::to_string(cmd.cmd_id) + " ('" + cmd.name +
+                 "'): " + schema_error;
+      }
+      return false;
+    }
     if (!seen_cmd_ids.insert(cmd.cmd_id).second) return false;
     if (!seen_cmd_names.insert(cmd.name).second) return false;
   }

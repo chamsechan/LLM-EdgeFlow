@@ -6,6 +6,7 @@
 - CLI `init --raw` 直接输出可保存的 Pipeline 文档，默认版本化响应保持兼容；冲突、重复和缺值选项明确失败。
 - Operator 公开接口和接入教程说明输入借用、输出池租约、池满等待及 Destroy 后 handle 的失效语义，给出结果复制和释放顺序。
 - OCR 与单槽 Demo 共用 Control 处理；显式文件缺失、空路径、非法 JSON 或命令会失败，OCR 提示词更新在处理样本前实际执行。
+- Control schema 执行 `minimum` / `maximum` 范围；注册时拒绝无效或不支持的声明，诊断包含节点与命令，文档注解不自动修改 payload。
 
 ## 2026-09-08 投产前契约一致性修复（RFC-0044）
 
