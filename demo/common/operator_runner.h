@@ -132,6 +132,77 @@ struct OperatorHandleGuard {
 };
 
 /**
+ * @brief 下发单槽位与多槽位 Demo 共用的显式或示例 Control。
+ * @return 0 成功，3 参数/文件错误，5 Operator Control 失败。
+ */
+inline int ApplyOperatorControl(
+    const DemoOptions& options,
+    const llm_edgeflow::operator_api::OperatorFunc& ops, void* raw_handle,
+    llm_edgeflow::operator_api::ControlCommand ctrl_cmd,
+    const char* default_ctrl_json = nullptr) {
+  using namespace llm_edgeflow::operator_api;
+
+  std::string control_payload;
+  std::string err;
+  if (options.control_cmd.has_value() &&
+      (*options.control_cmd <= 0 || !options.control_file.has_value() ||
+       options.control_file->empty())) {
+    std::cerr << "[OperatorRunner ERROR] --control-cmd requires a positive ID "
+                 "and a non-empty --control-file"
+              << std::endl;
+    return 3;
+  }
+  if (options.control_file.has_value()) {
+    if (options.control_file->empty()) {
+      std::cerr
+          << "[OperatorRunner ERROR] --control-file requires a non-empty path"
+          << std::endl;
+      return 3;
+    }
+    if (!ReadTextFile(*options.control_file, &control_payload, &err)) {
+      std::cerr
+          << "[OperatorRunner ERROR] Failed to read explicit control file '"
+          << *options.control_file << "': " << err << std::endl;
+      return 3;
+    }
+    try {
+      auto parsed_check = nlohmann::json::parse(control_payload);
+      if (!parsed_check.is_object()) {
+        std::cerr << "[OperatorRunner ERROR] Control file content must be a "
+                     "JSON object"
+                  << std::endl;
+        return 3;
+      }
+    } catch (const std::exception& e) {
+      std::cerr
+          << "[OperatorRunner ERROR] Invalid JSON syntax in control file: "
+          << e.what() << std::endl;
+      return 3;
+    }
+  } else if (!options.no_default_control && default_ctrl_json != nullptr) {
+    control_payload = default_ctrl_json;
+  }
+
+  if (!control_payload.empty()) {
+    std::cout << "[OperatorRunner] Invoking ops.Control to dynamically push "
+                 "parameters..."
+              << std::endl;
+    ControlJsonParam ctrl_param{
+        options.control_cmd.value_or(static_cast<int>(ctrl_cmd)),
+        control_payload.c_str()};
+    int ctrl_ret = ops.Control(raw_handle, ControlCommand::kJson, &ctrl_param);
+    if (ctrl_ret != 0) {
+      std::cerr << "[OperatorRunner ERROR] ops.Control failed: code="
+                << ctrl_ret << " (Operator error: " << GetOperatorLastError()
+                << ")" << std::endl;
+      return 5;
+    }
+  }
+
+  return 0;
+}
+
+/**
  * @brief 通用 Operator 单槽位生命周期与调度执行器
  */
 template <typename TInput, typename TOutput, typename TResultExtractor>
@@ -195,55 +266,9 @@ int RunOperatorWithExtractor(
 
   OperatorHandleGuard guard(ops, raw_handle);
 
-  std::string control_payload;
-  if (options.control_cmd.has_value() &&
-      (*options.control_cmd <= 0 || !options.control_file.has_value() ||
-       options.control_file->empty())) {
-    std::cerr << "[OperatorRunner ERROR] --control-cmd requires a positive ID "
-                 "and a non-empty --control-file"
-              << std::endl;
-    return 3;
-  }
-  if (options.control_file.has_value() && !options.control_file->empty()) {
-    if (!ReadTextFile(*options.control_file, &control_payload, &err)) {
-      std::cerr
-          << "[OperatorRunner ERROR] Failed to read explicit control file '"
-          << *options.control_file << "': " << err << std::endl;
-      return 3;
-    }
-    try {
-      auto parsed_check = nlohmann::json::parse(control_payload);
-      if (!parsed_check.is_object()) {
-        std::cerr << "[OperatorRunner ERROR] Control file content must be a "
-                     "JSON object"
-                  << std::endl;
-        return 3;
-      }
-    } catch (const std::exception& e) {
-      std::cerr
-          << "[OperatorRunner ERROR] Invalid JSON syntax in control file: "
-          << e.what() << std::endl;
-      return 3;
-    }
-  } else if (!options.no_default_control && default_ctrl_json != nullptr) {
-    control_payload = default_ctrl_json;
-  }
-
-  if (!control_payload.empty()) {
-    std::cout << "[OperatorRunner] Invoking ops.Control to dynamically push "
-                 "parameters..."
-              << std::endl;
-    ControlJsonParam ctrl_param{
-        options.control_cmd.value_or(static_cast<int>(ctrl_cmd)),
-        control_payload.c_str()};
-    int ctrl_ret = ops.Control(raw_handle, ControlCommand::kJson, &ctrl_param);
-    if (ctrl_ret != 0) {
-      std::cerr << "[OperatorRunner ERROR] ops.Control failed: code="
-                << ctrl_ret << " (Operator error: " << GetOperatorLastError()
-                << ")" << std::endl;
-      return 5;
-    }
-  }
+  const int control_ret = ApplyOperatorControl(options, ops, raw_handle,
+                                               ctrl_cmd, default_ctrl_json);
+  if (control_ret != 0) return control_ret;
 
   size_t total_inputs = inputs.size();
   if (out_latencies_ms) {

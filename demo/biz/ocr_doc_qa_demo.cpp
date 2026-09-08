@@ -86,6 +86,10 @@ int RunOcrDocQaDemo(const DemoOptions& options) {
   }
 
   OperatorHandleGuard guard(ops, raw_handle);
+  const int control_ret = ApplyOperatorControl(
+      options, ops, raw_handle,
+      llm_edgeflow::operator_api::ControlCommand::kSwitchPrompt);
+  if (control_ret != 0) return control_ret;
 
   CompanyString img_str{static_cast<int32_t>(img.size()),
                         const_cast<char*>(img.data())};

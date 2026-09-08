@@ -804,29 +804,29 @@ TEST(DemoRunnerTest, FailClosedOnMissingOrInvalidControlFile) {
   OperatorFunc ops = Get_LLM_EDGEFLOW_OperatorTable();
   ASSERT_EQ(ops.Init(), 0);
 
-  const auto* desc = DemoRegistry::Instance().Find("keyword_match");
-  ASSERT_NE(desc, nullptr);
+  KiteDemoDirectory temporary;
+  for (const char* profile : {"keyword_match_mock", "ocr_doc_qa_mock"}) {
+    SCOPED_TRACE(profile);
+    DemoOptions opts;
+    opts.profile = profile;
+    std::string err;
+    ASSERT_EQ(LoadAndMergeProfiles("demo/profiles.json", opts, &opts, &err), 0)
+        << err;
+    const auto* desc = DemoRegistry::Instance().Find(opts.biz);
+    ASSERT_NE(desc, nullptr);
 
-  DemoOptions opts;
-  opts.profile = "keyword_match_mock";
-  std::string err;
-  int ret = LoadAndMergeProfiles("demo/profiles.json", opts, &opts, &err);
-  ASSERT_EQ(ret, 0);
+    opts.control_file = (temporary.path / "missing.json").string();
+    EXPECT_EQ(desc->run(opts), 3);
+    opts.control_file = "";
+    EXPECT_EQ(desc->run(opts), 3);
 
-  // 显式指定不存在的 control 文件 -> 必须返回 3 报错退出
-  opts.control_file = "/private/tmp/definitely_missing_control_file_123.json";
-  opts.has_control_file = true;
-  EXPECT_EQ(desc->run(opts), 3);
-
-  // 显式指定非法 JSON 的 control 文件 -> 必须返回 3 报错退出
-  std::string bad_json_file = "./results/bad_control.json";
-  {
-    std::ofstream ofs(bad_json_file);
-    ofs << "NOT_VALID_JSON{{{";
+    const auto payload_path = temporary.path / "control.json";
+    opts.control_file = payload_path.string();
+    for (const char* payload : {"NOT_VALID_JSON{{{", "[]"}) {
+      std::ofstream(payload_path) << payload;
+      EXPECT_EQ(desc->run(opts), 3);
+    }
   }
-  opts.control_file = bad_json_file;
-  EXPECT_EQ(desc->run(opts), 3);
-  std::filesystem::remove(bad_json_file);
 
   ops.Deinit();
 }
@@ -863,6 +863,55 @@ TEST(DemoRunnerTest, GenericControlCommandChangesCustomNodeOutput) {
   options.control_file = (temporary.path / "control.json").string();
   options.control_cmd = 19999;
   EXPECT_EQ(demo->run(options), 5);
+  EXPECT_EQ(ops.Deinit(), 0);
+}
+
+TEST(DemoRunnerTest, OcrDemoAppliesExplicitControlBeforeProcessing) {
+  KiteDemoDirectory temporary;
+  DemoOptions cli;
+  cli.profile = "ocr_doc_qa_mock";
+  cli.output_dir = temporary.path.string();
+  cli.has_output_dir = true;
+  DemoOptions options;
+  std::string error;
+  ASSERT_EQ(LoadAndMergeProfiles("demo/profiles.json", cli, &options, &error),
+            0)
+      << error;
+  const auto* demo = DemoRegistry::Instance().Find(options.biz);
+  ASSERT_NE(demo, nullptr);
+  auto ops = Get_LLM_EDGEFLOW_OperatorTable();
+  ASSERT_EQ(ops.Init(), 0);
+
+  auto read_sample = [&]() {
+    std::ifstream results(temporary.path / "ocr_doc_qa_mock/results.jsonl");
+    std::string line;
+    std::getline(results, line);
+    return nlohmann::json::parse(line);
+  };
+  ASSERT_EQ(demo->run(options), 0);
+  const auto original = read_sample();
+  EXPECT_EQ(original["request_id"], 60001);
+  EXPECT_EQ(original["output"]["extracted_invoice"]["invoice_code"],
+            "011002200111");
+
+  const auto control_path = temporary.path / "control.json";
+  std::ofstream(control_path) << R"({"template":"提取实体：{{primary}}"})";
+  options.control_file = control_path.string();
+  // OCR defaults to its registered prompt update command when no ID is given.
+  ASSERT_EQ(demo->run(options), 0);
+  const auto updated = read_sample();
+  EXPECT_EQ(updated["status"], 0);
+  EXPECT_EQ(updated["request_id"], 60001);
+  EXPECT_TRUE(updated["output"]["extracted_invoice"]["nouns"].is_array());
+  EXPECT_FALSE(updated["output"]["extracted_invoice"].contains("invoice_code"));
+
+  options.control_cmd = 19999;
+  EXPECT_EQ(demo->run(options), 5);
+  options.control_cmd = 0;
+  EXPECT_EQ(demo->run(options), 3);
+  options.control_cmd = 2;
+  options.control_file.reset();
+  EXPECT_EQ(demo->run(options), 3);
   EXPECT_EQ(ops.Deinit(), 0);
 }
 
