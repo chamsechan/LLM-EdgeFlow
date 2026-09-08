@@ -68,8 +68,9 @@ and native Resolver; do not reproduce their validation rules.
 
    A new Profile is optional; explicit `--biz`, `--config` and `--dataset` also work. Use the
    original Profile alone only when its configuration already points to the intended Pipeline.
-   `--no-default-control` prevents Demo example updates from replacing the selected rules or
-   prompts; provide a Control file only when it is part of the requested scenario. Verify
+   Demo uses the selected Pipeline defaults; `--no-default-control` remains a compatibility
+   option. Use `--example-control` only for the built-in update demonstration, and provide a
+   Control file only when it is part of the requested scenario. Verify
    request IDs, status and expected output fields in `results.jsonl` and `summary.json`.
 
 For human composition, use `./show --web` or `./show <pipeline.json> --web`. For AI and automation, use `alg_pipeline_tool` and consume its versioned JSON output.

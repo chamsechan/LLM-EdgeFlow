@@ -866,6 +866,77 @@ TEST(DemoRunnerTest, GenericControlCommandChangesCustomNodeOutput) {
   EXPECT_EQ(ops.Deinit(), 0);
 }
 
+TEST(DemoRunnerTest, ExampleControlIsExplicitAndFileControlTakesPrecedence) {
+  KiteDemoDirectory temporary;
+  const auto dataset = temporary.path / "input.txt";
+  std::ofstream(dataset) << "初始化自检\nVIP专员\n";
+  DemoOptions options;
+  options.biz = "keyword_match";
+  options.config_path = "configs/pipeline_keyword_match.conf";
+  options.dataset_path = dataset.string();
+  options.output_dir = temporary.path.string();
+  const auto* demo = DemoRegistry::Instance().Find(options.biz);
+  ASSERT_NE(demo, nullptr);
+  auto ops = Get_LLM_EDGEFLOW_OperatorTable();
+  ASSERT_EQ(ops.Init(), 0);
+  auto run_and_read = [&]() {
+    EXPECT_EQ(demo->run(options), 0);
+    std::ifstream results(temporary.path / "keyword_match/results.jsonl");
+    std::vector<nlohmann::json> samples;
+    std::string line;
+    while (std::getline(results, line))
+      samples.push_back(nlohmann::json::parse(line));
+    return samples;
+  };
+
+  const auto configured = run_and_read();
+  ASSERT_EQ(configured.size(), 2U);
+  EXPECT_EQ(configured[0]["output"]["is_hit"], true);
+  EXPECT_NE(configured[0].dump().find("SYSTEM_INIT"), std::string::npos);
+  EXPECT_EQ(configured[1]["output"]["is_hit"], false);
+
+  options.example_control = true;
+  const auto example = run_and_read();
+  ASSERT_EQ(example.size(), 2U);
+  EXPECT_EQ(example[0]["output"]["is_hit"], false);
+  EXPECT_EQ(example[1]["output"]["is_hit"], true);
+  EXPECT_NE(example[1].dump().find("VIP_SERVICE"), std::string::npos);
+
+  const auto control_path = temporary.path / "control.json";
+  std::ofstream(control_path) << R"({"categories":{"FILE_RULE":["自检"]}})";
+  options.control_file = control_path.string();
+  const auto explicit_file = run_and_read();
+  ASSERT_EQ(explicit_file.size(), 2U);
+  EXPECT_EQ(explicit_file[0]["output"]["is_hit"], true);
+  EXPECT_NE(explicit_file[0].dump().find("FILE_RULE"), std::string::npos);
+  EXPECT_EQ(explicit_file[1]["output"]["is_hit"], false);
+  EXPECT_EQ(ops.Deinit(), 0);
+}
+
+TEST(DemoRunnerTest, ExampleControlCliAndCompatibilityFlag) {
+  std::string error;
+  for (const char* flag : {"--example-control", "--no-default-control"}) {
+    DemoOptions options;
+    const char* args[] = {"alg_demo", flag};
+    ASSERT_EQ(ParseCommandLine(2, const_cast<char**>(args), &options, &error),
+              0)
+        << error;
+    EXPECT_EQ(options.example_control,
+              std::string(flag) == "--example-control");
+    EXPECT_EQ(options.no_default_control,
+              std::string(flag) == "--no-default-control");
+  }
+  for (bool reverse : {false, true}) {
+    DemoOptions options;
+    const char* args[] = {
+        "alg_demo", reverse ? "--no-default-control" : "--example-control",
+        reverse ? "--example-control" : "--no-default-control"};
+    EXPECT_EQ(ParseCommandLine(3, const_cast<char**>(args), &options, &error),
+              2);
+    EXPECT_NE(error.find("conflicts"), std::string::npos);
+  }
+}
+
 TEST(DemoRunnerTest, OcrDemoAppliesExplicitControlBeforeProcessing) {
   KiteDemoDirectory temporary;
   DemoOptions cli;

@@ -68,7 +68,7 @@ cmake --build build --parallel 4
 - `results/quickstart/keyword_match_mock/results.jsonl`：逐条请求的状态与匹配结果。
 - `results/quickstart/keyword_match_mock/summary.json`：样本数、成功数、失败数与耗时。
 
-`keyword_match_mock` 是 Demo 预设名称，这个方案使用真实规则节点。`--no-default-control` 关闭 Demo 内置的规则热更新，使结果对应当前 Pipeline 配置。
+`keyword_match_mock` 是 Demo 预设名称，这个方案使用真实规则节点。Demo 默认使用 Pipeline 中的规则；`--no-default-control` 保留为兼容选项。需要体验内置规则热更新时显式添加 `--example-control`。
 
 ### 3. 查看与编辑流程
 

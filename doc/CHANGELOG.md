@@ -10,6 +10,8 @@
 
 - Node 初始化可通过 `NodeInitContext::Fail` 返回具体原因；Pipeline 顺序与并行执行错误均附实例 ID 和类型，保留原错误码。
 
+- Demo 默认保留 Pipeline 配置，内置规则更新改为 `--example-control` 显式启用；保留 `--no-default-control` 兼容，显式 Control 文件优先。
+
 ## 2026-09-08 投产前契约一致性修复（RFC-0044）
 
 - session Embedding 缓存以版本、长度及完整内容编码身份，保留同键并发复用与失败重试，修复嵌入 NUL 的不同语料返回相同向量的问题。

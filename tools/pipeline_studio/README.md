@@ -109,8 +109,8 @@ C++ 查看工具，展示更多声明信息：
 3. 选择规则节点，在属性中将 `categories` 改为 `{"FIRST_RUN":["VIP"]}` 并点击“应用”。
    在“JSON”页确认端口映射；需要模型的方案则先在“模型”页应用实例，再在节点属性绑定它。
 4. 在“校验”页调用 C++ Validator，修复诊断后保存为 `pipeline_first_solution.json`。
-5. 在“运行”页选择兼容 Profile 可执行草稿，查看日志和结构化结果。草稿运行关闭 Demo
-   默认 Control，因此会使用刚设置的 `FIRST_RUN` 规则。检查第一条命中 `FIRST_RUN`、
+5. 在“运行”页选择兼容 Profile 可执行草稿，查看日志和结构化结果。Demo 默认使用 Pipeline 配置，
+   因此草稿会使用刚设置的 `FIRST_RUN` 规则。检查第一条命中 `FIRST_RUN`、
    第二条未命中；保存后也可使用下方[运行当前方案](#运行当前方案)中的命令验收。
 
 该练习复用已有 Node、Adapter 与数据集。缺失业务算法时转到
@@ -183,7 +183,7 @@ CLI 的 `--config` 覆盖 Profile 原配置，因此不需要新增 Profile。�
 和业务字段，不只看退出码。无 Profile 运行时，结果子目录改为业务名 `keyword_match`。
 
 复用其他 `.conf` 时，还要核对 `data.model_paths` 的模型路径覆盖和输出池容量是否适合
-当前方案；Pipeline 校验不代表部署资源可加载。`--no-default-control` 防止 Demo 内置
+当前方案；Pipeline 校验不代表部署资源可加载。`--no-default-control` 是兼容选项；Demo 默认不发送内置
 热更新覆盖所选规则或提示词，显式 `--control-file` 仍会执行，应只在需要该更新时提供。
 
 新增节点命令可用 `--control-cmd <id> --control-file <payload.json>` 经同一 Demo 下发；
@@ -191,7 +191,7 @@ CLI 的 `--config` 覆盖 Profile 原配置，因此不需要新增 Profile。�
 优先。详见[第一个 Control](../../doc/dev_guide/first_control.md)。
 
 Studio 会为当前草稿生成临时 JSON 和指向它的 `.conf`，继承 Profile 的模型路径覆盖和
-容量，并通过 `--no-default-control` 关闭 Demo 默认 Control，保证草稿参数实际生效。
+容量，默认使用草稿参数；仅显式指定 Control 文件或 `--example-control` 时发送更新。
 需要显式 Control 测试时使用上述 CLI；业务效果验收使用
 [效果验收工具](../../doc/VERIFIABLE_SELECTION.md)。
 测试模型输出仅证明执行链路；真实模型效果和目标平台验收需单独记录。

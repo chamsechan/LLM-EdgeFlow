@@ -38,9 +38,10 @@ struct DemoOptions {
   std::optional<std::string> control_file;  // 运行时 Control JSON 文件路径
   std::optional<int> control_cmd;  // 节点命令 ID；必须配合 control_file
   std::string suite;               // 执行套件 ("smoke", "real", "all")
+  bool example_control = false;    // Explicitly apply the Demo example update.
   bool no_default_control =
-      false;            // Evaluate the selected Pipeline as configured.
-  bool append = false;  // 结果文件是否追加模式
+      false;  // Compatibility flag; configured defaults remain active.
+  bool append = false;                 // 结果文件是否追加模式
   bool allow_fallback_sample = false;  // 测试集缺失时是否允许使用内置样例
   bool list_only = false;  // 是否仅列出可用 Business 和 Profile
   bool show_help = false;  // 是否显示帮助信息

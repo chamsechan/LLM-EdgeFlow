@@ -161,8 +161,9 @@ UTF-8 字节数小于 65536，不含终止符。已有 Operator 命令 1/2/3 仍
 C ABI 继续直接使用 `CompanyAlgParamControl{cmd_id, json}`，不需要新增导出函数。
 
 Demo 的 `--control-cmd` 也可配置为 Profile 的 `control_cmd`，CLI 显式值优先；指定命令
-必须提供 `control_file`。省略命令时保留该 Demo 的默认命令。`--no-default-control`
-只关闭默认演示更新，显式文件仍执行。
+必须提供 `control_file`。省略命令时保留该 Demo 的默认命令。Demo 默认不发送内置演示
+更新；显式 `--example-control` 才启用，且显式文件优先。`--no-default-control` 保留为
+兼容选项，不影响显式文件，与 `--example-control` 同时使用会报错。
 
 同一 handle 的 C ABI / Operator 调用串行；多个线程提交不保证顺序。内部直接调用
 Pipeline/Node 的 Control 时，由调用者序列化更新。一次命令广播到所有声明支持它的
