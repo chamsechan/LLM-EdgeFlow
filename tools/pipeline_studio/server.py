@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import re
 import shlex
+import shutil
 import signal
 import socketserver
 import subprocess
@@ -86,6 +87,9 @@ class WorkbenchService:
         self.config_root = config_root.resolve()
         self.jobs: dict[str, dict[str, Any]] = {}
         self.job_lock = threading.Lock()
+        self.solution_lock = threading.Lock()
+        # Ownership is limited to pairs created by this server session.
+        self.generated_solutions: dict[str, dict[str, Any]] = {}
         self.initial_document = None
         if initial is not None:
             pipeline = read_pipeline_file(initial)
@@ -231,6 +235,8 @@ class WorkbenchService:
         if not report.get("ok"):
             raise StudioError("VALIDATION_FAILED", json.dumps(report, ensure_ascii=False))
         path = self.managed_path(requested)
+        if not save_as and path.name in self.generated_solutions:
+            return self.update_solution(path, pipeline, expected_revision)
         if path.exists() and not save_as:
             current = revision_for(path.read_bytes())
             if not expected_revision or current != expected_revision:
@@ -239,6 +245,7 @@ class WorkbenchService:
                     "文件已被 IDE 或 Git 修改，请重新加载或另存",
                     409,
                 )
+            self.check_unmanaged_deployment(path, pipeline)
         if save_as and path.exists():
             raise StudioError("FILE_EXISTS", "另存目标已存在", 409)
         encoded = (json.dumps(pipeline, ensure_ascii=False, indent=2) + "\n").encode()
@@ -261,6 +268,88 @@ class WorkbenchService:
             revision=revision_for(encoded),
             pipeline=pipeline,
         )
+
+    def check_unmanaged_deployment(self, path: Path, pipeline: Any) -> None:
+        """Do not silently preserve model overrides from an unowned sidecar."""
+        conf_path = path.with_suffix(".conf")
+        if not conf_path.is_file():
+            return
+        try:
+            data = read_json(conf_path).get("data", {})
+            reference = data.get("pipe_path")
+            overrides = data.get("model_paths")
+            points_here = isinstance(reference, str) and any(
+                (base / reference).resolve() == path.resolve()
+                for base in (PROJECT_ROOT, conf_path.parent)
+            )
+        except (OSError, ValueError, AttributeError, TypeError):
+            return
+        if points_here and isinstance(overrides, dict) and overrides:
+            def model_paths(document: Any) -> dict:
+                models = document.get("models", []) if isinstance(document, dict) else []
+                return {model.get("model_id"): model.get("model_path", "")
+                        for model in models if isinstance(model, dict)} if isinstance(models, list) else {}
+            if model_paths(read_json(path)) == model_paths(pipeline):
+                return
+            raise StudioError(
+                "DEPLOYMENT_CONFLICT",
+                f"{conf_path.name} 的 model_paths 可能覆盖本次模型修改。此配套配置不由当前会话管理；请在外部编辑器中检查并同步更新 JSON 与 .conf，或另存为可运行方案。",
+                409,
+            )
+
+    def update_solution(self, path: Path, pipeline: Any, expected_revision: str | None) -> dict[str, Any]:
+        with self.solution_lock:
+            managed = self.generated_solutions[path.name]
+            conf_path = path.with_suffix(".conf")
+
+            def check_revisions() -> tuple[bytes, bytes]:
+                if path.is_symlink() or conf_path.is_symlink() or not path.is_file() or not conf_path.is_file():
+                    raise StudioError("REVISION_CONFLICT", "配套 JSON 或 .conf 已被替换或删除，请重新检查文件", 409)
+                raw, conf_raw = path.read_bytes(), conf_path.read_bytes()
+                if revision_for(raw) != expected_revision or revision_for(conf_raw) != managed["conf_revision"]:
+                    raise StudioError("REVISION_CONFLICT", "配套 JSON 或 .conf 已被其他编辑器修改，请重新检查文件", 409)
+                return raw, conf_raw
+
+            old_json, _ = check_revisions()
+            profile = managed["profile"]
+            encoded = (json.dumps(pipeline, ensure_ascii=False, indent=2) + "\n").encode()
+            conf = self.run_conf(pipeline, managed["mem_que"], path, managed["model_root"])
+            conf_encoded = (json.dumps(conf, ensure_ascii=False, indent=2) + "\n").encode()
+            staging = Path(tempfile.mkdtemp(prefix=".studio-save-", dir=self.config_root))
+            preserve_backup = False
+            try:
+                staged_json = staging / "pipeline.json"
+                staged_conf = staging / "pipeline.conf"
+                backup_json = staging / "previous.json"
+                staged_json.write_bytes(encoded)
+                staged_conf.write_text(json.dumps(self.run_conf(pipeline, managed["mem_que"], staged_json, managed["model_root"])))
+                configuration = self.resolve_run_conf(staged_conf, profile)
+                # Native validation used the staged JSON; installed paths have
+                # the same model mappings and normalized node configuration.
+                configuration["conf_path"] = str(conf_path)
+                configuration["pipeline_path"] = str(path)
+                staged_conf.write_bytes(conf_encoded)
+                backup_json.write_bytes(old_json)
+                check_revisions()
+                os.replace(staged_json, path)
+                try:
+                    os.replace(staged_conf, conf_path)
+                except Exception:
+                    try:
+                        os.replace(backup_json, path)
+                    except OSError as rollback_error:
+                        preserve_backup = True
+                        raise StudioError("SAVE_ROLLBACK_FAILED", f"保存失败，旧 JSON 备份保留在 {backup_json}: {rollback_error}", 500) from rollback_error
+                    raise
+                managed["conf_revision"] = revision_for(conf_encoded)
+                return self.solution_result(path, pipeline, conf, encoded, profile, managed["model_root"], configuration)
+            except StudioError:
+                raise
+            except Exception as error:
+                raise StudioError("SAVE_FAILED", str(error), 500) from error
+            finally:
+                if not preserve_backup:
+                    shutil.rmtree(staging)
 
     def profile_inputs(self, pipeline: Any, profile_name: str) -> tuple[dict, Any]:
         profiles = read_json(PROFILE_FILE).get("profiles", {})
@@ -352,6 +441,14 @@ class WorkbenchService:
             if isinstance(error, StudioError):
                 raise
             raise StudioError("SAVE_FAILED", str(error), 500) from error
+        self.generated_solutions[path.name] = {
+            "profile": profile, "mem_que": mem_que, "model_root": model_root,
+            "conf_revision": revision_for(conf_encoded),
+        }
+        return self.solution_result(path, pipeline, conf, encoded, profile, model_root, configuration)
+
+    def solution_result(self, path: Path, pipeline: Any, conf: Any, encoded: bytes, profile: dict[str, Any], model_root: str, configuration: Any) -> dict[str, Any]:
+        conf_path = path.with_suffix(".conf")
         command = self.demo_command(profile, conf_path.relative_to(PROJECT_ROOT), PROJECT_ROOT / "output" / path.stem)
         return json_result(
             True, filename=path.name, conf_filename=conf_path.name, revision=revision_for(encoded),

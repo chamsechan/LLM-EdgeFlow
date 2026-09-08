@@ -217,6 +217,74 @@ class RunnableSolutionTest(unittest.TestCase):
         self.assertEqual(saved["conf"]["data"]["model_paths"], {"entity_llm": "models/replacement.gguf"})
         self.assertEqual(json.loads((self.configs / "pipeline_replaced.json").read_text()), pipeline)
 
+    def test_ordinary_save_updates_managed_model_paths_and_node_parameters(self):
+        pipeline = json.loads((ROOT / "demo/fixtures/mock/pipeline_entity_extract.json").read_text())
+        saved = self.service.save_solution("pipeline_paired.json", pipeline, "entity_extract_mock", "models")
+        pipeline["models"][0]["model_path"] = "replacement.gguf"
+        pipeline["models"][0]["model_id"] = "replacement_model"
+        pipeline["pipeline"][1]["config"]["bind_model"] = "replacement_model"
+        pipeline["pipeline"][1]["config"]["max_tokens"] = 17
+        updated = self.service.save_pipeline(saved["filename"], pipeline, saved["revision"])
+        self.assertEqual(updated["command"], saved["command"])
+        self.assertEqual(updated["conf"]["data"]["model_paths"], {"replacement_model": "models/replacement.gguf"})
+        self.assertEqual(json.loads((self.configs / saved["filename"]).read_text()), pipeline)
+        profile, _ = self.service.profile_inputs(pipeline, "entity_extract_mock")
+        effective = self.service.resolve_run_conf(self.configs / saved["conf_filename"], profile)
+        self.assertEqual(effective, updated["configuration"])
+        self.assertEqual(effective["model_paths"][0]["resolved"], str(ROOT / "models/replacement.gguf"))
+        self.assertEqual(effective["effective_pipeline"]["pipeline"][1]["config"]["max_tokens"], 17)
+        self.assertEqual(sorted(p.name for p in self.configs.iterdir()), ["pipeline_paired.conf", "pipeline_paired.json"])
+
+    def test_managed_save_checks_both_revisions_without_overwriting_external_edits(self):
+        saved = self.service.save_solution("pipeline_revision.json", self.keyword, "keyword_match_mock")
+        paths = [self.configs / saved["filename"], self.configs / saved["conf_filename"]]
+        originals = {path: path.read_bytes() for path in paths}
+        self.keyword["pipeline"][0]["config"]["categories"] = {"NEW": ["sample"]}
+        for changed in paths:
+            with self.subTest(file=changed.name):
+                changed.write_bytes(originals[changed] + b"\n")
+                before = {path: path.read_bytes() for path in paths}
+                with self.assertRaises(SHOW.StudioError) as error:
+                    self.service.save_pipeline(saved["filename"], self.keyword, saved["revision"])
+                self.assertEqual(error.exception.code, "REVISION_CONFLICT")
+                self.assertEqual({path: path.read_bytes() for path in paths}, before)
+                changed.write_bytes(originals[changed])
+
+    def test_managed_save_rolls_back_json_if_installing_conf_fails(self):
+        saved = self.service.save_solution("pipeline_rollback.json", self.keyword, "keyword_match_mock")
+        paths = [self.configs / saved["filename"], self.configs / saved["conf_filename"]]
+        originals = {path: path.read_bytes() for path in paths}
+        self.keyword["pipeline"][0]["config"]["categories"] = {"NEW": ["sample"]}
+        original_replace = SHOW.os.replace
+        def reject_conf(source, target):
+            if Path(target) == paths[1]:
+                raise OSError("simulated conf installation failure")
+            return original_replace(source, target)
+        with mock.patch.object(SHOW.os, "replace", side_effect=reject_conf):
+            with self.assertRaises(SHOW.StudioError) as error:
+                self.service.save_pipeline(saved["filename"], self.keyword, saved["revision"])
+        self.assertEqual(error.exception.code, "SAVE_FAILED")
+        self.assertEqual({path: path.read_bytes() for path in paths}, originals)
+        self.assertEqual(set(self.configs.iterdir()), set(paths))
+        # A recovered failure must not advance either revision.
+        self.assertTrue(self.service.save_pipeline(saved["filename"], self.keyword, saved["revision"])["ok"])
+
+    def test_restarted_service_rejects_model_changes_shadowed_by_unmanaged_conf(self):
+        pipeline = json.loads((ROOT / "demo/fixtures/mock/pipeline_entity_extract.json").read_text())
+        saved = self.service.save_solution("pipeline_restart.json", pipeline, "entity_extract_mock", ".")
+        restarted = SHOW.WorkbenchService(self.configs)
+        pipeline["pipeline"][1]["config"]["max_tokens"] = 17
+        updated = restarted.save_pipeline(saved["filename"], pipeline, saved["revision"])
+        paths = [self.configs / saved["filename"], self.configs / saved["conf_filename"]]
+        before = {path: path.read_bytes() for path in paths}
+        pipeline["models"][0]["model_path"] = "replacement.gguf"
+        with self.assertRaises(SHOW.StudioError) as error:
+            restarted.save_pipeline(saved["filename"], pipeline, updated["revision"])
+        self.assertEqual(error.exception.code, "DEPLOYMENT_CONFLICT")
+        self.assertIn("pipeline_restart.conf", str(error.exception))
+        self.assertEqual({path: path.read_bytes() for path in paths}, before)
+        self.assertFalse(restarted.generated_solutions)
+
     def test_draft_uses_the_same_selected_paths_under_project_root_and_cleans_up(self):
         pipeline = json.loads((ROOT / "demo/fixtures/mock/pipeline_entity_extract.json").read_text())
         observed = {}

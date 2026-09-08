@@ -326,12 +326,12 @@ async function save(saveAs, runnable = false) {
     const schemes = $("#pipelineSelect"); schemes.replaceChildren(new Option("选择方案", ""));
     for (const item of pipelines.pipelines) schemes.add(new Option(`${item.filename} · ${item.biz_name}`, item.filename));
     $("#pipelineSelect").value = state.filename;
-    if (runnable) {
+    if (result.conf_filename) {
       $("#savedCommand").textContent = `已保存 ${result.filename} 和 ${result.conf_filename}。以下命令运行已保存版本：\n\n${result.command}`;
       $("#resolvedConfig").textContent = JSON.stringify(result.configuration, null, 2);
     }
     toast(state.dirty || drafts.pending ? "已保存提交时的版本，当前仍有新修改" : "方案已保存");
-  } catch (error) { toast(error.status === 409 ? "保存冲突：请重新加载或另存" : error.message, true); }
+  } catch (error) { toast(error.message, true); }
   finally { state.saving = false; updateEditorStatus(); }
 }
 
