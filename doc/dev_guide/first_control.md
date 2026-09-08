@@ -18,7 +18,7 @@
 
 ## 2. 生成能直接编译的例子
 
-先按根目录 [README](../../README.md#快速开始)完成默认构建；本练习无需模型权重。
+先按根目录 [README](../../README.md#快速开始)完成快速开始构建；本练习无需模型权重。
 以下命令都从仓库根目录执行，先确认命令 ID 尚未使用：
 
 ```bash
@@ -37,16 +37,22 @@ hot-swap 声明一致；通常直接复用同一份命令声明。重复使用�
 1:1 保留来源的纯计算例子，不会改造任意已有 C++ 类。已有文件默认拒绝覆盖。
 `--generate-test` 打印注册及业务测试代码，请将它加入现有套件；不会自动修改测试文件。
 
-## 3. 阅读三个编辑点
+## 3. 阅读四个编辑点
 
 | 编辑点 | 作用 |
 | --- | --- |
 | `kUpdatePrefix` / `PrefixCommand()` | 同文件的具名 ID、命令说明和参数 schema |
-| `ControlNode()` | 解析到拥有数据的 JSON 值，构造新前缀，进行 64 字节限制的业务校验 |
+| `PrefixConfigFields()` / `ReadPrefix()` | 声明初值默认空字符串和字段说明，共享类型、默认值与 64 字节业务校验 |
+| `ControlNode()` | 解析拥有数据的 JSON 值，调用同一校验函数，成功后替换前缀 |
 | `ProcessNode()` | 为整批请求读取一次前缀，在保留 `(req_id, sub_id)` 的输出中使用它 |
 
 `def.control_commands` 引用 `PrefixCommand()`；`ParseControlPayload` 也引用其中的
-schema，避免重复维护字段检查。现有校验子集包括 `type`、`enum`、`required`、
+schema，避免重复维护字段检查。`ReadPrefix` 同时用于 Definition 的 `validate_config`、
+`InitNode` 与 Control；初始配置写在节点的 `config`，例如 `{"prefix":"BASE:"}`。
+未设置时使用空字符串，Control 成功后替换该值；非法初始配置会在预检拒绝，直接 Init
+也通过 `ctx.Fail` 返回具体原因。初值和在线更新共享业务规则，不需要再写一套解析器。
+
+现有校验子集包括 `type`、`enum`、`required`、
 `properties`、`minProperties`、`additionalProperties`、同类型 `items`、数值
 `minimum` / `maximum`。注册时拒绝无效或未支持的 schema 关键字；只使用这些
 关键字；字符串长度、字段关系、规则编译等约束使用普通 C++ 语义校验。它不是完整的

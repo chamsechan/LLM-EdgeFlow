@@ -1,8 +1,11 @@
 #include <mutex>
+#include <optional>
 #include <shared_mutex>
 #include <string>
 #include <utility>
+#include <vector>
 
+#include "contracts/config_schema_validation.h"
 #include "contracts/control_payload.h"
 #include "core/node_registry.h"
 #include "nodes/node_base.h"
@@ -20,6 +23,39 @@ class StarterControlNode final : public NodeBase {
   inline static constexpr BlackboardKey<TextBatch> kOutput{"output",
                                                            "TextBatch"};
 
+  static const std::vector<ConfigFieldDefinition>& PrefixConfigFields() {
+    static const std::vector<ConfigFieldDefinition> fields = {
+        {"prefix",
+         ConfigValueKind::kString,
+         false,
+         "",
+         std::nullopt,
+         std::nullopt,
+         {},
+         "Text prepended to each input; at most 64 UTF-8 bytes. "
+         "Control replaces this initial value."}};
+    return fields;
+  }
+
+  // Share parsing and business checks across initial configuration and Control.
+  static bool ReadPrefix(const nlohmann::json& config, std::string* prefix,
+                         std::string* diagnostic) {
+    nlohmann::json normalized;
+    std::vector<ConfigFieldValidationError> errors;
+    if (!ValidateAndNormalizeFields(PrefixConfigFields(), config, &normalized,
+                                    &errors)) {
+      if (diagnostic && !errors.empty()) *diagnostic = errors.front().message;
+      return false;
+    }
+    std::string next = normalized.at("prefix").get<std::string>();
+    if (next.size() > 64) {
+      if (diagnostic) *diagnostic = "prefix exceeds 64 UTF-8 bytes";
+      return false;
+    }
+    *prefix = std::move(next);
+    return true;
+  }
+
   static const ControlCommandDefinition& PrefixCommand() {
     static const ControlCommandDefinition command(
         kUpdatePrefix, "set_prefix",
@@ -36,10 +72,15 @@ class StarterControlNode final : public NodeBase {
       : NodeBase(kNodeType), input_(kInput.name), output_(kOutput.name) {}
 
  protected:
-  bool InitNode(const NodeInitContext& ctx, const nlohmann::json&,
+  bool InitNode(const NodeInitContext& ctx, const nlohmann::json& config,
                 SessionContext&) override {
+    std::string next;
+    std::string error;
+    if (!ReadPrefix(config, &next, &error)) return ctx.Fail(error);
     BindPort(ctx, input_);
     BindPort(ctx, output_);
+    std::unique_lock<std::shared_mutex> lock(config_mutex_);
+    prefix_.swap(next);
     return true;
   }
 
@@ -51,11 +92,9 @@ class StarterControlNode final : public NodeBase {
                              &error)) {
       return NodeControlResult::Failed(-1, std::move(error));
     }
-    // Author edit point: construct/validate an owned value before changing
-    // state.
-    std::string next = payload.at("prefix").get<std::string>();
-    if (next.size() > 64) {
-      return NodeControlResult::Failed(-1, "prefix exceeds 64 UTF-8 bytes");
+    std::string next;
+    if (!ReadPrefix(payload, &next, &error)) {
+      return NodeControlResult::Failed(-1, std::move(error));
     }
     std::unique_lock<std::shared_mutex> lock(config_mutex_);
     prefix_.swap(next);
@@ -91,6 +130,12 @@ NodeDefinition MakeStarterControlNodeDefinition() {
   def.node_type = StarterControlNode::kNodeType;
   def.category = "custom";
   def.description = "Control authoring starter";
+  def.config_fields = StarterControlNode::PrefixConfigFields();
+  def.validate_config = [](const nlohmann::json& config, const auto&,
+                           std::string* diagnostic) {
+    std::string prefix;
+    return StarterControlNode::ReadPrefix(config, &prefix, diagnostic);
+  };
   def.inputs = {RequiredInputPort(StarterControlNode::kInput.name,
                                   StarterControlNode::kInput, "1:1", "preserve",
                                   "request")};
