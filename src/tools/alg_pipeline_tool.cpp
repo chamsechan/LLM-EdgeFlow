@@ -109,8 +109,8 @@ void Usage() {
   std::cerr << "Usage:\n"
             << "  alg_pipeline_tool catalog [--biz|-b NAME]\n"
             << "  alg_pipeline_tool describe-node NODE_TYPE\n"
-            << "  alg_pipeline_tool init [--biz|-b] NAME [--profile "
-               "NAME|--empty]\n"
+            << "  alg_pipeline_tool init --biz|-b NAME [--profile "
+               "NAME|--empty] [--raw]\n"
             << "  alg_pipeline_tool validate FILE|--stdin\n"
             << "  alg_pipeline_tool plan FILE|--stdin\n";
 }
@@ -161,26 +161,37 @@ int main(int argc, char** argv) {
     std::string biz;
     std::string profile;
     bool empty = false;
+    bool raw = false;
     for (int i = 2; i < argc; ++i) {
       std::string arg = argv[i];
-      if ((arg == "--biz" || arg == "-b") && i + 1 < argc)
+      const bool has_value =
+          i + 1 < argc && argv[i + 1][0] != '\0' && argv[i + 1][0] != '-';
+      if ((arg == "--biz" || arg == "-b") && biz.empty() && has_value)
         biz = argv[++i];
-      else if (arg == "--profile" && i + 1 < argc)
+      else if (arg == "--profile" && profile.empty() && has_value)
         profile = argv[++i];
-      else if (arg == "--empty")
+      else if (arg == "--empty" && !empty)
         empty = true;
+      else if (arg == "--raw" && !raw)
+        raw = true;
       else {
         Usage();
         return 2;
       }
     }
-    if (biz.empty() || !PipelineCatalog::FindBiz(biz)) {
+    if (biz.empty() || (empty && !profile.empty())) {
+      Usage();
+      return 2;
+    }
+    if (!PipelineCatalog::FindBiz(biz)) {
       std::cout << Error("UNKNOWN_BIZ", biz).dump(2) << std::endl;
       return 1;
     }
-    if (!profile.empty() && !empty) {
+    nlohmann::json pipeline = {{"biz_name", biz},
+                               {"models", nlohmann::json::array()},
+                               {"pipeline", nlohmann::json::array()}};
+    if (!profile.empty()) {
       auto path = ProfilePipeline(profile);
-      nlohmann::json pipeline;
       std::string error;
       if (!path || !ReadJson(path->string(), &pipeline, &error) ||
           pipeline.value("biz_name", "") != biz) {
@@ -191,21 +202,12 @@ int main(int argc, char** argv) {
                   << std::endl;
         return 1;
       }
-      std::cout << nlohmann::json({{"schema_version", 1},
-                                   {"ok", true},
-                                   {"pipeline", std::move(pipeline)}})
-                       .dump(2)
-                << std::endl;
-      return 0;
     }
-    nlohmann::json pipeline = {{"biz_name", biz},
-                               {"models", nlohmann::json::array()},
-                               {"pipeline", nlohmann::json::array()}};
-    std::cout << nlohmann::json({{"schema_version", 1},
-                                 {"ok", true},
-                                 {"pipeline", std::move(pipeline)}})
-                     .dump(2)
-              << std::endl;
+    auto result = raw ? std::move(pipeline)
+                      : nlohmann::json({{"schema_version", 1},
+                                        {"ok", true},
+                                        {"pipeline", std::move(pipeline)}});
+    std::cout << result.dump(2) << std::endl;
     return 0;
   }
 

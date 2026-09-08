@@ -130,6 +130,10 @@ C++ 查看工具，展示更多声明信息：
 
 ### 校验工具选择
 
+CLI 克隆默认返回包含 `pipeline` 的版本化响应。需要直接保存 Pipeline JSON 时使用
+`init --biz <biz_name> --profile <profile_name> --raw`，确认命令成功后再对保存文件执行
+`validate`。`--empty --raw` 生成待填写草稿；`--empty` 与 `--profile` 不能同时指定。
+
 正式配置使用目标构建的 `alg_pipeline_tool`；有意使用测试 Model/Backend 的 Smoke
 配置使用 `alg_pipeline_tool_test`，查询 Catalog、克隆、校验和计划都保持同一工具。
 例如自定义 Node 的测试样例：

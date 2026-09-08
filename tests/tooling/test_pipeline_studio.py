@@ -235,6 +235,51 @@ class PipelineCliTest(unittest.TestCase):
         self.assertNotIn("diagnostics", plan)
         self.assertTrue(plan["plan"]["topological_order"])
 
+    def test_init_raw_can_be_saved_and_validated_without_unwrapping(self):
+        args = ["init", "--biz", "keyword_match_v1", "--profile", "keyword_match_mock"]
+        code, wrapped = self.command(*args)
+        self.assertEqual(code, 0)
+        raw = subprocess.run(
+            [str(PIPELINE_TOOL), *args, "--raw"],
+            text=True, capture_output=True, cwd=ROOT, check=False,
+        )
+        self.assertEqual(raw.returncode, 0, raw.stderr)
+        pipeline = json.loads(raw.stdout)
+        self.assertEqual(pipeline, wrapped["pipeline"])
+        self.assertNotIn("ok", pipeline)
+        code, validated = self.command("validate", "--stdin", input_pipeline=pipeline)
+        self.assertEqual(code, 0, validated)
+        with tempfile.TemporaryDirectory() as directory:
+            saved = Path(directory) / "pipeline_cloned.json"
+            saved.write_text(raw.stdout)
+            code, validated = self.command("validate", str(saved))
+            self.assertEqual(code, 0, validated)
+        empty = subprocess.run(
+            [str(PIPELINE_TOOL), "init", "--raw", "-b", "keyword_match_v1", "--empty"],
+            text=True, capture_output=True, cwd=ROOT, check=False,
+        )
+        self.assertEqual(empty.returncode, 0, empty.stderr)
+        self.assertEqual(json.loads(empty.stdout), {
+            "biz_name": "keyword_match_v1", "models": [], "pipeline": []
+        })
+
+    def test_init_rejects_invalid_options(self):
+        for options in (
+            ["--profile", "keyword_match_mock", "--empty"],
+            ["--profile"], ["--profile", "--raw"], ["--unknown"],
+            ["--raw", "--raw"], ["--empty", "--empty"],
+            ["--biz", "keyword_match_v1"],
+            ["--profile", "keyword_match_mock", "--profile", "keyword_match_mock"],
+        ):
+            with self.subTest(options=options):
+                process = subprocess.run(
+                    [str(PIPELINE_TOOL), "init", "--biz", "keyword_match_v1", *options],
+                    text=True, capture_output=True, cwd=ROOT, check=False,
+                )
+                self.assertEqual(process.returncode, 2)
+                self.assertIn("Usage:", process.stderr)
+                self.assertEqual(process.stdout, "")
+
     def test_native_viewer_preserves_explicit_dag_dependencies(self):
         process = subprocess.run(
             [str(ALG_SHOW), str(ROOT / "configs" / "pipeline_doc_qa.json")],

@@ -39,6 +39,17 @@ and native Resolver; do not reproduce their validation rules.
    ./build/alg_pipeline_tool init --biz <biz_name> --empty
    ```
 
+   `init` normally returns a versioned response containing `pipeline`. To save a
+   runtime document directly, use `--raw` and a new destination (do not overwrite
+   an existing solution):
+
+   ```bash
+   ./build/alg_pipeline_tool init --biz <biz_name> --profile <profile_name> --raw > <new_pipeline.json>
+   ```
+
+   Check the command's exit status before using the file, then validate the saved
+   document. An empty draft needs nodes and bindings before it can validate.
+
 4. Every node must declare a non-empty `id` and an explicit `depends_on` array. Validate after every meaningful edit. Use diagnostic `code`, JSON `path`, `node_id`, `port`, `related_nodes`, and `suggestions` to repair the document; do not reproduce validation rules in scripts or prompts.
 
    ```bash
