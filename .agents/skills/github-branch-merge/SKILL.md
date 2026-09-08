@@ -12,7 +12,7 @@ and verification policy. Do not repeat those decisions here.
 ## Preconditions
 
 - The user explicitly authorized the requested remote action.
-- Work is already on an approved non-`main` branch.
+- Work is already on an existing isolated non-`main` branch.
 - The diff contains only intended work and any applicable RFC/index/`doc/CHANGELOG.md` updates.
 - Implementation and required focused checks are complete; the intended changes are ready for
   the delivery script's canonical local gate.
