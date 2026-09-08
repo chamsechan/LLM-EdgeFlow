@@ -3,6 +3,7 @@
 #include <memory>
 #include <nlohmann/json.hpp>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "core/alg_context.h"
@@ -83,8 +84,8 @@ class Pipeline {
     int code = 0;
     std::string message;
   };
-  static NodeExecutionResult ExecuteNodeSafely(INode* node,
-                                               AlgContext* req_ctx);
+  static NodeExecutionResult ExecuteNodeSafely(INode* node, AlgContext* req_ctx,
+                                               std::string_view node_id);
 
   bool BuildInternal(const nlohmann::json& root_config,
                      PipelineDiagnostic* diagnostic, ValidationPolicy policy);

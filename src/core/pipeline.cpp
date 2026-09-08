@@ -229,11 +229,13 @@ bool MaterializeNodes(RuntimeAssembly* assembly,
       }
 
       bool init_ok = false;
+      std::string init_error;
       try {
         NodeInitContext init_ctx;
         init_ctx.plan = &node_plan;
         init_ctx.config = &node_plan.normalized_config;
         init_ctx.session_ctx = assembly->session.get();
+        init_ctx.diagnostic = &init_error;
         init_ok = node->Init(init_ctx);
       } catch (const std::exception& e) {
         if (diagnostic) {
@@ -266,6 +268,7 @@ bool MaterializeNodes(RuntimeAssembly* assembly,
           diagnostic->message = "Failed to initialize node '" +
                                 node_config.node_type +
                                 "' (id: " + node_config.id + ")";
+          if (!init_error.empty()) diagnostic->message += ": " + init_error;
         }
         ALG_LOG_ERROR("[Pipeline] Failed to initialize node: %s (id: %s)\n",
                       node_config.node_type.c_str(), node_config.id.c_str());
@@ -300,10 +303,14 @@ bool MaterializeNodes(RuntimeAssembly* assembly,
 
 }  // namespace
 
-Pipeline::NodeExecutionResult Pipeline::ExecuteNodeSafely(INode* node,
-                                                          AlgContext* req_ctx) {
+Pipeline::NodeExecutionResult Pipeline::ExecuteNodeSafely(
+    INode* node, AlgContext* req_ctx, std::string_view node_id) {
   if (!node) return {-1, "Null node pointer in pipeline execution"};
   if (!req_ctx) return {-1, "Null context in pipeline execution"};
+  const auto failure = [&](int code, const std::string& message) {
+    return NodeExecutionResult{code, "Node '" + std::string(node_id) + "' (" +
+                                         node->Name() + "): " + message};
+  };
   (void)req_ctx->TakeCurrentThreadError();
   try {
     const int code = node->Process(req_ctx);
@@ -316,14 +323,13 @@ Pipeline::NodeExecutionResult Pipeline::ExecuteNodeSafely(INode* node,
       msg = "Node '" + node->Name() + "' failed with exit code " +
             std::to_string(code);
     }
-    return {code, std::move(msg)};
+    return failure(code, msg);
   } catch (const std::exception& e) {
     (void)req_ctx->TakeCurrentThreadError();
-    return {-1, std::string("Unhandled exception in node '") + node->Name() +
-                    "' Process: " + e.what()};
+    return failure(-1, std::string("Unhandled Process exception: ") + e.what());
   } catch (...) {
     (void)req_ctx->TakeCurrentThreadError();
-    return {-1, "Unknown exception in node '" + node->Name() + "' Process"};
+    return failure(-1, "Unknown Process exception");
   }
 }
 
@@ -517,8 +523,10 @@ int Pipeline::Execute(AlgContext* req_ctx) {
     // 单节点层 或 顺序执行模式：直接主线程执行 (零线程切换开销)
     if (layer.size() == 1 || execution_mode_ == ExecutionMode::kSequential ||
         !thread_pool_) {
-      for (auto* node : layer) {
-        NodeExecutionResult result = ExecuteNodeSafely(node, req_ctx);
+      for (size_t i = 0; i < layer.size(); ++i) {
+        auto* node = layer[i];
+        NodeExecutionResult result = ExecuteNodeSafely(
+            node, req_ctx, plan_->topological_layers[layer_idx][i]);
         if (result.code != 0) {
           req_ctx->SetError(result.code, result.message);
           ALG_LOG_ERROR(
@@ -547,8 +555,11 @@ int Pipeline::Execute(AlgContext* req_ctx) {
       for (size_t i = 0; i < layer.size(); ++i) {
         auto* node = layer[i];
         try {
-          futures.push_back(thread_pool_->Submit(
-              [node, req_ctx]() { return ExecuteNodeSafely(node, req_ctx); }));
+          const std::string_view node_id =
+              plan_->topological_layers[layer_idx][i];
+          futures.push_back(thread_pool_->Submit([node, req_ctx, node_id]() {
+            return ExecuteNodeSafely(node, req_ctx, node_id);
+          }));
         } catch (const std::exception& e) {
           submission_error = "Failed to submit parallel node '" + node->Name() +
                              "': " + e.what();

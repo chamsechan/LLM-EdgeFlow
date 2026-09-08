@@ -271,7 +271,9 @@ class FailingInitNode : public INode {
  public:
   inline static constexpr char kNodeType[] = "FailingInitNode";
   FailingInitNode() = default;
-  bool Init(const NodeInitContext&) override { return false; }
+  bool Init(const NodeInitContext& ctx) override {
+    return ctx.Fail("missing domain dictionary");
+  }
   int Process(AlgContext*) override { return 0; }
   NodeControlResult Control(int, const std::string&) override {
     return NodeControlResult::Handled(0);
@@ -1188,6 +1190,8 @@ TEST_F(PipelineConfigTest, FailedNodeInitDoesNotPublishStagedModels) {
   EXPECT_FALSE(pipeline.BuildFromJson(
       config, &diagnostic, ValidationPolicy::kPrivateExtensionCompatible));
   EXPECT_EQ(diagnostic.code, PipelineErrorCode::kNodeInitFailed);
+  EXPECT_NE(diagnostic.message.find("missing domain dictionary"),
+            std::string::npos);
   EXPECT_EQ(CountingModel::create_count.load(), 1);
   EXPECT_FALSE(
       pipeline.GetSessionContext().GetModelManager().HasModel("staged_model"));

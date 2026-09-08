@@ -3,8 +3,10 @@
 #include <memory>
 #include <nlohmann/json.hpp>
 #include <string>
+#include <string_view>
 #include <utility>
 
+#include "contracts/diagnostic.h"
 #include "core/alg_context.h"
 #include "core/session_context.h"
 
@@ -47,6 +49,13 @@ struct NodeInitContext {
   const ValidatedNodePlan* plan = nullptr;
   const nlohmann::json* config = nullptr;
   SessionContext* session_ctx = nullptr;
+  // Borrowed only for Init; do not store this pointer in a Node.
+  std::string* diagnostic = nullptr;
+
+  bool Fail(std::string_view message) const noexcept {
+    SetDiagnosticNoexcept(diagnostic, message);
+    return false;
+  }
 };
 
 /**

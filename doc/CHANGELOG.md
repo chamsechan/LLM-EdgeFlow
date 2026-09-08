@@ -8,6 +8,8 @@
 - OCR 与单槽 Demo 共用 Control 处理；显式文件缺失、空路径、非法 JSON 或命令会失败，OCR 提示词更新在处理样本前实际执行。
 - Control schema 执行 `minimum` / `maximum` 范围；注册时拒绝无效或不支持的声明，诊断包含节点与命令，文档注解不自动修改 payload。
 
+- Node 初始化可通过 `NodeInitContext::Fail` 返回具体原因；Pipeline 顺序与并行执行错误均附实例 ID 和类型，保留原错误码。
+
 ## 2026-09-08 投产前契约一致性修复（RFC-0044）
 
 - session Embedding 缓存以版本、长度及完整内容编码身份，保留同键并发复用与失败重试，修复嵌入 NUL 的不同语料返回相同向量的问题。

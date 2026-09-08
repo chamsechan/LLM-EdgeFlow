@@ -114,6 +114,16 @@ TEST(NodeBaseContractsTest, InitAndProcessExceptionSafety) {
   EXPECT_FALSE(
       InitNodeForTest(fail_init_node, nlohmann::json::object(), &session_ctx));
 
+  std::string diagnostic = "stale";
+  NodeInitContext init_ctx;
+  init_ctx.session_ctx = &session_ctx;
+  init_ctx.diagnostic = &diagnostic;
+  EXPECT_FALSE(fail_init_node.Init(init_ctx));
+  EXPECT_EQ(diagnostic, "Simulated Init failure");
+  init_ctx.session_ctx = nullptr;
+  EXPECT_FALSE(fail_init_node.Init(init_ctx));
+  EXPECT_NE(diagnostic.find("SessionContext"), std::string::npos);
+
   ExceptionThrowingNode fail_proc_node(false);
   EXPECT_TRUE(
       InitNodeForTest(fail_proc_node, nlohmann::json::object(), &session_ctx));
