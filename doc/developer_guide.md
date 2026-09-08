@@ -124,7 +124,9 @@ typed port 契约时才新增 Node。Node 必须：
   默认按操作命名文件，不按业务建目录。自定义 Node 同样可以被多个方案复用；
 - 通过 `NodeBase`、`ModelBoundNode` 或 `TraceableUnaryInferenceNode` 使用已经解析的逻辑
   端口，不固定实际 Blackboard Key；
-- 把请求状态留在 `AlgContext`，成员只保存不可变配置或并发安全句柄；
+- 请求间通过各自的 `AlgContext` 隔离数据，临时值留在处理函数局部，不把请求数据保存为成员；
+  成员可持有配置和安全共享句柄。配置可初始化后固定，也可按
+  [Control 约定](dev_guide/first_control.md)安全更新，每次处理读取一致快照；
 - 提供完整 `NodeDefinition` 并通过 `REGISTER_NODE_WITH_DEFINITION` 一次注册；
 - 在 Catalog 可见，并覆盖非法配置、端口缺失/类型错误、输出、provenance 和并发声明。
 
