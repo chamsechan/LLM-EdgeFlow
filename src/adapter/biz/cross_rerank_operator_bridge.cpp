@@ -24,7 +24,9 @@ void RegisterCrossRerankBridge() {
     dto->query_text = storage.StoreString(in->query_text);
 
     int count = in->candidate_count;
-    if (count > COMPANY_OPERATOR_MAX_RERANK_CANDIDATES) {
+    if (count < 0) {
+      count = 0;
+    } else if (count > COMPANY_OPERATOR_MAX_RERANK_CANDIDATES) {
       count = COMPANY_OPERATOR_MAX_RERANK_CANDIDATES;
     }
     for (int i = 0; i < count; ++i) {

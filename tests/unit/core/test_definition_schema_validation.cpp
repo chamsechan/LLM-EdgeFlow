@@ -1,8 +1,10 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <cmath>
 #include <limits>
 #include <nlohmann/json.hpp>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
@@ -991,6 +993,59 @@ TEST(DefinitionSchemaValidationTest, IntegerBoundsDoNotRoundThroughDouble) {
   }
   EXPECT_TRUE(ValidateAndNormalizeFields(
       fields, {{"value", int64_t{9007199254740992}}}, &normalized, nullptr));
+}
+
+TEST(DefinitionSchemaValidationTest,
+     IntegerBoundsHandleLimitsAndFractionalBounds) {
+  constexpr double kSignedLimit = 9223372036854775808.0;
+  constexpr double kUnsignedLimit = 18446744073709551616.0;
+  const auto signed_max = nlohmann::json(std::numeric_limits<int64_t>::max());
+  const auto signed_min = nlohmann::json(std::numeric_limits<int64_t>::min());
+  const auto unsigned_max =
+      nlohmann::json(std::numeric_limits<uint64_t>::max());
+  struct Case {
+    nlohmann::json value;
+    std::optional<double> minimum;
+    std::optional<double> maximum;
+    bool valid;
+  };
+  const std::vector<Case> cases = {
+      {signed_max, kSignedLimit, std::nullopt, false},
+      {unsigned_max, kUnsignedLimit, std::nullopt, false},
+      {signed_max, std::nextafter(kSignedLimit, 0.0), kSignedLimit, true},
+      {unsigned_max, std::nextafter(kUnsignedLimit, 0.0), kUnsignedLimit, true},
+      {signed_max, std::nullopt, std::nextafter(kSignedLimit, 0.0), false},
+      {unsigned_max, std::nullopt, std::nextafter(kUnsignedLimit, 0.0), false},
+      {signed_min, -kSignedLimit, -kSignedLimit, true},
+      {signed_min, std::nextafter(-kSignedLimit, 0.0), std::nullopt, false},
+      {signed_min, std::nullopt,
+       std::nextafter(-kSignedLimit, -std::numeric_limits<double>::infinity()),
+       false},
+      {uint64_t{0}, -0.5, 0.5, true},
+      {uint64_t{0}, 0.5, std::nullopt, false},
+      {uint64_t{0}, std::nullopt, -0.5, false},
+      {int64_t{-2}, -1.5, std::nullopt, false},
+      {int64_t{-1}, -1.5, std::nullopt, true},
+      {int64_t{-1}, std::nullopt, -1.5, false},
+      {int64_t{-2}, std::nullopt, -1.5, true},
+  };
+  for (const auto& item : cases) {
+    SCOPED_TRACE(nlohmann::json({{"value", item.value},
+                                 {"minimum", item.minimum.value_or(0.0)},
+                                 {"maximum", item.maximum.value_or(0.0)}})
+                     .dump());
+    std::vector<ConfigFieldDefinition> fields = {
+        {"value", ConfigValueKind::kInteger, true, nullptr, item.minimum,
+         item.maximum}};
+    nlohmann::json normalized;
+    EXPECT_EQ(ValidateAndNormalizeFields(fields, {{"value", item.value}},
+                                         &normalized, nullptr),
+              item.valid);
+    fields.front().default_value = item.value;
+    std::string error;
+    EXPECT_EQ(ValidateConfigFieldDefinitions(fields, &error), item.valid)
+        << error;
+  }
 }
 
 TEST(DefinitionSchemaValidationTest,

@@ -53,8 +53,9 @@ if run_fixture_gate; then
 fi
 cp doc/developer_guide.md "${FIXTURE_DOC_ROOT}/developer_guide.md"
 
-sed -i 's/10\.0\.0/99.0.0/g' \
+sed -i.bak 's/10\.0\.0/99.0.0/g' \
   "${FIXTURE_DOC_ROOT}/architecture.md"
+rm -f "${FIXTURE_DOC_ROOT}/architecture.md.bak"
 if run_fixture_gate; then
   echo "❌ Docs drift gate missed a stale product version"
   exit 1

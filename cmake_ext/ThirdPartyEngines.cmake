@@ -150,9 +150,15 @@ if(ENABLE_LLAMACPP)
     if(UNIX AND NOT APPLE)
       list(APPEND _llama_imported_deps m)
     endif()
+    if(APPLE)
+      find_library(ACCELERATE_FRAMEWORK Accelerate)
+      if(ACCELERATE_FRAMEWORK)
+        list(APPEND _llama_imported_deps ${ACCELERATE_FRAMEWORK})
+      endif()
+    endif()
 
     set(_llama_sublibs "")
-    foreach(_sublib ggml ggml-cpu ggml-base)
+    foreach(_sublib ggml ggml-cpu ggml-base ggml-blas)
       if(EXISTS "${LLAMA_3RDPARTY_DIR}/lib/lib${_sublib}.a")
         if(NOT TARGET ${_sublib})
           add_library(${_sublib} STATIC IMPORTED GLOBAL)
@@ -227,17 +233,28 @@ if(ENABLE_LLAMACPP)
             ${llama_cpp_source_SOURCE_DIR}/ggml/include)
         message(STATUS "[Model Execution] llama.cpp target configured successfully.")
 
-        # 编译完成后自动归档静态库与头文件至 3rdparty/llama_cpp
-        add_custom_target(archive_llama_cpp_to_3rdparty ALL
+        set(_llama_archive_deps llama ggml ggml-base ggml-cpu)
+        set(_llama_archive_commands
           COMMAND ${CMAKE_COMMAND} -E make_directory "${LLAMA_3RDPARTY_DIR}/lib" "${LLAMA_3RDPARTY_DIR}/include"
           COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:llama>" "${LLAMA_3RDPARTY_DIR}/lib/"
           COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:ggml>" "${LLAMA_3RDPARTY_DIR}/lib/"
           COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:ggml-base>" "${LLAMA_3RDPARTY_DIR}/lib/"
           COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:ggml-cpu>" "${LLAMA_3RDPARTY_DIR}/lib/"
+        )
+        if(TARGET ggml-blas)
+          list(APPEND _llama_archive_deps ggml-blas)
+          list(APPEND _llama_archive_commands
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:ggml-blas>" "${LLAMA_3RDPARTY_DIR}/lib/"
+          )
+        endif()
+        list(APPEND _llama_archive_commands
           COMMAND ${CMAKE_COMMAND} -E copy_directory "${llama_cpp_source_SOURCE_DIR}/include" "${LLAMA_3RDPARTY_DIR}/include"
           COMMAND ${CMAKE_COMMAND} -E copy_directory "${llama_cpp_source_SOURCE_DIR}/ggml/include" "${LLAMA_3RDPARTY_DIR}/include"
           COMMAND ${CMAKE_COMMAND} -E copy_if_different "${_LLAMA_CACHE_MARKER}" "${LLAMA_3RDPARTY_DIR}/.edgeflow-cache-fingerprint"
-          DEPENDS llama ggml ggml-base ggml-cpu
+        )
+        add_custom_target(archive_llama_cpp_to_3rdparty ALL
+          ${_llama_archive_commands}
+          DEPENDS ${_llama_archive_deps}
           COMMENT "[3rdparty] Archiving llama.cpp static libraries and headers to ${LLAMA_3RDPARTY_DIR}"
         )
       endif()

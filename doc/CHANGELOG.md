@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-09-10 配置边界与 macOS 构建修复
+
+- 整数配置及默认值的范围校验不再依赖 `long double` 的平台精度，正确处理大整数、整数极限和小数边界。
+- CrossRerank Operator bridge 避免负候选数量触发数组负下标写入，保留原始数量供 Adapter 拒绝非法输入。
+- 补齐 macOS llama.cpp 静态缓存的 BLAS 库与 Accelerate 链接依赖，修复头文件隔离检查和文档门禁的 macOS 兼容性。
+
 ## 2026-09-10 Pipeline Studio 错误提示可读性
 
 - 错误提示保留至手动关闭或后续提示替换，修复启动错误 2.6 秒后自动消失、无法读清的问题；API 错误补充接口路径、HTTP 状态及错误码。

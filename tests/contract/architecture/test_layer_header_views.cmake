@@ -12,6 +12,7 @@ function(check_header layer header allowed)
   endforeach()
   execute_process(COMMAND "${CMAKE_COMMAND}" -E env LC_ALL=C
       "${layer_cxx}" -std=c++17 -fsyntax-only
+      ${layer_cxx_flags}
       ${include_flags} "${source}"
       RESULT_VARIABLE status OUTPUT_VARIABLE output ERROR_VARIABLE error)
   if(allowed AND NOT status EQUAL 0)
