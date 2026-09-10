@@ -150,6 +150,9 @@ class WorkbenchService:
             )
         return json_result(True, pipelines=items)
 
+    def save_targets(self, path: Path) -> list[str]:
+        return [path.name, path.with_suffix(".conf").name] if path.name in self.generated_solutions else [path.name]
+
     def open_pipeline(self, requested: str) -> dict[str, Any]:
         path = self.managed_path(requested, must_exist=True)
         raw = path.read_bytes()
@@ -161,6 +164,7 @@ class WorkbenchService:
             True,
             filename=path.name,
             revision=revision_for(raw),
+            save_targets=self.save_targets(path),
             pipeline=pipeline,
         )
 
@@ -266,6 +270,7 @@ class WorkbenchService:
             True,
             filename=path.name,
             revision=revision_for(encoded),
+            save_targets=self.save_targets(path),
             pipeline=pipeline,
         )
 
@@ -453,6 +458,7 @@ class WorkbenchService:
         return json_result(
             True, filename=path.name, conf_filename=conf_path.name, revision=revision_for(encoded),
             pipeline=pipeline, conf=conf, model_root=model_root, configuration=configuration,
+            save_targets=self.save_targets(path),
             command=f"cd {shlex.quote(str(PROJECT_ROOT))} && {shlex.join(command)}",
         )
 

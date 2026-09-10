@@ -208,6 +208,41 @@ class RunnableSolutionTest(unittest.TestCase):
         finally:
             shutil.rmtree(output, ignore_errors=True)
 
+    def test_save_targets_follow_session_ownership(self):
+        name = "pipeline_targets.json"
+        created = self.service.save_solution(name, self.keyword, "keyword_match_rules")
+        self.assertEqual(created["save_targets"], [name, "pipeline_targets.conf"])
+        opened = self.service.open_pipeline(name)
+        self.assertEqual(opened["save_targets"], created["save_targets"])
+        updated = self.service.save_pipeline(name, self.keyword, opened["revision"])
+        self.assertEqual(updated["save_targets"], created["save_targets"])
+        restarted = SHOW.WorkbenchService(self.configs)
+        self.assertEqual(restarted.open_pipeline(name)["save_targets"], [name])
+        plain = self.service.save_pipeline("pipeline_plain.json", self.keyword, None, save_as=True)
+        self.assertEqual(plain["save_targets"], ["pipeline_plain.json"])
+
+    @unittest.skipUnless(os.environ.get("STUDIO_PLAYWRIGHT_MODULE") and shutil.which("node"),
+                         "set STUDIO_PLAYWRIGHT_MODULE to run real browser acceptance")
+    def test_browser_task_workflow(self):
+        self.configs.mkdir()
+        for name in ("pipeline_browser.json", "pipeline_browser_other.json"):
+            (self.configs / name).write_text(json.dumps(self.keyword))
+        shutil.copyfile(ROOT / "configs/pipeline_doc_qa_rerank_cpu.json", self.configs / "pipeline_browser_multi.json")
+        server = SHOW.StudioHttpServer(("127.0.0.1", 0), SHOW.make_handler(self.service))
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            process = subprocess.run(
+                [shutil.which("node"), str(Path(__file__).with_name("studio_browser_test.mjs")),
+                 f"http://127.0.0.1:{server.server_address[1]}/index.html", str(self.configs)],
+                text=True, capture_output=True, cwd=ROOT, timeout=120,
+            )
+            self.assertEqual(process.returncode, 0, process.stdout + process.stderr)
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
+
     def test_conf_rebuilds_selected_model_paths_and_honors_explicit_root(self):
         pipeline = json.loads((ROOT / "demo/fixtures/mock/pipeline_entity_extract.json").read_text())
         selected = pipeline["models"][0]["model_path"]
@@ -665,7 +700,8 @@ for (const base of ["http://127.0.0.1:8080/", "https://studio.example/proxy/8080
 body = JSON.stringify({ ok: false, error: { code: "INVALID_JSON", message: "invalid pipeline" } });
 status = 400;
 await assert.rejects(api("/pipeline"), error => error.status === 400 &&
-  error.message === "invalid pipeline" && error.payload.error.code === "INVALID_JSON");
+  error.message.includes("invalid pipeline") && error.message.includes("/api/v1/pipeline") &&
+  error.message.includes("HTTP 400") && error.message.includes("INVALID_JSON") && error.payload.error.code === "INVALID_JSON");
 status = 200;
 await assert.rejects(api("/validate"), /invalid pipeline/);
 const result = await write("/validate", "POST", { pipeline: [] }, true);
@@ -684,6 +720,8 @@ for (const [code, text, summary] of [[404, "Not Found", "Not Found"],
 }
 status = 500; body = "Not Found " + "x".repeat(1000) + "END_OF_BODY";
 await assert.rejects(api("/initial"), error => !error.message.includes("END_OF_BODY"));
+globalThis.fetch = async () => { throw new TypeError("Failed to fetch"); };
+await assert.rejects(api("/catalog"), error => error.message.includes("/api/v1/catalog") && error.message.includes("Failed to fetch"));
 """
         process = subprocess.run(
             [shutil.which("node"), "--input-type=module", "-e", script, str(WEB_ROOT / "api.js")],

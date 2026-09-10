@@ -6,7 +6,11 @@ export async function api(path, options = {}) {
   const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
   // Keep the page's directory prefix when Studio is opened through a port proxy.
   const url = new URL(`api/v1${path}`, location.href);
-  const response = await fetch(url, { ...fetchOptions, headers });
+  let response;
+  try { response = await fetch(url, { ...fetchOptions, headers }); }
+  catch (error) {
+    throw new Error(`接口 ${url.pathname}${url.search} 请求失败：${error.message}。请确认 Studio 服务仍在运行及页面地址正确。`);
+  }
   const text = await response.text();
   let payload;
   try {
@@ -19,7 +23,8 @@ export async function api(path, options = {}) {
   }
   if (!response.ok || (payload.ok === false && !allowFalse)) {
     const error = payload.error || payload.diagnostics || payload;
-    const failure = new Error(typeof error?.message === "string" ? error.message : JSON.stringify(error));
+    const detail = typeof error?.message === "string" ? error.message : JSON.stringify(error);
+    const failure = new Error(`接口 ${url.pathname}${url.search}（HTTP ${response.status}${error?.code ? ` · ${error.code}` : ""}）：${detail}`);
     failure.payload = payload;
     failure.status = response.status;
     throw failure;

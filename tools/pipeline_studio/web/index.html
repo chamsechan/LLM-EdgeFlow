@@ -11,6 +11,7 @@
       <div class="brand"><span aria-hidden="true">EF</span><div>算法方案工作台<small>LLM-EdgeFlow · Pipeline Studio</small></div></div>
       <div class="pipeline-picker">
         <select id="pipelineSelect" aria-label="选择方案" title="选择已有方案"></select>
+        <button id="newEntryButton">新建</button>
         <button id="openButton">打开</button>
         <button id="browseButton" title="选择一个 JSON 文件进行浏览">浏览文件…</button>
         <input id="pipelineFile" type="file" accept=".json,application/json" hidden>
@@ -45,9 +46,11 @@
             <span id="graphSummary" class="graph-summary">打开方案，查看数据如何流动</span>
           </div>
           <div class="canvas-actions">
-            <div class="control-group panel-controls edit-control">
-              <button id="operatorsToggle" aria-pressed="true" title="显示或收起算子面板">算子</button>
-              <button id="inspectorToggle" aria-pressed="true" title="显示或收起属性面板">属性</button>
+            <div class="control-group panel-controls">
+              <button id="operatorsToggle" class="edit-control" aria-pressed="true" title="显示或收起算子面板">算子</button>
+              <button id="inspectorToggle" aria-pressed="false" title="显示或收起详情面板">详情</button>
+              <button id="quickValidateButton">校验</button>
+              <button id="openRunButton">运行</button>
             </div>
             <div class="control-group history-controls edit-control" aria-label="编辑历史">
               <button id="undoButton" class="icon-button" disabled aria-label="撤销" title="撤销（Ctrl / ⌘ + Z）">↶</button>
@@ -84,6 +87,19 @@
       </section>
 
       <aside class="inspector panel" aria-label="方案属性与验证">
+        <div class="inspector-status">
+          <p id="browseHint" class="field-help">只读查看 · 点击“编辑方案”修改参数</p>
+          <p id="saveScope" class="field-help"></p>
+          <div id="operationFeedback" class="operation-feedback" role="status" hidden></div>
+          <div id="draftActions" class="draft-hint" hidden>
+            <p id="draftActionLabel"></p>
+            <div class="row form-actions">
+              <button id="applyContinue" class="primary">应用并继续</button>
+              <button id="discardContinue">放弃并继续</button>
+              <button id="stayDraft">留在当前</button>
+            </div>
+          </div>
+        </div>
         <div class="tabs" role="tablist" aria-label="方案设置">
           <button data-tab="properties" class="active" role="tab" aria-selected="true" aria-controls="propertiesTab">属性</button>
           <button data-tab="models" role="tab" aria-selected="false" aria-controls="modelsTab">模型</button>
@@ -132,14 +148,20 @@
         </section>
         <section id="runTab" class="tab scroll" role="tabpanel" aria-label="运行方案" hidden>
           <label>运行 Profile<select id="runProfile"></select></label>
-          <label>模型目录（相对项目根）<input id="runModelRoot" value="models" placeholder="models"></label>
-          <p class="tab-description">Pipeline 的 model_path 相对该目录解析。使用 demo/fixtures 下的测试方案时填“.”。运行和另存均采用此设置。</p>
+          <details class="run-settings"><summary>模型目录：<span id="modelRootLabel">models</span></summary>
+            <label>模型目录（相对项目根）<input id="runModelRoot" value="models" placeholder="models"></label>
+            <p class="tab-description">模型路径相对该目录解析；demo/fixtures 测试方案填“.”。运行和另存均采用此设置。</p>
+          </details>
           <div class="row"><button id="runButton" class="primary">运行草稿</button><button id="cancelButton" class="danger" disabled>取消</button></div>
           <button id="saveSolutionButton" class="full">另存为可运行方案（JSON + .conf）</button>
-          <pre id="savedCommand" class="result"></pre>
-          <details><summary>最近一次运行 / 另存的部署解析结果</summary><pre id="resolvedConfig" class="result">运行或另存后显示模型路径与生效参数</pre></details>
-          <pre id="runLog" class="log">尚未运行</pre>
-          <pre id="runResult" class="result"></pre>
+          <p id="runContext" class="field-help" role="status">尚未运行</p>
+          <p id="runFreshness" class="draft-hint" role="status" hidden></p>
+          <div id="runSummary" class="run-summary" role="status"></div>
+          <div id="runSamples"></div>
+          <details id="savedDeployment" hidden><summary>已保存方案的命令与部署配置</summary><pre id="savedCommand" class="result"></pre><pre id="savedConfig" class="result"></pre></details>
+          <details><summary>本次运行的部署解析结果</summary><pre id="resolvedConfig" class="result">运行后显示模型路径与生效参数</pre></details>
+          <details><summary>运行日志</summary><pre id="runLog" class="log">尚未运行</pre></details>
+          <details><summary>原始结果 JSON</summary><pre id="runResult" class="result"></pre></details>
         </section>
       </aside>
     </main>
