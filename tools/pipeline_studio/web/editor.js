@@ -112,7 +112,13 @@ export function readConfigFields(container) {
   const config = {};
   for (const input of container.querySelectorAll("[data-field]")) {
     if (input.value === input.dataset.displayValue && input.dataset.originalValue === undefined) continue;
-    if (input.dataset.type === "string" || input.value !== "" || input.required) config[input.dataset.field] = parseField(input);
+    try {
+      if (input.dataset.type === "string" || input.value !== "" || input.required) config[input.dataset.field] = parseField(input);
+    } catch (error) {
+      const message = `${input.dataset.field}：${error.message}`;
+      input.setCustomValidity?.(message); input.reportValidity?.(); input.focus?.();
+      throw new Error(message);
+    }
   }
   return config;
 }

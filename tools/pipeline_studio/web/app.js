@@ -3,6 +3,8 @@ import { GraphView } from "./graph.js";
 import { createHistory, createDrafts, appendDiagnostic, appendConfigField, readConfigFields, readFormBuffer, restoreFormBuffer } from "./editor.js";
 import { compatibleModels, createLatestRequestGate, modelBoundNodeIds, graphDocument, connectPorts, disconnectPorts, removeNode, compatibleBackends, modelAvailability, assertBrowsablePipeline, readPipelineFile, upsertModel, removeModel } from "./workbench.js";
 
+import { captureRun, runIsCurrent, runSummary, renderSamples } from "./workflow.js";
+
 const $ = selector => document.querySelector(selector);
 const state = {
   pipeline: null,
@@ -16,7 +18,8 @@ const state = {
   catalogProfiles: [],
   assets: [],
   selected: "",
-  jobId: "",
+  run: null,
+  saveTargets: [],
   errorNodeIds: new Set(),
   pipelineVersion: 0,
   documentVersion: 0,
@@ -31,6 +34,7 @@ const catalogRequests = createLatestRequestGate();
 const history = createHistory();
 const drafts = createDrafts();
 let documentRequest = 0;
+let pendingAction = null;
 
 function snapshot() { return { pipeline: state.pipeline, selected: state.selected }; }
 
@@ -46,40 +50,93 @@ function updateEditorStatus() {
   $("#saveSolutionButton").disabled = state.loading || state.saving || !state.pipeline;
   $("#openButton").disabled = state.loading;
   $("#browseButton").disabled = state.loading;
-  $("#newButton").disabled = state.loading;
-  $("#rawJson").readOnly = state.loading || drafts.pendingExcept("json").length > 0;
+  $("#newButton").disabled = state.loading || !state.catalogReady;
+  $("#newEntryButton").disabled = state.loading;
+  $("#quickValidateButton").disabled = state.loading || !state.pipeline;
+  $("#openRunButton").disabled = state.loading || !state.pipeline;
+  $("#validateButton").disabled = state.loading || !state.pipeline;
+  $("#browseHint").hidden = state.editing;
+  $("#saveScope").textContent = state.pipeline ? state.filename
+    ? `保存目标：${state.saveTargets.join(" + ")}（configs/）`
+    : "保存将另存到 configs/；导入源文件保持原样。" : "";
+  $("#saveButton").title = $("#saveScope").textContent;
+  renderRunContext();
+  $("#rawJson").readOnly = !state.editing || state.loading || drafts.pendingExcept("json").length > 0;
   for (const [kind, form] of [["node", "#nodeForm"], ["model", "#modelForm"]]) {
     for (const control of $(form).querySelectorAll("input, select, textarea, button")) {
-      control.disabled = state.loading || !state.catalogReady || !state.pipeline || drafts.pendingExcept(kind).length > 0;
+      control.disabled = !state.editing || state.loading || !state.catalogReady || !state.pipeline || drafts.pendingExcept(kind).length > 0;
     }
   }
   const modelDefinition = state.catalog.models?.find(item => item.model_type === $("#modelType").value);
   if (!modelAvailability(state.catalog.backends || [], modelDefinition).available) $("#applyModel").disabled = true;
-  $("#applyJson").disabled = state.loading || drafts.pendingExcept("json").length > 0;
+  $("#applyJson").disabled = !state.editing || state.loading || drafts.pendingExcept("json").length > 0;
   $("#modelSelect").disabled = state.loading || !state.catalogReady || drafts.pending;
-  $("#newModel").disabled = state.loading || !state.catalogReady || drafts.pending;
+  $("#newModel").disabled = !state.editing || state.loading || !state.catalogReady || drafts.pending;
   for (const [kind, hint, discard] of [["json", "rawJsonHint", "discardJson"], ["node", "nodeDraftHint", "discardNode"], ["model", "modelDraftHint", "discardModel"]]) {
     $(`#${hint}`).hidden = !drafts.has(kind);
     $(`#${discard}`).disabled = !drafts.has(kind);
   }
 }
 
-function requireApplied(except = "") {
+function requireApplied(except = "", continuation = null, action = "继续操作") {
   if (state.loading) { toast("方案加载中，请稍候"); return false; }
   const pending = drafts.pendingExcept(except);
   if (!pending.length) return true;
   const labels = { json: "原始 JSON", node: "节点属性", model: "模型" };
-  toast(`请先应用或放弃${pending.map(kind => labels[kind]).join("、")}中的修改`, true);
+  if (!continuation) toast(`请先应用或放弃${pending.map(kind => labels[kind]).join("、")}中的修改`);
   switchTab(pending[0] === "node" ? "properties" : pending[0] === "model" ? "models" : "json");
+  pendingAction = continuation ? { continuation, documentVersion: state.documentVersion } : null;
+  $("#draftActions").hidden = !pendingAction;
+  $("#draftActionLabel").textContent = `有未应用修改，处理后${action}。`;
   return false;
+}
+
+function clearPendingAction() {
+  pendingAction = null;
+  $("#draftActions").hidden = true;
+}
+
+function operationFeedback(message, error = false) {
+  const output = $("#operationFeedback");
+  output.textContent = message; output.hidden = !message;
+  output.classList.toggle("error", error);
+  if (error) setInspectorOpen(true);
+}
+
+function showFailure(error) {
+  let report = error.payload;
+  if (report?.error?.code === "VALIDATION_FAILED") {
+    try { report = typeof report.error.message === "string" ? JSON.parse(report.error.message) : report.error.message; } catch { /* Use original error below. */ }
+  }
+  if (Array.isArray(report?.diagnostics) && report.diagnostics.length) {
+    showValidation(report); switchTab("validation");
+    operationFeedback("方案校验未通过，请按诊断修复后重试。", true);
+  } else operationFeedback(error.message, true);
+}
+
+function resetDocumentFeedback() {
+  clearPendingAction(); operationFeedback("");
+  for (const id of ["savedCommand", "savedConfig"]) $(`#${id}`).textContent = "";
+  $("#savedDeployment").hidden = true;
+  $("#runModelRoot").value = "models";
+  setInspectorOpen(state.editing);
+  renderRun();
 }
 
 function toast(message, error = false) {
   const element = $("#toast");
-  element.textContent = message;
-  element.className = `show${error ? " error" : ""}`;
   clearTimeout(toast.timer);
-  toast.timer = setTimeout(() => { element.className = ""; }, 2600);
+  element.replaceChildren();
+  const text = document.createElement("span"); text.textContent = message;
+  element.append(text);
+  element.className = `show${error ? " error" : ""}`;
+  if (error) {
+    const dismiss = document.createElement("button");
+    dismiss.id = "toastDismiss"; dismiss.textContent = "关闭";
+    dismiss.setAttribute("aria-label", "关闭错误提示");
+    dismiss.addEventListener("click", () => { element.className = ""; });
+    element.append(dismiss);
+  } else toast.timer = setTimeout(() => { element.className = ""; }, 2600);
 }
 
 function effectiveNodes() {
@@ -123,9 +180,10 @@ function savePositions(positions) {
 function selectNode(id) {
   if (state.loading) return;
   if (drafts.has("node") && state.selected !== id) {
-    requireApplied(); return;
+    requireApplied("", () => selectNode(id), "切换节点"); return;
   }
   state.selected = id; state.selectedEdge = null; renderAll();
+  switchTab("properties");
 }
 
 const graph = new GraphView($("#graph"), {
@@ -225,7 +283,7 @@ async function refreshLists() {
   for (const item of allCatalog.bizs) biz.add(new Option(`${item.display_name} · ${item.biz_name}`, item.biz_name));
   if (state.pipeline) biz.value = state.pipeline.biz_name;
   const schemes = $("#pipelineSelect"); schemes.replaceChildren(new Option("选择方案", ""));
-  for (const item of pipelines.biz_definitions) schemes.add(new Option(`${item.filename} · ${item.biz_name}`, item.filename));
+  for (const item of pipelines.pipelines) schemes.add(new Option(`${item.filename} · ${item.biz_name}`, item.filename));
   if (state.pipeline) {
     await loadCatalog(state.pipeline.biz_name);
   } else {
@@ -265,9 +323,10 @@ async function openDocument(load) {
     state.pipeline = result.pipeline;
     state.filename = result.imported ? "" : result.filename;
     state.sourceName = result.imported ? result.filename : "";
-    state.revision = result.revision; state.selected = "";
+    state.revision = result.revision; state.saveTargets = result.save_targets || (state.filename ? [state.filename] : []); state.selected = "";
     $("#pipelineSelect").value = state.filename;
     drafts.clear(); state.selectedEdge = null; state.documentVersion += 1;
+    resetDocumentFeedback();
     state.savedPipeline = JSON.stringify(state.pipeline); history.reset(snapshot());
     state.pipelineVersion += 1;
     restorePositions(); clearValidation(); setDirty(false); clearCatalogSelection();
@@ -287,8 +346,9 @@ async function createPipeline() {
   try {
     const result = await write("/init", "POST", { biz, profile, empty: !profile });
     if (request !== documentRequest) return;
-    state.pipeline = result.pipeline; state.filename = ""; state.sourceName = ""; state.revision = ""; state.selected = "";
+    state.pipeline = result.pipeline; state.filename = ""; state.sourceName = ""; state.revision = ""; state.saveTargets = []; state.selected = "";
     drafts.clear(); state.selectedEdge = null; state.documentVersion += 1;
+    resetDocumentFeedback();
     state.savedPipeline = ""; history.reset(snapshot());
     state.pipelineVersion += 1;
     restorePositions(); clearValidation(); setDirty(true); clearCatalogSelection();
@@ -300,12 +360,12 @@ async function createPipeline() {
 
 async function save(saveAs, runnable = false) {
   if (!state.pipeline) return toast("没有可保存的方案", true);
-  if (state.saving || !requireApplied()) return;
+  if (state.saving || !requireApplied("", () => save(saveAs, runnable), "保存方案")) return;
   if (runnable && !$("#runProfile").value) return toast("请先选择匹配业务的运行 Profile", true);
   let filename = state.filename;
   if (saveAs || !filename) {
     const suggested = /^pipeline_[a-z0-9_]+\.json$/.test(state.sourceName) ? state.sourceName : "pipeline_new_solution.json";
-    filename = prompt("另存到 configs：方案文件名（pipeline_[a-z0-9_]+.json）", filename || suggested);
+    filename = prompt(`${runnable ? "创建 JSON 与配套 .conf" : "创建 JSON 文件；如需配套 .conf，请使用运行页的另存为可运行方案"}。\n另存到 configs：文件名（pipeline_[a-z0-9_]+.json）`, filename || suggested);
     if (!filename) return;
     saveAs = true;
   }
@@ -319,42 +379,55 @@ async function save(saveAs, runnable = false) {
     });
     if (documentVersion !== state.documentVersion) return;
     state.filename = result.filename; state.sourceName = ""; state.revision = result.revision;
+    state.saveTargets = result.save_targets || [result.filename];
     state.savedPipeline = JSON.stringify(pipeline);
     savePositions(graph.positions);
     setDirty(JSON.stringify(state.pipeline) !== state.savedPipeline);
     const pipelines = await api("/pipelines");
+    if (documentVersion !== state.documentVersion) return;
     const schemes = $("#pipelineSelect"); schemes.replaceChildren(new Option("选择方案", ""));
-    for (const item of pipelines.biz_definitions) schemes.add(new Option(`${item.filename} · ${item.biz_name}`, item.filename));
+    for (const item of pipelines.pipelines) schemes.add(new Option(`${item.filename} · ${item.biz_name}`, item.filename));
     $("#pipelineSelect").value = state.filename;
     if (result.conf_filename) {
       $("#savedCommand").textContent = `已保存 ${result.filename} 和 ${result.conf_filename}。以下命令运行已保存版本：\n\n${result.command}`;
-      $("#resolvedConfig").textContent = JSON.stringify(result.configuration, null, 2);
+      $("#savedConfig").textContent = JSON.stringify(result.configuration, null, 2);
+      $("#savedDeployment").hidden = false;
+    } else {
+      $("#savedDeployment").hidden = true;
+      $("#savedCommand").textContent = ""; $("#savedConfig").textContent = "";
     }
-    toast(state.dirty || drafts.pending ? "已保存提交时的版本，当前仍有新修改" : "方案已保存");
-  } catch (error) { toast(error.message, true); }
+    const feedback = `已保存：${state.saveTargets.map(name => `configs/${name}`).join("、")}${state.dirty || drafts.pending ? "；当前仍有新修改" : ""}`;
+    operationFeedback(feedback); toast(feedback);
+  } catch (error) { if (documentVersion === state.documentVersion) showFailure(error); }
   finally { state.saving = false; updateEditorStatus(); }
 }
 
+function showValidation(report) {
+  const output = $("#validationOutput");
+  output.replaceChildren();
+  state.errorNodeIds = new Set();
+  if (report.ok) {
+    const block = document.createElement("div"); block.className = "diagnostic ok";
+    block.textContent = `校验通过 · ${report.plan.topological_order.length} 个节点 · ${report.plan.layers.length} 个波前`;
+    output.append(block);
+  }
+  for (const item of report.diagnostics || []) {
+    if (item.node_id) state.errorNodeIds.add(item.node_id);
+    appendDiagnostic(output, item, id => { selectNode(id); switchTab("properties"); graph.focusNode?.(id); });
+  }
+  renderAll();
+}
+
 async function validate() {
-  if (!state.pipeline || !requireApplied()) return;
+  if (!state.pipeline || !requireApplied("", validate, "校验方案")) return;
+  switchTab("validation"); operationFeedback("");
   const output = $("#validationOutput");
   const pipelineVersion = state.pipelineVersion;
   clearValidation("校验中…"); renderAll();
   try {
     const report = await write("/validate", "POST", { pipeline: state.pipeline }, true);
     if (pipelineVersion !== state.pipelineVersion) return false;
-    output.replaceChildren();
-    state.errorNodeIds = new Set();
-    if (report.ok) {
-      const block = document.createElement("div"); block.className = "diagnostic ok";
-      block.textContent = `校验通过 · ${report.plan.topological_order.length} 个节点 · ${report.plan.layers.length} 个波前`;
-      output.append(block);
-    }
-    for (const item of report.diagnostics || []) {
-      if (item.node_id) state.errorNodeIds.add(item.node_id);
-      appendDiagnostic(output, item, id => { selectNode(id); switchTab("properties"); graph.focusNode?.(id); });
-    }
-    renderAll();
+    showValidation(report);
     return report.ok;
   } catch (error) {
     if (pipelineVersion === state.pipelineVersion) output.textContent = error.message;
@@ -362,26 +435,70 @@ async function validate() {
   }
 }
 
-async function runDraft() {
-  if (!state.pipeline || !requireApplied()) return;
-  try {
-    const result = await write("/runs", "POST", { pipeline: state.pipeline, profile: $("#runProfile").value, model_root: $("#runModelRoot").value });
-    $("#resolvedConfig").textContent = "正在解析本次运行的部署配置…";
-    state.jobId = result.job_id; $("#cancelButton").disabled = false; pollRun();
-  } catch (error) { toast(error.message, true); }
+function runBusy() {
+  return state.run && ["starting", "queued", "running"].includes(state.run.job.status);
 }
 
-async function pollRun() {
-  if (!state.jobId) return;
+function renderRunContext() {
+  const run = state.run;
+  $("#modelRootLabel").textContent = $("#runModelRoot").value || "未设置";
+  $("#runButton").disabled = state.loading || !state.pipeline || Boolean(runBusy()) || !$("#runProfile").value;
+  $("#cancelButton").disabled = !runBusy() || !run?.id;
+  const currentDocument = run?.documentVersion === state.documentVersion;
+  $("#runContext").textContent = !run ? "尚未运行" : !currentDocument
+    ? `其他方案：${run.filename} · ${runBusy() ? "运行中，可取消后运行当前方案" : "已结束；当前方案尚未运行"}`
+    : `${run.filename} · ${new Date(run.startedAt).toLocaleString("zh-CN", { hour12: false })}\nProfile：${run.profile} · 模型目录：${run.modelRoot}`;
+  const stale = currentDocument && !runIsCurrent(run, {
+    documentVersion: state.documentVersion, pipeline: state.pipeline, pending: drafts.pending,
+    profile: $("#runProfile").value, modelRoot: $("#runModelRoot").value,
+  });
+  $("#runFreshness").hidden = !stale;
+  $("#runFreshness").textContent = "方案或运行设置已修改。以下结果属于提交时的版本，请重新运行验证当前修改。";
+}
+
+function renderRun() {
+  renderRunContext();
+  const run = state.run;
+  const job = run?.documentVersion === state.documentVersion ? run.job : null;
+  $("#runSummary").textContent = job ? runSummary(job) + (run.pollError ? `\n获取状态失败，正在重试：${run.pollError}` : "") : "";
+  $("#runLog").textContent = job ? `${job.status}\n${job.logs || ""}${job.error ? `\n${job.error.message}` : ""}` : "尚未运行";
+  $("#runResult").textContent = job?.result ? JSON.stringify(job.result, null, 2) : "";
+  $("#resolvedConfig").textContent = job?.configuration ? JSON.stringify(job.configuration, null, 2) : "运行后显示模型路径与生效参数";
+  renderSamples($("#runSamples"), job?.result);
+}
+
+async function runDraft() {
+  if (!state.pipeline || runBusy() || !requireApplied("", runDraft, "运行方案")) return;
+  switchTab("run"); operationFeedback("");
+  const run = captureRun({ documentVersion: state.documentVersion, pipeline: state.pipeline,
+    filename: state.filename || state.sourceName || "未命名方案", profile: $("#runProfile").value, modelRoot: $("#runModelRoot").value });
+  state.run = run; renderRun();
   try {
-    const { job } = await api(`/runs/${state.jobId}`);
-    $("#runLog").textContent = `${job.status}\n${job.logs || ""}${job.error ? `\n${JSON.stringify(job.error, null, 2)}` : ""}`;
-    $("#runResult").textContent = job.result ? JSON.stringify(job.result, null, 2) : "";
-    if (job.configuration) $("#resolvedConfig").textContent = JSON.stringify(job.configuration, null, 2);
-    else if (job.error) $("#resolvedConfig").textContent = job.error.message;
-    if (["completed", "failed", "cancelled"].includes(job.status)) { $("#cancelButton").disabled = true; return; }
-    setTimeout(pollRun, 700);
-  } catch (error) { toast(error.message, true); }
+    const result = await write("/runs", "POST", { pipeline: JSON.parse(run.pipeline), profile: run.profile, model_root: run.modelRoot });
+    if (state.run !== run) return;
+    run.id = result.job_id; run.job = { status: result.status || "queued" }; renderRun(); pollRun(run);
+  } catch (error) {
+    if (state.run !== run) return;
+    run.job = { status: "failed", error: { message: error.payload?.error?.code === "VALIDATION_FAILED" ? "方案校验未通过，详情见校验页。" : error.message } }; renderRun();
+    if (run.documentVersion === state.documentVersion) showFailure(error);
+  }
+}
+
+async function pollRun(run) {
+  if (state.run !== run || !run.id) return;
+  try {
+    const { job } = await api(`/runs/${run.id}`);
+    if (state.run !== run) return;
+    run.job = job; run.pollError = ""; renderRun();
+    if (["completed", "failed", "cancelled"].includes(job.status)) return;
+    setTimeout(() => pollRun(run), 700);
+  } catch (error) {
+    if (state.run !== run) return;
+    // A failed status request does not mean the process stopped. Retain cancel
+    // and retry until the server returns its terminal status.
+    run.pollError = error.message; renderRun();
+    setTimeout(() => pollRun(run), 2000);
+  }
 }
 
 
@@ -486,8 +603,8 @@ $("#modelSelect").addEventListener("change", event => {
 $("#newModel").addEventListener("click", () => { if (requireApplied()) loadModelEditor(); });
 $("#modelType").addEventListener("change", () => renderModelFields());
 $("#modelBackend").addEventListener("change", () => { renderBackendFields(); updateBackendAvailability(); });
-$("#modelForm").addEventListener("submit", event => {
-  event.preventDefault();
+function applyModel() {
+  if (!state.editing || !$("#modelForm").reportValidity()) return false;
   if (!state.pipeline) return toast("请先新建或打开方案", true);
   if (!requireApplied("model")) return;
   try {
@@ -500,8 +617,9 @@ $("#modelForm").addEventListener("submit", event => {
     upsertModel(state.pipeline, state.catalog, editingModelId, model);
     drafts.clear("model");
     markPipelineChanged(); renderAll(); loadModelEditor(model.model_id); toast("模型已应用，请校验方案");
-  } catch (error) { toast(error.message, true); }
-});
+    return true;
+  } catch (error) { operationFeedback(error.message, true); return false; }
+}
 $("#deleteModel").addEventListener("click", () => {
   if (!state.pipeline || !editingModelId || !requireApplied()) return;
   try {
@@ -511,6 +629,7 @@ $("#deleteModel").addEventListener("click", () => {
 });
 
 function switchTab(name) {
+  setInspectorOpen(true);
   document.querySelectorAll(".tabs button").forEach(button => {
     button.classList.toggle("active", button.dataset.tab === name);
     button.setAttribute("aria-selected", String(button.dataset.tab === name));
@@ -518,7 +637,14 @@ function switchTab(name) {
   for (const tab of ["properties", "models", "json", "validation", "run"]) $(`#${tab}Tab`).hidden = tab !== name;
 }
 
+function setInspectorOpen(open) {
+  document.body.classList.toggle("inspector-open", open);
+  $("#inspectorToggle").setAttribute("aria-pressed", String(open));
+}
+
 function setEditing(editing) {
+  if (!editing && !requireApplied("", () => setEditing(false), "返回浏览")) return;
+  setInspectorOpen(editing);
   state.editing = editing;
   graph.editable = editing && !state.loading && state.catalogReady;
   document.body.classList.toggle("editing", editing);
@@ -561,7 +687,8 @@ function deleteSelectedEdge() {
 }
 
 $("#editModeButton").addEventListener("click", () => setEditing(!state.editing));
-for (const [id, name] of [["operatorsToggle", "operators-hidden"], ["inspectorToggle", "inspector-hidden"]]) {
+$("#inspectorToggle").addEventListener("click", () => setInspectorOpen(!document.body.classList.contains("inspector-open")));
+for (const [id, name] of [["operatorsToggle", "operators-hidden"]]) {
   $("#" + id).addEventListener("click", () => {
     const hidden = document.body.classList.toggle(name);
     $("#" + id).setAttribute("aria-pressed", String(!hidden));
@@ -576,18 +703,25 @@ $("#redoButton").addEventListener("click", () => restoreHistory("redo"));
 $("#deleteEdgeButton").addEventListener("click", deleteSelectedEdge);
 
 $("#rawJson").addEventListener("input", event => {
+  if (!state.editing) return;
+  operationFeedback("");
   if (event.target.value === JSON.stringify(state.pipeline, null, 2)) drafts.clear("json");
   else drafts.set("json", event.target.value);
   updateEditorStatus();
 });
 for (const [kind, selector] of [["node", "#nodeForm"], ["model", "#modelForm"]]) {
-  const remember = () => { drafts.set(kind, readFormBuffer($(selector))); updateEditorStatus(); };
+  const remember = event => {
+    event.target.setCustomValidity?.("");
+    if (!state.editing) return;
+    operationFeedback("");
+    drafts.set(kind, readFormBuffer($(selector))); updateEditorStatus();
+  };
   $(selector).addEventListener("input", remember);
   $(selector).addEventListener("change", remember);
 }
-$("#discardJson").addEventListener("click", () => { drafts.clear("json"); renderAll(); });
-$("#discardNode").addEventListener("click", () => { drafts.clear("node"); renderAll(); });
-$("#discardModel").addEventListener("click", () => { drafts.clear("model"); loadModelEditor(editingModelId); updateEditorStatus(); });
+$("#discardJson").addEventListener("click", () => { drafts.clear("json"); clearPendingAction(); renderAll(); });
+$("#discardNode").addEventListener("click", () => { drafts.clear("node"); clearPendingAction(); renderAll(); });
+$("#discardModel").addEventListener("click", () => { drafts.clear("model"); clearPendingAction(); loadModelEditor(editingModelId); updateEditorStatus(); });
 
 window.addEventListener("keydown", event => {
   const typing = event.target.closest?.("input, textarea, select, [contenteditable=true]");
@@ -614,6 +748,15 @@ $("#pipelineFile").addEventListener("change", async event => {
   try { await openDocument(() => readPipelineFile(file)); }
   catch (error) { toast(`打开文件失败：${error.message}`, true); }
 });
+$("#newEntryButton").addEventListener("click", () => {
+  setEditing(true);
+  document.body.classList.remove("operators-hidden");
+  $("#operatorsToggle").setAttribute("aria-pressed", "true");
+  $(".create-panel").open = true; $("#bizSelect").focus();
+});
+$("#quickValidateButton").addEventListener("click", validate);
+$("#openRunButton").addEventListener("click", () => switchTab("run"));
+for (const id of ["runProfile", "runModelRoot"]) $("#" + id).addEventListener("input", renderRunContext);
 $("#newButton").addEventListener("click", () => createPipeline().catch(error => toast(error.message, true)));
 $("#saveButton").addEventListener("click", () => save(false));
 $("#saveAsButton").addEventListener("click", () => save(true));
@@ -626,16 +769,24 @@ $("#operatorSearch").addEventListener("input", renderOperators);
 $("#bizSelect").addEventListener("change", filterProfiles);
 $("#validateButton").addEventListener("click", validate);
 $("#runButton").addEventListener("click", runDraft);
-$("#cancelButton").addEventListener("click", async () => { if (state.jobId) await write(`/runs/${state.jobId}`, "DELETE", {}); });
+$("#cancelButton").addEventListener("click", async () => {
+  const run = state.run;
+  if (!run?.id || !runBusy()) return;
+  try { await write(`/runs/${run.id}`, "DELETE", {}); }
+  catch (error) { if (state.run === run) operationFeedback(error.message, true); }
+});
 document.querySelectorAll(".tabs button").forEach(button => button.addEventListener("click", () => switchTab(button.dataset.tab)));
 
-$("#nodeForm").addEventListener("submit", event => {
-  event.preventDefault();
+function applyNode() {
+  if (!state.editing || !$("#nodeForm").reportValidity()) return false;
   if (!requireApplied("node")) return;
   if (!state.catalog.nodes.some(definition => definition.node_type === effectiveNodes().find(node => node.id === state.selected)?.node_type)) return toast("节点定义不可用，请重新打开方案或修正 JSON", true);
   const node = state.pipeline.pipeline.find(item => item.id === state.selected);
   const newId = $("#nodeId").value.trim();
-  if (!newId || state.pipeline.pipeline.some(item => item !== node && item.id === newId)) return toast("节点 ID 为空或重复", true);
+  if (!newId || state.pipeline.pipeline.some(item => item !== node && item.id === newId)) {
+    $("#nodeId").setCustomValidity("节点 ID 为空或重复"); $("#nodeId").reportValidity();
+    operationFeedback("节点 ID 为空或重复", true); return false;
+  }
   try {
     const config = readConfigFields($("#configFields"));
     for (const item of state.pipeline.pipeline) item.depends_on = item.depends_on.map(id => id === node.id ? newId : id);
@@ -646,8 +797,9 @@ $("#nodeForm").addEventListener("submit", event => {
     }
     node.id = newId; node.config = config; state.selected = newId;
     drafts.clear("node"); markPipelineChanged(); renderAll();
-  } catch (error) { toast(`配置 JSON 错误：${error.message}`, true); }
-});
+    return true;
+  } catch (error) { operationFeedback(`配置错误：${error.message}`, true); return false; }
+}
 
 $("#deleteNode").addEventListener("click", () => {
   if (!requireApplied()) return;
@@ -657,22 +809,22 @@ $("#deleteNode").addEventListener("click", () => {
   state.selected = ""; markPipelineChanged(); renderAll();
 });
 
-$("#applyJson").addEventListener("click", async () => {
-  if (!requireApplied("json")) return;
+async function applyJson() {
+  if (!state.editing || !requireApplied("json")) return false;
   let parsed;
   try {
     parsed = JSON.parse($("#rawJson").value);
     assertBrowsablePipeline(parsed);
   } catch (error) {
-    toast(`JSON 错误：${error.message}`, true);
-    return;
+    operationFeedback(`JSON 错误：${error.message}`, true);
+    $("#rawJson").focus(); return false;
   }
 
   const bizChanged = parsed.biz_name !== state.pipeline?.biz_name || !state.catalogReady;
   drafts.clear("json");
   state.pipeline = parsed; state.selected = ""; markPipelineChanged();
   if (bizChanged) clearCatalogSelection();
-  if (!bizChanged) { renderAll(); return; }
+  if (!bizChanged) { renderAll(); return true; }
 
   state.loading = true; graph.editable = false;
   $("#bizSelect").value = state.pipeline.biz_name;
@@ -683,7 +835,40 @@ $("#applyJson").addEventListener("click", async () => {
     clearCatalogSelection(); renderAll();
     toast(`Catalog 加载失败：${error.message}`, true);
   } finally { state.loading = false; graph.editable = state.editing; renderAll(); }
-});
+  return true;
+}
+
+const applyDraft = async kind => {
+  operationFeedback("");
+  return kind === "node" ? applyNode() : kind === "model" ? applyModel() : applyJson();
+};
+async function applyManually(kind) {
+  if (await applyDraft(kind)) clearPendingAction();
+}
+$("#nodeForm").addEventListener("submit", event => { event.preventDefault(); applyManually("node"); });
+$("#modelForm").addEventListener("submit", event => { event.preventDefault(); applyManually("model"); });
+$("#applyJson").addEventListener("click", () => applyManually("json"));
+$("#stayDraft").addEventListener("click", clearPendingAction);
+async function continueDraft(discard) {
+  const action = pendingAction;
+  if (!action || action.documentVersion !== state.documentVersion) return;
+  $("#applyContinue").disabled = true; $("#discardContinue").disabled = true;
+  try {
+    const kind = drafts.pendingExcept("")[0];
+    if (kind) {
+      if (discard) {
+        drafts.clear(kind);
+        if (kind === "model") loadModelEditor(editingModelId);
+        renderAll();
+      } else if (!await applyDraft(kind)) return;
+    }
+    if (action.documentVersion !== state.documentVersion || pendingAction !== action) return;
+    clearPendingAction();
+    await action.continuation();
+  } finally { $("#applyContinue").disabled = false; $("#discardContinue").disabled = false; }
+}
+$("#applyContinue").addEventListener("click", () => continueDraft(false));
+$("#discardContinue").addEventListener("click", () => continueDraft(true));
 
 window.addEventListener("beforeunload", event => { if (state.dirty || drafts.pending) { event.preventDefault(); event.returnValue = ""; } });
 

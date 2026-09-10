@@ -45,7 +45,7 @@ main { flex: 1; min-height: 0; display: flex; position: relative; }
 .panel { background: var(--panel); min-width: 0; min-height: 0; }
 .operators { flex: 0 0 242px; width: 242px; border-right: 1px solid var(--border); padding: 15px 12px; display: none; flex-direction: column; gap: 12px; }
 .inspector { flex: 0 0 358px; width: 358px; border-left: 1px solid var(--border); display: none; flex-direction: column; }
-.editing:not(.operators-hidden) .operators, .editing:not(.inspector-hidden) .inspector { display: flex; }
+.editing:not(.operators-hidden) .operators, .inspector-open .inspector { display: flex; }
 .panel-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .panel-title { color: #dce7f7; font-size: 12px; font-weight: 650; }
 .panel-caption { color: var(--muted); font-size: 11px; }
@@ -152,7 +152,7 @@ textarea { resize: vertical; line-height: 1.55; }
 @media (max-width: 760px) {
   .operators { flex-basis: 185px; width: 185px; }
   .inspector { flex-basis: 290px; width: 290px; }
-  .editing:not(.operators-hidden):not(.inspector-hidden) .operators { position: absolute; left: 0; top: 0; bottom: 0; z-index: 5; box-shadow: 8px 0 20px #0005; }
+  .editing.inspector-open:not(.operators-hidden) .operators { position: absolute; left: 0; top: 0; bottom: 0; z-index: 5; box-shadow: 8px 0 20px #0005; }
   .brand { font-size: 13px; }
   .brand small { font-size: 9px; }
   .toolbar { gap: 5px; }
@@ -165,9 +165,37 @@ textarea { resize: vertical; line-height: 1.55; }
   .brand { flex-basis: 100%; }
   .toolbar { width: 100%; }
   .toolbar .mode-button { margin-left: auto; }
-  .editing:not(.inspector-hidden) .inspector { position: absolute; right: 0; top: 106px; bottom: 0; width: min(330px, 88vw); z-index: 4; box-shadow: -8px 0 20px #0005; }
+  .inspector-open .inspector { position: absolute; right: 0; top: 106px; bottom: 0; width: min(330px, 88vw); z-index: 4; box-shadow: -8px 0 20px #0005; }
   .operators { position: absolute; left: 0; top: 106px; bottom: 0; z-index: 5; box-shadow: 8px 0 20px #0005; }
+}
+.inspector-status { padding: 8px 14px 0; flex: none; max-height: 35%; overflow: auto; }
+.inspector-status p { margin: 0 0 8px; overflow-wrap: anywhere; }
+.inspector-status:has(#draftActions:not([hidden])) { max-height: 50%; }
+.operation-feedback { padding: 8px; margin-bottom: 8px; border-left: 3px solid var(--green); background: #102e28; overflow-wrap: anywhere; }
+.operation-feedback.error { border-color: var(--red); background: #331d2b; }
+.run-settings { margin-bottom: 12px; }
+.run-settings label { margin-top: 10px; }
+#runTab > details { margin-top: 12px; }
+#runTab summary { cursor: pointer; color: #c7daef; }
+#runContext { white-space: pre-line; }
+.run-summary { padding: 10px 0; font-size: 13px; white-space: pre-line; }
+.run-sample { margin: 8px 0; padding: 8px; border: 1px solid var(--border); border-radius: 7px; }
+.run-sample dl { margin: 10px 0 0; }
+.run-sample dt { color: var(--muted); font-size: 11px; }
+.run-sample dd { margin: 3px 0 10px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 200px; overflow: auto; }
+body:not(.editing) .form-actions, body:not(.editing) #newModel,
+body:not(.editing) #applyJson, body:not(.editing) #discardJson { display: none; }
+body:not(.editing) #draftActions .form-actions { display: flex; }
+body:not(.editing) #nodeForm input, body:not(.editing) #nodeForm textarea,
+body:not(.editing) #modelForm input, body:not(.editing) #modelForm textarea { opacity: 1; }
+@media (min-width: 981px) {
+  .app-header { gap: 14px; }
+  .pipeline-picker { min-width: 240px; }
 }
 @media (prefers-reduced-motion: reduce) {
   button, #toast { transition: none; }
 }
+
+#toast.show.error { display: flex; align-items: flex-start; gap: 12px; pointer-events: auto; max-height: 40vh; overflow: auto; }
+#toast.error span { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+#toast.error button { flex: none; }

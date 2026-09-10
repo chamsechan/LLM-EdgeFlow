@@ -185,3 +185,25 @@ assert.throws(() => upsertModel(pipeline, { models: [modelDefinition], backends:
 }), /当前构建无兼容 Backend/);
 assert.deepEqual(pipeline, { models: [], pipeline: [] }, "unavailable model rejection must preserve the document");
 console.log("Studio single-file import and model availability checks passed");
+
+const workflowSource = readFileSync(new URL("../../tools/pipeline_studio/web/workflow.js", import.meta.url), "utf8");
+const { captureRun, runIsCurrent, runSummary, renderSamples } = await import(`data:text/javascript;base64,${Buffer.from(workflowSource).toString("base64")}`);
+const runInput = { documentVersion: 1, pipeline: { pipeline: [] }, filename: "a.json", profile: "rules", modelRoot: "models" };
+const run = captureRun(runInput);
+assert.equal(runIsCurrent(run, runInput), true);
+runInput.pipeline.pipeline.push({ id: "edited" });
+assert.equal(runIsCurrent(run, runInput), false, "edits cannot mutate the submitted snapshot");
+runInput.pipeline.pipeline.pop();
+assert.equal(runIsCurrent(run, runInput), true, "undo can restore the submitted content");
+for (const changed of [{ pending: true }, { documentVersion: 2 }, { profile: "other" }, { modelRoot: "." }]) {
+  assert.equal(runIsCurrent(run, { ...runInput, ...changed }), false);
+}
+assert.match(runSummary({ status: "completed", result: { "summary.json": { total_samples: 2, success_count: 1, failed_count: 1 } } }), /失败 1 条/);
+assert.doesNotMatch(runSummary({ status: "completed" }), /成功.*条/, "process completion must not invent sample successes");
+assert.match(runSummary({ status: "failed", error: { message: "missing asset" } }), /missing asset/);
+const samples = new FormElement("div"); samples.replaceChildren = () => { samples.children = []; };
+renderSamples(samples, { "results.jsonl": [{ request_id: 42, status: 0, output: { answer: unsafeText } }] });
+assert.equal(samples.children[0].children[1].children[1].textContent, unsafeText, "sample output must be rendered as text");
+renderSamples(samples, null);
+assert.equal(samples.children.length, 0, "changing documents must remove old sample cards");
+console.log("Studio run snapshot, sample status and safe result rendering checks passed");
