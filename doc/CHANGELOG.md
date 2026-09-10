@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-09-10 平台公共模拟声明隔离（RFC-0047）
+
+- 当前环境使用的业务 DTO、平台通用数据结构、计算平台枚举、Operator 创建/控制参数、命名 I/O、函数表类型及错误码集中到 `include/platform_mock/`，明确与公司真实公共头的区别。
+- 框架函数入口继续位于 `edgeflow/`，旧包含路径保留转发；类型名称、枚举值、布局、函数签名和运行时行为保持不变。
+- Demo 数据结构引用、CMake 头视图、C11 检查和依赖隔离自测同步更新；目录清单及内网接入边界见[平台模拟说明](../include/platform_mock/README.md)。
+
+## 2026-09-10 源码布局与命名整理（RFC-0046）
+
+- SDK 新的公开头统一使用 `edgeflow/`；旧公共头继续转发，函数、类型、结构布局和动态库名称保持兼容。公开 CMake 目标只传播明确列举的调用头，扩展和内部头分别管理。
+- 业务 Adapter 与 Operator bridge 相邻放入 `src/adapter/biz/`，内部运行时头与实现相邻；bridge 使用独立扩展契约与注册入口。
+- Adapter 标识、业务契约集合和 SDK ABI 版本使用明确命名；NodeRegistry 注册实现移至源码。逻辑端口与业务黑板端口采用不同源码类型，Catalog JSON 保持现有字段。
+- 拆分 Node/业务/端口元数据与 Catalog 服务，张量实现从推理元数据头移出；更正当前架构日志和 Demo 业务名称。
+- 示例配置统一采用方案与部署变体命名，更新 Profile、Studio、CI 与测试引用；旧新路径见[配置迁移表](../configs/README.md)，源码接口迁移见[布局与命名](dev_guide/source_layout.md)。
+
 ## 2026-09-08 方案开发者工作路径修复（RFC-0045）
 
 - Studio 展示 Validator 的端口、相关节点和修复建议，保留节点定位；诊断文本按纯文本渲染。

@@ -10,11 +10,11 @@
 #include <vector>
 
 #include "common_nodes/support/compiled_text_regex.h"
-#include "company_alg_log.h"
 #include "contracts/config_schema_validation.h"
 #include "contracts/control_payload.h"
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
+#include "edgeflow/log.h"
 #include "nodes/node_base.h"
 #include "nodes/node_error_codes.h"
 

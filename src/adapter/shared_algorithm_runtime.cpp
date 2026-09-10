@@ -7,11 +7,11 @@
 #include "adapter/deployment_model_resolver.h"
 #include "adapter/operator/operator_biz_bridge_registry.h"
 #include "adapter/operator/operator_value_type_registry.h"
-#include "company_alg_log.h"
 #include "contracts/diagnostic.h"
 #include "core/alg_context.h"
 #include "core/node_registry.h"
 #include "core/session_context.h"
+#include "edgeflow/log.h"
 #include "engine/backend_registry.h"
 #include "engine/model_registry.h"
 
@@ -49,11 +49,11 @@ int SharedAlgorithmRuntime::GlobalInit() noexcept {
       return COMPANY_ALG_ERR_REGISTRY_CONFLICT;  // -6
     }
 
-    // 2. NodeFactory 冲突审计
-    if (NodeFactory::Instance().HasConflict()) {
+    // 2. NodeRegistry 冲突审计
+    if (NodeRegistry::Instance().HasConflict()) {
       ALG_LOG_ERROR(
           "[SharedAlgorithmRuntime] GlobalInit failed: Registration conflict "
-          "in NodeFactory.\n");
+          "in NodeRegistry.\n");
       return COMPANY_ALG_ERR_REGISTRY_CONFLICT;  // -6
     }
 
@@ -154,7 +154,7 @@ int SharedAlgorithmRuntime::CreateFromConfigFile(
     options.device_id = device_id;
     options.has_device_id = (device_id >= 0);
     options.biz_type = static_cast<int>(biz_type);
-    options.biz_name = adapter->BizName();
+    options.biz_name = adapter->AdapterName();
 
     runtime->pipeline_->GetSessionContext().SetRuntimeOptions(options);
 
@@ -178,7 +178,8 @@ int SharedAlgorithmRuntime::CreateFromConfigFile(
     if (!adapter->ValidatePipelineBinding(runtime->pipeline_->GetBizName())) {
       if (out_error) {
         *out_error = "Pipeline biz_name '" + runtime->pipeline_->GetBizName() +
-                     "' does not match adapter '" + adapter->BizName() + "'";
+                     "' does not match adapter '" + adapter->AdapterName() +
+                     "'";
       }
       return COMPANY_ALG_ERR_UNSUPPORTED_BIZ;  // -5
     }
@@ -242,7 +243,7 @@ int SharedAlgorithmRuntime::CreateFromPipelineJson(
     options.device_id = device_id;
     options.has_device_id = (device_id >= 0);
     options.biz_type = static_cast<int>(biz_type);
-    options.biz_name = adapter->BizName();
+    options.biz_name = adapter->AdapterName();
 
     runtime->pipeline_->GetSessionContext().SetRuntimeOptions(options);
 
@@ -264,7 +265,8 @@ int SharedAlgorithmRuntime::CreateFromPipelineJson(
     if (!adapter->ValidatePipelineBinding(runtime->pipeline_->GetBizName())) {
       if (out_error) {
         *out_error = "Pipeline biz_name '" + runtime->pipeline_->GetBizName() +
-                     "' does not match adapter '" + adapter->BizName() + "'";
+                     "' does not match adapter '" + adapter->AdapterName() +
+                     "'";
       }
       return COMPANY_ALG_ERR_UNSUPPORTED_BIZ;  // -5
     }
@@ -308,8 +310,9 @@ int SharedAlgorithmRuntime::ExecuteBatch(const void** inputs, int num_inputs,
         adapter_->Unpack(inputs, num_inputs, &req_ctx, &unpack_status);
     if (unpack_ret != 0) {
       if (out_error) {
-        *out_error = "Unpack failed for " + std::string(adapter_->BizName()) +
-                     ": " + unpack_status.ToString();
+        *out_error = "Unpack failed for " +
+                     std::string(adapter_->AdapterName()) + ": " +
+                     unpack_status.ToString();
       }
       return unpack_ret;
     }
@@ -334,7 +337,7 @@ int SharedAlgorithmRuntime::ExecuteBatch(const void** inputs, int num_inputs,
             : adapter_->Pack(&req_ctx, outputs, num_outputs, &pack_status);
     if (pack_ret != 0) {
       if (out_error) {
-        *out_error = "Pack failed for " + std::string(adapter_->BizName()) +
+        *out_error = "Pack failed for " + std::string(adapter_->AdapterName()) +
                      ": " + pack_status.ToString();
       }
       return pack_ret;

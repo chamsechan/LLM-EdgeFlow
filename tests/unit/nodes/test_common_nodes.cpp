@@ -57,7 +57,7 @@ class CommonNodesTest : public ::testing::Test {
 
 // 1. TextTemplateNode: placeholder validation, join, overflow policy, control
 TEST_F(CommonNodesTest, TextTemplateNodeComprehensive) {
-  auto node = NodeFactory::Instance().Create("TextTemplateNode");
+  auto node = NodeRegistry::Instance().Create("TextTemplateNode");
   ASSERT_NE(node, nullptr);
 
   // 1.1 Invalid placeholder should fail init
@@ -114,7 +114,7 @@ TEST_F(CommonNodesTest, TextTemplateNodeComprehensive) {
 
 // 1.4 TextTemplateNode attributes and sub_id preservation
 TEST_F(CommonNodesTest, TextTemplateNodeAttributesAndSubIdPreservation) {
-  auto node = NodeFactory::Instance().Create("TextTemplateNode");
+  auto node = NodeRegistry::Instance().Create("TextTemplateNode");
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {
@@ -152,7 +152,7 @@ TEST_F(CommonNodesTest, TextTemplateNodeAttributesAndSubIdPreservation) {
 
 // 2. TextChunkNode: chunking, overlap, provenance
 TEST_F(CommonNodesTest, TextChunkNodeComprehensive) {
-  auto node = NodeFactory::Instance().Create("TextChunkNode");
+  auto node = NodeRegistry::Instance().Create("TextChunkNode");
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {{"chunk_size", 10}, {"overlap", 2}};
@@ -175,7 +175,7 @@ TEST_F(CommonNodesTest, TextChunkNodeComprehensive) {
 
 // 3. TextRuleMatchNode: categories, regex named captures, constants, control
 TEST_F(CommonNodesTest, TextRuleMatchNodeComprehensive) {
-  auto node = NodeFactory::Instance().Create("TextRuleMatchNode");
+  auto node = NodeRegistry::Instance().Create("TextRuleMatchNode");
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {{"categories", {{"GREETING", {"你好", "hello"}}}},
@@ -233,7 +233,7 @@ TEST_F(CommonNodesTest, TextRuleMatchNodeComprehensive) {
 // 4. StructuredJsonParseNode: direct, markdown block, truncated input, failure
 // policies
 TEST_F(CommonNodesTest, StructuredJsonParseNodeComprehensive) {
-  auto node = NodeFactory::Instance().Create("StructuredJsonParseNode");
+  auto node = NodeRegistry::Instance().Create("StructuredJsonParseNode");
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {{"fallback_json", "{\"entities\":[]}"},
@@ -271,7 +271,7 @@ TEST_F(CommonNodesTest, StructuredJsonParseNodeComprehensive) {
 
 // 5. TextEmbeddingNode: L2 normalization & session-level cache
 TEST_F(CommonNodesTest, TextEmbeddingNodeComprehensive) {
-  auto node = NodeFactory::Instance().Create("TextEmbeddingNode");
+  auto node = NodeRegistry::Instance().Create("TextEmbeddingNode");
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {{"bind_model", "embed_model_v1"},
@@ -302,7 +302,7 @@ TEST_F(CommonNodesTest, TextEmbeddingNodeComprehensive) {
 
 // 6. VectorTopKNode: cosine similarity & shared candidate pool
 TEST_F(CommonNodesTest, VectorTopKNodeComprehensive) {
-  auto node = NodeFactory::Instance().Create("VectorTopKNode");
+  auto node = NodeRegistry::Instance().Create("VectorTopKNode");
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {{"top_k", 2}, {"min_score", 0.0}, {"metric", "cosine"}};
@@ -340,7 +340,7 @@ TEST_F(CommonNodesTest, VectorTopKNodeComprehensive) {
 
 // 7. TextRerankNode: cross-encoder reranking
 TEST_F(CommonNodesTest, TextRerankNodeComprehensive) {
-  auto node = NodeFactory::Instance().Create("TextRerankNode");
+  auto node = NodeRegistry::Instance().Create("TextRerankNode");
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {{"bind_model", "rerank_model_v1"}, {"top_k", 1}};
@@ -571,7 +571,7 @@ TEST_F(CommonNodesTest, TextEmbeddingNodeSingleFlightSessionCaching) {
   ASSERT_TRUE(session_ctx_->GetModelManager().RegisterModel(
       "counting_embed_model", counting_model, "test-v1"));
 
-  auto node = NodeFactory::Instance().Create("TextEmbeddingNode");
+  auto node = NodeRegistry::Instance().Create("TextEmbeddingNode");
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {{"bind_model", "counting_embed_model"},
@@ -623,7 +623,7 @@ TEST_F(CommonNodesTest, TextEmbeddingNodeSingleFlightSessionCaching) {
 
 // 8. LlmGenerateNode: prompt inference
 TEST_F(CommonNodesTest, LlmGenerateNodeComprehensive) {
-  auto node = NodeFactory::Instance().Create("LlmGenerateNode");
+  auto node = NodeRegistry::Instance().Create("LlmGenerateNode");
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {
@@ -644,7 +644,7 @@ TEST_F(CommonNodesTest, LlmGenerateNodeComprehensive) {
 
 // 9. AsrTranscribeNode: speech transcription
 TEST_F(CommonNodesTest, AsrTranscribeNodeComprehensive) {
-  auto node = NodeFactory::Instance().Create("AsrTranscribeNode");
+  auto node = NodeRegistry::Instance().Create("AsrTranscribeNode");
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {{"bind_model", "asr_model_v1"}};
@@ -665,7 +665,7 @@ TEST_F(CommonNodesTest, AsrTranscribeNodeComprehensive) {
 
 // 10. OcrDetectNode: OCR bounding box & text recognition
 TEST_F(CommonNodesTest, OcrDetectNodeComprehensive) {
-  auto node = NodeFactory::Instance().Create("OcrDetectNode");
+  auto node = NodeRegistry::Instance().Create("OcrDetectNode");
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {{"bind_model", "ocr_model_v1"}};
@@ -687,7 +687,7 @@ TEST_F(CommonNodesTest, OcrDetectNodeComprehensive) {
 
 // 11. TextCorpusSourceNode: static corpus emission
 TEST_F(CommonNodesTest, TextCorpusSourceNodeComprehensive) {
-  auto node = NodeFactory::Instance().Create("TextCorpusSourceNode");
+  auto node = NodeRegistry::Instance().Create("TextCorpusSourceNode");
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {
@@ -705,7 +705,7 @@ TEST_F(CommonNodesTest, TextCorpusSourceNodeComprehensive) {
 
 // 12. StructuredJsonParseNode required_fields validation test
 TEST_F(CommonNodesTest, StructuredJsonParseNodeRequiredFields) {
-  auto node = NodeFactory::Instance().Create("StructuredJsonParseNode");
+  auto node = NodeRegistry::Instance().Create("StructuredJsonParseNode");
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {{"required_fields", {"risk_level", "risk_score"}},
@@ -737,7 +737,7 @@ TEST_F(CommonNodesTest, StructuredJsonParseNodeRequiredFields) {
 
 // 13. TextTemplateNode missing variable failure test
 TEST_F(CommonNodesTest, TextTemplateNodeMissingVariableFail) {
-  auto node = NodeFactory::Instance().Create("TextTemplateNode");
+  auto node = NodeRegistry::Instance().Create("TextTemplateNode");
   ASSERT_NE(node, nullptr);
 
   // allow_dynamic_attributes is false by default
@@ -808,7 +808,7 @@ nlohmann::json CustomPipeline(const std::string& biz) {
 template <typename Input, typename Output>
 void CheckScaffoldExecution(const std::string& name, const std::string& model,
                             SessionContext* session) {
-  auto node = NodeFactory::Instance().Create(name);
+  auto node = NodeRegistry::Instance().Create(name);
   ASSERT_NE(node, nullptr);
   // Resolved keys differ from logical names: exercise typed binding too.
   ValidatedNodePlan plan;
@@ -842,7 +842,7 @@ TEST_F(CommonNodesTest, PromptRendersOriginalTemplateAndIsolatesRequests) {
   auto model = std::make_shared<PromptContractModel>();
   ASSERT_TRUE(session_ctx_->GetModelManager().RegisterModel("prompt_contract",
                                                             model, "v1"));
-  auto node = NodeFactory::Instance().Create("PromptGuidedLlmNode");
+  auto node = NodeRegistry::Instance().Create("PromptGuidedLlmNode");
   const nlohmann::json config = {
       {"bind_model", "prompt_contract"},
       {"prompt_prefix", "system {input}"},
@@ -895,8 +895,8 @@ TEST_F(CommonNodesTest, PromptStandardSyntaxMatchesTextTemplateNode) {
        "{\"nested\":{\"context\":\"" + value + "\"}}"}};
   for (const auto& [pattern, expected] : cases) {
     SCOPED_TRACE(pattern);
-    auto common = NodeFactory::Instance().Create("TextTemplateNode");
-    auto custom = NodeFactory::Instance().Create("PromptGuidedLlmNode");
+    auto common = NodeRegistry::Instance().Create("TextTemplateNode");
+    auto custom = NodeRegistry::Instance().Create("PromptGuidedLlmNode");
     ASSERT_TRUE(
         InitNodeForTest(*common, {{"template", pattern}}, session_ctx_.get()));
     ASSERT_TRUE(InitNodeForTest(*custom,
@@ -940,7 +940,7 @@ TEST_F(CommonNodesTest, PromptDoubleBracesRequireExplicitMigration) {
       EXPECT_NE(result.report.ToJson().dump().find("template_syntax=legacy"),
                 std::string::npos);
       config["bind_model"] = "prompt_contract";
-      auto node = NodeFactory::Instance().Create("PromptGuidedLlmNode");
+      auto node = NodeRegistry::Instance().Create("PromptGuidedLlmNode");
       EXPECT_FALSE(InitNodeForTest(*node, config, session_ctx_.get()));
     }
   }
@@ -951,7 +951,7 @@ TEST_F(CommonNodesTest, PromptDoubleBracesRequireExplicitMigration) {
            {"legacy", "{{input}}|{input}|{{\"value\": 1}}",
             "{input}|value|{\"value\": 1}"}}) {
     SCOPED_TRACE(syntax);
-    auto node = NodeFactory::Instance().Create("PromptGuidedLlmNode");
+    auto node = NodeRegistry::Instance().Create("PromptGuidedLlmNode");
     ASSERT_TRUE(InitNodeForTest(*node,
                                 {{"bind_model", "prompt_contract"},
                                  {"template_syntax", syntax},
@@ -971,7 +971,7 @@ TEST_F(CommonNodesTest, PromptAndGeneratedLlmNodesFailWithoutPublishing) {
   for (const char* name : {"PromptGuidedLlmNode", "ScaffoldModelLlmNode",
                            "ScaffoldUnaryLlmNode", "ScaffoldTutorialLlmNode"}) {
     SCOPED_TRACE(name);
-    auto node = NodeFactory::Instance().Create(name);
+    auto node = NodeRegistry::Instance().Create(name);
     ASSERT_NE(node, nullptr);
     ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "prompt_contract"}},
                                 session_ctx_.get()));
@@ -1000,7 +1000,7 @@ TEST_F(CommonNodesTest, PromptAndGeneratedLlmNodesFailWithoutPublishing) {
 }
 
 TEST_F(CommonNodesTest, PromptContextIsExplicitAndRequiredWhenUsed) {
-  auto node = NodeFactory::Instance().Create("PromptGuidedLlmNode");
+  auto node = NodeRegistry::Instance().Create("PromptGuidedLlmNode");
   auto model = std::make_shared<PromptContractModel>();
   ASSERT_TRUE(session_ctx_->GetModelManager().RegisterModel("prompt_contract",
                                                             model, "v1"));
@@ -1055,7 +1055,7 @@ TEST_F(CommonNodesTest, PromptConfigurationRejectedByValidatorAndInit) {
     EXPECT_FALSE(PipelineValidator::ValidateAndPlan(doc).report.ok);
     auto config = bad;
     config["bind_model"] = "llm_model_v1";
-    auto node = NodeFactory::Instance().Create("PromptGuidedLlmNode");
+    auto node = NodeRegistry::Instance().Create("PromptGuidedLlmNode");
     EXPECT_FALSE(InitNodeForTest(*node, config, session_ctx_.get()));
   }
   auto doc = CustomPipeline("doc_qa");
@@ -1080,7 +1080,7 @@ TEST_F(CommonNodesTest, CustomAndGeneratedNodesUseStrictNativePlans) {
             : nlohmann::json{{"bind_model", "entity_llm"}};
     auto plan = PipelineValidator::ValidateAndPlan(doc);
     ASSERT_TRUE(plan.report.ok) << plan.report.ToJson().dump(2);
-    auto node = NodeFactory::Instance().Create(name);
+    auto node = NodeRegistry::Instance().Create(name);
     // Use the actual native plan, including normalized configuration and keys.
     const auto& node_plan = plan.node_plans.at("custom_prompt");
     ASSERT_TRUE(node->Init({&node_plan, nullptr, session_ctx_.get()}));
@@ -1103,7 +1103,7 @@ TEST_F(CommonNodesTest, StarterTextFunctionsFollowTheDocumentedExercise) {
   document["pipeline"][0]["config"] = {{"bind_model", "entity_llm"}};
   const auto plan = PipelineValidator::ValidateAndPlan(document);
   ASSERT_TRUE(plan.report.ok) << plan.report.ToJson().dump(2);
-  auto node = NodeFactory::Instance().Create("ScaffoldTutorialLlmNode");
+  auto node = NodeRegistry::Instance().Create("ScaffoldTutorialLlmNode");
   ASSERT_NE(node, nullptr);
   ASSERT_TRUE(node->Init(
       {&plan.node_plans.at("custom_prompt"), nullptr, session_ctx_.get()}));
@@ -1148,7 +1148,7 @@ TEST_F(CommonNodesTest, GeneratedCapabilityTemplatesCompileBindAndExecute) {
   }
   CheckScaffoldExecution<ImageRefBatch, OcrDocumentBatch>(
       "ScaffoldModelOcrNode", "ocr_model_v1", session_ctx_.get());
-  auto node = NodeFactory::Instance().Create("ScaffoldConversionNode");
+  auto node = NodeRegistry::Instance().Create("ScaffoldConversionNode");
   ASSERT_TRUE(
       InitNodeForTest(*node, nlohmann::json::object(), session_ctx_.get()));
   AlgContext ctx;

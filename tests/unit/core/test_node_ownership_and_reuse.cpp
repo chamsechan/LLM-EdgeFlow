@@ -86,7 +86,7 @@ TEST(NodeOwnershipAndReuseTest, CommonEmbeddingAndVectorTopKExecution) {
       "embed_model_v2", std::make_shared<DistinctMockEmbeddingModel>(),
       "test-v1");
 
-  auto embed_node = NodeFactory::Instance().Create("TextEmbeddingNode");
+  auto embed_node = NodeRegistry::Instance().Create("TextEmbeddingNode");
   ASSERT_NE(embed_node, nullptr);
 
   nlohmann::json node_cfg = {{"bind_model", "embed_model_v2"},

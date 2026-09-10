@@ -25,23 +25,23 @@ class VectorTopKNodeTest : public ::testing::Test {
 
 // 1. Init & Config Validation
 TEST_F(VectorTopKNodeTest, InitAndConfigValidation) {
-  auto node = NodeFactory::Instance().Create("VectorTopKNode");
+  auto node = NodeRegistry::Instance().Create("VectorTopKNode");
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {{"top_k", 2}, {"min_score", 0.0}, {"metric", "cosine"}};
   EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
 
-  auto invalid_node1 = NodeFactory::Instance().Create("VectorTopKNode");
+  auto invalid_node1 = NodeRegistry::Instance().Create("VectorTopKNode");
   ASSERT_NE(invalid_node1, nullptr);
   EXPECT_FALSE(
       InitNodeForTest(*invalid_node1, {{"top_k", -1}}, session_ctx_.get()));
 
-  auto invalid_node2 = NodeFactory::Instance().Create("VectorTopKNode");
+  auto invalid_node2 = NodeRegistry::Instance().Create("VectorTopKNode");
   ASSERT_NE(invalid_node2, nullptr);
   EXPECT_FALSE(InitNodeForTest(*invalid_node2, {{"metric", "invalid_metric"}},
                                session_ctx_.get()));
 
-  auto invalid_node3 = NodeFactory::Instance().Create("VectorTopKNode");
+  auto invalid_node3 = NodeRegistry::Instance().Create("VectorTopKNode");
   ASSERT_NE(invalid_node3, nullptr);
   EXPECT_FALSE(
       InitNodeForTest(*invalid_node3, {{"top_k", 2.5}}, session_ctx_.get()));
@@ -49,7 +49,7 @@ TEST_F(VectorTopKNodeTest, InitAndConfigValidation) {
 
 // 2. Process Top-K Ranking with Shared Candidates
 TEST_F(VectorTopKNodeTest, ProcessRankingSharedCandidates) {
-  auto node = NodeFactory::Instance().Create("VectorTopKNode");
+  auto node = NodeRegistry::Instance().Create("VectorTopKNode");
   ASSERT_NE(node, nullptr);
   ASSERT_TRUE(InitNodeForTest(
       *node, {{"top_k", 2}, {"min_score", 0.0}, {"candidate_scope", "shared"}},
@@ -84,7 +84,7 @@ TEST_F(VectorTopKNodeTest, ProcessRankingSharedCandidates) {
 
 // 3. Missing Queries Fails Closed
 TEST_F(VectorTopKNodeTest, MissingInputFailsClosed) {
-  auto node = NodeFactory::Instance().Create("VectorTopKNode");
+  auto node = NodeRegistry::Instance().Create("VectorTopKNode");
   ASSERT_NE(node, nullptr);
   ASSERT_TRUE(InitNodeForTest(*node, {{"top_k", 2}}, session_ctx_.get()));
 
@@ -96,7 +96,7 @@ TEST_F(VectorTopKNodeTest, MissingInputFailsClosed) {
 
 namespace llm_edgeflow {
 TEST_F(VectorTopKNodeTest, PrivateRequestZeroCandidatesAreNotBroadcast) {
-  auto node = NodeFactory::Instance().Create("VectorTopKNode");
+  auto node = NodeRegistry::Instance().Create("VectorTopKNode");
   ASSERT_TRUE(
       InitNodeForTest(*node, nlohmann::json::object(), session_ctx_.get()));
   AlgContext ctx;
@@ -107,7 +107,7 @@ TEST_F(VectorTopKNodeTest, PrivateRequestZeroCandidatesAreNotBroadcast) {
   EXPECT_TRUE(ctx.Read<RankedTextBatch>("ranked")->empty());
 }
 TEST_F(VectorTopKNodeTest, RejectsDimensionMismatch) {
-  auto node = NodeFactory::Instance().Create("VectorTopKNode");
+  auto node = NodeRegistry::Instance().Create("VectorTopKNode");
   ASSERT_TRUE(
       InitNodeForTest(*node, nlohmann::json::object(), session_ctx_.get()));
   AlgContext ctx;

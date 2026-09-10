@@ -7,7 +7,7 @@
 
 #include "adapter/operator/operator_biz_bridge_registry.h"
 #include "adapter/operator/operator_output_pool.h"
-#include "operator/operator_interface.h"
+#include "edgeflow/operator/interface.h"
 
 namespace llm_edgeflow {
 

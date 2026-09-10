@@ -26,11 +26,13 @@ Capability Nodes  Request-stateless Nodes
 Model Execution   Model semantics / neutral execution protocols / Backends
 ```
 
-- **Integration** — `include/company_alg_interface.h`, `include/operator/`,
+- **Integration** — `include/edgeflow/c_api.h`, `include/edgeflow/operator/`, `include/platform_mock/`,
   `include/adapter/`, and `src/adapter/`. Public C headers remain C11-only. All six exported
   `Alg_*` functions keep `noexcept`, `catch (const std::exception&)`, and `catch (...)`
   barriers. Biz-specific conversion belongs in registered `IBizAdapter` and Operator bridge
   implementations, not in central dispatch switches or lower layers.
+  Existing local substitutes for platform public types live only in `include/platform_mock/`;
+  these are not company SDK headers. Keep framework entrypoints and helpers under `edgeflow/`.
 - **Orchestration** — `include/core/` and `src/core/`. `PipelineValidator` is the single validation
   and planning implementation. Runtime Pipeline documents use explicit `id` and `depends_on`;
   `Pipeline` consumes `ValidatedPipelinePlan` without reparsing or resorting. Request values

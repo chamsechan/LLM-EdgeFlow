@@ -9,8 +9,8 @@
 #include <utility>
 #include <vector>
 
-#include "company_alg_log.h"
 #include "contracts/diagnostic.h"
+#include "edgeflow/log.h"
 
 #ifdef HAVE_ONNXRUNTIME
 #include "onnxruntime_cxx_api.h"

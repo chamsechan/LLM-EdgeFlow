@@ -49,7 +49,9 @@ class TemplateNestedPointerTreeAdapter : public IBizAdapter {
     return static_cast<CompanyAlgBizType>(104);
   }
 
-  const char* BizName() const override { return "TemplateNestedPointerTree"; }
+  const char* AdapterName() const override {
+    return "TemplateNestedPointerTree";
+  }
 
   const AdapterDescriptor& GetDescriptor() const override {
     static AdapterDescriptor desc{
@@ -123,10 +125,11 @@ class TemplateNestedPointerTreeAdapter : public IBizAdapter {
   int Unpack(const void** inputs, int num_inputs, AlgContext* ctx,
              AdapterStatus* out_status = nullptr) const override {
     int valid_ret = AdapterValidationHelper::ValidateBatchInputs(
-        inputs, num_inputs, GetDescriptor().max_batch_size, BizName());
+        inputs, num_inputs, GetDescriptor().max_batch_size, AdapterName());
     if (valid_ret != 0 || !ctx) {
       return AdapterValidationHelper::ReturnInvalidInput(
-          out_status, "Batch envelope validation failed", "inputs", BizName());
+          out_status, "Batch envelope validation failed", "inputs",
+          AdapterName());
     }
 
     std::vector<uint64_t> req_ids;
@@ -139,17 +142,18 @@ class TemplateNestedPointerTreeAdapter : public IBizAdapter {
     for (int i = 0; i < num_inputs; ++i) {
       auto* in = static_cast<const TemplateNestedTreeInput*>(inputs[i]);
       if (!AdapterValidationHelper::RequireNotNull("inputs[i]", in, i,
-                                                   BizName(), out_status)) {
+                                                   AdapterName(), out_status)) {
         return COMPANY_ALG_ERR_INVALID_INPUT;
       }
-      if (!AdapterValidationHelper::RequireNotNull(
-              "inputs[i].root_node", in->root_node, i, BizName(), out_status)) {
+      if (!AdapterValidationHelper::RequireNotNull("inputs[i].root_node",
+                                                   in->root_node, i,
+                                                   AdapterName(), out_status)) {
         return COMPANY_ALG_ERR_INVALID_INPUT;
       }
 
       TemplateTreeNodeDto root_dto;
       if (!UnpackNodeRecursive(in->root_node, &root_dto, 1, kMaxTreeDepth, i,
-                               BizName(), out_status)) {
+                               AdapterName(), out_status)) {
         return COMPANY_ALG_ERR_INVALID_INPUT;
       }
 
@@ -157,12 +161,12 @@ class TemplateNestedPointerTreeAdapter : public IBizAdapter {
       root_dtos.push_back(std::move(root_dto));
     }
 
-    if (!AdapterValidationHelper::PublishContextValue(*ctx, "raw_request_ids",
-                                                      std::move(req_ids),
-                                                      BizName(), out_status) ||
-        !AdapterValidationHelper::PublishContextValue(*ctx, "tree_root_dtos",
-                                                      std::move(root_dtos),
-                                                      BizName(), out_status)) {
+    if (!AdapterValidationHelper::PublishContextValue(
+            *ctx, "raw_request_ids", std::move(req_ids), AdapterName(),
+            out_status) ||
+        !AdapterValidationHelper::PublishContextValue(
+            *ctx, "tree_root_dtos", std::move(root_dtos), AdapterName(),
+            out_status)) {
       return COMPANY_ALG_ERR_INVALID_INPUT;
     }
     return COMPANY_ALG_SUCCESS;
@@ -178,7 +182,7 @@ class TemplateNestedPointerTreeAdapter : public IBizAdapter {
 
     int count = static_cast<int>(res->size());
     int valid_ret = AdapterValidationHelper::ValidateBatchOutputs(
-        outputs, num_outputs, count, BizName(), out_status);
+        outputs, num_outputs, count, AdapterName(), out_status);
     if (valid_ret != 0) return valid_ret;
 
     for (int i = 0; i < count; ++i) {
@@ -190,7 +194,7 @@ class TemplateNestedPointerTreeAdapter : public IBizAdapter {
       if (!AdapterValidationHelper::CheckedStringCopy(
               out_ptr->traversal_path, sizeof(out_ptr->traversal_path),
               (*res)[i].traversal_path.c_str(), "outputs[i].traversal_path", i,
-              BizName(), out_status)) {
+              AdapterName(), out_status)) {
         return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
       }
     }

@@ -39,8 +39,8 @@ static std::vector<std::string> SnapshotExecutionTrace() {
 }
 
 inline NodeDefinition MakeDagNodeDef(const std::string& type,
-                                     std::vector<PortDefinition> inputs,
-                                     std::vector<PortDefinition> outputs) {
+                                     std::vector<NodePortDefinition> inputs,
+                                     std::vector<NodePortDefinition> outputs) {
   NodeDefinition def;
   def.node_type = type;
   def.category = "test";

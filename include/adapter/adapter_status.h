@@ -4,7 +4,7 @@
 #include <sstream>
 #include <string>
 
-#include "company_alg_interface.h"
+#include "edgeflow/c_api.h"
 
 namespace llm_edgeflow {
 
@@ -45,37 +45,37 @@ class AdapterStatus {
   AdapterStatus() : code_(COMPANY_ALG_SUCCESS), sample_index_(-1) {}
 
   AdapterStatus(int code, std::string message, std::string field_path = "",
-                int sample_index = -1, std::string biz_name = "")
+                int sample_index = -1, std::string adapter_name = "")
       : code_(code),
         message_(std::move(message)),
         field_path_(std::move(field_path)),
         sample_index_(sample_index),
-        biz_name_(std::move(biz_name)) {}
+        adapter_name_(std::move(adapter_name)) {}
 
   static AdapterStatus Ok() { return AdapterStatus(); }
 
   static AdapterStatus InvalidInput(std::string message,
                                     std::string field_path = "",
                                     int sample_index = -1,
-                                    std::string biz_name = "") {
+                                    std::string adapter_name = "") {
     return AdapterStatus(COMPANY_ALG_ERR_INVALID_INPUT, std::move(message),
                          std::move(field_path), sample_index,
-                         std::move(biz_name));
+                         std::move(adapter_name));
   }
 
   static AdapterStatus BufferTooSmall(std::string message,
                                       std::string field_path = "",
                                       int sample_index = -1,
-                                      std::string biz_name = "") {
+                                      std::string adapter_name = "") {
     return AdapterStatus(COMPANY_ALG_ERR_BUFFER_TOO_SMALL, std::move(message),
                          std::move(field_path), sample_index,
-                         std::move(biz_name));
+                         std::move(adapter_name));
   }
 
   static AdapterStatus UnsupportedBiz(std::string message,
-                                      std::string biz_name = "") {
+                                      std::string adapter_name = "") {
     return AdapterStatus(COMPANY_ALG_ERR_UNSUPPORTED_BIZ, std::move(message),
-                         "", -1, std::move(biz_name));
+                         "", -1, std::move(adapter_name));
   }
 
   bool IsOk() const { return code_ == COMPANY_ALG_SUCCESS; }
@@ -83,13 +83,13 @@ class AdapterStatus {
   const std::string& Message() const { return message_; }
   const std::string& FieldPath() const { return field_path_; }
   int SampleIndex() const { return sample_index_; }
-  const std::string& BizName() const { return biz_name_; }
+  const std::string& AdapterName() const { return adapter_name_; }
 
   std::string ToString() const {
     if (IsOk()) return "OK";
     std::ostringstream oss;
     oss << "[AdapterStatus] Error " << code_;
-    if (!biz_name_.empty()) oss << " in Biz [" << biz_name_ << "]";
+    if (!adapter_name_.empty()) oss << " in Adapter [" << adapter_name_ << "]";
     if (sample_index_ >= 0) oss << " at sample [" << sample_index_ << "]";
     if (!field_path_.empty()) oss << " field `" << field_path_ << "`";
     if (!message_.empty()) oss << ": " << message_;
@@ -101,7 +101,7 @@ class AdapterStatus {
   std::string message_;
   std::string field_path_;
   int sample_index_;
-  std::string biz_name_;
+  std::string adapter_name_;
 };
 
 }  // namespace llm_edgeflow

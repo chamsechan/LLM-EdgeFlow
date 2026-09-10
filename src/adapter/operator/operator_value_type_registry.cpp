@@ -3,7 +3,7 @@
 #include <stdexcept>
 
 #include "contracts/diagnostic.h"
-#include "operator/company_operator_types.h"
+#include "edgeflow/operator/types.h"
 
 namespace llm_edgeflow {
 

@@ -3,7 +3,7 @@
 #include <cmath>
 #include <stdexcept>
 
-#include "company_alg_log.h"
+#include "edgeflow/log.h"
 #include "engine/fixed_batch_executor.h"
 #include "engine/models/common/embedding_numeric_support.h"
 

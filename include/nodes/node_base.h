@@ -9,13 +9,13 @@
 #include <utility>
 #include <vector>
 
-#include "company_alg_log.h"
 #include "core/alg_context.h"
 #include "core/blackboard_key.h"
 #include "core/common_contracts.h"
 #include "core/node_interface.h"
 #include "core/session_context.h"
 #include "core/validated_node_plan.h"
+#include "edgeflow/log.h"
 
 namespace llm_edgeflow {
 

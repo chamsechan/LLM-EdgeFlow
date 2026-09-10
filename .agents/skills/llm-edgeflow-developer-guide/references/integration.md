@@ -14,9 +14,9 @@ the onboarding guide owns those implementation examples and optional Demo conver
 1. Public C ABI, Operator contract, or new modality changes meet the RFC threshold in
    `CONTRIBUTING.md`. Map the external contract, ownership, cardinality, batch bounds, and
    failure behavior before implementation.
-2. Keep `include/company_alg_interface.h` valid C11. Expose only C primitives, fixed-layout C structs, pointers with documented ownership, and C enums—never STL or third-party types.
-3. Preserve all six exported functions and their exception barrier in `src/adapter/company_c_adapter.cpp`: `noexcept`, `try`, `catch (const std::exception&)`, and `catch (...)`.
-4. Implement biz conversion through `IBizAdapter` under `src/adapter/adapters/`, using existing adapters as current patterns. Register through `REGISTER_BIZ_ADAPTER`; do not add a central dispatch switch.
+2. Keep `include/edgeflow/c_api.h` valid C11. Its current platform data declarations come from `include/platform_mock/`; see that directory's README for the distinction from real company headers. Keep existing local mock DTOs and platform enums there, and keep framework entrypoints under `edgeflow/`. Expose only C primitives, fixed-layout C structs, pointers with documented ownership, and C enums through C headers—never STL or third-party types.
+3. Preserve all six exported functions and their exception barrier in `src/adapter/c_api_adapter.cpp`: `noexcept`, `try`, `catch (const std::exception&)`, and `catch (...)`.
+4. Implement biz conversion through `IBizAdapter` under `src/adapter/biz/`, using existing adapters as current patterns. Register through `REGISTER_BIZ_ADAPTER`; do not add a central dispatch switch.
 5. Declare Adapter ingress/egress Blackboard ports and allowed runtime Pipeline names through its `BizDefinition` entries. The `biz_name` in Pipeline JSON must be accepted by the Adapter; a display name or Demo alias is not a substitute.
 6. Copy input data when the ABI lifetime requires it, store request-scoped values in `AlgContext`, and pack output only through the documented ownership contract.
 

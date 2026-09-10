@@ -14,7 +14,7 @@ option(ENABLE_ONNXRUNTIME
        "Enable ONNX Runtime engine (auto-download official release or reuse 3rdparty)" OFF)
 
 if(ENABLE_ONNXRUNTIME)
-  message(STATUS "[Engine Layer] Enabling ONNX Runtime engine support...")
+  message(STATUS "[Model Execution] Enabling ONNX Runtime Backend support...")
 
   set(ORT_3RDPARTY_DIR "${LLM_EDGEFLOW_3RDPARTY_DIR}/onnxruntime")
   if(APPLE)
@@ -56,7 +56,7 @@ if(ENABLE_ONNXRUNTIME)
     set(_ORT_FOUND ON)
     set(ONNXRUNTIME_INCLUDE_DIR "${ORT_3RDPARTY_DIR}/include")
     set(ONNXRUNTIME_LIB "${ORT_3RDPARTY_DIR}/lib/${ORT_LIB_NAME}")
-    message(STATUS "[Engine Layer] Using prebuilt ONNX Runtime from 3rdparty: ${ORT_3RDPARTY_DIR}")
+    message(STATUS "[Model Execution] Using prebuilt ONNX Runtime from 3rdparty: ${ORT_3RDPARTY_DIR}")
   endif()
 
   if(NOT _ORT_FOUND)
@@ -86,12 +86,12 @@ if(ENABLE_ONNXRUNTIME)
   endif()
 
   if(EXISTS "${ONNXRUNTIME_INCLUDE_DIR}" AND EXISTS "${ONNXRUNTIME_LIB}")
-    message(STATUS "[Engine Layer] ONNX Runtime successfully loaded from: ${ONNXRUNTIME_INCLUDE_DIR}")
+    message(STATUS "[Model Execution] ONNX Runtime successfully loaded from: ${ONNXRUNTIME_INCLUDE_DIR}")
     set(LLM_EDGEFLOW_HAS_ONNXRUNTIME ON)
     set(CMAKE_BUILD_RPATH "${CMAKE_BUILD_RPATH};${ORT_3RDPARTY_DIR}/lib")
     set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_RPATH};${ORT_3RDPARTY_DIR}/lib")
   else()
-    message(WARNING "[Engine Layer] ONNX Runtime library or headers not found.")
+    message(WARNING "[Model Execution] ONNX Runtime library or headers not found.")
   endif()
 endif()
 
@@ -105,7 +105,7 @@ option(LLM_EDGEFLOW_LLAMACPP_METAL
 set(LLM_EDGEFLOW_HAS_LLAMACPP OFF)
 
 if(ENABLE_LLAMACPP)
-  message(STATUS "[Engine Layer] Enabling llama.cpp engine support...")
+  message(STATUS "[Model Execution] Enabling llama.cpp Backend support...")
 
   set(LLAMA_3RDPARTY_DIR "${LLM_EDGEFLOW_3RDPARTY_DIR}/llama_cpp")
   set(_LLAMA_FOUND OFF)
@@ -129,7 +129,7 @@ if(ENABLE_LLAMACPP)
      EXISTS "${LLAMA_3RDPARTY_DIR}/include/llama.h" AND
      NOT LLAMA_CPP_FORCE_REBUILD)
     set(_LLAMA_FOUND ON)
-    message(STATUS "[Engine Layer] Using prebuilt llama.cpp from 3rdparty: ${LLAMA_3RDPARTY_DIR} (skipping compilation)")
+    message(STATUS "[Model Execution] Using prebuilt llama.cpp from 3rdparty: ${LLAMA_3RDPARTY_DIR} (skipping compilation)")
 
     find_package(Threads REQUIRED)
     find_package(OpenMP)
@@ -189,7 +189,7 @@ if(ENABLE_LLAMACPP)
     set(THIRD_PARTY_ENGINE_LIBS ${THIRD_PARTY_ENGINE_LIBS} llama)
     set(LLM_EDGEFLOW_HAS_LLAMACPP ON)
     set(LLAMACPP_INCLUDE_DIRS "${LLAMA_3RDPARTY_DIR}/include")
-    message(STATUS "[Engine Layer] Prebuilt llama.cpp targets imported successfully.")
+    message(STATUS "[Model Execution] Prebuilt llama.cpp targets imported successfully.")
   else()
     # 配置 llama.cpp 极简构建选项，强制开启 -fPIC 以便链接到 .so 中
     set(CMAKE_POSITION_INDEPENDENT_CODE ON CACHE BOOL "Position independent code" FORCE)
@@ -225,7 +225,7 @@ if(ENABLE_LLAMACPP)
         set(LLAMACPP_INCLUDE_DIRS
             ${llama_cpp_source_SOURCE_DIR}/include
             ${llama_cpp_source_SOURCE_DIR}/ggml/include)
-        message(STATUS "[Engine Layer] llama.cpp target configured successfully.")
+        message(STATUS "[Model Execution] llama.cpp target configured successfully.")
 
         # 编译完成后自动归档静态库与头文件至 3rdparty/llama_cpp
         add_custom_target(archive_llama_cpp_to_3rdparty ALL
@@ -242,7 +242,7 @@ if(ENABLE_LLAMACPP)
         )
       endif()
     else()
-      message(WARNING "[Engine Layer] llama.cpp CMakeLists.txt not found, falling back to stub.")
+      message(WARNING "[Model Execution] llama.cpp CMakeLists.txt not found, falling back to stub.")
     endif()
   endif()
 endif()

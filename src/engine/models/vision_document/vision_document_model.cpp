@@ -1,6 +1,6 @@
 #include "engine/models/vision_document/vision_document_model.h"
 
-#include "company_alg_log.h"
+#include "edgeflow/log.h"
 #include "engine/fixed_batch_executor.h"
 #include "engine/models/vision_document/image_decode.h"
 

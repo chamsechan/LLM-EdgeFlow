@@ -31,12 +31,12 @@ add_executable(test_framework_core ${EDGEFLOW_SOURCE_test_framework_core})
 target_link_libraries(test_framework_core PRIVATE llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
 add_test(NAME FrameworkCoreTest COMMAND test_framework_core)
 
-add_executable(test_company_alg_log
-    ${EDGEFLOW_SOURCE_test_company_alg_log}
-    ${EDGEFLOW_SOURCE_test_company_alg_log_name_override})
-target_link_libraries(test_company_alg_log PRIVATE
+add_executable(test_log
+    ${EDGEFLOW_SOURCE_test_log}
+    ${EDGEFLOW_SOURCE_test_log_name_override})
+target_link_libraries(test_log PRIVATE
     llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
-add_test(NAME CompanyAlgLogTest COMMAND test_company_alg_log)
+add_test(NAME CompanyAlgLogTest COMMAND test_log)
 
 add_executable(test_c_abi_safety ${EDGEFLOW_SOURCE_test_c_abi_safety})
 target_link_libraries(test_c_abi_safety PRIVATE llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
@@ -261,7 +261,7 @@ add_test(NAME AdapterPurityTest COMMAND test_adapter_purity)
 # intentionally absent because they must start without dev fixture registrars.
 set(EDGEFLOW_INDIVIDUAL_TESTS_WITH_RUNTIME_FIXTURES
   test_framework_core
-  test_company_alg_log
+  test_log
   test_c_abi_safety
   test_qwen_causal_lm_model
   test_llama_cpp_backend

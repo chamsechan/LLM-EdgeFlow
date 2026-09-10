@@ -10,7 +10,7 @@
 
 | 职责名称 | 英文名称 | 源码归属 | 构建目标 |
 | :--- | :--- | :--- | :--- |
-| 接入适配层 | Integration | `include/adapter/`、`include/operator/`、`src/adapter/` 及公共 C ABI | `edgeflow_integration_objects` |
+| 接入适配层 | Integration | `include/adapter/`、`include/edgeflow/operator/`、`src/adapter/` 及公共 C ABI | `edgeflow_integration_objects` |
 | 流程编排层 | Orchestration | `include/core/`、`src/core/` | `edgeflow_orchestration_objects` |
 | 能力节点层 | Capability Nodes | `include/nodes/`、`src/common_nodes/`、`src/custom_nodes/` | `edgeflow_capability_nodes_objects` |
 | 模型执行层 | Model Execution | `include/engine/`、`src/engine/` | `edgeflow_model_execution_objects` |
@@ -34,7 +34,7 @@ graph TD
     %% Integration
     subgraph Integration["接入适配层（Integration）"]
         C_API["公司统一标准 C ABI 接口<br>• Alg_Init / Alg_DeInit<br>• Alg_Create / Alg_Destroy<br>• Alg_Process(const void** inputs, num_inputs, void** outputs, num_outputs)<br>• Alg_Control"]
-        C_Adapter["company_c_adapter.cpp<br>• 同句柄 Process / Control 串行化<br>• 异常拦截屏障 (noexcept 安全防护)<br>• 外部输入解包 / 输出结构体强转打包"]
+        C_Adapter["c_api_adapter.cpp<br>• 同句柄 Process / Control 串行化<br>• 异常拦截屏障 (noexcept 安全防护)<br>• 外部输入解包 / 输出结构体强转打包"]
     end
 
     %% Orchestration
@@ -45,7 +45,7 @@ graph TD
             S_Ctx["SessionContext (句柄级持久状态)<br>• ModelManager 多模型池<br>• SessionResourceKey&lt;T&gt; 类型安全缓存"]
             R_Ctx["AlgContext (请求级瞬态黑板)<br>• Read / Publish 不可变快照<br>• 只读视图随请求生命周期稳定"]
             TraceTag["TraceableItem 溯源追踪<br>• req_id (请求索引)<br>• sub_id (1对N分片索引)"]
-            Factory["NodeFactory / ModelRegistry / BackendRegistry<br>• *_WITH_DEFINITION 就地注册"]
+            Factory["NodeRegistry / ModelRegistry / BackendRegistry<br>• *_WITH_DEFINITION 就地注册"]
         end
     end
 
@@ -124,7 +124,7 @@ graph TD
 ## 2. 职责与扩展边界
 
 ### 接入适配层（Integration）
-- **代码位置**：`include/company_alg_interface.h`，`include/operator/`，`src/adapter/`
+- **代码位置**：`include/edgeflow/c_api.h`，`include/edgeflow/operator/`，`src/adapter/`
 - **核心职责**：
   1. 导出公司限定的标准 C 接口：`Alg_Init`, `Alg_Create`, `Alg_Process`, `Alg_Control`, `Alg_Destroy`, `Alg_DeInit`；
   2. 导出公共日志 C API：`AlgBase_setLogLevelByName`, `AlgBase_getLogLevelByName`, `AlgBase_logPrint`；
@@ -215,6 +215,10 @@ dependency interface；根 `CMakeLists.txt` 是唯一 Composition Root，另以
 `edgeflow_composition_objects` 持有日志和共享运行时装配翻译单元。最终 SDK、仓库工具和
 测试只聚合这些对象，不重新声明层内源码。
 
+公开 SDK 使用单独的调用头 view；源码扩展与内部头规则见[源码布局](dev_guide/source_layout.md)。
+当前用于跑通外网环境的平台数据结构、枚举和交互类型集中在
+[`include/platform_mock/`](../include/platform_mock/README.md)，由接入适配层使用；
+其名称和布局不是对公司内部 SDK 的声明，Core、Nodes、Models 和 Backends 不依赖这些头。
 各层 OBJECT target 使用构建目录中的独立 include view，保留原有头文件写法，
 只暴露本层实现头、所需的下层 API 与共享契约；`root/`、`src/` 和完整 `include/`
 搜索路径仅由仓库工具、Demo 和测试显式使用，不再经运行时依赖传播。view 中的链接

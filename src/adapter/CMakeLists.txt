@@ -1,21 +1,22 @@
 target_sources(edgeflow_integration_objects PRIVATE
-  adapters/audio_asr_intent_adapter.cpp
-  adapters/compliance_audit_adapter.cpp
-  adapters/cross_rerank_adapter.cpp
-  adapters/doc_qa_adapter.cpp
-  adapters/entity_extract_adapter.cpp
-  adapters/keyword_match_adapter.cpp
-  adapters/ocr_doc_qa_adapter.cpp
-  company_c_adapter.cpp
+  biz_adapter_registry.cpp
+  biz/audio_asr_intent_adapter.cpp
+  biz/compliance_audit_adapter.cpp
+  biz/cross_rerank_adapter.cpp
+  biz/doc_qa_adapter.cpp
+  biz/entity_extract_adapter.cpp
+  biz/keyword_match_adapter.cpp
+  biz/ocr_doc_qa_adapter.cpp
+  c_api_adapter.cpp
   deployment_model_resolver.cpp
-  operator/biz_bridges/audio_asr_intent_bridge.cpp
-  operator/biz_bridges/compliance_audit_bridge.cpp
-  operator/biz_bridges/cross_rerank_bridge.cpp
-  operator/biz_bridges/doc_qa_bridge.cpp
-  operator/biz_bridges/entity_extract_bridge.cpp
-  operator/biz_bridges/keyword_match_bridge.cpp
-  operator/biz_bridges/ocr_doc_qa_bridge.cpp
-  operator/company_conf_resolver.cpp
+  biz/audio_asr_intent_operator_bridge.cpp
+  biz/compliance_audit_operator_bridge.cpp
+  biz/cross_rerank_operator_bridge.cpp
+  biz/doc_qa_operator_bridge.cpp
+  biz/entity_extract_operator_bridge.cpp
+  biz/keyword_match_operator_bridge.cpp
+  biz/ocr_doc_qa_operator_bridge.cpp
+  operator/operator_config_resolver.cpp
   operator/operator_adapter.cpp
   operator/operator_biz_bridge_registry.cpp
   operator/operator_control_registry.cpp

@@ -9,7 +9,7 @@
 #include <utility>
 #include <vector>
 
-#include "company_alg_log.h"
+#include "edgeflow/log.h"
 #include "engine/fixed_batch_executor.h"
 #include "engine/text/utf8.h"
 

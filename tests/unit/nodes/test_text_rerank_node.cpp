@@ -92,7 +92,7 @@ class TextRerankNodeTest : public ::testing::Test {
 
 // 1. Process Queries + Candidates (Group 2)
 TEST_F(TextRerankNodeTest, ProcessQueriesAndCandidates) {
-  auto node = NodeFactory::Instance().Create("TextRerankNode");
+  auto node = NodeRegistry::Instance().Create("TextRerankNode");
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {{"bind_model", "fake_rerank_model"}, {"top_k", 2}};
@@ -125,7 +125,7 @@ TEST_F(TextRerankNodeTest, ProcessQueriesAndCandidates) {
 
 // 2. Process Pairs (Group 1)
 TEST_F(TextRerankNodeTest, ProcessPairsInput) {
-  auto node = NodeFactory::Instance().Create("TextRerankNode");
+  auto node = NodeRegistry::Instance().Create("TextRerankNode");
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {{"bind_model", "fake_rerank_model"}, {"top_k", 1}};
@@ -147,7 +147,7 @@ TEST_F(TextRerankNodeTest, ProcessPairsInput) {
 
 // 3. Process Queries + CandidateTexts (Group 3)
 TEST_F(TextRerankNodeTest, ProcessQueriesAndCandidateTexts) {
-  auto node = NodeFactory::Instance().Create("TextRerankNode");
+  auto node = NodeRegistry::Instance().Create("TextRerankNode");
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {{"bind_model", "fake_rerank_model"}, {"top_k", 2}};
@@ -176,7 +176,7 @@ TEST_F(TextRerankNodeTest, ProcessQueriesAndCandidateTexts) {
 
 // 4. Multi Request Grouping
 TEST_F(TextRerankNodeTest, MultiRequestGrouping) {
-  auto node = NodeFactory::Instance().Create("TextRerankNode");
+  auto node = NodeRegistry::Instance().Create("TextRerankNode");
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {{"bind_model", "fake_rerank_model"}, {"top_k", 1}};
@@ -205,7 +205,7 @@ TEST_F(TextRerankNodeTest, MultiRequestGrouping) {
 
 // 5. Typed Model pair-input path
 TEST_F(TextRerankNodeTest, TypedModelPairInputPath) {
-  auto node = NodeFactory::Instance().Create("TextRerankNode");
+  auto node = NodeRegistry::Instance().Create("TextRerankNode");
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {{"bind_model", "fake_rerank_model"}, {"top_k", 1}};
@@ -224,7 +224,7 @@ TEST_F(TextRerankNodeTest, TypedModelPairInputPath) {
 
 // 6. Failures and Error Handling
 TEST_F(TextRerankNodeTest, FailuresAndProvenanceMismatch) {
-  auto node = NodeFactory::Instance().Create("TextRerankNode");
+  auto node = NodeRegistry::Instance().Create("TextRerankNode");
   ASSERT_NE(node, nullptr);
   nlohmann::json cfg = {{"bind_model", "fake_rerank_model"}, {"top_k", 1}};
   EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
@@ -330,7 +330,7 @@ class TextRerankRankingTest : public ::testing::Test {
     mock_model_ = std::make_shared<ControllableMockRerankModel>();
     session_ctx_.GetModelManager().RegisterModel("test_rerank_model",
                                                  mock_model_, "test-v1");
-    node_ = NodeFactory::Instance().Create("TextRerankNode");
+    node_ = NodeRegistry::Instance().Create("TextRerankNode");
     ASSERT_NE(node_, nullptr);
   }
 

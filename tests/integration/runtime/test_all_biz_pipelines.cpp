@@ -6,8 +6,8 @@
 #include <string>
 #include <vector>
 
-#include "company_alg_cpp.hpp"
-#include "company_alg_interface.h"
+#include "edgeflow/c_api.h"
+#include "edgeflow/c_api.hpp"
 
 static std::string GetConfigPath(const std::string& rel_path) {
   FILE* fp = fopen(rel_path.c_str(), "r");

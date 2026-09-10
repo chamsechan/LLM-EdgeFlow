@@ -11,6 +11,7 @@
 
 #include "contracts/inference_payloads.h"
 #include "engine/inference_definition.h"
+#include "engine/tensor.h"
 
 namespace llm_edgeflow {
 

@@ -7,12 +7,12 @@
 #include <utility>
 #include <vector>
 
-#include "company_alg_log.h"
 #include "contracts/traceable_item.h"
 #include "core/alg_context.h"
 #include "core/common_contracts.h"
+#include "core/node_definition.h"
 #include "core/node_registry.h"
-#include "core/pipeline_catalog.h"
+#include "edgeflow/log.h"
 #include "engine/model_interface.h"
 #include "nodes/model_bound_node.h"
 #include "nodes/node_base.h"

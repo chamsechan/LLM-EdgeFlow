@@ -8,8 +8,8 @@
 #include <thread>
 #include <vector>
 
-#include "company_alg_cpp.hpp"
-#include "company_alg_interface.h"
+#include "edgeflow/c_api.h"
+#include "edgeflow/c_api.hpp"
 
 static std::string GetConfigPath(const std::string& rel_path) {
   FILE* fp = fopen(rel_path.c_str(), "r");
@@ -38,7 +38,8 @@ TEST_F(ConcurrencyAndEdgeCasesTest, MultiThreadedConcurrentStressTest) {
   std::vector<std::thread> workers;
   workers.reserve(num_threads);
 
-  std::string cfg_path = GetConfigPath("configs/pipeline_keyword_match.json");
+  std::string cfg_path =
+      GetConfigPath("configs/pipeline_keyword_match_rules.json");
 
   for (int t = 0; t < num_threads; ++t) {
     workers.emplace_back([&, t]() {
@@ -100,7 +101,8 @@ TEST_F(ConcurrencyAndEdgeCasesTest, MultiThreadedConcurrentStressTest) {
 TEST_F(ConcurrencyAndEdgeCasesTest, EdgeCasesAndFaultTolerance) {
   // Case A: 畸形与非法 JSON 传入 Alg_Control
   {
-    std::string cfg_path = GetConfigPath("configs/pipeline_keyword_match.json");
+    std::string cfg_path =
+        GetConfigPath("configs/pipeline_keyword_match_rules.json");
     CompanyAlgParamCreate param;
     param.config_file_path = cfg_path.c_str();
     param.model_root_dir = "./models";
@@ -133,7 +135,8 @@ TEST_F(ConcurrencyAndEdgeCasesTest, EdgeCasesAndFaultTolerance) {
 
   // Case B: 空文本与纯标点符号输入
   {
-    std::string cfg_path = GetConfigPath("configs/pipeline_keyword_match.json");
+    std::string cfg_path =
+        GetConfigPath("configs/pipeline_keyword_match_rules.json");
     CompanyAlgParamCreate param;
     param.config_file_path = cfg_path.c_str();
     param.model_root_dir = "./models";

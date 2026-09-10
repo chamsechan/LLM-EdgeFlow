@@ -6,8 +6,8 @@
 #include <string>
 #include <vector>
 
+#include "edgeflow/operator/interface.h"
 #include "nlohmann/json.hpp"
-#include "operator/operator_interface.h"
 
 namespace alg_demo {
 

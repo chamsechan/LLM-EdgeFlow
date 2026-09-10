@@ -17,8 +17,8 @@ Backend 并重建对应产物。以下命令都从仓库根目录执行。
 C++ 查看工具，展示更多声明信息：
 
 ```bash
-./show configs/pipeline_doc_qa.json
-./build/alg_show configs/pipeline_doc_qa.json
+./show configs/pipeline_doc_qa_default.json
+./build/alg_show configs/pipeline_doc_qa_default.json
 ```
 
 该命令忠实输出 JSON 中声明的业务名、节点 ID、节点类型和 `depends_on`，不推导执行
@@ -33,10 +33,10 @@ C++ 查看工具，展示更多声明信息：
 ./show --web
 
 # 直接打开指定方案
-./show configs/pipeline_dialogue_audit.json --web
+./show configs/pipeline_dialogue_audit_default.json --web
 
 # 可直接指定子目录或其他位置的单个文件
-./show configs/kite/pipeline_doc_qa.json --web
+./show configs/pipeline_doc_qa_kite.json --web
 
 # 使用自定义端口
 ./show --web --port 8081
@@ -47,7 +47,7 @@ C++ 查看工具，展示更多声明信息：
 只有显式传入 `--web` 才启动 Web；进入后可通过“浏览文件…”选择配置，无需在命令行指定文件。
 
 点击顶部“浏览文件…”可从浏览器所在电脑选择单个 Pipeline JSON；不需要选择目录。
-启动参数也可直接指定单个文件。`configs/kite/` 和其他位置的文件以导入文档打开，
+启动参数也可直接指定单个文件。受控 `configs/pipeline_*.json` 以外的文件以导入文档打开，
 可以浏览、编辑和校验；修改后“保存”会提示另存到受控 `configs/` 文件，不覆盖导入源。
 顶层受控方案仍保留原有保存和 revision 冲突检查。文件上限为 4 MiB。
 打开文件只要求可解析的 Pipeline 文档；缺少模型资产、兼容 Backend 或 Catalog 工具时
@@ -100,13 +100,13 @@ C++ 查看工具，展示更多声明信息：
 ```
 
 1. 点击“编辑方案”，展开“算子”面板的“新建方案”，选择业务契约 `keyword_match_v1`，
-   从 `keyword_match_mock` Profile 克隆并点击“新建方案”。
+   从 `keyword_match_rules` Profile 克隆并点击“新建方案”。
 2. 在画布检查“业务输入”的 `input_sentences` → 节点 `text`，以及节点 `matches` →
    “业务输出”的 `rule_matches`。可选中连线后点击“删除连线”，再从输出端口拖到
    输入端口重新连接；也可以用“撤销”恢复刚删除的连线。
 3. 选择规则节点，在属性中将 `categories` 改为 `{"FIRST_RUN":["VIP"]}` 并点击“应用”。
    在“JSON”页确认端口映射；需要模型的方案则先在“模型”页应用实例，再在节点属性绑定它。
-4. 在“校验”页调用 C++ Validator，修复诊断；在“运行”页选择 `keyword_match_mock`，
+4. 在“校验”页调用 C++ Validator，修复诊断；在“运行”页选择 `keyword_match_rules`，
    点击“另存为可运行方案”，输入 `pipeline_first_solution.json`，同时生成配套 `.conf`。
 5. 在“运行”页选择兼容 Profile 可执行草稿，查看日志和结构化结果。Demo 默认使用 Pipeline 配置，
    因此草稿会使用刚设置的 `FIRST_RUN` 规则。检查第一条命中 `FIRST_RUN`、
@@ -121,8 +121,8 @@ C++ 查看工具，展示更多声明信息：
 ```bash
 ./build/alg_pipeline_tool catalog --biz smart_doc_qa_v1
 ./build/alg_pipeline_tool describe-node TextEmbeddingNode
-./build/alg_pipeline_tool validate configs/pipeline_doc_qa.json
-./build/alg_pipeline_tool plan configs/pipeline_doc_qa.json
+./build/alg_pipeline_tool validate configs/pipeline_doc_qa_default.json
+./build/alg_pipeline_tool plan configs/pipeline_doc_qa_default.json
 ```
 
 编排或修改 Pipeline 时，应先查询 Catalog 与节点 Definition，再执行 validate 和 plan。完整开发流程参见项目的 `pipeline-composer` skill 与[开发者指南](../../doc/developer_guide.md)。
@@ -171,7 +171,7 @@ Pipeline JSON 描述算法连线；`.conf` 描述部署路径和输出容量；P
 
 若手动使用只写 JSON 的路径，需自行配套 `.conf`：
 
-完成上述练习后，复制 `configs/pipeline_keyword_match.conf` 为
+完成上述练习后，复制 `configs/pipeline_keyword_match_rules.conf` 为
 `configs/pipeline_first_solution.conf`（已有同名文件时直接编辑），将其中
 `data.pipe_path` 改为 `configs/pipeline_first_solution.json`，保留原输出池配置。
 从仓库根目录执行：
@@ -179,7 +179,7 @@ Pipeline JSON 描述算法连线；`.conf` 描述部署路径和输出容量；P
 ```bash
 ./build/alg_pipeline_tool validate configs/pipeline_first_solution.json
 ./build/alg_pipeline_tool plan configs/pipeline_first_solution.json
-./build/alg_demo --profile keyword_match_mock --config configs/pipeline_first_solution.conf --no-default-control --output-dir results/first-solution
+./build/alg_demo --profile keyword_match_rules --config configs/pipeline_first_solution.conf --no-default-control --output-dir results/first-solution
 ```
 
 CLI 的 `--config` 覆盖 Profile 原配置，因此不需要新增 Profile。也可以不带 Profile，
@@ -191,7 +191,7 @@ CLI 的 `--config` 覆盖 Profile 原配置，因此不需要新增 Profile。�
 
 只有原 Profile 已指向本次方案时，才能直接用它证明本次修改已运行。
 
-检查 `results/first-solution/keyword_match_mock/results.jsonl` 和 `summary.json`：
+检查 `results/first-solution/keyword_match_rules/results.jsonl` 和 `summary.json`：
 本练习应有两条成功结果，第一条命中 `FIRST_RUN`，第二条未命中。核对请求 ID、状态
 和业务字段，不只看退出码。无 Profile 运行时，结果子目录改为业务名 `keyword_match`。
 

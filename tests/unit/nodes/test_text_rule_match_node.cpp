@@ -29,7 +29,7 @@ class TextRuleMatchNodeTest : public ::testing::Test {
 
 // 1. Process Keyword and Category Matching
 TEST_F(TextRuleMatchNodeTest, ProcessKeywordAndCategoryMatching) {
-  auto node = NodeFactory::Instance().Create("TextRuleMatchNode");
+  auto node = NodeRegistry::Instance().Create("TextRuleMatchNode");
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {{"categories",
@@ -69,11 +69,11 @@ TEST_F(TextRuleMatchNodeTest, RejectsInvalidRuleAndDefaultScores) {
       nullptr};
   for (const auto& score : invalid_scores) {
     SCOPED_TRACE(score.dump());
-    auto rule_node = NodeFactory::Instance().Create("TextRuleMatchNode");
+    auto rule_node = NodeRegistry::Instance().Create("TextRuleMatchNode");
     EXPECT_FALSE(InitNodeForTest(
         *rule_node, {{"rules", {{{"pattern", "hit"}, {"score", score}}}}},
         session_ctx_.get()));
-    auto default_node = NodeFactory::Instance().Create("TextRuleMatchNode");
+    auto default_node = NodeRegistry::Instance().Create("TextRuleMatchNode");
     EXPECT_FALSE(InitNodeForTest(*default_node, {{"default_score", score}},
                                  session_ctx_.get()));
   }
@@ -102,7 +102,7 @@ TEST_F(TextRuleMatchNodeTest, NestedDiagnosticsAgreeAcrossAuthoringAndControl) {
        "ports":{"inputs":{"text":"input_sentences"},
                 "outputs":{"matches":"rule_matches"}}}
     ]})");
-  auto active = NodeFactory::Instance().Create("TextRuleMatchNode");
+  auto active = NodeRegistry::Instance().Create("TextRuleMatchNode");
   ASSERT_NE(active, nullptr);
   ASSERT_TRUE(InitNodeForTest(*active, {{"categories", {{"OLD", {"kept"}}}}},
                               session_ctx_.get()));
@@ -124,7 +124,7 @@ TEST_F(TextRuleMatchNodeTest, NestedDiagnosticsAgreeAcrossAuthoringAndControl) {
         << report.ToJson().dump(2);
 
     // Direct authoring initialization reports the same offending nested value.
-    auto fresh = NodeFactory::Instance().Create("TextRuleMatchNode");
+    auto fresh = NodeRegistry::Instance().Create("TextRuleMatchNode");
     std::string diagnostic;
     NodeInitContext init;
     init.config = &invalid.config;
@@ -154,7 +154,7 @@ TEST_F(TextRuleMatchNodeTest, DirectInitReportsInvalidTopLevelField) {
        std::vector<std::pair<nlohmann::json, std::string>>{
            {{{"default_score", "bad"}}, "default_score"},
            {{{"category", "misspelled"}}, "category"}}) {
-    auto node = NodeFactory::Instance().Create("TextRuleMatchNode");
+    auto node = NodeRegistry::Instance().Create("TextRuleMatchNode");
     std::string diagnostic;
     NodeInitContext init;
     init.config = &config;
@@ -166,7 +166,7 @@ TEST_F(TextRuleMatchNodeTest, DirectInitReportsInvalidTopLevelField) {
 }
 
 TEST_F(TextRuleMatchNodeTest, ScoreBoundsAndDefaultsRemainUsable) {
-  auto node = NodeFactory::Instance().Create("TextRuleMatchNode");
+  auto node = NodeRegistry::Instance().Create("TextRuleMatchNode");
   ASSERT_TRUE(InitNodeForTest(
       *node,
       {{"default_category", "FALLBACK"},
@@ -196,7 +196,7 @@ TEST_F(TextRuleMatchNodeTest, ScoreBoundsAndDefaultsRemainUsable) {
 }
 
 TEST_F(TextRuleMatchNodeTest, InvalidScoreControlPreservesCategoriesAndRules) {
-  auto node = NodeFactory::Instance().Create("TextRuleMatchNode");
+  auto node = NodeRegistry::Instance().Create("TextRuleMatchNode");
   ASSERT_TRUE(InitNodeForTest(
       *node,
       {{"categories", {{"OLD", {"kept"}}}},
@@ -228,7 +228,7 @@ TEST_F(TextRuleMatchNodeTest, InvalidScoreControlPreservesCategoriesAndRules) {
 
 // 2. Control Command Dynamic Rule Hot-Swap & Bogus Rejection
 TEST_F(TextRuleMatchNodeTest, ControlCommandDynamicRules) {
-  auto node = NodeFactory::Instance().Create("TextRuleMatchNode");
+  auto node = NodeRegistry::Instance().Create("TextRuleMatchNode");
   ASSERT_NE(node, nullptr);
   ASSERT_TRUE(
       InitNodeForTest(*node, nlohmann::json::object(), session_ctx_.get()));
@@ -248,7 +248,7 @@ TEST_F(TextRuleMatchNodeTest, ControlCommandDynamicRules) {
 }
 
 TEST_F(TextRuleMatchNodeTest, CombinedControlUpdateIsAtomic) {
-  auto node = NodeFactory::Instance().Create("TextRuleMatchNode");
+  auto node = NodeRegistry::Instance().Create("TextRuleMatchNode");
   ASSERT_NE(node, nullptr);
   ASSERT_TRUE(
       InitNodeForTest(*node, nlohmann::json::object(), session_ctx_.get()));
@@ -305,7 +305,7 @@ TEST_F(TextRuleMatchNodeTest, CombinedControlUpdateIsAtomic) {
 }
 
 TEST_F(TextRuleMatchNodeTest, MisspelledRuleCannotBecomeMatchAll) {
-  auto node = NodeFactory::Instance().Create("TextRuleMatchNode");
+  auto node = NodeRegistry::Instance().Create("TextRuleMatchNode");
   ASSERT_TRUE(InitNodeForTest(*node, {{"categories", {{"OLD", {"kept"}}}}},
                               session_ctx_.get()));
   const nlohmann::json invalid = {{"categories", {{"NEW", {"unrelated"}}}},
@@ -329,7 +329,7 @@ TEST_F(TextRuleMatchNodeTest, MisspelledRuleCannotBecomeMatchAll) {
 }
 
 TEST_F(TextRuleMatchNodeTest, SupportsLookbehindAndNamedCaptures) {
-  auto node = NodeFactory::Instance().Create("TextRuleMatchNode");
+  auto node = NodeRegistry::Instance().Create("TextRuleMatchNode");
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {{"rules",
@@ -365,7 +365,7 @@ TEST_F(TextRuleMatchNodeTest, SupportsLookbehindAndNamedCaptures) {
 }
 
 TEST_F(TextRuleMatchNodeTest, PreservesLookbehindWhenLaterGreaterThanExists) {
-  auto node = NodeFactory::Instance().Create("TextRuleMatchNode");
+  auto node = NodeRegistry::Instance().Create("TextRuleMatchNode");
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {{"rules",
@@ -391,7 +391,7 @@ TEST_F(TextRuleMatchNodeTest, PreservesLookbehindWhenLaterGreaterThanExists) {
 }
 
 TEST_F(TextRuleMatchNodeTest, RegexErrorsFailClosed) {
-  auto node = NodeFactory::Instance().Create("TextRuleMatchNode");
+  auto node = NodeRegistry::Instance().Create("TextRuleMatchNode");
   ASSERT_NE(node, nullptr);
   ASSERT_TRUE(
       InitNodeForTest(*node, nlohmann::json::object(), session_ctx_.get()));
@@ -422,7 +422,7 @@ TEST_F(TextRuleMatchNodeTest, RegexErrorsFailClosed) {
 
 // 3. Missing Input Fails Closed
 TEST_F(TextRuleMatchNodeTest, MissingInputFailsClosed) {
-  auto node = NodeFactory::Instance().Create("TextRuleMatchNode");
+  auto node = NodeRegistry::Instance().Create("TextRuleMatchNode");
   ASSERT_NE(node, nullptr);
   ASSERT_TRUE(
       InitNodeForTest(*node, nlohmann::json::object(), session_ctx_.get()));

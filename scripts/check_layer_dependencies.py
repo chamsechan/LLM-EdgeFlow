@@ -19,10 +19,13 @@ INCLUDE = re.compile(r'^\s*#\s*include\s*["<]([^">]+)[">]', re.MULTILINE)
 
 def owner(path):
     if path.startswith("include/contracts/") or path in {
-        "include/company_alg_log.h", "include/company_alg_export.h"
+        "include/edgeflow/log.h", "include/edgeflow/export.h",
+        "include/company_alg_log.h", "include/company_alg_export.h",
+        "include/company_alg_version.h"
     }:
         return "Contracts"
-    if path.startswith(("include/adapter/", "include/operator/", "src/adapter/")) or path in {
+    if path.startswith(("include/adapter/", "include/operator/", "include/edgeflow/operator/", "include/platform_mock/", "src/adapter/")) or path in {
+        "include/edgeflow/c_api.h", "include/edgeflow/c_api.hpp",
         "include/company_alg_interface.h", "include/company_alg_cpp.hpp"
     }:
         return "Integration"
@@ -66,7 +69,7 @@ def forbidden(source, target):
         or source.startswith(("src/common_nodes/", "include/nodes/"))
     ):
         return True
-    if source.startswith("src/adapter/adapters/") and dst in {"Model Execution", "Capability Nodes"}:
+    if source.startswith("src/adapter/biz/") and dst in {"Model Execution", "Capability Nodes"}:
         return True
     if src == "Demo" and target.startswith(("src/", "include/adapter/", "include/core/", "include/nodes/", "include/engine/", "include/contracts/")):
         return True
@@ -138,19 +141,31 @@ def self_test():
 
         for header in ("include/adapter/biz_adapter_interface.h",
                        "include/core/pipeline_validator.h",
-                       "include/core/alg_context.h", "include/company_alg_interface.h",
+                       "include/core/alg_context.h", "include/edgeflow/c_api.h",
+                       "include/platform_mock/alg_types.h",
+                       "include/platform_mock/operator_data_types.h",
+                       "include/platform_mock/operator_types.h",
+                       "include/platform_mock/error_codes.h",
                        "src/custom_nodes/domain_node.h"):
             write(header)
         cases = [
             ("src/engine/runtime/bad.cpp", "adapter/biz_adapter_interface.h"),
             ("src/core/bad.cpp", "adapter/biz_adapter_interface.h"),
-            ("include/nodes/bad.h", "company_alg_interface.h"),
+            ("include/nodes/bad.h", "edgeflow/c_api.h"),
             ("src/common_nodes/bad.cpp", "core/pipeline_validator.h"),
             ("src/custom_nodes/bad.cpp", "core/pipeline_validator.h"),
             ("include/nodes/bad.h", "../adapter/biz_adapter_interface.h"),
             ("src/common_nodes/bad.cpp", "custom_nodes/domain_node.h"),
             ("include/core/session_context.h", "core/pipeline_validator.h"),
         ]
+        for header in ("alg_types.h", "operator_data_types.h", "operator_types.h", "error_codes.h"):
+            cases.extend((path, f"platform_mock/{header}") for path in (
+                "src/core/bad.cpp", "src/common_nodes/bad.cpp", "src/custom_nodes/bad.cpp",
+                "include/nodes/bad.h", "src/engine/models/bad.cpp", "src/engine/backends/foreign/bad.cpp"))
+            for path in ("src/adapter/biz/good.cpp", "demo/good.cpp"):
+                allowed = write(path, f'#include "platform_mock/{header}"\n')
+                assert not check(root), (path, header)
+                allowed.unlink()
         for vendor, backend in (("onnxruntime_cxx_api.h", "onnxruntime"),
                                 ("llama.h", "llama_cpp"), ("whisper.h", "whisper_cpp"),
                                 ("kiteLLM.h", "kite_llm")):

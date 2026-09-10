@@ -48,8 +48,8 @@ endfunction()
 
 set(EDGEFLOW_TEST_CORE_SRCS
   ${EDGEFLOW_SOURCE_test_batch_executor}
-  ${EDGEFLOW_SOURCE_test_company_alg_log}
-  ${EDGEFLOW_SOURCE_test_company_alg_log_name_override}
+  ${EDGEFLOW_SOURCE_test_log}
+  ${EDGEFLOW_SOURCE_test_log_name_override}
   ${EDGEFLOW_SOURCE_test_framework_core}
   ${EDGEFLOW_SOURCE_test_dag_pipeline}
   ${EDGEFLOW_SOURCE_test_engine_fault_tolerance_and_lifecycle}
@@ -423,17 +423,17 @@ if(LLM_EDGEFLOW_HAS_ONNXRUNTIME)
 endif()
 
 set(EDGEFLOW_PIPELINE_CONFIGS
-  configs/pipeline_keyword_match.json
-  configs/pipeline_entity_extract.json
-  configs/pipeline_doc_qa.json
-  configs/pipeline_dialogue_audit.json
-  configs/pipeline_doc_qa_onnx.json
-  configs/pipeline_doc_qa_rerank.json
-  configs/pipeline_doc_qa_rerank_real.json
-  configs/pipeline_entity_extract_llamacpp.json
+  configs/pipeline_keyword_match_rules.json
+  configs/pipeline_entity_extract_default.json
+  configs/pipeline_doc_qa_default.json
+  configs/pipeline_dialogue_audit_default.json
+  configs/pipeline_doc_qa_cpu.json
+  configs/pipeline_doc_qa_rerank_default.json
+  configs/pipeline_doc_qa_rerank_cpu.json
+  configs/pipeline_entity_extract_cpu.json
   demo/fixtures/mock/pipeline_ocr_doc_qa.json
   demo/fixtures/mock/pipeline_audio_asr_intent.json
-  configs/pipeline_cross_rerank.json)
+  configs/pipeline_cross_rerank_cpu.json)
 foreach(config_path IN LISTS EDGEFLOW_PIPELINE_CONFIGS)
   get_filename_component(config_stem "${config_path}" NAME_WE)
   add_test(NAME NativeCli_${config_stem}
@@ -455,7 +455,7 @@ endforeach()
 add_test(NAME PipelineToolCatalogTest COMMAND $<TARGET_FILE:alg_pipeline_tool>
   catalog --biz keyword_match_v1)
 add_test(NAME PipelineToolValidateTest COMMAND $<TARGET_FILE:alg_pipeline_tool>
-  validate ${PROJECT_SOURCE_DIR}/configs/pipeline_keyword_match.json)
+  validate ${PROJECT_SOURCE_DIR}/configs/pipeline_keyword_match_rules.json)
 set_tests_properties(PipelineToolCatalogTest PipelineToolValidateTest
   PROPERTIES WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
   LABELS "${_edgeflow_tier4}")

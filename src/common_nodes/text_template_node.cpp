@@ -11,11 +11,11 @@
 #include <utility>
 #include <vector>
 
-#include "company_alg_log.h"
 #include "contracts/config_schema_validation.h"
 #include "contracts/control_payload.h"
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
+#include "edgeflow/log.h"
 #include "engine/text/utf8.h"
 #include "nodes/node_base.h"
 #include "nodes/node_error_codes.h"

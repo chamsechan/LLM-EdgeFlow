@@ -7,9 +7,9 @@
 #include <string>
 #include <vector>
 
-#include "company_alg_interface.h"
+#include "edgeflow/c_api.h"
+#include "edgeflow/operator/interface.h"
 #include "engine/backend_registry.h"
-#include "operator/operator_interface.h"
 
 #ifndef EDGEFLOW_RERANK_ONNX_FIXTURE
 #define EDGEFLOW_RERANK_ONNX_FIXTURE "models/rerank_fixture.onnx"
@@ -89,7 +89,7 @@ TEST_F(OperatorGoldenTest, KeywordMatchGolden) {
   using namespace llm_edgeflow::operator_api;
   CreateParam param{};
   param.model_path = ".";
-  param.cfg_file_name = "configs/pipeline_keyword_match.conf";
+  param.cfg_file_name = "configs/pipeline_keyword_match_rules.conf";
   param.device_id = 0;
   param.compute_platform = ComputePlatform::kCpu;
 
@@ -397,7 +397,7 @@ TEST_F(OperatorGoldenTest, CrossRerankGolden) {
                              std::filesystem::copy_options::overwrite_existing,
                              ec);
 
-  std::ifstream json_in("configs/pipeline_cross_rerank.json");
+  std::ifstream json_in("configs/pipeline_cross_rerank_cpu.json");
   ASSERT_TRUE(json_in.good());
   nlohmann::json pipe_json;
   json_in >> pipe_json;
@@ -410,7 +410,7 @@ TEST_F(OperatorGoldenTest, CrossRerankGolden) {
   json_out << pipe_json.dump(2);
   json_out.close();
 
-  std::ifstream conf_in("configs/pipeline_cross_rerank.conf");
+  std::ifstream conf_in("configs/pipeline_cross_rerank_cpu.conf");
   ASSERT_TRUE(conf_in.good());
   nlohmann::json conf_json;
   conf_in >> conf_json;

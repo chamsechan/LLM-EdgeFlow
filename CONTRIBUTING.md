@@ -61,6 +61,11 @@ scope, invariants, decisions, and verification current while implementing.
 
 ### Source and identifier names
 
+Follow [source layout and naming](doc/dev_guide/source_layout.md) for SDK headers,
+source-extension contracts, private headers, and the distinct Adapter/biz/port names.
+Keep private declarations beside their implementation; templates and inline extension
+helpers may remain in authoring headers. SDK targets expose only the public header view.
+
 Use `snake_case` C/C++ filenames that describe the primary type or operation. C++ types and
 ordinary functions use `PascalCase`, variables use `snake_case`, private data members end in
 `_`, and constants/enumerators use `kPascalCase`; conventional accessors may use `snake_case`.

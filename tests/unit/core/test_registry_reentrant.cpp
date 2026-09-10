@@ -37,8 +37,8 @@ class ReentrantNode : public INode {
  public:
   inline static constexpr char kNodeType[] = "ReentrantNode";
   ReentrantNode() {
-    // 构造期间同步调用 NodeFactory 查询
-    volatile bool has = NodeFactory::Instance().Has("ReentrantNode");
+    // 构造期间同步调用 NodeRegistry 查询
+    volatile bool has = NodeRegistry::Instance().Has("ReentrantNode");
     (void)has;
   }
   bool Init(const NodeInitContext&) override { return true; }
@@ -88,7 +88,7 @@ REGISTER_MODEL_WITH_DEFINITION(ReentrantModel,
                                MakeTestModelDef(ReentrantModel::kModelType));
 
 TEST(RegistryReentrantTest, ReentrantCreationZeroDeadlock) {
-  // 1. 同步测试 Node 构造期重入 NodeFactory
+  // 1. 同步测试 Node 构造期重入 NodeRegistry
   {
     Pipeline p;
     PipelineDiagnostic diag;

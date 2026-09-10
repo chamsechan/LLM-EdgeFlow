@@ -9,73 +9,23 @@
 #include <unordered_map>
 #include <vector>
 
-#include "company_alg_log.h"
+#include "core/node_definition.h"
 #include "core/node_interface.h"
-#include "core/pipeline_catalog.h"
+#include "edgeflow/log.h"
 
 namespace llm_edgeflow {
 
-class NodeFactory {
+class NodeRegistry {
  public:
   using CreatorFunc = std::function<std::unique_ptr<INode>()>;
 
-  static NodeFactory& Instance() {
-    static NodeFactory instance;
+  static NodeRegistry& Instance() {
+    static NodeRegistry instance;
     return instance;
   }
 
   bool Register(const std::string& node_type, CreatorFunc creator,
-                const NodeDefinition* definition) noexcept {
-    try {
-      if (definition == nullptr) {
-        std::lock_guard<std::mutex> lock(mutex_);
-        has_conflict_ = true;
-        conflict_errors_.push_back(
-            "Node registration requires a valid Definition: " + node_type);
-        return false;
-      }
-      if (definition->node_type != node_type) {
-        std::lock_guard<std::mutex> lock(mutex_);
-        has_conflict_ = true;
-        conflict_errors_.push_back(
-            "NodeDefinition node_type mismatch: expected " + node_type +
-            ", got " + definition->node_type);
-        return false;
-      }
-      if (node_type.empty() || !creator) {
-        std::lock_guard<std::mutex> lock(mutex_);
-        has_conflict_ = true;
-        conflict_errors_.push_back("Empty node_type or null creator function");
-        return false;
-      }
-      std::lock_guard<std::mutex> lock(mutex_);
-      auto it = creators_.find(node_type);
-      if (it != creators_.end()) {
-        has_conflict_ = true;
-        conflict_errors_.push_back("Duplicate node registration for type: " +
-                                   node_type);
-        ALG_LOG_ERROR("[NodeFactory] Duplicate node registration: %s\n",
-                      node_type.c_str());
-        return false;
-      }
-      std::string definition_error;
-      if (!PipelineCatalog::RegisterNodeDefinition(*definition,
-                                                   &definition_error)) {
-        has_conflict_ = true;
-        ALG_LOG_ERROR("[NodeFactory] %s\n", definition_error.c_str());
-        conflict_errors_.push_back(std::move(definition_error));
-        return false;
-      }
-      creators_[node_type] = std::move(creator);
-      return true;
-    } catch (const std::exception& e) {
-      RecordRegistrationFailure(e.what());
-      return false;
-    } catch (...) {
-      RecordRegistrationFailure("Unknown exception registering node");
-      return false;
-    }
-  }
+                const NodeDefinition* definition) noexcept;
 
   bool Register(const std::string& node_type, CreatorFunc creator,
                 const NodeDefinition& definition) noexcept {
@@ -136,17 +86,20 @@ class NodeFactory {
     }
   }
 
-  NodeFactory() = default;
+  NodeRegistry() = default;
   mutable std::mutex mutex_;
   std::unordered_map<std::string, CreatorFunc> creators_;
   bool has_conflict_ = false;
   std::vector<std::string> conflict_errors_;
 };
 
+// Source compatibility for extensions using the former name.
+using NodeFactory = NodeRegistry;
+
 #define REGISTER_NODE_WITH_DEFINITION(NodeType, ...)                        \
   static bool _reg_node_##NodeType = []() noexcept {                        \
     const auto definition = (__VA_ARGS__);                                  \
-    return ::llm_edgeflow::NodeFactory::Instance().Register(                \
+    return ::llm_edgeflow::NodeRegistry::Instance().Register(               \
         NodeType::kNodeType, []() { return std::make_unique<NodeType>(); }, \
         &definition);                                                       \
   }()

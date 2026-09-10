@@ -20,9 +20,11 @@ int main(int argc, char* argv[]) {
         << std::endl;
     std::cout << "  ./build/alg_show <path_to_config.json>" << std::endl;
     std::cout << "示例:" << std::endl;
-    std::cout << "  ./build/alg_show configs/pipeline_doc_qa.json" << std::endl;
-    std::cout << "  ./build/alg_show configs/pipeline_dialogue_audit.json"
+    std::cout << "  ./build/alg_show configs/pipeline_doc_qa_default.json"
               << std::endl;
+    std::cout
+        << "  ./build/alg_show configs/pipeline_dialogue_audit_default.json"
+        << std::endl;
     return 0;
   }
 

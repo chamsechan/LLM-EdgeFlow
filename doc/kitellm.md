@@ -117,8 +117,8 @@ prefix/suffix、last/mean 池化和请求级 L2 归一化。Backend 负责 greed
 
 ```bash
 ./build-kite/alg_pipeline_tool catalog
-./build-kite/alg_pipeline_tool validate configs/kite/pipeline_doc_qa_embeddings.json
-./build-kite/alg_pipeline_tool plan configs/kite/pipeline_doc_qa_embeddings.json
+./build-kite/alg_pipeline_tool validate configs/pipeline_doc_qa_kite_generated_embeddings.json
+./build-kite/alg_pipeline_tool plan configs/pipeline_doc_qa_kite_generated_embeddings.json
 ./build-kite/alg_demo --profiles-file demo/profiles_kite.json --profile doc_qa_kite_embeddings
 ```
 

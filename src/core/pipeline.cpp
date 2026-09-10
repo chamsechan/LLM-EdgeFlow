@@ -6,10 +6,11 @@
 #include <fstream>
 #include <future>
 
-#include "company_alg_log.h"
 #include "contracts/control_payload.h"
 #include "core/node_registry.h"
+#include "core/pipeline_catalog.h"
 #include "core/pipeline_validator.h"
+#include "edgeflow/log.h"
 #include "engine/model_runtime_factory.h"
 
 namespace llm_edgeflow {
@@ -191,7 +192,7 @@ bool MaterializeNodes(RuntimeAssembly* assembly,
       const auto& node_config = node_plan.node;
       std::unique_ptr<INode> node;
       try {
-        node = NodeFactory::Instance().Create(node_config.node_type);
+        node = NodeRegistry::Instance().Create(node_config.node_type);
       } catch (const std::exception& e) {
         if (diagnostic) {
           diagnostic->code = PipelineErrorCode::kNodeCreateFailed;
@@ -220,7 +221,7 @@ bool MaterializeNodes(RuntimeAssembly* assembly,
           diagnostic->path = "/pipeline/" +
                              std::to_string(node_config.source_index) +
                              "/node_type";
-          diagnostic->message = "NodeFactory returned null for node_type: " +
+          diagnostic->message = "NodeRegistry returned null for node_type: " +
                                 node_config.node_type;
         }
         ALG_LOG_ERROR("[Pipeline] Failed to create node: %s\n",

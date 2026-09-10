@@ -19,7 +19,7 @@ if(ENABLE_KITELLM)
     "ENABLE_WHISPERCPP=ON cannot coexist with ENABLE_KITELLM=ON in the current architecture.")
 endif()
 
-message(STATUS "[Engine Layer] Enabling whisper.cpp engine support...")
+message(STATUS "[Model Execution] Enabling whisper.cpp Backend support...")
 
 set(WHISPER_3RDPARTY_DIR "${LLM_EDGEFLOW_3RDPARTY_DIR}/whisper_cpp")
 set(_WHISPER_FOUND OFF)
@@ -41,7 +41,7 @@ if(_WHISPER_CACHE_VALID AND
    EXISTS "${WHISPER_3RDPARTY_DIR}/include/whisper.h" AND
    NOT WHISPER_CPP_FORCE_REBUILD)
   set(_WHISPER_FOUND ON)
-  message(STATUS "[Engine Layer] Using prebuilt whisper.cpp from 3rdparty: ${WHISPER_3RDPARTY_DIR} (skipping compilation)")
+  message(STATUS "[Model Execution] Using prebuilt whisper.cpp from 3rdparty: ${WHISPER_3RDPARTY_DIR} (skipping compilation)")
 
   if(NOT TARGET whisper)
     add_library(whisper STATIC IMPORTED GLOBAL)
@@ -55,7 +55,7 @@ if(_WHISPER_CACHE_VALID AND
   set(THIRD_PARTY_ENGINE_LIBS ${THIRD_PARTY_ENGINE_LIBS} whisper)
   set(LLM_EDGEFLOW_HAS_WHISPERCPP ON)
   set(WHISPERCPP_INCLUDE_DIRS "${WHISPER_3RDPARTY_DIR}/include")
-  message(STATUS "[Engine Layer] Prebuilt whisper.cpp target imported successfully.")
+  message(STATUS "[Model Execution] Prebuilt whisper.cpp target imported successfully.")
 else()
   set(CMAKE_POSITION_INDEPENDENT_CODE ON CACHE BOOL "Position independent code" FORCE)
   set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build shared libraries" FORCE)
@@ -83,7 +83,7 @@ else()
     set(LLM_EDGEFLOW_HAS_WHISPERCPP ON)
     set(WHISPERCPP_INCLUDE_DIRS
         ${whisper_cpp_source_SOURCE_DIR}/include)
-    message(STATUS "[Engine Layer] whisper.cpp target configured successfully.")
+    message(STATUS "[Model Execution] whisper.cpp target configured successfully.")
 
     add_custom_target(archive_whisper_cpp_to_3rdparty ALL
       COMMAND ${CMAKE_COMMAND} -E make_directory "${WHISPER_3RDPARTY_DIR}/lib" "${WHISPER_3RDPARTY_DIR}/include"
@@ -94,6 +94,6 @@ else()
       COMMENT "[3rdparty] Archiving whisper.cpp static library and headers to ${WHISPER_3RDPARTY_DIR}"
     )
   else()
-    message(WARNING "[Engine Layer] whisper.cpp target 'whisper' was not created.")
+    message(WARNING "[Model Execution] whisper.cpp target 'whisper' was not created.")
   endif()
 endif()

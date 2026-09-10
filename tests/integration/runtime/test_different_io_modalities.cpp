@@ -10,8 +10,8 @@
 #include <string>
 #include <vector>
 
-#include "company_alg_cpp.hpp"
-#include "company_alg_interface.h"
+#include "edgeflow/c_api.h"
+#include "edgeflow/c_api.hpp"
 #include "engine/backend_registry.h"
 
 static std::string GetConfigPath(const std::string& rel_path) {
@@ -135,7 +135,8 @@ TEST_F(DifferentIoModalitiesTest, CrossRerankBatch) {
     GTEST_SKIP() << "ONNX Runtime backend disabled in this build";
   }
 
-  std::string cfg_path = GetConfigPath("configs/pipeline_cross_rerank.json");
+  std::string cfg_path =
+      GetConfigPath("configs/pipeline_cross_rerank_cpu.json");
   std::ifstream json_in(cfg_path);
   ASSERT_TRUE(json_in.good());
   nlohmann::json pipe_json;

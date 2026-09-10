@@ -315,7 +315,7 @@ class PipelineConfigTest : public ::testing::Test {
  protected:
   void SetUp() override {
     // RECHECK-R1-002: 启动时严格断言全局静态注册无冲突，不依赖生产 Reset 接口
-    ASSERT_FALSE(NodeFactory::Instance().HasConflict());
+    ASSERT_FALSE(NodeRegistry::Instance().HasConflict());
     ASSERT_FALSE(ModelRegistry::Instance().HasConflict());
     ASSERT_FALSE(BackendRegistry::Instance().HasConflict());
     CountingModel::Reset();
@@ -333,16 +333,16 @@ class PipelineConfigTest : public ::testing::Test {
 // 1. 正例：生产与 Stage 7 fixture 配置全部 Parse/Build 通过
 TEST_F(PipelineConfigTest, PositiveProductionAndStage7FixtureConfigs) {
   const std::vector<std::string> configs = {
-      "configs/pipeline_keyword_match.json",
+      "configs/pipeline_keyword_match_rules.json",
       "demo/fixtures/mock/pipeline_entity_extract.json",
       "demo/fixtures/mock/pipeline_doc_qa.json",
       "demo/fixtures/mock/pipeline_doc_qa_rerank.json",
       "demo/fixtures/mock/pipeline_dialogue_audit.json",
-      "configs/pipeline_doc_qa_onnx.json",
-      "configs/pipeline_entity_extract_llamacpp.json",
+      "configs/pipeline_doc_qa_cpu.json",
+      "configs/pipeline_entity_extract_cpu.json",
       "demo/fixtures/mock/pipeline_ocr_doc_qa.json",
       "demo/fixtures/mock/pipeline_audio_asr_intent.json",
-      "configs/pipeline_cross_rerank.json",
+      "configs/pipeline_cross_rerank_cpu.json",
   };
 
   for (const auto& cfg_file : configs) {
@@ -360,14 +360,14 @@ TEST_F(PipelineConfigTest, PositiveProductionAndStage7FixtureConfigs) {
                           << diag.message << " at " << diag.path;
     EXPECT_EQ(diag.code, PipelineErrorCode::kOk);
 
-    if ((cfg_file == "configs/pipeline_doc_qa_onnx.json" ||
-         cfg_file == "configs/pipeline_cross_rerank.json") &&
+    if ((cfg_file == "configs/pipeline_doc_qa_cpu.json" ||
+         cfg_file == "configs/pipeline_cross_rerank_cpu.json") &&
         !BackendRegistry::Instance().Find("onnxruntime").has_value()) {
       // Optional backend is deliberately absent in ONNX-disabled builds.
       continue;
     }
-    if ((cfg_file == "configs/pipeline_entity_extract_llamacpp.json" ||
-         cfg_file == "configs/pipeline_doc_qa_onnx.json") &&
+    if ((cfg_file == "configs/pipeline_entity_extract_cpu.json" ||
+         cfg_file == "configs/pipeline_doc_qa_cpu.json") &&
         !BackendRegistry::Instance().Find("llama_cpp").has_value()) {
       // Optional backend is absent in llama.cpp-disabled builds.
       continue;

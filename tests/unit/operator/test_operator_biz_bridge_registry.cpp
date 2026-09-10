@@ -6,6 +6,7 @@
 #include "adapter/biz_adapter_registry.h"
 #include "adapter/biz_results.h"
 #include "adapter/operator/operator_biz_bridge_registry.h"
+#include "adapter/operator/operator_value_type_registry.h"
 
 namespace llm_edgeflow {
 namespace {
@@ -42,7 +43,7 @@ TEST(OperatorBizBridgeRegistryTest, AllRegisteredBusinessesSelfRegistered) {
     ASSERT_NE(desc, nullptr)
         << "Business " << static_cast<int>(biz_type) << " must be registered";
     EXPECT_EQ(desc->biz_type, biz_type);
-    EXPECT_FALSE(desc->biz_name.empty());
+    EXPECT_FALSE(desc->adapter_name.empty());
     EXPECT_FALSE(desc->internal_input_type_name.empty());
     EXPECT_FALSE(desc->internal_output_type_name.empty());
     EXPECT_FALSE(desc->registration_identity.empty());
@@ -125,7 +126,7 @@ TEST(OperatorBizBridgeRegistryTest,
     }
     std::string diagnostic;
     EXPECT_EQ(local_reg.GlobalInit(&diagnostic), -6);
-    EXPECT_NE(diagnostic.find(original->biz_name), std::string::npos);
+    EXPECT_NE(diagnostic.find(original->adapter_name), std::string::npos);
     const char* rejected_value = mutation == 0   ? "WrongInputDto"
                                  : mutation == 1 ? "WrongOutputDto"
                                                  : "missing_input_type";
@@ -163,7 +164,7 @@ TEST(OperatorBizBridgeRegistryTest,
   // conflict state
   OperatorBizBridgeDescriptor dummy_desc;
   dummy_desc.biz_type = static_cast<CompanyAlgBizType>(1);
-  dummy_desc.biz_name = "DocQA";
+  dummy_desc.adapter_name = "DocQA";
   EXPECT_FALSE(local_reg.RegisterBridge(dummy_desc));
 
   // GlobalInit continues to succeed idempotently
@@ -195,7 +196,7 @@ TEST(OperatorBizBridgeRegistryTest,
             std::string::npos);
   const auto first_diagnostic = diagnostic;
   conflict_desc.biz_type = static_cast<CompanyAlgBizType>(99);
-  conflict_desc.biz_name = "LaterSlotConflict";
+  conflict_desc.adapter_name = "LaterSlotConflict";
   conflict_desc.input_slots.front().direction = IoDirection::kOutput;
   EXPECT_FALSE(local_reg.RegisterBridge(conflict_desc));
   EXPECT_EQ(local_reg.GlobalInit(&diagnostic), -6);
@@ -644,7 +645,7 @@ TEST(OperatorBizBridgeRegistryTest,
   EXPECT_NE(diagnostic.find("input direction"), std::string::npos);
   EXPECT_NE(diagnostic.find(bad_desc.input_slots[0].logical_name),
             std::string::npos);
-  EXPECT_NE(diagnostic.find(bad_desc.biz_name), std::string::npos);
+  EXPECT_NE(diagnostic.find(bad_desc.adapter_name), std::string::npos);
 }
 
 TEST(OperatorBizBridgeRegistryTest,

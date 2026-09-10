@@ -137,8 +137,8 @@ NodeDefinition MakeFlowContractProducerDefinition() {
   def.node_type = FlowContractProducerNode::kNodeType;
   def.category = "test";
   def.description = "Produces a generated request-scoped collection";
-  def.outputs = {PortDefinition{"flow", "TextBatch", true, "1:N",
-                                "generate_sub_id", "request"}};
+  def.outputs = {NodePortDefinition{"flow", "TextBatch", true, "1:N",
+                                    "generate_sub_id", "request"}};
   return def;
 }
 
@@ -147,8 +147,8 @@ NodeDefinition MakeFlowContractConsumerDefinition() {
   def.node_type = FlowContractConsumerNode::kNodeType;
   def.category = "test";
   def.description = "Requires incompatible flow metadata";
-  def.inputs = {PortDefinition{"flow", "TextBatch", true, "1:1", "independent",
-                               "session"}};
+  def.inputs = {NodePortDefinition{"flow", "TextBatch", true, "1:1",
+                                   "independent", "session"}};
   return def;
 }
 
@@ -271,7 +271,7 @@ TEST(ValidatedPipelinePlanTest,
 }
 
 TEST(ValidatedPipelinePlanTest, RejectsNodeOutputBoundToBusinessIngress) {
-  std::ifstream stream("configs/pipeline_doc_qa.json");
+  std::ifstream stream("configs/pipeline_doc_qa_default.json");
   ASSERT_TRUE(stream.is_open());
   nlohmann::json pipeline_json;
   stream >> pipeline_json;
@@ -580,8 +580,8 @@ TEST(ValidatedPipelinePlanTest,
   BizDefinition biz_def;
   biz_def.biz_name = "test_egress_flow_biz";
   biz_def.demo_biz = "test";
-  biz_def.egress = {PortDefinition{"flow", "TextBatch", true, "1:1",
-                                   "independent", "session"}};
+  biz_def.egress = {BizPortDefinition{"flow", "TextBatch", true, "1:1",
+                                      "independent", "session"}};
   ASSERT_TRUE(PipelineCatalog::RegisterBizDefinition(biz_def));
 
   nlohmann::json pipeline_json = {
@@ -623,8 +623,8 @@ TEST(ValidatedPipelinePlanTest,
      OptionalEgressMayBeAbsentButMustMatchWhenPresent) {
   BizDefinition biz;
   biz.biz_name = "test_optional_egress_type";
-  biz.egress = {PortDefinition{"optional", "Int32Batch", false, "N:M",
-                               "aggregate", "request"}};
+  biz.egress = {BizPortDefinition{"optional", "Int32Batch", false, "N:M",
+                                  "aggregate", "request"}};
   ASSERT_TRUE(PipelineCatalog::RegisterBizDefinition(biz));
   nlohmann::json config = {
       {"biz_name", biz.biz_name},

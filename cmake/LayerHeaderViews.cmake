@@ -34,8 +34,23 @@ function(edgeflow_collect_headers output_var)
   set(${output_var} "${headers}" PARENT_SCOPE)
 endfunction()
 
+set(platform_mock_headers
+    include/platform_mock/alg_types.h include/platform_mock/error_codes.h
+    include/platform_mock/operator_data_types.h include/platform_mock/operator_types.h)
+
+set(public_headers
+    include/edgeflow/c_api.h include/edgeflow/c_api.hpp
+    include/edgeflow/export.h include/edgeflow/log.h
+    include/edgeflow/operator/interface.h include/edgeflow/operator/types.h
+    include/company_alg_interface.h include/company_alg_cpp.hpp
+    include/company_alg_export.h include/company_alg_log.h
+    include/company_alg_version.h
+    include/operator/operator_interface.h include/operator/company_operator_types.h
+    ${platform_mock_headers})
+edgeflow_header_view(public ${public_headers})
+
 edgeflow_collect_headers(contract_headers "${PROJECT_SOURCE_DIR}/include/contracts")
-list(APPEND contract_headers include/company_alg_log.h include/company_alg_export.h)
+list(APPEND contract_headers include/edgeflow/log.h include/edgeflow/export.h)
 edgeflow_header_view(contracts ${contract_headers})
 
 edgeflow_collect_headers(model_api_headers "${PROJECT_SOURCE_DIR}/include/engine")
@@ -60,9 +75,10 @@ edgeflow_collect_headers(core_headers "${PROJECT_SOURCE_DIR}/include/core"
 edgeflow_header_view(orchestration ${core_headers} ${model_api_headers})
 
 edgeflow_collect_headers(integration_headers "${PROJECT_SOURCE_DIR}/include/adapter"
-    "${PROJECT_SOURCE_DIR}/include/operator" "${PROJECT_SOURCE_DIR}/src/adapter")
+    "${PROJECT_SOURCE_DIR}/include/edgeflow/operator" "${PROJECT_SOURCE_DIR}/src/adapter")
 edgeflow_header_view(integration ${integration_headers} ${core_headers}
-    ${model_api_headers} include/company_alg_interface.h include/company_alg_cpp.hpp)
+    ${model_api_headers} ${platform_mock_headers}
+    include/edgeflow/c_api.h include/edgeflow/c_api.hpp)
 
 # Capture the actual evaluated target include paths, including transitive usage
 # requirements, so the existing LayerGuard gate detects accidental broadening.
@@ -74,6 +90,10 @@ function(edgeflow_generate_layer_compile_manifest)
   foreach(layer model_execution capability_nodes orchestration integration)
     string(APPEND content
       "set(${layer}_includes [==[$<TARGET_PROPERTY:edgeflow_${layer}_objects,INCLUDE_DIRECTORIES>]==])\n")
+  endforeach()
+  foreach(scope public extension)
+    string(APPEND content
+        "set(${scope}_includes [==[$<TARGET_PROPERTY:edgeflow_${scope}_headers,INTERFACE_INCLUDE_DIRECTORIES>]==])\n")
   endforeach()
   file(GENERATE OUTPUT "${PROJECT_BINARY_DIR}/layer_includes/compile_checks_$<CONFIG>.cmake"
        CONTENT "${content}")

@@ -30,8 +30,9 @@ std::mutex& CatalogMutex() {
   return mutex;
 }
 
-nlohmann::json PortJson(const PortDefinition& port) {
-  nlohmann::json result = {{"key", port.key},
+template <typename Port>
+nlohmann::json PortJson(const Port& port) {
+  nlohmann::json result = {{"key", port.Name()},
                            {"type_id", port.type_id},
                            {"required", port.required},
                            {"cardinality", port.cardinality},
@@ -112,41 +113,43 @@ const std::unordered_set<std::string>& ValidLifetimes() {
   return kValidLifetimes;
 }
 
-bool ValidatePortDefinitions(const std::vector<PortDefinition>& ports,
+template <typename Port>
+bool ValidatePortDefinitions(const std::vector<Port>& ports,
                              std::unordered_set<std::string>* seen_keys,
                              std::string* error) {
   for (const auto& port : ports) {
-    if (port.key.empty()) {
+    if (port.Name().empty()) {
       if (error) *error = "Port key cannot be empty";
       return false;
     }
     if (port.type_id.empty()) {
-      if (error) *error = "Port type_id cannot be empty for port: " + port.key;
+      if (error)
+        *error = "Port type_id cannot be empty for port: " + port.Name();
       return false;
     }
     if (!ValidCardinalities().count(port.cardinality)) {
       if (error) {
         *error = "Invalid port cardinality '" + port.cardinality +
-                 "' in port: " + port.key;
+                 "' in port: " + port.Name();
       }
       return false;
     }
     if (!ValidProvenance().count(port.provenance_policy)) {
       if (error) {
         *error = "Invalid port provenance policy '" + port.provenance_policy +
-                 "' in port: " + port.key;
+                 "' in port: " + port.Name();
       }
       return false;
     }
     if (!ValidLifetimes().count(port.lifetime)) {
       if (error) {
         *error = "Invalid port lifetime '" + port.lifetime +
-                 "' in port: " + port.key;
+                 "' in port: " + port.Name();
       }
       return false;
     }
-    if (seen_keys && !seen_keys->insert(port.key).second) {
-      if (error) *error = "Duplicate port key: " + port.key;
+    if (seen_keys && !seen_keys->insert(port.Name()).second) {
+      if (error) *error = "Duplicate port key: " + port.Name();
       return false;
     }
   }
@@ -206,7 +209,7 @@ bool PipelineCatalog::RegisterNodeDefinition(const NodeDefinition& definition,
     if (error) *error = field_err;
     return false;
   }
-  const auto validates_lifetime_override = [&](const PortDefinition& port) {
+  const auto validates_lifetime_override = [&](const NodePortDefinition& port) {
     if (port.lifetime_config_field.empty()) return true;
     auto it = std::find_if(
         definition.config_fields.begin(), definition.config_fields.end(),

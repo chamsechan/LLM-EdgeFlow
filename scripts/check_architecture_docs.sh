@@ -153,10 +153,10 @@ elif [[ "${ABI_VERSION%%.*}" != "${ABI_MAJOR}" ]]; then
   FAILED=1
 fi
 
-VERSION_TEMPLATE="${ROOT_DIR}/cmake/company_alg_version.h.in"
-VERSION_SCRIPT_TEMPLATE="${ROOT_DIR}/cmake/company_alg_sdk.map.in"
-PUBLIC_INTERFACE="${ROOT_DIR}/include/company_alg_interface.h"
-if ! grep -Fq '#include "company_alg_version.h"' "${PUBLIC_INTERFACE}"; then
+VERSION_TEMPLATE="${ROOT_DIR}/cmake/edgeflow_version.h.in"
+VERSION_SCRIPT_TEMPLATE="${ROOT_DIR}/cmake/edgeflow_sdk.map.in"
+PUBLIC_INTERFACE="${ROOT_DIR}/include/edgeflow/c_api.h"
+if ! grep -Fq '#include "edgeflow/version.h"' "${PUBLIC_INTERFACE}"; then
   echo "❌ Public C interface does not include the generated version header"
   FAILED=1
 fi

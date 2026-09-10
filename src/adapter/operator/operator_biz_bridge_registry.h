@@ -1,131 +1,16 @@
 #pragma once
 
 #include <cstdint>
-#include <cstring>
-#include <deque>
-#include <functional>
 #include <initializer_list>
-#include <memory>
 #include <mutex>
 #include <string>
 #include <string_view>
 #include <unordered_map>
-#include <vector>
 
-#include "adapter/operator/operator_value_type_registry.h"
-#include "company_alg_interface.h"
+#include "adapter/operator_biz_bridge.h"
+#include "edgeflow/c_api.h"
 
 namespace llm_edgeflow {
-
-/**
- * @brief Process 执行期局部影子 DTO 存储器
- * (保证执行期间指针生命周期与地址绝对稳定)
- */
-struct ProcessLocalShadowStorage {
-  std::deque<std::string> strings;
-  std::deque<std::vector<float>> float_vectors;
-  std::vector<std::shared_ptr<void>> shadow_dtos;
-
-  const char* StoreString(const CompanyString* cs) {
-    if (!cs || cs->length <= 0 || !cs->data) {
-      strings.emplace_back("");
-      return strings.back().c_str();
-    }
-    strings.emplace_back(cs->data, cs->length);
-    return strings.back().c_str();
-  }
-
-  const char* StoreOptionalString(const CompanyString* cs) {
-    return cs ? StoreString(cs) : nullptr;
-  }
-
-  template <typename T>
-  T* AllocateShadowDto() {
-    auto dto = std::make_shared<T>();
-    T* raw = dto.get();
-    shadow_dtos.push_back(std::move(dto));
-    return raw;
-  }
-};
-
-/**
- * @brief 业务逻辑槽位定义
- */
-struct OperatorBizSlot {
-  std::string logical_name;  // 业务逻辑槽位名 (业务与方向内唯一)
-  std::string type_suffix;   // 规范类型后缀
-  IoDirection direction = IoDirection::kInput;
-  bool required = true;
-
-  bool operator==(const OperatorBizSlot& other) const {
-    return logical_name == other.logical_name &&
-           type_suffix == other.type_suffix && direction == other.direction &&
-           required == other.required;
-  }
-};
-
-using ConvertSampleInputFn = int (*)(
-    const std::unordered_map<std::string, const void*>& slots_by_logical_name,
-    ProcessLocalShadowStorage& storage, const void** out_internal_dto,
-    std::string* err);
-
-using ConvertSampleOutputFn = int (*)(const void* internal_dto,
-                                      void* external_output_struct,
-                                      const ResolvedOutputPoolSpec& spec,
-                                      std::string* err);
-
-using CreateShadowOutputDtoFn = void* (*)(ProcessLocalShadowStorage& storage);
-
-/**
- * @brief 业务桥接描述符
- */
-struct OperatorBizBridgeDescriptor {
-  CompanyAlgBizType biz_type = ALG_BIZ_TYPE_UNKNOWN;
-  std::string biz_name;
-  std::string internal_input_type_name;
-  std::string internal_output_type_name;
-  std::string registration_identity;
-  std::vector<OperatorBizSlot> input_slots;
-  std::vector<OperatorBizSlot> output_slots;
-  ConvertSampleInputFn convert_sample_input = nullptr;
-  ConvertSampleOutputFn convert_sample_output = nullptr;
-  CreateShadowOutputDtoFn create_shadow_output_dto = nullptr;
-
-  bool operator==(const OperatorBizBridgeDescriptor& other) const {
-    return biz_type == other.biz_type && biz_name == other.biz_name &&
-           internal_input_type_name == other.internal_input_type_name &&
-           internal_output_type_name == other.internal_output_type_name &&
-           registration_identity == other.registration_identity &&
-           input_slots == other.input_slots &&
-           output_slots == other.output_slots &&
-           convert_sample_input == other.convert_sample_input &&
-           convert_sample_output == other.convert_sample_output &&
-           create_shadow_output_dto == other.create_shadow_output_dto;
-  }
-};
-
-// The built-in one-input/one-output pattern needs only its conversions and
-// registered type names; slot boilerplate and result allocation are shared.
-template <typename Result>
-OperatorBizBridgeDescriptor MakeSingleSlotBizBridge(
-    CompanyAlgBizType biz_type, std::string biz_name, std::string input_type,
-    std::string identity, std::string input_slot, std::string output_slot) {
-  OperatorBizBridgeDescriptor desc;
-  desc.biz_type = biz_type;
-  desc.biz_name = std::move(biz_name);
-  desc.internal_input_type_name = std::move(input_type);
-  desc.internal_output_type_name = Result::kTypeName;
-  desc.registration_identity = std::move(identity);
-  desc.input_slots.push_back(
-      {input_slot, input_slot, IoDirection::kInput, true});
-  desc.output_slots.push_back(
-      {output_slot, output_slot, IoDirection::kOutput, true});
-  desc.create_shadow_output_dto =
-      [](ProcessLocalShadowStorage& storage) -> void* {
-    return storage.AllocateShadowDto<Result>();
-  };
-  return desc;
-}
 
 /**
  * @brief Operator 业务桥接注册表 (SSOT 与自注册中心)
@@ -168,7 +53,7 @@ class OperatorBizBridgeRegistry {
   OperatorBizBridgeRegistry() = default;
 
  private:
-  void RecordConflict(CompanyAlgBizType biz_type, std::string_view biz_name,
+  void RecordConflict(CompanyAlgBizType biz_type, std::string_view adapter_name,
                       std::initializer_list<std::string_view> reason) noexcept;
   int ReportConflict(std::string* diagnostic) const noexcept;
 
@@ -178,18 +63,5 @@ class OperatorBizBridgeRegistry {
   std::string conflict_diagnostic_;
   std::unordered_map<int32_t, OperatorBizBridgeDescriptor> bridges_by_biz_type_;
 };
-
-/**
- * @brief 就地业务自注册宏 (无需在中心维护列表)
- */
-#define REGISTER_OPERATOR_BIZ_BRIDGE(BridgeRegisterFn)                         \
-  namespace {                                                                  \
-  struct AutoRegister_##BridgeRegisterFn {                                     \
-    AutoRegister_##BridgeRegisterFn() {                                        \
-      BridgeRegisterFn(::llm_edgeflow::OperatorBizBridgeRegistry::Instance()); \
-    }                                                                          \
-  };                                                                           \
-  static AutoRegister_##BridgeRegisterFn g_auto_register_##BridgeRegisterFn;   \
-  }
 
 }  // namespace llm_edgeflow

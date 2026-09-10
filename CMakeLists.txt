@@ -53,30 +53,40 @@ endif()
 # 产品版本和 ABI 版本均由 CMake 生成，公共 C 头不再维护副本。
 set(LLM_EDGEFLOW_GENERATED_INCLUDE_DIR
     "${PROJECT_BINARY_DIR}/generated/include")
-file(MAKE_DIRECTORY "${LLM_EDGEFLOW_GENERATED_INCLUDE_DIR}")
+file(MAKE_DIRECTORY "${LLM_EDGEFLOW_GENERATED_INCLUDE_DIR}/edgeflow")
+# An earlier build generated this name; it must not shadow the compatibility
+# forwarding header after the canonical version changes.
+file(REMOVE "${LLM_EDGEFLOW_GENERATED_INCLUDE_DIR}/company_alg_version.h")
 configure_file(
-  "${PROJECT_SOURCE_DIR}/cmake/company_alg_version.h.in"
-  "${LLM_EDGEFLOW_GENERATED_INCLUDE_DIR}/company_alg_version.h"
+  "${PROJECT_SOURCE_DIR}/cmake/edgeflow_version.h.in"
+  "${LLM_EDGEFLOW_GENERATED_INCLUDE_DIR}/edgeflow/version.h"
   @ONLY)
 set(LLM_EDGEFLOW_SDK_VERSION_SCRIPT
-    "${PROJECT_BINARY_DIR}/company_alg_sdk.map")
+    "${PROJECT_BINARY_DIR}/edgeflow_sdk.map")
 configure_file(
-  "${PROJECT_SOURCE_DIR}/cmake/company_alg_sdk.map.in"
+  "${PROJECT_SOURCE_DIR}/cmake/edgeflow_sdk.map.in"
   "${LLM_EDGEFLOW_SDK_VERSION_SCRIPT}"
   @ONLY)
 
+include(cmake/LayerHeaderViews.cmake)
 add_library(edgeflow_public_headers INTERFACE)
 target_include_directories(edgeflow_public_headers INTERFACE
     $<BUILD_INTERFACE:${LLM_EDGEFLOW_GENERATED_INCLUDE_DIR}>
-    $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>)
+    $<BUILD_INTERFACE:${edgeflow_public_include_dir}>)
 
-# 仓库内工具、Demo 与测试可以包含私有头；对外 SDK 只传播 include/。
+# Source extensions use authoring contracts; they are not the dynamic SDK ABI.
+add_library(edgeflow_extension_headers INTERFACE)
+target_include_directories(edgeflow_extension_headers INTERFACE
+    "${PROJECT_SOURCE_DIR}/include")
+target_link_libraries(edgeflow_extension_headers INTERFACE edgeflow_public_headers)
+
+# 仓库内工具和测试可访问源码；公开 SDK 目标只传播明确列出的调用头。
 add_library(edgeflow_internal_headers INTERFACE)
 target_include_directories(edgeflow_internal_headers INTERFACE
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/src)
 target_link_libraries(edgeflow_internal_headers INTERFACE
-    edgeflow_public_headers)
+    edgeflow_extension_headers)
 
 if(APPLE AND CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang")
   if(EXISTS "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1")
@@ -86,6 +96,8 @@ endif()
 
 # 引入第三方 JSON 库 (nlohmann/json) 自动下载配置
 include(cmake/NlohmannJson.cmake)
+target_link_libraries(edgeflow_extension_headers INTERFACE
+    nlohmann_json::nlohmann_json)
 include(cmake/StbImage.cmake)
 
 # 引入 Unicode 正则库（TextRuleMatchNode lookbehind / 命名捕获）
@@ -100,7 +112,6 @@ include(cmake/ThirdPartyEngines.cmake)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 
 # 轻量运行时契约位于所有实现层下方；各层依赖 interface 只向下传播。
-include(cmake/LayerHeaderViews.cmake)
 add_library(edgeflow_runtime_contracts INTERFACE)
 target_include_directories(edgeflow_runtime_contracts INTERFACE
     "${edgeflow_contracts_include_dir}"

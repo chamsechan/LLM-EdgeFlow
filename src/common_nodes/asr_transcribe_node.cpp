@@ -1,6 +1,6 @@
-#include "company_alg_log.h"
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
+#include "edgeflow/log.h"
 #include "engine/model_interface.h"
 #include "nodes/model_bound_node.h"
 #include "nodes/node_error_codes.h"

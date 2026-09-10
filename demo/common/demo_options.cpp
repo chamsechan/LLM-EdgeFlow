@@ -8,8 +8,8 @@
 #include <limits>
 #include <sstream>
 
-#include "company_alg_log.h"
 #include "demo/common/dataset_reader.h"
+#include "edgeflow/log.h"
 #include "nlohmann/json.hpp"
 
 namespace alg_demo {

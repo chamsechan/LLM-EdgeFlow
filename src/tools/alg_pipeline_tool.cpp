@@ -6,11 +6,11 @@
 #include <sstream>
 #include <string>
 
-#include "adapter/operator/company_conf_resolver.h"
+#include "adapter/operator/operator_config_resolver.h"
 #include "core/pipeline_catalog.h"
 #include "core/pipeline_validator.h"
+#include "edgeflow/operator/interface.h"
 #include "nlohmann/json.hpp"
-#include "operator/operator_interface.h"
 
 namespace {
 
@@ -118,10 +118,10 @@ nlohmann::json ResolveConf(const std::string& file, const std::string& root,
     operator_api::OperatorFunc ops;
     ~RegistryGuard() { ops.Deinit(); }
   } registry_guard{ops};
-  ResolvedCompanyConfig resolved;
+  ResolvedOperatorConfig resolved;
   std::string error;
-  if (CompanyConfResolver::Resolve(root.c_str(), file.c_str(), &resolved,
-                                   &error, depth) != 0)
+  if (OperatorConfigResolver::Resolve(root.c_str(), file.c_str(), &resolved,
+                                      &error, depth) != 0)
     return Error("DEPLOYMENT_CONFIG", error);
   const auto plan =
       PipelineValidator::ValidateAndPlan(resolved.synthetic_pipeline_json);

@@ -6,13 +6,12 @@
 #include "demo/common/demo_registry.h"
 #include "demo/common/operator_runner.h"
 #include "demo/common/result_writer.h"
-#include "operator/company_operator_types.h"
+#include "platform_mock/operator_data_types.h"
 
 namespace alg_demo {
 
 int RunOcrDocQaDemo(const DemoOptions& options) {
-  PrintBanner("【业务 5 演示】智能多模态图文票据问答",
-              "Conf: " + options.config_path);
+  PrintBanner("智能多模态图文票据问答", "Conf: " + options.config_path);
 
   std::unordered_map<std::string, std::vector<std::string>> sections;
   std::string err;
@@ -175,7 +174,7 @@ int RunOcrDocQaDemo(const DemoOptions& options) {
   return 0;
 }
 
-REGISTER_DEMO_BIZ("ocr_doc_qa", "【业务 5 演示】智能多模态图文票据问答",
-                  RunOcrDocQaDemo, ALG_BIZ_TYPE_OCR_DOC_QA);
+REGISTER_DEMO_BIZ("ocr_doc_qa", "智能多模态图文票据问答", RunOcrDocQaDemo,
+                  ALG_BIZ_TYPE_OCR_DOC_QA);
 
 }  // namespace alg_demo

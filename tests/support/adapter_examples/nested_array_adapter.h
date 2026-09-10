@@ -52,7 +52,7 @@ class TemplateNestedArrayAdapter : public IBizAdapter {
     return static_cast<CompanyAlgBizType>(103);
   }
 
-  const char* BizName() const override { return "TemplateNestedArray"; }
+  const char* AdapterName() const override { return "TemplateNestedArray"; }
 
   const AdapterDescriptor& GetDescriptor() const override {
     static AdapterDescriptor desc{
@@ -73,10 +73,11 @@ class TemplateNestedArrayAdapter : public IBizAdapter {
   int Unpack(const void** inputs, int num_inputs, AlgContext* ctx,
              AdapterStatus* out_status = nullptr) const override {
     int valid_ret = AdapterValidationHelper::ValidateBatchInputs(
-        inputs, num_inputs, GetDescriptor().max_batch_size, BizName());
+        inputs, num_inputs, GetDescriptor().max_batch_size, AdapterName());
     if (valid_ret != 0 || !ctx) {
       return AdapterValidationHelper::ReturnInvalidInput(
-          out_status, "Batch envelope validation failed", "inputs", BizName());
+          out_status, "Batch envelope validation failed", "inputs",
+          AdapterName());
     }
 
     std::vector<TemplateNestedArrayItemDto> items;
@@ -87,26 +88,26 @@ class TemplateNestedArrayAdapter : public IBizAdapter {
     for (int i = 0; i < num_inputs; ++i) {
       auto* in = static_cast<const TemplateNestedArrayInput*>(inputs[i]);
       if (!AdapterValidationHelper::RequireNotNull("inputs[i]", in, i,
-                                                   BizName(), out_status)) {
+                                                   AdapterName(), out_status)) {
         return COMPANY_ALG_ERR_INVALID_INPUT;
       }
 
       // ADP-001, RECHECK-004: 范围校验与乘法溢出保护
       if (!AdapterValidationHelper::RequireRange(
               "inputs[i].tag_count", in->tag_count, 0, kMaxTagsPerItem, i,
-              BizName(), out_status)) {
+              AdapterName(), out_status)) {
         return COMPANY_ALG_ERR_INVALID_INPUT;
       }
 
       if (in->tag_count > 0) {
-        if (!AdapterValidationHelper::RequireNotNull("inputs[i].tag_array",
-                                                     in->tag_array, i,
-                                                     BizName(), out_status)) {
+        if (!AdapterValidationHelper::RequireNotNull(
+                "inputs[i].tag_array", in->tag_array, i, AdapterName(),
+                out_status)) {
           return COMPANY_ALG_ERR_INVALID_INPUT;
         }
         if (!AdapterValidationHelper::CheckedMultiply(
                 "inputs[i].tag_array", in->tag_count, sizeof(TemplateTagItem),
-                10 * 1024 * 1024, i, BizName(), out_status)) {
+                10 * 1024 * 1024, i, AdapterName(), out_status)) {
           return COMPANY_ALG_ERR_INVALID_INPUT;
         }
       }
@@ -119,7 +120,7 @@ class TemplateNestedArrayAdapter : public IBizAdapter {
         std::string tag_path = "inputs[i].tag_array[" + std::to_string(k) + "]";
         if (!AdapterValidationHelper::RequireBoundedString(
                 (tag_path + ".tag_name").c_str(), in->tag_array[k].tag_name,
-                4096, i, BizName(), out_status)) {
+                4096, i, AdapterName(), out_status)) {
           return COMPANY_ALG_ERR_INVALID_INPUT;
         }
         TemplateTagDto tag_dto;
@@ -131,7 +132,7 @@ class TemplateNestedArrayAdapter : public IBizAdapter {
     }
 
     if (!AdapterValidationHelper::PublishContextValue(
-            *ctx, "nested_array_items", std::move(items), BizName(),
+            *ctx, "nested_array_items", std::move(items), AdapterName(),
             out_status)) {
       return COMPANY_ALG_ERR_INVALID_INPUT;
     }
@@ -148,7 +149,7 @@ class TemplateNestedArrayAdapter : public IBizAdapter {
 
     int count = static_cast<int>(res->size());
     int valid_ret = AdapterValidationHelper::ValidateBatchOutputs(
-        outputs, num_outputs, count, BizName(), out_status);
+        outputs, num_outputs, count, AdapterName(), out_status);
     if (valid_ret != 0) return valid_ret;
 
     for (int i = 0; i < count; ++i) {
@@ -159,7 +160,7 @@ class TemplateNestedArrayAdapter : public IBizAdapter {
 
       if (!AdapterValidationHelper::CheckedStringCopy(
               out_ptr->summary, sizeof(out_ptr->summary),
-              (*res)[i].summary.c_str(), "outputs[i].summary", i, BizName(),
+              (*res)[i].summary.c_str(), "outputs[i].summary", i, AdapterName(),
               out_status)) {
         return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
       }

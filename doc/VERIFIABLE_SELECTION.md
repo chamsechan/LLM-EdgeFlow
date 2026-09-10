@@ -23,7 +23,7 @@ Node 的检索数、生成预算、模板等业务参数放在 Node `config`，�
 或移除相应覆盖后，查看与 Operator Create 同一解析器得到的结果：
 
 ```bash
-./build/alg_pipeline_tool resolve-conf configs/pipeline_keyword_match.conf --root . --depth 2
+./build/alg_pipeline_tool resolve-conf configs/pipeline_keyword_match_rules.conf --root . --depth 2
 ```
 
 `--root` 是部署根目录，默认当前目录；`--depth` 与 Demo 的 batch size、depth 两者最大值
@@ -48,7 +48,7 @@ Studio 的“另存为可运行方案”和“运行草稿”共用配置生成�
 
 ```bash
 python3 tools/verify_selection.py check \
-  --pipeline configs/pipeline_doc_qa.json \
+  --pipeline configs/pipeline_doc_qa_default.json \
   --model-root models --variant default-cpu \
   --output results/docqa-selection.json
 ```
@@ -69,7 +69,7 @@ python3 tools/verify_selection.py check \
 cmake --preset minimal
 cmake --build --preset minimal --target alg_pipeline_tool
 python3 tools/verify_selection.py check \
-  --pipeline configs/pipeline_keyword_match.json \
+  --pipeline configs/pipeline_keyword_match_rules.json \
   --tool build/variants/minimal/alg_pipeline_tool --variant minimal
 ```
 
@@ -85,12 +85,12 @@ python3 tools/verify_selection.py check \
 
 ```bash
 python3 tools/verify_selection.py evaluate \
-  --pipeline configs/pipeline_keyword_match.json --variant default-cpu \
+  --pipeline configs/pipeline_keyword_match_rules.json --variant default-cpu \
   --effects tests/fixtures/effects/keyword_exact.json \
   --output results/keyword-effects.json
 
 python3 tools/verify_selection.py check \
-  --pipeline configs/pipeline_keyword_match.json --variant default-cpu \
+  --pipeline configs/pipeline_keyword_match_rules.json --variant default-cpu \
   --effects tests/fixtures/effects/keyword_exact.json \
   --evidence results/keyword-effects.json --require-effects
 ```

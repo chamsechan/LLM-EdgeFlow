@@ -8,17 +8,17 @@
 #include <string>
 #include <vector>
 
-#include "company_alg_log.h"
 #include "core/node_registry.h"
 #include "demo/common/dataset_reader.h"
 #include "demo/common/demo_options.h"
 #include "demo/common/demo_registry.h"
 #include "demo/common/operator_runner.h"
 #include "demo/common/result_writer.h"
+#include "edgeflow/log.h"
+#include "edgeflow/operator/interface.h"
 #include "engine/backend_registry.h"
 #include "nlohmann/json.hpp"
 #include "nodes/node_base.h"
-#include "operator/operator_interface.h"
 #include "tests/support/control_test_utils.h"
 
 using namespace alg_demo;
@@ -156,7 +156,7 @@ TEST(DemoRunnerTest, RealKiteEntityExtractionThroughOperator) {
         std::filesystem::copy_file(model_path, temporary.path / "model.gguf"));
   }
 
-  std::ifstream pipeline_input("configs/pipeline_entity_extract_llamacpp.json");
+  std::ifstream pipeline_input("configs/pipeline_entity_extract_cpu.json");
   ASSERT_TRUE(pipeline_input.good());
   auto pipeline = nlohmann::json::parse(pipeline_input);
   auto& model = pipeline["models"][0];
@@ -173,7 +173,7 @@ TEST(DemoRunnerTest, RealKiteEntityExtractionThroughOperator) {
     }
   }
   std::ofstream(temporary.path / "pipeline.json") << pipeline.dump(2);
-  std::ifstream conf_input("configs/pipeline_entity_extract_llamacpp.conf");
+  std::ifstream conf_input("configs/pipeline_entity_extract_cpu.conf");
   ASSERT_TRUE(conf_input.good());
   auto conf = nlohmann::json::parse(conf_input);
   conf["data"]["pipe_path"] = "pipeline.json";
@@ -411,7 +411,7 @@ TEST(DemoRunnerTest, ProfileLoadAndMerge) {
 // P1-1: 验证 CLI 显式传入默认值 (例如 --batch-size 1) 可以可靠覆盖 Profile 中非
 // 1 的 batch_size
 TEST(DemoRunnerTest, CliOverridesProfileEvenWithExplicitDefault) {
-  const char* argv[] = {"alg_demo", "--profile", "cross_rerank_onnx",
+  const char* argv[] = {"alg_demo", "--profile", "cross_rerank_cpu",
                         "--batch-size", "1"};
   int argc = 5;
 
@@ -500,7 +500,7 @@ TEST(DemoRunnerTest, ProfileSchemaStrictValidation) {
       "profiles": {
         "bad_suite_type": {
           "biz": "keyword_match",
-          "config": "configs/pipeline_keyword_match.conf",
+          "config": "configs/pipeline_keyword_match_rules.conf",
           "dataset": "data/corpus_keyword_match.txt",
           "suite": 123
         }
@@ -808,8 +808,8 @@ TEST(DemoRunnerTest, ConfigBizMatchValidation) {
                                      "doc_qa", &err));
   EXPECT_TRUE(ValidateConfigBizMatch(
       "demo/fixtures/mock/pipeline_doc_qa_rerank.conf", "doc_qa", &err));
-  EXPECT_TRUE(ValidateConfigBizMatch("configs/pipeline_keyword_match.conf",
-                                     "keyword_match", &err));
+  EXPECT_TRUE(ValidateConfigBizMatch(
+      "configs/pipeline_keyword_match_rules.conf", "keyword_match", &err));
 
   // 错误匹配 -> 快速失败
   EXPECT_FALSE(ValidateConfigBizMatch("demo/fixtures/mock/pipeline_doc_qa.conf",
@@ -861,7 +861,7 @@ TEST(DemoRunnerTest, FailClosedOnMissingOrInvalidControlFile) {
   ASSERT_EQ(ops.Init(), 0);
 
   KiteDemoDirectory temporary;
-  for (const char* profile : {"keyword_match_mock", "ocr_doc_qa_mock"}) {
+  for (const char* profile : {"keyword_match_rules", "ocr_doc_qa_mock"}) {
     SCOPED_TRACE(profile);
     DemoOptions opts;
     opts.profile = profile;
@@ -924,14 +924,14 @@ TEST(DemoRunnerTest, GenericControlCommandChangesCustomNodeOutput) {
 
 TEST(DemoRunnerTest, PreservesMixedSampleStatusesAndFailureCounts) {
   KiteDemoDirectory temporary;
-  std::ifstream pipeline_file("configs/pipeline_keyword_match.json");
+  std::ifstream pipeline_file("configs/pipeline_keyword_match_rules.json");
   ASSERT_TRUE(pipeline_file.good());
   auto pipeline = nlohmann::json::parse(pipeline_file);
   pipeline["pipeline"][0]["node_type"] = "TestDemoStatusNode";
   pipeline["pipeline"][0].erase("config");
   const auto pipeline_path = temporary.path / "pipeline.json";
   std::ofstream(pipeline_path) << pipeline.dump();
-  std::ifstream conf_file("configs/pipeline_keyword_match.conf");
+  std::ifstream conf_file("configs/pipeline_keyword_match_rules.conf");
   ASSERT_TRUE(conf_file.good());
   auto conf = nlohmann::json::parse(conf_file);
   conf["data"]["pipe_path"] = "pipeline.json";
@@ -975,7 +975,7 @@ TEST(DemoRunnerTest, ExampleControlIsExplicitAndFileControlTakesPrecedence) {
   std::ofstream(dataset) << "初始化自检\nVIP专员\n";
   DemoOptions options;
   options.biz = "keyword_match";
-  options.config_path = "configs/pipeline_keyword_match.conf";
+  options.config_path = "configs/pipeline_keyword_match_rules.conf";
   options.dataset_path = dataset.string();
   options.output_dir = temporary.path.string();
   const auto* demo = DemoRegistry::Instance().Find(options.biz);
@@ -1097,7 +1097,7 @@ TEST(DemoRunnerTest, ControlCommandCliAndProfilePrecedence) {
         {"profiles",
          {{"control",
            {{"biz", "keyword_match"},
-            {"config", "configs/pipeline_keyword_match.conf"},
+            {"config", "configs/pipeline_keyword_match_rules.conf"},
             {"dataset", "data/corpus_keyword_match.txt"},
             {"control_cmd", cmd},
             {"control_file", "payload.json"}}}}}};
@@ -1140,7 +1140,7 @@ TEST(DemoRunnerTest, OperatorBatchChunking) {
   ASSERT_NE(desc, nullptr);
 
   DemoOptions opts;
-  opts.profile = "keyword_match_mock";
+  opts.profile = "keyword_match_rules";
   std::string err;
   int ret = LoadAndMergeProfiles("demo/profiles.json", opts, &opts, &err);
   ASSERT_EQ(ret, 0);
@@ -1154,7 +1154,7 @@ TEST(DemoRunnerTest, OperatorBatchChunking) {
 
   // 验证结果文件中有 2 条记录
   std::string jsonl_path =
-      opts.output_dir + "/keyword_match_mock/results.jsonl";
+      opts.output_dir + "/keyword_match_rules/results.jsonl";
   std::ifstream ifs(jsonl_path);
   std::string line;
   int sample_count = 0;
@@ -1172,8 +1172,8 @@ TEST(DemoRunnerTest, EndToEndAllMockSmokeBusinesses) {
   ASSERT_EQ(ops.Init(), 0);
 
   std::vector<std::string> smoke_profiles = {
-      "entity_extract_mock", "keyword_match_mock", "doc_qa_mock",
-      "dialogue_audit_mock", "ocr_doc_qa_mock",    "audio_asr_mock"};
+      "entity_extract_mock", "keyword_match_rules", "doc_qa_mock",
+      "dialogue_audit_mock", "ocr_doc_qa_mock",     "audio_asr_mock"};
 
   for (const auto& prof_name : smoke_profiles) {
     DemoOptions cli_opt;
@@ -1210,7 +1210,7 @@ TEST(DemoRunnerTest, DeploymentProfilesFileSelection) {
       LoadAndMergeProfiles(options.profiles_file, options, &merged, &error), 0)
       << error;
   EXPECT_EQ(merged.biz, "entity_extract");
-  EXPECT_EQ(merged.config_path, "configs/kite/pipeline_entity_extract.conf");
+  EXPECT_EQ(merged.config_path, "configs/pipeline_entity_extract_kite.conf");
   std::vector<std::string> profiles;
   ASSERT_EQ(
       GetProfilesForSuite(options.profiles_file, "real", &profiles, &error), 0);

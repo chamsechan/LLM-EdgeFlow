@@ -9,14 +9,14 @@
 #include <string_view>
 #include <vector>
 
-#include "company_alg_interface.h"
 #include "demo/common/dataset_reader.h"
 #include "demo/common/demo_options.h"
 #include "demo/common/demo_registry.h"
 #include "demo/common/result_writer.h"
+#include "edgeflow/c_api.h"
+#include "edgeflow/operator/interface.h"
+#include "edgeflow/operator/types.h"
 #include "nlohmann/json.hpp"
-#include "operator/company_operator_types.h"
-#include "operator/operator_interface.h"
 
 namespace alg_demo {
 

@@ -7,13 +7,12 @@
 #include "demo/common/demo_registry.h"
 #include "demo/common/operator_runner.h"
 #include "demo/common/result_writer.h"
-#include "operator/company_operator_types.h"
+#include "platform_mock/operator_data_types.h"
 
 namespace alg_demo {
 
 int RunCrossRerankDemo(const DemoOptions& options) {
-  PrintBanner("【业务 7 演示】纯语义精排打分业务",
-              "Conf: " + options.config_path);
+  PrintBanner("纯语义精排打分业务", "Conf: " + options.config_path);
 
   std::unordered_map<std::string, std::vector<std::string>> sections;
   std::string err;
@@ -135,7 +134,7 @@ int RunCrossRerankDemo(const DemoOptions& options) {
   return 0;
 }
 
-REGISTER_DEMO_BIZ("cross_rerank", "【业务 7 演示】纯语义精排打分业务",
-                  RunCrossRerankDemo, ALG_BIZ_TYPE_CROSS_RERANK);
+REGISTER_DEMO_BIZ("cross_rerank", "纯语义精排打分业务", RunCrossRerankDemo,
+                  ALG_BIZ_TYPE_CROSS_RERANK);
 
 }  // namespace alg_demo
