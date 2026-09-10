@@ -116,8 +116,9 @@ int main(void) {
   }
 
   if (!cfg_path) {
-    fprintf(stderr,
-            "[C11 ABI Test] Could not find pipeline_keyword_match.json\n");
+    fprintf(
+        stderr,
+        "[C11 ABI Test] Could not find pipeline_keyword_match_rules.json\n");
     return 6;
   }
 

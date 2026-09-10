@@ -115,8 +115,8 @@ flowchart TD
 
 | 文件 | 负责什么 | 示例 |
 | :--- | :--- | :--- |
-| Pipeline JSON | 节点、依赖、类型端口、模型与算法参数 | [pipeline_keyword_match.json](configs/pipeline_keyword_match_rules.json) |
-| 部署 `.conf` | Pipeline 路径、模型路径覆盖与输出容量 | [pipeline_keyword_match.conf](configs/pipeline_keyword_match_rules.conf) |
+| Pipeline JSON | 节点、依赖、类型端口、模型与算法参数 | [pipeline_keyword_match_rules.json](configs/pipeline_keyword_match_rules.json) |
+| 部署 `.conf` | Pipeline 路径、模型路径覆盖与输出容量 | [pipeline_keyword_match_rules.conf](configs/pipeline_keyword_match_rules.conf) |
 | Demo Profile（可选） | 运行预设：业务、配置、数据集和批大小等 | [demo/profiles.json](demo/profiles.json) |
 
 Profile 用于重复运行已有方案，也可以通过 Demo 参数直接指定配置和数据集。保存新的 Pipeline 后，需要让 `.conf` 指向它；具体步骤见[运行当前方案](tools/pipeline_studio/README.md#运行当前方案)。
