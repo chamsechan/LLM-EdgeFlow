@@ -13,14 +13,14 @@
 #include <thread>
 #include <vector>
 
-#include "adapter/operator/company_conf_resolver.h"
 #include "adapter/operator/operator_biz_bridge_registry.h"
+#include "adapter/operator/operator_config_resolver.h"
 #include "adapter/operator/operator_value_type_registry.h"
-#include "company_alg_interface.h"
 #include "core/common_contracts.h"
+#include "edgeflow/c_api.h"
+#include "edgeflow/operator/interface.h"
+#include "edgeflow/operator/types.h"
 #include "engine/backend_registry.h"
-#include "operator/company_operator_types.h"
-#include "operator/operator_interface.h"
 #include "tests/support/control_test_utils.h"
 
 #ifndef EDGEFLOW_RERANK_ONNX_FIXTURE
@@ -90,7 +90,7 @@ class OperatorApiTest : public ::testing::Test {
         std::filesystem::copy_options::overwrite_existing, ec);
 
     std::string root_dir = GetConfDir();
-    std::ifstream json_in(root_dir + "/configs/pipeline_cross_rerank.json");
+    std::ifstream json_in(root_dir + "/configs/pipeline_cross_rerank_cpu.json");
     nlohmann::json pipe_json;
     json_in >> pipe_json;
     pipe_json["models"][0]["model_path"] = "models/bge_reranker_large.onnx";
@@ -102,7 +102,7 @@ class OperatorApiTest : public ::testing::Test {
     json_out << pipe_json.dump(2);
     json_out.close();
 
-    std::ifstream conf_in(root_dir + "/configs/pipeline_cross_rerank.conf");
+    std::ifstream conf_in(root_dir + "/configs/pipeline_cross_rerank_cpu.conf");
     nlohmann::json conf_json;
     conf_in >> conf_json;
     conf_json["data"]["pipe_path"] = "pipeline_cross_rerank.json";
@@ -156,7 +156,7 @@ TEST_F(OperatorApiTest, OperatorTableIntegrity) {
 TEST_F(OperatorApiTest, CreateParameterValidation) {
   void* handle = nullptr;
   std::string root_dir = GetConfDir();
-  std::string rel_conf = "configs/pipeline_keyword_match.conf";
+  std::string rel_conf = "configs/pipeline_keyword_match_rules.conf";
 
   // 1. 空 handle 指针
   EXPECT_EQ(ops_.Create(nullptr, nullptr), -1);
@@ -219,7 +219,7 @@ TEST_F(OperatorApiTest, StronglyTypedControlValidation) {
   std::string root_dir = GetConfDir();
   CreateParam param{};
   param.model_path = root_dir.c_str();
-  param.cfg_file_name = "configs/pipeline_keyword_match.conf";
+  param.cfg_file_name = "configs/pipeline_keyword_match_rules.conf";
   param.device_id = 0;
   param.compute_platform = ComputePlatform::kAx650;
   param.max_frame_depth = 25;
@@ -397,7 +397,7 @@ TEST_F(OperatorApiTest, HandleLifecycleAndUafPrevention) {
   std::string root_dir = GetConfDir();
   CreateParam param{};
   param.model_path = root_dir.c_str();
-  param.cfg_file_name = "configs/pipeline_keyword_match.conf";
+  param.cfg_file_name = "configs/pipeline_keyword_match_rules.conf";
   param.device_id = 0;
   param.compute_platform = ComputePlatform::kAx650;
   param.max_frame_depth = 25;
@@ -472,7 +472,7 @@ TEST_F(OperatorApiTest, CompanyStringValidation) {
 
 // 6. 关注词匹配业务端到端 (Keyword Match)
 TEST_F(OperatorApiTest, EndToEndKeywordMatch) {
-  auto param = DefaultCreateParam("configs/pipeline_keyword_match.conf");
+  auto param = DefaultCreateParam("configs/pipeline_keyword_match_rules.conf");
 
   void* handle = nullptr;
   ASSERT_EQ(ops_.Create(&handle, &param), 0);
@@ -730,7 +730,7 @@ TEST_F(OperatorApiTest, OutputSlotValidation) {
   std::string root_dir = GetConfDir();
   CreateParam param{};
   param.model_path = root_dir.c_str();
-  param.cfg_file_name = "configs/pipeline_keyword_match.conf";
+  param.cfg_file_name = "configs/pipeline_keyword_match_rules.conf";
   param.device_id = 0;
   param.compute_platform = ComputePlatform::kAx650;
   param.max_frame_depth = 25;
@@ -769,7 +769,7 @@ TEST_F(OperatorApiTest, OutputPoolExhaustionAndBlocking) {
   std::string root_dir = GetConfDir();
   CreateParam param{};
   param.model_path = root_dir.c_str();
-  param.cfg_file_name = "configs/pipeline_keyword_match.conf";
+  param.cfg_file_name = "configs/pipeline_keyword_match_rules.conf";
   param.device_id = 0;
   param.compute_platform = ComputePlatform::kAx650;
   param.max_frame_depth = 2;  // 设定极小深度 2
@@ -842,7 +842,7 @@ TEST_F(OperatorApiTest, DestroyViolationHandling) {
   std::string root_dir = GetConfDir();
   CreateParam param{};
   param.model_path = root_dir.c_str();
-  param.cfg_file_name = "configs/pipeline_keyword_match.conf";
+  param.cfg_file_name = "configs/pipeline_keyword_match_rules.conf";
   param.device_id = 0;
   param.compute_platform = ComputePlatform::kAx650;
   param.max_frame_depth = 5;
@@ -879,7 +879,7 @@ TEST_F(OperatorApiTest, ValidateOperatorConfigBindingApi) {
 
   // 1. 正常校验
   EXPECT_EQ(ValidateOperatorConfigBinding(
-                root_dir.c_str(), "configs/pipeline_keyword_match.conf",
+                root_dir.c_str(), "configs/pipeline_keyword_match_rules.conf",
                 static_cast<int32_t>(ALG_BIZ_TYPE_KEYWORD_MATCH), err_buf,
                 sizeof(err_buf)),
             0);
@@ -887,7 +887,7 @@ TEST_F(OperatorApiTest, ValidateOperatorConfigBindingApi) {
   // 2. 业务不匹配
   EXPECT_EQ(
       ValidateOperatorConfigBinding(
-          root_dir.c_str(), "configs/pipeline_keyword_match.conf",
+          root_dir.c_str(), "configs/pipeline_keyword_match_rules.conf",
           static_cast<int32_t>(ALG_BIZ_TYPE_DOC_QA), err_buf, sizeof(err_buf)),
       -3);
 
@@ -991,7 +991,7 @@ TEST_F(OperatorApiTest, InputSharedPtrUseCountNotRetained) {
   std::string root_dir = GetConfDir();
   CreateParam param{};
   param.model_path = root_dir.c_str();
-  param.cfg_file_name = "configs/pipeline_keyword_match.conf";
+  param.cfg_file_name = "configs/pipeline_keyword_match_rules.conf";
   param.device_id = 0;
   param.compute_platform = ComputePlatform::kAx650;
   param.max_frame_depth = 25;
@@ -1035,7 +1035,7 @@ TEST_F(OperatorApiTest, OutputAddressReuseAndDepthNormalization) {
   {
     CreateParam param{};
     param.model_path = root_dir.c_str();
-    param.cfg_file_name = "configs/pipeline_keyword_match.conf";
+    param.cfg_file_name = "configs/pipeline_keyword_match_rules.conf";
     param.device_id = 0;
     param.compute_platform = ComputePlatform::kAx650;
     param.max_frame_depth = 0;  // 0 应被自动归一化为默认 25
@@ -1062,7 +1062,7 @@ TEST_F(OperatorApiTest, OutputAddressReuseAndDepthNormalization) {
   {
     CreateParam param{};
     param.model_path = root_dir.c_str();
-    param.cfg_file_name = "configs/pipeline_keyword_match.conf";
+    param.cfg_file_name = "configs/pipeline_keyword_match_rules.conf";
     param.device_id = 0;
     param.compute_platform = ComputePlatform::kAx650;
     param.max_frame_depth = 1;
@@ -1105,7 +1105,7 @@ TEST_F(OperatorApiTest, ConcurrentDifferentHandles) {
   std::string root_dir = GetConfDir();
   CreateParam param1{};
   param1.model_path = root_dir.c_str();
-  param1.cfg_file_name = "configs/pipeline_keyword_match.conf";
+  param1.cfg_file_name = "configs/pipeline_keyword_match_rules.conf";
   param1.device_id = 0;
   param1.compute_platform = ComputePlatform::kAx650;
   param1.max_frame_depth = 10;
@@ -1165,9 +1165,10 @@ TEST_F(OperatorApiTest, MemQueConfigValidationFailClosed) {
   ScopedTempDirectory temp_dir;
   std::filesystem::path root = temp_dir.path();
   std::filesystem::create_directories(root / "configs");
-  std::filesystem::copy_file(std::filesystem::path(GetConfDir()) /
-                                 "configs/pipeline_keyword_match.json",
-                             root / "configs/pipeline_keyword_match.json");
+  std::filesystem::copy_file(
+      std::filesystem::path(GetConfDir()) /
+          "configs/pipeline_keyword_match_rules.json",
+      root / "configs/pipeline_keyword_match_rules.json");
 
   std::string conf_file = "configs/test.conf";
   std::filesystem::path conf_path = root / conf_file;
@@ -1177,7 +1178,7 @@ TEST_F(OperatorApiTest, MemQueConfigValidationFailClosed) {
     std::ofstream ofs(conf_path);
     ofs << R"({
       "data": {
-        "pipe_path": "configs/pipeline_keyword_match.json"
+        "pipe_path": "configs/pipeline_keyword_match_rules.json"
       }
     })";
   }
@@ -1197,7 +1198,7 @@ TEST_F(OperatorApiTest, MemQueConfigValidationFailClosed) {
     std::ofstream ofs(conf_path);
     ofs << R"({
       "data": {
-        "pipe_path": "configs/pipeline_keyword_match.json",
+        "pipe_path": "configs/pipeline_keyword_match_rules.json",
         "mem_que": {
           "type": "doc_out"
         }
@@ -1211,7 +1212,7 @@ TEST_F(OperatorApiTest, MemQueConfigValidationFailClosed) {
     std::ofstream ofs(conf_path);
     ofs << R"({
       "data": {
-        "pipe_path": "configs/pipeline_keyword_match.json",
+        "pipe_path": "configs/pipeline_keyword_match_rules.json",
         "mem_que": {
           "type": "keyword_out",
           "meta_num": 0,
@@ -1227,7 +1228,7 @@ TEST_F(OperatorApiTest, MemQueConfigValidationFailClosed) {
     std::ofstream ofs(conf_path);
     ofs << R"({
       "data": {
-        "pipe_path": "configs/pipeline_keyword_match.json",
+        "pipe_path": "configs/pipeline_keyword_match_rules.json",
         "mem_que": {
           "type": "keyword_out",
           "capacities": {
@@ -1243,7 +1244,7 @@ TEST_F(OperatorApiTest, MemQueConfigValidationFailClosed) {
   {
     std::ofstream ofs(conf_path);
     ofs << R"({
-      "pipe_path": "configs/pipeline_keyword_match.json",
+      "pipe_path": "configs/pipeline_keyword_match_rules.json",
       "mem_que": {
         "type": "keyword_out",
         "meta_num": 0,
@@ -1258,7 +1259,7 @@ TEST_F(OperatorApiTest, MemQueConfigValidationFailClosed) {
     std::ofstream ofs(conf_path);
     ofs << R"({
       "data": {
-        "pipe_path": "configs/pipeline_keyword_match.json",
+        "pipe_path": "configs/pipeline_keyword_match_rules.json",
         "model_path": "models/unused.bin",
         "mem_que": {
           "type": "keyword_out",
@@ -1275,7 +1276,7 @@ TEST_F(OperatorApiTest, MemQueConfigValidationFailClosed) {
     std::ofstream ofs(conf_path);
     ofs << R"({
       "data": {
-        "pipe_path": "configs/pipeline_keyword_match.json",
+        "pipe_path": "configs/pipeline_keyword_match_rules.json",
         "mem_que": {
           "type": "keyword_out",
           "meta_num": 0,
@@ -1293,7 +1294,7 @@ TEST_F(OperatorApiTest, ShortStringSsoAndAddressStability) {
   std::string root_dir = GetConfDir();
   CreateParam param{};
   param.model_path = root_dir.c_str();
-  param.cfg_file_name = "configs/pipeline_keyword_match.conf";
+  param.cfg_file_name = "configs/pipeline_keyword_match_rules.conf";
   param.device_id = 0;
   param.compute_platform = ComputePlatform::kAx650;
   param.max_frame_depth = 25;
@@ -1412,7 +1413,7 @@ TEST_F(OperatorApiTest, DepthLimitAndTotalMemoryBudget) {
   std::string root_dir = GetConfDir();
   CreateParam param{};
   param.model_path = root_dir.c_str();
-  param.cfg_file_name = "configs/pipeline_keyword_match.conf";
+  param.cfg_file_name = "configs/pipeline_keyword_match_rules.conf";
   param.device_id = 0;
   param.compute_platform = ComputePlatform::kAx650;
 
@@ -1749,7 +1750,7 @@ TEST_F(OperatorApiTest, Full64MaxBatchAnd65ExceedReject) {
   std::string root_dir = GetConfDir();
   CreateParam param{};
   param.model_path = root_dir.c_str();
-  param.cfg_file_name = "configs/pipeline_keyword_match.conf";
+  param.cfg_file_name = "configs/pipeline_keyword_match_rules.conf";
   param.device_id = 0;
   param.compute_platform = ComputePlatform::kAx650;
   param.max_frame_depth = 64;
@@ -1824,7 +1825,7 @@ TEST_F(OperatorApiTest, UnreleasedOutputLifecycleBreach) {
   std::string root_dir = GetConfDir();
   CreateParam param{};
   param.model_path = root_dir.c_str();
-  param.cfg_file_name = "configs/pipeline_keyword_match.conf";
+  param.cfg_file_name = "configs/pipeline_keyword_match_rules.conf";
   param.device_id = 0;
   param.compute_platform = ComputePlatform::kAx650;
   param.max_frame_depth = 5;
@@ -1867,11 +1868,11 @@ TEST_F(OperatorApiTest, ModelPathNonExistentFileAllowedWhileEscapeRejected) {
   {
     std::filesystem::copy_file(
         source_root / "demo/fixtures/mock/pipeline_doc_qa.json",
-        root / "configs/pipeline_doc_qa.json");
+        root / "configs/pipeline_doc_qa_default.json");
     std::ofstream conf(root / "configs/model_paths.conf");
     conf << R"({
       "data": {
-        "pipe_path": "configs/pipeline_doc_qa.json",
+        "pipe_path": "configs/pipeline_doc_qa_default.json",
         "model_paths": {
           "embed_model_v1": "models/not_deployed_embed.bin",
           "llm_model_v1": "models/not_deployed_llm.bin"
@@ -1888,8 +1889,8 @@ TEST_F(OperatorApiTest, ModelPathNonExistentFileAllowedWhileEscapeRejected) {
     ASSERT_FALSE(std::filesystem::exists(root / "models"));
     const std::string root_string = root.string();
 
-    llm_edgeflow::ResolvedCompanyConfig resolved;
-    int ret = llm_edgeflow::CompanyConfResolver::Resolve(
+    llm_edgeflow::ResolvedOperatorConfig resolved;
+    int ret = llm_edgeflow::OperatorConfigResolver::Resolve(
         root_string.c_str(), "configs/model_paths.conf", &resolved, &err);
     EXPECT_EQ(ret, 0) << "Error: " << err;
     ASSERT_EQ(resolved.synthetic_pipeline_json["models"].size(), 2u);
@@ -1927,8 +1928,8 @@ TEST_F(OperatorApiTest, ModelPathNonExistentFileAllowedWhileEscapeRejected) {
 
     const std::string root_string = root.string();
 
-    llm_edgeflow::ResolvedCompanyConfig resolved;
-    int ret = llm_edgeflow::CompanyConfResolver::Resolve(
+    llm_edgeflow::ResolvedOperatorConfig resolved;
+    int ret = llm_edgeflow::OperatorConfigResolver::Resolve(
         root_string.c_str(), "configs/single_model.conf", &resolved, &err);
     ASSERT_EQ(ret, 0) << err;
     const auto resolved_model = std::filesystem::path(
@@ -1944,7 +1945,7 @@ TEST_F(OperatorApiTest, ModelPathNonExistentFileAllowedWhileEscapeRejected) {
   {
     std::filesystem::path resolved;
     EXPECT_EQ(
-        llm_edgeflow::CompanyConfResolver::ResolveModelReferenceUnderRoot(
+        llm_edgeflow::OperatorConfigResolver::ResolveModelReferenceUnderRoot(
             root, "safe/missing_model.bin", "model_path", &resolved, &err),
         0);
     EXPECT_EQ(resolved, canonical_root / "safe/missing_model.bin");
@@ -1956,7 +1957,7 @@ TEST_F(OperatorApiTest, ModelPathNonExistentFileAllowedWhileEscapeRejected) {
          {"..name/missing_model.bin", "safe/../missing_model.bin", "."}) {
       err.clear();
       ASSERT_EQ(
-          llm_edgeflow::CompanyConfResolver::ResolveModelReferenceUnderRoot(
+          llm_edgeflow::OperatorConfigResolver::ResolveModelReferenceUnderRoot(
               root, safe, "model_path", &resolved, &err),
           0)
           << safe << ": " << err;
@@ -1971,7 +1972,7 @@ TEST_F(OperatorApiTest, ModelPathNonExistentFileAllowedWhileEscapeRejected) {
           "safe/../../../escape_model.bin"}) {
       err.clear();
       EXPECT_EQ(
-          llm_edgeflow::CompanyConfResolver::ResolveModelReferenceUnderRoot(
+          llm_edgeflow::OperatorConfigResolver::ResolveModelReferenceUnderRoot(
               root, bad, "model_path", &resolved, &err),
           -2)
           << bad;
@@ -1983,18 +1984,19 @@ TEST_F(OperatorApiTest, ModelPathNonExistentFileAllowedWhileEscapeRejected) {
                                               ec);
     ASSERT_FALSE(ec) << ec.message();
     err.clear();
-    EXPECT_EQ(llm_edgeflow::CompanyConfResolver::ResolveModelReferenceUnderRoot(
-                  root, "outside_link/missing_model.bin", "model_path",
-                  &resolved, &err),
-              -2);
+    EXPECT_EQ(
+        llm_edgeflow::OperatorConfigResolver::ResolveModelReferenceUnderRoot(
+            root, "outside_link/missing_model.bin", "model_path", &resolved,
+            &err),
+        -2);
     EXPECT_FALSE(err.empty());
   }
 
   // 4. cfg 和 pipe 是控制文件，仍必须存在且为 regular file。
   {
     const std::string root_string = root.string();
-    llm_edgeflow::ResolvedCompanyConfig resolved;
-    EXPECT_EQ(llm_edgeflow::CompanyConfResolver::Resolve(
+    llm_edgeflow::ResolvedOperatorConfig resolved;
+    EXPECT_EQ(llm_edgeflow::OperatorConfigResolver::Resolve(
                   root_string.c_str(), "configs/missing.conf", &resolved, &err),
               -2);
 
@@ -2007,7 +2009,7 @@ TEST_F(OperatorApiTest, ModelPathNonExistentFileAllowedWhileEscapeRejected) {
     })";
     conf.close();
     EXPECT_EQ(
-        llm_edgeflow::CompanyConfResolver::Resolve(
+        llm_edgeflow::OperatorConfigResolver::Resolve(
             root_string.c_str(), "configs/missing_pipe.conf", &resolved, &err),
         -2);
 
@@ -2019,7 +2021,7 @@ TEST_F(OperatorApiTest, ModelPathNonExistentFileAllowedWhileEscapeRejected) {
     std::filesystem::create_symlink(outside / "outside.conf",
                                     root / "configs/outside.conf", ec);
     ASSERT_FALSE(ec) << ec.message();
-    EXPECT_EQ(llm_edgeflow::CompanyConfResolver::Resolve(
+    EXPECT_EQ(llm_edgeflow::OperatorConfigResolver::Resolve(
                   root_string.c_str(), "configs/outside.conf", &resolved, &err),
               -2);
 
@@ -2042,7 +2044,7 @@ TEST_F(OperatorApiTest, ModelPathNonExistentFileAllowedWhileEscapeRejected) {
             {{"pipe_path", pipe_path},
              {"mem_que", {{"type", "keyword_out"}}}}}});
       invalid_conf.close();
-      EXPECT_EQ(llm_edgeflow::CompanyConfResolver::Resolve(
+      EXPECT_EQ(llm_edgeflow::OperatorConfigResolver::Resolve(
                     root_string.c_str(), "configs/invalid_pipe.conf", &resolved,
                     &err),
                 -2)
@@ -2056,18 +2058,18 @@ TEST_F(OperatorApiTest, DotDotPrefixedControlFileNamesStayWithinRoot) {
   const auto root = temp_root.path();
   std::filesystem::create_directories(root / "..configs");
   std::filesystem::copy_file(std::filesystem::path(GetConfDir()) /
-                                 "configs/pipeline_keyword_match.json",
+                                 "configs/pipeline_keyword_match_rules.json",
                              root / "..configs/pipeline.json");
   std::ofstream(root / "..configs/pipeline.conf")
       << nlohmann::json({{"data",
                           {{"pipe_path", "..configs/pipeline.json"},
                            {"mem_que", {{"type", "keyword_out"}}}}}});
 
-  llm_edgeflow::ResolvedCompanyConfig resolved;
+  llm_edgeflow::ResolvedOperatorConfig resolved;
   std::string error;
   const auto root_string = root.string();
   EXPECT_EQ(
-      llm_edgeflow::CompanyConfResolver::Resolve(
+      llm_edgeflow::OperatorConfigResolver::Resolve(
           root_string.c_str(), "..configs/pipeline.conf", &resolved, &error),
       0)
       << error;
@@ -2144,16 +2146,17 @@ TEST_F(OperatorApiTest, MetadataTypeIdOutOfInt32RangeIsRejected) {
   ScopedTempDirectory temp_root;
   const auto root = temp_root.path();
   std::filesystem::create_directories(root / "configs");
-  std::filesystem::copy_file(std::filesystem::path(GetConfDir()) /
-                                 "configs/pipeline_keyword_match.json",
-                             root / "configs/pipeline_keyword_match.json");
+  std::filesystem::copy_file(
+      std::filesystem::path(GetConfDir()) /
+          "configs/pipeline_keyword_match_rules.json",
+      root / "configs/pipeline_keyword_match_rules.json");
 
   // 1. Unsigned integer > INT32_MAX
   {
     std::ofstream conf(root / "configs/pipe_overflow.conf");
     conf << R"({
       "data": {
-        "pipe_path": "configs/pipeline_keyword_match.json",
+        "pipe_path": "configs/pipeline_keyword_match_rules.json",
         "mem_que": {
           "type": "keyword_out",
           "meta_num": 0,
@@ -2162,9 +2165,9 @@ TEST_F(OperatorApiTest, MetadataTypeIdOutOfInt32RangeIsRejected) {
       }
     })";
     conf.close();
-    llm_edgeflow::ResolvedCompanyConfig resolved;
+    llm_edgeflow::ResolvedOperatorConfig resolved;
     std::string err;
-    EXPECT_EQ(llm_edgeflow::CompanyConfResolver::Resolve(
+    EXPECT_EQ(llm_edgeflow::OperatorConfigResolver::Resolve(
                   root.string().c_str(), "configs/pipe_overflow.conf",
                   &resolved, &err),
               -2);
@@ -2176,7 +2179,7 @@ TEST_F(OperatorApiTest, MetadataTypeIdOutOfInt32RangeIsRejected) {
     std::ofstream conf(root / "configs/pipe_underflow.conf");
     conf << R"({
       "data": {
-        "pipe_path": "configs/pipeline_keyword_match.json",
+        "pipe_path": "configs/pipeline_keyword_match_rules.json",
         "mem_que": {
           "type": "keyword_out",
           "meta_num": 0,
@@ -2185,9 +2188,9 @@ TEST_F(OperatorApiTest, MetadataTypeIdOutOfInt32RangeIsRejected) {
       }
     })";
     conf.close();
-    llm_edgeflow::ResolvedCompanyConfig resolved;
+    llm_edgeflow::ResolvedOperatorConfig resolved;
     std::string err;
-    EXPECT_EQ(llm_edgeflow::CompanyConfResolver::Resolve(
+    EXPECT_EQ(llm_edgeflow::OperatorConfigResolver::Resolve(
                   root.string().c_str(), "configs/pipe_underflow.conf",
                   &resolved, &err),
               -2);
@@ -2199,7 +2202,7 @@ TEST_F(OperatorApiTest, MetadataTypeIdOutOfInt32RangeIsRejected) {
     std::ofstream conf(root / "configs/pipe_not_integer.conf");
     conf << R"({
       "data": {
-        "pipe_path": "configs/pipeline_keyword_match.json",
+        "pipe_path": "configs/pipeline_keyword_match_rules.json",
         "mem_que": {
           "type": "keyword_out",
           "meta_num": 0,
@@ -2208,9 +2211,9 @@ TEST_F(OperatorApiTest, MetadataTypeIdOutOfInt32RangeIsRejected) {
       }
     })";
     conf.close();
-    llm_edgeflow::ResolvedCompanyConfig resolved;
+    llm_edgeflow::ResolvedOperatorConfig resolved;
     std::string err;
-    EXPECT_EQ(llm_edgeflow::CompanyConfResolver::Resolve(
+    EXPECT_EQ(llm_edgeflow::OperatorConfigResolver::Resolve(
                   root.string().c_str(), "configs/pipe_not_integer.conf",
                   &resolved, &err),
               -2);

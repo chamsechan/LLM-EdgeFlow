@@ -6,9 +6,9 @@
 #include <vector>
 
 #include "adapter/adapter_status.h"
-#include "company_alg_interface.h"
-#include "company_alg_log.h"
 #include "core/alg_context.h"
+#include "edgeflow/c_api.h"
+#include "edgeflow/log.h"
 
 namespace llm_edgeflow {
 
@@ -37,12 +37,12 @@ class AdapterValidationHelper {
   static int ValidateBatchPreFlight(const void** inputs, int num_inputs,
                                     void** outputs, int* num_outputs,
                                     int max_batch_size, int required_count,
-                                    const char* biz_name) {
+                                    const char* adapter_name) {
     if (!inputs || num_inputs <= 0) {
       ALG_LOG_ERROR(
           "[AdapterValidation] %s PreFlight failed: Invalid inputs array or "
           "num_inputs <= 0 (%d)\n",
-          biz_name ? biz_name : "Biz", num_inputs);
+          adapter_name ? adapter_name : "Biz", num_inputs);
       return COMPANY_ALG_ERR_INVALID_INPUT;
     }
 
@@ -51,7 +51,7 @@ class AdapterValidationHelper {
       ALG_LOG_ERROR(
           "[AdapterValidation] %s PreFlight failed: num_inputs (%d) exceeds "
           "max_batch_size limit (%d)\n",
-          biz_name ? biz_name : "Biz", num_inputs, max_batch_size);
+          adapter_name ? adapter_name : "Biz", num_inputs, max_batch_size);
       return COMPANY_ALG_ERR_INVALID_INPUT;
     }
 
@@ -60,7 +60,7 @@ class AdapterValidationHelper {
         ALG_LOG_ERROR(
             "[AdapterValidation] %s PreFlight failed: Null pointer at input "
             "index [%d]\n",
-            biz_name ? biz_name : "Biz", i);
+            adapter_name ? adapter_name : "Biz", i);
         return COMPANY_ALG_ERR_INVALID_INPUT;
       }
     }
@@ -69,7 +69,7 @@ class AdapterValidationHelper {
       ALG_LOG_ERROR(
           "[AdapterValidation] %s PreFlight failed: Invalid num_outputs "
           "pointer or negative capacity\n",
-          biz_name ? biz_name : "Biz");
+          adapter_name ? adapter_name : "Biz");
       return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     }
 
@@ -79,7 +79,7 @@ class AdapterValidationHelper {
       ALG_LOG_ERROR(
           "[AdapterValidation] %s PreFlight: Output capacity (%d) "
           "insufficient or outputs array null for required count (%d)\n",
-          biz_name ? biz_name : "Biz", capacity, required_count);
+          adapter_name ? adapter_name : "Biz", capacity, required_count);
       *num_outputs = required_count;  // 报告所需容量
       return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     }
@@ -89,7 +89,7 @@ class AdapterValidationHelper {
         ALG_LOG_ERROR(
             "[AdapterValidation] %s PreFlight failed: Null pointer at output "
             "slot index [%d]\n",
-            biz_name ? biz_name : "Biz", i);
+            adapter_name ? adapter_name : "Biz", i);
         return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
       }
     }
@@ -99,8 +99,8 @@ class AdapterValidationHelper {
 
   static int ValidateBatchInputs(const void** inputs, int num_inputs,
                                  int max_batch_size = 64,
-                                 const char* biz_name = nullptr) {
-    (void)biz_name;
+                                 const char* adapter_name = nullptr) {
+    (void)adapter_name;
     if (!inputs || num_inputs <= 0) {
       return COMPANY_ALG_ERR_INVALID_INPUT;
     }
@@ -115,46 +115,50 @@ class AdapterValidationHelper {
 
   static int ValidateBatchOutputs(void** outputs, int* num_outputs,
                                   int required_count,
-                                  const char* biz_name = nullptr,
+                                  const char* adapter_name = nullptr,
                                   AdapterStatus* out_status = nullptr) {
     if (!num_outputs || *num_outputs < 0) {
-      return ReturnBufferTooSmall(
-          out_status, "Output slots insufficient or null", "outputs", biz_name);
+      return ReturnBufferTooSmall(out_status,
+                                  "Output slots insufficient or null",
+                                  "outputs", adapter_name);
     }
     int capacity = *num_outputs;
     if (capacity < required_count || !outputs) {
       *num_outputs = required_count;
-      return ReturnBufferTooSmall(
-          out_status, "Output slots insufficient or null", "outputs", biz_name);
+      return ReturnBufferTooSmall(out_status,
+                                  "Output slots insufficient or null",
+                                  "outputs", adapter_name);
     }
     for (int i = 0; i < required_count; ++i) {
       if (!outputs[i]) {
         return ReturnBufferTooSmall(out_status,
                                     "Output slots insufficient or null",
-                                    "outputs", biz_name);
+                                    "outputs", adapter_name);
       }
     }
     return COMPANY_ALG_SUCCESS;
   }
 
   static int ReturnInvalidInput(AdapterStatus* out_status, std::string message,
-                                std::string field_path, const char* biz_name,
+                                std::string field_path,
+                                const char* adapter_name,
                                 int sample_index = -1) {
     if (out_status) {
-      *out_status =
-          AdapterStatus::InvalidInput(std::move(message), std::move(field_path),
-                                      sample_index, biz_name ? biz_name : "");
+      *out_status = AdapterStatus::InvalidInput(
+          std::move(message), std::move(field_path), sample_index,
+          adapter_name ? adapter_name : "");
     }
     return COMPANY_ALG_ERR_INVALID_INPUT;
   }
 
   static int ReturnBufferTooSmall(AdapterStatus* out_status,
                                   std::string message, std::string field_path,
-                                  const char* biz_name, int sample_index = -1) {
+                                  const char* adapter_name,
+                                  int sample_index = -1) {
     if (out_status) {
       *out_status = AdapterStatus::BufferTooSmall(
           std::move(message), std::move(field_path), sample_index,
-          biz_name ? biz_name : "");
+          adapter_name ? adapter_name : "");
     }
     return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
   }
@@ -162,36 +166,36 @@ class AdapterValidationHelper {
   template <typename T>
   static const T* ReadRequiredContextValue(const AlgContext& ctx,
                                            const BlackboardKey<T>& key,
-                                           const char* biz_name,
+                                           const char* adapter_name,
                                            AdapterStatus* out_status) {
     const T* value = ctx.Read(key);
     if (!value) {
       const std::string field_path = key.name;
       ReturnBufferTooSmall(out_status, field_path + " not found in AlgContext",
-                           field_path, biz_name);
+                           field_path, adapter_name);
     }
     return value;
   }
 
   template <typename T, typename U>
   static bool PublishContextValue(AlgContext& ctx, const BlackboardKey<T>& key,
-                                  U&& value, const char* biz_name,
+                                  U&& value, const char* adapter_name,
                                   AdapterStatus* out_status) {
     if (ctx.Publish(key, std::forward<U>(value))) return true;
     ReturnInvalidInput(
         out_status,
         std::string("Duplicate AlgContext publication: ") + key.name, key.name,
-        biz_name);
+        adapter_name);
     return false;
   }
 
   template <typename T>
   static bool PublishContextValue(AlgContext& ctx, const std::string& key,
-                                  T&& value, const char* biz_name,
+                                  T&& value, const char* adapter_name,
                                   AdapterStatus* out_status) {
     if (ctx.Publish(key, std::forward<T>(value))) return true;
     ReturnInvalidInput(out_status, "Duplicate AlgContext publication: " + key,
-                       key, biz_name);
+                       key, adapter_name);
     return false;
   }
 
@@ -204,13 +208,13 @@ class AdapterValidationHelper {
    */
   static bool RequireNotNull(const char* field_path, const void* ptr,
                              int sample_idx = -1,
-                             const char* biz_name = nullptr,
+                             const char* adapter_name = nullptr,
                              AdapterStatus* out_status = nullptr) {
     if (!ptr) {
       if (out_status) {
         *out_status = AdapterStatus::InvalidInput(
             "Required pointer field is null", field_path ? field_path : "",
-            sample_idx, biz_name ? biz_name : "");
+            sample_idx, adapter_name ? adapter_name : "");
       }
       return false;
     }
@@ -222,7 +226,7 @@ class AdapterValidationHelper {
    */
   static bool RequireRange(const char* field_path, int64_t val, int64_t min_val,
                            int64_t max_val, int sample_idx = -1,
-                           const char* biz_name = nullptr,
+                           const char* adapter_name = nullptr,
                            AdapterStatus* out_status = nullptr) {
     if (val < min_val || val > max_val) {
       if (out_status) {
@@ -232,7 +236,7 @@ class AdapterValidationHelper {
             std::to_string(max_val) + "])";
         *out_status = AdapterStatus::InvalidInput(
             std::move(msg), field_path ? field_path : "", sample_idx,
-            biz_name ? biz_name : "");
+            adapter_name ? adapter_name : "");
       }
       return false;
     }
@@ -244,7 +248,8 @@ class AdapterValidationHelper {
    */
   static bool RequireEnum(const char* field_path, int val,
                           const std::vector<int>& allowed_enums,
-                          int sample_idx = -1, const char* biz_name = nullptr,
+                          int sample_idx = -1,
+                          const char* adapter_name = nullptr,
                           AdapterStatus* out_status = nullptr) {
     for (int allowed : allowed_enums) {
       if (val == allowed) return true;
@@ -253,7 +258,7 @@ class AdapterValidationHelper {
       std::string msg = "Illegal enum value: " + std::to_string(val);
       *out_status = AdapterStatus::InvalidInput(
           std::move(msg), field_path ? field_path : "", sample_idx,
-          biz_name ? biz_name : "");
+          adapter_name ? adapter_name : "");
     }
     return false;
   }
@@ -263,13 +268,13 @@ class AdapterValidationHelper {
    */
   static bool RequireBoundedString(const char* field_path, const char* str,
                                    size_t max_len, int sample_idx = -1,
-                                   const char* biz_name = nullptr,
+                                   const char* adapter_name = nullptr,
                                    AdapterStatus* out_status = nullptr) {
     if (!str) {
       if (out_status) {
         *out_status = AdapterStatus::InvalidInput(
             "Required string field is null", field_path ? field_path : "",
-            sample_idx, biz_name ? biz_name : "");
+            sample_idx, adapter_name ? adapter_name : "");
       }
       return false;
     }
@@ -279,7 +284,8 @@ class AdapterValidationHelper {
         *out_status = AdapterStatus::InvalidInput(
             "String exceeds maximum allowed length limit (" +
                 std::to_string(max_len) + ")",
-            field_path ? field_path : "", sample_idx, biz_name ? biz_name : "");
+            field_path ? field_path : "", sample_idx,
+            adapter_name ? adapter_name : "");
       }
       return false;
     }
@@ -292,13 +298,14 @@ class AdapterValidationHelper {
   static bool CheckedMultiply(const char* field_path, size_t count,
                               size_t elem_size, size_t max_bytes,
                               int sample_idx = -1,
-                              const char* biz_name = nullptr,
+                              const char* adapter_name = nullptr,
                               AdapterStatus* out_status = nullptr) {
     if (elem_size > 0 && count > SIZE_MAX / elem_size) {
       if (out_status) {
         *out_status = AdapterStatus::InvalidInput(
             "Integer overflow detected in byte size calculation",
-            field_path ? field_path : "", sample_idx, biz_name ? biz_name : "");
+            field_path ? field_path : "", sample_idx,
+            adapter_name ? adapter_name : "");
       }
       return false;
     }
@@ -308,7 +315,8 @@ class AdapterValidationHelper {
         *out_status = AdapterStatus::InvalidInput(
             "Total byte size (" + std::to_string(total_bytes) +
                 ") exceeds max limit (" + std::to_string(max_bytes) + ")",
-            field_path ? field_path : "", sample_idx, biz_name ? biz_name : "");
+            field_path ? field_path : "", sample_idx,
+            adapter_name ? adapter_name : "");
       }
       return false;
     }
@@ -321,13 +329,14 @@ class AdapterValidationHelper {
    */
   static bool CheckedStringCopy(char* dst, size_t dst_size, const char* src,
                                 const char* field_path, int sample_idx = -1,
-                                const char* biz_name = nullptr,
+                                const char* adapter_name = nullptr,
                                 AdapterStatus* out_status = nullptr) {
     if (!dst || dst_size == 0) {
       if (out_status) {
         *out_status = AdapterStatus::BufferTooSmall(
             "Destination buffer pointer is null or zero size",
-            field_path ? field_path : "", sample_idx, biz_name ? biz_name : "");
+            field_path ? field_path : "", sample_idx,
+            adapter_name ? adapter_name : "");
       }
       return false;
     }
@@ -344,7 +353,8 @@ class AdapterValidationHelper {
         *out_status = AdapterStatus::BufferTooSmall(
             "Output string truncated (src_len=" + std::to_string(src_len) +
                 ", dst_capacity=" + std::to_string(dst_size) + ")",
-            field_path ? field_path : "", sample_idx, biz_name ? biz_name : "");
+            field_path ? field_path : "", sample_idx,
+            adapter_name ? adapter_name : "");
       }
       return false;
     }

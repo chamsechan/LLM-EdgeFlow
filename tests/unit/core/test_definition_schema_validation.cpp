@@ -5,6 +5,7 @@
 #include <nlohmann/json.hpp>
 #include <stdexcept>
 #include <string>
+#include <type_traits>
 #include <unordered_set>
 #include <vector>
 
@@ -592,7 +593,7 @@ TEST(DefinitionSchemaValidationTest, RejectsInvalidDefinitionAtRegistration) {
   // only framework lifetimes.
   NodeDefinition invalid_lifetime_override;
   invalid_lifetime_override.node_type = "InvalidLifetimeOverrideNode";
-  invalid_lifetime_override.inputs = {PortDefinition{
+  invalid_lifetime_override.inputs = {NodePortDefinition{
       "text", "TextBatch", true, "1:1", "preserve", "request", "lifetime"}};
   invalid_lifetime_override.config_fields = {
       ConfigFieldDefinition{"lifetime",
@@ -839,55 +840,56 @@ TEST(DefinitionSchemaValidationTest, ProductionCatalogSelfCheck) {
   }
 }
 
-TEST(DefinitionSchemaValidationTest, RejectsInvalidPortDefinitions) {
+TEST(DefinitionSchemaValidationTest, RejectsInvalidNodePortDefinitions) {
   // Empty key
   NodeDefinition empty_key_node;
   empty_key_node.node_type = "EmptyKeyPortNode";
   empty_key_node.inputs = {
-      PortDefinition{"", "TextBatch", true, "1:1", "preserve", "request"}};
+      NodePortDefinition{"", "TextBatch", true, "1:1", "preserve", "request"}};
   EXPECT_FALSE(PipelineCatalog::RegisterNodeDefinition(empty_key_node));
 
   // Empty type_id
   NodeDefinition empty_type_node;
   empty_type_node.node_type = "EmptyTypePortNode";
   empty_type_node.inputs = {
-      PortDefinition{"text", "", true, "1:1", "preserve", "request"}};
+      NodePortDefinition{"text", "", true, "1:1", "preserve", "request"}};
   EXPECT_FALSE(PipelineCatalog::RegisterNodeDefinition(empty_type_node));
 
   // Invalid cardinality
   NodeDefinition invalid_card_node;
   invalid_card_node.node_type = "InvalidCardPortNode";
-  invalid_card_node.inputs = {
-      PortDefinition{"text", "TextBatch", true, "3:3", "preserve", "request"}};
+  invalid_card_node.inputs = {NodePortDefinition{"text", "TextBatch", true,
+                                                 "3:3", "preserve", "request"}};
   EXPECT_FALSE(PipelineCatalog::RegisterNodeDefinition(invalid_card_node));
 
   // Invalid provenance
   NodeDefinition invalid_prov_node;
   invalid_prov_node.node_type = "InvalidProvPortNode";
   invalid_prov_node.inputs = {
-      PortDefinition{"text", "TextBatch", true, "1:1", "magic", "request"}};
+      NodePortDefinition{"text", "TextBatch", true, "1:1", "magic", "request"}};
   EXPECT_FALSE(PipelineCatalog::RegisterNodeDefinition(invalid_prov_node));
 
   // Invalid lifetime
   NodeDefinition invalid_life_node;
   invalid_life_node.node_type = "InvalidLifePortNode";
-  invalid_life_node.inputs = {
-      PortDefinition{"text", "TextBatch", true, "1:1", "preserve", "eternal"}};
+  invalid_life_node.inputs = {NodePortDefinition{"text", "TextBatch", true,
+                                                 "1:1", "preserve", "eternal"}};
   EXPECT_FALSE(PipelineCatalog::RegisterNodeDefinition(invalid_life_node));
 
   // Duplicate input port key
   NodeDefinition dup_key_node;
   dup_key_node.node_type = "DupKeyPortNode";
-  dup_key_node.inputs = {
-      PortDefinition{"text", "TextBatch", true, "1:1", "preserve", "request"},
-      PortDefinition{"text", "TextBatch", false, "1:1", "preserve", "request"}};
+  dup_key_node.inputs = {NodePortDefinition{"text", "TextBatch", true, "1:1",
+                                            "preserve", "request"},
+                         NodePortDefinition{"text", "TextBatch", false, "1:1",
+                                            "preserve", "request"}};
   EXPECT_FALSE(PipelineCatalog::RegisterNodeDefinition(dup_key_node));
 
   // Biz definition with invalid port
   BizDefinition invalid_biz;
   invalid_biz.biz_name = "invalid_port_biz";
   invalid_biz.ingress = {
-      PortDefinition{"", "TextBatch", true, "1:1", "preserve", "request"}};
+      BizPortDefinition{"", "TextBatch", true, "1:1", "preserve", "request"}};
   EXPECT_FALSE(PipelineCatalog::RegisterBizDefinition(invalid_biz));
 }
 
@@ -991,10 +993,27 @@ TEST(DefinitionSchemaValidationTest, IntegerBoundsDoNotRoundThroughDouble) {
       fields, {{"value", int64_t{9007199254740992}}}, &normalized, nullptr));
 }
 
+TEST(DefinitionSchemaValidationTest,
+     PortNamesKeepTheirRolesAndCatalogSpelling) {
+  static_assert(!std::is_convertible_v<NodePortDefinition, BizPortDefinition>);
+  static_assert(!std::is_convertible_v<BizPortDefinition, NodePortDefinition>);
+  const BlackboardKey<TextBatch> key{"request_text", "TextBatch"};
+  const auto input = RequiredInputPort("text", key);
+  const auto ingress = RequiredBizInput(key);
+  EXPECT_EQ(input.logical_name, "text");
+  EXPECT_EQ(ingress.blackboard_key, "request_text");
+  NodeDefinition node;
+  node.node_type = "PortNamingProbe";
+  node.inputs = {input};
+  const auto json = PipelineCatalog::NodeToJson(node);
+  EXPECT_EQ(json["inputs"][0]["key"], "text");
+  EXPECT_FALSE(json["inputs"][0].contains("logical_name"));
+}
+
 TEST(DefinitionSchemaValidationTest, NodeAndBizRejectEmptyFlowMetadata) {
   for (int field = 0; field < 3; ++field) {
-    PortDefinition port{"value", "TextBatch", true,
-                        "1:1",   "preserve",  "request"};
+    NodePortDefinition port{"value", "TextBatch", true,
+                            "1:1",   "preserve",  "request"};
     if (field == 0) port.cardinality.clear();
     if (field == 1) port.provenance_policy.clear();
     if (field == 2) port.lifetime.clear();
@@ -1003,7 +1022,9 @@ TEST(DefinitionSchemaValidationTest, NodeAndBizRejectEmptyFlowMetadata) {
     node.outputs = {port};
     BizDefinition biz;
     biz.biz_name = "invalid_empty_flow_biz";
-    biz.egress = {port};
+    BizPortDefinition biz_port{"value", "TextBatch"};
+    static_cast<PortContract&>(biz_port) = port;
+    biz.egress = {biz_port};
     EXPECT_FALSE(PipelineCatalog::RegisterNodeDefinition(node));
     EXPECT_FALSE(PipelineCatalog::RegisterBizDefinition(biz));
   }

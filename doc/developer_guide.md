@@ -22,7 +22,7 @@ Backend；出现调度、模型语义或硬件能力缺口时，再查阅相应�
 
 | 架构层 | 新增什么？ | 核心修改文件 | 关键宏 / 核心类 |
 | :--- | :--- | :--- | :--- |
-| **接入适配层（Integration）** | 新增业务枚举、输入/输出纯 C 结构体与专属适配器 | `include/company_alg_interface.h`<br>`src/adapter/adapters/<biz>_adapter.cpp` | `CompanyAlgBizType`<br>`IBizAdapter`<br>`REGISTER_BIZ_ADAPTER` |
+| **接入适配层（Integration）** | 新增业务枚举、输入/输出纯 C 结构体与专属适配器 | `include/edgeflow/c_api.h`<br>`src/adapter/biz/<biz>_adapter.cpp` | `CompanyAlgBizType`<br>`IBizAdapter`<br>`REGISTER_BIZ_ADAPTER` |
 | **流程编排层（Orchestration）** | 扩展动态黑板、会话模型管理与全局资源 | `include/core/alg_context.h`<br>`include/core/session_context.h` | `AlgContext::Read/Publish`<br>`SessionResourceKey<T>` |
 | **能力节点层（Capability Nodes）** | 新增通用操作或可跨方案复用的领域算法 | `src/common_nodes/*.cpp`<br>`src/custom_nodes/*.cpp`<br>`include/nodes/*.h` | `NodeBase`<br>`REGISTER_NODE_WITH_DEFINITION(NodeName, def)` |
 | **模型执行层（Model Execution）** | 新增模型语义或接入新推理后端 | `include/engine/model_interface.h`<br>`include/engine/backend_interface.h`<br>`src/engine/models/`<br>`src/engine/backends/` | `REGISTER_MODEL_WITH_DEFINITION`<br>`REGISTER_BACKEND_WITH_DEFINITION`<br>`ModelRuntimeFactory`<br>`FixedBatchExecutor` |
@@ -31,7 +31,7 @@ Backend；出现调度、模型语义或硬件能力缺口时，再查阅相应�
 
 ## 1. 接入适配层：如何新增一个业务的 C ABI 接口与专属 Adapter
 
-> ⚠️ **平台治理红线**：普通业务接入严禁修改中心分发文件 `src/adapter/company_c_adapter.cpp`，必须编写业务专属 Adapter 类并注册。
+> ⚠️ **平台治理红线**：普通业务接入严禁修改中心分发文件 `src/adapter/c_api_adapter.cpp`，必须编写业务专属 Adapter 类并注册。
 
 ### Operator 镜像结构与输出池扩展指南
 
@@ -81,17 +81,17 @@ Biz egress 描述 Adapter 消费的内部端口。普通一对一出口仍要求
 CrossRerank 的排名数组和 Compliance 的首项选择使用 `N:1 / aggregate`。
 预检检查声明兼容性，打包阶段仍检查实际请求来源、排名及输出容量。
 
-1. 在 `company_alg_interface.h` 中只声明 C11 枚举、定长结构、指针和明确所有权；公开
-   结构体变更必须先有 RFC。
-2. 在 `src/adapter/adapters/` 实现无请求状态的 `IBizAdapter`，用
+1. 当前环境的模拟平台枚举和 C 数据结构放在 `platform_mock/alg_types.h`，只使用
+   C11 类型并明确所有权；函数入口保留在 `edgeflow/c_api.h`。公开结构体变更必须先有 RFC。
+2. 在 `src/adapter/biz/` 实现无请求状态的 `IBizAdapter`，用
    `AdapterValidationHelper` 完成批次、指针、长度和输出容量校验。
-3. `AdapterDescriptor::pipelines` 使用完整 `BizDefinition` 声明合法 `biz_name` 及
+3. `AdapterDescriptor::biz_definitions` 使用完整 `BizDefinition` 声明合法 `biz_name` 及
    ingress/egress typed ports；通过 `REGISTER_BIZ_ADAPTER` 注册，不修改中心派发。
 4. `Unpack`/`Pack` 使用 `core/common_contracts.h` 中的中性值类型，并在
    `adapter/biz_blackboard_keys.h` 集中声明业务 ingress/egress `BlackboardKey<T>`；
    Core、Node 和 Engine 不得包含该业务 key 头。
-5. 以 [`entity_extract_adapter.cpp`](../src/adapter/adapters/entity_extract_adapter.cpp) 和
-   [`cross_rerank_adapter.cpp`](../src/adapter/adapters/cross_rerank_adapter.cpp) 为当前模板，
+5. 以 [`entity_extract_adapter.cpp`](../src/adapter/biz/entity_extract_adapter.cpp) 和
+   [`cross_rerank_adapter.cpp`](../src/adapter/biz/cross_rerank_adapter.cpp) 为当前模板，
    并扩展 Adapter/C ABI/Operator 对应契约测试。
 
 ---

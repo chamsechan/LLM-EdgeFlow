@@ -163,10 +163,10 @@ void Add(ValidationReport* report, DiagnosticCode code, std::string path,
                                  std::move(related), std::move(suggestions)});
 }
 
-PortDefinition EffectivePortDefinition(const PortDefinition& declared,
-                                       const NodeDefinition& node_definition,
-                                       const nlohmann::json& node_config) {
-  PortDefinition effective = declared;
+NodePortDefinition EffectivePortDefinition(
+    const NodePortDefinition& declared, const NodeDefinition& node_definition,
+    const nlohmann::json& node_config) {
+  NodePortDefinition effective = declared;
   if (declared.lifetime_config_field.empty()) return effective;
 
   const auto& field_name = declared.lifetime_config_field;
@@ -217,8 +217,8 @@ bool LifetimeCompatible(const std::string& producer,
   return LifetimeRank(producer) >= LifetimeRank(consumer);
 }
 
-void ValidatePortFlowContract(const PortDefinition& producer,
-                              const PortDefinition& consumer,
+void ValidatePortFlowContract(const PortContract& producer,
+                              const PortContract& consumer,
                               const std::string& path,
                               const std::string& node_id,
                               const std::string& logical_port,
@@ -434,7 +434,7 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
     Add(&report, DiagnosticCode::kUnknownBiz, "/biz_name",
         "No registered biz contract accepts pipeline name: " + parsed.biz_name);
   }
-  if (NodeFactory::Instance().HasConflict()) {
+  if (NodeRegistry::Instance().HasConflict()) {
     Add(&report, DiagnosticCode::kRegistryConflict, "/pipeline",
         "Node registry contains registration conflicts");
   }
@@ -574,7 +574,7 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
   for (const auto& node : nodes) {
     node_by_id[node.id] = &node;
     const auto* definition = catalog.FindNode(node.node_type);
-    bool factory_has = NodeFactory::Instance().Has(node.node_type);
+    bool factory_has = NodeRegistry::Instance().Has(node.node_type);
     if (!factory_has || (!definition && policy == ValidationPolicy::kStrict)) {
       Add(&report, DiagnosticCode::kUnknownNodeType,
           "/pipeline/" + std::to_string(node.source_index) + "/node_type",
@@ -679,12 +679,12 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
         return false;
       };
 
-  std::unordered_map<std::string, PortDefinition> ingress;
+  std::unordered_map<std::string, BizPortDefinition> ingress;
   if (biz) {
-    for (const auto& port : biz->ingress) ingress[port.key] = port;
+    for (const auto& port : biz->ingress) ingress[port.blackboard_key] = port;
   }
   std::unordered_map<std::string,
-                     std::vector<std::pair<std::string, PortDefinition>>>
+                     std::vector<std::pair<std::string, PortContract>>>
       producers;
   for (const auto& id : report.topological_order) {
     auto def_it = def_by_id.find(id);
@@ -704,9 +704,9 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
     // 校验未声明的输入端口映射
     for (const auto& entry : node.ports.inputs) {
       const auto& in_port = entry.first;
-      bool declared =
-          std::any_of(definition.inputs.begin(), definition.inputs.end(),
-                      [&](const auto& item) { return item.key == in_port; });
+      bool declared = std::any_of(
+          definition.inputs.begin(), definition.inputs.end(),
+          [&](const auto& item) { return item.logical_name == in_port; });
       if (!declared) {
         Add(&report, DiagnosticCode::kUnknownField,
             "/pipeline/" + std::to_string(node.source_index) +
@@ -720,9 +720,9 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
     // 校验未声明的输出端口映射
     for (const auto& entry : node.ports.outputs) {
       const auto& out_port = entry.first;
-      bool declared =
-          std::any_of(definition.outputs.begin(), definition.outputs.end(),
-                      [&](const auto& item) { return item.key == out_port; });
+      bool declared = std::any_of(
+          definition.outputs.begin(), definition.outputs.end(),
+          [&](const auto& item) { return item.logical_name == out_port; });
       if (!declared) {
         Add(&report, DiagnosticCode::kUnknownField,
             "/pipeline/" + std::to_string(node.source_index) +
@@ -737,25 +737,25 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
     for (const auto& declared_input : definition.inputs) {
       const auto input = EffectivePortDefinition(declared_input, definition,
                                                  normalized_config);
-      std::string actual_key = input.key;
+      std::string actual_key = input.logical_name;
       bool explicitly_bound = false;
-      auto port_it = node.ports.inputs.find(input.key);
+      auto port_it = node.ports.inputs.find(input.logical_name);
       if (port_it != node.ports.inputs.end()) {
         actual_key = port_it->second;
         explicitly_bound = true;
-        bound_input_ports.insert(input.key);
+        bound_input_ports.insert(input.logical_name);
       } else if (input.required) {
-        bound_input_ports.insert(input.key);
+        bound_input_ports.insert(input.logical_name);
       }
 
       if (!input.required && !explicitly_bound) continue;
-      node_plan.ports.push_back({input.key, actual_key, input.type_id,
+      node_plan.ports.push_back({input.logical_name, actual_key, input.type_id,
                                  input.cardinality, input.provenance_policy,
                                  input.lifetime, PortDirection::kInput});
 
       const std::string input_path = "/pipeline/" +
                                      std::to_string(node.source_index) +
-                                     "/ports/inputs/" + input.key;
+                                     "/ports/inputs/" + input.logical_name;
       bool found = false;
       auto producer_it = producers.find(actual_key);
       if (producer_it != producers.end()) {
@@ -768,7 +768,7 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
             if (it->second.type_id == input.type_id) {
               found = true;
               ValidatePortFlowContract(it->second, input, input_path, id,
-                                       input.key, it->first, &report);
+                                       input.logical_name, it->first, &report);
             }
             break;
           }
@@ -780,7 +780,7 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
             root_port->second.type_id == input.type_id) {
           found = true;
           ValidatePortFlowContract(root_port->second, input, input_path, id,
-                                   input.key, "$ingress", &report);
+                                   input.logical_name, "$ingress", &report);
         }
       }
       if (!found && biz) {
@@ -796,12 +796,12 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
         Add(&report, DiagnosticCode::kMissingInputProducer,
             explicitly_bound
                 ? ("/pipeline/" + std::to_string(node.source_index) +
-                   "/ports/inputs/" + input.key)
+                   "/ports/inputs/" + input.logical_name)
                 : ("/pipeline/" + std::to_string(node.source_index)),
-            "No biz ingress or ancestor node produces port '" + input.key +
-                "' (bound key: '" + actual_key + "') of type '" +
-                input.type_id + "'",
-            id, input.key, {}, suggestions);
+            "No biz ingress or ancestor node produces port '" +
+                input.logical_name + "' (bound key: '" + actual_key +
+                "') of type '" + input.type_id + "'",
+            id, input.logical_name, {}, suggestions);
       }
     }
 
@@ -879,21 +879,21 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
     for (const auto& declared_output : definition.outputs) {
       const auto output = EffectivePortDefinition(declared_output, definition,
                                                   normalized_config);
-      std::string actual_key = output.key;
-      auto port_it = node.ports.outputs.find(output.key);
+      std::string actual_key = output.logical_name;
+      auto port_it = node.ports.outputs.find(output.logical_name);
       if (port_it != node.ports.outputs.end()) {
         actual_key = port_it->second;
       }
 
-      const std::string output_path = "/pipeline/" +
-                                      std::to_string(node.source_index) +
-                                      (port_it == node.ports.outputs.end()
-                                           ? std::string()
-                                           : "/ports/outputs/" + output.key);
+      const std::string output_path =
+          "/pipeline/" + std::to_string(node.source_index) +
+          (port_it == node.ports.outputs.end()
+               ? std::string()
+               : "/ports/outputs/" + output.logical_name);
 
-      node_plan.ports.push_back({output.key, actual_key, output.type_id,
-                                 output.cardinality, output.provenance_policy,
-                                 output.lifetime, PortDirection::kOutput});
+      node_plan.ports.push_back(
+          {output.logical_name, actual_key, output.type_id, output.cardinality,
+           output.provenance_policy, output.lifetime, PortDirection::kOutput});
 
       auto& existing = producers[actual_key];
       std::vector<std::string> conflicting_producers;
@@ -906,11 +906,9 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
       if (!conflicting_producers.empty()) {
         Add(&report, DiagnosticCode::kDuplicatePortProducer, output_path,
             "Write-once Blackboard port has multiple producers: " + actual_key,
-            id, output.key, std::move(conflicting_producers));
+            id, output.logical_name, std::move(conflicting_producers));
       }
-      PortDefinition resolved_output = output;
-      resolved_output.key = actual_key;
-      existing.push_back({id, std::move(resolved_output)});
+      existing.push_back({id, static_cast<const PortContract&>(output)});
     }
 
     plan.node_plans[id] = std::move(node_plan);
@@ -918,12 +916,13 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
 
   if (biz) {
     for (const auto& consumer : biz->egress) {
-      auto it = producers.find(consumer.key);
+      auto it = producers.find(consumer.blackboard_key);
       if (it == producers.end() || it->second.empty()) {
         if (consumer.required) {
           Add(&report, DiagnosticCode::kMissingBizOutput, "/pipeline",
-              "Pipeline does not produce required biz output: " + consumer.key,
-              {}, consumer.key);
+              "Pipeline does not produce required biz output: " +
+                  consumer.blackboard_key,
+              {}, consumer.blackboard_key);
         }
         continue;
       }
@@ -933,20 +932,22 @@ ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
           "/pipeline/" + std::to_string(producer_node.source_index);
       for (const auto& [logical_key, actual_key] :
            producer_node.ports.outputs) {
-        if (actual_key == consumer.key) {
+        if (actual_key == consumer.blackboard_key) {
           output_path += "/ports/outputs/" + logical_key;
           break;
         }
       }
       if (producer_port.type_id != consumer.type_id) {
         Add(&report, DiagnosticCode::kMissingBizOutput, output_path,
-            "Biz output type mismatch for '" + consumer.key + "': expected '" +
-                consumer.type_id + "', got '" + producer_port.type_id + "'",
-            producer_id, consumer.key, {"$egress"});
+            "Biz output type mismatch for '" + consumer.blackboard_key +
+                "': expected '" + consumer.type_id + "', got '" +
+                producer_port.type_id + "'",
+            producer_id, consumer.blackboard_key, {"$egress"});
         continue;
       }
       ValidatePortFlowContract(producer_port, consumer, output_path,
-                               producer_id, consumer.key, "$egress", &report);
+                               producer_id, consumer.blackboard_key, "$egress",
+                               &report);
     }
   }
 

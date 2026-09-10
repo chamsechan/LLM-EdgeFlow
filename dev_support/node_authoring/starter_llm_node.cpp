@@ -2,8 +2,8 @@
 #include <utility>
 
 #include "core/common_contracts.h"
+#include "core/node_definition.h"
 #include "core/node_registry.h"
-#include "core/pipeline_catalog.h"
 #include "engine/model_interface.h"
 #include "nodes/model_bound_node.h"
 #include "nodes/traceable_batch_validation.h"

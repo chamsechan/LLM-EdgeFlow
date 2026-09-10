@@ -12,11 +12,10 @@
 #include <vector>
 
 #include "adapter/biz_input_constraints.h"
-#include "operator/company_operator_types.h"
+#include "adapter/operator_io_contracts.h"
+#include "edgeflow/operator/types.h"
 
 namespace llm_edgeflow {
-
-enum class IoDirection { kUnknown, kInput, kOutput };
 
 inline constexpr uint32_t kDefaultOutputPoolDepth = 25;
 inline constexpr uint32_t kMaxOutputPoolDepth = 1024;
@@ -77,21 +76,6 @@ struct ResolvedInputLimits {
   int32_t max_rerank_candidates = 8;
   size_t max_buffer_bytes = 10 * 1024 * 1024;  // 10 MiB
   size_t max_any_bytes = 10 * 1024 * 1024;     // 10 MiB
-};
-
-/**
- * @brief 输出池规范
- */
-struct ResolvedOutputPoolSpec {
-  std::string type;  // 规范输出后缀
-  uint32_t meta_num = 0;
-  int32_t metadata_type_id = 0;
-  std::unordered_map<std::string, uint32_t> capacities;
-
-  uint32_t GetCapacity(const std::string& field) const noexcept {
-    auto it = capacities.find(field);
-    return it != capacities.end() ? it->second : 0;
-  }
 };
 
 struct OutputCapacityFieldConfig {

@@ -37,7 +37,7 @@ class TemplateFlatStructAdapter : public IBizAdapter {
     return static_cast<CompanyAlgBizType>(101);
   }
 
-  const char* BizName() const override { return "TemplateFlatStruct"; }
+  const char* AdapterName() const override { return "TemplateFlatStruct"; }
 
   const AdapterDescriptor& GetDescriptor() const override {
     static AdapterDescriptor desc{
@@ -57,10 +57,11 @@ class TemplateFlatStructAdapter : public IBizAdapter {
   int Unpack(const void** inputs, int num_inputs, AlgContext* ctx,
              AdapterStatus* out_status = nullptr) const override {
     int valid_ret = AdapterValidationHelper::ValidateBatchInputs(
-        inputs, num_inputs, GetDescriptor().max_batch_size, BizName());
+        inputs, num_inputs, GetDescriptor().max_batch_size, AdapterName());
     if (valid_ret != 0 || !ctx) {
       return AdapterValidationHelper::ReturnInvalidInput(
-          out_status, "Batch envelope validation failed", "inputs", BizName());
+          out_status, "Batch envelope validation failed", "inputs",
+          AdapterName());
     }
 
     std::vector<uint64_t> req_ids;
@@ -73,13 +74,13 @@ class TemplateFlatStructAdapter : public IBizAdapter {
     for (int i = 0; i < num_inputs; ++i) {
       auto* in = static_cast<const TemplateFlatInput*>(inputs[i]);
       if (!AdapterValidationHelper::RequireNotNull("inputs[i]", in, i,
-                                                   BizName(), out_status)) {
+                                                   AdapterName(), out_status)) {
         return COMPANY_ALG_ERR_INVALID_INPUT;
       }
 
       if (!AdapterValidationHelper::RequireBoundedString(
               "inputs[i].sentence_text", in->sentence_text, kMaxTextLen, i,
-              BizName(), out_status)) {
+              AdapterName(), out_status)) {
         return COMPANY_ALG_ERR_INVALID_INPUT;
       }
 
@@ -87,12 +88,12 @@ class TemplateFlatStructAdapter : public IBizAdapter {
       sentences.push_back(in->sentence_text);  // COPY_IN 深拷贝
     }
 
-    if (!AdapterValidationHelper::PublishContextValue(*ctx, "raw_request_ids",
-                                                      std::move(req_ids),
-                                                      BizName(), out_status) ||
-        !AdapterValidationHelper::PublishContextValue(*ctx, "raw_sentences",
-                                                      std::move(sentences),
-                                                      BizName(), out_status)) {
+    if (!AdapterValidationHelper::PublishContextValue(
+            *ctx, "raw_request_ids", std::move(req_ids), AdapterName(),
+            out_status) ||
+        !AdapterValidationHelper::PublishContextValue(
+            *ctx, "raw_sentences", std::move(sentences), AdapterName(),
+            out_status)) {
       return COMPANY_ALG_ERR_INVALID_INPUT;
     }
     return COMPANY_ALG_SUCCESS;
@@ -108,7 +109,7 @@ class TemplateFlatStructAdapter : public IBizAdapter {
 
     int count = static_cast<int>(res->size());
     int valid_ret = AdapterValidationHelper::ValidateBatchOutputs(
-        outputs, num_outputs, count, BizName(), out_status);
+        outputs, num_outputs, count, AdapterName(), out_status);
     if (valid_ret != 0) return valid_ret;
 
     for (int i = 0; i < count; ++i) {
@@ -120,7 +121,7 @@ class TemplateFlatStructAdapter : public IBizAdapter {
       if (!AdapterValidationHelper::CheckedStringCopy(
               out_ptr->result_json, sizeof(out_ptr->result_json),
               (*res)[i].result_json.c_str(), "outputs[i].result_json", i,
-              BizName(), out_status)) {
+              AdapterName(), out_status)) {
         return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
       }
     }

@@ -6,12 +6,12 @@
 #include "demo/common/demo_registry.h"
 #include "demo/common/operator_runner.h"
 #include "demo/common/result_writer.h"
-#include "operator/company_operator_types.h"
+#include "platform_mock/operator_data_types.h"
 
 namespace alg_demo {
 
 int RunKeywordMatchDemo(const DemoOptions& options) {
-  PrintBanner("【业务 2 演示】关注词匹配业务", "Conf: " + options.config_path);
+  PrintBanner("关注词匹配业务", "Conf: " + options.config_path);
 
   std::vector<std::string> lines;
   std::string err;
@@ -133,7 +133,7 @@ int RunKeywordMatchDemo(const DemoOptions& options) {
   return 0;
 }
 
-REGISTER_DEMO_BIZ("keyword_match", "【业务 2 演示】关注词匹配业务",
-                  RunKeywordMatchDemo, ALG_BIZ_TYPE_KEYWORD_MATCH);
+REGISTER_DEMO_BIZ("keyword_match", "关注词匹配业务", RunKeywordMatchDemo,
+                  ALG_BIZ_TYPE_KEYWORD_MATCH);
 
 }  // namespace alg_demo

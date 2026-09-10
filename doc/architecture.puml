@@ -53,7 +53,7 @@ package "接入适配层（Integration）" as Integration {
 
   class "Operator Facade" as PlatformFacade <<(P,#38BDF8) Operator API>> {
     + Get_LLM_EDGEFLOW_OperatorTable(): OperatorFunc
-    + CompanyConfResolver: resolve .conf & rewrite model paths
+    + OperatorConfigResolver: resolve .conf & rewrite model paths
     + OperatorValueTypeRegistry: value type whitelist & pool sizing
     + OperatorBizBridgeRegistry: biz bridge slots & conversion
     + OperatorControlRegistry: typed control commands
@@ -187,8 +187,8 @@ package "能力节点层（Capability Nodes）" as CapabilityNodes {
     # {abstract} InferBatch(in: InputBatch, out: OutputBatch*): int
   }
 
-  class NodeFactory <<(S,#EC4899) Singleton>> {
-    + {static} Instance(): NodeFactory&
+  class NodeRegistry <<(S,#EC4899) Singleton>> {
+    + {static} Instance(): NodeRegistry&
     + Register(type: string, creator: Func): void
     + Create(type: string): std::unique_ptr<INode>
     + HasConflict(): bool
@@ -322,7 +322,7 @@ INode <|-- NodeBase
 NodeBase <|-- ModelBoundNode
 ModelBoundNode <|-- TraceableUnaryNode
 NodeBase <|.. CommonNodes
-NodeFactory ..> INode : 动态反射创建 (Fail-Closed)
+NodeRegistry ..> INode : 动态反射创建 (Fail-Closed)
 
 CommonNodes ..> AlgContext : Typed Key 读写
 ModelBoundNode ..> ModelManager : 索取纯虚能力接口

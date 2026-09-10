@@ -22,6 +22,7 @@
 | [开发者扩展指南](developer_guide.md) | 按职责查阅进阶接口与扩展约束 |
 | [自定义 Node 源码指南](../src/custom_nodes/README.md) | 源码布局、构建登记、测试与跨方案复用 |
 | [公共日志 API](logging.md) | C/C++ 日志接入、等级与 Demo 环境变量 |
+| [源码布局与命名](dev_guide/source_layout.md) | 公开、扩展和内部头文件边界，以及目录与名称迁移 |
 | [kiteLLM 接入](kitellm.md) | 可选 Backend 的构建、部署示例与验证限制 |
 | [开发与交付流程](../CONTRIBUTING.md) · [测试指南](../tests/README.md) | 任务分级、RFC 阈值、验证与交付 |
 

@@ -7,8 +7,8 @@
 #include "demo/common/dataset_reader.h"
 #include "demo/common/demo_options.h"
 #include "demo/common/demo_registry.h"
+#include "edgeflow/operator/interface.h"
 #include "nlohmann/json.hpp"
-#include "operator/operator_interface.h"
 
 using namespace alg_demo;
 using namespace llm_edgeflow::operator_api;

@@ -60,18 +60,18 @@ cmake --build build --target alg_sdk alg_demo alg_pipeline_tool alg_show --paral
 从无需模型权重的关键词匹配开始。下面使用仓库自带的四条测试文本，执行配置中定义的规则：
 
 ```bash
-./build/alg_pipeline_tool validate configs/pipeline_keyword_match.json
-./build/alg_demo --profile keyword_match_mock \
+./build/alg_pipeline_tool validate configs/pipeline_keyword_match_rules.json
+./build/alg_demo --profile keyword_match_rules \
   --dataset tests/fixtures/effects/keyword_inputs.txt \
   --output-dir results/quickstart
 ```
 
 预期四条输入均处理成功，前两条命中 `SYSTEM_INIT`，后两条未命中。结果位于：
 
-- `results/quickstart/keyword_match_mock/results.jsonl`：逐条请求的状态与匹配结果。
-- `results/quickstart/keyword_match_mock/summary.json`：样本数、成功数、失败数与耗时。
+- `results/quickstart/keyword_match_rules/results.jsonl`：逐条请求的状态与匹配结果。
+- `results/quickstart/keyword_match_rules/summary.json`：样本数、成功数、失败数与耗时。
 
-`keyword_match_mock` 是 Demo 预设名称，这个方案使用真实规则节点。Demo 默认使用 Pipeline 中的规则；`--no-default-control` 保留为兼容选项。需要体验内置规则热更新时显式添加 `--example-control`。
+`keyword_match_rules` 是 Demo 预设名称，这个方案使用真实规则节点。Demo 默认使用 Pipeline 中的规则；`--no-default-control` 保留为兼容选项。需要体验内置规则热更新时显式添加 `--example-control`。
 
 ### 3. 查看与编辑流程
 
@@ -81,10 +81,10 @@ cmake --build build --target alg_sdk alg_demo alg_pipeline_tool alg_show --paral
 ./build/alg_pipeline_tool describe-node TextRuleMatchNode
 
 # 查看经过校验的执行计划
-./build/alg_pipeline_tool plan configs/pipeline_keyword_match.json
+./build/alg_pipeline_tool plan configs/pipeline_keyword_match_rules.json
 
 # 打开本地 Web 工作台
-./show configs/pipeline_keyword_match.json --web
+./show configs/pipeline_keyword_match_rules.json --web
 ```
 
 工作台绑定 `127.0.0.1`，支持节点连线、参数编辑、配置校验和草稿运行。下一步可跟随 [Studio 编排练习](tools/pipeline_studio/README.md#第一次编排)修改规则，并用 Demo 验证自己的方案。
@@ -115,8 +115,8 @@ flowchart TD
 
 | 文件 | 负责什么 | 示例 |
 | :--- | :--- | :--- |
-| Pipeline JSON | 节点、依赖、类型端口、模型与算法参数 | [pipeline_keyword_match.json](configs/pipeline_keyword_match.json) |
-| 部署 `.conf` | Pipeline 路径、模型路径覆盖与输出容量 | [pipeline_keyword_match.conf](configs/pipeline_keyword_match.conf) |
+| Pipeline JSON | 节点、依赖、类型端口、模型与算法参数 | [pipeline_keyword_match_rules.json](configs/pipeline_keyword_match_rules.json) |
+| 部署 `.conf` | Pipeline 路径、模型路径覆盖与输出容量 | [pipeline_keyword_match_rules.conf](configs/pipeline_keyword_match_rules.conf) |
 | Demo Profile（可选） | 运行预设：业务、配置、数据集和批大小等 | [demo/profiles.json](demo/profiles.json) |
 
 Profile 用于重复运行已有方案，也可以通过 Demo 参数直接指定配置和数据集。保存新的 Pipeline 后，需要让 `.conf` 指向它；具体步骤见[运行当前方案](tools/pipeline_studio/README.md#运行当前方案)。
@@ -127,13 +127,13 @@ Profile 用于重复运行已有方案，也可以通过 Demo 参数直接指定
 
 | 场景 | 处理方式 | 配置与运行条件 |
 | :--- | :--- | :--- |
-| 关键词匹配 | 文本规则匹配与分类 | [配置](configs/pipeline_keyword_match.json)；无需模型权重 |
-| 实体抽取 | LLM 生成与结构化结果解析 | [配置](configs/pipeline_entity_extract_llamacpp.json)；llama.cpp 与匹配的语言模型 |
-| 文档问答 | 文本分块、向量检索与 LLM 回答 | [配置](configs/pipeline_doc_qa.json)；ONNX Runtime、llama.cpp 与对应模型 |
-| 对话合规审计 | 检索、精排与 LLM 分析 | [配置](configs/pipeline_dialogue_audit.json)；向量、精排和语言模型 |
-| 文本精排 | 对问题与候选文本进行相关性评分 | [配置](configs/pipeline_cross_rerank.json)；ONNX Runtime 与精排模型 |
-| 图像文档问答 | 图像转写后进行问答 | [配置](configs/kite/pipeline_ocr_doc_qa.json)；Kite 与视觉、语言模型 |
-| 语音意图识别 | Whisper 转写与规则分类 | [配置](configs/pipeline_audio_asr_whisper.json)；启用 whisper.cpp 并准备语音模型 |
+| 关键词匹配 | 文本规则匹配与分类 | [配置](configs/pipeline_keyword_match_rules.json)；无需模型权重 |
+| 实体抽取 | LLM 生成与结构化结果解析 | [配置](configs/pipeline_entity_extract_cpu.json)；llama.cpp 与匹配的语言模型 |
+| 文档问答 | 文本分块、向量检索与 LLM 回答 | [配置](configs/pipeline_doc_qa_default.json)；ONNX Runtime、llama.cpp 与对应模型 |
+| 对话合规审计 | 检索、精排与 LLM 分析 | [配置](configs/pipeline_dialogue_audit_default.json)；向量、精排和语言模型 |
+| 文本精排 | 对问题与候选文本进行相关性评分 | [配置](configs/pipeline_cross_rerank_cpu.json)；ONNX Runtime 与精排模型 |
+| 图像文档问答 | 图像转写后进行问答 | [配置](configs/pipeline_ocr_doc_qa_kite.json)；Kite 与视觉、语言模型 |
+| 语音意图识别 | Whisper 转写与规则分类 | [配置](configs/pipeline_audio_asr_cpu.json)；启用 whisper.cpp 并准备语音模型 |
 
 Kite 的图像转写输出文本，不提供检测框或置信度。Kite、Whisper 等可选后端需单独选择构建配置；参考[构建变体与模型资产](doc/VERIFIABLE_SELECTION.md)和 [kiteLLM 接入说明](doc/kitellm.md)。
 
@@ -176,3 +176,5 @@ Smoke 验证执行链路；真实模型的业务效果需使用目标数据集�
 ## 许可证
 
 项目采用 [MIT License](LICENSE)。第三方组件及其许可见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+
+源码头文件和命名约定见[源码布局与迁移](doc/dev_guide/source_layout.md)；示例配置和 Profile 的路径调整见[配置目录](configs/README.md)。

@@ -1,11 +1,26 @@
 #include "adapter/operator/operator_biz_bridge_registry.h"
 
+#include <cstring>
+#include <exception>
 #include <unordered_set>
 
 #include "adapter/biz_adapter_registry.h"
+#include "adapter/operator/operator_value_type_registry.h"
 #include "contracts/diagnostic.h"
 
 namespace llm_edgeflow {
+
+bool RegisterOperatorBizBridge(OperatorBizBridgeDescriptor descriptor) {
+  return OperatorBizBridgeRegistry::Instance().RegisterBridge(
+      std::move(descriptor));
+}
+
+int CopyToOperatorString(const char* source, CompanyString* destination,
+                         uint32_t capacity, const char* field_name,
+                         std::string* diagnostic) noexcept {
+  return OperatorBizBridgeRegistry::CopyToPooledString(
+      source, destination, capacity, field_name, diagnostic);
+}
 
 OperatorBizBridgeRegistry& OperatorBizBridgeRegistry::Instance() {
   static OperatorBizBridgeRegistry instance;
@@ -56,13 +71,14 @@ bool OperatorBizBridgeRegistry::RegisterBridge(
     return false;
   }
   const auto reject = [&](std::initializer_list<std::string_view> reason) {
-    RecordConflict(desc.biz_type, desc.biz_name, reason);
+    RecordConflict(desc.biz_type, desc.adapter_name, reason);
     return false;
   };
 
   int32_t key = static_cast<int32_t>(desc.biz_type);
-  if (key == 0 || desc.biz_name.empty()) {
-    return reject({"Bridge requires a nonzero BizType and nonempty biz_name"});
+  if (key == 0 || desc.adapter_name.empty()) {
+    return reject(
+        {"Bridge requires a nonzero BizType and nonempty adapter_name"});
   }
   auto it = bridges_by_biz_type_.find(key);
   if (it != bridges_by_biz_type_.end()) {
@@ -139,15 +155,15 @@ const OperatorBizBridgeDescriptor* OperatorBizBridgeRegistry::GetBridge(
 }
 
 void OperatorBizBridgeRegistry::RecordConflict(
-    CompanyAlgBizType biz_type, std::string_view biz_name,
+    CompanyAlgBizType biz_type, std::string_view adapter_name,
     std::initializer_list<std::string_view> reason) noexcept {
   if (has_conflict_) return;
   has_conflict_ = true;
   // A diagnostic allocation failure must not change a rejected registration
   // into an exception or erase the first conflict with a later audit failure.
   try {
-    conflict_diagnostic_ = "OperatorBizBridgeRegistry: biz '";
-    conflict_diagnostic_.append(biz_name);
+    conflict_diagnostic_ = "OperatorBizBridgeRegistry: adapter '";
+    conflict_diagnostic_.append(adapter_name);
     conflict_diagnostic_ +=
         "' (BizType " + std::to_string(static_cast<int32_t>(biz_type)) + "): ";
     for (const auto part : reason) conflict_diagnostic_.append(part);
@@ -176,9 +192,10 @@ int OperatorBizBridgeRegistry::GlobalInit(std::string* diagnostic) {
   if (audited_) {
     return 0;
   }
-  const auto reject = [&](CompanyAlgBizType biz_type, std::string_view biz_name,
+  const auto reject = [&](CompanyAlgBizType biz_type,
+                          std::string_view adapter_name,
                           std::initializer_list<std::string_view> reason) {
-    RecordConflict(biz_type, biz_name, reason);
+    RecordConflict(biz_type, adapter_name, reason);
     return ReportConflict(diagnostic);
   };
 
@@ -197,54 +214,55 @@ int OperatorBizBridgeRegistry::GlobalInit(std::string* diagnostic) {
     const int32_t biz_type = static_cast<int32_t>(adapter->BizType());
     if (biz_type == static_cast<int32_t>(ALG_BIZ_TYPE_UNKNOWN) ||
         !adapter_biz_types.insert(biz_type).second) {
-      return reject(adapter->BizType(), adapter->BizName(),
+      return reject(adapter->BizType(), adapter->AdapterName(),
                     {"BizAdapter has an unknown or duplicate BizType"});
     }
 
     auto bridge_it = bridges_by_biz_type_.find(biz_type);
     if (bridge_it == bridges_by_biz_type_.end()) {
-      return reject(adapter->BizType(), adapter->BizName(),
+      return reject(adapter->BizType(), adapter->AdapterName(),
                     {"Missing Operator bridge for registered BizAdapter"});
     }
     const auto& desc = bridge_it->second;
     if (desc.biz_type != adapter->BizType()) {
-      return reject(adapter->BizType(), adapter->BizName(),
+      return reject(adapter->BizType(), adapter->AdapterName(),
                     {"Bridge BizType does not match its BizAdapter"});
     }
 
     const auto& adapter_desc = adapter->GetDescriptor();
     if (desc.internal_input_type_name != adapter_desc.input_type_name) {
-      return reject(desc.biz_type, desc.biz_name,
+      return reject(desc.biz_type, desc.adapter_name,
                     {"Internal input type '", desc.internal_input_type_name,
                      "' does not match BizAdapter type '",
                      adapter_desc.input_type_name, "'"});
     }
     if (desc.internal_output_type_name != adapter->ResultTypeName()) {
-      return reject(desc.biz_type, desc.biz_name,
+      return reject(desc.biz_type, desc.adapter_name,
                     {"Internal output type '", desc.internal_output_type_name,
                      "' does not match BizAdapter result '",
                      adapter->ResultTypeName(), "'"});
     }
-    // 校验业务名匹配 adapter->BizName() 或 pipeline biz_name
-    bool biz_name_matched = (desc.biz_name == adapter->BizName());
-    if (!biz_name_matched) {
-      for (const auto& p : adapter_desc.pipelines) {
-        if (p.biz_name == desc.biz_name) {
-          biz_name_matched = true;
+    // Adapter 标识匹配；兼容旧 bridge 使用已声明的 Pipeline biz_name。
+    bool adapter_name_matched = (desc.adapter_name == adapter->AdapterName());
+    if (!adapter_name_matched) {
+      for (const auto& p : adapter_desc.biz_definitions) {
+        if (p.biz_name == desc.adapter_name) {
+          adapter_name_matched = true;
           break;
         }
       }
     }
-    if (!biz_name_matched) {
-      return reject(desc.biz_type, desc.biz_name,
-                    {"Bridge biz_name does not match BizAdapter '",
-                     adapter->BizName(), "' or any of its Pipeline biz_names"});
+    if (!adapter_name_matched) {
+      return reject(
+          desc.biz_type, desc.adapter_name,
+          {"Bridge adapter_name does not match BizAdapter '",
+           adapter->AdapterName(), "' or any of its Pipeline biz_names"});
     }
 
     for (const auto& slot : desc.input_slots) {
       if (slot.direction != IoDirection::kInput) {
         return reject(
-            desc.biz_type, desc.biz_name,
+            desc.biz_type, desc.adapter_name,
             {"Input slot '", slot.logical_name, "' must have input direction"});
       }
       const auto* binding =
@@ -253,7 +271,7 @@ int OperatorBizBridgeRegistry::GlobalInit(std::string* diagnostic) {
       if (!binding || binding->canonical_suffix != slot.type_suffix ||
           binding->direction != IoDirection::kInput ||
           !binding->validate_external) {
-        return reject(desc.biz_type, desc.biz_name,
+        return reject(desc.biz_type, desc.adapter_name,
                       {"Input slot '", slot.logical_name,
                        "' requires canonical value type '", slot.type_suffix,
                        "' with input direction and validate_external"});
@@ -261,7 +279,7 @@ int OperatorBizBridgeRegistry::GlobalInit(std::string* diagnostic) {
     }
     for (const auto& slot : desc.output_slots) {
       if (slot.direction != IoDirection::kOutput) {
-        return reject(desc.biz_type, desc.biz_name,
+        return reject(desc.biz_type, desc.adapter_name,
                       {"Output slot '", slot.logical_name,
                        "' must have output direction"});
       }
@@ -273,7 +291,7 @@ int OperatorBizBridgeRegistry::GlobalInit(std::string* diagnostic) {
           !binding->output_layout.compute_block_payload_bytes ||
           !binding->allocate_external || !binding->reset_external ||
           !binding->destroy_external) {
-        return reject(desc.biz_type, desc.biz_name,
+        return reject(desc.biz_type, desc.adapter_name,
                       {"Output slot '", slot.logical_name,
                        "' requires canonical value type '", slot.type_suffix,
                        "' with output direction, layout and "
@@ -285,7 +303,7 @@ int OperatorBizBridgeRegistry::GlobalInit(std::string* diagnostic) {
   // 反向拒绝没有 Adapter 的孤儿 Bridge。
   for (const auto& [biz_type, desc] : bridges_by_biz_type_) {
     if (adapter_biz_types.find(biz_type) == adapter_biz_types.end()) {
-      return reject(desc.biz_type, desc.biz_name,
+      return reject(desc.biz_type, desc.adapter_name,
                     {"Bridge has no registered BizAdapter"});
     }
   }

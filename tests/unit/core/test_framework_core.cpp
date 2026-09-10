@@ -67,9 +67,9 @@ TEST(TraceableItemTest, ProvenanceTracking) {
   EXPECT_EQ(item1.data, "Chunk 0 of Req 101");
 }
 
-// 3. 测试 NodeFactory 动态反射与注册机制
+// 3. 测试 NodeRegistry 动态反射与注册机制
 TEST(NodeRegistryTest, DynamicReflection) {
-  auto& factory = NodeFactory::Instance();
+  auto& factory = NodeRegistry::Instance();
 
   // 验证已注册的核心算子
   auto node1 = factory.Create("TextChunkNode");

@@ -9,12 +9,12 @@
 #include <string>
 #include <vector>
 
-#include "company_alg_cpp.hpp"
-#include "company_alg_interface.h"
 #include "core/alg_context.h"
 #include "core/node_interface.h"
 #include "core/node_registry.h"
 #include "core/pipeline.h"
+#include "edgeflow/c_api.h"
+#include "edgeflow/c_api.hpp"
 #include "engine/fixed_batch_executor.h"
 #include "engine/model_interface.h"
 
@@ -316,7 +316,8 @@ TEST_F(EngineFaultToleranceAndLifecycleTest, LargePayloadRaiiDestruction) {
 
 // 4. 全局生命周期高频循环初始化与销毁压测 (30 Cycles)
 TEST_F(EngineFaultToleranceAndLifecycleTest, RapidGlobalLifecycleInitDeInit) {
-  std::string cfg_path = GetConfigPath("configs/pipeline_keyword_match.json");
+  std::string cfg_path =
+      GetConfigPath("configs/pipeline_keyword_match_rules.json");
 
   for (int cycle = 0; cycle < 30; ++cycle) {
     EXPECT_EQ(Alg_Init(), 0);

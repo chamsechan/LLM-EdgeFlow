@@ -25,12 +25,12 @@ if [[ "${1:-}" == "--self-test" ]]; then
   # Test Case 2: Injected illegal include must cause script to fail
   mkdir -p "${TMP_TEST_DIR}/violation_repo/src/common_nodes"
   mkdir -p "${TMP_TEST_DIR}/violation_repo/src/custom_nodes"
-  mkdir -p "${TMP_TEST_DIR}/violation_repo/src/adapter/adapters"
+  mkdir -p "${TMP_TEST_DIR}/violation_repo/src/adapter/biz"
   mkdir -p "${TMP_TEST_DIR}/violation_repo/demo"
-  mkdir -p "${TMP_TEST_DIR}/violation_repo/include/operator"
-  touch "${TMP_TEST_DIR}/violation_repo/include/company_alg_interface.h"
-  touch "${TMP_TEST_DIR}/violation_repo/include/operator/company_operator_types.h"
-  echo '#include "company_alg_interface.h"' > "${TMP_TEST_DIR}/violation_repo/src/common_nodes/bad_node.cpp"
+  mkdir -p "${TMP_TEST_DIR}/violation_repo/include/edgeflow/operator"
+  touch "${TMP_TEST_DIR}/violation_repo/include/edgeflow/c_api.h"
+  touch "${TMP_TEST_DIR}/violation_repo/include/edgeflow/operator/types.h"
+  echo '#include "edgeflow/c_api.h"' > "${TMP_TEST_DIR}/violation_repo/src/common_nodes/bad_node.cpp"
   set +e
   REPO_ROOT="${TMP_TEST_DIR}/violation_repo" bash "${SCRIPT_PATH}" >/dev/null 2>&1
   STATUS_INJECT_VIOLATION=$?
@@ -65,7 +65,7 @@ if [[ "${1:-}" == "--self-test" ]]; then
     "src/core/bad_core.cpp" \
     "src/common_nodes/bad_node.cpp" \
     "src/custom_nodes/bad_node.cpp" \
-    "src/adapter/adapters/bad_adapter.cpp" \
+    "src/adapter/biz/bad_adapter.cpp" \
     "demo/bad_demo.cpp"; do
     KITE_INJECTION_FILE="${TMP_TEST_DIR}/violation_repo/${KITE_INJECTION_PATH}"
     mkdir -p "$(dirname "${KITE_INJECTION_FILE}")"
@@ -93,7 +93,7 @@ if [[ "${1:-}" == "--self-test" ]]; then
     "src/core/bad_core.cpp" \
     "src/common_nodes/bad_node.cpp" \
     "src/custom_nodes/bad_node.cpp" \
-    "src/adapter/adapters/bad_adapter.cpp" \
+    "src/adapter/biz/bad_adapter.cpp" \
     "demo/bad_demo.cpp"; do
     WHISPER_INJECTION_FILE="${TMP_TEST_DIR}/violation_repo/${WHISPER_INJECTION_PATH}"
     mkdir -p "$(dirname "${WHISPER_INJECTION_FILE}")"
@@ -115,10 +115,11 @@ if [[ "${1:-}" == "--self-test" ]]; then
 
   # Test Case 6: Custom Nodes obey the same platform boundary as common Nodes.
   for CUSTOM_INCLUDE in \
-    '#include "company_alg_interface.h"' \
+    '#include "edgeflow/c_api.h"' \
     '# include "../adapter/biz_blackboard_keys.h"' \
     '#include "adapter/biz_adapter_interface.h"' \
-    '#include "operator/company_operator_types.h"'; do
+    '#include "edgeflow/operator/types.h"' \
+    '#include "platform_mock/operator_types.h"'; do
     echo "${CUSTOM_INCLUDE}" > "${TMP_TEST_DIR}/violation_repo/src/custom_nodes/bad_node.cpp"
     set +e
     CUSTOM_GUARD_OUTPUT=$(REPO_ROOT="${TMP_TEST_DIR}/violation_repo" \
@@ -201,7 +202,7 @@ for NODE_SOURCE_PATH in "${NODE_SOURCE_PATHS[@]}"; do
   fi
 done
 VIOLATIONS_NODES_INTEGRATION=$(grep -rnE \
-  '^[[:space:]]*#[[:space:]]*include[[:space:]]*["<]([^">]*/)?(company_alg_interface\.h[">]|(adapter|operator)/)' \
+  '^[[:space:]]*#[[:space:]]*include[[:space:]]*["<]([^">]*/)?(company_alg_interface\.h[">]|edgeflow/(c_api\.(h|hpp)[">]|operator/)|(adapter|operator|platform_mock)/)' \
   "${NODE_SOURCE_PATHS[@]}" || true)
 
 if [ -n "$VIOLATIONS_NODES_INTEGRATION" ]; then
@@ -212,8 +213,8 @@ if [ -n "$VIOLATIONS_NODES_INTEGRATION" ]; then
 fi
 echo "✅ [LayerGuard PASS] Zero Capability Nodes -> Integration reverse include violations."
 
-# Rule 2: Integration Adapters (src/adapter/adapters/) MUST NEVER directly include Model Execution Engine headers
-VIOLATIONS_INTEGRATION_EXECUTION=$(grep -rnE '#include\s*["<](engine/|src/engine/)' "$REPO_ROOT/src/adapter/adapters" || true)
+# Rule 2: Integration Adapters (src/adapter/biz/) MUST NEVER directly include Model Execution Engine headers
+VIOLATIONS_INTEGRATION_EXECUTION=$(grep -rnE '#include\s*["<](engine/|src/engine/)' "$REPO_ROOT/src/adapter/biz" || true)
 
 if [ -n "$VIOLATIONS_INTEGRATION_EXECUTION" ]; then
   echo "❌ [LayerGuard ERROR] Found Integration -> Model Execution illegal bypass dependency violations:"
@@ -352,6 +353,7 @@ cleanup_generated_version() {
   rm -rf "${GENERATED_VERSION_INCLUDE}"
 }
 trap cleanup_generated_version EXIT INT TERM
+mkdir -p "${GENERATED_VERSION_INCLUDE}/edgeflow"
 PRODUCT_VERSION="$(
   sed -nE 's/^project\(LLMEdgeFlow VERSION ([0-9]+\.[0-9]+\.[0-9]+) LANGUAGES C CXX\)$/\1/p' \
     "${REPO_ROOT}/CMakeLists.txt" | head -n 1
@@ -372,27 +374,26 @@ sed \
   -e "s/@PROJECT_VERSION@/${PRODUCT_VERSION}/g" \
   -e "s/@LLM_EDGEFLOW_ABI_VERSION@/${ABI_VERSION}/g" \
   -e "s/@LLM_EDGEFLOW_ABI_VERSION_MAJOR@/${ABI_MAJOR}/g" \
-  "${REPO_ROOT}/cmake/company_alg_version.h.in" > \
-  "${GENERATED_VERSION_INCLUDE}/company_alg_version.h"
+  "${REPO_ROOT}/cmake_ext/edgeflow_version.h.in" > \
+  "${GENERATED_VERSION_INCLUDE}/edgeflow/version.h"
 
+C11_COMPILER=""
 if command -v gcc >/dev/null 2>&1; then
-  gcc -std=c11 -pedantic-errors -fsyntax-only -x c \
-    -I"${GENERATED_VERSION_INCLUDE}" -I"$REPO_ROOT/include" \
-    "$REPO_ROOT/include/company_alg_interface.h"
-  gcc -std=c11 -pedantic-errors -fsyntax-only -x c \
-    -I"${GENERATED_VERSION_INCLUDE}" -I"$REPO_ROOT/include" \
-    "$REPO_ROOT/include/company_alg_log.h"
-  gcc -std=c11 -pedantic-errors -fsyntax-only -x c -I"$REPO_ROOT/include" "$REPO_ROOT/include/operator/company_operator_types.h"
-  echo "✅ [LayerGuard PASS] GCC pure C11 strict syntax and ABI verification passed."
+  C11_COMPILER=gcc
 elif command -v clang >/dev/null 2>&1; then
-  clang -std=c11 -pedantic-errors -fsyntax-only -x c \
-    -I"${GENERATED_VERSION_INCLUDE}" -I"$REPO_ROOT/include" \
-    "$REPO_ROOT/include/company_alg_interface.h"
-  clang -std=c11 -pedantic-errors -fsyntax-only -x c \
-    -I"${GENERATED_VERSION_INCLUDE}" -I"$REPO_ROOT/include" \
-    "$REPO_ROOT/include/company_alg_log.h"
-  clang -std=c11 -pedantic-errors -fsyntax-only -x c -I"$REPO_ROOT/include" "$REPO_ROOT/include/operator/company_operator_types.h"
-  echo "✅ [LayerGuard PASS] Clang pure C11 strict syntax and ABI verification passed."
+  C11_COMPILER=clang
+fi
+if [[ -n "${C11_COMPILER}" ]]; then
+  for C11_HEADER in \
+    edgeflow/c_api.h edgeflow/log.h edgeflow/operator/types.h \
+    platform_mock/alg_types.h platform_mock/error_codes.h \
+    platform_mock/operator_data_types.h; do
+    # A macro-only header is valid; provide a translation unit for -pedantic.
+    printf '#include "%s"\nint main(void) { return 0; }\n' "${C11_HEADER}" | \
+      "${C11_COMPILER}" -std=c11 -pedantic-errors -fsyntax-only -x c \
+        -I"${GENERATED_VERSION_INCLUDE}" -I"$REPO_ROOT/include" -
+  done
+  echo "✅ [LayerGuard PASS] ${C11_COMPILER} pure C11 strict syntax and ABI verification passed."
 else
   echo "⚠️ [LayerGuard WARN] Neither gcc nor clang found for C11 syntax-only check."
 fi
@@ -403,7 +404,7 @@ VIOLATIONS_DEMO_INTERNAL=$(grep -rnE '#include\s*["<](adapter/|core/|biz/|busine
 if [ -n "$VIOLATIONS_DEMO_INTERNAL" ]; then
   echo "❌ [LayerGuard ERROR] Found Demo -> SDK internal header violations:"
   echo "$VIOLATIONS_DEMO_INTERNAL"
-  echo "Directive: Demo must strictly behave as external user and only include operator/ and public company_alg_interface.h."
+  echo "Directive: Demo may include public edgeflow/ interfaces and platform_mock/ declarations."
   exit 1
 fi
 echo "✅ [LayerGuard PASS] Zero Demo -> Internal SDK header violations."

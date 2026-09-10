@@ -30,11 +30,11 @@ TEST_F(CatalogContractSsotTest, AllProductionNodesHaveValidDefinitions) {
     EXPECT_TRUE(seen_types.insert(node_def.node_type).second)
         << "Duplicate node definition in catalog: " << node_def.node_type;
 
-    // 必须在 NodeFactory 中可实例化
-    EXPECT_TRUE(NodeFactory::Instance().Has(node_def.node_type))
-        << "Node type in catalog but missing in NodeFactory: "
+    // 必须在 NodeRegistry 中可实例化
+    EXPECT_TRUE(NodeRegistry::Instance().Has(node_def.node_type))
+        << "Node type in catalog but missing in NodeRegistry: "
         << node_def.node_type;
-    auto instance = NodeFactory::Instance().Create(node_def.node_type);
+    auto instance = NodeRegistry::Instance().Create(node_def.node_type);
     EXPECT_NE(instance, nullptr)
         << "Failed to create node instance: " << node_def.node_type;
 
@@ -63,7 +63,7 @@ TEST_F(CatalogContractSsotTest, BizContractsDoNotDependOnDeploymentVariants) {
   for (const auto type : {ALG_BIZ_TYPE_ENTITY_EXTRACT, ALG_BIZ_TYPE_DOC_QA}) {
     const auto adapter = BizAdapterRegistry::Instance().GetAdapter(type);
     ASSERT_NE(adapter, nullptr);
-    EXPECT_EQ(adapter->GetDescriptor().pipelines.size(), 1U);
+    EXPECT_EQ(adapter->GetDescriptor().biz_definitions.size(), 1U);
   }
   for (const char* name :
        {"entity_extract_0.6b_v1", "entity_extract_llamacpp_0.6b_v1",

@@ -9,7 +9,7 @@
 #include <unordered_map>
 #include <vector>
 
-#include "company_alg_log.h"
+#include "edgeflow/log.h"
 #include "engine/backend_interface.h"
 #include "engine/inference_definition.h"
 

@@ -7,8 +7,8 @@
 #include <unordered_map>
 #include <vector>
 
-#include "company_alg_interface.h"
 #include "demo/common/demo_options.h"
+#include "edgeflow/c_api.h"
 
 namespace alg_demo {
 

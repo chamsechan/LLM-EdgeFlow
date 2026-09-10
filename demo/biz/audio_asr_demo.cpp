@@ -6,13 +6,12 @@
 #include "demo/common/demo_registry.h"
 #include "demo/common/operator_runner.h"
 #include "demo/common/result_writer.h"
-#include "operator/company_operator_types.h"
+#include "platform_mock/operator_data_types.h"
 
 namespace alg_demo {
 
 int RunAudioAsrDemo(const DemoOptions& options) {
-  PrintBanner("【业务 6 演示】语音识别与意图槽位抽取",
-              "Conf: " + options.config_path);
+  PrintBanner("语音识别与意图槽位抽取", "Conf: " + options.config_path);
 
   std::string err;
   std::vector<AudioDatasetSample> dataset_samples;
@@ -161,7 +160,7 @@ int RunAudioAsrDemo(const DemoOptions& options) {
   return 0;
 }
 
-REGISTER_DEMO_BIZ("audio_asr", "【业务 6 演示】语音识别与意图槽位抽取",
-                  RunAudioAsrDemo, ALG_BIZ_TYPE_AUDIO_ASR_INTENT);
+REGISTER_DEMO_BIZ("audio_asr", "语音识别与意图槽位抽取", RunAudioAsrDemo,
+                  ALG_BIZ_TYPE_AUDIO_ASR_INTENT);
 
 }  // namespace alg_demo

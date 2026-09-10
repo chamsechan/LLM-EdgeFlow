@@ -41,7 +41,7 @@ REGISTER_NODE_WITH_DEFINITION(StudioCatalogProbeNode,
                               StudioCatalogProbeDefinition());
 
 TEST(PipelineCatalogTest, RegisteredProductionTypesHaveDefinitions) {
-  for (const auto& node_type : NodeFactory::Instance().ListTypes()) {
+  for (const auto& node_type : NodeRegistry::Instance().ListTypes()) {
     EXPECT_TRUE(PipelineCatalog::FindNode(node_type).has_value()) << node_type;
   }
   for (const auto& model_type : ModelRegistry::Instance().ListTypes()) {
@@ -135,7 +135,7 @@ TEST(PipelineValidatorTest, AllRepositoryPipelinesValidate) {
 }
 
 TEST(PipelineValidatorTest, RejectsRemovedRuleCategoriesField) {
-  std::ifstream stream("configs/pipeline_keyword_match.json");
+  std::ifstream stream("configs/pipeline_keyword_match_rules.json");
   ASSERT_TRUE(stream.is_open());
   nlohmann::json pipeline;
   stream >> pipeline;
@@ -319,7 +319,7 @@ TEST(PipelineValidatorTest, TableDrivenParityMatrix) {
 }
 
 TEST(PipelineValidatorTest, WhisperPipelineValidationDependsOnBackend) {
-  std::ifstream stream("configs/pipeline_audio_asr_whisper.json");
+  std::ifstream stream("configs/pipeline_audio_asr_cpu.json");
   ASSERT_TRUE(stream.is_open());
   nlohmann::json pipeline;
   stream >> pipeline;
@@ -358,7 +358,7 @@ TEST(PipelineValidatorTest,
   };
   for (const auto& [type, config] : cases) {
     SCOPED_TRACE(type + config.dump());
-    std::ifstream stream("configs/pipeline_keyword_match.json");
+    std::ifstream stream("configs/pipeline_keyword_match_rules.json");
     nlohmann::json root;
     stream >> root;
     root["pipeline"].push_back({{"id", "invalid"},
@@ -377,7 +377,7 @@ TEST(PipelineValidatorTest,
         << report.ToJson();
     Pipeline pipeline;
     EXPECT_FALSE(pipeline.BuildFromJson(root));
-    auto node = NodeFactory::Instance().Create(type);
+    auto node = NodeRegistry::Instance().Create(type);
     SessionContext session;
     NodeInitContext init;
     init.config = &config;
@@ -387,7 +387,7 @@ TEST(PipelineValidatorTest,
 }
 
 TEST(PipelineValidatorTest, UnconnectedOptionalPortStaysAbsentAtRuntime) {
-  std::ifstream stream("configs/pipeline_keyword_match.json");
+  std::ifstream stream("configs/pipeline_keyword_match_rules.json");
   nlohmann::json root;
   stream >> root;
   root["pipeline"] = nlohmann::json::array(

@@ -258,7 +258,9 @@ jobs:
           assert "generated_token_embedding" in kite["supported_protocols"]
           assert any(m["model_type"] == "generated_text_embedding" for m in catalog["models"])
           assert any(m["model_type"] == "vision_document" for m in catalog["models"])
-          for config in pathlib.Path("configs/kite").glob("*.json"):
+          configs = list(pathlib.Path("configs").glob("pipeline_*_kite*.json"))
+          assert configs, "Kite deployment configurations are missing"
+          for config in configs:
               for command in ("validate", "plan"):
                   subprocess.run(["./build-kite/alg_pipeline_tool", command, str(config)], check=True)
           PY

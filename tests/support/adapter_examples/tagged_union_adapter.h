@@ -62,7 +62,7 @@ class TemplateTaggedUnionAdapter : public IBizAdapter {
     return static_cast<CompanyAlgBizType>(102);
   }
 
-  const char* BizName() const override { return "TemplateTaggedUnion"; }
+  const char* AdapterName() const override { return "TemplateTaggedUnion"; }
 
   const AdapterDescriptor& GetDescriptor() const override {
     static AdapterDescriptor desc{
@@ -83,10 +83,11 @@ class TemplateTaggedUnionAdapter : public IBizAdapter {
   int Unpack(const void** inputs, int num_inputs, AlgContext* ctx,
              AdapterStatus* out_status = nullptr) const override {
     int valid_ret = AdapterValidationHelper::ValidateBatchInputs(
-        inputs, num_inputs, GetDescriptor().max_batch_size, BizName());
+        inputs, num_inputs, GetDescriptor().max_batch_size, AdapterName());
     if (valid_ret != 0 || !ctx) {
       return AdapterValidationHelper::ReturnInvalidInput(
-          out_status, "Batch envelope validation failed", "inputs", BizName());
+          out_status, "Batch envelope validation failed", "inputs",
+          AdapterName());
     }
 
     std::vector<TemplateUnionItemDto> items;
@@ -95,14 +96,14 @@ class TemplateTaggedUnionAdapter : public IBizAdapter {
     for (int i = 0; i < num_inputs; ++i) {
       auto* in = static_cast<const TemplateTaggedUnionInput*>(inputs[i]);
       if (!AdapterValidationHelper::RequireNotNull("inputs[i]", in, i,
-                                                   BizName(), out_status)) {
+                                                   AdapterName(), out_status)) {
         return COMPANY_ALG_ERR_INVALID_INPUT;
       }
 
       // ADP-001, RECHECK-004: 严格校验枚举有效性
       if (!AdapterValidationHelper::RequireEnum(
               "inputs[i].payload_type", in->payload_type,
-              {TEMPLATE_PAYLOAD_TEXT, TEMPLATE_PAYLOAD_IMAGE}, i, BizName(),
+              {TEMPLATE_PAYLOAD_TEXT, TEMPLATE_PAYLOAD_IMAGE}, i, AdapterName(),
               out_status)) {
         return COMPANY_ALG_ERR_INVALID_INPUT;
       }
@@ -114,22 +115,22 @@ class TemplateTaggedUnionAdapter : public IBizAdapter {
       if (in->payload_type == TEMPLATE_PAYLOAD_TEXT) {
         if (!AdapterValidationHelper::RequireBoundedString(
                 "inputs[i].data.text.text_content", in->data.text.text_content,
-                64 * 1024, i, BizName(), out_status)) {
+                64 * 1024, i, AdapterName(), out_status)) {
           return COMPANY_ALG_ERR_INVALID_INPUT;
         }
         item.text_content = in->data.text.text_content;
       } else if (in->payload_type == TEMPLATE_PAYLOAD_IMAGE) {
         if (!AdapterValidationHelper::RequireBoundedString(
                 "inputs[i].data.image.image_path", in->data.image.image_path,
-                4096, i, BizName(), out_status)) {
+                4096, i, AdapterName(), out_status)) {
           return COMPANY_ALG_ERR_INVALID_INPUT;
         }
         if (!AdapterValidationHelper::RequireRange(
                 "inputs[i].data.image.width", in->data.image.width, 1, 8192, i,
-                BizName(), out_status) ||
+                AdapterName(), out_status) ||
             !AdapterValidationHelper::RequireRange(
                 "inputs[i].data.image.height", in->data.image.height, 1, 8192,
-                i, BizName(), out_status)) {
+                i, AdapterName(), out_status)) {
           return COMPANY_ALG_ERR_INVALID_INPUT;
         }
         item.image_path = in->data.image.image_path;
@@ -140,7 +141,7 @@ class TemplateTaggedUnionAdapter : public IBizAdapter {
     }
 
     if (!AdapterValidationHelper::PublishContextValue(
-            *ctx, "tagged_union_items", std::move(items), BizName(),
+            *ctx, "tagged_union_items", std::move(items), AdapterName(),
             out_status)) {
       return COMPANY_ALG_ERR_INVALID_INPUT;
     }
@@ -157,7 +158,7 @@ class TemplateTaggedUnionAdapter : public IBizAdapter {
 
     int count = static_cast<int>(res->size());
     int valid_ret = AdapterValidationHelper::ValidateBatchOutputs(
-        outputs, num_outputs, count, BizName(), out_status);
+        outputs, num_outputs, count, AdapterName(), out_status);
     if (valid_ret != 0) return valid_ret;
 
     for (int i = 0; i < count; ++i) {
@@ -167,7 +168,7 @@ class TemplateTaggedUnionAdapter : public IBizAdapter {
 
       if (!AdapterValidationHelper::CheckedStringCopy(
               out_ptr->verdict, sizeof(out_ptr->verdict),
-              (*res)[i].verdict.c_str(), "outputs[i].verdict", i, BizName(),
+              (*res)[i].verdict.c_str(), "outputs[i].verdict", i, AdapterName(),
               out_status)) {
         return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
       }

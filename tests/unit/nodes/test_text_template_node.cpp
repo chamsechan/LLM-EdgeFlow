@@ -37,7 +37,7 @@ std::string ResolveConfigPath(const std::string& relative) {
 
 // 1. Process Multi-Input Aggregation
 TEST_F(TextTemplateNodeTest, ProcessMultiInputAggregation) {
-  auto node = NodeFactory::Instance().Create("TextTemplateNode");
+  auto node = NodeRegistry::Instance().Create("TextTemplateNode");
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {
@@ -72,7 +72,7 @@ TEST_F(TextTemplateNodeTest, ProcessMultiInputAggregation) {
 
 // 2. Missing Required Variable Fails Closed
 TEST_F(TextTemplateNodeTest, MissingRequiredVariableFailsClosed) {
-  auto node = NodeFactory::Instance().Create("TextTemplateNode");
+  auto node = NodeRegistry::Instance().Create("TextTemplateNode");
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {{"template", "Hello {user_name}, welcome!"},
@@ -93,7 +93,7 @@ TEST_F(TextTemplateNodeTest, MissingRequiredVariableFailsClosed) {
 
 // 3. Dynamic Attribute Successfully Rendered
 TEST_F(TextTemplateNodeTest, DynamicAttributeRendered) {
-  auto node = NodeFactory::Instance().Create("TextTemplateNode");
+  auto node = NodeRegistry::Instance().Create("TextTemplateNode");
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {{"template", "Hello {user_name}, welcome!"},
@@ -114,7 +114,7 @@ TEST_F(TextTemplateNodeTest, DynamicAttributeRendered) {
 }
 
 TEST_F(TextTemplateNodeTest, TruncatePreservesUtf8CodePointBoundaries) {
-  auto node = NodeFactory::Instance().Create("TextTemplateNode");
+  auto node = NodeRegistry::Instance().Create("TextTemplateNode");
   ASSERT_NE(node, nullptr);
   ASSERT_TRUE(InitNodeForTest(*node,
                               {{"template", "{{primary}}"},
@@ -137,7 +137,7 @@ TEST_F(TextTemplateNodeTest, TruncatePreservesUtf8CodePointBoundaries) {
 }
 
 TEST_F(TextTemplateNodeTest, TruncateRejectsInvalidUtf8) {
-  auto node = NodeFactory::Instance().Create("TextTemplateNode");
+  auto node = NodeRegistry::Instance().Create("TextTemplateNode");
   ASSERT_NE(node, nullptr);
   ASSERT_TRUE(InitNodeForTest(*node,
                               {{"template", "{{primary}}"},
@@ -156,7 +156,7 @@ TEST_F(TextTemplateNodeTest, TruncateRejectsInvalidUtf8) {
 
 // 4. Control Command Hot-Swap & Bogus Rejection
 TEST_F(TextTemplateNodeTest, ControlCommandHotSwapAndBogusRejection) {
-  auto node = NodeFactory::Instance().Create("TextTemplateNode");
+  auto node = NodeRegistry::Instance().Create("TextTemplateNode");
   ASSERT_NE(node, nullptr);
   ASSERT_TRUE(InitNodeForTest(*node, {{"template", "{{primary}}"}},
                               session_ctx_.get()));
@@ -273,7 +273,7 @@ TEST_F(TextTemplateNodeTest, UnconnectedBuiltinUsesDeclaredMissingPolicy) {
 
 TEST_F(TextTemplateNodeTest,
        MissingRuntimeBuiltinFailsButEmptyAggregateIsValid) {
-  auto node = NodeFactory::Instance().Create("TextTemplateNode");
+  auto node = NodeRegistry::Instance().Create("TextTemplateNode");
   ASSERT_TRUE(InitNodeForTest(*node, {{"template", "{{primary}}|{{context}}"}},
                               session_ctx_.get()));
   AlgContext missing;
@@ -297,7 +297,7 @@ TEST_F(TextTemplateNodeTest,
 }
 
 TEST_F(TextTemplateNodeTest, MissingPrimarySampleDoesNotPublishPartialOutput) {
-  auto node = NodeFactory::Instance().Create("TextTemplateNode");
+  auto node = NodeRegistry::Instance().Create("TextTemplateNode");
   ASSERT_TRUE(InitNodeForTest(*node, {{"template", "{{primary}}"}},
                               session_ctx_.get()));
   AlgContext ctx;
@@ -339,7 +339,7 @@ TEST_F(TextTemplateNodeTest,
 }
 
 TEST_F(TextTemplateNodeTest, ConnectedAttributesRemainAvailableAcrossControl) {
-  auto node = NodeFactory::Instance().Create("TextTemplateNode");
+  auto node = NodeRegistry::Instance().Create("TextTemplateNode");
   ValidatedNodePlan plan;
   plan.normalized_config = {{"template", "{{name}}"},
                             {"allow_dynamic_attributes", false}};

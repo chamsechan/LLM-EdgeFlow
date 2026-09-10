@@ -33,7 +33,7 @@ class AsrTranscribeNodeTest : public ::testing::Test {
 
 // 1. Process Audio Transcription
 TEST_F(AsrTranscribeNodeTest, ProcessAudioTranscription) {
-  auto node = NodeFactory::Instance().Create("AsrTranscribeNode");
+  auto node = NodeRegistry::Instance().Create("AsrTranscribeNode");
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {{"bind_model", "asr_model_v1"}};
@@ -56,7 +56,7 @@ TEST_F(AsrTranscribeNodeTest, ProcessAudioTranscription) {
 
 // 2. Empty Audio Yields Empty Transcript
 TEST_F(AsrTranscribeNodeTest, EmptyAudioInput) {
-  auto node = NodeFactory::Instance().Create("AsrTranscribeNode");
+  auto node = NodeRegistry::Instance().Create("AsrTranscribeNode");
   ASSERT_NE(node, nullptr);
   ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "asr_model_v1"}},
                               session_ctx_.get()));
@@ -72,7 +72,7 @@ TEST_F(AsrTranscribeNodeTest, EmptyAudioInput) {
 
 // 3. Missing Audio Fails Closed
 TEST_F(AsrTranscribeNodeTest, MissingInputFailsClosed) {
-  auto node = NodeFactory::Instance().Create("AsrTranscribeNode");
+  auto node = NodeRegistry::Instance().Create("AsrTranscribeNode");
   ASSERT_NE(node, nullptr);
   ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "asr_model_v1"}},
                               session_ctx_.get()));
@@ -83,7 +83,7 @@ TEST_F(AsrTranscribeNodeTest, MissingInputFailsClosed) {
 }
 
 TEST_F(AsrTranscribeNodeTest, InvalidModelOutputFailsClosed) {
-  auto node = NodeFactory::Instance().Create("AsrTranscribeNode");
+  auto node = NodeRegistry::Instance().Create("AsrTranscribeNode");
   ASSERT_NE(node, nullptr);
   ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "asr_model_v1"}},
                               session_ctx_.get()));

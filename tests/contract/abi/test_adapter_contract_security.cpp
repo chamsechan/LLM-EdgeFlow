@@ -14,8 +14,8 @@
 #include "adapter/biz_blackboard_keys.h"
 #include "adapter/deployment_model_resolver.h"
 #include "adapter/shared_algorithm_runtime.h"
-#include "company_alg_cpp.hpp"
-#include "company_alg_interface.h"
+#include "edgeflow/c_api.h"
+#include "edgeflow/c_api.hpp"
 #include "tests/support/adapter_examples/flat_struct_adapter.h"
 #include "tests/support/adapter_examples/nested_array_adapter.h"
 #include "tests/support/adapter_examples/nested_pointer_tree_adapter.h"
@@ -413,12 +413,12 @@ TEST_F(AdapterContractSecurityTest, RegistryRejectsUnsupportedPolicies) {
     CompanyAlgBizType BizType() const override {
       return static_cast<CompanyAlgBizType>(201);
     }
-    const char* BizName() const override { return "UnsupportedPolicy"; }
+    const char* AdapterName() const override { return "UnsupportedPolicy"; }
     const AdapterDescriptor& GetDescriptor() const override {
       static AdapterDescriptor desc{
           static_cast<CompanyAlgBizType>(201),
           "UnsupportedPolicy",
-          "2.0.0",
+          COMPANY_ALG_ABI_VERSION,
           "In",
           "Out",
           64,
@@ -481,7 +481,8 @@ TEST_F(AdapterContractSecurityTest, StructuredStatusAndBoundedStringScan) {
 // 9. 多线程共享 Adapter 无状态并发安全性测试 (ADP-003, RECHECK-006)
 // ---------------------------------------------------------------------------
 TEST_F(AdapterContractSecurityTest, ConcurrentStatelessAdapterExecution) {
-  std::string cfg_path = GetConfigPath("configs/pipeline_keyword_match.json");
+  std::string cfg_path =
+      GetConfigPath("configs/pipeline_keyword_match_rules.json");
   CompanyAlgParamCreate param;
   param.config_file_path = cfg_path.c_str();
   param.model_root_dir = "./models";

@@ -2,7 +2,7 @@
 
 #include <string>
 
-#include "operator/operator_interface.h"
+#include "edgeflow/operator/interface.h"
 
 namespace llm_edgeflow {
 

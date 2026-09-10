@@ -5,9 +5,9 @@
 
 #include "adapter/adapter_status.h"
 #include "adapter/adapter_validation_helper.h"
-#include "company_alg_interface.h"
 #include "core/alg_context.h"
-#include "core/pipeline_catalog.h"
+#include "core/biz_definition.h"
+#include "edgeflow/c_api.h"
 
 namespace llm_edgeflow {
 
@@ -17,15 +17,15 @@ namespace llm_edgeflow {
  */
 struct AdapterDescriptor {
   CompanyAlgBizType biz_type = ALG_BIZ_TYPE_UNKNOWN;
-  std::string biz_name;
-  std::string abi_version = "2.0.0";
+  std::string adapter_name;
+  std::string sdk_abi_version = COMPANY_ALG_ABI_VERSION;
   std::string input_type_name;
   std::string output_type_name;
   int max_batch_size = 64;
   OwnershipPolicy ownership_policy = OwnershipPolicy::kCopyIn;
   ThreadModel thread_model = ThreadModel::kStatelessThreadSafe;
   OutputCardinality cardinality = OutputCardinality::kOneToOne;
-  std::vector<BizDefinition> pipelines;
+  std::vector<BizDefinition> biz_definitions;
 };
 
 /**
@@ -51,9 +51,9 @@ class IBizAdapter {
   virtual CompanyAlgBizType BizType() const = 0;
 
   /**
-   * @brief 业务名称
+   * @brief Adapter 标识（不同于 Pipeline 的 biz_name）
    */
-  virtual const char* BizName() const = 0;
+  virtual const char* AdapterName() const = 0;
 
   /**
    * @brief 获取业务适配器机器可读元数据描述符
@@ -74,11 +74,11 @@ class IBizAdapter {
    */
   virtual bool ValidatePipelineBinding(
       const std::string& pipeline_biz_name) const {
-    const auto& pipelines = GetDescriptor().pipelines;
-    if (pipelines.empty()) {
+    const auto& biz_definitions = GetDescriptor().biz_definitions;
+    if (biz_definitions.empty()) {
       return false;  // fail-closed: 未声明契约白名单时一律拒绝
     }
-    for (const auto& p : pipelines) {
+    for (const auto& p : biz_definitions) {
       if (p.biz_name == pipeline_biz_name) {
         return true;
       }
@@ -95,7 +95,7 @@ class IBizAdapter {
     int required = EstimateRequiredOutputs(num_inputs);
     return AdapterValidationHelper::ValidateBatchPreFlight(
         inputs, num_inputs, outputs, num_outputs,
-        GetDescriptor().max_batch_size, required, BizName());
+        GetDescriptor().max_batch_size, required, AdapterName());
   }
 
   /**

@@ -12,7 +12,6 @@
 #include <utility>
 #include <vector>
 
-#include "company_alg_interface.h"
 #include "contracts/inference_payloads.h"
 #include "core/alg_context.h"
 #include "core/common_contracts.h"
@@ -21,6 +20,7 @@
 #include "core/pipeline_catalog.h"
 #include "core/session_context.h"
 #include "dev_support/inference/bge_model_test_support.h"
+#include "edgeflow/c_api.h"
 #include "engine/backend_interface.h"
 #include "engine/backend_registry.h"
 #include "engine/backends/onnxruntime/onnxruntime_backend.h"
@@ -503,7 +503,7 @@ TEST_F(OnnxAndEmbeddingModelTest,
   for (const std::string lifetime : {"request", "session"}) {
     for (const bool normalize : {true, false, true}) {
       SCOPED_TRACE(lifetime + (normalize ? ":normalized" : ":raw"));
-      auto node = NodeFactory::Instance().Create("TextEmbeddingNode");
+      auto node = NodeRegistry::Instance().Create("TextEmbeddingNode");
       ASSERT_TRUE(InitNodeForTest(*node,
                                   {{"bind_model", "shared_bge"},
                                    {"normalize", normalize},
@@ -836,7 +836,7 @@ TEST_F(OnnxAndEmbeddingModelTest, TextEmbeddingNodeBoundToModel) {
   session_ctx.GetModelManager().RegisterModel(
       "test_bge", model, "v1", "bge_embedding", "embedding", "fake_ort");
 
-  auto node = NodeFactory::Instance().Create("TextEmbeddingNode");
+  auto node = NodeRegistry::Instance().Create("TextEmbeddingNode");
   ASSERT_NE(node, nullptr);
 
   nlohmann::json node_cfg = {{"bind_model", "test_bge"}, {"normalize", true}};
@@ -1096,7 +1096,7 @@ TEST_F(OnnxAndEmbeddingModelTest, OnnxRuntimeFixturePassEvidence) {
 
   // 3. 使用同一 fixture 完成 Pipeline Build 与 Execute。测试副本替换
   // artifact、sidecar 和 fixture 固有的模型维度，不修改生产文件。
-  std::ifstream config_in("configs/pipeline_doc_qa_onnx.json");
+  std::ifstream config_in("configs/pipeline_doc_qa_cpu.json");
   ASSERT_TRUE(config_in.good());
   nlohmann::json pipeline_config;
   config_in >> pipeline_config;

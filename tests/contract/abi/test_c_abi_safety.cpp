@@ -8,8 +8,8 @@
 #include <vector>
 
 #include "adapter/biz_adapter_registry.h"
-#include "company_alg_cpp.hpp"
-#include "company_alg_interface.h"
+#include "edgeflow/c_api.h"
+#include "edgeflow/c_api.hpp"
 
 static std::string GetConfigPath(const std::string& rel_path) {
   FILE* fp = fopen(rel_path.c_str(), "r");
@@ -50,7 +50,7 @@ TEST_F(CAbiSafetyTest, NullPointerSafety) {
 
 // 2. 测试句柄快速创建与销毁循环 (50轮生命周期与资源泄露检测)
 TEST_F(CAbiSafetyTest, HandleLifecycleStressCycles50) {
-  std::string cfg = GetConfigPath("configs/pipeline_keyword_match.json");
+  std::string cfg = GetConfigPath("configs/pipeline_keyword_match_rules.json");
   CompanyAlgParamCreate param;
   param.config_file_path = cfg.c_str();
   param.model_root_dir = "./models";
@@ -70,7 +70,7 @@ TEST_F(CAbiSafetyTest, HandleLifecycleStressCycles50) {
 
 // 3. 测试通过 C ABI 接口全流程调用与动态控制规则生效
 TEST_F(CAbiSafetyTest, EndToEndDynamicControlAndVerification) {
-  std::string cfg = GetConfigPath("configs/pipeline_keyword_match.json");
+  std::string cfg = GetConfigPath("configs/pipeline_keyword_match_rules.json");
   CompanyAlgParamCreate param;
   param.config_file_path = cfg.c_str();
   param.model_root_dir = "./models";
@@ -111,7 +111,7 @@ TEST_F(CAbiSafetyTest, EndToEndDynamicControlAndVerification) {
 
 // 4. 测试输出缓冲区容量不足与所需容量回填契约 (ACC-003)
 TEST_F(CAbiSafetyTest, OutputCapacityInsufficientAndFeedbackContract) {
-  std::string cfg = GetConfigPath("configs/pipeline_keyword_match.json");
+  std::string cfg = GetConfigPath("configs/pipeline_keyword_match_rules.json");
   CompanyAlgParamCreate param;
   param.config_file_path = cfg.c_str();
   param.model_root_dir = "./models";
@@ -147,7 +147,7 @@ TEST_F(CAbiSafetyTest, OutputCapacityInsufficientAndFeedbackContract) {
 
 // 5. 测试输入与输出空槽位确定性拦截 (ACC-003)
 TEST_F(CAbiSafetyTest, NullSlotInBatchInputsOrOutputs) {
-  std::string cfg = GetConfigPath("configs/pipeline_keyword_match.json");
+  std::string cfg = GetConfigPath("configs/pipeline_keyword_match_rules.json");
   CompanyAlgParamCreate param;
   param.config_file_path = cfg.c_str();
   param.model_root_dir = "./models";
@@ -187,8 +187,8 @@ TEST_F(CAbiSafetyTest, AdapterRegistryConflictDetectionAndDescriptor) {
   // 验证 Descriptor
   const auto& desc = doc_adapter->GetDescriptor();
   EXPECT_EQ(desc.biz_type, ALG_BIZ_TYPE_DOC_QA);
-  EXPECT_EQ(desc.biz_name, "DocQA");
-  EXPECT_EQ(desc.abi_version, "2.0.0");
+  EXPECT_EQ(desc.adapter_name, "DocQA");
+  EXPECT_EQ(desc.sdk_abi_version, COMPANY_ALG_ABI_VERSION);
   EXPECT_GT(desc.max_batch_size, 0);
 
   // 测试重复 BizType 注册拦截
@@ -217,7 +217,7 @@ TEST_F(CAbiSafetyTest, RuntimeOptionsAndDevicePropagation) {
 
 // 8. 测试 UNKNOWN 业务与未注册业务在 Alg_Create 前置拦截 (REV2-001)
 TEST_F(CAbiSafetyTest, UnknownAndUnregisteredBizRejectionInCreate) {
-  std::string cfg = GetConfigPath("configs/pipeline_keyword_match.json");
+  std::string cfg = GetConfigPath("configs/pipeline_keyword_match_rules.json");
   CompanyAlgParamCreate param;
   param.config_file_path = cfg.c_str();
   param.model_root_dir = "./models";
@@ -263,7 +263,7 @@ TEST_F(CAbiSafetyTest, FailClosedRegistryConflictAndInitFailure) {
 
 // 10. 测试 Adapter Descriptor max_batch_size 契约强制执行 (REV2-005)
 TEST_F(CAbiSafetyTest, AdapterDescriptorMaxBatchSizeEnforcement) {
-  std::string cfg = GetConfigPath("configs/pipeline_keyword_match.json");
+  std::string cfg = GetConfigPath("configs/pipeline_keyword_match_rules.json");
   CompanyAlgParamCreate param;
   param.config_file_path = cfg.c_str();
   param.model_root_dir = "./models";
@@ -293,7 +293,7 @@ TEST_F(CAbiSafetyTest, AdapterDescriptorMaxBatchSizeEnforcement) {
 
 // 11. 同一 handle 的并发 Process 由接入适配层串行化，停流 join 后才允许 Destroy
 TEST_F(CAbiSafetyTest, SameHandleConcurrentProcessAndQuiescedDestroy) {
-  std::string cfg = GetConfigPath("configs/pipeline_keyword_match.json");
+  std::string cfg = GetConfigPath("configs/pipeline_keyword_match_rules.json");
   CompanyAlgParamCreate param;
   param.config_file_path = cfg.c_str();
   param.model_root_dir = "./models";

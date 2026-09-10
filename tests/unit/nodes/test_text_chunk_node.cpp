@@ -25,7 +25,7 @@ class TextChunkNodeTest : public ::testing::Test {
 
 // 1. Init & Config Validation
 TEST_F(TextChunkNodeTest, InitAndConfigValidation) {
-  auto node = NodeFactory::Instance().Create("TextChunkNode");
+  auto node = NodeRegistry::Instance().Create("TextChunkNode");
   ASSERT_NE(node, nullptr);
 
   // Default config
@@ -36,23 +36,23 @@ TEST_F(TextChunkNodeTest, InitAndConfigValidation) {
   nlohmann::json cfg = {{"chunk_size", 50}, {"overlap", 10}};
   EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
 
-  auto invalid_chunk = NodeFactory::Instance().Create("TextChunkNode");
+  auto invalid_chunk = NodeRegistry::Instance().Create("TextChunkNode");
   ASSERT_NE(invalid_chunk, nullptr);
   EXPECT_FALSE(
       InitNodeForTest(*invalid_chunk, {{"chunk_size", 0}}, session_ctx_.get()));
 
-  auto invalid_overlap = NodeFactory::Instance().Create("TextChunkNode");
+  auto invalid_overlap = NodeRegistry::Instance().Create("TextChunkNode");
   ASSERT_NE(invalid_overlap, nullptr);
   EXPECT_FALSE(InitNodeForTest(*invalid_overlap,
                                {{"chunk_size", 10}, {"overlap", 10}},
                                session_ctx_.get()));
 
-  auto float_chunk = NodeFactory::Instance().Create("TextChunkNode");
+  auto float_chunk = NodeRegistry::Instance().Create("TextChunkNode");
   ASSERT_NE(float_chunk, nullptr);
   EXPECT_FALSE(
       InitNodeForTest(*float_chunk, {{"chunk_size", 2.5}}, session_ctx_.get()));
 
-  auto unknown_field = NodeFactory::Instance().Create("TextChunkNode");
+  auto unknown_field = NodeRegistry::Instance().Create("TextChunkNode");
   ASSERT_NE(unknown_field, nullptr);
   EXPECT_FALSE(InitNodeForTest(*unknown_field, {{"non_existent_field", 123}},
                                session_ctx_.get()));
@@ -60,7 +60,7 @@ TEST_F(TextChunkNodeTest, InitAndConfigValidation) {
 
 // 2. Process Single and Batch Chunks with ChunkCounts
 TEST_F(TextChunkNodeTest, ProcessBatchAndChunkCounts) {
-  auto node = NodeFactory::Instance().Create("TextChunkNode");
+  auto node = NodeRegistry::Instance().Create("TextChunkNode");
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {{"chunk_size", 20}, {"overlap", 0}};
@@ -97,7 +97,7 @@ TEST_F(TextChunkNodeTest, ProcessBatchAndChunkCounts) {
 }
 
 TEST_F(TextChunkNodeTest, HighOverlapStopsWhenInputIsCovered) {
-  auto node = NodeFactory::Instance().Create("TextChunkNode");
+  auto node = NodeRegistry::Instance().Create("TextChunkNode");
   ASSERT_TRUE(InitNodeForTest(*node, {{"chunk_size", 1000}, {"overlap", 999}},
                               session_ctx_.get()));
   AlgContext ctx;
@@ -127,7 +127,7 @@ TEST_F(TextChunkNodeTest, HighOverlapStopsWhenInputIsCovered) {
 }
 
 TEST_F(TextChunkNodeTest, OverlappingFinalPartialChunkIsEmittedOnce) {
-  auto node = NodeFactory::Instance().Create("TextChunkNode");
+  auto node = NodeRegistry::Instance().Create("TextChunkNode");
   ASSERT_TRUE(InitNodeForTest(*node, {{"chunk_size", 5}, {"overlap", 3}},
                               session_ctx_.get()));
   AlgContext ctx;
@@ -146,7 +146,7 @@ TEST_F(TextChunkNodeTest, OverlappingFinalPartialChunkIsEmittedOnce) {
 
 // 3. Process Empty Input Strings
 TEST_F(TextChunkNodeTest, ProcessEmptyStrings) {
-  auto node = NodeFactory::Instance().Create("TextChunkNode");
+  auto node = NodeRegistry::Instance().Create("TextChunkNode");
   ASSERT_NE(node, nullptr);
   ASSERT_TRUE(
       InitNodeForTest(*node, nlohmann::json::object(), session_ctx_.get()));
@@ -169,7 +169,7 @@ TEST_F(TextChunkNodeTest, ProcessEmptyStrings) {
 }
 
 TEST_F(TextChunkNodeTest, ChunksOnUnicodeCodePointBoundaries) {
-  auto node = NodeFactory::Instance().Create("TextChunkNode");
+  auto node = NodeRegistry::Instance().Create("TextChunkNode");
   ASSERT_NE(node, nullptr);
   ASSERT_TRUE(InitNodeForTest(*node, {{"chunk_size", 3}, {"overlap", 1}},
                               session_ctx_.get()));
@@ -197,7 +197,7 @@ TEST_F(TextChunkNodeTest, ChunksOnUnicodeCodePointBoundaries) {
 }
 
 TEST_F(TextChunkNodeTest, InvalidUtf8FailsClosed) {
-  auto node = NodeFactory::Instance().Create("TextChunkNode");
+  auto node = NodeRegistry::Instance().Create("TextChunkNode");
   ASSERT_NE(node, nullptr);
   ASSERT_TRUE(
       InitNodeForTest(*node, nlohmann::json::object(), session_ctx_.get()));
@@ -214,7 +214,7 @@ TEST_F(TextChunkNodeTest, InvalidUtf8FailsClosed) {
 
 // 4. Missing Input Fails Closed
 TEST_F(TextChunkNodeTest, MissingInputFailsClosed) {
-  auto node = NodeFactory::Instance().Create("TextChunkNode");
+  auto node = NodeRegistry::Instance().Create("TextChunkNode");
   ASSERT_NE(node, nullptr);
   ASSERT_TRUE(
       InitNodeForTest(*node, nlohmann::json::object(), session_ctx_.get()));
@@ -224,7 +224,7 @@ TEST_F(TextChunkNodeTest, MissingInputFailsClosed) {
 }
 
 TEST_F(TextChunkNodeTest, DuplicateInputFailsClosed) {
-  auto node = NodeFactory::Instance().Create("TextChunkNode");
+  auto node = NodeRegistry::Instance().Create("TextChunkNode");
   ASSERT_NE(node, nullptr);
   ASSERT_TRUE(
       InitNodeForTest(*node, nlohmann::json::object(), session_ctx_.get()));
@@ -242,7 +242,7 @@ TEST_F(TextChunkNodeTest, DuplicateInputFailsClosed) {
 
 TEST_F(TextChunkNodeTest,
        PreservesParentProvenanceAndContinuousSubIdPerRequest) {
-  auto node = NodeFactory::Instance().Create("TextChunkNode");
+  auto node = NodeRegistry::Instance().Create("TextChunkNode");
   ASSERT_NE(node, nullptr);
   ASSERT_TRUE(InitNodeForTest(*node, {{"chunk_size", 10}, {"overlap", 0}},
                               session_ctx_.get()));

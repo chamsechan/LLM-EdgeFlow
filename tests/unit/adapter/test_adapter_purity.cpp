@@ -9,8 +9,8 @@
 #include "adapter/biz_blackboard_keys.h"
 #include "adapter/biz_results.h"
 #include "adapter/shared_algorithm_runtime.h"
-#include "company_alg_interface.h"
 #include "core/alg_context.h"
+#include "edgeflow/c_api.h"
 
 namespace llm_edgeflow {
 

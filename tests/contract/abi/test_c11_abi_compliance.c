@@ -3,7 +3,7 @@
  * @brief Pure C11 compilation and runtime ABI compliance test.
  *
  * This file is compiled with a pure C compiler (C11 standard) to guarantee
- * that include/company_alg_interface.h exposes zero C++ symbols or STL
+ * that include/edgeflow/c_api.h exposes zero C++ symbols or STL
  * dependencies.
  */
 
@@ -11,12 +11,22 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "company_alg_interface.h"
+// Platform mocks must be usable as C declarations before any SDK entrypoint.
+#include "edgeflow/c_api.h"
+#include "platform_mock/alg_types.h"
+#include "platform_mock/error_codes.h"
+#include "platform_mock/operator_data_types.h"
 
 #if COMPANY_ALG_ABI_VERSION_MAJOR != 5
 #error "Unexpected public C ABI major"
 #endif
+#include "edgeflow/log.h"
+#include "edgeflow/operator/types.h"
+
+// Old and canonical include paths must coexist without redefining C contracts.
+#include "company_alg_interface.h"
 #include "company_alg_log.h"
+#include "company_alg_version.h"
 #include "operator/company_operator_types.h"
 
 _Static_assert(sizeof(CompanyAlgBizType) == sizeof(int32_t),
@@ -91,9 +101,10 @@ int main(void) {
   memset(&param, 0, sizeof(param));
 
   // Determine config path
-  const char* cfg_candidates[] = {"configs/pipeline_keyword_match.json",
-                                  "../configs/pipeline_keyword_match.json",
-                                  "../../configs/pipeline_keyword_match.json"};
+  const char* cfg_candidates[] = {
+      "configs/pipeline_keyword_match_rules.json",
+      "../configs/pipeline_keyword_match_rules.json",
+      "../../configs/pipeline_keyword_match_rules.json"};
   const char* cfg_path = NULL;
   for (int i = 0; i < 3; ++i) {
     FILE* f = fopen(cfg_candidates[i], "r");
@@ -105,8 +116,9 @@ int main(void) {
   }
 
   if (!cfg_path) {
-    fprintf(stderr,
-            "[C11 ABI Test] Could not find pipeline_keyword_match.json\n");
+    fprintf(
+        stderr,
+        "[C11 ABI Test] Could not find pipeline_keyword_match_rules.json\n");
     return 6;
   }
 

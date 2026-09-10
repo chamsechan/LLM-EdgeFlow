@@ -5,15 +5,15 @@
 #include <unordered_set>
 #include <vector>
 
-#include "adapter/operator/company_conf_resolver.h"
 #include "adapter/operator/operator_biz_bridge_registry.h"
+#include "adapter/operator/operator_config_resolver.h"
 #include "adapter/operator/operator_control_registry.h"
 #include "adapter/operator/operator_output_pool.h"
 #include "adapter/operator/operator_process_binding.h"
 #include "adapter/operator/operator_value_type_registry.h"
 #include "adapter/shared_algorithm_runtime.h"
 #include "contracts/diagnostic.h"
-#include "operator/operator_interface.h"
+#include "edgeflow/operator/interface.h"
 
 namespace llm_edgeflow::operator_api {
 
@@ -31,7 +31,7 @@ struct OperatorHandle {
   uint32_t effective_process_batch_limit = 25;
   CompanyAlgBizType biz_type = ALG_BIZ_TYPE_UNKNOWN;
   const llm_edgeflow::OperatorBizBridgeDescriptor* bridge = nullptr;
-  llm_edgeflow::ResolvedCompanyConfig resolved_conf;
+  llm_edgeflow::ResolvedOperatorConfig resolved_conf;
   std::unordered_map<std::string,
                      std::shared_ptr<llm_edgeflow::OutputPoolState>>
       output_pools;
@@ -186,13 +186,13 @@ int Operator_Create(void** handle, const CreateParam* param) noexcept {
     }
 
     // 1. 双路径安全解析 .conf
-    llm_edgeflow::ResolvedCompanyConfig resolved_conf;
+    llm_edgeflow::ResolvedOperatorConfig resolved_conf;
     std::string resolve_err;
-    int res_code = llm_edgeflow::CompanyConfResolver::Resolve(
+    int res_code = llm_edgeflow::OperatorConfigResolver::Resolve(
         param->model_path, param->cfg_file_name, &resolved_conf, &resolve_err,
         effective_depth);
     if (res_code != 0) {
-      SetLastError("CompanyConfResolver failed: " + resolve_err);
+      SetLastError("OperatorConfigResolver failed: " + resolve_err);
       return res_code;
     }
 
@@ -544,9 +544,9 @@ int ValidateOperatorConfigBinding(const char* model_path,
       return -2;
     }
 
-    llm_edgeflow::ResolvedCompanyConfig resolved;
+    llm_edgeflow::ResolvedOperatorConfig resolved;
     std::string err;
-    int ret = llm_edgeflow::CompanyConfResolver::Resolve(
+    int ret = llm_edgeflow::OperatorConfigResolver::Resolve(
         model_path, cfg_file_name, &resolved, &err);
     if (ret != 0) {
       if (out_error_msg && error_buf_size > 0) {

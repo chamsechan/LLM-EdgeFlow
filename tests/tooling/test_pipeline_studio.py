@@ -41,7 +41,7 @@ class WorkbenchServiceTest(unittest.TestCase):
         self.configs = Path(self.temporary.name)
         self.service = SHOW.WorkbenchService(self.configs)
         self.keyword = json.loads(
-            (ROOT / "configs" / "pipeline_keyword_match.json").read_text()
+            (ROOT / "configs" / "pipeline_keyword_match_rules.json").read_text()
         )
 
     def tearDown(self):
@@ -95,7 +95,7 @@ class WorkbenchServiceTest(unittest.TestCase):
         self.keyword["pipeline"][0]["config"]["categories"] = {
             "STUDIO_DRAFT": ["VIP"]
         }
-        started = self.service.start_run(self.keyword, "keyword_match_mock")
+        started = self.service.start_run(self.keyword, "keyword_match_rules")
         for _ in range(200):
             job = self.service.run_status(started["job_id"])["job"]
             if job["status"] in ("completed", "failed", "cancelled"):
@@ -116,14 +116,15 @@ class WorkbenchServiceTest(unittest.TestCase):
         self.assertFalse(results[1]["output"]["is_hit"])
 
     def test_startup_opens_each_kite_file_without_backend_validation(self):
-        files = list((ROOT / "configs" / "kite").glob("pipeline_*.json"))
+        files = list((ROOT / "configs").glob("pipeline_*_kite*.json"))
         self.assertTrue(files)
         for path in files:
             with self.subTest(path=path):
                 service = SHOW.WorkbenchService(initial=path)
                 self.assertEqual(service.initial_document["pipeline"], json.loads(path.read_text()))
-                self.assertTrue(service.initial_document["imported"])
-                self.assertEqual(service.initial_document["revision"], "")
+                self.assertNotIn("imported", service.initial_document)
+                self.assertEqual(service.initial_document, service.open_pipeline(path.name))
+                self.assertIn(path.name, [item["filename"] for item in service.pipelines()["pipelines"]])
 
     def test_startup_external_file_is_a_snapshot_without_write_binding(self):
         path = self.configs / "arbitrary name.json"
@@ -157,7 +158,7 @@ class WorkbenchServiceTest(unittest.TestCase):
                 SHOW.read_pipeline_file(path)
 
     def test_cli_defaults_to_terminal_and_requires_web_flag_for_studio(self):
-        path = str(ROOT / "configs" / "kite" / "pipeline_doc_qa.json")
+        path = str(ROOT / "configs" / "pipeline_doc_qa_kite.json")
         for args, selected, port in ((["--web"], None, 8080),
                                      ([path, "--web", "--port", "0"], Path(path), 0)):
             with self.subTest(args=args), mock.patch.object(SHOW, "launch_web") as launch, mock.patch.object(SHOW, "render_terminal") as render:
@@ -181,7 +182,7 @@ class RunnableSolutionTest(unittest.TestCase):
         self.root = Path(self.temporary.name)
         self.configs = self.root / "configs"
         self.service = SHOW.WorkbenchService(self.configs)
-        self.keyword = json.loads((ROOT / "configs/pipeline_keyword_match.json").read_text())
+        self.keyword = json.loads((ROOT / "configs/pipeline_keyword_match_rules.json").read_text())
 
     def tearDown(self):
         self.temporary.cleanup()
@@ -189,7 +190,7 @@ class RunnableSolutionTest(unittest.TestCase):
     def test_saved_pair_runs_the_selected_pipeline_with_explicit_arguments(self):
         self.keyword["pipeline"][0]["config"]["categories"] = {"SAVED_RULE": ["VIP"]}
         filename = f"pipeline_saved_{uuid.uuid4().hex}.json"
-        saved = self.service.save_solution(filename, self.keyword, "keyword_match_mock")
+        saved = self.service.save_solution(filename, self.keyword, "keyword_match_rules")
         self.assertEqual(json.loads((self.configs / filename).read_text()), self.keyword)
         conf = json.loads((self.configs / saved["conf_filename"]).read_text())
         self.assertEqual(conf["data"]["pipe_path"], str((self.configs / filename).relative_to(ROOT)))
@@ -236,7 +237,7 @@ class RunnableSolutionTest(unittest.TestCase):
         self.assertEqual(sorted(p.name for p in self.configs.iterdir()), ["pipeline_paired.conf", "pipeline_paired.json"])
 
     def test_managed_save_checks_both_revisions_without_overwriting_external_edits(self):
-        saved = self.service.save_solution("pipeline_revision.json", self.keyword, "keyword_match_mock")
+        saved = self.service.save_solution("pipeline_revision.json", self.keyword, "keyword_match_rules")
         paths = [self.configs / saved["filename"], self.configs / saved["conf_filename"]]
         originals = {path: path.read_bytes() for path in paths}
         self.keyword["pipeline"][0]["config"]["categories"] = {"NEW": ["sample"]}
@@ -251,7 +252,7 @@ class RunnableSolutionTest(unittest.TestCase):
                 changed.write_bytes(originals[changed])
 
     def test_managed_save_rolls_back_json_if_installing_conf_fails(self):
-        saved = self.service.save_solution("pipeline_rollback.json", self.keyword, "keyword_match_mock")
+        saved = self.service.save_solution("pipeline_rollback.json", self.keyword, "keyword_match_rules")
         paths = [self.configs / saved["filename"], self.configs / saved["conf_filename"]]
         originals = {path: path.read_bytes() for path in paths}
         self.keyword["pipeline"][0]["config"]["categories"] = {"NEW": ["sample"]}
@@ -313,7 +314,7 @@ class RunnableSolutionTest(unittest.TestCase):
             target = self.configs / f"pipeline_conflict.{suffix}"
             target.write_text("keep this file")
             with self.subTest(suffix=suffix), self.assertRaises(SHOW.StudioError) as error:
-                self.service.save_solution("pipeline_conflict.json", self.keyword, "keyword_match_mock")
+                self.service.save_solution("pipeline_conflict.json", self.keyword, "keyword_match_rules")
             self.assertEqual(error.exception.code, "FILE_EXISTS")
             self.assertEqual(list(self.configs.iterdir()), [target])
             self.assertEqual(target.read_text(), "keep this file")
@@ -321,15 +322,15 @@ class RunnableSolutionTest(unittest.TestCase):
         link = self.configs / "pipeline_link.conf"
         link.symlink_to(self.root / "missing_target")
         with self.assertRaises(SHOW.StudioError) as error:
-            self.service.save_solution("pipeline_link.json", self.keyword, "keyword_match_mock")
+            self.service.save_solution("pipeline_link.json", self.keyword, "keyword_match_rules")
         self.assertEqual(error.exception.code, "SYMLINK_REJECTED")
         self.assertFalse((self.configs / "pipeline_link.json").exists())
         link.unlink()
         for filename, profile, model_root in (
-            ("../pipeline_escape.json", "keyword_match_mock", "models"),
+            ("../pipeline_escape.json", "keyword_match_rules", "models"),
             ("pipeline_bad.json", "entity_extract_mock", "models"),
-            ("pipeline_bad.json", "keyword_match_mock", "../outside"),
-            ("pipeline_bad.json", "keyword_match_mock", str(ROOT / "models")),
+            ("pipeline_bad.json", "keyword_match_rules", "../outside"),
+            ("pipeline_bad.json", "keyword_match_rules", str(ROOT / "models")),
         ):
             with self.subTest(filename=filename, profile=profile, model_root=model_root), self.assertRaises(SHOW.StudioError):
                 self.service.save_solution(filename, self.keyword, profile, model_root)
@@ -346,17 +347,17 @@ class RunnableSolutionTest(unittest.TestCase):
             return original_open(path, flags, mode)
         with mock.patch.object(SHOW.os, "open", side_effect=fail_conf):
             with self.assertRaises(SHOW.StudioError) as error:
-                self.service.save_solution("pipeline_new.json", self.keyword, "keyword_match_mock")
+                self.service.save_solution("pipeline_new.json", self.keyword, "keyword_match_rules")
         self.assertEqual(error.exception.code, "SAVE_FAILED")
         self.assertEqual(list(self.configs.iterdir()), [unrelated])
         self.assertEqual(unrelated.read_text(), "keep")
 
     def test_native_deployment_rejection_rolls_back_the_pair(self):
-        profile, mem_que = self.service.profile_inputs(self.keyword, "keyword_match_mock")
+        profile, mem_que = self.service.profile_inputs(self.keyword, "keyword_match_rules")
         mem_que["capacities"]["match_result_json"] = 0
         with mock.patch.object(self.service, "profile_inputs", return_value=(profile, mem_que)):
             with self.assertRaises(SHOW.StudioError) as error:
-                self.service.save_solution("pipeline_invalid_pool.json", self.keyword, "keyword_match_mock")
+                self.service.save_solution("pipeline_invalid_pool.json", self.keyword, "keyword_match_rules")
         self.assertEqual(error.exception.code, "DEPLOYMENT_VALIDATION_FAILED")
         self.assertIn("match_result_json", str(error.exception))
         self.assertEqual(list(self.configs.iterdir()), [])
@@ -410,7 +411,7 @@ class PipelineCliTest(unittest.TestCase):
         )
         self.assertEqual(removed_normalizer.returncode, 2)
         pipeline = json.loads(
-            (ROOT / "configs" / "pipeline_keyword_match.json").read_text()
+            (ROOT / "configs" / "pipeline_keyword_match_rules.json").read_text()
         )
         code, validated = self.command(
             "validate", "--stdin", input_pipeline=pipeline
@@ -425,7 +426,7 @@ class PipelineCliTest(unittest.TestCase):
         self.assertTrue(plan["plan"]["topological_order"])
 
     def test_init_raw_can_be_saved_and_validated_without_unwrapping(self):
-        args = ["init", "--biz", "keyword_match_v1", "--profile", "keyword_match_mock"]
+        args = ["init", "--biz", "keyword_match_v1", "--profile", "keyword_match_rules"]
         code, wrapped = self.command(*args)
         self.assertEqual(code, 0)
         raw = subprocess.run(
@@ -454,11 +455,11 @@ class PipelineCliTest(unittest.TestCase):
 
     def test_init_rejects_invalid_options(self):
         for options in (
-            ["--profile", "keyword_match_mock", "--empty"],
+            ["--profile", "keyword_match_rules", "--empty"],
             ["--profile"], ["--profile", "--raw"], ["--unknown"],
             ["--raw", "--raw"], ["--empty", "--empty"],
             ["--biz", "keyword_match_v1"],
-            ["--profile", "keyword_match_mock", "--profile", "keyword_match_mock"],
+            ["--profile", "keyword_match_rules", "--profile", "keyword_match_rules"],
         ):
             with self.subTest(options=options):
                 process = subprocess.run(
@@ -502,7 +503,7 @@ class PipelineCliTest(unittest.TestCase):
 
     def test_native_viewer_preserves_explicit_dag_dependencies(self):
         process = subprocess.run(
-            [str(ALG_SHOW), str(ROOT / "configs" / "pipeline_doc_qa.json")],
+            [str(ALG_SHOW), str(ROOT / "configs" / "pipeline_doc_qa_default.json")],
             text=True,
             capture_output=True,
             cwd=ROOT,
@@ -518,7 +519,7 @@ class PipelineCliTest(unittest.TestCase):
 
     def test_native_viewer_shows_declared_backend_batch_fields(self):
         process = subprocess.run(
-            [str(ALG_SHOW), str(ROOT / "configs" / "pipeline_doc_qa_onnx.json")],
+            [str(ALG_SHOW), str(ROOT / "configs" / "pipeline_doc_qa_cpu.json")],
             text=True,
             capture_output=True,
             cwd=ROOT,
@@ -535,7 +536,7 @@ class PipelineCliTest(unittest.TestCase):
 
     def test_native_viewer_does_not_invent_backend_batch_values(self):
         pipeline = json.loads(
-            (ROOT / "configs" / "pipeline_doc_qa_onnx.json").read_text()
+            (ROOT / "configs" / "pipeline_doc_qa_cpu.json").read_text()
         )
         for model in pipeline["models"]:
             model.pop("backend_config", None)
@@ -577,7 +578,7 @@ class HttpApiTest(unittest.TestCase):
         self.temporary.cleanup()
 
     def post(self):
-        pipeline = json.loads((ROOT / "configs" / "pipeline_keyword_match.json").read_text())
+        pipeline = json.loads((ROOT / "configs" / "pipeline_keyword_match_rules.json").read_text())
         request = urllib.request.Request(
             self.base + "/validate",
             data=json.dumps({"pipeline": pipeline}).encode(),
@@ -867,9 +868,9 @@ class SelectionVerificationTest(unittest.TestCase):
         selection = SHOW.SELECTION
         tool = Path(os.environ.get("LLM_EDGEFLOW_SELECTION_TOOL", ROOT / "build/alg_pipeline_tool"))
         demo = SHOW.DEMO_BINARY
-        pipeline = json.loads((ROOT / "configs/pipeline_keyword_match.json").read_text())
+        pipeline = json.loads((ROOT / "configs/pipeline_keyword_match_rules.json").read_text())
         spec = ROOT / "tests/fixtures/effects/keyword_exact.json"
-        conf = ROOT / "configs/pipeline_keyword_match.conf"
+        conf = ROOT / "configs/pipeline_keyword_match_rules.conf"
         report = selection.inspect_selection(pipeline, tool, ROOT / "models")
         self.assertTrue(report["ok"])
         self.assertFalse(report["ready_for_biz"])

@@ -25,7 +25,7 @@ class TextCorpusSourceNodeTest : public ::testing::Test {
 
 // 1. Process Static Corpus Emission
 TEST_F(TextCorpusSourceNodeTest, ProcessStaticCorpusEmission) {
-  auto node = NodeFactory::Instance().Create("TextCorpusSourceNode");
+  auto node = NodeRegistry::Instance().Create("TextCorpusSourceNode");
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {
@@ -43,7 +43,7 @@ TEST_F(TextCorpusSourceNodeTest, ProcessStaticCorpusEmission) {
 
 // 2. Empty Corpus Config
 TEST_F(TextCorpusSourceNodeTest, EmptyCorpusConfig) {
-  auto node = NodeFactory::Instance().Create("TextCorpusSourceNode");
+  auto node = NodeRegistry::Instance().Create("TextCorpusSourceNode");
   ASSERT_NE(node, nullptr);
   ASSERT_TRUE(
       InitNodeForTest(*node, nlohmann::json::object(), session_ctx_.get()));

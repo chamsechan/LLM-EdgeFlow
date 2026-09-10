@@ -11,7 +11,7 @@
 #include <random>
 #include <string>
 
-#include "company_alg_interface.h"
+#include "edgeflow/c_api.h"
 #include "engine/backend_interface.h"
 
 namespace llm_edgeflow {

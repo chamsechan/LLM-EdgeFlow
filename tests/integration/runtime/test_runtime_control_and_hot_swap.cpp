@@ -9,10 +9,10 @@
 #include <utility>
 #include <vector>
 
-#include "company_alg_cpp.hpp"
-#include "company_alg_interface.h"
 #include "core/common_contracts.h"
 #include "core/pipeline.h"
+#include "edgeflow/c_api.h"
+#include "edgeflow/c_api.hpp"
 
 static std::string GetConfigPath(const std::string& rel_path) {
   FILE* fp = fopen(rel_path.c_str(), "r");
@@ -169,7 +169,8 @@ TEST_F(RuntimeControlAndHotSwapTest,
 
 // 1. 关键词库运行时动态热更新与立即生效测试
 TEST_F(RuntimeControlAndHotSwapTest, KeywordMatcherDynamicHotSwap) {
-  std::string cfg_path = GetConfigPath("configs/pipeline_keyword_match.json");
+  std::string cfg_path =
+      GetConfigPath("configs/pipeline_keyword_match_rules.json");
   CompanyAlgParamCreate param;
   param.config_file_path = cfg_path.c_str();
   param.model_root_dir = "./models";
@@ -237,7 +238,8 @@ TEST_F(RuntimeControlAndHotSwapTest, KeywordMatcherDynamicHotSwap) {
 
 // 2. 同一 handle 的 Process/Control 由 C ABI 层串行化，停流 join 后再销毁
 TEST_F(RuntimeControlAndHotSwapTest, ConcurrentProcessAndHotControl) {
-  std::string cfg_path = GetConfigPath("configs/pipeline_keyword_match.json");
+  std::string cfg_path =
+      GetConfigPath("configs/pipeline_keyword_match_rules.json");
   CompanyAlgParamCreate param;
   param.config_file_path = cfg_path.c_str();
   param.model_root_dir = "./models";
@@ -301,7 +303,8 @@ TEST_F(RuntimeControlAndHotSwapTest, ConcurrentProcessAndHotControl) {
 
 // 3. 非法控制指令与边界容错测试
 TEST_F(RuntimeControlAndHotSwapTest, InvalidControlCommands) {
-  std::string cfg_path = GetConfigPath("configs/pipeline_keyword_match.json");
+  std::string cfg_path =
+      GetConfigPath("configs/pipeline_keyword_match_rules.json");
   CompanyAlgParamCreate param;
   param.config_file_path = cfg_path.c_str();
   param.model_root_dir = "./models";

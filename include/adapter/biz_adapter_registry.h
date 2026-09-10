@@ -7,7 +7,7 @@
 #include <vector>
 
 #include "adapter/biz_adapter_interface.h"
-#include "company_alg_log.h"
+#include "edgeflow/log.h"
 
 namespace llm_edgeflow {
 
@@ -25,133 +25,7 @@ class BizAdapterRegistry {
    * @brief 注册业务适配器 (防止多团队业务 ID / 名称冲突覆盖，REV2-003)
    * @return true 注册成功，false 冲突或无效拒绝注册并标记 conflict 状态
    */
-  bool RegisterAdapter(std::shared_ptr<IBizAdapter> adapter) {
-    if (!adapter) {
-      std::lock_guard<std::mutex> lock(mutex_);
-      has_conflict_ = true;
-      registration_errors_.push_back("Null adapter pointer passed to registry");
-      return false;
-    }
-
-    std::lock_guard<std::mutex> lock(mutex_);
-    CompanyAlgBizType biz_type = adapter->BizType();
-
-    if (biz_type == ALG_BIZ_TYPE_UNKNOWN) {
-      has_conflict_ = true;
-      std::string err = "Cannot register adapter '" +
-                        std::string(adapter->BizName()) +
-                        "' with ALG_BIZ_TYPE_UNKNOWN";
-      registration_errors_.push_back(err);
-      ALG_LOG_ERROR("[BizAdapterRegistry] %s\n", err.c_str());
-      return false;
-    }
-
-    // 冲突与契约检查 0: 必须满足框架当前可执行的 Descriptor 策略 (RECHECK-003,
-    // ADP-008)
-    const auto& desc = adapter->GetDescriptor();
-    if (desc.ownership_policy != OwnershipPolicy::kCopyIn) {
-      has_conflict_ = true;
-      std::string err = "Unsupported OwnershipPolicy in adapter '" +
-                        std::string(adapter->BizName()) +
-                        "': only kCopyIn is currently supported";
-      registration_errors_.push_back(err);
-      ALG_LOG_ERROR("[BizAdapterRegistry] %s\n", err.c_str());
-      return false;
-    }
-    if (desc.thread_model != ThreadModel::kStatelessThreadSafe) {
-      has_conflict_ = true;
-      std::string err = "Unsupported ThreadModel in adapter '" +
-                        std::string(adapter->BizName()) +
-                        "': only kStatelessThreadSafe is currently supported";
-      registration_errors_.push_back(err);
-      ALG_LOG_ERROR("[BizAdapterRegistry] %s\n", err.c_str());
-      return false;
-    }
-    if (desc.cardinality != OutputCardinality::kOneToOne) {
-      has_conflict_ = true;
-      std::string err = "Unsupported OutputCardinality in adapter '" +
-                        std::string(adapter->BizName()) +
-                        "': only kOneToOne is currently supported";
-      registration_errors_.push_back(err);
-      ALG_LOG_ERROR("[BizAdapterRegistry] %s\n", err.c_str());
-      return false;
-    }
-    if (desc.biz_type != biz_type || desc.biz_name != adapter->BizName()) {
-      has_conflict_ = true;
-      std::string err =
-          "Descriptor inconsistency for adapter '" +
-          std::string(adapter->BizName()) +
-          "': BizType/BizName mismatch between methods and descriptor";
-      registration_errors_.push_back(err);
-      ALG_LOG_ERROR("[BizAdapterRegistry] %s\n", err.c_str());
-      return false;
-    }
-
-    // 冲突检查 1: 业务 ID 重复冲突
-    auto it = adapters_.find(biz_type);
-    if (it != adapters_.end()) {
-      has_conflict_ = true;
-      std::string err = "Conflict: BizType [" + std::to_string(biz_type) +
-                        "] already registered by '" + it->second->BizName() +
-                        "'. Cannot register '" + adapter->BizName() + "'.";
-      registration_errors_.push_back(err);
-      ALG_LOG_ERROR("[BizAdapterRegistry] %s\n", err.c_str());
-      return false;
-    }
-
-    // 冲突检查 2: 业务名称重复冲突
-    for (const auto& kv : adapters_) {
-      if (kv.second->BizName() == std::string(adapter->BizName())) {
-        has_conflict_ = true;
-        std::string err = "Conflict: BizName '" +
-                          std::string(adapter->BizName()) +
-                          "' already registered under BizType [" +
-                          std::to_string(kv.first) + "].";
-        registration_errors_.push_back(err);
-        ALG_LOG_ERROR("[BizAdapterRegistry] %s\n", err.c_str());
-        return false;
-      }
-    }
-
-    // 冲突检查 3: 业务 Pipeline 契约必须声明且在 Catalog 中无冲突
-    if (desc.pipelines.empty()) {
-      has_conflict_ = true;
-      std::string err =
-          "Adapter '" + std::string(adapter->BizName()) +
-          "' must declare at least one BizDefinition in pipelines";
-      registration_errors_.push_back(err);
-      ALG_LOG_ERROR("[BizAdapterRegistry] %s\n", err.c_str());
-      return false;
-    }
-
-    for (const auto& pipeline_def : desc.pipelines) {
-      if (pipeline_def.biz_name.empty()) {
-        has_conflict_ = true;
-        std::string err = "Adapter '" + std::string(adapter->BizName()) +
-                          "' has a pipeline with empty biz_name";
-        registration_errors_.push_back(err);
-        return false;
-      }
-    }
-    if (!PipelineCatalog::RegisterBizDefinitions(desc.pipelines)) {
-      has_conflict_ = true;
-      std::string err =
-          "Conflict: one or more pipeline biz names in adapter '" +
-          std::string(adapter->BizName()) +
-          "' are invalid, duplicated, or already registered";
-      registration_errors_.push_back(err);
-      ALG_LOG_ERROR("[BizAdapterRegistry] %s\n", err.c_str());
-      return false;
-    }
-
-    adapters_[biz_type] = adapter;
-    ALG_LOG_VERBOSE(
-        "[BizAdapterRegistry] Registered adapter for BizType [%d]: %s (ABI: "
-        "%s)\n",
-        static_cast<int>(biz_type), adapter->BizName(),
-        adapter->GetDescriptor().abi_version.c_str());
-    return true;
-  }
+  bool RegisterAdapter(std::shared_ptr<IBizAdapter> adapter);
 
   std::shared_ptr<IBizAdapter> GetAdapter(CompanyAlgBizType biz_type) const {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -207,14 +81,14 @@ class BizAdapterRegistry {
     return nullptr;
   }
 
-  std::shared_ptr<IBizAdapter> GetAdapterByBizName(
-      const std::string& biz_name,
+  std::shared_ptr<IBizAdapter> GetAdapterByName(
+      const std::string& adapter_name,
       AdapterLookupStatus* out_status = nullptr) const {
     std::lock_guard<std::mutex> lock(mutex_);
     std::shared_ptr<IBizAdapter> matched = nullptr;
     size_t match_count = 0;
     for (const auto& kv : adapters_) {
-      if (kv.second && kv.second->BizName() == biz_name) {
+      if (kv.second && kv.second->AdapterName() == adapter_name) {
         matched = kv.second;
         match_count++;
       }

@@ -180,7 +180,7 @@ def render_node(name, description, kind, capability, in_port, out_port, control_
 
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
-#include "core/pipeline_catalog.h"
+#include "core/node_definition.h"
 #include "engine/model_interface.h"
 #include "nodes/model_bound_node.h"
 #include "nodes/node_base.h"
@@ -242,7 +242,7 @@ def render_unary_inference_node(name, description, capability, in_port, out_port
 def render_test_stub(name):
     return f"""#include <gtest/gtest.h>
 #include "core/node_registry.h"
-#include "core/pipeline_catalog.h"
+#include "core/node_definition.h"
 
 namespace llm_edgeflow {{
 TEST(CustomNodeCatalogTest, {name}RegistrationAndInstantiation) {{
@@ -251,7 +251,7 @@ TEST(CustomNodeCatalogTest, {name}RegistrationAndInstantiation) {{
   EXPECT_EQ(def->category, "custom");
   EXPECT_FALSE(def->inputs.empty());
   EXPECT_FALSE(def->outputs.empty());
-  auto node = NodeFactory::Instance().Create({cpp_string(name)});
+  auto node = NodeRegistry::Instance().Create({cpp_string(name)});
   ASSERT_NE(node, nullptr);
   EXPECT_EQ(node->Name(), {cpp_string(name)});
   // Add domain assertions, missing input, model failure and provenance coverage.
@@ -268,7 +268,7 @@ def render_control_test_stub(name, command_id, in_name, out_name):
 
 namespace llm_edgeflow {{
 TEST(CustomNodeCatalogTest, {name}ControlChangesOutputAndPreservesOnFailure) {{
-  auto node = NodeFactory::Instance().Create({cpp_string(name)});
+  auto node = NodeRegistry::Instance().Create({cpp_string(name)});
   ASSERT_NE(node, nullptr);
   SessionContext session;
   ASSERT_TRUE(InitNodeForTest(*node, {{{{"prefix", "initial:"}}}}, &session));
@@ -306,7 +306,7 @@ TEST(CustomNodeCatalogTest, {name}RejectsInvalidInitialPrefix) {{
   const nlohmann::json invalid = {{{{"prefix", std::string(65, 'x')}}}};
   EXPECT_FALSE(definition->validate_config(invalid, {{}}, &error));
   EXPECT_NE(error.find("prefix exceeds 64 UTF-8 bytes"), std::string::npos);
-  auto node = NodeFactory::Instance().Create({cpp_string(name)});
+  auto node = NodeRegistry::Instance().Create({cpp_string(name)});
   ASSERT_NE(node, nullptr);
   SessionContext session;
   NodeInitContext init;

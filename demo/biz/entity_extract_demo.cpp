@@ -6,13 +6,12 @@
 #include "demo/common/demo_registry.h"
 #include "demo/common/operator_runner.h"
 #include "demo/common/result_writer.h"
-#include "operator/company_operator_types.h"
+#include "platform_mock/operator_data_types.h"
 
 namespace alg_demo {
 
 int RunEntityExtractDemo(const DemoOptions& options) {
-  PrintBanner("【业务 1 演示】实体/名词提取业务",
-              "Conf: " + options.config_path);
+  PrintBanner("实体/名词提取业务", "Conf: " + options.config_path);
 
   std::vector<std::string> lines;
   std::string err;
@@ -118,7 +117,7 @@ int RunEntityExtractDemo(const DemoOptions& options) {
   return 0;
 }
 
-REGISTER_DEMO_BIZ("entity_extract", "【业务 1 演示】实体/名词提取业务",
-                  RunEntityExtractDemo, ALG_BIZ_TYPE_ENTITY_EXTRACT);
+REGISTER_DEMO_BIZ("entity_extract", "实体/名词提取业务", RunEntityExtractDemo,
+                  ALG_BIZ_TYPE_ENTITY_EXTRACT);
 
 }  // namespace alg_demo

@@ -76,7 +76,7 @@ ctest --test-dir "$BUILD_DIR" -j"$JOBS" --output-on-failure --no-tests=error
 
 echo -e "\n${BOLD}${GREEN}==================================================================${NC}"
 echo -e "${BOLD}${GREEN}  ✓ All required development gates passed in ${SECONDS}s.${NC}"
-echo -e "${BOLD}${GREEN}  - Tier 1: Core, DAG, engines and common nodes${NC}"
+echo -e "${BOLD}${GREEN}  - Tier 1: Orchestration, Model Execution and Capability Nodes${NC}"
 echo -e "${BOLD}${GREEN}  - Tier 2: C ABI, Operator, concurrency and safety${NC}"
 echo -e "${BOLD}${GREEN}  - Tier 3: Business integration and Demo smoke${NC}"
 echo -e "${BOLD}${GREEN}  - Tier 4: CLI, Pipeline Studio and documentation tooling${NC}"

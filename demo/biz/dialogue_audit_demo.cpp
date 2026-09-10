@@ -7,13 +7,12 @@
 #include "demo/common/demo_registry.h"
 #include "demo/common/operator_runner.h"
 #include "demo/common/result_writer.h"
-#include "operator/company_operator_types.h"
+#include "platform_mock/operator_data_types.h"
 
 namespace alg_demo {
 
 int RunDialogueAuditDemo(const DemoOptions& options) {
-  PrintBanner("【业务 4 演示】智能对话风控质检业务",
-              "Conf: " + options.config_path);
+  PrintBanner("智能对话风控质检业务", "Conf: " + options.config_path);
 
   std::unordered_map<std::string, std::vector<std::string>> sections;
   std::string err;
@@ -157,7 +156,7 @@ int RunDialogueAuditDemo(const DemoOptions& options) {
   return 0;
 }
 
-REGISTER_DEMO_BIZ("dialogue_audit", "【业务 4 演示】智能对话风控质检业务",
+REGISTER_DEMO_BIZ("dialogue_audit", "智能对话风控质检业务",
                   RunDialogueAuditDemo, ALG_BIZ_TYPE_COMPLIANCE_AUDIT);
 
 }  // namespace alg_demo

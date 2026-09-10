@@ -5,9 +5,9 @@
 #include <string>
 #include <vector>
 
-#include "company_alg_interface.h"
-#include "operator/company_operator_types.h"
-#include "operator/operator_interface.h"
+#include "edgeflow/c_api.h"
+#include "edgeflow/operator/interface.h"
+#include "edgeflow/operator/types.h"
 
 using namespace llm_edgeflow::operator_api;
 

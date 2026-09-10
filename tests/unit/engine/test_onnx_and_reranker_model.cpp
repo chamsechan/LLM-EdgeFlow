@@ -12,7 +12,6 @@
 #include <utility>
 #include <vector>
 
-#include "company_alg_interface.h"
 #include "contracts/inference_payloads.h"
 #include "core/alg_context.h"
 #include "core/common_contracts.h"
@@ -22,6 +21,7 @@
 #include "core/pipeline_validator.h"
 #include "core/session_context.h"
 #include "dev_support/inference/bge_model_test_support.h"
+#include "edgeflow/c_api.h"
 #include "engine/backend_interface.h"
 #include "engine/backend_registry.h"
 #include "engine/backends/onnxruntime/onnxruntime_backend.h"
@@ -932,9 +932,9 @@ TEST_F(OnnxAndRerankerModelTest, RealPipelineBuildAndExecuteSmoke) {
       << "Missing fixture: " << vocab_path;
 
   // 1. 读取生产 pipeline_cross_rerank.json 配置模板
-  std::ifstream cfg_in("configs/pipeline_cross_rerank.json");
+  std::ifstream cfg_in("configs/pipeline_cross_rerank_cpu.json");
   ASSERT_TRUE(cfg_in.good())
-      << "Failed to open configs/pipeline_cross_rerank.json";
+      << "Failed to open configs/pipeline_cross_rerank_cpu.json";
   nlohmann::json pipe_json;
   cfg_in >> pipe_json;
   cfg_in.close();

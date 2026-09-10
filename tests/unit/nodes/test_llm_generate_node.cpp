@@ -9,6 +9,7 @@
 #include "core/alg_context.h"
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
+#include "core/pipeline_catalog.h"
 #include "core/pipeline_validator.h"
 #include "core/session_context.h"
 #include "engine/model_interface.h"
@@ -76,7 +77,7 @@ class LlmGenerateNodeTest : public ::testing::Test {
 
 // 1. Process Batch Prompt Inference
 TEST_F(LlmGenerateNodeTest, ProcessBatchPromptInference) {
-  auto node = NodeFactory::Instance().Create("LlmGenerateNode");
+  auto node = NodeRegistry::Instance().Create("LlmGenerateNode");
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {{"bind_model", "llm_model_v1"},
@@ -109,13 +110,13 @@ TEST_F(LlmGenerateNodeTest, ProcessBatchPromptInference) {
 }
 
 TEST_F(LlmGenerateNodeTest, RejectsInvalidUnifiedGenerationOptions) {
-  auto node = NodeFactory::Instance().Create("LlmGenerateNode");
+  auto node = NodeRegistry::Instance().Create("LlmGenerateNode");
   ASSERT_NE(node, nullptr);
   EXPECT_FALSE(InitNodeForTest(*node,
                                {{"bind_model", "llm_model_v1"}, {"top_k", -1}},
                                session_ctx_.get()));
 
-  node = NodeFactory::Instance().Create("LlmGenerateNode");
+  node = NodeRegistry::Instance().Create("LlmGenerateNode");
   ASSERT_NE(node, nullptr);
   EXPECT_FALSE(InitNodeForTest(
       *node, {{"bind_model", "llm_model_v1"}, {"repetition_penalty", 0.0}},
@@ -152,7 +153,7 @@ TEST_F(LlmGenerateNodeTest, ValidatorAndInitializationRejectInvalidOptions) {
         config_rejected = true;
     }
     EXPECT_TRUE(config_rejected);
-    auto node = NodeFactory::Instance().Create("LlmGenerateNode");
+    auto node = NodeRegistry::Instance().Create("LlmGenerateNode");
     ASSERT_NE(node, nullptr);
     EXPECT_FALSE(InitNodeForTest(*node, config, session_ctx_.get()));
   }
@@ -168,7 +169,7 @@ TEST_F(LlmGenerateNodeTest, ValidatorAndInitializationRejectInvalidOptions) {
 
 // 2. Missing Prompt Fails Closed
 TEST_F(LlmGenerateNodeTest, MissingInputFailsClosed) {
-  auto node = NodeFactory::Instance().Create("LlmGenerateNode");
+  auto node = NodeRegistry::Instance().Create("LlmGenerateNode");
   ASSERT_NE(node, nullptr);
   ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "llm_model_v1"}},
                               session_ctx_.get()));
@@ -178,7 +179,7 @@ TEST_F(LlmGenerateNodeTest, MissingInputFailsClosed) {
 }
 
 TEST_F(LlmGenerateNodeTest, EmptyBatchSkipsInference) {
-  auto node = NodeFactory::Instance().Create("LlmGenerateNode");
+  auto node = NodeRegistry::Instance().Create("LlmGenerateNode");
   ASSERT_NE(node, nullptr);
   ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "llm_model_v1"}},
                               session_ctx_.get()));
@@ -193,7 +194,7 @@ TEST_F(LlmGenerateNodeTest, EmptyBatchSkipsInference) {
 }
 
 TEST_F(LlmGenerateNodeTest, InvalidModelOutputFailsClosed) {
-  auto node = NodeFactory::Instance().Create("LlmGenerateNode");
+  auto node = NodeRegistry::Instance().Create("LlmGenerateNode");
   ASSERT_NE(node, nullptr);
   ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "llm_model_v1"}},
                               session_ctx_.get()));

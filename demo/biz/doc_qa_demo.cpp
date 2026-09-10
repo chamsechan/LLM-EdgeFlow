@@ -7,13 +7,12 @@
 #include "demo/common/demo_registry.h"
 #include "demo/common/operator_runner.h"
 #include "demo/common/result_writer.h"
-#include "operator/company_operator_types.h"
+#include "platform_mock/operator_data_types.h"
 
 namespace alg_demo {
 
 int RunDocQaDemo(const DemoOptions& options) {
-  PrintBanner("【业务 3 演示】智能长文档问答业务",
-              "Conf: " + options.config_path);
+  PrintBanner("智能长文档问答业务", "Conf: " + options.config_path);
 
   std::unordered_map<std::string, std::vector<std::string>> sections;
   std::string err;
@@ -141,7 +140,7 @@ int RunDocQaDemo(const DemoOptions& options) {
   return 0;
 }
 
-REGISTER_DEMO_BIZ("doc_qa", "【业务 3 演示】智能长文档问答业务", RunDocQaDemo,
+REGISTER_DEMO_BIZ("doc_qa", "智能长文档问答业务", RunDocQaDemo,
                   ALG_BIZ_TYPE_DOC_QA);
 
 }  // namespace alg_demo

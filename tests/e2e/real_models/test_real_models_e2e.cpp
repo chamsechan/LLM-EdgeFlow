@@ -7,8 +7,8 @@
 #include <string>
 #include <vector>
 
-#include "company_alg_cpp.hpp"
-#include "company_alg_interface.h"
+#include "edgeflow/c_api.h"
+#include "edgeflow/c_api.hpp"
 #include "engine/model_interface.h"
 #include "engine/model_runtime_factory.h"
 
@@ -124,8 +124,7 @@ TEST_F(RealModelE2ETest, RealModelCAbiEndToEnd) {
   ASSERT_EQ(Alg_Init(), 0);
 
   const std::string cfg_path =
-      (project_root_ / "configs/pipeline_entity_extract_llamacpp.json")
-          .string();
+      (project_root_ / "configs/pipeline_entity_extract_cpu.json").string();
   const std::string model_root = model_root_.string();
 
   CompanyAlgParamCreate create_param;

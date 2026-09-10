@@ -75,13 +75,13 @@ REGISTER_MODEL_WITH_DEFINITION(DummyModel,
                                MakeTestModelDef(DummyModel::kModelType));
 
 TEST(RegistryConflictNodeTest, DuplicateNodeFailClosed) {
-  ASSERT_FALSE(NodeFactory::Instance().HasConflict());
+  ASSERT_FALSE(NodeRegistry::Instance().HasConflict());
   ASSERT_FALSE(ModelRegistry::Instance().HasConflict());
-  EXPECT_FALSE(NodeFactory::Instance().Register(
+  EXPECT_FALSE(NodeRegistry::Instance().Register(
       DummyNode::kNodeType, []() { return std::make_unique<DummyNode>(); },
       MakeTestNodeDef(DummyNode::kNodeType)));
-  EXPECT_TRUE(NodeFactory::Instance().HasConflict());
-  EXPECT_NE(NodeFactory::Instance().Create(DummyNode::kNodeType), nullptr);
+  EXPECT_TRUE(NodeRegistry::Instance().HasConflict());
+  EXPECT_NE(NodeRegistry::Instance().Create(DummyNode::kNodeType), nullptr);
 
   Pipeline pipe;
   PipelineDiagnostic diag;
@@ -98,7 +98,7 @@ TEST(RegistryConflictNodeTest, DuplicateNodeFailClosed) {
 }
 
 TEST(RegistryConflictModelTest, DuplicateModelFailClosed) {
-  ASSERT_FALSE(NodeFactory::Instance().HasConflict());
+  ASSERT_FALSE(NodeRegistry::Instance().HasConflict());
   ASSERT_FALSE(ModelRegistry::Instance().HasConflict());
   EXPECT_FALSE(ModelRegistry::Instance().Register(
       MakeTestModelDef(DummyModel::kModelType), DummyModel::Create));

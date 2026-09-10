@@ -71,7 +71,7 @@ class TextEmbeddingNodeTest : public ::testing::Test {
 
 // 1. Init & Process Request Lifetime
 TEST_F(TextEmbeddingNodeTest, ProcessRequestLifetime) {
-  auto node = NodeFactory::Instance().Create("TextEmbeddingNode");
+  auto node = NodeRegistry::Instance().Create("TextEmbeddingNode");
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {{"bind_model", "embed_model_v1"}, {"normalize", true}};
@@ -92,7 +92,7 @@ TEST_F(TextEmbeddingNodeTest, ProcessRequestLifetime) {
 
 // 2. Session Caching Single-Flight & Invalidation
 TEST_F(TextEmbeddingNodeTest, SessionCachingSingleFlightAndInvalidation) {
-  auto node = NodeFactory::Instance().Create("TextEmbeddingNode");
+  auto node = NodeRegistry::Instance().Create("TextEmbeddingNode");
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {{"bind_model", "embed_model_v1"},
@@ -158,7 +158,7 @@ TEST_F(TextEmbeddingNodeTest, SessionCachingSingleFlightAndInvalidation) {
 
 // 3. Missing Input Fails Closed
 TEST_F(TextEmbeddingNodeTest, MissingInputFailsClosed) {
-  auto node = NodeFactory::Instance().Create("TextEmbeddingNode");
+  auto node = NodeRegistry::Instance().Create("TextEmbeddingNode");
   ASSERT_NE(node, nullptr);
   ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "embed_model_v1"}},
                               session_ctx_.get()));
@@ -168,7 +168,7 @@ TEST_F(TextEmbeddingNodeTest, MissingInputFailsClosed) {
 }
 
 TEST_F(TextEmbeddingNodeTest, EmptyBatchSkipsInference) {
-  auto node = NodeFactory::Instance().Create("TextEmbeddingNode");
+  auto node = NodeRegistry::Instance().Create("TextEmbeddingNode");
   ASSERT_NE(node, nullptr);
   ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "embed_model_v1"}},
                               session_ctx_.get()));
@@ -183,7 +183,7 @@ TEST_F(TextEmbeddingNodeTest, EmptyBatchSkipsInference) {
 }
 
 TEST_F(TextEmbeddingNodeTest, InvalidRequestOutputFailsClosed) {
-  auto node = NodeFactory::Instance().Create("TextEmbeddingNode");
+  auto node = NodeRegistry::Instance().Create("TextEmbeddingNode");
   ASSERT_NE(node, nullptr);
   ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "embed_model_v1"}},
                               session_ctx_.get()));
@@ -205,7 +205,7 @@ TEST_F(TextEmbeddingNodeTest, InvalidRequestOutputFailsClosed) {
 }
 
 TEST_F(TextEmbeddingNodeTest, InvalidSessionOutputIsNotCached) {
-  auto node = NodeFactory::Instance().Create("TextEmbeddingNode");
+  auto node = NodeRegistry::Instance().Create("TextEmbeddingNode");
   ASSERT_NE(node, nullptr);
   ASSERT_TRUE(InitNodeForTest(
       *node, {{"bind_model", "embed_model_v1"}, {"lifetime", "session"}},
@@ -229,8 +229,8 @@ TEST_F(TextEmbeddingNodeTest, InvalidSessionOutputIsNotCached) {
 
 // 4. Session Cache Collision Reproduction Defeated (C01)
 TEST_F(TextEmbeddingNodeTest, SessionCacheCollisionReproductionDefeated) {
-  auto node_a = NodeFactory::Instance().Create("TextEmbeddingNode");
-  auto node_b = NodeFactory::Instance().Create("TextEmbeddingNode");
+  auto node_a = NodeRegistry::Instance().Create("TextEmbeddingNode");
+  auto node_b = NodeRegistry::Instance().Create("TextEmbeddingNode");
   ASSERT_NE(node_a, nullptr);
   ASSERT_NE(node_b, nullptr);
   ASSERT_TRUE(InitNodeForTest(
@@ -307,7 +307,7 @@ TEST_F(TextEmbeddingNodeTest, SessionCacheCollisionReproductionDefeated) {
   EXPECT_EQ(counting_model_->infer_calls.load(), 4);
 
   // Different normalize option creates distinct cache entry
-  auto node_no_norm = NodeFactory::Instance().Create("TextEmbeddingNode");
+  auto node_no_norm = NodeRegistry::Instance().Create("TextEmbeddingNode");
   ASSERT_TRUE(InitNodeForTest(*node_no_norm,
                               {{"bind_model", "embed_model_v1"},
                                {"lifetime", "session"},
@@ -441,7 +441,7 @@ TEST_F(TextEmbeddingNodeTest, StrictPlanKeepsDistinctCorpusCacheIdentities) {
     ctx.Publish("input_sentences", TextBatch{{1, 0, "probe"}});
     for (const auto& id : plan.topological_order) {
       const auto& node_plan = plan.node_plans.at(id);
-      auto node = NodeFactory::Instance().Create(node_plan.node.node_type);
+      auto node = NodeRegistry::Instance().Create(node_plan.node.node_type);
       ASSERT_NE(node, nullptr);
       ASSERT_TRUE(node->Init(
           {&node_plan, &node_plan.normalized_config, session_ctx_.get()}));

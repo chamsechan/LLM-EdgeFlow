@@ -17,9 +17,9 @@ Deterministic Model and Backend registrations shared by Demo mock profiles and t
 `dev_support/inference/`. They are OBJECT targets so every consumer receives the registration
 translation units, while production `alg_sdk` never links them.
 
-The source path for each compiled test is declared once in `cmake/TestInventory.cmake`.
-`cmake/Tests.cmake` groups those sources into the default PCH-enabled runners;
-`cmake/IndividualTests.cmake` creates process-per-file targets for focused diagnostics. Both modes
+The source path for each compiled test is declared once in `cmake_ext/TestInventory.cmake`.
+`cmake_ext/Tests.cmake` groups those sources into the default PCH-enabled runners;
+`cmake_ext/IndividualTests.cmake` creates process-per-file targets for focused diagnostics. Both modes
 must satisfy the same required CTest inventory.
 
 Add coverage to the narrowest existing suite that owns the behavior. Create a new executable only
@@ -28,8 +28,8 @@ when process isolation or an independent runtime lifecycle is part of the contra
 ## Fast feedback for solution authors
 
 Use the default sharded runners below while developing; replace the filter with the suite/test
-you actually changed. Source inventory is in `cmake/TestInventory.cmake`, runner membership in
-`cmake/Tests.cmake`.
+you actually changed. Source inventory is in `cmake_ext/TestInventory.cmake`, runner membership in
+`cmake_ext/Tests.cmake`.
 
 | Change | Build target | Typical GoogleTest filter |
 | --- | --- | --- |
