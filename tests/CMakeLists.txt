@@ -1,4 +1,9 @@
 link_libraries(edgeflow_internal_headers)
+if(APPLE AND CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang")
+  # Match runtime type visibility for std::any Blackboard payloads. With default
+  # visibility, TextTemplateNodeTest/CommonNodesTest fail to read attributes.
+  set(CMAKE_CXX_VISIBILITY_PRESET hidden)
+endif()
 
 # Allocation replacement is confined to the focused test executables. It is
 # never linked into runtime objects, the SDK, demos or repository tools.

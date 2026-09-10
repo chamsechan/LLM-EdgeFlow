@@ -84,6 +84,11 @@ edgeflow_header_view(integration ${integration_headers} ${core_headers}
 # requirements, so the existing LayerGuard gate detects accidental broadening.
 function(edgeflow_generate_layer_compile_manifest)
   set(content "set(layer_cxx [==[${CMAKE_CXX_COMPILER}]==])\n")
+  set(layer_cxx_flags "")
+  foreach(directory IN LISTS edgeflow_cxx_system_include_dirs)
+    list(APPEND layer_cxx_flags -isystem "${directory}")
+  endforeach()
+  string(APPEND content "set(layer_cxx_flags [==[${layer_cxx_flags}]==])\n")
   string(APPEND content "set(layer_source_dir [==[${PROJECT_SOURCE_DIR}]==])\n")
   string(APPEND content "set(layer_generator [==[${CMAKE_GENERATOR}]==])\n")
   string(APPEND content "set(layer_test_root [==[${PROJECT_BINARY_DIR}/layer_compile_checks/$<CONFIG>]==])\n")

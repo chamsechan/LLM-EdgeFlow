@@ -42,6 +42,49 @@ inline bool IsValidConfigValueKind(ConfigValueKind kind) noexcept {
   }
 }
 
+namespace detail {
+
+// Exclusive integer upper bounds are exactly representable in double;
+// converting INT64_MAX/UINT64_MAX to double rounds up to these values.
+inline constexpr double kInt64UpperBound = 9223372036854775808.0;    // 2^63
+inline constexpr double kUint64UpperBound = 18446744073709551616.0;  // 2^64
+
+inline bool IsValueBelowMinimum(const nlohmann::json& val, double min_val) {
+  if (val.is_number_unsigned()) {
+    if (min_val <= 0.0) return false;
+    if (min_val >= kUint64UpperBound) return true;
+    return val.get<uint64_t>() < static_cast<uint64_t>(std::ceil(min_val));
+  }
+  if (val.is_number_integer()) {
+    if (min_val <= static_cast<double>(std::numeric_limits<int64_t>::min()))
+      return false;
+    if (min_val >= kInt64UpperBound) return true;
+    return val.get<int64_t>() < static_cast<int64_t>(std::ceil(min_val));
+  }
+  return val.get<double>() < min_val;
+}
+
+inline bool IsValueAboveMaximum(const nlohmann::json& val, double max_val) {
+  if (val.is_number_unsigned()) {
+    if (max_val < 0.0) return true;
+    if (max_val >= kUint64UpperBound) return false;
+    const uint64_t u = val.get<uint64_t>();
+    const uint64_t floor_val = static_cast<uint64_t>(max_val);
+    return u > floor_val;
+  }
+  if (val.is_number_integer()) {
+    if (max_val < static_cast<double>(std::numeric_limits<int64_t>::min()))
+      return true;
+    if (max_val >= kInt64UpperBound) return false;
+    const int64_t i = val.get<int64_t>();
+    const int64_t floor_val = static_cast<int64_t>(std::floor(max_val));
+    return i > floor_val;
+  }
+  return val.get<double>() > max_val;
+}
+
+}  // namespace detail
+
 inline bool ValidateConfigFieldDefinitions(
     const std::vector<ConfigFieldDefinition>& fields, std::string* error) {
   std::unordered_set<std::string> seen_names;
@@ -94,14 +137,12 @@ inline bool ValidateConfigFieldDefinitions(
             }
             return false;
           }
-          const long double value =
-              field.default_value.is_number_unsigned()
-                  ? static_cast<long double>(
-                        field.default_value.get<uint64_t>())
-                  : static_cast<long double>(
-                        field.default_value.get<int64_t>());
-          if ((field.minimum.has_value() && value < *field.minimum) ||
-              (field.maximum.has_value() && value > *field.maximum)) {
+          if ((field.minimum.has_value() &&
+               detail::IsValueBelowMinimum(field.default_value,
+                                           *field.minimum)) ||
+              (field.maximum.has_value() &&
+               detail::IsValueAboveMaximum(field.default_value,
+                                           *field.maximum))) {
             if (error) {
               *error = "Default value outside bounds for field: " + field.name;
             }
@@ -301,20 +342,16 @@ inline bool ValidateAndNormalizeFields(
 
     // 数值范围检查
     if (val.is_number()) {
-      long double num =
-          val.is_number_unsigned()
-              ? static_cast<long double>(val.get<uint64_t>())
-              : (val.is_number_integer()
-                     ? static_cast<long double>(val.get<int64_t>())
-                     : static_cast<long double>(val.get<double>()));
-      if (field.minimum.has_value() && num < *field.minimum) {
+      if (field.minimum.has_value() &&
+          detail::IsValueBelowMinimum(val, *field.minimum)) {
         ok = false;
         if (errors) {
           errors->push_back({field.name, ConfigFieldErrorKind::kOutOfRange,
                              "Numeric value is below minimum " +
                                  std::to_string(*field.minimum)});
         }
-      } else if (field.maximum.has_value() && num > *field.maximum) {
+      } else if (field.maximum.has_value() &&
+                 detail::IsValueAboveMaximum(val, *field.maximum)) {
         ok = false;
         if (errors) {
           errors->push_back({field.name, ConfigFieldErrorKind::kOutOfRange,

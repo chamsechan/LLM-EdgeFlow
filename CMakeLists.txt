@@ -88,9 +88,12 @@ target_include_directories(edgeflow_internal_headers INTERFACE
 target_link_libraries(edgeflow_internal_headers INTERFACE
     edgeflow_extension_headers)
 
+set(edgeflow_cxx_system_include_dirs "")
 if(APPLE AND CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang")
   if(EXISTS "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1")
-    include_directories(SYSTEM "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1")
+    list(APPEND edgeflow_cxx_system_include_dirs
+        "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1")
+    include_directories(SYSTEM ${edgeflow_cxx_system_include_dirs})
   endif()
 endif()
 

@@ -703,5 +703,33 @@ TEST(OperatorBizBridgeRegistryTest, ConcurrentReadFreezeInterleavingTSan) {
   EXPECT_FALSE(local_reg.HasConflict());
 }
 
+TEST(OperatorBizBridgeRegistryTest,
+     CrossRerankHandlesNegativeCandidateCountSafely) {
+  const auto* desc = OperatorBizBridgeRegistry::Instance().GetBridge(
+      ALG_BIZ_TYPE_CROSS_RERANK);
+  ASSERT_NE(desc, nullptr);
+
+  ProcessLocalShadowStorage storage;
+  std::string q_str = "Query";
+  CompanyString q_cs{static_cast<int32_t>(q_str.size()), q_str.data()};
+  CompanyOperatorRerankInput input{};
+  input.request_id = 999;
+  input.query_text = &q_cs;
+  input.candidate_count = -5;
+
+  std::unordered_map<std::string, const void*> slots = {{"rerank_in", &input}};
+  const void* internal_dto = nullptr;
+  std::string err;
+  ASSERT_EQ(desc->convert_sample_input(slots, storage, &internal_dto, &err), 0);
+  ASSERT_NE(internal_dto, nullptr);
+  const auto* dto =
+      static_cast<const CompanyRerankBatchInputStruct*>(internal_dto);
+  EXPECT_EQ(dto->request_id, 999);
+  EXPECT_STREQ(dto->query_text, "Query");
+  for (int i = 0; i < 8; ++i) {
+    EXPECT_EQ(dto->candidate_passages[i], nullptr);
+  }
+}
+
 }  // namespace
 }  // namespace llm_edgeflow
