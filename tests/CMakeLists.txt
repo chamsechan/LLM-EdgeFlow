@@ -40,7 +40,7 @@ set_tests_properties(QualityGateScriptsContractTest PROPERTIES
   WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
   LABELS "tier1;static-gate;dev-fast;sanitizer-compatible")
 
-include(${PROJECT_SOURCE_DIR}/cmake/Tests.cmake)
+include(${PROJECT_SOURCE_DIR}/cmake_ext/Tests.cmake)
 
 option(ENABLE_REAL_MODEL_TESTS "Enable real model weights E2E test suite" OFF)
 if(ENABLE_REAL_MODEL_TESTS)

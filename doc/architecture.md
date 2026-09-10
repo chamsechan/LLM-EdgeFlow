@@ -223,7 +223,7 @@ dependency interface；根 `CMakeLists.txt` 是唯一 Composition Root，另以
 只暴露本层实现头、所需的下层 API 与共享契约；`root/`、`src/` 和完整 `include/`
 搜索路径仅由仓库工具、Demo 和测试显式使用，不再经运行时依赖传播。view 中的链接
 跟随源码编辑，新增或移除头文件会触发 CMake 重新生成。Model/Backend 私有头不向
-上层传播；Node 可引用的 Core 契约由 `cmake/node_core_contracts.txt` 唯一列举，
+上层传播；Node 可引用的 Core 契约由 `cmake_ext/node_core_contracts.txt` 唯一列举，
 CMake 与 LayerGuard 共用此清单。新增契约或改变依赖方向需同步设计与规则。
 
 include 搜索范围不是编译器访问权限。`scripts/check_layer_dependencies.py` 继续按

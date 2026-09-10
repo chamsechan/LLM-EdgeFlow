@@ -1,9 +1,9 @@
-# cmake/Pcre2.cmake
+# cmake_ext/Pcre2.cmake
 # PCRE2 智能缓存与预编译复用配置
 
 set(PCRE2_3RDPARTY_DIR "${CMAKE_SOURCE_DIR}/3rdparty/pcre2")
 option(PCRE2_FORCE_REBUILD "Force rebuilding pcre2 even if cached in 3rdparty" OFF)
-include(cmake/ThirdPartyCacheMetadata.cmake)
+include(cmake_ext/ThirdPartyCacheMetadata.cmake)
 edgeflow_prepare_third_party_cache(
   NAME pcre2
   VERSION 10.47

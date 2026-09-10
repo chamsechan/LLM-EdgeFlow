@@ -4,7 +4,7 @@ if(NOT DEFINED PROJECT_SOURCE_DIR OR NOT DEFINED TEST_ROOT)
   message(FATAL_ERROR "PROJECT_SOURCE_DIR and TEST_ROOT are required")
 endif()
 
-include("${PROJECT_SOURCE_DIR}/cmake/ThirdPartyCacheMetadata.cmake")
+include("${PROJECT_SOURCE_DIR}/cmake_ext/ThirdPartyCacheMetadata.cmake")
 
 set(_cache_dir "${TEST_ROOT}/sample_cache")
 file(REMOVE_RECURSE "${TEST_ROOT}")
@@ -60,7 +60,7 @@ function(expect_kite_failure expected)
             -DENABLE_LLAMACPP=OFF -DCMAKE_SYSTEM_NAME=Linux
             -DCMAKE_SYSTEM_PROCESSOR=x86_64
             "-DLLM_EDGEFLOW_3RDPARTY_DIR=${TEST_ROOT}/deps"
-            ${ARGN} -P "${PROJECT_SOURCE_DIR}/cmake/KiteLlm.cmake"
+            ${ARGN} -P "${PROJECT_SOURCE_DIR}/cmake_ext/KiteLlm.cmake"
     RESULT_VARIABLE result OUTPUT_VARIABLE output ERROR_VARIABLE error)
   if(result EQUAL 0 OR NOT "${output}${error}" MATCHES "${expected}")
     message(FATAL_ERROR "Expected kiteLLM failure '${expected}': ${output}${error}")
@@ -77,7 +77,7 @@ function(expect_whisper_failure expected)
   execute_process(
     COMMAND "${CMAKE_COMMAND}" -DENABLE_WHISPERCPP=ON
             "-DLLM_EDGEFLOW_3RDPARTY_DIR=${TEST_ROOT}/deps"
-            ${ARGN} -P "${PROJECT_SOURCE_DIR}/cmake/WhisperCpp.cmake"
+            ${ARGN} -P "${PROJECT_SOURCE_DIR}/cmake_ext/WhisperCpp.cmake"
     RESULT_VARIABLE result OUTPUT_VARIABLE output ERROR_VARIABLE error)
   if(result EQUAL 0 OR NOT "${output}${error}" MATCHES "${expected}")
     message(FATAL_ERROR "Expected whisper.cpp failure '${expected}': ${output}${error}")

@@ -81,11 +81,11 @@ Biz egress 描述 Adapter 消费的内部端口。普通一对一出口仍要求
 CrossRerank 的排名数组和 Compliance 的首项选择使用 `N:1 / aggregate`。
 预检检查声明兼容性，打包阶段仍检查实际请求来源、排名及输出容量。
 
-1. 在 `edgeflow/c_api.h` 中只声明 C11 枚举、定长结构、指针和明确所有权；公开
-   结构体变更必须先有 RFC。
+1. 当前环境的模拟平台枚举和 C 数据结构放在 `platform_mock/alg_types.h`，只使用
+   C11 类型并明确所有权；函数入口保留在 `edgeflow/c_api.h`。公开结构体变更必须先有 RFC。
 2. 在 `src/adapter/biz/` 实现无请求状态的 `IBizAdapter`，用
    `AdapterValidationHelper` 完成批次、指针、长度和输出容量校验。
-3. `AdapterDescriptor::pipelines` 使用完整 `BizDefinition` 声明合法 `biz_name` 及
+3. `AdapterDescriptor::biz_definitions` 使用完整 `BizDefinition` 声明合法 `biz_name` 及
    ingress/egress typed ports；通过 `REGISTER_BIZ_ADAPTER` 注册，不修改中心派发。
 4. `Unpack`/`Pack` 使用 `core/common_contracts.h` 中的中性值类型，并在
    `adapter/biz_blackboard_keys.h` 集中声明业务 ingress/egress `BlackboardKey<T>`；

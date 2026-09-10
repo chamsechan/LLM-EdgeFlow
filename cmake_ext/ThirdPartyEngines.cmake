@@ -1,8 +1,8 @@
-# cmake/ThirdPartyEngines.cmake
+# cmake_ext/ThirdPartyEngines.cmake
 # 第三方推理引擎与条件 SDK (ONNX Runtime / llama.cpp / kiteLLM)
 
 include(FetchContent)
-include(cmake/ThirdPartyCacheMetadata.cmake)
+include(cmake_ext/ThirdPartyCacheMetadata.cmake)
 
 set(LLM_EDGEFLOW_3RDPARTY_DIR "${CMAKE_SOURCE_DIR}/3rdparty")
 
@@ -247,5 +247,5 @@ if(ENABLE_LLAMACPP)
   endif()
 endif()
 
-include(cmake/KiteLlm.cmake)
-include(cmake/WhisperCpp.cmake)
+include(cmake_ext/KiteLlm.cmake)
+include(cmake_ext/WhisperCpp.cmake)

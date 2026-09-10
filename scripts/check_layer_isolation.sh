@@ -374,7 +374,7 @@ sed \
   -e "s/@PROJECT_VERSION@/${PRODUCT_VERSION}/g" \
   -e "s/@LLM_EDGEFLOW_ABI_VERSION@/${ABI_VERSION}/g" \
   -e "s/@LLM_EDGEFLOW_ABI_VERSION_MAJOR@/${ABI_MAJOR}/g" \
-  "${REPO_ROOT}/cmake/edgeflow_version.h.in" > \
+  "${REPO_ROOT}/cmake_ext/edgeflow_version.h.in" > \
   "${GENERATED_VERSION_INCLUDE}/edgeflow/version.h"
 
 C11_COMPILER=""

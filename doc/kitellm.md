@@ -33,7 +33,7 @@ kiteLLM + ONNX，确认 Catalog 注册并运行包含真实 GGUF 的完整 CTest
 公开 artifact，也不进入 Actions cache，只有公开 GGUF 模型使用缓存。
 
 支持 Linux x86_64 与 aarch64；版本、平台包和 SHA-256 固定在
-[`cmake/KiteLlm.cmake`](../cmake/KiteLlm.cmake)。上游 v0.1.0 对应提交
+[`cmake_ext/KiteLlm.cmake`](../cmake_ext/KiteLlm.cmake)。上游 v0.1.0 对应提交
 `5e58820f39919fce2046e2fd703c62601a5df59b`。修改发布包后即使 tag 不变，校验也会拒绝。
 
 归档缓存位于 `3rdparty/kite_llm/v0.1.0/<x64|arm>/`，每次配置都校验归档 SHA-256，

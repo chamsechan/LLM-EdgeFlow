@@ -1,8 +1,8 @@
-# cmake/NlohmannJson.cmake
+# cmake_ext/NlohmannJson.cmake
 # nlohmann/json 现代化 C++ JSON 库智能缓存配置
 
 set(JSON_3RDPARTY_DIR "${CMAKE_SOURCE_DIR}/3rdparty/nlohmann_json")
-include(cmake/ThirdPartyCacheMetadata.cmake)
+include(cmake_ext/ThirdPartyCacheMetadata.cmake)
 edgeflow_prepare_third_party_cache(
   NAME nlohmann_json
   VERSION 3.11.3

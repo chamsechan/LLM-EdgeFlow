@@ -26,7 +26,7 @@ set(CMAKE_BUILD_WITH_INSTALL_RPATH FALSE)
 set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 set(CMAKE_BUILD_RPATH_USE_ORIGIN TRUE)
 # 编译与链接加速配置
-include(cmake/BuildAcceleration.cmake)
+include(cmake_ext/BuildAcceleration.cmake)
 add_compile_options(-Wall -Wextra -fPIC)
 
 # 确保 mock npu 模型的占位文件存在
@@ -58,17 +58,17 @@ file(MAKE_DIRECTORY "${LLM_EDGEFLOW_GENERATED_INCLUDE_DIR}/edgeflow")
 # forwarding header after the canonical version changes.
 file(REMOVE "${LLM_EDGEFLOW_GENERATED_INCLUDE_DIR}/company_alg_version.h")
 configure_file(
-  "${PROJECT_SOURCE_DIR}/cmake/edgeflow_version.h.in"
+  "${PROJECT_SOURCE_DIR}/cmake_ext/edgeflow_version.h.in"
   "${LLM_EDGEFLOW_GENERATED_INCLUDE_DIR}/edgeflow/version.h"
   @ONLY)
 set(LLM_EDGEFLOW_SDK_VERSION_SCRIPT
     "${PROJECT_BINARY_DIR}/edgeflow_sdk.map")
 configure_file(
-  "${PROJECT_SOURCE_DIR}/cmake/edgeflow_sdk.map.in"
+  "${PROJECT_SOURCE_DIR}/cmake_ext/edgeflow_sdk.map.in"
   "${LLM_EDGEFLOW_SDK_VERSION_SCRIPT}"
   @ONLY)
 
-include(cmake/LayerHeaderViews.cmake)
+include(cmake_ext/LayerHeaderViews.cmake)
 add_library(edgeflow_public_headers INTERFACE)
 target_include_directories(edgeflow_public_headers INTERFACE
     $<BUILD_INTERFACE:${LLM_EDGEFLOW_GENERATED_INCLUDE_DIR}>
@@ -95,16 +95,16 @@ if(APPLE AND CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang")
 endif()
 
 # 引入第三方 JSON 库 (nlohmann/json) 自动下载配置
-include(cmake/NlohmannJson.cmake)
+include(cmake_ext/NlohmannJson.cmake)
 target_link_libraries(edgeflow_extension_headers INTERFACE
     nlohmann_json::nlohmann_json)
-include(cmake/StbImage.cmake)
+include(cmake_ext/StbImage.cmake)
 
 # 引入 Unicode 正则库（TextRuleMatchNode lookbehind / 命名捕获）
-include(cmake/Pcre2.cmake)
+include(cmake_ext/Pcre2.cmake)
 
 # 引入第三方开源推理引擎 (ONNX Runtime & llama.cpp) 自动下载配置
-include(cmake/ThirdPartyEngines.cmake)
+include(cmake_ext/ThirdPartyEngines.cmake)
 
 # Keep repository executables at build/ even though their CMake ownership is
 # delegated to source subdirectories. Public commands and CI scripts rely on
@@ -253,7 +253,7 @@ add_subdirectory(src/tools)
 
 include(CTest)
 if(BUILD_TESTING)
-  include(cmake/GoogleTest.cmake)
+  include(cmake_ext/GoogleTest.cmake)
   option(LLM_EDGEFLOW_SHARDED_TEST_RUNNERS
          "Build PCH-enabled sharded Google Test runners" ON)
   add_subdirectory(tests)

@@ -10,7 +10,7 @@ import tempfile
 # Header-only runtime and authoring contracts intentionally shared with Nodes.
 # Additions require an explicit ownership decision, not a directory-wide exemption.
 NODE_CORE_CONTRACTS = set(
-    (Path(__file__).resolve().parents[1] / "cmake/node_core_contracts.txt")
+    (Path(__file__).resolve().parents[1] / "cmake_ext/node_core_contracts.txt")
     .read_text(encoding="utf-8").splitlines())
 NODE_CORE_PATHS = {"include/core/" + name for name in NODE_CORE_CONTRACTS}
 SOURCE_SUFFIXES = {".h", ".hpp", ".c", ".cc", ".cpp"}

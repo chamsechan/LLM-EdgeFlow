@@ -1,4 +1,4 @@
-# cmake/WhisperCpp.cmake
+# cmake_ext/WhisperCpp.cmake
 # whisper.cpp 开源语音转写引擎配置 (用于 float32 16kHz PCM 音频转写)
 
 option(ENABLE_WHISPERCPP "Enable whisper.cpp ASR engine (reuses shared GGML provider)" OFF)

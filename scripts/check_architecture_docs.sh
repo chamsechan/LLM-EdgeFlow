@@ -153,8 +153,8 @@ elif [[ "${ABI_VERSION%%.*}" != "${ABI_MAJOR}" ]]; then
   FAILED=1
 fi
 
-VERSION_TEMPLATE="${ROOT_DIR}/cmake/edgeflow_version.h.in"
-VERSION_SCRIPT_TEMPLATE="${ROOT_DIR}/cmake/edgeflow_sdk.map.in"
+VERSION_TEMPLATE="${ROOT_DIR}/cmake_ext/edgeflow_version.h.in"
+VERSION_SCRIPT_TEMPLATE="${ROOT_DIR}/cmake_ext/edgeflow_sdk.map.in"
 PUBLIC_INTERFACE="${ROOT_DIR}/include/edgeflow/c_api.h"
 if ! grep -Fq '#include "edgeflow/version.h"' "${PUBLIC_INTERFACE}"; then
   echo "❌ Public C interface does not include the generated version header"

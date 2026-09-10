@@ -1,7 +1,7 @@
 # Sharded Google Test runners and label-driven development test matrix.
 
-include(${PROJECT_SOURCE_DIR}/cmake/TestInventory.cmake)
-include(${PROJECT_SOURCE_DIR}/cmake/ScaffoldFixtures.cmake)
+include(${PROJECT_SOURCE_DIR}/cmake_ext/TestInventory.cmake)
+include(${PROJECT_SOURCE_DIR}/cmake_ext/ScaffoldFixtures.cmake)
 
 option(LLM_EDGEFLOW_TEST_PCH "Enable precompiled headers for test runners" ON)
 
@@ -15,7 +15,7 @@ set_tests_properties(ThirdPartyCacheMetadataTest PROPERTIES
   LABELS "tier1;static-gate;dev-fast;sanitizer-compatible")
 
 if(NOT LLM_EDGEFLOW_SHARDED_TEST_RUNNERS)
-  include(${PROJECT_SOURCE_DIR}/cmake/IndividualTests.cmake)
+  include(${PROJECT_SOURCE_DIR}/cmake_ext/IndividualTests.cmake)
   # The opt-in real Kite deployment suite loads text, ONNX and vision models.
   set_tests_properties(DemoRunnerTest PROPERTIES TIMEOUT 300)
   edgeflow_assert_required_test_inventory()

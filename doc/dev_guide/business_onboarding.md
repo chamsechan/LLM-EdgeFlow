@@ -63,7 +63,7 @@
    在 `biz_blackboard_keys.h` 复用或增加 typed key；Node 使用中性 Batch 和逻辑端口，
    不包含平台结构或业务 key 头。
 2. **填写描述符。** `GetDescriptor()` 返回业务枚举、结构名、所有权与批次约束；
-   `AdapterDescriptor::pipelines` 中的 `BizDefinition` 声明允许的 `biz_name`、Demo 名和
+   `AdapterDescriptor::biz_definitions` 中的 `BizDefinition` 声明允许的 `biz_name`、Demo 名和
    ingress/egress。配置里的业务名必须与这里一致。
 3. **实现输入转换。** `Unpack` 使用 `AdapterValidationHelper` 检查批次、指针和长度，
    将输入复制到本次 `AlgContext`。关键词样例把外部请求编号保存在 `raw_request_ids`，

@@ -3,6 +3,13 @@
 文件按职责归属，头文件按使用者范围放置。架构职责与依赖方向见
 [架构设计](../architecture.md)，本次迁移决策见 [RFC-0046](../rfcs/0046-naming-and-header-boundaries.md)。
 
+## 构建扩展目录
+
+本项目维护的 CMake 模块、生成模板和 Node 契约清单统一放在仓库根目录的
+`cmake_ext/`，由顶层 `CMakeLists.txt` 和相应测试引用。根目录的 `cmake/` 留给公司
+内部构建系统使用；本仓库不在该位置保留转发目录或符号链接。
+`cmake` 命令、`CMakeLists.txt` 文件名，以及第三方安装包的 `lib/cmake/` 路径保持原约定。
+
 ## 头文件的三种使用范围
 
 | 使用者 | 位置与构建目标 | 约定 |

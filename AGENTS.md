@@ -79,7 +79,7 @@ from prose. Query `alg_pipeline_tool`; registrations and Definitions are the exe
 - Preserve unrelated user changes. Do not use destructive Git operations or push directly to
   `main`.
 - Do not bundle third-party source or binaries. Dependency declarations remain pinned and
-  verified through `cmake/`.
+  verified through `cmake_ext/`.
 - The current external workspace cannot access the company-internal SDK. Do not request, infer,
   copy, or commit its headers, libraries, models, configuration, or credentials here. Prepare
   only vendor-neutral migration and integration seams; actual SDK integration and target-hardware

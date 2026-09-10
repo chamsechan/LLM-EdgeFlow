@@ -1,9 +1,9 @@
-# cmake/GoogleTest.cmake
+# cmake_ext/GoogleTest.cmake
 # Google Test (GTest) 智能缓存与预编译复用配置
 
 set(GTEST_3RDPARTY_DIR "${CMAKE_SOURCE_DIR}/3rdparty/googletest")
 option(GTEST_FORCE_REBUILD "Force rebuilding googletest even if cached in 3rdparty" OFF)
-include(cmake/ThirdPartyCacheMetadata.cmake)
+include(cmake_ext/ThirdPartyCacheMetadata.cmake)
 edgeflow_prepare_third_party_cache(
   NAME googletest
   VERSION 1.14.0
