@@ -1,17 +1,16 @@
 #pragma once
 
-#include <memory>
-#include <nlohmann/json.hpp>
+#include <nlohmann/json_fwd.hpp>
 #include <string>
 #include <string_view>
 #include <utility>
 
 #include "contracts/diagnostic.h"
-#include "core/alg_context.h"
-#include "core/session_context.h"
 
 namespace llm_edgeflow {
 
+class AlgContext;
+class SessionContext;
 struct ValidatedNodePlan;
 
 /**

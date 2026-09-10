@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <memory>
 #include <nlohmann/json.hpp>
 #include <string>
@@ -11,9 +12,10 @@
 #include "core/pipeline_diagnostic.h"
 #include "core/pipeline_validator.h"
 #include "core/session_context.h"
-#include "core/thread_pool.h"
 
 namespace llm_edgeflow {
+
+class ThreadPool;
 
 /**
  * @brief 算法管线调度核心引擎 (Pipeline)
@@ -38,7 +40,7 @@ class Pipeline {
   };
 
   Pipeline();
-  ~Pipeline() = default;
+  ~Pipeline();
 
   /**
    * @brief 从 JSON 配置文件构建整条管线 (包含严格校验、模型加载、DAG
