@@ -225,7 +225,7 @@ async function refreshLists() {
   for (const item of allCatalog.bizs) biz.add(new Option(`${item.display_name} · ${item.biz_name}`, item.biz_name));
   if (state.pipeline) biz.value = state.pipeline.biz_name;
   const schemes = $("#pipelineSelect"); schemes.replaceChildren(new Option("选择方案", ""));
-  for (const item of pipelines.biz_definitions) schemes.add(new Option(`${item.filename} · ${item.biz_name}`, item.filename));
+  for (const item of pipelines.pipelines) schemes.add(new Option(`${item.filename} · ${item.biz_name}`, item.filename));
   if (state.pipeline) {
     await loadCatalog(state.pipeline.biz_name);
   } else {
@@ -324,7 +324,7 @@ async function save(saveAs, runnable = false) {
     setDirty(JSON.stringify(state.pipeline) !== state.savedPipeline);
     const pipelines = await api("/pipelines");
     const schemes = $("#pipelineSelect"); schemes.replaceChildren(new Option("选择方案", ""));
-    for (const item of pipelines.biz_definitions) schemes.add(new Option(`${item.filename} · ${item.biz_name}`, item.filename));
+    for (const item of pipelines.pipelines) schemes.add(new Option(`${item.filename} · ${item.biz_name}`, item.filename));
     $("#pipelineSelect").value = state.filename;
     if (result.conf_filename) {
       $("#savedCommand").textContent = `已保存 ${result.filename} 和 ${result.conf_filename}。以下命令运行已保存版本：\n\n${result.command}`;

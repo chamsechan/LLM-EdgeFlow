@@ -639,7 +639,7 @@ def make_handler(service: WorkbenchService):
             elif method == "GET" and path == "/api/v1/profiles":
                 payload = service.profiles()
             elif method == "GET" and path == "/api/v1/pipelines":
-                payload = service.biz_definitions()
+                payload = service.pipelines()
             elif method == "GET" and path == "/api/v1/pipeline":
                 payload = service.open_pipeline(query.get("filename", [""])[0])
             elif method == "GET" and path == "/api/v1/initial":

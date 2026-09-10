@@ -615,6 +615,82 @@ class HttpApiTest(unittest.TestCase):
         with urllib.request.urlopen(self.base + "/initial?filename=/etc/passwd", timeout=5) as response:
             self.assertEqual(json.load(response)["document"], expected)
 
+    def test_startup_endpoints_load_rerank_pipeline_and_refresh_saved_list(self):
+        path = ROOT / "configs/pipeline_doc_qa_rerank_cpu.json"
+        pipeline = json.loads(path.read_text())
+        managed = Path(self.temporary.name) / path.name
+        managed.write_text(json.dumps(pipeline))
+        self.service.initial_document = self.service.open_pipeline(path.name)
+        for endpoint in ("/catalog", "/profiles", "/pipelines", "/assets", "/initial",
+                         "/catalog?biz=smart_doc_qa_v1"):
+            with self.subTest(endpoint=endpoint), urllib.request.urlopen(self.base + endpoint, timeout=10) as response:
+                payload = json.load(response)
+                self.assertTrue(payload["ok"])
+                if endpoint == "/pipelines":
+                    self.assertEqual(payload["pipelines"], self.service.pipelines()["pipelines"])
+                    self.assertEqual(payload["pipelines"][0]["filename"], path.name)
+                elif endpoint == "/initial":
+                    self.assertEqual(payload["document"]["pipeline"], pipeline)
+        keyword = json.loads((ROOT / "configs/pipeline_keyword_match_rules.json").read_text())
+        self.service.save_pipeline("pipeline_saved.json", keyword, None, save_as=True)
+        with urllib.request.urlopen(self.base + "/pipelines", timeout=5) as response:
+            self.assertEqual({item["filename"] for item in json.load(response)["pipelines"]},
+                             {path.name, "pipeline_saved.json"})
+
+    @unittest.skipUnless(shutil.which("node"), "Node.js is required for Web module tests")
+    def test_web_api_preserves_proxy_paths_and_reports_non_json_responses(self):
+        script = """
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+globalThis.location = { href: "http://127.0.0.1:8080/index.html", hash: "" };
+const source = readFileSync(process.argv[1], "utf8");
+const { api, write } = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
+let requested, options;
+let body = JSON.stringify({ ok: true, pipelines: [{ filename: "pipeline_test.json" }] });
+let status = 200;
+globalThis.fetch = async (url, init) => {
+  requested = String(url); options = init;
+  return new Response(body, { status });
+};
+for (const base of ["http://127.0.0.1:8080/", "https://studio.example/proxy/8080/",
+                    "https://studio.example/workspace/proxy/8080/"]) {
+  for (const page of ["", "index.html?view=1#pipeline=chosen"]) {
+    location.href = base + page;
+    assert.equal((await api("/pipelines")).pipelines[0].filename, "pipeline_test.json");
+    assert.equal(requested, base + "api/v1/pipelines");
+    await api("/catalog?biz=smart_doc_qa_v1");
+    assert.equal(requested, base + "api/v1/catalog?biz=smart_doc_qa_v1");
+  }
+}
+body = JSON.stringify({ ok: false, error: { code: "INVALID_JSON", message: "invalid pipeline" } });
+status = 400;
+await assert.rejects(api("/pipeline"), error => error.status === 400 &&
+  error.message === "invalid pipeline" && error.payload.error.code === "INVALID_JSON");
+status = 200;
+await assert.rejects(api("/validate"), /invalid pipeline/);
+const result = await write("/validate", "POST", { pipeline: [] }, true);
+assert.equal(result.ok, false);
+assert.equal(options.method, "POST");
+assert.deepEqual(JSON.parse(options.body), { pipeline: [] });
+assert.equal(options.headers["Content-Type"], "application/json");
+assert.equal(options.allowFalse, undefined);
+for (const [code, text, summary] of [[404, "Not Found", "Not Found"],
+    [502, "<html>Bad Gateway</html>", "Bad Gateway"], [200, "", "空响应"],
+    [200, '{"incomplete":', "incomplete"]]) {
+  status = code; body = text;
+  await assert.rejects(api("/initial"), error => error.status === code &&
+    error.message.includes("/workspace/proxy/8080/api/v1/initial") &&
+    error.message.includes(`HTTP ${code}`) && error.message.includes(summary));
+}
+status = 500; body = "Not Found " + "x".repeat(1000) + "END_OF_BODY";
+await assert.rejects(api("/initial"), error => !error.message.includes("END_OF_BODY"));
+"""
+        process = subprocess.run(
+            [shutil.which("node"), "--input-type=module", "-e", script, str(WEB_ROOT / "api.js")],
+            text=True, capture_output=True, cwd=ROOT, check=False,
+        )
+        self.assertEqual(process.returncode, 0, process.stdout + process.stderr)
+
     @unittest.skipUnless(shutil.which("node"), "Node.js is required for Web module tests")
     def test_web_modules_apply_catalog_semantics_and_topological_layout(self):
         script = f"""
