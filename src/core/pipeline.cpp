@@ -10,6 +10,7 @@
 #include "core/node_registry.h"
 #include "core/pipeline_catalog.h"
 #include "core/pipeline_validator.h"
+#include "core/thread_pool.h"
 #include "edgeflow/log.h"
 #include "engine/model_runtime_factory.h"
 
@@ -337,6 +338,8 @@ Pipeline::NodeExecutionResult Pipeline::ExecuteNodeSafely(
 Pipeline::Pipeline()
     : session_ctx_(std::make_unique<SessionContext>()),
       plan_(std::make_unique<ValidatedPipelinePlan>()) {}
+
+Pipeline::~Pipeline() = default;
 
 bool Pipeline::BuildFromConfigFile(const std::string& config_file_path,
                                    PipelineDiagnostic* diagnostic,
