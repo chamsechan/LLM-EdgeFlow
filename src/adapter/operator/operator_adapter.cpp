@@ -232,24 +232,29 @@ int Operator_Create(void** handle, const CreateParam* param) noexcept {
                        std::shared_ptr<llm_edgeflow::OutputPoolState>>
         pools;
     for (const auto& out_slot : resolved_conf.bridge_descriptor->output_slots) {
-      const auto* binding = llm_edgeflow::OperatorValueTypeRegistry::Instance()
-                                .GetBindingBySuffix(out_slot.type_suffix);
+      const auto& allocation =
+          resolved_conf.output_pool_specs.at(out_slot.logical_name);
+      const auto* binding =
+          llm_edgeflow::OperatorValueTypeRegistry::Instance().GetOutputBinding(
+              out_slot.type_suffix, allocation.allocator);
       if (!binding) {
-        SetLastError("Missing value type binding for output suffix: " +
-                     out_slot.type_suffix);
+        SetLastError("Missing output allocator for slot " +
+                     out_slot.logical_name + " (type " + out_slot.type_suffix +
+                     ")");
         return -5;
       }
       std::shared_ptr<llm_edgeflow::OutputPoolState> pool;
       std::string pool_err;
       int pool_ret = llm_edgeflow::OutputPoolState::Create(
-          out_slot.type_suffix, effective_depth, resolved_conf.output_pool_spec,
-          binding, &pool, &pool_err);
+          out_slot.type_suffix, effective_depth, allocation, binding, &pool,
+          &pool_err);
       if (pool_ret != 0 || !pool) {
-        SetLastError("Failed to create output pool for suffix " +
-                     out_slot.type_suffix + ": " + pool_err);
+        SetLastError("Failed to create output pool for slot " +
+                     out_slot.logical_name + " (type " + out_slot.type_suffix +
+                     "): " + pool_err);
         return pool_ret != 0 ? pool_ret : -4;
       }
-      pools[out_slot.type_suffix] = std::move(pool);
+      pools[out_slot.logical_name] = std::move(pool);
     }
 
     auto handle_instance = std::make_unique<OperatorHandle>();
@@ -387,8 +392,20 @@ int Operator_Process(void* handle, const NamedIoBatch& inputs,
         return -4;
       }
       std::string conv_out_err;
-      int conv_ret = h->bridge->convert_sample_output(
-          internal_dto, acq.raw_block, acq.pool->Spec(), &conv_out_err);
+      llm_edgeflow::ConvertSampleOutputFn convert = nullptr;
+      for (const auto& slot : h->bridge->output_slots) {
+        if (slot.logical_name == acq.logical_name) {
+          convert = slot.convert_output ? slot.convert_output
+                                        : h->bridge->convert_sample_output;
+          break;
+        }
+      }
+      if (!convert) {
+        SetLastError("No output conversion for slot " + acq.logical_name);
+        return -4;
+      }
+      int conv_ret =
+          convert(internal_dto, acq.raw_block, acq.pool->Spec(), &conv_out_err);
       if (conv_ret != 0) {
         SetLastError("ConvertSampleOutput failed for key " + acq.key + ": " +
                      conv_out_err);

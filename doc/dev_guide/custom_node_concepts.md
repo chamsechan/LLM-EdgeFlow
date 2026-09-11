@@ -135,6 +135,11 @@ Definition 会帮助原生校验发现类型、字段和连线错误，但不会
 传递具体原因。
 具体写法可按需参考 `PromptGuidedLlmNode`，第一天不必复制它的全部参数和解析逻辑。
 
+参数较多时可使用 `NodeConfigParser<YourConfig>`，将字段声明和语义解析放在一起，
+得到节点自己的普通参数结构。它复用上述通用校验并直接传递 JSON 对象；不增加
+序列化步骤，也不要求修改 Node 基类或 Pipeline。入口选择及完整例子见
+[复杂参数封装](../../src/custom_nodes/README.md#参数复杂时使用普通结构和解析封装)。
+
 ## 5. 并发声明：保证两个执行过程不会互相污染
 
 假设两个调用同时使用相同的节点逻辑。函数局部的提示词和结果各自独立；如果把上次
@@ -175,6 +180,7 @@ Definition 会帮助原生校验发现类型、字段和连线错误，但不会
 | 多个问题各自配多段材料 | [PromptGuidedLlmNode::ProcessNode](../../src/custom_nodes/prompt_guided_llm_node.cpp) 按 `req_id` 收集 context，主输出沿用 input 的 `(req_id, sub_id)` |
 | 候选打分、按请求分组、保留原候选来源 | [TextRerankNode::ProcessNode](../../src/common_nodes/text_rerank_node.cpp) 展示来源检查后再排序；新 rank 与原候选编号分别保存 |
 | 字段、默认值与范围 | [ValidateAndNormalizeFields](../../include/contracts/config_schema_validation.h)，Definition 与 Init 共用一份字段列表 |
+| 多字段配置转为普通参数结构 | [NodeConfigParser](../../include/nodes/node_config_parser.h)，复用字段校验与节点自己的语义解析 |
 | 初值与运行时更新使用同一业务校验 | [Control 模板](../../dev_support/node_authoring/starter_control_node.cpp) 的局部解析函数，失败不替换旧配置 |
 | 提示词变量替换 | [现有模板工具](../../include/nodes/text_template.h)，只在实际需要模板语义时使用 |
 

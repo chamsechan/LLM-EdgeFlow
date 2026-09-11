@@ -108,12 +108,18 @@ JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代�
 **ValueType 说明“这块平台内存是什么类型、如何检查和管理”，bridge 说明“这个业务如何转换它”。**
 按这个顺序实现：
 
-1. 当前环境的模拟宿主结构先在 `platform_mock/operator_data_types.h` 声明，再在
-   `operator_builtin_value_types.cpp` 中通过 `RegisterBinding` 登记。
+1. 当前环境的模拟宿主结构先在 `platform_mock/operator_data_types.h` 声明，类型实现
+   包含 `adapter/operator_value_type.h`，通过 `RegisterOperatorValueType` 与
+   `REGISTER_OPERATOR_VALUE_TYPE` 在自己的源码中登记。
    输入 binding 指定规范后缀、外部类型、I/O 方向和校验函数；输出 binding 还需声明
    每个字符串的默认/最大容量、metadata 上限、池载荷预算及分配、重置、释放行为。
    同文件的 `MakeTypedInputBinding` / `MakePooledOutputBinding` 是现有类型的实现参考。
    公司内部公共头的接入遵循 [平台模拟定义的迁移边界](../../include/platform_mock/README.md)。
+   同一外层类型的不同嵌套布局可以注册命名分配方案，配置通过 `allocator` 和 `params`
+   选择；用 `MakeOutputParameterParser<T>` 注册自己普通参数结构的字符串解析函数，
+   无需继承参数基类或实现 `ToJson()`。配置只在最外层创建阶段读取，分配函数仅创建
+   一份完整结构，不管理 25 的池深。见
+   [多输出与嵌套载荷分配](operator_output_allocation.md)。
 2. 新建 `src/adapter/biz/<biz>_operator_bridge.cpp`。单输入/单输出时，沿用
    `MakeSingleSlotBizBridge<Result>`，填写与 Adapter 一致的业务类型和结果类型，指定
    已注册的输入输出后缀；多输入时参考
@@ -173,7 +179,8 @@ JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代�
 
 Operator 的输出路径是 `Pipeline → 可变长业务 Result → 已租用输出池`。
 Result 与请求 Context 均不跨 Process 保存。`.conf` 的 `data.mem_que.type` 选择已注册
-输出类型，`capacities` 设置它声明的字段容量。字符串不受中间 C 输出数组大小限制；
+输出类型，`capacities` 设置它声明的字段容量；多输出使用互斥的 `data.outputs`，按逻辑
+槽位分别指定类型、`allocator`、`params` 和容量。字符串不受中间 C 输出数组大小限制；
 超过输出池容量时返回 `-4`，尚未发布的输出租约全部回滚。
 
 公共 C ABI 继续使用已发布的固定数组大小。需要大结果时选择 Operator，或通过新的

@@ -13,6 +13,15 @@ path edit does not automatically require a new Operator or Demo path. Adding a p
 Adapter to the current shared SDK does require a matching bridge: Operator `GlobalInit` audits
 all registered Adapters. For new Operator host types, also register ValueType capacity,
 initialization and release. An ABI-only registration mode would require separate design.
+Register ValueTypes and named single-object output allocators through
+`adapter/operator_value_type.h`. Keep queue depth out of their callbacks. For multiple outputs
+or config-selected nested payloads, follow the
+[output allocation guide](../../../../doc/dev_guide/operator_output_allocation.md): each logical
+slot selects its outer type, allocator and normalized parameters; map keys do not infer layout.
+Keep configuration reading in Create-time Integration. `OutputConfigReader` selects fixed
+enum fields and returns text; use `MakeOutputParameterParser<T>` with ordinary parameter
+structs, without JSON in extension signatures or a `ToJson()` requirement. It is not a
+Pipeline Node and does not run per request.
 Use the existing `ResultPackingAdapter` and `MakeSingleSlotBizBridge` helpers where applicable;
 the onboarding guide owns those implementation examples and optional Demo conversion steps.
 

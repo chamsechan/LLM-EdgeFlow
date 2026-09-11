@@ -1,18 +1,41 @@
 #include <gtest/gtest.h>
 
+#include <charconv>
 #include <limits>
 #include <stdexcept>
 #include <thread>
 
 #include "adapter/biz_adapter_registry.h"
+#include "adapter/operator/json_output_config_reader.h"
 #include "adapter/operator/operator_biz_bridge_registry.h"
 #include "adapter/operator/operator_value_type_registry.h"
 #include "core/alg_context.h"
 #include "scoped_allocation_failure.h"
+#include "tests/support/operator_nested_output_fixture.h"
 
 namespace llm_edgeflow {
 
 namespace {
+
+struct PlainOutputParameters {
+  uint32_t count = 0;
+};
+
+bool ParsePlainOutput(const std::string& text, PlainOutputParameters* output,
+                      std::string* error) {
+  uint32_t count = 0;
+  if (text.compare(0, 6, "count=") == 0) {
+    const auto parsed =
+        std::from_chars(text.data() + 6, text.data() + text.size(), count);
+    if (parsed.ec == std::errc() && parsed.ptr == text.data() + text.size() &&
+        count > 0 && count <= 65536) {
+      output->count = count;
+      return true;
+    }
+  }
+  if (error) *error = "Expected count=<positive integer>";
+  return false;
+}
 
 void SetMinimalOutputContract(OperatorValueTypeBinding* binding) {
   ASSERT_NE(binding, nullptr);
@@ -27,6 +50,267 @@ void SetMinimalOutputContract(OperatorValueTypeBinding* binding) {
 }
 
 }  // namespace
+
+TEST(OperatorValueRegistryTest,
+     NamedAllocatorsSelectLayoutAndFreezeIndependently) {
+  OperatorValueTypeRegistry registry;
+  const auto root = test_support::MakeNestedOutputBinding();
+  ASSERT_TRUE(registry.RegisterBinding(root));
+  ASSERT_TRUE(registry.RegisterOutputAllocator("nested_one", root));
+  ASSERT_TRUE(registry.RegisterOutputAllocator(
+      "nested_two", test_support::MakeNestedOutputBinding(2)));
+  ASSERT_EQ(registry.GlobalInit(), 0);
+  const auto* first =
+      registry.GetOutputBinding(root.canonical_suffix, "nested_one");
+  const auto* second =
+      registry.GetOutputBinding(root.canonical_suffix, "nested_two");
+  ASSERT_NE(first, nullptr);
+  ASSERT_NE(second, nullptr);
+  EXPECT_NE(first, second);
+  EXPECT_EQ(first->external_c_type_name, second->external_c_type_name);
+  EXPECT_EQ(first->allocation_name, "nested_one");
+  EXPECT_EQ(second->allocation_name, "nested_two");
+  EXPECT_NE(registry.GetOutputBinding(root.canonical_suffix, ""), nullptr);
+  EXPECT_EQ(registry.GetOutputBinding(root.canonical_suffix, "unknown"),
+            nullptr);
+  EXPECT_EQ(registry.GetOutputBinding("keyword_out", "nested_one"), nullptr);
+  EXPECT_FALSE(registry.RegisterOutputAllocator("late", root));
+  EXPECT_FALSE(registry.HasConflict());
+  EXPECT_EQ(registry.GlobalInit(), 0);
+
+  ResolvedOutputPoolSpec requested;
+  requested.type = root.canonical_suffix;
+  requested.allocator = "nested_two";
+  ResolvedOutputPoolSpec resolved;
+  std::string error;
+  ASSERT_TRUE(NormalizeOutputParameters(*second, R"({"kind":2})",
+                                        &requested.params, &error))
+      << error;
+  ASSERT_TRUE(ResolveOutputPoolSpec(*second, requested, &resolved, &error))
+      << error;
+  EXPECT_EQ(
+      resolved.Parameters<test_support::NestedOutputParameters>().capacity, 3u);
+  EXPECT_FALSE(
+      resolved.Parameters<test_support::NestedOutputParameters>().reject_hit);
+  ResolvedOutputPoolSpec repeated;
+  ASSERT_TRUE(ResolveOutputPoolSpec(*second, resolved, &repeated, &error))
+      << error;
+  EXPECT_EQ(repeated.params, resolved.params);
+  EXPECT_FALSE(ResolveOutputPoolSpec(*first, requested, &resolved, &error));
+
+  struct WrongParameters {};
+  EXPECT_THROW(requested.Parameters<WrongParameters>(), std::invalid_argument);
+}
+
+TEST(OperatorValueRegistryTest,
+     ParameterNormalizationAllocationFailureRollsBackAndAllowsRetry) {
+  auto binding = test_support::MakeNestedOutputBinding();
+  binding.normalize_parameters =
+      MakeOutputParameterParser<PlainOutputParameters>(ParsePlainOutput);
+  const std::string raw_parameters = "count=7";
+  bool normalized = true;
+  bool published = true;
+  bool injected = false;
+  size_t outstanding = 1;
+  {
+    test_support::ScopedAllocationFailure failure(0);
+    {
+      std::shared_ptr<const OutputAllocationParameters> parameters;
+      std::string error;
+      normalized = NormalizeOutputParameters(binding, raw_parameters,
+                                             &parameters, &error);
+      failure.DisableFailure();
+      published = parameters != nullptr;
+    }
+    injected = failure.Triggered();
+    outstanding = failure.Outstanding();
+  }
+  EXPECT_TRUE(injected);
+  EXPECT_FALSE(normalized);
+  EXPECT_FALSE(published);
+  EXPECT_EQ(outstanding, 0u);
+
+  ResolvedOutputPoolSpec recovered;
+  std::string error;
+  ASSERT_TRUE(NormalizeOutputParameters(binding, raw_parameters,
+                                        &recovered.params, &error))
+      << error;
+  EXPECT_EQ(recovered.Parameters<PlainOutputParameters>().count, 7u);
+}
+
+TEST(OperatorValueRegistryTest, OrdinaryParameterStructCanParseNonJsonText) {
+  auto binding = test_support::MakeNestedOutputBinding();
+  binding.normalize_parameters =
+      MakeOutputParameterParser<PlainOutputParameters>(ParsePlainOutput);
+  ResolvedOutputPoolSpec spec;
+  std::string error;
+  ASSERT_TRUE(
+      NormalizeOutputParameters(binding, "count=12", &spec.params, &error))
+      << error;
+  EXPECT_EQ(spec.Parameters<PlainOutputParameters>().count, 12u);
+  for (const char* invalid : {"", "count=", "count=0", "count=-1", "count=7x",
+                              "count=65537", "{\"count\":12}"}) {
+    EXPECT_FALSE(
+        NormalizeOutputParameters(binding, invalid, &spec.params, &error))
+        << invalid;
+    EXPECT_EQ(spec.params, nullptr);
+  }
+}
+
+TEST(OperatorValueRegistryTest, OutputConfigReaderSelectsFixedFieldsAsStrings) {
+  const nlohmann::json source = {{"type", "test_nested_out"},
+                                 {"allocator", "test_nested_standard"},
+                                 {"params", {{"kind", 2}, {"capacity", 7}}},
+                                 {"capacities", {{"text", 128}}},
+                                 {"meta_num", 4},
+                                 {"metadata_type_id", 1}};
+  const JsonOutputConfigReader reader(source);
+  const std::vector<std::pair<OutputConfigField, std::string>> expected = {
+      {OutputConfigField::kType, R"("test_nested_out")"},
+      {OutputConfigField::kAllocator, R"("test_nested_standard")"},
+      {OutputConfigField::kParameters, R"({"capacity":7,"kind":2})"},
+      {OutputConfigField::kCapacities, R"({"text":128})"},
+      {OutputConfigField::kMetadataCount, "4"},
+      {OutputConfigField::kMetadataTypeId, "1"}};
+  for (const auto& [field, value] : expected) {
+    std::string text;
+    std::string error;
+    ASSERT_TRUE(reader.Read(field, &text, &error)) << error;
+    EXPECT_EQ(text, value);
+  }
+
+  const nlohmann::json minimal = {{"type", "test_nested_out"}};
+  const JsonOutputConfigReader defaults(minimal);
+  for (const auto& [field, value] :
+       std::vector<std::pair<OutputConfigField, std::string>>{
+           {OutputConfigField::kAllocator, R"("")"},
+           {OutputConfigField::kParameters, "{}"},
+           {OutputConfigField::kCapacities, "{}"},
+           {OutputConfigField::kMetadataCount, "0"},
+           {OutputConfigField::kMetadataTypeId, "0"}}) {
+    std::string text;
+    std::string error;
+    ASSERT_TRUE(defaults.Read(field, &text, &error)) << error;
+    EXPECT_EQ(text, value);
+  }
+}
+
+TEST(OperatorValueRegistryTest,
+     OutputConfigReaderRejectsMissingTypeAndInvalidField) {
+  const std::vector<nlohmann::json> invalid_sources = {nullptr,
+                                                       nlohmann::json::array(),
+                                                       7,
+                                                       nlohmann::json::object(),
+                                                       {{"type", ""}},
+                                                       {{"type", 7}}};
+  for (const auto& source : invalid_sources) {
+    const JsonOutputConfigReader reader(source);
+    std::string text = "stale";
+    std::string error;
+    EXPECT_FALSE(reader.Read(OutputConfigField::kType, &text, &error));
+    EXPECT_TRUE(text.empty());
+    EXPECT_FALSE(error.empty());
+  }
+  const nlohmann::json source = {{"type", "test_nested_out"}};
+  const JsonOutputConfigReader reader(source);
+  std::string text = "stale";
+  std::string error;
+  EXPECT_FALSE(reader.Read(static_cast<OutputConfigField>(-1), &text, &error));
+  EXPECT_TRUE(text.empty());
+  EXPECT_FALSE(error.empty());
+  EXPECT_FALSE(reader.Read(OutputConfigField::kType, nullptr, &error));
+}
+
+TEST(OperatorValueRegistryTest,
+     NamedAllocatorAuditRejectsInvalidRootAndCallbacks) {
+  for (int mutation = 0; mutation < 7; ++mutation) {
+    SCOPED_TRACE(mutation);
+    OperatorValueTypeRegistry registry;
+    const auto root = test_support::MakeNestedOutputBinding();
+    ASSERT_TRUE(registry.RegisterBinding(root));
+    auto allocator = root;
+    if (mutation == 0) allocator.canonical_suffix = "unregistered_output";
+    if (mutation == 1) allocator.external_c_type_name = "DifferentOuterStruct";
+    if (mutation == 2) allocator.allocate_external = {};
+    if (mutation == 3) allocator.reset_external = {};
+    if (mutation == 4) allocator.destroy_external = {};
+    if (mutation == 5) allocator.output_layout.compute_block_payload_bytes = {};
+    if (mutation == 6) allocator.direction = IoDirection::kInput;
+    // Root cross-checking may be deferred until Init for static registration
+    // order.
+    registry.RegisterOutputAllocator("invalid", allocator);
+    EXPECT_EQ(registry.GlobalInit(), -6);
+    EXPECT_TRUE(registry.HasConflict());
+  }
+  for (const char* name : {"", "duplicate"}) {
+    OperatorValueTypeRegistry registry;
+    const auto binding = test_support::MakeNestedOutputBinding();
+    ASSERT_TRUE(registry.RegisterBinding(binding));
+    if (*name) {
+      ASSERT_TRUE(registry.RegisterOutputAllocator(name, binding));
+    }
+    EXPECT_FALSE(registry.RegisterOutputAllocator(name, binding));
+    EXPECT_EQ(registry.GlobalInit(), -6);
+  }
+}
+
+TEST(OperatorValueRegistryTest,
+     OutputParametersRejectUnsupportedAndMalformedData) {
+  const auto* builtin =
+      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("keyword_out");
+  ASSERT_NE(builtin, nullptr);
+  ResolvedOutputPoolSpec requested;
+  requested.type = "keyword_out";
+  ResolvedOutputPoolSpec resolved;
+  std::string error;
+  EXPECT_FALSE(NormalizeOutputParameters(*builtin, R"({"kind":1})",
+                                         &requested.params, &error));
+
+  auto binding = test_support::MakeNestedOutputBinding();
+  requested.type = binding.canonical_suffix;
+  for (const char* params : {"[]", R"({"kind":3})", R"({"capacity":-1})",
+                             R"({"unknown":1})", "invalid"}) {
+    EXPECT_FALSE(
+        NormalizeOutputParameters(binding, params, &requested.params, &error));
+  }
+  // Successful normalization must supply typed parameters; callback errors
+  // cannot leave partial parameters visible to pool creation.
+  binding.normalize_parameters =
+      [](const std::string&,
+         std::shared_ptr<const OutputAllocationParameters>* result,
+         std::string*) {
+        result->reset();
+        return true;
+      };
+  EXPECT_FALSE(
+      NormalizeOutputParameters(binding, "{}", &requested.params, &error));
+  binding.normalize_parameters =
+      [](const std::string&,
+         std::shared_ptr<const OutputAllocationParameters>* result,
+         std::string*) {
+        *result = std::make_shared<OutputAllocationParameters>();
+        return false;
+      };
+  EXPECT_FALSE(
+      NormalizeOutputParameters(binding, "{}", &requested.params, &error));
+  EXPECT_EQ(requested.params, nullptr);
+  binding.normalize_parameters =
+      [](const std::string&, std::shared_ptr<const OutputAllocationParameters>*,
+         std::string*) -> bool {
+    throw std::runtime_error("normalization failed");
+  };
+  EXPECT_FALSE(
+      NormalizeOutputParameters(binding, "{}", &requested.params, &error));
+  EXPECT_NE(error.find("normalization failed"), std::string::npos);
+
+  binding = test_support::MakeNestedOutputBinding();
+  requested.params.reset();
+  EXPECT_FALSE(ResolveOutputPoolSpec(binding, requested, &resolved, &error));
+  ASSERT_TRUE(
+      NormalizeOutputParameters(binding, "{}", &requested.params, &error));
+  requested.type = "keyword_out";
+  EXPECT_FALSE(ResolveOutputPoolSpec(*builtin, requested, &resolved, &error));
+}
 
 TEST(OperatorValueRegistryTest, BuiltinInputsPreserveNullDiagnostics) {
   const char* suffixes[] = {"string",     "buffer",    "any",    "frame",

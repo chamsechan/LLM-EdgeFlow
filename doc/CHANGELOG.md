@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-09-11 Node 配置的轻量参数封装
+
+- 新增可选的 `NodeConfigParser<T>`，复用已有字段校验和默认值处理，将 JSON 对象直接转换为普通参数结构，统一解析失败诊断；不增加 JSON 字符串转换或新的 Pipeline 节点。
+- `PromptGuidedLlmNode` 首先采用该封装，预检与初始化共用参数声明和语义解析，移除重复的基础范围检查与默认值读取；业务配置、Catalog 字段及请求处理保持兼容。
+
+## 2026-09-11 Operator 输出分配方案与多输出
+
+- 配置读取收敛为最外层独立组件，以固定枚举选择配置项并返回字符串；结构体作者通过 `MakeOutputParameterParser<T>` 使用普通参数结构，无需参数基类或 `ToJson()`。`resolve-conf` 的输出方案 `params` 展示提交给解析函数的参数文本（RFC-0050）。
+- 输出类型和分配方案支持通过源码扩展注册；同一 map 键、同一外层结构可用 `allocator` 和 `params` 选择不同的嵌套载荷布局。JSON 在配置阶段解析为不可变的类型化参数，供分配、容量计算、重置与业务转换共用；具体分配器只处理一份结构，不管理队列深度（RFC-0049）。
+- 新增按逻辑槽位配置的 `data.outputs`，支持多个输出及相同类型的独立输出池；保留单输出 `data.mem_que`。增加逐槽位转换注册、完整输出发布前的失败回滚及 `resolve-conf` 的多输出配置展示。
+
 ## 2026-09-11 JSON 字符串翻译方案
 
 - 增加翻译 Pipeline、CPU 部署配置及完整 JSON 字符串的 C ABI / Operator 接入：C++ Adapter 只读取 `query`，复用一个 `LlmGenerateNode` 进行一次生成并只返回译文，C++ 再序列化完整 `translated` 响应；Adapter 与 bridge 复用现有文本载体和打包逻辑（RFC-0048）。

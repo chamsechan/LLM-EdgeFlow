@@ -50,7 +50,10 @@ TEST(OperatorBizBridgeRegistryTest, AllRegisteredBusinessesSelfRegistered) {
     EXPECT_FALSE(desc->input_slots.empty());
     EXPECT_FALSE(desc->output_slots.empty());
     EXPECT_NE(desc->convert_sample_input, nullptr);
-    EXPECT_NE(desc->convert_sample_output, nullptr);
+    for (const auto& slot : desc->output_slots) {
+      EXPECT_TRUE(slot.convert_output || (desc->output_slots.size() == 1 &&
+                                          desc->convert_sample_output));
+    }
     EXPECT_NE(desc->create_shadow_output_dto, nullptr);
   }
 }
@@ -646,19 +649,59 @@ TEST(OperatorBizBridgeRegistryTest,
   EXPECT_NE(diagnostic.find(bad_desc.input_slots[0].logical_name),
             std::string::npos);
   EXPECT_NE(diagnostic.find(bad_desc.adapter_name), std::string::npos);
+
+  for (int mutation = 0; mutation < 2; ++mutation) {
+    OperatorBizBridgeRegistry invalid;
+    auto descriptor = *orig_desc;
+    if (mutation == 0)
+      descriptor.input_slots.front().key_suffix = "output_only";
+    if (mutation == 1)
+      descriptor.input_slots.front().convert_output =
+          descriptor.convert_sample_output;
+    EXPECT_FALSE(invalid.RegisterBridge(descriptor));
+    EXPECT_TRUE(invalid.HasConflict());
+  }
 }
 
 TEST(OperatorBizBridgeRegistryTest,
-     IsolatedRegistryRejectsMultipleOutputPoolsUntilConfigSupportsThem) {
+     MultipleOutputSlotsMayReuseTypeWithDistinctKeysAndConverters) {
   OperatorBizBridgeRegistry local_reg;
   const auto* orig_desc =
       OperatorBizBridgeRegistry::Instance().GetBridge(ALG_BIZ_TYPE_DOC_QA);
   ASSERT_NE(orig_desc, nullptr);
 
-  OperatorBizBridgeDescriptor bad_desc = *orig_desc;
-  bad_desc.output_slots.push_back(bad_desc.output_slots.front());
-  bad_desc.output_slots.back().logical_name = "secondary_output";
-  EXPECT_FALSE(local_reg.RegisterBridge(std::move(bad_desc)));
+  OperatorBizBridgeDescriptor descriptor = *orig_desc;
+  descriptor.output_slots.front().convert_output =
+      descriptor.convert_sample_output;
+  descriptor.output_slots.push_back(descriptor.output_slots.front());
+  descriptor.output_slots.back().logical_name = "secondary_output";
+  descriptor.output_slots.back().key_suffix = "secondary";
+  descriptor.convert_sample_output = nullptr;
+  ASSERT_TRUE(local_reg.RegisterBridge(descriptor));
+  EXPECT_FALSE(local_reg.HasConflict());
+  ASSERT_NE(local_reg.GetBridge(descriptor.biz_type), nullptr);
+  EXPECT_EQ(local_reg.GetBridge(descriptor.biz_type)->output_slots.size(), 2u);
+
+  for (int mutation = 0; mutation < 4; ++mutation) {
+    SCOPED_TRACE(mutation);
+    OperatorBizBridgeRegistry invalid;
+    auto bad = descriptor;
+    if (mutation == 0) bad.output_slots.back().key_suffix.clear();
+    if (mutation == 1)
+      bad.output_slots.back().logical_name =
+          bad.output_slots.front().logical_name;
+    if (mutation == 2) bad.output_slots.back().convert_output = nullptr;
+    if (mutation == 3) bad.output_slots.back().key_suffix = "unreachable.key";
+    EXPECT_FALSE(invalid.RegisterBridge(bad));
+    EXPECT_TRUE(invalid.HasConflict());
+  }
+
+  // Changing only a slot conversion is a conflicting registration too.
+  auto changed = descriptor;
+  changed.output_slots.back().convert_output = [](const void*, void*,
+                                                  const ResolvedOutputPoolSpec&,
+                                                  std::string*) { return -99; };
+  EXPECT_FALSE(local_reg.RegisterBridge(changed));
   EXPECT_TRUE(local_reg.HasConflict());
 }
 

@@ -13,12 +13,137 @@
 #include "engine/model_interface.h"
 #include "nodes/model_bound_node.h"
 #include "nodes/node_base.h"
+#include "nodes/node_config_parser.h"
 #include "nodes/node_error_codes.h"
 #include "nodes/traceable_batch_validation.h"
 #include "nodes/traceable_unary_inference_node.h"
 #include "tests/support/node_test_utils.h"
 
 namespace llm_edgeflow {
+
+namespace {
+
+struct NodeParserParameters {
+  int count = 99;
+  std::string label = "unparsed";
+};
+
+std::vector<ConfigFieldDefinition> NodeParserFields() {
+  return {{"count", ConfigValueKind::kInteger, false, 3, 1.0, 8.0, {}, ""},
+          {"label",
+           ConfigValueKind::kString,
+           false,
+           "default",
+           std::nullopt,
+           std::nullopt,
+           {},
+           ""}};
+}
+
+}  // namespace
+
+TEST(NodeBaseContractsTest, ConfigParserUsesFieldDefaultsBeforeSemanticParser) {
+  int calls = 0;
+  const NodeConfigParser<NodeParserParameters> parser(
+      NodeParserFields(), [&](const nlohmann::json& config,
+                              NodeParserParameters* result, std::string*) {
+        ++calls;
+        result->count = config.at("count").get<int>();
+        result->label = config.at("label").get<std::string>();
+        return true;
+      });
+  ASSERT_EQ(parser.Fields().size(), 2u);
+  EXPECT_EQ(parser.Fields()[0].name, "count");
+  EXPECT_EQ(parser.Fields()[0].default_value, 3);
+  const nlohmann::json raw = nlohmann::json::object();
+  std::string error = "old error";
+  const auto result = parser.Parse(raw, &error);
+  ASSERT_TRUE(result.has_value()) << error;
+  EXPECT_EQ(result->count, 3);
+  EXPECT_EQ(result->label, "default");
+  EXPECT_TRUE(error.empty());
+  EXPECT_TRUE(raw.empty());
+  EXPECT_EQ(calls, 1);
+
+  for (const auto& invalid :
+       std::vector<nlohmann::json>{nlohmann::json::array(),
+                                   {{"unknown", 1}},
+                                   {{"count", "3"}},
+                                   {{"count", 0}},
+                                   {{"count", 9}},
+                                   {{"label", 7}}}) {
+    SCOPED_TRACE(invalid.dump());
+    EXPECT_FALSE(parser.Parse(invalid, &error).has_value());
+    EXPECT_FALSE(error.empty());
+    EXPECT_EQ(calls, 1);
+  }
+}
+
+TEST(NodeBaseContractsTest,
+     ConfigParserKeepsNormalizedJsonIdentityAndOwnsResult) {
+  nlohmann::json normalized = {{"count", 4}, {"label", "original"}};
+  const nlohmann::json* received = nullptr;
+  const NodeConfigParser<NodeParserParameters> parser(
+      NodeParserFields(), [&](const nlohmann::json& config,
+                              NodeParserParameters* result, std::string*) {
+        received = &config;
+        result->count = config.at("count").get<int>();
+        result->label = config.at("label").get<std::string>();
+        return true;
+      });
+  std::string error = "old error";
+  const auto result = parser.ParseNormalized(normalized, &error);
+  ASSERT_TRUE(result.has_value()) << error;
+  EXPECT_EQ(received, &normalized);
+  EXPECT_TRUE(error.empty());
+  normalized["count"] = 8;
+  normalized["label"] = "changed after parsing";
+  EXPECT_EQ(result->count, 4);
+  EXPECT_EQ(result->label, "original");
+}
+
+TEST(NodeBaseContractsTest, ConfigParserFailuresNeverReturnPartialParameters) {
+  const nlohmann::json normalized = {{"count", 4}, {"label", "value"}};
+  for (bool already_normalized : {false, true}) {
+    for (int failure = 0; failure < 4; ++failure) {
+      SCOPED_TRACE(already_normalized);
+      SCOPED_TRACE(failure);
+      const NodeConfigParser<NodeParserParameters> parser(
+          NodeParserFields(),
+          [&](const nlohmann::json&, NodeParserParameters* partial,
+              std::string* error) -> bool {
+            partial->count = 7;
+            partial->label = "partial result";
+            if (failure == 0) {
+              if (error) *error = "Label is not allowed";
+              return false;
+            }
+            if (failure == 1) return false;
+            if (failure == 2)
+              throw std::runtime_error("Semantic parser failed");
+            throw 42;
+          });
+      std::string error = "old error";
+      const auto result = already_normalized
+                              ? parser.ParseNormalized(normalized, &error)
+                              : parser.Parse(normalized, &error);
+      EXPECT_FALSE(result.has_value());
+      EXPECT_FALSE(error.empty());
+      EXPECT_NE(error, "old error");
+      if (failure == 0) {
+        EXPECT_EQ(error, "Label is not allowed");
+      }
+      if (failure == 2) {
+        EXPECT_EQ(error, "Semantic parser failed");
+      }
+      EXPECT_FALSE(parser.ParseNormalized(normalized).has_value());
+    }
+  }
+  const NodeConfigParser<NodeParserParameters> missing(NodeParserFields(), {});
+  std::string error;
+  EXPECT_FALSE(missing.ParseNormalized(normalized, &error).has_value());
+  EXPECT_FALSE(error.empty());
+}
 
 TEST(NodeErrorCodesTest, UsesDistinctNodeDomains) {
   EXPECT_EQ(node_error::control::kInvalidRequest, -1);

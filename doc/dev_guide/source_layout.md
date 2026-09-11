@@ -44,6 +44,7 @@ include/adapter/                  源码扩展契约与辅助接口
   biz_adapter_registry.h
   operator_biz_bridge.h
   operator_io_contracts.h
+  operator_value_type.h
 src/adapter/
   c_api_adapter.cpp
   shared_algorithm_runtime.cpp/.h
@@ -54,6 +55,7 @@ src/adapter/
     doc_qa_operator_bridge.cpp
   operator/                       Operator 通用机制
     operator_config_resolver.cpp/.h
+    json_output_config_reader.cpp/.h
     operator_biz_bridge_registry.cpp/.h
     operator_output_pool.cpp/.h
 ```
@@ -61,7 +63,10 @@ src/adapter/
 Bridge 作者包含 `adapter/operator_biz_bridge.h`，使用 `MakeSingleSlotBizBridge`、
 `RegisterOperatorBizBridge`、`CopyToOperatorString` 和 `REGISTER_OPERATOR_BIZ_BRIDGE`。
 注册函数不接收注册表实例；描述符与转换代码无需包含内部注册表或输出池头。
-新宿主值类型仍由 Operator 的值类型实现登记，容量、租约和初始化审计归通用机制所有。
+新宿主值类型与命名输出分配方案通过 `adapter/operator_value_type.h` 登记；实现只管理
+单份结构及嵌套存储，队列、租约和初始化审计归通用机制所有。
+配置读取接口 `adapter/operator_output_config.h` 使用固定枚举及字符串，不暴露 JSON；
+结构体作者用 `MakeOutputParameterParser<T>` 登记普通参数结构的解析，无需编写读取器。
 完整步骤见[业务接入](business_onboarding.md)。
 
 ## 标识符与定义

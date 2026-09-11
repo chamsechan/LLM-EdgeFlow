@@ -1,4 +1,3 @@
-#include <cmath>
 #include <cstdint>
 #include <limits>
 #include <string>
@@ -16,6 +15,7 @@
 #include "engine/model_interface.h"
 #include "nodes/model_bound_node.h"
 #include "nodes/node_base.h"
+#include "nodes/node_config_parser.h"
 #include "nodes/text_template.h"
 
 namespace llm_edgeflow {
@@ -68,94 +68,173 @@ bool ParseLegacyPromptTemplate(const std::string& pattern,
   return true;
 }
 
-// Parse only the original template. Request values are always opaque text.
-bool ParsePromptConfig(const nlohmann::json& config,
-                       std::vector<TextTemplateToken>* parts,
-                       GenerateOptions* options, bool* uses_context,
+// Ordinary, owned configuration used by processing after initialization.
+struct PromptConfig {
+  std::vector<TextTemplateToken> prompt_parts;
+  bool uses_context = false;
+  std::string prompt_prefix;
+  bool strip_markdown = false;
+  GenerateOptions generation;
+};
+
+// Fields have already been validated and defaulted. Keep only this Node's
+// semantic conversion here; request values never enter configuration parsing.
+bool ParsePromptConfig(const nlohmann::json& config, PromptConfig* parameters,
                        std::string* error) {
   auto reject = [&](const std::string& message) {
     if (error) *error = message;
     return false;
   };
-  try {
-    if (config.contains("system_prompt")) {
-      return reject(
-          "system_prompt was renamed to prompt_prefix; it is ordinary input "
-          "text, not a system message");
-    }
-    if (config.contains("fallback_text")) {
-      return reject(
-          "fallback_text is unsupported: model failures must remain failures");
-    }
-    parts->clear();
-    *uses_context = false;
-    const std::string pattern = config.value("prompt_template", "{input}");
-    if (pattern.empty()) return reject("prompt_template must not be empty");
-    const std::string syntax = config.value("template_syntax", "auto");
-    if (syntax != "auto" && syntax != "standard" && syntax != "legacy") {
-      return reject("template_syntax must be auto, standard or legacy");
-    }
-    if (syntax == "auto" && (pattern.find("{{") != std::string::npos ||
-                             pattern.find("}}") != std::string::npos)) {
-      return reject(
-          "Ambiguous double braces in prompt_template: set "
-          "template_syntax=standard to substitute {{input}}/{{context}} "
-          "as in TextTemplateNode, or template_syntax=legacy to preserve "
-          "old {{ / }} literal-brace escaping");
-    }
-    if (syntax == "standard") {
-      if (!ParseTextTemplate(pattern, parts, error)) return false;
-    } else if (!ParseLegacyPromptTemplate(pattern, parts, error)) {
-      return false;
-    }
-    for (const auto& part : *parts) {
-      if (part.type != TextTemplateTokenType::kVariable) continue;
-      if (part.value != "input" && part.value != "context") {
-        return reject("Unknown prompt placeholder: " + part.value);
-      }
-      *uses_context |= part.value == "context";
-    }
-    // Keep direct Node initialization as strict as native plan initialization.
-    for (const char* field : {"max_tokens", "top_k"}) {
-      if (config.contains(field) &&
-          (!config[field].is_number_integer() ||
-           config[field].get<double>() < 0 ||
-           config[field].get<double>() > std::numeric_limits<int32_t>::max())) {
-        return reject(std::string(field) + " must be a non-negative int32");
-      }
-    }
-    *options = GenerateOptions{};
-    options->temperature = config.value("temperature", 0.7f);
-    options->max_tokens = config.value("max_tokens", 512);
-    options->top_k = config.value("top_k", 0);
-    options->top_p = config.value("top_p", 0.9f);
-    options->repetition_penalty = config.value("repetition_penalty", 1.0f);
-    if (options->max_tokens <= 0 || options->max_tokens > 32768 ||
-        !std::isfinite(options->temperature) || options->temperature < 0 ||
-        options->temperature > 2 || !std::isfinite(options->top_p) ||
-        options->top_p < 1.0e-9f || options->top_p > 1 ||
-        !std::isfinite(options->repetition_penalty) ||
-        options->repetition_penalty < 1.0e-9f ||
-        options->repetition_penalty > 100) {
-      return reject("Generation options outside supported range");
-    }
-    if (config.contains("stop_words")) {
-      if (!config["stop_words"].is_array())
-        return reject("stop_words must be an array");
-      for (const auto& word : config["stop_words"]) {
-        if (!word.is_string() || word.get_ref<const std::string&>().empty()) {
-          return reject("stop_words must contain non-empty strings");
-        }
-        options->stop_words.push_back(word.get<std::string>());
-      }
-    }
-    (void)config.value("prompt_prefix", std::string{});
-    (void)config.value("strip_markdown", false);
-    return true;
-  } catch (const std::exception& e) {
-    return reject(e.what());
+  auto& parts = parameters->prompt_parts;
+  const auto& pattern =
+      config.at("prompt_template").get_ref<const std::string&>();
+  if (pattern.empty()) return reject("prompt_template must not be empty");
+  const auto& syntax =
+      config.at("template_syntax").get_ref<const std::string&>();
+  if (syntax == "auto" && (pattern.find("{{") != std::string::npos ||
+                           pattern.find("}}") != std::string::npos)) {
+    return reject(
+        "Ambiguous double braces in prompt_template: set "
+        "template_syntax=standard to substitute {{input}}/{{context}} "
+        "as in TextTemplateNode, or template_syntax=legacy to preserve "
+        "old {{ / }} literal-brace escaping");
   }
+  if (syntax == "standard") {
+    if (!ParseTextTemplate(pattern, &parts, error)) return false;
+  } else if (!ParseLegacyPromptTemplate(pattern, &parts, error)) {
+    return false;
+  }
+  for (const auto& part : parts) {
+    if (part.type != TextTemplateTokenType::kVariable) continue;
+    if (part.value != "input" && part.value != "context") {
+      return reject("Unknown prompt placeholder: " + part.value);
+    }
+    parameters->uses_context |= part.value == "context";
+  }
+
+  auto& options = parameters->generation;
+  config.at("temperature").get_to(options.temperature);
+  config.at("max_tokens").get_to(options.max_tokens);
+  config.at("top_k").get_to(options.top_k);
+  config.at("top_p").get_to(options.top_p);
+  config.at("repetition_penalty").get_to(options.repetition_penalty);
+  for (const auto& word : config.at("stop_words")) {
+    if (!word.is_string() || word.get_ref<const std::string&>().empty()) {
+      return reject("stop_words must contain non-empty strings");
+    }
+    options.stop_words.push_back(word.get<std::string>());
+  }
+  config.at("prompt_prefix").get_to(parameters->prompt_prefix);
+  config.at("strip_markdown").get_to(parameters->strip_markdown);
+  return true;
 }
+
+const NodeConfigParser<PromptConfig>& PromptConfiguration() {
+  static const NodeConfigParser<PromptConfig> parser(
+      {ConfigFieldDefinition{
+           "bind_model",
+           ConfigValueKind::kString,
+           false,
+           "llm_model_v1",
+           std::nullopt,
+           std::nullopt,
+           {},
+           "引用 models[].model_id；所选模型必须提供 llm 文本生成能力。"},
+       ConfigFieldDefinition{"prompt_template",
+                             ConfigValueKind::kString,
+                             false,
+                             "{input}",
+                             std::nullopt,
+                             std::nullopt,
+                             {},
+                             "提示词模板；standard 示例为 "
+                             "\"回答：{{input}}\\n背景：{{context}}\"，使用 "
+                             "context 时须连接该输入。"},
+       ConfigFieldDefinition{"template_syntax",
+                             ConfigValueKind::kString,
+                             false,
+                             "auto",
+                             std::nullopt,
+                             std::nullopt,
+                             {"auto", "standard", "legacy"},
+                             "standard 使用 {{input}}/{{context}}；legacy 使用 "
+                             "{input}/{context}；auto 拒绝有歧义的混用。"},
+       ConfigFieldDefinition{"prompt_prefix",
+                             ConfigValueKind::kString,
+                             false,
+                             "",
+                             std::nullopt,
+                             std::nullopt,
+                             {},
+                             "在渲染模板前追加的普通文本及换行；模型的 system "
+                             "角色请使用 model_config.system_prompt。"},
+       ConfigFieldDefinition{
+           "temperature",
+           ConfigValueKind::kNumber,
+           false,
+           0.7,
+           0.0,
+           2.0,
+           {},
+           "生成采样温度；0 用于贪心生成，具体采样由绑定模型执行。"},
+       ConfigFieldDefinition{"max_tokens",
+                             ConfigValueKind::kInteger,
+                             false,
+                             512,
+                             1.0,
+                             32768.0,
+                             {},
+                             "每条输入最多生成的 token "
+                             "数，不包含输入提示词；还受模型上下文容量限制。"},
+       ConfigFieldDefinition{
+           "top_k",
+           ConfigValueKind::kInteger,
+           false,
+           0,
+           0.0,
+           static_cast<double>(std::numeric_limits<int32_t>::max()),
+           {},
+           "采样时保留的候选 token 数；0 "
+           "表示不按数量截断，区别于检索返回条数。"},
+       ConfigFieldDefinition{"top_p",
+                             ConfigValueKind::kNumber,
+                             false,
+                             0.9,
+                             1.0e-9,
+                             1.0,
+                             {},
+                             "核采样的累计概率阈值；1 表示不按累计概率截断。"},
+       ConfigFieldDefinition{
+           "repetition_penalty",
+           ConfigValueKind::kNumber,
+           false,
+           1.0,
+           1.0e-9,
+           100.0,
+           {},
+           "已出现 token 的重复惩罚系数；1 不调整，大于 1 抑制重复。"},
+       ConfigFieldDefinition{"strip_markdown",
+                             ConfigValueKind::kBoolean,
+                             false,
+                             false,
+                             std::nullopt,
+                             std::nullopt,
+                             {},
+                             "移除模型输出两端空白和外层 Markdown "
+                             "代码围栏，保留围栏内的文本内容。"},
+       ConfigFieldDefinition{"stop_words",
+                             ConfigValueKind::kArray,
+                             false,
+                             nlohmann::json::array(),
+                             std::nullopt,
+                             std::nullopt,
+                             {},
+                             "生成停止文本数组，例如 [\"结束\", "
+                             "\"<END>\"]；命中后输出不包含停止文本。"}},
+      ParsePromptConfig);
+  return parser;
+}
+
 }  // namespace
 
 // Authoring example: local prompt processing, typed model call and response
@@ -180,15 +259,13 @@ class PromptGuidedLlmNode final : public ModelBoundNode<ILlmModel> {
     BindPort(init_ctx, out_port_);
 
     std::string error;
-    if (!ParsePromptConfig(config, &prompt_parts_, &gen_opt_, &uses_context_,
-                           &error)) {
-      ALG_LOG_ERROR("[PromptGuidedLlmNode] %s\n", error.c_str());
-      return false;
+    auto parameters = PromptConfiguration().ParseNormalized(config, &error);
+    if (!parameters) return init_ctx.Fail(error);
+    if (parameters->uses_context && init_ctx.plan && !context_port_.IsBound()) {
+      return init_ctx.Fail(
+          "prompt_template uses context but context is not connected");
     }
-    if (uses_context_ && init_ctx.plan && !context_port_.IsBound())
-      return false;
-    prompt_prefix_ = config.value("prompt_prefix", "");
-    strip_markdown_ = config.value("strip_markdown", false);
+    config_ = std::move(*parameters);
     return true;
   }
 
@@ -203,10 +280,10 @@ class PromptGuidedLlmNode final : public ModelBoundNode<ILlmModel> {
       return 0;
     }
     const auto* contexts =
-        uses_context_
+        config_.uses_context
             ? context_port_.Require(req_ctx, kMissingInput, "prompt context")
             : nullptr;
-    if (uses_context_ && !contexts) return kMissingInput;
+    if (config_.uses_context && !contexts) return kMissingInput;
 
     // 组装模型输入批次，严格保留来源 (req_id, sub_id)
     TextBatch prompts;
@@ -229,7 +306,8 @@ class PromptGuidedLlmNode final : public ModelBoundNode<ILlmModel> {
     }
 
     TextBatch raw_outputs;
-    int infer_ret = model()->Generate(prompts, gen_opt_, &raw_outputs);
+    int infer_ret =
+        model()->Generate(prompts, config_.generation, &raw_outputs);
     if (infer_ret != 0) {
       req_ctx.SetError(kModelInferenceFailed,
                        Name() + ": model inference failed with code " +
@@ -259,7 +337,7 @@ class PromptGuidedLlmNode final : public ModelBoundNode<ILlmModel> {
       }
 
       std::string out_str = r.data;
-      if (strip_markdown_) {
+      if (config_.strip_markdown) {
         out_str = StripMarkdown(out_str);
       }
       final_outputs.emplace_back(r.req_id, r.sub_id, std::move(out_str));
@@ -273,10 +351,10 @@ class PromptGuidedLlmNode final : public ModelBoundNode<ILlmModel> {
   std::string RenderPrompt(const std::string& input,
                            const std::string& context) const {
     std::string result;
-    if (!prompt_prefix_.empty()) {
-      result += prompt_prefix_ + "\n";
+    if (!config_.prompt_prefix.empty()) {
+      result += config_.prompt_prefix + "\n";
     }
-    for (const auto& part : prompt_parts_) {
+    for (const auto& part : config_.prompt_parts) {
       if (part.type == TextTemplateTokenType::kLiteral) {
         result += part.value;
       } else {
@@ -323,11 +401,7 @@ class PromptGuidedLlmNode final : public ModelBoundNode<ILlmModel> {
   BoundInput<TextBatch> context_port_;
   BoundOutput<TextBatch> out_port_;
 
-  std::vector<TextTemplateToken> prompt_parts_;
-  bool uses_context_ = false;
-  std::string prompt_prefix_;
-  bool strip_markdown_ = false;
-  GenerateOptions gen_opt_;
+  PromptConfig config_;
 };
 
 NodeDefinition MakePromptGuidedLlmNodeDefinition() {
@@ -349,116 +423,14 @@ NodeDefinition MakePromptGuidedLlmNodeDefinition() {
       OutputPort("output", BlackboardKey<TextBatch>{"", "TextBatch"}, "1:1",
                  "preserve", "request"),
   };
-  def.config_fields = {
-      ConfigFieldDefinition{
-          "bind_model",
-          ConfigValueKind::kString,
-          false,
-          "llm_model_v1",
-          std::nullopt,
-          std::nullopt,
-          {},
-          "引用 models[].model_id；所选模型必须提供 llm 文本生成能力。"},
-      ConfigFieldDefinition{"prompt_template",
-                            ConfigValueKind::kString,
-                            false,
-                            "{input}",
-                            std::nullopt,
-                            std::nullopt,
-                            {},
-                            "提示词模板；standard 示例为 "
-                            "\"回答：{{input}}\\n背景：{{context}}\"，使用 "
-                            "context 时须连接该输入。"},
-      ConfigFieldDefinition{"template_syntax",
-                            ConfigValueKind::kString,
-                            false,
-                            "auto",
-                            std::nullopt,
-                            std::nullopt,
-                            {"auto", "standard", "legacy"},
-                            "standard 使用 {{input}}/{{context}}；legacy 使用 "
-                            "{input}/{context}；auto 拒绝有歧义的混用。"},
-      ConfigFieldDefinition{"prompt_prefix",
-                            ConfigValueKind::kString,
-                            false,
-                            "",
-                            std::nullopt,
-                            std::nullopt,
-                            {},
-                            "在渲染模板前追加的普通文本及换行；模型的 system "
-                            "角色请使用 model_config.system_prompt。"},
-      ConfigFieldDefinition{
-          "temperature",
-          ConfigValueKind::kNumber,
-          false,
-          0.7,
-          0.0,
-          2.0,
-          {},
-          "生成采样温度；0 用于贪心生成，具体采样由绑定模型执行。"},
-      ConfigFieldDefinition{"max_tokens",
-                            ConfigValueKind::kInteger,
-                            false,
-                            512,
-                            1.0,
-                            32768.0,
-                            {},
-                            "每条输入最多生成的 token "
-                            "数，不包含输入提示词；还受模型上下文容量限制。"},
-      ConfigFieldDefinition{
-          "top_k",
-          ConfigValueKind::kInteger,
-          false,
-          0,
-          0.0,
-          static_cast<double>(std::numeric_limits<int32_t>::max()),
-          {},
-          "采样时保留的候选 token 数；0 "
-          "表示不按数量截断，区别于检索返回条数。"},
-      ConfigFieldDefinition{"top_p",
-                            ConfigValueKind::kNumber,
-                            false,
-                            0.9,
-                            1.0e-9,
-                            1.0,
-                            {},
-                            "核采样的累计概率阈值；1 表示不按累计概率截断。"},
-      ConfigFieldDefinition{
-          "repetition_penalty",
-          ConfigValueKind::kNumber,
-          false,
-          1.0,
-          1.0e-9,
-          100.0,
-          {},
-          "已出现 token 的重复惩罚系数；1 不调整，大于 1 抑制重复。"},
-      ConfigFieldDefinition{"strip_markdown",
-                            ConfigValueKind::kBoolean,
-                            false,
-                            false,
-                            std::nullopt,
-                            std::nullopt,
-                            {},
-                            "移除模型输出两端空白和外层 Markdown "
-                            "代码围栏，保留围栏内的文本内容。"},
-      ConfigFieldDefinition{"stop_words",
-                            ConfigValueKind::kArray,
-                            false,
-                            nlohmann::json::array(),
-                            std::nullopt,
-                            std::nullopt,
-                            {},
-                            "生成停止文本数组，例如 [\"结束\", "
-                            "\"<END>\"]；命中后输出不包含停止文本。"}};
+  def.config_fields = PromptConfiguration().Fields();
   def.validate_config = [](const nlohmann::json& config,
                            const std::unordered_set<std::string>& inputs,
                            std::string* error) {
-    std::vector<TextTemplateToken> parts;
-    GenerateOptions options;
-    bool uses_context = false;
-    if (!ParsePromptConfig(config, &parts, &options, &uses_context, error))
-      return false;
-    if (uses_context && inputs.count("context") == 0) {
+    const auto parameters =
+        PromptConfiguration().ParseNormalized(config, error);
+    if (!parameters) return false;
+    if (parameters->uses_context && inputs.count("context") == 0) {
       if (error)
         *error = "prompt_template uses context but context is not connected";
       return false;

@@ -85,7 +85,8 @@ struct CreateParam {
   int32_t device_id = 0;  // 目标加速设备 ID (必须 >= 0)
   ComputePlatform compute_platform =
       ComputePlatform::kUnknown;  // 目标硬件计算平台
-  uint32_t max_frame_depth = 25;  // 每种输出类型的池深度 (0 按默认 25 归一化)
+  uint32_t max_frame_depth =
+      25;  // 每个逻辑输出槽位的池深度 (0 按默认 25 归一化)
 };
 
 /**

@@ -29,7 +29,7 @@ struct OutputPoolDeleter {
 enum class BlockState { kFree, kCheckedOut };
 
 /**
- * @brief 单个输出后缀的输出对象预分配池状态机 (固定容量零分配无下溢)
+ * @brief 单个逻辑输出槽位的对象预分配池状态机 (固定容量零分配无下溢)
  */
 class OutputPoolState : public std::enable_shared_from_this<OutputPoolState> {
  public:

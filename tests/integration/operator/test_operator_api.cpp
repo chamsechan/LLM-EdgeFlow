@@ -13,6 +13,8 @@
 #include <thread>
 #include <vector>
 
+#include "adapter/biz_adapter_registry.h"
+#include "adapter/biz_blackboard_keys.h"
 #include "adapter/operator/operator_biz_bridge_registry.h"
 #include "adapter/operator/operator_config_resolver.h"
 #include "adapter/operator/operator_value_type_registry.h"
@@ -22,6 +24,7 @@
 #include "edgeflow/operator/types.h"
 #include "engine/backend_registry.h"
 #include "tests/support/control_test_utils.h"
+#include "tests/support/operator_nested_output_fixture.h"
 
 #ifndef EDGEFLOW_RERANK_ONNX_FIXTURE
 #define EDGEFLOW_RERANK_ONNX_FIXTURE "models/rerank_fixture.onnx"
@@ -2219,4 +2222,381 @@ TEST_F(OperatorApiTest, MetadataTypeIdOutOfInt32RangeIsRejected) {
               -2);
     EXPECT_NE(err.find("must be integer"), std::string::npos);
   }
+}
+
+namespace llm_edgeflow::test_support {
+namespace {
+
+constexpr auto kNestedOutputBiz = static_cast<CompanyAlgBizType>(49001);
+
+// Reuse the complete keyword C ABI contract. Only the test Operator bridge has
+// additional external output carriers; the algorithm and public ABI stay real.
+class NestedOutputTestAdapter final : public IBizAdapter {
+ public:
+  CompanyAlgBizType BizType() const override { return kNestedOutputBiz; }
+  const char* AdapterName() const override { return "NestedOutputTest"; }
+  const char* ResultTypeName() const override {
+    return KeywordResult::kTypeName;
+  }
+
+  const AdapterDescriptor& GetDescriptor() const override {
+    static const AdapterDescriptor descriptor{
+        kNestedOutputBiz,
+        "NestedOutputTest",
+        COMPANY_ALG_ABI_VERSION,
+        "CompanyKeywordInputStruct",
+        "CompanyKeywordOutputStruct",
+        64,
+        OwnershipPolicy::kCopyIn,
+        ThreadModel::kStatelessThreadSafe,
+        OutputCardinality::kOneToOne,
+        {{"test_nested_output_v1",
+          "test_nested_output",
+          "Test registered nested output allocation",
+          {RequiredBizInput(kRawRequestIds), RequiredBizInput(kInputSentences)},
+          {BizOutput(kRuleMatches)}}}};
+    return descriptor;
+  }
+
+  int Unpack(const void** inputs, int count, AlgContext* context,
+             AdapterStatus* status) const override {
+    return KeywordAdapter()->Unpack(inputs, count, context, status);
+  }
+  int Pack(AlgContext* context, void** outputs, int* count,
+           AdapterStatus* status) const override {
+    return KeywordAdapter()->Pack(context, outputs, count, status);
+  }
+  int PackResultBatch(AlgContext* context, void** outputs, int* count,
+                      AdapterStatus* status) const override {
+    return KeywordAdapter()->PackResultBatch(context, outputs, count, status);
+  }
+
+ private:
+  static std::shared_ptr<IBizAdapter> KeywordAdapter() {
+    return BizAdapterRegistry::Instance().GetAdapter(
+        ALG_BIZ_TYPE_KEYWORD_MATCH);
+  }
+};
+
+REGISTER_BIZ_ADAPTER(NestedOutputTestAdapter);
+
+void RegisterNestedOutputTestTypes() {
+  RegisterOperatorValueType(MakeNestedOutputBinding());
+  RegisterOperatorOutputAllocator("test_nested_standard",
+                                  MakeNestedOutputBinding(1));
+  RegisterOperatorOutputAllocator("test_nested_alternate",
+                                  MakeNestedOutputBinding(2));
+}
+
+REGISTER_OPERATOR_VALUE_TYPE(RegisterNestedOutputTestTypes);
+
+void RegisterNestedOutputTestBridge() {
+  OperatorBizBridgeDescriptor bridge;
+  bridge.biz_type = kNestedOutputBiz;
+  bridge.adapter_name = "NestedOutputTest";
+  bridge.registration_identity = "NestedOutputTestBridge";
+  bridge.internal_input_type_name = "CompanyKeywordInputStruct";
+  bridge.internal_output_type_name = KeywordResult::kTypeName;
+  bridge.input_slots = {
+      {"keyword_in", "keyword_in", IoDirection::kInput, true}};
+  bridge.output_slots = {{"main", "test_nested_out", IoDirection::kOutput, true,
+                          "result", ConvertNestedOutput},
+                         {"audit", "test_nested_out", IoDirection::kOutput,
+                          true, "audit", ConvertNestedOutput}};
+  bridge.convert_sample_input =
+      [](const std::unordered_map<std::string, const void*>& slots,
+         ProcessLocalShadowStorage& storage, const void** internal,
+         std::string*) {
+        const auto* source = static_cast<const CompanyOperatorKeywordInput*>(
+            slots.at("keyword_in"));
+        auto* input = storage.AllocateShadowDto<CompanyKeywordInputStruct>();
+        input->request_id = source->request_id;
+        input->sentence_text = storage.StoreString(source->sentence_text);
+        *internal = input;
+        return 0;
+      };
+  bridge.create_shadow_output_dto =
+      [](ProcessLocalShadowStorage& storage) -> void* {
+    return storage.AllocateShadowDto<KeywordResult>();
+  };
+  RegisterOperatorBizBridge(std::move(bridge));
+}
+
+REGISTER_OPERATOR_BIZ_BRIDGE(RegisterNestedOutputTestBridge);
+
+nlohmann::json NestedOutputConfig(bool alternate = false) {
+  return {
+      {"data",
+       {{"pipe_path", "pipeline.json"},
+        {"outputs",
+         {{"main",
+           {{"type", "test_nested_out"},
+            {"allocator",
+             alternate ? "test_nested_alternate" : "test_nested_standard"},
+            {"params",
+             {{"kind", alternate ? 2 : 1}, {"capacity", alternate ? 3 : 2}}}}},
+          {"audit",
+           {{"type", "test_nested_out"},
+            {"allocator",
+             alternate ? "test_nested_standard" : "test_nested_alternate"},
+            {"params",
+             {{"kind", alternate ? 1 : 2},
+              {"capacity", alternate ? 4 : 5}}}}}}}}}};
+}
+
+void WriteNestedOutputPipeline(const std::filesystem::path& root) {
+  std::ifstream source(std::filesystem::path(GetConfDir()) /
+                       "configs/pipeline_keyword_match_rules.json");
+  nlohmann::json pipeline;
+  source >> pipeline;
+  pipeline["biz_name"] = "test_nested_output_v1";
+  std::ofstream(root / "pipeline.json") << pipeline;
+}
+
+void ExpectNestedResult(const std::shared_ptr<void>& value, uint64_t request_id,
+                        int32_t tag, int32_t kind, uint32_t capacity,
+                        bool is_hit) {
+  ASSERT_NE(value, nullptr);
+  const auto* root = static_cast<const NestedOutputEnvelope*>(value.get());
+  EXPECT_EQ(root->request_id, request_id);
+  EXPECT_EQ(root->allocator_tag, tag);
+  ASSERT_EQ(root->kind, kind);
+  ASSERT_NE(root->payload, nullptr);
+  const auto* payload = static_cast<const NestedOutputPayload*>(root->payload);
+  ASSERT_EQ(payload->capacity, capacity);
+  ASSERT_EQ(payload->count, capacity);
+  ASSERT_NE(payload->values, nullptr);
+  for (uint32_t i = 0; i < capacity; ++i) {
+    const int32_t expected = tag * 100 + (is_hit ? 10 : 0) + i;
+    if (kind == 1) {
+      EXPECT_EQ(static_cast<const int32_t*>(payload->values)[i], expected);
+    } else {
+      EXPECT_FLOAT_EQ(static_cast<const float*>(payload->values)[i],
+                      expected + 0.5f);
+    }
+  }
+}
+
+}  // namespace
+}  // namespace llm_edgeflow::test_support
+
+TEST_F(OperatorApiTest,
+       SameOutputKeysSelectIndependentNestedAllocatorsPerHandle) {
+  using namespace llm_edgeflow::test_support;
+  ScopedTempDirectory temp;
+  WriteNestedOutputPipeline(temp.path());
+  std::ofstream(temp.path() / "first.conf") << NestedOutputConfig();
+  std::ofstream(temp.path() / "second.conf") << NestedOutputConfig(true);
+  const auto root = temp.path().string();
+  for (bool alternate : {false, true}) {
+    const auto config = NestedOutputConfig(alternate);
+    llm_edgeflow::ResolvedOperatorConfig resolved;
+    std::string error;
+    ASSERT_EQ(llm_edgeflow::OperatorConfigResolver::Resolve(
+                  root.c_str(), alternate ? "second.conf" : "first.conf",
+                  &resolved, &error),
+              0)
+        << error;
+    for (const char* slot : {"main", "audit"}) {
+      SCOPED_TRACE(slot);
+      const auto& source =
+          config.at("data").at("outputs").at(slot).at("params");
+      EXPECT_FALSE(source.contains("reject_hit"));
+      EXPECT_EQ(resolved.output_parameter_text.at(slot), source.dump());
+      EXPECT_EQ(resolved.output_parameter_text.at(slot).find("reject_hit"),
+                std::string::npos);
+      EXPECT_FALSE(resolved.output_pool_specs.at(slot)
+                       .Parameters<NestedOutputParameters>()
+                       .reject_hit);
+    }
+  }
+  const int allocations_before = nested_allocations;
+  const int destroys_before = nested_destroys;
+  std::vector<std::shared_ptr<void>> handles;
+  for (const char* file : {"first.conf", "second.conf"}) {
+    CreateParam param{};
+    param.model_path = root.c_str();
+    param.cfg_file_name = file;
+    param.compute_platform = ComputePlatform::kCpu;
+    param.max_frame_depth = 2;
+    void* handle = nullptr;
+    ASSERT_EQ(ops_.Create(&handle, &param), 0) << GetOperatorLastError();
+    handles.emplace_back(handle, [this](void* ptr) {
+      EXPECT_EQ(ops_.Destroy(ptr), 0) << GetOperatorLastError();
+    });
+  }
+  // Two handles, two output slots each, and two single-object allocations per
+  // pool.
+  ASSERT_EQ(nested_allocations - allocations_before, 8);
+  std::string text = "初始化";
+  CompanyString sentence{static_cast<int32_t>(text.size()), text.data()};
+  CompanyOperatorKeywordInput input[] = {{901, &sentence}, {902, &sentence}};
+  NamedIoBatch inputs(2);
+  for (size_t i = 0; i < inputs.size(); ++i) {
+    inputs[i]["chan.keyword_in"] = MakeBorrowedOperatorInput(&input[i]);
+  }
+  for (size_t variant = 0; variant < handles.size(); ++variant) {
+    SCOPED_TRACE(variant);
+    void* previous[2][2]{};
+    for (int round = 0; round < 2; ++round) {
+      NamedIoBatch outputs(2);
+      for (auto& output : outputs) {
+        output["chan.result"] = {};
+        output["chan.audit"] = {};
+      }
+      ASSERT_EQ(ops_.Process(handles[variant].get(), inputs, outputs), 0)
+          << GetOperatorLastError();
+      for (size_t i = 0; i < outputs.size(); ++i) {
+        ExpectNestedResult(outputs[i].at("chan.result"), input[i].request_id,
+                           variant ? 2 : 1, variant ? 2 : 1, variant ? 3 : 2,
+                           true);
+        ExpectNestedResult(outputs[i].at("chan.audit"), input[i].request_id,
+                           variant ? 1 : 2, variant ? 1 : 2, variant ? 4 : 5,
+                           true);
+        const void* first = outputs[i].at("chan.result").get();
+        const void* second = outputs[i].at("chan.audit").get();
+        EXPECT_NE(first, second);
+        if (round == 1) {
+          EXPECT_EQ(first, previous[i][0]);
+          EXPECT_EQ(second, previous[i][1]);
+        }
+        previous[i][0] = outputs[i].at("chan.result").get();
+        previous[i][1] = outputs[i].at("chan.audit").get();
+      }
+      // Return in frame order so each independent pool reuses its FIFO order.
+      for (auto& output : outputs) output.clear();
+    }
+  }
+  EXPECT_EQ(nested_allocations - allocations_before, 8);
+  handles.clear();
+  EXPECT_EQ(nested_destroys - destroys_before, 8);
+}
+
+TEST_F(OperatorApiTest, NestedOutputConfigurationIsValidatedBeforeAllocation) {
+  using namespace llm_edgeflow::test_support;
+  ScopedTempDirectory temp;
+  WriteNestedOutputPipeline(temp.path());
+  const auto root = temp.path().string();
+  for (int mutation = 0; mutation < 11; ++mutation) {
+    SCOPED_TRACE(mutation);
+    auto config = NestedOutputConfig();
+    auto& data = config["data"];
+    auto& main = data["outputs"]["main"];
+    switch (mutation) {
+      case 0:
+        main["allocator"] = "not_registered";
+        break;
+      case 1:
+        main["type"] = "keyword_out";
+        break;
+      case 2:
+        main["params"]["kind"] = 9;
+        break;
+      case 3:
+        main["params"]["capacity"] = 0;
+        break;
+      case 4:
+        main["params"]["unknown"] = 1;
+        break;
+      case 5:
+        main["params"] = nlohmann::json::array();
+        break;
+      case 6:
+        data["outputs"].erase("audit");
+        break;
+      case 7:
+        data["outputs"]["unknown"] = main;
+        break;
+      case 8:
+        data["mem_que"] = {{"type", "test_nested_out"}};
+        break;
+      case 9:
+        main["capacities"] = {{"unknown", 10}};
+        break;
+      case 10:
+        main["params"]["capacity"] = 1.5;
+        break;
+    }
+    std::ofstream(temp.path() / "invalid.conf") << config;
+    CreateParam param{};
+    param.model_path = root.c_str();
+    param.cfg_file_name = "invalid.conf";
+    param.compute_platform = ComputePlatform::kCpu;
+    param.max_frame_depth = 1;
+    const int allocations_before = nested_allocations;
+    void* handle = nullptr;
+    EXPECT_EQ(ops_.Create(&handle, &param), -2) << GetOperatorLastError();
+    EXPECT_EQ(handle, nullptr);
+    EXPECT_EQ(nested_allocations, allocations_before);
+    EXPECT_STRNE(GetOperatorLastError(), "");
+    if (handle) ops_.Destroy(handle);
+  }
+}
+
+TEST_F(OperatorApiTest, NestedOutputFailureRollsBackAllSlotsAndAllowsRetry) {
+  using namespace llm_edgeflow::test_support;
+  ScopedTempDirectory temp;
+  WriteNestedOutputPipeline(temp.path());
+  auto config = NestedOutputConfig();
+  config["data"]["outputs"]["audit"]["params"]["reject_hit"] = true;
+  std::ofstream(temp.path() / "pipeline.conf") << config;
+  const auto root = temp.path().string();
+  CreateParam param{};
+  param.model_path = root.c_str();
+  param.cfg_file_name = "pipeline.conf";
+  param.compute_platform = ComputePlatform::kCpu;
+  param.max_frame_depth = 1;
+  void* raw_handle = nullptr;
+  ASSERT_EQ(ops_.Create(&raw_handle, &param), 0) << GetOperatorLastError();
+  const std::shared_ptr<void> handle(
+      raw_handle, [this](void* ptr) { EXPECT_EQ(ops_.Destroy(ptr), 0); });
+  const int allocations_before = nested_allocations;
+  std::string text = "初始化";
+  CompanyString sentence{static_cast<int32_t>(text.size()), text.data()};
+  CompanyOperatorKeywordInput input{903, &sentence};
+  NamedIoBatch inputs(1), outputs(1);
+  inputs[0]["chan.keyword_in"] = MakeBorrowedOperatorInput(&input);
+  outputs[0]["chan.result"] = {};
+  outputs[0]["chan.audit"] = {};
+  for (int attempt = 0; attempt < 2; ++attempt) {
+    const int resets_before = nested_resets;
+    EXPECT_EQ(ops_.Process(handle.get(), inputs, outputs), -4);
+    EXPECT_EQ(outputs[0].at("chan.result"), nullptr);
+    EXPECT_EQ(outputs[0].at("chan.audit"), nullptr);
+    EXPECT_EQ(nested_resets - resets_before, 2);
+  }
+  text = "no matching rule";
+  sentence = {static_cast<int32_t>(text.size()), text.data()};
+  ASSERT_EQ(ops_.Process(handle.get(), inputs, outputs), 0)
+      << GetOperatorLastError();
+  ExpectNestedResult(outputs[0].at("chan.result"), 903, 1, 1, 2, false);
+  ExpectNestedResult(outputs[0].at("chan.audit"), 903, 2, 2, 5, false);
+  EXPECT_EQ(nested_allocations, allocations_before);
+  outputs.clear();
+}
+
+TEST_F(OperatorApiTest, AllOutputSlotsShareTheHandlePayloadBudget) {
+  using namespace llm_edgeflow::test_support;
+  ScopedTempDirectory temp;
+  WriteNestedOutputPipeline(temp.path());
+  auto config = NestedOutputConfig();
+  for (auto& output : config["data"]["outputs"]) {
+    output["params"]["capacity"] = 9000;
+  }
+  std::ofstream(temp.path() / "pipeline.conf") << config;
+  const auto root = temp.path().string();
+  CreateParam param{};
+  param.model_path = root.c_str();
+  param.cfg_file_name = "pipeline.conf";
+  param.compute_platform = ComputePlatform::kCpu;
+  param.max_frame_depth = 1024;
+  const int allocations_before = nested_allocations;
+  void* handle = nullptr;
+  EXPECT_EQ(ops_.Create(&handle, &param), -2);
+  EXPECT_EQ(handle, nullptr);
+  EXPECT_EQ(nested_allocations, allocations_before);
+  EXPECT_NE(std::string(GetOperatorLastError())
+                .find("exceeds per-handle payload budget"),
+            std::string::npos);
+  if (handle) ops_.Destroy(handle);
 }

@@ -25,7 +25,10 @@ struct ResolvedOperatorConfig {
   std::shared_ptr<IBizAdapter> adapter;
   const OperatorBizBridgeDescriptor* bridge_descriptor = nullptr;
   nlohmann::json synthetic_pipeline_json;
-  ResolvedOutputPoolSpec output_pool_spec;
+  std::unordered_map<std::string, ResolvedOutputPoolSpec> output_pool_specs;
+  // Text supplied to each structure's parser. Kept at the configuration/tooling
+  // boundary; it does not include defaults chosen inside custom parsers.
+  std::unordered_map<std::string, std::string> output_parameter_text;
   ResolvedInputLimits input_limits;
 };
 
