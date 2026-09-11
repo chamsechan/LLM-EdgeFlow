@@ -82,7 +82,7 @@ jobs:
     env:
       CCACHE_DIR: ${{ github.workspace }}/build/.ccache-sanitizers
       CCACHE_COMPRESS: "true"
-      CCACHE_MAXSIZE: "5G"
+      CCACHE_MAXSIZE: "2G"
       CCACHE_BASEDIR: ${{ github.workspace }}
       CCACHE_NOHASHDIR: "true"
 
@@ -104,6 +104,11 @@ jobs:
             python3
           echo "TOOLCHAIN_ID=gcc-$(gcc -dumpfullversion || gcc -dumpversion)" >> $GITHUB_ENV
 
+      - name: Set CCache Epoch
+        shell: bash
+        run: |
+          echo "CCACHE_EPOCH=$(date -u +%G-%V)" >> "$GITHUB_ENV"
+
       - name: Restore Prebuilt 3rdparty Dependencies
         uses: actions/cache/restore@v4
         with:
@@ -120,10 +125,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ env.CCACHE_DIR }}
-          key: sanitizer-ccache-v1-${{ runner.os }}-${{ github.ref }}-${{ github.sha }}
+          key: sanitizer-ccache-v2-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-${{ env.CCACHE_EPOCH }}
           restore-keys: |
-            sanitizer-ccache-v1-${{ runner.os }}-${{ github.ref }}-
-            sanitizer-ccache-v1-${{ runner.os }}-
+            sanitizer-ccache-v2-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-
 
       - name: Run Full Sanitizer Suite
         run: |
