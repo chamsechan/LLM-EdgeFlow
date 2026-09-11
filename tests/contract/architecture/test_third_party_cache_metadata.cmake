@@ -86,4 +86,6 @@ endfunction()
 expect_whisper_failure("requires ENABLE_LLAMACPP=ON" -DENABLE_LLAMACPP=OFF)
 expect_whisper_failure("cannot coexist with ENABLE_KITELLM=ON" -DENABLE_LLAMACPP=ON -DENABLE_KITELLM=ON)
 
+include("${PROJECT_SOURCE_DIR}/tests/contract/architecture/test_llama_cache.cmake")
+
 file(REMOVE_RECURSE "${TEST_ROOT}")
