@@ -526,7 +526,6 @@ bool ParsePipelineConfig(const nlohmann::json& root,
       return false;
     }
 
-    std::unordered_set<std::string> node_deps;
     for (size_t d = 0; d < node_elem["depends_on"].size(); ++d) {
       const auto& dep_item = node_elem["depends_on"][d];
       std::string dep_path =
@@ -543,12 +542,6 @@ bool ParsePipelineConfig(const nlohmann::json& root,
                 "Dependency item cannot be empty");
         return false;
       }
-      if (node_deps.find(dep_str) != node_deps.end()) {
-        SetDiag(diagnostic, PipelineErrorCode::kInvalidDependency, dep_path,
-                "Duplicate dependency in node: " + dep_str);
-        return false;
-      }
-      node_deps.insert(dep_str);
       node_cfg.depends_on.push_back(dep_str);
     }
 

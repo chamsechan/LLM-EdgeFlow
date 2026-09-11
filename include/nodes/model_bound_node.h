@@ -13,6 +13,8 @@ namespace llm_edgeflow {
 template <typename ModelCapability>
 class ModelBoundNode : public NodeBase {
  public:
+  using ModelInterface = ModelCapability;
+
   explicit ModelBoundNode(std::string node_name)
       : NodeBase(std::move(node_name)) {}
 

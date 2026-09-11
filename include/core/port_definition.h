@@ -88,6 +88,16 @@ inline NodePortDefinition RequiredInputPort(
 }
 
 template <typename T>
+inline NodePortDefinition RequiredInputPort(
+    const BlackboardKey<T>& key, std::string cardinality = "1:1",
+    std::string provenance = "preserve", std::string lifetime = "request",
+    std::string lifetime_config_field = {}) {
+  return RequiredInputPort(key.name, key, std::move(cardinality),
+                           std::move(provenance), std::move(lifetime),
+                           std::move(lifetime_config_field));
+}
+
+template <typename T>
 inline NodePortDefinition OptionalInputPort(
     std::string logical_name, const BlackboardKey<T>& key_type,
     std::string cardinality = "1:1", std::string provenance = "preserve",
@@ -99,6 +109,16 @@ inline NodePortDefinition OptionalInputPort(
                             std::move(provenance),
                             std::move(lifetime),
                             std::move(lifetime_config_field)};
+}
+
+template <typename T>
+inline NodePortDefinition OptionalInputPort(
+    const BlackboardKey<T>& key, std::string cardinality = "1:1",
+    std::string provenance = "preserve", std::string lifetime = "request",
+    std::string lifetime_config_field = {}) {
+  return OptionalInputPort(key.name, key, std::move(cardinality),
+                           std::move(provenance), std::move(lifetime),
+                           std::move(lifetime_config_field));
 }
 
 template <typename T>
@@ -115,6 +135,17 @@ inline NodePortDefinition OutputPort(std::string logical_name,
                             std::move(provenance),
                             std::move(lifetime),
                             std::move(lifetime_config_field)};
+}
+
+template <typename T>
+inline NodePortDefinition OutputPort(const BlackboardKey<T>& key,
+                                     std::string cardinality = "1:1",
+                                     std::string provenance = "preserve",
+                                     std::string lifetime = "request",
+                                     std::string lifetime_config_field = {}) {
+  return OutputPort(key.name, key, std::move(cardinality),
+                    std::move(provenance), std::move(lifetime),
+                    std::move(lifetime_config_field));
 }
 
 }  // namespace llm_edgeflow

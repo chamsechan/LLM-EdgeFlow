@@ -6,6 +6,7 @@
 #include "core/node_registry.h"
 #include "engine/model_interface.h"
 #include "nodes/model_bound_node.h"
+#include "nodes/node_definition_helpers.h"
 #include "nodes/traceable_batch_validation.h"
 
 namespace llm_edgeflow {
@@ -22,14 +23,13 @@ class StarterLlmNode final : public ModelBoundNode<ILlmModel> {
 
  public:
   inline static constexpr char kNodeType[] = "StarterLlmNode";
-  inline static constexpr BlackboardKey<TextBatch> kInput{"input", "TextBatch"};
-  inline static constexpr BlackboardKey<TextBatch> kOutput{"output",
-                                                           "TextBatch"};
+  inline static constexpr auto kInput = MakeBlackboardKey<TextBatch>("input");
+  inline static constexpr auto kOutput = MakeBlackboardKey<TextBatch>("output");
 
   StarterLlmNode()
       : ModelBoundNode<ILlmModel>(kNodeType),
-        input_(kInput.name),
-        output_(kOutput.name) {}
+        input_(kInput),
+        output_(kOutput) {}
 
  protected:
   // ModelBoundNode validates fields and applies Definition defaults before this
@@ -76,23 +76,9 @@ class StarterLlmNode final : public ModelBoundNode<ILlmModel> {
 };
 
 NodeDefinition MakeStarterLlmNodeDefinition() {
-  NodeDefinition def;
-  def.node_type = StarterLlmNode::kNodeType;
-  def.category = "custom";
-  def.description = "LLM authoring starter";
-  def.inputs = {RequiredInputPort(StarterLlmNode::kInput.name,
-                                  StarterLlmNode::kInput, "1:1", "preserve",
-                                  "request")};
-  def.outputs = {OutputPort(StarterLlmNode::kOutput.name,
-                            StarterLlmNode::kOutput, "1:1", "preserve",
-                            "request")};
-  def.config_fields = {
-      ConfigFieldDefinition{"bind_model", ConfigValueKind::kString, true}};
-  def.model_capability = "llm";
-  def.model_config_field = "bind_model";
-  // Review node-owned shared state before enabling parallel scheduling.
-  def.parallel_safe = false;
-  return def;
+  return MakeCustomModelNodeDefinition<StarterLlmNode>(
+      "LLM authoring starter", {RequiredInputPort(StarterLlmNode::kInput)},
+      {OutputPort(StarterLlmNode::kOutput)});
 }
 
 REGISTER_NODE_WITH_DEFINITION(StarterLlmNode, MakeStarterLlmNodeDefinition());

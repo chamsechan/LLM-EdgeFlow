@@ -75,9 +75,113 @@ def revision_for(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def apply_json_patch(doc: Any, patch: list[dict[str, Any]]) -> Any:
+    doc = copy.deepcopy(doc)
+
+    def parse_pointer(p: str) -> list[str]:
+        if not p.startswith("/"):
+            if not p:
+                return []
+            raise ValueError(f"Invalid JSON Pointer: {p}")
+        parts = p[1:].split("/")
+        return [part.replace("~1", "/").replace("~0", "~") for part in parts]
+
+    def get_parent_and_key(d: Any, parts: list[str]) -> tuple[Any, str | int]:
+        curr = d
+        for part in parts[:-1]:
+            if isinstance(curr, list):
+                curr = curr[int(part)]
+            elif isinstance(curr, dict):
+                curr = curr[part]
+            else:
+                raise KeyError(f"Invalid path traversal: {part}")
+        key: str | int = parts[-1]
+        if isinstance(curr, list) and key != "-":
+            key = int(key)
+        return curr, key
+
+    for op_obj in patch:
+        op = op_obj["op"]
+        path_parts = parse_pointer(op_obj["path"])
+        if op == "test":
+            curr, key = get_parent_and_key(doc, path_parts)
+            val = curr[key]
+            if val != op_obj["value"]:
+                raise ValueError(
+                    f"Patch test failed at {op_obj['path']}: expected {op_obj['value']!r}, got {val!r}"
+                )
+        elif op == "add":
+            if not path_parts:
+                doc = copy.deepcopy(op_obj["value"])
+                continue
+            curr, key = get_parent_and_key(doc, path_parts)
+            val = copy.deepcopy(op_obj["value"])
+            if isinstance(curr, list):
+                if key == "-" or key == len(curr):
+                    curr.append(val)
+                else:
+                    curr.insert(int(key), val)
+            elif isinstance(curr, dict):
+                curr[str(key)] = val
+        elif op == "remove":
+            curr, key = get_parent_and_key(doc, path_parts)
+            if isinstance(curr, list):
+                del curr[int(key)]
+            elif isinstance(curr, dict):
+                del curr[str(key)]
+        elif op == "replace":
+            curr, key = get_parent_and_key(doc, path_parts)
+            val = copy.deepcopy(op_obj["value"])
+            if isinstance(curr, list):
+                curr[int(key)] = val
+            elif isinstance(curr, dict):
+                curr[str(key)] = val
+        elif op == "move":
+            from_parts = parse_pointer(op_obj["from"])
+            from_parent, from_key = get_parent_and_key(doc, from_parts)
+            if isinstance(from_parent, list):
+                val = from_parent.pop(int(from_key))
+            elif isinstance(from_parent, dict):
+                val = from_parent.pop(str(from_key))
+            curr, key = get_parent_and_key(doc, path_parts)
+            if isinstance(curr, list):
+                if key == "-" or key == len(curr):
+                    curr.append(val)
+                else:
+                    curr.insert(int(key), val)
+            elif isinstance(curr, dict):
+                curr[str(key)] = val
+        elif op == "copy":
+            from_parts = parse_pointer(op_obj["from"])
+            from_parent, from_key = get_parent_and_key(doc, from_parts)
+            val = copy.deepcopy(from_parent[from_key])
+            curr, key = get_parent_and_key(doc, path_parts)
+            if isinstance(curr, list):
+                if key == "-" or key == len(curr):
+                    curr.append(val)
+                else:
+                    curr.insert(int(key), val)
+            elif isinstance(curr, dict):
+                curr[str(key)] = val
+    return doc
+
+
 def read_json(path: Path) -> Any:
     with path.open("r", encoding="utf-8") as stream:
         return json.load(stream)
+
+
+def get_tool_fingerprint() -> str:
+    if PIPELINE_TOOL.is_file():
+        digest = hashlib.sha256(str(PIPELINE_TOOL.resolve()).encode())
+        with PIPELINE_TOOL.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+    return hashlib.sha256(str(PIPELINE_TOOL).encode()).hexdigest()[:16]
+
+
+tool_fingerprint = get_tool_fingerprint
 
 
 class WorkbenchService:
@@ -215,8 +319,58 @@ class WorkbenchService:
             profiles.append(item)
         return json_result(True, profiles=profiles)
 
-    def validate(self, pipeline: Any) -> dict[str, Any]:
-        return self.invoke_tool(["validate", "--stdin"], pipeline)
+    def get_tool_fingerprint(self) -> str:
+        return get_tool_fingerprint()
+
+    def tool_fingerprint(self) -> str:
+        return self.get_tool_fingerprint()
+
+    def validate(self, pipeline: Any, explain: bool = False) -> dict[str, Any]:
+        args = ["validate", "--stdin"]
+        if explain:
+            args.append("--explain")
+        fingerprint = self.get_tool_fingerprint() if explain else None
+        report = self.invoke_tool(args, pipeline)
+        if explain and isinstance(report, dict):
+            if fingerprint != self.get_tool_fingerprint():
+                raise StudioError("TOOL_OUTDATED", "校验期间工具已更新，请重新校验", 409)
+            report["tool_fingerprint"] = fingerprint
+            raw = json.dumps(pipeline, sort_keys=True).encode("utf-8")
+            report["revision"] = revision_for(raw)
+        return report
+
+    def preview_fix(
+        self,
+        pipeline: Any,
+        patch: list[dict[str, Any]],
+        expected_revision: str | None = None,
+        tool_fingerprint: str | None = None,
+    ) -> dict[str, Any]:
+        if not expected_revision:
+            raise StudioError("REVISION_CONFLICT", "必须指定预期修订版本，草稿可能已变更", 409)
+        raw = json.dumps(pipeline, sort_keys=True).encode("utf-8")
+        current_rev = revision_for(raw)
+        if current_rev != expected_revision:
+            raise StudioError("REVISION_CONFLICT", "草稿已变更，候选失效", 409)
+        current_fp = self.get_tool_fingerprint()
+        if not tool_fingerprint or current_fp != tool_fingerprint:
+            raise StudioError("TOOL_OUTDATED", "底层校验工具已重建或更新，候选失效", 409)
+        try:
+            patched = apply_json_patch(pipeline, patch)
+        except Exception as error:
+            raise StudioError(
+                "PATCH_APPLICATION_FAILED", f"补丁应用失败: {error}"
+            ) from error
+        report = self.validate(patched, explain=True)
+        return json_result(
+            True,
+            patched=patched,
+            report=report,
+            revision=revision_for(
+                json.dumps(patched, sort_keys=True).encode("utf-8")
+            ),
+            tool_fingerprint=current_fp,
+        )
 
     def init_pipeline(
         self, biz: str, profile: str = "", empty: bool = False
@@ -653,7 +807,16 @@ def make_handler(service: WorkbenchService):
             elif method == "GET" and path.startswith("/api/v1/runs/"):
                 payload = service.run_status(path.rsplit("/", 1)[-1])
             elif method == "POST" and path == "/api/v1/validate":
-                payload = service.validate(body.get("pipeline"))
+                payload = service.validate(
+                    body.get("pipeline"), body.get("explain", False)
+                )
+            elif method == "POST" and path == "/api/v1/fixes/preview":
+                payload = service.preview_fix(
+                    body.get("pipeline"),
+                    body.get("patch", []),
+                    body.get("revision") or body.get("expected_revision"),
+                    body.get("tool_fingerprint"),
+                )
             elif method == "POST" and path == "/api/v1/init":
                 payload = service.init_pipeline(
                     body.get("biz", ""), body.get("profile", ""), body.get("empty", False)

@@ -33,6 +33,18 @@ class BoundInput {
                                         : std::move(default_key)),
         type_id_(BlackboardTypeTraits<T>::TypeName()) {}
 
+  explicit BoundInput(const BlackboardKey<T>& key)
+      : logical_name_(key.name),
+        actual_key_(key.name),
+        type_id_(key.type_id ? key.type_id
+                             : BlackboardTypeTraits<T>::TypeName()) {
+    if (key.type_id &&
+        std::string_view(key.type_id) != BlackboardTypeTraits<T>::TypeName()) {
+      throw std::invalid_argument(
+          "BlackboardKey type_id does not match BlackboardTypeTraits<T>");
+    }
+  }
+
   void Resolve(std::string actual_key) {
     if (!actual_key.empty()) {
       actual_key_ = std::move(actual_key);
@@ -93,6 +105,18 @@ class BoundOutput {
         actual_key_(default_key.empty() ? logical_name_
                                         : std::move(default_key)),
         type_id_(BlackboardTypeTraits<T>::TypeName()) {}
+
+  explicit BoundOutput(const BlackboardKey<T>& key)
+      : logical_name_(key.name),
+        actual_key_(key.name),
+        type_id_(key.type_id ? key.type_id
+                             : BlackboardTypeTraits<T>::TypeName()) {
+    if (key.type_id &&
+        std::string_view(key.type_id) != BlackboardTypeTraits<T>::TypeName()) {
+      throw std::invalid_argument(
+          "BlackboardKey type_id does not match BlackboardTypeTraits<T>");
+    }
+  }
 
   void Resolve(std::string actual_key) {
     if (!actual_key.empty()) {

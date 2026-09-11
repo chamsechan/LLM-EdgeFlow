@@ -175,6 +175,135 @@ class WorkbenchServiceTest(unittest.TestCase):
             render.assert_not_called()
             help_text.assert_called_once()
 
+    def test_validate_passes_explain_flag(self):
+        with mock.patch.object(self.service, "invoke_tool", return_value={"ok": True}) as mock_invoke:
+            self.service.validate(self.keyword, explain=True)
+            mock_invoke.assert_called_once_with(["validate", "--stdin", "--explain"], self.keyword)
+
+        with mock.patch.object(self.service, "invoke_tool", return_value={"ok": True}) as mock_invoke:
+            self.service.validate(self.keyword, explain=False)
+            mock_invoke.assert_called_once_with(["validate", "--stdin"], self.keyword)
+
+        with mock.patch.object(self.service, "invoke_tool", return_value={"ok": True}) as mock_invoke:
+            self.service.validate(self.keyword)
+            mock_invoke.assert_called_once_with(["validate", "--stdin"], self.keyword)
+
+
+class PreviewFixTest(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.configs = Path(self.temporary.name)
+        self.service = SHOW.WorkbenchService(self.configs)
+        self.keyword = json.loads(
+            (ROOT / "configs" / "pipeline_keyword_match_rules.json").read_text()
+        )
+        self.patch = [{"op": "add", "path": "/comment", "value": "preview_fix_applied"}]
+
+    def tearDown(self):
+        self.temporary.cleanup()
+
+    def _valid_fingerprint(self):
+        if hasattr(self.service, "tool_fingerprint"):
+            try:
+                fp = self.service.tool_fingerprint
+                return fp() if callable(fp) else fp
+            except Exception:
+                pass
+        if hasattr(SHOW, "tool_fingerprint"):
+            try:
+                fp = SHOW.tool_fingerprint
+                return fp() if callable(fp) else fp
+            except Exception:
+                pass
+        return "valid_tool_fingerprint"
+
+    def test_preview_fix_requires_expected_revision(self):
+        valid_fp = self._valid_fingerprint()
+
+        # Omitted expected_revision (None) raises REVISION_CONFLICT
+        with self.assertRaises(SHOW.StudioError) as err_none:
+            self.service.preview_fix(
+                self.keyword, self.patch, expected_revision=None, tool_fingerprint=valid_fp
+            )
+        self.assertEqual(err_none.exception.code, "REVISION_CONFLICT")
+
+        # Omitted expected_revision (empty string) raises REVISION_CONFLICT
+        with self.assertRaises(SHOW.StudioError) as err_empty:
+            self.service.preview_fix(
+                self.keyword, self.patch, expected_revision="", tool_fingerprint=valid_fp
+            )
+        self.assertEqual(err_empty.exception.code, "REVISION_CONFLICT")
+
+        # Mismatched expected_revision raises REVISION_CONFLICT
+        with self.assertRaises(SHOW.StudioError) as err_mismatch:
+            self.service.preview_fix(
+                self.keyword, self.patch, expected_revision="mismatched_revision", tool_fingerprint=valid_fp
+            )
+        self.assertEqual(err_mismatch.exception.code, "REVISION_CONFLICT")
+
+    def test_preview_fix_requires_tool_fingerprint(self):
+        raw = json.dumps(self.keyword, sort_keys=True).encode("utf-8")
+        valid_rev = SHOW.revision_for(raw)
+
+        # Omitted tool_fingerprint (None) raises TOOL_OUTDATED
+        with self.assertRaises(SHOW.StudioError) as err_none:
+            self.service.preview_fix(
+                self.keyword, self.patch, expected_revision=valid_rev, tool_fingerprint=None
+            )
+        self.assertEqual(err_none.exception.code, "TOOL_OUTDATED")
+
+        # Omitted tool_fingerprint (empty string) raises TOOL_OUTDATED
+        with self.assertRaises(SHOW.StudioError) as err_empty:
+            self.service.preview_fix(
+                self.keyword, self.patch, expected_revision=valid_rev, tool_fingerprint=""
+            )
+        self.assertEqual(err_empty.exception.code, "TOOL_OUTDATED")
+
+        # Mismatched tool_fingerprint raises TOOL_OUTDATED
+        with self.assertRaises(SHOW.StudioError) as err_mismatch:
+            self.service.preview_fix(
+                self.keyword, self.patch, expected_revision=valid_rev, tool_fingerprint="mismatched_tool_fingerprint"
+            )
+        self.assertEqual(err_mismatch.exception.code, "TOOL_OUTDATED")
+
+    def test_preview_fix_succeeds_with_valid_revision_and_tool_fingerprint(self):
+        raw = json.dumps(self.keyword, sort_keys=True).encode("utf-8")
+        valid_rev = SHOW.revision_for(raw)
+        valid_fp = self._valid_fingerprint()
+
+        mock_report = {"ok": True, "diagnostics": []}
+        with mock.patch.object(self.service, "validate", return_value=mock_report) as mock_validate:
+            result = self.service.preview_fix(
+                self.keyword,
+                self.patch,
+                expected_revision=valid_rev,
+                tool_fingerprint=valid_fp,
+            )
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["patched"]["comment"], "preview_fix_applied")
+            self.assertEqual(result["report"], mock_report)
+            expected_new_rev = SHOW.revision_for(
+                json.dumps(result["patched"], sort_keys=True).encode("utf-8")
+            )
+            self.assertEqual(result["revision"], expected_new_rev)
+            self.assertNotEqual(result["revision"], valid_rev)
+            mock_validate.assert_called_once_with(result["patched"], explain=True)
+
+    def test_preview_fix_patch_application_failure(self):
+        raw = json.dumps(self.keyword, sort_keys=True).encode("utf-8")
+        valid_rev = SHOW.revision_for(raw)
+        valid_fp = self._valid_fingerprint()
+
+        bad_patch = [{"op": "test", "path": "/biz_name", "value": "mismatched_biz"}]
+        with self.assertRaises(SHOW.StudioError) as patch_err:
+            self.service.preview_fix(
+                self.keyword,
+                bad_patch,
+                expected_revision=valid_rev,
+                tool_fingerprint=valid_fp,
+            )
+        self.assertEqual(patch_err.exception.code, "PATCH_APPLICATION_FAILED")
+
 
 class RunnableSolutionTest(unittest.TestCase):
     def setUp(self):
@@ -843,6 +972,15 @@ await assert.rejects(
                     text=True, capture_output=True, cwd=ROOT, check=False,
                 )
                 self.assertEqual(process.returncode, 0, process.stdout + process.stderr)
+
+    @unittest.skipUnless(shutil.which("node"), "Node.js is required for Web module tests")
+    def test_actual_fix_handler_history_and_stale_response_protection(self):
+        process = subprocess.run(
+            [shutil.which("node"), "--experimental-vm-modules",
+             str(Path(__file__).with_name("studio_fix_workflow_test.mjs"))],
+            text=True, capture_output=True, cwd=ROOT, check=False,
+        )
+        self.assertEqual(process.returncode, 0, process.stdout + process.stderr)
 
     @unittest.skipUnless(shutil.which("node"), "Node.js is required for Web module tests")
     def test_port_editing_roundtrips_to_native_validator_and_model_forms(self):

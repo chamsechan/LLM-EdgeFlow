@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "name": "entity-neutral-model-contract",
+  "biz_name": "entity_extract_v1",
+  "dataset": "../../../data/corpus_entity_extract.txt",
+  "minimum_pass_rate": 1.0,
+  "samples": [
+    {
+      "request_id": 30001,
+      "expected": {
+        "/output/entities/nouns": [
+          "张三", "清华大学", "北京", "人工智能", "算法工程师", "NPU",
+          "芯片", "深度学习", "大模型", "项目", "公司"
+        ]
+      }
+    }
+  ]
+}

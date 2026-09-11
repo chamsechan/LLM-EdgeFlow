@@ -132,7 +132,8 @@ set(EDGEFLOW_TEST_NODE_SRCS
   ${EDGEFLOW_SOURCE_test_text_rule_match_node}
   ${EDGEFLOW_SOURCE_test_structured_json_parse_node}
   ${EDGEFLOW_SOURCE_test_text_corpus_source_node}
-  ${EDGEFLOW_SOURCE_test_common_nodes})
+  ${EDGEFLOW_SOURCE_test_common_nodes}
+  ${EDGEFLOW_CUSTOM_NODE_TEST_SRCS})
 add_executable(edgeflow_test_nodes_runner
   ${EDGEFLOW_SCAFFOLD_FIXTURE_SOURCE}
   ${EDGEFLOW_TEST_NODE_SRCS}
@@ -383,6 +384,15 @@ add_test(NAME CustomNodeScaffoldTest
 set_tests_properties(CustomNodeScaffoldTest PROPERTIES
   WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
   LABELS "${_edgeflow_tier4}")
+
+add_test(NAME DevRecipeTest
+  COMMAND ${Python3_EXECUTABLE}
+          ${PROJECT_SOURCE_DIR}/tests/tooling/test_dev_recipe.py)
+set_tests_properties(DevRecipeTest PROPERTIES
+  WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+  LABELS "${_edgeflow_tier4}"
+  ENVIRONMENT
+    "LLM_EDGEFLOW_PIPELINE_TOOL=$<TARGET_FILE:alg_pipeline_tool_test>;LLM_EDGEFLOW_SELECTION_TOOL=$<TARGET_FILE:alg_pipeline_tool>;LLM_EDGEFLOW_DEMO_BINARY=$<TARGET_FILE:alg_demo>")
 
 add_test(NAME DemoSmokeTest COMMAND $<TARGET_FILE:alg_demo> --suite smoke)
 set_tests_properties(DemoSmokeTest PROPERTIES

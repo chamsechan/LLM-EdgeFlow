@@ -2,7 +2,7 @@
 
 - **RFC 编号**：0051-developer-task-experience
 - **创建日期**：2026-09-11
-- **文档状态**：Proposed
+- **文档状态**：In Implementation
 - **关联分支**：`docs/developer-task-experience-rfc`
 - **目标版本**：v10.x
 - **负责人 / 作者**：LLM-EdgeFlow contributors
@@ -558,13 +558,13 @@ G4 只需要构建和执行受影响的 individual Node 测试，不重复完整
 
 | 阶段 | 交付内容 | 依赖 | 完成证据 | 状态 |
 | --- | --- | --- | --- | --- |
-| M0 基线 | 固定生成、诊断、Definition 和任务操作基线 | 采用方案 | 可复现输入、工具基线与验收落点 | 待实施 |
-| M1 测试生成 | 第 4 节的生成、恢复、源码清单、两模式接入与教程 | M0 | G1–G4 | 待实施 |
-| M2 诊断解释 | 第 5.2 节六类原因及当前上下文建议 | M0 | 基线错误和字段/模型/端口解释回归 | 待实施 |
-| M3 修复候选 | remediation v1、explain、候选验证、Studio 预览与过期保护 | M2 | V1–V6、U1–U3 | 待实施 |
-| M4 Definition | 第 6 节 helper、starter 和最小样例 | M1 | D1–D2，Catalog 与运行行为等价 | 待实施 |
-| M5 recipe | 两条 prepare/verify 路径、任务页、样例与部署边界 | M1、M2、M4；交付集成 M3 | R1–R5 | 待实施 |
-| M6 试用交付 | 用户试用、阻碍修复、现行指南和 Changelog | M1–M5 | 第 10 节硬性目标、全部所需检查及最终 gate | 待实施 |
+| M0 基线 | 固定生成、诊断、Definition 和任务操作基线 | 采用方案 | 可复现输入、工具基线与验收落点 | Completed |
+| M1 测试生成 | 第 4 节的生成、恢复、源码清单、两模式接入与教程 | M0 | G1–G4，scaffold_custom_node --write-test 与两套构建 | Completed |
+| M2 诊断解释 | 第 5.2 节六类原因及当前上下文建议 | M0 | Explain 诊断与事实提取、基线错误解释回归 | Completed |
+| M3 修复候选 | remediation v1、explain、候选验证、Studio 预览与过期保护 | M2 | V1–V6、U1–U3，Explain 补丁生成与版本冲突校验 | Completed |
+| M4 Definition | 第 6 节 helper、starter 和最小样例 | M1 | D1–D2，MakeBlackboardKey 与 MakeCustomModelNodeDefinition | Completed |
+| M5 recipe | 两条 prepare/verify 路径、任务页、样例与部署边界 | M1、M2、M4；交付集成 M3 | R1–R5，dev_recipe CLI 与 asset_manifest 校验 | Completed |
+| M6 试用交付 | 用户试用、阻碍修复、现行指南和 Changelog | M1–M5 | 第 10 节硬性目标、全部所需检查及最终 canonical gate | In Progress |
 
 M1/M2 可独立推进，M4 可与 M3 的源码工作并行；同一构建目录不并发构建。每阶段控制在本模块
 及必要连接处，不混入无关运行时重构。产品导航和 Changelog 随实际功能交付更新。

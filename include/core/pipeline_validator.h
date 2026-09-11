@@ -1,6 +1,7 @@
 #pragma once
 
 #include <nlohmann/json.hpp>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -61,6 +62,26 @@ enum class DiagnosticCode {
 
 const char* DiagnosticCodeName(DiagnosticCode code) noexcept;
 
+struct ValidationFix {
+  std::string id;
+  std::string title;
+  std::string effect;
+  nlohmann::json patch = nlohmann::json::array();
+  std::string verification;  // "pipeline_valid" or "target_resolved"
+
+  nlohmann::json ToJson() const;
+};
+
+struct ValidationRemediation {
+  int schema_version = 1;
+  std::string cause;
+  std::string summary;
+  nlohmann::json facts = nlohmann::json::object();
+  std::vector<ValidationFix> fixes;
+
+  nlohmann::json ToJson() const;
+};
+
 struct ValidationDiagnostic {
   DiagnosticCode code = DiagnosticCode::kOk;
   std::string path;
@@ -70,6 +91,7 @@ struct ValidationDiagnostic {
   std::string port;
   std::vector<std::string> related_nodes;
   std::vector<std::string> suggestions;
+  std::optional<ValidationRemediation> remediation;
 
   nlohmann::json ToJson() const;
 };
@@ -113,6 +135,10 @@ class PipelineValidator {
       ValidationPolicy policy = ValidationPolicy::kStrict);
 
   static ValidationReport Validate(
+      const nlohmann::json& root,
+      ValidationPolicy policy = ValidationPolicy::kStrict);
+
+  static ValidationReport Explain(
       const nlohmann::json& root,
       ValidationPolicy policy = ValidationPolicy::kStrict);
 };
