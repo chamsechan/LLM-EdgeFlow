@@ -322,7 +322,6 @@ jobs:
             ccache \
             cmake \
             curl \
-            default-jre-headless \
             gh \
             libgomp1 \
             mold \
