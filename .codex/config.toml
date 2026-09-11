@@ -1,11 +1,12 @@
 # Codex-only runtime and model mapping.
 # Model-agnostic sub-agent responsibilities are defined once in ../AGENTS.md.
+# Keep this file compatible with Codex CLI 0.144.0-alpha.4 strict config.
+
+[features]
+multi_agent = true
 
 [agents]
-enabled = true
-default_subagent_model = "gpt-6-astra"
-default_subagent_reasoning_effort = "low"
-max_concurrent_threads_per_session = 4
+max_threads = 4
 
 [agents.scout]
 description = "Read-only repository exploration, call-chain tracing, and impact analysis; follow the Scout role in AGENTS.md."
