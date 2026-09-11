@@ -1,0 +1,4 @@
+model = "gpt-6-astra"
+model_reasoning_effort = "low"
+sandbox_mode = "workspace-write"
+developer_instructions = "Follow the model-agnostic Mechanical worker role defined in the repository root AGENTS.md. Do not duplicate or reinterpret that role here."

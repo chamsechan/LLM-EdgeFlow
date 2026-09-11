@@ -83,25 +83,43 @@ from prose. Query `alg_pipeline_tool`; registrations and Definitions are the exe
 
 ## Agent responsibilities
 
-For code changes, use separate sub-agents for test authoring, compilation, and test execution.
-The primary agent owns implementation, coordination, review, documentation, and the final report.
+These responsibilities are model- and provider-agnostic. Any supported agent framework may use
+them with whatever models it has available. Provider-specific model selection, reasoning effort,
+sandbox defaults, or runtime routing must live in that provider's own configuration rather than
+in this file.
 
-- **Test author** — write or update the focused tests from the requested behavior and public
-  contract; do not run builds or tests. Keep production and test file ownership separate so
-  implementation and test authoring can proceed in parallel.
-- **Build agent** — configure and compile the affected targets after the required source and
-  test edits are ready; report commands, build results, and diagnostics. Return source fixes
-  to the owning author.
-- **Test runner** — independently execute the relevant tests on the completed build, check
-  results against the requested behavior, and run the canonical pre-delivery gate from
-  `CONTRIBUTING.md`. Report actual results and limitations; return test fixes to the test author
-  and implementation fixes to the primary agent.
+The primary agent owns requirements, architecture and public-contract decisions, non-mechanical
+implementation, coordination, durable documentation, and the final report.
 
-Assign these responsibilities to three different sub-agents. Do not run competing builds in
-the same build directory. The canonical gate retains its built-in configure/build step; this
-does not require another standalone full build or a second full test pass. Delegate only
-applicable work, and do not create empty build/test tasks for read-only questions.
-This section defines agent routing; `CONTRIBUTING.md` remains the development lifecycle source.
+- **Scout** — read-only repository exploration, symbol/call-chain tracing, impact analysis, and
+  locating relevant tests or configuration. Use it before broad or unfamiliar changes when doing
+  so keeps discovery out of the primary agent's working context. It does not edit files or make
+  architecture decisions.
+- **Mechanical worker** — low-risk implementation after the primary agent has already made the
+  design decisions. Suitable work includes repetitive edits, boilerplate, registrations,
+  straightforward local refactors, and configuration changes. It must stop and return control
+  when it encounters a new architecture decision, public-contract change, unclear ownership, or
+  cross-layer design question.
+- **Test author** — independently write or update the smallest focused tests that prove the
+  requested behavior and public contract. Keep production and test file ownership separate when
+  parallel work is useful. Do not make production fixes merely to satisfy a test.
+- **Verifier** — after source and focused test edits are ready, run the smallest relevant
+  build/tests needed for diagnosis and then the single canonical pre-delivery gate from
+  `CONTRIBUTING.md`. Report exact commands and results. Do not silently fix source or tests;
+  return production defects to the implementation owner and test defects to the test author.
+- **Reviewer** — read-only independent review for high-risk changes: public C ABI, cross-layer
+  architecture, Core/Pipeline semantics, ownership/lifetime/concurrency, Model/Backend behavior,
+  RFC implementation, or similarly difficult-to-reverse changes. Routine low-risk edits do not
+  require a separate reviewer. Review for correctness, architecture invariants, regression risk,
+  and whether tests actually prove the requested behavior.
+
+Do not create empty sub-agent tasks. Small, obvious edits may stay with the primary agent plus a
+Verifier when separate implementation delegation would cost more than it saves. For larger work,
+prefer parallel Scout/Test-author discovery where useful, delegate only already-decided mechanical
+implementation to the Mechanical worker, and use the Reviewer only when risk justifies it.
+Do not run competing builds in the same build directory. The canonical gate retains its built-in
+configure/build/test work, so the Verifier must not duplicate a full build or full test pass around
+it except when diagnosing failure or checking a required non-default configuration.
 
 ## Repository guardrails
 

@@ -1,0 +1,28 @@
+# Codex-only runtime and model mapping.
+# Model-agnostic sub-agent responsibilities are defined once in ../AGENTS.md.
+
+[agents]
+enabled = true
+default_subagent_model = "gpt-6-astra"
+default_subagent_reasoning_effort = "low"
+max_concurrent_threads_per_session = 4
+
+[agents.scout]
+description = "Read-only repository exploration, call-chain tracing, and impact analysis; follow the Scout role in AGENTS.md."
+config_file = "./agents/scout.toml"
+
+[agents.mechanical_worker]
+description = "Low-risk mechanical implementation from an already-decided plan; follow the Mechanical worker role in AGENTS.md."
+config_file = "./agents/mechanical_worker.toml"
+
+[agents.test_author]
+description = "Independent focused test authoring; follow the Test author role in AGENTS.md."
+config_file = "./agents/test_author.toml"
+
+[agents.verifier]
+description = "Independent build and test verification; follow the Verifier role in AGENTS.md."
+config_file = "./agents/verifier.toml"
+
+[agents.reviewer]
+description = "Read-only independent review for high-risk changes; follow the Reviewer role in AGENTS.md."
+config_file = "./agents/reviewer.toml"
