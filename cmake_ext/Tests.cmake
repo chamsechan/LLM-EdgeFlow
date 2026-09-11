@@ -214,9 +214,9 @@ add_executable(test_catalog_contract_ssot
 target_link_libraries(test_catalog_contract_ssot PRIVATE
   llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
 
-set(_edgeflow_tier1 "tier1;dev-fast;sanitizer-compatible")
-set(_edgeflow_tier2 "tier2;dev-fast;sanitizer-compatible")
-set(_edgeflow_tier3 "tier3;integration;dev-fast;sanitizer-compatible")
+set(_edgeflow_tier1 "tier1;dev-fast;sanitizer-compatible;sanitizer-runtime")
+set(_edgeflow_tier2 "tier2;dev-fast;sanitizer-compatible;sanitizer-runtime")
+set(_edgeflow_tier3 "tier3;integration;dev-fast;sanitizer-compatible;sanitizer-runtime")
 set(_edgeflow_tier4 "tier4;tooling;dev-fast;sanitizer-compatible")
 
 edgeflow_add_runner_test(BatchExecutorTest edgeflow_test_core_runner
@@ -237,7 +237,7 @@ edgeflow_add_runner_test(PipelineConfigTest edgeflow_test_core_runner
 edgeflow_add_runner_test(RegistryReentrantTest edgeflow_test_core_runner
   "RegistryReentrantTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(CatalogContractSsotTest test_catalog_contract_ssot
-  "CatalogContractSsotTest.*" "${_edgeflow_tier1}")
+  "CatalogContractSsotTest.*" "${_edgeflow_tier1};kite")
 edgeflow_add_runner_test(TypedBlackboardContractsTest edgeflow_test_core_runner
   "TypedBlackboardContractsTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(ValidatedPipelinePlanTest edgeflow_test_core_runner
@@ -249,9 +249,9 @@ edgeflow_add_runner_test(NodeOwnershipAndReuseTest edgeflow_test_core_runner
 edgeflow_add_runner_test(DefinitionSchemaValidationTest edgeflow_test_core_runner
   "DefinitionSchemaValidationTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(ModelBackendDecouplingTest edgeflow_test_core_runner
-  "ModelBackendDecouplingTest.*" "${_edgeflow_tier1}")
+  "ModelBackendDecouplingTest.*" "${_edgeflow_tier1};kite")
 edgeflow_add_runner_test(ModelBackendPipelineTest edgeflow_test_core_runner
-  "ModelBackendPipelineTest.*" "${_edgeflow_tier1}")
+  "ModelBackendPipelineTest.*" "${_edgeflow_tier1};kite")
 edgeflow_add_runner_test(OnnxAndEmbeddingModelTest edgeflow_test_core_runner
   "OnnxAndEmbeddingModelTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(OnnxAndRerankerModelTest edgeflow_test_core_runner
@@ -317,7 +317,7 @@ edgeflow_add_runner_test(PipelineStudioTest edgeflow_test_tooling_runner
   "BlackboardKeyTest.*:PipelineCatalogTest.*:PipelineValidatorTest.*"
   "${_edgeflow_tier4}")
 edgeflow_add_runner_test(DemoRunnerTest edgeflow_test_tooling_runner
-  "DemoRunnerTest.*" "${_edgeflow_tier3}")
+  "DemoRunnerTest.*" "${_edgeflow_tier3};kite;kite-real")
 
 add_test(NAME RegistryConflictNodeTest COMMAND test_registry_conflict
   --gtest_filter=RegistryConflictNodeTest.*)
@@ -335,7 +335,7 @@ edgeflow_add_runner_test(QwenCausalLmModelTest edgeflow_test_core_runner
   "QwenCausalLmModelTest.*:CommonAutoregressiveGeneratorTest.*"
   "${_edgeflow_tier1}")
 edgeflow_add_runner_test(LlamaCppBackendTest edgeflow_test_core_runner
-  "LlamaCppBackendTest.*" "${_edgeflow_tier1}")
+  "LlamaCppBackendTest.*" "${_edgeflow_tier1};kite;kite-real")
 edgeflow_add_runner_test(WhisperCppBackendTest edgeflow_test_core_runner
   "WhisperCppBackendTest.*" "${_edgeflow_tier1}")
 

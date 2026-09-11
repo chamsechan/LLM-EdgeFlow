@@ -51,7 +51,15 @@ add_test(NAME JsonPromptDemoTest
   COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tests/tooling/test_json_prompt_demo.py)
 set_tests_properties(JsonPromptDemoTest PROPERTIES
   WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
-  LABELS "tier3;dev-fast;sanitizer-compatible")
+  LABELS "tier3;tooling;dev-fast;sanitizer-compatible")
+
+add_test(NAME TestLabelsContractTest
+  COMMAND ${Python3_EXECUTABLE}
+          ${PROJECT_SOURCE_DIR}/tests/contract/architecture/test_test_labels_contract.py
+          --build-dir ${PROJECT_BINARY_DIR})
+set_tests_properties(TestLabelsContractTest PROPERTIES
+  WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+  LABELS "tier1;static-gate;dev-fast;sanitizer-compatible")
 
 option(ENABLE_REAL_MODEL_TESTS "Enable real model weights E2E test suite" OFF)
 if(ENABLE_REAL_MODEL_TESTS)
