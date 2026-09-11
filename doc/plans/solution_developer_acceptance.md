@@ -52,6 +52,16 @@
 失败原因、输出证据及待修复问题。未参与的任务记为未覆盖，不从另一项成功推断通过。
 记录附在本文对应任务下；修复使用现有责任套件，避免为每轮试用再创建实施计划和复审报告。
 
+### RFC-0051 开发者体验能力就绪情况
+
+- [x] M0 基线：固定生成、诊断、Definition 和任务操作基线。
+- [x] M1 测试生成：`scaffold_custom_node.py --write-test` 与 `CustomNodeTests.cmake` 联动，支持双 runner 模式与原子回滚。
+- [x] M2 诊断解释：`ValidationRemediation` (v1) 与 `port_flow_mismatch`、精准依赖定位等原因诊断。
+- [x] M3 修复候选：`Explain` 生成有界验证 JSON 补丁候选与 Studio `/api/v1/fixes/preview` 冲突保护。
+- [x] M4 Definition：`MakeBlackboardKey` 强类型校验、单 key 端口重载与 `MakeCustomModelNodeDefinition` 辅助函数。
+- [x] M5 recipe：`scripts/dev_recipe.py` 提供 `prompt-config` 与 `text-llm-node` 任务路径与指南（[提示词任务](../dev_guide/recipe_prompt_config.md) / [大模型节点任务](../dev_guide/recipe_text_llm_node.md)）。
+- [ ] M6 试用交付：邀请未维护过 Core 的方案开发者独立完成任务 A/B，按第 10 节记录首次跑通耗时、求助次数与修改范围。
+
 - [ ] 选择实际方案、参与者和需要覆盖的 A/B/C/D 任务。
 - [ ] 完成试用，记录操作阻碍与证据。
 - [ ] 修复影响任务完成的问题，再验证受影响任务。

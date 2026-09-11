@@ -150,6 +150,7 @@ function setDirty(value) {
 }
 
 function clearValidation(message = "") {
+  state.validationReport = null;
   state.errorNodeIds = new Set();
   $("#validationOutput").textContent = message;
 }
@@ -413,9 +414,66 @@ function showValidation(report) {
   }
   for (const item of report.diagnostics || []) {
     if (item.node_id) state.errorNodeIds.add(item.node_id);
-    appendDiagnostic(output, item, id => { selectNode(id); switchTab("properties"); graph.focusNode?.(id); });
+    appendDiagnostic(
+      output,
+      item,
+      id => { selectNode(id); switchTab("properties"); graph.focusNode?.(id); },
+      fix => handleApplyFix(fix)
+    );
   }
   renderAll();
+}
+
+async function handleApplyFix(fix) {
+  if (!state.pipeline || !state.validationReport || !requireApplied()) return;
+  const pipelineVersion = state.pipelineVersion;
+  const documentVersion = state.documentVersion;
+  const source = structuredClone(state.pipeline);
+  const report = state.validationReport;
+  const isCurrent = () => pipelineVersion === state.pipelineVersion &&
+    documentVersion === state.documentVersion && !state.loading && !drafts.pending &&
+    report === state.validationReport;
+  try {
+    operationFeedback(`正在预览修复：${fix.title}…`);
+    const res = await write("/fixes/preview", "POST", {
+      pipeline: source,
+      patch: fix.patch,
+      revision: state.validationReport.revision,
+      tool_fingerprint: state.validationReport.tool_fingerprint,
+    }, true);
+    if (!isCurrent()) {
+      operationFeedback("草稿已变更，请重新校验后选择修复。");
+      return;
+    }
+    if (!res.ok) {
+      operationFeedback(`修复预览失败：${res.error || "未知错误"}`);
+      return;
+    }
+    const changes = [];
+    const describe = (before, after, path = "") => {
+      if (JSON.stringify(before) === JSON.stringify(after)) return;
+      if (before && after && typeof before === "object" && typeof after === "object" &&
+          !Array.isArray(before) && !Array.isArray(after)) {
+        for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
+          describe(before[key], after[key], `${path}/${key.replaceAll("~", "~0").replaceAll("/", "~1")}`);
+        }
+      } else {
+        changes.push(`${path || "/"}\n  修改前：${before === undefined ? "（不存在）" : JSON.stringify(before)}\n  修改后：${after === undefined ? "（删除）" : JSON.stringify(after)}`);
+      }
+    };
+    describe(source, res.patched);
+    const remaining = (res.report?.diagnostics || []).map(item => `${item.code} ${item.path}: ${item.message}`);
+    const msg = `${fix.title}\n${fix.effect}\n\n实际变更：\n${changes.join("\n\n")}\n\n${res.report?.ok ? "重新校验通过。" : `剩余诊断：\n${remaining.join("\n")}`}\n\n确认应用该修改？`;
+    if (window.confirm(msg) && isCurrent() && requireApplied()) {
+      state.pipeline = res.patched;
+      markPipelineChanged();
+      operationFeedback(`已应用修复：${fix.title}（可通过撤销恢复）`);
+      await validate();
+      renderAll();
+    }
+  } catch (error) {
+    operationFeedback(`修复应用失败: ${error.message}`);
+  }
 }
 
 async function validate() {
@@ -425,8 +483,9 @@ async function validate() {
   const pipelineVersion = state.pipelineVersion;
   clearValidation("校验中…"); renderAll();
   try {
-    const report = await write("/validate", "POST", { pipeline: state.pipeline }, true);
+    const report = await write("/validate", "POST", { pipeline: state.pipeline, explain: true }, true);
     if (pipelineVersion !== state.pipelineVersion) return false;
+    state.validationReport = report;
     showValidation(report);
     return report.ok;
   } catch (error) {

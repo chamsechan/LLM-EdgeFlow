@@ -116,6 +116,7 @@ set(EDGEFLOW_SOURCE_test_vector_top_k_node "${PROJECT_SOURCE_DIR}/tests/unit/nod
 set(EDGEFLOW_SOURCE_test_operator_biz_bridge_registry "${PROJECT_SOURCE_DIR}/tests/unit/operator/test_operator_biz_bridge_registry.cpp")
 set(EDGEFLOW_SOURCE_test_operator_output_pool "${PROJECT_SOURCE_DIR}/tests/unit/operator/test_operator_output_pool.cpp")
 set(EDGEFLOW_SOURCE_test_operator_value_registry "${PROJECT_SOURCE_DIR}/tests/unit/operator/test_operator_value_registry.cpp")
+include(${CMAKE_CURRENT_LIST_DIR}/CustomNodeTests.cmake)
 
 function(edgeflow_assert_required_test_inventory)
   get_property(registered_tests DIRECTORY PROPERTY TESTS)

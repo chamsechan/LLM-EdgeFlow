@@ -179,8 +179,8 @@ void Usage() {
             << "  alg_pipeline_tool describe-node NODE_TYPE\n"
             << "  alg_pipeline_tool init --biz|-b NAME [--profile "
                "NAME|--empty] [--raw]\n"
-            << "  alg_pipeline_tool validate FILE|--stdin\n"
-            << "  alg_pipeline_tool plan FILE|--stdin\n";
+            << "  alg_pipeline_tool validate FILE|--stdin [--explain]\n"
+            << "  alg_pipeline_tool plan FILE|--stdin [--explain]\n";
   std::cerr
       << "  alg_pipeline_tool resolve-conf FILE [--root DIR] [--depth N]\n";
 }
@@ -321,17 +321,35 @@ int main(int argc, char** argv) {
   }
 
   if (command == "validate" || command == "plan") {
-    if (argc != 3) {
+    if (argc < 3 || argc > 4) {
+      Usage();
+      return 2;
+    }
+    bool explain = false;
+    std::string file;
+    for (int i = 2; i < argc; ++i) {
+      std::string arg = argv[i];
+      if (arg == "--explain") {
+        explain = true;
+      } else if (file.empty()) {
+        file = arg;
+      } else {
+        Usage();
+        return 2;
+      }
+    }
+    if (file.empty()) {
       Usage();
       return 2;
     }
     nlohmann::json root;
     std::string error;
-    if (!ReadJson(argv[2], &root, &error)) {
+    if (!ReadJson(file, &root, &error)) {
       std::cout << Error("JSON_READ", error).dump(2) << std::endl;
       return 1;
     }
-    auto report = PipelineValidator::Validate(root);
+    auto report = explain ? PipelineValidator::Explain(root)
+                          : PipelineValidator::Validate(root);
     auto result = report.ToJson();
     // A failed plan request must retain the exact Validator diagnostics so
     // every consumer observes the same fail-closed report. Successful plans

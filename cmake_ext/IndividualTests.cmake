@@ -123,6 +123,9 @@ target_link_libraries(test_pipeline_studio PRIVATE llm_edgeflow::internal_runtim
 add_test(NAME PipelineStudioTest COMMAND test_pipeline_studio)
 
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
+if(NOT DEFINED _edgeflow_tier4)
+  set(_edgeflow_tier4 "tier4;tooling;dev-fast;sanitizer-compatible")
+endif()
 add_test(
   NAME PipelineStudioServerTest
   COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tests/tooling/test_pipeline_studio.py
@@ -135,6 +138,16 @@ add_test(
   NAME CustomNodeScaffoldTest
   COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tests/tooling/test_scaffold_custom_node.py
 )
+
+add_test(
+  NAME DevRecipeTest
+  COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tests/tooling/test_dev_recipe.py
+)
+set_tests_properties(DevRecipeTest PROPERTIES
+  WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+  LABELS "${_edgeflow_tier4}"
+  ENVIRONMENT
+    "LLM_EDGEFLOW_PIPELINE_TOOL=$<TARGET_FILE:alg_pipeline_tool_test>;LLM_EDGEFLOW_SELECTION_TOOL=$<TARGET_FILE:alg_pipeline_tool>;LLM_EDGEFLOW_DEMO_BINARY=$<TARGET_FILE:alg_demo>")
 
 
 # Demo Runner 参数化与结果落盘单元测试
@@ -244,7 +257,8 @@ target_link_libraries(test_text_corpus_source_node PRIVATE llm_edgeflow::interna
 add_test(NAME TextCorpusSourceNodeTest COMMAND test_text_corpus_source_node)
 
 add_executable(test_common_nodes ${EDGEFLOW_SOURCE_test_common_nodes}
-  ${EDGEFLOW_SCAFFOLD_FIXTURE_SOURCE})
+  ${EDGEFLOW_SCAFFOLD_FIXTURE_SOURCE}
+  ${EDGEFLOW_CUSTOM_NODE_TEST_SRCS})
 target_link_libraries(test_common_nodes PRIVATE llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
 add_test(NAME CommonNodesTest COMMAND test_common_nodes)
 

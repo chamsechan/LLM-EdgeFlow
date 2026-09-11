@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "artifacts": {
+    "demo/fixtures/mock/artifacts/neutral-llm.fixture": {
+      "sha256": "1082efc03cb9ab1c572b7cf4dfe0388949c93c0be791da3d96308546542c928f",
+      "url": "local",
+      "download_groups": [
+        "test"
+      ]
+    }
+  },
+  "selections": [
+    {
+      "id": "neutral-test-llm",
+      "files": [
+        "demo/fixtures/mock/artifacts/neutral-llm.fixture"
+      ],
+      "paths": {
+        "/model_path": "demo/fixtures/mock/artifacts/neutral-llm.fixture"
+      },
+      "model": {
+        "capability": "llm",
+        "model_type": "test_biz_llm",
+        "backend": "test_causal_lm_backend",
+        "model_path": "demo/fixtures/mock/artifacts/neutral-llm.fixture",
+        "model_config": {
+          "max_batch_size": 2,
+          "max_seq_len": 512
+        },
+        "backend_config": {}
+      }
+    }
+  ]
+}

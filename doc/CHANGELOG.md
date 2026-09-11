@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-09-11 开发者任务路径、测试生成与修复诊断（RFC-0051）
+
+- **测试生成与脚手架**：`scripts/scaffold_custom_node.py` 支持 `--write-test` 生成真实单元测试并在 `CustomNodeTests.cmake` 自动登记，按载荷类型生成业务期望；新文件原子发布不覆盖已有目标，登记文件冲突与回滚保留用户修改。12 类落盘模板纳入已有编译夹具；补充 `tests/support/node_test_utils.h` 简化桩模型支持。
+- **确定性修复诊断与建议**：`PipelineValidator` 增加 `Explain` 模式输出结构化 `ValidationRemediation`（schema_version 1），诊断常见原因并生成经过原生校验验证的有界 RFC 6902 JSON 补丁候选；`alg_pipeline_tool` 增加 `--explain`。Pipeline Studio 展示实际修改与剩余诊断，应用后支持撤销/重做，并检查草稿版本、未应用编辑和工具内容指纹。
+- **Node Definition 简化**：新增 `MakeBlackboardKey<T>` 编译期类型校验、单 key 端口构造重载、`ModelCapabilityTraits<Interface>` 特化以及 `MakeCustomModelNodeDefinition<NodeT>` 辅助函数，消除端口和模型绑定的冗余声明。
+- **任务 Recipe**：新增 `scripts/dev_recipe.py` 提供 `prompt-config` 与 `text-llm-node` 两条任务路径，支持 `list`、`prepare`、`verify`（含 `--json`）。准备阶段查询原生 Catalog 并保留实际端口连接；验证阶段增量构建所选 CLI/Demo、要求非零测试、检查部署与资产，并核对独立业务期望。提供确定性样例及中性资产清单；部署使用 `data.outputs` 时提前拒绝并返回 `UNSUPPORTED_RECIPE_DEPLOYMENT`。
+
 ## 2026-09-11 Node 配置的轻量参数封装
 
 - 新增可选的 `NodeConfigParser<T>`，复用已有字段校验和默认值处理，将 JSON 对象直接转换为普通参数结构，统一解析失败诊断；不增加 JSON 字符串转换或新的 Pipeline 节点。

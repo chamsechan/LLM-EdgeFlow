@@ -33,7 +33,7 @@ export function createDrafts() {
 
 // Validator text may include user-provided identifiers and values. Keep it as
 // text while retaining the node navigation offered by the diagnostic card.
-export function appendDiagnostic(container, item, selectNode) {
+export function appendDiagnostic(container, item, selectNode, onPreviewFix) {
   const block = document.createElement("div"); block.className = "diagnostic";
   const appendText = (tag, value) => {
     const element = document.createElement(tag); element.textContent = value;
@@ -45,6 +45,37 @@ export function appendDiagnostic(container, item, selectNode) {
   if (item.node_id) appendText("div", `节点：${item.node_id}`);
   if (item.port) appendText("div", `端口：${item.port}`);
   if (item.related_nodes?.length) appendText("div", `相关节点：${item.related_nodes.join("、")}`);
+  if (item.remediation) {
+    const rem = item.remediation;
+    if (rem.summary) appendText("div", `原因诊断：${rem.summary}`);
+    if (rem.schema_version === 1 && Array.isArray(rem.fixes) && rem.fixes.length > 0) {
+      const fixesTitle = document.createElement("div");
+      fixesTitle.className = "fixes-title";
+      fixesTitle.textContent = "可选修复操作：";
+      block.append(fixesTitle);
+      for (const fix of rem.fixes) {
+        const fixItem = document.createElement("div");
+        fixItem.className = "fix-candidate";
+        const fixDesc = document.createElement("span");
+        const badge = fix.verification === "pipeline_valid" ? "【通过验证】" : "【已解决该错误】";
+        fixDesc.textContent = `${badge} ${fix.title}：${fix.effect}`;
+        fixItem.append(fixDesc);
+        if (onPreviewFix) {
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "fix-apply-btn";
+          btn.textContent = "预览并应用";
+          btn.style.marginLeft = "8px";
+          btn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            onPreviewFix(fix);
+          });
+          fixItem.append(btn);
+        }
+        block.append(fixItem);
+      }
+    }
+  }
   if (item.suggestions?.length) {
     appendText("div", "修复建议：");
     const list = document.createElement("ul");
