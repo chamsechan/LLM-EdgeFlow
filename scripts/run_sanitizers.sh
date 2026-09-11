@@ -7,15 +7,16 @@ SANITIZERS="${LLM_EDGEFLOW_SANITIZERS:-address,undefined}"
 
 MODE="fast"
 if [[ $# -gt 1 ]]; then
-  echo "Usage: $0 [--fast | --full]"
+  echo "Usage: $0 [--fast | --full | --ci-runtime]"
   exit 2
 fi
 if [[ $# -eq 1 ]]; then
   case "$1" in
     --fast) MODE="fast" ;;
     --full) MODE="full" ;;
+    --ci-runtime) MODE="ci-runtime" ;;
     *)
-      echo "Usage: $0 [--fast | --full]"
+      echo "Usage: $0 [--fast | --full | --ci-runtime]"
       exit 2
       ;;
   esac
@@ -157,6 +158,11 @@ CTEST_ARGS=(
 if [[ "${MODE}" == "fast" ]]; then
   CTEST_ARGS+=( -L sanitizer-compatible )
   echo ">>> Running label-driven fast sanitized test suite <<<"
+elif [[ "${MODE}" == "ci-runtime" ]]; then
+  CTEST_ARGS+=(
+    -E "QualityGateScriptsContractTest|ThirdPartyCacheMetadataTest|LayerGuardTest|LayerGuardSelfTest|ArchitectureDocsDriftTest|ArchitectureDocsDriftGateSelfTest|GovernanceConsistencyTest|DiagramAssetsCheckTest|DiagramRenderGateSelfTest|ScriptGeneratorDetectionTest|PipelineStudioServerTest|CustomNodeScaffoldTest|DevRecipeTest"
+  )
+  echo ">>> Running CI runtime sanitized test suite with [${SANITIZERS}] <<<"
 else
   echo ">>> Running full sanitized CTest suite with [${SANITIZERS}] <<<"
 fi

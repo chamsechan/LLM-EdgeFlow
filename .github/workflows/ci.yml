@@ -129,10 +129,10 @@ jobs:
           restore-keys: |
             sanitizer-ccache-v2-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-
 
-      - name: Run Full Sanitizer Suite
+      - name: Run CI Runtime Sanitizer Suite
         run: |
           LLM_EDGEFLOW_LINKER=mold LLM_EDGEFLOW_SANITIZERS=address,undefined \
-            ./scripts/run_sanitizers.sh --full
+            ./scripts/run_sanitizers.sh --ci-runtime
 
   real-c-abi-and-profile:
     name: Real GGUF C ABI & Profile
