@@ -21,6 +21,7 @@
 | :--- | :--- | :---: | :---: | :--- | :--- |
 | **RFC-0029** | 外网架构收口与内网 SDK 迁移分阶段整改 | `In Implementation` | `v10.x / 待定` | 接入适配层、流程编排层、能力节点层、模型执行层 / Tooling | [0029-external-readiness-and-intranet-sdk-migration.md](0029-external-readiness-and-intranet-sdk-migration.md) |
 | **RFC-0036** | Whisper ASR 与 whisper.cpp Backend 接入设计及实施指南 | `In Implementation` | `v10.x` | 模型执行层 / Config / Demo / Build | [0036-whisper-asr-backend.md](0036-whisper-asr-backend.md) |
+| **RFC-0051** | 开发者任务路径、测试生成与修复诊断 | `Proposed` | `v10.x` | 流程编排层、能力节点层、模型执行层 / Tooling / Docs | [0051-developer-task-experience.md](0051-developer-task-experience.md) |
 
 ## 已完成的 RFC
 
