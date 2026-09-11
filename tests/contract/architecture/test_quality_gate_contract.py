@@ -131,7 +131,8 @@ if Path(sys.argv[0]).name == "ctest":
         commands = [json.loads(line) for line in log.read_text().splitlines()]
         configure = next(command for command in commands if command[0] == "cmake" and "-S" in command)
         for option in ("BUILD_TESTING=ON", "ENABLE_SANITIZERS=OFF", "ENABLE_KITELLM=OFF",
-                       "ENABLE_WHISPERCPP=OFF", "ENABLE_LLAMACPP=ON", "ENABLE_ONNXRUNTIME=ON"):
+                       "ENABLE_WHISPERCPP=OFF", "ENABLE_LLAMACPP=ON", "ENABLE_ONNXRUNTIME=ON",
+                       "LLM_EDGEFLOW_TEST_PCH=OFF"):
             assert "-D" + option in configure, (option, configure)
         assert any("--no-tests=error" in command for command in commands if command[0] == "ctest")
         for mode in ("failure", "empty"):

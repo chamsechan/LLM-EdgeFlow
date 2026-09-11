@@ -3,7 +3,7 @@
 include(${PROJECT_SOURCE_DIR}/cmake_ext/TestInventory.cmake)
 include(${PROJECT_SOURCE_DIR}/cmake_ext/ScaffoldFixtures.cmake)
 
-option(LLM_EDGEFLOW_TEST_PCH "Enable precompiled headers for test runners" ON)
+option(LLM_EDGEFLOW_TEST_PCH "Enable precompiled headers for test runners" OFF)
 
 add_test(NAME ThirdPartyCacheMetadataTest
   COMMAND ${CMAKE_COMMAND}

@@ -20,7 +20,7 @@ jobs:
       CCACHE_DIR: ${{ github.workspace }}/.ccache
       CCACHE_COMPRESS: "true"
       CCACHE_COMPRESSLEVEL: "6"
-      CCACHE_MAXSIZE: "500M"
+      CCACHE_MAXSIZE: "2G"
       CCACHE_BASEDIR: ${{ github.workspace }}
       CCACHE_NOHASHDIR: "true"
       CMAKE_C_COMPILER_LAUNCHER: ccache
@@ -138,7 +138,7 @@ jobs:
       CCACHE_DIR: ${{ github.workspace }}/.ccache
       CCACHE_COMPRESS: "true"
       CCACHE_COMPRESSLEVEL: "6"
-      CCACHE_MAXSIZE: "500M"
+      CCACHE_MAXSIZE: "1G"
       CCACHE_BASEDIR: ${{ github.workspace }}
       CCACHE_NOHASHDIR: "true"
       CMAKE_C_COMPILER_LAUNCHER: ccache
@@ -210,7 +210,7 @@ jobs:
       CCACHE_DIR: ${{ github.workspace }}/.ccache
       CCACHE_COMPRESS: "true"
       CCACHE_COMPRESSLEVEL: "6"
-      CCACHE_MAXSIZE: "500M"
+      CCACHE_MAXSIZE: "1G"
       CCACHE_BASEDIR: ${{ github.workspace }}
       CCACHE_NOHASHDIR: "true"
       CMAKE_C_COMPILER_LAUNCHER: ccache
@@ -326,8 +326,8 @@ jobs:
             python3
           echo "TOOLCHAIN_ID=gcc-$(gcc -dumpfullversion || gcc -dumpversion)" >> $GITHUB_ENV
 
-      - name: Restore Open-Source 3rdparty Dependencies
-        uses: actions/cache/restore@v4
+      - name: Restore/Save Open-Source 3rdparty Dependencies
+        uses: actions/cache@v4
         with:
           path: |
             3rdparty/googletest
@@ -338,7 +338,6 @@ jobs:
           key: 3rdparty-kite-v1-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-${{ hashFiles('cmake_ext/*.cmake') }}
           restore-keys: |
             3rdparty-kite-v1-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-
-            3rdparty-release-v1-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-
 
       - name: Restore/Save Kite CCache
         uses: actions/cache@v4
@@ -382,7 +381,8 @@ jobs:
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DENABLE_KITELLM=ON \
             -DENABLE_LLAMACPP=OFF \
-            -DENABLE_ONNXRUNTIME=ON
+            -DENABLE_ONNXRUNTIME=ON \
+            -DLLM_EDGEFLOW_TEST_PCH=OFF
 
       - name: Build kiteLLM SDK and Tests
         run: |
