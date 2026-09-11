@@ -33,7 +33,7 @@ jobs:
       - name: Set up Build Environment
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
+          sudo apt-get install -y --no-install-recommends \
             build-essential \
             ccache \
             clang-format-18 \
@@ -43,6 +43,20 @@ jobs:
             mold \
             ninja-build \
             python3
+
+      - name: Restore/Save 3rdparty Dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            3rdparty/googletest
+            3rdparty/pcre2
+            3rdparty/llama_cpp
+            3rdparty/onnxruntime
+            3rdparty/nlohmann_json
+            3rdparty/stb_image
+          key: 3rdparty-release-${{ runner.os }}-${{ hashFiles('cmake_ext/*.cmake') }}
+          restore-keys: |
+            3rdparty-release-${{ runner.os }}-
 
       - name: Restore/Save CCache
         uses: actions/cache@v4
@@ -67,7 +81,7 @@ jobs:
     env:
       CCACHE_DIR: ${{ github.workspace }}/build/.ccache-sanitizers
       CCACHE_COMPRESS: "true"
-      CCACHE_MAXSIZE: "2G"
+      CCACHE_MAXSIZE: "5G"
       CCACHE_BASEDIR: ${{ github.workspace }}
       CCACHE_NOHASHDIR: "true"
 
@@ -78,7 +92,7 @@ jobs:
       - name: Set up Build Environment
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
+          sudo apt-get install -y --no-install-recommends \
             build-essential \
             ccache \
             cmake \
@@ -87,6 +101,18 @@ jobs:
             mold \
             ninja-build \
             python3
+
+      - name: Restore Prebuilt 3rdparty Dependencies
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            3rdparty/onnxruntime
+            3rdparty/nlohmann_json
+            3rdparty/stb_image
+          key: 3rdparty-prebuilt-${{ runner.os }}-${{ hashFiles('cmake_ext/ThirdPartyEngines.cmake', 'cmake_ext/NlohmannJson.cmake', 'cmake_ext/StbImage.cmake') }}
+          restore-keys: |
+            3rdparty-prebuilt-${{ runner.os }}-
+            3rdparty-release-${{ runner.os }}-
 
       - name: Restore/Save Sanitizer CCache
         uses: actions/cache@v4
@@ -106,6 +132,16 @@ jobs:
     name: Real GGUF C ABI & Profile
     runs-on: ubuntu-latest
 
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      CCACHE_COMPRESS: "true"
+      CCACHE_COMPRESSLEVEL: "6"
+      CCACHE_MAXSIZE: "500M"
+      CCACHE_BASEDIR: ${{ github.workspace }}
+      CCACHE_NOHASHDIR: "true"
+      CMAKE_C_COMPILER_LAUNCHER: ccache
+      CMAKE_CXX_COMPILER_LAUNCHER: ccache
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -113,7 +149,7 @@ jobs:
       - name: Set up Build Environment
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
+          sudo apt-get install -y --no-install-recommends \
             build-essential \
             ccache \
             cmake \
@@ -121,6 +157,30 @@ jobs:
             mold \
             ninja-build \
             python3
+
+      - name: Restore 3rdparty Dependencies
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            3rdparty/googletest
+            3rdparty/pcre2
+            3rdparty/llama_cpp
+            3rdparty/onnxruntime
+            3rdparty/nlohmann_json
+            3rdparty/stb_image
+          key: 3rdparty-release-${{ runner.os }}-${{ hashFiles('cmake_ext/*.cmake') }}
+          restore-keys: |
+            3rdparty-release-${{ runner.os }}-
+
+      - name: Restore/Save CCache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ccache-real-${{ runner.os }}-${{ github.ref }}-${{ github.sha }}
+          restore-keys: |
+            ccache-real-${{ runner.os }}-${{ github.ref }}-
+            ccache-${{ runner.os }}-${{ github.ref }}-
+            ccache-${{ runner.os }}-
 
       - name: Cache Pinned GGUF
         uses: actions/cache@v4
@@ -132,11 +192,26 @@ jobs:
         run: ./scripts/fetch_real_test_models.sh --gguf-only
 
       - name: Run Real C ABI and Public Profile
-        run: LLM_EDGEFLOW_LINKER=mold ./scripts/run_real_model_e2e.sh
+        run: |
+          ccache -z
+          LLM_EDGEFLOW_LINKER=mold \
+          CMAKE_C_COMPILER_LAUNCHER=ccache CMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            ./scripts/run_real_model_e2e.sh
+          ccache -s
 
   whisper-asr:
     name: Whisper ASR Backend & Real Profile
     runs-on: ubuntu-latest
+
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      CCACHE_COMPRESS: "true"
+      CCACHE_COMPRESSLEVEL: "6"
+      CCACHE_MAXSIZE: "500M"
+      CCACHE_BASEDIR: ${{ github.workspace }}
+      CCACHE_NOHASHDIR: "true"
+      CMAKE_C_COMPILER_LAUNCHER: ccache
+      CMAKE_CXX_COMPILER_LAUNCHER: ccache
 
     steps:
       - name: Checkout Code
@@ -145,7 +220,7 @@ jobs:
       - name: Set up Build Environment
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
+          sudo apt-get install -y --no-install-recommends \
             build-essential \
             ccache \
             cmake \
@@ -154,17 +229,53 @@ jobs:
             ninja-build \
             python3
 
-      - name: Cache Pinned Whisper Model
+      - name: Restore/Save Whisper 3rdparty Dependencies
         uses: actions/cache@v4
         with:
-          path: models/ggml-base.bin
-          key: whisper-ggml-base-60ed5bc3dd14
+          path: |
+            3rdparty/googletest
+            3rdparty/pcre2
+            3rdparty/llama_cpp
+            3rdparty/whisper_cpp
+            3rdparty/nlohmann_json
+            3rdparty/stb_image
+          key: 3rdparty-whisper-${{ runner.os }}-${{ hashFiles('cmake_ext/*.cmake') }}
+          restore-keys: |
+            3rdparty-whisper-${{ runner.os }}-
+            3rdparty-release-${{ runner.os }}-
+
+      - name: Restore/Save CCache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ccache-whisper-${{ runner.os }}-${{ github.ref }}-${{ github.sha }}
+          restore-keys: |
+            ccache-whisper-${{ runner.os }}-${{ github.ref }}-
+            ccache-${{ runner.os }}-${{ github.ref }}-
+            ccache-${{ runner.os }}-
+
+      - name: Cache Pinned Whisper Models
+        uses: actions/cache@v4
+        with:
+          path: |
+            models/ggml-base.bin
+            models/qwen2.5-0.5b-instruct-q4_k_m.gguf
+            models/ggml-tiny-q5_1.bin
+          key: whisper-models-${{ hashFiles('models/asset_manifest.json') }}
+          restore-keys: |
+            whisper-models-
+            whisper-ggml-base-60ed5bc3dd14
 
       - name: Fetch and Verify Pinned Whisper Model
         run: ./scripts/fetch_real_test_models.sh --whisper
 
       - name: Run Real Whisper E2E and Public Profile
-        run: LLM_EDGEFLOW_LINKER=mold ./scripts/run_real_model_e2e.sh --whisper
+        run: |
+          ccache -z
+          LLM_EDGEFLOW_LINKER=mold \
+          CMAKE_C_COMPILER_LAUNCHER=ccache CMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            ./scripts/run_real_model_e2e.sh --whisper
+          ccache -s
 
   kite-llm:
     name: kiteLLM Private Release & Real GGUF
@@ -179,6 +290,16 @@ jobs:
     permissions:
       contents: read
 
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/.ccache-kite
+      CCACHE_COMPRESS: "true"
+      CCACHE_COMPRESSLEVEL: "6"
+      CCACHE_MAXSIZE: "1G"
+      CCACHE_BASEDIR: ${{ github.workspace }}
+      CCACHE_NOHASHDIR: "true"
+      CMAKE_C_COMPILER_LAUNCHER: ccache
+      CMAKE_CXX_COMPILER_LAUNCHER: ccache
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -188,8 +309,9 @@ jobs:
       - name: Set up Build Environment
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
+          sudo apt-get install -y --no-install-recommends \
             build-essential \
+            ccache \
             cmake \
             curl \
             default-jre-headless \
@@ -198,6 +320,29 @@ jobs:
             mold \
             ninja-build \
             python3
+
+      - name: Restore Open-Source 3rdparty Dependencies
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            3rdparty/googletest
+            3rdparty/pcre2
+            3rdparty/onnxruntime
+            3rdparty/nlohmann_json
+            3rdparty/stb_image
+          key: 3rdparty-kite-${{ runner.os }}-${{ hashFiles('cmake_ext/*.cmake') }}
+          restore-keys: |
+            3rdparty-kite-${{ runner.os }}-
+            3rdparty-release-${{ runner.os }}-
+
+      - name: Restore/Save Kite CCache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: kite-ccache-${{ runner.os }}-${{ github.ref }}-${{ github.sha }}
+          restore-keys: |
+            kite-ccache-${{ runner.os }}-${{ github.ref }}-
+            kite-ccache-${{ runner.os }}-
 
       # Only the public model artifacts are cached. Private kiteLLM headers, libraries and
       # linked executables must not enter this public repository's caches/artifacts.
@@ -228,12 +373,17 @@ jobs:
           cmake -S . -B build-kite -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DLLM_EDGEFLOW_LINKER=mold \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DENABLE_KITELLM=ON \
             -DENABLE_LLAMACPP=OFF \
             -DENABLE_ONNXRUNTIME=ON
 
       - name: Build kiteLLM SDK and Tests
-        run: cmake --build build-kite -j4
+        run: |
+          ccache -z
+          cmake --build build-kite -j4
+          ccache -s
 
       - name: Verify Backend Registration and Real Model Tests
         env:
