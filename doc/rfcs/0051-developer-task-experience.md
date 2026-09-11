@@ -7,7 +7,7 @@
 - **目标版本**：v10.x，分阶段交付
 - **负责人 / 作者**：LLM-EdgeFlow contributors
 - **设计基线**：`ccb0f82d75b2bcc667e6a42084747f72a081515c`（PR #105 合并后的 main）
-- **关联决策**：补充 RFC-0012、0013、0016、0039、0041、0044、0045；保留其分层、注册、验证和生命周期约束。
+- **关联决策**：补充 RFC-0012、0013、0016、0039、0041、0044、0045，并遵循 RFC-0049、0050 的多输出和配置文本边界；保留既有分层、注册、验证和生命周期约束。
 
 本文是待实施的架构提案。标为“拟新增”的命令、字段、文件和 C++ 接口在上述基线中尚不存在，
 不能直接当作当前产品功能使用。本文同时维护设计、实施顺序和完成条件；采用方案后进入
@@ -53,6 +53,7 @@
 | [LLM starter](../../dev_support/node_authoring/starter_llm_node.cpp) | 两个普通文本函数即可修改业务处理 | typed key、端口构造、模型绑定仍有重复声明 |
 | [NodeConfigParser](../../include/nodes/node_config_parser.h) | 字段定义、默认值、语义解析复用 | 应继续复用，避免再设计配置语言或第二份 schema |
 | [CLI](../../src/tools/alg_pipeline_tool.cpp)、[Studio](../../tools/pipeline_studio/server.py) | Catalog、init、validate、plan、resolve-conf，以及保存 JSON/.conf | 尚未形成创建 Node 到验证修改结果的连续任务路径 |
+| [原生多输出部署](../dev_guide/operator_output_allocation.md) | `data.outputs`、逐槽位 allocator/params、输出分配与转换；兼容单输出 `data.mem_que` | Studio 的 Profile 保存与现有效果验收仍依赖 `mem_que`；不能据原生能力推断这些工具已经支持多输出 |
 | [任务导航](../README.md)、[试用计划](../plans/solution_developer_acceptance.md) | 已有任务入口和试用记录要求 | 应在现有入口补齐可执行任务，记录真实阻碍 |
 
 ### 2.2 诊断基线样例
@@ -67,6 +68,23 @@
    建议列出全部配置字段；没有指出最可能的拼写修复。
 
 这些是局部诊断观察，说明下一步应改善什么，不代表已完成本 RFC 的测试或用户试用。
+
+### 2.3 PR #105 合并后的适用性
+
+初始源码审查提交 `646778a` 与合并提交 `ccb0f82` 的 Git tree 相同，均为
+`de09443276f2d3bfcda79d67712f594005998408`。本 RFC 依据的是包含 PR #105 实现的代码，
+不是合并前的旧 main。四项改进和里程碑顺序继续适用；实施时遵循以下已交付能力与工具限制：
+
+| 已合并能力 | 本 RFC 的实施约束 |
+| --- | --- |
+| NodeConfigParser 与 PromptGuidedLlmNode 参数结构 | 视为已完成基础；M4 只减少端口与模型绑定的重复声明，不重新建设参数解析 |
+| 多输出与可注册分配方案（RFC-0049） | 原生配置能力保持；首批 recipe 仅覆盖已受测的 `mem_que` Profile，明确拒绝自动改写 `data.outputs` |
+| 配置读取文本边界（RFC-0050） | 保留 OutputConfigReader 与普通参数 parser；工具不要求布局参数提供反向序列化 |
+| resolve-conf 的逐槽位报告 | `output_pools[*].params` 是交给解析函数的参数字符串，不是补齐默认值后的参数对象 |
+
+具体边界见第 3、5.1、6.2 和 7.1 节。多输出 recipe 的自动生成与验收扩展不是本 RFC 的完成项，
+避免为两条现有单输出任务额外扩大实现范围。未来覆盖该任务时，应成套扩展配置保留、Demo 路径、
+验收指纹与回归测试，而不是将原生多输出降级为单输出。
 
 ## 3. 责任边界与统一事实来源
 
@@ -91,6 +109,7 @@ flowchart TB
 | 责任 | 所有者 | 明确边界 |
 | --- | --- | --- |
 | 外部请求字段选择、校验、响应组装 | Integration 的注册 Adapter / Operator bridge | recipe、Node、Demo 不替代外部协议转换；C 载体相同不能证明载荷协议相同 |
+| 输出槽位、分配方案、布局参数与部署路径 | Integration 的原生 Resolver、OutputConfigReader 与注册分配方案 | 参数只在 Create 解析；队列与结构布局仍各有所有者，Node Definition 不接管这些字段 |
 | Pipeline 合法性、规划、修复原因 | Orchestration 的 PipelineValidator 及其内部辅助 | Python、Web 和 recipe 不复制类型兼容、拓扑或模型约束规则 |
 | Node 作者便利接口 | Capability Nodes 的作者头文件，或原有通用 typed port 定义处 | 输出原有 NodeDefinition；Core 不包含具体 Node 或模型实现 |
 | 模型接口到能力标识的静态关系 | Model Execution 的中性能力接口定义 | 不表示当前构建具备某个 Model/Backend；可用性仍查 Catalog |
@@ -100,6 +119,11 @@ flowchart TB
 保留以下不变量：显式 `id + depends_on`；原生 Validator 是唯一校验与规划实现；Pipeline
 消费 `ValidatedPipelinePlan`；Node 无请求成员状态；值通过 typed ports 传递；来源编号和所有权
 显式保留。任何便利 helper 都不能自动承诺并发安全、来源关系或外部业务协议兼容。
+
+遵循 [RFC-0050](0050-operator-configuration-text-boundary.md)：`resolve-conf` 中的
+`output_pools[*].params` 按原始参数文本展示，不能标注为“全部有效默认值”，也不能将它直接
+当作 `.conf` 中 `params` 的结构化值回写。框架容量等已有解析字段按其当前含义展示；布局
+专属默认值属于选定参数解析函数，工具不为了展示它们引入 `ToJson()` 或第二份默认值表。
 
 ## 4. 脚手架：生成能够被执行的测试
 
@@ -209,6 +233,11 @@ shape。SDK 的 Pipeline 构建不承担候选枚举与多次试验成本，仍�
 对外可在原有 `PipelineValidator` 上增量提供 `Explain(root, policy)`，返回带 remediation 的
 `ValidationReport`；保留原有 Validate/ValidateAndPlan 签名。Explain 与普通校验共享私有实现，
 不可通过另一份 JSON 解析与规划逻辑实现。CLI 的两个 explain 用法从同一报告读取诊断与 plan。
+
+本节修复对象仅为提交给 validate/plan 的 Pipeline JSON。`resolve-conf` 的输出槽位、allocator、
+布局参数或部署文件错误仍由 Integration 诊断，recipe 原样保留其原因；不能将其路径当成 Pipeline
+路径应用 patch，也不能把分配器参数加入 Node config_fields。后续若为部署配置增加可应用修复，
+必须另外明确源文档身份、原始配置与解析结果的对应关系，以及参数文本边界。
 
 ### 5.2 原因分类与候选排序
 
@@ -422,6 +451,11 @@ helper 提供的简短写法不代表对算法做过证明。默认 `parallel_sa
 保留 `PromptConfiguration().Fields()` 与同一语义 parser 的复用。预检和 Init 分别执行相同规则，
 Process 读取已拥有的参数。不能为了减少代码行数移除防御初始化校验，或通过 JSON 序列化绕一圈。
 
+NodeConfigParser 接收已解码/已规范化的节点 JSON，和 Integration 的
+`MakeOutputParameterParser<T>` 接收布局参数文本是两种不同边界。前者共享 Node 字段校验与
+语义规则；后者只在 Create 为输出布局建立不可变参数。二者都可返回普通参数结构，但本 RFC
+不把它们合并为一个跨层 parser，也不让 Node 读取 `.conf` 或输出分配方案。
+
 ### 6.3 迁移与验收
 
 先迁移受编译测试约束的 LLM starter、compute 生成路径及一个适合的现有 Node，保持声明内容、
@@ -448,6 +482,13 @@ Python 生成器的签名表推断目标构建能力，仍查询目标 Catalog�
 | --- | --- | --- | --- |
 | `prompt-config` | 使用现有节点调整提示词并验证自己的方案 | 沿用已注册 biz 的完整外部输入输出契约 | 新 Pipeline/.conf、样例期望、验证命令 |
 | `text-llm-node` | 填写文本前后处理、调用已有 LLM 能力并接入方案 | 使用既有 TextBatch 与模型能力，保持外部协议 | Node、测试、构建登记、新 Pipeline/.conf、样例期望 |
+
+两条首批 recipe 还要求源 Profile 使用已验证的 `data.mem_que` 单输出配置。当前
+`build_run_conf` 只生成 mem_que，`effect_inputs` 也直接读取该字段；不能把它们视为通用
+多输出工具。prepare 和 verify 都应在执行产物变更或构建前识别 `data.outputs`，以
+`UNSUPPORTED_RECIPE_DEPLOYMENT` 说明“当前 recipe 不覆盖此部署格式”，保留原配置并指向
+[原生多输出接入指南](../dev_guide/operator_output_allocation.md)。即使 outputs 只有一个槽位，
+也不能静默转换为 mem_que。该限制属于 recipe 支持范围，不能让原生 Resolver 拒绝合法多输出。
 
 增加参数或 Control、适配完整 JSON 请求/响应先接入已有教程导航，标为指导路径；不把它们
 列为本次自动化 recipe 的完成项。尤其外部协议变化必须转入 Integration，不能由通用文本
@@ -487,14 +528,16 @@ prepare 返回生成的文件、精确编辑位置、当前状态及下一条完
 ### 7.3 prepare 的确定性步骤
 
 1. 查询所选工具的 Catalog 与 Profile，检查 recipe 支持的样例形状、biz 及输入输出前提。
-   若外部完整协议要求不同，明确路由到 Adapter 开发；缺少业务契约信息时不声称已匹配。
+   按第 7.1 节预检实际部署格式。若外部完整协议要求不同，明确路由到 Adapter 开发；缺少
+   业务契约信息时不声称已匹配。
 2. 用原生 `init --profile ... --raw` 克隆样例，校验未修改样例。返回非零退出码时停止，
    不能把错误响应保存为 Pipeline。
 3. 配置任务直接准备新配置；Node 任务调用第 4 节生成器，在已受测位置替换节点类型，
    使用新 Node 的绑定配置，并保留经过确认的连线。对首个 `text-llm-node` 样例，替换
    custom Profile 的 `custom_prompt`，移除旧节点专属配置，仅保留模型绑定。
 4. 通过既有部署生成辅助准备配套 `.conf`，`data.pipe_path` 指向新 JSON。重建模型路径映射，
-   不沿用原 Profile 覆盖新模型选择的旧值；保留已确认的输出池配置及容量。复用
+   不沿用原 Profile 覆盖新模型选择的旧值；完整保留已确认的 `mem_que` 内容，包括存在时的
+   allocator、params 与容量，不能只摘取旧版容量字段或从 resolve-conf 文本重建参数。复用
    [verify_selection.py](../../tools/verify_selection.py) 的 `build_run_conf`，无需从 Web server 导入服务对象。
 5. 用同一工具校验配置任务结果，并通过 `resolve-conf` 验证有效配置。新 Node 尚未编译时，
    只将相关校验标记为待编译后执行，不设置已通过，也不生成供绕过未知节点的假 Catalog。
@@ -574,6 +617,7 @@ Node 模板、期望样例和文档步骤需要一起更新，不能只修改生
 | --- | --- |
 | C ABI / Operator | 无签名、结构布局和外部 payload 契约变化 |
 | Pipeline JSON / 部署 conf | 无格式迁移；生成普通现行文件，继续严格原生校验 |
+| 原生 `data.outputs` / 输出参数文本 | 保留 RFC-0049/0050；首批 recipe 对未覆盖格式显式停止，不进行有损转换 |
 | Catalog | NodeDefinition 的含义和输出不变；可用性仍由目标构建决定 |
 | 诊断 JSON | 可选增加 remediation，旧字段继续可读；修复版本独立 |
 | 既有 C++ 作者代码 | typed helper 为增量接口，旧的合法 Definition 仍可编译 |
@@ -626,6 +670,8 @@ Node 模板、期望样例和文档步骤需要一起更新，不能只修改生
 | R1 | 两条 recipe 从 prepare 到 verify | 实际新方案和新 Node 被使用，聚焦测试及样例结果通过 | recipe tooling + 既有 Demo/effects |
 | R2 | 工具不存在、Profile 不符、未编译 Node、旧模型路径覆盖、目标冲突 | 不换工具或旧方案绕过；阶段和下一步准确；不覆盖用户产物 | recipe tooling |
 | R3 | 请求缺失/重复、非零状态、结果不符、输入或配置改变 | 复用验收器报告失败或证据失效；不把 summary 成功数当完整业务证据 | 既有 effects + recipe |
+| R4 | 输入配置采用 `data.outputs`，或单输出带 allocator/params | prepare/verify 对未覆盖格式写入/构建前明确失败；支持的 mem_que 字段完整保留，原生多输出继续合法 | recipe tooling + 既有 Resolver 回归 |
+| R5 | 展示 resolve-conf 的 params；同时存在部署错误和 Pipeline 错误 | 参数仍作为文本且不声称默认值已补齐；部署错误不生成 Pipeline patch | 工具层与现有 Operator/Studio 测试 |
 
 本 RFC 不要求真实模型或目标硬件来验证生成、修复和 helper 行为；两条 recipe 的自动化验收使用
 确定性 fixture。真实模型效果不属于上述结果的推论。外部协议未变时不新增无关 C ABI 用例；若
@@ -670,7 +716,7 @@ G4 的 individual 模式是本次真实受影响的非默认路径，只配置/�
 | M2：高频诊断解释 | 第 5.2 节原因分类与当前上下文建议，保持旧代码/字段契约 | M0 | 基线错误被准确解释，字段/模型/端口的聚焦回归通过 |
 | M3：候选验证与预览 | remediation v1、explain、有界候选验证、CLI/Studio 一致性、过期保护 | M2 | V1–V6、U1–U3 通过；默认 Build 不承担试验成本 |
 | M4：Definition 减重 | 第 6 节小型 helper，迁移 starter 和最小样例 | M1 | D1–D2 通过；新旧 Catalog/运行行为等价 |
-| M5：两条完整 recipe | prepare/verify、配置与样例生成、任务文档、复用既有结果核对 | M1、M2、M4；交付时集成 M3 | R1–R3 通过；新 Node 编译前状态准确，编辑后路径完整执行 |
+| M5：两条完整 recipe | prepare/verify、配置与样例生成、任务文档、复用既有结果核对 | M1、M2、M4；交付时集成 M3 | R1–R5 通过；新 Node 编译前状态准确，编辑后路径完整执行 |
 | M6：试用与收口 | 任务试用、阻碍修复、现行指南和 Changelog 同步 | M1–M5 | 第 10 节硬性目标通过；所有所需检查及最终 gate 通过 |
 
 M1 和 M2 的设计/实现可以独立推进，但共享构建目录不得并发构建。M4 可以在 M3 开发期间开展
