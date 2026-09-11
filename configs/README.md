@@ -8,6 +8,8 @@
 使用可选 Kite Backend（部分方案同时使用 ONNX Runtime）；`rules` 只运行规则节点。
 这些名字不表示效果或生产验收已经通过。
 
+JSON 字符串翻译的运行命令、输入输出与复用范围见[翻译方案](../doc/solutions/translate.md)。
+
 需要选择可运行预设时查询 `alg_pipeline_tool catalog` 的 `profiles` 并核对资源；详细流程见
 [Pipeline Studio](../tools/pipeline_studio/README.md)。
 

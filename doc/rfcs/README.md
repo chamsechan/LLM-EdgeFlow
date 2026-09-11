@@ -71,6 +71,7 @@
 | **RFC-0045** | 方案开发者日常工作路径收敛 | `Completed` | `v10.x` | 四层 / Tooling / Docs | [0045-solution-developer-workflow.md](0045-solution-developer-workflow.md) |
 | **RFC-0046** | 接入目录、头文件边界与契约命名整理 | `Completed` | `v10.x` | 四层 / Tooling / Docs | [0046-naming-and-header-boundaries.md](0046-naming-and-header-boundaries.md) |
 | **RFC-0047** | 平台公共模拟声明隔离 | `Completed` | `v10.x` | 接入适配层 / Demo / Build | [0047-platform-mock-header-isolation.md](0047-platform-mock-header-isolation.md) |
+| **RFC-0048** | 完整 JSON 翻译请求进入 SDK | `Completed` | `v10.x` | 接入适配层 / Demo | [0048-translation-json-abi.md](0048-translation-json-abi.md) |
 
 ## 专项验收与评审归档
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-09-11 JSON 字符串翻译方案
+
+- 增加翻译 Pipeline、CPU 部署配置及完整 JSON 字符串的 C ABI / Operator 接入：C++ Adapter 只读取 `query`，复用一个 `LlmGenerateNode` 进行一次生成并只返回译文，C++ 再序列化完整 `translated` 响应；Adapter 与 bridge 复用现有文本载体和打包逻辑（RFC-0048）。
+- 在 `AGENTS.md` 固定测试编写、编译和测试执行由三个不同子 agent 负责，主 agent 负责实现、协调与复核。
+- 字符串 Demo 转发完整请求和响应；补充直接调用 `Alg_Process` 的契约测试、真实运行样例及强调 SDK 边界的 `json-prompt-solution` skill。
+- 明确业务输入输出以完整 C ABI 契约为准；区分 C 载体布局与载荷协议，收紧文档和 skill 中 Demo 转换、节点字段处理及验证范围的表述。
+
 ## 2026-09-11 llama.cpp BLAS 缓存有效性修复
 
 - llama.cpp 缓存指纹纳入 BLAS 开关及供应方，自动拒绝旧版缓存；启用 BLAS 时要求缓存包含 `libggml-blas.a`，缺失则重新构建，覆盖 macOS 默认配置与其他平台显式启用 BLAS 的场景。

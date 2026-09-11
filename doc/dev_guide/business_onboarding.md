@@ -4,16 +4,39 @@
 [README](../../README.md#快速开始)完成默认构建；以下命令都从仓库根目录执行。
 公共结构或协议变更先按 [CONTRIBUTING](../../CONTRIBUTING.md)记录 RFC，再开始实现。
 
+## 输入输出以 C ABI 为边界
+
+本项目业务需求中的“输入、输出”指 `Alg_Process` 边界上的完整请求和完整响应。
+字段名、字段类型、序列化格式及忽略字段的约定都属于外部业务契约。
+例如输入是 `{"query":"hello","src_lan":"en"}` 时，C ABI 输入结构的字符串字段应
+承载整个对象；不能由 Demo 先提取 `hello` 再声称完成该输入契约。
+
+| 位置 | 负责的工作 |
+| --- | --- |
+| Demo / 调用方 | 读取样例、构造 C ABI 或 Operator 载体、持有缓冲区、调用 SDK、复制或展示 SDK 返回值 |
+| `IBizAdapter::Unpack` | 校验外部请求、解析完整载荷、选择业务字段，转换为请求内的中性值 |
+| Pipeline / Nodes | 对内部 typed ports 的数据执行算法；可解析模型生成的结构化内容，不承担外部 ABI 协议转换 |
+| Adapter `Pack` / `PackTyped` | 按外部契约选择、组装和序列化结果，检查来源、错误状态和输出容量 |
+| Operator bridge | 在宿主载体与同一业务 Adapter 的 C 输入/业务 Result 之间转换，保持业务语义一致 |
+
+Demo 输出里的日志、统计和展示字段可以另行组织，但不能为 SDK 补做业务字段提取、
+字段改名、响应组装或默认成功结果。C ABI 调用方直接调用 SDK 就应获得约定响应。
+Catalog 的 ingress/egress 是 Adapter 与 Pipeline 之间的内部端口，不能当成外部请求格式。
+完整示例见[翻译方案](../solutions/translate.md)。
+
 ## 1. 先确定要走哪条路径
 
 先运行 `./build/alg_pipeline_tool catalog`，核对已有业务契约、操作和模型能力。
 
 | 需求 | 修改范围与下一步 |
 | --- | --- |
-| 外部结构不变，只调整规则、提示词、模型或连线 | 修改 Pipeline 和必要的 `.conf`，按[运行当前方案](../../tools/pipeline_studio/README.md#运行当前方案)验证；复用已有 Adapter、bridge 和 Demo |
-| 外部结构不变，但已有 Node 无法完成算法 | 按[自定义 Node 入门](first_custom_node.md)实现缺失算法，再复用已有接入路径 |
-| 注册全新生产业务，接收新的外部结构 | 完成下文的契约、Adapter 和 Operator 步骤；需要统一 Demo 时再增加数据转换 |
+| 完整 C ABI 业务契约不变，只调整规则、提示词、模型或连线 | 修改 Pipeline 和必要的 `.conf`，按[运行当前方案](../../tools/pipeline_studio/README.md#运行当前方案)验证；复用已有 Adapter、bridge 和 Demo |
+| 完整 C ABI 业务契约不变，但已有 Node 无法完成算法 | 按[自定义 Node 入门](first_custom_node.md)实现缺失算法，再复用已有接入路径 |
+| 外部载荷的字段/格式/语义改变，或需要新的平台结构 | 完成下文的契约和 Adapter 步骤，按需注册业务与 bridge；已有 C 载体和 ValueType 可以复用 |
 | 修复已有 C ABI 的转换逻辑 | 修改对应 Adapter 并运行相关契约测试；仅影响该路径时，无需另建 Operator 或 Demo |
+
+“结构体布局相同”不等于“业务契约相同”：同一个 `const char*` 承载纯文本与承载完整
+JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代表 Adapter 已支持新协议。
 
 当前共享 SDK 的 Operator 初始化会审计**所有已注册 Adapter**。新增生产 Adapter
 必须有匹配的 bridge，否则整个 Operator 初始化失败；`GetOperatorLastError()` 会指出业务与缺失 bridge、
@@ -112,6 +135,8 @@
 ## 统一 Demo 接入
 
 已有契约的新方案直接沿用对应 Demo 和数据集格式，只准备 Pipeline 与指向它的 `.conf`。
+这里的数据转换仅指[载体构造和结果展示](#输入输出以-c-abi-为边界)，外部协议的解包、
+字段选择与响应组装仍在 Adapter；不得把原始业务请求预先拆成内部节点输入。
 新增外部结构需要统一 Demo 时，按 `keyword_match_demo.cpp` 完成以下步骤：
 
 1. 新建 `demo/biz/<biz>_demo.cpp`，从数据集读入样本，为每条样本构造宿主输入结构，
@@ -177,7 +202,9 @@ cmake --build build --target alg_sdk alg_pipeline_tool alg_demo -j 4
 | Operator | 初始化接受完整注册；超过旧 C 数组但在池容量内时输出完整，超池容量时无部分发布且后续请求可复用租约 | [bridge 测试](../../tests/unit/operator/test_operator_biz_bridge_registry.cpp)、[Operator 集成测试](../../tests/integration/operator/test_operator_api.cpp) |
 | Pipeline / Demo | 新业务通过校验和计划，样例结果及错误路径符合预期 | [Catalog/Validator 测试](../../tests/integration/pipeline/test_pipeline_catalog_validator.cpp)、[Demo 测试](../../tests/integration/demo/test_demo_runner.cpp) |
 
-仅修改 C ABI 路径时，使用对应端到端契约测试验收；统一 Demo 走 Operator。
+业务 I/O 契约新增或改变时，必须用原始业务请求直接调用 `Alg_Process`，检查完整响应；
+已有契约测试可以复用。统一 Demo 走 Operator，其成功不替代 C ABI 边界测试。
+仅修改 C ABI 路径时，无需另建 Demo。
 交付前执行 `./scripts/run_all_tests.sh`。真实模型效果与目标平台验收按
 [效果验收指南](../VERIFIABLE_SELECTION.md)另行记录；涉及公司内部 SDK 时遵循
 [RFC-0029](../rfcs/0029-external-readiness-and-intranet-sdk-migration.md)，当前外部工作区只准备中立接口。

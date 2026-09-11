@@ -47,6 +47,12 @@ set_tests_properties(QualityGateScriptsContractTest PROPERTIES
 
 include(${PROJECT_SOURCE_DIR}/cmake_ext/Tests.cmake)
 
+add_test(NAME JsonPromptDemoTest
+  COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tests/tooling/test_json_prompt_demo.py)
+set_tests_properties(JsonPromptDemoTest PROPERTIES
+  WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+  LABELS "tier3;dev-fast;sanitizer-compatible")
+
 option(ENABLE_REAL_MODEL_TESTS "Enable real model weights E2E test suite" OFF)
 if(ENABLE_REAL_MODEL_TESTS)
   add_executable(test_real_models_e2e

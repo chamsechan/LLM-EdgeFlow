@@ -1,0 +1,3 @@
+{"version":"0.0.1","endpoint":"translate","query":"hello,what is your name","src_lan":"en"}
+{"query":"Good morning."}
+{"version":null,"endpoint":"ignored","query":"Thank you!","src_lan":{"ignored":true}}

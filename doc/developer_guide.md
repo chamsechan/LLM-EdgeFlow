@@ -33,6 +33,11 @@ Backend；出现调度、模型语义或硬件能力缺口时，再查阅相应�
 
 > ⚠️ **平台治理红线**：普通业务接入严禁修改中心分发文件 `src/adapter/c_api_adapter.cpp`，必须编写业务专属 Adapter 类并注册。
 
+业务需求的输入输出以完整 C ABI 请求/响应为准，由 Adapter 解包、转换和组装。
+即使复用同一个 C 结构，字符串内部协议变化仍可能需要 Adapter 实现；不能用 Demo
+预处理或后处理补足 SDK 契约。职责划分与复用判断见
+[输入输出边界](dev_guide/business_onboarding.md#输入输出以-c-abi-为边界)。
+
 ### Operator 镜像结构与输出池扩展指南
 
 新增 Operator 数据类型时必须区分两类协议：

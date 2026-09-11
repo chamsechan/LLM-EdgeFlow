@@ -5,6 +5,7 @@ target_sources(edgeflow_integration_objects PRIVATE
   biz/cross_rerank_adapter.cpp
   biz/doc_qa_adapter.cpp
   biz/entity_extract_adapter.cpp
+  biz/translate_adapter.cpp
   biz/keyword_match_adapter.cpp
   biz/ocr_doc_qa_adapter.cpp
   c_api_adapter.cpp
@@ -14,6 +15,7 @@ target_sources(edgeflow_integration_objects PRIVATE
   biz/cross_rerank_operator_bridge.cpp
   biz/doc_qa_operator_bridge.cpp
   biz/entity_extract_operator_bridge.cpp
+  biz/translate_operator_bridge.cpp
   biz/keyword_match_operator_bridge.cpp
   biz/ocr_doc_qa_operator_bridge.cpp
   operator/operator_config_resolver.cpp

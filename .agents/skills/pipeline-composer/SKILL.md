@@ -12,6 +12,12 @@ and native Resolver; do not reproduce their validation rules.
 
 ## Workflow
 
+First compare the requested complete C ABI input/output contract with the existing Adapter.
+The same C carrier layout is not enough: payload fields, types and serialization must also match.
+Catalog ingress/egress are internal ports. A missing external conversion belongs in Integration;
+do not compensate by extracting request fields or assembling business responses in Demo/Python.
+See [the I/O boundary](../../../doc/dev_guide/business_onboarding.md#输入输出以-c-abi-为边界).
+
 1. Build the tool if unavailable, and rebuild after registration changes. Query the target biz
    contract and its filtered assets:
 

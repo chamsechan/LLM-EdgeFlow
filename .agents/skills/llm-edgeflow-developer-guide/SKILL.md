@@ -8,7 +8,7 @@ description: Route LLM-EdgeFlow implementation across Integration, Orchestration
 First classify the requested change. Read only the references needed for the affected layer; do not load every reference by default.
 
 - New modality, C ABI structure/function behavior, Adapter, Operator bridge, or allowed runtime Pipeline name: read [Integration](references/integration.md).
-- Demo dataset/result conversion or registration: follow [business onboarding](../../../doc/dev_guide/business_onboarding.md#统一-demo-接入). Load Integration only if the external contract or bridge also changes.
+- Demo dataset/carrier construction, result display or registration: follow [business onboarding](../../../doc/dev_guide/business_onboarding.md#统一-demo-接入). External request parsing and response assembly belong to Adapter work; load Integration for those changes even when the C carrier layout stays the same.
 - Pipeline lifecycle, Validator, DAG planning, `AlgContext`, `BlackboardKey`, or session behavior: read [Orchestration](references/orchestration.md).
 - New or modified capability Node, its parameters, or a Control handler: read [Capability Nodes](references/capability-nodes.md). Start Control work from the [compiled example](../../../doc/dev_guide/first_control.md); reuse transport and instance routing.
 - Parameter values or compatible model replacement with no implementation changes: use `pipeline-composer` and [native deployment inspection](../../../doc/VERIFIABLE_SELECTION.md#替换模型后确认实际生效配置).
