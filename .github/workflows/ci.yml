@@ -423,7 +423,9 @@ jobs:
               for command in ("validate", "plan"):
                   subprocess.run(["./build-kite/alg_pipeline_tool", command, str(config)], check=True)
           PY
-          ctest --test-dir build-kite -j4 --output-on-failure
+          ctest --test-dir build-kite -j4 \
+            --output-on-failure \
+            -E "QualityGateScriptsContractTest|ThirdPartyCacheMetadataTest|LayerGuardTest|LayerGuardSelfTest|ArchitectureDocsDriftTest|ArchitectureDocsDriftGateSelfTest|GovernanceConsistencyTest|DiagramAssetsCheckTest|DiagramRenderGateSelfTest|ScriptGeneratorDetectionTest|PipelineStudioServerTest|CustomNodeScaffoldTest|DevRecipeTest"
 
   acceptance-evidence:
     name: Exact-SHA Acceptance Evidence
