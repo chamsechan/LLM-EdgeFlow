@@ -34,7 +34,8 @@ graph TD
     %% Integration
     subgraph Integration["接入适配层（Integration）"]
         C_API["公司统一标准 C ABI 接口<br>• Alg_Init / Alg_DeInit<br>• Alg_Create / Alg_Destroy<br>• Alg_Process(const void** inputs, num_inputs, void** outputs, num_outputs)<br>• Alg_Control"]
-        C_Adapter["c_api_adapter.cpp<br>• 同句柄 Process / Control 串行化<br>• 异常拦截屏障 (noexcept 安全防护)<br>• 外部输入解包 / 输出结构体强转打包"]
+        C_Adapter["C ABI 外观 (c_api_adapter.cpp)<br>• 同句柄 Process / Control 串行化<br>• 异常拦截屏障 (noexcept 安全防护)<br>• 调用注册业务 Adapter"]
+        Biz_Adapter["注册业务 Adapter (IBizAdapter)<br>• Unpack：完整请求解析与字段转换<br>• Pack：完整响应组装与容量检查"]
     end
 
     %% Orchestration
@@ -97,7 +98,8 @@ graph TD
     Caller <==|纯 C 指针数组 const void** inputs, outputs| C_API
     C_API --> C_Adapter
     C_Adapter -->|构造/销毁| PipeCore
-    C_Adapter -->|解包/打包| R_Ctx
+    C_Adapter --> Biz_Adapter
+    Biz_Adapter -->|解包/打包| R_Ctx
     PipeCore --> S_Ctx
     PipeCore --> NodeApi
     NodeApi --> NodeBase
@@ -113,7 +115,7 @@ graph TD
     ModelSemantics --> BatchExec
 
     class Caller ext;
-    class C_API,C_Adapter integration;
+    class C_API,C_Adapter,Biz_Adapter integration;
     class PipeCore,S_Ctx,R_Ctx,TraceTag,Factory orchestration;
     class NodeApi,NodeBase,ModelNode,CommonNodes,CustomNodes,LlmNode,ChunkNode,RuleNode,EmbedNode,TopKNode,RerankNode,TemplateNode,JsonNode,AsrNode,OcrNode,CorpusNode capability_nodes;
     class ModelBase,BackendBase,LlmIntf,EmbedIntf,BatchExec,BgeModels,GeneratedEmbedModel,QwenModel,OnnxBackend,LlamaCpp,KiteLlm model_execution;
@@ -130,7 +132,12 @@ graph TD
   2. 导出公共日志 C API：`AlgBase_setLogLevelByName`, `AlgBase_getLogLevelByName`, `AlgBase_logPrint`；
   3. 导出基于命名 I/O 槽位的 C++ Operator 门面：`Get_LLM_EDGEFLOW_OperatorTable()`, `GetOperatorLastError()`, `ValidateOperatorConfigBinding()`；
   4. 充当 `noexcept` 安全屏障，拦截所有 C++ 异常，防止跨动态库边界崩溃；
-  5. 将外部传入的纯 C 指针数组或 NamedIoBatch 解包，转入内部强类型的 `AlgContext`。
+  5. 由注册业务 Adapter 解包完整外部请求并组装完整外部响应，负责外部契约与内部
+     `AlgContext` 中性值之间的转换；Operator bridge 负责宿主载体转换。
+
+业务需求中的输入输出以 C ABI 边界为准，包含载体中的业务字段和序列化格式。
+Demo 不得提前拆解请求或在 SDK 返回后补组业务响应；内部节点端口不是外部 I/O 契约。
+具体职责和判断示例见[输入输出边界](dev_guide/business_onboarding.md#输入输出以-c-abi-为边界)。
 
 #### 双外部门面与单一内部运行时架构
 

@@ -79,7 +79,9 @@ python3 tools/verify_selection.py check \
 
 ## 业务效果验收
 
-复用现有 `alg_demo` 的业务输入转换和执行路径。验收器为选定 Pipeline 生成临时 `.conf`，从 `--conf`（默认同名 `.conf`）继承输出池配置，按 `--model-root` 生成模型路径；不会沿用原 `.conf` 中可能覆盖模型选择的 `model_paths`。
+复用现有 `alg_demo` 的样例读取、宿主载体构造和 SDK 执行路径；业务请求的解包与响应
+组装仍由 Adapter 完成，见[输入输出边界](dev_guide/business_onboarding.md#输入输出以-c-abi-为边界)。
+验收器为选定 Pipeline 生成临时 `.conf`，从 `--conf`（默认同名 `.conf`）继承输出池配置，按 `--model-root` 生成模型路径；不会沿用原 `.conf` 中可能覆盖模型选择的 `model_paths`。
 
 验收固定使用 CPU、device 0、batch 1，并保留兼容选项 `--no-default-control`；Demo 默认使用所选规则/提示词。这个版本的验收目标是配置正确性与选定输出字段的业务效果；目标设备性能验收需要相应环境与后续测试定义。
 

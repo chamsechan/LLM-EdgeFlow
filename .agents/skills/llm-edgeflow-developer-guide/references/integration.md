@@ -2,6 +2,11 @@
 
 Use this reference for new modalities, public C structures, Adapter behavior, business registration, or allowed Pipeline names.
 
+Business input/output means the complete public C ABI request/response, including serialized
+payload semantics. `Unpack` and Adapter packing must implement that contract inside the SDK;
+Demo/Python cannot perform the missing field selection or response assembly. Reusing a C struct
+does not imply payload compatibility. Follow [the boundary and carrier distinction](../../../../doc/dev_guide/business_onboarding.md#输入输出以-c-abi-为边界).
+
 Start with [business onboarding](../../../../doc/dev_guide/business_onboarding.md) to select the requested
 integration path. Reuse the Adapter when the external contract is unchanged; an existing C ABI
 path edit does not automatically require a new Operator or Demo path. Adding a production

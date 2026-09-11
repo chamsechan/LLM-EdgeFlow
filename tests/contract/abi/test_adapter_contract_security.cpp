@@ -12,10 +12,12 @@
 #include "adapter/adapter_validation_helper.h"
 #include "adapter/biz_adapter_registry.h"
 #include "adapter/biz_blackboard_keys.h"
+#include "adapter/biz_results.h"
 #include "adapter/deployment_model_resolver.h"
 #include "adapter/shared_algorithm_runtime.h"
 #include "edgeflow/c_api.h"
 #include "edgeflow/c_api.hpp"
+#include "engine/model_registry.h"
 #include "tests/support/adapter_examples/flat_struct_adapter.h"
 #include "tests/support/adapter_examples/nested_array_adapter.h"
 #include "tests/support/adapter_examples/nested_pointer_tree_adapter.h"
@@ -40,6 +42,251 @@ class AdapterContractSecurityTest : public ::testing::Test {
     BizAdapterRegistry::Instance().ResetConflictForTesting();
   }
 };
+
+namespace {
+
+// This fixture records actual generation calls while the test executes the
+// shipped translation Pipeline through Alg_Process. It does no JSON handling.
+class TranslationProbeModel final : public ILlmModel {
+ public:
+  inline static constexpr char kModelType[] = "test_translation_probe";
+  inline static std::weak_ptr<TranslationProbeModel> latest;
+
+  static std::shared_ptr<IModel> Create(const ModelCreateContext&,
+                                        std::string*) {
+    auto model = std::make_shared<TranslationProbeModel>();
+    latest = model;
+    return model;
+  }
+  const std::string& ModelType() const noexcept override {
+    static const std::string type = kModelType;
+    return type;
+  }
+  const std::string& Capability() const noexcept override {
+    static const std::string capability = "llm";
+    return capability;
+  }
+  InferenceConcurrency Concurrency() const noexcept override {
+    return InferenceConcurrency::kSerialized;
+  }
+  size_t GetMaxBatchSize() const noexcept override { return 1; }
+  int Generate(const TextBatch& prompts, const GenerateOptions&,
+               TextBatch* outputs) noexcept override {
+    try {
+      calls.push_back(prompts);
+      if (failure != 0) return failure;
+      if (!outputs) return -1;
+      outputs->clear();
+      for (const auto& prompt : prompts) {
+        outputs->emplace_back(prompt.req_id, prompt.sub_id, response);
+      }
+      return 0;
+    } catch (...) {
+      return -1;
+    }
+  }
+
+  std::vector<TextBatch> calls;
+  std::string response;
+  int failure = 0;
+};
+
+REGISTER_MODEL_WITH_DEFINITION(TranslationProbeModel, [] {
+  ModelDefinition definition;
+  definition.model_type = TranslationProbeModel::kModelType;
+  definition.capability = "llm";
+  definition.description = "Test-only translation generation probe";
+  definition.required_protocol = ExecutionProtocol::kTextGeneration;
+  definition.concurrency = InferenceConcurrency::kSerialized;
+  return definition;
+}());
+
+}  // namespace
+
+TEST_F(AdapterContractSecurityTest,
+       TranslationCAbiGeneratesOnceFromRawQueryAndPacksLiteralOutput) {
+  const auto directory =
+      std::filesystem::temp_directory_path() /
+      ("edgeflow-translate-" +
+       std::to_string(
+           std::chrono::steady_clock::now().time_since_epoch().count()));
+  std::filesystem::create_directory(directory);
+  struct Cleanup {
+    std::filesystem::path directory;
+    ~Cleanup() {
+      std::error_code error;
+      std::filesystem::remove_all(directory, error);
+    }
+  } cleanup{directory};
+  const auto config = (directory / "pipeline.json").string();
+  std::ifstream source(GetConfigPath("configs/pipeline_translate_cpu.json"));
+  ASSERT_TRUE(source.is_open());
+  nlohmann::json pipeline;
+  source >> pipeline;
+  // Keep the production graph and port bindings. Substitute only model
+  // execution so these assertions require neither model assets nor a Demo.
+  ASSERT_EQ(pipeline.at("pipeline").size(), 1U);
+  EXPECT_EQ(pipeline["pipeline"][0]["node_type"], "LlmGenerateNode");
+  ASSERT_EQ(pipeline.at("models").size(), 1U);
+  auto& model_config = pipeline["models"][0];
+  model_config["model_type"] = TranslationProbeModel::kModelType;
+  model_config["backend"] = "test_causal_lm_backend";
+  model_config["model_path"] = "translation-probe.fixture";
+  model_config["model_config"] = nlohmann::json::object();
+  model_config["backend_config"] = nlohmann::json::object();
+  std::ofstream(config) << pipeline.dump();
+  CompanyAlgParamCreate create{config.c_str(), "./models", 0,
+                               ALG_BIZ_TYPE_TRANSLATE};
+  void* raw_handle = nullptr;
+  ASSERT_EQ(Alg_Create(&raw_handle, &create), 0);
+  std::unique_ptr<void, decltype(&Alg_Destroy)> handle(raw_handle, Alg_Destroy);
+  const auto model = TranslationProbeModel::latest.lock();
+  ASSERT_NE(model, nullptr);
+
+  CompanyEntityOutputStruct output{};
+  void* outputs[] = {&output};
+  int count = 0;
+  auto process = [&](const char* payload) {
+    CompanyEntityInputStruct input{987654321, payload};
+    const void* inputs[] = {&input};
+    count = 1;
+    return Alg_Process(handle.get(), inputs, 1, outputs, &count);
+  };
+  const std::vector<std::string> queries = {"hello,what is your name", "",
+                                            "  #\n\"hi\"\\中文  ",
+                                            std::string("before\0after", 12)};
+  const std::vector<std::string> translations = {
+      "你好，你的名字是什么", "", "  #\n\"你好\"\\中文  ",
+      std::string("left\0right", 10)};
+  for (size_t i = 0; i < queries.size(); ++i) {
+    for (bool extras : {false, true}) {
+      nlohmann::json request = {{"query", queries[i]}};
+      if (extras) {
+        request["version"] = nullptr;
+        request["endpoint"] = "not-translate";
+        request["src_lan"] = {"not", "a", "language"};
+      }
+      const auto payload = request.dump(2);
+      model->response = translations[i];
+      const auto before = model->calls.size();
+      ASSERT_EQ(process(payload.c_str()), 0) << payload;
+      ASSERT_EQ(model->calls.size(), before + 1);
+      ASSERT_EQ(model->calls.back().size(), 1U);
+      EXPECT_EQ(model->calls.back()[0].data, queries[i]);
+      EXPECT_EQ(model->calls.back()[0].req_id, 0U);
+      EXPECT_EQ(model->calls.back()[0].sub_id, 0U);
+      EXPECT_EQ(count, 1);
+      EXPECT_EQ(output.request_id, 987654321U);
+      EXPECT_EQ(output.status_code, 0);
+      EXPECT_EQ(nlohmann::json::parse(output.entities_json),
+                nlohmann::json({{"translated", translations[i]}}));
+    }
+  }
+  // Text that happens to resemble JSON or Markdown is still the original
+  // model result: no JSON parsing, field extraction, stripping, or retries.
+  for (const std::string text :
+       {R"({"translated":"literal","extra":42})",
+        "```json\n{\"translated\":\"literal\"}\n```"}) {
+    model->response = text;
+    const auto before = model->calls.size();
+    ASSERT_EQ(process("{\"query\":\"hello\"}"), 0);
+    EXPECT_EQ(model->calls.size(), before + 1);
+    EXPECT_EQ(nlohmann::json::parse(output.entities_json),
+              nlohmann::json({{"translated", text}}));
+  }
+  const auto before_invalid = model->calls.size();
+  for (const char* invalid :
+       std::vector<const char*>{nullptr, "invalid JSON", "[]", "{}",
+                                "{\"query\":null}", "{\"query\":123}"}) {
+    EXPECT_EQ(process(invalid), COMPANY_ALG_ERR_INVALID_INPUT);
+  }
+  const std::string too_long(64 * 1024 + 1, 'x');
+  EXPECT_EQ(process(too_long.c_str()), COMPANY_ALG_ERR_INVALID_INPUT);
+  EXPECT_EQ(model->calls.size(), before_invalid);
+
+  model->response.assign(2200, 'x');
+  EXPECT_EQ(process("{\"query\":\"hello\"}"), COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
+  EXPECT_EQ(model->calls.size(), before_invalid + 1);
+  model->failure = -731;
+  EXPECT_EQ(process("{\"query\":\"hello\"}"), -731);
+  EXPECT_EQ(model->calls.size(), before_invalid + 2);
+  model->failure = 0;
+  model->response = "你好";
+  EXPECT_EQ(process("{\"query\":\"hello\"}"), 0);
+  EXPECT_EQ(model->calls.size(), before_invalid + 3);
+  EXPECT_EQ(nlohmann::json::parse(output.entities_json),
+            nlohmann::json({{"translated", "你好"}}));
+}
+
+TEST_F(AdapterContractSecurityTest,
+       TranslationLiteralResultPackingAndCarrierSafety) {
+  const auto adapter =
+      BizAdapterRegistry::Instance().GetAdapter(ALG_BIZ_TYPE_TRANSLATE);
+  ASSERT_NE(adapter, nullptr);
+  const std::string translation(2200, 'x');
+  AlgContext large;
+  large.Publish(kRawRequestIds, std::vector<uint64_t>{123});
+  large.Publish(kLlmAnswers, TextBatch{{0, 0, translation}});
+  EntityResult variable;
+  void* variable_outputs[] = {&variable};
+  int count = 1;
+  ASSERT_EQ(adapter->PackResultBatch(&large, variable_outputs, &count), 0);
+  EXPECT_EQ(count, 1);
+  EXPECT_EQ(variable.request_id, 123U);
+  EXPECT_EQ(variable.status_code, 0);
+  EXPECT_EQ(nlohmann::json::parse(variable.entities_json),
+            nlohmann::json({{"translated", translation}}));
+  CompanyEntityOutputStruct fixed{};
+  void* fixed_outputs[] = {&fixed};
+  count = 1;
+  EXPECT_EQ(adapter->Pack(&large, fixed_outputs, &count),
+            COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
+
+  // Reordered internal results must map back to external request IDs.
+  AlgContext reordered;
+  reordered.Publish(kRawRequestIds, std::vector<uint64_t>{999, 123});
+  reordered.Publish(kLlmAnswers, TextBatch{{1, 0, "第二句"}, {0, 0, "第一句"}});
+  CompanyEntityOutputStruct first{}, second{};
+  void* two_outputs[] = {&first, &second};
+  count = 2;
+  ASSERT_EQ(adapter->Pack(&reordered, two_outputs, &count), 0);
+  EXPECT_EQ(count, 2);
+  EXPECT_EQ(first.request_id, 999U);
+  EXPECT_EQ(second.request_id, 123U);
+  EXPECT_EQ(nlohmann::json::parse(first.entities_json),
+            nlohmann::json({{"translated", "第一句"}}));
+  EXPECT_EQ(nlohmann::json::parse(second.entities_json),
+            nlohmann::json({{"translated", "第二句"}}));
+  count = 1;
+  EXPECT_EQ(adapter->Pack(&reordered, two_outputs, &count),
+            COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
+  EXPECT_EQ(count, 2);
+
+  for (const TextBatch& invalid :
+       std::vector<TextBatch>{{},
+                              {{2, 0, "out-of-range"}},
+                              {{0, 1, "invalid-sub-id"}},
+                              {{0, 0, "duplicate"}, {0, 0, "duplicate"}},
+                              {{0, 0, "missing-second"}}}) {
+    AlgContext ctx;
+    ctx.Publish(kRawRequestIds, std::vector<uint64_t>{999, 123});
+    ctx.Publish(kLlmAnswers, invalid);
+    count = 2;
+    EXPECT_EQ(adapter->Pack(&ctx, two_outputs, &count),
+              COMPANY_ALG_ERR_INVALID_INPUT);
+  }
+  for (bool publish_ids : {false, true}) {
+    AlgContext missing;
+    if (publish_ids) {
+      missing.Publish(kRawRequestIds, std::vector<uint64_t>{123});
+    } else {
+      missing.Publish(kLlmAnswers, TextBatch{{0, 0, "你好"}});
+    }
+    count = 1;
+    EXPECT_EQ(adapter->PackResultBatch(&missing, variable_outputs, &count),
+              COMPANY_ALG_ERR_INVALID_INPUT);
+  }
+}
 
 TEST_F(AdapterContractSecurityTest, DeploymentModelRootContractIsSandboxed) {
   const std::string root_input = GetConfigPath("models");

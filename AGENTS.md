@@ -31,6 +31,13 @@ Model Execution   Model semantics / neutral execution protocols / Backends
   `Alg_*` functions keep `noexcept`, `catch (const std::exception&)`, and `catch (...)`
   barriers. Biz-specific conversion belongs in registered `IBizAdapter` and Operator bridge
   implementations, not in central dispatch switches or lower layers.
+  Business input/output requirements describe the complete request/response at the public
+  C ABI boundary. `IBizAdapter::Unpack` owns external payload validation and field selection;
+  Adapter packing owns response assembly and serialization. The C ABI must satisfy that contract
+  without Demo/Python preprocessing or postprocessing. Demo may construct carriers, hold buffers,
+  invoke the SDK and display/copy its results; it must not replace Adapter conversion.
+  Reusing the same C struct does not imply the same payload schema or business contract.
+  Node ports and Catalog ingress/egress describe internal values, not the external C ABI payload.
   Existing local substitutes for platform public types live only in `include/platform_mock/`;
   these are not company SDK headers. Keep framework entrypoints and helpers under `edgeflow/`.
 - **Orchestration** — `include/core/` and `src/core/`. `PipelineValidator` is the single validation
@@ -73,6 +80,28 @@ from prose. Query `alg_pipeline_tool`; registrations and Definitions are the exe
   an ordinary implementation request.
 - RFC decisions and status: follow [the RFC index](doc/rfcs/README.md) and
   [template](doc/rfcs/RFC_TEMPLATE.md).
+
+## Agent responsibilities
+
+For code changes, use separate sub-agents for test authoring, compilation, and test execution.
+The primary agent owns implementation, coordination, review, documentation, and the final report.
+
+- **Test author** — write or update the focused tests from the requested behavior and public
+  contract; do not run builds or tests. Keep production and test file ownership separate so
+  implementation and test authoring can proceed in parallel.
+- **Build agent** — configure and compile the affected targets after the required source and
+  test edits are ready; report commands, build results, and diagnostics. Return source fixes
+  to the owning author.
+- **Test runner** — independently execute the relevant tests on the completed build, check
+  results against the requested behavior, and run the canonical pre-delivery gate from
+  `CONTRIBUTING.md`. Report actual results and limitations; return test fixes to the test author
+  and implementation fixes to the primary agent.
+
+Assign these responsibilities to three different sub-agents. Do not run competing builds in
+the same build directory. The canonical gate retains its built-in configure/build step; this
+does not require another standalone full build or a second full test pass. Delegate only
+applicable work, and do not create empty build/test tasks for read-only questions.
+This section defines agent routing; `CONTRIBUTING.md` remains the development lifecycle source.
 
 ## Repository guardrails
 

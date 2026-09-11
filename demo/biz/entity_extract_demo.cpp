@@ -11,7 +11,9 @@
 namespace alg_demo {
 
 int RunEntityExtractDemo(const DemoOptions& options) {
-  PrintBanner("实体/名词提取业务", "Conf: " + options.config_path);
+  const auto* descriptor = DemoRegistry::Instance().Find(options.biz);
+  PrintBanner(descriptor ? descriptor->display_title : "文本/JSON 业务",
+              "Conf: " + options.config_path);
 
   std::vector<std::string> lines;
   std::string err;
@@ -119,5 +121,10 @@ int RunEntityExtractDemo(const DemoOptions& options) {
 
 REGISTER_DEMO_BIZ("entity_extract", "实体/名词提取业务", RunEntityExtractDemo,
                   ALG_BIZ_TYPE_ENTITY_EXTRACT);
+int RunTranslateDemo(const DemoOptions& options) {
+  return RunEntityExtractDemo(options);
+}
+REGISTER_DEMO_BIZ("translate", "JSON 字符串翻译", RunTranslateDemo,
+                  ALG_BIZ_TYPE_TRANSLATE);
 
 }  // namespace alg_demo
