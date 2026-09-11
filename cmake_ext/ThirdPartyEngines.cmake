@@ -113,6 +113,18 @@ if(ENABLE_LLAMACPP)
       "70adb1b4cea5ee39f867792c78dc59320921eda7")
   set(_LLAMA_SOURCE_SHA256
       "94d215f1fd85ded40f4674eccdbd3caf4a9b0daa00b6d72255efec922c6d94a4")
+  # Resolve the pinned upstream BLAS defaults before inspecting the cache.
+  # These options must describe both source builds and imported archives.
+  if(APPLE)
+    set(_llama_blas_default ON)
+    set(_llama_blas_vendor_default Apple)
+  else()
+    set(_llama_blas_default OFF)
+    set(_llama_blas_vendor_default Generic)
+  endif()
+  option(GGML_BLAS "ggml: use BLAS" ${_llama_blas_default})
+  set(GGML_BLAS_VENDOR "${_llama_blas_vendor_default}" CACHE STRING
+      "ggml: BLAS library vendor")
   edgeflow_prepare_third_party_cache(
     NAME llama_cpp
     VERSION "${LLM_EDGEFLOW_LLAMACPP_COMMIT}"
@@ -120,9 +132,23 @@ if(ENABLE_LLAMACPP)
     CACHE_DIR "${LLAMA_3RDPARTY_DIR}"
     KIND STATIC
     ABI_OPTIONS GGML_NATIVE=OFF GGML_METAL=${LLM_EDGEFLOW_LLAMACPP_METAL}
+                GGML_BLAS=${GGML_BLAS} GGML_BLAS_VENDOR=${GGML_BLAS_VENDOR}
                 BUILD_SHARED_LIBS=OFF
     OUT_VALID _LLAMA_CACHE_VALID
     OUT_MARKER _LLAMA_CACHE_MARKER)
+
+  set(_llama_required_sublibs ggml ggml-cpu ggml-base)
+  if(GGML_BLAS)
+    list(APPEND _llama_required_sublibs ggml-blas)
+  endif()
+  if(_LLAMA_CACHE_VALID)
+    foreach(_sublib IN LISTS _llama_required_sublibs)
+      if(NOT EXISTS "${LLAMA_3RDPARTY_DIR}/lib/lib${_sublib}.a")
+        message(STATUS "[3rdparty] Ignoring incomplete llama_cpp cache: missing lib${_sublib}.a")
+        set(_LLAMA_CACHE_VALID OFF)
+      endif()
+    endforeach()
+  endif()
 
   if(_LLAMA_CACHE_VALID AND
      EXISTS "${LLAMA_3RDPARTY_DIR}/lib/libllama.a" AND
@@ -158,7 +184,7 @@ if(ENABLE_LLAMACPP)
     endif()
 
     set(_llama_sublibs "")
-    foreach(_sublib ggml ggml-cpu ggml-base ggml-blas)
+    foreach(_sublib IN LISTS _llama_required_sublibs)
       if(EXISTS "${LLAMA_3RDPARTY_DIR}/lib/lib${_sublib}.a")
         if(NOT TARGET ${_sublib})
           add_library(${_sublib} STATIC IMPORTED GLOBAL)
