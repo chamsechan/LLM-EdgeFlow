@@ -884,6 +884,51 @@ TEST_F(CommonNodesTest, PromptRendersOriginalTemplateAndIsolatesRequests) {
             "system {input}\n{literal} <next>||next");
 }
 
+TEST_F(CommonNodesTest, PromptDefaultsMatchDirectInitializationAndNativePlan) {
+  auto model = std::make_shared<PromptContractModel>();
+  ASSERT_TRUE(
+      session_ctx_->GetModelManager().RegisterModel("entity_llm", model, "v1"));
+  const nlohmann::json config = {{"bind_model", "entity_llm"}};
+  auto document = CustomPipeline("entity_extract");
+  document["pipeline"][0]["config"] = config;
+  const auto validated = PipelineValidator::ValidateAndPlan(document);
+  ASSERT_TRUE(validated.report.ok) << validated.report.ToJson().dump(2);
+  const auto& plan = validated.node_plans.at("custom_prompt");
+  const std::string input = R"({"name":"literal {context}"})";
+  for (bool use_plan : {false, true}) {
+    SCOPED_TRACE(use_plan);
+    auto node = NodeRegistry::Instance().Create("PromptGuidedLlmNode");
+    ASSERT_NE(node, nullptr);
+    std::string error = "old error";
+    NodeInitContext init;
+    init.plan = use_plan ? &plan : nullptr;
+    init.config = use_plan ? nullptr : &config;
+    init.session_ctx = session_ctx_.get();
+    init.diagnostic = &error;
+    ASSERT_TRUE(node->Init(init)) << error;
+    EXPECT_TRUE(error.empty());
+    AlgContext context;
+    context.Publish(use_plan ? "input_sentences" : "input",
+                    TextBatch{{77, 4, input}});
+    ASSERT_EQ(node->Process(&context), 0) << context.GetErrorMessage();
+    ASSERT_EQ(model->prompts.size(), 1u);
+    EXPECT_EQ(model->prompts.front().data, input);
+    EXPECT_FLOAT_EQ(model->last_options.temperature, 0.7f);
+    EXPECT_EQ(model->last_options.max_tokens, 512);
+    EXPECT_EQ(model->last_options.top_k, 0);
+    EXPECT_FLOAT_EQ(model->last_options.top_p, 0.9f);
+    EXPECT_FLOAT_EQ(model->last_options.repetition_penalty, 1.0f);
+    EXPECT_TRUE(model->last_options.stop_words.empty());
+    const auto* output =
+        context.Read<TextBatch>(use_plan ? "llm_raw_answer" : "output");
+    ASSERT_NE(output, nullptr);
+    ASSERT_EQ(output->size(), 1u);
+    EXPECT_EQ(output->front().data, "```text\n" + input + "\n```");
+    EXPECT_EQ(output->front().req_id, 77u);
+    EXPECT_EQ(output->front().sub_id, 4u);
+  }
+}
+
 TEST_F(CommonNodesTest, PromptStandardSyntaxMatchesTextTemplateNode) {
   auto model = std::make_shared<PromptContractModel>();
   ASSERT_TRUE(session_ctx_->GetModelManager().RegisterModel("prompt_contract",
@@ -1030,6 +1075,9 @@ TEST_F(CommonNodesTest, PromptConfigurationRejectedByValidatorAndInit) {
       {{"stop_words", {123, ""}}},
       {{"stop_words", {""}}},
       {{"stop_words", "END"}},
+      {{"unknown_field", true}},
+      {{"prompt_prefix", 7}},
+      {{"strip_markdown", "yes"}},
       {{"fallback_text", "DEFAULT"}},
       {{"system_prompt", "Use prompt_prefix instead"}},
       {{"max_tokens", 32769}},
@@ -1050,13 +1098,31 @@ TEST_F(CommonNodesTest, PromptConfigurationRejectedByValidatorAndInit) {
   for (const auto& bad : bad_configs) {
     SCOPED_TRACE(bad.dump());
     auto doc = CustomPipeline("entity_extract");
-    doc["pipeline"][0]["config"]["template_syntax"] = "auto";
-    doc["pipeline"][0]["config"].update(bad);
-    EXPECT_FALSE(PipelineValidator::ValidateAndPlan(doc).report.ok);
-    auto config = bad;
+    nlohmann::json config = {{"bind_model", "entity_llm"},
+                             {"prompt_template", "{input}"},
+                             {"template_syntax", "auto"}};
+    config.update(bad);
+    doc["pipeline"][0]["config"] = config;
+    const auto preflight = PipelineValidator::ValidateAndPlan(doc);
+    EXPECT_FALSE(preflight.report.ok);
     config["bind_model"] = "llm_model_v1";
     auto node = NodeRegistry::Instance().Create("PromptGuidedLlmNode");
-    EXPECT_FALSE(InitNodeForTest(*node, config, session_ctx_.get()));
+    ASSERT_NE(node, nullptr);
+    std::string init_error;
+    NodeInitContext init;
+    init.config = &config;
+    init.session_ctx = session_ctx_.get();
+    init.diagnostic = &init_error;
+    EXPECT_FALSE(node->Init(init));
+    EXPECT_FALSE(init_error.empty());
+    bool matching_diagnostic = false;
+    for (const auto& diagnostic : preflight.report.diagnostics) {
+      if (diagnostic.path.rfind("/pipeline/0/config", 0) == 0 &&
+          diagnostic.message == init_error) {
+        matching_diagnostic = true;
+      }
+    }
+    EXPECT_TRUE(matching_diagnostic) << init_error;
   }
   auto doc = CustomPipeline("doc_qa");
   doc["pipeline"][2]["ports"]["inputs"].erase("context");

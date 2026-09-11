@@ -149,20 +149,28 @@ nlohmann::json ResolveConf(const std::string& file, const std::string& root,
                                     ? "conf.data.model_paths"
                                     : "pipeline.models.model_path"},
                      {"resolved", model.resolved_model_path}});
-  const auto& pool = resolved.output_pool_spec;
+  nlohmann::json output_pools = nlohmann::json::object();
+  for (const auto& [slot, pool] : resolved.output_pool_specs) {
+    output_pools[slot] = {{"type", pool.type},
+                          {"allocator", pool.allocator},
+                          {"params", resolved.output_parameter_text.at(slot)},
+                          {"meta_num", pool.meta_num},
+                          {"metadata_type_id", pool.metadata_type_id},
+                          {"capacities", pool.capacities}};
+  }
+  nlohmann::json configuration = {
+      {"conf_path", resolved.conf_path.string()},
+      {"pipeline_path", resolved.pipeline_path.string()},
+      {"model_root", resolved.model_root_path.string()},
+      {"effective_pipeline", std::move(effective)},
+      {"model_paths", std::move(paths)},
+      {"output_pools", output_pools}};
+  if (output_pools.size() == 1) {
+    configuration["output_pool"] = output_pools.begin().value();
+  }
   return {{"schema_version", 1},
           {"ok", true},
-          {"configuration",
-           {{"conf_path", resolved.conf_path.string()},
-            {"pipeline_path", resolved.pipeline_path.string()},
-            {"model_root", resolved.model_root_path.string()},
-            {"effective_pipeline", std::move(effective)},
-            {"model_paths", std::move(paths)},
-            {"output_pool",
-             {{"type", pool.type},
-              {"meta_num", pool.meta_num},
-              {"metadata_type_id", pool.metadata_type_id},
-              {"capacities", pool.capacities}}}}}};
+          {"configuration", std::move(configuration)}};
 }
 
 void Usage() {

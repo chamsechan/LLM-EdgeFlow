@@ -18,6 +18,7 @@ target_sources(edgeflow_integration_objects PRIVATE
   biz/translate_operator_bridge.cpp
   biz/keyword_match_operator_bridge.cpp
   biz/ocr_doc_qa_operator_bridge.cpp
+  operator/json_output_config_reader.cpp
   operator/operator_config_resolver.cpp
   operator/operator_adapter.cpp
   operator/operator_biz_bridge_registry.cpp

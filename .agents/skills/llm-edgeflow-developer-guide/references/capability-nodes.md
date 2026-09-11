@@ -26,6 +26,14 @@ initialization, using the same field list as the Definition. `ModelBoundNode` al
 before model binding. Keep cross-field semantic checks in a shared local helper; do not call
 PipelineValidator from a Node. Report processing failures through `Fail` / `Require`.
 
+For complex Node parameters, optionally use `nodes/node_config_parser.h` with an ordinary
+parameter struct and a local semantic parser; `PromptGuidedLlmNode` is the compiled example.
+Use the parser's `Fields()` in the Definition. `Parse` reuses field validation/defaults;
+`ParseNormalized` directly consumes the object already normalized by the Validator or
+`ModelBoundNode`, without another normalization or JSON serialization. Preflight and Init
+run the same semantic rule separately; Process uses the stored parameters. Keep simple
+Nodes on the existing direct-reading path and do not introduce a configuration Pipeline Node.
+
 For initial configuration plus runtime Control, use the [Control starter](../../../../dev_support/node_authoring/starter_control_node.cpp):
 share field normalization and a local semantic parser, build the replacement before publishing it,
 and read a consistent configuration snapshot per request. Use `NodeInitContext::Fail` for an

@@ -45,6 +45,11 @@ struct ProcessLocalShadowStorage {
   }
 };
 
+using ConvertSampleOutputFn = int (*)(const void* internal_dto,
+                                      void* external_output_struct,
+                                      const ResolvedOutputPoolSpec& spec,
+                                      std::string* err);
+
 /**
  * @brief 业务逻辑槽位定义
  */
@@ -53,11 +58,19 @@ struct OperatorBizSlot {
   std::string type_suffix;   // 规范类型后缀
   IoDirection direction = IoDirection::kInput;
   bool required = true;
+  // Output-only: empty preserves the legacy type suffix as the map key suffix.
+  std::string key_suffix{};
+  ConvertSampleOutputFn convert_output = nullptr;
+
+  const std::string& KeySuffix() const {
+    return key_suffix.empty() ? type_suffix : key_suffix;
+  }
 
   bool operator==(const OperatorBizSlot& other) const {
     return logical_name == other.logical_name &&
            type_suffix == other.type_suffix && direction == other.direction &&
-           required == other.required;
+           required == other.required && key_suffix == other.key_suffix &&
+           convert_output == other.convert_output;
   }
 };
 
@@ -65,11 +78,6 @@ using ConvertSampleInputFn = int (*)(
     const std::unordered_map<std::string, const void*>& slots_by_logical_name,
     ProcessLocalShadowStorage& storage, const void** out_internal_dto,
     std::string* err);
-
-using ConvertSampleOutputFn = int (*)(const void* internal_dto,
-                                      void* external_output_struct,
-                                      const ResolvedOutputPoolSpec& spec,
-                                      std::string* err);
 
 using CreateShadowOutputDtoFn = void* (*)(ProcessLocalShadowStorage& storage);
 
@@ -128,7 +136,7 @@ OperatorBizBridgeDescriptor MakeSingleSlotBizBridge(CompanyAlgBizType biz_type,
 }
 
 // Source-extension registration and output copy helpers. Registry state and
-// output allocation remain private to the Integration implementation.
+// output pool management remain private to the Integration implementation.
 bool RegisterOperatorBizBridge(OperatorBizBridgeDescriptor descriptor);
 int CopyToOperatorString(const char* source, CompanyString* destination,
                          uint32_t capacity, const char* field_name,

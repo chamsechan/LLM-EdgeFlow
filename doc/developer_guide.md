@@ -54,7 +54,8 @@ I/O 方向 + 外部 C 类型 + 校验/分配生命周期”的唯一绑定。输
 业务及逻辑槽位，并完成与内部 DTO 的逐字段转换。Bridge 完整性按实际注册的 Adapter
 快照审计，新增业务无需修改中央业务 ID 列表。不要把 `.frame` 或 `.string` 直接绑定成
 整套业务 DTO，也不要恢复“一帧恰好一个输入/输出组”的限制。命名 I/O Key 的
-后缀必须与 Registry 中的规范后缀精确一致，不存在别名或自动归一化。
+输入后缀必须与 Registry 中的规范后缀精确一致；输出后缀匹配 bridge 的 `key_suffix`，
+未设置时匹配类型后缀，不做自动归一化。
 
 `CompanyString` 只用于无嵌入 NUL 的文本，二进制内容使用 `CompanyBuffer`。Operator 镜像
 结构不得替换或渗透内部 DTO。输入转换只读取 `.get()` 指针并复制数据值；输出由
@@ -68,11 +69,14 @@ SOVERSION/C ABI major 为 5。
 仓库内 Node、Registry、Model、Backend 和第三方运行时是隐藏实现，不得被外部扩展直接链接。
 Operator v4 的 Create 和配置预检都使用部署根 `model_path` 加相对
 `cfg_file_name`。每份 `.conf` 的根对象只能包含 `data`，`data` 只接受
-`pipe_path`、`model_paths` 和 `mem_que`；单模型覆盖也必须使用以 `model_id` 为键的
-`model_paths` 映射。`data.mem_que` 由 Resolver 归一化规范
-输出后缀、`meta_num`、metadata type 和字段容量；业务桥接与输出池不得直接读取原始
-JSON 键，也不得为缺失容量提供本地 fallback。当前配置只有一个 `data.mem_que`，因此
-每个业务只允许一个输出池；支持多输出池前必须先扩展并版本化配置 Schema。
+`pipe_path`、`model_paths`、`mem_que` 和 `outputs`；单模型覆盖也必须使用以 `model_id`
+为键的 `model_paths` 映射。单输出 `data.mem_que` 与按逻辑槽位配置的 `data.outputs`
+互斥。Resolver 选择注册的输出类型与 `allocator`；独立配置读取组件通过固定枚举
+选取配置项并返回字符串。方案用 `MakeOutputParameterParser<T>` 将参数文本解析为
+普通 C++ 结构，框架归一化 `meta_num`、metadata type 和字段容量；业务桥接使用
+该规范化结果，不重复解析原始部署 JSON 或
+补默认值。每个输出槽位可注册自己的转换并拥有独立池，具体分配实现不接触队列深度。
+完整例子见 [输出分配方案](dev_guide/operator_output_allocation.md)。
 
 ### Adapter 实施检查表
 

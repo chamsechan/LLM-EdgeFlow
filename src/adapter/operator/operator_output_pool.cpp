@@ -15,40 +15,40 @@ int OutputPoolState::Create(const std::string& suffix, uint32_t depth,
                             const OperatorValueTypeBinding* binding,
                             std::shared_ptr<OutputPoolState>* out_pool,
                             std::string* err) {
-  if (!out_pool) {
-    if (err) *err = "Null output pool pointer";
-    return -2;
-  }
-  *out_pool = nullptr;
-
-  if (!binding || binding->direction != IoDirection::kOutput ||
-      binding->canonical_suffix != suffix || !binding->allocate_external ||
-      !binding->reset_external || !binding->destroy_external) {
-    if (err) *err = "Invalid or incomplete binding for suffix: " + suffix;
-    return -2;
-  }
-
-  uint32_t effective_depth = (depth == 0) ? kDefaultOutputPoolDepth : depth;
-  if (effective_depth > kMaxOutputPoolDepth) {
-    if (err) {
-      *err = "Output pool depth " + std::to_string(effective_depth) +
-             " exceeds max limit " + std::to_string(kMaxOutputPoolDepth);
-    }
-    return -2;
-  }
-
-  ResolvedOutputPoolSpec resolved_spec;
-  if (!ResolveOutputPoolSpec(*binding, spec, &resolved_spec, err)) {
-    return -2;
-  }
-
-  size_t estimated_bytes = 0;
-  if (!ComputeOutputPoolPayloadBytes(*binding, resolved_spec, depth,
-                                     &estimated_bytes, err)) {
-    return -2;
-  }
-
   try {
+    if (!out_pool) {
+      if (err) *err = "Null output pool pointer";
+      return -2;
+    }
+    *out_pool = nullptr;
+
+    if (!binding || binding->direction != IoDirection::kOutput ||
+        binding->canonical_suffix != suffix || !binding->allocate_external ||
+        !binding->reset_external || !binding->destroy_external) {
+      if (err) *err = "Invalid or incomplete binding for suffix: " + suffix;
+      return -2;
+    }
+
+    uint32_t effective_depth = (depth == 0) ? kDefaultOutputPoolDepth : depth;
+    if (effective_depth > kMaxOutputPoolDepth) {
+      if (err) {
+        *err = "Output pool depth " + std::to_string(effective_depth) +
+               " exceeds max limit " + std::to_string(kMaxOutputPoolDepth);
+      }
+      return -2;
+    }
+
+    ResolvedOutputPoolSpec resolved_spec;
+    if (!ResolveOutputPoolSpec(*binding, spec, &resolved_spec, err)) {
+      return -2;
+    }
+
+    size_t estimated_bytes = 0;
+    if (!ComputeOutputPoolPayloadBytes(*binding, resolved_spec, depth,
+                                       &estimated_bytes, err)) {
+      return -2;
+    }
+
     auto pool = std::shared_ptr<OutputPoolState>(new OutputPoolState());
     pool->canonical_suffix_ = suffix;
     pool->depth_ = effective_depth;

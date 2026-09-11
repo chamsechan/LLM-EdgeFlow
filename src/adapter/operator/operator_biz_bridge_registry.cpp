@@ -99,6 +99,11 @@ bool OperatorBizBridgeRegistry::RegisterBridge(
           {"Input slot requires nonempty logical_name and type_suffix; slot '",
            s.logical_name, "', type '", s.type_suffix, "'"});
     }
+    if (!s.key_suffix.empty() || s.convert_output) {
+      return reject(
+          {"Input slot '", s.logical_name,
+           "' cannot declare output-only key_suffix or convert_output"});
+    }
     if (s.direction != IoDirection::kInput) {
       return reject({"Input slot '", s.logical_name, "' (", s.type_suffix,
                      ") must have input direction"});
@@ -111,10 +116,8 @@ bool OperatorBizBridgeRegistry::RegisterBridge(
   }
 
   std::unordered_set<std::string> out_names, out_suffixes;
-  // 当前 conf 只有一个 data.mem_que，因而每个业务只能声明一个输出池。
-  if (desc.output_slots.size() != 1) {
-    return reject(
-        {"Bridge must declare exactly one output slot / output pool"});
+  if (desc.output_slots.empty()) {
+    return reject({"Bridge must declare at least one output slot"});
   }
   for (const auto& s : desc.output_slots) {
     if (s.logical_name.empty() || s.type_suffix.empty()) {
@@ -122,22 +125,30 @@ bool OperatorBizBridgeRegistry::RegisterBridge(
           {"Output slot requires nonempty logical_name and type_suffix; slot '",
            s.logical_name, "', type '", s.type_suffix, "'"});
     }
+    if (s.KeySuffix().find('.') != std::string::npos) {
+      return reject(
+          {"Output key suffix must not contain a dot: '", s.KeySuffix(), "'"});
+    }
     if (s.direction != IoDirection::kOutput) {
       return reject({"Output slot '", s.logical_name, "' (", s.type_suffix,
                      ") must have output direction"});
     }
     if (!out_names.insert(s.logical_name).second ||
-        !out_suffixes.insert(s.type_suffix).second) {
-      return reject({"Duplicate output slot name or type suffix: '",
-                     s.logical_name, "' (", s.type_suffix, ")"});
+        !out_suffixes.insert(s.KeySuffix()).second) {
+      return reject({"Duplicate output slot name or key suffix: '",
+                     s.logical_name, "' (", s.KeySuffix(), ")"});
+    }
+    if (!s.convert_output &&
+        (desc.output_slots.size() != 1 || !desc.convert_sample_output)) {
+      return reject({"Output slot '", s.logical_name,
+                     "' requires its own convert_output callback"});
     }
   }
 
-  if (!desc.convert_sample_input || !desc.convert_sample_output ||
-      !desc.create_shadow_output_dto) {
+  if (!desc.convert_sample_input || !desc.create_shadow_output_dto) {
     return reject(
-        {"Bridge requires convert_sample_input, convert_sample_output "
-         "and create_shadow_output_dto callbacks"});
+        {"Bridge requires convert_sample_input and create_shadow_output_dto "
+         "callbacks"});
   }
 
   bridges_by_biz_type_[key] = std::move(desc);

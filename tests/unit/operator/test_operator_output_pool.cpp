@@ -11,6 +11,7 @@
 #include "adapter/operator/operator_process_binding.h"
 #include "adapter/operator/operator_value_type_registry.h"
 #include "scoped_allocation_failure.h"
+#include "tests/support/operator_nested_output_fixture.h"
 
 namespace llm_edgeflow {
 
@@ -566,18 +567,28 @@ TEST_F(OperatorOutputPoolTest, StrictSpecTypeAndMemoryBudgetBoundary) {
 
 TEST_F(OperatorOutputPoolTest,
        EveryAllocationFailureReleasesResourcesAndAllowsRetry) {
-  const char* types[] = {"keyword_out", "entity_out", "doc_out", "audit_out",
-                         "audio_out",   "rerank_out", "od_out"};
+  const auto nested_binding = test_support::MakeNestedOutputBinding();
+  const char* types[] = {"keyword_out", "entity_out",     "doc_out",
+                         "audit_out",   "audio_out",      "rerank_out",
+                         "od_out",      "test_nested_out"};
   for (const char* type : types) {
     const std::string suffix(type);
     const auto* binding =
-        OperatorValueTypeRegistry::Instance().GetBindingBySuffix(suffix);
+        suffix == nested_binding.canonical_suffix
+            ? &nested_binding
+            : OperatorValueTypeRegistry::Instance().GetBindingBySuffix(suffix);
     ASSERT_NE(binding, nullptr);
     ResolvedOutputPoolSpec spec;
     spec.type = suffix;
     if (suffix == "od_out") {
       spec.meta_num = 5;
       spec.metadata_type_id = 1;
+    }
+    if (binding->normalize_parameters) {
+      std::string error;
+      ASSERT_TRUE(
+          NormalizeOutputParameters(*binding, "{}", &spec.params, &error))
+          << error;
     }
     // Multiple blocks exercise rollback after earlier blocks have succeeded.
     for (uint32_t depth : {1u, 3u}) {
@@ -639,6 +650,133 @@ TEST_F(OperatorOutputPoolTest,
 }
 
 TEST_F(OperatorOutputPoolTest,
+       NormalizedNestedParametersReachAllocationConversionAndReset) {
+  using namespace test_support;
+  auto binding = MakeNestedOutputBinding(2);
+  binding.allocation_name = "nested_strategy";
+  const auto normalize = binding.normalize_parameters;
+  int normalization_calls = 0;
+  binding.normalize_parameters =
+      [&](const std::string& input,
+          std::shared_ptr<const OutputAllocationParameters>* output,
+          std::string* error) {
+        ++normalization_calls;
+        return normalize(input, output, error);
+      };
+  const auto original_reset = binding.reset_external;
+  bool reset_received_parameters = false;
+  binding.reset_external = [&](void* ptr, const ResolvedOutputPoolSpec& spec) {
+    const auto& parameters = spec.Parameters<NestedOutputParameters>();
+    reset_received_parameters =
+        spec.allocator == "nested_strategy" && parameters.kind == 1 &&
+        parameters.capacity == 3 && !parameters.reject_hit;
+    original_reset(ptr, spec);
+  };
+  ResolvedOutputPoolSpec requested;
+  requested.type = binding.canonical_suffix;
+  requested.allocator = "nested_strategy";
+  std::shared_ptr<OutputPoolState> pool;
+  std::string error;
+  ASSERT_TRUE(
+      NormalizeOutputParameters(binding, "{}", &requested.params, &error))
+      << error;
+  ASSERT_EQ(OutputPoolState::Create(requested.type, 1, requested, &binding,
+                                    &pool, &error),
+            0)
+      << error;
+  void* block = nullptr;
+  ASSERT_EQ(pool->Acquire(&block), 0);
+  auto* root = static_cast<NestedOutputEnvelope*>(block);
+  ASSERT_NE(root, nullptr);
+  ASSERT_EQ(root->kind, 1);
+  ASSERT_EQ(root->allocator_tag, 2);
+  auto* payload = static_cast<NestedOutputPayload*>(root->payload);
+  ASSERT_NE(payload, nullptr);
+  ASSERT_EQ(payload->capacity, 3u);
+  void* original_values = payload->values;
+  KeywordResult result;
+  result.request_id = 42;
+  result.is_hit = 1;
+  ASSERT_EQ(ConvertNestedOutput(&result, block, pool->Spec(), &error), 0)
+      << error;
+  EXPECT_EQ(static_cast<int32_t*>(payload->values)[2], 212);
+  void* reused = nullptr;
+  int acquired = -1;
+  bool allocated_during_reuse = false;
+  {
+    ScopedAllocationFailure failure(0);
+    pool->ReturnBlock(block);
+    acquired = pool->Acquire(&reused);
+    allocated_during_reuse = failure.Triggered();
+  }
+  ASSERT_EQ(acquired, 0);
+  EXPECT_FALSE(allocated_during_reuse);
+  EXPECT_TRUE(reset_received_parameters);
+  EXPECT_EQ(reused, block);
+  EXPECT_EQ(root->request_id, 0u);
+  EXPECT_EQ(root->payload, payload);
+  EXPECT_EQ(payload->values, original_values);
+  EXPECT_EQ(payload->capacity, 3u);
+  EXPECT_EQ(payload->count, 0u);
+  EXPECT_EQ(static_cast<int32_t*>(payload->values)[2], 0);
+  ASSERT_EQ(ConvertNestedOutput(&result, reused, pool->Spec(), &error), 0)
+      << error;
+  pool->ReturnBlock(reused);
+  EXPECT_EQ(normalization_calls, 1);
+}
+
+TEST_F(OperatorOutputPoolTest,
+       CustomAllocatorErrorReleasesPartialTreeAndEarlierCompleteBlocks) {
+  using namespace test_support;
+  auto binding = MakeNestedOutputBinding();
+  const auto complete_allocate = binding.allocate_external;
+  int calls = 0;
+  binding.allocate_external = [&](const ResolvedOutputPoolSpec& spec,
+                                  OwnedExternalBlock* block,
+                                  std::string* error) {
+    if (++calls != 2) return complete_allocate(spec, block, error);
+    auto* root = block->Own(std::make_unique<NestedOutputEnvelope>());
+    block->raw_struct = root;
+    root->payload = block->Own(std::make_unique<NestedOutputPayload>());
+    if (error) *error = "Failed after allocating the root and nested header";
+    return -4;
+  };
+  ResolvedOutputPoolSpec spec;
+  spec.type = binding.canonical_suffix;
+  std::string parameter_error;
+  ASSERT_TRUE(
+      NormalizeOutputParameters(binding, "{}", &spec.params, &parameter_error))
+      << parameter_error;
+  size_t outstanding = 1;
+  bool published = true;
+  int result = 0;
+  {
+    ScopedAllocationFailure ledger;
+    {
+      std::shared_ptr<OutputPoolState> pool;
+      std::string error;
+      result =
+          OutputPoolState::Create(spec.type, 3, spec, &binding, &pool, &error);
+      published = pool != nullptr;
+    }
+    outstanding = ledger.Outstanding();
+  }
+  EXPECT_EQ(result, -4);
+  EXPECT_FALSE(published);
+  EXPECT_EQ(calls, 2);
+  EXPECT_EQ(outstanding, 0u);
+
+  binding.allocate_external = complete_allocate;
+  std::shared_ptr<OutputPoolState> recovered;
+  std::string error;
+  ASSERT_EQ(
+      OutputPoolState::Create(spec.type, 3, spec, &binding, &recovered, &error),
+      0)
+      << error;
+  EXPECT_EQ(recovered->FreeBlockCount(), 3u);
+}
+
+TEST_F(OperatorOutputPoolTest,
        PublicationAllocationFailuresRollbackWholeBatch) {
   constexpr uint32_t kDepth = 3;
   ResolvedOutputPoolSpec spec;
@@ -663,7 +801,7 @@ TEST_F(OperatorOutputPoolTest,
       void* block = nullptr;
       ASSERT_EQ(pool->Acquire(&block), 0);
       lease.Track(pool, block);
-      acquired.push_back({i, "client.keyword_out", pool, block});
+      acquired.push_back({i, "client.keyword_out", pool, block, "keyword_out"});
     }
     bool threw = false;
     bool injected = false;

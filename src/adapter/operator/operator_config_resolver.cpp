@@ -7,12 +7,129 @@
 #include <unordered_set>
 
 #include "adapter/biz_adapter_registry.h"
+#include "adapter/operator/json_output_config_reader.h"
 #include "contracts/diagnostic.h"
 #include "contracts/path_utils.h"
 
 namespace llm_edgeflow {
 
 namespace {
+
+int ResolveOutputAllocation(const nlohmann::json& config,
+                            const OperatorBizSlot& slot,
+                            ResolvedOutputPoolSpec* result,
+                            std::string* parameter_text, std::string* error) {
+  if (!config.is_object()) {
+    if (error) *error = "Output allocation must be an object";
+    return -2;
+  }
+  static const std::unordered_set<std::string> fields = {
+      "type",     "allocator",        "params",
+      "meta_num", "metadata_type_id", "capacities"};
+  for (const auto& [field, value] : config.items()) {
+    if (!fields.count(field)) {
+      if (error) *error = "Unknown output allocation field: " + field;
+      return -2;
+    }
+  }
+  if (!config.contains("type") || !config["type"].is_string()) {
+    if (error) *error = "Missing required 'type' string in output allocation";
+    return -2;
+  }
+  ResolvedOutputPoolSpec requested;
+  requested.type = config["type"].get<std::string>();
+  if (requested.type != slot.type_suffix) {
+    if (error)
+      *error = "Output type '" + requested.type + "' does not match slot '" +
+               slot.logical_name + "'";
+    return -2;
+  }
+  if (config.contains("allocator")) {
+    if (!config["allocator"].is_string() ||
+        config["allocator"].get<std::string>().empty()) {
+      if (error) *error = "Output allocator must be a nonempty string";
+      return -2;
+    }
+    requested.allocator = config["allocator"].get<std::string>();
+  }
+  const auto* binding = OperatorValueTypeRegistry::Instance().GetOutputBinding(
+      requested.type, requested.allocator);
+  if (!binding) {
+    if (error)
+      *error = "No registered output allocator '" + requested.allocator +
+               "' for type '" + requested.type + "'";
+    return -2;
+  }
+  const JsonOutputConfigReader reader(config);
+  if (!reader.Read(OutputConfigField::kParameters, parameter_text, error)) {
+    return -2;
+  }
+  if (!NormalizeOutputParameters(*binding, *parameter_text, &requested.params,
+                                 error)) {
+    return -2;
+  }
+  if (config.contains("meta_num")) {
+    if (!config["meta_num"].is_number_unsigned()) {
+      if (error) *error = "config.meta_num must be non-negative integer";
+      return -2;
+    }
+    uint64_t mnum = config["meta_num"].get<uint64_t>();
+    if (mnum > std::numeric_limits<uint32_t>::max()) {
+      if (error) *error = "config.meta_num exceeds uint32 range";
+      return -2;
+    }
+    requested.meta_num = static_cast<uint32_t>(mnum);
+  }
+
+  if (config.contains("metadata_type_id")) {
+    if (config["metadata_type_id"].is_number_unsigned()) {
+      uint64_t uval = config["metadata_type_id"].get<uint64_t>();
+      if (uval > static_cast<uint64_t>(std::numeric_limits<int32_t>::max())) {
+        if (error) *error = "config.metadata_type_id exceeds int32 range";
+        return -2;
+      }
+      requested.metadata_type_id = static_cast<int32_t>(uval);
+    } else if (config["metadata_type_id"].is_number_integer()) {
+      int64_t ival = config["metadata_type_id"].get<int64_t>();
+      if (ival < std::numeric_limits<int32_t>::min() ||
+          ival > std::numeric_limits<int32_t>::max()) {
+        if (error) *error = "config.metadata_type_id exceeds int32 range";
+        return -2;
+      }
+      requested.metadata_type_id = static_cast<int32_t>(ival);
+    } else {
+      if (error) *error = "config.metadata_type_id must be integer";
+      return -2;
+    }
+  }
+
+  if (config.contains("capacities")) {
+    if (!config["capacities"].is_object()) {
+      if (error) *error = "config.capacities must be an object";
+      return -2;
+    }
+    for (const auto& [cap_field, cap_val] : config["capacities"].items()) {
+      if (!cap_val.is_number_unsigned()) {
+        if (error) {
+          *error = "Capacity for field '" + cap_field +
+                   "' must be positive unsigned integer";
+        }
+        return -2;
+      }
+      uint64_t uval = cap_val.get<uint64_t>();
+      if (uval == 0 || uval > std::numeric_limits<uint32_t>::max()) {
+        if (error) {
+          *error = "Capacity for field '" + cap_field +
+                   "' must fit a positive uint32";
+        }
+        return -2;
+      }
+      requested.capacities[cap_field] = static_cast<uint32_t>(uval);
+    }
+  }
+
+  return ResolveOutputPoolSpec(*binding, requested, result, error) ? 0 : -2;
+}
 
 int ResolveContainedPath(const std::filesystem::path& canonical_root,
                          const std::string& relative_value,
@@ -273,7 +390,7 @@ int OperatorConfigResolver::Resolve(const char* model_path,
     }
     const nlohmann::json* data_obj = &conf_json["data"];
     static const std::unordered_set<std::string> kAllowedDataFields = {
-        "pipe_path", "model_paths", "mem_que"};
+        "pipe_path", "model_paths", "mem_que", "outputs"};
     for (auto it = data_obj->begin(); it != data_obj->end(); ++it) {
       if (kAllowedDataFields.find(it.key()) == kAllowedDataFields.end()) {
         if (error_msg) {
@@ -348,127 +465,76 @@ int OperatorConfigResolver::Resolve(const char* model_path,
       return -5;
     }
 
-    // 解析 data.mem_que
-    if (!data_obj->contains("mem_que") || !(*data_obj)["mem_que"].is_object()) {
-      if (error_msg) *error_msg = "Missing required 'mem_que' object in conf";
+    const bool legacy_output = data_obj->contains("mem_que");
+    const bool named_outputs = data_obj->contains("outputs");
+    if (legacy_output == named_outputs) {
+      if (error_msg)
+        *error_msg =
+            legacy_output
+                ? "data.mem_que and data.outputs are mutually exclusive"
+                : "Missing required 'mem_que' object or 'outputs' object in "
+                  "conf";
       return -2;
     }
-
-    const auto& mem_que = (*data_obj)["mem_que"];
-    if (!mem_que.contains("type") || !mem_que["type"].is_string()) {
-      if (error_msg) *error_msg = "Missing required 'type' string in mem_que";
+    if (legacy_output && (bridge_desc->output_slots.size() != 1 ||
+                          !(*data_obj)["mem_que"].is_object())) {
+      if (error_msg)
+        *error_msg =
+            "data.mem_que requires exactly one output slot and an object";
       return -2;
     }
-
-    std::string mem_type = mem_que["type"].get<std::string>();
-    bool type_matched = false;
-    for (const auto& out_slot : bridge_desc->output_slots) {
-      if (out_slot.type_suffix == mem_type) {
-        type_matched = true;
-        break;
+    if (named_outputs && !(*data_obj)["outputs"].is_object()) {
+      if (error_msg)
+        *error_msg =
+            "data.outputs must be an object keyed by logical output slot";
+      return -2;
+    }
+    if (named_outputs) {
+      for (const auto& [name, value] : (*data_obj)["outputs"].items()) {
+        bool known = false;
+        for (const auto& slot : bridge_desc->output_slots) {
+          if (slot.logical_name == name) known = true;
+        }
+        if (!known) {
+          if (error_msg) *error_msg = "Unknown configured output slot: " + name;
+          return -2;
+        }
       }
     }
-    if (!type_matched) {
-      if (error_msg) {
-        *error_msg = "mem_que.type '" + mem_type + "' does not match biz '" +
-                     biz_name + "' output slot";
-      }
-      return -2;
-    }
-
-    const auto* pool_binding =
-        OperatorValueTypeRegistry::Instance().GetBindingBySuffix(mem_type);
-    if (!pool_binding || pool_binding->canonical_suffix != mem_type ||
-        pool_binding->direction != IoDirection::kOutput) {
-      if (error_msg) {
-        *error_msg = "No canonical output value binding for mem_que.type '" +
-                     mem_type + "'";
-      }
-      return -2;
-    }
-
-    ResolvedOutputPoolSpec requested_pool_spec;
-    requested_pool_spec.type = mem_type;
-
-    if (mem_que.contains("meta_num")) {
-      if (!mem_que["meta_num"].is_number_unsigned()) {
+    std::unordered_map<std::string, ResolvedOutputPoolSpec> pool_specs;
+    std::unordered_map<std::string, std::string> parameter_texts;
+    for (const auto& slot : bridge_desc->output_slots) {
+      if (named_outputs &&
+          !(*data_obj)["outputs"].contains(slot.logical_name)) {
         if (error_msg)
-          *error_msg = "mem_que.meta_num must be non-negative integer";
+          *error_msg = "Missing allocation configuration for output slot: " +
+                       slot.logical_name;
         return -2;
       }
-      uint64_t mnum = mem_que["meta_num"].get<uint64_t>();
-      if (mnum > std::numeric_limits<uint32_t>::max()) {
-        if (error_msg) *error_msg = "mem_que.meta_num exceeds uint32 range";
+      const auto& config = legacy_output
+                               ? (*data_obj)["mem_que"]
+                               : (*data_obj)["outputs"][slot.logical_name];
+      ResolvedOutputPoolSpec spec;
+      std::string parameter_text;
+      std::string allocation_error;
+      if (ResolveOutputAllocation(config, slot, &spec, &parameter_text,
+                                  &allocation_error) != 0) {
+        if (error_msg)
+          *error_msg = "Invalid output allocation for slot '" +
+                       slot.logical_name + "': " + allocation_error;
         return -2;
       }
-      requested_pool_spec.meta_num = static_cast<uint32_t>(mnum);
-    }
-
-    if (mem_que.contains("metadata_type_id")) {
-      if (mem_que["metadata_type_id"].is_number_unsigned()) {
-        uint64_t uval = mem_que["metadata_type_id"].get<uint64_t>();
-        if (uval > static_cast<uint64_t>(std::numeric_limits<int32_t>::max())) {
-          if (error_msg)
-            *error_msg = "mem_que.metadata_type_id exceeds int32 range";
-          return -2;
-        }
-        requested_pool_spec.metadata_type_id = static_cast<int32_t>(uval);
-      } else if (mem_que["metadata_type_id"].is_number_integer()) {
-        int64_t ival = mem_que["metadata_type_id"].get<int64_t>();
-        if (ival < std::numeric_limits<int32_t>::min() ||
-            ival > std::numeric_limits<int32_t>::max()) {
-          if (error_msg)
-            *error_msg = "mem_que.metadata_type_id exceeds int32 range";
-          return -2;
-        }
-        requested_pool_spec.metadata_type_id = static_cast<int32_t>(ival);
-      } else {
-        if (error_msg) *error_msg = "mem_que.metadata_type_id must be integer";
-        return -2;
-      }
-    }
-
-    if (mem_que.contains("capacities")) {
-      if (!mem_que["capacities"].is_object()) {
-        if (error_msg) *error_msg = "mem_que.capacities must be an object";
-        return -2;
-      }
-      for (const auto& [cap_field, cap_val] : mem_que["capacities"].items()) {
-        if (!cap_val.is_number_unsigned()) {
-          if (error_msg) {
-            *error_msg = "Capacity for field '" + cap_field +
-                         "' must be positive unsigned integer";
-          }
-          return -2;
-        }
-        uint64_t uval = cap_val.get<uint64_t>();
-        if (uval == 0 || uval > std::numeric_limits<uint32_t>::max()) {
-          if (error_msg) {
-            *error_msg = "Capacity for field '" + cap_field +
-                         "' must fit a positive uint32";
-          }
-          return -2;
-        }
-        requested_pool_spec.capacities[cap_field] = static_cast<uint32_t>(uval);
-      }
-    }
-
-    ResolvedOutputPoolSpec pool_spec;
-    std::string spec_error;
-    if (!ResolveOutputPoolSpec(*pool_binding, requested_pool_spec, &pool_spec,
-                               &spec_error)) {
-      if (error_msg) {
-        *error_msg = "Invalid output pool configuration: " + spec_error;
-      }
-      return -2;
+      pool_specs.emplace(slot.logical_name, std::move(spec));
+      parameter_texts.emplace(slot.logical_name, std::move(parameter_text));
     }
 
     // 计算实际深度下的单句柄所有输出池总预算校验 (Checked Add/Multiply)
     size_t total_handle_pool_bytes = 0;
     for (const auto& out_slot : bridge_desc->output_slots) {
+      const auto& pool_spec = pool_specs.at(out_slot.logical_name);
       const auto* output_binding =
-          OperatorValueTypeRegistry::Instance().GetBindingBySuffix(
-              out_slot.type_suffix);
+          OperatorValueTypeRegistry::Instance().GetOutputBinding(
+              out_slot.type_suffix, pool_spec.allocator);
       if (!output_binding ||
           output_binding->direction != IoDirection::kOutput) {
         if (error_msg) {
@@ -588,7 +654,8 @@ int OperatorConfigResolver::Resolve(const char* model_path,
     result->adapter = adapter;
     result->bridge_descriptor = bridge_desc;
     result->synthetic_pipeline_json = std::move(pipe_json);
-    result->output_pool_spec = std::move(pool_spec);
+    result->output_pool_specs = std::move(pool_specs);
+    result->output_parameter_text = std::move(parameter_texts);
 
     return 0;
   } catch (const std::exception& e) {

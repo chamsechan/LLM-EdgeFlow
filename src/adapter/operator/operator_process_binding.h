@@ -13,7 +13,7 @@ namespace llm_edgeflow {
 
 struct FrameOutputBinding {
   std::string key;
-  std::string canonical_suffix;
+  std::string logical_name;
 };
 
 struct AcquiredOutputBlock {
@@ -21,6 +21,7 @@ struct AcquiredOutputBlock {
   std::string key;
   std::shared_ptr<OutputPoolState> pool;
   void* raw_block = nullptr;
+  std::string logical_name;
 };
 
 int ConvertOperatorInputs(

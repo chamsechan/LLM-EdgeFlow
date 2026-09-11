@@ -132,13 +132,13 @@ int ResolveOperatorOutputs(
           }
           return -4;
         }
-        if (suffix != required_slot.type_suffix) {
+        if (suffix != required_slot.KeySuffix()) {
           continue;
         }
         if (!found_key.empty()) {
           if (error) {
             *error = "Duplicate output slot mapping for suffix '" +
-                     required_slot.type_suffix + "' in frame " +
+                     required_slot.KeySuffix() + "' in frame " +
                      std::to_string(i);
           }
           return -4;
@@ -157,14 +157,14 @@ int ResolveOperatorOutputs(
       if (found_key.empty() && required_slot.required) {
         if (error) {
           *error = "Missing required output slot key for suffix '" +
-                   required_slot.type_suffix + "' in frame " +
+                   required_slot.KeySuffix() + "' in frame " +
                    std::to_string(i);
         }
         return -4;
       }
       if (!found_key.empty()) {
         (*frame_bindings)[i].push_back(
-            {std::move(found_key), required_slot.type_suffix});
+            {std::move(found_key), required_slot.logical_name});
       }
     }
 
@@ -198,11 +198,11 @@ int AcquireOperatorOutputBlocks(
 
   for (size_t i = 0; i < frame_bindings.size(); ++i) {
     for (const auto& binding : frame_bindings[i]) {
-      const auto pool_it = output_pools.find(binding.canonical_suffix);
+      const auto pool_it = output_pools.find(binding.logical_name);
       if (pool_it == output_pools.end() || !pool_it->second) {
         if (error) {
           *error =
-              "Output pool not found for suffix: " + binding.canonical_suffix;
+              "Output pool not found for logical slot: " + binding.logical_name;
         }
         return -4;
       }
@@ -210,13 +210,15 @@ int AcquireOperatorOutputBlocks(
       const int acquire_result = pool_it->second->Acquire(&raw_block);
       if (acquire_result != 0 || !raw_block) {
         if (error) {
-          *error = "Failed to acquire output block from pool for suffix " +
-                   binding.canonical_suffix;
+          *error =
+              "Failed to acquire output block from pool for logical slot " +
+              binding.logical_name;
         }
         return -4;
       }
       lease_guard->Track(pool_it->second, raw_block);
-      acquired_blocks->push_back({i, binding.key, pool_it->second, raw_block});
+      acquired_blocks->push_back(
+          {i, binding.key, pool_it->second, raw_block, binding.logical_name});
     }
   }
   return 0;

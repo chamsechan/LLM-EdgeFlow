@@ -45,6 +45,18 @@ bool ResolveOutputPoolSpec(const OperatorValueTypeBinding& binding,
       return false;
     }
 
+    if (requested.allocator != binding.allocation_name) {
+      if (err) *err = "Output allocator does not match selected binding";
+      return false;
+    }
+    if (static_cast<bool>(binding.normalize_parameters) !=
+        static_cast<bool>(requested.params)) {
+      if (err)
+        *err = binding.normalize_parameters
+                   ? "Output allocator requires normalized parameters"
+                   : "Selected output allocator does not accept params";
+      return false;
+    }
     ResolvedOutputPoolSpec candidate = requested;
     for (const auto& [field, capacity] : requested.capacities) {
       const auto schema_it =
@@ -195,7 +207,8 @@ bool ComputeOutputPoolPayloadBytes(const std::string& suffix,
                                    std::string* err) noexcept {
   try {
     const auto* binding =
-        OperatorValueTypeRegistry::Instance().GetBindingBySuffix(suffix);
+        OperatorValueTypeRegistry::Instance().GetOutputBinding(suffix,
+                                                               spec.allocator);
     if (!binding || binding->canonical_suffix != suffix) {
       if (out_bytes) *out_bytes = 0;
       if (err) {
@@ -425,34 +438,44 @@ int OperatorValueTypeRegistry::GlobalInit() {
   if (audited_) {
     return 0;
   }
-  for (const auto& [suffix, binding] : bindings_by_canonical_) {
-    (void)suffix;
+  const auto valid_binding = [](const OperatorValueTypeBinding& binding) {
     if (binding.canonical_suffix.empty() ||
         binding.external_c_type_name.empty()) {
-      has_conflict_ = true;
-      return -6;
+      return false;
     }
     if (binding.direction == IoDirection::kOutput) {
       if (!binding.allocate_external || !binding.reset_external ||
           !binding.destroy_external ||
           !binding.output_layout.compute_block_payload_bytes) {
-        has_conflict_ = true;
-        return -6;
+        return false;
       }
       for (const auto& [field, config] :
            binding.output_layout.string_capacity_fields) {
         if (field.empty() || config.default_capacity == 0 ||
             config.max_capacity < config.default_capacity) {
-          has_conflict_ = true;
-          return -6;
+          return false;
         }
       }
     } else if (binding.direction == IoDirection::kInput) {
       if (!binding.validate_external) {
-        has_conflict_ = true;
-        return -6;
+        return false;
       }
     } else {
+      return false;
+    }
+    return true;
+  };
+  for (const auto& [suffix, binding] : bindings_by_canonical_) {
+    if (!valid_binding(binding)) {
+      has_conflict_ = true;
+      return -6;
+    }
+  }
+  for (const auto& [name, binding] : output_allocators_) {
+    const auto root = bindings_by_canonical_.find(binding.canonical_suffix);
+    if (!valid_binding(binding) || root == bindings_by_canonical_.end() ||
+        root->second.direction != IoDirection::kOutput ||
+        root->second.external_c_type_name != binding.external_c_type_name) {
       has_conflict_ = true;
       return -6;
     }
@@ -468,7 +491,8 @@ bool OperatorValueTypeRegistry::RegisterBinding(
     return false;
   }
   if (binding.canonical_suffix.empty() ||
-      binding.external_c_type_name.empty()) {
+      binding.external_c_type_name.empty() ||
+      !binding.allocation_name.empty()) {
     has_conflict_ = true;
     return false;
   }
@@ -492,6 +516,87 @@ bool OperatorValueTypeRegistry::RegisterBinding(
     return false;
   }
   return true;
+}
+
+bool OperatorValueTypeRegistry::RegisterOutputAllocator(
+    const std::string& name, const OperatorValueTypeBinding& binding) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (audited_) return false;
+  if (name.empty() || binding.canonical_suffix.empty() ||
+      binding.external_c_type_name.empty() ||
+      binding.direction != IoDirection::kOutput ||
+      output_allocators_.count(name)) {
+    has_conflict_ = true;
+    return false;
+  }
+  try {
+    auto candidate = binding;
+    candidate.allocation_name = name;
+    auto snapshot = output_allocators_;
+    snapshot.emplace(name, std::move(candidate));
+    output_allocators_.swap(snapshot);
+  } catch (...) {
+    return false;
+  }
+  return true;
+}
+
+const OperatorValueTypeBinding* OperatorValueTypeRegistry::GetOutputBinding(
+    const std::string& suffix, const std::string& allocator) const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  const auto& entries =
+      allocator.empty() ? bindings_by_canonical_ : output_allocators_;
+  const auto it = entries.find(allocator.empty() ? suffix : allocator);
+  if (it == entries.end() || it->second.canonical_suffix != suffix ||
+      it->second.direction != IoDirection::kOutput)
+    return nullptr;
+  return &it->second;
+}
+
+bool NormalizeOutputParameters(
+    const OperatorValueTypeBinding& binding, const std::string& requested,
+    std::shared_ptr<const OutputAllocationParameters>* normalized,
+    std::string* error) noexcept {
+  try {
+    if (!normalized) {
+      if (error) *error = "Null normalized output parameters destination";
+      return false;
+    }
+    normalized->reset();
+    if (!binding.normalize_parameters) {
+      if (!requested.empty() && requested != "{}") {
+        if (error) *error = "Selected output allocator does not accept params";
+        return false;
+      }
+      return true;
+    }
+    std::shared_ptr<const OutputAllocationParameters> candidate;
+    if (!binding.normalize_parameters(requested, &candidate, error))
+      return false;
+    if (!candidate) {
+      if (error)
+        *error = "Output allocator did not produce normalized parameters";
+      return false;
+    }
+    *normalized = std::move(candidate);
+    return true;
+  } catch (const std::exception& e) {
+    SetDiagnosticNoexcept(error, e.what());
+  } catch (...) {
+    SetDiagnosticNoexcept(error,
+                          "Unknown exception normalizing output parameters");
+  }
+  return false;
+}
+
+bool RegisterOperatorValueType(const OperatorValueTypeBinding& binding) {
+  return OperatorValueTypeRegistry::Instance().RegisterBinding(binding);
+}
+
+bool RegisterOperatorOutputAllocator(const std::string& name,
+                                     const OperatorValueTypeBinding& binding) {
+  return OperatorValueTypeRegistry::Instance().RegisterOutputAllocator(name,
+                                                                       binding);
 }
 
 const OperatorValueTypeBinding* OperatorValueTypeRegistry::GetBindingBySuffix(

@@ -101,6 +101,44 @@ TextTemplate 的 `max_length` 是 UTF-8 字节预算，生成的 `max_tokens` �
 这些不同用途的参数不需要统一数值或名称。嵌套参数通过 JSON 配置，字段结构以节点
 声明及实际校验为准，不在前端维护独立规则。
 
+### 参数复杂时，使用普通结构和解析封装
+
+包含 `nodes/node_config_parser.h`，用 `NodeConfigParser<YourConfig>` 保存一份字段列表
+和一个语义解析函数。`YourConfig` 是普通 C++ 结构；解析函数的签名是
+`bool(const nlohmann::json&, YourConfig*, std::string*)`。它直接读取已校验、已补默认值
+的 JSON 对象，把需要运行时使用的内容放入自己的结构，并处理跨字段、模板语法等
+专属规则。字段类型、范围和枚举交给原有通用校验，不重复编写。
+
+[PromptGuidedLlmNode](prompt_guided_llm_node.cpp) 是参与编译的完整例子：
+`PromptConfig` 保存模板、生成选项和输出处理设置，`ParsePromptConfig` 做语义解析，
+`PromptConfiguration()` 将字段声明和解析函数组合起来。
+
+```cpp
+// Definition 与解析器使用同一份字段声明。
+def.config_fields = PromptConfiguration().Fields();
+
+// InitModelNode 已由 ModelBoundNode 校验并补齐配置。
+auto next = PromptConfiguration().ParseNormalized(config, &error);
+if (!next) return init_ctx.Fail(error);
+config_ = std::move(*next);
+```
+
+根据调用位置选择入口：
+
+| 调用位置 | 使用方法 |
+| --- | --- |
+| 普通 `NodeBase::InitNode`，或已解码的 Control 参数 | `Parse(config, &error)`：复用 `ValidateAndNormalizeFields`，再做语义解析 |
+| `Definition.validate_config`、`ModelBoundNode::InitModelNode` | `ParseNormalized(config, &error)`：直接使用已按同一份字段列表校验、补齐的对象 |
+
+两种方法都返回 `std::optional<YourConfig>`；失败或异常只返回空值与诊断，不发布半成品。
+预检和初始化分别执行同一份语义规则；它们之间没有参数缓存。Process 只使用保存后的
+参数结构，不再读取配置。需要 Control 时，解析成功后再按该节点原有的同步方式发布新值；
+helper 不增加热更新或并发能力。
+
+参数结构应持有自己的字符串、容器等内容，不保存指向输入 JSON 的指针或 `string_view`。
+整个过程不把 JSON 转成字符串再解析。简单的一两个参数可以继续使用前面的直接读取方式，
+不需要新的基类、配置节点或统一的业务字段枚举。
+
 ## 完整参考样例
 
 [PromptGuidedLlmNode](prompt_guided_llm_node.cpp) 展示提示词构建、LLM 调用与代码围栏清理，

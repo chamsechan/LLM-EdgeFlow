@@ -154,10 +154,12 @@ C++ Operator API：NamedIoBatch + Operator 镜像 C 结构 ─┘
   运行时符号使用 hidden visibility，不构成稳定动态 ABI。
 - 同一 C ABI handle 的 `Alg_Process` 与 `Alg_Control` 串行执行；不同 handle 可并行。
   `Alg_Destroy` 前调用方必须停止提交并等待该 handle 上所有调用返回，返回后句柄永久失效。
-- C++ Operator API 根据 Key 的最后一个点号解析类型后缀：
+- C++ Operator API 根据 Key 的最后一个点号解析槽位后缀：
   `OperatorValueTypeRegistry` 负责“后缀到外部 C 类型”的唯一绑定，
   `OperatorBizBridgeDescriptor` 负责按业务和方向收集一个或多个槽位，再转换为
-  内部 DTO；两种协议不得通过 `reinterpret_cast` 混用布局。
+  内部 DTO；输出槽位可通过 `key_suffix` 独立命名，默认沿用类型后缀。
+  同一外层类型可以注册多个分配方案；部署配置选择方案与嵌套布局参数。
+  两种协议不得通过 `reinterpret_cast` 混用布局。
 - 组件调用关系：`外部调用方 → Operator / C ABI → Pipeline → Node → Model → Backend → Platform`。
   `Operator` 表达对外交付的算法实例，`Platform`（`ComputePlatform`）表达底层硬件执行平台（CPU、CUDA、AX650、Ascend 等）。
 - 同一业务可以使用一个聚合结构槽位，也可以由多个原子槽位组成；支持多槽位解绑。
@@ -170,7 +172,12 @@ C++ Operator API：NamedIoBatch + Operator 镜像 C 结构 ─┘
 - 目标共享库输出名称为 `company_alg_sdk`，产品 VERSION 为 10.0.0，
   SOVERSION/C ABI major 为 5。
 - v4 Create 和配置预检都以必填部署根 `model_path` 加相对 `cfg_file_name` 解析；
-  `.conf` 的 `data.mem_que` 归一化输出后缀、metadata 容量和嵌套字段容量。
+  `.conf` 的 `data.outputs` 按逻辑槽位归一化输出类型、分配方案、参数与容量；
+  最外层的独立配置读取组件按固定枚举提取配置并返回字符串，注册方案在 Create
+  将自己的参数文本解析为普通 C++ 结构；分配和业务转换共享该不可变结构。
+  单输出也可使用原 `data.mem_que`，两者互斥。每个逻辑输出槽位拥有独立输出池，
+  池深只由框架应用；分配实现只处理一份完整输出。见
+  [输出分配方案](dev_guide/operator_output_allocation.md)。
 
 ### 流程编排层（Orchestration）
 - **代码位置**：`include/core/`，`src/core/`
