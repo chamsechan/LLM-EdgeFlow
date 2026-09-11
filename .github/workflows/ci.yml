@@ -43,6 +43,7 @@ jobs:
             mold \
             ninja-build \
             python3
+          echo "TOOLCHAIN_ID=gcc-$(gcc -dumpfullversion || gcc -dumpversion)" >> $GITHUB_ENV
 
       - name: Restore/Save 3rdparty Dependencies
         uses: actions/cache@v4
@@ -54,9 +55,9 @@ jobs:
             3rdparty/onnxruntime
             3rdparty/nlohmann_json
             3rdparty/stb_image
-          key: 3rdparty-release-${{ runner.os }}-${{ hashFiles('cmake_ext/*.cmake') }}
+          key: 3rdparty-release-v1-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-${{ hashFiles('cmake_ext/*.cmake') }}
           restore-keys: |
-            3rdparty-release-${{ runner.os }}-
+            3rdparty-release-v1-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-
 
       - name: Restore/Save CCache
         uses: actions/cache@v4
@@ -101,6 +102,7 @@ jobs:
             mold \
             ninja-build \
             python3
+          echo "TOOLCHAIN_ID=gcc-$(gcc -dumpfullversion || gcc -dumpversion)" >> $GITHUB_ENV
 
       - name: Restore Prebuilt 3rdparty Dependencies
         uses: actions/cache/restore@v4
@@ -109,10 +111,10 @@ jobs:
             3rdparty/onnxruntime
             3rdparty/nlohmann_json
             3rdparty/stb_image
-          key: 3rdparty-prebuilt-${{ runner.os }}-${{ hashFiles('cmake_ext/ThirdPartyEngines.cmake', 'cmake_ext/NlohmannJson.cmake', 'cmake_ext/StbImage.cmake') }}
+          key: 3rdparty-prebuilt-v1-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-${{ hashFiles('cmake_ext/ThirdPartyEngines.cmake', 'cmake_ext/NlohmannJson.cmake', 'cmake_ext/StbImage.cmake') }}
           restore-keys: |
-            3rdparty-prebuilt-${{ runner.os }}-
-            3rdparty-release-${{ runner.os }}-
+            3rdparty-prebuilt-v1-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-
+            3rdparty-release-v1-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-
 
       - name: Restore/Save Sanitizer CCache
         uses: actions/cache@v4
@@ -157,6 +159,7 @@ jobs:
             mold \
             ninja-build \
             python3
+          echo "TOOLCHAIN_ID=gcc-$(gcc -dumpfullversion || gcc -dumpversion)" >> $GITHUB_ENV
 
       - name: Restore 3rdparty Dependencies
         uses: actions/cache/restore@v4
@@ -168,9 +171,9 @@ jobs:
             3rdparty/onnxruntime
             3rdparty/nlohmann_json
             3rdparty/stb_image
-          key: 3rdparty-release-${{ runner.os }}-${{ hashFiles('cmake_ext/*.cmake') }}
+          key: 3rdparty-release-v1-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-${{ hashFiles('cmake_ext/*.cmake') }}
           restore-keys: |
-            3rdparty-release-${{ runner.os }}-
+            3rdparty-release-v1-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-
 
       - name: Restore/Save CCache
         uses: actions/cache@v4
@@ -228,6 +231,7 @@ jobs:
             mold \
             ninja-build \
             python3
+          echo "TOOLCHAIN_ID=gcc-$(gcc -dumpfullversion || gcc -dumpversion)" >> $GITHUB_ENV
 
       - name: Restore/Save Whisper 3rdparty Dependencies
         uses: actions/cache@v4
@@ -239,10 +243,10 @@ jobs:
             3rdparty/whisper_cpp
             3rdparty/nlohmann_json
             3rdparty/stb_image
-          key: 3rdparty-whisper-${{ runner.os }}-${{ hashFiles('cmake_ext/*.cmake') }}
+          key: 3rdparty-whisper-v1-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-${{ hashFiles('cmake_ext/*.cmake') }}
           restore-keys: |
-            3rdparty-whisper-${{ runner.os }}-
-            3rdparty-release-${{ runner.os }}-
+            3rdparty-whisper-v1-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-
+            3rdparty-release-v1-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-
 
       - name: Restore/Save CCache
         uses: actions/cache@v4
@@ -320,6 +324,7 @@ jobs:
             mold \
             ninja-build \
             python3
+          echo "TOOLCHAIN_ID=gcc-$(gcc -dumpfullversion || gcc -dumpversion)" >> $GITHUB_ENV
 
       - name: Restore Open-Source 3rdparty Dependencies
         uses: actions/cache/restore@v4
@@ -330,10 +335,10 @@ jobs:
             3rdparty/onnxruntime
             3rdparty/nlohmann_json
             3rdparty/stb_image
-          key: 3rdparty-kite-${{ runner.os }}-${{ hashFiles('cmake_ext/*.cmake') }}
+          key: 3rdparty-kite-v1-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-${{ hashFiles('cmake_ext/*.cmake') }}
           restore-keys: |
-            3rdparty-kite-${{ runner.os }}-
-            3rdparty-release-${{ runner.os }}-
+            3rdparty-kite-v1-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-
+            3rdparty-release-v1-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-
 
       - name: Restore/Save Kite CCache
         uses: actions/cache@v4
