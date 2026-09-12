@@ -63,7 +63,7 @@ grep -Fq 'ccache --show-stats' "${COMMAND_LOG}" ||
 WORKFLOW="${PROJECT_ROOT}/.github/workflows/ci.yml"
 grep -Fq 'CCACHE_DIR: ${{ github.workspace }}/build/.ccache-sanitizers' \
   "${WORKFLOW}" || fail "Workflow cache path does not match the sanitizer script"
-grep -Fq 'key: sanitizer-ccache-v1-' "${WORKFLOW}" ||
+grep -Fq 'key: sanitizer-ccache-v2-' "${WORKFLOW}" ||
   fail "Workflow does not define a versioned sanitizer ccache key"
 
 grep -Fq -- '-DBUILD_TESTING=ON' "${COMMAND_LOG}" ||
