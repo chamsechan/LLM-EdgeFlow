@@ -123,6 +123,18 @@ def main():
         if target in inventory and target not in kite_real_tests:
             errors.append(f"Expected test '{target}' to be labeled with 'kite-real'.")
 
+    # Rule 4: Orchestration runtime coverage must survive CI label filtering.
+    # Check names explicitly: a non-empty runtime set cannot detect one omission.
+    required_sanitizer_runtime = {"PipelineStudioTest"}
+    for target in sorted(required_sanitizer_runtime):
+        if target not in inventory:
+            errors.append(f"Required runtime test '{target}' is missing.")
+        elif target not in sanitizer_runtime_tests:
+            errors.append(
+                f"Expected runtime test '{target}' to be labeled "
+                "with 'sanitizer-runtime'."
+            )
+
     if errors:
         sys.stderr.write("CTest label contract violations:\n")
         for err in errors:

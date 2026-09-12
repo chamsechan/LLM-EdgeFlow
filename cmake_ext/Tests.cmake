@@ -313,9 +313,11 @@ edgeflow_add_runner_test(AdapterPurityTest edgeflow_test_adapter_runner
 
 edgeflow_add_runner_test(DocQaRerankTest edgeflow_test_tooling_runner
   "DocQaRerankPipelineTest.*" "${_edgeflow_tier1}")
+# This suite exercises Validator, typed Blackboard and Pipeline::Execute.
+# Its runner grouping does not make it tooling-only coverage.
 edgeflow_add_runner_test(PipelineStudioTest edgeflow_test_tooling_runner
   "BlackboardKeyTest.*:PipelineCatalogTest.*:PipelineValidatorTest.*"
-  "${_edgeflow_tier4}")
+  "${_edgeflow_tier3}")
 edgeflow_add_runner_test(DemoRunnerTest edgeflow_test_tooling_runner
   "DemoRunnerTest.*" "${_edgeflow_tier3};kite;kite-real")
 
