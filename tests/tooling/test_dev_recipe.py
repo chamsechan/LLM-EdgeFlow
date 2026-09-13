@@ -28,7 +28,7 @@ class DevRecipeTest(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="edgeflow-recipe-contract-")
         self.addCleanup(self.temporary.cleanup)
-        self.root = Path(self.temporary.name)
+        self.root = Path(self.temporary.name).resolve()
         for relative in ("configs", "demo/fixtures", "data", "tests/fixtures"):
             shutil.copytree(ROOT / relative, self.root / relative)
         for relative in ("demo/profiles.json", "src/custom_nodes/CMakeLists.txt",

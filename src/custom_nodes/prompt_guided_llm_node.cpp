@@ -235,6 +235,50 @@ const NodeConfigParser<PromptConfig>& PromptConfiguration() {
   return parser;
 }
 
+// Pure algorithm: renders prompt template with optional prefix and variables.
+std::string RenderPromptFromParts(const std::string& prefix,
+                                  const std::vector<TextTemplateToken>& parts,
+                                  const std::string& input,
+                                  const std::string& context) {
+  std::string result;
+  if (!prefix.empty()) {
+    result += prefix + "\n";
+  }
+  for (const auto& part : parts) {
+    if (part.type == TextTemplateTokenType::kLiteral) {
+      result += part.value;
+    } else {
+      result += part.value == "input" ? input : context;
+    }
+  }
+  return result;
+}
+
+// Pure algorithm: removes markdown code fences from LLM responses.
+std::string StripMarkdownCodeFence(std::string_view text) {
+  size_t start = text.find_first_not_of(" \t\r\n");
+  if (start == std::string_view::npos) return "";
+  size_t end = text.find_last_not_of(" \t\r\n");
+  std::string_view trimmed = text.substr(start, end - start + 1);
+
+  if (trimmed.size() >= 3 && trimmed.compare(0, 3, "```") == 0) {
+    size_t first_nl = trimmed.find('\n');
+    if (first_nl != std::string_view::npos) {
+      trimmed = trimmed.substr(first_nl + 1);
+    } else {
+      trimmed = "";
+    }
+  }
+  if (trimmed.size() >= 3 &&
+      trimmed.compare(trimmed.size() - 3, 3, "```") == 0) {
+    trimmed.remove_suffix(3);
+  }
+  start = trimmed.find_first_not_of(" \t\r\n");
+  if (start == std::string_view::npos) return "";
+  end = trimmed.find_last_not_of(" \t\r\n");
+  return std::string(trimmed.substr(start, end - start + 1));
+}
+
 }  // namespace
 
 // Authoring example: local prompt processing, typed model call and response
@@ -350,51 +394,12 @@ class PromptGuidedLlmNode final : public ModelBoundNode<ILlmModel> {
  private:
   std::string RenderPrompt(const std::string& input,
                            const std::string& context) const {
-    std::string result;
-    if (!config_.prompt_prefix.empty()) {
-      result += config_.prompt_prefix + "\n";
-    }
-    for (const auto& part : config_.prompt_parts) {
-      if (part.type == TextTemplateTokenType::kLiteral) {
-        result += part.value;
-      } else {
-        result += part.value == "input" ? input : context;
-      }
-    }
-    return result;
-  }
-
-  static bool StartsWith(std::string_view str, std::string_view prefix) {
-    return str.size() >= prefix.size() &&
-           str.compare(0, prefix.size(), prefix) == 0;
-  }
-
-  static bool EndsWith(std::string_view str, std::string_view suffix) {
-    return str.size() >= suffix.size() &&
-           str.compare(str.size() - suffix.size(), suffix.size(), suffix) == 0;
+    return RenderPromptFromParts(config_.prompt_prefix, config_.prompt_parts,
+                                 input, context);
   }
 
   static std::string StripMarkdown(std::string_view text) {
-    size_t start = text.find_first_not_of(" \t\r\n");
-    if (start == std::string_view::npos) return "";
-    size_t end = text.find_last_not_of(" \t\r\n");
-    std::string_view trimmed = text.substr(start, end - start + 1);
-
-    if (StartsWith(trimmed, "```")) {
-      size_t first_nl = trimmed.find('\n');
-      if (first_nl != std::string_view::npos) {
-        trimmed = trimmed.substr(first_nl + 1);
-      } else {
-        trimmed = "";
-      }
-    }
-    if (EndsWith(trimmed, "```")) {
-      trimmed.remove_suffix(3);
-    }
-    start = trimmed.find_first_not_of(" \t\r\n");
-    if (start == std::string_view::npos) return "";
-    end = trimmed.find_last_not_of(" \t\r\n");
-    return std::string(trimmed.substr(start, end - start + 1));
+    return StripMarkdownCodeFence(text);
   }
 
   BoundInput<TextBatch> in_port_;
@@ -437,8 +442,7 @@ NodeDefinition MakePromptGuidedLlmNodeDefinition() {
     }
     return true;
   };
-  def.model_capability = "llm";
-  def.model_config_field = "bind_model";
+  def.model_dependencies = {{"generator", "llm", "bind_model"}};
   def.parallel_safe = true;
   return def;
 }

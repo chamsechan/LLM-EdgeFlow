@@ -94,8 +94,7 @@ NodeDefinition MakeAsrTranscribeNodeDefinition() {
       std::nullopt,
       {},
       "引用 models[].model_id；所选模型必须提供 asr 转写能力。"}};
-  def.model_capability = "asr";
-  def.model_config_field = "bind_model";
+  def.model_dependencies = {{"transcriber", "asr", "bind_model"}};
   def.parallel_safe = true;
   return def;
 }

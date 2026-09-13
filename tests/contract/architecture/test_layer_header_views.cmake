@@ -33,6 +33,7 @@ endfunction()
 check_header(model_execution engine/model_interface.h TRUE)
 check_header(model_execution engine/models/bge_common/bert_wordpiece_tokenizer.h TRUE)
 check_header(capability_nodes nodes/node_base.h TRUE)
+check_header(capability_nodes nodes/authoring.h TRUE)
 check_header(capability_nodes core/validated_node_plan.h TRUE)
 check_header(capability_nodes engine/text/utf8.h TRUE)
 check_header(orchestration core/pipeline.h TRUE)
@@ -85,6 +86,59 @@ foreach(layer capability_nodes orchestration integration)
   check_header(${layer} engine/models/bge_common/bert_wordpiece_tokenizer.h FALSE)
   check_header(${layer} engine/backends/onnxruntime/onnxruntime_backend.h FALSE)
 endforeach()
+
+# Compile author-facing contracts using only the capability layer's include view.
+# A failed negative example must name the intended contract, not a missing header.
+function(check_authoring_snippet case_name body expected_diagnostic)
+  set(source "${layer_test_root}/authoring_${case_name}.cpp")
+  file(WRITE "${source}" "#include <nodes/authoring.h>\nusing namespace llm_edgeflow;\n${body}\n")
+  set(include_flags)
+  foreach(directory IN LISTS capability_nodes_includes)
+    list(APPEND include_flags "-I${directory}")
+  endforeach()
+  execute_process(COMMAND "${CMAKE_COMMAND}" -E env LC_ALL=C
+      "${layer_cxx}" -std=c++17 -fsyntax-only
+      ${layer_cxx_flags} ${include_flags} "${source}"
+      RESULT_VARIABLE status OUTPUT_VARIABLE output ERROR_VARIABLE error)
+  if(expected_diagnostic STREQUAL "")
+    if(NOT status EQUAL 0)
+      message(FATAL_ERROR "Authoring example ${case_name} failed:\n${error}")
+    endif()
+  else()
+    if(status EQUAL 0)
+      message(FATAL_ERROR "Invalid authoring example ${case_name} compiled")
+    endif()
+    foreach(diagnostic IN ITEMS "${expected_diagnostic}" ${ARGN})
+      string(FIND "${error}" "${diagnostic}" diagnostic_position)
+      if(diagnostic_position EQUAL -1)
+        message(FATAL_ERROR "Authoring example ${case_name} failed without its contract diagnostic ${diagnostic}:\n${error}")
+      endif()
+    endforeach()
+  endif()
+endfunction()
+
+check_authoring_snippet(valid_map [=[
+std::string Clean(const std::string& input) { return input; }
+auto Spec() {
+  return MakeMapSpec(Input<TextBatch>("input"), Output<TextBatch>("output"), &Clean);
+}
+REGISTER_FUNCTION_NODE(HeaderOnlyMapNode, Spec());
+]=] "")
+
+check_authoring_snippet(wrong_map_signature [=[
+std::string Wrong(int input) { return std::to_string(input); }
+auto spec = MakeMapSpec(Input<TextBatch>("input"), Output<TextBatch>("output"), &Wrong);
+]=] "Map function must accept either")
+
+check_authoring_snippet(unknown_batch [=[
+struct UnknownBatch {};
+Input<UnknownBatch> input("input");
+]=] "Input batch type must be a vector of TraceableItem<T>")
+
+check_authoring_snippet(wrong_model_member [=[
+struct Models { EmbeddingCall generator; };
+auto slot = Llm("generator", "bind_model", &Models::generator);
+]=] "no matching function" "LlmCall")
 
 # Verify the actual CMake module through an incremental, dependency-free fixture.
 # The normal generator is reused, including when the parent uses multi-config.

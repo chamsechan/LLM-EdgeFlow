@@ -538,7 +538,7 @@ class PipelineCliTest(unittest.TestCase):
             check=False,
         )
         payload = json.loads(process.stdout)
-        expected_schema = 2 if args[0] in ("catalog", "describe-node") else 1
+        expected_schema = 3 if args[0] in ("catalog", "describe-node") else 1
         self.assertEqual(payload["schema_version"], expected_schema)
         return process.returncode, payload
 
@@ -766,6 +766,8 @@ class HttpApiTest(unittest.TestCase):
         self.assertIn("new GraphView", app_js)
         self.assertIn('from "./workbench.js"', app_js)
         self.assertNotIn("ensureExplicit", app_js)
+        self.assertNotIn("renderError", app_js)
+        self.assertIn("!state.catalogReady", app_js)
         with self.post() as response:
             payload = json.load(response)
         self.assertTrue(payload["ok"])
@@ -879,7 +881,7 @@ const models = [
 const modelDefinitions = [
   {{ model_type: "legacy_embed_type", capability: "embedding" }},
 ];
-const nodeDefinition = {{ model_capability: "embedding", model_config_field: "model_slot" }};
+const nodeDefinition = {{ model_dependencies: [{{ name: "encoder", capability: "embedding", config_field: "model_slot" }}] }};
 assert.deepEqual(
   workbench.compatibleModels(models, modelDefinitions, nodeDefinition).map(model => model.model_id),
   ["embed", "legacy_embed"]
@@ -888,7 +890,7 @@ assert.deepEqual(
   [...workbench.modelBoundNodeIds([
     {{ id: "bound", node_type: "CustomNode", config: {{ model_slot: "embed" }} }},
     {{ id: "hardcoded", node_type: "CustomNode", config: {{ bind_model: "llm" }} }},
-  ], [{{ node_type: "CustomNode", model_config_field: "model_slot" }}])],
+  ], [{{ node_type: "CustomNode", model_dependencies: [{{ name: "encoder", capability: "embedding", config_field: "model_slot" }}] }}])],
   ["bound"]
 );
 

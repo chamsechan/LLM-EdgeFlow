@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-09-13 面向基础 C++ 开发者的 Node 作者接口与多模型依赖重构（RFC-0052）
+
+- **函数式 Node 编写体系**：引入 `NodeResult<T>` 显式失败传递协议与 `REGISTER_FUNCTION_NODE` / `AuthorNode` 框架包装。业务开发者仅需编写标准 C++ 纯函数或成员逻辑（`Map` 逐条转换与自由批次 `Batch`），无需触碰 `AlgContext`、`SessionContext`、`NodeBase` 虚函数、生命周期管理或手动端口与编号搬运；框架保证输入不变性、请求 Provenance 保持及错误原子回滚。
+- **参数绑定 DSL 与独立测试夹具**：新增 `ParameterBinding<T>` 将普通 C++ 结构体成员直接绑定为自省校验与元数据提取，支持默认值、范围限定与语义校验回调；新增 `NodeHarness` 提供黑盒输入/期望夹具与桩模型注册支持，支持默认模型引用及多个槽位共享同一模型，并通过真实 Validator 生成计划。
+- **多模型依赖声明与 Catalog v3**：Node 支持声明多个命名模型槽位（`NodeModelDependency`），`ValidatedNodePlan` 生成结构化 `model_bindings`；`PipelineValidator` 支持同节点同实例去重及跨节点序列化并发模型排他检查；升级 Catalog 序列化契约为 `schema_version: 3`，CLI 工具与 Pipeline Studio 全面适配多模型槽位与依赖兼容性。
+- **开箱即用模型门面与脚手架升级**：提供 `LlmCall` 与 `EmbeddingCall` 门面简化在自由批次中条件多轮推理；`scripts/scaffold_custom_node.py` 与 `scripts/dev_recipe.py` 全面适配函数式作者风格与 Catalog v3 多模型依赖。
+- **试点与工程交付**：`LlmGenerateNode` 复用 `LlmCall`，保留配置、批次调用与原错误码；补齐自由 Batch、多模型及高级生命周期 starter 的实际编译和行为测试。基础字段须显式声明 `Default` 或 `Required`，复杂字段通过 `WithParser` 与同一份规范化配置组合。入门指南、启动异常诊断、隔离测试及可复现性能探针同步交付；真实开发者体验验收继续跟踪。
+
 ## 2026-09-11 开发者任务路径、测试生成与修复诊断（RFC-0051）
 
 - **测试生成与脚手架**：`scripts/scaffold_custom_node.py` 支持 `--write-test` 生成真实单元测试并在 `CustomNodeTests.cmake` 自动登记，按载荷类型生成业务期望；新文件原子发布不覆盖已有目标，登记文件冲突与回滚保留用户修改。12 类落盘模板纳入已有编译夹具；补充 `tests/support/node_test_utils.h` 简化桩模型支持。

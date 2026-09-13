@@ -65,6 +65,12 @@ using NodeConfigValidator =
     std::function<bool(const nlohmann::json&,
                        const std::unordered_set<std::string>&, std::string*)>;
 
+struct NodeModelDependency {
+  std::string name;          // Node 内稳定槽位名，例如 generator
+  std::string capability;    // 由 typed capability traits 推导
+  std::string config_field;  // config 中引用 model_id 的字符串字段
+};
+
 struct NodeDefinition {
   std::string node_type;
   std::string category;
@@ -76,8 +82,7 @@ struct NodeDefinition {
   std::vector<ConfigFieldDefinition> config_fields;
   // Pure semantic validation: no model/session allocation or external I/O.
   NodeConfigValidator validate_config;
-  std::string model_capability;
-  std::string model_config_field;
+  std::vector<NodeModelDependency> model_dependencies;
   bool parallel_safe = false;
   std::vector<std::string> biz_names;
 };

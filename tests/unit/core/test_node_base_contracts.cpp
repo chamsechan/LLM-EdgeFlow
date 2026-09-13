@@ -420,8 +420,7 @@ class MockTraceableAsrNode
 TEST(NodeBaseContractsTest, TraceableUnaryInferenceNodeWorkflow) {
   NodeDefinition definition;
   definition.node_type = MockTraceableAsrNode::kNodeType;
-  definition.model_capability = "asr";
-  definition.model_config_field = "bind_model";
+  definition.model_dependencies = {{"transcriber", "asr", "bind_model"}};
   definition.config_fields = {ConfigFieldDefinition{
       "bind_model", ConfigValueKind::kString, false, "test_asr_model"}};
   ASSERT_TRUE(PipelineCatalog::RegisterNodeDefinition(definition));

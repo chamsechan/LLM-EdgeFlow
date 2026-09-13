@@ -52,9 +52,9 @@ function updateEditorStatus() {
   $("#browseButton").disabled = state.loading;
   $("#newButton").disabled = state.loading || !state.catalogReady;
   $("#newEntryButton").disabled = state.loading;
-  $("#quickValidateButton").disabled = state.loading || !state.pipeline;
+  $("#quickValidateButton").disabled = state.loading || !state.pipeline || !state.catalogReady;
   $("#openRunButton").disabled = state.loading || !state.pipeline;
-  $("#validateButton").disabled = state.loading || !state.pipeline;
+  $("#validateButton").disabled = state.loading || !state.pipeline || !state.catalogReady;
   $("#browseHint").hidden = state.editing;
   $("#saveScope").textContent = state.pipeline ? state.filename
     ? `保存目标：${state.saveTargets.join(" + ")}（configs/）`
@@ -229,8 +229,10 @@ function renderInspector(node) {
   const container = $("#configFields");
   container.replaceChildren();
   for (const field of definition?.config_fields || []) {
-    const modelRef = field.semantic === "model_ref" || field.name === definition.model_config_field;
-    const choices = modelRef ? compatibleModels(state.pipeline.models, state.catalog.models, definition).map(model => model.model_id) : null;
+    const dep = (definition?.model_dependencies || []).find(d => d.config_field === field.name);
+    const modelRef = Boolean(dep) || field.semantic === "model_ref" || field.name === definition.model_config_field;
+    const requiredCap = dep ? dep.capability : (definition.model_capability || null);
+    const choices = modelRef ? compatibleModels(state.pipeline.models, state.catalog.models, requiredCap).map(model => model.model_id) : null;
     appendConfigField(container, field, node.config || {}, choices);
   }
   if (drafts.has("node")) restoreFormBuffer($("#nodeForm"), drafts.get("node"));
@@ -239,7 +241,18 @@ function renderInspector(node) {
 async function loadCatalog(biz = "") {
   return catalogRequests.run(
     () => api(`/catalog${biz ? `?biz=${encodeURIComponent(biz)}` : ""}`),
-    catalog => { state.catalog = catalog; state.catalogReady = true; renderOperators(); renderAll(); }
+    catalog => {
+      if (catalog.schema_version !== 3) {
+        state.catalogReady = false;
+        const msg = `不支持的 Catalog 版本 (v${catalog.schema_version})，Pipeline Studio 要求 Catalog v3。请升级或重新构建后端工具。`;
+        toast(msg, true);
+        clearValidation(msg);
+        renderOperators();
+        renderAll();
+        return;
+      }
+      state.catalog = catalog; state.catalogReady = true; renderOperators(); renderAll();
+    }
   );
 }
 
@@ -289,6 +302,15 @@ async function refreshLists() {
     await loadCatalog(state.pipeline.biz_name);
   } else {
     catalogRequests.invalidate();
+    if (allCatalog.schema_version !== 3) {
+      state.catalogReady = false;
+      const msg = `不支持的 Catalog 版本 (v${allCatalog.schema_version})，Pipeline Studio 要求 Catalog v3。请升级或重新构建后端工具。`;
+      toast(msg, true);
+      clearValidation(msg);
+      renderOperators();
+      renderAll();
+      return;
+    }
     state.catalog = allCatalog;
     state.catalogReady = true;
     renderOperators();
@@ -477,6 +499,10 @@ async function handleApplyFix(fix) {
 }
 
 async function validate() {
+  if (!state.catalogReady) {
+    toast("Catalog 暂不可用或版本不兼容，无法校验方案", true);
+    return false;
+  }
   if (!state.pipeline || !requireApplied("", validate, "校验方案")) return;
   switchTab("validation"); operationFeedback("");
   const output = $("#validationOutput");

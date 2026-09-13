@@ -11,9 +11,9 @@
 把一个 Node 看作批量处理函数。输入端口是函数参数，输出端口是返回值；`TextBatch`
 表示一组带来源编号的文本，而不是任意可以强制转换的内存。
 
-在[轻量源码](../../dev_support/node_authoring/starter_llm_node.cpp)中，`kInput` 和 `kOutput`
-记录了逻辑名字和类型，`BoundInput<TextBatch>` / `BoundOutput<TextBatch>` 负责读写。
-底部 Definition 引用同一组声明，避免接口和实现写成两种类型。
+在[基础源码](../../dev_support/node_authoring/starter_llm_node.cpp)中，`Input<TextBatch>("input")`
+和 `Output<TextBatch>("output")` 声明逻辑名字和类型。Spec 同时生成运行时绑定与 Definition，
+业务函数不直接读写 Blackboard。高级生命周期路径仍可使用 `BoundInput` / `BoundOutput`。
 
 有三个名字容易混淆：
 
@@ -73,9 +73,10 @@ outputs.emplace_back(item.req_id, item.sub_id, new_value);
 
 ## 3. 模型绑定：拿到一个已经准备好的模型能力
 
-你需要的是“生成文本”的能力。`ModelBoundNode<ILlmModel>` 表示这个节点调用的接口是
-`ILlmModel`，其中 `model()->Generate(...)` 执行文本生成。节点不用自己加载模型文件、
-创建厂商运行时或按 Backend 名称写分支。
+你需要的是“生成文本”的能力。基础模板的 `MakeLlmTextSpec` 负责一次模型调用；自由 Batch
+通过 `ModelsOf` 中的 `Llm` 槽取得 `LlmCall`，调用 `Generate` 得到可检查的 `NodeResult`。
+高级路径仍可使用 `ModelBoundNode<ILlmModel>`。节点不用自己加载模型文件、创建厂商运行时
+或按 Backend 名称写分支。
 
 下面几个字段承担不同职责：
 
@@ -91,13 +92,14 @@ outputs.emplace_back(item.req_id, item.sub_id, new_value);
 模型类型和后端名称只是这个练习的已注册配置，其他环境以 Catalog 为准。
 模型和后端的组合需要通过协议校验；路径是否可加载、资源是否充足，还要在构建运行时确认。
 
-Pipeline 构建期间准备模型资源，`ModelBoundNode` 在初始化时取得所绑定的能力句柄。
+Pipeline 构建期间准备模型资源，作者包装在初始化时取得各槽绑定的能力句柄。
 资源属于会话 `SessionContext`，当前输入输出属于请求 `AlgContext`。模型句柄可以是成员，
 本次提示词、回答、临时向量应留在处理函数局部。
 
 换一个支持相同能力的模型时，通常更新 `models` 配置与 `bind_model` 即可。业务函数是否
 仍适合新模型，要用实际数据确认。轻量模板使用 `GenerateOptions{}` 的默认采样参数；
-需要调参时，可以先修改调用附近的 options，确有配置需求再声明相应配置字段。
+需要调参时，使用带参数的 Spec / 自由 Batch，在普通函数中构造 options 并传给 `LlmCall`；
+用 `Parameters` 的 `Field` 绑定结构成员与配置字段。
 
 ## 4. Definition：让连线工具和运行器看懂你的操作
 
@@ -111,7 +113,7 @@ LLM”。`NodeDefinition` 就是把这些要求写成框架能读取的接口说
 | `node_type`、`category`、`description` | 操作叫什么、归属哪里、用来做什么 |
 | `inputs`、`outputs` | 哪些端口必需、类型是什么、数量与来源如何变化 |
 | `config_fields` | 接受哪些参数、是否必填、默认值和范围是什么 |
-| `model_capability`、`model_config_field` | 需要什么模型能力、哪个字段引用模型实例 |
+| `model_dependencies` | 需要哪些模型能力槽位、哪个字段引用各模型实例 |
 | `parallel_safe` | 节点自身是否满足并行调度的声明要求 |
 | `biz_names` | 是否确有必要限制某些外部业务契约；通常留空便于复用 |
 
@@ -119,13 +121,18 @@ LLM”。`NodeDefinition` 就是把这些要求写成框架能读取的接口说
 `prompt_template`、`strip_markdown` 等它没有声明的字段。未知字段被拒绝，能尽早发现
 “代码根本没有使用这个配置”的问题。
 
-`REGISTER_NODE_WITH_DEFINITION` 将构造方法和这份说明一起注册。构建之后，Catalog、
+基础接口用 `REGISTER_FUNCTION_NODE` 从 Spec 生成构造方法和说明；高级接口继续用
+`REGISTER_NODE_WITH_DEFINITION` 显式注册。构建之后，Catalog、
 Validator 和 Studio 自动使用注册结果，不需要你再维护 UI 节点列表。
 
 **什么时候需要改 Definition？** 只改提示词构造或输出文本格式、接口保持不变时，通常
 不用改。增加端口、参数、输出类型或改变数量关系时，必须一起更新声明和实现。
 
-Definition 会帮助原生校验发现类型、字段和连线错误，但不会自动实现业务代码。新增
+基础接口的 `Parameters<T>` 将字段声明、默认值和结构成员绑定在一处；语义校验用
+`Validate` / `ValidateBindings`，由预检与初始化共用。参考
+[自由 Batch starter](../../dev_support/node_authoring/starter_batch_node.cpp)。
+
+Definition 会帮助原生校验发现类型、字段和连线错误，但不会自动实现业务代码。高级接口新增
 配置初始化与 Definition 应共享同一份字段列表，通过
 `contracts/config_schema_validation.h` 的 `ValidateAndNormalizeFields` 校验未知字段、
 类型、范围、枚举并填入默认值，再读取规范化结果。`ModelBoundNode` 已在绑定模型前完成
@@ -135,7 +142,13 @@ Definition 会帮助原生校验发现类型、字段和连线错误，但不会
 传递具体原因。
 具体写法可按需参考 `PromptGuidedLlmNode`，第一天不必复制它的全部参数和解析逻辑。
 
-参数较多时可使用 `NodeConfigParser<YourConfig>`，将字段声明和语义解析放在一起，
+基础成员必须显式声明 `.Required()` 或 `.Default(value)`，不能同时使用两者，也不从
+结构体初值推断配置默认值。复杂数组/对象可用 `.WithParser(NodeConfigParser<YourConfig>(fields, parse))`
+与基础绑定组合：合并字段并拒绝重名，复杂 parser 先产生持有自身数据的参数对象，随后赋基础成员，
+最后执行 `Validate` 的跨字段规则及 `ValidateBindings` 的连线规则。parser 接收已规范化 JSON，
+不要再次序列化；复杂派生成员若依赖基础参数，使用最终语义校验检查它们。
+
+高级接口参数较多时可使用 `NodeConfigParser<YourConfig>`，将字段声明和语义解析放在一起，
 得到节点自己的普通参数结构。它复用上述通用校验并直接传递 JSON 对象；不增加
 序列化步骤，也不要求修改 Node 基类或 Pipeline。入口选择及完整例子见
 [复杂参数封装](../../src/custom_nodes/README.md#参数复杂时使用普通结构和解析封装)。

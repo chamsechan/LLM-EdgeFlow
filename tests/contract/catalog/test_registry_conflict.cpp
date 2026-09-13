@@ -1,15 +1,19 @@
 #include <gtest/gtest.h>
 
+#include <cstdlib>
 #include <memory>
 #include <nlohmann/json.hpp>
+#include <stdexcept>
 #include <string>
 
 #include "core/node_interface.h"
 #include "core/node_registry.h"
 #include "core/pipeline.h"
 #include "core/pipeline_diagnostic.h"
+#include "core/pipeline_validator.h"
 #include "engine/model_interface.h"
 #include "engine/model_registry.h"
+#include "nodes/parameter_binding.h"
 
 namespace llm_edgeflow {
 
@@ -46,6 +50,88 @@ class DummyNode : public INode {
   }
 };
 REGISTER_NODE_WITH_DEFINITION(DummyNode, MakeTestNodeDef(DummyNode::kNodeType));
+
+namespace {
+struct BadAuthoringParameters {
+  int count = 0;
+};
+
+// This declaration executes before main. Each CTest selects a separate process
+// so an authoring failure cannot contaminate the existing registry scenarios.
+const bool kAuthoringStartupAttempted = [] {
+  const char* selected = std::getenv("EDGEFLOW_BAD_AUTHORING_CASE");
+  if (!selected) return false;
+  NodeRegistry::Instance().RegisterWithDefinitionFactory(
+      "BadAuthoringNode", [] { return std::make_unique<DummyNode>(); },
+      [selected] {
+        const std::string scenario(selected);
+        if (scenario == "invalid_default") {
+          const Parameters<BadAuthoringParameters> parameters({
+              Field("count", &BadAuthoringParameters::count)
+                  .Default(-1)
+                  .Minimum(0),
+          });
+          (void)parameters;
+        } else if (scenario == "duplicate_member") {
+          const Parameters<BadAuthoringParameters> parameters({
+              Field("count", &BadAuthoringParameters::count).Required(),
+              Field("other", &BadAuthoringParameters::count).Required(),
+          });
+          (void)parameters;
+        } else if (scenario == "factory_exception") {
+          throw std::runtime_error("authoring factory deliberately failed");
+        }
+        return MakeTestNodeDef("BadAuthoringNode");
+      });
+  return true;
+}();
+}  // namespace
+
+TEST(RegistryAuthoringStartupTest,
+     DeclarationFailureReachesMainAndFailsClosed) {
+  const char* selected = std::getenv("EDGEFLOW_BAD_AUTHORING_CASE");
+  if (!selected) GTEST_SKIP() << "Requires a process-isolated authoring case";
+  ASSERT_TRUE(kAuthoringStartupAttempted);
+  const std::string scenario(selected);
+  std::string reason;
+  if (scenario == "invalid_default") {
+    reason = "Default value for field 'count' is below minimum";
+  } else if (scenario == "duplicate_member") {
+    reason =
+        "Same struct member bound to multiple config fields (count, other)";
+  } else {
+    ASSERT_EQ(scenario, "factory_exception");
+    reason = "authoring factory deliberately failed";
+  }
+  EXPECT_FALSE(NodeRegistry::Instance().Has("BadAuthoringNode"));
+  EXPECT_EQ(NodeRegistry::Instance().Create("BadAuthoringNode"), nullptr);
+  ASSERT_TRUE(NodeRegistry::Instance().HasConflict());
+
+  const nlohmann::json config = {
+      {"biz_name", "authoring_startup_test"},
+      {"pipeline",
+       nlohmann::json::array({{{"id", "dummy"},
+                               {"node_type", DummyNode::kNodeType},
+                               {"depends_on", nlohmann::json::array()}}})}};
+  const auto validation = PipelineValidator::ValidateAndPlan(
+      config, ValidationPolicy::kPrivateExtensionCompatible);
+  EXPECT_FALSE(validation.report.ok);
+  ASSERT_FALSE(validation.report.diagnostics.empty());
+  const auto& diagnostic = validation.report.diagnostics.front();
+  EXPECT_EQ(diagnostic.code, DiagnosticCode::kRegistryConflict);
+  EXPECT_NE(diagnostic.message.find("BadAuthoringNode"), std::string::npos);
+  EXPECT_NE(diagnostic.message.find(reason), std::string::npos);
+
+  Pipeline pipeline;
+  PipelineDiagnostic build_diagnostic;
+  EXPECT_FALSE(
+      pipeline.BuildFromJson(config, &build_diagnostic,
+                             ValidationPolicy::kPrivateExtensionCompatible));
+  EXPECT_EQ(build_diagnostic.code, PipelineErrorCode::kRegistryConflict);
+  EXPECT_NE(build_diagnostic.message.find("BadAuthoringNode"),
+            std::string::npos);
+  EXPECT_NE(build_diagnostic.message.find(reason), std::string::npos);
+}
 
 class DummyModel : public IEmbeddingModel {
  public:

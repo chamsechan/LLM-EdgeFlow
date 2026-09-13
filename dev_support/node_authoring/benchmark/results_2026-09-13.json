@@ -1,0 +1,499 @@
+{
+  "baseline_revision": "87f490b",
+  "platform": "macOS-26.6.2-arm64-arm-64bit",
+  "compile_command": [
+    "/opt/homebrew/opt/ccache/libexec/c++",
+    "-DCOMPANY_ALG_STATIC_LINK=1",
+    "-DPCRE2_STATIC",
+    "-I/private<build>/edgeflow/layer_includes/contracts",
+    "-I/private<build>/edgeflow/generated/include",
+    "-I/private<probe-source>/3rdparty/nlohmann_json/include",
+    "-I<repo>",
+    "-I<repo>/src",
+    "-I<repo>/include",
+    "-I/private<build>/edgeflow/layer_includes/public",
+    "-isystem",
+    "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1",
+    "-isystem",
+    "/private<probe-source>/3rdparty/pcre2/include",
+    "-O3",
+    "-DNDEBUG",
+    "-std=gnu++17",
+    "-fvisibility=hidden",
+    "-o",
+    "CMakeFiles/rfc52_probe.dir/probe.cpp.o",
+    "-c",
+    "/private<probe-source>/probe.cpp"
+  ],
+  "iterations": 10000,
+  "source_sha256": {
+    "include/nodes/function_node.h": "5f1b18c106555a19f968115ca0e41b53a87278432c907fe375feb5b120efdedc",
+    "include/nodes/parameter_binding.h": "10808384376fa3504f5966d313ebdc8c1191bf75367423cb8dd0870047567872",
+    "include/nodes/model_calls.h": "7ab7713b91371d26eb7909c47f42eb8925f79e30bd6303dce244840bff25e231",
+    "dev_support/node_authoring/starter_llm_node.cpp": "f264bfd5b5b380f9957c7e983984615d113f777dccf724845134480c57a6ca6a"
+  },
+  "wrappers": {
+    "old_map": {
+      "cpu_us_median": 1.15892,
+      "cpu_us_min": 1.13444,
+      "cpu_us_max": 1.83964,
+      "new_calls": 34,
+      "new_bytes": 34120,
+      "model_calls": 0
+    },
+    "new_map": {
+      "cpu_us_median": 1.17988,
+      "cpu_us_min": 1.16388,
+      "cpu_us_max": 1.2043,
+      "new_calls": 34,
+      "new_bytes": 34120,
+      "model_calls": 0
+    },
+    "old_llm": {
+      "cpu_us_median": 3.66613,
+      "cpu_us_min": 3.63433,
+      "cpu_us_max": 3.69344,
+      "new_calls": 99,
+      "new_bytes": 101192,
+      "model_calls": 1
+    },
+    "new_llm": {
+      "cpu_us_median": 3.72052,
+      "cpu_us_min": 3.69604,
+      "cpu_us_max": 3.7432,
+      "new_calls": 99,
+      "new_bytes": 101192,
+      "model_calls": 1
+    },
+    "new_batch": {
+      "cpu_us_median": 3.92969,
+      "cpu_us_min": 3.8386,
+      "cpu_us_max": 4.0551,
+      "new_calls": 100,
+      "new_bytes": 102216,
+      "model_calls": 1
+    },
+    "new_batch_inplace": {
+      "cpu_us_median": 3.66431,
+      "cpu_us_min": 3.64157,
+      "cpu_us_max": 3.74867,
+      "new_calls": 99,
+      "new_bytes": 101192,
+      "model_calls": 1
+    }
+  },
+  "compile_results": [
+    {
+      "repeat": 1,
+      "mode": "old_llm",
+      "wall_seconds": 1.21382279205136
+    },
+    {
+      "repeat": 1,
+      "mode": "new_llm",
+      "wall_seconds": 1.5159428750048392
+    },
+    {
+      "repeat": 2,
+      "mode": "old_llm",
+      "wall_seconds": 1.2276802079868503
+    },
+    {
+      "repeat": 2,
+      "mode": "new_llm",
+      "wall_seconds": 1.4969730830052868
+    },
+    {
+      "repeat": 3,
+      "mode": "old_llm",
+      "wall_seconds": 1.2374137499718927
+    },
+    {
+      "repeat": 3,
+      "mode": "new_llm",
+      "wall_seconds": 1.4748307919944637
+    },
+    {
+      "repeat": 4,
+      "mode": "old_llm",
+      "wall_seconds": 1.2111804999876767
+    },
+    {
+      "repeat": 4,
+      "mode": "new_llm",
+      "wall_seconds": 1.5029534589848481
+    },
+    {
+      "repeat": 5,
+      "mode": "old_llm",
+      "wall_seconds": 1.2126204579835758
+    },
+    {
+      "repeat": 5,
+      "mode": "new_llm",
+      "wall_seconds": 1.5059021249762736
+    }
+  ],
+  "measurements": [
+    {
+      "mode": "old_map",
+      "iterations": 10000,
+      "batch_size": 32,
+      "text_bytes": 1024,
+      "cpu_us_per_process": 1.83964,
+      "new_calls_per_process": 34,
+      "new_bytes_per_process": 34120,
+      "model_calls_per_process": 0,
+      "outputs_equal": true,
+      "repeat": 1
+    },
+    {
+      "mode": "new_map",
+      "iterations": 10000,
+      "batch_size": 32,
+      "text_bytes": 1024,
+      "cpu_us_per_process": 1.2043,
+      "new_calls_per_process": 34,
+      "new_bytes_per_process": 34120,
+      "model_calls_per_process": 0,
+      "outputs_equal": true,
+      "repeat": 1
+    },
+    {
+      "mode": "old_llm",
+      "iterations": 10000,
+      "batch_size": 32,
+      "text_bytes": 1024,
+      "cpu_us_per_process": 3.68756,
+      "new_calls_per_process": 99,
+      "new_bytes_per_process": 101192,
+      "model_calls_per_process": 1,
+      "outputs_equal": true,
+      "repeat": 1
+    },
+    {
+      "mode": "new_llm",
+      "iterations": 10000,
+      "batch_size": 32,
+      "text_bytes": 1024,
+      "cpu_us_per_process": 3.72052,
+      "new_calls_per_process": 99,
+      "new_bytes_per_process": 101192,
+      "model_calls_per_process": 1,
+      "outputs_equal": true,
+      "repeat": 1
+    },
+    {
+      "mode": "new_batch",
+      "iterations": 10000,
+      "batch_size": 32,
+      "text_bytes": 1024,
+      "cpu_us_per_process": 3.8944,
+      "new_calls_per_process": 100,
+      "new_bytes_per_process": 102216,
+      "model_calls_per_process": 1,
+      "outputs_equal": true,
+      "repeat": 1
+    },
+    {
+      "mode": "new_batch_inplace",
+      "iterations": 10000,
+      "batch_size": 32,
+      "text_bytes": 1024,
+      "cpu_us_per_process": 3.64157,
+      "new_calls_per_process": 99,
+      "new_bytes_per_process": 101192,
+      "model_calls_per_process": 1,
+      "outputs_equal": true,
+      "repeat": 1
+    },
+    {
+      "mode": "old_map",
+      "iterations": 10000,
+      "batch_size": 32,
+      "text_bytes": 1024,
+      "cpu_us_per_process": 1.15892,
+      "new_calls_per_process": 34,
+      "new_bytes_per_process": 34120,
+      "model_calls_per_process": 0,
+      "outputs_equal": true,
+      "repeat": 2
+    },
+    {
+      "mode": "new_map",
+      "iterations": 10000,
+      "batch_size": 32,
+      "text_bytes": 1024,
+      "cpu_us_per_process": 1.17882,
+      "new_calls_per_process": 34,
+      "new_bytes_per_process": 34120,
+      "model_calls_per_process": 0,
+      "outputs_equal": true,
+      "repeat": 2
+    },
+    {
+      "mode": "old_llm",
+      "iterations": 10000,
+      "batch_size": 32,
+      "text_bytes": 1024,
+      "cpu_us_per_process": 3.63433,
+      "new_calls_per_process": 99,
+      "new_bytes_per_process": 101192,
+      "model_calls_per_process": 1,
+      "outputs_equal": true,
+      "repeat": 2
+    },
+    {
+      "mode": "new_llm",
+      "iterations": 10000,
+      "batch_size": 32,
+      "text_bytes": 1024,
+      "cpu_us_per_process": 3.74272,
+      "new_calls_per_process": 99,
+      "new_bytes_per_process": 101192,
+      "model_calls_per_process": 1,
+      "outputs_equal": true,
+      "repeat": 2
+    },
+    {
+      "mode": "new_batch",
+      "iterations": 10000,
+      "batch_size": 32,
+      "text_bytes": 1024,
+      "cpu_us_per_process": 4.0512,
+      "new_calls_per_process": 100,
+      "new_bytes_per_process": 102216,
+      "model_calls_per_process": 1,
+      "outputs_equal": true,
+      "repeat": 2
+    },
+    {
+      "mode": "new_batch_inplace",
+      "iterations": 10000,
+      "batch_size": 32,
+      "text_bytes": 1024,
+      "cpu_us_per_process": 3.64302,
+      "new_calls_per_process": 99,
+      "new_bytes_per_process": 101192,
+      "model_calls_per_process": 1,
+      "outputs_equal": true,
+      "repeat": 2
+    },
+    {
+      "mode": "old_map",
+      "iterations": 10000,
+      "batch_size": 32,
+      "text_bytes": 1024,
+      "cpu_us_per_process": 1.13444,
+      "new_calls_per_process": 34,
+      "new_bytes_per_process": 34120,
+      "model_calls_per_process": 0,
+      "outputs_equal": true,
+      "repeat": 3
+    },
+    {
+      "mode": "new_map",
+      "iterations": 10000,
+      "batch_size": 32,
+      "text_bytes": 1024,
+      "cpu_us_per_process": 1.19299,
+      "new_calls_per_process": 34,
+      "new_bytes_per_process": 34120,
+      "model_calls_per_process": 0,
+      "outputs_equal": true,
+      "repeat": 3
+    },
+    {
+      "mode": "old_llm",
+      "iterations": 10000,
+      "batch_size": 32,
+      "text_bytes": 1024,
+      "cpu_us_per_process": 3.66613,
+      "new_calls_per_process": 99,
+      "new_bytes_per_process": 101192,
+      "model_calls_per_process": 1,
+      "outputs_equal": true,
+      "repeat": 3
+    },
+    {
+      "mode": "new_llm",
+      "iterations": 10000,
+      "batch_size": 32,
+      "text_bytes": 1024,
+      "cpu_us_per_process": 3.7432,
+      "new_calls_per_process": 99,
+      "new_bytes_per_process": 101192,
+      "model_calls_per_process": 1,
+      "outputs_equal": true,
+      "repeat": 3
+    },
+    {
+      "mode": "new_batch",
+      "iterations": 10000,
+      "batch_size": 32,
+      "text_bytes": 1024,
+      "cpu_us_per_process": 4.0551,
+      "new_calls_per_process": 100,
+      "new_bytes_per_process": 102216,
+      "model_calls_per_process": 1,
+      "outputs_equal": true,
+      "repeat": 3
+    },
+    {
+      "mode": "new_batch_inplace",
+      "iterations": 10000,
+      "batch_size": 32,
+      "text_bytes": 1024,
+      "cpu_us_per_process": 3.72537,
+      "new_calls_per_process": 99,
+      "new_bytes_per_process": 101192,
+      "model_calls_per_process": 1,
+      "outputs_equal": true,
+      "repeat": 3
+    },
+    {
+      "mode": "old_map",
+      "iterations": 10000,
+      "batch_size": 32,
+      "text_bytes": 1024,
+      "cpu_us_per_process": 1.20141,
+      "new_calls_per_process": 34,
+      "new_bytes_per_process": 34120,
+      "model_calls_per_process": 0,
+      "outputs_equal": true,
+      "repeat": 4
+    },
+    {
+      "mode": "new_map",
+      "iterations": 10000,
+      "batch_size": 32,
+      "text_bytes": 1024,
+      "cpu_us_per_process": 1.17988,
+      "new_calls_per_process": 34,
+      "new_bytes_per_process": 34120,
+      "model_calls_per_process": 0,
+      "outputs_equal": true,
+      "repeat": 4
+    },
+    {
+      "mode": "old_llm",
+      "iterations": 10000,
+      "batch_size": 32,
+      "text_bytes": 1024,
+      "cpu_us_per_process": 3.69344,
+      "new_calls_per_process": 99,
+      "new_bytes_per_process": 101192,
+      "model_calls_per_process": 1,
+      "outputs_equal": true,
+      "repeat": 4
+    },
+    {
+      "mode": "new_llm",
+      "iterations": 10000,
+      "batch_size": 32,
+      "text_bytes": 1024,
+      "cpu_us_per_process": 3.69604,
+      "new_calls_per_process": 99,
+      "new_bytes_per_process": 101192,
+      "model_calls_per_process": 1,
+      "outputs_equal": true,
+      "repeat": 4
+    },
+    {
+      "mode": "new_batch",
+      "iterations": 10000,
+      "batch_size": 32,
+      "text_bytes": 1024,
+      "cpu_us_per_process": 3.8386,
+      "new_calls_per_process": 100,
+      "new_bytes_per_process": 102216,
+      "model_calls_per_process": 1,
+      "outputs_equal": true,
+      "repeat": 4
+    },
+    {
+      "mode": "new_batch_inplace",
+      "iterations": 10000,
+      "batch_size": 32,
+      "text_bytes": 1024,
+      "cpu_us_per_process": 3.66431,
+      "new_calls_per_process": 99,
+      "new_bytes_per_process": 101192,
+      "model_calls_per_process": 1,
+      "outputs_equal": true,
+      "repeat": 4
+    },
+    {
+      "mode": "old_map",
+      "iterations": 10000,
+      "batch_size": 32,
+      "text_bytes": 1024,
+      "cpu_us_per_process": 1.14439,
+      "new_calls_per_process": 34,
+      "new_bytes_per_process": 34120,
+      "model_calls_per_process": 0,
+      "outputs_equal": true,
+      "repeat": 5
+    },
+    {
+      "mode": "new_map",
+      "iterations": 10000,
+      "batch_size": 32,
+      "text_bytes": 1024,
+      "cpu_us_per_process": 1.16388,
+      "new_calls_per_process": 34,
+      "new_bytes_per_process": 34120,
+      "model_calls_per_process": 0,
+      "outputs_equal": true,
+      "repeat": 5
+    },
+    {
+      "mode": "old_llm",
+      "iterations": 10000,
+      "batch_size": 32,
+      "text_bytes": 1024,
+      "cpu_us_per_process": 3.64193,
+      "new_calls_per_process": 99,
+      "new_bytes_per_process": 101192,
+      "model_calls_per_process": 1,
+      "outputs_equal": true,
+      "repeat": 5
+    },
+    {
+      "mode": "new_llm",
+      "iterations": 10000,
+      "batch_size": 32,
+      "text_bytes": 1024,
+      "cpu_us_per_process": 3.70806,
+      "new_calls_per_process": 99,
+      "new_bytes_per_process": 101192,
+      "model_calls_per_process": 1,
+      "outputs_equal": true,
+      "repeat": 5
+    },
+    {
+      "mode": "new_batch",
+      "iterations": 10000,
+      "batch_size": 32,
+      "text_bytes": 1024,
+      "cpu_us_per_process": 3.92969,
+      "new_calls_per_process": 100,
+      "new_bytes_per_process": 102216,
+      "model_calls_per_process": 1,
+      "outputs_equal": true,
+      "repeat": 5
+    },
+    {
+      "mode": "new_batch_inplace",
+      "iterations": 10000,
+      "batch_size": 32,
+      "text_bytes": 1024,
+      "cpu_us_per_process": 3.74867,
+      "new_calls_per_process": 99,
+      "new_bytes_per_process": 101192,
+      "model_calls_per_process": 1,
+      "outputs_equal": true,
+      "repeat": 5
+    }
+  ]
+}

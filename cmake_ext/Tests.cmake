@@ -133,6 +133,8 @@ set(EDGEFLOW_TEST_NODE_SRCS
   ${EDGEFLOW_SOURCE_test_structured_json_parse_node}
   ${EDGEFLOW_SOURCE_test_text_corpus_source_node}
   ${EDGEFLOW_SOURCE_test_common_nodes}
+  ${EDGEFLOW_SOURCE_test_function_node}
+  ${EDGEFLOW_SOURCE_test_parameter_binding}
   ${EDGEFLOW_CUSTOM_NODE_TEST_SRCS})
 add_executable(edgeflow_test_nodes_runner
   ${EDGEFLOW_SCAFFOLD_FIXTURE_SOURCE}
@@ -281,6 +283,10 @@ edgeflow_add_runner_test(TextCorpusSourceNodeTest edgeflow_test_nodes_runner
   "TextCorpusSourceNodeTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(CommonNodesTest edgeflow_test_nodes_runner
   "CommonNodesTest.*:CustomNodeCatalogTest.*" "${_edgeflow_tier1}")
+edgeflow_add_runner_test(FunctionNodeTest edgeflow_test_nodes_runner
+  "FunctionNodeTest.*" "${_edgeflow_tier1}")
+edgeflow_add_runner_test(ParameterBindingTest edgeflow_test_nodes_runner
+  "ParameterBindingTest.*" "${_edgeflow_tier1}")
 
 add_test(NAME C11AbiComplianceTest COMMAND test_c11_abi_compliance)
 set_tests_properties(C11AbiComplianceTest PROPERTIES
@@ -328,6 +334,16 @@ add_test(NAME RegistryConflictModelTest COMMAND test_registry_conflict
 set_tests_properties(RegistryConflictNodeTest RegistryConflictModelTest
   PROPERTIES WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
   LABELS "${_edgeflow_tier1}" TIMEOUT 5)
+foreach(_authoring_case invalid_default duplicate_member factory_exception)
+  add_test(NAME RegistryAuthoringStartup_${_authoring_case}
+    COMMAND ${CMAKE_COMMAND} -E env
+      "EDGEFLOW_BAD_AUTHORING_CASE=${_authoring_case}"
+      $<TARGET_FILE:test_registry_conflict>
+      --gtest_filter=RegistryAuthoringStartupTest.*)
+  set_tests_properties(RegistryAuthoringStartup_${_authoring_case}
+    PROPERTIES WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+    LABELS "${_edgeflow_tier1}" TIMEOUT 5)
+endforeach()
 
 edgeflow_add_runner_test(ModelBackendRegistryConflictTest
   test_model_backend_registry_conflict "ModelBackendRegistryConflictTest.*"
@@ -483,6 +499,9 @@ add_custom_target(edgeflow_dev_tests DEPENDS
 get_property(_edgeflow_registered_tests DIRECTORY PROPERTY TESTS)
 set_tests_properties(${_edgeflow_registered_tests} PROPERTIES TIMEOUT 120)
 set_tests_properties(RegistryConflictNodeTest RegistryConflictModelTest
+  RegistryAuthoringStartup_invalid_default
+  RegistryAuthoringStartup_duplicate_member
+  RegistryAuthoringStartup_factory_exception
   PROPERTIES TIMEOUT 5)
 # The opt-in real Kite deployment suite loads text, ONNX and vision models.
 set_tests_properties(DemoRunnerTest PROPERTIES TIMEOUT 300)

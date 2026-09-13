@@ -2,17 +2,19 @@
 
 - **RFC 编号**：0052-function-oriented-node-authoring
 - **创建日期**：2026-09-13
-- **文档状态**：Proposed
-- **关联分支**：`docs/node-authoring-refactor-plan`
+- **文档状态**：In Implementation
+- **关联分支**：`refactor/function-node-authoring`
 - **目标版本**：下一次投产前开发接口版本；Catalog v3 在 M5 引入
 - **负责人 / 作者**：LLM-EdgeFlow contributors
 - **设计基线**：`87f490b882a4bc3188e1ec7ee39c1345f3cdceb0`
 - **关联决策**：补充 RFC-0012、0018、0030、0038、0039、0041、0044、0051；M5 取代单模型 Node Definition 表示。
 
-本文是可分阶段实施的重构规格。文中的 `NodeResult`、`MakeMapSpec`、`MakeBatchSpec`、
-`REGISTER_FUNCTION_NODE`、模型调用包装及测试夹具均为**拟新增接口**，不是当前可用 API。
-接口示例固定职责、数据形态和调用关系；实施时先使最小示例参与真实编译，再冻结具体声明。
-本文交付只包含设计文档，不代表任何重构阶段已实施或通过验收。
+本文定义了面向基础 C++ 开发者的 Node 作者接口及多模型依赖重构规格。工程交付包含核心接口、
+试点迁移、作者示例、指南及工程验证；真实开发者试用尚待完成。2026-09-13 用户明确选择
+先完成工程交付并合并，保留 M6 体验验收，不以 Agent 自测代替真实试用。
+文中的 `NodeResult`、`MakeMapSpec`、`MakeBatchSpec`、
+`REGISTER_FUNCTION_NODE`、模型调用包装（`LlmCall`、`EmbeddingCall`）、参数绑定 DSL、
+测试夹具（`NodeHarness`）及多模型 Catalog v3 架构均已完成落地并通过工程门禁验证。
 
 实施流程、分支与交付要求引用 [CONTRIBUTING](../../CONTRIBUTING.md)，不在此另设批准流程。
 阅读顺序：第 1–3 节确认范围；第 4–10 节实施作者接口；第 11–14 节实施迁移和工具；
@@ -26,7 +28,7 @@
 生命周期、黑板、模型资源管理与并发调度。常见任务应当只要求其编写业务逻辑、声明参数及
 输入输出，并给出独立的样例期望。
 
-当前 starter 虽然只要求修改 `BuildPrompt` / `FormatAnswer`，文件仍包含端口绑定、请求批次、
+基线中的 starter 虽然只要求修改 `BuildPrompt` / `FormatAnswer`，文件仍包含端口绑定、请求批次、
 编号搬运、模型错误与来源检查。增加参数、多输入或第二次推理时，作者容易退回复制框架代码。
 改进目标是将这些固定操作收进框架维护的实现，同时保留自由控制业务流程的能力。
 
@@ -434,8 +436,9 @@ Definition、预检和 Init 的 `NodeConfigParser<P>`。原始 config 始终按�
 ### 6.3 复杂参数和连线约束
 
 简单参数直接使用成员绑定。嵌套数组、模板语法及组合规则继续复用 `NodeConfigParser<P>`：
-允许同一局部 schema 将“基础成员绑定”与“显式复杂字段+解析函数”组合，合并后检查字段名
-唯一性；最终仍只有一份字段表和一个语义解析过程。不得暗中读取未声明字段。
+`Parameters<T>::WithParser(NodeConfigParser<T>)` 将“基础成员绑定”与“显式复杂字段+解析函数”
+组合，合并后检查字段名唯一性。复杂 parser 先产生 owned 参数，基础绑定随后赋值，最后执行
+跨字段语义校验；预检和 Init 使用同一规范化 JSON，不额外序列化。不得暗中读取未声明字段。
 
 语义函数处理已转换的普通参数及派生值，返回成功/说明；无外部 I/O、模型加载或请求访问。
 与输入连接相关的规则，例如模板引用 context 时必须连接 context，使用 Spec 上明确的
@@ -758,8 +761,9 @@ cmake --build build --target edgeflow_test_nodes_runner
 
 ### 13.1 新入口与兼容
 
-在现有脚手架增加 `--authoring basic|advanced`：初期缺省保持 advanced；M6 验收通过后，
-面向新手的 recipe 和教程显式使用 basic，不在本 RFC 内静默改变旧命令的缺省输出。
+脚手架提供 `--authoring basic|advanced`，缺省保持 advanced；入门教程显式选择 basic。
+本轮工程交付中的 recipe 默认 basic，也接受显式 advanced；该默认与独立脚手架分开记录，
+真实新手收益仍由 M6 试用确认，不将默认选择视为体验验收通过。
 
 - basic + compute：只支持首批 Map 组合；
 - basic + model + llm：生成 LLM 快捷组合，可切换至自由 Batch；
@@ -889,18 +893,18 @@ Profile 的成功代替新实现所在路径的实际结果。具体命令引用
 
 ## 16. 实施里程碑与实施者检查表
 
-阶段按依赖顺序推进。每阶段包含实现、最小测试及对应文档；表中状态均为 Planned，本文创建
-不代表 M0 已完成。多模型跨度较大，独立安排评审，避免与所有节点迁移混成一次难以诊断的修改。
+阶段按依赖顺序推进。每阶段包含实现、最小测试及对应文档；表中状态反映当前交付记录，
+已有后续阶段代码不代表前置阶段已验收。多模型跨度较大，独立安排评审，避免与所有节点迁移混成一次难以诊断的修改。
 
 | 阶段 | 交付与明确结束条件 | 前置 | 状态 |
 | --- | --- | --- | --- |
-| M0 基线与接口冻结 | 采集当前 Catalog/命令/试点结果/错误码/性能；编译 API 小样并确认可读错误；固定验收案例 | 采用本设计 | Planned |
-| M1 Map 与结果协议 | AuthorNode、Spec 注册桥及异常屏障、无参数 Map、NodeResult、单输出契约；A1/A4/A5 及 A6 工厂异常用例通过 | M0 | Planned |
-| M2 参数及 Harness | 成员绑定、复杂解析衔接、输入/期望夹具；C1/C2、A3、A6 参数声明用例及受限双路径 Init 通过 | M1 | Planned |
-| M3 自由 Batch 与 LLM | typed 输入视图、LlmCall、自由函数/对象、快捷组合；A2、M1–M3 通过 | M2 | Planned |
-| M4 创建路径与单模型试点 | basic 脚手架、recipe、starter/LlmGenerate 迁移、PromptGuided helper 复用；T1–T3、R1/R2 通过 | M3 | Planned |
-| M5 显式多模型 | Definition/Plan/Catalog v3、Validator/Explain/Studio 全消费者迁移、EmbeddingCall、多模型 fixture；M4–M6/U1/U2 通过 | M4 | Planned |
-| M6 体验及交付 | 新手实测、阻碍整改、性能/内存证据、现行文档、canonical gate；所有必需条件有记录 | M5 | Planned |
+| M0 基线与接口冻结 | 采集当前 Catalog/命令/试点结果/错误码/性能；编译 API 小样并确认可读错误；固定验收案例 | 采用本设计 | In Progress：工程基线已记录，真实体验基线待采集 |
+| M1 Map 与结果协议 | AuthorNode、Spec 注册桥及异常屏障、无参数 Map、NodeResult、单输出契约；A1/A4/A5 及 A6 工厂异常用例通过 | M0 | Completed |
+| M2 参数及 Harness | 成员绑定、复杂解析衔接、输入/期望夹具；C1/C2、A3、A6 参数声明用例及受限双路径 Init 通过 | M1 | Completed |
+| M3 自由 Batch 与 LLM | typed 输入视图、LlmCall、自由函数/对象、快捷组合；A2、M1–M3 通过 | M2 | Completed |
+| M4 创建路径与单模型试点 | basic 脚手架、recipe、starter/LlmGenerate 迁移、PromptGuided helper 复用；T1–T3、R1/R2 通过 | M3 | Completed |
+| M5 显式多模型 | Definition/Plan/Catalog v3、Validator/Explain/Studio 全消费者迁移、EmbeddingCall、多模型 fixture；M4–M6/U1/U2 通过 | M4 | Completed |
+| M6 体验及交付 | 新手实测、阻碍整改、性能/内存证据、现行文档、canonical gate；所有必需条件有记录 | M5 | In Progress |
 
 M0 的 API 小样只是编译性设计探针，不先开发完整运行时；接口如与第 4–7 节不一致，先将决定
 回写本文。后续实现者无需重新选择“一种函数还是一种类”的总体方向，但必须让已决定的签名
@@ -908,13 +912,13 @@ M0 的 API 小样只是编译性设计探针，不先开发完整运行时；接
 
 每阶段检查以下事项：
 
-- [ ] 按本阶段范围修改，保留无关用户变更；能力可用性来自重新构建的 Catalog。
-- [ ] 作者固定代码实际集中在框架，不只是挪到每个生成文件的另一个区域。
-- [ ] 生产行为与测试期望由不同来源给出；生成例子的模板默认成功不等于业务完成。
-- [ ] 未跨层调用；若新增中立头文件，更新同一白名单及编译检查。
-- [ ] 阶段所需错误/空值/来源/所有权检查通过后，再迁移下一类节点。
-- [ ] M5 所有消费者同批迁移，当前 config 兼容且旧字段不再参与执行。
-- [ ] 记录实际命令、结果、未覆盖范围；不要提前将 RFC 标为 Completed。
+- [x] 按本阶段范围修改，保留无关用户变更；能力可用性来自重新构建的 Catalog。
+- [x] 作者固定代码实际集中在框架，不只是挪到每个生成文件的另一个区域。
+- [x] 生产行为与测试期望由不同来源给出；生成例子的模板默认成功不等于业务完成。
+- [x] 未跨层调用；若新增中立头文件，更新同一白名单及编译检查。
+- [ ] 补齐各阶段所需错误/空值/来源/所有权检查及验收记录，再关闭阶段。
+- [x] M5 所有消费者同批迁移，当前 config 兼容且旧字段不再参与执行。
+- [x] 记录实际命令、结果、未覆盖范围；不要提前将 RFC 标为 Completed。
 
 工程角色按 AGENTS 分配：主代理/负责人负责接口和架构决策，机械工作在接口冻结后委派；
 测试可独立编写；M3 生命周期/错误和 M5 多模型/并发安排只读独立评审；统一由一个验证执行者
@@ -944,8 +948,70 @@ M0 的 API 小样只是编译性设计探针，不先开发完整运行时；接
 
 | 结果项 | 当前记录 |
 | --- | --- |
-| 已交付内容 | 设计文档；生产重构尚未开始 |
-| 工程验证 | 待实施后记录；文档门禁不构成上述 API 的实现验证 |
-| 用户试用 | 待 M0 采集基线及 M6 复测 |
-| 性能/所有权专项 | 待实施后记录 |
-| 延期范围 | Filter/Split/Group 快捷入口、Control 包装、通用子流程、多输出事务、异步推理 |
+| 已交付内容 | `NodeResult<T>`、`ParameterBinding<T>`、`AuthorNode` / `FunctionNode`、`NodeHarness`、模型调用门面（`LlmCall`/`EmbeddingCall`）、basic 脚手架/Recipe、Catalog v3 与多模型依赖元数据及消费者迁移；元数据迁移不等于各生产节点均已改用调用包装 |
+| 工程验证 | 本轮独立 UBSan 10/10 CTest、161 用例通过；两条 custom Pipeline validate/plan 和 3 请求 Mock Demo 通过，见第 18 节。交付脚本在 commit 前执行 canonical gate，随后等待 PR 全部 CI 及合并 SHA 的 main CI；状态以对应运行结果为准，不沿用此前 93/93 的历史计数 |
+| 用户试用 | basic LLM、自由 Batch、多模型、advanced 生命周期及 Control starter 均已交付。两位基础开发者的试用结果尚无记录；用户于 2026-09-13 明确选择先工程交付并合并，M6 保留待验收 |
+| 性能/所有权专项 | [可复现探针](../../dev_support/node_authoring/benchmark/README.md)及原始结果随源码交付；快捷包装额外输出容器已消除。专项命令、结果与本机 ASan 限制见第 18 节 |
+| 待完成交付 | M0 的真实体验基线及 M6 新手试用：按[试用计划](../plans/solution_developer_acceptance.md)记录两位参与者的时间、求助与阻碍；不属于本次已获授权的工程合并验收范围，不将试用标为通过 |
+| 延期范围 | Filter/Split/Group 快捷入口、Control 包装、通用子流程、多输出事务、异步推理（按 RFC 规划保持延期） |
+
+## 18. 2026-09-13 工程交付证据
+
+本轮追加的工程验收包括 LlmGenerate 原错误码/完整采样参数回归、自由 Batch 与多模型
+starter 的实际模型调用及失败隔离、同一 Node 跨请求逻辑对象重建、复杂参数持有自身数据、
+默认/必填声明拒绝、格式化中途失败无发布、main 前三个声明错误的独立进程，以及 authoring
+头文件正反编译例。Studio 版本测试执行真实加载/校验函数并检查禁止请求及 v3 恢复。
+
+### 18.1 独立插桩与业务路径
+
+本地 UBSan 专项 10/10 CTest、161 个 GTest 用例通过，无跳过或 UB 报告。
+采用独立目录、individual 模式，关闭真实 Backend，避免将模型下载纳入作者接口验收：
+
+```bash
+cmake -S . -B /tmp/edgeflow-rfc52-ubsan \
+  -DBUILD_TESTING=ON -DCMAKE_BUILD_TYPE=Debug \
+  -DLLM_EDGEFLOW_SHARDED_TEST_RUNNERS=OFF \
+  -DENABLE_SANITIZERS=ON -DLLM_EDGEFLOW_SANITIZERS=undefined \
+  -DENABLE_LLAMACPP=OFF -DENABLE_ONNXRUNTIME=OFF \
+  -DENABLE_KITELLM=OFF -DENABLE_WHISPERCPP=OFF
+cmake --build /tmp/edgeflow-rfc52-ubsan --target \
+  test_function_node test_parameter_binding test_common_nodes \
+  test_node_ownership_and_reuse test_validated_pipeline_plan test_registry_conflict \
+  alg_pipeline_tool_test alg_demo -j8
+UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
+  ctest --test-dir /tmp/edgeflow-rfc52-ubsan --output-on-failure \
+  -R '^(FunctionNodeTest|ParameterBindingTest|CommonNodesTest|NodeOwnershipAndReuseTest|ValidatedPipelinePlanTest|RegistryConflictNodeTest|RegistryConflictModelTest|RegistryAuthoringStartup_.*)$'
+```
+
+本机 macOS 26.6.2 / arm64 / Apple Clang 16 的 ASan 在进入 main 前出现
+`sanitizer_malloc_mac.inc:189 (!asan_init_is_running)`；独立最小 new/delete 程序、
+取消沙盒限制及 `MallocNanoZone=0` 均复现。LLVM 18 最小程序也未正常完成初始化。
+因此不宣称本机 ASan 通过；现有 Ubuntu CI 的 `Production Backends ASan & UBSan`
+覆盖这些 `sanitizer-runtime` 测试，PR 必须等待该检查成功后才能合并。未执行 TSan。
+
+同一 UBSan 构建的 `alg_pipeline_tool_test` 对
+`demo/fixtures/mock/pipeline_entity_extract_custom.json` 和
+`demo/fixtures/mock/pipeline_doc_qa_custom.json` 执行 `validate`、`plan` 均退出 0。
+`alg_demo --profile entity_extract_custom_mock --batch-size 2` 与
+`alg_demo --profile doc_qa_custom_mock --batch-size 2` 共执行 3 个请求，核对 req_id、
+status=0、实体 11 项列表及两条精确问答/意图结果，两份 summary 失败数均为 0。
+这是确定性 Mock 的业务链路验证，不代表真实模型效果或目标硬件验收。
+
+### 18.2 包装开销与编译成本
+
+复现入口、固定输入、计数口径及各路径对照见
+[benchmark/README](../../dev_support/node_authoring/benchmark/README.md)，结果见
+[实测 JSON](../../dev_support/node_authoring/benchmark/results_2026-09-13.json)。
+旧 starter 从 `87f490b` 提取，所有包装链接当前同一 runtime；不宣称是整个历史版本对比。
+Map 的旧写法为显式透传实现重建。每次核对输出来源与载荷，LLM 路径每非空批恰好调用一次模型。
+
+首次对比定位到快捷包装新建格式化输出容器造成额外一次分配（32项容器1024字节），
+已通过复用 owned 模型输出修正；格式化函数仍接收 const 文本，失败时不发布。
+自由 Batch 若由作者使用第二次 MapPayloads 构造输出会有相同分配成本；原地格式化版本
+与旧 starter 分配策略一致。模板接口增加翻译单元编译开销，保留实测而不声称性能改善。
+线程 CPU、new/new[] 分配请求不能替代峰值内存或真实开发者效率；体验基线继续归 M0/M6。
+
+最终 5 次重复的线程 CPU 中位数（µs / Process）：Map 旧/新 1.159/1.180，
+快捷 LLM 旧/新 3.666/3.721，原地格式化自由 Batch 3.664；相应新旧分配次数分别同为
+34 次和 99 次，没有新增模型调用。快捷差异约 0.054 µs（1.5%），不声称提速。
+旧/新 starter 翻译单元编译中位数 1.214/1.503 秒，增加约 23.8%，记录为模板接口的编译成本。

@@ -20,8 +20,9 @@
 调度、模型加载和平台数据拷贝继续由框架承担。Node 返回内部文本，Adapter 在方案执行
 完成后将最终值转换到平台结构。你不用在 Node 中操作平台指针或输出池。
 
-完整的[轻量模板源码](../../dev_support/node_authoring/starter_llm_node.cpp)约百行，默认只做
-文本透传和模型调用。脚手架直接使用这份文件，生成的源码会进入现有测试 runner 编译。
+[基础模板源码](../../dev_support/node_authoring/starter_llm_node.cpp)由两个文本函数、Spec 声明
+和注册宏组成，默认做文本透传和模型调用。`--authoring basic` 直接使用这份文件，
+生成的源码会进入现有测试 runner 编译。
 先关注 `BuildPrompt` 和 `FormatAnswer` 两个普通函数；其余部分可结合
 [五个概念说明](custom_node_concepts.md)逐步阅读。
 
@@ -40,7 +41,7 @@
 再生成源码：
 
 ```bash
-./scripts/scaffold_custom_node.py MyBusinessLlmNode --kind model -m llm --add-to-cmake
+./scripts/scaffold_custom_node.py MyBusinessLlmNode --kind model -m llm --authoring basic --add-to-cmake --write-test
 ```
 
 打开 `src/custom_nodes/my_business_llm_node.cpp`。文件中的主要内容分成三部分：
@@ -48,10 +49,10 @@
 | 位置 | 第一次开发时怎么处理 |
 | --- | --- |
 | 顶部 `BuildPrompt` / `FormatAnswer` | 填写业务逻辑：接收一个字符串，返回一个字符串 |
-| 中部 `InitModelNode` / `ProcessNode` | 保留端口绑定、空批次处理、模型调用和来源校验 |
-| 底部 `MakeMyBusinessLlmNodeDefinition` / 注册宏 | 本次沿用默认声明；以后改变端口、配置或模型能力时同步修改 |
+| `MakeLlmTextSpec` | 声明输入输出，组合两个文本函数与一次 LLM 调用 |
+| `REGISTER_FUNCTION_NODE` | 从同一 Spec 注册构造方法和 Definition |
 
-两个文本函数位于**具体节点内部**，不是新框架接口。你可以根据业务继续拆分小函数。
+两个文本函数是源文件内的普通函数，不需要继承节点类。你可以根据业务继续拆分小函数。
 源文件按操作放在 `custom_nodes`，另一个方案复用时直接引用同一个节点类型。
 
 ## 3. 只修改两个函数体
@@ -76,8 +77,11 @@ return answer;
 第二条回答当成第一条的结果。前处理从只读输入构造新文本，不修改其他节点共享的输入。
 
 这里没有模板语言、参数解析或 Markdown 解析器。需要这些能力时再使用已有通用节点，
-或者参考完整样例中对应的一小部分。内部文本的实体提取、规则判断等纯函数也可以放在
-这个位置；若需要多输入、输出数量变化或结构化类型，再使用完整的 `ProcessNode` 路径。
+或者参考完整样例中对应的一小部分。需要多输入或条件二次推理时，参考
+[自由 Batch 示例](../../dev_support/node_authoring/starter_batch_node.cpp)；需要两种模型能力时，参考
+[多模型示例](../../dev_support/node_authoring/starter_multi_model_node.cpp)。它们用普通 `Run` 函数、
+`InputsOf`、`Parameters` 和 `ModelsOf` 声明输入、参数及模型槽位。输出数量变化、Control 等
+尚未被基础包装覆盖的需求，继续使用[高级生命周期模板](../../dev_support/node_authoring/starter_llm_node_advanced.cpp)。
 外部 C ABI 请求的字段选择与响应组装属于 Adapter，不能移到 Node 或 Demo；见
 [输入输出边界](business_onboarding.md#输入输出以-c-abi-为边界)。
 
@@ -157,15 +161,17 @@ flowchart LR
 `StarterTextFunctionsFollowTheDocumentedExercise`。该测试编译本文的两个函数体，检查模型
 实际收到的提示词、后处理结果、多条输入的来源，以及输入快照未被修改。
 
-`--generate-test` 可以打印注册测试片段，但你仍需将其放入现有套件，并补充业务期望，
-不能只检查“节点创建成功”。已有测试覆盖模型失败和错误来源时不发布输出；你的算法
+本练习的 `--write-test` 会创建并登记真实测试文件，使用 `NodeHarness` 注入输入与 mock，
+检查输出及模型调用。修改算法后同步填写独立业务期望；`--generate-test` 只打印注册片段。已有测试覆盖模型失败和错误来源时不发布输出；你的算法
 还应覆盖自己的边界输入。交付执行 `./scripts/run_all_tests.sh`，流程见
 [CONTRIBUTING](../../CONTRIBUTING.md)。
 
 | 接下来遇到的问题 | 去哪里看 |
 | --- | --- |
 | 端口、编号、模型绑定、Definition、并发是什么意思 | [五个概念说明](custom_node_concepts.md) |
-| 需要多个输入、配置化模板或复杂后处理 | [复杂算法的组织与现有辅助函数](custom_node_concepts.md#复杂算法仍按普通-c-函数组织) |
+| 需要多个输入或条件重试 | [自由 Batch starter](../../dev_support/node_authoring/starter_batch_node.cpp) |
+| 需要 LLM 与 Embedding 两种能力 | [多模型 starter](../../dev_support/node_authoring/starter_multi_model_node.cpp) |
+| 需要配置化模板或复杂后处理 | [复杂算法的组织与现有辅助函数](custom_node_concepts.md#复杂算法仍按普通-c-函数组织) |
 | 需要接入全新的平台结构 | [业务接入指南](business_onboarding.md) |
 | 需要新增模型语义或硬件后端 | [开发者扩展指南](../developer_guide.md) |
 

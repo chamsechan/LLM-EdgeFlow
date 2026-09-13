@@ -260,7 +260,7 @@ int main(int argc, char** argv) {
       return 1;
     }
     auto result = PipelineCatalog::NodeToJson(*definition);
-    result["schema_version"] = 2;
+    result["schema_version"] = 3;
     result["ok"] = true;
     std::cout << result.dump(2) << std::endl;
     return 0;

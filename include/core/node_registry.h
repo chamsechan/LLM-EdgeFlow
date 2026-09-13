@@ -32,6 +32,26 @@ class NodeRegistry {
     return Register(node_type, std::move(creator), &definition);
   }
 
+  template <typename CreatorCallable, typename FactoryCallable>
+  bool RegisterWithDefinitionFactory(std::string_view node_type,
+                                     CreatorCallable&& creator,
+                                     FactoryCallable&& factory) noexcept {
+    try {
+      NodeDefinition definition = factory();
+      CreatorFunc creator_fn = [c = std::forward<CreatorCallable>(
+                                    creator)]() mutable { return c(); };
+      return Register(std::string(node_type), std::move(creator_fn),
+                      &definition);
+    } catch (const std::exception& e) {
+      RecordRegistrationFailure(node_type, " definition error: ", e.what());
+      return false;
+    } catch (...) {
+      RecordRegistrationFailure(node_type,
+                                " definition error: ", "unknown exception");
+      return false;
+    }
+  }
+
   std::unique_ptr<INode> Create(const std::string& node_type) const {
     CreatorFunc creator;
     {
@@ -75,12 +95,35 @@ class NodeRegistry {
     conflict_errors_.clear();
   }
 
+  void ClearConflictForTesting() noexcept {
+    std::lock_guard<std::mutex> lock(mutex_);
+    has_conflict_ = false;
+    conflict_errors_.clear();
+  }
+
  private:
   void RecordRegistrationFailure(std::string_view message) noexcept {
     try {
       std::lock_guard<std::mutex> lock(mutex_);
       has_conflict_ = true;
       conflict_errors_.emplace_back(message);
+    } catch (...) {
+      // Registration remains failed even if its diagnostic cannot be stored.
+    }
+  }
+
+  void RecordRegistrationFailure(std::string_view prefix,
+                                 std::string_view separator,
+                                 std::string_view message) noexcept {
+    try {
+      std::lock_guard<std::mutex> lock(mutex_);
+      has_conflict_ = true;
+      std::string full;
+      full.reserve(prefix.size() + separator.size() + message.size());
+      full.append(prefix);
+      full.append(separator);
+      full.append(message);
+      conflict_errors_.push_back(std::move(full));
     } catch (...) {
       // Registration remains failed even if its diagnostic cannot be stored.
     }
@@ -96,12 +139,13 @@ class NodeRegistry {
 // Source compatibility for extensions using the former name.
 using NodeFactory = NodeRegistry;
 
-#define REGISTER_NODE_WITH_DEFINITION(NodeType, ...)                        \
-  static bool _reg_node_##NodeType = []() noexcept {                        \
-    const auto definition = (__VA_ARGS__);                                  \
-    return ::llm_edgeflow::NodeRegistry::Instance().Register(               \
-        NodeType::kNodeType, []() { return std::make_unique<NodeType>(); }, \
-        &definition);                                                       \
+#define REGISTER_NODE_WITH_DEFINITION(NodeType, ...)       \
+  static bool _reg_node_##NodeType = []() noexcept {       \
+    return ::llm_edgeflow::NodeRegistry::Instance()        \
+        .RegisterWithDefinitionFactory(                    \
+            NodeType::kNodeType,                           \
+            []() { return std::make_unique<NodeType>(); }, \
+            []() { return (__VA_ARGS__); });               \
   }()
 
 }  // namespace llm_edgeflow

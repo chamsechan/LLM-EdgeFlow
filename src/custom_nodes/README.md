@@ -16,7 +16,7 @@
 | 对接新的平台输入输出结构 | [业务接入指南](../../doc/dev_guide/business_onboarding.md) |
 
 入门使用[轻量 C++ 模板](../../dev_support/node_authoring/starter_llm_node.cpp)。
-`--kind model -m llm` 直接从它生成代码；先填写 `BuildPrompt`、`FormatAnswer`，其余
+`--kind model -m llm --authoring basic` 直接从它生成代码；先填写 `BuildPrompt`、`FormatAnswer`，其余
 固定结构继续负责端口、模型调用和来源检查。该模板不作为新内置节点加入生产 Catalog，
 生成并登记到本目录后才成为你自己的操作。
 
@@ -33,8 +33,8 @@
    # Control 入门：文本前缀更新，选择尚未使用的 custom 命令 ID
    ./scripts/scaffold_custom_node.py PrefixControlNode --control-id 1001 --add-to-cmake --generate-test
 
-   # 推荐入门：填写 BuildPrompt 和 FormatAnswer；使用 ModelBoundNode<ILlmModel>
-   ./scripts/scaffold_custom_node.py DomainPromptNode --kind model -m llm --add-to-cmake --generate-test
+   # 推荐入门：普通函数 + Spec；生成并登记实际测试
+   ./scripts/scaffold_custom_node.py DomainPromptNode --kind model -m llm --authoring basic --add-to-cmake --write-test
 
    # 已熟悉批处理接口后：一对一保序推理
    ./scripts/scaffold_custom_node.py FastAudioNode --kind unary_inference -m asr --add-to-cmake
@@ -42,7 +42,11 @@
 
    `--generate-test` **打印**可编译的注册测试片段，不会自动创建或登记测试文件。
    把片段及领域断言加入现有测试套件。`--dry-run` 仅打印；已有文件默认拒绝覆盖。
-3. 在生成文件中实现请求内逻辑。`TraceableItem` 的载荷为 `.data`，保留来源的写法是
+   `--authoring advanced` 保留生命周期路径，也是脚手架省略该选项时的默认值。
+   basic compute 支持 TextBatch 的 Map，basic model 支持 LLM 快捷组合。
+   多输入与条件调用参考[自由 Batch](../../dev_support/node_authoring/starter_batch_node.cpp)，
+   两种能力参考[多模型](../../dev_support/node_authoring/starter_multi_model_node.cpp)。
+3. basic 在普通函数中实现算法，通过 Spec 声明字段和端口；高级路径在生成文件中实现请求内逻辑。`TraceableItem` 的载荷为 `.data`，保留来源的写法是
    `outputs.emplace_back(item.req_id, item.sub_id, new_value)`；模型句柄通过 `model()`
    使用。请求数据留在局部变量，成员只存配置或安全共享句柄。
 4. 在同文件维护 `NodeDefinition`：逻辑端口、配置字段、模型能力及并发声明与实现一致。

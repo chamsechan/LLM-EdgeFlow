@@ -121,6 +121,10 @@ def native(tool, arguments, root, document=None):
         raise RecipeError(f"Native tool returned no JSON: {process.stdout}\n{process.stderr}") from error
     if process.returncode or not report.get("ok", False):
         raise RecipeError("Native " + arguments[0] + " failed", report)
+    if arguments and arguments[0] == "catalog":
+        schema_version = report.get("schema_version")
+        if schema_version != 3:
+            raise RecipeError(f"Unsupported Catalog schema version {schema_version}; dev_recipe requires Catalog v3", report)
     return report
 
 
@@ -217,7 +221,9 @@ def select_llm_node(pipeline, catalog):
     choices = []
     for index, node in enumerate(pipeline["pipeline"]):
         definition = definitions.get(node["node_type"], {})
-        if definition.get("model_capability") != "llm":
+        model_deps = definition.get("model_dependencies", [])
+        llm_dep = next((dep for dep in model_deps if dep.get("capability") == "llm"), None)
+        if not llm_dep:
             continue
         inputs, outputs = definition.get("inputs", []), definition.get("outputs", [])
         if len(inputs) != 1 or len(outputs) != 1:
@@ -226,7 +232,7 @@ def select_llm_node(pipeline, catalog):
                port.get("provenance_policy") != "preserve" or port.get("lifetime") != "request"
                for port in [*inputs, *outputs]):
             continue
-        field = definition.get("model_config_field")
+        field = llm_dep.get("config_field")
         model_id = node.get("config", {}).get(field)
         if model_id is None:
             model_id = next((f.get("default") for f in definition.get("config_fields", []) if f["name"] == field), None)
@@ -242,7 +248,7 @@ def select_llm_node(pipeline, catalog):
 
 
 def prepare(recipe, name, profile_name, tool_path, build_dir, pipeline_target, root,
-            effects_path=None, model_root=None, manifest_path=None):
+            effects_path=None, model_root=None, manifest_path=None, authoring="basic"):
     root = root.resolve()
     step, completed = "preconditions", []
     try:
@@ -284,8 +290,8 @@ def prepare(recipe, name, profile_name, tool_path, build_dir, pipeline_target, r
             test = root / "tests/unit/nodes" / ("test_" + snake + ".cpp")
             in_port, out_port = ("input", "TextBatch", "1:1", "preserve"), ("output", "TextBatch", "1:1", "preserve")
             description = f"{name} custom LLM node"
-            plan.add_new_file(src, SCAFFOLD.render_model_node(name, description, "llm", in_port, out_port))
-            plan.add_new_file(test, SCAFFOLD.render_standalone_test(name, description, "model", "llm", in_port, out_port))
+            plan.add_new_file(src, SCAFFOLD.render_model_node(name, description, "llm", in_port, out_port, authoring=authoring))
+            plan.add_new_file(test, SCAFFOLD.render_standalone_test(name, description, "model", "llm", in_port, out_port, authoring=authoring))
             for path, update, filename in [
                 (root / "src/custom_nodes/CMakeLists.txt", SCAFFOLD.updated_cmakelists, src.name),
                 (root / "cmake_ext/CustomNodeTests.cmake", SCAFFOLD.updated_custom_node_tests_cmake, test.name),
@@ -441,6 +447,8 @@ def main():
         sub.add_argument("--effects", type=Path, required=operation == "verify")
         sub.add_argument("--model-root", type=Path, required=operation == "verify")
         sub.add_argument("--manifest", type=Path)
+        sub.add_argument("--authoring", choices=["basic", "advanced"], default="basic",
+                         help="Authoring style for scaffolded custom node (default: basic)")
         sub.add_argument("--demo", type=Path)
         sub.add_argument("--json", action="store_true")
     args = parser.parse_args()
@@ -448,7 +456,8 @@ def main():
         return list_recipes(args.json)
     if args.command == "prepare":
         report = prepare(args.recipe, args.name, args.profile, args.tool, args.build_dir, args.pipeline, ROOT,
-                         args.effects, args.model_root, args.manifest)
+                         args.effects, args.model_root, args.manifest,
+                         authoring=getattr(args, "authoring", "basic"))
     else:
         report = verify_recipe(args.recipe, args.pipeline, args.tool, args.build_dir, args.effects,
                                args.model_root, args.name, args.demo, args.manifest)

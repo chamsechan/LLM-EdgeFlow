@@ -222,8 +222,7 @@ NodeDefinition MakeTextRerankNodeDefinition() {
           1000.0,
           {},
           "按 req_id 分组，用重排模型分数降序保留的候选条数上限。"}};
-  def.model_capability = "rerank";
-  def.model_config_field = "bind_model";
+  def.model_dependencies = {{"reranker", "rerank", "bind_model"}};
   def.parallel_safe = true;
   return def;
 }

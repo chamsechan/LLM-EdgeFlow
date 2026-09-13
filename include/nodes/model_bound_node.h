@@ -6,6 +6,7 @@
 
 #include "contracts/config_schema_validation.h"
 #include "core/pipeline_catalog.h"
+#include "engine/model_capability_traits.h"
 #include "nodes/node_base.h"
 
 namespace llm_edgeflow {
@@ -38,24 +39,48 @@ class ModelBoundNode : public NodeBase {
   bool InitNode(const NodeInitContext& init_ctx, const nlohmann::json& config,
                 SessionContext& session_ctx) final {
     const auto definition = PipelineCatalog::FindNode(Name());
-    if (!definition || definition->model_config_field.empty())
-      return init_ctx.Fail("Node Definition has no model binding field");
+    if (!definition || definition->model_dependencies.size() != 1) {
+      return init_ctx.Fail(
+          "Node Definition must declare exactly one model dependency");
+    }
+    const auto& dep = definition->model_dependencies.front();
+    if (dep.capability !=
+        ModelCapabilityTraits<ModelCapability>::Capability()) {
+      return init_ctx.Fail(
+          "Node model capability does not match template capability");
+    }
 
     nlohmann::json normalized;
-    std::vector<ConfigFieldValidationError> errors;
-    if (!ValidateAndNormalizeFields(definition->config_fields, config,
-                                    &normalized, &errors)) {
-      return init_ctx.Fail(errors.empty() ? "Invalid model Node configuration"
-                                          : errors.front().message);
+    if (init_ctx.plan) {
+      const auto* binding = init_ctx.plan->FindModelBinding(dep.name);
+      if (!binding || binding->model_id.empty()) {
+        return init_ctx.Fail("Model binding for '" + dep.name +
+                             "' is missing or empty in plan");
+      }
+      if (binding->capability != dep.capability) {
+        return init_ctx.Fail("Model binding capability mismatch for '" +
+                             dep.name + "'");
+      }
+      model_id_ = binding->model_id;
+      normalized = init_ctx.plan->normalized_config;
+    } else {
+      std::vector<ConfigFieldValidationError> errors;
+      if (!ValidateAndNormalizeFields(definition->config_fields, config,
+                                      &normalized, &errors)) {
+        return init_ctx.Fail(errors.empty() ? "Invalid model Node configuration"
+                                            : errors.front().message);
+      }
+      model_id_.clear();
+      if (normalized.contains(dep.config_field) &&
+          normalized[dep.config_field].is_string()) {
+        model_id_ = normalized[dep.config_field].template get<std::string>();
+      }
+      if (model_id_.empty()) {
+        return init_ctx.Fail("Model binding field '" + dep.config_field +
+                             "' is empty");
+      }
     }
 
-    const std::string& field_name = definition->model_config_field;
-    model_id_.clear();
-    if (normalized.contains(field_name) && normalized[field_name].is_string()) {
-      model_id_ = normalized[field_name].get<std::string>();
-    }
-    if (model_id_.empty())
-      return init_ctx.Fail("Model binding field '" + field_name + "' is empty");
     model_ = session_ctx.GetModelManager().GetModel<ModelCapability>(model_id_);
     if (!model_) {
       return init_ctx.Fail(
