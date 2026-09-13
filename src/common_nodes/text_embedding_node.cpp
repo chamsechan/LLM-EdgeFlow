@@ -215,8 +215,7 @@ NodeDefinition MakeTextEmbeddingNodeDefinition() {
                             "request 每次请求计算；session "
                             "按模型版本、归一化选项和输入缓存向量，输入须满足 "
                             "session 生命周期契约。"}};
-  def.model_capability = "embedding";
-  def.model_config_field = "bind_model";
+  def.model_dependencies = {{"encoder", "embedding", "bind_model"}};
   def.parallel_safe = true;
   return def;
 }

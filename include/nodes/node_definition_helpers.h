@@ -27,8 +27,11 @@ inline NodeDefinition MakeCustomModelNodeDefinition(
   def.outputs = std::move(outputs);
   def.config_fields = {
       ConfigFieldDefinition{"bind_model", ConfigValueKind::kString, true}};
-  def.model_capability = ModelCapabilityTraits<ModelType>::Capability();
-  def.model_config_field = "bind_model";
+  def.model_dependencies = {NodeModelDependency{
+      "model",
+      ModelCapabilityTraits<ModelType>::Capability(),
+      "bind_model",
+  }};
   def.parallel_safe = false;
   return def;
 }

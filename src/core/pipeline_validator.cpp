@@ -644,39 +644,50 @@ void PopulateBasicRemediation(
           const auto& node_obj = root["pipeline"][p_idx];
           std::string node_type = node_obj.value("node_type", "");
           const auto* def = catalog.FindNode(node_type);
-          if (def && !def->model_config_field.empty() &&
-              node_obj.contains("config") &&
-              node_obj["config"].contains(def->model_config_field)) {
-            std::string model_id =
-                node_obj["config"][def->model_config_field].get<std::string>();
-            std::string req_cap = def->model_capability;
+          if (def) {
+            std::string expected_prefix =
+                "/pipeline/" + std::to_string(p_idx) + "/config/";
+            for (const auto& dep : def->model_dependencies) {
+              if (diag->path !=
+                  expected_prefix + EscapeJsonPointer(dep.config_field)) {
+                continue;
+              }
+              std::string model_id =
+                  (node_obj.contains("config") &&
+                   node_obj["config"].contains(dep.config_field) &&
+                   node_obj["config"][dep.config_field].is_string())
+                      ? node_obj["config"][dep.config_field].get<std::string>()
+                      : "";
+              std::string req_cap = dep.capability;
 
-            ValidationRemediation rem;
-            rem.schema_version = 1;
-            rem.cause = (diag->code == DiagnosticCode::kUnknownModelReference)
-                            ? "unknown_model_reference"
-                            : "model_capability_mismatch";
-            rem.facts["model_id"] = model_id;
-            rem.facts["required_capability"] = req_cap;
+              ValidationRemediation rem;
+              rem.schema_version = 1;
+              rem.cause = (diag->code == DiagnosticCode::kUnknownModelReference)
+                              ? "unknown_model_reference"
+                              : "model_capability_mismatch";
+              rem.facts["model_id"] = model_id;
+              rem.facts["required_capability"] = req_cap;
 
-            std::vector<std::string> candidate_model_ids;
-            if (root.contains("models") && root["models"].is_array()) {
-              for (size_t m_idx = 0; m_idx < root["models"].size(); ++m_idx) {
-                const auto& m = root["models"][m_idx];
-                if (!m.is_object()) continue;
-                std::string mid = m.value("model_id", "");
-                if (mid.empty()) continue;
-                if (m.value("capability", "") == req_cap) {
-                  candidate_model_ids.push_back(mid);
+              std::vector<std::string> candidate_model_ids;
+              if (root.contains("models") && root["models"].is_array()) {
+                for (size_t m_idx = 0; m_idx < root["models"].size(); ++m_idx) {
+                  const auto& m = root["models"][m_idx];
+                  if (!m.is_object()) continue;
+                  std::string mid = m.value("model_id", "");
+                  if (mid.empty()) continue;
+                  if (m.value("capability", "") == req_cap) {
+                    candidate_model_ids.push_back(mid);
+                  }
                 }
               }
+              std::sort(candidate_model_ids.begin(), candidate_model_ids.end());
+              rem.facts["candidate_model_ids"] = candidate_model_ids;
+              rem.summary = "节点 '" + diag->node_id + "' 引用的模型 '" +
+                            model_id + "' 与所需能力 '" + req_cap +
+                            "' 不符或未声明。";
+              diag->remediation = std::move(rem);
+              break;
             }
-            std::sort(candidate_model_ids.begin(), candidate_model_ids.end());
-            rem.facts["candidate_model_ids"] = candidate_model_ids;
-            rem.summary = "节点 '" + diag->node_id + "' 引用的模型 '" +
-                          model_id + "' 与所需能力 '" + req_cap +
-                          "' 不符或未声明。";
-            diag->remediation = std::move(rem);
           }
         }
       }
@@ -1033,8 +1044,12 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
         "No registered biz contract accepts pipeline name: " + parsed.biz_name);
   }
   if (NodeRegistry::Instance().HasConflict()) {
+    std::string message = "Node registry contains registration conflicts";
+    for (const auto& error : NodeRegistry::Instance().GetConflictErrors()) {
+      message += ": " + error;
+    }
     Add(&report, DiagnosticCode::kRegistryConflict, "/pipeline",
-        "Node registry contains registration conflicts");
+        std::move(message));
   }
   if (ModelRegistry::Instance().HasConflict()) {
     Add(&report, DiagnosticCode::kRegistryConflict, "/models",
@@ -1168,7 +1183,6 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
   std::unordered_map<std::string, const ParsedNodeConfig*> node_by_id;
   std::unordered_map<std::string, const NodeDefinition*> def_by_id;
   std::unordered_map<std::string, nlohmann::json> normalized_config_by_node;
-  std::unordered_map<std::string, std::string> model_id_by_node;
   for (const auto& node : nodes) {
     node_by_id[node.id] = &node;
     const auto* definition = catalog.FindNode(node.node_type);
@@ -1200,6 +1214,11 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
         std::unordered_set<std::string> connected;
         for (const auto& binding : node.ports.inputs)
           connected.insert(binding.first);
+        for (const auto& declared_input : definition->inputs) {
+          if (declared_input.required) {
+            connected.insert(declared_input.logical_name);
+          }
+        }
         std::string diagnostic;
         try {
           if (!definition->validate_config(normalized_config, connected,
@@ -1222,25 +1241,22 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
       }
       normalized_config_by_node[node.id] = normalized_config;
 
-      if (!definition->model_capability.empty()) {
+      for (const auto& dep : definition->model_dependencies) {
         std::string model_id;
-        if (normalized_config.contains(definition->model_config_field) &&
-            normalized_config[definition->model_config_field].is_string()) {
-          model_id = normalized_config[definition->model_config_field]
-                         .get<std::string>();
+        if (normalized_config.contains(dep.config_field) &&
+            normalized_config[dep.config_field].is_string()) {
+          model_id = normalized_config[dep.config_field].get<std::string>();
         }
         auto capability = model_capabilities.find(model_id);
-        if (!model_id.empty()) model_id_by_node[node.id] = model_id;
         std::string path = "/pipeline/" + std::to_string(node.source_index) +
-                           "/config/" + definition->model_config_field;
-        if (capability == model_capabilities.end()) {
+                           "/config/" + EscapeJsonPointer(dep.config_field);
+        if (model_id.empty() || capability == model_capabilities.end()) {
           Add(&report, DiagnosticCode::kUnknownModelReference, path,
               "Node references an unknown model_id: " + model_id, node.id);
-        } else if (capability->second != definition->model_capability) {
+        } else if (capability->second != dep.capability) {
           Add(&report, DiagnosticCode::kModelCapabilityMismatch, path,
-              "Node requires model capability '" +
-                  definition->model_capability + "' but model provides '" +
-                  capability->second + "'",
+              "Node requires model capability '" + dep.capability +
+                  "' but model provides '" + capability->second + "'",
               node.id);
         }
       }
@@ -1297,6 +1313,19 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
     ValidatedNodePlan node_plan;
     node_plan.node = node;
     node_plan.normalized_config = normalized_config;
+    for (const auto& dep : definition.model_dependencies) {
+      std::string model_id;
+      if (normalized_config.contains(dep.config_field) &&
+          normalized_config[dep.config_field].is_string()) {
+        model_id = normalized_config[dep.config_field].get<std::string>();
+      }
+      ResolvedNodeModelBinding binding;
+      binding.name = dep.name;
+      binding.capability = dep.capability;
+      binding.config_field = dep.config_field;
+      binding.model_id = std::move(model_id);
+      node_plan.model_bindings.push_back(std::move(binding));
+    }
 
     // 校验未声明的输入端口映射
     for (const auto& entry : node.ports.inputs) {
@@ -1559,21 +1588,28 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
           Add(&report, DiagnosticCode::kNodeNotParallelSafe, "/pipeline",
               "Node is not declared safe for wavefront parallel execution", id);
         }
-        auto model_id = model_id_by_node.find(id);
-        if (layer.size() > 1 && model_id != model_id_by_node.end()) {
-          auto concurrency = model_concurrency.find(model_id->second);
-          if (concurrency != model_concurrency.end() &&
-              concurrency->second == InferenceConcurrency::kSerialized) {
-            auto inserted =
-                serialized_model_users.emplace(model_id->second, id);
-            if (!inserted.second) {
-              const auto& node = *node_by_id.at(id);
-              Add(&report, DiagnosticCode::kSerializedModelConcurrency,
-                  "/pipeline/" + std::to_string(node.source_index) +
-                      "/config/" + def_it->second->model_config_field,
-                  "Parallel layer shares serialized model instance: " +
-                      model_id->second,
-                  id, {}, {inserted.first->second});
+        if (layer.size() > 1) {
+          const auto& node_plan = plan.node_plans[id];
+          std::unordered_set<std::string> seen_node_models;
+          for (const auto& binding : node_plan.model_bindings) {
+            if (binding.model_id.empty()) continue;
+            if (!seen_node_models.insert(binding.model_id).second) {
+              continue;
+            }
+            auto concurrency = model_concurrency.find(binding.model_id);
+            if (concurrency != model_concurrency.end() &&
+                concurrency->second == InferenceConcurrency::kSerialized) {
+              auto inserted =
+                  serialized_model_users.emplace(binding.model_id, id);
+              if (!inserted.second) {
+                const auto& node = *node_by_id.at(id);
+                Add(&report, DiagnosticCode::kSerializedModelConcurrency,
+                    "/pipeline/" + std::to_string(node.source_index) +
+                        "/config/" + EscapeJsonPointer(binding.config_field),
+                    "Parallel layer shares serialized model instance: " +
+                        binding.model_id,
+                    id, {}, {inserted.first->second});
+              }
             }
           }
         }
@@ -1735,21 +1771,29 @@ ValidationReport PipelineValidator::Explain(const nlohmann::json& root,
       std::string model_id = diag.remediation->facts.value("model_id", "");
       auto candidate_model_ids = diag.remediation->facts.value(
           "candidate_model_ids", std::vector<std::string>{});
-      if (def && !def->model_config_field.empty()) {
-        std::string model_path = "/pipeline/" + std::to_string(p_idx) +
-                                 "/config/" +
-                                 EscapeJsonPointer(def->model_config_field);
-        for (const auto& cand_id : candidate_model_ids) {
-          if (cand_id == model_id) continue;
-          ValidationFix fix;
-          fix.id = "use-model-" + std::to_string(++fix_counter);
-          fix.title = "使用模型 '" + cand_id + "'";
-          fix.effect =
-              "将模型引用从 '" + model_id + "' 更改为 '" + cand_id + "'。";
-          fix.patch = nlohmann::json::array(
-              {{{"op", "test"}, {"path", model_path}, {"value", model_id}},
-               {{"op", "replace"}, {"path", model_path}, {"value", cand_id}}});
-          candidate_fixes.push_back(std::move(fix));
+      if (def) {
+        std::string expected_prefix =
+            "/pipeline/" + std::to_string(p_idx) + "/config/";
+        for (const auto& dep : def->model_dependencies) {
+          std::string model_path =
+              expected_prefix + EscapeJsonPointer(dep.config_field);
+          if (diag.path == model_path) {
+            for (const auto& cand_id : candidate_model_ids) {
+              if (cand_id == model_id) continue;
+              ValidationFix fix;
+              fix.id = "use-model-" + std::to_string(++fix_counter);
+              fix.title = "使用模型 '" + cand_id + "'";
+              fix.effect =
+                  "将模型引用从 '" + model_id + "' 更改为 '" + cand_id + "'。";
+              fix.patch = nlohmann::json::array(
+                  {{{"op", "test"}, {"path", model_path}, {"value", model_id}},
+                   {{"op", "replace"},
+                    {"path", model_path},
+                    {"value", cand_id}}});
+              candidate_fixes.push_back(std::move(fix));
+            }
+            break;
+          }
         }
       }
     } else if (diag.remediation->cause == "producer_not_dependency_ancestor") {

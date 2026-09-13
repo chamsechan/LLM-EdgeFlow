@@ -101,14 +101,44 @@ NodeDefinition MakeModelBoundPlanTestNodeDefinition() {
   def.category = "test";
   def.description = "Model-bound plan test node";
   def.config_fields = {{"bind_model", ConfigValueKind::kString, true}};
-  def.model_capability = "plan_test";
-  def.model_config_field = "bind_model";
+  def.model_dependencies = {{"model", "plan_test", "bind_model"}};
   def.parallel_safe = true;
   return def;
 }
 
 REGISTER_NODE_WITH_DEFINITION(ModelBoundPlanTestNode,
                               MakeModelBoundPlanTestNodeDefinition());
+
+class MultiModelPlanTestNode : public INode {
+ public:
+  inline static constexpr char kNodeType[] = "MultiModelPlanTestNode";
+  bool Init(const NodeInitContext&) override { return true; }
+  int Process(AlgContext*) override { return 0; }
+  const std::string& Name() const override {
+    static const std::string name = kNodeType;
+    return name;
+  }
+};
+
+NodeDefinition MakeMultiModelPlanTestNodeDefinition() {
+  NodeDefinition def;
+  def.node_type = MultiModelPlanTestNode::kNodeType;
+  def.category = "test";
+  def.description = "Multi-model plan test node";
+  def.config_fields = {
+      {"bind_generator", ConfigValueKind::kString, true},
+      {"bind_reviewer", ConfigValueKind::kString, true},
+  };
+  def.model_dependencies = {
+      {"generator", "plan_test", "bind_generator"},
+      {"reviewer", "plan_test", "bind_reviewer"},
+  };
+  def.parallel_safe = true;
+  return def;
+}
+
+REGISTER_NODE_WITH_DEFINITION(MultiModelPlanTestNode,
+                              MakeMultiModelPlanTestNodeDefinition());
 
 class FlowContractProducerNode : public INode {
  public:
@@ -641,6 +671,72 @@ TEST(ValidatedPipelinePlanTest,
             DiagnosticCode::kMissingBizOutput);
   EXPECT_EQ(plan.report.diagnostics.back().related_nodes,
             std::vector<std::string>{"$egress"});
+}
+
+TEST(ValidatedPipelinePlanTest, MultiModelBindingsAndConcurrencyDeduplication) {
+  nlohmann::json base_pipeline = {
+      {"biz_name", "unregistered_test_biz"},
+      {"execution_mode", "parallel"},
+      {"models", nlohmann::json::array({
+                     {{"model_id", "shared_a"},
+                      {"model_type", SerializedPlanTestModel::kModelType},
+                      {"capability", "plan_test"},
+                      {"backend", "test_tensor_backend"},
+                      {"model_path", "model_a.bin"},
+                      {"model_config", nlohmann::json::object()},
+                      {"backend_config", nlohmann::json::object()}},
+                     {{"model_id", "independent_b"},
+                      {"model_type", SerializedPlanTestModel::kModelType},
+                      {"capability", "plan_test"},
+                      {"backend", "test_tensor_backend"},
+                      {"model_path", "model_b.bin"},
+                      {"model_config", nlohmann::json::object()},
+                      {"backend_config", nlohmann::json::object()}},
+                 })},
+      {"pipeline",
+       nlohmann::json::array({
+           {{"id", "multi_node"},
+            {"node_type", MultiModelPlanTestNode::kNodeType},
+            {"depends_on", nlohmann::json::array()},
+            {"config",
+             {{"bind_generator", "shared_a"}, {"bind_reviewer", "shared_a"}}}},
+           {{"id", "parallel_node"},
+            {"node_type", ModelBoundPlanTestNode::kNodeType},
+            {"depends_on", nlohmann::json::array()},
+            {"config", {{"bind_model", "independent_b"}}}},
+       })}};
+
+  // 1. 同节点同实例去重且独立实例并行通过
+  auto plan_ok = PipelineValidator::ValidateAndPlan(
+      base_pipeline, ValidationPolicy::kPrivateExtensionCompatible);
+  EXPECT_TRUE(plan_ok.report.ok);
+  const auto& multi_plan = plan_ok.node_plans["multi_node"];
+  ASSERT_EQ(multi_plan.model_bindings.size(), 2U);
+  EXPECT_EQ(multi_plan.model_bindings[0].name, "generator");
+  EXPECT_EQ(multi_plan.model_bindings[0].capability, "plan_test");
+  EXPECT_EQ(multi_plan.model_bindings[0].config_field, "bind_generator");
+  EXPECT_EQ(multi_plan.model_bindings[0].model_id, "shared_a");
+
+  EXPECT_EQ(multi_plan.model_bindings[1].name, "reviewer");
+  EXPECT_EQ(multi_plan.model_bindings[1].capability, "plan_test");
+  EXPECT_EQ(multi_plan.model_bindings[1].config_field, "bind_reviewer");
+  EXPECT_EQ(multi_plan.model_bindings[1].model_id, "shared_a");
+
+  // 2. 其他节点共享第一槽位或第二槽位的 serialized 模型时被拒绝
+  auto conflict_pipeline = base_pipeline;
+  conflict_pipeline["pipeline"][1]["config"]["bind_model"] = "shared_a";
+  auto plan_err = PipelineValidator::ValidateAndPlan(
+      conflict_pipeline, ValidationPolicy::kPrivateExtensionCompatible);
+  EXPECT_FALSE(plan_err.report.ok);
+  auto diag = std::find_if(
+      plan_err.report.diagnostics.begin(), plan_err.report.diagnostics.end(),
+      [](const auto& item) {
+        return item.code == DiagnosticCode::kSerializedModelConcurrency;
+      });
+  ASSERT_NE(diag, plan_err.report.diagnostics.end());
+  EXPECT_EQ(diag->node_id, "parallel_node");
+  EXPECT_EQ(diag->path, "/pipeline/1/config/bind_model");
+  EXPECT_EQ(diag->related_nodes, std::vector<std::string>{"multi_node"});
 }
 
 }  // namespace llm_edgeflow

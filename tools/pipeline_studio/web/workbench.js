@@ -1,5 +1,16 @@
-export function compatibleModels(models = [], modelDefinitions = [], nodeDefinition = null) {
-  const requiredCapability = nodeDefinition?.model_capability;
+export function compatibleModels(models = [], modelDefinitions = [], target = null) {
+  let requiredCapability = null;
+  if (typeof target === "string") {
+    requiredCapability = target;
+  } else if (target && typeof target === "object") {
+    if (target.capability) {
+      requiredCapability = target.capability;
+    } else if (Array.isArray(target.model_dependencies) && target.model_dependencies.length > 0) {
+      requiredCapability = target.model_dependencies[0].capability;
+    } else if (target.model_capability) {
+      requiredCapability = target.model_capability;
+    }
+  }
   if (!requiredCapability) return [...models];
 
   const capabilityByType = new Map(
@@ -17,9 +28,19 @@ export function modelBoundNodeIds(nodes = [], nodeDefinitions = []) {
   );
   const result = new Set();
   for (const node of nodes) {
-    const field = definitionByType.get(node.node_type)?.model_config_field;
-    const modelId = field ? node.config?.[field] : undefined;
-    if (typeof modelId === "string" && modelId.length > 0) result.add(node.id);
+    const def = definitionByType.get(node.node_type);
+    if (!def) continue;
+    const fields = (def.model_dependencies || []).map(d => d.config_field);
+    if (fields.length === 0 && def.model_config_field) {
+      fields.push(def.model_config_field);
+    }
+    for (const field of fields) {
+      const modelId = node.config?.[field];
+      if (typeof modelId === "string" && modelId.length > 0) {
+        result.add(node.id);
+        break;
+      }
+    }
   }
   return result;
 }
@@ -190,21 +211,39 @@ export function upsertModel(pipeline, catalog, previousId, model) {
   if (pipeline.models.some(item => item.model_id === model.model_id && item.model_id !== previousId)) throw new Error("模型 ID 重复");
   for (const node of pipeline.pipeline) {
     const nodeDefinition = catalog.nodes.find(item => item.node_type === node.node_type);
-    if (previousId && node.config?.[nodeDefinition?.model_config_field] === previousId && nodeDefinition.model_capability !== definition.capability) throw new Error("所选模型能力与引用节点不兼容");
+    if (previousId && nodeDefinition) {
+      const deps = nodeDefinition.model_dependencies || (nodeDefinition.model_config_field ? [{ config_field: nodeDefinition.model_config_field, capability: nodeDefinition.model_capability }] : []);
+      for (const dep of deps) {
+        if (node.config?.[dep.config_field] === previousId && dep.capability !== definition.capability) {
+          throw new Error("所选模型能力与引用节点不兼容");
+        }
+      }
+    }
   }
   model.capability = definition.capability;
   const index = pipeline.models.findIndex(item => item.model_id === previousId);
   if (index < 0) pipeline.models.push(model); else pipeline.models[index] = model;
-  if (previousId && previousId !== model.model_id) for (const node of pipeline.pipeline) {
-    const field = catalog.nodes.find(item => item.node_type === node.node_type)?.model_config_field;
-    if (field && node.config?.[field] === previousId) node.config[field] = model.model_id;
+  if (previousId && previousId !== model.model_id) {
+    for (const node of pipeline.pipeline) {
+      const nodeDefinition = catalog.nodes.find(item => item.node_type === node.node_type);
+      if (nodeDefinition && node.config) {
+        const deps = nodeDefinition.model_dependencies || (nodeDefinition.model_config_field ? [{ config_field: nodeDefinition.model_config_field }] : []);
+        for (const dep of deps) {
+          if (node.config[dep.config_field] === previousId) {
+            node.config[dep.config_field] = model.model_id;
+          }
+        }
+      }
+    }
   }
 }
 
 export function removeModel(pipeline, catalog, id) {
   const used = pipeline.pipeline.some(node => {
-    const field = catalog.nodes.find(item => item.node_type === node.node_type)?.model_config_field;
-    return field && node.config?.[field] === id;
+    const nodeDefinition = catalog.nodes.find(item => item.node_type === node.node_type);
+    if (!nodeDefinition || !node.config) return false;
+    const deps = nodeDefinition.model_dependencies || (nodeDefinition.model_config_field ? [{ config_field: nodeDefinition.model_config_field }] : []);
+    return deps.some(dep => node.config[dep.config_field] === id);
   });
   if (used) throw new Error("模型仍被节点使用，请先更换绑定");
   pipeline.models = pipeline.models.filter(model => model.model_id !== id);

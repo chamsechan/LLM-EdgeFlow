@@ -6,8 +6,9 @@
 #include "core/node_registry.h"
 #include "edgeflow/log.h"
 #include "engine/model_interface.h"
+#include "nodes/model_bound_node.h"
+#include "nodes/model_calls.h"
 #include "nodes/node_error_codes.h"
-#include "nodes/traceable_unary_inference_node.h"
 
 namespace llm_edgeflow {
 namespace {
@@ -64,39 +65,56 @@ bool ParseGenerateOptions(const nlohmann::json& config,
 /**
  * @brief LLM 推理生成公共算子 (LlmGenerateNode, 调用绑定的 ILlmModel)
  */
-class LlmGenerateNode final
-    : public TraceableUnaryInferenceNode<ILlmModel, std::string, std::string> {
+class LlmGenerateNode final : public ModelBoundNode<ILlmModel> {
  public:
   inline static constexpr char kNodeType[] = "LlmGenerateNode";
 
-  LlmGenerateNode()
-      : TraceableUnaryInferenceNode(
-            kNodeType, "prompt", "text",
-            node_error::llm_generate::kMissingInput,
-            node_error::llm_generate::kOutputCountMismatch,
-            node_error::llm_generate::kOutputProvenanceMismatch) {}
+  LlmGenerateNode() : ModelBoundNode(kNodeType) {}
 
  protected:
   bool InitModelNode(const NodeInitContext& init_ctx,
-                     const nlohmann::json& config,
-                     SessionContext& session_ctx) override {
-    if (!TraceableUnaryInferenceNode::InitModelNode(init_ctx, config,
-                                                    session_ctx)) {
-      return false;
+                     const nlohmann::json& config, SessionContext&) override {
+    BindPort(init_ctx, input_);
+    BindPort(init_ctx, output_);
+    std::string diagnostic;
+    if (!ParseGenerateOptions(config, &gen_opt_, &diagnostic)) {
+      return init_ctx.Fail(diagnostic);
     }
-    return ParseGenerateOptions(config, &gen_opt_, nullptr);
+    generator_ = LlmCall(model());
+    return true;
   }
 
-  int InferBatch(const InputBatch& prompts, OutputBatch* outputs) override {
+  int ProcessNode(AlgContext& ctx) override {
+    const auto* prompts =
+        input_.Require(ctx, node_error::llm_generate::kMissingInput);
+    if (!prompts) return node_error::llm_generate::kMissingInput;
     ALG_LOG_DEBUG(
-        "[LlmGenerateNode] Inferring LLM outputs for %zu prompt "
-        "items...\n",
-        prompts.size());
-    return model()->Generate(prompts, gen_opt_, outputs);
+        "[LlmGenerateNode] Inferring LLM outputs for %zu prompt items...\n",
+        prompts->size());
+    auto result = generator_.Generate(*prompts, gen_opt_);
+    if (!result.ok()) {
+      // Keep this existing node's public error codes while sharing validation.
+      const auto& failure = result.failure();
+      int code = failure.cause_code;
+      std::string message = Name() + " inference failed";
+      if (failure.kind == NodeErrorKind::kOutputCountMismatch) {
+        code = node_error::llm_generate::kOutputCountMismatch;
+        message = Name() + " output count mismatch";
+      } else if (failure.kind == NodeErrorKind::kOutputProvenanceMismatch) {
+        code = node_error::llm_generate::kOutputProvenanceMismatch;
+        message = Name() + " output provenance mismatch";
+      }
+      return Fail(ctx, code, message);
+    }
+    output_.Set(ctx, std::move(result).value());
+    return 0;
   }
 
  private:
+  BoundInput<TextBatch> input_{"prompt"};
+  BoundOutput<TextBatch> output_{"text"};
   GenerateOptions gen_opt_;
+  LlmCall generator_;
 };
 
 NodeDefinition MakeLlmGenerateNodeDefinition() {
@@ -177,8 +195,7 @@ NodeDefinition MakeLlmGenerateNodeDefinition() {
                             {},
                             "生成停止文本数组，例如 [\"结束\", "
                             "\"<END>\"]；命中后输出不包含停止文本。"}};
-  def.model_capability = "llm";
-  def.model_config_field = "bind_model";
+  def.model_dependencies = {{"generator", "llm", "bind_model"}};
   def.parallel_safe = true;
   return def;
 }

@@ -64,6 +64,8 @@ with output.open("w", encoding="utf-8") as stream:
             tag = "Model" if kind == "model" else "Unary"
             standalone_cases.append((f"ScaffoldWritten{tag}{capability.capitalize()}Node",
                                      ["--kind", kind, "--model-capability", capability]))
+    standalone_cases.append(("ScaffoldWrittenBasicLlmNode", ["--authoring", "basic", "--kind", "model", "-m", "llm"]))
+    standalone_cases.append(("ScaffoldWrittenBasicMapNode", ["--authoring", "basic", "--kind", "compute"]))
     with tempfile.TemporaryDirectory(prefix="edgeflow-written-fixtures-") as directory:
         fixture_root = Path(directory)
         for relative in ("src/custom_nodes/CMakeLists.txt", "cmake_ext/CustomNodeTests.cmake"):

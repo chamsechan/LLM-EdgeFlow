@@ -24,7 +24,9 @@ def find_template(rel_path):
     return Path(__file__).resolve().parents[1] / rel_path
 
 
-STARTER_LLM_TEMPLATE = find_template("dev_support/node_authoring/starter_llm_node.cpp")
+STARTER_LLM_BASIC_TEMPLATE = find_template("dev_support/node_authoring/starter_llm_node.cpp")
+STARTER_LLM_ADVANCED_TEMPLATE = find_template("dev_support/node_authoring/starter_llm_node_advanced.cpp")
+STARTER_LLM_TEMPLATE = STARTER_LLM_ADVANCED_TEMPLATE
 STARTER_CONTROL_TEMPLATE = find_template("dev_support/node_authoring/starter_control_node.cpp")
 
 
@@ -74,7 +76,7 @@ def get_item_type_for_batch(batch):
 def render_llm_starter(name, description, in_name, out_name):
     """Use the readable, compiled starter as the single LLM model template."""
     source = STARTER_LLM_TEMPLATE.read_text(encoding="utf-8")
-    source = source.replace("StarterLlmNode", name)
+    source = source.replace("StarterAdvancedLlmNode", name)
     literals = {
         '"input"': cpp_string(in_name),
         '"output"': cpp_string(out_name),
@@ -85,7 +87,73 @@ def render_llm_starter(name, description, in_name, out_name):
                   lambda match: literals[match.group()], source)
 
 
-def render_node(name, description, kind, capability, in_port, out_port, control_id=None):
+def render_basic_map_node(name, description, in_port, out_port):
+    in_name, in_type, in_card, in_prov = in_port
+    out_name, out_type, out_card, out_prov = out_port
+    spec_func = f"{name}Spec"
+    return f"""#include <string>
+
+#include "nodes/authoring.h"
+
+namespace llm_edgeflow {{
+namespace custom_nodes {{
+namespace {{
+
+// Map starter: transforms each input item independently while preserving provenance.
+static std::string Transform(const std::string& input) {{
+  // TODO: Replace with your domain logic.
+  return input;
+}}
+
+auto {spec_func}() {{
+  return MakeMapSpec(
+      Input<{in_type}>({cpp_string(in_name)}),
+      Output<{out_type}>({cpp_string(out_name)}),
+      &Transform)
+      .Description({cpp_string(description)});
+}}
+
+REGISTER_FUNCTION_NODE({name}, {spec_func}());
+
+}}  // namespace
+}}  // namespace custom_nodes
+}}  // namespace llm_edgeflow
+"""
+
+
+def render_basic_llm_starter(name, description, in_name, out_name):
+    source = STARTER_LLM_BASIC_TEMPLATE.read_text(encoding="utf-8")
+    source = source.replace("StarterLlmNode", name)
+    source = source.replace("StarterLlmSpec", f"{name}Spec")
+    literals = {
+        '"input"': cpp_string(in_name),
+        '"output"': cpp_string(out_name),
+        '"LLM authoring starter"': cpp_string(description),
+    }
+    return re.sub(r'"input"|"output"|"LLM authoring starter"',
+                  lambda match: literals[match.group()], source)
+
+
+def render_node(name, description, kind, capability, in_port, out_port, control_id=None, authoring="advanced"):
+    if authoring == "basic":
+        if control_id is not None:
+            raise ValueError("--authoring basic does not support Control; use --authoring advanced")
+        in_name, in_type, in_card, in_prov = in_port
+        out_name, out_type, out_card, out_prov = out_port
+        if kind == "compute":
+            if (in_type, out_type) != ("TextBatch", "TextBatch"):
+                raise ValueError(f"--authoring basic for compute only supports TextBatch -> TextBatch; use --authoring advanced for {in_type} -> {out_type}")
+            if (in_card, in_prov, out_card, out_prov) != ("1:1", "preserve", "1:1", "preserve"):
+                raise ValueError("--authoring basic requires 1:1 preserve ports; use --authoring advanced for custom cardinality/provenance")
+            return render_basic_map_node(name, description, in_port, out_port)
+        elif kind == "model" and capability == "llm":
+            if (in_type, out_type) != ("TextBatch", "TextBatch") or (in_card, in_prov, out_card, out_prov) != ("1:1", "preserve", "1:1", "preserve"):
+                raise ValueError("--authoring basic for LLM requires TextBatch 1:1 preserve ports; use --authoring advanced for other batch types")
+            return render_basic_llm_starter(name, description, in_name, out_name)
+        else:
+            target = f"model ({capability})" if kind == "model" else kind
+            raise ValueError(f"--authoring basic does not support {target}; use --authoring advanced")
+
     in_name, in_type, in_card, in_prov = in_port
     out_name, out_type, out_card, out_prov = out_port
     signature = CAPABILITY_MAP.get(capability)
@@ -181,8 +249,11 @@ def render_node(name, description, kind, capability, in_port, out_port, control_
     model_definition = ""
     if kind != "compute":
         model_definition = f"""  def.config_fields = {{ConfigFieldDefinition{{"bind_model", ConfigValueKind::kString, true}}}};
-  def.model_capability = {cpp_string(capability)};
-  def.model_config_field = "bind_model";
+  def.model_dependencies = {{NodeModelDependency{{
+      "model",
+      {cpp_string(capability)},
+      "bind_model",
+  }}}};
 """
     return f"""#include <string>
 #include <string_view>
@@ -237,16 +308,16 @@ REGISTER_NODE_WITH_DEFINITION({name}, Make{name}Definition());
 """
 
 
-def render_compute_node(name, description, in_port, out_port):
-    return render_node(name, description, "compute", None, in_port, out_port)
+def render_compute_node(name, description, in_port, out_port, authoring="advanced"):
+    return render_node(name, description, "compute", None, in_port, out_port, authoring=authoring)
 
 
-def render_model_node(name, description, capability, in_port, out_port):
-    return render_node(name, description, "model", capability, in_port, out_port)
+def render_model_node(name, description, capability, in_port, out_port, authoring="advanced"):
+    return render_node(name, description, "model", capability, in_port, out_port, authoring=authoring)
 
 
-def render_unary_inference_node(name, description, capability, in_port, out_port):
-    return render_node(name, description, "unary_inference", capability, in_port, out_port)
+def render_unary_inference_node(name, description, capability, in_port, out_port, authoring="advanced"):
+    return render_node(name, description, "unary_inference", capability, in_port, out_port, authoring=authoring)
 
 
 def render_test_stub(name):
@@ -330,9 +401,85 @@ TEST(CustomNodeCatalogTest, {name}RejectsInvalidInitialPrefix) {{
 '''
 
 
-def render_standalone_test(name, description, kind, capability, in_port, out_port, control_id=None):
+def render_standalone_test(name, description, kind, capability, in_port, out_port, control_id=None, authoring="advanced"):
     in_name, in_type, in_card, in_prov = in_port
     out_name, out_type, out_card, out_prov = out_port
+
+    if authoring == "basic":
+        if kind == "compute":
+            return f"""#include <gtest/gtest.h>
+#include <string>
+#include <vector>
+
+#include "core/node_registry.h"
+#include "core/pipeline_catalog.h"
+#include "tests/support/node_harness.h"
+
+namespace llm_edgeflow {{
+
+TEST(CustomNodeCatalogTest, {name}_RegistrationAndInstantiation) {{
+  const auto def = PipelineCatalog::FindNode({cpp_string(name)});
+  ASSERT_TRUE(def.has_value());
+  EXPECT_EQ(def->category, "custom");
+  EXPECT_FALSE(def->inputs.empty());
+  EXPECT_FALSE(def->outputs.empty());
+  auto node = NodeRegistry::Instance().Create({cpp_string(name)});
+  ASSERT_NE(node, nullptr);
+  EXPECT_EQ(node->Name(), {cpp_string(name)});
+}}
+
+TEST(CustomNodeCatalogTest, {name}_MapPreservesInputData) {{
+  NodeHarness harness({cpp_string(name)});
+  harness.TextInput({cpp_string(in_name)}, {{"sample_text_1", "sample_text_2"}});
+  auto result = harness.Run();
+  ASSERT_TRUE(result.ok()) << result.diagnostic();
+  EXPECT_EQ(result.TextValues({cpp_string(out_name)}),
+            (std::vector<std::string>{{"sample_text_1", "sample_text_2"}}));
+}}
+
+}}  // namespace llm_edgeflow
+"""
+        elif kind == "model" and capability == "llm":
+            return f"""#include <gtest/gtest.h>
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "core/node_registry.h"
+#include "core/pipeline_catalog.h"
+#include "engine/model_interface.h"
+#include "tests/support/node_harness.h"
+#include "tests/support/node_test_utils.h"
+
+namespace llm_edgeflow {{
+
+TEST(CustomNodeCatalogTest, {name}_RegistrationAndInstantiation) {{
+  const auto def = PipelineCatalog::FindNode({cpp_string(name)});
+  ASSERT_TRUE(def.has_value());
+  EXPECT_EQ(def->category, "custom");
+  EXPECT_FALSE(def->inputs.empty());
+  EXPECT_FALSE(def->outputs.empty());
+  auto node = NodeRegistry::Instance().Create({cpp_string(name)});
+  ASSERT_NE(node, nullptr);
+  EXPECT_EQ(node->Name(), {cpp_string(name)});
+}}
+
+TEST(CustomNodeCatalogTest, {name}_ExecutesLlmGeneration) {{
+  auto mock_model = std::make_shared<test::ControlledMockLlmModel>();
+  NodeHarness harness({cpp_string(name)});
+  harness.Config({{ {{"bind_model", "test_model"}} }});
+  harness.BindModel("test_model", mock_model);
+  harness.TextInput({cpp_string(in_name)}, {{"hello", "world"}});
+  auto result = harness.Run();
+  ASSERT_TRUE(result.ok()) << result.diagnostic();
+  EXPECT_EQ(result.TextValues({cpp_string(out_name)}),
+            (std::vector<std::string>{{"mock_answer:hello", "mock_answer:world"}}));
+}}
+
+}}  // namespace llm_edgeflow
+"""
+        else:
+            raise ValueError(f"--authoring basic does not support test generation for {kind}; use --authoring advanced")
 
     def sample_value_for_type(t, index=1):
         if t == "TextBatch":
@@ -715,7 +862,9 @@ TEST(CustomNodeCatalogTest, {name}_RegistrationAndInstantiation) {{
   const auto def = PipelineCatalog::FindNode({cpp_string(name)});
   ASSERT_TRUE(def.has_value());
   EXPECT_EQ(def->category, "custom");
-  EXPECT_EQ(def->model_capability, {cpp_string(capability)});
+  ASSERT_EQ(def->model_dependencies.size(), 1U);
+  EXPECT_EQ(def->model_dependencies[0].capability, {cpp_string(capability)});
+  EXPECT_EQ(def->model_dependencies[0].config_field, "bind_model");
   auto node = NodeRegistry::Instance().Create({cpp_string(name)});
   ASSERT_NE(node, nullptr);
   EXPECT_EQ(node->Name(), {cpp_string(name)});
@@ -1036,6 +1185,8 @@ def main():
     parser.add_argument("--generate-test", action="store_true", help="Print a starter Google Test snippet; add it to an existing suite")
     parser.add_argument("--write-test", action="store_true", help="Write a standalone test file in tests/unit/nodes/test_<snake_name>.cpp")
     parser.add_argument("--control-id", type=int, help="Generate the text-prefix Control starter using an unused custom command ID (>=1000)")
+    parser.add_argument("--authoring", choices=["basic", "advanced"], default="advanced",
+                        help="Authoring style: basic (function-oriented) or advanced (lifecycle/class)")
     parser.add_argument("--self-test", action="store_true", help="Run the generator's Python tests")
     args = parser.parse_args()
     root = Path(os.environ.get("LLM_EDGEFLOW_REPO_ROOT", Path(__file__).resolve().parent.parent))
@@ -1061,7 +1212,8 @@ def main():
         in_port = parse_port_spec(args.in_port or f"input:{signature[1]}", "input")
         out_port = parse_port_spec(args.out_port or f"output:{signature[2]}", "output")
         content = render_node(name, args.description or f"Custom algorithm node {name}.",
-                              args.kind, capability, in_port, out_port, args.control_id)
+                              args.kind, capability, in_port, out_port, args.control_id,
+                              authoring=args.authoring)
 
         target = root / args.output_dir / (to_snake_case(name) + ".cpp")
         test_filename = f"test_{to_snake_case(name)}.cpp"
@@ -1095,7 +1247,8 @@ def main():
 
         # --write-test mode
         test_content = render_standalone_test(name, args.description or f"Custom algorithm node {name}.",
-                                              args.kind, capability, in_port, out_port, args.control_id)
+                                              args.kind, capability, in_port, out_port, args.control_id,
+                                              authoring=args.authoring)
 
         plan = ChangePlan()
         plan.add_new_file(target, content)

@@ -12,11 +12,14 @@
 #include "core/alg_context.h"
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
+#include "core/pipeline_catalog.h"
 #include "core/pipeline_validator.h"
 #include "core/session_context.h"
 #include "dev_support/inference/test_biz_models.h"
 #include "dev_support/inference/test_capability_models.h"
 #include "engine/model_interface.h"
+#include "nodes/node_error_codes.h"
+#include "tests/support/node_harness.h"
 #include "tests/support/node_test_utils.h"
 
 namespace llm_edgeflow {
@@ -787,8 +790,9 @@ class PromptContractModel final : public ILlmModel {
     if (wrong_count && !output->empty()) output->pop_back();
     if (wrong_request && !output->empty()) ++output->back().req_id;
     if (wrong_sub_id && !output->empty()) ++output->back().sub_id;
-    return result;
+    return calls <= fail_first_calls ? -99 : result;
   }
+  int fail_first_calls = 0;
   TextBatch prompts;
   GenerateOptions last_options;
   int calls = 0;
@@ -798,6 +802,36 @@ class PromptContractModel final : public ILlmModel {
   bool wrong_sub_id = false;
   std::string response_prefix = "```text\n";
   std::string response_suffix = "\n```";
+};
+
+class StarterEmbeddingModel final : public IEmbeddingModel {
+ public:
+  const std::string& ModelType() const noexcept override {
+    static const std::string type = "starter_embedding";
+    return type;
+  }
+  const std::string& Capability() const noexcept override {
+    static const std::string capability = "embedding";
+    return capability;
+  }
+  InferenceConcurrency Concurrency() const noexcept override {
+    return InferenceConcurrency::kConcurrent;
+  }
+  size_t GetMaxBatchSize() const noexcept override { return 8; }
+  int Embed(const TextBatch& input, const EmbeddingOptions&,
+            EmbeddingBatch* output) noexcept override {
+    ++calls;
+    output->clear();
+    for (const auto& item : input) {
+      output->emplace_back(item.req_id, item.sub_id,
+                           empty_embedding ? std::vector<float>{}
+                                           : std::vector<float>{0.1f, 0.2f});
+    }
+    return result;
+  }
+  int calls = 0;
+  int result = 0;
+  bool empty_embedding = false;
 };
 
 nlohmann::json CustomPipeline(const std::string& biz) {
@@ -817,6 +851,13 @@ void CheckScaffoldExecution(const std::string& name, const std::string& model,
                  "1:1", "preserve", "request", PortDirection::kInput},
                 {"output", "result", BlackboardTypeTraits<Output>::TypeName(),
                  "1:1", "preserve", "request", PortDirection::kOutput}};
+  const auto def = PipelineCatalog::FindNode(name);
+  if (def) {
+    for (const auto& dep : def->model_dependencies) {
+      plan.model_bindings.push_back(
+          {dep.name, dep.capability, dep.config_field, model});
+    }
+  }
   ASSERT_TRUE(node->Init({&plan, nullptr, session}));
   Input input;
   for (const auto& id :
@@ -837,6 +878,169 @@ void CheckScaffoldExecution(const std::string& name, const std::string& model,
 }
 
 }  // namespace
+
+TEST_F(CommonNodesTest, LlmGeneratePreservesBatchOptionsAndEmptyInputContract) {
+  auto model = std::make_shared<PromptContractModel>();
+  ASSERT_TRUE(session_ctx_->GetModelManager().RegisterModel("generate_contract",
+                                                            model, "v1"));
+  for (bool custom_options : {false, true}) {
+    SCOPED_TRACE(custom_options);
+    auto node = NodeRegistry::Instance().Create("LlmGenerateNode");
+    ASSERT_NE(node, nullptr);
+    nlohmann::json config = {{"bind_model", "generate_contract"}};
+    if (custom_options) {
+      config.update({{"temperature", 0.5},
+                     {"max_tokens", 64},
+                     {"top_k", 12},
+                     {"top_p", 0.8},
+                     {"repetition_penalty", 1.2},
+                     {"stop_words", {"END", "STOP"}}});
+    }
+    ASSERT_TRUE(InitNodeForTest(*node, config, session_ctx_.get()));
+    const int before = model->calls;
+    const TextBatch prompts{
+        {17, 4, "first"}, {29, 8, "second"}, {17, 9, "third"}};
+    AlgContext ctx;
+    ctx.Publish("prompt", prompts);
+    ASSERT_EQ(node->Process(&ctx), 0) << ctx.GetErrorMessage();
+    EXPECT_EQ(model->calls, before + 1);  // Model owns batch scheduling.
+    ASSERT_EQ(model->prompts.size(), prompts.size());
+    const auto* output = ctx.Read<TextBatch>("text");
+    ASSERT_NE(output, nullptr);
+    ASSERT_EQ(output->size(), prompts.size());
+    for (size_t i = 0; i < prompts.size(); ++i) {
+      EXPECT_EQ(model->prompts[i].data, prompts[i].data);
+      EXPECT_EQ((*output)[i].req_id, prompts[i].req_id);
+      EXPECT_EQ((*output)[i].sub_id, prompts[i].sub_id);
+      EXPECT_EQ((*output)[i].data, model->response_prefix + prompts[i].data +
+                                       model->response_suffix);
+    }
+    EXPECT_FLOAT_EQ(model->last_options.temperature,
+                    custom_options ? 0.5f : 0.7f);
+    EXPECT_EQ(model->last_options.max_tokens, custom_options ? 64 : 128);
+    EXPECT_EQ(model->last_options.top_k, custom_options ? 12 : 0);
+    EXPECT_FLOAT_EQ(model->last_options.top_p, custom_options ? 0.8f : 0.9f);
+    EXPECT_FLOAT_EQ(model->last_options.repetition_penalty,
+                    custom_options ? 1.2f : 1.0f);
+    EXPECT_EQ(model->last_options.stop_words,
+              custom_options ? (std::vector<std::string>{"END", "STOP"})
+                             : std::vector<std::string>{});
+    AlgContext empty;
+    empty.Publish("prompt", TextBatch{});
+    ASSERT_EQ(node->Process(&empty), 0);
+    ASSERT_NE(empty.Read<TextBatch>("text"), nullptr);
+    EXPECT_TRUE(empty.Read<TextBatch>("text")->empty());
+    EXPECT_EQ(model->calls, before + 1);
+  }
+}
+
+TEST_F(CommonNodesTest, LlmGeneratePreservesFailureCodesWithoutPublishing) {
+  auto model = std::make_shared<PromptContractModel>();
+  ASSERT_TRUE(session_ctx_->GetModelManager().RegisterModel("generate_contract",
+                                                            model, "v1"));
+  auto node = NodeRegistry::Instance().Create("LlmGenerateNode");
+  ASSERT_NE(node, nullptr);
+  ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "generate_contract"}},
+                              session_ctx_.get()));
+  for (int fault = 0; fault < 6; ++fault) {
+    SCOPED_TRACE(fault);
+    model->result = fault == 2 ? -99 : 0;
+    model->wrong_count = fault == 3;
+    model->wrong_request = fault == 4;
+    model->wrong_sub_id = fault == 5;
+    AlgContext ctx;
+    if (fault == 1) ctx.Publish("prompt", Int32Batch{{1, 0, 123}});
+    if (fault >= 2)
+      ctx.Publish("prompt", TextBatch{{17, 4, "a"}, {29, 8, "b"}});
+    const int expected =
+        fault < 2    ? node_error::llm_generate::kMissingInput
+        : fault == 2 ? -99
+        : fault == 3 ? node_error::llm_generate::kOutputCountMismatch
+                     : node_error::llm_generate::kOutputProvenanceMismatch;
+    const int before = model->calls;
+    EXPECT_EQ(node->Process(&ctx), expected);
+    EXPECT_FALSE(ctx.IsOk());
+    EXPECT_FALSE(ctx.Has("text"));
+    EXPECT_EQ(model->calls, before + (fault >= 2 ? 1 : 0));
+  }
+}
+
+TEST_F(CommonNodesTest,
+       BatchStarterJoinsContextByRequestAndRetriesOnlyModelErrors) {
+  for (int fault = 0; fault < 4; ++fault) {
+    SCOPED_TRACE(fault);
+    auto model = std::make_shared<PromptContractModel>();
+    model->response_prefix.clear();
+    model->response_suffix.clear();
+    model->fail_first_calls = fault == 1 ? 1 : 0;
+    model->result = fault == 2 ? -99 : 0;
+    model->wrong_request = fault == 3;
+    NodeHarness harness("StarterBatchNode");
+    harness.Config({{"bind_model", "starter_llm"}, {"retry_once", true}});
+    harness.BindModel("starter_llm", model);
+    harness.TextInputWithBatch("questions",
+                               TextBatch{{17, 4, "first"}, {29, 8, "second"}});
+    harness.TextInputWithBatch(
+        "context", TextBatch{{29, 0, "B"}, {17, 0, "A"}, {17, 1, "A2"}});
+    auto result = harness.Run();
+    if (fault < 2) {
+      ASSERT_TRUE(result.ok()) << result.diagnostic();
+      EXPECT_EQ(result.TextValues("output"),
+                (std::vector<std::string>{"A\nA2\nfirst", "B\nsecond"}));
+      const auto* output = result.Output<TextBatch>("output");
+      ASSERT_NE(output, nullptr);
+      EXPECT_EQ((*output)[0].req_id, 17u);
+      EXPECT_EQ((*output)[0].sub_id, 4u);
+      EXPECT_EQ((*output)[1].req_id, 29u);
+      EXPECT_EQ((*output)[1].sub_id, 8u);
+    } else {
+      EXPECT_FALSE(result.ok());
+      EXPECT_FALSE(result.init_failed()) << result.diagnostic();
+      EXPECT_EQ(result.Output<TextBatch>("output"), nullptr);
+    }
+    EXPECT_EQ(model->calls, fault == 1 || fault == 2 ? 2 : 1);
+  }
+}
+
+TEST_F(CommonNodesTest,
+       MultiModelStarterExecutesBothCapabilitiesAndStopsOnFailure) {
+  for (int fault = 0; fault < 4; ++fault) {
+    SCOPED_TRACE(fault);
+    auto llm = std::make_shared<PromptContractModel>();
+    llm->response_prefix.clear();
+    llm->response_suffix.clear();
+    auto embedding = std::make_shared<StarterEmbeddingModel>();
+    embedding->result = fault == 1 ? -99 : 0;
+    embedding->empty_embedding = fault == 2;
+    llm->wrong_sub_id = fault == 3;
+    NodeHarness harness("StarterMultiModelNode");
+    harness.Config(
+        {{"bind_llm", "starter_llm"}, {"bind_embedding", "starter_embedding"}});
+    harness.BindModel("starter_llm", llm);
+    harness.BindModel("starter_embedding", embedding);
+    harness.TextInputWithBatch("questions",
+                               TextBatch{{17, 4, "first"}, {29, 8, "second"}});
+    auto result = harness.Run();
+    if (fault == 0) {
+      ASSERT_TRUE(result.ok()) << result.diagnostic();
+      EXPECT_EQ(result.TextValues("output"),
+                (std::vector<std::string>{"first\nEmbedding dimensions: 2",
+                                          "second\nEmbedding dimensions: 2"}));
+      const auto* output = result.Output<TextBatch>("output");
+      ASSERT_NE(output, nullptr);
+      EXPECT_EQ((*output)[0].req_id, 17u);
+      EXPECT_EQ((*output)[0].sub_id, 4u);
+      EXPECT_EQ((*output)[1].req_id, 29u);
+      EXPECT_EQ((*output)[1].sub_id, 8u);
+    } else {
+      EXPECT_FALSE(result.ok());
+      EXPECT_FALSE(result.init_failed()) << result.diagnostic();
+      EXPECT_EQ(result.Output<TextBatch>("output"), nullptr);
+    }
+    EXPECT_EQ(embedding->calls, 1);
+    EXPECT_EQ(llm->calls, fault == 1 || fault == 2 ? 0 : 1);
+  }
+}
 
 TEST_F(CommonNodesTest, PromptRendersOriginalTemplateAndIsolatesRequests) {
   auto model = std::make_shared<PromptContractModel>();

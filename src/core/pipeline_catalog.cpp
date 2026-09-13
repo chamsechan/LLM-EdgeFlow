@@ -228,13 +228,43 @@ bool PipelineCatalog::RegisterNodeDefinition(const NodeDefinition& definition,
                    validates_lifetime_override)) {
     return false;
   }
-  if (!definition.model_capability.empty()) {
-    if (definition.model_config_field.empty()) return false;
+  std::unordered_set<std::string> seen_dep_names;
+  std::unordered_set<std::string> seen_dep_config_fields;
+  for (const auto& dep : definition.model_dependencies) {
+    if (dep.name.empty() || dep.capability.empty() ||
+        dep.config_field.empty()) {
+      if (error) {
+        *error =
+            "Model dependency name, capability, and config_field must be "
+            "non-empty";
+      }
+      return false;
+    }
+    if (!seen_dep_names.insert(dep.name).second) {
+      if (error) *error = "Duplicate model dependency name: " + dep.name;
+      return false;
+    }
+    if (!seen_dep_config_fields.insert(dep.config_field).second) {
+      if (error) {
+        *error = "Duplicate model dependency config_field: " + dep.config_field;
+      }
+      return false;
+    }
     auto it = std::find_if(
         definition.config_fields.begin(), definition.config_fields.end(),
-        [&](const auto& f) { return f.name == definition.model_config_field; });
-    if (it == definition.config_fields.end() ||
-        it->kind != ConfigValueKind::kString) {
+        [&](const auto& f) { return f.name == dep.config_field; });
+    if (it == definition.config_fields.end()) {
+      if (error) {
+        *error = "Model dependency config_field '" + dep.config_field +
+                 "' not found in config_fields";
+      }
+      return false;
+    }
+    if (it->kind != ConfigValueKind::kString) {
+      if (error) {
+        *error = "Model dependency config_field '" + dep.config_field +
+                 "' must be of string kind";
+      }
       return false;
     }
   }
@@ -407,6 +437,14 @@ nlohmann::json PipelineCatalog::NodeToJson(const NodeDefinition& definition) {
     commands.push_back(ControlCommandJson(item));
   for (const auto& item : definition.config_fields)
     fields.push_back(FieldJson(item));
+  nlohmann::json model_deps = nlohmann::json::array();
+  for (const auto& dep : definition.model_dependencies) {
+    model_deps.push_back({
+        {"name", dep.name},
+        {"capability", dep.capability},
+        {"config_field", dep.config_field},
+    });
+  }
   return {{"node_type", definition.node_type},
           {"category", definition.category},
           {"description", definition.description},
@@ -415,8 +453,7 @@ nlohmann::json PipelineCatalog::NodeToJson(const NodeDefinition& definition) {
           {"port_constraints", std::move(constraints)},
           {"control_commands", std::move(commands)},
           {"config_fields", std::move(fields)},
-          {"model_capability", definition.model_capability},
-          {"model_config_field", definition.model_config_field},
+          {"model_dependencies", std::move(model_deps)},
           {"parallel_safe", definition.parallel_safe},
           {"biz_names", definition.biz_names}};
 }
@@ -492,7 +529,7 @@ nlohmann::json PipelineCatalog::ToJson(const std::string& biz_filter) {
                     {"egress", std::move(egress)}});
   }
 
-  return {{"schema_version", 2},
+  return {{"schema_version", 3},
           {"nodes", std::move(nodes)},
           {"models", std::move(models)},
           {"backends", std::move(backends)},

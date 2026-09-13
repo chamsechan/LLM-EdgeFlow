@@ -98,7 +98,7 @@ class ScaffoldCustomNodeTest(unittest.TestCase):
     def test_llm_starter_is_the_actual_generator_template(self):
         source = SCAFFOLD.STARTER_LLM_TEMPLATE.read_text(encoding="utf-8")
         generated = SCAFFOLD.render_model_node(
-            "StarterLlmNode", "LLM authoring starter", "llm",
+            "StarterAdvancedLlmNode", "LLM authoring starter", "llm",
             ("input", "TextBatch", "1:1", "preserve"),
             ("output", "TextBatch", "1:1", "preserve"))
         self.assertEqual(generated, source)
@@ -398,6 +398,40 @@ class ScaffoldCustomNodeTest(unittest.TestCase):
                     plan.commit()
             self.assertEqual(first.read_text(), "first user edit")
             self.assertEqual(second.read_text(), "second user edit")
+
+    def test_authoring_basic_generates_function_nodes_and_rejects_unsupported(self):
+        result = self.run_cli("BasicMapNode", "--authoring", "basic", "--dry-run")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("MakeMapSpec", result.stdout)
+        self.assertIn("REGISTER_FUNCTION_NODE(BasicMapNode, BasicMapNodeSpec());", result.stdout)
+        self.assertIn("Transform(const std::string& input)", result.stdout)
+
+        result = self.run_cli("BasicLlmNode", "--authoring", "basic", "--kind", "model", "-m", "llm", "--dry-run")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("MakeLlmTextSpec", result.stdout)
+        self.assertIn("REGISTER_FUNCTION_NODE(BasicLlmNode, BasicLlmNodeSpec());", result.stdout)
+        self.assertIn("BuildPrompt", result.stdout)
+        self.assertIn("FormatAnswer", result.stdout)
+
+        with tempfile.TemporaryDirectory() as temp:
+            for bad_args in [
+                ["--authoring", "basic", "--kind", "unary_inference", "-m", "llm"],
+                ["--authoring", "basic", "--kind", "model", "-m", "embedding"],
+                ["--authoring", "basic", "--control-id", "1005"],
+                ["--authoring", "basic", "--in-port", "input:TextBatch:1:N:generate_sub_id"],
+            ]:
+                res = self.run_cli("RejectedBasicNode", "--output-dir", temp, *bad_args)
+                self.assertNotEqual(res.returncode, 0, f"Expected failure for {bad_args}")
+                self.assertIn("--authoring advanced", res.stderr + res.stdout)
+                self.assertEqual(list(Path(temp).iterdir()), [])
+
+        with tempfile.TemporaryDirectory() as temp:
+            env = self._setup_mock_repo(temp)
+            res = self.run_cli("HarnessMapNode", "--authoring", "basic", "--write-test", "--add-to-cmake", env=env)
+            self.assertEqual(res.returncode, 0, res.stderr)
+            test_file = Path(temp) / "tests/unit/nodes/test_harness_map_node.cpp"
+            self.assertTrue(test_file.exists())
+            self.assertIn("NodeHarness harness(\"HarnessMapNode\");", test_file.read_text())
 
 
 if __name__ == "__main__":

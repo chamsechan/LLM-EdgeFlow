@@ -91,6 +91,15 @@ add_test(NAME RegistryConflictNodeTest COMMAND test_registry_conflict --gtest_fi
 set_tests_properties(RegistryConflictNodeTest PROPERTIES TIMEOUT 5)
 add_test(NAME RegistryConflictModelTest COMMAND test_registry_conflict --gtest_filter=RegistryConflictModelTest.*)
 set_tests_properties(RegistryConflictModelTest PROPERTIES TIMEOUT 5)
+foreach(_authoring_case invalid_default duplicate_member factory_exception)
+  add_test(NAME RegistryAuthoringStartup_${_authoring_case}
+    COMMAND ${CMAKE_COMMAND} -E env
+      "EDGEFLOW_BAD_AUTHORING_CASE=${_authoring_case}"
+      $<TARGET_FILE:test_registry_conflict>
+      --gtest_filter=RegistryAuthoringStartupTest.*)
+  set_tests_properties(RegistryAuthoringStartup_${_authoring_case}
+    PROPERTIES WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}" TIMEOUT 5)
+endforeach()
 
 add_executable(test_registry_reentrant ${EDGEFLOW_SOURCE_test_registry_reentrant})
 target_link_libraries(test_registry_reentrant PRIVATE llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
@@ -261,6 +270,14 @@ add_executable(test_common_nodes ${EDGEFLOW_SOURCE_test_common_nodes}
 target_link_libraries(test_common_nodes PRIVATE llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
 add_test(NAME CommonNodesTest COMMAND test_common_nodes)
 
+add_executable(test_function_node ${EDGEFLOW_SOURCE_test_function_node})
+target_link_libraries(test_function_node PRIVATE llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
+add_test(NAME FunctionNodeTest COMMAND test_function_node)
+
+add_executable(test_parameter_binding ${EDGEFLOW_SOURCE_test_parameter_binding})
+target_link_libraries(test_parameter_binding PRIVATE llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
+add_test(NAME ParameterBindingTest COMMAND test_parameter_binding)
+
 add_executable(test_operator_golden ${EDGEFLOW_SOURCE_test_operator_golden})
 target_link_libraries(test_operator_golden PRIVATE llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
 add_test(NAME OperatorGoldenTest COMMAND test_operator_golden)
@@ -316,6 +333,8 @@ set(EDGEFLOW_INDIVIDUAL_TESTS_WITH_RUNTIME_FIXTURES
   test_structured_json_parse_node
   test_text_corpus_source_node
   test_common_nodes
+  test_function_node
+  test_parameter_binding
   test_operator_golden
   test_adapter_purity)
 foreach(test_target IN LISTS EDGEFLOW_INDIVIDUAL_TESTS_WITH_RUNTIME_FIXTURES)
@@ -346,6 +365,6 @@ set_tests_properties(
   VectorTopKNodeTest TextRerankNodeTest TextTemplateNodeTest
   LlmGenerateNodeTest AsrTranscribeNodeTest OcrDetectNodeTest
   TextRuleMatchNodeTest StructuredJsonParseNodeTest TextCorpusSourceNodeTest
-  CommonNodesTest OperatorGoldenTest AdapterPurityTest
+  CommonNodesTest FunctionNodeTest ParameterBindingTest OperatorGoldenTest AdapterPurityTest
   PROPERTIES WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
 )

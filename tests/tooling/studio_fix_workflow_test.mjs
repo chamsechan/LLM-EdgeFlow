@@ -18,6 +18,7 @@ class Element {
   querySelectorAll() { return []; }
   focus() {}
   add(option) { this.append(option); }
+  get options() { return this.children; }
 }
 const elements = new Map();
 const document = {
@@ -28,7 +29,8 @@ const document = {
   querySelectorAll() { return []; }, createElement: tag => new Element(tag),
   addEventListener() {}, documentElement: new Element(), body: new Element(),
 };
-let previewResponse, previewCalls = 0, confirmations = 0;
+let previewResponse, previewCalls = 0, confirmations = 0, validationCalls = 0;
+let catalogVersion = 3;
 const context = vm.createContext({
   document, structuredClone, console, URL, URLSearchParams,
   setTimeout() {}, clearTimeout() {}, requestAnimationFrame() {},
@@ -36,9 +38,16 @@ const context = vm.createContext({
   window: { addEventListener() {}, confirm() { confirmations++; return true; },
     location: { search: "", hash: "" } },
   Option: class extends Element { constructor(text, value) { super("option"); this.textContent = text; this.value = value; } },
+  async testApi(path) {
+    if (path.startsWith("/catalog")) return { schema_version: catalogVersion, nodes: [], models: [], profiles: [], bizs: [] };
+    if (path === "/profiles") return { profiles: [] };
+    if (path === "/pipelines") return { pipelines: [] };
+    if (path === "/assets") return { selections: [], variants: [] };
+    throw new Error(`Unexpected API request: ${path}`);
+  },
   async testWrite(path) {
     if (path === "/fixes/preview") { previewCalls++; return await previewResponse; }
-    if (path === "/validate") return { ok: true, diagnostics: [], plan: { topological_order: [], layers: [] } };
+    if (path === "/validate") { validationCalls++; return { ok: true, diagnostics: [], plan: { topological_order: [], layers: [] } }; }
     throw new Error(`Unexpected API request: ${path}`);
   },
 });
@@ -47,13 +56,13 @@ const modules = new Map();
 async function load(name) {
   if (modules.has(name)) return modules.get(name);
   let code = readFileSync(new URL(name, web), "utf8");
-  if (name === "api.js") code = "export const initialPipeline = ''; export const api = async () => ({}); export const write = globalThis.testWrite;";
+  if (name === "api.js") code = "export const initialPipeline = ''; export const api = globalThis.testApi; export const write = globalThis.testWrite;";
   if (name === "graph.js") code = "export class GraphView { constructor() { this.positions = {}; } render() {} fit() {} focusNode() {} }";
   if (name === "app.js") {
     const startup = code.indexOf("\ntry {\n  await refreshLists();");
     assert.notEqual(startup, -1, "Locate and omit browser startup, without extracting the handler");
     code = code.slice(0, startup);
-    code += "\nrenderAll = () => {}; updateEditorStatus = () => {};\nexport { state, history, drafts, handleApplyFix, restoreHistory };";
+    code += "\nrenderAll = () => {}; updateEditorStatus = () => {};\nexport { state, history, drafts, handleApplyFix, restoreHistory, refreshLists, loadCatalog, validate };";
   }
   const module = new vm.SourceTextModule(code, { context, identifier: name });
   modules.set(name, module);
@@ -125,3 +134,20 @@ for (const schema_version of [0, 2, 999]) {
   assert.ok(flatten(container).some(node => node.textContent === "Readable old diagnostic"));
 }
 console.log("Studio real repair handler, history, late response and schema-version checks passed");
+
+// Exercise both Catalog entry paths and the real validation guard.
+for (const opened of [false, true]) {
+  reset();
+  if (!opened) state.pipeline = null;
+  catalogVersion = 2;
+  const beforeCalls = validationCalls;
+  await app.namespace.refreshLists();
+  assert.equal(state.catalogReady, false, "Reject old Catalog on startup and on an open document");
+  assert.match(elements.get("#toast").children[0].textContent, /Catalog v3/);
+  assert.equal(await app.namespace.validate(), false);
+  assert.equal(validationCalls, beforeCalls, "No request after an incompatible Catalog");
+  catalogVersion = 3;
+  await app.namespace.loadCatalog();
+  assert.equal(state.catalogReady, true, "A compatible Catalog restores readiness");
+}
+console.log("Studio Catalog version rejection and recovery passed");

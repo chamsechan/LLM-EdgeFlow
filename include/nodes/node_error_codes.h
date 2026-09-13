@@ -66,5 +66,16 @@ inline constexpr int kOutputCountMismatch = -7202;
 inline constexpr int kOutputProvenanceMismatch = -7203;
 }  // namespace asr_transcribe
 
+namespace author_node {
+inline constexpr int kMissingInput = -8001;
+inline constexpr int kBusinessError = -8002;
+inline constexpr int kModelCallFailed = -8003;
+inline constexpr int kOutputCountMismatch = -8004;
+inline constexpr int kOutputProvenanceMismatch = -8005;
+inline constexpr int kMissingOutputAnchor = -8006;
+inline constexpr int kDuplicateOutput = -8007;
+inline constexpr int kInternalError = -8008;
+}  // namespace author_node
+
 }  // namespace node_error
 }  // namespace llm_edgeflow

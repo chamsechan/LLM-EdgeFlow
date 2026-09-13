@@ -153,8 +153,7 @@ NodeDefinition MakeMockEmbeddingConsumerNodeDef() {
   def.category = "test";
   def.description = "Test node consuming embedding model";
   def.config_fields = {{"bind_model", ConfigValueKind::kString, true}};
-  def.model_capability = "embedding";
-  def.model_config_field = "bind_model";
+  def.model_dependencies = {{"encoder", "embedding", "bind_model"}};
   def.parallel_safe = true;
   return def;
 }
