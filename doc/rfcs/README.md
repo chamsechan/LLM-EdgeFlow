@@ -24,11 +24,8 @@
 | **RFC-0051** | 开发者任务路径、测试生成与修复诊断 | `In Implementation` | `v10.x` | 流程编排层、能力节点层、模型执行层 / Tooling / Docs | [0051-developer-task-experience.md](0051-developer-task-experience.md) |
 | **RFC-0052** | 面向基础 C++ 开发者的 Node 作者接口重构 | `In Implementation` | 投产前 / Catalog v3 | 流程编排层、能力节点层 / Tooling / Docs | [0052-function-oriented-node-authoring.md](0052-function-oriented-node-authoring.md) |
 | **RFC-0054** | Control 作者接口与不可变配置快照 | `In Implementation` | 投产前 | 能力节点层 / Tooling / Docs | [0054-controlled-configuration-snapshots.md](0054-controlled-configuration-snapshots.md) |
-| **RFC-0055** | 批次关联、分组、选择回填与拆分公共工具 | `Proposed` | 投产前 / Catalog v3 | 能力节点层 / Tooling / Docs | [0055-traceable-batch-operations.md](0055-traceable-batch-operations.md) |
 
-RFC-0054–0055 是接续 RFC-0052 与已交付 RFC-0053 的实施规格。两篇没有相互编译依赖，
-可以独立交付。`Proposed` 表示设计方案已形成，其中拟议 API、迁移与验证尚未实施，
-不作为当前 SDK 功能说明。
+RFC-0054 是接续 RFC-0052 与已交付 RFC-0053、RFC-0055 的实施规格。`Proposed` 表示设计方案已形成，其中拟议 API、迁移与验证尚未实施，不作为当前 SDK 功能说明。
 
 ## 已完成的 RFC
 
@@ -83,6 +80,7 @@ RFC-0054–0055 是接续 RFC-0052 与已交付 RFC-0053 的实施规格。两�
 | **RFC-0049** | Operator 多输出与可注册的单份分配方案 | `Completed` | `v10.x` | 接入适配层 / Tooling | [0049-operator-output-allocation-strategies.md](0049-operator-output-allocation-strategies.md) |
 | **RFC-0050** | Operator 配置读取边界与普通参数结构 | `Completed` | `v10.x` | 接入适配层 / Tooling | [0050-operator-configuration-text-boundary.md](0050-operator-configuration-text-boundary.md) |
 | **RFC-0053** | 业务 Adapter 函数式作者接口与载体机制收敛 | `Completed` | 投产前 | 接入适配层 / Tooling / Docs | [0053-function-oriented-adapter-authoring.md](0053-function-oriented-adapter-authoring.md) |
+| **RFC-0055** | 批次关联、分组、选择回填与拆分公共工具 | `Completed` | 投产前 / Catalog v3 | 能力节点层 / Tooling / Docs | [0055-traceable-batch-operations.md](0055-traceable-batch-operations.md) |
 
 ## 专项验收与评审归档
 

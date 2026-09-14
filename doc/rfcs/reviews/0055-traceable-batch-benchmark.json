@@ -1,0 +1,96 @@
+{
+  "environment": "Ubuntu 24.04.4 LTS; Linux 6.17.0-1020-oracle aarch64; GCC 13.3.0; C++17 -O3 -DNDEBUG",
+  "method": "Independent process per workload; no concurrent project build; 1 warmup + 7 timed constructions, median; 128-byte payload, 4 items per request; shuffle seed 55; half selected; split into two 64-byte payloads. Process peak RSS includes inputs, preparation and allocator retention.",
+  "measurements": [
+    {
+      "items": 1000,
+      "median_ms": 0.193442,
+      "operation": "join",
+      "process_peak_rss_kib": 11592
+    },
+    {
+      "items": 1000,
+      "median_ms": 0.276962,
+      "operation": "group",
+      "process_peak_rss_kib": 11592
+    },
+    {
+      "items": 1000,
+      "median_ms": 0.081521,
+      "operation": "select",
+      "process_peak_rss_kib": 11592
+    },
+    {
+      "items": 1000,
+      "median_ms": 0.144762,
+      "operation": "scatter",
+      "process_peak_rss_kib": 11592
+    },
+    {
+      "items": 1000,
+      "median_ms": 0.240122,
+      "operation": "split",
+      "process_peak_rss_kib": 11592
+    },
+    {
+      "items": 10000,
+      "median_ms": 2.251021,
+      "operation": "join",
+      "process_peak_rss_kib": 11592
+    },
+    {
+      "items": 10000,
+      "median_ms": 3.319312,
+      "operation": "group",
+      "process_peak_rss_kib": 11592
+    },
+    {
+      "items": 10000,
+      "median_ms": 1.08413,
+      "operation": "select",
+      "process_peak_rss_kib": 11592
+    },
+    {
+      "items": 10000,
+      "median_ms": 2.12002,
+      "operation": "scatter",
+      "process_peak_rss_kib": 11592
+    },
+    {
+      "items": 10000,
+      "median_ms": 2.885067,
+      "operation": "split",
+      "process_peak_rss_kib": 11592
+    },
+    {
+      "items": 100000,
+      "median_ms": 42.177126,
+      "operation": "join",
+      "process_peak_rss_kib": 48236
+    },
+    {
+      "items": 100000,
+      "median_ms": 100.475607,
+      "operation": "group",
+      "process_peak_rss_kib": 53912
+    },
+    {
+      "items": 100000,
+      "median_ms": 22.90506,
+      "operation": "select",
+      "process_peak_rss_kib": 44212
+    },
+    {
+      "items": 100000,
+      "median_ms": 39.727142,
+      "operation": "scatter",
+      "process_peak_rss_kib": 70344
+    },
+    {
+      "items": 100000,
+      "median_ms": 45.235635,
+      "operation": "split",
+      "process_peak_rss_kib": 76704
+    }
+  ]
+}

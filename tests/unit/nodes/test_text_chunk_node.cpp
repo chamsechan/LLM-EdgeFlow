@@ -290,4 +290,61 @@ TEST_F(TextChunkNodeTest,
   EXPECT_EQ((*counts)[2].data, 1);
 }
 
+TEST_F(TextChunkNodeTest, InterleavedRequestsContinuousSubIdAcrossParents) {
+  auto node = NodeRegistry::Instance().Create("TextChunkNode");
+  ASSERT_NE(node, nullptr);
+  ASSERT_TRUE(InitNodeForTest(*node, {{"chunk_size", 10}, {"overlap", 0}},
+                              session_ctx_.get()));
+
+  AlgContext ctx;
+  TextBatch input_batch;
+  // Req 10, sub 0: 20 chars -> 2 chunks
+  input_batch.emplace_back(10, 0, "12345678901234567890");
+  // Interleaved Req 20, sub 0: 10 chars -> 1 chunk
+  input_batch.emplace_back(20, 0, "abcdefghij");
+  // Resumed Req 10, sub 1: 10 chars -> 1 chunk
+  input_batch.emplace_back(10, 1, "klmnopqrst");
+  ctx.Publish("text", input_batch);
+
+  ASSERT_EQ(node->Process(&ctx), 0);
+
+  const auto* chunks = ctx.Read<TextBatch>("chunks");
+  ASSERT_NE(chunks, nullptr);
+  ASSERT_EQ(chunks->size(), 4u);
+
+  // Req 10 first batch
+  EXPECT_EQ((*chunks)[0].req_id, 10u);
+  EXPECT_EQ((*chunks)[0].sub_id, 0u);
+  EXPECT_EQ((*chunks)[0].data, "1234567890");
+
+  EXPECT_EQ((*chunks)[1].req_id, 10u);
+  EXPECT_EQ((*chunks)[1].sub_id, 1u);
+  EXPECT_EQ((*chunks)[1].data, "1234567890");
+
+  // Interleaved Req 20 starts at 0
+  EXPECT_EQ((*chunks)[2].req_id, 20u);
+  EXPECT_EQ((*chunks)[2].sub_id, 0u);
+  EXPECT_EQ((*chunks)[2].data, "abcdefghij");
+
+  // Resumed Req 10 must continue at sub_id 2 (not reset!)
+  EXPECT_EQ((*chunks)[3].req_id, 10u);
+  EXPECT_EQ((*chunks)[3].sub_id, 2u);
+  EXPECT_EQ((*chunks)[3].data, "klmnopqrst");
+
+  const auto* counts = ctx.Read<Int32Batch>("chunk_counts");
+  ASSERT_NE(counts, nullptr);
+  ASSERT_EQ(counts->size(), 3u);
+  EXPECT_EQ((*counts)[0].req_id, 10u);
+  EXPECT_EQ((*counts)[0].sub_id, 0u);
+  EXPECT_EQ((*counts)[0].data, 2);
+
+  EXPECT_EQ((*counts)[1].req_id, 20u);
+  EXPECT_EQ((*counts)[1].sub_id, 0u);
+  EXPECT_EQ((*counts)[1].data, 1);
+
+  EXPECT_EQ((*counts)[2].req_id, 10u);
+  EXPECT_EQ((*counts)[2].sub_id, 1u);
+  EXPECT_EQ((*counts)[2].data, 1);
+}
+
 }  // namespace llm_edgeflow

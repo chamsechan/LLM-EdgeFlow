@@ -2,14 +2,14 @@
 
 - **RFC 编号**：0055-traceable-batch-operations
 - **创建日期**：2026-09-14
-- **文档状态**：Proposed
-- **关联分支**：`docs/framework-authoring-rfcs`；建议实施分支 `refactor/traceable-batch-operations`
+- **文档状态**：Completed
+- **关联分支**：`refactor/traceable-batch-operations`
 - **目标版本**：下一次投产前开发接口版本；保持 Catalog v3
 - **负责人 / 作者**：LLM-EdgeFlow contributors
 - **设计基线**：`3fb4ba5be18f00fd8855b7d2de900e80ad203335`
 - **关联决策**：补充 RFC-0012、0022、0039、0052；实现 RFC-0052 第 8.3/10 节的一部分局部来源工具，保留独立 Filter/Group Node 作者策略的延期边界。
 
-本文是待实施规格，新增 API 均为拟议名称。
+本文规格已完成实施，新增公共工具位于 `include/nodes/traceable_batch_operations.h`。
 与 [RFC-0053](0053-function-oriented-adapter-authoring.md)、
 [RFC-0054](0054-controlled-configuration-snapshots.md) 独立。
 开发与交付流程遵循 [CONTRIBUTING](../../CONTRIBUTING.md)。
@@ -287,10 +287,23 @@ policy 插槽；本轮不为局部 helper 重构它。这样可以让普通批�
 
 | 项目 | 当前状态 |
 | --- | --- |
-| 设计文档 | Proposed；范围限定为局部工具及 TextChunk 试点 |
-| 工具与试点实现 | 未开始 |
-| 工程、所有权与性能验证 | 待实施后填写实际命令、基线与结果 |
-| 开发者试用 | 待记录 |
-| 完成条件 | M0–M5 必需交付、验证、现行指南及体验结果记录完成；按 CONTRIBUTING 更新状态 |
+| 设计与工具实现 | Completed；范围限定为局部工具及 TextChunk 试点 |
+| 工程、所有权与性能验证 | 45 项批次工具测试、TextChunk/函数式 Node 验证、ASan/UBSan、代表性成本测量与 canonical gate；具体命令、结果与限制见下方记录 |
+| 作者指南 | 已补普通 Batch 工具入口、借用生命周期、失败诊断及三个编译示例导航 |
+| 真实开发者试用 | 待办；三个 starter 的 Agent 工程检查不替代组合任务的真实试用 |
+| 工程完成条件 | M0–M5 工程实现和验证完成；真实试用按第 10 节保留待办，不宣称已通过 |
 
-当前文档门禁不构成工具已实现的证据。实施结果直接更新本文，不另建重复接续计划。
+[修复、验证与测量记录](reviews/0055-traceable-batch-verification.md) 包含运行环境、
+const 右值及非法谓词的编译拒绝、诊断完整 key 回归、Int32/uint32 边界、独立 Reviewer
+复核、sanitizer、Pipeline/Demo、哈希索引次数、耗时/内存与未覆盖范围。
+
+- **M0–M1**：Catalog 确认 TextChunk 既有端口；Join/Group 覆盖重复、缺失、空组、乱序及
+  const/non-const 临时对象拒绝，保持 anchor 顺序与借用生命周期规则。
+- **M2**：Selection 只能由工厂产生，Materialize 拥有数据；Scatter 按完整 key 恢复全量。
+  谓词错误返回类型编译失败，回调失败在 AuthorNode 边界补完整来源且保留原错误码/内容。
+- **M3**：TextChunk 复用 SplitPayloads，保持 UTF-8、空字符串、overlap、来源及历史错误码。
+  Int32 受检转换与 UINT32_MAX 接缝分别验证容量边界，不分配数十亿子项。
+- **M4**：Join、Group、Select/Scatter 编译示例由 NodeHarness 与 Mock 模型测试，断言输入、
+  实际调用次数及最终文本；缺失真实开发者组合任务体验明确列为待办。
+- **M5**：补齐作者概念/示例导航、方案执行与成本记录。Debug ASan/UBSan 聚焦检查和
+  Release 默认后端 canonical gate 分别运行，不将单次门禁写成 Debug/Release 双配置验收。
