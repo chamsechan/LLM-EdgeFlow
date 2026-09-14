@@ -135,6 +135,103 @@ OperatorBizBridgeDescriptor MakeSingleSlotBizBridge(CompanyAlgBizType biz_type,
   return desc;
 }
 
+template <typename HostType>
+struct OperatorSlotTraits;
+
+template <>
+struct OperatorSlotTraits<CompanyOperatorEntityInput> {
+  inline static constexpr const char* kTypeSuffix = "entity_in";
+  inline static constexpr IoDirection kDirection = IoDirection::kInput;
+};
+
+template <>
+struct OperatorSlotTraits<CompanyOperatorEntityOutput> {
+  inline static constexpr const char* kTypeSuffix = "entity_out";
+  inline static constexpr IoDirection kDirection = IoDirection::kOutput;
+};
+
+template <typename InternalInput, typename InternalOutput, typename HostInput,
+          typename HostOutput,
+          int (*ConvertInput)(const HostInput&, ProcessLocalShadowStorage&,
+                              const InternalInput**, std::string*),
+          int (*ConvertOutput)(const InternalOutput&, HostOutput&,
+                               const ResolvedOutputPoolSpec&, std::string*)>
+inline OperatorBizBridgeDescriptor MakeTypedSingleSlotBizBridge(
+    CompanyAlgBizType biz_type, std::string adapter_name,
+    std::string internal_input_type_name, std::string identity,
+    std::string input_slot = OperatorSlotTraits<HostInput>::kTypeSuffix,
+    std::string output_slot = OperatorSlotTraits<HostOutput>::kTypeSuffix) {
+  auto desc = MakeSingleSlotBizBridge<InternalOutput>(
+      biz_type, std::move(adapter_name), std::move(internal_input_type_name),
+      std::move(identity), input_slot, output_slot);
+
+  desc.input_slots.front().type_suffix =
+      OperatorSlotTraits<HostInput>::kTypeSuffix;
+  desc.output_slots.front().type_suffix =
+      OperatorSlotTraits<HostOutput>::kTypeSuffix;
+
+  desc.convert_sample_input =
+      [](const std::unordered_map<std::string, const void*>& slots,
+         ProcessLocalShadowStorage& storage, const void** out_internal_dto,
+         std::string* err) -> int {
+    const void* payload = nullptr;
+    auto it = slots.find(OperatorSlotTraits<HostInput>::kTypeSuffix);
+    if (it != slots.end() && it->second) {
+      payload = it->second;
+    } else if (slots.size() == 1 && slots.begin()->second) {
+      payload = slots.begin()->second;
+    }
+    if (!payload) {
+      if (err) {
+        *err = std::string("Missing required input slot ") +
+               OperatorSlotTraits<HostInput>::kTypeSuffix;
+      }
+      return -3;
+    }
+    const auto* in = static_cast<const HostInput*>(payload);
+    const InternalInput* typed_dto = nullptr;
+    const int ret = ConvertInput(*in, storage, &typed_dto, err);
+    if (ret == 0 && out_internal_dto) {
+      *out_internal_dto = typed_dto;
+    }
+    return ret;
+  };
+
+  desc.convert_sample_output =
+      [](const void* internal_dto, void* external_output_struct,
+         const ResolvedOutputPoolSpec& spec, std::string* err) -> int {
+    if (!internal_dto || !external_output_struct) {
+      if (err) *err = "Null internal DTO or external output struct pointer";
+      return -4;
+    }
+    const auto* in_dto = static_cast<const InternalOutput*>(internal_dto);
+    auto* out = static_cast<HostOutput*>(external_output_struct);
+    return ConvertOutput(*in_dto, *out, spec, err);
+  };
+
+  return desc;
+}
+
+template <typename InternalInput, typename InternalOutput, typename HostInput,
+          typename HostOutput>
+inline OperatorBizBridgeDescriptor MakeTypedSingleSlotBizBridge(
+    CompanyAlgBizType biz_type, std::string adapter_name,
+    std::string internal_input_type_name, std::string identity,
+    std::string input_slot, std::string output_slot,
+    ConvertSampleInputFn convert_input, ConvertSampleOutputFn convert_output) {
+  auto desc = MakeSingleSlotBizBridge<InternalOutput>(
+      biz_type, std::move(adapter_name), std::move(internal_input_type_name),
+      std::move(identity), input_slot, output_slot);
+
+  desc.input_slots.front().type_suffix =
+      OperatorSlotTraits<HostInput>::kTypeSuffix;
+  desc.output_slots.front().type_suffix =
+      OperatorSlotTraits<HostOutput>::kTypeSuffix;
+  desc.convert_sample_input = convert_input;
+  desc.convert_sample_output = convert_output;
+  return desc;
+}
+
 // Source-extension registration and output copy helpers. Registry state and
 // output pool management remain private to the Integration implementation.
 bool RegisterOperatorBizBridge(OperatorBizBridgeDescriptor descriptor);

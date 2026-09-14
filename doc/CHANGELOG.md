@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-09-14 业务 Adapter 函数式作者接口与载体机制收敛（RFC-0053）
+
+- **函数式 Adapter 作者接口**：引入 `AdapterResult<T>` 显式失败传递协议与 `OneToOneTextAdapterSpec` / `OneToOneTextAdapter` 框架模板。单输入单输出业务开发者仅需编写纯函数（`DecodeRequest` 与 `EncodeResponse`），无需处理黑板读写、批内编号分配、局部批次发布或生命周期管理；框架保证输入不可变性、请求原始 ID 对齐与整批校验前置，在全部样本转换成功前不向黑板发布中间数据。
+- **类型化批次骨架与中立载体收敛**：提取 `UnpackTextBatchSkeleton` 与通用请求结果对齐骨架 `RequestResults` / `ReadMultiWayResults`；提取文本中立载体 `text_carrier.h`（包含 `OwnedTextRequest`、`UnpackTextCarrierBatch` 与 `WriteTextCarrierOutput`），彻底消除业务间运行时 Adapter 跨查与临时 `AlgContext` 构造。
+- **类型化 Operator Bridge 构建**：新增 `MakeTypedSingleSlotBizBridge` 与共享载体工厂 `MakeTextCarrierBridge`，提供类型化槽位包装与中立文本桥接转换，统一样本转换入池与结果回填，保留 payload schema 隔离与错误码语义。
+- **核心业务试点迁移**：
+  - `TranslateAdapter` 全面迁移至 `OneToOneTextAdapter`，彻底删除对 `EntityExtract` Adapter 的运行时动态查找与临时上下文分配，保持完整 JSON 字符串输入与 `translated` 输出契约不变。
+  - `EntityExtractAdapter` 迁移至 `UnpackTextBatchSkeleton` 与 `WriteTextCarrierOutput`。
+  - `DocQaAdapter` 采用 `ReadMultiWayResults` 与 `RequestResults` 统一多路 1:1 结果索引与对齐校验。
+  - `TranslateOperatorBridge` 与 `EntityExtractOperatorBridge` 迁移至 `MakeTextCarrierBridge`。
+- **契约测试与独立 Harness**：新增 `tests/support/adapter_harness.h`，支持 C 数组与 Owned 两种输出形式验证及来源扰动测试；扩充 `test_adapter_purity.cpp`、`test_adapter_contract_security.cpp`、`test_c_abi_safety.cpp`、`test_operator_biz_bridge_registry.cpp` 及 `test_operator_api.cpp`，覆盖跨样本错误优先级、独立诊断状态、乱序对齐与哨兵值保护；更新业务 onboarding 指南。
+
 ## 2026-09-13 面向基础 C++ 开发者的 Node 作者接口与多模型依赖重构（RFC-0052）
 
 - **函数式 Node 编写体系**：引入 `NodeResult<T>` 显式失败传递协议与 `REGISTER_FUNCTION_NODE` / `AuthorNode` 框架包装。业务开发者仅需编写标准 C++ 纯函数或成员逻辑（`Map` 逐条转换与自由批次 `Batch`），无需触碰 `AlgContext`、`SessionContext`、`NodeBase` 虚函数、生命周期管理或手动端口与编号搬运；框架保证输入不变性、请求 Provenance 保持及错误原子回滚。

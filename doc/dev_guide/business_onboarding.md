@@ -99,8 +99,8 @@ JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代�
    `src/adapter/CMakeLists.txt` 的 `edgeflow_integration_objects`。新业务的 Operator
    bridge 也要完成后再验证 SDK 初始化，不修改 `c_api_adapter.cpp` 的中央分发。
 
-多路内部输入/输出的打包可参考
-[doc_qa_adapter.cpp](../../src/adapter/biz/doc_qa_adapter.cpp)。平台边界检查的独立
+对于 1:1 文本类业务（如外部 JSON 协议转换或普通文本），可直接声明 `OneToOneTextAdapterSpec` 并使用 `OneToOneTextAdapter` 模板（见 [translate_adapter.cpp](../../src/adapter/biz/translate_adapter.cpp)），仅需编写单样本 `DecodeRequest` 与 `EncodeResponse` 函数，骨架自动负责 Envelope 校验、全批 copy-in、批内编号与多键发布。其 Operator 桥接可直接复用 `MakeTextCarrierBridge`。多路内部输入/输出的打包可参考
+[doc_qa_adapter.cpp](../../src/adapter/biz/doc_qa_adapter.cpp)（采用 `ReadMultiWayResults` 与 `RequestResults` 对齐组件）。平台边界检查的独立
 练习见 [Adapter 安全示例](adapter_templates/README.md)，它们不注册生产业务。
 
 ## 4. 补齐 Operator 类型和业务桥接

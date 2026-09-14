@@ -1,6 +1,7 @@
 #include <cstring>
 #include <vector>
 
+#include "adapter/adapter_batch.h"
 #include "adapter/adapter_validation_helper.h"
 #include "adapter/biz_adapter_registry.h"
 #include "adapter/biz_blackboard_keys.h"
@@ -107,81 +108,58 @@ class DocQaAdapter
   template <typename Output>
   int PackTyped(AlgContext* ctx, void** outputs, int* num_outputs,
                 AdapterStatus* out_status = nullptr) const {
-    if (!ctx) {
-      return AdapterValidationHelper::ReturnBufferTooSmall(
-          out_status, "Null AlgContext passed to Pack", "ctx", AdapterName());
-    }
+    const ResultBindingSpec<TextBatch> primary_spec(
+        kLlmAnswers, "llm_answers", "answers", true,
+        "llm_answers not found in AlgContext",
+        COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
 
-    const auto* answers = AdapterValidationHelper::ReadRequiredContextValue(
-        *ctx, kLlmAnswers, AdapterName(), out_status);
-    if (!answers) return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
+    const ResultBindingSpec<std::vector<uint64_t>> raw_req_ids_spec(
+        kRawRequestIds, "raw_request_ids", "raw_request_ids", true,
+        "raw_request_ids missing or count mismatch in AlgContext",
+        COMPANY_ALG_ERR_INVALID_INPUT);
 
-    const auto* intent_matches = ctx->Read(kIntentMatches);
-    const auto* chunk_counts = ctx->Read(kDocChunkCounts);
-    const auto* raw_req_ids = ctx->Read(kRawRequestIds);
+    const ResultBindingSpec<RuleMatchBatch> intent_spec(
+        kIntentMatches, "intent_matches", "intent_matches", true,
+        "intent_matches missing or count mismatch in AlgContext",
+        COMPANY_ALG_ERR_INVALID_INPUT);
 
-    int count = static_cast<int>(answers->size());
-    int valid_ret = AdapterValidationHelper::ValidateBatchOutputs(
-        outputs, num_outputs, count, AdapterName(), out_status);
-    if (valid_ret != 0) return valid_ret;
+    const ResultBindingSpec<Int32Batch> chunk_spec(
+        kDocChunkCounts, "doc_chunk_counts", "chunk_counts", true,
+        "doc_chunk_counts missing or count mismatch in AlgContext",
+        COMPANY_ALG_ERR_INVALID_INPUT);
 
-    if (!intent_matches ||
-        intent_matches->size() != static_cast<size_t>(count)) {
-      return AdapterValidationHelper::ReturnInvalidInput(
-          out_status, "intent_matches missing or count mismatch in AlgContext",
-          "intent_matches", AdapterName());
-    }
+    RequestResults<TextBatch, RuleMatchBatch, Int32Batch> results;
+    int ret = ReadMultiWayResults(ctx, outputs, num_outputs, AdapterName(),
+                                  out_status, &results, primary_spec,
+                                  raw_req_ids_spec, intent_spec, chunk_spec);
+    if (ret != COMPANY_ALG_SUCCESS) return ret;
 
-    if (!chunk_counts || chunk_counts->size() != static_cast<size_t>(count)) {
-      return AdapterValidationHelper::ReturnInvalidInput(
-          out_status,
-          "doc_chunk_counts missing or count mismatch in AlgContext",
-          "doc_chunk_counts", AdapterName());
-    }
-    if (!raw_req_ids || raw_req_ids->size() != static_cast<size_t>(count)) {
-      return AdapterValidationHelper::ReturnInvalidInput(
-          out_status, "raw_request_ids missing or count mismatch in AlgContext",
-          "raw_request_ids", AdapterName());
-    }
-
-    std::vector<const TextBatch::value_type*> answers_by_request;
-    if (!IndexResults(answers, raw_req_ids, &answers_by_request, "answers",
-                      AdapterName(), out_status))
-      return COMPANY_ALG_ERR_INVALID_INPUT;
-    std::vector<const RuleMatchBatch::value_type*> intent_matches_by_request;
-    if (!IndexResults(intent_matches, raw_req_ids, &intent_matches_by_request,
-                      "intent_matches", AdapterName(), out_status))
-      return COMPANY_ALG_ERR_INVALID_INPUT;
-    std::vector<const Int32Batch::value_type*> chunk_counts_by_request;
-    if (!IndexResults(chunk_counts, raw_req_ids, &chunk_counts_by_request,
-                      "chunk_counts", AdapterName(), out_status))
-      return COMPANY_ALG_ERR_INVALID_INPUT;
-
-    for (int i = 0; i < count; ++i) {
+    for (size_t i = 0; i < results.Size(); ++i) {
       auto* out_ptr = static_cast<Output*>(outputs[i]);
-      out_ptr->request_id = (*raw_req_ids)[i];
+      out_ptr->request_id = results.RequestId(i);
 
-      const auto& match = intent_matches_by_request[i]->data;
+      const auto& match = results.Secondary<0>(i).data;
       const std::string& intent = match.category;
       float conf = match.score;
       out_ptr->confidence = conf;
 
-      out_ptr->chunk_count = chunk_counts_by_request[i]->data;
+      out_ptr->chunk_count = results.Secondary<1>(i).data;
       out_ptr->status_code = match.status_code;
 
       if (!CopyResultString(out_ptr->intent_name, intent.c_str(),
-                            "outputs[i].intent_name", i, AdapterName(),
-                            out_status)) {
+                            "outputs[i].intent_name", static_cast<int>(i),
+                            AdapterName(), out_status)) {
         return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
       }
 
-      if (!CopyResultString(
-              out_ptr->answer_text, answers_by_request[i]->data.c_str(),
-              "outputs[i].answer_text", i, AdapterName(), out_status)) {
+      if (!CopyResultString(out_ptr->answer_text,
+                            results.Primary(i).data.c_str(),
+                            "outputs[i].answer_text", static_cast<int>(i),
+                            AdapterName(), out_status)) {
         return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
       }
     }
-    *num_outputs = count;
+    *num_outputs = static_cast<int>(results.Size());
     return COMPANY_ALG_SUCCESS;
   }
 };
