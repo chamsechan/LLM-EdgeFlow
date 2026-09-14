@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "adapter/biz_adapter_registry.h"
+#include "adapter/biz_blackboard_keys.h"
 #include "edgeflow/c_api.h"
 #include "edgeflow/c_api.hpp"
 
@@ -340,4 +341,47 @@ TEST_F(CAbiSafetyTest, SameHandleConcurrentProcessAndQuiescedDestroy) {
 
   EXPECT_EQ(failures.load(), 0);
   EXPECT_EQ(Alg_Destroy(handle), 0);
+}
+
+// 12. RFC-0053: Entity 失败样本在结构化校验失败时，先写 request_id，但 status
+// 与 entities_json 保留原调用者哨兵值
+TEST_F(CAbiSafetyTest, EntityFailureSampleSentinelValues) {
+  auto adapter = llm_edgeflow::BizAdapterRegistry::Instance().GetAdapter(
+      ALG_BIZ_TYPE_ENTITY_EXTRACT);
+  ASSERT_NE(adapter, nullptr);
+
+  llm_edgeflow::AlgContext ctx;
+  ctx.Publish(llm_edgeflow::kRawRequestIds, std::vector<uint64_t>{1001, 2002});
+
+  llm_edgeflow::StructuredDocumentBatch entities;
+  entities.emplace_back(
+      0, 0,
+      llm_edgeflow::JsonDocumentItem("[\"valid_entity\"]", true,
+                                     llm_edgeflow::JsonParseStatus::kOk));
+  entities.emplace_back(
+      1, 0,
+      llm_edgeflow::JsonDocumentItem("invalid", false,
+                                     llm_edgeflow::JsonParseStatus::kFailed));
+  ctx.Publish(llm_edgeflow::kExtractedEntities, std::move(entities));
+
+  CompanyEntityOutputStruct out0{}, out1{};
+  out1.request_id = 99999;
+  out1.status_code = -777;
+  std::strcpy(out1.entities_json, "SENTINEL_PAYLOAD");
+
+  void* outputs[2] = {&out0, &out1};
+  int num_outputs = 2;
+  llm_edgeflow::AdapterStatus status;
+  int ret = adapter->Pack(&ctx, outputs, &num_outputs, &status);
+
+  EXPECT_EQ(ret, COMPANY_ALG_ERR_INVALID_INPUT);
+  EXPECT_EQ(out0.request_id, 1001u);
+  EXPECT_EQ(out0.status_code, 0);
+  EXPECT_STREQ(out0.entities_json, "[\"valid_entity\"]");
+
+  // Sample 1: request_id was written, but status_code and entities_json
+  // retained sentinels
+  EXPECT_EQ(out1.request_id, 2002u);
+  EXPECT_EQ(out1.status_code, -777);
+  EXPECT_STREQ(out1.entities_json, "SENTINEL_PAYLOAD");
 }

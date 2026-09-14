@@ -2600,3 +2600,53 @@ TEST_F(OperatorApiTest, AllOutputSlotsShareTheHandlePayloadBudget) {
             std::string::npos);
   if (handle) ops_.Destroy(handle);
 }
+
+// RFC-0053: 共享载体不合并 payload schema
+TEST_F(OperatorApiTest, SharedCarrierDoesNotMergePayloadSchema) {
+  auto param =
+      DefaultCreateParam("demo/fixtures/mock/pipeline_entity_extract.conf");
+  void* entity_handle = nullptr;
+  ASSERT_EQ(ops_.Create(&entity_handle, &param), 0);
+  ASSERT_NE(entity_handle, nullptr);
+
+  // 1. Plain text: valid for Entity Extract, but invalid for Translate schema
+  std::string plain_text = "普通中文句子非JSON格式";
+  CompanyString cs_plain{static_cast<int32_t>(plain_text.size()),
+                         const_cast<char*>(plain_text.data())};
+  CompanyOperatorEntityInput in_plain{50001, &cs_plain};
+
+  NamedIoBatch in_b(1), out_b(1);
+  in_b[0]["nlp.entity_in"] = MakeBorrowedOperatorInput(&in_plain);
+  out_b[0]["nlp.entity_out"] = std::shared_ptr<void>();
+
+  // Entity Extract accepts plain text
+  EXPECT_EQ(ops_.Process(entity_handle, in_b, out_b), 0);
+  out_b.clear();
+
+  // Translate adapter rejects plain text because it requires JSON object with
+  // "query"
+  auto translate_adapter =
+      llm_edgeflow::BizAdapterRegistry::Instance().GetAdapter(
+          ALG_BIZ_TYPE_TRANSLATE);
+  ASSERT_NE(translate_adapter, nullptr);
+  CompanyEntityInputStruct c_in_plain{50001, plain_text.c_str()};
+  const void* translate_inputs[] = {&c_in_plain};
+  llm_edgeflow::AlgContext ctx;
+  llm_edgeflow::AdapterStatus status;
+  EXPECT_EQ(translate_adapter->Unpack(translate_inputs, 1, &ctx, &status),
+            COMPANY_ALG_ERR_INVALID_INPUT);
+
+  // 2. JSON text: Translate accepts and extracts "query"
+  std::string json_text = "{\"query\":\"有效翻译查询\"}";
+  CompanyEntityInputStruct c_in_json{50002, json_text.c_str()};
+  const void* translate_valid_inputs[] = {&c_in_json};
+  llm_edgeflow::AlgContext valid_ctx;
+  EXPECT_EQ(
+      translate_adapter->Unpack(translate_valid_inputs, 1, &valid_ctx, &status),
+      COMPANY_ALG_SUCCESS);
+  const auto* queries = valid_ctx.Read(llm_edgeflow::kInputSentences);
+  ASSERT_NE(queries, nullptr);
+  EXPECT_EQ((*queries)[0].data, "有效翻译查询");
+
+  EXPECT_EQ(ops_.Destroy(entity_handle), 0);
+}

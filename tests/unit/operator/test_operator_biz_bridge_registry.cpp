@@ -7,6 +7,7 @@
 #include "adapter/biz_results.h"
 #include "adapter/operator/operator_biz_bridge_registry.h"
 #include "adapter/operator/operator_value_type_registry.h"
+#include "adapter/text_carrier.h"
 
 namespace llm_edgeflow {
 namespace {
@@ -772,6 +773,125 @@ TEST(OperatorBizBridgeRegistryTest,
   for (int i = 0; i < 8; ++i) {
     EXPECT_EQ(dto->candidate_passages[i], nullptr);
   }
+}
+
+// RFC-0053: Shared Text Carrier Bridge & Typed Builder contract verification
+TEST(OperatorBizBridgeRegistryTest, TextCarrierSharedBridgeAndTypedBuilder) {
+  for (const auto biz_type :
+       {ALG_BIZ_TYPE_ENTITY_EXTRACT, ALG_BIZ_TYPE_TRANSLATE}) {
+    const auto* desc =
+        OperatorBizBridgeRegistry::Instance().GetBridge(biz_type);
+    ASSERT_NE(desc, nullptr);
+
+    EXPECT_EQ(desc->internal_input_type_name, "CompanyEntityInputStruct");
+    EXPECT_EQ(desc->internal_output_type_name, "EntityResult");
+    ASSERT_EQ(desc->input_slots.size(), 1u);
+    ASSERT_EQ(desc->output_slots.size(), 1u);
+    EXPECT_EQ(desc->input_slots[0].logical_name, "entity_in");
+    EXPECT_EQ(desc->input_slots[0].type_suffix, "entity_in");
+    EXPECT_EQ(desc->output_slots[0].logical_name, "entity_out");
+    EXPECT_EQ(desc->output_slots[0].type_suffix, "entity_out");
+
+    ProcessLocalShadowStorage storage;
+    ResolvedOutputPoolSpec spec = MakeDefaultOutputPoolSpec("entity_out");
+
+    std::string text = "sample query payload";
+    CompanyString cs{static_cast<int32_t>(text.size()), text.data()};
+    CompanyOperatorEntityInput in{4242, &cs};
+
+    std::unordered_map<std::string, const void*> slots = {{"entity_in", &in}};
+    const void* internal_dto = nullptr;
+    std::string err;
+    ASSERT_EQ(desc->convert_sample_input(slots, storage, &internal_dto, &err),
+              0);
+    ASSERT_NE(internal_dto, nullptr);
+    const auto* in_dto =
+        static_cast<const CompanyEntityInputStruct*>(internal_dto);
+    EXPECT_EQ(in_dto->request_id, 4242u);
+    EXPECT_STREQ(in_dto->sentence_text, text.c_str());
+
+    EntityResult out_dto{4242, "{\"out\":\"ok\"}", 0};
+    char out_buf[128] = {0};
+    CompanyString out_cs{0, out_buf};
+    CompanyOperatorEntityOutput out_struct{};
+    out_struct.entities_json = &out_cs;
+
+    ASSERT_EQ(desc->convert_sample_output(&out_dto, &out_struct, spec, &err),
+              0);
+    EXPECT_EQ(out_struct.request_id, 4242u);
+    EXPECT_EQ(out_struct.status_code, 0);
+    EXPECT_STREQ(out_struct.entities_json->data, "{\"out\":\"ok\"}");
+  }
+}
+
+// RFC-0053: Typed builder bridges undergo the same strict registry validation
+TEST(OperatorBizBridgeRegistryTest,
+     TypedBuilderUndergoesFullRegistryValidation) {
+  OperatorBizBridgeRegistry local_reg;
+  const auto& global_reg = OperatorBizBridgeRegistry::Instance();
+
+  for (const auto biz_type : RegisteredBizTypes()) {
+    if (biz_type == ALG_BIZ_TYPE_ENTITY_EXTRACT) {
+      auto desc = MakeTextCarrierBridge(ALG_BIZ_TYPE_ENTITY_EXTRACT,
+                                        "EntityExtract", "test.typed_carrier");
+      desc.input_slots.front().type_suffix = "unknown_invalid_suffix";
+      ASSERT_TRUE(local_reg.RegisterBridge(std::move(desc)));
+    } else {
+      const auto* registered = global_reg.GetBridge(biz_type);
+      ASSERT_NE(registered, nullptr);
+      ASSERT_TRUE(local_reg.RegisterBridge(*registered));
+    }
+  }
+
+  std::string diagnostic;
+  int ret = local_reg.GlobalInit(&diagnostic);
+  EXPECT_EQ(ret, -6);
+  EXPECT_NE(diagnostic.find("unknown_invalid_suffix"), std::string::npos)
+      << diagnostic;
+}
+
+// RFC-0053: Typed builder supports custom logical input slot names
+TEST(OperatorBizBridgeRegistryTest, TypedBuilderSupportsCustomInputSlotName) {
+  auto desc = MakeTypedSingleSlotBizBridge<
+      CompanyEntityInputStruct, EntityResult, CompanyOperatorEntityInput,
+      CompanyOperatorEntityOutput, &ConvertTextCarrierInput,
+      &ConvertTextCarrierOutput>(ALG_BIZ_TYPE_ENTITY_EXTRACT, "EntityExtract",
+                                 "CompanyEntityInputStruct", "test.custom_slot",
+                                 "custom_in", "custom_out");
+
+  EXPECT_EQ(desc.input_slots.front().logical_name, "custom_in");
+  EXPECT_EQ(desc.input_slots.front().type_suffix, "entity_in");
+
+  ProcessLocalShadowStorage storage;
+  std::string text = "custom slot query";
+  CompanyString cs{static_cast<int32_t>(text.size()), text.data()};
+  CompanyOperatorEntityInput in{8888, &cs};
+
+  // 1. When slots is keyed by custom logical name, it converts successfully
+  std::unordered_map<std::string, const void*> slots_custom = {
+      {"custom_in", &in}};
+  const void* internal_dto = nullptr;
+  std::string err;
+  ASSERT_EQ(
+      desc.convert_sample_input(slots_custom, storage, &internal_dto, &err), 0);
+  ASSERT_NE(internal_dto, nullptr);
+  const auto* dto = static_cast<const CompanyEntityInputStruct*>(internal_dto);
+  EXPECT_EQ(dto->request_id, 8888u);
+  EXPECT_STREQ(dto->sentence_text, "custom slot query");
+
+  // 2. When slots is empty or has null payload, it returns -3
+  std::unordered_map<std::string, const void*> slots_empty;
+  EXPECT_EQ(
+      desc.convert_sample_input(slots_empty, storage, &internal_dto, &err), -3);
+
+  std::unordered_map<std::string, const void*> slots_null = {
+      {"custom_in", nullptr}};
+  EXPECT_EQ(desc.convert_sample_input(slots_null, storage, &internal_dto, &err),
+            -3);
+
+  // 3. When out_internal_dto is null, it converts successfully without
+  // dereferencing null
+  EXPECT_EQ(desc.convert_sample_input(slots_custom, storage, nullptr, &err), 0);
 }
 
 }  // namespace

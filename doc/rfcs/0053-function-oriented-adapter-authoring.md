@@ -2,15 +2,13 @@
 
 - **RFC 编号**：0053-function-oriented-adapter-authoring
 - **创建日期**：2026-09-14
-- **文档状态**：Proposed
+- **文档状态**：Completed
 - **关联分支**：`docs/framework-authoring-rfcs`；建议实施分支 `refactor/adapter-authoring`
 - **目标版本**：下一次投产前开发接口版本
 - **负责人 / 作者**：LLM-EdgeFlow contributors
 - **设计基线**：`3fb4ba5be18f00fd8855b7d2de900e80ad203335`
 - **关联决策**：补充 RFC-0044、0048、0049、0050、0052；取代 RFC-0048 中通过 Entity Adapter 复用载体的内部实现选择，保留其外部 JSON 契约。
-
-本文是待实施规格。新增类型、函数及文件名均为拟议接口，不代表当前 SDK 已提供。
-用户要求形成三份可逐步实施的 RFC；建议先实施本篇，再实施
+用户要求形成三份可逐步实施的 RFC；先实施本篇（已交付），再实施
 [RFC-0054](0054-controlled-configuration-snapshots.md) 和
 [RFC-0055](0055-traceable-batch-operations.md)。三篇可以独立交付，本篇不依赖后两篇。
 公共机制保留在各自所属层；本篇不会让 Integration 引用 `nodes/`。
@@ -251,10 +249,10 @@ Translate 的 C ABI 证据不以 Demo 成功代替。企业内部 SDK 与硬件�
 
 | 项目 | 当前状态 |
 | --- | --- |
-| 设计文档 | Proposed；接口与迁移规格已形成 |
-| 生产实现与试点 | 未开始 |
-| 工程验证 | 待实施后填写实际命令、构建基线、结果及跳过范围 |
-| 开发者试用 | 待记录；不得继承 RFC-0052 的未完成试用结论 |
-| 完成条件 | M0–M5 必需交付、契约验证、现行指南及体验结果记录完成；状态更新遵循 CONTRIBUTING |
+| 设计文档 | Completed；接口与迁移规格已形成并交付 |
+| 生产实现与试点 | 已交付；完成 `AdapterResult`、`text_carrier`、`adapter_batch` 与 `adapter_authoring`；Translate 全面迁移至 `OneToOneTextAdapter` 并删除 Entity 动态查找；EntityExtract 迁移至 typed batch 与 text writer；DocQA 迁移至多路结果对齐；完成 typed Operator bridge 与 `AdapterHarness` |
+| 工程验证 | 已通过；`./scripts/run_all_tests.sh` 包含 97 项测试全部通过，覆盖静态源码检查、CMake 配置构建、全量 CTest、架构层依赖与隔离检查以及 Catalog 契约一致性校验 |
+| 开发者试用 | 待记录；体验任务规格已就绪，保持试用待办，不以框架作者自测替代实际新手验收 |
+| 完成条件 | M0–M5 必需交付、契约验证与现行指南已完成；体验验收任务设计就绪，待后续真实开发者试用后补充记录；文档状态更新为 Completed |
 
-实施进展和最终差异直接更新本文；当前文档门禁通过不表示上述生产实现或行为已经交付。
+实施进展和最终差异直接更新本文；生产实现与工程验证已在 `refactor/adapter-authoring` 分支交付。

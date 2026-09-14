@@ -216,6 +216,12 @@ TEST_F(AdapterContractSecurityTest,
   EXPECT_EQ(model->calls.size(), before_invalid + 3);
   EXPECT_EQ(nlohmann::json::parse(output.entities_json),
             nlohmann::json({{"translated", "你好"}}));
+
+  // Invalid UTF-8 in model response causes JSON dump to throw, mapping to
+  // COMPANY_ALG_ERR_EXCEPTION (-99) through the public Alg_Process C ABI
+  model->response = "prefix\xFF\xFFsuffix";
+  EXPECT_EQ(process("{\"query\":\"hello\"}"), COMPANY_ALG_ERR_EXCEPTION);
+  model->response = "你好";
 }
 
 TEST_F(AdapterContractSecurityTest,
@@ -771,6 +777,146 @@ TEST_F(AdapterContractSecurityTest, ConcurrentStatelessAdapterExecution) {
   for (auto& w : workers) {
     if (w.joinable()) w.join();
   }
+}
+
+// RFC-0053: Cross-sample carrier error vs biz decode error priority
+TEST_F(AdapterContractSecurityTest,
+       TranslationCrossSampleCarrierVsBizErrorPriority) {
+  auto adapter =
+      BizAdapterRegistry::Instance().GetAdapter(ALG_BIZ_TYPE_TRANSLATE);
+  ASSERT_NE(adapter, nullptr);
+
+  // Sample 0 has invalid JSON (biz error), Sample 1 has oversized string
+  // (carrier error)
+  std::string oversized(64 * 1024 + 1, 'z');
+  CompanyEntityInputStruct in0{101, "{\"wrong_field\":123}"};
+  CompanyEntityInputStruct in1{102, oversized.c_str()};
+  const void* inputs[] = {&in0, &in1};
+
+  AlgContext ctx;
+  AdapterStatus status;
+  int ret = adapter->Unpack(inputs, 2, &ctx, &status);
+  EXPECT_EQ(ret, COMPANY_ALG_ERR_INVALID_INPUT);
+  // Carrier validation is performed on the entire batch before any decode,
+  // so sample 1's carrier error must be diagnosed rather than sample 0's decode
+  // error.
+  EXPECT_EQ(status.SampleIndex(), 1);
+  EXPECT_EQ(status.FieldPath(), "inputs[i].sentence_text");
+  EXPECT_EQ(status.AdapterName(), "EntityExtract");
+
+  // Pure biz decode error retains Translate adapter name
+  CompanyEntityInputStruct in_biz{103, "{\"wrong_field\":123}"};
+  const void* biz_inputs[] = {&in_biz};
+  AlgContext biz_ctx;
+  AdapterStatus biz_status;
+  EXPECT_EQ(adapter->Unpack(biz_inputs, 1, &biz_ctx, &biz_status),
+            COMPANY_ALG_ERR_INVALID_INPUT);
+  EXPECT_EQ(biz_status.AdapterName(), "Translate");
+  EXPECT_EQ(biz_status.FieldPath(), "json");
+}
+
+// RFC-0053: Return code and AdapterStatus independence
+TEST_F(AdapterContractSecurityTest,
+       TranslationReturnCodeAndAdapterStatusIndependence) {
+  auto adapter =
+      BizAdapterRegistry::Instance().GetAdapter(ALG_BIZ_TYPE_TRANSLATE);
+  ASSERT_NE(adapter, nullptr);
+
+  // AlgContext with raw_request_ids but missing answers
+  AlgContext ctx;
+  ctx.Publish(kRawRequestIds, std::vector<uint64_t>{1001});
+
+  EntityResult out{};
+  void* outputs[] = {&out};
+  int count = 1;
+  AdapterStatus status;
+  int ret = adapter->PackResultBatch(&ctx, outputs, &count, &status);
+
+  // Return code is INVALID_INPUT (-3)
+  EXPECT_EQ(ret, COMPANY_ALG_ERR_INVALID_INPUT);
+  // Underlying reader wrote BUFFER_TOO_SMALL (-4) into AdapterStatus
+  EXPECT_EQ(status.Code(), COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
+  EXPECT_NE(ret, status.Code());
+}
+
+// RFC-0053: Translate serialization failure (invalid UTF-8) priority over
+// capacity check
+TEST_F(AdapterContractSecurityTest,
+       TranslationSerializationFailurePriorityOverCapacity) {
+  auto adapter =
+      BizAdapterRegistry::Instance().GetAdapter(ALG_BIZ_TYPE_TRANSLATE);
+  ASSERT_NE(adapter, nullptr);
+
+  // AlgContext with valid raw_req_ids, but answer has invalid UTF-8 byte
+  // sequence
+  AlgContext ctx;
+  ctx.Publish(kRawRequestIds, std::vector<uint64_t>{1001});
+  std::string invalid_utf8 = "prefix\xFF\xFFsuffix";
+  ctx.Publish(kLlmAnswers, TextBatch{{0, 0, invalid_utf8}});
+
+  // Call Pack with null outputs and 0 count (would trigger BUFFER_TOO_SMALL if
+  // capacity was checked first)
+  int count = 0;
+  AdapterStatus status;
+
+  // Serialization in PrepareResults precedes capacity validation;
+  // unhandled dump exception propagates out of Pack to SharedAlgorithmRuntime
+  // where it maps to COMPANY_ALG_ERR_EXCEPTION (-99) per RFC-0053 §3.2.
+  EXPECT_THROW(adapter->Pack(&ctx, nullptr, &count, &status), std::exception);
+  EXPECT_THROW(adapter->PackResultBatch(&ctx, nullptr, &count, &status),
+               std::exception);
+}
+
+// RFC-0053: Translate null AlgContext legacy diagnostic characterization
+TEST_F(AdapterContractSecurityTest, TranslateNullContextLegacyDiagnostics) {
+  auto adapter =
+      BizAdapterRegistry::Instance().GetAdapter(ALG_BIZ_TYPE_TRANSLATE);
+  ASSERT_NE(adapter, nullptr);
+
+  // 1. Unpack with null context: must return INVALID_INPUT (-3) with field
+  // "json"
+  CompanyEntityInputStruct input{100, "{\"query\":\"test\"}"};
+  const void* inputs[] = {&input};
+  AdapterStatus unpack_status;
+  int unpack_ret = adapter->Unpack(inputs, 1, nullptr, &unpack_status);
+  EXPECT_EQ(unpack_ret, COMPANY_ALG_ERR_INVALID_INPUT);
+  EXPECT_EQ(unpack_status.Code(), COMPANY_ALG_ERR_INVALID_INPUT);
+  EXPECT_EQ(unpack_status.FieldPath(), "json");
+  EXPECT_EQ(unpack_status.AdapterName(), "Translate");
+
+  EXPECT_EQ(adapter->Unpack(inputs, 1, nullptr, nullptr),
+            COMPANY_ALG_ERR_INVALID_INPUT);
+
+  // 2. Pack with null context: must return INVALID_INPUT (-3) with field "json"
+  CompanyEntityOutputStruct output{};
+  void* outputs[] = {&output};
+  int count = 1;
+  AdapterStatus pack_status;
+  int pack_ret = adapter->Pack(nullptr, outputs, &count, &pack_status);
+  EXPECT_EQ(pack_ret, COMPANY_ALG_ERR_INVALID_INPUT);
+  EXPECT_EQ(pack_status.Code(), COMPANY_ALG_ERR_INVALID_INPUT);
+  EXPECT_EQ(pack_status.FieldPath(), "json");
+  EXPECT_EQ(pack_status.AdapterName(), "Translate");
+
+  EXPECT_EQ(adapter->Pack(nullptr, outputs, &count, nullptr),
+            COMPANY_ALG_ERR_INVALID_INPUT);
+
+  // 3. PackResultBatch with null context: must return INVALID_INPUT (-3) with
+  // field "json"
+  EntityResult owned_output{};
+  void* owned_outputs[] = {&owned_output};
+  int owned_count = 1;
+  AdapterStatus owned_pack_status;
+  int owned_pack_ret = adapter->PackResultBatch(
+      nullptr, owned_outputs, &owned_count, &owned_pack_status);
+  EXPECT_EQ(owned_pack_ret, COMPANY_ALG_ERR_INVALID_INPUT);
+  EXPECT_EQ(owned_pack_status.Code(), COMPANY_ALG_ERR_INVALID_INPUT);
+  EXPECT_EQ(owned_pack_status.FieldPath(), "json");
+  EXPECT_EQ(owned_pack_status.AdapterName(), "Translate");
+
+  EXPECT_EQ(
+      adapter->PackResultBatch(nullptr, owned_outputs, &owned_count, nullptr),
+      COMPANY_ALG_ERR_INVALID_INPUT);
 }
 
 }  // namespace llm_edgeflow

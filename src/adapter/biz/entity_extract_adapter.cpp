@@ -1,12 +1,12 @@
-#include <cstring>
 #include <vector>
 
-#include "adapter/adapter_validation_helper.h"
+#include "adapter/adapter_batch.h"
 #include "adapter/biz_adapter_registry.h"
 #include "adapter/biz_blackboard_keys.h"
 #include "adapter/biz_results.h"
 #include "adapter/result_packing_adapter.h"
 #include "adapter/result_validation.h"
+#include "adapter/text_carrier.h"
 #include "edgeflow/c_api.h"
 
 namespace llm_edgeflow {
@@ -44,47 +44,13 @@ class EntityExtractAdapter
 
   int Unpack(const void** inputs, int num_inputs, AlgContext* ctx,
              AdapterStatus* out_status = nullptr) const override {
-    int valid_ret = AdapterValidationHelper::ValidateBatchInputs(
-        inputs, num_inputs, GetDescriptor().max_batch_size, AdapterName());
-    if (valid_ret != 0 || !ctx) {
-      return AdapterValidationHelper::ReturnInvalidInput(
-          out_status, "Batch envelope validation failed or null AlgContext",
-          "inputs", AdapterName());
-    }
-
-    std::vector<uint64_t> req_ids;
-    TextBatch sentences;
-    req_ids.reserve(num_inputs);
-    sentences.reserve(num_inputs);
-
-    constexpr size_t kMaxSentenceLen = 64 * 1024;  // 64KB 单文本上限
-
-    for (int i = 0; i < num_inputs; ++i) {
-      auto* in = static_cast<const CompanyEntityInputStruct*>(inputs[i]);
-      if (!AdapterValidationHelper::RequireNotNull("inputs[i]", in, i,
-                                                   AdapterName(), out_status)) {
-        return COMPANY_ALG_ERR_INVALID_INPUT;
-      }
-
-      if (!AdapterValidationHelper::RequireBoundedString(
-              "inputs[i].sentence_text", in->sentence_text, kMaxSentenceLen, i,
-              AdapterName(), out_status)) {
-        return COMPANY_ALG_ERR_INVALID_INPUT;
-      }
-
-      req_ids.push_back(in->request_id);
-      sentences.emplace_back(static_cast<uint32_t>(i), 0, in->sentence_text);
-    }
-
-    if (!AdapterValidationHelper::PublishContextValue(
-            *ctx, kRawRequestIds, std::move(req_ids), AdapterName(),
-            out_status) ||
-        !AdapterValidationHelper::PublishContextValue(
-            *ctx, kInputSentences, std::move(sentences), AdapterName(),
-            out_status)) {
-      return COMPANY_ALG_ERR_INVALID_INPUT;
-    }
-    return COMPANY_ALG_SUCCESS;
+    return UnpackTextBatchSkeleton(
+        inputs, num_inputs, GetDescriptor().max_batch_size, AdapterName(), ctx,
+        kInputSentences,
+        [](const OwnedTextRequest& req) {
+          return AdapterResult<std::string>::Ok(req.text);
+        },
+        out_status);
   }
 
   template <typename Output>
@@ -117,6 +83,7 @@ class EntityExtractAdapter
           (raw_req_ids && i < static_cast<int>(raw_req_ids->size()))
               ? (*raw_req_ids)[i]
               : res_by_request[i]->req_id;
+      // 保持行为：逐行先写 request_id，再检查结构化状态
       out_ptr->request_id = req_id;
       if (!IsSuccessfulDocument(res_by_request[i]->data)) {
         return AdapterValidationHelper::ReturnInvalidInput(
@@ -125,11 +92,11 @@ class EntityExtractAdapter
       }
       out_ptr->status_code = 0;
 
-      if (!CopyResultString(out_ptr->entities_json,
-                            res_by_request[i]->data.json_payload.c_str(),
-                            "outputs[i].entities_json", i, AdapterName(),
-                            out_status)) {
-        return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
+      int write_ret = WriteTextCarrierOutput(
+          out_ptr, req_id, 0, res_by_request[i]->data.json_payload, i,
+          AdapterName(), out_status);
+      if (write_ret != COMPANY_ALG_SUCCESS) {
+        return write_ret;
       }
     }
     *num_outputs = count;
