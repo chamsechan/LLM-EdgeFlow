@@ -744,7 +744,7 @@ TEST_F(CommonNodesTest, TextTemplateNodeMissingVariableFail) {
   ASSERT_NE(node, nullptr);
 
   // allow_dynamic_attributes is false by default
-  nlohmann::json cfg = {{"template", "Hello {user_name}, welcome!"},
+  nlohmann::json cfg = {{"template", "Hello {{user_name}}, welcome!"},
                         {"allow_dynamic_attributes", true}};
   EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
 
@@ -1050,8 +1050,8 @@ TEST_F(CommonNodesTest, PromptRendersOriginalTemplateAndIsolatesRequests) {
   const nlohmann::json config = {
       {"bind_model", "prompt_contract"},
       {"prompt_prefix", "system {input}"},
-      {"template_syntax", "legacy"},
-      {"prompt_template", "{{literal}} <{input}>|{context}|{input}"},
+      {"prompt_template",
+       "{\"key\": \"val\"} <{{input}}>|{{context}}|{{input}}"},
       {"strip_markdown", true},
       {"stop_words", {"END"}},
       {"max_tokens", 23}};
@@ -1069,12 +1069,12 @@ TEST_F(CommonNodesTest, PromptRendersOriginalTemplateAndIsolatesRequests) {
   ASSERT_NE(output, nullptr);
   ASSERT_EQ(output->size(), 3U);
   EXPECT_EQ((*output)[0].data,
-            "system {input}\n{literal} <literal "
+            "system {input}\n{\"key\": \"val\"} <literal "
             "{context}>|C{input}\nTAIL|literal {context}");
   EXPECT_EQ((*output)[1].data,
-            "system {input}\n{literal} <second>|OTHER|second");
+            "system {input}\n{\"key\": \"val\"} <second>|OTHER|second");
   EXPECT_EQ((*output)[2].data,
-            "system {input}\n{literal} <last>|C{input}\nTAIL|last");
+            "system {input}\n{\"key\": \"val\"} <last>|C{input}\nTAIL|last");
   EXPECT_EQ((*output)[0].req_id, 17U);
   EXPECT_EQ((*output)[2].sub_id, 6U);
   EXPECT_EQ(model->last_options.max_tokens, 23);
@@ -1085,7 +1085,7 @@ TEST_F(CommonNodesTest, PromptRendersOriginalTemplateAndIsolatesRequests) {
   next.Publish("context", TextBatch{});
   ASSERT_EQ(node->Process(&next), 0);
   EXPECT_EQ(next.Read<TextBatch>("output")->front().data,
-            "system {input}\n{literal} <next>||next");
+            "system {input}\n{\"key\": \"val\"} <next>||next");
 }
 
 TEST_F(CommonNodesTest, PromptDefaultsMatchDirectInitializationAndNativePlan) {
@@ -1139,7 +1139,7 @@ TEST_F(CommonNodesTest, PromptStandardSyntaxMatchesTextTemplateNode) {
                                                             model, "v1"));
   const std::string value = "opaque {{input}} {context}";
   const std::vector<std::pair<std::string, std::string>> cases = {
-      {"{{context}}|{ context }", value + "|" + value},
+      {"{{context}}|{{ context }}", value + "|" + value},
       {R"({"nested":{"context":"{{ context }}"}})",
        "{\"nested\":{\"context\":\"" + value + "\"}}"}};
   for (const auto& [pattern, expected] : cases) {
@@ -1148,11 +1148,10 @@ TEST_F(CommonNodesTest, PromptStandardSyntaxMatchesTextTemplateNode) {
     auto custom = NodeRegistry::Instance().Create("PromptGuidedLlmNode");
     ASSERT_TRUE(
         InitNodeForTest(*common, {{"template", pattern}}, session_ctx_.get()));
-    ASSERT_TRUE(InitNodeForTest(*custom,
-                                {{"bind_model", "prompt_contract"},
-                                 {"template_syntax", "standard"},
-                                 {"prompt_template", pattern}},
-                                session_ctx_.get()));
+    ASSERT_TRUE(InitNodeForTest(
+        *custom,
+        {{"bind_model", "prompt_contract"}, {"prompt_template", pattern}},
+        session_ctx_.get()));
     AlgContext common_ctx;
     common_ctx.Publish("context_text", TextBatch{{17, 0, value}});
     ASSERT_EQ(common->Process(&common_ctx), 0);
@@ -1169,47 +1168,41 @@ TEST_F(CommonNodesTest, PromptStandardSyntaxMatchesTextTemplateNode) {
   }
 }
 
-TEST_F(CommonNodesTest, PromptDoubleBracesRequireExplicitMigration) {
+TEST_F(CommonNodesTest,
+       PromptTemplateUnificationAcceptsJsonAndRejectsMalformedPlaceholders) {
   auto model = std::make_shared<PromptContractModel>();
   ASSERT_TRUE(session_ctx_->GetModelManager().RegisterModel("prompt_contract",
                                                             model, "v1"));
+  // 1. Malformed templates are rejected at validation and Init
   for (const std::string pattern :
-       {"{{input}}", "{{context}}", "{{literal}}", "{{\"value\": 1}}", "}}"}) {
+       {"{{unclosed", "{{unknown}}", "{{}}", "{{invalid name}}"}) {
     SCOPED_TRACE(pattern);
-    for (bool explicit_auto : {false, true}) {
-      auto doc = CustomPipeline("entity_extract");
-      auto& config = doc["pipeline"][0]["config"];
-      config["prompt_template"] = pattern;
-      config.erase("template_syntax");
-      if (explicit_auto) config["template_syntax"] = "auto";
-      const auto result = PipelineValidator::ValidateAndPlan(doc);
-      EXPECT_FALSE(result.report.ok);
-      EXPECT_NE(result.report.ToJson().dump().find("template_syntax=standard"),
-                std::string::npos);
-      EXPECT_NE(result.report.ToJson().dump().find("template_syntax=legacy"),
-                std::string::npos);
-      config["bind_model"] = "prompt_contract";
-      auto node = NodeRegistry::Instance().Create("PromptGuidedLlmNode");
-      EXPECT_FALSE(InitNodeForTest(*node, config, session_ctx_.get()));
-    }
-  }
-  for (const auto& [syntax, pattern, expected] :
-       std::vector<std::tuple<std::string, std::string, std::string>>{
-           {"auto", "{input}", "value"},
-           {"standard", "{{ input }}|{input}", "value|value"},
-           {"legacy", "{{input}}|{input}|{{\"value\": 1}}",
-            "{input}|value|{\"value\": 1}"}}) {
-    SCOPED_TRACE(syntax);
+    auto doc = CustomPipeline("entity_extract");
+    auto& config = doc["pipeline"][0]["config"];
+    config["prompt_template"] = pattern;
+    const auto result = PipelineValidator::ValidateAndPlan(doc);
+    EXPECT_FALSE(result.report.ok);
+    config["bind_model"] = "prompt_contract";
     auto node = NodeRegistry::Instance().Create("PromptGuidedLlmNode");
-    ASSERT_TRUE(InitNodeForTest(*node,
-                                {{"bind_model", "prompt_contract"},
-                                 {"template_syntax", syntax},
-                                 {"prompt_template", pattern}},
-                                session_ctx_.get()));
+    EXPECT_FALSE(InitNodeForTest(*node, config, session_ctx_.get()));
+  }
+
+  // 2. Valid templates with JSON literal braces and {{input}} substitution
+  for (const auto& [pattern, expected] :
+       std::vector<std::pair<std::string, std::string>>{
+           {"{\"text\": \"{{input}}\"}", "{\"text\": \"value\"}"},
+           {"{{ input }}|{literal_braces}", "value|{literal_braces}"},
+           {"prefix: {{input}} | suffix", "prefix: value | suffix"}}) {
+    SCOPED_TRACE(pattern);
+    auto node = NodeRegistry::Instance().Create("PromptGuidedLlmNode");
+    ASSERT_TRUE(InitNodeForTest(
+        *node,
+        {{"bind_model", "prompt_contract"}, {"prompt_template", pattern}},
+        session_ctx_.get()));
     AlgContext ctx;
     ctx.Publish("input", TextBatch{{17, 4, "value"}});
     ASSERT_EQ(node->Process(&ctx), 0);
-    EXPECT_EQ(model->prompts.front().data, expected);
+    EXPECT_EQ(model->prompts.back().data, expected);
   }
 }
 
@@ -1262,7 +1255,7 @@ TEST_F(CommonNodesTest, PromptContextIsExplicitAndRequiredWhenUsed) {
   EXPECT_EQ(model->prompts.front().data, "input only");
   ASSERT_TRUE(InitNodeForTest(*node,
                               {{"bind_model", "prompt_contract"},
-                               {"prompt_template", "{input}|{context}"}},
+                               {"prompt_template", "{{input}}|{{context}}"}},
                               session_ctx_.get()));
   for (bool wrong_type : {false, true}) {
     AlgContext missing;
@@ -1291,20 +1284,16 @@ TEST_F(CommonNodesTest, PromptConfigurationRejectedByValidatorAndInit) {
       {{"top_k", -1}},
       {{"top_p", 0}},
       {{"repetition_penalty", 101}},
-      {{"prompt_template", "{unknown}"}},
-      {{"prompt_template", "{input"}},
-      {{"prompt_template", "}"}},
       {{"prompt_template", ""}},
-      {{"template_syntax", "invalid"}},
-      {{"template_syntax", "standard"}, {"prompt_template", "{{unknown}}"}},
-      {{"template_syntax", "standard"}, {"prompt_template", "{{input}"}},
-      {{"template_syntax", "standard"}, {"prompt_template", "{{}}"}}};
+      {{"prompt_template", "{{unknown}}"}},
+      {{"prompt_template", "{{input"}},
+      {{"prompt_template", "{{}}"}},
+      {{"template_syntax", "standard"}}};
   for (const auto& bad : bad_configs) {
     SCOPED_TRACE(bad.dump());
     auto doc = CustomPipeline("entity_extract");
     nlohmann::json config = {{"bind_model", "entity_llm"},
-                             {"prompt_template", "{input}"},
-                             {"template_syntax", "auto"}};
+                             {"prompt_template", "{{input}}"}};
     config.update(bad);
     doc["pipeline"][0]["config"] = config;
     const auto preflight = PipelineValidator::ValidateAndPlan(doc);

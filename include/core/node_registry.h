@@ -136,9 +136,6 @@ class NodeRegistry {
   std::vector<std::string> conflict_errors_;
 };
 
-// Source compatibility for extensions using the former name.
-using NodeFactory = NodeRegistry;
-
 #define REGISTER_NODE_WITH_DEFINITION(NodeType, ...)       \
   static bool _reg_node_##NodeType = []() noexcept {       \
     return ::llm_edgeflow::NodeRegistry::Instance()        \

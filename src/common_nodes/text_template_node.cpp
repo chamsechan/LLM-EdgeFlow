@@ -572,7 +572,7 @@ class TextTemplateNode final : public NodeBase {
               return Fail(req_ctx, node_error::text_template::kMissingVariable,
                           "Missing required template variable: " + var);
             } else if (state.missing_variable_policy == "preserve") {
-              rendered += "{" + var + "}";
+              rendered += "{{" + var + "}}";
             }
           }
         }
@@ -625,8 +625,8 @@ NodeDefinition MakeTextTemplateNodeDefinition() {
   def.category = "common";
   def.validate_config = TextTemplateNode::ValidateConfig;
   def.description =
-      "Text template rendering: {{name}} and {name} substitute variables; "
-      "JSON braces remain literal";
+      "Text template rendering: {{name}} substitutes variables; "
+      "single {name} and JSON braces remain literal";
   def.inputs = {
       OptionalInputPort("primary", BlackboardKey<TextBatch>{"", "TextBatch"},
                         "1:1", "preserve", "request"),

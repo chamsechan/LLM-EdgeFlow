@@ -26,48 +26,6 @@ constexpr int kMissingInput = -8001;
 constexpr int kModelInferenceFailed = -8002;
 constexpr int kOutputProvenanceMismatch = -8003;
 
-// Kept only for explicitly selected legacy syntax and unambiguous old
-// templates.
-bool ParseLegacyPromptTemplate(const std::string& pattern,
-                               std::vector<TextTemplateToken>* parts,
-                               std::string* error) {
-  auto reject = [&](const std::string& message) {
-    if (error) *error = message;
-    return false;
-  };
-  parts->clear();
-  std::string literal;
-  for (size_t i = 0; i < pattern.size();) {
-    const char c = pattern[i];
-    if ((c == '{' || c == '}') && i + 1 < pattern.size() &&
-        pattern[i + 1] == c) {
-      literal += c;
-      i += 2;
-    } else if (c == '{') {
-      const auto end = pattern.find('}', i + 1);
-      if (end == std::string::npos)
-        return reject("Unclosed prompt placeholder");
-      const auto token = pattern.substr(i + 1, end - i - 1);
-      if (token != "input" && token != "context") {
-        return reject("Unknown prompt placeholder: " + token);
-      }
-      parts->push_back({TextTemplateTokenType::kLiteral, std::move(literal)});
-      literal.clear();
-      parts->push_back({TextTemplateTokenType::kVariable, token});
-      i = end + 1;
-    } else if (c == '}') {
-      return reject(
-          "Unescaped } in legacy prompt template; choose "
-          "template_syntax=standard for literal JSON braces");
-    } else {
-      literal += c;
-      ++i;
-    }
-  }
-  parts->push_back({TextTemplateTokenType::kLiteral, std::move(literal)});
-  return true;
-}
-
 // Ordinary, owned configuration used by processing after initialization.
 struct PromptConfig {
   std::vector<TextTemplateToken> prompt_parts;
@@ -89,21 +47,7 @@ bool ParsePromptConfig(const nlohmann::json& config, PromptConfig* parameters,
   const auto& pattern =
       config.at("prompt_template").get_ref<const std::string&>();
   if (pattern.empty()) return reject("prompt_template must not be empty");
-  const auto& syntax =
-      config.at("template_syntax").get_ref<const std::string&>();
-  if (syntax == "auto" && (pattern.find("{{") != std::string::npos ||
-                           pattern.find("}}") != std::string::npos)) {
-    return reject(
-        "Ambiguous double braces in prompt_template: set "
-        "template_syntax=standard to substitute {{input}}/{{context}} "
-        "as in TextTemplateNode, or template_syntax=legacy to preserve "
-        "old {{ / }} literal-brace escaping");
-  }
-  if (syntax == "standard") {
-    if (!ParseTextTemplate(pattern, &parts, error)) return false;
-  } else if (!ParseLegacyPromptTemplate(pattern, &parts, error)) {
-    return false;
-  }
+  if (!ParseTextTemplate(pattern, &parts, error)) return false;
   for (const auto& part : parts) {
     if (part.type != TextTemplateTokenType::kVariable) continue;
     if (part.value != "input" && part.value != "context") {
@@ -143,22 +87,12 @@ const NodeConfigParser<PromptConfig>& PromptConfiguration() {
        ConfigFieldDefinition{"prompt_template",
                              ConfigValueKind::kString,
                              false,
-                             "{input}",
+                             "{{input}}",
                              std::nullopt,
                              std::nullopt,
                              {},
-                             "提示词模板；standard 示例为 "
-                             "\"回答：{{input}}\\n背景：{{context}}\"，使用 "
+                             "提示词模板；使用 {{input}}/{{context}}，使用 "
                              "context 时须连接该输入。"},
-       ConfigFieldDefinition{"template_syntax",
-                             ConfigValueKind::kString,
-                             false,
-                             "auto",
-                             std::nullopt,
-                             std::nullopt,
-                             {"auto", "standard", "legacy"},
-                             "standard 使用 {{input}}/{{context}}；legacy 使用 "
-                             "{input}/{context}；auto 拒绝有歧义的混用。"},
        ConfigFieldDefinition{"prompt_prefix",
                              ConfigValueKind::kString,
                              false,
@@ -415,9 +349,7 @@ NodeDefinition MakePromptGuidedLlmNodeDefinition() {
   def.category = "custom";
   def.description =
       "Custom domain node combining prompt construction, LLM generation, "
-      "and response post-processing; template_syntax=standard uses "
-      "{{name}}/{name} like TextTemplateNode, auto rejects ambiguous double "
-      "braces, legacy preserves old brace escaping";
+      "and response post-processing using {{input}}/{{context}} templates";
   def.inputs = {
       RequiredInputPort("input", BlackboardKey<TextBatch>{"", "TextBatch"},
                         "1:1", "preserve", "request"),

@@ -203,19 +203,7 @@ class PreviewFixTest(unittest.TestCase):
         self.temporary.cleanup()
 
     def _valid_fingerprint(self):
-        if hasattr(self.service, "tool_fingerprint"):
-            try:
-                fp = self.service.tool_fingerprint
-                return fp() if callable(fp) else fp
-            except Exception:
-                pass
-        if hasattr(SHOW, "tool_fingerprint"):
-            try:
-                fp = SHOW.tool_fingerprint
-                return fp() if callable(fp) else fp
-            except Exception:
-                pass
-        return "valid_tool_fingerprint"
+        return self.service.get_tool_fingerprint()
 
     def test_preview_fix_requires_expected_revision(self):
         valid_fp = self._valid_fingerprint()
@@ -326,7 +314,7 @@ class RunnableSolutionTest(unittest.TestCase):
         self.assertEqual(conf["data"]["model_paths"], {})
         command = shlex.split(saved["command"])
         self.assertEqual(command[:3], ["cd", str(ROOT), "&&"])
-        self.assertIn("--no-default-control", command)
+        self.assertNotIn("--no-default-control", command)
         self.assertFalse(Path(command[command.index("--config") + 1]).is_absolute())
         output = Path(command[command.index("--output-dir") + 1])
         try:
@@ -517,9 +505,9 @@ class RunnableSolutionTest(unittest.TestCase):
         self.assertEqual(unrelated.read_text(), "keep")
 
     def test_native_deployment_rejection_rolls_back_the_pair(self):
-        profile, mem_que = self.service.profile_inputs(self.keyword, "keyword_match_rules")
-        mem_que["capacities"]["match_result_json"] = 0
-        with mock.patch.object(self.service, "profile_inputs", return_value=(profile, mem_que)):
+        profile, outputs = self.service.profile_inputs(self.keyword, "keyword_match_rules")
+        outputs["keyword_out"]["capacities"]["match_result_json"] = 0
+        with mock.patch.object(self.service, "profile_inputs", return_value=(profile, outputs)):
             with self.assertRaises(SHOW.StudioError) as error:
                 self.service.save_solution("pipeline_invalid_pool.json", self.keyword, "keyword_match_rules")
         self.assertEqual(error.exception.code, "DEPLOYMENT_VALIDATION_FAILED")
@@ -657,7 +645,7 @@ class PipelineCliTest(unittest.TestCase):
             code, direct = self.command("resolve-conf", str(changed.relative_to(ROOT)), "--root", str(ROOT))
             self.assertEqual(code, 0, direct)
             self.assertEqual(direct["configuration"]["model_paths"][0]["source"], "pipeline.models.model_path")
-            conf["data"]["mem_que"]["capacities"]["entities_json"] = 0
+            conf["data"]["outputs"]["entity_out"]["capacities"]["entities_json"] = 0
             changed.write_text(json.dumps(conf))
             code, rejected = self.command("resolve-conf", str(changed.relative_to(ROOT)), "--root", str(ROOT))
             self.assertEqual(code, 1)

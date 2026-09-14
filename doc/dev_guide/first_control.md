@@ -104,11 +104,13 @@ mkdir -p build/control_tutorial
 {
   "data": {
     "pipe_path": "build/control_tutorial/pipeline.json",
-    "mem_que": {
-      "type": "keyword_out",
-      "meta_num": 0,
-      "metadata_type_id": 0,
-      "capacities": {"match_result_json": 2047}
+    "outputs": {
+      "keyword_out": {
+        "type": "keyword_out",
+        "meta_num": 0,
+        "metadata_type_id": 0,
+        "capacities": {"match_result_json": 2047}
+      }
     }
   }
 }
@@ -128,7 +130,7 @@ mkdir -p build/control_tutorial
 ```bash
 ./build/alg_pipeline_tool validate build/control_tutorial/pipeline.json
 ./build/alg_pipeline_tool plan build/control_tutorial/pipeline.json
-./build/alg_demo --biz keyword_match --config build/control_tutorial/pipeline.conf --dataset build/control_tutorial/input.txt --no-default-control --control-cmd 1001 --control-file build/control_tutorial/control.json --output-dir build/control_tutorial/updated
+./build/alg_demo --biz keyword_match --config build/control_tutorial/pipeline.conf --dataset build/control_tutorial/input.txt --control-cmd 1001 --control-file build/control_tutorial/control.json --output-dir build/control_tutorial/updated
 ```
 
 查看 `build/control_tutorial/updated/keyword_match/results.jsonl`：应有 `status: 0`、
@@ -154,8 +156,7 @@ C ABI 继续直接使用 `CompanyAlgParamControl{cmd_id, json}`，不需要新�
 
 Demo 的 `--control-cmd` 也可配置为 Profile 的 `control_cmd`，CLI 显式值优先；指定命令
 必须提供 `control_file`。省略命令时保留该 Demo 的默认命令。Demo 默认不发送内置演示
-更新；显式 `--example-control` 才启用，且显式文件优先。`--no-default-control` 保留为
-兼容选项，不影响显式文件，与 `--example-control` 同时使用会报错。
+更新；显式 `--example-control` 才启用，且显式文件优先。
 
 同一 handle 的 C ABI / Operator 调用串行；多个线程提交不保证顺序。内部直接调用
 Pipeline/Node 的 Control 时，由调用者序列化更新。裸 payload 广播到所有声明支持该

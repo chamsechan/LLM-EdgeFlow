@@ -61,6 +61,7 @@ endfunction()
 function(check_llama_cache _case_name _apple _blas)
   set(_case_root "${TEST_ROOT}/${_case_name}")
   set(_case_source "${_case_root}/source")
+  file(REMOVE_RECURSE "${_case_root}")
   file(MAKE_DIRECTORY "${_case_source}/cmake_ext")
   file(COPY "${_llama_fixture}/CMakeLists.txt" DESTINATION "${_case_source}")
   file(COPY "${PROJECT_SOURCE_DIR}/cmake_ext/ThirdPartyCacheMetadata.cmake"

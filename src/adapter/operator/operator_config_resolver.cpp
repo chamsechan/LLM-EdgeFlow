@@ -390,7 +390,7 @@ int OperatorConfigResolver::Resolve(const char* model_path,
     }
     const nlohmann::json* data_obj = &conf_json["data"];
     static const std::unordered_set<std::string> kAllowedDataFields = {
-        "pipe_path", "model_paths", "mem_que", "outputs"};
+        "pipe_path", "model_paths", "outputs"};
     for (auto it = data_obj->begin(); it != data_obj->end(); ++it) {
       if (kAllowedDataFields.find(it.key()) == kAllowedDataFields.end()) {
         if (error_msg) {
@@ -465,55 +465,36 @@ int OperatorConfigResolver::Resolve(const char* model_path,
       return -5;
     }
 
-    const bool legacy_output = data_obj->contains("mem_que");
-    const bool named_outputs = data_obj->contains("outputs");
-    if (legacy_output == named_outputs) {
-      if (error_msg)
-        *error_msg =
-            legacy_output
-                ? "data.mem_que and data.outputs are mutually exclusive"
-                : "Missing required 'mem_que' object or 'outputs' object in "
-                  "conf";
+    if (!data_obj->contains("outputs")) {
+      if (error_msg) *error_msg = "Missing required 'outputs' object in conf";
       return -2;
     }
-    if (legacy_output && (bridge_desc->output_slots.size() != 1 ||
-                          !(*data_obj)["mem_que"].is_object())) {
-      if (error_msg)
-        *error_msg =
-            "data.mem_que requires exactly one output slot and an object";
-      return -2;
-    }
-    if (named_outputs && !(*data_obj)["outputs"].is_object()) {
+    if (!(*data_obj)["outputs"].is_object()) {
       if (error_msg)
         *error_msg =
             "data.outputs must be an object keyed by logical output slot";
       return -2;
     }
-    if (named_outputs) {
-      for (const auto& [name, value] : (*data_obj)["outputs"].items()) {
-        bool known = false;
-        for (const auto& slot : bridge_desc->output_slots) {
-          if (slot.logical_name == name) known = true;
-        }
-        if (!known) {
-          if (error_msg) *error_msg = "Unknown configured output slot: " + name;
-          return -2;
-        }
+    for (const auto& [name, value] : (*data_obj)["outputs"].items()) {
+      bool known = false;
+      for (const auto& slot : bridge_desc->output_slots) {
+        if (slot.logical_name == name) known = true;
+      }
+      if (!known) {
+        if (error_msg) *error_msg = "Unknown configured output slot: " + name;
+        return -2;
       }
     }
     std::unordered_map<std::string, ResolvedOutputPoolSpec> pool_specs;
     std::unordered_map<std::string, std::string> parameter_texts;
     for (const auto& slot : bridge_desc->output_slots) {
-      if (named_outputs &&
-          !(*data_obj)["outputs"].contains(slot.logical_name)) {
+      if (!(*data_obj)["outputs"].contains(slot.logical_name)) {
         if (error_msg)
           *error_msg = "Missing allocation configuration for output slot: " +
                        slot.logical_name;
         return -2;
       }
-      const auto& config = legacy_output
-                               ? (*data_obj)["mem_que"]
-                               : (*data_obj)["outputs"][slot.logical_name];
+      const auto& config = (*data_obj)["outputs"][slot.logical_name];
       ResolvedOutputPoolSpec spec;
       std::string parameter_text;
       std::string allocation_error;

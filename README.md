@@ -71,7 +71,7 @@ cmake --build build --target alg_sdk alg_demo alg_pipeline_tool alg_show --paral
 - `results/quickstart/keyword_match_rules/results.jsonl`：逐条请求的状态与匹配结果。
 - `results/quickstart/keyword_match_rules/summary.json`：样本数、成功数、失败数与耗时。
 
-`keyword_match_rules` 是 Demo 预设名称，这个方案使用真实规则节点。Demo 默认使用 Pipeline 中的规则；`--no-default-control` 保留为兼容选项。需要体验内置规则热更新时显式添加 `--example-control`。
+`keyword_match_rules` 是 Demo 预设名称，这个方案使用真实规则节点。Demo 默认使用 Pipeline 中的规则；需要体验内置规则热更新时显式添加 `--example-control`。
 
 ### 3. 查看与编辑流程
 
@@ -104,7 +104,7 @@ flowchart TD
 
 | 职责 | 何时扩展 | 主要入口 |
 | :--- | :--- | :--- |
-| 接入适配层 | 宿主程序增加新的输入输出结构或调用约定 | `include/adapter/`、`include/operator/`、`src/adapter/` |
+| 接入适配层 | 宿主程序增加新的输入输出结构或调用约定 | `include/adapter/`、`include/edgeflow/operator/`、`src/adapter/` |
 | 流程编排层 | 现有校验、调度或上下文机制无法满足需求 | `include/core/`、`src/core/` |
 | 能力节点层 | 增加领域算法、数据处理或模型调用组合 | `src/custom_nodes/`；通用操作位于 `src/common_nodes/` |
 | 模型执行层 | 增加模型语义或接入新的推理运行时 | `src/engine/models/`、`src/engine/backends/` |

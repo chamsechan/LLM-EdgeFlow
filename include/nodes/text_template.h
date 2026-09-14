@@ -24,9 +24,9 @@ inline bool IsTextTemplateIdentifier(std::string_view name) {
   return true;
 }
 
-// Both {{name}} and the compatible {name} spelling are variables. Other
-// single braces remain literal (for example JSON); double braces never escape
-// variables. Only compile the original template, never inserted request text.
+// Only {{name}} placeholders are variables. Single braces remain literal (for
+// example JSON); double braces never escape variables. Only compile the
+// original template, never inserted request text.
 inline bool ParseTextTemplate(const std::string& pattern,
                               std::vector<TextTemplateToken>* tokens,
                               std::string* error = nullptr) {
@@ -35,44 +35,48 @@ inline bool ParseTextTemplate(const std::string& pattern,
     if (error) *error = message;
     return false;
   };
+  auto add_literal = [&](std::string_view lit) {
+    if (lit.empty()) return;
+    if (!tokens->empty() &&
+        tokens->back().type == TextTemplateTokenType::kLiteral) {
+      tokens->back().value.append(lit);
+    } else {
+      tokens->push_back({TextTemplateTokenType::kLiteral, std::string(lit)});
+    }
+  };
   tokens->clear();
   size_t pos = 0;
   while (pos < pattern.size()) {
     const size_t open = pattern.find('{', pos);
     if (open == std::string::npos) {
-      tokens->push_back({TextTemplateTokenType::kLiteral, pattern.substr(pos)});
+      add_literal(pattern.substr(pos));
       break;
     }
     if (open > pos) {
-      tokens->push_back(
-          {TextTemplateTokenType::kLiteral, pattern.substr(pos, open - pos)});
+      add_literal(pattern.substr(pos, open - pos));
     }
     const bool is_double =
         open + 1 < pattern.size() && pattern[open + 1] == '{';
-    const size_t width = is_double ? 2 : 1;
-    const size_t close = pattern.find(is_double ? "}}" : "}", open + width);
-    if (close == std::string::npos && is_double) {
+    if (!is_double) {
+      add_literal("{");
+      pos = open + 1;
+      continue;
+    }
+    const size_t close = pattern.find("}}", open + 2);
+    if (close == std::string::npos) {
       return reject("Unclosed {{ placeholder in template");
     }
-    if (close != std::string::npos) {
-      const std::string raw =
-          pattern.substr(open + width, close - open - width);
-      const size_t first = raw.find_first_not_of(" \t");
-      const size_t last = raw.find_last_not_of(" \t");
-      const std::string name = first == std::string::npos
-                                   ? std::string{}
-                                   : raw.substr(first, last - first + 1);
-      if (IsTextTemplateIdentifier(name)) {
-        tokens->push_back({TextTemplateTokenType::kVariable, name});
-        pos = close + width;
-        continue;
-      }
-      if (is_double) {
-        return reject("Invalid {{name}} template placeholder: " + raw);
-      }
+    const std::string raw = pattern.substr(open + 2, close - open - 2);
+    const size_t first = raw.find_first_not_of(" \t");
+    const size_t last = raw.find_last_not_of(" \t");
+    const std::string name = first == std::string::npos
+                                 ? std::string{}
+                                 : raw.substr(first, last - first + 1);
+    if (!IsTextTemplateIdentifier(name)) {
+      return reject("Invalid {{name}} template placeholder: " + raw);
     }
-    tokens->push_back({TextTemplateTokenType::kLiteral, "{"});
-    pos = open + 1;
+    tokens->push_back({TextTemplateTokenType::kVariable, name});
+    pos = close + 2;
   }
   return true;
 }

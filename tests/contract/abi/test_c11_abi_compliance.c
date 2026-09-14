@@ -22,12 +22,7 @@
 #endif
 #include "edgeflow/log.h"
 #include "edgeflow/operator/types.h"
-
-// Old and canonical include paths must coexist without redefining C contracts.
-#include "company_alg_interface.h"
-#include "company_alg_log.h"
-#include "company_alg_version.h"
-#include "operator/company_operator_types.h"
+#include "edgeflow/version.h"
 
 _Static_assert(sizeof(CompanyAlgBizType) == sizeof(int32_t),
                "CompanyAlgBizType must remain a 32-bit C ABI type");

@@ -6,6 +6,7 @@
 #include "adapter/biz_adapter_registry.h"
 #include "adapter/biz_results.h"
 #include "adapter/operator/operator_biz_bridge_registry.h"
+#include "adapter/operator/operator_process_binding.h"
 #include "adapter/operator/operator_value_type_registry.h"
 #include "adapter/text_carrier.h"
 
@@ -52,8 +53,8 @@ TEST(OperatorBizBridgeRegistryTest, AllRegisteredBusinessesSelfRegistered) {
     EXPECT_FALSE(desc->output_slots.empty());
     EXPECT_NE(desc->convert_sample_input, nullptr);
     for (const auto& slot : desc->output_slots) {
-      EXPECT_TRUE(slot.convert_output || (desc->output_slots.size() == 1 &&
-                                          desc->convert_sample_output));
+      EXPECT_NE(slot.convert_output, nullptr);
+      EXPECT_FALSE(slot.key_suffix.empty());
     }
     EXPECT_NE(desc->create_shadow_output_dto, nullptr);
   }
@@ -230,14 +231,14 @@ TEST(OperatorBizBridgeRegistryTest,
     EXPECT_EQ(r.GlobalInit(), -6);
   }
 
-  // 2. Only convert_sample_output changed -> conflict
+  // 2. Only convert_output changed -> conflict
   {
     OperatorBizBridgeRegistry r;
     EXPECT_TRUE(r.RegisterBridge(*orig_desc));
     OperatorBizBridgeDescriptor conflict = *orig_desc;
-    conflict.convert_sample_output = [](const void*, void*,
-                                        const ResolvedOutputPoolSpec&,
-                                        std::string*) -> int { return -99; };
+    conflict.output_slots.front().convert_output =
+        [](const void*, void*, const ResolvedOutputPoolSpec&,
+           std::string*) -> int { return -99; };
     EXPECT_FALSE(r.RegisterBridge(conflict));
     EXPECT_TRUE(r.HasConflict());
     EXPECT_EQ(r.GlobalInit(), -6);
@@ -312,7 +313,8 @@ TEST(OperatorBizBridgeRegistryTest,
       CompanyOperatorKeywordOutput out_struct{};
       out_struct.match_result_json = &out_cs;
 
-      ASSERT_EQ(desc->convert_sample_output(&out_dto, &out_struct, spec, &err),
+      ASSERT_EQ(desc->output_slots.front().convert_output(&out_dto, &out_struct,
+                                                          spec, &err),
                 0);
       EXPECT_EQ(out_struct.request_id, 1000 + i);
       EXPECT_EQ(out_struct.is_hit, out_dto.is_hit);
@@ -359,7 +361,8 @@ TEST(OperatorBizBridgeRegistryTest,
       CompanyOperatorEntityOutput out_struct{};
       out_struct.entities_json = &out_cs;
 
-      ASSERT_EQ(desc->convert_sample_output(&out_dto, &out_struct, spec, &err),
+      ASSERT_EQ(desc->output_slots.front().convert_output(&out_dto, &out_struct,
+                                                          spec, &err),
                 0);
       EXPECT_EQ(out_struct.request_id, 2000 + i);
       EXPECT_STREQ(out_struct.entities_json->data,
@@ -407,7 +410,8 @@ TEST(OperatorBizBridgeRegistryTest,
       out_struct.intent_name = &intent_cs;
       out_struct.answer_text = &answer_cs;
 
-      ASSERT_EQ(desc->convert_sample_output(&out_dto, &out_struct, spec, &err),
+      ASSERT_EQ(desc->output_slots.front().convert_output(&out_dto, &out_struct,
+                                                          spec, &err),
                 0);
       EXPECT_EQ(out_struct.request_id, 3000 + i);
       EXPECT_FLOAT_EQ(out_struct.confidence, 0.95f);
@@ -459,7 +463,8 @@ TEST(OperatorBizBridgeRegistryTest,
       out_struct.matched_policy_clause = &p_cs;
       out_struct.audit_verdict_json = &v_cs;
 
-      ASSERT_EQ(desc->convert_sample_output(&out_dto, &out_struct, spec, &err),
+      ASSERT_EQ(desc->output_slots.front().convert_output(&out_dto, &out_struct,
+                                                          spec, &err),
                 0);
       EXPECT_EQ(out_struct.request_id, 4000 + i);
       EXPECT_STREQ(out_struct.risk_level->data, "SAFE");
@@ -512,7 +517,8 @@ TEST(OperatorBizBridgeRegistryTest,
       out_struct.transcribed_text = &t_cs;
       out_struct.intent_slot_json = &slot_cs;
 
-      ASSERT_EQ(desc->convert_sample_output(&out_dto, &out_struct, spec, &err),
+      ASSERT_EQ(desc->output_slots.front().convert_output(&out_dto, &out_struct,
+                                                          spec, &err),
                 0);
       EXPECT_EQ(out_struct.request_id, 5000 + i);
       EXPECT_STREQ(out_struct.transcribed_text->data,
@@ -571,7 +577,8 @@ TEST(OperatorBizBridgeRegistryTest,
       }
 
       CompanyOperatorRerankOutput out_struct{};
-      ASSERT_EQ(desc->convert_sample_output(&out_dto, &out_struct, spec, &err),
+      ASSERT_EQ(desc->output_slots.front().convert_output(&out_dto, &out_struct,
+                                                          spec, &err),
                 0);
       EXPECT_EQ(out_struct.request_id, 6000 + i);
       EXPECT_EQ(out_struct.count, 8);
@@ -621,7 +628,8 @@ TEST(OperatorBizBridgeRegistryTest,
       CompanyOdOutput out_struct{};
       out_struct.result_json = &res_cs;
 
-      ASSERT_EQ(desc->convert_sample_output(&out_dto, &out_struct, spec, &err),
+      ASSERT_EQ(desc->output_slots.front().convert_output(&out_dto, &out_struct,
+                                                          spec, &err),
                 0);
       EXPECT_EQ(out_struct.request_id, 7000 + i);
       EXPECT_EQ(out_struct.detected_box_count, out_dto.detected_box_count);
@@ -658,9 +666,70 @@ TEST(OperatorBizBridgeRegistryTest,
       descriptor.input_slots.front().key_suffix = "output_only";
     if (mutation == 1)
       descriptor.input_slots.front().convert_output =
-          descriptor.convert_sample_output;
+          descriptor.output_slots.front().convert_output;
     EXPECT_FALSE(invalid.RegisterBridge(descriptor));
     EXPECT_TRUE(invalid.HasConflict());
+  }
+}
+
+TEST(OperatorBizBridgeRegistryTest,
+     IsolatedRegistryRejectsAdapterNameMismatch) {
+  OperatorBizBridgeRegistry local_reg;
+  const auto& global_reg = OperatorBizBridgeRegistry::Instance();
+  for (const auto biz_type : RegisteredBizTypes()) {
+    const auto* desc = global_reg.GetBridge(biz_type);
+    ASSERT_NE(desc, nullptr);
+    OperatorBizBridgeDescriptor d = *desc;
+    if (biz_type == ALG_BIZ_TYPE_DOC_QA) {
+      const auto adapter = BizAdapterRegistry::Instance().GetAdapter(biz_type);
+      ASSERT_NE(adapter, nullptr);
+      ASSERT_FALSE(adapter->GetDescriptor().biz_definitions.empty());
+      const std::string declared_biz_name =
+          adapter->GetDescriptor().biz_definitions.front().biz_name;
+      ASSERT_EQ(declared_biz_name, "smart_doc_qa_v1");
+      // Formerly accepted via fallback to declared Pipeline biz_name; must now
+      // be strictly rejected to enforce 1:1 AdapterName matching.
+      d.adapter_name = declared_biz_name;
+    }
+    EXPECT_TRUE(local_reg.RegisterBridge(d));
+  }
+  std::string diagnostic;
+  EXPECT_EQ(local_reg.GlobalInit(&diagnostic), -6);
+  EXPECT_NE(diagnostic.find("does not match BizAdapter"), std::string::npos);
+  EXPECT_NE(diagnostic.find("smart_doc_qa_v1"), std::string::npos);
+  EXPECT_NE(diagnostic.find("'DocQA'"), std::string::npos);
+}
+
+TEST(
+    OperatorBizBridgeRegistryTest,
+    IsolatedRegistryRejectsDeclaredPipelineBizNameAsAdapterNameForAllBizTypes) {
+  const auto& global_reg = OperatorBizBridgeRegistry::Instance();
+  for (const auto biz_type : RegisteredBizTypes()) {
+    const auto* orig_desc = global_reg.GetBridge(biz_type);
+    ASSERT_NE(orig_desc, nullptr);
+    const auto adapter = BizAdapterRegistry::Instance().GetAdapter(biz_type);
+    ASSERT_NE(adapter, nullptr);
+    ASSERT_FALSE(adapter->GetDescriptor().biz_definitions.empty());
+    const std::string declared_biz_name =
+        adapter->GetDescriptor().biz_definitions.front().biz_name;
+    ASSERT_NE(declared_biz_name, adapter->AdapterName());
+
+    OperatorBizBridgeRegistry local_reg;
+    for (const auto b : RegisteredBizTypes()) {
+      auto d = *global_reg.GetBridge(b);
+      if (b == biz_type) {
+        d.adapter_name = declared_biz_name;
+      }
+      ASSERT_TRUE(local_reg.RegisterBridge(d));
+    }
+    std::string diagnostic;
+    EXPECT_EQ(local_reg.GlobalInit(&diagnostic), -6);
+    EXPECT_NE(diagnostic.find(std::string("does not match BizAdapter '") +
+                              adapter->AdapterName() + "'"),
+              std::string::npos)
+        << "Failed for biz_type " << static_cast<int>(biz_type) << ": "
+        << diagnostic;
+    EXPECT_NE(diagnostic.find(declared_biz_name), std::string::npos);
   }
 }
 
@@ -672,12 +741,9 @@ TEST(OperatorBizBridgeRegistryTest,
   ASSERT_NE(orig_desc, nullptr);
 
   OperatorBizBridgeDescriptor descriptor = *orig_desc;
-  descriptor.output_slots.front().convert_output =
-      descriptor.convert_sample_output;
   descriptor.output_slots.push_back(descriptor.output_slots.front());
   descriptor.output_slots.back().logical_name = "secondary_output";
   descriptor.output_slots.back().key_suffix = "secondary";
-  descriptor.convert_sample_output = nullptr;
   ASSERT_TRUE(local_reg.RegisterBridge(descriptor));
   EXPECT_FALSE(local_reg.HasConflict());
   ASSERT_NE(local_reg.GetBridge(descriptor.biz_type), nullptr);
@@ -816,7 +882,8 @@ TEST(OperatorBizBridgeRegistryTest, TextCarrierSharedBridgeAndTypedBuilder) {
     CompanyOperatorEntityOutput out_struct{};
     out_struct.entities_json = &out_cs;
 
-    ASSERT_EQ(desc->convert_sample_output(&out_dto, &out_struct, spec, &err),
+    ASSERT_EQ(desc->output_slots.front().convert_output(&out_dto, &out_struct,
+                                                        spec, &err),
               0);
     EXPECT_EQ(out_struct.request_id, 4242u);
     EXPECT_EQ(out_struct.status_code, 0);
@@ -850,8 +917,10 @@ TEST(OperatorBizBridgeRegistryTest,
       << diagnostic;
 }
 
-// RFC-0053: Typed builder supports custom logical input slot names
-TEST(OperatorBizBridgeRegistryTest, TypedBuilderSupportsCustomInputSlotName) {
+// RFC-0053 / RFC-0056: Typed builder supports custom logical slot names while
+// preserving canonical output key_suffix and supporting explicit key overrides.
+TEST(OperatorBizBridgeRegistryTest,
+     TypedBuilderSupportsCustomSlotNamesAndPreservesCanonicalOutputKey) {
   auto desc = MakeTypedSingleSlotBizBridge<
       CompanyEntityInputStruct, EntityResult, CompanyOperatorEntityInput,
       CompanyOperatorEntityOutput, &ConvertTextCarrierInput,
@@ -861,6 +930,14 @@ TEST(OperatorBizBridgeRegistryTest, TypedBuilderSupportsCustomInputSlotName) {
 
   EXPECT_EQ(desc.input_slots.front().logical_name, "custom_in");
   EXPECT_EQ(desc.input_slots.front().type_suffix, "entity_in");
+  EXPECT_TRUE(desc.input_slots.front().key_suffix.empty());
+
+  // F1 Regression Guard: logical_name is custom_out, but type_suffix and
+  // key_suffix must remain the canonical host output suffix ("entity_out").
+  EXPECT_EQ(desc.output_slots.front().logical_name, "custom_out");
+  EXPECT_EQ(desc.output_slots.front().type_suffix, "entity_out");
+  EXPECT_EQ(desc.output_slots.front().key_suffix, "entity_out");
+  EXPECT_EQ(desc.output_slots.front().KeySuffix(), "entity_out");
 
   ProcessLocalShadowStorage storage;
   std::string text = "custom slot query";
@@ -892,6 +969,139 @@ TEST(OperatorBizBridgeRegistryTest, TypedBuilderSupportsCustomInputSlotName) {
   // 3. When out_internal_dto is null, it converts successfully without
   // dereferencing null
   EXPECT_EQ(desc.convert_sample_input(slots_custom, storage, nullptr, &err), 0);
+
+  // 4. Output sample conversion succeeds via slot convert_output
+  ASSERT_NE(desc.output_slots.front().convert_output, nullptr);
+  EntityResult out_dto{8888, "{\"status\":\"ok\"}", 0};
+  char out_buf[128] = {0};
+  CompanyString out_cs{0, out_buf};
+  CompanyOperatorEntityOutput out_struct{};
+  out_struct.entities_json = &out_cs;
+  ResolvedOutputPoolSpec pool_spec = MakeDefaultOutputPoolSpec("entity_out");
+  ASSERT_EQ(desc.output_slots.front().convert_output(&out_dto, &out_struct,
+                                                     pool_spec, &err),
+            0);
+  EXPECT_EQ(out_struct.request_id, 8888u);
+  EXPECT_STREQ(out_struct.entities_json->data, "{\"status\":\"ok\"}");
+
+  // 5. Output binding resolution: external map key uses canonical KeySuffix()
+  // ("entity_out") and binds to the custom logical slot ("custom_out").
+  {
+    operator_api::NamedIoBatch outputs(1);
+    outputs[0]["req_0.entity_out"] = std::shared_ptr<void>();
+    std::vector<std::vector<FrameOutputBinding>> bindings;
+    std::string bind_err;
+    EXPECT_EQ(ResolveOperatorOutputs(outputs, desc, &bindings, &bind_err), 0);
+    ASSERT_EQ(bindings.size(), 1u);
+    ASSERT_EQ(bindings[0].size(), 1u);
+    EXPECT_EQ(bindings[0][0].key, "req_0.entity_out");
+    EXPECT_EQ(bindings[0][0].logical_name, "custom_out");
+  }
+
+  // 6. External map key with custom logical slot name fails to match
+  // KeySuffix()
+  {
+    operator_api::NamedIoBatch mismatched_outputs(1);
+    mismatched_outputs[0]["req_0.custom_out"] = std::shared_ptr<void>();
+    std::vector<std::vector<FrameOutputBinding>> bindings;
+    std::string bind_err;
+    EXPECT_EQ(
+        ResolveOperatorOutputs(mismatched_outputs, desc, &bindings, &bind_err),
+        -4);
+  }
+
+  // 7. Overload 2 (non-template function pointer) also sets canonical
+  // key_suffix
+  ConvertSampleInputFn dummy_in_fn =
+      [](const std::unordered_map<std::string, const void*>&,
+         ProcessLocalShadowStorage&, const void**,
+         std::string*) -> int { return 0; };
+  ConvertSampleOutputFn dummy_out_fn = [](const void*, void*,
+                                          const ResolvedOutputPoolSpec&,
+                                          std::string*) -> int { return 0; };
+  auto desc2 =
+      MakeTypedSingleSlotBizBridge<CompanyEntityInputStruct, EntityResult,
+                                   CompanyOperatorEntityInput,
+                                   CompanyOperatorEntityOutput>(
+          ALG_BIZ_TYPE_ENTITY_EXTRACT, "EntityExtract",
+          "CompanyEntityInputStruct", "test.custom_slot2", "custom_in",
+          "custom_out", dummy_in_fn, dummy_out_fn);
+  EXPECT_EQ(desc2.output_slots.front().logical_name, "custom_out");
+  EXPECT_EQ(desc2.output_slots.front().type_suffix, "entity_out");
+  EXPECT_EQ(desc2.output_slots.front().key_suffix, "entity_out");
+  EXPECT_EQ(desc2.output_slots.front().KeySuffix(), "entity_out");
+
+  // 8. Explicit custom external key override is preserved and respected
+  desc.output_slots.front().key_suffix = "custom_external_out";
+  EXPECT_EQ(desc.output_slots.front().KeySuffix(), "custom_external_out");
+  {
+    operator_api::NamedIoBatch custom_key_outputs(1);
+    custom_key_outputs[0]["req_0.custom_external_out"] =
+        std::shared_ptr<void>();
+    std::vector<std::vector<FrameOutputBinding>> bindings;
+    std::string bind_err;
+    EXPECT_EQ(
+        ResolveOperatorOutputs(custom_key_outputs, desc, &bindings, &bind_err),
+        0);
+    ASSERT_EQ(bindings.size(), 1u);
+    ASSERT_EQ(bindings[0].size(), 1u);
+    EXPECT_EQ(bindings[0][0].key, "req_0.custom_external_out");
+    EXPECT_EQ(bindings[0][0].logical_name, "custom_out");
+  }
+
+  // 9. MakeSingleSlotBizBridge supports explicit output_key_suffix parameter
+  auto desc_single_param = MakeSingleSlotBizBridge<EntityResult>(
+      ALG_BIZ_TYPE_ENTITY_EXTRACT, "EntityExtract", "CompanyEntityInputStruct",
+      "test.single_param", "custom_in", "custom_out", "single_custom_key");
+  EXPECT_EQ(desc_single_param.output_slots.front().logical_name, "custom_out");
+  EXPECT_EQ(desc_single_param.output_slots.front().key_suffix,
+            "single_custom_key");
+  EXPECT_EQ(desc_single_param.output_slots.front().KeySuffix(),
+            "single_custom_key");
+
+  // 10. MakeTypedSingleSlotBizBridge (Overload 1) supports explicit
+  // output_key_suffix parameter and binds correctly
+  auto desc_typed_param = MakeTypedSingleSlotBizBridge<
+      CompanyEntityInputStruct, EntityResult, CompanyOperatorEntityInput,
+      CompanyOperatorEntityOutput, &ConvertTextCarrierInput,
+      &ConvertTextCarrierOutput>(ALG_BIZ_TYPE_ENTITY_EXTRACT, "EntityExtract",
+                                 "CompanyEntityInputStruct", "test.typed_param",
+                                 "custom_in", "custom_out", "direct_param_key");
+  EXPECT_EQ(desc_typed_param.output_slots.front().logical_name, "custom_out");
+  EXPECT_EQ(desc_typed_param.output_slots.front().type_suffix, "entity_out");
+  EXPECT_EQ(desc_typed_param.output_slots.front().key_suffix,
+            "direct_param_key");
+  EXPECT_EQ(desc_typed_param.output_slots.front().KeySuffix(),
+            "direct_param_key");
+  {
+    operator_api::NamedIoBatch param_outputs(1);
+    param_outputs[0]["req_0.direct_param_key"] = std::shared_ptr<void>();
+    std::vector<std::vector<FrameOutputBinding>> bindings;
+    std::string bind_err;
+    EXPECT_EQ(ResolveOperatorOutputs(param_outputs, desc_typed_param, &bindings,
+                                     &bind_err),
+              0);
+    ASSERT_EQ(bindings.size(), 1u);
+    ASSERT_EQ(bindings[0].size(), 1u);
+    EXPECT_EQ(bindings[0][0].key, "req_0.direct_param_key");
+    EXPECT_EQ(bindings[0][0].logical_name, "custom_out");
+  }
+
+  // 11. MakeTypedSingleSlotBizBridge (Overload 2) supports explicit
+  // output_key_suffix parameter
+  auto desc2_typed_param =
+      MakeTypedSingleSlotBizBridge<CompanyEntityInputStruct, EntityResult,
+                                   CompanyOperatorEntityInput,
+                                   CompanyOperatorEntityOutput>(
+          ALG_BIZ_TYPE_ENTITY_EXTRACT, "EntityExtract",
+          "CompanyEntityInputStruct", "test.typed2_param", "custom_in",
+          "custom_out", dummy_in_fn, dummy_out_fn, "direct_param2_key");
+  EXPECT_EQ(desc2_typed_param.output_slots.front().logical_name, "custom_out");
+  EXPECT_EQ(desc2_typed_param.output_slots.front().type_suffix, "entity_out");
+  EXPECT_EQ(desc2_typed_param.output_slots.front().key_suffix,
+            "direct_param2_key");
+  EXPECT_EQ(desc2_typed_param.output_slots.front().KeySuffix(),
+            "direct_param2_key");
 }
 
 }  // namespace

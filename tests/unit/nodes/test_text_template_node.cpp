@@ -14,6 +14,7 @@
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
 #include "core/pipeline.h"
+#include "core/pipeline_catalog.h"
 #include "core/session_context.h"
 #include "tests/support/node_process_pause.h"
 #include "tests/support/node_test_utils.h"
@@ -79,7 +80,7 @@ TEST_F(TextTemplateNodeTest, MissingRequiredVariableFailsClosed) {
   auto node = NodeRegistry::Instance().Create("TextTemplateNode");
   ASSERT_NE(node, nullptr);
 
-  nlohmann::json cfg = {{"template", "Hello {user_name}, welcome!"},
+  nlohmann::json cfg = {{"template", "Hello {{user_name}}, welcome!"},
                         {"allow_dynamic_attributes", true},
                         {"missing_variable_policy", "fail"}};
   EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
@@ -100,7 +101,7 @@ TEST_F(TextTemplateNodeTest, DynamicAttributeRendered) {
   auto node = NodeRegistry::Instance().Create("TextTemplateNode");
   ASSERT_NE(node, nullptr);
 
-  nlohmann::json cfg = {{"template", "Hello {user_name}, welcome!"},
+  nlohmann::json cfg = {{"template", "Hello {{user_name}}, welcome!"},
                         {"allow_dynamic_attributes", true}};
   EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
 
@@ -115,6 +116,46 @@ TEST_F(TextTemplateNodeTest, DynamicAttributeRendered) {
   const auto* out = ctx.Read<TextBatch>("text");
   ASSERT_NE(out, nullptr);
   EXPECT_EQ((*out)[0].data, "Hello Alice, welcome!");
+}
+
+// 4. Single Braces Treated As Literal Text
+TEST_F(TextTemplateNodeTest, SingleBraceTreatedAsLiteral) {
+  auto node = NodeRegistry::Instance().Create("TextTemplateNode");
+  ASSERT_NE(node, nullptr);
+
+  // Single braces like {user_name} and JSON objects {"k": 1} must remain
+  // literal text. Only double braces {{var}} are treated as template variables.
+  nlohmann::json cfg = {
+      {"template",
+       "Literal: {user_name}, JSON: {\"key\": 1}, Var: {{user_name}}"},
+      {"allow_dynamic_attributes", true}};
+  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
+
+  AlgContext ctx;
+  TextAttributesBatch attrs;
+  attrs.emplace_back(
+      1, 0,
+      std::unordered_map<std::string, std::string>{{"user_name", "Alice"}});
+  ctx.Publish("attributes", attrs);
+
+  EXPECT_EQ(node->Process(&ctx), 0);
+  const auto* out = ctx.Read<TextBatch>("text");
+  ASSERT_NE(out, nullptr);
+  EXPECT_EQ((*out)[0].data,
+            "Literal: {user_name}, JSON: {\"key\": 1}, Var: Alice");
+}
+
+// 5. Malformed Placeholders Rejected At Initialization
+TEST_F(TextTemplateNodeTest, MalformedPlaceholderFailsInit) {
+  auto node = NodeRegistry::Instance().Create("TextTemplateNode");
+  ASSERT_NE(node, nullptr);
+
+  for (const std::string bad_tmpl :
+       {"Hello {{unclosed", "Hello {{}}", "Hello {{invalid name}}"}) {
+    nlohmann::json cfg = {{"template", bad_tmpl},
+                          {"allow_dynamic_attributes", true}};
+    EXPECT_FALSE(InitNodeForTest(*node, cfg, session_ctx_.get()));
+  }
 }
 
 TEST_F(TextTemplateNodeTest, TruncatePreservesUtf8CodePointBoundaries) {
@@ -269,8 +310,9 @@ TEST_F(TextTemplateNodeTest, UnconnectedBuiltinUsesDeclaredMissingPolicy) {
       ctx.Publish("input_sentences", TextBatch{{1, 3, "hello"}});
       ASSERT_EQ(pipeline.Execute(&ctx), 0);
       ASSERT_NE(ctx.Read<TextBatch>("rendered_text"), nullptr);
-      EXPECT_EQ(ctx.Read<TextBatch>("rendered_text")->front().data,
-                "Q=hello|V=" + (policy == "empty" ? "" : "{" + variable + "}"));
+      EXPECT_EQ(
+          ctx.Read<TextBatch>("rendered_text")->front().data,
+          "Q=hello|V=" + (policy == "empty" ? "" : "{{" + variable + "}}"));
     }
   }
 }
@@ -419,6 +461,19 @@ TEST_F(TextTemplateNodeTest, DirectConcurrentProcessAndControl) {
   subsequent.Publish("primary", inputs);
   ASSERT_EQ(node->Process(&subsequent), 0);
   expect_batch(subsequent, "NEW");
+}
+
+TEST_F(TextTemplateNodeTest,
+       CatalogDefinitionStatesOnlyDoubleBracesSubstitute) {
+  auto def_opt = PipelineCatalog::FindNode("TextTemplateNode");
+  ASSERT_TRUE(def_opt.has_value());
+  const auto& def = *def_opt;
+  EXPECT_NE(def.description.find("{{name}} substitutes variables"),
+            std::string::npos);
+  EXPECT_NE(
+      def.description.find("single {name} and JSON braces remain literal"),
+      std::string::npos);
+  EXPECT_EQ(def.description.find("and {name} substitute"), std::string::npos);
 }
 
 }  // namespace llm_edgeflow

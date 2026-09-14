@@ -67,7 +67,7 @@ def within(root, relative):
     return path
 
 
-def build_run_conf(pipeline, mem_que, pipe_path, model_root, bundle_root):
+def build_run_conf(pipeline, outputs, pipe_path, model_root, bundle_root):
     """Map the selected Pipeline's model paths into an explicit deployment root."""
     bundle_root = Path(bundle_root).resolve()
     model_root = within(bundle_root, model_root)
@@ -75,7 +75,7 @@ def build_run_conf(pipeline, mem_que, pipe_path, model_root, bundle_root):
     model_paths = {model["model_id"]: str(within(model_root, model["model_path"]).relative_to(bundle_root))
                    for model in pipeline.get("models", [])}
     return {"data": {"pipe_path": str(pipeline_path),
-                     "model_paths": model_paths, "mem_que": mem_que}}
+                     "model_paths": model_paths, "outputs": outputs}}
 
 
 def validate_manifest(manifest):
@@ -201,20 +201,20 @@ def effect_inputs(spec_path, conf_path, demo):
     conf = read_json(conf_path)
     # The evaluator deliberately regenerates model_paths from the selected
     # Pipeline; only deployment output capacities are inherited.
-    mem_que = conf["data"]["mem_que"]
+    outputs = conf["data"]["outputs"]
     demo = Path(demo).resolve()
     sdk_candidates = list(demo.parent.glob("libcompany_alg_sdk.*"))
     sdk_files = sorted({path.resolve() for path in sdk_candidates if path.is_file()})
-    identity = {"spec": spec, "dataset_sha256": file_digest(dataset), "mem_que": mem_que,
+    identity = {"spec": spec, "dataset_sha256": file_digest(dataset), "outputs": outputs,
                 "demo_sha256": file_digest(demo), "sdk": {p.name: file_digest(p) for p in sdk_files},
-                "chip": "cpu", "device_id": 0, "no_default_control": True}
-    return spec, dataset, mem_que, identity
+                "chip": "cpu", "device_id": 0}
+    return spec, dataset, outputs, identity
 
 
 def evaluate(pipeline, selection, tool, model_root, spec_path, conf_path, demo):
     if not selection["ok"]:
         raise ValueError("Configuration, build or assets are not verified")
-    spec, dataset, mem_que, test_inputs = effect_inputs(spec_path, conf_path, demo)
+    spec, dataset, outputs, test_inputs = effect_inputs(spec_path, conf_path, demo)
     test_fingerprint = digest(test_inputs)
     if spec["biz_name"] != pipeline["biz_name"]:
         raise ValueError("Effect specification business mismatch")
@@ -228,12 +228,11 @@ def evaluate(pipeline, selection, tool, model_root, spec_path, conf_path, demo):
         temporary = Path(directory)
         relative = temporary.relative_to(bundle_root)
         (temporary / "pipeline.json").write_text(json.dumps(pipeline))
-        generated_conf = build_run_conf(pipeline, mem_que, relative / "pipeline.json", model_root, bundle_root)
+        generated_conf = build_run_conf(pipeline, outputs, relative / "pipeline.json", model_root, bundle_root)
         (temporary / "pipeline.conf").write_text(json.dumps(generated_conf))
         command = [str(Path(demo).resolve()), "--biz", biz, "--config", str(relative / "pipeline.conf"),
                    "--dataset", str(dataset), "--output-dir", str(temporary / "results"),
-                   "--chip", "cpu", "--device-id", "0", "--batch-size", "1", "--depth", "1",
-                   "--no-default-control"]
+                   "--chip", "cpu", "--device-id", "0", "--batch-size", "1", "--depth", "1"]
         process = subprocess.run(command, cwd=bundle_root, text=True, capture_output=True, timeout=1800, check=False)
         if process.returncode:
             raise ValueError("Effect run failed: " + (process.stdout + process.stderr)[-3000:])

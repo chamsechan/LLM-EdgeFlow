@@ -69,9 +69,9 @@ SOVERSION/C ABI major 为 5。
 仓库内 Node、Registry、Model、Backend 和第三方运行时是隐藏实现，不得被外部扩展直接链接。
 Operator v4 的 Create 和配置预检都使用部署根 `model_path` 加相对
 `cfg_file_name`。每份 `.conf` 的根对象只能包含 `data`，`data` 只接受
-`pipe_path`、`model_paths`、`mem_que` 和 `outputs`；单模型覆盖也必须使用以 `model_id`
-为键的 `model_paths` 映射。单输出 `data.mem_que` 与按逻辑槽位配置的 `data.outputs`
-互斥。Resolver 选择注册的输出类型与 `allocator`；独立配置读取组件通过固定枚举
+`pipe_path`、`model_paths` 和 `outputs`；单模型覆盖也必须使用以 `model_id`
+为键的 `model_paths` 映射。所有输出统一在按逻辑槽位配置的 `data.outputs` 中定义；
+旧 `data.mem_que` 已不再支持。Resolver 选择注册的输出类型与 `allocator`；独立配置读取组件通过固定枚举
 选取配置项并返回字符串。方案用 `MakeOutputParameterParser<T>` 将参数文本解析为
 普通 C++ 结构，框架归一化 `meta_num`、metadata type 和字段容量；业务桥接使用
 该规范化结果，不重复解析原始部署 JSON 或

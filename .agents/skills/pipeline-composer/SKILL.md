@@ -79,11 +79,10 @@ See [the I/O boundary](../../../doc/dev_guide/business_onboarding.md#输入输�
 
    A new Profile is optional; explicit `--biz`, `--config` and `--dataset` also work. Use the
    original Profile alone only when its configuration already points to the intended Pipeline.
-   Demo uses the selected Pipeline defaults. The compatibility flag `--no-default-control`
-   is unnecessary and conflicts with `--example-control`. Use `--example-control` only for
-   the built-in update demonstration, and provide a
-   Control file only when it is part of the requested scenario. Verify
-   request IDs, status and expected output fields in `results.jsonl` and `summary.json`.
+   Demo uses the selected Pipeline defaults (by default, no example Control is sent). Use
+   `--example-control` only for the built-in update demonstration, and provide a Control file
+   only when it is part of the requested scenario. Verify request IDs, status and expected
+   output fields in `results.jsonl` and `summary.json`.
 
 For human composition, use `./show --web` or `./show <pipeline.json> --web`. For AI and automation, use `alg_pipeline_tool` and consume its versioned JSON output.
 

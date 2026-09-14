@@ -42,10 +42,6 @@ set(public_headers
     include/edgeflow/c_api.h include/edgeflow/c_api.hpp
     include/edgeflow/export.h include/edgeflow/log.h
     include/edgeflow/operator/interface.h include/edgeflow/operator/types.h
-    include/company_alg_interface.h include/company_alg_cpp.hpp
-    include/company_alg_export.h include/company_alg_log.h
-    include/company_alg_version.h
-    include/operator/operator_interface.h include/operator/company_operator_types.h
     ${platform_mock_headers})
 edgeflow_header_view(public ${public_headers})
 

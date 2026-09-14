@@ -36,7 +36,7 @@ JSON 读取器将选中值通过 `dump()` 转为拥有自身存储的 `std::stri
 | 字段 | 用途 |
 | --- | --- |
 | bridge `logical_name` | 业务中的输出槽位，也是 `data.outputs` 的配置键 |
-| bridge `key_suffix` | 外部 map key 最后一个点号后的部分；省略时沿用 `type_suffix` |
+| bridge `key_suffix` | 外部 map key 最后一个点号后的部分；描述符必须显式填写，与 `logical_name` 及 `type_suffix` 相互独立；单槽 Helper 默认填充为规范 `type_suffix`，不再支持运行时省略或隐式回退 |
 | `type` | 已注册的外层 ValueType，必须匹配槽位的 `type_suffix` |
 | `allocator` | 为该外层类型注册的分配方案标识；省略时使用类型的默认实现 |
 | `params` | 由方案解释、校验并补齐的单份布局参数，例如嵌套枚举与数组容量 |
@@ -75,8 +75,7 @@ JSON 读取器将选中值通过 `dump()` 转为拥有自身存储的 `std::stri
 
 每个声明的输出槽位都需要配置，包括 `required=false` 的可选输出；可选是指 Process
 可以省略该输出 map 项。逻辑名和有效 map 后缀分别唯一；不同槽位可以复用相同类型
-和方案，各自使用独立容量和输出池。原单输出 `data.mem_que` 继续可用，也接受
-`allocator` / `params`，但不能与 `data.outputs` 同时出现。
+和方案，各自使用独立容量和输出池。所有输出均统一在以逻辑槽位为键的 `data.outputs` 中配置。
 
 ## 实现与注册
 
@@ -130,8 +129,8 @@ binding.normalize_parameters =
 
 ## 转换与有效期
 
-在 `OperatorBizSlot::convert_output` 注册该槽位的业务结果转换函数。多输出 bridge
-每个槽位都要提供转换；已有单输出仍可使用 `convert_sample_output`。
+在 `OperatorBizSlot::convert_output` 注册该槽位的业务结果转换函数。所有输出槽位
+均通过槽位级 `convert_output` 提供转换，旧顶层 `convert_sample_output` 已被移除。
 回调接收内部结果、已分配的外层结构和对应的 `ResolvedOutputPoolSpec`，按同一份
 `allocator` 和类型化参数填充载荷。转换必须保持指针与已分配布局一致，不重新读取
 部署文件、不另设默认容量，也不把请求局部指针塞进输出结构。

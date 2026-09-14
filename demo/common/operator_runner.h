@@ -179,8 +179,7 @@ inline int ApplyOperatorControl(
           << e.what() << std::endl;
       return 3;
     }
-  } else if (options.example_control && !options.no_default_control &&
-             default_ctrl_json != nullptr) {
+  } else if (options.example_control && default_ctrl_json != nullptr) {
     control_payload = default_ctrl_json;
   }
 
