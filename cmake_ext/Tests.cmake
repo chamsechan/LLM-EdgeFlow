@@ -285,7 +285,7 @@ edgeflow_add_runner_test(TextCorpusSourceNodeTest edgeflow_test_nodes_runner
 edgeflow_add_runner_test(CommonNodesTest edgeflow_test_nodes_runner
   "CommonNodesTest.*:CustomNodeCatalogTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(FunctionNodeTest edgeflow_test_nodes_runner
-  "FunctionNodeTest.*:ConfigurationSnapshotTest.*" "${_edgeflow_tier1}")
+  "FunctionNodeTest.*:ConfigurationSnapshotTest.*:TraceableBatchOperationsTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(ParameterBindingTest edgeflow_test_nodes_runner
   "ParameterBindingTest.*" "${_edgeflow_tier1}")
 

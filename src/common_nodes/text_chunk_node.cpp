@@ -12,6 +12,7 @@
 #include "engine/text/utf8.h"
 #include "nodes/node_base.h"
 #include "nodes/node_error_codes.h"
+#include "nodes/traceable_batch_operations.h"
 
 namespace llm_edgeflow {
 
@@ -47,6 +48,35 @@ bool ValidChunkConfig(const nlohmann::json& config) {
   const auto overlap = config.value<int64_t>("overlap", kDefaultOverlap);
   return size > 0 && size <= 1000000 && overlap >= 0 && overlap <= 100000 &&
          overlap < size;
+}
+
+NodeResult<std::vector<std::string>> SplitText(const std::string& str,
+                                               size_t chunk_size,
+                                               size_t overlap) {
+  if (str.empty()) {
+    return NodeResult<std::vector<std::string>>::Success({""});
+  }
+  std::vector<size_t> boundaries;
+  size_t invalid_offset = 0;
+  if (!utf8::BuildCodePointBoundaries(str, &boundaries, &invalid_offset)) {
+    return NodeResult<std::vector<std::string>>::Failure(
+        NodeErrorKind::kBusinessError,
+        "TextChunkNode invalid UTF-8 input at byte offset " +
+            std::to_string(invalid_offset),
+        node_error::text_chunk::kInvalidUtf8);
+  }
+
+  const size_t code_point_count = boundaries.size() - 1;
+  const size_t step =
+      (chunk_size > overlap) ? (chunk_size - overlap) : chunk_size;
+  std::vector<std::string> chunks;
+  for (size_t pos = 0; pos < code_point_count; pos += step) {
+    const size_t end = std::min(pos + chunk_size, code_point_count);
+    chunks.push_back(
+        str.substr(boundaries[pos], boundaries[end] - boundaries[pos]));
+    if (end == code_point_count) break;
+  }
+  return NodeResult<std::vector<std::string>>::Success(std::move(chunks));
 }
 }  // namespace
 
@@ -91,78 +121,70 @@ class TextChunkNode final : public NodeBase {
       return node_error::text_chunk::kMissingInput;
     }
 
-    std::set<std::pair<uint32_t, uint32_t>> seen_inputs;
-    for (const auto& item : *text_items) {
-      if (!seen_inputs.insert({item.req_id, item.sub_id}).second) {
-        return Fail(req_ctx, node_error::text_chunk::kDuplicateInput,
-                    "TextChunkNode duplicate input item for req_id=" +
-                        std::to_string(item.req_id) +
-                        ", sub_id=" + std::to_string(item.sub_id));
-      }
-    }
+    auto split_res = SplitPayloads(*text_items, [this](const std::string& str) {
+      return SplitText(str, chunk_size_, overlap_);
+    });
 
-    TextBatch chunked_items;
-    Int32Batch chunk_counts;
-    chunk_counts.reserve(text_items->size());
-    size_t step =
-        (chunk_size_ > overlap_) ? (chunk_size_ - overlap_) : chunk_size_;
-
-    std::unordered_map<uint32_t, uint64_t> next_sub_id_by_req;
-
-    for (const auto& item : *text_items) {
-      const std::string& str = item.data;
-      uint32_t req_id = item.req_id;
-      uint64_t& next_sub_id = next_sub_id_by_req[req_id];
-      int32_t count_for_req = 0;
-
-      if (str.empty()) {
-        if (next_sub_id > std::numeric_limits<uint32_t>::max()) {
-          return Fail(req_ctx, node_error::text_chunk::kSubIdOverflow,
-                      "TextChunkNode sub_id overflow for req_id=" +
-                          std::to_string(req_id));
-        }
-        chunked_items.emplace_back(req_id, static_cast<uint32_t>(next_sub_id++),
-                                   "");
-        count_for_req = 1;
-      } else {
-        std::vector<size_t> boundaries;
-        size_t invalid_offset = 0;
-        if (!utf8::BuildCodePointBoundaries(str, &boundaries,
-                                            &invalid_offset)) {
-          return Fail(req_ctx, node_error::text_chunk::kInvalidUtf8,
-                      "TextChunkNode invalid UTF-8 input for req_id=" +
-                          std::to_string(req_id) + " at byte offset " +
-                          std::to_string(invalid_offset));
-        }
-
-        const size_t code_point_count = boundaries.size() - 1;
-        for (size_t pos = 0; pos < code_point_count; pos += step) {
-          const size_t end = std::min(pos + chunk_size_, code_point_count);
-          std::string slice =
-              str.substr(boundaries[pos], boundaries[end] - boundaries[pos]);
-          if (next_sub_id > std::numeric_limits<uint32_t>::max()) {
-            return Fail(req_ctx, node_error::text_chunk::kSubIdOverflow,
-                        "TextChunkNode sub_id overflow for req_id=" +
-                            std::to_string(req_id));
+    if (!split_res.ok()) {
+      const auto& failure = split_res.failure();
+      if (failure.batch_detail.has_value()) {
+        const auto& detail = *failure.batch_detail;
+        switch (detail.reason) {
+          case BatchFailureReason::kDuplicate: {
+            std::string key_str;
+            if (detail.key.has_value()) {
+              key_str = " for req_id=" + std::to_string(detail.key->req_id) +
+                        ", sub_id=" + std::to_string(detail.key->sub_id);
+            }
+            return Fail(req_ctx, node_error::text_chunk::kDuplicateInput,
+                        "TextChunkNode duplicate input item" + key_str);
           }
-          if (count_for_req == std::numeric_limits<int32_t>::max()) {
+          case BatchFailureReason::kSubIdOverflow: {
+            std::string req_str;
+            if (detail.key.has_value()) {
+              req_str = " for req_id=" + std::to_string(detail.key->req_id);
+            }
+            return Fail(req_ctx, node_error::text_chunk::kSubIdOverflow,
+                        "TextChunkNode sub_id overflow" + req_str);
+          }
+          case BatchFailureReason::kCountOverflow:
             return Fail(req_ctx, node_error::text_chunk::kCountOverflow,
                         "TextChunkNode chunk count exceeds Int32 capacity");
+          case BatchFailureReason::kCallbackFailed: {
+            if (failure.cause_code == node_error::text_chunk::kInvalidUtf8) {
+              std::string req_str;
+              if (detail.key.has_value()) {
+                req_str = " for req_id=" + std::to_string(detail.key->req_id);
+              }
+              size_t off_pos = failure.message.find(" at byte offset ");
+              std::string off_str = (off_pos != std::string::npos)
+                                        ? failure.message.substr(off_pos)
+                                        : "";
+              return Fail(
+                  req_ctx, node_error::text_chunk::kInvalidUtf8,
+                  "TextChunkNode invalid UTF-8 input" + req_str + off_str);
+            }
+            int code = failure.cause_code != 0
+                           ? failure.cause_code
+                           : node_error::author_node::kBusinessError;
+            return Fail(req_ctx, code, failure.message);
           }
-          chunked_items.emplace_back(
-              req_id, static_cast<uint32_t>(next_sub_id++), std::move(slice));
-          count_for_req++;
-          if (end == code_point_count) break;
+          default:
+            break;
         }
       }
-      chunk_counts.emplace_back(req_id, item.sub_id, count_for_req);
+      int code = failure.cause_code != 0
+                     ? failure.cause_code
+                     : node_error::author_node::kInternalError;
+      return Fail(req_ctx, code, failure.message);
     }
 
+    auto result = std::move(split_res).value();
     ALG_LOG_DEBUG("[TextChunkNode] Split %zu input texts into %zu chunks.\n",
-                  text_items->size(), chunked_items.size());
+                  text_items->size(), result.children.size());
 
-    out_chunks_.Set(req_ctx, std::move(chunked_items));
-    out_chunk_counts_.Set(req_ctx, std::move(chunk_counts));
+    out_chunks_.Set(req_ctx, std::move(result.children));
+    out_chunk_counts_.Set(req_ctx, std::move(result.counts));
     return 0;
   }
 

@@ -34,4 +34,7 @@ add_custom_command(
 list(APPEND EDGEFLOW_SCAFFOLD_FIXTURE_SOURCE
   "${PROJECT_SOURCE_DIR}/dev_support/node_authoring/starter_llm_node_advanced.cpp"
   "${PROJECT_SOURCE_DIR}/dev_support/node_authoring/starter_batch_node.cpp"
-  "${PROJECT_SOURCE_DIR}/dev_support/node_authoring/starter_multi_model_node.cpp")
+  "${PROJECT_SOURCE_DIR}/dev_support/node_authoring/starter_multi_model_node.cpp"
+  "${PROJECT_SOURCE_DIR}/dev_support/node_authoring/starter_batch_join_node.cpp"
+  "${PROJECT_SOURCE_DIR}/dev_support/node_authoring/starter_batch_group_node.cpp"
+  "${PROJECT_SOURCE_DIR}/dev_support/node_authoring/starter_batch_select_scatter_node.cpp")

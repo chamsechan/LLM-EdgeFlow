@@ -180,7 +180,9 @@ Definition 会帮助原生校验发现类型、字段和连线错误，但不会
 
 ## 复杂算法仍按普通 C++ 函数组织
 
-当算法包含多个输入、循环推理或复杂后处理时，继续使用 `NodeBase`；需要模型句柄时用
+多个输入、条件二次推理或复杂后处理可组织在普通自由 Batch 函数中：显式声明 anchor，
+最终返回与它等长、同序、同来源的 `PreservedOutput`。局部选择后须回填完整批次。
+需要发布拆分后的子项和父项计数等不同来源/数量的端口时，继续使用 `NodeBase`；需要模型句柄时用
 `ModelBoundNode`。`ProcessNode` 负责读端口、取得本次配置快照、调用你的算法函数、检查
 结果并发布。算法函数使用普通值、容器和局部变量；函数较多时拆成操作相关的 `.h/.cpp`，
 再登记同目录 CMake，保持 `custom_nodes` 按操作组织。复杂程度本身不要求修改 Core。
@@ -190,12 +192,22 @@ Definition 会帮助原生校验发现类型、字段和连线错误，但不会
 | 具体问题 | 可复用代码与边界 |
 | --- | --- |
 | 输入与模型输出一一对应 | [ValidatePreservedTraceableAlignment](../../include/nodes/traceable_batch_validation.h) 检查数量、顺序和两个来源编号；真实过滤/聚合不能套用 1:1 校验 |
+| 两批数据按完整来源关联 | [Join 示例](../../dev_support/node_authoring/starter_batch_join_node.cpp) 使用 `JoinByItem`；显式选择 exact/left，右侧未知 key 均失败 |
+| 按请求收集参考内容并保留空组 | [Group 示例](../../dev_support/node_authoring/starter_batch_group_node.cpp) 使用 `GroupByRequest`；按原 anchor 位置查询组，保持 A0/B0/A1 原序 |
+| 只对部分结果再次推理 | [Select/Scatter 示例](../../dev_support/node_authoring/starter_batch_select_scatter_node.cpp) 先 `SelectBatch`、显式 `Materialize()`、调用模型，再 `ScatterReplace`；无选中项时跳过第二次调用 |
+| 拆分载荷并分配子编号 | [TextChunkNode](../../src/common_nodes/text_chunk_node.cpp) 使用 `SplitPayloads`；每个请求连续分配子编号，counts 保留父 key，载荷回调只负责切分 |
 | 多个问题各自配多段材料 | [PromptGuidedLlmNode::ProcessNode](../../src/custom_nodes/prompt_guided_llm_node.cpp) 按 `req_id` 收集 context，主输出沿用 input 的 `(req_id, sub_id)` |
 | 候选打分、按请求分组、保留原候选来源 | [TextRerankNode::ProcessNode](../../src/common_nodes/text_rerank_node.cpp) 展示来源检查后再排序；新 rank 与原候选编号分别保存 |
 | 字段、默认值与范围 | [ValidateAndNormalizeFields](../../include/contracts/config_schema_validation.h)，Definition 与 Init 共用一份字段列表 |
 | 多字段配置转为普通参数结构 | [NodeConfigParser](../../include/nodes/node_config_parser.h)，复用字段校验与节点自己的语义解析 |
 | 初值与运行时更新使用同一业务校验 | [Control 模板](../../dev_support/node_authoring/starter_control_node.cpp) 的局部解析函数，失败不替换旧配置 |
 | 提示词变量替换 | [现有模板工具](../../include/nodes/text_template.h)，只在实际需要模板语义时使用 |
+
+批次工具由 `nodes/authoring.h` 提供，返回 `NodeResult`。Join/Group/Selection 借用输入，
+拒绝临时批次；使用期间输入必须存活且不修改、不移动。视图仅用于本次请求内的同步算法，
+不能保存到 Node/Session 或异步任务。`Materialize`、Scatter 和 Split 的输出拥有数据。
+错误在 AuthorNode 边界统一写入诊断，保留回调错误码、内容及完整来源 key；普通算法不提前
+写 Context。工具要求完整 key 唯一，不改变未使用这些工具的 Map/模型重复 key 行为。
 
 先声明结果数量和来源，再编码。例如“两条输入各输出一条”必须保留两组编号；“每个问题
 取前三个候选”要按请求分组并声明排名来源，不能用整个 batch 的前三项代替。

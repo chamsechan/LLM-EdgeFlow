@@ -10,3 +10,4 @@
 #include "nodes/node_result.h"
 #include "nodes/parameter_binding.h"
 #include "nodes/traceable_algorithms.h"
+#include "nodes/traceable_batch_operations.h"

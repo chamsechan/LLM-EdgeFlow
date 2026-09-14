@@ -1253,13 +1253,17 @@ class AuthorNode<MapSpec<InputBatchT, OutputBatchT, ParamsT, MapFnT>>
         auto res = detail::InvokeMapItem(spec_.Function(), item.data, params);
         if (!res.ok()) {
           auto failure = std::move(res).ExtractFailure();
+          if (!failure.batch_detail.has_value()) {
+            failure.batch_detail = BatchFailureDetail{
+                this->Name(), BatchFailureReason::kCallbackFailed,
+                TraceableItemKey{item.req_id, item.sub_id}};
+          }
           int code = failure.cause_code != 0
                          ? failure.cause_code
                          : node_error::author_node::kBusinessError;
-          return this->Fail(req_ctx, code,
-                            failure.message.empty()
-                                ? (this->Name() + " map function failed")
-                                : failure.message);
+          return this->Fail(
+              req_ctx, code,
+              failure.FormatDiagnostic(this->Name() + " map function failed"));
         }
         outputs.emplace_back(item.req_id, item.sub_id, std::move(res).value());
       } else {
@@ -1412,10 +1416,9 @@ class AuthorNode<BatchSpec<InputsT, OutputBatchT, ParamsT, ModelsT, RunFnT>>
       int code = failure.cause_code != 0
                      ? failure.cause_code
                      : node_error::author_node::kBusinessError;
-      return this->Fail(req_ctx, code,
-                        failure.message.empty()
-                            ? (this->Name() + " process failed")
-                            : failure.message);
+      return this->Fail(
+          req_ctx, code,
+          failure.FormatDiagnostic(this->Name() + " process failed"));
     }
 
     OutputBatchT output = std::move(res).value();

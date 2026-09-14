@@ -105,7 +105,9 @@ set(EDGEFLOW_SOURCE_test_log "${PROJECT_SOURCE_DIR}/tests/unit/logging/test_log.
 set(EDGEFLOW_SOURCE_test_log_name_override "${PROJECT_SOURCE_DIR}/tests/unit/logging/test_log_name_override.cpp")
 set(EDGEFLOW_SOURCE_test_asr_transcribe_node "${PROJECT_SOURCE_DIR}/tests/unit/nodes/test_asr_transcribe_node.cpp")
 set(EDGEFLOW_SOURCE_test_common_nodes "${PROJECT_SOURCE_DIR}/tests/unit/nodes/test_common_nodes.cpp")
-set(EDGEFLOW_SOURCE_test_function_node "${PROJECT_SOURCE_DIR}/tests/unit/nodes/test_function_node.cpp")
+set(EDGEFLOW_SOURCE_test_function_node
+  "${PROJECT_SOURCE_DIR}/tests/unit/nodes/test_function_node.cpp"
+  "${PROJECT_SOURCE_DIR}/tests/unit/nodes/test_traceable_batch_operations.cpp")
 set(EDGEFLOW_SOURCE_test_parameter_binding "${PROJECT_SOURCE_DIR}/tests/unit/nodes/test_parameter_binding.cpp")
 set(EDGEFLOW_SOURCE_test_llm_generate_node "${PROJECT_SOURCE_DIR}/tests/unit/nodes/test_llm_generate_node.cpp")
 set(EDGEFLOW_SOURCE_test_ocr_detect_node "${PROJECT_SOURCE_DIR}/tests/unit/nodes/test_ocr_detect_node.cpp")

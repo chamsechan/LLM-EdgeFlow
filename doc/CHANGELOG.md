@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-09-14 批次关联、分组、选择回填与拆分公共工具（RFC-0055）
+
+- **可追踪批次公共操作**：在能力节点层引入 `include/nodes/traceable_batch_operations.h`（通过 `include/nodes/authoring.h` 导出），提供普通函数与轻量借用视图：
+  - `JoinByItem`：按 `(req_id, sub_id)` 完整来源键实现精确匹配（`exact`）与左外关联（`left`）视图，左侧批次原始顺序严格稳定，右侧缺失或冗余 Fail-Closed。
+  - `GroupByRequest`：以显式 `anchor` 批次首次出现顺序作为分组顺序，保留子批次内部元素相对顺序，保留零子项空组。
+  - `SelectBatch` 与 `ScatterReplace`：支持基于谓词筛选子批次，通过 `Selection::Materialize()` 安全物化；`ScatterReplace` 严格校验元素数量与完整来源键一致性，将二次推理结果按原序恢复回填到原始批次，保持未选中项不可变。
+  - `SplitPayloads`：多项拆分并按请求分配单调递增连续 `sub_id`，生成 `SplitResult`（含拆分后批次与按父项来源键索引的子项计数），内置 `uint32` 与 `Int32` 边界容量防溢出校验。
+  - 编译期临时对象保护：对全部借用视图构造器及公共操作禁用右值重载（`= delete`），防止悬垂引用。
+- **结构化批次失败详情**：在 `NodeResult<T>` 中扩展可选的 `BatchFailureDetail` 与 `BatchFailureReason`（`duplicate`, `missing`, `unknown`, `count_mismatch`, `sub_id_overflow`, `count_overflow`, `callback_failed`），精准记录失败原因、请求项键及诊断信息，消除脆弱的字符串解析。
+- **TextChunkNode 试点迁移**：迁移至纯拆分算法 `SplitText` 与 `SplitPayloads`，将结构化批次失败原因确定性映射为历史业务错误码（`-4003` 重复输入、`-4004` 子编号溢出、`-4005` 计数溢出、`-4002` UTF-8 校验失败），保持黑板发布与端口契约完全不变。
+- **作者示例与自动化验证**：在 `dev_support/node_authoring/` 提供三个典型作者范例（Join, Group, Select/Scatter），新增 45 项独立单元测试覆盖乱序对齐、Int32/uint32 边界、const 临时对象拒绝、完整来源诊断与桩模型多轮推理；补充 ASan/UBSan、代表性性能测量及其环境限制记录。
+
 ## 2026-09-14 Control 作者接口与不可变配置快照收敛（RFC-0054）
 
 - **不可变配置快照组件**：引入 `ConfigurationSnapshot<State>` 模板，提供原子读与写事务互斥保护，实现单请求整批不可变快照隔离与更新失败零状态泄露；支持 Move-Only 状态类型与原子快照发布；C++17 shared_ptr 原子操作不承诺无锁或无等待。
