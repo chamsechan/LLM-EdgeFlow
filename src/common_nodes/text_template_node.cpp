@@ -15,8 +15,8 @@
 #include "contracts/control_payload.h"
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
-#include "edgeflow/log.h"
 #include "engine/text/utf8.h"
+#include "nodes/configuration_snapshot.h"
 #include "nodes/node_base.h"
 #include "nodes/node_error_codes.h"
 #include "nodes/text_template.h"
@@ -147,6 +147,95 @@ const nlohmann::json& TemplateControlSchema() {
          {{"type", "string"}, {"enum", {"fail", "empty", "preserve"}}}}}}};
   return schema;
 }
+struct TemplateState {
+  std::string template_str = kDefaultTemplate;
+  std::string separator = kDefaultSeparator;
+  size_t max_length = kDefaultMaxLength;
+  std::string overflow_policy = "fail";
+  std::string missing_variable_policy = kDefaultMissingPolicy;
+  std::string prompt_id;
+  bool allow_dynamic_attrs = false;
+  std::unordered_map<std::string, std::string> static_values;
+  std::vector<TextTemplateToken> compiled_tokens;
+};
+
+struct TemplateUpdate {
+  std::optional<std::string> template_str;
+  std::optional<std::string> prompt_id;
+  std::optional<std::unordered_map<std::string, std::string>> values;
+  std::optional<bool> allow_dynamic_attributes;
+  std::optional<std::string> missing_variable_policy;
+};
+
+inline bool CompileTemplate(
+    const std::string& tmpl,
+    const std::unordered_map<std::string, std::string>& static_vals,
+    bool allow_dynamic_attrs, std::vector<TextTemplateToken>* out_tokens,
+    std::string* diagnostic = nullptr) {
+  std::string error;
+  bool ok = ParseTextTemplate(tmpl, out_tokens, &error);
+  if (ok) {
+    for (const auto& token : *out_tokens) {
+      if (token.type == TextTemplateTokenType::kVariable &&
+          !allow_dynamic_attrs && !BuiltinInputs().count(token.value) &&
+          !static_vals.count(token.value)) {
+        error = "Unknown template placeholder: " + token.value +
+                "; connect attributes or declare values";
+        ok = false;
+        break;
+      }
+    }
+  }
+  if (!ok) {
+    out_tokens->clear();
+    ALG_LOG_ERROR("[TextTemplateNode] %s\n", error.c_str());
+    if (diagnostic) *diagnostic = std::move(error);
+  }
+  return ok;
+}
+
+inline NodeResult<TemplateState> BuildNextTemplate(
+    const TemplateState& current, const TemplateUpdate& update,
+    const BindingFacts& bindings) {
+  TemplateState next = current;
+  if (update.template_str) next.template_str = *update.template_str;
+  if (update.prompt_id) next.prompt_id = *update.prompt_id;
+  if (update.missing_variable_policy) {
+    next.missing_variable_policy = *update.missing_variable_policy;
+  }
+  if (update.allow_dynamic_attributes) {
+    next.allow_dynamic_attrs =
+        bindings.IsConnected("attributes") || *update.allow_dynamic_attributes;
+  }
+  if (update.values) {
+    for (const auto& [k, v] : *update.values) {
+      next.static_values[k] = v;
+    }
+  }
+  std::vector<TextTemplateToken> new_tokens;
+  std::string diagnostic;
+  if (!CompileTemplate(next.template_str, next.static_values,
+                       next.allow_dynamic_attrs, &new_tokens, &diagnostic)) {
+    return NodeResult<TemplateState>::Failure(
+        NodeErrorKind::kBusinessError,
+        diagnostic.empty()
+            ? "Invalid template placeholders or syntax in Control"
+            : diagnostic,
+        node_error::control::kInvalidRequest);
+  }
+  if (bindings.has_plan &&
+      !ValidateTemplateInputs(new_tokens, bindings.connected_inputs,
+                              next.missing_variable_policy, &diagnostic)) {
+    return NodeResult<TemplateState>::Failure(
+        NodeErrorKind::kBusinessError,
+        diagnostic.empty()
+            ? "Invalid template placeholders or syntax in Control"
+            : diagnostic,
+        node_error::control::kInvalidRequest);
+  }
+  next.compiled_tokens = std::move(new_tokens);
+  return NodeResult<TemplateState>::Success(std::move(next));
+}
 }  // namespace
 
 /**
@@ -205,58 +294,61 @@ class TextTemplateNode final : public NodeBase {
       return false;
     }
 
-    std::unique_lock<std::shared_mutex> lock(rw_mutex_);
-    template_str_ = normalized_config.value("template", kDefaultTemplate);
-    separator_ = normalized_config.value("separator", kDefaultSeparator);
+    TemplateState initial_state;
+    initial_state.template_str =
+        normalized_config.value("template", kDefaultTemplate);
+    initial_state.separator =
+        normalized_config.value("separator", kDefaultSeparator);
     const int64_t configured_max_length =
         normalized_config.value<int64_t>("max_length", kDefaultMaxLength);
     if (configured_max_length < 1 || configured_max_length > 1048576) {
       return false;
     }
-    max_length_ = static_cast<size_t>(configured_max_length);
-    overflow_policy_ = normalized_config.value("overflow_policy", "fail");
-    if (overflow_policy_ != "fail" && overflow_policy_ != "truncate") {
+    initial_state.max_length = static_cast<size_t>(configured_max_length);
+    initial_state.overflow_policy =
+        normalized_config.value("overflow_policy", "fail");
+    if (initial_state.overflow_policy != "fail" &&
+        initial_state.overflow_policy != "truncate") {
       return false;
     }
 
-    static_values_.clear();
     if (normalized_config.contains("values")) {
       if (!normalized_config["values"].is_object()) return false;
       for (auto it = normalized_config["values"].begin();
            it != normalized_config["values"].end(); ++it) {
         if (!it.value().is_string()) return false;
-        static_values_[it.key()] = it.value().get<std::string>();
+        initial_state.static_values[it.key()] = it.value().get<std::string>();
       }
     }
 
-    missing_variable_policy_ = normalized_config.value(
+    initial_state.missing_variable_policy = normalized_config.value(
         "missing_variable_policy", kDefaultMissingPolicy);
-    if (missing_variable_policy_ != "fail" &&
-        missing_variable_policy_ != "empty" &&
-        missing_variable_policy_ != "preserve") {
+    if (initial_state.missing_variable_policy != "fail" &&
+        initial_state.missing_variable_policy != "empty" &&
+        initial_state.missing_variable_policy != "preserve") {
       return false;
     }
-    allow_dynamic_attrs_ =
-        in_attributes_.IsBound() ||
+    binding_facts_ = MakeBindingFacts(init_ctx);
+    if (in_attributes_.IsBound()) {
+      binding_facts_.connected_inputs.insert("attributes");
+    }
+    initial_state.allow_dynamic_attrs =
+        binding_facts_.IsConnected("attributes") ||
         normalized_config.value("allow_dynamic_attributes", false);
 
     std::vector<TemplateToken> compiled;
-    if (!CompileTemplate(template_str_, static_values_, allow_dynamic_attrs_,
-                         &compiled)) {
+    if (!CompileTemplate(initial_state.template_str,
+                         initial_state.static_values,
+                         initial_state.allow_dynamic_attrs, &compiled)) {
       return false;
     }
-    connected_inputs_.reset();
-    if (init_ctx.plan) {
-      connected_inputs_.emplace();
-      for (const auto& port : init_ctx.plan->ports) {
-        if (port.direction == PortDirection::kInput)
-          connected_inputs_->insert(port.logical_name);
-      }
-      if (!ValidateTemplateInputs(compiled, *connected_inputs_,
-                                  missing_variable_policy_))
+    if (binding_facts_.has_plan) {
+      if (!ValidateTemplateInputs(compiled, binding_facts_.connected_inputs,
+                                  initial_state.missing_variable_policy))
         return false;
     }
-    compiled_tokens_ = std::move(compiled);
+    initial_state.compiled_tokens = std::move(compiled);
+    snapshot_.Initialize(std::move(initial_state));
     return true;
   }
 
@@ -270,57 +362,38 @@ class TextTemplateNode final : public NodeBase {
       return NodeControlResult::Failed(node_error::control::kInvalidRequest,
                                        error);
     }
-    std::string new_tmpl;
-    std::unordered_map<std::string, std::string> new_values;
-    bool new_allow_dynamic;
-    std::string new_missing_policy;
-    std::string new_prompt_id;
-    {
-      std::shared_lock<std::shared_mutex> lock(rw_mutex_);
-      new_tmpl = template_str_;
-      new_values = static_values_;
-      new_allow_dynamic = allow_dynamic_attrs_;
-      new_missing_policy = missing_variable_policy_;
-      new_prompt_id = prompt_id_;
-    }
+    TemplateUpdate update;
     if (root.contains("template"))
-      new_tmpl = root["template"].get<std::string>();
+      update.template_str = root["template"].get<std::string>();
     if (root.contains("allow_dynamic_attributes")) {
-      new_allow_dynamic = in_attributes_.IsBound() ||
-                          root["allow_dynamic_attributes"].get<bool>();
+      update.allow_dynamic_attributes =
+          root["allow_dynamic_attributes"].get<bool>();
     }
     if (root.contains("missing_variable_policy")) {
-      new_missing_policy = root["missing_variable_policy"].get<std::string>();
+      update.missing_variable_policy =
+          root["missing_variable_policy"].get<std::string>();
     }
     if (root.contains("prompt_id"))
-      new_prompt_id = root["prompt_id"].get<std::string>();
+      update.prompt_id = root["prompt_id"].get<std::string>();
     if (root.contains("values")) {
+      std::unordered_map<std::string, std::string> vals;
       for (auto it = root["values"].begin(); it != root["values"].end(); ++it) {
-        new_values[it.key()] = it.value().get<std::string>();
+        vals[it.key()] = it.value().get<std::string>();
       }
+      update.values = std::move(vals);
     }
-    std::vector<TemplateToken> new_tokens;
-    if (!CompileTemplate(new_tmpl, new_values, new_allow_dynamic,
-                         &new_tokens) ||
-        (connected_inputs_ &&
-         !ValidateTemplateInputs(new_tokens, *connected_inputs_,
-                                 new_missing_policy))) {
-      return NodeControlResult::Failed(
-          node_error::control::kInvalidRequest,
-          "Invalid template placeholders or syntax in Control");
-    }
-    std::unique_lock<std::shared_mutex> lock(rw_mutex_);
-    template_str_ = std::move(new_tmpl);
-    static_values_ = std::move(new_values);
-    allow_dynamic_attrs_ = new_allow_dynamic;
-    missing_variable_policy_ = std::move(new_missing_policy);
-    prompt_id_ = std::move(new_prompt_id);
-    compiled_tokens_ = std::move(new_tokens);
-    return NodeControlResult::Handled();
+    return snapshot_.Update([&](const TemplateState& current) {
+      return BuildNextTemplate(current, update, binding_facts_);
+    });
   }
 
   int ProcessNode(AlgContext& req_ctx) override {
-    std::shared_lock<std::shared_mutex> lock(rw_mutex_);
+    auto state_guard = snapshot_.Read();
+    if (!state_guard) {
+      return Fail(req_ctx, node_error::author_node::kInternalError,
+                  "Snapshot uninitialized");
+    }
+    const auto& state = *state_guard;
 
     const auto* primary_items = in_primary_.Get(req_ctx);
     const auto* context_items = in_context_.Get(req_ctx);
@@ -438,7 +511,7 @@ class TextTemplateNode final : public NodeBase {
       auto c_it = context_by_req.find(req_id);
       if (c_it != context_by_req.end()) {
         for (size_t i = 0; i < c_it->second.size(); ++i) {
-          if (i > 0) context_str += separator_;
+          if (i > 0) context_str += state.separator;
           context_str += c_it->second[i];
         }
       }
@@ -456,7 +529,7 @@ class TextTemplateNode final : public NodeBase {
       auto d_it = document_by_req.find(req_id);
       if (d_it != document_by_req.end()) {
         for (size_t i = 0; i < d_it->second.size(); ++i) {
-          if (i > 0) doc_str += separator_;
+          if (i > 0) doc_str += state.separator;
           doc_str += d_it->second[i];
         }
       }
@@ -470,7 +543,7 @@ class TextTemplateNode final : public NodeBase {
       std::string rendered;
       rendered.reserve(256);
 
-      for (const auto& token : compiled_tokens_) {
+      for (const auto& token : state.compiled_tokens) {
         if (token.type == TokenType::kLiteral) {
           rendered += token.value;
         } else {
@@ -488,28 +561,29 @@ class TextTemplateNode final : public NodeBase {
             if (document_items || document_text_items) value = &doc_str;
           } else if (attrs_ptr && attrs_ptr->find(var) != attrs_ptr->end()) {
             value = &attrs_ptr->at(var);
-          } else if (static_values_.find(var) != static_values_.end()) {
-            value = &static_values_.at(var);
+          } else if (state.static_values.find(var) !=
+                     state.static_values.end()) {
+            value = &state.static_values.at(var);
           }
           if (value) {
             rendered += *value;
           } else {
-            if (missing_variable_policy_ == "fail") {
+            if (state.missing_variable_policy == "fail") {
               return Fail(req_ctx, node_error::text_template::kMissingVariable,
                           "Missing required template variable: " + var);
-            } else if (missing_variable_policy_ == "preserve") {
+            } else if (state.missing_variable_policy == "preserve") {
               rendered += "{" + var + "}";
             }
           }
         }
       }
 
-      if (rendered.size() > max_length_) {
-        if (overflow_policy_ == "fail") {
+      if (rendered.size() > state.max_length) {
+        if (state.overflow_policy == "fail") {
           return Fail(req_ctx,
                       node_error::text_template::kRenderedOutputTooLong,
                       "Rendered prompt exceeds max_length of " +
-                          std::to_string(max_length_));
+                          std::to_string(state.max_length));
         }
         std::vector<size_t> boundaries;
         size_t invalid_offset = 0;
@@ -519,8 +593,8 @@ class TextTemplateNode final : public NodeBase {
                       "Rendered prompt contains invalid UTF-8 at byte offset " +
                           std::to_string(invalid_offset));
         }
-        const auto boundary =
-            std::upper_bound(boundaries.begin(), boundaries.end(), max_length_);
+        const auto boundary = std::upper_bound(
+            boundaries.begin(), boundaries.end(), state.max_length);
         rendered.resize(*(boundary - 1));
       }
 
@@ -532,44 +606,8 @@ class TextTemplateNode final : public NodeBase {
   }
 
  private:
-  static bool CompileTemplate(
-      const std::string& tmpl,
-      const std::unordered_map<std::string, std::string>& static_vals,
-      bool allow_dynamic_attrs, std::vector<TemplateToken>* out_tokens,
-      std::string* diagnostic = nullptr) {
-    std::string error;
-    bool ok = ParseTextTemplate(tmpl, out_tokens, &error);
-    if (ok) {
-      for (const auto& token : *out_tokens) {
-        if (token.type == TokenType::kVariable && !allow_dynamic_attrs &&
-            !BuiltinInputs().count(token.value) &&
-            !static_vals.count(token.value)) {
-          error = "Unknown template placeholder: " + token.value +
-                  "; connect attributes or declare values";
-          ok = false;
-          break;
-        }
-      }
-    }
-    if (!ok) {
-      out_tokens->clear();
-      ALG_LOG_ERROR("[TextTemplateNode] %s\n", error.c_str());
-      if (diagnostic) *diagnostic = std::move(error);
-    }
-    return ok;
-  }
-
-  mutable std::shared_mutex rw_mutex_;
-  std::string template_str_ = kDefaultTemplate;
-  std::string separator_ = kDefaultSeparator;
-  size_t max_length_ = kDefaultMaxLength;
-  std::string overflow_policy_ = "fail";
-  std::string missing_variable_policy_ = kDefaultMissingPolicy;
-  std::optional<std::unordered_set<std::string>> connected_inputs_;
-  std::string prompt_id_;
-  bool allow_dynamic_attrs_ = false;
-  std::unordered_map<std::string, std::string> static_values_;
-  std::vector<TemplateToken> compiled_tokens_;
+  ConfigurationSnapshot<TemplateState> snapshot_;
+  BindingFacts binding_facts_;
 
   BoundInput<TextBatch> in_primary_;
   BoundInput<RankedTextBatch> in_context_;

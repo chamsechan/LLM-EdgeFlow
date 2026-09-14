@@ -12,9 +12,7 @@
 | 控制命令的行为断言 | 已有节点测试套件 |
 | 新平台专有结构的转换和拷贝 | Integration；普通 JSON Control 使用已有通用入口 |
 
-已有节点增加命令时，只需移植下面模板中的声明和 `ControlNode` 片段。继续使用原有
-`NodeBase` / `ModelBoundNode` 等基类，保持端口、模型绑定和请求逻辑。一个节点支持多个
-命令时，可在 `ControlNode` 中分支调用普通成员函数，每个函数只处理一种更新。
+函数式节点直接通过 Spec 的 `WithControls` 声明可受控字段，框架自动管理不可变快照与并发更新。已有基于 `NodeBase` 的高级节点增加命令时，可组合使用 `ConfigurationSnapshot`，在 `ControlNode` 中构建候选、验证后发布，并在 `ProcessNode` 单次读取快照处理整批请求。
 
 ## 2. 生成能直接编译的例子
 
@@ -37,33 +35,20 @@ hot-swap 声明一致；通常直接复用同一份命令声明。重复使用�
 1:1 保留来源的纯计算例子，不会改造任意已有 C++ 类。已有文件默认拒绝覆盖。
 `--generate-test` 打印注册及业务测试代码，请将它加入现有套件；不会自动修改测试文件。
 
-## 3. 阅读四个编辑点
+## 3. 阅读受控参数声明
 
-| 编辑点 | 作用 |
+| 声明点 | 作用 |
 | --- | --- |
-| `kUpdatePrefix` / `PrefixCommand()` | 同文件的具名 ID、命令说明和参数 schema |
-| `PrefixConfigFields()` / `ReadPrefix()` | 声明初值默认空字符串和字段说明，共享类型、默认值与 64 字节业务校验 |
-| `ControlNode()` | 解析拥有数据的 JSON 值，调用同一校验函数，成功后替换前缀 |
-| `ProcessNode()` | 为整批请求读取一次前缀，在保留 `(req_id, sub_id)` 的输出中使用它 |
+| `PrefixControlNodeParams` / `Field("prefix", ...)` | 声明业务参数结构体，绑定初值默认空字符串、字段说明与 64 字节业务校验 |
+| `kUpdatePrefix` / `ReplaceFields(...)` | 声明具名命令 ID 与受控字段集合，自动投影 Control payload schema |
+| `ApplyPrefix(...)` | 纯业务转换函数，接收普通数据与参数，无需接触锁或平台结构 |
+| `WithControls(...)` | 将受控命令挂载到 Spec，框架自动管理不可变快照与并发更新事务 |
 
-`def.control_commands` 引用 `PrefixCommand()`；`ParseControlPayload` 也引用其中的
-schema，避免重复维护字段检查。`ReadPrefix` 同时用于 Definition 的 `validate_config`、
-`InitNode` 与 Control；初始配置写在节点的 `config`，例如 `{"prefix":"BASE:"}`。
-未设置时使用空字符串，Control 成功后替换该值；非法初始配置会在预检拒绝，直接 Init
-也通过 `ctx.Fail` 返回具体原因。初值和在线更新共享业务规则，不需要再写一套解析器。
+`WithControls` 引用 `ReplaceFields(kUpdatePrefix, "set_prefix", {"prefix"})`，框架复用 `Parameters` 已绑定的字段类型、默认值和业务校验规则自动生成 Control payload schema。初始配置写在节点的 `config`（例如 `{"prefix":"BASE:"}`），未设置时使用默认空字符串；Control 下发新值时通过相同校验规则验证，并通过不可变快照原子发布。非法初始配置会在预检拒绝，直接 Init 也返回具体原因。
 
-现有校验子集包括 `type`、`enum`、`required`、
-`properties`、`minProperties`、`additionalProperties`、同类型 `items`、数值
-`minimum` / `maximum`。注册时拒绝无效或未支持的 schema 关键字；只使用这些
-关键字；字符串长度、字段关系、规则编译等约束使用普通 C++ 语义校验。它不是完整的
-JSON Schema 实现。
+框架采用 `ConfigurationSnapshot` 管理节点状态：更新在独立的 writer 锁内构建候选、校验成功后原子发布；正在执行的 Process 读取单次快照处理整批请求，互不干扰；更新失败保留旧配置。开发者只需关注普通参数绑定与业务逻辑，不需要手写互斥锁、JSON 解析或快照轮询。
 
-参数校验完成前不修改在线配置。模板先构造拥有数据的 `std::string next`，再在写锁中
-`swap`；失败保留旧配置。输入平台字符串仅借用到同步调用返回，Integration 和节点
-负责形成各自拥有的内部值。不要把平台指针、请求 Context 或本次输入存进节点成员。
-
-模板只展示值类型配置。含模型句柄、外部资源的更新需要单独设计所有权；不能假设复制
-结构体就能深拷贝资源或撤销外部副作用。
+模板展示值类型参数的控制。含模型句柄、外部资源的更新需要单独设计所有权；不能假设复制结构体就能深拷贝资源或撤销外部副作用。
 
 ## 4. 编译并检查实际注册
 

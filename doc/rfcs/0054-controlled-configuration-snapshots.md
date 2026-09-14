@@ -2,7 +2,7 @@
 
 - **RFC 编号**：0054-controlled-configuration-snapshots
 - **创建日期**：2026-09-14
-- **文档状态**：Proposed
+- **文档状态**：In Implementation
 - **关联分支**：`docs/framework-authoring-rfcs`；建议实施分支 `refactor/control-snapshots`
 - **目标版本**：下一次投产前开发接口版本
 - **负责人 / 作者**：LLM-EdgeFlow contributors
@@ -278,14 +278,100 @@ Map/Batch 继续使用同一套输入绑定、模型绑定、异常屏障、结�
 生命周期、并发和 AuthorNode 变更需独立 Reviewer。只有所有必需工程出口满足才能声明工程
 交付；真实试用尚未进行时保留状态和待办，不以 Agent 自测关闭体验验收。
 
-## 9. 实施与最终结果记录
+## 9. 实施与验证记录
 
-| 项目 | 当前状态 |
-| --- | --- |
-| 设计文档 | Proposed；未改变运行时并发契约 |
-| 生产实现与迁移 | 未开始 |
-| 工程、并发与性能验证 | 待实施后填写命令、基线和结果 |
-| 开发者试用 | 待记录 |
-| 完成条件 | M0–M5 必需交付、验证、现行指南及体验结果记录完成；按 CONTRIBUTING 更新状态 |
+生产实现与迁移已完成：`ConfigurationSnapshot<State>`、`PatchFields` / `ReplaceFields`、
+函数式 Node opt-in，以及 starter、TextTemplate、TextRuleMatch 的迁移。未启用 Control 的
+不可复制参数仍可使用；Init 与 Control 使用真实 `BindingFacts` 执行参数语义链。
+真实开发者试用仍为待办，本文暂保留 `In Implementation`，不以工程自测关闭体验验收。
 
-当前文档通过检查不代表快照组件已经实现。实施差异、验证结果和保留边界直接维护在本文。
+### 9.1 并发与生命周期证据
+
+Map、Batch、TextTemplate、TextRuleMatch 的直接节点测试使用同一确定性握手：
+在 reader 已取得快照后的首次分配处暂停，主线程完成 Control 后才放行 reader；
+断言整个在途批次仍使用旧值、后续批次使用新值，并检查 `(req_id, sub_id)`。
+规则节点的分类、规则 ID 和正则捕获均可区分 OLD/NEW，避免所有版本产生相同结果。
+
+同步设施仅链接进测试可执行文件，使用线程局部一次性分配回调；生产 Node 不增加测试钩子。
+等待超时会使 Process 失败，另有零等待预算的失败回归，不能把超时当作发布成功。
+组件测试检查旧 reader 在 owner 销毁后仍可读、最后 reader 释放后 `weak_ptr` 过期；
+两个 writer 的合并检查不使用 sleep 推测锁状态。压力测试作为补充，不替代确定时序证明。
+
+### 9.2 性能与分配实测
+
+2026-09-14，在 Linux 6.17.0-1020-oracle **aarch64**、GCC 13.3.0 的同一共享工作机上，
+对比 `7a6ca02` 的两个迁移前 Node 翻译单元与当前迁移实现。两版以相同 `-O3` 参数重新编译，
+复用当前运行时对象；这是节点迁移对比，不是完整历史 SDK 重建。
+
+每次 Process 50 样本，每轮 2000 次，7 轮交替 baseline/current。计时前准备请求，
+计时后检查返回值、输出数量、模板文本及实际命中的正则捕获。并发 writer 每次 Control
+完成后等待 100 µs，两个版本完成的更新数量可以不同。单位为每批中位耗时 µs：
+
+| 场景 | 迁移前 | 快照实现 |
+| --- | ---: | ---: |
+| TextTemplate，无并发 Control | 23.8713 | 23.2394 |
+| TextTemplate，并发 Control | 27.3272 | 25.0500 |
+| TextRuleMatch，无并发 Control | 400.5160 | 394.1910 |
+| TextRuleMatch，并发 Control | 434.1460 | 429.2030 |
+
+该负载未观察到明显回退；共享机器上的小幅差异不应解释为统计显著的加速。
+原文未记录负载的估计表已撤回。56 次原始记录见
+[benchmark JSON](reviews/0054-control-snapshot-benchmark.json)；完整负载定义见
+[基准程序](../../dev_support/benchmarks/control_snapshots.cpp)。在完成默认构建且没有其他
+构建/压力测试负载时，可重新执行：
+
+```bash
+python3 dev_support/benchmarks/control_snapshots.py \
+  --build-dir build --output-dir /tmp/edgeflow-control-benchmark \
+  --baseline 7a6ca02
+```
+
+完整预热 Control 的普通全局 C++ `new/new[]` 分配计数为：
+
+| 节点 | 迁移前次数 / 累计请求字节 | 快照实现次数 / 累计请求字节 |
+| --- | ---: | ---: |
+| TextTemplate | 24 / 1015 | 26 / 1443 |
+| TextRuleMatch（更新 categories，保留编译 regex） | 39 / 1427 | 45 / 2024 |
+
+计数不含直接 malloc 或 aligned allocation，因此只是所有堆分配的下界；累计申请字节
+不是峰值或持有内存，也不代表泄漏。`make_shared` 的分配不能代表包含 JSON 解析、状态复制、
+容器和派生值构造的完整 Control 成本。
+
+`Read()` 获取 shared_ptr 引用并由 Process 局部 guard 持有。C++17 shared_ptr 原子自由函数
+不保证 lock-free；本机 libstdc++ 使用内部锁。读者不持有组件的 writer mutex，
+但不能声称完全无锁、零阻塞或无等待发布。
+
+### 9.3 Sanitizer 与门禁
+
+修复前复核曾实际执行默认门禁（97 CTest）、ASan/UBSan + 泄漏检测（87 个相关测试），
+以及仅对快照组件插桩的 TSAN 检查（9 个测试 × 20 轮，含临时补充用例）；均无报告。
+这些是当时的覆盖范围，不代表 TSAN 已检查整个 SDK，也不构成修复后的自动豁免。
+本轮测试修复必须重新运行相关用例及 `./scripts/run_all_tests.sh`。
+
+项目 sanitizer 选项是 `LLM_EDGEFLOW_SANITIZERS`，不存在 `ENABLE_TSAN` 开关。
+使用独立构建目录，避免污染默认门禁的构建；以下为完整节点 runner 的 TSAN 复现配置：
+
+```bash
+cmake -S . -B build-control-tsan -DBUILD_TESTING=ON \
+  -DCMAKE_BUILD_TYPE=Debug -DENABLE_SANITIZERS=ON \
+  -DLLM_EDGEFLOW_SANITIZERS=thread \
+  -DENABLE_KITELLM=OFF -DENABLE_WHISPERCPP=OFF \
+  -DENABLE_LLAMACPP=OFF -DENABLE_ONNXRUNTIME=OFF
+cmake --build build-control-tsan --target edgeflow_test_nodes_runner -j2
+TSAN_OPTIONS=halt_on_error=1 ./build-control-tsan/edgeflow_test_nodes_runner \
+  --gtest_filter='ConfigurationSnapshotTest.*:FunctionNodeTest.*:TextTemplateNodeTest.*:TextRuleMatchNodeTest.*'
+```
+
+本机默认 TSAN 启动曾报 `unexpected memory mapping`；按 `scripts/run_sanitizers.sh`
+的 aarch64 分支使用 `setarch aarch64 -R` 后，真实组件 TSAN 检查成功。因此应记录具体
+命令与错误，不能仅以“部分容器可能受限”代替尝试。其他平台按实际环境处理。
+不引用不存在的 suppression 文件。ASan/UBSan 使用相同独立构建方式，将 sanitizer 集合
+改为 `address,undefined`，运行时使用 `ASAN_OPTIONS=detect_leaks=1:halt_on_error=1` 和
+`UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1`。未安装/执行 Valgrind，不作相关通过声明。
+
+### 9.4 真实开发者试用待办
+
+工程材料包括 [Control 指南](../dev_guide/first_control.md)、编译 starter 与
+`scripts/scaffold_custom_node.py --control-id`。邀请业务线开发者在真实 Node 中增加普通
+可更新字段，记录参数声明、Patch/Replace、语义校验和诊断体验。收集真实反馈后再关闭
+体验待办；教程、脚手架与 Agent 自测不替代真实试用。

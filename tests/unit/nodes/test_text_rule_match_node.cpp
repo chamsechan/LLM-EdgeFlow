@@ -2,10 +2,12 @@
 
 #include <algorithm>
 #include <cmath>
+#include <exception>
 #include <limits>
 #include <memory>
 #include <nlohmann/json.hpp>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "adapter/shared_algorithm_runtime.h"
@@ -14,7 +16,9 @@
 #include "core/node_registry.h"
 #include "core/pipeline_validator.h"
 #include "core/session_context.h"
+#include "tests/support/node_process_pause.h"
 #include "tests/support/node_test_utils.h"
+#include "tests/support/scoped_allocation_failure.h"
 
 namespace llm_edgeflow {
 
@@ -429,6 +433,89 @@ TEST_F(TextRuleMatchNodeTest, MissingInputFailsClosed) {
 
   AlgContext empty_ctx;
   EXPECT_EQ(node->Process(&empty_ctx), -5001);
+}
+
+TEST_F(TextRuleMatchNodeTest, DirectConcurrentProcessAndControl) {
+  auto node = NodeRegistry::Instance().Create("TextRuleMatchNode");
+  ASSERT_NE(node, nullptr);
+  auto configuration = [](const std::string& version) {
+    return nlohmann::json{{"categories", {{version, {"hello"}}}},
+                          {"rules",
+                           {{{"id", version + "_rule"},
+                             {"strategy", "regex"},
+                             {"pattern", "(?<" + version + ">world)"},
+                             {"category", version}}}}};
+  };
+  ASSERT_TRUE(InitNodeForTest(*node, configuration("OLD"), session_ctx_.get()));
+  const auto update = configuration("NEW");
+  // Both category keywords and compiled regex captures distinguish versions.
+  const TextBatch inputs{{101, 2, "hello"},
+                         {101, 7, "world"},
+                         {202, 3, "hello"},
+                         {202, 8, "world"}};
+  AlgContext in_flight;
+  in_flight.Publish("text", inputs);
+  test_support::NodeProcessPause pause;
+  int process_result = -1;
+  std::exception_ptr reader_error;
+  // On this valid Process path, the first heap allocation follows
+  // snapshot.Read: the output batch reserve. Pause with that old snapshot
+  // retained.
+  std::thread reader([&] {
+    try {
+      test_support::ScopedNextAllocationCallback callback(
+          &test_support::NodeProcessPause::OnAllocation, &pause);
+      process_result = node->Process(&in_flight);
+    } catch (...) {
+      reader_error = std::current_exception();
+    }
+  });
+  const bool paused = pause.WaitUntilPaused();
+  NodeControlStatus control_status = NodeControlStatus::kFailed;
+  std::exception_ptr control_error;
+  if (paused) {
+    try {
+      control_status =
+          node->Control(kControlCmdUpdateRules, update.dump()).status;
+    } catch (...) {
+      control_error = std::current_exception();
+    }
+  }
+  pause.Resume();
+  reader.join();
+  ASSERT_TRUE(paused) << "Process never reached the snapshot pause";
+  ASSERT_EQ(reader_error, nullptr);
+  ASSERT_EQ(control_error, nullptr);
+  ASSERT_EQ(control_status, NodeControlStatus::kHandled);
+  ASSERT_EQ(process_result, 0);
+
+  auto expect_batch = [&](const AlgContext& ctx, const std::string& version) {
+    const auto* output = ctx.Read<RuleMatchBatch>("matches");
+    ASSERT_NE(output, nullptr);
+    ASSERT_EQ(output->size(), inputs.size());
+    for (size_t i = 0; i < inputs.size(); ++i) {
+      EXPECT_EQ((*output)[i].req_id, inputs[i].req_id);
+      EXPECT_EQ((*output)[i].sub_id, inputs[i].sub_id);
+      EXPECT_EQ((*output)[i].data.is_hit, 1);
+      EXPECT_EQ((*output)[i].data.category, version);
+      if (inputs[i].data == "world") {
+        EXPECT_EQ((*output)[i].data.rule_id, version + "_rule");
+        EXPECT_EQ((*output)[i].data.captures.count(version), 1u);
+        const auto capture = (*output)[i].data.captures.find(version);
+        if (capture != (*output)[i].data.captures.end()) {
+          EXPECT_EQ(capture->second, "world");
+        }
+        EXPECT_EQ(
+            (*output)[i].data.captures.count(version == "OLD" ? "NEW" : "OLD"),
+            0u);
+      }
+    }
+  };
+  expect_batch(in_flight, "OLD");
+  AlgContext subsequent;
+  subsequent.Publish("text", inputs);
+  ASSERT_EQ(node->Process(&subsequent), 0);
+  expect_batch(subsequent, "NEW");
 }
 
 }  // namespace llm_edgeflow

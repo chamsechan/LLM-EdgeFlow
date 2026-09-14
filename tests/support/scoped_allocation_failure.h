@@ -5,6 +5,25 @@
 
 namespace llm_edgeflow::test_support {
 
+// One-shot callback on this thread's next replacement-new allocation. Clear
+// before invoking so the callback may itself allocate without recursion.
+class ScopedNextAllocationCallback {
+ public:
+  using Callback = void (*)(void*);
+  ScopedNextAllocationCallback(Callback callback, void* user_data) noexcept;
+  ~ScopedNextAllocationCallback();
+  ScopedNextAllocationCallback(const ScopedNextAllocationCallback&) = delete;
+  ScopedNextAllocationCallback& operator=(const ScopedNextAllocationCallback&) =
+      delete;
+  static void BeforeAllocation();
+
+ private:
+  static thread_local ScopedNextAllocationCallback* current_;
+  ScopedNextAllocationCallback* previous_;
+  Callback callback_;
+  void* user_data_;
+};
+
 // Test-executable-only replacement new/delete support. Arm only around a
 // synchronous operation, outside GoogleTest assertions. For leak assertions,
 // destroy tracked allocations on this thread before checking Outstanding().

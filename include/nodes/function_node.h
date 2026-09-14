@@ -17,6 +17,8 @@
 #include "core/port_definition.h"
 #include "core/session_context.h"
 #include "core/validated_node_plan.h"
+#include "nodes/configuration_snapshot.h"
+#include "nodes/control_authoring.h"
 #include "nodes/model_calls.h"
 #include "nodes/node_base.h"
 #include "nodes/node_error_codes.h"
@@ -113,9 +115,19 @@ auto InvokeBatch(const Fn& fn, const InputsT& inputs, const ParamsT& params,
   if constexpr (std::is_member_function_pointer_v<Fn>) {
     using ClassT = typename MemberFunctionTraits<Fn>::ClassType;
     ClassT logic{};
-    return (logic.*fn)(inputs, params, models);
+    if constexpr (std::is_invocable_v<Fn, ClassT, const InputsT&,
+                                      const ParamsT&, const ModelsT&>) {
+      return (logic.*fn)(inputs, params, models);
+    } else {
+      return (logic.*fn)(inputs, params);
+    }
   } else {
-    return fn(inputs, params, models);
+    if constexpr (std::is_invocable_v<Fn, const InputsT&, const ParamsT&,
+                                      const ModelsT&>) {
+      return fn(inputs, params, models);
+    } else {
+      return fn(inputs, params);
+    }
   }
 }
 
@@ -183,6 +195,25 @@ class MapSpec {
     return *this;
   }
 
+  MapSpec WithControls(std::vector<FieldControlCommand> commands) && {
+    static_assert(std::is_copy_constructible_v<ParamsT>,
+                  "WithControls requires copy-constructible ParametersType");
+    ValidateControlCommands(commands, params_);
+    control_commands_ = std::move(commands);
+    return std::move(*this);
+  }
+
+  MapSpec WithControls(std::initializer_list<FieldControlCommand> commands) && {
+    return std::move(*this).WithControls(
+        std::vector<FieldControlCommand>(commands));
+  }
+
+  bool HasControls() const noexcept { return !control_commands_.empty(); }
+
+  const std::vector<FieldControlCommand>& ControlCommands() const noexcept {
+    return control_commands_;
+  }
+
   const std::string& InputName() const noexcept { return in_.name; }
   const std::string& OutputName() const noexcept { return out_.name; }
   const Parameters<ParamsT>& ParametersSpec() const noexcept { return params_; }
@@ -208,6 +239,9 @@ class MapSpec {
                               std::string* err) {
       return params.ValidateWithBindings(cfg, conn, err);
     };
+    for (const auto& cmd : control_commands_) {
+      def.control_commands.push_back(cmd.ToCommandDefinition(params_));
+    }
     return def;
   }
 
@@ -216,6 +250,7 @@ class MapSpec {
   Output<OutputBatchT> out_;
   Parameters<ParamsT> params_;
   MapFnT fn_;
+  std::vector<FieldControlCommand> control_commands_;
   std::string category_ = "custom";
   std::string description_;
   bool parallel_safe_ = false;
@@ -873,6 +908,11 @@ class ModelsOf<NoModels> {
                   const nlohmann::json&, NoModels*, std::string*) {
     return true;
   }
+  static const std::vector<std::unique_ptr<ModelSlotBinding<NoModels>>>&
+  Bindings() noexcept {
+    static const std::vector<std::unique_ptr<ModelSlotBinding<NoModels>>> empty;
+    return empty;
+  }
 };
 
 template <typename InputsT, typename OutputBatchT, typename ParamsT,
@@ -935,6 +975,26 @@ class BatchSpec {
     return std::move(*this);
   }
 
+  BatchSpec WithControls(std::vector<FieldControlCommand> commands) && {
+    static_assert(std::is_copy_constructible_v<ParamsT>,
+                  "WithControls requires copy-constructible ParametersType");
+    ValidateControlCommands(commands, params_, &models_);
+    control_commands_ = std::move(commands);
+    return std::move(*this);
+  }
+
+  BatchSpec WithControls(
+      std::initializer_list<FieldControlCommand> commands) && {
+    return std::move(*this).WithControls(
+        std::vector<FieldControlCommand>(commands));
+  }
+
+  bool HasControls() const noexcept { return !control_commands_.empty(); }
+
+  const std::vector<FieldControlCommand>& ControlCommands() const noexcept {
+    return control_commands_;
+  }
+
   InputsOf<InputsT>& Inputs() noexcept { return inputs_; }
   const InputsOf<InputsT>& Inputs() const noexcept { return inputs_; }
   const PreservedOutput<OutputBatchT>& Output() const noexcept {
@@ -982,6 +1042,9 @@ class BatchSpec {
                               std::string* err) {
       return params.ValidateWithBindings(cfg, conn, err);
     };
+    for (const auto& cmd : control_commands_) {
+      def.control_commands.push_back(cmd.ToCommandDefinition(params_));
+    }
     return def;
   }
 
@@ -991,6 +1054,7 @@ class BatchSpec {
   Parameters<ParamsT> params_;
   ModelsOf<ModelsT> models_;
   RunFnT fn_;
+  std::vector<FieldControlCommand> control_commands_;
   std::string category_ = "custom";
   std::string description_;
   bool parallel_safe_ = false;
@@ -1120,17 +1184,37 @@ class AuthorNode<MapSpec<InputBatchT, OutputBatchT, ParamsT, MapFnT>>
       connected_inputs.insert(spec_.InputName());
     }
 
+    binding_facts_ = MakeBindingFacts(init_ctx, std::move(connected_inputs));
+
     std::string err;
-    if (!spec_.ParametersSpec().ValidateWithBindings(normalized,
-                                                     connected_inputs, &err)) {
-      return init_ctx.Fail(err.empty() ? "Invalid node configuration" : err);
-    }
-    auto parsed = spec_.ParametersSpec().ParseNormalized(normalized, &err);
+    auto parsed = spec_.ParametersSpec().ParseNormalized(normalized,
+                                                         binding_facts_, &err);
     if (!parsed) {
       return init_ctx.Fail(err.empty() ? "Invalid node configuration" : err);
     }
-    parameters_ = std::move(*parsed);
+    if (spec_.HasControls()) {
+      snapshot_.Initialize(std::move(*parsed));
+    } else {
+      parameters_ = std::move(*parsed);
+    }
     return true;
+  }
+
+  NodeControlResult ControlNode(int cmd,
+                                const std::string& json_param) override {
+    if (!spec_.HasControls()) {
+      return NodeControlResult::Unsupported();
+    }
+    if constexpr (std::is_copy_constructible_v<
+                      typename SpecType::ParametersType>) {
+      for (const auto& command : spec_.ControlCommands()) {
+        if (command.Id() == cmd) {
+          return command.Execute(spec_.ParametersSpec(), json_param,
+                                 binding_facts_, snapshot_);
+        }
+      }
+    }
+    return NodeControlResult::Unsupported();
   }
 
   int ProcessNode(AlgContext& req_ctx) override {
@@ -1147,13 +1231,26 @@ class AuthorNode<MapSpec<InputBatchT, OutputBatchT, ParamsT, MapFnT>>
       return 0;
     }
 
+    std::shared_ptr<const typename SpecType::ParametersType> snapshot_guard;
+    const typename SpecType::ParametersType* params_ptr = nullptr;
+    if (spec_.HasControls()) {
+      snapshot_guard = snapshot_.Read();
+      if (!snapshot_guard) {
+        return this->Fail(req_ctx, node_error::author_node::kInternalError,
+                          this->Name() + ": snapshot not initialized");
+      }
+      params_ptr = snapshot_guard.get();
+    } else {
+      params_ptr = &parameters_;
+    }
+    const auto& params = *params_ptr;
+
     OutputBatch outputs;
     outputs.reserve(inputs->size());
 
     for (const auto& item : *inputs) {
       if constexpr (SpecType::kReturnsNodeResult) {
-        auto res =
-            detail::InvokeMapItem(spec_.Function(), item.data, parameters_);
+        auto res = detail::InvokeMapItem(spec_.Function(), item.data, params);
         if (!res.ok()) {
           auto failure = std::move(res).ExtractFailure();
           int code = failure.cause_code != 0
@@ -1168,7 +1265,7 @@ class AuthorNode<MapSpec<InputBatchT, OutputBatchT, ParamsT, MapFnT>>
       } else {
         outputs.emplace_back(
             item.req_id, item.sub_id,
-            detail::InvokeMapItem(spec_.Function(), item.data, parameters_));
+            detail::InvokeMapItem(spec_.Function(), item.data, params));
       }
     }
 
@@ -1193,6 +1290,8 @@ class AuthorNode<MapSpec<InputBatchT, OutputBatchT, ParamsT, MapFnT>>
   BoundInput<typename SpecType::InputBatch> in_port_;
   BoundOutput<typename SpecType::OutputBatch> out_port_;
   typename SpecType::ParametersType parameters_{};
+  ConfigurationSnapshot<typename SpecType::ParametersType> snapshot_;
+  BindingFacts binding_facts_;
 };
 
 // BatchSpec Specialization
@@ -1246,17 +1345,19 @@ class AuthorNode<BatchSpec<InputsT, OutputBatchT, ParamsT, ModelsT, RunFnT>>
     }
 
     auto connected_inputs = spec_.Inputs().ConnectedInputs(init_ctx.plan);
-    std::string err;
-    if (!spec_.ParametersSpec().ValidateWithBindings(normalized,
-                                                     connected_inputs, &err)) {
-      return init_ctx.Fail(err.empty() ? "Invalid node configuration" : err);
-    }
+    binding_facts_ = MakeBindingFacts(init_ctx, std::move(connected_inputs));
 
-    auto parsed = spec_.ParametersSpec().ParseNormalized(normalized, &err);
+    std::string err;
+    auto parsed = spec_.ParametersSpec().ParseNormalized(normalized,
+                                                         binding_facts_, &err);
     if (!parsed) {
       return init_ctx.Fail(err.empty() ? "Invalid node configuration" : err);
     }
-    parameters_ = std::move(*parsed);
+    if (spec_.HasControls()) {
+      snapshot_.Initialize(std::move(*parsed));
+    } else {
+      parameters_ = std::move(*parsed);
+    }
 
     if (!spec_.Models().BindModels(init_ctx, session_ctx, normalized, &models_,
                                    &err)) {
@@ -1264,6 +1365,23 @@ class AuthorNode<BatchSpec<InputsT, OutputBatchT, ParamsT, ModelsT, RunFnT>>
     }
 
     return true;
+  }
+
+  NodeControlResult ControlNode(int cmd,
+                                const std::string& json_param) override {
+    if (!spec_.HasControls()) {
+      return NodeControlResult::Unsupported();
+    }
+    if constexpr (std::is_copy_constructible_v<
+                      typename SpecType::ParametersType>) {
+      for (const auto& command : spec_.ControlCommands()) {
+        if (command.Id() == cmd) {
+          return command.Execute(spec_.ParametersSpec(), json_param,
+                                 binding_facts_, snapshot_);
+        }
+      }
+    }
+    return NodeControlResult::Unsupported();
   }
 
   int ProcessNode(AlgContext& req_ctx) override {
@@ -1274,8 +1392,21 @@ class AuthorNode<BatchSpec<InputsT, OutputBatchT, ParamsT, ModelsT, RunFnT>>
                         err.empty() ? "Failed to populate inputs" : err);
     }
 
+    std::shared_ptr<const typename SpecType::ParametersType> snapshot_guard;
+    const typename SpecType::ParametersType* params_ptr = nullptr;
+    if (spec_.HasControls()) {
+      snapshot_guard = snapshot_.Read();
+      if (!snapshot_guard) {
+        return this->Fail(req_ctx, node_error::author_node::kInternalError,
+                          this->Name() + ": snapshot not initialized");
+      }
+      params_ptr = snapshot_guard.get();
+    } else {
+      params_ptr = &parameters_;
+    }
+
     auto res =
-        detail::InvokeBatch(spec_.Function(), inputs, parameters_, models_);
+        detail::InvokeBatch(spec_.Function(), inputs, *params_ptr, models_);
     if (!res.ok()) {
       auto failure = std::move(res).ExtractFailure();
       int code = failure.cause_code != 0
@@ -1328,6 +1459,8 @@ class AuthorNode<BatchSpec<InputsT, OutputBatchT, ParamsT, ModelsT, RunFnT>>
   BoundOutput<OutputBatchT> out_port_;
   typename SpecType::ParametersType parameters_{};
   typename SpecType::ModelsType models_{};
+  ConfigurationSnapshot<typename SpecType::ParametersType> snapshot_;
+  BindingFacts binding_facts_;
 };
 
 // ---------------------------------------------------------------------------

@@ -110,7 +110,17 @@ class NodeHarness {
 
   NodeHarness& Config(nlohmann::json config) {
     config_ = std::move(config);
+    Reset();
     return *this;
+  }
+
+  void Reset() {
+    node_.reset();
+    session_ctx_.reset();
+    input_keys_.clear();
+    output_keys_.clear();
+    init_diagnostic_.clear();
+    initialized_ = false;
   }
 
   NodeHarness& TextInput(const std::string& logical_port_name,
@@ -151,49 +161,53 @@ class NodeHarness {
 
   NodeHarness& BindModel(std::string model_id, std::shared_ptr<IModel> model) {
     models_[std::move(model_id)] = std::move(model);
+    Reset();
     return *this;
   }
 
   NodeHarness& DisablePlan() {
     use_plan_ = false;
+    Reset();
     return *this;
   }
 
   NodeHarness& OmitPortFromPlan(std::string logical_port_name) {
     omitted_ports_.insert(std::move(logical_port_name));
+    Reset();
     return *this;
   }
 
-  NodeHarnessResult Run() {
+  bool EnsureInitialized() {
+    if (initialized_) return true;
+
     if (!NodeRegistry::Instance().Has(node_type_)) {
-      return NodeHarnessResult::InitFailed("Node type '" + node_type_ +
-                                           "' is not registered");
+      init_diagnostic_ = "Node type '" + node_type_ + "' is not registered";
+      return false;
     }
 
-    auto node = NodeRegistry::Instance().Create(node_type_);
-    if (!node) {
-      return NodeHarnessResult::InitFailed("Failed to create node '" +
-                                           node_type_ + "'");
+    node_ = NodeRegistry::Instance().Create(node_type_);
+    if (!node_) {
+      init_diagnostic_ = "Failed to create node '" + node_type_ + "'";
+      return false;
     }
 
-    SessionContext session_ctx;
+    session_ctx_ = std::make_unique<SessionContext>();
     for (const auto& [mid, model] : models_) {
-      session_ctx.GetModelManager().RegisterModel(
+      session_ctx_->GetModelManager().RegisterModel(
           mid, model, "harness_rev", model ? model->ModelType() : "mock",
           model ? model->Capability() : "llm", "mock");
     }
 
     const auto definition = PipelineCatalog::FindNode(node_type_);
-    std::unordered_map<std::string, std::string> input_keys;
-    std::unordered_map<std::string, std::string> output_keys;
+    input_keys_.clear();
+    output_keys_.clear();
 
     NodeInitContext init_ctx;
     init_ctx.config = &config_;
-    init_ctx.session_ctx = &session_ctx;
-    std::string diagnostic;
-    init_ctx.diagnostic = &diagnostic;
+    init_ctx.session_ctx = session_ctx_.get();
+    init_diagnostic_.clear();
+    init_ctx.diagnostic = &init_diagnostic_;
 
-    ValidatedNodePlan plan;
     if (use_plan_) {
       if (definition) {
         nlohmann::json doc = nlohmann::json::object();
@@ -201,8 +215,6 @@ class NodeHarness {
         doc["biz_name"] = biz;
         doc["models"] = nlohmann::json::array();
 
-        // Resolve defaults before synthesizing model declarations. Keep the
-        // original config in the document so Validator owns full diagnostics.
         nlohmann::json normalized_config;
         if (!ValidateAndNormalizeFields(definition->config_fields, config_,
                                         &normalized_config, nullptr)) {
@@ -215,8 +227,6 @@ class NodeHarness {
             std::string mid =
                 normalized_config[dep.config_field].get<std::string>();
             if (!declared_models.insert(mid).second) continue;
-            // Mock plans use a stable test-only schema. Selecting an arbitrary
-            // production model can introduce unrelated required model fields.
             const std::string mtype = "harness_dummy_m_" + dep.capability;
             const std::string mbackend = "harness_dummy_b_" + dep.capability;
             if (!ModelRegistry::Instance().Has(mtype)) {
@@ -280,58 +290,87 @@ class NodeHarness {
           for (const auto& d : plan_res.report.diagnostics) {
             err_msg += " [" + d.path + "] " + d.message;
           }
-          return NodeHarnessResult::InitFailed(err_msg);
+          init_diagnostic_ = err_msg;
+          return false;
         }
 
         auto it = plan_res.node_plans.find("harness_node");
         if (it != plan_res.node_plans.end()) {
-          plan = std::move(it->second);
-          for (const auto& p : plan.ports) {
+          plan_ = std::move(it->second);
+          for (const auto& p : plan_.ports) {
             if (p.direction == PortDirection::kInput) {
-              input_keys[p.logical_name] = p.blackboard_key;
+              input_keys_[p.logical_name] = p.blackboard_key;
             } else if (p.direction == PortDirection::kOutput) {
-              output_keys[p.logical_name] = p.blackboard_key;
+              output_keys_[p.logical_name] = p.blackboard_key;
             }
           }
         }
       }
-      init_ctx.plan = &plan;
+      init_ctx.plan = &plan_;
     } else {
       if (definition) {
         for (const auto& in_def : definition->inputs) {
-          input_keys[in_def.logical_name] = in_def.logical_name;
+          input_keys_[in_def.logical_name] = in_def.logical_name;
         }
         for (const auto& out_def : definition->outputs) {
-          output_keys[out_def.logical_name] = out_def.logical_name;
+          output_keys_[out_def.logical_name] = out_def.logical_name;
         }
       }
     }
 
-    if (!node->Init(init_ctx)) {
+    if (!node_->Init(init_ctx)) {
+      if (init_diagnostic_.empty()) init_diagnostic_ = "Node Init failed";
+      return false;
+    }
+
+    initialized_ = true;
+    return true;
+  }
+
+  NodeControlResult Control(int cmd, const std::string& json_param) {
+    if (!EnsureInitialized()) {
+      return NodeControlResult::Failed(
+          node_error::control::kInvalidRequest,
+          init_diagnostic_.empty() ? "Node Init failed" : init_diagnostic_);
+    }
+    return node_->Control(cmd, json_param);
+  }
+
+  NodeControlResult Control(int cmd, const char* json_param) {
+    return Control(cmd, std::string(json_param ? json_param : ""));
+  }
+
+  NodeControlResult Control(int cmd, const nlohmann::json& payload) {
+    return Control(cmd, payload.dump());
+  }
+
+  INode* GetNode() const noexcept { return node_.get(); }
+
+  NodeHarnessResult Run() {
+    if (!EnsureInitialized()) {
       return NodeHarnessResult::InitFailed(
-          diagnostic.empty() ? "Node Init failed" : diagnostic);
+          init_diagnostic_.empty() ? "Node Init failed" : init_diagnostic_);
     }
 
     auto req_ctx = std::make_unique<AlgContext>();
     for (auto& [logical_name, publisher] : custom_inputs_) {
-      std::string key = input_keys.count(logical_name)
-                            ? input_keys[logical_name]
+      std::string key = input_keys_.count(logical_name)
+                            ? input_keys_[logical_name]
                             : logical_name;
       publisher(*req_ctx, key);
     }
 
-    int ret = node->Process(req_ctx.get());
+    int ret = node_->Process(req_ctx.get());
     if (ret != 0) {
       std::string msg = "Process returned " + std::to_string(ret);
       if (!req_ctx->IsOk()) {
         msg += ": " + req_ctx->GetErrorMessage();
       }
       return NodeHarnessResult::ProcessFailed(ret, msg, std::move(req_ctx),
-                                              std::move(output_keys));
+                                              output_keys_);
     }
 
-    return NodeHarnessResult::Success(std::move(req_ctx),
-                                      std::move(output_keys));
+    return NodeHarnessResult::Success(std::move(req_ctx), output_keys_);
   }
 
  private:
@@ -343,6 +382,14 @@ class NodeHarness {
       custom_inputs_;
   std::unordered_map<std::string, std::shared_ptr<IModel>> models_;
   std::unordered_set<std::string> omitted_ports_;
+
+  std::unique_ptr<INode> node_;
+  std::unique_ptr<SessionContext> session_ctx_;
+  ValidatedNodePlan plan_;
+  std::unordered_map<std::string, std::string> input_keys_;
+  std::unordered_map<std::string, std::string> output_keys_;
+  std::string init_diagnostic_;
+  bool initialized_ = false;
 };
 
 }  // namespace llm_edgeflow
