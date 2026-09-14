@@ -6,6 +6,7 @@
 
 | 日期 | 历史材料 | 后续记录与阅读范围 |
 | --- | --- | --- |
+| 2026-09-14 | [投产前框架冗余、兼容负担与瘦身审查](FRAMEWORK_SLIMMING_REVIEW_2026-09-14.md) | 基于 `b08c5bd` 的只读审查；区分兼容清理、结构收敛与产品裁剪，建议尚未实施 |
 | 2026-09-02 | [架构与实现审计](ARCHITECTURE_AUDIT_2026-09-02.md) | [RFC-0028](../rfcs/0028-preproduction-runtime-and-abi-hardening.md) 记录阻断项及运行时风险修复；[RFC-0029](../rfcs/0029-external-readiness-and-intranet-sdk-migration.md) 跟踪剩余整改和内网迁移 |
 | 2026-09-05 | [系统性架构、业务适配与易用性审计](SYSTEMATIC_ARCHITECTURE_REVIEW_2026-09-05.md) | [RFC-0037](../rfcs/0037-audit-remediation.md) 与下列五阶段交付记录覆盖其中选定整改项；不表示全部审计建议均已完成 |
 | 2026-09-06 | [五阶段审计整改交付记录](AUDIT_REMEDIATION_REPORT_2026-09-06.md) | 记录当轮实现、提交与验证范围；日常操作见[业务接入](../dev_guide/business_onboarding.md)和[效果验收](../VERIFIABLE_SELECTION.md) |
