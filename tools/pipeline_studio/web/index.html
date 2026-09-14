@@ -113,6 +113,7 @@
             <label>节点 ID<input id="nodeId" autocomplete="off"></label>
             <div id="nodeType" class="node-type"></div>
             <div id="configFields"></div>
+            <details><summary>输入绑定与执行依赖</summary><div id="nodeBindings"></div></details>
             <p id="nodeDraftHint" class="draft-hint" role="status" hidden>节点属性已修改，应用后更新方案。</p>
             <div class="row form-actions"><button id="applyNode" type="submit" class="primary">应用</button><button id="discardNode" type="button" disabled>放弃修改</button><button id="deleteNode" type="button" class="danger">删除节点</button></div>
           </form>
@@ -144,6 +145,7 @@
         <section id="validationTab" class="tab scroll" role="tabpanel" aria-label="方案校验" hidden>
           <p class="tab-description">检查节点配置、端口绑定与执行依赖。</p>
           <button id="validateButton" class="primary full">校验方案</button>
+          <div id="fixReviewPanel" class="fix-review-panel" hidden></div>
           <div id="validationOutput" aria-live="polite"></div>
         </section>
         <section id="runTab" class="tab scroll" role="tabpanel" aria-label="运行方案" hidden>
@@ -151,6 +153,15 @@
           <details class="run-settings"><summary>模型目录：<span id="modelRootLabel">models</span></summary>
             <label>模型目录（相对项目根）<input id="runModelRoot" value="models" placeholder="models"></label>
             <p class="tab-description">模型路径相对该目录解析；demo/fixtures 测试方案填“.”。运行和另存均采用此设置。</p>
+          </details>
+          <div id="modelPathIntent" hidden></div>
+          <button id="preflightButton" type="button" class="full">检查运行条件（无执行预检）</button>
+          <div id="preflightSummary" class="preflight-summary" hidden></div>
+          <details class="associate-deployment-panel"><summary>关联部署配置（.conf）</summary>
+            <div class="create-fields">
+              <label>选择部署配置<select id="associateConfSelect"></select></label>
+              <button id="associateDeploymentButton" type="button" class="full">关联此配置</button>
+            </div>
           </details>
           <div class="row"><button id="runButton" class="primary">运行草稿</button><button id="cancelButton" class="danger" disabled>取消</button></div>
           <button id="saveSolutionButton" class="full">另存为可运行方案（JSON + .conf）</button>

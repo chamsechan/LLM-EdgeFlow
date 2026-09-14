@@ -69,22 +69,54 @@ export function graphDocument(pipeline, catalog) {
   for (const node of nodes) definitions[node.id] = catalog.nodes?.find(def => def.node_type === node.node_type) || {};
   definitions[INGRESS] = { outputs: biz?.ingress || [], inputs: [] };
   definitions[EGRESS] = { inputs: biz?.egress || [], outputs: [] };
-  const producers = new Map((biz?.ingress || []).map(port => [port.key, { source: INGRESS, sourcePort: port.key }]));
-  for (const node of nodes) for (const port of definitions[node.id].outputs || []) {
-    producers.set(node.ports?.outputs?.[port.key] || port.key, { source: node.id, sourcePort: port.key });
+  const producerMap = new Map();
+  const addProducer = (key, prod) => {
+    if (!key) return;
+    const list = producerMap.get(key) || [];
+    list.push(prod);
+    producerMap.set(key, list);
+  };
+  for (const port of biz?.ingress || []) {
+    addProducer(port.key, { source: INGRESS, sourcePort: port.key });
+  }
+  for (const node of nodes) {
+    for (const port of definitions[node.id]?.outputs || []) {
+      const key = node.ports?.outputs?.[port.key] || port.key;
+      addProducer(key, { source: node.id, sourcePort: port.key });
+    }
   }
   const edges = [];
   for (const node of nodes) {
-    for (const port of definitions[node.id].inputs || []) {
+    for (const port of definitions[node.id]?.inputs || []) {
       const key = node.ports?.inputs?.[port.key] || (port.required ? port.key : null);
-      if (key && producers.has(key)) edges.push({ ...producers.get(key), target: node.id, targetPort: port.key });
+      if (key && producerMap.has(key)) {
+        const prods = producerMap.get(key);
+        if (prods.length === 1) {
+          edges.push({ ...prods[0], target: node.id, targetPort: port.key });
+        } else {
+          for (const prod of prods) {
+            edges.push({ ...prod, target: node.id, targetPort: port.key, ambiguous: true });
+          }
+        }
+      }
     }
     for (const source of node.depends_on || []) {
-      if (!edges.some(edge => edge.source === source && edge.target === node.id)) edges.push({ source, target: node.id, dependency: true });
+      if (!edges.some(edge => edge.source === source && edge.target === node.id)) {
+        edges.push({ source, target: node.id, dependency: true });
+      }
     }
   }
   for (const port of biz?.egress || []) {
-    if (producers.has(port.key)) edges.push({ ...producers.get(port.key), target: EGRESS, targetPort: port.key });
+    if (producerMap.has(port.key)) {
+      const prods = producerMap.get(port.key);
+      if (prods.length === 1) {
+        edges.push({ ...prods[0], target: EGRESS, targetPort: port.key });
+      } else {
+        for (const prod of prods) {
+          edges.push({ ...prod, target: EGRESS, targetPort: port.key, ambiguous: true });
+        }
+      }
+    }
   }
   return {
     definitions, edges,
@@ -94,73 +126,6 @@ export function graphDocument(pipeline, catalog) {
       { id: EGRESS, node_type: "业务输出", depends_on: [...new Set(edges.filter(edge => edge.target === EGRESS).map(edge => edge.source))] },
     ] : [],
   };
-}
-
-export function connectPorts(pipeline, catalog, source, sourcePort, target, targetPort) {
-  const graph = graphDocument(pipeline, catalog);
-  const output = graph.definitions[source]?.outputs?.find(port => port.key === sourcePort);
-  const input = graph.definitions[target]?.inputs?.find(port => port.key === targetPort);
-  if (!output || !input || output.type_id !== input.type_id) throw new Error("端口不存在或数据类型不兼容");
-  const byId = new Map(pipeline.pipeline.map(node => [node.id, node]));
-  const pending = [source], seen = new Set();
-  while (pending.length) {
-    const id = pending.pop();
-    if (id === target) throw new Error("连线会形成环");
-    if (seen.has(id)) continue;
-    seen.add(id); pending.push(...(byId.get(id)?.depends_on || []));
-  }
-  const sourceNode = byId.get(source), targetNode = byId.get(target);
-  let key = sourceNode?.ports?.outputs?.[sourcePort] || sourcePort;
-  if (target === EGRESS) {
-    if (!sourceNode) throw new Error("业务输出需要节点产出");
-    const conflict = graph.edges.find(edge => edge.target === EGRESS && edge.targetPort === targetPort && (edge.source !== source || edge.sourcePort !== sourcePort));
-    if (conflict) throw new Error("业务输出已有生产者，请先断开原连线");
-    key = targetPort;
-    sourceNode.ports ??= {}; sourceNode.ports.outputs ??= {};
-    sourceNode.ports.outputs[sourcePort] = key;
-    for (const edge of graph.edges.filter(edge => edge.source === source && edge.sourcePort === sourcePort && edge.target !== EGRESS)) {
-      const consumer = byId.get(edge.target);
-      consumer.ports ??= {}; consumer.ports.inputs ??= {};
-      consumer.ports.inputs[edge.targetPort] = key;
-    }
-  } else {
-    if (!targetNode) throw new Error("请选择节点输入端口");
-    targetNode.ports ??= {}; targetNode.ports.inputs ??= {};
-    targetNode.ports.inputs[targetPort] = key;
-    targetNode.depends_on ??= [];
-    if (sourceNode && !targetNode.depends_on.includes(source)) targetNode.depends_on.push(source);
-  }
-}
-
-export function disconnectPorts(pipeline, catalog, edge) {
-  const node = pipeline.pipeline.find(item => item.id === edge.target);
-  if (edge.target === EGRESS) {
-    const source = pipeline.pipeline.find(item => item.id === edge.source);
-    if (!source) return;
-    const previous = source.ports?.outputs?.[edge.sourcePort] || edge.sourcePort;
-    source.ports ??= {}; source.ports.outputs ??= {};
-    const key = `${source.id}__${edge.sourcePort}`;
-    source.ports.outputs[edge.sourcePort] = key;
-    for (const consumer of pipeline.pipeline) for (const [port, value] of Object.entries(consumer.ports?.inputs || {})) {
-      if (value === previous) consumer.ports.inputs[port] = key;
-    }
-  } else if (node) {
-    if (!edge.dependency) {
-      const required = graphDocument(pipeline, catalog).definitions[node.id]?.inputs?.find(port => port.key === edge.targetPort)?.required;
-      node.ports ??= {}; node.ports.inputs ??= {};
-      if (required) node.ports.inputs[edge.targetPort] = `${node.id}__unconnected__${edge.targetPort}`;
-      else delete node.ports.inputs[edge.targetPort];
-    }
-    const stillConnected = graphDocument(pipeline, catalog).edges.some(item => !item.dependency && item.source === edge.source && item.target === edge.target);
-    if (!stillConnected) node.depends_on = (node.depends_on || []).filter(id => id !== edge.source);
-  }
-}
-
-export function removeNode(pipeline, catalog, id) {
-  const edges = graphDocument(pipeline, catalog).edges.filter(edge => edge.source === id && edge.target !== EGRESS);
-  for (const edge of edges) disconnectPorts(pipeline, catalog, edge);
-  pipeline.pipeline = pipeline.pipeline.filter(node => node.id !== id);
-  for (const node of pipeline.pipeline) node.depends_on = (node.depends_on || []).filter(dep => dep !== id);
 }
 
 export function compatibleBackends(backends, modelDefinition) {

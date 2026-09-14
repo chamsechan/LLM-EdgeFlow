@@ -368,12 +368,12 @@ export class GraphView {
       const route = routeOrthogonal({ x: from.x + WIDTH, y: from.y + y1 }, { x: to.x, y: to.y + y2 }, obstacles, index);
       this.routes.push(route);
       const d = route.map((point, i) => `${i ? "L" : "M"}${point.x},${point.y}`).join(" ");
-      const group = svg("g", { class: `edge${binding.dependency ? " dependency" : ""}${edgeKey(binding) === edgeKey(this.selectedEdge) ? " selected" : ""}`, tabindex: 0, role: "button", "aria-label": `${binding.source} ${binding.sourcePort || ""} → ${binding.target} ${binding.targetPort || "执行依赖"}` });
+      const group = svg("g", { class: `edge${binding.dependency ? " dependency" : ""}${binding.ambiguous ? " ambiguous" : ""}${edgeKey(binding) === edgeKey(this.selectedEdge) ? " selected" : ""}`, tabindex: 0, role: "button", "aria-label": `${binding.source} ${binding.sourcePort || ""} → ${binding.target} ${binding.targetPort || "执行依赖"}` });
       group.dataset.edgeKey = edgeKey(binding);
       const edge = svg("path", { class: "edge-line", d });
       const hit = svg("path", { class: "edge-hit", d, "aria-hidden": "true" });
       const title = svg("title");
-      title.textContent = `${binding.source}${binding.sourcePort ? `.${binding.sourcePort}` : ""} → ${binding.target}${binding.targetPort ? `.${binding.targetPort}` : ""}${binding.dependency ? " · 执行依赖" : ""}`;
+      title.textContent = `${binding.ambiguous ? "来源存在歧义 · " : ""}${binding.source}${binding.sourcePort ? `.${binding.sourcePort}` : ""} → ${binding.target}${binding.targetPort ? `.${binding.targetPort}` : ""}${binding.dependency ? " · 执行依赖" : ""}`;
       group.append(title, edge, hit);
       const select = () => { this.setSelectedEdge(binding); this.callbacks.selectEdge?.(binding); };
       group.addEventListener("click", event => { event.stopPropagation(); select(); });
