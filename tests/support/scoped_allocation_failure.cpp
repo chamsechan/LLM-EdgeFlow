@@ -6,6 +6,26 @@
 
 namespace llm_edgeflow::test_support {
 
+thread_local ScopedNextAllocationCallback*
+    ScopedNextAllocationCallback::current_ = nullptr;
+
+ScopedNextAllocationCallback::ScopedNextAllocationCallback(
+    Callback callback, void* user_data) noexcept
+    : previous_(current_), callback_(callback), user_data_(user_data) {
+  current_ = this;
+}
+
+ScopedNextAllocationCallback::~ScopedNextAllocationCallback() {
+  current_ = previous_;
+}
+
+void ScopedNextAllocationCallback::BeforeAllocation() {
+  if (!current_ || !current_->callback_) return;
+  auto callback = current_->callback_;
+  current_->callback_ = nullptr;
+  callback(current_->user_data_);
+}
+
 thread_local ScopedAllocationFailure* ScopedAllocationFailure::current_ =
     nullptr;
 
@@ -53,6 +73,7 @@ namespace {
 using llm_edgeflow::test_support::ScopedAllocationFailure;
 
 void* Allocate(size_t size, size_t alignment = 0) {
+  llm_edgeflow::test_support::ScopedNextAllocationCallback::BeforeAllocation();
   ScopedAllocationFailure::BeforeAllocation();
   if (size == 0) size = 1;
   if (alignment) {

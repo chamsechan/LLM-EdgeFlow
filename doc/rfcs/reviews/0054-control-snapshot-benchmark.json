@@ -1,0 +1,562 @@
+[
+  {
+    "round": 0,
+    "node": "template",
+    "concurrent": 0,
+    "version": "baseline",
+    "us": 23.4861,
+    "updates": 0,
+    "allocations": 24,
+    "bytes": 1015
+  },
+  {
+    "round": 0,
+    "node": "template",
+    "concurrent": 0,
+    "version": "current",
+    "us": 23.9669,
+    "updates": 0,
+    "allocations": 26,
+    "bytes": 1443
+  },
+  {
+    "round": 0,
+    "node": "template",
+    "concurrent": 1,
+    "version": "baseline",
+    "us": 27.3272,
+    "updates": 294,
+    "allocations": 24,
+    "bytes": 1015
+  },
+  {
+    "round": 0,
+    "node": "template",
+    "concurrent": 1,
+    "version": "current",
+    "us": 26.1707,
+    "updates": 309,
+    "allocations": 26,
+    "bytes": 1443
+  },
+  {
+    "round": 0,
+    "node": "rules",
+    "concurrent": 0,
+    "version": "baseline",
+    "us": 416.808,
+    "updates": 0,
+    "allocations": 39,
+    "bytes": 1427
+  },
+  {
+    "round": 0,
+    "node": "rules",
+    "concurrent": 0,
+    "version": "current",
+    "us": 396.365,
+    "updates": 0,
+    "allocations": 45,
+    "bytes": 2024
+  },
+  {
+    "round": 0,
+    "node": "rules",
+    "concurrent": 1,
+    "version": "baseline",
+    "us": 428.922,
+    "updates": 2000,
+    "allocations": 39,
+    "bytes": 1427
+  },
+  {
+    "round": 0,
+    "node": "rules",
+    "concurrent": 1,
+    "version": "current",
+    "us": 408.13,
+    "updates": 4797,
+    "allocations": 45,
+    "bytes": 2024
+  },
+  {
+    "round": 1,
+    "node": "template",
+    "concurrent": 0,
+    "version": "current",
+    "us": 22.9291,
+    "updates": 0,
+    "allocations": 26,
+    "bytes": 1443
+  },
+  {
+    "round": 1,
+    "node": "template",
+    "concurrent": 0,
+    "version": "baseline",
+    "us": 22.4435,
+    "updates": 0,
+    "allocations": 24,
+    "bytes": 1015
+  },
+  {
+    "round": 1,
+    "node": "template",
+    "concurrent": 1,
+    "version": "current",
+    "us": 24.9005,
+    "updates": 296,
+    "allocations": 26,
+    "bytes": 1443
+  },
+  {
+    "round": 1,
+    "node": "template",
+    "concurrent": 1,
+    "version": "baseline",
+    "us": 27.9497,
+    "updates": 298,
+    "allocations": 24,
+    "bytes": 1015
+  },
+  {
+    "round": 1,
+    "node": "rules",
+    "concurrent": 0,
+    "version": "current",
+    "us": 393.381,
+    "updates": 0,
+    "allocations": 45,
+    "bytes": 2024
+  },
+  {
+    "round": 1,
+    "node": "rules",
+    "concurrent": 0,
+    "version": "baseline",
+    "us": 411.737,
+    "updates": 0,
+    "allocations": 39,
+    "bytes": 1427
+  },
+  {
+    "round": 1,
+    "node": "rules",
+    "concurrent": 1,
+    "version": "current",
+    "us": 409.647,
+    "updates": 4814,
+    "allocations": 45,
+    "bytes": 2024
+  },
+  {
+    "round": 1,
+    "node": "rules",
+    "concurrent": 1,
+    "version": "baseline",
+    "us": 433.294,
+    "updates": 1999,
+    "allocations": 39,
+    "bytes": 1427
+  },
+  {
+    "round": 2,
+    "node": "template",
+    "concurrent": 0,
+    "version": "baseline",
+    "us": 23.8713,
+    "updates": 0,
+    "allocations": 24,
+    "bytes": 1015
+  },
+  {
+    "round": 2,
+    "node": "template",
+    "concurrent": 0,
+    "version": "current",
+    "us": 23.2394,
+    "updates": 0,
+    "allocations": 26,
+    "bytes": 1443
+  },
+  {
+    "round": 2,
+    "node": "template",
+    "concurrent": 1,
+    "version": "baseline",
+    "us": 26.9093,
+    "updates": 294,
+    "allocations": 24,
+    "bytes": 1015
+  },
+  {
+    "round": 2,
+    "node": "template",
+    "concurrent": 1,
+    "version": "current",
+    "us": 26.5008,
+    "updates": 318,
+    "allocations": 26,
+    "bytes": 1443
+  },
+  {
+    "round": 2,
+    "node": "rules",
+    "concurrent": 0,
+    "version": "baseline",
+    "us": 398.386,
+    "updates": 0,
+    "allocations": 39,
+    "bytes": 1427
+  },
+  {
+    "round": 2,
+    "node": "rules",
+    "concurrent": 0,
+    "version": "current",
+    "us": 398.767,
+    "updates": 0,
+    "allocations": 45,
+    "bytes": 2024
+  },
+  {
+    "round": 2,
+    "node": "rules",
+    "concurrent": 1,
+    "version": "baseline",
+    "us": 434.146,
+    "updates": 2000,
+    "allocations": 39,
+    "bytes": 1427
+  },
+  {
+    "round": 2,
+    "node": "rules",
+    "concurrent": 1,
+    "version": "current",
+    "us": 429.203,
+    "updates": 4907,
+    "allocations": 45,
+    "bytes": 2024
+  },
+  {
+    "round": 3,
+    "node": "template",
+    "concurrent": 0,
+    "version": "current",
+    "us": 23.3498,
+    "updates": 0,
+    "allocations": 26,
+    "bytes": 1443
+  },
+  {
+    "round": 3,
+    "node": "template",
+    "concurrent": 0,
+    "version": "baseline",
+    "us": 23.8728,
+    "updates": 0,
+    "allocations": 24,
+    "bytes": 1015
+  },
+  {
+    "round": 3,
+    "node": "template",
+    "concurrent": 1,
+    "version": "current",
+    "us": 25.322,
+    "updates": 306,
+    "allocations": 26,
+    "bytes": 1443
+  },
+  {
+    "round": 3,
+    "node": "template",
+    "concurrent": 1,
+    "version": "baseline",
+    "us": 26.2741,
+    "updates": 281,
+    "allocations": 24,
+    "bytes": 1015
+  },
+  {
+    "round": 3,
+    "node": "rules",
+    "concurrent": 0,
+    "version": "current",
+    "us": 394.191,
+    "updates": 0,
+    "allocations": 45,
+    "bytes": 2024
+  },
+  {
+    "round": 3,
+    "node": "rules",
+    "concurrent": 0,
+    "version": "baseline",
+    "us": 394.916,
+    "updates": 0,
+    "allocations": 39,
+    "bytes": 1427
+  },
+  {
+    "round": 3,
+    "node": "rules",
+    "concurrent": 1,
+    "version": "current",
+    "us": 424.502,
+    "updates": 4991,
+    "allocations": 45,
+    "bytes": 2024
+  },
+  {
+    "round": 3,
+    "node": "rules",
+    "concurrent": 1,
+    "version": "baseline",
+    "us": 434.459,
+    "updates": 2000,
+    "allocations": 39,
+    "bytes": 1427
+  },
+  {
+    "round": 4,
+    "node": "template",
+    "concurrent": 0,
+    "version": "baseline",
+    "us": 23.8871,
+    "updates": 0,
+    "allocations": 24,
+    "bytes": 1015
+  },
+  {
+    "round": 4,
+    "node": "template",
+    "concurrent": 0,
+    "version": "current",
+    "us": 24.2985,
+    "updates": 0,
+    "allocations": 26,
+    "bytes": 1443
+  },
+  {
+    "round": 4,
+    "node": "template",
+    "concurrent": 1,
+    "version": "baseline",
+    "us": 27.2498,
+    "updates": 296,
+    "allocations": 24,
+    "bytes": 1015
+  },
+  {
+    "round": 4,
+    "node": "template",
+    "concurrent": 1,
+    "version": "current",
+    "us": 24.5608,
+    "updates": 298,
+    "allocations": 26,
+    "bytes": 1443
+  },
+  {
+    "round": 4,
+    "node": "rules",
+    "concurrent": 0,
+    "version": "baseline",
+    "us": 400.516,
+    "updates": 0,
+    "allocations": 39,
+    "bytes": 1427
+  },
+  {
+    "round": 4,
+    "node": "rules",
+    "concurrent": 0,
+    "version": "current",
+    "us": 391.373,
+    "updates": 0,
+    "allocations": 45,
+    "bytes": 2024
+  },
+  {
+    "round": 4,
+    "node": "rules",
+    "concurrent": 1,
+    "version": "baseline",
+    "us": 427.545,
+    "updates": 2000,
+    "allocations": 39,
+    "bytes": 1427
+  },
+  {
+    "round": 4,
+    "node": "rules",
+    "concurrent": 1,
+    "version": "current",
+    "us": 432.237,
+    "updates": 4933,
+    "allocations": 45,
+    "bytes": 2024
+  },
+  {
+    "round": 5,
+    "node": "template",
+    "concurrent": 0,
+    "version": "current",
+    "us": 22.9768,
+    "updates": 0,
+    "allocations": 26,
+    "bytes": 1443
+  },
+  {
+    "round": 5,
+    "node": "template",
+    "concurrent": 0,
+    "version": "baseline",
+    "us": 22.9588,
+    "updates": 0,
+    "allocations": 24,
+    "bytes": 1015
+  },
+  {
+    "round": 5,
+    "node": "template",
+    "concurrent": 1,
+    "version": "current",
+    "us": 25.05,
+    "updates": 305,
+    "allocations": 26,
+    "bytes": 1443
+  },
+  {
+    "round": 5,
+    "node": "template",
+    "concurrent": 1,
+    "version": "baseline",
+    "us": 27.3507,
+    "updates": 294,
+    "allocations": 24,
+    "bytes": 1015
+  },
+  {
+    "round": 5,
+    "node": "rules",
+    "concurrent": 0,
+    "version": "current",
+    "us": 398.096,
+    "updates": 0,
+    "allocations": 45,
+    "bytes": 2024
+  },
+  {
+    "round": 5,
+    "node": "rules",
+    "concurrent": 0,
+    "version": "baseline",
+    "us": 398.42,
+    "updates": 0,
+    "allocations": 39,
+    "bytes": 1427
+  },
+  {
+    "round": 5,
+    "node": "rules",
+    "concurrent": 1,
+    "version": "current",
+    "us": 432.916,
+    "updates": 5077,
+    "allocations": 45,
+    "bytes": 2024
+  },
+  {
+    "round": 5,
+    "node": "rules",
+    "concurrent": 1,
+    "version": "baseline",
+    "us": 439.731,
+    "updates": 1997,
+    "allocations": 39,
+    "bytes": 1427
+  },
+  {
+    "round": 6,
+    "node": "template",
+    "concurrent": 0,
+    "version": "baseline",
+    "us": 24.2007,
+    "updates": 0,
+    "allocations": 24,
+    "bytes": 1015
+  },
+  {
+    "round": 6,
+    "node": "template",
+    "concurrent": 0,
+    "version": "current",
+    "us": 22.9217,
+    "updates": 0,
+    "allocations": 26,
+    "bytes": 1443
+  },
+  {
+    "round": 6,
+    "node": "template",
+    "concurrent": 1,
+    "version": "baseline",
+    "us": 27.4704,
+    "updates": 295,
+    "allocations": 24,
+    "bytes": 1015
+  },
+  {
+    "round": 6,
+    "node": "template",
+    "concurrent": 1,
+    "version": "current",
+    "us": 24.3614,
+    "updates": 297,
+    "allocations": 26,
+    "bytes": 1443
+  },
+  {
+    "round": 6,
+    "node": "rules",
+    "concurrent": 0,
+    "version": "baseline",
+    "us": 414.98,
+    "updates": 0,
+    "allocations": 39,
+    "bytes": 1427
+  },
+  {
+    "round": 6,
+    "node": "rules",
+    "concurrent": 0,
+    "version": "current",
+    "us": 393.141,
+    "updates": 0,
+    "allocations": 45,
+    "bytes": 2024
+  },
+  {
+    "round": 6,
+    "node": "rules",
+    "concurrent": 1,
+    "version": "baseline",
+    "us": 449.59,
+    "updates": 2000,
+    "allocations": 39,
+    "bytes": 1427
+  },
+  {
+    "round": 6,
+    "node": "rules",
+    "concurrent": 1,
+    "version": "current",
+    "us": 431.644,
+    "updates": 4902,
+    "allocations": 45,
+    "bytes": 2024
+  }
+]

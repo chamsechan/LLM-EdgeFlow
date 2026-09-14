@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-09-14 Control 作者接口与不可变配置快照收敛（RFC-0054）
+
+- **不可变配置快照组件**：引入 `ConfigurationSnapshot<State>` 模板，提供原子读与写事务互斥保护，实现单请求整批不可变快照隔离与更新失败零状态泄露；支持 Move-Only 状态类型与原子快照发布；C++17 shared_ptr 原子操作不承诺无锁或无等待。
+- **声明式 Control 命令与参数复用**：提供 `ReplaceFields` 与 `PatchFields` 声明函数，自动投影 Control Payload Schema 并复用 `ParameterBinding` 的字段类型、默认值与业务语义校验规则；通过 `WithControls` 为函数式 Node（`MapSpec` / `BatchSpec`）提供开箱即用的运行时受控参数热更新能力。
+- **高级复杂节点试点迁移**：
+  - `TextTemplateNode` 迁移至不可变快照，统一 writer 串行更新事务并规范化三参数 `BuildNextTemplate` typed 更新签名。
+  - `TextRuleMatchNode` 迁移至快照管理，保持现有类别规则增量补丁语义并统一错误码与异常安全屏障。
+  - `StarterControlNode` 模板全面精简为声明式字段更新，消除裸手写互斥锁与轮询样板代码。
+- **契约测试与 Harness 增强**：`NodeHarness` 扩展支持 `Control` 接口与状态化执行；新增无丢更新、失败原子回滚、旧快照生命周期、并发 Control 与 Process 交织压测用例；更新 `doc/dev_guide/first_control.md` 实践教程与 `scaffold_custom_node.py` 生成脚本。
+
 ## 2026-09-14 业务 Adapter 函数式作者接口与载体机制收敛（RFC-0053）
 
 - **函数式 Adapter 作者接口**：引入 `AdapterResult<T>` 显式失败传递协议与 `OneToOneTextAdapterSpec` / `OneToOneTextAdapter` 框架模板。单输入单输出业务开发者仅需编写纯函数（`DecodeRequest` 与 `EncodeResponse`），无需处理黑板读写、批内编号分配、局部批次发布或生命周期管理；框架保证输入不可变性、请求原始 ID 对齐与整批校验前置，在全部样本转换成功前不向黑板发布中间数据。

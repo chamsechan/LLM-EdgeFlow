@@ -16,6 +16,7 @@
 #include "contracts/config_schema.h"
 #include "contracts/config_schema_validation.h"
 #include "contracts/diagnostic.h"
+#include "nodes/configuration_snapshot.h"
 #include "nodes/node_config_parser.h"
 
 namespace llm_edgeflow {
@@ -423,6 +424,8 @@ class Parameters {
   using SemanticValidator = std::function<bool(const ParamsT&, std::string*)>;
   using BindingValidator = std::function<bool(
       const ParamsT&, const std::unordered_set<std::string>&, std::string*)>;
+  using PrepareFunction =
+      std::function<bool(ParamsT*, const BindingFacts&, std::string*)>;
 
   Parameters() = default;
 
@@ -460,6 +463,7 @@ class Parameters {
   Parameters(const Parameters& other)
       : definitions_(other.definitions_),
         complex_parser_(other.complex_parser_),
+        prepare_fn_(other.prepare_fn_),
         semantic_validator_(other.semantic_validator_),
         binding_validator_(other.binding_validator_) {
     bindings_.reserve(other.bindings_.size());
@@ -473,6 +477,7 @@ class Parameters {
     if (this != &other) {
       definitions_ = other.definitions_;
       complex_parser_ = other.complex_parser_;
+      prepare_fn_ = other.prepare_fn_;
       semantic_validator_ = other.semantic_validator_;
       binding_validator_ = other.binding_validator_;
       bindings_.clear();
@@ -484,6 +489,79 @@ class Parameters {
     return *this;
   }
   Parameters& operator=(Parameters&&) noexcept = default;
+
+  Parameters& Prepare(PrepareFunction prepare) {
+    prepare_fn_ = std::move(prepare);
+    return *this;
+  }
+
+  Parameters& Prepare(std::function<bool(ParamsT*, std::string*)> prepare) {
+    prepare_fn_ = [fn = std::move(prepare)](ParamsT* p, const BindingFacts&,
+                                            std::string* diag) {
+      return fn(p, diag);
+    };
+    return *this;
+  }
+
+  bool HasPrepare() const noexcept { return static_cast<bool>(prepare_fn_); }
+
+  bool HasParser() const noexcept { return complex_parser_.has_value(); }
+
+  const std::vector<std::unique_ptr<ParameterFieldBinding<ParamsT>>>& Bindings()
+      const noexcept {
+    return bindings_;
+  }
+
+  const ParameterFieldBinding<ParamsT>* FindBinding(
+      const std::string& name) const noexcept {
+    for (const auto& b : bindings_) {
+      if (b && b->Name() == name) return b.get();
+    }
+    return nullptr;
+  }
+
+  bool AssignField(const std::string& name, const nlohmann::json& val,
+                   ParamsT* out, std::string* err) const {
+    const auto* binding = FindBinding(name);
+    if (!binding) {
+      if (err) *err = "Field '" + name + "' not found in parameter bindings";
+      return false;
+    }
+    nlohmann::json obj = nlohmann::json::object();
+    obj[name] = val;
+    return binding->Assign(obj, out, err);
+  }
+
+  bool ValidateState(ParamsT* state, const BindingFacts& facts,
+                     std::string* err) const noexcept {
+    try {
+      if (prepare_fn_) {
+        if (!prepare_fn_(state, facts, err)) {
+          if (err && err->empty()) *err = "Prepare failed";
+          return false;
+        }
+      }
+      if (semantic_validator_) {
+        if (!semantic_validator_(*state, err)) {
+          if (err && err->empty()) *err = "Semantic validation failed";
+          return false;
+        }
+      }
+      if (binding_validator_ && (facts.has_plan || facts.has_bindings)) {
+        if (!binding_validator_(*state, facts.connected_inputs, err)) {
+          if (err && err->empty()) *err = "Binding validation failed";
+          return false;
+        }
+      }
+      return true;
+    } catch (const std::exception& e) {
+      SetDiagnosticNoexcept(err, e.what());
+      return false;
+    } catch (...) {
+      SetDiagnosticNoexcept(err, "Unknown exception validating parameters");
+      return false;
+    }
+  }
 
   Parameters& Validate(SemanticValidator validator) {
     semantic_validator_ = std::move(validator);
@@ -541,7 +619,7 @@ class Parameters {
   }
 
   std::optional<ParamsT> ParseNormalized(
-      const nlohmann::json& normalized,
+      const nlohmann::json& normalized, const BindingFacts& facts,
       std::string* error = nullptr) const noexcept {
     if (error) error->clear();
     try {
@@ -556,13 +634,8 @@ class Parameters {
           return std::nullopt;
         }
       }
-      if (semantic_validator_) {
-        if (!semantic_validator_(params, error)) {
-          if (error && error->empty()) {
-            *error = "Semantic validation failed";
-          }
-          return std::nullopt;
-        }
+      if (!ValidateState(&params, facts, error)) {
+        return std::nullopt;
       }
       return params;
     } catch (const std::exception& e) {
@@ -574,35 +647,30 @@ class Parameters {
     }
   }
 
+  std::optional<ParamsT> ParseNormalized(
+      const nlohmann::json& normalized,
+      std::string* error = nullptr) const noexcept {
+    BindingFacts facts;
+    return ParseNormalized(normalized, facts, error);
+  }
+
   bool ValidateWithBindings(
       const nlohmann::json& normalized,
       const std::unordered_set<std::string>& connected_inputs,
       std::string* error = nullptr) const noexcept {
-    try {
-      auto parsed = ParseNormalized(normalized, error);
-      if (!parsed) return false;
-      if (binding_validator_) {
-        if (!binding_validator_(*parsed, connected_inputs, error)) {
-          if (error && error->empty()) {
-            *error = "Binding validation failed";
-          }
-          return false;
-        }
-      }
-      return true;
-    } catch (const std::exception& e) {
-      SetDiagnosticNoexcept(error, e.what());
-      return false;
-    } catch (...) {
-      SetDiagnosticNoexcept(error, "Unknown exception in binding validator");
-      return false;
-    }
+    BindingFacts facts;
+    facts.has_plan = true;
+    facts.has_bindings = true;
+    facts.connected_inputs = connected_inputs;
+    auto parsed = ParseNormalized(normalized, facts, error);
+    return parsed.has_value();
   }
 
  private:
   std::vector<std::unique_ptr<ParameterFieldBinding<ParamsT>>> bindings_;
   std::vector<ConfigFieldDefinition> definitions_;
   std::optional<NodeConfigParser<ParamsT>> complex_parser_;
+  PrepareFunction prepare_fn_;
   SemanticValidator semantic_validator_;
   BindingValidator binding_validator_;
 };
@@ -638,9 +706,33 @@ class Parameters<NoParameters> {
     return NoParameters{};
   }
 
+  std::optional<NoParameters> ParseNormalized(
+      const nlohmann::json&, const BindingFacts&,
+      std::string* = nullptr) const noexcept {
+    return NoParameters{};
+  }
+
   bool ValidateWithBindings(const nlohmann::json&,
                             const std::unordered_set<std::string>&,
                             std::string* = nullptr) const noexcept {
+    return true;
+  }
+
+  bool HasPrepare() const noexcept { return false; }
+  bool HasParser() const noexcept { return false; }
+
+  const ParameterFieldBinding<NoParameters>* FindBinding(
+      const std::string&) const noexcept {
+    return nullptr;
+  }
+
+  bool AssignField(const std::string&, const nlohmann::json&, NoParameters*,
+                   std::string*) const {
+    return false;
+  }
+
+  bool ValidateState(NoParameters*, const BindingFacts&,
+                     std::string*) const noexcept {
     return true;
   }
 };

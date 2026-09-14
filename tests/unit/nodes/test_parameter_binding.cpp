@@ -274,5 +274,29 @@ TEST(ParameterBindingTest, BindingValidatorExceptionDoesNotCrash) {
             std::string::npos);
 }
 
+TEST(ParameterBindingTest,
+     ValidateWithBindingsEnforcesConstraintsEvenWhenConnectedInputsIsEmpty) {
+  auto schema = Parameters<SampleParams>({
+      Field("mode", &SampleParams::mode).Default("custom"),
+  });
+
+  schema.ValidateBindings([](const SampleParams& p,
+                             const std::unordered_set<std::string>& conn,
+                             std::string* err) -> bool {
+    if (p.mode == "custom" && conn.count("context") == 0) {
+      if (err) *err = "custom mode requires context port";
+      return false;
+    }
+    return true;
+  });
+
+  std::string err;
+  nlohmann::json norm = {{"mode", "custom"}};
+  // Connected inputs is empty set {} - must still enforce binding validation!
+  bool bind_ok = schema.ValidateWithBindings(norm, {}, &err);
+  EXPECT_FALSE(bind_ok);
+  EXPECT_NE(err.find("custom mode requires context port"), std::string::npos);
+}
+
 }  // namespace
 }  // namespace llm_edgeflow

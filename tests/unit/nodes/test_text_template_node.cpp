@@ -2,9 +2,11 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <exception>
 #include <memory>
 #include <nlohmann/json.hpp>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "adapter/shared_algorithm_runtime.h"
@@ -13,7 +15,9 @@
 #include "core/node_registry.h"
 #include "core/pipeline.h"
 #include "core/session_context.h"
+#include "tests/support/node_process_pause.h"
 #include "tests/support/node_test_utils.h"
+#include "tests/support/scoped_allocation_failure.h"
 
 namespace llm_edgeflow {
 
@@ -354,6 +358,67 @@ TEST_F(TextTemplateNodeTest, ConnectedAttributesRemainAvailableAcrossControl) {
   ctx.Publish("attrs", TextAttributesBatch{{1, 0, {{"name", "Alice"}}}});
   ASSERT_EQ(node->Process(&ctx), 0);
   EXPECT_EQ(ctx.Read<TextBatch>("text")->front().data, "Alice");
+}
+
+TEST_F(TextTemplateNodeTest, DirectConcurrentProcessAndControl) {
+  auto node = NodeRegistry::Instance().Create("TextTemplateNode");
+  ASSERT_NE(node, nullptr);
+  ASSERT_TRUE(InitNodeForTest(*node, {{"template", "OLD: {{primary}}"}},
+                              session_ctx_.get()));
+  const nlohmann::json update = {{"template", "NEW: {{primary}}"}};
+  const TextBatch inputs{
+      {101, 2, "first"}, {101, 7, "second"}, {202, 3, "third"}};
+  AlgContext in_flight;
+  in_flight.Publish("primary", inputs);
+  test_support::NodeProcessPause pause;
+  int process_result = -1;
+  std::exception_ptr reader_error;
+  // On this valid Process path, the first heap allocation follows
+  // snapshot.Read: the template grouping container. Pause with that old
+  // snapshot retained.
+  std::thread reader([&] {
+    try {
+      test_support::ScopedNextAllocationCallback callback(
+          &test_support::NodeProcessPause::OnAllocation, &pause);
+      process_result = node->Process(&in_flight);
+    } catch (...) {
+      reader_error = std::current_exception();
+    }
+  });
+  const bool paused = pause.WaitUntilPaused();
+  NodeControlStatus control_status = NodeControlStatus::kFailed;
+  std::exception_ptr control_error;
+  if (paused) {
+    try {
+      control_status =
+          node->Control(kControlCmdUpdatePrompt, update.dump()).status;
+    } catch (...) {
+      control_error = std::current_exception();
+    }
+  }
+  pause.Resume();
+  reader.join();
+  ASSERT_TRUE(paused) << "Process never reached the snapshot pause";
+  ASSERT_EQ(reader_error, nullptr);
+  ASSERT_EQ(control_error, nullptr);
+  ASSERT_EQ(control_status, NodeControlStatus::kHandled);
+  ASSERT_EQ(process_result, 0);
+
+  auto expect_batch = [&](const AlgContext& ctx, const std::string& version) {
+    const auto* output = ctx.Read<TextBatch>("text");
+    ASSERT_NE(output, nullptr);
+    ASSERT_EQ(output->size(), inputs.size());
+    for (size_t i = 0; i < inputs.size(); ++i) {
+      EXPECT_EQ((*output)[i].req_id, inputs[i].req_id);
+      EXPECT_EQ((*output)[i].sub_id, inputs[i].sub_id);
+      EXPECT_EQ((*output)[i].data, version + ": " + inputs[i].data);
+    }
+  };
+  expect_batch(in_flight, "OLD");
+  AlgContext subsequent;
+  subsequent.Publish("primary", inputs);
+  ASSERT_EQ(node->Process(&subsequent), 0);
+  expect_batch(subsequent, "NEW");
 }
 
 }  // namespace llm_edgeflow

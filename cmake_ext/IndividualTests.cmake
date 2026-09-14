@@ -237,7 +237,7 @@ target_link_libraries(test_text_rerank_node PRIVATE llm_edgeflow::internal_runti
 add_test(NAME TextRerankNodeTest COMMAND test_text_rerank_node)
 
 add_executable(test_text_template_node ${EDGEFLOW_SOURCE_test_text_template_node})
-target_link_libraries(test_text_template_node PRIVATE llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
+target_link_libraries(test_text_template_node PRIVATE llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main edgeflow_test_allocation_failure)
 add_test(NAME TextTemplateNodeTest COMMAND test_text_template_node)
 
 add_executable(test_llm_generate_node ${EDGEFLOW_SOURCE_test_llm_generate_node})
@@ -253,7 +253,7 @@ target_link_libraries(test_ocr_detect_node PRIVATE llm_edgeflow::internal_runtim
 add_test(NAME OcrDetectNodeTest COMMAND test_ocr_detect_node)
 
 add_executable(test_text_rule_match_node ${EDGEFLOW_SOURCE_test_text_rule_match_node})
-target_link_libraries(test_text_rule_match_node PRIVATE llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
+target_link_libraries(test_text_rule_match_node PRIVATE llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main edgeflow_test_allocation_failure)
 add_test(NAME TextRuleMatchNodeTest COMMAND test_text_rule_match_node)
 
 add_executable(test_structured_json_parse_node ${EDGEFLOW_SOURCE_test_structured_json_parse_node})
@@ -271,7 +271,7 @@ target_link_libraries(test_common_nodes PRIVATE llm_edgeflow::internal_runtime G
 add_test(NAME CommonNodesTest COMMAND test_common_nodes)
 
 add_executable(test_function_node ${EDGEFLOW_SOURCE_test_function_node})
-target_link_libraries(test_function_node PRIVATE llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
+target_link_libraries(test_function_node PRIVATE llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main edgeflow_test_allocation_failure)
 add_test(NAME FunctionNodeTest COMMAND test_function_node)
 
 add_executable(test_parameter_binding ${EDGEFLOW_SOURCE_test_parameter_binding})

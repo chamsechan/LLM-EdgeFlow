@@ -15,6 +15,7 @@
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
 #include "edgeflow/log.h"
+#include "nodes/configuration_snapshot.h"
 #include "nodes/node_base.h"
 #include "nodes/node_error_codes.h"
 
@@ -105,6 +106,9 @@ class TextRuleMatchNode final : public NodeBase {
  public:
   inline static constexpr char kNodeType[] = "TextRuleMatchNode";
 
+  using CategoryList =
+      std::vector<std::pair<std::string, std::vector<std::string>>>;
+
   struct RuleSpec {
     std::string id;
     std::string strategy;  // "contains", "exact", "regex"
@@ -113,7 +117,14 @@ class TextRuleMatchNode final : public NodeBase {
     float score = kDefaultScore;
     std::unordered_map<std::string, std::string> constants;
     std::unordered_map<std::string, nlohmann::json> constants_json;
-    CompiledTextRegex compiled_regex;
+    std::shared_ptr<const CompiledTextRegex> compiled_regex;
+  };
+
+  struct RuleMatchState {
+    CategoryList category_keywords_list;
+    std::vector<RuleSpec> rules_list;
+    std::string default_category;
+    float default_score = kDefaultScore;
   };
 
   TextRuleMatchNode()
@@ -141,10 +152,14 @@ class TextRuleMatchNode final : public NodeBase {
       return NodeControlResult::Failed(node_error::control::kInvalidRequest,
                                        error);
     }
-    std::unique_lock<std::shared_mutex> lock(rw_mutex_);
-    if (has_categories) category_keywords_list_ = std::move(new_categories);
-    if (has_rules) rules_list_ = std::move(new_rules);
-    return NodeControlResult::Handled();
+    return snapshot_.Update(
+        [&](const RuleMatchState& current) -> NodeResult<RuleMatchState> {
+          RuleMatchState next = current;
+          if (has_categories)
+            next.category_keywords_list = std::move(new_categories);
+          if (has_rules) next.rules_list = std::move(new_rules);
+          return NodeResult<RuleMatchState>::Success(std::move(next));
+        });
   }
 
   static bool ValidateConfig(const nlohmann::json& config,
@@ -168,10 +183,13 @@ class TextRuleMatchNode final : public NodeBase {
 
     BindPort(init_ctx, in_text_);
     BindPort(init_ctx, out_matches_);
-    default_category_ = normalized["default_category"].get<std::string>();
-    default_score_ = normalized["default_score"].get<float>();
-    category_keywords_list_ = std::move(categories);
-    rules_list_ = std::move(rules);
+    RuleMatchState initial_state;
+    initial_state.default_category =
+        normalized["default_category"].get<std::string>();
+    initial_state.default_score = normalized["default_score"].get<float>();
+    initial_state.category_keywords_list = std::move(categories);
+    initial_state.rules_list = std::move(rules);
+    snapshot_.Initialize(std::move(initial_state));
     return true;
   }
 
@@ -183,7 +201,12 @@ class TextRuleMatchNode final : public NodeBase {
       return node_error::text_rule_match::kMissingInput;
     }
 
-    std::shared_lock<std::shared_mutex> lock(rw_mutex_);
+    auto state_guard = snapshot_.Read();
+    if (!state_guard) {
+      return Fail(req_ctx, node_error::author_node::kInternalError,
+                  "Snapshot uninitialized");
+    }
+    const auto& state = *state_guard;
 
     RuleMatchBatch output_matches;
     output_matches.reserve(text_items->size());
@@ -204,7 +227,7 @@ class TextRuleMatchNode final : public NodeBase {
       nlohmann::json slots_obj = nlohmann::json::object();
 
       // 1. 匹配 categories (词表模式)
-      for (const auto& [category, words] : category_keywords_list_) {
+      for (const auto& [category, words] : state.category_keywords_list) {
         for (const auto& w : words) {
           if (w.empty()) continue;
           if (sentence.find(w) != std::string::npos) {
@@ -223,14 +246,16 @@ class TextRuleMatchNode final : public NodeBase {
       }
 
       // 2. 匹配 rules (结构化规则模式，支持 regex, exact, contains)
-      for (const auto& rule : rules_list_) {
+      for (const auto& rule : state.rules_list) {
         bool rule_matched = false;
         std::unordered_map<std::string, std::string> rule_captures;
 
         if (rule.strategy == "regex") {
           std::string diagnostic;
           const TextRegexSearchStatus status =
-              rule.compiled_regex.Search(sentence, &rule_captures, &diagnostic);
+              rule.compiled_regex ? rule.compiled_regex->Search(
+                                        sentence, &rule_captures, &diagnostic)
+                                  : TextRegexSearchStatus::kNotMatched;
           if (status == TextRegexSearchStatus::kError) {
             ALG_LOG_ERROR(
                 "[TextRuleMatchNode] Regex execution failed for rule '%s': "
@@ -280,10 +305,10 @@ class TextRuleMatchNode final : public NodeBase {
         }
       }
 
-      if (!is_hit && !default_category_.empty()) {
+      if (!is_hit && !state.default_category.empty()) {
         is_hit = 1;
-        first_hit_category = default_category_;
-        first_hit_score = default_score_;
+        first_hit_category = state.default_category;
+        first_hit_score = state.default_score;
         first_hit_word = "";
         slots_obj["raw_query"] = sentence;
       }
@@ -312,9 +337,6 @@ class TextRuleMatchNode final : public NodeBase {
   }
 
  private:
-  using CategoryList =
-      std::vector<std::pair<std::string, std::vector<std::string>>>;
-
   static bool BuildCategories(const nlohmann::json& categories_json,
                               CategoryList* out_categories,
                               std::string* diagnostic) {
@@ -372,7 +394,8 @@ class TextRuleMatchNode final : public NodeBase {
       }
 
       if (spec.strategy == "regex" && !spec.pattern.empty()) {
-        if (!spec.compiled_regex.Compile(spec.pattern, &detail)) {
+        auto compiled = std::make_shared<CompiledTextRegex>();
+        if (!compiled->Compile(spec.pattern, &detail)) {
           if (diagnostic) {
             *diagnostic = "rules[" + std::to_string(index) + "].pattern" +
                           (spec.id.empty() ? "" : " (id='" + spec.id + "')") +
@@ -380,6 +403,7 @@ class TextRuleMatchNode final : public NodeBase {
           }
           return false;
         }
+        spec.compiled_regex = std::move(compiled);
       }
       temp_rules.push_back(std::move(spec));
     }
@@ -410,13 +434,7 @@ class TextRuleMatchNode final : public NodeBase {
             BuildRules((*normalized)["rules"], rules, diagnostic));
   }
 
-  mutable std::shared_mutex rw_mutex_;
-  std::vector<std::pair<std::string, std::vector<std::string>>>
-      category_keywords_list_;
-  std::vector<RuleSpec> rules_list_;
-  std::string default_category_;
-  float default_score_ = kDefaultScore;
-
+  ConfigurationSnapshot<RuleMatchState> snapshot_;
   BoundInput<TextBatch> in_text_;
   BoundOutput<RuleMatchBatch> out_matches_;
 };

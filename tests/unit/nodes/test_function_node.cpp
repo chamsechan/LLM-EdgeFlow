@@ -1,8 +1,14 @@
 #include <gtest/gtest.h>
 
+#include <atomic>
 #include <cctype>
+#include <chrono>
+#include <condition_variable>
+#include <future>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "core/alg_context.h"
@@ -13,7 +19,9 @@
 #include "nodes/node_config_parser.h"
 #include "nodes/node_error_codes.h"
 #include "tests/support/node_harness.h"
+#include "tests/support/node_process_pause.h"
 #include "tests/support/node_test_utils.h"
+#include "tests/support/scoped_allocation_failure.h"
 
 namespace llm_edgeflow {
 namespace {
@@ -546,6 +554,245 @@ inline auto BindingMapSpec() {
       [](const std::string& in, const BindingMapParams&) { return in; });
 }
 REGISTER_FUNCTION_NODE(BindingMapNode, BindingMapSpec());
+
+struct ControlledMapParams {
+  std::string prefix;
+  std::string suffix;
+  int multiplier = 1;
+};
+
+inline constexpr int kCmdReplaceMap = 3001;
+inline constexpr int kCmdPatchMap = 3002;
+
+inline std::string ControlledMapFn(const std::string& in,
+                                   const ControlledMapParams& p) {
+  std::string res = p.prefix;
+  for (int i = 0; i < p.multiplier; ++i) {
+    res += in;
+  }
+  return res + p.suffix;
+}
+
+inline auto ControlledMapSpec() {
+  return MakeMapSpec(
+             Input<TextBatch>("input"), Output<TextBatch>("output"),
+             Parameters<ControlledMapParams>(
+                 {
+                     Field("prefix", &ControlledMapParams::prefix).Default(""),
+                     Field("suffix", &ControlledMapParams::suffix).Default(""),
+                     Field("multiplier", &ControlledMapParams::multiplier)
+                         .Default(1)
+                         .Minimum(1)
+                         .Maximum(10),
+                 })
+                 .Validate([](const ControlledMapParams& p, std::string* err) {
+                   if (p.prefix == "INVALID") {
+                     if (err) *err = "Invalid prefix disallowed";
+                     return false;
+                   }
+                   return true;
+                 }),
+             &ControlledMapFn)
+      .WithControls({
+          ReplaceFields(kCmdReplaceMap, "replace_map",
+                        {"prefix", "multiplier"}),
+          PatchFields(kCmdPatchMap, "patch_map",
+                      {"prefix", "suffix", "multiplier"}),
+      });
+}
+REGISTER_FUNCTION_NODE(ControlledMapNode, ControlledMapSpec());
+
+// ---------------------------------------------------------------------------
+// Non-Copyable Params (holding unique_ptr) without Controls (Problem 1)
+// ---------------------------------------------------------------------------
+struct NonCopyableMapParams {
+  std::string prefix;
+  std::unique_ptr<int> extra_counter;
+};
+
+inline auto NonCopyableMapSpec() {
+  return MakeMapSpec(
+      Input<TextBatch>("input"), Output<TextBatch>("output"),
+      Parameters<NonCopyableMapParams>(
+          {
+              Field("prefix", &NonCopyableMapParams::prefix).Default("nc:"),
+          })
+          .Prepare(
+              [](NonCopyableMapParams* p, const BindingFacts&, std::string*) {
+                p->extra_counter = std::make_unique<int>(100);
+                return true;
+              }),
+      [](const std::string& in, const NonCopyableMapParams& p) {
+        return p.prefix + in + "_" +
+               (p.extra_counter ? std::to_string(*p.extra_counter) : "null");
+      });
+}
+REGISTER_FUNCTION_NODE(NonCopyableMapNode, NonCopyableMapSpec());
+
+struct NonCopyableBatchInputs {
+  const TextBatch* texts = nullptr;
+};
+
+struct NonCopyableBatchParams {
+  std::string tag;
+  std::unique_ptr<int> extra_val;
+};
+
+inline auto NonCopyableBatchSpec() {
+  return MakeBatchSpec(
+      InputsOf<NonCopyableBatchInputs>({
+          Required("texts", &NonCopyableBatchInputs::texts),
+      }),
+      PreservedOutput<TextBatch>("output", "texts"),
+      Parameters<NonCopyableBatchParams>(
+          {
+              Field("tag", &NonCopyableBatchParams::tag).Default("batch_nc:"),
+          })
+          .Prepare(
+              [](NonCopyableBatchParams* p, const BindingFacts&, std::string*) {
+                p->extra_val = std::make_unique<int>(200);
+                return true;
+              }),
+      [](const NonCopyableBatchInputs& in,
+         const NonCopyableBatchParams& p) -> NodeResult<TextBatch> {
+        TextBatch out;
+        if (!in.texts) return out;
+        for (const auto& item : *in.texts) {
+          out.emplace_back(
+              item.req_id, item.sub_id,
+              p.tag + item.data + "_" +
+                  (p.extra_val ? std::to_string(*p.extra_val) : "null"));
+        }
+        return out;
+      });
+}
+REGISTER_FUNCTION_NODE(NonCopyableBatchNode, NonCopyableBatchSpec());
+
+// ---------------------------------------------------------------------------
+// Strict Unplanned Fact Checking Node (Problem 2)
+// ---------------------------------------------------------------------------
+struct StrictUnplannedMapParams {
+  std::string name;
+};
+
+inline auto StrictUnplannedMapSpec() {
+  return MakeMapSpec(
+      Input<TextBatch>("input"), Output<TextBatch>("output"),
+      Parameters<StrictUnplannedMapParams>(
+          {
+              Field("name", &StrictUnplannedMapParams::name)
+                  .Default("unplanned"),
+          })
+          .Prepare([](StrictUnplannedMapParams*, const BindingFacts& facts,
+                      std::string* err) {
+            if (facts.has_plan) {
+              if (err)
+                *err = "StrictUnplannedMapNode expects has_plan == false";
+              return false;
+            }
+            return true;
+          }),
+      [](const std::string& in, const StrictUnplannedMapParams& p) {
+        return p.name + ":" + in;
+      });
+}
+REGISTER_FUNCTION_NODE(StrictUnplannedMapNode, StrictUnplannedMapSpec());
+
+struct StrictUnplannedBatchInputs {
+  const TextBatch* texts = nullptr;
+};
+
+struct StrictUnplannedBatchParams {
+  std::string name;
+};
+
+inline auto StrictUnplannedBatchSpec() {
+  return MakeBatchSpec(
+      InputsOf<StrictUnplannedBatchInputs>({
+          Required("texts", &StrictUnplannedBatchInputs::texts),
+      }),
+      PreservedOutput<TextBatch>("output", "texts"),
+      Parameters<StrictUnplannedBatchParams>(
+          {
+              Field("name", &StrictUnplannedBatchParams::name)
+                  .Default("unplanned_batch"),
+          })
+          .Prepare([](StrictUnplannedBatchParams*, const BindingFacts& facts,
+                      std::string* err) {
+            if (facts.has_plan) {
+              if (err)
+                *err = "StrictUnplannedBatchNode expects has_plan == false";
+              return false;
+            }
+            return true;
+          }),
+      [](const StrictUnplannedBatchInputs& in,
+         const StrictUnplannedBatchParams& p) -> NodeResult<TextBatch> {
+        TextBatch out;
+        if (!in.texts) return out;
+        for (const auto& item : *in.texts) {
+          out.emplace_back(item.req_id, item.sub_id, p.name + ":" + item.data);
+        }
+        return out;
+      });
+}
+REGISTER_FUNCTION_NODE(StrictUnplannedBatchNode, StrictUnplannedBatchSpec());
+
+struct ControlledBatchInputs {
+  const TextBatch* texts = nullptr;
+};
+
+struct ControlledBatchParams {
+  std::string header;
+  bool uppercase = false;
+};
+
+inline constexpr int kCmdReplaceBatch = 3003;
+
+inline NodeResult<TextBatch> ControlledBatchFn(
+    const ControlledBatchInputs& inputs, const ControlledBatchParams& params) {
+  TextBatch out;
+  if (!inputs.texts) return out;
+  out.reserve(inputs.texts->size());
+  for (const auto& item : *inputs.texts) {
+    std::string text = params.header + item.data;
+    if (params.uppercase) {
+      for (char& c : text)
+        c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+    }
+    out.emplace_back(item.req_id, item.sub_id, std::move(text));
+  }
+  return out;
+}
+
+inline auto ControlledBatchSpec() {
+  return MakeBatchSpec(
+             InputsOf<ControlledBatchInputs>({
+                 Required("texts", &ControlledBatchInputs::texts),
+             }),
+             PreservedOutput<TextBatch>("output", "texts"),
+             Parameters<ControlledBatchParams>(
+                 {
+                     Field("header", &ControlledBatchParams::header)
+                         .Default(""),
+                     Field("uppercase", &ControlledBatchParams::uppercase)
+                         .Default(false),
+                 })
+                 .Validate(
+                     [](const ControlledBatchParams& p, std::string* err) {
+                       if (p.header == "REJECT") {
+                         if (err) *err = "Rejected header";
+                         return false;
+                       }
+                       return true;
+                     }),
+             &ControlledBatchFn)
+      .WithControls({
+          ReplaceFields(kCmdReplaceBatch, "set_batch_params",
+                        {"header", "uppercase"}),
+      });
+}
+REGISTER_FUNCTION_NODE(ControlledBatchNode, ControlledBatchSpec());
 
 }  // namespace
 
@@ -1125,6 +1372,813 @@ TEST(FunctionNodeTest, LogicObjectIsRecreatedForEachProcessOnSameNode) {
     EXPECT_EQ((*output)[0].data, text);
   }
   EXPECT_EQ(local_logic_constructions, before + 3);
+}
+
+// ---------------------------------------------------------------------------
+// RFC-0054 Tests: ConfigurationSnapshot & Direct Concurrency (Section 7.1)
+// ---------------------------------------------------------------------------
+
+TEST(ConfigurationSnapshotTest, UninitializedAndNullStateHandled) {
+  ConfigurationSnapshot<std::string> snapshot;
+  EXPECT_FALSE(snapshot.IsInitialized());
+  EXPECT_EQ(snapshot.Read(), nullptr);
+
+  auto res = snapshot.Update([](const std::string& s) {
+    return NodeResult<std::string>::Success(s + "_next");
+  });
+  EXPECT_EQ(res.status, NodeControlStatus::kFailed);
+  EXPECT_EQ(res.code, node_error::control::kInvalidRequest);
+
+  EXPECT_FALSE(
+      snapshot.Initialize(std::shared_ptr<const std::string>(nullptr)));
+  EXPECT_FALSE(snapshot.IsInitialized());
+}
+
+TEST(ConfigurationSnapshotTest, InitializeAndRead) {
+  ConfigurationSnapshot<std::string> snapshot;
+  EXPECT_TRUE(snapshot.Initialize("initial_val"));
+  EXPECT_TRUE(snapshot.IsInitialized());
+  auto read_val = snapshot.Read();
+  ASSERT_NE(read_val, nullptr);
+  EXPECT_EQ(*read_val, "initial_val");
+}
+
+TEST(ConfigurationSnapshotTest, WriterSerializationAndIndependentPatchMerging) {
+  // Verifies RFC-0054 Section 7.1:
+  // writer A updates prefix, writer B updates suffix.
+  // Both successful updates are preserved; B cannot submit based on stale pre-A
+  // state.
+  struct TwoFields {
+    std::string prefix;
+    std::string suffix;
+  };
+  ConfigurationSnapshot<TwoFields> snapshot(
+      TwoFields{"init_pre:", ":init_suf"});
+
+  std::promise<void> a_entered_lock;
+  std::promise<void> release_a;
+  std::promise<void> b_called;
+
+  std::atomic<bool> b_saw_a_prefix{false};
+
+  // Writer A holds the writer lock while B attempts to run
+  std::thread thread_a([&]() {
+    snapshot.Update([&](const TwoFields& cur) {
+      a_entered_lock.set_value();
+      release_a.get_future().wait();
+      TwoFields next = cur;
+      next.prefix = "A_pre:";
+      return NodeResult<TwoFields>::Success(next);
+    });
+  });
+
+  a_entered_lock.get_future().wait();
+
+  // Writer B attempts to update suffix while A is in Update callback
+  std::thread thread_b([&]() {
+    b_called.set_value();
+    snapshot.Update([&](const TwoFields& cur) {
+      if (cur.prefix == "A_pre:") {
+        b_saw_a_prefix = true;
+      }
+      TwoFields next = cur;
+      next.suffix = ":B_suf";
+      return NodeResult<TwoFields>::Success(next);
+    });
+  });
+
+  b_called.get_future().wait();
+  // A owns the transaction before B is launched. No timing assumption is
+  // needed: B must observe A's published value whenever it acquires the lock.
+
+  // Release A so it publishes its update
+  release_a.set_value();
+
+  thread_a.join();
+  thread_b.join();
+
+  EXPECT_TRUE(b_saw_a_prefix);
+  auto final_state = snapshot.Read();
+  ASSERT_NE(final_state, nullptr);
+  EXPECT_EQ(final_state->prefix, "A_pre:");
+  EXPECT_EQ(final_state->suffix, ":B_suf");
+}
+
+TEST(ConfigurationSnapshotTest, FailedWriterRollbackPreservesActiveState) {
+  // Verifies RFC-0054 Section 7.1:
+  // Writer fails during validation / candidate generation -> no new snapshot
+  // published; old state remains active and intact.
+  struct State {
+    std::string val;
+    int rev;
+  };
+  ConfigurationSnapshot<State> snapshot(State{"original", 1});
+
+  auto res = snapshot.Update([](const State&) -> NodeResult<State> {
+    return NodeResult<State>::Failure(NodeErrorKind::kBusinessError,
+                                      "validation failed",
+                                      node_error::control::kInvalidRequest);
+  });
+  EXPECT_EQ(res.status, NodeControlStatus::kFailed);
+  EXPECT_EQ(res.code, node_error::control::kInvalidRequest);
+
+  auto cur = snapshot.Read();
+  ASSERT_NE(cur, nullptr);
+  EXPECT_EQ(cur->val, "original");
+  EXPECT_EQ(cur->rev, 1);
+
+  // Also test exception in candidate building
+  auto res_ex = snapshot.Update([](const State&) -> NodeResult<State> {
+    throw std::runtime_error("candidate throw");
+  });
+  EXPECT_EQ(res_ex.status, NodeControlStatus::kFailed);
+  EXPECT_EQ(snapshot.Read()->val, "original");
+}
+
+TEST(ConfigurationSnapshotTest, ReaderHoldsOldSnapshotWhileWriterPublishes) {
+  // Verifies RFC-0054 Section 7.1:
+  // Reader holding old snapshot is isolated from concurrent writer publication;
+  // old reader completes safely with old version; subsequent reader sees new
+  // version.
+  struct State {
+    std::string val;
+    int rev;
+  };
+  ConfigurationSnapshot<State> snapshot(State{"v1", 1});
+
+  std::promise<void> reader_acquired;
+  std::promise<void> writer_published;
+  std::promise<void> reader_done;
+
+  std::shared_ptr<const State> reader_held_state;
+
+  std::thread reader_thread([&]() {
+    reader_held_state = snapshot.Read();
+    reader_acquired.set_value();
+    writer_published.get_future().wait();
+    EXPECT_EQ(reader_held_state->val, "v1");
+    EXPECT_EQ(reader_held_state->rev, 1);
+    reader_done.set_value();
+  });
+
+  reader_acquired.get_future().wait();
+
+  auto res = snapshot.Update(
+      [](const State&) { return NodeResult<State>::Success(State{"v2", 2}); });
+  EXPECT_EQ(res.status, NodeControlStatus::kHandled);
+
+  writer_published.set_value();
+  reader_done.get_future().wait();
+  reader_thread.join();
+
+  auto fresh = snapshot.Read();
+  ASSERT_NE(fresh, nullptr);
+  EXPECT_EQ(fresh->val, "v2");
+  EXPECT_EQ(fresh->rev, 2);
+}
+
+TEST(ConfigurationSnapshotTest, TwoWritersSameFieldOrdered) {
+  struct State {
+    std::string tag;
+  };
+  ConfigurationSnapshot<State> snapshot(State{"init"});
+
+  auto res1 = snapshot.Update(
+      [](const State&) { return NodeResult<State>::Success(State{"first"}); });
+  EXPECT_EQ(res1.status, NodeControlStatus::kHandled);
+
+  auto res2 = snapshot.Update(
+      [](const State&) { return NodeResult<State>::Success(State{"second"}); });
+  EXPECT_EQ(res2.status, NodeControlStatus::kHandled);
+
+  EXPECT_EQ(snapshot.Read()->tag, "second");
+}
+
+TEST(ConfigurationSnapshotTest, OldReaderOutlivesOwnerAndReleasesState) {
+  auto owner = std::make_unique<ConfigurationSnapshot<std::string>>("old");
+  auto reader = owner->Read();
+  std::weak_ptr<const std::string> old_state = reader;
+  ASSERT_EQ(owner
+                ->Update([](const std::string&) {
+                  return NodeResult<std::string>::Success("new");
+                })
+                .status,
+            NodeControlStatus::kHandled);
+  EXPECT_FALSE(old_state.expired());
+  owner.reset();
+  ASSERT_FALSE(old_state.expired());
+  EXPECT_EQ(*reader, "old");
+  reader.reset();
+  EXPECT_TRUE(old_state.expired());
+}
+
+TEST(ConfigurationSnapshotTest, MoveOnlyStateHandled) {
+  struct MoveOnlyState {
+    std::unique_ptr<std::string> val;
+    explicit MoveOnlyState(std::string s)
+        : val(std::make_unique<std::string>(std::move(s))) {}
+    MoveOnlyState(MoveOnlyState&&) noexcept = default;
+    MoveOnlyState& operator=(MoveOnlyState&&) noexcept = default;
+    MoveOnlyState(const MoveOnlyState&) = delete;
+    MoveOnlyState& operator=(const MoveOnlyState&) = delete;
+  };
+
+  ConfigurationSnapshot<MoveOnlyState> snapshot(MoveOnlyState("init"));
+  EXPECT_TRUE(snapshot.IsInitialized());
+  auto cur = snapshot.Read();
+  ASSERT_NE(cur, nullptr);
+  EXPECT_EQ(*cur->val, "init");
+
+  auto res = snapshot.Update([](const MoveOnlyState& current) {
+    return NodeResult<MoveOnlyState>::Success(
+        MoveOnlyState(*current.val + "_updated"));
+  });
+  EXPECT_EQ(res.status, NodeControlStatus::kHandled);
+  auto next = snapshot.Read();
+  ASSERT_NE(next, nullptr);
+  EXPECT_EQ(*next->val, "init_updated");
+}
+
+// ---------------------------------------------------------------------------
+// Functional Spec WithControls & NodeHarness Tests
+// ---------------------------------------------------------------------------
+
+TEST(FunctionNodeTest, FunctionalMapSpecWithControlsReplaceAndPatch) {
+  NodeHarness harness("ControlledMapNode");
+  harness.Config(
+      {{"prefix", "init_p:"}, {"suffix", ":init_s"}, {"multiplier", 1}});
+  harness.TextInput("input", {"payload"});
+
+  auto res1 = harness.Run();
+  ASSERT_TRUE(res1.ok()) << res1.diagnostic();
+  EXPECT_EQ(res1.TextValues("output"),
+            (std::vector<std::string>{"init_p:payload:init_s"}));
+
+  // 1. ReplaceFields missing multiplier -> rejected
+  auto bad_replace = harness.Control(kCmdReplaceMap, R"({"prefix":"new_p:"})");
+  EXPECT_EQ(bad_replace.status, NodeControlStatus::kFailed);
+  EXPECT_NE(bad_replace.message.find("multiplier"), std::string::npos);
+
+  // State preserved
+  auto res2 = harness.Run();
+  ASSERT_TRUE(res2.ok());
+  EXPECT_EQ(res2.TextValues("output"),
+            (std::vector<std::string>{"init_p:payload:init_s"}));
+
+  // 2. ReplaceFields with all declared fields -> handled
+  auto good_replace =
+      harness.Control(kCmdReplaceMap, R"({"prefix":"rep_p:","multiplier":2})");
+  EXPECT_EQ(good_replace.status, NodeControlStatus::kHandled);
+
+  // Undeclared suffix remains ":init_s", prefix and multiplier updated
+  auto res3 = harness.Run();
+  ASSERT_TRUE(res3.ok());
+  EXPECT_EQ(res3.TextValues("output"),
+            (std::vector<std::string>{"rep_p:payloadpayload:init_s"}));
+
+  // 3. PatchFields with subset of fields -> handled
+  auto good_patch = harness.Control(kCmdPatchMap, R"({"suffix":":patch_s"})");
+  EXPECT_EQ(good_patch.status, NodeControlStatus::kHandled);
+
+  auto res4 = harness.Run();
+  ASSERT_TRUE(res4.ok());
+  EXPECT_EQ(res4.TextValues("output"),
+            (std::vector<std::string>{"rep_p:payloadpayload:patch_s"}));
+
+  // 4. PatchFields with empty object -> rejected
+  auto empty_patch = harness.Control(kCmdPatchMap, R"({})");
+  EXPECT_EQ(empty_patch.status, NodeControlStatus::kFailed);
+
+  // 5. Semantic validator failure -> rejected and state rolled back
+  auto invalid_prefix =
+      harness.Control(kCmdPatchMap, R"({"prefix":"INVALID"})");
+  EXPECT_EQ(invalid_prefix.status, NodeControlStatus::kFailed);
+  EXPECT_NE(invalid_prefix.message.find("Invalid prefix disallowed"),
+            std::string::npos);
+
+  auto res5 = harness.Run();
+  ASSERT_TRUE(res5.ok());
+  EXPECT_EQ(res5.TextValues("output"),
+            (std::vector<std::string>{"rep_p:payloadpayload:patch_s"}));
+
+  // 6. Unknown command -> unsupported
+  auto unk = harness.Control(9999, R"({})");
+  EXPECT_EQ(unk.status, NodeControlStatus::kUnsupported);
+}
+
+TEST(FunctionNodeTest, FunctionalBatchSpecWithControlsAndValidation) {
+  NodeHarness harness("ControlledBatchNode");
+  harness.Config({{"header", "H:"}, {"uppercase", false}});
+  harness.TextInput("texts", {"abc", "def"});
+
+  auto res1 = harness.Run();
+  ASSERT_TRUE(res1.ok()) << res1.diagnostic();
+  EXPECT_EQ(res1.TextValues("output"),
+            (std::vector<std::string>{"H:abc", "H:def"}));
+
+  // Replace update with uppercase = true
+  auto ctrl1 =
+      harness.Control(kCmdReplaceBatch, R"({"header":"G:","uppercase":true})");
+  EXPECT_EQ(ctrl1.status, NodeControlStatus::kHandled);
+
+  auto res2 = harness.Run();
+  ASSERT_TRUE(res2.ok());
+  EXPECT_EQ(res2.TextValues("output"),
+            (std::vector<std::string>{"G:ABC", "G:DEF"}));
+
+  // Semantic rejection
+  auto ctrl2 = harness.Control(kCmdReplaceBatch,
+                               R"({"header":"REJECT","uppercase":true})");
+  EXPECT_EQ(ctrl2.status, NodeControlStatus::kFailed);
+  EXPECT_NE(ctrl2.message.find("Rejected header"), std::string::npos);
+
+  // Preserved on failure
+  auto res3 = harness.Run();
+  ASSERT_TRUE(res3.ok());
+  EXPECT_EQ(res3.TextValues("output"),
+            (std::vector<std::string>{"G:ABC", "G:DEF"}));
+}
+
+TEST(FunctionNodeTest, SnapshotPauseTimeoutFailsProcess) {
+  NodeHarness harness("ControlledMapNode");
+  harness.DisablePlan();
+  ASSERT_TRUE(harness.EnsureInitialized());
+  AlgContext ctx;
+  ctx.Publish("input", TextBatch{{101, 3, "sample"}});
+  test_support::NodeProcessPause pause(std::chrono::milliseconds(0));
+  int result = 0;
+  {
+    test_support::ScopedNextAllocationCallback callback(
+        &test_support::NodeProcessPause::OnAllocation, &pause);
+    result = harness.GetNode()->Process(&ctx);
+  }
+  EXPECT_NE(result, 0);
+  EXPECT_NE(ctx.GetErrorMessage().find("handshake timed out"),
+            std::string::npos);
+  EXPECT_EQ(ctx.Read<TextBatch>("output"), nullptr);
+}
+
+TEST(FunctionNodeTest, WholeBatchProcessConsistencyDuringControl) {
+  NodeHarness harness("ControlledMapNode");
+  harness.DisablePlan();
+  harness.Config({{"prefix", "v1:"}, {"suffix", ":s1"}, {"multiplier", 1}});
+  ASSERT_TRUE(harness.EnsureInitialized());
+  auto* node = harness.GetNode();
+  ASSERT_NE(node, nullptr);
+
+  TextBatch batch;
+  for (uint64_t i = 0; i < 50; ++i) {
+    batch.emplace_back(100 + i, i, "sample_" + std::to_string(i));
+  }
+  AlgContext old_ctx;
+  old_ctx.Publish("input", batch);
+  test_support::NodeProcessPause pause;
+  auto reader = std::async(std::launch::async, [&] {
+    // The first allocation is outputs.reserve, after AuthorNode has acquired
+    // its parameter snapshot. The callback is confined to this reader thread.
+    test_support::ScopedNextAllocationCallback callback(
+        &test_support::NodeProcessPause::OnAllocation, &pause);
+    return node->Process(&old_ctx);
+  });
+  const bool paused = pause.WaitUntilPaused();
+  NodeControlResult control = NodeControlResult::Unsupported();
+  if (paused) {
+    control =
+        node->Control(kCmdReplaceMap, R"({"prefix":"v2:","multiplier":2})");
+  }
+  pause.Resume();
+  const int process_result = reader.get();
+  ASSERT_TRUE(paused) << "Reader did not reach its snapshot pause";
+  ASSERT_EQ(control.status, NodeControlStatus::kHandled);
+  ASSERT_EQ(process_result, 0) << old_ctx.GetErrorMessage();
+
+  const auto* old_output = old_ctx.Read<TextBatch>("output");
+  ASSERT_NE(old_output, nullptr);
+  ASSERT_EQ(old_output->size(), batch.size());
+  for (size_t i = 0; i < batch.size(); ++i) {
+    EXPECT_EQ((*old_output)[i].data, "v1:" + batch[i].data + ":s1");
+    EXPECT_EQ((*old_output)[i].req_id, batch[i].req_id);
+    EXPECT_EQ((*old_output)[i].sub_id, batch[i].sub_id);
+  }
+  AlgContext new_ctx;
+  new_ctx.Publish("input", batch);
+  ASSERT_EQ(node->Process(&new_ctx), 0);
+  const auto* new_output = new_ctx.Read<TextBatch>("output");
+  ASSERT_NE(new_output, nullptr);
+  ASSERT_EQ(new_output->size(), batch.size());
+  for (size_t i = 0; i < batch.size(); ++i) {
+    EXPECT_EQ((*new_output)[i].data,
+              "v2:" + batch[i].data + batch[i].data + ":s1");
+    EXPECT_EQ((*new_output)[i].req_id, batch[i].req_id);
+    EXPECT_EQ((*new_output)[i].sub_id, batch[i].sub_id);
+  }
+}
+
+TEST(FunctionNodeTest, WholeBatchProcessConsistencyDuringControlForBatchSpec) {
+  NodeHarness harness("ControlledBatchNode");
+  harness.DisablePlan();
+  harness.Config({{"header", "old:"}, {"uppercase", false}});
+  ASSERT_TRUE(harness.EnsureInitialized());
+  auto* node = harness.GetNode();
+  ASSERT_NE(node, nullptr);
+
+  TextBatch batch;
+  for (uint64_t i = 0; i < 50; ++i) {
+    batch.emplace_back(300 + i, i, "sample");
+  }
+  AlgContext old_ctx;
+  old_ctx.Publish("texts", batch);
+  test_support::NodeProcessPause pause;
+  auto reader = std::async(std::launch::async, [&] {
+    // ControlledBatchFn reserves output after AuthorNode acquires its snapshot.
+    test_support::ScopedNextAllocationCallback callback(
+        &test_support::NodeProcessPause::OnAllocation, &pause);
+    return node->Process(&old_ctx);
+  });
+  const bool paused = pause.WaitUntilPaused();
+  NodeControlResult control = NodeControlResult::Unsupported();
+  if (paused) {
+    control = node->Control(kCmdReplaceBatch,
+                            R"({"header":"new:","uppercase":true})");
+  }
+  pause.Resume();
+  const int process_result = reader.get();
+  ASSERT_TRUE(paused) << "Reader did not reach its snapshot pause";
+  ASSERT_EQ(control.status, NodeControlStatus::kHandled);
+  ASSERT_EQ(process_result, 0) << old_ctx.GetErrorMessage();
+
+  const auto* old_output = old_ctx.Read<TextBatch>("output");
+  ASSERT_NE(old_output, nullptr);
+  ASSERT_EQ(old_output->size(), batch.size());
+  for (size_t i = 0; i < batch.size(); ++i) {
+    EXPECT_EQ((*old_output)[i].data, "old:sample");
+    EXPECT_EQ((*old_output)[i].req_id, batch[i].req_id);
+    EXPECT_EQ((*old_output)[i].sub_id, batch[i].sub_id);
+  }
+  AlgContext new_ctx;
+  new_ctx.Publish("texts", batch);
+  ASSERT_EQ(node->Process(&new_ctx), 0);
+  const auto* new_output = new_ctx.Read<TextBatch>("output");
+  ASSERT_NE(new_output, nullptr);
+  ASSERT_EQ(new_output->size(), batch.size());
+  for (size_t i = 0; i < batch.size(); ++i) {
+    EXPECT_EQ((*new_output)[i].data, "NEW:SAMPLE");
+    EXPECT_EQ((*new_output)[i].req_id, batch[i].req_id);
+    EXPECT_EQ((*new_output)[i].sub_id, batch[i].sub_id);
+  }
+}
+
+TEST(FunctionNodeTest,
+     SpecWithNonCopyableParamsCompilesAndExecutesWithoutControls) {
+  // Verifies MapSpec with non-copyable ParamsT (containing unique_ptr)
+  NodeHarness map_harness("NonCopyableMapNode");
+  map_harness.DisablePlan();
+  map_harness.Config({{"prefix", "map_nc:"}});
+  map_harness.TextInput("input", {"hello", "world"});
+  auto map_res = map_harness.Run();
+  ASSERT_TRUE(map_res.ok()) << map_res.diagnostic();
+  EXPECT_EQ(map_res.TextValues("output"),
+            (std::vector<std::string>{"map_nc:hello_100", "map_nc:world_100"}));
+
+  auto ctrl_map = map_harness.Control(1001, R"({})");
+  EXPECT_EQ(ctrl_map.status, NodeControlStatus::kUnsupported);
+
+  // Verifies BatchSpec with non-copyable ParamsT (containing unique_ptr)
+  NodeHarness batch_harness("NonCopyableBatchNode");
+  batch_harness.DisablePlan();
+  batch_harness.Config({{"tag", "batch_nc:"}});
+  batch_harness.TextInput("texts", {"foo", "bar"});
+  auto batch_res = batch_harness.Run();
+  ASSERT_TRUE(batch_res.ok()) << batch_res.diagnostic();
+  EXPECT_EQ(batch_res.TextValues("output"),
+            (std::vector<std::string>{"batch_nc:foo_200", "batch_nc:bar_200"}));
+
+  auto ctrl_batch = batch_harness.Control(1001, R"({})");
+  EXPECT_EQ(ctrl_batch.status, NodeControlStatus::kUnsupported);
+
+  // Also verify planned execution works with non-copyable ParamsT
+  NodeHarness map_planned("NonCopyableMapNode");
+  map_planned.Config({{"prefix", "map_nc_p:"}});
+  map_planned.TextInput("input", {"hello"});
+  auto map_res_p = map_planned.Run();
+  ASSERT_TRUE(map_res_p.ok()) << map_res_p.diagnostic();
+  EXPECT_EQ(map_res_p.TextValues("output"),
+            (std::vector<std::string>{"map_nc_p:hello_100"}));
+
+  NodeHarness batch_planned("NonCopyableBatchNode");
+  batch_planned.Config({{"tag", "batch_nc_p:"}});
+  batch_planned.TextInput("texts", {"foo"});
+  auto batch_res_p = batch_planned.Run();
+  ASSERT_TRUE(batch_res_p.ok()) << batch_res_p.diagnostic();
+  EXPECT_EQ(batch_res_p.TextValues("output"),
+            (std::vector<std::string>{"batch_nc_p:foo_200"}));
+}
+
+TEST(FunctionNodeTest,
+     UnplannedInitPassesCorrectBindingFactsToPrepareWithoutPlan) {
+  // Map node verifying facts.has_plan is false during unplanned init
+  NodeHarness map_harness("StrictUnplannedMapNode");
+  map_harness.DisablePlan();
+  map_harness.TextInput("input", {"item1"});
+  auto map_res = map_harness.Run();
+  ASSERT_TRUE(map_res.ok()) << map_res.diagnostic();
+  EXPECT_EQ(map_res.TextValues("output"),
+            (std::vector<std::string>{"unplanned:item1"}));
+
+  // Batch node verifying facts.has_plan is false during unplanned init
+  NodeHarness batch_harness("StrictUnplannedBatchNode");
+  batch_harness.DisablePlan();
+  batch_harness.TextInput("texts", {"item2"});
+  auto batch_res = batch_harness.Run();
+  ASSERT_TRUE(batch_res.ok()) << batch_res.diagnostic();
+  EXPECT_EQ(batch_res.TextValues("output"),
+            (std::vector<std::string>{"unplanned_batch:item2"}));
+
+  // Verify that both fail if run WITH a plan (facts.has_plan == true)
+  NodeHarness map_planned("StrictUnplannedMapNode");
+  map_planned.TextInput("input", {"item_p"});
+  auto map_res_p = map_planned.Run();
+  EXPECT_FALSE(map_res_p.ok());
+  EXPECT_TRUE(map_res_p.init_failed());
+
+  NodeHarness batch_planned("StrictUnplannedBatchNode");
+  batch_planned.TextInput("texts", {"item_p"});
+  auto batch_res_p = batch_planned.Run();
+  EXPECT_FALSE(batch_res_p.ok());
+  EXPECT_TRUE(batch_res_p.init_failed());
+}
+
+TEST(FunctionNodeTest, SpecWithoutWithControlsReturnsUnsupported) {
+  NodeHarness harness("UpperMapNode");
+  harness.TextInput("input", {"hello"});
+  ASSERT_TRUE(harness.EnsureInitialized());
+  auto ctrl = harness.Control(1001, R"({})");
+  EXPECT_EQ(ctrl.status, NodeControlStatus::kUnsupported);
+}
+
+TEST(FunctionNodeTest, DeclarationValidationRejectsInvalidControlCommands) {
+  struct DummyParams {
+    std::string text;
+    int count = 0;
+  };
+  auto make_params = []() {
+    return Parameters<DummyParams>({
+        Field("text", &DummyParams::text).Default(""),
+        Field("count", &DummyParams::count).Default(0),
+    });
+  };
+
+  // 1. Invalid command ID (<= 0)
+  EXPECT_THROW(ValidateControlCommands({ReplaceFields(0, "set_text", {"text"})},
+                                       make_params()),
+               std::invalid_argument);
+
+  // 2. Empty command name
+  EXPECT_THROW(ValidateControlCommands({ReplaceFields(1001, "", {"text"})},
+                                       make_params()),
+               std::invalid_argument);
+
+  // 3. Duplicate command ID
+  EXPECT_THROW(
+      ValidateControlCommands({ReplaceFields(1001, "cmd_a", {"text"}),
+                               ReplaceFields(1001, "cmd_b", {"count"})},
+                              make_params()),
+      std::invalid_argument);
+
+  // 4. Duplicate command name
+  EXPECT_THROW(
+      ValidateControlCommands({ReplaceFields(1001, "same_name", {"text"}),
+                               ReplaceFields(1002, "same_name", {"count"})},
+                              make_params()),
+      std::invalid_argument);
+
+  // 5. Empty field names
+  EXPECT_THROW(
+      ValidateControlCommands({ReplaceFields(1001, "cmd", {})}, make_params()),
+      std::invalid_argument);
+
+  // 6. Duplicate field name in same command
+  EXPECT_THROW(
+      ValidateControlCommands({ReplaceFields(1001, "cmd", {"text", "text"})},
+                              make_params()),
+      std::invalid_argument);
+
+  // 7. Unbound field name
+  EXPECT_THROW(
+      ValidateControlCommands({ReplaceFields(1001, "cmd", {"non_existent"})},
+                              make_params()),
+      std::invalid_argument);
+}
+
+TEST(FunctionNodeTest, WithParserWithControlsRequiresExplicitPrepare) {
+  struct DummyParams {
+    std::string text;
+  };
+  NodeConfigParser<DummyParams> parser(
+      {ConfigFieldDefinition{"nested", ConfigValueKind::kObject, true}},
+      [](const nlohmann::json& c, DummyParams* p, std::string*) {
+        if (c.contains("nested") && c["nested"].contains("text")) {
+          p->text = c["nested"]["text"].get<std::string>();
+        }
+        return true;
+      });
+  auto params =
+      Parameters<DummyParams>({
+                                  Field("text", &DummyParams::text).Default(""),
+                              })
+          .WithParser(std::move(parser));
+
+  // HasParser() == true, commands not empty, HasPrepare() == false -> throws
+  EXPECT_THROW(ValidateControlCommands(
+                   {ReplaceFields(1001, "set_text", {"text"})}, params),
+               std::invalid_argument);
+
+  // Adding Prepare allows validation to pass
+  params.Prepare(
+      [](DummyParams*, const BindingFacts&, std::string*) { return true; });
+  EXPECT_NO_THROW(ValidateControlCommands(
+      {ReplaceFields(1001, "set_text", {"text"})}, params));
+}
+
+TEST(FunctionNodeTest, TypedPrepareHookExecutesAndCanReject) {
+  struct PreparedParams {
+    std::string raw;
+    std::string derived;
+  };
+
+  auto params = Parameters<PreparedParams>(
+                    {
+                        Field("raw", &PreparedParams::raw).Default(""),
+                    })
+                    .Prepare([](PreparedParams* p, const BindingFacts&,
+                                std::string* err) {
+                      if (p->raw == "FAIL_PREPARE") {
+                        if (err) *err = "Prepare rejected";
+                        return false;
+                      }
+                      p->derived = "prepared:" + p->raw;
+                      return true;
+                    });
+
+  BindingFacts facts;
+  std::string err;
+  auto ok_res = params.ParseNormalized({{"raw", "hello"}}, facts, &err);
+  ASSERT_TRUE(ok_res.has_value());
+  EXPECT_EQ(ok_res->derived, "prepared:hello");
+
+  auto fail_res =
+      params.ParseNormalized({{"raw", "FAIL_PREPARE"}}, facts, &err);
+  EXPECT_FALSE(fail_res.has_value());
+  EXPECT_NE(err.find("Prepare rejected"), std::string::npos);
+}
+
+struct BindingFactsProbeParams {
+  std::string mode;
+  bool plan_seen = false;
+  bool input_connected = false;
+};
+
+inline auto BindingFactsProbeSpec() {
+  return MakeMapSpec(
+      Input<TextBatch>("input"), Output<TextBatch>("output"),
+      Parameters<BindingFactsProbeParams>(
+          {
+              Field("mode", &BindingFactsProbeParams::mode).Default("base"),
+          })
+          .Prepare([](BindingFactsProbeParams* p, const BindingFacts& facts,
+                      std::string*) {
+            p->plan_seen = facts.has_plan;
+            p->input_connected = facts.IsConnected("input");
+            return true;
+          }),
+      [](const std::string& in, const BindingFactsProbeParams& p) {
+        return std::string(p.plan_seen ? "PLAN:" : "NO_PLAN:") +
+               (p.input_connected ? "CONN:" : "DISCONN:") + in;
+      });
+}
+REGISTER_FUNCTION_NODE(BindingFactsProbeNode, BindingFactsProbeSpec());
+
+TEST(FunctionNodeTest, AuthorNodeInitPassesRealBindingFactsToPrepare) {
+  // Test planned execution: plan_seen must be true, input must be connected
+  NodeHarness harness_planned("BindingFactsProbeNode");
+  harness_planned.TextInput("input", {"hello"});
+  auto res_planned = harness_planned.Run();
+  ASSERT_TRUE(res_planned.ok()) << res_planned.diagnostic();
+  EXPECT_EQ(res_planned.TextValues("output"),
+            (std::vector<std::string>{"PLAN:CONN:hello"}));
+
+  // Test unplanned execution: plan_seen must be false, input is still connected
+  // logically
+  NodeHarness harness_unplanned("BindingFactsProbeNode");
+  harness_unplanned.DisablePlan();
+  harness_unplanned.TextInput("input", {"world"});
+  auto res_unplanned = harness_unplanned.Run();
+  ASSERT_TRUE(res_unplanned.ok()) << res_unplanned.diagnostic();
+  EXPECT_EQ(res_unplanned.TextValues("output"),
+            (std::vector<std::string>{"NO_PLAN:CONN:world"}));
+}
+
+TEST(FunctionNodeTest, RapidInterleavedControlsAndConcurrentProcesses) {
+  NodeHarness harness("ControlledMapNode");
+  harness.DisablePlan();
+  harness.Config({{"prefix", "p0:"}, {"suffix", ":s0"}, {"multiplier", 1}});
+  ASSERT_TRUE(harness.EnsureInitialized());
+  auto* node = harness.GetNode();
+  ASSERT_NE(node, nullptr);
+
+  std::atomic<bool> stop{false};
+  std::atomic<int> successful_processes{0};
+
+  // Writer thread 1: rapid ReplaceFields
+  std::thread writer1([&]() {
+    for (int i = 1; i <= 30; ++i) {
+      std::string payload =
+          "{\"prefix\":\"p" + std::to_string(i) +
+          ":\",\"multiplier\":" + std::to_string((i % 3) + 1) + "}";
+      auto res = node->Control(kCmdReplaceMap, payload);
+      EXPECT_EQ(res.status, NodeControlStatus::kHandled);
+      std::this_thread::yield();
+    }
+  });
+
+  // Writer thread 2: rapid PatchFields
+  std::thread writer2([&]() {
+    for (int i = 1; i <= 30; ++i) {
+      std::string payload = "{\"suffix\":\":s" + std::to_string(i) + "\"}";
+      auto res = node->Control(kCmdPatchMap, payload);
+      EXPECT_EQ(res.status, NodeControlStatus::kHandled);
+      std::this_thread::yield();
+    }
+  });
+
+  // Multiple reader threads: concurrent Process calls with multi-item batches
+  std::vector<std::thread> readers;
+  for (int r = 0; r < 4; ++r) {
+    readers.emplace_back([&, r]() {
+      uint64_t req_id = 1000 + r * 10000;
+      while (!stop.load(std::memory_order_relaxed)) {
+        AlgContext ctx;
+        TextBatch input;
+        for (int i = 0; i < 8; ++i) {
+          input.emplace_back(req_id, i, "payload_" + std::to_string(i));
+        }
+        req_id++;
+        ctx.Publish("input", std::move(input));
+        int rc = node->Process(&ctx);
+        EXPECT_EQ(rc, 0);
+        const auto* out = ctx.Read<TextBatch>("output");
+        ASSERT_NE(out, nullptr);
+        ASSERT_EQ(out->size(), 8u);
+
+        // Verify intra-batch snapshot consistency:
+        // Item format: prefix + (multiplier * "payload_i") + suffix
+        // Extract prefix, suffix, multiplier from item 0:
+        const std::string& item0 = (*out)[0].data;
+        auto pos0 = item0.find("payload_0");
+        ASSERT_NE(pos0, std::string::npos);
+        std::string prefix = item0.substr(0, pos0);
+        auto last_pos0 = item0.rfind("payload_0");
+        std::string suffix =
+            item0.substr(last_pos0 + std::string("payload_0").size());
+        int multiplier = 0;
+        size_t sp = 0;
+        while ((sp = item0.find("payload_0", sp)) != std::string::npos) {
+          multiplier++;
+          sp += std::string("payload_0").size();
+        }
+        // Every other item in this batch must match the exact same snapshot
+        // parameters:
+        for (int i = 1; i < 8; ++i) {
+          std::string expected = prefix;
+          for (int m = 0; m < multiplier; ++m) {
+            expected += "payload_" + std::to_string(i);
+          }
+          expected += suffix;
+          EXPECT_EQ((*out)[i].data, expected)
+              << "Batch mixed configuration snapshots between items!";
+        }
+        successful_processes.fetch_add(1, std::memory_order_relaxed);
+      }
+    });
+  }
+
+  writer1.join();
+  writer2.join();
+  stop.store(true, std::memory_order_relaxed);
+  for (auto& t : readers) {
+    t.join();
+  }
+
+  EXPECT_GT(successful_processes.load(), 0);
+
+  // Verify node remains in a coherent final state
+  AlgContext final_ctx;
+  final_ctx.Publish("input", TextBatch{{999, 0, "final"}});
+  ASSERT_EQ(node->Process(&final_ctx), 0);
+  const auto* final_out = final_ctx.Read<TextBatch>("output");
+  ASSERT_NE(final_out, nullptr);
+  ASSERT_EQ(final_out->size(), 1u);
+  EXPECT_EQ(final_out->at(0).data, "p30:final:s30");
 }
 
 }  // namespace llm_edgeflow

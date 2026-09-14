@@ -142,7 +142,8 @@ add_executable(edgeflow_test_nodes_runner
   $<TARGET_OBJECTS:edgeflow_test_backend_fixtures>
   $<TARGET_OBJECTS:edgeflow_test_biz_model_fixtures>)
 target_link_libraries(edgeflow_test_nodes_runner PRIVATE
-  llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
+  llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main
+  edgeflow_test_allocation_failure)
 edgeflow_enable_test_pch(edgeflow_test_nodes_runner)
 
 set(EDGEFLOW_TEST_ADAPTER_SRCS
@@ -284,7 +285,7 @@ edgeflow_add_runner_test(TextCorpusSourceNodeTest edgeflow_test_nodes_runner
 edgeflow_add_runner_test(CommonNodesTest edgeflow_test_nodes_runner
   "CommonNodesTest.*:CustomNodeCatalogTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(FunctionNodeTest edgeflow_test_nodes_runner
-  "FunctionNodeTest.*" "${_edgeflow_tier1}")
+  "FunctionNodeTest.*:ConfigurationSnapshotTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(ParameterBindingTest edgeflow_test_nodes_runner
   "ParameterBindingTest.*" "${_edgeflow_tier1}")
 
