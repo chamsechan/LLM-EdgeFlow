@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """API and filesystem boundary tests for the local Pipeline Studio."""
 
+import copy
 import importlib.util
 import json
 import os
+import sys
 from pathlib import Path
 import shutil
 import shlex
@@ -377,7 +379,11 @@ class RunnableSolutionTest(unittest.TestCase):
         pipeline["models"][0]["model_id"] = "replacement_model"
         pipeline["pipeline"][1]["config"]["bind_model"] = "replacement_model"
         pipeline["pipeline"][1]["config"]["max_tokens"] = 17
-        updated = self.service.save_pipeline(saved["filename"], pipeline, saved["revision"])
+        updated = self.service.save_pipeline(
+            saved["filename"], pipeline, saved["revision"],
+            model_path_actions={"replacement_model": {
+                "path": "replacement.gguf", "action": "select_asset"}},
+        )
         self.assertEqual(updated["command"], saved["command"])
         self.assertEqual(updated["conf"]["data"]["model_paths"], {"replacement_model": "models/replacement.gguf"})
         self.assertEqual(json.loads((self.configs / saved["filename"]).read_text()), pipeline)
@@ -739,6 +745,34 @@ class HttpApiTest(unittest.TestCase):
         )
         return urllib.request.urlopen(request, timeout=5)
 
+    def test_authoring_http_rejects_unknown_fields_and_conflicting_revisions(self):
+        pipeline = json.loads((ROOT / "configs" / "pipeline_keyword_match_rules.json").read_text())
+        body = {
+            "pipeline": pipeline,
+            "operation": {"kind": "add_node", "node_type": "TextTemplateNode"},
+            "revision": SHOW.revision_for(json.dumps(pipeline, sort_keys=True).encode()),
+            "tool_fingerprint": self.service.get_tool_fingerprint(),
+        }
+        for fields, status, code in [
+            ({"requrie_valid": True}, 400, "INVALID_AUTHORING_REQUEST"),
+            ({"expected_revision": "different_revision"}, 409, "REVISION_CONFLICT"),
+        ]:
+            with self.subTest(fields=fields):
+                request = urllib.request.Request(
+                    self.base + "/authoring/preview", data=json.dumps(dict(body, **fields)).encode(),
+                    method="POST", headers={"Content-Type": "application/json"},
+                )
+                with mock.patch.object(self.service, "preview_authoring") as authoring:
+                    with self.assertRaises(urllib.error.HTTPError) as ctx:
+                        urllib.request.urlopen(request, timeout=5)
+                    self.assertEqual(ctx.exception.code, status)
+                    with ctx.exception as response:
+                        result = json.load(response)
+                    self.assertFalse(result["ok"])
+                    self.assertEqual(result["error"]["code"], code)
+                    self.assertNotIn("pipeline", result)
+                    authoring.assert_not_called()
+
     def test_local_development_api_and_static_modules(self):
         origin = self.base.removesuffix("/api/v1")
         with urllib.request.urlopen(origin + "/index.html", timeout=5) as response:
@@ -973,7 +1007,7 @@ await assert.rejects(
         self.assertEqual(process.returncode, 0, process.stdout + process.stderr)
 
     @unittest.skipUnless(shutil.which("node"), "Node.js is required for Web module tests")
-    def test_port_editing_roundtrips_to_native_validator_and_model_forms(self):
+    def test_readonly_graph_matches_native_validator_and_model_forms(self):
         catalog = json.loads(subprocess.check_output([str(PIPELINE_TOOL), "catalog"], text=True))
         script = """
 import assert from 'node:assert/strict';
@@ -982,21 +1016,15 @@ const code = readFileSync(process.argv[1], 'utf8');
 const w = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
 const catalog = JSON.parse(readFileSync(0, 'utf8'));
 const pipeline = {biz_name:'keyword_match_v1', models:[], pipeline:[
-  {id:'template', node_type:'TextTemplateNode', depends_on:[], config:{template:'{{primary}}'}, ports:{outputs:{text:'template_text'}}},
-  {id:'rule', node_type:'TextRuleMatchNode', depends_on:[], config:{}, ports:{outputs:{matches:'rule_result'}}}
+  {id:'template', node_type:'TextTemplateNode', depends_on:[], config:{template:'{{primary}}'}, ports:{inputs:{primary:'input_sentences'},outputs:{text:'template_text'}}},
+  {id:'rule', node_type:'TextRuleMatchNode', depends_on:['template'], config:{}, ports:{inputs:{text:'template_text'},outputs:{matches:'rule_matches'}}}
 ]};
-w.connectPorts(pipeline,catalog,w.INGRESS,'input_sentences','template','primary');
-w.connectPorts(pipeline,catalog,'template','text','rule','text');
-w.connectPorts(pipeline,catalog,'rule','matches',w.EGRESS,'rule_matches');
-assert.equal(pipeline.pipeline[1].ports.inputs.text,'template_text');
-assert.deepEqual(pipeline.pipeline[1].depends_on,['template']);
-assert.throws(()=>w.connectPorts(pipeline,catalog,'rule','matches','template','primary'), /类型/);
-assert.throws(()=>w.connectPorts(pipeline,catalog,'template','text','template','primary'), /环/);
-const detached = structuredClone(pipeline);
-w.disconnectPorts(detached,catalog,w.graphDocument(detached,catalog).edges.find(e=>e.target==='rule' && e.targetPort==='text'));
-assert.ok(!w.graphDocument(detached,catalog).edges.some(e=>e.source==='template' && e.target==='rule'));
-w.removeNode(detached,catalog,'template');
-assert.deepEqual(detached.pipeline[0].depends_on,[]);
+const snapshot = structuredClone(pipeline);
+const graph = w.graphDocument(pipeline,catalog);
+assert.ok(graph.edges.some(e=>e.source===w.INGRESS && e.target==='template' && e.targetPort==='primary'));
+assert.ok(graph.edges.some(e=>e.source==='template' && e.sourcePort==='text' && e.target==='rule' && e.targetPort==='text'));
+assert.ok(graph.edges.some(e=>e.source==='rule' && e.target===w.EGRESS && e.targetPort==='rule_matches'));
+assert.deepEqual(pipeline,snapshot,'graph rendering must not mutate the document');
 const modelDef = catalog.models.find(m=>m.model_type==='bge_embedding');
 const backend = w.compatibleBackends(catalog.backends,modelDef).find(b=>b.backend_type==='onnxruntime');
 if (backend) {
@@ -1139,6 +1167,1105 @@ class SelectionVerificationTest(unittest.TestCase):
         records = json.loads(json.dumps(receipt["records"]))
         records[0]["output"]["is_hit"] = False
         self.assertEqual(selection.compare_samples(records, selection.read_json(spec))["status"], "failed")
+
+
+class Rfc0057AuthoringAndDeploymentTest(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory(prefix="rfc0057-test-", dir=ROOT / "build")
+        self.root = Path(self.temporary.name)
+        self.configs = self.root / "configs"
+        self.configs.mkdir(parents=True, exist_ok=True)
+        self.service = SHOW.WorkbenchService(self.configs)
+        self.keyword = json.loads(
+            (ROOT / "configs" / "pipeline_keyword_match_rules.json").read_text()
+        )
+
+    def tearDown(self):
+        self.temporary.cleanup()
+
+    def run_edit(self, request: dict) -> tuple[int, dict]:
+        proc = subprocess.run(
+            [str(PIPELINE_TOOL), "edit", "--stdin"],
+            input=json.dumps(request),
+            text=True,
+            capture_output=True,
+            cwd=ROOT,
+            check=False,
+        )
+        try:
+            payload = json.loads(proc.stdout)
+        except json.JSONDecodeError:
+            payload = {"raw": proc.stdout, "stderr": proc.stderr}
+        return proc.returncode, payload
+
+    def assert_edit_rejected(self, request, failed_index=None):
+        code, result = self.run_edit(request)
+        self.assertEqual(code, 1, result)
+        self.assertIs(result.get("ok"), False, result)
+        self.assertTrue(result.get("diagnostics"), result)
+        self.assertNotIn("pipeline", result)
+        if failed_index is not None:
+            self.assertEqual(result.get("failed_operation_index"), failed_index, result)
+
+    def test_authoring_connect_preserves_valid_default_output_fanout(self):
+        pipe = copy.deepcopy(self.keyword)
+        existing = pipe["pipeline"][0]
+        existing["id"] = "b"
+        existing["depends_on"] = ["a"]
+        existing["ports"]["inputs"] = {}  # Required text defaults to producer A.text.
+        source = {
+            "id": "a", "node_type": "TextTemplateNode", "depends_on": [],
+            "ports": {"inputs": {"primary": "input_sentences"}, "outputs": {}},
+            "config": {"template": "{{primary}}"},
+        }
+        consumer = copy.deepcopy(existing)
+        consumer.update(id="c", depends_on=[])
+        consumer["ports"] = {"inputs": {"text": "input_sentences"},
+                             "outputs": {"matches": "other_matches"}}
+        pipe["pipeline"] = [source, existing, consumer]
+        self.assertTrue(self.service.validate(pipe)["ok"])
+        code, result = self.run_edit({
+            "schema_version": 1, "pipeline": pipe, "require_valid": True,
+            "operation": {"kind": "connect",
+                          "source": {"node_id": "a", "port": "text"},
+                          "target": {"node_id": "c", "port": "text"}},
+        })
+        self.assertEqual(code, 0, result)
+        self.assertTrue(result["validation"]["ok"])
+        a, b, c = result["pipeline"]["pipeline"]
+        self.assertEqual(a.get("ports", {}).get("outputs", {}).get("text", "text"), "text")
+        self.assertEqual(b, existing)
+        self.assertEqual(c["ports"]["inputs"]["text"], "text")
+        self.assertIn("a", c["depends_on"])
+
+    def test_authoring_disconnect_rejects_unknown_and_reversed_endpoints(self):
+        pipe = copy.deepcopy(self.keyword)
+        pipe["pipeline"][0]["id"] = "c"
+        pipe["pipeline"].insert(0, {
+            "id": "a", "node_type": "TextTemplateNode", "depends_on": [],
+            "ports": {"inputs": {"primary": "input_sentences"}, "outputs": {}},
+            "config": {"template": "{{primary}}"},
+        })
+        cases = [
+            ({"node_id": "a", "port": "input_sentences"}, {"node_id": "c", "port": "text"}),
+            ({"node_id": "$ingress", "port": "missing"}, {"node_id": "c", "port": "text"}),
+            ({"node_id": "$egress", "port": "rule_matches"}, {"node_id": "c", "port": "text"}),
+            ({"node_id": "c", "port": "matches"}, {"node_id": "$egress", "port": "missing"}),
+            ({"node_id": "c", "port": "matches"}, {"node_id": "$ingress", "port": "input_sentences"}),
+            ({"node_id": "$ingress", "port": "input_sentences"}, {"node_id": "c", "port": "missing"}),
+        ]
+        for source, target in cases:
+            with self.subTest(source=source, target=target):
+                self.assert_edit_rejected({
+                    "schema_version": 1, "pipeline": pipe,
+                    "operation": {"kind": "disconnect", "source": source, "target": target},
+                }, 0)
+
+    def test_authoring_rejects_ambiguous_duplicate_node_targets(self):
+        pipe = copy.deepcopy(self.keyword)
+        pipe["pipeline"][0]["id"] = "b"
+        pipe["pipeline"].append(copy.deepcopy(pipe["pipeline"][0]))
+        operations = [
+            {"kind": "rename_node", "node_id": "b", "new_id": "bb"},
+            {"kind": "remove_node", "node_id": "b"},
+            {"kind": "connect", "source": {"node_id": "$ingress", "port": "input_sentences"},
+             "target": {"node_id": "b", "port": "text"}},
+            {"kind": "connect", "source": {"node_id": "b", "port": "matches"},
+             "target": {"node_id": "$egress", "port": "rule_matches"}},
+        ]
+        for operation in operations:
+            with self.subTest(operation=operation):
+                self.assert_edit_rejected({"schema_version": 1, "pipeline": pipe,
+                                           "operation": operation}, 0)
+
+    def test_authoring_rejects_invalid_request_fields_without_crashing(self):
+        base = {"schema_version": 1, "pipeline": self.keyword,
+                "operation": {"kind": "add_node", "node_type": "TextTemplateNode"}}
+        requests = [
+            dict(base, requrie_valid=True), dict(base, require_valid="true"),
+            dict(base, schema_version=True), dict(base, schema_version=1.0),
+            dict(base, operations=None), dict(base, operation=None, operations=[base["operation"]]),
+            dict(base, operations={}), dict(base, pipeline=[]),
+        ]
+        for request in requests:
+            with self.subTest(request=request):
+                self.assert_edit_rejected(request)
+
+    def test_authoring_batch_schema_errors_report_index_and_no_candidate(self):
+        invalid_operations = [
+            {"kind": 42}, {"kind": "remove_node", "node_id": 42},
+            {"kind": "add_node", "node_type": "TextTemplateNode", "config": []},
+            {"kind": "add_node", "node_type": "TextTemplateNode", "unexpected": True},
+            {"kind": "connect", "source": [], "target": {}},
+            {"kind": "connect", "source": {"node_id": "$ingress", "port": "input_sentences", "unexpected": 1},
+             "target": {"node_id": "added", "port": "primary"}},
+            {"kind": "connect", "source": {"node_id": "$ingress", "port": 42},
+             "target": {"node_id": "added", "port": "primary"}},
+            None, [],
+        ]
+        for operation in invalid_operations:
+            with self.subTest(operation=operation):
+                self.assert_edit_rejected({
+                    "schema_version": 1, "pipeline": self.keyword,
+                    "operations": [
+                        {"kind": "add_node", "node_type": "TextTemplateNode", "id": "added"},
+                        operation,
+                    ],
+                }, 1)
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "requires RLIMIT_FSIZE")
+    def test_fix_deps_short_write_preserves_original_and_cleans_temporary(self):
+        pipe = json.loads((ROOT / "configs" / "pipeline_doc_qa_default.json").read_text())
+        pipe["pipeline"][2]["depends_on"] = []
+        path = self.configs / "short-write.json"
+        original = json.dumps(pipe, indent=2).encode()
+        path.write_bytes(original)
+        path.chmod(0o640)
+        # A separate launcher avoids preexec_fn in this threaded service test process.
+        launcher = (
+            "import os, resource, signal, sys; "
+            "signal.signal(signal.SIGXFSZ, signal.SIG_IGN); "
+            "resource.setrlimit(resource.RLIMIT_FSIZE, (128, 128)); "
+            "os.execv(sys.argv[1], sys.argv[1:])"
+        )
+        before = set(self.configs.iterdir())
+        proc = subprocess.run(
+            [sys.executable, "-c", launcher, str(PIPELINE_TOOL), "fix-deps", str(path), "--in-place"],
+            capture_output=True, text=True, cwd=ROOT, check=False,
+        )
+        self.assertEqual(path.read_bytes(), original, "failed write must never replace the source")
+        self.assertEqual(path.stat().st_mode & 0o777, 0o640)
+        self.assertEqual(set(self.configs.iterdir()), before, "failed write must clean staging files")
+        self.assertEqual(proc.returncode, 1, proc.stderr)
+        result = json.loads(proc.stdout)
+        self.assertFalse(result["ok"])
+        self.assertFalse(result.get("written", False))
+        self.assertTrue(result.get("diagnostics"))
+
+    def test_authoring_add_node_explicit_auto_id_and_collision(self):
+        req = {
+            "schema_version": 1,
+            "pipeline": {"biz_name": "keyword_match_v1", "models": [], "pipeline": []},
+            "operation": {
+                "kind": "add_node",
+                "node_type": "TextRuleMatchNode",
+                "id": "custom_rule",
+            },
+        }
+        code, res = self.run_edit(req)
+        self.assertEqual(code, 0)
+        self.assertTrue(res["ok"])
+        self.assertEqual(res["pipeline"]["pipeline"][0]["id"], "custom_rule")
+
+        # Duplicate ID rejection
+        req2 = {
+            "schema_version": 1,
+            "pipeline": res["pipeline"],
+            "operation": {
+                "kind": "add_node",
+                "node_type": "TextRuleMatchNode",
+                "id": "custom_rule",
+            },
+        }
+        code2, res2 = self.run_edit(req2)
+        self.assertEqual(code2, 1)
+        self.assertFalse(res2["ok"])
+        self.assertIn("DUPLICATE_NODE_ID", res2["diagnostics"][0]["message"])
+
+        # Auto ID allocation
+        req3 = {
+            "schema_version": 1,
+            "pipeline": res["pipeline"],
+            "operation": {
+                "kind": "add_node",
+                "node_type": "TextRuleMatchNode",
+            },
+        }
+        code3, res3 = self.run_edit(req3)
+        self.assertEqual(code3, 0)
+        self.assertTrue(res3["ok"])
+        self.assertNotEqual(res3["pipeline"]["pipeline"][1]["id"], "custom_rule")
+
+        # Unknown node type
+        req4 = {
+            "schema_version": 1,
+            "pipeline": res["pipeline"],
+            "operation": {"kind": "add_node", "node_type": "NonExistentNode"},
+        }
+        code4, res4 = self.run_edit(req4)
+        self.assertEqual(code4, 1)
+        self.assertFalse(res4["ok"])
+        self.assertIn("UNKNOWN_NODE_TYPE", res4["diagnostics"][0]["message"])
+
+    def test_authoring_remove_node_detaches_inputs_and_dependencies(self):
+        pipe = {
+            "biz_name": "keyword_match_v1",
+            "models": [],
+            "pipeline": [
+                {
+                    "id": "template",
+                    "node_type": "TextTemplateNode",
+                    "depends_on": [],
+                    "ports": {"inputs": {}, "outputs": {"text": "tpl_text"}},
+                    "config": {"template": "{{primary}}"},
+                },
+                {
+                    "id": "rule",
+                    "node_type": "TextRuleMatchNode",
+                    "depends_on": ["template"],
+                    "ports": {"inputs": {"text": "tpl_text"}, "outputs": {}},
+                    "config": {},
+                },
+            ],
+        }
+        req = {
+            "schema_version": 1,
+            "pipeline": pipe,
+            "operation": {"kind": "remove_node", "node_id": "template"},
+        }
+        code, res = self.run_edit(req)
+        self.assertEqual(code, 0)
+        self.assertTrue(res["ok"])
+        self.assertEqual(len(res["pipeline"]["pipeline"]), 1)
+        rule_node = res["pipeline"]["pipeline"][0]
+        self.assertEqual(rule_node["id"], "rule")
+        # depends_on detached
+        self.assertEqual(rule_node["depends_on"], [])
+        # Required input text assigned unconnected placeholder
+        self.assertIn("__unconnected__text", rule_node["ports"]["inputs"]["text"])
+
+    def test_authoring_rename_node_syncs_dependencies_and_preserves_keys(self):
+        pipe = {
+            "biz_name": "keyword_match_v1",
+            "models": [],
+            "pipeline": [
+                {
+                    "id": "template",
+                    "node_type": "TextTemplateNode",
+                    "depends_on": [],
+                    "ports": {"inputs": {}, "outputs": {"text": "tpl_text"}},
+                    "config": {"template": "{{primary}}"},
+                },
+                {
+                    "id": "rule",
+                    "node_type": "TextRuleMatchNode",
+                    "depends_on": ["template"],
+                    "ports": {"inputs": {"text": "tpl_text"}, "outputs": {}},
+                    "config": {},
+                },
+            ],
+        }
+        req = {
+            "schema_version": 1,
+            "pipeline": pipe,
+            "operation": {
+                "kind": "rename_node",
+                "node_id": "template",
+                "new_id": "new_template",
+            },
+        }
+        code, res = self.run_edit(req)
+        self.assertEqual(code, 0)
+        self.assertTrue(res["ok"])
+        tpl = res["pipeline"]["pipeline"][0]
+        rule = res["pipeline"]["pipeline"][1]
+        self.assertEqual(tpl["id"], "new_template")
+        # Data keys are preserved
+        self.assertEqual(tpl["ports"]["outputs"]["text"], "tpl_text")
+        # depends_on updated
+        self.assertEqual(rule["depends_on"], ["new_template"])
+
+        # Duplicate ID rejection
+        req_dup = {
+            "schema_version": 1,
+            "pipeline": pipe,
+            "operation": {"kind": "rename_node", "node_id": "template", "new_id": "rule"},
+        }
+        code_dup, res_dup = self.run_edit(req_dup)
+        self.assertEqual(code_dup, 1)
+        self.assertIn("DUPLICATE_NODE_ID", res_dup["diagnostics"][0]["message"])
+
+    def test_authoring_connect_and_cycle_and_redundant_dependencies(self):
+        pipe = {
+            "biz_name": "keyword_match_v1",
+            "models": [],
+            "pipeline": [
+                {
+                    "id": "template",
+                    "node_type": "TextTemplateNode",
+                    "depends_on": [],
+                    "ports": {"inputs": {}, "outputs": {}},
+                    "config": {"template": "{{primary}}"},
+                },
+                {
+                    "id": "rule",
+                    "node_type": "TextRuleMatchNode",
+                    "depends_on": [],
+                    "ports": {"inputs": {}, "outputs": {}},
+                    "config": {},
+                },
+            ],
+        }
+        # Ingress to node
+        req1 = {
+            "schema_version": 1,
+            "pipeline": pipe,
+            "operation": {
+                "kind": "connect",
+                "source": {"node_id": "$ingress", "port": "input_sentences"},
+                "target": {"node_id": "template", "port": "primary"},
+            },
+        }
+        code1, res1 = self.run_edit(req1)
+        self.assertEqual(code1, 0)
+        self.assertEqual(
+            res1["pipeline"]["pipeline"][0]["ports"]["inputs"]["primary"],
+            "input_sentences",
+        )
+        self.assertEqual(res1["pipeline"]["pipeline"][0]["depends_on"], [])
+
+        # Node to node
+        req2 = {
+            "schema_version": 1,
+            "pipeline": res1["pipeline"],
+            "operation": {
+                "kind": "connect",
+                "source": {"node_id": "template", "port": "text"},
+                "target": {"node_id": "rule", "port": "text"},
+            },
+        }
+        code2, res2 = self.run_edit(req2)
+        self.assertEqual(code2, 0)
+        rule = res2["pipeline"]["pipeline"][1]
+        tpl_key = res2["pipeline"]["pipeline"][0]["ports"]["outputs"].get("text", "text")
+        self.assertEqual(tpl_key, "text", "connecting preserves the effective default output key")
+        self.assertEqual(rule["ports"]["inputs"]["text"], tpl_key)
+        self.assertEqual(rule["depends_on"], ["template"])
+
+        # Cycle detection: connecting rule to template creates cycle
+        req_cycle = {
+            "schema_version": 1,
+            "pipeline": res2["pipeline"],
+            "operation": {
+                "kind": "connect",
+                "source": {"node_id": "rule", "port": "matches"},
+                "target": {"node_id": "template", "port": "primary"},
+            },
+        }
+        code_cycle, res_cycle = self.run_edit(req_cycle)
+        self.assertEqual(code_cycle, 1)
+        self.assertFalse(res_cycle["ok"])
+
+    def test_authoring_connect_and_disconnect_biz_egress(self):
+        pipe = {
+            "biz_name": "keyword_match_v1",
+            "models": [],
+            "pipeline": [
+                {
+                    "id": "rule",
+                    "node_type": "TextRuleMatchNode",
+                    "depends_on": [],
+                    "ports": {
+                        "inputs": {"text": "input_sentences"},
+                        "outputs": {"matches": "rule_internal_out"},
+                    },
+                    "config": {},
+                },
+                {
+                    "id": "audit",
+                    "node_type": "TextRuleMatchNode",
+                    "depends_on": ["rule"],
+                    "ports": {"inputs": {"text": "rule_internal_out"}, "outputs": {}},
+                    "config": {},
+                },
+            ],
+        }
+        # Connect rule.matches to $egress rule_matches
+        req_egress = {
+            "schema_version": 1,
+            "pipeline": pipe,
+            "operation": {
+                "kind": "connect",
+                "source": {"node_id": "rule", "port": "matches"},
+                "target": {"node_id": "$egress", "port": "rule_matches"},
+            },
+        }
+        code_egress, res_egress = self.run_edit(req_egress)
+        self.assertEqual(code_egress, 0)
+        rule_out = res_egress["pipeline"]["pipeline"][0]["ports"]["outputs"]["matches"]
+        audit_in = res_egress["pipeline"]["pipeline"][1]["ports"]["inputs"]["text"]
+        self.assertEqual(rule_out, "rule_matches")
+        self.assertEqual(audit_in, "rule_matches")
+
+        # Disconnect rule.matches from $egress rule_matches
+        req_disc = {
+            "schema_version": 1,
+            "pipeline": res_egress["pipeline"],
+            "operation": {
+                "kind": "disconnect",
+                "source": {"node_id": "rule", "port": "matches"},
+                "target": {"node_id": "$egress", "port": "rule_matches"},
+            },
+        }
+        code_disc, res_disc = self.run_edit(req_disc)
+        self.assertEqual(code_disc, 0)
+        rule_out2 = res_disc["pipeline"]["pipeline"][0]["ports"]["outputs"]["matches"]
+        audit_in2 = res_disc["pipeline"]["pipeline"][1]["ports"]["inputs"]["text"]
+        self.assertNotEqual(rule_out2, "rule_matches")
+        self.assertEqual(rule_out2, audit_in2)
+
+    def test_authoring_disconnect_preserves_execution_dependency_and_placeholders(self):
+        pipe = {
+            "biz_name": "keyword_match_v1",
+            "models": [],
+            "pipeline": [
+                {
+                    "id": "tpl",
+                    "node_type": "TextTemplateNode",
+                    "depends_on": [],
+                    "ports": {"inputs": {}, "outputs": {"text": "tpl_out"}},
+                    "config": {"template": "{{primary}}"},
+                },
+                {
+                    "id": "rule",
+                    "node_type": "TextRuleMatchNode",
+                    "depends_on": ["tpl"],
+                    "ports": {"inputs": {"text": "tpl_out"}, "outputs": {}},
+                    "config": {},
+                },
+            ],
+        }
+        # Disconnecting data port preserves execution dependency (Regression Case 1)
+        req = {
+            "schema_version": 1,
+            "pipeline": pipe,
+            "operation": {
+                "kind": "disconnect",
+                "source": {"node_id": "tpl", "port": "text"},
+                "target": {"node_id": "rule", "port": "text"},
+            },
+        }
+        code, res = self.run_edit(req)
+        self.assertEqual(code, 0)
+        rule = res["pipeline"]["pipeline"][1]
+        self.assertEqual(rule["depends_on"], ["tpl"])
+        self.assertIn("__unconnected__text", rule["ports"]["inputs"]["text"])
+
+        # reset_input_binding removes the placeholder
+        req_reset = {
+            "schema_version": 1,
+            "pipeline": res["pipeline"],
+            "operation": {
+                "kind": "reset_input_binding",
+                "target": {"node_id": "rule", "port": "text"},
+            },
+        }
+        code_reset, res_reset = self.run_edit(req_reset)
+        self.assertEqual(code_reset, 0)
+        self.assertNotIn("text", res_reset["pipeline"]["pipeline"][1]["ports"]["inputs"])
+
+        # remove_dependency removes execution dependency
+        req_rm_dep = {
+            "schema_version": 1,
+            "pipeline": res_reset["pipeline"],
+            "operation": {
+                "kind": "remove_dependency",
+                "node_id": "rule",
+                "depends_on_id": "tpl",
+            },
+        }
+        code_rm_dep, res_rm_dep = self.run_edit(req_rm_dep)
+        self.assertEqual(code_rm_dep, 0)
+        self.assertEqual(res_rm_dep["pipeline"]["pipeline"][1]["depends_on"], [])
+
+    def test_authoring_batch_operations_and_atomic_rollback(self):
+        pipe = {"biz_name": "keyword_match_v1", "models": [], "pipeline": []}
+        req_valid = {
+            "schema_version": 1,
+            "pipeline": pipe,
+            "operations": [
+                {"kind": "add_node", "node_type": "TextTemplateNode", "id": "t1", "config": {"template": "{{primary}}"}},
+                {"kind": "add_node", "node_type": "TextRuleMatchNode", "id": "r1", "config": {"categories": {"K": ["v"]}}},
+                {"kind": "connect", "source": {"node_id": "$ingress", "port": "input_sentences"}, "target": {"node_id": "t1", "port": "primary"}},
+                {"kind": "connect", "source": {"node_id": "t1", "port": "text"}, "target": {"node_id": "r1", "port": "text"}},
+                {"kind": "connect", "source": {"node_id": "r1", "port": "matches"}, "target": {"node_id": "$egress", "port": "rule_matches"}},
+            ],
+            "require_valid": True,
+        }
+        code_valid, res_valid = self.run_edit(req_valid)
+        self.assertEqual(code_valid, 0)
+        self.assertTrue(res_valid["ok"])
+        self.assertTrue(res_valid["validation"]["ok"])
+        self.assertEqual(len(res_valid["pipeline"]["pipeline"]), 2)
+
+        # Failure mid-batch discards changes
+        req_fail = {
+            "schema_version": 1,
+            "pipeline": pipe,
+            "operations": [
+                {"kind": "add_node", "node_type": "TextTemplateNode", "id": "t1"},
+                {"kind": "add_node", "node_type": "InvalidNodeType"},
+                {"kind": "add_node", "node_type": "TextRuleMatchNode", "id": "r1"},
+            ],
+        }
+        code_fail, res_fail = self.run_edit(req_fail)
+        self.assertEqual(code_fail, 1)
+        self.assertFalse(res_fail["ok"])
+        self.assertEqual(res_fail["failed_operation_index"], 1)
+        self.assertNotIn("pipeline", res_fail)
+
+        # Batch limit > 128
+        req_oversize = {
+            "schema_version": 1,
+            "pipeline": pipe,
+            "operations": [{"kind": "add_node", "node_type": "TextTemplateNode"}] * 129,
+        }
+        code_oversize, res_oversize = self.run_edit(req_oversize)
+        self.assertEqual(code_oversize, 1)
+        self.assertFalse(res_oversize["ok"])
+
+    def test_authoring_regression_case_2_key_allocation_no_collision(self):
+        pipe = {"biz_name": "keyword_match_v1", "models": [], "pipeline": []}
+        req = {
+            "schema_version": 1,
+            "pipeline": pipe,
+            "operations": [
+                {"kind": "add_node", "node_type": "TextRuleMatchNode", "id": "foo"},
+                {"kind": "rename_node", "node_id": "foo", "new_id": "bar"},
+                {"kind": "add_node", "node_type": "TextRuleMatchNode", "id": "foo"},
+            ],
+        }
+        code, res = self.run_edit(req)
+        self.assertEqual(code, 0)
+        self.assertTrue(res["ok"])
+        bar_node = res["pipeline"]["pipeline"][0]
+        foo_node = res["pipeline"]["pipeline"][1]
+        self.assertEqual(bar_node["id"], "bar")
+        self.assertEqual(foo_node["id"], "foo")
+        bar_key = bar_node["ports"]["outputs"]["matches"]
+        foo_key = foo_node["ports"]["outputs"]["matches"]
+        self.assertNotEqual(bar_key, foo_key, "Allocated keys must not collide with retained keys")
+
+    def test_fix_deps_cli_preview_and_inplace_and_idempotent(self):
+        pipe = json.loads((ROOT / "configs" / "pipeline_doc_qa_default.json").read_text())
+        # Remove dependency from node 2
+        pipe["pipeline"][2]["depends_on"] = []
+        with tempfile.TemporaryDirectory() as td:
+            fpath = Path(td) / "pipeline_missing_dep.json"
+            fpath.write_text(json.dumps(pipe, indent=2))
+
+            # Preview mode: written is false, file unchanged
+            proc_prev = subprocess.run(
+                [str(PIPELINE_TOOL), "fix-deps", str(fpath)],
+                capture_output=True,
+                text=True,
+                cwd=ROOT,
+                check=False,
+            )
+            self.assertEqual(proc_prev.returncode, 0)
+            res_prev = json.loads(proc_prev.stdout)
+            self.assertTrue(res_prev["ok"])
+            self.assertFalse(res_prev["written"])
+            self.assertEqual(len(res_prev["changes"]), 1)
+            self.assertEqual(res_prev["changes"][0]["action"], "add_dependency")
+            self.assertEqual(
+                json.loads(fpath.read_text())["pipeline"][2]["depends_on"], []
+            )
+
+            # In-place mode: written is true, file updated
+            proc_fix = subprocess.run(
+                [str(PIPELINE_TOOL), "fix-deps", str(fpath), "--in-place"],
+                capture_output=True,
+                text=True,
+                cwd=ROOT,
+                check=False,
+            )
+            self.assertEqual(proc_fix.returncode, 0)
+            res_fix = json.loads(proc_fix.stdout)
+            self.assertTrue(res_fix["ok"])
+            self.assertTrue(res_fix["written"])
+            fixed_pipe = json.loads(fpath.read_text())
+            self.assertEqual(
+                fixed_pipe["pipeline"][2]["depends_on"], ["node_0_TextChunkNode"]
+            )
+
+            # Repeated in-place mode: idempotent, written is false, changes empty
+            proc_idem = subprocess.run(
+                [str(PIPELINE_TOOL), "fix-deps", str(fpath), "--in-place"],
+                capture_output=True,
+                text=True,
+                cwd=ROOT,
+                check=False,
+            )
+            self.assertEqual(proc_idem.returncode, 0)
+            res_idem = json.loads(proc_idem.stdout)
+            self.assertTrue(res_idem["ok"])
+            self.assertFalse(res_idem["written"])
+            self.assertEqual(len(res_idem["changes"]), 0)
+
+            # Symlink rejected
+            link_path = Path(td) / "symlink.json"
+            link_path.symlink_to(fpath)
+            proc_link = subprocess.run(
+                [str(PIPELINE_TOOL), "fix-deps", str(link_path)],
+                capture_output=True,
+                text=True,
+                cwd=ROOT,
+                check=False,
+            )
+            self.assertEqual(proc_link.returncode, 1)
+            res_link = json.loads(proc_link.stdout)
+            self.assertFalse(res_link["ok"])
+            self.assertIn("SYMLINK_REJECTED", res_link["diagnostics"][0]["message"])
+
+    def test_studio_authoring_preview_endpoint(self):
+        pipe = {"biz_name": "keyword_match_v1", "models": [], "pipeline": []}
+        res = self.service.preview_authoring(
+            pipe,
+            operation={"kind": "add_node", "node_type": "TextRuleMatchNode", "id": "n1"},
+            expected_revision=SHOW.revision_for(json.dumps(pipe, sort_keys=True).encode()),
+            tool_fingerprint=self.service.get_tool_fingerprint(),
+        )
+        self.assertTrue(res["ok"])
+        self.assertIn("revision", res)
+        self.assertIn("tool_fingerprint", res)
+        self.assertEqual(res["pipeline"]["pipeline"][0]["id"], "n1")
+
+        # Stale revision conflict
+        with self.assertRaises(SHOW.StudioError) as ctx:
+            self.service.preview_authoring(
+                pipe,
+                operation={"kind": "add_node", "node_type": "TextRuleMatchNode"},
+                expected_revision="wrong_rev",
+                tool_fingerprint=self.service.get_tool_fingerprint(),
+            )
+        self.assertEqual(ctx.exception.code, "REVISION_CONFLICT")
+
+    def test_studio_authoring_requires_current_revision_and_tool(self):
+        revision = SHOW.revision_for(json.dumps(self.keyword, sort_keys=True).encode())
+        fingerprint = self.service.get_tool_fingerprint()
+        for expected, tool, error in [
+            (None, fingerprint, "REVISION_CONFLICT"),
+            (revision, None, "TOOL_OUTDATED"),
+            (revision, "outdated", "TOOL_OUTDATED"),
+        ]:
+            with self.subTest(revision=expected, fingerprint=tool):
+                with mock.patch.object(self.service, "invoke_tool") as invoke:
+                    with self.assertRaises(SHOW.StudioError) as ctx:
+                        self.service.preview_authoring(
+                            self.keyword, operation={"kind": "add_node", "node_type": "TextTemplateNode"},
+                            expected_revision=expected, tool_fingerprint=tool,
+                        )
+                    self.assertEqual(ctx.exception.code, error)
+                    invoke.assert_not_called()
+
+    def test_studio_preflight_independent_summary(self):
+        preflight_res = self.service.preflight(
+            self.keyword,
+            profile_name="keyword_match_rules",
+        )
+        self.assertTrue(preflight_res["ok"])
+        summary = preflight_res["summary"]
+        self.assertEqual(summary["biz_name"], "keyword_match_v1")
+        self.assertIn("tools", summary)
+        self.assertIn("pipeline_snapshot", summary)
+        self.assertIn("status", summary)
+        # Verify no user file was written
+        self.assertFalse((self.configs / "pipeline_preflight_leak.json").exists())
+
+    def associated_doc_qa(self):
+        pipeline = json.loads((ROOT / "configs" / "pipeline_doc_qa_cpu.json").read_text())
+        conf = json.loads((ROOT / "configs" / "pipeline_doc_qa_cpu.conf").read_text())
+        pipeline_path = self.configs / "pipeline_associated.json"
+        conf_path = self.configs / "pipeline_associated.conf"
+        conf["data"]["pipe_path"] = str(pipeline_path.relative_to(ROOT))
+        for model_id in conf["data"]["model_paths"]:
+            conf["data"]["model_paths"][model_id] = "models/deployed_" + model_id
+        conf["data"]["outputs"]["doc_out"]["capacities"]["answer_text"] = 2047
+        pipeline_path.write_text(json.dumps(pipeline))
+        conf_path.write_text(json.dumps(conf))
+        self.service.associate_deployment(pipeline_path.name, conf_path.name)
+        return pipeline, conf, pipeline_path, conf_path
+
+    def test_associated_preflight_run_and_save_share_candidate(self):
+        pipeline, original_conf, path, conf_path = self.associated_doc_qa()
+        pipeline["models"][0]["model_path"] = "selected_A.onnx"
+        model_id = pipeline["models"][0]["model_id"]
+        actions = {model_id: {"path": "selected_A.onnx", "action": "select_asset"}}
+        expected = copy.deepcopy(original_conf)
+        expected["data"]["model_paths"][model_id] = "models/selected_A.onnx"
+        # Spy on real native resolution so this checks exactly what preflight resolves.
+        resolved_candidates = []
+        resolve = self.service.resolve_run_conf
+
+        def capture_resolve(conf_file, profile):
+            resolved_candidates.append(json.loads(Path(conf_file).read_text()))
+            return resolve(conf_file, profile)
+
+        with mock.patch.object(self.service, "resolve_run_conf", side_effect=capture_resolve):
+            preview = self.service.preflight(
+                pipeline, filename=path.name, model_path_actions=actions,
+            )
+        self.assertTrue(preview["ok"], preview)
+        self.assertEqual(len(resolved_candidates), 1)
+        with mock.patch.object(SHOW.threading, "Thread") as thread:
+            self.service.start_run(pipeline, "doc_qa_cpu", filename=path.name,
+                                   model_path_actions=actions)
+            args = thread.call_args.kwargs["args"]
+            run_profile, run_conf = args[2], args[3]
+        self.assertEqual(run_profile["biz"], "doc_qa")
+        self.service.save_pipeline(
+            path.name, pipeline, SHOW.revision_for(path.read_bytes()),
+            model_path_actions=actions,
+        )
+        saved = json.loads(conf_path.read_text())
+        for candidate in [resolved_candidates[0], run_conf, saved]:
+            with self.subTest(candidate=candidate):
+                candidate = copy.deepcopy(candidate)
+                candidate["data"]["pipe_path"] = expected["data"]["pipe_path"]
+                self.assertEqual(candidate, expected)
+
+    def test_associated_raw_model_edit_requires_explicit_override_intent(self):
+        pipeline, conf, path, _ = self.associated_doc_qa()
+        model = pipeline["models"][0]
+        model["model_path"] = "raw_edit.onnx"
+        with self.assertRaises(SHOW.StudioError) as ctx:
+            self.service.deployment_candidate(pipeline, filename=path.name)
+        self.assertEqual(ctx.exception.code, "DEPLOYMENT_PATH_INTENT_REQUIRED")
+        _, candidate = self.service.deployment_candidate(
+            pipeline, filename=path.name,
+            model_path_actions={model["model_id"]: {"path": model["model_path"],
+                                                   "action": "preserve_override"}},
+        )
+        self.assertEqual(candidate["data"]["model_paths"], conf["data"]["model_paths"])
+        self.assertEqual(candidate["data"]["outputs"], conf["data"]["outputs"])
+
+    def test_associated_new_model_does_not_invent_deployment_override(self):
+        pipeline, conf, path, _ = self.associated_doc_qa()
+        new_model = copy.deepcopy(pipeline["models"][0])
+        new_model.update(model_id="new_model", model_path="new.onnx")
+        pipeline["models"].append(new_model)
+        _, candidate = self.service.deployment_candidate(pipeline, filename=path.name)
+        self.assertEqual(candidate["data"]["model_paths"], conf["data"]["model_paths"])
+
+    def test_associated_external_file_changes_block_candidate_and_save(self):
+        for changed_name in ["pipeline", "conf"]:
+            with self.subTest(changed=changed_name):
+                pipeline, _, path, conf_path = self.associated_doc_qa()
+                revision = SHOW.revision_for(path.read_bytes())
+                changed = path if changed_name == "pipeline" else conf_path
+                changed.write_bytes(changed.read_bytes() + b"\n")
+                originals = (path.read_bytes(), conf_path.read_bytes())
+                with self.assertRaises(SHOW.StudioError) as ctx:
+                    self.service.deployment_candidate(pipeline, filename=path.name)
+                self.assertEqual(ctx.exception.code, "REVISION_CONFLICT")
+                with self.assertRaises(SHOW.StudioError) as ctx:
+                    self.service.save_pipeline(path.name, pipeline, revision)
+                self.assertEqual(ctx.exception.code, "REVISION_CONFLICT")
+                self.assertEqual((path.read_bytes(), conf_path.read_bytes()), originals)
+
+    def test_studio_deployment_associate_and_partial_override_update(self):
+        # Create pipeline in configs
+        pipe_path = self.configs / "pipeline_doc_qa_assoc.json"
+        doc_qa_pipe = json.loads((ROOT / "configs" / "pipeline_doc_qa_cpu.json").read_text())
+        pipe_path.write_text(json.dumps(doc_qa_pipe, indent=2))
+
+        # Create conf in configs pointing to this pipeline
+        conf_path = self.configs / "pipeline_doc_qa_assoc.conf"
+        doc_qa_conf = json.loads((ROOT / "configs" / "pipeline_doc_qa_cpu.conf").read_text())
+        doc_qa_conf["data"]["pipe_path"] = str(pipe_path.relative_to(ROOT))
+        conf_path.write_text(json.dumps(doc_qa_conf, indent=2))
+
+        # Associate
+        assoc_res = self.service.associate_deployment(
+            "pipeline_doc_qa_assoc.json", "pipeline_doc_qa_assoc.conf"
+        )
+        self.assertTrue(assoc_res["ok"])
+        self.assertEqual(assoc_res["conf_name"], "pipeline_doc_qa_assoc.conf")
+        self.assertIn("pipeline_doc_qa_assoc.conf", self.service.save_targets(pipe_path))
+
+        # Now update pipeline models and save
+        modified_pipe = copy.deepcopy(doc_qa_pipe)
+        # Update model_path of first model
+        modified_pipe["models"][0]["model_path"] = "new_embed_model.onnx"
+        pipe_raw = pipe_path.read_bytes()
+        pipe_rev = SHOW.revision_for(pipe_raw)
+
+        save_res = self.service.save_pipeline(
+            "pipeline_doc_qa_assoc.json", modified_pipe, pipe_rev, save_as=False,
+            model_path_actions={modified_pipe["models"][0]["model_id"]: {
+                "path": "new_embed_model.onnx", "action": "select_asset"}},
+        )
+        self.assertTrue(save_res["ok"])
+
+        # Verify conf was updated with modified model_path override
+        updated_conf = json.loads(conf_path.read_text())
+        self.assertEqual(
+            updated_conf["data"]["model_paths"][modified_pipe["models"][0]["model_id"]],
+            "models/new_embed_model.onnx",
+        )
+        # Verify non-model conf settings preserved
+        self.assertIn("doc_out", updated_conf["data"]["outputs"])
+
+    def test_authoring_oversized_payload_rejection_4mib(self):
+        pipe = {"biz_name": "keyword_match_v1", "models": [], "pipeline": []}
+        large_comment = "x" * (4 * 1024 * 1024 + 100)
+        req = {
+            "schema_version": 1,
+            "pipeline": pipe,
+            "operation": {"kind": "add_node", "node_type": "TextRuleMatchNode"},
+            "comment": large_comment,
+        }
+        code, res = self.run_edit(req)
+        self.assertEqual(code, 1)
+        self.assertFalse(res["ok"])
+        self.assertIn("REQUEST_TOO_LARGE", res["diagnostics"][0]["message"])
+
+    def test_authoring_reserved_node_ids_rejected(self):
+        pipe = {"biz_name": "keyword_match_v1", "models": [], "pipeline": []}
+        req_add_ingress = {
+            "schema_version": 1,
+            "pipeline": pipe,
+            "operation": {"kind": "add_node", "node_type": "TextRuleMatchNode", "id": "$ingress"},
+        }
+        code1, res1 = self.run_edit(req_add_ingress)
+        self.assertEqual(code1, 1)
+        self.assertFalse(res1["ok"])
+        self.assertIn("RESERVED_NODE_ID", res1["diagnostics"][0]["message"])
+
+        pipe2 = {
+            "biz_name": "keyword_match_v1",
+            "models": [],
+            "pipeline": [
+                {"id": "node_a", "node_type": "TextRuleMatchNode", "depends_on": [], "ports": {"inputs": {}, "outputs": {}}, "config": {}}
+            ],
+        }
+        req_rename_egress = {
+            "schema_version": 1,
+            "pipeline": pipe2,
+            "operation": {"kind": "rename_node", "node_id": "node_a", "new_id": "$egress"},
+        }
+        code2, res2 = self.run_edit(req_rename_egress)
+        self.assertEqual(code2, 1)
+        self.assertFalse(res2["ok"])
+        self.assertIn("RESERVED_NODE_ID", res2["diagnostics"][0]["message"])
+
+    def test_authoring_disconnect_implicit_bindings(self):
+        # Implicit node-to-node binding: rule requires text, omitted in ports.inputs
+        pipe = {
+            "biz_name": "keyword_match_v1",
+            "models": [],
+            "pipeline": [
+                {
+                    "id": "tpl",
+                    "node_type": "TextTemplateNode",
+                    "depends_on": [],
+                    "ports": {"inputs": {}, "outputs": {"text": "text"}},
+                    "config": {"template": "{{primary}}"},
+                },
+                {
+                    "id": "rule",
+                    "node_type": "TextRuleMatchNode",
+                    "depends_on": ["tpl"],
+                    "ports": {"inputs": {}, "outputs": {}},
+                    "config": {},
+                },
+            ],
+        }
+        req_disc = {
+            "schema_version": 1,
+            "pipeline": pipe,
+            "operation": {
+                "kind": "disconnect",
+                "source": {"node_id": "tpl", "port": "text"},
+                "target": {"node_id": "rule", "port": "text"},
+            },
+        }
+        code, res = self.run_edit(req_disc)
+        self.assertEqual(code, 0)
+        self.assertTrue(res["ok"])
+        rule = res["pipeline"]["pipeline"][1]
+        self.assertEqual(rule["depends_on"], ["tpl"])
+        self.assertIn("__unconnected__text", rule["ports"]["inputs"]["text"])
+
+        # Ingress disconnect
+        pipe_ing = {
+            "biz_name": "keyword_match_v1",
+            "models": [],
+            "pipeline": [
+                {
+                    "id": "rule",
+                    "node_type": "TextRuleMatchNode",
+                    "depends_on": [],
+                    "ports": {"inputs": {"text": "input_sentences"}, "outputs": {}},
+                    "config": {},
+                }
+            ],
+        }
+        req_ing_disc = {
+            "schema_version": 1,
+            "pipeline": pipe_ing,
+            "operation": {
+                "kind": "disconnect",
+                "source": {"node_id": "$ingress", "port": "input_sentences"},
+                "target": {"node_id": "rule", "port": "text"},
+            },
+        }
+        code_ing, res_ing = self.run_edit(req_ing_disc)
+        self.assertEqual(code_ing, 0)
+        self.assertTrue(res_ing["ok"])
+        self.assertIn("__unconnected__text", res_ing["pipeline"]["pipeline"][0]["ports"]["inputs"]["text"])
+
+    def test_authoring_disconnect_egress_syncs_implicit_consumers(self):
+        pipe = {
+            "biz_name": "keyword_match_v1",
+            "models": [],
+            "pipeline": [
+                {
+                    "id": "rule",
+                    "node_type": "TextRuleMatchNode",
+                    "depends_on": [],
+                    "ports": {
+                        "inputs": {"text": "input_sentences"},
+                        "outputs": {"matches": "rule_matches"},
+                    },
+                    "config": {},
+                },
+                {
+                    "id": "consumer",
+                    "node_type": "TextRuleMatchNode",
+                    "depends_on": ["rule"],
+                    "ports": {
+                        "inputs": {"text": "rule_matches"},
+                        "outputs": {},
+                    },
+                    "config": {},
+                },
+            ],
+        }
+        req = {
+            "schema_version": 1,
+            "pipeline": pipe,
+            "operation": {
+                "kind": "disconnect",
+                "source": {"node_id": "rule", "port": "matches"},
+                "target": {"node_id": "$egress", "port": "rule_matches"},
+            },
+        }
+        code, res = self.run_edit(req)
+        self.assertEqual(code, 0)
+        self.assertTrue(res["ok"])
+        rule = res["pipeline"]["pipeline"][0]
+        consumer = res["pipeline"]["pipeline"][1]
+        new_key = rule["ports"]["outputs"]["matches"]
+        self.assertNotEqual(new_key, "rule_matches")
+        self.assertEqual(consumer["ports"]["inputs"]["text"], new_key)
+
+    def test_authoring_remove_node_handles_implicit_consumers_and_egress(self):
+        pipe = {
+            "biz_name": "keyword_match_v1",
+            "models": [],
+            "pipeline": [
+                {
+                    "id": "tpl",
+                    "node_type": "TextTemplateNode",
+                    "depends_on": [],
+                    "ports": {"inputs": {}, "outputs": {"text": "tpl_out"}},
+                    "config": {"template": "{{primary}}"},
+                },
+                {
+                    "id": "rule",
+                    "node_type": "TextRuleMatchNode",
+                    "depends_on": ["tpl"],
+                    "ports": {"inputs": {"text": "tpl_out"}, "outputs": {"matches": "rule_matches"}},
+                    "config": {},
+                },
+            ],
+        }
+        req = {
+            "schema_version": 1,
+            "pipeline": pipe,
+            "operation": {"kind": "remove_node", "node_id": "rule"},
+        }
+        code, res = self.run_edit(req)
+        self.assertEqual(code, 0)
+        self.assertTrue(res["ok"])
+        change = res["changes"][0]
+        self.assertIn("$egress", change["affected_nodes"])
+
+    def test_authoring_add_dependency_avoids_redundant_indirect_ancestor(self):
+        pipe = {
+            "biz_name": "keyword_match_v1",
+            "models": [],
+            "pipeline": [
+                {"id": "a", "node_type": "TextRuleMatchNode", "depends_on": [], "ports": {"inputs": {}, "outputs": {}}, "config": {}},
+                {"id": "b", "node_type": "TextRuleMatchNode", "depends_on": ["a"], "ports": {"inputs": {}, "outputs": {}}, "config": {}},
+                {"id": "c", "node_type": "TextRuleMatchNode", "depends_on": ["b"], "ports": {"inputs": {}, "outputs": {}}, "config": {}},
+            ],
+        }
+        # Adding c depends on a: a is already an indirect ancestor of c via b
+        req = {
+            "schema_version": 1,
+            "pipeline": pipe,
+            "operation": {"kind": "add_dependency", "node_id": "c", "depends_on_id": "a"},
+        }
+        code, res = self.run_edit(req)
+        self.assertEqual(code, 0)
+        self.assertTrue(res["ok"])
+        c_node = res["pipeline"]["pipeline"][2]
+        self.assertEqual(c_node["depends_on"], ["b"])
+
+    def test_fix_deps_fails_closed_on_ambiguity_and_cycles(self):
+        with tempfile.TemporaryDirectory() as td:
+            # Ambiguity: two nodes output the same key 'tpl_out'
+            ambig_pipe = {
+                "biz_name": "keyword_match_v1",
+                "models": [],
+                "pipeline": [
+                    {"id": "a1", "node_type": "TextTemplateNode", "depends_on": [], "ports": {"inputs": {}, "outputs": {"text": "tpl_out"}}, "config": {"template": "1"}},
+                    {"id": "a2", "node_type": "TextTemplateNode", "depends_on": [], "ports": {"inputs": {}, "outputs": {"text": "tpl_out"}}, "config": {"template": "2"}},
+                    {"id": "b", "node_type": "TextRuleMatchNode", "depends_on": [], "ports": {"inputs": {"text": "tpl_out"}, "outputs": {}}, "config": {}},
+                ],
+            }
+            f_ambig = Path(td) / "ambig.json"
+            f_ambig.write_text(json.dumps(ambig_pipe, indent=2))
+            proc_ambig = subprocess.run(
+                [str(PIPELINE_TOOL), "fix-deps", str(f_ambig), "--in-place"],
+                capture_output=True,
+                text=True,
+                cwd=ROOT,
+                check=False,
+            )
+            self.assertEqual(proc_ambig.returncode, 1)
+            res_ambig = json.loads(proc_ambig.stdout)
+            self.assertFalse(res_ambig["ok"])
+            self.assertIn("AMBIGUOUS_PRODUCER", res_ambig["diagnostics"][0]["message"])
+            self.assertEqual(json.loads(f_ambig.read_text()), ambig_pipe)
+
+            # Cycle: a depends on b, b needs a's output
+            cycle_pipe = {
+                "biz_name": "keyword_match_v1",
+                "models": [],
+                "pipeline": [
+                    {"id": "a", "node_type": "TextTemplateNode", "depends_on": ["b"], "ports": {"inputs": {}, "outputs": {"text": "tpl_out"}}, "config": {"template": "1"}},
+                    {"id": "b", "node_type": "TextRuleMatchNode", "depends_on": [], "ports": {"inputs": {"text": "tpl_out"}, "outputs": {}}, "config": {}},
+                ],
+            }
+            f_cycle = Path(td) / "cycle.json"
+            f_cycle.write_text(json.dumps(cycle_pipe, indent=2))
+            proc_cycle = subprocess.run(
+                [str(PIPELINE_TOOL), "fix-deps", str(f_cycle), "--in-place"],
+                capture_output=True,
+                text=True,
+                cwd=ROOT,
+                check=False,
+            )
+            self.assertEqual(proc_cycle.returncode, 1)
+            res_cycle = json.loads(proc_cycle.stdout)
+            self.assertFalse(res_cycle["ok"])
+            self.assertIn("CYCLE_DETECTED", res_cycle["diagnostics"][0]["message"])
+            self.assertEqual(json.loads(f_cycle.read_text()), cycle_pipe)
+
 
 if __name__ == "__main__":
     unittest.main()

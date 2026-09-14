@@ -48,6 +48,7 @@ _SELECTION_SPEC.loader.exec_module(SELECTION)
 MANAGED_NAME = re.compile(r"^pipeline_[a-z0-9_]+\.json$")
 MAX_LOG_BYTES = 2 * 1024 * 1024
 MAX_DOCUMENT_BYTES = 4 * 1024 * 1024
+_AUTHORING_UNSET = object()
 
 
 class StudioError(RuntimeError):
@@ -249,10 +250,14 @@ class WorkbenchService:
                     "revision": revision_for(raw),
                 }
             )
-        return json_result(True, pipelines=items)
+        confs = [p.name for p in sorted(self.config_root.glob("*.conf")) if p.is_file()]
+        return json_result(True, pipelines=items, deployments=confs)
 
     def save_targets(self, path: Path) -> list[str]:
-        return [path.name, path.with_suffix(".conf").name] if path.name in self.generated_solutions else [path.name]
+        if path.name in self.generated_solutions:
+            conf_name = self.generated_solutions[path.name].get("conf_name", path.with_suffix(".conf").name)
+            return [path.name, conf_name]
+        return [path.name]
 
     def open_pipeline(self, requested: str) -> dict[str, Any]:
         path = self.managed_path(requested, must_exist=True)
@@ -267,7 +272,16 @@ class WorkbenchService:
             revision=revision_for(raw),
             save_targets=self.save_targets(path),
             pipeline=pipeline,
+            deployment=self.deployment_info(path.name),
         )
+
+    def deployment_info(self, filename: str) -> dict[str, Any] | None:
+        managed = self.generated_solutions.get(filename)
+        if not managed:
+            return None
+        return {"conf_name": managed["conf_path"].name,
+                "conf_revision": managed["conf_revision"],
+                "model_root": managed["model_root"]}
 
     def invoke_tool(
         self, command: list[str], pipeline: Any | None = None
@@ -356,6 +370,8 @@ class WorkbenchService:
                 "PATCH_APPLICATION_FAILED", f"补丁应用失败: {error}"
             ) from error
         report = self.validate(patched, explain=True)
+        if current_fp != self.get_tool_fingerprint():
+            raise StudioError("TOOL_OUTDATED", "修复预览期间工具已更新，请重新校验", 409)
         return json_result(
             True,
             patched=patched,
@@ -365,6 +381,46 @@ class WorkbenchService:
             ),
             tool_fingerprint=current_fp,
         )
+
+    def preview_authoring(
+        self,
+        pipeline: Any,
+        operation: Any = _AUTHORING_UNSET,
+        operations: Any = _AUTHORING_UNSET,
+        require_valid: bool = False,
+        expected_revision: str | None = None,
+        tool_fingerprint: str | None = None,
+    ) -> dict[str, Any]:
+        if not expected_revision:
+            raise StudioError("REVISION_CONFLICT", "必须指定预期修订版本，草稿可能已变更", 409)
+        raw = json.dumps(pipeline, sort_keys=True).encode("utf-8")
+        if revision_for(raw) != expected_revision:
+            raise StudioError("REVISION_CONFLICT", "草稿已变更，操作失效", 409)
+        current_fp = self.get_tool_fingerprint()
+        if not tool_fingerprint or current_fp != tool_fingerprint:
+            raise StudioError("TOOL_OUTDATED", "操作期间工具已更新，请重新加载", 409)
+
+        req: dict[str, Any] = {
+            "schema_version": 1,
+            "pipeline": pipeline,
+            "require_valid": require_valid,
+        }
+        if operations is not _AUTHORING_UNSET:
+            req["operations"] = operations
+        if operation is not _AUTHORING_UNSET:
+            req["operation"] = operation
+
+        res = self.invoke_tool(["edit", "--stdin"], req)
+        if self.get_tool_fingerprint() != current_fp:
+            raise StudioError("TOOL_OUTDATED", "操作期间工具已更新，请重新加载", 409)
+        if isinstance(res, dict):
+            res["tool_fingerprint"] = current_fp
+            if res.get("pipeline"):
+                res["revision"] = revision_for(
+                    json.dumps(res["pipeline"], sort_keys=True).encode("utf-8")
+                )
+        return res
+
 
     def init_pipeline(
         self, biz: str, profile: str = "", empty: bool = False
@@ -382,13 +438,16 @@ class WorkbenchService:
         pipeline: Any,
         expected_revision: str | None,
         save_as: bool = False,
+        profile_name: str = "",
+        model_root: str = "models",
+        model_path_actions: Any = None,
     ) -> dict[str, Any]:
         report = self.validate(pipeline)
         if not report.get("ok"):
             raise StudioError("VALIDATION_FAILED", json.dumps(report, ensure_ascii=False))
         path = self.managed_path(requested)
         if not save_as and path.name in self.generated_solutions:
-            return self.update_solution(path, pipeline, expected_revision)
+            return self.update_solution(path, pipeline, expected_revision, profile_name, model_root, model_path_actions)
         if path.exists() and not save_as:
             current = revision_for(path.read_bytes())
             if not expected_revision or current != expected_revision:
@@ -420,6 +479,7 @@ class WorkbenchService:
             revision=revision_for(encoded),
             save_targets=self.save_targets(path),
             pipeline=pipeline,
+            deployment=self.deployment_info(path.name),
         )
 
     def check_unmanaged_deployment(self, path: Path, pipeline: Any) -> None:
@@ -450,10 +510,12 @@ class WorkbenchService:
                 409,
             )
 
-    def update_solution(self, path: Path, pipeline: Any, expected_revision: str | None) -> dict[str, Any]:
+    def update_solution(self, path: Path, pipeline: Any, expected_revision: str | None,
+                        profile_name: str = "", model_root: str = "models",
+                        model_path_actions: Any = None) -> dict[str, Any]:
         with self.solution_lock:
             managed = self.generated_solutions[path.name]
-            conf_path = path.with_suffix(".conf")
+            conf_path = managed.get("conf_path") or path.with_suffix(".conf")
 
             def check_revisions() -> tuple[bytes, bytes]:
                 if path.is_symlink() or conf_path.is_symlink() or not path.is_file() or not conf_path.is_file():
@@ -464,9 +526,10 @@ class WorkbenchService:
                 return raw, conf_raw
 
             old_json, _ = check_revisions()
-            profile = managed["profile"]
+            profile, conf = self.deployment_candidate(
+                pipeline, profile_name, model_root, path.name,
+                model_path_actions=model_path_actions)
             encoded = (json.dumps(pipeline, ensure_ascii=False, indent=2) + "\n").encode()
-            conf = self.run_conf(pipeline, managed["outputs"], path, managed["model_root"])
             conf_encoded = (json.dumps(conf, ensure_ascii=False, indent=2) + "\n").encode()
             staging = Path(tempfile.mkdtemp(prefix=".studio-save-", dir=self.config_root))
             preserve_backup = False
@@ -475,8 +538,11 @@ class WorkbenchService:
                 staged_conf = staging / "pipeline.conf"
                 backup_json = staging / "previous.json"
                 staged_json.write_bytes(encoded)
-                staged_conf.write_text(json.dumps(self.run_conf(pipeline, managed["outputs"], staged_json, managed["model_root"])))
+                staged_conf_data = copy.deepcopy(conf)
+                staged_conf_data["data"]["pipe_path"] = str(staged_json.relative_to(PROJECT_ROOT))
+                staged_conf.write_text(json.dumps(staged_conf_data, ensure_ascii=False, indent=2))
                 configuration = self.resolve_run_conf(staged_conf, profile)
+
                 # Native validation used the staged JSON; installed paths have
                 # the same model mappings and normalized node configuration.
                 configuration["conf_path"] = str(conf_path)
@@ -495,6 +561,9 @@ class WorkbenchService:
                         raise StudioError("SAVE_ROLLBACK_FAILED", f"保存失败，旧 JSON 备份保留在 {backup_json}: {rollback_error}", 500) from rollback_error
                     raise
                 managed["conf_revision"] = revision_for(conf_encoded)
+                managed["pipeline_revision"] = revision_for(encoded)
+                managed["profile"] = profile
+                managed["model_root"] = model_root
                 return self.solution_result(path, pipeline, conf, encoded, profile, managed["model_root"], configuration)
             except StudioError:
                 raise
@@ -543,6 +612,71 @@ class WorkbenchService:
         except (ValueError, TypeError, KeyError) as error:
             raise StudioError("INVALID_DEPLOYMENT_PATH", str(error)) from error
 
+    def deployment_candidate(
+        self, pipeline: Any, profile_name: str = "", model_root: str = "models",
+        filename: str = "", conf_name: str = "", model_path_actions: Any = None,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Build one deployment snapshot shared by preview, run and save."""
+        models = {m["model_id"]: m for m in pipeline.get("models", [])}
+        actions = {} if model_path_actions is None else model_path_actions
+        if not isinstance(actions, dict):
+            raise StudioError("INVALID_MODEL_PATH_ACTION", "模型路径选择必须是对象")
+        for mid, choice in actions.items():
+            if (mid not in models or not isinstance(choice, dict)
+                    or set(choice) != {"path", "action"}
+                    or not isinstance(choice["path"], str)
+                    or choice["path"] != models[mid].get("model_path")
+                    or choice["action"] not in ("select_asset", "preserve_override")):
+                raise StudioError("INVALID_MODEL_PATH_ACTION", f"模型 {mid} 的路径选择无效或已过期")
+        if conf_name:
+            requested_conf = self.managed_conf_path(conf_name, must_exist=True)
+            if not filename:
+                matches = [name for name, info in self.generated_solutions.items()
+                           if info["conf_path"] == requested_conf]
+                if len(matches) != 1:
+                    raise StudioError("DEPLOYMENT_NOT_ASSOCIATED", "请先明确关联当前方案与部署配置")
+                filename = matches[0]
+        managed = None
+        path = None
+        if filename:
+            path = self.managed_path(filename)
+            managed = self.generated_solutions.get(path.name)
+        if conf_name and (not managed or managed["conf_path"] != requested_conf):
+            raise StudioError("DEPLOYMENT_NOT_ASSOCIATED", "部署配置未关联到当前方案")
+        if not managed:
+            profile, outputs = self.profile_inputs(pipeline, profile_name)
+            return profile, self.run_conf(pipeline, outputs, path or PROJECT_ROOT / "build/pipeline.json", model_root)
+        conf_path = managed["conf_path"]
+        if (path.is_symlink() or conf_path.is_symlink()
+                or not path.is_file() or not conf_path.is_file()):
+            raise StudioError("REVISION_CONFLICT", "配套 JSON 或 .conf 已被替换或删除，请重新关联", 409)
+        raw, conf_raw = path.read_bytes(), conf_path.read_bytes()
+        if (revision_for(raw) != managed["pipeline_revision"]
+                or revision_for(conf_raw) != managed["conf_revision"]):
+            raise StudioError("REVISION_CONFLICT", "配套 JSON 或 .conf 已被其他编辑器修改，请重新关联", 409)
+        original = json.loads(raw)
+        if original.get("biz_name") != pipeline.get("biz_name"):
+            raise StudioError("DEPLOYMENT_MISMATCH", "已关联方案不能改变业务契约，请另存方案")
+        profile = self.profile_inputs(pipeline, profile_name)[0] if profile_name else copy.deepcopy(managed["profile"])
+        conf = json.loads(conf_raw)
+        overrides = copy.deepcopy(conf["data"].get("model_paths", {}))
+        old_models = {m["model_id"]: m for m in original.get("models", [])}
+        for mid in list(overrides):
+            if mid not in models:
+                del overrides[mid]
+        for mid, model in models.items():
+            choice = actions.get(mid)
+            if choice and choice["action"] == "select_asset":
+                selected = self.run_conf({"models": [model]}, {}, path, model_root)
+                overrides[mid] = selected["data"]["model_paths"][mid]
+            elif (not choice and mid in overrides and mid in old_models
+                  and model.get("model_path") != old_models[mid].get("model_path")):
+                raise StudioError("DEPLOYMENT_PATH_INTENT_REQUIRED",
+                                  f"模型 {mid} 的路径已改变，请明确选择保留部署覆盖或采用新资产路径", 409)
+        if "model_paths" in conf["data"] or overrides:
+            conf["data"]["model_paths"] = overrides
+        return profile, conf
+
     def resolve_run_conf(self, conf_path: Path, profile: dict[str, Any]) -> dict[str, Any]:
         depth = max(int(profile.get("batch_size", 1)), int(profile.get("depth", 1)))
         report = self.invoke_tool(["resolve-conf", str(conf_path.relative_to(PROJECT_ROOT)), "--root", str(PROJECT_ROOT), "--depth", str(depth)])
@@ -571,8 +705,8 @@ class WorkbenchService:
                 raise StudioError("SYMLINK_REJECTED", "拒绝写入符号链接方案")
             if target.exists():
                 raise StudioError("FILE_EXISTS", f"另存目标已存在：{target.name}", 409)
-        profile, outputs = self.profile_inputs(pipeline, profile_name)
-        conf = self.run_conf(pipeline, outputs, path, model_root)
+        profile, conf = self.deployment_candidate(pipeline, profile_name, model_root, path.name)
+        outputs = conf["data"]["outputs"]
         encoded = (json.dumps(pipeline, ensure_ascii=False, indent=2) + "\n").encode()
         conf_encoded = (json.dumps(conf, ensure_ascii=False, indent=2) + "\n").encode()
         created = []
@@ -596,28 +730,243 @@ class WorkbenchService:
             raise StudioError("SAVE_FAILED", str(error), 500) from error
         self.generated_solutions[path.name] = {
             "profile": profile, "outputs": outputs, "model_root": model_root,
+            "conf_path": conf_path, "conf_name": conf_path.name,
+            "pipeline_revision": revision_for(encoded),
             "conf_revision": revision_for(conf_encoded),
         }
         return self.solution_result(path, pipeline, conf, encoded, profile, model_root, configuration)
 
     def solution_result(self, path: Path, pipeline: Any, conf: Any, encoded: bytes, profile: dict[str, Any], model_root: str, configuration: Any) -> dict[str, Any]:
-        conf_path = path.with_suffix(".conf")
-        command = self.demo_command(profile, conf_path.relative_to(PROJECT_ROOT), PROJECT_ROOT / "output" / path.stem)
+        conf_path = self.generated_solutions.get(path.name, {}).get("conf_path") or path.with_suffix(".conf")
+        command_str = ""
+        if profile and profile.get("dataset"):
+            command = self.demo_command(profile, conf_path.relative_to(PROJECT_ROOT), PROJECT_ROOT / "output" / path.stem)
+            command_str = f"cd {shlex.quote(str(PROJECT_ROOT))} && {shlex.join(command)}"
         return json_result(
             True, filename=path.name, conf_filename=conf_path.name, revision=revision_for(encoded),
             pipeline=pipeline, conf=conf, model_root=model_root, configuration=configuration,
             save_targets=self.save_targets(path),
-            command=f"cd {shlex.quote(str(PROJECT_ROOT))} && {shlex.join(command)}",
+            command=command_str,
+            deployment=self.deployment_info(path.name),
         )
 
-    def start_run(self, pipeline: Any, profile_name: str, model_root: str = "models") -> dict[str, Any]:
+    def managed_conf_path(self, requested: str, must_exist: bool = False) -> Path:
+        path = Path(requested)
+        if path.is_absolute() or len(path.parts) not in (1, 2):
+            raise StudioError("INVALID_DEPLOYMENT_PATH", "只允许 configs 下的部署配置")
+        if len(path.parts) == 2 and path.parts[0] != "configs":
+            raise StudioError("INVALID_DEPLOYMENT_PATH", "路径必须位于 configs 目录")
+        filename = path.name
+        if not re.fullmatch(r"^pipeline_[a-z0-9_]+\.conf$", filename):
+            raise StudioError(
+                "INVALID_DEPLOYMENT_NAME",
+                "文件名必须匹配 pipeline_[a-z0-9_]+.conf",
+            )
+        candidate = self.config_root / filename
+        if candidate.exists() or candidate.is_symlink():
+            if candidate.is_symlink():
+                raise StudioError("SYMLINK_REJECTED", "拒绝读写符号链接部署配置")
+            if candidate.resolve().parent != self.config_root:
+                raise StudioError("PATH_ESCAPE", "部署配置路径逃逸 configs 目录")
+        elif must_exist:
+            raise StudioError("DEPLOYMENT_NOT_FOUND", filename, 404)
+        return candidate
+
+    def associate_deployment(
+        self, pipeline_name: str, conf_name: str, model_root: str = "models",
+        profile_name: str = "",
+    ) -> dict[str, Any]:
+        pipe_path = self.managed_path(pipeline_name, must_exist=True)
+        conf_path = self.managed_conf_path(conf_name, must_exist=True)
+
+        pipe_raw = pipe_path.read_bytes()
+        conf_raw = conf_path.read_bytes()
+        try:
+            pipeline = json.loads(pipe_raw)
+            conf = json.loads(conf_raw)
+        except json.JSONDecodeError as error:
+            raise StudioError("INVALID_JSON", str(error)) from error
+
+        if not isinstance(conf, dict) or "data" not in conf or not isinstance(conf["data"], dict):
+            raise StudioError("INVALID_DEPLOYMENT_CONFIG", "部署配置缺少 data 节点")
+
+        pipe_ref = conf["data"].get("pipe_path")
+        if not isinstance(pipe_ref, str):
+            raise StudioError("INVALID_DEPLOYMENT_CONFIG", "部署配置缺少 data.pipe_path")
+
+        report = self.invoke_tool([
+            "resolve-conf",
+            str(conf_path.relative_to(PROJECT_ROOT)),
+            "--root",
+            str(PROJECT_ROOT),
+        ])
+        if not report.get("ok"):
+            raise StudioError("DEPLOYMENT_VALIDATION_FAILED", json.dumps(report, ensure_ascii=False))
+
+        configuration = report.get("configuration", {})
+        resolved_pipe = Path(configuration.get("pipeline_path", "")).resolve()
+        if resolved_pipe != pipe_path.resolve():
+            raise StudioError(
+                "DEPLOYMENT_MISMATCH",
+                f"部署配置指向 {resolved_pipe.name}，与当前方案 {pipe_path.name} 不符",
+                400,
+            )
+
+        if profile_name:
+            prof, _ = self.profile_inputs(pipeline, profile_name)
+        else:
+            prof = None
+            for name in read_json(PROFILE_FILE).get("profiles", {}):
+                try:
+                    prof, _ = self.profile_inputs(pipeline, name)
+                    break
+                except StudioError as error:
+                    if error.code != "PROFILE_MISMATCH":
+                        raise
+            if prof is None:
+                raise StudioError("PROFILE_MISMATCH", "没有与该业务契约匹配的运行 Profile")
+        configuration = self.resolve_run_conf(conf_path, prof)
+        if pipe_path.read_bytes() != pipe_raw or conf_path.read_bytes() != conf_raw:
+            raise StudioError("REVISION_CONFLICT", "关联期间文件已改变，请重新关联", 409)
+
+        with self.solution_lock:
+            self.generated_solutions[pipe_path.name] = {
+                "conf_path": conf_path,
+                "conf_name": conf_path.name,
+                "conf_revision": revision_for(conf_raw),
+                "pipeline_revision": revision_for(pipe_raw),
+                "outputs": conf["data"].get("outputs", {}),
+                "model_root": model_root,
+                "profile": prof,
+                "is_associated": True,
+            }
+
+        return json_result(
+            True,
+            pipeline_name=pipe_path.name,
+            conf_name=conf_path.name,
+            conf_revision=revision_for(conf_raw),
+            save_targets=self.save_targets(pipe_path),
+            configuration=configuration,
+            deployment=self.deployment_info(pipe_path.name),
+        )
+
+    def preflight(
+        self,
+        pipeline: Any,
+        profile_name: str = "",
+        conf_name: str = "",
+        model_root: str = "models",
+        filename: str = "",
+        model_path_actions: Any = None,
+    ) -> dict[str, Any]:
+        report = self.validate(pipeline, explain=True)
+        if not report.get("ok"):
+            return json_result(
+                False,
+                summary={
+                    "status": "validation_failed",
+                    "biz_name": pipeline.get("biz_name", "") if isinstance(pipeline, dict) else "",
+                    "project_root": str(PROJECT_ROOT),
+                    "next_step": "请先修复 Pipeline 校验错误",
+                },
+                validation=report,
+            )
+
+        staging_dir = PROJECT_ROOT / "build" if (PROJECT_ROOT / "build").is_dir() else PROJECT_ROOT
+        staging = Path(tempfile.mkdtemp(prefix=".studio-preflight-", dir=staging_dir))
+        try:
+            staged_pipe = staging / "pipeline.json"
+            staged_pipe.write_text(json.dumps(pipeline, ensure_ascii=False, indent=2))
+            staged_conf = staging / "pipeline.conf"
+
+            if not profile_name and not conf_name and filename not in self.generated_solutions:
+                return json_result(
+                    True,
+                    summary={
+                        "status": "no_deployment_conf",
+                        "biz_name": pipeline.get("biz_name", ""),
+                        "project_root": str(PROJECT_ROOT),
+                        "pipeline_snapshot": {
+                            "node_count": len(pipeline.get("pipeline", [])),
+                            "model_count": len(pipeline.get("models", [])),
+                        },
+                        "next_step": "Pipeline 校验通过。请关联部署配置或选择 Profile 进行部署预检。",
+                    },
+                    validation=report,
+                )
+
+            profile_obj, conf_data = self.deployment_candidate(
+                pipeline, profile_name, model_root, filename, conf_name, model_path_actions)
+            conf_data["data"]["pipe_path"] = str(staged_pipe.relative_to(PROJECT_ROOT))
+            staged_conf.write_text(json.dumps(conf_data, ensure_ascii=False, indent=2))
+            configuration = self.resolve_run_conf(staged_conf, profile_obj)
+
+            assets_status = []
+            all_assets_ready = True
+            for mpath_info in configuration.get("model_paths", []):
+                res_path = Path(mpath_info.get("resolved", ""))
+                status = "missing"
+                if res_path.is_file():
+                    status = "exists_unverified"
+                else:
+                    all_assets_ready = False
+                assets_status.append({
+                    "model_id": mpath_info.get("model_id", ""),
+                    "resolved_path": str(res_path),
+                    "source": mpath_info.get("source", ""),
+                    "status": status,
+                })
+
+            tools_ready = PIPELINE_TOOL.is_file() and DEMO_BINARY.is_file()
+            overall_status = "ready" if (all_assets_ready and tools_ready) else "attention_required"
+
+            next_steps = []
+            if not all_assets_ready:
+                next_steps.append("部分模型资产文件缺失，请检查路径或准备模型。")
+            if not DEMO_BINARY.is_file():
+                next_steps.append("Demo 可执行文件未就绪，请构建 build/alg_demo。")
+            if all_assets_ready and tools_ready:
+                next_steps.append("配置与资源预检通过，可执行运行或成套保存。")
+
+            summary = {
+                "status": overall_status,
+                "biz_name": pipeline.get("biz_name", ""),
+                "project_root": str(PROJECT_ROOT),
+                "pipeline_snapshot": {
+                    "node_count": len(pipeline.get("pipeline", [])),
+                    "model_count": len(pipeline.get("models", [])),
+                },
+                "conf_path": (self.generated_solutions[filename]["conf_path"].name
+                              if filename in self.generated_solutions else conf_name or (profile_name and f"profile:{profile_name}") or ""),
+                "model_paths": configuration.get("model_paths", []),
+                "output_pools": configuration.get("output_pools", {}),
+                "effective_pipeline": configuration.get("effective_pipeline", {}),
+                "assets": assets_status,
+                "tools": {
+                    "alg_pipeline_tool": PIPELINE_TOOL.is_file(),
+                    "alg_demo": DEMO_BINARY.is_file(),
+                },
+                "next_step": " ".join(next_steps) if next_steps else "预检完成",
+            }
+            return json_result(
+                True,
+                summary=summary,
+                configuration=configuration,
+                validation=report,
+            )
+        finally:
+            shutil.rmtree(staging, ignore_errors=True)
+
+
+    def start_run(self, pipeline: Any, profile_name: str, model_root: str = "models",
+                  filename: str = "", conf_name: str = "",
+                  model_path_actions: Any = None) -> dict[str, Any]:
         report = self.validate(pipeline)
         if not report.get("ok"):
             raise StudioError("VALIDATION_FAILED", json.dumps(report, ensure_ascii=False))
-        profile, outputs = self.profile_inputs(pipeline, profile_name)
-        # Check the selected paths before creating a job. The worker only changes
-        # pipe_path to its own temporary document under the same deployment root.
-        conf = self.run_conf(pipeline, outputs, "build/pipeline.json", model_root)
+        profile, conf = self.deployment_candidate(
+            pipeline, profile_name, model_root, filename, conf_name, model_path_actions)
         with self.job_lock:
             if any(job["status"] in ("queued", "running") for job in self.jobs.values()):
                 raise StudioError("RUN_BUSY", "同一工作台最多运行一个任务", 409)
@@ -811,7 +1160,41 @@ def make_handler(service: WorkbenchService):
                     body.get("revision") or body.get("expected_revision"),
                     body.get("tool_fingerprint"),
                 )
+            elif method == "POST" and path == "/api/v1/authoring/preview":
+                allowed = {"pipeline", "operation", "operations", "require_valid",
+                           "revision", "expected_revision", "tool_fingerprint"}
+                unknown = set(body) - allowed
+                if unknown:
+                    raise StudioError("INVALID_AUTHORING_REQUEST", "未知编排请求字段：" + ", ".join(sorted(unknown)))
+                if ("revision" in body and "expected_revision" in body
+                        and body["revision"] != body["expected_revision"]):
+                    raise StudioError("REVISION_CONFLICT", "请求包含不同的预期修订版本", 409)
+                payload = service.preview_authoring(
+                    body.get("pipeline"),
+                    operation=body.get("operation", _AUTHORING_UNSET),
+                    operations=body.get("operations", _AUTHORING_UNSET),
+                    require_valid=body.get("require_valid", False),
+                    expected_revision=body.get("revision") or body.get("expected_revision"),
+                    tool_fingerprint=body.get("tool_fingerprint"),
+                )
+            elif method == "POST" and path == "/api/v1/preflight":
+                payload = service.preflight(
+                    body.get("pipeline"),
+                    profile_name=body.get("profile", ""),
+                    conf_name=body.get("conf_path", "") or body.get("conf_name", ""),
+                    model_root=body.get("model_root", "models"),
+                    filename=body.get("filename", ""),
+                    model_path_actions=body.get("model_path_actions"),
+                )
+            elif method == "POST" and path == "/api/v1/deployment/associate":
+                payload = service.associate_deployment(
+                    body.get("pipeline_name", "") or body.get("filename", ""),
+                    body.get("conf_name", "") or body.get("conf_path", ""),
+                    model_root=body.get("model_root", "models"),
+                    profile_name=body.get("profile", ""),
+                )
             elif method == "POST" and path == "/api/v1/init":
+
                 payload = service.init_pipeline(
                     body.get("biz", ""), body.get("profile", ""), body.get("empty", False)
                 )
@@ -829,9 +1212,15 @@ def make_handler(service: WorkbenchService):
                     body.get("pipeline"),
                     body.get("revision"),
                     save_as=False,
+                    profile_name=body.get("profile", ""),
+                    model_root=body.get("model_root", "models"),
+                    model_path_actions=body.get("model_path_actions"),
                 )
             elif method == "POST" and path == "/api/v1/runs":
-                payload = service.start_run(body.get("pipeline"), body.get("profile", ""), body.get("model_root", "models"))
+                payload = service.start_run(
+                    body.get("pipeline"), body.get("profile", ""), body.get("model_root", "models"),
+                    filename=body.get("filename", ""), conf_name=body.get("conf_name", ""),
+                    model_path_actions=body.get("model_path_actions"))
             elif method == "DELETE" and path.startswith("/api/v1/runs/"):
                 payload = service.cancel_run(path.rsplit("/", 1)[-1])
             else:

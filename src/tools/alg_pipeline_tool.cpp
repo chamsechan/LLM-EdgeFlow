@@ -11,6 +11,7 @@
 #include "core/pipeline_validator.h"
 #include "edgeflow/operator/interface.h"
 #include "nlohmann/json.hpp"
+#include "tools/pipeline_authoring.h"
 
 namespace {
 
@@ -182,7 +183,9 @@ void Usage() {
             << "  alg_pipeline_tool validate FILE|--stdin [--explain]\n"
             << "  alg_pipeline_tool plan FILE|--stdin [--explain]\n";
   std::cerr
-      << "  alg_pipeline_tool resolve-conf FILE [--root DIR] [--depth N]\n";
+      << "  alg_pipeline_tool resolve-conf FILE [--root DIR] [--depth N]\n"
+      << "  alg_pipeline_tool edit --stdin\n"
+      << "  alg_pipeline_tool fix-deps FILE [--in-place]\n";
 }
 
 }  // namespace
@@ -357,6 +360,78 @@ int main(int argc, char** argv) {
     if (command == "plan" && report.ok) result.erase("diagnostics");
     std::cout << result.dump(2) << std::endl;
     return report.ok ? 0 : 1;
+  }
+
+  if (command == "edit") {
+    if (argc != 3 || std::string(argv[2]) != "--stdin") {
+      Usage();
+      return 2;
+    }
+    std::string input_str;
+    char buffer[65536];
+    while (std::cin.read(buffer, sizeof(buffer)) || std::cin.gcount() > 0) {
+      input_str.append(buffer, std::cin.gcount());
+      if (input_str.size() > 4 * 1024 * 1024) {
+        nlohmann::json err_res = {
+            {"schema_version", 1},
+            {"ok", false},
+            {"diagnostics",
+             {{{"code", "AUTHORING_ERROR"},
+               {"path", "/"},
+               {"message", "REQUEST_TOO_LARGE: 请求输入大小超过单次上限 4 MiB"},
+               {"severity", "error"}}}}};
+        std::cout << err_res.dump(2) << std::endl;
+        return 1;
+      }
+    }
+    nlohmann::json request;
+    try {
+      request = nlohmann::json::parse(input_str);
+    } catch (const std::exception& e) {
+      std::cout << Error("JSON_READ", e.what()).dump(2) << std::endl;
+      return 1;
+    }
+    try {
+      auto result = llm_edgeflow::PipelineAuthoring::ApplyRequest(request);
+      std::cout << result.ToJson().dump(2) << std::endl;
+      return result.ok ? 0 : 1;
+    } catch (const std::exception& error) {
+      std::cout << Error("AUTHORING_ERROR", error.what()).dump(2) << std::endl;
+      return 1;
+    } catch (...) {
+      std::cout << Error("AUTHORING_ERROR", "未知编排工具错误").dump(2)
+                << std::endl;
+      return 1;
+    }
+  }
+
+  if (command == "fix-deps") {
+    if (argc < 3 || argc > 4) {
+      Usage();
+      return 2;
+    }
+    std::string file = argv[2];
+    bool in_place = false;
+    if (argc == 4) {
+      if (std::string(argv[3]) == "--in-place") {
+        in_place = true;
+      } else {
+        Usage();
+        return 2;
+      }
+    }
+    try {
+      auto result = llm_edgeflow::PipelineAuthoring::FixDeps(file, in_place);
+      std::cout << result.ToJson().dump(2) << std::endl;
+      return result.ok ? 0 : 1;
+    } catch (const std::exception& error) {
+      std::cout << Error("AUTHORING_ERROR", error.what()).dump(2) << std::endl;
+      return 1;
+    } catch (...) {
+      std::cout << Error("AUTHORING_ERROR", "未知编排工具错误").dump(2)
+                << std::endl;
+      return 1;
+    }
   }
 
   Usage();

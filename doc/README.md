@@ -46,6 +46,7 @@
 | 需要了解什么 | 入口 |
 | --- | --- |
 | 尚待完成的开发者试用与生产验收 | [方案开发者验收计划](plans/solution_developer_acceptance.md) |
+| 降低方案编排心智负担的实施顺序与验收 | [RFC-0057：Pipeline 编排体验](rfcs/0057-pipeline-composition-experience.md)（In Implementation） |
 | 架构与接口为何这样设计 | [RFC 索引](rfcs/README.md)，优先列出进行中的 RFC |
 | 用户可感知的版本变化 | [Changelog](CHANGELOG.md) |
 | 特定 RFC 当时的验证证据 | [评审与验收归档](rfcs/reviews/README.md) |

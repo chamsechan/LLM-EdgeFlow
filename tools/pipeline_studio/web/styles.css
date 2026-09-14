@@ -199,3 +199,19 @@ body:not(.editing) #modelForm input, body:not(.editing) #modelForm textarea { op
 #toast.show.error { display: flex; align-items: flex-start; gap: 12px; pointer-events: auto; max-height: 40vh; overflow: auto; }
 #toast.error span { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 #toast.error button { flex: none; }
+
+.fix-review-panel { margin: 12px 0; padding: 12px; border: 1px solid var(--accent); border-radius: 8px; background: rgba(96, 200, 240, 0.08); }
+.fix-review-title { font-weight: 600; margin-bottom: 6px; font-size: 14px; }
+.preflight-summary { margin: 12px 0; padding: 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; }
+.preflight-summary.loading { color: var(--muted); }
+.preflight-summary.error { border-color: #f44336; color: #f44336; }
+.preflight-status { font-weight: 600; margin-bottom: 6px; }
+.preflight-status.ready { color: #4caf50; }
+.preflight-status.attention_required { color: #ff9800; }
+.preflight-status.validation_failed { color: #f44336; }
+.preflight-next-step { margin-top: 8px; font-style: italic; color: var(--muted); }
+.associate-deployment-panel { margin: 10px 0; padding: 6px 0; }
+
+.edge.ambiguous path { stroke: #b45309; stroke-dasharray: 5 4; }
+.preflight-summary.stale { border-color: #b45309; color: #92400e; }
+#nodeBindings .row { justify-content: space-between; margin: 6px 0; }
