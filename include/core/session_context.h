@@ -192,16 +192,6 @@ class ModelManager {
     return result;
   }
 
-  std::vector<ModelRegistration> GetAllRegistrations() const {
-    std::lock_guard<std::mutex> lock(mutex_);
-    std::vector<ModelRegistration> result;
-    result.reserve(registrations_.size());
-    for (const auto& pair : registrations_) {
-      result.push_back(pair.second);
-    }
-    return result;
-  }
-
  private:
   mutable std::mutex mutex_;
   std::unordered_map<std::string, ModelRegistration> registrations_;
@@ -222,12 +212,6 @@ class SessionContext {
     runtime_options_ = options;
   }
   const RuntimeOptions& GetRuntimeOptions() const { return runtime_options_; }
-
-  const std::string& GetChipType() const { return runtime_options_.chip_type; }
-  int GetPlatformMaxBatch() const {
-    return runtime_options_.platform_max_batch;
-  }
-  uint32_t GetDepthNum() const { return runtime_options_.depth_num; }
 
   template <typename T>
   void SetResource(const SessionResourceKey<T>& key,

@@ -7,8 +7,6 @@ export function compatibleModels(models = [], modelDefinitions = [], target = nu
       requiredCapability = target.capability;
     } else if (Array.isArray(target.model_dependencies) && target.model_dependencies.length > 0) {
       requiredCapability = target.model_dependencies[0].capability;
-    } else if (target.model_capability) {
-      requiredCapability = target.model_capability;
     }
   }
   if (!requiredCapability) return [...models];
@@ -31,9 +29,6 @@ export function modelBoundNodeIds(nodes = [], nodeDefinitions = []) {
     const def = definitionByType.get(node.node_type);
     if (!def) continue;
     const fields = (def.model_dependencies || []).map(d => d.config_field);
-    if (fields.length === 0 && def.model_config_field) {
-      fields.push(def.model_config_field);
-    }
     for (const field of fields) {
       const modelId = node.config?.[field];
       if (typeof modelId === "string" && modelId.length > 0) {
@@ -212,7 +207,7 @@ export function upsertModel(pipeline, catalog, previousId, model) {
   for (const node of pipeline.pipeline) {
     const nodeDefinition = catalog.nodes.find(item => item.node_type === node.node_type);
     if (previousId && nodeDefinition) {
-      const deps = nodeDefinition.model_dependencies || (nodeDefinition.model_config_field ? [{ config_field: nodeDefinition.model_config_field, capability: nodeDefinition.model_capability }] : []);
+      const deps = nodeDefinition.model_dependencies || [];
       for (const dep of deps) {
         if (node.config?.[dep.config_field] === previousId && dep.capability !== definition.capability) {
           throw new Error("所选模型能力与引用节点不兼容");
@@ -227,7 +222,7 @@ export function upsertModel(pipeline, catalog, previousId, model) {
     for (const node of pipeline.pipeline) {
       const nodeDefinition = catalog.nodes.find(item => item.node_type === node.node_type);
       if (nodeDefinition && node.config) {
-        const deps = nodeDefinition.model_dependencies || (nodeDefinition.model_config_field ? [{ config_field: nodeDefinition.model_config_field }] : []);
+        const deps = nodeDefinition.model_dependencies || [];
         for (const dep of deps) {
           if (node.config[dep.config_field] === previousId) {
             node.config[dep.config_field] = model.model_id;
@@ -242,7 +237,7 @@ export function removeModel(pipeline, catalog, id) {
   const used = pipeline.pipeline.some(node => {
     const nodeDefinition = catalog.nodes.find(item => item.node_type === node.node_type);
     if (!nodeDefinition || !node.config) return false;
-    const deps = nodeDefinition.model_dependencies || (nodeDefinition.model_config_field ? [{ config_field: nodeDefinition.model_config_field }] : []);
+    const deps = nodeDefinition.model_dependencies || [];
     return deps.some(dep => node.config[dep.config_field] === id);
   });
   if (used) throw new Error("模型仍被节点使用，请先更换绑定");

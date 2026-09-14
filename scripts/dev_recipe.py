@@ -5,8 +5,8 @@ Provides task navigation, preparation, and verification for supported recipes:
 - prompt-config: adjust prompts using existing nodes within identical biz contracts
 - text-llm-node: create a custom LLM node (TextBatch -> TextBatch) with full scaffolding
 
-Both recipes require a single-output mem_que deployment. Pipelines or confs with
-data.outputs are rejected early with UNSUPPORTED_RECIPE_DEPLOYMENT.
+Both recipes require a single-output deployment. Pipelines or confs with
+multiple outputs are rejected early with UNSUPPORTED_RECIPE_DEPLOYMENT.
 """
 
 import argparse
@@ -37,13 +37,13 @@ SUPPORTED_RECIPES = {
     "prompt-config": {
         "title": "Prompt Configuration Recipe",
         "description": "Adjust prompt templates and configurations using existing nodes within identical biz contracts.",
-        "preconditions": "Requires a verified data.mem_que Profile and valid Pipeline.",
+        "preconditions": "Requires a verified data.outputs Profile and valid Pipeline.",
         "artifacts": "Pipeline JSON, pipeline .conf, effects sample, verification command.",
     },
     "text-llm-node": {
         "title": "Text LLM Node Recipe",
         "description": "Create a custom LLM node handling TextBatch -> TextBatch with tests and pipeline deployment.",
-        "preconditions": "Requires TextBatch 1:1 preserve ports, registered LLM model capability, and data.mem_que.",
+        "preconditions": "Requires TextBatch 1:1 preserve ports, registered LLM model capability, and single-output data.outputs.",
         "artifacts": "Node source, unit test, CMake registration, Pipeline JSON, .conf, effects sample.",
     },
 }
@@ -76,11 +76,12 @@ def absolute(path, root):
 def check_unsupported_deployment(conf_path):
     conf = read_json_file(conf_path)
     data = conf.get("data", {})
-    if "outputs" in data:
+    outputs = data.get("outputs")
+    if not isinstance(outputs, dict) or not outputs:
+        raise RecipeError("A data.outputs deployment is required")
+    if len(outputs) > 1:
         return {"error_code": UNSUPPORTED_RECIPE_DEPLOYMENT,
-                "message": "This recipe supports only single-output data.mem_que; use the native Operator workflow for data.outputs."}
-    if not isinstance(data.get("mem_que"), dict):
-        raise RecipeError("A data.mem_que deployment is required")
+                "message": "This recipe supports only single-output deployment; use the native Operator workflow for data.outputs with multiple slots."}
     return None
 
 
@@ -88,7 +89,7 @@ def require_deployment(conf_path):
     unsupported = check_unsupported_deployment(conf_path)
     if unsupported:
         raise RecipeError(unsupported["message"], code=unsupported["error_code"])
-    return read_json_file(conf_path)["data"]["mem_que"]
+    return read_json_file(conf_path)["data"]["outputs"]
 
 
 def get_profile_data(profile_name, root=ROOT):
@@ -151,12 +152,12 @@ def deployment_root(root, pipeline, model_root):
     return Path(os.path.commonpath([root, pipeline.parent, model_root])).resolve()
 
 
-def make_recipe_conf(pipeline_doc, mem_que, pipeline_target, root, model_root=None):
+def make_recipe_conf(pipeline_doc, outputs, pipeline_target, root, model_root=None):
     root = root.resolve()
     pipeline = absolute(pipeline_target, root)
     models = absolute(model_root, root) if model_root is not None else root / "models"
     bundle = deployment_root(root, pipeline, models)
-    return VERIFY_SELECTION.build_run_conf(pipeline_doc, mem_que,
+    return VERIFY_SELECTION.build_run_conf(pipeline_doc, outputs,
                                            pipeline.relative_to(bundle), models, bundle)
 
 
@@ -257,7 +258,7 @@ def prepare(recipe, name, profile_name, tool_path, build_dir, pipeline_target, r
                 raise RecipeError("Node name must be a PascalCase C++ identifier")
             name = name if name.endswith("Node") else name + "Node"
         _, source_conf, _ = get_profile_data(profile_name, root)
-        mem_que = require_deployment(source_conf)  # Reject outputs before tools or writes.
+        outputs = require_deployment(source_conf)  # Reject multi-output before tools or writes.
         tool, build, demo = tool_context(tool_path, build_dir, root)
         catalog = native(tool, ["catalog"], root)
         profile = next((p for p in catalog["profiles"] if p["name"] == profile_name), None)
@@ -298,7 +299,7 @@ def prepare(recipe, name, profile_name, tool_path, build_dir, pipeline_target, r
             ]:
                 plan.add_modification(path, path.read_text(encoding="utf-8"), update(path, filename))
             generated = [src, test]
-        conf = make_recipe_conf(pipeline, mem_que, target, root, models)
+        conf = make_recipe_conf(pipeline, outputs, target, root, models)
         spec = copy.deepcopy(spec)
         spec["name"] = name + "_effects"
         spec["dataset"] = os.path.relpath(dataset, effects_target.parent)
@@ -309,7 +310,7 @@ def prepare(recipe, name, profile_name, tool_path, build_dir, pipeline_target, r
             temp = Path(temporary)
             preview_pipeline = temp / "pipeline.json"
             preview_pipeline.write_text(json.dumps(deployment_preview), encoding="utf-8")
-            preview_conf = VERIFY_SELECTION.build_run_conf(deployment_preview, mem_que, preview_pipeline.relative_to(bundle), models, bundle)
+            preview_conf = VERIFY_SELECTION.build_run_conf(deployment_preview, outputs, preview_pipeline.relative_to(bundle), models, bundle)
             (temp / "pipeline.conf").write_text(json.dumps(preview_conf), encoding="utf-8")
             native(tool, ["resolve-conf", str((temp / "pipeline.conf").relative_to(bundle)), "--root", str(bundle)], root)
         for path, document in [(target, pipeline), (conf_target, conf), (effects_target, spec)]:

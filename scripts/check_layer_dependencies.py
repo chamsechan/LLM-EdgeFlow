@@ -19,14 +19,11 @@ INCLUDE = re.compile(r'^\s*#\s*include\s*["<]([^">]+)[">]', re.MULTILINE)
 
 def owner(path):
     if path.startswith("include/contracts/") or path in {
-        "include/edgeflow/log.h", "include/edgeflow/export.h",
-        "include/company_alg_log.h", "include/company_alg_export.h",
-        "include/company_alg_version.h"
+        "include/edgeflow/log.h", "include/edgeflow/export.h"
     }:
         return "Contracts"
-    if path.startswith(("include/adapter/", "include/operator/", "include/edgeflow/operator/", "include/platform_mock/", "src/adapter/")) or path in {
-        "include/edgeflow/c_api.h", "include/edgeflow/c_api.hpp",
-        "include/company_alg_interface.h", "include/company_alg_cpp.hpp"
+    if path.startswith(("include/adapter/", "include/edgeflow/operator/", "include/platform_mock/", "src/adapter/")) or path in {
+        "include/edgeflow/c_api.h", "include/edgeflow/c_api.hpp"
     }:
         return "Integration"
     if path.startswith(("include/core/", "src/core/")):

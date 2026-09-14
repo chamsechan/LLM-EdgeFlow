@@ -181,9 +181,6 @@ def get_tool_fingerprint() -> str:
     return hashlib.sha256(str(PIPELINE_TOOL).encode()).hexdigest()[:16]
 
 
-tool_fingerprint = get_tool_fingerprint
-
-
 class WorkbenchService:
     """State and filesystem boundary behind /api/v1."""
 
@@ -321,9 +318,6 @@ class WorkbenchService:
 
     def get_tool_fingerprint(self) -> str:
         return get_tool_fingerprint()
-
-    def tool_fingerprint(self) -> str:
-        return self.get_tool_fingerprint()
 
     def validate(self, pipeline: Any, explain: bool = False) -> dict[str, Any]:
         args = ["validate", "--stdin"]
@@ -472,7 +466,7 @@ class WorkbenchService:
             old_json, _ = check_revisions()
             profile = managed["profile"]
             encoded = (json.dumps(pipeline, ensure_ascii=False, indent=2) + "\n").encode()
-            conf = self.run_conf(pipeline, managed["mem_que"], path, managed["model_root"])
+            conf = self.run_conf(pipeline, managed["outputs"], path, managed["model_root"])
             conf_encoded = (json.dumps(conf, ensure_ascii=False, indent=2) + "\n").encode()
             staging = Path(tempfile.mkdtemp(prefix=".studio-save-", dir=self.config_root))
             preserve_backup = False
@@ -481,7 +475,7 @@ class WorkbenchService:
                 staged_conf = staging / "pipeline.conf"
                 backup_json = staging / "previous.json"
                 staged_json.write_bytes(encoded)
-                staged_conf.write_text(json.dumps(self.run_conf(pipeline, managed["mem_que"], staged_json, managed["model_root"])))
+                staged_conf.write_text(json.dumps(self.run_conf(pipeline, managed["outputs"], staged_json, managed["model_root"])))
                 configuration = self.resolve_run_conf(staged_conf, profile)
                 # Native validation used the staged JSON; installed paths have
                 # the same model mappings and normalized node configuration.
@@ -522,7 +516,7 @@ class WorkbenchService:
             or set(conf) != {"data"}
             or not isinstance(conf["data"], dict)
             or not isinstance(conf["data"].get("pipe_path"), str)
-            or not isinstance(conf["data"].get("mem_que"), dict)
+            or not isinstance(conf["data"].get("outputs"), dict)
         ):
             raise StudioError(
                 "INVALID_PROFILE_CONFIG", "Profile .conf 必须仅包含 data 对象"
@@ -539,13 +533,13 @@ class WorkbenchService:
         curr_biz = pipeline.get("biz_name")
         if orig_biz != curr_biz:
             raise StudioError("PROFILE_MISMATCH", "Profile 与业务契约不匹配")
-        return copy.deepcopy(profile), copy.deepcopy(data["mem_que"])
+        return copy.deepcopy(profile), copy.deepcopy(data["outputs"])
 
-    def run_conf(self, pipeline: Any, mem_que: Any, pipe_path: Path, model_root: str) -> dict[str, Any]:
+    def run_conf(self, pipeline: Any, outputs: Any, pipe_path: Path, model_root: str) -> dict[str, Any]:
         if not isinstance(model_root, str) or not model_root or Path(model_root).is_absolute():
             raise StudioError("INVALID_MODEL_ROOT", "模型目录必须是项目内的相对路径（例如 models 或 .）")
         try:
-            return SELECTION.build_run_conf(pipeline, mem_que, pipe_path, model_root, PROJECT_ROOT)
+            return SELECTION.build_run_conf(pipeline, outputs, pipe_path, model_root, PROJECT_ROOT)
         except (ValueError, TypeError, KeyError) as error:
             raise StudioError("INVALID_DEPLOYMENT_PATH", str(error)) from error
 
@@ -559,7 +553,7 @@ class WorkbenchService:
     @staticmethod
     def demo_command(profile: dict[str, Any], conf_path: Path, output_dir: Path) -> list[str]:
         return [
-            str(DEMO_BINARY), "--no-default-control", "--biz", str(profile["biz"]),
+            str(DEMO_BINARY), "--biz", str(profile["biz"]),
             "--config", str(conf_path), "--dataset", str(PROJECT_ROOT / profile["dataset"]),
             "--output-dir", str(output_dir), "--batch-size", str(profile.get("batch_size", 1)),
             "--device-id", str(profile.get("device_id", 0)), "--chip", str(profile.get("chip", "ax650")),
@@ -577,8 +571,8 @@ class WorkbenchService:
                 raise StudioError("SYMLINK_REJECTED", "拒绝写入符号链接方案")
             if target.exists():
                 raise StudioError("FILE_EXISTS", f"另存目标已存在：{target.name}", 409)
-        profile, mem_que = self.profile_inputs(pipeline, profile_name)
-        conf = self.run_conf(pipeline, mem_que, path, model_root)
+        profile, outputs = self.profile_inputs(pipeline, profile_name)
+        conf = self.run_conf(pipeline, outputs, path, model_root)
         encoded = (json.dumps(pipeline, ensure_ascii=False, indent=2) + "\n").encode()
         conf_encoded = (json.dumps(conf, ensure_ascii=False, indent=2) + "\n").encode()
         created = []
@@ -601,7 +595,7 @@ class WorkbenchService:
                 raise
             raise StudioError("SAVE_FAILED", str(error), 500) from error
         self.generated_solutions[path.name] = {
-            "profile": profile, "mem_que": mem_que, "model_root": model_root,
+            "profile": profile, "outputs": outputs, "model_root": model_root,
             "conf_revision": revision_for(conf_encoded),
         }
         return self.solution_result(path, pipeline, conf, encoded, profile, model_root, configuration)
@@ -620,10 +614,10 @@ class WorkbenchService:
         report = self.validate(pipeline)
         if not report.get("ok"):
             raise StudioError("VALIDATION_FAILED", json.dumps(report, ensure_ascii=False))
-        profile, mem_que = self.profile_inputs(pipeline, profile_name)
+        profile, outputs = self.profile_inputs(pipeline, profile_name)
         # Check the selected paths before creating a job. The worker only changes
         # pipe_path to its own temporary document under the same deployment root.
-        conf = self.run_conf(pipeline, mem_que, "build/pipeline.json", model_root)
+        conf = self.run_conf(pipeline, outputs, "build/pipeline.json", model_root)
         with self.job_lock:
             if any(job["status"] in ("queued", "running") for job in self.jobs.values()):
                 raise StudioError("RUN_BUSY", "同一工作台最多运行一个任务", 409)

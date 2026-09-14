@@ -1,5 +1,26 @@
 # Changelog
 
+## 2026-09-14 投产前框架兼容入口与配置收口（第一批瘦身落地，RFC-0056）
+
+- **旧入口与兼容别名清理**：
+  - 彻底删除 7 个历史转发公共头（`company_alg_interface.h`、`company_alg_cpp.hpp`、`company_alg_export.h`、`company_alg_log.h`、`company_alg_version.h`、`operator/operator_interface.h`、`operator/company_operator_types.h`），公共头入口唯一收敛至规范的 `edgeflow/` 路径。
+  - 删除 `NodeRegistry` 中的 `NodeFactory` 历史源码兼容别名。
+- **模板解析器收敛与占位符统一**：
+  - 移除 `PromptGuidedLlmNode` 私有模板解析器及 `template_syntax` 配置字段（`auto`/`standard`/`legacy`），全仓统一调用共享 `ParseTextTemplate`。
+  - 占位符唯一规范为 `{{name}}`，保留单括号 `{...}` 作为字面量（支持普通 JSON 单括号模板），消除语义分流与歧义分支。
+- **Operator 输出配置单路径化**：
+  - Operator 部署配置统一收敛为按逻辑槽位命名的 `data.outputs`，彻底下线 `data.mem_que` 并移除过渡期迁移提示脚手架，旧字段按未知字段统一 Fail-Closed 拒绝。
+  - 仓内所有 25 份 `.conf` 部署配置文件、fixture 以及测试用例一次性迁移至 `data.outputs`。
+- **Bridge 描述符回调与标识收敛**：
+  - 所有输出转换回调统一收敛至槽位级 `convert_output`，移除顶层 `convert_sample_output` 回调及其执行回退逻辑。
+  - `OperatorBizBridgeRegistry` 标识匹配严格要求等于 `AdapterName`，移除降级兼容 `biz_name` 分支；单槽 Helper 显式填充 `key_suffix`，消除隐式回退。
+- **无效果兼容参数与闲置接口清理**：
+  - 删除 Demo 中的无效果兼容选项 `--no-default-control`，未知参数保持 Fail-Closed。
+  - 清理 `Pipeline Studio` 中读取废弃 Catalog 字段（`model_config_field` / `model_capability`）的兼容分支与指纹别名，统一为 `model_dependencies`。
+  - 清理 `SessionContext` 中未被消费的便利查询（`GetAllRegistrations`、`GetChipType`、`GetPlatformMaxBatch`、`GetDepthNum`）以及 `function_node.h` 中的闲置纯虚接口 `GetRawBatch`。
+- **架构文档与门禁用例同步**：
+  - 同步更新开发指南与源码布局文档；补充 legacy 字段显式拒绝负向测试用例；通过 LayerGuard 与全部 97 项测试门禁。
+
 ## 2026-09-14 批次关联、分组、选择回填与拆分公共工具（RFC-0055）
 
 - **可追踪批次公共操作**：在能力节点层引入 `include/nodes/traceable_batch_operations.h`（通过 `include/nodes/authoring.h` 导出），提供普通函数与轻量借用视图：

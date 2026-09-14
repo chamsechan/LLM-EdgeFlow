@@ -323,7 +323,6 @@ class InputPortBinding {
   virtual bool BindPort(const NodeInitContext& init_ctx) = 0;
   virtual bool PopulateInput(const AlgContext& ctx, InputsT* inputs,
                              std::string* err) const = 0;
-  virtual const void* GetRawBatch(const InputsT& inputs) const = 0;
   virtual bool HasBatch(const InputsT& inputs) const = 0;
   virtual TraceableAlignmentResult ValidateAlignment(
       const InputsT& inputs, const IProvenanceReader& output_reader) const = 0;
@@ -401,10 +400,6 @@ class ConcreteInputPortBinding final : public InputPortBinding<InputsT> {
     }
     inputs->*member_ptr_ = val;
     return true;
-  }
-
-  const void* GetRawBatch(const InputsT& inputs) const override {
-    return inputs.*member_ptr_;
   }
 
   bool HasBatch(const InputsT& inputs) const override {

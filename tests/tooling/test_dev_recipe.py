@@ -155,7 +155,22 @@ class DevRecipeTest(unittest.TestCase):
     def test_multi_output_rejected_before_generation(self):
         conf_path = self.root / "configs/pipeline_keyword_match_rules.conf"
         conf = json.loads(conf_path.read_text())
-        conf["data"]["outputs"] = [{"name": "only_one_slot"}]
+        conf["data"]["outputs"] = {"slot1": {}, "slot2": {}}
+        conf_path.write_text(json.dumps(conf))
+        self.assert_prepare_rejected_without_writes()
+
+    def test_missing_outputs_deployment_rejected_without_writes(self):
+        conf_path = self.root / "configs/pipeline_keyword_match_rules.conf"
+        conf = json.loads(conf_path.read_text())
+        del conf["data"]["outputs"]
+        conf_path.write_text(json.dumps(conf))
+        self.assert_prepare_rejected_without_writes()
+
+    def test_legacy_mem_que_deployment_rejected_as_missing_outputs(self):
+        conf_path = self.root / "configs/pipeline_keyword_match_rules.conf"
+        conf = json.loads(conf_path.read_text())
+        del conf["data"]["outputs"]
+        conf["data"]["mem_que"] = {"type": "keyword_out"}
         conf_path.write_text(json.dumps(conf))
         self.assert_prepare_rejected_without_writes()
 

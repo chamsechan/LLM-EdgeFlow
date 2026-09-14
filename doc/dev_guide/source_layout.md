@@ -90,24 +90,24 @@ Catalog JSON 为兼容现有消费者，继续在两种声明中输出 `key`，�
 `engine/inference_definition.h` 维护 Model/Backend 元数据；张量与 Host 内存辅助接口
 在 `engine/tensor.h`。`node_registry.h` 的主要类型是 `NodeRegistry`。
 
-## 兼容迁移
+## 公共头与统一入口
 
-新代码使用以下头路径；旧公共头继续转发到同一声明，新旧头可以同时包含。
+仓内代码统一使用 `edgeflow/` 前缀入口；历史转发头与别名已清理：
 
-| 旧路径 | 当前路径 |
+| 规范入口 | 说明 |
 | --- | --- |
-| `company_alg_interface.h` | `edgeflow/c_api.h` |
-| `company_alg_cpp.hpp` | `edgeflow/c_api.hpp` |
-| `company_alg_export.h` | `edgeflow/export.h` |
-| `company_alg_log.h` | `edgeflow/log.h` |
-| `company_alg_version.h` | `edgeflow/version.h`（由 CMake 生成） |
-| `operator/operator_interface.h` | `edgeflow/operator/interface.h` |
-| `operator/company_operator_types.h` | `edgeflow/operator/types.h` |
+| `edgeflow/c_api.h` | 纯 C ABI 导出头 |
+| `edgeflow/c_api.hpp` | C++ 异常屏障与辅助包装 |
+| `edgeflow/export.h` | 符号可见性宏 |
+| `edgeflow/log.h` | 统一日志入口 |
+| `edgeflow/version.h` | 版本头（由 CMake 生成） |
+| `edgeflow/operator/interface.h` | Operator 纯 C 接口及函数表 |
+| `edgeflow/operator/types.h` | Operator 平台交互类型门面（转发至 platform_mock） |
 
 `Alg_*`、`Company*`、公共宏、C/C++ 公开函数签名、结构布局及 `libcompany_alg_sdk`
 名称保持原样；这些名称属于既有调用契约。内部扩展应更新 `BizName()`、`pipelines`、
-`abi_version` 等旧成员，使用上表中的明确命名。`NodeFactory` 保留源码别名，新增代码
-使用 `NodeRegistry`。业务 bridge 转为无参注册函数，并使用上述扩展入口。
+`abi_version` 等旧成员。原 `NodeFactory` 兼容别名已移除，代码统一使用 `NodeRegistry`。
+业务 bridge 转为无参注册函数，并使用上述扩展入口。
 
 `edgeflow/c_api.h` 的参数类型来自 `platform_mock/alg_types.h`，错误码来自
 `platform_mock/error_codes.h`；`edgeflow/operator/types.h` 转发到

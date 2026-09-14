@@ -230,8 +230,8 @@ function renderInspector(node) {
   container.replaceChildren();
   for (const field of definition?.config_fields || []) {
     const dep = (definition?.model_dependencies || []).find(d => d.config_field === field.name);
-    const modelRef = Boolean(dep) || field.semantic === "model_ref" || field.name === definition.model_config_field;
-    const requiredCap = dep ? dep.capability : (definition.model_capability || null);
+    const modelRef = Boolean(dep) || field.semantic === "model_ref";
+    const requiredCap = dep ? dep.capability : null;
     const choices = modelRef ? compatibleModels(state.pipeline.models, state.catalog.models, requiredCap).map(model => model.model_id) : null;
     appendConfigField(container, field, node.config || {}, choices);
   }

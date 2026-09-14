@@ -58,13 +58,11 @@ struct OperatorBizSlot {
   std::string type_suffix;   // 规范类型后缀
   IoDirection direction = IoDirection::kInput;
   bool required = true;
-  // Output-only: empty preserves the legacy type suffix as the map key suffix.
+  // Output key suffix in the returned NamedIoBatch map.
   std::string key_suffix{};
   ConvertSampleOutputFn convert_output = nullptr;
 
-  const std::string& KeySuffix() const {
-    return key_suffix.empty() ? type_suffix : key_suffix;
-  }
+  const std::string& KeySuffix() const { return key_suffix; }
 
   bool operator==(const OperatorBizSlot& other) const {
     return logical_name == other.logical_name &&
@@ -93,7 +91,6 @@ struct OperatorBizBridgeDescriptor {
   std::vector<OperatorBizSlot> input_slots;
   std::vector<OperatorBizSlot> output_slots;
   ConvertSampleInputFn convert_sample_input = nullptr;
-  ConvertSampleOutputFn convert_sample_output = nullptr;
   CreateShadowOutputDtoFn create_shadow_output_dto = nullptr;
 
   bool operator==(const OperatorBizBridgeDescriptor& other) const {
@@ -104,7 +101,6 @@ struct OperatorBizBridgeDescriptor {
            input_slots == other.input_slots &&
            output_slots == other.output_slots &&
            convert_sample_input == other.convert_sample_input &&
-           convert_sample_output == other.convert_sample_output &&
            create_shadow_output_dto == other.create_shadow_output_dto;
   }
 };
@@ -112,22 +108,22 @@ struct OperatorBizBridgeDescriptor {
 // The built-in one-input/one-output pattern needs only its conversions and
 // registered type names; slot boilerplate and result allocation are shared.
 template <typename Result>
-OperatorBizBridgeDescriptor MakeSingleSlotBizBridge(CompanyAlgBizType biz_type,
-                                                    std::string adapter_name,
-                                                    std::string input_type,
-                                                    std::string identity,
-                                                    std::string input_slot,
-                                                    std::string output_slot) {
+OperatorBizBridgeDescriptor MakeSingleSlotBizBridge(
+    CompanyAlgBizType biz_type, std::string adapter_name,
+    std::string input_type, std::string identity, std::string input_slot,
+    std::string output_slot, std::string output_key_suffix = "") {
   OperatorBizBridgeDescriptor desc;
   desc.biz_type = biz_type;
   desc.adapter_name = std::move(adapter_name);
   desc.internal_input_type_name = std::move(input_type);
   desc.internal_output_type_name = Result::kTypeName;
   desc.registration_identity = std::move(identity);
+  std::string actual_key_suffix =
+      output_key_suffix.empty() ? output_slot : std::move(output_key_suffix);
   desc.input_slots.push_back(
-      {input_slot, input_slot, IoDirection::kInput, true});
-  desc.output_slots.push_back(
-      {output_slot, output_slot, IoDirection::kOutput, true});
+      {input_slot, input_slot, IoDirection::kInput, true, "", nullptr});
+  desc.output_slots.push_back({output_slot, output_slot, IoDirection::kOutput,
+                               true, std::move(actual_key_suffix), nullptr});
   desc.create_shadow_output_dto =
       [](ProcessLocalShadowStorage& storage) -> void* {
     return storage.AllocateShadowDto<Result>();
@@ -160,7 +156,8 @@ inline OperatorBizBridgeDescriptor MakeTypedSingleSlotBizBridge(
     CompanyAlgBizType biz_type, std::string adapter_name,
     std::string internal_input_type_name, std::string identity,
     std::string input_slot = OperatorSlotTraits<HostInput>::kTypeSuffix,
-    std::string output_slot = OperatorSlotTraits<HostOutput>::kTypeSuffix) {
+    std::string output_slot = OperatorSlotTraits<HostOutput>::kTypeSuffix,
+    std::string output_key_suffix = "") {
   auto desc = MakeSingleSlotBizBridge<InternalOutput>(
       biz_type, std::move(adapter_name), std::move(internal_input_type_name),
       std::move(identity), input_slot, output_slot);
@@ -169,6 +166,9 @@ inline OperatorBizBridgeDescriptor MakeTypedSingleSlotBizBridge(
       OperatorSlotTraits<HostInput>::kTypeSuffix;
   desc.output_slots.front().type_suffix =
       OperatorSlotTraits<HostOutput>::kTypeSuffix;
+  desc.output_slots.front().key_suffix =
+      output_key_suffix.empty() ? OperatorSlotTraits<HostOutput>::kTypeSuffix
+                                : std::move(output_key_suffix);
 
   desc.convert_sample_input =
       [](const std::unordered_map<std::string, const void*>& slots,
@@ -197,7 +197,7 @@ inline OperatorBizBridgeDescriptor MakeTypedSingleSlotBizBridge(
     return ret;
   };
 
-  desc.convert_sample_output =
+  desc.output_slots.front().convert_output =
       [](const void* internal_dto, void* external_output_struct,
          const ResolvedOutputPoolSpec& spec, std::string* err) -> int {
     if (!internal_dto || !external_output_struct) {
@@ -218,7 +218,8 @@ inline OperatorBizBridgeDescriptor MakeTypedSingleSlotBizBridge(
     CompanyAlgBizType biz_type, std::string adapter_name,
     std::string internal_input_type_name, std::string identity,
     std::string input_slot, std::string output_slot,
-    ConvertSampleInputFn convert_input, ConvertSampleOutputFn convert_output) {
+    ConvertSampleInputFn convert_input, ConvertSampleOutputFn convert_output,
+    std::string output_key_suffix = "") {
   auto desc = MakeSingleSlotBizBridge<InternalOutput>(
       biz_type, std::move(adapter_name), std::move(internal_input_type_name),
       std::move(identity), input_slot, output_slot);
@@ -227,8 +228,11 @@ inline OperatorBizBridgeDescriptor MakeTypedSingleSlotBizBridge(
       OperatorSlotTraits<HostInput>::kTypeSuffix;
   desc.output_slots.front().type_suffix =
       OperatorSlotTraits<HostOutput>::kTypeSuffix;
+  desc.output_slots.front().key_suffix =
+      output_key_suffix.empty() ? OperatorSlotTraits<HostOutput>::kTypeSuffix
+                                : std::move(output_key_suffix);
   desc.convert_sample_input = convert_input;
-  desc.convert_sample_output = convert_output;
+  desc.output_slots.front().convert_output = convert_output;
   return desc;
 }
 

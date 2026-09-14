@@ -29,11 +29,12 @@ inline void WriteControlTestPipeline(const std::filesystem::path& directory) {
   const nlohmann::json conf = {
       {"data",
        {{"pipe_path", "pipeline.json"},
-        {"mem_que",
-         {{"type", "keyword_out"},
-          {"meta_num", 0},
-          {"metadata_type_id", 0},
-          {"capacities", {{"match_result_json", 2047}}}}}}}};
+        {"outputs",
+         {{"keyword_out",
+           {{"type", "keyword_out"},
+            {"meta_num", 0},
+            {"metadata_type_id", 0},
+            {"capacities", {{"match_result_json", 2047}}}}}}}}}};
   std::ofstream(directory / "pipeline.json") << pipeline.dump(2);
   std::ofstream(directory / "pipeline.conf") << conf.dump(2);
 }

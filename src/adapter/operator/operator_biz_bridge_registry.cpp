@@ -120,26 +120,27 @@ bool OperatorBizBridgeRegistry::RegisterBridge(
     return reject({"Bridge must declare at least one output slot"});
   }
   for (const auto& s : desc.output_slots) {
-    if (s.logical_name.empty() || s.type_suffix.empty()) {
+    if (s.logical_name.empty() || s.type_suffix.empty() ||
+        s.key_suffix.empty()) {
       return reject(
-          {"Output slot requires nonempty logical_name and type_suffix; slot '",
+          {"Output slot requires nonempty logical_name, type_suffix, and "
+           "key_suffix; slot '",
            s.logical_name, "', type '", s.type_suffix, "'"});
     }
-    if (s.KeySuffix().find('.') != std::string::npos) {
+    if (s.key_suffix.find('.') != std::string::npos) {
       return reject(
-          {"Output key suffix must not contain a dot: '", s.KeySuffix(), "'"});
+          {"Output key suffix must not contain a dot: '", s.key_suffix, "'"});
     }
     if (s.direction != IoDirection::kOutput) {
       return reject({"Output slot '", s.logical_name, "' (", s.type_suffix,
                      ") must have output direction"});
     }
     if (!out_names.insert(s.logical_name).second ||
-        !out_suffixes.insert(s.KeySuffix()).second) {
+        !out_suffixes.insert(s.key_suffix).second) {
       return reject({"Duplicate output slot name or key suffix: '",
-                     s.logical_name, "' (", s.KeySuffix(), ")"});
+                     s.logical_name, "' (", s.key_suffix, ")"});
     }
-    if (!s.convert_output &&
-        (desc.output_slots.size() != 1 || !desc.convert_sample_output)) {
+    if (!s.convert_output) {
       return reject({"Output slot '", s.logical_name,
                      "' requires its own convert_output callback"});
     }
@@ -253,21 +254,10 @@ int OperatorBizBridgeRegistry::GlobalInit(std::string* diagnostic) {
                      "' does not match BizAdapter result '",
                      adapter->ResultTypeName(), "'"});
     }
-    // Adapter 标识匹配；兼容旧 bridge 使用已声明的 Pipeline biz_name。
-    bool adapter_name_matched = (desc.adapter_name == adapter->AdapterName());
-    if (!adapter_name_matched) {
-      for (const auto& p : adapter_desc.biz_definitions) {
-        if (p.biz_name == desc.adapter_name) {
-          adapter_name_matched = true;
-          break;
-        }
-      }
-    }
-    if (!adapter_name_matched) {
-      return reject(
-          desc.biz_type, desc.adapter_name,
-          {"Bridge adapter_name does not match BizAdapter '",
-           adapter->AdapterName(), "' or any of its Pipeline biz_names"});
+    if (desc.adapter_name != adapter->AdapterName()) {
+      return reject(desc.biz_type, desc.adapter_name,
+                    {"Bridge adapter_name does not match BizAdapter '",
+                     adapter->AdapterName(), "'"});
     }
 
     for (const auto& slot : desc.input_slots) {

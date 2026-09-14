@@ -13,7 +13,7 @@
 
 先查询目标构建的 Catalog，选择兼容 Model/Backend，修改 Pipeline 中对应实例的
 `model_path`、`model_config` / `backend_config`。需要改绑模型实例时，运行
-`describe-node <node_type>`，按返回的 `model_config_field` 更新 Node `config` 中的对应字段。
+`describe-node <node_type>`，按返回的 `model_dependencies` 更新 Node `config` 中的对应字段。
 例如 `LlmGenerateNode` 使用 `config.bind_model` 引用 `models[].model_id`；保留模型实例 ID
 只更换权重时，无需修改节点绑定。
 Node 的检索数、生成预算、模板等业务参数放在 Node `config`，字段说明与默认值通过
@@ -83,7 +83,7 @@ python3 tools/verify_selection.py check \
 组装仍由 Adapter 完成，见[输入输出边界](dev_guide/business_onboarding.md#输入输出以-c-abi-为边界)。
 验收器为选定 Pipeline 生成临时 `.conf`，从 `--conf`（默认同名 `.conf`）继承输出池配置，按 `--model-root` 生成模型路径；不会沿用原 `.conf` 中可能覆盖模型选择的 `model_paths`。
 
-验收固定使用 CPU、device 0、batch 1，并保留兼容选项 `--no-default-control`；Demo 默认使用所选规则/提示词。这个版本的验收目标是配置正确性与选定输出字段的业务效果；目标设备性能验收需要相应环境与后续测试定义。
+验收固定使用 CPU、device 0、batch 1；Demo 默认使用所选规则/提示词。这个版本的验收目标是配置正确性与选定输出字段的业务效果；目标设备性能验收需要相应环境与后续测试定义。
 
 ```bash
 python3 tools/verify_selection.py evaluate \

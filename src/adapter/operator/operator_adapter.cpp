@@ -395,8 +395,7 @@ int Operator_Process(void* handle, const NamedIoBatch& inputs,
       llm_edgeflow::ConvertSampleOutputFn convert = nullptr;
       for (const auto& slot : h->bridge->output_slots) {
         if (slot.logical_name == acq.logical_name) {
-          convert = slot.convert_output ? slot.convert_output
-                                        : h->bridge->convert_sample_output;
+          convert = slot.convert_output;
           break;
         }
       }

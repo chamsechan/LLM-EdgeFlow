@@ -897,7 +897,6 @@ TEST(DemoRunnerTest, GenericControlCommandChangesCustomNodeOutput) {
   options.config_path = (temporary.path / "pipeline.conf").string();
   options.dataset_path = (temporary.path / "input.txt").string();
   options.output_dir = (temporary.path / "results").string();
-  options.no_default_control = true;
   options.control_cmd = 2000000041;
   options.control_file = (temporary.path / "control.json").string();
   const auto* demo = DemoRegistry::Instance().Find("keyword_match");
@@ -1016,27 +1015,30 @@ TEST(DemoRunnerTest, ExampleControlIsExplicitAndFileControlTakesPrecedence) {
   EXPECT_EQ(ops.Deinit(), 0);
 }
 
-TEST(DemoRunnerTest, ExampleControlCliAndCompatibilityFlag) {
+TEST(DemoRunnerTest, ExampleControlCliAndRejectsRemovedFlag) {
   std::string error;
-  for (const char* flag : {"--example-control", "--no-default-control"}) {
+  {
     DemoOptions options;
-    const char* args[] = {"alg_demo", flag};
+    const char* args[] = {"alg_demo", "--example-control"};
     ASSERT_EQ(ParseCommandLine(2, const_cast<char**>(args), &options, &error),
               0)
         << error;
-    EXPECT_EQ(options.example_control,
-              std::string(flag) == "--example-control");
-    EXPECT_EQ(options.no_default_control,
-              std::string(flag) == "--no-default-control");
+    EXPECT_TRUE(options.example_control);
   }
-  for (bool reverse : {false, true}) {
+  {
     DemoOptions options;
-    const char* args[] = {
-        "alg_demo", reverse ? "--no-default-control" : "--example-control",
-        reverse ? "--example-control" : "--no-default-control"};
-    EXPECT_EQ(ParseCommandLine(3, const_cast<char**>(args), &options, &error),
+    const char* args[] = {"alg_demo"};
+    ASSERT_EQ(ParseCommandLine(1, const_cast<char**>(args), &options, &error),
+              0)
+        << error;
+    EXPECT_FALSE(options.example_control);
+  }
+  {
+    DemoOptions options;
+    const char* args[] = {"alg_demo", "--no-default-control"};
+    EXPECT_EQ(ParseCommandLine(2, const_cast<char**>(args), &options, &error),
               2);
-    EXPECT_NE(error.find("conflicts"), std::string::npos);
+    EXPECT_NE(error.find("Unknown CLI option"), std::string::npos);
   }
 }
 

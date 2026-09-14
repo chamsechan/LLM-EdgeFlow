@@ -157,7 +157,7 @@ C++ Operator API：NamedIoBatch + Operator 镜像 C 结构 ─┘
 - C++ Operator API 根据 Key 的最后一个点号解析槽位后缀：
   `OperatorValueTypeRegistry` 负责“后缀到外部 C 类型”的唯一绑定，
   `OperatorBizBridgeDescriptor` 负责按业务和方向收集一个或多个槽位，再转换为
-  内部 DTO；输出槽位可通过 `key_suffix` 独立命名，默认沿用类型后缀。
+  内部 DTO；输出槽位须显式指定 `key_suffix`（单槽 Helper 默认填充为规范类型后缀），与逻辑槽及类型解耦，可独立命名；描述符中已不再支持运行时省略或隐式回退。
   同一外层类型可以注册多个分配方案；部署配置选择方案与嵌套布局参数。
   两种协议不得通过 `reinterpret_cast` 混用布局。
 - 组件调用关系：`外部调用方 → Operator / C ABI → Pipeline → Node → Model → Backend → Platform`。
@@ -175,7 +175,7 @@ C++ Operator API：NamedIoBatch + Operator 镜像 C 结构 ─┘
   `.conf` 的 `data.outputs` 按逻辑槽位归一化输出类型、分配方案、参数与容量；
   最外层的独立配置读取组件按固定枚举提取配置并返回字符串，注册方案在 Create
   将自己的参数文本解析为普通 C++ 结构；分配和业务转换共享该不可变结构。
-  单输出也可使用原 `data.mem_que`，两者互斥。每个逻辑输出槽位拥有独立输出池，
+  每个逻辑输出槽位拥有独立输出池，
   池深只由框架应用；分配实现只处理一份完整输出。见
   [输出分配方案](dev_guide/operator_output_allocation.md)。
 

@@ -184,14 +184,14 @@ Pipeline JSON 描述算法连线；`.conf` 描述部署路径和输出容量；P
 ```bash
 ./build/alg_pipeline_tool validate configs/pipeline_first_solution.json
 ./build/alg_pipeline_tool plan configs/pipeline_first_solution.json
-./build/alg_demo --profile keyword_match_rules --config configs/pipeline_first_solution.conf --no-default-control --output-dir results/first-solution
+./build/alg_demo --profile keyword_match_rules --config configs/pipeline_first_solution.conf --output-dir results/first-solution
 ```
 
 CLI 的 `--config` 覆盖 Profile 原配置，因此不需要新增 Profile。也可以不带 Profile，
 显式传入业务、配置和数据集：
 
 ```bash
-./build/alg_demo --biz keyword_match --config configs/pipeline_first_solution.conf --dataset data/corpus_keyword_match.txt --chip cpu --batch-size 2 --no-default-control --output-dir results/first-solution
+./build/alg_demo --biz keyword_match --config configs/pipeline_first_solution.conf --dataset data/corpus_keyword_match.txt --chip cpu --batch-size 2 --output-dir results/first-solution
 ```
 
 只有原 Profile 已指向本次方案时，才能直接用它证明本次修改已运行。
@@ -201,7 +201,7 @@ CLI 的 `--config` 覆盖 Profile 原配置，因此不需要新增 Profile。�
 和业务字段，不只看退出码。无 Profile 运行时，结果子目录改为业务名 `keyword_match`。
 
 复用其他 `.conf` 时，还要核对 `data.model_paths` 的模型路径覆盖和输出池容量是否适合
-当前方案；Pipeline 校验不代表部署资源可加载。`--no-default-control` 是兼容选项；Demo 默认不发送内置
+当前方案；Pipeline 校验不代表部署资源可加载。Demo 默认不发送内置
 热更新覆盖所选规则或提示词，显式 `--control-file` 仍会执行，应只在需要该更新时提供。
 
 新增节点命令可用 `--control-cmd <id> --control-file <payload.json>` 经同一 Demo 下发；

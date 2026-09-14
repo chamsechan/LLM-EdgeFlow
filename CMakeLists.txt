@@ -54,9 +54,6 @@ endif()
 set(LLM_EDGEFLOW_GENERATED_INCLUDE_DIR
     "${PROJECT_BINARY_DIR}/generated/include")
 file(MAKE_DIRECTORY "${LLM_EDGEFLOW_GENERATED_INCLUDE_DIR}/edgeflow")
-# An earlier build generated this name; it must not shadow the compatibility
-# forwarding header after the canonical version changes.
-file(REMOVE "${LLM_EDGEFLOW_GENERATED_INCLUDE_DIR}/company_alg_version.h")
 configure_file(
   "${PROJECT_SOURCE_DIR}/cmake_ext/edgeflow_version.h.in"
   "${LLM_EDGEFLOW_GENERATED_INCLUDE_DIR}/edgeflow/version.h"

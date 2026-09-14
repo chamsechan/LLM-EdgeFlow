@@ -81,6 +81,7 @@ RFC-0054 是接续 RFC-0052 与已交付 RFC-0053、RFC-0055 的实施规格。`
 | **RFC-0050** | Operator 配置读取边界与普通参数结构 | `Completed` | `v10.x` | 接入适配层 / Tooling | [0050-operator-configuration-text-boundary.md](0050-operator-configuration-text-boundary.md) |
 | **RFC-0053** | 业务 Adapter 函数式作者接口与载体机制收敛 | `Completed` | 投产前 | 接入适配层 / Tooling / Docs | [0053-function-oriented-adapter-authoring.md](0053-function-oriented-adapter-authoring.md) |
 | **RFC-0055** | 批次关联、分组、选择回填与拆分公共工具 | `Completed` | 投产前 / Catalog v3 | 能力节点层 / Tooling / Docs | [0055-traceable-batch-operations.md](0055-traceable-batch-operations.md) |
+| **RFC-0056** | 投产前框架兼容入口与配置收口（第一批瘦身落地） | `Completed` | 投产前 | 四层 / Build / Tooling / Docs | [0056-batch-1-framework-slimming.md](0056-batch-1-framework-slimming.md) |
 
 ## 专项验收与评审归档
 

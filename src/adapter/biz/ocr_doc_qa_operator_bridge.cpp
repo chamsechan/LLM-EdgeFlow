@@ -33,6 +33,7 @@ void RegisterOcrDocQaBridge() {
   out_slot.type_suffix = "od_out";
   out_slot.direction = IoDirection::kOutput;
   out_slot.required = true;
+  out_slot.key_suffix = "od_out";
   desc.output_slots.push_back(out_slot);
 
   desc.convert_sample_input =
@@ -61,7 +62,7 @@ void RegisterOcrDocQaBridge() {
     return 0;
   };
 
-  desc.convert_sample_output =
+  desc.output_slots.front().convert_output =
       [](const void* internal_dto, void* external_output_struct,
          const ResolvedOutputPoolSpec& spec, std::string* err) -> int {
     if (!internal_dto || !external_output_struct) {

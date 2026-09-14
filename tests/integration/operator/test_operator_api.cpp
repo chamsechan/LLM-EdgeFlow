@@ -1163,8 +1163,8 @@ TEST_F(OperatorApiTest, ConcurrentDifferentHandles) {
   EXPECT_EQ(ops_.Destroy(handle2), 0);
 }
 
-// 21. mem_que 配置校验与异常 Fail-Closed 测试
-TEST_F(OperatorApiTest, MemQueConfigValidationFailClosed) {
+// 21. outputs 配置校验与异常 Fail-Closed 测试
+TEST_F(OperatorApiTest, OutputsConfigValidationFailClosed) {
   ScopedTempDirectory temp_dir;
   std::filesystem::path root = temp_dir.path();
   std::filesystem::create_directories(root / "configs");
@@ -1176,15 +1176,6 @@ TEST_F(OperatorApiTest, MemQueConfigValidationFailClosed) {
   std::string conf_file = "configs/test.conf";
   std::filesystem::path conf_path = root / conf_file;
 
-  // 1. 缺失 mem_que 对象 -> -2
-  {
-    std::ofstream ofs(conf_path);
-    ofs << R"({
-      "data": {
-        "pipe_path": "configs/pipeline_keyword_match_rules.json"
-      }
-    })";
-  }
   const std::string root_str = root.string();
   CreateParam param{};
   param.model_path = root_str.c_str();
@@ -1194,16 +1185,47 @@ TEST_F(OperatorApiTest, MemQueConfigValidationFailClosed) {
   param.max_frame_depth = 25;
 
   void* handle = nullptr;
-  EXPECT_EQ(ops_.Create(&handle, &param), -2);
 
-  // 2. mem_que.type 与业务不匹配 -> -2
+  // 0. 未知字段 mem_que 严格拒绝 -> -2
   {
     std::ofstream ofs(conf_path);
     ofs << R"({
       "data": {
         "pipe_path": "configs/pipeline_keyword_match_rules.json",
         "mem_que": {
-          "type": "doc_out"
+          "type": "keyword_out"
+        }
+      }
+    })";
+  }
+  EXPECT_EQ(ops_.Create(&handle, &param), -2);
+  EXPECT_NE(std::string(GetOperatorLastError())
+                .find("Unknown field in conf data: 'mem_que'"),
+            std::string::npos);
+  EXPECT_EQ(std::string(GetOperatorLastError()).find("is no longer supported"),
+            std::string::npos);
+
+  // 1. 缺失 outputs 对象 -> -2
+  {
+    std::ofstream ofs(conf_path);
+    ofs << R"({
+      "data": {
+        "pipe_path": "configs/pipeline_keyword_match_rules.json"
+      }
+    })";
+  }
+  EXPECT_EQ(ops_.Create(&handle, &param), -2);
+
+  // 2. outputs.keyword_out.type 与业务不匹配 -> -2
+  {
+    std::ofstream ofs(conf_path);
+    ofs << R"({
+      "data": {
+        "pipe_path": "configs/pipeline_keyword_match_rules.json",
+        "outputs": {
+          "keyword_out": {
+            "type": "doc_out"
+          }
         }
       }
     })";
@@ -1216,10 +1238,12 @@ TEST_F(OperatorApiTest, MemQueConfigValidationFailClosed) {
     ofs << R"({
       "data": {
         "pipe_path": "configs/pipeline_keyword_match_rules.json",
-        "mem_que": {
-          "type": "keyword_out",
-          "meta_num": 0,
-          "metadata_type_id": 123
+        "outputs": {
+          "keyword_out": {
+            "type": "keyword_out",
+            "meta_num": 0,
+            "metadata_type_id": 123
+          }
         }
       }
     })";
@@ -1232,10 +1256,12 @@ TEST_F(OperatorApiTest, MemQueConfigValidationFailClosed) {
     ofs << R"({
       "data": {
         "pipe_path": "configs/pipeline_keyword_match_rules.json",
-        "mem_que": {
-          "type": "keyword_out",
-          "capacities": {
-            "unknown_field_xyz": 100
+        "outputs": {
+          "keyword_out": {
+            "type": "keyword_out",
+            "capacities": {
+              "unknown_field_xyz": 100
+            }
           }
         }
       }
@@ -1248,10 +1274,12 @@ TEST_F(OperatorApiTest, MemQueConfigValidationFailClosed) {
     std::ofstream ofs(conf_path);
     ofs << R"({
       "pipe_path": "configs/pipeline_keyword_match_rules.json",
-      "mem_que": {
-        "type": "keyword_out",
-        "meta_num": 0,
-        "metadata_type_id": 0
+      "outputs": {
+        "keyword_out": {
+          "type": "keyword_out",
+          "meta_num": 0,
+          "metadata_type_id": 0
+        }
       }
     })";
   }
@@ -1264,10 +1292,12 @@ TEST_F(OperatorApiTest, MemQueConfigValidationFailClosed) {
       "data": {
         "pipe_path": "configs/pipeline_keyword_match_rules.json",
         "model_path": "models/unused.bin",
-        "mem_que": {
-          "type": "keyword_out",
-          "meta_num": 0,
-          "metadata_type_id": 0
+        "outputs": {
+          "keyword_out": {
+            "type": "keyword_out",
+            "meta_num": 0,
+            "metadata_type_id": 0
+          }
         }
       }
     })";
@@ -1280,10 +1310,12 @@ TEST_F(OperatorApiTest, MemQueConfigValidationFailClosed) {
     ofs << R"({
       "data": {
         "pipe_path": "configs/pipeline_keyword_match_rules.json",
-        "mem_que": {
-          "type": "keyword_out",
-          "meta_num": 0,
-          "metadata_type_id": 0
+        "outputs": {
+          "keyword_out": {
+            "type": "keyword_out",
+            "meta_num": 0,
+            "metadata_type_id": 0
+          }
         }
       },
       "comment": "not part of the runtime contract"
@@ -1880,10 +1912,12 @@ TEST_F(OperatorApiTest, ModelPathNonExistentFileAllowedWhileEscapeRejected) {
           "embed_model_v1": "models/not_deployed_embed.bin",
           "llm_model_v1": "models/not_deployed_llm.bin"
         },
-        "mem_que": {
-          "type": "doc_out",
-          "meta_num": 0,
-          "metadata_type_id": 0
+        "outputs": {
+          "doc_out": {
+            "type": "doc_out",
+            "meta_num": 0,
+            "metadata_type_id": 0
+          }
         }
       }
     })";
@@ -1920,10 +1954,12 @@ TEST_F(OperatorApiTest, ModelPathNonExistentFileAllowedWhileEscapeRejected) {
         "model_paths": {
           "asr_model_v1": "deployment/asr_model_will_arrive_later.bin"
         },
-        "mem_que": {
-          "type": "audio_out",
-          "meta_num": 0,
-          "metadata_type_id": 0
+        "outputs": {
+          "audio_out": {
+            "type": "audio_out",
+            "meta_num": 0,
+            "metadata_type_id": 0
+          }
         }
       }
     })";
@@ -2007,7 +2043,11 @@ TEST_F(OperatorApiTest, ModelPathNonExistentFileAllowedWhileEscapeRejected) {
     conf << R"({
       "data": {
         "pipe_path": "configs/missing_pipeline.json",
-        "mem_que": {"type": "keyword_out"}
+        "outputs": {
+          "keyword_out": {
+            "type": "keyword_out"
+          }
+        }
       }
     })";
     conf.close();
@@ -2045,7 +2085,7 @@ TEST_F(OperatorApiTest, ModelPathNonExistentFileAllowedWhileEscapeRejected) {
       invalid_conf << nlohmann::json(
           {{"data",
             {{"pipe_path", pipe_path},
-             {"mem_que", {{"type", "keyword_out"}}}}}});
+             {"outputs", {{"keyword_out", {{"type", "keyword_out"}}}}}}}});
       invalid_conf.close();
       EXPECT_EQ(llm_edgeflow::OperatorConfigResolver::Resolve(
                     root_string.c_str(), "configs/invalid_pipe.conf", &resolved,
@@ -2063,10 +2103,10 @@ TEST_F(OperatorApiTest, DotDotPrefixedControlFileNamesStayWithinRoot) {
   std::filesystem::copy_file(std::filesystem::path(GetConfDir()) /
                                  "configs/pipeline_keyword_match_rules.json",
                              root / "..configs/pipeline.json");
-  std::ofstream(root / "..configs/pipeline.conf")
-      << nlohmann::json({{"data",
-                          {{"pipe_path", "..configs/pipeline.json"},
-                           {"mem_que", {{"type", "keyword_out"}}}}}});
+  std::ofstream(root / "..configs/pipeline.conf") << nlohmann::json(
+      {{"data",
+        {{"pipe_path", "..configs/pipeline.json"},
+         {"outputs", {{"keyword_out", {{"type", "keyword_out"}}}}}}}});
 
   llm_edgeflow::ResolvedOperatorConfig resolved;
   std::string error;
@@ -2097,9 +2137,10 @@ TEST_F(OperatorApiTest, VariableResultsUsePoolCapacityAndRollbackOnFailure) {
     std::ofstream(temp.path() / "pipeline.conf") << nlohmann::json(
         {{"data",
           {{"pipe_path", "pipeline.json"},
-           {"mem_que",
-            {{"type", "keyword_out"},
-             {"capacities", {{"match_result_json", capacity}}}}}}}});
+           {"outputs",
+            {{"keyword_out",
+              {{"type", "keyword_out"},
+               {"capacities", {{"match_result_json", capacity}}}}}}}}}});
     const auto root = temp.path().string();
     CreateParam param{};
     param.model_path = root.c_str();
@@ -2160,10 +2201,12 @@ TEST_F(OperatorApiTest, MetadataTypeIdOutOfInt32RangeIsRejected) {
     conf << R"({
       "data": {
         "pipe_path": "configs/pipeline_keyword_match_rules.json",
-        "mem_que": {
-          "type": "keyword_out",
-          "meta_num": 0,
-          "metadata_type_id": 3000000000
+        "outputs": {
+          "keyword_out": {
+            "type": "keyword_out",
+            "meta_num": 0,
+            "metadata_type_id": 3000000000
+          }
         }
       }
     })";
@@ -2183,10 +2226,12 @@ TEST_F(OperatorApiTest, MetadataTypeIdOutOfInt32RangeIsRejected) {
     conf << R"({
       "data": {
         "pipe_path": "configs/pipeline_keyword_match_rules.json",
-        "mem_que": {
-          "type": "keyword_out",
-          "meta_num": 0,
-          "metadata_type_id": -3000000000
+        "outputs": {
+          "keyword_out": {
+            "type": "keyword_out",
+            "meta_num": 0,
+            "metadata_type_id": -3000000000
+          }
         }
       }
     })";
@@ -2206,10 +2251,12 @@ TEST_F(OperatorApiTest, MetadataTypeIdOutOfInt32RangeIsRejected) {
     conf << R"({
       "data": {
         "pipe_path": "configs/pipeline_keyword_match_rules.json",
-        "mem_que": {
-          "type": "keyword_out",
-          "meta_num": 0,
-          "metadata_type_id": 1.5
+        "outputs": {
+          "keyword_out": {
+            "type": "keyword_out",
+            "meta_num": 0,
+            "metadata_type_id": 1.5
+          }
         }
       }
     })";

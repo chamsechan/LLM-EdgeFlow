@@ -26,7 +26,7 @@ void RegisterDocQaBridge() {
     return 0;
   };
 
-  desc.convert_sample_output =
+  desc.output_slots.front().convert_output =
       [](const void* internal_dto, void* external_output_struct,
          const ResolvedOutputPoolSpec& spec, std::string* err) -> int {
     if (!internal_dto || !external_output_struct) {

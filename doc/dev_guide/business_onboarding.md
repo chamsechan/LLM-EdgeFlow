@@ -52,7 +52,7 @@ JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代�
 ./build/alg_pipeline_tool describe-node TextRuleMatchNode
 ./build/alg_pipeline_tool validate configs/pipeline_keyword_match_rules.json
 ./build/alg_pipeline_tool plan configs/pipeline_keyword_match_rules.json
-./build/alg_demo --biz keyword_match --config configs/pipeline_keyword_match_rules.conf --dataset tests/fixtures/effects/keyword_inputs.txt --no-default-control --output-dir results/business-onboarding
+./build/alg_demo --biz keyword_match --config configs/pipeline_keyword_match_rules.conf --dataset tests/fixtures/effects/keyword_inputs.txt --output-dir results/business-onboarding
 ```
 
 查看 `results/business-onboarding/keyword_match/results.jsonl`：请求编号为 20001–20004，
@@ -125,9 +125,9 @@ JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代�
    已注册的输入输出后缀；多输入时参考
    [ocr_doc_qa_operator_bridge.cpp](../../src/adapter/biz/ocr_doc_qa_operator_bridge.cpp)。
 3. 实现 `convert_sample_input`：从输入槽读取宿主结构，使用
-   `ProcessLocalShadowStorage` 复制字符串、保存临时输入结构。实现
-   `convert_sample_output`：把业务 Result 复制进已租用的输出池，容量只取自
-   `ResolvedOutputPoolSpec`，不在 bridge 内重新读取原始 JSON 或设置默认容量。
+   `ProcessLocalShadowStorage` 复制字符串、保存临时输入结构。在输出槽位提供
+   `convert_output`（单输出 helper 会绑定到 `output_slots.front().convert_output`）：
+   把业务 Result 复制进已租用的输出池，容量只取自 `ResolvedOutputPoolSpec`，不在 bridge 内重新读取原始 JSON 或设置默认容量。
 4. 包含 `adapter/operator_biz_bridge.h`，使用无参注册函数调用
    `RegisterOperatorBizBridge(desc)`；输出文本使用 `CopyToOperatorString`。
    用 `REGISTER_OPERATOR_BIZ_BRIDGE` 登记注册函数，并将新增源码加入
@@ -178,8 +178,7 @@ JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代�
 [公开 Operator 契约](../../include/edgeflow/operator/interface.h)。
 
 Operator 的输出路径是 `Pipeline → 可变长业务 Result → 已租用输出池`。
-Result 与请求 Context 均不跨 Process 保存。`.conf` 的 `data.mem_que.type` 选择已注册
-输出类型，`capacities` 设置它声明的字段容量；多输出使用互斥的 `data.outputs`，按逻辑
+Result 与请求 Context 均不跨 Process 保存。`.conf` 的 `data.outputs` 按逻辑
 槽位分别指定类型、`allocator`、`params` 和容量。字符串不受中间 C 输出数组大小限制；
 超过输出池容量时返回 `-4`，尚未发布的输出租约全部回滚。
 

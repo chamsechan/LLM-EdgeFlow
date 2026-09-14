@@ -234,8 +234,6 @@ int ParseCommandLine(int argc, char* argv[], DemoOptions* out_options,
       out_options->has_control_file = true;
     } else if (arg == "--example-control") {
       out_options->example_control = true;
-    } else if (arg == "--no-default-control") {
-      out_options->no_default_control = true;
     } else if (arg == "--append") {
       out_options->append = true;
     } else if (arg == "--allow-fallback-sample") {
@@ -244,12 +242,6 @@ int ParseCommandLine(int argc, char* argv[], DemoOptions* out_options,
       if (error_msg) *error_msg = "Unknown CLI option: '" + arg + "'";
       return 2;
     }
-  }
-
-  if (out_options->example_control && out_options->no_default_control) {
-    if (error_msg)
-      *error_msg = "--example-control conflicts with --no-default-control";
-    return 2;
   }
 
   return 0;
@@ -592,8 +584,6 @@ void PrintHelp(const char* program_name) {
          "1)\n"
       << "  --example-control          Apply the built-in Demo example update "
          "(keyword_match)\n"
-      << "  --no-default-control       Compatibility flag: keep configured "
-         "defaults (now the default)\n"
       << "  --control-file <path>      Runtime control parameters JSON file\n"
       << "  --control-cmd <id>         Node command ID for --control-file\n"
       << "  --append                   Append output to existing results file "
