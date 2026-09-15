@@ -521,6 +521,6 @@ M1/M2 与 M3 都会触及 `pipeline_validator.cpp`，不得并行无协调修改
 - **B2 Node SSoT 与原子注册**：`NodeRegistry` 唯一持有 `EntryHandle`（Definition + creator）；单条结构校验与跨节点 Control 冲突检测保证原子提交与失败锁存；`PipelineCatalog` 纯委托读取；通过 `RegistryTestAccess` 实现测试作用域隔离。
 - **验证记录**：
   - D1–D7 诊断一致性与表驱动用例全部通过（`test_validated_pipeline_plan.cpp`、`test_pipeline_catalog_validator.cpp`）。
-  - R1–R9 并发、重入、内存分配故障注入与生命周期测试全部通过（`test_catalog_contract_ssot.cpp`、`test_registry_reentrant.cpp`）。
-  - ThreadSanitizer（TSan）数据竞争快速套件运行通过（92/92 测试 100% 通过，0 data race）。
+  - R1–R9 并发、callable 复制与执行重入、内存分配故障注入（单条注册、重复注册、Control 冲突、状态恢复无分配 swap）与生命周期测试全部通过（`test_catalog_contract_ssot.cpp`、`test_registry_reentrant.cpp`）。
+  - ThreadSanitizer（TSan）数据竞争快速套件中与 Registry 相关的并发、重入、冲突与生命周期用例全部通过（0 data race；整体套件 91/92 通过，仅 DagPipelineTest 受现有非插桩 libstdc++ std::__exception_ptr 竞争影响）。
   - 本地预提交门禁 `./scripts/run_all_tests.sh` 运行通过（97/97 测试 100% 通过，全 4 个 Tier 全部绿色）。

@@ -48,22 +48,19 @@ class RegistryTestAccess {
     }
 
     ~ScopedNodeState() noexcept {
+      std::unordered_map<std::string, NodeRegistry::EntryHandle> old_entries;
+      std::vector<std::string> old_errors;
       try {
-        std::unordered_map<std::string, NodeRegistry::EntryHandle>
-            restore_entries = saved_entries_;
-        std::vector<std::string> restore_errors = saved_conflict_errors_;
-        std::unordered_map<std::string, NodeRegistry::EntryHandle> old_entries;
-        {
-          std::lock_guard<std::mutex> lock(NodeRegistry::Instance().mutex_);
-          old_entries.swap(NodeRegistry::Instance().entries_);
-          NodeRegistry::Instance().entries_.swap(restore_entries);
-          NodeRegistry::Instance().has_conflict_.store(
-              saved_has_conflict_, std::memory_order_release);
-          NodeRegistry::Instance().conflict_errors_.swap(restore_errors);
-        }
-        // old_entries, restore_entries, restore_errors destructed outside lock
+        std::lock_guard<std::mutex> lock(NodeRegistry::Instance().mutex_);
+        old_entries.swap(NodeRegistry::Instance().entries_);
+        NodeRegistry::Instance().entries_.swap(saved_entries_);
+        NodeRegistry::Instance().has_conflict_.store(saved_has_conflict_,
+                                                     std::memory_order_release);
+        old_errors.swap(NodeRegistry::Instance().conflict_errors_);
+        NodeRegistry::Instance().conflict_errors_.swap(saved_conflict_errors_);
       } catch (...) {
       }
+      // old_entries, old_errors destructed outside lock without allocating
     }
 
     ScopedNodeState(const ScopedNodeState&) = delete;

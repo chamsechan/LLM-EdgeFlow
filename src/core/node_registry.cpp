@@ -11,7 +11,7 @@ bool NodeRegistry::CheckCrossNodeControlConflict(
     const NodeDefinition& definition,
     const std::unordered_map<std::string, EntryHandle>& entries,
     std::string* error) {
-  std::string best_conflict_node;
+  const std::string* best_conflict_node = nullptr;
   int best_conflict_cmd_id = 0;
   bool found_conflict = false;
 
@@ -25,9 +25,9 @@ bool NodeRegistry::CheckCrossNodeControlConflict(
             command.name != registered.name ||
             command.payload_schema != registered.payload_schema ||
             command.supports_hot_swap != registered.supports_hot_swap) {
-          if (!found_conflict || existing_def.node_type < best_conflict_node) {
+          if (!found_conflict || existing_def.node_type < *best_conflict_node) {
             found_conflict = true;
-            best_conflict_node = existing_def.node_type;
+            best_conflict_node = &existing_def.node_type;
             best_conflict_cmd_id = command.cmd_id;
           }
         }
@@ -37,10 +37,14 @@ bool NodeRegistry::CheckCrossNodeControlConflict(
 
   if (found_conflict) {
     if (error) {
-      *error = "Control ID " + std::to_string(best_conflict_cmd_id) +
-               " conflicts between " + best_conflict_node + " and " +
-               definition.node_type +
-               "; shared commands require shared_id and identical contracts";
+      try {
+        *error = "Control ID " + std::to_string(best_conflict_cmd_id) +
+                 " conflicts between " +
+                 (best_conflict_node ? *best_conflict_node : "") + " and " +
+                 definition.node_type +
+                 "; shared commands require shared_id and identical contracts";
+      } catch (...) {
+      }
     }
     return false;
   }
@@ -50,74 +54,143 @@ bool NodeRegistry::CheckCrossNodeControlConflict(
 bool NodeRegistry::Register(const std::string& node_type, CreatorFunc creator,
                             const NodeDefinition* definition) noexcept {
   EntryHandle candidate;
-  std::string failure_msg;
   try {
+    std::string failure_msg;
+    std::string_view fallback_msg;
+    bool has_failure = false;
+
     if (definition == nullptr) {
-      failure_msg =
-          "Node registration requires a valid Definition: " + node_type;
+      has_failure = true;
+      fallback_msg = "Node registration requires a valid Definition";
+      try {
+        failure_msg =
+            "Node registration requires a valid Definition: " + node_type;
+      } catch (...) {
+      }
     } else if (definition->node_type != node_type) {
-      failure_msg = "NodeDefinition node_type mismatch: expected " + node_type +
-                    ", got " + definition->node_type;
+      has_failure = true;
+      fallback_msg = "NodeDefinition node_type mismatch";
+      try {
+        failure_msg = "NodeDefinition node_type mismatch: expected " +
+                      node_type + ", got " + definition->node_type;
+      } catch (...) {
+      }
     } else if (node_type.empty() || !creator) {
-      failure_msg = "Empty node_type or null creator function";
+      has_failure = true;
+      fallback_msg = "Empty node_type or null creator function";
+      failure_msg = fallback_msg;
     } else {
       std::string schema_error;
       if (!ValidateNodeDefinitionStructure(*definition, &schema_error)) {
-        failure_msg = schema_error.empty()
-                          ? ("Invalid NodeDefinition: " + node_type)
-                          : schema_error;
-      } else {
-        candidate = std::make_shared<const Entry>(
-            Entry{*definition, std::move(creator)});
-      }
-    }
-  } catch (const std::exception& e) {
-    failure_msg = e.what();
-  } catch (...) {
-    failure_msg = "Unknown exception during node preparation";
-  }
-
-  if (!candidate) {
-    if (!failure_msg.empty()) {
-      ALG_LOG_ERROR("[NodeRegistry] %s\n", failure_msg.c_str());
-    }
-    RecordRegistrationFailure(failure_msg);
-    return false;
-  }
-
-  bool inserted = false;
-  {
-    std::lock_guard<std::mutex> lock(mutex_);
-    auto it = entries_.find(node_type);
-    if (it != entries_.end()) {
-      failure_msg = "Duplicate node registration for type: " + node_type;
-    } else {
-      std::string control_error;
-      if (!CheckCrossNodeControlConflict(candidate->definition, entries_,
-                                         &control_error)) {
-        failure_msg = std::move(control_error);
-      } else {
-        try {
-          auto res = entries_.try_emplace(node_type, candidate);
-          inserted = res.second;
-        } catch (const std::exception& e) {
-          failure_msg = e.what();
-        } catch (...) {
-          failure_msg = "Unknown exception during entry insertion";
+        has_failure = true;
+        fallback_msg = "Invalid NodeDefinition";
+        if (!schema_error.empty()) {
+          failure_msg = std::move(schema_error);
+        } else {
+          try {
+            failure_msg = "Invalid NodeDefinition: " + node_type;
+          } catch (...) {
+          }
         }
       }
     }
-  }
 
-  if (!inserted) {
-    if (!failure_msg.empty()) {
-      ALG_LOG_ERROR("[NodeRegistry] %s\n", failure_msg.c_str());
+    if (has_failure) {
+      has_conflict_.store(true, std::memory_order_release);
+      std::string_view msg =
+          failure_msg.empty() ? fallback_msg : std::string_view(failure_msg);
+      if (!msg.empty()) {
+        try {
+          ALG_LOG_ERROR("[NodeRegistry] %.*s\n", static_cast<int>(msg.size()),
+                        msg.data());
+        } catch (...) {
+        }
+      }
+      RecordRegistrationFailure(msg);
+      return false;
     }
-    RecordRegistrationFailure(failure_msg);
+
+    candidate =
+        std::make_shared<const Entry>(Entry{*definition, std::move(creator)});
+
+    bool duplicate = false;
+    bool control_conflict = false;
+    std::string control_error;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      auto it = entries_.find(node_type);
+      if (it != entries_.end()) {
+        duplicate = true;
+        has_conflict_.store(true, std::memory_order_release);
+      } else if (!CheckCrossNodeControlConflict(candidate->definition, entries_,
+                                                &control_error)) {
+        control_conflict = true;
+        has_conflict_.store(true, std::memory_order_release);
+      } else {
+        entries_.try_emplace(node_type, candidate);
+        return true;
+      }
+    }
+
+    if (duplicate) {
+      has_conflict_.store(true, std::memory_order_release);
+      std::string duplicate_msg;
+      try {
+        duplicate_msg = "Duplicate node registration for type: " + node_type;
+      } catch (...) {
+      }
+      std::string_view msg =
+          duplicate_msg.empty()
+              ? std::string_view("Duplicate node registration")
+              : std::string_view(duplicate_msg);
+      try {
+        ALG_LOG_ERROR("[NodeRegistry] %.*s\n", static_cast<int>(msg.size()),
+                      msg.data());
+      } catch (...) {
+      }
+      RecordRegistrationFailure(msg);
+      return false;
+    }
+
+    if (control_conflict) {
+      has_conflict_.store(true, std::memory_order_release);
+      std::string_view msg =
+          control_error.empty()
+              ? std::string_view("Cross-node control conflict")
+              : std::string_view(control_error);
+      try {
+        ALG_LOG_ERROR("[NodeRegistry] %.*s\n", static_cast<int>(msg.size()),
+                      msg.data());
+      } catch (...) {
+      }
+      RecordRegistrationFailure(msg);
+      return false;
+    }
+
+    return true;
+  } catch (const std::exception& e) {
+    has_conflict_.store(true, std::memory_order_release);
+    const char* what_str = e.what();
+    std::string_view msg = (what_str != nullptr)
+                               ? std::string_view(what_str)
+                               : std::string_view("std::exception");
+    try {
+      ALG_LOG_ERROR("[NodeRegistry] %.*s\n", static_cast<int>(msg.size()),
+                    msg.data());
+    } catch (...) {
+    }
+    RecordRegistrationFailure(msg);
+    return false;
+  } catch (...) {
+    has_conflict_.store(true, std::memory_order_release);
+    try {
+      ALG_LOG_ERROR(
+          "[NodeRegistry] Unknown exception during node registration\n");
+    } catch (...) {
+    }
+    RecordRegistrationFailure("Unknown exception during node registration");
     return false;
   }
-
-  return true;
 }
 
 std::unique_ptr<INode> NodeRegistry::Create(
