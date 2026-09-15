@@ -18,12 +18,27 @@ target_sources(edgeflow_integration_objects PRIVATE
   io_catalog.cpp
   input/text_input.cpp
   input/translate_json_input.cpp
+  input/doc_query_input.cpp
+  input/rerank_input.cpp
+  input/audit_input.cpp
+  input/audio_input.cpp
+  input/image_query_input.cpp
   output/structured_document_output.cpp
   output/translation_json_output.cpp
   output/keyword_result_output.cpp
+  output/doc_answer_output.cpp
+  output/rerank_result_output.cpp
+  output/audit_result_output.cpp
+  output/audio_result_output.cpp
+  output/invoice_result_output.cpp
   biz/translate_bindings.cpp
   biz/entity_extract_bindings.cpp
   biz/keyword_match_bindings.cpp
+  biz/doc_qa_bindings.cpp
+  biz/cross_rerank_bindings.cpp
+  biz/compliance_audit_bindings.cpp
+  biz/audio_asr_intent_bindings.cpp
+  biz/ocr_doc_qa_bindings.cpp
   biz/audio_asr_intent_operator_bridge.cpp
   biz/compliance_audit_operator_bridge.cpp
   biz/cross_rerank_operator_bridge.cpp

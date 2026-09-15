@@ -161,7 +161,8 @@ set(EDGEFLOW_TEST_ADAPTER_SRCS
   ${EDGEFLOW_SOURCE_test_adapter_purity}
   ${EDGEFLOW_SOURCE_test_io_converters}
   ${EDGEFLOW_SOURCE_test_io_binding_registry}
-  ${EDGEFLOW_SOURCE_test_text_converters})
+  ${EDGEFLOW_SOURCE_test_text_converters}
+  ${EDGEFLOW_SOURCE_test_complex_converters})
 add_executable(edgeflow_test_adapter_runner
   ${EDGEFLOW_TEST_ADAPTER_SRCS}
   $<TARGET_OBJECTS:edgeflow_test_backend_fixtures>
@@ -327,6 +328,8 @@ edgeflow_add_runner_test(IoBindingRegistryTest edgeflow_test_adapter_runner
   "IoBindingRegistryTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(TextConvertersTest edgeflow_test_adapter_runner
   "TextConvertersTest.*" "${_edgeflow_tier1}")
+edgeflow_add_runner_test(ComplexConvertersTest edgeflow_test_adapter_runner
+  "ComplexConvertersTest.*" "${_edgeflow_tier1}")
 
 edgeflow_add_runner_test(DocQaRerankTest edgeflow_test_tooling_runner
   "DocQaRerankPipelineTest.*" "${_edgeflow_tier1}")
