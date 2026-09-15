@@ -145,7 +145,7 @@ export LLM_EDGEFLOW_PIPELINE_TOOL="${BUILD_DIR}/alg_pipeline_tool"
 export LLM_EDGEFLOW_DEMO_BINARY="${BUILD_DIR}/alg_demo"
 
 ARCH_PREFIX=()
-if [[ "${SANITIZERS}" == *"thread"* ]] && [[ "$(uname -s)" == "Linux" ]] && [[ "$(uname -m)" == "aarch64" ]]; then
+if [[ "${SANITIZERS}" == *"thread"* ]] && [[ "$(uname -s)" == "Linux" ]]; then
   ARCH_PREFIX=(setarch "$(uname -m)" -R)
 fi
 

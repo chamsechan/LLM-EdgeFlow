@@ -15,144 +15,7 @@
 #include "engine/model_registry.h"
 
 namespace llm_edgeflow {
-
-const char* DiagnosticCodeName(DiagnosticCode code) noexcept {
-  switch (code) {
-    case DiagnosticCode::kOk:
-      return "OK";
-    case DiagnosticCode::kJsonParse:
-      return "JSON_PARSE";
-    case DiagnosticCode::kConfigFileOpen:
-      return "CONFIG_FILE_OPEN";
-    case DiagnosticCode::kRootType:
-      return "ROOT_TYPE";
-    case DiagnosticCode::kUnknownField:
-      return "UNKNOWN_FIELD";
-    case DiagnosticCode::kMissingField:
-      return "MISSING_FIELD";
-    case DiagnosticCode::kFieldType:
-      return "FIELD_TYPE";
-    case DiagnosticCode::kFieldRange:
-      return "FIELD_RANGE";
-    case DiagnosticCode::kInvalidCombination:
-      return "INVALID_COMBINATION";
-    case DiagnosticCode::kDuplicateModelId:
-      return "DUPLICATE_MODEL_ID";
-    case DiagnosticCode::kDuplicateNodeId:
-      return "DUPLICATE_NODE_ID";
-    case DiagnosticCode::kUnknownBiz:
-      return "UNKNOWN_BIZ";
-    case DiagnosticCode::kUnknownNodeType:
-      return "UNKNOWN_NODE_TYPE";
-    case DiagnosticCode::kUnknownModelType:
-      return "UNKNOWN_MODEL_TYPE";
-    case DiagnosticCode::kUnknownBackend:
-      return "UNKNOWN_BACKEND";
-    case DiagnosticCode::kBackendProtocolMismatch:
-      return "BACKEND_PROTOCOL_MISMATCH";
-    case DiagnosticCode::kUnknownModelConfigField:
-      return "UNKNOWN_MODEL_CONFIG_FIELD";
-    case DiagnosticCode::kUnknownBackendConfigField:
-      return "UNKNOWN_BACKEND_CONFIG_FIELD";
-    case DiagnosticCode::kInvalidDependency:
-      return "INVALID_DEPENDENCY";
-    case DiagnosticCode::kDuplicateDependency:
-      return "DUPLICATE_DEPENDENCY";
-    case DiagnosticCode::kDagCycle:
-      return "DAG_CYCLE";
-    case DiagnosticCode::kRegistryConflict:
-      return "REGISTRY_CONFLICT";
-    case DiagnosticCode::kUnknownConfigField:
-      return "UNKNOWN_CONFIG_FIELD";
-    case DiagnosticCode::kMissingConfigField:
-      return "MISSING_CONFIG_FIELD";
-    case DiagnosticCode::kConfigFieldType:
-      return "CONFIG_FIELD_TYPE";
-    case DiagnosticCode::kConfigFieldRange:
-      return "CONFIG_FIELD_RANGE";
-    case DiagnosticCode::kConfigFieldEnum:
-      return "CONFIG_FIELD_ENUM";
-    case DiagnosticCode::kUnknownModelReference:
-      return "UNKNOWN_MODEL_REFERENCE";
-    case DiagnosticCode::kModelCapabilityMismatch:
-      return "MODEL_CAPABILITY_MISMATCH";
-    case DiagnosticCode::kNodeBizMismatch:
-      return "NODE_BIZ_MISMATCH";
-    case DiagnosticCode::kMissingInputProducer:
-      return "MISSING_INPUT_PRODUCER";
-    case DiagnosticCode::kDuplicatePortProducer:
-      return "DUPLICATE_PORT_PRODUCER";
-    case DiagnosticCode::kMissingBizOutput:
-      return "MISSING_BIZ_OUTPUT";
-    case DiagnosticCode::kNodeNotParallelSafe:
-      return "NODE_NOT_PARALLEL_SAFE";
-    case DiagnosticCode::kParallelWriteConflict:
-      return "PARALLEL_WRITE_CONFLICT";
-    case DiagnosticCode::kSerializedModelConcurrency:
-      return "SERIALIZED_MODEL_CONCURRENCY";
-    case DiagnosticCode::kPortCardinalityMismatch:
-      return "PORT_CARDINALITY_MISMATCH";
-    case DiagnosticCode::kPortProvenanceMismatch:
-      return "PORT_PROVENANCE_MISMATCH";
-    case DiagnosticCode::kPortLifetimeMismatch:
-      return "PORT_LIFETIME_MISMATCH";
-    case DiagnosticCode::kInternalException:
-      return "INTERNAL_EXCEPTION";
-  }
-  return "UNKNOWN";
-}
-
 namespace {
-
-DiagnosticCode PipelineErrorCodeToDiagnosticCode(PipelineErrorCode code) {
-  switch (code) {
-    case PipelineErrorCode::kOk:
-      return DiagnosticCode::kOk;
-    case PipelineErrorCode::kJsonParse:
-      return DiagnosticCode::kJsonParse;
-    case PipelineErrorCode::kConfigFileOpen:
-      return DiagnosticCode::kConfigFileOpen;
-    case PipelineErrorCode::kRootType:
-      return DiagnosticCode::kRootType;
-    case PipelineErrorCode::kUnknownField:
-      return DiagnosticCode::kUnknownField;
-    case PipelineErrorCode::kMissingField:
-      return DiagnosticCode::kMissingField;
-    case PipelineErrorCode::kFieldType:
-      return DiagnosticCode::kFieldType;
-    case PipelineErrorCode::kFieldRange:
-      return DiagnosticCode::kFieldRange;
-    case PipelineErrorCode::kInvalidCombination:
-      return DiagnosticCode::kInvalidCombination;
-    case PipelineErrorCode::kDuplicateModelId:
-      return DiagnosticCode::kDuplicateModelId;
-    case PipelineErrorCode::kDuplicateNodeId:
-      return DiagnosticCode::kDuplicateNodeId;
-    case PipelineErrorCode::kUnknownNodeType:
-      return DiagnosticCode::kUnknownNodeType;
-    case PipelineErrorCode::kUnknownModelType:
-      return DiagnosticCode::kUnknownModelType;
-    case PipelineErrorCode::kUnknownBackend:
-      return DiagnosticCode::kUnknownBackend;
-    case PipelineErrorCode::kInvalidDependency:
-      return DiagnosticCode::kInvalidDependency;
-    case PipelineErrorCode::kDagCycle:
-      return DiagnosticCode::kDagCycle;
-    case PipelineErrorCode::kRegistryConflict:
-      return DiagnosticCode::kRegistryConflict;
-    case PipelineErrorCode::kModelMaterializationFailed:
-      return DiagnosticCode::kUnknownModelReference;
-    case PipelineErrorCode::kNodeCreateFailed:
-      return DiagnosticCode::kUnknownNodeType;
-    case PipelineErrorCode::kNodeInitFailed:
-      return DiagnosticCode::kUnknownConfigField;
-    case PipelineErrorCode::kInternalException:
-      return DiagnosticCode::kInternalException;
-    case PipelineErrorCode::kInvalidBuildState:
-      return DiagnosticCode::kInternalException;
-  }
-  return DiagnosticCode::kInternalException;
-}
 
 void Add(ValidationReport* report, DiagnosticCode code, std::string path,
          std::string message, std::string node_id = {}, std::string port = {},
@@ -511,7 +374,7 @@ void PopulateBasicRemediation(
             std::string field_name = diag->path.substr(prefix.size());
             ValidationRemediation rem;
             rem.schema_version = 1;
-            rem.cause = "unknown_config_field";
+            rem.cause = RemediationCause::kUnknownConfigField;
             rem.summary = "节点 '" + diag->node_id + "' 的配置包含未知字段 '" +
                           field_name + "'。";
             rem.facts["field"] = field_name;
@@ -560,7 +423,7 @@ void PopulateBasicRemediation(
           if (def && !field_name.empty()) {
             ValidationRemediation rem;
             rem.schema_version = 1;
-            rem.cause = "missing_config_field";
+            rem.cause = RemediationCause::kMissingConfigField;
             rem.summary = "节点 '" + diag->node_id + "' 缺少必填配置字段 '" +
                           field_name + "'。";
             rem.facts["field"] = field_name;
@@ -607,7 +470,7 @@ void PopulateBasicRemediation(
           if (def && !field_name.empty()) {
             ValidationRemediation rem;
             rem.schema_version = 1;
-            rem.cause = "invalid_config_value";
+            rem.cause = RemediationCause::kInvalidConfigValue;
             rem.summary = "节点 '" + diag->node_id + "' 的配置项 '" +
                           field_name + "' 值不合法。";
             rem.facts["field"] = field_name;
@@ -663,8 +526,8 @@ void PopulateBasicRemediation(
               ValidationRemediation rem;
               rem.schema_version = 1;
               rem.cause = (diag->code == DiagnosticCode::kUnknownModelReference)
-                              ? "unknown_model_reference"
-                              : "model_capability_mismatch";
+                              ? RemediationCause::kUnknownModelReference
+                              : RemediationCause::kModelCapabilityMismatch;
               rem.facts["model_id"] = model_id;
               rem.facts["required_capability"] = req_cap;
 
@@ -767,7 +630,7 @@ void PopulateBasicRemediation(
         if (producer_out_type == expected_type) {
           ValidationRemediation rem;
           rem.schema_version = 1;
-          rem.cause = "producer_not_dependency_ancestor";
+          rem.cause = RemediationCause::kProducerNotDependencyAncestor;
           rem.summary = producer_id + " 已输出 " + bound_key +
                         "，但不在消费者的依赖路径中。";
           rem.facts["bound_key"] = bound_key;
@@ -776,7 +639,7 @@ void PopulateBasicRemediation(
         } else {
           ValidationRemediation rem;
           rem.schema_version = 1;
-          rem.cause = "port_type_mismatch";
+          rem.cause = RemediationCause::kPortTypeMismatch;
           rem.summary = "生产者 '" + producer_id + "' 输出类型与端口 '" +
                         port_name + "' 要求不符。";
           rem.facts["bound_key"] = bound_key;
@@ -796,7 +659,7 @@ void PopulateBasicRemediation(
       } else {
         ValidationRemediation rem;
         rem.schema_version = 1;
-        rem.cause = "no_compatible_input_source";
+        rem.cause = RemediationCause::kNoCompatibleInputSource;
         rem.summary = "Pipeline 中没有为端口 '" + port_name + "' (绑定键: '" +
                       bound_key + "') 提供匹配类型的生产者。";
         rem.facts["bound_key"] = bound_key;
@@ -837,7 +700,7 @@ void PopulateBasicRemediation(
       if (!dup_dep.empty()) {
         ValidationRemediation rem;
         rem.schema_version = 1;
-        rem.cause = "duplicate_dependency";
+        rem.cause = RemediationCause::kDuplicateDependency;
         rem.summary =
             "节点 '" + diag->node_id + "' 包含重复依赖 '" + dup_dep + "'。";
         rem.facts["dependency_id"] = dup_dep;
@@ -892,7 +755,7 @@ void PopulateBasicRemediation(
 
       ValidationRemediation rem;
       rem.schema_version = 1;
-      rem.cause = "unknown_dependency";
+      rem.cause = RemediationCause::kUnknownDependency;
       rem.summary =
           "节点 '" + diag->node_id + "' 依赖了未知的节点 ID '" + dep_id + "'。";
       rem.facts["dependency_id"] = dep_id;
@@ -902,7 +765,7 @@ void PopulateBasicRemediation(
   } else if (diag->code == DiagnosticCode::kMissingBizOutput) {
     ValidationRemediation rem;
     rem.schema_version = 1;
-    rem.cause = "missing_biz_output";
+    rem.cause = RemediationCause::kMissingBizOutput;
     rem.summary = "Pipeline 未产出 biz '" + root.value("biz_name", "") +
                   "' 所需的输出 '" + diag->port + "'。";
     rem.facts["biz_name"] = root.value("biz_name", "");
@@ -997,7 +860,7 @@ void PopulateBasicRemediation(
 
       ValidationRemediation rem;
       rem.schema_version = 1;
-      rem.cause = "port_flow_mismatch";
+      rem.cause = RemediationCause::kPortFlowMismatch;
       rem.summary = "生产者 '" + producer_id + "' 与消费者 '" + diag->node_id +
                     "' 在端口 '" + port_name + "' 上的流契约不兼容。";
       rem.facts["bound_key"] = bound_key;
@@ -1033,8 +896,7 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
 
   PipelineDiagnostic parse_diag;
   if (!ParsePipelineConfig(root, &plan.config, &parse_diag)) {
-    Add(&report, PipelineErrorCodeToDiagnosticCode(parse_diag.code),
-        parse_diag.path, parse_diag.message);
+    Add(&report, parse_diag.code, parse_diag.path, parse_diag.message);
     return finish_plan(plan);
   }
   const auto& parsed = plan.config;
@@ -1043,9 +905,9 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
     Add(&report, DiagnosticCode::kUnknownBiz, "/biz_name",
         "No registered biz contract accepts pipeline name: " + parsed.biz_name);
   }
-  if (NodeRegistry::Instance().HasConflict()) {
+  if (catalog.node_registry_has_conflict) {
     std::string message = "Node registry contains registration conflicts";
-    for (const auto& error : NodeRegistry::Instance().GetConflictErrors()) {
+    for (const auto& error : catalog.node_registry_errors) {
       message += ": " + error;
     }
     Add(&report, DiagnosticCode::kRegistryConflict, "/pipeline",
@@ -1186,8 +1048,7 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
   for (const auto& node : nodes) {
     node_by_id[node.id] = &node;
     const auto* definition = catalog.FindNode(node.node_type);
-    bool factory_has = NodeRegistry::Instance().Has(node.node_type);
-    if (!factory_has || (!definition && policy == ValidationPolicy::kStrict)) {
+    if (!definition) {
       Add(&report, DiagnosticCode::kUnknownNodeType,
           "/pipeline/" + std::to_string(node.source_index) + "/node_type",
           "Unknown node_type or missing catalog definition: " + node.node_type,
@@ -1646,7 +1507,7 @@ nlohmann::json ValidationRemediation::ToJson() const {
     fixes_json.push_back(fix.ToJson());
   }
   return {{"schema_version", schema_version},
-          {"cause", cause},
+          {"cause", RemediationCauseName(cause)},
           {"summary", summary},
           {"facts", facts},
           {"fixes", std::move(fixes_json)}};
@@ -1727,7 +1588,7 @@ ValidationReport PipelineValidator::Explain(const nlohmann::json& root,
 
     std::vector<ValidationFix> candidate_fixes;
 
-    if (diag.remediation->cause == "unknown_config_field") {
+    if (diag.remediation->cause == RemediationCause::kUnknownConfigField) {
       size_t idx_end = diag.path.find('/', 10);
       size_t p_idx = std::stoul(diag.path.substr(10, idx_end - 10));
       const auto& node_obj = root["pipeline"][p_idx];
@@ -1761,8 +1622,10 @@ ValidationReport PipelineValidator::Explain(const nlohmann::json& root,
           }
         }
       }
-    } else if (diag.remediation->cause == "unknown_model_reference" ||
-               diag.remediation->cause == "model_capability_mismatch") {
+    } else if (diag.remediation->cause ==
+                   RemediationCause::kUnknownModelReference ||
+               diag.remediation->cause ==
+                   RemediationCause::kModelCapabilityMismatch) {
       size_t idx_end = diag.path.find('/', 10);
       size_t p_idx = std::stoul(diag.path.substr(10, idx_end - 10));
       const auto& node_obj = root["pipeline"][p_idx];
@@ -1796,7 +1659,8 @@ ValidationReport PipelineValidator::Explain(const nlohmann::json& root,
           }
         }
       }
-    } else if (diag.remediation->cause == "producer_not_dependency_ancestor") {
+    } else if (diag.remediation->cause ==
+               RemediationCause::kProducerNotDependencyAncestor) {
       size_t idx_end = diag.path.find('/', 10);
       size_t consumer_idx = std::stoul(diag.path.substr(10, idx_end - 10));
       const auto& consumer_node = root["pipeline"][consumer_idx];
@@ -1841,7 +1705,8 @@ ValidationReport PipelineValidator::Explain(const nlohmann::json& root,
         fix.patch = std::move(patch);
         candidate_fixes.push_back(std::move(fix));
       }
-    } else if (diag.remediation->cause == "duplicate_dependency") {
+    } else if (diag.remediation->cause ==
+               RemediationCause::kDuplicateDependency) {
       size_t idx_end = diag.path.find('/', 10);
       size_t consumer_idx = std::stoul(diag.path.substr(10, idx_end - 10));
       const auto& c_node = root["pipeline"][consumer_idx];
@@ -1859,7 +1724,8 @@ ValidationReport PipelineValidator::Explain(const nlohmann::json& root,
              {{"op", "remove"}, {"path", diag.path}}});
         candidate_fixes.push_back(std::move(fix));
       }
-    } else if (diag.remediation->cause == "unknown_dependency") {
+    } else if (diag.remediation->cause ==
+               RemediationCause::kUnknownDependency) {
       size_t idx_end = diag.path.find('/', 10);
       size_t consumer_idx = std::stoul(diag.path.substr(10, idx_end - 10));
       const auto& c_node = root["pipeline"][consumer_idx];
@@ -1931,8 +1797,10 @@ ValidationReport PipelineValidator::Explain(const nlohmann::json& root,
           }
           if (!has_new_error) {
             bool candidate_model_has_error = false;
-            if (diag.remediation->cause == "unknown_model_reference" ||
-                diag.remediation->cause == "model_capability_mismatch") {
+            if (diag.remediation->cause ==
+                    RemediationCause::kUnknownModelReference ||
+                diag.remediation->cause ==
+                    RemediationCause::kModelCapabilityMismatch) {
               std::string cand_mid;
               for (const auto& op : fix.patch) {
                 if (op.value("op", "") == "replace") {

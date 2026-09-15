@@ -21,6 +21,7 @@
 #include "tests/support/node_harness.h"
 #include "tests/support/node_process_pause.h"
 #include "tests/support/node_test_utils.h"
+#include "tests/support/registry_test_access.h"
 #include "tests/support/scoped_allocation_failure.h"
 
 namespace llm_edgeflow {
@@ -904,7 +905,7 @@ TEST(FunctionNodeTest,
     }
   }
   EXPECT_TRUE(found_message);
-  NodeRegistry::Instance().ClearConflictForTesting();
+  test_support::RegistryTestAccess::ClearNodeFailures();
 }
 
 TEST(FunctionNodeTest, NodeWithoutParametersOperatesCorrectly) {

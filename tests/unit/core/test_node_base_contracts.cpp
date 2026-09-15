@@ -8,6 +8,7 @@
 
 #include "core/alg_context.h"
 #include "core/blackboard_key.h"
+#include "core/node_registry.h"
 #include "core/pipeline_catalog.h"
 #include "core/session_context.h"
 #include "engine/model_interface.h"
@@ -18,6 +19,7 @@
 #include "nodes/traceable_batch_validation.h"
 #include "nodes/traceable_unary_inference_node.h"
 #include "tests/support/node_test_utils.h"
+#include "tests/support/registry_test_access.h"
 
 namespace llm_edgeflow {
 
@@ -418,12 +420,15 @@ class MockTraceableAsrNode
 };
 
 TEST(NodeBaseContractsTest, TraceableUnaryInferenceNodeWorkflow) {
+  test_support::RegistryTestAccess::ScopedNodeState state_guard;
   NodeDefinition definition;
   definition.node_type = MockTraceableAsrNode::kNodeType;
   definition.model_dependencies = {{"transcriber", "asr", "bind_model"}};
   definition.config_fields = {ConfigFieldDefinition{
       "bind_model", ConfigValueKind::kString, false, "test_asr_model"}};
-  ASSERT_TRUE(PipelineCatalog::RegisterNodeDefinition(definition));
+  ASSERT_TRUE(NodeRegistry::Instance().Register(
+      definition.node_type,
+      []() { return std::make_unique<MockTraceableAsrNode>(); }, definition));
 
   SessionContext session_ctx;
   auto model = std::make_shared<MockAsrModel>();

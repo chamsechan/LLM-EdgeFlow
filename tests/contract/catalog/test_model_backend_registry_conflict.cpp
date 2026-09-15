@@ -6,6 +6,7 @@
 #include "core/pipeline_catalog.h"
 #include "engine/backend_registry.h"
 #include "engine/model_registry.h"
+#include "tests/support/registry_test_access.h"
 
 namespace llm_edgeflow {
 namespace {
@@ -115,7 +116,7 @@ TEST(ModelBackendRegistryConflictTest, DefinitionValidationIsFailClosed) {
   ASSERT_TRUE(stored_backend.has_value());
   EXPECT_EQ(stored_backend->description, "original");
 
-  PipelineCatalog::ClearForTesting();
+  test_support::RegistryTestAccess::ResetNodes();
   EXPECT_TRUE(model_registry.Has(original_model.model_type));
   EXPECT_TRUE(backend_registry.Has(original_backend.backend_type));
 

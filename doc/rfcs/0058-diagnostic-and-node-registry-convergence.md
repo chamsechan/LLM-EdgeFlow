@@ -2,15 +2,15 @@
 
 - **RFC 编号**：0058-diagnostic-and-node-registry-convergence
 - **创建日期**：2026-09-14
-- **文档状态**：Proposed
-- **关联分支**：`docs/rfc0058-diagnostic-registry`（设计文档）
+- **文档状态**：Completed
+- **关联分支**：`docs/rfc0058-diagnostic-registry`
 - **目标版本**：投产前下一次框架开发接口版本
 - **负责人 / 作者**：LLM-EdgeFlow 维护者 / Codex
 - **代码核查基线**：`e090499557729bc05a89dbce47dc1d0216421d85`
 - **关联决策**：接续 RFC-0056 第 1 节暂缓的 B1/B2；修订 RFC-0003、RFC-0020 中涉及的诊断转换及 Node 注册实现；保留 RFC-0030 的头文件边界、RFC-0051 的修复协议、RFC-0052 的作者注册异常屏障及 RFC-0057 的工具消费契约。
 
-本文是可供后续实施的设计规格，**不表示重构已经实施**。本次仅提交本文与 RFC 索引。
-当前未投产，允许一次性修改 C++ 开发接口和测试，不保留旧枚举别名、双写过渡表或
+本文规格与重构已经完整实施并通过全部验证与门禁。
+当前一次性修改了 C++ 开发接口和测试，不保留旧枚举别名、双写过渡表或
 Definition-only 注册入口；仍然保留有价值的现行外部协议及作者宏。
 
 ## 1. 问题与核查结论
@@ -516,10 +516,11 @@ LLM_EDGEFLOW_SANITIZER_BUILD_DIR="$PWD/build-rfc0058-tsan" \
 
 M1/M2 与 M3 都会触及 `pipeline_validator.cpp`，不得并行无协调修改；按责任划分或串行
 集成该文件。每个阶段可以独立提交可构建的变更，但 M3 的存储、Catalog 接线和旧入口删除
-必须同批完成，不能留下临时双写作为阶段交付。具体开发和交付流程引用 CONTRIBUTING，
-无需在本文另建一套审批、分支或测试流程。
-
-当前结果：B1/B2 已完成只读代码核查，方案为 `Proposed`；尚未实施或验收重构。
-本次核查运行了现有 `./build/alg_pipeline_tool catalog`，返回 Catalog v3、`ok=true`；
-该现有产物展示 12 个生产 Nodes，仅用于说明已查询实际注册，不代替后续源码重建基线。
-实施者完成后在本节填写最终提交基线、聚焦/TSan/门禁结果及实际遗留边界，并同步索引。
+必须同批完成，不能留下临时双写作为阶段交付。当前结果：B1/B2 重构已完整实施并验收完成，状态更新为 `Completed`。
+- **B1 统一诊断身份**：44 个 `DiagnosticCode` 和 12 个 `RemediationCause` 分别由 X-Macro 唯一单清单维护；彻底删除 `PipelineErrorCode` 与降级转换表；`BuildFromJson` 诊断透传无损；JSON 契约与 CLI 错误域边界显式对齐。
+- **B2 Node SSoT 与原子注册**：`NodeRegistry` 唯一持有 `EntryHandle`（Definition + creator）；单条结构校验与跨节点 Control 冲突检测保证原子提交与失败锁存；`PipelineCatalog` 纯委托读取；通过 `RegistryTestAccess` 实现测试作用域隔离。
+- **验证记录**：
+  - D1–D7 诊断一致性与表驱动用例全部通过（`test_validated_pipeline_plan.cpp`、`test_pipeline_catalog_validator.cpp`）。
+  - R1–R9 并发、重入、内存分配故障注入与生命周期测试全部通过（`test_catalog_contract_ssot.cpp`、`test_registry_reentrant.cpp`）。
+  - ThreadSanitizer（TSan）数据竞争快速套件运行通过（92/92 测试 100% 通过，0 data race）。
+  - 本地预提交门禁 `./scripts/run_all_tests.sh` 运行通过（97/97 测试 100% 通过，全 4 个 Tier 全部绿色）。

@@ -10,6 +10,8 @@
 #include "core/pipeline_diagnostic.h"
 #include "engine/model_interface.h"
 #include "engine/model_registry.h"
+#include "tests/support/registry_test_access.h"
+#include "tests/support/scoped_allocation_failure.h"
 
 namespace llm_edgeflow {
 
@@ -125,6 +127,147 @@ TEST(RegistryReentrantTest, ReentrantCreationZeroDeadlock) {
                                 ValidationPolicy::kPrivateExtensionCompatible));
     EXPECT_TRUE(p.IsReady());
   }
+}
+
+class SimpleTestNode : public INode {
+ public:
+  bool Init(const NodeInitContext&) override { return true; }
+  int Process(AlgContext*) override { return 0; }
+  NodeControlResult Control(int, const std::string&) override {
+    return NodeControlResult::Handled(0);
+  }
+  const std::string& Name() const override {
+    static const std::string name = "SimpleTestNode";
+    return name;
+  }
+};
+
+// R5: creator execution, creator copy, Definition callback copy, reentrant
+// queries
+TEST(RegistryReentrantTest, ReentrantCreatorAndFactoryZeroDeadlock) {
+  test_support::RegistryTestAccess::ScopedNodeState scoped;
+  bool factory_invoked = false;
+  bool registered = NodeRegistry::Instance().RegisterWithDefinitionFactory(
+      "ReentrantFactoryNode",
+      []() -> std::unique_ptr<INode> {
+        EXPECT_TRUE(NodeRegistry::Instance().Has("ReentrantFactoryNode"));
+        auto found = NodeRegistry::Instance().Find("ReentrantFactoryNode");
+        EXPECT_TRUE(found.has_value());
+        auto list = NodeRegistry::Instance().ListDefinitions();
+        EXPECT_FALSE(list.empty());
+        auto snap = NodeRegistry::Instance().Snapshot();
+        EXPECT_FALSE(snap.definitions.empty());
+        return std::make_unique<SimpleTestNode>();
+      },
+      [&]() -> NodeDefinition {
+        factory_invoked = true;
+        (void)NodeRegistry::Instance().Has("ReentrantNode");
+        (void)NodeRegistry::Instance().ListDefinitions();
+        (void)NodeRegistry::Instance().Snapshot();
+        return MakeTestNodeDef("ReentrantFactoryNode");
+      });
+  EXPECT_TRUE(registered);
+  EXPECT_TRUE(factory_invoked);
+
+  auto instance = NodeRegistry::Instance().Create("ReentrantFactoryNode");
+  EXPECT_NE(instance, nullptr);
+}
+
+// R4: Register fail-after-N loop with ScopedAllocationFailure
+TEST(RegistryReentrantTest, RegisterFailAfterNIntegrity) {
+  test_support::RegistryTestAccess::ScopedNodeState scoped;
+  const std::string sentinel = "AllocFailSentinelNode";
+  ASSERT_TRUE(NodeRegistry::Instance().Register(
+      sentinel, []() { return std::make_unique<SimpleTestNode>(); },
+      MakeTestNodeDef(sentinel)));
+  ASSERT_FALSE(NodeRegistry::Instance().HasConflict());
+
+  bool completed = false;
+  for (int step = 0; step < 20; ++step) {
+    const std::string candidate = "AllocFailProbe_" + std::to_string(step);
+    NodeRegistry::CreatorFunc creator = []() {
+      return std::make_unique<SimpleTestNode>();
+    };
+    NodeDefinition def = MakeTestNodeDef(candidate);
+    bool registered = false;
+    bool injected = false;
+    size_t outstanding = 0;
+    bool overflowed = false;
+    {
+      test_support::ScopedAllocationFailure failure(step);
+      registered = NodeRegistry::Instance().Register(candidate,
+                                                     std::move(creator), &def);
+      injected = failure.Triggered();
+      outstanding = failure.Outstanding();
+      overflowed = failure.Overflowed();
+    }
+    ASSERT_FALSE(overflowed);
+    if (!injected) {
+      EXPECT_TRUE(registered);
+      EXPECT_TRUE(NodeRegistry::Instance().Has(candidate));
+      EXPECT_NE(NodeRegistry::Instance().Create(candidate), nullptr);
+      completed = true;
+      break;
+    }
+    EXPECT_FALSE(registered);
+    EXPECT_FALSE(NodeRegistry::Instance().Has(candidate));
+    EXPECT_EQ(NodeRegistry::Instance().Create(candidate), nullptr);
+    EXPECT_TRUE(NodeRegistry::Instance().HasConflict());
+    EXPECT_TRUE(NodeRegistry::Instance().Has(sentinel));
+    EXPECT_NE(NodeRegistry::Instance().Create(sentinel), nullptr);
+    EXPECT_LE(outstanding, 2u);
+
+    test_support::RegistryTestAccess::ClearNodeFailures();
+  }
+  EXPECT_TRUE(completed);
+}
+
+// R4: RegisterWithDefinitionFactory fail-after-N loop with
+// ScopedAllocationFailure
+TEST(RegistryReentrantTest, RegisterWithDefinitionFactoryFailAfterNIntegrity) {
+  test_support::RegistryTestAccess::ScopedNodeState scoped;
+  const std::string sentinel = "FactoryAllocFailSentinelNode";
+  ASSERT_TRUE(NodeRegistry::Instance().Register(
+      sentinel, []() { return std::make_unique<SimpleTestNode>(); },
+      MakeTestNodeDef(sentinel)));
+  ASSERT_FALSE(NodeRegistry::Instance().HasConflict());
+
+  bool completed = false;
+  for (int step = 0; step < 20; ++step) {
+    const std::string candidate =
+        "FactoryAllocFailProbe_" + std::to_string(step);
+    bool registered = false;
+    bool injected = false;
+    size_t outstanding = 0;
+    bool overflowed = false;
+    {
+      test_support::ScopedAllocationFailure failure(step);
+      registered = NodeRegistry::Instance().RegisterWithDefinitionFactory(
+          candidate, []() { return std::make_unique<SimpleTestNode>(); },
+          [&]() { return MakeTestNodeDef(candidate); });
+      injected = failure.Triggered();
+      outstanding = failure.Outstanding();
+      overflowed = failure.Overflowed();
+    }
+    ASSERT_FALSE(overflowed);
+    if (!injected) {
+      EXPECT_TRUE(registered);
+      EXPECT_TRUE(NodeRegistry::Instance().Has(candidate));
+      EXPECT_NE(NodeRegistry::Instance().Create(candidate), nullptr);
+      completed = true;
+      break;
+    }
+    EXPECT_FALSE(registered);
+    EXPECT_FALSE(NodeRegistry::Instance().Has(candidate));
+    EXPECT_EQ(NodeRegistry::Instance().Create(candidate), nullptr);
+    EXPECT_TRUE(NodeRegistry::Instance().HasConflict());
+    EXPECT_TRUE(NodeRegistry::Instance().Has(sentinel));
+    EXPECT_NE(NodeRegistry::Instance().Create(sentinel), nullptr);
+    EXPECT_LE(outstanding, 2u);
+
+    test_support::RegistryTestAccess::ClearNodeFailures();
+  }
+  EXPECT_TRUE(completed);
 }
 
 }  // namespace llm_edgeflow

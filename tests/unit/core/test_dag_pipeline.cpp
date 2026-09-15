@@ -467,7 +467,7 @@ TEST_F(DagPipelineTest, RejectsLegacyPipelineWithoutIdOrDependsOn) {
   PipelineDiagnostic diag;
   EXPECT_FALSE(pipeline.BuildFromJson(
       legacy_config, &diag, ValidationPolicy::kPrivateExtensionCompatible));
-  EXPECT_EQ(diag.code, PipelineErrorCode::kMissingField);
+  EXPECT_EQ(diag.code, DiagnosticCode::kMissingField);
   EXPECT_EQ(diag.path, "/pipeline/0/id");
 }
 

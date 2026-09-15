@@ -206,6 +206,13 @@ TEST(ValidatedPipelinePlanTest, DiagnosticCodeNameTableDriven) {
       {DiagnosticCode::kDuplicateNodeId, "DUPLICATE_NODE_ID"},
       {DiagnosticCode::kUnknownBiz, "UNKNOWN_BIZ"},
       {DiagnosticCode::kUnknownNodeType, "UNKNOWN_NODE_TYPE"},
+      {DiagnosticCode::kUnknownModelType, "UNKNOWN_MODEL_TYPE"},
+      {DiagnosticCode::kUnknownBackend, "UNKNOWN_BACKEND"},
+      {DiagnosticCode::kModelCapabilityMismatch, "MODEL_CAPABILITY_MISMATCH"},
+      {DiagnosticCode::kBackendProtocolMismatch, "BACKEND_PROTOCOL_MISMATCH"},
+      {DiagnosticCode::kUnknownModelConfigField, "UNKNOWN_MODEL_CONFIG_FIELD"},
+      {DiagnosticCode::kUnknownBackendConfigField,
+       "UNKNOWN_BACKEND_CONFIG_FIELD"},
       {DiagnosticCode::kInvalidDependency, "INVALID_DEPENDENCY"},
       {DiagnosticCode::kDuplicateDependency, "DUPLICATE_DEPENDENCY"},
       {DiagnosticCode::kDagCycle, "DAG_CYCLE"},
@@ -216,7 +223,6 @@ TEST(ValidatedPipelinePlanTest, DiagnosticCodeNameTableDriven) {
       {DiagnosticCode::kConfigFieldRange, "CONFIG_FIELD_RANGE"},
       {DiagnosticCode::kConfigFieldEnum, "CONFIG_FIELD_ENUM"},
       {DiagnosticCode::kUnknownModelReference, "UNKNOWN_MODEL_REFERENCE"},
-      {DiagnosticCode::kModelCapabilityMismatch, "MODEL_CAPABILITY_MISMATCH"},
       {DiagnosticCode::kNodeBizMismatch, "NODE_BIZ_MISMATCH"},
       {DiagnosticCode::kMissingInputProducer, "MISSING_INPUT_PRODUCER"},
       {DiagnosticCode::kDuplicatePortProducer, "DUPLICATE_PORT_PRODUCER"},
@@ -229,14 +235,22 @@ TEST(ValidatedPipelinePlanTest, DiagnosticCodeNameTableDriven) {
       {DiagnosticCode::kPortProvenanceMismatch, "PORT_PROVENANCE_MISMATCH"},
       {DiagnosticCode::kPortLifetimeMismatch, "PORT_LIFETIME_MISMATCH"},
       {DiagnosticCode::kInternalException, "INTERNAL_EXCEPTION"},
+      {DiagnosticCode::kModelMaterializationFailed,
+       "MODEL_MATERIALIZATION_FAILED"},
+      {DiagnosticCode::kNodeCreateFailed, "NODE_CREATE_FAILED"},
+      {DiagnosticCode::kNodeInitFailed, "NODE_INIT_FAILED"},
+      {DiagnosticCode::kInvalidBuildState, "INVALID_BUILD_STATE"},
   };
 
+  EXPECT_EQ(cases.size(), 44u);
   std::unordered_set<std::string> names;
   for (const auto& item : cases) {
     std::string name = DiagnosticCodeName(item.code);
     EXPECT_STREQ(name.c_str(), item.expected_name);
     EXPECT_TRUE(names.insert(name).second) << "Duplicate name: " << name;
   }
+  EXPECT_STREQ(DiagnosticCodeName(static_cast<DiagnosticCode>(9999)),
+               "UNKNOWN");
 }
 
 TEST(ValidatedPipelinePlanTest, RejectsIncompatiblePortExecutionContracts) {

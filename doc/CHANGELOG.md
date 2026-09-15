@@ -1,5 +1,25 @@
 # Changelog
 
+## 2026-09-14 投产前诊断身份与 Node 注册状态收敛（RFC-0058）
+
+- **统一诊断身份体系（B1）**：
+  - 新增轻量级 `DiagnosticCode` 枚举（44 个精确诊断码：40 个校验码 + 4 个运行时码）与唯一名称表，基于单清单 X-Macro 统一管理。
+  - 彻底废除 `PipelineErrorCode` 枚举及其与 `DiagnosticCode` 的多对一降级转换表（`ValidationCodeToPipelineCode`、`PipelineErrorCodeToDiagnosticCode`）。
+  - `Pipeline::BuildFromJson` 在预检校验失败时直接透传首条精确 `DiagnosticCode`、路径与错误消息，消除消息前缀反解析与有损类型折叠。
+  - 新增类型化 `RemediationCause` 枚举（12 种修复原因），`ValidationRemediation::cause` 全量迁移为强类型枚举，`ToJson` 边界保留既有字符串映射。
+  - `alg_pipeline_tool` 错误域边界显式划分为基于 `DiagnosticCode` 的方案错误与独立的 `ToolError`。
+- **Node 单一事实源与原子注册（B2）**：
+  - `NodeRegistry` 存储结构收敛为单一不可变 `Entry`（同时持有 `NodeDefinition` 与 `CreatorFunc`），消除独立 `creators_` 映射与双阶段发布异常窗口。
+  - 彻底移除 `PipelineCatalog::RegisterNodeDefinition`、`RegisteredNodes()` 及独立节点写入口，`PipelineCatalog` 纯化为只读外观委托。
+  - 抽取私有结构校验与跨节点 Control 冲突检测，保证注册事务在单一互斥锁内原子提交；失败时单调锁存冲突标志，不污染既有已发布条目。
+  - `Create` 采用锁外复制执行模式，彻底消除构造期与作者回调重入查询可能引起的自锁。
+  - 移除公开的测试清理方法，改由 `tests/support/registry_test_access.h` 提供 friend 访问的 `RegistryTestAccess` 与 `ScopedNodeState`，实现严格测试作用域隔离与还原。
+- **质量验证**：
+  - 覆盖 D1–D7 诊断精确性矩阵，通过所有表驱动负向用例及 JSON fixture 迁移。
+  - 覆盖 R1–R9 原子性、并发注册竞争、无死锁重入（含 fail-after-N 内存分配故障注入）及状态隔离。
+  - 通过全量 ThreadSanitizer（TSan）数据竞争检测（92/92 测试 100% 通过）。
+  - 通过本地预提交四层门禁 `./scripts/run_all_tests.sh`（97/97 测试 100% 通过）。
+
 ## 2026-09-14 Pipeline 编排与部署预检验收修复（RFC-0057）
 
 - 增加八类原生作者操作、128 动作/4 MiB 有界请求和 `fix-deps` 预览/原地修复；写入失败保留原文件，普通扇出保持已有默认 key，歧义目标和非法请求返回结构化错误。

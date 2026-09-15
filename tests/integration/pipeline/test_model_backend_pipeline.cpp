@@ -538,7 +538,7 @@ TEST_F(ModelBackendPipelineTest, PipelineBuildMaterializesAndRegistersModel) {
       cfg, &diag, ValidationPolicy::kPrivateExtensionCompatible);
 
   EXPECT_TRUE(ok) << diag.message;
-  EXPECT_EQ(diag.code, PipelineErrorCode::kOk);
+  EXPECT_EQ(diag.code, DiagnosticCode::kOk);
 
   // Verify backend and model creation
   EXPECT_EQ(g_backend_create_count.load(), 1);
@@ -606,7 +606,7 @@ TEST_F(ModelBackendPipelineTest,
       cfg, &diag, ValidationPolicy::kPrivateExtensionCompatible);
 
   EXPECT_FALSE(ok);
-  EXPECT_EQ(diag.code, PipelineErrorCode::kModelMaterializationFailed);
+  EXPECT_EQ(diag.code, DiagnosticCode::kModelMaterializationFailed);
 
   // Verify that failing_backend truly attempted to load (preventing false
   // positives)
@@ -755,7 +755,7 @@ TEST_F(ModelBackendPipelineTest, PipelinePassesResolvedPathAndTargetToBackend) {
   bool ok = pipeline.BuildFromJson(
       cfg, &diag, ValidationPolicy::kPrivateExtensionCompatible);
   EXPECT_TRUE(ok);
-  EXPECT_EQ(diag.code, PipelineErrorCode::kOk);
+  EXPECT_EQ(diag.code, DiagnosticCode::kOk);
 
   // Session registration retains model identity metadata, while the
   // execution target remains transient and is captured at the Backend load

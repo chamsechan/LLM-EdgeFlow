@@ -127,7 +127,7 @@ TEST(RegistryAuthoringStartupTest,
   EXPECT_FALSE(
       pipeline.BuildFromJson(config, &build_diagnostic,
                              ValidationPolicy::kPrivateExtensionCompatible));
-  EXPECT_EQ(build_diagnostic.code, PipelineErrorCode::kRegistryConflict);
+  EXPECT_EQ(build_diagnostic.code, DiagnosticCode::kRegistryConflict);
   EXPECT_NE(build_diagnostic.message.find("BadAuthoringNode"),
             std::string::npos);
   EXPECT_NE(build_diagnostic.message.find(reason), std::string::npos);
@@ -179,7 +179,7 @@ TEST(RegistryConflictNodeTest, DuplicateNodeFailClosed) {
                                {"depends_on", nlohmann::json::array()}}})}};
   EXPECT_FALSE(pipe.BuildFromJson(
       cfg, &diag, ValidationPolicy::kPrivateExtensionCompatible));
-  EXPECT_EQ(diag.code, PipelineErrorCode::kRegistryConflict);
+  EXPECT_EQ(diag.code, DiagnosticCode::kRegistryConflict);
   EXPECT_EQ(diag.path, "/pipeline");
 }
 
@@ -208,7 +208,7 @@ TEST(RegistryConflictModelTest, DuplicateModelFailClosed) {
                                {"depends_on", nlohmann::json::array()}}})}};
   EXPECT_FALSE(pipe.BuildFromJson(
       cfg, &diag, ValidationPolicy::kPrivateExtensionCompatible));
-  EXPECT_EQ(diag.code, PipelineErrorCode::kRegistryConflict);
+  EXPECT_EQ(diag.code, DiagnosticCode::kRegistryConflict);
   EXPECT_EQ(diag.path, "/models");
 }
 

@@ -16,10 +16,11 @@
           }
         ]
       },
-      "required_codes": ["UNKNOWN_BIZ"],
+      "required_codes": [
+        "UNKNOWN_BIZ"
+      ],
       "primary_code": "UNKNOWN_BIZ",
       "primary_path": "/biz_name",
-      "pipeline_error_code": 8,
       "runtime_error_code": -2
     },
     {
@@ -37,10 +38,11 @@
           }
         ]
       },
-      "required_codes": ["UNKNOWN_NODE_TYPE"],
+      "required_codes": [
+        "UNKNOWN_NODE_TYPE"
+      ],
       "primary_code": "UNKNOWN_NODE_TYPE",
       "primary_path": "/pipeline/0/node_type",
-      "pipeline_error_code": 11,
       "runtime_error_code": -2
     },
     {
@@ -49,34 +51,69 @@
       "pipeline": {
         "biz_name": "entity_extract_v1",
         "models": [
-          {"model_id": "llm", "capability": "llm", "model_type": "test_biz_llm", "backend": "test_causal_lm_backend", "model_path": "fixture.gguf"}
+          {
+            "model_id": "llm",
+            "capability": "llm",
+            "model_type": "test_biz_llm",
+            "backend": "test_causal_lm_backend",
+            "model_path": "fixture.gguf"
+          }
         ],
         "pipeline": [
           {
             "id": "pre",
             "node_type": "TextTemplateNode",
             "depends_on": [],
-            "ports": {"inputs": {"primary": "input_sentences"}, "outputs": {"text": "prompt_text"}}
+            "ports": {
+              "inputs": {
+                "primary": "input_sentences"
+              },
+              "outputs": {
+                "text": "prompt_text"
+              }
+            }
           },
           {
             "id": "generate",
             "node_type": "LlmGenerateNode",
-            "depends_on": ["pre"],
-            "ports": {"inputs": {"prompt": "prompt_text"}, "outputs": {"text": "ans"}},
-            "config": {"bind_model": "llm", "unsupported_option": true}
+            "depends_on": [
+              "pre"
+            ],
+            "ports": {
+              "inputs": {
+                "prompt": "prompt_text"
+              },
+              "outputs": {
+                "text": "ans"
+              }
+            },
+            "config": {
+              "bind_model": "llm",
+              "unsupported_option": true
+            }
           },
           {
             "id": "post",
             "node_type": "StructuredJsonParseNode",
-            "depends_on": ["generate"],
-            "ports": {"inputs": {"text": "ans"}, "outputs": {"document": "extracted_entities"}}
+            "depends_on": [
+              "generate"
+            ],
+            "ports": {
+              "inputs": {
+                "text": "ans"
+              },
+              "outputs": {
+                "document": "extracted_entities"
+              }
+            }
           }
         ]
       },
-      "required_codes": ["UNKNOWN_CONFIG_FIELD"],
+      "required_codes": [
+        "UNKNOWN_CONFIG_FIELD"
+      ],
       "primary_code": "UNKNOWN_CONFIG_FIELD",
       "primary_path": "/pipeline/1/config/unsupported_option",
-      "pipeline_error_code": 4,
       "runtime_error_code": -2
     },
     {
@@ -85,34 +122,69 @@
       "pipeline": {
         "biz_name": "entity_extract_v1",
         "models": [
-          {"model_id": "llm", "capability": "llm", "model_type": "test_biz_llm", "backend": "test_causal_lm_backend", "model_path": "fixture.gguf"}
+          {
+            "model_id": "llm",
+            "capability": "llm",
+            "model_type": "test_biz_llm",
+            "backend": "test_causal_lm_backend",
+            "model_path": "fixture.gguf"
+          }
         ],
         "pipeline": [
           {
             "id": "pre",
             "node_type": "TextTemplateNode",
             "depends_on": [],
-            "ports": {"inputs": {"primary": "input_sentences"}, "outputs": {"text": "prompt_text"}}
+            "ports": {
+              "inputs": {
+                "primary": "input_sentences"
+              },
+              "outputs": {
+                "text": "prompt_text"
+              }
+            }
           },
           {
             "id": "generate",
             "node_type": "LlmGenerateNode",
-            "depends_on": ["pre"],
-            "ports": {"inputs": {"prompt": "prompt_text"}, "outputs": {"text": "ans"}},
-            "config": {"bind_model": "llm", "max_tokens": 0}
+            "depends_on": [
+              "pre"
+            ],
+            "ports": {
+              "inputs": {
+                "prompt": "prompt_text"
+              },
+              "outputs": {
+                "text": "ans"
+              }
+            },
+            "config": {
+              "bind_model": "llm",
+              "max_tokens": 0
+            }
           },
           {
             "id": "post",
             "node_type": "StructuredJsonParseNode",
-            "depends_on": ["generate"],
-            "ports": {"inputs": {"text": "ans"}, "outputs": {"document": "extracted_entities"}}
+            "depends_on": [
+              "generate"
+            ],
+            "ports": {
+              "inputs": {
+                "text": "ans"
+              },
+              "outputs": {
+                "document": "extracted_entities"
+              }
+            }
           }
         ]
       },
-      "required_codes": ["CONFIG_FIELD_RANGE"],
+      "required_codes": [
+        "CONFIG_FIELD_RANGE"
+      ],
       "primary_code": "CONFIG_FIELD_RANGE",
       "primary_path": "/pipeline/1/config/max_tokens",
-      "pipeline_error_code": 7,
       "runtime_error_code": -2
     },
     {
@@ -121,34 +193,68 @@
       "pipeline": {
         "biz_name": "entity_extract_v1",
         "models": [
-          {"model_id": "embedding", "capability": "embedding", "model_type": "test_biz_embedding", "backend": "test_tensor_backend", "model_path": "fixture.onnx"}
+          {
+            "model_id": "embedding",
+            "capability": "embedding",
+            "model_type": "test_biz_embedding",
+            "backend": "test_tensor_backend",
+            "model_path": "fixture.onnx"
+          }
         ],
         "pipeline": [
           {
             "id": "pre",
             "node_type": "TextTemplateNode",
             "depends_on": [],
-            "ports": {"inputs": {"primary": "input_sentences"}, "outputs": {"text": "prompt_text"}}
+            "ports": {
+              "inputs": {
+                "primary": "input_sentences"
+              },
+              "outputs": {
+                "text": "prompt_text"
+              }
+            }
           },
           {
             "id": "generate",
             "node_type": "LlmGenerateNode",
-            "depends_on": ["pre"],
-            "ports": {"inputs": {"prompt": "prompt_text"}, "outputs": {"text": "ans"}},
-            "config": {"bind_model": "embedding"}
+            "depends_on": [
+              "pre"
+            ],
+            "ports": {
+              "inputs": {
+                "prompt": "prompt_text"
+              },
+              "outputs": {
+                "text": "ans"
+              }
+            },
+            "config": {
+              "bind_model": "embedding"
+            }
           },
           {
             "id": "post",
             "node_type": "StructuredJsonParseNode",
-            "depends_on": ["generate"],
-            "ports": {"inputs": {"text": "ans"}, "outputs": {"document": "extracted_entities"}}
+            "depends_on": [
+              "generate"
+            ],
+            "ports": {
+              "inputs": {
+                "text": "ans"
+              },
+              "outputs": {
+                "document": "extracted_entities"
+              }
+            }
           }
         ]
       },
-      "required_codes": ["MODEL_CAPABILITY_MISMATCH"],
+      "required_codes": [
+        "MODEL_CAPABILITY_MISMATCH"
+      ],
       "primary_code": "MODEL_CAPABILITY_MISMATCH",
       "primary_path": "/pipeline/1/config/bind_model",
-      "pipeline_error_code": 8,
       "runtime_error_code": -2
     },
     {
@@ -158,14 +264,29 @@
         "biz_name": "keyword_match_v1",
         "models": [],
         "pipeline": [
-          {"id": "a", "node_type": "TextRuleMatchNode", "depends_on": ["b"], "config": {}},
-          {"id": "b", "node_type": "TextRuleMatchNode", "depends_on": ["a"], "config": {}}
+          {
+            "id": "a",
+            "node_type": "TextRuleMatchNode",
+            "depends_on": [
+              "b"
+            ],
+            "config": {}
+          },
+          {
+            "id": "b",
+            "node_type": "TextRuleMatchNode",
+            "depends_on": [
+              "a"
+            ],
+            "config": {}
+          }
         ]
       },
-      "required_codes": ["DAG_CYCLE"],
+      "required_codes": [
+        "DAG_CYCLE"
+      ],
       "primary_code": "DAG_CYCLE",
       "primary_path": "/pipeline",
-      "pipeline_error_code": 15,
       "runtime_error_code": -2
     },
     {
@@ -188,10 +309,11 @@
           }
         ]
       },
-      "required_codes": ["MISSING_INPUT_PRODUCER"],
+      "required_codes": [
+        "MISSING_INPUT_PRODUCER"
+      ],
       "primary_code": "MISSING_INPUT_PRODUCER",
       "primary_path": "/pipeline/0/ports/inputs/text",
-      "pipeline_error_code": 8,
       "runtime_error_code": -2
     },
     {
@@ -207,8 +329,12 @@
             "node_type": "TextRuleMatchNode",
             "depends_on": [],
             "ports": {
-              "inputs": {"text": "input_sentences"},
-              "outputs": {"matches": "conflict_matches"}
+              "inputs": {
+                "text": "input_sentences"
+              },
+              "outputs": {
+                "matches": "conflict_matches"
+              }
             },
             "config": {}
           },
@@ -217,17 +343,23 @@
             "node_type": "TextRuleMatchNode",
             "depends_on": [],
             "ports": {
-              "inputs": {"text": "input_sentences"},
-              "outputs": {"matches": "conflict_matches"}
+              "inputs": {
+                "text": "input_sentences"
+              },
+              "outputs": {
+                "matches": "conflict_matches"
+              }
             },
             "config": {}
           }
         ]
       },
-      "required_codes": ["DUPLICATE_PORT_PRODUCER", "PARALLEL_WRITE_CONFLICT"],
+      "required_codes": [
+        "DUPLICATE_PORT_PRODUCER",
+        "PARALLEL_WRITE_CONFLICT"
+      ],
       "primary_code": "DUPLICATE_PORT_PRODUCER",
       "primary_path": "/pipeline/1/ports/outputs/matches",
-      "pipeline_error_code": 8,
       "runtime_error_code": -2
     },
     {
@@ -237,7 +369,13 @@
         "biz_name": "entity_extract_v1",
         "execution_mode": "parallel",
         "models": [
-          {"model_id": "serialized_llm", "capability": "llm", "model_type": "test_biz_llm", "backend": "test_causal_lm_backend", "model_path": "fixture.gguf"}
+          {
+            "model_id": "serialized_llm",
+            "capability": "llm",
+            "model_type": "test_biz_llm",
+            "backend": "test_causal_lm_backend",
+            "model_path": "fixture.gguf"
+          }
         ],
         "pipeline": [
           {
@@ -245,45 +383,172 @@
             "node_type": "TextTemplateNode",
             "depends_on": [],
             "ports": {
-              "inputs": {"primary": "input_sentences"},
-              "outputs": {"text": "prompt_text"}
+              "inputs": {
+                "primary": "input_sentences"
+              },
+              "outputs": {
+                "text": "prompt_text"
+              }
             }
           },
           {
             "id": "left",
             "node_type": "LlmGenerateNode",
-            "depends_on": ["pre"],
+            "depends_on": [
+              "pre"
+            ],
             "ports": {
-              "inputs": {"prompt": "prompt_text"},
-              "outputs": {"text": "ans_left"}
+              "inputs": {
+                "prompt": "prompt_text"
+              },
+              "outputs": {
+                "text": "ans_left"
+              }
             },
-            "config": {"bind_model": "serialized_llm"}
+            "config": {
+              "bind_model": "serialized_llm"
+            }
           },
           {
             "id": "right",
             "node_type": "LlmGenerateNode",
-            "depends_on": ["pre"],
+            "depends_on": [
+              "pre"
+            ],
             "ports": {
-              "inputs": {"prompt": "prompt_text"},
-              "outputs": {"text": "ans_right"}
+              "inputs": {
+                "prompt": "prompt_text"
+              },
+              "outputs": {
+                "text": "ans_right"
+              }
             },
-            "config": {"bind_model": "serialized_llm"}
+            "config": {
+              "bind_model": "serialized_llm"
+            }
           },
           {
             "id": "post",
             "node_type": "StructuredJsonParseNode",
-            "depends_on": ["left", "right"],
+            "depends_on": [
+              "left",
+              "right"
+            ],
             "ports": {
-              "inputs": {"text": "ans_left"},
-              "outputs": {"document": "extracted_entities"}
+              "inputs": {
+                "text": "ans_left"
+              },
+              "outputs": {
+                "document": "extracted_entities"
+              }
             }
           }
         ]
       },
-      "required_codes": ["SERIALIZED_MODEL_CONCURRENCY"],
+      "required_codes": [
+        "SERIALIZED_MODEL_CONCURRENCY"
+      ],
       "primary_code": "SERIALIZED_MODEL_CONCURRENCY",
       "primary_path": "/pipeline/2/config/bind_model",
-      "pipeline_error_code": 8,
+      "runtime_error_code": -2
+    },
+    {
+      "name": "missing_node_id",
+      "biz_type": 2,
+      "pipeline": {
+        "biz_name": "keyword_match_v1",
+        "models": [],
+        "pipeline": [
+          {
+            "node_type": "TextRuleMatchNode",
+            "depends_on": [],
+            "config": {}
+          }
+        ]
+      },
+      "required_codes": [
+        "MISSING_FIELD"
+      ],
+      "primary_code": "MISSING_FIELD",
+      "primary_path": "/pipeline/0/id",
+      "runtime_error_code": -2
+    },
+    {
+      "name": "invalid_execution_mode",
+      "biz_type": 2,
+      "pipeline": {
+        "biz_name": "keyword_match_v1",
+        "execution_mode": "quantum",
+        "models": [],
+        "pipeline": [
+          {
+            "id": "kw",
+            "node_type": "TextRuleMatchNode",
+            "depends_on": [],
+            "config": {}
+          }
+        ]
+      },
+      "required_codes": [
+        "FIELD_RANGE"
+      ],
+      "primary_code": "FIELD_RANGE",
+      "primary_path": "/execution_mode",
+      "runtime_error_code": -2
+    },
+    {
+      "name": "duplicate_dependency",
+      "biz_type": 2,
+      "pipeline": {
+        "biz_name": "keyword_match_v1",
+        "models": [],
+        "pipeline": [
+          {
+            "id": "node_a",
+            "node_type": "TextRuleMatchNode",
+            "depends_on": [],
+            "config": {}
+          },
+          {
+            "id": "node_b",
+            "node_type": "TextRuleMatchNode",
+            "depends_on": [
+              "node_a",
+              "node_a"
+            ],
+            "config": {}
+          }
+        ]
+      },
+      "required_codes": [
+        "DUPLICATE_DEPENDENCY"
+      ],
+      "primary_code": "DUPLICATE_DEPENDENCY",
+      "primary_path": "/pipeline/1/depends_on/1",
+      "runtime_error_code": -2
+    },
+    {
+      "name": "invalid_dependency",
+      "biz_type": 2,
+      "pipeline": {
+        "biz_name": "keyword_match_v1",
+        "models": [],
+        "pipeline": [
+          {
+            "id": "node_a",
+            "node_type": "TextRuleMatchNode",
+            "depends_on": [
+              "non_existent_node"
+            ],
+            "config": {}
+          }
+        ]
+      },
+      "required_codes": [
+        "INVALID_DEPENDENCY"
+      ],
+      "primary_code": "INVALID_DEPENDENCY",
+      "primary_path": "/pipeline/0/depends_on/0",
       "runtime_error_code": -2
     }
   ]

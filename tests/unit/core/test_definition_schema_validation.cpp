@@ -14,6 +14,7 @@
 #include "contracts/config_schema_validation.h"
 #include "contracts/control_payload.h"
 #include "core/common_contracts.h"
+#include "core/node_definition_validation.h"
 #include "core/node_interface.h"
 #include "core/node_registry.h"
 #include "core/pipeline.h"
@@ -23,6 +24,7 @@
 #include "engine/backend_registry.h"
 #include "engine/model_interface.h"
 #include "engine/model_registry.h"
+#include "tests/support/registry_test_access.h"
 
 namespace llm_edgeflow {
 namespace {
@@ -475,7 +477,7 @@ TEST(DefinitionSchemaValidationTest, RejectsInvalidDefinitionAtRegistration) {
       ConfigFieldDefinition{"field_a", ConfigValueKind::kString},
       ConfigFieldDefinition{"field_a", ConfigValueKind::kInteger},
   };
-  EXPECT_FALSE(PipelineCatalog::RegisterNodeDefinition(dup_field_def));
+  EXPECT_FALSE(ValidateNodeDefinitionStructure(dup_field_def));
 
   // 2. Minimum > Maximum
   NodeDefinition invalid_range_def;
@@ -484,7 +486,7 @@ TEST(DefinitionSchemaValidationTest, RejectsInvalidDefinitionAtRegistration) {
       ConfigFieldDefinition{"num", ConfigValueKind::kNumber, false, 5.0, 10.0,
                             1.0},
   };
-  EXPECT_FALSE(PipelineCatalog::RegisterNodeDefinition(invalid_range_def));
+  EXPECT_FALSE(ValidateNodeDefinitionStructure(invalid_range_def));
 
   // 3. Default value kind mismatch
   NodeDefinition default_mismatch_def;
@@ -493,7 +495,7 @@ TEST(DefinitionSchemaValidationTest, RejectsInvalidDefinitionAtRegistration) {
       ConfigFieldDefinition{"flag", ConfigValueKind::kBoolean, false,
                             "not_a_bool"},
   };
-  EXPECT_FALSE(PipelineCatalog::RegisterNodeDefinition(default_mismatch_def));
+  EXPECT_FALSE(ValidateNodeDefinitionStructure(default_mismatch_def));
 
   // 4. Default value not in enum
   NodeDefinition enum_mismatch_def;
@@ -507,7 +509,7 @@ TEST(DefinitionSchemaValidationTest, RejectsInvalidDefinitionAtRegistration) {
                             std::nullopt,
                             {"mode_a", "mode_b"}},
   };
-  EXPECT_FALSE(PipelineCatalog::RegisterNodeDefinition(enum_mismatch_def));
+  EXPECT_FALSE(ValidateNodeDefinitionStructure(enum_mismatch_def));
 
   // 5. Duplicate enum values
   NodeDefinition dup_enum_def;
@@ -521,7 +523,7 @@ TEST(DefinitionSchemaValidationTest, RejectsInvalidDefinitionAtRegistration) {
                             std::nullopt,
                             {"mode_a", "mode_a"}},
   };
-  EXPECT_FALSE(PipelineCatalog::RegisterNodeDefinition(dup_enum_def));
+  EXPECT_FALSE(ValidateNodeDefinitionStructure(dup_enum_def));
 
   // 6. Non-numeric field carrying minimum/maximum (CR-005)
   NodeDefinition string_range_def;
@@ -530,7 +532,7 @@ TEST(DefinitionSchemaValidationTest, RejectsInvalidDefinitionAtRegistration) {
       ConfigFieldDefinition{"str_fld", ConfigValueKind::kString, false, "hello",
                             0.0, 10.0},
   };
-  EXPECT_FALSE(PipelineCatalog::RegisterNodeDefinition(string_range_def));
+  EXPECT_FALSE(ValidateNodeDefinitionStructure(string_range_def));
 
   NodeDefinition bool_range_def;
   bool_range_def.node_type = "BoolRangeNode";
@@ -538,7 +540,7 @@ TEST(DefinitionSchemaValidationTest, RejectsInvalidDefinitionAtRegistration) {
       ConfigFieldDefinition{"bool_fld", ConfigValueKind::kBoolean, false, true,
                             0.0, 1.0},
   };
-  EXPECT_FALSE(PipelineCatalog::RegisterNodeDefinition(bool_range_def));
+  EXPECT_FALSE(ValidateNodeDefinitionStructure(bool_range_def));
 
   // 7. Node declares model_dependencies with empty config_field
   NodeDefinition missing_model_field_def;
@@ -547,8 +549,7 @@ TEST(DefinitionSchemaValidationTest, RejectsInvalidDefinitionAtRegistration) {
   missing_model_field_def.config_fields = {
       ConfigFieldDefinition{"some_param", ConfigValueKind::kString},
   };
-  EXPECT_FALSE(
-      PipelineCatalog::RegisterNodeDefinition(missing_model_field_def));
+  EXPECT_FALSE(ValidateNodeDefinitionStructure(missing_model_field_def));
 
   // 8. Node declares model_dependencies but field not in config_fields
   NodeDefinition unlisted_model_field_def;
@@ -558,8 +559,7 @@ TEST(DefinitionSchemaValidationTest, RejectsInvalidDefinitionAtRegistration) {
   unlisted_model_field_def.config_fields = {
       ConfigFieldDefinition{"other_param", ConfigValueKind::kString},
   };
-  EXPECT_FALSE(
-      PipelineCatalog::RegisterNodeDefinition(unlisted_model_field_def));
+  EXPECT_FALSE(ValidateNodeDefinitionStructure(unlisted_model_field_def));
 
   // 9. Node declares model_dependencies but config_field is not string
   NodeDefinition nonstring_model_field_def;
@@ -569,8 +569,7 @@ TEST(DefinitionSchemaValidationTest, RejectsInvalidDefinitionAtRegistration) {
   nonstring_model_field_def.config_fields = {
       ConfigFieldDefinition{"bind_model", ConfigValueKind::kInteger},
   };
-  EXPECT_FALSE(
-      PipelineCatalog::RegisterNodeDefinition(nonstring_model_field_def));
+  EXPECT_FALSE(ValidateNodeDefinitionStructure(nonstring_model_field_def));
 
   // 9b. Node declares duplicate slot name or duplicate config field
   NodeDefinition dup_slot_def;
@@ -583,7 +582,7 @@ TEST(DefinitionSchemaValidationTest, RejectsInvalidDefinitionAtRegistration) {
       ConfigFieldDefinition{"bind_model1", ConfigValueKind::kString},
       ConfigFieldDefinition{"bind_model2", ConfigValueKind::kString},
   };
-  EXPECT_FALSE(PipelineCatalog::RegisterNodeDefinition(dup_slot_def));
+  EXPECT_FALSE(ValidateNodeDefinitionStructure(dup_slot_def));
 
   NodeDefinition dup_dep_field_def;
   dup_dep_field_def.node_type = "DupFieldNode";
@@ -594,7 +593,7 @@ TEST(DefinitionSchemaValidationTest, RejectsInvalidDefinitionAtRegistration) {
   dup_dep_field_def.config_fields = {
       ConfigFieldDefinition{"bind_model", ConfigValueKind::kString},
   };
-  EXPECT_FALSE(PipelineCatalog::RegisterNodeDefinition(dup_dep_field_def));
+  EXPECT_FALSE(ValidateNodeDefinitionStructure(dup_dep_field_def));
 
   // 10. Port constraints referencing undeclared ports
   NodeDefinition invalid_constraint_def;
@@ -604,14 +603,14 @@ TEST(DefinitionSchemaValidationTest, RejectsInvalidDefinitionAtRegistration) {
   invalid_constraint_def.port_constraints = {
       PortGroupConstraint(PortConstraintKind::kAtLeastOneOf,
                           std::vector<std::string>{"text", "unknown_port"})};
-  EXPECT_FALSE(PipelineCatalog::RegisterNodeDefinition(invalid_constraint_def));
+  EXPECT_FALSE(ValidateNodeDefinitionStructure(invalid_constraint_def));
 
   // 11. Invalid control command definition
   NodeDefinition invalid_cmd_def;
   invalid_cmd_def.node_type = "InvalidCmdNode";
   invalid_cmd_def.control_commands = {
       ControlCommandDefinition(0, "invalid_cmd")};  // id <= 0
-  EXPECT_FALSE(PipelineCatalog::RegisterNodeDefinition(invalid_cmd_def));
+  EXPECT_FALSE(ValidateNodeDefinitionStructure(invalid_cmd_def));
 
   // 12. A dynamic lifetime must reference a declared string enum containing
   // only framework lifetimes.
@@ -627,48 +626,63 @@ TEST(DefinitionSchemaValidationTest, RejectsInvalidDefinitionAtRegistration) {
                             std::nullopt,
                             std::nullopt,
                             {"request", "forever"}}};
-  EXPECT_FALSE(
-      PipelineCatalog::RegisterNodeDefinition(invalid_lifetime_override));
+  EXPECT_FALSE(ValidateNodeDefinitionStructure(invalid_lifetime_override));
 }
 
 TEST(DefinitionSchemaValidationTest,
      ControlIdsRequireExplicitIdenticalSharing) {
+  test_support::RegistryTestAccess::ScopedNodeState state_guard;
+  auto dummy_creator = []() { return nullptr; };
+
   NodeDefinition first;
   first.node_type = "PrivateControlOwner";
   first.control_commands = {
       ControlCommandDefinition(2000000101, "private_update")};
-  ASSERT_TRUE(PipelineCatalog::RegisterNodeDefinition(first));
+  ASSERT_TRUE(
+      NodeRegistry::Instance().Register(first.node_type, dummy_creator, first));
   auto duplicate = first;
   duplicate.node_type = "PrivateControlDuplicate";
-  std::string error;
-  EXPECT_FALSE(PipelineCatalog::RegisterNodeDefinition(duplicate, &error));
+  EXPECT_FALSE(NodeRegistry::Instance().Register(duplicate.node_type,
+                                                 dummy_creator, duplicate));
+  EXPECT_TRUE(NodeRegistry::Instance().HasConflict());
+  auto errors = NodeRegistry::Instance().GetConflictErrors();
+  std::string error = errors.empty() ? "" : errors.front();
   EXPECT_NE(error.find("2000000101"), std::string::npos);
   EXPECT_NE(error.find("PrivateControlOwner"), std::string::npos);
+  test_support::RegistryTestAccess::ClearNodeFailures();
 
   first.node_type = "SharedControlOwner";
   first.control_commands.front().cmd_id = 2000000102;
   first.control_commands.front().shared_id = true;
-  ASSERT_TRUE(PipelineCatalog::RegisterNodeDefinition(first));
+  ASSERT_TRUE(
+      NodeRegistry::Instance().Register(first.node_type, dummy_creator, first));
   duplicate = first;
   duplicate.node_type = "SharedControlPeer";
-  EXPECT_TRUE(PipelineCatalog::RegisterNodeDefinition(duplicate));
+  EXPECT_TRUE(NodeRegistry::Instance().Register(duplicate.node_type,
+                                                dummy_creator, duplicate));
   duplicate.node_type = "SharedControlNameMismatch";
   duplicate.control_commands.front().name = "different_semantics";
-  EXPECT_FALSE(PipelineCatalog::RegisterNodeDefinition(duplicate));
+  EXPECT_FALSE(NodeRegistry::Instance().Register(duplicate.node_type,
+                                                 dummy_creator, duplicate));
+  test_support::RegistryTestAccess::ClearNodeFailures();
   duplicate.control_commands = first.control_commands;
   duplicate.node_type = "SharedControlSchemaMismatch";
   duplicate.control_commands.front().payload_schema = {{"type", "string"}};
-  EXPECT_FALSE(PipelineCatalog::RegisterNodeDefinition(duplicate));
+  EXPECT_FALSE(NodeRegistry::Instance().Register(duplicate.node_type,
+                                                 dummy_creator, duplicate));
+  test_support::RegistryTestAccess::ClearNodeFailures();
   duplicate.control_commands = first.control_commands;
   duplicate.node_type = "SharedControlMissingOptIn";
   duplicate.control_commands.front().shared_id = false;
-  EXPECT_FALSE(PipelineCatalog::RegisterNodeDefinition(duplicate));
+  EXPECT_FALSE(NodeRegistry::Instance().Register(duplicate.node_type,
+                                                 dummy_creator, duplicate));
+  test_support::RegistryTestAccess::ClearNodeFailures();
 
   NodeDefinition invalid;
   invalid.node_type = "NonObjectControlSchema";
   invalid.control_commands = {
       ControlCommandDefinition(2000000103, "invalid", "", false)};
-  EXPECT_FALSE(PipelineCatalog::RegisterNodeDefinition(invalid));
+  EXPECT_FALSE(ValidateNodeDefinitionStructure(invalid));
 }
 
 TEST(DefinitionSchemaValidationTest,
@@ -728,7 +742,7 @@ TEST(DefinitionSchemaValidationTest, ControlSchemaRejectsInvalidDeclarations) {
     node.control_commands = {
         ControlCommandDefinition(2000000110, "schema_probe", "", schema)};
     std::string error;
-    EXPECT_FALSE(PipelineCatalog::RegisterNodeDefinition(node, &error));
+    EXPECT_FALSE(ValidateNodeDefinitionStructure(node, &error));
     EXPECT_NE(error.find(node.node_type), std::string::npos) << error;
     EXPECT_NE(error.find("2000000110"), std::string::npos) << error;
     EXPECT_NE(error.find(field), std::string::npos) << error;
@@ -757,7 +771,7 @@ TEST(DefinitionSchemaValidationTest,
   node.control_commands = {
       ControlCommandDefinition(2000000111, "annotated_update", "", schema)};
   std::string error;
-  ASSERT_TRUE(PipelineCatalog::RegisterNodeDefinition(node, &error)) << error;
+  ASSERT_TRUE(ValidateNodeDefinitionStructure(node, &error)) << error;
   nlohmann::json payload;
   ASSERT_TRUE(ParseControlPayload("{}", schema, &payload, &error)) << error;
   EXPECT_EQ(payload, nlohmann::json::object());
@@ -870,35 +884,35 @@ TEST(DefinitionSchemaValidationTest, RejectsInvalidNodePortDefinitions) {
   empty_key_node.node_type = "EmptyKeyPortNode";
   empty_key_node.inputs = {
       NodePortDefinition{"", "TextBatch", true, "1:1", "preserve", "request"}};
-  EXPECT_FALSE(PipelineCatalog::RegisterNodeDefinition(empty_key_node));
+  EXPECT_FALSE(ValidateNodeDefinitionStructure(empty_key_node));
 
   // Empty type_id
   NodeDefinition empty_type_node;
   empty_type_node.node_type = "EmptyTypePortNode";
   empty_type_node.inputs = {
       NodePortDefinition{"text", "", true, "1:1", "preserve", "request"}};
-  EXPECT_FALSE(PipelineCatalog::RegisterNodeDefinition(empty_type_node));
+  EXPECT_FALSE(ValidateNodeDefinitionStructure(empty_type_node));
 
   // Invalid cardinality
   NodeDefinition invalid_card_node;
   invalid_card_node.node_type = "InvalidCardPortNode";
   invalid_card_node.inputs = {NodePortDefinition{"text", "TextBatch", true,
                                                  "3:3", "preserve", "request"}};
-  EXPECT_FALSE(PipelineCatalog::RegisterNodeDefinition(invalid_card_node));
+  EXPECT_FALSE(ValidateNodeDefinitionStructure(invalid_card_node));
 
   // Invalid provenance
   NodeDefinition invalid_prov_node;
   invalid_prov_node.node_type = "InvalidProvPortNode";
   invalid_prov_node.inputs = {
       NodePortDefinition{"text", "TextBatch", true, "1:1", "magic", "request"}};
-  EXPECT_FALSE(PipelineCatalog::RegisterNodeDefinition(invalid_prov_node));
+  EXPECT_FALSE(ValidateNodeDefinitionStructure(invalid_prov_node));
 
   // Invalid lifetime
   NodeDefinition invalid_life_node;
   invalid_life_node.node_type = "InvalidLifePortNode";
   invalid_life_node.inputs = {NodePortDefinition{"text", "TextBatch", true,
                                                  "1:1", "preserve", "eternal"}};
-  EXPECT_FALSE(PipelineCatalog::RegisterNodeDefinition(invalid_life_node));
+  EXPECT_FALSE(ValidateNodeDefinitionStructure(invalid_life_node));
 
   // Duplicate input port key
   NodeDefinition dup_key_node;
@@ -907,7 +921,7 @@ TEST(DefinitionSchemaValidationTest, RejectsInvalidNodePortDefinitions) {
                                             "preserve", "request"},
                          NodePortDefinition{"text", "TextBatch", false, "1:1",
                                             "preserve", "request"}};
-  EXPECT_FALSE(PipelineCatalog::RegisterNodeDefinition(dup_key_node));
+  EXPECT_FALSE(ValidateNodeDefinitionStructure(dup_key_node));
 
   // Biz definition with invalid port
   BizDefinition invalid_biz;
@@ -1102,7 +1116,7 @@ TEST(DefinitionSchemaValidationTest, NodeAndBizRejectEmptyFlowMetadata) {
     BizPortDefinition biz_port{"value", "TextBatch"};
     static_cast<PortContract&>(biz_port) = port;
     biz.egress = {biz_port};
-    EXPECT_FALSE(PipelineCatalog::RegisterNodeDefinition(node));
+    EXPECT_FALSE(ValidateNodeDefinitionStructure(node));
     EXPECT_FALSE(PipelineCatalog::RegisterBizDefinition(biz));
   }
 }

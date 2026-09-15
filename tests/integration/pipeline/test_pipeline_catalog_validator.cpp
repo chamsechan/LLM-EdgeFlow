@@ -297,11 +297,10 @@ TEST(PipelineValidatorTest, TableDrivenParityMatrix) {
     bool built = pipeline.BuildFromJson(config, &pipe_diag);
     EXPECT_FALSE(built);
     EXPECT_EQ(pipeline.GetState(), Pipeline::State::kFailed);
-    EXPECT_EQ(static_cast<int>(pipe_diag.code),
-              test["pipeline_error_code"].get<int>());
+    EXPECT_EQ(DiagnosticCodeName(pipe_diag.code),
+              test["primary_code"].get<std::string>());
     EXPECT_EQ(pipe_diag.path, test["primary_path"].get<std::string>());
-    EXPECT_NE(pipe_diag.message.find(test["primary_code"].get<std::string>()),
-              std::string::npos);
+    EXPECT_EQ(pipe_diag.message, primary["message"].get<std::string>());
 
     // 3. The shared runtime must fail before materialization and preserve the
     // primary structured diagnostic in its internal C++ error boundary.
@@ -456,7 +455,7 @@ TEST(PipelineValidatorTest,
   ASSERT_TRUE(target_diag->remediation.has_value());
   const auto& rem = *target_diag->remediation;
   EXPECT_EQ(rem.schema_version, 1);
-  EXPECT_EQ(rem.cause, "producer_not_dependency_ancestor");
+  EXPECT_EQ(rem.cause, RemediationCause::kProducerNotDependencyAncestor);
   EXPECT_EQ(rem.facts.value("producer_id", ""), "custom_prompt");
   EXPECT_EQ(rem.facts.value("bound_key", ""), "llm_raw_answer");
 
@@ -510,7 +509,7 @@ TEST(PipelineValidatorTest, ExplainReturnsCandidateFixForUnknownConfigField) {
   ASSERT_TRUE(target_diag->remediation.has_value());
   const auto& rem = *target_diag->remediation;
   EXPECT_EQ(rem.schema_version, 1);
-  EXPECT_EQ(rem.cause, "unknown_config_field");
+  EXPECT_EQ(rem.cause, RemediationCause::kUnknownConfigField);
   EXPECT_EQ(rem.facts.value("field", ""), "temprature");
 
   ASSERT_TRUE(rem.facts.contains("candidate_fields"));
@@ -664,7 +663,7 @@ TEST(PipelineValidatorTest, ValidateProducesBasicRemediation) {
   ASSERT_NE(target_diag, nullptr);
   ASSERT_TRUE(target_diag->remediation.has_value());
   EXPECT_EQ(target_diag->remediation->schema_version, 1);
-  EXPECT_FALSE(target_diag->remediation->cause.empty());
+  EXPECT_NE(RemediationCauseName(target_diag->remediation->cause), "UNKNOWN");
   EXPECT_FALSE(target_diag->remediation->summary.empty());
   EXPECT_FALSE(target_diag->remediation->facts.empty());
   EXPECT_TRUE(target_diag->remediation->fixes.empty());
@@ -819,7 +818,8 @@ TEST(PipelineValidatorTest, ExplainReturnsPortFlowMismatchRemediation) {
 
   ASSERT_NE(target_diag, nullptr);
   ASSERT_TRUE(target_diag->remediation.has_value());
-  EXPECT_EQ(target_diag->remediation->cause, "port_flow_mismatch");
+  EXPECT_EQ(target_diag->remediation->cause,
+            RemediationCause::kPortFlowMismatch);
   EXPECT_EQ(target_diag->remediation->facts.value("bound_key", ""),
             "corpus_text");
   EXPECT_EQ(target_diag->remediation->facts.value("producer_id", ""),

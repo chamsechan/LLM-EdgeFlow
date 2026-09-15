@@ -1623,7 +1623,8 @@ FixDepsResult PipelineAuthoring::FixDeps(const std::string& file_path,
 
     for (const auto& diag : report.diagnostics) {
       if (diag.remediation.has_value() &&
-          diag.remediation->cause == "producer_not_dependency_ancestor") {
+          diag.remediation->cause ==
+              RemediationCause::kProducerNotDependencyAncestor) {
         std::string producer_id =
             diag.remediation->facts.value("producer_id", "");
         std::string bound_key = diag.remediation->facts.value("bound_key", "");
