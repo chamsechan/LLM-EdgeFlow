@@ -15,6 +15,7 @@ target_sources(edgeflow_integration_objects PRIVATE
   io_binding_registry.cpp
   deployment_io_config.cpp
   io_binding_resolver.cpp
+  io_catalog.cpp
   biz/audio_asr_intent_operator_bridge.cpp
   biz/compliance_audit_operator_bridge.cpp
   biz/cross_rerank_operator_bridge.cpp

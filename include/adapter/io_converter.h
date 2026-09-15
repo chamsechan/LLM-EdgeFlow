@@ -194,7 +194,9 @@ struct ExternalSlotDefinition {
   std::string type_id;
   PortDirection direction = PortDirection::kInput;
   bool required = true;
+  std::string value_type;
   std::string type_suffix;  // Operator ValueType 规范后缀 (如 "plain_text", "entity_out")
+  std::vector<std::string> capacity_fields;
 };
 
 // 统一输入/输出转换回调函数指针类型
@@ -218,6 +220,7 @@ struct InputConverterDefinition {
   std::string transport;  // "cabi" 或 "operator"
   std::string schema_id;
   int schema_version = 1;
+  std::string external_type;
   std::vector<ExternalSlotDefinition> external_slots;
   std::vector<NodePortDefinition> logical_ports;  // 发布的内部逻辑输出端口
   size_t max_batch_size = 64;
@@ -234,6 +237,7 @@ struct OutputConverterDefinition {
   std::string transport;  // "cabi" 或 "operator"
   std::string schema_id;
   int schema_version = 1;
+  std::string external_type;
   std::vector<NodePortDefinition> logical_ports;  // 消费的内部逻辑输入端口
   std::vector<ExternalSlotDefinition> external_slots;
   std::string cardinality = "1:1";

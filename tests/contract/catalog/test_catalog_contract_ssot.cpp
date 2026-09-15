@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "adapter/biz_adapter_registry.h"
+#include "adapter/io_catalog.h"
 #include "core/node_interface.h"
 #include "core/node_registry.h"
 #include "core/pipeline_catalog.h"
@@ -258,6 +259,28 @@ TEST_F(CatalogContractSsotTest, ToJsonSerializationAndFiltering) {
     }
   }
   EXPECT_TRUE(found_match_node);
+}
+
+// 5b. 验证 IoCatalog Schema 4 聚合与对外规范性
+TEST_F(CatalogContractSsotTest, IoCatalogSchema4SerializationAndFiltering) {
+  auto full_catalog = IoCatalog::ToJson();
+  EXPECT_EQ(full_catalog["schema_version"], 4);
+  EXPECT_TRUE(full_catalog["nodes"].is_array());
+  EXPECT_TRUE(full_catalog["models"].is_array());
+  EXPECT_TRUE(full_catalog["backends"].is_array());
+  EXPECT_TRUE(full_catalog["bizs"].is_array());
+  EXPECT_TRUE(full_catalog["input_converters"].is_array());
+  EXPECT_TRUE(full_catalog["output_converters"].is_array());
+  EXPECT_TRUE(full_catalog["io_bindings"].is_array());
+
+  // 业务过滤查询
+  auto km_catalog = IoCatalog::ToJson("keyword_match_v1");
+  EXPECT_EQ(km_catalog["schema_version"], 4);
+  EXPECT_TRUE(km_catalog["bizs"].is_array());
+  EXPECT_TRUE(km_catalog["nodes"].is_array());
+  EXPECT_TRUE(km_catalog["input_converters"].is_array());
+  EXPECT_TRUE(km_catalog["output_converters"].is_array());
+  EXPECT_TRUE(km_catalog["io_bindings"].is_array());
 }
 
 // R6: 并发同名注册只有一个成功，另一方失败锁存

@@ -18,6 +18,7 @@ struct IoBindingDefinition {
   std::string output_converter_id;
   std::unordered_map<std::string, std::string> input_ports;   // logical_name -> blackboard_key
   std::unordered_map<std::string, std::string> output_ports;  // logical_name -> blackboard_key
+  size_t max_batch_size = 0;
 };
 
 /**
