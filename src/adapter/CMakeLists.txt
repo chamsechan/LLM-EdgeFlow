@@ -11,6 +11,10 @@ target_sources(edgeflow_integration_objects PRIVATE
   c_api_adapter.cpp
   deployment_model_resolver.cpp
   text_carrier.cpp
+  io_converter_registry.cpp
+  io_binding_registry.cpp
+  deployment_io_config.cpp
+  io_binding_resolver.cpp
   biz/audio_asr_intent_operator_bridge.cpp
   biz/compliance_audit_operator_bridge.cpp
   biz/cross_rerank_operator_bridge.cpp

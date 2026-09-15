@@ -47,6 +47,8 @@ set(EDGEFLOW_REQUIRED_CONTRACT_TESTS
   OperatorBizBridgeRegistryTest
   OperatorGoldenTest
   AdapterPurityTest
+  IoConverterTest
+  IoBindingRegistryTest
   DocQaRerankTest
   PipelineStudioTest
   DemoRunnerTest
@@ -83,6 +85,8 @@ set(EDGEFLOW_SOURCE_test_concurrency_and_edge_cases "${PROJECT_SOURCE_DIR}/tests
 set(EDGEFLOW_SOURCE_test_different_io_modalities "${PROJECT_SOURCE_DIR}/tests/integration/runtime/test_different_io_modalities.cpp")
 set(EDGEFLOW_SOURCE_test_runtime_control_and_hot_swap "${PROJECT_SOURCE_DIR}/tests/integration/runtime/test_runtime_control_and_hot_swap.cpp")
 set(EDGEFLOW_SOURCE_test_adapter_purity "${PROJECT_SOURCE_DIR}/tests/unit/adapter/test_adapter_purity.cpp")
+set(EDGEFLOW_SOURCE_test_io_converters "${PROJECT_SOURCE_DIR}/tests/unit/adapter/test_io_converters.cpp")
+set(EDGEFLOW_SOURCE_test_io_binding_registry "${PROJECT_SOURCE_DIR}/tests/unit/adapter/test_io_binding_registry.cpp")
 set(EDGEFLOW_SOURCE_test_dag_pipeline "${PROJECT_SOURCE_DIR}/tests/unit/core/test_dag_pipeline.cpp")
 set(EDGEFLOW_SOURCE_test_definition_schema_validation "${PROJECT_SOURCE_DIR}/tests/unit/core/test_definition_schema_validation.cpp")
 set(EDGEFLOW_SOURCE_test_framework_core "${PROJECT_SOURCE_DIR}/tests/unit/core/test_framework_core.cpp")
