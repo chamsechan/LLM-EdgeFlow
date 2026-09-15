@@ -7,7 +7,7 @@ namespace llm_edgeflow {
 
 namespace {
 
-void SetDiag(PipelineDiagnostic* diag, PipelineErrorCode code,
+void SetDiag(PipelineDiagnostic* diag, DiagnosticCode code,
              const std::string& path, const std::string& message) {
   if (diag) {
     diag->code = code;
@@ -25,14 +25,13 @@ bool ParsePipelineConfig(const nlohmann::json& root,
     diagnostic->Clear();
   }
   if (!output) {
-    SetDiag(diagnostic, PipelineErrorCode::kFieldType, "/",
-            "Null output pointer");
+    SetDiag(diagnostic, DiagnosticCode::kFieldType, "/", "Null output pointer");
     return false;
   }
 
   // 1. 根节点必须是 JSON Object
   if (!root.is_object()) {
-    SetDiag(diagnostic, PipelineErrorCode::kRootType, "/",
+    SetDiag(diagnostic, DiagnosticCode::kRootType, "/",
             "Pipeline configuration root must be a JSON object");
     return false;
   }
@@ -47,7 +46,7 @@ bool ParsePipelineConfig(const nlohmann::json& root,
       "comment"};
   for (auto it = root.begin(); it != root.end(); ++it) {
     if (allowed_root_keys.find(it.key()) == allowed_root_keys.end()) {
-      SetDiag(diagnostic, PipelineErrorCode::kUnknownField, "/" + it.key(),
+      SetDiag(diagnostic, DiagnosticCode::kUnknownField, "/" + it.key(),
               "Unknown root field: " + it.key());
       return false;
     }
@@ -55,7 +54,7 @@ bool ParsePipelineConfig(const nlohmann::json& root,
 
   // comment (可选字符串)
   if (root.contains("comment") && !root["comment"].is_string()) {
-    SetDiag(diagnostic, PipelineErrorCode::kFieldType, "/comment",
+    SetDiag(diagnostic, DiagnosticCode::kFieldType, "/comment",
             "Field 'comment' must be a string");
     return false;
   }
@@ -64,18 +63,18 @@ bool ParsePipelineConfig(const nlohmann::json& root,
 
   // 3. biz_name 是 v6 唯一业务标识字段，必须存在且为非空字符串。
   if (!root.contains("biz_name")) {
-    SetDiag(diagnostic, PipelineErrorCode::kMissingField, "/biz_name",
+    SetDiag(diagnostic, DiagnosticCode::kMissingField, "/biz_name",
             "Missing required field 'biz_name'");
     return false;
   }
   if (!root["biz_name"].is_string()) {
-    SetDiag(diagnostic, PipelineErrorCode::kFieldType, "/biz_name",
+    SetDiag(diagnostic, DiagnosticCode::kFieldType, "/biz_name",
             "Field 'biz_name' must be a string");
     return false;
   }
   result.biz_name = root["biz_name"].get<std::string>();
   if (result.biz_name.empty()) {
-    SetDiag(diagnostic, PipelineErrorCode::kFieldRange, "/biz_name",
+    SetDiag(diagnostic, DiagnosticCode::kFieldRange, "/biz_name",
             "Field 'biz_name' cannot be empty");
     return false;
   }
@@ -83,13 +82,13 @@ bool ParsePipelineConfig(const nlohmann::json& root,
   // 4. 解析 execution_mode: 可选字符串，仅支持 "sequential" 与 "parallel"
   if (root.contains("execution_mode")) {
     if (!root["execution_mode"].is_string()) {
-      SetDiag(diagnostic, PipelineErrorCode::kFieldType, "/execution_mode",
+      SetDiag(diagnostic, DiagnosticCode::kFieldType, "/execution_mode",
               "Field 'execution_mode' must be a string");
       return false;
     }
     std::string mode_str = root["execution_mode"].get<std::string>();
     if (mode_str != "sequential" && mode_str != "parallel") {
-      SetDiag(diagnostic, PipelineErrorCode::kFieldRange, "/execution_mode",
+      SetDiag(diagnostic, DiagnosticCode::kFieldRange, "/execution_mode",
               "Field 'execution_mode' must be 'sequential' or 'parallel'");
       return false;
     }
@@ -104,22 +103,20 @@ bool ParsePipelineConfig(const nlohmann::json& root,
     // max_parallel_workers，避免配置复制隐式错误
     if (result.execution_mode == "sequential") {
       SetDiag(
-          diagnostic, PipelineErrorCode::kInvalidCombination,
+          diagnostic, DiagnosticCode::kInvalidCombination,
           "/max_parallel_workers",
           "Field 'max_parallel_workers' is only allowed when execution_mode "
           "is 'parallel'");
       return false;
     }
     if (!root["max_parallel_workers"].is_number_integer()) {
-      SetDiag(diagnostic, PipelineErrorCode::kFieldType,
-              "/max_parallel_workers",
+      SetDiag(diagnostic, DiagnosticCode::kFieldType, "/max_parallel_workers",
               "Field 'max_parallel_workers' must be an integer");
       return false;
     }
     int64_t workers = root["max_parallel_workers"].get<int64_t>();
     if (workers < 1 || workers > 64) {
-      SetDiag(diagnostic, PipelineErrorCode::kFieldRange,
-              "/max_parallel_workers",
+      SetDiag(diagnostic, DiagnosticCode::kFieldRange, "/max_parallel_workers",
               "Field 'max_parallel_workers' must be between 1 and 64");
       return false;
     }
@@ -131,12 +128,12 @@ bool ParsePipelineConfig(const nlohmann::json& root,
   // 6. 解析 models: 可选数组，最多 64 个模型定义
   if (root.contains("models")) {
     if (!root["models"].is_array()) {
-      SetDiag(diagnostic, PipelineErrorCode::kFieldType, "/models",
+      SetDiag(diagnostic, DiagnosticCode::kFieldType, "/models",
               "Field 'models' must be an array");
       return false;
     }
     if (root["models"].size() > 64) {
-      SetDiag(diagnostic, PipelineErrorCode::kFieldRange, "/models",
+      SetDiag(diagnostic, DiagnosticCode::kFieldRange, "/models",
               "Model count exceeds maximum limit of 64");
       return false;
     }
@@ -151,7 +148,7 @@ bool ParsePipelineConfig(const nlohmann::json& root,
       std::string model_path_prefix = "/models/" + std::to_string(i);
 
       if (!model_elem.is_object()) {
-        SetDiag(diagnostic, PipelineErrorCode::kFieldType, model_path_prefix,
+        SetDiag(diagnostic, DiagnosticCode::kFieldType, model_path_prefix,
                 "Model item must be an object");
         return false;
       }
@@ -159,7 +156,7 @@ bool ParsePipelineConfig(const nlohmann::json& root,
       // 拒绝 model 内部未知字段
       for (auto it = model_elem.begin(); it != model_elem.end(); ++it) {
         if (allowed_model_keys.find(it.key()) == allowed_model_keys.end()) {
-          SetDiag(diagnostic, PipelineErrorCode::kUnknownField,
+          SetDiag(diagnostic, DiagnosticCode::kUnknownField,
                   model_path_prefix + "/" + it.key(),
                   "Unknown field in model: " + it.key());
           return false;
@@ -169,7 +166,7 @@ bool ParsePipelineConfig(const nlohmann::json& root,
       // comment 字段类型检查 (R1-ACC-006)
       if (model_elem.contains("comment") &&
           !model_elem["comment"].is_string()) {
-        SetDiag(diagnostic, PipelineErrorCode::kFieldType,
+        SetDiag(diagnostic, DiagnosticCode::kFieldType,
                 model_path_prefix + "/comment",
                 "Field 'comment' must be a string");
         return false;
@@ -180,26 +177,26 @@ bool ParsePipelineConfig(const nlohmann::json& root,
 
       // model_id (必填非空字符串，唯一)
       if (!model_elem.contains("model_id")) {
-        SetDiag(diagnostic, PipelineErrorCode::kMissingField,
+        SetDiag(diagnostic, DiagnosticCode::kMissingField,
                 model_path_prefix + "/model_id",
                 "Missing required field 'model_id'");
         return false;
       }
       if (!model_elem["model_id"].is_string()) {
-        SetDiag(diagnostic, PipelineErrorCode::kFieldType,
+        SetDiag(diagnostic, DiagnosticCode::kFieldType,
                 model_path_prefix + "/model_id",
                 "Field 'model_id' must be a string");
         return false;
       }
       model_cfg.model_id = model_elem["model_id"].get<std::string>();
       if (model_cfg.model_id.empty()) {
-        SetDiag(diagnostic, PipelineErrorCode::kFieldRange,
+        SetDiag(diagnostic, DiagnosticCode::kFieldRange,
                 model_path_prefix + "/model_id",
                 "Field 'model_id' cannot be empty");
         return false;
       }
       if (seen_model_ids.find(model_cfg.model_id) != seen_model_ids.end()) {
-        SetDiag(diagnostic, PipelineErrorCode::kDuplicateModelId,
+        SetDiag(diagnostic, DiagnosticCode::kDuplicateModelId,
                 model_path_prefix + "/model_id",
                 "Duplicate model_id: " + model_cfg.model_id);
         return false;
@@ -208,20 +205,20 @@ bool ParsePipelineConfig(const nlohmann::json& root,
 
       // capability (必填非空字符串)
       if (!model_elem.contains("capability")) {
-        SetDiag(diagnostic, PipelineErrorCode::kMissingField,
+        SetDiag(diagnostic, DiagnosticCode::kMissingField,
                 model_path_prefix + "/capability",
                 "Missing required field 'capability'");
         return false;
       }
       if (!model_elem["capability"].is_string()) {
-        SetDiag(diagnostic, PipelineErrorCode::kFieldType,
+        SetDiag(diagnostic, DiagnosticCode::kFieldType,
                 model_path_prefix + "/capability",
                 "Field 'capability' must be a string");
         return false;
       }
       model_cfg.capability = model_elem["capability"].get<std::string>();
       if (model_cfg.capability.empty()) {
-        SetDiag(diagnostic, PipelineErrorCode::kFieldRange,
+        SetDiag(diagnostic, DiagnosticCode::kFieldRange,
                 model_path_prefix + "/capability",
                 "Field 'capability' cannot be empty");
         return false;
@@ -229,20 +226,20 @@ bool ParsePipelineConfig(const nlohmann::json& root,
 
       // model_type (必填非空字符串)
       if (!model_elem.contains("model_type")) {
-        SetDiag(diagnostic, PipelineErrorCode::kMissingField,
+        SetDiag(diagnostic, DiagnosticCode::kMissingField,
                 model_path_prefix + "/model_type",
                 "Missing required field 'model_type'");
         return false;
       }
       if (!model_elem["model_type"].is_string()) {
-        SetDiag(diagnostic, PipelineErrorCode::kFieldType,
+        SetDiag(diagnostic, DiagnosticCode::kFieldType,
                 model_path_prefix + "/model_type",
                 "Field 'model_type' must be a string");
         return false;
       }
       model_cfg.model_type = model_elem["model_type"].get<std::string>();
       if (model_cfg.model_type.empty()) {
-        SetDiag(diagnostic, PipelineErrorCode::kFieldRange,
+        SetDiag(diagnostic, DiagnosticCode::kFieldRange,
                 model_path_prefix + "/model_type",
                 "Field 'model_type' cannot be empty");
         return false;
@@ -250,20 +247,20 @@ bool ParsePipelineConfig(const nlohmann::json& root,
 
       // backend (必填非空字符串)
       if (!model_elem.contains("backend")) {
-        SetDiag(diagnostic, PipelineErrorCode::kMissingField,
+        SetDiag(diagnostic, DiagnosticCode::kMissingField,
                 model_path_prefix + "/backend",
                 "Missing required field 'backend'");
         return false;
       }
       if (!model_elem["backend"].is_string()) {
-        SetDiag(diagnostic, PipelineErrorCode::kFieldType,
+        SetDiag(diagnostic, DiagnosticCode::kFieldType,
                 model_path_prefix + "/backend",
                 "Field 'backend' must be a string");
         return false;
       }
       model_cfg.backend = model_elem["backend"].get<std::string>();
       if (model_cfg.backend.empty()) {
-        SetDiag(diagnostic, PipelineErrorCode::kFieldRange,
+        SetDiag(diagnostic, DiagnosticCode::kFieldRange,
                 model_path_prefix + "/backend",
                 "Field 'backend' cannot be empty");
         return false;
@@ -271,20 +268,20 @@ bool ParsePipelineConfig(const nlohmann::json& root,
 
       // model_path (必填非空字符串)
       if (!model_elem.contains("model_path")) {
-        SetDiag(diagnostic, PipelineErrorCode::kMissingField,
+        SetDiag(diagnostic, DiagnosticCode::kMissingField,
                 model_path_prefix + "/model_path",
                 "Missing required field 'model_path'");
         return false;
       }
       if (!model_elem["model_path"].is_string()) {
-        SetDiag(diagnostic, PipelineErrorCode::kFieldType,
+        SetDiag(diagnostic, DiagnosticCode::kFieldType,
                 model_path_prefix + "/model_path",
                 "Field 'model_path' must be a string");
         return false;
       }
       model_cfg.model_path = model_elem["model_path"].get<std::string>();
       if (model_cfg.model_path.empty()) {
-        SetDiag(diagnostic, PipelineErrorCode::kFieldRange,
+        SetDiag(diagnostic, DiagnosticCode::kFieldRange,
                 model_path_prefix + "/model_path",
                 "Field 'model_path' cannot be empty");
         return false;
@@ -293,7 +290,7 @@ bool ParsePipelineConfig(const nlohmann::json& root,
       // model_config (可选对象)
       if (model_elem.contains("model_config")) {
         if (!model_elem["model_config"].is_object()) {
-          SetDiag(diagnostic, PipelineErrorCode::kFieldType,
+          SetDiag(diagnostic, DiagnosticCode::kFieldType,
                   model_path_prefix + "/model_config",
                   "Field 'model_config' must be an object");
           return false;
@@ -306,7 +303,7 @@ bool ParsePipelineConfig(const nlohmann::json& root,
       // backend_config (可选对象)
       if (model_elem.contains("backend_config")) {
         if (!model_elem["backend_config"].is_object()) {
-          SetDiag(diagnostic, PipelineErrorCode::kFieldType,
+          SetDiag(diagnostic, DiagnosticCode::kFieldType,
                   model_path_prefix + "/backend_config",
                   "Field 'backend_config' must be an object");
           return false;
@@ -321,22 +318,22 @@ bool ParsePipelineConfig(const nlohmann::json& root,
 
   // 7. 解析 pipeline: 必填非空数组，最多 256 个节点定义
   if (!root.contains("pipeline")) {
-    SetDiag(diagnostic, PipelineErrorCode::kMissingField, "/pipeline",
+    SetDiag(diagnostic, DiagnosticCode::kMissingField, "/pipeline",
             "Missing required field 'pipeline'");
     return false;
   }
   if (!root["pipeline"].is_array()) {
-    SetDiag(diagnostic, PipelineErrorCode::kFieldType, "/pipeline",
+    SetDiag(diagnostic, DiagnosticCode::kFieldType, "/pipeline",
             "Field 'pipeline' must be an array");
     return false;
   }
   if (root["pipeline"].empty()) {
-    SetDiag(diagnostic, PipelineErrorCode::kFieldRange, "/pipeline",
+    SetDiag(diagnostic, DiagnosticCode::kFieldRange, "/pipeline",
             "Pipeline cannot be empty");
     return false;
   }
   if (root["pipeline"].size() > 256) {
-    SetDiag(diagnostic, PipelineErrorCode::kFieldRange, "/pipeline",
+    SetDiag(diagnostic, DiagnosticCode::kFieldRange, "/pipeline",
             "Pipeline node count exceeds maximum limit of 256");
     return false;
   }
@@ -351,7 +348,7 @@ bool ParsePipelineConfig(const nlohmann::json& root,
     std::string node_path_prefix = "/pipeline/" + std::to_string(i);
 
     if (!node_elem.is_object()) {
-      SetDiag(diagnostic, PipelineErrorCode::kFieldType, node_path_prefix,
+      SetDiag(diagnostic, DiagnosticCode::kFieldType, node_path_prefix,
               "Node item must be an object");
       return false;
     }
@@ -359,7 +356,7 @@ bool ParsePipelineConfig(const nlohmann::json& root,
     // 拒绝 node 内部未知字段
     for (auto it = node_elem.begin(); it != node_elem.end(); ++it) {
       if (allowed_node_keys.find(it.key()) == allowed_node_keys.end()) {
-        SetDiag(diagnostic, PipelineErrorCode::kUnknownField,
+        SetDiag(diagnostic, DiagnosticCode::kUnknownField,
                 node_path_prefix + "/" + it.key(),
                 "Unknown field in node: " + it.key());
         return false;
@@ -368,7 +365,7 @@ bool ParsePipelineConfig(const nlohmann::json& root,
 
     // comment 字段类型检查 (R1-ACC-006)
     if (node_elem.contains("comment") && !node_elem["comment"].is_string()) {
-      SetDiag(diagnostic, PipelineErrorCode::kFieldType,
+      SetDiag(diagnostic, DiagnosticCode::kFieldType,
               node_path_prefix + "/comment",
               "Field 'comment' must be a string");
       return false;
@@ -379,20 +376,20 @@ bool ParsePipelineConfig(const nlohmann::json& root,
 
     // node_type (必填非空字符串)
     if (!node_elem.contains("node_type")) {
-      SetDiag(diagnostic, PipelineErrorCode::kMissingField,
+      SetDiag(diagnostic, DiagnosticCode::kMissingField,
               node_path_prefix + "/node_type",
               "Missing required field 'node_type'");
       return false;
     }
     if (!node_elem["node_type"].is_string()) {
-      SetDiag(diagnostic, PipelineErrorCode::kFieldType,
+      SetDiag(diagnostic, DiagnosticCode::kFieldType,
               node_path_prefix + "/node_type",
               "Field 'node_type' must be a string");
       return false;
     }
     node_cfg.node_type = node_elem["node_type"].get<std::string>();
     if (node_cfg.node_type.empty()) {
-      SetDiag(diagnostic, PipelineErrorCode::kFieldRange,
+      SetDiag(diagnostic, DiagnosticCode::kFieldRange,
               node_path_prefix + "/node_type",
               "Field 'node_type' cannot be empty");
       return false;
@@ -401,7 +398,7 @@ bool ParsePipelineConfig(const nlohmann::json& root,
     // ports (可选对象)
     if (node_elem.contains("ports")) {
       if (!node_elem["ports"].is_object()) {
-        SetDiag(diagnostic, PipelineErrorCode::kFieldType,
+        SetDiag(diagnostic, DiagnosticCode::kFieldType,
                 node_path_prefix + "/ports", "Field 'ports' must be an object");
         return false;
       }
@@ -410,7 +407,7 @@ bool ParsePipelineConfig(const nlohmann::json& root,
           "inputs", "outputs", "comment"};
       for (auto pit = ports_obj.begin(); pit != ports_obj.end(); ++pit) {
         if (allowed_port_keys.find(pit.key()) == allowed_port_keys.end()) {
-          SetDiag(diagnostic, PipelineErrorCode::kUnknownField,
+          SetDiag(diagnostic, DiagnosticCode::kUnknownField,
                   node_path_prefix + "/ports/" + pit.key(),
                   "Unknown field in ports: " + pit.key());
           return false;
@@ -418,7 +415,7 @@ bool ParsePipelineConfig(const nlohmann::json& root,
       }
       if (ports_obj.contains("inputs")) {
         if (!ports_obj["inputs"].is_object()) {
-          SetDiag(diagnostic, PipelineErrorCode::kFieldType,
+          SetDiag(diagnostic, DiagnosticCode::kFieldType,
                   node_path_prefix + "/ports/inputs",
                   "Field 'ports.inputs' must be an object");
           return false;
@@ -426,14 +423,14 @@ bool ParsePipelineConfig(const nlohmann::json& root,
         for (auto it = ports_obj["inputs"].begin();
              it != ports_obj["inputs"].end(); ++it) {
           if (!it.value().is_string()) {
-            SetDiag(diagnostic, PipelineErrorCode::kFieldType,
+            SetDiag(diagnostic, DiagnosticCode::kFieldType,
                     node_path_prefix + "/ports/inputs/" + it.key(),
                     "Port mapping target must be a string");
             return false;
           }
           std::string target = it.value().get<std::string>();
           if (target.empty()) {
-            SetDiag(diagnostic, PipelineErrorCode::kFieldRange,
+            SetDiag(diagnostic, DiagnosticCode::kFieldRange,
                     node_path_prefix + "/ports/inputs/" + it.key(),
                     "Port mapping target cannot be empty");
             return false;
@@ -443,7 +440,7 @@ bool ParsePipelineConfig(const nlohmann::json& root,
       }
       if (ports_obj.contains("outputs")) {
         if (!ports_obj["outputs"].is_object()) {
-          SetDiag(diagnostic, PipelineErrorCode::kFieldType,
+          SetDiag(diagnostic, DiagnosticCode::kFieldType,
                   node_path_prefix + "/ports/outputs",
                   "Field 'ports.outputs' must be an object");
           return false;
@@ -451,14 +448,14 @@ bool ParsePipelineConfig(const nlohmann::json& root,
         for (auto it = ports_obj["outputs"].begin();
              it != ports_obj["outputs"].end(); ++it) {
           if (!it.value().is_string()) {
-            SetDiag(diagnostic, PipelineErrorCode::kFieldType,
+            SetDiag(diagnostic, DiagnosticCode::kFieldType,
                     node_path_prefix + "/ports/outputs/" + it.key(),
                     "Port mapping target must be a string");
             return false;
           }
           std::string target = it.value().get<std::string>();
           if (target.empty()) {
-            SetDiag(diagnostic, PipelineErrorCode::kFieldRange,
+            SetDiag(diagnostic, DiagnosticCode::kFieldRange,
                     node_path_prefix + "/ports/outputs/" + it.key(),
                     "Port mapping target cannot be empty");
             return false;
@@ -471,7 +468,7 @@ bool ParsePipelineConfig(const nlohmann::json& root,
     // config (可选对象)
     if (node_elem.contains("config")) {
       if (!node_elem["config"].is_object()) {
-        SetDiag(diagnostic, PipelineErrorCode::kFieldType,
+        SetDiag(diagnostic, DiagnosticCode::kFieldType,
                 node_path_prefix + "/config",
                 "Field 'config' must be an object");
         return false;
@@ -483,24 +480,24 @@ bool ParsePipelineConfig(const nlohmann::json& root,
 
     // id (必填非空字符串，唯一)
     if (!node_elem.contains("id")) {
-      SetDiag(diagnostic, PipelineErrorCode::kMissingField,
+      SetDiag(diagnostic, DiagnosticCode::kMissingField,
               node_path_prefix + "/id",
               "Missing required field 'id' in pipeline node");
       return false;
     }
     if (!node_elem["id"].is_string()) {
-      SetDiag(diagnostic, PipelineErrorCode::kFieldType,
-              node_path_prefix + "/id", "Field 'id' must be a string");
+      SetDiag(diagnostic, DiagnosticCode::kFieldType, node_path_prefix + "/id",
+              "Field 'id' must be a string");
       return false;
     }
     node_cfg.id = node_elem["id"].get<std::string>();
     if (node_cfg.id.empty()) {
-      SetDiag(diagnostic, PipelineErrorCode::kFieldRange,
-              node_path_prefix + "/id", "Field 'id' cannot be empty");
+      SetDiag(diagnostic, DiagnosticCode::kFieldRange, node_path_prefix + "/id",
+              "Field 'id' cannot be empty");
       return false;
     }
     if (seen_node_ids.find(node_cfg.id) != seen_node_ids.end()) {
-      SetDiag(diagnostic, PipelineErrorCode::kDuplicateNodeId,
+      SetDiag(diagnostic, DiagnosticCode::kDuplicateNodeId,
               node_path_prefix + "/id", "Duplicate node id: " + node_cfg.id);
       return false;
     }
@@ -508,19 +505,19 @@ bool ParsePipelineConfig(const nlohmann::json& root,
 
     // depends_on (必填数组，元素为非空字符串且不重复)
     if (!node_elem.contains("depends_on")) {
-      SetDiag(diagnostic, PipelineErrorCode::kMissingField,
+      SetDiag(diagnostic, DiagnosticCode::kMissingField,
               node_path_prefix + "/depends_on",
               "Missing required field 'depends_on' in pipeline node");
       return false;
     }
     if (!node_elem["depends_on"].is_array()) {
-      SetDiag(diagnostic, PipelineErrorCode::kFieldType,
+      SetDiag(diagnostic, DiagnosticCode::kFieldType,
               node_path_prefix + "/depends_on",
               "Field 'depends_on' must be an array");
       return false;
     }
     if (node_elem["depends_on"].size() > 256) {
-      SetDiag(diagnostic, PipelineErrorCode::kFieldRange,
+      SetDiag(diagnostic, DiagnosticCode::kFieldRange,
               node_path_prefix + "/depends_on",
               "Node dependencies exceed limit of 256");
       return false;
@@ -532,13 +529,13 @@ bool ParsePipelineConfig(const nlohmann::json& root,
           node_path_prefix + "/depends_on/" + std::to_string(d);
 
       if (!dep_item.is_string()) {
-        SetDiag(diagnostic, PipelineErrorCode::kFieldType, dep_path,
+        SetDiag(diagnostic, DiagnosticCode::kFieldType, dep_path,
                 "Dependency item must be a string");
         return false;
       }
       std::string dep_str = dep_item.get<std::string>();
       if (dep_str.empty()) {
-        SetDiag(diagnostic, PipelineErrorCode::kFieldRange, dep_path,
+        SetDiag(diagnostic, DiagnosticCode::kFieldRange, dep_path,
                 "Dependency item cannot be empty");
         return false;
       }

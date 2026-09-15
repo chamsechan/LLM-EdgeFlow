@@ -7,25 +7,20 @@
 
 #include "contracts/config_schema_validation.h"
 #include "contracts/control_payload.h"
+#include "core/node_definition_validation.h"
+#include "core/node_registry.h"
 #include "engine/backend_registry.h"
 #include "engine/model_registry.h"
 
 namespace llm_edgeflow {
 namespace {
 
-using Kind = ConfigValueKind;
-
-std::vector<NodeDefinition>& RegisteredNodes() {
-  static std::vector<NodeDefinition> definitions;
-  return definitions;
-}
-
 std::vector<BizDefinition>& RegisteredBizs() {
   static std::vector<BizDefinition> definitions;
   return definitions;
 }
 
-std::mutex& CatalogMutex() {
+std::mutex& BizMutex() {
   static std::mutex mutex;
   return mutex;
 }
@@ -94,217 +89,6 @@ const char* PortConstraintKindName(PortConstraintKind kind) {
   return "unknown";
 }
 
-namespace {
-const std::unordered_set<std::string>& ValidCardinalities() {
-  static const std::unordered_set<std::string> kValidCardinalities = {
-      "1:1", "1:N", "N:1", "N:M"};
-  return kValidCardinalities;
-}
-
-const std::unordered_set<std::string>& ValidProvenance() {
-  static const std::unordered_set<std::string> kValidProvenance = {
-      "preserve", "generate_sub_id", "aggregate", "independent"};
-  return kValidProvenance;
-}
-
-const std::unordered_set<std::string>& ValidLifetimes() {
-  static const std::unordered_set<std::string> kValidLifetimes = {
-      "request", "session", "global"};
-  return kValidLifetimes;
-}
-
-template <typename Port>
-bool ValidatePortDefinitions(const std::vector<Port>& ports,
-                             std::unordered_set<std::string>* seen_keys,
-                             std::string* error) {
-  for (const auto& port : ports) {
-    if (port.Name().empty()) {
-      if (error) *error = "Port key cannot be empty";
-      return false;
-    }
-    if (port.type_id.empty()) {
-      if (error)
-        *error = "Port type_id cannot be empty for port: " + port.Name();
-      return false;
-    }
-    if (!ValidCardinalities().count(port.cardinality)) {
-      if (error) {
-        *error = "Invalid port cardinality '" + port.cardinality +
-                 "' in port: " + port.Name();
-      }
-      return false;
-    }
-    if (!ValidProvenance().count(port.provenance_policy)) {
-      if (error) {
-        *error = "Invalid port provenance policy '" + port.provenance_policy +
-                 "' in port: " + port.Name();
-      }
-      return false;
-    }
-    if (!ValidLifetimes().count(port.lifetime)) {
-      if (error) {
-        *error = "Invalid port lifetime '" + port.lifetime +
-                 "' in port: " + port.Name();
-      }
-      return false;
-    }
-    if (seen_keys && !seen_keys->insert(port.Name()).second) {
-      if (error) *error = "Duplicate port key: " + port.Name();
-      return false;
-    }
-  }
-  return true;
-}
-
-}  // namespace
-
-bool PipelineCatalog::RegisterNodeDefinition(const NodeDefinition& definition,
-                                             std::string* error) {
-  if (error)
-    *error = "Invalid or duplicate NodeDefinition: " + definition.node_type;
-  if (definition.node_type.empty()) return false;
-
-  std::unordered_set<std::string> seen_in_ports;
-  if (!ValidatePortDefinitions(definition.inputs, &seen_in_ports, error)) {
-    return false;
-  }
-  std::unordered_set<std::string> seen_out_ports;
-  if (!ValidatePortDefinitions(definition.outputs, &seen_out_ports, error)) {
-    return false;
-  }
-  for (const auto& constraint : definition.port_constraints) {
-    if (constraint.kind == PortConstraintKind::kExactOneGroupOf) {
-      if (constraint.port_groups.empty()) return false;
-      for (const auto& group : constraint.port_groups) {
-        if (group.empty()) return false;
-        for (const auto& p : group) {
-          if (!seen_in_ports.count(p) && !seen_out_ports.count(p)) return false;
-        }
-      }
-    } else {
-      if (constraint.ports.empty()) return false;
-      for (const auto& p : constraint.ports) {
-        if (!seen_in_ports.count(p) && !seen_out_ports.count(p)) return false;
-      }
-    }
-  }
-  std::unordered_set<int> seen_cmd_ids;
-  std::unordered_set<std::string> seen_cmd_names;
-  for (const auto& cmd : definition.control_commands) {
-    if (cmd.cmd_id <= 0 || cmd.name.empty()) return false;
-    std::string schema_error;
-    if (!ValidateControlSchema(cmd.payload_schema, &schema_error)) {
-      if (error) {
-        *error = "Node '" + definition.node_type + "', Control " +
-                 std::to_string(cmd.cmd_id) + " ('" + cmd.name +
-                 "'): " + schema_error;
-      }
-      return false;
-    }
-    if (!seen_cmd_ids.insert(cmd.cmd_id).second) return false;
-    if (!seen_cmd_names.insert(cmd.name).second) return false;
-  }
-  std::string field_err;
-  if (!ValidateConfigFieldDefinitions(definition.config_fields, &field_err)) {
-    if (error) *error = field_err;
-    return false;
-  }
-  const auto validates_lifetime_override = [&](const NodePortDefinition& port) {
-    if (port.lifetime_config_field.empty()) return true;
-    auto it = std::find_if(
-        definition.config_fields.begin(), definition.config_fields.end(),
-        [&](const auto& f) { return f.name == port.lifetime_config_field; });
-    if (it == definition.config_fields.end() ||
-        it->kind != ConfigValueKind::kString || it->enum_values.empty()) {
-      return false;
-    }
-    return std::all_of(
-        it->enum_values.begin(), it->enum_values.end(),
-        [&](const auto& value) { return ValidLifetimes().count(value) != 0; });
-  };
-  if (!std::all_of(definition.inputs.begin(), definition.inputs.end(),
-                   validates_lifetime_override) ||
-      !std::all_of(definition.outputs.begin(), definition.outputs.end(),
-                   validates_lifetime_override)) {
-    return false;
-  }
-  std::unordered_set<std::string> seen_dep_names;
-  std::unordered_set<std::string> seen_dep_config_fields;
-  for (const auto& dep : definition.model_dependencies) {
-    if (dep.name.empty() || dep.capability.empty() ||
-        dep.config_field.empty()) {
-      if (error) {
-        *error =
-            "Model dependency name, capability, and config_field must be "
-            "non-empty";
-      }
-      return false;
-    }
-    if (!seen_dep_names.insert(dep.name).second) {
-      if (error) *error = "Duplicate model dependency name: " + dep.name;
-      return false;
-    }
-    if (!seen_dep_config_fields.insert(dep.config_field).second) {
-      if (error) {
-        *error = "Duplicate model dependency config_field: " + dep.config_field;
-      }
-      return false;
-    }
-    auto it = std::find_if(
-        definition.config_fields.begin(), definition.config_fields.end(),
-        [&](const auto& f) { return f.name == dep.config_field; });
-    if (it == definition.config_fields.end()) {
-      if (error) {
-        *error = "Model dependency config_field '" + dep.config_field +
-                 "' not found in config_fields";
-      }
-      return false;
-    }
-    if (it->kind != ConfigValueKind::kString) {
-      if (error) {
-        *error = "Model dependency config_field '" + dep.config_field +
-                 "' must be of string kind";
-      }
-      return false;
-    }
-  }
-  std::lock_guard<std::mutex> lock(CatalogMutex());
-  auto& definitions = RegisteredNodes();
-  if (std::any_of(definitions.begin(), definitions.end(),
-                  [&](const auto& item) {
-                    return item.node_type == definition.node_type;
-                  })) {
-    return false;
-  }
-  for (const auto& existing : definitions) {
-    for (const auto& command : definition.control_commands) {
-      for (const auto& registered : existing.control_commands) {
-        if (command.cmd_id != registered.cmd_id) continue;
-        if (!command.shared_id || !registered.shared_id ||
-            command.name != registered.name ||
-            command.payload_schema != registered.payload_schema ||
-            command.supports_hot_swap != registered.supports_hot_swap) {
-          if (error) {
-            *error =
-                "Control ID " + std::to_string(command.cmd_id) +
-                " conflicts between " + existing.node_type + " and " +
-                definition.node_type +
-                "; shared commands require shared_id and identical contracts";
-          }
-          return false;
-        }
-      }
-    }
-  }
-  definitions.push_back(definition);
-  std::sort(definitions.begin(), definitions.end(),
-            [](const auto& lhs, const auto& rhs) {
-              return lhs.node_type < rhs.node_type;
-            });
-  if (error) error->clear();
-  return true;
-}
-
 bool PipelineCatalog::RegisterBizDefinition(const BizDefinition& definition) {
   return RegisterBizDefinitions({definition});
 }
@@ -312,7 +96,7 @@ bool PipelineCatalog::RegisterBizDefinition(const BizDefinition& definition) {
 bool PipelineCatalog::RegisterBizDefinitions(
     const std::vector<BizDefinition>& batch) {
   if (batch.empty()) return false;
-  std::lock_guard<std::mutex> lock(CatalogMutex());
+  std::lock_guard<std::mutex> lock(BizMutex());
   auto& definitions = RegisteredBizs();
   std::vector<std::string> batch_names;
   batch_names.reserve(batch.size());
@@ -363,13 +147,18 @@ const BizDefinition* PipelineCatalogSnapshot::FindBiz(
 }
 
 PipelineCatalogSnapshot PipelineCatalog::Snapshot() {
-  std::lock_guard<std::mutex> lock(CatalogMutex());
-  return {RegisteredNodes(), RegisteredBizs()};
+  auto node_snapshot = NodeRegistry::Instance().Snapshot();
+  std::vector<BizDefinition> bizs;
+  {
+    std::lock_guard<std::mutex> lock(BizMutex());
+    bizs = RegisteredBizs();
+  }
+  return {std::move(node_snapshot.definitions), std::move(bizs),
+          node_snapshot.has_conflict, std::move(node_snapshot.conflict_errors)};
 }
 
 std::vector<NodeDefinition> PipelineCatalog::Nodes() {
-  std::lock_guard<std::mutex> lock(CatalogMutex());
-  return RegisteredNodes();
+  return NodeRegistry::Instance().ListDefinitions();
 }
 
 std::vector<ModelDefinition> PipelineCatalog::Models() {
@@ -381,19 +170,13 @@ std::vector<BackendDefinition> PipelineCatalog::Backends() {
 }
 
 std::vector<BizDefinition> PipelineCatalog::Bizs() {
-  std::lock_guard<std::mutex> lock(CatalogMutex());
+  std::lock_guard<std::mutex> lock(BizMutex());
   return RegisteredBizs();
 }
 
 std::optional<NodeDefinition> PipelineCatalog::FindNode(
     const std::string& node_type) {
-  std::lock_guard<std::mutex> lock(CatalogMutex());
-  const auto& nodes = RegisteredNodes();
-  auto it = std::find_if(nodes.begin(), nodes.end(), [&](const auto& item) {
-    return item.node_type == node_type;
-  });
-  if (it == nodes.end()) return std::nullopt;
-  return *it;
+  return NodeRegistry::Instance().Find(node_type);
 }
 
 std::optional<ModelDefinition> PipelineCatalog::FindModel(
@@ -408,7 +191,7 @@ std::optional<BackendDefinition> PipelineCatalog::FindBackend(
 
 std::optional<BizDefinition> PipelineCatalog::FindBiz(
     const std::string& biz_name) {
-  std::lock_guard<std::mutex> lock(CatalogMutex());
+  std::lock_guard<std::mutex> lock(BizMutex());
   const auto& bizs = RegisteredBizs();
   auto it = std::find_if(bizs.begin(), bizs.end(), [&](const auto& item) {
     return item.biz_name == biz_name;
@@ -417,9 +200,8 @@ std::optional<BizDefinition> PipelineCatalog::FindBiz(
   return *it;
 }
 
-void PipelineCatalog::ClearForTesting() {
-  std::lock_guard<std::mutex> lock(CatalogMutex());
-  RegisteredNodes().clear();
+void PipelineCatalog::ResetBizsForTesting() {
+  std::lock_guard<std::mutex> lock(BizMutex());
   RegisteredBizs().clear();
 }
 
@@ -448,13 +230,13 @@ nlohmann::json PipelineCatalog::NodeToJson(const NodeDefinition& definition) {
   return {{"node_type", definition.node_type},
           {"category", definition.category},
           {"description", definition.description},
+          {"parallel_safe", definition.parallel_safe},
           {"inputs", std::move(inputs)},
           {"outputs", std::move(outputs)},
           {"port_constraints", std::move(constraints)},
           {"control_commands", std::move(commands)},
           {"config_fields", std::move(fields)},
           {"model_dependencies", std::move(model_deps)},
-          {"parallel_safe", definition.parallel_safe},
           {"biz_names", definition.biz_names}};
 }
 
@@ -493,8 +275,8 @@ nlohmann::json PipelineCatalog::BackendToJson(
   };
 }
 
-nlohmann::json PipelineCatalog::ToJson(const std::string& biz_filter) {
-  const auto snapshot = Snapshot();
+nlohmann::json PipelineCatalog::ToJson(const PipelineCatalogSnapshot& snapshot,
+                                       const std::string& biz_filter) {
   nlohmann::json nodes = nlohmann::json::array();
   for (const auto& item : snapshot.nodes) {
     if (!biz_filter.empty() && !item.biz_names.empty() &&
@@ -534,6 +316,10 @@ nlohmann::json PipelineCatalog::ToJson(const std::string& biz_filter) {
           {"models", std::move(models)},
           {"backends", std::move(backends)},
           {"bizs", std::move(bizs)}};
+}
+
+nlohmann::json PipelineCatalog::ToJson(const std::string& biz_filter) {
+  return ToJson(Snapshot(), biz_filter);
 }
 
 }  // namespace llm_edgeflow

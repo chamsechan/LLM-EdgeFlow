@@ -7,6 +7,7 @@
 #include <string>
 
 #include "adapter/operator/operator_config_resolver.h"
+#include "core/diagnostic_code.h"
 #include "core/pipeline_catalog.h"
 #include "core/pipeline_validator.h"
 #include "edgeflow/operator/interface.h"
@@ -15,11 +16,23 @@
 
 namespace {
 
+using llm_edgeflow::DiagnosticCode;
+using llm_edgeflow::DiagnosticCodeName;
 using llm_edgeflow::PipelineCatalog;
 using llm_edgeflow::PipelineValidator;
 namespace fs = std::filesystem;
 
-nlohmann::json Error(const std::string& code, const std::string& message) {
+nlohmann::json PipelineError(DiagnosticCode code, const std::string& message) {
+  return {{"schema_version", 1},
+          {"ok", false},
+          {"diagnostics",
+           nlohmann::json::array({{{"code", DiagnosticCodeName(code)},
+                                   {"path", "/"},
+                                   {"message", message},
+                                   {"severity", "error"}}})}};
+}
+
+nlohmann::json ToolError(const std::string& code, const std::string& message) {
   return {{"schema_version", 1},
           {"ok", false},
           {"diagnostics", nlohmann::json::array({{{"code", code},
@@ -114,7 +127,8 @@ nlohmann::json ResolveConf(const std::string& file, const std::string& root,
   using namespace llm_edgeflow;
   const auto ops = operator_api::Get_LLM_EDGEFLOW_OperatorTable();
   if (ops.Init() != 0)
-    return Error("REGISTRY_CONFLICT", operator_api::GetOperatorLastError());
+    return PipelineError(DiagnosticCode::kRegistryConflict,
+                         operator_api::GetOperatorLastError());
   struct RegistryGuard {
     operator_api::OperatorFunc ops;
     ~RegistryGuard() { ops.Deinit(); }
@@ -123,7 +137,7 @@ nlohmann::json ResolveConf(const std::string& file, const std::string& root,
   std::string error;
   if (OperatorConfigResolver::Resolve(root.c_str(), file.c_str(), &resolved,
                                       &error, depth) != 0)
-    return Error("DEPLOYMENT_CONFIG", error);
+    return ToolError("DEPLOYMENT_CONFIG", error);
   const auto plan =
       PipelineValidator::ValidateAndPlan(resolved.synthetic_pipeline_json);
   if (!plan.report.ok) return plan.report.ToJson();
@@ -140,7 +154,7 @@ nlohmann::json ResolveConf(const std::string& file, const std::string& root,
   }
   nlohmann::json conf;
   if (!ReadJson(resolved.conf_path.string(), &conf, &error))
-    return Error("JSON_READ", error);
+    return ToolError("JSON_READ", error);
   const auto overrides =
       conf["data"].value("model_paths", nlohmann::json::object());
   nlohmann::json paths = nlohmann::json::array();
@@ -190,7 +204,7 @@ void Usage() {
 
 }  // namespace
 
-int main(int argc, char** argv) {
+int main(int argc, char* argv[]) {
   if (argc < 2) {
     Usage();
     return 2;
@@ -230,7 +244,7 @@ int main(int argc, char** argv) {
     try {
       result = ResolveConf(argv[2], root, depth);
     } catch (const std::exception& error) {
-      result = Error("DEPLOYMENT_CONFIG", error.what());
+      result = ToolError("DEPLOYMENT_CONFIG", error.what());
     }
     std::cout << result.dump(2) << std::endl;
     return result.value("ok", false) ? 0 : 1;
@@ -245,7 +259,18 @@ int main(int argc, char** argv) {
       Usage();
       return 2;
     }
-    auto result = PipelineCatalog::ToJson(biz);
+    const auto snapshot = PipelineCatalog::Snapshot();
+    if (snapshot.node_registry_has_conflict) {
+      std::string message = "Node registry contains registration conflicts";
+      for (const auto& err : snapshot.node_registry_errors) {
+        message += ": " + err;
+      }
+      std::cout
+          << PipelineError(DiagnosticCode::kRegistryConflict, message).dump(2)
+          << std::endl;
+      return 1;
+    }
+    auto result = PipelineCatalog::ToJson(snapshot, biz);
     result["profiles"] = ProfilesJson(biz);
     result["ok"] = biz.empty() || !result["bizs"].empty();
     std::cout << result.dump(2) << std::endl;
@@ -259,7 +284,9 @@ int main(int argc, char** argv) {
     }
     const auto definition = PipelineCatalog::FindNode(argv[2]);
     if (!definition) {
-      std::cout << Error("UNKNOWN_NODE_TYPE", argv[2]).dump(2) << std::endl;
+      std::cout
+          << PipelineError(DiagnosticCode::kUnknownNodeType, argv[2]).dump(2)
+          << std::endl;
       return 1;
     }
     auto result = PipelineCatalog::NodeToJson(*definition);
@@ -296,7 +323,8 @@ int main(int argc, char** argv) {
       return 2;
     }
     if (!PipelineCatalog::FindBiz(biz)) {
-      std::cout << Error("UNKNOWN_BIZ", biz).dump(2) << std::endl;
+      std::cout << PipelineError(DiagnosticCode::kUnknownBiz, biz).dump(2)
+                << std::endl;
       return 1;
     }
     nlohmann::json pipeline = {{"biz_name", biz},
@@ -307,9 +335,9 @@ int main(int argc, char** argv) {
       std::string error;
       if (!path || !ReadJson(path->string(), &pipeline, &error) ||
           pipeline.value("biz_name", "") != biz) {
-        std::cout << Error("PROFILE_MISMATCH",
-                           "Profile is unavailable or belongs to another "
-                           "biz contract")
+        std::cout << ToolError("PROFILE_MISMATCH",
+                               "Profile is unavailable or belongs to another "
+                               "biz contract")
                          .dump(2)
                   << std::endl;
         return 1;
@@ -348,7 +376,7 @@ int main(int argc, char** argv) {
     nlohmann::json root;
     std::string error;
     if (!ReadJson(file, &root, &error)) {
-      std::cout << Error("JSON_READ", error).dump(2) << std::endl;
+      std::cout << ToolError("JSON_READ", error).dump(2) << std::endl;
       return 1;
     }
     auto report = explain ? PipelineValidator::Explain(root)
@@ -388,7 +416,7 @@ int main(int argc, char** argv) {
     try {
       request = nlohmann::json::parse(input_str);
     } catch (const std::exception& e) {
-      std::cout << Error("JSON_READ", e.what()).dump(2) << std::endl;
+      std::cout << ToolError("JSON_READ", e.what()).dump(2) << std::endl;
       return 1;
     }
     try {
@@ -396,10 +424,11 @@ int main(int argc, char** argv) {
       std::cout << result.ToJson().dump(2) << std::endl;
       return result.ok ? 0 : 1;
     } catch (const std::exception& error) {
-      std::cout << Error("AUTHORING_ERROR", error.what()).dump(2) << std::endl;
+      std::cout << ToolError("AUTHORING_ERROR", error.what()).dump(2)
+                << std::endl;
       return 1;
     } catch (...) {
-      std::cout << Error("AUTHORING_ERROR", "未知编排工具错误").dump(2)
+      std::cout << ToolError("AUTHORING_ERROR", "未知编排工具错误").dump(2)
                 << std::endl;
       return 1;
     }
@@ -425,10 +454,11 @@ int main(int argc, char** argv) {
       std::cout << result.ToJson().dump(2) << std::endl;
       return result.ok ? 0 : 1;
     } catch (const std::exception& error) {
-      std::cout << Error("AUTHORING_ERROR", error.what()).dump(2) << std::endl;
+      std::cout << ToolError("AUTHORING_ERROR", error.what()).dump(2)
+                << std::endl;
       return 1;
     } catch (...) {
-      std::cout << Error("AUTHORING_ERROR", "未知编排工具错误").dump(2)
+      std::cout << ToolError("AUTHORING_ERROR", "未知编排工具错误").dump(2)
                 << std::endl;
       return 1;
     }

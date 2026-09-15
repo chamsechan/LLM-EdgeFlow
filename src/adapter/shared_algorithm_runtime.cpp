@@ -9,6 +9,7 @@
 #include "adapter/operator/operator_value_type_registry.h"
 #include "contracts/diagnostic.h"
 #include "core/alg_context.h"
+#include "core/diagnostic_code.h"
 #include "core/node_registry.h"
 #include "core/session_context.h"
 #include "edgeflow/log.h"
@@ -164,10 +165,10 @@ int SharedAlgorithmRuntime::CreateFromConfigFile(
       if (out_error) {
         *out_error =
             "Failed to build pipeline from config: " + diagnostic.message +
-            " (code: " + std::to_string(static_cast<int>(diagnostic.code)) +
+            " (code: " + std::string(DiagnosticCodeName(diagnostic.code)) +
             ", path: " + diagnostic.path + ")";
       }
-      if (diagnostic.code == PipelineErrorCode::kRegistryConflict) {
+      if (diagnostic.code == DiagnosticCode::kRegistryConflict) {
         return COMPANY_ALG_ERR_REGISTRY_CONFLICT;  // -6
       }
       // 保持 main 既有纯 C ABI 契约：只要 BuildFromConfigFile 失败，
@@ -253,10 +254,10 @@ int SharedAlgorithmRuntime::CreateFromPipelineJson(
       if (out_error) {
         *out_error =
             "Failed to build pipeline from JSON: " + diagnostic.message +
-            " (code: " + std::to_string(static_cast<int>(diagnostic.code)) +
+            " (code: " + std::string(DiagnosticCodeName(diagnostic.code)) +
             ", path: " + diagnostic.path + ")";
       }
-      if (diagnostic.code == PipelineErrorCode::kRegistryConflict) {
+      if (diagnostic.code == DiagnosticCode::kRegistryConflict) {
         return COMPANY_ALG_ERR_REGISTRY_CONFLICT;  // -6
       }
       return COMPANY_ALG_ERR_INVALID_PARAM;  // -2

@@ -178,6 +178,29 @@ REGISTER_NODE_WITH_DEFINITION(CountingNode,
                               MakeTestNodeDef(CountingNode::kNodeType));
 
 // 2. 异常与失败测试替身 (R1-ACC-001)
+class ThrowingCtorModel : public IModel {
+ public:
+  inline static constexpr char kModelType[] = "throwing_ctor_model";
+  static std::shared_ptr<IModel> Create(const ModelCreateContext&,
+                                        std::string*) {
+    throw std::runtime_error("ThrowingCtorModel constructor exception");
+  }
+  size_t GetMaxBatchSize() const noexcept override { return 1; }
+  const std::string& ModelType() const noexcept override {
+    static const std::string type = kModelType;
+    return type;
+  }
+  const std::string& Capability() const noexcept override {
+    static const std::string cap = "test";
+    return cap;
+  }
+  InferenceConcurrency Concurrency() const noexcept override {
+    return InferenceConcurrency::kConcurrent;
+  }
+};
+REGISTER_MODEL_WITH_DEFINITION(ThrowingCtorModel,
+                               MakeTestModelDef(ThrowingCtorModel::kModelType));
+
 class ThrowingCtorBackend : public IInferenceBackend {
  public:
   inline static constexpr char kBackendType[] = "throwing_ctor_backend";
@@ -298,10 +321,11 @@ static std::string GetConfigPath(const std::string& rel_path) {
 
 static nlohmann::json CountingModelEntry(
     std::string model_id,
-    std::string backend_type = CountingBackend::kBackendType) {
+    std::string backend_type = CountingBackend::kBackendType,
+    std::string model_type = CountingModel::kModelType) {
   return {{"model_id", std::move(model_id)},
           {"capability", "test"},
-          {"model_type", CountingModel::kModelType},
+          {"model_type", std::move(model_type)},
           {"backend", std::move(backend_type)},
           {"model_path", "fixture.bin"},
           {"model_config", nlohmann::json::object()},
@@ -358,7 +382,7 @@ TEST_F(PipelineConfigTest, PositiveProductionAndStage7FixtureConfigs) {
     bool parse_ok = ParsePipelineConfig(root, &parsed_cfg, &diag);
     EXPECT_TRUE(parse_ok) << "Parse failed for " << cfg_file << ": "
                           << diag.message << " at " << diag.path;
-    EXPECT_EQ(diag.code, PipelineErrorCode::kOk);
+    EXPECT_EQ(diag.code, DiagnosticCode::kOk);
 
     if ((cfg_file == "configs/pipeline_doc_qa_cpu.json" ||
          cfg_file == "configs/pipeline_cross_rerank_cpu.json") &&
@@ -375,14 +399,13 @@ TEST_F(PipelineConfigTest, PositiveProductionAndStage7FixtureConfigs) {
 
     Pipeline pipeline;
     bool build_ok = pipeline.BuildFromConfigFile(full_path, &diag);
-    if (!build_ok &&
-        diag.code == PipelineErrorCode::kModelMaterializationFailed) {
+    if (!build_ok && diag.code == DiagnosticCode::kModelMaterializationFailed) {
       // 模型物理权重文件在当前测试环境不存在，构建按设计 Fail-Closed
-      EXPECT_EQ(diag.code, PipelineErrorCode::kModelMaterializationFailed);
+      EXPECT_EQ(diag.code, DiagnosticCode::kModelMaterializationFailed);
     } else {
       EXPECT_TRUE(build_ok) << "Build failed for " << cfg_file << ": "
                             << diag.message << " at " << diag.path;
-      EXPECT_EQ(diag.code, PipelineErrorCode::kOk);
+      EXPECT_EQ(diag.code, DiagnosticCode::kOk);
       EXPECT_TRUE(pipeline.IsReady());
       EXPECT_EQ(pipeline.GetState(), Pipeline::State::kReady);
     }
@@ -401,7 +424,7 @@ TEST_F(PipelineConfigTest, RejectsPipelineWithoutIdOrDependsOn) {
   ParsedPipelineConfig parsed_cfg;
   PipelineDiagnostic diag;
   EXPECT_FALSE(ParsePipelineConfig(root, &parsed_cfg, &diag));
-  EXPECT_EQ(diag.code, PipelineErrorCode::kMissingField);
+  EXPECT_EQ(diag.code, DiagnosticCode::kMissingField);
   EXPECT_EQ(diag.path, "/pipeline/0/id");
 }
 
@@ -416,7 +439,7 @@ TEST_F(PipelineConfigTest, RejectsLegacyBusinessNameField) {
   ParsedPipelineConfig parsed_cfg;
   PipelineDiagnostic diag;
   EXPECT_FALSE(ParsePipelineConfig(root, &parsed_cfg, &diag));
-  EXPECT_EQ(diag.code, PipelineErrorCode::kUnknownField);
+  EXPECT_EQ(diag.code, DiagnosticCode::kUnknownField);
   EXPECT_EQ(diag.path, "/business_name");
 }
 
@@ -425,7 +448,7 @@ TEST_F(PipelineConfigTest, RejectsLegacyBusinessNameField) {
 struct NegativeTestCase {
   std::string name;
   nlohmann::json input;
-  PipelineErrorCode expected_code;
+  DiagnosticCode expected_code;
   std::string expected_path_prefix;
 };
 
@@ -439,29 +462,29 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
   // --- Root 校验 ---
   cases.push_back(NegativeTestCase{"RootNotObject",
                                    nlohmann::json::array({1, 2, 3}),
-                                   PipelineErrorCode::kRootType, "/"});
+                                   DiagnosticCode::kRootType, "/"});
   cases.push_back(NegativeTestCase{"RootUnknownField",
                                    nlohmann::json{{"biz_name", "test"},
                                                   {"unknown_root_key", 123},
                                                   {"pipeline", valid_pipe}},
-                                   PipelineErrorCode::kUnknownField,
+                                   DiagnosticCode::kUnknownField,
                                    "/unknown_root_key"});
   cases.push_back(NegativeTestCase{
       "RootCommentNotString",
       nlohmann::json{
           {"biz_name", "test"}, {"comment", 12345}, {"pipeline", valid_pipe}},
-      PipelineErrorCode::kFieldType, "/comment"});
-  cases.push_back(NegativeTestCase{
-      "MissingBizName", nlohmann::json{{"pipeline", valid_pipe}},
-      PipelineErrorCode::kMissingField, "/biz_name"});
+      DiagnosticCode::kFieldType, "/comment"});
+  cases.push_back(NegativeTestCase{"MissingBizName",
+                                   nlohmann::json{{"pipeline", valid_pipe}},
+                                   DiagnosticCode::kMissingField, "/biz_name"});
   cases.push_back(NegativeTestCase{
       "EmptyBizName",
       nlohmann::json{{"biz_name", ""}, {"pipeline", valid_pipe}},
-      PipelineErrorCode::kFieldRange, "/biz_name"});
+      DiagnosticCode::kFieldRange, "/biz_name"});
   cases.push_back(NegativeTestCase{
       "NonStringBizName",
       nlohmann::json{{"biz_name", 12345}, {"pipeline", valid_pipe}},
-      PipelineErrorCode::kFieldType, "/biz_name"});
+      DiagnosticCode::kFieldType, "/biz_name"});
 
   // --- Execution Mode & Workers 组合校验 (R1-ACC-003) ---
   cases.push_back(NegativeTestCase{
@@ -470,24 +493,24 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
                      {"execution_mode", "sequential"},
                      {"max_parallel_workers", 4},
                      {"pipeline", valid_pipe}},
-      PipelineErrorCode::kInvalidCombination, "/max_parallel_workers"});
+      DiagnosticCode::kInvalidCombination, "/max_parallel_workers"});
   cases.push_back(NegativeTestCase{"ExecutionModeAsyncRejected",
                                    nlohmann::json{{"biz_name", "test"},
                                                   {"execution_mode", "async"},
                                                   {"pipeline", valid_pipe}},
-                                   PipelineErrorCode::kFieldRange,
+                                   DiagnosticCode::kFieldRange,
                                    "/execution_mode"});
   cases.push_back(
       NegativeTestCase{"ExecutionModeUnknownString",
                        nlohmann::json{{"biz_name", "test"},
                                       {"execution_mode", "coroutine_mode"},
                                       {"pipeline", valid_pipe}},
-                       PipelineErrorCode::kFieldRange, "/execution_mode"});
+                       DiagnosticCode::kFieldRange, "/execution_mode"});
   cases.push_back(NegativeTestCase{"ExecutionModeNonString",
                                    nlohmann::json{{"biz_name", "test"},
                                                   {"execution_mode", true},
                                                   {"pipeline", valid_pipe}},
-                                   PipelineErrorCode::kFieldType,
+                                   DiagnosticCode::kFieldType,
                                    "/execution_mode"});
   cases.push_back(NegativeTestCase{
       "WorkersZeroInParallel",
@@ -499,7 +522,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
            nlohmann::json::array({{{"id", "n1"},
                                    {"node_type", "CountingNode"},
                                    {"depends_on", nlohmann::json::array()}}})}},
-      PipelineErrorCode::kFieldRange, "/max_parallel_workers"});
+      DiagnosticCode::kFieldRange, "/max_parallel_workers"});
   cases.push_back(NegativeTestCase{
       "WorkersOutOfRange65InParallel",
       nlohmann::json{
@@ -510,27 +533,27 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
            nlohmann::json::array({{{"id", "n1"},
                                    {"node_type", "CountingNode"},
                                    {"depends_on", nlohmann::json::array()}}})}},
-      PipelineErrorCode::kFieldRange, "/max_parallel_workers"});
+      DiagnosticCode::kFieldRange, "/max_parallel_workers"});
 
   // --- Models 校验 ---
   cases.push_back(NegativeTestCase{"ModelsNotArray",
                                    nlohmann::json{{"biz_name", "test"},
                                                   {"models", "not_an_array"},
                                                   {"pipeline", valid_pipe}},
-                                   PipelineErrorCode::kFieldType, "/models"});
+                                   DiagnosticCode::kFieldType, "/models"});
   cases.push_back(NegativeTestCase{
       "ModelItemNotObject",
       nlohmann::json{{"biz_name", "test"},
                      {"models", nlohmann::json::array({"invalid_string"})},
                      {"pipeline", valid_pipe}},
-      PipelineErrorCode::kFieldType, "/models/0"});
+      DiagnosticCode::kFieldType, "/models/0"});
   cases.push_back(NegativeTestCase{
       "ModelCommentNotString",
       nlohmann::json{{"biz_name", "test"},
                      {"models", nlohmann::json::array(
                                     {{{"model_id", "m1"}, {"comment", 123}}})},
                      {"pipeline", valid_pipe}},
-      PipelineErrorCode::kFieldType, "/models/0/comment"});
+      DiagnosticCode::kFieldType, "/models/0/comment"});
   cases.push_back(NegativeTestCase{
       "ModelUnknownField",
       nlohmann::json{
@@ -538,7 +561,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
           {"models", nlohmann::json::array(
                          {{{"model_id", "m1"}, {"unknown_model_key", 1}}})},
           {"pipeline", valid_pipe}},
-      PipelineErrorCode::kUnknownField, "/models/0/unknown_model_key"});
+      DiagnosticCode::kUnknownField, "/models/0/unknown_model_key"});
   cases.push_back(NegativeTestCase{
       "ModelMissingId",
       nlohmann::json{
@@ -548,7 +571,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
                                              {"backend", "counting_backend"},
                                              {"model_path", "model.bin"}}})},
           {"pipeline", valid_pipe}},
-      PipelineErrorCode::kMissingField, "/models/0/model_id"});
+      DiagnosticCode::kMissingField, "/models/0/model_id"});
   cases.push_back(NegativeTestCase{
       "ModelEmptyId",
       nlohmann::json{
@@ -559,7 +582,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
                                              {"backend", "counting_backend"},
                                              {"model_path", "model.bin"}}})},
           {"pipeline", valid_pipe}},
-      PipelineErrorCode::kFieldRange, "/models/0/model_id"});
+      DiagnosticCode::kFieldRange, "/models/0/model_id"});
   cases.push_back(NegativeTestCase{
       "ModelDuplicateId",
       nlohmann::json{
@@ -575,13 +598,13 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
                                              {"backend", "counting_backend"},
                                              {"model_path", "model.bin"}}})},
           {"pipeline", valid_pipe}},
-      PipelineErrorCode::kDuplicateModelId, "/models/1/model_id"});
+      DiagnosticCode::kDuplicateModelId, "/models/1/model_id"});
   cases.push_back(NegativeTestCase{
       "ModelMissingCapability",
       nlohmann::json{{"biz_name", "test"},
                      {"models", nlohmann::json::array({{{"model_id", "m1"}}})},
                      {"pipeline", valid_pipe}},
-      PipelineErrorCode::kMissingField, "/models/0/capability"});
+      DiagnosticCode::kMissingField, "/models/0/capability"});
   cases.push_back(NegativeTestCase{
       "ModelConfigNotObject",
       nlohmann::json{
@@ -593,7 +616,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
                                              {"model_path", "model.bin"},
                                              {"model_config", "invalid"}}})},
           {"pipeline", valid_pipe}},
-      PipelineErrorCode::kFieldType, "/models/0/model_config"});
+      DiagnosticCode::kFieldType, "/models/0/model_config"});
   cases.push_back(NegativeTestCase{
       "LegacyEngineTypeRejected",
       nlohmann::json{
@@ -602,7 +625,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
                          {{{"model_id", "m1"},
                            {"engine_type", "unregistered_mock_engine_xyz"}}})},
           {"pipeline", valid_pipe}},
-      PipelineErrorCode::kUnknownField, "/models/0/engine_type"});
+      DiagnosticCode::kUnknownField, "/models/0/engine_type"});
 
   // --- Model/Backend 方言及混用校验 (RFC 0015) ---
   cases.push_back(NegativeTestCase{
@@ -614,7 +637,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
                                              {"backend", "onnxruntime"},
                                              {"model_path", "./model.onnx"}}})},
           {"pipeline", valid_pipe}},
-      PipelineErrorCode::kMissingField, "/models/0/capability"});
+      DiagnosticCode::kMissingField, "/models/0/capability"});
   cases.push_back(NegativeTestCase{
       "ModelBackendEmptyCapability",
       nlohmann::json{
@@ -625,7 +648,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
                                              {"backend", "onnxruntime"},
                                              {"model_path", "./model.onnx"}}})},
           {"pipeline", valid_pipe}},
-      PipelineErrorCode::kFieldRange, "/models/0/capability"});
+      DiagnosticCode::kFieldRange, "/models/0/capability"});
   cases.push_back(NegativeTestCase{
       "ModelBackendWrongTypeCapability",
       nlohmann::json{
@@ -636,7 +659,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
                                              {"backend", "onnxruntime"},
                                              {"model_path", "./model.onnx"}}})},
           {"pipeline", valid_pipe}},
-      PipelineErrorCode::kFieldType, "/models/0/capability"});
+      DiagnosticCode::kFieldType, "/models/0/capability"});
   cases.push_back(NegativeTestCase{
       "ModelBackendMissingModelType",
       nlohmann::json{
@@ -646,7 +669,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
                                              {"backend", "onnxruntime"},
                                              {"model_path", "./model.onnx"}}})},
           {"pipeline", valid_pipe}},
-      PipelineErrorCode::kMissingField, "/models/0/model_type"});
+      DiagnosticCode::kMissingField, "/models/0/model_type"});
   cases.push_back(NegativeTestCase{
       "ModelBackendEmptyModelType",
       nlohmann::json{
@@ -657,7 +680,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
                                              {"backend", "onnxruntime"},
                                              {"model_path", "./model.onnx"}}})},
           {"pipeline", valid_pipe}},
-      PipelineErrorCode::kFieldRange, "/models/0/model_type"});
+      DiagnosticCode::kFieldRange, "/models/0/model_type"});
   cases.push_back(NegativeTestCase{
       "ModelBackendWrongTypeModelType",
       nlohmann::json{
@@ -668,7 +691,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
                                              {"backend", "onnxruntime"},
                                              {"model_path", "./model.onnx"}}})},
           {"pipeline", valid_pipe}},
-      PipelineErrorCode::kFieldType, "/models/0/model_type"});
+      DiagnosticCode::kFieldType, "/models/0/model_type"});
   cases.push_back(NegativeTestCase{
       "ModelBackendMissingBackend",
       nlohmann::json{
@@ -678,7 +701,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
                                              {"model_type", "bge_embedding"},
                                              {"model_path", "./model.onnx"}}})},
           {"pipeline", valid_pipe}},
-      PipelineErrorCode::kMissingField, "/models/0/backend"});
+      DiagnosticCode::kMissingField, "/models/0/backend"});
   cases.push_back(NegativeTestCase{
       "ModelBackendEmptyBackend",
       nlohmann::json{
@@ -689,7 +712,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
                                              {"backend", ""},
                                              {"model_path", "./model.onnx"}}})},
           {"pipeline", valid_pipe}},
-      PipelineErrorCode::kFieldRange, "/models/0/backend"});
+      DiagnosticCode::kFieldRange, "/models/0/backend"});
   cases.push_back(NegativeTestCase{
       "ModelBackendWrongTypeBackend",
       nlohmann::json{
@@ -700,7 +723,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
                                              {"backend", 456},
                                              {"model_path", "./model.onnx"}}})},
           {"pipeline", valid_pipe}},
-      PipelineErrorCode::kFieldType, "/models/0/backend"});
+      DiagnosticCode::kFieldType, "/models/0/backend"});
   cases.push_back(NegativeTestCase{
       "ModelBackendMissingModelPath",
       nlohmann::json{
@@ -710,7 +733,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
                                              {"model_type", "bge_embedding"},
                                              {"backend", "onnxruntime"}}})},
           {"pipeline", valid_pipe}},
-      PipelineErrorCode::kMissingField, "/models/0/model_path"});
+      DiagnosticCode::kMissingField, "/models/0/model_path"});
   cases.push_back(NegativeTestCase{
       "ModelBackendEmptyModelPath",
       nlohmann::json{
@@ -721,7 +744,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
                                              {"backend", "onnxruntime"},
                                              {"model_path", ""}}})},
           {"pipeline", valid_pipe}},
-      PipelineErrorCode::kFieldRange, "/models/0/model_path"});
+      DiagnosticCode::kFieldRange, "/models/0/model_path"});
   cases.push_back(NegativeTestCase{
       "ModelBackendWrongTypeModelPath",
       nlohmann::json{
@@ -732,7 +755,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
                                              {"backend", "onnxruntime"},
                                              {"model_path", 789}}})},
           {"pipeline", valid_pipe}},
-      PipelineErrorCode::kFieldType, "/models/0/model_path"});
+      DiagnosticCode::kFieldType, "/models/0/model_path"});
   cases.push_back(NegativeTestCase{
       "ModelBackendModelConfigNotObject",
       nlohmann::json{
@@ -744,7 +767,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
                                              {"model_path", "./model.onnx"},
                                              {"model_config", "not_object"}}})},
           {"pipeline", valid_pipe}},
-      PipelineErrorCode::kFieldType, "/models/0/model_config"});
+      DiagnosticCode::kFieldType, "/models/0/model_config"});
   cases.push_back(NegativeTestCase{
       "ModelBackendBackendConfigNotObject",
       nlohmann::json{
@@ -756,7 +779,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
                                              {"model_path", "./model.onnx"},
                                              {"backend_config", 123}}})},
           {"pipeline", valid_pipe}},
-      PipelineErrorCode::kFieldType, "/models/0/backend_config"});
+      DiagnosticCode::kFieldType, "/models/0/backend_config"});
   cases.push_back(NegativeTestCase{
       "ModelBackendUnknownField",
       nlohmann::json{
@@ -768,7 +791,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
                                              {"model_path", "./model.onnx"},
                                              {"unsupported_opt", true}}})},
           {"pipeline", valid_pipe}},
-      PipelineErrorCode::kUnknownField, "/models/0/unsupported_opt"});
+      DiagnosticCode::kUnknownField, "/models/0/unsupported_opt"});
   cases.push_back(NegativeTestCase{
       "LegacyEngineTypeIsUnknown",
       nlohmann::json{
@@ -777,7 +800,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
                                              {"engine_type", "counting_engine"},
                                              {"capability", "embedding"}}})},
           {"pipeline", valid_pipe}},
-      PipelineErrorCode::kUnknownField, "/models/0/engine_type"});
+      DiagnosticCode::kUnknownField, "/models/0/engine_type"});
   cases.push_back(NegativeTestCase{
       "LegacyEngineTypeWithBackendIsUnknown",
       nlohmann::json{
@@ -786,7 +809,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
                                              {"engine_type", "counting_engine"},
                                              {"backend", "onnxruntime"}}})},
           {"pipeline", valid_pipe}},
-      PipelineErrorCode::kUnknownField, "/models/0/engine_type"});
+      DiagnosticCode::kUnknownField, "/models/0/engine_type"});
   cases.push_back(NegativeTestCase{
       "LegacyConfigFieldIsUnknown",
       nlohmann::json{
@@ -800,26 +823,26 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
                            {"config", nlohmann::json::object()},
                            {"model_config", nlohmann::json::object()}}})},
           {"pipeline", valid_pipe}},
-      PipelineErrorCode::kUnknownField, "/models/0/config"});
+      DiagnosticCode::kUnknownField, "/models/0/config"});
 
   // --- Pipeline Nodes 校验 ---
-  cases.push_back(
-      NegativeTestCase{"MissingPipeline", nlohmann::json{{"biz_name", "test"}},
-                       PipelineErrorCode::kMissingField, "/pipeline"});
+  cases.push_back(NegativeTestCase{"MissingPipeline",
+                                   nlohmann::json{{"biz_name", "test"}},
+                                   DiagnosticCode::kMissingField, "/pipeline"});
   cases.push_back(NegativeTestCase{
       "PipelineNotArray",
       nlohmann::json{{"biz_name", "test"}, {"pipeline", "not_an_array"}},
-      PipelineErrorCode::kFieldType, "/pipeline"});
+      DiagnosticCode::kFieldType, "/pipeline"});
   cases.push_back(
       NegativeTestCase{"PipelineEmptyArray",
                        nlohmann::json{{"biz_name", "test"},
                                       {"pipeline", nlohmann::json::array()}},
-                       PipelineErrorCode::kFieldRange, "/pipeline"});
+                       DiagnosticCode::kFieldRange, "/pipeline"});
   cases.push_back(NegativeTestCase{
       "NodeNotObject",
       nlohmann::json{{"biz_name", "test"},
                      {"pipeline", nlohmann::json::array({"string_node"})}},
-      PipelineErrorCode::kFieldType, "/pipeline/0"});
+      DiagnosticCode::kFieldType, "/pipeline/0"});
   cases.push_back(NegativeTestCase{
       "NodeCommentNotString",
       nlohmann::json{{"biz_name", "test"},
@@ -828,7 +851,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
                                         {"node_type", "CountingNode"},
                                         {"depends_on", nlohmann::json::array()},
                                         {"comment", 999}}})}},
-      PipelineErrorCode::kFieldType, "/pipeline/0/comment"});
+      DiagnosticCode::kFieldType, "/pipeline/0/comment"});
   cases.push_back(NegativeTestCase{
       "NodeUnknownTopLevelField",
       nlohmann::json{{"biz_name", "test"},
@@ -837,7 +860,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
                                         {"node_type", "CountingNode"},
                                         {"depends_on", nlohmann::json::array()},
                                         {"unknown_top_level", 123}}})}},
-      PipelineErrorCode::kUnknownField, "/pipeline/0/unknown_top_level"});
+      DiagnosticCode::kUnknownField, "/pipeline/0/unknown_top_level"});
   cases.push_back(NegativeTestCase{
       "NodeMissingNodeType",
       nlohmann::json{
@@ -846,7 +869,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
            nlohmann::json::array({{{"id", "n0"},
                                    {"depends_on", nlohmann::json::array()},
                                    {"config", nlohmann::json::object()}}})}},
-      PipelineErrorCode::kMissingField, "/pipeline/0/node_type"});
+      DiagnosticCode::kMissingField, "/pipeline/0/node_type"});
   cases.push_back(NegativeTestCase{
       "NodeEmptyNodeType",
       nlohmann::json{
@@ -855,7 +878,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
            nlohmann::json::array({{{"id", "n0"},
                                    {"node_type", ""},
                                    {"depends_on", nlohmann::json::array()}}})}},
-      PipelineErrorCode::kFieldRange, "/pipeline/0/node_type"});
+      DiagnosticCode::kFieldRange, "/pipeline/0/node_type"});
   cases.push_back(NegativeTestCase{
       "NodeConfigNotObject",
       nlohmann::json{{"biz_name", "test"},
@@ -864,7 +887,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
                                         {"node_type", "CountingNode"},
                                         {"depends_on", nlohmann::json::array()},
                                         {"config", "not_an_object"}}})}},
-      PipelineErrorCode::kFieldType, "/pipeline/0/config"});
+      DiagnosticCode::kFieldType, "/pipeline/0/config"});
   cases.push_back(NegativeTestCase{
       "NodeUnregisteredNodeType",
       nlohmann::json{
@@ -873,7 +896,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
            nlohmann::json::array({{{"id", "n0"},
                                    {"node_type", "GhostUnregisteredNodeXYZ"},
                                    {"depends_on", nlohmann::json::array()}}})}},
-      PipelineErrorCode::kUnknownNodeType, "/pipeline/0/node_type"});
+      DiagnosticCode::kUnknownNodeType, "/pipeline/0/node_type"});
 
   // --- DAG 校验 ---
   cases.push_back(NegativeTestCase{
@@ -883,7 +906,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
           {"pipeline",
            nlohmann::json::array({{{"node_type", "CountingNode"},
                                    {"depends_on", nlohmann::json::array()}}})}},
-      PipelineErrorCode::kMissingField, "/pipeline/0/id"});
+      DiagnosticCode::kMissingField, "/pipeline/0/id"});
   cases.push_back(NegativeTestCase{
       "DagDuplicateNodeId",
       nlohmann::json{
@@ -895,7 +918,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
                                   {{"id", "node_dup"},
                                    {"node_type", "CountingNode"},
                                    {"depends_on", nlohmann::json::array()}}})}},
-      PipelineErrorCode::kDuplicateNodeId, "/pipeline/1/id"});
+      DiagnosticCode::kDuplicateNodeId, "/pipeline/1/id"});
   cases.push_back(NegativeTestCase{
       "DagMissingDependsOn",
       nlohmann::json{
@@ -906,7 +929,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
                  {"node_type", "CountingNode"},
                  {"depends_on", nlohmann::json::array()}},
                 {{"id", "node_b"}, {"node_type", "CountingNode"}}})}},
-      PipelineErrorCode::kMissingField, "/pipeline/1/depends_on"});
+      DiagnosticCode::kMissingField, "/pipeline/1/depends_on"});
   cases.push_back(NegativeTestCase{
       "DagDependsOnNotArray",
       nlohmann::json{
@@ -914,7 +937,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
           {"pipeline", nlohmann::json::array({{{"id", "node_a"},
                                                {"node_type", "CountingNode"},
                                                {"depends_on", "node_prev"}}})}},
-      PipelineErrorCode::kFieldType, "/pipeline/0/depends_on"});
+      DiagnosticCode::kFieldType, "/pipeline/0/depends_on"});
   cases.push_back(NegativeTestCase{
       "DagDependsOnNonStringItem",
       nlohmann::json{
@@ -923,7 +946,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
                            {{{"id", "node_a"},
                              {"node_type", "CountingNode"},
                              {"depends_on", nlohmann::json::array({123})}}})}},
-      PipelineErrorCode::kFieldType, "/pipeline/0/depends_on/0"});
+      DiagnosticCode::kFieldType, "/pipeline/0/depends_on/0"});
   cases.push_back(NegativeTestCase{
       "DagDependsOnEmptyStringItem",
       nlohmann::json{
@@ -932,7 +955,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
                            {{{"id", "node_a"},
                              {"node_type", "CountingNode"},
                              {"depends_on", nlohmann::json::array({""})}}})}},
-      PipelineErrorCode::kFieldRange, "/pipeline/0/depends_on/0"});
+      DiagnosticCode::kFieldRange, "/pipeline/0/depends_on/0"});
   cases.push_back(NegativeTestCase{
       "DagDependsOnDuplicateItemInNode",
       nlohmann::json{
@@ -945,7 +968,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
                              {"node_type", "CountingNode"},
                              {"depends_on",
                               nlohmann::json::array({"node_a", "node_a"})}}})}},
-      PipelineErrorCode::kInvalidDependency, "/pipeline/1/depends_on/1"});
+      DiagnosticCode::kDuplicateDependency, "/pipeline/1/depends_on/1"});
   cases.push_back(NegativeTestCase{
       "DagSelfLoopCycle",
       nlohmann::json{
@@ -955,7 +978,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
                {{{"id", "node_a"},
                  {"node_type", "CountingNode"},
                  {"depends_on", nlohmann::json::array({"node_a"})}}})}},
-      PipelineErrorCode::kDagCycle, "/pipeline/0/depends_on/0"});
+      DiagnosticCode::kDagCycle, "/pipeline/0/depends_on/0"});
   cases.push_back(NegativeTestCase{
       "DagNonExistentDependency",
       nlohmann::json{
@@ -965,7 +988,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
                {{{"id", "node_a"},
                  {"node_type", "CountingNode"},
                  {"depends_on", nlohmann::json::array({"ghost_dep"})}}})}},
-      PipelineErrorCode::kInvalidDependency, "/pipeline/0/depends_on/0"});
+      DiagnosticCode::kInvalidDependency, "/pipeline/0/depends_on/0"});
   cases.push_back(NegativeTestCase{
       "DagCycle3Nodes",
       nlohmann::json{
@@ -981,7 +1004,7 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
                 {{"id", "node_c"},
                  {"node_type", "CountingNode"},
                  {"depends_on", nlohmann::json::array({"node_b"})}}})}},
-      PipelineErrorCode::kDagCycle, "/pipeline"});
+      DiagnosticCode::kDagCycle, "/pipeline"});
 
   for (const auto& tc : cases) {
     CountingModel::Reset();
@@ -1032,7 +1055,7 @@ TEST_F(PipelineConfigTest, MaterializationExceptionsAndFineGrainedDiagnostics) {
   {
     Pipeline p;
     EXPECT_FALSE(p.BuildFromConfigFile("/non/existent/path.json", &diag));
-    EXPECT_EQ(diag.code, PipelineErrorCode::kConfigFileOpen);
+    EXPECT_EQ(diag.code, DiagnosticCode::kConfigFileOpen);
     EXPECT_EQ(diag.path, "/");
     EXPECT_EQ(p.GetState(), Pipeline::State::kFailed);
   }
@@ -1046,10 +1069,30 @@ TEST_F(PipelineConfigTest, MaterializationExceptionsAndFineGrainedDiagnostics) {
 
     Pipeline p;
     EXPECT_FALSE(p.BuildFromConfigFile(bad_json_path, &diag));
-    EXPECT_EQ(diag.code, PipelineErrorCode::kJsonParse);
+    EXPECT_EQ(diag.code, DiagnosticCode::kJsonParse);
     EXPECT_EQ(diag.path, "/");
     EXPECT_EQ(p.GetState(), Pipeline::State::kFailed);
     std::remove(bad_json_path.c_str());
+  }
+
+  // 4.2.1 Model 构造函数抛异常
+  {
+    nlohmann::json cfg = {
+        {"biz_name", "t"},
+        {"models", nlohmann::json::array(
+                       {CountingModelEntry("m1", CountingBackend::kBackendType,
+                                           ThrowingCtorModel::kModelType)})},
+        {"pipeline",
+         nlohmann::json::array({{{"id", "node_0"},
+                                 {"node_type", "CountingNode"},
+                                 {"depends_on", nlohmann::json::array()}}})}};
+    Pipeline p;
+    EXPECT_FALSE(p.BuildFromJson(
+        cfg, &diag, ValidationPolicy::kPrivateExtensionCompatible));
+    EXPECT_EQ(diag.code, DiagnosticCode::kModelMaterializationFailed);
+    EXPECT_EQ(diag.path, "/models/0");
+    EXPECT_TRUE(diag.message.find("ThrowingCtorModel") != std::string::npos);
+    EXPECT_EQ(p.GetState(), Pipeline::State::kFailed);
   }
 
   // 4.3 Backend 构造函数抛异常
@@ -1065,7 +1108,7 @@ TEST_F(PipelineConfigTest, MaterializationExceptionsAndFineGrainedDiagnostics) {
     Pipeline p;
     EXPECT_FALSE(p.BuildFromJson(
         cfg, &diag, ValidationPolicy::kPrivateExtensionCompatible));
-    EXPECT_EQ(diag.code, PipelineErrorCode::kModelMaterializationFailed);
+    EXPECT_EQ(diag.code, DiagnosticCode::kModelMaterializationFailed);
     EXPECT_EQ(diag.path, "/models/0");
     EXPECT_EQ(p.GetState(), Pipeline::State::kFailed);
   }
@@ -1083,7 +1126,7 @@ TEST_F(PipelineConfigTest, MaterializationExceptionsAndFineGrainedDiagnostics) {
     Pipeline p;
     EXPECT_FALSE(p.BuildFromJson(
         cfg, &diag, ValidationPolicy::kPrivateExtensionCompatible));
-    EXPECT_EQ(diag.code, PipelineErrorCode::kModelMaterializationFailed);
+    EXPECT_EQ(diag.code, DiagnosticCode::kModelMaterializationFailed);
     EXPECT_EQ(diag.path, "/models/0");
     EXPECT_EQ(p.GetState(), Pipeline::State::kFailed);
   }
@@ -1101,7 +1144,7 @@ TEST_F(PipelineConfigTest, MaterializationExceptionsAndFineGrainedDiagnostics) {
     Pipeline p;
     EXPECT_FALSE(p.BuildFromJson(
         cfg, &diag, ValidationPolicy::kPrivateExtensionCompatible));
-    EXPECT_EQ(diag.code, PipelineErrorCode::kModelMaterializationFailed);
+    EXPECT_EQ(diag.code, DiagnosticCode::kModelMaterializationFailed);
     EXPECT_EQ(diag.path, "/models/0");
     EXPECT_EQ(p.GetState(), Pipeline::State::kFailed);
   }
@@ -1117,7 +1160,7 @@ TEST_F(PipelineConfigTest, MaterializationExceptionsAndFineGrainedDiagnostics) {
     Pipeline p;
     EXPECT_FALSE(p.BuildFromJson(
         cfg, &diag, ValidationPolicy::kPrivateExtensionCompatible));
-    EXPECT_EQ(diag.code, PipelineErrorCode::kNodeCreateFailed);
+    EXPECT_EQ(diag.code, DiagnosticCode::kNodeCreateFailed);
     EXPECT_EQ(diag.path, "/pipeline/0/node_type");
     EXPECT_EQ(p.GetState(), Pipeline::State::kFailed);
   }
@@ -1133,7 +1176,7 @@ TEST_F(PipelineConfigTest, MaterializationExceptionsAndFineGrainedDiagnostics) {
     Pipeline p;
     EXPECT_FALSE(p.BuildFromJson(
         cfg, &diag, ValidationPolicy::kPrivateExtensionCompatible));
-    EXPECT_EQ(diag.code, PipelineErrorCode::kNodeInitFailed);
+    EXPECT_EQ(diag.code, DiagnosticCode::kNodeInitFailed);
     EXPECT_EQ(diag.path, "/pipeline/0/config");
     EXPECT_EQ(p.GetState(), Pipeline::State::kFailed);
   }
@@ -1149,7 +1192,7 @@ TEST_F(PipelineConfigTest, MaterializationExceptionsAndFineGrainedDiagnostics) {
     Pipeline p;
     EXPECT_FALSE(p.BuildFromJson(
         cfg, &diag, ValidationPolicy::kPrivateExtensionCompatible));
-    EXPECT_EQ(diag.code, PipelineErrorCode::kNodeInitFailed);
+    EXPECT_EQ(diag.code, DiagnosticCode::kNodeInitFailed);
     EXPECT_EQ(diag.path, "/pipeline/0/config");
     EXPECT_EQ(p.GetState(), Pipeline::State::kFailed);
   }
@@ -1168,7 +1211,7 @@ TEST_F(PipelineConfigTest, MaterializationExceptionsAndFineGrainedDiagnostics) {
                                  {"depends_on", nlohmann::json::array()}}})}};
     EXPECT_FALSE(p.BuildFromJson(
         cfg, &diag, ValidationPolicy::kPrivateExtensionCompatible));
-    EXPECT_EQ(diag.code, PipelineErrorCode::kInternalException);
+    EXPECT_EQ(diag.code, DiagnosticCode::kInternalException);
     EXPECT_EQ(diag.path, "/");
     EXPECT_TRUE(diag.message.find("Simulated unhandled internal exception") !=
                 std::string::npos);
@@ -1189,7 +1232,7 @@ TEST_F(PipelineConfigTest, FailedNodeInitDoesNotPublishStagedModels) {
   PipelineDiagnostic diagnostic;
   EXPECT_FALSE(pipeline.BuildFromJson(
       config, &diagnostic, ValidationPolicy::kPrivateExtensionCompatible));
-  EXPECT_EQ(diagnostic.code, PipelineErrorCode::kNodeInitFailed);
+  EXPECT_EQ(diagnostic.code, DiagnosticCode::kNodeInitFailed);
   EXPECT_NE(diagnostic.message.find("missing domain dictionary"),
             std::string::npos);
   EXPECT_EQ(CountingModel::create_count.load(), 1);
@@ -1239,7 +1282,7 @@ TEST_F(PipelineConfigTest, OnceOnlyBuildContractAndStateMachineProtection) {
     // 第二次 Build
     EXPECT_FALSE(p.BuildFromJson(
         valid_cfg, &diag, ValidationPolicy::kPrivateExtensionCompatible));
-    EXPECT_EQ(diag.code, PipelineErrorCode::kInvalidBuildState);
+    EXPECT_EQ(diag.code, DiagnosticCode::kInvalidBuildState);
     EXPECT_EQ(diag.path, "/");
     // 断言没有任何重复初始化副作用
     EXPECT_EQ(CountingNode::init_count.load(), init_count_before);
@@ -1263,7 +1306,7 @@ TEST_F(PipelineConfigTest, OnceOnlyBuildContractAndStateMachineProtection) {
     // 失败实例上再次尝试 Build
     EXPECT_FALSE(p.BuildFromJson(
         valid_cfg, &diag, ValidationPolicy::kPrivateExtensionCompatible));
-    EXPECT_EQ(diag.code, PipelineErrorCode::kInvalidBuildState);
+    EXPECT_EQ(diag.code, DiagnosticCode::kInvalidBuildState);
   }
 
   // 5.3 未 Ready 或 Failed 状态下 Execute / Control 拒绝执行
@@ -1358,7 +1401,7 @@ TEST_F(PipelineConfigTest, ModelBackendDialectPositiveParsing) {
   ParsedPipelineConfig parsed_cfg;
   PipelineDiagnostic diag;
   EXPECT_TRUE(ParsePipelineConfig(root, &parsed_cfg, &diag));
-  EXPECT_EQ(diag.code, PipelineErrorCode::kOk);
+  EXPECT_EQ(diag.code, DiagnosticCode::kOk);
   ASSERT_EQ(parsed_cfg.models.size(), 2u);
 
   // Model 0: Model/Backend Dialect (Full)

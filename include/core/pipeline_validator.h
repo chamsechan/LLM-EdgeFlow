@@ -6,7 +6,9 @@
 #include <unordered_map>
 #include <vector>
 
+#include "core/diagnostic_code.h"
 #include "core/pipeline_config.h"
+#include "core/remediation_cause.h"
 #include "core/validated_node_plan.h"
 #include "engine/inference_definition.h"
 
@@ -16,51 +18,6 @@ enum class ValidationPolicy {
   kStrict,
   kPrivateExtensionCompatible,
 };
-
-enum class DiagnosticCode {
-  kOk,
-  kJsonParse,
-  kConfigFileOpen,
-  kRootType,
-  kUnknownField,
-  kMissingField,
-  kFieldType,
-  kFieldRange,
-  kInvalidCombination,
-  kDuplicateModelId,
-  kDuplicateNodeId,
-  kUnknownBiz,
-  kUnknownNodeType,
-  kUnknownModelType,
-  kUnknownBackend,
-  kModelCapabilityMismatch,
-  kBackendProtocolMismatch,
-  kUnknownModelConfigField,
-  kUnknownBackendConfigField,
-  kInvalidDependency,
-  kDuplicateDependency,
-  kDagCycle,
-  kRegistryConflict,
-  kUnknownConfigField,
-  kMissingConfigField,
-  kConfigFieldType,
-  kConfigFieldRange,
-  kConfigFieldEnum,
-  kUnknownModelReference,
-  kNodeBizMismatch,
-  kMissingInputProducer,
-  kDuplicatePortProducer,
-  kMissingBizOutput,
-  kNodeNotParallelSafe,
-  kParallelWriteConflict,
-  kSerializedModelConcurrency,
-  kPortCardinalityMismatch,
-  kPortProvenanceMismatch,
-  kPortLifetimeMismatch,
-  kInternalException,
-};
-
-const char* DiagnosticCodeName(DiagnosticCode code) noexcept;
 
 struct ValidationFix {
   std::string id;
@@ -74,7 +31,7 @@ struct ValidationFix {
 
 struct ValidationRemediation {
   int schema_version = 1;
-  std::string cause;
+  RemediationCause cause = RemediationCause::kUnknownConfigField;
   std::string summary;
   nlohmann::json facts = nlohmann::json::object();
   std::vector<ValidationFix> fixes;

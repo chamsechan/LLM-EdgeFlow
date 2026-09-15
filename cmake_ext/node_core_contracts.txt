@@ -11,3 +11,4 @@ pipeline_diagnostic.h
 session_context.h
 validated_node_plan.h
 biz_definition.h
+diagnostic_code.h

@@ -328,6 +328,9 @@ TEST_F(TextEmbeddingNodeTest, SessionCacheCollisionReproductionDefeated) {
 }
 
 TEST_F(TextEmbeddingNodeTest, StrictPlanKeepsDistinctCorpusCacheIdentities) {
+#ifndef HAVE_ONNXRUNTIME
+  GTEST_SKIP() << "ONNX Runtime disabled in this build";
+#endif
   const auto config = nlohmann::json::parse(R"json({
   "biz_name": "keyword_match_v1",
   "models": [

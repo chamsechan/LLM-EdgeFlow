@@ -8,10 +8,12 @@
 #include <vector>
 
 #include "adapter/biz_adapter_registry.h"
+#include "core/node_interface.h"
 #include "core/node_registry.h"
 #include "core/pipeline_catalog.h"
 #include "engine/backend_registry.h"
 #include "engine/model_registry.h"
+#include "tests/support/registry_test_access.h"
 
 namespace llm_edgeflow {
 
@@ -21,6 +23,15 @@ class CatalogContractSsotTest : public ::testing::Test {};
 TEST_F(CatalogContractSsotTest, AllProductionNodesHaveValidDefinitions) {
   const auto nodes = PipelineCatalog::Nodes();
   EXPECT_GE(nodes.size(), 11U);
+
+  // R1: NodeRegistry::ListDefinitions() equals PipelineCatalog::Nodes()
+  const auto reg_defs = NodeRegistry::Instance().ListDefinitions();
+  EXPECT_EQ(reg_defs.size(), nodes.size());
+  EXPECT_TRUE(
+      std::is_sorted(nodes.begin(), nodes.end(),
+                     [](const NodeDefinition& a, const NodeDefinition& b) {
+                       return a.node_type < b.node_type;
+                     }));
 
   std::set<std::string> seen_types;
   for (const auto& node_def : nodes) {
@@ -243,6 +254,178 @@ TEST_F(CatalogContractSsotTest, ToJsonSerializationAndFiltering) {
     }
   }
   EXPECT_TRUE(found_match_node);
+}
+
+// R6: 并发同名注册只有一个成功，另一方失败锁存
+TEST_F(CatalogContractSsotTest, ConcurrentSameNameRegistrationSingleWinner) {
+  test_support::RegistryTestAccess::ScopedNodeState scoped;
+  const std::string race_type = "ConcurrentRaceNode";
+  ASSERT_FALSE(NodeRegistry::Instance().Has(race_type));
+
+  std::atomic<int> start_flag{0};
+  std::atomic<int> success_count{0};
+  std::atomic<int> fail_count{0};
+
+  constexpr int kThreads = 4;
+  std::vector<std::thread> threads;
+  threads.reserve(kThreads);
+
+  for (int i = 0; i < kThreads; ++i) {
+    threads.emplace_back([&, i]() {
+      while (start_flag.load() == 0) {
+        std::this_thread::yield();
+      }
+      NodeDefinition def;
+      def.node_type = race_type;
+      def.category = "race";
+      def.description = "thread " + std::to_string(i);
+      bool ok = NodeRegistry::Instance().Register(
+          race_type, []() -> std::unique_ptr<INode> { return nullptr; }, def);
+      if (ok) {
+        success_count.fetch_add(1);
+      } else {
+        fail_count.fetch_add(1);
+      }
+    });
+  }
+
+  start_flag.store(1);
+  for (auto& t : threads) {
+    t.join();
+  }
+
+  EXPECT_EQ(success_count.load(), 1);
+  EXPECT_EQ(fail_count.load(), kThreads - 1);
+  EXPECT_TRUE(NodeRegistry::Instance().HasConflict());
+  EXPECT_TRUE(NodeRegistry::Instance().Has(race_type));
+  EXPECT_TRUE(PipelineCatalog::FindNode(race_type).has_value());
+}
+
+// R6: 并发不同类型相同 Control ID 的冲突在提交时被发现
+TEST_F(CatalogContractSsotTest, ConcurrentConflictingControlIdDetected) {
+  test_support::RegistryTestAccess::ScopedNodeState scoped;
+  const std::string node_a = "ConcurrentControlNodeA";
+  const std::string node_b = "ConcurrentControlNodeB";
+  ASSERT_FALSE(NodeRegistry::Instance().Has(node_a));
+  ASSERT_FALSE(NodeRegistry::Instance().Has(node_b));
+
+  std::atomic<int> start_flag{0};
+  std::atomic<int> success_count{0};
+  std::atomic<int> fail_count{0};
+
+  auto make_conflicting_def = [](const std::string& type,
+                                 const std::string& cmd_name) {
+    NodeDefinition def;
+    def.node_type = type;
+    def.category = "test";
+    def.description = "control conflict";
+    ControlCommandDefinition cmd;
+    cmd.cmd_id = 8888;
+    cmd.name = cmd_name;
+    cmd.shared_id = false;
+    cmd.payload_schema = nlohmann::json::object();
+    def.control_commands.push_back(cmd);
+    return def;
+  };
+
+  std::thread t1([&]() {
+    while (start_flag.load() == 0) std::this_thread::yield();
+    bool ok = NodeRegistry::Instance().Register(
+        node_a, []() -> std::unique_ptr<INode> { return nullptr; },
+        make_conflicting_def(node_a, "cmd_a"));
+    if (ok)
+      success_count.fetch_add(1);
+    else
+      fail_count.fetch_add(1);
+  });
+
+  std::thread t2([&]() {
+    while (start_flag.load() == 0) std::this_thread::yield();
+    bool ok = NodeRegistry::Instance().Register(
+        node_b, []() -> std::unique_ptr<INode> { return nullptr; },
+        make_conflicting_def(node_b, "cmd_b"));
+    if (ok)
+      success_count.fetch_add(1);
+    else
+      fail_count.fetch_add(1);
+  });
+
+  start_flag.store(1);
+  t1.join();
+  t2.join();
+
+  EXPECT_LE(success_count.load(), 1);
+  EXPECT_GE(fail_count.load(), 1);
+  EXPECT_TRUE(NodeRegistry::Instance().HasConflict());
+}
+
+// R7: 并发读快照与新增注册只能得到完整条目；旧快照不受影响
+TEST_F(CatalogContractSsotTest,
+       ConcurrentSnapshotReadersWhileRegisteringNodes) {
+  test_support::RegistryTestAccess::ScopedNodeState scoped;
+  const auto initial_snapshot = NodeRegistry::Instance().Snapshot();
+  ASSERT_FALSE(initial_snapshot.definitions.empty());
+  const size_t initial_count = initial_snapshot.definitions.size();
+
+  std::atomic<bool> writer_done{false};
+  std::atomic<bool> readers_ok{true};
+
+  std::thread reader([&]() {
+    while (!writer_done.load(std::memory_order_relaxed)) {
+      const auto snap = NodeRegistry::Instance().Snapshot();
+      EXPECT_GE(snap.definitions.size(), initial_count);
+      bool sorted =
+          std::is_sorted(snap.definitions.begin(), snap.definitions.end(),
+                         [](const NodeDefinition& a, const NodeDefinition& b) {
+                           return a.node_type < b.node_type;
+                         });
+      if (!sorted) readers_ok.store(false);
+      for (const auto& def : snap.definitions) {
+        if (def.node_type.empty() || def.category.empty()) {
+          readers_ok.store(false);
+        }
+      }
+    }
+  });
+
+  for (int i = 0; i < 16; ++i) {
+    const std::string node_name = "SnapshotWriterNode_" + std::to_string(i);
+    NodeDefinition def;
+    def.node_type = node_name;
+    def.category = "snapshot_test";
+    def.description = "node " + std::to_string(i);
+    bool ok = NodeRegistry::Instance().Register(
+        node_name, []() -> std::unique_ptr<INode> { return nullptr; }, def);
+    EXPECT_TRUE(ok);
+  }
+  writer_done.store(true, std::memory_order_release);
+  reader.join();
+
+  EXPECT_TRUE(readers_ok.load());
+  EXPECT_EQ(initial_snapshot.definitions.size(), initial_count);
+}
+
+// R8: ScopedNodeState 测试隔离与还原
+TEST_F(CatalogContractSsotTest, ScopedNodeStateRestoresCleanly) {
+  const size_t original_count =
+      NodeRegistry::Instance().ListDefinitions().size();
+  const bool original_conflict = NodeRegistry::Instance().HasConflict();
+  {
+    test_support::RegistryTestAccess::ScopedNodeState scoped;
+    NodeDefinition def;
+    def.node_type = "ScopedTempNode";
+    def.category = "temp";
+    def.description = "temp";
+    EXPECT_TRUE(NodeRegistry::Instance().Register(
+        "ScopedTempNode", []() -> std::unique_ptr<INode> { return nullptr; },
+        def));
+    EXPECT_TRUE(NodeRegistry::Instance().Has("ScopedTempNode"));
+    EXPECT_EQ(NodeRegistry::Instance().ListDefinitions().size(),
+              original_count + 1);
+  }
+  EXPECT_FALSE(NodeRegistry::Instance().Has("ScopedTempNode"));
+  EXPECT_EQ(NodeRegistry::Instance().ListDefinitions().size(), original_count);
+  EXPECT_EQ(NodeRegistry::Instance().HasConflict(), original_conflict);
 }
 
 }  // namespace llm_edgeflow

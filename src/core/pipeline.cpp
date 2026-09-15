@@ -18,72 +18,6 @@ namespace llm_edgeflow {
 
 namespace {
 
-PipelineErrorCode ValidationCodeToPipelineCode(DiagnosticCode code) {
-  switch (code) {
-    case DiagnosticCode::kOk:
-      return PipelineErrorCode::kOk;
-    case DiagnosticCode::kJsonParse:
-      return PipelineErrorCode::kJsonParse;
-    case DiagnosticCode::kConfigFileOpen:
-      return PipelineErrorCode::kConfigFileOpen;
-    case DiagnosticCode::kRootType:
-      return PipelineErrorCode::kRootType;
-    case DiagnosticCode::kUnknownField:
-    case DiagnosticCode::kUnknownConfigField:
-      return PipelineErrorCode::kUnknownField;
-    case DiagnosticCode::kMissingField:
-    case DiagnosticCode::kMissingConfigField:
-      return PipelineErrorCode::kMissingField;
-    case DiagnosticCode::kFieldType:
-    case DiagnosticCode::kConfigFieldType:
-      return PipelineErrorCode::kFieldType;
-    case DiagnosticCode::kFieldRange:
-    case DiagnosticCode::kConfigFieldRange:
-      return PipelineErrorCode::kFieldRange;
-    case DiagnosticCode::kInvalidCombination:
-    case DiagnosticCode::kConfigFieldEnum:
-    case DiagnosticCode::kUnknownBiz:
-    case DiagnosticCode::kUnknownModelReference:
-    case DiagnosticCode::kModelCapabilityMismatch:
-    case DiagnosticCode::kNodeBizMismatch:
-    case DiagnosticCode::kMissingInputProducer:
-    case DiagnosticCode::kDuplicatePortProducer:
-    case DiagnosticCode::kMissingBizOutput:
-    case DiagnosticCode::kNodeNotParallelSafe:
-    case DiagnosticCode::kParallelWriteConflict:
-    case DiagnosticCode::kSerializedModelConcurrency:
-    case DiagnosticCode::kPortCardinalityMismatch:
-    case DiagnosticCode::kPortProvenanceMismatch:
-    case DiagnosticCode::kPortLifetimeMismatch:
-      return PipelineErrorCode::kInvalidCombination;
-    case DiagnosticCode::kDuplicateModelId:
-      return PipelineErrorCode::kDuplicateModelId;
-    case DiagnosticCode::kDuplicateNodeId:
-      return PipelineErrorCode::kDuplicateNodeId;
-    case DiagnosticCode::kUnknownNodeType:
-      return PipelineErrorCode::kUnknownNodeType;
-    case DiagnosticCode::kUnknownModelType:
-      return PipelineErrorCode::kUnknownModelType;
-    case DiagnosticCode::kUnknownBackend:
-      return PipelineErrorCode::kUnknownBackend;
-    case DiagnosticCode::kBackendProtocolMismatch:
-      return PipelineErrorCode::kInvalidCombination;
-    case DiagnosticCode::kUnknownModelConfigField:
-    case DiagnosticCode::kUnknownBackendConfigField:
-      return PipelineErrorCode::kUnknownField;
-    case DiagnosticCode::kInvalidDependency:
-    case DiagnosticCode::kDuplicateDependency:
-      return PipelineErrorCode::kInvalidDependency;
-    case DiagnosticCode::kDagCycle:
-      return PipelineErrorCode::kDagCycle;
-    case DiagnosticCode::kRegistryConflict:
-      return PipelineErrorCode::kRegistryConflict;
-    case DiagnosticCode::kInternalException:
-      return PipelineErrorCode::kInternalException;
-  }
-  return PipelineErrorCode::kInvalidCombination;
-}
-
 struct RuntimeAssembly {
   std::unique_ptr<ValidatedPipelinePlan> plan;
   std::unique_ptr<SessionContext> session;
@@ -114,10 +48,34 @@ bool MaterializeModels(const ValidatedPipelinePlan& plan,
     spec.execution_target.platform = runtime_options.chip_type;
 
     std::string factory_diag;
-    auto model = ModelRuntimeFactory::Create(spec, &factory_diag);
+    std::shared_ptr<IModel> model;
+    try {
+      model = ModelRuntimeFactory::Create(spec, &factory_diag);
+    } catch (const std::exception& e) {
+      if (diagnostic) {
+        diagnostic->code = DiagnosticCode::kModelMaterializationFailed;
+        diagnostic->path = "/models/" + std::to_string(model_plan.source_index);
+        diagnostic->message = "Exception creating model '" +
+                              model_plan.model_id + "': " + e.what();
+      }
+      ALG_LOG_ERROR("[Pipeline] Exception creating model [%s]: %s\n",
+                    model_plan.model_id.c_str(), e.what());
+      return false;
+    } catch (...) {
+      if (diagnostic) {
+        diagnostic->code = DiagnosticCode::kModelMaterializationFailed;
+        diagnostic->path = "/models/" + std::to_string(model_plan.source_index);
+        diagnostic->message =
+            "Unknown exception creating model '" + model_plan.model_id + "'";
+      }
+      ALG_LOG_ERROR("[Pipeline] Unknown exception creating model [%s]\n",
+                    model_plan.model_id.c_str());
+      return false;
+    }
+
     if (!model) {
       if (diagnostic) {
-        diagnostic->code = PipelineErrorCode::kModelMaterializationFailed;
+        diagnostic->code = DiagnosticCode::kModelMaterializationFailed;
         diagnostic->path = "/models/" + std::to_string(model_plan.source_index);
         diagnostic->message =
             "ModelRuntimeFactory failed to load model: " + model_plan.model_id +
@@ -143,7 +101,7 @@ bool MaterializeModels(const ValidatedPipelinePlan& plan,
 
   if (!session->GetModelManager().RegisterBatch(staged_models)) {
     if (diagnostic) {
-      diagnostic->code = PipelineErrorCode::kDuplicateModelId;
+      diagnostic->code = DiagnosticCode::kDuplicateModelId;
       diagnostic->path = "/models";
       diagnostic->message =
           "Failed to atomically register batch models in ModelManager";
@@ -181,7 +139,7 @@ bool MaterializeNodes(RuntimeAssembly* assembly,
       auto plan_it = plan.node_plans.find(node_id);
       if (plan_it == plan.node_plans.end()) {
         if (diagnostic) {
-          diagnostic->code = PipelineErrorCode::kInternalException;
+          diagnostic->code = DiagnosticCode::kInternalException;
           diagnostic->path = "/pipeline";
           diagnostic->message =
               "Validated plan is missing node materialization data: " + node_id;
@@ -196,7 +154,7 @@ bool MaterializeNodes(RuntimeAssembly* assembly,
         node = NodeRegistry::Instance().Create(node_config.node_type);
       } catch (const std::exception& e) {
         if (diagnostic) {
-          diagnostic->code = PipelineErrorCode::kNodeCreateFailed;
+          diagnostic->code = DiagnosticCode::kNodeCreateFailed;
           diagnostic->path = "/pipeline/" +
                              std::to_string(node_config.source_index) +
                              "/node_type";
@@ -206,7 +164,7 @@ bool MaterializeNodes(RuntimeAssembly* assembly,
         return false;
       } catch (...) {
         if (diagnostic) {
-          diagnostic->code = PipelineErrorCode::kNodeCreateFailed;
+          diagnostic->code = DiagnosticCode::kNodeCreateFailed;
           diagnostic->path = "/pipeline/" +
                              std::to_string(node_config.source_index) +
                              "/node_type";
@@ -218,7 +176,7 @@ bool MaterializeNodes(RuntimeAssembly* assembly,
 
       if (!node) {
         if (diagnostic) {
-          diagnostic->code = PipelineErrorCode::kNodeCreateFailed;
+          diagnostic->code = DiagnosticCode::kNodeCreateFailed;
           diagnostic->path = "/pipeline/" +
                              std::to_string(node_config.source_index) +
                              "/node_type";
@@ -241,7 +199,7 @@ bool MaterializeNodes(RuntimeAssembly* assembly,
         init_ok = node->Init(init_ctx);
       } catch (const std::exception& e) {
         if (diagnostic) {
-          diagnostic->code = PipelineErrorCode::kNodeInitFailed;
+          diagnostic->code = DiagnosticCode::kNodeInitFailed;
           diagnostic->path = "/pipeline/" +
                              std::to_string(node_config.source_index) +
                              "/config";
@@ -251,7 +209,7 @@ bool MaterializeNodes(RuntimeAssembly* assembly,
         return false;
       } catch (...) {
         if (diagnostic) {
-          diagnostic->code = PipelineErrorCode::kNodeInitFailed;
+          diagnostic->code = DiagnosticCode::kNodeInitFailed;
           diagnostic->path = "/pipeline/" +
                              std::to_string(node_config.source_index) +
                              "/config";
@@ -263,7 +221,7 @@ bool MaterializeNodes(RuntimeAssembly* assembly,
 
       if (!init_ok) {
         if (diagnostic) {
-          diagnostic->code = PipelineErrorCode::kNodeInitFailed;
+          diagnostic->code = DiagnosticCode::kNodeInitFailed;
           diagnostic->path = "/pipeline/" +
                              std::to_string(node_config.source_index) +
                              "/config";
@@ -351,7 +309,7 @@ bool Pipeline::BuildFromConfigFile(const std::string& config_file_path,
   // R1-ACC-002: 一次性构建状态检查
   if (state_ != State::kEmpty) {
     if (diagnostic) {
-      diagnostic->code = PipelineErrorCode::kInvalidBuildState;
+      diagnostic->code = DiagnosticCode::kInvalidBuildState;
       diagnostic->path = "/";
       diagnostic->message =
           "Pipeline build can only be attempted once on an empty Pipeline "
@@ -367,7 +325,7 @@ bool Pipeline::BuildFromConfigFile(const std::string& config_file_path,
   if (!ifs.is_open()) {
     state_ = State::kFailed;
     if (diagnostic) {
-      diagnostic->code = PipelineErrorCode::kConfigFileOpen;
+      diagnostic->code = DiagnosticCode::kConfigFileOpen;
       diagnostic->path = "/";
       diagnostic->message = "Failed to open config file: " + config_file_path;
     }
@@ -383,7 +341,7 @@ bool Pipeline::BuildFromConfigFile(const std::string& config_file_path,
   } catch (const std::exception& e) {
     state_ = State::kFailed;
     if (diagnostic) {
-      diagnostic->code = PipelineErrorCode::kJsonParse;
+      diagnostic->code = DiagnosticCode::kJsonParse;
       diagnostic->path = "/";
       diagnostic->message = std::string("JSON parse exception in ") +
                             config_file_path + ": " + e.what();
@@ -406,7 +364,7 @@ bool Pipeline::BuildFromJson(const nlohmann::json& root_config,
   // R1-ACC-002: 一次性构建状态检查
   if (state_ != State::kEmpty) {
     if (diagnostic) {
-      diagnostic->code = PipelineErrorCode::kInvalidBuildState;
+      diagnostic->code = DiagnosticCode::kInvalidBuildState;
       diagnostic->path = "/";
       diagnostic->message =
           "Pipeline build can only be attempted once on an empty Pipeline "
@@ -438,7 +396,7 @@ bool Pipeline::BuildFromJson(const nlohmann::json& root_config,
   } catch (const std::exception& e) {
     success = false;
     if (diagnostic) {
-      diagnostic->code = PipelineErrorCode::kInternalException;
+      diagnostic->code = DiagnosticCode::kInternalException;
       diagnostic->path = "/";
       diagnostic->message =
           std::string("Internal exception during pipeline build: ") + e.what();
@@ -449,7 +407,7 @@ bool Pipeline::BuildFromJson(const nlohmann::json& root_config,
   } catch (...) {
     success = false;
     if (diagnostic) {
-      diagnostic->code = PipelineErrorCode::kInternalException;
+      diagnostic->code = DiagnosticCode::kInternalException;
       diagnostic->path = "/";
       diagnostic->message = "Unknown internal exception during pipeline build";
     }
@@ -480,12 +438,16 @@ bool Pipeline::BuildInternal(const nlohmann::json& root_config,
       const auto& item = assembly.plan->report.diagnostics.front();
       const char* code_str = DiagnosticCodeName(item.code);
       if (diagnostic) {
-        diagnostic->code = ValidationCodeToPipelineCode(item.code);
+        diagnostic->code = item.code;
         diagnostic->path = item.path;
-        diagnostic->message = std::string(code_str) + ": " + item.message;
+        diagnostic->message = item.message;
       }
       ALG_LOG_ERROR("[Pipeline] Validation failed: %s at %s: %s\n", code_str,
                     item.path.c_str(), item.message.c_str());
+    } else if (diagnostic) {
+      diagnostic->code = DiagnosticCode::kInternalException;
+      diagnostic->path = "/";
+      diagnostic->message = "Validation failed without diagnostics";
     }
     return false;
   }
