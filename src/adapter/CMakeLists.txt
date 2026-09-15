@@ -16,6 +16,14 @@ target_sources(edgeflow_integration_objects PRIVATE
   deployment_io_config.cpp
   io_binding_resolver.cpp
   io_catalog.cpp
+  input/text_input.cpp
+  input/translate_json_input.cpp
+  output/structured_document_output.cpp
+  output/translation_json_output.cpp
+  output/keyword_result_output.cpp
+  biz/translate_bindings.cpp
+  biz/entity_extract_bindings.cpp
+  biz/keyword_match_bindings.cpp
   biz/audio_asr_intent_operator_bridge.cpp
   biz/compliance_audit_operator_bridge.cpp
   biz/cross_rerank_operator_bridge.cpp

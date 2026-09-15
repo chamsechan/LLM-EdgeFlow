@@ -62,7 +62,8 @@ class ExternalOutputBatchView {
  public:
   // C ABI 输出指针数组
   void** items = nullptr;
-  size_t count = 0;  // 容量 (元素个数)
+  size_t count = 0;
+  size_t capacity = 0;
   std::string type_id;
 
   // Operator 已租用输出块: slot_name -> vector of void*
@@ -73,25 +74,44 @@ class ExternalOutputBatchView {
 
   template <typename T>
   T* GetCAbi(size_t index) const {
-    if (!items || index >= count) return nullptr;
+    size_t limit = capacity > 0 ? capacity : count;
+    if (!items || index >= limit) return nullptr;
     return static_cast<T*>(items[index]);
   }
 
   template <typename T>
   T* GetSlot(const std::string& slot_name, size_t index) const {
     auto it = leased_slots.find(slot_name);
-    if (it == leased_slots.end() || index >= it->second.size()) return nullptr;
-    return static_cast<T*>(it->second[index]);
+    if (it != leased_slots.end()) {
+      if (index >= it->second.size()) return nullptr;
+      return static_cast<T*>(it->second[index]);
+    }
+    for (const auto& kv : leased_slots) {
+      auto dot = kv.first.rfind('.');
+      if (dot != std::string::npos && kv.first.substr(dot + 1) == slot_name) {
+        if (index >= kv.second.size()) return nullptr;
+        return static_cast<T*>(kv.second[index]);
+      }
+    }
+    return nullptr;
   }
 
   size_t GetSlotCapacity(const std::string& slot_name,
                          const std::string& field_name,
                          size_t default_cap = 0) const {
     auto sit = slot_capacities.find(slot_name);
-    if (sit == slot_capacities.end()) return default_cap;
-    auto fit = sit->second.find(field_name);
-    if (fit == sit->second.end()) return default_cap;
-    return fit->second;
+    if (sit != slot_capacities.end()) {
+      auto fit = sit->second.find(field_name);
+      if (fit != sit->second.end()) return fit->second;
+    }
+    for (const auto& kv : slot_capacities) {
+      auto dot = kv.first.rfind('.');
+      if (dot != std::string::npos && kv.first.substr(dot + 1) == slot_name) {
+        auto fit = kv.second.find(field_name);
+        if (fit != kv.second.end()) return fit->second;
+      }
+    }
+    return default_cap;
   }
 };
 
