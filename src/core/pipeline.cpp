@@ -418,6 +418,120 @@ bool Pipeline::BuildFromJson(const nlohmann::json& root_config,
   return success;
 }
 
+bool Pipeline::BuildFromPlan(std::unique_ptr<ValidatedPipelinePlan> plan,
+                             PipelineDiagnostic* diagnostic) {
+  if (diagnostic) {
+    diagnostic->Clear();
+  }
+
+  // R1-ACC-002: 一次性构建状态检查
+  if (state_ != State::kEmpty) {
+    if (diagnostic) {
+      diagnostic->code = DiagnosticCode::kInvalidBuildState;
+      diagnostic->path = "/";
+      diagnostic->message =
+          "Pipeline build can only be attempted once on an empty Pipeline "
+          "instance";
+    }
+    ALG_LOG_ERROR(
+        "[Pipeline] Build attempted on non-empty Pipeline (state: %d)\n",
+        static_cast<int>(state_));
+    return false;
+  }
+
+  state_ = State::kBuilding;
+
+  struct BuildingStateGuard {
+    State& s;
+    bool finalized = false;
+    ~BuildingStateGuard() {
+      if (!finalized) {
+        s = State::kFailed;
+      }
+    }
+  } guard{state_};
+
+  bool success = false;
+  try {
+    if (test_internal_hook_) {
+      test_internal_hook_();
+    }
+
+    if (!plan) {
+      if (diagnostic) {
+        diagnostic->code = DiagnosticCode::kInternalException;
+        diagnostic->path = "/";
+        diagnostic->message = "Null plan pointer provided to BuildFromPlan";
+      }
+      return false;
+    }
+
+    if (!plan->report.ok) {
+      if (!plan->report.diagnostics.empty()) {
+        const auto& item = plan->report.diagnostics.front();
+        const char* code_str = DiagnosticCodeName(item.code);
+        if (diagnostic) {
+          diagnostic->code = item.code;
+          diagnostic->path = item.path;
+          diagnostic->message = item.message;
+        }
+        ALG_LOG_ERROR("[Pipeline] Validation failed: %s at %s: %s\n", code_str,
+                      item.path.c_str(), item.message.c_str());
+      } else if (diagnostic) {
+        diagnostic->code = DiagnosticCode::kInternalException;
+        diagnostic->path = "/";
+        diagnostic->message = "Validation failed without diagnostics";
+      }
+      return false;
+    }
+
+    RuntimeAssembly assembly;
+    assembly.plan = std::move(plan);
+    assembly.session = std::make_unique<SessionContext>();
+    assembly.session->SetRuntimeOptions(session_ctx_->GetRuntimeOptions());
+
+    if (!MaterializeModels(*assembly.plan, assembly.session.get(), diagnostic)) {
+      return false;
+    }
+    if (!MaterializeNodes(&assembly, diagnostic)) {
+      return false;
+    }
+    ConfigureExecutor(assembly.plan->config, &assembly);
+
+    plan_ = std::move(assembly.plan);
+    session_ctx_ = std::move(assembly.session);
+    execution_mode_ = assembly.execution_mode;
+    nodes_ = std::move(assembly.nodes);
+    node_layers_ = std::move(assembly.node_layers);
+    thread_pool_ = std::move(assembly.thread_pool);
+    success = true;
+  } catch (const std::exception& e) {
+    success = false;
+    if (diagnostic) {
+      diagnostic->code = DiagnosticCode::kInternalException;
+      diagnostic->path = "/";
+      diagnostic->message =
+          std::string("Internal exception during pipeline build: ") + e.what();
+    }
+    ALG_LOG_ERROR(
+        "[Pipeline] Unhandled internal exception during pipeline build: %s\n",
+        e.what());
+  } catch (...) {
+    success = false;
+    if (diagnostic) {
+      diagnostic->code = DiagnosticCode::kInternalException;
+      diagnostic->path = "/";
+      diagnostic->message = "Unknown internal exception during pipeline build";
+    }
+    ALG_LOG_ERROR(
+        "[Pipeline] Unknown internal exception during pipeline build\n");
+  }
+
+  state_ = success ? State::kReady : State::kFailed;
+  guard.finalized = true;
+  return success;
+}
+
 bool Pipeline::BuildInternal(const nlohmann::json& root_config,
                              PipelineDiagnostic* diagnostic,
                              ValidationPolicy policy) {
