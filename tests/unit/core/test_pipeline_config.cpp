@@ -908,6 +908,12 @@ TEST_F(PipelineConfigTest, TableDrivenNegativeValidationAndZeroSideEffects) {
                                    {"depends_on", nlohmann::json::array()}}})}},
       DiagnosticCode::kMissingField, "/pipeline/0/id"});
   cases.push_back(NegativeTestCase{
+      "DagMissingIdAndDependsOn",
+      nlohmann::json{{"biz_name", "test"},
+                     {"pipeline", nlohmann::json::array(
+                                      {{{"node_type", "CountingNode"}}})}},
+      DiagnosticCode::kMissingField, "/pipeline/0/id"});
+  cases.push_back(NegativeTestCase{
       "DagDuplicateNodeId",
       nlohmann::json{
           {"biz_name", "test"},

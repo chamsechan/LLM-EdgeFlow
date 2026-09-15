@@ -612,6 +612,42 @@ class ModelSlotBinding {
   virtual std::unique_ptr<ModelSlotBinding<ModelsT>> Clone() const = 0;
 };
 
+inline bool ResolveBoundModelId(const NodeInitContext& init_ctx,
+                                const std::string& slot_name,
+                                const std::string& capability,
+                                const std::string& config_field,
+                                const nlohmann::json& config,
+                                std::string* model_id, std::string* err) {
+  if (init_ctx.plan) {
+    const auto* binding = init_ctx.plan->FindModelBinding(slot_name);
+    if (!binding || binding->model_id.empty()) {
+      if (err) {
+        *err =
+            "Model binding for '" + slot_name + "' is missing or empty in plan";
+      }
+      return false;
+    }
+    if (binding->capability != capability) {
+      if (err) {
+        *err = "Model binding capability mismatch for '" + slot_name + "'";
+      }
+      return false;
+    }
+    *model_id = binding->model_id;
+  } else {
+    if (!config.contains(config_field) || !config[config_field].is_string()) {
+      if (err) *err = "Config missing model field: " + config_field;
+      return false;
+    }
+    *model_id = config[config_field].template get<std::string>();
+    if (model_id->empty()) {
+      if (err) *err = "Model binding field '" + config_field + "' is empty";
+      return false;
+    }
+  }
+  return true;
+}
+
 template <typename ModelsT>
 class LlmModelSlotBinding final : public ModelSlotBinding<ModelsT> {
  public:
@@ -634,33 +670,9 @@ class LlmModelSlotBinding final : public ModelSlotBinding<ModelsT> {
             const nlohmann::json& config, ModelsT* models,
             std::string* err) override {
     std::string model_id;
-    if (init_ctx.plan) {
-      const auto* binding = init_ctx.plan->FindModelBinding(slot_name_);
-      if (!binding || binding->model_id.empty()) {
-        if (err) {
-          *err = "Model binding for '" + slot_name_ +
-                 "' is missing or empty in plan";
-        }
-        return false;
-      }
-      if (binding->capability != Capability()) {
-        if (err) {
-          *err = "Model binding capability mismatch for '" + slot_name_ + "'";
-        }
-        return false;
-      }
-      model_id = binding->model_id;
-    } else {
-      if (!config.contains(config_field_) ||
-          !config[config_field_].is_string()) {
-        if (err) *err = "Config missing model field: " + config_field_;
-        return false;
-      }
-      model_id = config[config_field_].template get<std::string>();
-      if (model_id.empty()) {
-        if (err) *err = "Model binding field '" + config_field_ + "' is empty";
-        return false;
-      }
+    if (!ResolveBoundModelId(init_ctx, slot_name_, Capability(), config_field_,
+                             config, &model_id, err)) {
+      return false;
     }
     auto model = session_ctx.GetModelManager().GetModel<ILlmModel>(model_id);
     if (!model) {
@@ -705,33 +717,9 @@ class EmbeddingModelSlotBinding final : public ModelSlotBinding<ModelsT> {
             const nlohmann::json& config, ModelsT* models,
             std::string* err) override {
     std::string model_id;
-    if (init_ctx.plan) {
-      const auto* binding = init_ctx.plan->FindModelBinding(slot_name_);
-      if (!binding || binding->model_id.empty()) {
-        if (err) {
-          *err = "Model binding for '" + slot_name_ +
-                 "' is missing or empty in plan";
-        }
-        return false;
-      }
-      if (binding->capability != Capability()) {
-        if (err) {
-          *err = "Model binding capability mismatch for '" + slot_name_ + "'";
-        }
-        return false;
-      }
-      model_id = binding->model_id;
-    } else {
-      if (!config.contains(config_field_) ||
-          !config[config_field_].is_string()) {
-        if (err) *err = "Config missing model field: " + config_field_;
-        return false;
-      }
-      model_id = config[config_field_].template get<std::string>();
-      if (model_id.empty()) {
-        if (err) *err = "Model binding field '" + config_field_ + "' is empty";
-        return false;
-      }
+    if (!ResolveBoundModelId(init_ctx, slot_name_, Capability(), config_field_,
+                             config, &model_id, err)) {
+      return false;
     }
     auto model =
         session_ctx.GetModelManager().GetModel<IEmbeddingModel>(model_id);

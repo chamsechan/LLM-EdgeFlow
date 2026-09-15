@@ -145,17 +145,11 @@ class AudioAsrIntentAdapter
 
     for (int i = 0; i < count; ++i) {
       auto* out_ptr = static_cast<Output*>(outputs[i]);
-      uint64_t req_id =
-          (raw_req_ids && i < static_cast<int>(raw_req_ids->size()))
-              ? (*raw_req_ids)[i]
-              : transcripts_by_request[i]->req_id;
-      out_ptr->request_id = req_id;
+      out_ptr->request_id = (*raw_req_ids)[i];
       out_ptr->status_code = intent_slots_by_request[i]->data.status_code;
 
-      std::string slot_json = "{}";
-      if (intent_slots && i < static_cast<int>(intent_slots->size())) {
-        slot_json = intent_slots_by_request[i]->data.match_result_json;
-      }
+      const std::string& slot_json =
+          intent_slots_by_request[i]->data.match_result_json;
 
       if (!CopyResultString(out_ptr->transcribed_text,
                             transcripts_by_request[i]->data.c_str(),

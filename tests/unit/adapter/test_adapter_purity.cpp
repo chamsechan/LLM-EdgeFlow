@@ -842,6 +842,60 @@ TEST(ReadMultiWayResultsTest, ReadsAndAlignsMultiWayResults) {
             COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
 }
 
+// 验证变长模板推导：0 路次要结果与 3 路次要结果对齐
+TEST(ReadMultiWayResultsTest, VariadicSecondarySlotsDeductionAndAlignment) {
+  AlgContext ctx;
+  ctx.Publish(kRawRequestIds, std::vector<uint64_t>{2001, 2002});
+  ctx.Publish(kLlmAnswers, TextBatch{{0, 0, "ans_0"}, {1, 0, "ans_1"}});
+  ctx.Publish(kIntentMatches,
+              RuleMatchBatch{{0, 0, RuleMatchItem(1, "A", "", "{}", 0.9f)},
+                             {1, 0, RuleMatchItem(2, "B", "", "{}", 0.8f)}});
+  ctx.Publish(kDocChunkCounts, Int32Batch{{0, 0, 3}, {1, 0, 5}});
+  ctx.Publish(kDocChunks, TextBatch{{0, 0, "chunk_0"}, {1, 0, "chunk_1"}});
+
+  const ResultBindingSpec<TextBatch> primary_spec(kLlmAnswers, "answers");
+  const ResultBindingSpec<std::vector<uint64_t>> raw_req_ids_spec(
+      kRawRequestIds, "raw_request_ids");
+  const ResultBindingSpec<RuleMatchBatch> intent_spec(kIntentMatches,
+                                                      "intent_matches");
+  const ResultBindingSpec<Int32Batch> chunk_spec(kDocChunkCounts,
+                                                 "doc_chunk_counts");
+  const ResultBindingSpec<TextBatch> doc_spec(kDocChunks, "doc_chunks");
+
+  AdapterStatus status;
+
+  // 1. 0 路次要槽位（仅 primary + raw_req_ids）
+  RequestResults<TextBatch> zero_results;
+  int ret0 = ReadMultiWayResults(&ctx, "TestAdapter", &status, &zero_results,
+                                 primary_spec, raw_req_ids_spec);
+  ASSERT_EQ(ret0, COMPANY_ALG_SUCCESS);
+  ASSERT_EQ(zero_results.Size(), 2u);
+  EXPECT_EQ(zero_results.RequestId(0), 2001u);
+  EXPECT_EQ(zero_results.Primary(0).data, "ans_0");
+  EXPECT_EQ(zero_results.RequestId(1), 2002u);
+  EXPECT_EQ(zero_results.Primary(1).data, "ans_1");
+
+  // 2. 3 路次要槽位（3+ variadic secondary specs）
+  RequestResults<TextBatch, RuleMatchBatch, Int32Batch, TextBatch>
+      three_results;
+  int ret3 = ReadMultiWayResults(&ctx, "TestAdapter", &status, &three_results,
+                                 primary_spec, raw_req_ids_spec, intent_spec,
+                                 chunk_spec, doc_spec);
+  ASSERT_EQ(ret3, COMPANY_ALG_SUCCESS);
+  ASSERT_EQ(three_results.Size(), 2u);
+  EXPECT_EQ(three_results.RequestId(0), 2001u);
+  EXPECT_EQ(three_results.Primary(0).data, "ans_0");
+  EXPECT_EQ(three_results.Secondary<0>(0).data.category, "A");
+  EXPECT_EQ(three_results.Secondary<1>(0).data, 3);
+  EXPECT_EQ(three_results.Secondary<2>(0).data, "chunk_0");
+
+  EXPECT_EQ(three_results.RequestId(1), 2002u);
+  EXPECT_EQ(three_results.Primary(1).data, "ans_1");
+  EXPECT_EQ(three_results.Secondary<0>(1).data.category, "B");
+  EXPECT_EQ(three_results.Secondary<1>(1).data, 5);
+  EXPECT_EQ(three_results.Secondary<2>(1).data, "chunk_1");
+}
+
 // RFC-0053: ReadMultiWayResults Error Mappings and Diagnostics
 TEST(ReadMultiWayResultsTest, ErrorMappingsAndDiagnostics) {
   AlgContext ctx;

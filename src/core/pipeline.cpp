@@ -22,7 +22,6 @@ struct RuntimeAssembly {
   std::unique_ptr<ValidatedPipelinePlan> plan;
   std::unique_ptr<SessionContext> session;
   Pipeline::ExecutionMode execution_mode = Pipeline::ExecutionMode::kSequential;
-  size_t max_parallel_workers = 4;
   std::vector<std::unique_ptr<INode>> nodes;
   std::vector<std::vector<INode*>> node_layers;
   std::unique_ptr<ThreadPool> thread_pool;
@@ -115,12 +114,11 @@ void ConfigureExecutor(const ParsedPipelineConfig& config,
                        RuntimeAssembly* assembly) {
   if (config.execution_mode == "parallel") {
     assembly->execution_mode = Pipeline::ExecutionMode::kParallel;
-    assembly->max_parallel_workers = config.max_parallel_workers;
     assembly->thread_pool =
-        std::make_unique<ThreadPool>(assembly->max_parallel_workers);
+        std::make_unique<ThreadPool>(config.max_parallel_workers);
     ALG_LOG_INFO(
         "[Pipeline] Parallel Wavefront Execution Mode enabled (workers: %zu)\n",
-        assembly->max_parallel_workers);
+        config.max_parallel_workers);
     return;
   }
 
@@ -469,7 +467,6 @@ bool Pipeline::BuildInternal(const nlohmann::json& root_config,
   plan_ = std::move(assembly.plan);
   session_ctx_ = std::move(assembly.session);
   execution_mode_ = assembly.execution_mode;
-  max_parallel_workers_ = assembly.max_parallel_workers;
   nodes_ = std::move(assembly.nodes);
   node_layers_ = std::move(assembly.node_layers);
   thread_pool_ = std::move(assembly.thread_pool);

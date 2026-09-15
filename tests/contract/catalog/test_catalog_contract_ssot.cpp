@@ -48,6 +48,9 @@ TEST_F(CatalogContractSsotTest, AllProductionNodesHaveValidDefinitions) {
     auto instance = NodeRegistry::Instance().Create(node_def.node_type);
     EXPECT_NE(instance, nullptr)
         << "Failed to create node instance: " << node_def.node_type;
+    if (node_def.node_type == "TextChunkNode") {
+      EXPECT_EQ(instance->Name(), "TextChunkNode");
+    }
 
     // FindNode 查询一致性
     const auto found = PipelineCatalog::FindNode(node_def.node_type);
@@ -160,6 +163,7 @@ TEST_F(CatalogContractSsotTest, AllBizDefinitionsAreRegistered) {
 // 4. 验证不存在类型查询返回 nullptr
 TEST_F(CatalogContractSsotTest, FindReturnsEmptyForNonexistentEntities) {
   EXPECT_FALSE(PipelineCatalog::FindNode("NonExistentNode12345").has_value());
+  EXPECT_EQ(NodeRegistry::Instance().Create("NonExistentNode123"), nullptr);
   EXPECT_FALSE(
       PipelineCatalog::FindModel("non_existent_model_999").has_value());
   EXPECT_FALSE(

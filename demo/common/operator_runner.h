@@ -203,6 +203,66 @@ inline int ApplyOperatorControl(
 }
 
 /**
+ * @brief 统一校验配置、解析芯片与模型路径并创建 Operator 实例
+ * @return 0 成功，3 参数/配置错误，5 Operator 创建失败。
+ */
+inline int CreateOperatorInstance(
+    const DemoOptions& options, std::string_view logger_prefix,
+    llm_edgeflow::operator_api::OperatorFunc* out_ops, void** out_handle) {
+  using namespace llm_edgeflow::operator_api;
+
+  if (!out_ops || !out_handle) {
+    return 3;
+  }
+  *out_handle = nullptr;
+
+  std::string err;
+  if (!ValidateConfigBizMatch(options.config_path, options.biz, &err)) {
+    std::cerr << "[" << logger_prefix
+              << " ERROR] Config validation failed: " << err << std::endl;
+    return 3;
+  }
+
+  ComputePlatform chip_type = ComputePlatform::kUnknown;
+  if (!ParseComputePlatform(options.chip, &chip_type)) {
+    std::cerr << "[" << logger_prefix
+              << " ERROR] Unsupported compute platform / chip: " << options.chip
+              << std::endl;
+    return 3;
+  }
+
+  std::string model_root;
+  std::string cfg_rel;
+  ResolveModelRootAndConfig(options.config_path, &model_root, &cfg_rel);
+
+  *out_ops = Get_LLM_EDGEFLOW_OperatorTable();
+
+  int max_batch_size = options.batch_size > 0 ? options.batch_size : 1;
+  uint32_t requested_depth = options.depth_num > 0 ? options.depth_num : 25;
+  if (requested_depth < static_cast<uint32_t>(max_batch_size)) {
+    requested_depth = static_cast<uint32_t>(max_batch_size);
+  }
+
+  CreateParam param{};
+  param.model_path = model_root.c_str();
+  param.cfg_file_name = cfg_rel.c_str();
+  param.device_id = options.device_id;
+  param.compute_platform = chip_type;
+  param.max_frame_depth = requested_depth;
+
+  int ret = out_ops->Create(out_handle, &param);
+  if (ret != 0 || !*out_handle) {
+    std::string op_err = GetOperatorLastError();
+    std::cerr << "[" << logger_prefix
+              << " ERROR] Failed ops.Create with conf: " << options.config_path
+              << " (Operator error: " << op_err << ")" << std::endl;
+    return 5;
+  }
+
+  return 0;
+}
+
+/**
  * @brief 通用 Operator 单槽位生命周期与调度执行器
  */
 template <typename TInput, typename TOutput, typename TResultExtractor>
@@ -221,48 +281,11 @@ int RunOperatorWithExtractor(
     return 4;
   }
 
-  std::string err;
-  if (!ValidateConfigBizMatch(options.config_path, options.biz, &err)) {
-    std::cerr << "[OperatorRunner ERROR] Config validation failed: " << err
-              << std::endl;
-    return 3;
-  }
-
-  ComputePlatform chip_type = ComputePlatform::kUnknown;
-  if (!ParseComputePlatform(options.chip, &chip_type)) {
-    std::cerr << "[OperatorRunner ERROR] Unsupported compute platform / chip: "
-              << options.chip << std::endl;
-    return 3;
-  }
-
-  std::string model_root;
-  std::string cfg_rel;
-  ResolveModelRootAndConfig(options.config_path, &model_root, &cfg_rel);
-
-  OperatorFunc ops = Get_LLM_EDGEFLOW_OperatorTable();
-
-  int max_batch_size = options.batch_size > 0 ? options.batch_size : 1;
-  uint32_t requested_depth = options.depth_num > 0 ? options.depth_num : 25;
-  if (requested_depth < static_cast<uint32_t>(max_batch_size)) {
-    requested_depth = static_cast<uint32_t>(max_batch_size);
-  }
-
-  CreateParam param{};
-  param.model_path = model_root.c_str();
-  param.cfg_file_name = cfg_rel.c_str();
-  param.device_id = options.device_id;
-  param.compute_platform = chip_type;
-  param.max_frame_depth = requested_depth;
-
+  OperatorFunc ops{};
   void* raw_handle = nullptr;
-  int ret = ops.Create(&raw_handle, &param);
-  if (ret != 0 || !raw_handle) {
-    std::string op_err = GetOperatorLastError();
-    std::cerr << "[OperatorRunner ERROR] Failed ops.Create with conf: "
-              << options.config_path << " (Operator error: " << op_err << ")"
-              << std::endl;
-    return 5;
-  }
+  const int init_ret =
+      CreateOperatorInstance(options, "OperatorRunner", &ops, &raw_handle);
+  if (init_ret != 0) return init_ret;
 
   OperatorHandleGuard guard(ops, raw_handle);
 
@@ -270,6 +293,7 @@ int RunOperatorWithExtractor(
                                                ctrl_cmd, default_ctrl_json);
   if (control_ret != 0) return control_ret;
 
+  const int max_batch_size = options.batch_size > 0 ? options.batch_size : 1;
   size_t total_inputs = inputs.size();
   if (out_latencies_ms) {
     out_latencies_ms->assign(total_inputs, 0.0);
@@ -301,7 +325,7 @@ int RunOperatorWithExtractor(
               << in_key << " -> " << out_key << ")..." << std::endl;
 
     auto start_time = std::chrono::high_resolution_clock::now();
-    ret = ops.Process(raw_handle, in_batch, out_batch);
+    int ret = ops.Process(raw_handle, in_batch, out_batch);
     auto end_time = std::chrono::high_resolution_clock::now();
 
     double chunk_elapsed_ms =

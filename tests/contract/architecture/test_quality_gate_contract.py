@@ -89,8 +89,85 @@ elif name == "gh":
                 assert "is merged, but main CI run 123" in result.stdout
                 assert "main push CI passed" not in result.stdout
 
+def check_sanitizer_contract():
+    with tempfile.TemporaryDirectory(prefix="test_sanitizer_ccache_") as tmp_dir:
+        tmp = Path(tmp_dir)
+        mock_bin = tmp / "bin"
+        mock_bin.mkdir()
+        command_log = tmp / "commands.log"
+        cache_dir = tmp / "cache"
+        build_dir = tmp / "build"
+
+        for command_name in ("cmake", "ctest", "ccache"):
+            command_path = mock_bin / command_name
+            if command_name == "cmake":
+                content = (
+                    "#!/usr/bin/env bash\n"
+                    'printf \'cmake %s\\n\' "$*" >>"${EDGEFLOW_TEST_COMMAND_LOG}"\n'
+                    'printf \'ccache_dir=%s\\n\' "${CCACHE_DIR:-}" >>"${EDGEFLOW_TEST_COMMAND_LOG}"\n'
+                    'printf \'ccache_sloppiness=%s\\n\' "${CCACHE_SLOPPINESS:-}" >>"${EDGEFLOW_TEST_COMMAND_LOG}"\n'
+                )
+            elif command_name == "ctest":
+                content = (
+                    "#!/usr/bin/env bash\n"
+                    'printf \'ctest %s\\n\' "$*" >>"${EDGEFLOW_TEST_COMMAND_LOG}"\n'
+                )
+            else:
+                content = (
+                    "#!/usr/bin/env bash\n"
+                    'printf \'ccache %s\\n\' "$*" >>"${EDGEFLOW_TEST_COMMAND_LOG}"\n'
+                )
+            command_path.write_text(content)
+            command_path.chmod(0o755)
+
+        env = {
+            **os.environ,
+            "EDGEFLOW_TEST_COMMAND_LOG": str(command_log),
+            "CCACHE_DIR": str(cache_dir),
+            "LLM_EDGEFLOW_SANITIZER_BUILD_DIR": str(build_dir),
+            "LLM_EDGEFLOW_SANITIZERS": "undefined",
+            "PATH": str(mock_bin) + os.pathsep + os.environ["PATH"],
+        }
+        res = run([str(ROOT / "scripts/run_sanitizers.sh"), "--fast"], env=env)
+        assert res.returncode == 0, res.stdout + res.stderr
+
+        log_content = command_log.read_text()
+        assert "-DCMAKE_C_COMPILER_LAUNCHER=ccache" in log_content, (
+            "Sanitizer configure did not enable the C ccache launcher"
+        )
+        assert "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache" in log_content, (
+            "Sanitizer configure did not enable the C++ ccache launcher"
+        )
+        assert "-DLLM_EDGEFLOW_TEST_PCH=OFF" in log_content, (
+            "Sanitizer configure did not disable cache-hostile test PCH"
+        )
+        assert f"ccache_dir={cache_dir}" in log_content, (
+            "Sanitizer script ignored the caller-provided ccache directory"
+        )
+        assert "ccache --zero-stats" in log_content, (
+            "Sanitizer script did not reset ccache statistics"
+        )
+        assert "ccache --show-stats" in log_content, (
+            "Sanitizer script did not report ccache statistics"
+        )
+        assert "-DBUILD_TESTING=ON" in log_content, (
+            "Sanitizer configure must enable tests"
+        )
+        assert "--no-tests=error" in log_content, (
+            "Sanitizer CTest must reject an empty test collection"
+        )
+
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+        assert "CCACHE_DIR: ${{ github.workspace }}/build/.ccache-sanitizers" in workflow, (
+            "Workflow cache path does not match the sanitizer script"
+        )
+        assert "key: sanitizer-ccache-v2-" in workflow, (
+            "Workflow does not define a versioned sanitizer ccache key"
+        )
+
 
 def main():
+    check_sanitizer_contract()
     real_cmake = shutil.which("cmake")
     real_ctest = shutil.which("ctest")
     with tempfile.TemporaryDirectory(prefix="edgeflow-quality-contract-") as directory:

@@ -134,17 +134,9 @@ class OcrDocQaAdapter
 
     for (int i = 0; i < count; ++i) {
       auto* out_ptr = static_cast<Output*>(outputs[i]);
-      uint64_t req_id =
-          (raw_req_ids && i < static_cast<int>(raw_req_ids->size()))
-              ? (*raw_req_ids)[i]
-              : invoice_jsons_by_request[i]->req_id;
-      out_ptr->request_id = req_id;
-
-      int box_count = 0;
-      if (ocr_docs && i < static_cast<int>(ocr_docs->size())) {
-        box_count = static_cast<int>(ocr_docs_by_request[i]->data.boxes.size());
-      }
-      out_ptr->detected_box_count = box_count;
+      out_ptr->request_id = (*raw_req_ids)[i];
+      out_ptr->detected_box_count =
+          static_cast<int>(ocr_docs_by_request[i]->data.boxes.size());
       if (!IsSuccessfulDocument(invoice_jsons_by_request[i]->data)) {
         return AdapterValidationHelper::ReturnInvalidInput(
             out_status, "Structured result failed or used fallback",

@@ -225,7 +225,7 @@ set(_edgeflow_tier4 "tier4;tooling;dev-fast;sanitizer-compatible")
 edgeflow_add_runner_test(BatchExecutorTest edgeflow_test_core_runner
   "FixedBatchExecutorTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(FrameworkCoreTest edgeflow_test_core_runner
-  "AlgContextTest.*:TraceableItemTest.*:NodeRegistryTest.*:ModelManagerTest.*:PipelineTest.*"
+  "AlgContextTest.*:TraceableItemTest.*:ModelManagerTest.*:PipelineTest.*:SessionContextTest.*"
   "${_edgeflow_tier1}")
 edgeflow_add_runner_test(CompanyAlgLogTest edgeflow_test_core_runner
   "CompanyAlgLogTest.*:CompanyAlgLogNameOverrideTest.*"
@@ -246,7 +246,7 @@ edgeflow_add_runner_test(TypedBlackboardContractsTest edgeflow_test_core_runner
 edgeflow_add_runner_test(ValidatedPipelinePlanTest edgeflow_test_core_runner
   "ValidatedPipelinePlanTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(NodeBaseContractsTest edgeflow_test_core_runner
-  "NodeBaseContractsTest.*" "${_edgeflow_tier1}")
+  "NodeBaseContractsTest.*:NodeErrorCodesTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(NodeOwnershipAndReuseTest edgeflow_test_core_runner
   "NodeOwnershipAndReuseTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(DefinitionSchemaValidationTest edgeflow_test_core_runner
@@ -316,14 +316,15 @@ edgeflow_add_runner_test(OperatorBizBridgeRegistryTest
 edgeflow_add_runner_test(OperatorGoldenTest edgeflow_test_adapter_runner
   "OperatorGoldenTest.*" "${_edgeflow_tier2}")
 edgeflow_add_runner_test(AdapterPurityTest edgeflow_test_adapter_runner
-  "AdapterPurityTest.*" "${_edgeflow_tier2}")
+  "AdapterPurityTest.*:RequestResultsTest.*:AdapterResultTest.*:ReadMultiWayResultsTest.*:OneToOneTextAdapterTest.*"
+  "${_edgeflow_tier2}")
 
 edgeflow_add_runner_test(DocQaRerankTest edgeflow_test_tooling_runner
   "DocQaRerankPipelineTest.*" "${_edgeflow_tier1}")
 # This suite exercises Validator, typed Blackboard and Pipeline::Execute.
 # Its runner grouping does not make it tooling-only coverage.
 edgeflow_add_runner_test(PipelineStudioTest edgeflow_test_tooling_runner
-  "BlackboardKeyTest.*:PipelineCatalogTest.*:PipelineValidatorTest.*"
+  "PipelineCatalogTest.*:PipelineValidatorTest.*"
   "${_edgeflow_tier3}")
 edgeflow_add_runner_test(DemoRunnerTest edgeflow_test_tooling_runner
   "DemoRunnerTest.*" "${_edgeflow_tier3};kite;kite-real")

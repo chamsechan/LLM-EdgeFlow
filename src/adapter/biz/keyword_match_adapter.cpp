@@ -113,11 +113,7 @@ class KeywordMatchAdapter
 
     for (int i = 0; i < count; ++i) {
       auto* out_ptr = static_cast<Output*>(outputs[i]);
-      uint64_t req_id =
-          (raw_req_ids && i < static_cast<int>(raw_req_ids->size()))
-              ? (*raw_req_ids)[i]
-              : res_by_request[i]->req_id;
-      out_ptr->request_id = req_id;
+      out_ptr->request_id = (*raw_req_ids)[i];
       out_ptr->is_hit = res_by_request[i]->data.is_hit;
       out_ptr->status_code = res_by_request[i]->data.status_code;
 
