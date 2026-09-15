@@ -47,6 +47,7 @@
 | --- | --- |
 | 尚待完成的开发者试用与生产验收 | [方案开发者验收计划](plans/solution_developer_acceptance.md) |
 | 上线前精简代码、兼容分支与重复测试 | [代码与测试精简实施计划（2026-09-15）](plans/prelaunch_simplification_2026-09-15.md) |
+| 独立复用输入、输出转换器，隔离外部结构与内部流程 | [输入输出转换独立化：详细设计与实施计划（2026-09-15）](plans/adapter_io_layout_design_2026-09-15.md)（待实施） |
 | 降低方案编排心智负担的实施顺序与验收 | [RFC-0057：Pipeline 编排体验](rfcs/0057-pipeline-composition-experience.md)（In Implementation） |
 | 架构与接口为何这样设计 | [RFC 索引](rfcs/README.md)，优先列出进行中的 RFC |
 | 用户可感知的版本变化 | [Changelog](CHANGELOG.md) |
