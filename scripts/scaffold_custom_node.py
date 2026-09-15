@@ -308,16 +308,8 @@ REGISTER_NODE_WITH_DEFINITION({name}, Make{name}Definition());
 """
 
 
-def render_compute_node(name, description, in_port, out_port, authoring="advanced"):
-    return render_node(name, description, "compute", None, in_port, out_port, authoring=authoring)
-
-
 def render_model_node(name, description, capability, in_port, out_port, authoring="advanced"):
     return render_node(name, description, "model", capability, in_port, out_port, authoring=authoring)
-
-
-def render_unary_inference_node(name, description, capability, in_port, out_port, authoring="advanced"):
-    return render_node(name, description, "unary_inference", capability, in_port, out_port, authoring=authoring)
 
 
 def render_test_stub(name):
@@ -1000,15 +992,6 @@ def updated_custom_node_tests_cmake(cmake_path, filename):
     if not match:
         raise ValueError(f"No EDGEFLOW_CUSTOM_NODE_TEST_SRCS in {cmake_path}")
     return content[:match.end(1)].rstrip() + f"\n{entry}\n" + content[match.start(2):]
-
-
-def add_to_cmakelists(cmake_path, filename):
-    try:
-        content = updated_cmakelists(cmake_path, filename)
-    except (OSError, ValueError):
-        return False
-    cmake_path.write_text(content, encoding="utf-8")
-    return True
 
 
 class ChangePlan:

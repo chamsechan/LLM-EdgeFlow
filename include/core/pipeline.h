@@ -99,7 +99,6 @@ class Pipeline {
 
   State state_ = State::kEmpty;
   ExecutionMode execution_mode_ = ExecutionMode::kSequential;
-  size_t max_parallel_workers_ = 4;
   // Heap ownership keeps addresses handed to initialized Nodes stable while a
   // fully staged runtime assembly is committed into this façade.
   std::unique_ptr<SessionContext> session_ctx_;

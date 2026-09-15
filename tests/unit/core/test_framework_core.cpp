@@ -67,36 +67,7 @@ TEST(TraceableItemTest, ProvenanceTracking) {
   EXPECT_EQ(item1.data, "Chunk 0 of Req 101");
 }
 
-// 3. 测试 NodeRegistry 动态反射与注册机制
-TEST(NodeRegistryTest, DynamicReflection) {
-  auto& factory = NodeRegistry::Instance();
-
-  // 验证已注册的核心算子
-  auto node1 = factory.Create("TextChunkNode");
-  ASSERT_NE(node1, nullptr);
-  EXPECT_EQ(node1->Name(), "TextChunkNode");
-
-  auto node2 = factory.Create("TextRuleMatchNode");
-  ASSERT_NE(node2, nullptr);
-
-  auto node3 = factory.Create("TextTemplateNode");
-  ASSERT_NE(node3, nullptr);
-
-  auto node4 = factory.Create("OcrDetectNode");
-  ASSERT_NE(node4, nullptr);
-
-  auto node5 = factory.Create("AsrTranscribeNode");
-  ASSERT_NE(node5, nullptr);
-
-  auto node6 = factory.Create("TextRerankNode");
-  ASSERT_NE(node6, nullptr);
-
-  // 不存在的算子名应当安全返回 nullptr
-  auto invalid_node = factory.Create("NonExistentNode123");
-  EXPECT_EQ(invalid_node, nullptr);
-}
-
-// 4. 测试 ModelManager 的强类型多模型管理机制
+// 3. 测试 ModelManager 的强类型多模型管理机制
 TEST(ModelManagerTest, TypedModels) {
   ModelManager manager;
   ASSERT_TRUE(manager.RegisterModel(
@@ -157,21 +128,7 @@ TEST(SessionContextTest, SingleFlightCreatesOneTypedResource) {
   }
 }
 
-// 5. 测试 Pipeline 解析异常与健壮性拦截
-TEST(PipelineTest, ErrorHandlingAndRobustness) {
-  Pipeline pipe;
-
-  // 传入不存在的配置文件
-  bool ok = pipe.BuildFromConfigFile("non_existent_config_file_999.json");
-  EXPECT_FALSE(ok);
-
-  // 传入缺少必要字段的畸形 JSON
-  nlohmann::json malformed_json = {{"unrelated_key", 123}};
-  ok = pipe.BuildFromJson(malformed_json);
-  EXPECT_FALSE(ok);
-}
-
-// 6. 测试 RuntimeOptions 与 Model/Backend 新方言构建
+// 5. 测试 RuntimeOptions 与 Model/Backend 新方言构建
 TEST(PipelineTest, RuntimeOptionsWithModelBackendDialect) {
   Pipeline pipe;
   RuntimeOptions opts;

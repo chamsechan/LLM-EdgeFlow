@@ -79,12 +79,8 @@ class EntityExtractAdapter
 
     for (int i = 0; i < count; ++i) {
       auto* out_ptr = static_cast<Output*>(outputs[i]);
-      uint64_t req_id =
-          (raw_req_ids && i < static_cast<int>(raw_req_ids->size()))
-              ? (*raw_req_ids)[i]
-              : res_by_request[i]->req_id;
       // 保持行为：逐行先写 request_id，再检查结构化状态
-      out_ptr->request_id = req_id;
+      out_ptr->request_id = (*raw_req_ids)[i];
       if (!IsSuccessfulDocument(res_by_request[i]->data)) {
         return AdapterValidationHelper::ReturnInvalidInput(
             out_status, "Structured result failed or used fallback", "res",
@@ -93,8 +89,8 @@ class EntityExtractAdapter
       out_ptr->status_code = 0;
 
       int write_ret = WriteTextCarrierOutput(
-          out_ptr, req_id, 0, res_by_request[i]->data.json_payload, i,
-          AdapterName(), out_status);
+          out_ptr, (*raw_req_ids)[i], 0, res_by_request[i]->data.json_payload,
+          i, AdapterName(), out_status);
       if (write_ret != COMPANY_ALG_SUCCESS) {
         return write_ret;
       }

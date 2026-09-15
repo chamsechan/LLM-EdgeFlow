@@ -886,18 +886,18 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
   ValidatedPipelinePlan plan;
   ValidationReport& report = plan.report;
 
-  auto finish_plan = [&](ValidatedPipelinePlan& p) -> ValidatedPipelinePlan& {
+  auto finish_plan = [&](ValidatedPipelinePlan& p) {
     for (auto& diag : p.report.diagnostics) {
       PopulateBasicRemediation(&diag, root, catalog, p.report.diagnostics);
     }
     p.report.ok = p.report.diagnostics.empty();
-    return p;
   };
 
   PipelineDiagnostic parse_diag;
   if (!ParsePipelineConfig(root, &plan.config, &parse_diag)) {
     Add(&report, parse_diag.code, parse_diag.path, parse_diag.message);
-    return finish_plan(plan);
+    finish_plan(plan);
+    return plan;
   }
   const auto& parsed = plan.config;
   const auto* biz = catalog.FindBiz(parsed.biz_name);
@@ -1055,71 +1055,68 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
           node.id);
       continue;
     }
-    if (definition) {
-      def_by_id[node.id] = definition;
+    def_by_id[node.id] = definition;
 
-      if (biz && !definition->biz_names.empty() &&
-          std::find(definition->biz_names.begin(), definition->biz_names.end(),
-                    parsed.biz_name) == definition->biz_names.end()) {
-        Add(&report, DiagnosticCode::kNodeBizMismatch,
-            "/pipeline/" + std::to_string(node.source_index) + "/node_type",
-            "Node type is not declared for biz: " + parsed.biz_name, node.id);
-      }
+    if (biz && !definition->biz_names.empty() &&
+        std::find(definition->biz_names.begin(), definition->biz_names.end(),
+                  parsed.biz_name) == definition->biz_names.end()) {
+      Add(&report, DiagnosticCode::kNodeBizMismatch,
+          "/pipeline/" + std::to_string(node.source_index) + "/node_type",
+          "Node type is not declared for biz: " + parsed.biz_name, node.id);
+    }
 
-      bool node_fields_valid = false;
-      auto normalized_config = ValidateConfigFields(
-          definition->config_fields, node.config,
-          "/pipeline/" + std::to_string(node.source_index) + "/config", node.id,
-          &report, &node_fields_valid);
-      if (node_fields_valid && definition->validate_config) {
-        std::unordered_set<std::string> connected;
-        for (const auto& binding : node.ports.inputs)
-          connected.insert(binding.first);
-        for (const auto& declared_input : definition->inputs) {
-          if (declared_input.required) {
-            connected.insert(declared_input.logical_name);
-          }
-        }
-        std::string diagnostic;
-        try {
-          if (!definition->validate_config(normalized_config, connected,
-                                           &diagnostic)) {
-            Add(&report, DiagnosticCode::kInvalidCombination,
-                "/pipeline/" + std::to_string(node.source_index) + "/config",
-                diagnostic.empty() ? "Invalid node configuration" : diagnostic,
-                node.id);
-          }
-        } catch (const std::exception& e) {
-          Add(&report, DiagnosticCode::kInvalidCombination,
-              "/pipeline/" + std::to_string(node.source_index) + "/config",
-              e.what(), node.id);
-        } catch (...) {
-          Add(&report, DiagnosticCode::kInvalidCombination,
-              "/pipeline/" + std::to_string(node.source_index) + "/config",
-              "Node configuration validator threw an unknown exception",
-              node.id);
+    bool node_fields_valid = false;
+    auto normalized_config = ValidateConfigFields(
+        definition->config_fields, node.config,
+        "/pipeline/" + std::to_string(node.source_index) + "/config", node.id,
+        &report, &node_fields_valid);
+    if (node_fields_valid && definition->validate_config) {
+      std::unordered_set<std::string> connected;
+      for (const auto& binding : node.ports.inputs)
+        connected.insert(binding.first);
+      for (const auto& declared_input : definition->inputs) {
+        if (declared_input.required) {
+          connected.insert(declared_input.logical_name);
         }
       }
-      normalized_config_by_node[node.id] = normalized_config;
-
-      for (const auto& dep : definition->model_dependencies) {
-        std::string model_id;
-        if (normalized_config.contains(dep.config_field) &&
-            normalized_config[dep.config_field].is_string()) {
-          model_id = normalized_config[dep.config_field].get<std::string>();
-        }
-        auto capability = model_capabilities.find(model_id);
-        std::string path = "/pipeline/" + std::to_string(node.source_index) +
-                           "/config/" + EscapeJsonPointer(dep.config_field);
-        if (model_id.empty() || capability == model_capabilities.end()) {
-          Add(&report, DiagnosticCode::kUnknownModelReference, path,
-              "Node references an unknown model_id: " + model_id, node.id);
-        } else if (capability->second != dep.capability) {
-          Add(&report, DiagnosticCode::kModelCapabilityMismatch, path,
-              "Node requires model capability '" + dep.capability +
-                  "' but model provides '" + capability->second + "'",
+      std::string diagnostic;
+      try {
+        if (!definition->validate_config(normalized_config, connected,
+                                         &diagnostic)) {
+          Add(&report, DiagnosticCode::kInvalidCombination,
+              "/pipeline/" + std::to_string(node.source_index) + "/config",
+              diagnostic.empty() ? "Invalid node configuration" : diagnostic,
               node.id);
         }
+      } catch (const std::exception& e) {
+        Add(&report, DiagnosticCode::kInvalidCombination,
+            "/pipeline/" + std::to_string(node.source_index) + "/config",
+            e.what(), node.id);
+      } catch (...) {
+        Add(&report, DiagnosticCode::kInvalidCombination,
+            "/pipeline/" + std::to_string(node.source_index) + "/config",
+            "Node configuration validator threw an unknown exception", node.id);
+      }
+    }
+    normalized_config_by_node[node.id] = normalized_config;
+
+    for (const auto& dep : definition->model_dependencies) {
+      std::string model_id;
+      if (normalized_config.contains(dep.config_field) &&
+          normalized_config[dep.config_field].is_string()) {
+        model_id = normalized_config[dep.config_field].get<std::string>();
+      }
+      auto capability = model_capabilities.find(model_id);
+      std::string path = "/pipeline/" + std::to_string(node.source_index) +
+                         "/config/" + EscapeJsonPointer(dep.config_field);
+      if (model_id.empty() || capability == model_capabilities.end()) {
+        Add(&report, DiagnosticCode::kUnknownModelReference, path,
+            "Node references an unknown model_id: " + model_id, node.id);
+      } else if (capability->second != dep.capability) {
+        Add(&report, DiagnosticCode::kModelCapabilityMismatch, path,
+            "Node requires model capability '" + dep.capability +
+                "' but model provides '" + capability->second + "'",
+            node.id);
       }
     }
   }
@@ -1132,7 +1129,8 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
   if (report.diagnostics.size() != pre_topology_errors ||
       (policy == ValidationPolicy::kStrict && !biz) ||
       report.topological_order.size() != nodes.size()) {
-    return finish_plan(plan);
+    finish_plan(plan);
+    return plan;
   }
 
   std::unordered_map<std::string, std::vector<std::string>> deps;
@@ -1165,11 +1163,7 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
     if (def_it == def_by_id.end()) continue;
     const auto& definition = *def_it->second;
     const auto& node = *node_by_id[id];
-    const auto normalized_it = normalized_config_by_node.find(id);
-    const nlohmann::json& normalized_config =
-        normalized_it == normalized_config_by_node.end()
-            ? node.config
-            : normalized_it->second;
+    const nlohmann::json& normalized_config = normalized_config_by_node.at(id);
 
     ValidatedNodePlan node_plan;
     node_plan.node = node;
@@ -1488,7 +1482,8 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
     }
   }
 
-  return finish_plan(plan);
+  finish_plan(plan);
+  return plan;
 }
 
 }  // namespace

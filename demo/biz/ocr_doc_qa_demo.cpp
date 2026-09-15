@@ -42,47 +42,11 @@ int RunOcrDocQaDemo(const DemoOptions& options) {
     }
   }
 
-  if (!ValidateConfigBizMatch(options.config_path, options.biz, &err)) {
-    std::cerr << "[OcrDocQaDemo ERROR] Config validation failed: " << err
-              << std::endl;
-    return 3;
-  }
-
-  llm_edgeflow::operator_api::ComputePlatform chip_type =
-      llm_edgeflow::operator_api::ComputePlatform::kUnknown;
-  if (!ParseComputePlatform(options.chip, &chip_type)) {
-    std::cerr << "[OcrDocQaDemo ERROR] Unsupported chip: " << options.chip
-              << std::endl;
-    return 3;
-  }
-
-  std::string model_root;
-  std::string cfg_rel;
-  ResolveModelRootAndConfig(options.config_path, &model_root, &cfg_rel);
-
-  auto ops = llm_edgeflow::operator_api::Get_LLM_EDGEFLOW_OperatorTable();
-
-  int max_batch_size = options.batch_size > 0 ? options.batch_size : 1;
-  uint32_t requested_depth = options.depth_num > 0 ? options.depth_num : 25;
-  if (requested_depth < static_cast<uint32_t>(max_batch_size)) {
-    requested_depth = static_cast<uint32_t>(max_batch_size);
-  }
-
-  llm_edgeflow::operator_api::CreateParam param{};
-  param.model_path = model_root.c_str();
-  param.cfg_file_name = cfg_rel.c_str();
-  param.device_id = options.device_id;
-  param.compute_platform = chip_type;
-  param.max_frame_depth = requested_depth;
-
+  llm_edgeflow::operator_api::OperatorFunc ops{};
   void* raw_handle = nullptr;
-  int ret = ops.Create(&raw_handle, &param);
-  if (ret != 0 || !raw_handle) {
-    std::cerr << "[OcrDocQaDemo ERROR] Failed ops.Create: "
-              << llm_edgeflow::operator_api::GetOperatorLastError()
-              << std::endl;
-    return 5;
-  }
+  const int init_ret =
+      CreateOperatorInstance(options, "OcrDocQaDemo", &ops, &raw_handle);
+  if (init_ret != 0) return init_ret;
 
   OperatorHandleGuard guard(ops, raw_handle);
   const int control_ret = ApplyOperatorControl(
@@ -106,7 +70,7 @@ int RunOcrDocQaDemo(const DemoOptions& options) {
   out_batch[0]["camera_0.od_out"] = std::shared_ptr<void>();
 
   auto start_time = std::chrono::high_resolution_clock::now();
-  ret = ops.Process(raw_handle, in_batch, out_batch);
+  int ret = ops.Process(raw_handle, in_batch, out_batch);
   auto end_time = std::chrono::high_resolution_clock::now();
 
   double latency_ms =

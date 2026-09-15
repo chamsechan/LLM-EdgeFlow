@@ -21,23 +21,6 @@ struct DemoSampleResult {
 };
 
 /**
- * @brief 整体运行统计摘要
- */
-struct DemoRunSummary {
-  int schema_version = 1;
-  std::string profile;
-  std::string biz;
-  std::string config_path;
-  std::string dataset_path;
-  int total_samples = 0;
-  int success_count = 0;
-  int failed_count = 0;
-  double total_latency_ms = 0.0;
-  double avg_latency_ms = 0.0;
-  std::string error;
-};
-
-/**
  * @brief 结果落盘写入器 (负责原子落盘 JSONL 记录与 summary.json)
  */
 class ResultWriter {

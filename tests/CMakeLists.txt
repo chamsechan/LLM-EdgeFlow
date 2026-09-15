@@ -40,8 +40,11 @@ function(edgeflow_enable_aligned_allocation_failure target_name)
   endif()
 endfunction()
 
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
+
 add_test(NAME QualityGateScriptsContractTest
-  COMMAND ${PROJECT_SOURCE_DIR}/tests/contract/architecture/test_quality_gate_contract.sh)
+  COMMAND ${Python3_EXECUTABLE}
+          ${PROJECT_SOURCE_DIR}/tests/contract/architecture/test_quality_gate_contract.py)
 set_tests_properties(QualityGateScriptsContractTest PROPERTIES
   WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
   LABELS "tier1;static-gate;dev-fast;sanitizer-compatible")

@@ -150,11 +150,7 @@ class ComplianceAuditAdapter
 
     for (int i = 0; i < count; ++i) {
       auto* out_ptr = static_cast<Output*>(outputs[i]);
-      uint64_t req_id =
-          (raw_req_ids && i < static_cast<int>(raw_req_ids->size()))
-              ? (*raw_req_ids)[i]
-              : verdicts_by_request[i]->req_id;
-      out_ptr->request_id = req_id;
+      out_ptr->request_id = (*raw_req_ids)[i];
 
       const auto& verdict_item = verdicts_by_request[i]->data;
       if (matched_policies_by_request[i]->data.rank != 1 ||

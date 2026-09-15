@@ -16,13 +16,24 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def dump_compact_json(data):
+    return json.dumps(data, ensure_ascii=False, separators=(",", ":"))
+
+
 def encode_request(payload):
     request = json.loads(payload)
     if not isinstance(request, dict):
         raise ValueError("Input must be a JSON object")
     # Only normalize whitespace for the line-based dataset reader. All fields
     # reach the SDK; query selection and validation belong to its Adapter.
-    return json.dumps(request, ensure_ascii=False, separators=(",", ":"))
+    return dump_compact_json(request)
+
+
+def prepare_requests(payloads):
+    texts = [encode_request(payload) for payload in payloads]
+    if not texts:
+        raise ValueError("Input dataset is empty")
+    return texts
 
 
 def collect_responses(result_file, count):
@@ -40,18 +51,13 @@ def collect_responses(result_file, count):
         if not isinstance(document, dict):
             raise ValueError("Demo result must contain a JSON response object")
         # Forward the complete SDK response. No business field projection here.
-        responses[request_id] = json.dumps(
-            document, ensure_ascii=False, separators=(",", ":")
-        )
+        responses[request_id] = dump_compact_json(document)
     return [responses[30001 + i] for i in range(count)]
 
 
-def run_demo(payloads, config, biz, work_dir, executable):
-    texts = [encode_request(payload) for payload in payloads]
-    if not texts:
-        raise ValueError("Input dataset is empty")
+def _run_demo_impl(requests, config, biz, work_dir, executable):
     dataset = work_dir / "input.txt"
-    dataset.write_text("\n".join(texts) + "\n", encoding="utf-8")
+    dataset.write_text("\n".join(requests) + "\n", encoding="utf-8")
     output_dir = work_dir / "results"
     command = [
         str(executable), "--biz", biz, "--config", str(config),
@@ -63,7 +69,12 @@ def run_demo(payloads, config, biz, work_dir, executable):
         result = subprocess.run(command, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT)
     if result.returncode:
         raise ValueError(f"alg_demo failed (exit {result.returncode}); see {work_dir / 'demo.log'}")
-    return collect_responses(output_dir / biz / "results.jsonl", len(texts))
+    return collect_responses(output_dir / biz / "results.jsonl", len(requests))
+
+
+def run_demo(payloads, config, biz, work_dir, executable):
+    requests = prepare_requests(payloads)
+    return _run_demo_impl(requests, config, biz, work_dir, executable)
 
 
 def main(argv=None):
@@ -83,15 +94,12 @@ def main(argv=None):
         else:
             payloads = [args.input if args.input is not None else sys.stdin.read()]
         # Reject invalid requests before creating run artifacts or starting a model.
-        for payload in payloads:
-            encode_request(payload)
-        if not payloads:
-            raise ValueError("Input dataset is empty")
+        texts = prepare_requests(payloads)
         args.output_dir.mkdir(parents=True, exist_ok=True)
         work_dir = Path(tempfile.mkdtemp(prefix="run-", dir=args.output_dir.resolve()))
         print(f"Demo artifacts: {work_dir}", file=sys.stderr)
-        responses = run_demo(payloads, args.config, args.biz,
-                             work_dir, args.demo_bin.resolve())
+        responses = _run_demo_impl(texts, args.config, args.biz,
+                                   work_dir, args.demo_bin.resolve())
         # Validate the entire run before publishing any response.
         sys.stdout.write("\n".join(responses) + "\n")
         return 0

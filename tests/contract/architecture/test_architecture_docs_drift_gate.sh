@@ -53,9 +53,22 @@ if run_fixture_gate; then
 fi
 cp doc/developer_guide.md "${FIXTURE_DOC_ROOT}/developer_guide.md"
 
-sed -i.bak 's/10\.0\.0/99.0.0/g' \
+CURRENT_PRODUCT_VERSION="$(sed -nE 's/^project\(LLMEdgeFlow VERSION ([0-9]+\.[0-9]+\.[0-9]+) LANGUAGES C CXX\)$/\1/p' CMakeLists.txt)"
+if [[ -z "${CURRENT_PRODUCT_VERSION}" ]]; then
+  echo "❌ Failed to parse project VERSION from CMakeLists.txt"
+  exit 1
+fi
+if ! grep -Fq "${CURRENT_PRODUCT_VERSION}" "${FIXTURE_DOC_ROOT}/architecture.md"; then
+  echo "❌ Expected architecture.md fixture to contain current product version ${CURRENT_PRODUCT_VERSION}"
+  exit 1
+fi
+sed -i.bak "s/${CURRENT_PRODUCT_VERSION//./\\.}/99.0.0/g" \
   "${FIXTURE_DOC_ROOT}/architecture.md"
 rm -f "${FIXTURE_DOC_ROOT}/architecture.md.bak"
+if grep -Fq "${CURRENT_PRODUCT_VERSION}" "${FIXTURE_DOC_ROOT}/architecture.md"; then
+  echo "❌ Failed to mutate product version in architecture.md fixture"
+  exit 1
+fi
 if run_fixture_gate; then
   echo "❌ Docs drift gate missed a stale product version"
   exit 1

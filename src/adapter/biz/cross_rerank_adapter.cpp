@@ -162,19 +162,14 @@ class CrossRerankAdapter
         }
       }
     }
-    int count = raw_req_ids ? static_cast<int>(raw_req_ids->size())
-                            : static_cast<int>(req_map.size());
+    int count = static_cast<int>(raw_req_ids->size());
     int valid_ret = AdapterValidationHelper::ValidateBatchOutputs(
         outputs, num_outputs, count, AdapterName(), out_status);
     if (valid_ret != 0) return valid_ret;
 
     for (int i = 0; i < count; ++i) {
       auto* out_ptr = static_cast<Output*>(outputs[i]);
-      uint64_t req_id =
-          (raw_req_ids && i < static_cast<int>(raw_req_ids->size()))
-              ? (*raw_req_ids)[i]
-              : static_cast<uint64_t>(i);
-      out_ptr->request_id = req_id;
+      out_ptr->request_id = (*raw_req_ids)[i];
 
       const auto& cand_list = req_map[static_cast<uint32_t>(i)];
       int item_cnt = std::min(static_cast<int>(cand_list.size()), 8);

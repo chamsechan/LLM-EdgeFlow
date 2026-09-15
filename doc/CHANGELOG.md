@@ -1,5 +1,28 @@
 # Changelog
 
+## 2026-09-15 上线前代码与测试精简（批次 0、1、2）
+
+- **测试装配与覆盖收口（批次 0 / V1）**：
+  - 在 `cmake_ext/Tests.cmake` 中为 `FrameworkCoreTest`、`NodeBaseContractsTest` 和 `AdapterPurityTest` 补齐遗漏的 9 个 GoogleTest 套件。
+  - 增强 `test_test_labels_contract.py`，建立 CTest 过滤器与已编译测试二进制 `--gtest_list_tests` 清单集合核对机制，消除漏选测试套件风险。
+- **局部状态与冗余清理（批次 1 / A1–A4）**：
+  - 删除 `Pipeline` 中未读取的 `max_parallel_workers_` 状态与赋值，直接由配置控制线程池。
+  - 删除 `result_writer.h` 中未被消费的结构体 `DemoRunSummary` 及 `scaffold_custom_node.py` 中无调用的辅助包装。
+  - 优化 `PipelineValidator` 计划返回流程，通过 `void finish_plan(plan)` 配合 NRVO 消除全量计划容器深拷贝。
+  - 移除 Validator 中重复的 `if (definition)` 检查与无正常可达路径的 `node.config` 回退，统一以 `normalized_config_by_node.at(id)` 访问。
+  - 清理 7 处 Adapter 在 `IndexResults` 校验成功后回退内部 `req_id` 的冗余分支，简化 ID 恢复。
+- **共享实现与公共组件收口（批次 2 / B1–B3）**：
+  - 提取 `function_node.h` 中的 `ResolveBoundModelId` 与 `model_calls.h` 中的 `ConvertAlignedOutputs`，收口模型槽位绑定与对齐结果错误映射。
+  - 拆分 `adapter_batch.h` 中的前置校验（`ValidatePrimaryAndSpecs`）与多路对齐（`AlignAndIndexResults`），避免带输出参数重载的重复读取与校验，严格保持诊断优先级。
+  - 提取 `operator_runner.h` 的 `CreateOperatorInstance` 公共创建步骤并在 `ocr_doc_qa_demo.cpp` 复用；规范化 `json_prompt_demo.py` 请求预编码流程（`prepare_requests` / `_run_demo_impl`），避免 CLI 重复 parse/dump。
+- **测试重整与归属收口（T1–T6）**：
+  - 删除 4 个确认功能完全重复的旧测试用例并同步清理空 CTest 过滤器。
+  - 将 `NodeRegistryTest` 的 `TextChunkNode` 命名断言与非存在创建断言迁移至 `test_catalog_contract_ssot.cpp`。
+  - 将 `DAG` 缺少 `id`/`depends_on` 负向用例并入 `test_pipeline_config.cpp` 矩阵。
+  - 将 `FixedBatchExecutorStrictOutputsAndRollback` 迁移至专门的 `test_batch_executor.cpp`。
+  - 将 `test_quality_gate_contract.sh` 中的 sanitizer/ccache 规则断言完整并入 Python 契约测试，下线 shell 脚本。
+  - 将 `test_architecture_docs_drift_gate.sh` 的静态版本替换改为从根 `CMakeLists.txt` 动态提取，提升文档治理自测可靠性。
+
 ## 2026-09-14 投产前诊断身份与 Node 注册状态收敛（RFC-0058）
 
 - **统一诊断身份体系（B1）**：

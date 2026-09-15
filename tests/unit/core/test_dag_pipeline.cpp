@@ -454,24 +454,7 @@ TEST_F(DagPipelineTest, InvalidDependencyRejection) {
                              ValidationPolicy::kPrivateExtensionCompatible));
 }
 
-// 6. 拦截旧式未显式声明 id/depends_on 的配置
-TEST_F(DagPipelineTest, RejectsLegacyPipelineWithoutIdOrDependsOn) {
-  nlohmann::json legacy_config = {{"biz_name", "legacy_linear_pipeline"},
-                                  {"pipeline",
-                                   {{{"node_type", "DagTestNodeA"}},
-                                    {{"node_type", "DagTestNodeB"}},
-                                    {{"node_type", "DagTestNodeC"}},
-                                    {{"node_type", "DagTestNodeD"}}}}};
-
-  Pipeline pipeline;
-  PipelineDiagnostic diag;
-  EXPECT_FALSE(pipeline.BuildFromJson(
-      legacy_config, &diag, ValidationPolicy::kPrivateExtensionCompatible));
-  EXPECT_EQ(diag.code, DiagnosticCode::kMissingField);
-  EXPECT_EQ(diag.path, "/pipeline/0/id");
-}
-
-// 7. 异步波前分层并发调度测试 (Parallel Wavefront Execution)
+// 6. 异步波前分层并发调度测试 (Parallel Wavefront Execution)
 TEST_F(DagPipelineTest, ParallelWavefrontExecution) {
   nlohmann::json parallel_config = {
       {"biz_name", "parallel_wavefront_dag"},

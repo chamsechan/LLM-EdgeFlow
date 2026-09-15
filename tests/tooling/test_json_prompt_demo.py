@@ -98,6 +98,19 @@ class JsonPromptDemoTest(unittest.TestCase):
                 self.assertEqual(stdout.getvalue(), "")
                 self.assertEqual(native.call_count, int(native_exit != 0))
 
+    def test_direct_run_demo_validates_and_normalizes_requests(self):
+        # Empty input rejects with ValueError
+        with tempfile.TemporaryDirectory() as tmp, self.assertRaises(ValueError):
+            demo.run_demo([], "config.conf", "translate", Path(tmp), "bin")
+
+        # Invalid input rejects with ValueError before invoking any process
+        with tempfile.TemporaryDirectory() as tmp, self.assertRaises(ValueError):
+            demo.run_demo(["invalid json"], "config.conf", "translate", Path(tmp), "bin")
+
+        # Valid input is prepared and formatted
+        prepared = demo.prepare_requests(['{"b": 2, "a": 1}'])
+        self.assertEqual(prepared, ['{"b":2,"a":1}'])
+
 
 
 if __name__ == "__main__":

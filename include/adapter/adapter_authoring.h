@@ -162,10 +162,7 @@ struct OneToOneTextAdapterSpec {
 
     for (int i = 0; i < count; ++i) {
       auto* out_ptr = static_cast<Output*>(outputs[i]);
-      uint64_t req_id =
-          (raw_req_ids && i < static_cast<int>(raw_req_ids->size()))
-              ? (*raw_req_ids)[i]
-              : answers_by_request[i]->req_id;
+      uint64_t req_id = (*raw_req_ids)[i];
       size_t answer_idx =
           static_cast<size_t>(answers_by_request[i] - answers->data());
       const std::string& json_text = encoded_answers[answer_idx];

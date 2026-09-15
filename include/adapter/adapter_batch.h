@@ -234,10 +234,12 @@ inline int IndexSecondaryBatches(
  * 6. 对主结果与各路次要结果调用 IndexResults 按请求构建单项索引视图
  * 7. 装配并输出 RequestResults<PrimaryBatch, SecondaryBatches...>
  */
+namespace detail {
+
 template <typename PrimaryBatch, typename... SecondaryBatches>
-inline int ReadMultiWayResults(
+inline int ValidatePrimaryAndSpecs(
     AlgContext* ctx, const char* adapter_name, AdapterStatus* out_status,
-    RequestResults<PrimaryBatch, SecondaryBatches...>* out_results,
+    const PrimaryBatch** out_primary,
     const ResultBindingSpec<PrimaryBatch>& primary_spec,
     const ResultBindingSpec<std::vector<uint64_t>>& raw_req_ids_spec,
     const ResultBindingSpec<SecondaryBatches>&... secondary_specs) {
@@ -262,6 +264,18 @@ inline int ReadMultiWayResults(
         primary_spec.field_name, adapter_name);
   }
 
+  *out_primary = primary;
+  return COMPANY_ALG_SUCCESS;
+}
+
+template <typename PrimaryBatch, typename... SecondaryBatches>
+inline int AlignAndIndexResults(
+    AlgContext* ctx, const char* adapter_name, AdapterStatus* out_status,
+    const PrimaryBatch* primary,
+    RequestResults<PrimaryBatch, SecondaryBatches...>* out_results,
+    const ResultBindingSpec<PrimaryBatch>& primary_spec,
+    const ResultBindingSpec<std::vector<uint64_t>>& raw_req_ids_spec,
+    const ResultBindingSpec<SecondaryBatches>&... secondary_specs) {
   const int count = static_cast<int>(primary->size());
 
   // 逐项校验次要结果批次
@@ -324,6 +338,26 @@ inline int ReadMultiWayResults(
   return COMPANY_ALG_SUCCESS;
 }
 
+}  // namespace detail
+
+template <typename PrimaryBatch, typename... SecondaryBatches>
+inline int ReadMultiWayResults(
+    AlgContext* ctx, const char* adapter_name, AdapterStatus* out_status,
+    RequestResults<PrimaryBatch, SecondaryBatches...>* out_results,
+    const ResultBindingSpec<PrimaryBatch>& primary_spec,
+    const ResultBindingSpec<std::vector<uint64_t>>& raw_req_ids_spec,
+    const ResultBindingSpec<SecondaryBatches>&... secondary_specs) {
+  const PrimaryBatch* primary = nullptr;
+  int ret = detail::ValidatePrimaryAndSpecs(
+      ctx, adapter_name, out_status, &primary, primary_spec, raw_req_ids_spec,
+      secondary_specs...);
+  if (ret != COMPANY_ALG_SUCCESS) return ret;
+
+  return detail::AlignAndIndexResults(ctx, adapter_name, out_status, primary,
+                                      out_results, primary_spec,
+                                      raw_req_ids_spec, secondary_specs...);
+}
+
 /**
  * @brief 带输出容量与槽位校验的多路 1:1 结果读取对齐模板 (RFC-0053 Section 2.2)
  *
@@ -337,26 +371,11 @@ inline int ReadMultiWayResults(
     const ResultBindingSpec<PrimaryBatch>& primary_spec,
     const ResultBindingSpec<std::vector<uint64_t>>& raw_req_ids_spec,
     const ResultBindingSpec<SecondaryBatches>&... secondary_specs) {
-  if (!ctx) {
-    return AdapterValidationHelper::ReturnBufferTooSmall(
-        out_status, "Null AlgContext passed to Pack", "ctx", adapter_name);
-  }
-
-  int spec_ret =
-      detail::ValidateRequiredSpecs(adapter_name, out_status, primary_spec,
-                                    raw_req_ids_spec, secondary_specs...);
-  if (spec_ret != COMPANY_ALG_SUCCESS) return spec_ret;
-
-  const auto* primary = ctx->Read(primary_spec.key);
-  if (!primary) {
-    std::string msg = primary_spec.missing_message.empty()
-                          ? ("Missing required context value for " +
-                             std::string(adapter_name ? adapter_name : ""))
-                          : primary_spec.missing_message;
-    return detail::ReportMissingContextKey(
-        out_status, primary_spec.missing_error_code, std::move(msg),
-        primary_spec.field_name, adapter_name);
-  }
+  const PrimaryBatch* primary = nullptr;
+  int ret = detail::ValidatePrimaryAndSpecs(
+      ctx, adapter_name, out_status, &primary, primary_spec, raw_req_ids_spec,
+      secondary_specs...);
+  if (ret != COMPANY_ALG_SUCCESS) return ret;
 
   const int count = static_cast<int>(primary->size());
 
@@ -364,9 +383,9 @@ inline int ReadMultiWayResults(
       outputs, num_outputs, count, adapter_name, out_status);
   if (valid_ret != 0) return valid_ret;
 
-  return ReadMultiWayResults<PrimaryBatch, SecondaryBatches...>(
-      ctx, adapter_name, out_status, out_results, primary_spec,
-      raw_req_ids_spec, secondary_specs...);
+  return detail::AlignAndIndexResults(ctx, adapter_name, out_status, primary,
+                                      out_results, primary_spec,
+                                      raw_req_ids_spec, secondary_specs...);
 }
 
 }  // namespace llm_edgeflow

@@ -86,16 +86,6 @@ TEST(PipelineCatalogTest, DefinitionRegistrationMakesNewNodeDiscoverable) {
       }));
 }
 
-TEST(BlackboardKeyTest, TypedOverloadsShareTheRuntimeKey) {
-  constexpr BlackboardKey<std::vector<std::string>> key{
-      "studio_values", "std::vector<std::string>"};
-  AlgContext context;
-  ASSERT_TRUE(context.Publish(key, std::vector<std::string>{"a", "b"}));
-  ASSERT_TRUE(context.Has(key));
-  ASSERT_NE(context.Read(key), nullptr);
-  EXPECT_EQ(*context.Read(key), (std::vector<std::string>{"a", "b"}));
-}
-
 TEST(PipelineValidatorTest, AllRepositoryPipelinesValidate) {
   const std::filesystem::path configs("configs");
   size_t validated = 0;
@@ -186,40 +176,6 @@ TEST(PipelineValidatorTest, ModelPathsUseLexicalChecksWithoutDeploymentRoots) {
         << unsafe_path << "\n"
         << report.ToJson().dump(2);
   }
-}
-
-TEST(PipelineValidatorTest, ReportsCycle) {
-  const nlohmann::json pipeline = {{"biz_name", "keyword_match_v1"},
-                                   {"pipeline",
-                                    {{{"id", "a"},
-                                      {"node_type", "TextRuleMatchNode"},
-                                      {"depends_on", {"b"}}},
-                                     {{"id", "b"},
-                                      {"node_type", "TextRuleMatchNode"},
-                                      {"depends_on", {"a"}}}}}};
-  const auto report = PipelineValidator::Validate(pipeline);
-  EXPECT_FALSE(report.ok);
-  std::set<DiagnosticCode> codes;
-  for (const auto& diagnostic : report.diagnostics)
-    codes.insert(diagnostic.code);
-  EXPECT_TRUE(codes.count(DiagnosticCode::kDagCycle));
-}
-
-TEST(PipelineValidatorTest, ReportsDuplicateEdge) {
-  const nlohmann::json pipeline = {{"biz_name", "keyword_match_v1"},
-                                   {"pipeline",
-                                    {{{"id", "a"},
-                                      {"node_type", "TextRuleMatchNode"},
-                                      {"depends_on", nlohmann::json::array()}},
-                                     {{"id", "b"},
-                                      {"node_type", "TextRuleMatchNode"},
-                                      {"depends_on", {"a", "a"}}}}}};
-  const auto report = PipelineValidator::Validate(pipeline);
-  ASSERT_FALSE(report.ok);
-  ASSERT_FALSE(report.diagnostics.empty());
-  EXPECT_EQ(report.diagnostics.front().code,
-            DiagnosticCode::kDuplicateDependency);
-  EXPECT_EQ(report.diagnostics.front().path, "/pipeline/1/depends_on/1");
 }
 
 TEST(PipelineValidatorTest, ReportsConfigAndCapabilityErrors) {

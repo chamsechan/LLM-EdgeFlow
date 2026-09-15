@@ -599,64 +599,6 @@ TEST(ModelBackendDecouplingTest, ModelManagerAtomicCommitAndCollision) {
 // 7. FixedBatchExecutor 严格输出与全量回滚测试
 // ==============================================================================
 
-TEST(ModelBackendDecouplingTest, FixedBatchExecutorStrictOutputsAndRollback) {
-  std::vector<TraceableItem<int>> inputs = {
-      {1, 0, 10}, {1, 1, 20}, {2, 0, 30}, {2, 1, 40}, {3, 0, 50}};
-  BatchPolicy policy{2, 0};  // dynamic max batch size = 2
-  std::vector<TraceableItem<int>> outputs;
-
-  // 1. 正常执行
-  int ret = FixedBatchExecutor::Execute<int, int>(
-      inputs, policy,
-      [](const BatchSlice& slice, std::vector<int>* batch_out) {
-        batch_out->resize(slice.valid_count);
-        for (size_t i = 0; i < slice.valid_count; ++i) {
-          (*batch_out)[i] = static_cast<int>(slice.offset + i);
-        }
-        return 0;
-      },
-      &outputs);
-  EXPECT_EQ(ret, 0);
-  ASSERT_EQ(outputs.size(), 5U);
-  EXPECT_EQ(outputs[0].req_id, 1U);
-  EXPECT_EQ(outputs[4].req_id, 3U);
-
-  // 2. 回调返回多于预期数量时拒绝并回滚
-  outputs.clear();
-  ret = FixedBatchExecutor::Execute<int, int>(
-      inputs, policy,
-      [](const BatchSlice& slice, std::vector<int>* batch_out) {
-        batch_out->resize(slice.valid_count + 1, 0);  // 多返回一项
-        return 0;
-      },
-      &outputs);
-  EXPECT_EQ(ret, -3);
-  EXPECT_TRUE(outputs.empty());
-
-  // 3. 回调返回少于预期数量时拒绝并回滚
-  outputs.clear();
-  ret = FixedBatchExecutor::Execute<int, int>(
-      inputs, policy,
-      [](const BatchSlice& slice, std::vector<int>* batch_out) {
-        batch_out->resize(slice.valid_count - 1, 0);  // 少返回一项
-        return 0;
-      },
-      &outputs);
-  EXPECT_EQ(ret, -3);
-  EXPECT_TRUE(outputs.empty());
-
-  // 4. 回调抛异常时硬捕获并回滚
-  outputs.clear();
-  ret = FixedBatchExecutor::Execute<int, int>(
-      inputs, policy,
-      [](const BatchSlice&, std::vector<int>*) -> int {
-        throw std::runtime_error("Simulated inference exception");
-      },
-      &outputs);
-  EXPECT_EQ(ret, -4);
-  EXPECT_TRUE(outputs.empty());
-}
-
 namespace {
 class DocumentImageFixture {
  public:

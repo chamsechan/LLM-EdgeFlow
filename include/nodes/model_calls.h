@@ -13,6 +13,30 @@
 
 namespace llm_edgeflow {
 
+namespace detail {
+
+template <typename OutputBatchT, typename InputBatchT>
+inline NodeResult<OutputBatchT> ConvertAlignedOutputs(
+    const InputBatchT& inputs, OutputBatchT&& outputs,
+    const std::string& model_type_name, const std::string& slot_name) {
+  auto alignment = ValidatePreservedTraceableAlignment(inputs, outputs);
+  if (alignment.error == TraceableAlignmentError::kCountMismatch) {
+    return NodeResult<OutputBatchT>::Failure(
+        NodeErrorKind::kOutputCountMismatch,
+        model_type_name + " output count mismatch",
+        node_error::author_node::kOutputCountMismatch, "align", slot_name);
+  }
+  if (alignment.error == TraceableAlignmentError::kProvenanceMismatch) {
+    return NodeResult<OutputBatchT>::Failure(
+        NodeErrorKind::kOutputProvenanceMismatch,
+        model_type_name + " output provenance mismatch",
+        node_error::author_node::kOutputProvenanceMismatch, "align", slot_name);
+  }
+  return NodeResult<OutputBatchT>::Success(std::forward<OutputBatchT>(outputs));
+}
+
+}  // namespace detail
+
 class LlmCall {
  public:
   LlmCall() = default;
@@ -44,20 +68,8 @@ class LlmCall {
           "LLM generate failed with code " + std::to_string(ret), ret,
           "generate", slot_name_);
     }
-    auto alignment = ValidatePreservedTraceableAlignment(prompts, outputs);
-    if (alignment.error == TraceableAlignmentError::kCountMismatch) {
-      return NodeResult<TextBatch>::Failure(
-          NodeErrorKind::kOutputCountMismatch, "LLM output count mismatch",
-          node_error::author_node::kOutputCountMismatch, "align", slot_name_);
-    }
-    if (alignment.error == TraceableAlignmentError::kProvenanceMismatch) {
-      return NodeResult<TextBatch>::Failure(
-          NodeErrorKind::kOutputProvenanceMismatch,
-          "LLM output provenance mismatch",
-          node_error::author_node::kOutputProvenanceMismatch, "align",
-          slot_name_);
-    }
-    return NodeResult<TextBatch>::Success(std::move(outputs));
+    return detail::ConvertAlignedOutputs(prompts, std::move(outputs), "LLM",
+                                         slot_name_);
   }
 
   const std::string& SlotName() const noexcept { return slot_name_; }
@@ -99,21 +111,8 @@ class EmbeddingCall {
           "Embedding embed failed with code " + std::to_string(ret), ret,
           "embed", slot_name_);
     }
-    auto alignment = ValidatePreservedTraceableAlignment(inputs, outputs);
-    if (alignment.error == TraceableAlignmentError::kCountMismatch) {
-      return NodeResult<EmbeddingBatch>::Failure(
-          NodeErrorKind::kOutputCountMismatch,
-          "Embedding output count mismatch",
-          node_error::author_node::kOutputCountMismatch, "align", slot_name_);
-    }
-    if (alignment.error == TraceableAlignmentError::kProvenanceMismatch) {
-      return NodeResult<EmbeddingBatch>::Failure(
-          NodeErrorKind::kOutputProvenanceMismatch,
-          "Embedding output provenance mismatch",
-          node_error::author_node::kOutputProvenanceMismatch, "align",
-          slot_name_);
-    }
-    return NodeResult<EmbeddingBatch>::Success(std::move(outputs));
+    return detail::ConvertAlignedOutputs(inputs, std::move(outputs),
+                                         "Embedding", slot_name_);
   }
 
   const std::string& SlotName() const noexcept { return slot_name_; }
