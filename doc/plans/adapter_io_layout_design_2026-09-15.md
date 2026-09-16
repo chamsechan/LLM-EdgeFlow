@@ -689,10 +689,10 @@ Catalog、Core 验证、CLI 修改另运行现有聚焦目标，不为目录或�
 | --- | --- |
 | RFC / 分支 / 源码提交 | RFC-0059 / `refactor/adapter-io-layout-design` |
 | 新 ABI/接入配置/执行次序与调用方迁移 | C ABI v6.0.0 (SOVERSION 6), `CompanyAlgParamCreate` 移除 `biz_type`; Schema 1 接入配置统一校验; 迁移全部 8 业务及 Demo、C ABI 与 Operator 测试 |
-| 复用与多格式运行证据 | `IoConverterTest`, `IoBindingRegistryTest`, `TextConvertersTest`, `ComplexConvertersTest`, `AllBizPipelinesTest`, `OperatorGoldenTest` 全量通过 |
+| 复用与多格式运行证据 | `IoConverterTest`, `IoBindingRegistryTest`, `AdapterPurityTest`, `TextConvertersTest`, `ComplexConvertersTest`, `AllBizPipelinesTest`, `OperatorGoldenTest` 全量通过 |
 | Catalog 差异与消费者迁移 | Catalog schema 4 支持 `input_converters` / `output_converters` / `io_bindings`; `alg_pipeline_tool validate-io` 与 Studio 同步 |
 | 聚焦测试 / 独立评审 | `edgeflow_test_adapter_runner` / `check_layer_isolation.sh` / `check_sdk_exports.sh` 全部通过 |
-| 最终门禁 / 跳过项 | `./scripts/run_all_tests.sh` 6/6 步全绿 (99/99 测试全部通过)；无跳过项 |
+| 最终门禁 / 跳过项 | `./scripts/run_all_tests.sh` 6/6 步全绿 (100/100 测试全部通过)；无跳过项 |
 | 剩余工作 / 完成日期 | 已收敛，全部目标完成 / 2026-09-16 |
 
 本文件清单及对应验证已完成，源码状态更新为已实施。
