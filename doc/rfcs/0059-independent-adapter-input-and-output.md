@@ -2,7 +2,7 @@
 
 - **RFC 编号**：0059-independent-adapter-input-and-output
 - **创建日期**：2026-09-15
-- **文档状态**：In Implementation
+- **文档状态**：Implemented
 - **关联分支**：`refactor/adapter-io-layout-design`
 - **目标版本**：投产前一次迁移 / ABI 6.0.0 / Catalog schema 4
 - **负责人 / 作者**：LLM-EdgeFlow 维护者

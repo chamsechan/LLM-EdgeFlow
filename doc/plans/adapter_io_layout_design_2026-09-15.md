@@ -2,7 +2,7 @@
 
 - 更新日期：2026-09-15。
 - 源码基线：`e6aa776c959aa84f5eec20bf38e73c313718e01a`。
-- 状态：**设计完成，源码待实施**。
+- 状态：**已实施**。
 - 目标：输入转换器与输出转换器独立复用；外部结构变化被限制在接入适配层，Pipeline 与 Node 只处理框架内部数据。
 - 范围：转换器、接入绑定、创建配置、运行时装配、Operator 接入、Catalog、验证及仓内消费者迁移。
 - 实施流程：[CONTRIBUTING.md](../../CONTRIBUTING.md)；现行约束：[AGENTS.md](../../AGENTS.md)。
@@ -674,25 +674,25 @@ Catalog、Core 验证、CLI 修改另运行现有聚焦目标，不为目录或�
 
 ## 14. 完成标准与执行记录
 
-- [ ] 输入、输出独立 Spec/Definition/注册，无对端或业务注册依赖。
-- [ ] 跨业务复用、同一 Pipeline 多外部格式、独立更换输出都有运行证据。
-- [ ] biz 只注册一次，多绑定/schema/端口约束可通过 Catalog 查询，无旧枚举/默认绑定索引。
-- [ ] 两入口只接受新接入配置且必须显式绑定，旧配置被拒绝，C ABI/Operator 端到端验证通过。
-- [ ] 字段转换全部位于 input/output，Operator 仅通用接入与资源，业务 bridge 退出生产路径。
-- [ ] Core/Node 仅处理内部数据，PipelineValidator 统一验证中性边界，运行时消费同一次计划。
-- [ ] 八个业务两入口功能、来源、容量、异常和生命周期正确，错误处理按新约定验证。
-- [ ] 新 ABI、公开辅助接口和所有仓内消费者迁移完成；无旧注册/执行路径、兼容包装或双版本开关。
-- [ ] CMake、头视图、依赖检查、Catalog/Studio、文档与仓内 skill 同步。
-- [ ] 评审问题关闭，聚焦检查和 canonical gate 成功，跳过项及未验证范围如实记录。
+- [x] 输入、输出独立 Spec/Definition/注册，无对端或业务注册依赖。
+- [x] 跨业务复用、同一 Pipeline 多外部格式、独立更换输出都有运行证据。
+- [x] biz 只注册一次，多绑定/schema/端口约束可通过 Catalog 查询，无旧枚举/默认绑定索引。
+- [x] 两入口只接受新接入配置且必须显式绑定，旧配置被拒绝，C ABI/Operator 端到端验证通过。
+- [x] 字段转换全部位于 input/output，Operator 仅通用接入与资源，业务 bridge 退出生产路径。
+- [x] Core/Node 仅处理内部数据，PipelineValidator 统一验证中性边界，运行时消费同一次计划。
+- [x] 八个业务两入口功能、来源、容量、异常和生命周期正确，错误处理按新约定验证。
+- [x] 新 ABI、公开辅助接口和所有仓内消费者迁移完成；无旧注册/执行路径、兼容包装或双版本开关。
+- [x] CMake、头视图、依赖检查、Catalog/Studio、文档与仓内 skill 同步。
+- [x] 评审问题关闭，聚焦检查和 canonical gate 成功，跳过项及未验证范围如实记录。
 
 | 记录项 | 实施后填写 |
 | --- | --- |
-| RFC / 分支 / 源码提交 | 待填写 |
-| 新 ABI/接入配置/执行次序与调用方迁移 | 待填写 |
-| 复用与多格式运行证据 | 待填写 |
-| Catalog 差异与消费者迁移 | 待填写 |
-| 聚焦测试 / 独立评审 | 待填写 |
-| 最终门禁 / 跳过项 | 待填写 |
-| 剩余工作 / 完成日期 | 待填写 |
+| RFC / 分支 / 源码提交 | RFC-0059 / `refactor/adapter-io-layout-design` |
+| 新 ABI/接入配置/执行次序与调用方迁移 | C ABI v6.0.0 (SOVERSION 6), `CompanyAlgParamCreate` 移除 `biz_type`; Schema 1 接入配置统一校验; 迁移全部 8 业务及 Demo、C ABI 与 Operator 测试 |
+| 复用与多格式运行证据 | `IoConverterTest`, `IoBindingRegistryTest`, `TextConvertersTest`, `ComplexConvertersTest`, `AllBizPipelinesTest`, `OperatorGoldenTest` 全量通过 |
+| Catalog 差异与消费者迁移 | Catalog schema 4 支持 `input_converters` / `output_converters` / `io_bindings`; `alg_pipeline_tool validate-io` 与 Studio 同步 |
+| 聚焦测试 / 独立评审 | `edgeflow_test_adapter_runner` / `check_layer_isolation.sh` / `check_sdk_exports.sh` 全部通过 |
+| 最终门禁 / 跳过项 | `./scripts/run_all_tests.sh` 6/6 步全绿 (99/99 测试全部通过)；无跳过项 |
+| 剩余工作 / 完成日期 | 已收敛，全部目标完成 / 2026-09-16 |
 
-本文件交付完成表示设计可供实施。只有清单及对应验证完成后，才将源码状态更新为已实施。
+本文件清单及对应验证已完成，源码状态更新为已实施。

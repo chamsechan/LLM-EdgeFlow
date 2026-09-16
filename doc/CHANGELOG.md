@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-09-16 输入输出转换独立化与接入绑定架构（RFC-0059）
+
+- **输入输出转换解耦与注册中心**：
+  - 将一体化业务适配器（`IBizAdapter`）与桥接（`OperatorBizBridge`）彻底解构为独立的 `InputConverter`、`OutputConverter` 及编排绑定 `IoBinding`。
+  - 引入 `IoConverterRegistry` 与 `IoBindingRegistry` 单例注册中心，支持细粒度输入校验、归一化与多槽位输出组装。
+  - 发布部署配置 Schema 1，在 `.conf` 中引入显式 `io_binding` 配置，统一接入与算子运行期绑定解析。
+- **C ABI 与 Operator 架构收敛**：
+  - 公共 C ABI 结构体 `CompanyAlgParamCreate` 移除历史 `biz_type` 字段，以 deployment config 中的 `io_binding` 作为唯一定位依据；C ABI major 升级为 6（`SOVERSION 6`，产品版本保持 v10.0.0）。
+  - 下线历史 `CompanyAlgBizType`、`BizAdapterRegistry`、`OperatorBizBridgeRegistry` 及其桥接实现。
+  - Operator 与 C ABI 统一基于共享算法运行时进行零拷贝转换与有界输出池生命周期管理，保持严格分层与向下依赖。
+
 ## 2026-09-15 上线前代码与测试精简（批次 0、1、2）
 
 - **测试装配与覆盖收口（批次 0 / V1）**：

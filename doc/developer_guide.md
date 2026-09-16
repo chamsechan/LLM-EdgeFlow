@@ -64,7 +64,7 @@ Create 期固定池分配，Process 只向空输出槽位提交池化 shared_ptr
 Blackboard、Node、Model 或 Backend 才能识别 Operator 结构的方案均违反分层要求。
 
 目标交付共享库为 `company_alg_sdk`，产品 VERSION 为 10.0.0，
-SOVERSION/C ABI major 为 5。
+SOVERSION/C ABI major 为 6。
 其正式动态符号面固定为 6 个 `Alg_*`、3 个 `AlgBase_*` 和 3 个 Operator 入口；
 仓库内 Node、Registry、Model、Backend 和第三方运行时是隐藏实现，不得被外部扩展直接链接。
 Operator v4 的 Create 和配置预检都使用部署根 `model_path` 加相对
