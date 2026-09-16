@@ -1,42 +1,21 @@
 name: Adapter IO Review Workspace
-
 on:
   push:
     branches: [fix/adapter-io-review-workspace-20260916]
-
 permissions:
   contents: read
-
 jobs:
-  source-snapshot:
+  public-diagram-tool:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: 0a58d6e7efcdfd8ecae77cb5c0352657400e456c
-          fetch-depth: 1
-          persist-credentials: false
-      - name: Fetch pinned public dependencies, without private SDKs
-        shell: bash
+      - name: Fetch checksum-pinned public PlantUML tool
         run: |
-          set -euo pipefail
-          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_TESTING=ON -DENABLE_LLAMACPP=ON -DENABLE_ONNXRUNTIME=ON \
-            -DENABLE_KITELLM=OFF -DENABLE_WHISPERCPP=OFF \
-            -DENABLE_REAL_MODEL_TESTS=OFF -DLLM_EDGEFLOW_TEST_PCH=OFF
-          mkdir -p offline-tools
-          python3 -m pip download --only-binary=:all: --no-deps \
-            clang-format==18.1.8 --dest offline-tools
-          find build/_deps -maxdepth 1 -type d -name '*-src' -print > offline-sources.list
-          printf '%s\n' 3rdparty/nlohmann_json 3rdparty/stb_image offline-tools >> offline-sources.list
-          tar -czf "${RUNNER_TEMP}/edgeflow-public-dependencies.tar.gz" -T offline-sources.list
-          sha256sum "${RUNNER_TEMP}/edgeflow-public-dependencies.tar.gz" > "${RUNNER_TEMP}/edgeflow-public-dependencies.sha256"
+          curl --fail --location --silent --show-error https://github.com/plantuml/plantuml/releases/download/v1.2024.7/plantuml-1.2024.7.jar -o "$RUNNER_TEMP/plantuml-1.2024.7.jar"
+          echo "e34c12bbe9944f1f338ca3d88c9b116b86300cc8e90b35c4086b825b5ae96d24  $RUNNER_TEMP/plantuml-1.2024.7.jar" | sha256sum -c -
       - uses: actions/upload-artifact@v4
         with:
-          name: adapter-io-public-dependencies
-          path: |
-            ${{ runner.temp }}/edgeflow-public-dependencies.tar.gz
-            ${{ runner.temp }}/edgeflow-public-dependencies.sha256
+          name: adapter-io-public-diagram-tool
+          path: ${{ runner.temp }}/plantuml-1.2024.7.jar
           retention-days: 1
           if-no-files-found: error
