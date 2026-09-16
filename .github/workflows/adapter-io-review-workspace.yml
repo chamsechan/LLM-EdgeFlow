@@ -10,26 +10,33 @@ permissions:
 jobs:
   source-snapshot:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
           ref: 0a58d6e7efcdfd8ecae77cb5c0352657400e456c
-          fetch-depth: 0
+          fetch-depth: 1
           persist-credentials: false
-      - name: Bundle the reviewed public source
+      - name: Fetch pinned public dependencies, without private SDKs
         shell: bash
         run: |
           set -euo pipefail
-          git branch review-source HEAD
-          git bundle create "${RUNNER_TEMP}/edgeflow-review-source.bundle" review-source
-          git bundle verify "${RUNNER_TEMP}/edgeflow-review-source.bundle"
-          sha256sum "${RUNNER_TEMP}/edgeflow-review-source.bundle" > "${RUNNER_TEMP}/edgeflow-review-source.bundle.sha256"
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTING=ON -DENABLE_LLAMACPP=ON -DENABLE_ONNXRUNTIME=ON \
+            -DENABLE_KITELLM=OFF -DENABLE_WHISPERCPP=OFF \
+            -DENABLE_REAL_MODEL_TESTS=OFF -DLLM_EDGEFLOW_TEST_PCH=OFF
+          mkdir -p offline-tools
+          python3 -m pip download --only-binary=:all: --no-deps \
+            clang-format==18.1.8 --dest offline-tools
+          find build/_deps -maxdepth 1 -type d -name '*-src' -print > offline-sources.list
+          printf '%s\n' 3rdparty/nlohmann_json 3rdparty/stb_image offline-tools >> offline-sources.list
+          tar -czf "${RUNNER_TEMP}/edgeflow-public-dependencies.tar.gz" -T offline-sources.list
+          sha256sum "${RUNNER_TEMP}/edgeflow-public-dependencies.tar.gz" > "${RUNNER_TEMP}/edgeflow-public-dependencies.sha256"
       - uses: actions/upload-artifact@v4
         with:
-          name: adapter-io-reviewed-source
+          name: adapter-io-public-dependencies
           path: |
-            ${{ runner.temp }}/edgeflow-review-source.bundle
-            ${{ runner.temp }}/edgeflow-review-source.bundle.sha256
+            ${{ runner.temp }}/edgeflow-public-dependencies.tar.gz
+            ${{ runner.temp }}/edgeflow-public-dependencies.sha256
           retention-days: 1
           if-no-files-found: error
