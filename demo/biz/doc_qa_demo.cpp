@@ -141,6 +141,6 @@ int RunDocQaDemo(const DemoOptions& options) {
 }
 
 REGISTER_DEMO_BIZ("doc_qa", "智能长文档问答业务", RunDocQaDemo,
-                  ALG_BIZ_TYPE_DOC_QA);
+                  "doc_qa.operator.v1");
 
 }  // namespace alg_demo

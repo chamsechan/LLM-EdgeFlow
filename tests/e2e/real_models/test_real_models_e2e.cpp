@@ -124,14 +124,13 @@ TEST_F(RealModelE2ETest, RealModelCAbiEndToEnd) {
   ASSERT_EQ(Alg_Init(), 0);
 
   const std::string cfg_path =
-      (project_root_ / "configs/pipeline_entity_extract_cpu.json").string();
+      (project_root_ / "configs/pipeline_entity_extract_cabi.json").string();
   const std::string model_root = model_root_.string();
 
   CompanyAlgParamCreate create_param;
   create_param.config_file_path = cfg_path.c_str();
   create_param.model_root_dir = model_root.c_str();
   create_param.device_id = 0;
-  create_param.biz_type = ALG_BIZ_TYPE_ENTITY_EXTRACT;
 
   void* handle = nullptr;
   ASSERT_EQ(Alg_Create(&handle, &create_param), 0);

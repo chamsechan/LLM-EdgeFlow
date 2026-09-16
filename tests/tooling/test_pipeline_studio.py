@@ -532,7 +532,7 @@ class PipelineCliTest(unittest.TestCase):
             check=False,
         )
         payload = json.loads(process.stdout)
-        expected_schema = 3 if args[0] in ("catalog", "describe-node") else 1
+        expected_schema = 4 if args[0] == "catalog" else (3 if args[0] == "describe-node" else 1)
         self.assertEqual(payload["schema_version"], expected_schema)
         return process.returncode, payload
 

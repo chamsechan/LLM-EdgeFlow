@@ -490,7 +490,8 @@ bool Pipeline::BuildFromPlan(std::unique_ptr<ValidatedPipelinePlan> plan,
     assembly.session = std::make_unique<SessionContext>();
     assembly.session->SetRuntimeOptions(session_ctx_->GetRuntimeOptions());
 
-    if (!MaterializeModels(*assembly.plan, assembly.session.get(), diagnostic)) {
+    if (!MaterializeModels(*assembly.plan, assembly.session.get(),
+                           diagnostic)) {
       return false;
     }
     if (!MaterializeNodes(&assembly, diagnostic)) {

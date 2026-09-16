@@ -139,6 +139,6 @@ int RunOcrDocQaDemo(const DemoOptions& options) {
 }
 
 REGISTER_DEMO_BIZ("ocr_doc_qa", "智能多模态图文票据问答", RunOcrDocQaDemo,
-                  ALG_BIZ_TYPE_OCR_DOC_QA);
+                  "ocr_doc_qa.operator.v1");
 
 }  // namespace alg_demo

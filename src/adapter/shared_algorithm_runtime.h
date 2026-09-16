@@ -3,17 +3,17 @@
 #include <memory>
 #include <string>
 
-#include "adapter/biz_adapter_interface.h"
+#include "adapter/io_binding_resolver.h"
+#include "adapter/io_converter.h"
 #include "core/pipeline.h"
 #include "core/session_context.h"
 #include "edgeflow/c_api.h"
-#include "nlohmann/json.hpp"
 
 namespace llm_edgeflow {
 
 /**
- * @brief 纯 C ABI 与 C++ 平台 Operator 门面共享的内部算法运行时句柄 (接入适配层
- * 内部)
+ * @brief 纯 C ABI 与 C++ 平台 Operator 门面共享的内部算法运行时句柄
+ * (接入适配层内部)
  */
 class SharedAlgorithmRuntime {
  public:
@@ -35,31 +35,39 @@ class SharedAlgorithmRuntime {
   static int GlobalDeinit() noexcept;
 
   /**
-   * @brief 通过配置文件路径构建运行时
+   * @brief 通过接入配置文件构建运行时 (C ABI 路径)
    */
   static int CreateFromConfigFile(
       const std::string& config_path, int device_id,
-      const std::string& model_root_dir, CompanyAlgBizType biz_type,
+      const std::string& model_root_dir,
       std::unique_ptr<SharedAlgorithmRuntime>* out_runtime,
       std::string* out_error = nullptr) noexcept;
 
   /**
-   * @brief 通过内存中的 Pipeline JSON 配置对象直接构建运行时 (避免临时文件)
+   * @brief 通过内存中的 Pipeline JSON 与 IO Binding ID 构建运行时
    */
   static int CreateFromPipelineJson(
       const nlohmann::json& pipeline_json, int device_id,
-      const std::string& model_root_dir, CompanyAlgBizType biz_type,
+      const std::string& model_root_dir, const std::string& binding_id,
       std::unique_ptr<SharedAlgorithmRuntime>* out_runtime,
       std::string* out_error = nullptr,
       const RuntimeOptions* extra_runtime_options = nullptr) noexcept;
 
   /**
-   * @brief 批量计算通用流 (ValidateBatch -> Unpack -> Pipeline::Execute ->
-   * Pack)
+   * @brief 通过已验证的 ValidatedIoPlan 与 RuntimeOptions 构建运行时
+   */
+  static int CreateFromIoPlan(
+      std::unique_ptr<ValidatedIoPlan> io_plan, int device_id,
+      const RuntimeOptions* extra_runtime_options,
+      std::unique_ptr<SharedAlgorithmRuntime>* out_runtime,
+      std::string* out_error = nullptr) noexcept;
+
+  /**
+   * @brief 批量计算通用流 (ValidateBatch -> DecodeInput -> Pipeline::Execute ->
+   * EncodeOutput)
    */
   int ExecuteBatch(const void** inputs, int num_inputs, void** outputs,
-                   int* num_outputs, std::string* out_error = nullptr,
-                   bool operator_results = false) noexcept;
+                   int* num_outputs, std::string* out_error = nullptr) noexcept;
 
   /**
    * @brief 运行时动态控制指令下发
@@ -70,8 +78,7 @@ class SharedAlgorithmRuntime {
   // Getters
   Pipeline* GetPipeline() { return pipeline_.get(); }
   const Pipeline* GetPipeline() const { return pipeline_.get(); }
-  std::shared_ptr<IBizAdapter> GetAdapter() const { return adapter_; }
-  CompanyAlgBizType GetBizType() const { return biz_type_; }
+  const ValidatedIoPlan* GetIoPlan() const { return io_plan_.get(); }
   int GetDeviceId() const {
     return pipeline_
                ? pipeline_->GetSessionContext().GetRuntimeOptions().device_id
@@ -79,9 +86,8 @@ class SharedAlgorithmRuntime {
   }
 
  private:
+  std::unique_ptr<ValidatedIoPlan> io_plan_;
   std::unique_ptr<Pipeline> pipeline_;
-  std::shared_ptr<IBizAdapter> adapter_;
-  CompanyAlgBizType biz_type_ = ALG_BIZ_TYPE_UNKNOWN;
 };
 
 }  // namespace llm_edgeflow

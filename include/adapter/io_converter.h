@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "adapter/adapter_status.h"
+#include "adapter/operator_io_contracts.h"
 #include "core/alg_context.h"
 #include "core/blackboard_key.h"
 #include "core/port_definition.h"
@@ -71,6 +72,21 @@ class ExternalOutputBatchView {
   // Operator 槽位字段容量: slot_name -> field_name -> capacity
   std::unordered_map<std::string, std::unordered_map<std::string, size_t>>
       slot_capacities;
+  // Operator 槽位池 Spec: slot_name -> ResolvedOutputPoolSpec
+  std::unordered_map<std::string, ResolvedOutputPoolSpec> pool_specs;
+
+  const ResolvedOutputPoolSpec* GetPoolSpec(
+      const std::string& slot_name) const {
+    auto sit = pool_specs.find(slot_name);
+    if (sit != pool_specs.end()) return &sit->second;
+    for (const auto& kv : pool_specs) {
+      auto dot = kv.first.rfind('.');
+      if (dot != std::string::npos && kv.first.substr(dot + 1) == slot_name) {
+        return &kv.second;
+      }
+    }
+    return nullptr;
+  }
 
   template <typename T>
   T* GetCAbi(size_t index) const {
@@ -215,8 +231,14 @@ struct ExternalSlotDefinition {
   PortDirection direction = PortDirection::kInput;
   bool required = true;
   std::string value_type;
-  std::string type_suffix;  // Operator ValueType 规范后缀 (如 "plain_text", "entity_out")
+  std::string type_suffix;  // Operator ValueType 规范后缀 (如 "plain_text",
+                            // "entity_out")
   std::vector<std::string> capacity_fields;
+  std::string key_suffix;  // 外部 map key 后缀 (为空时使用 type_suffix)
+
+  const std::string& KeySuffix() const {
+    return !key_suffix.empty() ? key_suffix : type_suffix;
+  }
 };
 
 // 统一输入/输出转换回调函数指针类型
@@ -229,8 +251,7 @@ using EncodeOutputFn = int (*)(AlgContext* context,
                                const OutputPortBindings& bindings,
                                const OutputEncodeOptions& options,
                                ExternalOutputBatchView* destination,
-                               size_t* written_count,
-                               AdapterStatus* status);
+                               size_t* written_count, AdapterStatus* status);
 
 /**
  * @brief 输入转换器 Definition

@@ -13,8 +13,7 @@ BizDefinition MakeTranslateBizDefinition() {
   def.ingress = {
       BizPortDefinition("raw_request_ids", "vector<uint64>", true, "1:1"),
       BizPortDefinition("input_sentences", "TextBatch", true, "1:1")};
-  def.egress = {
-      BizPortDefinition("llm_answers", "TextBatch", true, "1:1")};
+  def.egress = {BizPortDefinition("llm_answers", "TextBatch", true, "1:1")};
   return def;
 }
 

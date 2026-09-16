@@ -22,11 +22,11 @@ class ComplexConvertersTest : public ::testing::Test {};
 
 // ==================== DocQA ====================
 TEST_F(ComplexConvertersTest, DocQaCAbiInputAndOutput) {
-  const auto* in_conv =
-      IoConverterRegistry::Instance().FindInputConverter("doc_query.plain.cabi.v1");
+  const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
+      "doc_query.plain.cabi.v1");
   ASSERT_NE(in_conv, nullptr);
-  const auto* out_conv =
-      IoConverterRegistry::Instance().FindOutputConverter("doc_answer.plain.cabi.v1");
+  const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
+      "doc_answer.plain.cabi.v1");
   ASSERT_NE(out_conv, nullptr);
 
   CompanyDocInputStruct doc_in{2001, "Sample document text", "What is sample?"};
@@ -36,8 +36,8 @@ TEST_F(ComplexConvertersTest, DocQaCAbiInputAndOutput) {
   in_view.count = 1;
 
   InputPortBindings in_bindings({{"raw_request_ids", "raw_request_ids"},
-                                {"raw_docs", "raw_docs"},
-                                {"raw_queries", "raw_queries"}});
+                                 {"raw_docs", "raw_docs"},
+                                 {"raw_queries", "raw_queries"}});
   InputDecodeOptions in_options;
   in_options.converter_id = in_conv->converter_id;
 
@@ -71,14 +71,15 @@ TEST_F(ComplexConvertersTest, DocQaCAbiInputAndOutput) {
   out_view.capacity = 1;
 
   OutputPortBindings out_bindings({{"raw_request_ids", "raw_request_ids"},
-                                  {"llm_answers", "llm_answers"},
-                                  {"intent_matches", "intent_matches"},
-                                  {"doc_chunk_counts", "doc_chunk_counts"}});
+                                   {"llm_answers", "llm_answers"},
+                                   {"intent_matches", "intent_matches"},
+                                   {"doc_chunk_counts", "doc_chunk_counts"}});
   OutputEncodeOptions out_options;
   out_options.converter_id = out_conv->converter_id;
 
   size_t written = 0;
-  ret = out_conv->encode_fn(&ctx, out_bindings, out_options, &out_view, &written, &status);
+  ret = out_conv->encode_fn(&ctx, out_bindings, out_options, &out_view,
+                            &written, &status);
   EXPECT_EQ(ret, COMPANY_ALG_SUCCESS);
   EXPECT_EQ(written, 1U);
   EXPECT_EQ(doc_out.request_id, 2001U);
@@ -90,11 +91,11 @@ TEST_F(ComplexConvertersTest, DocQaCAbiInputAndOutput) {
 
 // ==================== CrossRerank ====================
 TEST_F(ComplexConvertersTest, CrossRerankCAbiInputAndOutput) {
-  const auto* in_conv =
-      IoConverterRegistry::Instance().FindInputConverter("rerank.plain.cabi.v1");
+  const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
+      "rerank.plain.cabi.v1");
   ASSERT_NE(in_conv, nullptr);
-  const auto* out_conv =
-      IoConverterRegistry::Instance().FindOutputConverter("rerank_result.plain.cabi.v1");
+  const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
+      "rerank_result.plain.cabi.v1");
   ASSERT_NE(out_conv, nullptr);
 
   const char* passages[] = {"passage zero", "passage one", "passage two"};
@@ -112,9 +113,9 @@ TEST_F(ComplexConvertersTest, CrossRerankCAbiInputAndOutput) {
   in_view.count = 1;
 
   InputPortBindings in_bindings({{"raw_request_ids", "raw_request_ids"},
-                                {"rerank_queries", "rerank_queries"},
-                                {"rerank_candidates", "rerank_candidates"},
-                                {"rerank_pairs", "rerank_pairs"}});
+                                 {"rerank_queries", "rerank_queries"},
+                                 {"rerank_candidates", "rerank_candidates"},
+                                 {"rerank_pairs", "rerank_pairs"}});
   InputDecodeOptions in_options;
   in_options.converter_id = in_conv->converter_id;
 
@@ -138,12 +139,13 @@ TEST_F(ComplexConvertersTest, CrossRerankCAbiInputAndOutput) {
   out_view.capacity = 1;
 
   OutputPortBindings out_bindings({{"raw_request_ids", "raw_request_ids"},
-                                  {"ranked_results", "ranked_results"}});
+                                   {"ranked_results", "ranked_results"}});
   OutputEncodeOptions out_options;
   out_options.converter_id = out_conv->converter_id;
 
   size_t written = 0;
-  ret = out_conv->encode_fn(&ctx, out_bindings, out_options, &out_view, &written, &status);
+  ret = out_conv->encode_fn(&ctx, out_bindings, out_options, &out_view,
+                            &written, &status);
   EXPECT_EQ(ret, COMPANY_ALG_SUCCESS);
   EXPECT_EQ(written, 1U);
   EXPECT_EQ(rerank_out.request_id, 3001U);
@@ -159,8 +161,8 @@ TEST_F(ComplexConvertersTest, ComplianceAuditCAbiInputAndOutput) {
   const auto* in_conv =
       IoConverterRegistry::Instance().FindInputConverter("audit.plain.cabi.v1");
   ASSERT_NE(in_conv, nullptr);
-  const auto* out_conv =
-      IoConverterRegistry::Instance().FindOutputConverter("audit_result.plain.cabi.v1");
+  const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
+      "audit_result.plain.cabi.v1");
   ASSERT_NE(out_conv, nullptr);
 
   CompanyAuditInputStruct audit_in{4001, "some dialogue text", "channel_vip"};
@@ -170,8 +172,8 @@ TEST_F(ComplexConvertersTest, ComplianceAuditCAbiInputAndOutput) {
   in_view.count = 1;
 
   InputPortBindings in_bindings({{"raw_request_ids", "raw_request_ids"},
-                                {"user_texts", "user_texts"},
-                                {"channel_names", "channel_names"}});
+                                 {"user_texts", "user_texts"},
+                                 {"channel_names", "channel_names"}});
   InputDecodeOptions in_options;
   in_options.converter_id = in_conv->converter_id;
 
@@ -191,7 +193,8 @@ TEST_F(ComplexConvertersTest, ComplianceAuditCAbiInputAndOutput) {
   ctx.Publish("structured_verdicts", std::move(verdicts));
 
   RankedTextBatch policies;
-  policies.emplace_back(0, 0, RankedCandidate("Article 42.1 Policy", 1.0f, 1, 0));
+  policies.emplace_back(0, 0,
+                        RankedCandidate("Article 42.1 Policy", 1.0f, 1, 0));
   ctx.Publish("matched_policies", std::move(policies));
 
   CompanyAuditOutputStruct audit_out{};
@@ -201,14 +204,16 @@ TEST_F(ComplexConvertersTest, ComplianceAuditCAbiInputAndOutput) {
   out_view.count = 1;
   out_view.capacity = 1;
 
-  OutputPortBindings out_bindings({{"raw_request_ids", "raw_request_ids"},
-                                  {"structured_verdicts", "structured_verdicts"},
-                                  {"matched_policies", "matched_policies"}});
+  OutputPortBindings out_bindings(
+      {{"raw_request_ids", "raw_request_ids"},
+       {"structured_verdicts", "structured_verdicts"},
+       {"matched_policies", "matched_policies"}});
   OutputEncodeOptions out_options;
   out_options.converter_id = out_conv->converter_id;
 
   size_t written = 0;
-  ret = out_conv->encode_fn(&ctx, out_bindings, out_options, &out_view, &written, &status);
+  ret = out_conv->encode_fn(&ctx, out_bindings, out_options, &out_view,
+                            &written, &status);
   EXPECT_EQ(ret, COMPANY_ALG_SUCCESS);
   EXPECT_EQ(written, 1U);
   EXPECT_EQ(audit_out.request_id, 4001U);
@@ -222,19 +227,20 @@ TEST_F(ComplexConvertersTest, AudioAsrIntentCAbiInputAndOutput) {
   const auto* in_conv =
       IoConverterRegistry::Instance().FindInputConverter("audio.pcm.cabi.v1");
   ASSERT_NE(in_conv, nullptr);
-  const auto* out_conv =
-      IoConverterRegistry::Instance().FindOutputConverter("audio_result.plain.cabi.v1");
+  const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
+      "audio_result.plain.cabi.v1");
   ASSERT_NE(out_conv, nullptr);
 
   std::vector<float> pcm(1600, 0.1f);
-  CompanyAudioInputStruct audio_in{5001, pcm.data(), static_cast<int>(pcm.size()), 16000};
+  CompanyAudioInputStruct audio_in{5001, pcm.data(),
+                                   static_cast<int>(pcm.size()), 16000};
   const void* in_items[] = {&audio_in};
   ExternalInputBatchView in_view;
   in_view.items = in_items;
   in_view.count = 1;
 
   InputPortBindings in_bindings({{"raw_request_ids", "raw_request_ids"},
-                                {"audio_inputs", "audio_inputs"}});
+                                 {"audio_inputs", "audio_inputs"}});
   InputDecodeOptions in_options;
   in_options.converter_id = in_conv->converter_id;
 
@@ -250,7 +256,8 @@ TEST_F(ComplexConvertersTest, AudioAsrIntentCAbiInputAndOutput) {
   RuleMatchBatch slots;
   RuleMatchItem m;
   m.status_code = 0;
-  m.match_result_json = "{\"intent\":\"open_door\",\"slot\":{\"target\":\"front\"}}";
+  m.match_result_json =
+      "{\"intent\":\"open_door\",\"slot\":{\"target\":\"front\"}}";
   slots.emplace_back(0, 0, m);
   ctx.Publish("intent_slots", std::move(slots));
 
@@ -262,49 +269,53 @@ TEST_F(ComplexConvertersTest, AudioAsrIntentCAbiInputAndOutput) {
   out_view.capacity = 1;
 
   OutputPortBindings out_bindings({{"raw_request_ids", "raw_request_ids"},
-                                  {"transcripts", "transcripts"},
-                                  {"intent_slots", "intent_slots"}});
+                                   {"transcripts", "transcripts"},
+                                   {"intent_slots", "intent_slots"}});
   OutputEncodeOptions out_options;
   out_options.converter_id = out_conv->converter_id;
 
   size_t written = 0;
-  ret = out_conv->encode_fn(&ctx, out_bindings, out_options, &out_view, &written, &status);
+  ret = out_conv->encode_fn(&ctx, out_bindings, out_options, &out_view,
+                            &written, &status);
   EXPECT_EQ(ret, COMPANY_ALG_SUCCESS);
   EXPECT_EQ(written, 1U);
   EXPECT_EQ(audio_out.request_id, 5001U);
   EXPECT_STREQ(audio_out.transcribed_text, "open the front door");
-  EXPECT_STREQ(audio_out.intent_slot_json, "{\"intent\":\"open_door\",\"slot\":{\"target\":\"front\"}}");
+  EXPECT_STREQ(audio_out.intent_slot_json,
+               "{\"intent\":\"open_door\",\"slot\":{\"target\":\"front\"}}");
 }
 
 // ==================== OcrDocQa ====================
 TEST_F(ComplexConvertersTest, OcrDocQaOperatorInputAndOutput) {
-  const auto* in_conv =
-      IoConverterRegistry::Instance().FindInputConverter("image_query.plain.operator.v1");
+  const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
+      "image_query.plain.operator.v1");
   ASSERT_NE(in_conv, nullptr);
-  const auto* out_conv =
-      IoConverterRegistry::Instance().FindOutputConverter("invoice_result.plain.operator.v1");
+  const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
+      "invoice_result.plain.operator.v1");
   ASSERT_NE(out_conv, nullptr);
 
   // Setup operator input: frame and string
   std::string uri_str = "/path/to/invoice.jpg";
-  CompanyString uri{static_cast<int32_t>(uri_str.size()), const_cast<char*>(uri_str.data())};
+  CompanyString uri{static_cast<int32_t>(uri_str.size()),
+                    const_cast<char*>(uri_str.data())};
   CompanyFrame frame{};
   frame.request_id = 6001;
   frame.image_uri = &uri;
 
   std::string q_str = "Total amount?";
-  CompanyString query{static_cast<int32_t>(q_str.size()), const_cast<char*>(q_str.data())};
+  CompanyString query{static_cast<int32_t>(q_str.size()),
+                      const_cast<char*>(q_str.data())};
 
   ExternalInputBatchView in_view;
-  auto frame_holder = std::shared_ptr<void>(&frame, [](void*){});
-  auto query_holder = std::shared_ptr<void>(&query, [](void*){});
+  auto frame_holder = std::shared_ptr<void>(&frame, [](void*) {});
+  auto query_holder = std::shared_ptr<void>(&query, [](void*) {});
   in_view.slots["frame"].push_back(frame_holder);
   in_view.slots["string"].push_back(query_holder);
   in_view.count = 1;
 
   InputPortBindings in_bindings({{"raw_request_ids", "raw_request_ids"},
-                                {"image_paths", "image_paths"},
-                                {"user_queries", "user_queries"}});
+                                 {"image_paths", "image_paths"},
+                                 {"user_queries", "user_queries"}});
   InputDecodeOptions in_options;
   in_options.converter_id = in_conv->converter_id;
 
@@ -339,14 +350,16 @@ TEST_F(ComplexConvertersTest, OcrDocQaOperatorInputAndOutput) {
   out_view.slot_capacities["od_out"]["result_json"] = 256;
   out_view.count = 1;
 
-  OutputPortBindings out_bindings({{"raw_request_ids", "raw_request_ids"},
-                                  {"extracted_invoice_json", "extracted_invoice_json"},
-                                  {"ocr_docs", "ocr_docs"}});
+  OutputPortBindings out_bindings(
+      {{"raw_request_ids", "raw_request_ids"},
+       {"extracted_invoice_json", "extracted_invoice_json"},
+       {"ocr_docs", "ocr_docs"}});
   OutputEncodeOptions out_options;
   out_options.converter_id = out_conv->converter_id;
 
   size_t written = 0;
-  ret = out_conv->encode_fn(&ctx, out_bindings, out_options, &out_view, &written, &status);
+  ret = out_conv->encode_fn(&ctx, out_bindings, out_options, &out_view,
+                            &written, &status);
   EXPECT_EQ(ret, COMPANY_ALG_SUCCESS);
   EXPECT_EQ(written, 1U);
   EXPECT_EQ(od_out.request_id, 6001U);
@@ -370,7 +383,8 @@ TEST_F(ComplexConvertersTest, AllEightBusinessesRegistered) {
   for (const auto& biz : expected_biz) {
     const auto* desc = IoBindingRegistry::Instance().FindExposure(biz);
     ASSERT_NE(desc, nullptr) << "Missing biz exposure: " << biz;
-    EXPECT_GE(desc->required_transports.size(), 2U) << "Biz missing transports: " << biz;
+    EXPECT_GE(desc->required_transports.size(), 2U)
+        << "Biz missing transports: " << biz;
 
     auto biz_def = PipelineCatalog::FindBiz(biz);
     ASSERT_TRUE(biz_def.has_value()) << "Missing biz in catalog: " << biz;

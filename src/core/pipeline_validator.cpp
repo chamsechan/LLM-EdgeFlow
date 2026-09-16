@@ -1178,9 +1178,9 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
                     "', got '" + it->second.type_id + "'",
                 "$io_input", req_in.blackboard_key);
           } else {
-            ValidatePortFlowContract(it->second, req_in, "/io/input", "$io_input",
-                                     req_in.blackboard_key, "$ingress",
-                                     &report);
+            ValidatePortFlowContract(it->second, req_in, "/io/input",
+                                     "$io_input", req_in.blackboard_key,
+                                     "$ingress", &report);
           }
         }
       }
@@ -1474,9 +1474,10 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
         if (ing_it != ingress.end()) {
           if (ing_it->second.type_id != consumer.type_id) {
             Add(&report, DiagnosticCode::kMissingBizOutput, "/io/output",
-                "IO boundary output type mismatch for '" + consumer.blackboard_key +
-                    "': expected '" + consumer.type_id + "', got '" +
-                    ing_it->second.type_id + "'",
+                "IO boundary output type mismatch for '" +
+                    consumer.blackboard_key + "': expected '" +
+                    consumer.type_id + "', got '" + ing_it->second.type_id +
+                    "'",
                 "$ingress", consumer.blackboard_key, {"$io_output"});
           } else {
             ValidatePortFlowContract(ing_it->second, consumer, "/io/output",

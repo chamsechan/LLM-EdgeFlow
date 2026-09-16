@@ -15,8 +15,9 @@ BizDefinition MakeComplianceAuditBizDefinition() {
       BizPortDefinition("user_texts", "TextBatch", true, "1:1"),
       BizPortDefinition("channel_names", "TextBatch", true, "1:1")};
   def.egress = {
-      BizPortDefinition("structured_verdicts", "StructuredDocumentBatch", true, "1:1"),
-      BizPortDefinition("matched_policies", "RankedTextBatch", true, "N:1")};
+      BizPortDefinition("structured_verdicts", "StructuredDocumentBatch", true,
+                        "1:1"),
+      BizPortDefinition("matched_policy", "RankedTextBatch", true, "N:1")};
   return def;
 }
 
@@ -48,7 +49,7 @@ IoBindingDefinition MakeComplianceAuditCAbiBinding() {
                      {"channel_names", "channel_names"}};
   def.output_ports = {{"raw_request_ids", "raw_request_ids"},
                       {"structured_verdicts", "structured_verdicts"},
-                      {"matched_policies", "matched_policies"}};
+                      {"matched_policies", "matched_policy"}};
   def.max_batch_size = 64;
   return def;
 }
@@ -65,7 +66,7 @@ IoBindingDefinition MakeComplianceAuditOperatorBinding() {
                      {"channel_names", "channel_names"}};
   def.output_ports = {{"raw_request_ids", "raw_request_ids"},
                       {"structured_verdicts", "structured_verdicts"},
-                      {"matched_policies", "matched_policies"}};
+                      {"matched_policies", "matched_policy"}};
   def.max_batch_size = 64;
   return def;
 }

@@ -11,7 +11,8 @@ bool IoConverterRegistry::RegisterInputConverter(
     const InputConverterDefinition& def) {
   std::lock_guard<std::mutex> lock(mutex_);
   if (def.converter_id.empty()) {
-    conflict_errors_.push_back("Empty converter_id in InputConverterDefinition");
+    conflict_errors_.push_back(
+        "Empty converter_id in InputConverterDefinition");
     return false;
   }
   if (!def.decode_fn) {
@@ -21,9 +22,9 @@ bool IoConverterRegistry::RegisterInputConverter(
     return false;
   }
   if (def.transport != "cabi" && def.transport != "operator") {
-    conflict_errors_.push_back("Invalid transport '" + def.transport +
-                               "' in InputConverterDefinition for: " +
-                               def.converter_id);
+    conflict_errors_.push_back(
+        "Invalid transport '" + def.transport +
+        "' in InputConverterDefinition for: " + def.converter_id);
     return false;
   }
 
@@ -53,9 +54,9 @@ bool IoConverterRegistry::RegisterOutputConverter(
     return false;
   }
   if (def.transport != "cabi" && def.transport != "operator") {
-    conflict_errors_.push_back("Invalid transport '" + def.transport +
-                               "' in OutputConverterDefinition for: " +
-                               def.converter_id);
+    conflict_errors_.push_back(
+        "Invalid transport '" + def.transport +
+        "' in OutputConverterDefinition for: " + def.converter_id);
     return false;
   }
 
@@ -90,8 +91,8 @@ const OutputConverterDefinition* IoConverterRegistry::FindOutputConverter(
   return nullptr;
 }
 
-std::vector<InputConverterDefinition>
-IoConverterRegistry::AllInputConverters() const {
+std::vector<InputConverterDefinition> IoConverterRegistry::AllInputConverters()
+    const {
   std::lock_guard<std::mutex> lock(mutex_);
   std::vector<InputConverterDefinition> result;
   result.reserve(input_converters_.size());
@@ -126,6 +127,11 @@ void IoConverterRegistry::ClearForTesting() {
   std::lock_guard<std::mutex> lock(mutex_);
   input_converters_.clear();
   output_converters_.clear();
+  conflict_errors_.clear();
+}
+
+void IoConverterRegistry::ResetConflictForTesting() {
+  std::lock_guard<std::mutex> lock(mutex_);
   conflict_errors_.clear();
 }
 

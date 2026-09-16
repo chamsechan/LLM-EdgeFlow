@@ -7,7 +7,6 @@
 #include "adapter/biz_results.h"
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter.h"
-#include "adapter/operator_biz_bridge.h"
 #include "adapter/result_validation.h"
 #include "edgeflow/c_api.h"
 #include "edgeflow/operator/types.h"
@@ -19,28 +18,27 @@ int EncodeCAbiStructuredDocument(AlgContext* context,
                                  const OutputPortBindings& bindings,
                                  const OutputEncodeOptions& options,
                                  ExternalOutputBatchView* destination,
-                                 size_t* written_count,
-                                 AdapterStatus* status) {
+                                 size_t* written_count, AdapterStatus* status) {
   if (!context) {
     return AdapterValidationHelper::ReturnBufferTooSmall(
         status, "Null AlgContext passed to Encode", "context",
         options.converter_id.c_str());
   }
 
-  const auto* res =
-      context->Read<StructuredDocumentBatch>(bindings.GetActualKey("extracted_entities"));
+  const auto* res = context->Read<StructuredDocumentBatch>(
+      bindings.GetActualKey("extracted_entities"));
   if (!res) {
     return AdapterValidationHelper::ReturnBufferTooSmall(
         status, "Missing required context value: extracted_entities", "res",
         options.converter_id.c_str());
   }
 
-  const auto* raw_req_ids =
-      context->Read<std::vector<uint64_t>>(bindings.GetActualKey("raw_request_ids"));
+  const auto* raw_req_ids = context->Read<std::vector<uint64_t>>(
+      bindings.GetActualKey("raw_request_ids"));
   if (!raw_req_ids) {
     return AdapterValidationHelper::ReturnBufferTooSmall(
-        status, "Missing required context value: raw_request_ids", "raw_request_ids",
-        options.converter_id.c_str());
+        status, "Missing required context value: raw_request_ids",
+        "raw_request_ids", options.converter_id.c_str());
   }
 
   int count = static_cast<int>(res->size());
@@ -91,20 +89,20 @@ int EncodeOperatorStructuredDocument(AlgContext* context,
         options.converter_id.c_str());
   }
 
-  const auto* res =
-      context->Read<StructuredDocumentBatch>(bindings.GetActualKey("extracted_entities"));
+  const auto* res = context->Read<StructuredDocumentBatch>(
+      bindings.GetActualKey("extracted_entities"));
   if (!res) {
     return AdapterValidationHelper::ReturnBufferTooSmall(
         status, "Missing required context value: extracted_entities", "res",
         options.converter_id.c_str());
   }
 
-  const auto* raw_req_ids =
-      context->Read<std::vector<uint64_t>>(bindings.GetActualKey("raw_request_ids"));
+  const auto* raw_req_ids = context->Read<std::vector<uint64_t>>(
+      bindings.GetActualKey("raw_request_ids"));
   if (!raw_req_ids) {
     return AdapterValidationHelper::ReturnBufferTooSmall(
-        status, "Missing required context value: raw_request_ids", "raw_request_ids",
-        options.converter_id.c_str());
+        status, "Missing required context value: raw_request_ids",
+        "raw_request_ids", options.converter_id.c_str());
   }
 
   size_t count = res->size();
@@ -133,9 +131,9 @@ int EncodeOperatorStructuredDocument(AlgContext* context,
 
     uint32_t cap =
         destination->GetSlotCapacity("entity_out", "entities_json", 2047);
-    int ret = CopyToOperatorString(
-        res_by_request[i]->data.json_payload.c_str(), out->entities_json, cap,
-        "entities_json", &diag_err);
+    int ret = CopyToOperatorString(res_by_request[i]->data.json_payload.c_str(),
+                                   out->entities_json, cap, "entities_json",
+                                   &diag_err);
     if (ret != 0) {
       return AdapterValidationHelper::ReturnBufferTooSmall(
           status, diag_err.c_str(), "entities_json",
@@ -158,12 +156,15 @@ OutputConverterDefinition MakeCAbiStructuredDocumentOutputConverter() {
   def.max_batch_size = 64;
   def.capacity_policy = "reject_overflow";
   def.thread_model = "stateless";
-  def.external_slots = {
-      {"entities_json", "CompanyEntityOutputStruct", PortDirection::kOutput,
-       true, "CompanyEntityOutputStruct", "", {"entities_json"}}};
+  def.external_slots = {{"entities_json",
+                         "CompanyEntityOutputStruct",
+                         PortDirection::kOutput,
+                         true,
+                         "CompanyEntityOutputStruct",
+                         "",
+                         {"entities_json"}}};
   def.logical_ports = {
-      NodePortDefinition("raw_request_ids", "vector<uint64>", true,
-                         "1:1"),
+      NodePortDefinition("raw_request_ids", "vector<uint64>", true, "1:1"),
       NodePortDefinition("extracted_entities", "StructuredDocumentBatch", true,
                          "1:1")};
   def.encode_fn = &EncodeCAbiStructuredDocument;
@@ -181,12 +182,15 @@ OutputConverterDefinition MakeOperatorStructuredDocumentOutputConverter() {
   def.max_batch_size = 64;
   def.capacity_policy = "reject_overflow";
   def.thread_model = "stateless";
-  def.external_slots = {
-      {"entity_out", "CompanyOperatorEntityOutput", PortDirection::kOutput,
-       true, "CompanyOperatorEntityOutput", "entity_out", {"entities_json"}}};
+  def.external_slots = {{"entity_out",
+                         "CompanyOperatorEntityOutput",
+                         PortDirection::kOutput,
+                         true,
+                         "CompanyOperatorEntityOutput",
+                         "entity_out",
+                         {"entities_json"}}};
   def.logical_ports = {
-      NodePortDefinition("raw_request_ids", "vector<uint64>", true,
-                         "1:1"),
+      NodePortDefinition("raw_request_ids", "vector<uint64>", true, "1:1"),
       NodePortDefinition("extracted_entities", "StructuredDocumentBatch", true,
                          "1:1")};
   def.encode_fn = &EncodeOperatorStructuredDocument;

@@ -76,8 +76,7 @@ TEST(IoConverterTest, RegisterAndFindInputConverter) {
   def.transport = "cabi";
   def.schema_id = "test_input";
   def.schema_version = 1;
-  def.logical_ports = {
-      NodePortDefinition("texts", "TextBatch", true, "1:1")};
+  def.logical_ports = {NodePortDefinition("texts", "TextBatch", true, "1:1")};
   def.decode_fn = &DummyDecode;
 
   EXPECT_TRUE(reg.RegisterInputConverter(def));
@@ -101,8 +100,7 @@ TEST(IoConverterTest, RegisterAndFindOutputConverter) {
   def.transport = "cabi";
   def.schema_id = "test_output";
   def.schema_version = 1;
-  def.logical_ports = {
-      NodePortDefinition("answers", "TextBatch", true, "1:1")};
+  def.logical_ports = {NodePortDefinition("answers", "TextBatch", true, "1:1")};
   def.encode_fn = &DummyEncode;
 
   EXPECT_TRUE(reg.RegisterOutputConverter(def));
@@ -130,7 +128,8 @@ TEST(IoConverterTest, RejectsInvalidDefinitions) {
   OutputConverterDefinition bad_out;
   bad_out.converter_id = "bad.out";
   bad_out.encode_fn = nullptr;
-  EXPECT_FALSE(IoConverterRegistry::Instance().RegisterOutputConverter(bad_out));
+  EXPECT_FALSE(
+      IoConverterRegistry::Instance().RegisterOutputConverter(bad_out));
 }
 
 }  // namespace llm_edgeflow

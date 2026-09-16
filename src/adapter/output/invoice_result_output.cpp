@@ -6,7 +6,6 @@
 #include "adapter/adapter_validation_helper.h"
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter.h"
-#include "adapter/operator_biz_bridge.h"
 #include "adapter/result_validation.h"
 #include "contracts/inference_payloads.h"
 #include "edgeflow/c_api.h"
@@ -19,16 +18,15 @@ int EncodeCAbiInvoiceResult(AlgContext* context,
                             const OutputPortBindings& bindings,
                             const OutputEncodeOptions& options,
                             ExternalOutputBatchView* destination,
-                            size_t* written_count,
-                            AdapterStatus* status) {
+                            size_t* written_count, AdapterStatus* status) {
   if (!context) {
     return AdapterValidationHelper::ReturnBufferTooSmall(
         status, "Null AlgContext passed to Encode", "context",
         options.converter_id.c_str());
   }
 
-  const auto* invoice_jsons =
-      context->Read<StructuredDocumentBatch>(bindings.GetActualKey("extracted_invoice_json"));
+  const auto* invoice_jsons = context->Read<StructuredDocumentBatch>(
+      bindings.GetActualKey("extracted_invoice_json"));
   if (!invoice_jsons) {
     return AdapterValidationHelper::ReturnBufferTooSmall(
         status, "Missing required context value: extracted_invoice_json",
@@ -43,12 +41,12 @@ int EncodeCAbiInvoiceResult(AlgContext* context,
         options.converter_id.c_str());
   }
 
-  const auto* raw_req_ids =
-      context->Read<std::vector<uint64_t>>(bindings.GetActualKey("raw_request_ids"));
+  const auto* raw_req_ids = context->Read<std::vector<uint64_t>>(
+      bindings.GetActualKey("raw_request_ids"));
   if (!raw_req_ids) {
     return AdapterValidationHelper::ReturnBufferTooSmall(
-        status, "Missing required context value: raw_request_ids", "raw_request_ids",
-        options.converter_id.c_str());
+        status, "Missing required context value: raw_request_ids",
+        "raw_request_ids", options.converter_id.c_str());
   }
 
   int count = static_cast<int>(invoice_jsons->size());
@@ -58,7 +56,8 @@ int EncodeCAbiInvoiceResult(AlgContext* context,
       destination->items, &cap, count, options.converter_id.c_str(), status);
   if (valid_ret != 0) return valid_ret;
 
-  std::vector<const StructuredDocumentBatch::value_type*> invoice_jsons_by_request;
+  std::vector<const StructuredDocumentBatch::value_type*>
+      invoice_jsons_by_request;
   if (!IndexResults(invoice_jsons, raw_req_ids, &invoice_jsons_by_request,
                     "invoice_jsons", options.converter_id.c_str(), status)) {
     return COMPANY_ALG_ERR_INVALID_INPUT;
@@ -76,8 +75,8 @@ int EncodeCAbiInvoiceResult(AlgContext* context,
         static_cast<int>(ocr_docs_by_request[i]->data.boxes.size());
     if (!IsSuccessfulDocument(invoice_jsons_by_request[i]->data)) {
       return AdapterValidationHelper::ReturnInvalidInput(
-          status, "Structured result failed or used fallback",
-          "invoice_jsons", options.converter_id.c_str(), i);
+          status, "Structured result failed or used fallback", "invoice_jsons",
+          options.converter_id.c_str(), i);
     }
     out_ptr->status_code = 0;
 
@@ -99,16 +98,15 @@ int EncodeOperatorInvoiceResult(AlgContext* context,
                                 const OutputPortBindings& bindings,
                                 const OutputEncodeOptions& options,
                                 ExternalOutputBatchView* destination,
-                                size_t* written_count,
-                                AdapterStatus* status) {
+                                size_t* written_count, AdapterStatus* status) {
   if (!context) {
     return AdapterValidationHelper::ReturnBufferTooSmall(
         status, "Null AlgContext passed to Encode", "context",
         options.converter_id.c_str());
   }
 
-  const auto* invoice_jsons =
-      context->Read<StructuredDocumentBatch>(bindings.GetActualKey("extracted_invoice_json"));
+  const auto* invoice_jsons = context->Read<StructuredDocumentBatch>(
+      bindings.GetActualKey("extracted_invoice_json"));
   if (!invoice_jsons) {
     return AdapterValidationHelper::ReturnBufferTooSmall(
         status, "Missing required context value: extracted_invoice_json",
@@ -123,22 +121,23 @@ int EncodeOperatorInvoiceResult(AlgContext* context,
         options.converter_id.c_str());
   }
 
-  const auto* raw_req_ids =
-      context->Read<std::vector<uint64_t>>(bindings.GetActualKey("raw_request_ids"));
+  const auto* raw_req_ids = context->Read<std::vector<uint64_t>>(
+      bindings.GetActualKey("raw_request_ids"));
   if (!raw_req_ids) {
     return AdapterValidationHelper::ReturnBufferTooSmall(
-        status, "Missing required context value: raw_request_ids", "raw_request_ids",
-        options.converter_id.c_str());
+        status, "Missing required context value: raw_request_ids",
+        "raw_request_ids", options.converter_id.c_str());
   }
 
   size_t count = invoice_jsons->size();
   if (destination->count < count) {
     return AdapterValidationHelper::ReturnBufferTooSmall(
-        status, "Destination item count is less than output count", "destination",
-        options.converter_id.c_str());
+        status, "Destination item count is less than output count",
+        "destination", options.converter_id.c_str());
   }
 
-  std::vector<const StructuredDocumentBatch::value_type*> invoice_jsons_by_request;
+  std::vector<const StructuredDocumentBatch::value_type*>
+      invoice_jsons_by_request;
   if (!IndexResults(invoice_jsons, raw_req_ids, &invoice_jsons_by_request,
                     "invoice_jsons", options.converter_id.c_str(), status)) {
     return COMPANY_ALG_ERR_INVALID_INPUT;
@@ -162,18 +161,21 @@ int EncodeOperatorInvoiceResult(AlgContext* context,
         static_cast<int>(ocr_docs_by_request[i]->data.boxes.size());
     if (!IsSuccessfulDocument(invoice_jsons_by_request[i]->data)) {
       return AdapterValidationHelper::ReturnInvalidInput(
-          status, "Structured result failed or used fallback",
-          "invoice_jsons", options.converter_id.c_str(), static_cast<int>(i));
+          status, "Structured result failed or used fallback", "invoice_jsons",
+          options.converter_id.c_str(), static_cast<int>(i));
     }
     out->status_code = 0;
 
     std::string err;
     int ret = CopyToOperatorString(
-        invoice_jsons_by_request[i]->data.json_payload.c_str(), out->result_json,
-        destination->GetSlotCapacity("od_out", "result_json", 1023), "result_json", &err);
+        invoice_jsons_by_request[i]->data.json_payload.c_str(),
+        out->result_json,
+        destination->GetSlotCapacity("od_out", "result_json", 1023),
+        "result_json", &err);
     if (ret != 0) {
       return AdapterValidationHelper::ReturnBufferTooSmall(
-          status, err.empty() ? "Buffer too small for result_json" : err.c_str(),
+          status,
+          err.empty() ? "Buffer too small for result_json" : err.c_str(),
           "result_json", options.converter_id.c_str(), static_cast<int>(i));
     }
   }
@@ -193,12 +195,17 @@ OutputConverterDefinition MakeCAbiInvoiceResultOutputConverter() {
   def.max_batch_size = 64;
   def.capacity_policy = "reject_overflow";
   def.thread_model = "stateless";
-  def.external_slots = {
-      {"outputs", "CompanyOcrDocOutputStruct", PortDirection::kOutput, true,
-       "CompanyOcrDocOutputStruct", "", {"extracted_invoice_json"}}};
+  def.external_slots = {{"outputs",
+                         "CompanyOcrDocOutputStruct",
+                         PortDirection::kOutput,
+                         true,
+                         "CompanyOcrDocOutputStruct",
+                         "",
+                         {"extracted_invoice_json"}}};
   def.logical_ports = {
       NodePortDefinition("raw_request_ids", "vector<uint64>", true, "1:1"),
-      NodePortDefinition("extracted_invoice_json", "StructuredDocumentBatch", true, "1:1"),
+      NodePortDefinition("extracted_invoice_json", "StructuredDocumentBatch",
+                         true, "1:1"),
       NodePortDefinition("ocr_docs", "OcrDocumentBatch", true, "1:1")};
   def.encode_fn = &EncodeCAbiInvoiceResult;
   return def;
@@ -215,12 +222,17 @@ OutputConverterDefinition MakeOperatorInvoiceResultOutputConverter() {
   def.max_batch_size = 64;
   def.capacity_policy = "reject_overflow";
   def.thread_model = "stateless";
-  def.external_slots = {
-      {"od_out", "CompanyOdOutput", PortDirection::kOutput, true,
-       "CompanyOdOutput", "od_out", {"result_json"}}};
+  def.external_slots = {{"od_out",
+                         "CompanyOdOutput",
+                         PortDirection::kOutput,
+                         true,
+                         "CompanyOdOutput",
+                         "od_out",
+                         {"result_json"}}};
   def.logical_ports = {
       NodePortDefinition("raw_request_ids", "vector<uint64>", true, "1:1"),
-      NodePortDefinition("extracted_invoice_json", "StructuredDocumentBatch", true, "1:1"),
+      NodePortDefinition("extracted_invoice_json", "StructuredDocumentBatch",
+                         true, "1:1"),
       NodePortDefinition("ocr_docs", "OcrDocumentBatch", true, "1:1")};
   def.encode_fn = &EncodeOperatorInvoiceResult;
   return def;

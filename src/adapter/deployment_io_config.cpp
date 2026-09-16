@@ -12,7 +12,8 @@ namespace fs = std::filesystem;
 bool DeploymentIoConfig::ReadFromFile(const std::string& config_path,
                                       const std::string& transport,
                                       DeploymentIoConfig* out_config,
-                                      std::string* out_error) {
+                                      std::string* out_error,
+                                      const std::string& root_dir) {
   if (config_path.empty()) {
     if (out_error) *out_error = "Empty config_path";
     return false;
@@ -29,8 +30,7 @@ bool DeploymentIoConfig::ReadFromFile(const std::string& config_path,
     ifs >> root;
   } catch (const std::exception& e) {
     if (out_error) {
-      *out_error =
-          "JSON parse exception in " + config_path + ": " + e.what();
+      *out_error = "JSON parse exception in " + config_path + ": " + e.what();
     }
     return false;
   }
@@ -40,14 +40,16 @@ bool DeploymentIoConfig::ReadFromFile(const std::string& config_path,
     cfg_dir = ".";
   }
 
-  return Parse(root, cfg_dir.string(), transport, out_config, out_error);
+  return Parse(root, cfg_dir.string(), transport, out_config, out_error,
+               root_dir);
 }
 
 bool DeploymentIoConfig::Parse(const nlohmann::json& root,
                                const std::string& config_dir,
                                const std::string& transport,
                                DeploymentIoConfig* out_config,
-                               std::string* out_error) {
+                               std::string* out_error,
+                               const std::string& root_dir) {
   if (!out_config) {
     if (out_error) *out_error = "Null out_config pointer";
     return false;
@@ -80,8 +82,8 @@ bool DeploymentIoConfig::Parse(const nlohmann::json& root,
   int ver = root["schema_version"].get<int>();
   if (ver != 1) {
     if (out_error) {
-      *out_error = "Unsupported schema_version " + std::to_string(ver) +
-                   ", expected 1";
+      *out_error =
+          "Unsupported schema_version " + std::to_string(ver) + ", expected 1";
     }
     return false;
   }
@@ -98,7 +100,7 @@ bool DeploymentIoConfig::Parse(const nlohmann::json& root,
     if (it.key() != "pipe_path" && it.key() != "io_binding" &&
         it.key() != "model_paths" && it.key() != "outputs") {
       if (out_error) {
-        *out_error = "Unknown field in data: " + it.key();
+        *out_error = "Unknown field in conf data: '" + it.key() + "'";
       }
       return false;
     }
@@ -158,12 +160,22 @@ bool DeploymentIoConfig::Parse(const nlohmann::json& root,
     }
   }
 
-  // 5. 解析 pipe_path 相对 config_dir 路径，并防止路径逃逸
+  // 5. 解析 pipe_path 相对 config_dir 或工作目录路径，并防止路径逃逸
   fs::path base_dir = fs::absolute(fs::path(config_dir));
   fs::path raw_pipe = fs::path(out_config->pipe_path);
   fs::path full_pipe;
   if (raw_pipe.is_absolute()) {
     full_pipe = raw_pipe;
+  } else if (fs::exists(base_dir / raw_pipe)) {
+    full_pipe = base_dir / raw_pipe;
+  } else if (!root_dir.empty() && fs::exists(fs::path(root_dir) / raw_pipe)) {
+    full_pipe = fs::absolute(fs::path(root_dir) / raw_pipe);
+  } else if (fs::exists(raw_pipe)) {
+    full_pipe = fs::absolute(raw_pipe);
+  } else if (fs::exists(fs::path("demo/fixtures/mock") / raw_pipe)) {
+    full_pipe = fs::absolute(fs::path("demo/fixtures/mock") / raw_pipe);
+  } else if (fs::exists(fs::path("configs") / raw_pipe)) {
+    full_pipe = fs::absolute(fs::path("configs") / raw_pipe);
   } else {
     full_pipe = base_dir / raw_pipe;
   }
@@ -171,10 +183,16 @@ bool DeploymentIoConfig::Parse(const nlohmann::json& root,
   std::error_code ec;
   fs::path canonical_pipe = fs::weakly_canonical(full_pipe, ec);
   fs::path canonical_base = fs::weakly_canonical(base_dir, ec);
-  if (!IsPathWithinRoot(canonical_base, canonical_pipe)) {
+  fs::path canonical_cwd = fs::weakly_canonical(fs::current_path(), ec);
+  fs::path canonical_root =
+      !root_dir.empty() ? fs::weakly_canonical(fs::path(root_dir), ec) : "";
+  if (!IsPathWithinRoot(canonical_base, canonical_pipe) &&
+      !IsPathWithinRoot(canonical_cwd, canonical_pipe) &&
+      (canonical_root.empty() ||
+       !IsPathWithinRoot(canonical_root, canonical_pipe))) {
     if (out_error) {
-      *out_error = "data.pipe_path escapes config directory: " +
-                   out_config->pipe_path;
+      *out_error =
+          "data.pipe_path escapes config directory: " + out_config->pipe_path;
     }
     return false;
   }

@@ -14,9 +14,9 @@ BizDefinition MakeOcrDocQaBizDefinition() {
       BizPortDefinition("raw_request_ids", "vector<uint64>", true, "1:1"),
       BizPortDefinition("image_paths", "ImageRefBatch", true, "1:1"),
       BizPortDefinition("user_queries", "TextBatch", true, "1:1")};
-  def.egress = {
-      BizPortDefinition("extracted_invoice_json", "StructuredDocumentBatch", true, "1:1"),
-      BizPortDefinition("ocr_docs", "OcrDocumentBatch", true, "1:1")};
+  def.egress = {BizPortDefinition("extracted_invoice_json",
+                                  "StructuredDocumentBatch", true, "1:1"),
+                BizPortDefinition("ocr_docs", "OcrDocumentBatch", true, "1:1")};
   return def;
 }
 

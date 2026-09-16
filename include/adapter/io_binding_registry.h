@@ -31,6 +31,7 @@ class IoBindingRegistry {
   bool Audit(std::vector<std::string>* out_errors = nullptr) const;
 
   void ClearForTesting();
+  void ResetConflictForTesting();
 
  private:
   IoBindingRegistry() = default;

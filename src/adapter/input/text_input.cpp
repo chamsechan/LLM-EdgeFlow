@@ -17,8 +17,7 @@ constexpr size_t kMaxSentenceLen = 64 * 1024;  // 64 KiB
 
 int DecodeCAbiTextInput(const ExternalInputBatchView& source,
                         const InputDecodeOptions& options,
-                        const InputPortBindings& bindings,
-                        AlgContext* context,
+                        const InputPortBindings& bindings, AlgContext* context,
                         AdapterStatus* status) {
   if (!context) {
     return AdapterValidationHelper::ReturnInvalidInput(
@@ -70,8 +69,7 @@ int DecodeCAbiTextInput(const ExternalInputBatchView& source,
 int DecodeOperatorEntityInput(const ExternalInputBatchView& source,
                               const InputDecodeOptions& options,
                               const InputPortBindings& bindings,
-                              AlgContext* context,
-                              AdapterStatus* status) {
+                              AlgContext* context, AdapterStatus* status) {
   if (!context) {
     return AdapterValidationHelper::ReturnInvalidInput(
         status, "Null AlgContext passed to Decode", "context",
@@ -89,8 +87,7 @@ int DecodeOperatorEntityInput(const ExternalInputBatchView& source,
   sentences.reserve(source.count);
 
   for (size_t i = 0; i < source.count; ++i) {
-    const auto* in =
-        source.GetSlot<CompanyOperatorEntityInput>("entity_in", i);
+    const auto* in = source.GetSlot<CompanyOperatorEntityInput>("entity_in", i);
     if (!in) {
       return AdapterValidationHelper::ReturnInvalidInput(
           status, "Missing entity_in input slot or slot item is null",
@@ -99,8 +96,8 @@ int DecodeOperatorEntityInput(const ExternalInputBatchView& source,
     if (!in->sentence_text || in->sentence_text->length < 0 ||
         (in->sentence_text->length > 0 && !in->sentence_text->data)) {
       return AdapterValidationHelper::ReturnInvalidInput(
-          status, "sentence_text string pointer is null or invalid", "sentence_text",
-          options.converter_id.c_str(), static_cast<int>(i));
+          status, "sentence_text string pointer is null or invalid",
+          "sentence_text", options.converter_id.c_str(), static_cast<int>(i));
     }
     if (static_cast<size_t>(in->sentence_text->length) > kMaxSentenceLen) {
       return AdapterValidationHelper::ReturnInvalidInput(
@@ -127,8 +124,7 @@ int DecodeOperatorEntityInput(const ExternalInputBatchView& source,
 int DecodeOperatorKeywordInput(const ExternalInputBatchView& source,
                                const InputDecodeOptions& options,
                                const InputPortBindings& bindings,
-                               AlgContext* context,
-                               AdapterStatus* status) {
+                               AlgContext* context, AdapterStatus* status) {
   if (!context) {
     return AdapterValidationHelper::ReturnInvalidInput(
         status, "Null AlgContext passed to Decode", "context",
@@ -156,8 +152,8 @@ int DecodeOperatorKeywordInput(const ExternalInputBatchView& source,
     if (!in->sentence_text || in->sentence_text->length < 0 ||
         (in->sentence_text->length > 0 && !in->sentence_text->data)) {
       return AdapterValidationHelper::ReturnInvalidInput(
-          status, "sentence_text string pointer is null or invalid", "sentence_text",
-          options.converter_id.c_str(), static_cast<int>(i));
+          status, "sentence_text string pointer is null or invalid",
+          "sentence_text", options.converter_id.c_str(), static_cast<int>(i));
     }
     if (static_cast<size_t>(in->sentence_text->length) > kMaxSentenceLen) {
       return AdapterValidationHelper::ReturnInvalidInput(
@@ -191,12 +187,15 @@ InputConverterDefinition MakeCAbiTextInputConverter() {
   def.max_batch_size = 64;
   def.ownership_policy = "copy_in";
   def.thread_model = "stateless";
-  def.external_slots = {
-      {"sentence_text", "CompanyEntityInputStruct", PortDirection::kInput, true,
-       "CompanyEntityInputStruct", "", {}}};
+  def.external_slots = {{"sentence_text",
+                         "CompanyEntityInputStruct",
+                         PortDirection::kInput,
+                         true,
+                         "CompanyEntityInputStruct",
+                         "",
+                         {}}};
   def.logical_ports = {
-      NodePortDefinition("raw_request_ids", "vector<uint64>", true,
-                         "1:1"),
+      NodePortDefinition("raw_request_ids", "vector<uint64>", true, "1:1"),
       NodePortDefinition("input_sentences", "TextBatch", true, "1:1")};
   def.decode_fn = &DecodeCAbiTextInput;
   return def;
@@ -212,12 +211,15 @@ InputConverterDefinition MakeOperatorEntityInputConverter() {
   def.max_batch_size = 64;
   def.ownership_policy = "copy_in";
   def.thread_model = "stateless";
-  def.external_slots = {
-      {"entity_in", "CompanyOperatorEntityInput", PortDirection::kInput, true,
-       "entity_in", "entity_in", {}}};
+  def.external_slots = {{"entity_in",
+                         "CompanyOperatorEntityInput",
+                         PortDirection::kInput,
+                         true,
+                         "entity_in",
+                         "entity_in",
+                         {}}};
   def.logical_ports = {
-      NodePortDefinition("raw_request_ids", "vector<uint64>", true,
-                         "1:1"),
+      NodePortDefinition("raw_request_ids", "vector<uint64>", true, "1:1"),
       NodePortDefinition("input_sentences", "TextBatch", true, "1:1")};
   def.decode_fn = &DecodeOperatorEntityInput;
   return def;
@@ -233,12 +235,15 @@ InputConverterDefinition MakeOperatorKeywordInputConverter() {
   def.max_batch_size = 64;
   def.ownership_policy = "copy_in";
   def.thread_model = "stateless";
-  def.external_slots = {
-      {"keyword_in", "CompanyOperatorKeywordInput", PortDirection::kInput, true,
-       "keyword_in", "keyword_in", {}}};
+  def.external_slots = {{"keyword_in",
+                         "CompanyOperatorKeywordInput",
+                         PortDirection::kInput,
+                         true,
+                         "keyword_in",
+                         "keyword_in",
+                         {}}};
   def.logical_ports = {
-      NodePortDefinition("raw_request_ids", "vector<uint64>", true,
-                         "1:1"),
+      NodePortDefinition("raw_request_ids", "vector<uint64>", true, "1:1"),
       NodePortDefinition("input_sentences", "TextBatch", true, "1:1")};
   def.decode_fn = &DecodeOperatorKeywordInput;
   return def;

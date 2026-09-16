@@ -7,7 +7,7 @@
 #include <thread>
 #include <vector>
 
-#include "adapter/biz_adapter_registry.h"
+#include "adapter/io_binding_registry.h"
 #include "adapter/io_catalog.h"
 #include "core/node_interface.h"
 #include "core/node_registry.h"
@@ -75,20 +75,14 @@ TEST_F(CatalogContractSsotTest, AllProductionNodesHaveValidDefinitions) {
 }
 
 TEST_F(CatalogContractSsotTest, BizContractsDoNotDependOnDeploymentVariants) {
-  for (const auto type : {ALG_BIZ_TYPE_ENTITY_EXTRACT, ALG_BIZ_TYPE_DOC_QA}) {
-    const auto adapter = BizAdapterRegistry::Instance().GetAdapter(type);
-    ASSERT_NE(adapter, nullptr);
-    EXPECT_EQ(adapter->GetDescriptor().biz_definitions.size(), 1U);
+  for (const char* biz : {"entity_extract_v1", "smart_doc_qa_v1"}) {
+    EXPECT_TRUE(PipelineCatalog::FindBiz(biz).has_value());
   }
   for (const char* name :
        {"entity_extract_0.6b_v1", "entity_extract_llamacpp_0.6b_v1",
         "smart_doc_qa_onnx_llamacpp_v1", "smart_doc_qa_rerank_llm_v1"}) {
     EXPECT_FALSE(PipelineCatalog::FindBiz(name));
-    const auto adapter = BizAdapterRegistry::Instance().GetAdapter(
-        std::string(name).find("entity") == 0 ? ALG_BIZ_TYPE_ENTITY_EXTRACT
-                                              : ALG_BIZ_TYPE_DOC_QA);
-    ASSERT_NE(adapter, nullptr);
-    EXPECT_FALSE(adapter->ValidatePipelineBinding(name));
+    EXPECT_EQ(IoBindingRegistry::Instance().FindBinding(name), nullptr);
   }
 }
 

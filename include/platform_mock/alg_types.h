@@ -11,34 +11,11 @@
 extern "C" {
 #endif
 
-// 业务类型枚举
-typedef enum {
-  ALG_BIZ_TYPE_UNKNOWN = 0,
-  ALG_BIZ_TYPE_DOC_QA = 1,  // 业务 3: 智能长文档问答 (Embedding + LLM)
-  ALG_BIZ_TYPE_KEYWORD_MATCH =
-      2,  // 业务 1: 关注词匹配业务 (无模型, Control动态词表)
-  ALG_BIZ_TYPE_ENTITY_EXTRACT = 3,  // 业务 2: 实体/名词提取 (0.6B LLM)
-  ALG_BIZ_TYPE_COMPLIANCE_AUDIT =
-      4,  // 业务 4: 智能对话风控质检 (Embedding + Reranker + LLM 多模型多节点)
-  ALG_BIZ_TYPE_OCR_DOC_QA = 5,  // 业务 5: 智能多模态图文票据抽取 (OCR + LLM)
-  ALG_BIZ_TYPE_AUDIO_ASR_INTENT =
-      6,  // 业务 6: 语音识别与意图槽位抽取 (Audio ASR + NLU)
-  ALG_BIZ_TYPE_CROSS_RERANK =
-      7,  // 业务 7: 纯语义精排打分 (Query-Passage Cross-Encoder)
-  // Reuses CompanyEntityInputStruct/CompanyEntityOutputStruct: sentence_text
-  // carries the complete request JSON; entities_json carries the response JSON.
-  ALG_BIZ_TYPE_TRANSLATE = 8,
-  // Force a 32-bit ABI representation and keep positive invalid-value probes
-  // representable when enum sanitization is enabled.
-  ALG_BIZ_TYPE_MAX_GUARD = INT32_MAX
-} CompanyAlgBizType;
-
 // 句柄创建参数结构体
 typedef struct {
-  const char* config_file_path;  // 业务配置文件路径 (JSON)
+  const char* config_file_path;  // 接入配置文件路径 (JSON, schema_version 1)
   const char* model_root_dir;  // 直接包含模型 artifact 与 sidecar 的部署目录
   int device_id;               // 目标加速设备 ID (如 NPU 0, GPU 0)
-  CompanyAlgBizType biz_type;  // 业务类型
 } CompanyAlgParamCreate;
 
 // 运行时动态控制参数结构体

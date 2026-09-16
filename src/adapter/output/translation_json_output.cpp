@@ -6,7 +6,6 @@
 #include "adapter/adapter_validation_helper.h"
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter.h"
-#include "adapter/operator_biz_bridge.h"
 #include "adapter/result_validation.h"
 #include "contracts/inference_payloads.h"
 #include "edgeflow/c_api.h"
@@ -20,8 +19,7 @@ int EncodeCAbiTranslationJson(AlgContext* context,
                               const OutputPortBindings& bindings,
                               const OutputEncodeOptions& options,
                               ExternalOutputBatchView* destination,
-                              size_t* written_count,
-                              AdapterStatus* status) {
+                              size_t* written_count, AdapterStatus* status) {
   if (!context) {
     return AdapterValidationHelper::ReturnBufferTooSmall(
         status, "Null AlgContext passed to Encode", "context",
@@ -36,38 +34,41 @@ int EncodeCAbiTranslationJson(AlgContext* context,
         options.converter_id.c_str());
   }
 
-  const auto* raw_req_ids =
-      context->Read<std::vector<uint64_t>>(bindings.GetActualKey("raw_request_ids"));
+  const auto* raw_req_ids = context->Read<std::vector<uint64_t>>(
+      bindings.GetActualKey("raw_request_ids"));
   if (!raw_req_ids) {
     return AdapterValidationHelper::ReturnBufferTooSmall(
-        status, "Missing required context value: raw_request_ids", "raw_request_ids",
-        options.converter_id.c_str());
+        status, "Missing required context value: raw_request_ids",
+        "raw_request_ids", options.converter_id.c_str());
   }
 
   int count = static_cast<int>(res->size());
-  int cap = static_cast<int>(destination->capacity > 0 ? destination->capacity
-                                                       : destination->count);
-  int valid_ret = AdapterValidationHelper::ValidateBatchOutputs(
-      destination->items, &cap, count, options.converter_id.c_str(), status);
-  if (valid_ret != 0) return valid_ret;
-
   std::vector<const TextBatch::value_type*> res_by_request;
   if (!IndexResults(res, raw_req_ids, &res_by_request, "res",
                     options.converter_id.c_str(), status)) {
     return COMPANY_ALG_ERR_INVALID_INPUT;
   }
 
+  std::vector<std::string> payloads(count);
+  for (int i = 0; i < count; ++i) {
+    nlohmann::json response = {{"translated", res_by_request[i]->data}};
+    payloads[i] = response.dump();
+  }
+
+  int cap = static_cast<int>(destination->capacity > 0 ? destination->capacity
+                                                       : destination->count);
+  int valid_ret = AdapterValidationHelper::ValidateBatchOutputs(
+      destination->items, &cap, count, options.converter_id.c_str(), status);
+  if (valid_ret != 0) return valid_ret;
+
   for (int i = 0; i < count; ++i) {
     auto* out_ptr = destination->GetCAbi<CompanyEntityOutputStruct>(i);
     out_ptr->request_id = (*raw_req_ids)[i];
     out_ptr->status_code = 0;
 
-    nlohmann::json response = {{"translated", res_by_request[i]->data}};
-    std::string payload = response.dump();
-
     if (!AdapterValidationHelper::CheckedStringCopy(
             out_ptr->entities_json, sizeof(out_ptr->entities_json),
-            payload.c_str(), "outputs[i].entities_json", i,
+            payloads[i].c_str(), "outputs[i].entities_json", i,
             options.converter_id.c_str(), status)) {
       return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     }
@@ -97,12 +98,12 @@ int EncodeOperatorTranslationJson(AlgContext* context,
         options.converter_id.c_str());
   }
 
-  const auto* raw_req_ids =
-      context->Read<std::vector<uint64_t>>(bindings.GetActualKey("raw_request_ids"));
+  const auto* raw_req_ids = context->Read<std::vector<uint64_t>>(
+      bindings.GetActualKey("raw_request_ids"));
   if (!raw_req_ids) {
     return AdapterValidationHelper::ReturnBufferTooSmall(
-        status, "Missing required context value: raw_request_ids", "raw_request_ids",
-        options.converter_id.c_str());
+        status, "Missing required context value: raw_request_ids",
+        "raw_request_ids", options.converter_id.c_str());
   }
 
   size_t count = res->size();
@@ -153,12 +154,15 @@ OutputConverterDefinition MakeCAbiTranslationJsonOutputConverter() {
   def.max_batch_size = 64;
   def.capacity_policy = "reject_overflow";
   def.thread_model = "stateless";
-  def.external_slots = {
-      {"entities_json", "CompanyEntityOutputStruct", PortDirection::kOutput,
-       true, "CompanyEntityOutputStruct", "", {"entities_json"}}};
+  def.external_slots = {{"entities_json",
+                         "CompanyEntityOutputStruct",
+                         PortDirection::kOutput,
+                         true,
+                         "CompanyEntityOutputStruct",
+                         "",
+                         {"entities_json"}}};
   def.logical_ports = {
-      NodePortDefinition("raw_request_ids", "vector<uint64>", true,
-                         "1:1"),
+      NodePortDefinition("raw_request_ids", "vector<uint64>", true, "1:1"),
       NodePortDefinition("llm_answers", "TextBatch", true, "1:1")};
   def.encode_fn = &EncodeCAbiTranslationJson;
   return def;
@@ -175,12 +179,15 @@ OutputConverterDefinition MakeOperatorTranslationJsonOutputConverter() {
   def.max_batch_size = 64;
   def.capacity_policy = "reject_overflow";
   def.thread_model = "stateless";
-  def.external_slots = {
-      {"entity_out", "CompanyOperatorEntityOutput", PortDirection::kOutput,
-       true, "CompanyOperatorEntityOutput", "entity_out", {"entities_json"}}};
+  def.external_slots = {{"entity_out",
+                         "CompanyOperatorEntityOutput",
+                         PortDirection::kOutput,
+                         true,
+                         "CompanyOperatorEntityOutput",
+                         "entity_out",
+                         {"entities_json"}}};
   def.logical_ports = {
-      NodePortDefinition("raw_request_ids", "vector<uint64>", true,
-                         "1:1"),
+      NodePortDefinition("raw_request_ids", "vector<uint64>", true, "1:1"),
       NodePortDefinition("llm_answers", "TextBatch", true, "1:1")};
   def.encode_fn = &EncodeOperatorTranslationJson;
   return def;

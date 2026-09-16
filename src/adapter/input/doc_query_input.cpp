@@ -19,8 +19,7 @@ constexpr size_t kMaxDocLen = 10 * 1024 * 1024;  // 10MB
 int DecodeCAbiDocQueryInput(const ExternalInputBatchView& source,
                             const InputDecodeOptions& options,
                             const InputPortBindings& bindings,
-                            AlgContext* context,
-                            AdapterStatus* status) {
+                            AlgContext* context, AdapterStatus* status) {
   if (!context) {
     return AdapterValidationHelper::ReturnInvalidInput(
         status, "Null AlgContext passed to Decode", "context",
@@ -76,8 +75,8 @@ int DecodeCAbiDocQueryInput(const ExternalInputBatchView& source,
           *context, bindings.GetActualKey("raw_request_ids"),
           std::move(raw_req_ids), options.converter_id.c_str(), status) ||
       !AdapterValidationHelper::PublishContextValue(
-          *context, bindings.GetActualKey("raw_docs"),
-          std::move(raw_docs), options.converter_id.c_str(), status) ||
+          *context, bindings.GetActualKey("raw_docs"), std::move(raw_docs),
+          options.converter_id.c_str(), status) ||
       !AdapterValidationHelper::PublishContextValue(
           *context, bindings.GetActualKey("raw_queries"),
           std::move(raw_queries), options.converter_id.c_str(), status)) {
@@ -90,8 +89,7 @@ int DecodeCAbiDocQueryInput(const ExternalInputBatchView& source,
 int DecodeOperatorDocQueryInput(const ExternalInputBatchView& source,
                                 const InputDecodeOptions& options,
                                 const InputPortBindings& bindings,
-                                AlgContext* context,
-                                AdapterStatus* status) {
+                                AlgContext* context, AdapterStatus* status) {
   if (!context) {
     return AdapterValidationHelper::ReturnInvalidInput(
         status, "Null AlgContext passed to Decode", "context",
@@ -115,8 +113,8 @@ int DecodeOperatorDocQueryInput(const ExternalInputBatchView& source,
     const auto* in = source.GetSlot<CompanyOperatorDocInput>("doc_in", i);
     if (!in) {
       return AdapterValidationHelper::ReturnInvalidInput(
-          status, "Missing doc_in input slot or slot item is null",
-          "doc_in", options.converter_id.c_str(), static_cast<int>(i));
+          status, "Missing doc_in input slot or slot item is null", "doc_in",
+          options.converter_id.c_str(), static_cast<int>(i));
     }
 
     if (!in->query_text || in->query_text->length < 0 ||
@@ -158,8 +156,8 @@ int DecodeOperatorDocQueryInput(const ExternalInputBatchView& source,
           *context, bindings.GetActualKey("raw_request_ids"),
           std::move(raw_req_ids), options.converter_id.c_str(), status) ||
       !AdapterValidationHelper::PublishContextValue(
-          *context, bindings.GetActualKey("raw_docs"),
-          std::move(raw_docs), options.converter_id.c_str(), status) ||
+          *context, bindings.GetActualKey("raw_docs"), std::move(raw_docs),
+          options.converter_id.c_str(), status) ||
       !AdapterValidationHelper::PublishContextValue(
           *context, bindings.GetActualKey("raw_queries"),
           std::move(raw_queries), options.converter_id.c_str(), status)) {
@@ -179,9 +177,13 @@ InputConverterDefinition MakeCAbiDocQueryInputConverter() {
   def.max_batch_size = 64;
   def.ownership_policy = "copy_in";
   def.thread_model = "stateless";
-  def.external_slots = {
-      {"inputs", "CompanyDocInputStruct", PortDirection::kInput, true,
-       "CompanyDocInputStruct", "", {}}};
+  def.external_slots = {{"inputs",
+                         "CompanyDocInputStruct",
+                         PortDirection::kInput,
+                         true,
+                         "CompanyDocInputStruct",
+                         "",
+                         {}}};
   def.logical_ports = {
       NodePortDefinition("raw_request_ids", "vector<uint64>", true, "1:1"),
       NodePortDefinition("raw_docs", "TextBatch", true, "1:1"),
@@ -200,9 +202,13 @@ InputConverterDefinition MakeOperatorDocQueryInputConverter() {
   def.max_batch_size = 64;
   def.ownership_policy = "copy_in";
   def.thread_model = "stateless";
-  def.external_slots = {
-      {"doc_in", "CompanyOperatorDocInput", PortDirection::kInput, true,
-       "CompanyOperatorDocInput", "doc_in", {}}};
+  def.external_slots = {{"doc_in",
+                         "CompanyOperatorDocInput",
+                         PortDirection::kInput,
+                         true,
+                         "CompanyOperatorDocInput",
+                         "doc_in",
+                         {}}};
   def.logical_ports = {
       NodePortDefinition("raw_request_ids", "vector<uint64>", true, "1:1"),
       NodePortDefinition("raw_docs", "TextBatch", true, "1:1"),

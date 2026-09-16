@@ -28,6 +28,7 @@ class IoConverterRegistry {
   std::vector<std::string> GetConflictErrors() const;
 
   void ClearForTesting();
+  void ResetConflictForTesting();
 
  private:
   IoConverterRegistry() = default;

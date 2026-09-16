@@ -149,17 +149,16 @@ nlohmann::json IoCatalog::ToJson(const PipelineCatalogSnapshot& snapshot,
 
   auto all_input_converters =
       IoConverterRegistry::Instance().AllInputConverters();
-  std::sort(all_input_converters.begin(), all_input_converters.end(),
-            [](const InputConverterDefinition& a,
-               const InputConverterDefinition& b) {
-              return a.converter_id < b.converter_id;
-            });
+  std::sort(
+      all_input_converters.begin(), all_input_converters.end(),
+      [](const InputConverterDefinition& a, const InputConverterDefinition& b) {
+        return a.converter_id < b.converter_id;
+      });
 
   nlohmann::json input_converters = nlohmann::json::array();
   for (const auto& c : all_input_converters) {
-    if (!biz_filter.empty() &&
-        active_input_converters.find(c.converter_id) ==
-            active_input_converters.end()) {
+    if (!biz_filter.empty() && active_input_converters.find(c.converter_id) ==
+                                   active_input_converters.end()) {
       continue;
     }
     input_converters.push_back(InputConverterToJson(c));
@@ -175,9 +174,8 @@ nlohmann::json IoCatalog::ToJson(const PipelineCatalogSnapshot& snapshot,
 
   nlohmann::json output_converters = nlohmann::json::array();
   for (const auto& c : all_output_converters) {
-    if (!biz_filter.empty() &&
-        active_output_converters.find(c.converter_id) ==
-            active_output_converters.end()) {
+    if (!biz_filter.empty() && active_output_converters.find(c.converter_id) ==
+                                   active_output_converters.end()) {
       continue;
     }
     output_converters.push_back(OutputConverterToJson(c));

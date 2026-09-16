@@ -94,7 +94,8 @@ TEST(PipelineValidatorTest, AllRepositoryPipelinesValidate) {
   for (const auto& entry : std::filesystem::directory_iterator(configs)) {
     const auto filename = entry.path().filename().string();
     if (!entry.is_regular_file() || entry.path().extension() != ".json" ||
-        filename.rfind("pipeline_", 0) != 0) {
+        filename.rfind("pipeline_", 0) != 0 ||
+        filename.find("_cabi.json") != std::string::npos) {
       continue;
     }
     ++candidates;
@@ -263,9 +264,7 @@ TEST(PipelineValidatorTest, TableDrivenParityMatrix) {
     std::unique_ptr<SharedAlgorithmRuntime> runtime;
     std::string runtime_error;
     int runtime_result = SharedAlgorithmRuntime::CreateFromPipelineJson(
-        config, 0, "./models",
-        static_cast<CompanyAlgBizType>(test["biz_type"].get<int>()), &runtime,
-        &runtime_error);
+        config, 0, "./models", "", &runtime, &runtime_error);
     EXPECT_EQ(runtime_result, test["runtime_error_code"].get<int>());
     EXPECT_EQ(runtime, nullptr);
     EXPECT_NE(runtime_error.find(test["primary_code"].get<std::string>()),

@@ -6,7 +6,6 @@
 #include "adapter/adapter_validation_helper.h"
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter.h"
-#include "adapter/operator_biz_bridge.h"
 #include "adapter/result_validation.h"
 #include "contracts/inference_payloads.h"
 #include "edgeflow/c_api.h"
@@ -19,8 +18,7 @@ int EncodeCAbiAudioResult(AlgContext* context,
                           const OutputPortBindings& bindings,
                           const OutputEncodeOptions& options,
                           ExternalOutputBatchView* destination,
-                          size_t* written_count,
-                          AdapterStatus* status) {
+                          size_t* written_count, AdapterStatus* status) {
   if (!context) {
     return AdapterValidationHelper::ReturnBufferTooSmall(
         status, "Null AlgContext passed to Encode", "context",
@@ -43,12 +41,12 @@ int EncodeCAbiAudioResult(AlgContext* context,
         options.converter_id.c_str());
   }
 
-  const auto* raw_req_ids =
-      context->Read<std::vector<uint64_t>>(bindings.GetActualKey("raw_request_ids"));
+  const auto* raw_req_ids = context->Read<std::vector<uint64_t>>(
+      bindings.GetActualKey("raw_request_ids"));
   if (!raw_req_ids) {
     return AdapterValidationHelper::ReturnBufferTooSmall(
-        status, "Missing required context value: raw_request_ids", "raw_request_ids",
-        options.converter_id.c_str());
+        status, "Missing required context value: raw_request_ids",
+        "raw_request_ids", options.converter_id.c_str());
   }
 
   int count = static_cast<int>(transcripts->size());
@@ -79,8 +77,9 @@ int EncodeCAbiAudioResult(AlgContext* context,
 
     if (!AdapterValidationHelper::CheckedStringCopy(
             out_ptr->transcribed_text, sizeof(out_ptr->transcribed_text),
-            transcripts_by_request[i]->data.c_str(), "outputs[i].transcribed_text",
-            i, options.converter_id.c_str(), status)) {
+            transcripts_by_request[i]->data.c_str(),
+            "outputs[i].transcribed_text", i, options.converter_id.c_str(),
+            status)) {
       return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     }
 
@@ -100,8 +99,7 @@ int EncodeOperatorAudioResult(AlgContext* context,
                               const OutputPortBindings& bindings,
                               const OutputEncodeOptions& options,
                               ExternalOutputBatchView* destination,
-                              size_t* written_count,
-                              AdapterStatus* status) {
+                              size_t* written_count, AdapterStatus* status) {
   if (!context) {
     return AdapterValidationHelper::ReturnBufferTooSmall(
         status, "Null AlgContext passed to Encode", "context",
@@ -124,19 +122,19 @@ int EncodeOperatorAudioResult(AlgContext* context,
         options.converter_id.c_str());
   }
 
-  const auto* raw_req_ids =
-      context->Read<std::vector<uint64_t>>(bindings.GetActualKey("raw_request_ids"));
+  const auto* raw_req_ids = context->Read<std::vector<uint64_t>>(
+      bindings.GetActualKey("raw_request_ids"));
   if (!raw_req_ids) {
     return AdapterValidationHelper::ReturnBufferTooSmall(
-        status, "Missing required context value: raw_request_ids", "raw_request_ids",
-        options.converter_id.c_str());
+        status, "Missing required context value: raw_request_ids",
+        "raw_request_ids", options.converter_id.c_str());
   }
 
   size_t count = transcripts->size();
   if (destination->count < count) {
     return AdapterValidationHelper::ReturnBufferTooSmall(
-        status, "Destination item count is less than output count", "destination",
-        options.converter_id.c_str());
+        status, "Destination item count is less than output count",
+        "destination", options.converter_id.c_str());
   }
 
   std::vector<const TextBatch::value_type*> transcripts_by_request;
@@ -151,7 +149,8 @@ int EncodeOperatorAudioResult(AlgContext* context,
   }
 
   for (size_t i = 0; i < count; ++i) {
-    auto* out = destination->GetSlot<CompanyOperatorAudioOutput>("audio_out", i);
+    auto* out =
+        destination->GetSlot<CompanyOperatorAudioOutput>("audio_out", i);
     if (!out) {
       return AdapterValidationHelper::ReturnBufferTooSmall(
           status, "Missing audio_out slot item", "audio_out",
@@ -167,20 +166,26 @@ int EncodeOperatorAudioResult(AlgContext* context,
     std::string err;
     int ret = CopyToOperatorString(
         transcripts_by_request[i]->data.c_str(), out->transcribed_text,
-        destination->GetSlotCapacity("audio_out", "transcribed_text", 511), "transcribed_text", &err);
+        destination->GetSlotCapacity("audio_out", "transcribed_text", 511),
+        "transcribed_text", &err);
     if (ret != 0) {
       return AdapterValidationHelper::ReturnBufferTooSmall(
-          status, err.empty() ? "Buffer too small for transcribed_text" : err.c_str(),
-          "transcribed_text", options.converter_id.c_str(), static_cast<int>(i));
+          status,
+          err.empty() ? "Buffer too small for transcribed_text" : err.c_str(),
+          "transcribed_text", options.converter_id.c_str(),
+          static_cast<int>(i));
     }
 
     ret = CopyToOperatorString(
         slot_json.c_str(), out->intent_slot_json,
-        destination->GetSlotCapacity("audio_out", "intent_slot_json", 1023), "intent_slot_json", &err);
+        destination->GetSlotCapacity("audio_out", "intent_slot_json", 1023),
+        "intent_slot_json", &err);
     if (ret != 0) {
       return AdapterValidationHelper::ReturnBufferTooSmall(
-          status, err.empty() ? "Buffer too small for intent_slot_json" : err.c_str(),
-          "intent_slot_json", options.converter_id.c_str(), static_cast<int>(i));
+          status,
+          err.empty() ? "Buffer too small for intent_slot_json" : err.c_str(),
+          "intent_slot_json", options.converter_id.c_str(),
+          static_cast<int>(i));
     }
   }
 
@@ -199,9 +204,13 @@ OutputConverterDefinition MakeCAbiAudioResultOutputConverter() {
   def.max_batch_size = 64;
   def.capacity_policy = "reject_overflow";
   def.thread_model = "stateless";
-  def.external_slots = {
-      {"outputs", "CompanyAudioOutputStruct", PortDirection::kOutput, true,
-       "CompanyAudioOutputStruct", "", {"transcribed_text", "intent_slot_json"}}};
+  def.external_slots = {{"outputs",
+                         "CompanyAudioOutputStruct",
+                         PortDirection::kOutput,
+                         true,
+                         "CompanyAudioOutputStruct",
+                         "",
+                         {"transcribed_text", "intent_slot_json"}}};
   def.logical_ports = {
       NodePortDefinition("raw_request_ids", "vector<uint64>", true, "1:1"),
       NodePortDefinition("transcripts", "TextBatch", true, "1:1"),
@@ -221,9 +230,13 @@ OutputConverterDefinition MakeOperatorAudioResultOutputConverter() {
   def.max_batch_size = 64;
   def.capacity_policy = "reject_overflow";
   def.thread_model = "stateless";
-  def.external_slots = {
-      {"audio_out", "CompanyOperatorAudioOutput", PortDirection::kOutput, true,
-       "CompanyOperatorAudioOutput", "audio_out", {"transcribed_text", "intent_slot_json"}}};
+  def.external_slots = {{"audio_out",
+                         "CompanyOperatorAudioOutput",
+                         PortDirection::kOutput,
+                         true,
+                         "CompanyOperatorAudioOutput",
+                         "audio_out",
+                         {"transcribed_text", "intent_slot_json"}}};
   def.logical_ports = {
       NodePortDefinition("raw_request_ids", "vector<uint64>", true, "1:1"),
       NodePortDefinition("transcripts", "TextBatch", true, "1:1"),

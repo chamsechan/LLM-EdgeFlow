@@ -21,8 +21,8 @@ int IoBindingResolver::ResolveFromFile(
     std::unique_ptr<ValidatedIoPlan>* out_plan, std::string* out_error) {
   DeploymentIoConfig config;
   std::string err;
-  if (!DeploymentIoConfig::ReadFromFile(config_path, transport, &config,
-                                        &err)) {
+  if (!DeploymentIoConfig::ReadFromFile(config_path, transport, &config, &err,
+                                        model_root_dir)) {
     if (out_error) *out_error = err;
     return -2;
   }
@@ -121,9 +121,10 @@ int IoBindingResolver::ResolveFromConfig(
                                                                  allocator);
       if (!val_binding) {
         if (out_error) {
-          *out_error = "No registered Operator output ValueType binding for slot '" +
-                       slot.slot_name + "' (type: " + slot_type +
-                       ", allocator: " + allocator + ")";
+          *out_error =
+              "No registered Operator output ValueType binding for slot '" +
+              slot.slot_name + "' (type: " + slot_type +
+              ", allocator: " + allocator + ")";
         }
         return -2;
       }
@@ -148,8 +149,7 @@ int IoBindingResolver::ResolveFromConfig(
   std::ifstream pipe_ifs(config.resolved_pipe_path);
   if (!pipe_ifs.is_open()) {
     if (out_error) {
-      *out_error =
-          "Failed to open pipeline file: " + config.resolved_pipe_path;
+      *out_error = "Failed to open pipeline file: " + config.resolved_pipe_path;
     }
     return -2;
   }
@@ -214,17 +214,16 @@ int IoBindingResolver::ResolveFromConfig(
 
   // 9. 调用 PipelineValidator 进行统一中性计划验证
   auto plan = std::make_unique<ValidatedPipelinePlan>(
-      PipelineValidator::ValidateAndPlan(resolved_pipeline_json,
-                                         ValidationPolicy::kStrict,
-                                         &io_boundary));
+      PipelineValidator::ValidateAndPlan(
+          resolved_pipeline_json, ValidationPolicy::kStrict, &io_boundary));
 
   if (!plan->report.ok) {
     if (out_error) {
       if (!plan->report.diagnostics.empty()) {
         const auto& d = plan->report.diagnostics.front();
-        *out_error = "Validation failed: " +
-                     std::string(DiagnosticCodeName(d.code)) + " at " +
-                     d.path + ": " + d.message;
+        *out_error =
+            "Validation failed: " + std::string(DiagnosticCodeName(d.code)) +
+            " at " + d.path + ": " + d.message;
       } else {
         *out_error = "Validation failed without diagnostics";
       }

@@ -21,12 +21,11 @@
 namespace alg_demo {
 
 /**
- * @brief 将 Demo 业务名映射为标准 CompanyAlgBizType 枚举
- * 从 DemoRegistry 获取业务自注册的权威类型
+ * @brief 从 DemoRegistry 获取业务自注册的权威接入绑定 ID
  */
-inline CompanyAlgBizType DemoBizToBizType(std::string_view demo_biz) {
+inline std::string DemoBizToExpectedBindingId(std::string_view demo_biz) {
   const auto* desc = DemoRegistry::Instance().Find(demo_biz);
-  return desc ? desc->biz_type : ALG_BIZ_TYPE_UNKNOWN;
+  return desc ? desc->expected_binding_id : "";
 }
 
 /**
@@ -80,8 +79,8 @@ inline bool ResolveModelRootAndConfig(const std::string& conf_path,
 inline bool ValidateConfigBizMatch(const std::string& conf_path,
                                    std::string_view expected_biz,
                                    std::string* error_msg) {
-  CompanyAlgBizType expected_type = DemoBizToBizType(expected_biz);
-  if (expected_type == ALG_BIZ_TYPE_UNKNOWN) {
+  std::string expected_binding = DemoBizToExpectedBindingId(expected_biz);
+  if (expected_binding.empty()) {
     if (error_msg) {
       *error_msg = "Unknown demo biz: " + std::string(expected_biz);
     }
@@ -94,8 +93,8 @@ inline bool ValidateConfigBizMatch(const std::string& conf_path,
 
   char err_buf[512] = {0};
   int ret = llm_edgeflow::operator_api::ValidateOperatorConfigBinding(
-      model_root.c_str(), cfg_rel.c_str(), static_cast<int32_t>(expected_type),
-      err_buf, sizeof(err_buf));
+      model_root.c_str(), cfg_rel.c_str(), expected_binding.c_str(), err_buf,
+      sizeof(err_buf));
 
   if (ret != 0) {
     if (error_msg) {

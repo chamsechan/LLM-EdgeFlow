@@ -124,8 +124,8 @@ def native(tool, arguments, root, document=None):
         raise RecipeError("Native " + arguments[0] + " failed", report)
     if arguments and arguments[0] == "catalog":
         schema_version = report.get("schema_version")
-        if schema_version != 3:
-            raise RecipeError(f"Unsupported Catalog schema version {schema_version}; dev_recipe requires Catalog v3", report)
+        if schema_version not in (3, 4):
+            raise RecipeError(f"Unsupported Catalog schema version {schema_version}; dev_recipe requires Catalog v3 or v4", report)
     return report
 
 

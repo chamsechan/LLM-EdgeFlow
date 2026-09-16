@@ -19,8 +19,7 @@ constexpr size_t kMaxQueryLen = 64 * 1024;
 int DecodeCAbiImageQueryInput(const ExternalInputBatchView& source,
                               const InputDecodeOptions& options,
                               const InputPortBindings& bindings,
-                              AlgContext* context,
-                              AdapterStatus* status) {
+                              AlgContext* context, AdapterStatus* status) {
   if (!context) {
     return AdapterValidationHelper::ReturnInvalidInput(
         status, "Null AlgContext passed to Decode", "context",
@@ -72,8 +71,8 @@ int DecodeCAbiImageQueryInput(const ExternalInputBatchView& source,
           *context, bindings.GetActualKey("raw_request_ids"),
           std::move(raw_req_ids), options.converter_id.c_str(), status) ||
       !AdapterValidationHelper::PublishContextValue(
-          *context, bindings.GetActualKey("image_paths"),
-          std::move(raw_images), options.converter_id.c_str(), status) ||
+          *context, bindings.GetActualKey("image_paths"), std::move(raw_images),
+          options.converter_id.c_str(), status) ||
       !AdapterValidationHelper::PublishContextValue(
           *context, bindings.GetActualKey("user_queries"),
           std::move(raw_queries), options.converter_id.c_str(), status)) {
@@ -86,8 +85,7 @@ int DecodeCAbiImageQueryInput(const ExternalInputBatchView& source,
 int DecodeOperatorImageQueryInput(const ExternalInputBatchView& source,
                                   const InputDecodeOptions& options,
                                   const InputPortBindings& bindings,
-                                  AlgContext* context,
-                                  AdapterStatus* status) {
+                                  AlgContext* context, AdapterStatus* status) {
   if (!context) {
     return AdapterValidationHelper::ReturnInvalidInput(
         status, "Null AlgContext passed to Decode", "context",
@@ -111,14 +109,14 @@ int DecodeOperatorImageQueryInput(const ExternalInputBatchView& source,
     const auto* frame = source.GetSlot<CompanyFrame>("frame", i);
     if (!frame) {
       return AdapterValidationHelper::ReturnInvalidInput(
-          status, "Missing frame input slot or slot item is null",
-          "frame", options.converter_id.c_str(), static_cast<int>(i));
+          status, "Missing frame input slot or slot item is null", "frame",
+          options.converter_id.c_str(), static_cast<int>(i));
     }
     const auto* query = source.GetSlot<CompanyString>("string", i);
     if (!query) {
       return AdapterValidationHelper::ReturnInvalidInput(
-          status, "Missing string input slot or slot item is null",
-          "string", options.converter_id.c_str(), static_cast<int>(i));
+          status, "Missing string input slot or slot item is null", "string",
+          options.converter_id.c_str(), static_cast<int>(i));
     }
 
     if (!frame->image_uri || frame->image_uri->length < 0 ||
@@ -149,15 +147,16 @@ int DecodeOperatorImageQueryInput(const ExternalInputBatchView& source,
 
     raw_req_ids.push_back(frame->request_id);
     raw_images.emplace_back(static_cast<uint32_t>(i), 0, std::move(image_path));
-    raw_queries.emplace_back(static_cast<uint32_t>(i), 0, std::move(query_prompt));
+    raw_queries.emplace_back(static_cast<uint32_t>(i), 0,
+                             std::move(query_prompt));
   }
 
   if (!AdapterValidationHelper::PublishContextValue(
           *context, bindings.GetActualKey("raw_request_ids"),
           std::move(raw_req_ids), options.converter_id.c_str(), status) ||
       !AdapterValidationHelper::PublishContextValue(
-          *context, bindings.GetActualKey("image_paths"),
-          std::move(raw_images), options.converter_id.c_str(), status) ||
+          *context, bindings.GetActualKey("image_paths"), std::move(raw_images),
+          options.converter_id.c_str(), status) ||
       !AdapterValidationHelper::PublishContextValue(
           *context, bindings.GetActualKey("user_queries"),
           std::move(raw_queries), options.converter_id.c_str(), status)) {
@@ -177,9 +176,13 @@ InputConverterDefinition MakeCAbiImageQueryInputConverter() {
   def.max_batch_size = 64;
   def.ownership_policy = "copy_in";
   def.thread_model = "stateless";
-  def.external_slots = {
-      {"inputs", "CompanyOcrDocInputStruct", PortDirection::kInput, true,
-       "CompanyOcrDocInputStruct", "", {}}};
+  def.external_slots = {{"inputs",
+                         "CompanyOcrDocInputStruct",
+                         PortDirection::kInput,
+                         true,
+                         "CompanyOcrDocInputStruct",
+                         "",
+                         {}}};
   def.logical_ports = {
       NodePortDefinition("raw_request_ids", "vector<uint64>", true, "1:1"),
       NodePortDefinition("image_paths", "ImageRefBatch", true, "1:1"),
@@ -198,9 +201,20 @@ InputConverterDefinition MakeOperatorImageQueryInputConverter() {
   def.max_batch_size = 64;
   def.ownership_policy = "copy_in";
   def.thread_model = "stateless";
-  def.external_slots = {
-      {"frame", "CompanyFrame", PortDirection::kInput, true, "CompanyFrame", "frame", {}},
-      {"string", "CompanyString", PortDirection::kInput, true, "CompanyString", "string", {}}};
+  def.external_slots = {{"frame",
+                         "CompanyFrame",
+                         PortDirection::kInput,
+                         true,
+                         "CompanyFrame",
+                         "frame",
+                         {}},
+                        {"string",
+                         "CompanyString",
+                         PortDirection::kInput,
+                         true,
+                         "CompanyString",
+                         "string",
+                         {}}};
   def.logical_ports = {
       NodePortDefinition("raw_request_ids", "vector<uint64>", true, "1:1"),
       NodePortDefinition("image_paths", "ImageRefBatch", true, "1:1"),

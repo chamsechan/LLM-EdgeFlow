@@ -5,8 +5,9 @@
 #include <unordered_map>
 #include <vector>
 
-#include "adapter/operator/operator_biz_bridge_registry.h"
+#include "adapter/io_converter.h"
 #include "adapter/operator/operator_output_pool.h"
+#include "adapter/operator/operator_value_type_registry.h"
 #include "edgeflow/operator/interface.h"
 
 namespace llm_edgeflow {
@@ -14,6 +15,7 @@ namespace llm_edgeflow {
 struct FrameOutputBinding {
   std::string key;
   std::string logical_name;
+  std::string type_suffix;
 };
 
 struct AcquiredOutputBlock {
@@ -24,16 +26,14 @@ struct AcquiredOutputBlock {
   std::string logical_name;
 };
 
-int ConvertOperatorInputs(
+int ValidateAndExtractOperatorInputs(
     const llm_edgeflow::operator_api::NamedIoBatch& inputs,
-    const OperatorBizBridgeDescriptor& bridge,
-    const ResolvedInputLimits& limits,
-    ProcessLocalShadowStorage* shadow_storage,
-    std::vector<const void*>* internal_dtos, std::string* error);
+    const InputConverterDefinition& in_conv, const ResolvedInputLimits& limits,
+    ExternalInputBatchView* out_view, std::string* error);
 
 int ResolveOperatorOutputs(
     const llm_edgeflow::operator_api::NamedIoBatch& outputs,
-    const OperatorBizBridgeDescriptor& bridge,
+    const OutputConverterDefinition& out_conv,
     std::vector<std::vector<FrameOutputBinding>>* frame_bindings,
     std::string* error);
 

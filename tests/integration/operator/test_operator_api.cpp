@@ -13,12 +13,13 @@
 #include <thread>
 #include <vector>
 
-#include "adapter/biz_adapter_registry.h"
 #include "adapter/biz_blackboard_keys.h"
-#include "adapter/operator/operator_biz_bridge_registry.h"
+#include "adapter/io_binding_registry.h"
+#include "adapter/io_converter_registry.h"
 #include "adapter/operator/operator_config_resolver.h"
 #include "adapter/operator/operator_value_type_registry.h"
 #include "core/common_contracts.h"
+#include "core/pipeline_catalog.h"
 #include "edgeflow/c_api.h"
 #include "edgeflow/operator/interface.h"
 #include "edgeflow/operator/types.h"
@@ -883,22 +884,19 @@ TEST_F(OperatorApiTest, ValidateOperatorConfigBindingApi) {
   // 1. 正常校验
   EXPECT_EQ(ValidateOperatorConfigBinding(
                 root_dir.c_str(), "configs/pipeline_keyword_match_rules.conf",
-                static_cast<int32_t>(ALG_BIZ_TYPE_KEYWORD_MATCH), err_buf,
-                sizeof(err_buf)),
+                "keyword_match.operator.v1", err_buf, sizeof(err_buf)),
             0);
 
   // 2. 业务不匹配
-  EXPECT_EQ(
-      ValidateOperatorConfigBinding(
-          root_dir.c_str(), "configs/pipeline_keyword_match_rules.conf",
-          static_cast<int32_t>(ALG_BIZ_TYPE_DOC_QA), err_buf, sizeof(err_buf)),
-      -3);
+  EXPECT_EQ(ValidateOperatorConfigBinding(
+                root_dir.c_str(), "configs/pipeline_keyword_match_rules.conf",
+                "doc_qa.operator.v1", err_buf, sizeof(err_buf)),
+            -3);
 
   // 3. 相对路径传入绝对路径 / 逃逸
-  EXPECT_EQ(ValidateOperatorConfigBinding(
-                root_dir.c_str(), "/etc/passwd",
-                static_cast<int32_t>(ALG_BIZ_TYPE_KEYWORD_MATCH), err_buf,
-                sizeof(err_buf)),
+  EXPECT_EQ(ValidateOperatorConfigBinding(root_dir.c_str(), "/etc/passwd",
+                                          "keyword_match.operator.v1", err_buf,
+                                          sizeof(err_buf)),
             -2);
 }
 
@@ -1190,8 +1188,10 @@ TEST_F(OperatorApiTest, OutputsConfigValidationFailClosed) {
   {
     std::ofstream ofs(conf_path);
     ofs << R"({
+      "schema_version": 1,
       "data": {
         "pipe_path": "configs/pipeline_keyword_match_rules.json",
+        "io_binding": "keyword_match.operator.v1",
         "mem_que": {
           "type": "keyword_out"
         }
@@ -1209,8 +1209,10 @@ TEST_F(OperatorApiTest, OutputsConfigValidationFailClosed) {
   {
     std::ofstream ofs(conf_path);
     ofs << R"({
+      "schema_version": 1,
       "data": {
-        "pipe_path": "configs/pipeline_keyword_match_rules.json"
+        "pipe_path": "configs/pipeline_keyword_match_rules.json",
+        "io_binding": "keyword_match.operator.v1"
       }
     })";
   }
@@ -1220,8 +1222,10 @@ TEST_F(OperatorApiTest, OutputsConfigValidationFailClosed) {
   {
     std::ofstream ofs(conf_path);
     ofs << R"({
+      "schema_version": 1,
       "data": {
         "pipe_path": "configs/pipeline_keyword_match_rules.json",
+        "io_binding": "keyword_match.operator.v1",
         "outputs": {
           "keyword_out": {
             "type": "doc_out"
@@ -1236,8 +1240,10 @@ TEST_F(OperatorApiTest, OutputsConfigValidationFailClosed) {
   {
     std::ofstream ofs(conf_path);
     ofs << R"({
+      "schema_version": 1,
       "data": {
         "pipe_path": "configs/pipeline_keyword_match_rules.json",
+        "io_binding": "keyword_match.operator.v1",
         "outputs": {
           "keyword_out": {
             "type": "keyword_out",
@@ -1254,8 +1260,10 @@ TEST_F(OperatorApiTest, OutputsConfigValidationFailClosed) {
   {
     std::ofstream ofs(conf_path);
     ofs << R"({
+      "schema_version": 1,
       "data": {
         "pipe_path": "configs/pipeline_keyword_match_rules.json",
+        "io_binding": "keyword_match.operator.v1",
         "outputs": {
           "keyword_out": {
             "type": "keyword_out",
@@ -1289,8 +1297,10 @@ TEST_F(OperatorApiTest, OutputsConfigValidationFailClosed) {
   {
     std::ofstream ofs(conf_path);
     ofs << R"({
+      "schema_version": 1,
       "data": {
         "pipe_path": "configs/pipeline_keyword_match_rules.json",
+        "io_binding": "keyword_match.operator.v1",
         "model_path": "models/unused.bin",
         "outputs": {
           "keyword_out": {
@@ -1308,8 +1318,10 @@ TEST_F(OperatorApiTest, OutputsConfigValidationFailClosed) {
   {
     std::ofstream ofs(conf_path);
     ofs << R"({
+      "schema_version": 1,
       "data": {
         "pipe_path": "configs/pipeline_keyword_match_rules.json",
+        "io_binding": "keyword_match.operator.v1",
         "outputs": {
           "keyword_out": {
             "type": "keyword_out",
@@ -1384,50 +1396,43 @@ TEST_F(OperatorApiTest, PathSandboxStrictBoundaries) {
   // 1. POSIX 绝对路径拒绝
   EXPECT_EQ(ValidateOperatorConfigBinding(
                 root_dir.c_str(), "/etc/pipeline.conf",
-                static_cast<int32_t>(ALG_BIZ_TYPE_KEYWORD_MATCH), err_buf,
-                sizeof(err_buf)),
+                "keyword_match.operator.v1", err_buf, sizeof(err_buf)),
             -2);
 
   // 2. Windows 盘符拒绝
-  EXPECT_EQ(ValidateOperatorConfigBinding(
-                root_dir.c_str(), "C:\\pipeline.conf",
-                static_cast<int32_t>(ALG_BIZ_TYPE_KEYWORD_MATCH), err_buf,
-                sizeof(err_buf)),
+  EXPECT_EQ(ValidateOperatorConfigBinding(root_dir.c_str(), "C:\\pipeline.conf",
+                                          "keyword_match.operator.v1", err_buf,
+                                          sizeof(err_buf)),
             -2);
 
   // 3. UNC 路径拒绝
   EXPECT_EQ(ValidateOperatorConfigBinding(
                 root_dir.c_str(), "\\\\server\\share\\pipeline.conf",
-                static_cast<int32_t>(ALG_BIZ_TYPE_KEYWORD_MATCH), err_buf,
-                sizeof(err_buf)),
+                "keyword_match.operator.v1", err_buf, sizeof(err_buf)),
             -2);
 
   // 4. .. 逃逸拒绝
-  EXPECT_EQ(ValidateOperatorConfigBinding(
-                root_dir.c_str(), "../../etc/passwd",
-                static_cast<int32_t>(ALG_BIZ_TYPE_KEYWORD_MATCH), err_buf,
-                sizeof(err_buf)),
+  EXPECT_EQ(ValidateOperatorConfigBinding(root_dir.c_str(), "../../etc/passwd",
+                                          "keyword_match.operator.v1", err_buf,
+                                          sizeof(err_buf)),
             -2);
 
   // 5. 目录而非普通文件拒绝
-  EXPECT_EQ(ValidateOperatorConfigBinding(
-                root_dir.c_str(), "configs",
-                static_cast<int32_t>(ALG_BIZ_TYPE_KEYWORD_MATCH), err_buf,
-                sizeof(err_buf)),
+  EXPECT_EQ(ValidateOperatorConfigBinding(root_dir.c_str(), "configs",
+                                          "keyword_match.operator.v1", err_buf,
+                                          sizeof(err_buf)),
             -2);
 
   // 6. 不存在的文件拒绝
   EXPECT_EQ(ValidateOperatorConfigBinding(
                 root_dir.c_str(), "configs/non_existent.conf",
-                static_cast<int32_t>(ALG_BIZ_TYPE_KEYWORD_MATCH), err_buf,
-                sizeof(err_buf)),
+                "keyword_match.operator.v1", err_buf, sizeof(err_buf)),
             -2);
 
   // 7. 路径前缀混淆拒绝 (例如目标根为 root，试图访问 root_extra 目录)
   EXPECT_EQ(ValidateOperatorConfigBinding(
                 root_dir.c_str(), "../configs_fake/pipeline.conf",
-                static_cast<int32_t>(ALG_BIZ_TYPE_KEYWORD_MATCH), err_buf,
-                sizeof(err_buf)),
+                "keyword_match.operator.v1", err_buf, sizeof(err_buf)),
             -2);
 
   // 8. 对 Create 接口同样严格拦截非普通文件与不存在文件
@@ -1906,8 +1911,10 @@ TEST_F(OperatorApiTest, ModelPathNonExistentFileAllowedWhileEscapeRejected) {
         root / "configs/pipeline_doc_qa_default.json");
     std::ofstream conf(root / "configs/model_paths.conf");
     conf << R"({
+      "schema_version": 1,
       "data": {
         "pipe_path": "configs/pipeline_doc_qa_default.json",
+        "io_binding": "doc_qa.operator.v1",
         "model_paths": {
           "embed_model_v1": "models/not_deployed_embed.bin",
           "llm_model_v1": "models/not_deployed_llm.bin"
@@ -1949,8 +1956,10 @@ TEST_F(OperatorApiTest, ModelPathNonExistentFileAllowedWhileEscapeRejected) {
         root / "configs/pipeline_audio_asr_intent.json");
     std::ofstream conf(root / "configs/single_model.conf");
     conf << R"({
+      "schema_version": 1,
       "data": {
         "pipe_path": "configs/pipeline_audio_asr_intent.json",
+        "io_binding": "audio_asr_intent.operator.v1",
         "model_paths": {
           "asr_model_v1": "deployment/asr_model_will_arrive_later.bin"
         },
@@ -2083,8 +2092,10 @@ TEST_F(OperatorApiTest, ModelPathNonExistentFileAllowedWhileEscapeRejected) {
           std::string("configs/outside_pipeline.json")}) {
       std::ofstream invalid_conf(root / "configs/invalid_pipe.conf");
       invalid_conf << nlohmann::json(
-          {{"data",
+          {{"schema_version", 1},
+           {"data",
             {{"pipe_path", pipe_path},
+             {"io_binding", "keyword_match.operator.v1"},
              {"outputs", {{"keyword_out", {{"type", "keyword_out"}}}}}}}});
       invalid_conf.close();
       EXPECT_EQ(llm_edgeflow::OperatorConfigResolver::Resolve(
@@ -2104,8 +2115,10 @@ TEST_F(OperatorApiTest, DotDotPrefixedControlFileNamesStayWithinRoot) {
                                  "configs/pipeline_keyword_match_rules.json",
                              root / "..configs/pipeline.json");
   std::ofstream(root / "..configs/pipeline.conf") << nlohmann::json(
-      {{"data",
+      {{"schema_version", 1},
+       {"data",
         {{"pipe_path", "..configs/pipeline.json"},
+         {"io_binding", "keyword_match.operator.v1"},
          {"outputs", {{"keyword_out", {{"type", "keyword_out"}}}}}}}});
 
   llm_edgeflow::ResolvedOperatorConfig resolved;
@@ -2135,8 +2148,10 @@ TEST_F(OperatorApiTest, VariableResultsUsePoolCapacityAndRollbackOnFailure) {
            {"config", {{"categories", {{"LONG", {word}}}}}}}}}};
     std::ofstream(temp.path() / "pipeline.json") << pipeline;
     std::ofstream(temp.path() / "pipeline.conf") << nlohmann::json(
-        {{"data",
+        {{"schema_version", 1},
+         {"data",
           {{"pipe_path", "pipeline.json"},
+           {"io_binding", "keyword_match.operator.v1"},
            {"outputs",
             {{"keyword_out",
               {{"type", "keyword_out"},
@@ -2199,8 +2214,10 @@ TEST_F(OperatorApiTest, MetadataTypeIdOutOfInt32RangeIsRejected) {
   {
     std::ofstream conf(root / "configs/pipe_overflow.conf");
     conf << R"({
+      "schema_version": 1,
       "data": {
         "pipe_path": "configs/pipeline_keyword_match_rules.json",
+        "io_binding": "keyword_match.operator.v1",
         "outputs": {
           "keyword_out": {
             "type": "keyword_out",
@@ -2224,8 +2241,10 @@ TEST_F(OperatorApiTest, MetadataTypeIdOutOfInt32RangeIsRejected) {
   {
     std::ofstream conf(root / "configs/pipe_underflow.conf");
     conf << R"({
+      "schema_version": 1,
       "data": {
         "pipe_path": "configs/pipeline_keyword_match_rules.json",
+        "io_binding": "keyword_match.operator.v1",
         "outputs": {
           "keyword_out": {
             "type": "keyword_out",
@@ -2249,8 +2268,10 @@ TEST_F(OperatorApiTest, MetadataTypeIdOutOfInt32RangeIsRejected) {
   {
     std::ofstream conf(root / "configs/pipe_not_integer.conf");
     conf << R"({
+      "schema_version": 1,
       "data": {
         "pipe_path": "configs/pipeline_keyword_match_rules.json",
+        "io_binding": "keyword_match.operator.v1",
         "outputs": {
           "keyword_out": {
             "type": "keyword_out",
@@ -2274,59 +2295,6 @@ TEST_F(OperatorApiTest, MetadataTypeIdOutOfInt32RangeIsRejected) {
 namespace llm_edgeflow::test_support {
 namespace {
 
-constexpr auto kNestedOutputBiz = static_cast<CompanyAlgBizType>(49001);
-
-// Reuse the complete keyword C ABI contract. Only the test Operator bridge has
-// additional external output carriers; the algorithm and public ABI stay real.
-class NestedOutputTestAdapter final : public IBizAdapter {
- public:
-  CompanyAlgBizType BizType() const override { return kNestedOutputBiz; }
-  const char* AdapterName() const override { return "NestedOutputTest"; }
-  const char* ResultTypeName() const override {
-    return KeywordResult::kTypeName;
-  }
-
-  const AdapterDescriptor& GetDescriptor() const override {
-    static const AdapterDescriptor descriptor{
-        kNestedOutputBiz,
-        "NestedOutputTest",
-        COMPANY_ALG_ABI_VERSION,
-        "CompanyKeywordInputStruct",
-        "CompanyKeywordOutputStruct",
-        64,
-        OwnershipPolicy::kCopyIn,
-        ThreadModel::kStatelessThreadSafe,
-        OutputCardinality::kOneToOne,
-        {{"test_nested_output_v1",
-          "test_nested_output",
-          "Test registered nested output allocation",
-          {RequiredBizInput(kRawRequestIds), RequiredBizInput(kInputSentences)},
-          {BizOutput(kRuleMatches)}}}};
-    return descriptor;
-  }
-
-  int Unpack(const void** inputs, int count, AlgContext* context,
-             AdapterStatus* status) const override {
-    return KeywordAdapter()->Unpack(inputs, count, context, status);
-  }
-  int Pack(AlgContext* context, void** outputs, int* count,
-           AdapterStatus* status) const override {
-    return KeywordAdapter()->Pack(context, outputs, count, status);
-  }
-  int PackResultBatch(AlgContext* context, void** outputs, int* count,
-                      AdapterStatus* status) const override {
-    return KeywordAdapter()->PackResultBatch(context, outputs, count, status);
-  }
-
- private:
-  static std::shared_ptr<IBizAdapter> KeywordAdapter() {
-    return BizAdapterRegistry::Instance().GetAdapter(
-        ALG_BIZ_TYPE_KEYWORD_MATCH);
-  }
-};
-
-REGISTER_BIZ_ADAPTER(NestedOutputTestAdapter);
-
 void RegisterNestedOutputTestTypes() {
   RegisterOperatorValueType(MakeNestedOutputBinding());
   RegisterOperatorOutputAllocator("test_nested_standard",
@@ -2337,44 +2305,108 @@ void RegisterNestedOutputTestTypes() {
 
 REGISTER_OPERATOR_VALUE_TYPE(RegisterNestedOutputTestTypes);
 
-void RegisterNestedOutputTestBridge() {
-  OperatorBizBridgeDescriptor bridge;
-  bridge.biz_type = kNestedOutputBiz;
-  bridge.adapter_name = "NestedOutputTest";
-  bridge.registration_identity = "NestedOutputTestBridge";
-  bridge.internal_input_type_name = "CompanyKeywordInputStruct";
-  bridge.internal_output_type_name = KeywordResult::kTypeName;
-  bridge.input_slots = {
-      {"keyword_in", "keyword_in", IoDirection::kInput, true}};
-  bridge.output_slots = {{"main", "test_nested_out", IoDirection::kOutput, true,
-                          "result", ConvertNestedOutput},
-                         {"audit", "test_nested_out", IoDirection::kOutput,
-                          true, "audit", ConvertNestedOutput}};
-  bridge.convert_sample_input =
-      [](const std::unordered_map<std::string, const void*>& slots,
-         ProcessLocalShadowStorage& storage, const void** internal,
-         std::string*) {
-        const auto* source = static_cast<const CompanyOperatorKeywordInput*>(
-            slots.at("keyword_in"));
-        auto* input = storage.AllocateShadowDto<CompanyKeywordInputStruct>();
-        input->request_id = source->request_id;
-        input->sentence_text = storage.StoreString(source->sentence_text);
-        *internal = input;
-        return 0;
-      };
-  bridge.create_shadow_output_dto =
-      [](ProcessLocalShadowStorage& storage) -> void* {
-    return storage.AllocateShadowDto<KeywordResult>();
-  };
-  RegisterOperatorBizBridge(std::move(bridge));
+int EncodeNestedOutput(AlgContext* context, const OutputPortBindings& bindings,
+                       const OutputEncodeOptions& options,
+                       ExternalOutputBatchView* destination,
+                       size_t* written_count, AdapterStatus* status) {
+  if (written_count) *written_count = 0;
+  if (!context || !destination) return -1;
+  const auto* req_ids = context->Read<std::vector<uint64_t>>(
+      bindings.GetActualKey("raw_request_ids"));
+  const auto* matches =
+      context->Read<RuleMatchBatch>(bindings.GetActualKey("rule_matches"));
+  if (!req_ids || !matches) return -3;
+  size_t count = req_ids->size();
+
+  for (size_t i = 0; i < count; ++i) {
+    KeywordResult result;
+    result.request_id = (*req_ids)[i];
+    result.is_hit = 0;
+    for (const auto& m : *matches) {
+      if (m.req_id == i) {
+        result.is_hit = m.data.is_hit;
+        break;
+      }
+    }
+    for (const char* slot_name : {"main", "audit"}) {
+      void* external = destination->GetSlot<void>(slot_name, i);
+      const auto* spec = destination->GetPoolSpec(slot_name);
+      if (!external || !spec) return -4;
+      std::string error;
+      int ret = ConvertNestedOutput(&result, external, *spec, &error);
+      if (ret != 0) {
+        if (status) {
+          *status = AdapterStatus(ret, error, slot_name, static_cast<int>(i),
+                                  options.converter_id);
+        }
+        return ret;
+      }
+    }
+  }
+  if (written_count) *written_count = count;
+  return 0;
 }
 
-REGISTER_OPERATOR_BIZ_BRIDGE(RegisterNestedOutputTestBridge);
+const bool g_reg_nested_output_components = []() {
+  BizDefinition bdef;
+  bdef.biz_name = "test_nested_output_v1";
+  bdef.ingress = {
+      BizPortDefinition("raw_request_ids", "vector<uint64>", true, "1:1"),
+      BizPortDefinition("input_sentences", "TextBatch", true, "1:1")};
+  bdef.egress = {
+      BizPortDefinition("rule_matches", "RuleMatchBatch", true, "1:1")};
+  if (!PipelineCatalog::FindBiz(bdef.biz_name)) {
+    PipelineCatalog::RegisterBizDefinition(bdef);
+  }
+
+  OutputConverterDefinition odef;
+  odef.converter_id = "test_nested_output.operator.v1";
+  odef.transport = "operator";
+  odef.schema_id = "test_nested_output";
+  odef.schema_version = 1;
+  odef.external_slots = {ExternalSlotDefinition{"main",
+                                                "test_nested_out",
+                                                PortDirection::kOutput,
+                                                true,
+                                                "result",
+                                                "test_nested_out",
+                                                {},
+                                                "result"},
+                         ExternalSlotDefinition{"audit",
+                                                "test_nested_out",
+                                                PortDirection::kOutput,
+                                                true,
+                                                "audit",
+                                                "test_nested_out",
+                                                {},
+                                                "audit"}};
+  odef.logical_ports = {
+      NodePortDefinition("raw_request_ids", "vector<uint64>", true, "1:1"),
+      NodePortDefinition("rule_matches", "RuleMatchBatch", true, "1:1")};
+  odef.encode_fn = &EncodeNestedOutput;
+  IoConverterRegistry::Instance().RegisterOutputConverter(odef);
+
+  IoBindingDefinition bind;
+  bind.binding_id = "nested_output_test.operator.v1";
+  bind.biz_name = "test_nested_output_v1";
+  bind.transport = "operator";
+  bind.input_converter_id = "keyword.plain.operator.v1";
+  bind.output_converter_id = "test_nested_output.operator.v1";
+  bind.input_ports = {{"raw_request_ids", "raw_request_ids"},
+                      {"input_sentences", "input_sentences"}};
+  bind.output_ports = {{"raw_request_ids", "raw_request_ids"},
+                       {"rule_matches", "rule_matches"}};
+  bind.max_batch_size = 64;
+  IoBindingRegistry::Instance().RegisterBinding(bind);
+  return true;
+}();
 
 nlohmann::json NestedOutputConfig(bool alternate = false) {
   return {
+      {"schema_version", 1},
       {"data",
        {{"pipe_path", "pipeline.json"},
+        {"io_binding", "nested_output_test.operator.v1"},
         {"outputs",
          {{"main",
            {{"type", "test_nested_out"},
@@ -2672,15 +2704,27 @@ TEST_F(OperatorApiTest, SharedCarrierDoesNotMergePayloadSchema) {
 
   // Translate adapter rejects plain text because it requires JSON object with
   // "query"
-  auto translate_adapter =
-      llm_edgeflow::BizAdapterRegistry::Instance().GetAdapter(
-          ALG_BIZ_TYPE_TRANSLATE);
-  ASSERT_NE(translate_adapter, nullptr);
+  const auto* translate_in_conv =
+      llm_edgeflow::IoConverterRegistry::Instance().FindInputConverter(
+          "translate.json.cabi.v1");
+  ASSERT_NE(translate_in_conv, nullptr);
   CompanyEntityInputStruct c_in_plain{50001, plain_text.c_str()};
   const void* translate_inputs[] = {&c_in_plain};
   llm_edgeflow::AlgContext ctx;
   llm_edgeflow::AdapterStatus status;
-  EXPECT_EQ(translate_adapter->Unpack(translate_inputs, 1, &ctx, &status),
+  llm_edgeflow::ExternalInputBatchView view_plain;
+  view_plain.items = translate_inputs;
+  view_plain.count = 1;
+  view_plain.type_id = translate_in_conv->external_type;
+  llm_edgeflow::InputPortBindings port_bindings(
+      {{"raw_request_ids", "raw_request_ids"},
+       {"input_sentences", "input_sentences"}});
+  llm_edgeflow::InputDecodeOptions decode_opts;
+  decode_opts.converter_id = translate_in_conv->converter_id;
+  decode_opts.transport = "cabi";
+  decode_opts.max_batch_size = 64;
+  EXPECT_EQ(translate_in_conv->decode_fn(view_plain, decode_opts, port_bindings,
+                                         &ctx, &status),
             COMPANY_ALG_ERR_INVALID_INPUT);
 
   // 2. JSON text: Translate accepts and extracts "query"
@@ -2688,9 +2732,13 @@ TEST_F(OperatorApiTest, SharedCarrierDoesNotMergePayloadSchema) {
   CompanyEntityInputStruct c_in_json{50002, json_text.c_str()};
   const void* translate_valid_inputs[] = {&c_in_json};
   llm_edgeflow::AlgContext valid_ctx;
-  EXPECT_EQ(
-      translate_adapter->Unpack(translate_valid_inputs, 1, &valid_ctx, &status),
-      COMPANY_ALG_SUCCESS);
+  llm_edgeflow::ExternalInputBatchView view_json;
+  view_json.items = translate_valid_inputs;
+  view_json.count = 1;
+  view_json.type_id = translate_in_conv->external_type;
+  EXPECT_EQ(translate_in_conv->decode_fn(view_json, decode_opts, port_bindings,
+                                         &valid_ctx, &status),
+            COMPANY_ALG_SUCCESS);
   const auto* queries = valid_ctx.Read(llm_edgeflow::kInputSentences);
   ASSERT_NE(queries, nullptr);
   EXPECT_EQ((*queries)[0].data, "有效翻译查询");

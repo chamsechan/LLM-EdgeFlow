@@ -780,7 +780,8 @@ TEST(ValidatedPipelinePlanTest, MultiModelBindingsAndConcurrencyDeduplication) {
   EXPECT_EQ(diag->related_nodes, std::vector<std::string>{"multi_node"});
 }
 
-TEST(ValidatedPipelinePlanTest, IoBoundaryValidationCoversIngressEgressAndExtraWrites) {
+TEST(ValidatedPipelinePlanTest,
+     IoBoundaryValidationCoversIngressEgressAndExtraWrites) {
   // 注册测试用 biz definition
   BizDefinition test_biz;
   test_biz.biz_name = "io_boundary_test_biz";
@@ -793,15 +794,14 @@ TEST(ValidatedPipelinePlanTest, IoBoundaryValidationCoversIngressEgressAndExtraW
 
   nlohmann::json valid_pipeline = {
       {"biz_name", "io_boundary_test_biz"},
-      {"pipeline",
-       nlohmann::json::array({
-           {{"id", "node1"},
-            {"node_type", "IoBoundaryTestNode"},
-            {"depends_on", nlohmann::json::array()},
-            {"ports",
-             {{"inputs", {{"input_data", "text_in"}}},
-              {"outputs", {{"output_data", "text_out"}}}}}},
-       })}};
+      {"pipeline", nlohmann::json::array({
+                       {{"id", "node1"},
+                        {"node_type", "IoBoundaryTestNode"},
+                        {"depends_on", nlohmann::json::array()},
+                        {"ports",
+                         {{"inputs", {{"input_data", "text_in"}}},
+                          {"outputs", {{"output_data", "text_out"}}}}}},
+                   })}};
 
   // 1. 合法 IO boundary：覆盖必需 ingress，消费 egress
   PipelineIoBoundary valid_boundary;
@@ -816,14 +816,16 @@ TEST(ValidatedPipelinePlanTest, IoBoundaryValidationCoversIngressEgressAndExtraW
 
   // 2. 缺失必需 ingress 端口发布
   PipelineIoBoundary missing_in_boundary;
-  missing_in_boundary.output_consumed_ports = valid_boundary.output_consumed_ports;
+  missing_in_boundary.output_consumed_ports =
+      valid_boundary.output_consumed_ports;
   auto plan_missing_in = PipelineValidator::ValidateAndPlan(
       valid_pipeline, ValidationPolicy::kStrict, &missing_in_boundary);
   EXPECT_FALSE(plan_missing_in.report.ok);
-  auto diag_in = std::find_if(
-      plan_missing_in.report.diagnostics.begin(),
-      plan_missing_in.report.diagnostics.end(),
-      [](const auto& d) { return d.code == DiagnosticCode::kMissingInputProducer; });
+  auto diag_in =
+      std::find_if(plan_missing_in.report.diagnostics.begin(),
+                   plan_missing_in.report.diagnostics.end(), [](const auto& d) {
+                     return d.code == DiagnosticCode::kMissingInputProducer;
+                   });
   ASSERT_NE(diag_in, plan_missing_in.report.diagnostics.end());
   EXPECT_EQ(diag_in->path, "/io/input");
 
@@ -836,8 +838,9 @@ TEST(ValidatedPipelinePlanTest, IoBoundaryValidationCoversIngressEgressAndExtraW
   EXPECT_FALSE(plan_missing_out.report.ok);
   auto diag_out = std::find_if(
       plan_missing_out.report.diagnostics.begin(),
-      plan_missing_out.report.diagnostics.end(),
-      [](const auto& d) { return d.code == DiagnosticCode::kMissingBizOutput; });
+      plan_missing_out.report.diagnostics.end(), [](const auto& d) {
+        return d.code == DiagnosticCode::kMissingBizOutput;
+      });
   ASSERT_NE(diag_out, plan_missing_out.report.diagnostics.end());
   EXPECT_EQ(diag_out->path, "/io/output");
 
@@ -848,25 +851,25 @@ TEST(ValidatedPipelinePlanTest, IoBoundaryValidationCoversIngressEgressAndExtraW
   auto plan_conflict = PipelineValidator::ValidateAndPlan(
       valid_pipeline, ValidationPolicy::kStrict, &conflict_boundary);
   EXPECT_FALSE(plan_conflict.report.ok);
-  auto diag_conflict = std::find_if(
-      plan_conflict.report.diagnostics.begin(),
-      plan_conflict.report.diagnostics.end(),
-      [](const auto& d) { return d.code == DiagnosticCode::kDuplicatePortProducer; });
+  auto diag_conflict =
+      std::find_if(plan_conflict.report.diagnostics.begin(),
+                   plan_conflict.report.diagnostics.end(), [](const auto& d) {
+                     return d.code == DiagnosticCode::kDuplicatePortProducer;
+                   });
   ASSERT_NE(diag_conflict, plan_conflict.report.diagnostics.end());
 }
 
 TEST(ValidatedPipelinePlanTest, PipelineBuildFromPlanLifecycle) {
   nlohmann::json valid_pipeline = {
       {"biz_name", "io_boundary_test_biz"},
-      {"pipeline",
-       nlohmann::json::array({
-           {{"id", "node1"},
-            {"node_type", "IoBoundaryTestNode"},
-            {"depends_on", nlohmann::json::array()},
-            {"ports",
-             {{"inputs", {{"input_data", "text_in"}}},
-              {"outputs", {{"output_data", "text_out"}}}}}},
-       })}};
+      {"pipeline", nlohmann::json::array({
+                       {{"id", "node1"},
+                        {"node_type", "IoBoundaryTestNode"},
+                        {"depends_on", nlohmann::json::array()},
+                        {"ports",
+                         {{"inputs", {{"input_data", "text_in"}}},
+                          {"outputs", {{"output_data", "text_out"}}}}}},
+                   })}};
 
   PipelineIoBoundary boundary;
   boundary.input_published_ports = {

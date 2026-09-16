@@ -16,8 +16,7 @@ namespace {
 
 int DecodeCAbiAudioInput(const ExternalInputBatchView& source,
                          const InputDecodeOptions& options,
-                         const InputPortBindings& bindings,
-                         AlgContext* context,
+                         const InputPortBindings& bindings, AlgContext* context,
                          AdapterStatus* status) {
   if (!context) {
     return AdapterValidationHelper::ReturnInvalidInput(
@@ -100,8 +99,7 @@ int DecodeCAbiAudioInput(const ExternalInputBatchView& source,
 int DecodeOperatorAudioInput(const ExternalInputBatchView& source,
                              const InputDecodeOptions& options,
                              const InputPortBindings& bindings,
-                             AlgContext* context,
-                             AdapterStatus* status) {
+                             AlgContext* context, AdapterStatus* status) {
   if (!context) {
     return AdapterValidationHelper::ReturnInvalidInput(
         status, "Null AlgContext passed to Decode", "context",
@@ -135,7 +133,8 @@ int DecodeOperatorAudioInput(const ExternalInputBatchView& source,
     }
 
     if (in->pcm_length < 0 || in->pcm_length > biz_input::kMaxAudioPcmSamples ||
-        static_cast<size_t>(in->pcm_length) > biz_input::kMaxAudioPcmBytes / sizeof(float)) {
+        static_cast<size_t>(in->pcm_length) >
+            biz_input::kMaxAudioPcmBytes / sizeof(float)) {
       return AdapterValidationHelper::ReturnInvalidInput(
           status, "pcm_length invalid or exceeds limit", "audio_in.pcm_length",
           options.converter_id.c_str(), static_cast<int>(i));
@@ -151,8 +150,7 @@ int DecodeOperatorAudioInput(const ExternalInputBatchView& source,
 
     AudioPcmPayload pcm_dto;
     if (in->pcm_buffer && in->pcm_length > 0) {
-      pcm_dto.pcm_data.assign(in->pcm_buffer,
-                              in->pcm_buffer + in->pcm_length);
+      pcm_dto.pcm_data.assign(in->pcm_buffer, in->pcm_buffer + in->pcm_length);
     }
     pcm_dto.sample_rate = in->sample_rate;
     raw_audios.emplace_back(static_cast<uint32_t>(i), 0, std::move(pcm_dto));
@@ -180,9 +178,13 @@ InputConverterDefinition MakeCAbiAudioInputConverter() {
   def.max_batch_size = 64;
   def.ownership_policy = "copy_in";
   def.thread_model = "stateless";
-  def.external_slots = {
-      {"inputs", "CompanyAudioInputStruct", PortDirection::kInput, true,
-       "CompanyAudioInputStruct", "", {}}};
+  def.external_slots = {{"inputs",
+                         "CompanyAudioInputStruct",
+                         PortDirection::kInput,
+                         true,
+                         "CompanyAudioInputStruct",
+                         "",
+                         {}}};
   def.logical_ports = {
       NodePortDefinition("raw_request_ids", "vector<uint64>", true, "1:1"),
       NodePortDefinition("audio_inputs", "AudioPcmBatch", true, "1:1")};
@@ -200,9 +202,13 @@ InputConverterDefinition MakeOperatorAudioInputConverter() {
   def.max_batch_size = 64;
   def.ownership_policy = "copy_in";
   def.thread_model = "stateless";
-  def.external_slots = {
-      {"audio_in", "CompanyOperatorAudioInput", PortDirection::kInput, true,
-       "CompanyOperatorAudioInput", "audio_in", {}}};
+  def.external_slots = {{"audio_in",
+                         "CompanyOperatorAudioInput",
+                         PortDirection::kInput,
+                         true,
+                         "CompanyOperatorAudioInput",
+                         "audio_in",
+                         {}}};
   def.logical_ports = {
       NodePortDefinition("raw_request_ids", "vector<uint64>", true, "1:1"),
       NodePortDefinition("audio_inputs", "AudioPcmBatch", true, "1:1")};

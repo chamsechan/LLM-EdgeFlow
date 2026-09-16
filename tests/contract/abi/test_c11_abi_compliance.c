@@ -17,17 +17,13 @@
 #include "platform_mock/error_codes.h"
 #include "platform_mock/operator_data_types.h"
 
-#if COMPANY_ALG_ABI_VERSION_MAJOR != 5
+#if COMPANY_ALG_ABI_VERSION_MAJOR != 6
 #error "Unexpected public C ABI major"
 #endif
 #include "edgeflow/log.h"
 #include "edgeflow/operator/types.h"
 #include "edgeflow/version.h"
 
-_Static_assert(sizeof(CompanyAlgBizType) == sizeof(int32_t),
-               "CompanyAlgBizType must remain a 32-bit C ABI type");
-_Static_assert(ALG_BIZ_TYPE_MAX_GUARD == INT32_MAX,
-               "CompanyAlgBizType ABI guard must remain INT32_MAX");
 _Static_assert(sizeof(CompanyString) == sizeof(int32_t) + sizeof(char*) +
                                             (sizeof(char*) == 8 ? 4 : 0),
                "CompanyString memory layout check");
@@ -42,7 +38,7 @@ _Static_assert(E_ALG_BASE_LOG_LEVEL_VERBOSE == 5,
 
 int main(void) {
   if (strcmp(COMPANY_ALG_PRODUCT_VERSION, "10.0.0") != 0 ||
-      strcmp(COMPANY_ALG_ABI_VERSION, "5.0.0") != 0) {
+      strcmp(COMPANY_ALG_ABI_VERSION, "6.0.0") != 0) {
     fprintf(stderr, "[C11 ABI Test] Generated version contract drifted\n");
     return 13;
   }
@@ -97,9 +93,9 @@ int main(void) {
 
   // Determine config path
   const char* cfg_candidates[] = {
-      "configs/pipeline_keyword_match_rules.json",
-      "../configs/pipeline_keyword_match_rules.json",
-      "../../configs/pipeline_keyword_match_rules.json"};
+      "configs/pipeline_keyword_match_cabi.json",
+      "../configs/pipeline_keyword_match_cabi.json",
+      "../../configs/pipeline_keyword_match_cabi.json"};
   const char* cfg_path = NULL;
   for (int i = 0; i < 3; ++i) {
     FILE* f = fopen(cfg_candidates[i], "r");
@@ -111,16 +107,14 @@ int main(void) {
   }
 
   if (!cfg_path) {
-    fprintf(
-        stderr,
-        "[C11 ABI Test] Could not find pipeline_keyword_match_rules.json\n");
+    fprintf(stderr,
+            "[C11 ABI Test] Could not find pipeline_keyword_match_cabi.json\n");
     return 6;
   }
 
   param.config_file_path = cfg_path;
   param.model_root_dir = "./models";
   param.device_id = 0;
-  param.biz_type = ALG_BIZ_TYPE_KEYWORD_MATCH;
 
   void* handle = NULL;
   int create_ret = Alg_Create(&handle, &param);

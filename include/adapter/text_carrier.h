@@ -8,7 +8,6 @@
 #include "adapter/adapter_status.h"
 #include "adapter/adapter_validation_helper.h"
 #include "adapter/biz_results.h"
-#include "adapter/operator_biz_bridge.h"
 #include "edgeflow/c_api.h"
 #include "edgeflow/operator/types.h"
 
@@ -109,25 +108,5 @@ inline int WriteTextCarrierOutput<EntityResult>(
   out->entities_json = text;
   return COMPANY_ALG_SUCCESS;
 }
-
-/**
- * @brief 共享文本载体 Operator 单槽位转换函数
- */
-int ConvertTextCarrierInput(const CompanyOperatorEntityInput& in,
-                            ProcessLocalShadowStorage& storage,
-                            const CompanyEntityInputStruct** out_internal_dto,
-                            std::string* err);
-
-int ConvertTextCarrierOutput(const EntityResult& in_dto,
-                             CompanyOperatorEntityOutput& out,
-                             const ResolvedOutputPoolSpec& spec,
-                             std::string* err);
-
-/**
- * @brief 共享文本载体 Operator 桥接描述符构造
- */
-OperatorBizBridgeDescriptor MakeTextCarrierBridge(CompanyAlgBizType biz_type,
-                                                  std::string adapter_name,
-                                                  std::string identity);
 
 }  // namespace llm_edgeflow

@@ -136,7 +136,7 @@ def self_test():
             target.write_text(content)
             return target
 
-        for header in ("include/adapter/biz_adapter_interface.h",
+        for header in ("include/adapter/io_converter.h",
                        "include/core/pipeline_validator.h",
                        "include/core/alg_context.h", "include/edgeflow/c_api.h",
                        "include/platform_mock/alg_types.h",
@@ -146,12 +146,12 @@ def self_test():
                        "src/custom_nodes/domain_node.h"):
             write(header)
         cases = [
-            ("src/engine/runtime/bad.cpp", "adapter/biz_adapter_interface.h"),
-            ("src/core/bad.cpp", "adapter/biz_adapter_interface.h"),
+            ("src/engine/runtime/bad.cpp", "adapter/io_converter.h"),
+            ("src/core/bad.cpp", "adapter/io_converter.h"),
             ("include/nodes/bad.h", "edgeflow/c_api.h"),
             ("src/common_nodes/bad.cpp", "core/pipeline_validator.h"),
             ("src/custom_nodes/bad.cpp", "core/pipeline_validator.h"),
-            ("include/nodes/bad.h", "../adapter/biz_adapter_interface.h"),
+            ("include/nodes/bad.h", "../adapter/io_converter.h"),
             ("src/common_nodes/bad.cpp", "custom_nodes/domain_node.h"),
             ("include/core/session_context.h", "core/pipeline_validator.h"),
         ]
@@ -179,7 +179,7 @@ def self_test():
                 file.unlink()
         # A local helper must not conceal a reverse dependency.
         write("src/engine/models/demo/model.cpp", '#include "helper.h"\n')
-        helper = write("src/engine/models/demo/helper.h", '#include "adapter/biz_adapter_interface.h"\n')
+        helper = write("src/engine/models/demo/helper.h", '#include "adapter/io_converter.h"\n')
         assert check(root)
         helper.write_text("")
         write("include/nodes/good.h", '#include "core/alg_context.h"\n')

@@ -11,7 +11,7 @@ LLM_EDGEFLOW_@LLM_EDGEFLOW_ABI_VERSION_MAJOR@ {
     AlgBase_logPrint;
     _ZN12llm_edgeflow12operator_api30Get_LLM_EDGEFLOW_OperatorTableEv;
     _ZN12llm_edgeflow12operator_api20GetOperatorLastErrorEv;
-    _ZN12llm_edgeflow12operator_api29ValidateOperatorConfigBindingEPKcS2_iPcm;
+    _ZN12llm_edgeflow12operator_api29ValidateOperatorConfigBindingEPKcS2_S2_Pcm;
   local:
     *;
 };

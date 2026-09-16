@@ -7,7 +7,6 @@
 #include "adapter/biz_results.h"
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter.h"
-#include "adapter/operator_biz_bridge.h"
 #include "adapter/result_validation.h"
 #include "edgeflow/c_api.h"
 #include "edgeflow/operator/types.h"
@@ -19,8 +18,7 @@ int EncodeCAbiKeywordResult(AlgContext* context,
                             const OutputPortBindings& bindings,
                             const OutputEncodeOptions& options,
                             ExternalOutputBatchView* destination,
-                            size_t* written_count,
-                            AdapterStatus* status) {
+                            size_t* written_count, AdapterStatus* status) {
   if (!context) {
     return AdapterValidationHelper::ReturnBufferTooSmall(
         status, "Null AlgContext passed to Encode", "context",
@@ -35,12 +33,12 @@ int EncodeCAbiKeywordResult(AlgContext* context,
         options.converter_id.c_str());
   }
 
-  const auto* raw_req_ids =
-      context->Read<std::vector<uint64_t>>(bindings.GetActualKey("raw_request_ids"));
+  const auto* raw_req_ids = context->Read<std::vector<uint64_t>>(
+      bindings.GetActualKey("raw_request_ids"));
   if (!raw_req_ids) {
     return AdapterValidationHelper::ReturnBufferTooSmall(
-        status, "Missing required context value: raw_request_ids", "raw_request_ids",
-        options.converter_id.c_str());
+        status, "Missing required context value: raw_request_ids",
+        "raw_request_ids", options.converter_id.c_str());
   }
 
   int count = static_cast<int>(res->size());
@@ -79,8 +77,7 @@ int EncodeOperatorKeywordResult(AlgContext* context,
                                 const OutputPortBindings& bindings,
                                 const OutputEncodeOptions& options,
                                 ExternalOutputBatchView* destination,
-                                size_t* written_count,
-                                AdapterStatus* status) {
+                                size_t* written_count, AdapterStatus* status) {
   if (!context) {
     return AdapterValidationHelper::ReturnBufferTooSmall(
         status, "Null AlgContext passed to Encode", "context",
@@ -95,12 +92,12 @@ int EncodeOperatorKeywordResult(AlgContext* context,
         options.converter_id.c_str());
   }
 
-  const auto* raw_req_ids =
-      context->Read<std::vector<uint64_t>>(bindings.GetActualKey("raw_request_ids"));
+  const auto* raw_req_ids = context->Read<std::vector<uint64_t>>(
+      bindings.GetActualKey("raw_request_ids"));
   if (!raw_req_ids) {
     return AdapterValidationHelper::ReturnBufferTooSmall(
-        status, "Missing required context value: raw_request_ids", "raw_request_ids",
-        options.converter_id.c_str());
+        status, "Missing required context value: raw_request_ids",
+        "raw_request_ids", options.converter_id.c_str());
   }
 
   size_t count = res->size();
@@ -116,8 +113,8 @@ int EncodeOperatorKeywordResult(AlgContext* context,
         destination->GetSlot<CompanyOperatorKeywordOutput>("keyword_out", i);
     if (!out) {
       return AdapterValidationHelper::ReturnBufferTooSmall(
-          status, "Missing keyword_out slot block in output view", "keyword_out",
-          options.converter_id.c_str(), static_cast<int>(i));
+          status, "Missing keyword_out slot block in output view",
+          "keyword_out", options.converter_id.c_str(), static_cast<int>(i));
     }
     out->request_id = (*raw_req_ids)[i];
     out->is_hit = res_by_request[i]->data.is_hit;
@@ -150,14 +147,16 @@ OutputConverterDefinition MakeCAbiKeywordResultOutputConverter() {
   def.max_batch_size = 64;
   def.capacity_policy = "reject_overflow";
   def.thread_model = "stateless";
-  def.external_slots = {
-      {"match_result_json", "CompanyKeywordOutputStruct",
-       PortDirection::kOutput, true, "CompanyKeywordOutputStruct", "",
-       {"match_result_json"}}};
+  def.external_slots = {{"match_result_json",
+                         "CompanyKeywordOutputStruct",
+                         PortDirection::kOutput,
+                         true,
+                         "CompanyKeywordOutputStruct",
+                         "",
+                         {"match_result_json"}}};
   def.logical_ports = {
-      NodePortDefinition("raw_request_ids", "vector<uint64>", true,
-                         "1:1"),
-      NodePortDefinition("rule_matches", "RuleMatchResultBatch", true, "1:1")};
+      NodePortDefinition("raw_request_ids", "vector<uint64>", true, "1:1"),
+      NodePortDefinition("rule_matches", "RuleMatchBatch", true, "1:1")};
   def.encode_fn = &EncodeCAbiKeywordResult;
   return def;
 }
@@ -173,13 +172,16 @@ OutputConverterDefinition MakeOperatorKeywordResultOutputConverter() {
   def.max_batch_size = 64;
   def.capacity_policy = "reject_overflow";
   def.thread_model = "stateless";
-  def.external_slots = {
-      {"keyword_out", "CompanyOperatorKeywordOutput", PortDirection::kOutput,
-       true, "CompanyOperatorKeywordOutput", "keyword_out", {"match_result_json"}}};
+  def.external_slots = {{"keyword_out",
+                         "CompanyOperatorKeywordOutput",
+                         PortDirection::kOutput,
+                         true,
+                         "CompanyOperatorKeywordOutput",
+                         "keyword_out",
+                         {"match_result_json"}}};
   def.logical_ports = {
-      NodePortDefinition("raw_request_ids", "vector<uint64>", true,
-                         "1:1"),
-      NodePortDefinition("rule_matches", "RuleMatchResultBatch", true, "1:1")};
+      NodePortDefinition("raw_request_ids", "vector<uint64>", true, "1:1"),
+      NodePortDefinition("rule_matches", "RuleMatchBatch", true, "1:1")};
   def.encode_fn = &EncodeOperatorKeywordResult;
   return def;
 }

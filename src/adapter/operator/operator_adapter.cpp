@@ -5,7 +5,6 @@
 #include <unordered_set>
 #include <vector>
 
-#include "adapter/operator/operator_biz_bridge_registry.h"
 #include "adapter/operator/operator_config_resolver.h"
 #include "adapter/operator/operator_control_registry.h"
 #include "adapter/operator/operator_output_pool.h"
@@ -29,8 +28,9 @@ struct OperatorHandle {
   std::unique_ptr<llm_edgeflow::SharedAlgorithmRuntime> runtime;
   uint32_t max_frame_depth = 25;
   uint32_t effective_process_batch_limit = 25;
-  CompanyAlgBizType biz_type = ALG_BIZ_TYPE_UNKNOWN;
-  const llm_edgeflow::OperatorBizBridgeDescriptor* bridge = nullptr;
+  std::string io_binding;
+  const llm_edgeflow::InputConverterDefinition* input_converter = nullptr;
+  const llm_edgeflow::OutputConverterDefinition* output_converter = nullptr;
   llm_edgeflow::ResolvedOperatorConfig resolved_conf;
   std::unordered_map<std::string,
                      std::shared_ptr<llm_edgeflow::OutputPoolState>>
@@ -122,13 +122,6 @@ int Operator_Init() noexcept {
           "OperatorValueTypeRegistry");
       return ret;
     }
-    std::string bridge_diagnostic;
-    ret = llm_edgeflow::OperatorBizBridgeRegistry::Instance().GlobalInit(
-        &bridge_diagnostic);
-    if (ret != 0) {
-      SetLastError(bridge_diagnostic);
-      return ret;
-    }
     return 0;
   } catch (const std::exception& e) {
     SetLastError(e.what());
@@ -185,7 +178,7 @@ int Operator_Create(void** handle, const CreateParam* param) noexcept {
       return -2;
     }
 
-    // 1. 双路径安全解析 .conf
+    // 1. 安全解析部署配置 (.conf) 与接入绑定
     llm_edgeflow::ResolvedOperatorConfig resolved_conf;
     std::string resolve_err;
     int res_code = llm_edgeflow::OperatorConfigResolver::Resolve(
@@ -197,8 +190,8 @@ int Operator_Create(void** handle, const CreateParam* param) noexcept {
     }
 
     // 2. 组装运行时参数
-    uint32_t adapter_max_batch = static_cast<uint32_t>(
-        resolved_conf.adapter->GetDescriptor().max_batch_size);
+    uint32_t adapter_max_batch =
+        static_cast<uint32_t>(resolved_conf.io_plan->effective_max_batch_size);
     uint32_t effective_batch_limit =
         std::min(effective_depth, adapter_max_batch);
 
@@ -210,19 +203,16 @@ int Operator_Create(void** handle, const CreateParam* param) noexcept {
     runtime_options.depth_num = effective_depth;
     runtime_options.device_id = param->device_id;
     runtime_options.has_device_id = (param->device_id >= 0);
-    runtime_options.biz_type = static_cast<int>(resolved_conf.biz_type);
     runtime_options.biz_name = resolved_conf.biz_name;
 
-    // 3. 构建内部共享运行时
+    // 3. 构建内部共享运行时 (通过已验证的 IoPlan)
     std::unique_ptr<llm_edgeflow::SharedAlgorithmRuntime> runtime;
     std::string create_err;
-    int create_ret =
-        llm_edgeflow::SharedAlgorithmRuntime::CreateFromPipelineJson(
-            resolved_conf.synthetic_pipeline_json, param->device_id,
-            "",  // 模型路径已全量绝对规范化
-            resolved_conf.biz_type, &runtime, &create_err, &runtime_options);
+    int create_ret = llm_edgeflow::SharedAlgorithmRuntime::CreateFromIoPlan(
+        std::move(resolved_conf.io_plan), param->device_id, &runtime_options,
+        &runtime, &create_err);
     if (create_ret != 0) {
-      SetLastError("SharedAlgorithmRuntime::CreateFromPipelineJson failed: " +
+      SetLastError("SharedAlgorithmRuntime::CreateFromIoPlan failed: " +
                    create_err);
       return create_ret;
     }
@@ -231,16 +221,25 @@ int Operator_Create(void** handle, const CreateParam* param) noexcept {
     std::unordered_map<std::string,
                        std::shared_ptr<llm_edgeflow::OutputPoolState>>
         pools;
-    for (const auto& out_slot : resolved_conf.bridge_descriptor->output_slots) {
-      const auto& allocation =
-          resolved_conf.output_pool_specs.at(out_slot.logical_name);
+    for (const auto& out_slot :
+         runtime->GetIoPlan()->output_converter->external_slots) {
+      if (out_slot.direction != llm_edgeflow::PortDirection::kOutput) continue;
+      auto pit = resolved_conf.output_pool_specs.find(out_slot.slot_name);
+      if (pit == resolved_conf.output_pool_specs.end()) {
+        if (out_slot.required) {
+          SetLastError("Missing output pool configuration for slot " +
+                       out_slot.slot_name);
+          return -2;
+        }
+        continue;
+      }
+      const auto& allocation = pit->second;
       const auto* binding =
           llm_edgeflow::OperatorValueTypeRegistry::Instance().GetOutputBinding(
               out_slot.type_suffix, allocation.allocator);
       if (!binding) {
-        SetLastError("Missing output allocator for slot " +
-                     out_slot.logical_name + " (type " + out_slot.type_suffix +
-                     ")");
+        SetLastError("Missing output allocator for slot " + out_slot.slot_name +
+                     " (type " + out_slot.type_suffix + ")");
         return -5;
       }
       std::shared_ptr<llm_edgeflow::OutputPoolState> pool;
@@ -250,21 +249,22 @@ int Operator_Create(void** handle, const CreateParam* param) noexcept {
           &pool_err);
       if (pool_ret != 0 || !pool) {
         SetLastError("Failed to create output pool for slot " +
-                     out_slot.logical_name + " (type " + out_slot.type_suffix +
+                     out_slot.slot_name + " (type " + out_slot.type_suffix +
                      "): " + pool_err);
         return pool_ret != 0 ? pool_ret : -4;
       }
-      pools[out_slot.logical_name] = std::move(pool);
+      pools[out_slot.slot_name] = std::move(pool);
     }
 
     auto handle_instance = std::make_unique<OperatorHandle>();
-    handle_instance->runtime = std::move(runtime);
     handle_instance->max_frame_depth = effective_depth;
     handle_instance->effective_process_batch_limit = effective_batch_limit;
-    handle_instance->biz_type = resolved_conf.biz_type;
-    handle_instance->bridge = resolved_conf.bridge_descriptor;
+    handle_instance->input_converter = runtime->GetIoPlan()->input_converter;
+    handle_instance->output_converter = runtime->GetIoPlan()->output_converter;
+    handle_instance->io_binding = resolved_conf.io_binding;
     handle_instance->resolved_conf = std::move(resolved_conf);
     handle_instance->output_pools = std::move(pools);
+    handle_instance->runtime = std::move(runtime);
 
     OperatorHandle* raw_h = handle_instance.get();
     OperatorHandleManager::Instance().Register(raw_h);
@@ -323,95 +323,112 @@ int Operator_Process(void* handle, const NamedIoBatch& inputs,
 
     std::lock_guard<std::mutex> lock(h->mutex);
 
-    if (!h->runtime || !h->bridge) {
-      SetLastError("Handle runtime or bridge is null in Process");
+    if (!h->runtime || !h->input_converter || !h->output_converter) {
+      SetLastError(
+          "Handle runtime or converter definitions are null in Process");
       return -1;
     }
 
-    size_t batch_size = inputs.size();
-    llm_edgeflow::ProcessLocalShadowStorage shadow_storage;
-    std::vector<const void*> internal_in_dtos(batch_size, nullptr);
-    std::string binding_error;
-    int binding_result = llm_edgeflow::ConvertOperatorInputs(
-        inputs, *h->bridge, h->resolved_conf.input_limits, &shadow_storage,
-        &internal_in_dtos, &binding_error);
-    if (binding_result != 0) {
-      SetLastError(binding_error);
-      return binding_result;
+    // 1. 验证并提取外部输入槽
+    llm_edgeflow::ExternalInputBatchView in_view;
+    std::string in_err;
+    int in_ret = llm_edgeflow::ValidateAndExtractOperatorInputs(
+        inputs, *h->input_converter, h->resolved_conf.input_limits, &in_view,
+        &in_err);
+    if (in_ret != 0) {
+      SetLastError(in_err);
+      return in_ret;
     }
 
+    // 2. 验证并解析输出槽绑定
     std::vector<std::vector<llm_edgeflow::FrameOutputBinding>>
         frame_out_bindings;
-    binding_result = llm_edgeflow::ResolveOperatorOutputs(
-        outputs, *h->bridge, &frame_out_bindings, &binding_error);
-    if (binding_result != 0) {
-      SetLastError(binding_error);
-      return binding_result;
+    std::string out_err;
+    int out_ret = llm_edgeflow::ResolveOperatorOutputs(
+        outputs, *h->output_converter, &frame_out_bindings, &out_err);
+    if (out_ret != 0) {
+      SetLastError(out_err);
+      return out_ret;
     }
 
+    // 3. 执行统一输入解码
+    // (在租用输出块之前完成业务校验；若校验失败则零输出块被租用)
+    llm_edgeflow::AlgContext req_ctx;
+    llm_edgeflow::InputDecodeOptions in_options;
+    in_options.binding_id = h->io_binding;
+    in_options.converter_id = h->input_converter->converter_id;
+    in_options.transport = "operator";
+    in_options.max_batch_size = h->effective_process_batch_limit;
+
+    llm_edgeflow::AdapterStatus decode_status;
+    int decode_ret = h->input_converter->decode_fn(
+        in_view, in_options, h->runtime->GetIoPlan()->input_port_bindings,
+        &req_ctx, &decode_status);
+    if (decode_ret != 0) {
+      SetLastError("DecodeInput failed for " +
+                   h->input_converter->converter_id + ": " +
+                   decode_status.ToString());
+      return decode_ret;
+    }
+
+    // 4. 租用输出池内存块 (受 ScopedOutputLeaseGuard 保护，失败自动归还)
     llm_edgeflow::ScopedOutputLeaseGuard lease_guard;
     std::vector<llm_edgeflow::AcquiredOutputBlock> acquired_blocks;
-    binding_result = llm_edgeflow::AcquireOperatorOutputBlocks(
+    std::string acq_err;
+    int acq_ret = llm_edgeflow::AcquireOperatorOutputBlocks(
         frame_out_bindings, h->output_pools, &lease_guard, &acquired_blocks,
-        &binding_error);
-    if (binding_result != 0) {
-      SetLastError(binding_error);
-      return binding_result;
+        &acq_err);
+    if (acq_ret != 0) {
+      SetLastError("AcquireOperatorOutputBlocks failed: " + acq_err);
+      return acq_ret;
     }
 
-    // 4. 执行内部 Runtime 计算
-    std::vector<void*> internal_out_dtos(batch_size, nullptr);
-    for (size_t i = 0; i < batch_size; ++i) {
-      if (h->bridge->create_shadow_output_dto) {
-        internal_out_dtos[i] =
-            h->bridge->create_shadow_output_dto(shadow_storage);
-      }
-    }
-    int num_outputs = static_cast<int>(batch_size);
-    std::string exec_err;
-    int exec_ret = h->runtime->ExecuteBatch(
-        internal_in_dtos.data(), static_cast<int>(batch_size),
-        internal_out_dtos.data(), &num_outputs, &exec_err, true);
+    // 5. 执行 Pipeline 计算
+    int exec_ret = h->runtime->GetPipeline()->Execute(&req_ctx);
     if (exec_ret != 0) {
-      SetLastError("ExecuteBatch failed: " + exec_err);
+      SetLastError("Pipeline::Execute failed with code " +
+                   std::to_string(exec_ret) + ": " + req_ctx.GetErrorMessage());
       return exec_ret;
     }
-    if (num_outputs != static_cast<int>(batch_size)) {
-      SetLastError("ExecuteBatch output count mismatch: expected " +
-                   std::to_string(batch_size) + ", got " +
-                   std::to_string(num_outputs));
+
+    // 6. 执行统一输出编码 (将结果写入已租用的外部结构块)
+    llm_edgeflow::ExternalOutputBatchView out_view;
+    out_view.count = inputs.size();
+    out_view.type_id = h->output_converter->external_type;
+    for (const auto& acq : acquired_blocks) {
+      out_view.leased_slots[acq.logical_name].push_back(acq.raw_block);
+      out_view.pool_specs[acq.logical_name] = acq.pool->Spec();
+      for (const auto& cap : acq.pool->Spec().capacities) {
+        out_view.slot_capacities[acq.logical_name][cap.first] = cap.second;
+      }
+    }
+
+    llm_edgeflow::OutputEncodeOptions out_options;
+    out_options.binding_id = h->io_binding;
+    out_options.converter_id = h->output_converter->converter_id;
+    out_options.transport = "operator";
+    out_options.max_batch_size = h->effective_process_batch_limit;
+
+    size_t written_count = 0;
+    llm_edgeflow::AdapterStatus encode_status;
+    int encode_ret = h->output_converter->encode_fn(
+        &req_ctx, h->runtime->GetIoPlan()->output_port_bindings, out_options,
+        &out_view, &written_count, &encode_status);
+    if (encode_ret != 0) {
+      SetLastError("EncodeOutput failed for " +
+                   h->output_converter->converter_id + ": " +
+                   encode_status.ToString());
+      return encode_ret;
+    }
+    if (written_count != inputs.size()) {
+      SetLastError("EncodeOutput written count (" +
+                   std::to_string(written_count) +
+                   ") does not match input count (" +
+                   std::to_string(inputs.size()) + ")");
       return -4;
     }
 
-    // 5. 将内部输出结果转换到已租用的池化外部结构中
-    for (const auto& acq : acquired_blocks) {
-      const void* internal_dto = internal_out_dtos[acq.frame_idx];
-      if (!internal_dto) {
-        SetLastError("Internal output DTO is null for frame " +
-                     std::to_string(acq.frame_idx));
-        return -4;
-      }
-      std::string conv_out_err;
-      llm_edgeflow::ConvertSampleOutputFn convert = nullptr;
-      for (const auto& slot : h->bridge->output_slots) {
-        if (slot.logical_name == acq.logical_name) {
-          convert = slot.convert_output;
-          break;
-        }
-      }
-      if (!convert) {
-        SetLastError("No output conversion for slot " + acq.logical_name);
-        return -4;
-      }
-      int conv_ret =
-          convert(internal_dto, acq.raw_block, acq.pool->Spec(), &conv_out_err);
-      if (conv_ret != 0) {
-        SetLastError("ConvertSampleOutput failed for key " + acq.key + ": " +
-                     conv_out_err);
-        return conv_ret;
-      }
-    }
-
+    // 7. 发布输出 (两阶段发布并解除 guard)
     llm_edgeflow::PublishOperatorOutputs(acquired_blocks, &outputs,
                                          &lease_guard);
     return 0;
@@ -541,7 +558,7 @@ const char* GetOperatorLastError() noexcept {
 
 int ValidateOperatorConfigBinding(const char* model_path,
                                   const char* cfg_file_name,
-                                  int32_t expected_biz_type,
+                                  const char* expected_binding_id,
                                   char* out_error_msg,
                                   size_t error_buf_size) noexcept {
   try {
@@ -559,6 +576,13 @@ int ValidateOperatorConfigBinding(const char* model_path,
       }
       return -2;
     }
+    if (!expected_binding_id || expected_binding_id[0] == '\0') {
+      if (out_error_msg && error_buf_size > 0) {
+        std::snprintf(out_error_msg, error_buf_size,
+                      "Null or empty expected_binding_id");
+      }
+      return -2;
+    }
 
     llm_edgeflow::ResolvedOperatorConfig resolved;
     std::string err;
@@ -571,14 +595,12 @@ int ValidateOperatorConfigBinding(const char* model_path,
       return ret;
     }
 
-    if (expected_biz_type != 0 &&
-        resolved.biz_type !=
-            static_cast<CompanyAlgBizType>(expected_biz_type)) {
+    if (resolved.io_binding != expected_binding_id) {
       if (out_error_msg && error_buf_size > 0) {
-        std::snprintf(
-            out_error_msg, error_buf_size,
-            "Biz mismatch: Config resolves to biz_type %d, but expected %d",
-            static_cast<int>(resolved.biz_type), expected_biz_type);
+        std::snprintf(out_error_msg, error_buf_size,
+                      "Binding mismatch: Config resolves to binding '%s', but "
+                      "expected '%s'",
+                      resolved.io_binding.c_str(), expected_binding_id);
       }
       return -3;
     }

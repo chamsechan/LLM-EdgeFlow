@@ -140,8 +140,9 @@ bool IoBindingRegistry::Audit(std::vector<std::string>* out_errors) const {
     // 1. 检查 biz_name 是否在 PipelineCatalog 中已注册
     const auto* biz_def = catalog_snapshot.FindBiz(binding.biz_name);
     if (!biz_def) {
-      errors.push_back("Binding '" + binding_id + "' references unregistered biz_name: " +
-                       binding.biz_name);
+      errors.push_back(
+          "Binding '" + binding_id +
+          "' references unregistered biz_name: " + binding.biz_name);
     }
 
     // 2. 检查 input converter
@@ -163,9 +164,9 @@ bool IoBindingRegistry::Audit(std::vector<std::string>* out_errors) const {
             in_conv->logical_ports.begin(), in_conv->logical_ports.end(),
             [&](const auto& p) { return p.logical_name == logical_name; });
         if (!port_found) {
-          errors.push_back("Binding '" + binding_id +
-                           "' maps unadvertised input logical port: " +
-                           logical_name);
+          errors.push_back(
+              "Binding '" + binding_id +
+              "' maps unadvertised input logical port: " + logical_name);
         }
       }
     }
@@ -189,9 +190,9 @@ bool IoBindingRegistry::Audit(std::vector<std::string>* out_errors) const {
             out_conv->logical_ports.begin(), out_conv->logical_ports.end(),
             [&](const auto& p) { return p.logical_name == logical_name; });
         if (!port_found) {
-          errors.push_back("Binding '" + binding_id +
-                           "' maps unadvertised output logical port: " +
-                           logical_name);
+          errors.push_back(
+              "Binding '" + binding_id +
+              "' maps unadvertised output logical port: " + logical_name);
         }
       }
     }
@@ -209,9 +210,9 @@ bool IoBindingRegistry::Audit(std::vector<std::string>* out_errors) const {
         }
       }
       if (!found) {
-        errors.push_back("Production exposure for biz '" + biz_name +
-                         "' lacks valid binding for required transport: " +
-                         req_transport);
+        errors.push_back(
+            "Production exposure for biz '" + biz_name +
+            "' lacks valid binding for required transport: " + req_transport);
       }
     }
   }
@@ -226,6 +227,11 @@ void IoBindingRegistry::ClearForTesting() {
   std::lock_guard<std::mutex> lock(mutex_);
   bindings_.clear();
   exposures_.clear();
+  conflict_errors_.clear();
+}
+
+void IoBindingRegistry::ResetConflictForTesting() {
+  std::lock_guard<std::mutex> lock(mutex_);
   conflict_errors_.clear();
 }
 

@@ -179,19 +179,22 @@ TEST_F(IoBindingRegistryTest, DeploymentIoConfigValidation) {
 
   DeploymentIoConfig parsed;
   std::string err;
-  EXPECT_TRUE(DeploymentIoConfig::Parse(valid_cfg, tmp_dir, "cabi", &parsed, &err));
+  EXPECT_TRUE(
+      DeploymentIoConfig::Parse(valid_cfg, tmp_dir, "cabi", &parsed, &err));
   EXPECT_EQ(parsed.pipe_path, "test.json");
   EXPECT_EQ(parsed.io_binding, "test_biz.cabi.v1");
 
   // 2. 拒绝未知 schema_version
   nlohmann::json bad_ver = valid_cfg;
   bad_ver["schema_version"] = 2;
-  EXPECT_FALSE(DeploymentIoConfig::Parse(bad_ver, tmp_dir, "cabi", &parsed, &err));
+  EXPECT_FALSE(
+      DeploymentIoConfig::Parse(bad_ver, tmp_dir, "cabi", &parsed, &err));
 
   // 3. 拒绝顶层未知字段
   nlohmann::json bad_field = valid_cfg;
   bad_field["extra_field"] = "foo";
-  EXPECT_FALSE(DeploymentIoConfig::Parse(bad_field, tmp_dir, "cabi", &parsed, &err));
+  EXPECT_FALSE(
+      DeploymentIoConfig::Parse(bad_field, tmp_dir, "cabi", &parsed, &err));
 
   // 4. C ABI 拒绝 outputs
   nlohmann::json cabi_with_outputs = valid_cfg;
@@ -202,7 +205,8 @@ TEST_F(IoBindingRegistryTest, DeploymentIoConfigValidation) {
   // 5. 路径逃逸拒绝
   nlohmann::json escape_cfg = valid_cfg;
   escape_cfg["data"]["pipe_path"] = "../../../etc/passwd";
-  EXPECT_FALSE(DeploymentIoConfig::Parse(escape_cfg, tmp_dir, "cabi", &parsed, &err));
+  EXPECT_FALSE(
+      DeploymentIoConfig::Parse(escape_cfg, tmp_dir, "cabi", &parsed, &err));
 
   fs::remove_all(tmp_dir);
 }

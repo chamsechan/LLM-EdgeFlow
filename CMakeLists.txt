@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 3.16)
 project(LLMEdgeFlow VERSION 10.0.0 LANGUAGES C CXX)
 
-set(LLM_EDGEFLOW_ABI_VERSION "5.0.0")
-set(LLM_EDGEFLOW_ABI_VERSION_MAJOR 5)
+set(LLM_EDGEFLOW_ABI_VERSION "6.0.0")
+set(LLM_EDGEFLOW_ABI_VERSION_MAJOR 6)
 
 # 严格禁止 In-Source 构建 (防止误用 cmake . 污染源码目录并触发重复下载阻塞)
 if("${CMAKE_SOURCE_DIR}" STREQUAL "${CMAKE_BINARY_DIR}")

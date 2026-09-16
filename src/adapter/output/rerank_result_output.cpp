@@ -21,8 +21,7 @@ int EncodeCAbiRerankResult(AlgContext* context,
                            const OutputPortBindings& bindings,
                            const OutputEncodeOptions& options,
                            ExternalOutputBatchView* destination,
-                           size_t* written_count,
-                           AdapterStatus* status) {
+                           size_t* written_count, AdapterStatus* status) {
   if (!context) {
     return AdapterValidationHelper::ReturnBufferTooSmall(
         status, "Null AlgContext passed to Encode", "context",
@@ -33,16 +32,16 @@ int EncodeCAbiRerankResult(AlgContext* context,
       context->Read<RankedTextBatch>(bindings.GetActualKey("ranked_results"));
   if (!res) {
     return AdapterValidationHelper::ReturnBufferTooSmall(
-        status, "Missing required context value: ranked_results", "ranked_results",
-        options.converter_id.c_str());
+        status, "Missing required context value: ranked_results",
+        "ranked_results", options.converter_id.c_str());
   }
 
-  const auto* raw_req_ids =
-      context->Read<std::vector<uint64_t>>(bindings.GetActualKey("raw_request_ids"));
+  const auto* raw_req_ids = context->Read<std::vector<uint64_t>>(
+      bindings.GetActualKey("raw_request_ids"));
   if (!raw_req_ids) {
     return AdapterValidationHelper::ReturnBufferTooSmall(
-        status, "Missing required context value: raw_request_ids", "raw_request_ids",
-        options.converter_id.c_str());
+        status, "Missing required context value: raw_request_ids",
+        "raw_request_ids", options.converter_id.c_str());
   }
 
   std::vector<const RankedTextBatch::value_type*> first;
@@ -88,7 +87,8 @@ int EncodeCAbiRerankResult(AlgContext* context,
 
     for (int k = 0; k < item_cnt; ++k) {
       out_ptr->scores[k] = cand_list[k].score;
-      out_ptr->sorted_indices[k] = static_cast<int>(cand_list[k].original_sub_id);
+      out_ptr->sorted_indices[k] =
+          static_cast<int>(cand_list[k].original_sub_id);
     }
   }
 
@@ -97,11 +97,10 @@ int EncodeCAbiRerankResult(AlgContext* context,
 }
 
 int EncodeOperatorRerankResult(AlgContext* context,
-                              const OutputPortBindings& bindings,
-                              const OutputEncodeOptions& options,
-                              ExternalOutputBatchView* destination,
-                              size_t* written_count,
-                              AdapterStatus* status) {
+                               const OutputPortBindings& bindings,
+                               const OutputEncodeOptions& options,
+                               ExternalOutputBatchView* destination,
+                               size_t* written_count, AdapterStatus* status) {
   if (!context) {
     return AdapterValidationHelper::ReturnBufferTooSmall(
         status, "Null AlgContext passed to Encode", "context",
@@ -112,16 +111,16 @@ int EncodeOperatorRerankResult(AlgContext* context,
       context->Read<RankedTextBatch>(bindings.GetActualKey("ranked_results"));
   if (!res) {
     return AdapterValidationHelper::ReturnBufferTooSmall(
-        status, "Missing required context value: ranked_results", "ranked_results",
-        options.converter_id.c_str());
+        status, "Missing required context value: ranked_results",
+        "ranked_results", options.converter_id.c_str());
   }
 
-  const auto* raw_req_ids =
-      context->Read<std::vector<uint64_t>>(bindings.GetActualKey("raw_request_ids"));
+  const auto* raw_req_ids = context->Read<std::vector<uint64_t>>(
+      bindings.GetActualKey("raw_request_ids"));
   if (!raw_req_ids) {
     return AdapterValidationHelper::ReturnBufferTooSmall(
-        status, "Missing required context value: raw_request_ids", "raw_request_ids",
-        options.converter_id.c_str());
+        status, "Missing required context value: raw_request_ids",
+        "raw_request_ids", options.converter_id.c_str());
   }
 
   std::vector<const RankedTextBatch::value_type*> first;
@@ -157,7 +156,8 @@ int EncodeOperatorRerankResult(AlgContext* context,
   }
 
   for (size_t i = 0; i < count; ++i) {
-    auto* out = destination->GetSlot<CompanyOperatorRerankOutput>("rerank_out", i);
+    auto* out =
+        destination->GetSlot<CompanyOperatorRerankOutput>("rerank_out", i);
     if (!out) {
       return AdapterValidationHelper::ReturnBufferTooSmall(
           status, "Missing rerank_out slot item", "rerank_out",
@@ -191,9 +191,13 @@ OutputConverterDefinition MakeCAbiRerankResultOutputConverter() {
   def.max_batch_size = 64;
   def.capacity_policy = "reject_overflow";
   def.thread_model = "stateless";
-  def.external_slots = {
-      {"outputs", "CompanyRerankBatchOutputStruct", PortDirection::kOutput, true,
-       "CompanyRerankBatchOutputStruct", "", {}}};
+  def.external_slots = {{"outputs",
+                         "CompanyRerankBatchOutputStruct",
+                         PortDirection::kOutput,
+                         true,
+                         "CompanyRerankBatchOutputStruct",
+                         "",
+                         {}}};
   def.logical_ports = {
       NodePortDefinition("raw_request_ids", "vector<uint64>", true, "1:1"),
       NodePortDefinition("ranked_results", "RankedTextBatch", true, "N:1")};
@@ -212,9 +216,13 @@ OutputConverterDefinition MakeOperatorRerankResultOutputConverter() {
   def.max_batch_size = 64;
   def.capacity_policy = "reject_overflow";
   def.thread_model = "stateless";
-  def.external_slots = {
-      {"rerank_out", "CompanyOperatorRerankOutput", PortDirection::kOutput, true,
-       "CompanyOperatorRerankOutput", "rerank_out", {}}};
+  def.external_slots = {{"rerank_out",
+                         "CompanyOperatorRerankOutput",
+                         PortDirection::kOutput,
+                         true,
+                         "CompanyOperatorRerankOutput",
+                         "rerank_out",
+                         {}}};
   def.logical_ports = {
       NodePortDefinition("raw_request_ids", "vector<uint64>", true, "1:1"),
       NodePortDefinition("ranked_results", "RankedTextBatch", true, "N:1")};

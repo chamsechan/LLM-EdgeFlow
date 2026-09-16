@@ -170,12 +170,11 @@ TEST_F(RuntimeControlAndHotSwapTest,
 // 1. 关键词库运行时动态热更新与立即生效测试
 TEST_F(RuntimeControlAndHotSwapTest, KeywordMatcherDynamicHotSwap) {
   std::string cfg_path =
-      GetConfigPath("configs/pipeline_keyword_match_rules.json");
+      GetConfigPath("configs/pipeline_keyword_match_cabi.json");
   CompanyAlgParamCreate param;
   param.config_file_path = cfg_path.c_str();
   param.model_root_dir = "./models";
   param.device_id = 0;
-  param.biz_type = ALG_BIZ_TYPE_KEYWORD_MATCH;
 
   void* handle = nullptr;
   ASSERT_EQ(Alg_Create(&handle, &param), 0);
@@ -239,12 +238,11 @@ TEST_F(RuntimeControlAndHotSwapTest, KeywordMatcherDynamicHotSwap) {
 // 2. 同一 handle 的 Process/Control 由 C ABI 层串行化，停流 join 后再销毁
 TEST_F(RuntimeControlAndHotSwapTest, ConcurrentProcessAndHotControl) {
   std::string cfg_path =
-      GetConfigPath("configs/pipeline_keyword_match_rules.json");
+      GetConfigPath("configs/pipeline_keyword_match_cabi.json");
   CompanyAlgParamCreate param;
   param.config_file_path = cfg_path.c_str();
   param.model_root_dir = "./models";
   param.device_id = 0;
-  param.biz_type = ALG_BIZ_TYPE_KEYWORD_MATCH;
 
   void* handle = nullptr;
   ASSERT_EQ(Alg_Create(&handle, &param), 0);
@@ -304,12 +302,11 @@ TEST_F(RuntimeControlAndHotSwapTest, ConcurrentProcessAndHotControl) {
 // 3. 非法控制指令与边界容错测试
 TEST_F(RuntimeControlAndHotSwapTest, InvalidControlCommands) {
   std::string cfg_path =
-      GetConfigPath("configs/pipeline_keyword_match_rules.json");
+      GetConfigPath("configs/pipeline_keyword_match_cabi.json");
   CompanyAlgParamCreate param;
   param.config_file_path = cfg_path.c_str();
   param.model_root_dir = "./models";
   param.device_id = 0;
-  param.biz_type = ALG_BIZ_TYPE_KEYWORD_MATCH;
 
   void* handle = nullptr;
   ASSERT_EQ(Alg_Create(&handle, &param), 0);

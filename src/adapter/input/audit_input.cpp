@@ -18,8 +18,7 @@ constexpr size_t kMaxTextLen = 64 * 1024;  // 64KB
 
 int DecodeCAbiAuditInput(const ExternalInputBatchView& source,
                          const InputDecodeOptions& options,
-                         const InputPortBindings& bindings,
-                         AlgContext* context,
+                         const InputPortBindings& bindings, AlgContext* context,
                          AdapterStatus* status) {
   if (!context) {
     return AdapterValidationHelper::ReturnInvalidInput(
@@ -75,8 +74,8 @@ int DecodeCAbiAuditInput(const ExternalInputBatchView& source,
           *context, bindings.GetActualKey("raw_request_ids"),
           std::move(req_ids), options.converter_id.c_str(), status) ||
       !AdapterValidationHelper::PublishContextValue(
-          *context, bindings.GetActualKey("user_texts"),
-          std::move(user_texts), options.converter_id.c_str(), status) ||
+          *context, bindings.GetActualKey("user_texts"), std::move(user_texts),
+          options.converter_id.c_str(), status) ||
       !AdapterValidationHelper::PublishContextValue(
           *context, bindings.GetActualKey("channel_names"),
           std::move(channel_names), options.converter_id.c_str(), status)) {
@@ -89,8 +88,7 @@ int DecodeCAbiAuditInput(const ExternalInputBatchView& source,
 int DecodeOperatorAuditInput(const ExternalInputBatchView& source,
                              const InputDecodeOptions& options,
                              const InputPortBindings& bindings,
-                             AlgContext* context,
-                             AdapterStatus* status) {
+                             AlgContext* context, AdapterStatus* status) {
   if (!context) {
     return AdapterValidationHelper::ReturnInvalidInput(
         status, "Null AlgContext passed to Decode", "context",
@@ -135,13 +133,16 @@ int DecodeOperatorAuditInput(const ExternalInputBatchView& source,
       if (in->channel_name->length < 0 ||
           (in->channel_name->length > 0 && !in->channel_name->data)) {
         return AdapterValidationHelper::ReturnInvalidInput(
-            status, "Invalid channel_name CompanyString", "audit_in.channel_name",
-            options.converter_id.c_str(), static_cast<int>(i));
+            status, "Invalid channel_name CompanyString",
+            "audit_in.channel_name", options.converter_id.c_str(),
+            static_cast<int>(i));
       }
-      if (static_cast<size_t>(in->channel_name->length) > biz_input::kMaxChannelNameBytes) {
+      if (static_cast<size_t>(in->channel_name->length) >
+          biz_input::kMaxChannelNameBytes) {
         return AdapterValidationHelper::ReturnInvalidInput(
-            status, "channel_name length exceeds limit", "audit_in.channel_name",
-            options.converter_id.c_str(), static_cast<int>(i));
+            status, "channel_name length exceeds limit",
+            "audit_in.channel_name", options.converter_id.c_str(),
+            static_cast<int>(i));
       }
       channel_str.assign(in->channel_name->data, in->channel_name->length);
     }
@@ -149,15 +150,16 @@ int DecodeOperatorAuditInput(const ExternalInputBatchView& source,
     std::string user_str(in->user_text->data, in->user_text->length);
     req_ids.push_back(in->request_id);
     user_texts.emplace_back(static_cast<uint32_t>(i), 0, std::move(user_str));
-    channel_names.emplace_back(static_cast<uint32_t>(i), 0, std::move(channel_str));
+    channel_names.emplace_back(static_cast<uint32_t>(i), 0,
+                               std::move(channel_str));
   }
 
   if (!AdapterValidationHelper::PublishContextValue(
           *context, bindings.GetActualKey("raw_request_ids"),
           std::move(req_ids), options.converter_id.c_str(), status) ||
       !AdapterValidationHelper::PublishContextValue(
-          *context, bindings.GetActualKey("user_texts"),
-          std::move(user_texts), options.converter_id.c_str(), status) ||
+          *context, bindings.GetActualKey("user_texts"), std::move(user_texts),
+          options.converter_id.c_str(), status) ||
       !AdapterValidationHelper::PublishContextValue(
           *context, bindings.GetActualKey("channel_names"),
           std::move(channel_names), options.converter_id.c_str(), status)) {
@@ -177,9 +179,13 @@ InputConverterDefinition MakeCAbiAuditInputConverter() {
   def.max_batch_size = 64;
   def.ownership_policy = "copy_in";
   def.thread_model = "stateless";
-  def.external_slots = {
-      {"inputs", "CompanyAuditInputStruct", PortDirection::kInput, true,
-       "CompanyAuditInputStruct", "", {}}};
+  def.external_slots = {{"inputs",
+                         "CompanyAuditInputStruct",
+                         PortDirection::kInput,
+                         true,
+                         "CompanyAuditInputStruct",
+                         "",
+                         {}}};
   def.logical_ports = {
       NodePortDefinition("raw_request_ids", "vector<uint64>", true, "1:1"),
       NodePortDefinition("user_texts", "TextBatch", true, "1:1"),
@@ -198,9 +204,13 @@ InputConverterDefinition MakeOperatorAuditInputConverter() {
   def.max_batch_size = 64;
   def.ownership_policy = "copy_in";
   def.thread_model = "stateless";
-  def.external_slots = {
-      {"audit_in", "CompanyOperatorAuditInput", PortDirection::kInput, true,
-       "CompanyOperatorAuditInput", "audit_in", {}}};
+  def.external_slots = {{"audit_in",
+                         "CompanyOperatorAuditInput",
+                         PortDirection::kInput,
+                         true,
+                         "CompanyOperatorAuditInput",
+                         "audit_in",
+                         {}}};
   def.logical_ports = {
       NodePortDefinition("raw_request_ids", "vector<uint64>", true, "1:1"),
       NodePortDefinition("user_texts", "TextBatch", true, "1:1"),

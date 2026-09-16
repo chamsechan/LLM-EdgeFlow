@@ -18,16 +18,16 @@ struct DeploymentIoConfig {
   std::string resolved_pipe_path;
   nlohmann::json raw_json;
 
-  static bool Parse(const nlohmann::json& root,
-                    const std::string& config_dir,
+  static bool Parse(const nlohmann::json& root, const std::string& config_dir,
                     const std::string& transport,
-                    DeploymentIoConfig* out_config,
-                    std::string* out_error);
+                    DeploymentIoConfig* out_config, std::string* out_error,
+                    const std::string& root_dir = "");
 
   static bool ReadFromFile(const std::string& config_path,
                            const std::string& transport,
                            DeploymentIoConfig* out_config,
-                           std::string* out_error);
+                           std::string* out_error,
+                           const std::string& root_dir = "");
 };
 
 }  // namespace llm_edgeflow

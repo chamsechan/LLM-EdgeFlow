@@ -117,7 +117,7 @@ if [[ "${1:-}" == "--self-test" ]]; then
   for CUSTOM_INCLUDE in \
     '#include "edgeflow/c_api.h"' \
     '# include "../adapter/biz_blackboard_keys.h"' \
-    '#include "adapter/biz_adapter_interface.h"' \
+    '#include "adapter/io_converter.h"' \
     '#include "edgeflow/operator/types.h"' \
     '#include "platform_mock/operator_types.h"'; do
     echo "${CUSTOM_INCLUDE}" > "${TMP_TEST_DIR}/violation_repo/src/custom_nodes/bad_node.cpp"

@@ -471,4 +471,50 @@ TEST_F(OperatorGoldenTest, CrossRerankGolden) {
   std::filesystem::remove_all(temp_dir, ec);
 }
 
+// Golden Test 8: Translate (Biz 8)
+TEST_F(OperatorGoldenTest, TranslateGolden) {
+  using namespace llm_edgeflow::operator_api;
+  CreateParam param{};
+  param.model_path = ".";
+  param.cfg_file_name = "demo/fixtures/mock/pipeline_translate.conf";
+  param.device_id = 0;
+  param.compute_platform = ComputePlatform::kCpu;
+
+  void* handle = nullptr;
+  ASSERT_EQ(ops_.Create(&handle, &param), 0);
+  ASSERT_NE(handle, nullptr);
+
+  std::string json_input = "{\"query\": \"Hello world\"}";
+  CompanyString cs_text{static_cast<int32_t>(json_input.size()),
+                        const_cast<char*>(json_input.data())};
+
+  CompanyOperatorEntityInput in{};
+  in.request_id = 8001;
+  in.sentence_text = &cs_text;
+
+  NamedIoBatch inputs(1);
+  inputs[0]["trans_channel.entity_in"] = MakeBorrowedOperatorInput(&in);
+
+  NamedIoBatch outputs(1);
+  outputs[0]["trans_channel.entity_out"] = std::shared_ptr<void>();
+
+  int p_ret = ops_.Process(handle, inputs, outputs);
+  ASSERT_EQ(p_ret, 0) << "Process error: "
+                      << llm_edgeflow::operator_api::GetOperatorLastError();
+  auto out_sp = outputs[0]["trans_channel.entity_out"];
+  ASSERT_NE(out_sp, nullptr);
+  auto* out_dto = static_cast<CompanyOperatorEntityOutput*>(out_sp.get());
+  EXPECT_EQ(out_dto->request_id, 8001u);
+  EXPECT_EQ(out_dto->status_code, 0);
+  ASSERT_NE(out_dto->entities_json, nullptr);
+  EXPECT_GT(out_dto->entities_json->length, 0);
+  auto res_json = nlohmann::json::parse(std::string(
+      out_dto->entities_json->data, out_dto->entities_json->length));
+  EXPECT_TRUE(res_json.contains("translated"));
+
+  outputs.clear();
+  out_sp.reset();
+  EXPECT_EQ(ops_.Destroy(handle), 0);
+}
+
 }  // namespace llm_edgeflow

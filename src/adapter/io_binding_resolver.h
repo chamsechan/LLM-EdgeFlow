@@ -29,7 +29,8 @@ struct ValidatedIoPlan {
 };
 
 /**
- * @brief 接入绑定解析器 (负责配置、转换器组合校验并调用 PipelineValidator 进行中性边界验证)
+ * @brief 接入绑定解析器 (负责配置、转换器组合校验并调用 PipelineValidator
+ * 进行中性边界验证)
  */
 class IoBindingResolver {
  public:
@@ -37,15 +38,13 @@ class IoBindingResolver {
       const DeploymentIoConfig& config,
       const std::string& transport,  // "cabi" 或 "operator"
       const std::string& model_root_dir,
-      std::unique_ptr<ValidatedIoPlan>* out_plan,
-      std::string* out_error);
+      std::unique_ptr<ValidatedIoPlan>* out_plan, std::string* out_error);
 
-  static int ResolveFromFile(
-      const std::string& config_path,
-      const std::string& transport,
-      const std::string& model_root_dir,
-      std::unique_ptr<ValidatedIoPlan>* out_plan,
-      std::string* out_error);
+  static int ResolveFromFile(const std::string& config_path,
+                             const std::string& transport,
+                             const std::string& model_root_dir,
+                             std::unique_ptr<ValidatedIoPlan>* out_plan,
+                             std::string* out_error);
 };
 
 }  // namespace llm_edgeflow

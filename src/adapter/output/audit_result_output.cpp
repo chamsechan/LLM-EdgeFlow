@@ -7,7 +7,6 @@
 #include "adapter/adapter_validation_helper.h"
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter.h"
-#include "adapter/operator_biz_bridge.h"
 #include "adapter/result_validation.h"
 #include "contracts/inference_payloads.h"
 #include "core/common_contracts.h"
@@ -21,36 +20,35 @@ int EncodeCAbiAuditResult(AlgContext* context,
                           const OutputPortBindings& bindings,
                           const OutputEncodeOptions& options,
                           ExternalOutputBatchView* destination,
-                          size_t* written_count,
-                          AdapterStatus* status) {
+                          size_t* written_count, AdapterStatus* status) {
   if (!context) {
     return AdapterValidationHelper::ReturnBufferTooSmall(
         status, "Null AlgContext passed to Encode", "context",
         options.converter_id.c_str());
   }
 
-  const auto* verdicts =
-      context->Read<StructuredDocumentBatch>(bindings.GetActualKey("structured_verdicts"));
+  const auto* verdicts = context->Read<StructuredDocumentBatch>(
+      bindings.GetActualKey("structured_verdicts"));
   if (!verdicts) {
     return AdapterValidationHelper::ReturnBufferTooSmall(
-        status, "Missing required context value: structured_verdicts", "verdicts",
-        options.converter_id.c_str());
+        status, "Missing required context value: structured_verdicts",
+        "verdicts", options.converter_id.c_str());
   }
 
   const auto* matched_policies =
       context->Read<RankedTextBatch>(bindings.GetActualKey("matched_policies"));
   if (!matched_policies) {
     return AdapterValidationHelper::ReturnInvalidInput(
-        status, "Missing required context value: matched_policies", "matched_policies",
-        options.converter_id.c_str());
+        status, "Missing required context value: matched_policies",
+        "matched_policies", options.converter_id.c_str());
   }
 
-  const auto* raw_req_ids =
-      context->Read<std::vector<uint64_t>>(bindings.GetActualKey("raw_request_ids"));
+  const auto* raw_req_ids = context->Read<std::vector<uint64_t>>(
+      bindings.GetActualKey("raw_request_ids"));
   if (!raw_req_ids) {
     return AdapterValidationHelper::ReturnBufferTooSmall(
-        status, "Missing required context value: raw_request_ids", "raw_request_ids",
-        options.converter_id.c_str());
+        status, "Missing required context value: raw_request_ids",
+        "raw_request_ids", options.converter_id.c_str());
   }
 
   int count = static_cast<int>(verdicts->size());
@@ -62,8 +60,8 @@ int EncodeCAbiAuditResult(AlgContext* context,
 
   if (matched_policies->size() < static_cast<size_t>(count)) {
     return AdapterValidationHelper::ReturnInvalidInput(
-        status, "matched_policies count mismatch in AlgContext", "matched_policies",
-        options.converter_id.c_str());
+        status, "matched_policies count mismatch in AlgContext",
+        "matched_policies", options.converter_id.c_str());
   }
 
   std::vector<const StructuredDocumentBatch::value_type*> verdicts_by_request;
@@ -74,7 +72,8 @@ int EncodeCAbiAuditResult(AlgContext* context,
 
   std::vector<const RankedTextBatch::value_type*> matched_policies_by_request;
   if (!IndexResults(matched_policies, raw_req_ids, &matched_policies_by_request,
-                    "matched_policies", options.converter_id.c_str(), status, true)) {
+                    "matched_policies", options.converter_id.c_str(), status,
+                    true)) {
     return COMPANY_ALG_ERR_INVALID_INPUT;
   }
 
@@ -90,14 +89,14 @@ int EncodeCAbiAuditResult(AlgContext* context,
         !verdict_item.structured_data["risk_level"].is_string() ||
         !verdict_item.structured_data["risk_score"].is_number()) {
       return AdapterValidationHelper::ReturnInvalidInput(
-          status, "structured_data missing or invalid risk_level/risk_score types",
+          status,
+          "structured_data missing or invalid risk_level/risk_score types",
           "structured_verdicts", options.converter_id.c_str(), i);
     }
 
     std::string risk_level =
         verdict_item.structured_data["risk_level"].get<std::string>();
-    float risk_score =
-        verdict_item.structured_data["risk_score"].get<float>();
+    float risk_score = verdict_item.structured_data["risk_score"].get<float>();
     if (!std::isfinite(risk_score) || risk_score < 0 || risk_score > 1 ||
         (risk_level != "SAFE" && risk_level != "LOW_RISK" &&
          risk_level != "MEDIUM_RISK" && risk_level != "HIGH_RISK")) {
@@ -120,9 +119,10 @@ int EncodeCAbiAuditResult(AlgContext* context,
     }
 
     if (!AdapterValidationHelper::CheckedStringCopy(
-            out_ptr->matched_policy_clause, sizeof(out_ptr->matched_policy_clause),
-            policy_clause.c_str(), "outputs[i].matched_policy_clause", i,
-            options.converter_id.c_str(), status)) {
+            out_ptr->matched_policy_clause,
+            sizeof(out_ptr->matched_policy_clause), policy_clause.c_str(),
+            "outputs[i].matched_policy_clause", i, options.converter_id.c_str(),
+            status)) {
       return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     }
 
@@ -142,49 +142,48 @@ int EncodeOperatorAuditResult(AlgContext* context,
                               const OutputPortBindings& bindings,
                               const OutputEncodeOptions& options,
                               ExternalOutputBatchView* destination,
-                              size_t* written_count,
-                              AdapterStatus* status) {
+                              size_t* written_count, AdapterStatus* status) {
   if (!context) {
     return AdapterValidationHelper::ReturnBufferTooSmall(
         status, "Null AlgContext passed to Encode", "context",
         options.converter_id.c_str());
   }
 
-  const auto* verdicts =
-      context->Read<StructuredDocumentBatch>(bindings.GetActualKey("structured_verdicts"));
+  const auto* verdicts = context->Read<StructuredDocumentBatch>(
+      bindings.GetActualKey("structured_verdicts"));
   if (!verdicts) {
     return AdapterValidationHelper::ReturnBufferTooSmall(
-        status, "Missing required context value: structured_verdicts", "verdicts",
-        options.converter_id.c_str());
+        status, "Missing required context value: structured_verdicts",
+        "verdicts", options.converter_id.c_str());
   }
 
   const auto* matched_policies =
       context->Read<RankedTextBatch>(bindings.GetActualKey("matched_policies"));
   if (!matched_policies) {
     return AdapterValidationHelper::ReturnInvalidInput(
-        status, "Missing required context value: matched_policies", "matched_policies",
-        options.converter_id.c_str());
+        status, "Missing required context value: matched_policies",
+        "matched_policies", options.converter_id.c_str());
   }
 
-  const auto* raw_req_ids =
-      context->Read<std::vector<uint64_t>>(bindings.GetActualKey("raw_request_ids"));
+  const auto* raw_req_ids = context->Read<std::vector<uint64_t>>(
+      bindings.GetActualKey("raw_request_ids"));
   if (!raw_req_ids) {
     return AdapterValidationHelper::ReturnBufferTooSmall(
-        status, "Missing required context value: raw_request_ids", "raw_request_ids",
-        options.converter_id.c_str());
+        status, "Missing required context value: raw_request_ids",
+        "raw_request_ids", options.converter_id.c_str());
   }
 
   size_t count = verdicts->size();
   if (destination->count < count) {
     return AdapterValidationHelper::ReturnBufferTooSmall(
-        status, "Destination item count is less than output count", "destination",
-        options.converter_id.c_str());
+        status, "Destination item count is less than output count",
+        "destination", options.converter_id.c_str());
   }
 
   if (matched_policies->size() < count) {
     return AdapterValidationHelper::ReturnInvalidInput(
-        status, "matched_policies count mismatch in AlgContext", "matched_policies",
-        options.converter_id.c_str());
+        status, "matched_policies count mismatch in AlgContext",
+        "matched_policies", options.converter_id.c_str());
   }
 
   std::vector<const StructuredDocumentBatch::value_type*> verdicts_by_request;
@@ -195,12 +194,14 @@ int EncodeOperatorAuditResult(AlgContext* context,
 
   std::vector<const RankedTextBatch::value_type*> matched_policies_by_request;
   if (!IndexResults(matched_policies, raw_req_ids, &matched_policies_by_request,
-                    "matched_policies", options.converter_id.c_str(), status, true)) {
+                    "matched_policies", options.converter_id.c_str(), status,
+                    true)) {
     return COMPANY_ALG_ERR_INVALID_INPUT;
   }
 
   for (size_t i = 0; i < count; ++i) {
-    auto* out = destination->GetSlot<CompanyOperatorAuditOutput>("audit_out", i);
+    auto* out =
+        destination->GetSlot<CompanyOperatorAuditOutput>("audit_out", i);
     if (!out) {
       return AdapterValidationHelper::ReturnBufferTooSmall(
           status, "Missing audit_out slot item", "audit_out",
@@ -217,14 +218,15 @@ int EncodeOperatorAuditResult(AlgContext* context,
         !verdict_item.structured_data["risk_level"].is_string() ||
         !verdict_item.structured_data["risk_score"].is_number()) {
       return AdapterValidationHelper::ReturnInvalidInput(
-          status, "structured_data missing or invalid risk_level/risk_score types",
-          "structured_verdicts", options.converter_id.c_str(), static_cast<int>(i));
+          status,
+          "structured_data missing or invalid risk_level/risk_score types",
+          "structured_verdicts", options.converter_id.c_str(),
+          static_cast<int>(i));
     }
 
     std::string risk_level =
         verdict_item.structured_data["risk_level"].get<std::string>();
-    float risk_score =
-        verdict_item.structured_data["risk_score"].get<float>();
+    float risk_score = verdict_item.structured_data["risk_score"].get<float>();
     if (!std::isfinite(risk_score) || risk_score < 0 || risk_score > 1 ||
         (risk_level != "SAFE" && risk_level != "LOW_RISK" &&
          risk_level != "MEDIUM_RISK" && risk_level != "HIGH_RISK")) {
@@ -242,7 +244,8 @@ int EncodeOperatorAuditResult(AlgContext* context,
     std::string err;
     int ret = CopyToOperatorString(
         risk_level.c_str(), out->risk_level,
-        destination->GetSlotCapacity("audit_out", "risk_level", 31), "risk_level", &err);
+        destination->GetSlotCapacity("audit_out", "risk_level", 31),
+        "risk_level", &err);
     if (ret != 0) {
       return AdapterValidationHelper::ReturnBufferTooSmall(
           status, err.empty() ? "Buffer too small for risk_level" : err.c_str(),
@@ -251,20 +254,27 @@ int EncodeOperatorAuditResult(AlgContext* context,
 
     ret = CopyToOperatorString(
         policy_clause.c_str(), out->matched_policy_clause,
-        destination->GetSlotCapacity("audit_out", "matched_policy_clause", 255), "matched_policy_clause", &err);
+        destination->GetSlotCapacity("audit_out", "matched_policy_clause", 255),
+        "matched_policy_clause", &err);
     if (ret != 0) {
       return AdapterValidationHelper::ReturnBufferTooSmall(
-          status, err.empty() ? "Buffer too small for matched_policy_clause" : err.c_str(),
-          "matched_policy_clause", options.converter_id.c_str(), static_cast<int>(i));
+          status,
+          err.empty() ? "Buffer too small for matched_policy_clause"
+                      : err.c_str(),
+          "matched_policy_clause", options.converter_id.c_str(),
+          static_cast<int>(i));
     }
 
     ret = CopyToOperatorString(
         verdict_json.c_str(), out->audit_verdict_json,
-        destination->GetSlotCapacity("audit_out", "audit_verdict_json", 1023), "audit_verdict_json", &err);
+        destination->GetSlotCapacity("audit_out", "audit_verdict_json", 1023),
+        "audit_verdict_json", &err);
     if (ret != 0) {
       return AdapterValidationHelper::ReturnBufferTooSmall(
-          status, err.empty() ? "Buffer too small for audit_verdict_json" : err.c_str(),
-          "audit_verdict_json", options.converter_id.c_str(), static_cast<int>(i));
+          status,
+          err.empty() ? "Buffer too small for audit_verdict_json" : err.c_str(),
+          "audit_verdict_json", options.converter_id.c_str(),
+          static_cast<int>(i));
     }
   }
 
@@ -284,11 +294,17 @@ OutputConverterDefinition MakeCAbiAuditResultOutputConverter() {
   def.capacity_policy = "reject_overflow";
   def.thread_model = "stateless";
   def.external_slots = {
-      {"outputs", "CompanyAuditOutputStruct", PortDirection::kOutput, true,
-       "CompanyAuditOutputStruct", "", {"risk_level", "matched_policy_clause", "audit_verdict_json"}}};
+      {"outputs",
+       "CompanyAuditOutputStruct",
+       PortDirection::kOutput,
+       true,
+       "CompanyAuditOutputStruct",
+       "",
+       {"risk_level", "matched_policy_clause", "audit_verdict_json"}}};
   def.logical_ports = {
       NodePortDefinition("raw_request_ids", "vector<uint64>", true, "1:1"),
-      NodePortDefinition("structured_verdicts", "StructuredDocumentBatch", true, "1:1"),
+      NodePortDefinition("structured_verdicts", "StructuredDocumentBatch", true,
+                         "1:1"),
       NodePortDefinition("matched_policies", "RankedTextBatch", true, "N:1")};
   def.encode_fn = &EncodeCAbiAuditResult;
   return def;
@@ -306,11 +322,17 @@ OutputConverterDefinition MakeOperatorAuditResultOutputConverter() {
   def.capacity_policy = "reject_overflow";
   def.thread_model = "stateless";
   def.external_slots = {
-      {"audit_out", "CompanyOperatorAuditOutput", PortDirection::kOutput, true,
-       "CompanyOperatorAuditOutput", "audit_out", {"risk_level", "matched_policy_clause", "audit_verdict_json"}}};
+      {"audit_out",
+       "CompanyOperatorAuditOutput",
+       PortDirection::kOutput,
+       true,
+       "CompanyOperatorAuditOutput",
+       "audit_out",
+       {"risk_level", "matched_policy_clause", "audit_verdict_json"}}};
   def.logical_ports = {
       NodePortDefinition("raw_request_ids", "vector<uint64>", true, "1:1"),
-      NodePortDefinition("structured_verdicts", "StructuredDocumentBatch", true, "1:1"),
+      NodePortDefinition("structured_verdicts", "StructuredDocumentBatch", true,
+                         "1:1"),
       NodePortDefinition("matched_policies", "RankedTextBatch", true, "N:1")};
   def.encode_fn = &EncodeOperatorAuditResult;
   return def;

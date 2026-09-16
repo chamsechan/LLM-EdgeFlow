@@ -8,9 +8,9 @@
 
 #include "core/diagnostic_code.h"
 #include "core/pipeline_config.h"
+#include "core/port_definition.h"
 #include "core/remediation_cause.h"
 #include "core/validated_node_plan.h"
-#include "core/port_definition.h"
 #include "engine/inference_definition.h"
 
 namespace llm_edgeflow {

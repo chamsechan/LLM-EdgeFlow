@@ -582,13 +582,13 @@ class WorkbenchService:
         conf = read_json(profile_conf)
         if (
             not isinstance(conf, dict)
-            or set(conf) != {"data"}
-            or not isinstance(conf["data"], dict)
+            or set(conf) not in ({"data"}, {"schema_version", "data"})
+            or not isinstance(conf.get("data"), dict)
             or not isinstance(conf["data"].get("pipe_path"), str)
             or not isinstance(conf["data"].get("outputs"), dict)
         ):
             raise StudioError(
-                "INVALID_PROFILE_CONFIG", "Profile .conf 必须仅包含 data 对象"
+                "INVALID_PROFILE_CONFIG", "Profile .conf 必须包含 schema_version 与 data 对象"
             )
         data = conf["data"]
         original_pipeline_path = Path(data["pipe_path"])

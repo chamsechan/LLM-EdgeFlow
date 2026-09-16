@@ -58,8 +58,7 @@ int Alg_Create(void** hndl,
     std::string err_msg;
 
     int ret = llm_edgeflow::SharedAlgorithmRuntime::CreateFromConfigFile(
-        cfg_path, param_create->device_id, model_root, param_create->biz_type,
-        &runtime, &err_msg);
+        cfg_path, param_create->device_id, model_root, &runtime, &err_msg);
     if (ret != 0) {
       ALG_LOG_ERROR("[Company C Adapter] Alg_Create failed: %s\n",
                     err_msg.c_str());

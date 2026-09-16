@@ -79,7 +79,7 @@ std::optional<fs::path> ProfilePipeline(
   if (!conf_stream.is_open()) return std::nullopt;
   nlohmann::json conf;
   conf_stream >> conf;
-  if (!conf.is_object() || conf.size() != 1 || !conf.contains("data") ||
+  if (!conf.is_object() || !conf.contains("data") ||
       !conf["data"].is_object() || !conf["data"].contains("pipe_path") ||
       !conf["data"]["pipe_path"].is_string()) {
     return std::nullopt;
@@ -201,7 +201,8 @@ void Usage() {
             << "  alg_pipeline_tool plan FILE|--stdin [--explain]\n";
   std::cerr
       << "  alg_pipeline_tool resolve-conf FILE [--root DIR] [--depth N]\n"
-      << "  alg_pipeline_tool validate-io CONFIG --transport <cabi|operator> [--model-root DIR]\n"
+      << "  alg_pipeline_tool validate-io CONFIG --transport <cabi|operator> "
+         "[--model-root DIR]\n"
       << "  alg_pipeline_tool edit --stdin\n"
       << "  alg_pipeline_tool fix-deps FILE [--in-place]\n";
 }

@@ -38,8 +38,7 @@ TEST_F(TextConvertersTest, TextPlainCAbiInputDecodeSuccess) {
   int ret = conv->decode_fn(view, options, bindings, &ctx, &status);
   EXPECT_EQ(ret, COMPANY_ALG_SUCCESS);
 
-  const auto* req_ids =
-      ctx.Read<std::vector<uint64_t>>("raw_request_ids");
+  const auto* req_ids = ctx.Read<std::vector<uint64_t>>("raw_request_ids");
   ASSERT_NE(req_ids, nullptr);
   ASSERT_EQ(req_ids->size(), 2U);
   EXPECT_EQ((*req_ids)[0], 1001U);
@@ -53,13 +52,14 @@ TEST_F(TextConvertersTest, TextPlainCAbiInputDecodeSuccess) {
 }
 
 TEST_F(TextConvertersTest, TranslateJsonInputDecodeValidAndInvalid) {
-  const auto* conv =
-      IoConverterRegistry::Instance().FindInputConverter("translate.json.cabi.v1");
+  const auto* conv = IoConverterRegistry::Instance().FindInputConverter(
+      "translate.json.cabi.v1");
   ASSERT_NE(conv, nullptr);
   ASSERT_NE(conv->decode_fn, nullptr);
 
   // 1. Valid JSON with query field
-  CompanyEntityInputStruct valid_s{2001, "{\"query\": \"Translate me!\", \"lang\": \"en\"}"};
+  CompanyEntityInputStruct valid_s{
+      2001, "{\"query\": \"Translate me!\", \"lang\": \"en\"}"};
   const void* valid_items[] = {&valid_s};
 
   ExternalInputBatchView valid_view;
@@ -96,8 +96,8 @@ TEST_F(TextConvertersTest, TranslateJsonInputDecodeValidAndInvalid) {
 }
 
 TEST_F(TextConvertersTest, TranslationJsonOutputEncodeCAbi) {
-  const auto* conv =
-      IoConverterRegistry::Instance().FindOutputConverter("translate.json.cabi.v1");
+  const auto* conv = IoConverterRegistry::Instance().FindOutputConverter(
+      "translate.json.cabi.v1");
   ASSERT_NE(conv, nullptr);
   ASSERT_NE(conv->encode_fn, nullptr);
 
@@ -114,8 +114,8 @@ TEST_F(TextConvertersTest, TranslationJsonOutputEncodeCAbi) {
   dest.items = out_ptrs;
   dest.capacity = 1;
 
-  OutputPortBindings bindings({{"raw_request_ids", "raw_request_ids"},
-                               {"llm_answers", "llm_answers"}});
+  OutputPortBindings bindings(
+      {{"raw_request_ids", "raw_request_ids"}, {"llm_answers", "llm_answers"}});
   OutputEncodeOptions options;
   options.converter_id = conv->converter_id;
 

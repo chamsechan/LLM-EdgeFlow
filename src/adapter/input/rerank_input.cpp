@@ -19,8 +19,7 @@ constexpr size_t kMaxTextLen = 64 * 1024;  // 64KB
 int DecodeCAbiRerankInput(const ExternalInputBatchView& source,
                           const InputDecodeOptions& options,
                           const InputPortBindings& bindings,
-                          AlgContext* context,
-                          AdapterStatus* status) {
+                          AlgContext* context, AdapterStatus* status) {
   if (!context) {
     return AdapterValidationHelper::ReturnInvalidInput(
         status, "Null AlgContext passed to Decode", "context",
@@ -67,11 +66,11 @@ int DecodeCAbiRerankInput(const ExternalInputBatchView& source,
     queries.emplace_back(static_cast<uint32_t>(i), 0, in_rerank->query_text);
 
     for (int c = 0; c < in_rerank->candidate_count; ++c) {
-      std::string field_name = "inputs[i].candidate_passages[" + std::to_string(c) + "]";
+      std::string field_name =
+          "inputs[i].candidate_passages[" + std::to_string(c) + "]";
       if (!AdapterValidationHelper::RequireBoundedString(
-              field_name.c_str(), in_rerank->candidate_passages[c],
-              kMaxTextLen, static_cast<int>(i), options.converter_id.c_str(),
-              status)) {
+              field_name.c_str(), in_rerank->candidate_passages[c], kMaxTextLen,
+              static_cast<int>(i), options.converter_id.c_str(), status)) {
         return COMPANY_ALG_ERR_INVALID_INPUT;
       }
 
@@ -89,14 +88,14 @@ int DecodeCAbiRerankInput(const ExternalInputBatchView& source,
           *context, bindings.GetActualKey("raw_request_ids"),
           std::move(raw_req_ids), options.converter_id.c_str(), status) ||
       !AdapterValidationHelper::PublishContextValue(
-          *context, bindings.GetActualKey("rerank_queries"),
-          std::move(queries), options.converter_id.c_str(), status) ||
+          *context, bindings.GetActualKey("rerank_queries"), std::move(queries),
+          options.converter_id.c_str(), status) ||
       !AdapterValidationHelper::PublishContextValue(
           *context, bindings.GetActualKey("rerank_candidates"),
           std::move(candidates), options.converter_id.c_str(), status) ||
       !AdapterValidationHelper::PublishContextValue(
-          *context, bindings.GetActualKey("rerank_pairs"),
-          std::move(pairs), options.converter_id.c_str(), status)) {
+          *context, bindings.GetActualKey("rerank_pairs"), std::move(pairs),
+          options.converter_id.c_str(), status)) {
     return COMPANY_ALG_ERR_INVALID_INPUT;
   }
 
@@ -106,8 +105,7 @@ int DecodeCAbiRerankInput(const ExternalInputBatchView& source,
 int DecodeOperatorRerankInput(const ExternalInputBatchView& source,
                               const InputDecodeOptions& options,
                               const InputPortBindings& bindings,
-                              AlgContext* context,
-                              AdapterStatus* status) {
+                              AlgContext* context, AdapterStatus* status) {
   if (!context) {
     return AdapterValidationHelper::ReturnInvalidInput(
         status, "Null AlgContext passed to Decode", "context",
@@ -150,7 +148,8 @@ int DecodeOperatorRerankInput(const ExternalInputBatchView& source,
     if (in->candidate_count < 1 || in->candidate_count > 8) {
       return AdapterValidationHelper::ReturnInvalidInput(
           status, "candidate_count out of valid range [1, 8]",
-          "rerank_in.candidate_count", options.converter_id.c_str(), static_cast<int>(i));
+          "rerank_in.candidate_count", options.converter_id.c_str(),
+          static_cast<int>(i));
     }
 
     std::string query_str(in->query_text->data, in->query_text->length);
@@ -176,9 +175,8 @@ int DecodeOperatorRerankInput(const ExternalInputBatchView& source,
       candidates.emplace_back(
           static_cast<uint32_t>(i), static_cast<uint32_t>(c),
           RankedCandidate(passage, 0.0f, c + 1, static_cast<uint32_t>(c)));
-      pairs.emplace_back(
-          static_cast<uint32_t>(i), static_cast<uint32_t>(c),
-          QueryCandidatePair(query_str, std::move(passage)));
+      pairs.emplace_back(static_cast<uint32_t>(i), static_cast<uint32_t>(c),
+                         QueryCandidatePair(query_str, std::move(passage)));
     }
   }
 
@@ -186,14 +184,14 @@ int DecodeOperatorRerankInput(const ExternalInputBatchView& source,
           *context, bindings.GetActualKey("raw_request_ids"),
           std::move(raw_req_ids), options.converter_id.c_str(), status) ||
       !AdapterValidationHelper::PublishContextValue(
-          *context, bindings.GetActualKey("rerank_queries"),
-          std::move(queries), options.converter_id.c_str(), status) ||
+          *context, bindings.GetActualKey("rerank_queries"), std::move(queries),
+          options.converter_id.c_str(), status) ||
       !AdapterValidationHelper::PublishContextValue(
           *context, bindings.GetActualKey("rerank_candidates"),
           std::move(candidates), options.converter_id.c_str(), status) ||
       !AdapterValidationHelper::PublishContextValue(
-          *context, bindings.GetActualKey("rerank_pairs"),
-          std::move(pairs), options.converter_id.c_str(), status)) {
+          *context, bindings.GetActualKey("rerank_pairs"), std::move(pairs),
+          options.converter_id.c_str(), status)) {
     return COMPANY_ALG_ERR_INVALID_INPUT;
   }
 
@@ -210,9 +208,13 @@ InputConverterDefinition MakeCAbiRerankInputConverter() {
   def.max_batch_size = 64;
   def.ownership_policy = "copy_in";
   def.thread_model = "stateless";
-  def.external_slots = {
-      {"inputs", "CompanyRerankBatchInputStruct", PortDirection::kInput, true,
-       "CompanyRerankBatchInputStruct", "", {}}};
+  def.external_slots = {{"inputs",
+                         "CompanyRerankBatchInputStruct",
+                         PortDirection::kInput,
+                         true,
+                         "CompanyRerankBatchInputStruct",
+                         "",
+                         {}}};
   def.logical_ports = {
       NodePortDefinition("raw_request_ids", "vector<uint64>", true, "1:1"),
       NodePortDefinition("rerank_queries", "TextBatch", true, "1:1"),
@@ -232,9 +234,13 @@ InputConverterDefinition MakeOperatorRerankInputConverter() {
   def.max_batch_size = 64;
   def.ownership_policy = "copy_in";
   def.thread_model = "stateless";
-  def.external_slots = {
-      {"rerank_in", "CompanyOperatorRerankInput", PortDirection::kInput, true,
-       "CompanyOperatorRerankInput", "rerank_in", {}}};
+  def.external_slots = {{"rerank_in",
+                         "CompanyOperatorRerankInput",
+                         PortDirection::kInput,
+                         true,
+                         "CompanyOperatorRerankInput",
+                         "rerank_in",
+                         {}}};
   def.logical_ports = {
       NodePortDefinition("raw_request_ids", "vector<uint64>", true, "1:1"),
       NodePortDefinition("rerank_queries", "TextBatch", true, "1:1"),
