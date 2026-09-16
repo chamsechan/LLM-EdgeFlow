@@ -939,4 +939,180 @@ TEST_F(OperatorOutputPoolTest,
   EXPECT_TRUE(aligned);
 }
 
+// --------------------------------------------------------------------------
+// AcquireOperatorOutputBlocks 异常安全与回滚测试
+// --------------------------------------------------------------------------
+
+TEST_F(OperatorOutputPoolTest,
+       TrackRollsBackBlockOnRegistrationAllocationFailure) {
+  const auto* binding =
+      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("keyword_out");
+  ASSERT_NE(binding, nullptr);
+
+  ResolvedOutputPoolSpec spec;
+  spec.type = "keyword_out";
+
+  std::shared_ptr<OutputPoolState> pool;
+  std::string err;
+  ASSERT_EQ(
+      OutputPoolState::Create("keyword_out", 3, spec, binding, &pool, &err), 0);
+  ASSERT_EQ(pool->FreeBlockCount(), 3u);
+  ASSERT_EQ(pool->CheckedOutCount(), 0u);
+
+  void* block = nullptr;
+  ASSERT_EQ(pool->Acquire(&block), 0);
+  ASSERT_NE(block, nullptr);
+  EXPECT_EQ(pool->CheckedOutCount(), 1u);
+
+  // 故障注入：未 Reserve 的 ScopedOutputLeaseGuard 在 Track 时 push_back 抛出
+  // bad_alloc
+  ScopedOutputLeaseGuard guard;
+  bool threw_bad_alloc = false;
+  try {
+    test_support::ScopedAllocationFailure failure(0);
+    guard.Track(pool, block);
+  } catch (const std::bad_alloc&) {
+    threw_bad_alloc = true;
+  }
+  EXPECT_TRUE(threw_bad_alloc);
+
+  // 验证块已被自动归还，CheckedOut 归零，无泄漏
+  EXPECT_EQ(pool->CheckedOutCount(), 0u);
+  EXPECT_EQ(pool->FreeBlockCount(), 3u);
+
+  // 下一次合法调用能够成功
+  guard.Reserve(1);
+  void* block_next = nullptr;
+  ASSERT_EQ(pool->Acquire(&block_next), 0);
+  EXPECT_EQ(pool->CheckedOutCount(), 1u);
+  EXPECT_NO_THROW(guard.Track(pool, block_next));
+  guard.Rollback();
+  EXPECT_EQ(pool->CheckedOutCount(), 0u);
+  EXPECT_EQ(pool->FreeBlockCount(), 3u);
+}
+
+TEST_F(OperatorOutputPoolTest, AcquireBlocksRollsBackOnSecondSlotFailure) {
+  const auto* binding =
+      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("keyword_out");
+  ASSERT_NE(binding, nullptr);
+
+  ResolvedOutputPoolSpec spec;
+  spec.type = "keyword_out";
+
+  std::shared_ptr<OutputPoolState> pool_a;
+  std::shared_ptr<OutputPoolState> pool_b;
+  std::string err;
+  ASSERT_EQ(
+      OutputPoolState::Create("keyword_out", 2, spec, binding, &pool_a, &err),
+      0);
+  ASSERT_EQ(
+      OutputPoolState::Create("keyword_out", 1, spec, binding, &pool_b, &err),
+      0);
+
+  // 关闭 pool_b，使其 Acquire 立即失败 (返回 -9) 而不发生条件变量无限阻塞
+  pool_b->CloseAndDrain();
+
+  // 构造单帧多槽位: slot_a 和 slot_b
+  std::vector<std::vector<FrameOutputBinding>> frame_bindings(1);
+  frame_bindings[0].push_back({"slot_a_key", "slot_a", "keyword_out"});
+  frame_bindings[0].push_back({"slot_b_key", "slot_b", "keyword_out"});
+
+  std::unordered_map<std::string, std::shared_ptr<OutputPoolState>> pools;
+  pools["slot_a"] = pool_a;
+  pools["slot_b"] = pool_b;
+
+  // 执行获取：slot_a 成功，slot_b 失败
+  {
+    ScopedOutputLeaseGuard guard;
+    std::vector<AcquiredOutputBlock> acquired;
+    std::string acq_err;
+    int ret = AcquireOperatorOutputBlocks(frame_bindings, pools, &guard,
+                                          &acquired, &acq_err);
+    EXPECT_EQ(ret, -4);
+    EXPECT_NE(acq_err.find("Output pool exhausted for slot slot_b"),
+              std::string::npos);
+    // guard 析构触发 Rollback
+  }
+
+  // 验证 slot_a 的块已被完全回滚，无泄漏
+  EXPECT_EQ(pool_a->CheckedOutCount(), 0u);
+  EXPECT_EQ(pool_a->FreeBlockCount(), 2u);
+
+  // 为后续合法调用提供正常的 pool_b_new
+  std::shared_ptr<OutputPoolState> pool_b_new;
+  ASSERT_EQ(OutputPoolState::Create("keyword_out", 1, spec, binding,
+                                    &pool_b_new, &err),
+            0);
+  pools["slot_b"] = pool_b_new;
+
+  // 下一次合法调用能够成功
+  {
+    ScopedOutputLeaseGuard guard;
+    std::vector<AcquiredOutputBlock> acquired;
+    std::string acq_err;
+    int ret = AcquireOperatorOutputBlocks(frame_bindings, pools, &guard,
+                                          &acquired, &acq_err);
+    EXPECT_EQ(ret, 0);
+    EXPECT_EQ(acquired.size(), 2u);
+    EXPECT_EQ(pool_a->CheckedOutCount(), 1u);
+    EXPECT_EQ(pool_b_new->CheckedOutCount(), 1u);
+  }
+  EXPECT_EQ(pool_a->CheckedOutCount(), 0u);
+  EXPECT_EQ(pool_b_new->CheckedOutCount(), 0u);
+}
+
+TEST_F(OperatorOutputPoolTest, AcquireBlocksRollsBackOnSecondFrameFailure) {
+  const auto* binding =
+      OperatorValueTypeRegistry::Instance().GetBindingBySuffix("keyword_out");
+  ASSERT_NE(binding, nullptr);
+
+  ResolvedOutputPoolSpec spec;
+  spec.type = "keyword_out";
+
+  std::shared_ptr<OutputPoolState> pool;
+  std::string err;
+  ASSERT_EQ(
+      OutputPoolState::Create("keyword_out", 2, spec, binding, &pool, &err), 0);
+  ASSERT_EQ(pool->FreeBlockCount(), 2u);
+
+  // 第 0 帧使用有效槽位 keyword_out，第 1 帧使用缺失槽位 missing_slot
+  std::vector<std::vector<FrameOutputBinding>> frame_bindings(2);
+  frame_bindings[0].push_back({"k0", "keyword_out", "keyword_out"});
+  frame_bindings[1].push_back({"k1", "missing_slot", "keyword_out"});
+
+  std::unordered_map<std::string, std::shared_ptr<OutputPoolState>> pools;
+  pools["keyword_out"] = pool;
+
+  {
+    ScopedOutputLeaseGuard guard;
+    std::vector<AcquiredOutputBlock> acquired;
+    std::string acq_err;
+    int ret = AcquireOperatorOutputBlocks(frame_bindings, pools, &guard,
+                                          &acquired, &acq_err);
+    EXPECT_EQ(ret, -5);
+    EXPECT_NE(acq_err.find("Missing output pool for slot missing_slot"),
+              std::string::npos);
+  }
+
+  // 验证第 0 帧检出的块已被 Rollback 归还，CheckedOut 归零
+  EXPECT_EQ(pool->CheckedOutCount(), 0u);
+  EXPECT_EQ(pool->FreeBlockCount(), 2u);
+
+  // 下一次单帧合法调用必须成功
+  {
+    std::vector<std::vector<FrameOutputBinding>> single_frame(1);
+    single_frame[0].push_back({"k0", "keyword_out", "keyword_out"});
+    ScopedOutputLeaseGuard guard;
+    std::vector<AcquiredOutputBlock> acquired;
+    std::string acq_err;
+    int ret = AcquireOperatorOutputBlocks(single_frame, pools, &guard,
+                                          &acquired, &acq_err);
+    EXPECT_EQ(ret, 0);
+    EXPECT_EQ(acquired.size(), 1u);
+    EXPECT_EQ(pool->CheckedOutCount(), 1u);
+  }
+  EXPECT_EQ(pool->CheckedOutCount(), 0u);
+  EXPECT_EQ(pool->FreeBlockCount(), 2u);
+}
+
 }  // namespace llm_edgeflow

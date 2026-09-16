@@ -5,9 +5,9 @@
 #include <stdexcept>
 #include <thread>
 
-#include "adapter/biz_adapter_registry.h"
+#include "adapter/converter_authoring.h"
+#include "adapter/io_converter_registry.h"
 #include "adapter/operator/json_output_config_reader.h"
-#include "adapter/operator/operator_biz_bridge_registry.h"
 #include "adapter/operator/operator_value_type_registry.h"
 #include "core/alg_context.h"
 #include "scoped_allocation_failure.h"
@@ -1060,8 +1060,7 @@ TEST(OperatorValueRegistryTest, NoexceptOOMFaultTolerance) {
                 &any, 10, "test", &err);
             break;
           case 3:
-            result = OperatorBizBridgeRegistry::CopyToPooledString(
-                "source", nullptr, 1, "field", &err);
+            result = CopyToOperatorString("source", nullptr, 1, "field", &err);
             break;
         }
         injected |= fail.Triggered();
@@ -1126,10 +1125,10 @@ TEST(OperatorValueRegistryTest,
 TEST(OperatorValueRegistryTest, CAndOperatorAgreeOnChannelNameBoundaries) {
   const auto* binding =
       OperatorValueTypeRegistry::Instance().GetBindingBySuffix("audit_in");
-  auto adapter =
-      BizAdapterRegistry::Instance().GetAdapter(ALG_BIZ_TYPE_COMPLIANCE_AUDIT);
+  const auto* in_conv =
+      IoConverterRegistry::Instance().FindInputConverter("audit.plain.cabi.v1");
   ASSERT_NE(binding, nullptr);
-  ASSERT_NE(adapter, nullptr);
+  ASSERT_NE(in_conv, nullptr);
   std::string query = "hello";
   CompanyString text{static_cast<int32_t>(query.size()), query.data()};
   for (int length : {-1, 0, 256, 257}) {
@@ -1143,7 +1142,20 @@ TEST(OperatorValueRegistryTest, CAndOperatorAgreeOnChannelNameBoundaries) {
     const void* inputs[]{&c_input};
     AlgContext ctx;
     const bool expected = length <= 256;
-    EXPECT_EQ(adapter->Unpack(inputs, 1, &ctx) == 0, expected);
+    ExternalInputBatchView view;
+    view.items = inputs;
+    view.count = 1;
+    view.type_id = in_conv->external_type;
+    InputPortBindings port_bindings({{"raw_request_ids", "raw_request_ids"},
+                                     {"user_texts", "user_texts"},
+                                     {"channel_names", "channel_names"}});
+    InputDecodeOptions options;
+    options.converter_id = in_conv->converter_id;
+    options.transport = "cabi";
+    options.max_batch_size = 64;
+    int dec_ret =
+        in_conv->decode_fn(view, options, port_bindings, &ctx, nullptr);
+    EXPECT_EQ(dec_ret == 0, expected);
     EXPECT_EQ(binding->validate_external(&op_input, {}, nullptr) == 0,
               expected);
   }
@@ -1152,10 +1164,10 @@ TEST(OperatorValueRegistryTest, CAndOperatorAgreeOnChannelNameBoundaries) {
 TEST(OperatorValueRegistryTest, CAndOperatorAgreeOnPcmBoundaries) {
   const auto* binding =
       OperatorValueTypeRegistry::Instance().GetBindingBySuffix("audio_in");
-  auto adapter =
-      BizAdapterRegistry::Instance().GetAdapter(ALG_BIZ_TYPE_AUDIO_ASR_INTENT);
+  const auto* in_conv =
+      IoConverterRegistry::Instance().FindInputConverter("audio.pcm.cabi.v1");
   ASSERT_NE(binding, nullptr);
-  ASSERT_NE(adapter, nullptr);
+  ASSERT_NE(in_conv, nullptr);
   std::vector<float> samples(biz_input::kMaxAudioPcmSamples, 0);
   struct Case {
     int length;
@@ -1185,7 +1197,19 @@ TEST(OperatorValueRegistryTest, CAndOperatorAgreeOnPcmBoundaries) {
                                        test.rate};
     const void* inputs[]{&c_input};
     AlgContext ctx;
-    EXPECT_EQ(adapter->Unpack(inputs, 1, &ctx) == 0, test.valid);
+    ExternalInputBatchView view;
+    view.items = inputs;
+    view.count = 1;
+    view.type_id = in_conv->external_type;
+    InputPortBindings port_bindings({{"raw_request_ids", "raw_request_ids"},
+                                     {"audio_inputs", "audio_inputs"}});
+    InputDecodeOptions options;
+    options.converter_id = in_conv->converter_id;
+    options.transport = "cabi";
+    options.max_batch_size = 64;
+    int dec_ret =
+        in_conv->decode_fn(view, options, port_bindings, &ctx, nullptr);
+    EXPECT_EQ(dec_ret == 0, test.valid);
     EXPECT_EQ(binding->validate_external(&op_input, {}, nullptr) == 0,
               test.valid);
   }

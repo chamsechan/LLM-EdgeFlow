@@ -156,9 +156,12 @@ set(EDGEFLOW_TEST_ADAPTER_SRCS
   ${EDGEFLOW_SOURCE_test_operator_api}
   ${EDGEFLOW_SOURCE_test_operator_output_pool}
   ${EDGEFLOW_SOURCE_test_operator_value_registry}
-  ${EDGEFLOW_SOURCE_test_operator_biz_bridge_registry}
   ${EDGEFLOW_SOURCE_test_operator_golden}
-  ${EDGEFLOW_SOURCE_test_adapter_purity})
+  ${EDGEFLOW_SOURCE_test_adapter_purity}
+  ${EDGEFLOW_SOURCE_test_io_converters}
+  ${EDGEFLOW_SOURCE_test_io_binding_registry}
+  ${EDGEFLOW_SOURCE_test_text_converters}
+  ${EDGEFLOW_SOURCE_test_complex_converters})
 add_executable(edgeflow_test_adapter_runner
   ${EDGEFLOW_TEST_ADAPTER_SRCS}
   $<TARGET_OBJECTS:edgeflow_test_backend_fixtures>
@@ -310,14 +313,18 @@ edgeflow_add_runner_test(OperatorOutputPoolTest edgeflow_test_adapter_runner
   "OperatorOutputPoolTest.*" "${_edgeflow_tier2}")
 edgeflow_add_runner_test(OperatorValueRegistryTest edgeflow_test_adapter_runner
   "OperatorValueRegistryTest.*" "${_edgeflow_tier2}")
-edgeflow_add_runner_test(OperatorBizBridgeRegistryTest
-  edgeflow_test_adapter_runner "OperatorBizBridgeRegistryTest.*"
-  "${_edgeflow_tier2}")
 edgeflow_add_runner_test(OperatorGoldenTest edgeflow_test_adapter_runner
   "OperatorGoldenTest.*" "${_edgeflow_tier2}")
 edgeflow_add_runner_test(AdapterPurityTest edgeflow_test_adapter_runner
-  "AdapterPurityTest.*:RequestResultsTest.*:AdapterResultTest.*:ReadMultiWayResultsTest.*:OneToOneTextAdapterTest.*"
-  "${_edgeflow_tier2}")
+  "AdapterPurityTest.*" "${_edgeflow_tier2}")
+edgeflow_add_runner_test(IoConverterTest edgeflow_test_adapter_runner
+  "IoConverterTest.*" "${_edgeflow_tier1}")
+edgeflow_add_runner_test(IoBindingRegistryTest edgeflow_test_adapter_runner
+  "IoBindingRegistryTest.*" "${_edgeflow_tier1}")
+edgeflow_add_runner_test(TextConvertersTest edgeflow_test_adapter_runner
+  "TextConvertersTest.*" "${_edgeflow_tier1}")
+edgeflow_add_runner_test(ComplexConvertersTest edgeflow_test_adapter_runner
+  "ComplexConvertersTest.*" "${_edgeflow_tier1}")
 
 edgeflow_add_runner_test(DocQaRerankTest edgeflow_test_tooling_runner
   "DocQaRerankPipelineTest.*" "${_edgeflow_tier1}")

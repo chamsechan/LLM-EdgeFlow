@@ -39,7 +39,7 @@ TEST_F(ConcurrencyAndEdgeCasesTest, MultiThreadedConcurrentStressTest) {
   workers.reserve(num_threads);
 
   std::string cfg_path =
-      GetConfigPath("configs/pipeline_keyword_match_rules.json");
+      GetConfigPath("configs/pipeline_keyword_match_cabi.json");
 
   for (int t = 0; t < num_threads; ++t) {
     workers.emplace_back([&, t]() {
@@ -47,7 +47,6 @@ TEST_F(ConcurrencyAndEdgeCasesTest, MultiThreadedConcurrentStressTest) {
       param.config_file_path = cfg_path.c_str();
       param.model_root_dir = "./models";
       param.device_id = 0;
-      param.biz_type = ALG_BIZ_TYPE_KEYWORD_MATCH;
 
       for (int iter = 0; iter < iterations_per_thread; ++iter) {
         void* handle = nullptr;
@@ -102,12 +101,11 @@ TEST_F(ConcurrencyAndEdgeCasesTest, EdgeCasesAndFaultTolerance) {
   // Case A: 畸形与非法 JSON 传入 Alg_Control
   {
     std::string cfg_path =
-        GetConfigPath("configs/pipeline_keyword_match_rules.json");
+        GetConfigPath("configs/pipeline_keyword_match_cabi.json");
     CompanyAlgParamCreate param;
     param.config_file_path = cfg_path.c_str();
     param.model_root_dir = "./models";
     param.device_id = 0;
-    param.biz_type = ALG_BIZ_TYPE_KEYWORD_MATCH;
 
     void* handle = nullptr;
     int ret = Alg_Create(&handle, &param);
@@ -136,12 +134,11 @@ TEST_F(ConcurrencyAndEdgeCasesTest, EdgeCasesAndFaultTolerance) {
   // Case B: 空文本与纯标点符号输入
   {
     std::string cfg_path =
-        GetConfigPath("configs/pipeline_keyword_match_rules.json");
+        GetConfigPath("configs/pipeline_keyword_match_cabi.json");
     CompanyAlgParamCreate param;
     param.config_file_path = cfg_path.c_str();
     param.model_root_dir = "./models";
     param.device_id = 0;
-    param.biz_type = ALG_BIZ_TYPE_KEYWORD_MATCH;
 
     void* handle = nullptr;
     Alg_Create(&handle, &param);
@@ -166,12 +163,11 @@ TEST_F(ConcurrencyAndEdgeCasesTest, EdgeCasesAndFaultTolerance) {
   // Case C: 音频 0 采样点边界
   {
     std::string cfg_path =
-        GetConfigPath("demo/fixtures/mock/pipeline_audio_asr_intent.json");
+        GetConfigPath("demo/fixtures/mock/pipeline_audio_asr_intent_cabi.json");
     CompanyAlgParamCreate param;
     param.config_file_path = cfg_path.c_str();
     param.model_root_dir = "./models";
     param.device_id = 0;
-    param.biz_type = ALG_BIZ_TYPE_AUDIO_ASR_INTENT;
 
     void* handle = nullptr;
     int ret = Alg_Create(&handle, &param);

@@ -67,15 +67,31 @@ def within(root, relative):
     return path
 
 
-def build_run_conf(pipeline, outputs, pipe_path, model_root, bundle_root):
+BIZ_TO_OPERATOR_BINDING = {
+    "keyword_match_v1": "keyword_match.operator.v1",
+    "entity_extract_v1": "entity_extract.operator.v1",
+    "smart_doc_qa_v1": "doc_qa.operator.v1",
+    "dialogue_compliance_audit_v1": "compliance_audit.operator.v1",
+    "multimodal_ocr_invoice_qa": "ocr_doc_qa.operator.v1",
+    "speech_audio_asr_intent_slot": "audio_asr.operator.v1",
+    "dense_cross_rerank_scoring": "cross_rerank.operator.v1",
+    "text_translation_v1": "translate.operator.v1",
+}
+
+
+def build_run_conf(pipeline, outputs, pipe_path, model_root, bundle_root, io_binding=None):
     """Map the selected Pipeline's model paths into an explicit deployment root."""
     bundle_root = Path(bundle_root).resolve()
     model_root = within(bundle_root, model_root)
-    pipeline_path = within(bundle_root, pipe_path).relative_to(bundle_root)
+    pipeline_path = Path(pipe_path).name
     model_paths = {model["model_id"]: str(within(model_root, model["model_path"]).relative_to(bundle_root))
                    for model in pipeline.get("models", [])}
-    return {"data": {"pipe_path": str(pipeline_path),
-                     "model_paths": model_paths, "outputs": outputs}}
+    binding = io_binding or BIZ_TO_OPERATOR_BINDING.get(pipeline.get("biz_name"))
+    data = {"pipe_path": str(pipeline_path),
+            "model_paths": model_paths, "outputs": outputs}
+    if binding:
+        data["io_binding"] = binding
+    return {"schema_version": 1, "data": data}
 
 
 def validate_manifest(manifest):

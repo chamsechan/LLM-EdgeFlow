@@ -54,6 +54,12 @@ class Pipeline {
                      ValidationPolicy policy = ValidationPolicy::kStrict);
 
   /**
+   * @brief 从已验证的管线计划构建整条管线 (接收所有权，避免重复验证与物化)
+   */
+  bool BuildFromPlan(std::unique_ptr<ValidatedPipelinePlan> plan,
+                     PipelineDiagnostic* diagnostic = nullptr);
+
+  /**
    * @brief 按照拓扑排序/波前序列执行单次批次管线推理
    */
   int Execute(AlgContext* req_ctx);

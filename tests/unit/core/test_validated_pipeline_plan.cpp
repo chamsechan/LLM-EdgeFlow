@@ -49,6 +49,33 @@ NodeDefinition MakePlanTestNodeDefinition() {
 
 REGISTER_NODE_WITH_DEFINITION(PlanTestNode, MakePlanTestNodeDefinition());
 
+class IoBoundaryTestNode : public INode {
+ public:
+  inline static constexpr char kNodeType[] = "IoBoundaryTestNode";
+  bool Init(const NodeInitContext&) override { return true; }
+  int Process(AlgContext*) override { return 0; }
+  const std::string& Name() const override {
+    static const std::string name = kNodeType;
+    return name;
+  }
+};
+
+NodeDefinition MakeIoBoundaryTestNodeDefinition() {
+  NodeDefinition def;
+  def.node_type = IoBoundaryTestNode::kNodeType;
+  def.category = "test";
+  def.description = "IO Boundary test node";
+  def.inputs = {NodePortDefinition{"input_data", "TextBatch", true, "1:1",
+                                   "preserve", "request"}};
+  def.outputs = {NodePortDefinition{"output_data", "TextBatch", true, "1:1",
+                                    "preserve", "request"}};
+  def.parallel_safe = true;
+  return def;
+}
+
+REGISTER_NODE_WITH_DEFINITION(IoBoundaryTestNode,
+                              MakeIoBoundaryTestNodeDefinition());
+
 class SerializedPlanTestModel : public IModel {
  public:
   inline static constexpr char kModelType[] = "serialized_plan_test";
@@ -751,6 +778,123 @@ TEST(ValidatedPipelinePlanTest, MultiModelBindingsAndConcurrencyDeduplication) {
   EXPECT_EQ(diag->node_id, "parallel_node");
   EXPECT_EQ(diag->path, "/pipeline/1/config/bind_model");
   EXPECT_EQ(diag->related_nodes, std::vector<std::string>{"multi_node"});
+}
+
+TEST(ValidatedPipelinePlanTest,
+     IoBoundaryValidationCoversIngressEgressAndExtraWrites) {
+  // 注册测试用 biz definition
+  BizDefinition test_biz;
+  test_biz.biz_name = "io_boundary_test_biz";
+  test_biz.ingress = {
+      BizPortDefinition("text_in", "TextBatch", /*required=*/true),
+      BizPortDefinition("opt_in", "TextBatch", /*required=*/false)};
+  test_biz.egress = {
+      BizPortDefinition("text_out", "TextBatch", /*required=*/true)};
+  PipelineCatalog::RegisterBizDefinition(test_biz);
+
+  nlohmann::json valid_pipeline = {
+      {"biz_name", "io_boundary_test_biz"},
+      {"pipeline", nlohmann::json::array({
+                       {{"id", "node1"},
+                        {"node_type", "IoBoundaryTestNode"},
+                        {"depends_on", nlohmann::json::array()},
+                        {"ports",
+                         {{"inputs", {{"input_data", "text_in"}}},
+                          {"outputs", {{"output_data", "text_out"}}}}}},
+                   })}};
+
+  // 1. 合法 IO boundary：覆盖必需 ingress，消费 egress
+  PipelineIoBoundary valid_boundary;
+  valid_boundary.input_published_ports = {
+      BizPortDefinition("text_in", "TextBatch", true)};
+  valid_boundary.output_consumed_ports = {
+      BizPortDefinition("text_out", "TextBatch", true)};
+
+  auto plan_ok = PipelineValidator::ValidateAndPlan(
+      valid_pipeline, ValidationPolicy::kStrict, &valid_boundary);
+  EXPECT_TRUE(plan_ok.report.ok);
+
+  // 2. 缺失必需 ingress 端口发布
+  PipelineIoBoundary missing_in_boundary;
+  missing_in_boundary.output_consumed_ports =
+      valid_boundary.output_consumed_ports;
+  auto plan_missing_in = PipelineValidator::ValidateAndPlan(
+      valid_pipeline, ValidationPolicy::kStrict, &missing_in_boundary);
+  EXPECT_FALSE(plan_missing_in.report.ok);
+  auto diag_in =
+      std::find_if(plan_missing_in.report.diagnostics.begin(),
+                   plan_missing_in.report.diagnostics.end(), [](const auto& d) {
+                     return d.code == DiagnosticCode::kMissingInputProducer;
+                   });
+  ASSERT_NE(diag_in, plan_missing_in.report.diagnostics.end());
+  EXPECT_EQ(diag_in->path, "/io/input");
+
+  // 3. 缺失输出消费者所需的生产者
+  PipelineIoBoundary missing_out_boundary = valid_boundary;
+  missing_out_boundary.output_consumed_ports.push_back(
+      BizPortDefinition("unproduced_out", "TextBatch", true));
+  auto plan_missing_out = PipelineValidator::ValidateAndPlan(
+      valid_pipeline, ValidationPolicy::kStrict, &missing_out_boundary);
+  EXPECT_FALSE(plan_missing_out.report.ok);
+  auto diag_out = std::find_if(
+      plan_missing_out.report.diagnostics.begin(),
+      plan_missing_out.report.diagnostics.end(), [](const auto& d) {
+        return d.code == DiagnosticCode::kMissingBizOutput;
+      });
+  ASSERT_NE(diag_out, plan_missing_out.report.diagnostics.end());
+  EXPECT_EQ(diag_out->path, "/io/output");
+
+  // 4. 输入额外发布与 Pipeline 内部节点输出冲突 (重复写入)
+  PipelineIoBoundary conflict_boundary = valid_boundary;
+  conflict_boundary.input_published_ports.push_back(
+      BizPortDefinition("text_out", "TextBatch", true));
+  auto plan_conflict = PipelineValidator::ValidateAndPlan(
+      valid_pipeline, ValidationPolicy::kStrict, &conflict_boundary);
+  EXPECT_FALSE(plan_conflict.report.ok);
+  auto diag_conflict =
+      std::find_if(plan_conflict.report.diagnostics.begin(),
+                   plan_conflict.report.diagnostics.end(), [](const auto& d) {
+                     return d.code == DiagnosticCode::kDuplicatePortProducer;
+                   });
+  ASSERT_NE(diag_conflict, plan_conflict.report.diagnostics.end());
+}
+
+TEST(ValidatedPipelinePlanTest, PipelineBuildFromPlanLifecycle) {
+  nlohmann::json valid_pipeline = {
+      {"biz_name", "io_boundary_test_biz"},
+      {"pipeline", nlohmann::json::array({
+                       {{"id", "node1"},
+                        {"node_type", "IoBoundaryTestNode"},
+                        {"depends_on", nlohmann::json::array()},
+                        {"ports",
+                         {{"inputs", {{"input_data", "text_in"}}},
+                          {"outputs", {{"output_data", "text_out"}}}}}},
+                   })}};
+
+  PipelineIoBoundary boundary;
+  boundary.input_published_ports = {
+      BizPortDefinition("text_in", "TextBatch", true)};
+  boundary.output_consumed_ports = {
+      BizPortDefinition("text_out", "TextBatch", true)};
+
+  auto plan = std::make_unique<ValidatedPipelinePlan>(
+      PipelineValidator::ValidateAndPlan(valid_pipeline,
+                                         ValidationPolicy::kStrict, &boundary));
+  ASSERT_TRUE(plan->report.ok);
+
+  Pipeline pipeline;
+  EXPECT_EQ(pipeline.GetState(), Pipeline::State::kEmpty);
+
+  PipelineDiagnostic diag;
+  bool built = pipeline.BuildFromPlan(std::move(plan), &diag);
+  EXPECT_TRUE(built);
+  EXPECT_EQ(pipeline.GetState(), Pipeline::State::kReady);
+  EXPECT_TRUE(pipeline.IsReady());
+
+  // 重复构建应被拒绝
+  auto plan2 = std::make_unique<ValidatedPipelinePlan>();
+  EXPECT_FALSE(pipeline.BuildFromPlan(std::move(plan2), &diag));
+  EXPECT_EQ(diag.code, DiagnosticCode::kInvalidBuildState);
 }
 
 }  // namespace llm_edgeflow

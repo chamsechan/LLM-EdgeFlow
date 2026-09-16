@@ -6,6 +6,9 @@
 #include <sstream>
 #include <string>
 
+#include "adapter/deployment_io_config.h"
+#include "adapter/io_binding_resolver.h"
+#include "adapter/io_catalog.h"
 #include "adapter/operator/operator_config_resolver.h"
 #include "core/diagnostic_code.h"
 #include "core/pipeline_catalog.h"
@@ -76,7 +79,7 @@ std::optional<fs::path> ProfilePipeline(
   if (!conf_stream.is_open()) return std::nullopt;
   nlohmann::json conf;
   conf_stream >> conf;
-  if (!conf.is_object() || conf.size() != 1 || !conf.contains("data") ||
+  if (!conf.is_object() || !conf.contains("data") ||
       !conf["data"].is_object() || !conf["data"].contains("pipe_path") ||
       !conf["data"]["pipe_path"].is_string()) {
     return std::nullopt;
@@ -198,6 +201,8 @@ void Usage() {
             << "  alg_pipeline_tool plan FILE|--stdin [--explain]\n";
   std::cerr
       << "  alg_pipeline_tool resolve-conf FILE [--root DIR] [--depth N]\n"
+      << "  alg_pipeline_tool validate-io CONFIG --transport <cabi|operator> "
+         "[--model-root DIR]\n"
       << "  alg_pipeline_tool edit --stdin\n"
       << "  alg_pipeline_tool fix-deps FILE [--in-place]\n";
 }
@@ -270,7 +275,7 @@ int main(int argc, char* argv[]) {
           << std::endl;
       return 1;
     }
-    auto result = PipelineCatalog::ToJson(snapshot, biz);
+    auto result = llm_edgeflow::IoCatalog::ToJson(snapshot, biz);
     result["profiles"] = ProfilesJson(biz);
     result["ok"] = biz.empty() || !result["bizs"].empty();
     std::cout << result.dump(2) << std::endl;
@@ -388,6 +393,70 @@ int main(int argc, char* argv[]) {
     if (command == "plan" && report.ok) result.erase("diagnostics");
     std::cout << result.dump(2) << std::endl;
     return report.ok ? 0 : 1;
+  }
+
+  if (command == "validate-io") {
+    if (argc < 4) {
+      Usage();
+      return 2;
+    }
+    std::string config_path = argv[2];
+    std::string transport;
+    std::string model_root;
+    for (int i = 3; i < argc; ++i) {
+      std::string arg = argv[i];
+      if (arg == "--transport" && i + 1 < argc) {
+        transport = argv[++i];
+      } else if (arg == "--model-root" && i + 1 < argc) {
+        model_root = argv[++i];
+      } else {
+        Usage();
+        return 2;
+      }
+    }
+    if (transport != "cabi" && transport != "operator") {
+      Usage();
+      return 2;
+    }
+
+    std::unique_ptr<llm_edgeflow::ValidatedIoPlan> plan;
+    std::string error;
+    int rc = llm_edgeflow::IoBindingResolver::ResolveFromFile(
+        config_path, transport, model_root, &plan, &error);
+
+    if (rc != 0 || !plan) {
+      nlohmann::json err_res = {
+          {"schema_version", 1},
+          {"ok", false},
+          {"diagnostics",
+           nlohmann::json::array({{{"code", "IO_VALIDATION_ERROR"},
+                                   {"path", "/"},
+                                   {"message", error},
+                                   {"severity", "error"}}})}};
+      std::cout << err_res.dump(2) << std::endl;
+      return 1;
+    }
+
+    nlohmann::json binding_info = {
+        {"binding_id", plan->binding.binding_id},
+        {"biz_name", plan->binding.biz_name},
+        {"transport", plan->binding.transport},
+        {"input_converter_id", plan->binding.input_converter_id},
+        {"output_converter_id", plan->binding.output_converter_id},
+        {"input_port_mapping", plan->binding.input_ports},
+        {"output_port_mapping", plan->binding.output_ports},
+        {"effective_max_batch_size", plan->effective_max_batch_size},
+        {"external_input_type",
+         plan->input_converter ? plan->input_converter->external_type : ""},
+        {"external_output_type",
+         plan->output_converter ? plan->output_converter->external_type : ""}};
+
+    nlohmann::json result = {{"schema_version", 1},
+                             {"ok", true},
+                             {"binding", std::move(binding_info)},
+                             {"diagnostics", nlohmann::json::array()}};
+    std::cout << result.dump(2) << std::endl;
+    return 0;
   }
 
   if (command == "edit") {

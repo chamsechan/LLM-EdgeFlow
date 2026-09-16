@@ -117,8 +117,15 @@ class ScopedOutputLeaseGuard {
 
   void Reserve(size_t count) { leases_.reserve(count); }
 
-  void Track(std::shared_ptr<OutputPoolState> pool, void* block) {
-    leases_.push_back({std::move(pool), block});
+  void Track(const std::shared_ptr<OutputPoolState>& pool, void* block) {
+    try {
+      leases_.push_back({pool, block});
+    } catch (...) {
+      if (pool && block) {
+        pool->ReturnBlock(block);
+      }
+      throw;
+    }
   }
 
   void Untrack(void* block) noexcept {

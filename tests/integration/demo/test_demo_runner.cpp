@@ -551,69 +551,74 @@ TEST(DemoRunnerTest, RegistryLookupAndConflictDetection) {
     }
   } restore{reg.ListDescriptors()};
 
-  // 验证 7 大业务均已静态注册且包含权威的 CompanyAlgBizType
+  // 验证 7 大业务均已静态注册且包含权威的 expected_binding_id
   const auto* desc_entity = reg.Find("entity_extract");
   ASSERT_NE(desc_entity, nullptr);
-  EXPECT_EQ(desc_entity->biz_type, ALG_BIZ_TYPE_ENTITY_EXTRACT);
-  EXPECT_EQ(DemoBizToBizType("entity_extract"), ALG_BIZ_TYPE_ENTITY_EXTRACT);
+  EXPECT_EQ(desc_entity->expected_binding_id, "entity_extract.operator.v1");
+  EXPECT_EQ(DemoBizToExpectedBindingId("entity_extract"),
+            "entity_extract.operator.v1");
 
   const auto* desc_keyword = reg.Find("keyword_match");
   ASSERT_NE(desc_keyword, nullptr);
-  EXPECT_EQ(desc_keyword->biz_type, ALG_BIZ_TYPE_KEYWORD_MATCH);
-  EXPECT_EQ(DemoBizToBizType("keyword_match"), ALG_BIZ_TYPE_KEYWORD_MATCH);
+  EXPECT_EQ(desc_keyword->expected_binding_id, "keyword_match.operator.v1");
+  EXPECT_EQ(DemoBizToExpectedBindingId("keyword_match"),
+            "keyword_match.operator.v1");
 
   const auto* desc_doc_qa = reg.Find("doc_qa");
   ASSERT_NE(desc_doc_qa, nullptr);
-  EXPECT_EQ(desc_doc_qa->biz_type, ALG_BIZ_TYPE_DOC_QA);
-  EXPECT_EQ(DemoBizToBizType("doc_qa"), ALG_BIZ_TYPE_DOC_QA);
+  EXPECT_EQ(desc_doc_qa->expected_binding_id, "doc_qa.operator.v1");
+  EXPECT_EQ(DemoBizToExpectedBindingId("doc_qa"), "doc_qa.operator.v1");
 
   const auto* desc_audit = reg.Find("dialogue_audit");
   ASSERT_NE(desc_audit, nullptr);
-  EXPECT_EQ(desc_audit->biz_type, ALG_BIZ_TYPE_COMPLIANCE_AUDIT);
-  EXPECT_EQ(DemoBizToBizType("dialogue_audit"), ALG_BIZ_TYPE_COMPLIANCE_AUDIT);
+  EXPECT_EQ(desc_audit->expected_binding_id, "compliance_audit.operator.v1");
+  EXPECT_EQ(DemoBizToExpectedBindingId("dialogue_audit"),
+            "compliance_audit.operator.v1");
 
   const auto* desc_ocr = reg.Find("ocr_doc_qa");
   ASSERT_NE(desc_ocr, nullptr);
-  EXPECT_EQ(desc_ocr->biz_type, ALG_BIZ_TYPE_OCR_DOC_QA);
-  EXPECT_EQ(DemoBizToBizType("ocr_doc_qa"), ALG_BIZ_TYPE_OCR_DOC_QA);
+  EXPECT_EQ(desc_ocr->expected_binding_id, "ocr_doc_qa.operator.v1");
+  EXPECT_EQ(DemoBizToExpectedBindingId("ocr_doc_qa"), "ocr_doc_qa.operator.v1");
 
   const auto* desc_asr = reg.Find("audio_asr");
   ASSERT_NE(desc_asr, nullptr);
-  EXPECT_EQ(desc_asr->biz_type, ALG_BIZ_TYPE_AUDIO_ASR_INTENT);
-  EXPECT_EQ(DemoBizToBizType("audio_asr"), ALG_BIZ_TYPE_AUDIO_ASR_INTENT);
+  EXPECT_EQ(desc_asr->expected_binding_id, "audio_asr_intent.operator.v1");
+  EXPECT_EQ(DemoBizToExpectedBindingId("audio_asr"),
+            "audio_asr_intent.operator.v1");
 
   const auto* desc_rerank = reg.Find("cross_rerank");
   ASSERT_NE(desc_rerank, nullptr);
-  EXPECT_EQ(desc_rerank->biz_type, ALG_BIZ_TYPE_CROSS_RERANK);
-  EXPECT_EQ(DemoBizToBizType("cross_rerank"), ALG_BIZ_TYPE_CROSS_RERANK);
+  EXPECT_EQ(desc_rerank->expected_binding_id, "cross_rerank.operator.v1");
+  EXPECT_EQ(DemoBizToExpectedBindingId("cross_rerank"),
+            "cross_rerank.operator.v1");
 
   // 尝试重复注册已存在的业务名 -> 应该失败
   bool ok = reg.Register({"entity_extract", "Duplicate",
                           [](const DemoOptions&) { return 0; },
-                          ALG_BIZ_TYPE_ENTITY_EXTRACT});
+                          "entity_extract.operator.v1"});
   EXPECT_FALSE(ok);
   EXPECT_TRUE(reg.HasConflict());
 
   // 尝试注册非法空业务名 -> 应该失败
   ok = reg.Register({"", "Empty", [](const DemoOptions&) { return 0; },
-                     ALG_BIZ_TYPE_ENTITY_EXTRACT});
+                     "entity_extract.operator.v1"});
   EXPECT_FALSE(ok);
 
   // 尝试注册空函数 -> 应该失败
   ok = reg.Register(
-      {"dummy_new", "NullFunc", nullptr, ALG_BIZ_TYPE_ENTITY_EXTRACT});
+      {"dummy_new", "NullFunc", nullptr, "entity_extract.operator.v1"});
   EXPECT_FALSE(ok);
   EXPECT_FALSE(reg.Register({"missing_type", "Invalid type",
-                             [](const DemoOptions&) { return 0; },
-                             ALG_BIZ_TYPE_UNKNOWN}));
+                             [](const DemoOptions&) { return 0; }, ""}));
   EXPECT_EQ(reg.Find("missing_type"), nullptr);
   reg.ResetForTesting();
   // Registered names have no fallback in the central runner.
-  EXPECT_EQ(DemoBizToBizType("entity_extract"), ALG_BIZ_TYPE_UNKNOWN);
+  EXPECT_EQ(DemoBizToExpectedBindingId("entity_extract"), "");
   EXPECT_TRUE(reg.Register({"new_domain_alias", "Domain",
                             [](const DemoOptions&) { return 0; },
-                            ALG_BIZ_TYPE_ENTITY_EXTRACT}));
-  EXPECT_EQ(DemoBizToBizType("new_domain_alias"), ALG_BIZ_TYPE_ENTITY_EXTRACT);
+                            "entity_extract.operator.v1"}));
+  EXPECT_EQ(DemoBizToExpectedBindingId("new_domain_alias"),
+            "entity_extract.operator.v1");
 }
 
 TEST(DemoRunnerTest,
@@ -814,18 +819,18 @@ TEST(DemoRunnerTest, ConfigBizMatchValidation) {
   // 错误匹配 -> 快速失败
   EXPECT_FALSE(ValidateConfigBizMatch("demo/fixtures/mock/pipeline_doc_qa.conf",
                                       "entity_extract", &err));
-  EXPECT_NE(err.find("Biz mismatch"), std::string::npos);
+  EXPECT_NE(err.find("Binding mismatch"), std::string::npos);
 
   // P1-3: cross_rerank 绝不应该匹配 doc_qa_rerank (即使名字里有 rerank)
   EXPECT_FALSE(ValidateConfigBizMatch(
       "demo/fixtures/mock/pipeline_doc_qa_rerank.conf", "cross_rerank", &err));
-  EXPECT_NE(err.find("Biz mismatch"), std::string::npos);
+  EXPECT_NE(err.find("Binding mismatch"), std::string::npos);
 
   // P1-2 探针测试: .conf 中 pipe_path 为数字 123 (必须返回 false，不抛异常崩溃)
   std::string bad_conf_path = "./results/bad_pipe_path.conf";
   {
     std::ofstream ofs(bad_conf_path);
-    ofs << R"({"data": {"pipe_path": 123}})";
+    ofs << R"({"schema_version": 1, "data": {"pipe_path": 123, "io_binding": "keyword_match.operator.v1"}})";
   }
   EXPECT_FALSE(ValidateConfigBizMatch(bad_conf_path, "keyword_match", &err));
   EXPECT_NE(err.find("pipe_path"), std::string::npos);
@@ -840,19 +845,17 @@ TEST(DemoRunnerTest, ConfigBizMatchValidation) {
   EXPECT_EQ(
       ValidateOperatorConfigBinding(
           root_dir.c_str(), "demo/fixtures/mock/pipeline_entity_extract.conf",
-          static_cast<int32_t>(ALG_BIZ_TYPE_ENTITY_EXTRACT), err_buf,
-          sizeof(err_buf)),
+          "entity_extract.operator.v1", err_buf, sizeof(err_buf)),
       0);
   EXPECT_EQ(
       ValidateOperatorConfigBinding(
           root_dir.c_str(), "demo/fixtures/mock/pipeline_entity_extract.conf",
-          static_cast<int32_t>(ALG_BIZ_TYPE_DOC_QA), err_buf, sizeof(err_buf)),
+          "doc_qa.operator.v1", err_buf, sizeof(err_buf)),
       -3);
-  EXPECT_EQ(
-      ValidateOperatorConfigBinding(
-          root_dir.c_str(), "non_existent_conf_file.conf",
-          static_cast<int32_t>(ALG_BIZ_TYPE_DOC_QA), err_buf, sizeof(err_buf)),
-      -2);
+  EXPECT_EQ(ValidateOperatorConfigBinding(
+                root_dir.c_str(), "non_existent_conf_file.conf",
+                "doc_qa.operator.v1", err_buf, sizeof(err_buf)),
+            -2);
 }
 
 // P1-2: 测试显式指定不存在或非法的 Control 文件 Fail-Closed

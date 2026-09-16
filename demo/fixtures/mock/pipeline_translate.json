@@ -1,0 +1,37 @@
+{
+  "biz_name": "translate_v1",
+  "models": [
+    {
+      "capability": "llm",
+      "model_type": "test_biz_llm",
+      "backend": "test_causal_lm_backend",
+      "model_config": {
+        "max_batch_size": 2,
+        "max_seq_len": 512
+      },
+      "backend_config": {},
+      "model_id": "translate_llm",
+      "model_path": "demo/fixtures/mock/artifacts/neutral-llm.fixture"
+    }
+  ],
+  "pipeline": [
+    {
+      "id": "node_0_LlmGenerateNode",
+      "node_type": "LlmGenerateNode",
+      "depends_on": [],
+      "ports": {
+        "inputs": {
+          "prompt": "input_sentences"
+        },
+        "outputs": {
+          "text": "llm_answers"
+        }
+      },
+      "config": {
+        "bind_model": "translate_llm",
+        "max_tokens": 64,
+        "temperature": 0.0
+      }
+    }
+  ]
+}

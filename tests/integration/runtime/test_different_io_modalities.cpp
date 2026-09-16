@@ -34,12 +34,11 @@ class DifferentIoModalitiesTest : public ::testing::Test {
 // 1. 验证业务 5: 多模态图文票据问答 (Image + Query -> OCR BBox -> LLM JSON)
 TEST_F(DifferentIoModalitiesTest, OcrDocQa) {
   std::string cfg_path =
-      GetConfigPath("demo/fixtures/mock/pipeline_ocr_doc_qa.json");
+      GetConfigPath("demo/fixtures/mock/pipeline_ocr_doc_qa_cabi.json");
   CompanyAlgParamCreate param;
   param.config_file_path = cfg_path.c_str();
   param.model_root_dir = "./models";
   param.device_id = 0;
-  param.biz_type = ALG_BIZ_TYPE_OCR_DOC_QA;
 
   void* handle = nullptr;
   int ret = Alg_Create(&handle, &param);
@@ -74,12 +73,11 @@ TEST_F(DifferentIoModalitiesTest, OcrDocQa) {
 // NLU Intent/Slots)
 TEST_F(DifferentIoModalitiesTest, AudioAsrIntent) {
   std::string cfg_path =
-      GetConfigPath("demo/fixtures/mock/pipeline_audio_asr_intent.json");
+      GetConfigPath("demo/fixtures/mock/pipeline_audio_asr_intent_cabi.json");
   CompanyAlgParamCreate param;
   param.config_file_path = cfg_path.c_str();
   param.model_root_dir = "./models";
   param.device_id = 0;
-  param.biz_type = ALG_BIZ_TYPE_AUDIO_ASR_INTENT;
 
   void* handle = nullptr;
   int ret = Alg_Create(&handle, &param);
@@ -149,17 +147,25 @@ TEST_F(DifferentIoModalitiesTest, CrossRerankBatch) {
   auto temp_dir = std::filesystem::temp_directory_path() /
                   ("test_different_io_rerank_" + std::to_string(rand()));
   std::filesystem::create_directories(temp_dir);
-  auto temp_cfg_path = temp_dir / "pipeline_cross_rerank.json";
-  std::ofstream json_out(temp_cfg_path);
+  auto temp_pipe_path = temp_dir / "pipeline_cross_rerank.json";
+  std::ofstream json_out(temp_pipe_path);
   json_out << pipe_json.dump(2);
   json_out.close();
+
+  nlohmann::json deploy_cfg = {{"schema_version", 1},
+                               {"data",
+                                {{"pipe_path", "pipeline_cross_rerank.json"},
+                                 {"io_binding", "cross_rerank.cabi.v1"}}}};
+  auto temp_cfg_path = temp_dir / "pipeline_cross_rerank_cabi.json";
+  std::ofstream cfg_out(temp_cfg_path);
+  cfg_out << deploy_cfg.dump(2);
+  cfg_out.close();
 
   std::string temp_cfg_str = temp_cfg_path.string();
   CompanyAlgParamCreate param;
   param.config_file_path = temp_cfg_str.c_str();
   param.model_root_dir = "";
   param.device_id = 0;
-  param.biz_type = ALG_BIZ_TYPE_CROSS_RERANK;
 
   void* handle = nullptr;
   param.device_id = 1;

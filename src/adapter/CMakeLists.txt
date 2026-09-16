@@ -1,28 +1,37 @@
 target_sources(edgeflow_integration_objects PRIVATE
-  biz_adapter_registry.cpp
-  biz/audio_asr_intent_adapter.cpp
-  biz/compliance_audit_adapter.cpp
-  biz/cross_rerank_adapter.cpp
-  biz/doc_qa_adapter.cpp
-  biz/entity_extract_adapter.cpp
-  biz/translate_adapter.cpp
-  biz/keyword_match_adapter.cpp
-  biz/ocr_doc_qa_adapter.cpp
   c_api_adapter.cpp
   deployment_model_resolver.cpp
-  text_carrier.cpp
-  biz/audio_asr_intent_operator_bridge.cpp
-  biz/compliance_audit_operator_bridge.cpp
-  biz/cross_rerank_operator_bridge.cpp
-  biz/doc_qa_operator_bridge.cpp
-  biz/entity_extract_operator_bridge.cpp
-  biz/translate_operator_bridge.cpp
-  biz/keyword_match_operator_bridge.cpp
-  biz/ocr_doc_qa_operator_bridge.cpp
+  io_converter_registry.cpp
+  io_binding_registry.cpp
+  deployment_io_config.cpp
+  io_binding_resolver.cpp
+  io_catalog.cpp
+  input/text_input.cpp
+  input/translate_json_input.cpp
+  input/doc_query_input.cpp
+  input/rerank_input.cpp
+  input/audit_input.cpp
+  input/audio_input.cpp
+  input/image_query_input.cpp
+  output/structured_document_output.cpp
+  output/translation_json_output.cpp
+  output/keyword_result_output.cpp
+  output/doc_answer_output.cpp
+  output/rerank_result_output.cpp
+  output/audit_result_output.cpp
+  output/audio_result_output.cpp
+  output/invoice_result_output.cpp
+  biz/translate_bindings.cpp
+  biz/entity_extract_bindings.cpp
+  biz/keyword_match_bindings.cpp
+  biz/doc_qa_bindings.cpp
+  biz/cross_rerank_bindings.cpp
+  biz/compliance_audit_bindings.cpp
+  biz/audio_asr_intent_bindings.cpp
+  biz/ocr_doc_qa_bindings.cpp
   operator/json_output_config_reader.cpp
   operator/operator_config_resolver.cpp
   operator/operator_adapter.cpp
-  operator/operator_biz_bridge_registry.cpp
   operator/operator_control_registry.cpp
   operator/operator_output_pool.cpp
   operator/operator_process_binding.cpp

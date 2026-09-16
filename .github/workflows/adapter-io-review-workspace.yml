@@ -1,0 +1,21 @@
+name: Adapter IO Review Workspace
+on:
+  push:
+    branches: [fix/adapter-io-review-workspace-20260916]
+permissions:
+  contents: read
+jobs:
+  public-diagram-tool:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Fetch checksum-pinned public PlantUML tool
+        run: |
+          curl --fail --location --silent --show-error https://github.com/plantuml/plantuml/releases/download/v1.2024.7/plantuml-1.2024.7.jar -o "$RUNNER_TEMP/plantuml-1.2024.7.jar"
+          echo "e34c12bbe9944f1f338ca3d88c9b116b86300cc8e90b35c4086b825b5ae96d24  $RUNNER_TEMP/plantuml-1.2024.7.jar" | sha256sum -c -
+      - uses: actions/upload-artifact@v4
+        with:
+          name: adapter-io-public-diagram-tool
+          path: ${{ runner.temp }}/plantuml-1.2024.7.jar
+          retention-days: 1
+          if-no-files-found: error

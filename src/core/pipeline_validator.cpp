@@ -882,7 +882,8 @@ void PopulateBasicRemediation(
 
 ValidatedPipelinePlan ValidateAndPlanInternal(
     const nlohmann::json& root, ValidationPolicy policy,
-    const PipelineCatalogSnapshot& catalog) {
+    const PipelineCatalogSnapshot& catalog,
+    const PipelineIoBoundary* io_boundary = nullptr) {
   ValidatedPipelinePlan plan;
   ValidationReport& report = plan.report;
 
@@ -1154,6 +1155,39 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
   std::unordered_map<std::string, BizPortDefinition> ingress;
   if (biz) {
     for (const auto& port : biz->ingress) ingress[port.blackboard_key] = port;
+  }
+  if (io_boundary) {
+    std::unordered_map<std::string, BizPortDefinition> input_pub;
+    for (const auto& port : io_boundary->input_published_ports) {
+      input_pub[port.blackboard_key] = port;
+    }
+    if (biz) {
+      for (const auto& req_in : biz->ingress) {
+        if (!req_in.required) continue;
+        auto it = input_pub.find(req_in.blackboard_key);
+        if (it == input_pub.end()) {
+          Add(&report, DiagnosticCode::kMissingInputProducer, "/io/input",
+              "IO boundary input does not publish required biz ingress port: " +
+                  req_in.blackboard_key,
+              "$io_input", req_in.blackboard_key);
+        } else {
+          if (it->second.type_id != req_in.type_id) {
+            Add(&report, DiagnosticCode::kMissingInputProducer, "/io/input",
+                "IO boundary input port type mismatch for '" +
+                    req_in.blackboard_key + "': expected '" + req_in.type_id +
+                    "', got '" + it->second.type_id + "'",
+                "$io_input", req_in.blackboard_key);
+          } else {
+            ValidatePortFlowContract(it->second, req_in, "/io/input",
+                                     "$io_input", req_in.blackboard_key,
+                                     "$ingress", &report);
+          }
+        }
+      }
+    }
+    for (const auto& port : io_boundary->input_published_ports) {
+      ingress[port.blackboard_key] = port;
+    }
   }
   std::unordered_map<std::string,
                      std::vector<std::pair<std::string, PortContract>>>
@@ -1432,6 +1466,49 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
     }
   }
 
+  if (io_boundary) {
+    for (const auto& consumer : io_boundary->output_consumed_ports) {
+      auto it = producers.find(consumer.blackboard_key);
+      if (it == producers.end() || it->second.empty()) {
+        auto ing_it = ingress.find(consumer.blackboard_key);
+        if (ing_it != ingress.end()) {
+          if (ing_it->second.type_id != consumer.type_id) {
+            Add(&report, DiagnosticCode::kMissingBizOutput, "/io/output",
+                "IO boundary output type mismatch for '" +
+                    consumer.blackboard_key + "': expected '" +
+                    consumer.type_id + "', got '" + ing_it->second.type_id +
+                    "'",
+                "$ingress", consumer.blackboard_key, {"$io_output"});
+          } else {
+            ValidatePortFlowContract(ing_it->second, consumer, "/io/output",
+                                     "$ingress", consumer.blackboard_key,
+                                     "$io_output", &report);
+          }
+          continue;
+        }
+        if (consumer.required) {
+          Add(&report, DiagnosticCode::kMissingBizOutput, "/io/output",
+              "Pipeline does not produce required IO boundary output: " +
+                  consumer.blackboard_key,
+              {}, consumer.blackboard_key);
+        }
+        continue;
+      }
+      const auto& [producer_id, producer_port] = it->second.back();
+      if (producer_port.type_id != consumer.type_id) {
+        Add(&report, DiagnosticCode::kMissingBizOutput, "/io/output",
+            "IO boundary output type mismatch for '" + consumer.blackboard_key +
+                "': expected '" + consumer.type_id + "', got '" +
+                producer_port.type_id + "'",
+            producer_id, consumer.blackboard_key, {"$io_output"});
+        continue;
+      }
+      ValidatePortFlowContract(producer_port, consumer, "/io/output",
+                               producer_id, consumer.blackboard_key,
+                               "$io_output", &report);
+    }
+  }
+
   if (parsed.execution_mode == "parallel") {
     for (const auto& layer : report.topological_layers) {
       std::unordered_map<std::string, std::string> writes;
@@ -1537,21 +1614,24 @@ nlohmann::json ValidationReport::ToJson() const {
 }
 
 ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
-    const nlohmann::json& root, ValidationPolicy policy) {
+    const nlohmann::json& root, ValidationPolicy policy,
+    const PipelineIoBoundary* io_boundary) {
   const auto catalog = PipelineCatalog::Snapshot();
-  return ValidateAndPlanInternal(root, policy, catalog);
+  return ValidateAndPlanInternal(root, policy, catalog, io_boundary);
 }
 
-ValidationReport PipelineValidator::Validate(const nlohmann::json& root,
-                                             ValidationPolicy policy) {
-  return ValidateAndPlan(root, policy).report;
+ValidationReport PipelineValidator::Validate(
+    const nlohmann::json& root, ValidationPolicy policy,
+    const PipelineIoBoundary* io_boundary) {
+  return ValidateAndPlan(root, policy, io_boundary).report;
 }
 
-ValidationReport PipelineValidator::Explain(const nlohmann::json& root,
-                                            ValidationPolicy policy) {
+ValidationReport PipelineValidator::Explain(
+    const nlohmann::json& root, ValidationPolicy policy,
+    const PipelineIoBoundary* io_boundary) {
   const auto catalog = PipelineCatalog::Snapshot();
   ValidationReport report =
-      ValidateAndPlanInternal(root, policy, catalog).report;
+      ValidateAndPlanInternal(root, policy, catalog, io_boundary).report;
   if (report.ok) {
     return report;
   }
@@ -1764,7 +1844,8 @@ ValidationReport PipelineValidator::Explain(const nlohmann::json& root,
 
       total_verification_attempts++;
       ValidationReport new_report =
-          ValidateAndPlanInternal(patched_root, policy, catalog).report;
+          ValidateAndPlanInternal(patched_root, policy, catalog, io_boundary)
+              .report;
       if (new_report.ok) {
         fix.verification = "pipeline_valid";
         diag.remediation->fixes.push_back(std::move(fix));

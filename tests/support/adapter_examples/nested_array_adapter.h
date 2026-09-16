@@ -6,7 +6,7 @@
 
 #include "adapter/adapter_status.h"
 #include "adapter/adapter_validation_helper.h"
-#include "adapter/biz_adapter_interface.h"
+#include "edgeflow/c_api.h"
 
 namespace llm_edgeflow {
 namespace template_examples {
@@ -46,34 +46,15 @@ struct TemplateNestedArrayResultDto {
   std::string summary;
 };
 
-class TemplateNestedArrayAdapter : public IBizAdapter {
+class TemplateNestedArrayAdapter {
  public:
-  CompanyAlgBizType BizType() const override {
-    return static_cast<CompanyAlgBizType>(103);
-  }
-
-  const char* AdapterName() const override { return "TemplateNestedArray"; }
-
-  const AdapterDescriptor& GetDescriptor() const override {
-    static AdapterDescriptor desc{
-        static_cast<CompanyAlgBizType>(103),
-        "TemplateNestedArray",
-        "2.0.0",
-        "TemplateNestedArrayInput",
-        "TemplateNestedArrayOutput",
-        64,
-        OwnershipPolicy::kCopyIn,
-        ThreadModel::kStatelessThreadSafe,
-        OutputCardinality::kOneToOne,
-        {BizDefinition{"TemplateNestedArray",
-                       "template_nested_array_pipeline_v1"}}};
-    return desc;
-  }
+  const char* AdapterName() const { return "TemplateNestedArray"; }
+  size_t MaxBatchSize() const { return 64; }
 
   int Unpack(const void** inputs, int num_inputs, AlgContext* ctx,
-             AdapterStatus* out_status = nullptr) const override {
+             AdapterStatus* out_status = nullptr) const {
     int valid_ret = AdapterValidationHelper::ValidateBatchInputs(
-        inputs, num_inputs, GetDescriptor().max_batch_size, AdapterName());
+        inputs, num_inputs, static_cast<int>(MaxBatchSize()), AdapterName());
     if (valid_ret != 0 || !ctx) {
       return AdapterValidationHelper::ReturnInvalidInput(
           out_status, "Batch envelope validation failed", "inputs",
@@ -140,7 +121,7 @@ class TemplateNestedArrayAdapter : public IBizAdapter {
   }
 
   int Pack(AlgContext* ctx, void** outputs, int* num_outputs,
-           AdapterStatus* out_status = nullptr) const override {
+           AdapterStatus* out_status = nullptr) const {
     if (!ctx) return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
 
     const auto* res = ctx->Read<std::vector<TemplateNestedArrayResultDto>>(

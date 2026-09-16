@@ -30,12 +30,11 @@ class AllBizPipelinesTest : public ::testing::Test {
 // VectorSearch -> Prompt -> LLM)
 TEST_F(AllBizPipelinesTest, DocQaPipelineExecution) {
   std::string cfg_path =
-      GetConfigPath("demo/fixtures/mock/pipeline_doc_qa.json");
+      GetConfigPath("demo/fixtures/mock/pipeline_doc_qa_cabi.json");
   CompanyAlgParamCreate param;
   param.config_file_path = cfg_path.c_str();
   param.model_root_dir = "./models";
   param.device_id = 0;
-  param.biz_type = ALG_BIZ_TYPE_DOC_QA;
 
   void* handle = nullptr;
   int ret = Alg_Create(&handle, &param);
@@ -87,12 +86,11 @@ TEST_F(AllBizPipelinesTest, DocQaPipelineExecution) {
 // 2. 业务 4 (智能对话风控质检 - 3模型6节点级联) 细粒度高危与合规样本双向校验
 TEST_F(AllBizPipelinesTest, DialogueComplianceAuditPipeline) {
   std::string cfg_path =
-      GetConfigPath("demo/fixtures/mock/pipeline_dialogue_audit.json");
+      GetConfigPath("demo/fixtures/mock/pipeline_dialogue_audit_cabi.json");
   CompanyAlgParamCreate param;
   param.config_file_path = cfg_path.c_str();
   param.model_root_dir = "./models";
   param.device_id = 0;
-  param.biz_type = ALG_BIZ_TYPE_COMPLIANCE_AUDIT;
 
   void* handle = nullptr;
   int ret = Alg_Create(&handle, &param);

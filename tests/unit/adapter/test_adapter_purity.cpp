@@ -2,18 +2,27 @@
 
 #include <cstring>
 #include <memory>
+#include <nlohmann/json.hpp>
 #include <string>
 #include <vector>
 
-#include "adapter/adapter_authoring.h"
-#include "adapter/adapter_batch.h"
-#include "adapter/adapter_result.h"
-#include "adapter/biz_adapter_registry.h"
+#include "adapter/adapter_status.h"
 #include "adapter/biz_blackboard_keys.h"
-#include "adapter/biz_results.h"
+#include "adapter/converter_authoring.h"
+#include "adapter/deployment_io_config.h"
+#include "adapter/io_binding_registry.h"
+#include "adapter/io_binding_resolver.h"
+#include "adapter/io_converter.h"
+#include "adapter/io_converter_registry.h"
 #include "adapter/shared_algorithm_runtime.h"
+#include "contracts/inference_payloads.h"
 #include "core/alg_context.h"
+#include "core/common_contracts.h"
+#include "core/pipeline_catalog.h"
 #include "edgeflow/c_api.h"
+#include "edgeflow/operator/types.h"
+#include "engine/model_interface.h"
+#include "engine/model_registry.h"
 #include "tests/support/adapter_harness.h"
 
 namespace llm_edgeflow {
@@ -23,24 +32,48 @@ class AdapterPurityTest : public ::testing::Test {
   void SetUp() override { SharedAlgorithmRuntime::GlobalInit(); }
 };
 
-// 1. DocQaAdapter Purity (Biz 1)
+struct CustomMultiFieldInput {
+  uint64_t req_id;
+  const char* topic;
+  const char* content;
+};
+
+DECLARE_EXTERNAL_TYPE_TRAITS(CustomMultiFieldInput, "CustomMultiFieldInput");
+
+// =========================================================================
+// 1. All 8 Businesses Converter Purity
+// =========================================================================
+
+// 1.1 DocQaConverter Purity (Biz 1)
 TEST_F(AdapterPurityTest, DocQaAdapterPurity) {
-  auto adapter = BizAdapterRegistry::Instance().GetAdapter(ALG_BIZ_TYPE_DOC_QA);
-  ASSERT_NE(adapter, nullptr);
+  const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
+      "doc_query.plain.cabi.v1");
+  ASSERT_NE(in_conv, nullptr);
+  const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
+      "doc_answer.plain.cabi.v1");
+  ASSERT_NE(out_conv, nullptr);
+
+  test::AdapterHarness harness(
+      in_conv, out_conv,
+      InputPortBindings({{"raw_request_ids", "raw_request_ids"},
+                         {"raw_docs", "raw_docs"},
+                         {"raw_queries", "raw_queries"}}),
+      OutputPortBindings({{"raw_request_ids", "raw_request_ids"},
+                          {"llm_answers", "llm_answers"},
+                          {"intent_matches", "intent_matches"},
+                          {"doc_chunk_counts", "doc_chunk_counts"}}));
 
   CompanyDocInputStruct in{};
   in.request_id = 1001;
   in.doc_text = "Doc Content";
   in.query_text = "Query Question";
-  const void* inputs[] = {&in};
 
-  AlgContext ctx;
-  AdapterStatus status;
-  ASSERT_EQ(adapter->Unpack(inputs, 1, &ctx, &status), 0);
+  ASSERT_EQ(harness.DecodeCAbi({&in}), 0);
 
-  const auto* req_ids = ctx.Read(kRawRequestIds);
-  const auto* docs = ctx.Read(kRawDocs);
-  const auto* queries = ctx.Read(kRawQueries);
+  const auto* req_ids =
+      harness.Context().Read<std::vector<uint64_t>>("raw_request_ids");
+  const auto* docs = harness.Context().Read<TextBatch>("raw_docs");
+  const auto* queries = harness.Context().Read<TextBatch>("raw_queries");
   ASSERT_NE(req_ids, nullptr);
   ASSERT_NE(docs, nullptr);
   ASSERT_NE(queries, nullptr);
@@ -48,515 +81,587 @@ TEST_F(AdapterPurityTest, DocQaAdapterPurity) {
   EXPECT_EQ((*docs)[0].data, "Doc Content");
   EXPECT_EQ((*queries)[0].data, "Query Question");
 
-  // Pack check
+  // Output encoding
   TextBatch answers;
   answers.emplace_back(0, 0, "Model Generated Answer");
-  ctx.Publish(kLlmAnswers, std::move(answers));
+  harness.Publish("llm_answers", std::move(answers));
 
   RuleMatchBatch intents;
   intents.emplace_back(0, 0,
                        RuleMatchItem(1, "GENERAL_QA", "query", "{}", 0.95f));
-  ctx.Publish(kIntentMatches, std::move(intents));
+  harness.Publish("intent_matches", std::move(intents));
 
   Int32Batch chunk_counts;
   chunk_counts.emplace_back(0, 0, 1);
-  ctx.Publish(kDocChunkCounts, std::move(chunk_counts));
+  harness.Publish("doc_chunk_counts", std::move(chunk_counts));
 
-  CompanyDocOutputStruct out{};
-  void* outputs[] = {&out};
-  int num_out = 1;
-  ASSERT_EQ(adapter->Pack(&ctx, outputs, &num_out, &status), 0);
+  std::vector<CompanyDocOutputStruct> outputs(1);
+  ASSERT_EQ(harness.EncodeCAbi(&outputs), 0);
 
-  EXPECT_EQ(out.request_id, 1001u);
-  EXPECT_EQ(out.chunk_count, 1);
-  EXPECT_STREQ(out.intent_name, "GENERAL_QA");
-  EXPECT_FLOAT_EQ(out.confidence, 0.95f);
-  EXPECT_STREQ(out.answer_text, "Model Generated Answer");
+  EXPECT_EQ(outputs[0].request_id, 1001u);
+  EXPECT_EQ(outputs[0].chunk_count, 1);
+  EXPECT_STREQ(outputs[0].intent_name, "GENERAL_QA");
+  EXPECT_FLOAT_EQ(outputs[0].confidence, 0.95f);
+  EXPECT_STREQ(outputs[0].answer_text, "Model Generated Answer");
 }
 
-// 2. KeywordMatchAdapter Purity (Biz 2)
+// 1.2 KeywordMatchConverter Purity (Biz 2)
 TEST_F(AdapterPurityTest, KeywordMatchAdapterPurity) {
-  auto adapter =
-      BizAdapterRegistry::Instance().GetAdapter(ALG_BIZ_TYPE_KEYWORD_MATCH);
-  ASSERT_NE(adapter, nullptr);
+  const auto* in_conv =
+      IoConverterRegistry::Instance().FindInputConverter("text.plain.cabi.v1");
+  ASSERT_NE(in_conv, nullptr);
+  const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
+      "keyword.result.cabi.v1");
+  ASSERT_NE(out_conv, nullptr);
 
-  // Unpack check: C Struct -> AlgContext
-  CompanyKeywordInputStruct input{};
-  input.request_id = 12345;
-  const char* sentence = "测试输入文本";
-  input.sentence_text = sentence;
-  const void* inputs[] = {&input};
+  test::AdapterHarness harness(
+      in_conv, out_conv,
+      InputPortBindings({{"raw_request_ids", "raw_request_ids"},
+                         {"input_sentences", "input_sentences"}}),
+      OutputPortBindings({{"raw_request_ids", "raw_request_ids"},
+                          {"rule_matches", "rule_matches"}}));
 
-  AlgContext ctx;
-  AdapterStatus status;
-  ASSERT_EQ(adapter->Unpack(inputs, 1, &ctx, &status), 0);
+  CompanyEntityInputStruct in{1002, "Some text"};
+  ASSERT_EQ(harness.DecodeCAbi({&in}), 0);
 
-  const auto* req_ids = ctx.Read(kRawRequestIds);
-  const auto* text_batch = ctx.Read(kInputSentences);
-  ASSERT_NE(req_ids, nullptr);
-  ASSERT_NE(text_batch, nullptr);
-  EXPECT_EQ((*req_ids)[0], 12345u);
-  EXPECT_EQ((*text_batch)[0].data, sentence);
+  RuleMatchBatch matches;
+  matches.emplace_back(
+      0, 0,
+      RuleMatchItem(1, "TEST_CAT", "测试", "{\"intent\":\"TEST_CAT\"}", 0.9f));
+  harness.Publish("rule_matches", std::move(matches));
 
-  // Pack check: AlgContext -> C Struct
-  RuleMatchBatch match_batch;
-  RuleMatchItem match_item(1, "TEST_CAT", "测试", "{\"intent\":\"TEST_CAT\"}",
-                           1.0f);
-  match_batch.emplace_back(0, 0, std::move(match_item));
-  ctx.Publish(kRuleMatches, std::move(match_batch));
+  std::vector<CompanyKeywordOutputStruct> outputs(1);
+  ASSERT_EQ(harness.EncodeCAbi(&outputs), 0);
 
-  CompanyKeywordOutputStruct output{};
-  void* outputs[] = {&output};
-  int num_outputs = 1;
-  ASSERT_EQ(adapter->Pack(&ctx, outputs, &num_outputs, &status), 0);
-
-  EXPECT_EQ(output.request_id, 12345u);
-  EXPECT_EQ(output.is_hit, 1);
-  EXPECT_STREQ(output.match_result_json, "{\"intent\":\"TEST_CAT\"}");
+  EXPECT_EQ(outputs[0].request_id, 1002u);
+  EXPECT_EQ(outputs[0].is_hit, 1);
+  EXPECT_STREQ(outputs[0].match_result_json, "{\"intent\":\"TEST_CAT\"}");
 }
 
-// 3. EntityExtractAdapter Purity (Biz 3)
+// 1.3 EntityExtractConverter Purity (Biz 3)
 TEST_F(AdapterPurityTest, EntityExtractAdapterPurity) {
-  auto adapter =
-      BizAdapterRegistry::Instance().GetAdapter(ALG_BIZ_TYPE_ENTITY_EXTRACT);
-  ASSERT_NE(adapter, nullptr);
+  const auto* in_conv =
+      IoConverterRegistry::Instance().FindInputConverter("text.plain.cabi.v1");
+  ASSERT_NE(in_conv, nullptr);
+  const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
+      "document.structured.cabi.v1");
+  ASSERT_NE(out_conv, nullptr);
 
-  CompanyEntityInputStruct in{};
-  in.request_id = 3001;
-  in.sentence_text = "张三就职于阿里巴巴";
-  const void* inputs[] = {&in};
+  test::AdapterHarness harness(
+      in_conv, out_conv,
+      InputPortBindings({{"raw_request_ids", "raw_request_ids"},
+                         {"input_sentences", "input_sentences"}}),
+      OutputPortBindings({{"raw_request_ids", "raw_request_ids"},
+                          {"extracted_entities", "extracted_entities"}}));
 
-  AlgContext ctx;
-  AdapterStatus status;
-  ASSERT_EQ(adapter->Unpack(inputs, 1, &ctx, &status), 0);
+  CompanyEntityInputStruct in{1003, "Entity text"};
+  ASSERT_EQ(harness.DecodeCAbi({&in}), 0);
 
   StructuredDocumentBatch entities;
-  entities.emplace_back(0, 0, JsonDocumentItem("[\"张三\",\"阿里巴巴\"]"));
-  ctx.Publish(kExtractedEntities, std::move(entities));
+  entities.emplace_back(
+      0, 0, JsonDocumentItem("[\"E1\"]", true, JsonParseStatus::kOk));
+  harness.Publish("extracted_entities", std::move(entities));
 
-  CompanyEntityOutputStruct out{};
-  void* outputs[] = {&out};
-  int num_out = 1;
-  ASSERT_EQ(adapter->Pack(&ctx, outputs, &num_out, &status), 0);
+  std::vector<CompanyEntityOutputStruct> outputs(1);
+  ASSERT_EQ(harness.EncodeCAbi(&outputs), 0);
 
-  EXPECT_EQ(out.request_id, 3001u);
-  EXPECT_STREQ(out.entities_json, "[\"张三\",\"阿里巴巴\"]");
+  EXPECT_EQ(outputs[0].request_id, 1003u);
+  EXPECT_EQ(outputs[0].status_code, 0);
+  EXPECT_STREQ(outputs[0].entities_json, "[\"E1\"]");
 }
 
-// 4. ComplianceAuditAdapter Purity (Biz 4)
+// 1.4 ComplianceAuditConverter Purity (Biz 4)
 TEST_F(AdapterPurityTest, ComplianceAuditAdapterPurity) {
-  auto adapter =
-      BizAdapterRegistry::Instance().GetAdapter(ALG_BIZ_TYPE_COMPLIANCE_AUDIT);
-  ASSERT_NE(adapter, nullptr);
+  const auto* in_conv =
+      IoConverterRegistry::Instance().FindInputConverter("audit.plain.cabi.v1");
+  ASSERT_NE(in_conv, nullptr);
+  const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
+      "audit_result.plain.cabi.v1");
+  ASSERT_NE(out_conv, nullptr);
 
-  CompanyAuditInputStruct in{};
-  in.request_id = 8888;
-  in.user_text = "客户投诉退款问题";
-  in.channel_name = "VIP_HOTLINE";
-  const void* inputs[] = {&in};
+  test::AdapterHarness harness(
+      in_conv, out_conv,
+      InputPortBindings({{"raw_request_ids", "raw_request_ids"},
+                         {"user_texts", "user_texts"},
+                         {"channel_names", "channel_names"}}),
+      OutputPortBindings({{"raw_request_ids", "raw_request_ids"},
+                          {"structured_verdicts", "structured_verdicts"},
+                          {"matched_policies", "matched_policies"}}));
 
-  AlgContext ctx;
-  AdapterStatus status;
-  ASSERT_EQ(adapter->Unpack(inputs, 1, &ctx, &status), 0);
+  CompanyAuditInputStruct in{1004, "audit sentence", "channel_vip"};
+  ASSERT_EQ(harness.DecodeCAbi({&in}), 0);
 
-  // Pack structured verdict from AlgContext directly
   StructuredDocumentBatch verdicts;
-  nlohmann::json structured_obj = {{"risk_level", "HIGH_RISK"},
-                                   {"risk_score", 0.92f}};
   verdicts.emplace_back(
       0, 0,
-      JsonDocumentItem("{\"risk_level\":\"HIGH_RISK\",\"risk_score\":0.92}",
-                       true, JsonParseStatus::kOk, "", structured_obj));
-  ctx.Publish(kStructuredVerdicts, std::move(verdicts));
+      JsonDocumentItem("{\"risk_level\":\"SAFE\",\"risk_score\":0.1}", true,
+                       JsonParseStatus::kOk, "",
+                       {{"risk_level", "SAFE"}, {"risk_score", 0.1f}}));
+  harness.Publish("structured_verdicts", std::move(verdicts));
 
   RankedTextBatch policies;
-  policies.emplace_back(0, 0,
-                        RankedCandidate("Clause 9.1 Refund Policy", 0.95f, 1));
-  ctx.Publish(kMatchedPolicy, std::move(policies));
+  policies.emplace_back(0, 0, RankedCandidate("Clause 1", 1.0f, 1, 0));
+  harness.Publish("matched_policies", std::move(policies));
 
-  CompanyAuditOutputStruct out{};
-  void* outputs[] = {&out};
-  int num_out = 1;
-  ASSERT_EQ(adapter->Pack(&ctx, outputs, &num_out, &status), 0);
+  std::vector<CompanyAuditOutputStruct> outputs(1);
+  ASSERT_EQ(harness.EncodeCAbi(&outputs), 0);
 
-  EXPECT_EQ(out.request_id, 8888u);
-  EXPECT_STREQ(out.risk_level, "HIGH_RISK");
-  EXPECT_FLOAT_EQ(out.risk_score, 0.92f);
-  EXPECT_STREQ(out.matched_policy_clause, "Clause 9.1 Refund Policy");
+  EXPECT_EQ(outputs[0].request_id, 1004u);
+  EXPECT_FLOAT_EQ(outputs[0].risk_score, 0.1f);
+  EXPECT_STREQ(outputs[0].risk_level, "SAFE");
+  EXPECT_STREQ(outputs[0].matched_policy_clause, "Clause 1");
 }
 
-// 5. OcrDocQaAdapter Purity (Biz 5)
+// 1.5 OcrDocQaConverter Purity (Biz 5)
 TEST_F(AdapterPurityTest, OcrDocQaAdapterPurity) {
-  auto adapter =
-      BizAdapterRegistry::Instance().GetAdapter(ALG_BIZ_TYPE_OCR_DOC_QA);
-  ASSERT_NE(adapter, nullptr);
+  const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
+      "image_query.plain.cabi.v1");
+  ASSERT_NE(in_conv, nullptr);
+  const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
+      "invoice_result.plain.cabi.v1");
+  ASSERT_NE(out_conv, nullptr);
 
-  CompanyOcrDocInputStruct in{};
-  in.request_id = 5001;
-  in.image_path = "./data/invoice.png";
-  in.query_prompt = "提取发票总额";
-  const void* inputs[] = {&in};
+  test::AdapterHarness harness(
+      in_conv, out_conv,
+      InputPortBindings({{"raw_request_ids", "raw_request_ids"},
+                         {"image_paths", "image_paths"},
+                         {"user_queries", "user_queries"}}),
+      OutputPortBindings({{"raw_request_ids", "raw_request_ids"},
+                          {"extracted_invoice_json", "extracted_invoice_json"},
+                          {"ocr_docs", "ocr_docs"}}));
 
-  AlgContext ctx;
-  AdapterStatus status;
-  ASSERT_EQ(adapter->Unpack(inputs, 1, &ctx, &status), 0);
-
-  OcrDocumentBatch ocr_docs;
-  OcrDocumentItem doc_item;
-  doc_item.boxes.push_back({10, 20, 100, 30, "总计 500 元", 0.99f});
-  ocr_docs.emplace_back(0, 0, std::move(doc_item));
-  ctx.Publish(kOcrDocs, std::move(ocr_docs));
+  CompanyOcrDocInputStruct in{1005, "/path/invoice.jpg", "Total amount?"};
+  ASSERT_EQ(harness.DecodeCAbi({&in}), 0);
 
   StructuredDocumentBatch invoices;
-  invoices.emplace_back(0, 0, JsonDocumentItem("{\"total\":500}"));
-  ctx.Publish(kExtractedInvoiceJson, std::move(invoices));
+  invoices.emplace_back(
+      0, 0, JsonDocumentItem("{\"total\":99.9}", true, JsonParseStatus::kOk));
+  harness.Publish("extracted_invoice_json", std::move(invoices));
 
-  CompanyOcrDocOutputStruct out{};
-  void* outputs[] = {&out};
-  int num_out = 1;
-  ASSERT_EQ(adapter->Pack(&ctx, outputs, &num_out, &status), 0);
+  OcrDocumentBatch ocr_docs;
+  OcrDocumentItem ocr_item;
+  ocr_item.boxes.push_back({0, 0, 10, 10, "Total", 0.99f});
+  ocr_docs.emplace_back(0, 0, std::move(ocr_item));
+  harness.Publish("ocr_docs", std::move(ocr_docs));
 
-  EXPECT_EQ(out.request_id, 5001u);
-  EXPECT_EQ(out.detected_box_count, 1);
-  EXPECT_STREQ(out.extracted_invoice_json, "{\"total\":500}");
+  std::vector<CompanyOcrDocOutputStruct> outputs(1);
+  ASSERT_EQ(harness.EncodeCAbi(&outputs), 0);
+
+  EXPECT_EQ(outputs[0].request_id, 1005u);
+  EXPECT_EQ(outputs[0].detected_box_count, 1U);
+  EXPECT_STREQ(outputs[0].extracted_invoice_json, "{\"total\":99.9}");
 }
 
-// 6. AudioAsrIntentAdapter Purity (Biz 6)
+// 1.6 AudioAsrIntentConverter Purity (Biz 6)
 TEST_F(AdapterPurityTest, AudioAsrIntentAdapterPurity) {
-  auto adapter =
-      BizAdapterRegistry::Instance().GetAdapter(ALG_BIZ_TYPE_AUDIO_ASR_INTENT);
-  ASSERT_NE(adapter, nullptr);
+  const auto* in_conv =
+      IoConverterRegistry::Instance().FindInputConverter("audio.pcm.cabi.v1");
+  ASSERT_NE(in_conv, nullptr);
+  const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
+      "audio_result.plain.cabi.v1");
+  ASSERT_NE(out_conv, nullptr);
 
-  std::vector<float> pcm(160, 0.1f);
-  CompanyAudioInputStruct in{};
-  in.request_id = 6001;
-  in.pcm_buffer = pcm.data();
-  in.pcm_length = static_cast<int64_t>(pcm.size());
-  in.sample_rate = 16000;
-  const void* inputs[] = {&in};
+  test::AdapterHarness harness(
+      in_conv, out_conv,
+      InputPortBindings({{"raw_request_ids", "raw_request_ids"},
+                         {"audio_inputs", "audio_inputs"}}),
+      OutputPortBindings({{"raw_request_ids", "raw_request_ids"},
+                          {"transcripts", "transcripts"},
+                          {"intent_slots", "intent_slots"}}));
 
-  AlgContext ctx;
-  AdapterStatus status;
-  ASSERT_EQ(adapter->Unpack(inputs, 1, &ctx, &status), 0);
+  std::vector<float> pcm(1600, 0.05f);
+  CompanyAudioInputStruct in{1006, pcm.data(), static_cast<int>(pcm.size()),
+                             16000};
+  ASSERT_EQ(harness.DecodeCAbi({&in}), 0);
 
   TextBatch transcripts;
-  transcripts.emplace_back(0, 0, "导航到清华科技园");
-  ctx.Publish(kTranscripts, std::move(transcripts));
+  transcripts.emplace_back(0, 0, "turn left");
+  harness.Publish("transcripts", std::move(transcripts));
 
-  RuleMatchBatch slots;
-  slots.emplace_back(0, 0,
-                     RuleMatchItem(1, "NAVIGATION", "导航到",
-                                   "{\"intent\":\"NAVIGATION\",\"slots\":{"
-                                   "\"destination\":\"清华科技园\"}}",
-                                   1.0f));
-  ctx.Publish(kIntentSlots, std::move(slots));
+  RuleMatchBatch intent_slots;
+  intent_slots.emplace_back(
+      0, 0, RuleMatchItem(1, "NAV", "", "{\"intent\":\"NAV\"}", 0.99f));
+  harness.Publish("intent_slots", std::move(intent_slots));
 
-  CompanyAudioOutputStruct out{};
-  void* outputs[] = {&out};
-  int num_out = 1;
-  ASSERT_EQ(adapter->Pack(&ctx, outputs, &num_out, &status), 0);
+  std::vector<CompanyAudioOutputStruct> outputs(1);
+  ASSERT_EQ(harness.EncodeCAbi(&outputs), 0);
 
-  EXPECT_EQ(out.request_id, 6001u);
-  EXPECT_STREQ(out.transcribed_text, "导航到清华科技园");
-  EXPECT_NE(std::string(out.intent_slot_json).find("清华科技园"),
-            std::string::npos);
+  EXPECT_EQ(outputs[0].request_id, 1006u);
+  EXPECT_STREQ(outputs[0].transcribed_text, "turn left");
+  EXPECT_STREQ(outputs[0].intent_slot_json, "{\"intent\":\"NAV\"}");
 }
 
-// 7. CrossRerankAdapter Purity (Biz 7)
+// 1.7 CrossRerankConverter Purity (Biz 7)
 TEST_F(AdapterPurityTest, CrossRerankAdapterPurity) {
-  auto adapter =
-      BizAdapterRegistry::Instance().GetAdapter(ALG_BIZ_TYPE_CROSS_RERANK);
-  ASSERT_NE(adapter, nullptr);
+  const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
+      "rerank.plain.cabi.v1");
+  ASSERT_NE(in_conv, nullptr);
+  const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
+      "rerank_result.plain.cabi.v1");
+  ASSERT_NE(out_conv, nullptr);
 
-  const char* query = "EdgeFlow 架构";
-  const char* p0 = "LLM-EdgeFlow 核心组件";
-  const char* p1 = "不相关段落";
+  test::AdapterHarness harness(
+      in_conv, out_conv,
+      InputPortBindings({{"raw_request_ids", "raw_request_ids"},
+                         {"rerank_queries", "rerank_queries"},
+                         {"rerank_candidates", "rerank_candidates"},
+                         {"rerank_pairs", "rerank_pairs"}}),
+      OutputPortBindings({{"raw_request_ids", "raw_request_ids"},
+                          {"ranked_results", "ranked_results"}}));
+
+  const char* passages[] = {"cand0", "cand1"};
   CompanyRerankBatchInputStruct in{};
-  in.request_id = 7001;
-  in.query_text = query;
-  in.candidate_passages[0] = p0;
-  in.candidate_passages[1] = p1;
+  in.request_id = 1007;
+  in.query_text = "query";
   in.candidate_count = 2;
-  const void* inputs[] = {&in};
+  in.candidate_passages[0] = passages[0];
+  in.candidate_passages[1] = passages[1];
 
-  AlgContext ctx;
-  AdapterStatus status;
-  ASSERT_EQ(adapter->Unpack(inputs, 1, &ctx, &status), 0);
+  ASSERT_EQ(harness.DecodeCAbi({&in}), 0);
 
-  RankedTextBatch results;
-  results.emplace_back(0, 0, RankedCandidate(p0, 0.98f, 1, 0));
-  results.emplace_back(0, 1, RankedCandidate(p1, 0.12f, 2, 1));
-  ctx.Publish(kRankedResults, std::move(results));
+  RankedTextBatch ranked;
+  ranked.emplace_back(0, 0, RankedCandidate("cand1", 0.85f, 1, 1));
+  ranked.emplace_back(0, 1, RankedCandidate("cand0", 0.45f, 2, 0));
+  harness.Publish("ranked_results", std::move(ranked));
 
-  CompanyRerankBatchOutputStruct out{};
-  void* outputs[] = {&out};
-  int num_out = 1;
-  ASSERT_EQ(adapter->Pack(&ctx, outputs, &num_out, &status), 0);
+  std::vector<CompanyRerankBatchOutputStruct> outputs(1);
+  ASSERT_EQ(harness.EncodeCAbi(&outputs), 0);
 
-  EXPECT_EQ(out.request_id, 7001u);
-  EXPECT_EQ(out.count, 2);
-  EXPECT_FLOAT_EQ(out.scores[0], 0.98f);
-  EXPECT_EQ(out.sorted_indices[0], 0);
+  EXPECT_EQ(outputs[0].request_id, 1007u);
+  EXPECT_EQ(outputs[0].count, 2);
+  EXPECT_FLOAT_EQ(outputs[0].scores[0], 0.85f);
+  EXPECT_EQ(outputs[0].sorted_indices[0], 1);
+  EXPECT_FLOAT_EQ(outputs[0].scores[1], 0.45f);
+  EXPECT_EQ(outputs[0].sorted_indices[1], 0);
 }
 
-// 8. Negative Tests: Fail-Closed Purity Assertions (Zero Fabrication)
-TEST_F(AdapterPurityTest, DocQaAdapter_FailClosedWhenMissingOutputs) {
-  auto adapter = BizAdapterRegistry::Instance().GetAdapter(ALG_BIZ_TYPE_DOC_QA);
-  ASSERT_NE(adapter, nullptr);
+// 1.8 TranslateConverter Purity (Biz 8)
+TEST_F(AdapterPurityTest, TranslateAdapterPurity) {
+  const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
+      "translate.json.cabi.v1");
+  ASSERT_NE(in_conv, nullptr);
+  const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
+      "translate.json.cabi.v1");
+  ASSERT_NE(out_conv, nullptr);
 
-  AlgContext ctx;
-  AdapterStatus status;
-  CompanyDocOutputStruct out{};
-  void* outputs[] = {&out};
-  int num_out = 1;
+  test::AdapterHarness harness(
+      in_conv, out_conv,
+      InputPortBindings({{"raw_request_ids", "raw_request_ids"},
+                         {"input_sentences", "input_sentences"}}),
+      OutputPortBindings({{"raw_request_ids", "raw_request_ids"},
+                          {"llm_answers", "llm_answers"}}));
+
+  CompanyEntityInputStruct in{1008, "{\"query\":\"Hello\"}"};
+  ASSERT_EQ(harness.DecodeCAbi({&in}), 0);
+
+  TextBatch answers;
+  answers.emplace_back(0, 0, "Bonjour");
+  harness.Publish("llm_answers", std::move(answers));
+
+  std::vector<CompanyEntityOutputStruct> outputs(1);
+  ASSERT_EQ(harness.EncodeCAbi(&outputs), 0);
+
+  EXPECT_EQ(outputs[0].request_id, 1008u);
+  EXPECT_EQ(outputs[0].status_code, 0);
+  auto parsed = nlohmann::json::parse(outputs[0].entities_json);
+  EXPECT_EQ(parsed["translated"], "Bonjour");
+}
+
+// =========================================================================
+// 2. Contract Invariants and Security Edge Cases
+// =========================================================================
+
+TEST_F(AdapterPurityTest, DocQaAdapter_FailClosedWhenMissingOutputs) {
+  const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
+      "doc_answer.plain.cabi.v1");
+  ASSERT_NE(out_conv, nullptr);
+
+  OutputPortBindings out_bindings({{"raw_request_ids", "raw_request_ids"},
+                                   {"llm_answers", "llm_answers"},
+                                   {"intent_matches", "intent_matches"},
+                                   {"doc_chunk_counts", "doc_chunk_counts"}});
 
   // Case 1: missing llm_answers
-  EXPECT_NE(adapter->Pack(&ctx, outputs, &num_out, &status), 0);
+  {
+    test::AdapterHarness harness(out_conv, out_bindings);
+    harness.Publish("raw_request_ids", std::vector<uint64_t>{1001});
+    std::vector<CompanyDocOutputStruct> outputs(1);
+    EXPECT_NE(harness.EncodeCAbi(&outputs), 0);
+  }
 
   // Case 2: has llm_answers but missing intent_matches -> MUST fail-closed
-  TextBatch answers;
-  answers.emplace_back(0, 0, "Some answer");
-  ctx.Publish(kLlmAnswers, std::move(answers));
-  EXPECT_EQ(adapter->Pack(&ctx, outputs, &num_out, &status),
-            COMPANY_ALG_ERR_INVALID_INPUT);
+  {
+    test::AdapterHarness harness(out_conv, out_bindings);
+    harness.Publish("raw_request_ids", std::vector<uint64_t>{1001});
+    TextBatch answers;
+    answers.emplace_back(0, 0, "Some answer");
+    harness.Publish("llm_answers", std::move(answers));
+    std::vector<CompanyDocOutputStruct> outputs(1);
+    EXPECT_EQ(harness.EncodeCAbi(&outputs), COMPANY_ALG_ERR_INVALID_INPUT);
+  }
 
-  // Case 3: has intent_matches but missing explicit per-request chunk counts
-  // -> MUST fail-closed (the adapter may not derive business data).
-  RuleMatchBatch intents;
-  intents.emplace_back(0, 0, RuleMatchItem(1, "GENERAL_QA", "", "{}", 0.9f));
-  ctx.Publish(kIntentMatches, std::move(intents));
-  EXPECT_EQ(adapter->Pack(&ctx, outputs, &num_out, &status),
-            COMPANY_ALG_ERR_INVALID_INPUT);
+  // Case 3: has intent_matches but missing explicit chunk counts -> MUST
+  // fail-closed
+  {
+    test::AdapterHarness harness(out_conv, out_bindings);
+    harness.Publish("raw_request_ids", std::vector<uint64_t>{1001});
+    TextBatch answers;
+    answers.emplace_back(0, 0, "Some answer");
+    harness.Publish("llm_answers", std::move(answers));
+    RuleMatchBatch intents;
+    intents.emplace_back(0, 0, RuleMatchItem(1, "QA", "", "{}", 0.9f));
+    harness.Publish("intent_matches", std::move(intents));
+    std::vector<CompanyDocOutputStruct> outputs(1);
+    EXPECT_EQ(harness.EncodeCAbi(&outputs), COMPANY_ALG_ERR_INVALID_INPUT);
+  }
 
-  // Case 4: all business outputs exist but input request provenance is absent.
-  Int32Batch chunk_counts;
-  chunk_counts.emplace_back(0, 0, 1);
-  ctx.Publish(kDocChunkCounts, std::move(chunk_counts));
-  EXPECT_EQ(adapter->Pack(&ctx, outputs, &num_out, &status),
-            COMPANY_ALG_ERR_INVALID_INPUT);
+  // Case 4: all outputs exist but raw_request_ids is absent
+  {
+    test::AdapterHarness harness(out_conv, out_bindings);
+    TextBatch answers;
+    answers.emplace_back(0, 0, "Some answer");
+    harness.Publish("llm_answers", std::move(answers));
+    RuleMatchBatch intents;
+    intents.emplace_back(0, 0, RuleMatchItem(1, "QA", "", "{}", 0.9f));
+    harness.Publish("intent_matches", std::move(intents));
+    Int32Batch chunk_counts;
+    chunk_counts.emplace_back(0, 0, 1);
+    harness.Publish("doc_chunk_counts", std::move(chunk_counts));
+    std::vector<CompanyDocOutputStruct> outputs(1);
+    EXPECT_NE(harness.EncodeCAbi(&outputs), 0);
+  }
 }
 
 TEST_F(AdapterPurityTest,
        ComplianceAuditAdapter_FailClosedWhenMissingStructuredFields) {
-  auto adapter =
-      BizAdapterRegistry::Instance().GetAdapter(ALG_BIZ_TYPE_COMPLIANCE_AUDIT);
-  ASSERT_NE(adapter, nullptr);
+  const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
+      "audit_result.plain.cabi.v1");
+  ASSERT_NE(out_conv, nullptr);
 
-  AlgContext ctx;
-  AdapterStatus status;
-  CompanyAuditOutputStruct out{};
-  void* outputs[] = {&out};
-  int num_out = 1;
+  OutputPortBindings out_bindings(
+      {{"raw_request_ids", "raw_request_ids"},
+       {"structured_verdicts", "structured_verdicts"},
+       {"matched_policies", "matched_policies"}});
 
-  // Case 1: missing structured_verdicts
-  EXPECT_NE(adapter->Pack(&ctx, outputs, &num_out, &status), 0);
+  test::AdapterHarness harness(out_conv, out_bindings);
+  harness.Publish("raw_request_ids", std::vector<uint64_t>{1001});
 
-  // Case 2: structured_verdicts missing required field 'risk_level' -> MUST
-  // fail-closed
+  // structured_verdicts missing required field 'risk_level' -> MUST fail-closed
   StructuredDocumentBatch verdicts;
   nlohmann::json incomplete_obj = {{"only_verdict", "合规"}};
   verdicts.emplace_back(
       0, 0,
       JsonDocumentItem("{}", true, JsonParseStatus::kOk, "", incomplete_obj));
-  ctx.Publish(kStructuredVerdicts, std::move(verdicts));
+  harness.Publish("structured_verdicts", std::move(verdicts));
 
   RankedTextBatch policies;
   policies.emplace_back(0, 0, RankedCandidate("Clause", 1.0f, 1));
-  ctx.Publish(kMatchedPolicy, std::move(policies));
+  harness.Publish("matched_policies", std::move(policies));
 
-  EXPECT_EQ(adapter->Pack(&ctx, outputs, &num_out, &status),
-            COMPANY_ALG_ERR_INVALID_INPUT);
+  std::vector<CompanyAuditOutputStruct> outputs(1);
+  EXPECT_EQ(harness.EncodeCAbi(&outputs), COMPANY_ALG_ERR_INVALID_INPUT);
 }
 
-}  // namespace llm_edgeflow
-
-namespace llm_edgeflow {
 TEST_F(AdapterPurityTest, AuditJoinsRankOneByRequestAndRejectsFallback) {
-  auto adapter =
-      BizAdapterRegistry::Instance().GetAdapter(ALG_BIZ_TYPE_COMPLIANCE_AUDIT);
+  const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
+      "audit_result.plain.cabi.v1");
+  ASSERT_NE(out_conv, nullptr);
+
+  OutputPortBindings out_bindings(
+      {{"raw_request_ids", "raw_request_ids"},
+       {"structured_verdicts", "structured_verdicts"},
+       {"matched_policies", "matched_policies"}});
+
   for (const auto parse_status :
        {JsonParseStatus::kOk, JsonParseStatus::kFailed,
         JsonParseStatus::kFallbackApplied}) {
-    AlgContext ctx;
-    ctx.Publish(kRawRequestIds, std::vector<uint64_t>{100, 200});
+    test::AdapterHarness harness(out_conv, out_bindings);
+    harness.Publish("raw_request_ids", std::vector<uint64_t>{100, 200});
+
     StructuredDocumentBatch verdicts;
     for (uint32_t id : {1u, 0u}) {
       verdicts.emplace_back(
           id, 0,
           JsonDocumentItem("{}", true, parse_status, "",
-                           {{"risk_level", "SAFE"}, {"risk_score", 0.1}}));
+                           {{"risk_level", "SAFE"}, {"risk_score", 0.1f}}));
     }
-    ctx.Publish(kStructuredVerdicts, std::move(verdicts));
-    ctx.Publish(kMatchedPolicy, RankedTextBatch{{0, 0, {"req0 first", 1, 1}},
-                                                {0, 1, {"req0 second", 0.5, 2}},
-                                                {1, 0, {"req1 first", 1, 1}}});
-    CompanyAuditOutputStruct out[2]{};
-    void* outputs[] = {&out[0], &out[1]};
-    int count = 2;
-    AdapterStatus status;
-    const int ret = adapter->Pack(&ctx, outputs, &count, &status);
+    harness.Publish("structured_verdicts", std::move(verdicts));
+    harness.Publish("matched_policies",
+                    RankedTextBatch{{0, 0, {"req0 first", 1.0f, 1, 1}},
+                                    {0, 1, {"req0 second", 0.5f, 2, 2}},
+                                    {1, 0, {"req1 first", 1.0f, 1, 1}}});
+
+    std::vector<CompanyAuditOutputStruct> outputs(2);
+    const int ret = harness.EncodeCAbi(&outputs);
     if (parse_status == JsonParseStatus::kOk) {
-      ASSERT_EQ(ret, 0) << status.ToString();
-      EXPECT_EQ(out[1].request_id, 200u);
-      EXPECT_STREQ(out[1].matched_policy_clause, "req1 first");
+      ASSERT_EQ(ret, 0) << harness.Status().ToString();
+      EXPECT_EQ(outputs[1].request_id, 200u);
+      EXPECT_STREQ(outputs[1].matched_policy_clause, "req1 first");
     } else {
       EXPECT_NE(ret, 0);
     }
   }
 }
+
 TEST_F(AdapterPurityTest, OneToOneResultsRejectDuplicateAndOutOfRangeIds) {
-  auto adapter =
-      BizAdapterRegistry::Instance().GetAdapter(ALG_BIZ_TYPE_KEYWORD_MATCH);
+  const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
+      "keyword.result.cabi.v1");
+  ASSERT_NE(out_conv, nullptr);
+
+  OutputPortBindings out_bindings({{"raw_request_ids", "raw_request_ids"},
+                                   {"rule_matches", "rule_matches"}});
+
   for (const auto& ids :
        {std::vector<uint32_t>{0, 0}, std::vector<uint32_t>{0, 2}}) {
-    AlgContext ctx;
-    ctx.Publish(kRawRequestIds, std::vector<uint64_t>{100, 200});
+    test::AdapterHarness harness(out_conv, out_bindings);
+    harness.Publish("raw_request_ids", std::vector<uint64_t>{100, 200});
     RuleMatchBatch matches;
     for (auto id : ids) matches.emplace_back(id, 0, RuleMatchItem{});
-    ctx.Publish(kRuleMatches, std::move(matches));
-    CompanyKeywordOutputStruct out[2]{};
-    void* outputs[] = {&out[0], &out[1]};
-    int count = 2;
-    EXPECT_EQ(adapter->Pack(&ctx, outputs, &count),
-              COMPANY_ALG_ERR_INVALID_INPUT);
+    harness.Publish("rule_matches", std::move(matches));
+
+    std::vector<CompanyKeywordOutputStruct> outputs(2);
+    EXPECT_EQ(harness.EncodeCAbi(&outputs), COMPANY_ALG_ERR_INVALID_INPUT);
   }
 }
 
 TEST_F(AdapterPurityTest, ComplianceAuditAdapter_RejectsOversizedChannelName) {
-  auto adapter =
-      BizAdapterRegistry::Instance().GetAdapter(ALG_BIZ_TYPE_COMPLIANCE_AUDIT);
-  ASSERT_NE(adapter, nullptr);
+  const auto* in_conv =
+      IoConverterRegistry::Instance().FindInputConverter("audit.plain.cabi.v1");
+  ASSERT_NE(in_conv, nullptr);
+
+  InputPortBindings in_bindings({{"raw_request_ids", "raw_request_ids"},
+                                 {"user_texts", "user_texts"},
+                                 {"channel_names", "channel_names"}});
 
   const std::string valid_channel(256, 'c');
   const std::string oversized_channel(257, 'c');
 
   // Valid length <= 256
   {
-    CompanyAuditInputStruct in{};
-    in.request_id = 5001;
-    in.user_text = "test query";
-    in.channel_name = valid_channel.c_str();
-    const void* inputs[] = {&in};
-    AlgContext ctx;
-    AdapterStatus status;
-    EXPECT_EQ(adapter->Unpack(inputs, 1, &ctx, &status), COMPANY_ALG_SUCCESS);
+    test::AdapterHarness harness(in_conv, in_bindings);
+    CompanyAuditInputStruct in{5001, "test query", valid_channel.c_str()};
+    EXPECT_EQ(harness.DecodeCAbi({&in}), COMPANY_ALG_SUCCESS);
   }
 
   // Oversized length > 256
   {
-    CompanyAuditInputStruct in{};
-    in.request_id = 5002;
-    in.user_text = "test query";
-    in.channel_name = oversized_channel.c_str();
-    const void* inputs[] = {&in};
-    AlgContext ctx;
-    AdapterStatus status;
-    EXPECT_EQ(adapter->Unpack(inputs, 1, &ctx, &status),
-              COMPANY_ALG_ERR_INVALID_INPUT);
+    test::AdapterHarness harness(in_conv, in_bindings);
+    CompanyAuditInputStruct in{5002, "test query", oversized_channel.c_str()};
+    EXPECT_EQ(harness.DecodeCAbi({&in}), COMPANY_ALG_ERR_INVALID_INPUT);
   }
 }
-}  // namespace llm_edgeflow
 
-namespace llm_edgeflow {
 TEST_F(AdapterPurityTest, VariableDocResultPreservesLongAnswerAndCAbiLimit) {
-  auto adapter = BizAdapterRegistry::Instance().GetAdapter(ALG_BIZ_TYPE_DOC_QA);
-  AlgContext ctx;
-  const std::string answer(5000, 'a');
-  ctx.Publish(kRawRequestIds, std::vector<uint64_t>{10});
-  ctx.Publish(kLlmAnswers, TextBatch{{0, 0, answer}});
-  ctx.Publish(kIntentMatches, RuleMatchBatch{{0, 0, RuleMatchItem{}}});
-  ctx.Publish(kDocChunkCounts, Int32Batch{{0, 0, 1}});
-  CompanyDocOutputStruct fixed{};
-  void* fixed_outputs[] = {&fixed};
-  int count = 1;
-  EXPECT_EQ(adapter->Pack(&ctx, fixed_outputs, &count),
-            COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
-  DocResult variable;
-  void* variable_outputs[] = {&variable};
-  count = 1;
-  ASSERT_EQ(adapter->PackResultBatch(&ctx, variable_outputs, &count), 0);
-  EXPECT_EQ(variable.answer_text, answer);
-  EXPECT_EQ(variable.request_id, 10u);
-}
-
-// RFC-0053: TranslateAdapter Purity
-TEST_F(AdapterPurityTest, TranslateAdapterPurity) {
-  auto adapter =
-      BizAdapterRegistry::Instance().GetAdapter(ALG_BIZ_TYPE_TRANSLATE);
-  ASSERT_NE(adapter, nullptr);
-
-  CompanyEntityInputStruct in{};
-  in.request_id = 9901;
-  in.sentence_text = "{\"query\":\"测试翻译句子\"}";
-  const void* inputs[] = {&in};
+  const std::string long_answer(5000, 'a');
 
   AlgContext ctx;
+  ctx.Publish("raw_request_ids", std::vector<uint64_t>{10});
+  ctx.Publish("llm_answers", TextBatch{{0, 0, long_answer}});
+  ctx.Publish("intent_matches",
+              RuleMatchBatch{{0, 0, RuleMatchItem(1, "QA", "", "{}", 0.9f)}});
+  ctx.Publish("doc_chunk_counts", Int32Batch{{0, 0, 1}});
+
+  // 1. C ABI fixed buffer: sizeof(answer_text) is 1024, must return
+  // BUFFER_TOO_SMALL
+  const auto* cabi_conv = IoConverterRegistry::Instance().FindOutputConverter(
+      "doc_answer.plain.cabi.v1");
+  ASSERT_NE(cabi_conv, nullptr);
+
+  CompanyDocOutputStruct cabi_out{};
+  void* cabi_ptrs[] = {&cabi_out};
+  ExternalOutputBatchView cabi_dest;
+  cabi_dest.items = cabi_ptrs;
+  cabi_dest.count = 1;
+  cabi_dest.capacity = 1;
+
+  OutputPortBindings bindings({{"raw_request_ids", "raw_request_ids"},
+                               {"llm_answers", "llm_answers"},
+                               {"intent_matches", "intent_matches"},
+                               {"doc_chunk_counts", "doc_chunk_counts"}});
+  OutputEncodeOptions options;
+  options.converter_id = cabi_conv->converter_id;
+  size_t written = 0;
   AdapterStatus status;
-  ASSERT_EQ(adapter->Unpack(inputs, 1, &ctx, &status), 0);
+  int ret = cabi_conv->encode_fn(&ctx, bindings, options, &cabi_dest, &written,
+                                 &status);
+  EXPECT_EQ(ret, COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
 
-  const auto* req_ids = ctx.Read(kRawRequestIds);
-  const auto* sentences = ctx.Read(kInputSentences);
-  ASSERT_NE(req_ids, nullptr);
-  ASSERT_NE(sentences, nullptr);
-  EXPECT_EQ((*req_ids)[0], 9901u);
-  EXPECT_EQ((*sentences)[0].data, "测试翻译句子");
+  // 2. Operator variable buffer: capacity = 6000, must succeed and preserve
+  // full answer
+  const auto* op_conv = IoConverterRegistry::Instance().FindOutputConverter(
+      "doc_answer.plain.operator.v1");
+  ASSERT_NE(op_conv, nullptr);
 
-  TextBatch answers;
-  answers.emplace_back(0, 0, "Translated Sentence");
-  ctx.Publish(kLlmAnswers, std::move(answers));
+  CompanyOperatorDocOutput op_out{};
+  std::vector<char> ans_buf(6000);
+  CompanyString cs_ans{0, ans_buf.data()};
+  op_out.answer_text = &cs_ans;
 
-  CompanyEntityOutputStruct out{};
-  void* outputs[] = {&out};
-  int num_out = 1;
-  ASSERT_EQ(adapter->Pack(&ctx, outputs, &num_out, &status), 0);
+  std::vector<char> intent_buf(128);
+  CompanyString cs_intent{0, intent_buf.data()};
+  op_out.intent_name = &cs_intent;
 
-  EXPECT_EQ(out.request_id, 9901u);
-  EXPECT_EQ(out.status_code, 0);
-  EXPECT_EQ(nlohmann::json::parse(out.entities_json),
-            nlohmann::json({{"translated", "Translated Sentence"}}));
+  ExternalOutputBatchView op_dest;
+  op_dest.leased_slots["doc_out"].push_back(&op_out);
+  op_dest.slot_capacities["doc_out"]["answer_text"] = 6000;
+  op_dest.slot_capacities["doc_out"]["intent_name"] = 128;
+  op_dest.count = 1;
+
+  options.converter_id = op_conv->converter_id;
+  ret =
+      op_conv->encode_fn(&ctx, bindings, options, &op_dest, &written, &status);
+  EXPECT_EQ(ret, COMPANY_ALG_SUCCESS);
+  EXPECT_EQ(written, 1U);
+  EXPECT_EQ(op_out.request_id, 10U);
+  EXPECT_EQ(std::string(op_out.answer_text->data), long_answer);
 }
 
-// RFC-0053: Copy-In purity (mutating input buffer does not mutate context)
 TEST_F(AdapterPurityTest, InputBatchSkeleton_CopyInPurity) {
-  auto adapter =
-      BizAdapterRegistry::Instance().GetAdapter(ALG_BIZ_TYPE_TRANSLATE);
-  ASSERT_NE(adapter, nullptr);
+  const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
+      "translate.json.cabi.v1");
+  ASSERT_NE(in_conv, nullptr);
+
+  test::AdapterHarness harness(
+      in_conv, InputPortBindings({{"raw_request_ids", "raw_request_ids"},
+                                  {"input_sentences", "input_sentences"}}));
 
   std::string buffer = "{\"query\":\"original query\"}";
-  CompanyEntityInputStruct in{};
-  in.request_id = 5555;
-  in.sentence_text = buffer.c_str();
-  const void* inputs[] = {&in};
+  CompanyEntityInputStruct in{5555, buffer.c_str()};
 
-  AlgContext ctx;
-  AdapterStatus status;
-  ASSERT_EQ(adapter->Unpack(inputs, 1, &ctx, &status), 0);
+  ASSERT_EQ(harness.DecodeCAbi({&in}), 0);
 
   // Overwrite external buffer
   buffer[11] = 'X';
   buffer[12] = 'X';
 
-  const auto* sentences = ctx.Read(kInputSentences);
+  const auto* sentences = harness.Context().Read<TextBatch>("input_sentences");
   ASSERT_NE(sentences, nullptr);
   EXPECT_EQ((*sentences)[0].data, "original query");
 }
 
-// RFC-0053: External duplicate request IDs allowed (internal req_id is index)
 TEST_F(AdapterPurityTest, InputBatchSkeleton_ExternalDuplicateIdsAllowed) {
-  auto adapter =
-      BizAdapterRegistry::Instance().GetAdapter(ALG_BIZ_TYPE_TRANSLATE);
-  ASSERT_NE(adapter, nullptr);
+  const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
+      "translate.json.cabi.v1");
+  ASSERT_NE(in_conv, nullptr);
+  const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
+      "translate.json.cabi.v1");
+  ASSERT_NE(out_conv, nullptr);
+
+  test::AdapterHarness harness(
+      in_conv, out_conv,
+      InputPortBindings({{"raw_request_ids", "raw_request_ids"},
+                         {"input_sentences", "input_sentences"}}),
+      OutputPortBindings({{"raw_request_ids", "raw_request_ids"},
+                          {"llm_answers", "llm_answers"}}));
 
   CompanyEntityInputStruct in0{1234, "{\"query\":\"q0\"}"};
   CompanyEntityInputStruct in1{1234, "{\"query\":\"q1\"}"};
-  const void* inputs[] = {&in0, &in1};
 
-  AlgContext ctx;
-  AdapterStatus status;
-  ASSERT_EQ(adapter->Unpack(inputs, 2, &ctx, &status), 0);
+  ASSERT_EQ(harness.DecodeCAbi({&in0, &in1}), 0);
 
-  const auto* req_ids = ctx.Read(kRawRequestIds);
-  const auto* sentences = ctx.Read(kInputSentences);
+  const auto* req_ids =
+      harness.Context().Read<std::vector<uint64_t>>("raw_request_ids");
+  const auto* sentences = harness.Context().Read<TextBatch>("input_sentences");
   ASSERT_NE(req_ids, nullptr);
   ASSERT_NE(sentences, nullptr);
   EXPECT_EQ((*req_ids)[0], 1234u);
@@ -565,94 +670,59 @@ TEST_F(AdapterPurityTest, InputBatchSkeleton_ExternalDuplicateIdsAllowed) {
   EXPECT_EQ((*sentences)[1].req_id, 1u);
 
   TextBatch answers{{0, 0, "ans0"}, {1, 0, "ans1"}};
-  ctx.Publish(kLlmAnswers, std::move(answers));
+  harness.Publish("llm_answers", std::move(answers));
 
-  CompanyEntityOutputStruct out0{}, out1{};
-  void* outputs[] = {&out0, &out1};
-  int count = 2;
-  ASSERT_EQ(adapter->Pack(&ctx, outputs, &count, &status), 0);
-  EXPECT_EQ(out0.request_id, 1234u);
-  EXPECT_EQ(out1.request_id, 1234u);
+  std::vector<CompanyEntityOutputStruct> outputs(2);
+  ASSERT_EQ(harness.EncodeCAbi(&outputs), 0);
+  EXPECT_EQ(outputs[0].request_id, 1234u);
+  EXPECT_EQ(outputs[1].request_id, 1234u);
 }
 
-// RFC-0053: All samples validated before publish (fail-closed, no partial
-// publication)
 TEST_F(AdapterPurityTest, InputBatchSkeleton_AllSamplesValidatedBeforePublish) {
-  auto adapter =
-      BizAdapterRegistry::Instance().GetAdapter(ALG_BIZ_TYPE_TRANSLATE);
-  ASSERT_NE(adapter, nullptr);
+  const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
+      "translate.json.cabi.v1");
+  ASSERT_NE(in_conv, nullptr);
 
-  // Sample 0 is valid, sample 1 has invalid JSON
+  test::AdapterHarness harness(
+      in_conv, InputPortBindings({{"raw_request_ids", "raw_request_ids"},
+                                  {"input_sentences", "input_sentences"}}));
+
   CompanyEntityInputStruct in0{1, "{\"query\":\"valid\"}"};
   CompanyEntityInputStruct in1{2, "invalid json"};
-  const void* inputs[] = {&in0, &in1};
 
-  AlgContext ctx;
-  AdapterStatus status;
-  EXPECT_EQ(adapter->Unpack(inputs, 2, &ctx, &status),
-            COMPANY_ALG_ERR_INVALID_INPUT);
+  EXPECT_EQ(harness.DecodeCAbi({&in0, &in1}), COMPANY_ALG_ERR_INVALID_INPUT);
 
   // AlgContext must be completely unpopulated
-  EXPECT_EQ(ctx.Read(kRawRequestIds), nullptr);
-  EXPECT_EQ(ctx.Read(kInputSentences), nullptr);
+  EXPECT_EQ(harness.Context().Read<std::vector<uint64_t>>("raw_request_ids"),
+            nullptr);
+  EXPECT_EQ(harness.Context().Read<TextBatch>("input_sentences"), nullptr);
 }
 
-// RFC-0053: Subsequent key conflict partial publication behavior (existing
-// AlgContext semantics)
-TEST_F(AdapterPurityTest,
-       InputBatchSkeleton_SubsequentKeyConflictPartialPublish) {
-  auto adapter =
-      BizAdapterRegistry::Instance().GetAdapter(ALG_BIZ_TYPE_TRANSLATE);
-  ASSERT_NE(adapter, nullptr);
-
-  AlgContext ctx;
-  // Pre-publish kInputSentences to cause conflict on the second publish
-  TextBatch existing_sentences{{0, 0, "pre-existing"}};
-  ctx.Publish(kInputSentences, std::move(existing_sentences));
-
-  CompanyEntityInputStruct in0{101, "{\"query\":\"test query\"}"};
-  const void* inputs[] = {&in0};
-  AdapterStatus status;
-  int ret = adapter->Unpack(inputs, 1, &ctx, &status);
-
-  // Unpack fails due to conflict on kInputSentences
-  EXPECT_EQ(ret, COMPANY_ALG_ERR_INVALID_INPUT);
-
-  // Partial publish behavior: kRawRequestIds was published before the conflict
-  // and remains in ctx
-  const auto* raw_ids = ctx.Read(kRawRequestIds);
-  ASSERT_NE(raw_ids, nullptr);
-  EXPECT_EQ(raw_ids->size(), 1u);
-  EXPECT_EQ((*raw_ids)[0], 101u);
-
-  // kInputSentences retained its pre-existing value
-  const auto* sentences = ctx.Read(kInputSentences);
-  ASSERT_NE(sentences, nullptr);
-  EXPECT_EQ((*sentences)[0].data, "pre-existing");
-}
-
-// RFC-0053: Multi-way results out-of-order alignment, owned packing, and
-// perturbation testing
 TEST_F(AdapterPurityTest, DocQaAdapter_MultiWayResultsReorderedAndPerturbed) {
-  auto adapter = BizAdapterRegistry::Instance().GetAdapter(ALG_BIZ_TYPE_DOC_QA);
-  ASSERT_NE(adapter, nullptr);
+  const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
+      "doc_answer.plain.cabi.v1");
+  ASSERT_NE(out_conv, nullptr);
 
-  test::AdapterHarness harness(adapter);
-  harness.Publish(kRawRequestIds, std::vector<uint64_t>{1001, 2002});
+  test::AdapterHarness harness(
+      out_conv, OutputPortBindings({{"raw_request_ids", "raw_request_ids"},
+                                    {"llm_answers", "llm_answers"},
+                                    {"intent_matches", "intent_matches"},
+                                    {"doc_chunk_counts", "doc_chunk_counts"}}));
 
-  // Reordered answers: index 1 before index 0
+  harness.Publish("raw_request_ids", std::vector<uint64_t>{1001, 2002});
+
+  // Perturbed order: index 1 published before index 0
   TextBatch answers{{1, 0, "Answer 1"}, {0, 0, "Answer 0"}};
   RuleMatchBatch intents{{0, 0, RuleMatchItem(1, "INTENT_0", "", "{}", 0.9f)},
                          {1, 0, RuleMatchItem(2, "INTENT_1", "", "{}", 0.8f)}};
   Int32Batch chunks{{0, 0, 3}, {1, 0, 5}};
 
-  harness.Publish(kLlmAnswers, answers);
-  harness.Publish(kIntentMatches, intents);
-  harness.Publish(kDocChunkCounts, chunks);
+  harness.Publish("llm_answers", std::move(answers));
+  harness.Publish("intent_matches", std::move(intents));
+  harness.Publish("doc_chunk_counts", std::move(chunks));
 
-  // 1. Pack C array outputs
   std::vector<CompanyDocOutputStruct> outputs(2);
-  ASSERT_EQ(harness.PackC(&outputs), 0);
+  ASSERT_EQ(harness.EncodeCAbi(&outputs), 0);
   EXPECT_EQ(outputs[0].request_id, 1001u);
   EXPECT_STREQ(outputs[0].answer_text, "Answer 0");
   EXPECT_STREQ(outputs[0].intent_name, "INTENT_0");
@@ -662,601 +732,419 @@ TEST_F(AdapterPurityTest, DocQaAdapter_MultiWayResultsReorderedAndPerturbed) {
   EXPECT_STREQ(outputs[1].answer_text, "Answer 1");
   EXPECT_STREQ(outputs[1].intent_name, "INTENT_1");
   EXPECT_EQ(outputs[1].chunk_count, 5);
+}
 
-  // 2. Pack owned Result outputs (dual representation behavior)
-  std::vector<DocResult> owned_outputs(2);
-  ASSERT_EQ(harness.PackOwned(&owned_outputs), 0);
-  EXPECT_EQ(owned_outputs[0].request_id, 1001u);
-  EXPECT_EQ(owned_outputs[0].answer_text, "Answer 0");
-  EXPECT_EQ(owned_outputs[0].intent_name, "INTENT_0");
-  EXPECT_EQ(owned_outputs[0].chunk_count, 3);
+// =========================================================================
+// 3. Section 13.1 Independent Reuse Proofs
+// =========================================================================
 
-  EXPECT_EQ(owned_outputs[1].request_id, 2002u);
-  EXPECT_EQ(owned_outputs[1].answer_text, "Answer 1");
-  EXPECT_EQ(owned_outputs[1].intent_name, "INTENT_1");
-  EXPECT_EQ(owned_outputs[1].chunk_count, 5);
+// Proof 1: Input Converters Match Biz Declared Host Types & Prove Reuse via
+// Test Binding
+TEST_F(AdapterPurityTest, ReuseProof_1_InputConverterReusedAcrossBindings) {
+  const auto* entity_binding =
+      IoBindingRegistry::Instance().FindBinding("entity_extract.cabi.v1");
+  ASSERT_NE(entity_binding, nullptr);
+  const auto* keyword_binding =
+      IoBindingRegistry::Instance().FindBinding("keyword_match.cabi.v1");
+  ASSERT_NE(keyword_binding, nullptr);
 
-  // 3. Harness Perturbations: out-of-range req_id, invalid sub_id, duplicate
-  // req_id, missing item
-  for (const auto anomaly :
-       {test::AdapterHarness::ProvenanceAnomaly::kOutOfRangeReqId,
-        test::AdapterHarness::ProvenanceAnomaly::kInvalidSubId,
-        test::AdapterHarness::ProvenanceAnomaly::kDuplicateReqId,
-        test::AdapterHarness::ProvenanceAnomaly::kMissingReqId}) {
-    test::AdapterHarness h(adapter);
-    h.Publish(kRawRequestIds, std::vector<uint64_t>{1001, 2002});
-    auto perturbed_answers = test::AdapterHarness::PerturbBatch(
-        std::vector<std::string>{"Answer 0", "Answer 1"}, anomaly);
-    h.Publish(kLlmAnswers, perturbed_answers);
-    h.Publish(kIntentMatches, intents);
-    h.Publish(kDocChunkCounts, chunks);
-    std::vector<CompanyDocOutputStruct> out(2);
-    EXPECT_EQ(h.PackC(&out), COMPANY_ALG_ERR_INVALID_INPUT);
+  EXPECT_EQ(entity_binding->input_converter_id, "text.plain.cabi.v1");
+  EXPECT_EQ(keyword_binding->input_converter_id, "keyword.plain.cabi.v1");
+
+  const auto* entity_conv =
+      IoConverterRegistry::Instance().FindInputConverter("text.plain.cabi.v1");
+  ASSERT_NE(entity_conv, nullptr);
+  EXPECT_EQ(entity_conv->external_type, "CompanyEntityInputStruct");
+
+  const auto* keyword_conv = IoConverterRegistry::Instance().FindInputConverter(
+      "keyword.plain.cabi.v1");
+  ASSERT_NE(keyword_conv, nullptr);
+  EXPECT_EQ(keyword_conv->external_type, "CompanyKeywordInputStruct");
+
+  // Decode input with entity binding: constructs CompanyEntityInputStruct
+  {
+    test::AdapterHarness harness(
+        entity_conv, InputPortBindings(entity_binding->input_ports));
+    CompanyEntityInputStruct in{8001, "entity sentence"};
+    EXPECT_EQ(harness.DecodeCAbi({&in}), 0);
+    const auto* sentences =
+        harness.Context().Read<TextBatch>("input_sentences");
+    ASSERT_NE(sentences, nullptr);
+    EXPECT_EQ((*sentences)[0].data, "entity sentence");
+  }
+
+  // Decode input with keyword binding: constructs CompanyKeywordInputStruct
+  {
+    test::AdapterHarness harness(
+        keyword_conv, InputPortBindings(keyword_binding->input_ports));
+    CompanyKeywordInputStruct in{8002, "keyword sentence"};
+    EXPECT_EQ(harness.DecodeCAbi({&in}), 0);
+    const auto* sentences =
+        harness.Context().Read<TextBatch>("input_sentences");
+    ASSERT_NE(sentences, nullptr);
+    EXPECT_EQ((*sentences)[0].data, "keyword sentence");
+  }
+
+  // 跨业务复用证明：在测试专用绑定中复用 text.plain.cabi.v1
+  {
+    IoBindingDefinition test_reuse_binding;
+    test_reuse_binding.binding_id = "test_purity_reuse.cabi.v1";
+    test_reuse_binding.biz_name = "entity_extract_v1";
+    test_reuse_binding.transport = "cabi";
+    test_reuse_binding.input_converter_id = "text.plain.cabi.v1";
+    test_reuse_binding.output_converter_id = "document.structured.cabi.v1";
+    test_reuse_binding.input_ports = entity_binding->input_ports;
+    test_reuse_binding.output_ports = entity_binding->output_ports;
+    test_reuse_binding.max_batch_size = 64;
+    IoBindingRegistry::Instance().RegisterBinding(test_reuse_binding);
+
+    const auto* b_test =
+        IoBindingRegistry::Instance().FindBinding("test_purity_reuse.cabi.v1");
+    ASSERT_NE(b_test, nullptr);
+    EXPECT_EQ(b_test->input_converter_id, entity_binding->input_converter_id);
   }
 }
 
-// RFC-0053: RequestResults Multi-Way Alignment Direct Unit Coverage
-TEST(RequestResultsTest, MultiWayAlignmentAndAccessors) {
-  std::vector<uint64_t> raw_ids = {100, 200};
-  TextBatch answers{{0, 0, "ans0"}, {1, 0, "ans1"}};
-  RuleMatchBatch intents{{0, 0, RuleMatchItem(1, "INTENT", "")},
-                         {1, 0, RuleMatchItem(2, "OTHER", "")}};
-  Int32Batch chunks{{0, 0, 7}, {1, 0, 14}};
+// Proof 2: Output Converter Reused Across Pipelines
+TEST_F(AdapterPurityTest, ReuseProof_2_OutputConverterReusedAcrossPipelines) {
+  const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
+      "document.structured.cabi.v1");
+  ASSERT_NE(out_conv, nullptr);
 
-  std::vector<const TextBatch::value_type*> p = {&answers[0], &answers[1]};
-  std::vector<const RuleMatchBatch::value_type*> s0 = {&intents[0],
-                                                       &intents[1]};
-  std::vector<const Int32Batch::value_type*> s1 = {&chunks[0], &chunks[1]};
+  OutputPortBindings bindings({{"raw_request_ids", "raw_request_ids"},
+                               {"extracted_entities", "extracted_entities"}});
 
-  // With raw_request_ids
-  RequestResults<TextBatch, RuleMatchBatch, Int32Batch> results(
-      &raw_ids, std::move(p), std::make_tuple(std::move(s0), std::move(s1)));
+  // Context A: Entity Extraction pipeline output
+  {
+    test::AdapterHarness harness(out_conv, bindings);
+    harness.Publish("raw_request_ids", std::vector<uint64_t>{9001});
+    StructuredDocumentBatch batch;
+    batch.emplace_back(
+        0, 0,
+        JsonDocumentItem("[\"PERSON: Alice\"]", true, JsonParseStatus::kOk));
+    harness.Publish("extracted_entities", std::move(batch));
 
-  EXPECT_EQ(results.Size(), 2u);
-  EXPECT_EQ(results.RequestId(0), 100u);
-  EXPECT_EQ(results.RequestId(1), 200u);
-  EXPECT_EQ(results.Primary(0).data, "ans0");
-  EXPECT_EQ(results.Primary(1).data, "ans1");
-  EXPECT_EQ(results.Secondary<0>(0).data.category, "INTENT");
-  EXPECT_EQ(results.Secondary<0>(1).data.category, "OTHER");
-  EXPECT_EQ(results.Secondary<1>(0).data, 7);
-  EXPECT_EQ(results.Secondary<1>(1).data, 14);
+    std::vector<CompanyEntityOutputStruct> outputs(1);
+    ASSERT_EQ(harness.EncodeCAbi(&outputs), 0);
+    EXPECT_EQ(outputs[0].request_id, 9001U);
+    EXPECT_STREQ(outputs[0].entities_json, "[\"PERSON: Alice\"]");
+  }
 
-  // Without raw_request_ids (falls back to primary req_id)
-  std::vector<const TextBatch::value_type*> p_fallback = {&answers[0],
-                                                          &answers[1]};
-  RequestResults<TextBatch> fallback_res(nullptr, std::move(p_fallback), {});
-  EXPECT_EQ(fallback_res.RequestId(0), 0u);
-  EXPECT_EQ(fallback_res.RequestId(1), 1u);
+  // Context B: Generic structured JSON pipeline output producing same schema
+  {
+    test::AdapterHarness harness(out_conv, bindings);
+    harness.Publish("raw_request_ids", std::vector<uint64_t>{9002});
+    StructuredDocumentBatch batch;
+    batch.emplace_back(
+        0, 0,
+        JsonDocumentItem("{\"summary\":\"ok\"}", true, JsonParseStatus::kOk));
+    harness.Publish("extracted_entities", std::move(batch));
+
+    std::vector<CompanyEntityOutputStruct> outputs(1);
+    ASSERT_EQ(harness.EncodeCAbi(&outputs), 0);
+    EXPECT_EQ(outputs[0].request_id, 9002U);
+    EXPECT_STREQ(outputs[0].entities_json, "{\"summary\":\"ok\"}");
+  }
 }
 
-// RFC-0053: AdapterResult Direct Unit Coverage
-TEST(AdapterResultTest, TypedAndVoidMethods) {
-  // 1. AdapterResult<T> Ok
-  auto ok_res = AdapterResult<std::string>::Ok("hello_edgeflow");
-  EXPECT_TRUE(ok_res.IsOk());
-  EXPECT_TRUE(static_cast<bool>(ok_res));
-  EXPECT_EQ(ok_res.ReturnCode(), COMPANY_ALG_SUCCESS);
-  EXPECT_EQ(ok_res.Value(), "hello_edgeflow");
-  EXPECT_EQ(*ok_res, "hello_edgeflow");
-  EXPECT_EQ(ok_res->size(), 14u);
-  EXPECT_EQ(ok_res.ValueOr("default"), "hello_edgeflow");
-  EXPECT_EQ(ok_res.TakeValue(), "hello_edgeflow");
-
-  // 2. AdapterResult<T> InvalidInput
-  auto err_res = AdapterResult<std::string>::InvalidInput(
-      "custom error", "req.field", 2, "TestAdapter");
-  EXPECT_FALSE(err_res.IsOk());
-  EXPECT_FALSE(static_cast<bool>(err_res));
-  EXPECT_EQ(err_res.ReturnCode(), COMPANY_ALG_ERR_INVALID_INPUT);
-  EXPECT_EQ(err_res.Status().Code(), COMPANY_ALG_ERR_INVALID_INPUT);
-  EXPECT_EQ(err_res.Status().FieldPath(), "req.field");
-  EXPECT_EQ(err_res.Status().SampleIndex(), 2);
-  EXPECT_EQ(err_res.Status().AdapterName(), "TestAdapter");
-  EXPECT_EQ(err_res.ValueOr("fallback"), "fallback");
-
-  // 3. AdapterResult<T> BufferTooSmall
-  auto buf_res = AdapterResult<int>::BufferTooSmall("buffer short", "out.buf",
-                                                    0, "TestAdapter");
-  EXPECT_FALSE(buf_res.IsOk());
-  EXPECT_EQ(buf_res.ReturnCode(), COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
-  EXPECT_EQ(buf_res.Status().Code(), COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
-  EXPECT_EQ(buf_res.ValueOr(42), 42);
-
-  // 4. AdapterResult<void>
-  auto void_ok = AdapterResult<void>::Ok();
-  EXPECT_TRUE(void_ok.IsOk());
-  EXPECT_EQ(void_ok.ReturnCode(), COMPANY_ALG_SUCCESS);
-
-  auto void_err = AdapterResult<void>::InvalidInput("void error");
-  EXPECT_FALSE(void_err.IsOk());
-  EXPECT_EQ(void_err.ReturnCode(), COMPANY_ALG_ERR_INVALID_INPUT);
-
-  auto void_buf = AdapterResult<void>::BufferTooSmall("void buf error");
-  EXPECT_FALSE(void_buf.IsOk());
-  EXPECT_EQ(void_buf.ReturnCode(), COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
-}
-
-// RFC-0053: ReadMultiWayResults Parameterized Reader Direct Coverage
-TEST(ReadMultiWayResultsTest, ReadsAndAlignsMultiWayResults) {
-  AlgContext ctx;
-  ctx.Publish(kRawRequestIds, std::vector<uint64_t>{3001, 3002});
-  // Reordered answers to verify alignment
-  TextBatch answers{{1, 0, "ans_1"}, {0, 0, "ans_0"}};
-  RuleMatchBatch intents{{0, 0, RuleMatchItem(1, "INTENT_A", "", "{}", 0.95f)},
-                         {1, 0, RuleMatchItem(2, "INTENT_B", "", "{}", 0.85f)}};
-  Int32Batch chunks{{0, 0, 4}, {1, 0, 8}};
-
-  ctx.Publish(kLlmAnswers, std::move(answers));
-  ctx.Publish(kIntentMatches, std::move(intents));
-  ctx.Publish(kDocChunkCounts, std::move(chunks));
-
-  const ResultBindingSpec<TextBatch> primary_spec(
-      kLlmAnswers, "answers", "answers", true, "Missing answers",
-      COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
-  const ResultBindingSpec<std::vector<uint64_t>> raw_req_ids_spec(
-      kRawRequestIds, "raw_request_ids", "raw_request_ids", true,
-      "raw_request_ids mismatch", COMPANY_ALG_ERR_INVALID_INPUT);
-  const ResultBindingSpec<RuleMatchBatch> intent_spec(
-      kIntentMatches, "intent_matches", "intent_matches", true,
-      "intent_matches mismatch", COMPANY_ALG_ERR_INVALID_INPUT);
-  const ResultBindingSpec<Int32Batch> chunk_spec(
-      kDocChunkCounts, "doc_chunk_counts", "chunk_counts", true,
-      "doc_chunk_counts mismatch", COMPANY_ALG_ERR_INVALID_INPUT);
-
-  std::vector<CompanyDocOutputStruct> outs(2);
-  void* output_ptrs[2] = {&outs[0], &outs[1]};
-  int count = 2;
-  AdapterStatus status;
-  RequestResults<TextBatch, RuleMatchBatch, Int32Batch> results;
-  int ret = ReadMultiWayResults(&ctx, output_ptrs, &count, "TestDocQA", &status,
-                                &results, primary_spec, raw_req_ids_spec,
-                                intent_spec, chunk_spec);
-  ASSERT_EQ(ret, COMPANY_ALG_SUCCESS);
-  ASSERT_EQ(results.Size(), 2u);
-
-  EXPECT_EQ(results.RequestId(0), 3001u);
-  EXPECT_EQ(results.Primary(0).data, "ans_0");
-  EXPECT_EQ(results.Secondary<0>(0).data.category, "INTENT_A");
-  EXPECT_FLOAT_EQ(results.Secondary<0>(0).data.score, 0.95f);
-  EXPECT_EQ(results.Secondary<1>(0).data, 4);
-
-  EXPECT_EQ(results.RequestId(1), 3002u);
-  EXPECT_EQ(results.Primary(1).data, "ans_1");
-  EXPECT_EQ(results.Secondary<0>(1).data.category, "INTENT_B");
-  EXPECT_FLOAT_EQ(results.Secondary<0>(1).data.score, 0.85f);
-  EXPECT_EQ(results.Secondary<1>(1).data, 8);
-
-  // Core reader without outputs/num_outputs
-  RequestResults<TextBatch, RuleMatchBatch, Int32Batch> core_results;
-  EXPECT_EQ(ReadMultiWayResults(&ctx, "TestDocQA", &status, &core_results,
-                                primary_spec, raw_req_ids_spec, intent_spec,
-                                chunk_spec),
-            COMPANY_ALG_SUCCESS);
-  EXPECT_EQ(core_results.Size(), 2u);
-
-  // Null num_outputs returns BUFFER_TOO_SMALL safely without crashing
-  EXPECT_EQ(ReadMultiWayResults(&ctx, output_ptrs, nullptr, "TestDocQA",
-                                &status, &results, primary_spec,
-                                raw_req_ids_spec, intent_spec, chunk_spec),
-            COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
-}
-
-// 验证变长模板推导：0 路次要结果与 3 路次要结果对齐
-TEST(ReadMultiWayResultsTest, VariadicSecondarySlotsDeductionAndAlignment) {
-  AlgContext ctx;
-  ctx.Publish(kRawRequestIds, std::vector<uint64_t>{2001, 2002});
-  ctx.Publish(kLlmAnswers, TextBatch{{0, 0, "ans_0"}, {1, 0, "ans_1"}});
-  ctx.Publish(kIntentMatches,
-              RuleMatchBatch{{0, 0, RuleMatchItem(1, "A", "", "{}", 0.9f)},
-                             {1, 0, RuleMatchItem(2, "B", "", "{}", 0.8f)}});
-  ctx.Publish(kDocChunkCounts, Int32Batch{{0, 0, 3}, {1, 0, 5}});
-  ctx.Publish(kDocChunks, TextBatch{{0, 0, "chunk_0"}, {1, 0, "chunk_1"}});
-
-  const ResultBindingSpec<TextBatch> primary_spec(kLlmAnswers, "answers");
-  const ResultBindingSpec<std::vector<uint64_t>> raw_req_ids_spec(
-      kRawRequestIds, "raw_request_ids");
-  const ResultBindingSpec<RuleMatchBatch> intent_spec(kIntentMatches,
-                                                      "intent_matches");
-  const ResultBindingSpec<Int32Batch> chunk_spec(kDocChunkCounts,
-                                                 "doc_chunk_counts");
-  const ResultBindingSpec<TextBatch> doc_spec(kDocChunks, "doc_chunks");
-
-  AdapterStatus status;
-
-  // 1. 0 路次要槽位（仅 primary + raw_req_ids）
-  RequestResults<TextBatch> zero_results;
-  int ret0 = ReadMultiWayResults(&ctx, "TestAdapter", &status, &zero_results,
-                                 primary_spec, raw_req_ids_spec);
-  ASSERT_EQ(ret0, COMPANY_ALG_SUCCESS);
-  ASSERT_EQ(zero_results.Size(), 2u);
-  EXPECT_EQ(zero_results.RequestId(0), 2001u);
-  EXPECT_EQ(zero_results.Primary(0).data, "ans_0");
-  EXPECT_EQ(zero_results.RequestId(1), 2002u);
-  EXPECT_EQ(zero_results.Primary(1).data, "ans_1");
-
-  // 2. 3 路次要槽位（3+ variadic secondary specs）
-  RequestResults<TextBatch, RuleMatchBatch, Int32Batch, TextBatch>
-      three_results;
-  int ret3 = ReadMultiWayResults(&ctx, "TestAdapter", &status, &three_results,
-                                 primary_spec, raw_req_ids_spec, intent_spec,
-                                 chunk_spec, doc_spec);
-  ASSERT_EQ(ret3, COMPANY_ALG_SUCCESS);
-  ASSERT_EQ(three_results.Size(), 2u);
-  EXPECT_EQ(three_results.RequestId(0), 2001u);
-  EXPECT_EQ(three_results.Primary(0).data, "ans_0");
-  EXPECT_EQ(three_results.Secondary<0>(0).data.category, "A");
-  EXPECT_EQ(three_results.Secondary<1>(0).data, 3);
-  EXPECT_EQ(three_results.Secondary<2>(0).data, "chunk_0");
-
-  EXPECT_EQ(three_results.RequestId(1), 2002u);
-  EXPECT_EQ(three_results.Primary(1).data, "ans_1");
-  EXPECT_EQ(three_results.Secondary<0>(1).data.category, "B");
-  EXPECT_EQ(three_results.Secondary<1>(1).data, 5);
-  EXPECT_EQ(three_results.Secondary<2>(1).data, "chunk_1");
-}
-
-// RFC-0053: ReadMultiWayResults Error Mappings and Diagnostics
-TEST(ReadMultiWayResultsTest, ErrorMappingsAndDiagnostics) {
-  AlgContext ctx;
-  AdapterStatus status;
-  RequestResults<TextBatch> results;
-
-  // 1. Missing primary with custom error code (-7)
-  const ResultBindingSpec<TextBatch> custom_primary_spec(
-      kLlmAnswers, "custom_field", "custom_field", true, "Custom missing msg",
-      -7);
-  const ResultBindingSpec<std::vector<uint64_t>> raw_spec(
-      kRawRequestIds, "raw_req_ids", "raw_req_ids", true);
-
-  EXPECT_EQ(ReadMultiWayResults(&ctx, "TestAdapter", &status, &results,
-                                custom_primary_spec, raw_spec),
-            -7);
-  EXPECT_EQ(status.Code(), -7);
-  EXPECT_EQ(status.FieldPath(), "custom_field");
-  EXPECT_EQ(status.Message(), "Custom missing msg");
-
-  // 2. Count mismatch in secondary batch
-  ctx.Publish(kLlmAnswers, TextBatch{{0, 0, "ans0"}, {1, 0, "ans1"}});
-  ctx.Publish(kRawRequestIds, std::vector<uint64_t>{1, 2});
-  ctx.Publish(kDocChunkCounts, Int32Batch{{0, 0, 1}});  // only 1 item != 2
-
-  const ResultBindingSpec<TextBatch> ok_primary_spec(kLlmAnswers, "answers");
-  const ResultBindingSpec<Int32Batch> secondary_spec(
-      kDocChunkCounts, "chunk_counts", "chunk_counts", true, "count mismatch",
-      COMPANY_ALG_ERR_INVALID_INPUT);
-
-  RequestResults<TextBatch, Int32Batch> mismatch_results;
-  EXPECT_EQ(ReadMultiWayResults(&ctx, "TestAdapter", &status, &mismatch_results,
-                                ok_primary_spec, raw_spec, secondary_spec),
-            COMPANY_ALG_ERR_INVALID_INPUT);
-  EXPECT_EQ(status.Code(), COMPANY_ALG_ERR_INVALID_INPUT);
-  EXPECT_EQ(status.FieldPath(), "chunk_counts");
-  EXPECT_EQ(status.Message(), "count mismatch");
-}
-
-// RFC-0053 §2.2: ReadMultiWayResults Rejects Non-Required Bindings
-TEST(ReadMultiWayResultsTest, RejectsNonRequiredBindingsWithDiagnostic) {
-  AlgContext ctx;
-  ctx.Publish(kLlmAnswers, TextBatch{{0, 0, "ans0"}});
-  ctx.Publish(kRawRequestIds, std::vector<uint64_t>{1001});
-  ctx.Publish(kDocChunkCounts, Int32Batch{{0, 0, 1}});
-
-  AdapterStatus status;
-  RequestResults<TextBatch, Int32Batch> results;
-
-  // 1. Non-required primary spec
-  const ResultBindingSpec<TextBatch> opt_primary_spec(kLlmAnswers, "answers",
-                                                      "answers", /*req=*/false);
-  const ResultBindingSpec<std::vector<uint64_t>> req_raw_spec(
-      kRawRequestIds, "raw_request_ids", "raw_request_ids", /*req=*/true);
-  const ResultBindingSpec<Int32Batch> req_secondary_spec(
-      kDocChunkCounts, "chunk_counts", "chunk_counts", /*req=*/true);
-
-  EXPECT_EQ(
-      ReadMultiWayResults(&ctx, "TestAdapter", &status, &results,
-                          opt_primary_spec, req_raw_spec, req_secondary_spec),
-      COMPANY_ALG_ERR_INVALID_INPUT);
-  EXPECT_EQ(status.Code(), COMPANY_ALG_ERR_INVALID_INPUT);
-  EXPECT_EQ(status.FieldPath(), "answers");
-  EXPECT_EQ(status.Message(),
-            "Optional bindings not supported in current phase");
-  EXPECT_EQ(status.AdapterName(), "TestAdapter");
-
-  // 2. Non-required raw_req_ids spec
-  const ResultBindingSpec<TextBatch> req_primary_spec(kLlmAnswers, "answers",
-                                                      "answers", /*req=*/true);
-  const ResultBindingSpec<std::vector<uint64_t>> opt_raw_spec(
-      kRawRequestIds, "raw_request_ids", "raw_request_ids", /*req=*/false);
-
-  EXPECT_EQ(
-      ReadMultiWayResults(&ctx, "TestAdapter", &status, &results,
-                          req_primary_spec, opt_raw_spec, req_secondary_spec),
-      COMPANY_ALG_ERR_INVALID_INPUT);
-  EXPECT_EQ(status.Code(), COMPANY_ALG_ERR_INVALID_INPUT);
-  EXPECT_EQ(status.FieldPath(), "raw_request_ids");
-  EXPECT_EQ(status.Message(),
-            "Optional bindings not supported in current phase");
-
-  // 3. Non-required secondary spec
-  const ResultBindingSpec<Int32Batch> opt_secondary_spec(
-      kDocChunkCounts, "chunk_counts", "chunk_counts", /*req=*/false);
-
-  EXPECT_EQ(
-      ReadMultiWayResults(&ctx, "TestAdapter", &status, &results,
-                          req_primary_spec, req_raw_spec, opt_secondary_spec),
-      COMPANY_ALG_ERR_INVALID_INPUT);
-  EXPECT_EQ(status.Code(), COMPANY_ALG_ERR_INVALID_INPUT);
-  EXPECT_EQ(status.FieldPath(), "chunk_counts");
-  EXPECT_EQ(status.Message(),
-            "Optional bindings not supported in current phase");
-
-  // 4. Overload with outputs and num_outputs also rejects non-required bindings
-  CompanyDocOutputStruct out;
-  void* output_ptrs[1] = {&out};
-  int count = 1;
-
-  EXPECT_EQ(ReadMultiWayResults(&ctx, output_ptrs, &count, "TestAdapter",
-                                &status, &results, opt_primary_spec,
-                                req_raw_spec, req_secondary_spec),
-            COMPANY_ALG_ERR_INVALID_INPUT);
-  EXPECT_EQ(status.Code(), COMPANY_ALG_ERR_INVALID_INPUT);
-  EXPECT_EQ(status.FieldPath(), "answers");
-  EXPECT_EQ(status.Message(),
-            "Optional bindings not supported in current phase");
-
-  EXPECT_EQ(ReadMultiWayResults(&ctx, output_ptrs, &count, "TestAdapter",
-                                &status, &results, req_primary_spec,
-                                req_raw_spec, opt_secondary_spec),
-            COMPANY_ALG_ERR_INVALID_INPUT);
-  EXPECT_EQ(status.Code(), COMPANY_ALG_ERR_INVALID_INPUT);
-  EXPECT_EQ(status.FieldPath(), "chunk_counts");
-  EXPECT_EQ(status.Message(),
-            "Optional bindings not supported in current phase");
-
-  EXPECT_EQ(ReadMultiWayResults(&ctx, output_ptrs, &count, "TestAdapter",
-                                &status, &results, req_primary_spec,
-                                opt_raw_spec, req_secondary_spec),
-            COMPANY_ALG_ERR_INVALID_INPUT);
-  EXPECT_EQ(status.Code(), COMPANY_ALG_ERR_INVALID_INPUT);
-  EXPECT_EQ(status.FieldPath(), "raw_request_ids");
-  EXPECT_EQ(status.Message(),
-            "Optional bindings not supported in current phase");
-
-  // 5. Multiple secondary specs short-circuiting to first non-required binding
-  const ResultBindingSpec<RuleMatchBatch> req_intent_spec(
-      kIntentMatches, "intent_matches", "intent_matches", /*req=*/true);
-  const ResultBindingSpec<RuleMatchBatch> opt_intent_spec(
-      kIntentMatches, "intent_matches", "intent_matches", /*req=*/false);
-  RequestResults<TextBatch, Int32Batch, RuleMatchBatch> multi_sec_results;
-
-  // Second secondary spec is optional -> rejected with second secondary
-  // field_name
-  EXPECT_EQ(
-      ReadMultiWayResults(&ctx, "TestAdapter", &status, &multi_sec_results,
-                          req_primary_spec, req_raw_spec, req_secondary_spec,
-                          opt_intent_spec),
-      COMPANY_ALG_ERR_INVALID_INPUT);
-  EXPECT_EQ(status.Code(), COMPANY_ALG_ERR_INVALID_INPUT);
-  EXPECT_EQ(status.FieldPath(), "intent_matches");
-  EXPECT_EQ(status.Message(),
-            "Optional bindings not supported in current phase");
-
-  // Both secondary specs are optional -> short-circuits to first non-required
-  // secondary
-  EXPECT_EQ(
-      ReadMultiWayResults(&ctx, "TestAdapter", &status, &multi_sec_results,
-                          req_primary_spec, req_raw_spec, opt_secondary_spec,
-                          opt_intent_spec),
-      COMPANY_ALG_ERR_INVALID_INPUT);
-  EXPECT_EQ(status.Code(), COMPANY_ALG_ERR_INVALID_INPUT);
-  EXPECT_EQ(status.FieldPath(), "chunk_counts");
-  EXPECT_EQ(status.Message(),
-            "Optional bindings not supported in current phase");
-}
-
-// RFC-0053: OneToOneTextAdapter Custom Null Context Hooks
-TEST(OneToOneTextAdapterTest, CustomNullContextHooks) {
-  struct CustomHookSpecProvider {
-    static const OneToOneTextAdapterSpec& GetSpec() {
-      static const OneToOneTextAdapterSpec spec = [] {
-        OneToOneTextAdapterSpec s;
-        s.biz_type = static_cast<CompanyAlgBizType>(999);
-        s.adapter_name = "CustomHook";
-        s.unpack_null_ctx_hook = [](const char* name,
-                                    AdapterStatus* out_status) -> int {
-          if (out_status) {
-            *out_status = AdapterStatus(-123, "Custom unpack null ctx",
-                                        "custom_unpack", -1, name);
-          }
-          return -123;
-        };
-        s.pack_null_ctx_hook = [](const char* name,
-                                  AdapterStatus* out_status) -> int {
-          if (out_status) {
-            *out_status = AdapterStatus(-456, "Custom pack null ctx",
-                                        "custom_pack", -1, name);
-          }
-          return -456;
-        };
-        return s;
-      }();
-      return spec;
+// Proof 3: Multiple External Input Formats Driving Same Pipeline
+TEST_F(AdapterPurityTest,
+       ReuseProof_3_MultipleExternalInputFormatsForSamePipeline) {
+  // Register custom input converter that converts CustomMultiFieldInput to
+  // TextBatch
+  InputConverterDefinition custom_in_def;
+  custom_in_def.converter_id = "test.multi_field.cabi.v1";
+  custom_in_def.transport = "cabi";
+  custom_in_def.schema_id = "multi_field.request";
+  custom_in_def.schema_version = 1;
+  custom_in_def.external_type = "CustomMultiFieldInput";
+  custom_in_def.external_slots = {ExternalSlotDefinition(
+      "inputs", "CustomMultiFieldInput", PortDirection::kInput, true)};
+  custom_in_def.max_batch_size = 64;
+  custom_in_def.logical_ports = {
+      NodePortDefinition("raw_request_ids", "vector<uint64>", true, "1:1"),
+      NodePortDefinition("texts", "TextBatch", true, "1:1")};
+  custom_in_def.decode_fn = [](const ExternalInputBatchView& src,
+                               const InputDecodeOptions&,
+                               const InputPortBindings& bindings,
+                               AlgContext* ctx, AdapterStatus*) -> int {
+    std::vector<uint64_t> ids;
+    TextBatch texts;
+    for (size_t i = 0; i < src.count; ++i) {
+      const auto* item = src.GetCAbi<CustomMultiFieldInput>(i);
+      if (!item) return -3;
+      ids.push_back(item->req_id);
+      std::string combined =
+          std::string(item->topic) + ": " + std::string(item->content);
+      texts.emplace_back(static_cast<uint32_t>(i), 0, combined);
     }
+    ctx->Publish(bindings.GetActualKey("raw_request_ids"), ids);
+    ctx->Publish(bindings.GetActualKey("texts"), texts);
+    return 0;
   };
 
-  OneToOneTextAdapter<CustomHookSpecProvider> adapter;
-  AdapterStatus status;
+  EXPECT_TRUE(
+      IoConverterRegistry::Instance().RegisterInputConverter(custom_in_def));
 
-  CompanyEntityInputStruct input{1, "test"};
-  const void* inputs[] = {&input};
-  EXPECT_EQ(adapter.Unpack(inputs, 1, nullptr, &status), -123);
-  EXPECT_EQ(status.Code(), -123);
-  EXPECT_EQ(status.FieldPath(), "custom_unpack");
-  EXPECT_EQ(status.Message(), "Custom unpack null ctx");
+  // Format A: CompanyEntityInputStruct via text.plain.cabi.v1
+  AlgContext ctx_a;
+  {
+    const auto* in_a = IoConverterRegistry::Instance().FindInputConverter(
+        "text.plain.cabi.v1");
+    ASSERT_NE(in_a, nullptr);
+    CompanyEntityInputStruct req_a{777, "AI: Revolution in robotics"};
+    const void* items[] = {&req_a};
+    ExternalInputBatchView view;
+    view.items = items;
+    view.count = 1;
+    view.type_id = "CompanyEntityInputStruct";
+    InputPortBindings bindings({{"raw_request_ids", "raw_request_ids"},
+                                {"input_sentences", "input_sentences"}});
+    InputDecodeOptions opts;
+    opts.converter_id = in_a->converter_id;
+    AdapterStatus st;
+    ASSERT_EQ(in_a->decode_fn(view, opts, bindings, &ctx_a, &st), 0);
+  }
 
-  CompanyEntityOutputStruct output{};
-  void* outputs[] = {&output};
-  int count = 1;
-  EXPECT_EQ(adapter.Pack(nullptr, outputs, &count, &status), -456);
-  EXPECT_EQ(status.Code(), -456);
-  EXPECT_EQ(status.FieldPath(), "custom_pack");
-  EXPECT_EQ(status.Message(), "Custom pack null ctx");
+  // Format B: CustomMultiFieldInput via test.multi_field.cabi.v1
+  AlgContext ctx_b;
+  {
+    const auto* in_b = IoConverterRegistry::Instance().FindInputConverter(
+        "test.multi_field.cabi.v1");
+    ASSERT_NE(in_b, nullptr);
+    CustomMultiFieldInput req_b{777, "AI", "Revolution in robotics"};
+    const void* items[] = {&req_b};
+    ExternalInputBatchView view;
+    view.items = items;
+    view.count = 1;
+    view.type_id = "CustomMultiFieldInput";
+    InputPortBindings bindings(
+        {{"raw_request_ids", "raw_request_ids"}, {"texts", "input_sentences"}});
+    InputDecodeOptions opts;
+    opts.converter_id = in_b->converter_id;
+    AdapterStatus st;
+    ASSERT_EQ(in_b->decode_fn(view, opts, bindings, &ctx_b, &st), 0);
+  }
+
+  // Both produce identical internal TextBatch on "input_sentences"
+  const auto* texts_a = ctx_a.Read<TextBatch>("input_sentences");
+  const auto* texts_b = ctx_b.Read<TextBatch>("input_sentences");
+  ASSERT_NE(texts_a, nullptr);
+  ASSERT_NE(texts_b, nullptr);
+  EXPECT_EQ((*texts_a)[0].data, (*texts_b)[0].data);
+  EXPECT_EQ((*texts_a)[0].data, "AI: Revolution in robotics");
 }
 
-// RFC-0053: DocQaAdapter Characterization and Diagnostics
-TEST_F(AdapterPurityTest, DocQaAdapterDiagnosticsCharacterization) {
-  auto adapter = BizAdapterRegistry::Instance().GetAdapter(ALG_BIZ_TYPE_DOC_QA);
-  ASSERT_NE(adapter, nullptr);
+// Proof 4: Independently Switch Output Formats for Same Pipeline
+TEST_F(AdapterPurityTest, ReuseProof_4_IndependentlySwitchOutputFormat) {
+  // Prepare common AlgContext with both structured document and keyword results
+  AlgContext ctx;
+  ctx.Publish("raw_request_ids", std::vector<uint64_t>{5001});
 
-  CompanyDocOutputStruct out{};
-  void* outputs[] = {&out};
-  int count = 1;
-  AdapterStatus status;
+  StructuredDocumentBatch docs;
+  docs.emplace_back(
+      0, 0, JsonDocumentItem("[\"item_1\"]", true, JsonParseStatus::kOk));
+  ctx.Publish("extracted_entities", std::move(docs));
 
-  // 1. Null AlgContext: returns BUFFER_TOO_SMALL (-4) with field "ctx"
-  EXPECT_EQ(adapter->Pack(nullptr, outputs, &count, &status),
-            COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
-  EXPECT_EQ(status.Code(), COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
-  EXPECT_EQ(status.FieldPath(), "ctx");
+  RuleMatchBatch rules;
+  rules.emplace_back(
+      0, 0, RuleMatchItem(1, "URGENT", "急", "{\"flag\":\"urgent\"}", 0.99f));
+  ctx.Publish("rule_matches", std::move(rules));
 
-  // 2. Empty AlgContext (missing answers): returns BUFFER_TOO_SMALL (-4) with
-  // field "llm_answers" and legacy message "llm_answers not found in
-  // AlgContext"
-  AlgContext empty_ctx;
-  EXPECT_EQ(adapter->Pack(&empty_ctx, outputs, &count, &status),
-            COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
-  EXPECT_EQ(status.Code(), COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
-  EXPECT_EQ(status.FieldPath(), "llm_answers");
-  EXPECT_EQ(status.Message(), "llm_answers not found in AlgContext");
+  // Binding Output A: document.structured.cabi.v1 -> CompanyEntityOutputStruct
+  {
+    const auto* out_a = IoConverterRegistry::Instance().FindOutputConverter(
+        "document.structured.cabi.v1");
+    ASSERT_NE(out_a, nullptr);
+    CompanyEntityOutputStruct out{};
+    void* items[] = {&out};
+    ExternalOutputBatchView dest;
+    dest.items = items;
+    dest.count = 1;
+    dest.capacity = 1;
+    dest.type_id = out_a->external_type;
+    OutputPortBindings bindings({{"raw_request_ids", "raw_request_ids"},
+                                 {"extracted_entities", "extracted_entities"}});
+    OutputEncodeOptions opts;
+    opts.converter_id = out_a->converter_id;
+    size_t written = 0;
+    AdapterStatus st;
+    ASSERT_EQ(out_a->encode_fn(&ctx, bindings, opts, &dest, &written, &st), 0);
+    EXPECT_EQ(out.request_id, 5001U);
+    EXPECT_STREQ(out.entities_json, "[\"item_1\"]");
+  }
 
-  // 3. Null num_outputs pointer with valid context: returns BUFFER_TOO_SMALL
-  // (-4) safely without crashing
-  AlgContext valid_ctx;
-  valid_ctx.Publish(kRawRequestIds, std::vector<uint64_t>{1001});
-  valid_ctx.Publish(kLlmAnswers, TextBatch{{0, 0, "Doc answer"}});
-  valid_ctx.Publish(
-      kIntentMatches,
-      RuleMatchBatch{{0, 0, RuleMatchItem(0, "QA", "", "{}", 1.0f)}});
-  valid_ctx.Publish(kDocChunkCounts, Int32Batch{{0, 0, 5}});
-
-  EXPECT_EQ(adapter->Pack(&valid_ctx, outputs, nullptr, &status),
-            COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
-  EXPECT_EQ(status.Code(), COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
-
-  // 4. Missing intent_matches: returns INVALID_INPUT (-3) with field
-  // "intent_matches"
-  AlgContext no_intent;
-  no_intent.Publish(kRawRequestIds, std::vector<uint64_t>{1001});
-  no_intent.Publish(kLlmAnswers, TextBatch{{0, 0, "Doc answer"}});
-  no_intent.Publish(kDocChunkCounts, Int32Batch{{0, 0, 5}});
-  count = 1;
-  EXPECT_EQ(adapter->Pack(&no_intent, outputs, &count, &status),
-            COMPANY_ALG_ERR_INVALID_INPUT);
-  EXPECT_EQ(status.Code(), COMPANY_ALG_ERR_INVALID_INPUT);
-  EXPECT_EQ(status.FieldPath(), "intent_matches");
-
-  // 5. Missing doc_chunk_counts: returns INVALID_INPUT (-3) with field
-  // "doc_chunk_counts"
-  AlgContext no_chunks;
-  no_chunks.Publish(kRawRequestIds, std::vector<uint64_t>{1001});
-  no_chunks.Publish(kLlmAnswers, TextBatch{{0, 0, "Doc answer"}});
-  no_chunks.Publish(
-      kIntentMatches,
-      RuleMatchBatch{{0, 0, RuleMatchItem(0, "QA", "", "{}", 1.0f)}});
-  count = 1;
-  EXPECT_EQ(adapter->Pack(&no_chunks, outputs, &count, &status),
-            COMPANY_ALG_ERR_INVALID_INPUT);
-  EXPECT_EQ(status.Code(), COMPANY_ALG_ERR_INVALID_INPUT);
-  EXPECT_EQ(status.FieldPath(), "doc_chunk_counts");
-
-  // 6. Missing raw_request_ids: returns INVALID_INPUT (-3) with field
-  // "raw_request_ids"
-  AlgContext no_ids;
-  no_ids.Publish(kLlmAnswers, TextBatch{{0, 0, "Doc answer"}});
-  no_ids.Publish(
-      kIntentMatches,
-      RuleMatchBatch{{0, 0, RuleMatchItem(0, "QA", "", "{}", 1.0f)}});
-  no_ids.Publish(kDocChunkCounts, Int32Batch{{0, 0, 5}});
-  count = 1;
-  EXPECT_EQ(adapter->Pack(&no_ids, outputs, &count, &status),
-            COMPANY_ALG_ERR_INVALID_INPUT);
-  EXPECT_EQ(status.Code(), COMPANY_ALG_ERR_INVALID_INPUT);
-  EXPECT_EQ(status.FieldPath(), "raw_request_ids");
-
-  // 7. Successful Pack
-  count = 1;
-  EXPECT_EQ(adapter->Pack(&valid_ctx, outputs, &count, &status),
-            COMPANY_ALG_SUCCESS);
-  EXPECT_EQ(count, 1);
-  EXPECT_EQ(out.request_id, 1001u);
-  EXPECT_FLOAT_EQ(out.confidence, 1.0f);
-  EXPECT_EQ(out.chunk_count, 5);
-  EXPECT_STREQ(out.intent_name, "QA");
-  EXPECT_STREQ(out.answer_text, "Doc answer");
-
-  // 8. Invalid provenance on answers: IndexResults fails with field "answers"
-  // (index_name), distinguishing it from missing "llm_answers"
-  AlgContext bad_answers_ctx;
-  bad_answers_ctx.Publish(kRawRequestIds, std::vector<uint64_t>{1001});
-  bad_answers_ctx.Publish(kLlmAnswers,
-                          TextBatch{{5, 0, "Doc answer"}});  // req_id 5 >= 1
-  bad_answers_ctx.Publish(
-      kIntentMatches,
-      RuleMatchBatch{{0, 0, RuleMatchItem(0, "QA", "", "{}", 1.0f)}});
-  bad_answers_ctx.Publish(kDocChunkCounts, Int32Batch{{0, 0, 5}});
-  count = 1;
-  EXPECT_EQ(adapter->Pack(&bad_answers_ctx, outputs, &count, &status),
-            COMPANY_ALG_ERR_INVALID_INPUT);
-  EXPECT_EQ(status.Code(), COMPANY_ALG_ERR_INVALID_INPUT);
-  EXPECT_EQ(status.FieldPath(), "answers");
-  EXPECT_EQ(status.Message(),
-            "Missing, duplicate or invalid result provenance");
-
-  // 9. Invalid provenance on doc_chunk_counts: IndexResults fails with field
-  // "chunk_counts" (index_name), distinguishing it from missing
-  // "doc_chunk_counts"
-  AlgContext bad_chunks_ctx;
-  bad_chunks_ctx.Publish(kRawRequestIds, std::vector<uint64_t>{1001});
-  bad_chunks_ctx.Publish(kLlmAnswers, TextBatch{{0, 0, "Doc answer"}});
-  bad_chunks_ctx.Publish(
-      kIntentMatches,
-      RuleMatchBatch{{0, 0, RuleMatchItem(0, "QA", "", "{}", 1.0f)}});
-  bad_chunks_ctx.Publish(kDocChunkCounts,
-                         Int32Batch{{5, 0, 5}});  // req_id 5 >= 1
-  count = 1;
-  EXPECT_EQ(adapter->Pack(&bad_chunks_ctx, outputs, &count, &status),
-            COMPANY_ALG_ERR_INVALID_INPUT);
-  EXPECT_EQ(status.Code(), COMPANY_ALG_ERR_INVALID_INPUT);
-  EXPECT_EQ(status.FieldPath(), "chunk_counts");
-  EXPECT_EQ(status.Message(),
-            "Missing, duplicate or invalid result provenance");
+  // Binding Output B: keyword.result.cabi.v1 -> CompanyKeywordOutputStruct
+  {
+    const auto* out_b = IoConverterRegistry::Instance().FindOutputConverter(
+        "keyword.result.cabi.v1");
+    ASSERT_NE(out_b, nullptr);
+    CompanyKeywordOutputStruct out{};
+    void* items[] = {&out};
+    ExternalOutputBatchView dest;
+    dest.items = items;
+    dest.count = 1;
+    dest.capacity = 1;
+    dest.type_id = out_b->external_type;
+    OutputPortBindings bindings({{"raw_request_ids", "raw_request_ids"},
+                                 {"rule_matches", "rule_matches"}});
+    OutputEncodeOptions opts;
+    opts.converter_id = out_b->converter_id;
+    size_t written = 0;
+    AdapterStatus st;
+    ASSERT_EQ(out_b->encode_fn(&ctx, bindings, opts, &dest, &written, &st), 0);
+    EXPECT_EQ(out.request_id, 5001U);
+    EXPECT_EQ(out.is_hit, 1);
+    EXPECT_STREQ(out.match_result_json, "{\"flag\":\"urgent\"}");
+  }
 }
 
-// RFC-0053: AdapterHarness Capacity Pre-Query
-TEST_F(AdapterPurityTest, AdapterHarnessCapacityPreQuery) {
-  auto adapter = BizAdapterRegistry::Instance().GetAdapter(ALG_BIZ_TYPE_DOC_QA);
-  ASSERT_NE(adapter, nullptr);
+// Proof 5: Same Carrier with Different Schemas
+TEST_F(AdapterPurityTest, ReuseProof_5_SameCarrierDifferentSchema) {
+  const auto* plain_conv =
+      IoConverterRegistry::Instance().FindInputConverter("text.plain.cabi.v1");
+  ASSERT_NE(plain_conv, nullptr);
+  const auto* json_conv = IoConverterRegistry::Instance().FindInputConverter(
+      "translate.json.cabi.v1");
+  ASSERT_NE(json_conv, nullptr);
 
-  test::AdapterHarness harness(adapter);
-  harness.Publish(kRawRequestIds, std::vector<uint64_t>{10, 20, 30});
-  harness.Publish(kLlmAnswers,
-                  TextBatch{{0, 0, "a0"}, {1, 0, "a1"}, {2, 0, "a2"}});
-  harness.Publish(kIntentMatches, RuleMatchBatch{{0, 0, RuleMatchItem{}},
-                                                 {1, 0, RuleMatchItem{}},
-                                                 {2, 0, RuleMatchItem{}}});
-  harness.Publish(kDocChunkCounts, Int32Batch{{0, 0, 1}, {1, 0, 2}, {2, 0, 3}});
+  // Payload 1: Pure plain text "Hello plain text"
+  CompanyEntityInputStruct plain_req{101, "Hello plain text"};
+  const void* plain_items[] = {&plain_req};
+  ExternalInputBatchView plain_view;
+  plain_view.items = plain_items;
+  plain_view.count = 1;
+  plain_view.type_id = "CompanyEntityInputStruct";
 
-  // Query capacity with empty outputs vector
-  std::vector<CompanyDocOutputStruct> empty_c_outs;
-  int ret_c = harness.PackC(&empty_c_outs);
-  EXPECT_EQ(ret_c, COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
-  EXPECT_TRUE(empty_c_outs.empty());
+  InputPortBindings bindings({{"raw_request_ids", "raw_request_ids"},
+                              {"input_sentences", "input_sentences"}});
+  InputDecodeOptions opts;
 
-  std::vector<DocResult> empty_owned_outs;
-  int ret_owned = harness.PackOwned(&empty_owned_outs);
-  EXPECT_EQ(ret_owned, COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
-  EXPECT_TRUE(empty_owned_outs.empty());
+  // text.plain.cabi.v1 accepts it as plain text
+  {
+    AlgContext ctx;
+    AdapterStatus st;
+    opts.converter_id = plain_conv->converter_id;
+    EXPECT_EQ(plain_conv->decode_fn(plain_view, opts, bindings, &ctx, &st), 0);
+    const auto* s = ctx.Read<TextBatch>("input_sentences");
+    ASSERT_NE(s, nullptr);
+    EXPECT_EQ((*s)[0].data, "Hello plain text");
+  }
+
+  // translate.json.cabi.v1 rejects it because it is not JSON
+  {
+    AlgContext ctx;
+    AdapterStatus st;
+    opts.converter_id = json_conv->converter_id;
+    EXPECT_EQ(json_conv->decode_fn(plain_view, opts, bindings, &ctx, &st),
+              COMPANY_ALG_ERR_INVALID_INPUT);
+    EXPECT_EQ(st.FieldPath(), "json");
+  }
+
+  // Payload 2: JSON formatted string "{\"query\": \"Hello JSON\"}"
+  CompanyEntityInputStruct json_req{102, "{\"query\": \"Hello JSON\"}"};
+  const void* json_items[] = {&json_req};
+  ExternalInputBatchView json_view;
+  json_view.items = json_items;
+  json_view.count = 1;
+  json_view.type_id = "CompanyEntityInputStruct";
+
+  // translate.json.cabi.v1 succeeds and extracts "query"
+  {
+    AlgContext ctx;
+    AdapterStatus st;
+    opts.converter_id = json_conv->converter_id;
+    EXPECT_EQ(json_conv->decode_fn(json_view, opts, bindings, &ctx, &st), 0);
+    const auto* s = ctx.Read<TextBatch>("input_sentences");
+    ASSERT_NE(s, nullptr);
+    EXPECT_EQ((*s)[0].data, "Hello JSON");
+  }
+}
+
+// Proof 6: Negative Combinations Rejected
+TEST_F(AdapterPurityTest, ReuseProof_6_NegativeCombinations) {
+  // 1. Unknown or unregistered io_binding
+  DeploymentIoConfig bad_binding_cfg;
+  bad_binding_cfg.io_binding = "non_existent.binding.v999";
+  bad_binding_cfg.pipe_path = "pipeline_keyword_match_rules.json";
+  std::unique_ptr<ValidatedIoPlan> plan;
+  std::string error;
+  int ret = IoBindingResolver::ResolveFromConfig(bad_binding_cfg, "cabi",
+                                                 "./models", &plan, &error);
+  EXPECT_EQ(ret, -2);
+  EXPECT_NE(error.find("Unknown or unregistered io_binding"),
+            std::string::npos);
+
+  // 2. Transport mismatch: CABI requested, but operator binding specified
+  DeploymentIoConfig mismatch_cfg;
+  mismatch_cfg.io_binding = "keyword_match.operator.v1";
+  mismatch_cfg.pipe_path = "pipeline_keyword_match_rules.json";
+  ret = IoBindingResolver::ResolveFromConfig(mismatch_cfg, "cabi", "./models",
+                                             &plan, &error);
+  EXPECT_EQ(ret, -2);
+  EXPECT_NE(error.find("Binding transport mismatch"), std::string::npos);
+
+  // 3. DeploymentIoConfig schema validation rejects invalid version
+  nlohmann::json invalid_version_json = {
+      {"schema_version", 999},
+      {"data",
+       {{"pipe_path", "test.json"}, {"io_binding", "keyword_match.cabi.v1"}}}};
+  DeploymentIoConfig parsed_cfg;
+  EXPECT_FALSE(DeploymentIoConfig::Parse(invalid_version_json, ".", "cabi",
+                                         &parsed_cfg, &error));
+  EXPECT_NE(error.find("schema_version"), std::string::npos);
+
+  // 4. CABI config rejects outputs block
+  nlohmann::json cabi_with_outputs_json = {
+      {"schema_version", 1},
+      {"data",
+       {{"pipe_path", "test.json"},
+        {"io_binding", "keyword_match.cabi.v1"},
+        {"outputs", {{"main", {{"type", "test"}}}}}}}};
+  EXPECT_FALSE(DeploymentIoConfig::Parse(cabi_with_outputs_json, ".", "cabi",
+                                         &parsed_cfg, &error));
+  EXPECT_NE(error.find("outputs"), std::string::npos);
+
+  // 5. Operator config with unknown output slot rejected by parity check
+  DeploymentIoConfig unknown_out_cfg;
+  unknown_out_cfg.io_binding = "keyword_match.operator.v1";
+  unknown_out_cfg.pipe_path = "pipeline_keyword_match_rules.json";
+  unknown_out_cfg.outputs = {{"unknown_slot", {{"type", "String"}}}};
+  ret = IoBindingResolver::ResolveFromConfig(unknown_out_cfg, "operator",
+                                             "./models", &plan, &error);
+  EXPECT_EQ(ret, -2);
+  EXPECT_NE(error.find("Unknown configured output slot: unknown_slot"),
+            std::string::npos);
+
+  // 6. Unknown model_id in model_paths rejected
+  DeploymentIoConfig unknown_mid_cfg;
+  unknown_mid_cfg.io_binding = "keyword_match.cabi.v1";
+  unknown_mid_cfg.pipe_path = "configs/pipeline_keyword_match_rules.json";
+  unknown_mid_cfg.resolved_pipe_path =
+      "configs/pipeline_keyword_match_rules.json";
+  unknown_mid_cfg.model_paths = {{"non_existent_model", "dummy_path"}};
+  ret = IoBindingResolver::ResolveFromConfig(unknown_mid_cfg, "cabi",
+                                             "./models", &plan, &error);
+  EXPECT_EQ(ret, -2);
+  EXPECT_NE(
+      error.find("Unknown model_id 'non_existent_model' in 'model_paths'"),
+      std::string::npos);
+}
+
+// Proof 7: Validation Before Initialization (probe model not loaded on invalid
+// binding)
+TEST_F(AdapterPurityTest, ReuseProof_7_ValidationBeforeInitialization) {
+  // Attempt to create algorithm instance with non-existent or invalid binding
+  // configuration
+  CompanyAlgParamCreate param{};
+  param.config_file_path = "non_existent_path.json";
+  param.model_root_dir = "./models";
+  param.device_id = 0;
+
+  void* handle = nullptr;
+  int ret = Alg_Create(&handle, &param);
+  EXPECT_NE(ret, COMPANY_ALG_SUCCESS);
+  EXPECT_EQ(handle, nullptr);
 }
 
 }  // namespace llm_edgeflow

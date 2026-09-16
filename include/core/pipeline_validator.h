@@ -8,6 +8,7 @@
 
 #include "core/diagnostic_code.h"
 #include "core/pipeline_config.h"
+#include "core/port_definition.h"
 #include "core/remediation_cause.h"
 #include "core/validated_node_plan.h"
 #include "engine/inference_definition.h"
@@ -85,19 +86,27 @@ struct ValidatedPipelinePlan {
   ValidationReport report;
 };
 
+struct PipelineIoBoundary {
+  std::vector<BizPortDefinition> input_published_ports;
+  std::vector<BizPortDefinition> output_consumed_ports;
+};
+
 class PipelineValidator {
  public:
   static ValidatedPipelinePlan ValidateAndPlan(
       const nlohmann::json& root,
-      ValidationPolicy policy = ValidationPolicy::kStrict);
+      ValidationPolicy policy = ValidationPolicy::kStrict,
+      const PipelineIoBoundary* io_boundary = nullptr);
 
   static ValidationReport Validate(
       const nlohmann::json& root,
-      ValidationPolicy policy = ValidationPolicy::kStrict);
+      ValidationPolicy policy = ValidationPolicy::kStrict,
+      const PipelineIoBoundary* io_boundary = nullptr);
 
   static ValidationReport Explain(
       const nlohmann::json& root,
-      ValidationPolicy policy = ValidationPolicy::kStrict);
+      ValidationPolicy policy = ValidationPolicy::kStrict,
+      const PipelineIoBoundary* io_boundary = nullptr);
 };
 
 /**

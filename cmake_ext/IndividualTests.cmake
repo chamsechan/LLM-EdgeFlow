@@ -118,10 +118,6 @@ add_executable(test_operator_value_registry ${EDGEFLOW_SOURCE_test_operator_valu
 target_link_libraries(test_operator_value_registry PRIVATE llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main edgeflow_test_allocation_failure)
 add_test(NAME OperatorValueRegistryTest COMMAND test_operator_value_registry)
 
-add_executable(test_operator_biz_bridge_registry ${EDGEFLOW_SOURCE_test_operator_biz_bridge_registry})
-target_link_libraries(test_operator_biz_bridge_registry PRIVATE llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
-add_test(NAME OperatorBizBridgeRegistryTest COMMAND test_operator_biz_bridge_registry)
-
 add_executable(test_doc_qa_rerank ${EDGEFLOW_SOURCE_test_doc_qa_rerank})
 target_link_libraries(test_doc_qa_rerank PRIVATE llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
 add_test(NAME DocQaRerankTest COMMAND test_doc_qa_rerank)
@@ -282,9 +278,21 @@ add_executable(test_operator_golden ${EDGEFLOW_SOURCE_test_operator_golden})
 target_link_libraries(test_operator_golden PRIVATE llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
 add_test(NAME OperatorGoldenTest COMMAND test_operator_golden)
 
-add_executable(test_adapter_purity ${EDGEFLOW_SOURCE_test_adapter_purity})
-target_link_libraries(test_adapter_purity PRIVATE llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
-add_test(NAME AdapterPurityTest COMMAND test_adapter_purity)
+add_executable(test_io_converters ${EDGEFLOW_SOURCE_test_io_converters})
+target_link_libraries(test_io_converters PRIVATE llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
+add_test(NAME IoConverterTest COMMAND test_io_converters)
+
+add_executable(test_io_binding_registry ${EDGEFLOW_SOURCE_test_io_binding_registry})
+target_link_libraries(test_io_binding_registry PRIVATE llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
+add_test(NAME IoBindingRegistryTest COMMAND test_io_binding_registry)
+
+add_executable(test_text_converters ${EDGEFLOW_SOURCE_test_text_converters})
+target_link_libraries(test_text_converters PRIVATE llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
+add_test(NAME TextConvertersTest COMMAND test_text_converters)
+
+add_executable(test_complex_converters ${EDGEFLOW_SOURCE_test_complex_converters})
+target_link_libraries(test_complex_converters PRIVATE llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
+add_test(NAME ComplexConvertersTest COMMAND test_complex_converters)
 
 # Keep each individual executable's Registry environment aligned with the
 # corresponding sharded runner. Conflict and catalog-isolation executables are
@@ -336,7 +344,10 @@ set(EDGEFLOW_INDIVIDUAL_TESTS_WITH_RUNTIME_FIXTURES
   test_function_node
   test_parameter_binding
   test_operator_golden
-  test_adapter_purity)
+  test_io_converters
+  test_io_binding_registry
+  test_text_converters
+  test_complex_converters)
 foreach(test_target IN LISTS EDGEFLOW_INDIVIDUAL_TESTS_WITH_RUNTIME_FIXTURES)
   target_sources(${test_target} PRIVATE
     $<TARGET_OBJECTS:edgeflow_test_backend_fixtures>
@@ -354,7 +365,7 @@ set_tests_properties(
   RuntimeControlAndHotSwapTest EngineFaultToleranceAndLifecycleTest
   AdapterContractSecurityTest PipelineConfigTest RegistryConflictNodeTest
   RegistryConflictModelTest RegistryReentrantTest OperatorApiTest
-  OperatorOutputPoolTest OperatorValueRegistryTest OperatorBizBridgeRegistryTest
+  OperatorOutputPoolTest OperatorValueRegistryTest
   DocQaRerankTest PipelineStudioTest
   PipelineStudioServerTest
   DemoRunnerTest CatalogContractSsotTest TypedBlackboardContractsTest
@@ -365,6 +376,7 @@ set_tests_properties(
   VectorTopKNodeTest TextRerankNodeTest TextTemplateNodeTest
   LlmGenerateNodeTest AsrTranscribeNodeTest OcrDetectNodeTest
   TextRuleMatchNodeTest StructuredJsonParseNodeTest TextCorpusSourceNodeTest
-  CommonNodesTest FunctionNodeTest ParameterBindingTest OperatorGoldenTest AdapterPurityTest
+  CommonNodesTest FunctionNodeTest ParameterBindingTest OperatorGoldenTest
+  IoConverterTest IoBindingRegistryTest TextConvertersTest ComplexConvertersTest
   PROPERTIES WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
 )

@@ -44,9 +44,12 @@ set(EDGEFLOW_REQUIRED_CONTRACT_TESTS
   OperatorApiTest
   OperatorOutputPoolTest
   OperatorValueRegistryTest
-  OperatorBizBridgeRegistryTest
   OperatorGoldenTest
   AdapterPurityTest
+  IoConverterTest
+  IoBindingRegistryTest
+  TextConvertersTest
+  ComplexConvertersTest
   DocQaRerankTest
   PipelineStudioTest
   DemoRunnerTest
@@ -83,6 +86,10 @@ set(EDGEFLOW_SOURCE_test_concurrency_and_edge_cases "${PROJECT_SOURCE_DIR}/tests
 set(EDGEFLOW_SOURCE_test_different_io_modalities "${PROJECT_SOURCE_DIR}/tests/integration/runtime/test_different_io_modalities.cpp")
 set(EDGEFLOW_SOURCE_test_runtime_control_and_hot_swap "${PROJECT_SOURCE_DIR}/tests/integration/runtime/test_runtime_control_and_hot_swap.cpp")
 set(EDGEFLOW_SOURCE_test_adapter_purity "${PROJECT_SOURCE_DIR}/tests/unit/adapter/test_adapter_purity.cpp")
+set(EDGEFLOW_SOURCE_test_io_converters "${PROJECT_SOURCE_DIR}/tests/unit/adapter/test_io_converters.cpp")
+set(EDGEFLOW_SOURCE_test_io_binding_registry "${PROJECT_SOURCE_DIR}/tests/unit/adapter/test_io_binding_registry.cpp")
+set(EDGEFLOW_SOURCE_test_text_converters "${PROJECT_SOURCE_DIR}/tests/unit/adapter/test_text_converters.cpp")
+set(EDGEFLOW_SOURCE_test_complex_converters "${PROJECT_SOURCE_DIR}/tests/unit/adapter/test_complex_converters.cpp")
 set(EDGEFLOW_SOURCE_test_dag_pipeline "${PROJECT_SOURCE_DIR}/tests/unit/core/test_dag_pipeline.cpp")
 set(EDGEFLOW_SOURCE_test_definition_schema_validation "${PROJECT_SOURCE_DIR}/tests/unit/core/test_definition_schema_validation.cpp")
 set(EDGEFLOW_SOURCE_test_framework_core "${PROJECT_SOURCE_DIR}/tests/unit/core/test_framework_core.cpp")
@@ -119,7 +126,6 @@ set(EDGEFLOW_SOURCE_test_text_rerank_node "${PROJECT_SOURCE_DIR}/tests/unit/node
 set(EDGEFLOW_SOURCE_test_text_rule_match_node "${PROJECT_SOURCE_DIR}/tests/unit/nodes/test_text_rule_match_node.cpp")
 set(EDGEFLOW_SOURCE_test_text_template_node "${PROJECT_SOURCE_DIR}/tests/unit/nodes/test_text_template_node.cpp")
 set(EDGEFLOW_SOURCE_test_vector_top_k_node "${PROJECT_SOURCE_DIR}/tests/unit/nodes/test_vector_top_k_node.cpp")
-set(EDGEFLOW_SOURCE_test_operator_biz_bridge_registry "${PROJECT_SOURCE_DIR}/tests/unit/operator/test_operator_biz_bridge_registry.cpp")
 set(EDGEFLOW_SOURCE_test_operator_output_pool "${PROJECT_SOURCE_DIR}/tests/unit/operator/test_operator_output_pool.cpp")
 set(EDGEFLOW_SOURCE_test_operator_value_registry "${PROJECT_SOURCE_DIR}/tests/unit/operator/test_operator_value_registry.cpp")
 include(${CMAKE_CURRENT_LIST_DIR}/CustomNodeTests.cmake)

@@ -312,7 +312,7 @@ class RunnableSolutionTest(unittest.TestCase):
         saved = self.service.save_solution(filename, self.keyword, "keyword_match_rules")
         self.assertEqual(json.loads((self.configs / filename).read_text()), self.keyword)
         conf = json.loads((self.configs / saved["conf_filename"]).read_text())
-        self.assertEqual(conf["data"]["pipe_path"], str((self.configs / filename).relative_to(ROOT)))
+        self.assertEqual(conf["data"]["pipe_path"], filename)
         self.assertEqual(conf["data"]["model_paths"], {})
         command = shlex.split(saved["command"])
         self.assertEqual(command[:3], ["cd", str(ROOT), "&&"])
@@ -463,7 +463,7 @@ class RunnableSolutionTest(unittest.TestCase):
                 time.sleep(0.05)
         self.assertEqual(job["status"], "completed", job)
         self.assertEqual(observed["conf"]["data"]["model_paths"], {"entity_llm": pipeline["models"][0]["model_path"]})
-        self.assertTrue(observed["conf"]["data"]["pipe_path"].startswith("build/"))
+        self.assertEqual(observed["conf"]["data"]["pipe_path"], "pipeline.json")
         self.assertFalse(observed["directory"].exists())
 
     def test_conflicts_bad_paths_and_mismatches_leave_no_new_files(self):
@@ -532,7 +532,7 @@ class PipelineCliTest(unittest.TestCase):
             check=False,
         )
         payload = json.loads(process.stdout)
-        expected_schema = 3 if args[0] in ("catalog", "describe-node") else 1
+        expected_schema = 4 if args[0] == "catalog" else (3 if args[0] == "describe-node" else 1)
         self.assertEqual(payload["schema_version"], expected_schema)
         return process.returncode, payload
 
@@ -646,6 +646,7 @@ class PipelineCliTest(unittest.TestCase):
         conf = json.loads(conf_path.read_text())
         with tempfile.TemporaryDirectory(prefix="resolve-conf-", dir=ROOT / "build") as directory:
             changed = Path(directory) / "pipeline.conf"
+            shutil.copy(conf_path.with_name(conf["data"]["pipe_path"]), directory)
             conf["data"].pop("model_paths")
             changed.write_text(json.dumps(conf))
             code, direct = self.command("resolve-conf", str(changed.relative_to(ROOT)), "--root", str(ROOT))
@@ -1878,7 +1879,7 @@ class Rfc0057AuthoringAndDeploymentTest(unittest.TestCase):
         conf = json.loads((ROOT / "configs" / "pipeline_doc_qa_cpu.conf").read_text())
         pipeline_path = self.configs / "pipeline_associated.json"
         conf_path = self.configs / "pipeline_associated.conf"
-        conf["data"]["pipe_path"] = str(pipeline_path.relative_to(ROOT))
+        conf["data"]["pipe_path"] = pipeline_path.name
         for model_id in conf["data"]["model_paths"]:
             conf["data"]["model_paths"][model_id] = "models/deployed_" + model_id
         conf["data"]["outputs"]["doc_out"]["capacities"]["answer_text"] = 2047
@@ -1973,7 +1974,7 @@ class Rfc0057AuthoringAndDeploymentTest(unittest.TestCase):
         # Create conf in configs pointing to this pipeline
         conf_path = self.configs / "pipeline_doc_qa_assoc.conf"
         doc_qa_conf = json.loads((ROOT / "configs" / "pipeline_doc_qa_cpu.conf").read_text())
-        doc_qa_conf["data"]["pipe_path"] = str(pipe_path.relative_to(ROOT))
+        doc_qa_conf["data"]["pipe_path"] = pipe_path.name
         conf_path.write_text(json.dumps(doc_qa_conf, indent=2))
 
         # Associate

@@ -6,7 +6,7 @@
 
 #include "adapter/adapter_status.h"
 #include "adapter/adapter_validation_helper.h"
-#include "adapter/biz_adapter_interface.h"
+#include "edgeflow/c_api.h"
 
 namespace llm_edgeflow {
 namespace template_examples {
@@ -56,34 +56,15 @@ struct TemplateUnionResultDto {
   std::string verdict;
 };
 
-class TemplateTaggedUnionAdapter : public IBizAdapter {
+class TemplateTaggedUnionAdapter {
  public:
-  CompanyAlgBizType BizType() const override {
-    return static_cast<CompanyAlgBizType>(102);
-  }
-
-  const char* AdapterName() const override { return "TemplateTaggedUnion"; }
-
-  const AdapterDescriptor& GetDescriptor() const override {
-    static AdapterDescriptor desc{
-        static_cast<CompanyAlgBizType>(102),
-        "TemplateTaggedUnion",
-        "2.0.0",
-        "TemplateTaggedUnionInput",
-        "TemplateTaggedUnionOutput",
-        64,
-        OwnershipPolicy::kCopyIn,
-        ThreadModel::kStatelessThreadSafe,
-        OutputCardinality::kOneToOne,
-        {BizDefinition{"TemplateTaggedUnion",
-                       "template_tagged_union_pipeline_v1"}}};
-    return desc;
-  }
+  const char* AdapterName() const { return "TemplateTaggedUnion"; }
+  size_t MaxBatchSize() const { return 64; }
 
   int Unpack(const void** inputs, int num_inputs, AlgContext* ctx,
-             AdapterStatus* out_status = nullptr) const override {
+             AdapterStatus* out_status = nullptr) const {
     int valid_ret = AdapterValidationHelper::ValidateBatchInputs(
-        inputs, num_inputs, GetDescriptor().max_batch_size, AdapterName());
+        inputs, num_inputs, static_cast<int>(MaxBatchSize()), AdapterName());
     if (valid_ret != 0 || !ctx) {
       return AdapterValidationHelper::ReturnInvalidInput(
           out_status, "Batch envelope validation failed", "inputs",
@@ -149,7 +130,7 @@ class TemplateTaggedUnionAdapter : public IBizAdapter {
   }
 
   int Pack(AlgContext* ctx, void** outputs, int* num_outputs,
-           AdapterStatus* out_status = nullptr) const override {
+           AdapterStatus* out_status = nullptr) const {
     if (!ctx) return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
 
     const auto* res =

@@ -2,13 +2,16 @@
 
 #include <atomic>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <string>
 #include <thread>
 #include <vector>
 
-#include "adapter/biz_adapter_registry.h"
 #include "adapter/biz_blackboard_keys.h"
+#include "adapter/io_binding_registry.h"
+#include "adapter/io_converter_registry.h"
 #include "edgeflow/c_api.h"
 #include "edgeflow/c_api.hpp"
 
@@ -24,12 +27,14 @@ static std::string GetConfigPath(const std::string& rel_path) {
 class CAbiSafetyTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    llm_edgeflow::BizAdapterRegistry::Instance().ResetConflictForTesting();
+    llm_edgeflow::IoBindingRegistry::Instance().ResetConflictForTesting();
+    llm_edgeflow::IoConverterRegistry::Instance().ResetConflictForTesting();
     Alg_Init();
   }
   void TearDown() override {
     Alg_DeInit();
-    llm_edgeflow::BizAdapterRegistry::Instance().ResetConflictForTesting();
+    llm_edgeflow::IoBindingRegistry::Instance().ResetConflictForTesting();
+    llm_edgeflow::IoConverterRegistry::Instance().ResetConflictForTesting();
   }
 };
 
@@ -51,12 +56,11 @@ TEST_F(CAbiSafetyTest, NullPointerSafety) {
 
 // 2. 测试句柄快速创建与销毁循环 (50轮生命周期与资源泄露检测)
 TEST_F(CAbiSafetyTest, HandleLifecycleStressCycles50) {
-  std::string cfg = GetConfigPath("configs/pipeline_keyword_match_rules.json");
+  std::string cfg = GetConfigPath("configs/pipeline_keyword_match_cabi.json");
   CompanyAlgParamCreate param;
   param.config_file_path = cfg.c_str();
   param.model_root_dir = "./models";
   param.device_id = 0;
-  param.biz_type = ALG_BIZ_TYPE_KEYWORD_MATCH;
 
   for (int cycle = 0; cycle < 50; ++cycle) {
     void* handle = nullptr;
@@ -71,12 +75,11 @@ TEST_F(CAbiSafetyTest, HandleLifecycleStressCycles50) {
 
 // 3. 测试通过 C ABI 接口全流程调用与动态控制规则生效
 TEST_F(CAbiSafetyTest, EndToEndDynamicControlAndVerification) {
-  std::string cfg = GetConfigPath("configs/pipeline_keyword_match_rules.json");
+  std::string cfg = GetConfigPath("configs/pipeline_keyword_match_cabi.json");
   CompanyAlgParamCreate param;
   param.config_file_path = cfg.c_str();
   param.model_root_dir = "./models";
   param.device_id = 0;
-  param.biz_type = ALG_BIZ_TYPE_KEYWORD_MATCH;
 
   void* handle = nullptr;
   int ret = Alg_Create(&handle, &param);
@@ -112,12 +115,11 @@ TEST_F(CAbiSafetyTest, EndToEndDynamicControlAndVerification) {
 
 // 4. 测试输出缓冲区容量不足与所需容量回填契约 (ACC-003)
 TEST_F(CAbiSafetyTest, OutputCapacityInsufficientAndFeedbackContract) {
-  std::string cfg = GetConfigPath("configs/pipeline_keyword_match_rules.json");
+  std::string cfg = GetConfigPath("configs/pipeline_keyword_match_cabi.json");
   CompanyAlgParamCreate param;
   param.config_file_path = cfg.c_str();
   param.model_root_dir = "./models";
   param.device_id = 0;
-  param.biz_type = ALG_BIZ_TYPE_KEYWORD_MATCH;
 
   void* handle = nullptr;
   ASSERT_EQ(Alg_Create(&handle, &param), 0);
@@ -148,12 +150,11 @@ TEST_F(CAbiSafetyTest, OutputCapacityInsufficientAndFeedbackContract) {
 
 // 5. 测试输入与输出空槽位确定性拦截 (ACC-003)
 TEST_F(CAbiSafetyTest, NullSlotInBatchInputsOrOutputs) {
-  std::string cfg = GetConfigPath("configs/pipeline_keyword_match_rules.json");
+  std::string cfg = GetConfigPath("configs/pipeline_keyword_match_cabi.json");
   CompanyAlgParamCreate param;
   param.config_file_path = cfg.c_str();
   param.model_root_dir = "./models";
   param.device_id = 0;
-  param.biz_type = ALG_BIZ_TYPE_KEYWORD_MATCH;
 
   void* handle = nullptr;
   ASSERT_EQ(Alg_Create(&handle, &param), 0);
@@ -179,32 +180,31 @@ TEST_F(CAbiSafetyTest, NullSlotInBatchInputsOrOutputs) {
   EXPECT_EQ(Alg_Destroy(handle), 0);
 }
 
-// 6. 测试 Adapter 注册冲突防护与 Descriptor 机器可读性 (ACC-005)
-TEST_F(CAbiSafetyTest, AdapterRegistryConflictDetectionAndDescriptor) {
-  auto& registry = llm_edgeflow::BizAdapterRegistry::Instance();
-  auto doc_adapter = registry.GetAdapter(ALG_BIZ_TYPE_DOC_QA);
-  ASSERT_NE(doc_adapter, nullptr);
+// 6. 测试 IoBinding 注册冲突防护与定义机器可读性
+TEST_F(CAbiSafetyTest, IoBindingRegistryConflictDetectionAndDescriptor) {
+  auto& registry = llm_edgeflow::IoBindingRegistry::Instance();
+  const auto* doc_binding = registry.FindBinding("doc_qa.cabi.v1");
+  ASSERT_NE(doc_binding, nullptr);
 
-  // 验证 Descriptor
-  const auto& desc = doc_adapter->GetDescriptor();
-  EXPECT_EQ(desc.biz_type, ALG_BIZ_TYPE_DOC_QA);
-  EXPECT_EQ(desc.adapter_name, "DocQA");
-  EXPECT_EQ(desc.sdk_abi_version, COMPANY_ALG_ABI_VERSION);
-  EXPECT_GT(desc.max_batch_size, 0);
+  EXPECT_EQ(doc_binding->binding_id, "doc_qa.cabi.v1");
+  EXPECT_EQ(doc_binding->biz_name, "smart_doc_qa_v1");
+  EXPECT_EQ(doc_binding->transport, "cabi");
+  EXPECT_GT(doc_binding->max_batch_size, 0);
 
-  // 测试重复 BizType 注册拦截
-  bool reg_dup_ret = registry.RegisterAdapter(doc_adapter);
-  EXPECT_FALSE(reg_dup_ret) << "Duplicate biz_type registration must fail";
+  // 测试重复 binding 注册拦截
+  bool reg_dup_ret = registry.RegisterBinding(*doc_binding);
+  EXPECT_FALSE(reg_dup_ret) << "Duplicate binding_id registration must fail";
+  registry.ResetConflictForTesting();
 }
 
 // 7. 测试 RuntimeOptions 与设备参数贯通 (ACC-004)
 TEST_F(CAbiSafetyTest, RuntimeOptionsAndDevicePropagation) {
-  std::string cfg = GetConfigPath("demo/fixtures/mock/pipeline_doc_qa.json");
+  std::string cfg =
+      GetConfigPath("demo/fixtures/mock/pipeline_doc_qa_cabi.json");
   CompanyAlgParamCreate param;
   param.config_file_path = cfg.c_str();
   param.model_root_dir = "./models";
   param.device_id = 0;  // 显式指定设备 0
-  param.biz_type = ALG_BIZ_TYPE_DOC_QA;
 
   void* handle0 = nullptr;
   ASSERT_EQ(Alg_Create(&handle0, &param), 0);
@@ -216,60 +216,72 @@ TEST_F(CAbiSafetyTest, RuntimeOptionsAndDevicePropagation) {
   EXPECT_EQ(Alg_Destroy(handle1), 0);
 }
 
-// 8. 测试 UNKNOWN 业务与未注册业务在 Alg_Create 前置拦截 (REV2-001)
-TEST_F(CAbiSafetyTest, UnknownAndUnregisteredBizRejectionInCreate) {
-  std::string cfg = GetConfigPath("configs/pipeline_keyword_match_rules.json");
+// 8. 测试配置中未知/缺失 binding 在 Alg_Create 前置拦截
+TEST_F(CAbiSafetyTest, UnknownAndUnregisteredBindingRejectionInCreate) {
+  // 1) 传入不存在的接入配置
   CompanyAlgParamCreate param;
-  param.config_file_path = cfg.c_str();
+  param.config_file_path = "non_existent_cabi_config.json";
   param.model_root_dir = "./models";
   param.device_id = 0;
-
-  // 1) 传入 ALG_BIZ_TYPE_UNKNOWN 必须被 Alg_Create 明确拒绝返回 -5
-  param.biz_type = ALG_BIZ_TYPE_UNKNOWN;
   void* handle = nullptr;
   int ret = Alg_Create(&handle, &param);
-  EXPECT_EQ(ret, -5);
+  EXPECT_NE(ret, 0);
   EXPECT_EQ(handle, nullptr);
 
-  // 2) 传入越界/未注册业务枚举 9999 必须被 Alg_Create 明确拒绝返回 -5
-  param.biz_type = static_cast<CompanyAlgBizType>(9999);
+  // 2) 传入缺失 io_binding 的配置
+  std::string bad_cfg = "./results/test_missing_binding.json";
+  std::filesystem::create_directories("./results");
+  {
+    std::ofstream ofs(bad_cfg);
+    ofs << R"({"schema_version": 1, "data": {"pipe_path": "pipeline_keyword_match_rules.json"}})";
+  }
+  param.config_file_path = bad_cfg.c_str();
   ret = Alg_Create(&handle, &param);
-  EXPECT_EQ(ret, -5);
+  EXPECT_NE(ret, 0);
   EXPECT_EQ(handle, nullptr);
+
+  // 3) 传入未知 io_binding
+  {
+    std::ofstream ofs(bad_cfg);
+    ofs << R"({"schema_version": 1, "data": {"pipe_path": "pipeline_keyword_match_rules.json", "io_binding": "unknown.binding.v999"}})";
+  }
+  ret = Alg_Create(&handle, &param);
+  EXPECT_NE(ret, 0);
+  EXPECT_EQ(handle, nullptr);
+  std::filesystem::remove(bad_cfg);
 }
 
-// 9. 测试 Registry 冲突 fail-closed 导致 Alg_Init 失败 (REV2-003)
+// 9. 测试 Registry 冲突 fail-closed 导致 Alg_Init 失败
 TEST_F(CAbiSafetyTest, FailClosedRegistryConflictAndInitFailure) {
-  auto& registry = llm_edgeflow::BizAdapterRegistry::Instance();
+  auto& registry = llm_edgeflow::IoBindingRegistry::Instance();
   registry.ResetConflictForTesting();
 
   // 初始干净状态 Alg_Init 成功
   EXPECT_EQ(Alg_Init(), 0);
 
-  // 注册冲突（重复注册 DocQA 业务）
-  auto doc_adapter = registry.GetAdapter(ALG_BIZ_TYPE_DOC_QA);
-  ASSERT_NE(doc_adapter, nullptr);
-  bool reg_ret = registry.RegisterAdapter(doc_adapter);
+  // 注册冲突（重复注册 DocQA 绑定）
+  const auto* binding = registry.FindBinding("doc_qa.cabi.v1");
+  ASSERT_NE(binding, nullptr);
+  bool reg_ret = registry.RegisterBinding(*binding);
   EXPECT_FALSE(reg_ret);
-  EXPECT_TRUE(registry.HasRegistrationConflict());
+  EXPECT_TRUE(registry.HasConflict());
 
   // 注册冲突发生后，Alg_Init 必须 fail-closed 返回 -6
   EXPECT_EQ(Alg_Init(), -6);
 
   // 测试结束后清理恢复干净状态
   registry.ResetConflictForTesting();
-  EXPECT_FALSE(registry.HasRegistrationConflict());
+  EXPECT_FALSE(registry.HasConflict());
   EXPECT_EQ(Alg_Init(), 0);
 }
 
-// 10. 测试 Adapter Descriptor max_batch_size 契约强制执行 (REV2-005)
+// 10. 测试有效批次上限契约强制执行
 TEST_F(CAbiSafetyTest, AdapterDescriptorMaxBatchSizeEnforcement) {
-  std::string cfg = GetConfigPath("configs/pipeline_keyword_match_rules.json");
+  std::string cfg = GetConfigPath("configs/pipeline_keyword_match_cabi.json");
   CompanyAlgParamCreate param;
   param.config_file_path = cfg.c_str();
   param.model_root_dir = "./models";
   param.device_id = 0;
-  param.biz_type = ALG_BIZ_TYPE_KEYWORD_MATCH;
 
   void* handle = nullptr;
   ASSERT_EQ(Alg_Create(&handle, &param), 0);
@@ -294,12 +306,11 @@ TEST_F(CAbiSafetyTest, AdapterDescriptorMaxBatchSizeEnforcement) {
 
 // 11. 同一 handle 的并发 Process 由接入适配层串行化，停流 join 后才允许 Destroy
 TEST_F(CAbiSafetyTest, SameHandleConcurrentProcessAndQuiescedDestroy) {
-  std::string cfg = GetConfigPath("configs/pipeline_keyword_match_rules.json");
+  std::string cfg = GetConfigPath("configs/pipeline_keyword_match_cabi.json");
   CompanyAlgParamCreate param;
   param.config_file_path = cfg.c_str();
   param.model_root_dir = "./models";
   param.device_id = 0;
-  param.biz_type = ALG_BIZ_TYPE_KEYWORD_MATCH;
 
   void* handle = nullptr;
   ASSERT_EQ(Alg_Create(&handle, &param), 0);
@@ -346,9 +357,10 @@ TEST_F(CAbiSafetyTest, SameHandleConcurrentProcessAndQuiescedDestroy) {
 // 12. RFC-0053: Entity 失败样本在结构化校验失败时，先写 request_id，但 status
 // 与 entities_json 保留原调用者哨兵值
 TEST_F(CAbiSafetyTest, EntityFailureSampleSentinelValues) {
-  auto adapter = llm_edgeflow::BizAdapterRegistry::Instance().GetAdapter(
-      ALG_BIZ_TYPE_ENTITY_EXTRACT);
-  ASSERT_NE(adapter, nullptr);
+  const auto* out_conv =
+      llm_edgeflow::IoConverterRegistry::Instance().FindOutputConverter(
+          "document.structured.cabi.v1");
+  ASSERT_NE(out_conv, nullptr);
 
   llm_edgeflow::AlgContext ctx;
   ctx.Publish(llm_edgeflow::kRawRequestIds, std::vector<uint64_t>{1001, 2002});
@@ -370,9 +382,24 @@ TEST_F(CAbiSafetyTest, EntityFailureSampleSentinelValues) {
   std::strcpy(out1.entities_json, "SENTINEL_PAYLOAD");
 
   void* outputs[2] = {&out0, &out1};
-  int num_outputs = 2;
+  llm_edgeflow::ExternalOutputBatchView out_view;
+  out_view.items = outputs;
+  out_view.count = 2;
+  out_view.capacity = 2;
+  out_view.type_id = out_conv->external_type;
+
+  llm_edgeflow::OutputEncodeOptions options;
+  options.binding_id = "entity_extract.cabi.v1";
+  options.converter_id = out_conv->converter_id;
+  options.transport = "cabi";
+
+  llm_edgeflow::OutputPortBindings bindings(
+      {{"raw_request_ids", "raw_request_ids"},
+       {"extracted_entities", "extracted_entities"}});
+  size_t written_count = 0;
   llm_edgeflow::AdapterStatus status;
-  int ret = adapter->Pack(&ctx, outputs, &num_outputs, &status);
+  int ret = out_conv->encode_fn(&ctx, bindings, options, &out_view,
+                                &written_count, &status);
 
   EXPECT_EQ(ret, COMPANY_ALG_ERR_INVALID_INPUT);
   EXPECT_EQ(out0.request_id, 1001u);

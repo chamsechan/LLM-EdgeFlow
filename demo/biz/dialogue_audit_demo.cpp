@@ -157,6 +157,6 @@ int RunDialogueAuditDemo(const DemoOptions& options) {
 }
 
 REGISTER_DEMO_BIZ("dialogue_audit", "智能对话风控质检业务",
-                  RunDialogueAuditDemo, ALG_BIZ_TYPE_COMPLIANCE_AUDIT);
+                  RunDialogueAuditDemo, "compliance_audit.operator.v1");
 
 }  // namespace alg_demo

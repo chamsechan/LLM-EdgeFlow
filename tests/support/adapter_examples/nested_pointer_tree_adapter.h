@@ -6,7 +6,7 @@
 
 #include "adapter/adapter_status.h"
 #include "adapter/adapter_validation_helper.h"
-#include "adapter/biz_adapter_interface.h"
+#include "edgeflow/c_api.h"
 
 namespace llm_edgeflow {
 namespace template_examples {
@@ -43,31 +43,10 @@ struct TemplateTreeResultDto {
   std::string traversal_path;
 };
 
-class TemplateNestedPointerTreeAdapter : public IBizAdapter {
+class TemplateNestedPointerTreeAdapter {
  public:
-  CompanyAlgBizType BizType() const override {
-    return static_cast<CompanyAlgBizType>(104);
-  }
-
-  const char* AdapterName() const override {
-    return "TemplateNestedPointerTree";
-  }
-
-  const AdapterDescriptor& GetDescriptor() const override {
-    static AdapterDescriptor desc{
-        static_cast<CompanyAlgBizType>(104),
-        "TemplateNestedPointerTree",
-        "2.0.0",
-        "TemplateNestedTreeInput",
-        "TemplateNestedTreeOutput",
-        64,
-        OwnershipPolicy::kCopyIn,
-        ThreadModel::kStatelessThreadSafe,
-        OutputCardinality::kOneToOne,
-        {BizDefinition{"TemplateNestedPointerTree",
-                       "template_nested_tree_pipeline_v1"}}};
-    return desc;
-  }
+  const char* AdapterName() const { return "TemplateNestedPointerTree"; }
+  size_t MaxBatchSize() const { return 64; }
 
   static bool UnpackNodeRecursive(const TemplateTreeNode* node,
                                   TemplateTreeNodeDto* out_dto,
@@ -123,9 +102,9 @@ class TemplateNestedPointerTreeAdapter : public IBizAdapter {
   }
 
   int Unpack(const void** inputs, int num_inputs, AlgContext* ctx,
-             AdapterStatus* out_status = nullptr) const override {
+             AdapterStatus* out_status = nullptr) const {
     int valid_ret = AdapterValidationHelper::ValidateBatchInputs(
-        inputs, num_inputs, GetDescriptor().max_batch_size, AdapterName());
+        inputs, num_inputs, static_cast<int>(MaxBatchSize()), AdapterName());
     if (valid_ret != 0 || !ctx) {
       return AdapterValidationHelper::ReturnInvalidInput(
           out_status, "Batch envelope validation failed", "inputs",
@@ -173,7 +152,7 @@ class TemplateNestedPointerTreeAdapter : public IBizAdapter {
   }
 
   int Pack(AlgContext* ctx, void** outputs, int* num_outputs,
-           AdapterStatus* out_status = nullptr) const override {
+           AdapterStatus* out_status = nullptr) const {
     if (!ctx) return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
 
     const auto* res =

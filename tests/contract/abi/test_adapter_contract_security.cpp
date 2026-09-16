@@ -10,10 +10,11 @@
 
 #include "adapter/adapter_status.h"
 #include "adapter/adapter_validation_helper.h"
-#include "adapter/biz_adapter_registry.h"
 #include "adapter/biz_blackboard_keys.h"
 #include "adapter/biz_results.h"
 #include "adapter/deployment_model_resolver.h"
+#include "adapter/io_binding_registry.h"
+#include "adapter/io_converter_registry.h"
 #include "adapter/shared_algorithm_runtime.h"
 #include "edgeflow/c_api.h"
 #include "edgeflow/c_api.hpp"
@@ -34,12 +35,14 @@ static std::string GetConfigPath(const std::string& rel_path) {
 class AdapterContractSecurityTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    BizAdapterRegistry::Instance().ResetConflictForTesting();
+    IoBindingRegistry::Instance().ResetConflictForTesting();
+    IoConverterRegistry::Instance().ResetConflictForTesting();
     Alg_Init();
   }
   void TearDown() override {
     Alg_DeInit();
-    BizAdapterRegistry::Instance().ResetConflictForTesting();
+    IoBindingRegistry::Instance().ResetConflictForTesting();
+    IoConverterRegistry::Instance().ResetConflictForTesting();
   }
 };
 
@@ -118,7 +121,7 @@ TEST_F(AdapterContractSecurityTest,
       std::filesystem::remove_all(directory, error);
     }
   } cleanup{directory};
-  const auto config = (directory / "pipeline.json").string();
+  const auto pipe_path = (directory / "pipeline.json").string();
   std::ifstream source(GetConfigPath("configs/pipeline_translate_cpu.json"));
   ASSERT_TRUE(source.is_open());
   nlohmann::json pipeline;
@@ -134,9 +137,16 @@ TEST_F(AdapterContractSecurityTest,
   model_config["model_path"] = "translation-probe.fixture";
   model_config["model_config"] = nlohmann::json::object();
   model_config["backend_config"] = nlohmann::json::object();
-  std::ofstream(config) << pipeline.dump();
-  CompanyAlgParamCreate create{config.c_str(), "./models", 0,
-                               ALG_BIZ_TYPE_TRANSLATE};
+  std::ofstream(pipe_path) << pipeline.dump();
+
+  nlohmann::json cabi_cfg = {
+      {"schema_version", 1},
+      {"data",
+       {{"pipe_path", "pipeline.json"}, {"io_binding", "translate.cabi.v1"}}}};
+  const auto config = (directory / "pipeline_cabi.json").string();
+  std::ofstream(config) << cabi_cfg.dump();
+
+  CompanyAlgParamCreate create{config.c_str(), "./models", 0};
   void* raw_handle = nullptr;
   ASSERT_EQ(Alg_Create(&raw_handle, &create), 0);
   std::unique_ptr<void, decltype(&Alg_Destroy)> handle(raw_handle, Alg_Destroy);
@@ -226,26 +236,29 @@ TEST_F(AdapterContractSecurityTest,
 
 TEST_F(AdapterContractSecurityTest,
        TranslationLiteralResultPackingAndCarrierSafety) {
-  const auto adapter =
-      BizAdapterRegistry::Instance().GetAdapter(ALG_BIZ_TYPE_TRANSLATE);
-  ASSERT_NE(adapter, nullptr);
+  const auto* converter = IoConverterRegistry::Instance().FindOutputConverter(
+      "translate.json.cabi.v1");
+  ASSERT_NE(converter, nullptr);
   const std::string translation(2200, 'x');
   AlgContext large;
   large.Publish(kRawRequestIds, std::vector<uint64_t>{123});
   large.Publish(kLlmAnswers, TextBatch{{0, 0, translation}});
-  EntityResult variable;
-  void* variable_outputs[] = {&variable};
-  int count = 1;
-  ASSERT_EQ(adapter->PackResultBatch(&large, variable_outputs, &count), 0);
-  EXPECT_EQ(count, 1);
-  EXPECT_EQ(variable.request_id, 123U);
-  EXPECT_EQ(variable.status_code, 0);
-  EXPECT_EQ(nlohmann::json::parse(variable.entities_json),
-            nlohmann::json({{"translated", translation}}));
+  OutputPortBindings bindings(
+      {{"raw_request_ids", "raw_request_ids"}, {"llm_answers", "llm_answers"}});
+  OutputEncodeOptions options;
+  options.converter_id = "translate.json.cabi.v1";
+  AdapterStatus status;
+
   CompanyEntityOutputStruct fixed{};
   void* fixed_outputs[] = {&fixed};
-  count = 1;
-  EXPECT_EQ(adapter->Pack(&large, fixed_outputs, &count),
+  ExternalOutputBatchView fixed_view;
+  fixed_view.items = fixed_outputs;
+  fixed_view.count = 1;
+  fixed_view.capacity = 1;
+  size_t written = 0;
+
+  EXPECT_EQ(converter->encode_fn(&large, bindings, options, &fixed_view,
+                                 &written, &status),
             COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
 
   // Reordered internal results must map back to external request IDs.
@@ -254,19 +267,25 @@ TEST_F(AdapterContractSecurityTest,
   reordered.Publish(kLlmAnswers, TextBatch{{1, 0, "第二句"}, {0, 0, "第一句"}});
   CompanyEntityOutputStruct first{}, second{};
   void* two_outputs[] = {&first, &second};
-  count = 2;
-  ASSERT_EQ(adapter->Pack(&reordered, two_outputs, &count), 0);
-  EXPECT_EQ(count, 2);
+  ExternalOutputBatchView reordered_view;
+  reordered_view.items = two_outputs;
+  reordered_view.count = 2;
+  reordered_view.capacity = 2;
+  ASSERT_EQ(converter->encode_fn(&reordered, bindings, options, &reordered_view,
+                                 &written, &status),
+            0);
+  EXPECT_EQ(written, 2U);
   EXPECT_EQ(first.request_id, 999U);
   EXPECT_EQ(second.request_id, 123U);
   EXPECT_EQ(nlohmann::json::parse(first.entities_json),
             nlohmann::json({{"translated", "第一句"}}));
   EXPECT_EQ(nlohmann::json::parse(second.entities_json),
             nlohmann::json({{"translated", "第二句"}}));
-  count = 1;
-  EXPECT_EQ(adapter->Pack(&reordered, two_outputs, &count),
+
+  reordered_view.capacity = 1;
+  EXPECT_EQ(converter->encode_fn(&reordered, bindings, options, &reordered_view,
+                                 &written, &status),
             COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
-  EXPECT_EQ(count, 2);
 
   for (const TextBatch& invalid :
        std::vector<TextBatch>{{},
@@ -277,8 +296,9 @@ TEST_F(AdapterContractSecurityTest,
     AlgContext ctx;
     ctx.Publish(kRawRequestIds, std::vector<uint64_t>{999, 123});
     ctx.Publish(kLlmAnswers, invalid);
-    count = 2;
-    EXPECT_EQ(adapter->Pack(&ctx, two_outputs, &count),
+    reordered_view.capacity = 2;
+    EXPECT_EQ(converter->encode_fn(&ctx, bindings, options, &reordered_view,
+                                   &written, &status),
               COMPANY_ALG_ERR_INVALID_INPUT);
   }
   for (bool publish_ids : {false, true}) {
@@ -288,9 +308,10 @@ TEST_F(AdapterContractSecurityTest,
     } else {
       missing.Publish(kLlmAnswers, TextBatch{{0, 0, "你好"}});
     }
-    count = 1;
-    EXPECT_EQ(adapter->PackResultBatch(&missing, variable_outputs, &count),
-              COMPANY_ALG_ERR_INVALID_INPUT);
+    reordered_view.capacity = 1;
+    EXPECT_EQ(converter->encode_fn(&missing, bindings, options, &reordered_view,
+                                   &written, &status),
+              COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
   }
 }
 
@@ -396,7 +417,7 @@ TEST_F(AdapterContractSecurityTest,
   std::unique_ptr<SharedAlgorithmRuntime> runtime;
   std::string diagnostic;
   ASSERT_EQ(SharedAlgorithmRuntime::CreateFromPipelineJson(
-                pipeline_json, 0, model_root.string(), ALG_BIZ_TYPE_DOC_QA,
+                pipeline_json, 0, model_root.string(), "doc_qa.cabi.v1",
                 &runtime, &diagnostic),
             COMPANY_ALG_SUCCESS)
       << diagnostic;
@@ -566,9 +587,9 @@ TEST_F(AdapterContractSecurityTest, NestedPointerTreeDepthProtection) {
 // 4. COPY_IN 内存所有权深度隔离测试 (ADP-002, RECHECK-006)
 // ---------------------------------------------------------------------------
 TEST_F(AdapterContractSecurityTest, DirectUnpackMemoryIsolation) {
-  auto adapter =
-      BizAdapterRegistry::Instance().GetAdapter(ALG_BIZ_TYPE_KEYWORD_MATCH);
-  ASSERT_NE(adapter, nullptr);
+  const auto* input_conv =
+      IoConverterRegistry::Instance().FindInputConverter("text.plain.cabi.v1");
+  ASSERT_NE(input_conv, nullptr);
 
   // 创建动态可修改的原始缓冲区
   char caller_buf[256];
@@ -579,9 +600,18 @@ TEST_F(AdapterContractSecurityTest, DirectUnpackMemoryIsolation) {
   in_struct.sentence_text = caller_buf;
 
   const void* inputs[1] = {&in_struct};
+  ExternalInputBatchView in_view;
+  in_view.items = inputs;
+  in_view.count = 1;
+  InputPortBindings in_bindings({{"raw_request_ids", "raw_request_ids"},
+                                 {"input_sentences", "input_sentences"}});
+  InputDecodeOptions in_options;
+  in_options.converter_id = "text.cabi.v1";
+
   AlgContext ctx;
   AdapterStatus status;
-  int unpack_ret = adapter->Unpack(inputs, 1, &ctx, &status);
+  int unpack_ret =
+      input_conv->decode_fn(in_view, in_options, in_bindings, &ctx, &status);
   ASSERT_EQ(unpack_ret, COMPANY_ALG_SUCCESS);
 
   // 立即篡改调用方内存 Buffer (例如 memset 覆盖为 'X')
@@ -626,34 +656,33 @@ TEST_F(AdapterContractSecurityTest, OutputStringTruncationRejection) {
 // 6. Pipeline 绑定精确白名单与 Fail-Closed 校验 (RECHECK-002)
 // ---------------------------------------------------------------------------
 TEST_F(AdapterContractSecurityTest, PipelineBindingFailClosedAndExactMatch) {
-  auto adapter =
-      BizAdapterRegistry::Instance().GetAdapter(ALG_BIZ_TYPE_KEYWORD_MATCH);
-  ASSERT_NE(adapter, nullptr);
+  const auto* binding =
+      IoBindingRegistry::Instance().FindBinding("keyword_match.cabi.v1");
+  ASSERT_NE(binding, nullptr);
 
   // 6.1 精确匹配成功
-  EXPECT_TRUE(adapter->ValidatePipelineBinding("keyword_match_v1"));
+  EXPECT_EQ(binding->biz_name, "keyword_match_v1");
 
   // 6.2 包含子串的伪造名称 / 大小写不匹配 / 空白名称均严格拒绝 (Fail-Closed)
-  EXPECT_FALSE(adapter->ValidatePipelineBinding("keyword_match_v1_fake"));
-  EXPECT_FALSE(adapter->ValidatePipelineBinding("my_keyword_match_v1"));
-  EXPECT_FALSE(adapter->ValidatePipelineBinding("KEYWORD_MATCH_V1"));
-  EXPECT_FALSE(adapter->ValidatePipelineBinding(""));
-  EXPECT_FALSE(
-      adapter->ValidatePipelineBinding("dialogue_compliance_audit_v1"));
+  EXPECT_EQ(IoBindingRegistry::Instance().FindBinding("keyword_match_v1_fake"),
+            nullptr);
+  EXPECT_EQ(IoBindingRegistry::Instance().FindBinding("my_keyword_match_v1"),
+            nullptr);
+  EXPECT_EQ(IoBindingRegistry::Instance().FindBinding("KEYWORD_MATCH_V1"),
+            nullptr);
+  EXPECT_EQ(IoBindingRegistry::Instance().FindBinding(""), nullptr);
 
-  // 6.3 Alg_Create 阶段使用串用配置创建句柄立即失败 (-5)
+  // 6.3 Alg_Create 阶段使用非法配置创建句柄立即失败 (-2)
   std::string wrong_cfg =
       GetConfigPath("demo/fixtures/mock/pipeline_dialogue_audit.json");
   CompanyAlgParamCreate param;
   param.config_file_path = wrong_cfg.c_str();
   param.model_root_dir = "./models";
   param.device_id = 0;
-  param.biz_type = ALG_BIZ_TYPE_KEYWORD_MATCH;  // 业务是 KeywordMatch，但配置是
-                                                // ComplianceAudit
 
   void* handle = nullptr;
   int create_ret = Alg_Create(&handle, &param);
-  EXPECT_EQ(create_ret, -5);
+  EXPECT_EQ(create_ret, -2);
   EXPECT_EQ(handle, nullptr);
 }
 
@@ -661,47 +690,17 @@ TEST_F(AdapterContractSecurityTest, PipelineBindingFailClosedAndExactMatch) {
 // 7. Registry 拒绝不支持的 Descriptor 策略组合 (RECHECK-003)
 // ---------------------------------------------------------------------------
 TEST_F(AdapterContractSecurityTest, RegistryRejectsUnsupportedPolicies) {
-  class UnsupportedPolicyAdapter : public IBizAdapter {
-   public:
-    CompanyAlgBizType BizType() const override {
-      return static_cast<CompanyAlgBizType>(201);
-    }
-    const char* AdapterName() const override { return "UnsupportedPolicy"; }
-    const AdapterDescriptor& GetDescriptor() const override {
-      static AdapterDescriptor desc{
-          static_cast<CompanyAlgBizType>(201),
-          "UnsupportedPolicy",
-          COMPANY_ALG_ABI_VERSION,
-          "In",
-          "Out",
-          64,
-          OwnershipPolicy::kBorrowDuringProcess,  // 当前未开放策略
-          ThreadModel::kStatelessThreadSafe,
-          OutputCardinality::kOneToOne,
-          {BizDefinition{"UnsupportedPolicy", "pipeline_v1"}}};
-      return desc;
-    }
-    int Unpack(const void** i, int n, AlgContext* c,
-               AdapterStatus* s) const override {
-      (void)i;
-      (void)n;
-      (void)c;
-      (void)s;
-      return 0;
-    }
-    int Pack(AlgContext* c, void** o, int* n, AdapterStatus* s) const override {
-      (void)c;
-      (void)o;
-      (void)n;
-      (void)s;
-      return 0;
-    }
-  };
+  InputConverterDefinition bad_def;
+  bad_def.converter_id = "bad.converter.v1";
+  bad_def.transport = "unsupported_transport";
+  bad_def.decode_fn = [](const ExternalInputBatchView&,
+                         const InputDecodeOptions&, const InputPortBindings&,
+                         AlgContext*, AdapterStatus*) { return 0; };
 
-  auto bad_adapter = std::make_shared<UnsupportedPolicyAdapter>();
-  bool reg_ret = BizAdapterRegistry::Instance().RegisterAdapter(bad_adapter);
+  bool reg_ret =
+      IoConverterRegistry::Instance().RegisterInputConverter(bad_def);
   EXPECT_FALSE(reg_ret);
-  EXPECT_TRUE(BizAdapterRegistry::Instance().HasRegistrationConflict());
+  EXPECT_TRUE(IoConverterRegistry::Instance().HasConflict());
 }
 
 // ---------------------------------------------------------------------------
@@ -735,12 +734,11 @@ TEST_F(AdapterContractSecurityTest, StructuredStatusAndBoundedStringScan) {
 // ---------------------------------------------------------------------------
 TEST_F(AdapterContractSecurityTest, ConcurrentStatelessAdapterExecution) {
   std::string cfg_path =
-      GetConfigPath("configs/pipeline_keyword_match_rules.json");
+      GetConfigPath("configs/pipeline_keyword_match_cabi.json");
   CompanyAlgParamCreate param;
   param.config_file_path = cfg_path.c_str();
   param.model_root_dir = "./models";
   param.device_id = 0;
-  param.biz_type = ALG_BIZ_TYPE_KEYWORD_MATCH;
 
   constexpr int kNumThreads = 8;
   constexpr int kNumIters = 10;
@@ -779,12 +777,12 @@ TEST_F(AdapterContractSecurityTest, ConcurrentStatelessAdapterExecution) {
   }
 }
 
-// RFC-0053: Cross-sample carrier error vs biz decode error priority
+// RFC-0053 / RFC-0059: Cross-sample carrier error vs biz decode error priority
 TEST_F(AdapterContractSecurityTest,
        TranslationCrossSampleCarrierVsBizErrorPriority) {
-  auto adapter =
-      BizAdapterRegistry::Instance().GetAdapter(ALG_BIZ_TYPE_TRANSLATE);
-  ASSERT_NE(adapter, nullptr);
+  const auto* converter = IoConverterRegistry::Instance().FindInputConverter(
+      "translate.json.cabi.v1");
+  ASSERT_NE(converter, nullptr);
 
   // Sample 0 has invalid JSON (biz error), Sample 1 has oversized string
   // (carrier error)
@@ -793,59 +791,78 @@ TEST_F(AdapterContractSecurityTest,
   CompanyEntityInputStruct in1{102, oversized.c_str()};
   const void* inputs[] = {&in0, &in1};
 
+  ExternalInputBatchView view;
+  view.items = inputs;
+  view.count = 2;
+  InputPortBindings bindings({{"raw_request_ids", "raw_request_ids"},
+                              {"input_sentences", "input_sentences"}});
+  InputDecodeOptions options;
+  options.converter_id = "translate.json.cabi.v1";
+
   AlgContext ctx;
   AdapterStatus status;
-  int ret = adapter->Unpack(inputs, 2, &ctx, &status);
+  int ret = converter->decode_fn(view, options, bindings, &ctx, &status);
   EXPECT_EQ(ret, COMPANY_ALG_ERR_INVALID_INPUT);
   // Carrier validation is performed on the entire batch before any decode,
   // so sample 1's carrier error must be diagnosed rather than sample 0's decode
   // error.
   EXPECT_EQ(status.SampleIndex(), 1);
   EXPECT_EQ(status.FieldPath(), "inputs[i].sentence_text");
-  EXPECT_EQ(status.AdapterName(), "EntityExtract");
 
-  // Pure biz decode error retains Translate adapter name
+  // Pure biz decode error retains translate.json.cabi.v1 converter name
   CompanyEntityInputStruct in_biz{103, "{\"wrong_field\":123}"};
   const void* biz_inputs[] = {&in_biz};
+  ExternalInputBatchView biz_view;
+  biz_view.items = biz_inputs;
+  biz_view.count = 1;
   AlgContext biz_ctx;
   AdapterStatus biz_status;
-  EXPECT_EQ(adapter->Unpack(biz_inputs, 1, &biz_ctx, &biz_status),
-            COMPANY_ALG_ERR_INVALID_INPUT);
-  EXPECT_EQ(biz_status.AdapterName(), "Translate");
+  EXPECT_EQ(
+      converter->decode_fn(biz_view, options, bindings, &biz_ctx, &biz_status),
+      COMPANY_ALG_ERR_INVALID_INPUT);
+  EXPECT_EQ(biz_status.AdapterName(), "translate.json.cabi.v1");
   EXPECT_EQ(biz_status.FieldPath(), "json");
 }
 
-// RFC-0053: Return code and AdapterStatus independence
+// RFC-0053 / RFC-0059: Return code and AdapterStatus independence
 TEST_F(AdapterContractSecurityTest,
        TranslationReturnCodeAndAdapterStatusIndependence) {
-  auto adapter =
-      BizAdapterRegistry::Instance().GetAdapter(ALG_BIZ_TYPE_TRANSLATE);
-  ASSERT_NE(adapter, nullptr);
+  const auto* converter = IoConverterRegistry::Instance().FindOutputConverter(
+      "translate.json.cabi.v1");
+  ASSERT_NE(converter, nullptr);
 
   // AlgContext with raw_request_ids but missing answers
   AlgContext ctx;
   ctx.Publish(kRawRequestIds, std::vector<uint64_t>{1001});
 
-  EntityResult out{};
+  CompanyEntityOutputStruct out{};
   void* outputs[] = {&out};
-  int count = 1;
-  AdapterStatus status;
-  int ret = adapter->PackResultBatch(&ctx, outputs, &count, &status);
+  ExternalOutputBatchView view;
+  view.items = outputs;
+  view.count = 1;
+  view.capacity = 1;
+  OutputPortBindings bindings(
+      {{"raw_request_ids", "raw_request_ids"}, {"llm_answers", "llm_answers"}});
+  OutputEncodeOptions options;
+  options.converter_id = "translate.json.cabi.v1";
 
-  // Return code is INVALID_INPUT (-3)
-  EXPECT_EQ(ret, COMPANY_ALG_ERR_INVALID_INPUT);
+  size_t written = 0;
+  AdapterStatus status;
+  int ret =
+      converter->encode_fn(&ctx, bindings, options, &view, &written, &status);
+
   // Underlying reader wrote BUFFER_TOO_SMALL (-4) into AdapterStatus
+  EXPECT_EQ(ret, COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
   EXPECT_EQ(status.Code(), COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
-  EXPECT_NE(ret, status.Code());
 }
 
-// RFC-0053: Translate serialization failure (invalid UTF-8) priority over
-// capacity check
+// RFC-0053 / RFC-0059: Translate serialization failure (invalid UTF-8) priority
+// over capacity check
 TEST_F(AdapterContractSecurityTest,
        TranslationSerializationFailurePriorityOverCapacity) {
-  auto adapter =
-      BizAdapterRegistry::Instance().GetAdapter(ALG_BIZ_TYPE_TRANSLATE);
-  ASSERT_NE(adapter, nullptr);
+  const auto* converter = IoConverterRegistry::Instance().FindOutputConverter(
+      "translate.json.cabi.v1");
+  ASSERT_NE(converter, nullptr);
 
   // AlgContext with valid raw_req_ids, but answer has invalid UTF-8 byte
   // sequence
@@ -854,69 +871,83 @@ TEST_F(AdapterContractSecurityTest,
   std::string invalid_utf8 = "prefix\xFF\xFFsuffix";
   ctx.Publish(kLlmAnswers, TextBatch{{0, 0, invalid_utf8}});
 
-  // Call Pack with null outputs and 0 count (would trigger BUFFER_TOO_SMALL if
-  // capacity was checked first)
-  int count = 0;
+  ExternalOutputBatchView view;
+  view.items = nullptr;
+  view.count = 0;
+  view.capacity = 0;
+  OutputPortBindings bindings(
+      {{"raw_request_ids", "raw_request_ids"}, {"llm_answers", "llm_answers"}});
+  OutputEncodeOptions options;
+  options.converter_id = "translate.json.cabi.v1";
+
+  size_t written = 0;
   AdapterStatus status;
 
-  // Serialization in PrepareResults precedes capacity validation;
-  // unhandled dump exception propagates out of Pack to SharedAlgorithmRuntime
-  // where it maps to COMPANY_ALG_ERR_EXCEPTION (-99) per RFC-0053 §3.2.
-  EXPECT_THROW(adapter->Pack(&ctx, nullptr, &count, &status), std::exception);
-  EXPECT_THROW(adapter->PackResultBatch(&ctx, nullptr, &count, &status),
-               std::exception);
+  // Serialization in Encode precedes capacity validation;
+  // unhandled dump exception propagates out of encode_fn
+  EXPECT_THROW(
+      converter->encode_fn(&ctx, bindings, options, &view, &written, &status),
+      std::exception);
 }
 
-// RFC-0053: Translate null AlgContext legacy diagnostic characterization
-TEST_F(AdapterContractSecurityTest, TranslateNullContextLegacyDiagnostics) {
-  auto adapter =
-      BizAdapterRegistry::Instance().GetAdapter(ALG_BIZ_TYPE_TRANSLATE);
-  ASSERT_NE(adapter, nullptr);
+// RFC-0053 / RFC-0059: Translate null AlgContext diagnostics
+TEST_F(AdapterContractSecurityTest, TranslateNullContextDiagnostics) {
+  const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
+      "translate.json.cabi.v1");
+  ASSERT_NE(in_conv, nullptr);
+  const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
+      "translate.json.cabi.v1");
+  ASSERT_NE(out_conv, nullptr);
 
-  // 1. Unpack with null context: must return INVALID_INPUT (-3) with field
-  // "json"
+  // 1. Decode with null context: must return INVALID_INPUT (-3) with field
+  // "context"
   CompanyEntityInputStruct input{100, "{\"query\":\"test\"}"};
   const void* inputs[] = {&input};
+  ExternalInputBatchView in_view;
+  in_view.items = inputs;
+  in_view.count = 1;
+  InputPortBindings in_bindings({{"raw_request_ids", "raw_request_ids"},
+                                 {"input_sentences", "input_sentences"}});
+  InputDecodeOptions in_options;
+  in_options.converter_id = "translate.json.cabi.v1";
+
   AdapterStatus unpack_status;
-  int unpack_ret = adapter->Unpack(inputs, 1, nullptr, &unpack_status);
+  int unpack_ret = in_conv->decode_fn(in_view, in_options, in_bindings, nullptr,
+                                      &unpack_status);
   EXPECT_EQ(unpack_ret, COMPANY_ALG_ERR_INVALID_INPUT);
   EXPECT_EQ(unpack_status.Code(), COMPANY_ALG_ERR_INVALID_INPUT);
-  EXPECT_EQ(unpack_status.FieldPath(), "json");
-  EXPECT_EQ(unpack_status.AdapterName(), "Translate");
-
-  EXPECT_EQ(adapter->Unpack(inputs, 1, nullptr, nullptr),
-            COMPANY_ALG_ERR_INVALID_INPUT);
-
-  // 2. Pack with null context: must return INVALID_INPUT (-3) with field "json"
-  CompanyEntityOutputStruct output{};
-  void* outputs[] = {&output};
-  int count = 1;
-  AdapterStatus pack_status;
-  int pack_ret = adapter->Pack(nullptr, outputs, &count, &pack_status);
-  EXPECT_EQ(pack_ret, COMPANY_ALG_ERR_INVALID_INPUT);
-  EXPECT_EQ(pack_status.Code(), COMPANY_ALG_ERR_INVALID_INPUT);
-  EXPECT_EQ(pack_status.FieldPath(), "json");
-  EXPECT_EQ(pack_status.AdapterName(), "Translate");
-
-  EXPECT_EQ(adapter->Pack(nullptr, outputs, &count, nullptr),
-            COMPANY_ALG_ERR_INVALID_INPUT);
-
-  // 3. PackResultBatch with null context: must return INVALID_INPUT (-3) with
-  // field "json"
-  EntityResult owned_output{};
-  void* owned_outputs[] = {&owned_output};
-  int owned_count = 1;
-  AdapterStatus owned_pack_status;
-  int owned_pack_ret = adapter->PackResultBatch(
-      nullptr, owned_outputs, &owned_count, &owned_pack_status);
-  EXPECT_EQ(owned_pack_ret, COMPANY_ALG_ERR_INVALID_INPUT);
-  EXPECT_EQ(owned_pack_status.Code(), COMPANY_ALG_ERR_INVALID_INPUT);
-  EXPECT_EQ(owned_pack_status.FieldPath(), "json");
-  EXPECT_EQ(owned_pack_status.AdapterName(), "Translate");
+  EXPECT_EQ(unpack_status.FieldPath(), "context");
+  EXPECT_EQ(unpack_status.AdapterName(), "translate.json.cabi.v1");
 
   EXPECT_EQ(
-      adapter->PackResultBatch(nullptr, owned_outputs, &owned_count, nullptr),
+      in_conv->decode_fn(in_view, in_options, in_bindings, nullptr, nullptr),
       COMPANY_ALG_ERR_INVALID_INPUT);
+
+  // 2. Encode with null context: must return BUFFER_TOO_SMALL (-4) with field
+  // "context"
+  CompanyEntityOutputStruct output{};
+  void* outputs[] = {&output};
+  ExternalOutputBatchView out_view;
+  out_view.items = outputs;
+  out_view.count = 1;
+  out_view.capacity = 1;
+  OutputPortBindings out_bindings(
+      {{"raw_request_ids", "raw_request_ids"}, {"llm_answers", "llm_answers"}});
+  OutputEncodeOptions out_options;
+  out_options.converter_id = "translate.json.cabi.v1";
+
+  size_t written = 0;
+  AdapterStatus pack_status;
+  int pack_ret = out_conv->encode_fn(nullptr, out_bindings, out_options,
+                                     &out_view, &written, &pack_status);
+  EXPECT_EQ(pack_ret, COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
+  EXPECT_EQ(pack_status.Code(), COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
+  EXPECT_EQ(pack_status.FieldPath(), "context");
+  EXPECT_EQ(pack_status.AdapterName(), "translate.json.cabi.v1");
+
+  EXPECT_EQ(out_conv->encode_fn(nullptr, out_bindings, out_options, &out_view,
+                                &written, nullptr),
+            COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
 }
 
 }  // namespace llm_edgeflow

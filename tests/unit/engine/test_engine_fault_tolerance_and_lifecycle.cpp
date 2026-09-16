@@ -317,7 +317,7 @@ TEST_F(EngineFaultToleranceAndLifecycleTest, LargePayloadRaiiDestruction) {
 // 4. 全局生命周期高频循环初始化与销毁压测 (30 Cycles)
 TEST_F(EngineFaultToleranceAndLifecycleTest, RapidGlobalLifecycleInitDeInit) {
   std::string cfg_path =
-      GetConfigPath("configs/pipeline_keyword_match_rules.json");
+      GetConfigPath("configs/pipeline_keyword_match_cabi.json");
 
   for (int cycle = 0; cycle < 30; ++cycle) {
     EXPECT_EQ(Alg_Init(), 0);
@@ -326,7 +326,6 @@ TEST_F(EngineFaultToleranceAndLifecycleTest, RapidGlobalLifecycleInitDeInit) {
     param.config_file_path = cfg_path.c_str();
     param.model_root_dir = "./models";
     param.device_id = 0;
-    param.biz_type = ALG_BIZ_TYPE_KEYWORD_MATCH;
 
     void* handle = nullptr;
     ASSERT_EQ(Alg_Create(&handle, &param), 0);

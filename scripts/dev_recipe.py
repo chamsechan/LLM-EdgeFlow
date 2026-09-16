@@ -124,8 +124,8 @@ def native(tool, arguments, root, document=None):
         raise RecipeError("Native " + arguments[0] + " failed", report)
     if arguments and arguments[0] == "catalog":
         schema_version = report.get("schema_version")
-        if schema_version != 3:
-            raise RecipeError(f"Unsupported Catalog schema version {schema_version}; dev_recipe requires Catalog v3", report)
+        if schema_version not in (3, 4):
+            raise RecipeError(f"Unsupported Catalog schema version {schema_version}; dev_recipe requires Catalog v3 or v4", report)
     return report
 
 
@@ -158,7 +158,7 @@ def make_recipe_conf(pipeline_doc, outputs, pipeline_target, root, model_root=No
     models = absolute(model_root, root) if model_root is not None else root / "models"
     bundle = deployment_root(root, pipeline, models)
     return VERIFY_SELECTION.build_run_conf(pipeline_doc, outputs,
-                                           pipeline.relative_to(bundle), models, bundle)
+                                           pipeline.name, models, bundle)
 
 
 def command(description, argv):
@@ -310,7 +310,7 @@ def prepare(recipe, name, profile_name, tool_path, build_dir, pipeline_target, r
             temp = Path(temporary)
             preview_pipeline = temp / "pipeline.json"
             preview_pipeline.write_text(json.dumps(deployment_preview), encoding="utf-8")
-            preview_conf = VERIFY_SELECTION.build_run_conf(deployment_preview, outputs, preview_pipeline.relative_to(bundle), models, bundle)
+            preview_conf = VERIFY_SELECTION.build_run_conf(deployment_preview, outputs, preview_pipeline.name, models, bundle)
             (temp / "pipeline.conf").write_text(json.dumps(preview_conf), encoding="utf-8")
             native(tool, ["resolve-conf", str((temp / "pipeline.conf").relative_to(bundle)), "--root", str(bundle)], root)
         for path, document in [(target, pipeline), (conf_target, conf), (effects_target, spec)]:

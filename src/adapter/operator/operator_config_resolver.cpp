@@ -6,7 +6,8 @@
 #include <unordered_map>
 #include <unordered_set>
 
-#include "adapter/biz_adapter_registry.h"
+#include "adapter/deployment_io_config.h"
+#include "adapter/io_binding_resolver.h"
 #include "adapter/operator/json_output_config_reader.h"
 #include "contracts/diagnostic.h"
 #include "contracts/path_utils.h"
@@ -15,10 +16,147 @@ namespace llm_edgeflow {
 
 namespace {
 
-int ResolveOutputAllocation(const nlohmann::json& config,
-                            const OperatorBizSlot& slot,
-                            ResolvedOutputPoolSpec* result,
-                            std::string* parameter_text, std::string* error) {
+int ResolveContainedPath(const std::filesystem::path& canonical_root,
+                         const std::string& relative_value,
+                         const char* field_name, bool check_exists,
+                         bool is_directory, std::filesystem::path* resolved,
+                         std::string* error_msg) noexcept {
+  try {
+    if (!resolved) return -2;
+    if (relative_value.empty()) {
+      if (error_msg) *error_msg = std::string(field_name) + " path is empty";
+      return -2;
+    }
+    // 拒绝 POSIX / Windows / UNC 绝对路径与盘符
+    if (relative_value[0] == '/' || relative_value[0] == '\\') {
+      if (error_msg) {
+        *error_msg = std::string(field_name) +
+                     " must be relative, got absolute: " + relative_value;
+      }
+      return -2;
+    }
+    if (relative_value.size() >= 2 &&
+        ((relative_value[0] >= 'a' && relative_value[0] <= 'z') ||
+         (relative_value[0] >= 'A' && relative_value[0] <= 'Z')) &&
+        relative_value[1] == ':') {
+      if (error_msg) {
+        *error_msg = std::string(field_name) +
+                     " contains Windows drive letter: " + relative_value;
+      }
+      return -2;
+    }
+    if (relative_value.rfind("//", 0) == 0 ||
+        relative_value.rfind("\\\\", 0) == 0) {
+      if (error_msg) {
+        *error_msg =
+            std::string(field_name) + " contains UNC path: " + relative_value;
+      }
+      return -2;
+    }
+
+    std::filesystem::path rel_path(relative_value);
+    if (rel_path.is_absolute() || rel_path.has_root_name() ||
+        rel_path.has_root_directory()) {
+      if (error_msg) {
+        *error_msg =
+            std::string(field_name) + " has absolute root: " + relative_value;
+      }
+      return -2;
+    }
+
+    std::error_code ec;
+    std::filesystem::path combined =
+        (canonical_root / rel_path).lexically_normal();
+    if (!IsPathWithinRoot(canonical_root, combined)) {
+      if (error_msg) {
+        *error_msg =
+            std::string(field_name) + " escapes model_path: " + relative_value;
+      }
+      return -2;
+    }
+
+    std::filesystem::path canon_p;
+    if (check_exists) {
+      if (!std::filesystem::exists(combined, ec) || ec) {
+        if (error_msg) {
+          *error_msg = std::string(field_name) +
+                       " file does not exist: " + combined.string();
+        }
+        return -2;
+      }
+      canon_p = std::filesystem::canonical(combined, ec);
+      if (ec) {
+        if (error_msg) {
+          *error_msg = "Failed to canonicalize " + std::string(field_name) +
+                       ": " + combined.string();
+        }
+        return -2;
+      }
+    } else {
+      canon_p = std::filesystem::weakly_canonical(combined, ec);
+      if (ec) {
+        if (error_msg) {
+          *error_msg = "Failed to weakly canonicalize " +
+                       std::string(field_name) + ": " + combined.string();
+        }
+        return -2;
+      }
+    }
+
+    if (!IsPathWithinRoot(canonical_root, canon_p)) {
+      if (error_msg) {
+        *error_msg = std::string(field_name) +
+                     " symlink escapes model_path: " + canon_p.string();
+      }
+      return -2;
+    }
+
+    if (check_exists) {
+      if (is_directory) {
+        if (!std::filesystem::is_directory(canon_p, ec) || ec) {
+          if (error_msg) {
+            *error_msg = std::string(field_name) +
+                         " is not a directory: " + canon_p.string();
+          }
+          return -2;
+        }
+      } else {
+        if (!std::filesystem::is_regular_file(canon_p, ec) || ec) {
+          if (error_msg) {
+            *error_msg = std::string(field_name) +
+                         " must be a regular file: " + canon_p.string();
+          }
+          return -2;
+        }
+      }
+    }
+
+    *resolved = canon_p;
+    return 0;
+  } catch (const std::exception& e) {
+    SetDiagnosticNoexcept(error_msg, e.what());
+    return -2;
+  } catch (...) {
+    SetDiagnosticNoexcept(error_msg, "Unknown exception");
+    return -2;
+  }
+}
+
+int ResolveRequiredFileUnderRoot(const std::filesystem::path& canonical_root,
+                                 const std::string& relative_value,
+                                 const char* field_name,
+                                 std::filesystem::path* resolved,
+                                 std::string* error_msg) noexcept {
+  return ResolveContainedPath(canonical_root, relative_value, field_name, true,
+                              false, resolved, error_msg);
+}
+
+}  // namespace
+
+int OperatorConfigResolver::ResolveOutputAllocation(
+    const nlohmann::json& config, const ExternalSlotDefinition& slot,
+    ResolvedOutputPoolSpec* result, std::string* parameter_text,
+    std::string* error) {
   if (!config.is_object()) {
     if (error) *error = "Output allocation must be an object";
     return -2;
@@ -41,7 +179,7 @@ int ResolveOutputAllocation(const nlohmann::json& config,
   if (requested.type != slot.type_suffix) {
     if (error)
       *error = "Output type '" + requested.type + "' does not match slot '" +
-               slot.logical_name + "'";
+               slot.slot_name + "'";
     return -2;
   }
   if (config.contains("allocator")) {
@@ -131,144 +269,6 @@ int ResolveOutputAllocation(const nlohmann::json& config,
   return ResolveOutputPoolSpec(*binding, requested, result, error) ? 0 : -2;
 }
 
-int ResolveContainedPath(const std::filesystem::path& canonical_root,
-                         const std::string& relative_value,
-                         const char* field_name, bool check_exists,
-                         bool is_directory, std::filesystem::path* resolved,
-                         std::string* error_msg) noexcept {
-  try {
-    if (!resolved) return -2;
-    if (relative_value.empty()) {
-      if (error_msg) *error_msg = std::string(field_name) + " path is empty";
-      return -2;
-    }
-    // 拒绝 POSIX / Windows / UNC 绝对路径与盘符
-    if (relative_value[0] == '/' || relative_value[0] == '\\') {
-      if (error_msg) {
-        *error_msg = std::string(field_name) +
-                     " must be relative, got absolute: " + relative_value;
-      }
-      return -2;
-    }
-    if (relative_value.size() >= 2 &&
-        ((relative_value[0] >= 'a' && relative_value[0] <= 'z') ||
-         (relative_value[0] >= 'A' && relative_value[0] <= 'Z')) &&
-        relative_value[1] == ':') {
-      if (error_msg) {
-        *error_msg = std::string(field_name) +
-                     " contains Windows drive letter: " + relative_value;
-      }
-      return -2;
-    }
-    if (relative_value.rfind("//", 0) == 0 ||
-        relative_value.rfind("\\\\", 0) == 0) {
-      if (error_msg) {
-        *error_msg =
-            std::string(field_name) + " contains UNC path: " + relative_value;
-      }
-      return -2;
-    }
-
-    std::filesystem::path rel_path(relative_value);
-    if (rel_path.is_absolute() || rel_path.has_root_name() ||
-        rel_path.has_root_directory()) {
-      if (error_msg) {
-        *error_msg =
-            std::string(field_name) + " has absolute root: " + relative_value;
-      }
-      return -2;
-    }
-
-    std::error_code ec;
-    std::filesystem::path combined =
-        (canonical_root / rel_path).lexically_normal();
-    if (!IsPathWithinRoot(canonical_root, combined)) {
-      if (error_msg) {
-        *error_msg =
-            std::string(field_name) + " escapes model_path: " + relative_value;
-      }
-      return -2;
-    }
-
-    std::filesystem::path canon_p;
-    if (check_exists) {
-      if (!std::filesystem::exists(combined, ec) || ec) {
-        if (error_msg) {
-          *error_msg = std::string(field_name) +
-                       " file does not exist: " + combined.string();
-        }
-        return -2;
-      }
-      canon_p = std::filesystem::canonical(combined, ec);
-      if (ec) {
-        if (error_msg) {
-          *error_msg = "Failed to canonicalize " + std::string(field_name) +
-                       ": " + combined.string();
-        }
-        return -2;
-      }
-    } else {
-      canon_p = std::filesystem::weakly_canonical(combined, ec);
-      if (ec) {
-        if (error_msg) {
-          *error_msg = "Failed to weakly canonicalize " +
-                       std::string(field_name) + ": " + combined.string();
-        }
-        return -2;
-      }
-    }
-
-    // 组件级严格包含校验，杜绝前缀混淆 (/root/a vs /root/ab) 与 symlink 逃逸
-    if (!IsPathWithinRoot(canonical_root, canon_p)) {
-      if (error_msg) {
-        *error_msg = std::string(field_name) +
-                     " symlink escapes model_path: " + canon_p.string();
-      }
-      return -2;
-    }
-
-    if (check_exists) {
-      if (is_directory) {
-        if (!std::filesystem::is_directory(canon_p, ec) || ec) {
-          if (error_msg) {
-            *error_msg = std::string(field_name) +
-                         " is not a directory: " + canon_p.string();
-          }
-          return -2;
-        }
-      } else {
-        if (!std::filesystem::is_regular_file(canon_p, ec) || ec) {
-          if (error_msg) {
-            *error_msg = std::string(field_name) +
-                         " must be a regular file: " + canon_p.string();
-          }
-          return -2;
-        }
-      }
-    }
-
-    *resolved = canon_p;
-    return 0;
-  } catch (const std::exception& e) {
-    SetDiagnosticNoexcept(error_msg, e.what());
-    return -2;
-  } catch (...) {
-    SetDiagnosticNoexcept(error_msg, "Unknown exception");
-    return -2;
-  }
-}
-
-int ResolveRequiredFileUnderRoot(const std::filesystem::path& canonical_root,
-                                 const std::string& relative_value,
-                                 const char* field_name,
-                                 std::filesystem::path* resolved,
-                                 std::string* error_msg) noexcept {
-  return ResolveContainedPath(canonical_root, relative_value, field_name, true,
-                              false, resolved, error_msg);
-}
-
-}  // namespace
-
 int OperatorConfigResolver::ResolveModelReferenceUnderRoot(
     const std::filesystem::path& root, const std::string& rel_or_abs,
     const char* field_name, std::filesystem::path* out_path,
@@ -353,290 +353,84 @@ int OperatorConfigResolver::Resolve(const char* model_path,
       return -2;
     }
 
-    // 统一沙箱解析 cfg_file_name (必须存在且为常规文件)
+    // 沙箱解析 cfg_file_name
     std::filesystem::path full_cfg;
     int ret = ResolveRequiredFileUnderRoot(
         canon_root, cfg_file_name, "cfg_file_name", &full_cfg, error_msg);
     if (ret != 0) return ret;
 
-    // 读取并解析 .conf JSON
-    std::ifstream conf_ifs(full_cfg);
-    if (!conf_ifs.is_open()) {
-      if (error_msg) *error_msg = "Cannot open conf file: " + full_cfg.string();
+    // 读取并解析部署配置文件 (Schema 1)
+    DeploymentIoConfig dep_config;
+    std::string dep_err;
+    if (!DeploymentIoConfig::ReadFromFile(full_cfg.string(), "operator",
+                                          &dep_config, &dep_err)) {
+      if (error_msg) *error_msg = dep_err;
       return -2;
     }
 
-    nlohmann::json conf_json;
-    try {
-      conf_ifs >> conf_json;
-    } catch (const std::exception& e) {
-      if (error_msg)
-        *error_msg = "Invalid JSON in conf file: " + std::string(e.what());
-      return -2;
+    // 解析接入绑定计划
+    std::unique_ptr<ValidatedIoPlan> io_plan;
+    std::string plan_err;
+    int plan_ret = IoBindingResolver::ResolveFromConfig(
+        dep_config, "operator", canon_root.string(), &io_plan, &plan_err);
+    if (plan_ret != 0) {
+      if (error_msg) *error_msg = plan_err;
+      return plan_ret;
     }
 
-    if (!conf_json.is_object()) {
-      if (error_msg) *error_msg = "Conf root must be a JSON object";
-      return -2;
-    }
-
-    if (conf_json.size() != 1 || !conf_json.contains("data") ||
-        !conf_json["data"].is_object()) {
-      if (error_msg) {
-        *error_msg =
-            "Conf root must contain only the required object field 'data'";
-      }
-      return -2;
-    }
-    const nlohmann::json* data_obj = &conf_json["data"];
-    static const std::unordered_set<std::string> kAllowedDataFields = {
-        "pipe_path", "model_paths", "outputs"};
-    for (auto it = data_obj->begin(); it != data_obj->end(); ++it) {
-      if (kAllowedDataFields.find(it.key()) == kAllowedDataFields.end()) {
-        if (error_msg) {
-          *error_msg = "Unknown field in conf data: '" + it.key() + "'";
-        }
-        return -2;
-      }
-    }
-
-    if (!data_obj->contains("pipe_path") ||
-        !(*data_obj)["pipe_path"].is_string()) {
-      if (error_msg) *error_msg = "Missing or invalid 'pipe_path' in conf file";
-      return -2;
-    }
-
-    std::string pipe_rel = (*data_obj)["pipe_path"].get<std::string>();
-    std::filesystem::path full_pipe;
-    ret = ResolveRequiredFileUnderRoot(canon_root, pipe_rel, "pipe_path",
-                                       &full_pipe, error_msg);
-    if (ret != 0) return ret;
-
-    std::ifstream pipe_ifs(full_pipe);
-    if (!pipe_ifs.is_open()) {
-      if (error_msg)
-        *error_msg = "Cannot open pipeline JSON file: " + full_pipe.string();
-      return -2;
-    }
-
-    nlohmann::json pipe_json;
-    try {
-      pipe_ifs >> pipe_json;
-    } catch (const std::exception& e) {
-      if (error_msg)
-        *error_msg = "Invalid JSON in pipeline file: " + std::string(e.what());
-      return -2;
-    }
-
-    std::string biz_name;
-    if (pipe_json.is_object() && pipe_json.contains("biz_name") &&
-        pipe_json["biz_name"].is_string()) {
-      biz_name = pipe_json["biz_name"].get<std::string>();
-    } else {
-      if (error_msg)
-        *error_msg = "Pipeline JSON must contain string 'biz_name'";
-      return -2;
-    }
-
-    BizAdapterRegistry::AdapterLookupStatus lookup_status;
-    auto adapter = BizAdapterRegistry::Instance().GetAdapterByPipelineName(
-        biz_name, &lookup_status);
-    if (lookup_status ==
-        BizAdapterRegistry::AdapterLookupStatus::kAmbiguousMatch) {
-      if (error_msg) {
-        *error_msg = "Ambiguous pipeline name '" + biz_name + "'";
-      }
-      return -5;
-    }
-    if (!adapter) {
-      if (error_msg) {
-        *error_msg = "No registered BizAdapter for '" + biz_name + "'";
-      }
-      return -5;
-    }
-
-    const auto* bridge_desc =
-        OperatorBizBridgeRegistry::Instance().GetBridge(adapter->BizType());
-    if (!bridge_desc) {
-      if (error_msg) {
-        *error_msg = "No OperatorBizBridgeDescriptor for BizType " +
-                     std::to_string(adapter->BizType());
-      }
-      return -5;
-    }
-
-    if (!data_obj->contains("outputs")) {
-      if (error_msg) *error_msg = "Missing required 'outputs' object in conf";
-      return -2;
-    }
-    if (!(*data_obj)["outputs"].is_object()) {
-      if (error_msg)
-        *error_msg =
-            "data.outputs must be an object keyed by logical output slot";
-      return -2;
-    }
-    for (const auto& [name, value] : (*data_obj)["outputs"].items()) {
-      bool known = false;
-      for (const auto& slot : bridge_desc->output_slots) {
-        if (slot.logical_name == name) known = true;
-      }
-      if (!known) {
-        if (error_msg) *error_msg = "Unknown configured output slot: " + name;
-        return -2;
-      }
-    }
-    std::unordered_map<std::string, ResolvedOutputPoolSpec> pool_specs;
-    std::unordered_map<std::string, std::string> parameter_texts;
-    for (const auto& slot : bridge_desc->output_slots) {
-      if (!(*data_obj)["outputs"].contains(slot.logical_name)) {
-        if (error_msg)
-          *error_msg = "Missing allocation configuration for output slot: " +
-                       slot.logical_name;
-        return -2;
-      }
-      const auto& config = (*data_obj)["outputs"][slot.logical_name];
-      ResolvedOutputPoolSpec spec;
-      std::string parameter_text;
-      std::string allocation_error;
-      if (ResolveOutputAllocation(config, slot, &spec, &parameter_text,
-                                  &allocation_error) != 0) {
-        if (error_msg)
-          *error_msg = "Invalid output allocation for slot '" +
-                       slot.logical_name + "': " + allocation_error;
-        return -2;
-      }
-      pool_specs.emplace(slot.logical_name, std::move(spec));
-      parameter_texts.emplace(slot.logical_name, std::move(parameter_text));
-    }
-
-    // 计算实际深度下的单句柄所有输出池总预算校验 (Checked Add/Multiply)
-    size_t total_handle_pool_bytes = 0;
-    for (const auto& out_slot : bridge_desc->output_slots) {
-      const auto& pool_spec = pool_specs.at(out_slot.logical_name);
-      const auto* output_binding =
-          OperatorValueTypeRegistry::Instance().GetOutputBinding(
-              out_slot.type_suffix, pool_spec.allocator);
-      if (!output_binding ||
-          output_binding->direction != IoDirection::kOutput) {
-        if (error_msg) {
-          *error_msg = "Missing output value binding for suffix '" +
-                       out_slot.type_suffix + "'";
-        }
-        return -2;
-      }
-      size_t slot_pool_bytes = 0;
-      std::string budget_err;
-      if (!ComputeOutputPoolPayloadBytes(*output_binding, pool_spec,
-                                         effective_depth, &slot_pool_bytes,
-                                         &budget_err)) {
-        if (error_msg) {
-          *error_msg = "Output pool budget calculation failed: " + budget_err;
-        }
-        return -2;
-      }
-      if (!CheckedAdd(total_handle_pool_bytes, slot_pool_bytes,
-                      &total_handle_pool_bytes)) {
-        if (error_msg) *error_msg = "Handle pool budget addition overflowed";
-        return -2;
-      }
-    }
-    if (total_handle_pool_bytes > kMaxHandlePoolPayloadBytes) {
-      if (error_msg) {
-        *error_msg = "Total output pool payload (" +
-                     std::to_string(total_handle_pool_bytes) +
-                     " bytes) exceeds per-handle payload budget (" +
-                     std::to_string(kMaxHandlePoolPayloadBytes) + " bytes)";
-      }
-      return -2;
-    }
-
-    // 1. 严格预检 Pipeline JSON 中的原始模型路径。模型最终文件可以尚未
-    // 部署，但引用本身必须是非空相对路径且不能经现存 symlink 前缀逃逸。
-    if (pipe_json.contains("models") && pipe_json["models"].is_array()) {
-      for (const auto& item : pipe_json["models"]) {
-        if (!item.contains("model_path")) continue;
-        if (!item["model_path"].is_string()) {
+    // 如果有效深度不是默认深度，重新核对该深度下的总预算
+    if (effective_depth != kDefaultOutputPoolDepth) {
+      size_t total_handle_pool_bytes = 0;
+      for (const auto& [slot_name, pool_spec] :
+           io_plan->operator_output_specs) {
+        const auto* output_binding =
+            OperatorValueTypeRegistry::Instance().GetOutputBinding(
+                pool_spec.type, pool_spec.allocator);
+        if (!output_binding ||
+            output_binding->direction != IoDirection::kOutput) {
           if (error_msg) {
-            *error_msg = "Pipeline JSON model_path must be a string";
+            *error_msg = "Missing output value binding for suffix '" +
+                         pool_spec.type + "'";
           }
           return -2;
         }
-        const std::string mp = item["model_path"].get<std::string>();
-        std::filesystem::path ignored;
-        ret = ResolveModelReferenceUnderRoot(
-            canon_root, mp, "pipeline model_path", &ignored, error_msg);
-        if (ret != 0) return ret;
-      }
-    }
-
-    // 2. 解析与校验规范 model_id -> model_path 映射
-    std::unordered_map<std::string, std::string> map_overrides;
-    if (data_obj->contains("model_paths")) {
-      if (!(*data_obj)["model_paths"].is_object()) {
-        if (error_msg) *error_msg = "'model_paths' in conf must be an object";
-        return -2;
-      }
-      for (const auto& [mid, mval] : (*data_obj)["model_paths"].items()) {
-        if (mid.empty() || !mval.is_string()) {
-          if (error_msg) *error_msg = "Invalid entry in 'model_paths'";
-          return -2;
-        }
-        std::string mstr = mval.get<std::string>();
-        std::filesystem::path full_mpath;
-        ret = ResolveModelReferenceUnderRoot(
-            canon_root, mstr, "model_paths entry", &full_mpath, error_msg);
-        if (ret != 0) return ret;
-
-        bool matched = false;
-        if (pipe_json.contains("models") && pipe_json["models"].is_array()) {
-          for (auto& item : pipe_json["models"]) {
-            if (item.contains("model_id") && item["model_id"] == mid) {
-              map_overrides[mid] = full_mpath.string();
-              matched = true;
-              break;
-            }
-          }
-        }
-        if (!matched) {
+        size_t slot_pool_bytes = 0;
+        std::string budget_err;
+        if (!ComputeOutputPoolPayloadBytes(*output_binding, pool_spec,
+                                           effective_depth, &slot_pool_bytes,
+                                           &budget_err)) {
           if (error_msg) {
-            *error_msg = "Unknown model_id '" + mid + "' in 'model_paths'";
+            *error_msg = "Output pool budget calculation failed: " + budget_err;
           }
           return -2;
         }
-      }
-    }
-
-    // 3. 全量规范化模型路径 (将未覆盖项通过沙箱解析为绝对规范路径)
-    if (pipe_json.contains("models") && pipe_json["models"].is_array()) {
-      for (auto& item : pipe_json["models"]) {
-        std::string mid =
-            item.contains("model_id") && item["model_id"].is_string()
-                ? item["model_id"].get<std::string>()
-                : "";
-        if (!mid.empty() && map_overrides.find(mid) != map_overrides.end()) {
-          item["model_path"] = map_overrides[mid];
-        } else if (item.contains("model_path") &&
-                   item["model_path"].is_string()) {
-          std::string mp = item["model_path"].get<std::string>();
-          std::filesystem::path full_mpath;
-          ret = ResolveModelReferenceUnderRoot(
-              canon_root, mp, "pipeline model_path", &full_mpath, error_msg);
-          if (ret != 0) return ret;
-          item["model_path"] = full_mpath.string();
+        if (!CheckedAdd(total_handle_pool_bytes, slot_pool_bytes,
+                        &total_handle_pool_bytes)) {
+          if (error_msg) *error_msg = "Handle pool budget addition overflowed";
+          return -2;
         }
+      }
+      if (total_handle_pool_bytes > kMaxHandlePoolPayloadBytes) {
+        if (error_msg) {
+          *error_msg = "Total output pool payload (" +
+                       std::to_string(total_handle_pool_bytes) +
+                       " bytes) exceeds per-handle payload budget (" +
+                       std::to_string(kMaxHandlePoolPayloadBytes) + " bytes)";
+        }
+        return -2;
       }
     }
 
     result->conf_path = full_cfg;
-    result->pipeline_path = full_pipe;
+    result->pipeline_path = dep_config.resolved_pipe_path;
     result->model_root_path = canon_root;
-    result->biz_name = biz_name;
-    result->biz_type = adapter->BizType();
-    result->adapter = adapter;
-    result->bridge_descriptor = bridge_desc;
-    result->synthetic_pipeline_json = std::move(pipe_json);
-    result->output_pool_specs = std::move(pool_specs);
-    result->output_parameter_text = std::move(parameter_texts);
+    result->biz_name = io_plan->binding.biz_name;
+    result->io_binding = io_plan->binding.binding_id;
+    result->synthetic_pipeline_json = io_plan->resolved_pipeline_json;
+    result->output_pool_specs = io_plan->operator_output_specs;
+    result->output_parameter_text = io_plan->operator_output_parameter_texts;
+    result->input_limits = ResolvedInputLimits{};
+    result->io_plan = std::move(io_plan);
 
     return 0;
   } catch (const std::exception& e) {

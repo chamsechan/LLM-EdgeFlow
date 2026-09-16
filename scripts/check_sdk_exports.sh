@@ -24,7 +24,7 @@ EXPECTED_SYMBOLS=$(
     Alg_Init \
     Alg_Process \
     _ZN12llm_edgeflow12operator_api20GetOperatorLastErrorEv \
-    _ZN12llm_edgeflow12operator_api29ValidateOperatorConfigBindingEPKcS2_iPcm \
+    _ZN12llm_edgeflow12operator_api29ValidateOperatorConfigBindingEPKcS2_S2_Pcm \
     _ZN12llm_edgeflow12operator_api30Get_LLM_EDGEFLOW_OperatorTableEv
 )
 
