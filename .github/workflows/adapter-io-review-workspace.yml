@@ -1,0 +1,35 @@
+name: Adapter IO Review Workspace
+
+on:
+  push:
+    branches: [fix/adapter-io-review-workspace-20260916]
+
+permissions:
+  contents: read
+
+jobs:
+  source-snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 0a58d6e7efcdfd8ecae77cb5c0352657400e456c
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Bundle the reviewed public source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git branch review-source HEAD
+          git bundle create "${RUNNER_TEMP}/edgeflow-review-source.bundle" review-source
+          git bundle verify "${RUNNER_TEMP}/edgeflow-review-source.bundle"
+          sha256sum "${RUNNER_TEMP}/edgeflow-review-source.bundle" > "${RUNNER_TEMP}/edgeflow-review-source.bundle.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: adapter-io-reviewed-source
+          path: |
+            ${{ runner.temp }}/edgeflow-review-source.bundle
+            ${{ runner.temp }}/edgeflow-review-source.bundle.sha256
+          retention-days: 1
+          if-no-files-found: error
