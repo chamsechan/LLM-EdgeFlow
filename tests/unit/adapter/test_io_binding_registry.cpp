@@ -9,6 +9,7 @@
 #include "adapter/io_binding_registry.h"
 #include "adapter/io_binding_resolver.h"
 #include "adapter/io_converter_registry.h"
+#include "adapter/shared_algorithm_runtime.h"
 #include "core/pipeline_catalog.h"
 
 namespace llm_edgeflow {
@@ -42,6 +43,10 @@ class IoBindingRegistryTest : public ::testing::Test {
     in_def.transport = "cabi";
     in_def.schema_id = "in_schema";
     in_def.schema_version = 1;
+    in_def.external_type = "int";
+    in_def.external_slots = {
+        ExternalSlotDefinition("inputs", "int", PortDirection::kInput, true)};
+    in_def.max_batch_size = 64;
     in_def.logical_ports = {
         NodePortDefinition("texts", "TextBatch", true, "1:1")};
     in_def.decode_fn = &DummyDecode;
@@ -52,6 +57,10 @@ class IoBindingRegistryTest : public ::testing::Test {
     out_def.transport = "cabi";
     out_def.schema_id = "out_schema";
     out_def.schema_version = 1;
+    out_def.external_type = "int";
+    out_def.external_slots = {
+        ExternalSlotDefinition("answers", "int", PortDirection::kOutput, true)};
+    out_def.max_batch_size = 64;
     out_def.logical_ports = {
         NodePortDefinition("answers", "TextBatch", true, "1:1")};
     out_def.encode_fn = &DummyEncode;
@@ -161,6 +170,61 @@ TEST_F(IoBindingRegistryTest, AuditRejectsMissingProductionExposure) {
   EXPECT_TRUE(found_missing_exp);
 }
 
+TEST_F(IoBindingRegistryTest, UnselectedIllegalBindingFailsAudit) {
+  auto& reg = IoBindingRegistry::Instance();
+
+  // 1. 注册合法绑定与曝光
+  IoBindingDefinition valid_binding;
+  valid_binding.binding_id = "test_biz.cabi.v1";
+  valid_binding.biz_name = "test_biz_v1";
+  valid_binding.transport = "cabi";
+  valid_binding.input_converter_id = "test.in.cabi";
+  valid_binding.output_converter_id = "test.out.cabi";
+  valid_binding.input_ports = {{"texts", "input_sentences"}};
+  valid_binding.output_ports = {{"answers", "llm_answers"}};
+  EXPECT_TRUE(reg.RegisterBinding(valid_binding));
+
+  BizExposureDefinition exposure;
+  exposure.biz_name = "test_biz_v1";
+  exposure.max_batch_size = 32;
+  exposure.required_transports = {"cabi"};
+  EXPECT_TRUE(reg.RegisterExposure(exposure));
+
+  // 单独 audit 合法绑定应当通过
+  std::vector<std::string> errors;
+  EXPECT_TRUE(reg.Audit(&errors));
+  EXPECT_TRUE(errors.empty());
+
+  // 2. 注册未被选择使用的非法绑定 (缺失必需输入映射)
+  IoBindingDefinition illegal_binding;
+  illegal_binding.binding_id = "unselected_bad.cabi.v1";
+  illegal_binding.biz_name = "test_biz_v1";
+  illegal_binding.transport = "cabi";
+  illegal_binding.input_converter_id = "test.in.cabi";
+  illegal_binding.output_converter_id = "test.out.cabi";
+  illegal_binding.input_ports = {};  // 缺失必需 logical port texts
+  illegal_binding.output_ports = {{"answers", "llm_answers"}};
+  EXPECT_TRUE(reg.RegisterBinding(illegal_binding));
+
+  // 全量审计必须被这个未被选中的非法绑定阻断
+  errors.clear();
+  EXPECT_FALSE(reg.Audit(&errors));
+  bool found_missing_port_mapping = false;
+  for (const auto& e : errors) {
+    if (e.find(
+            "missing required input converter logical port mapping: texts") !=
+        std::string::npos) {
+      found_missing_port_mapping = true;
+    }
+  }
+  EXPECT_TRUE(found_missing_port_mapping);
+
+  // 验证 SharedAlgorithmRuntime::GlobalInit() 也会因为 Audit 失败而返回冲突错误
+  // (-6)
+  EXPECT_EQ(SharedAlgorithmRuntime::GlobalInit(),
+            COMPANY_ALG_ERR_REGISTRY_CONFLICT);
+}
+
 TEST_F(IoBindingRegistryTest, DeploymentIoConfigValidation) {
   // 1. 合法 schema 1 C ABI 配置
   nlohmann::json valid_cfg = {
@@ -209,6 +273,145 @@ TEST_F(IoBindingRegistryTest, DeploymentIoConfigValidation) {
       DeploymentIoConfig::Parse(escape_cfg, tmp_dir, "cabi", &parsed, &err));
 
   fs::remove_all(tmp_dir);
+}
+
+TEST_F(IoBindingRegistryTest, StrictConfigDirectoryIsolationAndCwdInvariance) {
+  const std::string root_dir =
+      "/tmp/edgeflow_test_isolation_" + std::to_string(getpid());
+  fs::remove_all(root_dir);
+
+  const fs::path base_dir = fs::path(root_dir) / "service_configs";
+  const fs::path outside_dir = fs::path(root_dir) / "outside";
+  const fs::path sibling_dir = fs::path(root_dir) / "sibling";
+  const fs::path sub_dir = base_dir / "subdir";
+
+  fs::create_directories(base_dir);
+  fs::create_directories(outside_dir);
+  fs::create_directories(sibling_dir);
+  fs::create_directories(sub_dir);
+
+  // 准备各个目标文件
+  {
+    std::ofstream(base_dir / "pipeline.json") << "{}";
+    std::ofstream(sub_dir / "sub_pipeline.json") << "{}";
+    std::ofstream(outside_dir / "outside_pipeline.json") << "{}";
+    std::ofstream(sibling_dir / "sibling_pipeline.json") << "{}";
+  }
+
+  // 创建指向根外文件的符号链接
+  std::error_code ec;
+  fs::create_symlink(outside_dir / "outside_pipeline.json",
+                     base_dir / "symlink_escape.json", ec);
+  ASSERT_FALSE(ec) << ec.message();
+
+  DeploymentIoConfig parsed;
+  std::string err;
+
+  auto make_conf = [](const std::string& pipe) {
+    nlohmann::json cfg = {
+        {"schema_version", 1},
+        {"data", {{"pipe_path", pipe}, {"io_binding", "test_biz.cabi.v1"}}}};
+    return cfg;
+  };
+
+  // 1. 同级文件 -> 成功
+  EXPECT_TRUE(DeploymentIoConfig::Parse(
+      make_conf("pipeline.json"), base_dir.string(), "cabi", &parsed, &err));
+  EXPECT_EQ(parsed.resolved_pipe_path,
+            fs::canonical(base_dir / "pipeline.json").string());
+
+  // 2. 子目录文件 -> 成功
+  EXPECT_TRUE(DeploymentIoConfig::Parse(make_conf("subdir/sub_pipeline.json"),
+                                        base_dir.string(), "cabi", &parsed,
+                                        &err));
+  EXPECT_EQ(parsed.resolved_pipe_path,
+            fs::canonical(sub_dir / "sub_pipeline.json").string());
+
+  // 3. 父目录逃逸 (../outside/outside_pipeline.json) -> 严格拒绝
+  EXPECT_FALSE(
+      DeploymentIoConfig::Parse(make_conf("../outside/outside_pipeline.json"),
+                                base_dir.string(), "cabi", &parsed, &err));
+  EXPECT_NE(err.find("escapes config directory"), std::string::npos);
+
+  // 4. 兄弟目录逃逸 (../sibling/sibling_pipeline.json) -> 严格拒绝
+  EXPECT_FALSE(
+      DeploymentIoConfig::Parse(make_conf("../sibling/sibling_pipeline.json"),
+                                base_dir.string(), "cabi", &parsed, &err));
+  EXPECT_NE(err.find("escapes config directory"), std::string::npos);
+
+  // 5. 符号链接逃逸 (位于 base_dir 内但指向根外) -> 严格拒绝
+  EXPECT_FALSE(DeploymentIoConfig::Parse(make_conf("symlink_escape.json"),
+                                         base_dir.string(), "cabi", &parsed,
+                                         &err));
+  EXPECT_NE(err.find("escapes config directory"), std::string::npos);
+
+  // 6. 切换工作目录不改变解析结果 (Cwd Invariance)
+  const fs::path conf_file = base_dir / "deploy.conf";
+  {
+    std::ofstream ofs(conf_file);
+    ofs << make_conf("pipeline.json").dump();
+  }
+
+  const fs::path orig_cwd = fs::current_path();
+  // 切换工作目录到 outside_dir
+  fs::current_path(outside_dir, ec);
+  ASSERT_FALSE(ec);
+
+  DeploymentIoConfig cwd_parsed;
+  std::string cwd_err;
+  bool read_ok = DeploymentIoConfig::ReadFromFile(conf_file.string(), "cabi",
+                                                  &cwd_parsed, &cwd_err);
+
+  // 恢复原工作目录
+  fs::current_path(orig_cwd, ec);
+  ASSERT_FALSE(ec);
+
+  EXPECT_TRUE(read_ok) << cwd_err;
+  EXPECT_EQ(cwd_parsed.resolved_pipe_path,
+            fs::canonical(base_dir / "pipeline.json").string());
+
+  fs::remove_all(root_dir);
+}
+
+TEST_F(IoBindingRegistryTest, FailClosedAuditRejectsInvalidUnselectedBinding) {
+  auto& reg = IoBindingRegistry::Instance();
+
+  // 注册合法暴露与绑定
+  IoBindingDefinition valid_binding;
+  valid_binding.binding_id = "test_biz.cabi.v1";
+  valid_binding.biz_name = "test_biz_v1";
+  valid_binding.transport = "cabi";
+  valid_binding.input_converter_id = "test.in.cabi";
+  valid_binding.output_converter_id = "test.out.cabi";
+  valid_binding.input_ports = {{"texts", "input_sentences"}};
+  valid_binding.output_ports = {{"answers", "llm_answers"}};
+  EXPECT_TRUE(reg.RegisterBinding(valid_binding));
+
+  BizExposureDefinition exposure;
+  exposure.biz_name = "test_biz_v1";
+  exposure.max_batch_size = 32;
+  exposure.required_transports = {"cabi"};
+  EXPECT_TRUE(reg.RegisterExposure(exposure));
+
+  // 注册一个未被任何曝光引用的非法绑定 (输入端口缺少必需端口)
+  IoBindingDefinition unselected_bad_binding;
+  unselected_bad_binding.binding_id = "unselected_bad.cabi.v1";
+  unselected_bad_binding.biz_name = "test_biz_v1";
+  unselected_bad_binding.transport = "cabi";
+  unselected_bad_binding.input_converter_id = "test.in.cabi";
+  unselected_bad_binding.output_converter_id = "test.out.cabi";
+  // 故意遗漏必需输入映射 texts
+  unselected_bad_binding.input_ports = {};
+  unselected_bad_binding.output_ports = {{"answers", "llm_answers"}};
+  EXPECT_TRUE(reg.RegisterBinding(unselected_bad_binding));
+
+  // 全量 Audit 必须对所有已注册绑定实行 Fail-Closed 检查
+  std::vector<std::string> audit_errors;
+  EXPECT_FALSE(reg.Audit(&audit_errors));
+  EXPECT_FALSE(audit_errors.empty());
+
+  // GlobalInit 必须失败并返回 -6 (COMPANY_ALG_ERR_REGISTRY_CONFLICT)
+  EXPECT_EQ(SharedAlgorithmRuntime::GlobalInit(), -6);
 }
 
 }  // namespace llm_edgeflow

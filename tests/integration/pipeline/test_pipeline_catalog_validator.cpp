@@ -6,6 +6,7 @@
 #include <set>
 #include <string>
 
+#include "adapter/io_binding_registry.h"
 #include "adapter/shared_algorithm_runtime.h"
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
@@ -261,10 +262,21 @@ TEST(PipelineValidatorTest, TableDrivenParityMatrix) {
 
     // 3. The shared runtime must fail before materialization and preserve the
     // primary structured diagnostic in its internal C++ error boundary.
+    std::string biz = config.value("biz_name", "");
+    std::string binding_id;
+    for (const auto& b : IoBindingRegistry::Instance().AllBindings()) {
+      if (b.biz_name == biz && b.transport == "cabi") {
+        binding_id = b.binding_id;
+        break;
+      }
+    }
+    if (binding_id.empty()) {
+      binding_id = "keyword_match.cabi.v1";
+    }
     std::unique_ptr<SharedAlgorithmRuntime> runtime;
     std::string runtime_error;
     int runtime_result = SharedAlgorithmRuntime::CreateFromPipelineJson(
-        config, 0, "./models", "", &runtime, &runtime_error);
+        config, 0, "./models", binding_id, &runtime, &runtime_error);
     EXPECT_EQ(runtime_result, test["runtime_error_code"].get<int>());
     EXPECT_EQ(runtime, nullptr);
     EXPECT_NE(runtime_error.find(test["primary_code"].get<std::string>()),

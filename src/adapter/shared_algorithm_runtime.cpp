@@ -144,66 +144,20 @@ int SharedAlgorithmRuntime::CreateFromPipelineJson(
     }
     *out_runtime = nullptr;
 
-    nlohmann::json resolved_pipeline_json;
-    std::string deployment_error;
-    if (!ResolveDeploymentModelPaths(pipeline_json, model_root_dir,
-                                     &resolved_pipeline_json,
-                                     &deployment_error)) {
-      if (out_error) *out_error = deployment_error;
+    if (binding_id.empty()) {
+      if (out_error) *out_error = "binding_id must not be empty";
       return COMPANY_ALG_ERR_INVALID_PARAM;  // -2
     }
 
-    auto plan = PipelineValidator::ValidateAndPlan(resolved_pipeline_json);
-    if (!plan.report.ok) {
-      if (out_error && !plan.report.diagnostics.empty()) {
-        const auto& d = plan.report.diagnostics.front();
-        *out_error = std::string(DiagnosticCodeName(d.code)) + " at " + d.path +
-                     ": " + d.message;
-      }
+    std::unique_ptr<ValidatedIoPlan> io_plan;
+    std::string resolve_err;
+    int ret = IoBindingResolver::ResolveFromPipelineJson(
+        pipeline_json, binding_id, "cabi", model_root_dir, &io_plan,
+        &resolve_err);
+    if (ret != 0) {
+      if (out_error) *out_error = resolve_err;
       return COMPANY_ALG_ERR_INVALID_PARAM;  // -2
     }
-
-    std::string resolved_binding_id = binding_id;
-    if (resolved_binding_id.empty()) {
-      std::string biz = resolved_pipeline_json.value("biz_name", "");
-      if (biz.empty()) {
-        biz = resolved_pipeline_json.value("pipeline_name", "");
-      }
-      for (const auto& b : IoBindingRegistry::Instance().AllBindings()) {
-        if (b.biz_name == biz) {
-          resolved_binding_id = b.binding_id;
-          break;
-        }
-      }
-    }
-
-    const auto* binding =
-        IoBindingRegistry::Instance().FindBinding(resolved_binding_id);
-    if (!binding) {
-      if (out_error) {
-        *out_error = "Binding not found: " + resolved_binding_id;
-      }
-      return COMPANY_ALG_ERR_UNSUPPORTED_BIZ;  // -5
-    }
-
-    const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
-        binding->input_converter_id);
-    const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
-        binding->output_converter_id);
-    if (!in_conv || !out_conv) {
-      if (out_error) *out_error = "Missing input or output converter";
-      return COMPANY_ALG_ERR_UNSUPPORTED_BIZ;  // -5
-    }
-
-    auto io_plan = std::make_unique<ValidatedIoPlan>();
-    io_plan->binding = *binding;
-    io_plan->input_converter = in_conv;
-    io_plan->output_converter = out_conv;
-    io_plan->input_port_bindings = InputPortBindings(binding->input_ports);
-    io_plan->output_port_bindings = OutputPortBindings(binding->output_ports);
-    io_plan->effective_max_batch_size = 64;
-    io_plan->pipeline_plan =
-        std::make_unique<ValidatedPipelinePlan>(std::move(plan));
 
     return CreateFromIoPlan(std::move(io_plan), device_id,
                             extra_runtime_options, out_runtime, out_error);

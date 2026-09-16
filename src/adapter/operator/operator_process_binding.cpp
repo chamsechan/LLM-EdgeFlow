@@ -17,6 +17,12 @@ int ValidateAndExtractOperatorInputs(
   out_view->count = inputs.size();
   out_view->type_id = in_conv.external_type;
   out_view->slots.clear();
+  out_view->slot_types.clear();
+  for (const auto& slot : in_conv.external_slots) {
+    if (slot.direction == PortDirection::kInput) {
+      out_view->slot_types[slot.slot_name] = slot.type_id;
+    }
+  }
 
   for (size_t i = 0; i < inputs.size(); ++i) {
     const auto& in_map = inputs[i];
@@ -67,17 +73,24 @@ int ValidateAndExtractOperatorInputs(
         const auto* binding =
             OperatorValueTypeRegistry::Instance().GetBindingBySuffix(
                 slot.type_suffix);
-        if (binding && binding->validate_external) {
-          std::string validation_error;
-          int validation_result = binding->validate_external(
-              payload.get(), limits, &validation_error);
-          if (validation_result != 0) {
-            if (error) {
-              *error = "Validation failed for input key " + found_key + ": " +
-                       validation_error;
-            }
-            return validation_result;
+        if (!binding || !binding->validate_external) {
+          if (error) {
+            *error =
+                "Missing Operator input ValueType binding or validate_external "
+                "for suffix '" +
+                slot.type_suffix + "'";
           }
+          return -3;
+        }
+        std::string validation_error;
+        int validation_result = binding->validate_external(
+            payload.get(), limits, &validation_error);
+        if (validation_result != 0) {
+          if (error) {
+            *error = "Validation failed for input key " + found_key + ": " +
+                     validation_error;
+          }
+          return validation_result;
         }
         out_view->slots[slot.slot_name].push_back(std::move(payload));
       }
@@ -182,6 +195,13 @@ int AcquireOperatorOutputBlocks(
     return -4;
   }
   acquired_blocks->clear();
+
+  size_t total_slots = 0;
+  for (const auto& fb : frame_bindings) {
+    total_slots += fb.size();
+  }
+  lease_guard->Reserve(total_slots);
+  acquired_blocks->reserve(total_slots);
 
   for (size_t f = 0; f < frame_bindings.size(); ++f) {
     for (const auto& binding : frame_bindings[f]) {

@@ -1190,7 +1190,7 @@ TEST_F(OperatorApiTest, OutputsConfigValidationFailClosed) {
     ofs << R"({
       "schema_version": 1,
       "data": {
-        "pipe_path": "configs/pipeline_keyword_match_rules.json",
+        "pipe_path": "pipeline_keyword_match_rules.json",
         "io_binding": "keyword_match.operator.v1",
         "mem_que": {
           "type": "keyword_out"
@@ -1211,7 +1211,7 @@ TEST_F(OperatorApiTest, OutputsConfigValidationFailClosed) {
     ofs << R"({
       "schema_version": 1,
       "data": {
-        "pipe_path": "configs/pipeline_keyword_match_rules.json",
+        "pipe_path": "pipeline_keyword_match_rules.json",
         "io_binding": "keyword_match.operator.v1"
       }
     })";
@@ -1224,7 +1224,7 @@ TEST_F(OperatorApiTest, OutputsConfigValidationFailClosed) {
     ofs << R"({
       "schema_version": 1,
       "data": {
-        "pipe_path": "configs/pipeline_keyword_match_rules.json",
+        "pipe_path": "pipeline_keyword_match_rules.json",
         "io_binding": "keyword_match.operator.v1",
         "outputs": {
           "keyword_out": {
@@ -1242,7 +1242,7 @@ TEST_F(OperatorApiTest, OutputsConfigValidationFailClosed) {
     ofs << R"({
       "schema_version": 1,
       "data": {
-        "pipe_path": "configs/pipeline_keyword_match_rules.json",
+        "pipe_path": "pipeline_keyword_match_rules.json",
         "io_binding": "keyword_match.operator.v1",
         "outputs": {
           "keyword_out": {
@@ -1262,7 +1262,7 @@ TEST_F(OperatorApiTest, OutputsConfigValidationFailClosed) {
     ofs << R"({
       "schema_version": 1,
       "data": {
-        "pipe_path": "configs/pipeline_keyword_match_rules.json",
+        "pipe_path": "pipeline_keyword_match_rules.json",
         "io_binding": "keyword_match.operator.v1",
         "outputs": {
           "keyword_out": {
@@ -1299,7 +1299,7 @@ TEST_F(OperatorApiTest, OutputsConfigValidationFailClosed) {
     ofs << R"({
       "schema_version": 1,
       "data": {
-        "pipe_path": "configs/pipeline_keyword_match_rules.json",
+        "pipe_path": "pipeline_keyword_match_rules.json",
         "io_binding": "keyword_match.operator.v1",
         "model_path": "models/unused.bin",
         "outputs": {
@@ -1320,7 +1320,7 @@ TEST_F(OperatorApiTest, OutputsConfigValidationFailClosed) {
     ofs << R"({
       "schema_version": 1,
       "data": {
-        "pipe_path": "configs/pipeline_keyword_match_rules.json",
+        "pipe_path": "pipeline_keyword_match_rules.json",
         "io_binding": "keyword_match.operator.v1",
         "outputs": {
           "keyword_out": {
@@ -1913,7 +1913,7 @@ TEST_F(OperatorApiTest, ModelPathNonExistentFileAllowedWhileEscapeRejected) {
     conf << R"({
       "schema_version": 1,
       "data": {
-        "pipe_path": "configs/pipeline_doc_qa_default.json",
+        "pipe_path": "pipeline_doc_qa_default.json",
         "io_binding": "doc_qa.operator.v1",
         "model_paths": {
           "embed_model_v1": "models/not_deployed_embed.bin",
@@ -1958,7 +1958,7 @@ TEST_F(OperatorApiTest, ModelPathNonExistentFileAllowedWhileEscapeRejected) {
     conf << R"({
       "schema_version": 1,
       "data": {
-        "pipe_path": "configs/pipeline_audio_asr_intent.json",
+        "pipe_path": "pipeline_audio_asr_intent.json",
         "io_binding": "audio_asr_intent.operator.v1",
         "model_paths": {
           "asr_model_v1": "deployment/asr_model_will_arrive_later.bin"
@@ -2117,7 +2117,7 @@ TEST_F(OperatorApiTest, DotDotPrefixedControlFileNamesStayWithinRoot) {
   std::ofstream(root / "..configs/pipeline.conf") << nlohmann::json(
       {{"schema_version", 1},
        {"data",
-        {{"pipe_path", "..configs/pipeline.json"},
+        {{"pipe_path", "pipeline.json"},
          {"io_binding", "keyword_match.operator.v1"},
          {"outputs", {{"keyword_out", {{"type", "keyword_out"}}}}}}}});
 
@@ -2216,7 +2216,7 @@ TEST_F(OperatorApiTest, MetadataTypeIdOutOfInt32RangeIsRejected) {
     conf << R"({
       "schema_version": 1,
       "data": {
-        "pipe_path": "configs/pipeline_keyword_match_rules.json",
+        "pipe_path": "pipeline_keyword_match_rules.json",
         "io_binding": "keyword_match.operator.v1",
         "outputs": {
           "keyword_out": {
@@ -2243,7 +2243,7 @@ TEST_F(OperatorApiTest, MetadataTypeIdOutOfInt32RangeIsRejected) {
     conf << R"({
       "schema_version": 1,
       "data": {
-        "pipe_path": "configs/pipeline_keyword_match_rules.json",
+        "pipe_path": "pipeline_keyword_match_rules.json",
         "io_binding": "keyword_match.operator.v1",
         "outputs": {
           "keyword_out": {
@@ -2270,7 +2270,7 @@ TEST_F(OperatorApiTest, MetadataTypeIdOutOfInt32RangeIsRejected) {
     conf << R"({
       "schema_version": 1,
       "data": {
-        "pipe_path": "configs/pipeline_keyword_match_rules.json",
+        "pipe_path": "pipeline_keyword_match_rules.json",
         "io_binding": "keyword_match.operator.v1",
         "outputs": {
           "keyword_out": {
@@ -2364,6 +2364,8 @@ const bool g_reg_nested_output_components = []() {
   odef.transport = "operator";
   odef.schema_id = "test_nested_output";
   odef.schema_version = 1;
+  odef.external_type = "test_nested_out";
+  odef.max_batch_size = 64;
   odef.external_slots = {ExternalSlotDefinition{"main",
                                                 "test_nested_out",
                                                 PortDirection::kOutput,

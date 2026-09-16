@@ -539,7 +539,7 @@ class WorkbenchService:
                 backup_json = staging / "previous.json"
                 staged_json.write_bytes(encoded)
                 staged_conf_data = copy.deepcopy(conf)
-                staged_conf_data["data"]["pipe_path"] = str(staged_json.relative_to(PROJECT_ROOT))
+                staged_conf_data["data"]["pipe_path"] = staged_json.name
                 staged_conf.write_text(json.dumps(staged_conf_data, ensure_ascii=False, indent=2))
                 configuration = self.resolve_run_conf(staged_conf, profile)
 
@@ -898,7 +898,7 @@ class WorkbenchService:
 
             profile_obj, conf_data = self.deployment_candidate(
                 pipeline, profile_name, model_root, filename, conf_name, model_path_actions)
-            conf_data["data"]["pipe_path"] = str(staged_pipe.relative_to(PROJECT_ROOT))
+            conf_data["data"]["pipe_path"] = staged_pipe.name
             staged_conf.write_text(json.dumps(conf_data, ensure_ascii=False, indent=2))
             configuration = self.resolve_run_conf(staged_conf, profile_obj)
 
@@ -1005,7 +1005,7 @@ class WorkbenchService:
                 json.dumps(pipeline, ensure_ascii=False, indent=2), encoding="utf-8"
             )
             temp_conf = copy.deepcopy(conf)
-            temp_conf["data"]["pipe_path"] = str(pipeline_path.relative_to(PROJECT_ROOT))
+            temp_conf["data"]["pipe_path"] = pipeline_path.name
             conf_path = temp_root / "pipeline.conf"
             conf_path.write_text(json.dumps(temp_conf, indent=2), encoding="utf-8")
             configuration = self.resolve_run_conf(conf_path, profile)

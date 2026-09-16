@@ -16,122 +16,6 @@ namespace llm_edgeflow {
 
 namespace {
 
-int ResolveOutputAllocation(const nlohmann::json& config,
-                            const ExternalSlotDefinition& slot,
-                            ResolvedOutputPoolSpec* result,
-                            std::string* parameter_text, std::string* error) {
-  if (!config.is_object()) {
-    if (error) *error = "Output allocation must be an object";
-    return -2;
-  }
-  static const std::unordered_set<std::string> fields = {
-      "type",     "allocator",        "params",
-      "meta_num", "metadata_type_id", "capacities"};
-  for (const auto& [field, value] : config.items()) {
-    if (!fields.count(field)) {
-      if (error) *error = "Unknown output allocation field: " + field;
-      return -2;
-    }
-  }
-  if (!config.contains("type") || !config["type"].is_string()) {
-    if (error) *error = "Missing required 'type' string in output allocation";
-    return -2;
-  }
-  ResolvedOutputPoolSpec requested;
-  requested.type = config["type"].get<std::string>();
-  if (requested.type != slot.type_suffix) {
-    if (error)
-      *error = "Output type '" + requested.type + "' does not match slot '" +
-               slot.slot_name + "'";
-    return -2;
-  }
-  if (config.contains("allocator")) {
-    if (!config["allocator"].is_string() ||
-        config["allocator"].get<std::string>().empty()) {
-      if (error) *error = "Output allocator must be a nonempty string";
-      return -2;
-    }
-    requested.allocator = config["allocator"].get<std::string>();
-  }
-  const auto* binding = OperatorValueTypeRegistry::Instance().GetOutputBinding(
-      requested.type, requested.allocator);
-  if (!binding) {
-    if (error)
-      *error = "No registered output allocator '" + requested.allocator +
-               "' for type '" + requested.type + "'";
-    return -2;
-  }
-  const JsonOutputConfigReader reader(config);
-  if (!reader.Read(OutputConfigField::kParameters, parameter_text, error)) {
-    return -2;
-  }
-  if (!NormalizeOutputParameters(*binding, *parameter_text, &requested.params,
-                                 error)) {
-    return -2;
-  }
-  if (config.contains("meta_num")) {
-    if (!config["meta_num"].is_number_unsigned()) {
-      if (error) *error = "config.meta_num must be non-negative integer";
-      return -2;
-    }
-    uint64_t mnum = config["meta_num"].get<uint64_t>();
-    if (mnum > std::numeric_limits<uint32_t>::max()) {
-      if (error) *error = "config.meta_num exceeds uint32 range";
-      return -2;
-    }
-    requested.meta_num = static_cast<uint32_t>(mnum);
-  }
-
-  if (config.contains("metadata_type_id")) {
-    if (config["metadata_type_id"].is_number_unsigned()) {
-      uint64_t uval = config["metadata_type_id"].get<uint64_t>();
-      if (uval > static_cast<uint64_t>(std::numeric_limits<int32_t>::max())) {
-        if (error) *error = "config.metadata_type_id exceeds int32 range";
-        return -2;
-      }
-      requested.metadata_type_id = static_cast<int32_t>(uval);
-    } else if (config["metadata_type_id"].is_number_integer()) {
-      int64_t ival = config["metadata_type_id"].get<int64_t>();
-      if (ival < std::numeric_limits<int32_t>::min() ||
-          ival > std::numeric_limits<int32_t>::max()) {
-        if (error) *error = "config.metadata_type_id exceeds int32 range";
-        return -2;
-      }
-      requested.metadata_type_id = static_cast<int32_t>(ival);
-    } else {
-      if (error) *error = "config.metadata_type_id must be integer";
-      return -2;
-    }
-  }
-
-  if (config.contains("capacities")) {
-    if (!config["capacities"].is_object()) {
-      if (error) *error = "config.capacities must be an object";
-      return -2;
-    }
-    for (const auto& [cap_field, cap_val] : config["capacities"].items()) {
-      if (!cap_val.is_number_unsigned()) {
-        if (error) {
-          *error = "Capacity for field '" + cap_field +
-                   "' must be positive unsigned integer";
-        }
-        return -2;
-      }
-      uint64_t uval = cap_val.get<uint64_t>();
-      if (uval == 0 || uval > std::numeric_limits<uint32_t>::max()) {
-        if (error) {
-          *error = "Capacity for field '" + cap_field +
-                   "' must fit a positive uint32";
-        }
-        return -2;
-      }
-      requested.capacities[cap_field] = static_cast<uint32_t>(uval);
-    }
-  }
-
-  return ResolveOutputPoolSpec(*binding, requested, result, error) ? 0 : -2;
-}
-
 int ResolveContainedPath(const std::filesystem::path& canonical_root,
                          const std::string& relative_value,
                          const char* field_name, bool check_exists,
@@ -269,6 +153,122 @@ int ResolveRequiredFileUnderRoot(const std::filesystem::path& canonical_root,
 
 }  // namespace
 
+int OperatorConfigResolver::ResolveOutputAllocation(
+    const nlohmann::json& config, const ExternalSlotDefinition& slot,
+    ResolvedOutputPoolSpec* result, std::string* parameter_text,
+    std::string* error) {
+  if (!config.is_object()) {
+    if (error) *error = "Output allocation must be an object";
+    return -2;
+  }
+  static const std::unordered_set<std::string> fields = {
+      "type",     "allocator",        "params",
+      "meta_num", "metadata_type_id", "capacities"};
+  for (const auto& [field, value] : config.items()) {
+    if (!fields.count(field)) {
+      if (error) *error = "Unknown output allocation field: " + field;
+      return -2;
+    }
+  }
+  if (!config.contains("type") || !config["type"].is_string()) {
+    if (error) *error = "Missing required 'type' string in output allocation";
+    return -2;
+  }
+  ResolvedOutputPoolSpec requested;
+  requested.type = config["type"].get<std::string>();
+  if (requested.type != slot.type_suffix) {
+    if (error)
+      *error = "Output type '" + requested.type + "' does not match slot '" +
+               slot.slot_name + "'";
+    return -2;
+  }
+  if (config.contains("allocator")) {
+    if (!config["allocator"].is_string() ||
+        config["allocator"].get<std::string>().empty()) {
+      if (error) *error = "Output allocator must be a nonempty string";
+      return -2;
+    }
+    requested.allocator = config["allocator"].get<std::string>();
+  }
+  const auto* binding = OperatorValueTypeRegistry::Instance().GetOutputBinding(
+      requested.type, requested.allocator);
+  if (!binding) {
+    if (error)
+      *error = "No registered output allocator '" + requested.allocator +
+               "' for type '" + requested.type + "'";
+    return -2;
+  }
+  const JsonOutputConfigReader reader(config);
+  if (!reader.Read(OutputConfigField::kParameters, parameter_text, error)) {
+    return -2;
+  }
+  if (!NormalizeOutputParameters(*binding, *parameter_text, &requested.params,
+                                 error)) {
+    return -2;
+  }
+  if (config.contains("meta_num")) {
+    if (!config["meta_num"].is_number_unsigned()) {
+      if (error) *error = "config.meta_num must be non-negative integer";
+      return -2;
+    }
+    uint64_t mnum = config["meta_num"].get<uint64_t>();
+    if (mnum > std::numeric_limits<uint32_t>::max()) {
+      if (error) *error = "config.meta_num exceeds uint32 range";
+      return -2;
+    }
+    requested.meta_num = static_cast<uint32_t>(mnum);
+  }
+
+  if (config.contains("metadata_type_id")) {
+    if (config["metadata_type_id"].is_number_unsigned()) {
+      uint64_t uval = config["metadata_type_id"].get<uint64_t>();
+      if (uval > static_cast<uint64_t>(std::numeric_limits<int32_t>::max())) {
+        if (error) *error = "config.metadata_type_id exceeds int32 range";
+        return -2;
+      }
+      requested.metadata_type_id = static_cast<int32_t>(uval);
+    } else if (config["metadata_type_id"].is_number_integer()) {
+      int64_t ival = config["metadata_type_id"].get<int64_t>();
+      if (ival < std::numeric_limits<int32_t>::min() ||
+          ival > std::numeric_limits<int32_t>::max()) {
+        if (error) *error = "config.metadata_type_id exceeds int32 range";
+        return -2;
+      }
+      requested.metadata_type_id = static_cast<int32_t>(ival);
+    } else {
+      if (error) *error = "config.metadata_type_id must be integer";
+      return -2;
+    }
+  }
+
+  if (config.contains("capacities")) {
+    if (!config["capacities"].is_object()) {
+      if (error) *error = "config.capacities must be an object";
+      return -2;
+    }
+    for (const auto& [cap_field, cap_val] : config["capacities"].items()) {
+      if (!cap_val.is_number_unsigned()) {
+        if (error) {
+          *error = "Capacity for field '" + cap_field +
+                   "' must be positive unsigned integer";
+        }
+        return -2;
+      }
+      uint64_t uval = cap_val.get<uint64_t>();
+      if (uval == 0 || uval > std::numeric_limits<uint32_t>::max()) {
+        if (error) {
+          *error = "Capacity for field '" + cap_field +
+                   "' must fit a positive uint32";
+        }
+        return -2;
+      }
+      requested.capacities[cap_field] = static_cast<uint32_t>(uval);
+    }
+  }
+
+  return ResolveOutputPoolSpec(*binding, requested, result, error) ? 0 : -2;
+}
+
 int OperatorConfigResolver::ResolveModelReferenceUnderRoot(
     const std::filesystem::path& root, const std::string& rel_or_abs,
     const char* field_name, std::filesystem::path* out_path,
@@ -363,8 +363,7 @@ int OperatorConfigResolver::Resolve(const char* model_path,
     DeploymentIoConfig dep_config;
     std::string dep_err;
     if (!DeploymentIoConfig::ReadFromFile(full_cfg.string(), "operator",
-                                          &dep_config, &dep_err,
-                                          canon_root.string())) {
+                                          &dep_config, &dep_err)) {
       if (error_msg) *error_msg = dep_err;
       return -2;
     }
@@ -379,169 +378,46 @@ int OperatorConfigResolver::Resolve(const char* model_path,
       return plan_ret;
     }
 
-    const auto* out_conv = io_plan->output_converter;
-    if (!out_conv) {
-      if (error_msg) *error_msg = "Null output converter in validated IO plan";
-      return -2;
-    }
-
-    // 检查是否有未识别的配置槽名
-    for (const auto& [name, value] : dep_config.outputs.items()) {
-      bool known = false;
-      for (const auto& slot : out_conv->external_slots) {
-        if (slot.direction == PortDirection::kOutput &&
-            slot.slot_name == name) {
-          known = true;
-          break;
-        }
-      }
-      if (!known) {
-        if (error_msg) *error_msg = "Unknown configured output slot: " + name;
-        return -2;
-      }
-    }
-
-    std::unordered_map<std::string, ResolvedOutputPoolSpec> pool_specs;
-    std::unordered_map<std::string, std::string> parameter_texts;
-    for (const auto& slot : out_conv->external_slots) {
-      if (slot.direction != PortDirection::kOutput) continue;
-      if (!dep_config.outputs.contains(slot.slot_name)) {
-        if (slot.required) {
+    // 如果有效深度不是默认深度，重新核对该深度下的总预算
+    if (effective_depth != kDefaultOutputPoolDepth) {
+      size_t total_handle_pool_bytes = 0;
+      for (const auto& [slot_name, pool_spec] :
+           io_plan->operator_output_specs) {
+        const auto* output_binding =
+            OperatorValueTypeRegistry::Instance().GetOutputBinding(
+                pool_spec.type, pool_spec.allocator);
+        if (!output_binding ||
+            output_binding->direction != IoDirection::kOutput) {
           if (error_msg) {
-            *error_msg = "Missing allocation configuration for output slot: " +
-                         slot.slot_name;
+            *error_msg = "Missing output value binding for suffix '" +
+                         pool_spec.type + "'";
           }
           return -2;
         }
-        continue;
-      }
-      const auto& config = dep_config.outputs[slot.slot_name];
-      ResolvedOutputPoolSpec spec;
-      std::string parameter_text;
-      std::string allocation_error;
-      if (ResolveOutputAllocation(config, slot, &spec, &parameter_text,
-                                  &allocation_error) != 0) {
-        if (error_msg) {
-          *error_msg = "Invalid output allocation for slot '" + slot.slot_name +
-                       "': " + allocation_error;
-        }
-        return -2;
-      }
-      pool_specs.emplace(slot.slot_name, std::move(spec));
-      parameter_texts.emplace(slot.slot_name, std::move(parameter_text));
-    }
-
-    // 校验单句柄所有输出池总预算
-    size_t total_handle_pool_bytes = 0;
-    for (const auto& slot : out_conv->external_slots) {
-      if (slot.direction != PortDirection::kOutput) continue;
-      auto pit = pool_specs.find(slot.slot_name);
-      if (pit == pool_specs.end()) continue;
-      const auto& pool_spec = pit->second;
-      const auto* output_binding =
-          OperatorValueTypeRegistry::Instance().GetOutputBinding(
-              slot.type_suffix, pool_spec.allocator);
-      if (!output_binding ||
-          output_binding->direction != IoDirection::kOutput) {
-        if (error_msg) {
-          *error_msg = "Missing output value binding for suffix '" +
-                       slot.type_suffix + "'";
-        }
-        return -2;
-      }
-      size_t slot_pool_bytes = 0;
-      std::string budget_err;
-      if (!ComputeOutputPoolPayloadBytes(*output_binding, pool_spec,
-                                         effective_depth, &slot_pool_bytes,
-                                         &budget_err)) {
-        if (error_msg) {
-          *error_msg = "Output pool budget calculation failed: " + budget_err;
-        }
-        return -2;
-      }
-      if (!CheckedAdd(total_handle_pool_bytes, slot_pool_bytes,
-                      &total_handle_pool_bytes)) {
-        if (error_msg) *error_msg = "Handle pool budget addition overflowed";
-        return -2;
-      }
-    }
-    if (total_handle_pool_bytes > kMaxHandlePoolPayloadBytes) {
-      if (error_msg) {
-        *error_msg = "Total output pool payload (" +
-                     std::to_string(total_handle_pool_bytes) +
-                     " bytes) exceeds per-handle payload budget (" +
-                     std::to_string(kMaxHandlePoolPayloadBytes) + " bytes)";
-      }
-      return -2;
-    }
-
-    io_plan->operator_output_specs = pool_specs;
-
-    // 读取 Pipeline JSON 并应用模型覆盖
-    std::ifstream pipe_stream(dep_config.resolved_pipe_path);
-    if (!pipe_stream.is_open()) {
-      if (error_msg) {
-        *error_msg =
-            "Failed to open pipeline file: " + dep_config.resolved_pipe_path;
-      }
-      return -2;
-    }
-    nlohmann::json pipe_json;
-    try {
-      pipe_stream >> pipe_json;
-    } catch (const std::exception& e) {
-      if (error_msg) {
-        *error_msg = std::string("Failed to parse pipeline JSON: ") + e.what();
-      }
-      return -2;
-    }
-
-    std::unordered_map<std::string, std::string> map_overrides;
-    for (const auto& [mid, mstr] : dep_config.model_paths) {
-      if (mid.empty() || mstr.empty()) {
-        if (error_msg) *error_msg = "Invalid entry in 'model_paths'";
-        return -2;
-      }
-      std::filesystem::path full_mpath;
-      ret = ResolveModelReferenceUnderRoot(
-          canon_root, mstr, "model_paths entry", &full_mpath, error_msg);
-      if (ret != 0) return ret;
-
-      bool matched = false;
-      if (pipe_json.contains("models") && pipe_json["models"].is_array()) {
-        for (auto& item : pipe_json["models"]) {
-          if (item.contains("model_id") && item["model_id"] == mid) {
-            map_overrides[mid] = full_mpath.string();
-            matched = true;
-            break;
+        size_t slot_pool_bytes = 0;
+        std::string budget_err;
+        if (!ComputeOutputPoolPayloadBytes(*output_binding, pool_spec,
+                                           effective_depth, &slot_pool_bytes,
+                                           &budget_err)) {
+          if (error_msg) {
+            *error_msg = "Output pool budget calculation failed: " + budget_err;
           }
+          return -2;
+        }
+        if (!CheckedAdd(total_handle_pool_bytes, slot_pool_bytes,
+                        &total_handle_pool_bytes)) {
+          if (error_msg) *error_msg = "Handle pool budget addition overflowed";
+          return -2;
         }
       }
-      if (!matched) {
+      if (total_handle_pool_bytes > kMaxHandlePoolPayloadBytes) {
         if (error_msg) {
-          *error_msg = "Unknown model_id '" + mid + "' in 'model_paths'";
+          *error_msg = "Total output pool payload (" +
+                       std::to_string(total_handle_pool_bytes) +
+                       " bytes) exceeds per-handle payload budget (" +
+                       std::to_string(kMaxHandlePoolPayloadBytes) + " bytes)";
         }
         return -2;
-      }
-    }
-
-    if (pipe_json.contains("models") && pipe_json["models"].is_array()) {
-      for (auto& item : pipe_json["models"]) {
-        std::string mid =
-            item.contains("model_id") && item["model_id"].is_string()
-                ? item["model_id"].get<std::string>()
-                : "";
-        if (!mid.empty() && map_overrides.find(mid) != map_overrides.end()) {
-          item["model_path"] = map_overrides[mid];
-        } else if (item.contains("model_path") &&
-                   item["model_path"].is_string()) {
-          std::string mp = item["model_path"].get<std::string>();
-          std::filesystem::path full_mpath;
-          ret = ResolveModelReferenceUnderRoot(
-              canon_root, mp, "pipeline model_path", &full_mpath, error_msg);
-          if (ret != 0) return ret;
-          item["model_path"] = full_mpath.string();
-        }
       }
     }
 
@@ -550,11 +426,11 @@ int OperatorConfigResolver::Resolve(const char* model_path,
     result->model_root_path = canon_root;
     result->biz_name = io_plan->binding.biz_name;
     result->io_binding = io_plan->binding.binding_id;
-    result->synthetic_pipeline_json = std::move(pipe_json);
-    result->output_pool_specs = std::move(pool_specs);
-    result->output_parameter_text = std::move(parameter_texts);
-    result->io_plan = std::move(io_plan);
+    result->synthetic_pipeline_json = io_plan->resolved_pipeline_json;
+    result->output_pool_specs = io_plan->operator_output_specs;
+    result->output_parameter_text = io_plan->operator_output_parameter_texts;
     result->input_limits = ResolvedInputLimits{};
+    result->io_plan = std::move(io_plan);
 
     return 0;
   } catch (const std::exception& e) {

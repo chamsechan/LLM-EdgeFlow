@@ -158,7 +158,7 @@ def make_recipe_conf(pipeline_doc, outputs, pipeline_target, root, model_root=No
     models = absolute(model_root, root) if model_root is not None else root / "models"
     bundle = deployment_root(root, pipeline, models)
     return VERIFY_SELECTION.build_run_conf(pipeline_doc, outputs,
-                                           pipeline.relative_to(bundle), models, bundle)
+                                           pipeline.name, models, bundle)
 
 
 def command(description, argv):
@@ -310,7 +310,7 @@ def prepare(recipe, name, profile_name, tool_path, build_dir, pipeline_target, r
             temp = Path(temporary)
             preview_pipeline = temp / "pipeline.json"
             preview_pipeline.write_text(json.dumps(deployment_preview), encoding="utf-8")
-            preview_conf = VERIFY_SELECTION.build_run_conf(deployment_preview, outputs, preview_pipeline.relative_to(bundle), models, bundle)
+            preview_conf = VERIFY_SELECTION.build_run_conf(deployment_preview, outputs, preview_pipeline.name, models, bundle)
             (temp / "pipeline.conf").write_text(json.dumps(preview_conf), encoding="utf-8")
             native(tool, ["resolve-conf", str((temp / "pipeline.conf").relative_to(bundle)), "--root", str(bundle)], root)
         for path, document in [(target, pipeline), (conf_target, conf), (effects_target, spec)]:

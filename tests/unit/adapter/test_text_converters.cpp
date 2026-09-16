@@ -131,7 +131,7 @@ TEST_F(TextConvertersTest, TranslationJsonOutputEncodeCAbi) {
   EXPECT_EQ(parsed["translated"], "Bonjour le monde");
 }
 
-TEST_F(TextConvertersTest, InputConverterReusedAcrossBindings) {
+TEST_F(TextConvertersTest, ProductionBindingsUseDeclaredHostTypes) {
   const auto* entity_binding =
       IoBindingRegistry::Instance().FindBinding("entity_extract.cabi.v1");
   ASSERT_NE(entity_binding, nullptr);
@@ -140,13 +140,49 @@ TEST_F(TextConvertersTest, InputConverterReusedAcrossBindings) {
       IoBindingRegistry::Instance().FindBinding("keyword_match.cabi.v1");
   ASSERT_NE(keyword_binding, nullptr);
 
-  // Both bindings must reuse the exact same text.plain.cabi.v1 converter
+  // Entity extract uses CompanyEntityInputStruct via text.plain.cabi.v1
   EXPECT_EQ(entity_binding->input_converter_id, "text.plain.cabi.v1");
-  EXPECT_EQ(keyword_binding->input_converter_id, "text.plain.cabi.v1");
+  const auto* entity_conv = IoConverterRegistry::Instance().FindInputConverter(
+      entity_binding->input_converter_id);
+  ASSERT_NE(entity_conv, nullptr);
+  EXPECT_EQ(entity_conv->external_type, "CompanyEntityInputStruct");
 
-  // But have distinct output converters
+  // Keyword match uses CompanyKeywordInputStruct via keyword.plain.cabi.v1
+  EXPECT_EQ(keyword_binding->input_converter_id, "keyword.plain.cabi.v1");
+  const auto* keyword_conv = IoConverterRegistry::Instance().FindInputConverter(
+      keyword_binding->input_converter_id);
+  ASSERT_NE(keyword_conv, nullptr);
+  EXPECT_EQ(keyword_conv->external_type, "CompanyKeywordInputStruct");
+
+  // Output converters are distinct
   EXPECT_EQ(entity_binding->output_converter_id, "document.structured.cabi.v1");
   EXPECT_EQ(keyword_binding->output_converter_id, "keyword.result.cabi.v1");
+}
+
+TEST_F(TextConvertersTest, InputConverterReusedAcrossTestBindings) {
+  // 证明同一个转换器 ID 可以在不同绑定间复用：通过测试专用绑定
+  IoBindingDefinition test_reuse_binding;
+  test_reuse_binding.binding_id = "test_text_reuse.cabi.v1";
+  test_reuse_binding.biz_name = "entity_extract_v1";
+  test_reuse_binding.transport = "cabi";
+  test_reuse_binding.input_converter_id = "text.plain.cabi.v1";
+  test_reuse_binding.output_converter_id = "document.structured.cabi.v1";
+  test_reuse_binding.input_ports = {{"raw_request_ids", "raw_request_ids"},
+                                    {"input_sentences", "input_sentences"}};
+  test_reuse_binding.output_ports = {
+      {"raw_request_ids", "raw_request_ids"},
+      {"extracted_entities", "extracted_entities"}};
+  test_reuse_binding.max_batch_size = 64;
+
+  IoBindingRegistry::Instance().RegisterBinding(test_reuse_binding);
+
+  const auto* b1 =
+      IoBindingRegistry::Instance().FindBinding("entity_extract.cabi.v1");
+  const auto* b2 =
+      IoBindingRegistry::Instance().FindBinding("test_text_reuse.cabi.v1");
+  ASSERT_NE(b1, nullptr);
+  ASSERT_NE(b2, nullptr);
+  EXPECT_EQ(b1->input_converter_id, b2->input_converter_id);
 }
 
 }  // namespace llm_edgeflow

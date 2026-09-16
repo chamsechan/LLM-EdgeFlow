@@ -83,7 +83,7 @@ def build_run_conf(pipeline, outputs, pipe_path, model_root, bundle_root, io_bin
     """Map the selected Pipeline's model paths into an explicit deployment root."""
     bundle_root = Path(bundle_root).resolve()
     model_root = within(bundle_root, model_root)
-    pipeline_path = within(bundle_root, pipe_path).relative_to(bundle_root)
+    pipeline_path = Path(pipe_path).name
     model_paths = {model["model_id"]: str(within(model_root, model["model_path"]).relative_to(bundle_root))
                    for model in pipeline.get("models", [])}
     binding = io_binding or BIZ_TO_OPERATOR_BINDING.get(pipeline.get("biz_name"))

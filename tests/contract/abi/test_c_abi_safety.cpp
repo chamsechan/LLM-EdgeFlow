@@ -394,7 +394,8 @@ TEST_F(CAbiSafetyTest, EntityFailureSampleSentinelValues) {
   options.transport = "cabi";
 
   llm_edgeflow::OutputPortBindings bindings(
-      {{"entities", "extracted_entities"}});
+      {{"raw_request_ids", "raw_request_ids"},
+       {"extracted_entities", "extracted_entities"}});
   size_t written_count = 0;
   llm_edgeflow::AdapterStatus status;
   int ret = out_conv->encode_fn(&ctx, bindings, options, &out_view,

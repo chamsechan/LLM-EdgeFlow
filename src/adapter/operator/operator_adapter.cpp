@@ -395,6 +395,11 @@ int Operator_Process(void* handle, const NamedIoBatch& inputs,
     llm_edgeflow::ExternalOutputBatchView out_view;
     out_view.count = inputs.size();
     out_view.type_id = h->output_converter->external_type;
+    for (const auto& slot : h->output_converter->external_slots) {
+      if (slot.direction == PortDirection::kOutput) {
+        out_view.slot_types[slot.slot_name] = slot.type_id;
+      }
+    }
     for (const auto& acq : acquired_blocks) {
       out_view.leased_slots[acq.logical_name].push_back(acq.raw_block);
       out_view.pool_specs[acq.logical_name] = acq.pool->Spec();

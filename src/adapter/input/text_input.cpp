@@ -15,10 +15,11 @@ namespace {
 
 constexpr size_t kMaxSentenceLen = 64 * 1024;  // 64 KiB
 
-int DecodeCAbiTextInput(const ExternalInputBatchView& source,
-                        const InputDecodeOptions& options,
-                        const InputPortBindings& bindings, AlgContext* context,
-                        AdapterStatus* status) {
+template <typename StructT>
+int DecodeCAbiTextHelper(const ExternalInputBatchView& source,
+                         const InputDecodeOptions& options,
+                         const InputPortBindings& bindings, AlgContext* context,
+                         AdapterStatus* status) {
   if (!context) {
     return AdapterValidationHelper::ReturnInvalidInput(
         status, "Null AlgContext passed to Decode", "context",
@@ -39,7 +40,7 @@ int DecodeCAbiTextInput(const ExternalInputBatchView& source,
   sentences.reserve(source.count);
 
   for (size_t i = 0; i < source.count; ++i) {
-    const auto* in = source.GetCAbi<CompanyEntityInputStruct>(i);
+    const auto* in = source.GetCAbi<StructT>(i);
     if (!AdapterValidationHelper::RequireNotNull(
             "inputs[i]", in, static_cast<int>(i), options.converter_id.c_str(),
             status)) {
@@ -64,6 +65,22 @@ int DecodeCAbiTextInput(const ExternalInputBatchView& source,
   }
 
   return COMPANY_ALG_SUCCESS;
+}
+
+int DecodeCAbiTextInput(const ExternalInputBatchView& source,
+                        const InputDecodeOptions& options,
+                        const InputPortBindings& bindings, AlgContext* context,
+                        AdapterStatus* status) {
+  return DecodeCAbiTextHelper<CompanyEntityInputStruct>(
+      source, options, bindings, context, status);
+}
+
+int DecodeCAbiKeywordInput(const ExternalInputBatchView& source,
+                           const InputDecodeOptions& options,
+                           const InputPortBindings& bindings,
+                           AlgContext* context, AdapterStatus* status) {
+  return DecodeCAbiTextHelper<CompanyKeywordInputStruct>(
+      source, options, bindings, context, status);
 }
 
 int DecodeOperatorEntityInput(const ExternalInputBatchView& source,
@@ -193,7 +210,8 @@ InputConverterDefinition MakeCAbiTextInputConverter() {
                          true,
                          "CompanyEntityInputStruct",
                          "",
-                         {}}};
+                         {},
+                         ""}};
   def.logical_ports = {
       NodePortDefinition("raw_request_ids", "vector<uint64>", true, "1:1"),
       NodePortDefinition("input_sentences", "TextBatch", true, "1:1")};
@@ -217,7 +235,8 @@ InputConverterDefinition MakeOperatorEntityInputConverter() {
                          true,
                          "entity_in",
                          "entity_in",
-                         {}}};
+                         {},
+                         ""}};
   def.logical_ports = {
       NodePortDefinition("raw_request_ids", "vector<uint64>", true, "1:1"),
       NodePortDefinition("input_sentences", "TextBatch", true, "1:1")};
@@ -241,7 +260,8 @@ InputConverterDefinition MakeOperatorKeywordInputConverter() {
                          true,
                          "keyword_in",
                          "keyword_in",
-                         {}}};
+                         {},
+                         ""}};
   def.logical_ports = {
       NodePortDefinition("raw_request_ids", "vector<uint64>", true, "1:1"),
       NodePortDefinition("input_sentences", "TextBatch", true, "1:1")};
@@ -249,7 +269,33 @@ InputConverterDefinition MakeOperatorKeywordInputConverter() {
   return def;
 }
 
+InputConverterDefinition MakeCAbiKeywordInputConverter() {
+  InputConverterDefinition def;
+  def.converter_id = "keyword.plain.cabi.v1";
+  def.transport = "cabi";
+  def.schema_id = "text.plain.request";
+  def.schema_version = 1;
+  def.external_type = "CompanyKeywordInputStruct";
+  def.max_batch_size = 64;
+  def.ownership_policy = "copy_in";
+  def.thread_model = "stateless";
+  def.external_slots = {{"sentence_text",
+                         "CompanyKeywordInputStruct",
+                         PortDirection::kInput,
+                         true,
+                         "CompanyKeywordInputStruct",
+                         "",
+                         {},
+                         ""}};
+  def.logical_ports = {
+      NodePortDefinition("raw_request_ids", "vector<uint64>", true, "1:1"),
+      NodePortDefinition("input_sentences", "TextBatch", true, "1:1")};
+  def.decode_fn = &DecodeCAbiKeywordInput;
+  return def;
+}
+
 REGISTER_INPUT_CONVERTER(MakeCAbiTextInputConverter());
+REGISTER_INPUT_CONVERTER(MakeCAbiKeywordInputConverter());
 REGISTER_INPUT_CONVERTER(MakeOperatorEntityInputConverter());
 REGISTER_INPUT_CONVERTER(MakeOperatorKeywordInputConverter());
 

@@ -20,14 +20,12 @@ struct DeploymentIoConfig {
 
   static bool Parse(const nlohmann::json& root, const std::string& config_dir,
                     const std::string& transport,
-                    DeploymentIoConfig* out_config, std::string* out_error,
-                    const std::string& root_dir = "");
+                    DeploymentIoConfig* out_config, std::string* out_error);
 
   static bool ReadFromFile(const std::string& config_path,
                            const std::string& transport,
                            DeploymentIoConfig* out_config,
-                           std::string* out_error,
-                           const std::string& root_dir = "");
+                           std::string* out_error);
 };
 
 }  // namespace llm_edgeflow

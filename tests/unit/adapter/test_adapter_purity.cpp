@@ -32,6 +32,14 @@ class AdapterPurityTest : public ::testing::Test {
   void SetUp() override { SharedAlgorithmRuntime::GlobalInit(); }
 };
 
+struct CustomMultiFieldInput {
+  uint64_t req_id;
+  const char* topic;
+  const char* content;
+};
+
+DECLARE_EXTERNAL_TYPE_TRAITS(CustomMultiFieldInput, "CustomMultiFieldInput");
+
 // =========================================================================
 // 1. All 8 Businesses Converter Purity
 // =========================================================================
@@ -109,7 +117,7 @@ TEST_F(AdapterPurityTest, KeywordMatchAdapterPurity) {
   test::AdapterHarness harness(
       in_conv, out_conv,
       InputPortBindings({{"raw_request_ids", "raw_request_ids"},
-                         {"texts", "input_sentences"}}),
+                         {"input_sentences", "input_sentences"}}),
       OutputPortBindings({{"raw_request_ids", "raw_request_ids"},
                           {"rule_matches", "rule_matches"}}));
 
@@ -142,9 +150,9 @@ TEST_F(AdapterPurityTest, EntityExtractAdapterPurity) {
   test::AdapterHarness harness(
       in_conv, out_conv,
       InputPortBindings({{"raw_request_ids", "raw_request_ids"},
-                         {"texts", "input_sentences"}}),
+                         {"input_sentences", "input_sentences"}}),
       OutputPortBindings({{"raw_request_ids", "raw_request_ids"},
-                          {"entities", "extracted_entities"}}));
+                          {"extracted_entities", "extracted_entities"}}));
 
   CompanyEntityInputStruct in{1003, "Entity text"};
   ASSERT_EQ(harness.DecodeCAbi({&in}), 0);
@@ -339,7 +347,7 @@ TEST_F(AdapterPurityTest, TranslateAdapterPurity) {
   test::AdapterHarness harness(
       in_conv, out_conv,
       InputPortBindings({{"raw_request_ids", "raw_request_ids"},
-                         {"texts", "input_sentences"}}),
+                         {"input_sentences", "input_sentences"}}),
       OutputPortBindings({{"raw_request_ids", "raw_request_ids"},
                           {"llm_answers", "llm_answers"}}));
 
@@ -615,7 +623,7 @@ TEST_F(AdapterPurityTest, InputBatchSkeleton_CopyInPurity) {
 
   test::AdapterHarness harness(
       in_conv, InputPortBindings({{"raw_request_ids", "raw_request_ids"},
-                                  {"texts", "input_sentences"}}));
+                                  {"input_sentences", "input_sentences"}}));
 
   std::string buffer = "{\"query\":\"original query\"}";
   CompanyEntityInputStruct in{5555, buffer.c_str()};
@@ -642,7 +650,7 @@ TEST_F(AdapterPurityTest, InputBatchSkeleton_ExternalDuplicateIdsAllowed) {
   test::AdapterHarness harness(
       in_conv, out_conv,
       InputPortBindings({{"raw_request_ids", "raw_request_ids"},
-                         {"texts", "input_sentences"}}),
+                         {"input_sentences", "input_sentences"}}),
       OutputPortBindings({{"raw_request_ids", "raw_request_ids"},
                           {"llm_answers", "llm_answers"}}));
 
@@ -677,7 +685,7 @@ TEST_F(AdapterPurityTest, InputBatchSkeleton_AllSamplesValidatedBeforePublish) {
 
   test::AdapterHarness harness(
       in_conv, InputPortBindings({{"raw_request_ids", "raw_request_ids"},
-                                  {"texts", "input_sentences"}}));
+                                  {"input_sentences", "input_sentences"}}));
 
   CompanyEntityInputStruct in0{1, "{\"query\":\"valid\"}"};
   CompanyEntityInputStruct in1{2, "invalid json"};
@@ -730,7 +738,8 @@ TEST_F(AdapterPurityTest, DocQaAdapter_MultiWayResultsReorderedAndPerturbed) {
 // 3. Section 13.1 Independent Reuse Proofs
 // =========================================================================
 
-// Proof 1: Input Converter Reused Across Bindings
+// Proof 1: Input Converters Match Biz Declared Host Types & Prove Reuse via
+// Test Binding
 TEST_F(AdapterPurityTest, ReuseProof_1_InputConverterReusedAcrossBindings) {
   const auto* entity_binding =
       IoBindingRegistry::Instance().FindBinding("entity_extract.cabi.v1");
@@ -739,18 +748,23 @@ TEST_F(AdapterPurityTest, ReuseProof_1_InputConverterReusedAcrossBindings) {
       IoBindingRegistry::Instance().FindBinding("keyword_match.cabi.v1");
   ASSERT_NE(keyword_binding, nullptr);
 
-  // Both bindings share the exact same text.plain.cabi.v1 converter
   EXPECT_EQ(entity_binding->input_converter_id, "text.plain.cabi.v1");
-  EXPECT_EQ(keyword_binding->input_converter_id, "text.plain.cabi.v1");
+  EXPECT_EQ(keyword_binding->input_converter_id, "keyword.plain.cabi.v1");
 
-  const auto* in_conv =
+  const auto* entity_conv =
       IoConverterRegistry::Instance().FindInputConverter("text.plain.cabi.v1");
-  ASSERT_NE(in_conv, nullptr);
+  ASSERT_NE(entity_conv, nullptr);
+  EXPECT_EQ(entity_conv->external_type, "CompanyEntityInputStruct");
 
-  // Decode input with entity binding mapping
+  const auto* keyword_conv = IoConverterRegistry::Instance().FindInputConverter(
+      "keyword.plain.cabi.v1");
+  ASSERT_NE(keyword_conv, nullptr);
+  EXPECT_EQ(keyword_conv->external_type, "CompanyKeywordInputStruct");
+
+  // Decode input with entity binding: constructs CompanyEntityInputStruct
   {
     test::AdapterHarness harness(
-        in_conv, InputPortBindings(entity_binding->input_ports));
+        entity_conv, InputPortBindings(entity_binding->input_ports));
     CompanyEntityInputStruct in{8001, "entity sentence"};
     EXPECT_EQ(harness.DecodeCAbi({&in}), 0);
     const auto* sentences =
@@ -759,16 +773,35 @@ TEST_F(AdapterPurityTest, ReuseProof_1_InputConverterReusedAcrossBindings) {
     EXPECT_EQ((*sentences)[0].data, "entity sentence");
   }
 
-  // Decode input with keyword binding mapping
+  // Decode input with keyword binding: constructs CompanyKeywordInputStruct
   {
     test::AdapterHarness harness(
-        in_conv, InputPortBindings(keyword_binding->input_ports));
-    CompanyEntityInputStruct in{8002, "keyword sentence"};
+        keyword_conv, InputPortBindings(keyword_binding->input_ports));
+    CompanyKeywordInputStruct in{8002, "keyword sentence"};
     EXPECT_EQ(harness.DecodeCAbi({&in}), 0);
     const auto* sentences =
         harness.Context().Read<TextBatch>("input_sentences");
     ASSERT_NE(sentences, nullptr);
     EXPECT_EQ((*sentences)[0].data, "keyword sentence");
+  }
+
+  // 跨业务复用证明：在测试专用绑定中复用 text.plain.cabi.v1
+  {
+    IoBindingDefinition test_reuse_binding;
+    test_reuse_binding.binding_id = "test_purity_reuse.cabi.v1";
+    test_reuse_binding.biz_name = "entity_extract_v1";
+    test_reuse_binding.transport = "cabi";
+    test_reuse_binding.input_converter_id = "text.plain.cabi.v1";
+    test_reuse_binding.output_converter_id = "document.structured.cabi.v1";
+    test_reuse_binding.input_ports = entity_binding->input_ports;
+    test_reuse_binding.output_ports = entity_binding->output_ports;
+    test_reuse_binding.max_batch_size = 64;
+    IoBindingRegistry::Instance().RegisterBinding(test_reuse_binding);
+
+    const auto* b_test =
+        IoBindingRegistry::Instance().FindBinding("test_purity_reuse.cabi.v1");
+    ASSERT_NE(b_test, nullptr);
+    EXPECT_EQ(b_test->input_converter_id, entity_binding->input_converter_id);
   }
 }
 
@@ -779,7 +812,7 @@ TEST_F(AdapterPurityTest, ReuseProof_2_OutputConverterReusedAcrossPipelines) {
   ASSERT_NE(out_conv, nullptr);
 
   OutputPortBindings bindings({{"raw_request_ids", "raw_request_ids"},
-                               {"entities", "extracted_entities"}});
+                               {"extracted_entities", "extracted_entities"}});
 
   // Context A: Entity Extraction pipeline output
   {
@@ -817,13 +850,6 @@ TEST_F(AdapterPurityTest, ReuseProof_2_OutputConverterReusedAcrossPipelines) {
 // Proof 3: Multiple External Input Formats Driving Same Pipeline
 TEST_F(AdapterPurityTest,
        ReuseProof_3_MultipleExternalInputFormatsForSamePipeline) {
-  // Define custom struct format B
-  struct CustomMultiFieldInput {
-    uint64_t req_id;
-    const char* topic;
-    const char* content;
-  };
-
   // Register custom input converter that converts CustomMultiFieldInput to
   // TextBatch
   InputConverterDefinition custom_in_def;
@@ -831,6 +857,10 @@ TEST_F(AdapterPurityTest,
   custom_in_def.transport = "cabi";
   custom_in_def.schema_id = "multi_field.request";
   custom_in_def.schema_version = 1;
+  custom_in_def.external_type = "CustomMultiFieldInput";
+  custom_in_def.external_slots = {ExternalSlotDefinition(
+      "inputs", "CustomMultiFieldInput", PortDirection::kInput, true)};
+  custom_in_def.max_batch_size = 64;
   custom_in_def.logical_ports = {
       NodePortDefinition("raw_request_ids", "vector<uint64>", true, "1:1"),
       NodePortDefinition("texts", "TextBatch", true, "1:1")};
@@ -868,8 +898,8 @@ TEST_F(AdapterPurityTest,
     view.items = items;
     view.count = 1;
     view.type_id = "CompanyEntityInputStruct";
-    InputPortBindings bindings(
-        {{"raw_request_ids", "raw_request_ids"}, {"texts", "input_sentences"}});
+    InputPortBindings bindings({{"raw_request_ids", "raw_request_ids"},
+                                {"input_sentences", "input_sentences"}});
     InputDecodeOptions opts;
     opts.converter_id = in_a->converter_id;
     AdapterStatus st;
@@ -934,7 +964,7 @@ TEST_F(AdapterPurityTest, ReuseProof_4_IndependentlySwitchOutputFormat) {
     dest.capacity = 1;
     dest.type_id = out_a->external_type;
     OutputPortBindings bindings({{"raw_request_ids", "raw_request_ids"},
-                                 {"entities", "extracted_entities"}});
+                                 {"extracted_entities", "extracted_entities"}});
     OutputEncodeOptions opts;
     opts.converter_id = out_a->converter_id;
     size_t written = 0;
@@ -986,8 +1016,8 @@ TEST_F(AdapterPurityTest, ReuseProof_5_SameCarrierDifferentSchema) {
   plain_view.count = 1;
   plain_view.type_id = "CompanyEntityInputStruct";
 
-  InputPortBindings bindings(
-      {{"raw_request_ids", "raw_request_ids"}, {"texts", "input_sentences"}});
+  InputPortBindings bindings({{"raw_request_ids", "raw_request_ids"},
+                              {"input_sentences", "input_sentences"}});
   InputDecodeOptions opts;
 
   // text.plain.cabi.v1 accepts it as plain text
@@ -1074,6 +1104,31 @@ TEST_F(AdapterPurityTest, ReuseProof_6_NegativeCombinations) {
   EXPECT_FALSE(DeploymentIoConfig::Parse(cabi_with_outputs_json, ".", "cabi",
                                          &parsed_cfg, &error));
   EXPECT_NE(error.find("outputs"), std::string::npos);
+
+  // 5. Operator config with unknown output slot rejected by parity check
+  DeploymentIoConfig unknown_out_cfg;
+  unknown_out_cfg.io_binding = "keyword_match.operator.v1";
+  unknown_out_cfg.pipe_path = "pipeline_keyword_match_rules.json";
+  unknown_out_cfg.outputs = {{"unknown_slot", {{"type", "String"}}}};
+  ret = IoBindingResolver::ResolveFromConfig(unknown_out_cfg, "operator",
+                                             "./models", &plan, &error);
+  EXPECT_EQ(ret, -2);
+  EXPECT_NE(error.find("Unknown configured output slot: unknown_slot"),
+            std::string::npos);
+
+  // 6. Unknown model_id in model_paths rejected
+  DeploymentIoConfig unknown_mid_cfg;
+  unknown_mid_cfg.io_binding = "keyword_match.cabi.v1";
+  unknown_mid_cfg.pipe_path = "configs/pipeline_keyword_match_rules.json";
+  unknown_mid_cfg.resolved_pipe_path =
+      "configs/pipeline_keyword_match_rules.json";
+  unknown_mid_cfg.model_paths = {{"non_existent_model", "dummy_path"}};
+  ret = IoBindingResolver::ResolveFromConfig(unknown_mid_cfg, "cabi",
+                                             "./models", &plan, &error);
+  EXPECT_EQ(ret, -2);
+  EXPECT_NE(
+      error.find("Unknown model_id 'non_existent_model' in 'model_paths'"),
+      std::string::npos);
 }
 
 // Proof 7: Validation Before Initialization (probe model not loaded on invalid

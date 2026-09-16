@@ -33,6 +33,12 @@ struct ResolvedOperatorConfig {
  */
 class OperatorConfigResolver {
  public:
+  static int ResolveOutputAllocation(const nlohmann::json& config,
+                                     const ExternalSlotDefinition& slot,
+                                     ResolvedOutputPoolSpec* result,
+                                     std::string* parameter_text,
+                                     std::string* error);
+
   static int ResolveModelReferenceUnderRoot(const std::filesystem::path& root,
                                             const std::string& rel_or_abs,
                                             const char* field_name,

@@ -24,6 +24,8 @@ struct ValidatedIoPlan {
   size_t effective_max_batch_size = 64;
 
   std::unordered_map<std::string, ResolvedOutputPoolSpec> operator_output_specs;
+  std::unordered_map<std::string, std::string> operator_output_parameter_texts;
+  nlohmann::json resolved_pipeline_json;
 
   std::unique_ptr<ValidatedPipelinePlan> pipeline_plan;
 };
@@ -45,6 +47,12 @@ class IoBindingResolver {
                              const std::string& model_root_dir,
                              std::unique_ptr<ValidatedIoPlan>* out_plan,
                              std::string* out_error);
+
+  static int ResolveFromPipelineJson(
+      const nlohmann::json& pipeline_json, const std::string& binding_id,
+      const std::string& transport,  // "cabi" 或 "operator"
+      const std::string& model_root_dir,
+      std::unique_ptr<ValidatedIoPlan>* out_plan, std::string* out_error);
 };
 
 }  // namespace llm_edgeflow

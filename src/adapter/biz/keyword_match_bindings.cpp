@@ -39,7 +39,7 @@ IoBindingDefinition MakeKeywordMatchCAbiBinding() {
   def.binding_id = "keyword_match.cabi.v1";
   def.biz_name = "keyword_match_v1";
   def.transport = "cabi";
-  def.input_converter_id = "text.plain.cabi.v1";
+  def.input_converter_id = "keyword.plain.cabi.v1";
   def.output_converter_id = "keyword.result.cabi.v1";
   def.input_ports = {{"raw_request_ids", "raw_request_ids"},
                      {"input_sentences", "input_sentences"}};

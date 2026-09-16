@@ -243,7 +243,8 @@ TEST_F(AdapterContractSecurityTest,
   AlgContext large;
   large.Publish(kRawRequestIds, std::vector<uint64_t>{123});
   large.Publish(kLlmAnswers, TextBatch{{0, 0, translation}});
-  OutputPortBindings bindings;
+  OutputPortBindings bindings(
+      {{"raw_request_ids", "raw_request_ids"}, {"llm_answers", "llm_answers"}});
   OutputEncodeOptions options;
   options.converter_id = "translate.json.cabi.v1";
   AdapterStatus status;
@@ -602,7 +603,8 @@ TEST_F(AdapterContractSecurityTest, DirectUnpackMemoryIsolation) {
   ExternalInputBatchView in_view;
   in_view.items = inputs;
   in_view.count = 1;
-  InputPortBindings in_bindings;
+  InputPortBindings in_bindings({{"raw_request_ids", "raw_request_ids"},
+                                 {"input_sentences", "input_sentences"}});
   InputDecodeOptions in_options;
   in_options.converter_id = "text.cabi.v1";
 
@@ -792,7 +794,8 @@ TEST_F(AdapterContractSecurityTest,
   ExternalInputBatchView view;
   view.items = inputs;
   view.count = 2;
-  InputPortBindings bindings;
+  InputPortBindings bindings({{"raw_request_ids", "raw_request_ids"},
+                              {"input_sentences", "input_sentences"}});
   InputDecodeOptions options;
   options.converter_id = "translate.json.cabi.v1";
 
@@ -838,7 +841,8 @@ TEST_F(AdapterContractSecurityTest,
   view.items = outputs;
   view.count = 1;
   view.capacity = 1;
-  OutputPortBindings bindings;
+  OutputPortBindings bindings(
+      {{"raw_request_ids", "raw_request_ids"}, {"llm_answers", "llm_answers"}});
   OutputEncodeOptions options;
   options.converter_id = "translate.json.cabi.v1";
 
@@ -871,7 +875,8 @@ TEST_F(AdapterContractSecurityTest,
   view.items = nullptr;
   view.count = 0;
   view.capacity = 0;
-  OutputPortBindings bindings;
+  OutputPortBindings bindings(
+      {{"raw_request_ids", "raw_request_ids"}, {"llm_answers", "llm_answers"}});
   OutputEncodeOptions options;
   options.converter_id = "translate.json.cabi.v1";
 
@@ -901,7 +906,8 @@ TEST_F(AdapterContractSecurityTest, TranslateNullContextDiagnostics) {
   ExternalInputBatchView in_view;
   in_view.items = inputs;
   in_view.count = 1;
-  InputPortBindings in_bindings;
+  InputPortBindings in_bindings({{"raw_request_ids", "raw_request_ids"},
+                                 {"input_sentences", "input_sentences"}});
   InputDecodeOptions in_options;
   in_options.converter_id = "translate.json.cabi.v1";
 
@@ -925,7 +931,8 @@ TEST_F(AdapterContractSecurityTest, TranslateNullContextDiagnostics) {
   out_view.items = outputs;
   out_view.count = 1;
   out_view.capacity = 1;
-  OutputPortBindings out_bindings;
+  OutputPortBindings out_bindings(
+      {{"raw_request_ids", "raw_request_ids"}, {"llm_answers", "llm_answers"}});
   OutputEncodeOptions out_options;
   out_options.converter_id = "translate.json.cabi.v1";
 

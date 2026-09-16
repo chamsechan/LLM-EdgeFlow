@@ -12,8 +12,7 @@ namespace fs = std::filesystem;
 bool DeploymentIoConfig::ReadFromFile(const std::string& config_path,
                                       const std::string& transport,
                                       DeploymentIoConfig* out_config,
-                                      std::string* out_error,
-                                      const std::string& root_dir) {
+                                      std::string* out_error) {
   if (config_path.empty()) {
     if (out_error) *out_error = "Empty config_path";
     return false;
@@ -39,17 +38,16 @@ bool DeploymentIoConfig::ReadFromFile(const std::string& config_path,
   if (cfg_dir.empty()) {
     cfg_dir = ".";
   }
+  cfg_dir = fs::absolute(cfg_dir);
 
-  return Parse(root, cfg_dir.string(), transport, out_config, out_error,
-               root_dir);
+  return Parse(root, cfg_dir.string(), transport, out_config, out_error);
 }
 
 bool DeploymentIoConfig::Parse(const nlohmann::json& root,
                                const std::string& config_dir,
                                const std::string& transport,
                                DeploymentIoConfig* out_config,
-                               std::string* out_error,
-                               const std::string& root_dir) {
+                               std::string* out_error) {
   if (!out_config) {
     if (out_error) *out_error = "Null out_config pointer";
     return false;
@@ -160,36 +158,18 @@ bool DeploymentIoConfig::Parse(const nlohmann::json& root,
     }
   }
 
-  // 5. 解析 pipe_path 相对 config_dir 或工作目录路径，并防止路径逃逸
+  // 5. 解析 pipe_path 相对
+  // config_dir，严格限制在配置根目录下，拒绝任何逃逸与搜索回退
   fs::path base_dir = fs::absolute(fs::path(config_dir));
   fs::path raw_pipe = fs::path(out_config->pipe_path);
-  fs::path full_pipe;
-  if (raw_pipe.is_absolute()) {
-    full_pipe = raw_pipe;
-  } else if (fs::exists(base_dir / raw_pipe)) {
-    full_pipe = base_dir / raw_pipe;
-  } else if (!root_dir.empty() && fs::exists(fs::path(root_dir) / raw_pipe)) {
-    full_pipe = fs::absolute(fs::path(root_dir) / raw_pipe);
-  } else if (fs::exists(raw_pipe)) {
-    full_pipe = fs::absolute(raw_pipe);
-  } else if (fs::exists(fs::path("demo/fixtures/mock") / raw_pipe)) {
-    full_pipe = fs::absolute(fs::path("demo/fixtures/mock") / raw_pipe);
-  } else if (fs::exists(fs::path("configs") / raw_pipe)) {
-    full_pipe = fs::absolute(fs::path("configs") / raw_pipe);
-  } else {
-    full_pipe = base_dir / raw_pipe;
-  }
+  fs::path full_pipe =
+      raw_pipe.is_absolute() ? raw_pipe : (base_dir / raw_pipe);
 
   std::error_code ec;
-  fs::path canonical_pipe = fs::weakly_canonical(full_pipe, ec);
   fs::path canonical_base = fs::weakly_canonical(base_dir, ec);
-  fs::path canonical_cwd = fs::weakly_canonical(fs::current_path(), ec);
-  fs::path canonical_root =
-      !root_dir.empty() ? fs::weakly_canonical(fs::path(root_dir), ec) : "";
-  if (!IsPathWithinRoot(canonical_base, canonical_pipe) &&
-      !IsPathWithinRoot(canonical_cwd, canonical_pipe) &&
-      (canonical_root.empty() ||
-       !IsPathWithinRoot(canonical_root, canonical_pipe))) {
+  fs::path canonical_pipe = fs::weakly_canonical(full_pipe, ec);
+
+  if (!IsPathWithinRoot(canonical_base, canonical_pipe)) {
     if (out_error) {
       *out_error =
           "data.pipe_path escapes config directory: " + out_config->pipe_path;
@@ -204,7 +184,17 @@ bool DeploymentIoConfig::Parse(const nlohmann::json& root,
     return false;
   }
 
-  out_config->resolved_pipe_path = canonical_pipe.string();
+  // 校验符号链接目标，防止符号链接逃出配置目录
+  fs::path real_pipe = fs::canonical(canonical_pipe, ec);
+  if (ec || !IsPathWithinRoot(canonical_base, real_pipe)) {
+    if (out_error) {
+      *out_error =
+          "data.pipe_path escapes config directory: " + out_config->pipe_path;
+    }
+    return false;
+  }
+
+  out_config->resolved_pipe_path = real_pipe.string();
   return true;
 }
 

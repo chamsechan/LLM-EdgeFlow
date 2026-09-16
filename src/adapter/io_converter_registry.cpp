@@ -27,6 +27,65 @@ bool IoConverterRegistry::RegisterInputConverter(
         "' in InputConverterDefinition for: " + def.converter_id);
     return false;
   }
+  if (def.schema_id.empty()) {
+    conflict_errors_.push_back(
+        "Empty schema_id in InputConverterDefinition for: " + def.converter_id);
+    return false;
+  }
+  if (def.schema_version < 1) {
+    conflict_errors_.push_back(
+        "Invalid schema_version (" + std::to_string(def.schema_version) +
+        ") in InputConverterDefinition for: " + def.converter_id);
+    return false;
+  }
+  if (def.external_type.empty()) {
+    conflict_errors_.push_back(
+        "Empty external_type in InputConverterDefinition for: " +
+        def.converter_id);
+    return false;
+  }
+  if (def.external_slots.empty()) {
+    conflict_errors_.push_back(
+        "Empty external_slots in InputConverterDefinition for: " +
+        def.converter_id);
+    return false;
+  }
+  for (const auto& slot : def.external_slots) {
+    if (slot.slot_name.empty() || slot.type_id.empty()) {
+      conflict_errors_.push_back(
+          "Invalid external_slot (empty slot_name or type_id) in "
+          "InputConverterDefinition for: " +
+          def.converter_id);
+      return false;
+    }
+    if (def.transport == "operator" && slot.type_suffix.empty()) {
+      conflict_errors_.push_back(
+          "Empty type_suffix for operator slot '" + slot.slot_name +
+          "' in InputConverterDefinition for: " + def.converter_id);
+      return false;
+    }
+  }
+  if (def.logical_ports.empty()) {
+    conflict_errors_.push_back(
+        "Empty logical_ports in InputConverterDefinition for: " +
+        def.converter_id);
+    return false;
+  }
+  for (const auto& port : def.logical_ports) {
+    if (port.logical_name.empty() || port.type_id.empty()) {
+      conflict_errors_.push_back(
+          "Invalid logical_port (empty logical_name or type_id) in "
+          "InputConverterDefinition for: " +
+          def.converter_id);
+      return false;
+    }
+  }
+  if (def.max_batch_size == 0) {
+    conflict_errors_.push_back(
+        "Invalid max_batch_size (0) in InputConverterDefinition for: " +
+        def.converter_id);
+    return false;
+  }
 
   auto it = input_converters_.find(def.converter_id);
   if (it != input_converters_.end()) {
@@ -57,6 +116,66 @@ bool IoConverterRegistry::RegisterOutputConverter(
     conflict_errors_.push_back(
         "Invalid transport '" + def.transport +
         "' in OutputConverterDefinition for: " + def.converter_id);
+    return false;
+  }
+  if (def.schema_id.empty()) {
+    conflict_errors_.push_back(
+        "Empty schema_id in OutputConverterDefinition for: " +
+        def.converter_id);
+    return false;
+  }
+  if (def.schema_version < 1) {
+    conflict_errors_.push_back(
+        "Invalid schema_version (" + std::to_string(def.schema_version) +
+        ") in OutputConverterDefinition for: " + def.converter_id);
+    return false;
+  }
+  if (def.external_type.empty()) {
+    conflict_errors_.push_back(
+        "Empty external_type in OutputConverterDefinition for: " +
+        def.converter_id);
+    return false;
+  }
+  if (def.external_slots.empty()) {
+    conflict_errors_.push_back(
+        "Empty external_slots in OutputConverterDefinition for: " +
+        def.converter_id);
+    return false;
+  }
+  for (const auto& slot : def.external_slots) {
+    if (slot.slot_name.empty() || slot.type_id.empty()) {
+      conflict_errors_.push_back(
+          "Invalid external_slot (empty slot_name or type_id) in "
+          "OutputConverterDefinition for: " +
+          def.converter_id);
+      return false;
+    }
+    if (def.transport == "operator" && slot.type_suffix.empty()) {
+      conflict_errors_.push_back(
+          "Empty type_suffix for operator slot '" + slot.slot_name +
+          "' in OutputConverterDefinition for: " + def.converter_id);
+      return false;
+    }
+  }
+  if (def.logical_ports.empty()) {
+    conflict_errors_.push_back(
+        "Empty logical_ports in OutputConverterDefinition for: " +
+        def.converter_id);
+    return false;
+  }
+  for (const auto& port : def.logical_ports) {
+    if (port.logical_name.empty() || port.type_id.empty()) {
+      conflict_errors_.push_back(
+          "Invalid logical_port (empty logical_name or type_id) in "
+          "OutputConverterDefinition for: " +
+          def.converter_id);
+      return false;
+    }
+  }
+  if (def.max_batch_size == 0) {
+    conflict_errors_.push_back(
+        "Invalid max_batch_size (0) in OutputConverterDefinition for: " +
+        def.converter_id);
     return false;
   }
 

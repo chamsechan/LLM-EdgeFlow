@@ -3,6 +3,7 @@
 #include <algorithm>
 
 #include "adapter/io_converter_registry.h"
+#include "adapter/operator/operator_value_type_registry.h"
 #include "core/pipeline_catalog.h"
 
 namespace llm_edgeflow {
@@ -159,14 +160,61 @@ bool IoBindingRegistry::Audit(std::vector<std::string>* out_errors) const {
                          "' does not match input converter transport '" +
                          in_conv->transport + "'");
       }
-      for (const auto& [logical_name, _] : binding.input_ports) {
-        bool port_found = std::any_of(
+      if (in_conv->max_batch_size == 0) {
+        errors.push_back(
+            "Binding '" + binding_id +
+            "' references input converter with max_batch_size 0: " +
+            binding.input_converter_id);
+      }
+      for (const auto& [logical_name, target_key] : binding.input_ports) {
+        auto port_it = std::find_if(
             in_conv->logical_ports.begin(), in_conv->logical_ports.end(),
             [&](const auto& p) { return p.logical_name == logical_name; });
-        if (!port_found) {
+        if (port_it == in_conv->logical_ports.end()) {
           errors.push_back(
               "Binding '" + binding_id +
               "' maps unadvertised input logical port: " + logical_name);
+        } else if (biz_def) {
+          auto ingress_it = std::find_if(
+              biz_def->ingress.begin(), biz_def->ingress.end(),
+              [&](const auto& p) { return p.blackboard_key == target_key; });
+          if (ingress_it == biz_def->ingress.end()) {
+            errors.push_back(
+                "Binding '" + binding_id + "' input port '" + logical_name +
+                "' maps to non-existent biz ingress key: " + target_key);
+          } else if (port_it->type_id != ingress_it->type_id) {
+            errors.push_back("Binding '" + binding_id + "' input port '" +
+                             logical_name + "' type '" + port_it->type_id +
+                             "' does not match biz ingress key '" + target_key +
+                             "' type '" + ingress_it->type_id + "'");
+          }
+        }
+      }
+
+      if (biz_def) {
+        for (const auto& ingress_port : biz_def->ingress) {
+          if (!ingress_port.required) continue;
+          bool covered =
+              std::any_of(binding.input_ports.begin(),
+                          binding.input_ports.end(), [&](const auto& kv) {
+                            return kv.second == ingress_port.blackboard_key;
+                          });
+          if (!covered) {
+            errors.push_back("Binding '" + binding_id +
+                             "' missing required biz ingress port: " +
+                             ingress_port.blackboard_key);
+          }
+        }
+      }
+
+      for (const auto& port : in_conv->logical_ports) {
+        if (!port.required) continue;
+        if (binding.input_ports.find(port.logical_name) ==
+            binding.input_ports.end()) {
+          errors.push_back("Binding '" + binding_id +
+                           "' missing required input converter logical port "
+                           "mapping: " +
+                           port.logical_name);
         }
       }
     }
@@ -185,14 +233,111 @@ bool IoBindingRegistry::Audit(std::vector<std::string>* out_errors) const {
                          "' does not match output converter transport '" +
                          out_conv->transport + "'");
       }
-      for (const auto& [logical_name, _] : binding.output_ports) {
-        bool port_found = std::any_of(
+      if (out_conv->max_batch_size == 0) {
+        errors.push_back(
+            "Binding '" + binding_id +
+            "' references output converter with max_batch_size 0: " +
+            binding.output_converter_id);
+      }
+      for (const auto& [logical_name, target_key] : binding.output_ports) {
+        auto port_it = std::find_if(
             out_conv->logical_ports.begin(), out_conv->logical_ports.end(),
             [&](const auto& p) { return p.logical_name == logical_name; });
-        if (!port_found) {
+        if (port_it == out_conv->logical_ports.end()) {
           errors.push_back(
               "Binding '" + binding_id +
               "' maps unadvertised output logical port: " + logical_name);
+        } else if (biz_def) {
+          auto egress_it = std::find_if(
+              biz_def->egress.begin(), biz_def->egress.end(),
+              [&](const auto& p) { return p.blackboard_key == target_key; });
+          if (egress_it != biz_def->egress.end()) {
+            if (port_it->type_id != egress_it->type_id) {
+              errors.push_back("Binding '" + binding_id + "' output port '" +
+                               logical_name + "' type '" + port_it->type_id +
+                               "' does not match biz egress key '" +
+                               target_key + "' type '" + egress_it->type_id +
+                               "'");
+            }
+          } else {
+            auto ingress_it = std::find_if(
+                biz_def->ingress.begin(), biz_def->ingress.end(),
+                [&](const auto& p) { return p.blackboard_key == target_key; });
+            if (ingress_it != biz_def->ingress.end()) {
+              if (port_it->type_id != ingress_it->type_id) {
+                errors.push_back("Binding '" + binding_id + "' output port '" +
+                                 logical_name + "' type '" + port_it->type_id +
+                                 "' does not match biz ingress key '" +
+                                 target_key + "' type '" + ingress_it->type_id +
+                                 "'");
+              }
+            } else {
+              errors.push_back("Binding '" + binding_id + "' output port '" +
+                               logical_name +
+                               "' maps to non-existent biz key: " + target_key);
+            }
+          }
+        }
+      }
+
+      if (biz_def) {
+        for (const auto& egress_port : biz_def->egress) {
+          if (!egress_port.required) continue;
+          bool covered =
+              std::any_of(binding.output_ports.begin(),
+                          binding.output_ports.end(), [&](const auto& kv) {
+                            return kv.second == egress_port.blackboard_key;
+                          });
+          if (!covered) {
+            errors.push_back("Binding '" + binding_id +
+                             "' missing required biz egress port: " +
+                             egress_port.blackboard_key);
+          }
+        }
+      }
+
+      for (const auto& port : out_conv->logical_ports) {
+        if (!port.required) continue;
+        if (binding.output_ports.find(port.logical_name) ==
+            binding.output_ports.end()) {
+          errors.push_back("Binding '" + binding_id +
+                           "' missing required output converter logical port "
+                           "mapping: " +
+                           port.logical_name);
+        }
+      }
+    }
+
+    // 4. 若为 Operator 传输协议，检查对应槽位的 ValueType 绑定
+    if (binding.transport == "operator") {
+      if (in_conv) {
+        for (const auto& slot : in_conv->external_slots) {
+          if (slot.direction != PortDirection::kInput) continue;
+          const auto* val_binding =
+              OperatorValueTypeRegistry::Instance().GetBindingBySuffix(
+                  slot.type_suffix);
+          if (!val_binding) {
+            errors.push_back(
+                "Binding '" + binding_id + "' input slot '" + slot.slot_name +
+                "' uses unregistered ValueType suffix: " + slot.type_suffix);
+          } else if (!val_binding->validate_external) {
+            errors.push_back("Binding '" + binding_id + "' input slot '" +
+                             slot.slot_name + "' ValueType suffix '" +
+                             slot.type_suffix + "' missing validate_external");
+          }
+        }
+      }
+      if (out_conv) {
+        for (const auto& slot : out_conv->external_slots) {
+          if (slot.direction != PortDirection::kOutput) continue;
+          const auto* val_binding =
+              OperatorValueTypeRegistry::Instance().GetOutputBinding(
+                  slot.type_suffix, "");
+          if (!val_binding) {
+            errors.push_back(
+                "Binding '" + binding_id + "' output slot '" + slot.slot_name +
+                "' uses unregistered ValueType suffix: " + slot.type_suffix);
+          }
         }
       }
     }
