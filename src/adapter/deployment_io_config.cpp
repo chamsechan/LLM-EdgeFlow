@@ -67,18 +67,21 @@ bool DeploymentIoConfig::Parse(const nlohmann::json& root,
   }
 
   // 1. 检查并明确拒绝旧 Schema 1 字段及外部分散配置 (RFC-0061)
-  if (root.contains("schema_version") || root.contains("data") ||
-      root.contains("io_binding") || root.contains("model_paths") ||
-      root.contains("outputs")) {
-    if (out_error) {
-      *out_error =
-          "Deprecated deployment configuration format (RFC-0061): "
-          "'.conf' files must contain only 'pipe_path'. Deployment "
-          "configuration "
-          "(io_binding, output_allocations, model_paths) has moved to the "
-          "'deployment' section inside the Pipeline JSON.";
+  for (const char* deprecated_key :
+       {"data", "schema_version", "io_binding", "model_paths", "outputs"}) {
+    if (root.contains(deprecated_key)) {
+      if (out_error) {
+        *out_error =
+            std::string(
+                "Deprecated deployment configuration format (RFC-0061) at /") +
+            deprecated_key +
+            ": '.conf' files must contain only 'pipe_path'. Deployment "
+            "configuration "
+            "(io_binding, output_allocations, model_paths) has moved to the "
+            "'deployment' section inside the Pipeline JSON.";
+      }
+      return false;
     }
-    return false;
   }
 
   // 2. 根字段白名单: 必须有且仅有 pipe_path

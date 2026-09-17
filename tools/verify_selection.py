@@ -86,7 +86,11 @@ def build_run_conf(pipeline, outputs, pipe_path, model_root, bundle_root, io_bin
     pipeline_path = Path(pipe_path).name
     model_paths = {model["model_id"]: str(within(model_root, model["model_path"]).relative_to(bundle_root))
                    for model in pipeline.get("models", [])}
-    binding = io_binding or BIZ_TO_OPERATOR_BINDING.get(pipeline.get("biz_name"))
+    binding = (
+        io_binding
+        or pipeline.get("deployment", {}).get("io", {}).get("io_binding")
+        or BIZ_TO_OPERATOR_BINDING.get(pipeline.get("biz_name"))
+    )
     deployment = pipeline.setdefault("deployment", {})
     io_obj = deployment.setdefault("io", {})
     if binding:
@@ -219,19 +223,21 @@ def effect_inputs(spec_path, conf_path, demo):
     spec = read_json(spec_path)
     dataset = (spec_path.parent / spec["dataset"]).resolve()
     conf = read_json(conf_path)
-    if "data" in conf and isinstance(conf["data"], dict) and "outputs" in conf["data"]:
-        outputs = conf["data"]["outputs"]
-        model_paths = conf["data"].get("model_paths", {})
-        binding = conf["data"].get("io_binding", "")
-    else:
-        pipe_path = conf.get("pipe_path", "")
-        pipeline_file = (Path(conf_path).parent / pipe_path).resolve()
-        pipe_doc = read_json(pipeline_file)
-        deployment = pipe_doc.get("deployment", {})
-        io_doc = deployment.get("io", {})
-        outputs = io_doc.get("output_allocations", {})
-        model_paths = deployment.get("model_paths", {})
-        binding = io_doc.get("io_binding", "")
+    if not isinstance(conf, dict) or "pipe_path" not in conf or not isinstance(conf["pipe_path"], str):
+        raise ValueError(f"Conf must contain non-empty 'pipe_path' (RFC-0061): {conf_path}")
+    if any(k in conf for k in ("schema_version", "data", "io_binding", "model_paths", "outputs")):
+        raise ValueError(
+            f"Deprecated deployment configuration format in {conf_path} (RFC-0061): "
+            "conf must contain only 'pipe_path'"
+        )
+    pipe_path = conf["pipe_path"]
+    pipeline_file = (Path(conf_path).parent / pipe_path).resolve()
+    pipe_doc = read_json(pipeline_file)
+    deployment = pipe_doc.get("deployment", {})
+    io_doc = deployment.get("io", {})
+    outputs = io_doc.get("output_allocations", {})
+    model_paths = deployment.get("model_paths", {})
+    binding = io_doc.get("io_binding", "")
     demo = Path(demo).resolve()
     sdk_candidates = list(demo.parent.glob("libcompany_alg_sdk.*"))
     sdk_files = sorted({path.resolve() for path in sdk_candidates if path.is_file()})

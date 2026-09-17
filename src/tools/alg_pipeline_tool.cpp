@@ -39,11 +39,12 @@ nlohmann::json PipelineError(DiagnosticCode code, const std::string& message) {
                                    {"severity", "error"}}})}};
 }
 
-nlohmann::json ToolError(const std::string& code, const std::string& message) {
+nlohmann::json ToolError(const std::string& code, const std::string& message,
+                         const std::string& path = "/") {
   return {{"schema_version", 1},
           {"ok", false},
           {"diagnostics", nlohmann::json::array({{{"code", code},
-                                                  {"path", "/"},
+                                                  {"path", path},
                                                   {"message", message},
                                                   {"severity", "error"}}})}};
 }
@@ -136,15 +137,17 @@ bool ResolveDeploymentBoundary(
 
   PipelineDocumentSplit doc_split;
   std::string split_err;
-  if (!SplitPipelineDocument(root, &doc_split, &split_err)) {
-    *out_error_json = ToolError("DEPLOYMENT_ERROR", split_err);
+  std::string split_path;
+  if (!SplitPipelineDocument(root, &doc_split, &split_err, &split_path)) {
+    *out_error_json = ToolError("DEPLOYMENT_ERROR", split_err,
+                                split_path.empty() ? "/" : split_path);
     return false;
   }
 
   if (!doc_split.has_deployment || !doc_split.deployment.has_io) {
-    *out_error_json =
-        ToolError("MISSING_DEPLOYMENT_IO",
-                  "Missing required 'deployment.io' in pipeline JSON");
+    *out_error_json = ToolError(
+        "MISSING_DEPLOYMENT_IO",
+        "Missing required 'deployment.io' in pipeline JSON", "/deployment/io");
     return false;
   }
 
@@ -154,7 +157,8 @@ bool ResolveDeploymentBoundary(
     *out_error_json =
         ToolError("UNKNOWN_IO_BINDING",
                   "Unknown or unregistered io_binding: " + binding_id +
-                      " (at /deployment/io/io_binding)");
+                      " (at /deployment/io/io_binding)",
+                  "/deployment/io/io_binding");
     return false;
   }
 
@@ -163,7 +167,20 @@ bool ResolveDeploymentBoundary(
         ToolError("UNSUPPORTED_TRANSPORT",
                   "Binding transport mismatch for '" + binding_id +
                       "': expected 'operator', but binding declared '" +
-                      binding->transport + "' (at /deployment/io/io_binding)");
+                      binding->transport + "' (at /deployment/io/io_binding)",
+                  "/deployment/io/io_binding");
+    return false;
+  }
+
+  // 立即核对 Pipeline biz_name 与 binding biz_name (RFC-0061)
+  std::string pipeline_biz = root.value("biz_name", "");
+  if (pipeline_biz != binding->biz_name) {
+    *out_error_json =
+        ToolError("BIZ_MISMATCH",
+                  "Pipeline biz_name '" + pipeline_biz +
+                      "' does not match binding biz_name '" +
+                      binding->biz_name + "' (at /deployment/io/io_binding)",
+                  "/deployment/io/io_binding");
     return false;
   }
 
@@ -173,7 +190,8 @@ bool ResolveDeploymentBoundary(
     *out_error_json =
         ToolError("UNREGISTERED_CONVERTER",
                   "Binding references unregistered input converter: " +
-                      binding->input_converter_id);
+                      binding->input_converter_id,
+                  "/deployment/io/io_binding");
     return false;
   }
 
@@ -183,7 +201,8 @@ bool ResolveDeploymentBoundary(
     *out_error_json =
         ToolError("UNREGISTERED_CONVERTER",
                   "Binding references unregistered output converter: " +
-                      binding->output_converter_id);
+                      binding->output_converter_id,
+                  "/deployment/io/io_binding");
     return false;
   }
 
@@ -199,9 +218,11 @@ bool ResolveDeploymentBoundary(
     }
     if (!found) {
       *out_error_json = ToolError(
-          "UNKNOWN_OUTPUT_SLOT", "Unknown configured output slot: " + it.key() +
-                                     " (at /deployment/io/output_allocations/" +
-                                     it.key() + ")");
+          "UNKNOWN_OUTPUT_SLOT",
+          "Unknown configured output slot: " + it.key() +
+              " (at /deployment/io/output_allocations/" +
+              EscapeJsonPointer(it.key()) + ")",
+          "/deployment/io/output_allocations/" + EscapeJsonPointer(it.key()));
       return false;
     }
   }
@@ -213,8 +234,10 @@ bool ResolveDeploymentBoundary(
         *out_error_json = ToolError(
             "MISSING_OUTPUT_SLOT",
             "Missing required Operator output slot '" + slot.slot_name +
-                "' (at /deployment/io/output_allocations/" + slot.slot_name +
-                ")");
+                "' (at /deployment/io/output_allocations/" +
+                EscapeJsonPointer(slot.slot_name) + ")",
+            "/deployment/io/output_allocations/" +
+                EscapeJsonPointer(slot.slot_name));
         return false;
       }
       continue;
@@ -228,7 +251,9 @@ bool ResolveDeploymentBoundary(
       *out_error_json =
           ToolError("INVALID_OUTPUT_ALLOCATION",
                     alloc_err + " (at /deployment/io/output_allocations/" +
-                        slot.slot_name + ")");
+                        EscapeJsonPointer(slot.slot_name) + ")",
+                    "/deployment/io/output_allocations/" +
+                        EscapeJsonPointer(slot.slot_name));
       return false;
     }
   }
@@ -248,9 +273,10 @@ bool ResolveDeploymentBoundary(
     }
     for (const auto& [mid, _] : doc_split.deployment.model_paths) {
       if (!known_model_ids.count(mid)) {
-        *out_error_json =
-            ToolError("UNKNOWN_MODEL_ID", "Unknown model_id '" + mid +
-                                              "' in '/deployment/model_paths'");
+        *out_error_json = ToolError(
+            "UNKNOWN_MODEL_ID",
+            "Unknown model_id '" + mid + "' in '/deployment/model_paths'",
+            "/deployment/model_paths/" + EscapeJsonPointer(mid));
         return false;
       }
     }
@@ -268,13 +294,21 @@ bool ResolveDeploymentBoundary(
 
   if (staged_pipe_json.contains("models") &&
       staged_pipe_json["models"].is_array()) {
-    for (const auto& m : staged_pipe_json["models"]) {
+    for (size_t index = 0; index < staged_pipe_json["models"].size(); ++index) {
+      const auto& m = staged_pipe_json["models"][index];
       if (m.is_object() && m.contains("model_path")) {
         if (!m["model_path"].is_string() ||
             m["model_path"].get<std::string>().empty()) {
+          std::string mid = m.value("model_id", "");
+          std::string pointer =
+              (doc_split.deployment.has_model_paths &&
+               doc_split.deployment.model_paths.count(mid))
+                  ? "/deployment/model_paths/" + EscapeJsonPointer(mid)
+                  : "/models/" + std::to_string(index) + "/model_path";
           *out_error_json = ToolError(
               "INVALID_MODEL_PATH",
-              "model_path in model declaration must be a non-empty string");
+              "model_path in model declaration must be a non-empty string",
+              pointer);
           return false;
         }
       }
@@ -649,7 +683,7 @@ int main(int argc, char* argv[]) {
   }
 
   if (command == "validate-io") {
-    if (argc < 4) {
+    if (argc < 3) {
       Usage();
       return 2;
     }
@@ -674,12 +708,28 @@ int main(int argc, char* argv[]) {
         config_path, transport, model_root, &plan, &error);
 
     if (rc != 0 || !plan) {
+      std::string diag_path = "/";
+      auto at_pos = error.rfind("(at ");
+      if (at_pos != std::string::npos) {
+        auto end_pos = error.find(')', at_pos);
+        if (end_pos != std::string::npos) {
+          diag_path = error.substr(at_pos + 4, end_pos - (at_pos + 4));
+        }
+      } else {
+        auto at_pos2 = error.rfind("at /");
+        if (at_pos2 != std::string::npos) {
+          auto end_pos2 = error.find(':', at_pos2);
+          if (end_pos2 != std::string::npos) {
+            diag_path = error.substr(at_pos2 + 3, end_pos2 - (at_pos2 + 3));
+          }
+        }
+      }
       nlohmann::json err_res = {
           {"schema_version", 1},
           {"ok", false},
           {"diagnostics",
            nlohmann::json::array({{{"code", "IO_VALIDATION_ERROR"},
-                                   {"path", "/"},
+                                   {"path", diag_path},
                                    {"message", error},
                                    {"severity", "error"}}})}};
       std::cout << err_res.dump(2) << std::endl;

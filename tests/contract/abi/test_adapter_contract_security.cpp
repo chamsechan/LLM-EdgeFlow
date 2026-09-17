@@ -471,10 +471,10 @@ TEST_F(AdapterContractSecurityTest,
       std::filesystem::weakly_canonical(GetConfigPath("models"));
   std::unique_ptr<ValidatedIoPlan> io_plan;
   std::string plan_err;
-  ASSERT_EQ(IoBindingResolver::ResolveFromPipelineJson(
-                pipeline_json, "doc_qa.operator.v1", "operator",
-                model_root.string(), &io_plan, &plan_err),
-            0)
+  ASSERT_EQ(
+      IoBindingResolver::ResolveFromPipelineJson(
+          pipeline_json, "operator", model_root.string(), &io_plan, &plan_err),
+      0)
       << plan_err;
   ASSERT_NE(io_plan, nullptr);
 

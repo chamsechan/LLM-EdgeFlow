@@ -679,7 +679,10 @@ class WorkbenchService:
         if "deployment" in original and "io" in original["deployment"]:
             pipeline.setdefault("deployment", {})["io"] = copy.deepcopy(original["deployment"]["io"])
         elif "outputs" in managed and managed["outputs"]:
-            pipeline.setdefault("deployment", {}).setdefault("io", {})["output_allocations"] = copy.deepcopy(managed["outputs"])
+            io_dict = pipeline.setdefault("deployment", {}).setdefault("io", {})
+            io_dict["output_allocations"] = copy.deepcopy(managed["outputs"])
+            if managed.get("io_binding"):
+                io_dict["io_binding"] = managed["io_binding"]
         return profile, {"pipe_path": path.name}
 
     def resolve_run_conf(self, conf_path: Path, profile: dict[str, Any]) -> dict[str, Any]:
@@ -831,6 +834,7 @@ class WorkbenchService:
             raise StudioError("REVISION_CONFLICT", "关联期间文件已改变，请重新关联", 409)
 
         outputs = pipeline.get("deployment", {}).get("io", {}).get("output_allocations", {})
+        io_binding = pipeline.get("deployment", {}).get("io", {}).get("io_binding", "")
         with self.solution_lock:
             self.generated_solutions[pipe_path.name] = {
                 "conf_path": conf_path,
@@ -838,6 +842,7 @@ class WorkbenchService:
                 "conf_revision": revision_for(conf_raw),
                 "pipeline_revision": revision_for(pipe_raw),
                 "outputs": outputs,
+                "io_binding": io_binding,
                 "model_root": model_root,
                 "profile": prof,
                 "is_associated": True,

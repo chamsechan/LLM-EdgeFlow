@@ -34,6 +34,24 @@ struct PipelineDocumentSplit {
 };
 
 /**
+ * @brief 遵循 RFC 6901 的 JSON Pointer 键转义 (~ 转为 ~0, / 转为 ~1)
+ */
+inline std::string EscapeJsonPointer(std::string_view token) {
+  std::string escaped;
+  escaped.reserve(token.size());
+  for (char c : token) {
+    if (c == '~') {
+      escaped += "~0";
+    } else if (c == '/') {
+      escaped += "~1";
+    } else {
+      escaped += c;
+    }
+  }
+  return escaped;
+}
+
+/**
  * @brief 拆分并严格校验 Pipeline JSON 中的 deployment 部分与中性 Pipeline 结构
  *
  * 严格校验 deployment:
@@ -45,6 +63,7 @@ struct PipelineDocumentSplit {
  */
 bool SplitPipelineDocument(const nlohmann::json& root,
                            PipelineDocumentSplit* out_split,
-                           std::string* out_error);
+                           std::string* out_error,
+                           std::string* out_error_path = nullptr);
 
 }  // namespace llm_edgeflow

@@ -35,6 +35,30 @@ int DummyEncode(AlgContext*, const OutputPortBindings&,
 
 class IoBindingRegistryTest : public ::testing::Test {
  protected:
+  static void SetUpTestSuite() {
+    saved_bindings_ = IoBindingRegistry::Instance().AllBindings();
+    saved_exposures_ = IoBindingRegistry::Instance().AllExposures();
+    saved_inputs_ = IoConverterRegistry::Instance().AllInputConverters();
+    saved_outputs_ = IoConverterRegistry::Instance().AllOutputConverters();
+  }
+
+  static void TearDownTestSuite() {
+    IoConverterRegistry::Instance().ClearForTesting();
+    IoBindingRegistry::Instance().ClearForTesting();
+    for (const auto& in_def : saved_inputs_) {
+      IoConverterRegistry::Instance().RegisterInputConverter(in_def);
+    }
+    for (const auto& out_def : saved_outputs_) {
+      IoConverterRegistry::Instance().RegisterOutputConverter(out_def);
+    }
+    for (const auto& binding : saved_bindings_) {
+      IoBindingRegistry::Instance().RegisterBinding(binding);
+    }
+    for (const auto& exp : saved_exposures_) {
+      IoBindingRegistry::Instance().RegisterExposure(exp);
+    }
+  }
+
   void SetUp() override {
     IoConverterRegistry::Instance().ClearForTesting();
     IoBindingRegistry::Instance().ClearForTesting();
@@ -63,7 +87,7 @@ class IoBindingRegistryTest : public ::testing::Test {
     out_def.external_type = "CompanyOperatorEntityOutput";
     out_def.external_slots = {ExternalSlotDefinition(
         "entity_out", "CompanyOperatorEntityOutput", PortDirection::kOutput,
-        true, "CompanyOperatorEntityOutput", "entity_out")};
+        true, "CompanyOperatorEntityOutput", "entity_out", {"entities_json"})};
     out_def.max_batch_size = 64;
     out_def.logical_ports = {
         NodePortDefinition("answers", "TextBatch", true, "1:1")};
@@ -82,6 +106,23 @@ class IoBindingRegistryTest : public ::testing::Test {
     IoConverterRegistry::Instance().ClearForTesting();
     IoBindingRegistry::Instance().ClearForTesting();
   }
+
+  void RegisterTestBizBinding() {
+    IoBindingDefinition binding;
+    binding.binding_id = "test_biz.operator.v1";
+    binding.biz_name = "test_biz_v1";
+    binding.transport = "operator";
+    binding.input_converter_id = "test.in.operator";
+    binding.output_converter_id = "test.out.operator";
+    binding.input_ports = {{"texts", "input_sentences"}};
+    binding.output_ports = {{"answers", "llm_answers"}};
+    ASSERT_TRUE(IoBindingRegistry::Instance().RegisterBinding(binding));
+  }
+
+  static inline std::vector<IoBindingDefinition> saved_bindings_;
+  static inline std::vector<BizExposureDefinition> saved_exposures_;
+  static inline std::vector<InputConverterDefinition> saved_inputs_;
+  static inline std::vector<OutputConverterDefinition> saved_outputs_;
 };
 
 TEST_F(IoBindingRegistryTest, RegisterAndAuditValidBinding) {
@@ -504,6 +545,141 @@ TEST_F(IoBindingRegistryTest, SplitPipelineDocumentAndCoreBoundary) {
       ParsePipelineConfig(split.neutral_pipeline_json, &parsed_core, &diag));
   EXPECT_EQ(diag.code, DiagnosticCode::kUnknownField);
   EXPECT_EQ(diag.path, "/deploymen");
+}
+
+TEST_F(IoBindingRegistryTest, BizMismatchFailsClosedWithExactPointer) {
+  RegisterTestBizBinding();
+
+  // A pipeline with registered biz smart_doc_qa_v1 but binding
+  // test_biz.operator.v1 (biz test_biz_v1)
+  nlohmann::json doc = {
+      {"biz_name", "smart_doc_qa_v1"},
+      {"deployment",
+       {{"io",
+         {{"io_binding", "test_biz.operator.v1"},
+          {"output_allocations",
+           {{"entity_out",
+             {{"type", "entity_out"},
+              {"meta_num", 0},
+              {"metadata_type_id", 0},
+              {"capacities", {{"entities_json", 2047}}}}}}}}}}},
+      {"models", nlohmann::json::array()},
+      {"pipeline", nlohmann::json::array()}};
+
+  std::unique_ptr<ValidatedIoPlan> plan;
+  std::string err;
+  int ret = IoBindingResolver::ResolveFromPipelineJson(doc, "operator",
+                                                       "./models", &plan, &err);
+  EXPECT_EQ(ret, -2);
+  EXPECT_EQ(plan, nullptr);
+  EXPECT_NE(err.find("Pipeline biz_name 'smart_doc_qa_v1' does not match "
+                     "binding biz_name 'test_biz_v1'"),
+            std::string::npos)
+      << "ACTUAL ERR: " << err;
+  EXPECT_NE(err.find("(at /deployment/io/io_binding)"), std::string::npos)
+      << "ACTUAL ERR: " << err;
+}
+
+TEST_F(IoBindingRegistryTest, EscapedJsonPointerInModelPathsAndSlots) {
+  RegisterTestBizBinding();
+
+  // 1. Slot name with special characters ~ and /
+  nlohmann::json slot_doc = {
+      {"biz_name", "test_biz_v1"},
+      {"deployment",
+       {{"io",
+         {{"io_binding", "test_biz.operator.v1"},
+          {"output_allocations",
+           {{"slot~0/bad", {{"type", "entity_out"}}}}}}}}},
+      {"models", nlohmann::json::array()},
+      {"pipeline", nlohmann::json::array()}};
+
+  std::unique_ptr<ValidatedIoPlan> plan;
+  std::string err;
+  int ret = IoBindingResolver::ResolveFromPipelineJson(slot_doc, "operator",
+                                                       "./models", &plan, &err);
+  EXPECT_EQ(ret, -2);
+  // slot~0/bad escaped: ~ -> ~0, / -> ~1 => slot~00~1bad
+  EXPECT_NE(err.find("/deployment/io/output_allocations/slot~00~1bad"),
+            std::string::npos)
+      << "ACTUAL ERR: " << err;
+
+  // 2. Unknown model ID with special characters ~ and /
+  nlohmann::json model_doc = {
+      {"biz_name", "test_biz_v1"},
+      {"deployment",
+       {{"model_paths", {{"model~1/test", "path/to/model"}}},
+        {"io",
+         {{"io_binding", "test_biz.operator.v1"},
+          {"output_allocations",
+           {{"entity_out",
+             {{"type", "entity_out"},
+              {"meta_num", 0},
+              {"metadata_type_id", 0},
+              {"capacities", {{"entities_json", 2047}}}}}}}}}}},
+      {"models", nlohmann::json::array()},
+      {"pipeline", nlohmann::json::array()}};
+
+  ret = IoBindingResolver::ResolveFromPipelineJson(model_doc, "operator",
+                                                   "./models", &plan, &err);
+  EXPECT_EQ(ret, -2);
+  // model~1/test escaped: ~ -> ~0, / -> ~1 => model~01~1test
+  EXPECT_NE(err.find("/deployment/model_paths/model~01~1test"),
+            std::string::npos)
+      << "ACTUAL ERR: " << err;
+}
+
+TEST_F(IoBindingRegistryTest,
+       OverriddenModelPathResolutionFailurePointsToDeployment) {
+  RegisterTestBizBinding();
+
+  // Case 1: When model path override escapes model_root_dir, error points to
+  // /deployment/model_paths/<mid>
+  nlohmann::json doc = {
+      {"biz_name", "test_biz_v1"},
+      {"deployment",
+       {{"model_paths", {{"mid~test", "../../escaped_model.bin"}}},
+        {"io",
+         {{"io_binding", "test_biz.operator.v1"},
+          {"output_allocations",
+           {{"entity_out",
+             {{"type", "entity_out"},
+              {"meta_num", 0},
+              {"metadata_type_id", 0},
+              {"capacities", {{"entities_json", 2047}}}}}}}}}}},
+      {"models",
+       {{{"model_id", "mid~test"},
+         {"capability", "embedding"},
+         {"model_type", "test_biz_embedding"},
+         {"backend", "test_tensor_backend"},
+         {"model_config", {{"embedding_dim", 128}, {"max_batch_size", 4}}},
+         {"backend_config", nlohmann::json::object()},
+         {"model_path", "models/legal.bin"}}}},
+      {"pipeline", nlohmann::json::array()}};
+
+  std::unique_ptr<ValidatedIoPlan> plan;
+  std::string err;
+  int ret = IoBindingResolver::ResolveFromPipelineJson(doc, "operator",
+                                                       "./models", &plan, &err);
+  EXPECT_EQ(ret, -2);
+  // mid~test escaped: mid~0test
+  EXPECT_NE(err.find("/deployment/model_paths/mid~0test"), std::string::npos)
+      << "ACTUAL ERR: " << err;
+  EXPECT_EQ(err.find("/models/0/model_path"), std::string::npos)
+      << "ACTUAL ERR: " << err;
+
+  // Case 2: When an un-overridden model path escapes model_root_dir, error
+  // points to /models/0/model_path
+  nlohmann::json unoverridden_doc = doc;
+  unoverridden_doc["deployment"].erase("model_paths");
+  unoverridden_doc["models"][0]["model_path"] = "../../escaped_model.bin";
+  ret = IoBindingResolver::ResolveFromPipelineJson(unoverridden_doc, "operator",
+                                                   "./models", &plan, &err);
+  EXPECT_EQ(ret, -2);
+  EXPECT_NE(err.find("/models/0/model_path"), std::string::npos)
+      << "ACTUAL ERR: " << err;
+  EXPECT_EQ(err.find("/deployment/model_paths/"), std::string::npos)
+      << "ACTUAL ERR: " << err;
 }
 
 }  // namespace llm_edgeflow

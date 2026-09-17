@@ -8,6 +8,8 @@
 
 #include "adapter/io_binding_registry.h"
 #include "adapter/io_binding_resolver.h"
+#include "adapter/io_converter_registry.h"
+#include "adapter/operator/operator_value_type_registry.h"
 #include "adapter/pipeline_document.h"
 #include "adapter/shared_algorithm_runtime.h"
 #include "core/common_contracts.h"
@@ -246,6 +248,49 @@ TEST(PipelineValidatorTest, ReportsConfigAndCapabilityErrors) {
   EXPECT_TRUE(json_codes.count("MODEL_CAPABILITY_MISMATCH"));
 }
 
+static nlohmann::json MakeSyntheticDeploymentDocForTest(
+    const nlohmann::json& pipeline_json, const std::string& binding_id) {
+  nlohmann::json allocations = nlohmann::json::object();
+  const auto* binding = IoBindingRegistry::Instance().FindBinding(binding_id);
+  if (binding) {
+    const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
+        binding->output_converter_id);
+    if (out_conv) {
+      for (const auto& slot : out_conv->external_slots) {
+        if (slot.direction == PortDirection::kOutput && slot.required) {
+          std::string slot_type =
+              slot.type_suffix.empty() ? slot.slot_name : slot.type_suffix;
+          nlohmann::json slot_alloc = {
+              {"type", slot_type},
+              {"meta_num", 0},
+              {"metadata_type_id", 0},
+              {"capacities", nlohmann::json::object()}};
+          const auto* val_binding =
+              OperatorValueTypeRegistry::Instance().GetOutputBinding(slot_type,
+                                                                     "");
+          for (const auto& cap : slot.capacity_fields) {
+            uint32_t cap_val = 1024;
+            if (val_binding &&
+                val_binding->output_layout.string_capacity_fields.count(cap)) {
+              cap_val =
+                  val_binding->output_layout.string_capacity_fields.at(cap)
+                      .default_capacity;
+            }
+            slot_alloc["capacities"][cap] = cap_val;
+          }
+          allocations[slot.slot_name] = slot_alloc;
+        }
+      }
+    }
+  }
+
+  nlohmann::json synthetic = pipeline_json;
+  synthetic["deployment"] = {
+      {"io",
+       {{"io_binding", binding_id}, {"output_allocations", allocations}}}};
+  return synthetic;
+}
+
 TEST(PipelineValidatorTest, TableDrivenParityMatrix) {
   std::ifstream stream(
       "tests/fixtures/pipelines/validation/invalid_pipeline_cases.json");
@@ -295,12 +340,23 @@ TEST(PipelineValidatorTest, TableDrivenParityMatrix) {
       }
     }
     if (binding_id.empty()) {
-      binding_id = "keyword_match.operator.v1";
+      binding_id = "test_synthetic." + biz + ".operator.v1";
+      if (!IoBindingRegistry::Instance().FindBinding(binding_id)) {
+        IoBindingDefinition synth_b;
+        synth_b.binding_id = binding_id;
+        synth_b.biz_name = biz;
+        synth_b.transport = "operator";
+        synth_b.input_converter_id = "keyword.plain.operator.v1";
+        synth_b.output_converter_id = "keyword.result.operator.v1";
+        IoBindingRegistry::Instance().RegisterBinding(synth_b);
+      }
     }
+    nlohmann::json dep_config =
+        MakeSyntheticDeploymentDocForTest(config, binding_id);
     std::unique_ptr<ValidatedIoPlan> io_plan;
     std::string resolve_error;
     int resolve_result = IoBindingResolver::ResolveFromPipelineJson(
-        config, binding_id, "operator", "./models", &io_plan, &resolve_error);
+        dep_config, "operator", "./models", &io_plan, &resolve_error);
     EXPECT_NE(resolve_result, 0);
     EXPECT_EQ(io_plan, nullptr);
     EXPECT_NE(resolve_error.find(test["primary_code"].get<std::string>()),

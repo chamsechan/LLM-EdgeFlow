@@ -87,7 +87,7 @@ def check_unsupported_deployment(conf_path):
         raise RecipeError("A deployment.io.output_allocations configuration is required")
     if len(outputs) > 1:
         return {"error_code": UNSUPPORTED_RECIPE_DEPLOYMENT,
-                "message": "This recipe supports only single-output deployment; use the native Operator workflow for data.outputs with multiple slots."}
+                "message": "This recipe supports only single-output deployment; use the native Operator workflow for deployment.io.output_allocations with multiple slots."}
     return None
 
 

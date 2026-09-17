@@ -120,6 +120,17 @@ int IoBindingResolver::ResolveFromPipelineJson(
     return -2;
   }
 
+  // 核对 Pipeline biz_name 与 binding biz_name (RFC-0061: 必须一致)
+  std::string pipeline_biz = pipeline_json.value("biz_name", "");
+  if (pipeline_biz != binding->biz_name) {
+    if (out_error) {
+      *out_error = "Pipeline biz_name '" + pipeline_biz +
+                   "' does not match binding biz_name '" + binding->biz_name +
+                   "' (at /deployment/io/io_binding)";
+    }
+    return -2;
+  }
+
   // 4. 查找输入与输出转换器
   const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
       binding->input_converter_id);
@@ -168,7 +179,8 @@ int IoBindingResolver::ResolveFromPipelineJson(
     if (!found) {
       if (out_error) {
         *out_error = "Unknown configured output slot: " + it.key() +
-                     " (at /deployment/io/output_allocations/" + it.key() + ")";
+                     " (at /deployment/io/output_allocations/" +
+                     EscapeJsonPointer(it.key()) + ")";
       }
       return -2;
     }
@@ -180,9 +192,10 @@ int IoBindingResolver::ResolveFromPipelineJson(
     if (!allocations.contains(slot.slot_name)) {
       if (slot.required) {
         if (out_error) {
-          *out_error =
-              "Missing required Operator output slot '" + slot.slot_name +
-              "' (at /deployment/io/output_allocations/" + slot.slot_name + ")";
+          *out_error = "Missing required Operator output slot '" +
+                       slot.slot_name +
+                       "' (at /deployment/io/output_allocations/" +
+                       EscapeJsonPointer(slot.slot_name) + ")";
         }
         return -2;
       }
@@ -195,7 +208,10 @@ int IoBindingResolver::ResolveFromPipelineJson(
     int alloc_ret = OperatorConfigResolver::ResolveOutputAllocation(
         slot_cfg, slot, &pool_spec, &param_text, &alloc_err);
     if (alloc_ret != 0) {
-      if (out_error) *out_error = alloc_err;
+      if (out_error) {
+        *out_error = alloc_err + " (at /deployment/io/output_allocations/" +
+                     EscapeJsonPointer(slot.slot_name) + ")";
+      }
       return alloc_ret;
     }
     output_specs[slot.slot_name] = std::move(pool_spec);
@@ -260,7 +276,9 @@ int IoBindingResolver::ResolveFromPipelineJson(
       if (!known_model_ids.count(mid)) {
         if (out_error) {
           *out_error =
-              "Unknown model_id '" + mid + "' in '/deployment/model_paths'";
+              "Unknown model_id '" + mid +
+              "' in '/deployment/model_paths' (at /deployment/model_paths/" +
+              EscapeJsonPointer(mid) + ")";
         }
         return -2;
       }
@@ -281,9 +299,9 @@ int IoBindingResolver::ResolveFromPipelineJson(
   nlohmann::json resolved_pipeline_json;
   if (!model_root_dir.empty()) {
     std::string model_resolve_err;
-    if (!ResolveDeploymentModelPaths(staged_pipe_json, model_root_dir,
-                                     &resolved_pipeline_json,
-                                     &model_resolve_err)) {
+    if (!ResolveDeploymentModelPaths(
+            staged_pipe_json, model_root_dir, &resolved_pipeline_json,
+            &model_resolve_err, overridden_model_ids)) {
       if (out_error) *out_error = model_resolve_err;
       return -2;
     }
@@ -351,17 +369,7 @@ int IoBindingResolver::ResolveFromPipelineJson(
     return -3;
   }
 
-  // 10. 核对 Pipeline biz_name 与 binding biz_name
-  if (plan->config.biz_name != binding->biz_name) {
-    if (out_error) {
-      *out_error = "Pipeline biz_name '" + plan->config.biz_name +
-                   "' does not match binding biz_name '" + binding->biz_name +
-                   "' (at /deployment/io/io_binding)";
-    }
-    return -3;
-  }
-
-  // 11. 组装不可变接入计划
+  // 10. 组装不可变接入计划
   auto io_plan = std::make_unique<ValidatedIoPlan>();
   io_plan->binding = *binding;
   io_plan->input_converter = in_conv;
@@ -377,59 +385,6 @@ int IoBindingResolver::ResolveFromPipelineJson(
 
   *out_plan = std::move(io_plan);
   return 0;
-}
-
-int IoBindingResolver::ResolveFromPipelineJson(
-    const nlohmann::json& pipeline_json, const std::string& binding_id,
-    const std::string& transport, const std::string& model_root_dir,
-    std::unique_ptr<ValidatedIoPlan>* out_plan, std::string* out_error) {
-  if (pipeline_json.is_object() && pipeline_json.contains("deployment") &&
-      pipeline_json["deployment"].is_object() &&
-      pipeline_json["deployment"].contains("io")) {
-    return ResolveFromPipelineJson(pipeline_json, transport, model_root_dir,
-                                   out_plan, out_error);
-  }
-
-  nlohmann::json allocations = nlohmann::json::object();
-  const auto* binding = IoBindingRegistry::Instance().FindBinding(binding_id);
-  if (binding) {
-    const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
-        binding->output_converter_id);
-    if (out_conv) {
-      for (const auto& slot : out_conv->external_slots) {
-        if (slot.direction == PortDirection::kOutput && slot.required) {
-          std::string slot_type =
-              slot.type_suffix.empty() ? slot.slot_name : slot.type_suffix;
-          nlohmann::json slot_alloc = {
-              {"type", slot_type},
-              {"meta_num", 0},
-              {"metadata_type_id", 0},
-              {"capacities", nlohmann::json::object()}};
-          const auto* val_binding =
-              OperatorValueTypeRegistry::Instance().GetOutputBinding(slot_type,
-                                                                     "");
-          for (const auto& cap : slot.capacity_fields) {
-            uint32_t cap_val = 1024;
-            if (val_binding &&
-                val_binding->output_layout.string_capacity_fields.count(cap)) {
-              cap_val =
-                  val_binding->output_layout.string_capacity_fields.at(cap)
-                      .default_capacity;
-            }
-            slot_alloc["capacities"][cap] = cap_val;
-          }
-          allocations[slot.slot_name] = slot_alloc;
-        }
-      }
-    }
-  }
-
-  nlohmann::json synthetic = pipeline_json;
-  synthetic["deployment"] = {
-      {"io",
-       {{"io_binding", binding_id}, {"output_allocations", allocations}}}};
-  return ResolveFromPipelineJson(synthetic, transport, model_root_dir, out_plan,
-                                 out_error);
 }
 
 }  // namespace llm_edgeflow
