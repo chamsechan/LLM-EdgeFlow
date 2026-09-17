@@ -24,7 +24,7 @@ bool IoBindingRegistry::RegisterBinding(const IoBindingDefinition& def) {
                                def.binding_id);
     return false;
   }
-  if (def.transport != "cabi" && def.transport != "operator") {
+  if (def.transport != "operator") {
     conflict_errors_.push_back("Invalid transport '" + def.transport +
                                "' in IoBindingDefinition: " + def.binding_id);
     return false;
@@ -62,6 +62,14 @@ bool IoBindingRegistry::RegisterExposure(const BizExposureDefinition& def) {
         "Empty required_transports in BizExposureDefinition for: " +
         def.biz_name);
     return false;
+  }
+  for (const auto& t : def.required_transports) {
+    if (t != "operator") {
+      conflict_errors_.push_back(
+          "Invalid transport '" + t +
+          "' in required_transports for: " + def.biz_name);
+      return false;
+    }
   }
 
   auto it = exposures_.find(def.biz_name);

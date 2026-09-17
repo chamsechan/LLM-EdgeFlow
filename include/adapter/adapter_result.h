@@ -4,7 +4,7 @@
 #include <utility>
 
 #include "adapter/adapter_status.h"
-#include "edgeflow/c_api.h"
+#include "platform_mock/error_codes.h"
 
 namespace llm_edgeflow {
 

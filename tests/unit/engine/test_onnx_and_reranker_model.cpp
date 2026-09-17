@@ -21,7 +21,6 @@
 #include "core/pipeline_validator.h"
 #include "core/session_context.h"
 #include "dev_support/inference/bge_model_test_support.h"
-#include "edgeflow/c_api.h"
 #include "engine/backend_interface.h"
 #include "engine/backend_registry.h"
 #include "engine/backends/onnxruntime/onnxruntime_backend.h"

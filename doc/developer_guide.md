@@ -22,21 +22,21 @@ Backend；出现调度、模型语义或硬件能力缺口时，再查阅相应�
 
 | 架构层 | 新增什么？ | 核心修改文件 | 关键宏 / 核心类 |
 | :--- | :--- | :--- | :--- |
-| **接入适配层（Integration）** | 新增业务枚举、输入/输出纯 C 结构体与专属适配器 | `include/edgeflow/c_api.h`<br>`src/adapter/biz/<biz>_adapter.cpp` | `CompanyAlgBizType`<br>`IBizAdapter`<br>`REGISTER_BIZ_ADAPTER` |
+| **接入适配层（Integration）** | 新增输入/输出结构、转换器与业务绑定 | `include/platform_mock/operator_data_types.h`<br>`src/adapter/input/<biz>_input.cpp`<br>`src/adapter/output/<biz>_output.cpp`<br>`src/adapter/biz/<biz>_bindings.cpp` | `InputConverterDefinition`<br>`OutputConverterDefinition`<br>`IoBindingDefinition`<br>`REGISTER_INPUT_CONVERTER`<br>`REGISTER_OUTPUT_CONVERTER`<br>`REGISTER_IO_BINDING` |
 | **流程编排层（Orchestration）** | 扩展动态黑板、会话模型管理与全局资源 | `include/core/alg_context.h`<br>`include/core/session_context.h` | `AlgContext::Read/Publish`<br>`SessionResourceKey<T>` |
 | **能力节点层（Capability Nodes）** | 新增通用操作或可跨方案复用的领域算法 | `src/common_nodes/*.cpp`<br>`src/custom_nodes/*.cpp`<br>`include/nodes/*.h` | `NodeBase`<br>`REGISTER_NODE_WITH_DEFINITION(NodeName, def)` |
 | **模型执行层（Model Execution）** | 新增模型语义或接入新推理后端 | `include/engine/model_interface.h`<br>`include/engine/backend_interface.h`<br>`src/engine/models/`<br>`src/engine/backends/` | `REGISTER_MODEL_WITH_DEFINITION`<br>`REGISTER_BACKEND_WITH_DEFINITION`<br>`ModelRuntimeFactory`<br>`FixedBatchExecutor` |
 
 ---
 
-## 1. 接入适配层：如何新增一个业务的 C ABI 接口与专属 Adapter
+## 1. 接入适配层：如何新增一个业务的 Operator 转换器与绑定
 
-> ⚠️ **平台治理红线**：普通业务接入严禁修改中心分发文件 `src/adapter/c_api_adapter.cpp`，必须编写业务专属 Adapter 类并注册。
+> ⚠️ **平台治理红线**：业务接入采用独立的 InputConverter、OutputConverter 与 IoBinding 注册，严禁在 central dispatch 开关中侵入硬编码。
 
-业务需求的输入输出以完整 C ABI 请求/响应为准，由 Adapter 解包、转换和组装。
-即使复用同一个 C 结构，字符串内部协议变化仍可能需要 Adapter 实现；不能用 Demo
+业务需求的输入输出以完整 Operator 请求/响应为准，由输入/输出转换器解包、转换和组装。
+即使复用同一个 DTO 结构，字符串内部协议变化仍可能需要转换器实现；不能用 Demo
 预处理或后处理补足 SDK 契约。职责划分与复用判断见
-[输入输出边界](dev_guide/business_onboarding.md#输入输出以-c-abi-为边界)。
+[输入输出边界](dev_guide/business_onboarding.md)。
 
 ### Operator 镜像结构与输出池扩展指南
 
@@ -63,9 +63,9 @@ Create 期固定池分配，Process 只向空输出槽位提交池化 shared_ptr
 持有池状态的 weak lifetime token，Destroy 后不得访问输出数据。任何需要修改
 Blackboard、Node、Model 或 Backend 才能识别 Operator 结构的方案均违反分层要求。
 
-目标交付共享库为 `company_alg_sdk`，产品 VERSION 为 10.0.0，
-SOVERSION/C ABI major 为 6。
-其正式动态符号面固定为 6 个 `Alg_*`、3 个 `AlgBase_*` 和 3 个 Operator 入口；
+目标交付共享库为 `company_alg_sdk`，产品 VERSION 为 11.0.0，
+SOVERSION/ABI major 为 7。
+其正式动态符号面固定为 3 个 `AlgBase_*` 和 3 个 Operator 入口；
 仓库内 Node、Registry、Model、Backend 和第三方运行时是隐藏实现，不得被外部扩展直接链接。
 Operator v4 的 Create 和配置预检都使用部署根 `model_path` 加相对
 `cfg_file_name`。每份 `.conf` 的根对象只能包含 `data`，`data` 只接受
@@ -90,18 +90,17 @@ Biz egress 描述 Adapter 消费的内部端口。普通一对一出口仍要求
 CrossRerank 的排名数组和 Compliance 的首项选择使用 `N:1 / aggregate`。
 预检检查声明兼容性，打包阶段仍检查实际请求来源、排名及输出容量。
 
-1. 当前环境的模拟平台枚举和 C 数据结构放在 `platform_mock/alg_types.h`，只使用
-   C11 类型并明确所有权；函数入口保留在 `edgeflow/c_api.h`。公开结构体变更必须先有 RFC。
-2. 在 `src/adapter/biz/` 实现无请求状态的 `IBizAdapter`，用
-   `AdapterValidationHelper` 完成批次、指针、长度和输出容量校验。
-3. `AdapterDescriptor::biz_definitions` 使用完整 `BizDefinition` 声明合法 `biz_name` 及
-   ingress/egress typed ports；通过 `REGISTER_BIZ_ADAPTER` 注册，不修改中心派发。
-4. `Unpack`/`Pack` 使用 `core/common_contracts.h` 中的中性值类型，并在
+1. 当前环境的模拟平台枚举和数据结构放在 `platform_mock/operator_data_types.h` 与
+   `operator_types.h`，函数入口统一为 `edgeflow/operator/interface.h`。公开结构体变更必须先有 RFC。
+2. 在 `src/adapter/input/` 实现无状态的 `InputConverter`，用
+   `AdapterValidationHelper` 完成批次、指针和长度校验，发布中性数据至 `AlgContext`。
+3. 在 `src/adapter/output/` 实现 `OutputConverter`，完成输出结构租约组装与容量检查。
+4. 在 `src/adapter/biz/` 实现 `IoBinding` 绑定，声明业务逻辑端口到 Blackboard 的映射，
+   并通过 `REGISTER_BIZ_EXPOSURE` 声明 `required_transports = {"operator"}`。
+5. 解码与编码使用 `core/common_contracts.h` 中的中性值类型，并在
    `adapter/biz_blackboard_keys.h` 集中声明业务 ingress/egress `BlackboardKey<T>`；
    Core、Node 和 Engine 不得包含该业务 key 头。
-5. 以 [`entity_extract_adapter.cpp`](../src/adapter/biz/entity_extract_adapter.cpp) 和
-   [`cross_rerank_adapter.cpp`](../src/adapter/biz/cross_rerank_adapter.cpp) 为当前模板，
-   并扩展 Adapter/C ABI/Operator 对应契约测试。
+6. 扩展对应的 Operator 契约测试与安全测试。
 
 ---
 

@@ -58,6 +58,14 @@ bool DeploymentIoConfig::Parse(const nlohmann::json& root,
     return false;
   }
 
+  if (transport != "operator") {
+    if (out_error) {
+      *out_error = "Unsupported transport: '" + transport +
+                   "' (only 'operator' is supported)";
+    }
+    return false;
+  }
+
   // 1. 顶层字段白名单检查: 仅允许 schema_version 和 data
   for (auto it = root.begin(); it != root.end(); ++it) {
     if (it.key() != "schema_version" && it.key() != "data") {
@@ -123,12 +131,6 @@ bool DeploymentIoConfig::Parse(const nlohmann::json& root,
 
   // 3. outputs 约束
   if (data.contains("outputs")) {
-    if (transport == "cabi") {
-      if (out_error) {
-        *out_error = "C ABI deployment config does not accept 'data.outputs'";
-      }
-      return false;
-    }
     if (!data["outputs"].is_object()) {
       if (out_error) *out_error = "data.outputs must be an object";
       return false;

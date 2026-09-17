@@ -19,7 +19,7 @@ namespace test {
  * @brief 测试专用 Adapter / Converter 契约夹具
  *
  * 集中管理 AlgContext、句柄与输入输出视图生命周期，
- * 提供来源扰动生成器和统一的 C ABI 解码/编码调用通道。
+ * 提供来源扰动生成器和统一的 Operator 解码/编码调用通道。
  */
 class AdapterHarness {
  public:
@@ -49,13 +49,18 @@ class AdapterHarness {
   AdapterStatus& Status() { return status_; }
   const AdapterStatus& Status() const { return status_; }
 
-  int DecodeCAbi(const std::vector<const void*>& inputs) {
+  int DecodeOperator(const std::vector<const void*>& inputs) {
     if (!in_conv_ || !in_conv_->decode_fn) return -1;
     ExternalInputBatchView view;
-    view.items =
-        inputs.empty() ? nullptr : const_cast<const void**>(inputs.data());
     view.count = inputs.size();
     view.type_id = in_conv_->external_type;
+    std::string slot_name = in_conv_->external_slots.empty()
+                                ? ""
+                                : in_conv_->external_slots[0].slot_name;
+    if (!slot_name.empty()) {
+      view.slot_types[slot_name] = in_conv_->external_type;
+      view.leased_slots[slot_name] = inputs;
+    }
     InputDecodeOptions options;
     options.converter_id = in_conv_->converter_id;
     options.transport = in_conv_->transport;
@@ -63,17 +68,22 @@ class AdapterHarness {
   }
 
   template <typename COutput>
-  int EncodeCAbi(std::vector<COutput>* outputs) {
+  int EncodeOperator(std::vector<COutput>* outputs) {
     if (!out_conv_ || !out_conv_->encode_fn || !outputs) return -1;
     std::vector<void*> output_ptrs(outputs->size());
     for (size_t i = 0; i < outputs->size(); ++i) {
       output_ptrs[i] = &(*outputs)[i];
     }
     ExternalOutputBatchView view;
-    view.items = outputs->empty() ? nullptr : output_ptrs.data();
     view.count = outputs->size();
-    view.capacity = outputs->size();
     view.type_id = out_conv_->external_type;
+    std::string slot_name = out_conv_->external_slots.empty()
+                                ? ""
+                                : out_conv_->external_slots[0].slot_name;
+    if (!slot_name.empty()) {
+      view.slot_types[slot_name] = out_conv_->external_type;
+      view.leased_slots[slot_name] = output_ptrs;
+    }
     OutputEncodeOptions options;
     options.converter_id = out_conv_->converter_id;
     options.transport = out_conv_->transport;

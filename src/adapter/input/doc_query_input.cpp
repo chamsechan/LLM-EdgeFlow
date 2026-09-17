@@ -7,7 +7,6 @@
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter.h"
 #include "contracts/inference_payloads.h"
-#include "edgeflow/c_api.h"
 #include "edgeflow/operator/types.h"
 
 namespace llm_edgeflow {
@@ -15,76 +14,6 @@ namespace {
 
 constexpr size_t kMaxQueryLen = 64 * 1024;       // 64KB
 constexpr size_t kMaxDocLen = 10 * 1024 * 1024;  // 10MB
-
-int DecodeCAbiDocQueryInput(const ExternalInputBatchView& source,
-                            const InputDecodeOptions& options,
-                            const InputPortBindings& bindings,
-                            AlgContext* context, AdapterStatus* status) {
-  if (!context) {
-    return AdapterValidationHelper::ReturnInvalidInput(
-        status, "Null AlgContext passed to Decode", "context",
-        options.converter_id.c_str());
-  }
-  int valid_ret = AdapterValidationHelper::ValidateBatchInputs(
-      source.items, static_cast<int>(source.count), 64,
-      options.converter_id.c_str());
-  if (valid_ret != 0) {
-    return AdapterValidationHelper::ReturnInvalidInput(
-        status, "Batch envelope validation failed", "inputs",
-        options.converter_id.c_str());
-  }
-
-  std::vector<uint64_t> raw_req_ids;
-  TextBatch raw_docs;
-  TextBatch raw_queries;
-
-  raw_req_ids.reserve(source.count);
-  raw_docs.reserve(source.count);
-  raw_queries.reserve(source.count);
-
-  for (size_t i = 0; i < source.count; ++i) {
-    const auto* in_doc = source.GetCAbi<CompanyDocInputStruct>(i);
-    if (!AdapterValidationHelper::RequireNotNull(
-            "inputs[i]", in_doc, static_cast<int>(i),
-            options.converter_id.c_str(), status)) {
-      return COMPANY_ALG_ERR_INVALID_INPUT;
-    }
-
-    if (!AdapterValidationHelper::RequireBoundedString(
-            "inputs[i].query_text", in_doc->query_text, kMaxQueryLen,
-            static_cast<int>(i), options.converter_id.c_str(), status)) {
-      return COMPANY_ALG_ERR_INVALID_INPUT;
-    }
-
-    if (in_doc->doc_text) {
-      if (!AdapterValidationHelper::RequireBoundedString(
-              "inputs[i].doc_text", in_doc->doc_text, kMaxDocLen,
-              static_cast<int>(i), options.converter_id.c_str(), status)) {
-        return COMPANY_ALG_ERR_INVALID_INPUT;
-      }
-    }
-
-    raw_req_ids.push_back(in_doc->request_id);
-    raw_docs.emplace_back(static_cast<uint32_t>(i), 0,
-                          in_doc->doc_text ? in_doc->doc_text : "");
-    raw_queries.emplace_back(static_cast<uint32_t>(i), 0,
-                             in_doc->query_text ? in_doc->query_text : "");
-  }
-
-  if (!AdapterValidationHelper::PublishContextValue(
-          *context, bindings.GetActualKey("raw_request_ids"),
-          std::move(raw_req_ids), options.converter_id.c_str(), status) ||
-      !AdapterValidationHelper::PublishContextValue(
-          *context, bindings.GetActualKey("raw_docs"), std::move(raw_docs),
-          options.converter_id.c_str(), status) ||
-      !AdapterValidationHelper::PublishContextValue(
-          *context, bindings.GetActualKey("raw_queries"),
-          std::move(raw_queries), options.converter_id.c_str(), status)) {
-    return COMPANY_ALG_ERR_INVALID_INPUT;
-  }
-
-  return COMPANY_ALG_SUCCESS;
-}
 
 int DecodeOperatorDocQueryInput(const ExternalInputBatchView& source,
                                 const InputDecodeOptions& options,
@@ -167,31 +96,6 @@ int DecodeOperatorDocQueryInput(const ExternalInputBatchView& source,
   return COMPANY_ALG_SUCCESS;
 }
 
-InputConverterDefinition MakeCAbiDocQueryInputConverter() {
-  InputConverterDefinition def;
-  def.converter_id = "doc_query.plain.cabi.v1";
-  def.transport = "cabi";
-  def.schema_id = "doc_query.plain.request";
-  def.schema_version = 1;
-  def.external_type = "CompanyDocInputStruct";
-  def.max_batch_size = 64;
-  def.ownership_policy = "copy_in";
-  def.thread_model = "stateless";
-  def.external_slots = {{"inputs",
-                         "CompanyDocInputStruct",
-                         PortDirection::kInput,
-                         true,
-                         "CompanyDocInputStruct",
-                         "",
-                         {}}};
-  def.logical_ports = {
-      NodePortDefinition("raw_request_ids", "vector<uint64>", true, "1:1"),
-      NodePortDefinition("raw_docs", "TextBatch", true, "1:1"),
-      NodePortDefinition("raw_queries", "TextBatch", true, "1:1")};
-  def.decode_fn = &DecodeCAbiDocQueryInput;
-  return def;
-}
-
 InputConverterDefinition MakeOperatorDocQueryInputConverter() {
   InputConverterDefinition def;
   def.converter_id = "doc_query.plain.operator.v1";
@@ -217,7 +121,6 @@ InputConverterDefinition MakeOperatorDocQueryInputConverter() {
   return def;
 }
 
-REGISTER_INPUT_CONVERTER(MakeCAbiDocQueryInputConverter());
 REGISTER_INPUT_CONVERTER(MakeOperatorDocQueryInputConverter());
 
 }  // namespace

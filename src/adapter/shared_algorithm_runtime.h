@@ -7,13 +7,12 @@
 #include "adapter/io_converter.h"
 #include "core/pipeline.h"
 #include "core/session_context.h"
-#include "edgeflow/c_api.h"
+#include "platform_mock/error_codes.h"
 
 namespace llm_edgeflow {
 
 /**
- * @brief 纯 C ABI 与 C++ 平台 Operator 门面共享的内部算法运行时句柄
- * (接入适配层内部)
+ * @brief 平台 Operator 门面使用的内部算法运行时句柄 (接入适配层内部)
  */
 class SharedAlgorithmRuntime {
  public:
@@ -35,25 +34,6 @@ class SharedAlgorithmRuntime {
   static int GlobalDeinit() noexcept;
 
   /**
-   * @brief 通过接入配置文件构建运行时 (C ABI 路径)
-   */
-  static int CreateFromConfigFile(
-      const std::string& config_path, int device_id,
-      const std::string& model_root_dir,
-      std::unique_ptr<SharedAlgorithmRuntime>* out_runtime,
-      std::string* out_error = nullptr) noexcept;
-
-  /**
-   * @brief 通过内存中的 Pipeline JSON 与 IO Binding ID 构建运行时
-   */
-  static int CreateFromPipelineJson(
-      const nlohmann::json& pipeline_json, int device_id,
-      const std::string& model_root_dir, const std::string& binding_id,
-      std::unique_ptr<SharedAlgorithmRuntime>* out_runtime,
-      std::string* out_error = nullptr,
-      const RuntimeOptions* extra_runtime_options = nullptr) noexcept;
-
-  /**
    * @brief 通过已验证的 ValidatedIoPlan 与 RuntimeOptions 构建运行时
    */
   static int CreateFromIoPlan(
@@ -61,13 +41,6 @@ class SharedAlgorithmRuntime {
       const RuntimeOptions* extra_runtime_options,
       std::unique_ptr<SharedAlgorithmRuntime>* out_runtime,
       std::string* out_error = nullptr) noexcept;
-
-  /**
-   * @brief 批量计算通用流 (ValidateBatch -> DecodeInput -> Pipeline::Execute ->
-   * EncodeOutput)
-   */
-  int ExecuteBatch(const void** inputs, int num_inputs, void** outputs,
-                   int* num_outputs, std::string* out_error = nullptr) noexcept;
 
   /**
    * @brief 运行时动态控制指令下发

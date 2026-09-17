@@ -42,45 +42,49 @@ skinparam arrow {
 ' Integration
 ' ==============================================================================
 package "接入适配层（Integration）" as Integration {
-  class "Company C ABI Exports" as C_ABI <<(C,#0284C7) API Export>> {
-    + Alg_Init(): int noexcept
-    + Alg_Create(void** hndl, const CompanyAlgParamCreate*): int noexcept
-    + Alg_Process(void* hndl, const void** in, int num_in, void** out, int* num_out): int noexcept
-    + Alg_Control(void* hndl, const CompanyAlgParamControl*): int noexcept
-    + Alg_Destroy(void* hndl): int noexcept
-    + Alg_DeInit(): int noexcept
-  }
-
-  class "Operator Facade" as PlatformFacade <<(P,#38BDF8) Operator API>> {
+  class "Operator SDK Entrypoint" as PlatformFacade <<(P,#38BDF8) Operator API>> {
     + Get_LLM_EDGEFLOW_OperatorTable(): OperatorFunc
+    + GetOperatorLastError(): string
+    + ValidateOperatorConfigBinding(cfg_path, model_root, err): int
     + OperatorConfigResolver: resolve .conf & rewrite model paths
     + OperatorValueTypeRegistry: value type whitelist & pool sizing
-    + OperatorBizBridgeRegistry: biz bridge slots & conversion
     + OperatorControlRegistry: typed control commands
+  }
+
+  class "OperatorHandleInstance" as HandleInst {
+    + runtime: std::unique_ptr<SharedAlgorithmRuntime>
+    + input_converter: std::shared_ptr<InputConverter>
+    + output_converter: std::shared_ptr<OutputConverter>
+    + output_pools: std::unordered_map<string, OutputPool>
+    + mutex: std::mutex
   }
 
   class "SharedAlgorithmRuntime" as SharedRuntime <<(R,#10B981) Shared Runtime>> {
     - pipeline_: std::unique_ptr<Pipeline>
-    - adapter_: std::shared_ptr<IBizAdapter>
-    + ExecuteBatch(inputs, num_inputs, outputs, num_outputs, err): int
+    - io_plan_: std::unique_ptr<ValidatedIoPlan>
+    + CreateFromIoPlan(plan, runtime_options, err): unique_ptr<SharedAlgorithmRuntime>
     + ExecuteControl(cmd, json_param, err): int
   }
 
-  class "AlgHandleInstance" as HandleInst {
-    + runtime: std::unique_ptr<SharedAlgorithmRuntime>
-  }
-
-  class "BizAdapterRegistry" as AdapterRegistry <<(S,#EC4899) Singleton>> {
-    + RegisterAdapter(adapter: shared_ptr<IBizAdapter>): bool
-    + GetAdapter(biz_type: CompanyAlgBizType): std::shared_ptr<IBizAdapter>
+  class "IoBindingRegistry" as BindingRegistry <<(S,#EC4899) Singleton>> {
+    + RegisterBinding(definition: IoBindingDefinition): bool
+    + FindBinding(binding_id: string): const IoBindingDefinition*
     + HasConflict(): bool
   }
 
-  interface "IBizAdapter" as IAdapter {
-    + {abstract} GetDescriptor(): const AdapterDescriptor&
-    + {abstract} ValidateBatch(in, num_in, out, num_out): int
-    + {abstract} Unpack(in, num_in, ctx, status): int
-    + {abstract} Pack(ctx, out, num_out, status): int
+  class "IoConverterRegistry" as ConverterRegistry <<(S,#EC4899) Singleton>> {
+    + RegisterInputConverter(definition, factory): bool
+    + RegisterOutputConverter(definition, factory): bool
+    + CreateInputConverter(converter_id): unique_ptr<InputConverter>
+    + CreateOutputConverter(converter_id): unique_ptr<OutputConverter>
+  }
+
+  interface "InputConverter" as IInputConverter {
+    + {abstract} Decode(view: const InputView&, ctx: AlgContext*, status: AdapterStatus*): int
+  }
+
+  interface "OutputConverter" as IOutputConverter {
+    + {abstract} Encode(ctx: const AlgContext&, view: OutputView*, status: AdapterStatus*): int
   }
 
   class "AdapterValidationHelper" as ValidationHelper {
@@ -88,14 +92,11 @@ package "接入适配层（Integration）" as Integration {
     + {static} RequireBoundedString(str, max_len, status): bool
   }
 
-  class "Multi-Modal C Structs" as Structs <<(S,#F59E0B) Data Struct>> {
-    + CompanyDocInput / Output (Biz 1)
-    + CompanyKeywordInput / Output (Biz 2)
-    + CompanyEntityInput / Output (Biz 3)
-    + CompanyAuditInput / Output (Biz 4)
-    + CompanyOcrDocInput / Output (Biz 5)
-    + CompanyAudioInput / Output (Biz 6)
-    + CompanyRerankBatchInput / Output (Biz 7)
+  class "Operator Named I/O & Types" as Structs <<(S,#F59E0B) Data Struct>> {
+    + CompanyString / CompanyBuffer / CompanyAny
+    + NamedIo / NamedIoBatch
+    + CompanyDocQA / Keyword / Entity / Audit
+    + CompanyAudio / Invoice / Rerank Operator Types
   }
 }
 
@@ -302,14 +303,17 @@ package "Platform Tooling & Visualizer Studio (Tools & Demo)" as Tools {
 ' ==============================================================================
 ' 关系连接与流向
 ' ==============================================================================
-C_ABI ..> HandleInst : 管理生命周期
-C_ABI ..> Structs : 解包/填充
-PlatformFacade ..> SharedRuntime : 命名 I/O 适配
+PlatformFacade ..> HandleInst : 管理生命周期与 Process/Control
+PlatformFacade ..> Structs : 命名槽位校验与租约
 HandleInst *-- SharedRuntime
+HandleInst o-- IInputConverter
+HandleInst o-- IOutputConverter
 SharedRuntime *-- Pipeline
-SharedRuntime o-- AdapterRegistry
-AdapterRegistry o-- IAdapter
-IAdapter ..> ValidationHelper : 严格容量与截断防护
+BindingRegistry ..> ConverterRegistry : 关联输入/输出转换器
+ConverterRegistry o-- IInputConverter
+ConverterRegistry o-- IOutputConverter
+IInputConverter ..> ValidationHelper : 字段截断与容量防护
+IOutputConverter ..> ValidationHelper : 字段截断与容量防护
 
 Pipeline *-- SessionContext
 Pipeline *-- INode : 显式 DAG 拓扑执行

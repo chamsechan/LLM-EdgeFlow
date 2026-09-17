@@ -5,6 +5,7 @@
 
 #include "edgeflow/export.h"
 #include "edgeflow/operator/types.h"
+#include "edgeflow/version.h"
 #include "platform_mock/operator_types.h"
 
 namespace llm_edgeflow::operator_api {

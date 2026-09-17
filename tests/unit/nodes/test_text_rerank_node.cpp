@@ -12,6 +12,7 @@
 #include "core/node_registry.h"
 #include "core/pipeline_validator.h"
 #include "core/session_context.h"
+#include "edgeflow/operator/interface.h"
 #include "engine/model_interface.h"
 #include "nodes/node_error_codes.h"
 #include "tests/support/node_test_utils.h"
@@ -326,7 +327,7 @@ class ControllableMockRerankModel : public IRerankModel {
 class TextRerankRankingTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    Alg_Init();
+    operator_api::Get_LLM_EDGEFLOW_OperatorTable().Init();
     mock_model_ = std::make_shared<ControllableMockRerankModel>();
     session_ctx_.GetModelManager().RegisterModel("test_rerank_model",
                                                  mock_model_, "test-v1");
@@ -334,7 +335,9 @@ class TextRerankRankingTest : public ::testing::Test {
     ASSERT_NE(node_, nullptr);
   }
 
-  void TearDown() override { Alg_DeInit(); }
+  void TearDown() override {
+    operator_api::Get_LLM_EDGEFLOW_OperatorTable().Deinit();
+  }
 
   std::shared_ptr<ControllableMockRerankModel> mock_model_;
   SessionContext session_ctx_;

@@ -7,7 +7,6 @@
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter.h"
 #include "contracts/inference_payloads.h"
-#include "edgeflow/c_api.h"
 #include "edgeflow/operator/types.h"
 #include "nlohmann/json.hpp"
 
@@ -26,68 +25,6 @@ int ParseTranslateQuery(const std::string& raw_text, std::string* out_query) {
     *out_query = req_json["query"].get<std::string>();
   }
   return 0;
-}
-
-int DecodeCAbiTranslateJson(const ExternalInputBatchView& source,
-                            const InputDecodeOptions& options,
-                            const InputPortBindings& bindings,
-                            AlgContext* context, AdapterStatus* status) {
-  if (!context) {
-    return AdapterValidationHelper::ReturnInvalidInput(
-        status, "Null AlgContext passed to Decode", "context",
-        options.converter_id.c_str());
-  }
-  int valid_ret = AdapterValidationHelper::ValidateBatchInputs(
-      source.items, static_cast<int>(source.count), 64,
-      options.converter_id.c_str());
-  if (valid_ret != 0) {
-    return AdapterValidationHelper::ReturnInvalidInput(
-        status, "Batch envelope validation failed", "inputs",
-        options.converter_id.c_str());
-  }
-
-  std::vector<uint64_t> req_ids;
-  TextBatch sentences;
-  req_ids.reserve(source.count);
-  sentences.reserve(source.count);
-
-  for (size_t i = 0; i < source.count; ++i) {
-    const auto* in = source.GetCAbi<CompanyEntityInputStruct>(i);
-    if (!AdapterValidationHelper::RequireNotNull(
-            "inputs[i]", in, static_cast<int>(i), options.converter_id.c_str(),
-            status)) {
-      return COMPANY_ALG_ERR_INVALID_INPUT;
-    }
-    if (!AdapterValidationHelper::RequireBoundedString(
-            "inputs[i].sentence_text", in->sentence_text, kMaxSentenceLen,
-            static_cast<int>(i), options.converter_id.c_str(), status)) {
-      return COMPANY_ALG_ERR_INVALID_INPUT;
-    }
-  }
-
-  for (size_t i = 0; i < source.count; ++i) {
-    const auto* in = source.GetCAbi<CompanyEntityInputStruct>(i);
-    std::string query;
-    if (ParseTranslateQuery(in->sentence_text, &query) != 0) {
-      return AdapterValidationHelper::ReturnInvalidInput(
-          status, "Expected a JSON object with string field query", "json",
-          options.converter_id.c_str(), static_cast<int>(i));
-    }
-
-    req_ids.push_back(in->request_id);
-    sentences.emplace_back(static_cast<uint32_t>(i), 0, std::move(query));
-  }
-
-  if (!AdapterValidationHelper::PublishContextValue(
-          *context, bindings.GetActualKey("raw_request_ids"),
-          std::move(req_ids), options.converter_id.c_str(), status) ||
-      !AdapterValidationHelper::PublishContextValue(
-          *context, bindings.GetActualKey("input_sentences"),
-          std::move(sentences), options.converter_id.c_str(), status)) {
-    return COMPANY_ALG_ERR_INVALID_INPUT;
-  }
-
-  return COMPANY_ALG_SUCCESS;
 }
 
 int DecodeOperatorTranslateJson(const ExternalInputBatchView& source,
@@ -153,30 +90,6 @@ int DecodeOperatorTranslateJson(const ExternalInputBatchView& source,
   return COMPANY_ALG_SUCCESS;
 }
 
-InputConverterDefinition MakeCAbiTranslateJsonInputConverter() {
-  InputConverterDefinition def;
-  def.converter_id = "translate.json.cabi.v1";
-  def.transport = "cabi";
-  def.schema_id = "translate.json.request";
-  def.schema_version = 1;
-  def.external_type = "CompanyEntityInputStruct";
-  def.max_batch_size = 64;
-  def.ownership_policy = "copy_in";
-  def.thread_model = "stateless";
-  def.external_slots = {{"sentence_text",
-                         "CompanyEntityInputStruct",
-                         PortDirection::kInput,
-                         true,
-                         "CompanyEntityInputStruct",
-                         "",
-                         {}}};
-  def.logical_ports = {
-      NodePortDefinition("raw_request_ids", "vector<uint64>", true, "1:1"),
-      NodePortDefinition("input_sentences", "TextBatch", true, "1:1")};
-  def.decode_fn = &DecodeCAbiTranslateJson;
-  return def;
-}
-
 InputConverterDefinition MakeOperatorTranslateJsonInputConverter() {
   InputConverterDefinition def;
   def.converter_id = "translate.json.operator.v1";
@@ -201,7 +114,6 @@ InputConverterDefinition MakeOperatorTranslateJsonInputConverter() {
   return def;
 }
 
-REGISTER_INPUT_CONVERTER(MakeCAbiTranslateJsonInputConverter());
 REGISTER_INPUT_CONVERTER(MakeOperatorTranslateJsonInputConverter());
 
 }  // namespace

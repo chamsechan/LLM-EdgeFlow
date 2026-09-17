@@ -80,24 +80,23 @@ Validator --> BizTests : validated package
 
 ' Integration
 package "接入适配层（Integration）" as Integration {
-  component "Pure C ABI Facade\n6 lifecycle APIs\nnoexcept exception firewall" as CAbi <<C ABI>>
-  component "Operator Facade\nOperatorFunc + NamedIoBatch\nOperatorConfigResolver\nOperatorBizBridgeRegistry" as PlatformFacade <<Operator API>>
-  component "Shared Algorithm Runtime\nSharedAlgorithmRuntime\nSingle Unpack-Execute-Pack" as SharedRuntime
-  artifact "Business-Specific\nPure C Structs" as CStructs
-  component "BizAdapterRegistry" as AdapterRegistry
-  interface "IBizAdapter\nDescriptor / ValidateBatch\nUnpack / Pack" as IBizAdapter
-  component "Biz Adapters\nStatically Linked" as BizAdapters
+  component "Operator Facade\nOperatorFunc + NamedIoBatch\nOperatorConfigResolver\nOperatorControlRegistry" as PlatformFacade <<Operator API>>
+  component "Shared Algorithm Runtime\nSharedAlgorithmRuntime\nSingle Decode-Execute-Encode" as SharedRuntime
+  artifact "Business-Specific\nOperator Types" as CStructs
+  component "IoBindingRegistry" as AdapterRegistry
+  interface "IoBinding\nInputConverter / OutputConverter\nDecode / Encode" as IBizAdapter
+  component "I/O Converters\nStatically Linked" as BizAdapters
   artifact "Common Typed Contracts" as CommonContracts
 }
 
-Caller --> CAbi : pure C calls
+Caller --> PlatformFacade : OperatorFunc calls
 PlatformScheduler --> PlatformFacade : OperatorFunc calls
-PlatformFacade --> SharedRuntime : convert NamedIo to C ptrs
-CAbi --> SharedRuntime : forward C params
-SharedRuntime --> AdapterRegistry : dispatch by business_id / name
+PlatformFacade --> SharedRuntime : execute via IoPlan
+PlatformFacade --> BizAdapters : decode input / encode output
+SharedRuntime --> AdapterRegistry : resolve binding by config
 AdapterRegistry o-- IBizAdapter
 BizAdapters ..|> IBizAdapter
-BizAdapters --> CStructs : validate / unpack / pack
+BizAdapters --> CStructs : decode / encode slots
 BizAdapters --> CommonContracts : map to typed values
 Manifest --> AdapterRegistry : registration metadata
 Scaffolder --> BizAdapters : generate scaffold
@@ -211,10 +210,10 @@ package "Cross-Cutting Platform Contracts" as CrossCutting {
 }
 
 Versioning ..> Manifest
-Versioning ..> CAbi
+Versioning ..> PlatformFacade
 Versioning ..> NodeDescriptor
 Versioning ..> InferenceDescriptors
-Observability ..> CAbi
+Observability ..> PlatformFacade
 Observability ..> PipelineRuntime
 Observability ..> IModel
 Observability ..> IInferenceBackend

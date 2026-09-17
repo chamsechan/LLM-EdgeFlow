@@ -1,11 +1,5 @@
 LLM_EDGEFLOW_@LLM_EDGEFLOW_ABI_VERSION_MAJOR@ {
   global:
-    Alg_Init;
-    Alg_Create;
-    Alg_Process;
-    Alg_Control;
-    Alg_Destroy;
-    Alg_DeInit;
     AlgBase_setLogLevelByName;
     AlgBase_getLogLevelByName;
     AlgBase_logPrint;

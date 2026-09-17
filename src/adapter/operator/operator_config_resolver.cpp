@@ -207,11 +207,16 @@ int OperatorConfigResolver::ResolveOutputAllocation(
     return -2;
   }
   if (config.contains("meta_num")) {
-    if (!config["meta_num"].is_number_unsigned()) {
+    uint64_t mnum = 0;
+    if (config["meta_num"].is_number_unsigned()) {
+      mnum = config["meta_num"].get<uint64_t>();
+    } else if (config["meta_num"].is_number_integer() &&
+               config["meta_num"].get<int64_t>() >= 0) {
+      mnum = static_cast<uint64_t>(config["meta_num"].get<int64_t>());
+    } else {
       if (error) *error = "config.meta_num must be non-negative integer";
       return -2;
     }
-    uint64_t mnum = config["meta_num"].get<uint64_t>();
     if (mnum > std::numeric_limits<uint32_t>::max()) {
       if (error) *error = "config.meta_num exceeds uint32 range";
       return -2;
@@ -247,14 +252,18 @@ int OperatorConfigResolver::ResolveOutputAllocation(
       return -2;
     }
     for (const auto& [cap_field, cap_val] : config["capacities"].items()) {
-      if (!cap_val.is_number_unsigned()) {
+      uint64_t uval = 0;
+      if (cap_val.is_number_unsigned()) {
+        uval = cap_val.get<uint64_t>();
+      } else if (cap_val.is_number_integer() && cap_val.get<int64_t>() > 0) {
+        uval = static_cast<uint64_t>(cap_val.get<int64_t>());
+      } else {
         if (error) {
           *error = "Capacity for field '" + cap_field +
                    "' must be positive unsigned integer";
         }
         return -2;
       }
-      uint64_t uval = cap_val.get<uint64_t>();
       if (uval == 0 || uval > std::numeric_limits<uint32_t>::max()) {
         if (error) {
           *error = "Capacity for field '" + cap_field +

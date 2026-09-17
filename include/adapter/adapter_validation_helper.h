@@ -7,96 +7,25 @@
 
 #include "adapter/adapter_status.h"
 #include "core/alg_context.h"
-#include "edgeflow/c_api.h"
 #include "edgeflow/log.h"
+#include "platform_mock/error_codes.h"
 
 namespace llm_edgeflow {
 
 /**
  * @brief 业务适配器通用输入输出批量契约校验工具类 (接入适配层内部)
  *
- * 契约规则与安全解析工具集 (ADP-001, ADP-002, ADP-005, REV2-002, REV2-005)：
- * 1. ValidateBatchPreFlight (执行前严苛预检)：
- *    - 必须在 Pipeline Execute 前调用，杜绝容量不足时无效执行模型推理；
- *    - 检查 num_inputs > 0 且不超过 max_batch_size (超出确定性返回 -3)；
- *    - 检查每一个 inputs[i] 非空 (包含空槽位确定性返回 -3)；
- *    - 检查 *num_outputs 容量 >= required_count (不足时回填所需容量并确定性返回
- * -4)；
- *    - 检查每一个 outputs[i] 非空 (包含空槽位确定性返回 -4)。
- * 2. 字段级安全解析工具 (ADP-001, ADP-005, RECHECK-001, RECHECK-004)：
- *    - RequireNotNull: 非空指针检查与字段路径诊断；
- *    - RequireRange: 数值区间边界检查；
- *    - RequireEnum: 枚举值有效性与 Tagged Union 校验；
- *    - RequireBoundedString: 有界安全字符串扫描与长度校验 (防止无界内存扫描)；
- *    - CheckedMultiply: 乘法溢出与最大缓冲区字节限制；
- *    - CheckedStringCopy: 字符串安全拷贝，截断时返回 false 并记录
- * BufferTooSmall 诊断。
+ * 字段级安全解析工具集 (ADP-001, ADP-002, ADP-005, RECHECK-001, RECHECK-004)：
+ * - RequireNotNull: 非空指针检查与字段路径诊断；
+ * - RequireRange: 数值区间边界检查；
+ * - RequireEnum: 枚举值有效性与 Tagged Union 校验；
+ * - RequireBoundedString: 有界安全字符串扫描与长度校验 (防止无界内存扫描)；
+ * - CheckedMultiply: 乘法溢出与最大缓冲区字节限制；
+ * - CheckedStringCopy: 字符串安全拷贝，截断时返回 false 并记录 BufferTooSmall
+ * 诊断。
  */
 class AdapterValidationHelper {
  public:
-  static int ValidateBatchPreFlight(const void** inputs, int num_inputs,
-                                    void** outputs, int* num_outputs,
-                                    int max_batch_size, int required_count,
-                                    const char* adapter_name) {
-    if (!inputs || num_inputs <= 0) {
-      ALG_LOG_ERROR(
-          "[AdapterValidation] %s PreFlight failed: Invalid inputs array or "
-          "num_inputs <= 0 (%d)\n",
-          adapter_name ? adapter_name : "Biz", num_inputs);
-      return COMPANY_ALG_ERR_INVALID_INPUT;
-    }
-
-    // REV2-005: 强制校验 max_batch_size Descriptor 契约
-    if (max_batch_size > 0 && num_inputs > max_batch_size) {
-      ALG_LOG_ERROR(
-          "[AdapterValidation] %s PreFlight failed: num_inputs (%d) exceeds "
-          "max_batch_size limit (%d)\n",
-          adapter_name ? adapter_name : "Biz", num_inputs, max_batch_size);
-      return COMPANY_ALG_ERR_INVALID_INPUT;
-    }
-
-    for (int i = 0; i < num_inputs; ++i) {
-      if (!inputs[i]) {
-        ALG_LOG_ERROR(
-            "[AdapterValidation] %s PreFlight failed: Null pointer at input "
-            "index [%d]\n",
-            adapter_name ? adapter_name : "Biz", i);
-        return COMPANY_ALG_ERR_INVALID_INPUT;
-      }
-    }
-
-    if (!num_outputs || *num_outputs < 0) {
-      ALG_LOG_ERROR(
-          "[AdapterValidation] %s PreFlight failed: Invalid num_outputs "
-          "pointer or negative capacity\n",
-          adapter_name ? adapter_name : "Biz");
-      return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
-    }
-
-    // REV2-002: 提前拦截容量不足或空 outputs (标准容量预查)，回填所需容量
-    int capacity = *num_outputs;
-    if (capacity < required_count || !outputs) {
-      ALG_LOG_ERROR(
-          "[AdapterValidation] %s PreFlight: Output capacity (%d) "
-          "insufficient or outputs array null for required count (%d)\n",
-          adapter_name ? adapter_name : "Biz", capacity, required_count);
-      *num_outputs = required_count;  // 报告所需容量
-      return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
-    }
-
-    for (int i = 0; i < required_count; ++i) {
-      if (!outputs[i]) {
-        ALG_LOG_ERROR(
-            "[AdapterValidation] %s PreFlight failed: Null pointer at output "
-            "slot index [%d]\n",
-            adapter_name ? adapter_name : "Biz", i);
-        return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
-      }
-    }
-
-    return COMPANY_ALG_SUCCESS;
-  }
-
   static int ValidateBatchInputs(const void** inputs, int num_inputs,
                                  int max_batch_size = 64,
                                  const char* adapter_name = nullptr) {

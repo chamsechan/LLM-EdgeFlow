@@ -13,10 +13,11 @@
 #include "core/node_interface.h"
 #include "core/node_registry.h"
 #include "core/pipeline.h"
-#include "edgeflow/c_api.h"
-#include "edgeflow/c_api.hpp"
+#include "edgeflow/operator/interface.h"
+#include "edgeflow/operator/types.h"
 #include "engine/fixed_batch_executor.h"
 #include "engine/model_interface.h"
+#include "platform_mock/operator_data_types.h"
 
 static std::string GetConfigPath(const std::string& rel_path) {
   FILE* fp = fopen(rel_path.c_str(), "r");
@@ -316,32 +317,41 @@ TEST_F(EngineFaultToleranceAndLifecycleTest, LargePayloadRaiiDestruction) {
 
 // 4. 全局生命周期高频循环初始化与销毁压测 (30 Cycles)
 TEST_F(EngineFaultToleranceAndLifecycleTest, RapidGlobalLifecycleInitDeInit) {
-  std::string cfg_path =
-      GetConfigPath("configs/pipeline_keyword_match_cabi.json");
+  using namespace llm_edgeflow;
+  auto op = operator_api::Get_LLM_EDGEFLOW_OperatorTable();
 
   for (int cycle = 0; cycle < 30; ++cycle) {
-    EXPECT_EQ(Alg_Init(), 0);
+    EXPECT_EQ(op.Init(), 0);
 
-    CompanyAlgParamCreate param;
-    param.config_file_path = cfg_path.c_str();
-    param.model_root_dir = "./models";
+    operator_api::CreateParam param{};
+    param.model_path = ".";
+    param.cfg_file_name = "configs/pipeline_keyword_match_rules.conf";
     param.device_id = 0;
+    param.compute_platform = operator_api::ComputePlatform::kCpu;
+    param.max_frame_depth = 25;
 
     void* handle = nullptr;
-    ASSERT_EQ(Alg_Create(&handle, &param), 0);
+    ASSERT_EQ(op.Create(&handle, &param), 0);
     ASSERT_NE(handle, nullptr);
 
-    const char* input_text = "循环生命周期压测文本";
-    CompanyKeywordInputStruct in_req{static_cast<uint64_t>(10000 + cycle),
-                                     input_text};
-    std::vector<void*> inputs = {&in_req};
-    CompanyKeywordOutputStruct out_res;
-    std::vector<void*> outputs = {&out_res};
+    std::string sentence = "循环生命周期压测文本";
+    CompanyString cs_sentence{static_cast<int32_t>(sentence.size()),
+                              const_cast<char*>(sentence.data())};
+    CompanyOperatorKeywordInput in_req{};
+    in_req.request_id = static_cast<uint64_t>(10000 + cycle);
+    in_req.sentence_text = &cs_sentence;
 
-    int ret = Alg_Process(handle, inputs, outputs);
+    operator_api::NamedIoBatch inputs(1);
+    inputs[0]["client_channel.keyword_in"] =
+        operator_api::MakeBorrowedOperatorInput(&in_req);
+    operator_api::NamedIoBatch outputs(1);
+    outputs[0]["client_channel.keyword_out"] = std::shared_ptr<void>();
+
+    int ret = op.Process(handle, inputs, outputs);
     EXPECT_EQ(ret, 0);
 
-    EXPECT_EQ(Alg_Destroy(handle), 0);
-    EXPECT_EQ(Alg_DeInit(), 0);
+    outputs.clear();
+    EXPECT_EQ(op.Destroy(handle), 0);
+    EXPECT_EQ(op.Deinit(), 0);
   }
 }

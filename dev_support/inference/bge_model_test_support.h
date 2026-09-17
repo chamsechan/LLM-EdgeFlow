@@ -11,7 +11,7 @@
 #include <random>
 #include <string>
 
-#include "edgeflow/c_api.h"
+#include "edgeflow/operator/interface.h"
 #include "engine/backend_interface.h"
 
 namespace llm_edgeflow {
@@ -66,7 +66,7 @@ inline Tensor MakeFaultTensor(const TensorDesc& desc, size_t byte_size,
 class BgeModelTestBase : public ::testing::Test {
  protected:
   void SetUp() override {
-    Alg_Init();
+    operator_api::Get_LLM_EDGEFLOW_OperatorTable().Init();
     std::random_device entropy;
     for (size_t attempt = 0; attempt < 32; ++attempt) {
       temp_dir_ = std::filesystem::temp_directory_path() /
@@ -82,7 +82,7 @@ class BgeModelTestBase : public ::testing::Test {
   void TearDown() override {
     std::error_code error;
     std::filesystem::remove_all(temp_dir_, error);
-    Alg_DeInit();
+    operator_api::Get_LLM_EDGEFLOW_OperatorTable().Deinit();
   }
 
   std::filesystem::path temp_dir_;

@@ -22,9 +22,7 @@ def owner(path):
         "include/edgeflow/log.h", "include/edgeflow/export.h"
     }:
         return "Contracts"
-    if path.startswith(("include/adapter/", "include/edgeflow/operator/", "include/platform_mock/", "src/adapter/")) or path in {
-        "include/edgeflow/c_api.h", "include/edgeflow/c_api.hpp"
-    }:
+    if path.startswith(("include/adapter/", "include/edgeflow/operator/", "include/platform_mock/", "src/adapter/")):
         return "Integration"
     if path.startswith(("include/core/", "src/core/")):
         return "Orchestration"
@@ -138,8 +136,8 @@ def self_test():
 
         for header in ("include/adapter/io_converter.h",
                        "include/core/pipeline_validator.h",
-                       "include/core/alg_context.h", "include/edgeflow/c_api.h",
-                       "include/platform_mock/alg_types.h",
+                       "include/core/alg_context.h",
+                       "include/edgeflow/operator/interface.h",
                        "include/platform_mock/operator_data_types.h",
                        "include/platform_mock/operator_types.h",
                        "include/platform_mock/error_codes.h",
@@ -148,14 +146,14 @@ def self_test():
         cases = [
             ("src/engine/runtime/bad.cpp", "adapter/io_converter.h"),
             ("src/core/bad.cpp", "adapter/io_converter.h"),
-            ("include/nodes/bad.h", "edgeflow/c_api.h"),
+            ("include/nodes/bad.h", "edgeflow/operator/interface.h"),
             ("src/common_nodes/bad.cpp", "core/pipeline_validator.h"),
             ("src/custom_nodes/bad.cpp", "core/pipeline_validator.h"),
             ("include/nodes/bad.h", "../adapter/io_converter.h"),
             ("src/common_nodes/bad.cpp", "custom_nodes/domain_node.h"),
             ("include/core/session_context.h", "core/pipeline_validator.h"),
         ]
-        for header in ("alg_types.h", "operator_data_types.h", "operator_types.h", "error_codes.h"):
+        for header in ("operator_data_types.h", "operator_types.h", "error_codes.h"):
             cases.extend((path, f"platform_mock/{header}") for path in (
                 "src/core/bad.cpp", "src/common_nodes/bad.cpp", "src/custom_nodes/bad.cpp",
                 "include/nodes/bad.h", "src/engine/models/bad.cpp", "src/engine/backends/foreign/bad.cpp"))

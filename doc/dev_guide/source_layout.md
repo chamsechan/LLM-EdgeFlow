@@ -14,7 +14,7 @@
 
 | 使用者 | 位置与构建目标 | 约定 |
 | --- | --- | --- |
-| SDK 调用方 | `include/edgeflow/`；`edgeflow_public_headers` | C ABI、Operator、日志及生成的版本头；只有明确列举的调用头向 SDK 消费方传播 |
+| SDK 调用方 | `include/edgeflow/`；`edgeflow_public_headers` | Operator、日志及生成的版本头；只有明确列举的调用头向 SDK 消费方传播 |
 | 源码扩展开发者 | `include/adapter/`、`include/core/`、`include/nodes/`、`include/engine/`、`include/contracts/`；`edgeflow_extension_headers` | Adapter、Node、Model、Backend 的源码接口与共享契约，需要随框架重新编译，不承诺内部 C++ 动态 ABI |
 | 模块实现与仓库测试 | `src/` 中与 `.cpp` 相邻；`edgeflow_internal_headers` | 运行时装配、配置解析、注册表内部及输出池等实现 |
 
@@ -32,41 +32,36 @@
 
 ```text
 include/edgeflow/                 SDK 调用接口
-  c_api.h / c_api.hpp
   export.h / log.h
   operator/interface.h
-  operator/types.h                兼容转发
+  operator/types.h                平台交互类型门面
 include/platform_mock/            本地平台公共定义模拟
-  alg_types.h / error_codes.h
+  error_codes.h
   operator_data_types.h / operator_types.h
 include/adapter/                  源码扩展契约与辅助接口
-  biz_adapter_interface.h
-  biz_adapter_registry.h
-  operator_biz_bridge.h
-  operator_io_contracts.h
+  io_binding.h
+  io_converter.h
+  io_binding_registry.h
+  io_converter_registry.h
   operator_value_type.h
 src/adapter/
-  c_api_adapter.cpp
   shared_algorithm_runtime.cpp/.h
-  deployment_model_resolver.cpp/.h
-  biz_adapter_registry.cpp
-  biz/                            每个业务的两个转换文件相邻
-    doc_qa_adapter.cpp
-    doc_qa_operator_bridge.cpp
+  deployment_io_config.cpp/.h
+  io_binding_resolver.cpp/.h
+  input/                          各业务输入转换器
+  output/                         各业务输出转换器
+  biz/                            各业务 I/O 绑定声明
   operator/                       Operator 通用机制
     operator_config_resolver.cpp/.h
-    json_output_config_reader.cpp/.h
-    operator_biz_bridge_registry.cpp/.h
-    operator_output_pool.cpp/.h
+    operator_process_binding.cpp/.h
+    operator_adapter.cpp
 ```
 
-Bridge 作者包含 `adapter/operator_biz_bridge.h`，使用 `MakeSingleSlotBizBridge`、
-`RegisterOperatorBizBridge`、`CopyToOperatorString` 和 `REGISTER_OPERATOR_BIZ_BRIDGE`。
-注册函数不接收注册表实例；描述符与转换代码无需包含内部注册表或输出池头。
-新宿主值类型与命名输出分配方案通过 `adapter/operator_value_type.h` 登记；实现只管理
+转换器作者包含 `adapter/io_converter.h` 与 `adapter/converter_authoring.h`，实现 `InputConverter` 与
+`OutputConverter` 纯虚类，并通过 `REGISTER_INPUT_CONVERTER` 和 `REGISTER_OUTPUT_CONVERTER` 注册。
+各业务接入绑定在 `src/adapter/biz/` 中声明 `IoBindingDefinition`，通过 `REGISTER_IO_BINDING` 注册。
+宿主值类型与命名输出分配方案通过 `adapter/operator_value_type.h` 登记；实现只管理
 单份结构及嵌套存储，队列、租约和初始化审计归通用机制所有。
-配置读取接口 `adapter/operator_output_config.h` 使用固定枚举及字符串，不暴露 JSON；
-结构体作者用 `MakeOutputParameterParser<T>` 登记普通参数结构的解析，无需编写读取器。
 完整步骤见[业务接入](business_onboarding.md)。
 
 ## 标识符与定义
@@ -96,24 +91,18 @@ Catalog JSON 为兼容现有消费者，继续在两种声明中输出 `key`，�
 
 | 规范入口 | 说明 |
 | --- | --- |
-| `edgeflow/c_api.h` | 纯 C ABI 导出头 |
-| `edgeflow/c_api.hpp` | C++ 异常屏障与辅助包装 |
 | `edgeflow/export.h` | 符号可见性宏 |
 | `edgeflow/log.h` | 统一日志入口 |
 | `edgeflow/version.h` | 版本头（由 CMake 生成） |
 | `edgeflow/operator/interface.h` | Operator 纯 C 接口及函数表 |
 | `edgeflow/operator/types.h` | Operator 平台交互类型门面（转发至 platform_mock） |
 
-`Alg_*`、`Company*`、公共宏、C/C++ 公开函数签名、结构布局及 `libcompany_alg_sdk`
-名称保持原样；这些名称属于既有调用契约。内部扩展应更新 `BizName()`、`pipelines`、
-`abi_version` 等旧成员。原 `NodeFactory` 兼容别名已移除，代码统一使用 `NodeRegistry`。
-业务 bridge 转为无参注册函数，并使用上述扩展入口。
+`Company*`、公共宏、C++ Operator 公开函数签名、结构布局及 `libcompany_alg_sdk`
+名称保持原样；这些名称属于既有调用契约。内部扩展统一使用 `NodeRegistry`。
 
-`edgeflow/c_api.h` 的参数类型来自 `platform_mock/alg_types.h`，错误码来自
-`platform_mock/error_codes.h`；`edgeflow/operator/types.h` 转发到
-`platform_mock/operator_data_types.h`，Operator 平台交互类型集中在
-`platform_mock/operator_types.h`。现有兼容范围是本仓库的调用约定，真实公司公共头
-需要在授权内网单独核对和接入。
+`edgeflow/operator/types.h` 转发到 `platform_mock/operator_data_types.h`，
+Operator 平台交互类型集中在 `platform_mock/operator_types.h`，错误码来自 `platform_mock/error_codes.h`。
+现有兼容范围是本仓库的调用约定，真实公司公共头需要在授权内网单独核对和接入。
 
 示例配置与 Profile 的旧新名称见[配置迁移表](../../configs/README.md)。Pipeline JSON
 业务 ID、节点类型、模型和 Backend ID、端口绑定以及算法参数均保持原样。

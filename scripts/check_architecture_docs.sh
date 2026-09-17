@@ -155,14 +155,14 @@ fi
 
 VERSION_TEMPLATE="${ROOT_DIR}/cmake_ext/edgeflow_version.h.in"
 VERSION_SCRIPT_TEMPLATE="${ROOT_DIR}/cmake_ext/edgeflow_sdk.map.in"
-PUBLIC_INTERFACE="${ROOT_DIR}/include/edgeflow/c_api.h"
+PUBLIC_INTERFACE="${ROOT_DIR}/include/edgeflow/operator/interface.h"
 if ! grep -Fq '#include "edgeflow/version.h"' "${PUBLIC_INTERFACE}"; then
-  echo "❌ Public C interface does not include the generated version header"
+  echo "❌ Public Operator interface does not include the generated version header"
   FAILED=1
 fi
 if grep -Eq '^#define COMPANY_ALG_(PRODUCT_VERSION|ABI_VERSION|ABI_VERSION_MAJOR)' \
     "${PUBLIC_INTERFACE}"; then
-  echo "❌ Public C interface contains a duplicate hard-coded version definition"
+  echo "❌ Public Operator interface contains a duplicate hard-coded version definition"
   FAILED=1
 fi
 for placeholder in \

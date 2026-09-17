@@ -4,7 +4,7 @@
 #include <string>
 
 namespace llm_edgeflow {
-// Results owned by Integration. Strings have no C ABI array limit; the
+// Results owned by Integration. Strings have no fixed array limit; the
 // configured Operator output pool remains the authoritative external capacity
 // boundary.
 

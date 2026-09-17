@@ -15,7 +15,7 @@
 #include "adapter/text_carrier.h"
 #include "core/alg_context.h"
 #include "core/blackboard_key.h"
-#include "edgeflow/c_api.h"
+#include "platform_mock/error_codes.h"
 
 namespace llm_edgeflow {
 

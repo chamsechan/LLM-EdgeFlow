@@ -13,7 +13,6 @@ int ValidateAndExtractOperatorInputs(
     if (error) *error = "Null out_view pointer";
     return -3;
   }
-  out_view->items = nullptr;
   out_view->count = inputs.size();
   out_view->type_id = in_conv.external_type;
   out_view->slots.clear();

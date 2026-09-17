@@ -8,8 +8,9 @@
 #include "adapter/adapter_status.h"
 #include "adapter/adapter_validation_helper.h"
 #include "adapter/biz_results.h"
-#include "edgeflow/c_api.h"
 #include "edgeflow/operator/types.h"
+#include "platform_mock/error_codes.h"
+#include "platform_mock/operator_data_types.h"
 
 namespace llm_edgeflow {
 
@@ -54,59 +55,23 @@ inline int UnpackTextCarrierBatch(const void** inputs, int num_inputs,
   out_requests->clear();
   out_requests->reserve(num_inputs);
   for (int i = 0; i < num_inputs; ++i) {
-    const auto* in = static_cast<const CompanyEntityInputStruct*>(inputs[i]);
+    const auto* in = static_cast<const CompanyOperatorEntityInput*>(inputs[i]);
     if (!AdapterValidationHelper::RequireNotNull("inputs[i]", in, i,
                                                  adapter_name, out_status)) {
       return COMPANY_ALG_ERR_INVALID_INPUT;
     }
-    if (!AdapterValidationHelper::RequireBoundedString(
-            "inputs[i].sentence_text", in->sentence_text,
-            kMaxTextCarrierSentenceLen, i, adapter_name, out_status)) {
+    if (!in->sentence_text || in->sentence_text->length < 0 ||
+        (in->sentence_text->length > 0 && !in->sentence_text->data)) {
       return COMPANY_ALG_ERR_INVALID_INPUT;
     }
-    out_requests->emplace_back(in->request_id, std::string(in->sentence_text));
+    if (static_cast<size_t>(in->sentence_text->length) >
+        kMaxTextCarrierSentenceLen) {
+      return COMPANY_ALG_ERR_INVALID_INPUT;
+    }
+    out_requests->emplace_back(
+        in->request_id,
+        std::string(in->sentence_text->data, in->sentence_text->length));
   }
   return COMPANY_ALG_SUCCESS;
 }
-
-/**
- * @brief 文本载体输出受检写入 (支持固定 C 结构体与 owned Result)
- */
-template <typename Output>
-inline int WriteTextCarrierOutput(Output* out, uint64_t request_id,
-                                  int status_code, const std::string& text,
-                                  int sample_idx, const char* adapter_name,
-                                  AdapterStatus* out_status);
-
-template <>
-inline int WriteTextCarrierOutput<CompanyEntityOutputStruct>(
-    CompanyEntityOutputStruct* out, uint64_t request_id, int status_code,
-    const std::string& text, int sample_idx, const char* adapter_name,
-    AdapterStatus* out_status) {
-  if (!out) return COMPANY_ALG_ERR_INVALID_INPUT;
-  out->request_id = request_id;
-  out->status_code = status_code;
-  if (!AdapterValidationHelper::CheckedStringCopy(
-          out->entities_json, sizeof(out->entities_json), text.c_str(),
-          "outputs[i].entities_json", sample_idx, adapter_name, out_status)) {
-    return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
-  }
-  return COMPANY_ALG_SUCCESS;
-}
-
-template <>
-inline int WriteTextCarrierOutput<EntityResult>(
-    EntityResult* out, uint64_t request_id, int status_code,
-    const std::string& text, int sample_idx, const char* adapter_name,
-    AdapterStatus* out_status) {
-  (void)sample_idx;
-  (void)adapter_name;
-  (void)out_status;
-  if (!out) return COMPANY_ALG_ERR_INVALID_INPUT;
-  out->request_id = request_id;
-  out->status_code = status_code;
-  out->entities_json = text;
-  return COMPANY_ALG_SUCCESS;
-}
-
 }  // namespace llm_edgeflow

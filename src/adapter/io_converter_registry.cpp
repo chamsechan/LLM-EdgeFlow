@@ -21,7 +21,7 @@ bool IoConverterRegistry::RegisterInputConverter(
         def.converter_id);
     return false;
   }
-  if (def.transport != "cabi" && def.transport != "operator") {
+  if (def.transport != "operator") {
     conflict_errors_.push_back(
         "Invalid transport '" + def.transport +
         "' in InputConverterDefinition for: " + def.converter_id);
@@ -58,7 +58,7 @@ bool IoConverterRegistry::RegisterInputConverter(
           def.converter_id);
       return false;
     }
-    if (def.transport == "operator" && slot.type_suffix.empty()) {
+    if (slot.type_suffix.empty()) {
       conflict_errors_.push_back(
           "Empty type_suffix for operator slot '" + slot.slot_name +
           "' in InputConverterDefinition for: " + def.converter_id);
@@ -112,7 +112,7 @@ bool IoConverterRegistry::RegisterOutputConverter(
         def.converter_id);
     return false;
   }
-  if (def.transport != "cabi" && def.transport != "operator") {
+  if (def.transport != "operator") {
     conflict_errors_.push_back(
         "Invalid transport '" + def.transport +
         "' in OutputConverterDefinition for: " + def.converter_id);
@@ -150,7 +150,7 @@ bool IoConverterRegistry::RegisterOutputConverter(
           def.converter_id);
       return false;
     }
-    if (def.transport == "operator" && slot.type_suffix.empty()) {
+    if (slot.type_suffix.empty()) {
       conflict_errors_.push_back(
           "Empty type_suffix for operator slot '" + slot.slot_name +
           "' in OutputConverterDefinition for: " + def.converter_id);

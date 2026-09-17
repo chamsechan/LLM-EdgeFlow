@@ -13,7 +13,6 @@
 #include "demo/common/demo_options.h"
 #include "demo/common/demo_registry.h"
 #include "demo/common/result_writer.h"
-#include "edgeflow/c_api.h"
 #include "edgeflow/operator/interface.h"
 #include "edgeflow/operator/types.h"
 #include "nlohmann/json.hpp"

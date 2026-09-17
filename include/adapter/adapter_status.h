@@ -4,7 +4,7 @@
 #include <sstream>
 #include <string>
 
-#include "edgeflow/c_api.h"
+#include "platform_mock/error_codes.h"
 
 namespace llm_edgeflow {
 
@@ -14,7 +14,7 @@ namespace llm_edgeflow {
 enum class OwnershipPolicy {
   kCopyIn = 0,  // 默认策略：Unpack 将外部数据完整复制到内部 DTO/Buffer
   kBorrowDuringProcess =
-      1,  // 借用策略：仅在本次同步 Alg_Process 期间借用指针，调用返回后绝不留存
+      1,  // 借用策略：仅在本次同步 Process 期间借用指针，调用返回后绝不留存
   kRetainWithCallback = 2  // 跨调用异步持有 (暂未开放)
 };
 

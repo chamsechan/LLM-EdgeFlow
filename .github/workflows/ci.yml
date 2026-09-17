@@ -135,7 +135,7 @@ jobs:
             ./scripts/run_sanitizers.sh --ci-runtime
 
   real-c-abi-and-profile:
-    name: Real GGUF C ABI & Profile
+    name: Real GGUF Operator & Profile
     runs-on: ubuntu-latest
 
     env:
@@ -198,7 +198,7 @@ jobs:
       - name: Fetch and Verify Pinned GGUF
         run: ./scripts/fetch_real_test_models.sh --gguf-only
 
-      - name: Run Real C ABI and Public Profile
+      - name: Run Real Model and Public Profile
         run: |
           ccache -z
           LLM_EDGEFLOW_LINKER=mold \

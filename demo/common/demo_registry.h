@@ -8,7 +8,6 @@
 #include <vector>
 
 #include "demo/common/demo_options.h"
-#include "edgeflow/c_api.h"
 
 namespace alg_demo {
 
