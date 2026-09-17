@@ -7,9 +7,13 @@
 #include <string>
 
 #include "adapter/deployment_io_config.h"
+#include "adapter/io_binding_registry.h"
 #include "adapter/io_binding_resolver.h"
 #include "adapter/io_catalog.h"
+#include "adapter/io_converter_registry.h"
 #include "adapter/operator/operator_config_resolver.h"
+#include "adapter/pipeline_document.h"
+#include "core/common_contracts.h"
 #include "core/diagnostic_code.h"
 #include "core/pipeline_catalog.h"
 #include "core/pipeline_validator.h"
@@ -35,11 +39,12 @@ nlohmann::json PipelineError(DiagnosticCode code, const std::string& message) {
                                    {"severity", "error"}}})}};
 }
 
-nlohmann::json ToolError(const std::string& code, const std::string& message) {
+nlohmann::json ToolError(const std::string& code, const std::string& message,
+                         const std::string& path = "/") {
   return {{"schema_version", 1},
           {"ok", false},
           {"diagnostics", nlohmann::json::array({{{"code", code},
-                                                  {"path", "/"},
+                                                  {"path", path},
                                                   {"message", message},
                                                   {"severity", "error"}}})}};
 }
@@ -79,13 +84,11 @@ std::optional<fs::path> ProfilePipeline(
   if (!conf_stream.is_open()) return std::nullopt;
   nlohmann::json conf;
   conf_stream >> conf;
-  if (!conf.is_object() || !conf.contains("data") ||
-      !conf["data"].is_object() || !conf["data"].contains("pipe_path") ||
-      !conf["data"]["pipe_path"].is_string()) {
+  if (!conf.is_object() || !conf.contains("pipe_path") ||
+      !conf["pipe_path"].is_string()) {
     return std::nullopt;
   }
-  const auto& data = conf["data"];
-  fs::path pipe_path = data["pipe_path"].get<std::string>();
+  fs::path pipe_path = conf["pipe_path"].get<std::string>();
   if (pipe_path.is_relative()) {
     if (!fs::exists(pipe_path)) {
       pipe_path = conf_path.parent_path() / pipe_path;
@@ -125,6 +128,222 @@ nlohmann::json ProfilesJson(const std::string& biz_filter) {
   return result;
 }
 
+bool ResolveDeploymentBoundary(
+    const nlohmann::json& root, nlohmann::json* out_neutral_json,
+    llm_edgeflow::PipelineIoBoundary* out_boundary,
+    const llm_edgeflow::IoBindingDefinition** out_binding,
+    nlohmann::json* out_error_json) {
+  using namespace llm_edgeflow;
+
+  PipelineDocumentSplit doc_split;
+  std::string split_err;
+  std::string split_path;
+  if (!SplitPipelineDocument(root, &doc_split, &split_err, &split_path)) {
+    *out_error_json = ToolError("DEPLOYMENT_ERROR", split_err,
+                                split_path.empty() ? "/" : split_path);
+    return false;
+  }
+
+  if (!doc_split.has_deployment || !doc_split.deployment.has_io) {
+    *out_error_json = ToolError(
+        "MISSING_DEPLOYMENT_IO",
+        "Missing required 'deployment.io' in pipeline JSON", "/deployment/io");
+    return false;
+  }
+
+  const std::string& binding_id = doc_split.deployment.io.io_binding;
+  const auto* binding = IoBindingRegistry::Instance().FindBinding(binding_id);
+  if (!binding) {
+    *out_error_json =
+        ToolError("UNKNOWN_IO_BINDING",
+                  "Unknown or unregistered io_binding: " + binding_id +
+                      " (at /deployment/io/io_binding)",
+                  "/deployment/io/io_binding");
+    return false;
+  }
+
+  if (binding->transport != "operator") {
+    *out_error_json =
+        ToolError("UNSUPPORTED_TRANSPORT",
+                  "Binding transport mismatch for '" + binding_id +
+                      "': expected 'operator', but binding declared '" +
+                      binding->transport + "' (at /deployment/io/io_binding)",
+                  "/deployment/io/io_binding");
+    return false;
+  }
+
+  // 立即核对 Pipeline biz_name 与 binding biz_name (RFC-0061)
+  std::string pipeline_biz = root.value("biz_name", "");
+  if (pipeline_biz != binding->biz_name) {
+    *out_error_json =
+        ToolError("BIZ_MISMATCH",
+                  "Pipeline biz_name '" + pipeline_biz +
+                      "' does not match binding biz_name '" +
+                      binding->biz_name + "' (at /deployment/io/io_binding)",
+                  "/deployment/io/io_binding");
+    return false;
+  }
+
+  const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
+      binding->input_converter_id);
+  if (!in_conv) {
+    *out_error_json =
+        ToolError("UNREGISTERED_CONVERTER",
+                  "Binding references unregistered input converter: " +
+                      binding->input_converter_id,
+                  "/deployment/io/io_binding");
+    return false;
+  }
+
+  const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
+      binding->output_converter_id);
+  if (!out_conv) {
+    *out_error_json =
+        ToolError("UNREGISTERED_CONVERTER",
+                  "Binding references unregistered output converter: " +
+                      binding->output_converter_id,
+                  "/deployment/io/io_binding");
+    return false;
+  }
+
+  const auto& allocations = doc_split.deployment.io.output_allocations;
+  for (auto it = allocations.begin(); it != allocations.end(); ++it) {
+    bool found = false;
+    for (const auto& slot : out_conv->external_slots) {
+      if (slot.direction == PortDirection::kOutput &&
+          slot.slot_name == it.key()) {
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      *out_error_json = ToolError(
+          "UNKNOWN_OUTPUT_SLOT",
+          "Unknown configured output slot: " + it.key() +
+              " (at /deployment/io/output_allocations/" +
+              EscapeJsonPointer(it.key()) + ")",
+          "/deployment/io/output_allocations/" + EscapeJsonPointer(it.key()));
+      return false;
+    }
+  }
+
+  for (const auto& slot : out_conv->external_slots) {
+    if (slot.direction != PortDirection::kOutput) continue;
+    if (!allocations.contains(slot.slot_name)) {
+      if (slot.required) {
+        *out_error_json = ToolError(
+            "MISSING_OUTPUT_SLOT",
+            "Missing required Operator output slot '" + slot.slot_name +
+                "' (at /deployment/io/output_allocations/" +
+                EscapeJsonPointer(slot.slot_name) + ")",
+            "/deployment/io/output_allocations/" +
+                EscapeJsonPointer(slot.slot_name));
+        return false;
+      }
+      continue;
+    }
+    ResolvedOutputPoolSpec pool_spec;
+    std::string param_text;
+    std::string alloc_err;
+    if (OperatorConfigResolver::ResolveOutputAllocation(
+            allocations[slot.slot_name], slot, &pool_spec, &param_text,
+            &alloc_err) != 0) {
+      *out_error_json =
+          ToolError("INVALID_OUTPUT_ALLOCATION",
+                    alloc_err + " (at /deployment/io/output_allocations/" +
+                        EscapeJsonPointer(slot.slot_name) + ")",
+                    "/deployment/io/output_allocations/" +
+                        EscapeJsonPointer(slot.slot_name));
+      return false;
+    }
+  }
+
+  nlohmann::json staged_pipe_json = doc_split.neutral_pipeline_json;
+  if (doc_split.deployment.has_model_paths &&
+      !doc_split.deployment.model_paths.empty()) {
+    std::unordered_set<std::string> known_model_ids;
+    if (staged_pipe_json.contains("models") &&
+        staged_pipe_json["models"].is_array()) {
+      for (const auto& m : staged_pipe_json["models"]) {
+        if (m.is_object() && m.contains("model_id") &&
+            m["model_id"].is_string()) {
+          known_model_ids.insert(m["model_id"].get<std::string>());
+        }
+      }
+    }
+    for (const auto& [mid, _] : doc_split.deployment.model_paths) {
+      if (!known_model_ids.count(mid)) {
+        *out_error_json = ToolError(
+            "UNKNOWN_MODEL_ID",
+            "Unknown model_id '" + mid + "' in '/deployment/model_paths'",
+            "/deployment/model_paths/" + EscapeJsonPointer(mid));
+        return false;
+      }
+    }
+    for (auto& m : staged_pipe_json["models"]) {
+      if (m.is_object() && m.contains("model_id") &&
+          m["model_id"].is_string()) {
+        std::string mid = m["model_id"].get<std::string>();
+        auto it = doc_split.deployment.model_paths.find(mid);
+        if (it != doc_split.deployment.model_paths.end()) {
+          m["model_path"] = it->second;
+        }
+      }
+    }
+  }
+
+  if (staged_pipe_json.contains("models") &&
+      staged_pipe_json["models"].is_array()) {
+    for (size_t index = 0; index < staged_pipe_json["models"].size(); ++index) {
+      const auto& m = staged_pipe_json["models"][index];
+      if (m.is_object() && m.contains("model_path")) {
+        if (!m["model_path"].is_string() ||
+            m["model_path"].get<std::string>().empty()) {
+          std::string mid = m.value("model_id", "");
+          std::string pointer =
+              (doc_split.deployment.has_model_paths &&
+               doc_split.deployment.model_paths.count(mid))
+                  ? "/deployment/model_paths/" + EscapeJsonPointer(mid)
+                  : "/models/" + std::to_string(index) + "/model_path";
+          *out_error_json = ToolError(
+              "INVALID_MODEL_PATH",
+              "model_path in model declaration must be a non-empty string",
+              pointer);
+          return false;
+        }
+      }
+    }
+  }
+
+  PipelineIoBoundary io_boundary;
+  for (const auto& port : in_conv->logical_ports) {
+    std::string key = port.logical_name;
+    auto bit = binding->input_ports.find(port.logical_name);
+    if (bit != binding->input_ports.end()) {
+      key = bit->second;
+    }
+    io_boundary.input_published_ports.emplace_back(
+        key, port.type_id, port.required, port.cardinality,
+        port.provenance_policy, port.lifetime, port.lifetime_config_field);
+  }
+
+  for (const auto& port : out_conv->logical_ports) {
+    std::string key = port.logical_name;
+    auto bit = binding->output_ports.find(port.logical_name);
+    if (bit != binding->output_ports.end()) {
+      key = bit->second;
+    }
+    io_boundary.output_consumed_ports.emplace_back(
+        key, port.type_id, port.required, port.cardinality,
+        port.provenance_policy, port.lifetime, port.lifetime_config_field);
+  }
+
+  *out_boundary = std::move(io_boundary);
+  *out_neutral_json = std::move(staged_pipe_json);
+  if (out_binding) *out_binding = binding;
+  return true;
+}
+
 nlohmann::json ResolveConf(const std::string& file, const std::string& root,
                            uint32_t depth) {
   using namespace llm_edgeflow;
@@ -141,8 +360,10 @@ nlohmann::json ResolveConf(const std::string& file, const std::string& root,
   if (OperatorConfigResolver::Resolve(root.c_str(), file.c_str(), &resolved,
                                       &error, depth) != 0)
     return ToolError("DEPLOYMENT_CONFIG", error);
-  const auto plan =
-      PipelineValidator::ValidateAndPlan(resolved.synthetic_pipeline_json);
+  if (!resolved.io_plan || !resolved.io_plan->pipeline_plan)
+    return ToolError("DEPLOYMENT_CONFIG", "Missing pipeline plan in io_plan");
+
+  const auto& plan = *resolved.io_plan->pipeline_plan;
   if (!plan.report.ok) return plan.report.ToJson();
 
   auto effective = resolved.synthetic_pipeline_json;
@@ -155,18 +376,15 @@ nlohmann::json ResolveConf(const std::string& file, const std::string& root,
     effective["models"][model.source_index]["backend_config"] =
         model.normalized_backend_config;
   }
-  nlohmann::json conf;
-  if (!ReadJson(resolved.conf_path.string(), &conf, &error))
-    return ToolError("JSON_READ", error);
-  const auto overrides =
-      conf["data"].value("model_paths", nlohmann::json::object());
+
   nlohmann::json paths = nlohmann::json::array();
   for (const auto& model : plan.models)
-    paths.push_back({{"model_id", model.model_id},
-                     {"source", overrides.contains(model.model_id)
-                                    ? "conf.data.model_paths"
-                                    : "pipeline.models.model_path"},
-                     {"resolved", model.resolved_model_path}});
+    paths.push_back(
+        {{"model_id", model.model_id},
+         {"source", resolved.io_plan->overridden_model_ids.count(model.model_id)
+                        ? "pipeline.deployment.model_paths"
+                        : "pipeline.models.model_path"},
+         {"resolved", model.resolved_model_path}});
   nlohmann::json output_pools = nlohmann::json::object();
   for (const auto& [slot, pool] : resolved.output_pool_specs) {
     output_pools[slot] = {{"type", pool.type},
@@ -384,19 +602,88 @@ int main(int argc, char* argv[]) {
       std::cout << ToolError("JSON_READ", error).dump(2) << std::endl;
       return 1;
     }
-    auto report = explain ? PipelineValidator::Explain(root)
-                          : PipelineValidator::Validate(root);
-    auto result = report.ToJson();
-    // A failed plan request must retain the exact Validator diagnostics so
-    // every consumer observes the same fail-closed report. Successful plans
-    // omit the empty diagnostics array to keep the established CLI shape.
-    if (command == "plan" && report.ok) result.erase("diagnostics");
-    std::cout << result.dump(2) << std::endl;
-    return report.ok ? 0 : 1;
+    const auto ops =
+        llm_edgeflow::operator_api::Get_LLM_EDGEFLOW_OperatorTable();
+    if (ops.Init != nullptr) ops.Init();
+    struct OpsGuard {
+      llm_edgeflow::operator_api::OperatorFunc ops;
+      ~OpsGuard() {
+        if (ops.Deinit != nullptr) ops.Deinit();
+      }
+    } ops_guard{ops};
+
+    llm_edgeflow::PipelineIoBoundary io_boundary;
+    const llm_edgeflow::PipelineIoBoundary* io_boundary_ptr = nullptr;
+    const llm_edgeflow::IoBindingDefinition* binding_def = nullptr;
+    nlohmann::json target_json = root;
+
+    if (root.contains("deployment")) {
+      nlohmann::json err_res;
+      if (!ResolveDeploymentBoundary(root, &target_json, &io_boundary,
+                                     &binding_def, &err_res)) {
+        if (command == "plan") {
+          err_res["plan"] = {{"layers", nlohmann::json::array()},
+                             {"topological_order", nlohmann::json::array()}};
+        }
+        std::cout << err_res.dump(2) << std::endl;
+        return 1;
+      }
+      io_boundary_ptr = &io_boundary;
+    }
+
+    if (command == "validate") {
+      auto report =
+          explain ? PipelineValidator::Explain(
+                        target_json, llm_edgeflow::ValidationPolicy::kStrict,
+                        io_boundary_ptr)
+                  : PipelineValidator::Validate(
+                        target_json, llm_edgeflow::ValidationPolicy::kStrict,
+                        io_boundary_ptr);
+      if (report.ok && binding_def != nullptr) {
+        std::string biz = target_json.value("biz_name", "");
+        if (biz != binding_def->biz_name) {
+          std::cout << ToolError("BIZ_MISMATCH",
+                                 "Pipeline biz_name '" + biz +
+                                     "' does not match binding biz_name '" +
+                                     binding_def->biz_name +
+                                     "' (at /deployment/io/io_binding)")
+                           .dump(2)
+                    << std::endl;
+          return 1;
+        }
+      }
+      auto result = report.ToJson();
+      std::cout << result.dump(2) << std::endl;
+      return report.ok ? 0 : 1;
+    } else {
+      auto planned = PipelineValidator::ValidateAndPlan(
+          target_json, llm_edgeflow::ValidationPolicy::kStrict,
+          io_boundary_ptr);
+      if (planned.report.ok && binding_def != nullptr) {
+        std::string biz = target_json.value("biz_name", "");
+        if (biz != binding_def->biz_name) {
+          nlohmann::json err_res = ToolError(
+              "BIZ_MISMATCH", "Pipeline biz_name '" + biz +
+                                  "' does not match binding biz_name '" +
+                                  binding_def->biz_name +
+                                  "' (at /deployment/io/io_binding)");
+          err_res["plan"] = {{"layers", nlohmann::json::array()},
+                             {"topological_order", nlohmann::json::array()}};
+          std::cout << err_res.dump(2) << std::endl;
+          return 1;
+        }
+      }
+      auto result = planned.report.ToJson();
+      if (planned.report.ok) {
+        result.erase("diagnostics");
+      }
+      std::cout << result.dump(2) << std::endl;
+      return planned.report.ok ? 0 : 1;
+    }
   }
 
   if (command == "validate-io") {
-    if (argc < 4) {
+    if (argc < 3) {
       Usage();
       return 2;
     }
@@ -421,12 +708,28 @@ int main(int argc, char* argv[]) {
         config_path, transport, model_root, &plan, &error);
 
     if (rc != 0 || !plan) {
+      std::string diag_path = "/";
+      auto at_pos = error.rfind("(at ");
+      if (at_pos != std::string::npos) {
+        auto end_pos = error.find(')', at_pos);
+        if (end_pos != std::string::npos) {
+          diag_path = error.substr(at_pos + 4, end_pos - (at_pos + 4));
+        }
+      } else {
+        auto at_pos2 = error.rfind("at /");
+        if (at_pos2 != std::string::npos) {
+          auto end_pos2 = error.find(':', at_pos2);
+          if (end_pos2 != std::string::npos) {
+            diag_path = error.substr(at_pos2 + 3, end_pos2 - (at_pos2 + 3));
+          }
+        }
+      }
       nlohmann::json err_res = {
           {"schema_version", 1},
           {"ok", false},
           {"diagnostics",
            nlohmann::json::array({{{"code", "IO_VALIDATION_ERROR"},
-                                   {"path", "/"},
+                                   {"path", diag_path},
                                    {"message", error},
                                    {"severity", "error"}}})}};
       std::cout << err_res.dump(2) << std::endl;

@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <system_error>
 
+#include "adapter/pipeline_document.h"
 #include "contracts/path_utils.h"
 
 namespace llm_edgeflow {
@@ -17,10 +18,10 @@ void SetDiagnostic(std::string* diagnostic, const std::string& message) {
 
 }  // namespace
 
-bool ResolveDeploymentModelPaths(const nlohmann::json& pipeline_json,
-                                 const std::string& model_root_dir,
-                                 nlohmann::json* resolved_pipeline_json,
-                                 std::string* diagnostic) noexcept {
+bool ResolveDeploymentModelPaths(
+    const nlohmann::json& pipeline_json, const std::string& model_root_dir,
+    nlohmann::json* resolved_pipeline_json, std::string* diagnostic,
+    const std::unordered_set<std::string>& overridden_model_ids) noexcept {
   try {
     if (!resolved_pipeline_json) {
       SetDiagnostic(diagnostic, "Deployment model resolver output is null");
@@ -70,21 +71,28 @@ bool ResolveDeploymentModelPaths(const nlohmann::json& pipeline_json,
         continue;
       }
 
+      std::string pointer = "/models/" + std::to_string(index) + "/model_path";
+      std::string model_id =
+          model.contains("model_id") && model["model_id"].is_string()
+              ? model["model_id"].get<std::string>()
+              : "";
+      if (!model_id.empty() && overridden_model_ids.count(model_id)) {
+        pointer = "/deployment/model_paths/" + EscapeJsonPointer(model_id);
+      }
+
       const std::string raw_path = model["model_path"].get<std::string>();
       const fs::path normalized = fs::path(raw_path).lexically_normal();
       if (!normalized.is_absolute() && HasParentPathComponent(normalized)) {
         SetDiagnostic(diagnostic,
-                      "Model path cannot traverse outside model_root_dir at "
-                      "/models/" +
-                          std::to_string(index) + "/model_path: " + raw_path);
+                      "Model path cannot traverse outside model_root_dir at " +
+                          pointer + ": " + raw_path);
         return false;
       }
       if (!normalized.is_absolute() && canonical_root.empty()) {
         SetDiagnostic(
             diagnostic,
-            "Relative model_path requires non-empty model_root_dir at "
-            "/models/" +
-                std::to_string(index) + "/model_path: " + raw_path);
+            "Relative model_path requires non-empty model_root_dir at " +
+                pointer + ": " + raw_path);
         return false;
       }
 
@@ -94,15 +102,14 @@ bool ResolveDeploymentModelPaths(const nlohmann::json& pipeline_json,
           error);
       if (error) {
         SetDiagnostic(diagnostic,
-                      "Failed to resolve deployment model path at /models/" +
-                          std::to_string(index) + "/model_path: " + raw_path);
+                      "Failed to resolve deployment model path at " + pointer +
+                          ": " + raw_path);
         return false;
       }
       if (!canonical_root.empty() &&
           !IsPathWithinRoot(canonical_root, candidate)) {
-        SetDiagnostic(diagnostic,
-                      "Model path escapes model_root_dir at /models/" +
-                          std::to_string(index) + "/model_path: " + raw_path);
+        SetDiagnostic(diagnostic, "Model path escapes model_root_dir at " +
+                                      pointer + ": " + raw_path);
         return false;
       }
       model["model_path"] = candidate.string();

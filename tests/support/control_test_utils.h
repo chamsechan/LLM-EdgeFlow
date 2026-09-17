@@ -11,6 +11,15 @@ namespace llm_edgeflow::test {
 inline void WriteControlTestPipeline(const std::filesystem::path& directory) {
   const nlohmann::json pipeline = {
       {"biz_name", "keyword_match_v1"},
+      {"deployment",
+       {{"io",
+         {{"io_binding", "keyword_match.operator.v1"},
+          {"output_allocations",
+           {{"keyword_out",
+             {{"type", "keyword_out"},
+              {"meta_num", 0},
+              {"metadata_type_id", 0},
+              {"capacities", {{"match_result_json", 2047}}}}}}}}}}},
       {"models", nlohmann::json::array()},
       {"pipeline",
        {{{"id", "prefix"},
@@ -26,15 +35,7 @@ inline void WriteControlTestPipeline(const std::filesystem::path& directory) {
           {{"inputs", {{"text", "prefixed"}}},
            {"outputs", {{"matches", "rule_matches"}}}}},
          {"config", {{"categories", {{"PREFIX_APPLIED", {"VIP:sample"}}}}}}}}}};
-  const nlohmann::json conf = {
-      {"schema_version", 1},
-      {"data",
-       {{"pipe_path", "pipeline.json"},
-        {"io_binding", "keyword_match.operator.v1"},
-        {"outputs",
-         {{"keyword_out",
-           {{"type", "keyword_out"},
-            {"capacities", {{"match_result_json", 2047}}}}}}}}}};
+  const nlohmann::json conf = {{"pipe_path", "pipeline.json"}};
   std::ofstream(directory / "pipeline.json") << pipeline.dump(2);
   std::ofstream(directory / "pipeline.conf") << conf.dump(2);
 }

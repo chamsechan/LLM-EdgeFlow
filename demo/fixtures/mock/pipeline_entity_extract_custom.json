@@ -1,5 +1,23 @@
 {
   "biz_name": "entity_extract_v1",
+  "deployment": {
+    "model_paths": {
+      "entity_llm": "demo/fixtures/mock/artifacts/neutral-llm.fixture"
+    },
+    "io": {
+      "io_binding": "entity_extract.operator.v1",
+      "output_allocations": {
+        "entity_out": {
+          "type": "entity_out",
+          "meta_num": 0,
+          "metadata_type_id": 0,
+          "capacities": {
+            "entities_json": 2047
+          }
+        }
+      }
+    }
+  },
   "models": [
     {
       "capability": "llm",

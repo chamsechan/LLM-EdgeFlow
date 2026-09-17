@@ -233,23 +233,15 @@ TEST_F(DifferentIoModalitiesTest, CrossRerankBatch) {
   pipe_json["models"][0]["model_path"] = "models/rerank.onnx";
   pipe_json["models"][0]["model_config"]["tokenizer_file"] = "vocab.txt";
   pipe_json["models"][0]["model_config"]["max_length"] = 32;
+  pipe_json["deployment"]["model_paths"]["rerank_model_v1"] =
+      "models/rerank.onnx";
 
   auto temp_pipe_path = temp_dir / "pipeline_cross_rerank.json";
   std::ofstream json_out(temp_pipe_path);
   json_out << pipe_json.dump(2);
   json_out.close();
 
-  nlohmann::json deploy_cfg = {
-      {"schema_version", 1},
-      {"data",
-       {{"pipe_path", "pipeline_cross_rerank.json"},
-        {"io_binding", "cross_rerank.operator.v1"},
-        {"outputs",
-         {{"rerank_out",
-           {{"type", "rerank_out"},
-            {"meta_num", 0},
-            {"metadata_type_id", 0},
-            {"capacities", nlohmann::json::object()}}}}}}}};
+  nlohmann::json deploy_cfg = {{"pipe_path", "pipeline_cross_rerank.json"}};
   auto temp_cfg_path = temp_dir / "pipeline_cross_rerank.conf";
   std::ofstream cfg_out(temp_cfg_path);
   cfg_out << deploy_cfg.dump(2);

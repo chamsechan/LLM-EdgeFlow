@@ -403,19 +403,15 @@ TEST_F(OperatorGoldenTest, CrossRerankGolden) {
   pipe_json["models"][0]["model_path"] = "models/bge_reranker_large.onnx";
   pipe_json["models"][0]["model_config"]["tokenizer_file"] = "vocab.txt";
   pipe_json["models"][0]["model_config"]["max_length"] = 32;
+  pipe_json["deployment"]["model_paths"]["rerank_model_v1"] =
+      "models/bge_reranker_large.onnx";
 
   auto temp_json_path = temp_dir / "pipeline_cross_rerank.json";
   std::ofstream json_out(temp_json_path);
   json_out << pipe_json.dump(2);
   json_out.close();
 
-  std::ifstream conf_in("configs/pipeline_cross_rerank_cpu.conf");
-  ASSERT_TRUE(conf_in.good());
-  nlohmann::json conf_json;
-  conf_in >> conf_json;
-  conf_json["data"]["pipe_path"] = "pipeline_cross_rerank.json";
-  conf_json["data"]["model_paths"]["rerank_model_v1"] =
-      "models/bge_reranker_large.onnx";
+  nlohmann::json conf_json = {{"pipe_path", "pipeline_cross_rerank.json"}};
 
   auto temp_conf_path = temp_dir / "pipeline_cross_rerank.conf";
   std::ofstream conf_out(temp_conf_path);

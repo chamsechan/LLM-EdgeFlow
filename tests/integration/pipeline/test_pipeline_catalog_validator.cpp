@@ -8,6 +8,9 @@
 
 #include "adapter/io_binding_registry.h"
 #include "adapter/io_binding_resolver.h"
+#include "adapter/io_converter_registry.h"
+#include "adapter/operator/operator_value_type_registry.h"
+#include "adapter/pipeline_document.h"
 #include "adapter/shared_algorithm_runtime.h"
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
@@ -120,8 +123,29 @@ TEST(PipelineValidatorTest, AllRepositoryPipelinesValidate) {
       ++skipped_optional;
       continue;
     }
-    const auto report = PipelineValidator::Validate(pipeline);
-    EXPECT_TRUE(report.ok) << entry.path() << "\n" << report.ToJson().dump(2);
+    if (pipeline.contains("deployment")) {
+      // Core validator directly rejects deployment as an unknown root field
+      const auto direct_report = PipelineValidator::Validate(pipeline);
+      EXPECT_FALSE(direct_report.ok);
+      EXPECT_TRUE(std::any_of(
+          direct_report.diagnostics.begin(), direct_report.diagnostics.end(),
+          [](const ValidationDiagnostic& d) {
+            return d.code == DiagnosticCode::kUnknownField &&
+                   d.path == "/deployment";
+          }));
+
+      // Integration document splitter extracts the neutral pipeline for Core
+      PipelineDocumentSplit split;
+      std::string split_err;
+      ASSERT_TRUE(SplitPipelineDocument(pipeline, &split, &split_err))
+          << entry.path() << ": " << split_err;
+      const auto report =
+          PipelineValidator::Validate(split.neutral_pipeline_json);
+      EXPECT_TRUE(report.ok) << entry.path() << "\n" << report.ToJson().dump(2);
+    } else {
+      const auto report = PipelineValidator::Validate(pipeline);
+      EXPECT_TRUE(report.ok) << entry.path() << "\n" << report.ToJson().dump(2);
+    }
     ++validated;
   }
   EXPECT_GT(validated, 0U);
@@ -133,6 +157,7 @@ TEST(PipelineValidatorTest, RejectsRemovedRuleCategoriesField) {
   ASSERT_TRUE(stream.is_open());
   nlohmann::json pipeline;
   stream >> pipeline;
+  pipeline.erase("deployment");
   ASSERT_FALSE(pipeline["pipeline"].empty());
   auto& config = pipeline["pipeline"][0]["config"];
   config["default_categories"] = config["categories"];
@@ -153,6 +178,7 @@ TEST(PipelineValidatorTest, ModelPathsUseLexicalChecksWithoutDeploymentRoots) {
   ASSERT_TRUE(stream.is_open());
   nlohmann::json pipeline;
   ASSERT_NO_THROW(stream >> pipeline);
+  pipeline.erase("deployment");
 
   for (const std::string& safe_path :
        {std::string("missing/artifact.bin"), std::string("..name/artifact.bin"),
@@ -222,6 +248,49 @@ TEST(PipelineValidatorTest, ReportsConfigAndCapabilityErrors) {
   EXPECT_TRUE(json_codes.count("MODEL_CAPABILITY_MISMATCH"));
 }
 
+static nlohmann::json MakeSyntheticDeploymentDocForTest(
+    const nlohmann::json& pipeline_json, const std::string& binding_id) {
+  nlohmann::json allocations = nlohmann::json::object();
+  const auto* binding = IoBindingRegistry::Instance().FindBinding(binding_id);
+  if (binding) {
+    const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
+        binding->output_converter_id);
+    if (out_conv) {
+      for (const auto& slot : out_conv->external_slots) {
+        if (slot.direction == PortDirection::kOutput && slot.required) {
+          std::string slot_type =
+              slot.type_suffix.empty() ? slot.slot_name : slot.type_suffix;
+          nlohmann::json slot_alloc = {
+              {"type", slot_type},
+              {"meta_num", 0},
+              {"metadata_type_id", 0},
+              {"capacities", nlohmann::json::object()}};
+          const auto* val_binding =
+              OperatorValueTypeRegistry::Instance().GetOutputBinding(slot_type,
+                                                                     "");
+          for (const auto& cap : slot.capacity_fields) {
+            uint32_t cap_val = 1024;
+            if (val_binding &&
+                val_binding->output_layout.string_capacity_fields.count(cap)) {
+              cap_val =
+                  val_binding->output_layout.string_capacity_fields.at(cap)
+                      .default_capacity;
+            }
+            slot_alloc["capacities"][cap] = cap_val;
+          }
+          allocations[slot.slot_name] = slot_alloc;
+        }
+      }
+    }
+  }
+
+  nlohmann::json synthetic = pipeline_json;
+  synthetic["deployment"] = {
+      {"io",
+       {{"io_binding", binding_id}, {"output_allocations", allocations}}}};
+  return synthetic;
+}
+
 TEST(PipelineValidatorTest, TableDrivenParityMatrix) {
   std::ifstream stream(
       "tests/fixtures/pipelines/validation/invalid_pipeline_cases.json");
@@ -271,12 +340,23 @@ TEST(PipelineValidatorTest, TableDrivenParityMatrix) {
       }
     }
     if (binding_id.empty()) {
-      binding_id = "keyword_match.operator.v1";
+      binding_id = "test_synthetic." + biz + ".operator.v1";
+      if (!IoBindingRegistry::Instance().FindBinding(binding_id)) {
+        IoBindingDefinition synth_b;
+        synth_b.binding_id = binding_id;
+        synth_b.biz_name = biz;
+        synth_b.transport = "operator";
+        synth_b.input_converter_id = "keyword.plain.operator.v1";
+        synth_b.output_converter_id = "keyword.result.operator.v1";
+        IoBindingRegistry::Instance().RegisterBinding(synth_b);
+      }
     }
+    nlohmann::json dep_config =
+        MakeSyntheticDeploymentDocForTest(config, binding_id);
     std::unique_ptr<ValidatedIoPlan> io_plan;
     std::string resolve_error;
     int resolve_result = IoBindingResolver::ResolveFromPipelineJson(
-        config, binding_id, "operator", "./models", &io_plan, &resolve_error);
+        dep_config, "operator", "./models", &io_plan, &resolve_error);
     EXPECT_NE(resolve_result, 0);
     EXPECT_EQ(io_plan, nullptr);
     EXPECT_NE(resolve_error.find(test["primary_code"].get<std::string>()),
@@ -291,6 +371,7 @@ TEST(PipelineValidatorTest, WhisperPipelineValidationDependsOnBackend) {
   ASSERT_TRUE(stream.is_open());
   nlohmann::json pipeline;
   stream >> pipeline;
+  pipeline.erase("deployment");
   const auto report = PipelineValidator::Validate(pipeline);
 #ifdef HAVE_WHISPERCPP
   EXPECT_TRUE(report.ok) << report.ToJson().dump(2);
@@ -329,6 +410,7 @@ TEST(PipelineValidatorTest,
     std::ifstream stream("configs/pipeline_keyword_match_rules.json");
     nlohmann::json root;
     stream >> root;
+    root.erase("deployment");
     root["pipeline"].push_back({{"id", "invalid"},
                                 {"node_type", type},
                                 {"depends_on", nlohmann::json::array()},
@@ -358,6 +440,7 @@ TEST(PipelineValidatorTest, UnconnectedOptionalPortStaysAbsentAtRuntime) {
   std::ifstream stream("configs/pipeline_keyword_match_rules.json");
   nlohmann::json root;
   stream >> root;
+  root.erase("deployment");
   root["pipeline"] = nlohmann::json::array(
       {{{"id", "a"},
         {"node_type", "TextTemplateNode"},
@@ -399,6 +482,7 @@ TEST(PipelineValidatorTest,
   ASSERT_TRUE(stream.is_open());
   nlohmann::json root;
   stream >> root;
+  root.erase("deployment");
 
   // Node 0: custom_prompt (produces "llm_raw_answer")
   // Node 1: node_2_StructuredJsonParseNode (consumes "llm_raw_answer" on port
@@ -455,6 +539,7 @@ TEST(PipelineValidatorTest, ExplainReturnsCandidateFixForUnknownConfigField) {
   ASSERT_TRUE(stream.is_open());
   nlohmann::json root;
   stream >> root;
+  root.erase("deployment");
 
   // Misspell "temperature" as "temprature"
   root["pipeline"][0]["config"]["temprature"] = 0.1;
@@ -555,6 +640,7 @@ TEST(PipelineValidatorTest, ExplainCleanPipelineReturnsOk) {
   ASSERT_TRUE(stream.is_open());
   nlohmann::json root;
   stream >> root;
+  root.erase("deployment");
 
   const auto report = PipelineValidator::Explain(root);
   EXPECT_TRUE(report.ok);
@@ -568,6 +654,7 @@ TEST(PipelineValidatorTest, ExplainTargetResolved) {
   ASSERT_TRUE(stream.is_open());
   nlohmann::json root;
   stream >> root;
+  root.erase("deployment");
 
   // Introduce two independent errors:
   // 1. Misspelled config field in custom_prompt ("temprature" instead of
@@ -610,6 +697,7 @@ TEST(PipelineValidatorTest, ValidateProducesBasicRemediation) {
   ASSERT_TRUE(stream.is_open());
   nlohmann::json root;
   stream >> root;
+  root.erase("deployment");
 
   // Clear depends_on so node 1 has a missing input producer
   root["pipeline"][1]["depends_on"] = nlohmann::json::array();

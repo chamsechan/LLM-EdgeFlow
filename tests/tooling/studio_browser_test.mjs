@@ -135,7 +135,7 @@ try {
   await page.click("#saveSolutionButton");
   await page.waitForFunction(() => document.querySelector("#saveScope").textContent.includes("pipeline_browser_pair.conf"));
   const confPath = join(configRoot, "pipeline_browser_pair.conf");
-  assert.ok(JSON.parse(readFileSync(confPath)).data.pipe_path.endsWith("pipeline_browser_pair.json"));
+  assert.ok(JSON.parse(readFileSync(confPath)).pipe_path.endsWith("pipeline_browser_pair.json"));
   await open("pipeline_browser_other.json"); await open("pipeline_browser_pair.json");
   assert.match(await page.locator("#saveScope").textContent(), /pipeline_browser_pair.conf/);
   await rule().click(); await categories().fill('{"PAIR_UPDATE":["VIP"]}');

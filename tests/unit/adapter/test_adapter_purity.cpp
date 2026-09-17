@@ -1247,26 +1247,33 @@ TEST_F(AdapterPurityTest, ReuseProof_5_SameCarrierDifferentSchema) {
 // Proof 6: Negative Combinations Rejected
 TEST_F(AdapterPurityTest, ReuseProof_6_NegativeCombinations) {
   // 1. Unknown or unregistered io_binding
-  DeploymentIoConfig bad_binding_cfg;
-  bad_binding_cfg.io_binding = "non_existent.binding.v999";
-  bad_binding_cfg.pipe_path = "pipeline_keyword_match_rules.json";
+  nlohmann::json bad_binding_json = {
+      {"biz_name", "keyword_match_v1"},
+      {"deployment",
+       {{"io",
+         {{"io_binding", "non_existent.binding.v999"},
+          {"output_allocations",
+           {{"keyword_out",
+             {{"type", "keyword_out"},
+              {"meta_num", 0},
+              {"metadata_type_id", 0},
+              {"capacities", {{"match_result_json", 2047}}}}}}}}}}},
+      {"models", nlohmann::json::array()},
+      {"pipeline", nlohmann::json::array()}};
   std::unique_ptr<ValidatedIoPlan> plan;
   std::string error;
-  int ret = IoBindingResolver::ResolveFromConfig(bad_binding_cfg, "operator",
-                                                 "./models", &plan, &error);
+  int ret = IoBindingResolver::ResolveFromPipelineJson(
+      bad_binding_json, "operator", "./models", &plan, &error);
   EXPECT_EQ(ret, -2);
   EXPECT_NE(error.find("Unknown or unregistered io_binding"),
             std::string::npos);
 
   // 2. Transport mismatch: Non-operator transport requested
-  DeploymentIoConfig mismatch_cfg;
-  mismatch_cfg.io_binding = "keyword_match.operator.v1";
-  mismatch_cfg.pipe_path = "pipeline_keyword_match_rules.json";
-  ret = IoBindingResolver::ResolveFromConfig(mismatch_cfg, "legacy_cabi",
-                                             "./models", &plan, &error);
+  ret = IoBindingResolver::ResolveFromPipelineJson(
+      bad_binding_json, "legacy_cabi", "./models", &plan, &error);
   EXPECT_EQ(ret, -2);
 
-  // 3. DeploymentIoConfig schema validation rejects invalid version
+  // 3. DeploymentIoConfig schema validation rejects invalid / old format
   nlohmann::json invalid_version_json = {
       {"schema_version", 999},
       {"data",
@@ -1275,38 +1282,44 @@ TEST_F(AdapterPurityTest, ReuseProof_6_NegativeCombinations) {
   DeploymentIoConfig parsed_cfg;
   EXPECT_FALSE(DeploymentIoConfig::Parse(invalid_version_json, ".", "operator",
                                          &parsed_cfg, &error));
-  EXPECT_NE(error.find("schema_version"), std::string::npos);
+  EXPECT_NE(error.find("Deprecated"), std::string::npos);
 
   // 4. Operator config with unknown output slot rejected by parity check
-  DeploymentIoConfig unknown_out_cfg;
-  unknown_out_cfg.io_binding = "keyword_match.operator.v1";
-  unknown_out_cfg.pipe_path = "configs/pipeline_keyword_match_rules.json";
-  unknown_out_cfg.resolved_pipe_path =
-      "configs/pipeline_keyword_match_rules.json";
-  unknown_out_cfg.outputs = {{"unknown_slot", {{"type", "String"}}}};
-  ret = IoBindingResolver::ResolveFromConfig(unknown_out_cfg, "operator",
-                                             "./models", &plan, &error);
+  nlohmann::json unknown_out_json = {
+      {"biz_name", "keyword_match_v1"},
+      {"deployment",
+       {{"io",
+         {{"io_binding", "keyword_match.operator.v1"},
+          {"output_allocations", {{"unknown_slot", {{"type", "String"}}}}}}}}},
+      {"models", nlohmann::json::array()},
+      {"pipeline", nlohmann::json::array()}};
+  ret = IoBindingResolver::ResolveFromPipelineJson(unknown_out_json, "operator",
+                                                   "./models", &plan, &error);
   EXPECT_EQ(ret, -2);
   EXPECT_NE(error.find("Unknown configured output slot: unknown_slot"),
             std::string::npos);
 
   // 5. Unknown model_id in model_paths rejected
-  DeploymentIoConfig unknown_mid_cfg;
-  unknown_mid_cfg.io_binding = "keyword_match.operator.v1";
-  unknown_mid_cfg.pipe_path = "configs/pipeline_keyword_match_rules.json";
-  unknown_mid_cfg.resolved_pipe_path =
-      "configs/pipeline_keyword_match_rules.json";
-  unknown_mid_cfg.outputs = {{"keyword_out",
-                              {{"type", "keyword_out"},
-                               {"meta_num", 0},
-                               {"metadata_type_id", 0},
-                               {"capacities", {{"match_result_json", 2047}}}}}};
-  unknown_mid_cfg.model_paths = {{"non_existent_model", "dummy_path"}};
-  ret = IoBindingResolver::ResolveFromConfig(unknown_mid_cfg, "operator",
-                                             "./models", &plan, &error);
+  nlohmann::json unknown_mid_json = {
+      {"biz_name", "keyword_match_v1"},
+      {"deployment",
+       {{"model_paths", {{"non_existent_model", "dummy_path"}}},
+        {"io",
+         {{"io_binding", "keyword_match.operator.v1"},
+          {"output_allocations",
+           {{"keyword_out",
+             {{"type", "keyword_out"},
+              {"meta_num", 0},
+              {"metadata_type_id", 0},
+              {"capacities", {{"match_result_json", 2047}}}}}}}}}}},
+      {"models", nlohmann::json::array()},
+      {"pipeline", nlohmann::json::array()}};
+  ret = IoBindingResolver::ResolveFromPipelineJson(unknown_mid_json, "operator",
+                                                   "./models", &plan, &error);
   EXPECT_EQ(ret, -2);
   EXPECT_NE(
-      error.find("Unknown model_id 'non_existent_model' in 'model_paths'"),
+      error.find(
+          "Unknown model_id 'non_existent_model' in '/deployment/model_paths'"),
       std::string::npos)
       << "actual error was: " << error;
 }

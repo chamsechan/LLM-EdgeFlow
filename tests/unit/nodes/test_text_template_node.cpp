@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <exception>
+#include <fstream>
 #include <memory>
 #include <nlohmann/json.hpp>
 #include <string>
@@ -250,9 +251,13 @@ TEST_F(TextTemplateNodeTest, ControlCommandHotSwapAndBogusRejection) {
 TEST_F(TextTemplateNodeTest, PipelineEnforcesPublishedControlSchema) {
   Pipeline pipeline;
   PipelineDiagnostic diagnostic;
-  ASSERT_TRUE(pipeline.BuildFromConfigFile(
-      ResolveConfigPath("demo/fixtures/mock/pipeline_doc_qa.json"),
-      &diagnostic))
+  std::ifstream cfg_in(
+      ResolveConfigPath("demo/fixtures/mock/pipeline_doc_qa.json"));
+  ASSERT_TRUE(cfg_in.is_open());
+  nlohmann::json pipe_json;
+  cfg_in >> pipe_json;
+  pipe_json.erase("deployment");
+  ASSERT_TRUE(pipeline.BuildFromJson(pipe_json, &diagnostic))
       << diagnostic.message;
 
   EXPECT_NE(pipeline.Control(kControlCmdUpdatePrompt, "{}"), 0);

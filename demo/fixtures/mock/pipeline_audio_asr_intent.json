@@ -1,5 +1,24 @@
 {
   "biz_name": "speech_audio_asr_intent_slot",
+  "deployment": {
+    "model_paths": {
+      "asr_model_v1": "./models/paraformer_asr_npu.bin"
+    },
+    "io": {
+      "io_binding": "audio_asr_intent.operator.v1",
+      "output_allocations": {
+        "audio_out": {
+          "type": "audio_out",
+          "meta_num": 0,
+          "metadata_type_id": 0,
+          "capacities": {
+            "transcribed_text": 511,
+            "intent_slot_json": 1023
+          }
+        }
+      }
+    }
+  },
   "models": [
     {
       "capability": "asr",

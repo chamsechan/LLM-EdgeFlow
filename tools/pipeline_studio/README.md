@@ -168,7 +168,7 @@ LLM_EDGEFLOW_PIPELINE_TOOL=./build/alg_pipeline_tool_test ./show --web
 
 ### 运行当前方案
 
-Pipeline JSON 描述算法连线；`.conf` 描述部署路径和输出容量；Profile 保存 Demo 的
+Pipeline JSON 描述算法连线并在 `deployment` 中持有部署配置（接入绑定、输出容量与模型路径覆盖）；`.conf` 仅包含 `pipe_path` 用于定位 Pipeline JSON；Profile 保存 Demo 的
 业务、配置、数据集等预设。“运行”页的“另存为可运行方案”会一起生成 JSON 和 `.conf`，
 并提供从项目根执行的完整命令；已有同名文件会拒绝覆盖。选择与业务匹配的 Profile，
 其数据集、运行选项和输出池容量会被复用。模型目录默认为 `models`；引用
@@ -196,7 +196,7 @@ Pipeline JSON 描述算法连线；`.conf` 描述部署路径和输出容量；P
 
 完成上述练习后，复制 `configs/pipeline_keyword_match_rules.conf` 为
 `configs/pipeline_first_solution.conf`（已有同名文件时直接编辑），将其中
-`data.pipe_path` 改为 `configs/pipeline_first_solution.json`，保留原输出池配置。
+`pipe_path` 改为 `configs/pipeline_first_solution.json`；部署 I/O 绑定、输出分配与模型路径覆盖直接在 `pipeline_first_solution.json` 的 `deployment` 根对象下配置。
 从仓库根目录执行：
 
 ```bash
@@ -218,7 +218,7 @@ CLI 的 `--config` 覆盖 Profile 原配置，因此不需要新增 Profile。�
 本练习应有两条成功结果，第一条命中 `FIRST_RUN`，第二条未命中。核对请求 ID、状态
 和业务字段，不只看退出码。无 Profile 运行时，结果子目录改为业务名 `keyword_match`。
 
-复用其他 `.conf` 时，还要核对 `data.model_paths` 的模型路径覆盖和输出池容量是否适合
+复用其他配置时，还要核对 Pipeline `deployment.model_paths` 的模型路径覆盖和 `deployment.io.output_allocations` 输出池容量是否适合
 当前方案；Pipeline 校验不代表部署资源可加载。Demo 默认不发送内置
 热更新覆盖所选规则或提示词，显式 `--control-file` 仍会执行，应只在需要该更新时提供。
 

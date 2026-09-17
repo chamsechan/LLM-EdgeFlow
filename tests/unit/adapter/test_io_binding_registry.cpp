@@ -9,8 +9,10 @@
 #include "adapter/io_binding_registry.h"
 #include "adapter/io_binding_resolver.h"
 #include "adapter/io_converter_registry.h"
+#include "adapter/pipeline_document.h"
 #include "adapter/shared_algorithm_runtime.h"
 #include "core/pipeline_catalog.h"
+#include "core/pipeline_config.h"
 
 namespace llm_edgeflow {
 namespace {
@@ -33,6 +35,30 @@ int DummyEncode(AlgContext*, const OutputPortBindings&,
 
 class IoBindingRegistryTest : public ::testing::Test {
  protected:
+  static void SetUpTestSuite() {
+    saved_bindings_ = IoBindingRegistry::Instance().AllBindings();
+    saved_exposures_ = IoBindingRegistry::Instance().AllExposures();
+    saved_inputs_ = IoConverterRegistry::Instance().AllInputConverters();
+    saved_outputs_ = IoConverterRegistry::Instance().AllOutputConverters();
+  }
+
+  static void TearDownTestSuite() {
+    IoConverterRegistry::Instance().ClearForTesting();
+    IoBindingRegistry::Instance().ClearForTesting();
+    for (const auto& in_def : saved_inputs_) {
+      IoConverterRegistry::Instance().RegisterInputConverter(in_def);
+    }
+    for (const auto& out_def : saved_outputs_) {
+      IoConverterRegistry::Instance().RegisterOutputConverter(out_def);
+    }
+    for (const auto& binding : saved_bindings_) {
+      IoBindingRegistry::Instance().RegisterBinding(binding);
+    }
+    for (const auto& exp : saved_exposures_) {
+      IoBindingRegistry::Instance().RegisterExposure(exp);
+    }
+  }
+
   void SetUp() override {
     IoConverterRegistry::Instance().ClearForTesting();
     IoBindingRegistry::Instance().ClearForTesting();
@@ -61,7 +87,7 @@ class IoBindingRegistryTest : public ::testing::Test {
     out_def.external_type = "CompanyOperatorEntityOutput";
     out_def.external_slots = {ExternalSlotDefinition(
         "entity_out", "CompanyOperatorEntityOutput", PortDirection::kOutput,
-        true, "CompanyOperatorEntityOutput", "entity_out")};
+        true, "CompanyOperatorEntityOutput", "entity_out", {"entities_json"})};
     out_def.max_batch_size = 64;
     out_def.logical_ports = {
         NodePortDefinition("answers", "TextBatch", true, "1:1")};
@@ -80,6 +106,23 @@ class IoBindingRegistryTest : public ::testing::Test {
     IoConverterRegistry::Instance().ClearForTesting();
     IoBindingRegistry::Instance().ClearForTesting();
   }
+
+  void RegisterTestBizBinding() {
+    IoBindingDefinition binding;
+    binding.binding_id = "test_biz.operator.v1";
+    binding.biz_name = "test_biz_v1";
+    binding.transport = "operator";
+    binding.input_converter_id = "test.in.operator";
+    binding.output_converter_id = "test.out.operator";
+    binding.input_ports = {{"texts", "input_sentences"}};
+    binding.output_ports = {{"answers", "llm_answers"}};
+    ASSERT_TRUE(IoBindingRegistry::Instance().RegisterBinding(binding));
+  }
+
+  static inline std::vector<IoBindingDefinition> saved_bindings_;
+  static inline std::vector<BizExposureDefinition> saved_exposures_;
+  static inline std::vector<InputConverterDefinition> saved_inputs_;
+  static inline std::vector<OutputConverterDefinition> saved_outputs_;
 };
 
 TEST_F(IoBindingRegistryTest, RegisterAndAuditValidBinding) {
@@ -228,18 +271,8 @@ TEST_F(IoBindingRegistryTest, UnselectedIllegalBindingFailsAudit) {
 }
 
 TEST_F(IoBindingRegistryTest, DeploymentIoConfigValidation) {
-  // 1. 合法 schema 1 Operator 配置
-  nlohmann::json valid_cfg = {
-      {"schema_version", 1},
-      {"data",
-       {{"pipe_path", "test.json"},
-        {"io_binding", "test_biz.operator.v1"},
-        {"outputs",
-         {{"answers",
-           {{"type", "answers"},
-            {"meta_num", 0},
-            {"metadata_type_id", 0},
-            {"capacities", nlohmann::json::object()}}}}}}}};
+  // 1. 合法 RFC-0061 Operator 定位配置 (仅包含 pipe_path)
+  nlohmann::json valid_cfg = {{"pipe_path", "test.json"}};
 
   // 写入临时测试 pipeline 文件
   std::string tmp_dir = "/tmp/edgeflow_test_config_" + std::to_string(getpid());
@@ -255,13 +288,15 @@ TEST_F(IoBindingRegistryTest, DeploymentIoConfigValidation) {
   EXPECT_TRUE(
       DeploymentIoConfig::Parse(valid_cfg, tmp_dir, "operator", &parsed, &err));
   EXPECT_EQ(parsed.pipe_path, "test.json");
-  EXPECT_EQ(parsed.io_binding, "test_biz.operator.v1");
 
-  // 2. 拒绝未知 schema_version
-  nlohmann::json bad_ver = valid_cfg;
-  bad_ver["schema_version"] = 2;
-  EXPECT_FALSE(
-      DeploymentIoConfig::Parse(bad_ver, tmp_dir, "operator", &parsed, &err));
+  // 2. 拒绝旧 Schema 1 包装 (schema_version + data)
+  nlohmann::json old_schema1 = {
+      {"schema_version", 1},
+      {"data",
+       {{"pipe_path", "test.json"}, {"io_binding", "test_biz.operator.v1"}}}};
+  EXPECT_FALSE(DeploymentIoConfig::Parse(old_schema1, tmp_dir, "operator",
+                                         &parsed, &err));
+  EXPECT_NE(err.find("Deprecated"), std::string::npos);
 
   // 3. 拒绝顶层未知字段
   nlohmann::json bad_field = valid_cfg;
@@ -274,8 +309,7 @@ TEST_F(IoBindingRegistryTest, DeploymentIoConfigValidation) {
       DeploymentIoConfig::Parse(valid_cfg, tmp_dir, "cabi", &parsed, &err));
 
   // 5. 路径逃逸拒绝
-  nlohmann::json escape_cfg = valid_cfg;
-  escape_cfg["data"]["pipe_path"] = "../../../etc/passwd";
+  nlohmann::json escape_cfg = {{"pipe_path", "../../../etc/passwd"}};
   EXPECT_FALSE(DeploymentIoConfig::Parse(escape_cfg, tmp_dir, "operator",
                                          &parsed, &err));
 
@@ -315,16 +349,7 @@ TEST_F(IoBindingRegistryTest, StrictConfigDirectoryIsolationAndCwdInvariance) {
   std::string err;
 
   auto make_conf = [](const std::string& pipe) {
-    nlohmann::json cfg = {{"schema_version", 1},
-                          {"data",
-                           {{"pipe_path", pipe},
-                            {"io_binding", "test_biz.operator.v1"},
-                            {"outputs",
-                             {{"answers",
-                               {{"type", "answers"},
-                                {"meta_num", 0},
-                                {"metadata_type_id", 0},
-                                {"capacities", nlohmann::json::object()}}}}}}}};
+    nlohmann::json cfg = {{"pipe_path", pipe}};
     return cfg;
   };
 
@@ -427,6 +452,234 @@ TEST_F(IoBindingRegistryTest, FailClosedAuditRejectsInvalidUnselectedBinding) {
 
   // GlobalInit 必须失败并返回 -6 (COMPANY_ALG_ERR_REGISTRY_CONFLICT)
   EXPECT_EQ(SharedAlgorithmRuntime::GlobalInit(), -6);
+}
+
+TEST_F(IoBindingRegistryTest, SplitPipelineDocumentAndCoreBoundary) {
+  // 1. 合法完整文档拆分
+  nlohmann::json valid_doc = {
+      {"biz_name", "keyword_match_v1"},
+      {"deployment",
+       {{"model_paths", {{"m1", "path/to/m1"}}},
+        {"io",
+         {{"io_binding", "test.binding.v1"},
+          {"output_allocations", {{"out1", nlohmann::json::object()}}}}}}},
+      {"models", nlohmann::json::array()},
+      {"pipeline",
+       {{{"id", "n0"},
+         {"node_type", "TextRuleMatchNode"},
+         {"depends_on", nlohmann::json::array()},
+         {"ports",
+          {{"inputs", {{"text", "in"}}}, {"outputs", {{"matches", "out"}}}}},
+         {"config", {{"categories", {{"CAT", {"word"}}}}}}}}}};
+
+  PipelineDocumentSplit split;
+  std::string err;
+  EXPECT_TRUE(SplitPipelineDocument(valid_doc, &split, &err));
+  EXPECT_TRUE(split.has_deployment);
+  EXPECT_TRUE(split.deployment.has_model_paths);
+  EXPECT_EQ(split.deployment.model_paths["m1"], "path/to/m1");
+  EXPECT_TRUE(split.deployment.has_io);
+  EXPECT_EQ(split.deployment.io.io_binding, "test.binding.v1");
+  EXPECT_FALSE(split.neutral_pipeline_json.contains("deployment"));
+  EXPECT_EQ(split.neutral_pipeline_json["biz_name"], "keyword_match_v1");
+
+  // 2. 中性文档 (无 deployment)
+  nlohmann::json neutral_doc = {
+      {"biz_name", "keyword_match_v1"},
+      {"models", nlohmann::json::array()},
+      {"pipeline",
+       {{{"id", "n0"},
+         {"node_type", "TextRuleMatchNode"},
+         {"depends_on", nlohmann::json::array()},
+         {"ports",
+          {{"inputs", {{"text", "in"}}}, {"outputs", {{"matches", "out"}}}}},
+         {"config", {{"categories", {{"CAT", {"word"}}}}}}}}}};
+  EXPECT_TRUE(SplitPipelineDocument(neutral_doc, &split, &err));
+  EXPECT_FALSE(split.has_deployment);
+  EXPECT_EQ(split.neutral_pipeline_json, neutral_doc);
+
+  // 3. 拒绝 deployment 内部未知字段
+  nlohmann::json bad_dep = valid_doc;
+  bad_dep["deployment"]["unknown_key"] = 123;
+  EXPECT_FALSE(SplitPipelineDocument(bad_dep, &split, &err));
+  EXPECT_NE(err.find("Unknown field at /deployment"), std::string::npos);
+
+  // 4. 拒绝 deployment.io 缺失
+  nlohmann::json missing_io = valid_doc;
+  missing_io["deployment"].erase("io");
+  EXPECT_FALSE(SplitPipelineDocument(missing_io, &split, &err));
+  EXPECT_NE(err.find("Missing required field '/deployment/io'"),
+            std::string::npos);
+
+  // 5. 拒绝 deployment.io.io_binding 缺失或空
+  nlohmann::json bad_io = valid_doc;
+  bad_io["deployment"]["io"]["io_binding"] = "";
+  EXPECT_FALSE(SplitPipelineDocument(bad_io, &split, &err));
+
+  // 6. 拒绝 deployment.io 内部未知字段
+  bad_io["deployment"]["io"]["io_binding"] = "test.binding.v1";
+  bad_io["deployment"]["io"]["extra_field"] = "bad";
+  EXPECT_FALSE(SplitPipelineDocument(bad_io, &split, &err));
+  EXPECT_NE(err.find("Unknown field at /deployment/io"), std::string::npos);
+
+  // 7. Core 边界检查: 带 deployment 的文档直接提交给 Core 严格解析必须被拒绝
+  // (Unknown root field)
+  ParsedPipelineConfig parsed_core;
+  PipelineDiagnostic diag;
+  EXPECT_FALSE(ParsePipelineConfig(valid_doc, &parsed_core, &diag));
+  EXPECT_EQ(diag.code, DiagnosticCode::kUnknownField);
+  EXPECT_EQ(diag.path, "/deployment");
+
+  // 8. 拆分出的中性文档提交给 Core 可以解析成功
+  EXPECT_TRUE(SplitPipelineDocument(valid_doc, &split, &err));
+  EXPECT_TRUE(
+      ParsePipelineConfig(split.neutral_pipeline_json, &parsed_core, &diag))
+      << diag.message;
+
+  // 9. 如果源文档含有拼写错误的根字段 (例如 deploymen)，拆分时不被过滤，Core
+  // 解析必须报错
+  nlohmann::json typo_doc = neutral_doc;
+  typo_doc["deploymen"] = nlohmann::json::object();
+  EXPECT_TRUE(SplitPipelineDocument(typo_doc, &split, &err));
+  EXPECT_FALSE(
+      ParsePipelineConfig(split.neutral_pipeline_json, &parsed_core, &diag));
+  EXPECT_EQ(diag.code, DiagnosticCode::kUnknownField);
+  EXPECT_EQ(diag.path, "/deploymen");
+}
+
+TEST_F(IoBindingRegistryTest, BizMismatchFailsClosedWithExactPointer) {
+  RegisterTestBizBinding();
+
+  // A pipeline with registered biz smart_doc_qa_v1 but binding
+  // test_biz.operator.v1 (biz test_biz_v1)
+  nlohmann::json doc = {
+      {"biz_name", "smart_doc_qa_v1"},
+      {"deployment",
+       {{"io",
+         {{"io_binding", "test_biz.operator.v1"},
+          {"output_allocations",
+           {{"entity_out",
+             {{"type", "entity_out"},
+              {"meta_num", 0},
+              {"metadata_type_id", 0},
+              {"capacities", {{"entities_json", 2047}}}}}}}}}}},
+      {"models", nlohmann::json::array()},
+      {"pipeline", nlohmann::json::array()}};
+
+  std::unique_ptr<ValidatedIoPlan> plan;
+  std::string err;
+  int ret = IoBindingResolver::ResolveFromPipelineJson(doc, "operator",
+                                                       "./models", &plan, &err);
+  EXPECT_EQ(ret, -2);
+  EXPECT_EQ(plan, nullptr);
+  EXPECT_NE(err.find("Pipeline biz_name 'smart_doc_qa_v1' does not match "
+                     "binding biz_name 'test_biz_v1'"),
+            std::string::npos)
+      << "ACTUAL ERR: " << err;
+  EXPECT_NE(err.find("(at /deployment/io/io_binding)"), std::string::npos)
+      << "ACTUAL ERR: " << err;
+}
+
+TEST_F(IoBindingRegistryTest, EscapedJsonPointerInModelPathsAndSlots) {
+  RegisterTestBizBinding();
+
+  // 1. Slot name with special characters ~ and /
+  nlohmann::json slot_doc = {
+      {"biz_name", "test_biz_v1"},
+      {"deployment",
+       {{"io",
+         {{"io_binding", "test_biz.operator.v1"},
+          {"output_allocations",
+           {{"slot~0/bad", {{"type", "entity_out"}}}}}}}}},
+      {"models", nlohmann::json::array()},
+      {"pipeline", nlohmann::json::array()}};
+
+  std::unique_ptr<ValidatedIoPlan> plan;
+  std::string err;
+  int ret = IoBindingResolver::ResolveFromPipelineJson(slot_doc, "operator",
+                                                       "./models", &plan, &err);
+  EXPECT_EQ(ret, -2);
+  // slot~0/bad escaped: ~ -> ~0, / -> ~1 => slot~00~1bad
+  EXPECT_NE(err.find("/deployment/io/output_allocations/slot~00~1bad"),
+            std::string::npos)
+      << "ACTUAL ERR: " << err;
+
+  // 2. Unknown model ID with special characters ~ and /
+  nlohmann::json model_doc = {
+      {"biz_name", "test_biz_v1"},
+      {"deployment",
+       {{"model_paths", {{"model~1/test", "path/to/model"}}},
+        {"io",
+         {{"io_binding", "test_biz.operator.v1"},
+          {"output_allocations",
+           {{"entity_out",
+             {{"type", "entity_out"},
+              {"meta_num", 0},
+              {"metadata_type_id", 0},
+              {"capacities", {{"entities_json", 2047}}}}}}}}}}},
+      {"models", nlohmann::json::array()},
+      {"pipeline", nlohmann::json::array()}};
+
+  ret = IoBindingResolver::ResolveFromPipelineJson(model_doc, "operator",
+                                                   "./models", &plan, &err);
+  EXPECT_EQ(ret, -2);
+  // model~1/test escaped: ~ -> ~0, / -> ~1 => model~01~1test
+  EXPECT_NE(err.find("/deployment/model_paths/model~01~1test"),
+            std::string::npos)
+      << "ACTUAL ERR: " << err;
+}
+
+TEST_F(IoBindingRegistryTest,
+       OverriddenModelPathResolutionFailurePointsToDeployment) {
+  RegisterTestBizBinding();
+
+  // Case 1: When model path override escapes model_root_dir, error points to
+  // /deployment/model_paths/<mid>
+  nlohmann::json doc = {
+      {"biz_name", "test_biz_v1"},
+      {"deployment",
+       {{"model_paths", {{"mid~test", "../../escaped_model.bin"}}},
+        {"io",
+         {{"io_binding", "test_biz.operator.v1"},
+          {"output_allocations",
+           {{"entity_out",
+             {{"type", "entity_out"},
+              {"meta_num", 0},
+              {"metadata_type_id", 0},
+              {"capacities", {{"entities_json", 2047}}}}}}}}}}},
+      {"models",
+       {{{"model_id", "mid~test"},
+         {"capability", "embedding"},
+         {"model_type", "test_biz_embedding"},
+         {"backend", "test_tensor_backend"},
+         {"model_config", {{"embedding_dim", 128}, {"max_batch_size", 4}}},
+         {"backend_config", nlohmann::json::object()},
+         {"model_path", "models/legal.bin"}}}},
+      {"pipeline", nlohmann::json::array()}};
+
+  std::unique_ptr<ValidatedIoPlan> plan;
+  std::string err;
+  int ret = IoBindingResolver::ResolveFromPipelineJson(doc, "operator",
+                                                       "./models", &plan, &err);
+  EXPECT_EQ(ret, -2);
+  // mid~test escaped: mid~0test
+  EXPECT_NE(err.find("/deployment/model_paths/mid~0test"), std::string::npos)
+      << "ACTUAL ERR: " << err;
+  EXPECT_EQ(err.find("/models/0/model_path"), std::string::npos)
+      << "ACTUAL ERR: " << err;
+
+  // Case 2: When an un-overridden model path escapes model_root_dir, error
+  // points to /models/0/model_path
+  nlohmann::json unoverridden_doc = doc;
+  unoverridden_doc["deployment"].erase("model_paths");
+  unoverridden_doc["models"][0]["model_path"] = "../../escaped_model.bin";
+  ret = IoBindingResolver::ResolveFromPipelineJson(unoverridden_doc, "operator",
+                                                   "./models", &plan, &err);
+  EXPECT_EQ(ret, -2);
+  EXPECT_NE(err.find("/models/0/model_path"), std::string::npos)
+      << "ACTUAL ERR: " << err;
+  EXPECT_EQ(err.find("/deployment/model_paths/"), std::string::npos)
+      << "ACTUAL ERR: " << err;
 }
 
 }  // namespace llm_edgeflow

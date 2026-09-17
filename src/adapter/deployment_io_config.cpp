@@ -66,101 +66,45 @@ bool DeploymentIoConfig::Parse(const nlohmann::json& root,
     return false;
   }
 
-  // 1. 顶层字段白名单检查: 仅允许 schema_version 和 data
+  // 1. 检查并明确拒绝旧 Schema 1 字段及外部分散配置 (RFC-0061)
+  for (const char* deprecated_key :
+       {"data", "schema_version", "io_binding", "model_paths", "outputs"}) {
+    if (root.contains(deprecated_key)) {
+      if (out_error) {
+        *out_error =
+            std::string(
+                "Deprecated deployment configuration format (RFC-0061) at /") +
+            deprecated_key +
+            ": '.conf' files must contain only 'pipe_path'. Deployment "
+            "configuration "
+            "(io_binding, output_allocations, model_paths) has moved to the "
+            "'deployment' section inside the Pipeline JSON.";
+      }
+      return false;
+    }
+  }
+
+  // 2. 根字段白名单: 必须有且仅有 pipe_path
   for (auto it = root.begin(); it != root.end(); ++it) {
-    if (it.key() != "schema_version" && it.key() != "data") {
+    if (it.key() != "pipe_path") {
       if (out_error) {
-        *out_error = "Unknown field at /: " + it.key() +
-                     " (only schema_version and data allowed)";
+        *out_error = "Unknown field at /: '" + it.key() +
+                     "' (only 'pipe_path' is allowed under RFC-0061)";
       }
       return false;
     }
   }
 
-  if (!root.contains("schema_version")) {
-    if (out_error) *out_error = "Missing schema_version in config";
-    return false;
-  }
-  if (!root["schema_version"].is_number_integer()) {
-    if (out_error) *out_error = "schema_version must be an integer";
-    return false;
-  }
-  int ver = root["schema_version"].get<int>();
-  if (ver != 1) {
-    if (out_error) {
-      *out_error =
-          "Unsupported schema_version " + std::to_string(ver) + ", expected 1";
-    }
+  if (!root.contains("pipe_path") || !root["pipe_path"].is_string() ||
+      root["pipe_path"].get<std::string>().empty()) {
+    if (out_error) *out_error = "Missing or empty 'pipe_path'";
     return false;
   }
 
-  if (!root.contains("data") || !root["data"].is_object()) {
-    if (out_error) *out_error = "Missing or invalid 'data' object in config";
-    return false;
-  }
-
-  const auto& data = root["data"];
-
-  // 2. data 内部字段检查
-  for (auto it = data.begin(); it != data.end(); ++it) {
-    if (it.key() != "pipe_path" && it.key() != "io_binding" &&
-        it.key() != "model_paths" && it.key() != "outputs") {
-      if (out_error) {
-        *out_error = "Unknown field in conf data: '" + it.key() + "'";
-      }
-      return false;
-    }
-  }
-
-  if (!data.contains("pipe_path") || !data["pipe_path"].is_string() ||
-      data["pipe_path"].get<std::string>().empty()) {
-    if (out_error) *out_error = "Missing or empty 'data.pipe_path'";
-    return false;
-  }
-
-  if (!data.contains("io_binding") || !data["io_binding"].is_string() ||
-      data["io_binding"].get<std::string>().empty()) {
-    if (out_error) *out_error = "Missing or empty 'data.io_binding'";
-    return false;
-  }
-
-  out_config->schema_version = ver;
-  out_config->pipe_path = data["pipe_path"].get<std::string>();
-  out_config->io_binding = data["io_binding"].get<std::string>();
+  out_config->pipe_path = root["pipe_path"].get<std::string>();
   out_config->raw_json = root;
 
-  // 3. outputs 约束
-  if (data.contains("outputs")) {
-    if (!data["outputs"].is_object()) {
-      if (out_error) *out_error = "data.outputs must be an object";
-      return false;
-    }
-    out_config->outputs = data["outputs"];
-  } else {
-    out_config->outputs = nlohmann::json::object();
-  }
-
-  // 4. model_paths
-  out_config->model_paths.clear();
-  if (data.contains("model_paths")) {
-    if (!data["model_paths"].is_object()) {
-      if (out_error) *out_error = "data.model_paths must be an object";
-      return false;
-    }
-    for (auto it = data["model_paths"].begin(); it != data["model_paths"].end();
-         ++it) {
-      if (!it.value().is_string()) {
-        if (out_error) {
-          *out_error =
-              "data.model_paths[" + it.key() + "] value must be a string";
-        }
-        return false;
-      }
-      out_config->model_paths[it.key()] = it.value().get<std::string>();
-    }
-  }
-
-  // 5. 解析 pipe_path 相对
+  // 3. 解析 pipe_path 相对
   // config_dir，严格限制在配置根目录下，拒绝任何逃逸与搜索回退
   fs::path base_dir = fs::absolute(fs::path(config_dir));
   fs::path raw_pipe = fs::path(out_config->pipe_path);
@@ -174,7 +118,7 @@ bool DeploymentIoConfig::Parse(const nlohmann::json& root,
   if (!IsPathWithinRoot(canonical_base, canonical_pipe)) {
     if (out_error) {
       *out_error =
-          "data.pipe_path escapes config directory: " + out_config->pipe_path;
+          "pipe_path escapes config directory: " + out_config->pipe_path;
     }
     return false;
   }
@@ -191,7 +135,7 @@ bool DeploymentIoConfig::Parse(const nlohmann::json& root,
   if (ec || !IsPathWithinRoot(canonical_base, real_pipe)) {
     if (out_error) {
       *out_error =
-          "data.pipe_path escapes config directory: " + out_config->pipe_path;
+          "pipe_path escapes config directory: " + out_config->pipe_path;
     }
     return false;
   }

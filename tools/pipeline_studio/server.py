@@ -442,12 +442,12 @@ class WorkbenchService:
         model_root: str = "models",
         model_path_actions: Any = None,
     ) -> dict[str, Any]:
-        report = self.validate(pipeline)
-        if not report.get("ok"):
-            raise StudioError("VALIDATION_FAILED", json.dumps(report, ensure_ascii=False))
         path = self.managed_path(requested)
         if not save_as and path.name in self.generated_solutions:
             return self.update_solution(path, pipeline, expected_revision, profile_name, model_root, model_path_actions)
+        report = self.validate(pipeline)
+        if not report.get("ok"):
+            raise StudioError("VALIDATION_FAILED", json.dumps(report, ensure_ascii=False))
         if path.exists() and not save_as:
             current = revision_for(path.read_bytes())
             if not expected_revision or current != expected_revision:
@@ -488,21 +488,24 @@ class WorkbenchService:
         if not conf_path.is_file():
             return
         try:
-            data = read_json(conf_path).get("data", {})
-            reference = data.get("pipe_path")
-            overrides = data.get("model_paths")
+            conf = read_json(conf_path)
+            reference = conf.get("pipe_path")
             points_here = isinstance(reference, str) and any(
                 (base / reference).resolve() == path.resolve()
                 for base in (PROJECT_ROOT, conf_path.parent)
             )
+            if not points_here:
+                return
+            original = read_json(path)
+            overrides = original.get("deployment", {}).get("model_paths")
         except (OSError, ValueError, AttributeError, TypeError):
             return
-        if points_here and isinstance(overrides, dict) and overrides:
+        if isinstance(overrides, dict) and overrides:
             def model_paths(document: Any) -> dict:
                 models = document.get("models", []) if isinstance(document, dict) else []
                 return {model.get("model_id"): model.get("model_path", "")
                         for model in models if isinstance(model, dict)} if isinstance(models, list) else {}
-            if model_paths(read_json(path)) == model_paths(pipeline):
+            if model_paths(original) == model_paths(pipeline):
                 return
             raise StudioError(
                 "DEPLOYMENT_CONFLICT",
@@ -529,6 +532,9 @@ class WorkbenchService:
             profile, conf = self.deployment_candidate(
                 pipeline, profile_name, model_root, path.name,
                 model_path_actions=model_path_actions)
+            report = self.validate(pipeline)
+            if not report.get("ok"):
+                raise StudioError("VALIDATION_FAILED", json.dumps(report, ensure_ascii=False))
             encoded = (json.dumps(pipeline, ensure_ascii=False, indent=2) + "\n").encode()
             conf_encoded = (json.dumps(conf, ensure_ascii=False, indent=2) + "\n").encode()
             staging = Path(tempfile.mkdtemp(prefix=".studio-save-", dir=self.config_root))
@@ -538,8 +544,7 @@ class WorkbenchService:
                 staged_conf = staging / "pipeline.conf"
                 backup_json = staging / "previous.json"
                 staged_json.write_bytes(encoded)
-                staged_conf_data = copy.deepcopy(conf)
-                staged_conf_data["data"]["pipe_path"] = staged_json.name
+                staged_conf_data = {"pipe_path": staged_json.name}
                 staged_conf.write_text(json.dumps(staged_conf_data, ensure_ascii=False, indent=2))
                 configuration = self.resolve_run_conf(staged_conf, profile)
 
@@ -580,18 +585,11 @@ class WorkbenchService:
             raise StudioError("UNKNOWN_PROFILE", profile_name)
         profile_conf = PROJECT_ROOT / profile["config"]
         conf = read_json(profile_conf)
-        if (
-            not isinstance(conf, dict)
-            or set(conf) not in ({"data"}, {"schema_version", "data"})
-            or not isinstance(conf.get("data"), dict)
-            or not isinstance(conf["data"].get("pipe_path"), str)
-            or not isinstance(conf["data"].get("outputs"), dict)
-        ):
+        if not isinstance(conf, dict) or "pipe_path" not in conf or not isinstance(conf["pipe_path"], str):
             raise StudioError(
-                "INVALID_PROFILE_CONFIG", "Profile .conf 必须包含 schema_version 与 data 对象"
+                "INVALID_PROFILE_CONFIG", "Profile .conf 必须包含 pipe_path"
             )
-        data = conf["data"]
-        original_pipeline_path = Path(data["pipe_path"])
+        original_pipeline_path = Path(conf["pipe_path"])
         if not original_pipeline_path.is_absolute():
             if (PROJECT_ROOT / original_pipeline_path).exists():
                 original_pipeline_path = PROJECT_ROOT / original_pipeline_path
@@ -602,7 +600,8 @@ class WorkbenchService:
         curr_biz = pipeline.get("biz_name")
         if orig_biz != curr_biz:
             raise StudioError("PROFILE_MISMATCH", "Profile 与业务契约不匹配")
-        return copy.deepcopy(profile), copy.deepcopy(data["outputs"])
+        outputs = original.get("deployment", {}).get("io", {}).get("output_allocations", {})
+        return copy.deepcopy(profile), copy.deepcopy(outputs)
 
     def run_conf(self, pipeline: Any, outputs: Any, pipe_path: Path, model_root: str) -> dict[str, Any]:
         if not isinstance(model_root, str) or not model_root or Path(model_root).is_absolute():
@@ -658,8 +657,7 @@ class WorkbenchService:
         if original.get("biz_name") != pipeline.get("biz_name"):
             raise StudioError("DEPLOYMENT_MISMATCH", "已关联方案不能改变业务契约，请另存方案")
         profile = self.profile_inputs(pipeline, profile_name)[0] if profile_name else copy.deepcopy(managed["profile"])
-        conf = json.loads(conf_raw)
-        overrides = copy.deepcopy(conf["data"].get("model_paths", {}))
+        overrides = copy.deepcopy(original.get("deployment", {}).get("model_paths", {}))
         old_models = {m["model_id"]: m for m in original.get("models", [])}
         for mid in list(overrides):
             if mid not in models:
@@ -667,15 +665,25 @@ class WorkbenchService:
         for mid, model in models.items():
             choice = actions.get(mid)
             if choice and choice["action"] == "select_asset":
-                selected = self.run_conf({"models": [model]}, {}, path, model_root)
-                overrides[mid] = selected["data"]["model_paths"][mid]
+                temp_pipe = {"models": [model]}
+                self.run_conf(temp_pipe, {}, path, model_root)
+                overrides[mid] = temp_pipe.get("deployment", {}).get("model_paths", {}).get(mid, "")
             elif (not choice and mid in overrides and mid in old_models
                   and model.get("model_path") != old_models[mid].get("model_path")):
                 raise StudioError("DEPLOYMENT_PATH_INTENT_REQUIRED",
                                   f"模型 {mid} 的路径已改变，请明确选择保留部署覆盖或采用新资产路径", 409)
-        if "model_paths" in conf["data"] or overrides:
-            conf["data"]["model_paths"] = overrides
-        return profile, conf
+        if overrides:
+            pipeline.setdefault("deployment", {})["model_paths"] = overrides
+        elif "deployment" in pipeline and "model_paths" in pipeline["deployment"]:
+            del pipeline["deployment"]["model_paths"]
+        if "deployment" in original and "io" in original["deployment"]:
+            pipeline.setdefault("deployment", {})["io"] = copy.deepcopy(original["deployment"]["io"])
+        elif "outputs" in managed and managed["outputs"]:
+            io_dict = pipeline.setdefault("deployment", {}).setdefault("io", {})
+            io_dict["output_allocations"] = copy.deepcopy(managed["outputs"])
+            if managed.get("io_binding"):
+                io_dict["io_binding"] = managed["io_binding"]
+        return profile, {"pipe_path": path.name}
 
     def resolve_run_conf(self, conf_path: Path, profile: dict[str, Any]) -> dict[str, Any]:
         depth = max(int(profile.get("batch_size", 1)), int(profile.get("depth", 1)))
@@ -706,7 +714,7 @@ class WorkbenchService:
             if target.exists():
                 raise StudioError("FILE_EXISTS", f"另存目标已存在：{target.name}", 409)
         profile, conf = self.deployment_candidate(pipeline, profile_name, model_root, path.name)
-        outputs = conf["data"]["outputs"]
+        outputs = pipeline.get("deployment", {}).get("io", {}).get("output_allocations", {})
         encoded = (json.dumps(pipeline, ensure_ascii=False, indent=2) + "\n").encode()
         conf_encoded = (json.dumps(conf, ensure_ascii=False, indent=2) + "\n").encode()
         created = []
@@ -787,12 +795,8 @@ class WorkbenchService:
         except json.JSONDecodeError as error:
             raise StudioError("INVALID_JSON", str(error)) from error
 
-        if not isinstance(conf, dict) or "data" not in conf or not isinstance(conf["data"], dict):
-            raise StudioError("INVALID_DEPLOYMENT_CONFIG", "部署配置缺少 data 节点")
-
-        pipe_ref = conf["data"].get("pipe_path")
-        if not isinstance(pipe_ref, str):
-            raise StudioError("INVALID_DEPLOYMENT_CONFIG", "部署配置缺少 data.pipe_path")
+        if not isinstance(conf, dict) or "pipe_path" not in conf or not isinstance(conf["pipe_path"], str):
+            raise StudioError("INVALID_DEPLOYMENT_CONFIG", "部署配置缺少 pipe_path")
 
         report = self.invoke_tool([
             "resolve-conf",
@@ -829,13 +833,16 @@ class WorkbenchService:
         if pipe_path.read_bytes() != pipe_raw or conf_path.read_bytes() != conf_raw:
             raise StudioError("REVISION_CONFLICT", "关联期间文件已改变，请重新关联", 409)
 
+        outputs = pipeline.get("deployment", {}).get("io", {}).get("output_allocations", {})
+        io_binding = pipeline.get("deployment", {}).get("io", {}).get("io_binding", "")
         with self.solution_lock:
             self.generated_solutions[pipe_path.name] = {
                 "conf_path": conf_path,
                 "conf_name": conf_path.name,
                 "conf_revision": revision_for(conf_raw),
                 "pipeline_revision": revision_for(pipe_raw),
-                "outputs": conf["data"].get("outputs", {}),
+                "outputs": outputs,
+                "io_binding": io_binding,
                 "model_root": model_root,
                 "profile": prof,
                 "is_associated": True,
@@ -898,8 +905,9 @@ class WorkbenchService:
 
             profile_obj, conf_data = self.deployment_candidate(
                 pipeline, profile_name, model_root, filename, conf_name, model_path_actions)
-            conf_data["data"]["pipe_path"] = staged_pipe.name
-            staged_conf.write_text(json.dumps(conf_data, ensure_ascii=False, indent=2))
+            staged_pipe.write_text(json.dumps(pipeline, ensure_ascii=False, indent=2), encoding="utf-8")
+            staged_conf_data = {"pipe_path": staged_pipe.name}
+            staged_conf.write_text(json.dumps(staged_conf_data, ensure_ascii=False, indent=2))
             configuration = self.resolve_run_conf(staged_conf, profile_obj)
 
             assets_status = []
@@ -1004,8 +1012,7 @@ class WorkbenchService:
             pipeline_path.write_text(
                 json.dumps(pipeline, ensure_ascii=False, indent=2), encoding="utf-8"
             )
-            temp_conf = copy.deepcopy(conf)
-            temp_conf["data"]["pipe_path"] = pipeline_path.name
+            temp_conf = {"pipe_path": pipeline_path.name}
             conf_path = temp_root / "pipeline.conf"
             conf_path.write_text(json.dumps(temp_conf, indent=2), encoding="utf-8")
             configuration = self.resolve_run_conf(conf_path, profile)

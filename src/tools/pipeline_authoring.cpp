@@ -13,8 +13,12 @@
 #include <sstream>
 #include <stdexcept>
 
+#include "adapter/io_binding_registry.h"
+#include "adapter/io_converter_registry.h"
+#include "adapter/pipeline_document.h"
 #include "core/pipeline_catalog.h"
 #include "core/pipeline_validator.h"
+#include "edgeflow/operator/interface.h"
 
 namespace llm_edgeflow {
 
@@ -1440,6 +1444,72 @@ bool PipelineAuthoring::ApplyOperation(nlohmann::json* pipeline,
   return false;
 }
 
+ValidationReport ValidateOrExplainAuthoring(const nlohmann::json& doc,
+                                            bool explain) {
+  if (!doc.is_object() || !doc.contains("deployment")) {
+    return explain ? PipelineValidator::Explain(doc)
+                   : PipelineValidator::Validate(doc);
+  }
+  const auto ops = operator_api::Get_LLM_EDGEFLOW_OperatorTable();
+  if (ops.Init != nullptr) ops.Init();
+
+  PipelineDocumentSplit split;
+  std::string err;
+  if (!SplitPipelineDocument(doc, &split, &err)) {
+    ValidationReport r;
+    r.ok = false;
+    ValidationDiagnostic diag;
+    diag.code = DiagnosticCode::kUnknownField;
+    diag.path = "/deployment";
+    diag.message = err;
+    diag.severity = "error";
+    r.diagnostics.push_back(std::move(diag));
+    return r;
+  }
+
+  PipelineIoBoundary io_boundary;
+  const PipelineIoBoundary* io_boundary_ptr = nullptr;
+  if (split.deployment.has_io && !split.deployment.io.io_binding.empty()) {
+    const auto* binding = IoBindingRegistry::Instance().FindBinding(
+        split.deployment.io.io_binding);
+    if (binding) {
+      const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
+          binding->input_converter_id);
+      const auto* out_conv =
+          IoConverterRegistry::Instance().FindOutputConverter(
+              binding->output_converter_id);
+      if (in_conv && out_conv) {
+        for (const auto& port : in_conv->logical_ports) {
+          std::string key = port.logical_name;
+          auto bit = binding->input_ports.find(port.logical_name);
+          if (bit != binding->input_ports.end()) key = bit->second;
+          io_boundary.input_published_ports.emplace_back(
+              key, port.type_id, port.required, port.cardinality,
+              port.provenance_policy, port.lifetime,
+              port.lifetime_config_field);
+        }
+        for (const auto& port : out_conv->logical_ports) {
+          std::string key = port.logical_name;
+          auto bit = binding->output_ports.find(port.logical_name);
+          if (bit != binding->output_ports.end()) key = bit->second;
+          io_boundary.output_consumed_ports.emplace_back(
+              key, port.type_id, port.required, port.cardinality,
+              port.provenance_policy, port.lifetime,
+              port.lifetime_config_field);
+        }
+        io_boundary_ptr = &io_boundary;
+      }
+    }
+  }
+
+  return explain ? PipelineValidator::Explain(split.neutral_pipeline_json,
+                                              ValidationPolicy::kStrict,
+                                              io_boundary_ptr)
+                 : PipelineValidator::Validate(split.neutral_pipeline_json,
+                                               ValidationPolicy::kStrict,
+                                               io_boundary_ptr);
+}
+
 AuthoringResult PipelineAuthoring::ApplyRequest(const nlohmann::json& request) {
   AuthoringResult result;
   try {
@@ -1528,7 +1598,7 @@ AuthoringResult PipelineAuthoring::ApplyRequest(const nlohmann::json& request) {
     }
 
     result.failed_operation_index.reset();
-    auto report = PipelineValidator::Explain(working_pipeline);
+    auto report = ValidateOrExplainAuthoring(working_pipeline, true);
     result.validation = report.ToJson();
 
     bool require_valid = request.value("require_valid", false);
@@ -1583,7 +1653,7 @@ FixDepsResult PipelineAuthoring::FixDeps(const std::string& file_path,
       return result;
     }
 
-    auto report = PipelineValidator::Explain(root);
+    auto report = ValidateOrExplainAuthoring(root, true);
     if (report.ok) {
       result.ok = true;
       result.written = false;
@@ -1684,7 +1754,7 @@ FixDepsResult PipelineAuthoring::FixDeps(const std::string& file_path,
       return result;
     }
 
-    auto final_report = PipelineValidator::Explain(working);
+    auto final_report = ValidateOrExplainAuthoring(working, true);
     result.validation = final_report.ToJson();
     if (!final_report.ok) {
       result.ok = false;

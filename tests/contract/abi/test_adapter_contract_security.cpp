@@ -140,19 +140,18 @@ TEST_F(AdapterContractSecurityTest,
   model_config["model_path"] = "translation-probe.fixture";
   model_config["model_config"] = nlohmann::json::object();
   model_config["backend_config"] = nlohmann::json::object();
-  std::ofstream(pipe_path) << pipeline.dump();
-
-  nlohmann::json op_cfg = {
-      {"schema_version", 1},
-      {"data",
-       {{"pipe_path", "pipeline.json"},
-        {"io_binding", "translate.operator.v1"},
-        {"outputs",
+  pipeline["deployment"] = {
+      {"io",
+       {{"io_binding", "translate.operator.v1"},
+        {"output_allocations",
          {{"entity_out",
            {{"type", "entity_out"},
             {"meta_num", 0},
             {"metadata_type_id", 0},
             {"capacities", {{"entities_json", 2047}}}}}}}}}};
+  std::ofstream(pipe_path) << pipeline.dump();
+
+  nlohmann::json op_cfg = {{"pipe_path", "pipeline.json"}};
   const auto config = (directory / "pipeline.conf").string();
   std::ofstream(config) << op_cfg.dump();
 
@@ -465,15 +464,17 @@ TEST_F(AdapterContractSecurityTest,
   ASSERT_EQ(pipeline_json["models"].size(), 2u);
   pipeline_json["models"][0]["model_path"] = "embedding.fixture";
   pipeline_json["models"][1]["model_path"] = "llm.fixture";
+  pipeline_json["deployment"]["model_paths"] = {
+      {"embed_model_v1", "embedding.fixture"}, {"llm_model_v1", "llm.fixture"}};
 
   const std::filesystem::path model_root =
       std::filesystem::weakly_canonical(GetConfigPath("models"));
   std::unique_ptr<ValidatedIoPlan> io_plan;
   std::string plan_err;
-  ASSERT_EQ(IoBindingResolver::ResolveFromPipelineJson(
-                pipeline_json, "doc_qa.operator.v1", "operator",
-                model_root.string(), &io_plan, &plan_err),
-            0)
+  ASSERT_EQ(
+      IoBindingResolver::ResolveFromPipelineJson(
+          pipeline_json, "operator", model_root.string(), &io_plan, &plan_err),
+      0)
       << plan_err;
   ASSERT_NE(io_plan, nullptr);
 

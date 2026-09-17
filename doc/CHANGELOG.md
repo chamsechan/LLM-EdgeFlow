@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-09-17 部署配置归拢至 Pipeline 根文档（RFC-0061）
+
+- **部署配置归拢至 Pipeline 文档**：
+  - 启动配置文件 `.conf` 严格收窄为单一字段 `{"pipe_path": "<relative_path>"}`，删除旧版本顶层包装与旧字段（`io_binding`、`model_paths`、`outputs`、`version` 等）。
+  - 接入部署信息（`io.io_binding`、`io.output_allocations`）及可选模型路径覆盖（`model_paths`）归拢由 `pipeline.json` 的根对象 `deployment` 拥有。
+  - 接入适配层新增轻量级文档拆分（`SplitPipelineDocument`），严格分离 `deployment` 配置与中性算法配置，向后传递给核心编排层。
+- **架构分层与 Core 严格边界**：
+  - 核心编排层（`PipelineValidator` / `PipelineConfig`）保持对接入部署概念的无感知，直接将带有 `deployment` 根字段的完整文档作为未知根字段严格拒绝。
+  - 模型路径覆盖在 Integration 层与模型声明严格配对后应用，保持宿主相对路径与边界安全校验。
+- **工具链与 Studio 迁移**：
+  - `alg_pipeline_tool` 的 `validate` 与 `plan` 命令支持带 `deployment` 的完整 Pipeline 文档并执行部署边界与输出分配校验；纯算法文档保留校验能力但明确标注缺少部署信息。
+  - `pipeline_authoring` 在编辑往返与 `fix-deps` 过程中完整保留 `deployment` 字段。
+  - Pipeline Studio 与 `dev_recipe.py` 生成严格收窄的 `.conf` 并在保存和预检时由 Pipeline 持有 `deployment`。
+
 ## 2026-09-17 退出旧 C ABI，仅保留 C++ Operator SDK（RFC-0060）
 
 - **接口收口与退出旧 C ABI**：
