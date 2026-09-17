@@ -349,7 +349,6 @@ TEST_F(AdapterPurityTest, OcrDocQaAdapterPurity) {
   OdOutputFixture od_fix;
   ExternalOutputBatchView out_view;
   out_view.count = 1;
-  out_view.capacity = 1;
   out_view.leased_slots["od_out"] = {&od_fix.out};
   out_view.slot_types["od_out"] = "CompanyOdOutput";
   out_view.slot_capacities["od_out"]["result_json"] = 2047;
@@ -741,7 +740,6 @@ TEST_F(AdapterPurityTest,
     small_dest.slot_capacities["doc_out"]["answer_text"] = 499;
     small_dest.slot_capacities["doc_out"]["intent_name"] = 127;
     small_dest.count = 1;
-    small_dest.capacity = 1;
 
     size_t written = 0;
     AdapterStatus status;
@@ -766,7 +764,6 @@ TEST_F(AdapterPurityTest,
     op_dest.slot_capacities["doc_out"]["answer_text"] = 6000;
     op_dest.slot_capacities["doc_out"]["intent_name"] = 128;
     op_dest.count = 1;
-    op_dest.capacity = 1;
 
     size_t written = 0;
     AdapterStatus status;
@@ -1047,7 +1044,8 @@ TEST_F(AdapterPurityTest,
   custom_in_def.schema_version = 1;
   custom_in_def.external_type = "CustomMultiFieldInput";
   custom_in_def.external_slots = {ExternalSlotDefinition(
-      "inputs", "CustomMultiFieldInput", PortDirection::kInput, true)};
+      "inputs", "CustomMultiFieldInput", PortDirection::kInput, true,
+      "CustomMultiFieldInput", "custom_input")};
   custom_in_def.max_batch_size = 64;
   custom_in_def.logical_ports = {
       NodePortDefinition("raw_request_ids", "vector<uint64>", true, "1:1"),

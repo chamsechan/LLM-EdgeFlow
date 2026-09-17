@@ -82,7 +82,6 @@ TEST_F(ComplexConvertersTest, DocQaOperatorInputAndOutput) {
 
   ExternalOutputBatchView out_view;
   out_view.count = 1;
-  out_view.capacity = 1;
   out_view.leased_slots["doc_out"] = {&doc_out};
   out_view.slot_types["doc_out"] = "CompanyOperatorDocOutput";
   out_view.slot_capacities["doc_out"]["answer_text"] = 255;
@@ -163,7 +162,6 @@ TEST_F(ComplexConvertersTest, CrossRerankOperatorInputAndOutput) {
   CompanyOperatorRerankOutput rerank_out{};
   ExternalOutputBatchView out_view;
   out_view.count = 1;
-  out_view.capacity = 1;
   out_view.leased_slots["rerank_out"] = {&rerank_out};
   out_view.slot_types["rerank_out"] = "CompanyOperatorRerankOutput";
 
@@ -244,7 +242,6 @@ TEST_F(ComplexConvertersTest, DialogueAuditOperatorInputAndOutput) {
 
   ExternalOutputBatchView out_view;
   out_view.count = 1;
-  out_view.capacity = 1;
   out_view.leased_slots["audit_out"] = {&audit_out};
   out_view.slot_types["audit_out"] = "CompanyOperatorAuditOutput";
   out_view.slot_capacities["audit_out"]["risk_level"] = 31;
@@ -325,7 +322,6 @@ TEST_F(ComplexConvertersTest, AudioAsrOperatorInputAndOutput) {
 
   ExternalOutputBatchView out_view;
   out_view.count = 1;
-  out_view.capacity = 1;
   out_view.leased_slots["audio_out"] = {&audio_out};
   out_view.slot_types["audio_out"] = "CompanyOperatorAudioOutput";
   out_view.slot_capacities["audio_out"]["transcribed_text"] = 511;
@@ -417,7 +413,6 @@ TEST_F(ComplexConvertersTest, OcrDocQaOperatorInputAndOutput) {
   out_view.slot_types["od_out"] = "CompanyOdOutput";
   out_view.slot_capacities["od_out"]["result_json"] = 255;
   out_view.count = 1;
-  out_view.capacity = 1;
 
   OutputPortBindings out_bindings(
       {{"raw_request_ids", "raw_request_ids"},

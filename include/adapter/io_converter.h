@@ -78,31 +78,8 @@ class ExternalInputBatchView {
   std::unordered_map<std::string, std::string> slot_types;
 
   template <typename T>
-  const T* At(size_t index, const std::string& slot_name = "") const {
-    if (!slot_name.empty()) {
-      return GetSlot<T>(slot_name, index);
-    }
-    if (!slots.empty()) {
-      return GetSlot<T>(slots.begin()->first, index);
-    }
-    if (!leased_slots.empty()) {
-      return GetSlot<T>(leased_slots.begin()->first, index);
-    }
-    return nullptr;
-  }
-
-  template <typename T>
   const T* GetSlot(const std::string& slot_name, size_t index) const {
     auto lit = leased_slots.find(slot_name);
-    if (lit == leased_slots.end()) {
-      for (const auto& kv : leased_slots) {
-        auto dot = kv.first.rfind('.');
-        if (dot != std::string::npos && kv.first.substr(dot + 1) == slot_name) {
-          lit = leased_slots.find(kv.first);
-          break;
-        }
-      }
-    }
     if (lit != leased_slots.end() && index < lit->second.size()) {
       if constexpr (!std::is_void_v<T>) {
         std::string expected;
@@ -123,15 +100,6 @@ class ExternalInputBatchView {
     }
 
     auto it = slots.find(slot_name);
-    if (it == slots.end()) {
-      for (const auto& kv : slots) {
-        auto dot = kv.first.rfind('.');
-        if (dot != std::string::npos && kv.first.substr(dot + 1) == slot_name) {
-          it = slots.find(kv.first);
-          break;
-        }
-      }
-    }
     if (it == slots.end() || index >= it->second.size()) return nullptr;
     if constexpr (!std::is_void_v<T>) {
       std::string expected;
@@ -158,7 +126,6 @@ class ExternalInputBatchView {
 class ExternalOutputBatchView {
  public:
   size_t count = 0;
-  size_t capacity = 0;
   std::string type_id;
 
   // Operator 已租用输出块: slot_name -> vector of void*
@@ -361,18 +328,18 @@ struct ExternalSlotDefinition {
   ExternalSlotDefinition() = default;
   ExternalSlotDefinition(std::string slot_name, std::string type_id,
                          PortDirection direction = PortDirection::kInput,
-                         bool required = true, std::string val_type = "",
-                         std::string typ_suffix = "",
-                         std::vector<std::string> cap_fields = {},
-                         std::string k_suffix = "")
-      : slot_name(slot_name),
-        type_id(type_id),
+                         bool required = true, std::string value_type = "",
+                         std::string type_suffix = "",
+                         std::vector<std::string> capacity_fields = {},
+                         std::string key_suffix = "")
+      : slot_name(std::move(slot_name)),
+        type_id(std::move(type_id)),
         direction(direction),
         required(required),
-        value_type(!val_type.empty() ? std::move(val_type) : type_id),
-        type_suffix(!typ_suffix.empty() ? std::move(typ_suffix) : slot_name),
-        capacity_fields(std::move(cap_fields)),
-        key_suffix(std::move(k_suffix)) {}
+        value_type(std::move(value_type)),
+        type_suffix(std::move(type_suffix)),
+        capacity_fields(std::move(capacity_fields)),
+        key_suffix(std::move(key_suffix)) {}
 
   const std::string& KeySuffix() const {
     return !key_suffix.empty() ? key_suffix : type_suffix;

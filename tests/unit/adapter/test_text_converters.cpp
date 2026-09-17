@@ -131,7 +131,6 @@ TEST_F(TextConvertersTest, TranslationJsonOutputEncodeOperator) {
 
   ExternalOutputBatchView dest;
   dest.count = 1;
-  dest.capacity = 1;
   dest.leased_slots["entity_out"] = {&out_struct};
   dest.slot_types["entity_out"] = "CompanyOperatorEntityOutput";
 

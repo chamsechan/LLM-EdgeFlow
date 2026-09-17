@@ -925,7 +925,6 @@ TEST_F(AdapterContractSecurityTest,
   CompanyOperatorEntityOutput out{};
   ExternalOutputBatchView view;
   view.count = 1;
-  view.capacity = 1;
   view.leased_slots["entity_out"] = {&out};
   view.slot_types["entity_out"] = "CompanyOperatorEntityOutput";
 
@@ -963,7 +962,6 @@ TEST_F(AdapterContractSecurityTest,
   CompanyOperatorEntityOutput out{};
   ExternalOutputBatchView view;
   view.count = 1;
-  view.capacity = 1;
   view.leased_slots["entity_out"] = {&out};
   view.slot_types["entity_out"] = "CompanyOperatorEntityOutput";
 
@@ -1026,7 +1024,6 @@ TEST_F(AdapterContractSecurityTest, TranslateNullContextDiagnostics) {
   CompanyOperatorEntityOutput output{};
   ExternalOutputBatchView out_view;
   out_view.count = 1;
-  out_view.capacity = 1;
   out_view.leased_slots["entity_out"] = {&output};
   out_view.slot_types["entity_out"] = "CompanyOperatorEntityOutput";
 

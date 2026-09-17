@@ -76,7 +76,6 @@ class AdapterHarness {
     }
     ExternalOutputBatchView view;
     view.count = outputs->size();
-    view.capacity = outputs->size();
     view.type_id = out_conv_->external_type;
     std::string slot_name = out_conv_->external_slots.empty()
                                 ? ""
