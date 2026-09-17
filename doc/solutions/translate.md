@@ -8,7 +8,7 @@
 
 ## 直接调用 Operator API
 
-翻译部署配置使用 `configs/pipeline_translate_cpu.conf`，其 `io_binding` 为 `translate.operator.v1`，Pipeline 的 `biz_name` 为 `translate_v1`。
+翻译部署配置使用 `configs/pipeline_translate_cpu.conf`，其指向的 `pipeline_translate_cpu.json` 在 `deployment.io` 中配置 `io_binding` 为 `translate.operator.v1`，Pipeline 的 `biz_name` 为 `translate_v1`。
 输入/输出复用已有文本载体，因此结构字段仍叫 `sentence_text` / `entities_json`。
 传入的是完整对象文本，不是 `query` 子串，也不是双重 JSON 编码后的字符串：
 

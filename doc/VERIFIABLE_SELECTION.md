@@ -19,7 +19,7 @@
 Node 的检索数、生成预算、模板等业务参数放在 Node `config`，字段说明与默认值通过
 `describe-node` 或 Studio 属性查看。未声明为 Control 的参数在重新创建 handle 后生效。
 
-`.conf` 的 `data.model_paths` 可覆盖 Pipeline 中的权重路径。使用现有部署文件时，更新
+Pipeline JSON 根对象的 `deployment.model_paths` 可覆盖 `models` 中的权重路径。`.conf` 仅包含 `pipe_path` 定位该 JSON。使用现有部署文件时，更新
 或移除相应覆盖后，查看与 Operator Create 同一解析器得到的结果：
 
 ```bash
@@ -81,7 +81,7 @@ python3 tools/verify_selection.py check \
 
 复用现有 `alg_demo` 的样例读取、宿主载体构造和 SDK 执行路径；业务请求的解包与响应
 组装仍由 Adapter 完成，见[输入输出边界](dev_guide/business_onboarding.md#输入输出以-c-abi-为边界)。
-验收器为选定 Pipeline 生成临时 `.conf`，从 `--conf`（默认同名 `.conf`）继承输出池配置，按 `--model-root` 生成模型路径；不会沿用原 `.conf` 中可能覆盖模型选择的 `model_paths`。
+验收器为选定 Pipeline 生成临时 `.conf`，从 Pipeline JSON（或 `--conf` 定位的原 JSON）继承 `deployment.io` 输出池配置，按 `--model-root` 生成模型路径并写入临时 Pipeline 的 `deployment.model_paths`。
 
 验收固定使用 CPU、device 0、batch 1；Demo 默认使用所选规则/提示词。这个版本的验收目标是配置正确性与选定输出字段的业务效果；目标设备性能验收需要相应环境与后续测试定义。
 

@@ -65,8 +65,8 @@ See [the I/O boundary](../../../doc/dev_guide/business_onboarding.md#输入输�
 
 5. After validation, run the edited Pipeline through a compatible Demo. Follow
    [running the current solution](../../../tools/pipeline_studio/README.md#运行当前方案): confirm
-   `.conf` `data.pipe_path` resolves to the edited JSON, inspect inherited model path overrides
-   and capacities, and select a matching biz and dataset. Use
+   `.conf` `pipe_path` resolves to the edited JSON, inspect pipeline-owned `deployment` (io_binding,
+   output_allocations, and model_paths), and select a matching biz and dataset. Use
    `alg_pipeline_tool resolve-conf <edited.conf> --root <deployment_root> --depth <max_batch_or_depth>`
    to inspect the native resolved paths, their sources and normalized defaults; it does not load
    weights. Studio can save a JSON + `.conf` pair and command via “另存为可运行方案”; its model
