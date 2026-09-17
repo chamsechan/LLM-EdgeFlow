@@ -231,8 +231,7 @@ TEST_F(IoBindingRegistryTest, UnselectedIllegalBindingFailsAudit) {
 
 TEST_F(IoBindingRegistryTest, DeploymentIoConfigValidation) {
   // 1. 合法 RFC-0061 Operator 定位配置 (仅包含 pipe_path)
-  nlohmann::json valid_cfg = {
-      {"pipe_path", "test.json"}};
+  nlohmann::json valid_cfg = {{"pipe_path", "test.json"}};
 
   // 写入临时测试 pipeline 文件
   std::string tmp_dir = "/tmp/edgeflow_test_config_" + std::to_string(getpid());
@@ -253,10 +252,9 @@ TEST_F(IoBindingRegistryTest, DeploymentIoConfigValidation) {
   nlohmann::json old_schema1 = {
       {"schema_version", 1},
       {"data",
-       {{"pipe_path", "test.json"},
-        {"io_binding", "test_biz.operator.v1"}}}};
-  EXPECT_FALSE(
-      DeploymentIoConfig::Parse(old_schema1, tmp_dir, "operator", &parsed, &err));
+       {{"pipe_path", "test.json"}, {"io_binding", "test_biz.operator.v1"}}}};
+  EXPECT_FALSE(DeploymentIoConfig::Parse(old_schema1, tmp_dir, "operator",
+                                         &parsed, &err));
   EXPECT_NE(err.find("Deprecated"), std::string::npos);
 
   // 3. 拒绝顶层未知字段
@@ -430,8 +428,7 @@ TEST_F(IoBindingRegistryTest, SplitPipelineDocumentAndCoreBoundary) {
          {"node_type", "TextRuleMatchNode"},
          {"depends_on", nlohmann::json::array()},
          {"ports",
-          {{"inputs", {{"text", "in"}}},
-           {"outputs", {{"matches", "out"}}}}},
+          {{"inputs", {{"text", "in"}}}, {"outputs", {{"matches", "out"}}}}},
          {"config", {{"categories", {{"CAT", {"word"}}}}}}}}}};
 
   PipelineDocumentSplit split;
@@ -454,8 +451,7 @@ TEST_F(IoBindingRegistryTest, SplitPipelineDocumentAndCoreBoundary) {
          {"node_type", "TextRuleMatchNode"},
          {"depends_on", nlohmann::json::array()},
          {"ports",
-          {{"inputs", {{"text", "in"}}},
-           {"outputs", {{"matches", "out"}}}}},
+          {{"inputs", {{"text", "in"}}}, {"outputs", {{"matches", "out"}}}}},
          {"config", {{"categories", {{"CAT", {"word"}}}}}}}}}};
   EXPECT_TRUE(SplitPipelineDocument(neutral_doc, &split, &err));
   EXPECT_FALSE(split.has_deployment);
@@ -485,7 +481,8 @@ TEST_F(IoBindingRegistryTest, SplitPipelineDocumentAndCoreBoundary) {
   EXPECT_FALSE(SplitPipelineDocument(bad_io, &split, &err));
   EXPECT_NE(err.find("Unknown field at /deployment/io"), std::string::npos);
 
-  // 7. Core 边界检查: 带 deployment 的文档直接提交给 Core 严格解析必须被拒绝 (Unknown root field)
+  // 7. Core 边界检查: 带 deployment 的文档直接提交给 Core 严格解析必须被拒绝
+  // (Unknown root field)
   ParsedPipelineConfig parsed_core;
   PipelineDiagnostic diag;
   EXPECT_FALSE(ParsePipelineConfig(valid_doc, &parsed_core, &diag));
@@ -498,7 +495,8 @@ TEST_F(IoBindingRegistryTest, SplitPipelineDocumentAndCoreBoundary) {
       ParsePipelineConfig(split.neutral_pipeline_json, &parsed_core, &diag))
       << diag.message;
 
-  // 9. 如果源文档含有拼写错误的根字段 (例如 deploymen)，拆分时不被过滤，Core 解析必须报错
+  // 9. 如果源文档含有拼写错误的根字段 (例如 deploymen)，拆分时不被过滤，Core
+  // 解析必须报错
   nlohmann::json typo_doc = neutral_doc;
   typo_doc["deploymen"] = nlohmann::json::object();
   EXPECT_TRUE(SplitPipelineDocument(typo_doc, &split, &err));

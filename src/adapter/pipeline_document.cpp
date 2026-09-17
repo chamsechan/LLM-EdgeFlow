@@ -126,7 +126,8 @@ bool SplitPipelineDocument(const nlohmann::json& root,
   }
   if (!io["output_allocations"].is_object()) {
     if (out_error) {
-      *out_error = "Field '/deployment/io/output_allocations' must be an object";
+      *out_error =
+          "Field '/deployment/io/output_allocations' must be an object";
     }
     return false;
   }

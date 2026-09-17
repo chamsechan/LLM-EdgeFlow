@@ -180,10 +180,9 @@ int IoBindingResolver::ResolveFromPipelineJson(
     if (!allocations.contains(slot.slot_name)) {
       if (slot.required) {
         if (out_error) {
-          *out_error = "Missing required Operator output slot '" +
-                       slot.slot_name +
-                       "' (at /deployment/io/output_allocations/" +
-                       slot.slot_name + ")";
+          *out_error =
+              "Missing required Operator output slot '" + slot.slot_name +
+              "' (at /deployment/io/output_allocations/" + slot.slot_name + ")";
         }
         return -2;
       }
@@ -332,7 +331,8 @@ int IoBindingResolver::ResolveFromPipelineJson(
         port.provenance_policy, port.lifetime, port.lifetime_config_field);
   }
 
-  // 9. 调用 PipelineValidator 进行统一中性计划验证 (Core 校验 neutral_pipeline_json)
+  // 9. 调用 PipelineValidator 进行统一中性计划验证 (Core 校验
+  // neutral_pipeline_json)
   auto plan = std::make_unique<ValidatedPipelinePlan>(
       PipelineValidator::ValidateAndPlan(
           resolved_pipeline_json, ValidationPolicy::kStrict, &io_boundary));
@@ -406,14 +406,15 @@ int IoBindingResolver::ResolveFromPipelineJson(
               {"metadata_type_id", 0},
               {"capacities", nlohmann::json::object()}};
           const auto* val_binding =
-              OperatorValueTypeRegistry::Instance().GetOutputBinding(
-                  slot_type, "");
+              OperatorValueTypeRegistry::Instance().GetOutputBinding(slot_type,
+                                                                     "");
           for (const auto& cap : slot.capacity_fields) {
             uint32_t cap_val = 1024;
             if (val_binding &&
                 val_binding->output_layout.string_capacity_fields.count(cap)) {
-              cap_val = val_binding->output_layout.string_capacity_fields.at(cap)
-                            .default_capacity;
+              cap_val =
+                  val_binding->output_layout.string_capacity_fields.at(cap)
+                      .default_capacity;
             }
             slot_alloc["capacities"][cap] = cap_val;
           }
@@ -426,10 +427,9 @@ int IoBindingResolver::ResolveFromPipelineJson(
   nlohmann::json synthetic = pipeline_json;
   synthetic["deployment"] = {
       {"io",
-       {{"io_binding", binding_id},
-        {"output_allocations", allocations}}}};
-  return ResolveFromPipelineJson(synthetic, transport, model_root_dir,
-                                 out_plan, out_error);
+       {{"io_binding", binding_id}, {"output_allocations", allocations}}}};
+  return ResolveFromPipelineJson(synthetic, transport, model_root_dir, out_plan,
+                                 out_error);
 }
 
 }  // namespace llm_edgeflow

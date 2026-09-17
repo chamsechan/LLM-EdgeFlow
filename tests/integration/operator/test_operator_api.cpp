@@ -1228,9 +1228,10 @@ TEST_F(OperatorApiTest, OutputsConfigValidationFailClosed) {
     p_ofs.close();
   }
   EXPECT_EQ(ops_.Create(&handle, &param), -2);
-  EXPECT_NE(std::string(GetOperatorLastError())
-                .find("Missing required field '/deployment/io/output_allocations'"),
-            std::string::npos);
+  EXPECT_NE(
+      std::string(GetOperatorLastError())
+          .find("Missing required field '/deployment/io/output_allocations'"),
+      std::string::npos);
 
   // 2. output_allocations.keyword_out.type 与业务不匹配 -> -2
   {
@@ -1252,8 +1253,10 @@ TEST_F(OperatorApiTest, OutputsConfigValidationFailClosed) {
                           "configs/pipeline_keyword_match_rules.json");
     nlohmann::json pipe_json;
     json_in >> pipe_json;
-    pipe_json["deployment"]["io"]["output_allocations"]["keyword_out"]["meta_num"] = 0;
-    pipe_json["deployment"]["io"]["output_allocations"]["keyword_out"]["metadata_type_id"] = 123;
+    pipe_json["deployment"]["io"]["output_allocations"]["keyword_out"]
+             ["meta_num"] = 0;
+    pipe_json["deployment"]["io"]["output_allocations"]["keyword_out"]
+             ["metadata_type_id"] = 123;
     std::ofstream p_ofs(root / "configs/pipeline_keyword_match_rules.json");
     p_ofs << pipe_json.dump(2);
     p_ofs.close();
@@ -1266,8 +1269,8 @@ TEST_F(OperatorApiTest, OutputsConfigValidationFailClosed) {
                           "configs/pipeline_keyword_match_rules.json");
     nlohmann::json pipe_json;
     json_in >> pipe_json;
-    pipe_json["deployment"]["io"]["output_allocations"]["keyword_out"]["capacities"] = {
-        {"unknown_field_xyz", 100}};
+    pipe_json["deployment"]["io"]["output_allocations"]["keyword_out"]
+             ["capacities"] = {{"unknown_field_xyz", 100}};
     std::ofstream p_ofs(root / "configs/pipeline_keyword_match_rules.json");
     p_ofs << pipe_json.dump(2);
     p_ofs.close();
@@ -1321,9 +1324,9 @@ TEST_F(OperatorApiTest, OutputsConfigValidationFailClosed) {
     })";
   }
   EXPECT_EQ(ops_.Create(&handle, &param), -2);
-  EXPECT_NE(std::string(GetOperatorLastError())
-                .find("Unknown field at /: 'comment'"),
-            std::string::npos);
+  EXPECT_NE(
+      std::string(GetOperatorLastError()).find("Unknown field at /: 'comment'"),
+      std::string::npos);
 }
 
 // 22. SSO 短字符串 (1~7 字节) 与跨批次指针绝对地址稳定性测试 (R9-001)
@@ -2082,8 +2085,8 @@ TEST_F(OperatorApiTest, DotDotPrefixedControlFileNamesStayWithinRoot) {
   std::filesystem::copy_file(std::filesystem::path(GetConfDir()) /
                                  "configs/pipeline_keyword_match_rules.json",
                              root / "..configs/pipeline.json");
-  std::ofstream(root / "..configs/pipeline.conf") << nlohmann::json(
-      {{"pipe_path", "pipeline.json"}});
+  std::ofstream(root / "..configs/pipeline.conf")
+      << nlohmann::json({{"pipe_path", "pipeline.json"}});
 
   llm_edgeflow::ResolvedOperatorConfig resolved;
   std::string error;
@@ -2118,8 +2121,8 @@ TEST_F(OperatorApiTest, VariableResultsUsePoolCapacityAndRollbackOnFailure) {
              {"outputs", {{"matches", "rule_matches"}}}}},
            {"config", {{"categories", {{"LONG", {word}}}}}}}}}};
     std::ofstream(temp.path() / "pipeline.json") << pipeline;
-    std::ofstream(temp.path() / "pipeline.conf") << nlohmann::json(
-        {{"pipe_path", "pipeline.json"}});
+    std::ofstream(temp.path() / "pipeline.conf")
+        << nlohmann::json({{"pipe_path", "pipeline.json"}});
     const auto root = temp.path().string();
     CreateParam param{};
     param.model_path = root.c_str();
@@ -2179,8 +2182,8 @@ TEST_F(OperatorApiTest, MetadataTypeIdOutOfInt32RangeIsRejected) {
     std::ifstream json_in(root / "configs/pipeline_keyword_match_rules.json");
     nlohmann::json pipe_json;
     json_in >> pipe_json;
-    pipe_json["deployment"]["io"]["output_allocations"]["keyword_out"]["metadata_type_id"] =
-        3000000000ULL;
+    pipe_json["deployment"]["io"]["output_allocations"]["keyword_out"]
+             ["metadata_type_id"] = 3000000000ULL;
     std::ofstream pipe_out(root / "configs/pipe_overflow.json");
     pipe_out << pipe_json.dump(2);
     pipe_out.close();
@@ -2202,8 +2205,8 @@ TEST_F(OperatorApiTest, MetadataTypeIdOutOfInt32RangeIsRejected) {
     std::ifstream json_in(root / "configs/pipeline_keyword_match_rules.json");
     nlohmann::json pipe_json;
     json_in >> pipe_json;
-    pipe_json["deployment"]["io"]["output_allocations"]["keyword_out"]["metadata_type_id"] =
-        -3000000000LL;
+    pipe_json["deployment"]["io"]["output_allocations"]["keyword_out"]
+             ["metadata_type_id"] = -3000000000LL;
     std::ofstream pipe_out(root / "configs/pipe_underflow.json");
     pipe_out << pipe_json.dump(2);
     pipe_out.close();
@@ -2225,8 +2228,8 @@ TEST_F(OperatorApiTest, MetadataTypeIdOutOfInt32RangeIsRejected) {
     std::ifstream json_in(root / "configs/pipeline_keyword_match_rules.json");
     nlohmann::json pipe_json;
     json_in >> pipe_json;
-    pipe_json["deployment"]["io"]["output_allocations"]["keyword_out"]["metadata_type_id"] =
-        1.5;
+    pipe_json["deployment"]["io"]["output_allocations"]["keyword_out"]
+             ["metadata_type_id"] = 1.5;
     std::ofstream pipe_out(root / "configs/pipe_not_integer.json");
     pipe_out << pipe_json.dump(2);
     pipe_out.close();
@@ -2356,20 +2359,18 @@ const bool g_reg_nested_output_components = []() {
 }();
 
 nlohmann::json NestedOutputAllocations(bool alternate = false) {
-  return {
-      {"main",
-       {{"type", "test_nested_out"},
-        {"allocator",
-         alternate ? "test_nested_alternate" : "test_nested_standard"},
-        {"params",
-         {{"kind", alternate ? 2 : 1}, {"capacity", alternate ? 3 : 2}}}}},
-      {"audit",
-       {{"type", "test_nested_out"},
-        {"allocator",
-         alternate ? "test_nested_standard" : "test_nested_alternate"},
-        {"params",
-         {{"kind", alternate ? 1 : 2},
-          {"capacity", alternate ? 4 : 5}}}}}};
+  return {{"main",
+           {{"type", "test_nested_out"},
+            {"allocator",
+             alternate ? "test_nested_alternate" : "test_nested_standard"},
+            {"params",
+             {{"kind", alternate ? 2 : 1}, {"capacity", alternate ? 3 : 2}}}}},
+          {"audit",
+           {{"type", "test_nested_out"},
+            {"allocator",
+             alternate ? "test_nested_standard" : "test_nested_alternate"},
+            {"params",
+             {{"kind", alternate ? 1 : 2}, {"capacity", alternate ? 4 : 5}}}}}};
 }
 
 nlohmann::json NestedOutputPipelineJson(bool alternate = false) {
@@ -2385,9 +2386,10 @@ nlohmann::json NestedOutputPipelineJson(bool alternate = false) {
   return pipeline;
 }
 
-void WriteNestedOutputPipeline(const std::filesystem::path& root,
-                               const std::string& pipeline_name = "pipeline.json",
-                               bool alternate = false) {
+void WriteNestedOutputPipeline(
+    const std::filesystem::path& root,
+    const std::string& pipeline_name = "pipeline.json",
+    bool alternate = false) {
   std::ofstream(root / pipeline_name) << NestedOutputPipelineJson(alternate);
 }
 

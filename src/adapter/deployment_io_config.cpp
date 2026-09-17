@@ -73,7 +73,8 @@ bool DeploymentIoConfig::Parse(const nlohmann::json& root,
     if (out_error) {
       *out_error =
           "Deprecated deployment configuration format (RFC-0061): "
-          "'.conf' files must contain only 'pipe_path'. Deployment configuration "
+          "'.conf' files must contain only 'pipe_path'. Deployment "
+          "configuration "
           "(io_binding, output_allocations, model_paths) has moved to the "
           "'deployment' section inside the Pipeline JSON.";
     }
@@ -100,7 +101,8 @@ bool DeploymentIoConfig::Parse(const nlohmann::json& root,
   out_config->pipe_path = root["pipe_path"].get<std::string>();
   out_config->raw_json = root;
 
-  // 3. 解析 pipe_path 相对 config_dir，严格限制在配置根目录下，拒绝任何逃逸与搜索回退
+  // 3. 解析 pipe_path 相对
+  // config_dir，严格限制在配置根目录下，拒绝任何逃逸与搜索回退
   fs::path base_dir = fs::absolute(fs::path(config_dir));
   fs::path raw_pipe = fs::path(out_config->pipe_path);
   fs::path full_pipe =

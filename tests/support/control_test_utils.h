@@ -35,8 +35,7 @@ inline void WriteControlTestPipeline(const std::filesystem::path& directory) {
           {{"inputs", {{"text", "prefixed"}}},
            {"outputs", {{"matches", "rule_matches"}}}}},
          {"config", {{"categories", {{"PREFIX_APPLIED", {"VIP:sample"}}}}}}}}}};
-  const nlohmann::json conf = {
-      {"pipe_path", "pipeline.json"}};
+  const nlohmann::json conf = {{"pipe_path", "pipeline.json"}};
   std::ofstream(directory / "pipeline.json") << pipeline.dump(2);
   std::ofstream(directory / "pipeline.conf") << conf.dump(2);
 }

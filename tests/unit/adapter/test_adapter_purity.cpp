@@ -1290,12 +1290,11 @@ TEST_F(AdapterPurityTest, ReuseProof_6_NegativeCombinations) {
       {"deployment",
        {{"io",
          {{"io_binding", "keyword_match.operator.v1"},
-          {"output_allocations",
-           {{"unknown_slot", {{"type", "String"}}}}}}}}},
+          {"output_allocations", {{"unknown_slot", {{"type", "String"}}}}}}}}},
       {"models", nlohmann::json::array()},
       {"pipeline", nlohmann::json::array()}};
-  ret = IoBindingResolver::ResolveFromPipelineJson(
-      unknown_out_json, "operator", "./models", &plan, &error);
+  ret = IoBindingResolver::ResolveFromPipelineJson(unknown_out_json, "operator",
+                                                   "./models", &plan, &error);
   EXPECT_EQ(ret, -2);
   EXPECT_NE(error.find("Unknown configured output slot: unknown_slot"),
             std::string::npos);
@@ -1315,11 +1314,12 @@ TEST_F(AdapterPurityTest, ReuseProof_6_NegativeCombinations) {
               {"capacities", {{"match_result_json", 2047}}}}}}}}}}},
       {"models", nlohmann::json::array()},
       {"pipeline", nlohmann::json::array()}};
-  ret = IoBindingResolver::ResolveFromPipelineJson(
-      unknown_mid_json, "operator", "./models", &plan, &error);
+  ret = IoBindingResolver::ResolveFromPipelineJson(unknown_mid_json, "operator",
+                                                   "./models", &plan, &error);
   EXPECT_EQ(ret, -2);
   EXPECT_NE(
-      error.find("Unknown model_id 'non_existent_model' in '/deployment/model_paths'"),
+      error.find(
+          "Unknown model_id 'non_existent_model' in '/deployment/model_paths'"),
       std::string::npos)
       << "actual error was: " << error;
 }

@@ -159,31 +159,31 @@ bool ResolveDeploymentBoundary(
   }
 
   if (binding->transport != "operator") {
-    *out_error_json = ToolError(
-        "UNSUPPORTED_TRANSPORT",
-        "Binding transport mismatch for '" + binding_id +
-            "': expected 'operator', but binding declared '" +
-            binding->transport + "' (at /deployment/io/io_binding)");
+    *out_error_json =
+        ToolError("UNSUPPORTED_TRANSPORT",
+                  "Binding transport mismatch for '" + binding_id +
+                      "': expected 'operator', but binding declared '" +
+                      binding->transport + "' (at /deployment/io/io_binding)");
     return false;
   }
 
   const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
       binding->input_converter_id);
   if (!in_conv) {
-    *out_error_json = ToolError(
-        "UNREGISTERED_CONVERTER",
-        "Binding references unregistered input converter: " +
-            binding->input_converter_id);
+    *out_error_json =
+        ToolError("UNREGISTERED_CONVERTER",
+                  "Binding references unregistered input converter: " +
+                      binding->input_converter_id);
     return false;
   }
 
   const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
       binding->output_converter_id);
   if (!out_conv) {
-    *out_error_json = ToolError(
-        "UNREGISTERED_CONVERTER",
-        "Binding references unregistered output converter: " +
-            binding->output_converter_id);
+    *out_error_json =
+        ToolError("UNREGISTERED_CONVERTER",
+                  "Binding references unregistered output converter: " +
+                      binding->output_converter_id);
     return false;
   }
 
@@ -199,9 +199,9 @@ bool ResolveDeploymentBoundary(
     }
     if (!found) {
       *out_error_json = ToolError(
-          "UNKNOWN_OUTPUT_SLOT",
-          "Unknown configured output slot: " + it.key() +
-              " (at /deployment/io/output_allocations/" + it.key() + ")");
+          "UNKNOWN_OUTPUT_SLOT", "Unknown configured output slot: " + it.key() +
+                                     " (at /deployment/io/output_allocations/" +
+                                     it.key() + ")");
       return false;
     }
   }
@@ -225,10 +225,10 @@ bool ResolveDeploymentBoundary(
     if (OperatorConfigResolver::ResolveOutputAllocation(
             allocations[slot.slot_name], slot, &pool_spec, &param_text,
             &alloc_err) != 0) {
-      *out_error_json = ToolError(
-          "INVALID_OUTPUT_ALLOCATION",
-          alloc_err + " (at /deployment/io/output_allocations/" +
-              slot.slot_name + ")");
+      *out_error_json =
+          ToolError("INVALID_OUTPUT_ALLOCATION",
+                    alloc_err + " (at /deployment/io/output_allocations/" +
+                        slot.slot_name + ")");
       return false;
     }
   }
@@ -248,9 +248,9 @@ bool ResolveDeploymentBoundary(
     }
     for (const auto& [mid, _] : doc_split.deployment.model_paths) {
       if (!known_model_ids.count(mid)) {
-        *out_error_json = ToolError(
-            "UNKNOWN_MODEL_ID",
-            "Unknown model_id '" + mid + "' in '/deployment/model_paths'");
+        *out_error_json =
+            ToolError("UNKNOWN_MODEL_ID", "Unknown model_id '" + mid +
+                                              "' in '/deployment/model_paths'");
         return false;
       }
     }
@@ -345,12 +345,12 @@ nlohmann::json ResolveConf(const std::string& file, const std::string& root,
 
   nlohmann::json paths = nlohmann::json::array();
   for (const auto& model : plan.models)
-    paths.push_back({{"model_id", model.model_id},
-                     {"source", resolved.io_plan->overridden_model_ids.count(
-                                    model.model_id)
-                                    ? "pipeline.deployment.model_paths"
-                                    : "pipeline.models.model_path"},
-                     {"resolved", model.resolved_model_path}});
+    paths.push_back(
+        {{"model_id", model.model_id},
+         {"source", resolved.io_plan->overridden_model_ids.count(model.model_id)
+                        ? "pipeline.deployment.model_paths"
+                        : "pipeline.models.model_path"},
+         {"resolved", model.resolved_model_path}});
   nlohmann::json output_pools = nlohmann::json::object();
   for (const auto& [slot, pool] : resolved.output_pool_specs) {
     output_pools[slot] = {{"type", pool.type},
@@ -598,14 +598,13 @@ int main(int argc, char* argv[]) {
     }
 
     if (command == "validate") {
-      auto report = explain ? PipelineValidator::Explain(
-                                  target_json,
-                                  llm_edgeflow::ValidationPolicy::kStrict,
-                                  io_boundary_ptr)
-                            : PipelineValidator::Validate(
-                                  target_json,
-                                  llm_edgeflow::ValidationPolicy::kStrict,
-                                  io_boundary_ptr);
+      auto report =
+          explain ? PipelineValidator::Explain(
+                        target_json, llm_edgeflow::ValidationPolicy::kStrict,
+                        io_boundary_ptr)
+                  : PipelineValidator::Validate(
+                        target_json, llm_edgeflow::ValidationPolicy::kStrict,
+                        io_boundary_ptr);
       if (report.ok && binding_def != nullptr) {
         std::string biz = target_json.value("biz_name", "");
         if (biz != binding_def->biz_name) {

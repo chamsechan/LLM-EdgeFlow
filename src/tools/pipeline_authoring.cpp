@@ -13,11 +13,11 @@
 #include <sstream>
 #include <stdexcept>
 
-#include "core/pipeline_catalog.h"
-#include "core/pipeline_validator.h"
 #include "adapter/io_binding_registry.h"
 #include "adapter/io_converter_registry.h"
 #include "adapter/pipeline_document.h"
+#include "core/pipeline_catalog.h"
+#include "core/pipeline_validator.h"
 #include "edgeflow/operator/interface.h"
 
 namespace llm_edgeflow {
@@ -1470,13 +1470,14 @@ ValidationReport ValidateOrExplainAuthoring(const nlohmann::json& doc,
   PipelineIoBoundary io_boundary;
   const PipelineIoBoundary* io_boundary_ptr = nullptr;
   if (split.deployment.has_io && !split.deployment.io.io_binding.empty()) {
-    const auto* binding =
-        IoBindingRegistry::Instance().FindBinding(split.deployment.io.io_binding);
+    const auto* binding = IoBindingRegistry::Instance().FindBinding(
+        split.deployment.io.io_binding);
     if (binding) {
       const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
           binding->input_converter_id);
-      const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
-          binding->output_converter_id);
+      const auto* out_conv =
+          IoConverterRegistry::Instance().FindOutputConverter(
+              binding->output_converter_id);
       if (in_conv && out_conv) {
         for (const auto& port : in_conv->logical_ports) {
           std::string key = port.logical_name;
@@ -1484,7 +1485,8 @@ ValidationReport ValidateOrExplainAuthoring(const nlohmann::json& doc,
           if (bit != binding->input_ports.end()) key = bit->second;
           io_boundary.input_published_ports.emplace_back(
               key, port.type_id, port.required, port.cardinality,
-              port.provenance_policy, port.lifetime, port.lifetime_config_field);
+              port.provenance_policy, port.lifetime,
+              port.lifetime_config_field);
         }
         for (const auto& port : out_conv->logical_ports) {
           std::string key = port.logical_name;
@@ -1492,7 +1494,8 @@ ValidationReport ValidateOrExplainAuthoring(const nlohmann::json& doc,
           if (bit != binding->output_ports.end()) key = bit->second;
           io_boundary.output_consumed_ports.emplace_back(
               key, port.type_id, port.required, port.cardinality,
-              port.provenance_policy, port.lifetime, port.lifetime_config_field);
+              port.provenance_policy, port.lifetime,
+              port.lifetime_config_field);
         }
         io_boundary_ptr = &io_boundary;
       }

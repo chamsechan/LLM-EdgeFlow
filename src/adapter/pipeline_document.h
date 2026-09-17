@@ -40,7 +40,8 @@ struct PipelineDocumentSplit {
  * - 根中若有 deployment，必须为对象，且只允许 model_paths 与 io 键
  * - model_paths 若存在必须为对象，键为 model_id，值为非空字符串路径
  * - io 必须存在且必须为对象，有且仅有 io_binding 和 output_allocations 两个字段
- * - neutral_pipeline_json 为移除已校验 deployment 后的副本，保留所有其他根字段供 Core 校验
+ * - neutral_pipeline_json 为移除已校验 deployment
+ * 后的副本，保留所有其他根字段供 Core 校验
  */
 bool SplitPipelineDocument(const nlohmann::json& root,
                            PipelineDocumentSplit* out_split,

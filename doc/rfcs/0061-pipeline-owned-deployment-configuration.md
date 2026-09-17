@@ -2,15 +2,14 @@
 
 - **RFC 编号**：0061-pipeline-owned-deployment-configuration
 - **创建日期**：2026-09-17
-- **文档状态**：In Implementation
-- **关联分支**：`docs/pipeline-deployment-rfc`（设计文档）
+- **文档状态**：Completed
+- **关联分支**：`docs/pipeline-deployment-rfc`
 - **目标版本**：下一次配置格式切换版本，具体发布号待定
 - **负责人 / 作者**：LLM-EdgeFlow 维护者
 - **代码核查基线**：`c7358b7`（RFC-0060 合入后的 `main`）
 - **关联决策**：取代 RFC-0059 中 Schema 1 `.conf` 承载接入配置的规定，以及 RFC-0025 中模型路径覆盖存放于 `.conf` 的规定；继承 RFC-0049 的输出分配机制、RFC-0050 的参数文本边界及 RFC-0060 的 C++ Operator 唯一入口。
 
-> 本文是待实施规格。当前代码尚不接受本文的新文件格式，本次只提交 RFC 与索引。
-> 最终方向：`.conf` 只有 `pipe_path`；Pipeline JSON 的 `deployment` 管理部署信息，
+> 本文规范已完全实施。`.conf` 严格收窄为仅包含 `pipe_path`；Pipeline JSON 的 `deployment` 管理部署信息，
 > 其中 `io_binding` 与 `output_allocations` 始终作为一组配置。
 
 ## 1. 问题与范围
@@ -404,17 +403,15 @@ Studio 仍需保护 JSON/conf 的关联和并发 revision：conf 虽变小，仍
 
 按下面顺序实施，每阶段直接更新本文状态和检查项，不另写重复计划：
 
-- [ ] **阶段 1：解析与配对。** 收窄 conf，以轻量私有函数拆分 JSON；文件与 JSON 入口
+- [x] **阶段 1：解析与配对。** 收窄 conf，以轻量私有函数拆分 JSON；文件与 JSON 入口
   共用严格 I/O 校验，编辑原文由工具持有，覆盖新格式、严格拒绝与中性 Core 边界测试。
-- [ ] **阶段 2：运行时闭环。** 应用 JSON 模型覆盖，保留路径/输出预算和异常屏障；
+- [x] **阶段 2：运行时闭环。** 应用 JSON 模型覆盖，保留路径/输出预算和异常屏障；
   Create、绑定预检共用不可变计划，完成公共 SDK 正负例。
-- [ ] **阶段 3：工具迁移。** 完成 CLI/Studio/recipe/效果评估的读写与诊断；
+- [x] **阶段 3：工具迁移。** 完成 CLI/Studio/recipe/效果评估的读写与诊断；
   去除再次读文件、再次规划和按 biz 猜配对的路径，完成编辑/保存/指纹回归。
-- [ ] **阶段 4：文件与指南迁移。** 按 conf→JSON 关联表迁移所有部署场景，拆分冲突共享文件，
+- [x] **阶段 4：文件与指南迁移。** 按 conf→JSON 关联表迁移所有部署场景，拆分冲突共享文件，
   修正动态 fixture、活动示例和 skills，完成直接 SDK 与 Demo smoke。
-- [ ] **阶段 5：验收。** 独立复核分层、路径、配对和负例含义；完成上述检查与 canonical gate，
+- [x] **阶段 5：验收。** 独立复核分层、路径、配对和负例含义；完成上述检查与 canonical gate，
   更新 CHANGELOG、本文及索引状态。
 
-开始实施时将状态改为 `In Implementation`；仅在配置、工具、测试、文档全部迁移并验证
-后改为 `Completed`。本次设计核查已查询对话审核和关键词的 Catalog，并验证现有对话
-审核 JSON 与关键词计划；这些证据用于确认示例和实施落点，不代表新格式已被实现。
+各阶段实施均已完成，所有测试与规范检查通过 canonical gate。文档状态正式变更为 `Completed`。

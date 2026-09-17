@@ -233,7 +233,8 @@ TEST_F(DifferentIoModalitiesTest, CrossRerankBatch) {
   pipe_json["models"][0]["model_path"] = "models/rerank.onnx";
   pipe_json["models"][0]["model_config"]["tokenizer_file"] = "vocab.txt";
   pipe_json["models"][0]["model_config"]["max_length"] = 32;
-  pipe_json["deployment"]["model_paths"]["rerank_model_v1"] = "models/rerank.onnx";
+  pipe_json["deployment"]["model_paths"]["rerank_model_v1"] =
+      "models/rerank.onnx";
 
   auto temp_pipe_path = temp_dir / "pipeline_cross_rerank.json";
   std::ofstream json_out(temp_pipe_path);
