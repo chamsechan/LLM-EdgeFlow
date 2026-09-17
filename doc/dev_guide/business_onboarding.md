@@ -139,11 +139,7 @@ JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代�
 4. 准备样例数据、Pipeline 和 `.conf`。先用显式 `--biz`、`--config`、`--dataset` 运行。
    仅需保存可重复调用的预设或加入套件时，再向 `demo/profiles.json` 添加 Profile。
 
-`.conf` 的 `data.pipe_path` 相对部署根解析。像本页这样从仓库根目录传入相对
-`--config configs/pipeline_keyword_match_rules.conf` 时，填写
-`configs/pipeline_keyword_match_rules.json`。宿主直接调用 Operator 时，部署根为 Create 的
-`model_path`；同时核对 `data.model_paths` 覆盖与输出容量。Profile 不会自动指向新方案，
-详细命令见[运行当前方案](../../tools/pipeline_studio/README.md#运行当前方案)。
+`.conf` 仅作为定位文件，包含单一字段 `pipe_path`，相对 `.conf` 所在目录解析（例如在 `configs/pipeline_keyword_match_rules.conf` 中填写 `pipeline_keyword_match_rules.json`）。宿主直接调用 Operator 时，部署根为 Create 的 `model_path`；同时在 Pipeline JSON 的 `deployment` 中核对 `model_paths` 覆盖与 `io.output_allocations` 输出容量。Profile 不会自动指向新方案，详细命令见[运行当前方案](../../tools/pipeline_studio/README.md#运行当前方案)。
 
 ## 6. 输出容量与生命周期
 

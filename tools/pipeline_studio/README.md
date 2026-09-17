@@ -168,7 +168,7 @@ LLM_EDGEFLOW_PIPELINE_TOOL=./build/alg_pipeline_tool_test ./show --web
 
 ### 运行当前方案
 
-Pipeline JSON 描述算法连线；`.conf` 描述部署路径和输出容量；Profile 保存 Demo 的
+Pipeline JSON 描述算法连线并在 `deployment` 中持有部署配置（接入绑定、输出容量与模型路径覆盖）；`.conf` 仅包含 `pipe_path` 用于定位 Pipeline JSON；Profile 保存 Demo 的
 业务、配置、数据集等预设。“运行”页的“另存为可运行方案”会一起生成 JSON 和 `.conf`，
 并提供从项目根执行的完整命令；已有同名文件会拒绝覆盖。选择与业务匹配的 Profile，
 其数据集、运行选项和输出池容量会被复用。模型目录默认为 `models`；引用

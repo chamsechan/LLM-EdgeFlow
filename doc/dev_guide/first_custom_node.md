@@ -120,8 +120,8 @@ cp demo/fixtures/mock/pipeline_entity_extract_custom.conf demo/fixtures/mock/pip
 ```
 
 保留该节点的 `ports` 和 `depends_on`，以及其他模型与 JSON 解析节点。
-在 `pipeline_first_node.conf` 中，将 `data.pipe_path` 改为
-`demo/fixtures/mock/pipeline_first_node.json`；其他字段沿用复制内容。
+在 `pipeline_first_node.conf` 中，将 `pipe_path` 改为
+`pipeline_first_node.json`（`.conf` 仅包含该定位字段；接入绑定与输出容量沿用 JSON 中的 `deployment`）。
 
 此时数据经过：
 
