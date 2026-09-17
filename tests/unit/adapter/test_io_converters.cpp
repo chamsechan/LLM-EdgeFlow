@@ -23,38 +23,31 @@ int DummyEncode(AlgContext*, const OutputPortBindings&,
 }  // namespace
 
 TEST(IoConverterTest, ViewAccessorsAndPortBindings) {
-  // 1. ExternalInputBatchView C ABI 与 Slot 访问
+  // 1. ExternalInputBatchView Slot 访问
   ExternalInputBatchView in_view;
   int sample_int = 42;
-  const void* items[] = {&sample_int};
-  in_view.items = items;
   in_view.count = 1;
-  in_view.type_id = "int";
-
-  EXPECT_EQ(in_view.GetCAbi<int>(0), &sample_int);
-  EXPECT_EQ(in_view.GetCAbi<int>(1), nullptr);
-  EXPECT_EQ(in_view.GetCAbi<float>(0), nullptr);
-  EXPECT_EQ(in_view.At<int>(0), &sample_int);
-
-  auto shared_sample = std::make_shared<int>(100);
-  in_view.slots["slot_a"] = {shared_sample};
+  in_view.leased_slots["slot_a"] = {&sample_int};
   in_view.slot_types["slot_a"] = "int";
-  EXPECT_EQ(in_view.GetSlot<int>("slot_a", 0), shared_sample.get());
+
+  EXPECT_EQ(in_view.GetSlot<int>("slot_a", 0), &sample_int);
   EXPECT_EQ(in_view.GetSlot<float>("slot_a", 0), nullptr);
   EXPECT_EQ(in_view.GetSlot<int>("slot_a", 1), nullptr);
   EXPECT_EQ(in_view.GetSlot<int>("unknown", 0), nullptr);
-  EXPECT_EQ(in_view.At<int>(0, "slot_a"), shared_sample.get());
+
+  auto shared_sample = std::make_shared<int>(100);
+  in_view.slots["slot_shared"] = {shared_sample};
+  in_view.slot_types["slot_shared"] = "int";
+  EXPECT_EQ(in_view.GetSlot<int>("slot_shared", 0), shared_sample.get());
+  EXPECT_EQ(in_view.GetSlot<float>("slot_shared", 0), nullptr);
+  EXPECT_EQ(in_view.GetSlot<int>("slot_shared", 1), nullptr);
+  EXPECT_EQ(in_view.At<int>(0, "slot_shared"), shared_sample.get());
 
   // 2. ExternalOutputBatchView 访问
   ExternalOutputBatchView out_view;
   int out_sample = 0;
-  void* out_items[] = {&out_sample};
-  out_view.items = out_items;
   out_view.count = 1;
-  out_view.type_id = "int";
-  EXPECT_EQ(out_view.GetCAbi<int>(0), &out_sample);
-  EXPECT_EQ(out_view.GetCAbi<float>(0), nullptr);
-
+  out_view.capacity = 1;
   out_view.leased_slots["out_slot"] = {&out_sample};
   out_view.slot_types["out_slot"] = "int";
   out_view.slot_capacities["out_slot"]["field_1"] = 1024;
@@ -84,8 +77,8 @@ TEST(IoConverterTest, RegisterAndFindInputConverter) {
   auto& reg = IoConverterRegistry::Instance();
 
   InputConverterDefinition def;
-  def.converter_id = "test.input.cabi.v1";
-  def.transport = "cabi";
+  def.converter_id = "test.input.operator.v1";
+  def.transport = "operator";
   def.schema_id = "test_input";
   def.schema_version = 1;
   def.external_type = "int";
@@ -97,10 +90,10 @@ TEST(IoConverterTest, RegisterAndFindInputConverter) {
 
   EXPECT_TRUE(reg.RegisterInputConverter(def));
 
-  const auto* found = reg.FindInputConverter("test.input.cabi.v1");
+  const auto* found = reg.FindInputConverter("test.input.operator.v1");
   ASSERT_NE(found, nullptr);
-  EXPECT_EQ(found->converter_id, "test.input.cabi.v1");
-  EXPECT_EQ(found->transport, "cabi");
+  EXPECT_EQ(found->converter_id, "test.input.operator.v1");
+  EXPECT_EQ(found->transport, "operator");
   EXPECT_EQ(found->logical_ports.size(), 1U);
 
   // 重复注册拒绝并记录冲突
@@ -112,8 +105,8 @@ TEST(IoConverterTest, RegisterAndFindOutputConverter) {
   auto& reg = IoConverterRegistry::Instance();
 
   OutputConverterDefinition def;
-  def.converter_id = "test.output.cabi.v1";
-  def.transport = "cabi";
+  def.converter_id = "test.output.operator.v1";
+  def.transport = "operator";
   def.schema_id = "test_output";
   def.schema_version = 1;
   def.external_type = "int";
@@ -125,10 +118,10 @@ TEST(IoConverterTest, RegisterAndFindOutputConverter) {
 
   EXPECT_TRUE(reg.RegisterOutputConverter(def));
 
-  const auto* found = reg.FindOutputConverter("test.output.cabi.v1");
+  const auto* found = reg.FindOutputConverter("test.output.operator.v1");
   ASSERT_NE(found, nullptr);
-  EXPECT_EQ(found->converter_id, "test.output.cabi.v1");
-  EXPECT_EQ(found->transport, "cabi");
+  EXPECT_EQ(found->converter_id, "test.output.operator.v1");
+  EXPECT_EQ(found->transport, "operator");
 }
 
 TEST(IoConverterTest, RejectsInvalidDefinitions) {
@@ -149,7 +142,10 @@ TEST(IoConverterTest, RejectsInvalidDefinitions) {
       NodePortDefinition("texts", "TextBatch", true, "1:1")};
   EXPECT_FALSE(IoConverterRegistry::Instance().RegisterInputConverter(bad_in));
 
-  bad_in.transport = "cabi";
+  bad_in.transport = "cabi";  // cabi must be rejected!
+  EXPECT_FALSE(IoConverterRegistry::Instance().RegisterInputConverter(bad_in));
+
+  bad_in.transport = "operator";
   bad_in.decode_fn = nullptr;
   EXPECT_FALSE(IoConverterRegistry::Instance().RegisterInputConverter(bad_in));
 
@@ -187,7 +183,7 @@ TEST(IoConverterTest, RejectsInvalidDefinitions) {
 
   OutputConverterDefinition bad_out;
   bad_out.converter_id = "bad.out";
-  bad_out.transport = "cabi";
+  bad_out.transport = "operator";
   bad_out.schema_id = "test";
   bad_out.schema_version = 1;
   bad_out.external_type = "int";

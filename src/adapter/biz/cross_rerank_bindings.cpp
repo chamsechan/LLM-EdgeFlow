@@ -32,24 +32,7 @@ BizExposureDefinition MakeCrossRerankBizExposure() {
   BizExposureDefinition def;
   def.biz_name = "dense_cross_rerank_scoring";
   def.max_batch_size = 64;
-  def.required_transports = {"cabi", "operator"};
-  return def;
-}
-
-IoBindingDefinition MakeCrossRerankCAbiBinding() {
-  IoBindingDefinition def;
-  def.binding_id = "cross_rerank.cabi.v1";
-  def.biz_name = "dense_cross_rerank_scoring";
-  def.transport = "cabi";
-  def.input_converter_id = "rerank.plain.cabi.v1";
-  def.output_converter_id = "rerank_result.plain.cabi.v1";
-  def.input_ports = {{"raw_request_ids", "raw_request_ids"},
-                     {"rerank_queries", "rerank_queries"},
-                     {"rerank_candidates", "rerank_candidates"},
-                     {"rerank_pairs", "rerank_pairs"}};
-  def.output_ports = {{"raw_request_ids", "raw_request_ids"},
-                      {"ranked_results", "ranked_results"}};
-  def.max_batch_size = 64;
+  def.required_transports = {"operator"};
   return def;
 }
 
@@ -71,7 +54,6 @@ IoBindingDefinition MakeCrossRerankOperatorBinding() {
 }
 
 REGISTER_BIZ_EXPOSURE(MakeCrossRerankBizExposure());
-REGISTER_IO_BINDING(MakeCrossRerankCAbiBinding());
 REGISTER_IO_BINDING(MakeCrossRerankOperatorBinding());
 
 }  // namespace

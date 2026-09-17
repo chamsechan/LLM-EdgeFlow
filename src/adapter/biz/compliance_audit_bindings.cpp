@@ -33,24 +33,7 @@ BizExposureDefinition MakeComplianceAuditBizExposure() {
   BizExposureDefinition def;
   def.biz_name = "dialogue_compliance_audit_v1";
   def.max_batch_size = 64;
-  def.required_transports = {"cabi", "operator"};
-  return def;
-}
-
-IoBindingDefinition MakeComplianceAuditCAbiBinding() {
-  IoBindingDefinition def;
-  def.binding_id = "compliance_audit.cabi.v1";
-  def.biz_name = "dialogue_compliance_audit_v1";
-  def.transport = "cabi";
-  def.input_converter_id = "audit.plain.cabi.v1";
-  def.output_converter_id = "audit_result.plain.cabi.v1";
-  def.input_ports = {{"raw_request_ids", "raw_request_ids"},
-                     {"user_texts", "user_texts"},
-                     {"channel_names", "channel_names"}};
-  def.output_ports = {{"raw_request_ids", "raw_request_ids"},
-                      {"structured_verdicts", "structured_verdicts"},
-                      {"matched_policies", "matched_policy"}};
-  def.max_batch_size = 64;
+  def.required_transports = {"operator"};
   return def;
 }
 
@@ -72,7 +55,6 @@ IoBindingDefinition MakeComplianceAuditOperatorBinding() {
 }
 
 REGISTER_BIZ_EXPOSURE(MakeComplianceAuditBizExposure());
-REGISTER_IO_BINDING(MakeComplianceAuditCAbiBinding());
 REGISTER_IO_BINDING(MakeComplianceAuditOperatorBinding());
 
 }  // namespace

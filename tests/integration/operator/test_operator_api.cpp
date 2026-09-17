@@ -20,7 +20,6 @@
 #include "adapter/operator/operator_value_type_registry.h"
 #include "core/common_contracts.h"
 #include "core/pipeline_catalog.h"
-#include "edgeflow/c_api.h"
 #include "edgeflow/operator/interface.h"
 #include "edgeflow/operator/types.h"
 #include "engine/backend_registry.h"
@@ -2708,22 +2707,21 @@ TEST_F(OperatorApiTest, SharedCarrierDoesNotMergePayloadSchema) {
   // "query"
   const auto* translate_in_conv =
       llm_edgeflow::IoConverterRegistry::Instance().FindInputConverter(
-          "translate.json.cabi.v1");
+          "translate.json.operator.v1");
   ASSERT_NE(translate_in_conv, nullptr);
-  CompanyEntityInputStruct c_in_plain{50001, plain_text.c_str()};
-  const void* translate_inputs[] = {&c_in_plain};
+  CompanyOperatorEntityInput c_in_plain{50001, &cs_plain};
   llm_edgeflow::AlgContext ctx;
   llm_edgeflow::AdapterStatus status;
   llm_edgeflow::ExternalInputBatchView view_plain;
-  view_plain.items = translate_inputs;
   view_plain.count = 1;
-  view_plain.type_id = translate_in_conv->external_type;
+  view_plain.leased_slots["entity_in"] = {&c_in_plain};
+  view_plain.slot_types["entity_in"] = "CompanyOperatorEntityInput";
   llm_edgeflow::InputPortBindings port_bindings(
       {{"raw_request_ids", "raw_request_ids"},
        {"input_sentences", "input_sentences"}});
   llm_edgeflow::InputDecodeOptions decode_opts;
   decode_opts.converter_id = translate_in_conv->converter_id;
-  decode_opts.transport = "cabi";
+  decode_opts.transport = "operator";
   decode_opts.max_batch_size = 64;
   EXPECT_EQ(translate_in_conv->decode_fn(view_plain, decode_opts, port_bindings,
                                          &ctx, &status),
@@ -2731,13 +2729,14 @@ TEST_F(OperatorApiTest, SharedCarrierDoesNotMergePayloadSchema) {
 
   // 2. JSON text: Translate accepts and extracts "query"
   std::string json_text = "{\"query\":\"有效翻译查询\"}";
-  CompanyEntityInputStruct c_in_json{50002, json_text.c_str()};
-  const void* translate_valid_inputs[] = {&c_in_json};
+  CompanyString cs_json{static_cast<int32_t>(json_text.size()),
+                        const_cast<char*>(json_text.data())};
+  CompanyOperatorEntityInput c_in_json{50002, &cs_json};
   llm_edgeflow::AlgContext valid_ctx;
   llm_edgeflow::ExternalInputBatchView view_json;
-  view_json.items = translate_valid_inputs;
   view_json.count = 1;
-  view_json.type_id = translate_in_conv->external_type;
+  view_json.leased_slots["entity_in"] = {&c_in_json};
+  view_json.slot_types["entity_in"] = "CompanyOperatorEntityInput";
   EXPECT_EQ(translate_in_conv->decode_fn(view_json, decode_opts, port_bindings,
                                          &valid_ctx, &status),
             COMPANY_ALG_SUCCESS);

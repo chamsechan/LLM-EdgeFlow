@@ -6,7 +6,7 @@
 [![C++17](https://img.shields.io/badge/C%2B%2B-17-blue)](CMakeLists.txt)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 
-LLM-EdgeFlow 将规则处理、向量检索、文本生成、图像转写和语音识别组织为可复用的算法节点，用 JSON 描述它们的连接关系，再通过统一的 C ABI 或 C++ Operator 接口供宿主程序调用。
+LLM-EdgeFlow 将规则处理、向量检索、文本生成、图像转写和语音识别组织为可复用的算法节点，用 JSON 描述它们的连接关系，再通过统一的 C++ Operator SDK 供宿主程序调用。
 
 框架面向算法方案开发者：已有能力通过配置组合，领域算法在自定义 Node 中实现，平台输入输出由 Adapter 转换。模型语义与推理后端分别扩展，便于在不同方案中复用同一套算法代码。
 
@@ -25,7 +25,7 @@ LLM-EdgeFlow 将规则处理、向量检索、文本生成、图像转写和语�
 - **组合算法流程**：Pipeline 以有向无环图（DAG）描述节点依赖，可组合规则、检索、模型调用和结果处理。执行前统一检查端口类型、依赖关系和并发写冲突。
 - **复用算法实现**：通用 Node 与自定义 Node 使用相同的类型端口和注册机制；单个节点可用于多个 Pipeline。
 - **管理模型执行**：Model 负责模型预后处理与输出语义，Backend 负责推理运行时。节点通过模型能力接口调用推理。
-- **对接宿主程序**：C ABI 与 Operator 共用内部算法运行时，集中处理数据转换、资源生命周期和异常隔离。
+- **对接宿主程序**：C++ Operator SDK 统一对接宿主程序，集中处理数据转换、资源生命周期和异常隔离。
 - **验证运行结果**：命令行工具与 Web 工作台共用 Catalog 和 Validator；统一 Demo 输出逐条结果与运行摘要，并保留请求来源编号。
 
 ## 快速开始
@@ -171,7 +171,7 @@ Smoke 验证执行链路；真实模型的业务效果需使用目标数据集�
 
 该命令统一执行格式与静态检查、配置构建及 CTest 测试。环境需具备 clang-format 18，以及架构图检查所需的 Java 17+；详细流程见 [CONTRIBUTING.md](CONTRIBUTING.md)，测试组织见 [tests/README.md](tests/README.md)，Agent 开发约束见 [AGENTS.md](AGENTS.md)。
 
-当前产品版本为 **v10.0.0**，公共 **ABI major 为 6**。接口边界见[架构设计](doc/architecture.md)，版本记录见 [Changelog](doc/CHANGELOG.md)。
+当前产品版本为 **v11.0.0**，公共 **ABI major 为 7**。接口边界见[架构设计](doc/architecture.md)，版本记录见 [Changelog](doc/CHANGELOG.md)。
 
 ## 许可证
 

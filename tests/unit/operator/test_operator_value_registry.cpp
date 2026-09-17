@@ -1122,11 +1122,11 @@ TEST(OperatorValueRegistryTest,
   EXPECT_EQ(binding->validate_external(&valid_audio, limits, &err), 0);
 }
 
-TEST(OperatorValueRegistryTest, CAndOperatorAgreeOnChannelNameBoundaries) {
+TEST(OperatorValueRegistryTest, OperatorAgreesOnChannelNameBoundaries) {
   const auto* binding =
       OperatorValueTypeRegistry::Instance().GetBindingBySuffix("audit_in");
-  const auto* in_conv =
-      IoConverterRegistry::Instance().FindInputConverter("audit.plain.cabi.v1");
+  const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
+      "audit.plain.operator.v1");
   ASSERT_NE(binding, nullptr);
   ASSERT_NE(in_conv, nullptr);
   std::string query = "hello";
@@ -1135,15 +1135,13 @@ TEST(OperatorValueRegistryTest, CAndOperatorAgreeOnChannelNameBoundaries) {
     std::string channel(length < 0 ? 0 : length, 'c');
     CompanyString named_channel{static_cast<int32_t>(channel.size()),
                                 channel.data()};
-    CompanyAuditInputStruct c_input{7, query.c_str(),
-                                    length < 0 ? nullptr : channel.c_str()};
     CompanyOperatorAuditInput op_input{7, &text,
                                        length < 0 ? nullptr : &named_channel};
-    const void* inputs[]{&c_input};
     AlgContext ctx;
     const bool expected = length <= 256;
     ExternalInputBatchView view;
-    view.items = inputs;
+    view.leased_slots["audit_in"] = {&op_input};
+    view.slot_types["audit_in"] = "CompanyOperatorAuditInput";
     view.count = 1;
     view.type_id = in_conv->external_type;
     InputPortBindings port_bindings({{"raw_request_ids", "raw_request_ids"},
@@ -1151,7 +1149,7 @@ TEST(OperatorValueRegistryTest, CAndOperatorAgreeOnChannelNameBoundaries) {
                                      {"channel_names", "channel_names"}});
     InputDecodeOptions options;
     options.converter_id = in_conv->converter_id;
-    options.transport = "cabi";
+    options.transport = "operator";
     options.max_batch_size = 64;
     int dec_ret =
         in_conv->decode_fn(view, options, port_bindings, &ctx, nullptr);
@@ -1161,11 +1159,11 @@ TEST(OperatorValueRegistryTest, CAndOperatorAgreeOnChannelNameBoundaries) {
   }
 }
 
-TEST(OperatorValueRegistryTest, CAndOperatorAgreeOnPcmBoundaries) {
+TEST(OperatorValueRegistryTest, OperatorAgreesOnPcmBoundaries) {
   const auto* binding =
       OperatorValueTypeRegistry::Instance().GetBindingBySuffix("audio_in");
-  const auto* in_conv =
-      IoConverterRegistry::Instance().FindInputConverter("audio.pcm.cabi.v1");
+  const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
+      "audio.pcm.operator.v1");
   ASSERT_NE(binding, nullptr);
   ASSERT_NE(in_conv, nullptr);
   std::vector<float> samples(biz_input::kMaxAudioPcmSamples, 0);
@@ -1188,24 +1186,19 @@ TEST(OperatorValueRegistryTest, CAndOperatorAgreeOnPcmBoundaries) {
       {biz_input::kMaxAudioPcmSamples, 16000, true, true},
       {biz_input::kMaxAudioPcmSamples + 1, 16000, true, false}};
   for (const auto& test : cases) {
-    CompanyAudioInputStruct c_input{};
-    c_input.request_id = 7;
-    c_input.pcm_length = test.length;
-    c_input.sample_rate = test.rate;
-    c_input.pcm_buffer = test.has_buffer ? samples.data() : nullptr;
-    CompanyOperatorAudioInput op_input{7, c_input.pcm_buffer, test.length,
-                                       test.rate};
-    const void* inputs[]{&c_input};
+    CompanyOperatorAudioInput op_input{
+        7, test.has_buffer ? samples.data() : nullptr, test.length, test.rate};
     AlgContext ctx;
     ExternalInputBatchView view;
-    view.items = inputs;
+    view.leased_slots["audio_in"] = {&op_input};
+    view.slot_types["audio_in"] = "CompanyOperatorAudioInput";
     view.count = 1;
     view.type_id = in_conv->external_type;
     InputPortBindings port_bindings({{"raw_request_ids", "raw_request_ids"},
                                      {"audio_inputs", "audio_inputs"}});
     InputDecodeOptions options;
     options.converter_id = in_conv->converter_id;
-    options.transport = "cabi";
+    options.transport = "operator";
     options.max_batch_size = 64;
     int dec_ret =
         in_conv->decode_fn(view, options, port_bindings, &ctx, nullptr);

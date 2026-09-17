@@ -30,22 +30,7 @@ BizExposureDefinition MakeKeywordMatchBizExposure() {
   BizExposureDefinition def;
   def.biz_name = "keyword_match_v1";
   def.max_batch_size = 64;
-  def.required_transports = {"cabi", "operator"};
-  return def;
-}
-
-IoBindingDefinition MakeKeywordMatchCAbiBinding() {
-  IoBindingDefinition def;
-  def.binding_id = "keyword_match.cabi.v1";
-  def.biz_name = "keyword_match_v1";
-  def.transport = "cabi";
-  def.input_converter_id = "keyword.plain.cabi.v1";
-  def.output_converter_id = "keyword.result.cabi.v1";
-  def.input_ports = {{"raw_request_ids", "raw_request_ids"},
-                     {"input_sentences", "input_sentences"}};
-  def.output_ports = {{"raw_request_ids", "raw_request_ids"},
-                      {"rule_matches", "rule_matches"}};
-  def.max_batch_size = 64;
+  def.required_transports = {"operator"};
   return def;
 }
 
@@ -65,7 +50,6 @@ IoBindingDefinition MakeKeywordMatchOperatorBinding() {
 }
 
 REGISTER_BIZ_EXPOSURE(MakeKeywordMatchBizExposure());
-REGISTER_IO_BINDING(MakeKeywordMatchCAbiBinding());
 REGISTER_IO_BINDING(MakeKeywordMatchOperatorBinding());
 
 }  // namespace

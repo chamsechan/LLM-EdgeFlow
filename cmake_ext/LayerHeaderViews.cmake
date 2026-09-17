@@ -35,11 +35,10 @@ function(edgeflow_collect_headers output_var)
 endfunction()
 
 set(platform_mock_headers
-    include/platform_mock/alg_types.h include/platform_mock/error_codes.h
+    include/platform_mock/error_codes.h
     include/platform_mock/operator_data_types.h include/platform_mock/operator_types.h)
 
 set(public_headers
-    include/edgeflow/c_api.h include/edgeflow/c_api.hpp
     include/edgeflow/export.h include/edgeflow/log.h
     include/edgeflow/operator/interface.h include/edgeflow/operator/types.h
     ${platform_mock_headers})
@@ -73,8 +72,7 @@ edgeflow_header_view(orchestration ${core_headers} ${model_api_headers})
 edgeflow_collect_headers(integration_headers "${PROJECT_SOURCE_DIR}/include/adapter"
     "${PROJECT_SOURCE_DIR}/include/edgeflow/operator" "${PROJECT_SOURCE_DIR}/src/adapter")
 edgeflow_header_view(integration ${integration_headers} ${core_headers}
-    ${model_api_headers} ${platform_mock_headers}
-    include/edgeflow/c_api.h include/edgeflow/c_api.hpp)
+    ${model_api_headers} ${platform_mock_headers})
 
 # Capture the actual evaluated target include paths, including transitive usage
 # requirements, so the existing LayerGuard gate detects accidental broadening.

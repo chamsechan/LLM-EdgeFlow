@@ -17,11 +17,9 @@ framework-specific evidence.
    this is not a workaround for a failing production configuration. See
    [tool selection](../../../../tools/pipeline_studio/README.md#校验工具选择).
 4. When a business I/O contract changes, verify the complete original request and response by
-   directly calling `Alg_Process` in the existing C ABI/Adapter suite. Operator Demo success
-   alone does not prove that boundary; reuse existing coverage when the contract is unchanged.
+   directly calling Operator `Process` in the existing Operator/Adapter suite.
    When a Demo-supported business path changes, run that edited Pipeline through the compatible
-   Demo and check request IDs, status and expected output fields. For a C ABI-only path, use the
-   corresponding end-to-end contract tests instead of adding a new Demo solely for verification. Follow
+   Demo and check request IDs, status and expected output fields. Follow
    [running the current solution](../../../../tools/pipeline_studio/README.md#运行当前方案)
    for `.conf` / Profile selection and Demo Control behavior; running an unchanged Profile
    does not verify a new JSON file.

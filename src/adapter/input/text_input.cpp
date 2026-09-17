@@ -7,81 +7,12 @@
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter.h"
 #include "contracts/inference_payloads.h"
-#include "edgeflow/c_api.h"
 #include "edgeflow/operator/types.h"
 
 namespace llm_edgeflow {
 namespace {
 
 constexpr size_t kMaxSentenceLen = 64 * 1024;  // 64 KiB
-
-template <typename StructT>
-int DecodeCAbiTextHelper(const ExternalInputBatchView& source,
-                         const InputDecodeOptions& options,
-                         const InputPortBindings& bindings, AlgContext* context,
-                         AdapterStatus* status) {
-  if (!context) {
-    return AdapterValidationHelper::ReturnInvalidInput(
-        status, "Null AlgContext passed to Decode", "context",
-        options.converter_id.c_str());
-  }
-  int valid_ret = AdapterValidationHelper::ValidateBatchInputs(
-      source.items, static_cast<int>(source.count), 64,
-      options.converter_id.c_str());
-  if (valid_ret != 0) {
-    return AdapterValidationHelper::ReturnInvalidInput(
-        status, "Batch envelope validation failed", "inputs",
-        options.converter_id.c_str());
-  }
-
-  std::vector<uint64_t> req_ids;
-  TextBatch sentences;
-  req_ids.reserve(source.count);
-  sentences.reserve(source.count);
-
-  for (size_t i = 0; i < source.count; ++i) {
-    const auto* in = source.GetCAbi<StructT>(i);
-    if (!AdapterValidationHelper::RequireNotNull(
-            "inputs[i]", in, static_cast<int>(i), options.converter_id.c_str(),
-            status)) {
-      return COMPANY_ALG_ERR_INVALID_INPUT;
-    }
-    if (!AdapterValidationHelper::RequireBoundedString(
-            "inputs[i].sentence_text", in->sentence_text, kMaxSentenceLen,
-            static_cast<int>(i), options.converter_id.c_str(), status)) {
-      return COMPANY_ALG_ERR_INVALID_INPUT;
-    }
-    req_ids.push_back(in->request_id);
-    sentences.emplace_back(static_cast<uint32_t>(i), 0, in->sentence_text);
-  }
-
-  if (!AdapterValidationHelper::PublishContextValue(
-          *context, bindings.GetActualKey("raw_request_ids"),
-          std::move(req_ids), options.converter_id.c_str(), status) ||
-      !AdapterValidationHelper::PublishContextValue(
-          *context, bindings.GetActualKey("input_sentences"),
-          std::move(sentences), options.converter_id.c_str(), status)) {
-    return COMPANY_ALG_ERR_INVALID_INPUT;
-  }
-
-  return COMPANY_ALG_SUCCESS;
-}
-
-int DecodeCAbiTextInput(const ExternalInputBatchView& source,
-                        const InputDecodeOptions& options,
-                        const InputPortBindings& bindings, AlgContext* context,
-                        AdapterStatus* status) {
-  return DecodeCAbiTextHelper<CompanyEntityInputStruct>(
-      source, options, bindings, context, status);
-}
-
-int DecodeCAbiKeywordInput(const ExternalInputBatchView& source,
-                           const InputDecodeOptions& options,
-                           const InputPortBindings& bindings,
-                           AlgContext* context, AdapterStatus* status) {
-  return DecodeCAbiTextHelper<CompanyKeywordInputStruct>(
-      source, options, bindings, context, status);
-}
 
 int DecodeOperatorEntityInput(const ExternalInputBatchView& source,
                               const InputDecodeOptions& options,
@@ -194,31 +125,6 @@ int DecodeOperatorKeywordInput(const ExternalInputBatchView& source,
   return COMPANY_ALG_SUCCESS;
 }
 
-InputConverterDefinition MakeCAbiTextInputConverter() {
-  InputConverterDefinition def;
-  def.converter_id = "text.plain.cabi.v1";
-  def.transport = "cabi";
-  def.schema_id = "text.plain.request";
-  def.schema_version = 1;
-  def.external_type = "CompanyEntityInputStruct";
-  def.max_batch_size = 64;
-  def.ownership_policy = "copy_in";
-  def.thread_model = "stateless";
-  def.external_slots = {{"sentence_text",
-                         "CompanyEntityInputStruct",
-                         PortDirection::kInput,
-                         true,
-                         "CompanyEntityInputStruct",
-                         "",
-                         {},
-                         ""}};
-  def.logical_ports = {
-      NodePortDefinition("raw_request_ids", "vector<uint64>", true, "1:1"),
-      NodePortDefinition("input_sentences", "TextBatch", true, "1:1")};
-  def.decode_fn = &DecodeCAbiTextInput;
-  return def;
-}
-
 InputConverterDefinition MakeOperatorEntityInputConverter() {
   InputConverterDefinition def;
   def.converter_id = "text.plain.operator.v1";
@@ -269,33 +175,6 @@ InputConverterDefinition MakeOperatorKeywordInputConverter() {
   return def;
 }
 
-InputConverterDefinition MakeCAbiKeywordInputConverter() {
-  InputConverterDefinition def;
-  def.converter_id = "keyword.plain.cabi.v1";
-  def.transport = "cabi";
-  def.schema_id = "text.plain.request";
-  def.schema_version = 1;
-  def.external_type = "CompanyKeywordInputStruct";
-  def.max_batch_size = 64;
-  def.ownership_policy = "copy_in";
-  def.thread_model = "stateless";
-  def.external_slots = {{"sentence_text",
-                         "CompanyKeywordInputStruct",
-                         PortDirection::kInput,
-                         true,
-                         "CompanyKeywordInputStruct",
-                         "",
-                         {},
-                         ""}};
-  def.logical_ports = {
-      NodePortDefinition("raw_request_ids", "vector<uint64>", true, "1:1"),
-      NodePortDefinition("input_sentences", "TextBatch", true, "1:1")};
-  def.decode_fn = &DecodeCAbiKeywordInput;
-  return def;
-}
-
-REGISTER_INPUT_CONVERTER(MakeCAbiTextInputConverter());
-REGISTER_INPUT_CONVERTER(MakeCAbiKeywordInputConverter());
 REGISTER_INPUT_CONVERTER(MakeOperatorEntityInputConverter());
 REGISTER_INPUT_CONVERTER(MakeOperatorKeywordInputConverter());
 

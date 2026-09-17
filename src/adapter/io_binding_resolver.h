@@ -36,11 +36,11 @@ struct ValidatedIoPlan {
  */
 class IoBindingResolver {
  public:
-  static int ResolveFromConfig(
-      const DeploymentIoConfig& config,
-      const std::string& transport,  // "cabi" 或 "operator"
-      const std::string& model_root_dir,
-      std::unique_ptr<ValidatedIoPlan>* out_plan, std::string* out_error);
+  static int ResolveFromConfig(const DeploymentIoConfig& config,
+                               const std::string& transport,  // "operator"
+                               const std::string& model_root_dir,
+                               std::unique_ptr<ValidatedIoPlan>* out_plan,
+                               std::string* out_error);
 
   static int ResolveFromFile(const std::string& config_path,
                              const std::string& transport,
@@ -50,7 +50,7 @@ class IoBindingResolver {
 
   static int ResolveFromPipelineJson(
       const nlohmann::json& pipeline_json, const std::string& binding_id,
-      const std::string& transport,  // "cabi" 或 "operator"
+      const std::string& transport,  // "operator"
       const std::string& model_root_dir,
       std::unique_ptr<ValidatedIoPlan>* out_plan, std::string* out_error);
 };

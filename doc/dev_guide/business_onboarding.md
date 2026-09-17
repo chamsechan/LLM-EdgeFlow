@@ -4,24 +4,24 @@
 [README](../../README.md#快速开始)完成默认构建；以下命令都从仓库根目录执行。
 公共结构或协议变更先按 [CONTRIBUTING](../../CONTRIBUTING.md)记录 RFC，再开始实现。
 
-## 输入输出以 C ABI 为边界
+## 输入输出以 Operator 接口为边界
 
-本项目业务需求中的“输入、输出”指 `Alg_Process` 边界上的完整请求和完整响应。
+本项目业务需求中的“输入、输出”指 `OperatorFunc::Process` 边界上的完整请求和完整响应。
 字段名、字段类型、序列化格式及忽略字段的约定都属于外部业务契约。
-例如输入是 `{"query":"hello","src_lan":"en"}` 时，C ABI 输入结构的字符串字段应
+例如输入是 `{"query":"hello","src_lan":"en"}` 时，Operator 输入结构的字符串字段应
 承载整个对象；不能由 Demo 先提取 `hello` 再声称完成该输入契约。
 
 | 位置 | 负责的工作 |
 | --- | --- |
-| Demo / 调用方 | 读取样例、构造 C ABI 或 Operator 载体、持有缓冲区、调用 SDK、复制或展示 SDK 返回值 |
-| `IBizAdapter::Unpack` | 校验外部请求、解析完整载荷、选择业务字段，转换为请求内的中性值 |
-| Pipeline / Nodes | 对内部 typed ports 的数据执行算法；可解析模型生成的结构化内容，不承担外部 ABI 协议转换 |
-| Adapter `Pack` / `PackTyped` | 按外部契约选择、组装和序列化结果，检查来源、错误状态和输出容量 |
-| Operator bridge | 在宿主载体与同一业务 Adapter 的 C 输入/业务 Result 之间转换，保持业务语义一致 |
+| Demo / 调用方 | 读取样例、构造 Operator 载体、持有缓冲区、调用 SDK、复制或展示 SDK 返回值 |
+| `InputConverter::decode_fn` | 校验外部请求、解析完整载荷、选择业务字段，转换为请求内的中性值发布至 `AlgContext` |
+| Pipeline / Nodes | 对内部 typed ports 的数据执行算法；可解析模型生成的结构化内容，不承担外部协议转换 |
+| `OutputConverter::encode_fn` | 从 `AlgContext` 读取中性结果，按外部契约组装序列化响应并写入已租用输出池 |
+| `IoBinding` | 声明业务逻辑端口与 Pipeline Blackboard Key 的映射关系，将转换器与业务编排关联 |
 
 Demo 输出里的日志、统计和展示字段可以另行组织，但不能为 SDK 补做业务字段提取、
-字段改名、响应组装或默认成功结果。C ABI 调用方直接调用 SDK 就应获得约定响应。
-Catalog 的 ingress/egress 是 Adapter 与 Pipeline 之间的内部端口，不能当成外部请求格式。
+字段改名、响应组装或默认成功结果。宿主程序直接调用 Operator SDK 就应获得约定响应。
+Catalog 的 ingress/egress 是转换器与 Pipeline 之间的内部逻辑端口，不能当成外部请求格式。
 完整示例见[翻译方案](../solutions/translate.md)。
 
 ## 1. 先确定要走哪条路径
@@ -30,17 +30,17 @@ Catalog 的 ingress/egress 是 Adapter 与 Pipeline 之间的内部端口，不�
 
 | 需求 | 修改范围与下一步 |
 | --- | --- |
-| 完整 C ABI 业务契约不变，只调整规则、提示词、模型或连线 | 修改 Pipeline 和必要的 `.conf`，按[运行当前方案](../../tools/pipeline_studio/README.md#运行当前方案)验证；复用已有 Adapter、bridge 和 Demo |
-| 完整 C ABI 业务契约不变，但已有 Node 无法完成算法 | 按[自定义 Node 入门](first_custom_node.md)实现缺失算法，再复用已有接入路径 |
-| 外部载荷的字段/格式/语义改变，或需要新的平台结构 | 完成下文的契约和 Adapter 步骤，按需注册业务与 bridge；已有 C 载体和 ValueType 可以复用 |
-| 修复已有 C ABI 的转换逻辑 | 修改对应 Adapter 并运行相关契约测试；仅影响该路径时，无需另建 Operator 或 Demo |
+| 外部业务契约不变，只调整规则、提示词、模型或连线 | 修改 Pipeline 和必要的 `.conf`，按[运行当前方案](../../tools/pipeline_studio/README.md#运行当前方案)验证；复用已有转换器、绑定和 Demo |
+| 外部业务契约不变，但已有 Node 无法完成算法 | 按[自定义 Node 入门](first_custom_node.md)实现缺失算法，再复用已有接入路径 |
+| 外部载荷的字段/格式/语义改变，或需要新的平台结构 | 实现并注册对应 `InputConverter`、`OutputConverter` 与 `IoBinding`；已有载体和 ValueType 可以复用 |
+| 修复已有业务的转换逻辑 | 修改对应输入/输出转换器并运行相关契约测试；仅影响该路径时，无需另建 Demo |
 
 “结构体布局相同”不等于“业务契约相同”：同一个 `const char*` 承载纯文本与承载完整
-JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代表 Adapter 已支持新协议。
+JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代表转换器已支持新协议。
 
-当前共享 SDK 的 Operator 初始化会审计**所有已注册 Adapter**。新增生产 Adapter
-必须有匹配的 bridge，否则整个 Operator 初始化失败；`GetOperatorLastError()` 会指出业务与缺失 bridge、
-不匹配类型或槽位原因。重复初始化保留首次冲突原因。目前没有仅注册 C ABI 业务的豁免模式。已有宿主类型可以复用其 ValueType 注册，全新类型才需要增加注册。
+当前共享 SDK 的 Operator 初始化会全量审计**所有已声明业务的曝光与绑定**。新增生产业务
+必须有完整的 Operator 绑定与转换器注册，`required_transports` 统一为 `{"operator"}`；
+若缺少绑定，SDK 全局初始化失败。
 
 ## 2. 用一个现有业务看清文件关系
 
@@ -64,94 +64,75 @@ JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代�
 
 | 环节 | 样例文件 | 新业务要落实的内容 |
 | --- | --- | --- |
-| 本地模拟平台结构 | [C ABI 类型](../../include/platform_mock/alg_types.h)、[Operator 数据结构](../../include/platform_mock/operator_data_types.h)、[平台交互类型](../../include/platform_mock/operator_types.h) | 业务类型、输入输出字段、长度和所有权；本目录只保存当前环境的模拟约定，真实公司定义在授权内网接入 |
+| 本地模拟平台结构 | [Operator 数据结构](../../include/platform_mock/operator_data_types.h)、[平台交互类型](../../include/platform_mock/operator_types.h) | 外部输入输出字段、长度和所有权；本目录只保存当前环境的模拟约定，真实公司定义在授权内网接入 |
 | 内部数据边界 | [业务 key](../../include/adapter/biz_blackboard_keys.h)、[业务 Result](../../include/adapter/biz_results.h) | ingress/egress typed key 与接入适配层持有的结果值；已有类型可复用 |
-| Adapter | [keyword_match_adapter.cpp](../../src/adapter/biz/keyword_match_adapter.cpp) | `GetDescriptor`、`Unpack`、`PackTyped` 和 `REGISTER_BIZ_ADAPTER` |
+| 输入转换器 | [text_input.cpp](../../src/adapter/input/text_input.cpp) | 外部输入校验、中性数据封装及 `REGISTER_INPUT_CONVERTER` |
+| 输出转换器 | [keyword_result_output.cpp](../../src/adapter/output/keyword_result_output.cpp) | 内部结果关联、输出池租约填充及 `REGISTER_OUTPUT_CONVERTER` |
+| 业务绑定与曝光 | [keyword_match_bindings.cpp](../../src/adapter/biz/keyword_match_bindings.cpp) | 声明逻辑端口映射、批次上限、`REGISTER_IO_BINDING` 与 `REGISTER_BIZ_EXPOSURE` |
 | Operator 类型注册 | [operator_builtin_value_types.cpp](../../src/adapter/operator/operator_builtin_value_types.cpp) | 为新宿主类型登记规范后缀、输入校验或输出分配/重置/释放 |
-| Operator 业务桥接 | [keyword_match_operator_bridge.cpp](../../src/adapter/biz/keyword_match_operator_bridge.cpp) | 两端结构的字段转换、输入输出槽及 `REGISTER_OPERATOR_BIZ_BRIDGE` |
 | Demo 数据转换 | [keyword_match_demo.cpp](../../demo/biz/keyword_match_demo.cpp) | 读数据集、构造平台输入、复制输出字段及 `REGISTER_DEMO_BIZ` |
 | 构建与部署 | [接入适配层 CMake](../../src/adapter/CMakeLists.txt)、[Demo CMake](../../demo/CMakeLists.txt)、[Pipeline](../../configs/pipeline_keyword_match_rules.json)、[部署配置](../../configs/pipeline_keyword_match_rules.conf) | 登记新增 `.cpp`，编排业务端口，配置路径和输出容量 |
 
 其中，Pipeline 的 `biz_name`（`keyword_match_v1`）、Demo 的 `--biz`（`keyword_match`）
 和 Operator 槽位后缀（`keyword_in` / `keyword_out`）用途不同。
-前两者的关联由 Adapter 的 `BizDefinition` 声明；槽位由 bridge 绑定到已注册宿主类型。
+前两者的关联由 binding 的 `BizDefinition` 声明；槽位由绑定关联到已注册宿主类型。
 新名字必须分别登记，不能只改 JSON 中的显示名称。
 
-## 3. 实现并注册 Adapter
+## 3. 实现并注册转换器与绑定
 
-新增 Adapter 放在 `src/adapter/biz/<biz>_adapter.cpp`，参照上面的关键词实现完成：
+参照关键词或实体抽取的转换器实现完成：
 
-1. **声明外部契约。** 当前本地示例的 C 数据结构放在 `platform_mock/alg_types.h`，
-   使用 C11 类型，明确批次上限、指针有效期和输出容量；函数入口仍在 `edgeflow/c_api.h`。
-   在 `biz_blackboard_keys.h` 复用或增加 typed key；Node 使用中性 Batch 和逻辑端口，
-   不包含平台结构或业务 key 头。
-2. **填写描述符。** `GetDescriptor()` 返回业务枚举、结构名、所有权与批次约束；
-   `AdapterDescriptor::biz_definitions` 中的 `BizDefinition` 声明允许的 `biz_name`、Demo 名和
-   ingress/egress。配置里的业务名必须与这里一致。
-3. **实现输入转换。** `Unpack` 使用 `AdapterValidationHelper` 检查批次、指针和长度，
-   将输入复制到本次 `AlgContext`。关键词样例把外部请求编号保存在 `raw_request_ids`，
-   Batch 的 `req_id` 使用批内编号；输出阶段必须按来源映射回原编号。
-4. **实现一次结果打包。** 继承 `ResultPackingAdapter<Adapter, COutput, Result>`，
-   在 `PackTyped<Output>` 中检查结果完整性、按来源关联结果并映射字段。
-   `COutput` 是公共 C 输出；`Result` 放在 `biz_results.h`，字符串由它自己持有。
-   字符串字段使用 `CopyResultString`：C 数组容量不足时报错，Result 则保存完整内容。
-5. **登记并编译。** 文件末尾使用 `REGISTER_BIZ_ADAPTER`，将源码加入
-   `src/adapter/CMakeLists.txt` 的 `edgeflow_integration_objects`。新业务的 Operator
-   bridge 也要完成后再验证 SDK 初始化，不修改 `c_api_adapter.cpp` 的中央分发。
+1. **实现输入转换器（`src/adapter/input/`）。**
+   编写 `DecodeInputFn`，使用 `AdapterValidationHelper` 检查批次、指针和长度，
+   将输入复制为中性 DTO 发布到 `AlgContext`。外部请求编号保存在 `raw_request_ids`，
+   内部批次使用批内编号；输出阶段按来源映射回原编号。
+   定义 `InputConverterDefinition`（`transport = "operator"`）并使用
+   `REGISTER_INPUT_CONVERTER` 注册。
+2. **实现输出转换器（`src/adapter/output/`）。**
+   编写 `EncodeOutputFn`，从 `AlgContext` 读取内部结果，检查结果完整性，按来源映射关联结果。
+   通过 `ExternalOutputBatchView` 将字段写入已租用的输出池结构（如 `CompanyOperator*Output`），
+   使用 `slot_capacities` 严格防护缓冲区溢出。
+   定义 `OutputConverterDefinition`（`transport = "operator"`）并使用
+   `REGISTER_OUTPUT_CONVERTER` 注册。
+3. **实现业务绑定与曝光声明（`src/adapter/biz/`）。**
+   在 `IoBindingDefinition` 中指定 `binding_id`、`biz_name`、`transport = "operator"`、
+   绑定的 `input_converter_id` 和 `output_converter_id`，以及逻辑端口到内部 Blackboard Key 的映射。
+   使用 `REGISTER_IO_BINDING` 注册绑定。
+   使用 `REGISTER_BIZ_EXPOSURE` 声明业务生产暴露：`required_transports = {"operator"}` 与 `max_batch_size`。
+4. **登记构建。**
+   将新增源码加入 `src/adapter/CMakeLists.txt` 的 `edgeflow_integration_objects`。
 
-对于 1:1 文本类业务（如外部 JSON 协议转换或普通文本），可直接声明 `OneToOneTextAdapterSpec` 并使用 `OneToOneTextAdapter` 模板（见 [translate_adapter.cpp](../../src/adapter/biz/translate_adapter.cpp)），仅需编写单样本 `DecodeRequest` 与 `EncodeResponse` 函数，骨架自动负责 Envelope 校验、全批 copy-in、批内编号与多键发布。其 Operator 桥接可直接复用 `MakeTextCarrierBridge`。多路内部输入/输出的打包可参考
-[doc_qa_adapter.cpp](../../src/adapter/biz/doc_qa_adapter.cpp)（采用 `ReadMultiWayResults` 与 `RequestResults` 对齐组件）。平台边界检查的独立
-练习见 [Adapter 安全示例](adapter_templates/README.md)，它们不注册生产业务。
+## 4. Operator 类型与输出池
 
-## 4. 补齐 Operator 类型和业务桥接
-
-**ValueType 说明“这块平台内存是什么类型、如何检查和管理”，bridge 说明“这个业务如何转换它”。**
-按这个顺序实现：
+**ValueType 说明“这块平台内存是什么类型、如何检查和管理”，输出池负责有界租约与复用。**
 
 1. 当前环境的模拟宿主结构先在 `platform_mock/operator_data_types.h` 声明，类型实现
    包含 `adapter/operator_value_type.h`，通过 `RegisterOperatorValueType` 与
    `REGISTER_OPERATOR_VALUE_TYPE` 在自己的源码中登记。
    输入 binding 指定规范后缀、外部类型、I/O 方向和校验函数；输出 binding 还需声明
    每个字符串的默认/最大容量、metadata 上限、池载荷预算及分配、重置、释放行为。
-   同文件的 `MakeTypedInputBinding` / `MakePooledOutputBinding` 是现有类型的实现参考。
-   公司内部公共头的接入遵循 [平台模拟定义的迁移边界](../../include/platform_mock/README.md)。
-   同一外层类型的不同嵌套布局可以注册命名分配方案，配置通过 `allocator` 和 `params`
-   选择；用 `MakeOutputParameterParser<T>` 注册自己普通参数结构的字符串解析函数，
-   无需继承参数基类或实现 `ToJson()`。配置只在最外层创建阶段读取，分配函数仅创建
-   一份完整结构，不管理 25 的池深。见
-   [多输出与嵌套载荷分配](operator_output_allocation.md)。
-2. 新建 `src/adapter/biz/<biz>_operator_bridge.cpp`。单输入/单输出时，沿用
-   `MakeSingleSlotBizBridge<Result>`，填写与 Adapter 一致的业务类型和结果类型，指定
-   已注册的输入输出后缀；多输入时参考
-   [ocr_doc_qa_operator_bridge.cpp](../../src/adapter/biz/ocr_doc_qa_operator_bridge.cpp)。
-3. 实现 `convert_sample_input`：从输入槽读取宿主结构，使用
-   `ProcessLocalShadowStorage` 复制字符串、保存临时输入结构。在输出槽位提供
-   `convert_output`（单输出 helper 会绑定到 `output_slots.front().convert_output`）：
-   把业务 Result 复制进已租用的输出池，容量只取自 `ResolvedOutputPoolSpec`，不在 bridge 内重新读取原始 JSON 或设置默认容量。
-4. 包含 `adapter/operator_biz_bridge.h`，使用无参注册函数调用
-   `RegisterOperatorBizBridge(desc)`；输出文本使用 `CopyToOperatorString`。
-   用 `REGISTER_OPERATOR_BIZ_BRIDGE` 登记注册函数，并将新增源码加入
-   `src/adapter/CMakeLists.txt`。宿主传入的命名 I/O Key 后缀必须与注册后缀精确一致。
+2. 同一外层类型的不同嵌套布局可以注册命名分配方案，配置通过 `allocator` 和 `params`
+   选择；用 `MakeOutputParameterParser<T>` 注册自己普通参数结构的字符串解析函数。
+   配置只在最外层创建阶段读取，分配实现仅创建一份完整结构，不管理池深。
 
 `CompanyString` 用于文本，二进制使用 `CompanyBuffer`。输入借用指针不跨调用保存；
 输出提取时复制所需数据，具体生命周期按
 [Operator 接口](../../include/edgeflow/operator/interface.h)执行。
 上述转换都留在接入适配层，Node、Model 和 Backend 无需识别宿主结构。
 
-## 统一 Demo 接入
+## 5. 统一 Demo 接入
 
 已有契约的新方案直接沿用对应 Demo 和数据集格式，只准备 Pipeline 与指向它的 `.conf`。
-这里的数据转换仅指[载体构造和结果展示](#输入输出以-c-abi-为边界)，外部协议的解包、
-字段选择与响应组装仍在 Adapter；不得把原始业务请求预先拆成内部节点输入。
+这里的数据转换仅指载体构造和结果展示，外部协议的解包、
+字段选择与响应组装仍在转换器；不得把原始业务请求预先拆成内部节点输入。
 新增外部结构需要统一 Demo 时，按 `keyword_match_demo.cpp` 完成以下步骤：
 
 1. 新建 `demo/biz/<biz>_demo.cpp`，从数据集读入样本，为每条样本构造宿主输入结构，
    保持字符串及数组在同步处理期间有效。
-2. 使用 `RunOperatorWithExtractor<Input, Output>`，传入 bridge 声明的槽位后缀；
+2. 使用 `RunOperatorWithExtractor<Input, Output>`，传入声明的槽位后缀；
    在 extractor 中把输出复制到本地结果值，再交给 `ResultWriter` 输出逐条记录。
    同时复制真实 `status_code`，写入样本的 `status`，不能固定填零。Process 返回成功表示
    调用完成，业务是否逐条成功还需检查 `results.jsonl` 和 `summary.json`。
-   执行、参数解析和输出池管理继续复用运行器。
 3. 用 `REGISTER_DEMO_BIZ(name, title, run_function, biz_type)` 注册，`name` 与
    `BizDefinition` 的 Demo 名一致，业务类型显式给出且非 UNKNOWN；将源码加入
    `demo/CMakeLists.txt`。无需在 `demo/main.cpp` 增加业务分支。
@@ -164,7 +145,7 @@ JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代�
 `model_path`；同时核对 `data.model_paths` 覆盖与输出容量。Profile 不会自动指向新方案，
 详细命令见[运行当前方案](../../tools/pipeline_studio/README.md#运行当前方案)。
 
-## 输出容量
+## 6. 输出容量与生命周期
 
 宿主输入是借用视图，底层字符串、数组和结构体必须保持有效直到 `Process` 返回。
 输出 `shared_ptr<void>` 持有的是当前 handle 的池租约，不延长 handle 的生命期。
@@ -177,15 +158,12 @@ JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代�
 旧输出。参考 [Demo 的输出复制与释放](../../demo/biz/ocr_doc_qa_demo.cpp) 和
 [公开 Operator 契约](../../include/edgeflow/operator/interface.h)。
 
-Operator 的输出路径是 `Pipeline → 可变长业务 Result → 已租用输出池`。
+Operator 的输出路径是 `Pipeline → 内部中性值 → OutputConverter → 已租用输出池`。
 Result 与请求 Context 均不跨 Process 保存。`.conf` 的 `data.outputs` 按逻辑
-槽位分别指定类型、`allocator`、`params` 和容量。字符串不受中间 C 输出数组大小限制；
+槽位分别指定类型、`allocator`、`params` 和容量。
 超过输出池容量时返回 `-4`，尚未发布的输出租约全部回滚。
 
-公共 C ABI 继续使用已发布的固定数组大小。需要大结果时选择 Operator，或通过新的
-外部 ABI 版本扩展；不改变旧结构布局。
-
-## 最小验证
+## 7. 最小验证
 
 完成源码登记后重新构建，再检查新业务是否进入 Catalog：
 
@@ -194,7 +172,7 @@ cmake --build build --target alg_sdk alg_pipeline_tool alg_demo -j 4
 ./build/alg_pipeline_tool catalog
 ```
 
-确认 Catalog 中出现新 `biz_name`，ingress/egress 类型与 Adapter 一致；随后对**本次新增或
+确认 Catalog 中出现新 `biz_name`，ingress/egress 类型与定义一致；随后对**本次新增或
 修改的 Pipeline** 执行 `validate`、`plan`，运行对应 Demo 并核对请求 ID、状态及业务字段。
 第 2 节的关键词命令是可运行参照，实际验证时替换为新业务、配置和数据集。
 有意使用测试模型时按[工具选择](../../tools/pipeline_studio/README.md#校验工具选择)
@@ -204,13 +182,10 @@ cmake --build build --target alg_sdk alg_pipeline_tool alg_demo -j 4
 
 | 验证范围 | 必须观察到的行为 | 参考测试 |
 | --- | --- | --- |
-| C ABI / Adapter | 非法指针和长度被拒绝；结果乱序仍按来源返回，重复/缺失来源与失败结果被拒绝；两种输出表示一致 | [Adapter 契约测试](../../tests/contract/abi/test_adapter_contract_security.cpp)、[C ABI 测试](../../tests/contract/abi/test_c_abi_safety.cpp) |
-| Operator | 初始化接受完整注册；超过旧 C 数组但在池容量内时输出完整，超池容量时无部分发布且后续请求可复用租约 | [bridge 测试](../../tests/unit/operator/test_operator_biz_bridge_registry.cpp)、[Operator 集成测试](../../tests/integration/operator/test_operator_api.cpp) |
+| 转换器与契约安全 | 非法指针和长度被拒绝；结果乱序仍按来源返回，重复/缺失来源与失败结果被拒绝；输出容量越界严格拦截 | [Adapter 契约测试](../../tests/contract/abi/test_adapter_contract_security.cpp)、[Operator 安全测试](../../tests/contract/abi/test_operator_safety.cpp) |
+| Operator SDK | 初始化接受完整注册；在池容量内时输出完整，超池容量时无部分发布且后续请求可复用租约 | [Operator 基础测试](../../tests/integration/operator/test_operator_api.cpp)、[公开 SDK 消费者测试](../../tests/contract/abi/test_cpp_operator_sdk.cpp) |
 | Pipeline / Demo | 新业务通过校验和计划，样例结果及错误路径符合预期 | [Catalog/Validator 测试](../../tests/integration/pipeline/test_pipeline_catalog_validator.cpp)、[Demo 测试](../../tests/integration/demo/test_demo_runner.cpp) |
 
-业务 I/O 契约新增或改变时，必须用原始业务请求直接调用 `Alg_Process`，检查完整响应；
-已有契约测试可以复用。统一 Demo 走 Operator，其成功不替代 C ABI 边界测试。
-仅修改 C ABI 路径时，无需另建 Demo。
 交付前执行 `./scripts/run_all_tests.sh`。真实模型效果与目标平台验收按
 [效果验收指南](../VERIFIABLE_SELECTION.md)另行记录；涉及公司内部 SDK 时遵循
 [RFC-0029](../rfcs/0029-external-readiness-and-intranet-sdk-migration.md)，当前外部工作区只准备中立接口。

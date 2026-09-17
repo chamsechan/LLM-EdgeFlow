@@ -1,8 +1,8 @@
 
-# 3. 纯 C11 ABI 兼容性测试 (确保头文件为纯 C 且可被标准 C 编译器直接编译)
-add_executable(test_c11_abi_compliance ${EDGEFLOW_SOURCE_test_c11_abi_compliance})
-target_link_libraries(test_c11_abi_compliance PRIVATE llm_edgeflow::sdk)
-add_test(NAME C11AbiComplianceTest COMMAND test_c11_abi_compliance)
+# 3. 纯 C++ Operator SDK 独立消费者测试
+add_executable(test_cpp_operator_sdk ${EDGEFLOW_SOURCE_test_cpp_operator_sdk})
+set_target_properties(test_cpp_operator_sdk PROPERTIES LINK_LIBRARIES "llm_edgeflow::sdk")
+add_test(NAME CppOperatorSdkTest COMMAND test_cpp_operator_sdk)
 
 # 4. 架构分层防腐隔离测试 (LayerGuard)
 add_test(NAME LayerGuardTest COMMAND ${CMAKE_COMMAND} -E env
@@ -37,9 +37,9 @@ target_link_libraries(test_log PRIVATE
     llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
 add_test(NAME CompanyAlgLogTest COMMAND test_log)
 
-add_executable(test_c_abi_safety ${EDGEFLOW_SOURCE_test_c_abi_safety})
-target_link_libraries(test_c_abi_safety PRIVATE llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
-add_test(NAME CAbiSafetyTest COMMAND test_c_abi_safety)
+add_executable(test_operator_safety ${EDGEFLOW_SOURCE_test_operator_safety})
+target_link_libraries(test_operator_safety PRIVATE llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
+add_test(NAME OperatorSafetyTest COMMAND test_operator_safety)
 
 add_executable(test_qwen_causal_lm_model ${EDGEFLOW_SOURCE_test_qwen_causal_lm_model})
 target_link_libraries(test_qwen_causal_lm_model PRIVATE llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
@@ -278,6 +278,10 @@ add_executable(test_operator_golden ${EDGEFLOW_SOURCE_test_operator_golden})
 target_link_libraries(test_operator_golden PRIVATE llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
 add_test(NAME OperatorGoldenTest COMMAND test_operator_golden)
 
+add_executable(test_adapter_purity ${EDGEFLOW_SOURCE_test_adapter_purity})
+target_link_libraries(test_adapter_purity PRIVATE llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
+add_test(NAME AdapterPurityTest COMMAND test_adapter_purity)
+
 add_executable(test_io_converters ${EDGEFLOW_SOURCE_test_io_converters})
 target_link_libraries(test_io_converters PRIVATE llm_edgeflow::internal_runtime GTest::gtest GTest::gtest_main)
 add_test(NAME IoConverterTest COMMAND test_io_converters)
@@ -300,7 +304,7 @@ add_test(NAME ComplexConvertersTest COMMAND test_complex_converters)
 set(EDGEFLOW_INDIVIDUAL_TESTS_WITH_RUNTIME_FIXTURES
   test_framework_core
   test_log
-  test_c_abi_safety
+  test_operator_safety
   test_qwen_causal_lm_model
   test_llama_cpp_backend
   test_whisper_cpp_backend
@@ -316,7 +320,7 @@ set(EDGEFLOW_INDIVIDUAL_TESTS_WITH_RUNTIME_FIXTURES
   test_operator_api
   test_operator_output_pool
   test_operator_value_registry
-  test_operator_biz_bridge_registry
+  test_adapter_purity
   test_doc_qa_rerank
   test_pipeline_studio
   test_demo_runner
@@ -356,11 +360,11 @@ endforeach()
 
 # 设置所有测试工作目录为项目根目录，保证无论从何处运行 CTest，相对路径均一致解析
 set_tests_properties(
-  C11AbiComplianceTest LayerGuardTest ArchitectureDocsDriftTest
+  CppOperatorSdkTest LayerGuardTest ArchitectureDocsDriftTest
   ArchitectureDocsDriftGateSelfTest DiagramAssetsCheckTest
   DiagramRenderGateSelfTest ScriptGeneratorDetectionTest
   BatchExecutorTest FrameworkCoreTest
-  CAbiSafetyTest CompanyAlgLogTest QwenCausalLmModelTest LlamaCppBackendTest DifferentIoModalitiesTest
+  OperatorSafetyTest CompanyAlgLogTest QwenCausalLmModelTest LlamaCppBackendTest DifferentIoModalitiesTest
   AllBizPipelinesTest ConcurrencyAndEdgeCasesTest DagPipelineTest
   RuntimeControlAndHotSwapTest EngineFaultToleranceAndLifecycleTest
   AdapterContractSecurityTest PipelineConfigTest RegistryConflictNodeTest
@@ -377,6 +381,7 @@ set_tests_properties(
   LlmGenerateNodeTest AsrTranscribeNodeTest OcrDetectNodeTest
   TextRuleMatchNodeTest StructuredJsonParseNodeTest TextCorpusSourceNodeTest
   CommonNodesTest FunctionNodeTest ParameterBindingTest OperatorGoldenTest
+  AdapterPurityTest
   IoConverterTest IoBindingRegistryTest TextConvertersTest ComplexConvertersTest
   PROPERTIES WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
 )

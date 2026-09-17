@@ -53,10 +53,17 @@ int IoBindingResolver::ResolveFromConfig(
   }
 
   // 2. 检查入口类型匹配
-  if (binding->transport != transport) {
+  if (transport != "operator") {
+    if (out_error) {
+      *out_error = "Unsupported transport: '" + transport +
+                   "' (only 'operator' is supported)";
+    }
+    return -2;
+  }
+  if (binding->transport != "operator") {
     if (out_error) {
       *out_error = "Binding transport mismatch for '" + config.io_binding +
-                   "': expected '" + transport + "', but binding declared '" +
+                   "': expected 'operator', but binding declared '" +
                    binding->transport + "'";
     }
     return -2;
@@ -92,94 +99,91 @@ int IoBindingResolver::ResolveFromConfig(
     max_batch = std::min(max_batch, exposure->max_batch_size);
   }
 
-  // 5. 若为 Operator 入口，校验 outputs 配置与槽位
+  // 5. 校验 outputs 配置与槽位
   std::unordered_map<std::string, ResolvedOutputPoolSpec> output_specs;
   std::unordered_map<std::string, std::string> output_params;
-  if (transport == "operator") {
-    // 5.1 拒绝未在输出转换器中声明的未知槽位配置
-    for (auto it = config.outputs.begin(); it != config.outputs.end(); ++it) {
-      bool found = false;
-      for (const auto& slot : out_conv->external_slots) {
-        if (slot.direction == PortDirection::kOutput &&
-            slot.slot_name == it.key()) {
-          found = true;
-          break;
-        }
-      }
-      if (!found) {
-        if (out_error) {
-          *out_error = "Unknown configured output slot: " + it.key();
-        }
-        return -2;
-      }
-    }
-
-    // 5.2 校验并解析每个输出槽位配置 (复用统一的 OperatorConfigResolver 规范)
+  // 5.1 拒绝未在输出转换器中声明的未知槽位配置
+  for (auto it = config.outputs.begin(); it != config.outputs.end(); ++it) {
+    bool found = false;
     for (const auto& slot : out_conv->external_slots) {
-      if (slot.direction != PortDirection::kOutput) continue;
-      if (!config.outputs.contains(slot.slot_name)) {
-        if (slot.required) {
-          if (out_error) {
-            *out_error = "Missing required Operator output slot '" +
-                         slot.slot_name + "' in data.outputs";
-          }
-          return -2;
-        }
-        continue;
-      }
-      const auto& slot_cfg = config.outputs[slot.slot_name];
-      ResolvedOutputPoolSpec pool_spec;
-      std::string param_text;
-      std::string alloc_err;
-      int alloc_ret = OperatorConfigResolver::ResolveOutputAllocation(
-          slot_cfg, slot, &pool_spec, &param_text, &alloc_err);
-      if (alloc_ret != 0) {
-        if (out_error) *out_error = alloc_err;
-        return alloc_ret;
-      }
-      output_specs[slot.slot_name] = std::move(pool_spec);
-      output_params[slot.slot_name] = std::move(param_text);
-    }
-
-    // 5.3 默认深度下的句柄池载荷总预算校验
-    size_t total_handle_pool_bytes = 0;
-    for (const auto& [slot_name, pool_spec] : output_specs) {
-      const auto* output_binding =
-          OperatorValueTypeRegistry::Instance().GetOutputBinding(
-              pool_spec.type, pool_spec.allocator);
-      if (!output_binding ||
-          output_binding->direction != IoDirection::kOutput) {
-        if (out_error) {
-          *out_error = "Missing output value binding for suffix '" +
-                       pool_spec.type + "'";
-        }
-        return -2;
-      }
-      size_t slot_pool_bytes = 0;
-      std::string budget_err;
-      if (!ComputeOutputPoolPayloadBytes(*output_binding, pool_spec,
-                                         kDefaultOutputPoolDepth,
-                                         &slot_pool_bytes, &budget_err)) {
-        if (out_error) {
-          *out_error = "Output pool budget calculation failed: " + budget_err;
-        }
-        return -2;
-      }
-      if (!CheckedAdd(total_handle_pool_bytes, slot_pool_bytes,
-                      &total_handle_pool_bytes)) {
-        if (out_error) *out_error = "Handle pool budget addition overflowed";
-        return -2;
+      if (slot.direction == PortDirection::kOutput &&
+          slot.slot_name == it.key()) {
+        found = true;
+        break;
       }
     }
-    if (total_handle_pool_bytes > kMaxHandlePoolPayloadBytes) {
+    if (!found) {
       if (out_error) {
-        *out_error = "Total output pool payload (" +
-                     std::to_string(total_handle_pool_bytes) +
-                     " bytes) exceeds per-handle payload budget (" +
-                     std::to_string(kMaxHandlePoolPayloadBytes) + " bytes)";
+        *out_error = "Unknown configured output slot: " + it.key();
       }
       return -2;
     }
+  }
+
+  // 5.2 校验并解析每个输出槽位配置 (复用统一的 OperatorConfigResolver 规范)
+  for (const auto& slot : out_conv->external_slots) {
+    if (slot.direction != PortDirection::kOutput) continue;
+    if (!config.outputs.contains(slot.slot_name)) {
+      if (slot.required) {
+        if (out_error) {
+          *out_error = "Missing required Operator output slot '" +
+                       slot.slot_name + "' in data.outputs";
+        }
+        return -2;
+      }
+      continue;
+    }
+    const auto& slot_cfg = config.outputs[slot.slot_name];
+    ResolvedOutputPoolSpec pool_spec;
+    std::string param_text;
+    std::string alloc_err;
+    int alloc_ret = OperatorConfigResolver::ResolveOutputAllocation(
+        slot_cfg, slot, &pool_spec, &param_text, &alloc_err);
+    if (alloc_ret != 0) {
+      if (out_error) *out_error = alloc_err;
+      return alloc_ret;
+    }
+    output_specs[slot.slot_name] = std::move(pool_spec);
+    output_params[slot.slot_name] = std::move(param_text);
+  }
+
+  // 5.3 默认深度下的句柄池载荷总预算校验
+  size_t total_handle_pool_bytes = 0;
+  for (const auto& [slot_name, pool_spec] : output_specs) {
+    const auto* output_binding =
+        OperatorValueTypeRegistry::Instance().GetOutputBinding(
+            pool_spec.type, pool_spec.allocator);
+    if (!output_binding || output_binding->direction != IoDirection::kOutput) {
+      if (out_error) {
+        *out_error =
+            "Missing output value binding for suffix '" + pool_spec.type + "'";
+      }
+      return -2;
+    }
+    size_t slot_pool_bytes = 0;
+    std::string budget_err;
+    if (!ComputeOutputPoolPayloadBytes(*output_binding, pool_spec,
+                                       kDefaultOutputPoolDepth,
+                                       &slot_pool_bytes, &budget_err)) {
+      if (out_error) {
+        *out_error = "Output pool budget calculation failed: " + budget_err;
+      }
+      return -2;
+    }
+    if (!CheckedAdd(total_handle_pool_bytes, slot_pool_bytes,
+                    &total_handle_pool_bytes)) {
+      if (out_error) *out_error = "Handle pool budget addition overflowed";
+      return -2;
+    }
+  }
+  if (total_handle_pool_bytes > kMaxHandlePoolPayloadBytes) {
+    if (out_error) {
+      *out_error = "Total output pool payload (" +
+                   std::to_string(total_handle_pool_bytes) +
+                   " bytes) exceeds per-handle payload budget (" +
+                   std::to_string(kMaxHandlePoolPayloadBytes) + " bytes)";
+    }
+    return -2;
   }
 
   // 6. 读取 Pipeline JSON
@@ -336,10 +340,17 @@ int IoBindingResolver::ResolveFromPipelineJson(
   }
 
   // 2. 检查入口类型匹配
-  if (!transport.empty() && binding->transport != transport) {
+  if (transport != "operator") {
+    if (out_error) {
+      *out_error = "Unsupported transport: '" + transport +
+                   "' (only 'operator' is supported)";
+    }
+    return -2;
+  }
+  if (binding->transport != "operator") {
     if (out_error) {
       *out_error = "Binding transport mismatch for '" + binding_id +
-                   "': expected '" + transport + "', but binding declared '" +
+                   "': expected 'operator', but binding declared '" +
                    binding->transport + "'";
     }
     return -2;

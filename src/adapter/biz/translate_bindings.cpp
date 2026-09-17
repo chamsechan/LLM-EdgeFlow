@@ -29,22 +29,7 @@ BizExposureDefinition MakeTranslateBizExposure() {
   BizExposureDefinition def;
   def.biz_name = "translate_v1";
   def.max_batch_size = 64;
-  def.required_transports = {"cabi", "operator"};
-  return def;
-}
-
-IoBindingDefinition MakeTranslateCAbiBinding() {
-  IoBindingDefinition def;
-  def.binding_id = "translate.cabi.v1";
-  def.biz_name = "translate_v1";
-  def.transport = "cabi";
-  def.input_converter_id = "translate.json.cabi.v1";
-  def.output_converter_id = "translate.json.cabi.v1";
-  def.input_ports = {{"raw_request_ids", "raw_request_ids"},
-                     {"input_sentences", "input_sentences"}};
-  def.output_ports = {{"raw_request_ids", "raw_request_ids"},
-                      {"llm_answers", "llm_answers"}};
-  def.max_batch_size = 64;
+  def.required_transports = {"operator"};
   return def;
 }
 
@@ -64,7 +49,6 @@ IoBindingDefinition MakeTranslateOperatorBinding() {
 }
 
 REGISTER_BIZ_EXPOSURE(MakeTranslateBizExposure());
-REGISTER_IO_BINDING(MakeTranslateCAbiBinding());
 REGISTER_IO_BINDING(MakeTranslateOperatorBinding());
 
 }  // namespace

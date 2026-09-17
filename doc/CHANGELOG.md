@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-09-17 退出旧 C ABI，仅保留 C++ Operator SDK（RFC-0060）
+
+- **接口收口与退出旧 C ABI**：
+  - 彻底删除旧六函数 `Alg_*` C ABI 算法入口（`include/edgeflow/c_api.h`、`include/edgeflow/c_api.hpp`、`src/adapter/c_api_adapter.cpp`）。
+  - 仅保留标准 C++ Operator API（`llm_edgeflow::operator_api`）作为唯一算法接口。
+  - 删除旧平台类型声明 `include/platform_mock/alg_types.h` 及 C ABI 专属转换分支。
+  - 共享库版本升级：产品版本 11.0.0，ABI major 升级为 7（`SOVERSION 7`），精确导出 6 个符号（Operator 函数表、错误查询、配置预检及 AlgBase 日志接口）。
+
 ## 2026-09-16 输入输出转换独立化与接入绑定架构（RFC-0059）
 
 - **输入输出转换解耦与注册中心**：

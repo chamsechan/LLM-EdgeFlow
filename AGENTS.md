@@ -17,7 +17,7 @@ Chinese/English names are 接入适配层 / Integration, 流程编排层 / Orche
 Dependencies flow downward only:
 
 ```text
-Integration       C ABI / Operator / Biz adapters
+Integration       Operator / Biz adapters
     ↓
 Orchestration     Pipeline / Validator / Catalog / Blackboard / Session
     ↓
@@ -26,20 +26,22 @@ Capability Nodes  Request-stateless Nodes
 Model Execution   Model semantics / neutral execution protocols / Backends
 ```
 
-- **Integration** — `include/edgeflow/c_api.h`, `include/edgeflow/operator/`, `include/platform_mock/`,
-  `include/adapter/`, and `src/adapter/`. Public C headers remain C11-only. All six exported
-  `Alg_*` functions keep `noexcept`, `catch (const std::exception&)`, and `catch (...)`
-  barriers. Biz-specific conversion belongs in registered `IBizAdapter` and Operator bridge
-  implementations, not in central dispatch switches or lower layers.
-  Business input/output requirements describe the complete request/response at the public
-  C ABI boundary. `IBizAdapter::Unpack` owns external payload validation and field selection;
-  Adapter packing owns response assembly and serialization. The C ABI must satisfy that contract
-  without Demo/Python preprocessing or postprocessing. Demo may construct carriers, hold buffers,
-  invoke the SDK and display/copy its results; it must not replace Adapter conversion.
-  Reusing the same C struct does not imply the same payload schema or business contract.
-  Node ports and Catalog ingress/egress describe internal values, not the external C ABI payload.
-  Existing local substitutes for platform public types live only in `include/platform_mock/`;
-  these are not company SDK headers. Keep framework entrypoints and helpers under `edgeflow/`.
+- **Integration** — `include/edgeflow/operator/`, `include/platform_mock/`, `include/adapter/`,
+  and `src/adapter/`. The C++ Operator API (`llm_edgeflow::operator_api`) is the sole public
+  algorithm interface. All exported Operator table functions keep `noexcept`,
+  `catch (const std::exception&)`, and `catch (...)` barriers. Biz-specific conversion belongs
+  in registered `InputConverter`, `OutputConverter`, and `IoBinding` implementations, not in
+  central dispatch switches or lower layers.
+  Business input/output requirements describe the complete request/response at the Operator
+  boundary. Input converters own external payload validation and field selection; output
+  converters own response assembly, capacity checking, and serialization. The Operator API
+  must satisfy that contract without Demo/Python preprocessing or postprocessing. Demo may
+  construct carriers, hold buffers, invoke the SDK and display/copy its results; it must not
+  replace Adapter conversion. Reusing the same DTO struct does not imply the same payload
+  schema or business contract. Node ports and Catalog ingress/egress describe internal values,
+  not the external Operator payload. Existing local substitutes for platform public types live
+  only in `include/platform_mock/`; these are not company SDK headers. Keep framework
+  entrypoints and helpers under `edgeflow/`.
 - **Orchestration** — `include/core/` and `src/core/`. `PipelineValidator` is the single validation
   and planning implementation. Runtime Pipeline documents use explicit `id` and `depends_on`;
   `Pipeline` consumes `ValidatedPipelinePlan` without reparsing or resorting. Request values
@@ -71,10 +73,10 @@ from prose. Query `alg_pipeline_tool`; registrations and Definitions are the exe
   necessary `.conf` files and optional Demo Profiles: read and follow
   [pipeline-composer](.agents/skills/pipeline-composer/SKILL.md). Reuse registered Nodes; route
   capability gaps to implementation before writing C++.
-- C ABI/Adapter, Core/Pipeline, Node, Model, or Backend implementation: read and follow
+- Operator SDK/Adapter, Core/Pipeline, Node, Model, or Backend implementation: read and follow
   [llm-edgeflow-developer-guide](.agents/skills/llm-edgeflow-developer-guide/SKILL.md), loading
   only affected-layer references. New platform structures and Demo data conversion belong here;
-  preserve the current SDK's Adapter/Operator bridge registry completeness when adding a biz.
+  preserve the current SDK's input/output converter and binding registry completeness when adding a biz.
 - Upload, PR, or merge requested by the user: read and follow
   [github-branch-merge](.agents/skills/github-branch-merge/SKILL.md). Never upload or merge from
   an ordinary implementation request.
@@ -107,7 +109,7 @@ implementation, coordination, durable documentation, and the final report.
   build/tests needed for diagnosis and then the single canonical pre-delivery gate from
   `CONTRIBUTING.md`. Report exact commands and results. Do not silently fix source or tests;
   return production defects to the implementation owner and test defects to the test author.
-- **Reviewer** — read-only independent review for high-risk changes: public C ABI, cross-layer
+- **Reviewer** — read-only independent review for high-risk changes: public Operator SDK API, cross-layer
   architecture, Core/Pipeline semantics, ownership/lifetime/concurrency, Model/Backend behavior,
   RFC implementation, or similarly difficult-to-reverse changes. Routine low-risk edits do not
   require a separate reviewer. Review for correctness, architecture invariants, regression risk,

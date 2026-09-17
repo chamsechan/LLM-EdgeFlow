@@ -33,25 +33,7 @@ BizExposureDefinition MakeDocQaBizExposure() {
   BizExposureDefinition def;
   def.biz_name = "smart_doc_qa_v1";
   def.max_batch_size = 64;
-  def.required_transports = {"cabi", "operator"};
-  return def;
-}
-
-IoBindingDefinition MakeDocQaCAbiBinding() {
-  IoBindingDefinition def;
-  def.binding_id = "doc_qa.cabi.v1";
-  def.biz_name = "smart_doc_qa_v1";
-  def.transport = "cabi";
-  def.input_converter_id = "doc_query.plain.cabi.v1";
-  def.output_converter_id = "doc_answer.plain.cabi.v1";
-  def.input_ports = {{"raw_request_ids", "raw_request_ids"},
-                     {"raw_docs", "raw_docs"},
-                     {"raw_queries", "raw_queries"}};
-  def.output_ports = {{"raw_request_ids", "raw_request_ids"},
-                      {"llm_answers", "llm_answers"},
-                      {"intent_matches", "intent_matches"},
-                      {"doc_chunk_counts", "doc_chunk_counts"}};
-  def.max_batch_size = 64;
+  def.required_transports = {"operator"};
   return def;
 }
 
@@ -74,7 +56,6 @@ IoBindingDefinition MakeDocQaOperatorBinding() {
 }
 
 REGISTER_BIZ_EXPOSURE(MakeDocQaBizExposure());
-REGISTER_IO_BINDING(MakeDocQaCAbiBinding());
 REGISTER_IO_BINDING(MakeDocQaOperatorBinding());
 
 }  // namespace

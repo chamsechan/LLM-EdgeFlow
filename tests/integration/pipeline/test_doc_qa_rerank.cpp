@@ -5,7 +5,6 @@
 #include <string>
 #include <vector>
 
-#include "edgeflow/c_api.h"
 #include "edgeflow/operator/interface.h"
 #include "edgeflow/operator/types.h"
 

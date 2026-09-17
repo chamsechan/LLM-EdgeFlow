@@ -28,9 +28,9 @@ if [[ "${1:-}" == "--self-test" ]]; then
   mkdir -p "${TMP_TEST_DIR}/violation_repo/src/adapter/biz"
   mkdir -p "${TMP_TEST_DIR}/violation_repo/demo"
   mkdir -p "${TMP_TEST_DIR}/violation_repo/include/edgeflow/operator"
-  touch "${TMP_TEST_DIR}/violation_repo/include/edgeflow/c_api.h"
+  touch "${TMP_TEST_DIR}/violation_repo/include/edgeflow/operator/interface.h"
   touch "${TMP_TEST_DIR}/violation_repo/include/edgeflow/operator/types.h"
-  echo '#include "edgeflow/c_api.h"' > "${TMP_TEST_DIR}/violation_repo/src/common_nodes/bad_node.cpp"
+  echo '#include "edgeflow/operator/interface.h"' > "${TMP_TEST_DIR}/violation_repo/src/common_nodes/bad_node.cpp"
   set +e
   REPO_ROOT="${TMP_TEST_DIR}/violation_repo" bash "${SCRIPT_PATH}" >/dev/null 2>&1
   STATUS_INJECT_VIOLATION=$?
@@ -115,7 +115,7 @@ if [[ "${1:-}" == "--self-test" ]]; then
 
   # Test Case 6: Custom Nodes obey the same platform boundary as common Nodes.
   for CUSTOM_INCLUDE in \
-    '#include "edgeflow/c_api.h"' \
+    '#include "edgeflow/operator/interface.h"' \
     '# include "../adapter/biz_blackboard_keys.h"' \
     '#include "adapter/io_converter.h"' \
     '#include "edgeflow/operator/types.h"' \
@@ -385,8 +385,8 @@ elif command -v clang >/dev/null 2>&1; then
 fi
 if [[ -n "${C11_COMPILER}" ]]; then
   for C11_HEADER in \
-    edgeflow/c_api.h edgeflow/log.h edgeflow/operator/types.h \
-    platform_mock/alg_types.h platform_mock/error_codes.h \
+    edgeflow/log.h edgeflow/operator/types.h \
+    platform_mock/error_codes.h \
     platform_mock/operator_data_types.h; do
     # A macro-only header is valid; provide a translation unit for -pedantic.
     printf '#include "%s"\nint main(void) { return 0; }\n' "${C11_HEADER}" | \

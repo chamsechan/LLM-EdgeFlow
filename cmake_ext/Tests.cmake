@@ -147,7 +147,7 @@ target_link_libraries(edgeflow_test_nodes_runner PRIVATE
 edgeflow_enable_test_pch(edgeflow_test_nodes_runner)
 
 set(EDGEFLOW_TEST_ADAPTER_SRCS
-  ${EDGEFLOW_SOURCE_test_c_abi_safety}
+  ${EDGEFLOW_SOURCE_test_operator_safety}
   ${EDGEFLOW_SOURCE_test_different_io_modalities}
   ${EDGEFLOW_SOURCE_test_all_biz_pipelines}
   ${EDGEFLOW_SOURCE_test_concurrency_and_edge_cases}
@@ -203,8 +203,8 @@ endif()
 
 # Process-isolated targets. Registry conflict intentionally runs each dirty
 # singleton scenario in its own process.
-add_executable(test_c11_abi_compliance ${EDGEFLOW_SOURCE_test_c11_abi_compliance})
-target_link_libraries(test_c11_abi_compliance PRIVATE llm_edgeflow::sdk)
+add_executable(test_cpp_operator_sdk ${EDGEFLOW_SOURCE_test_cpp_operator_sdk})
+set_target_properties(test_cpp_operator_sdk PROPERTIES LINK_LIBRARIES "llm_edgeflow::sdk")
 
 add_executable(test_registry_conflict ${EDGEFLOW_SOURCE_test_registry_conflict})
 target_link_libraries(test_registry_conflict PRIVATE
@@ -292,11 +292,11 @@ edgeflow_add_runner_test(FunctionNodeTest edgeflow_test_nodes_runner
 edgeflow_add_runner_test(ParameterBindingTest edgeflow_test_nodes_runner
   "ParameterBindingTest.*" "${_edgeflow_tier1}")
 
-add_test(NAME C11AbiComplianceTest COMMAND test_c11_abi_compliance)
-set_tests_properties(C11AbiComplianceTest PROPERTIES
+add_test(NAME CppOperatorSdkTest COMMAND test_cpp_operator_sdk)
+set_tests_properties(CppOperatorSdkTest PROPERTIES
   WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}" LABELS "${_edgeflow_tier2}")
-edgeflow_add_runner_test(CAbiSafetyTest edgeflow_test_adapter_runner
-  "CAbiSafetyTest.*" "${_edgeflow_tier2}")
+edgeflow_add_runner_test(OperatorSafetyTest edgeflow_test_adapter_runner
+  "OperatorSafetyTest.*" "${_edgeflow_tier2}")
 edgeflow_add_runner_test(DifferentIoModalitiesTest edgeflow_test_adapter_runner
   "DifferentIoModalitiesTest.*" "${_edgeflow_tier1}")
 edgeflow_add_runner_test(AllBizPipelinesTest edgeflow_test_adapter_runner
@@ -499,7 +499,7 @@ set_tests_properties(PipelineToolCatalogTest PipelineToolValidateTest
 
 add_custom_target(edgeflow_dev_tests DEPENDS
   alg_demo alg_pipeline_tool alg_pipeline_tool_test alg_show
-  test_c11_abi_compliance
+  test_cpp_operator_sdk
   test_registry_conflict test_model_backend_registry_conflict
   test_catalog_contract_ssot edgeflow_test_core_runner
   edgeflow_test_nodes_runner edgeflow_test_adapter_runner

@@ -1,7 +1,0 @@
-{
-  "schema_version": 1,
-  "data": {
-    "pipe_path": "pipeline_doc_qa_custom.json",
-    "io_binding": "doc_qa.cabi.v1"
-  }
-}

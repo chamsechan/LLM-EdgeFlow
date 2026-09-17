@@ -17,15 +17,10 @@ EXPECTED_SYMBOLS=$(
     AlgBase_getLogLevelByName \
     AlgBase_logPrint \
     AlgBase_setLogLevelByName \
-    Alg_Control \
-    Alg_Create \
-    Alg_DeInit \
-    Alg_Destroy \
-    Alg_Init \
-    Alg_Process \
     _ZN12llm_edgeflow12operator_api20GetOperatorLastErrorEv \
     _ZN12llm_edgeflow12operator_api29ValidateOperatorConfigBindingEPKcS2_S2_Pcm \
-    _ZN12llm_edgeflow12operator_api30Get_LLM_EDGEFLOW_OperatorTableEv
+    _ZN12llm_edgeflow12operator_api30Get_LLM_EDGEFLOW_OperatorTableEv |
+    sort -u
 )
 
 ACTUAL_SYMBOLS=$(
@@ -37,10 +32,10 @@ ACTUAL_SYMBOLS=$(
 )
 
 if [[ "${ACTUAL_SYMBOLS}" != "${EXPECTED_SYMBOLS}" ]]; then
-  echo "SDK export surface differs from the 12-symbol allowlist:" >&2
+  echo "SDK export surface differs from the 6-symbol allowlist:" >&2
   diff -u <(printf '%s\n' "${EXPECTED_SYMBOLS}") \
           <(printf '%s\n' "${ACTUAL_SYMBOLS}") >&2 || true
   exit 1
 fi
 
-echo "SDK export surface is restricted to 12 supported symbols."
+echo "SDK export surface is restricted to 6 supported symbols."

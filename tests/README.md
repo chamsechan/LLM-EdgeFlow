@@ -10,7 +10,7 @@ Test paths describe ownership; CTest labels describe when and where a test runs.
 - `support/` contains test-only helpers that do not register production capabilities.
 - `fixtures/` contains stable test data grouped by purpose rather than RFC stage.
 
-The four C ABI parsing examples live in `support/adapter_examples/` and are compiled by
+The four adapter parsing examples live in `support/adapter_examples/` and are compiled by
 `AdapterContractSecurityTest`. Their example DTOs and keys do not register production businesses.
 
 Deterministic Model and Backend registrations shared by Demo mock profiles and tests live in

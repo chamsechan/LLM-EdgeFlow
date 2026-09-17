@@ -201,7 +201,7 @@ void Usage() {
             << "  alg_pipeline_tool plan FILE|--stdin [--explain]\n";
   std::cerr
       << "  alg_pipeline_tool resolve-conf FILE [--root DIR] [--depth N]\n"
-      << "  alg_pipeline_tool validate-io CONFIG --transport <cabi|operator> "
+      << "  alg_pipeline_tool validate-io CONFIG [--transport operator] "
          "[--model-root DIR]\n"
       << "  alg_pipeline_tool edit --stdin\n"
       << "  alg_pipeline_tool fix-deps FILE [--in-place]\n";
@@ -401,7 +401,7 @@ int main(int argc, char* argv[]) {
       return 2;
     }
     std::string config_path = argv[2];
-    std::string transport;
+    std::string transport = "operator";
     std::string model_root;
     for (int i = 3; i < argc; ++i) {
       std::string arg = argv[i];
@@ -413,10 +413,6 @@ int main(int argc, char* argv[]) {
         Usage();
         return 2;
       }
-    }
-    if (transport != "cabi" && transport != "operator") {
-      Usage();
-      return 2;
     }
 
     std::unique_ptr<llm_edgeflow::ValidatedIoPlan> plan;

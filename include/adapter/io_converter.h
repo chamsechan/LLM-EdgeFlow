@@ -14,13 +14,12 @@
 #include "core/blackboard_key.h"
 #include "core/port_definition.h"
 #include "core/validated_node_plan.h"
-#include "platform_mock/alg_types.h"
 #include "platform_mock/operator_data_types.h"
 
 namespace llm_edgeflow {
 
 /**
- * @brief 外部类型标识萃取器 (SSOT Type Traits for C ABI / Operator structs)
+ * @brief 外部类型标识萃取器 (SSOT Type Traits for Operator structs)
  */
 template <typename T>
 struct ExternalTypeTraits {
@@ -32,33 +31,6 @@ struct ExternalTypeTraits {
   struct ExternalTypeTraits<Type> {                          \
     static constexpr const char* TypeName() { return Name; } \
   }
-
-DECLARE_EXTERNAL_TYPE_TRAITS(CompanyAuditInputStruct,
-                             "CompanyAuditInputStruct");
-DECLARE_EXTERNAL_TYPE_TRAITS(CompanyAuditOutputStruct,
-                             "CompanyAuditOutputStruct");
-DECLARE_EXTERNAL_TYPE_TRAITS(CompanyKeywordInputStruct,
-                             "CompanyKeywordInputStruct");
-DECLARE_EXTERNAL_TYPE_TRAITS(CompanyKeywordOutputStruct,
-                             "CompanyKeywordOutputStruct");
-DECLARE_EXTERNAL_TYPE_TRAITS(CompanyEntityInputStruct,
-                             "CompanyEntityInputStruct");
-DECLARE_EXTERNAL_TYPE_TRAITS(CompanyEntityOutputStruct,
-                             "CompanyEntityOutputStruct");
-DECLARE_EXTERNAL_TYPE_TRAITS(CompanyDocInputStruct, "CompanyDocInputStruct");
-DECLARE_EXTERNAL_TYPE_TRAITS(CompanyDocOutputStruct, "CompanyDocOutputStruct");
-DECLARE_EXTERNAL_TYPE_TRAITS(CompanyOcrDocInputStruct,
-                             "CompanyOcrDocInputStruct");
-DECLARE_EXTERNAL_TYPE_TRAITS(CompanyOcrDocOutputStruct,
-                             "CompanyOcrDocOutputStruct");
-DECLARE_EXTERNAL_TYPE_TRAITS(CompanyAudioInputStruct,
-                             "CompanyAudioInputStruct");
-DECLARE_EXTERNAL_TYPE_TRAITS(CompanyAudioOutputStruct,
-                             "CompanyAudioOutputStruct");
-DECLARE_EXTERNAL_TYPE_TRAITS(CompanyRerankBatchInputStruct,
-                             "CompanyRerankBatchInputStruct");
-DECLARE_EXTERNAL_TYPE_TRAITS(CompanyRerankBatchOutputStruct,
-                             "CompanyRerankBatchOutputStruct");
 
 DECLARE_EXTERNAL_TYPE_TRAITS(CompanyString, "CompanyString");
 DECLARE_EXTERNAL_TYPE_TRAITS(CompanyBuffer, "CompanyBuffer");
@@ -96,32 +68,70 @@ DECLARE_EXTERNAL_TYPE_TRAITS(int, "int");
  */
 class ExternalInputBatchView {
  public:
-  // C ABI 纯指针数组
-  const void** items = nullptr;
   size_t count = 0;
   std::string type_id;
 
   // Operator 具名槽位输入: slot_name -> vector of shared_ptr<void>
   std::unordered_map<std::string, std::vector<std::shared_ptr<void>>> slots;
+  // Operator 具名槽位借用输入 (非拥有指针): slot_name -> vector of const void*
+  std::unordered_map<std::string, std::vector<const void*>> leased_slots;
   std::unordered_map<std::string, std::string> slot_types;
 
   template <typename T>
-  const T* GetCAbi(size_t index) const {
-    if (!items || index >= count) return nullptr;
-    if constexpr (!std::is_void_v<T>) {
-      if (!type_id.empty()) {
-        const char* expected = ExternalTypeTraits<T>::TypeName();
-        if (!expected || type_id != expected) {
-          return nullptr;
-        }
-      }
+  const T* At(size_t index, const std::string& slot_name = "") const {
+    if (!slot_name.empty()) {
+      return GetSlot<T>(slot_name, index);
     }
-    return static_cast<const T*>(items[index]);
+    if (!slots.empty()) {
+      return GetSlot<T>(slots.begin()->first, index);
+    }
+    if (!leased_slots.empty()) {
+      return GetSlot<T>(leased_slots.begin()->first, index);
+    }
+    return nullptr;
   }
 
   template <typename T>
   const T* GetSlot(const std::string& slot_name, size_t index) const {
+    auto lit = leased_slots.find(slot_name);
+    if (lit == leased_slots.end()) {
+      for (const auto& kv : leased_slots) {
+        auto dot = kv.first.rfind('.');
+        if (dot != std::string::npos && kv.first.substr(dot + 1) == slot_name) {
+          lit = leased_slots.find(kv.first);
+          break;
+        }
+      }
+    }
+    if (lit != leased_slots.end() && index < lit->second.size()) {
+      if constexpr (!std::is_void_v<T>) {
+        std::string expected;
+        auto st_it = slot_types.find(slot_name);
+        if (st_it != slot_types.end()) {
+          expected = st_it->second;
+        } else if (!type_id.empty()) {
+          expected = type_id;
+        }
+        if (!expected.empty()) {
+          const char* actual_trait = ExternalTypeTraits<T>::TypeName();
+          if (!actual_trait || expected != actual_trait) {
+            return nullptr;
+          }
+        }
+      }
+      return static_cast<const T*>(lit->second[index]);
+    }
+
     auto it = slots.find(slot_name);
+    if (it == slots.end()) {
+      for (const auto& kv : slots) {
+        auto dot = kv.first.rfind('.');
+        if (dot != std::string::npos && kv.first.substr(dot + 1) == slot_name) {
+          it = slots.find(kv.first);
+          break;
+        }
+      }
+    }
     if (it == slots.end() || index >= it->second.size()) return nullptr;
     if constexpr (!std::is_void_v<T>) {
       std::string expected;
@@ -140,14 +150,6 @@ class ExternalInputBatchView {
     }
     return static_cast<const T*>(it->second[index].get());
   }
-
-  template <typename T>
-  const T* At(size_t index, const std::string& slot_name = "") const {
-    if (!slot_name.empty()) {
-      return GetSlot<T>(slot_name, index);
-    }
-    return GetCAbi<T>(index);
-  }
 };
 
 /**
@@ -155,8 +157,6 @@ class ExternalInputBatchView {
  */
 class ExternalOutputBatchView {
  public:
-  // C ABI 输出指针数组
-  void** items = nullptr;
   size_t count = 0;
   size_t capacity = 0;
   std::string type_id;
@@ -181,21 +181,6 @@ class ExternalOutputBatchView {
       }
     }
     return nullptr;
-  }
-
-  template <typename T>
-  T* GetCAbi(size_t index) const {
-    size_t limit = capacity > 0 ? capacity : count;
-    if (!items || index >= limit) return nullptr;
-    if constexpr (!std::is_void_v<T>) {
-      if (!type_id.empty()) {
-        const char* expected = ExternalTypeTraits<T>::TypeName();
-        if (!expected || type_id != expected) {
-          return nullptr;
-        }
-      }
-    }
-    return static_cast<T*>(items[index]);
   }
 
   template <typename T>
@@ -266,7 +251,7 @@ class ExternalOutputBatchView {
 struct InputDecodeOptions {
   std::string binding_id;
   std::string converter_id;
-  std::string transport;  // "cabi" 或 "operator"
+  std::string transport;  // "operator"
   size_t max_batch_size = 64;
 };
 
@@ -276,7 +261,7 @@ struct InputDecodeOptions {
 struct OutputEncodeOptions {
   std::string binding_id;
   std::string converter_id;
-  std::string transport;  // "cabi" 或 "operator"
+  std::string transport;  // "operator"
   size_t max_batch_size = 64;
 };
 
@@ -360,7 +345,7 @@ class OutputPortBindings {
 };
 
 /**
- * @brief 外部槽位定义 (C ABI 结构体或 Operator 槽位)
+ * @brief 外部槽位定义 (Operator 槽位)
  */
 struct ExternalSlotDefinition {
   std::string slot_name;
@@ -376,18 +361,18 @@ struct ExternalSlotDefinition {
   ExternalSlotDefinition() = default;
   ExternalSlotDefinition(std::string slot_name, std::string type_id,
                          PortDirection direction = PortDirection::kInput,
-                         bool required = true, std::string value_type = "",
-                         std::string type_suffix = "",
-                         std::vector<std::string> capacity_fields = {},
-                         std::string key_suffix = "")
-      : slot_name(std::move(slot_name)),
-        type_id(std::move(type_id)),
+                         bool required = true, std::string val_type = "",
+                         std::string typ_suffix = "",
+                         std::vector<std::string> cap_fields = {},
+                         std::string k_suffix = "")
+      : slot_name(slot_name),
+        type_id(type_id),
         direction(direction),
         required(required),
-        value_type(std::move(value_type)),
-        type_suffix(std::move(type_suffix)),
-        capacity_fields(std::move(capacity_fields)),
-        key_suffix(std::move(key_suffix)) {}
+        value_type(!val_type.empty() ? std::move(val_type) : type_id),
+        type_suffix(!typ_suffix.empty() ? std::move(typ_suffix) : slot_name),
+        capacity_fields(std::move(cap_fields)),
+        key_suffix(std::move(k_suffix)) {}
 
   const std::string& KeySuffix() const {
     return !key_suffix.empty() ? key_suffix : type_suffix;
@@ -411,7 +396,7 @@ using EncodeOutputFn = int (*)(AlgContext* context,
  */
 struct InputConverterDefinition {
   std::string converter_id;
-  std::string transport;  // "cabi" 或 "operator"
+  std::string transport;  // "operator"
   std::string schema_id;
   int schema_version = 1;
   std::string external_type;
@@ -428,7 +413,7 @@ struct InputConverterDefinition {
  */
 struct OutputConverterDefinition {
   std::string converter_id;
-  std::string transport;  // "cabi" 或 "operator"
+  std::string transport;  // "operator"
   std::string schema_id;
   int schema_version = 1;
   std::string external_type;

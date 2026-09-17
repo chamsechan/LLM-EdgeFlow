@@ -32,24 +32,7 @@ BizExposureDefinition MakeOcrDocQaBizExposure() {
   BizExposureDefinition def;
   def.biz_name = "multimodal_ocr_invoice_qa";
   def.max_batch_size = 64;
-  def.required_transports = {"cabi", "operator"};
-  return def;
-}
-
-IoBindingDefinition MakeOcrDocQaCAbiBinding() {
-  IoBindingDefinition def;
-  def.binding_id = "ocr_doc_qa.cabi.v1";
-  def.biz_name = "multimodal_ocr_invoice_qa";
-  def.transport = "cabi";
-  def.input_converter_id = "image_query.plain.cabi.v1";
-  def.output_converter_id = "invoice_result.plain.cabi.v1";
-  def.input_ports = {{"raw_request_ids", "raw_request_ids"},
-                     {"image_paths", "image_paths"},
-                     {"user_queries", "user_queries"}};
-  def.output_ports = {{"raw_request_ids", "raw_request_ids"},
-                      {"extracted_invoice_json", "extracted_invoice_json"},
-                      {"ocr_docs", "ocr_docs"}};
-  def.max_batch_size = 64;
+  def.required_transports = {"operator"};
   return def;
 }
 
@@ -71,7 +54,6 @@ IoBindingDefinition MakeOcrDocQaOperatorBinding() {
 }
 
 REGISTER_BIZ_EXPOSURE(MakeOcrDocQaBizExposure());
-REGISTER_IO_BINDING(MakeOcrDocQaCAbiBinding());
 REGISTER_IO_BINDING(MakeOcrDocQaOperatorBinding());
 
 }  // namespace

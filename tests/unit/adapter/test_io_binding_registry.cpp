@@ -39,13 +39,14 @@ class IoBindingRegistryTest : public ::testing::Test {
 
     // 注册基础转换器供测试
     InputConverterDefinition in_def;
-    in_def.converter_id = "test.in.cabi";
-    in_def.transport = "cabi";
+    in_def.converter_id = "test.in.operator";
+    in_def.transport = "operator";
     in_def.schema_id = "in_schema";
     in_def.schema_version = 1;
-    in_def.external_type = "int";
-    in_def.external_slots = {
-        ExternalSlotDefinition("inputs", "int", PortDirection::kInput, true)};
+    in_def.external_type = "CompanyOperatorEntityInput";
+    in_def.external_slots = {ExternalSlotDefinition(
+        "entity_in", "CompanyOperatorEntityInput", PortDirection::kInput, true,
+        "CompanyOperatorEntityInput", "entity_in")};
     in_def.max_batch_size = 64;
     in_def.logical_ports = {
         NodePortDefinition("texts", "TextBatch", true, "1:1")};
@@ -53,13 +54,14 @@ class IoBindingRegistryTest : public ::testing::Test {
     IoConverterRegistry::Instance().RegisterInputConverter(in_def);
 
     OutputConverterDefinition out_def;
-    out_def.converter_id = "test.out.cabi";
-    out_def.transport = "cabi";
+    out_def.converter_id = "test.out.operator";
+    out_def.transport = "operator";
     out_def.schema_id = "out_schema";
     out_def.schema_version = 1;
-    out_def.external_type = "int";
-    out_def.external_slots = {
-        ExternalSlotDefinition("answers", "int", PortDirection::kOutput, true)};
+    out_def.external_type = "CompanyOperatorEntityOutput";
+    out_def.external_slots = {ExternalSlotDefinition(
+        "entity_out", "CompanyOperatorEntityOutput", PortDirection::kOutput,
+        true, "CompanyOperatorEntityOutput", "entity_out")};
     out_def.max_batch_size = 64;
     out_def.logical_ports = {
         NodePortDefinition("answers", "TextBatch", true, "1:1")};
@@ -84,11 +86,11 @@ TEST_F(IoBindingRegistryTest, RegisterAndAuditValidBinding) {
   auto& reg = IoBindingRegistry::Instance();
 
   IoBindingDefinition binding;
-  binding.binding_id = "test_biz.cabi.v1";
+  binding.binding_id = "test_biz.operator.v1";
   binding.biz_name = "test_biz_v1";
-  binding.transport = "cabi";
-  binding.input_converter_id = "test.in.cabi";
-  binding.output_converter_id = "test.out.cabi";
+  binding.transport = "operator";
+  binding.input_converter_id = "test.in.operator";
+  binding.output_converter_id = "test.out.operator";
   binding.input_ports = {{"texts", "input_sentences"}};
   binding.output_ports = {{"answers", "llm_answers"}};
 
@@ -97,7 +99,7 @@ TEST_F(IoBindingRegistryTest, RegisterAndAuditValidBinding) {
   BizExposureDefinition exposure;
   exposure.biz_name = "test_biz_v1";
   exposure.max_batch_size = 32;
-  exposure.required_transports = {"cabi"};
+  exposure.required_transports = {"operator"};
   EXPECT_TRUE(reg.RegisterExposure(exposure));
 
   std::vector<std::string> audit_errors;
@@ -112,9 +114,9 @@ TEST_F(IoBindingRegistryTest, AuditRejectsUnregisteredConvertersAndBiz) {
   IoBindingDefinition bad_biz;
   bad_biz.binding_id = "bad_biz.binding";
   bad_biz.biz_name = "non_existent_biz";
-  bad_biz.transport = "cabi";
-  bad_biz.input_converter_id = "test.in.cabi";
-  bad_biz.output_converter_id = "test.out.cabi";
+  bad_biz.transport = "operator";
+  bad_biz.input_converter_id = "test.in.operator";
+  bad_biz.output_converter_id = "test.out.operator";
   reg.RegisterBinding(bad_biz);
 
   std::vector<std::string> errors;
@@ -133,9 +135,9 @@ TEST_F(IoBindingRegistryTest, AuditRejectsUnregisteredConvertersAndBiz) {
   IoBindingDefinition bad_conv;
   bad_conv.binding_id = "bad_conv.binding";
   bad_conv.biz_name = "test_biz_v1";
-  bad_conv.transport = "cabi";
+  bad_conv.transport = "operator";
   bad_conv.input_converter_id = "non_existent_input";
-  bad_conv.output_converter_id = "test.out.cabi";
+  bad_conv.output_converter_id = "test.out.operator";
   reg.RegisterBinding(bad_conv);
 
   errors.clear();
@@ -175,11 +177,11 @@ TEST_F(IoBindingRegistryTest, UnselectedIllegalBindingFailsAudit) {
 
   // 1. 注册合法绑定与曝光
   IoBindingDefinition valid_binding;
-  valid_binding.binding_id = "test_biz.cabi.v1";
+  valid_binding.binding_id = "test_biz.operator.v1";
   valid_binding.biz_name = "test_biz_v1";
-  valid_binding.transport = "cabi";
-  valid_binding.input_converter_id = "test.in.cabi";
-  valid_binding.output_converter_id = "test.out.cabi";
+  valid_binding.transport = "operator";
+  valid_binding.input_converter_id = "test.in.operator";
+  valid_binding.output_converter_id = "test.out.operator";
   valid_binding.input_ports = {{"texts", "input_sentences"}};
   valid_binding.output_ports = {{"answers", "llm_answers"}};
   EXPECT_TRUE(reg.RegisterBinding(valid_binding));
@@ -187,7 +189,7 @@ TEST_F(IoBindingRegistryTest, UnselectedIllegalBindingFailsAudit) {
   BizExposureDefinition exposure;
   exposure.biz_name = "test_biz_v1";
   exposure.max_batch_size = 32;
-  exposure.required_transports = {"cabi"};
+  exposure.required_transports = {"operator"};
   EXPECT_TRUE(reg.RegisterExposure(exposure));
 
   // 单独 audit 合法绑定应当通过
@@ -197,11 +199,11 @@ TEST_F(IoBindingRegistryTest, UnselectedIllegalBindingFailsAudit) {
 
   // 2. 注册未被选择使用的非法绑定 (缺失必需输入映射)
   IoBindingDefinition illegal_binding;
-  illegal_binding.binding_id = "unselected_bad.cabi.v1";
+  illegal_binding.binding_id = "unselected_bad.operator.v1";
   illegal_binding.biz_name = "test_biz_v1";
-  illegal_binding.transport = "cabi";
-  illegal_binding.input_converter_id = "test.in.cabi";
-  illegal_binding.output_converter_id = "test.out.cabi";
+  illegal_binding.transport = "operator";
+  illegal_binding.input_converter_id = "test.in.operator";
+  illegal_binding.output_converter_id = "test.out.operator";
   illegal_binding.input_ports = {};  // 缺失必需 logical port texts
   illegal_binding.output_ports = {{"answers", "llm_answers"}};
   EXPECT_TRUE(reg.RegisterBinding(illegal_binding));
@@ -226,11 +228,18 @@ TEST_F(IoBindingRegistryTest, UnselectedIllegalBindingFailsAudit) {
 }
 
 TEST_F(IoBindingRegistryTest, DeploymentIoConfigValidation) {
-  // 1. 合法 schema 1 C ABI 配置
+  // 1. 合法 schema 1 Operator 配置
   nlohmann::json valid_cfg = {
       {"schema_version", 1},
       {"data",
-       {{"pipe_path", "test.json"}, {"io_binding", "test_biz.cabi.v1"}}}};
+       {{"pipe_path", "test.json"},
+        {"io_binding", "test_biz.operator.v1"},
+        {"outputs",
+         {{"answers",
+           {{"type", "answers"},
+            {"meta_num", 0},
+            {"metadata_type_id", 0},
+            {"capacities", nlohmann::json::object()}}}}}}}};
 
   // 写入临时测试 pipeline 文件
   std::string tmp_dir = "/tmp/edgeflow_test_config_" + std::to_string(getpid());
@@ -244,33 +253,31 @@ TEST_F(IoBindingRegistryTest, DeploymentIoConfigValidation) {
   DeploymentIoConfig parsed;
   std::string err;
   EXPECT_TRUE(
-      DeploymentIoConfig::Parse(valid_cfg, tmp_dir, "cabi", &parsed, &err));
+      DeploymentIoConfig::Parse(valid_cfg, tmp_dir, "operator", &parsed, &err));
   EXPECT_EQ(parsed.pipe_path, "test.json");
-  EXPECT_EQ(parsed.io_binding, "test_biz.cabi.v1");
+  EXPECT_EQ(parsed.io_binding, "test_biz.operator.v1");
 
   // 2. 拒绝未知 schema_version
   nlohmann::json bad_ver = valid_cfg;
   bad_ver["schema_version"] = 2;
   EXPECT_FALSE(
-      DeploymentIoConfig::Parse(bad_ver, tmp_dir, "cabi", &parsed, &err));
+      DeploymentIoConfig::Parse(bad_ver, tmp_dir, "operator", &parsed, &err));
 
   // 3. 拒绝顶层未知字段
   nlohmann::json bad_field = valid_cfg;
   bad_field["extra_field"] = "foo";
   EXPECT_FALSE(
-      DeploymentIoConfig::Parse(bad_field, tmp_dir, "cabi", &parsed, &err));
+      DeploymentIoConfig::Parse(bad_field, tmp_dir, "operator", &parsed, &err));
 
-  // 4. C ABI 拒绝 outputs
-  nlohmann::json cabi_with_outputs = valid_cfg;
-  cabi_with_outputs["data"]["outputs"] = nlohmann::json::object();
-  EXPECT_FALSE(DeploymentIoConfig::Parse(cabi_with_outputs, tmp_dir, "cabi",
-                                         &parsed, &err));
+  // 4. 拒绝 cabi transport
+  EXPECT_FALSE(
+      DeploymentIoConfig::Parse(valid_cfg, tmp_dir, "cabi", &parsed, &err));
 
   // 5. 路径逃逸拒绝
   nlohmann::json escape_cfg = valid_cfg;
   escape_cfg["data"]["pipe_path"] = "../../../etc/passwd";
-  EXPECT_FALSE(
-      DeploymentIoConfig::Parse(escape_cfg, tmp_dir, "cabi", &parsed, &err));
+  EXPECT_FALSE(DeploymentIoConfig::Parse(escape_cfg, tmp_dir, "operator",
+                                         &parsed, &err));
 
   fs::remove_all(tmp_dir);
 }
@@ -308,21 +315,29 @@ TEST_F(IoBindingRegistryTest, StrictConfigDirectoryIsolationAndCwdInvariance) {
   std::string err;
 
   auto make_conf = [](const std::string& pipe) {
-    nlohmann::json cfg = {
-        {"schema_version", 1},
-        {"data", {{"pipe_path", pipe}, {"io_binding", "test_biz.cabi.v1"}}}};
+    nlohmann::json cfg = {{"schema_version", 1},
+                          {"data",
+                           {{"pipe_path", pipe},
+                            {"io_binding", "test_biz.operator.v1"},
+                            {"outputs",
+                             {{"answers",
+                               {{"type", "answers"},
+                                {"meta_num", 0},
+                                {"metadata_type_id", 0},
+                                {"capacities", nlohmann::json::object()}}}}}}}};
     return cfg;
   };
 
   // 1. 同级文件 -> 成功
-  EXPECT_TRUE(DeploymentIoConfig::Parse(
-      make_conf("pipeline.json"), base_dir.string(), "cabi", &parsed, &err));
+  EXPECT_TRUE(DeploymentIoConfig::Parse(make_conf("pipeline.json"),
+                                        base_dir.string(), "operator", &parsed,
+                                        &err));
   EXPECT_EQ(parsed.resolved_pipe_path,
             fs::canonical(base_dir / "pipeline.json").string());
 
   // 2. 子目录文件 -> 成功
   EXPECT_TRUE(DeploymentIoConfig::Parse(make_conf("subdir/sub_pipeline.json"),
-                                        base_dir.string(), "cabi", &parsed,
+                                        base_dir.string(), "operator", &parsed,
                                         &err));
   EXPECT_EQ(parsed.resolved_pipe_path,
             fs::canonical(sub_dir / "sub_pipeline.json").string());
@@ -330,18 +345,18 @@ TEST_F(IoBindingRegistryTest, StrictConfigDirectoryIsolationAndCwdInvariance) {
   // 3. 父目录逃逸 (../outside/outside_pipeline.json) -> 严格拒绝
   EXPECT_FALSE(
       DeploymentIoConfig::Parse(make_conf("../outside/outside_pipeline.json"),
-                                base_dir.string(), "cabi", &parsed, &err));
+                                base_dir.string(), "operator", &parsed, &err));
   EXPECT_NE(err.find("escapes config directory"), std::string::npos);
 
   // 4. 兄弟目录逃逸 (../sibling/sibling_pipeline.json) -> 严格拒绝
   EXPECT_FALSE(
       DeploymentIoConfig::Parse(make_conf("../sibling/sibling_pipeline.json"),
-                                base_dir.string(), "cabi", &parsed, &err));
+                                base_dir.string(), "operator", &parsed, &err));
   EXPECT_NE(err.find("escapes config directory"), std::string::npos);
 
   // 5. 符号链接逃逸 (位于 base_dir 内但指向根外) -> 严格拒绝
   EXPECT_FALSE(DeploymentIoConfig::Parse(make_conf("symlink_escape.json"),
-                                         base_dir.string(), "cabi", &parsed,
+                                         base_dir.string(), "operator", &parsed,
                                          &err));
   EXPECT_NE(err.find("escapes config directory"), std::string::npos);
 
@@ -359,8 +374,8 @@ TEST_F(IoBindingRegistryTest, StrictConfigDirectoryIsolationAndCwdInvariance) {
 
   DeploymentIoConfig cwd_parsed;
   std::string cwd_err;
-  bool read_ok = DeploymentIoConfig::ReadFromFile(conf_file.string(), "cabi",
-                                                  &cwd_parsed, &cwd_err);
+  bool read_ok = DeploymentIoConfig::ReadFromFile(
+      conf_file.string(), "operator", &cwd_parsed, &cwd_err);
 
   // 恢复原工作目录
   fs::current_path(orig_cwd, ec);
@@ -378,11 +393,11 @@ TEST_F(IoBindingRegistryTest, FailClosedAuditRejectsInvalidUnselectedBinding) {
 
   // 注册合法暴露与绑定
   IoBindingDefinition valid_binding;
-  valid_binding.binding_id = "test_biz.cabi.v1";
+  valid_binding.binding_id = "test_biz.operator.v1";
   valid_binding.biz_name = "test_biz_v1";
-  valid_binding.transport = "cabi";
-  valid_binding.input_converter_id = "test.in.cabi";
-  valid_binding.output_converter_id = "test.out.cabi";
+  valid_binding.transport = "operator";
+  valid_binding.input_converter_id = "test.in.operator";
+  valid_binding.output_converter_id = "test.out.operator";
   valid_binding.input_ports = {{"texts", "input_sentences"}};
   valid_binding.output_ports = {{"answers", "llm_answers"}};
   EXPECT_TRUE(reg.RegisterBinding(valid_binding));
@@ -390,16 +405,16 @@ TEST_F(IoBindingRegistryTest, FailClosedAuditRejectsInvalidUnselectedBinding) {
   BizExposureDefinition exposure;
   exposure.biz_name = "test_biz_v1";
   exposure.max_batch_size = 32;
-  exposure.required_transports = {"cabi"};
+  exposure.required_transports = {"operator"};
   EXPECT_TRUE(reg.RegisterExposure(exposure));
 
   // 注册一个未被任何曝光引用的非法绑定 (输入端口缺少必需端口)
   IoBindingDefinition unselected_bad_binding;
-  unselected_bad_binding.binding_id = "unselected_bad.cabi.v1";
+  unselected_bad_binding.binding_id = "unselected_bad.operator.v1";
   unselected_bad_binding.biz_name = "test_biz_v1";
-  unselected_bad_binding.transport = "cabi";
-  unselected_bad_binding.input_converter_id = "test.in.cabi";
-  unselected_bad_binding.output_converter_id = "test.out.cabi";
+  unselected_bad_binding.transport = "operator";
+  unselected_bad_binding.input_converter_id = "test.in.operator";
+  unselected_bad_binding.output_converter_id = "test.out.operator";
   // 故意遗漏必需输入映射 texts
   unselected_bad_binding.input_ports = {};
   unselected_bad_binding.output_ports = {{"answers", "llm_answers"}};

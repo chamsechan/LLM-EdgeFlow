@@ -1,13 +1,13 @@
 ---
 name: llm-edgeflow-developer-guide
-description: Route LLM-EdgeFlow implementation across Integration, Orchestration, Capability Nodes and Model Execution. Use for custom Nodes, platform I/O adapters and Operator bridges, Demo data conversion, Core, Models, Backends and verification; configuration-only solution work belongs to pipeline-composer.
+description: Route LLM-EdgeFlow implementation across Integration, Orchestration, Capability Nodes and Model Execution. Use for custom Nodes, platform I/O converters and bindings, Demo data conversion, Core, Models, Backends and verification; configuration-only solution work belongs to pipeline-composer.
 ---
 
 # LLM-EdgeFlow Developer Guide
 
 First classify the requested change. Read only the references needed for the affected layer; do not load every reference by default.
 
-- New modality, C ABI structure/function behavior, Adapter, Operator bridge, or allowed runtime Pipeline name: read [Integration](references/integration.md).
+- New modality, Operator SDK structure/function behavior, Converter, IoBinding, or allowed runtime Pipeline name: read [Integration](references/integration.md).
 - Demo dataset/carrier construction, result display or registration: follow [business onboarding](../../../doc/dev_guide/business_onboarding.md#统一-demo-接入). External request parsing and response assembly belong to Adapter work; load Integration for those changes even when the C carrier layout stays the same.
 - Pipeline lifecycle, Validator, DAG planning, `AlgContext`, `BlackboardKey`, or session behavior: read [Orchestration](references/orchestration.md).
 - New or modified capability Node, its parameters, or a Control handler: read [Capability Nodes](references/capability-nodes.md). Start Control work from the [compiled example](../../../doc/dev_guide/first_control.md); reuse transport and instance routing.

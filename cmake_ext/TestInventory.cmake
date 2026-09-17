@@ -34,8 +34,8 @@ set(EDGEFLOW_REQUIRED_CONTRACT_TESTS
   CommonNodesTest
   FunctionNodeTest
   ParameterBindingTest
-  C11AbiComplianceTest
-  CAbiSafetyTest
+  CppOperatorSdkTest
+  OperatorSafetyTest
   DifferentIoModalitiesTest
   AllBizPipelinesTest
   ConcurrencyAndEdgeCasesTest
@@ -64,8 +64,8 @@ set(EDGEFLOW_REQUIRED_CONTRACT_TESTS
 # translation unit declared once here; mode-specific files only decide how to
 # group processes, filters and labels.
 set(EDGEFLOW_SOURCE_test_adapter_contract_security "${PROJECT_SOURCE_DIR}/tests/contract/abi/test_adapter_contract_security.cpp")
-set(EDGEFLOW_SOURCE_test_c11_abi_compliance "${PROJECT_SOURCE_DIR}/tests/contract/abi/test_c11_abi_compliance.c")
-set(EDGEFLOW_SOURCE_test_c_abi_safety "${PROJECT_SOURCE_DIR}/tests/contract/abi/test_c_abi_safety.cpp")
+set(EDGEFLOW_SOURCE_test_cpp_operator_sdk "${PROJECT_SOURCE_DIR}/tests/contract/abi/test_cpp_operator_sdk.cpp")
+set(EDGEFLOW_SOURCE_test_operator_safety "${PROJECT_SOURCE_DIR}/tests/contract/abi/test_operator_safety.cpp")
 set(EDGEFLOW_SOURCE_test_catalog_contract_ssot "${PROJECT_SOURCE_DIR}/tests/contract/catalog/test_catalog_contract_ssot.cpp")
 set(EDGEFLOW_SOURCE_test_model_backend_registry_conflict "${PROJECT_SOURCE_DIR}/tests/contract/catalog/test_model_backend_registry_conflict.cpp")
 set(EDGEFLOW_SOURCE_test_registry_conflict "${PROJECT_SOURCE_DIR}/tests/contract/catalog/test_registry_conflict.cpp")

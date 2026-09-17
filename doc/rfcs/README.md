@@ -25,7 +25,6 @@
 | **RFC-0052** | 面向基础 C++ 开发者的 Node 作者接口重构 | `In Implementation` | 投产前 / Catalog v3 | 流程编排层、能力节点层 / Tooling / Docs | [0052-function-oriented-node-authoring.md](0052-function-oriented-node-authoring.md) |
 | **RFC-0054** | Control 作者接口与不可变配置快照 | `In Implementation` | 投产前 | 能力节点层 / Tooling / Docs | [0054-controlled-configuration-snapshots.md](0054-controlled-configuration-snapshots.md) |
 | **RFC-0057** | 降低 Pipeline 编排认知负担的实施方案 | `In Implementation` | 投产前 | 流程编排层 / Integration Tooling / Docs | [0057-pipeline-composition-experience.md](0057-pipeline-composition-experience.md) |
-| **RFC-0059** | 输入输出转换独立化与接入绑定架构 | `In Implementation` | 投产前 / ABI 6.0.0 | 接入适配层、流程编排层 / Tooling / Docs | [0059-independent-adapter-input-and-output.md](0059-independent-adapter-input-and-output.md) |
 
 RFC-0054 是接续 RFC-0052 与已交付 RFC-0053、RFC-0055 的实施规格。`Proposed` 表示设计方案已形成，其中拟议 API、迁移与验证尚未实施，不作为当前 SDK 功能说明。
 
@@ -85,6 +84,8 @@ RFC-0054 是接续 RFC-0052 与已交付 RFC-0053、RFC-0055 的实施规格。`
 | **RFC-0055** | 批次关联、分组、选择回填与拆分公共工具 | `Completed` | 投产前 / Catalog v3 | 能力节点层 / Tooling / Docs | [0055-traceable-batch-operations.md](0055-traceable-batch-operations.md) |
 | **RFC-0056** | 投产前框架兼容入口与配置收口（第一批瘦身落地） | `Completed` | 投产前 | 四层 / Build / Tooling / Docs | [0056-batch-1-framework-slimming.md](0056-batch-1-framework-slimming.md) |
 | **RFC-0058** | 投产前诊断身份与 Node 注册状态收敛 | `Completed` | 投产前 | 流程编排层、能力节点层、接入适配层 / Tooling | [0058-diagnostic-and-node-registry-convergence.md](0058-diagnostic-and-node-registry-convergence.md) |
+| **RFC-0059** | 输入输出转换独立化与接入绑定架构 | `Completed` | 投产前 / ABI 6.0.0 | 接入适配层、流程编排层 / Tooling / Docs | [0059-independent-adapter-input-and-output.md](0059-independent-adapter-input-and-output.md)（宿主双入口部分被 RFC-0060 取代） |
+| **RFC-0060** | 删除 C ABI，仅保留 C++ Operator API | `Completed` | `v11.0.0` / ABI 7.0.0 | 接入适配层、流程编排层 / Tooling / Docs | [0060-cpp-operator-only.md](0060-cpp-operator-only.md) |
 
 ## 专项验收与评审归档
 

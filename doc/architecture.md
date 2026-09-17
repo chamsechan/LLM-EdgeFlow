@@ -33,9 +33,8 @@ graph TD
 
     %% Integration
     subgraph Integration["接入适配层（Integration）"]
-        C_API["公司统一标准 C ABI 接口<br>• Alg_Init / Alg_DeInit<br>• Alg_Create / Alg_Destroy<br>• Alg_Process(const void** inputs, num_inputs, void** outputs, num_outputs)<br>• Alg_Control"]
-        C_Adapter["C ABI 外观 (c_api_adapter.cpp)<br>• 同句柄 Process / Control 串行化<br>• 异常拦截屏障 (noexcept 安全防护)<br>• 调用注册业务 Adapter"]
-        Biz_Adapter["注册业务 Adapter (IBizAdapter)<br>• Unpack：完整请求解析与字段转换<br>• Pack：完整响应组装与容量检查"]
+        PlatformFacade["C++ Operator 门面 (operator_adapter.cpp)<br>• 命名 I/O 槽位校验与 ValueType 转换<br>• 有界输出池租约生命周期管理<br>• 同句柄 Process / Control 串行化<br>• 异常拦截屏障 (noexcept 安全防护)"]
+        IoBinding["I/O 绑定与转换注册 (io_binding_registry.cpp)<br>• IoBindingRegistry / IoConverterRegistry<br>• InputConverter：完整请求解析与字段转换<br>• OutputConverter：完整响应组装与容量检查"]
     end
 
     %% Orchestration
@@ -95,11 +94,10 @@ graph TD
     end
 
     %% 连接关系
-    Caller <==|纯 C 指针数组 const void** inputs, outputs| C_API
-    C_API --> C_Adapter
-    C_Adapter -->|构造/销毁| PipeCore
-    C_Adapter --> Biz_Adapter
-    Biz_Adapter -->|解包/打包| R_Ctx
+    Caller <==|命名 I/O 批次 NamedIoBatch| PlatformFacade
+    PlatformFacade --> IoBinding
+    PlatformFacade -->|已验证 IoPlan 构造/控制| PipeCore
+    IoBinding -->|解包/打包| R_Ctx
     PipeCore --> S_Ctx
     PipeCore --> NodeApi
     NodeApi --> NodeBase
@@ -115,7 +113,7 @@ graph TD
     ModelSemantics --> BatchExec
 
     class Caller ext;
-    class C_API,C_Adapter,Biz_Adapter integration;
+    class PlatformFacade,IoBinding integration;
     class PipeCore,S_Ctx,R_Ctx,TraceTag,Factory orchestration;
     class NodeApi,NodeBase,ModelNode,CommonNodes,CustomNodes,LlmNode,ChunkNode,RuleNode,EmbedNode,TopKNode,RerankNode,TemplateNode,JsonNode,AsrNode,OcrNode,CorpusNode capability_nodes;
     class ModelBase,BackendBase,LlmIntf,EmbedIntf,BatchExec,BgeModels,GeneratedEmbedModel,QwenModel,OnnxBackend,LlamaCpp,KiteLlm model_execution;
@@ -126,41 +124,36 @@ graph TD
 ## 2. 职责与扩展边界
 
 ### 接入适配层（Integration）
-- **代码位置**：`include/edgeflow/c_api.h`，`include/edgeflow/operator/`，`src/adapter/`
+- **代码位置**：`include/edgeflow/operator/`，`include/adapter/`，`src/adapter/`
 - **核心职责**：
-  1. 导出公司限定的标准 C 接口：`Alg_Init`, `Alg_Create`, `Alg_Process`, `Alg_Control`, `Alg_Destroy`, `Alg_DeInit`；
+  1. 导出基于命名 I/O 槽位的 C++ Operator 门面：`Get_LLM_EDGEFLOW_OperatorTable()`, `GetOperatorLastError()`, `ValidateOperatorConfigBinding()`；
   2. 导出公共日志 C API：`AlgBase_setLogLevelByName`, `AlgBase_getLogLevelByName`, `AlgBase_logPrint`；
-  3. 导出基于命名 I/O 槽位的 C++ Operator 门面：`Get_LLM_EDGEFLOW_OperatorTable()`, `GetOperatorLastError()`, `ValidateOperatorConfigBinding()`；
-  4. 充当 `noexcept` 安全屏障，拦截所有 C++ 异常，防止跨动态库边界崩溃；
-  5. 由注册业务 Adapter 解包完整外部请求并组装完整外部响应，负责外部契约与内部
-     `AlgContext` 中性值之间的转换；Operator bridge 负责宿主载体转换。
+  3. 充当 `noexcept` 安全屏障，拦截所有 C++ 异常，防止跨动态库边界崩溃；
+  4. 由注册的 Input/Output Converter 与 IoBinding 解包完整外部请求并组装完整外部响应，负责外部契约与内部 `AlgContext` 中性值之间的转换；
+  5. 管理有界输出池与租约生命周期，执行同句柄 Process/Control 串行化。
 
-业务需求中的输入输出以 C ABI 边界为准，包含载体中的业务字段和序列化格式。
+业务需求中的输入输出以 Operator 接口边界为准，包含载体中的业务字段和序列化格式。
 Demo 不得提前拆解请求或在 SDK 返回后补组业务响应；内部节点端口不是外部 I/O 契约。
-具体职责和判断示例见[输入输出边界](dev_guide/business_onboarding.md#输入输出以-c-abi-为边界)。
+具体职责和判断示例见[输入输出边界](dev_guide/business_onboarding.md)。
 
-#### 双外部门面与单一内部运行时架构
+#### 统一 Operator 门面与运行时架构
 
-接入适配层并行维护两个外部门面，统一由 `SharedAlgorithmRuntime` 执行调度：
+接入适配层通过标准 C++ Operator 门面与共享算法运行时调度算法执行：
 
 ```text
-纯 C ABI：const void** / void** + 现有 CompanyAlg DTO ─┐
-                                                       ├─> SharedAlgorithmRuntime
-C++ Operator API：NamedIoBatch + Operator 镜像 C 结构 ─┘
+外部调用方 (NamedIoBatch) ──> OperatorFunc::Process ──> InputConverter ──> SharedAlgorithmRuntime
+                                                                             │
+                                                                             ▼
+                                                                        Pipeline (DAG)
+                                                                             │
+                                                                             ▼
+外部调用方 (获取已租用输出) <── 发布输出 <── OutputConverter <── 执行完成后
 ```
 
-- 纯 C ABI 继续保持 C11、固定布局和现有六函数契约，当前 ABI 版本见下文。
-- v10.0.0 / ABI 5 只承诺上述 12 个动态入口；Node、Registry、Model、Backend 及第三方
-  运行时符号使用 hidden visibility，不构成稳定动态 ABI。
-- 同一 C ABI handle 的 `Alg_Process` 与 `Alg_Control` 串行执行；不同 handle 可并行。
-  `Alg_Destroy` 前调用方必须停止提交并等待该 handle 上所有调用返回，返回后句柄永久失效。
-- C++ Operator API 根据 Key 的最后一个点号解析槽位后缀：
-  `OperatorValueTypeRegistry` 负责“后缀到外部 C 类型”的唯一绑定，
-  `OperatorBizBridgeDescriptor` 负责按业务和方向收集一个或多个槽位，再转换为
-  内部 DTO；输出槽位须显式指定 `key_suffix`（单槽 Helper 默认填充为规范类型后缀），与逻辑槽及类型解耦，可独立命名；描述符中已不再支持运行时省略或隐式回退。
-  同一外层类型可以注册多个分配方案；部署配置选择方案与嵌套布局参数。
-  两种协议不得通过 `reinterpret_cast` 混用布局。
-- 组件调用关系：`外部调用方 → Operator / C ABI → Pipeline → Node → Model → Backend → Platform`。
+- 标准 C++ Operator API（`llm_edgeflow::operator_api`）为唯一公开算法接口，承诺 6 个导出符号（3 个 Operator API 函数与 3 个 AlgBase 日志函数）。Node、Registry、Model、Backend 及第三方运行时符号使用 hidden visibility，不构成稳定动态 ABI。
+- 同一 handle 的 `Process` 与 `Control` 串行执行；不同 handle 可并行。`Destroy` 前调用方必须停止提交并等待该 handle 上所有调用返回，释放全部输出指针引用，返回后句柄永久失效。
+- C++ Operator API 根据 Key 的最后一个点号解析槽位后缀：`OperatorValueTypeRegistry` 负责“后缀到外部 C++ 类型”的唯一绑定；`IoBindingRegistry` 负责按业务和方向将外部命名槽位映射到内部 Pipeline 逻辑端口。
+- 组件调用关系：`外部调用方 → Operator → Pipeline → Node → Model → Backend → Platform`。
   `Operator` 表达对外交付的算法实例，`Platform`（`ComputePlatform`）表达底层硬件执行平台（CPU、CUDA、AX650、Ascend 等）。
 - 同一业务可以使用一个聚合结构槽位，也可以由多个原子槽位组成；支持多槽位解绑。
 - `CompanyString` 只表达无嵌入 NUL 的文本；任意二进制数据使用 `CompanyBuffer`。
@@ -169,8 +162,8 @@ C++ Operator API：NamedIoBatch + Operator 镜像 C 结构 ─┘
   deleter 的 shared_ptr，最后一个引用析构后 reset 并回池；deleter 只捕获池状态的
   weak lifetime token，避免 Destroy 后解引用已释放句柄或池。
 - 值类型表、业务桥接表和内存池只属于接入适配层，不得进入 Blackboard、Node、Model 或 Backend。
-- 目标共享库输出名称为 `company_alg_sdk`，产品 VERSION 为 10.0.0，
-  SOVERSION/C ABI major 为 6。
+- 目标共享库输出名称为 `company_alg_sdk`，产品 VERSION 为 11.0.0，
+  SOVERSION/ABI major 为 7。
 - v4 Create 和配置预检都以必填部署根 `model_path` 加相对 `cfg_file_name` 解析；
   `.conf` 的 `data.outputs` 按逻辑槽位归一化输出类型、分配方案、参数与容量；
   最外层的独立配置读取组件按固定枚举提取配置并返回字符串，注册方案在 Create

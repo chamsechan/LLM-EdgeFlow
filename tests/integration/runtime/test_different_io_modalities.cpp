@@ -10,9 +10,10 @@
 #include <string>
 #include <vector>
 
-#include "edgeflow/c_api.h"
-#include "edgeflow/c_api.hpp"
+#include "edgeflow/operator/interface.h"
+#include "edgeflow/operator/types.h"
 #include "engine/backend_registry.h"
+#include "platform_mock/operator_data_types.h"
 
 static std::string GetConfigPath(const std::string& rel_path) {
   FILE* fp = fopen(rel_path.c_str(), "r");
@@ -27,60 +28,102 @@ namespace llm_edgeflow {
 
 class DifferentIoModalitiesTest : public ::testing::Test {
  protected:
-  void SetUp() override { Alg_Init(); }
-  void TearDown() override { Alg_DeInit(); }
+  void SetUp() override {
+    operator_api::Get_LLM_EDGEFLOW_OperatorTable().Init();
+  }
+  void TearDown() override {
+    operator_api::Get_LLM_EDGEFLOW_OperatorTable().Deinit();
+  }
 };
 
 // 1. 验证业务 5: 多模态图文票据问答 (Image + Query -> OCR BBox -> LLM JSON)
 TEST_F(DifferentIoModalitiesTest, OcrDocQa) {
-  std::string cfg_path =
-      GetConfigPath("demo/fixtures/mock/pipeline_ocr_doc_qa_cabi.json");
-  CompanyAlgParamCreate param;
-  param.config_file_path = cfg_path.c_str();
-  param.model_root_dir = "./models";
+  auto op = operator_api::Get_LLM_EDGEFLOW_OperatorTable();
+  operator_api::CreateParam param{};
+  param.model_path = ".";
+  param.cfg_file_name = "demo/fixtures/mock/pipeline_ocr_doc_qa.conf";
   param.device_id = 0;
+  param.compute_platform = operator_api::ComputePlatform::kCpu;
+  param.max_frame_depth = 25;
 
   void* handle = nullptr;
-  int ret = Alg_Create(&handle, &param);
+  int ret = op.Create(&handle, &param);
   ASSERT_EQ(ret, 0);
   ASSERT_NE(handle, nullptr);
 
-  CompanyOcrDocInputStruct in_req1{60001, "./data/invoice_sample_01.jpg",
-                                   "提取发票代码、号码与总金额"};
-  CompanyOcrDocInputStruct in_req2{60002, "./data/vat_receipt_02.png",
-                                   "提取购买方公司名称与税额"};
-  std::vector<void*> inputs = {&in_req1, &in_req2};
+  std::string img1 = "./data/invoice_sample_01.jpg";
+  std::string p1 = "提取发票代码、号码与总金额";
+  std::string img2 = "./data/vat_receipt_02.png";
+  std::string p2 = "提取购买方公司名称与税额";
 
-  CompanyOcrDocOutputStruct out1;
-  CompanyOcrDocOutputStruct out2;
-  std::vector<void*> outputs = {&out1, &out2};
+  CompanyString img1_cs{static_cast<int32_t>(img1.size()),
+                        const_cast<char*>(img1.data())};
+  CompanyFrame frame1{60001, &img1_cs, nullptr};
+  CompanyString p1_cs{static_cast<int32_t>(p1.size()),
+                      const_cast<char*>(p1.data())};
 
-  ret = Alg_Process(handle, inputs, outputs);
+  CompanyString img2_cs{static_cast<int32_t>(img2.size()),
+                        const_cast<char*>(img2.data())};
+  CompanyFrame frame2{60002, &img2_cs, nullptr};
+  CompanyString p2_cs{static_cast<int32_t>(p2.size()),
+                      const_cast<char*>(p2.data())};
+
+  operator_api::NamedIoBatch inputs(2);
+  inputs[0]["camera_0.frame"] =
+      operator_api::MakeBorrowedOperatorInput(&frame1);
+  inputs[0]["camera_0.string"] =
+      operator_api::MakeBorrowedOperatorInput(&p1_cs);
+  inputs[1]["camera_0.frame"] =
+      operator_api::MakeBorrowedOperatorInput(&frame2);
+  inputs[1]["camera_0.string"] =
+      operator_api::MakeBorrowedOperatorInput(&p2_cs);
+
+  operator_api::NamedIoBatch outputs(2);
+  outputs[0]["camera_0.od_out"] = nullptr;
+  outputs[1]["camera_0.od_out"] = nullptr;
+
+  ret = op.Process(handle, inputs, outputs);
   EXPECT_EQ(ret, 0);
-  EXPECT_EQ(out1.request_id, 60001ULL);
-  EXPECT_EQ(out1.detected_box_count, 6U);
-  EXPECT_EQ(out2.request_id, 60002ULL);
-  EXPECT_EQ(out2.detected_box_count, 6U);
+  ASSERT_EQ(outputs.size(), 2u);
 
-  auto j1 = nlohmann::json::parse(out1.extracted_invoice_json);
+  auto out1_sp = outputs[0]["camera_0.od_out"];
+  auto out2_sp = outputs[1]["camera_0.od_out"];
+  ASSERT_NE(out1_sp, nullptr);
+  ASSERT_NE(out2_sp, nullptr);
+
+  auto* out1 = static_cast<CompanyOdOutput*>(out1_sp.get());
+  auto* out2 = static_cast<CompanyOdOutput*>(out2_sp.get());
+
+  EXPECT_EQ(out1->request_id, 60001ULL);
+  EXPECT_EQ(out1->detected_box_count, 6);
+  EXPECT_EQ(out2->request_id, 60002ULL);
+  EXPECT_EQ(out2->detected_box_count, 6);
+
+  ASSERT_NE(out1->result_json, nullptr);
+  std::string json_str1(out1->result_json->data, out1->result_json->length);
+  auto j1 = nlohmann::json::parse(json_str1);
   EXPECT_TRUE(j1.contains("invoice_code") && j1.contains("total_amount"));
 
-  ret = Alg_Destroy(handle);
+  out1_sp.reset();
+  out2_sp.reset();
+  outputs.clear();
+  ret = op.Destroy(handle);
   EXPECT_EQ(ret, 0);
 }
 
 // 2. 验证业务 6: 语音识别与时序意图槽位抽取 (Float PCM Buffer -> Speech Text ->
 // NLU Intent/Slots)
 TEST_F(DifferentIoModalitiesTest, AudioAsrIntent) {
-  std::string cfg_path =
-      GetConfigPath("demo/fixtures/mock/pipeline_audio_asr_intent_cabi.json");
-  CompanyAlgParamCreate param;
-  param.config_file_path = cfg_path.c_str();
-  param.model_root_dir = "./models";
+  auto op = operator_api::Get_LLM_EDGEFLOW_OperatorTable();
+  operator_api::CreateParam param{};
+  param.model_path = ".";
+  param.cfg_file_name = "demo/fixtures/mock/pipeline_audio_asr_intent.conf";
   param.device_id = 0;
+  param.compute_platform = operator_api::ComputePlatform::kCpu;
+  param.max_frame_depth = 25;
 
   void* handle = nullptr;
-  int ret = Alg_Create(&handle, &param);
+  int ret = op.Create(&handle, &param);
   ASSERT_EQ(ret, 0);
   ASSERT_NE(handle, nullptr);
 
@@ -88,36 +131,72 @@ TEST_F(DifferentIoModalitiesTest, AudioAsrIntent) {
   std::vector<float> pcm1(16000, 0.01f);   // 导航语音 (累计值较大)
   std::vector<float> pcm2(16000, 0.001f);  // 空调车控语音
 
-  CompanyAudioInputStruct in_audio1{70001, pcm1.data(),
-                                    static_cast<int>(pcm1.size()), 16000};
-  CompanyAudioInputStruct in_audio2{70002, pcm2.data(),
-                                    static_cast<int>(pcm2.size()), 16000};
-  std::vector<void*> inputs = {&in_audio1, &in_audio2};
+  CompanyOperatorAudioInput in_audio1{70001, pcm1.data(),
+                                      static_cast<int32_t>(pcm1.size()), 16000};
+  CompanyOperatorAudioInput in_audio2{70002, pcm2.data(),
+                                      static_cast<int32_t>(pcm2.size()), 16000};
 
-  CompanyAudioOutputStruct out1;
-  CompanyAudioOutputStruct out2;
-  std::vector<void*> outputs = {&out1, &out2};
+  operator_api::NamedIoBatch inputs(2);
+  inputs[0]["mic_0.audio_in"] =
+      operator_api::MakeBorrowedOperatorInput(&in_audio1);
+  inputs[1]["mic_0.audio_in"] =
+      operator_api::MakeBorrowedOperatorInput(&in_audio2);
 
-  ret = Alg_Process(handle, inputs, outputs);
+  operator_api::NamedIoBatch outputs(2);
+  outputs[0]["mic_0.audio_out"] = nullptr;
+  outputs[1]["mic_0.audio_out"] = nullptr;
+
+  ret = op.Process(handle, inputs, outputs);
   EXPECT_EQ(ret, 0);
-  EXPECT_EQ(out1.request_id, 70001);
-  EXPECT_EQ(out2.request_id, 70002);
+  ASSERT_EQ(outputs.size(), 2u);
 
-  auto j1 = nlohmann::json::parse(out1.intent_slot_json);
-  auto j2 = nlohmann::json::parse(out2.intent_slot_json);
+  auto out1_sp = outputs[0]["mic_0.audio_out"];
+  auto out2_sp = outputs[1]["mic_0.audio_out"];
+  ASSERT_NE(out1_sp, nullptr);
+  ASSERT_NE(out2_sp, nullptr);
+
+  auto* out1 = static_cast<CompanyOperatorAudioOutput*>(out1_sp.get());
+  auto* out2 = static_cast<CompanyOperatorAudioOutput*>(out2_sp.get());
+
+  EXPECT_EQ(out1->request_id, 70001ULL);
+  EXPECT_EQ(out2->request_id, 70002ULL);
+
+  ASSERT_NE(out1->intent_slot_json, nullptr);
+  std::string s1(out1->intent_slot_json->data, out1->intent_slot_json->length);
+  auto j1 = nlohmann::json::parse(s1);
+
+  ASSERT_NE(out2->intent_slot_json, nullptr);
+  std::string s2(out2->intent_slot_json->data, out2->intent_slot_json->length);
+  auto j2 = nlohmann::json::parse(s2);
+
   EXPECT_EQ(j1["intent"], "NAVIGATION");
   EXPECT_EQ(j2["intent"], "VEHICLE_HVAC_CONTROL");
 
-  in_audio1.pcm_length = 0;
-  in_audio1.pcm_buffer = nullptr;
-  in_audio2.pcm_length = 0;
-  EXPECT_EQ(Alg_Process(handle, inputs, outputs), 0);
-  EXPECT_EQ(out1.request_id, 70001U);
-  EXPECT_EQ(out2.request_id, 70002U);
-  EXPECT_EQ(out1.status_code, 0);
-  EXPECT_EQ(out2.status_code, 0);
+  CompanyOperatorAudioInput empty1{70001, nullptr, 0, 16000};
+  CompanyOperatorAudioInput empty2{70002, nullptr, 0, 16000};
+  inputs[0]["mic_0.audio_in"] =
+      operator_api::MakeBorrowedOperatorInput(&empty1);
+  inputs[1]["mic_0.audio_in"] =
+      operator_api::MakeBorrowedOperatorInput(&empty2);
+  outputs[0]["mic_0.audio_out"] = nullptr;
+  outputs[1]["mic_0.audio_out"] = nullptr;
 
-  ret = Alg_Destroy(handle);
+  EXPECT_EQ(op.Process(handle, inputs, outputs), 0);
+  out1_sp = outputs[0]["mic_0.audio_out"];
+  out2_sp = outputs[1]["mic_0.audio_out"];
+  ASSERT_NE(out1_sp, nullptr);
+  ASSERT_NE(out2_sp, nullptr);
+  out1 = static_cast<CompanyOperatorAudioOutput*>(out1_sp.get());
+  out2 = static_cast<CompanyOperatorAudioOutput*>(out2_sp.get());
+  EXPECT_EQ(out1->request_id, 70001ULL);
+  EXPECT_EQ(out2->request_id, 70002ULL);
+  EXPECT_EQ(out1->status_code, 0);
+  EXPECT_EQ(out2->status_code, 0);
+
+  out1_sp.reset();
+  out2_sp.reset();
+  outputs.clear();
+  ret = op.Destroy(handle);
   EXPECT_EQ(ret, 0);
 }
 
@@ -139,74 +218,112 @@ TEST_F(DifferentIoModalitiesTest, CrossRerankBatch) {
   ASSERT_TRUE(json_in.good());
   nlohmann::json pipe_json;
   json_in >> pipe_json;
-  pipe_json["models"][0]["model_path"] = EDGEFLOW_RERANK_ONNX_FIXTURE;
-  pipe_json["models"][0]["model_config"]["tokenizer_file"] =
-      EDGEFLOW_VOCAB_FIXTURE;
-  pipe_json["models"][0]["model_config"]["max_length"] = 32;
-
   auto temp_dir = std::filesystem::temp_directory_path() /
                   ("test_different_io_rerank_" + std::to_string(rand()));
-  std::filesystem::create_directories(temp_dir);
+  auto models_dir = temp_dir / "models";
+  std::filesystem::create_directories(models_dir);
+  std::error_code copy_ec;
+  std::filesystem::copy_file(
+      EDGEFLOW_RERANK_ONNX_FIXTURE, models_dir / "rerank.onnx",
+      std::filesystem::copy_options::overwrite_existing, copy_ec);
+  std::filesystem::copy_file(EDGEFLOW_VOCAB_FIXTURE, models_dir / "vocab.txt",
+                             std::filesystem::copy_options::overwrite_existing,
+                             copy_ec);
+
+  pipe_json["models"][0]["model_path"] = "models/rerank.onnx";
+  pipe_json["models"][0]["model_config"]["tokenizer_file"] = "vocab.txt";
+  pipe_json["models"][0]["model_config"]["max_length"] = 32;
+
   auto temp_pipe_path = temp_dir / "pipeline_cross_rerank.json";
   std::ofstream json_out(temp_pipe_path);
   json_out << pipe_json.dump(2);
   json_out.close();
 
-  nlohmann::json deploy_cfg = {{"schema_version", 1},
-                               {"data",
-                                {{"pipe_path", "pipeline_cross_rerank.json"},
-                                 {"io_binding", "cross_rerank.cabi.v1"}}}};
-  auto temp_cfg_path = temp_dir / "pipeline_cross_rerank_cabi.json";
+  nlohmann::json deploy_cfg = {
+      {"schema_version", 1},
+      {"data",
+       {{"pipe_path", "pipeline_cross_rerank.json"},
+        {"io_binding", "cross_rerank.operator.v1"},
+        {"outputs",
+         {{"rerank_out",
+           {{"type", "rerank_out"},
+            {"meta_num", 0},
+            {"metadata_type_id", 0},
+            {"capacities", nlohmann::json::object()}}}}}}}};
+  auto temp_cfg_path = temp_dir / "pipeline_cross_rerank.conf";
   std::ofstream cfg_out(temp_cfg_path);
   cfg_out << deploy_cfg.dump(2);
   cfg_out.close();
 
-  std::string temp_cfg_str = temp_cfg_path.string();
-  CompanyAlgParamCreate param;
-  param.config_file_path = temp_cfg_str.c_str();
-  param.model_root_dir = "";
-  param.device_id = 0;
+  auto op = operator_api::Get_LLM_EDGEFLOW_OperatorTable();
+  operator_api::CreateParam param{};
+  param.model_path = temp_dir.c_str();
+  param.cfg_file_name = "pipeline_cross_rerank.conf";
+  param.device_id = 1;
+  param.compute_platform = operator_api::ComputePlatform::kCpu;
+  param.max_frame_depth = 25;
 
   void* handle = nullptr;
-  param.device_id = 1;
-  int ret = Alg_Create(&handle, &param);
+  int ret = op.Create(&handle, &param);
   EXPECT_NE(ret, 0);
   EXPECT_EQ(handle, nullptr);
 
   param.device_id = 0;
-  ret = Alg_Create(&handle, &param);
+  ret = op.Create(&handle, &param);
   ASSERT_EQ(ret, 0);
   ASSERT_NE(handle, nullptr);
 
-  const char* candidates[5] = {
+  std::string query = "请问如何申请7天无理由退款？";
+  std::vector<std::string> candidates = {
       "条款A: 仅在工作日提供人工客服支持。",
       "条款B: 支持7天无理由退货政策，审核通过后即时原路返还资金。",
       "条款C: 境外信用卡交易收取3%跨境手续费。",
       "条款D: 电子发票在订单完成后24小时内发送至邮箱。",
       "条款E: VIP用户享受专属1对1客服通道与快速理赔。"};
 
-  CompanyRerankBatchInputStruct in_rerank;
+  CompanyString q_cs{static_cast<int32_t>(query.size()),
+                     const_cast<char*>(query.data())};
+  std::vector<CompanyString> c_cs;
+  c_cs.reserve(5);
+  for (int i = 0; i < 5; ++i) {
+    c_cs.push_back({static_cast<int32_t>(candidates[i].size()),
+                    const_cast<char*>(candidates[i].data())});
+  }
+
+  CompanyOperatorRerankInput in_rerank{};
   in_rerank.request_id = 80001;
-  in_rerank.query_text = "请问如何申请7天无理由退款？";
+  in_rerank.query_text = &q_cs;
   in_rerank.candidate_count = 5;
-  for (int i = 0; i < 5; ++i) in_rerank.candidate_passages[i] = candidates[i];
+  for (int i = 0; i < 5; ++i) {
+    in_rerank.candidate_passages[i] = &c_cs[i];
+  }
 
-  std::vector<void*> inputs = {&in_rerank};
-  CompanyRerankBatchOutputStruct out_rerank;
-  std::vector<void*> outputs = {&out_rerank};
+  operator_api::NamedIoBatch inputs(1);
+  inputs[0]["ranker.rerank_in"] =
+      operator_api::MakeBorrowedOperatorInput(&in_rerank);
+  operator_api::NamedIoBatch outputs(1);
+  outputs[0]["ranker.rerank_out"] = nullptr;
 
-  ret = Alg_Process(handle, inputs, outputs);
+  ret = op.Process(handle, inputs, outputs);
   EXPECT_EQ(ret, 0);
-  EXPECT_EQ(out_rerank.request_id, 80001);
-  EXPECT_EQ(out_rerank.count, 5);
+  ASSERT_EQ(outputs.size(), 1u);
 
-  for (int i = 0; i < out_rerank.count; ++i) {
+  auto out_sp = outputs[0]["ranker.rerank_out"];
+  ASSERT_NE(out_sp, nullptr);
+  auto* out_rerank = static_cast<CompanyOperatorRerankOutput*>(out_sp.get());
+
+  EXPECT_EQ(out_rerank->request_id, 80001ULL);
+  EXPECT_EQ(out_rerank->count, 5);
+
+  for (int i = 0; i < out_rerank->count; ++i) {
     if (i > 0) {
-      EXPECT_GE(out_rerank.scores[i - 1], out_rerank.scores[i]);
+      EXPECT_GE(out_rerank->scores[i - 1], out_rerank->scores[i]);
     }
   }
 
-  ret = Alg_Destroy(handle);
+  out_sp.reset();
+  outputs.clear();
+  ret = op.Destroy(handle);
   EXPECT_EQ(ret, 0);
   std::error_code ec;
   std::filesystem::remove_all(temp_dir, ec);

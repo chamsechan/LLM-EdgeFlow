@@ -13,7 +13,7 @@ namespace llm_edgeflow {
 struct IoBindingDefinition {
   std::string binding_id;
   std::string biz_name;
-  std::string transport;  // "cabi" 或 "operator"
+  std::string transport;  // "operator"
   std::string input_converter_id;
   std::string output_converter_id;
   std::unordered_map<std::string, std::string>
@@ -29,7 +29,7 @@ struct IoBindingDefinition {
 struct BizExposureDefinition {
   std::string biz_name;
   size_t max_batch_size = 64;
-  std::vector<std::string> required_transports;  // {"cabi", "operator"}
+  std::vector<std::string> required_transports;  // {"operator"}
 };
 
 }  // namespace llm_edgeflow

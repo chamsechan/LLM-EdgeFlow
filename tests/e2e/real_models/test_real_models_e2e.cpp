@@ -4,13 +4,15 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <memory>
 #include <string>
 #include <vector>
 
-#include "edgeflow/c_api.h"
-#include "edgeflow/c_api.hpp"
+#include "edgeflow/operator/interface.h"
+#include "edgeflow/operator/types.h"
 #include "engine/model_interface.h"
 #include "engine/model_runtime_factory.h"
+#include "platform_mock/operator_data_types.h"
 
 namespace llm_edgeflow {
 
@@ -108,8 +110,8 @@ TEST_F(RealModelE2ETest, RealQwenBatchExecutionWithPadding) {
   }
 }
 
-// 3. 真实模型接入 C ABI 全链路端到端验证
-TEST_F(RealModelE2ETest, RealModelCAbiEndToEnd) {
+// 3. 真实模型接入 Operator 全链路端到端验证
+TEST_F(RealModelE2ETest, RealModelOperatorEndToEnd) {
   std::vector<std::string> sentences = {
       "李雷在微软北京研发中心负责AI大模型芯片开发。"};
   std::ifstream corpus(project_root_ / "data/corpus_entity_extract.txt");
@@ -121,43 +123,54 @@ TEST_F(RealModelE2ETest, RealModelCAbiEndToEnd) {
       sentences.push_back(line);
   }
   ASSERT_GT(sentences.size(), 1u) << "Public Profile corpus must not be empty";
-  ASSERT_EQ(Alg_Init(), 0);
 
-  const std::string cfg_path =
-      (project_root_ / "configs/pipeline_entity_extract_cabi.json").string();
-  const std::string model_root = model_root_.string();
+  auto op = operator_api::Get_LLM_EDGEFLOW_OperatorTable();
+  ASSERT_EQ(op.Init(), 0);
 
-  CompanyAlgParamCreate create_param;
-  create_param.config_file_path = cfg_path.c_str();
-  create_param.model_root_dir = model_root.c_str();
+  const std::string root_str = project_root_.string();
+  operator_api::CreateParam create_param{};
+  create_param.model_path = root_str.c_str();
+  create_param.cfg_file_name = "configs/pipeline_entity_extract_cpu.conf";
   create_param.device_id = 0;
+  create_param.compute_platform = operator_api::ComputePlatform::kCpu;
+  create_param.max_frame_depth = 25;
 
   void* handle = nullptr;
-  ASSERT_EQ(Alg_Create(&handle, &create_param), 0);
+  ASSERT_EQ(op.Create(&handle, &create_param), 0);
   ASSERT_NE(handle, nullptr);
 
   for (size_t i = 0; i < sentences.size(); ++i) {
     SCOPED_TRACE(sentences[i]);
     const uint64_t request_id = i == 0 ? 99001 : 30000 + i;
-    CompanyEntityInputStruct req{request_id, sentences[i].c_str()};
-    std::vector<void*> inputs = {&req};
-    CompanyEntityOutputStruct out{};
-    std::vector<void*> outputs = {&out};
-    const int ret = Alg_Process(handle, inputs, outputs);
+    CompanyString cs{static_cast<int32_t>(sentences[i].size()),
+                     const_cast<char*>(sentences[i].data())};
+    CompanyOperatorEntityInput req{request_id, &cs};
+
+    operator_api::NamedIoBatch inputs(1);
+    inputs[0]["nlp_node.entity_in"] =
+        operator_api::MakeBorrowedOperatorInput(&req);
+    operator_api::NamedIoBatch outputs(1);
+    outputs[0]["nlp_node.entity_out"] = nullptr;
+
+    const int ret = op.Process(handle, inputs, outputs);
     EXPECT_EQ(ret, 0);
     if (ret != 0) continue;
-    EXPECT_EQ(out.request_id, request_id);
-    EXPECT_EQ(out.status_code, 0);
-    const auto entities =
-        nlohmann::json::parse(out.entities_json, nullptr, false);
-    EXPECT_TRUE(entities.is_array()) << out.entities_json;
-    EXPECT_FALSE(entities.empty()) << out.entities_json;
-    std::cout << "  [C ABI Real Model Output] " << out.entities_json
-              << std::endl;
+    ASSERT_EQ(outputs.size(), 1u);
+    auto out_sp = outputs[0]["nlp_node.entity_out"];
+    ASSERT_NE(out_sp, nullptr);
+    auto* out = static_cast<CompanyOperatorEntityOutput*>(out_sp.get());
+    EXPECT_EQ(out->request_id, request_id);
+    EXPECT_EQ(out->status_code, 0);
+    ASSERT_NE(out->entities_json, nullptr);
+    std::string json_str(out->entities_json->data, out->entities_json->length);
+    const auto entities = nlohmann::json::parse(json_str, nullptr, false);
+    EXPECT_TRUE(entities.is_array()) << json_str;
+    EXPECT_FALSE(entities.empty()) << json_str;
+    std::cout << "  [Operator Real Model Output] " << json_str << std::endl;
   }
 
-  EXPECT_EQ(Alg_Destroy(handle), 0);
-  EXPECT_EQ(Alg_DeInit(), 0);
+  EXPECT_EQ(op.Destroy(handle), 0);
+  EXPECT_EQ(op.Deinit(), 0);
 }
 
 #ifdef HAVE_WHISPERCPP

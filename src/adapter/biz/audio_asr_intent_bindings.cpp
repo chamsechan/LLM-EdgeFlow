@@ -31,23 +31,7 @@ BizExposureDefinition MakeAudioAsrIntentBizExposure() {
   BizExposureDefinition def;
   def.biz_name = "speech_audio_asr_intent_slot";
   def.max_batch_size = 64;
-  def.required_transports = {"cabi", "operator"};
-  return def;
-}
-
-IoBindingDefinition MakeAudioAsrIntentCAbiBinding() {
-  IoBindingDefinition def;
-  def.binding_id = "audio_asr_intent.cabi.v1";
-  def.biz_name = "speech_audio_asr_intent_slot";
-  def.transport = "cabi";
-  def.input_converter_id = "audio.pcm.cabi.v1";
-  def.output_converter_id = "audio_result.plain.cabi.v1";
-  def.input_ports = {{"raw_request_ids", "raw_request_ids"},
-                     {"audio_inputs", "audio_inputs"}};
-  def.output_ports = {{"raw_request_ids", "raw_request_ids"},
-                      {"transcripts", "transcripts"},
-                      {"intent_slots", "intent_slots"}};
-  def.max_batch_size = 64;
+  def.required_transports = {"operator"};
   return def;
 }
 
@@ -68,7 +52,6 @@ IoBindingDefinition MakeAudioAsrIntentOperatorBinding() {
 }
 
 REGISTER_BIZ_EXPOSURE(MakeAudioAsrIntentBizExposure());
-REGISTER_IO_BINDING(MakeAudioAsrIntentCAbiBinding());
 REGISTER_IO_BINDING(MakeAudioAsrIntentOperatorBinding());
 
 }  // namespace

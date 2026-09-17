@@ -8,82 +8,12 @@
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter.h"
 #include "contracts/inference_payloads.h"
-#include "edgeflow/c_api.h"
 #include "edgeflow/operator/types.h"
 
 namespace llm_edgeflow {
 namespace {
 
 constexpr size_t kMaxTextLen = 64 * 1024;  // 64KB
-
-int DecodeCAbiAuditInput(const ExternalInputBatchView& source,
-                         const InputDecodeOptions& options,
-                         const InputPortBindings& bindings, AlgContext* context,
-                         AdapterStatus* status) {
-  if (!context) {
-    return AdapterValidationHelper::ReturnInvalidInput(
-        status, "Null AlgContext passed to Decode", "context",
-        options.converter_id.c_str());
-  }
-  int valid_ret = AdapterValidationHelper::ValidateBatchInputs(
-      source.items, static_cast<int>(source.count), 64,
-      options.converter_id.c_str());
-  if (valid_ret != 0) {
-    return AdapterValidationHelper::ReturnInvalidInput(
-        status, "Batch envelope validation failed", "inputs",
-        options.converter_id.c_str());
-  }
-
-  std::vector<uint64_t> req_ids;
-  TextBatch user_texts;
-  TextBatch channel_names;
-
-  req_ids.reserve(source.count);
-  user_texts.reserve(source.count);
-  channel_names.reserve(source.count);
-
-  for (size_t i = 0; i < source.count; ++i) {
-    const auto* in = source.GetCAbi<CompanyAuditInputStruct>(i);
-    if (!AdapterValidationHelper::RequireNotNull(
-            "inputs[i]", in, static_cast<int>(i), options.converter_id.c_str(),
-            status)) {
-      return COMPANY_ALG_ERR_INVALID_INPUT;
-    }
-
-    if (!AdapterValidationHelper::RequireBoundedString(
-            "inputs[i].user_text", in->user_text, kMaxTextLen,
-            static_cast<int>(i), options.converter_id.c_str(), status)) {
-      return COMPANY_ALG_ERR_INVALID_INPUT;
-    }
-
-    if (in->channel_name &&
-        !AdapterValidationHelper::RequireBoundedString(
-            "inputs[i].channel_name", in->channel_name,
-            biz_input::kMaxChannelNameBytes, static_cast<int>(i),
-            options.converter_id.c_str(), status)) {
-      return COMPANY_ALG_ERR_INVALID_INPUT;
-    }
-
-    req_ids.push_back(in->request_id);
-    user_texts.emplace_back(static_cast<uint32_t>(i), 0, in->user_text);
-    channel_names.emplace_back(static_cast<uint32_t>(i), 0,
-                               in->channel_name ? in->channel_name : "");
-  }
-
-  if (!AdapterValidationHelper::PublishContextValue(
-          *context, bindings.GetActualKey("raw_request_ids"),
-          std::move(req_ids), options.converter_id.c_str(), status) ||
-      !AdapterValidationHelper::PublishContextValue(
-          *context, bindings.GetActualKey("user_texts"), std::move(user_texts),
-          options.converter_id.c_str(), status) ||
-      !AdapterValidationHelper::PublishContextValue(
-          *context, bindings.GetActualKey("channel_names"),
-          std::move(channel_names), options.converter_id.c_str(), status)) {
-    return COMPANY_ALG_ERR_INVALID_INPUT;
-  }
-
-  return COMPANY_ALG_SUCCESS;
-}
 
 int DecodeOperatorAuditInput(const ExternalInputBatchView& source,
                              const InputDecodeOptions& options,
@@ -169,31 +99,6 @@ int DecodeOperatorAuditInput(const ExternalInputBatchView& source,
   return COMPANY_ALG_SUCCESS;
 }
 
-InputConverterDefinition MakeCAbiAuditInputConverter() {
-  InputConverterDefinition def;
-  def.converter_id = "audit.plain.cabi.v1";
-  def.transport = "cabi";
-  def.schema_id = "audit.plain.request";
-  def.schema_version = 1;
-  def.external_type = "CompanyAuditInputStruct";
-  def.max_batch_size = 64;
-  def.ownership_policy = "copy_in";
-  def.thread_model = "stateless";
-  def.external_slots = {{"inputs",
-                         "CompanyAuditInputStruct",
-                         PortDirection::kInput,
-                         true,
-                         "CompanyAuditInputStruct",
-                         "",
-                         {}}};
-  def.logical_ports = {
-      NodePortDefinition("raw_request_ids", "vector<uint64>", true, "1:1"),
-      NodePortDefinition("user_texts", "TextBatch", true, "1:1"),
-      NodePortDefinition("channel_names", "TextBatch", true, "1:1")};
-  def.decode_fn = &DecodeCAbiAuditInput;
-  return def;
-}
-
 InputConverterDefinition MakeOperatorAuditInputConverter() {
   InputConverterDefinition def;
   def.converter_id = "audit.plain.operator.v1";
@@ -219,7 +124,6 @@ InputConverterDefinition MakeOperatorAuditInputConverter() {
   return def;
 }
 
-REGISTER_INPUT_CONVERTER(MakeCAbiAuditInputConverter());
 REGISTER_INPUT_CONVERTER(MakeOperatorAuditInputConverter());
 
 }  // namespace
