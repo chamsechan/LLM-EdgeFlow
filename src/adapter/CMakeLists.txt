@@ -3,6 +3,7 @@ target_sources(edgeflow_integration_objects PRIVATE
   io_converter_registry.cpp
   io_binding_registry.cpp
   deployment_io_config.cpp
+  pipeline_document.cpp
   io_binding_resolver.cpp
   io_catalog.cpp
   input/text_input.cpp

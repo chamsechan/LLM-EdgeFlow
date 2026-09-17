@@ -346,6 +346,7 @@ TEST(ValidatedPipelinePlanTest, RejectsNodeOutputBoundToBusinessIngress) {
   ASSERT_TRUE(stream.is_open());
   nlohmann::json pipeline_json;
   stream >> pipeline_json;
+  pipeline_json.erase("deployment");
   const size_t source_index = pipeline_json["pipeline"].size();
   pipeline_json["pipeline"].push_back(
       {{"id", "ingress_collision"},

@@ -836,7 +836,9 @@ class StarterEmbeddingModel final : public IEmbeddingModel {
 
 nlohmann::json CustomPipeline(const std::string& biz) {
   std::ifstream file("demo/fixtures/mock/pipeline_" + biz + "_custom.json");
-  return nlohmann::json::parse(file);
+  auto doc = nlohmann::json::parse(file);
+  doc.erase("deployment");
+  return doc;
 }
 
 template <typename Input, typename Output>

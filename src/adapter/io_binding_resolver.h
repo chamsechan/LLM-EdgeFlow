@@ -3,6 +3,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 
 #include "adapter/deployment_io_config.h"
 #include "adapter/io_binding.h"
@@ -25,6 +26,7 @@ struct ValidatedIoPlan {
 
   std::unordered_map<std::string, ResolvedOutputPoolSpec> operator_output_specs;
   std::unordered_map<std::string, std::string> operator_output_parameter_texts;
+  std::unordered_set<std::string> overridden_model_ids;
   nlohmann::json resolved_pipeline_json;
 
   std::unique_ptr<ValidatedPipelinePlan> pipeline_plan;
@@ -47,6 +49,12 @@ class IoBindingResolver {
                              const std::string& model_root_dir,
                              std::unique_ptr<ValidatedIoPlan>* out_plan,
                              std::string* out_error);
+
+  static int ResolveFromPipelineJson(
+      const nlohmann::json& pipeline_json,
+      const std::string& transport,  // "operator"
+      const std::string& model_root_dir,
+      std::unique_ptr<ValidatedIoPlan>* out_plan, std::string* out_error);
 
   static int ResolveFromPipelineJson(
       const nlohmann::json& pipeline_json, const std::string& binding_id,

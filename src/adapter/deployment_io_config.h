@@ -2,19 +2,14 @@
 
 #include <nlohmann/json.hpp>
 #include <string>
-#include <unordered_map>
 
 namespace llm_edgeflow {
 
 /**
- * @brief Schema 1 统一接入配置文件解析结构
+ * @brief 部署配置文件解析结构 (RFC-0061: 仅包含启动定位字段 pipe_path)
  */
 struct DeploymentIoConfig {
-  int schema_version = 1;
   std::string pipe_path;
-  std::string io_binding;
-  std::unordered_map<std::string, std::string> model_paths;
-  nlohmann::json outputs = nlohmann::json::object();
   std::string resolved_pipe_path;
   nlohmann::json raw_json;
 

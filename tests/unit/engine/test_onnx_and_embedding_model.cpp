@@ -1099,6 +1099,7 @@ TEST_F(OnnxAndEmbeddingModelTest, OnnxRuntimeFixturePassEvidence) {
   ASSERT_TRUE(config_in.good());
   nlohmann::json pipeline_config;
   config_in >> pipeline_config;
+  pipeline_config.erase("deployment");
   pipeline_config["models"][0]["model_path"] = onnx_path.string();
   pipeline_config["models"][0]["model_config"]["tokenizer_file"] =
       vocab_path.string();

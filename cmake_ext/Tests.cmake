@@ -114,6 +114,10 @@ if(LLM_EDGEFLOW_HAS_ONNXRUNTIME)
     "${EDGEFLOW_GENERATED_MODEL_FIXTURE_DIR}/pipeline_cross_rerank_fixture.conf"
     COPYONLY)
   configure_file(
+    "${PROJECT_SOURCE_DIR}/tests/fixtures/pipelines/cross_rerank/pipeline_cross_rerank_missing_model.json"
+    "${EDGEFLOW_GENERATED_MODEL_FIXTURE_DIR}/pipeline_cross_rerank_missing_model.json"
+    COPYONLY)
+  configure_file(
     "${PROJECT_SOURCE_DIR}/tests/fixtures/pipelines/cross_rerank/pipeline_cross_rerank_missing_model.conf"
     "${EDGEFLOW_GENERATED_MODEL_FIXTURE_DIR}/pipeline_cross_rerank_missing_model.conf"
     COPYONLY)

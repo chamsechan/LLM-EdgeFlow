@@ -937,6 +937,7 @@ TEST_F(OnnxAndRerankerModelTest, RealPipelineBuildAndExecuteSmoke) {
   nlohmann::json pipe_json;
   cfg_in >> pipe_json;
   cfg_in.close();
+  pipe_json.erase("deployment");
 
   // 2. 注入真实构建期 fixture 路径和测试参数 (top_k=2)
   pipe_json["models"][0]["model_path"] = onnx_path.string();

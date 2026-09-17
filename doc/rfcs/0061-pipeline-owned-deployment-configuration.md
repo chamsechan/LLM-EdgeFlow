@@ -2,7 +2,7 @@
 
 - **RFC 编号**：0061-pipeline-owned-deployment-configuration
 - **创建日期**：2026-09-17
-- **文档状态**：Proposed
+- **文档状态**：In Implementation
 - **关联分支**：`docs/pipeline-deployment-rfc`（设计文档）
 - **目标版本**：下一次配置格式切换版本，具体发布号待定
 - **负责人 / 作者**：LLM-EdgeFlow 维护者

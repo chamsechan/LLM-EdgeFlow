@@ -172,13 +172,10 @@ TEST(DemoRunnerTest, RealKiteEntityExtractionThroughOperator) {
       node["config"]["failure_policy"] = "fail";
     }
   }
+  pipeline["deployment"]["model_paths"]["entity_llm"] = "model.gguf";
   std::ofstream(temporary.path / "pipeline.json") << pipeline.dump(2);
-  std::ifstream conf_input("configs/pipeline_entity_extract_cpu.conf");
-  ASSERT_TRUE(conf_input.good());
-  auto conf = nlohmann::json::parse(conf_input);
-  conf["data"]["pipe_path"] = "pipeline.json";
-  conf["data"]["model_paths"]["entity_llm"] = "model.gguf";
-  std::ofstream(temporary.path / "pipeline.conf") << conf.dump(2);
+  std::ofstream(temporary.path / "pipeline.conf")
+      << nlohmann::json{{"pipe_path", "pipeline.json"}}.dump(2);
   std::ofstream(temporary.path / "run.json")
       << R"({"schema_version":1,"model":{"context_size":256,"threads":2,"threads_batch":2,"gpu_layers":0},"logging":{"level":"error"}})";
   std::ofstream(temporary.path / "input.txt") << "张三在北京工作。\n";
@@ -936,7 +933,7 @@ TEST(DemoRunnerTest, PreservesMixedSampleStatusesAndFailureCounts) {
   std::ifstream conf_file("configs/pipeline_keyword_match_rules.conf");
   ASSERT_TRUE(conf_file.good());
   auto conf = nlohmann::json::parse(conf_file);
-  conf["data"]["pipe_path"] = "pipeline.json";
+  conf["pipe_path"] = "pipeline.json";
   std::ofstream(temporary.path / "pipeline.conf") << conf.dump();
   std::ofstream(temporary.path / "input.txt") << "success\nfail\n";
 

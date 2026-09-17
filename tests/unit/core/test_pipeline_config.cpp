@@ -377,9 +377,20 @@ TEST_F(PipelineConfigTest, PositiveProductionAndStage7FixtureConfigs) {
     nlohmann::json root;
     ifs >> root;
 
+    if (root.contains("deployment")) {
+      ParsedPipelineConfig raw_cfg;
+      PipelineDiagnostic raw_diag;
+      EXPECT_FALSE(ParsePipelineConfig(root, &raw_cfg, &raw_diag));
+      EXPECT_EQ(raw_diag.code, DiagnosticCode::kUnknownField);
+      EXPECT_EQ(raw_diag.path, "/deployment");
+    }
+
+    nlohmann::json neutral_root = root;
+    neutral_root.erase("deployment");
+
     ParsedPipelineConfig parsed_cfg;
     PipelineDiagnostic diag;
-    bool parse_ok = ParsePipelineConfig(root, &parsed_cfg, &diag);
+    bool parse_ok = ParsePipelineConfig(neutral_root, &parsed_cfg, &diag);
     EXPECT_TRUE(parse_ok) << "Parse failed for " << cfg_file << ": "
                           << diag.message << " at " << diag.path;
     EXPECT_EQ(diag.code, DiagnosticCode::kOk);
@@ -398,7 +409,7 @@ TEST_F(PipelineConfigTest, PositiveProductionAndStage7FixtureConfigs) {
     }
 
     Pipeline pipeline;
-    bool build_ok = pipeline.BuildFromConfigFile(full_path, &diag);
+    bool build_ok = pipeline.BuildFromJson(neutral_root, &diag);
     if (!build_ok && diag.code == DiagnosticCode::kModelMaterializationFailed) {
       // 模型物理权重文件在当前测试环境不存在，构建按设计 Fail-Closed
       EXPECT_EQ(diag.code, DiagnosticCode::kModelMaterializationFailed);
