@@ -8,6 +8,7 @@
 
 #include "adapter/io_binding_registry.h"
 #include "adapter/io_binding_resolver.h"
+#include "adapter/pipeline_document.h"
 #include "adapter/shared_algorithm_runtime.h"
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
@@ -120,8 +121,29 @@ TEST(PipelineValidatorTest, AllRepositoryPipelinesValidate) {
       ++skipped_optional;
       continue;
     }
-    const auto report = PipelineValidator::Validate(pipeline);
-    EXPECT_TRUE(report.ok) << entry.path() << "\n" << report.ToJson().dump(2);
+    if (pipeline.contains("deployment")) {
+      // Core validator directly rejects deployment as an unknown root field
+      const auto direct_report = PipelineValidator::Validate(pipeline);
+      EXPECT_FALSE(direct_report.ok);
+      EXPECT_TRUE(std::any_of(
+          direct_report.diagnostics.begin(), direct_report.diagnostics.end(),
+          [](const ValidationDiagnostic& d) {
+            return d.code == DiagnosticCode::kUnknownField &&
+                   d.path == "/deployment";
+          }));
+
+      // Integration document splitter extracts the neutral pipeline for Core
+      PipelineDocumentSplit split;
+      std::string split_err;
+      ASSERT_TRUE(SplitPipelineDocument(pipeline, &split, &split_err))
+          << entry.path() << ": " << split_err;
+      const auto report =
+          PipelineValidator::Validate(split.neutral_pipeline_json);
+      EXPECT_TRUE(report.ok) << entry.path() << "\n" << report.ToJson().dump(2);
+    } else {
+      const auto report = PipelineValidator::Validate(pipeline);
+      EXPECT_TRUE(report.ok) << entry.path() << "\n" << report.ToJson().dump(2);
+    }
     ++validated;
   }
   EXPECT_GT(validated, 0U);
@@ -133,6 +155,7 @@ TEST(PipelineValidatorTest, RejectsRemovedRuleCategoriesField) {
   ASSERT_TRUE(stream.is_open());
   nlohmann::json pipeline;
   stream >> pipeline;
+  pipeline.erase("deployment");
   ASSERT_FALSE(pipeline["pipeline"].empty());
   auto& config = pipeline["pipeline"][0]["config"];
   config["default_categories"] = config["categories"];
@@ -153,6 +176,7 @@ TEST(PipelineValidatorTest, ModelPathsUseLexicalChecksWithoutDeploymentRoots) {
   ASSERT_TRUE(stream.is_open());
   nlohmann::json pipeline;
   ASSERT_NO_THROW(stream >> pipeline);
+  pipeline.erase("deployment");
 
   for (const std::string& safe_path :
        {std::string("missing/artifact.bin"), std::string("..name/artifact.bin"),
@@ -291,6 +315,7 @@ TEST(PipelineValidatorTest, WhisperPipelineValidationDependsOnBackend) {
   ASSERT_TRUE(stream.is_open());
   nlohmann::json pipeline;
   stream >> pipeline;
+  pipeline.erase("deployment");
   const auto report = PipelineValidator::Validate(pipeline);
 #ifdef HAVE_WHISPERCPP
   EXPECT_TRUE(report.ok) << report.ToJson().dump(2);
@@ -329,6 +354,7 @@ TEST(PipelineValidatorTest,
     std::ifstream stream("configs/pipeline_keyword_match_rules.json");
     nlohmann::json root;
     stream >> root;
+    root.erase("deployment");
     root["pipeline"].push_back({{"id", "invalid"},
                                 {"node_type", type},
                                 {"depends_on", nlohmann::json::array()},
@@ -358,6 +384,7 @@ TEST(PipelineValidatorTest, UnconnectedOptionalPortStaysAbsentAtRuntime) {
   std::ifstream stream("configs/pipeline_keyword_match_rules.json");
   nlohmann::json root;
   stream >> root;
+  root.erase("deployment");
   root["pipeline"] = nlohmann::json::array(
       {{{"id", "a"},
         {"node_type", "TextTemplateNode"},
@@ -399,6 +426,7 @@ TEST(PipelineValidatorTest,
   ASSERT_TRUE(stream.is_open());
   nlohmann::json root;
   stream >> root;
+  root.erase("deployment");
 
   // Node 0: custom_prompt (produces "llm_raw_answer")
   // Node 1: node_2_StructuredJsonParseNode (consumes "llm_raw_answer" on port
@@ -455,6 +483,7 @@ TEST(PipelineValidatorTest, ExplainReturnsCandidateFixForUnknownConfigField) {
   ASSERT_TRUE(stream.is_open());
   nlohmann::json root;
   stream >> root;
+  root.erase("deployment");
 
   // Misspell "temperature" as "temprature"
   root["pipeline"][0]["config"]["temprature"] = 0.1;
@@ -555,6 +584,7 @@ TEST(PipelineValidatorTest, ExplainCleanPipelineReturnsOk) {
   ASSERT_TRUE(stream.is_open());
   nlohmann::json root;
   stream >> root;
+  root.erase("deployment");
 
   const auto report = PipelineValidator::Explain(root);
   EXPECT_TRUE(report.ok);
@@ -568,6 +598,7 @@ TEST(PipelineValidatorTest, ExplainTargetResolved) {
   ASSERT_TRUE(stream.is_open());
   nlohmann::json root;
   stream >> root;
+  root.erase("deployment");
 
   // Introduce two independent errors:
   // 1. Misspelled config field in custom_prompt ("temprature" instead of
@@ -610,6 +641,7 @@ TEST(PipelineValidatorTest, ValidateProducesBasicRemediation) {
   ASSERT_TRUE(stream.is_open());
   nlohmann::json root;
   stream >> root;
+  root.erase("deployment");
 
   // Clear depends_on so node 1 has a missing input producer
   root["pipeline"][1]["depends_on"] = nlohmann::json::array();

@@ -87,11 +87,15 @@ def build_run_conf(pipeline, outputs, pipe_path, model_root, bundle_root, io_bin
     model_paths = {model["model_id"]: str(within(model_root, model["model_path"]).relative_to(bundle_root))
                    for model in pipeline.get("models", [])}
     binding = io_binding or BIZ_TO_OPERATOR_BINDING.get(pipeline.get("biz_name"))
-    data = {"pipe_path": str(pipeline_path),
-            "model_paths": model_paths, "outputs": outputs}
+    deployment = pipeline.setdefault("deployment", {})
+    io_obj = deployment.setdefault("io", {})
     if binding:
-        data["io_binding"] = binding
-    return {"schema_version": 1, "data": data}
+        io_obj["io_binding"] = binding
+    if outputs:
+        io_obj["output_allocations"] = outputs
+    if model_paths:
+        deployment["model_paths"] = model_paths
+    return {"pipe_path": str(pipeline_path)}
 
 
 def validate_manifest(manifest):
@@ -215,13 +219,24 @@ def effect_inputs(spec_path, conf_path, demo):
     spec = read_json(spec_path)
     dataset = (spec_path.parent / spec["dataset"]).resolve()
     conf = read_json(conf_path)
-    # The evaluator deliberately regenerates model_paths from the selected
-    # Pipeline; only deployment output capacities are inherited.
-    outputs = conf["data"]["outputs"]
+    if "data" in conf and isinstance(conf["data"], dict) and "outputs" in conf["data"]:
+        outputs = conf["data"]["outputs"]
+        model_paths = conf["data"].get("model_paths", {})
+        binding = conf["data"].get("io_binding", "")
+    else:
+        pipe_path = conf.get("pipe_path", "")
+        pipeline_file = (Path(conf_path).parent / pipe_path).resolve()
+        pipe_doc = read_json(pipeline_file)
+        deployment = pipe_doc.get("deployment", {})
+        io_doc = deployment.get("io", {})
+        outputs = io_doc.get("output_allocations", {})
+        model_paths = deployment.get("model_paths", {})
+        binding = io_doc.get("io_binding", "")
     demo = Path(demo).resolve()
     sdk_candidates = list(demo.parent.glob("libcompany_alg_sdk.*"))
     sdk_files = sorted({path.resolve() for path in sdk_candidates if path.is_file()})
     identity = {"spec": spec, "dataset_sha256": file_digest(dataset), "outputs": outputs,
+                "model_paths": model_paths, "io_binding": binding,
                 "demo_sha256": file_digest(demo), "sdk": {p.name: file_digest(p) for p in sdk_files},
                 "chip": "cpu", "device_id": 0}
     return spec, dataset, outputs, identity
@@ -243,8 +258,8 @@ def evaluate(pipeline, selection, tool, model_root, spec_path, conf_path, demo):
     with tempfile.TemporaryDirectory(prefix=".selection-", dir=bundle_root) as directory:
         temporary = Path(directory)
         relative = temporary.relative_to(bundle_root)
-        (temporary / "pipeline.json").write_text(json.dumps(pipeline))
         generated_conf = build_run_conf(pipeline, outputs, relative / "pipeline.json", model_root, bundle_root)
+        (temporary / "pipeline.json").write_text(json.dumps(pipeline))
         (temporary / "pipeline.conf").write_text(json.dumps(generated_conf))
         command = [str(Path(demo).resolve()), "--biz", biz, "--config", str(relative / "pipeline.conf"),
                    "--dataset", str(dataset), "--output-dir", str(temporary / "results"),

@@ -75,10 +75,16 @@ def absolute(path, root):
 
 def check_unsupported_deployment(conf_path):
     conf = read_json_file(conf_path)
-    data = conf.get("data", {})
-    outputs = data.get("outputs")
+    pipe_path = conf.get("pipe_path")
+    if not pipe_path or not isinstance(pipe_path, str):
+        raise RecipeError("A pipe_path deployment is required")
+    pipeline_file = (Path(conf_path).parent / pipe_path).resolve()
+    if not pipeline_file.is_file():
+        raise RecipeError("A valid pipeline file is required")
+    doc = read_json_file(pipeline_file)
+    outputs = doc.get("deployment", {}).get("io", {}).get("output_allocations")
     if not isinstance(outputs, dict) or not outputs:
-        raise RecipeError("A data.outputs deployment is required")
+        raise RecipeError("A deployment.io.output_allocations configuration is required")
     if len(outputs) > 1:
         return {"error_code": UNSUPPORTED_RECIPE_DEPLOYMENT,
                 "message": "This recipe supports only single-output deployment; use the native Operator workflow for data.outputs with multiple slots."}
@@ -89,7 +95,10 @@ def require_deployment(conf_path):
     unsupported = check_unsupported_deployment(conf_path)
     if unsupported:
         raise RecipeError(unsupported["message"], code=unsupported["error_code"])
-    return read_json_file(conf_path)["data"]["outputs"]
+    conf = read_json_file(conf_path)
+    pipeline_file = (Path(conf_path).parent / conf["pipe_path"]).resolve()
+    doc = read_json_file(pipeline_file)
+    return doc["deployment"]["io"]["output_allocations"]
 
 
 def get_profile_data(profile_name, root=ROOT):
@@ -98,8 +107,9 @@ def get_profile_data(profile_name, root=ROOT):
         raise RecipeError(f"Unknown Profile: {profile_name}")
     profile = profiles[profile_name]
     conf = absolute(profile["config"], root)
-    data = read_json_file(conf)["data"]
-    pipeline = absolute(data.get("pipe_path", ""), root)
+    conf_doc = read_json_file(conf)
+    pipe_path = conf_doc.get("pipe_path", "")
+    pipeline = absolute(pipe_path, conf.parent)
     return profile, conf, pipeline
 
 
@@ -309,8 +319,8 @@ def prepare(recipe, name, profile_name, tool_path, build_dir, pipeline_target, r
         with tempfile.TemporaryDirectory(prefix=".recipe-preview-", dir=root) as temporary:
             temp = Path(temporary)
             preview_pipeline = temp / "pipeline.json"
-            preview_pipeline.write_text(json.dumps(deployment_preview), encoding="utf-8")
             preview_conf = VERIFY_SELECTION.build_run_conf(deployment_preview, outputs, preview_pipeline.name, models, bundle)
+            preview_pipeline.write_text(json.dumps(deployment_preview), encoding="utf-8")
             (temp / "pipeline.conf").write_text(json.dumps(preview_conf), encoding="utf-8")
             native(tool, ["resolve-conf", str((temp / "pipeline.conf").relative_to(bundle)), "--root", str(bundle)], root)
         for path, document in [(target, pipeline), (conf_target, conf), (effects_target, spec)]:

@@ -312,8 +312,7 @@ class RunnableSolutionTest(unittest.TestCase):
         saved = self.service.save_solution(filename, self.keyword, "keyword_match_rules")
         self.assertEqual(json.loads((self.configs / filename).read_text()), self.keyword)
         conf = json.loads((self.configs / saved["conf_filename"]).read_text())
-        self.assertEqual(conf["data"]["pipe_path"], filename)
-        self.assertEqual(conf["data"]["model_paths"], {})
+        self.assertEqual(conf["pipe_path"], filename)
         command = shlex.split(saved["command"])
         self.assertEqual(command[:3], ["cd", str(ROOT), "&&"])
         self.assertNotIn("--no-default-control", command)
@@ -366,10 +365,10 @@ class RunnableSolutionTest(unittest.TestCase):
         pipeline = json.loads((ROOT / "demo/fixtures/mock/pipeline_entity_extract.json").read_text())
         selected = pipeline["models"][0]["model_path"]
         saved = self.service.save_solution("pipeline_fixture.json", pipeline, "entity_extract_mock", ".")
-        self.assertEqual(saved["conf"]["data"]["model_paths"], {"entity_llm": selected})
+        self.assertEqual(saved["pipeline"]["deployment"]["model_paths"], {"entity_llm": selected})
         pipeline["models"][0]["model_path"] = "replacement.gguf"
         saved = self.service.save_solution("pipeline_replaced.json", pipeline, "entity_extract_mock", "models")
-        self.assertEqual(saved["conf"]["data"]["model_paths"], {"entity_llm": "models/replacement.gguf"})
+        self.assertEqual(saved["pipeline"]["deployment"]["model_paths"], {"entity_llm": "models/replacement.gguf"})
         self.assertEqual(json.loads((self.configs / "pipeline_replaced.json").read_text()), pipeline)
 
     def test_ordinary_save_updates_managed_model_paths_and_node_parameters(self):
@@ -385,7 +384,7 @@ class RunnableSolutionTest(unittest.TestCase):
                 "path": "replacement.gguf", "action": "select_asset"}},
         )
         self.assertEqual(updated["command"], saved["command"])
-        self.assertEqual(updated["conf"]["data"]["model_paths"], {"replacement_model": "models/replacement.gguf"})
+        self.assertEqual(updated["pipeline"]["deployment"]["model_paths"], {"replacement_model": "models/replacement.gguf"})
         self.assertEqual(json.loads((self.configs / saved["filename"]).read_text()), pipeline)
         profile, _ = self.service.profile_inputs(pipeline, "entity_extract_mock")
         effective = self.service.resolve_run_conf(self.configs / saved["conf_filename"], profile)
@@ -453,6 +452,7 @@ class RunnableSolutionTest(unittest.TestCase):
                 conf_path = ROOT / args[args.index("--config") + 1]
                 observed["directory"] = conf_path.parent
                 observed["conf"] = json.loads(conf_path.read_text())
+                observed["pipeline"] = json.loads((conf_path.parent / "pipeline.json").read_text())
             return original_popen(args, **kwargs)
         with mock.patch.object(SHOW.subprocess, "Popen", side_effect=inspect_launch):
             started = self.service.start_run(pipeline, "entity_extract_mock", ".")
@@ -462,8 +462,8 @@ class RunnableSolutionTest(unittest.TestCase):
                     break
                 time.sleep(0.05)
         self.assertEqual(job["status"], "completed", job)
-        self.assertEqual(observed["conf"]["data"]["model_paths"], {"entity_llm": pipeline["models"][0]["model_path"]})
-        self.assertEqual(observed["conf"]["data"]["pipe_path"], "pipeline.json")
+        self.assertEqual(observed["pipeline"]["deployment"]["model_paths"], {"entity_llm": pipeline["models"][0]["model_path"]})
+        self.assertEqual(observed["conf"]["pipe_path"], "pipeline.json")
         self.assertFalse(observed["directory"].exists())
 
     def test_conflicts_bad_paths_and_mismatches_leave_no_new_files(self):
@@ -637,7 +637,7 @@ class PipelineCliTest(unittest.TestCase):
         configuration = report["configuration"]
         self.assertEqual(configuration["conf_path"], str(conf_path))
         self.assertEqual(configuration["model_paths"], [{
-            "model_id": "entity_llm", "source": "conf.data.model_paths",
+            "model_id": "entity_llm", "source": "pipeline.deployment.model_paths",
             "resolved": str(ROOT / "models/qwen_0_6b_npu.bin"),
         }])
         llm_config = configuration["effective_pipeline"]["pipeline"][1]["config"]
@@ -646,14 +646,16 @@ class PipelineCliTest(unittest.TestCase):
         conf = json.loads(conf_path.read_text())
         with tempfile.TemporaryDirectory(prefix="resolve-conf-", dir=ROOT / "build") as directory:
             changed = Path(directory) / "pipeline.conf"
-            shutil.copy(conf_path.with_name(conf["data"]["pipe_path"]), directory)
-            conf["data"].pop("model_paths")
+            pipe_file = conf_path.with_name(conf["pipe_path"])
+            pipe_doc = json.loads(pipe_file.read_text())
+            pipe_doc["deployment"].pop("model_paths")
+            (Path(directory) / conf["pipe_path"]).write_text(json.dumps(pipe_doc))
             changed.write_text(json.dumps(conf))
             code, direct = self.command("resolve-conf", str(changed.relative_to(ROOT)), "--root", str(ROOT))
             self.assertEqual(code, 0, direct)
             self.assertEqual(direct["configuration"]["model_paths"][0]["source"], "pipeline.models.model_path")
-            conf["data"]["outputs"]["entity_out"]["capacities"]["entities_json"] = 0
-            changed.write_text(json.dumps(conf))
+            pipe_doc["deployment"]["io"]["output_allocations"]["entity_out"]["capacities"]["entities_json"] = 0
+            (Path(directory) / conf["pipe_path"]).write_text(json.dumps(pipe_doc))
             code, rejected = self.command("resolve-conf", str(changed.relative_to(ROOT)), "--root", str(ROOT))
             self.assertEqual(code, 1)
             self.assertFalse(rejected["ok"])
@@ -1879,10 +1881,10 @@ class Rfc0057AuthoringAndDeploymentTest(unittest.TestCase):
         conf = json.loads((ROOT / "configs" / "pipeline_doc_qa_cpu.conf").read_text())
         pipeline_path = self.configs / "pipeline_associated.json"
         conf_path = self.configs / "pipeline_associated.conf"
-        conf["data"]["pipe_path"] = pipeline_path.name
-        for model_id in conf["data"]["model_paths"]:
-            conf["data"]["model_paths"][model_id] = "models/deployed_" + model_id
-        conf["data"]["outputs"]["doc_out"]["capacities"]["answer_text"] = 2047
+        conf["pipe_path"] = pipeline_path.name
+        for model_id in pipeline.get("deployment", {}).get("model_paths", {}):
+            pipeline["deployment"]["model_paths"][model_id] = "models/deployed_" + model_id
+        pipeline["deployment"]["io"]["output_allocations"]["doc_out"]["capacities"]["answer_text"] = 2047
         pipeline_path.write_text(json.dumps(pipeline))
         conf_path.write_text(json.dumps(conf))
         self.service.associate_deployment(pipeline_path.name, conf_path.name)
@@ -1893,8 +1895,7 @@ class Rfc0057AuthoringAndDeploymentTest(unittest.TestCase):
         pipeline["models"][0]["model_path"] = "selected_A.onnx"
         model_id = pipeline["models"][0]["model_id"]
         actions = {model_id: {"path": "selected_A.onnx", "action": "select_asset"}}
-        expected = copy.deepcopy(original_conf)
-        expected["data"]["model_paths"][model_id] = "models/selected_A.onnx"
+        expected_conf = {"pipe_path": path.name}
         # Spy on real native resolution so this checks exactly what preflight resolves.
         resolved_candidates = []
         resolve = self.service.resolve_run_conf
@@ -1919,12 +1920,12 @@ class Rfc0057AuthoringAndDeploymentTest(unittest.TestCase):
             path.name, pipeline, SHOW.revision_for(path.read_bytes()),
             model_path_actions=actions,
         )
-        saved = json.loads(conf_path.read_text())
-        for candidate in [resolved_candidates[0], run_conf, saved]:
-            with self.subTest(candidate=candidate):
-                candidate = copy.deepcopy(candidate)
-                candidate["data"]["pipe_path"] = expected["data"]["pipe_path"]
-                self.assertEqual(candidate, expected)
+        saved_conf = json.loads(conf_path.read_text())
+        self.assertEqual(saved_conf, expected_conf)
+        saved_pipe = json.loads(path.read_text())
+        self.assertEqual(saved_pipe["deployment"]["model_paths"][model_id], "models/selected_A.onnx")
+        self.assertEqual(run_conf, expected_conf)
+        self.assertEqual(resolved_candidates[0], {"pipe_path": "pipeline.json"})
 
     def test_associated_raw_model_edit_requires_explicit_override_intent(self):
         pipeline, conf, path, _ = self.associated_doc_qa()
@@ -1938,8 +1939,8 @@ class Rfc0057AuthoringAndDeploymentTest(unittest.TestCase):
             model_path_actions={model["model_id"]: {"path": model["model_path"],
                                                    "action": "preserve_override"}},
         )
-        self.assertEqual(candidate["data"]["model_paths"], conf["data"]["model_paths"])
-        self.assertEqual(candidate["data"]["outputs"], conf["data"]["outputs"])
+        self.assertEqual(pipeline["deployment"]["model_paths"], {m: f"models/deployed_{m}" for m in pipeline["deployment"]["model_paths"]})
+        self.assertEqual(pipeline["deployment"]["io"]["output_allocations"]["doc_out"]["capacities"]["answer_text"], 2047)
 
     def test_associated_new_model_does_not_invent_deployment_override(self):
         pipeline, conf, path, _ = self.associated_doc_qa()
@@ -1947,7 +1948,7 @@ class Rfc0057AuthoringAndDeploymentTest(unittest.TestCase):
         new_model.update(model_id="new_model", model_path="new.onnx")
         pipeline["models"].append(new_model)
         _, candidate = self.service.deployment_candidate(pipeline, filename=path.name)
-        self.assertEqual(candidate["data"]["model_paths"], conf["data"]["model_paths"])
+        self.assertNotIn("new_model", pipeline["deployment"]["model_paths"])
 
     def test_associated_external_file_changes_block_candidate_and_save(self):
         for changed_name in ["pipeline", "conf"]:
@@ -1973,8 +1974,7 @@ class Rfc0057AuthoringAndDeploymentTest(unittest.TestCase):
 
         # Create conf in configs pointing to this pipeline
         conf_path = self.configs / "pipeline_doc_qa_assoc.conf"
-        doc_qa_conf = json.loads((ROOT / "configs" / "pipeline_doc_qa_cpu.conf").read_text())
-        doc_qa_conf["data"]["pipe_path"] = pipe_path.name
+        doc_qa_conf = {"pipe_path": pipe_path.name}
         conf_path.write_text(json.dumps(doc_qa_conf, indent=2))
 
         # Associate
@@ -1999,14 +1999,16 @@ class Rfc0057AuthoringAndDeploymentTest(unittest.TestCase):
         )
         self.assertTrue(save_res["ok"])
 
-        # Verify conf was updated with modified model_path override
-        updated_conf = json.loads(conf_path.read_text())
+        # Verify pipeline deployment was updated with modified model_path override
+        updated_pipe = json.loads(pipe_path.read_text())
         self.assertEqual(
-            updated_conf["data"]["model_paths"][modified_pipe["models"][0]["model_id"]],
+            updated_pipe["deployment"]["model_paths"][modified_pipe["models"][0]["model_id"]],
             "models/new_embed_model.onnx",
         )
         # Verify non-model conf settings preserved
-        self.assertIn("doc_out", updated_conf["data"]["outputs"])
+        self.assertIn("doc_out", updated_pipe["deployment"]["io"]["output_allocations"])
+        updated_conf = json.loads(conf_path.read_text())
+        self.assertEqual(updated_conf, {"pipe_path": pipe_path.name})
 
     def test_authoring_oversized_payload_rejection_4mib(self):
         pipe = {"biz_name": "keyword_match_v1", "models": [], "pipeline": []}

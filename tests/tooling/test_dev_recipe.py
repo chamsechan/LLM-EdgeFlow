@@ -109,9 +109,11 @@ class DevRecipeTest(unittest.TestCase):
     def test_entity_prompt_uses_pinned_assets_and_real_business_expectation(self):
         report = self.prepare(profile="entity_extract_custom_mock")
         self.assertTrue(report["ok"], report)
-        conf = json.loads(self.target.with_suffix(".conf").read_text())
-        self.assertEqual(conf["data"]["model_paths"]["entity_llm"],
+        pipeline = json.loads(self.target.read_text())
+        self.assertEqual(pipeline["deployment"]["model_paths"]["entity_llm"],
                          "demo/fixtures/mock/artifacts/neutral-llm.fixture")
+        conf = json.loads(self.target.with_suffix(".conf").read_text())
+        self.assertEqual(conf, {"pipe_path": self.target.name})
         command = next(item["argv"] for item in report["next_commands"] if "verify" in item["argv"])
         self.assertIn("--manifest", command)
         self.assertEqual(Path(command[command.index("--model-root") + 1]), self.root)
@@ -153,25 +155,25 @@ class DevRecipeTest(unittest.TestCase):
             self.assertTrue(verified["ok"], verified)
 
     def test_multi_output_rejected_before_generation(self):
-        conf_path = self.root / "configs/pipeline_keyword_match_rules.conf"
-        conf = json.loads(conf_path.read_text())
-        conf["data"]["outputs"] = {"slot1": {}, "slot2": {}}
-        conf_path.write_text(json.dumps(conf))
+        pipe_path = self.root / "configs/pipeline_keyword_match_rules.json"
+        pipe = json.loads(pipe_path.read_text())
+        pipe["deployment"]["io"]["output_allocations"] = {"slot1": {}, "slot2": {}}
+        pipe_path.write_text(json.dumps(pipe))
         self.assert_prepare_rejected_without_writes()
 
     def test_missing_outputs_deployment_rejected_without_writes(self):
-        conf_path = self.root / "configs/pipeline_keyword_match_rules.conf"
-        conf = json.loads(conf_path.read_text())
-        del conf["data"]["outputs"]
-        conf_path.write_text(json.dumps(conf))
+        pipe_path = self.root / "configs/pipeline_keyword_match_rules.json"
+        pipe = json.loads(pipe_path.read_text())
+        del pipe["deployment"]["io"]["output_allocations"]
+        pipe_path.write_text(json.dumps(pipe))
         self.assert_prepare_rejected_without_writes()
 
     def test_legacy_mem_que_deployment_rejected_as_missing_outputs(self):
-        conf_path = self.root / "configs/pipeline_keyword_match_rules.conf"
-        conf = json.loads(conf_path.read_text())
-        del conf["data"]["outputs"]
-        conf["data"]["mem_que"] = {"type": "keyword_out"}
-        conf_path.write_text(json.dumps(conf))
+        pipe_path = self.root / "configs/pipeline_keyword_match_rules.json"
+        pipe = json.loads(pipe_path.read_text())
+        del pipe["deployment"]["io"]["output_allocations"]
+        pipe["deployment"]["io"]["mem_que"] = {"type": "keyword_out"}
+        pipe_path.write_text(json.dumps(pipe))
         self.assert_prepare_rejected_without_writes()
 
     def test_unlabelled_or_duplicate_effects_rejected_before_generation(self):

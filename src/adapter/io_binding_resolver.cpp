@@ -390,11 +390,44 @@ int IoBindingResolver::ResolveFromPipelineJson(
                                    out_plan, out_error);
   }
 
+  nlohmann::json allocations = nlohmann::json::object();
+  const auto* binding = IoBindingRegistry::Instance().FindBinding(binding_id);
+  if (binding) {
+    const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
+        binding->output_converter_id);
+    if (out_conv) {
+      for (const auto& slot : out_conv->external_slots) {
+        if (slot.direction == PortDirection::kOutput && slot.required) {
+          std::string slot_type =
+              slot.type_suffix.empty() ? slot.slot_name : slot.type_suffix;
+          nlohmann::json slot_alloc = {
+              {"type", slot_type},
+              {"meta_num", 0},
+              {"metadata_type_id", 0},
+              {"capacities", nlohmann::json::object()}};
+          const auto* val_binding =
+              OperatorValueTypeRegistry::Instance().GetOutputBinding(
+                  slot_type, "");
+          for (const auto& cap : slot.capacity_fields) {
+            uint32_t cap_val = 1024;
+            if (val_binding &&
+                val_binding->output_layout.string_capacity_fields.count(cap)) {
+              cap_val = val_binding->output_layout.string_capacity_fields.at(cap)
+                            .default_capacity;
+            }
+            slot_alloc["capacities"][cap] = cap_val;
+          }
+          allocations[slot.slot_name] = slot_alloc;
+        }
+      }
+    }
+  }
+
   nlohmann::json synthetic = pipeline_json;
   synthetic["deployment"] = {
       {"io",
        {{"io_binding", binding_id},
-        {"output_allocations", nlohmann::json::object()}}}};
+        {"output_allocations", allocations}}}};
   return ResolveFromPipelineJson(synthetic, transport, model_root_dir,
                                  out_plan, out_error);
 }
