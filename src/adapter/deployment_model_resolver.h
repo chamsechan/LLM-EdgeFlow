@@ -4,6 +4,8 @@
 #include <string>
 #include <unordered_set>
 
+#include "adapter/deployment_diagnostic.h"
+
 namespace llm_edgeflow {
 
 /**
@@ -17,6 +19,7 @@ namespace llm_edgeflow {
 bool ResolveDeploymentModelPaths(
     const nlohmann::json& pipeline_json, const std::string& model_root_dir,
     nlohmann::json* resolved_pipeline_json, std::string* diagnostic,
-    const std::unordered_set<std::string>& overridden_model_ids = {}) noexcept;
+    const std::unordered_set<std::string>& overridden_model_ids = {},
+    DeploymentDiagnostic* out_diagnostic = nullptr) noexcept;
 
 }  // namespace llm_edgeflow

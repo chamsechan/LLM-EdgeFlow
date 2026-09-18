@@ -138,6 +138,7 @@ C++ 查看工具，展示更多声明信息：
 [RFC-0057 的操作契约](../../doc/rfcs/0057-pipeline-composition-experience.md#41-所有者与接口)。
 手写 ports 后可先运行 `alg_pipeline_tool fix-deps pipeline.json` 预览确定的依赖补充，确认后
 加 `--in-place` 写回；歧义、环路、其他校验错误或文件写入失败均不覆盖原文件。
+带 `deployment` 的文档在 `validate`、`plan`、`edit` 与 `fix-deps` 中统一执行部署准备（RFC-0062）：原始模型路径必须为合法非空字符串，`deployment.model_paths` 覆盖不得掩盖非法原始声明；`edit` 与 `fix-deps` 同样严格校验未知 I/O 绑定或非法输出分配。
 
 编排或修改 Pipeline 时，应先查询 Catalog 与节点 Definition，再执行 validate 和 plan。完整开发流程参见项目的 `pipeline-composer` skill 与[开发者指南](../../doc/developer_guide.md)。
 

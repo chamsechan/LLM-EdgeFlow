@@ -12,8 +12,18 @@ namespace {
 
 namespace fs = std::filesystem;
 
-void SetDiagnostic(std::string* diagnostic, const std::string& message) {
+void SetDiagnostic(std::string* diagnostic,
+                   DeploymentDiagnostic* out_diagnostic,
+                   const std::string& code, const std::string& path,
+                   const std::string& message, int legacy_status = -2) {
   if (diagnostic) *diagnostic = message;
+  if (out_diagnostic) {
+    out_diagnostic->code = code;
+    out_diagnostic->path = path;
+    out_diagnostic->message = message;
+    out_diagnostic->legacy_status = legacy_status;
+    out_diagnostic->pipeline_diagnostic.reset();
+  }
 }
 
 }  // namespace
@@ -21,10 +31,13 @@ void SetDiagnostic(std::string* diagnostic, const std::string& message) {
 bool ResolveDeploymentModelPaths(
     const nlohmann::json& pipeline_json, const std::string& model_root_dir,
     nlohmann::json* resolved_pipeline_json, std::string* diagnostic,
-    const std::unordered_set<std::string>& overridden_model_ids) noexcept {
+    const std::unordered_set<std::string>& overridden_model_ids,
+    DeploymentDiagnostic* out_diagnostic) noexcept {
   try {
+    if (out_diagnostic) out_diagnostic->Clear();
     if (!resolved_pipeline_json) {
-      SetDiagnostic(diagnostic, "Deployment model resolver output is null");
+      SetDiagnostic(diagnostic, out_diagnostic, "DEPLOYMENT_ERROR", "/",
+                    "Deployment model resolver output is null", -2);
       return false;
     }
 
@@ -50,15 +63,17 @@ bool ResolveDeploymentModelPaths(
       std::error_code error;
       const fs::path absolute_root = fs::absolute(model_root_dir, error);
       if (error) {
-        SetDiagnostic(diagnostic, "Failed to make model_root_dir absolute: " +
-                                      model_root_dir);
+        SetDiagnostic(
+            diagnostic, out_diagnostic, "DEPLOYMENT_ERROR", "/",
+            "Failed to make model_root_dir absolute: " + model_root_dir, -2);
         return false;
       }
       canonical_root = fs::weakly_canonical(absolute_root, error);
       if (error || !fs::is_directory(canonical_root, error) || error) {
         SetDiagnostic(
-            diagnostic,
-            "model_root_dir is not an accessible directory: " + model_root_dir);
+            diagnostic, out_diagnostic, "DEPLOYMENT_ERROR", "/",
+            "model_root_dir is not an accessible directory: " + model_root_dir,
+            -2);
         return false;
       }
     }
@@ -83,16 +98,18 @@ bool ResolveDeploymentModelPaths(
       const std::string raw_path = model["model_path"].get<std::string>();
       const fs::path normalized = fs::path(raw_path).lexically_normal();
       if (!normalized.is_absolute() && HasParentPathComponent(normalized)) {
-        SetDiagnostic(diagnostic,
+        SetDiagnostic(diagnostic, out_diagnostic, "INVALID_MODEL_PATH", pointer,
                       "Model path cannot traverse outside model_root_dir at " +
-                          pointer + ": " + raw_path);
+                          pointer + ": " + raw_path,
+                      -2);
         return false;
       }
       if (!normalized.is_absolute() && canonical_root.empty()) {
         SetDiagnostic(
-            diagnostic,
+            diagnostic, out_diagnostic, "INVALID_MODEL_PATH", pointer,
             "Relative model_path requires non-empty model_root_dir at " +
-                pointer + ": " + raw_path);
+                pointer + ": " + raw_path,
+            -2);
         return false;
       }
 
@@ -101,26 +118,32 @@ bool ResolveDeploymentModelPaths(
           normalized.is_absolute() ? normalized : canonical_root / normalized,
           error);
       if (error) {
-        SetDiagnostic(diagnostic,
+        SetDiagnostic(diagnostic, out_diagnostic, "INVALID_MODEL_PATH", pointer,
                       "Failed to resolve deployment model path at " + pointer +
-                          ": " + raw_path);
+                          ": " + raw_path,
+                      -2);
         return false;
       }
       if (!canonical_root.empty() &&
           !IsPathWithinRoot(canonical_root, candidate)) {
-        SetDiagnostic(diagnostic, "Model path escapes model_root_dir at " +
-                                      pointer + ": " + raw_path);
+        SetDiagnostic(
+            diagnostic, out_diagnostic, "INVALID_MODEL_PATH", pointer,
+            "Model path escapes model_root_dir at " + pointer + ": " + raw_path,
+            -2);
         return false;
       }
       model["model_path"] = candidate.string();
     }
     return true;
   } catch (const std::exception& exception) {
-    SetDiagnostic(diagnostic, std::string("Deployment model path exception: ") +
-                                  exception.what());
+    SetDiagnostic(
+        diagnostic, out_diagnostic, "INTERNAL_EXCEPTION", "/",
+        std::string("Deployment model path exception: ") + exception.what(),
+        -2);
     return false;
   } catch (...) {
-    SetDiagnostic(diagnostic, "Unknown deployment model path exception");
+    SetDiagnostic(diagnostic, out_diagnostic, "INTERNAL_EXCEPTION", "/",
+                  "Unknown deployment model path exception", -2);
     return false;
   }
 }

@@ -87,6 +87,7 @@ RFC-0054 是接续 RFC-0052 与已交付 RFC-0053、RFC-0055 的实施规格。`
 | **RFC-0059** | 输入输出转换独立化与接入绑定架构 | `Completed` | 投产前 / ABI 6.0.0 | 接入适配层、流程编排层 / Tooling / Docs | [0059-independent-adapter-input-and-output.md](0059-independent-adapter-input-and-output.md)（宿主双入口部分被 RFC-0060 取代） |
 | **RFC-0060** | 删除 C ABI，仅保留 C++ Operator API | `Completed` | `v11.0.0` / ABI 7.0.0 | 接入适配层、流程编排层 / Tooling / Docs | [0060-cpp-operator-only.md](0060-cpp-operator-only.md) |
 | **RFC-0061** | Pipeline JSON 集中管理部署配置 | `Completed` | `v11.x` | 接入适配层、流程编排层 / Tooling / Docs | [0061-pipeline-owned-deployment-configuration.md](0061-pipeline-owned-deployment-configuration.md) |
+| **RFC-0062** | Integration 部署解析入口统一实施设计 | `Completed` | 投产前 | 接入适配层、流程编排层 / Tooling | [0062-unified-integration-deployment-preparation.md](0062-unified-integration-deployment-preparation.md) |
 
 ## 专项验收与评审归档
 
