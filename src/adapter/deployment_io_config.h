@@ -3,6 +3,8 @@
 #include <nlohmann/json.hpp>
 #include <string>
 
+#include "adapter/deployment_diagnostic.h"
+
 namespace llm_edgeflow {
 
 /**
@@ -15,12 +17,14 @@ struct DeploymentIoConfig {
 
   static bool Parse(const nlohmann::json& root, const std::string& config_dir,
                     const std::string& transport,
-                    DeploymentIoConfig* out_config, std::string* out_error);
+                    DeploymentIoConfig* out_config, std::string* out_error,
+                    DeploymentDiagnostic* out_diagnostic = nullptr);
 
   static bool ReadFromFile(const std::string& config_path,
                            const std::string& transport,
                            DeploymentIoConfig* out_config,
-                           std::string* out_error);
+                           std::string* out_error,
+                           DeploymentDiagnostic* out_diagnostic = nullptr);
 };
 
 }  // namespace llm_edgeflow

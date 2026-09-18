@@ -42,19 +42,22 @@ class IoBindingResolver {
                                const std::string& transport,  // "operator"
                                const std::string& model_root_dir,
                                std::unique_ptr<ValidatedIoPlan>* out_plan,
-                               std::string* out_error);
+                               std::string* out_error,
+                               DeploymentDiagnostic* out_diagnostic = nullptr);
 
   static int ResolveFromFile(const std::string& config_path,
                              const std::string& transport,
                              const std::string& model_root_dir,
                              std::unique_ptr<ValidatedIoPlan>* out_plan,
-                             std::string* out_error);
+                             std::string* out_error,
+                             DeploymentDiagnostic* out_diagnostic = nullptr);
 
   static int ResolveFromPipelineJson(
       const nlohmann::json& pipeline_json,
       const std::string& transport,  // "operator"
       const std::string& model_root_dir,
-      std::unique_ptr<ValidatedIoPlan>* out_plan, std::string* out_error);
+      std::unique_ptr<ValidatedIoPlan>* out_plan, std::string* out_error,
+      DeploymentDiagnostic* out_diagnostic = nullptr);
 };
 
 }  // namespace llm_edgeflow

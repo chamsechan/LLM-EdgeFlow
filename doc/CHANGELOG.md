@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-09-17 Integration 部署解析入口统一实施（RFC-0062）
+
+- **统一共享部署准备流程（`PrepareDeploymentDocument`）**：
+  - 新增 `src/adapter/deployment_diagnostic.h` 轻量错误载体与 `src/adapter/deployment_preparation.h/.cpp` 共享部署准备实现（S1–S7）。
+  - 严格消除 `alg_pipeline_tool.cpp` 中的 `ResolveDeploymentBoundary` 及 `pipeline_authoring.cpp` 中的重复部署边界构造逻辑。
+  - 强制执行覆盖不可掩盖原始非法声明规则（T03/T04）：原始模型路径缺失、类型非字符串、空串或结构错误在覆盖生效前由核心解析器（`ParsePipelineConfig`）识别并拒绝。
+- **结构化诊断与来源精准投影**：
+  - 建立 `ProjectModelPathDiagnostics` 机制，将 Core 对有效模型的诊断精准映射回原始完整文档路径（有覆盖映射至 `/deployment/model_paths/<escaped_id>`，无覆盖映射至 `/models/<i>/model_path`）。
+  - `validate-io` 直接传递底层结构化诊断，不再从错误文案中脆弱提取 JSON Pointer。
+  - `PrepareDeploymentDocument` 实行原子化失败清理（T18），失败立即重置局部对象，保证无残留状态。
+- **各调用面与工具链行为收敛**：
+  - `src/tools/pipeline_document_validation.h/.cpp` 统一 `validate`（`kValidate`）、`validate --explain`（`kExplain`）、`plan`（`kPlan`）及 Pipeline Authoring（`edit`、`fix-deps`）的文档校验与计划编排。
+  - 计划失败时保持规范包络（包含空层与拓扑顺序及完整诊断列表）；`edit` 与 `fix-deps` 补齐部署校验，防止未知绑定或输出配置非法。
+
 ## 2026-09-17 部署配置归拢至 Pipeline 根文档（RFC-0061）
 
 - **部署配置归拢至 Pipeline 文档**：

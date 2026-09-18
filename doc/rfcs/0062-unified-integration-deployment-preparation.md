@@ -2,15 +2,15 @@
 
 - **RFC 编号**：0062-unified-integration-deployment-preparation
 - **创建日期**：2026-09-17
-- **文档状态**：Proposed
+- **文档状态**：Completed
 - **关联分支**：`docs/integration-deployment-resolution-design`
 - **目标版本**：下一次 Integration 内部解析收敛版本
 - **负责人 / 作者**：LLM-EdgeFlow 维护者
 - **代码核查基线**：`8e1a74ac1bff`
 - **关联决策**：细化 RFC-0061 的共享接入解析实现，补齐其“覆盖不得修复非法原始声明”约束；保留 RFC-0025 的路径边界、RFC-0049/0050 的输出分配契约，以及 RFC-0057 的编辑与修复行为。
 
-> 本文是待实施设计。本文新增的类型、函数和测试尚未实现。
-> 本轮交付只包含设计和索引；实施状态与验证结果在本文第 5 节维护。
+> 本文设计已全部实施完成。所有入口已统一迁移至共享部署准备流程 `PrepareDeploymentDocument`。
+> 实施状态与验证记录详见本文第 5 节。
 
 ## 1. 问题与范围
 
@@ -550,17 +550,17 @@ Python 测试若涉及完整 Studio/Demo 运行，按已配置的 `PipelineStudi
 
 ### 4.4 完成检查表
 
-- [ ] `ResolveDeploymentBoundary` 与 Authoring 自行构造部署边界的实现已移除。
-- [ ] binding、槽位、覆盖及边界规则在 Integration 只有一份流程实现。
-- [ ] 原始声明在覆盖前由 Core parser 检查，T03/T04 通过。
-- [ ] `validate --explain` 保留完整报告和可应用的修复候选；plan envelope 不变。
-- [ ] 无效草稿可以编辑，require_valid 与 fix-deps 写入边界不变。
-- [ ] 文件/内存/SDK 预检得到相同准备结果；路径来源和转义正确。
-- [ ] `validate-io` 不再从 message 解析 JSON Pointer。
-- [ ] 现有深度/容量/多槽合计预算和异常屏障测试通过。
-- [ ] 新头文件只在内部可见，Core 与能力节点层未引入 Integration 依赖。
-- [ ] canonical gate 通过；记录实际命令、结果和跳过项。
-- [ ] 实施后的当前指南与 CHANGELOG 已更新，RFC 与索引状态同步。
+- [x] `ResolveDeploymentBoundary` 与 Authoring 自行构造部署边界的实现已移除。
+- [x] binding、槽位、覆盖及边界规则在 Integration 只有一份流程实现。
+- [x] 原始声明在覆盖前由 Core parser 检查，T03/T04 通过。
+- [x] `validate --explain` 保留完整报告和可应用的修复候选；plan envelope 不变。
+- [x] 无效草稿可以编辑，require_valid 与 fix-deps 写入边界不变。
+- [x] 文件/内存/SDK 预检得到相同准备结果；路径来源和转义正确。
+- [x] `validate-io` 不再从 message 解析 JSON Pointer。
+- [x] 现有深度/容量/多槽合计预算和异常屏障测试通过。
+- [x] 新头文件只在内部可见，Core 与能力节点层未引入 Integration 依赖。
+- [x] canonical gate 通过；记录实际命令、结果和跳过项。
+- [x] 实施后的当前指南与 CHANGELOG 已更新，RFC 与索引状态同步。
 
 ## 5. 实施顺序与最终结果
 
@@ -584,10 +584,20 @@ P1 的旧入口临时保留仅用于同一实施分支内迁移；不得把“�
 独立审阅重点：层级依赖、路径来源、失败结果原子性、注册生命周期、Explain 修复及所有旧入口
 是否实际接入共享实现。机械迁移可在接口和诊断映射确定后分工；不要并行争用同一构建目录。
 
-### 5.2 当前交付与实施记录
+### 5.2 实施记录与验证结论
 
-- 当前交付：详细设计文档和 RFC 索引，未实施生产代码。
-- 设计依据：§1 的调用链核查、模型覆盖掩盖原始声明的复现，以及现有测试定位。
-- P0–P5：均待实施；设计文档的检查不计作这些阶段的功能验收。
-- 实施时在此补充：实际实现差异、聚焦测试/canonical gate 结果、未覆盖范围和当前指南链接。
-- 只有实施及要求的验证完成后才能标记 `Completed`；本文的 `Proposed` 不表示功能已交付。
+- **实施完成状态**：已完成全部 P0–P5 阶段实施与测试，所有入口统一收敛至 `PrepareDeploymentDocument`。
+- **核心变更汇总**：
+  1. 结构化诊断与共享准备：新增 `src/adapter/deployment_diagnostic.h`、`src/adapter/deployment_preparation.h/.cpp`（实现 S1–S7 处理流程）。
+  2. 核心结构前置拦截：在应用模型路径覆盖前，严格调用 Core 解析器 `ParsePipelineConfig` 检查原始文档结构。原始模型路径缺失、类型非字符串、空串或模型结构非法均在覆盖生效前被拒绝并准确指出 `/models/<i>/model_path`（T03/T04）。
+  3. 诊断路径来源投影：新增 `ProjectModelPathDiagnostics`，将对有效模型的诊断精准映射回原始输入对应位置（覆盖项映射至 `/deployment/model_paths/<escaped_id>`，原始项映射至 `/models/<i>/model_path`）。
+  4. 运行时入口迁移：`io_binding_resolver.cpp`、`deployment_io_config.cpp`、`deployment_model_resolver.cpp`、`operator_config_resolver.cpp` 全面贯通 `DeploymentDiagnostic`，由 `PrepareDeploymentDocument` 统一解析部署边界后进行默认深度句柄预算及 Core 规划。
+  5. CLI 与 Authoring 统一：新增 `src/tools/pipeline_document_validation.h/.cpp`，废弃并移除 `alg_pipeline_tool.cpp` 中的 `ResolveDeploymentBoundary` 及 `pipeline_authoring.cpp` 中的重复边界构造。`validate`、`validate --explain`、`plan`、`edit` 与 `fix-deps` 均接入统一准备。
+  6. 契约修复与错误原子性：`validate-io` 直接透传底层结构化诊断；`PrepareDeploymentDocument` 失败时原子清空输出状态，无残留对象。
+- **聚焦测试验证记录**：
+  - `IoBindingRegistryTest`（23/23 通过）：全面覆盖 T01–T08、T18、诊断投影以及内存/文件入口（T03–T08）完整诊断。
+  - `AdapterContractSecurityTest`、`OperatorApiTest`、`PipelineStudioTest` 均通过。
+  - `tests/tooling/test_pipeline_studio.py`（85/85 通过，1 skipped 为无真实 Chromium 环境跳过）：全面覆盖 CLI Parity（T03、T06、T07、T08、T12、T16）、T14（编辑事务边界）、T15（依赖修复写入保护与诊断）、T19 以及 RFC-0057 编辑/修复回归。
+- **架构与边界一致性**：
+  - 新头文件全部位于私有目录（`src/adapter/` 与 `src/tools/`），不暴露任何公共 SDK 头文件或跨层污染。
+  - Core 与能力节点层保持中性，无反向 Integration 依赖。

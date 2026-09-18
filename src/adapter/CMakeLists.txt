@@ -1,5 +1,6 @@
 target_sources(edgeflow_integration_objects PRIVATE
   deployment_model_resolver.cpp
+  deployment_preparation.cpp
   io_converter_registry.cpp
   io_binding_registry.cpp
   deployment_io_config.cpp

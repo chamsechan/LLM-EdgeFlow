@@ -522,6 +522,12 @@ class RunnableSolutionTest(unittest.TestCase):
 
 
 class PipelineCliTest(unittest.TestCase):
+    CLI_PARITY_ENTRYPOINTS = [
+        ("validate",),
+        ("plan",),
+        ("validate", "--explain"),
+    ]
+
     def command(self, *args, input_pipeline=None):
         process = subprocess.run(
             [str(PIPELINE_TOOL), *args],
@@ -660,7 +666,421 @@ class PipelineCliTest(unittest.TestCase):
             self.assertEqual(code, 1)
             self.assertFalse(rejected["ok"])
             self.assertEqual(rejected["diagnostics"][0]["code"], "DEPLOYMENT_CONFIG")
+            self.assertEqual(rejected["diagnostics"][0]["path"], "/")
             self.assertIn("entities_json", rejected["diagnostics"][0]["message"])
+
+            pipe_doc["deployment"]["io"]["output_allocations"].clear()
+            (Path(directory) / conf["pipe_path"]).write_text(json.dumps(pipe_doc))
+            code, rejected_missing = self.command("resolve-conf", str(changed.relative_to(ROOT)), "--root", str(ROOT))
+            self.assertEqual(code, 1)
+            self.assertFalse(rejected_missing["ok"])
+            self.assertEqual(rejected_missing["diagnostics"][0]["code"], "DEPLOYMENT_CONFIG")
+            self.assertEqual(rejected_missing["diagnostics"][0]["path"], "/")
+            self.assertIn("entity_out", rejected_missing["diagnostics"][0]["message"])
+
+            bad_conf = Path(directory) / "bad.conf"
+            bad_conf.write_text("{}")
+            code, bad_res = self.command("resolve-conf", str(bad_conf.relative_to(ROOT)), "--root", str(ROOT))
+            self.assertEqual(code, 1)
+            self.assertFalse(bad_res["ok"])
+            self.assertEqual(bad_res["diagnostics"][0]["code"], "DEPLOYMENT_CONFIG")
+            self.assertEqual(bad_res["diagnostics"][0]["path"], "/")
+            self.assertIn("pipe_path", bad_res["diagnostics"][0]["message"])
+
+            code, bad_res_root = self.command("resolve-conf", "bad.conf", "--root", str(directory))
+            self.assertEqual(code, 1)
+            self.assertFalse(bad_res_root["ok"])
+            self.assertEqual(bad_res_root["diagnostics"][0]["code"], "DEPLOYMENT_CONFIG")
+            self.assertEqual(bad_res_root["diagnostics"][0]["path"], "/")
+            self.assertIn("pipe_path", bad_res_root["diagnostics"][0]["message"])
+
+    def test_rfc0062_cli_raw_model_path_required_even_with_override_t03(self):
+        # T03 via CLI: Deployment model path override does not forgive missing/invalid original model_path.
+        # Covers missing, null, empty string, and number, paired with without-override cases.
+        pipeline = json.loads(
+            (ROOT / "demo/fixtures/mock/pipeline_entity_extract.json").read_text()
+        )
+        self.assertIn("model_paths", pipeline.get("deployment", {}))
+        # 1. Missing model_path in original models[0]
+        missing_doc = copy.deepcopy(pipeline)
+        missing_doc["models"][0].pop("model_path")
+
+        # 2. null model_path
+        null_doc = copy.deepcopy(pipeline)
+        null_doc["models"][0]["model_path"] = None
+
+        # 3. empty string model_path
+        empty_doc = copy.deepcopy(pipeline)
+        empty_doc["models"][0]["model_path"] = ""
+
+        # 4. number (integer) model_path
+        number_doc = copy.deepcopy(pipeline)
+        number_doc["models"][0]["model_path"] = 12345
+
+        cases = [
+            ("missing_with_override", missing_doc, "MISSING_FIELD"),
+            ("null_with_override", null_doc, "INVALID_MODEL_PATH"),
+            ("empty_with_override", empty_doc, "INVALID_MODEL_PATH"),
+            ("number_with_override", number_doc, "INVALID_MODEL_PATH"),
+        ]
+
+        # Add paired without-override cases to prove the identical structural requirements
+        for case_name, doc, exp_code in list(cases):
+            no_override_doc = copy.deepcopy(doc)
+            no_override_doc["deployment"].pop("model_paths", None)
+            paired_name = case_name.replace("_with_override", "_without_override")
+            cases.append((paired_name, no_override_doc, exp_code))
+
+        for case_name, doc, expected_code in cases:
+            for ep in self.CLI_PARITY_ENTRYPOINTS:
+                with self.subTest(case=case_name, entrypoint=ep):
+                    code, res = self.command(*ep, "--stdin", input_pipeline=doc)
+                    self.assertEqual(code, 1)
+                    self.assertFalse(res["ok"])
+                    self.assertEqual(res["diagnostics"][0]["code"], expected_code)
+                    self.assertEqual(res["diagnostics"][0]["path"], "/models/0/model_path")
+                    if ep[0] == "plan":
+                        self.assertEqual(res["plan"], {"layers": [], "topological_order": []})
+
+    def test_rfc0062_cli_raw_model_path_required_even_with_override(self):
+        # Alias for backward compatibility
+        self.test_rfc0062_cli_raw_model_path_required_even_with_override_t03()
+
+    def test_rfc0062_cli_plan_envelopes_t16(self):
+        # T16 via CLI: plan returns envelope with diagnostics on deployment preparation failure,
+        # partial plan on Core failure, and full topological order on success, with CLI parity.
+        pipeline = json.loads(
+            (ROOT / "demo/fixtures/mock/pipeline_entity_extract.json").read_text()
+        )
+        # 1. Invalid deployment override model ID
+        invalid_doc = copy.deepcopy(pipeline)
+        invalid_doc["deployment"]["model_paths"]["unknown_model_id"] = "models/foo.bin"
+        for ep in self.CLI_PARITY_ENTRYPOINTS:
+            with self.subTest(case="deployment_failure", entrypoint=ep):
+                code, res = self.command(*ep, "--stdin", input_pipeline=invalid_doc)
+                self.assertEqual(code, 1)
+                self.assertFalse(res["ok"])
+                self.assertIn("diagnostics", res)
+                self.assertEqual(res["diagnostics"][0]["code"], "UNKNOWN_MODEL_ID")
+                self.assertEqual(res["diagnostics"][0]["path"], "/deployment/model_paths/unknown_model_id")
+                if ep[0] == "plan":
+                    self.assertEqual(res["plan"], {"layers": [], "topological_order": []})
+
+        # 2. Core failure with valid deployment
+        invalid_core = copy.deepcopy(pipeline)
+        invalid_core["pipeline"].append({
+            "id": "bad_node_t16",
+            "node_type": "CompletelyUnknownNodeType",
+            "depends_on": [],
+        })
+        for ep in self.CLI_PARITY_ENTRYPOINTS:
+            with self.subTest(case="core_failure", entrypoint=ep):
+                code, res = self.command(*ep, "--stdin", input_pipeline=invalid_core)
+                self.assertEqual(code, 1)
+                self.assertFalse(res["ok"])
+                self.assertIn("diagnostics", res)
+                self.assertEqual(res["diagnostics"][0]["code"], "UNKNOWN_NODE_TYPE")
+                if ep[0] == "plan":
+                    self.assertIn("plan", res)
+
+        # 3. Valid pipeline plan
+        for ep in self.CLI_PARITY_ENTRYPOINTS:
+            with self.subTest(case="valid_plan", entrypoint=ep):
+                code, res = self.command(*ep, "--stdin", input_pipeline=pipeline)
+                self.assertEqual(code, 0)
+                self.assertTrue(res["ok"])
+                if ep[0] == "plan":
+                    self.assertIn("plan", res)
+                    self.assertNotIn("diagnostics", res)
+                    self.assertTrue(res["plan"]["topological_order"])
+
+    def test_rfc0062_cli_plan_envelopes(self):
+        # Alias for backward compatibility
+        self.test_rfc0062_cli_plan_envelopes_t16()
+
+    def test_rfc0062_cli_validate_io_exact_pointer_without_regex(self):
+        # T19 via CLI: validate-io returns structured diagnostics with exact JSON pointer
+        conf_path = ROOT / "demo/fixtures/mock/pipeline_entity_extract.conf"
+        conf = json.loads(conf_path.read_text())
+        pipe_file = conf_path.with_name(conf["pipe_path"])
+        pipe_doc = json.loads(pipe_file.read_text())
+
+        with tempfile.TemporaryDirectory(prefix="validate-io-", dir=ROOT / "build") as directory:
+            changed_conf = Path(directory) / "pipeline.conf"
+            changed_pipe = Path(directory) / conf["pipe_path"]
+            # Erase required output slot entity_out
+            pipe_doc["deployment"]["io"]["output_allocations"].pop("entity_out")
+            changed_pipe.write_text(json.dumps(pipe_doc))
+            changed_conf.write_text(json.dumps(conf))
+
+            code, res = self.command("validate-io", str(changed_conf))
+            self.assertEqual(code, 1)
+            self.assertFalse(res["ok"])
+            self.assertEqual(res["diagnostics"][0]["code"], "IO_VALIDATION_ERROR")
+            self.assertEqual(
+                res["diagnostics"][0]["path"],
+                "/deployment/io/output_allocations/entity_out",
+            )
+
+    def test_rfc0062_cli_override_unknown_and_escaped_model_id_t06(self):
+        # T06 via CLI: unknown model ID, special characters ~ and /, and invalid override syntax (null, empty, non-string)
+        pipeline = json.loads(
+            (ROOT / "demo/fixtures/mock/pipeline_entity_extract.json").read_text()
+        )
+        # 1. Unknown model ID in override
+        doc1 = copy.deepcopy(pipeline)
+        doc1["deployment"]["model_paths"] = {"nonexistent_mid": "models/foo.bin"}
+
+        # 2. Unknown model ID with special characters (~ -> ~0, / -> ~1)
+        doc2 = copy.deepcopy(pipeline)
+        doc2["deployment"]["model_paths"] = {"bad~id/extra": "models/foo.bin"}
+
+        # 3. Override value is non-string (integer)
+        doc3 = copy.deepcopy(pipeline)
+        first_mid = list(doc3["deployment"]["model_paths"].keys())[0]
+        doc3["deployment"]["model_paths"][first_mid] = 12345
+
+        # 4. Override value is empty string
+        doc4 = copy.deepcopy(pipeline)
+        doc4["deployment"]["model_paths"][first_mid] = ""
+
+        # 5. Override value is null
+        doc5 = copy.deepcopy(pipeline)
+        doc5["deployment"]["model_paths"][first_mid] = None
+
+        cases = [
+            ("unknown_id", doc1, "UNKNOWN_MODEL_ID", "/deployment/model_paths/nonexistent_mid"),
+            ("escaped_chars", doc2, "UNKNOWN_MODEL_ID", "/deployment/model_paths/bad~0id~1extra"),
+            ("non_string", doc3, "DEPLOYMENT_ERROR", f"/deployment/model_paths/{first_mid}"),
+            ("empty_value", doc4, "DEPLOYMENT_ERROR", f"/deployment/model_paths/{first_mid}"),
+            ("null_value", doc5, "DEPLOYMENT_ERROR", f"/deployment/model_paths/{first_mid}"),
+        ]
+
+        for case_name, doc, exp_code, exp_path in cases:
+            for ep in self.CLI_PARITY_ENTRYPOINTS:
+                with self.subTest(case=case_name, entrypoint=ep):
+                    code, res = self.command(*ep, "--stdin", input_pipeline=doc)
+                    self.assertEqual(code, 1)
+                    self.assertFalse(res["ok"])
+                    self.assertEqual(res["diagnostics"][0]["code"], exp_code)
+                    self.assertEqual(res["diagnostics"][0]["path"], exp_path)
+                    if ep[0] == "plan":
+                        self.assertEqual(res["plan"], {"layers": [], "topological_order": []})
+
+    def test_rfc0062_cli_unknown_binding_and_biz_mismatch_t07(self):
+        # T07 via CLI: unknown io_binding, biz mismatch, and non-string biz
+        pipeline = json.loads(
+            (ROOT / "demo/fixtures/mock/pipeline_entity_extract.json").read_text()
+        )
+        # 1. Unknown io_binding
+        doc1 = copy.deepcopy(pipeline)
+        doc1["deployment"]["io"]["io_binding"] = "nonexistent.binding.v99"
+
+        # 2. Biz mismatch: pipeline biz_name doesn't match binding
+        doc2 = copy.deepcopy(pipeline)
+        doc2["biz_name"] = "unmatched_biz_name"
+
+        # 3. Biz is non-string (integer)
+        doc3 = copy.deepcopy(pipeline)
+        doc3["biz_name"] = 12345
+
+        cases = [
+            ("unknown_binding", doc1, "UNKNOWN_IO_BINDING", "/deployment/io/io_binding"),
+            ("biz_mismatch", doc2, "BIZ_MISMATCH", "/deployment/io/io_binding"),
+            ("biz_non_string", doc3, "FIELD_TYPE", "/biz_name"),
+        ]
+
+        for case_name, doc, exp_code, exp_path in cases:
+            for ep in self.CLI_PARITY_ENTRYPOINTS:
+                with self.subTest(case=case_name, entrypoint=ep):
+                    code, res = self.command(*ep, "--stdin", input_pipeline=doc)
+                    self.assertEqual(code, 1)
+                    self.assertFalse(res["ok"])
+                    self.assertEqual(res["diagnostics"][0]["code"], exp_code)
+                    self.assertEqual(res["diagnostics"][0]["path"], exp_path)
+                    if ep[0] == "plan":
+                        self.assertEqual(res["plan"], {"layers": [], "topological_order": []})
+
+    def test_rfc0062_cli_output_slot_allocations_t08(self):
+        # T08 via CLI: missing required slot, unknown slot, allocation configuration error, and invalid capacity
+        pipeline = json.loads(
+            (ROOT / "demo/fixtures/mock/pipeline_entity_extract.json").read_text()
+        )
+        # 1. Missing required output slot entity_out
+        doc1 = copy.deepcopy(pipeline)
+        doc1["deployment"]["io"]["output_allocations"].pop("entity_out")
+
+        # 2. Unknown output slot
+        doc2 = copy.deepcopy(pipeline)
+        doc2["deployment"]["io"]["output_allocations"]["bogus_slot"] = {"type": "entity_out"}
+
+        # 3. Invalid output allocation (missing required 'type' field)
+        doc3 = copy.deepcopy(pipeline)
+        doc3["deployment"]["io"]["output_allocations"]["entity_out"].pop("type")
+
+        # 4. Invalid output allocation capacity (non-positive capacity value 0)
+        doc4 = copy.deepcopy(pipeline)
+        doc4["deployment"]["io"]["output_allocations"]["entity_out"]["capacities"]["entities_json"] = 0
+
+        cases = [
+            ("missing_slot", doc1, "MISSING_OUTPUT_SLOT", "/deployment/io/output_allocations/entity_out"),
+            ("unknown_slot", doc2, "UNKNOWN_OUTPUT_SLOT", "/deployment/io/output_allocations/bogus_slot"),
+            ("invalid_alloc", doc3, "INVALID_OUTPUT_ALLOCATION", "/deployment/io/output_allocations/entity_out"),
+            ("invalid_capacity", doc4, "INVALID_OUTPUT_ALLOCATION", "/deployment/io/output_allocations/entity_out"),
+        ]
+
+        for case_name, doc, exp_code, exp_path in cases:
+            for ep in self.CLI_PARITY_ENTRYPOINTS:
+                with self.subTest(case=case_name, entrypoint=ep):
+                    code, res = self.command(*ep, "--stdin", input_pipeline=doc)
+                    self.assertEqual(code, 1)
+                    self.assertFalse(res["ok"])
+                    self.assertEqual(res["diagnostics"][0]["code"], exp_code)
+                    self.assertEqual(res["diagnostics"][0]["path"], exp_path)
+                    if ep[0] == "plan":
+                        self.assertEqual(res["plan"], {"layers": [], "topological_order": []})
+
+    def test_rfc0062_cli_multiple_core_errors_with_deployment_t12(self):
+        # T12 via CLI: valid deployment, but Core has multiple Node errors.
+        # All diagnostics must be preserved in the response array across all CLI entrypoints.
+        pipeline = json.loads(
+            (ROOT / "demo/fixtures/mock/pipeline_entity_extract.json").read_text()
+        )
+        # Add two invalid nodes to pipeline
+        doc = copy.deepcopy(pipeline)
+        doc["pipeline"].append({
+            "id": "bad_node_1",
+            "node_type": "CompletelyUnknownNodeTypeOne",
+            "depends_on": [],
+        })
+        doc["pipeline"].append({
+            "id": "bad_node_2",
+            "node_type": "CompletelyUnknownNodeTypeTwo",
+            "depends_on": [],
+        })
+
+        for ep in self.CLI_PARITY_ENTRYPOINTS:
+            with self.subTest(entrypoint=ep):
+                code, res = self.command(*ep, "--stdin", input_pipeline=doc)
+                self.assertEqual(code, 1)
+                self.assertFalse(res["ok"])
+                self.assertIn("diagnostics", res)
+                # Must retain multiple diagnostics, not compressed
+                self.assertGreaterEqual(len(res["diagnostics"]), 2)
+                diag_codes = [d["code"] for d in res["diagnostics"]]
+                self.assertIn("UNKNOWN_NODE_TYPE", diag_codes)
+                if ep[0] == "plan":
+                    self.assertIn("plan", res)
+
+    def test_rfc0062_cli_edit_invalid_deployment_t14(self):
+        # T14 via CLI: edit on invalid deployment with require_valid=false vs require_valid=true
+        pipeline = json.loads(
+            (ROOT / "demo/fixtures/mock/pipeline_entity_extract.json").read_text()
+        )
+        invalid_doc = copy.deepcopy(pipeline)
+        invalid_doc["deployment"]["io"]["io_binding"] = "invalid_binding_id"
+
+        op = {
+            "kind": "add_node",
+            "node_type": "TextTemplateNode",
+            "id": "draft_node_t14",
+            "config": {"template": "{{input}}"},
+        }
+
+        # Case 1: require_valid=false -> returns modified draft with validation.ok=false
+        req_false = {
+            "schema_version": 1,
+            "pipeline": invalid_doc,
+            "operation": op,
+            "require_valid": False,
+        }
+        code_false, res_false = self.command("edit", "--stdin", input_pipeline=req_false)
+        self.assertEqual(code_false, 0)
+        self.assertTrue(res_false["ok"])
+        self.assertIn("pipeline", res_false)
+        draft_node_ids = [n["id"] for n in res_false["pipeline"]["pipeline"]]
+        self.assertIn("draft_node_t14", draft_node_ids)
+        self.assertIn("validation", res_false)
+        self.assertFalse(res_false["validation"]["ok"])
+        self.assertEqual(res_false["validation"]["diagnostics"][0]["code"], "UNKNOWN_IO_BINDING")
+
+        # Case 2: require_valid=true -> rejects without returning modified pipeline
+        req_true = {
+            "schema_version": 1,
+            "pipeline": invalid_doc,
+            "operation": op,
+            "require_valid": True,
+        }
+        code_true, res_true = self.command("edit", "--stdin", input_pipeline=req_true)
+        self.assertEqual(code_true, 1)
+        self.assertFalse(res_true["ok"])
+        self.assertNotIn("pipeline", res_true)
+        self.assertIn("validation", res_true)
+        self.assertFalse(res_true["validation"]["ok"])
+        self.assertEqual(res_true["validation"]["diagnostics"][0]["code"], "UNKNOWN_IO_BINDING")
+
+    def test_rfc0062_cli_fix_deps_invalid_deployment_t15(self):
+        # T15 via CLI: fix-deps on pipeline where dependencies can be fixed but deployment is invalid
+        pipe = json.loads((ROOT / "configs" / "pipeline_doc_qa_default.json").read_text())
+        # Introduce fixable dependency issue in Core
+        pipe["pipeline"][2]["depends_on"] = []
+        # Introduce invalid deployment
+        pipe["deployment"]["io"]["io_binding"] = "invalid_binding_id"
+
+        with tempfile.TemporaryDirectory() as td:
+            fpath = Path(td) / "pipeline_fixable_dep_invalid_deploy.json"
+            orig_text = json.dumps(pipe, indent=2)
+            fpath.write_text(orig_text)
+
+            code, res = self.command("fix-deps", str(fpath), "--in-place")
+            self.assertEqual(code, 1)
+            self.assertFalse(res["ok"])
+            self.assertFalse(res["written"])
+            # Assert file was NOT written/modified
+            self.assertEqual(fpath.read_text(), orig_text)
+            # Structured deployment diagnostics are returned
+            self.assertIn("validation", res)
+            self.assertFalse(res["validation"]["ok"])
+            diag = res["validation"]["diagnostics"][0]
+            self.assertEqual(diag["code"], "UNKNOWN_IO_BINDING")
+            self.assertEqual(diag["path"], "/deployment/io/io_binding")
+
+            # Also verify preview mode (without --in-place): does not write, returns failure with diagnostics
+            code_prev, res_prev = self.command("fix-deps", str(fpath))
+            self.assertEqual(code_prev, 1)
+            self.assertFalse(res_prev["ok"])
+            self.assertFalse(res_prev["written"])
+            self.assertIn("validation", res_prev)
+            self.assertFalse(res_prev["validation"]["ok"])
+            diag_prev = res_prev["validation"]["diagnostics"][0]
+            self.assertEqual(diag_prev["code"], "UNKNOWN_IO_BINDING")
+            self.assertEqual(diag_prev["path"], "/deployment/io/io_binding")
+
+    def test_rfc0062_cli_exception_barriers(self):
+        # RFC §2.8: Outer exception barriers for validate, plan, validate-io, and resolve-conf
+        # output schema-compliant JSON error envelopes with code INTERNAL_EXCEPTION or DEPLOYMENT_CONFIG / IO_VALIDATION_ERROR.
+        # 1. validate-io on non-existent config file
+        code, res = self.command("validate-io", "nonexistent_config_file.conf")
+        self.assertEqual(code, 1)
+        self.assertFalse(res["ok"])
+        self.assertEqual(res["schema_version"], 1)
+        self.assertEqual(res["diagnostics"][0]["code"], "IO_VALIDATION_ERROR")
+        self.assertIn("nonexistent_config_file.conf", res["diagnostics"][0]["message"])
+
+        # 2. resolve-conf on non-existent file
+        code, res = self.command("resolve-conf", "nonexistent_config_file.conf", "--root", str(ROOT))
+        self.assertEqual(code, 1)
+        self.assertFalse(res["ok"])
+        self.assertEqual(res["schema_version"], 1)
+        self.assertEqual(res["diagnostics"][0]["code"], "DEPLOYMENT_CONFIG")
+        self.assertEqual(res["diagnostics"][0]["path"], "/")
+
+        # 3. validate on non-existent file
+        code, res = self.command("validate", "nonexistent_pipeline.json")
+        self.assertEqual(code, 1)
+        self.assertFalse(res["ok"])
+        self.assertEqual(res["schema_version"], 1)
+        self.assertEqual(res["diagnostics"][0]["code"], "JSON_READ")
 
     def test_native_viewer_preserves_explicit_dag_dependencies(self):
         process = subprocess.run(

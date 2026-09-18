@@ -9,6 +9,7 @@
 #include "adapter/deployment_io_config.h"
 #include "adapter/io_binding_resolver.h"
 #include "adapter/operator/json_output_config_reader.h"
+#include "adapter/pipeline_document.h"
 #include "contracts/diagnostic.h"
 #include "contracts/path_utils.h"
 
@@ -311,35 +312,47 @@ int OperatorConfigResolver::ResolveModelReferenceUnderRoot(
   }
 }
 
-int OperatorConfigResolver::Resolve(const char* model_path,
-                                    const char* cfg_file_name,
-                                    ResolvedOperatorConfig* result,
-                                    std::string* error_msg,
-                                    uint32_t max_frame_depth) noexcept {
+int OperatorConfigResolver::Resolve(
+    const char* model_path, const char* cfg_file_name,
+    ResolvedOperatorConfig* result, std::string* error_msg,
+    uint32_t max_frame_depth, DeploymentDiagnostic* out_diagnostic) noexcept {
+  auto set_diag = [&](const std::string& code, const std::string& path,
+                      const std::string& message) {
+    if (error_msg) *error_msg = message;
+    if (out_diagnostic) {
+      out_diagnostic->code = code;
+      out_diagnostic->path = path;
+      out_diagnostic->message = message;
+      out_diagnostic->legacy_status = -2;
+      out_diagnostic->pipeline_diagnostic.reset();
+    }
+  };
+
   try {
+    if (out_diagnostic) out_diagnostic->Clear();
+
     if (!result) {
-      if (error_msg) *error_msg = "Null output result pointer";
+      set_diag("DEPLOYMENT_ERROR", "/", "Null output result pointer");
       return -2;
     }
 
     if (!model_path || model_path[0] == '\0') {
-      if (error_msg) *error_msg = "Null or empty model_path";
+      set_diag("DEPLOYMENT_ERROR", "/", "Null or empty model_path");
       return -2;
     }
 
     if (!cfg_file_name || cfg_file_name[0] == '\0') {
-      if (error_msg) *error_msg = "Null or empty cfg_file_name";
+      set_diag("DEPLOYMENT_ERROR", "/", "Null or empty cfg_file_name");
       return -2;
     }
 
     uint32_t effective_depth =
         max_frame_depth > 0 ? max_frame_depth : kDefaultOutputPoolDepth;
     if (effective_depth > kMaxOutputPoolDepth) {
-      if (error_msg) {
-        *error_msg = "max_frame_depth (" + std::to_string(effective_depth) +
-                     ") exceeds hard limit " +
-                     std::to_string(kMaxOutputPoolDepth);
-      }
+      std::string msg = "max_frame_depth (" + std::to_string(effective_depth) +
+                        ") exceeds hard limit " +
+                        std::to_string(kMaxOutputPoolDepth);
+      set_diag("DEPLOYMENT_ERROR", "/", msg);
       return -2;
     }
 
@@ -347,18 +360,17 @@ int OperatorConfigResolver::Resolve(const char* model_path,
     std::error_code ec;
     if (!std::filesystem::exists(raw_root, ec) ||
         !std::filesystem::is_directory(raw_root, ec)) {
-      if (error_msg) {
-        *error_msg =
-            "model_path directory does not exist: " + raw_root.string();
-      }
+      std::string msg =
+          "model_path directory does not exist: " + raw_root.string();
+      set_diag("DEPLOYMENT_ERROR", "/", msg);
       return -2;
     }
 
     std::filesystem::path canon_root = std::filesystem::canonical(raw_root, ec);
     if (ec) {
-      if (error_msg) {
-        *error_msg = "Failed to canonicalize model_path: " + raw_root.string();
-      }
+      std::string msg =
+          "Failed to canonicalize model_path: " + raw_root.string();
+      set_diag("DEPLOYMENT_ERROR", "/", msg);
       return -2;
     }
 
@@ -366,13 +378,23 @@ int OperatorConfigResolver::Resolve(const char* model_path,
     std::filesystem::path full_cfg;
     int ret = ResolveRequiredFileUnderRoot(
         canon_root, cfg_file_name, "cfg_file_name", &full_cfg, error_msg);
-    if (ret != 0) return ret;
+    if (ret != 0) {
+      if (out_diagnostic) {
+        out_diagnostic->code = "DEPLOYMENT_ERROR";
+        out_diagnostic->path = "/";
+        out_diagnostic->message =
+            error_msg ? *error_msg : "Failed to resolve cfg_file_name";
+        out_diagnostic->legacy_status = ret;
+      }
+      return ret;
+    }
 
     // 读取并解析部署配置文件 (Schema 1)
     DeploymentIoConfig dep_config;
     std::string dep_err;
     if (!DeploymentIoConfig::ReadFromFile(full_cfg.string(), "operator",
-                                          &dep_config, &dep_err)) {
+                                          &dep_config, &dep_err,
+                                          out_diagnostic)) {
       if (error_msg) *error_msg = dep_err;
       return -2;
     }
@@ -381,7 +403,8 @@ int OperatorConfigResolver::Resolve(const char* model_path,
     std::unique_ptr<ValidatedIoPlan> io_plan;
     std::string plan_err;
     int plan_ret = IoBindingResolver::ResolveFromConfig(
-        dep_config, "operator", canon_root.string(), &io_plan, &plan_err);
+        dep_config, "operator", canon_root.string(), &io_plan, &plan_err,
+        out_diagnostic);
     if (plan_ret != 0) {
       if (error_msg) *error_msg = plan_err;
       return plan_ret;
@@ -397,10 +420,12 @@ int OperatorConfigResolver::Resolve(const char* model_path,
                 pool_spec.type, pool_spec.allocator);
         if (!output_binding ||
             output_binding->direction != IoDirection::kOutput) {
-          if (error_msg) {
-            *error_msg = "Missing output value binding for suffix '" +
-                         pool_spec.type + "'";
-          }
+          std::string msg = "Missing output value binding for suffix '" +
+                            pool_spec.type + "'";
+          set_diag("INVALID_OUTPUT_ALLOCATION",
+                   "/deployment/io/output_allocations/" +
+                       EscapeJsonPointer(slot_name),
+                   msg);
           return -2;
         }
         size_t slot_pool_bytes = 0;
@@ -408,24 +433,30 @@ int OperatorConfigResolver::Resolve(const char* model_path,
         if (!ComputeOutputPoolPayloadBytes(*output_binding, pool_spec,
                                            effective_depth, &slot_pool_bytes,
                                            &budget_err)) {
-          if (error_msg) {
-            *error_msg = "Output pool budget calculation failed: " + budget_err;
-          }
+          std::string msg =
+              "Output pool budget calculation failed: " + budget_err;
+          set_diag("INVALID_OUTPUT_ALLOCATION",
+                   "/deployment/io/output_allocations/" +
+                       EscapeJsonPointer(slot_name),
+                   msg);
           return -2;
         }
         if (!CheckedAdd(total_handle_pool_bytes, slot_pool_bytes,
                         &total_handle_pool_bytes)) {
-          if (error_msg) *error_msg = "Handle pool budget addition overflowed";
+          std::string msg = "Handle pool budget addition overflowed";
+          set_diag("INVALID_OUTPUT_ALLOCATION",
+                   "/deployment/io/output_allocations", msg);
           return -2;
         }
       }
       if (total_handle_pool_bytes > kMaxHandlePoolPayloadBytes) {
-        if (error_msg) {
-          *error_msg = "Total output pool payload (" +
-                       std::to_string(total_handle_pool_bytes) +
-                       " bytes) exceeds per-handle payload budget (" +
-                       std::to_string(kMaxHandlePoolPayloadBytes) + " bytes)";
-        }
+        std::string msg = "Total output pool payload (" +
+                          std::to_string(total_handle_pool_bytes) +
+                          " bytes) exceeds per-handle payload budget (" +
+                          std::to_string(kMaxHandlePoolPayloadBytes) +
+                          " bytes)";
+        set_diag("INVALID_OUTPUT_ALLOCATION",
+                 "/deployment/io/output_allocations", msg);
         return -2;
       }
     }
@@ -444,9 +475,21 @@ int OperatorConfigResolver::Resolve(const char* model_path,
     return 0;
   } catch (const std::exception& e) {
     SetDiagnosticNoexcept(error_msg, e.what());
+    if (out_diagnostic) {
+      out_diagnostic->code = "INTERNAL_EXCEPTION";
+      out_diagnostic->path = "/";
+      out_diagnostic->message = e.what();
+      out_diagnostic->legacy_status = -2;
+    }
     return -2;
   } catch (...) {
     SetDiagnosticNoexcept(error_msg, "Unknown exception");
+    if (out_diagnostic) {
+      out_diagnostic->code = "INTERNAL_EXCEPTION";
+      out_diagnostic->path = "/";
+      out_diagnostic->message = "Unknown exception";
+      out_diagnostic->legacy_status = -2;
+    }
     return -2;
   }
 }

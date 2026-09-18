@@ -47,7 +47,8 @@ class OperatorConfigResolver {
 
   static int Resolve(const char* model_path, const char* cfg_file_name,
                      ResolvedOperatorConfig* result, std::string* error_msg,
-                     uint32_t max_frame_depth = 25) noexcept;
+                     uint32_t max_frame_depth = 25,
+                     DeploymentDiagnostic* out_diagnostic = nullptr) noexcept;
 };
 
 }  // namespace llm_edgeflow

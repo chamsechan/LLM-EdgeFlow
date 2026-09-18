@@ -19,6 +19,7 @@
 #include "core/pipeline_catalog.h"
 #include "core/pipeline_validator.h"
 #include "edgeflow/operator/interface.h"
+#include "pipeline_document_validation.h"
 
 namespace llm_edgeflow {
 
@@ -1444,72 +1445,6 @@ bool PipelineAuthoring::ApplyOperation(nlohmann::json* pipeline,
   return false;
 }
 
-ValidationReport ValidateOrExplainAuthoring(const nlohmann::json& doc,
-                                            bool explain) {
-  if (!doc.is_object() || !doc.contains("deployment")) {
-    return explain ? PipelineValidator::Explain(doc)
-                   : PipelineValidator::Validate(doc);
-  }
-  const auto ops = operator_api::Get_LLM_EDGEFLOW_OperatorTable();
-  if (ops.Init != nullptr) ops.Init();
-
-  PipelineDocumentSplit split;
-  std::string err;
-  if (!SplitPipelineDocument(doc, &split, &err)) {
-    ValidationReport r;
-    r.ok = false;
-    ValidationDiagnostic diag;
-    diag.code = DiagnosticCode::kUnknownField;
-    diag.path = "/deployment";
-    diag.message = err;
-    diag.severity = "error";
-    r.diagnostics.push_back(std::move(diag));
-    return r;
-  }
-
-  PipelineIoBoundary io_boundary;
-  const PipelineIoBoundary* io_boundary_ptr = nullptr;
-  if (split.deployment.has_io && !split.deployment.io.io_binding.empty()) {
-    const auto* binding = IoBindingRegistry::Instance().FindBinding(
-        split.deployment.io.io_binding);
-    if (binding) {
-      const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
-          binding->input_converter_id);
-      const auto* out_conv =
-          IoConverterRegistry::Instance().FindOutputConverter(
-              binding->output_converter_id);
-      if (in_conv && out_conv) {
-        for (const auto& port : in_conv->logical_ports) {
-          std::string key = port.logical_name;
-          auto bit = binding->input_ports.find(port.logical_name);
-          if (bit != binding->input_ports.end()) key = bit->second;
-          io_boundary.input_published_ports.emplace_back(
-              key, port.type_id, port.required, port.cardinality,
-              port.provenance_policy, port.lifetime,
-              port.lifetime_config_field);
-        }
-        for (const auto& port : out_conv->logical_ports) {
-          std::string key = port.logical_name;
-          auto bit = binding->output_ports.find(port.logical_name);
-          if (bit != binding->output_ports.end()) key = bit->second;
-          io_boundary.output_consumed_ports.emplace_back(
-              key, port.type_id, port.required, port.cardinality,
-              port.provenance_policy, port.lifetime,
-              port.lifetime_config_field);
-        }
-        io_boundary_ptr = &io_boundary;
-      }
-    }
-  }
-
-  return explain ? PipelineValidator::Explain(split.neutral_pipeline_json,
-                                              ValidationPolicy::kStrict,
-                                              io_boundary_ptr)
-                 : PipelineValidator::Validate(split.neutral_pipeline_json,
-                                               ValidationPolicy::kStrict,
-                                               io_boundary_ptr);
-}
-
 AuthoringResult PipelineAuthoring::ApplyRequest(const nlohmann::json& request) {
   AuthoringResult result;
   try {
@@ -1598,11 +1533,12 @@ AuthoringResult PipelineAuthoring::ApplyRequest(const nlohmann::json& request) {
     }
 
     result.failed_operation_index.reset();
-    auto report = ValidateOrExplainAuthoring(working_pipeline, true);
-    result.validation = report.ToJson();
+    auto val_res = ValidatePipelineDocument(working_pipeline,
+                                            DocumentValidationMode::kExplain);
+    result.validation = std::move(val_res.response);
 
     bool require_valid = request.value("require_valid", false);
-    if (require_valid && !report.ok) {
+    if (require_valid && !val_res.ok) {
       result.ok = false;
       result.pipeline = std::nullopt;
       return result;
@@ -1653,13 +1589,29 @@ FixDepsResult PipelineAuthoring::FixDeps(const std::string& file_path,
       return result;
     }
 
-    auto report = ValidateOrExplainAuthoring(root, true);
-    if (report.ok) {
+    auto initial_res =
+        ValidatePipelineDocument(root, DocumentValidationMode::kExplain);
+    if (initial_res.ok) {
       result.ok = true;
       result.written = false;
-      result.validation = report.ToJson();
+      result.validation = std::move(initial_res.response);
       return result;
     }
+
+    if (!initial_res.core_report.has_value()) {
+      result.ok = false;
+      result.written = false;
+      result.validation = std::move(initial_res.response);
+      for (const auto& diag :
+           result.validation.value("diagnostics", nlohmann::json::array())) {
+        result.diagnostics.push_back(diag.value("code", "") + " " +
+                                     diag.value("path", "") + ": " +
+                                     diag.value("message", ""));
+      }
+      return result;
+    }
+
+    const auto& report = *initial_res.core_report;
 
     nlohmann::json working = root;
     auto dep_graph = BuildDependencyGraph(working);
@@ -1705,7 +1657,7 @@ FixDepsResult PipelineAuthoring::FixDeps(const std::string& file_path,
         if (it_p != key_producers.end() && it_p->second.size() > 1) {
           result.ok = false;
           result.written = false;
-          result.validation = report.ToJson();
+          result.validation = initial_res.response;
           result.diagnostics.push_back(
               "AMBIGUOUS_PRODUCER: 数据键 '" + bound_key +
               "' 存在多个生产者，来源存在歧义，不能自动修复");
@@ -1719,7 +1671,7 @@ FixDepsResult PipelineAuthoring::FixDeps(const std::string& file_path,
             if (IsAncestor(consumer_id, producer_id, dep_graph)) {
               result.ok = false;
               result.written = false;
-              result.validation = report.ToJson();
+              result.validation = initial_res.response;
               result.diagnostics.push_back("CYCLE_DETECTED: 添加 " +
                                            consumer_id + " 对 " + producer_id +
                                            " 的依赖会形成环");
@@ -1748,20 +1700,23 @@ FixDepsResult PipelineAuthoring::FixDeps(const std::string& file_path,
     if (!found_fix) {
       result.ok = false;
       result.written = false;
-      result.validation = report.ToJson();
+      result.validation = std::move(initial_res.response);
       result.diagnostics.push_back(
           "NO_FIXABLE_DEPENDENCY: 未发现可安全自动修复的生产者依赖");
       return result;
     }
 
-    auto final_report = ValidateOrExplainAuthoring(working, true);
-    result.validation = final_report.ToJson();
-    if (!final_report.ok) {
+    auto final_res =
+        ValidatePipelineDocument(working, DocumentValidationMode::kExplain);
+    result.validation = std::move(final_res.response);
+    if (!final_res.ok) {
       result.ok = false;
       result.written = false;
-      for (const auto& d : final_report.diagnostics) {
-        result.diagnostics.push_back(std::string(DiagnosticCodeName(d.code)) +
-                                     " " + d.path + ": " + d.message);
+      for (const auto& diag :
+           result.validation.value("diagnostics", nlohmann::json::array())) {
+        result.diagnostics.push_back(diag.value("code", "") + " " +
+                                     diag.value("path", "") + ": " +
+                                     diag.value("message", ""));
       }
       return result;
     }

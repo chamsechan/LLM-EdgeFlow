@@ -1246,6 +1246,17 @@ TEST_F(AdapterPurityTest, ReuseProof_5_SameCarrierDifferentSchema) {
 
 // Proof 6: Negative Combinations Rejected
 TEST_F(AdapterPurityTest, ReuseProof_6_NegativeCombinations) {
+  nlohmann::json valid_pipeline = nlohmann::json::array(
+      {{{"id", "node_0_TextRuleMatchNode"},
+        {"node_type", "TextRuleMatchNode"},
+        {"depends_on", nlohmann::json::array()},
+        {"ports",
+         {{"inputs", {{"text", "input_sentences"}}},
+          {"outputs", {{"matches", "rule_matches"}}}}},
+        {"config",
+         {{"categories",
+           {{"SYSTEM_INIT", nlohmann::json::array({"init"})}}}}}}});
+
   // 1. Unknown or unregistered io_binding
   nlohmann::json bad_binding_json = {
       {"biz_name", "keyword_match_v1"},
@@ -1259,7 +1270,7 @@ TEST_F(AdapterPurityTest, ReuseProof_6_NegativeCombinations) {
               {"metadata_type_id", 0},
               {"capacities", {{"match_result_json", 2047}}}}}}}}}}},
       {"models", nlohmann::json::array()},
-      {"pipeline", nlohmann::json::array()}};
+      {"pipeline", valid_pipeline}};
   std::unique_ptr<ValidatedIoPlan> plan;
   std::string error;
   int ret = IoBindingResolver::ResolveFromPipelineJson(
@@ -1292,7 +1303,7 @@ TEST_F(AdapterPurityTest, ReuseProof_6_NegativeCombinations) {
          {{"io_binding", "keyword_match.operator.v1"},
           {"output_allocations", {{"unknown_slot", {{"type", "String"}}}}}}}}},
       {"models", nlohmann::json::array()},
-      {"pipeline", nlohmann::json::array()}};
+      {"pipeline", valid_pipeline}};
   ret = IoBindingResolver::ResolveFromPipelineJson(unknown_out_json, "operator",
                                                    "./models", &plan, &error);
   EXPECT_EQ(ret, -2);
@@ -1313,7 +1324,7 @@ TEST_F(AdapterPurityTest, ReuseProof_6_NegativeCombinations) {
               {"metadata_type_id", 0},
               {"capacities", {{"match_result_json", 2047}}}}}}}}}}},
       {"models", nlohmann::json::array()},
-      {"pipeline", nlohmann::json::array()}};
+      {"pipeline", valid_pipeline}};
   ret = IoBindingResolver::ResolveFromPipelineJson(unknown_mid_json, "operator",
                                                    "./models", &plan, &error);
   EXPECT_EQ(ret, -2);

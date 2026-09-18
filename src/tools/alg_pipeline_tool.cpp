@@ -19,6 +19,7 @@
 #include "core/pipeline_validator.h"
 #include "edgeflow/operator/interface.h"
 #include "nlohmann/json.hpp"
+#include "pipeline_document_validation.h"
 #include "tools/pipeline_authoring.h"
 
 namespace {
@@ -128,243 +129,40 @@ nlohmann::json ProfilesJson(const std::string& biz_filter) {
   return result;
 }
 
-bool ResolveDeploymentBoundary(
-    const nlohmann::json& root, nlohmann::json* out_neutral_json,
-    llm_edgeflow::PipelineIoBoundary* out_boundary,
-    const llm_edgeflow::IoBindingDefinition** out_binding,
-    nlohmann::json* out_error_json) {
-  using namespace llm_edgeflow;
-
-  PipelineDocumentSplit doc_split;
-  std::string split_err;
-  std::string split_path;
-  if (!SplitPipelineDocument(root, &doc_split, &split_err, &split_path)) {
-    *out_error_json = ToolError("DEPLOYMENT_ERROR", split_err,
-                                split_path.empty() ? "/" : split_path);
-    return false;
-  }
-
-  if (!doc_split.has_deployment || !doc_split.deployment.has_io) {
-    *out_error_json = ToolError(
-        "MISSING_DEPLOYMENT_IO",
-        "Missing required 'deployment.io' in pipeline JSON", "/deployment/io");
-    return false;
-  }
-
-  const std::string& binding_id = doc_split.deployment.io.io_binding;
-  const auto* binding = IoBindingRegistry::Instance().FindBinding(binding_id);
-  if (!binding) {
-    *out_error_json =
-        ToolError("UNKNOWN_IO_BINDING",
-                  "Unknown or unregistered io_binding: " + binding_id +
-                      " (at /deployment/io/io_binding)",
-                  "/deployment/io/io_binding");
-    return false;
-  }
-
-  if (binding->transport != "operator") {
-    *out_error_json =
-        ToolError("UNSUPPORTED_TRANSPORT",
-                  "Binding transport mismatch for '" + binding_id +
-                      "': expected 'operator', but binding declared '" +
-                      binding->transport + "' (at /deployment/io/io_binding)",
-                  "/deployment/io/io_binding");
-    return false;
-  }
-
-  // 立即核对 Pipeline biz_name 与 binding biz_name (RFC-0061)
-  std::string pipeline_biz = root.value("biz_name", "");
-  if (pipeline_biz != binding->biz_name) {
-    *out_error_json =
-        ToolError("BIZ_MISMATCH",
-                  "Pipeline biz_name '" + pipeline_biz +
-                      "' does not match binding biz_name '" +
-                      binding->biz_name + "' (at /deployment/io/io_binding)",
-                  "/deployment/io/io_binding");
-    return false;
-  }
-
-  const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
-      binding->input_converter_id);
-  if (!in_conv) {
-    *out_error_json =
-        ToolError("UNREGISTERED_CONVERTER",
-                  "Binding references unregistered input converter: " +
-                      binding->input_converter_id,
-                  "/deployment/io/io_binding");
-    return false;
-  }
-
-  const auto* out_conv = IoConverterRegistry::Instance().FindOutputConverter(
-      binding->output_converter_id);
-  if (!out_conv) {
-    *out_error_json =
-        ToolError("UNREGISTERED_CONVERTER",
-                  "Binding references unregistered output converter: " +
-                      binding->output_converter_id,
-                  "/deployment/io/io_binding");
-    return false;
-  }
-
-  const auto& allocations = doc_split.deployment.io.output_allocations;
-  for (auto it = allocations.begin(); it != allocations.end(); ++it) {
-    bool found = false;
-    for (const auto& slot : out_conv->external_slots) {
-      if (slot.direction == PortDirection::kOutput &&
-          slot.slot_name == it.key()) {
-        found = true;
-        break;
-      }
-    }
-    if (!found) {
-      *out_error_json = ToolError(
-          "UNKNOWN_OUTPUT_SLOT",
-          "Unknown configured output slot: " + it.key() +
-              " (at /deployment/io/output_allocations/" +
-              EscapeJsonPointer(it.key()) + ")",
-          "/deployment/io/output_allocations/" + EscapeJsonPointer(it.key()));
-      return false;
-    }
-  }
-
-  for (const auto& slot : out_conv->external_slots) {
-    if (slot.direction != PortDirection::kOutput) continue;
-    if (!allocations.contains(slot.slot_name)) {
-      if (slot.required) {
-        *out_error_json = ToolError(
-            "MISSING_OUTPUT_SLOT",
-            "Missing required Operator output slot '" + slot.slot_name +
-                "' (at /deployment/io/output_allocations/" +
-                EscapeJsonPointer(slot.slot_name) + ")",
-            "/deployment/io/output_allocations/" +
-                EscapeJsonPointer(slot.slot_name));
-        return false;
-      }
-      continue;
-    }
-    ResolvedOutputPoolSpec pool_spec;
-    std::string param_text;
-    std::string alloc_err;
-    if (OperatorConfigResolver::ResolveOutputAllocation(
-            allocations[slot.slot_name], slot, &pool_spec, &param_text,
-            &alloc_err) != 0) {
-      *out_error_json =
-          ToolError("INVALID_OUTPUT_ALLOCATION",
-                    alloc_err + " (at /deployment/io/output_allocations/" +
-                        EscapeJsonPointer(slot.slot_name) + ")",
-                    "/deployment/io/output_allocations/" +
-                        EscapeJsonPointer(slot.slot_name));
-      return false;
-    }
-  }
-
-  nlohmann::json staged_pipe_json = doc_split.neutral_pipeline_json;
-  if (doc_split.deployment.has_model_paths &&
-      !doc_split.deployment.model_paths.empty()) {
-    std::unordered_set<std::string> known_model_ids;
-    if (staged_pipe_json.contains("models") &&
-        staged_pipe_json["models"].is_array()) {
-      for (const auto& m : staged_pipe_json["models"]) {
-        if (m.is_object() && m.contains("model_id") &&
-            m["model_id"].is_string()) {
-          known_model_ids.insert(m["model_id"].get<std::string>());
-        }
-      }
-    }
-    for (const auto& [mid, _] : doc_split.deployment.model_paths) {
-      if (!known_model_ids.count(mid)) {
-        *out_error_json = ToolError(
-            "UNKNOWN_MODEL_ID",
-            "Unknown model_id '" + mid + "' in '/deployment/model_paths'",
-            "/deployment/model_paths/" + EscapeJsonPointer(mid));
-        return false;
-      }
-    }
-    for (auto& m : staged_pipe_json["models"]) {
-      if (m.is_object() && m.contains("model_id") &&
-          m["model_id"].is_string()) {
-        std::string mid = m["model_id"].get<std::string>();
-        auto it = doc_split.deployment.model_paths.find(mid);
-        if (it != doc_split.deployment.model_paths.end()) {
-          m["model_path"] = it->second;
-        }
-      }
-    }
-  }
-
-  if (staged_pipe_json.contains("models") &&
-      staged_pipe_json["models"].is_array()) {
-    for (size_t index = 0; index < staged_pipe_json["models"].size(); ++index) {
-      const auto& m = staged_pipe_json["models"][index];
-      if (m.is_object() && m.contains("model_path")) {
-        if (!m["model_path"].is_string() ||
-            m["model_path"].get<std::string>().empty()) {
-          std::string mid = m.value("model_id", "");
-          std::string pointer =
-              (doc_split.deployment.has_model_paths &&
-               doc_split.deployment.model_paths.count(mid))
-                  ? "/deployment/model_paths/" + EscapeJsonPointer(mid)
-                  : "/models/" + std::to_string(index) + "/model_path";
-          *out_error_json = ToolError(
-              "INVALID_MODEL_PATH",
-              "model_path in model declaration must be a non-empty string",
-              pointer);
-          return false;
-        }
-      }
-    }
-  }
-
-  PipelineIoBoundary io_boundary;
-  for (const auto& port : in_conv->logical_ports) {
-    std::string key = port.logical_name;
-    auto bit = binding->input_ports.find(port.logical_name);
-    if (bit != binding->input_ports.end()) {
-      key = bit->second;
-    }
-    io_boundary.input_published_ports.emplace_back(
-        key, port.type_id, port.required, port.cardinality,
-        port.provenance_policy, port.lifetime, port.lifetime_config_field);
-  }
-
-  for (const auto& port : out_conv->logical_ports) {
-    std::string key = port.logical_name;
-    auto bit = binding->output_ports.find(port.logical_name);
-    if (bit != binding->output_ports.end()) {
-      key = bit->second;
-    }
-    io_boundary.output_consumed_ports.emplace_back(
-        key, port.type_id, port.required, port.cardinality,
-        port.provenance_policy, port.lifetime, port.lifetime_config_field);
-  }
-
-  *out_boundary = std::move(io_boundary);
-  *out_neutral_json = std::move(staged_pipe_json);
-  if (out_binding) *out_binding = binding;
-  return true;
-}
-
 nlohmann::json ResolveConf(const std::string& file, const std::string& root,
                            uint32_t depth) {
   using namespace llm_edgeflow;
   const auto ops = operator_api::Get_LLM_EDGEFLOW_OperatorTable();
-  if (ops.Init() != 0)
+  if (ops.Init != nullptr && ops.Init() != 0)
     return PipelineError(DiagnosticCode::kRegistryConflict,
                          operator_api::GetOperatorLastError());
   struct RegistryGuard {
     operator_api::OperatorFunc ops;
-    ~RegistryGuard() { ops.Deinit(); }
+    ~RegistryGuard() {
+      if (ops.Deinit != nullptr) ops.Deinit();
+    }
   } registry_guard{ops};
   ResolvedOperatorConfig resolved;
   std::string error;
+  DeploymentDiagnostic diag;
   if (OperatorConfigResolver::Resolve(root.c_str(), file.c_str(), &resolved,
-                                      &error, depth) != 0)
-    return ToolError("DEPLOYMENT_CONFIG", error);
+                                      &error, depth, &diag) != 0) {
+    const std::string message =
+        error.empty() ? (diag.message.empty() ? "Deployment configuration error"
+                                              : diag.message)
+                      : error;
+    return ToolError("DEPLOYMENT_CONFIG", message);
+  }
   if (!resolved.io_plan || !resolved.io_plan->pipeline_plan)
     return ToolError("DEPLOYMENT_CONFIG", "Missing pipeline plan in io_plan");
 
   const auto& plan = *resolved.io_plan->pipeline_plan;
-  if (!plan.report.ok) return plan.report.ToJson();
+  if (!plan.report.ok) {
+    const std::string message = plan.report.diagnostics.empty()
+                                    ? "Pipeline validation failed"
+                                    : plan.report.diagnostics.front().message;
+    return ToolError("DEPLOYMENT_CONFIG", message);
+  }
 
   auto effective = resolved.synthetic_pipeline_json;
   for (const auto& [id, node] : plan.node_plans)
@@ -468,6 +266,8 @@ int main(int argc, char* argv[]) {
       result = ResolveConf(argv[2], root, depth);
     } catch (const std::exception& error) {
       result = ToolError("DEPLOYMENT_CONFIG", error.what());
+    } catch (...) {
+      result = ToolError("DEPLOYMENT_CONFIG", "Unknown internal exception");
     }
     std::cout << result.dump(2) << std::endl;
     return result.value("ok", false) ? 0 : 1;
@@ -604,7 +404,14 @@ int main(int argc, char* argv[]) {
     }
     const auto ops =
         llm_edgeflow::operator_api::Get_LLM_EDGEFLOW_OperatorTable();
-    if (ops.Init != nullptr) ops.Init();
+    if (ops.Init != nullptr && ops.Init() != 0) {
+      std::cout << PipelineError(
+                       DiagnosticCode::kRegistryConflict,
+                       llm_edgeflow::operator_api::GetOperatorLastError())
+                       .dump(2)
+                << std::endl;
+      return 1;
+    }
     struct OpsGuard {
       llm_edgeflow::operator_api::OperatorFunc ops;
       ~OpsGuard() {
@@ -612,73 +419,25 @@ int main(int argc, char* argv[]) {
       }
     } ops_guard{ops};
 
-    llm_edgeflow::PipelineIoBoundary io_boundary;
-    const llm_edgeflow::PipelineIoBoundary* io_boundary_ptr = nullptr;
-    const llm_edgeflow::IoBindingDefinition* binding_def = nullptr;
-    nlohmann::json target_json = root;
+    using llm_edgeflow::DocumentValidationMode;
+    DocumentValidationMode mode =
+        (command == "validate") ? (explain ? DocumentValidationMode::kExplain
+                                           : DocumentValidationMode::kValidate)
+                                : DocumentValidationMode::kPlan;
 
-    if (root.contains("deployment")) {
-      nlohmann::json err_res;
-      if (!ResolveDeploymentBoundary(root, &target_json, &io_boundary,
-                                     &binding_def, &err_res)) {
-        if (command == "plan") {
-          err_res["plan"] = {{"layers", nlohmann::json::array()},
-                             {"topological_order", nlohmann::json::array()}};
-        }
-        std::cout << err_res.dump(2) << std::endl;
-        return 1;
-      }
-      io_boundary_ptr = &io_boundary;
-    }
-
-    if (command == "validate") {
-      auto report =
-          explain ? PipelineValidator::Explain(
-                        target_json, llm_edgeflow::ValidationPolicy::kStrict,
-                        io_boundary_ptr)
-                  : PipelineValidator::Validate(
-                        target_json, llm_edgeflow::ValidationPolicy::kStrict,
-                        io_boundary_ptr);
-      if (report.ok && binding_def != nullptr) {
-        std::string biz = target_json.value("biz_name", "");
-        if (biz != binding_def->biz_name) {
-          std::cout << ToolError("BIZ_MISMATCH",
-                                 "Pipeline biz_name '" + biz +
-                                     "' does not match binding biz_name '" +
-                                     binding_def->biz_name +
-                                     "' (at /deployment/io/io_binding)")
-                           .dump(2)
-                    << std::endl;
-          return 1;
-        }
-      }
-      auto result = report.ToJson();
-      std::cout << result.dump(2) << std::endl;
-      return report.ok ? 0 : 1;
-    } else {
-      auto planned = PipelineValidator::ValidateAndPlan(
-          target_json, llm_edgeflow::ValidationPolicy::kStrict,
-          io_boundary_ptr);
-      if (planned.report.ok && binding_def != nullptr) {
-        std::string biz = target_json.value("biz_name", "");
-        if (biz != binding_def->biz_name) {
-          nlohmann::json err_res = ToolError(
-              "BIZ_MISMATCH", "Pipeline biz_name '" + biz +
-                                  "' does not match binding biz_name '" +
-                                  binding_def->biz_name +
-                                  "' (at /deployment/io/io_binding)");
-          err_res["plan"] = {{"layers", nlohmann::json::array()},
-                             {"topological_order", nlohmann::json::array()}};
-          std::cout << err_res.dump(2) << std::endl;
-          return 1;
-        }
-      }
-      auto result = planned.report.ToJson();
-      if (planned.report.ok) {
-        result.erase("diagnostics");
-      }
-      std::cout << result.dump(2) << std::endl;
-      return planned.report.ok ? 0 : 1;
+    try {
+      auto result = llm_edgeflow::ValidatePipelineDocument(root, mode);
+      std::cout << result.response.dump(2) << std::endl;
+      return result.ok ? 0 : 1;
+    } catch (const std::exception& error) {
+      std::cout << ToolError("INTERNAL_EXCEPTION", error.what()).dump(2)
+                << std::endl;
+      return 1;
+    } catch (...) {
+      std::cout << ToolError("INTERNAL_EXCEPTION", "Unknown internal exception")
+                       .dump(2)
+                << std::endl;
+      return 1;
     }
   }
 
@@ -702,60 +461,76 @@ int main(int argc, char* argv[]) {
       }
     }
 
-    std::unique_ptr<llm_edgeflow::ValidatedIoPlan> plan;
-    std::string error;
-    int rc = llm_edgeflow::IoBindingResolver::ResolveFromFile(
-        config_path, transport, model_root, &plan, &error);
-
-    if (rc != 0 || !plan) {
-      std::string diag_path = "/";
-      auto at_pos = error.rfind("(at ");
-      if (at_pos != std::string::npos) {
-        auto end_pos = error.find(')', at_pos);
-        if (end_pos != std::string::npos) {
-          diag_path = error.substr(at_pos + 4, end_pos - (at_pos + 4));
-        }
-      } else {
-        auto at_pos2 = error.rfind("at /");
-        if (at_pos2 != std::string::npos) {
-          auto end_pos2 = error.find(':', at_pos2);
-          if (end_pos2 != std::string::npos) {
-            diag_path = error.substr(at_pos2 + 3, end_pos2 - (at_pos2 + 3));
-          }
-        }
-      }
-      nlohmann::json err_res = {
-          {"schema_version", 1},
-          {"ok", false},
-          {"diagnostics",
-           nlohmann::json::array({{{"code", "IO_VALIDATION_ERROR"},
-                                   {"path", diag_path},
-                                   {"message", error},
-                                   {"severity", "error"}}})}};
-      std::cout << err_res.dump(2) << std::endl;
+    const auto ops =
+        llm_edgeflow::operator_api::Get_LLM_EDGEFLOW_OperatorTable();
+    if (ops.Init != nullptr && ops.Init() != 0) {
+      std::cout << PipelineError(
+                       DiagnosticCode::kRegistryConflict,
+                       llm_edgeflow::operator_api::GetOperatorLastError())
+                       .dump(2)
+                << std::endl;
       return 1;
     }
+    struct OpsGuard {
+      llm_edgeflow::operator_api::OperatorFunc ops;
+      ~OpsGuard() {
+        if (ops.Deinit != nullptr) ops.Deinit();
+      }
+    } ops_guard{ops};
 
-    nlohmann::json binding_info = {
-        {"binding_id", plan->binding.binding_id},
-        {"biz_name", plan->binding.biz_name},
-        {"transport", plan->binding.transport},
-        {"input_converter_id", plan->binding.input_converter_id},
-        {"output_converter_id", plan->binding.output_converter_id},
-        {"input_port_mapping", plan->binding.input_ports},
-        {"output_port_mapping", plan->binding.output_ports},
-        {"effective_max_batch_size", plan->effective_max_batch_size},
-        {"external_input_type",
-         plan->input_converter ? plan->input_converter->external_type : ""},
-        {"external_output_type",
-         plan->output_converter ? plan->output_converter->external_type : ""}};
+    try {
+      std::unique_ptr<llm_edgeflow::ValidatedIoPlan> plan;
+      std::string error;
+      llm_edgeflow::DeploymentDiagnostic diag;
+      int rc = llm_edgeflow::IoBindingResolver::ResolveFromFile(
+          config_path, transport, model_root, &plan, &error, &diag);
 
-    nlohmann::json result = {{"schema_version", 1},
-                             {"ok", true},
-                             {"binding", std::move(binding_info)},
-                             {"diagnostics", nlohmann::json::array()}};
-    std::cout << result.dump(2) << std::endl;
-    return 0;
+      if (rc != 0 || !plan) {
+        std::string diag_path = diag.path.empty() ? "/" : diag.path;
+        std::string diag_msg = error.empty() ? diag.message : error;
+        nlohmann::json err_res = {
+            {"schema_version", 1},
+            {"ok", false},
+            {"diagnostics",
+             nlohmann::json::array({{{"code", "IO_VALIDATION_ERROR"},
+                                     {"path", diag_path},
+                                     {"message", diag_msg},
+                                     {"severity", "error"}}})}};
+        std::cout << err_res.dump(2) << std::endl;
+        return 1;
+      }
+
+      nlohmann::json binding_info = {
+          {"binding_id", plan->binding.binding_id},
+          {"biz_name", plan->binding.biz_name},
+          {"transport", plan->binding.transport},
+          {"input_converter_id", plan->binding.input_converter_id},
+          {"output_converter_id", plan->binding.output_converter_id},
+          {"input_port_mapping", plan->binding.input_ports},
+          {"output_port_mapping", plan->binding.output_ports},
+          {"effective_max_batch_size", plan->effective_max_batch_size},
+          {"external_input_type",
+           plan->input_converter ? plan->input_converter->external_type : ""},
+          {"external_output_type", plan->output_converter
+                                       ? plan->output_converter->external_type
+                                       : ""}};
+
+      nlohmann::json result = {{"schema_version", 1},
+                               {"ok", true},
+                               {"binding", std::move(binding_info)},
+                               {"diagnostics", nlohmann::json::array()}};
+      std::cout << result.dump(2) << std::endl;
+      return 0;
+    } catch (const std::exception& error) {
+      std::cout << ToolError("INTERNAL_EXCEPTION", error.what()).dump(2)
+                << std::endl;
+      return 1;
+    } catch (...) {
+      std::cout << ToolError("INTERNAL_EXCEPTION", "Unknown internal exception")
+                       .dump(2)
+                << std::endl;
+      return 1;
+    }
   }
 
   if (command == "edit") {
@@ -763,6 +538,23 @@ int main(int argc, char* argv[]) {
       Usage();
       return 2;
     }
+    const auto ops =
+        llm_edgeflow::operator_api::Get_LLM_EDGEFLOW_OperatorTable();
+    if (ops.Init != nullptr && ops.Init() != 0) {
+      std::cout << PipelineError(
+                       DiagnosticCode::kRegistryConflict,
+                       llm_edgeflow::operator_api::GetOperatorLastError())
+                       .dump(2)
+                << std::endl;
+      return 1;
+    }
+    struct OpsGuard {
+      llm_edgeflow::operator_api::OperatorFunc ops;
+      ~OpsGuard() {
+        if (ops.Deinit != nullptr) ops.Deinit();
+      }
+    } ops_guard{ops};
+
     std::string input_str;
     char buffer[65536];
     while (std::cin.read(buffer, sizeof(buffer)) || std::cin.gcount() > 0) {
@@ -817,6 +609,23 @@ int main(int argc, char* argv[]) {
         return 2;
       }
     }
+    const auto ops =
+        llm_edgeflow::operator_api::Get_LLM_EDGEFLOW_OperatorTable();
+    if (ops.Init != nullptr && ops.Init() != 0) {
+      std::cout << PipelineError(
+                       DiagnosticCode::kRegistryConflict,
+                       llm_edgeflow::operator_api::GetOperatorLastError())
+                       .dump(2)
+                << std::endl;
+      return 1;
+    }
+    struct OpsGuard {
+      llm_edgeflow::operator_api::OperatorFunc ops;
+      ~OpsGuard() {
+        if (ops.Deinit != nullptr) ops.Deinit();
+      }
+    } ops_guard{ops};
+
     try {
       auto result = llm_edgeflow::PipelineAuthoring::FixDeps(file, in_place);
       std::cout << result.ToJson().dump(2) << std::endl;
