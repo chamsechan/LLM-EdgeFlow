@@ -210,8 +210,19 @@ CLI 的 `--config` 覆盖 Profile 原配置，因此不需要新增 Profile。�
 显式传入业务、配置和数据集：
 
 ```bash
-./build/alg_demo --biz keyword_match --config configs/pipeline_first_solution.conf --dataset data/corpus_keyword_match.txt --chip cpu --batch-size 2 --output-dir results/first-solution
+./build/alg_demo --biz keyword_match --config configs/pipeline_first_solution.conf --dataset data/corpus_keyword_match.txt --output-dir results/first-solution
 ```
+
+`chip`、`device_id`、`batch_size`、`depth` 仅从 Profile JSON 读取，不支持同名 CLI
+选项。需要自定义时修改 Profile，或通过 `--profiles-file <path> --profile <name>` 选择自有
+Profile；未指定时默认值分别为 `cpu`、`0`、`1`、`1`。无 Profile 的命令按单条提交。
+平台名只接受 `ax650`、`ascend310p`、`ascend910b`、`rk3588`、`cuda`、`cpu`
+（大小写不敏感）；旧别名如 `cpu_generic`、`nvidia_gpu` 已删除。
+Studio 将这四项连同业务、配置和数据集写入运行 Profile；保存方案返回的命令引用输出目录
+中的 `demo-profile.json`；每次保存更新该文件，复制的命令读取最新运行配置。
+Studio 不为缺失执行字段补值，预检按批次和深度缺省 1 计算。
+选择 Profile 时通过原生 `resolve-conf` 获取实际 Pipeline 路径，
+相对 `pipe_path` 始终基于 `.conf` 所在目录，不搜索项目根目录下的同名文件。
 
 只有原 Profile 已指向本次方案时，才能直接用它证明本次修改已运行。
 

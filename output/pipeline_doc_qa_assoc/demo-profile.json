@@ -1,0 +1,14 @@
+{
+  "schema_version": 2,
+  "profiles": {
+    "doc_qa": {
+      "biz": "doc_qa",
+      "config": "build/rfc0057-test-lyqkkw70/configs/pipeline_doc_qa_assoc.conf",
+      "dataset": "/home/ubuntu/project/llm-ops-agy/data/corpus_doc_qa.txt",
+      "batch_size": 1,
+      "device_id": 0,
+      "chip": "cpu",
+      "depth": 1
+    }
+  }
+}

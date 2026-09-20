@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 
+#include "demo/common/demo_profile_defaults.h"
 #include "edgeflow/operator/interface.h"
 #include "nlohmann/json.hpp"
 
@@ -30,10 +31,12 @@ struct DemoOptions {
   std::string dataset_path;              // 业务测试集文件路径
   std::string output_dir = "./results";  // 结果输出根目录
 
-  int batch_size = 1;  // 最大批大小 (支持按批分块分发)
-  int device_id = 0;   // 设备 ID
-  std::string chip = "cpu";  // 计算平台芯片类型字符串 (受严格白名单校验)
-  uint32_t depth_num = 1;  // 输出结构体预分配深度
+  // Execution settings are configured only by Profile JSON (or defaults).
+  int batch_size = alg_demo::kDemoBatchSize;  // 最大批大小 (支持按批分块分发)
+  int device_id = alg_demo::kDemoDeviceId;  // 设备 ID
+  std::string chip = alg_demo::kDemoChip;   // 计算平台芯片类型字符串
+                                            // (受严格白名单校验)
+  uint32_t depth_num = alg_demo::kDemoDepth;  // 输出结构体预分配深度
 
   std::optional<std::string> control_file;  // 运行时 Control JSON 文件路径
   std::optional<int> control_cmd;  // 节点命令 ID；必须配合 control_file
@@ -50,11 +53,6 @@ struct DemoOptions {
   bool has_biz = false;
   bool has_config_path = false;
   bool has_dataset_path = false;
-  bool has_output_dir = false;
-  bool has_batch_size = false;
-  bool has_device_id = false;
-  bool has_chip = false;
-  bool has_depth_num = false;
   bool has_control_file = false;
   bool has_control_cmd = false;
   bool has_suite = false;
@@ -94,9 +92,17 @@ int LoadAndValidateProfilesDocument(const std::string& profiles_path,
                                     nlohmann::json* out_root,
                                     std::string* error_msg);
 
+// Select and merge only documents returned by LoadAndValidateProfilesDocument.
+// These operations reuse the same validated snapshot without reopening files.
+std::vector<std::string> SelectProfilesForSuite(const nlohmann::json& root,
+                                                const std::string& suite_name);
+int MergeProfileOptions(const nlohmann::json& root,
+                        const DemoOptions& cli_options,
+                        DemoOptions* out_options, std::string* error_msg);
+
 /**
  * @brief 从 demo/profiles.json 读取并与 CLI 参数进行合并
- *        优先级: 命令行显式参数 > Profile 配置 > 默认值
+ *        执行参数仅从 Profile 读取；其余参数优先级: CLI > Profile > 默认值
  * @param profiles_path profiles.json 路径
  * @param cli_options 命令行选项
  * @param out_options 合并后的最终选项
@@ -106,19 +112,6 @@ int LoadAndValidateProfilesDocument(const std::string& profiles_path,
 int LoadAndMergeProfiles(const std::string& profiles_path,
                          const DemoOptions& cli_options,
                          DemoOptions* out_options, std::string* error_msg);
-
-/**
- * @brief 根据套件名称获取满足条件的 Profile 名称列表
- * @param profiles_path profiles.json 路径
- * @param suite_name 套件名 ("smoke", "real", "all")
- * @param out_profiles 输出 Profile 标识列表
- * @param error_msg 错误输出信息
- * @return 0 成功, 非 0 错误码 (3: 格式或配置错误)
- */
-int GetProfilesForSuite(const std::string& profiles_path,
-                        const std::string& suite_name,
-                        std::vector<std::string>* out_profiles,
-                        std::string* error_msg);
 
 /**
  * @brief 打印 Demo CLI 帮助信息

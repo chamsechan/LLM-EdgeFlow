@@ -58,16 +58,17 @@ void ListProfilesAndBizs(const std::string& profiles_file) {
 }
 
 int RunSuite(const std::string& suite_name, const DemoOptions& base_cli_opts) {
-  std::vector<std::string> target_profiles;
+  nlohmann::json profiles;
   std::string err;
-  int ret = GetProfilesForSuite(base_cli_opts.profiles_file, suite_name,
-                                &target_profiles, &err);
+  int ret = LoadAndValidateProfilesDocument(base_cli_opts.profiles_file,
+                                            &profiles, &err);
   if (ret != 0) {
     std::cerr << "[Main ERROR] Failed to load suite '" << suite_name
               << "': " << err << std::endl;
     return ret;
   }
 
+  const auto target_profiles = SelectProfilesForSuite(profiles, suite_name);
   if (target_profiles.empty()) {
     std::cerr << "[Main WARN] No profiles found matching suite: " << suite_name
               << std::endl;
@@ -87,8 +88,7 @@ int RunSuite(const std::string& suite_name, const DemoOptions& base_cli_opts) {
     cli_opt.has_profile = true;
 
     DemoOptions merged_opt;
-    ret =
-        LoadAndMergeProfiles(cli_opt.profiles_file, cli_opt, &merged_opt, &err);
+    ret = MergeProfileOptions(profiles, cli_opt, &merged_opt, &err);
     if (ret != 0) {
       std::cerr << "[Main ERROR] Failed to load profile '" << prof
                 << "': " << err << std::endl;

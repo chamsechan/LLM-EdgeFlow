@@ -60,19 +60,19 @@ bool ParseComputePlatform(const std::string& chip_str,
   if (lower == "ax650") {
     *out_type = ComputePlatform::kAx650;
     return true;
-  } else if (lower == "ascend310p" || lower == "ascend_310p") {
+  } else if (lower == "ascend310p") {
     *out_type = ComputePlatform::kAscend310P;
     return true;
-  } else if (lower == "ascend910b" || lower == "ascend_910b") {
+  } else if (lower == "ascend910b") {
     *out_type = ComputePlatform::kAscend910B;
     return true;
   } else if (lower == "rk3588") {
     *out_type = ComputePlatform::kRk3588;
     return true;
-  } else if (lower == "cuda" || lower == "nvidia_gpu" || lower == "nvidiagpu") {
+  } else if (lower == "cuda") {
     *out_type = ComputePlatform::kCuda;
     return true;
-  } else if (lower == "cpu" || lower == "cpu_generic") {
+  } else if (lower == "cpu") {
     *out_type = ComputePlatform::kCpu;
     return true;
   }
@@ -152,68 +152,6 @@ int ParseCommandLine(int argc, char* argv[], DemoOptions* out_options,
         return 2;
       }
       out_options->output_dir = argv[++i];
-      out_options->has_output_dir = true;
-    } else if (arg == "--batch-size") {
-      if (i + 1 >= argc) {
-        if (error_msg) *error_msg = "Missing value for argument: " + arg;
-        return 2;
-      }
-      int64_t val = 0;
-      if (!ParseStrictInt64(argv[++i], &val) || val <= 0 || val > 100000) {
-        if (error_msg) {
-          *error_msg = "Invalid integer for --batch-size: '" +
-                       std::string(argv[i]) + "' (Must be integer 1..100000)";
-        }
-        return 2;
-      }
-      out_options->batch_size = static_cast<int>(val);
-      out_options->has_batch_size = true;
-    } else if (arg == "--device-id") {
-      if (i + 1 >= argc) {
-        if (error_msg) *error_msg = "Missing value for argument: " + arg;
-        return 2;
-      }
-      int64_t val = 0;
-      if (!ParseStrictInt64(argv[++i], &val) || val < 0 || val > 1024) {
-        if (error_msg) {
-          *error_msg = "Invalid integer for --device-id: '" +
-                       std::string(argv[i]) + "' (Must be integer 0..1024)";
-        }
-        return 2;
-      }
-      out_options->device_id = static_cast<int>(val);
-      out_options->has_device_id = true;
-    } else if (arg == "--chip") {
-      if (i + 1 >= argc) {
-        if (error_msg) *error_msg = "Missing value for argument: " + arg;
-        return 2;
-      }
-      out_options->chip = argv[++i];
-      ComputePlatform dummy;
-      if (!ParseComputePlatform(out_options->chip, &dummy)) {
-        if (error_msg) {
-          *error_msg = "Unsupported chip type: '" + out_options->chip +
-                       "'. Allowed: ax650, ascend310p, ascend910b, rk3588, "
-                       "cuda, cpu";
-        }
-        return 2;
-      }
-      out_options->has_chip = true;
-    } else if (arg == "--depth") {
-      if (i + 1 >= argc) {
-        if (error_msg) *error_msg = "Missing value for argument: " + arg;
-        return 2;
-      }
-      int64_t val = 0;
-      if (!ParseStrictInt64(argv[++i], &val) || val <= 0 || val > 100000) {
-        if (error_msg) {
-          *error_msg = "Invalid integer for --depth: '" + std::string(argv[i]) +
-                       "' (Must be integer 1..100000)";
-        }
-        return 2;
-      }
-      out_options->depth_num = static_cast<uint32_t>(val);
-      out_options->has_depth_num = true;
     } else if (arg == "--control-cmd") {
       int64_t value = 0;
       if (i + 1 >= argc || !ParseStrictInt64(argv[++i], &value) || value <= 0 ||
@@ -440,32 +378,15 @@ int LoadAndValidateProfilesDocument(const std::string& profiles_path,
   return 0;
 }
 
-int GetProfilesForSuite(const std::string& profiles_path,
-                        const std::string& suite_name,
-                        std::vector<std::string>* out_profiles,
-                        std::string* error_msg) {
-  if (!out_profiles) {
-    if (error_msg) *error_msg = "Null out_profiles pointer";
-    return 3;
-  }
-  out_profiles->clear();
-
-  nlohmann::json root;
-  int ret = LoadAndValidateProfilesDocument(profiles_path, &root, error_msg);
-  if (ret != 0) {
-    return ret;
-  }
-
-  const auto& profiles = root["profiles"];
-  for (const auto& [name, p] : profiles.items()) {
-    std::string s =
-        p.contains("suite") ? p["suite"].get<std::string>() : "smoke";
-    if (suite_name == "all" || s == suite_name) {
-      out_profiles->push_back(name);
+std::vector<std::string> SelectProfilesForSuite(const nlohmann::json& root,
+                                                const std::string& suite_name) {
+  std::vector<std::string> profiles;
+  for (const auto& [name, profile] : root["profiles"].items()) {
+    if (suite_name == "all" || profile.value("suite", "smoke") == suite_name) {
+      profiles.push_back(name);
     }
   }
-
-  return 0;
+  return profiles;
 }
 
 int LoadAndMergeProfiles(const std::string& profiles_path,
@@ -489,6 +410,17 @@ int LoadAndMergeProfiles(const std::string& profiles_path,
     return ret;
   }
 
+  return MergeProfileOptions(root, cli_options, out_options, error_msg);
+}
+
+int MergeProfileOptions(const nlohmann::json& root,
+                        const DemoOptions& cli_options,
+                        DemoOptions* out_options, std::string* error_msg) {
+  if (!out_options) {
+    if (error_msg) *error_msg = "Null out_options pointer";
+    return 3;
+  }
+  *out_options = cli_options;
   const auto& profiles = root["profiles"];
   if (!profiles.contains(cli_options.profile)) {
     if (error_msg) {
@@ -523,16 +455,16 @@ int LoadAndMergeProfiles(const std::string& profiles_path,
   if (p.contains("suite") && !cli_options.has_suite) {
     out_options->suite = p["suite"].get<std::string>();
   }
-  if (p.contains("batch_size") && !cli_options.has_batch_size) {
+  if (p.contains("batch_size")) {
     out_options->batch_size = static_cast<int>(p["batch_size"].get<int64_t>());
   }
-  if (p.contains("device_id") && !cli_options.has_device_id) {
+  if (p.contains("device_id")) {
     out_options->device_id = static_cast<int>(p["device_id"].get<int64_t>());
   }
-  if (p.contains("chip") && !cli_options.has_chip) {
+  if (p.contains("chip")) {
     out_options->chip = p["chip"].get<std::string>();
   }
-  if (p.contains("depth") && !cli_options.has_depth_num) {
+  if (p.contains("depth")) {
     out_options->depth_num = static_cast<uint32_t>(p["depth"].get<int64_t>());
   }
   if (p.contains("control_file") && !cli_options.has_control_file) {
@@ -558,6 +490,8 @@ void PrintHelp(const char* program_name) {
   std::cout
       << "Usage: " << program_name << " [options]\n\n"
       << "Profile & Suite Options:\n"
+      << "  --profiles-file <path>     Profile document (default: "
+         "demo/profiles.json)\n"
       << "  -p, --profile <name>       Run with a pre-configured profile\n"
       << "  --suite <smoke|real|all>   Run an entire suite of profiles\n"
       << "  -l, --list                 List all available biz cases and "
@@ -569,18 +503,7 @@ void PrintHelp(const char* program_name) {
       << "  -d, --dataset <path>        Business dataset path\n"
       << "  -o, --output-dir <path>    Results output directory (default: "
          "./results)\n\n"
-      << "Execution Tuning Options:\n"
-      << "  --batch-size <n>           Max batch size for Operator execution "
-         "(default: 1)\n"
-      << "  --device-id <n>            Target hardware device ID (default: 0)\n"
-      << "  --profiles-file <path>     Profile document (default: "
-         "demo/profiles.json)\n"
-      << "  --chip <name>              Compute platform name (ax650, "
-         "ascend310p, "
-         "ascend910b,\n"
-      << "                             rk3588, cuda, cpu)\n"
-      << "  --depth <n>                Output descriptor depth count (default: "
-         "1)\n"
+      << "Runtime Control & Output Options:\n"
       << "  --example-control          Apply the built-in Demo example update "
          "(keyword_match)\n"
       << "  --control-file <path>      Runtime control parameters JSON file\n"
@@ -590,6 +513,11 @@ void PrintHelp(const char* program_name) {
       << "  --allow-fallback-sample    Allow using fallback inline samples if "
          "dataset is missing\n"
       << "  -h, --help                 Display this help message\n\n"
+      << "Execution settings are read only from Profile JSON: "
+         "chip, device_id, batch_size, depth.\n"
+      << "Defaults without Profile values: " << alg_demo::kDemoChip << ", "
+      << alg_demo::kDemoDeviceId << ", " << alg_demo::kDemoBatchSize << ", "
+      << alg_demo::kDemoDepth << ".\n"
       << std::endl;
 }
 

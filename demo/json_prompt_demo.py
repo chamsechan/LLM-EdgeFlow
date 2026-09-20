@@ -62,7 +62,6 @@ def _run_demo_impl(requests, config, biz, work_dir, executable):
     command = [
         str(executable), "--biz", biz, "--config", str(config),
         "--dataset", str(dataset), "--output-dir", str(output_dir),
-        "--batch-size", "1", "--chip", "cpu_generic",
     ]
     # Keep native diagnostic output out of the JSON string response stream.
     with (work_dir / "demo.log").open("w", encoding="utf-8") as log:

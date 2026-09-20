@@ -268,8 +268,7 @@ def evaluate(pipeline, selection, tool, model_root, spec_path, conf_path, demo):
         (temporary / "pipeline.json").write_text(json.dumps(pipeline))
         (temporary / "pipeline.conf").write_text(json.dumps(generated_conf))
         command = [str(Path(demo).resolve()), "--biz", biz, "--config", str(relative / "pipeline.conf"),
-                   "--dataset", str(dataset), "--output-dir", str(temporary / "results"),
-                   "--chip", "cpu", "--device-id", "0", "--batch-size", "1", "--depth", "1"]
+                   "--dataset", str(dataset), "--output-dir", str(temporary / "results")]
         process = subprocess.run(command, cwd=bundle_root, text=True, capture_output=True, timeout=1800, check=False)
         if process.returncode:
             raise ValueError("Effect run failed: " + (process.stdout + process.stderr)[-3000:])

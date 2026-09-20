@@ -17,6 +17,7 @@
 #include "core/diagnostic_code.h"
 #include "core/pipeline_catalog.h"
 #include "core/pipeline_validator.h"
+#include "demo/common/demo_profile_defaults.h"
 #include "edgeflow/operator/interface.h"
 #include "nlohmann/json.hpp"
 #include "pipeline_document_validation.h"
@@ -70,32 +71,15 @@ bool ReadJson(const std::string& path, nlohmann::json* output,
   }
 }
 
-std::optional<fs::path> ProfilePipeline(
-    const std::string& profile, nlohmann::json* profile_json = nullptr) {
-  std::ifstream profiles_stream("demo/profiles.json");
-  if (!profiles_stream.is_open()) return std::nullopt;
-  nlohmann::json root;
-  profiles_stream >> root;
-  if (!root.contains("profiles") || !root["profiles"].contains(profile))
-    return std::nullopt;
-  const auto& selected = root["profiles"][profile];
-  if (profile_json) *profile_json = selected;
-  fs::path conf_path = selected["config"].get<std::string>();
-  std::ifstream conf_stream(conf_path);
-  if (!conf_stream.is_open()) return std::nullopt;
-  nlohmann::json conf;
-  conf_stream >> conf;
-  if (!conf.is_object() || !conf.contains("pipe_path") ||
-      !conf["pipe_path"].is_string()) {
+std::optional<fs::path> ProfilePipeline(const nlohmann::json& profile) {
+  llm_edgeflow::DeploymentIoConfig config;
+  std::string error;
+  if (!profile.contains("config") || !profile["config"].is_string() ||
+      !llm_edgeflow::DeploymentIoConfig::ReadFromFile(
+          profile["config"].get<std::string>(), "operator", &config, &error)) {
     return std::nullopt;
   }
-  fs::path pipe_path = conf["pipe_path"].get<std::string>();
-  if (pipe_path.is_relative()) {
-    if (!fs::exists(pipe_path)) {
-      pipe_path = conf_path.parent_path() / pipe_path;
-    }
-  }
-  return pipe_path.lexically_normal();
+  return fs::path(config.resolved_pipe_path);
 }
 
 nlohmann::json ProfilesJson(const std::string& biz_filter) {
@@ -106,22 +90,24 @@ nlohmann::json ProfilesJson(const std::string& biz_filter) {
   try {
     stream >> root;
     for (const auto& [name, profile] : root["profiles"].items()) {
-      auto pipeline_path = ProfilePipeline(name);
+      auto pipeline_path = ProfilePipeline(profile);
       if (!pipeline_path) continue;
       nlohmann::json pipeline;
       std::string error;
       if (!ReadJson(pipeline_path->string(), &pipeline, &error)) continue;
       std::string pipeline_biz = pipeline.value("biz_name", "");
       if (!biz_filter.empty() && pipeline_biz != biz_filter) continue;
-      result.push_back({{"name", name},
-                        {"biz", profile.value("biz", "")},
-                        {"pipeline_biz", pipeline_biz},
-                        {"config", profile.value("config", "")},
-                        {"dataset", profile.value("dataset", "")},
-                        {"suite", profile.value("suite", "smoke")},
-                        {"batch_size", profile.value("batch_size", 1)},
-                        {"device_id", profile.value("device_id", 0)},
-                        {"chip", profile.value("chip", "ax650")}});
+      result.push_back(
+          {{"name", name},
+           {"biz", profile.value("biz", "")},
+           {"pipeline_biz", pipeline_biz},
+           {"config", profile.value("config", "")},
+           {"dataset", profile.value("dataset", "")},
+           {"suite", profile.value("suite", "smoke")},
+           {"batch_size",
+            profile.value("batch_size", alg_demo::kDemoBatchSize)},
+           {"device_id", profile.value("device_id", alg_demo::kDemoDeviceId)},
+           {"chip", profile.value("chip", std::string(alg_demo::kDemoChip))}});
     }
   } catch (...) {
     return nlohmann::json::array();
@@ -199,9 +185,6 @@ nlohmann::json ResolveConf(const std::string& file, const std::string& root,
       {"effective_pipeline", std::move(effective)},
       {"model_paths", std::move(paths)},
       {"output_pools", output_pools}};
-  if (output_pools.size() == 1) {
-    configuration["output_pool"] = output_pools.begin().value();
-  }
   return {{"schema_version", 1},
           {"ok", true},
           {"configuration", std::move(configuration)}};
@@ -354,8 +337,14 @@ int main(int argc, char* argv[]) {
                                {"models", nlohmann::json::array()},
                                {"pipeline", nlohmann::json::array()}};
     if (!profile.empty()) {
-      auto path = ProfilePipeline(profile);
       std::string error;
+      nlohmann::json profiles;
+      std::optional<fs::path> path;
+      if (ReadJson("demo/profiles.json", &profiles, &error) &&
+          profiles.contains("profiles") && profiles["profiles"].is_object() &&
+          profiles["profiles"].contains(profile)) {
+        path = ProfilePipeline(profiles["profiles"][profile]);
+      }
       if (!path || !ReadJson(path->string(), &pipeline, &error) ||
           pipeline.value("biz_name", "") != biz) {
         std::cout << ToolError("PROFILE_MISMATCH",

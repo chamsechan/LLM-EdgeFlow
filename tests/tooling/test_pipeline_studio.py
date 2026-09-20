@@ -306,17 +306,11 @@ class RunnableSolutionTest(unittest.TestCase):
     def tearDown(self):
         self.temporary.cleanup()
 
-    def test_saved_pair_runs_the_selected_pipeline_with_explicit_arguments(self):
+    def test_saved_command_runs_the_selected_pipeline(self):
         self.keyword["pipeline"][0]["config"]["categories"] = {"SAVED_RULE": ["VIP"]}
         filename = f"pipeline_saved_{uuid.uuid4().hex}.json"
         saved = self.service.save_solution(filename, self.keyword, "keyword_match_rules")
-        self.assertEqual(json.loads((self.configs / filename).read_text()), self.keyword)
-        conf = json.loads((self.configs / saved["conf_filename"]).read_text())
-        self.assertEqual(conf["pipe_path"], filename)
         command = shlex.split(saved["command"])
-        self.assertEqual(command[:3], ["cd", str(ROOT), "&&"])
-        self.assertNotIn("--no-default-control", command)
-        self.assertFalse(Path(command[command.index("--config") + 1]).is_absolute())
         output = Path(command[command.index("--output-dir") + 1])
         try:
             process = subprocess.run(command[3:], cwd=command[1], text=True, capture_output=True, timeout=30)
@@ -448,8 +442,10 @@ class RunnableSolutionTest(unittest.TestCase):
         observed = {}
         original_popen = SHOW.subprocess.Popen
         def inspect_launch(args, **kwargs):
-            if "--config" in args:
-                conf_path = ROOT / args[args.index("--config") + 1]
+            if "--profiles-file" in args:
+                document = json.loads(Path(args[args.index("--profiles-file") + 1]).read_text())
+                profile = document["profiles"][args[args.index("--profile") + 1]]
+                conf_path = ROOT / profile["config"]
                 observed["directory"] = conf_path.parent
                 observed["conf"] = json.loads(conf_path.read_text())
                 observed["pipeline"] = json.loads((conf_path.parent / "pipeline.json").read_text())

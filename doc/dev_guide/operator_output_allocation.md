@@ -142,7 +142,7 @@ binding.normalize_parameters =
 
 `alg_pipeline_tool resolve-conf` 在 `configuration.output_pools` 按逻辑槽位展示有效
 方案与框架容量，`params` 是交给结构体解析函数的**字符串**（例如
-`"{\"kind\":1,\"capacity\":8}"`），不包含该解析函数内部补齐的默认值。单输出还保留
-相同内容的 `output_pool`。现有 Demo/Studio Profile 使用原单输出
+`"{\"kind\":1,\"capacity\":8}"`），不包含该解析函数内部补齐的默认值。单输出同样通过 `output_pools` 按槽位读取。
+现有 Demo/Studio Profile 使用原单输出
 业务；新多输出业务由其宿主调用或相应 Demo 扩展验证。公开 C ABI 的输出契约不受
 Operator 方案选择影响；若新增 C ABI 动态输出，应另外定义完整的缓冲区所有权契约。
