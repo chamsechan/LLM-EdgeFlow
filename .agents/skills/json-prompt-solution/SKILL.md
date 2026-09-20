@@ -1,6 +1,6 @@
 ---
 name: json-prompt-solution
-description: Add LLM-EdgeFlow prompt solutions and demos with complete JSON requests and responses at the Operator SDK boundary. Reuse nodes and text carriers; keep external field selection and response assembly in registered Adapters.
+description: Build LLM-EdgeFlow solutions that transform a field from a complete JSON request into a prompt result and a complete JSON response at the Operator boundary.
 ---
 
 # JSON Prompt Solution
@@ -55,7 +55,7 @@ JSON 内的 query / translated；名称不够通用并不要求全仓改名。
 
 ## 验证与交付
 
-- 重建注册，使用生产 `alg_pipeline_tool` 执行 Catalog、validate、plan、resolve-conf。
+- 按 `pipeline-composer` 验证本次配置；注册或构建变化时重建工具，不为未变化的资产重复构建。
   有意使用测试资产时全程选测试工具，不用测试工具绕过生产失败。
 - 业务 I/O 契约变化时，扩展现有 Adapter/Operator 套件，直接调用 Operator `Process` 输入完整对象。
   可用计数测试模型确定性验证原文输入、单次生成和 C++ 响应组装，再运行真实模型确认效果。
@@ -64,8 +64,9 @@ JSON 内的 query / translated；名称不够通用并不要求全仓改名。
   不为每个提示词创建新测试框架或执行文件；沿用已有套件。
 - 用本次配置运行用户样例，检查原生 ID、逐条状态、汇总和最终 JSON；再执行最终门禁。
   没有权重时明确真实效果未验证，按项目资产清单准备资源，不把替身输出当效果。
-- 按根 `AGENTS.md` 分别委派测试编写、编译、测试执行给不同子 agent，遵循源码依赖顺序，
-  由主 agent 实现和复核；交付流程仍以 `CONTRIBUTING.md` 为准。
+- 按根 `AGENTS.md` 的职责和风险选择子 agent，不强制将编译与测试执行拆给不同 agent。
+  实现任务包含相应测试；Verifier 负责最终门禁，发现问题交回源码或测试责任人修复。
+  交付流程与完成条件以 `CONTRIBUTING.md` 为准，不另加重复的全量门禁。
 - 交付一条可复制命令、Operator 实际输入/输出示例、配置位置和准确的修改范围。
   若复用旧载体名，说明其含义。未经用户要求不上传或创建 PR。
 

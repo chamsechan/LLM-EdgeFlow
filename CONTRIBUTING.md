@@ -16,8 +16,9 @@ Choose the smallest path that covers the change:
 | Local bug, test, documentation, behavior-preserving refactor, or routine custom Node using existing contracts | Create a branch, implement, and add proportional tests; normally no RFC. |
 | Public contract, cross-layer architecture, compatibility/migration policy, new shared Node/Model/Backend capability, dependency, or high-risk ownership/concurrency/security/performance decision | Create a branch and RFC before implementation. |
 
-If classification changes during investigation, stop implementation at the newly discovered
-boundary and add the required RFC or route to the relevant layer guide.
+If classification changes during investigation, pause only work crossing the newly discovered
+boundary, add the required RFC or route to the affected-layer guide, and resolve the decision
+before that work resumes. A route change alone is not completion of an implementation request.
 
 ## 2. Work on an isolated branch
 
@@ -49,6 +50,34 @@ change may still use an RFC when the decision is contentious or has lasting oper
 Create RFCs from [RFC_TEMPLATE.md](doc/rfcs/RFC_TEMPLATE.md), add them to the index, and keep
 scope, invariants, decisions, and verification current while implementing.
 
+### RFC lookup
+
+RFCs are durable decision records, not default development context. Start routine work from
+current guides and affected code/tests. Do not pre-read the index or bulk-read RFC, review, or
+archive trees; exclude those trees from ordinary code searches unless the task needs them.
+A citation in a guide alone does not require opening an RFC.
+
+Read relevant RFC material for an explicit RFC task, implementation/review against its
+requirements, an architecture/contract/migration decision that needs its governing rationale
+or acceptance criteria, or unclear/conflicting intent in current sources. The creation
+thresholds above still apply; reading less never exempts a required new RFC.
+
+For a known number/path, locate that RFC directly. Search only matching index rows when its
+path, status, or supersession is unclear; otherwise skip the index. For an unknown RFC, search
+index titles/topics before RFC bodies. Read relevant headings/sections and expand only for
+necessary dependencies. Open the template to author an RFC, not as routine startup reading;
+open linked reviews only when their evidence is needed.
+
+For RFC implementation/review, cover every applicable requirement, invariant, migration step,
+stage checkpoint, and acceptance criterion before claiming completion. Selected snippets do
+not prove full coverage; read the whole relevant RFC when necessary. Pass delegated work
+specific paths/sections and decisions, not an entire history; expand for its actual scope.
+
+Check status, target baseline, and explicit supersession. `Completed` does not mean obsolete;
+`Proposed` does not mean implemented. Current docs/code/tests guide discovery, not silent
+overrides of an applicable approved contract. Surface conflicts and resolve whether they are
+bugs, stale documentation, or authorized design changes before crossing that boundary.
+
 ## 4. Implement at the narrowest layer
 
 - Query the runtime Catalog before adding a capability.
@@ -58,6 +87,31 @@ scope, invariants, decisions, and verification current while implementing.
   it already owns the contract; create a new test target only for a genuinely independent suite.
 - During development, run the smallest relevant build/test command for fast feedback. This is
   not a delivery gate.
+
+### Work through the requested outcome
+
+Within the authorized scope, continue from implementation to focused checks, inspect results,
+fix change-caused failures, and revalidate. Ordinary local edits and check/fix retries do not
+need a new user approval for each command, subject to tool permissions and sandbox policy.
+A failed check is a diagnostic signal, not automatic permission to weaken assertions, skip a
+gate, or expand into unrelated fixes. Report unrelated baseline failures separately.
+
+Before running unfamiliar commands, check their side effects. This policy does not authorize
+remote writes, production access, paid services, destructive cleanup, internal SDK access, or
+changes beyond the agreed scope. Resolve genuinely new public-contract/architecture decisions
+and required approvals before crossing those boundaries; do not bypass an explicit checkpoint.
+
+For complex architecture changes, define independently testable stages with acceptance criteria
+and a rollback path (including staged stubs when useful). Finish and verify each stage before
+advancing; honor user-required acceptance checkpoints. A failed or unaccepted stage must not
+be reported as complete or used to justify progressing to the next stage.
+
+Done means the requested behavior/configuration is implemented, any needed tests and
+documentation are updated, required checks have passed, and observable results have been
+inspected. Unchanged behavior does not require new tests merely to create a test diff. A requested runnable solution also needs execution of its actual edited
+configuration, not just a compiled Node or an unchanged Demo Profile. Read-only review requests
+end with findings, not unsolicited implementation. Missing assets/tools/permissions require a
+precise blocked or unverified report, not a success claim or a fictitious test result.
 
 ### Source and identifier names
 

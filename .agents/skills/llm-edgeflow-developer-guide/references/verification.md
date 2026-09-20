@@ -27,14 +27,15 @@ framework-specific evidence.
    [CONTRIBUTING](../../../../CONTRIBUTING.md#6-run-one-canonical-delivery-gate): run it directly
    for a local handoff, or let the authorized delivery script run it before pushing. Do not
    require both invocations for the same delivery.
-6. Record any non-default sanitizer, real-model, hardware, performance, or compatibility evidence required by the RFC. Do not substitute it for the canonical gate.
-7. Finish RFC status and durable documentation according to `CONTRIBUTING.md`. Remote delivery remains out of scope unless explicitly requested; if requested, use `github-branch-merge`.
+6. Record any non-default sanitizer, real-model, hardware, performance, or compatibility evidence required by the task or an applicable RFC. Do not substitute it for the canonical gate.
+7. Update durable documentation and, for RFC-scoped work, RFC status according to `CONTRIBUTING.md`. Use its [RFC lookup](../../../../CONTRIBUTING.md#rfc-lookup) policy; verification does not require unrelated RFCs. Remote delivery remains out of scope unless explicitly requested; if requested, use `github-branch-merge`.
 
 Report evidence at its actual level: static configuration/plan validation; executed business
 path and checked results; real-model effects and target-platform acceptance where required.
 The canonical gate disables the dedicated real-model E2E suite, and backend-specific tests can
 skip without assets. Report skips and unverified scope rather than treating a passing gate or
 Mock output as production acceptance. Use [effects verification](../../../../doc/VERIFIABLE_SELECTION.md)
-and [RFC-0029](../../../../doc/rfcs/0029-external-readiness-and-intranet-sdk-migration.md) for the
-applicable business and target-environment evidence; ordinary development does not require all
-production acceptance work.
+when business effects acceptance is in scope. Read the relevant sections of
+[RFC-0029](../../../../doc/rfcs/0029-external-readiness-and-intranet-sdk-migration.md) only for
+migration or target-environment acceptance work; ordinary development needs neither its full
+text nor all production acceptance work. The root AGENTS internal-SDK restrictions still apply.
