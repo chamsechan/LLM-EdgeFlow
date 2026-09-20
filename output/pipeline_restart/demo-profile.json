@@ -3,7 +3,7 @@
   "profiles": {
     "entity_extract": {
       "biz": "entity_extract",
-      "config": "build/studio-test-xibl565f/configs/pipeline_restart.conf",
+      "config": "build/studio-test-olbdai0a/configs/pipeline_restart.conf",
       "dataset": "/home/ubuntu/project/llm-ops-agy/data/corpus_entity_extract.txt",
       "batch_size": 1,
       "device_id": 0,
