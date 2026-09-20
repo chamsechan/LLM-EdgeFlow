@@ -1,10 +1,7 @@
-#include <fstream>
 #include <iostream>
-#include <memory>
 #include <string>
 #include <vector>
 
-#include "demo/common/dataset_reader.h"
 #include "demo/common/demo_options.h"
 #include "demo/common/demo_registry.h"
 #include "edgeflow/operator/interface.h"

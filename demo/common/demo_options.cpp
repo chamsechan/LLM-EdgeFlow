@@ -6,7 +6,6 @@
 #include <fstream>
 #include <iostream>
 #include <limits>
-#include <sstream>
 
 #include "demo/common/dataset_reader.h"
 #include "edgeflow/log.h"
