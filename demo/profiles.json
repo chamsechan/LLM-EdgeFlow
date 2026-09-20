@@ -18,7 +18,7 @@
       "suite": "real",
       "batch_size": 1,
       "device_id": 0,
-      "chip": "cpu_generic",
+      "chip": "cpu",
       "depth": 1
     },
     "keyword_match_rules": {
@@ -48,7 +48,7 @@
       "suite": "real",
       "batch_size": 1,
       "device_id": 0,
-      "chip": "cpu_generic",
+      "chip": "cpu",
       "depth": 1
     },
     "doc_qa_rerank_mock": {
@@ -68,7 +68,7 @@
       "suite": "real",
       "batch_size": 1,
       "device_id": 0,
-      "chip": "cpu_generic",
+      "chip": "cpu",
       "depth": 1
     },
     "dialogue_audit_mock": {
@@ -118,7 +118,7 @@
       "suite": "real",
       "batch_size": 1,
       "device_id": 0,
-      "chip": "cpu_generic",
+      "chip": "cpu",
       "depth": 1
     },
     "entity_extract_custom_mock": {

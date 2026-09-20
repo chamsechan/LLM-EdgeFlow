@@ -141,6 +141,10 @@ JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代�
 
 `.conf` 仅作为定位文件，包含单一字段 `pipe_path`，相对 `.conf` 所在目录解析（例如在 `configs/pipeline_keyword_match_rules.conf` 中填写 `pipeline_keyword_match_rules.json`）。宿主直接调用 Operator 时，部署根为 Create 的 `model_path`；同时在 Pipeline JSON 的 `deployment` 中核对 `model_paths` 覆盖与 `io.output_allocations` 输出容量。Profile 不会自动指向新方案，详细命令见[运行当前方案](../../tools/pipeline_studio/README.md#运行当前方案)。
 
+Demo 的 `chip`、`device_id`、`batch_size`、`depth` 只从 Profile JSON 读取；对应 CLI
+选项已删除。使用 `--profiles-file <path> --profile <name>` 选择自有配置。未选 Profile
+或未提供字段时使用 `cpu`、`0`、`1`、`1`。业务、配置路径、数据集等其他 CLI 覆盖仍有效。
+
 ## 6. 输出容量与生命周期
 
 宿主输入是借用视图，底层字符串、数组和结构体必须保持有效直到 `Process` 返回。

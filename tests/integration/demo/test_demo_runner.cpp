@@ -185,7 +185,7 @@ TEST(DemoRunnerTest, RealKiteEntityExtractionThroughOperator) {
   opts.config_path = (temporary.path / "pipeline.conf").string();
   opts.dataset_path = (temporary.path / "input.txt").string();
   opts.output_dir = (temporary.path / "output").string();
-  opts.chip = "cpu_generic";
+  opts.chip = "cpu";
   opts.device_id = 0;
   opts.batch_size = 1;
   const auto* desc = DemoRegistry::Instance().Find(opts.biz);
@@ -249,14 +249,6 @@ TEST(DemoRunnerTest, CommandLineParsingSuccess) {
                         "data/corpus_entity_extract.txt",
                         "--output-dir",
                         "./results/test_out",
-                        "--batch-size",
-                        "4",
-                        "--device-id",
-                        "1",
-                        "--chip",
-                        "cpu_generic",
-                        "--depth",
-                        "2",
                         "--suite",
                         "smoke",
                         "--append",
@@ -273,14 +265,11 @@ TEST(DemoRunnerTest, CommandLineParsingSuccess) {
             "demo/fixtures/mock/pipeline_entity_extract.conf");
   EXPECT_EQ(opts.dataset_path, "data/corpus_entity_extract.txt");
   EXPECT_EQ(opts.output_dir, "./results/test_out");
-  EXPECT_EQ(opts.batch_size, 4);
-  EXPECT_EQ(opts.device_id, 1);
-  EXPECT_EQ(opts.chip, "cpu_generic");
-  EXPECT_EQ(opts.depth_num, 2u);
+  EXPECT_EQ(opts.batch_size, 1);
+  EXPECT_EQ(opts.device_id, 0);
+  EXPECT_EQ(opts.chip, "cpu");
+  EXPECT_EQ(opts.depth_num, 1u);
   EXPECT_EQ(opts.suite, "smoke");
-  EXPECT_TRUE(opts.has_batch_size);
-  EXPECT_TRUE(opts.has_device_id);
-  EXPECT_TRUE(opts.has_chip);
   EXPECT_TRUE(opts.has_suite);
   EXPECT_TRUE(opts.append);
   EXPECT_TRUE(opts.allow_fallback_sample);
@@ -306,7 +295,7 @@ TEST(DemoRunnerTest, RejectsLegacyBusinessFlag) {
   EXPECT_NE(err.find("Unknown CLI option"), std::string::npos);
 }
 
-// P2-1: 测试 CLI 参数严格解析 (尾随字符拦截与错误退出码 2)
+// CLI errors retain exit code 2.
 TEST(DemoRunnerTest, CommandLineParsingErrors) {
   DemoOptions opts;
   std::string err;
@@ -319,39 +308,22 @@ TEST(DemoRunnerTest, CommandLineParsingErrors) {
   const char* argv2[] = {"alg_demo", "--profile"};
   EXPECT_EQ(ParseCommandLine(2, const_cast<char**>(argv2), &opts, &err), 2);
 
-  // 非法 batch_size (负数)
-  const char* argv3[] = {"alg_demo", "--batch-size", "-1"};
-  EXPECT_EQ(ParseCommandLine(3, const_cast<char**>(argv3), &opts, &err), 2);
-
-  // 非法 batch_size (超大数值溢出拦截)
-  const char* argv3_overflow[] = {"alg_demo", "--batch-size", "4294967297"};
-  EXPECT_EQ(
-      ParseCommandLine(3, const_cast<char**>(argv3_overflow), &opts, &err), 2);
-
-  // P2-1: 非法 batch_size (含尾随非法字符 "1abc")
-  const char* argv3_trailing[] = {"alg_demo", "--batch-size", "1abc"};
-  EXPECT_EQ(
-      ParseCommandLine(3, const_cast<char**>(argv3_trailing), &opts, &err), 2);
-
-  // P2-1: 非法 device-id (含尾随字符 "0xyz")
-  const char* argv_dev_trailing[] = {"alg_demo", "--device-id", "0xyz"};
-  EXPECT_EQ(
-      ParseCommandLine(3, const_cast<char**>(argv_dev_trailing), &opts, &err),
-      2);
-
-  // P2-1: 非法 depth (含尾随字符 "2foo")
-  const char* argv_depth_trailing[] = {"alg_demo", "--depth", "2foo"};
-  EXPECT_EQ(
-      ParseCommandLine(3, const_cast<char**>(argv_depth_trailing), &opts, &err),
-      2);
-
-  // 非法 chip
-  const char* argv4[] = {"alg_demo", "--chip", "unsupported_dsp"};
-  EXPECT_EQ(ParseCommandLine(3, const_cast<char**>(argv4), &opts, &err), 2);
-
   // 非法 suite
   const char* argv5[] = {"alg_demo", "--suite", "invalid_suite"};
   EXPECT_EQ(ParseCommandLine(3, const_cast<char**>(argv5), &opts, &err), 2);
+}
+
+TEST(DemoRunnerTest, RejectsProfileOnlyExecutionFlags) {
+  for (const char* flag :
+       {"--batch-size", "--device-id", "--chip", "--depth"}) {
+    SCOPED_TRACE(flag);
+    const char* argv[] = {"alg_demo", flag, "1"};
+    DemoOptions options;
+    std::string error;
+    EXPECT_EQ(ParseCommandLine(3, const_cast<char**>(argv), &options, &error),
+              2);
+    EXPECT_EQ(error, "Unknown CLI option: '" + std::string(flag) + "'");
+  }
 }
 
 // 2. 测试芯片白名单解析
@@ -375,22 +347,21 @@ TEST(DemoRunnerTest, ComputePlatformWhitelistValidation) {
   EXPECT_TRUE(ParseComputePlatform("rk3588", &type));
   EXPECT_EQ(type, ComputePlatform::kRk3588);
 
-  EXPECT_TRUE(ParseComputePlatform("nvidia_gpu", &type));
+  EXPECT_TRUE(ParseComputePlatform("cuda", &type));
   EXPECT_EQ(type, ComputePlatform::kCuda);
 
-  EXPECT_TRUE(ParseComputePlatform("cpu_generic", &type));
+  EXPECT_TRUE(ParseComputePlatform("cpu", &type));
   EXPECT_EQ(type, ComputePlatform::kCpu);
 
+  EXPECT_FALSE(ParseComputePlatform("cpu_generic", &type));
   EXPECT_FALSE(ParseComputePlatform("invalid_hardware", &type));
   EXPECT_EQ(type, ComputePlatform::kUnknown);
 }
 
-// 3. 测试 Profile 加载、合并与 P1-1 CLI 显式默认值覆盖
+// 3. Profile loading and remaining CLI overrides.
 TEST(DemoRunnerTest, ProfileLoadAndMerge) {
   DemoOptions cli_opts;
   cli_opts.profile = "entity_extract_mock";
-  cli_opts.batch_size = 8;
-  cli_opts.has_batch_size = true;
 
   DemoOptions merged;
   std::string err;
@@ -402,29 +373,59 @@ TEST(DemoRunnerTest, ProfileLoadAndMerge) {
             "demo/fixtures/mock/pipeline_entity_extract.conf");
   EXPECT_EQ(merged.dataset_path, "data/corpus_entity_extract.txt");
   EXPECT_EQ(merged.chip, "cpu");
-  EXPECT_EQ(merged.batch_size, 8);  // CLI 覆盖 Profile 的默认 1
+  EXPECT_EQ(merged.batch_size, 1);
 }
 
-// P1-1: 验证 CLI 显式传入默认值 (例如 --batch-size 1) 可以可靠覆盖 Profile 中非
-// 1 的 batch_size
-TEST(DemoRunnerTest, CliOverridesProfileEvenWithExplicitDefault) {
-  const char* argv[] = {"alg_demo", "--profile", "cross_rerank_cpu",
-                        "--batch-size", "1"};
-  int argc = 5;
+TEST(DemoRunnerTest, ProfileOwnsExecutionSettings) {
+  KiteDemoDirectory temporary;
+  const std::string path = (temporary.path / "profiles.json").string();
+  const nlohmann::json profile = {
+      {"biz", "keyword_match"},
+      {"config", "configs/pipeline_keyword_match_rules.conf"},
+      {"dataset", "data/corpus_keyword_match.txt"},
+      {"batch_size", 4},
+      {"device_id", 2},
+      {"chip", "cuda"},
+      {"depth", 8}};
+  auto write_profile = [&](const nlohmann::json& value) {
+    std::ofstream(path) << nlohmann::json(
+        {{"schema_version", 2}, {"profiles", {{"execution", value}}}});
+  };
+  write_profile(profile);
+  DemoOptions cli, merged;
+  cli.profile = "execution";
+  std::string error;
+  ASSERT_EQ(LoadAndMergeProfiles(path, cli, &merged, &error), 0) << error;
+  EXPECT_EQ(merged.batch_size, 4);
+  EXPECT_EQ(merged.device_id, 2);
+  EXPECT_EQ(merged.chip, "cuda");
+  EXPECT_EQ(merged.depth_num, 8u);
 
-  DemoOptions cli_opts;
-  std::string err;
-  int ret = ParseCommandLine(argc, const_cast<char**>(argv), &cli_opts, &err);
-  ASSERT_EQ(ret, 0);
-  EXPECT_TRUE(cli_opts.has_batch_size);
-  EXPECT_EQ(cli_opts.batch_size, 1);
-
-  DemoOptions merged;
-  ret = LoadAndMergeProfiles("demo/profiles.json", cli_opts, &merged, &err);
-  ASSERT_EQ(ret, 0) << "Error: " << err;
-
-  // 即使 CLI 显式给出默认值 1，也必须保留该显式覆盖语义。
+  auto defaults = profile;
+  for (const char* field : {"batch_size", "device_id", "chip", "depth"})
+    defaults.erase(field);
+  write_profile(defaults);
+  ASSERT_EQ(LoadAndMergeProfiles(path, cli, &merged, &error), 0) << error;
   EXPECT_EQ(merged.batch_size, 1);
+  EXPECT_EQ(merged.device_id, 0);
+  EXPECT_EQ(merged.chip, "cpu");
+  EXPECT_EQ(merged.depth_num, 1u);
+
+  for (const auto& invalid :
+       std::vector<std::pair<std::string, nlohmann::json>>{{"batch_size", 0},
+                                                           {"batch_size", "2"},
+                                                           {"device_id", -1},
+                                                           {"device_id", "0"},
+                                                           {"chip", "invalid"},
+                                                           {"chip", 1},
+                                                           {"depth", 0},
+                                                           {"depth", "2"}}) {
+    auto bad = profile;
+    bad[invalid.first] = invalid.second;
+    write_profile(bad);
+    EXPECT_EQ(LoadAndMergeProfiles(path, cli, &merged, &error), 3);
+    EXPECT_NE(error.find(invalid.first), std::string::npos) << error;
+  }
 }
 
 TEST(DemoRunnerTest, ProfileBizMismatchRejection) {
@@ -507,11 +508,6 @@ TEST(DemoRunnerTest, ProfileSchemaStrictValidation) {
   EXPECT_EQ(LoadAndMergeProfiles(temp_invalid_json, cli_opts, &merged, &err),
             3);
   EXPECT_NE(err.find("suite"), std::string::npos);
-
-  // 验证 GetProfilesForSuite 对该非法文件同样返回 3 且不崩溃
-  std::vector<std::string> prof_list;
-  EXPECT_EQ(GetProfilesForSuite(temp_invalid_json, "smoke", &prof_list, &err),
-            3);
 
   // Case 4: batch_size 数值超界溢出 (4294967297) 防御拦截
   {
@@ -629,14 +625,12 @@ TEST(DemoRunnerTest,
     DemoOptions cli;
     cli.profile = profile;
     cli.output_dir = temporary.path.string();
-    cli.has_output_dir = true;
-    cli.batch_size = 2;
-    cli.has_batch_size = true;
     DemoOptions options;
     std::string error;
     ASSERT_EQ(LoadAndMergeProfiles("demo/profiles.json", cli, &options, &error),
               0)
         << error;
+    options.batch_size = 2;  // Exercise multi-request custom-node execution.
     const auto* descriptor = DemoRegistry::Instance().Find(options.biz);
     ASSERT_NE(descriptor, nullptr);
     ASSERT_EQ(descriptor->run(options), 0);
@@ -1047,7 +1041,6 @@ TEST(DemoRunnerTest, OcrDemoAppliesExplicitControlBeforeProcessing) {
   DemoOptions cli;
   cli.profile = "ocr_doc_qa_mock";
   cli.output_dir = temporary.path.string();
-  cli.has_output_dir = true;
   DemoOptions options;
   std::string error;
   ASSERT_EQ(LoadAndMergeProfiles("demo/profiles.json", cli, &options, &error),
@@ -1149,7 +1142,6 @@ TEST(DemoRunnerTest, OperatorBatchChunking) {
 
   // 指定 batch_size = 1 (数据集有 2 条样本，必须分 2 批执行)
   opts.batch_size = 1;
-  opts.has_batch_size = true;
   opts.output_dir = "./results/test_chunking_out";
 
   EXPECT_EQ(desc->run(opts), 0);
@@ -1177,15 +1169,19 @@ TEST(DemoRunnerTest, EndToEndAllMockSmokeBusinesses) {
       "entity_extract_mock", "keyword_match_rules", "doc_qa_mock",
       "dialogue_audit_mock", "ocr_doc_qa_mock",     "audio_asr_mock"};
 
+  nlohmann::json profiles;
+  std::string err;
+  ASSERT_EQ(
+      LoadAndValidateProfilesDocument("demo/profiles.json", &profiles, &err), 0)
+      << err;
+
   for (const auto& prof_name : smoke_profiles) {
     DemoOptions cli_opt;
     cli_opt.profile = prof_name;
     cli_opt.output_dir = "./results/test_ci_out";
 
     DemoOptions merged_opt;
-    std::string err;
-    int ret =
-        LoadAndMergeProfiles("demo/profiles.json", cli_opt, &merged_opt, &err);
+    int ret = MergeProfileOptions(profiles, cli_opt, &merged_opt, &err);
     ASSERT_EQ(ret, 0) << "Profile merge failed for " << prof_name << ": "
                       << err;
 
@@ -1213,10 +1209,11 @@ TEST(DemoRunnerTest, DeploymentProfilesFileSelection) {
       << error;
   EXPECT_EQ(merged.biz, "entity_extract");
   EXPECT_EQ(merged.config_path, "configs/pipeline_entity_extract_kite.conf");
-  std::vector<std::string> profiles;
+  nlohmann::json profiles;
   ASSERT_EQ(
-      GetProfilesForSuite(options.profiles_file, "real", &profiles, &error), 0);
-  EXPECT_EQ(profiles.size(), 8U);
+      LoadAndValidateProfilesDocument(options.profiles_file, &profiles, &error),
+      0);
+  EXPECT_EQ(SelectProfilesForSuite(profiles, "real").size(), 8U);
   const char* missing[] = {"alg_demo", "--profiles-file"};
   EXPECT_EQ(ParseCommandLine(2, const_cast<char**>(missing), &options, &error),
             2);
@@ -1228,21 +1225,20 @@ TEST(DemoRunnerTest, RealKiteDeploymentProfiles) {
     GTEST_SKIP()
         << "Set LLM_EDGEFLOW_TEST_KITELLM_DEMOS=1 after fetching --kite models";
   ASSERT_TRUE(llm_edgeflow::BackendRegistry::Instance().Find("kite_llm"));
-  std::vector<std::string> profiles;
+  nlohmann::json profiles;
   std::string error;
-  ASSERT_EQ(
-      GetProfilesForSuite("demo/profiles_kite.json", "real", &profiles, &error),
-      0)
+  ASSERT_EQ(LoadAndValidateProfilesDocument("demo/profiles_kite.json",
+                                            &profiles, &error),
+            0)
       << error;
   auto ops = Get_LLM_EDGEFLOW_OperatorTable();
   ASSERT_EQ(ops.Init(), 0);
-  for (const auto& name : profiles) {
+  for (const auto& name : SelectProfilesForSuite(profiles, "real")) {
     DemoOptions cli;
     cli.profile = name;
     cli.output_dir = "results/kite-deployment-tests";
     DemoOptions options;
-    const int merged =
-        LoadAndMergeProfiles("demo/profiles_kite.json", cli, &options, &error);
+    const int merged = MergeProfileOptions(profiles, cli, &options, &error);
     EXPECT_EQ(merged, 0) << error;
     if (merged) continue;
     const auto* descriptor = DemoRegistry::Instance().Find(options.biz);

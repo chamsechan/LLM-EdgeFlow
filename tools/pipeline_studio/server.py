@@ -255,7 +255,7 @@ class WorkbenchService:
 
     def save_targets(self, path: Path) -> list[str]:
         if path.name in self.generated_solutions:
-            conf_name = self.generated_solutions[path.name].get("conf_name", path.with_suffix(".conf").name)
+            conf_name = self.generated_solutions[path.name]["conf_path"].name
             return [path.name, conf_name]
         return [path.name]
 
@@ -518,7 +518,7 @@ class WorkbenchService:
                         model_path_actions: Any = None) -> dict[str, Any]:
         with self.solution_lock:
             managed = self.generated_solutions[path.name]
-            conf_path = managed.get("conf_path") or path.with_suffix(".conf")
+            conf_path = managed["conf_path"]
 
             def check_revisions() -> tuple[bytes, bytes]:
                 if path.is_symlink() or conf_path.is_symlink() or not path.is_file() or not conf_path.is_file():
@@ -584,18 +584,8 @@ class WorkbenchService:
         if not profile:
             raise StudioError("UNKNOWN_PROFILE", profile_name)
         profile_conf = PROJECT_ROOT / profile["config"]
-        conf = read_json(profile_conf)
-        if not isinstance(conf, dict) or "pipe_path" not in conf or not isinstance(conf["pipe_path"], str):
-            raise StudioError(
-                "INVALID_PROFILE_CONFIG", "Profile .conf 必须包含 pipe_path"
-            )
-        original_pipeline_path = Path(conf["pipe_path"])
-        if not original_pipeline_path.is_absolute():
-            if (PROJECT_ROOT / original_pipeline_path).exists():
-                original_pipeline_path = PROJECT_ROOT / original_pipeline_path
-            else:
-                original_pipeline_path = profile_conf.parent / original_pipeline_path
-        original = read_json(original_pipeline_path.resolve())
+        configuration = self.resolve_run_conf(profile_conf, profile)
+        original = read_json(Path(configuration["pipeline_path"]))
         orig_biz = original.get("biz_name")
         curr_biz = pipeline.get("biz_name")
         if orig_biz != curr_biz:
@@ -676,13 +666,7 @@ class WorkbenchService:
             pipeline.setdefault("deployment", {})["model_paths"] = overrides
         elif "deployment" in pipeline and "model_paths" in pipeline["deployment"]:
             del pipeline["deployment"]["model_paths"]
-        if "deployment" in original and "io" in original["deployment"]:
-            pipeline.setdefault("deployment", {})["io"] = copy.deepcopy(original["deployment"]["io"])
-        elif "outputs" in managed and managed["outputs"]:
-            io_dict = pipeline.setdefault("deployment", {}).setdefault("io", {})
-            io_dict["output_allocations"] = copy.deepcopy(managed["outputs"])
-            if managed.get("io_binding"):
-                io_dict["io_binding"] = managed["io_binding"]
+        pipeline.setdefault("deployment", {})["io"] = copy.deepcopy(original["deployment"]["io"])
         return profile, {"pipe_path": path.name}
 
     def resolve_run_conf(self, conf_path: Path, profile: dict[str, Any]) -> dict[str, Any]:
@@ -694,12 +678,24 @@ class WorkbenchService:
 
     @staticmethod
     def demo_command(profile: dict[str, Any], conf_path: Path, output_dir: Path) -> list[str]:
+        # Snapshot only settings previously passed to Demo, not runtime Control.
+        name = str(profile["biz"])
+        run_profile = {
+            "biz": name, "config": str(conf_path),
+            "dataset": str(PROJECT_ROOT / profile["dataset"]),
+        }
+        for field in ("batch_size", "device_id", "chip", "depth"):
+            if field in profile:
+                run_profile[field] = profile[field]
+        output_dir.mkdir(parents=True, exist_ok=True)
+        profile_path = output_dir / "demo-profile.json"
+        if profile_path.is_symlink():
+            raise StudioError("SYMLINK_REJECTED", "拒绝覆盖符号链接运行 Profile", 409)
+        profile_path.write_text(json.dumps({"schema_version": 2, "profiles": {name: run_profile}},
+                                          ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         return [
-            str(DEMO_BINARY), "--biz", str(profile["biz"]),
-            "--config", str(conf_path), "--dataset", str(PROJECT_ROOT / profile["dataset"]),
-            "--output-dir", str(output_dir), "--batch-size", str(profile.get("batch_size", 1)),
-            "--device-id", str(profile.get("device_id", 0)), "--chip", str(profile.get("chip", "ax650")),
-            "--depth", str(profile.get("depth", 1)),
+            str(DEMO_BINARY), "--profiles-file", str(profile_path), "--profile", name,
+            "--output-dir", str(output_dir),
         ]
 
     def save_solution(self, requested: str, pipeline: Any, profile_name: str, model_root: str = "models") -> dict[str, Any]:
@@ -714,7 +710,6 @@ class WorkbenchService:
             if target.exists():
                 raise StudioError("FILE_EXISTS", f"另存目标已存在：{target.name}", 409)
         profile, conf = self.deployment_candidate(pipeline, profile_name, model_root, path.name)
-        outputs = pipeline.get("deployment", {}).get("io", {}).get("output_allocations", {})
         encoded = (json.dumps(pipeline, ensure_ascii=False, indent=2) + "\n").encode()
         conf_encoded = (json.dumps(conf, ensure_ascii=False, indent=2) + "\n").encode()
         created = []
@@ -737,15 +732,15 @@ class WorkbenchService:
                 raise
             raise StudioError("SAVE_FAILED", str(error), 500) from error
         self.generated_solutions[path.name] = {
-            "profile": profile, "outputs": outputs, "model_root": model_root,
-            "conf_path": conf_path, "conf_name": conf_path.name,
+            "profile": profile, "model_root": model_root,
+            "conf_path": conf_path,
             "pipeline_revision": revision_for(encoded),
             "conf_revision": revision_for(conf_encoded),
         }
         return self.solution_result(path, pipeline, conf, encoded, profile, model_root, configuration)
 
     def solution_result(self, path: Path, pipeline: Any, conf: Any, encoded: bytes, profile: dict[str, Any], model_root: str, configuration: Any) -> dict[str, Any]:
-        conf_path = self.generated_solutions.get(path.name, {}).get("conf_path") or path.with_suffix(".conf")
+        conf_path = self.generated_solutions[path.name]["conf_path"]
         command_str = ""
         if profile and profile.get("dataset"):
             command = self.demo_command(profile, conf_path.relative_to(PROJECT_ROOT), PROJECT_ROOT / "output" / path.stem)
@@ -833,16 +828,11 @@ class WorkbenchService:
         if pipe_path.read_bytes() != pipe_raw or conf_path.read_bytes() != conf_raw:
             raise StudioError("REVISION_CONFLICT", "关联期间文件已改变，请重新关联", 409)
 
-        outputs = pipeline.get("deployment", {}).get("io", {}).get("output_allocations", {})
-        io_binding = pipeline.get("deployment", {}).get("io", {}).get("io_binding", "")
         with self.solution_lock:
             self.generated_solutions[pipe_path.name] = {
                 "conf_path": conf_path,
-                "conf_name": conf_path.name,
                 "conf_revision": revision_for(conf_raw),
                 "pipeline_revision": revision_for(pipe_raw),
-                "outputs": outputs,
-                "io_binding": io_binding,
                 "model_root": model_root,
                 "profile": prof,
                 "is_associated": True,

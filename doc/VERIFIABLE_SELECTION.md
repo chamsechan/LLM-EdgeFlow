@@ -28,7 +28,7 @@ Pipeline JSON 根对象的 `deployment.model_paths` 可覆盖 `models` 中的权
 
 `--root` 是部署根目录，默认当前目录；`--depth` 与 Demo 的 batch size、depth 两者最大值
 一致，省略时为 Operator 默认值 25。响应中的 `model_paths` 标明每个模型路径的来源与
-解析结果，`effective_pipeline` 包含 Node/Model/Backend 默认值，`output_pool` 给出容量。
+解析结果，`effective_pipeline` 包含 Node/Model/Backend 默认值，`output_pools` 按逻辑槽位给出容量。
 非法部署字段、输出池容量和 Pipeline 会直接报错。此命令不加载权重，不证明业务效果。
 
 Studio 的“另存为可运行方案”和“运行草稿”共用配置生成与原生预检，按当前模型选择重建

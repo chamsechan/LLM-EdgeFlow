@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-09-20 Demo 执行参数收敛至 Profile（RFC-0063）
+
+- 删除 Demo 的 `--chip`、`--device-id`、`--batch-size`、`--depth` 及 CLI 覆盖标记；旧参数返回未知选项错误。
+- 四项设置仅由 Profile JSON 提供，未配置时保留 `cpu`、`0`、`1`、`1` 默认值；Profile schema 与 SDK 接口保持不变。
+- Studio 将运行设置保存为 Profile 后调用 Demo；同步迁移 JSON Prompt、效果验证工具及运行文档。
+- 删除无用输出目录标记和 Studio 重复配置参数；Demo 与 Catalog 共享默认值，Studio 保留 Profile 缺省字段，使用单个运行 Profile 文件，删除哈希快照与默认值查询协议。
+- Suite 与 Catalog 列举复用一次加载的 Profile；工具和 Studio 统一复用原生 `.conf` 解析，删除项目根目录同名文件回退。
+- 删除 `output_pool` 旧字段、Studio 内存状态旧字段回退和 Demo 平台别名；输出统一用 `output_pools`，仓内 Profile 平台名统一为规范名称。
+
 ## 2026-09-17 Integration 部署解析入口统一实施（RFC-0062）
 
 - **统一共享部署准备流程（`PrepareDeploymentDocument`）**：

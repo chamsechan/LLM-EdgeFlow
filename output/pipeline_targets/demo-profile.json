@@ -1,0 +1,14 @@
+{
+  "schema_version": 2,
+  "profiles": {
+    "keyword_match": {
+      "biz": "keyword_match",
+      "config": "build/studio-test-un9yc4ks/configs/pipeline_targets.conf",
+      "dataset": "/home/ubuntu/project/llm-ops-agy/data/corpus_keyword_match.txt",
+      "batch_size": 2,
+      "device_id": 0,
+      "chip": "cpu",
+      "depth": 2
+    }
+  }
+}
