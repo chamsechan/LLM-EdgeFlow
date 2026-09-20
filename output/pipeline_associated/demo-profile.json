@@ -3,7 +3,7 @@
   "profiles": {
     "doc_qa": {
       "biz": "doc_qa",
-      "config": "build/rfc0057-test-v1mjc4as/configs/pipeline_associated.conf",
+      "config": "build/rfc0057-test-gtzy3y7g/configs/pipeline_associated.conf",
       "dataset": "/home/ubuntu/project/llm-ops-agy/data/corpus_doc_qa.txt",
       "batch_size": 1,
       "device_id": 0,
