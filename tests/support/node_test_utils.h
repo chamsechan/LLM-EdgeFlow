@@ -8,27 +8,37 @@
 
 #include "contracts/inference_payloads.h"
 #include "core/node_interface.h"
+#include "core/pipeline_catalog.h"
 #include "core/session_context.h"
+#include "core/validated_node_plan.h"
 #include "engine/model_interface.h"
+#include "tests/support/node_plan_fixture.h"
 
 namespace llm_edgeflow {
 
-inline bool InitNodeForTest(INode& node, const nlohmann::json& config,
-                            SessionContext* session_ctx) {
-  NodeInitContext init_ctx;
-  init_ctx.config = &config;
-  init_ctx.session_ctx = session_ctx;
-  return node.Init(init_ctx);
-}
+// The caller keeps the session alive through Node destruction, as in
+// production.
+struct NodeFixturePlans {
+  std::mutex mutex;
+  std::vector<std::shared_ptr<ValidatedNodePlan>> plans;
+};
 
-inline bool InitNodeWithPlan(INode& node, const nlohmann::json& config,
-                             SessionContext* session_ctx,
-                             const ValidatedNodePlan* plan) {
-  NodeInitContext init_ctx;
-  init_ctx.config = &config;
-  init_ctx.session_ctx = session_ctx;
-  init_ctx.plan = plan;
-  return node.Init(init_ctx);
+inline bool InitNodeForTest(
+    INode& node, const nlohmann::json& config, SessionContext* session_ctx,
+    std::string* diagnostic = nullptr,
+    const std::unordered_set<std::string>& omitted = {}) {
+  if (!session_ctx) return false;
+  auto plan =
+      PrepareNodePlanForTest(node.Name(), config, omitted, "", "", diagnostic);
+  if (!plan) return false;
+  auto owner = session_ctx->GetOrCreateResource(
+      SessionResourceKey<NodeFixturePlans>{"node_fixture_plans"},
+      [] { return std::make_shared<NodeFixturePlans>(); });
+  {
+    std::lock_guard<std::mutex> lock(owner->mutex);
+    owner->plans.push_back(plan);
+  }
+  return node.Init({plan.get(), session_ctx, diagnostic});
 }
 
 namespace test {
@@ -46,7 +56,6 @@ class ControlledMockLlmModel final : public ILlmModel {
   InferenceConcurrency Concurrency() const noexcept override {
     return InferenceConcurrency::kConcurrent;
   }
-  size_t GetMaxBatchSize() const noexcept override { return 8; }
 
   int Generate(const TextBatch& prompts, const GenerateOptions&,
                TextBatch* outputs) noexcept override {
@@ -87,7 +96,6 @@ class ControlledMockEmbeddingModel final : public IEmbeddingModel {
   InferenceConcurrency Concurrency() const noexcept override {
     return InferenceConcurrency::kConcurrent;
   }
-  size_t GetMaxBatchSize() const noexcept override { return 8; }
 
   int Embed(const TextBatch& inputs, const EmbeddingOptions&,
             EmbeddingBatch* outputs) noexcept override {
@@ -128,7 +136,6 @@ class ControlledMockRerankModel final : public IRerankModel {
   InferenceConcurrency Concurrency() const noexcept override {
     return InferenceConcurrency::kConcurrent;
   }
-  size_t GetMaxBatchSize() const noexcept override { return 8; }
 
   int Score(const QueryCandidatesBatch& inputs,
             ScoreBatch* outputs) noexcept override {
@@ -168,7 +175,6 @@ class ControlledMockOcrModel final : public IOcrModel {
   InferenceConcurrency Concurrency() const noexcept override {
     return InferenceConcurrency::kConcurrent;
   }
-  size_t GetMaxBatchSize() const noexcept override { return 8; }
 
   int Recognize(const ImageRefBatch& images,
                 OcrDocumentBatch* outputs) noexcept override {
@@ -211,7 +217,6 @@ class ControlledMockAsrModel final : public IAsrModel {
   InferenceConcurrency Concurrency() const noexcept override {
     return InferenceConcurrency::kConcurrent;
   }
-  size_t GetMaxBatchSize() const noexcept override { return 8; }
 
   int Transcribe(const AudioPcmBatch& audio,
                  TextBatch* outputs) noexcept override {

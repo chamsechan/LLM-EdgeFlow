@@ -44,7 +44,7 @@ Studio 的“另存为可运行方案”和“运行草稿”共用配置生成�
 - 零字节占位模型与未注册资产不会通过选择检查。
 - SHA 匹配证明文件身份；模型是否能加载、是否满足业务需求，仍需实际执行验收。
 
-命令行示例（C ABI 语义的 model root 直接包含权重，不重复 `models/` 前缀）：
+资产检查示例（检查器的模型根直接包含权重）：
 
 ```bash
 python3 tools/verify_selection.py check \
@@ -53,7 +53,7 @@ python3 tools/verify_selection.py check \
   --output results/docqa-selection.json
 ```
 
-报告使用 `schema_version=2`；旧消费者须将 `ready_for_business` 改为 `ready_for_biz`，并重新生成效果证据。报告分别给出 `configuration`、`models`、`build`、`effects` 和 `ready_for_biz`。普通 `check` 的退出码表示配置/资产/构建检查；发布门禁应增加 `--require-effects`，要求业务效果也通过。
+报告使用 `schema_version=2`；报告分别给出 `configuration`、`models`、`build`、`effects` 和 `ready_for_biz`。普通 `check` 的退出码表示配置/资产/构建检查；发布门禁应增加 `--require-effects`，要求业务效果也通过。
 
 ## 构建变体
 

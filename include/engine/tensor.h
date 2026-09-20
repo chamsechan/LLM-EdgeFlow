@@ -13,6 +13,8 @@
 #include <utility>
 #include <vector>
 
+#include "contracts/diagnostic.h"
+
 namespace llm_edgeflow {
 
 /**
@@ -159,20 +161,12 @@ class HostTensorBuffer : public ITensorBuffer {
 
 namespace inference_detail {
 
-inline void SetDiagnostic(std::string* diagnostic,
-                          const char* message) noexcept {
-  if (!diagnostic) return;
-  try {
-    *diagnostic = message;
-  } catch (...) {
-  }
-}
-
 inline bool ComputeTensorByteSize(const TensorDesc& desc, size_t element_size,
                                   size_t* byte_size,
                                   std::string* diagnostic) noexcept {
   if (!byte_size || element_size == 0) {
-    SetDiagnostic(diagnostic, "Invalid tensor byte-size calculation request");
+    SetDiagnosticNoexcept(diagnostic,
+                          "Invalid tensor byte-size calculation request");
     return false;
   }
 
@@ -180,30 +174,31 @@ inline bool ComputeTensorByteSize(const TensorDesc& desc, size_t element_size,
     size_t element_count = 1;
     for (int64_t dim : desc.shape) {
       if (dim < 0) {
-        SetDiagnostic(diagnostic,
-                      "Negative or unresolved dynamic dimension is not allowed "
-                      "at runtime");
+        SetDiagnosticNoexcept(
+            diagnostic,
+            "Negative or unresolved dynamic dimension is not allowed "
+            "at runtime");
         return false;
       }
       const size_t extent = static_cast<size_t>(dim);
       if (extent != 0 &&
           element_count > std::numeric_limits<size_t>::max() / extent) {
-        SetDiagnostic(diagnostic,
-                      "Shape element count multiplication overflow");
+        SetDiagnosticNoexcept(diagnostic,
+                              "Shape element count multiplication overflow");
         return false;
       }
       element_count *= extent;
     }
     if (element_count != 0 &&
         element_count > std::numeric_limits<size_t>::max() / element_size) {
-      SetDiagnostic(diagnostic, "Tensor byte size overflow");
+      SetDiagnosticNoexcept(diagnostic, "Tensor byte size overflow");
       return false;
     }
     *byte_size = element_count * element_size;
     return true;
   } catch (...) {
-    SetDiagnostic(diagnostic,
-                  "Exception while validating tensor shape and byte size");
+    SetDiagnosticNoexcept(
+        diagnostic, "Exception while validating tensor shape and byte size");
     return false;
   }
 }
@@ -217,8 +212,7 @@ inline bool CreateHostTensor(const TensorDesc& desc, Tensor* tensor,
                              std::string* diagnostic = nullptr) noexcept {
   try {
     if (!tensor) {
-      inference_detail::SetDiagnostic(diagnostic,
-                                      "Output tensor pointer is null");
+      SetDiagnosticNoexcept(diagnostic, "Output tensor pointer is null");
       return false;
     }
     tensor->buffer.reset();
@@ -226,8 +220,7 @@ inline bool CreateHostTensor(const TensorDesc& desc, Tensor* tensor,
 
     const size_t element_size = ElementTypeByteSize(desc.element_type);
     if (element_size == 0) {
-      inference_detail::SetDiagnostic(diagnostic,
-                                      "Unknown or unsupported ElementType");
+      SetDiagnosticNoexcept(diagnostic, "Unknown or unsupported ElementType");
       return false;
     }
 
@@ -239,8 +232,8 @@ inline bool CreateHostTensor(const TensorDesc& desc, Tensor* tensor,
 
     auto buf = std::make_shared<HostTensorBuffer>(total_bytes);
     if (!buf->IsValid()) {
-      inference_detail::SetDiagnostic(
-          diagnostic, "Failed to allocate aligned HostTensorBuffer");
+      SetDiagnosticNoexcept(diagnostic,
+                            "Failed to allocate aligned HostTensorBuffer");
       return false;
     }
     Tensor staged{desc, std::move(buf)};
@@ -254,8 +247,7 @@ inline bool CreateHostTensor(const TensorDesc& desc, Tensor* tensor,
       } catch (...) {
       }
     }
-    inference_detail::SetDiagnostic(diagnostic,
-                                    "Exception creating host tensor");
+    SetDiagnosticNoexcept(diagnostic, "Exception creating host tensor");
     return false;
   }
 }
@@ -270,22 +262,21 @@ inline const T* GetTensorData(const Tensor& tensor,
                 "Unsupported native type for GetTensorData");
   try {
     if (!tensor.buffer) {
-      inference_detail::SetDiagnostic(diagnostic, "Tensor buffer is null");
+      SetDiagnosticNoexcept(diagnostic, "Tensor buffer is null");
       return nullptr;
     }
     if (tensor.desc.element_type != NativeTypeTraits<T>::kElementType) {
-      inference_detail::SetDiagnostic(diagnostic,
-                                      "Tensor element type mismatch");
+      SetDiagnosticNoexcept(diagnostic, "Tensor element type mismatch");
       return nullptr;
     }
     const void* raw_data = tensor.buffer->Data();
     if (!raw_data && tensor.buffer->ByteSize() > 0) {
-      inference_detail::SetDiagnostic(diagnostic, "Tensor buffer data is null");
+      SetDiagnosticNoexcept(diagnostic, "Tensor buffer data is null");
       return nullptr;
     }
     if (reinterpret_cast<uintptr_t>(raw_data) % alignof(T) != 0) {
-      inference_detail::SetDiagnostic(
-          diagnostic, "Tensor buffer is misaligned for requested type");
+      SetDiagnosticNoexcept(diagnostic,
+                            "Tensor buffer is misaligned for requested type");
       return nullptr;
     }
     size_t expected_bytes = 0;
@@ -294,14 +285,12 @@ inline const T* GetTensorData(const Tensor& tensor,
       return nullptr;
     }
     if (tensor.buffer->ByteSize() != expected_bytes) {
-      inference_detail::SetDiagnostic(diagnostic,
-                                      "Tensor buffer byte size mismatch");
+      SetDiagnosticNoexcept(diagnostic, "Tensor buffer byte size mismatch");
       return nullptr;
     }
     return static_cast<const T*>(raw_data);
   } catch (...) {
-    inference_detail::SetDiagnostic(diagnostic,
-                                    "Exception accessing tensor data");
+    SetDiagnosticNoexcept(diagnostic, "Exception accessing tensor data");
     return nullptr;
   }
 }
@@ -316,24 +305,21 @@ inline T* GetMutableTensorData(Tensor* tensor,
                 "Unsupported native type for GetMutableTensorData");
   try {
     if (!tensor || !tensor->buffer) {
-      inference_detail::SetDiagnostic(diagnostic,
-                                      "Tensor or tensor buffer is null");
+      SetDiagnosticNoexcept(diagnostic, "Tensor or tensor buffer is null");
       return nullptr;
     }
     if (tensor->desc.element_type != NativeTypeTraits<T>::kElementType) {
-      inference_detail::SetDiagnostic(diagnostic,
-                                      "Tensor element type mismatch");
+      SetDiagnosticNoexcept(diagnostic, "Tensor element type mismatch");
       return nullptr;
     }
     void* raw_data = tensor->buffer->MutableData();
     if (!raw_data && tensor->buffer->ByteSize() > 0) {
-      inference_detail::SetDiagnostic(diagnostic,
-                                      "Tensor buffer mutable data is null");
+      SetDiagnosticNoexcept(diagnostic, "Tensor buffer mutable data is null");
       return nullptr;
     }
     if (reinterpret_cast<uintptr_t>(raw_data) % alignof(T) != 0) {
-      inference_detail::SetDiagnostic(
-          diagnostic, "Tensor buffer is misaligned for requested type");
+      SetDiagnosticNoexcept(diagnostic,
+                            "Tensor buffer is misaligned for requested type");
       return nullptr;
     }
     size_t expected_bytes = 0;
@@ -342,14 +328,13 @@ inline T* GetMutableTensorData(Tensor* tensor,
       return nullptr;
     }
     if (tensor->buffer->ByteSize() != expected_bytes) {
-      inference_detail::SetDiagnostic(diagnostic,
-                                      "Tensor buffer byte size mismatch");
+      SetDiagnosticNoexcept(diagnostic, "Tensor buffer byte size mismatch");
       return nullptr;
     }
     return static_cast<T*>(raw_data);
   } catch (...) {
-    inference_detail::SetDiagnostic(diagnostic,
-                                    "Exception accessing mutable tensor data");
+    SetDiagnosticNoexcept(diagnostic,
+                          "Exception accessing mutable tensor data");
     return nullptr;
   }
 }

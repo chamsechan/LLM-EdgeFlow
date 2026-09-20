@@ -43,8 +43,6 @@ class BackendRegistry {
 
   std::vector<std::string> GetConflictErrors() const;
 
-  void ClearForTesting();
-
  private:
   struct Entry {
     BackendDefinition definition;

@@ -35,7 +35,6 @@ class TextEmbeddingNode final : public ModelBoundNode<IEmbeddingModel> {
     normalize_ = config.value("normalize", true);
     lifetime_ = config.value("lifetime", "request");
     if (lifetime_ != "request" && lifetime_ != "session") return false;
-    bind_model_id_ = model_id();
     session_ctx_ = &session_ctx;
     return true;
   }
@@ -58,9 +57,9 @@ class TextEmbeddingNode final : public ModelBoundNode<IEmbeddingModel> {
 
     if (lifetime_ == "session" && session_ctx_) {
       const std::string model_revision =
-          session_ctx_->GetModelManager().GetModelRevision(bind_model_id_);
+          session_ctx_->GetModelManager().GetModelRevision(model_id());
       std::string cache_key = ConstructSessionCacheKey(
-          bind_model_id_, model_revision, normalize_, *text_items);
+          model_id(), model_revision, normalize_, *text_items);
       SessionResourceKey<EmbeddingBatch> resource_key(std::move(cache_key));
       int infer_err = 0;
       auto cached = session_ctx_->GetOrCreateResource<EmbeddingBatch>(
@@ -169,7 +168,6 @@ class TextEmbeddingNode final : public ModelBoundNode<IEmbeddingModel> {
 
   bool normalize_ = true;
   std::string lifetime_ = "request";
-  std::string bind_model_id_;
   SessionContext* session_ctx_ = nullptr;
 
   BoundInput<TextBatch> in_text_;

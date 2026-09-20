@@ -25,7 +25,7 @@ bool PrepareDeploymentDocument(const nlohmann::json& document,
       diagnostic->code = "DEPLOYMENT_ERROR";
       diagnostic->path = "/";
       diagnostic->message = "Output pointer is null";
-      diagnostic->legacy_status = -1;
+
       diagnostic->pipeline_diagnostic.reset();
     }
     return false;
@@ -37,16 +37,6 @@ bool PrepareDeploymentDocument(const nlohmann::json& document,
   }
 
   // S1: 检查调用参数与部署文档结构
-  if (options.transport != "operator") {
-    if (diagnostic) {
-      diagnostic->code = "UNSUPPORTED_TRANSPORT";
-      diagnostic->path = "/";
-      diagnostic->message = "Unsupported transport: '" + options.transport +
-                            "' (only 'operator' is supported)";
-      diagnostic->legacy_status = -2;
-    }
-    return false;
-  }
 
   if (options.path_mode == DeploymentPathMode::kUnderRoot &&
       options.model_root_dir.empty()) {
@@ -55,7 +45,6 @@ bool PrepareDeploymentDocument(const nlohmann::json& document,
       diagnostic->path = "/";
       diagnostic->message =
           "model_root_dir cannot be empty when path_mode is kUnderRoot";
-      diagnostic->legacy_status = -2;
     }
     return false;
   }
@@ -67,7 +56,6 @@ bool PrepareDeploymentDocument(const nlohmann::json& document,
       diagnostic->path = "/";
       diagnostic->message =
           "model_root_dir must be empty when path_mode is kLexicalOnly";
-      diagnostic->legacy_status = -2;
     }
     return false;
   }
@@ -80,7 +68,6 @@ bool PrepareDeploymentDocument(const nlohmann::json& document,
       diagnostic->code = "DEPLOYMENT_ERROR";
       diagnostic->path = split_path.empty() ? "/" : split_path;
       diagnostic->message = split_err;
-      diagnostic->legacy_status = -2;
     }
     return false;
   }
@@ -90,7 +77,6 @@ bool PrepareDeploymentDocument(const nlohmann::json& document,
       diagnostic->code = "MISSING_DEPLOYMENT_IO";
       diagnostic->path = "/deployment/io";
       diagnostic->message = "Missing required 'deployment.io' in pipeline JSON";
-      diagnostic->legacy_status = -2;
     }
     return false;
   }
@@ -102,32 +88,9 @@ bool PrepareDeploymentDocument(const nlohmann::json& document,
                            &core_diag)) {
     if (diagnostic) {
       diagnostic->pipeline_diagnostic = core_diag;
-      bool is_model_path = false;
-      if (core_diag.path.rfind("/models/", 0) == 0) {
-        auto second_slash = core_diag.path.find('/', 8);
-        if (second_slash != std::string::npos &&
-            core_diag.path.substr(second_slash) == "/model_path") {
-          is_model_path = true;
-        }
-      }
-
-      if (is_model_path && (core_diag.code == DiagnosticCode::kFieldType ||
-                            core_diag.code == DiagnosticCode::kFieldRange)) {
-        diagnostic->code = "INVALID_MODEL_PATH";
-        diagnostic->path = core_diag.path;
-        diagnostic->message =
-            "model_path in model declaration must be a non-empty string (at " +
-            core_diag.path + ")";
-        diagnostic->legacy_status = -2;
-      } else {
-        diagnostic->code = DiagnosticCodeName(core_diag.code);
-        diagnostic->path = core_diag.path;
-        diagnostic->message = "Validation failed: " +
-                              std::string(DiagnosticCodeName(core_diag.code)) +
-                              " at " + core_diag.path + ": " +
-                              core_diag.message;
-        diagnostic->legacy_status = -3;
-      }
+      diagnostic->code = DiagnosticCodeName(core_diag.code);
+      diagnostic->path = core_diag.path;
+      diagnostic->message = core_diag.message;
     }
     return false;
   }
@@ -142,20 +105,6 @@ bool PrepareDeploymentDocument(const nlohmann::json& document,
       diagnostic->message =
           "Unknown or unregistered io_binding: " + binding_id +
           " (at /deployment/io/io_binding)";
-      diagnostic->legacy_status = -2;
-    }
-    return false;
-  }
-
-  if (binding->transport != "operator") {
-    if (diagnostic) {
-      diagnostic->code = "UNSUPPORTED_TRANSPORT";
-      diagnostic->path = "/deployment/io/io_binding";
-      diagnostic->message = "Binding transport mismatch for '" + binding_id +
-                            "': expected 'operator', but binding declared '" +
-                            binding->transport +
-                            "' (at /deployment/io/io_binding)";
-      diagnostic->legacy_status = -2;
     }
     return false;
   }
@@ -168,7 +117,6 @@ bool PrepareDeploymentDocument(const nlohmann::json& document,
                             "' does not match binding biz_name '" +
                             binding->biz_name +
                             "' (at /deployment/io/io_binding)";
-      diagnostic->legacy_status = -2;
     }
     return false;
   }
@@ -182,7 +130,6 @@ bool PrepareDeploymentDocument(const nlohmann::json& document,
       diagnostic->message =
           "Binding references unregistered input converter: " +
           binding->input_converter_id;
-      diagnostic->legacy_status = -2;
     }
     return false;
   }
@@ -196,7 +143,6 @@ bool PrepareDeploymentDocument(const nlohmann::json& document,
       diagnostic->message =
           "Binding references unregistered output converter: " +
           binding->output_converter_id;
-      diagnostic->legacy_status = -2;
     }
     return false;
   }
@@ -231,7 +177,6 @@ bool PrepareDeploymentDocument(const nlohmann::json& document,
         diagnostic->path = ptr;
         diagnostic->message =
             "Unknown configured output slot: " + it.key() + " (at " + ptr + ")";
-        diagnostic->legacy_status = -2;
       }
       return false;
     }
@@ -248,7 +193,6 @@ bool PrepareDeploymentDocument(const nlohmann::json& document,
           diagnostic->path = ptr;
           diagnostic->message = "Missing required Operator output slot '" +
                                 slot.slot_name + "' (at " + ptr + ")";
-          diagnostic->legacy_status = -2;
         }
         return false;
       }
@@ -266,7 +210,6 @@ bool PrepareDeploymentDocument(const nlohmann::json& document,
         diagnostic->code = "INVALID_OUTPUT_ALLOCATION";
         diagnostic->path = ptr;
         diagnostic->message = alloc_err + " (at " + ptr + ")";
-        diagnostic->legacy_status = -2;
       }
       return false;
     }
@@ -292,7 +235,6 @@ bool PrepareDeploymentDocument(const nlohmann::json& document,
           diagnostic->message = "Unknown model_id '" + mid +
                                 "' in '/deployment/model_paths' (at " + ptr +
                                 ")";
-          diagnostic->legacy_status = -2;
         }
         return false;
       }

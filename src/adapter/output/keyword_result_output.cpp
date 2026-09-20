@@ -85,14 +85,14 @@ int EncodeOperatorKeywordResult(AlgContext* context,
 OutputConverterDefinition MakeOperatorKeywordResultOutputConverter() {
   OutputConverterDefinition def;
   def.converter_id = "keyword.result.operator.v1";
-  def.transport = "operator";
+
   def.schema_id = "keyword.result.response";
   def.schema_version = 1;
   def.external_type = "CompanyOperatorKeywordOutput";
   def.cardinality = "1:1";
   def.max_batch_size = 64;
   def.capacity_policy = "reject_overflow";
-  def.thread_model = "stateless";
+
   def.external_slots = {{"keyword_out",
                          "CompanyOperatorKeywordOutput",
                          PortDirection::kOutput,

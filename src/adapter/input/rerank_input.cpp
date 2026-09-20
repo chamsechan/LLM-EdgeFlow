@@ -114,13 +114,12 @@ int DecodeOperatorRerankInput(const ExternalInputBatchView& source,
 InputConverterDefinition MakeOperatorRerankInputConverter() {
   InputConverterDefinition def;
   def.converter_id = "rerank.plain.operator.v1";
-  def.transport = "operator";
+
   def.schema_id = "rerank.plain.request";
   def.schema_version = 1;
   def.external_type = "CompanyOperatorRerankInput";
   def.max_batch_size = 64;
-  def.ownership_policy = "copy_in";
-  def.thread_model = "stateless";
+
   def.external_slots = {{"rerank_in",
                          "CompanyOperatorRerankInput",
                          PortDirection::kInput,

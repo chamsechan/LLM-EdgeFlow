@@ -20,7 +20,6 @@ enum class DeploymentPathMode {
 };
 
 struct DeploymentPrepareOptions {
-  std::string transport = "operator";
   DeploymentPathMode path_mode = DeploymentPathMode::kLexicalOnly;
   std::string model_root_dir;
 };

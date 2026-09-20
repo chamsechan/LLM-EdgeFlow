@@ -5,7 +5,6 @@
 #include <string>
 #include <vector>
 
-#include "adapter/shared_algorithm_runtime.h"
 #include "core/alg_context.h"
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
@@ -16,10 +15,7 @@ namespace llm_edgeflow {
 
 class TextChunkNodeTest : public ::testing::Test {
  protected:
-  void SetUp() override {
-    ASSERT_EQ(SharedAlgorithmRuntime::GlobalInit(), 0);
-    session_ctx_ = std::make_unique<SessionContext>();
-  }
+  void SetUp() override { session_ctx_ = std::make_unique<SessionContext>(); }
   std::unique_ptr<SessionContext> session_ctx_;
 };
 

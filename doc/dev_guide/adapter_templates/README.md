@@ -1,4 +1,4 @@
-# Adapter C ABI 解包安全示例
+# Adapter 数据解包安全示例
 
 四个示例位于 `tests/support/adapter_examples/`，由
 [Adapter 契约测试](../../../tests/contract/abi/test_adapter_contract_security.cpp)

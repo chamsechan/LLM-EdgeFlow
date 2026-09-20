@@ -23,7 +23,6 @@ class IModel {
   // Describes only Model semantic reentrancy. Runtime planning combines this
   // value with the selected Backend concurrency and applies the stricter one.
   virtual InferenceConcurrency Concurrency() const noexcept = 0;
-  virtual size_t GetMaxBatchSize() const noexcept = 0;
 };
 
 /**

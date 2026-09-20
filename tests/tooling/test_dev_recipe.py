@@ -45,7 +45,7 @@ class DevRecipeTest(unittest.TestCase):
         for library in DEMO.parent.glob("libcompany_alg_sdk.*"):
             self.link_binary(library.resolve(), self.build / library.name)
         (self.build / "CMakeCache.txt").write_text(
-            f"CMAKE_HOME_DIRECTORY:INTERNAL={self.root}\nLLM_EDGEFLOW_SHARDED_TEST_RUNNERS:BOOL=ON\n")
+            f"CMAKE_HOME_DIRECTORY:INTERNAL={self.root}\n")
         self.target = self.root / "configs/pipeline_recipe_contract.json"
 
     @staticmethod
@@ -119,6 +119,28 @@ class DevRecipeTest(unittest.TestCase):
         self.assertEqual(Path(command[command.index("--model-root") + 1]), self.root)
         result = self.verify()
         self.assertTrue(result["ok"], result)
+
+    def test_native_requires_current_catalog(self):
+        for version in (None, 3, 4, 5):
+            report = {"ok": True, "schema_version": version}
+            result = subprocess.CompletedProcess([], 0, json.dumps(report), "")
+            with self.subTest(version=version), mock.patch.object(RECIPE.subprocess, "run", return_value=result):
+                if version == 4:
+                    self.assertEqual(RECIPE.native(TOOL, ["catalog"], self.root), report)
+                else:
+                    with self.assertRaisesRegex(RECIPE.RecipeError, "requires Catalog v4"):
+                        RECIPE.native(TOOL, ["catalog"], self.root)
+
+    def test_effect_conf_requires_exact_nonempty_pipe_path(self):
+        spec = self.root / "effect.json"
+        spec.write_text(json.dumps({"dataset": "data/input.json"}))
+        conf = self.root / "effect.conf"
+        for document in ({"pipe_path": ""}, {"pipe_path": "  "},
+                         {"pipe_path": "pipeline.json", "unexpected": True},
+                         {"pipe_path": "pipeline.json", "outputs": {}}, []):
+            conf.write_text(json.dumps(document))
+            with self.subTest(document=document), self.assertRaisesRegex(ValueError, "only non-empty"):
+                RECIPE.VERIFY_SELECTION.effect_inputs(spec, conf, DEMO)
 
     def test_text_preparation_remaps_native_llm_ports_and_keeps_upstream_prompt(self):
         report = self.prepare(kind="text-llm-node", profile="entity_extract_mock")

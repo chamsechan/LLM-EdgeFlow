@@ -3,7 +3,7 @@
   "profiles": {
     "entity_extract": {
       "biz": "entity_extract",
-      "config": "build/studio-test-n6q61kj3/configs/pipeline_paired.conf",
+      "config": "build/studio-test-0lx23zbv/configs/pipeline_paired.conf",
       "dataset": "/home/ubuntu/project/llm-ops-agy/data/corpus_entity_extract.txt",
       "batch_size": 1,
       "device_id": 0,

@@ -11,6 +11,7 @@
 #include <utility>
 #include <vector>
 
+#include "contracts/diagnostic.h"
 #include "engine/backend_registry.h"
 
 #ifdef HAVE_WHISPERCPP
@@ -19,14 +20,6 @@
 
 namespace llm_edgeflow {
 namespace {
-
-void SetDiagnostic(std::string* diagnostic, std::string_view message) noexcept {
-  if (!diagnostic) return;
-  try {
-    *diagnostic = message;
-  } catch (...) {
-  }
-}
 
 std::string NormalizePlatform(std::string_view platform) {
   std::string normalized;
@@ -83,13 +76,14 @@ class WhisperCppSession final : public IAudioTranscriptionSession {
                  std::string* diagnostic = nullptr) noexcept override {
     try {
       if (!output) {
-        SetDiagnostic(diagnostic, "Output pointer is null");
+        SetDiagnosticNoexcept(diagnostic, "Output pointer is null");
         return -1;
       }
       output->clear();
 
       if (audio.sample_rate != 16000) {
-        SetDiagnostic(diagnostic, "whisper_cpp requires 16000 Hz audio");
+        SetDiagnosticNoexcept(diagnostic,
+                              "whisper_cpp requires 16000 Hz audio");
         return -1;
       }
 
@@ -99,28 +93,28 @@ class WhisperCppSession final : public IAudioTranscriptionSession {
 
       const size_t n_samples = audio.pcm_data.size();
       if (n_samples < 1600) {
-        SetDiagnostic(diagnostic,
-                      "Audio duration too short (< 100ms / 1600 samples)");
+        SetDiagnosticNoexcept(
+            diagnostic, "Audio duration too short (< 100ms / 1600 samples)");
         return -1;
       }
       if (n_samples > 960000) {  // 60 seconds
-        SetDiagnostic(diagnostic, "Audio duration exceeds 60s limit");
+        SetDiagnosticNoexcept(diagnostic, "Audio duration exceeds 60s limit");
         return -1;
       }
       if (n_samples > static_cast<size_t>(std::numeric_limits<int>::max())) {
-        SetDiagnostic(diagnostic, "Audio duration exceeds int limit");
+        SetDiagnosticNoexcept(diagnostic, "Audio duration exceeds int limit");
         return -1;
       }
 
       std::lock_guard<std::mutex> lock(mutex_);
       if (!ctx_) {
-        SetDiagnostic(diagnostic, "whisper context is null");
+        SetDiagnosticNoexcept(diagnostic, "whisper context is null");
         return -1;
       }
 
       whisper_state* state = whisper_init_state(ctx_);
       if (!state) {
-        SetDiagnostic(diagnostic, "Failed to initialize whisper_state");
+        SetDiagnosticNoexcept(diagnostic, "Failed to initialize whisper_state");
         return -1;
       }
 
@@ -160,8 +154,9 @@ class WhisperCppSession final : public IAudioTranscriptionSession {
           whisper_full_with_state(ctx_, state, params, audio.pcm_data.data(),
                                   static_cast<int>(n_samples));
       if (ret != 0) {
-        SetDiagnostic(diagnostic, "whisper_full_with_state failed with code: " +
-                                      std::to_string(ret));
+        SetDiagnosticNoexcept(
+            diagnostic,
+            "whisper_full_with_state failed with code: " + std::to_string(ret));
         return -1;
       }
 
@@ -173,9 +168,9 @@ class WhisperCppSession final : public IAudioTranscriptionSession {
         if (seg_text) {
           accumulated.append(seg_text);
           if (accumulated.size() > options.max_output_bytes) {
-            SetDiagnostic(diagnostic,
-                          "Accumulated output exceeds max_output_bytes: " +
-                              std::to_string(options.max_output_bytes));
+            SetDiagnosticNoexcept(
+                diagnostic, "Accumulated output exceeds max_output_bytes: " +
+                                std::to_string(options.max_output_bytes));
             output->clear();
             return -1;
           }
@@ -186,16 +181,17 @@ class WhisperCppSession final : public IAudioTranscriptionSession {
     } catch (const std::exception& e) {
       if (output) output->clear();
       try {
-        SetDiagnostic(
+        SetDiagnosticNoexcept(
             diagnostic,
             std::string("Exception during whisper inference: ") + e.what());
       } catch (...) {
-        SetDiagnostic(diagnostic, "Exception during whisper inference");
+        SetDiagnosticNoexcept(diagnostic, "Exception during whisper inference");
       }
       return -1;
     } catch (...) {
       if (output) output->clear();
-      SetDiagnostic(diagnostic, "Unknown exception during whisper inference");
+      SetDiagnosticNoexcept(diagnostic,
+                            "Unknown exception during whisper inference");
       return -1;
     }
   }
@@ -242,11 +238,11 @@ std::shared_ptr<IBackendSession> WhisperCppBackend::Load(
       test_load_hook_();
     }
 
-    if (spec.requested_protocol.has_value() &&
-        *spec.requested_protocol != ExecutionProtocol::kAudioTranscription) {
-      SetDiagnostic(diagnostic,
-                    "whisper_cpp backend only supports requested protocol "
-                    "audio_transcription");
+    if (spec.requested_protocol != ExecutionProtocol::kAudioTranscription) {
+      SetDiagnosticNoexcept(
+          diagnostic,
+          "whisper_cpp backend only supports requested protocol "
+          "audio_transcription");
       return nullptr;
     }
 
@@ -254,15 +250,16 @@ std::shared_ptr<IBackendSession> WhisperCppBackend::Load(
         NormalizePlatform(spec.execution_target.platform);
     if (!platform.empty() && platform != "UNKNOWN" && platform != "CPU" &&
         platform != "CPU_GENERIC") {
-      SetDiagnostic(diagnostic,
-                    "whisper_cpp backend only supports CPU execution targets, "
-                    "got platform: " +
-                        spec.execution_target.platform);
+      SetDiagnosticNoexcept(
+          diagnostic,
+          "whisper_cpp backend only supports CPU execution targets, "
+          "got platform: " +
+              spec.execution_target.platform);
       return nullptr;
     }
     if (spec.execution_target.device_id.has_value() &&
         *spec.execution_target.device_id != 0) {
-      SetDiagnostic(
+      SetDiagnosticNoexcept(
           diagnostic,
           "whisper_cpp backend only supports device_id 0 or unset, got: " +
               std::to_string(*spec.execution_target.device_id));
@@ -273,7 +270,7 @@ std::shared_ptr<IBackendSession> WhisperCppBackend::Load(
       for (auto it = spec.backend_config.begin();
            it != spec.backend_config.end(); ++it) {
         if (it.key() != "n_threads") {
-          SetDiagnostic(
+          SetDiagnosticNoexcept(
               diagnostic,
               "Unknown whisper_cpp backend config field: " + it.key());
           return nullptr;
@@ -286,31 +283,31 @@ std::shared_ptr<IBackendSession> WhisperCppBackend::Load(
         spec.backend_config.contains("n_threads")) {
       const auto& val = spec.backend_config["n_threads"];
       if (!val.is_number_integer()) {
-        SetDiagnostic(diagnostic, "n_threads must be an integer");
+        SetDiagnosticNoexcept(diagnostic, "n_threads must be an integer");
         return nullptr;
       }
       n_threads = val.get<int>();
       if (n_threads < 1 || n_threads > 64) {
-        SetDiagnostic(diagnostic, "n_threads must be between 1 and 64");
+        SetDiagnosticNoexcept(diagnostic, "n_threads must be between 1 and 64");
         return nullptr;
       }
     }
 
     if (spec.model_path.empty()) {
-      SetDiagnostic(diagnostic, "whisper_cpp model_path is empty");
+      SetDiagnosticNoexcept(diagnostic, "whisper_cpp model_path is empty");
       return nullptr;
     }
     std::error_code ec;
     if (!std::filesystem::is_regular_file(spec.model_path, ec) || ec) {
-      SetDiagnostic(diagnostic,
-                    "whisper_cpp model file not found or not regular file: " +
-                        spec.model_path);
+      SetDiagnosticNoexcept(
+          diagnostic, "whisper_cpp model file not found or not regular file: " +
+                          spec.model_path);
       return nullptr;
     }
 
 #ifndef HAVE_WHISPERCPP
-    SetDiagnostic(diagnostic,
-                  "whisper_cpp backend is not enabled in this build");
+    SetDiagnosticNoexcept(diagnostic,
+                          "whisper_cpp backend is not enabled in this build");
     return nullptr;
 #else
     auto cparams = whisper_context_default_params();
@@ -320,8 +317,9 @@ std::shared_ptr<IBackendSession> WhisperCppBackend::Load(
     whisper_context* raw_ctx = whisper_init_from_file_with_params_no_state(
         spec.model_path.c_str(), cparams);
     if (!raw_ctx) {
-      SetDiagnostic(diagnostic, "Failed to load whisper model from file: " +
-                                    spec.model_path);
+      SetDiagnosticNoexcept(
+          diagnostic,
+          "Failed to load whisper model from file: " + spec.model_path);
       return nullptr;
     }
 
@@ -338,15 +336,16 @@ std::shared_ptr<IBackendSession> WhisperCppBackend::Load(
 #endif
   } catch (const std::exception& e) {
     try {
-      SetDiagnostic(
+      SetDiagnosticNoexcept(
           diagnostic,
           std::string("Exception loading whisper model: ") + e.what());
     } catch (...) {
-      SetDiagnostic(diagnostic, "Exception loading whisper model");
+      SetDiagnosticNoexcept(diagnostic, "Exception loading whisper model");
     }
     return nullptr;
   } catch (...) {
-    SetDiagnostic(diagnostic, "Unknown exception loading whisper model");
+    SetDiagnosticNoexcept(diagnostic,
+                          "Unknown exception loading whisper model");
     return nullptr;
   }
 }

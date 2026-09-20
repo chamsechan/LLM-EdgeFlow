@@ -8,7 +8,6 @@
 #include <utility>
 #include <vector>
 
-#include "adapter/shared_algorithm_runtime.h"
 #include "core/alg_context.h"
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
@@ -21,13 +20,13 @@
 #include "nodes/node_error_codes.h"
 #include "tests/support/node_harness.h"
 #include "tests/support/node_test_utils.h"
+#include "tests/support/pipeline_test_utils.h"
 
 namespace llm_edgeflow {
 
 class CommonNodesTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    ASSERT_EQ(SharedAlgorithmRuntime::GlobalInit(), 0);
     session_ctx_ = std::make_unique<SessionContext>();
     RuntimeOptions options;
     options.device_id = 0;
@@ -65,7 +64,8 @@ TEST_F(CommonNodesTest, TextTemplateNodeComprehensive) {
 
   // 1.1 Invalid placeholder should fail init
   nlohmann::json invalid_cfg = {{"template", "Hello {{unknown_variable}}!"}};
-  EXPECT_FALSE(InitNodeForTest(*node, invalid_cfg, session_ctx_.get()));
+  EXPECT_FALSE(InitNodeForTest(*node, invalid_cfg, session_ctx_.get(), nullptr,
+                               {"attributes"}));
 
   // 1.2 Valid placeholder and static values
   nlohmann::json valid_cfg = {
@@ -347,7 +347,8 @@ TEST_F(CommonNodesTest, TextRerankNodeComprehensive) {
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {{"bind_model", "rerank_model_v1"}, {"top_k", 1}};
-  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
+  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get(), nullptr,
+                              {"pairs", "candidate_texts"}));
 
   AlgContext ctx;
   TextBatch queries;
@@ -367,6 +368,13 @@ TEST_F(CommonNodesTest, TextRerankNodeComprehensive) {
 
 // 7.1 TextRerankNode combination constraints validation test
 TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
+  RegisterTestBizs(
+      {"custom_rerank_test"},
+      {{"any_pairs", "QueryCandidatesBatch", false},
+       {"any_queries", "TextBatch", false},
+       {"any_candidates", "RankedTextBatch", false, "N:1"},
+       {"any_candidate_texts", "TextBatch", false, "N:1"}},
+      {{"ranked_results", "RankedTextBatch", true, "1:N", "generate_sub_id"}});
   auto has_constraint_err = [](const ValidationReport& rep) {
     return std::any_of(rep.diagnostics.begin(), rep.diagnostics.end(),
                        [](const auto& d) {
@@ -394,8 +402,7 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
           {{"inputs", {{"pairs", "any_pairs"}}},
            {"outputs", {{"ranked", "ranked_results"}}}}},
          {"config", {{"bind_model", "rerank_model_v1"}}}}}}};
-  auto plan_pairs = PipelineValidator::ValidateAndPlan(
-      valid_pipeline_pairs, ValidationPolicy::kPrivateExtensionCompatible);
+  auto plan_pairs = PipelineValidator::ValidateAndPlan(valid_pipeline_pairs);
   EXPECT_TRUE(plan_pairs.report.ok);
 
   // Test valid scheme 2: 'queries' + 'candidates'
@@ -416,8 +423,7 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
             {{"queries", "any_queries"}, {"candidates", "any_candidates"}}},
            {"outputs", {{"ranked", "ranked_results"}}}}},
          {"config", {{"bind_model", "rerank_model_v1"}}}}}}};
-  auto plan_qc = PipelineValidator::ValidateAndPlan(
-      valid_pipeline_qc, ValidationPolicy::kPrivateExtensionCompatible);
+  auto plan_qc = PipelineValidator::ValidateAndPlan(valid_pipeline_qc);
   EXPECT_TRUE(plan_qc.report.ok);
 
   // Test valid scheme 3: 'queries' + 'candidate_texts'
@@ -439,8 +445,7 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
              {"candidate_texts", "any_candidate_texts"}}},
            {"outputs", {{"ranked", "ranked_results"}}}}},
          {"config", {{"bind_model", "rerank_model_v1"}}}}}}};
-  auto plan_qct = PipelineValidator::ValidateAndPlan(
-      valid_pipeline_qct, ValidationPolicy::kPrivateExtensionCompatible);
+  auto plan_qct = PipelineValidator::ValidateAndPlan(valid_pipeline_qct);
   EXPECT_TRUE(plan_qct.report.ok);
 
   // Test invalid case 1: only candidates, missing queries
@@ -460,8 +465,7 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
           {{"inputs", {{"candidates", "some_cand"}}},
            {"outputs", {{"ranked", "ranked_results"}}}}},
          {"config", {{"bind_model", "rerank_model_v1"}}}}}}};
-  auto plan1 = PipelineValidator::ValidateAndPlan(
-      bad_pipeline_1, ValidationPolicy::kPrivateExtensionCompatible);
+  auto plan1 = PipelineValidator::ValidateAndPlan(bad_pipeline_1);
   EXPECT_FALSE(plan1.report.ok);
   EXPECT_TRUE(has_constraint_err(plan1.report));
 
@@ -482,8 +486,7 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
           {{"inputs", {{"queries", "some_queries"}}},
            {"outputs", {{"ranked", "ranked_results"}}}}},
          {"config", {{"bind_model", "rerank_model_v1"}}}}}}};
-  auto plan2 = PipelineValidator::ValidateAndPlan(
-      bad_pipeline_2, ValidationPolicy::kPrivateExtensionCompatible);
+  auto plan2 = PipelineValidator::ValidateAndPlan(bad_pipeline_2);
   EXPECT_FALSE(plan2.report.ok);
   EXPECT_TRUE(has_constraint_err(plan2.report));
 
@@ -505,8 +508,7 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
             {{"pairs", "any_pairs"}, {"candidates", "any_candidates"}}},
            {"outputs", {{"ranked", "ranked_results"}}}}},
          {"config", {{"bind_model", "rerank_model_v1"}}}}}}};
-  auto plan3 = PipelineValidator::ValidateAndPlan(
-      bad_pipeline_3, ValidationPolicy::kPrivateExtensionCompatible);
+  auto plan3 = PipelineValidator::ValidateAndPlan(bad_pipeline_3);
   EXPECT_FALSE(plan3.report.ok);
   EXPECT_TRUE(has_constraint_err(plan3.report));
 
@@ -530,8 +532,7 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
              {"candidate_texts", "any_candidate_texts"}}},
            {"outputs", {{"ranked", "ranked_results"}}}}},
          {"config", {{"bind_model", "rerank_model_v1"}}}}}}};
-  auto plan4 = PipelineValidator::ValidateAndPlan(
-      bad_pipeline_4, ValidationPolicy::kPrivateExtensionCompatible);
+  auto plan4 = PipelineValidator::ValidateAndPlan(bad_pipeline_4);
   EXPECT_FALSE(plan4.report.ok);
   EXPECT_TRUE(has_constraint_err(plan4.report));
 }
@@ -552,7 +553,6 @@ class CountingEmbeddingModel final : public IEmbeddingModel {
   InferenceConcurrency Concurrency() const noexcept override {
     return InferenceConcurrency::kConcurrent;
   }
-  size_t GetMaxBatchSize() const noexcept override { return 4; }
 
   int Embed(const TextBatch& input_texts, const EmbeddingOptions&,
             EmbeddingBatch* output_embeddings) noexcept override {
@@ -778,7 +778,6 @@ class PromptContractModel final : public ILlmModel {
   InferenceConcurrency Concurrency() const noexcept override {
     return InferenceConcurrency::kSerialized;
   }
-  size_t GetMaxBatchSize() const noexcept override { return 2; }
   int Generate(const TextBatch& input, const GenerateOptions& options,
                TextBatch* output) noexcept override {
     ++calls;
@@ -817,7 +816,6 @@ class StarterEmbeddingModel final : public IEmbeddingModel {
   InferenceConcurrency Concurrency() const noexcept override {
     return InferenceConcurrency::kConcurrent;
   }
-  size_t GetMaxBatchSize() const noexcept override { return 8; }
   int Embed(const TextBatch& input, const EmbeddingOptions&,
             EmbeddingBatch* output) noexcept override {
     ++calls;
@@ -860,7 +858,7 @@ void CheckScaffoldExecution(const std::string& name, const std::string& model,
           {dep.name, dep.capability, dep.config_field, model});
     }
   }
-  ASSERT_TRUE(node->Init({&plan, nullptr, session}));
+  ASSERT_TRUE(node->Init({&plan, session}));
   Input input;
   for (const auto& id :
        std::vector<std::pair<uint64_t, uint32_t>>{{7, 3}, {11, 9}, {7, 5}}) {
@@ -1101,21 +1099,18 @@ TEST_F(CommonNodesTest, PromptDefaultsMatchDirectInitializationAndNativePlan) {
   ASSERT_TRUE(validated.report.ok) << validated.report.ToJson().dump(2);
   const auto& plan = validated.node_plans.at("custom_prompt");
   const std::string input = R"({"name":"literal {context}"})";
-  for (bool use_plan : {false, true}) {
-    SCOPED_TRACE(use_plan);
+  {
     auto node = NodeRegistry::Instance().Create("PromptGuidedLlmNode");
     ASSERT_NE(node, nullptr);
     std::string error = "old error";
     NodeInitContext init;
-    init.plan = use_plan ? &plan : nullptr;
-    init.config = use_plan ? nullptr : &config;
+    init.plan = &plan;
     init.session_ctx = session_ctx_.get();
     init.diagnostic = &error;
     ASSERT_TRUE(node->Init(init)) << error;
     EXPECT_TRUE(error.empty());
     AlgContext context;
-    context.Publish(use_plan ? "input_sentences" : "input",
-                    TextBatch{{77, 4, input}});
+    context.Publish("input_sentences", TextBatch{{77, 4, input}});
     ASSERT_EQ(node->Process(&context), 0) << context.GetErrorMessage();
     ASSERT_EQ(model->prompts.size(), 1u);
     EXPECT_EQ(model->prompts.front().data, input);
@@ -1125,8 +1120,7 @@ TEST_F(CommonNodesTest, PromptDefaultsMatchDirectInitializationAndNativePlan) {
     EXPECT_FLOAT_EQ(model->last_options.top_p, 0.9f);
     EXPECT_FLOAT_EQ(model->last_options.repetition_penalty, 1.0f);
     EXPECT_TRUE(model->last_options.stop_words.empty());
-    const auto* output =
-        context.Read<TextBatch>(use_plan ? "llm_raw_answer" : "output");
+    const auto* output = context.Read<TextBatch>("llm_raw_answer");
     ASSERT_NE(output, nullptr);
     ASSERT_EQ(output->size(), 1u);
     EXPECT_EQ(output->front().data, "```text\n" + input + "\n```");
@@ -1304,16 +1298,13 @@ TEST_F(CommonNodesTest, PromptConfigurationRejectedByValidatorAndInit) {
     auto node = NodeRegistry::Instance().Create("PromptGuidedLlmNode");
     ASSERT_NE(node, nullptr);
     std::string init_error;
-    NodeInitContext init;
-    init.config = &config;
-    init.session_ctx = session_ctx_.get();
-    init.diagnostic = &init_error;
-    EXPECT_FALSE(node->Init(init));
+    EXPECT_FALSE(
+        InitNodeForTest(*node, config, session_ctx_.get(), &init_error));
     EXPECT_FALSE(init_error.empty());
     bool matching_diagnostic = false;
     for (const auto& diagnostic : preflight.report.diagnostics) {
       if (diagnostic.path.rfind("/pipeline/0/config", 0) == 0 &&
-          diagnostic.message == init_error) {
+          init_error.find(diagnostic.message) != std::string::npos) {
         matching_diagnostic = true;
       }
     }
@@ -1344,7 +1335,7 @@ TEST_F(CommonNodesTest, CustomAndGeneratedNodesUseStrictNativePlans) {
     auto node = NodeRegistry::Instance().Create(name);
     // Use the actual native plan, including normalized configuration and keys.
     const auto& node_plan = plan.node_plans.at("custom_prompt");
-    ASSERT_TRUE(node->Init({&node_plan, nullptr, session_ctx_.get()}));
+    ASSERT_TRUE(node->Init({&node_plan, session_ctx_.get()}));
     AlgContext ctx;
     ctx.Publish("input_sentences", TextBatch{{31, 7, "实体"}});
     ASSERT_EQ(node->Process(&ctx), 0);
@@ -1366,8 +1357,8 @@ TEST_F(CommonNodesTest, StarterTextFunctionsFollowTheDocumentedExercise) {
   ASSERT_TRUE(plan.report.ok) << plan.report.ToJson().dump(2);
   auto node = NodeRegistry::Instance().Create("ScaffoldTutorialLlmNode");
   ASSERT_NE(node, nullptr);
-  ASSERT_TRUE(node->Init(
-      {&plan.node_plans.at("custom_prompt"), nullptr, session_ctx_.get()}));
+  ASSERT_TRUE(
+      node->Init({&plan.node_plans.at("custom_prompt"), session_ctx_.get()}));
 
   // Out-of-order request IDs and nonzero sub-IDs must survive both text
   // functions.

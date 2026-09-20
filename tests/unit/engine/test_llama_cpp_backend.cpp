@@ -73,7 +73,7 @@ TEST(LlamaCppBackendTest, ConfigPreflightAndLoadShareCombinationValidation) {
     EXPECT_FALSE(definition->validate_config(config, &preflight_diagnostic));
     EXPECT_EQ(preflight_diagnostic,
               "decode_batch_size must not exceed context_size");
-    BackendLoadSpec spec;
+    BackendLoadSpec spec{ExecutionProtocol::kTextGeneration};
     spec.backend_config = config;
     // The config error is returned even without a path, before model access.
     std::string load_diagnostic;
@@ -93,28 +93,27 @@ TEST(LlamaCppBackendTest, MissingInvalidPathAndUnknownConfigFailClosed) {
   if (!backend) GTEST_SKIP() << "llama.cpp support is disabled";
 
   std::string diagnostic;
-  BackendLoadSpec missing;
+  BackendLoadSpec missing{ExecutionProtocol::kTextGeneration};
   missing.model_path = "./models/does-not-exist.gguf";
   EXPECT_EQ(backend->Load(missing, &diagnostic), nullptr);
   EXPECT_FALSE(diagnostic.empty());
 
   diagnostic.clear();
-  BackendLoadSpec directory;
+  BackendLoadSpec directory{ExecutionProtocol::kTextGeneration};
   directory.model_path = ".";
   EXPECT_EQ(backend->Load(directory, &diagnostic), nullptr);
   EXPECT_FALSE(diagnostic.empty());
 
   diagnostic.clear();
-  BackendLoadSpec unknown;
+  BackendLoadSpec unknown{ExecutionProtocol::kTextGeneration};
   unknown.model_path = "./models/does-not-exist.gguf";
   unknown.backend_config = {{"business_answer", true}};
   EXPECT_EQ(backend->Load(unknown, &diagnostic), nullptr);
   EXPECT_NE(diagnostic.find("Unknown"), std::string::npos);
 
   diagnostic.clear();
-  BackendLoadSpec wrong_protocol;
+  BackendLoadSpec wrong_protocol{ExecutionProtocol::kTensorGraph};
   wrong_protocol.model_path = "./models/does-not-exist.gguf";
-  wrong_protocol.requested_protocol = ExecutionProtocol::kTensorGraph;
   EXPECT_EQ(backend->Load(wrong_protocol, &diagnostic), nullptr);
   EXPECT_NE(diagnostic.find("requested protocol"), std::string::npos);
 }
@@ -123,7 +122,7 @@ TEST(LlamaCppBackendTest, UnsupportedExecutionTargetFailsBeforeFilesystem) {
   auto backend = BackendRegistry::Instance().Create("llama_cpp");
   if (!backend) GTEST_SKIP() << "llama.cpp support is disabled";
 
-  BackendLoadSpec spec;
+  BackendLoadSpec spec{ExecutionProtocol::kTextGeneration};
   spec.model_path = "./models/does-not-exist.gguf";
   spec.execution_target.platform = "AX650";
   spec.execution_target.device_id = 7;
@@ -175,9 +174,8 @@ TEST(LlamaCppBackendTest, KiteRegistrationMatchesConditionalBuild) {
   }
 
   KiteLlmBackend unavailable;
-  BackendLoadSpec spec;
+  BackendLoadSpec spec{ExecutionProtocol::kTextGeneration};
   spec.model_path = "./models/does-not-exist";
-  spec.requested_protocol = ExecutionProtocol::kTextGeneration;
   std::string diagnostic;
   EXPECT_EQ(unavailable.Load(spec, &diagnostic), nullptr);
   EXPECT_NE(diagnostic.find("not compiled"), std::string::npos);
@@ -185,9 +183,8 @@ TEST(LlamaCppBackendTest, KiteRegistrationMatchesConditionalBuild) {
 
 TEST(LlamaCppBackendTest, KiteRejectsUnsupportedExecutionTargets) {
   KiteLlmBackend backend;
-  BackendLoadSpec spec;
+  BackendLoadSpec spec{ExecutionProtocol::kTextGeneration};
   spec.model_path = "./models/does-not-exist";
-  spec.requested_protocol = ExecutionProtocol::kTextGeneration;
   std::string diagnostic;
   for (const char* platform : {"CUDA", "ASCEND_310P", "AX650", "invalid"}) {
     spec.execution_target.platform = platform;
@@ -206,7 +203,7 @@ TEST(LlamaCppBackendTest, KiteRejectsUnsupportedExecutionTargets) {
 
 TEST(LlamaCppBackendTest, KiteAcceptsCpuAndUnspecifiedExecutionTargets) {
   KiteLlmBackend backend;
-  BackendLoadSpec spec;
+  BackendLoadSpec spec{ExecutionProtocol::kTextGeneration};
   spec.model_path = "./models/does-not-exist";
   std::string diagnostic;
   for (const char* platform : {"", "UNKNOWN", "CPU", "cpu_generic"}) {
@@ -229,7 +226,7 @@ TEST(LlamaCppBackendTest, KiteRejectsInvalidModelsAndRunConfigs) {
   KiteTestDirectory temporary;
   const auto model = temporary.path / "invalid.gguf";
   std::ofstream(model) << "not a GGUF model";
-  BackendLoadSpec spec;
+  BackendLoadSpec spec{ExecutionProtocol::kTextGeneration};
   spec.model_path = model.string();
   std::string diagnostic;
   EXPECT_EQ(backend->Load(spec, &diagnostic), nullptr);
@@ -281,10 +278,9 @@ TEST(LlamaCppBackendTest, RealKiteSdkGenerationAndFixedSeedPolicy) {
                                   temporary.path / "model.gguf");
   std::ofstream(temporary.path / "run.json")
       << R"({"schema_version":1,"model":{"context_size":256,"threads":2,"threads_batch":2},"logging":{"level":"error"}})";
-  BackendLoadSpec spec;
+  BackendLoadSpec spec{ExecutionProtocol::kTextGeneration};
   spec.model_path = (temporary.path / "model.gguf").string();
   spec.backend_config = {{"run_config_file", "run.json"}};
-  spec.requested_protocol = ExecutionProtocol::kTextGeneration;
   std::string diagnostic;
   auto base = backend->Load(spec, &diagnostic);
   ASSERT_NE(base, nullptr) << diagnostic;
@@ -389,7 +385,7 @@ TEST(LlamaCppBackendTest, RealGgufLoadAndTextGeneration) {
 
   auto backend = BackendRegistry::Instance().Create("llama_cpp");
   ASSERT_NE(backend, nullptr);
-  BackendLoadSpec spec;
+  BackendLoadSpec spec{ExecutionProtocol::kTextGeneration};
   spec.model_path = model_path;
   spec.backend_config = {
       {"context_size", 128}, {"decode_batch_size", 128}, {"n_gpu_layers", 0}};
@@ -428,9 +424,8 @@ TEST(LlamaCppBackendTest, KiteImageProtocolRequiresSafeProjectorConfig) {
   if (!backend) GTEST_SKIP();
   KiteTestDirectory temporary;
   std::ofstream(temporary.path / "model.gguf") << "invalid";
-  BackendLoadSpec spec;
+  BackendLoadSpec spec{ExecutionProtocol::kImageTextGeneration};
   spec.model_path = (temporary.path / "model.gguf").string();
-  spec.requested_protocol = ExecutionProtocol::kImageTextGeneration;
   std::string error;
   EXPECT_EQ(backend->Load(spec, &error), nullptr);
   EXPECT_NE(error.find("vision.mmproj"), std::string::npos);
@@ -451,11 +446,10 @@ TEST(LlamaCppBackendTest, RealKiteImageTextGeneration) {
   const char* config = std::getenv("LLM_EDGEFLOW_TEST_KITELLM_VISION_CONFIG");
   if (!backend || !model || !config)
     GTEST_SKIP() << "Set Kite vision model/config for real image gate";
-  BackendLoadSpec spec;
+  BackendLoadSpec spec{ExecutionProtocol::kImageTextGeneration};
   spec.model_path = model;
   spec.backend_config = {{"run_config_file", config}};
   spec.execution_target = {0, "CPU"};
-  spec.requested_protocol = ExecutionProtocol::kImageTextGeneration;
   std::string error;
   auto session = std::dynamic_pointer_cast<IImageTextGenerationSession>(
       backend->Load(spec, &error));
@@ -497,10 +491,9 @@ TEST(LlamaCppBackendTest, RealKiteGeneratedTokenEmbeddings) {
                                   temporary.path / "model.gguf");
   std::ofstream(temporary.path / "run.json")
       << R"({"schema_version":1,"model":{"context_size":256,"threads":2,"threads_batch":2},"logging":{"level":"error"}})";
-  BackendLoadSpec spec;
+  BackendLoadSpec spec{ExecutionProtocol::kGeneratedTokenEmbedding};
   spec.model_path = (temporary.path / "model.gguf").string();
   spec.backend_config = {{"run_config_file", "run.json"}};
-  spec.requested_protocol = ExecutionProtocol::kGeneratedTokenEmbedding;
   std::string error;
   auto session = std::dynamic_pointer_cast<IGeneratedTokenEmbeddingSession>(
       backend->Load(spec, &error));

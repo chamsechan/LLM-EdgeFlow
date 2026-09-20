@@ -88,14 +88,14 @@ int EncodeOperatorTranslationJson(AlgContext* context,
 OutputConverterDefinition MakeOperatorTranslationJsonOutputConverter() {
   OutputConverterDefinition def;
   def.converter_id = "translate.json.operator.v1";
-  def.transport = "operator";
+
   def.schema_id = "translate.json.response";
   def.schema_version = 1;
   def.external_type = "CompanyOperatorEntityOutput";
   def.cardinality = "1:1";
   def.max_batch_size = 64;
   def.capacity_policy = "reject_overflow";
-  def.thread_model = "stateless";
+
   def.external_slots = {{"entity_out",
                          "CompanyOperatorEntityOutput",
                          PortDirection::kOutput,

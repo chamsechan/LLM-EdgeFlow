@@ -30,7 +30,7 @@ BizExposureDefinition MakeEntityExtractBizExposure() {
   BizExposureDefinition def;
   def.biz_name = "entity_extract_v1";
   def.max_batch_size = 64;
-  def.required_transports = {"operator"};
+
   return def;
 }
 
@@ -38,7 +38,7 @@ IoBindingDefinition MakeEntityExtractOperatorBinding() {
   IoBindingDefinition def;
   def.binding_id = "entity_extract.operator.v1";
   def.biz_name = "entity_extract_v1";
-  def.transport = "operator";
+
   def.input_converter_id = "text.plain.operator.v1";
   def.output_converter_id = "document.structured.operator.v1";
   def.input_ports = {{"raw_request_ids", "raw_request_ids"},

@@ -104,10 +104,6 @@ const std::string& TestBizEmbeddingModel::Capability() const noexcept {
 InferenceConcurrency TestBizEmbeddingModel::Concurrency() const noexcept {
   return InferenceConcurrency::kSerialized;
 }
-size_t TestBizEmbeddingModel::GetMaxBatchSize() const noexcept {
-  return max_batch_size_;
-}
-
 int TestBizEmbeddingModel::Embed(const TextBatch& inputs,
                                  const EmbeddingOptions& options,
                                  EmbeddingBatch* outputs) noexcept {
@@ -165,10 +161,6 @@ const std::string& TestBizRerankModel::Capability() const noexcept {
 InferenceConcurrency TestBizRerankModel::Concurrency() const noexcept {
   return InferenceConcurrency::kSerialized;
 }
-size_t TestBizRerankModel::GetMaxBatchSize() const noexcept {
-  return max_batch_size_;
-}
-
 int TestBizRerankModel::Score(const QueryCandidatesBatch& inputs,
                               ScoreBatch* outputs) noexcept {
   const BatchPolicy policy{max_batch_size_, max_batch_size_};
@@ -215,9 +207,6 @@ const std::string& TestBizLlmModel::Capability() const noexcept {
 InferenceConcurrency TestBizLlmModel::Concurrency() const noexcept {
   return InferenceConcurrency::kSerialized;
 }
-size_t TestBizLlmModel::GetMaxBatchSize() const noexcept {
-  return max_batch_size_;
-}
 int TestBizLlmModel::Generate(const TextBatch& prompts, const GenerateOptions&,
                               TextBatch* outputs) noexcept {
   const BatchPolicy policy{max_batch_size_, max_batch_size_};
@@ -254,9 +243,6 @@ const std::string& TestBizOcrModel::Capability() const noexcept {
 }
 InferenceConcurrency TestBizOcrModel::Concurrency() const noexcept {
   return InferenceConcurrency::kSerialized;
-}
-size_t TestBizOcrModel::GetMaxBatchSize() const noexcept {
-  return max_batch_size_;
 }
 int TestBizOcrModel::Recognize(const ImageRefBatch& images,
                                OcrDocumentBatch* outputs) noexcept {
@@ -305,9 +291,6 @@ const std::string& TestBizAsrModel::Capability() const noexcept {
 }
 InferenceConcurrency TestBizAsrModel::Concurrency() const noexcept {
   return InferenceConcurrency::kSerialized;
-}
-size_t TestBizAsrModel::GetMaxBatchSize() const noexcept {
-  return max_batch_size_;
 }
 int TestBizAsrModel::Transcribe(const AudioPcmBatch& audio,
                                 TextBatch* outputs) noexcept {

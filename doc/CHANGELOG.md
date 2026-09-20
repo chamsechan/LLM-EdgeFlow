@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-09-20 上线前接口与实现精简（RFC-0064）
+
+- 删除未使用的适配头、元数据和历史入口；Operator、CLI 和测试统一当前部署与严格 Plan 契约。
+- Node 消费一次归一化的配置；收敛输出池预算、视图元数据和 Model/Backend 协议声明。
+- Studio 直接消费 Catalog v4；删除独立测试构建模式和脚手架片段生成分支，完整生成统一使用 ChangePlan。
+- 当前文档只描述 C++ Operator、独立转换器和 Pipeline deployment 配置。
+
 ## 2026-09-20 Demo 执行参数收敛至 Profile（RFC-0063）
 
 - 删除 Demo 的 `--chip`、`--device-id`、`--batch-size`、`--depth` 及 CLI 覆盖标记；旧参数返回未知选项错误。

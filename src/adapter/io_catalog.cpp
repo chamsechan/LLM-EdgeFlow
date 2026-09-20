@@ -20,40 +20,15 @@ nlohmann::json SlotJson(const ExternalSlotDefinition& slot) {
           {"capacity_fields", slot.capacity_fields}};
 }
 
-nlohmann::json LogicalPortJson(const NodePortDefinition& port) {
-  nlohmann::json res = {{"key", port.logical_name},
-                        {"type_id", port.type_id},
-                        {"required", port.required},
-                        {"cardinality", port.cardinality},
-                        {"provenance_policy", port.provenance_policy},
-                        {"lifetime", port.lifetime}};
-  if (!port.lifetime_config_field.empty()) {
-    res["lifetime_config_field"] = port.lifetime_config_field;
-  }
-  return res;
-}
-
-nlohmann::json BizPortJson(const BizPortDefinition& port) {
-  nlohmann::json res = {{"key", port.blackboard_key},
-                        {"type_id", port.type_id},
-                        {"required", port.required},
-                        {"cardinality", port.cardinality},
-                        {"provenance_policy", port.provenance_policy},
-                        {"lifetime", port.lifetime}};
-  if (!port.lifetime_config_field.empty()) {
-    res["lifetime_config_field"] = port.lifetime_config_field;
-  }
-  return res;
-}
-
 nlohmann::json InputConverterToJson(const InputConverterDefinition& conv) {
   nlohmann::json slots = nlohmann::json::array();
   for (const auto& s : conv.external_slots) slots.push_back(SlotJson(s));
   nlohmann::json ports = nlohmann::json::array();
-  for (const auto& p : conv.logical_ports) ports.push_back(LogicalPortJson(p));
+  for (const auto& p : conv.logical_ports)
+    ports.push_back(PipelineCatalog::PortToJson(p.logical_name, p));
 
   return {{"converter_id", conv.converter_id},
-          {"transport", conv.transport},
+          {"transport", "operator"},
           {"schema_id", conv.schema_id},
           {"schema_version", conv.schema_version},
           {"external_type", conv.external_type},
@@ -66,10 +41,11 @@ nlohmann::json OutputConverterToJson(const OutputConverterDefinition& conv) {
   nlohmann::json slots = nlohmann::json::array();
   for (const auto& s : conv.external_slots) slots.push_back(SlotJson(s));
   nlohmann::json ports = nlohmann::json::array();
-  for (const auto& p : conv.logical_ports) ports.push_back(LogicalPortJson(p));
+  for (const auto& p : conv.logical_ports)
+    ports.push_back(PipelineCatalog::PortToJson(p.logical_name, p));
 
   return {{"converter_id", conv.converter_id},
-          {"transport", conv.transport},
+          {"transport", "operator"},
           {"schema_id", conv.schema_id},
           {"schema_version", conv.schema_version},
           {"external_type", conv.external_type},
@@ -83,7 +59,7 @@ nlohmann::json OutputConverterToJson(const OutputConverterDefinition& conv) {
 nlohmann::json IoBindingToJson(const IoBindingDefinition& b) {
   return {{"binding_id", b.binding_id},
           {"biz_name", b.biz_name},
-          {"transport", b.transport},
+          {"transport", "operator"},
           {"input_converter_id", b.input_converter_id},
           {"output_converter_id", b.output_converter_id},
           {"input_port_mapping", b.input_ports},
@@ -95,40 +71,6 @@ nlohmann::json IoBindingToJson(const IoBindingDefinition& b) {
 
 nlohmann::json IoCatalog::ToJson(const PipelineCatalogSnapshot& snapshot,
                                  const std::string& biz_filter) {
-  nlohmann::json nodes = nlohmann::json::array();
-  for (const auto& item : snapshot.nodes) {
-    if (!biz_filter.empty() && !item.biz_names.empty() &&
-        std::find(item.biz_names.begin(), item.biz_names.end(), biz_filter) ==
-            item.biz_names.end()) {
-      continue;
-    }
-    nodes.push_back(PipelineCatalog::NodeToJson(item));
-  }
-
-  nlohmann::json models = nlohmann::json::array();
-  for (const auto& item : PipelineCatalog::Models()) {
-    models.push_back(PipelineCatalog::ModelToJson(item));
-  }
-
-  nlohmann::json backends = nlohmann::json::array();
-  for (const auto& item : PipelineCatalog::Backends()) {
-    backends.push_back(PipelineCatalog::BackendToJson(item));
-  }
-
-  nlohmann::json bizs = nlohmann::json::array();
-  for (const auto& item : snapshot.bizs) {
-    if (!biz_filter.empty() && item.biz_name != biz_filter) continue;
-    nlohmann::json ingress = nlohmann::json::array();
-    nlohmann::json egress = nlohmann::json::array();
-    for (const auto& port : item.ingress) ingress.push_back(BizPortJson(port));
-    for (const auto& port : item.egress) egress.push_back(BizPortJson(port));
-    bizs.push_back({{"biz_name", item.biz_name},
-                    {"demo_biz", item.demo_biz},
-                    {"display_name", item.display_name},
-                    {"ingress", std::move(ingress)},
-                    {"egress", std::move(egress)}});
-  }
-
   // 聚合 IO Bindings 与 Converters
   auto all_bindings = IoBindingRegistry::Instance().AllBindings();
   std::sort(all_bindings.begin(), all_bindings.end(),
@@ -181,14 +123,12 @@ nlohmann::json IoCatalog::ToJson(const PipelineCatalogSnapshot& snapshot,
     output_converters.push_back(OutputConverterToJson(c));
   }
 
-  return {{"schema_version", 4},
-          {"nodes", std::move(nodes)},
-          {"models", std::move(models)},
-          {"backends", std::move(backends)},
-          {"bizs", std::move(bizs)},
-          {"input_converters", std::move(input_converters)},
-          {"output_converters", std::move(output_converters)},
-          {"io_bindings", std::move(io_bindings)}};
+  auto result = PipelineCatalog::ToJson(snapshot, biz_filter);
+  result["schema_version"] = 4;
+  result["input_converters"] = std::move(input_converters);
+  result["output_converters"] = std::move(output_converters);
+  result["io_bindings"] = std::move(io_bindings);
+  return result;
 }
 
 nlohmann::json IoCatalog::ToJson(const std::string& biz_filter) {

@@ -14,14 +14,6 @@ set_tests_properties(ThirdPartyCacheMetadataTest PROPERTIES
   WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
   LABELS "tier1;static-gate;dev-fast;sanitizer-compatible")
 
-if(NOT LLM_EDGEFLOW_SHARDED_TEST_RUNNERS)
-  include(${PROJECT_SOURCE_DIR}/cmake_ext/IndividualTests.cmake)
-  # The opt-in real Kite deployment suite loads text, ONNX and vision models.
-  set_tests_properties(DemoRunnerTest PROPERTIES TIMEOUT 300)
-  edgeflow_assert_required_test_inventory()
-  return()
-endif()
-
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
 function(edgeflow_enable_test_pch target_name)

@@ -67,13 +67,12 @@ class ScaffoldCustomNodeTest(unittest.TestCase):
             cmake = Path(temp) / "CMakeLists.txt"
             original_cmake = (ROOT / "src/custom_nodes/CMakeLists.txt").read_text()
             cmake.write_text(original_cmake)
-            args = ["ExampleNode", "--output-dir", temp, "--add-to-cmake", "--generate-test"]
+            args = ["ExampleNode", "--output-dir", temp, "--add-to-cmake"]
             dry = self.run_cli(*args, "--dry-run")
             self.assertEqual(dry.returncode, 0, dry.stderr)
             self.assertEqual(len(list(Path(temp).iterdir())), 1)
             result = self.run_cli(*args)
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn("TEST(CustomNodeCatalogTest", result.stdout)
             node = Path(temp) / "example_node.cpp"
             node.write_text("user changes")
             self.assertNotEqual(self.run_cli(*args).returncode, 0)
@@ -119,7 +118,7 @@ class ScaffoldCustomNodeTest(unittest.TestCase):
         self.assertEqual(generated, SCAFFOLD.STARTER_CONTROL_TEMPLATE.read_text())
         result = self.run_cli("PrefixNode", "--control-id", "12345", "--dry-run",
                               "--in-port", "source:TextBatch", "--out-port", "result:TextBatch",
-                              "--generate-test")
+                              "--write-test")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('kUpdatePrefix = 12345;', result.stdout)
         self.assertIn('ctx.Publish("source"', result.stdout)
@@ -208,16 +207,6 @@ class ScaffoldCustomNodeTest(unittest.TestCase):
             self.assertIn("ctest --test-dir build -R CommonNodesTest", result.stdout)
             self.assertIn('./build/edgeflow_test_nodes_runner --gtest_filter="CustomNodeCatalogTest.AwesomeFeatureNode_*"', result.stdout)
 
-            # Test individual runner mode if CMakeCache specifies it
-            cache_file = Path(temp) / "build" / "CMakeCache.txt"
-            cache_file.parent.mkdir(parents=True, exist_ok=True)
-            cache_file.write_text("LLM_EDGEFLOW_SHARDED_TEST_RUNNERS:BOOL=OFF\n", encoding="utf-8")
-            result_ind = self.run_cli("IndividualNode", "--write-test", "--add-to-cmake", env=env)
-            self.assertEqual(result_ind.returncode, 0, result_ind.stderr)
-            self.assertIn("cmake --build build --target test_common_nodes", result_ind.stdout)
-            self.assertIn("CustomNodeCatalogTest.IndividualNode_*", result_ind.stdout)
-            self.assertIn('./build/test_common_nodes --gtest_filter="CustomNodeCatalogTest.IndividualNode_*"', result_ind.stdout)
-
     def test_write_test_dry_run_does_not_create_files(self):
         with tempfile.TemporaryDirectory() as temp:
             env = self._setup_mock_repo(temp)
@@ -256,7 +245,6 @@ class ScaffoldCustomNodeTest(unittest.TestCase):
             custom_dir.mkdir()
 
             cases = [
-                (["--generate-test"], "--write-test and --generate-test cannot be used together"),
                 (["--force"], "--write-test rejects --force to prevent multi-file overwrite"),
                 (["--output-dir", str(custom_dir)], "--write-test requires the standard source directory src/custom_nodes"),
             ]

@@ -132,12 +132,11 @@ Validator 和 Studio 自动使用注册结果，不需要你再维护 UI 节点�
 `Validate` / `ValidateBindings`，由预检与初始化共用。参考
 [自由 Batch starter](../../dev_support/node_authoring/starter_batch_node.cpp)。
 
-Definition 会帮助原生校验发现类型、字段和连线错误，但不会自动实现业务代码。高级接口新增
-配置初始化与 Definition 应共享同一份字段列表，通过
-`contracts/config_schema_validation.h` 的 `ValidateAndNormalizeFields` 校验未知字段、
-类型、范围、枚举并填入默认值，再读取规范化结果。`ModelBoundNode` 已在绑定模型前完成
-这一步；直接继承 `NodeBase` 的节点在自己的 `InitNode` 调用它。跨字段约束提取成局部函数，
-由 Init 与 `validate_config` 共用。直接 Init 不负责 DAG 或业务出口校验。
+Definition 会帮助原生校验发现类型、字段和连线错误，但不会自动实现业务代码。
+Validator 根据 Definition 字段列表一次性校验未知字段、类型、范围和枚举，并填入默认值。
+Init 必须收到 `ValidatedNodePlan`，读取其中 `normalized_config` 和已解析端口；
+缺少 Plan 时失败。跨字段约束提取成局部函数，由 Init 与 `validate_config` 共用，
+初始化仍负责资源准备和语义检查。Control 更新单独归一化新参数后再发布。
 节点执行失败使用 `Fail/Require`，让返回码与请求诊断一致；初始化用 `init_ctx.Fail(reason)`
 传递具体原因。
 具体写法可按需参考 `PromptGuidedLlmNode`，第一天不必复制它的全部参数和解析逻辑。
@@ -198,7 +197,7 @@ Definition 会帮助原生校验发现类型、字段和连线错误，但不会
 | 拆分载荷并分配子编号 | [TextChunkNode](../../src/common_nodes/text_chunk_node.cpp) 使用 `SplitPayloads`；每个请求连续分配子编号，counts 保留父 key，载荷回调只负责切分 |
 | 多个问题各自配多段材料 | [PromptGuidedLlmNode::ProcessNode](../../src/custom_nodes/prompt_guided_llm_node.cpp) 按 `req_id` 收集 context，主输出沿用 input 的 `(req_id, sub_id)` |
 | 候选打分、按请求分组、保留原候选来源 | [TextRerankNode::ProcessNode](../../src/common_nodes/text_rerank_node.cpp) 展示来源检查后再排序；新 rank 与原候选编号分别保存 |
-| 字段、默认值与范围 | [ValidateAndNormalizeFields](../../include/contracts/config_schema_validation.h)，Definition 与 Init 共用一份字段列表 |
+| 字段、默认值与范围 | [ValidateAndNormalizeFields](../../include/contracts/config_schema_validation.h)，Validator 消费 Definition 字段列表，Init 读取 Plan 中的归一化结果 |
 | 多字段配置转为普通参数结构 | [NodeConfigParser](../../include/nodes/node_config_parser.h)，复用字段校验与节点自己的语义解析 |
 | 初值与运行时更新使用同一业务校验 | [Control 模板](../../dev_support/node_authoring/starter_control_node.cpp) 的局部解析函数，失败不替换旧配置 |
 | 提示词变量替换 | [现有模板工具](../../include/nodes/text_template.h)，只在实际需要模板语义时使用 |

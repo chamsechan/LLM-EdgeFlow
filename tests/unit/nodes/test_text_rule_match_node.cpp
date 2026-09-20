@@ -10,7 +10,6 @@
 #include <thread>
 #include <vector>
 
-#include "adapter/shared_algorithm_runtime.h"
 #include "core/alg_context.h"
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
@@ -24,10 +23,7 @@ namespace llm_edgeflow {
 
 class TextRuleMatchNodeTest : public ::testing::Test {
  protected:
-  void SetUp() override {
-    ASSERT_EQ(SharedAlgorithmRuntime::GlobalInit(), 0);
-    session_ctx_ = std::make_unique<SessionContext>();
-  }
+  void SetUp() override { session_ctx_ = std::make_unique<SessionContext>(); }
   std::unique_ptr<SessionContext> session_ctx_;
 };
 
@@ -130,11 +126,8 @@ TEST_F(TextRuleMatchNodeTest, NestedDiagnosticsAgreeAcrossAuthoringAndControl) {
     // Direct authoring initialization reports the same offending nested value.
     auto fresh = NodeRegistry::Instance().Create("TextRuleMatchNode");
     std::string diagnostic;
-    NodeInitContext init;
-    init.config = &invalid.config;
-    init.session_ctx = session_ctx_.get();
-    init.diagnostic = &diagnostic;
-    EXPECT_FALSE(fresh->Init(init));
+    EXPECT_FALSE(InitNodeForTest(*fresh, invalid.config, session_ctx_.get(),
+                                 &diagnostic));
     const auto update =
         active->Control(kControlCmdUpdateRules, invalid.config.dump());
     EXPECT_EQ(update.status, NodeControlStatus::kFailed);
@@ -160,11 +153,8 @@ TEST_F(TextRuleMatchNodeTest, DirectInitReportsInvalidTopLevelField) {
            {{{"category", "misspelled"}}, "category"}}) {
     auto node = NodeRegistry::Instance().Create("TextRuleMatchNode");
     std::string diagnostic;
-    NodeInitContext init;
-    init.config = &config;
-    init.session_ctx = session_ctx_.get();
-    init.diagnostic = &diagnostic;
-    EXPECT_FALSE(node->Init(init));
+    EXPECT_FALSE(
+        InitNodeForTest(*node, config, session_ctx_.get(), &diagnostic));
     EXPECT_NE(diagnostic.find(field), std::string::npos) << diagnostic;
   }
 }

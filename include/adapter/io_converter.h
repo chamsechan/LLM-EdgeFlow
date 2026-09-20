@@ -69,146 +69,57 @@ DECLARE_EXTERNAL_TYPE_TRAITS(int, "int");
 class ExternalInputBatchView {
  public:
   size_t count = 0;
-  std::string type_id;
-
-  // Operator 具名槽位输入: slot_name -> vector of shared_ptr<void>
   std::unordered_map<std::string, std::vector<std::shared_ptr<void>>> slots;
-  // Operator 具名槽位借用输入 (非拥有指针): slot_name -> vector of const void*
-  std::unordered_map<std::string, std::vector<const void*>> leased_slots;
   std::unordered_map<std::string, std::string> slot_types;
 
   template <typename T>
   const T* GetSlot(const std::string& slot_name, size_t index) const {
-    auto lit = leased_slots.find(slot_name);
-    if (lit != leased_slots.end() && index < lit->second.size()) {
-      if constexpr (!std::is_void_v<T>) {
-        std::string expected;
-        auto st_it = slot_types.find(slot_name);
-        if (st_it != slot_types.end()) {
-          expected = st_it->second;
-        } else if (!type_id.empty()) {
-          expected = type_id;
-        }
-        if (!expected.empty()) {
-          const char* actual_trait = ExternalTypeTraits<T>::TypeName();
-          if (!actual_trait || expected != actual_trait) {
-            return nullptr;
-          }
-        }
-      }
-      return static_cast<const T*>(lit->second[index]);
-    }
-
     auto it = slots.find(slot_name);
     if (it == slots.end() || index >= it->second.size()) return nullptr;
     if constexpr (!std::is_void_v<T>) {
-      std::string expected;
-      auto st_it = slot_types.find(slot_name);
-      if (st_it != slot_types.end()) {
-        expected = st_it->second;
-      } else if (!type_id.empty()) {
-        expected = type_id;
-      }
-      if (!expected.empty()) {
-        const char* actual_trait = ExternalTypeTraits<T>::TypeName();
-        if (!actual_trait || expected != actual_trait) {
-          return nullptr;
-        }
-      }
+      auto type = slot_types.find(slot_name);
+      if (type == slot_types.end() ||
+          type->second != ExternalTypeTraits<T>::TypeName())
+        return nullptr;
     }
     return static_cast<const T*>(it->second[index].get());
   }
 };
 
-/**
- * @brief 外部宿主输出批次目标借用视图
- */
+/** Synchronous Encode borrows slots and immutable specs from leased pools. */
 class ExternalOutputBatchView {
  public:
   size_t count = 0;
-  std::string type_id;
-
-  // Operator 已租用输出块: slot_name -> vector of void*
   std::unordered_map<std::string, std::vector<void*>> leased_slots;
   std::unordered_map<std::string, std::string> slot_types;
-  // Operator 槽位字段容量: slot_name -> field_name -> capacity
-  std::unordered_map<std::string, std::unordered_map<std::string, size_t>>
-      slot_capacities;
-  // Operator 槽位池 Spec: slot_name -> ResolvedOutputPoolSpec
-  std::unordered_map<std::string, ResolvedOutputPoolSpec> pool_specs;
+  std::unordered_map<std::string, const ResolvedOutputPoolSpec*> pool_specs;
 
   const ResolvedOutputPoolSpec* GetPoolSpec(
       const std::string& slot_name) const {
-    auto sit = pool_specs.find(slot_name);
-    if (sit != pool_specs.end()) return &sit->second;
-    for (const auto& kv : pool_specs) {
-      auto dot = kv.first.rfind('.');
-      if (dot != std::string::npos && kv.first.substr(dot + 1) == slot_name) {
-        return &kv.second;
-      }
-    }
-    return nullptr;
+    auto it = pool_specs.find(slot_name);
+    return it == pool_specs.end() ? nullptr : it->second;
   }
 
   template <typename T>
   T* GetSlot(const std::string& slot_name, size_t index) const {
-    const std::vector<void*>* vec = nullptr;
-    std::string matched_key;
     auto it = leased_slots.find(slot_name);
-    if (it != leased_slots.end()) {
-      vec = &it->second;
-      matched_key = it->first;
-    } else {
-      for (const auto& kv : leased_slots) {
-        auto dot = kv.first.rfind('.');
-        if (dot != std::string::npos && kv.first.substr(dot + 1) == slot_name) {
-          vec = &kv.second;
-          matched_key = kv.first;
-          break;
-        }
-      }
-    }
-    if (!vec || index >= vec->size()) return nullptr;
+    if (it == leased_slots.end() || index >= it->second.size()) return nullptr;
     if constexpr (!std::is_void_v<T>) {
-      std::string expected;
-      auto st_it = slot_types.find(slot_name);
-      if (st_it != slot_types.end()) {
-        expected = st_it->second;
-      } else if (!matched_key.empty()) {
-        auto st_it2 = slot_types.find(matched_key);
-        if (st_it2 != slot_types.end()) {
-          expected = st_it2->second;
-        }
-      }
-      if (expected.empty() && !type_id.empty()) {
-        expected = type_id;
-      }
-      if (!expected.empty()) {
-        const char* actual_trait = ExternalTypeTraits<T>::TypeName();
-        if (!actual_trait || expected != actual_trait) {
-          return nullptr;
-        }
-      }
+      auto type = slot_types.find(slot_name);
+      if (type == slot_types.end() ||
+          type->second != ExternalTypeTraits<T>::TypeName())
+        return nullptr;
     }
-    return static_cast<T*>((*vec)[index]);
+    return static_cast<T*>(it->second[index]);
   }
 
   size_t GetSlotCapacity(const std::string& slot_name,
                          const std::string& field_name,
                          size_t default_cap = 0) const {
-    auto sit = slot_capacities.find(slot_name);
-    if (sit != slot_capacities.end()) {
-      auto fit = sit->second.find(field_name);
-      if (fit != sit->second.end()) return fit->second;
-    }
-    for (const auto& kv : slot_capacities) {
-      auto dot = kv.first.rfind('.');
-      if (dot != std::string::npos && kv.first.substr(dot + 1) == slot_name) {
-        auto fit = kv.second.find(field_name);
-        if (fit != kv.second.end()) return fit->second;
-      }
-    }
-    return default_cap;
+    const auto* spec = GetPoolSpec(slot_name);
+    if (!spec) return default_cap;
+    auto it = spec->capacities.find(field_name);
+    return it == spec->capacities.end() ? default_cap : it->second;
   }
 };
 
@@ -216,20 +127,14 @@ class ExternalOutputBatchView {
  * @brief 输入解码选项与调用诊断上下文
  */
 struct InputDecodeOptions {
-  std::string binding_id;
   std::string converter_id;
-  std::string transport;  // "operator"
-  size_t max_batch_size = 64;
 };
 
 /**
  * @brief 输出编码选项与调用诊断上下文
  */
 struct OutputEncodeOptions {
-  std::string binding_id;
   std::string converter_id;
-  std::string transport;  // "operator"
-  size_t max_batch_size = 64;
 };
 
 /**
@@ -363,15 +268,14 @@ using EncodeOutputFn = int (*)(AlgContext* context,
  */
 struct InputConverterDefinition {
   std::string converter_id;
-  std::string transport;  // "operator"
+
   std::string schema_id;
   int schema_version = 1;
   std::string external_type;
   std::vector<ExternalSlotDefinition> external_slots;
   std::vector<NodePortDefinition> logical_ports;  // 发布的内部逻辑输出端口
   size_t max_batch_size = 64;
-  std::string ownership_policy = "copy_in";
-  std::string thread_model = "stateless";
+
   DecodeInputFn decode_fn = nullptr;
 };
 
@@ -380,7 +284,7 @@ struct InputConverterDefinition {
  */
 struct OutputConverterDefinition {
   std::string converter_id;
-  std::string transport;  // "operator"
+
   std::string schema_id;
   int schema_version = 1;
   std::string external_type;
@@ -389,7 +293,7 @@ struct OutputConverterDefinition {
   std::string cardinality = "1:1";
   size_t max_batch_size = 64;
   std::string capacity_policy = "reject_overflow";
-  std::string thread_model = "stateless";
+
   EncodeOutputFn encode_fn = nullptr;
 };
 

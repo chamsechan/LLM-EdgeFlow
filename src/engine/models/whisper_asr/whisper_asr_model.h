@@ -17,16 +17,13 @@ class WhisperAsrModel final : public IAsrModel {
   const std::string& ModelType() const noexcept override;
   const std::string& Capability() const noexcept override;
   InferenceConcurrency Concurrency() const noexcept override;
-  size_t GetMaxBatchSize() const noexcept override;
 
   int Transcribe(const AudioPcmBatch& audio,
                  TextBatch* outputs) noexcept override;
 
  private:
   std::shared_ptr<IAudioTranscriptionSession> session_;
-  std::string language_ = "zh";
   int max_audio_seconds_ = 30;
-  size_t max_output_bytes_ = 65536;
   AudioTranscriptionOptions options_;
 };
 

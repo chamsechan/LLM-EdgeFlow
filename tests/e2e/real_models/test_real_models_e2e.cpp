@@ -37,9 +37,7 @@ class RealModelE2ETest : public ::testing::Test {
     spec.model_type = "qwen_causal_lm";
     spec.backend_type = "llama_cpp";
     spec.model_path = model_path_.string();
-    spec.model_config = {{"chat_template", "qwen_chatml"},
-                         {"add_bos", false},
-                         {"random_seed", 17}};
+    spec.model_config = {{"add_bos", false}, {"random_seed", 17}};
     spec.backend_config = {
         {"context_size", 512}, {"decode_batch_size", 512}, {"n_gpu_layers", 0}};
     std::string diagnostic;

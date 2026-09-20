@@ -18,11 +18,10 @@ namespace llm_edgeflow {
 /**
  * @brief Connection facts of input ports captured defensively during Init.
  *
- * Immutable after initialization; retains distinction between "no plan"
- * and "plan present with explicit bindings".
+ * Immutable after initialization; distinguishes semantic-only parsing from
+ * validation against explicit input bindings.
  */
 struct BindingFacts {
-  bool has_plan = false;
   bool has_bindings = false;
   std::unordered_set<std::string> connected_inputs;
 
@@ -31,41 +30,13 @@ struct BindingFacts {
   }
 };
 
-inline BindingFacts MakeBindingFacts(
-    const NodeInitContext& ctx,
-    std::unordered_set<std::string> connected_inputs) {
-  BindingFacts facts;
-  facts.has_plan = (ctx.plan != nullptr);
-  facts.has_bindings = true;
-  facts.connected_inputs = std::move(connected_inputs);
-  return facts;
-}
-
 inline BindingFacts MakeBindingFacts(const NodeInitContext& ctx) {
   BindingFacts facts;
   facts.has_bindings = true;
-  if (ctx.plan) {
-    facts.has_plan = true;
-    for (const auto& port : ctx.plan->ports) {
-      if (port.direction == PortDirection::kInput &&
-          !port.blackboard_key.empty()) {
-        facts.connected_inputs.insert(port.logical_name);
-      }
-    }
-  }
-  return facts;
-}
-
-inline BindingFacts MakeBindingFacts(const ValidatedNodePlan* plan) {
-  BindingFacts facts;
-  facts.has_bindings = true;
-  if (plan) {
-    facts.has_plan = true;
-    for (const auto& port : plan->ports) {
-      if (port.direction == PortDirection::kInput &&
-          !port.blackboard_key.empty()) {
-        facts.connected_inputs.insert(port.logical_name);
-      }
+  for (const auto& port : ctx.plan->ports) {
+    if (port.direction == PortDirection::kInput &&
+        !port.blackboard_key.empty()) {
+      facts.connected_inputs.insert(port.logical_name);
     }
   }
   return facts;

@@ -7,7 +7,6 @@
 #include <thread>
 #include <vector>
 
-#include "adapter/shared_algorithm_runtime.h"
 #include "core/alg_context.h"
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
@@ -32,7 +31,6 @@ class CountingEmbeddingModel final : public IEmbeddingModel {
   InferenceConcurrency Concurrency() const noexcept override {
     return InferenceConcurrency::kConcurrent;
   }
-  size_t GetMaxBatchSize() const noexcept override { return 4; }
 
   int Embed(const TextBatch& input_texts, const EmbeddingOptions&,
             EmbeddingBatch* output_embeddings) noexcept override {
@@ -59,7 +57,6 @@ class CountingEmbeddingModel final : public IEmbeddingModel {
 class TextEmbeddingNodeTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    ASSERT_EQ(SharedAlgorithmRuntime::GlobalInit(), 0);
     session_ctx_ = std::make_unique<SessionContext>();
     counting_model_ = std::make_shared<CountingEmbeddingModel>();
     ASSERT_TRUE(session_ctx_->GetModelManager().RegisterModel(
@@ -442,12 +439,11 @@ TEST_F(TextEmbeddingNodeTest, StrictPlanKeepsDistinctCorpusCacheIdentities) {
   for (int request = 0; request < 2; ++request) {
     AlgContext ctx;
     ctx.Publish("input_sentences", TextBatch{{1, 0, "probe"}});
-    for (const auto& id : plan.topological_order) {
+    for (const auto& id : plan.report.topological_order) {
       const auto& node_plan = plan.node_plans.at(id);
       auto node = NodeRegistry::Instance().Create(node_plan.node.node_type);
       ASSERT_NE(node, nullptr);
-      ASSERT_TRUE(node->Init(
-          {&node_plan, &node_plan.normalized_config, session_ctx_.get()}));
+      ASSERT_TRUE(node->Init({&node_plan, session_ctx_.get()}));
       ASSERT_EQ(node->Process(&ctx), 0);
     }
     for (const char* key : {"a", "b"}) {

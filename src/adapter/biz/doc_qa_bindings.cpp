@@ -33,7 +33,7 @@ BizExposureDefinition MakeDocQaBizExposure() {
   BizExposureDefinition def;
   def.biz_name = "smart_doc_qa_v1";
   def.max_batch_size = 64;
-  def.required_transports = {"operator"};
+
   return def;
 }
 
@@ -41,7 +41,7 @@ IoBindingDefinition MakeDocQaOperatorBinding() {
   IoBindingDefinition def;
   def.binding_id = "doc_qa.operator.v1";
   def.biz_name = "smart_doc_qa_v1";
-  def.transport = "operator";
+
   def.input_converter_id = "doc_query.plain.operator.v1";
   def.output_converter_id = "doc_answer.plain.operator.v1";
   def.input_ports = {{"raw_request_ids", "raw_request_ids"},

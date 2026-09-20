@@ -21,12 +21,7 @@ bool IoConverterRegistry::RegisterInputConverter(
         def.converter_id);
     return false;
   }
-  if (def.transport != "operator") {
-    conflict_errors_.push_back(
-        "Invalid transport '" + def.transport +
-        "' in InputConverterDefinition for: " + def.converter_id);
-    return false;
-  }
+
   if (def.schema_id.empty()) {
     conflict_errors_.push_back(
         "Empty schema_id in InputConverterDefinition for: " + def.converter_id);
@@ -112,12 +107,7 @@ bool IoConverterRegistry::RegisterOutputConverter(
         def.converter_id);
     return false;
   }
-  if (def.transport != "operator") {
-    conflict_errors_.push_back(
-        "Invalid transport '" + def.transport +
-        "' in OutputConverterDefinition for: " + def.converter_id);
-    return false;
-  }
+
   if (def.schema_id.empty()) {
     conflict_errors_.push_back(
         "Empty schema_id in OutputConverterDefinition for: " +

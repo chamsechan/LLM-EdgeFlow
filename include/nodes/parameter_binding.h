@@ -547,7 +547,7 @@ class Parameters {
           return false;
         }
       }
-      if (binding_validator_ && (facts.has_plan || facts.has_bindings)) {
+      if (binding_validator_ && facts.has_bindings) {
         if (!binding_validator_(*state, facts.connected_inputs, err)) {
           if (err && err->empty()) *err = "Binding validation failed";
           return false;
@@ -659,7 +659,6 @@ class Parameters {
       const std::unordered_set<std::string>& connected_inputs,
       std::string* error = nullptr) const noexcept {
     BindingFacts facts;
-    facts.has_plan = true;
     facts.has_bindings = true;
     facts.connected_inputs = connected_inputs;
     auto parsed = ParseNormalized(normalized, facts, error);

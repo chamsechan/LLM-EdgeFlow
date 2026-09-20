@@ -50,6 +50,8 @@ class PipelineCatalog {
   static nlohmann::json ToJson(const PipelineCatalogSnapshot& snapshot,
                                const std::string& biz_filter = std::string());
   static nlohmann::json ToJson(const std::string& biz_filter = std::string());
+  static nlohmann::json PortToJson(const std::string& key,
+                                   const PortContract& port);
   static nlohmann::json NodeToJson(const NodeDefinition& definition);
   static nlohmann::json ModelToJson(const ModelDefinition& definition);
   static nlohmann::json BackendToJson(const BackendDefinition& definition);

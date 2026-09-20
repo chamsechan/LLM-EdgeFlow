@@ -559,12 +559,11 @@ const std::string& OnnxRuntimeBackend::BackendType() const noexcept {
 std::shared_ptr<IBackendSession> OnnxRuntimeBackend::Load(
     const BackendLoadSpec& spec, std::string* diagnostic) noexcept {
   try {
-    if (spec.requested_protocol.has_value() &&
-        *spec.requested_protocol != ExecutionProtocol::kTensorGraph) {
+    if (spec.requested_protocol != ExecutionProtocol::kTensorGraph) {
       SetDiagnosticNoexcept(
           diagnostic,
           "ONNX Runtime backend does not support requested protocol: " +
-              std::string(ExecutionProtocolName(*spec.requested_protocol)));
+              std::string(ExecutionProtocolName(spec.requested_protocol)));
       return nullptr;
     }
     if (!ValidateExecutionTarget(spec.execution_target, diagnostic)) {

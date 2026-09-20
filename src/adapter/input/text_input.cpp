@@ -128,13 +128,12 @@ int DecodeOperatorKeywordInput(const ExternalInputBatchView& source,
 InputConverterDefinition MakeOperatorEntityInputConverter() {
   InputConverterDefinition def;
   def.converter_id = "text.plain.operator.v1";
-  def.transport = "operator";
+
   def.schema_id = "text.plain.request";
   def.schema_version = 1;
   def.external_type = "CompanyOperatorEntityInput";
   def.max_batch_size = 64;
-  def.ownership_policy = "copy_in";
-  def.thread_model = "stateless";
+
   def.external_slots = {{"entity_in",
                          "CompanyOperatorEntityInput",
                          PortDirection::kInput,
@@ -153,13 +152,12 @@ InputConverterDefinition MakeOperatorEntityInputConverter() {
 InputConverterDefinition MakeOperatorKeywordInputConverter() {
   InputConverterDefinition def;
   def.converter_id = "keyword.plain.operator.v1";
-  def.transport = "operator";
+
   def.schema_id = "text.plain.request";
   def.schema_version = 1;
   def.external_type = "CompanyOperatorKeywordInput";
   def.max_batch_size = 64;
-  def.ownership_policy = "copy_in";
-  def.thread_model = "stateless";
+
   def.external_slots = {{"keyword_in",
                          "CompanyOperatorKeywordInput",
                          PortDirection::kInput,

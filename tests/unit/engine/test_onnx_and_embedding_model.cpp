@@ -32,6 +32,7 @@
 #include "engine/models/bge_embedding/bge_embedding_model.h"
 #include "engine/models/common/embedding_numeric_support.h"
 #include "tests/support/node_test_utils.h"
+#include "tests/support/pipeline_test_utils.h"
 
 #ifndef EDGEFLOW_EMBEDDING_ONNX_FIXTURE
 #define EDGEFLOW_EMBEDDING_ONNX_FIXTURE "models/embedding_fixture.onnx"
@@ -959,9 +960,8 @@ TEST_F(OnnxAndEmbeddingModelTest, OnnxBatchPolicyUsesAllTensorMetadata) {
 TEST_F(OnnxAndEmbeddingModelTest,
        OnnxBackendRejectsUnsupportedRequestedProtocolBeforeLoading) {
   OnnxRuntimeBackend backend;
-  BackendLoadSpec spec;
+  BackendLoadSpec spec{ExecutionProtocol::kTextGeneration};
   spec.model_path = "./models/does-not-exist.onnx";
-  spec.requested_protocol = ExecutionProtocol::kTextGeneration;
   std::string diag;
   EXPECT_EQ(backend.Load(spec, &diag), nullptr);
   EXPECT_NE(diag.find("requested protocol"), std::string::npos);
@@ -970,7 +970,7 @@ TEST_F(OnnxAndEmbeddingModelTest,
 TEST_F(OnnxAndEmbeddingModelTest,
        OnnxBackendRejectsUnsupportedExecutionTargetBeforeLoading) {
   OnnxRuntimeBackend backend;
-  BackendLoadSpec spec;
+  BackendLoadSpec spec{ExecutionProtocol::kTensorGraph};
   spec.model_path = "./models/does-not-exist.onnx";
   spec.execution_target.platform = "AX650";
   spec.execution_target.device_id = 2;
@@ -985,7 +985,7 @@ TEST_F(OnnxAndEmbeddingModelTest,
   GTEST_SKIP() << "ONNX Runtime not compiled into this build.";
 #else
   OnnxRuntimeBackend backend;
-  BackendLoadSpec spec;
+  BackendLoadSpec spec{ExecutionProtocol::kTensorGraph};
   spec.model_path = EDGEFLOW_NON_TENSOR_ONNX_FIXTURE;
   std::string diag;
   EXPECT_EQ(backend.Load(spec, &diag), nullptr);
@@ -1011,7 +1011,7 @@ TEST_F(OnnxAndEmbeddingModelTest, OnnxRuntimeFixturePassEvidence) {
   auto backend = BackendRegistry::Instance().Create("onnxruntime");
   ASSERT_NE(backend, nullptr);
 
-  BackendLoadSpec bspec;
+  BackendLoadSpec bspec{ExecutionProtocol::kTensorGraph};
   bspec.model_path = onnx_path.string();
   bspec.backend_config = {{"max_batch_size", 2}};
   std::string diag;
@@ -1116,15 +1116,9 @@ TEST_F(OnnxAndEmbeddingModelTest, OnnxRuntimeFixturePassEvidence) {
       {"model_path", "./models/test-qwen-mock.bin"},
       {"model_config", {{"max_batch_size", 2}, {"max_seq_len", 512}}},
       {"backend_config", nlohmann::json::object()}};
-  const auto smoke_config_path = temp_dir_ / "pipeline_fixture_smoke.json";
-  std::ofstream config_out(smoke_config_path);
-  config_out << pipeline_config.dump(2);
-  config_out.close();
-
   Pipeline pipeline;
   PipelineDiagnostic pdiag;
-  bool build_ok =
-      pipeline.BuildFromConfigFile(smoke_config_path.string(), &pdiag);
+  bool build_ok = BuildTestPipeline(pipeline, pipeline_config, &pdiag);
   ASSERT_TRUE(build_ok) << pdiag.message << " at " << pdiag.path;
   EXPECT_TRUE(pipeline.IsReady());
 
@@ -1152,7 +1146,7 @@ TEST_F(OnnxAndEmbeddingModelTest, OnnxRuntimeBackendNegativeValidation) {
   ASSERT_NE(backend, nullptr);
 
   // 1. 空路径 / 不存在路径 / 目录路径
-  BackendLoadSpec bspec;
+  BackendLoadSpec bspec{ExecutionProtocol::kTensorGraph};
   std::string diag;
   EXPECT_EQ(backend->Load(bspec, &diag), nullptr);
 

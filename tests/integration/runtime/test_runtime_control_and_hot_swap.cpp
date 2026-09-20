@@ -16,6 +16,7 @@
 #include "edgeflow/operator/types.h"
 #include "platform_mock/error_codes.h"
 #include "platform_mock/operator_data_types.h"
+#include "tests/support/pipeline_test_utils.h"
 
 namespace llm_edgeflow {
 
@@ -79,7 +80,8 @@ TEST_F(RuntimeControlAndHotSwapTest,
   using namespace llm_edgeflow;
   Pipeline pipeline;
   PipelineDiagnostic diagnostic;
-  ASSERT_TRUE(pipeline.BuildFromJson(ControlInstancesPipeline(), &diagnostic))
+  ASSERT_TRUE(
+      BuildTestPipeline(pipeline, ControlInstancesPipeline(), &diagnostic))
       << diagnostic.message;
   ExpectRuleCategories(&pipeline, "INITIAL_A", "INITIAL_B");
   std::string error;
@@ -110,7 +112,8 @@ TEST_F(RuntimeControlAndHotSwapTest,
   using namespace llm_edgeflow;
   Pipeline pipeline;
   PipelineDiagnostic diagnostic;
-  ASSERT_TRUE(pipeline.BuildFromJson(ControlInstancesPipeline(), &diagnostic))
+  ASSERT_TRUE(
+      BuildTestPipeline(pipeline, ControlInstancesPipeline(), &diagnostic))
       << diagnostic.message;
   const auto valid = TargetedRules("rules_a", "UPDATED");
   std::vector<std::pair<nlohmann::json, std::string>> invalid;

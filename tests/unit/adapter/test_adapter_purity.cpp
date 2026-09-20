@@ -26,6 +26,7 @@
 #include "platform_mock/error_codes.h"
 #include "platform_mock/operator_data_types.h"
 #include "tests/support/adapter_harness.h"
+#include "tests/support/adapter_test_views.h"
 
 namespace llm_edgeflow {
 
@@ -318,8 +319,8 @@ TEST_F(AdapterPurityTest, OcrDocQaAdapterPurity) {
 
   ExternalInputBatchView in_view;
   in_view.count = 1;
-  in_view.leased_slots["frame"] = {&frame};
-  in_view.leased_slots["string"] = {&cs_query};
+  in_view.slots["frame"] = llm_edgeflow::BorrowInputForTest({&frame});
+  in_view.slots["string"] = llm_edgeflow::BorrowInputForTest({&cs_query});
   in_view.slot_types["frame"] = "CompanyFrame";
   in_view.slot_types["string"] = "CompanyString";
 
@@ -328,7 +329,6 @@ TEST_F(AdapterPurityTest, OcrDocQaAdapterPurity) {
                                  {"user_queries", "user_queries"}});
   InputDecodeOptions in_options;
   in_options.converter_id = in_conv->converter_id;
-  in_options.transport = "operator";
 
   AlgContext ctx;
   AdapterStatus status;
@@ -347,11 +347,11 @@ TEST_F(AdapterPurityTest, OcrDocQaAdapterPurity) {
   ctx.Publish("ocr_docs", std::move(ocr_docs));
 
   OdOutputFixture od_fix;
-  ExternalOutputBatchView out_view;
+  TestOutputBatchView out_view;
   out_view.count = 1;
   out_view.leased_slots["od_out"] = {&od_fix.out};
   out_view.slot_types["od_out"] = "CompanyOdOutput";
-  out_view.slot_capacities["od_out"]["result_json"] = 2047;
+  out_view.SetCapacity("od_out", "result_json", 2047);
 
   OutputPortBindings out_bindings(
       {{"raw_request_ids", "raw_request_ids"},
@@ -359,7 +359,6 @@ TEST_F(AdapterPurityTest, OcrDocQaAdapterPurity) {
        {"ocr_docs", "ocr_docs"}});
   OutputEncodeOptions out_options;
   out_options.converter_id = out_conv->converter_id;
-  out_options.transport = "operator";
 
   size_t written = 0;
   ASSERT_EQ(out_conv->encode_fn(&ctx, out_bindings, out_options, &out_view,
@@ -723,7 +722,6 @@ TEST_F(AdapterPurityTest,
                                {"doc_chunk_counts", "doc_chunk_counts"}});
   OutputEncodeOptions options;
   options.converter_id = op_conv->converter_id;
-  options.transport = "operator";
 
   // 1. Operator buffer with small capacity (500) -> BUFFER_TOO_SMALL
   {
@@ -735,10 +733,11 @@ TEST_F(AdapterPurityTest,
     CompanyString cs_int{0, int_buf.data()};
     small_out.intent_name = &cs_int;
 
-    ExternalOutputBatchView small_dest;
+    TestOutputBatchView small_dest;
     small_dest.leased_slots["doc_out"].push_back(&small_out);
-    small_dest.slot_capacities["doc_out"]["answer_text"] = 499;
-    small_dest.slot_capacities["doc_out"]["intent_name"] = 127;
+    small_dest.slot_types["doc_out"] = "CompanyOperatorDocOutput";
+    small_dest.SetCapacity("doc_out", "answer_text", 499);
+    small_dest.SetCapacity("doc_out", "intent_name", 127);
     small_dest.count = 1;
 
     size_t written = 0;
@@ -759,10 +758,11 @@ TEST_F(AdapterPurityTest,
     CompanyString cs_int{0, int_buf.data()};
     op_out.intent_name = &cs_int;
 
-    ExternalOutputBatchView op_dest;
+    TestOutputBatchView op_dest;
     op_dest.leased_slots["doc_out"].push_back(&op_out);
-    op_dest.slot_capacities["doc_out"]["answer_text"] = 6000;
-    op_dest.slot_capacities["doc_out"]["intent_name"] = 128;
+    op_dest.slot_types["doc_out"] = "CompanyOperatorDocOutput";
+    op_dest.SetCapacity("doc_out", "answer_text", 6000);
+    op_dest.SetCapacity("doc_out", "intent_name", 128);
     op_dest.count = 1;
 
     size_t written = 0;
@@ -973,7 +973,7 @@ TEST_F(AdapterPurityTest, ReuseProof_1_InputConverterReusedAcrossBindings) {
     IoBindingDefinition test_reuse_binding;
     test_reuse_binding.binding_id = "test_purity_reuse.operator.v1";
     test_reuse_binding.biz_name = "entity_extract_v1";
-    test_reuse_binding.transport = "operator";
+
     test_reuse_binding.input_converter_id = "text.plain.operator.v1";
     test_reuse_binding.output_converter_id = "document.structured.operator.v1";
     test_reuse_binding.input_ports = entity_binding->input_ports;
@@ -1039,7 +1039,7 @@ TEST_F(AdapterPurityTest,
        ReuseProof_3_MultipleExternalInputFormatsForSamePipeline) {
   InputConverterDefinition custom_in_def;
   custom_in_def.converter_id = "test.multi_field.operator.v1";
-  custom_in_def.transport = "operator";
+
   custom_in_def.schema_id = "multi_field.request";
   custom_in_def.schema_version = 1;
   custom_in_def.external_type = "CustomMultiFieldInput";
@@ -1083,15 +1083,15 @@ TEST_F(AdapterPurityTest,
                           text_str.data()};
     CompanyOperatorEntityInput req_a{777, &cs_text};
     ExternalInputBatchView view;
-    view.leased_slots["entity_in"] = {&req_a};
+    view.slots["entity_in"] = llm_edgeflow::BorrowInputForTest({&req_a});
     view.slot_types["entity_in"] = "CompanyOperatorEntityInput";
     view.count = 1;
-    view.type_id = "CompanyOperatorEntityInput";
+
     InputPortBindings bindings({{"raw_request_ids", "raw_request_ids"},
                                 {"input_sentences", "input_sentences"}});
     InputDecodeOptions opts;
     opts.converter_id = in_a->converter_id;
-    opts.transport = "operator";
+
     AdapterStatus st;
     ASSERT_EQ(in_a->decode_fn(view, opts, bindings, &ctx_a, &st), 0);
   }
@@ -1104,15 +1104,15 @@ TEST_F(AdapterPurityTest,
     ASSERT_NE(in_b, nullptr);
     CustomMultiFieldInput req_b{777, "AI", "Revolution in robotics"};
     ExternalInputBatchView view;
-    view.leased_slots["inputs"] = {&req_b};
+    view.slots["inputs"] = llm_edgeflow::BorrowInputForTest({&req_b});
     view.slot_types["inputs"] = "CustomMultiFieldInput";
     view.count = 1;
-    view.type_id = "CustomMultiFieldInput";
+
     InputPortBindings bindings(
         {{"raw_request_ids", "raw_request_ids"}, {"texts", "input_sentences"}});
     InputDecodeOptions opts;
     opts.converter_id = in_b->converter_id;
-    opts.transport = "operator";
+
     AdapterStatus st;
     ASSERT_EQ(in_b->decode_fn(view, opts, bindings, &ctx_b, &st), 0);
   }
@@ -1191,15 +1191,14 @@ TEST_F(AdapterPurityTest, ReuseProof_5_SameCarrierDifferentSchema) {
                          plain_str.data()};
   CompanyOperatorEntityInput plain_req{101, &cs_plain};
   ExternalInputBatchView plain_view;
-  plain_view.leased_slots["entity_in"] = {&plain_req};
+  plain_view.slots["entity_in"] =
+      llm_edgeflow::BorrowInputForTest({&plain_req});
   plain_view.slot_types["entity_in"] = "CompanyOperatorEntityInput";
   plain_view.count = 1;
-  plain_view.type_id = "CompanyOperatorEntityInput";
 
   InputPortBindings bindings({{"raw_request_ids", "raw_request_ids"},
                               {"input_sentences", "input_sentences"}});
   InputDecodeOptions opts;
-  opts.transport = "operator";
 
   // text.plain.operator.v1 accepts it as plain text
   {
@@ -1227,10 +1226,9 @@ TEST_F(AdapterPurityTest, ReuseProof_5_SameCarrierDifferentSchema) {
   CompanyString cs_json{static_cast<int32_t>(json_str.size()), json_str.data()};
   CompanyOperatorEntityInput json_req{102, &cs_json};
   ExternalInputBatchView json_view;
-  json_view.leased_slots["entity_in"] = {&json_req};
+  json_view.slots["entity_in"] = llm_edgeflow::BorrowInputForTest({&json_req});
   json_view.slot_types["entity_in"] = "CompanyOperatorEntityInput";
   json_view.count = 1;
-  json_view.type_id = "CompanyOperatorEntityInput";
 
   // translate.json.operator.v1 succeeds and extracts "query"
   {
@@ -1274,15 +1272,10 @@ TEST_F(AdapterPurityTest, ReuseProof_6_NegativeCombinations) {
   std::unique_ptr<ValidatedIoPlan> plan;
   std::string error;
   int ret = IoBindingResolver::ResolveFromPipelineJson(
-      bad_binding_json, "operator", "./models", &plan, &error);
+      bad_binding_json, "./models", &plan, &error);
   EXPECT_EQ(ret, -2);
   EXPECT_NE(error.find("Unknown or unregistered io_binding"),
             std::string::npos);
-
-  // 2. Transport mismatch: Non-operator transport requested
-  ret = IoBindingResolver::ResolveFromPipelineJson(
-      bad_binding_json, "legacy_cabi", "./models", &plan, &error);
-  EXPECT_EQ(ret, -2);
 
   // 3. DeploymentIoConfig schema validation rejects invalid / old format
   nlohmann::json invalid_version_json = {
@@ -1291,9 +1284,9 @@ TEST_F(AdapterPurityTest, ReuseProof_6_NegativeCombinations) {
        {{"pipe_path", "test.json"},
         {"io_binding", "keyword_match.operator.v1"}}}};
   DeploymentIoConfig parsed_cfg;
-  EXPECT_FALSE(DeploymentIoConfig::Parse(invalid_version_json, ".", "operator",
-                                         &parsed_cfg, &error));
-  EXPECT_NE(error.find("Deprecated"), std::string::npos);
+  EXPECT_FALSE(DeploymentIoConfig::Parse(invalid_version_json, ".", &parsed_cfg,
+                                         &error));
+  EXPECT_NE(error.find("Unknown field"), std::string::npos);
 
   // 4. Operator config with unknown output slot rejected by parity check
   nlohmann::json unknown_out_json = {
@@ -1304,8 +1297,8 @@ TEST_F(AdapterPurityTest, ReuseProof_6_NegativeCombinations) {
           {"output_allocations", {{"unknown_slot", {{"type", "String"}}}}}}}}},
       {"models", nlohmann::json::array()},
       {"pipeline", valid_pipeline}};
-  ret = IoBindingResolver::ResolveFromPipelineJson(unknown_out_json, "operator",
-                                                   "./models", &plan, &error);
+  ret = IoBindingResolver::ResolveFromPipelineJson(unknown_out_json, "./models",
+                                                   &plan, &error);
   EXPECT_EQ(ret, -2);
   EXPECT_NE(error.find("Unknown configured output slot: unknown_slot"),
             std::string::npos);
@@ -1325,8 +1318,8 @@ TEST_F(AdapterPurityTest, ReuseProof_6_NegativeCombinations) {
               {"capacities", {{"match_result_json", 2047}}}}}}}}}}},
       {"models", nlohmann::json::array()},
       {"pipeline", valid_pipeline}};
-  ret = IoBindingResolver::ResolveFromPipelineJson(unknown_mid_json, "operator",
-                                                   "./models", &plan, &error);
+  ret = IoBindingResolver::ResolveFromPipelineJson(unknown_mid_json, "./models",
+                                                   &plan, &error);
   EXPECT_EQ(ret, -2);
   EXPECT_NE(
       error.find(

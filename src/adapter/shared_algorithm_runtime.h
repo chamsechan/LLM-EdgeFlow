@@ -29,11 +29,6 @@ class SharedAlgorithmRuntime {
   static int GlobalInit() noexcept;
 
   /**
-   * @brief 全局资源反初始化
-   */
-  static int GlobalDeinit() noexcept;
-
-  /**
    * @brief 通过已验证的 ValidatedIoPlan 与 RuntimeOptions 构建运行时
    */
   static int CreateFromIoPlan(
@@ -52,11 +47,6 @@ class SharedAlgorithmRuntime {
   Pipeline* GetPipeline() { return pipeline_.get(); }
   const Pipeline* GetPipeline() const { return pipeline_.get(); }
   const ValidatedIoPlan* GetIoPlan() const { return io_plan_.get(); }
-  int GetDeviceId() const {
-    return pipeline_
-               ? pipeline_->GetSessionContext().GetRuntimeOptions().device_id
-               : -1;
-  }
 
  private:
   std::unique_ptr<ValidatedIoPlan> io_plan_;

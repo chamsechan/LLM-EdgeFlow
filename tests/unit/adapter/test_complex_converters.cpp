@@ -16,6 +16,7 @@
 #include "core/pipeline_catalog.h"
 #include "edgeflow/operator/types.h"
 #include "platform_mock/operator_data_types.h"
+#include "tests/support/adapter_test_views.h"
 
 namespace llm_edgeflow {
 
@@ -40,7 +41,7 @@ TEST_F(ComplexConvertersTest, DocQaOperatorInputAndOutput) {
   CompanyOperatorDocInput doc_in{2001, &cs_doc, &cs_query};
   ExternalInputBatchView in_view;
   in_view.count = 1;
-  in_view.leased_slots["doc_in"] = {&doc_in};
+  in_view.slots["doc_in"] = llm_edgeflow::BorrowInputForTest({&doc_in});
   in_view.slot_types["doc_in"] = "CompanyOperatorDocInput";
 
   InputPortBindings in_bindings({{"raw_request_ids", "raw_request_ids"},
@@ -48,7 +49,6 @@ TEST_F(ComplexConvertersTest, DocQaOperatorInputAndOutput) {
                                  {"raw_queries", "raw_queries"}});
   InputDecodeOptions in_options;
   in_options.converter_id = in_conv->converter_id;
-  in_options.transport = "operator";
 
   AlgContext ctx;
   AdapterStatus status;
@@ -80,12 +80,12 @@ TEST_F(ComplexConvertersTest, DocQaOperatorInputAndOutput) {
   doc_out.answer_text = &cs_ans;
   doc_out.intent_name = &cs_int;
 
-  ExternalOutputBatchView out_view;
+  TestOutputBatchView out_view;
   out_view.count = 1;
   out_view.leased_slots["doc_out"] = {&doc_out};
   out_view.slot_types["doc_out"] = "CompanyOperatorDocOutput";
-  out_view.slot_capacities["doc_out"]["answer_text"] = 255;
-  out_view.slot_capacities["doc_out"]["intent_name"] = 63;
+  out_view.SetCapacity("doc_out", "answer_text", 255);
+  out_view.SetCapacity("doc_out", "intent_name", 63);
 
   OutputPortBindings out_bindings({{"raw_request_ids", "raw_request_ids"},
                                    {"llm_answers", "llm_answers"},
@@ -93,7 +93,6 @@ TEST_F(ComplexConvertersTest, DocQaOperatorInputAndOutput) {
                                    {"doc_chunk_counts", "doc_chunk_counts"}});
   OutputEncodeOptions out_options;
   out_options.converter_id = out_conv->converter_id;
-  out_options.transport = "operator";
 
   size_t written = 0;
   ret = out_conv->encode_fn(&ctx, out_bindings, out_options, &out_view,
@@ -133,7 +132,7 @@ TEST_F(ComplexConvertersTest, CrossRerankOperatorInputAndOutput) {
 
   ExternalInputBatchView in_view;
   in_view.count = 1;
-  in_view.leased_slots["rerank_in"] = {&rerank_in};
+  in_view.slots["rerank_in"] = llm_edgeflow::BorrowInputForTest({&rerank_in});
   in_view.slot_types["rerank_in"] = "CompanyOperatorRerankInput";
 
   InputPortBindings in_bindings({{"raw_request_ids", "raw_request_ids"},
@@ -142,7 +141,6 @@ TEST_F(ComplexConvertersTest, CrossRerankOperatorInputAndOutput) {
                                  {"rerank_pairs", "rerank_pairs"}});
   InputDecodeOptions in_options;
   in_options.converter_id = in_conv->converter_id;
-  in_options.transport = "operator";
 
   AlgContext ctx;
   AdapterStatus status;
@@ -160,7 +158,7 @@ TEST_F(ComplexConvertersTest, CrossRerankOperatorInputAndOutput) {
   ctx.Publish("ranked_results", std::move(ranked));
 
   CompanyOperatorRerankOutput rerank_out{};
-  ExternalOutputBatchView out_view;
+  TestOutputBatchView out_view;
   out_view.count = 1;
   out_view.leased_slots["rerank_out"] = {&rerank_out};
   out_view.slot_types["rerank_out"] = "CompanyOperatorRerankOutput";
@@ -169,7 +167,6 @@ TEST_F(ComplexConvertersTest, CrossRerankOperatorInputAndOutput) {
                                    {"ranked_results", "ranked_results"}});
   OutputEncodeOptions out_options;
   out_options.converter_id = out_conv->converter_id;
-  out_options.transport = "operator";
 
   size_t written = 0;
   ret = out_conv->encode_fn(&ctx, out_bindings, out_options, &out_view,
@@ -201,7 +198,7 @@ TEST_F(ComplexConvertersTest, DialogueAuditOperatorInputAndOutput) {
   CompanyOperatorAuditInput audit_in{4001, &cs_dia, &cs_chan};
   ExternalInputBatchView in_view;
   in_view.count = 1;
-  in_view.leased_slots["audit_in"] = {&audit_in};
+  in_view.slots["audit_in"] = llm_edgeflow::BorrowInputForTest({&audit_in});
   in_view.slot_types["audit_in"] = "CompanyOperatorAuditInput";
 
   InputPortBindings in_bindings({{"raw_request_ids", "raw_request_ids"},
@@ -209,7 +206,6 @@ TEST_F(ComplexConvertersTest, DialogueAuditOperatorInputAndOutput) {
                                  {"channel_names", "channel_names"}});
   InputDecodeOptions in_options;
   in_options.converter_id = in_conv->converter_id;
-  in_options.transport = "operator";
 
   AlgContext ctx;
   AdapterStatus status;
@@ -240,13 +236,13 @@ TEST_F(ComplexConvertersTest, DialogueAuditOperatorInputAndOutput) {
   audit_out.matched_policy_clause = &cs_clause;
   audit_out.audit_verdict_json = &cs_verdict;
 
-  ExternalOutputBatchView out_view;
+  TestOutputBatchView out_view;
   out_view.count = 1;
   out_view.leased_slots["audit_out"] = {&audit_out};
   out_view.slot_types["audit_out"] = "CompanyOperatorAuditOutput";
-  out_view.slot_capacities["audit_out"]["risk_level"] = 31;
-  out_view.slot_capacities["audit_out"]["matched_policy_clause"] = 255;
-  out_view.slot_capacities["audit_out"]["audit_verdict_json"] = 1023;
+  out_view.SetCapacity("audit_out", "risk_level", 31);
+  out_view.SetCapacity("audit_out", "matched_policy_clause", 255);
+  out_view.SetCapacity("audit_out", "audit_verdict_json", 1023);
 
   OutputPortBindings out_bindings(
       {{"raw_request_ids", "raw_request_ids"},
@@ -254,7 +250,6 @@ TEST_F(ComplexConvertersTest, DialogueAuditOperatorInputAndOutput) {
        {"matched_policies", "matched_policies"}});
   OutputEncodeOptions out_options;
   out_options.converter_id = out_conv->converter_id;
-  out_options.transport = "operator";
 
   size_t written = 0;
   ret = out_conv->encode_fn(&ctx, out_bindings, out_options, &out_view,
@@ -285,14 +280,13 @@ TEST_F(ComplexConvertersTest, AudioAsrOperatorInputAndOutput) {
                                      static_cast<int32_t>(pcm.size()), 16000};
   ExternalInputBatchView in_view;
   in_view.count = 1;
-  in_view.leased_slots["audio_in"] = {&audio_in};
+  in_view.slots["audio_in"] = llm_edgeflow::BorrowInputForTest({&audio_in});
   in_view.slot_types["audio_in"] = "CompanyOperatorAudioInput";
 
   InputPortBindings in_bindings({{"raw_request_ids", "raw_request_ids"},
                                  {"audio_inputs", "audio_inputs"}});
   InputDecodeOptions in_options;
   in_options.converter_id = in_conv->converter_id;
-  in_options.transport = "operator";
 
   AlgContext ctx;
   AdapterStatus status;
@@ -320,19 +314,18 @@ TEST_F(ComplexConvertersTest, AudioAsrOperatorInputAndOutput) {
   audio_out.transcribed_text = &cs_trans;
   audio_out.intent_slot_json = &cs_slot;
 
-  ExternalOutputBatchView out_view;
+  TestOutputBatchView out_view;
   out_view.count = 1;
   out_view.leased_slots["audio_out"] = {&audio_out};
   out_view.slot_types["audio_out"] = "CompanyOperatorAudioOutput";
-  out_view.slot_capacities["audio_out"]["transcribed_text"] = 511;
-  out_view.slot_capacities["audio_out"]["intent_slot_json"] = 1023;
+  out_view.SetCapacity("audio_out", "transcribed_text", 511);
+  out_view.SetCapacity("audio_out", "intent_slot_json", 1023);
 
   OutputPortBindings out_bindings({{"raw_request_ids", "raw_request_ids"},
                                    {"transcripts", "transcripts"},
                                    {"intent_slots", "intent_slots"}});
   OutputEncodeOptions out_options;
   out_options.converter_id = out_conv->converter_id;
-  out_options.transport = "operator";
 
   size_t written = 0;
   ret = out_conv->encode_fn(&ctx, out_bindings, out_options, &out_view,
@@ -370,8 +363,8 @@ TEST_F(ComplexConvertersTest, OcrDocQaOperatorInputAndOutput) {
 
   ExternalInputBatchView in_view;
   in_view.count = 1;
-  in_view.leased_slots["frame"] = {&frame};
-  in_view.leased_slots["string"] = {&query};
+  in_view.slots["frame"] = llm_edgeflow::BorrowInputForTest({&frame});
+  in_view.slots["string"] = llm_edgeflow::BorrowInputForTest({&query});
   in_view.slot_types["frame"] = "CompanyFrame";
   in_view.slot_types["string"] = "CompanyString";
 
@@ -380,7 +373,6 @@ TEST_F(ComplexConvertersTest, OcrDocQaOperatorInputAndOutput) {
                                  {"user_queries", "user_queries"}});
   InputDecodeOptions in_options;
   in_options.converter_id = in_conv->converter_id;
-  in_options.transport = "operator";
 
   AlgContext ctx;
   AdapterStatus status;
@@ -408,10 +400,10 @@ TEST_F(ComplexConvertersTest, OcrDocQaOperatorInputAndOutput) {
   CompanyString res_str{255, buf.data()};
   od_out.result_json = &res_str;
 
-  ExternalOutputBatchView out_view;
+  TestOutputBatchView out_view;
   out_view.leased_slots["od_out"] = {&od_out};
   out_view.slot_types["od_out"] = "CompanyOdOutput";
-  out_view.slot_capacities["od_out"]["result_json"] = 255;
+  out_view.SetCapacity("od_out", "result_json", 255);
   out_view.count = 1;
 
   OutputPortBindings out_bindings(
@@ -420,7 +412,6 @@ TEST_F(ComplexConvertersTest, OcrDocQaOperatorInputAndOutput) {
        {"ocr_docs", "ocr_docs"}});
   OutputEncodeOptions out_options;
   out_options.converter_id = out_conv->converter_id;
-  out_options.transport = "operator";
 
   size_t written = 0;
   ret = out_conv->encode_fn(&ctx, out_bindings, out_options, &out_view,
@@ -449,14 +440,6 @@ TEST_F(ComplexConvertersTest, AllEightBusinessesRegistered) {
   for (const auto& biz : expected_biz) {
     const auto* desc = IoBindingRegistry::Instance().FindExposure(biz);
     ASSERT_NE(desc, nullptr) << "Missing biz exposure: " << biz;
-    EXPECT_GE(desc->required_transports.size(), 1U)
-        << "Biz missing transports: " << biz;
-    bool has_operator =
-        std::find(desc->required_transports.begin(),
-                  desc->required_transports.end(),
-                  "operator") != desc->required_transports.end();
-    EXPECT_TRUE(has_operator) << "Biz missing operator transport: " << biz;
-
     auto biz_def = PipelineCatalog::FindBiz(biz);
     ASSERT_TRUE(biz_def.has_value()) << "Missing biz in catalog: " << biz;
   }

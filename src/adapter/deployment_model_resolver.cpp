@@ -15,13 +15,13 @@ namespace fs = std::filesystem;
 void SetDiagnostic(std::string* diagnostic,
                    DeploymentDiagnostic* out_diagnostic,
                    const std::string& code, const std::string& path,
-                   const std::string& message, int legacy_status = -2) {
+                   const std::string& message) {
   if (diagnostic) *diagnostic = message;
   if (out_diagnostic) {
     out_diagnostic->code = code;
     out_diagnostic->path = path;
     out_diagnostic->message = message;
-    out_diagnostic->legacy_status = legacy_status;
+
     out_diagnostic->pipeline_diagnostic.reset();
   }
 }
@@ -37,7 +37,7 @@ bool ResolveDeploymentModelPaths(
     if (out_diagnostic) out_diagnostic->Clear();
     if (!resolved_pipeline_json) {
       SetDiagnostic(diagnostic, out_diagnostic, "DEPLOYMENT_ERROR", "/",
-                    "Deployment model resolver output is null", -2);
+                    "Deployment model resolver output is null");
       return false;
     }
 
@@ -65,15 +65,14 @@ bool ResolveDeploymentModelPaths(
       if (error) {
         SetDiagnostic(
             diagnostic, out_diagnostic, "DEPLOYMENT_ERROR", "/",
-            "Failed to make model_root_dir absolute: " + model_root_dir, -2);
+            "Failed to make model_root_dir absolute: " + model_root_dir);
         return false;
       }
       canonical_root = fs::weakly_canonical(absolute_root, error);
       if (error || !fs::is_directory(canonical_root, error) || error) {
         SetDiagnostic(
             diagnostic, out_diagnostic, "DEPLOYMENT_ERROR", "/",
-            "model_root_dir is not an accessible directory: " + model_root_dir,
-            -2);
+            "model_root_dir is not an accessible directory: " + model_root_dir);
         return false;
       }
     }
@@ -100,16 +99,14 @@ bool ResolveDeploymentModelPaths(
       if (!normalized.is_absolute() && HasParentPathComponent(normalized)) {
         SetDiagnostic(diagnostic, out_diagnostic, "INVALID_MODEL_PATH", pointer,
                       "Model path cannot traverse outside model_root_dir at " +
-                          pointer + ": " + raw_path,
-                      -2);
+                          pointer + ": " + raw_path);
         return false;
       }
       if (!normalized.is_absolute() && canonical_root.empty()) {
         SetDiagnostic(
             diagnostic, out_diagnostic, "INVALID_MODEL_PATH", pointer,
             "Relative model_path requires non-empty model_root_dir at " +
-                pointer + ": " + raw_path,
-            -2);
+                pointer + ": " + raw_path);
         return false;
       }
 
@@ -120,16 +117,14 @@ bool ResolveDeploymentModelPaths(
       if (error) {
         SetDiagnostic(diagnostic, out_diagnostic, "INVALID_MODEL_PATH", pointer,
                       "Failed to resolve deployment model path at " + pointer +
-                          ": " + raw_path,
-                      -2);
+                          ": " + raw_path);
         return false;
       }
       if (!canonical_root.empty() &&
           !IsPathWithinRoot(canonical_root, candidate)) {
-        SetDiagnostic(
-            diagnostic, out_diagnostic, "INVALID_MODEL_PATH", pointer,
-            "Model path escapes model_root_dir at " + pointer + ": " + raw_path,
-            -2);
+        SetDiagnostic(diagnostic, out_diagnostic, "INVALID_MODEL_PATH", pointer,
+                      "Model path escapes model_root_dir at " + pointer + ": " +
+                          raw_path);
         return false;
       }
       model["model_path"] = candidate.string();
@@ -138,12 +133,11 @@ bool ResolveDeploymentModelPaths(
   } catch (const std::exception& exception) {
     SetDiagnostic(
         diagnostic, out_diagnostic, "INTERNAL_EXCEPTION", "/",
-        std::string("Deployment model path exception: ") + exception.what(),
-        -2);
+        std::string("Deployment model path exception: ") + exception.what());
     return false;
   } catch (...) {
     SetDiagnostic(diagnostic, out_diagnostic, "INTERNAL_EXCEPTION", "/",
-                  "Unknown deployment model path exception", -2);
+                  "Unknown deployment model path exception");
     return false;
   }
 }

@@ -215,7 +215,7 @@ TEST_F(CatalogContractSsotTest,
 // 5. 验证 PipelineCatalog::ToJson 序列化规范性与过滤逻辑
 TEST_F(CatalogContractSsotTest, ToJsonSerializationAndFiltering) {
   auto full_catalog = PipelineCatalog::ToJson();
-  EXPECT_EQ(full_catalog["schema_version"], 3);
+  EXPECT_FALSE(full_catalog.contains("schema_version"));
   EXPECT_TRUE(full_catalog["nodes"].is_array());
   EXPECT_FALSE(full_catalog.contains("engines"));
   EXPECT_TRUE(full_catalog["models"].is_array());
@@ -238,7 +238,7 @@ TEST_F(CatalogContractSsotTest, ToJsonSerializationAndFiltering) {
 
   // 业务过滤查询
   auto km_catalog = PipelineCatalog::ToJson("keyword_match_v1");
-  EXPECT_EQ(km_catalog["schema_version"], 3);
+  EXPECT_FALSE(km_catalog.contains("schema_version"));
   EXPECT_FALSE(km_catalog["nodes"].empty());
   EXPECT_EQ(km_catalog["bizs"].size(), 1U);
   EXPECT_EQ(km_catalog["bizs"][0]["biz_name"], "keyword_match_v1");

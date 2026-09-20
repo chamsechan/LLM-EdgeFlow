@@ -11,8 +11,7 @@
         "ENABLE_WHISPERCPP": "ON",
         "ENABLE_KITELLM": "OFF",
         "CMAKE_BUILD_TYPE": "Release",
-        "ENABLE_REAL_MODEL_TESTS": "OFF",
-        "LLM_EDGEFLOW_SHARDED_TEST_RUNNERS": "ON"
+        "ENABLE_REAL_MODEL_TESTS": "OFF"
       },
       "vendor": {
         "llm-edgeflow/selection": {
@@ -34,8 +33,7 @@
         "ENABLE_WHISPERCPP": "OFF",
         "ENABLE_KITELLM": "ON",
         "CMAKE_BUILD_TYPE": "Release",
-        "ENABLE_REAL_MODEL_TESTS": "OFF",
-        "LLM_EDGEFLOW_SHARDED_TEST_RUNNERS": "ON"
+        "ENABLE_REAL_MODEL_TESTS": "OFF"
       },
       "vendor": {
         "llm-edgeflow/selection": {
@@ -56,8 +54,7 @@
         "ENABLE_WHISPERCPP": "OFF",
         "ENABLE_KITELLM": "OFF",
         "CMAKE_BUILD_TYPE": "Release",
-        "ENABLE_REAL_MODEL_TESTS": "OFF",
-        "LLM_EDGEFLOW_SHARDED_TEST_RUNNERS": "ON"
+        "ENABLE_REAL_MODEL_TESTS": "OFF"
       },
       "vendor": {
         "llm-edgeflow/selection": {

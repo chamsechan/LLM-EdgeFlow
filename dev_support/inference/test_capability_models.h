@@ -28,15 +28,13 @@ class TestOcrModel final : public IOcrModel {
   InferenceConcurrency Concurrency() const noexcept override {
     return InferenceConcurrency::kConcurrent;
   }
-  size_t GetMaxBatchSize() const noexcept override { return 2; }
-
   int Recognize(const ImageRefBatch& images,
                 OcrDocumentBatch* outputs) noexcept override {
     if (fail_) {
       if (outputs) outputs->clear();
       return -1;
     }
-    const BatchPolicy policy{GetMaxBatchSize(), GetMaxBatchSize()};
+    const BatchPolicy policy{2, 2};
     const int result =
         FixedBatchExecutor::Execute<std::string, OcrDocumentItem>(
             images, policy,
@@ -85,15 +83,13 @@ class TestAsrModel final : public IAsrModel {
   InferenceConcurrency Concurrency() const noexcept override {
     return InferenceConcurrency::kConcurrent;
   }
-  size_t GetMaxBatchSize() const noexcept override { return 2; }
-
   int Transcribe(const AudioPcmBatch& audio,
                  TextBatch* outputs) noexcept override {
     if (fail_) {
       if (outputs) outputs->clear();
       return -1;
     }
-    const BatchPolicy policy{GetMaxBatchSize(), GetMaxBatchSize()};
+    const BatchPolicy policy{2, 2};
     const int result =
         FixedBatchExecutor::Execute<AudioPcmPayload, std::string>(
             audio, policy,

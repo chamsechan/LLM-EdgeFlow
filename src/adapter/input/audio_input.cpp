@@ -88,13 +88,12 @@ int DecodeOperatorAudioInput(const ExternalInputBatchView& source,
 InputConverterDefinition MakeOperatorAudioInputConverter() {
   InputConverterDefinition def;
   def.converter_id = "audio.pcm.operator.v1";
-  def.transport = "operator";
+
   def.schema_id = "audio.pcm.request";
   def.schema_version = 1;
   def.external_type = "CompanyOperatorAudioInput";
   def.max_batch_size = 64;
-  def.ownership_policy = "copy_in";
-  def.thread_model = "stateless";
+
   def.external_slots = {{"audio_in",
                          "CompanyOperatorAudioInput",
                          PortDirection::kInput,

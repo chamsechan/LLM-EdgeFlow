@@ -46,7 +46,6 @@ struct NodeControlResult {
  */
 struct NodeInitContext {
   const ValidatedNodePlan* plan = nullptr;
-  const nlohmann::json* config = nullptr;
   SessionContext* session_ctx = nullptr;
   // Borrowed only for Init; do not store this pointer in a Node.
   std::string* diagnostic = nullptr;

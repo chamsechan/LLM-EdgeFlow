@@ -16,6 +16,7 @@
 #include "engine/backend_registry.h"
 #include "engine/model_interface.h"
 #include "engine/model_registry.h"
+#include "tests/support/pipeline_test_utils.h"
 
 namespace llm_edgeflow {
 namespace test_mb {
@@ -24,7 +25,8 @@ namespace test_mb {
 static std::atomic<int> g_backend_create_count{0};
 static std::atomic<int> g_backend_load_count{0};
 static std::atomic<int> g_model_create_count{0};
-static BackendLoadSpec g_last_backend_load_spec;
+static BackendLoadSpec g_last_backend_load_spec{
+    ExecutionProtocol::kTensorGraph};
 
 // Mock Backend Session
 class MockBackendSession : public IBackendSession {
@@ -84,7 +86,7 @@ class MockInferenceBackend : public IInferenceBackend {
                                                 concurrency_);
   }
 
-  BackendLoadSpec last_loaded_spec;
+  BackendLoadSpec last_loaded_spec{ExecutionProtocol::kTensorGraph};
 
  private:
   std::string backend_type_;
@@ -114,7 +116,6 @@ class MockEmbeddingModel : public IModel {
   InferenceConcurrency Concurrency() const noexcept override {
     return concurrency_;
   }
-  size_t GetMaxBatchSize() const noexcept override { return 1; }
 
   const nlohmann::json& ModelConfig() const noexcept { return model_config_; }
 
@@ -131,8 +132,9 @@ class MockEmbeddingConsumerNode : public INode {
   inline static constexpr char kNodeType[] = "MockEmbeddingConsumerNode";
 
   bool Init(const NodeInitContext& init_ctx) override {
-    if (!init_ctx.config || !init_ctx.session_ctx) return false;
-    std::string model_id = init_ctx.config->value("bind_model", "");
+    if (!init_ctx.plan || !init_ctx.session_ctx) return false;
+    std::string model_id =
+        init_ctx.plan->normalized_config.value("bind_model", "");
     model_ = init_ctx.session_ctx->GetModelManager().GetModel<IModel>(model_id);
     return model_ != nullptr;
   }
@@ -164,10 +166,14 @@ REGISTER_NODE_WITH_DEFINITION(MockEmbeddingConsumerNode,
 class ModelBackendPipelineTest : public ::testing::Test {
  protected:
   void SetUp() override {
+    RegisterTestBizs({"cap_mismatch_test", "diag_test", "model_plan_test",
+                      "model_root_dir_test", "path_escape_test",
+                      "pipeline_atomic_rollback", "pipeline_build_success",
+                      "proto_mismatch_test", "runtime_root_propagate_test"});
     g_backend_create_count = 0;
     g_backend_load_count = 0;
     g_model_create_count = 0;
-    g_last_backend_load_spec = BackendLoadSpec{};
+    g_last_backend_load_spec = BackendLoadSpec{ExecutionProtocol::kTensorGraph};
 
     if (!BackendRegistry::Instance()
              .Find(MockInferenceBackend::kBackendType)
@@ -338,8 +344,7 @@ TEST_F(ModelBackendPipelineTest, ValidatorProducesModelPlanAndZeroSideEffects) {
                    }})},
   };
 
-  auto plan = PipelineValidator::ValidateAndPlan(
-      cfg, ValidationPolicy::kPrivateExtensionCompatible);
+  auto plan = PipelineValidator::ValidateAndPlan(cfg);
 
   EXPECT_TRUE(plan.report.ok)
       << (plan.report.diagnostics.empty() ? ""
@@ -370,6 +375,8 @@ TEST_F(ModelBackendPipelineTest, ValidatorProducesModelPlanAndZeroSideEffects) {
 
 TEST_F(ModelBackendPipelineTest,
        UnifiedQwenPlanAcceptsEveryRegisteredGenerationBackend) {
+  RegisterTestBizs({"unified_qwen_backend_swap_test"},
+                   {{"prompt", "TextBatch"}}, {{"text", "TextBatch"}});
   const auto model_definition =
       ModelRegistry::Instance().Find("qwen_causal_lm");
   ASSERT_TRUE(model_definition.has_value());
@@ -401,8 +408,7 @@ TEST_F(ModelBackendPipelineTest,
                                  {"depends_on", nlohmann::json::array()},
                                  {"config", {{"bind_model", "llm"}}}}})},
     };
-    const auto plan = PipelineValidator::ValidateAndPlan(
-        config, ValidationPolicy::kPrivateExtensionCompatible);
+    const auto plan = PipelineValidator::ValidateAndPlan(config);
     EXPECT_TRUE(plan.report.ok)
         << backend_name << ": "
         << (plan.report.diagnostics.empty()
@@ -415,8 +421,7 @@ TEST_F(ModelBackendPipelineTest,
     }
 
     config["models"][0]["backend_config"] = {{"misspelled_backend_setting", 1}};
-    const auto invalid_plan = PipelineValidator::ValidateAndPlan(
-        config, ValidationPolicy::kPrivateExtensionCompatible);
+    const auto invalid_plan = PipelineValidator::ValidateAndPlan(config);
     EXPECT_FALSE(invalid_plan.report.ok) << backend_name;
     EXPECT_TRUE(std::any_of(
         invalid_plan.report.diagnostics.begin(),
@@ -465,8 +470,7 @@ TEST_F(ModelBackendPipelineTest, ValidatorRejectsProtocolMismatch) {
                    }})},
   };
 
-  auto report = PipelineValidator::Validate(
-      cfg, ValidationPolicy::kPrivateExtensionCompatible);
+  auto report = PipelineValidator::Validate(cfg);
   EXPECT_FALSE(report.ok);
   ASSERT_FALSE(report.diagnostics.empty());
 
@@ -499,8 +503,7 @@ TEST_F(ModelBackendPipelineTest, ValidatorRejectsCapabilityMismatch) {
                    }})},
   };
 
-  auto report = PipelineValidator::Validate(
-      cfg, ValidationPolicy::kPrivateExtensionCompatible);
+  auto report = PipelineValidator::Validate(cfg);
   EXPECT_FALSE(report.ok);
 
   bool found_cap_mismatch = false;
@@ -534,8 +537,7 @@ TEST_F(ModelBackendPipelineTest, PipelineBuildMaterializesAndRegistersModel) {
 
   Pipeline pipeline;
   PipelineDiagnostic diag;
-  bool ok = pipeline.BuildFromJson(
-      cfg, &diag, ValidationPolicy::kPrivateExtensionCompatible);
+  bool ok = BuildTestPipeline(pipeline, cfg, &diag);
 
   EXPECT_TRUE(ok) << diag.message;
   EXPECT_EQ(diag.code, DiagnosticCode::kOk);
@@ -602,8 +604,7 @@ TEST_F(ModelBackendPipelineTest,
 
   Pipeline pipeline;
   PipelineDiagnostic diag;
-  bool ok = pipeline.BuildFromJson(
-      cfg, &diag, ValidationPolicy::kPrivateExtensionCompatible);
+  bool ok = BuildTestPipeline(pipeline, cfg, &diag);
 
   EXPECT_FALSE(ok);
   EXPECT_EQ(diag.code, DiagnosticCode::kModelMaterializationFailed);
@@ -642,8 +643,7 @@ TEST_F(ModelBackendPipelineTest, ValidatorRejectsModelPathEscapingRoot) {
                    }})},
   };
 
-  auto report = PipelineValidator::Validate(
-      cfg_escape, ValidationPolicy::kPrivateExtensionCompatible);
+  auto report = PipelineValidator::Validate(cfg_escape);
   EXPECT_FALSE(report.ok);
   ASSERT_FALSE(report.diagnostics.empty());
 
@@ -679,8 +679,7 @@ TEST_F(ModelBackendPipelineTest,
                    }})},
   };
 
-  auto report = PipelineValidator::Validate(
-      cfg, ValidationPolicy::kPrivateExtensionCompatible);
+  auto report = PipelineValidator::Validate(cfg);
   EXPECT_FALSE(report.ok);
 
   bool found_model_cfg_diag = false;
@@ -719,8 +718,7 @@ TEST_F(ModelBackendPipelineTest, ValidatorNormalizesPathLexically) {
                    }})},
   };
 
-  auto plan = PipelineValidator::ValidateAndPlan(
-      cfg, ValidationPolicy::kPrivateExtensionCompatible);
+  auto plan = PipelineValidator::ValidateAndPlan(cfg);
   EXPECT_TRUE(plan.report.ok);
   ASSERT_EQ(plan.models.size(), 1u);
   EXPECT_EQ(plan.models[0].resolved_model_path, "models/bge/model.onnx");
@@ -752,8 +750,7 @@ TEST_F(ModelBackendPipelineTest, PipelinePassesResolvedPathAndTargetToBackend) {
   pipeline.GetSessionContext().SetRuntimeOptions(opts);
 
   PipelineDiagnostic diag;
-  bool ok = pipeline.BuildFromJson(
-      cfg, &diag, ValidationPolicy::kPrivateExtensionCompatible);
+  bool ok = BuildTestPipeline(pipeline, cfg, &diag);
   EXPECT_TRUE(ok);
   EXPECT_EQ(diag.code, DiagnosticCode::kOk);
 

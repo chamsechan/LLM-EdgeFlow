@@ -11,6 +11,7 @@
 #include "core/alg_context.h"
 #include "edgeflow/operator/types.h"
 #include "platform_mock/operator_data_types.h"
+#include "tests/support/adapter_test_views.h"
 
 namespace llm_edgeflow {
 
@@ -34,14 +35,13 @@ TEST_F(TextConvertersTest, TextPlainOperatorInputDecodeSuccess) {
 
   ExternalInputBatchView view;
   view.count = 2;
-  view.leased_slots["entity_in"] = {&s1, &s2};
+  view.slots["entity_in"] = llm_edgeflow::BorrowInputForTest({&s1, &s2});
   view.slot_types["entity_in"] = "CompanyOperatorEntityInput";
 
   InputPortBindings bindings({{"raw_request_ids", "raw_request_ids"},
                               {"input_sentences", "input_sentences"}});
   InputDecodeOptions options;
   options.converter_id = conv->converter_id;
-  options.transport = "operator";
 
   AlgContext ctx;
   AdapterStatus status;
@@ -75,14 +75,13 @@ TEST_F(TextConvertersTest, TranslateJsonInputDecodeValidAndInvalid) {
 
   ExternalInputBatchView valid_view;
   valid_view.count = 1;
-  valid_view.leased_slots["entity_in"] = {&valid_s};
+  valid_view.slots["entity_in"] = llm_edgeflow::BorrowInputForTest({&valid_s});
   valid_view.slot_types["entity_in"] = "CompanyOperatorEntityInput";
 
   InputPortBindings bindings({{"raw_request_ids", "raw_request_ids"},
                               {"input_sentences", "input_sentences"}});
   InputDecodeOptions options;
   options.converter_id = conv->converter_id;
-  options.transport = "operator";
 
   AlgContext ctx;
   AdapterStatus status;
@@ -102,7 +101,8 @@ TEST_F(TextConvertersTest, TranslateJsonInputDecodeValidAndInvalid) {
 
   ExternalInputBatchView invalid_view;
   invalid_view.count = 1;
-  invalid_view.leased_slots["entity_in"] = {&invalid_s};
+  invalid_view.slots["entity_in"] =
+      llm_edgeflow::BorrowInputForTest({&invalid_s});
   invalid_view.slot_types["entity_in"] = "CompanyOperatorEntityInput";
 
   AlgContext bad_ctx;
@@ -138,7 +138,6 @@ TEST_F(TextConvertersTest, TranslationJsonOutputEncodeOperator) {
       {{"raw_request_ids", "raw_request_ids"}, {"llm_answers", "llm_answers"}});
   OutputEncodeOptions options;
   options.converter_id = conv->converter_id;
-  options.transport = "operator";
 
   size_t written = 0;
   AdapterStatus status;
@@ -190,7 +189,7 @@ TEST_F(TextConvertersTest, InputConverterReusedAcrossTestBindings) {
   IoBindingDefinition test_reuse_binding;
   test_reuse_binding.binding_id = "test_text_reuse.operator.v1";
   test_reuse_binding.biz_name = "entity_extract_v1";
-  test_reuse_binding.transport = "operator";
+
   test_reuse_binding.input_converter_id = "text.plain.operator.v1";
   test_reuse_binding.output_converter_id = "document.structured.operator.v1";
   test_reuse_binding.input_ports = {{"raw_request_ids", "raw_request_ids"},

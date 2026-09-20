@@ -154,11 +154,12 @@ class NodeBase : public INode {
     if (!init_ctx.session_ctx) {
       return init_ctx.Fail("Node initialization requires SessionContext");
     }
+    if (!init_ctx.plan) {
+      return init_ctx.Fail("Node initialization requires ValidatedNodePlan");
+    }
     try {
-      const nlohmann::json& cfg =
-          init_ctx.plan ? init_ctx.plan->normalized_config
-                        : (init_ctx.config ? *init_ctx.config : empty_config_);
-      return InitNode(init_ctx, cfg, *init_ctx.session_ctx);
+      return InitNode(init_ctx, init_ctx.plan->normalized_config,
+                      *init_ctx.session_ctx);
     } catch (const std::exception& e) {
       ALG_LOG_ERROR("[NodeBase] Exception in InitNode for %s: %s\n",
                     node_name_.c_str(), e.what());
@@ -218,39 +219,37 @@ class NodeBase : public INode {
 
   template <typename T>
   void BindPort(const NodeInitContext& init_ctx, BoundInput<T>& in_port) const {
-    if (init_ctx.plan) {
-      const auto* binding =
-          init_ctx.plan->FindPort(in_port.LogicalName(), PortDirection::kInput);
-      if (binding) {
-        if (binding->type_id != in_port.TypeId()) {
-          throw std::invalid_argument("Input port TypeId mismatch for " +
-                                      in_port.LogicalName() +
-                                      " (expected: " + in_port.TypeId() +
-                                      ", bound: " + binding->type_id + ")");
-        }
-        in_port.Resolve(binding->blackboard_key);
-      } else {
-        in_port.Unbind();
+    const auto* binding =
+        init_ctx.plan->FindPort(in_port.LogicalName(), PortDirection::kInput);
+    if (binding && !binding->blackboard_key.empty()) {
+      if (binding->type_id != in_port.TypeId()) {
+        throw std::invalid_argument("Input port TypeId mismatch for " +
+                                    in_port.LogicalName() +
+                                    " (expected: " + in_port.TypeId() +
+                                    ", bound: " + binding->type_id + ")");
       }
+      in_port.Resolve(binding->blackboard_key);
+    } else {
+      in_port.Unbind();
     }
   }
 
   template <typename T>
   void BindPort(const NodeInitContext& init_ctx,
                 BoundOutput<T>& out_port) const {
-    if (init_ctx.plan) {
-      const auto* binding = init_ctx.plan->FindPort(out_port.LogicalName(),
-                                                    PortDirection::kOutput);
-      if (binding) {
-        if (binding->type_id != out_port.TypeId()) {
-          throw std::invalid_argument("Output port TypeId mismatch for " +
-                                      out_port.LogicalName() +
-                                      " (expected: " + out_port.TypeId() +
-                                      ", bound: " + binding->type_id + ")");
-        }
-        out_port.Resolve(binding->blackboard_key);
-      }
+    const auto* binding =
+        init_ctx.plan->FindPort(out_port.LogicalName(), PortDirection::kOutput);
+    if (!binding || binding->blackboard_key.empty()) {
+      throw std::invalid_argument("Output port is unbound in plan: " +
+                                  out_port.LogicalName());
     }
+    if (binding->type_id != out_port.TypeId()) {
+      throw std::invalid_argument("Output port TypeId mismatch for " +
+                                  out_port.LogicalName() +
+                                  " (expected: " + out_port.TypeId() +
+                                  ", bound: " + binding->type_id + ")");
+    }
+    out_port.Resolve(binding->blackboard_key);
   }
 
   template <typename T>
@@ -323,7 +322,6 @@ class NodeBase : public INode {
   }
 
   const std::string node_name_;
-  static inline const nlohmann::json empty_config_ = nlohmann::json::object();
 };
 
 }  // namespace llm_edgeflow

@@ -1,7 +1,7 @@
 # Operator 多输出与嵌套载荷分配
 
 业务开发者通过注册的实现描述**一份完整输出如何创建、重置和释放**。框架负责创建
-多少份（默认 25）、租约和队列。同一个 map 键、同一个外层 C 结构，可以在不同
+多少份（采用 Create 的实际池深）、租约和队列。同一个 map 键、同一个外层 C 结构，可以在不同
 handle 的配置中选择不同的嵌套 `void*` 布局；配置在 Create 固定，Process 使用
 同一份规范化配置进行结果转换。
 
@@ -35,8 +35,8 @@ JSON 读取器将选中值通过 `dump()` 转为拥有自身存储的 `std::stri
 
 | 字段 | 用途 |
 | --- | --- |
-| bridge `logical_name` | 业务中的输出槽位，也是 `data.outputs` 的配置键 |
-| bridge `key_suffix` | 外部 map key 最后一个点号后的部分；描述符必须显式填写，与 `logical_name` 及 `type_suffix` 相互独立；单槽 Helper 默认填充为规范 `type_suffix`，不再支持运行时省略或隐式回退 |
+| 槽位 `logical_name` | 业务中的输出槽位，也是 `deployment.io.output_allocations` 的配置键 |
+| 槽位 `key_suffix` | 外部 map key 最后一个点号后的部分；描述符必须显式填写，与 `logical_name` 及 `type_suffix` 相互独立；单槽 Helper 默认填充为规范 `type_suffix`，不再支持运行时省略或隐式回退 |
 | `type` | 已注册的外层 ValueType，必须匹配槽位的 `type_suffix` |
 | `allocator` | 为该外层类型注册的分配方案标识；省略时使用类型的默认实现 |
 | `params` | 由方案解释、校验并补齐的单份布局参数，例如嵌套枚举与数组容量 |
@@ -47,27 +47,31 @@ JSON 读取器将选中值通过 `dump()` 转为拥有自身存储的 `std::stri
 [嵌套结构实现](../../tests/support/operator_nested_output_fixture.h)。这些类型和业务只在
 测试程序中注册，用于说明扩展方式，不是生产 SDK 中可选的新业务。
 
+下面是 Pipeline 文档的 `deployment` 部分；`.conf` 仅保存 `{"pipe_path":"pipeline.json"}`。
+
 ```json
 {
-  "data": {
-    "pipe_path": "pipeline.json",
-    "outputs": {
-      "main": {
-        "type": "test_nested_out",
-        "allocator": "test_nested_standard",
-        "params": {"kind": 1, "capacity": 8}
-      },
-      "audit": {
-        "type": "test_nested_out",
-        "allocator": "test_nested_alternate",
-        "params": {"kind": 2, "capacity": 16}
+  "deployment": {
+    "io": {
+      "io_binding": "<已注册的测试绑定>",
+      "output_allocations": {
+        "main": {
+          "type": "test_nested_out",
+          "allocator": "test_nested_standard",
+          "params": {"kind": 1, "capacity": 8}
+        },
+        "audit": {
+          "type": "test_nested_out",
+          "allocator": "test_nested_alternate",
+          "params": {"kind": 2, "capacity": 16}
+        }
       }
     }
   }
 }
 ```
 
-示例 bridge 将两个槽位的 `key_suffix` 分别注册为 `result`、`audit`，调用方准备
+示例接入绑定 将两个槽位的 `key_suffix` 分别注册为 `result`、`audit`，调用方准备
 `outputs[i]["chan.result"]` 与 `outputs[i]["chan.audit"]` 两个空 shared_ptr。
 二者都指向 `NestedOutputEnvelope`，其 `void* payload` 指向下一层结构，后者的
 `void* values` 再根据 `kind` 指向整数或浮点数组。修改 `main` 的方案或参数后创建
@@ -75,7 +79,7 @@ JSON 读取器将选中值通过 `dump()` 转为拥有自身存储的 `std::stri
 
 每个声明的输出槽位都需要配置，包括 `required=false` 的可选输出；可选是指 Process
 可以省略该输出 map 项。逻辑名和有效 map 后缀分别唯一；不同槽位可以复用相同类型
-和方案，各自使用独立容量和输出池。所有输出均统一在以逻辑槽位为键的 `data.outputs` 中配置。
+和方案，各自使用独立容量和输出池。所有输出均统一在以逻辑槽位为键的 `deployment.io.output_allocations` 中配置。
 
 ## 实现与注册
 
@@ -144,5 +148,4 @@ binding.normalize_parameters =
 方案与框架容量，`params` 是交给结构体解析函数的**字符串**（例如
 `"{\"kind\":1,\"capacity\":8}"`），不包含该解析函数内部补齐的默认值。单输出同样通过 `output_pools` 按槽位读取。
 现有 Demo/Studio Profile 使用原单输出
-业务；新多输出业务由其宿主调用或相应 Demo 扩展验证。公开 C ABI 的输出契约不受
-Operator 方案选择影响；若新增 C ABI 动态输出，应另外定义完整的缓冲区所有权契约。
+业务；新多输出业务由其宿主调用或相应 Demo 扩展验证。

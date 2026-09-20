@@ -3,6 +3,7 @@
 #include <cmath>
 #include <stdexcept>
 
+#include "contracts/diagnostic.h"
 #include "edgeflow/log.h"
 #include "engine/fixed_batch_executor.h"
 #include "engine/models/common/embedding_numeric_support.h"
@@ -44,11 +45,11 @@ std::shared_ptr<IModel> GeneratedTextEmbeddingModel::Create(
     }
     return model;
   } catch (const std::exception& e) {
-    inference_detail::SetDiagnostic(diagnostic, e.what());
+    SetDiagnosticNoexcept(diagnostic, e.what());
     return nullptr;
   } catch (...) {
-    inference_detail::SetDiagnostic(
-        diagnostic, "Unknown generated embedding creation error");
+    SetDiagnosticNoexcept(diagnostic,
+                          "Unknown generated embedding creation error");
     return nullptr;
   }
 }
@@ -64,10 +65,6 @@ const std::string& GeneratedTextEmbeddingModel::Capability() const noexcept {
 InferenceConcurrency GeneratedTextEmbeddingModel::Concurrency() const noexcept {
   return InferenceConcurrency::kConcurrent;
 }
-size_t GeneratedTextEmbeddingModel::GetMaxBatchSize() const noexcept {
-  return 1;
-}
-
 int GeneratedTextEmbeddingModel::Embed(const TextBatch& inputs,
                                        const EmbeddingOptions& options,
                                        EmbeddingBatch* outputs) noexcept {

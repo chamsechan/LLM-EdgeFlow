@@ -1,7 +1,6 @@
 #include <string>
 #include <vector>
 
-#include "contracts/config_schema_validation.h"
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
 #include "nodes/node_base.h"
@@ -54,11 +53,7 @@ class TextCorpusSourceNode final : public NodeBase {
  protected:
   bool InitNode(const NodeInitContext& init_ctx, const nlohmann::json& config,
                 SessionContext& /*session_ctx*/) override {
-    nlohmann::json normalized;
-    if (!ValidateAndNormalizeFields(TextCorpusSourceConfigFields(), config,
-                                    &normalized, nullptr)) {
-      return false;
-    }
+    const auto& normalized = config;
     if (!ValidateCorpusEntries(normalized, nullptr)) {
       return false;
     }

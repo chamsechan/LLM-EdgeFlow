@@ -38,35 +38,34 @@ TEST(WhisperCppBackendTest, MissingInvalidPathAndUnknownConfigFailClosed) {
   WhisperCppBackend backend;
 
   std::string diagnostic;
-  BackendLoadSpec missing;
+  BackendLoadSpec missing{ExecutionProtocol::kAudioTranscription};
   missing.model_path = "./models/does-not-exist.bin";
   EXPECT_EQ(backend.Load(missing, &diagnostic), nullptr);
   EXPECT_FALSE(diagnostic.empty());
 
   diagnostic.clear();
-  BackendLoadSpec directory;
+  BackendLoadSpec directory{ExecutionProtocol::kAudioTranscription};
   directory.model_path = ".";
   EXPECT_EQ(backend.Load(directory, &diagnostic), nullptr);
   EXPECT_FALSE(diagnostic.empty());
 
   diagnostic.clear();
-  BackendLoadSpec unknown;
+  BackendLoadSpec unknown{ExecutionProtocol::kAudioTranscription};
   unknown.model_path = "./models/does-not-exist.bin";
   unknown.backend_config = {{"unknown_field", 123}};
   EXPECT_EQ(backend.Load(unknown, &diagnostic), nullptr);
   EXPECT_NE(diagnostic.find("Unknown"), std::string::npos);
 
   diagnostic.clear();
-  BackendLoadSpec invalid_threads;
+  BackendLoadSpec invalid_threads{ExecutionProtocol::kAudioTranscription};
   invalid_threads.model_path = "./models/does-not-exist.bin";
   invalid_threads.backend_config = {{"n_threads", 0}};
   EXPECT_EQ(backend.Load(invalid_threads, &diagnostic), nullptr);
   EXPECT_NE(diagnostic.find("n_threads"), std::string::npos);
 
   diagnostic.clear();
-  BackendLoadSpec wrong_protocol;
+  BackendLoadSpec wrong_protocol{ExecutionProtocol::kTextGeneration};
   wrong_protocol.model_path = "./models/does-not-exist.bin";
-  wrong_protocol.requested_protocol = ExecutionProtocol::kTextGeneration;
   EXPECT_EQ(backend.Load(wrong_protocol, &diagnostic), nullptr);
   EXPECT_NE(diagnostic.find("requested protocol"), std::string::npos);
 }
@@ -74,7 +73,7 @@ TEST(WhisperCppBackendTest, MissingInvalidPathAndUnknownConfigFailClosed) {
 TEST(WhisperCppBackendTest, UnsupportedExecutionTargetFailsBeforeFilesystem) {
   WhisperCppBackend backend;
 
-  BackendLoadSpec spec;
+  BackendLoadSpec spec{ExecutionProtocol::kAudioTranscription};
   spec.model_path = "./models/does-not-exist.bin";
   spec.execution_target.platform = "NPU";
   spec.execution_target.device_id = 0;
@@ -106,7 +105,7 @@ TEST(WhisperCppBackendTest, LoadExceptionBarrierProtectsEntireEntrypoint) {
     ~TerminateHandlerGuard() { std::set_terminate(old_handler); }
   } guard{old_terminate};
 
-  BackendLoadSpec spec;
+  BackendLoadSpec spec{ExecutionProtocol::kAudioTranscription};
   spec.model_path = "./models/does-not-exist.bin";
 
   // 1. bad_alloc exception at entrypoint (reproduces allocation failure during
@@ -180,10 +179,9 @@ TEST(WhisperCppBackendTest, SessionLifecycleAndInference) {
   }
 
   WhisperCppBackend backend;
-  BackendLoadSpec spec;
+  BackendLoadSpec spec{ExecutionProtocol::kAudioTranscription};
   spec.model_path = model_path;
   spec.backend_config = {{"n_threads", 2}};
-  spec.requested_protocol = ExecutionProtocol::kAudioTranscription;
 
   std::string diagnostic;
   auto session = backend.Load(spec, &diagnostic);

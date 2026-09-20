@@ -16,6 +16,43 @@
 
 namespace llm_edgeflow {
 
+class RetainedPlanProbeNode : public INode {
+ public:
+  inline static constexpr char kNodeType[] = "RetainedPlanProbeNode";
+  bool Init(const NodeInitContext& init) override {
+    plan_ = init.plan;
+    return plan_ != nullptr;
+  }
+  int Process(AlgContext*) override {
+    return plan_->normalized_config.at("value").get<int>();
+  }
+  const std::string& Name() const override {
+    static const std::string name = kNodeType;
+    return name;
+  }
+
+ private:
+  const ValidatedNodePlan* plan_ = nullptr;
+};
+
+TEST(NodeOwnershipAndReuseTest, TestFixtureRetainsPlanForNodeLifetime) {
+  NodeDefinition definition;
+  definition.node_type = RetainedPlanProbeNode::kNodeType;
+  definition.config_fields = {{"value", ConfigValueKind::kInteger, false, 17}};
+  ASSERT_TRUE(NodeRegistry::Instance().Register(
+      definition.node_type,
+      [] { return std::make_unique<RetainedPlanProbeNode>(); }, definition));
+  SessionContext session;
+  RetainedPlanProbeNode node;
+  ASSERT_TRUE(InitNodeForTest(node, nlohmann::json::object(), &session));
+  EXPECT_EQ(node.Process(nullptr), 17);
+  // A second initialization cannot invalidate the first node's stored pointer.
+  RetainedPlanProbeNode second;
+  ASSERT_TRUE(InitNodeForTest(second, {{"value", 29}}, &session));
+  EXPECT_EQ(second.Process(nullptr), 29);
+  EXPECT_EQ(node.Process(nullptr), 17);
+}
+
 TEST(NodeOwnershipAndReuseTest, CatalogCategoriesAndOwnership) {
   // Common nodes in Phase 1
   const auto llm_gen = PipelineCatalog::FindNode("LlmGenerateNode");
@@ -43,7 +80,6 @@ TEST(NodeOwnershipAndReuseTest, CatalogCategoriesAndOwnership) {
 // features
 class DistinctMockEmbeddingModel : public IEmbeddingModel {
  public:
-  size_t GetMaxBatchSize() const noexcept override { return 16; }
   const std::string& ModelType() const noexcept override {
     static const std::string t = "mock_embedding";
     return t;

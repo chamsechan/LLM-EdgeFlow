@@ -39,7 +39,7 @@ Catalog 的 ingress/egress 是转换器与 Pipeline 之间的内部逻辑端口�
 JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代表转换器已支持新协议。
 
 当前共享 SDK 的 Operator 初始化会全量审计**所有已声明业务的曝光与绑定**。新增生产业务
-必须有完整的 Operator 绑定与转换器注册，`required_transports` 统一为 `{"operator"}`；
+必须有完整的 Operator 绑定与转换器注册；
 若缺少绑定，SDK 全局初始化失败。
 
 ## 2. 用一个现有业务看清文件关系
@@ -86,19 +86,19 @@ JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代�
    编写 `DecodeInputFn`，使用 `AdapterValidationHelper` 检查批次、指针和长度，
    将输入复制为中性 DTO 发布到 `AlgContext`。外部请求编号保存在 `raw_request_ids`，
    内部批次使用批内编号；输出阶段按来源映射回原编号。
-   定义 `InputConverterDefinition`（`transport = "operator"`）并使用
+   定义 `InputConverterDefinition`并使用
    `REGISTER_INPUT_CONVERTER` 注册。
 2. **实现输出转换器（`src/adapter/output/`）。**
    编写 `EncodeOutputFn`，从 `AlgContext` 读取内部结果，检查结果完整性，按来源映射关联结果。
    通过 `ExternalOutputBatchView` 将字段写入已租用的输出池结构（如 `CompanyOperator*Output`），
-   使用 `slot_capacities` 严格防护缓冲区溢出。
-   定义 `OutputConverterDefinition`（`transport = "operator"`）并使用
+   使用对应 `pool_specs` 中的容量 严格防护缓冲区溢出。
+   定义 `OutputConverterDefinition`并使用
    `REGISTER_OUTPUT_CONVERTER` 注册。
 3. **实现业务绑定与曝光声明（`src/adapter/biz/`）。**
-   在 `IoBindingDefinition` 中指定 `binding_id`、`biz_name`、`transport = "operator"`、
+   在 `IoBindingDefinition` 中指定 `binding_id`、`biz_name`、
    绑定的 `input_converter_id` 和 `output_converter_id`，以及逻辑端口到内部 Blackboard Key 的映射。
    使用 `REGISTER_IO_BINDING` 注册绑定。
-   使用 `REGISTER_BIZ_EXPOSURE` 声明业务生产暴露：`required_transports = {"operator"}` 与 `max_batch_size`。
+   使用 `REGISTER_BIZ_EXPOSURE` 声明业务生产暴露：`biz_name` 与 `max_batch_size`。
 4. **登记构建。**
    将新增源码加入 `src/adapter/CMakeLists.txt` 的 `edgeflow_integration_objects`。
 
@@ -159,7 +159,7 @@ Demo 的 `chip`、`device_id`、`batch_size`、`depth` 只从 Profile JSON 读�
 [公开 Operator 契约](../../include/edgeflow/operator/interface.h)。
 
 Operator 的输出路径是 `Pipeline → 内部中性值 → OutputConverter → 已租用输出池`。
-Result 与请求 Context 均不跨 Process 保存。`.conf` 的 `data.outputs` 按逻辑
+Result 与请求 Context 均不跨 Process 保存。Pipeline 的 `deployment.io.output_allocations` 按逻辑
 槽位分别指定类型、`allocator`、`params` 和容量。
 超过输出池容量时返回 `-4`，尚未发布的输出租约全部回滚。
 

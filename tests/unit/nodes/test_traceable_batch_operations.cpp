@@ -8,7 +8,6 @@
 #include <type_traits>
 #include <vector>
 
-#include "adapter/shared_algorithm_runtime.h"
 #include "contracts/traceable_item.h"
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
@@ -34,7 +33,6 @@ class CountingMockLlmModel final : public ILlmModel {
   InferenceConcurrency Concurrency() const noexcept override {
     return InferenceConcurrency::kConcurrent;
   }
-  size_t GetMaxBatchSize() const noexcept override { return 8; }
 
   int Generate(const TextBatch& prompts, const GenerateOptions& options,
                TextBatch* outputs) noexcept override {
@@ -71,7 +69,6 @@ class CountingMockLlmModel final : public ILlmModel {
 
 class TraceableBatchOperationsTest : public ::testing::Test {
  protected:
-  void SetUp() override { ASSERT_EQ(SharedAlgorithmRuntime::GlobalInit(), 0); }
 };
 
 // ============================================================================
@@ -1163,7 +1160,6 @@ TEST_F(TraceableBatchOperationsTest,
     InferenceConcurrency Concurrency() const noexcept override {
       return InferenceConcurrency::kConcurrent;
     }
-    size_t GetMaxBatchSize() const noexcept override { return 8; }
 
     int Generate(const TextBatch& prompts, const GenerateOptions&,
                  TextBatch* outputs) noexcept override {

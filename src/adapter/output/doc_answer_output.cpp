@@ -121,14 +121,14 @@ int EncodeOperatorDocAnswer(AlgContext* context,
 OutputConverterDefinition MakeOperatorDocAnswerOutputConverter() {
   OutputConverterDefinition def;
   def.converter_id = "doc_answer.plain.operator.v1";
-  def.transport = "operator";
+
   def.schema_id = "doc_answer.plain.response";
   def.schema_version = 1;
   def.external_type = "CompanyOperatorDocOutput";
   def.cardinality = "1:1";
   def.max_batch_size = 64;
   def.capacity_policy = "reject_overflow";
-  def.thread_model = "stateless";
+
   def.external_slots = {{"doc_out",
                          "CompanyOperatorDocOutput",
                          PortDirection::kOutput,

@@ -16,28 +16,26 @@ namespace llm_edgeflow {
 namespace fs = std::filesystem;
 
 int IoBindingResolver::ResolveFromFile(
-    const std::string& config_path, const std::string& transport,
-    const std::string& model_root_dir,
+    const std::string& config_path, const std::string& model_root_dir,
     std::unique_ptr<ValidatedIoPlan>* out_plan, std::string* out_error,
-    DeploymentDiagnostic* out_diagnostic) {
+    DeploymentDiagnostic* out_diagnostic, uint32_t output_pool_depth) {
   if (out_diagnostic) out_diagnostic->Clear();
 
   DeploymentIoConfig config;
   std::string err;
-  if (!DeploymentIoConfig::ReadFromFile(config_path, transport, &config, &err,
+  if (!DeploymentIoConfig::ReadFromFile(config_path, &config, &err,
                                         out_diagnostic)) {
     if (out_error) *out_error = err;
     return -2;
   }
-  return ResolveFromConfig(config, transport, model_root_dir, out_plan,
-                           out_error, out_diagnostic);
+  return ResolveFromConfig(config, model_root_dir, out_plan, out_error,
+                           out_diagnostic, output_pool_depth);
 }
 
 int IoBindingResolver::ResolveFromConfig(
-    const DeploymentIoConfig& config, const std::string& transport,
-    const std::string& model_root_dir,
+    const DeploymentIoConfig& config, const std::string& model_root_dir,
     std::unique_ptr<ValidatedIoPlan>* out_plan, std::string* out_error,
-    DeploymentDiagnostic* out_diagnostic) {
+    DeploymentDiagnostic* out_diagnostic, uint32_t output_pool_depth) {
   if (out_diagnostic) out_diagnostic->Clear();
 
   if (!out_plan) {
@@ -46,7 +44,6 @@ int IoBindingResolver::ResolveFromConfig(
       out_diagnostic->code = "DEPLOYMENT_ERROR";
       out_diagnostic->path = "/";
       out_diagnostic->message = "Null out_plan pointer";
-      out_diagnostic->legacy_status = -1;
     }
     return -1;
   }
@@ -61,7 +58,6 @@ int IoBindingResolver::ResolveFromConfig(
       out_diagnostic->code = "CONFIG_FILE_OPEN";
       out_diagnostic->path = "/";
       out_diagnostic->message = msg;
-      out_diagnostic->legacy_status = -2;
     }
     return -2;
   }
@@ -77,20 +73,18 @@ int IoBindingResolver::ResolveFromConfig(
       out_diagnostic->code = "JSON_PARSE";
       out_diagnostic->path = "/";
       out_diagnostic->message = msg;
-      out_diagnostic->legacy_status = -2;
     }
     return -2;
   }
 
-  return ResolveFromPipelineJson(raw_pipe_json, transport, model_root_dir,
-                                 out_plan, out_error, out_diagnostic);
+  return ResolveFromPipelineJson(raw_pipe_json, model_root_dir, out_plan,
+                                 out_error, out_diagnostic, output_pool_depth);
 }
 
 int IoBindingResolver::ResolveFromPipelineJson(
-    const nlohmann::json& pipeline_json, const std::string& transport,
-    const std::string& model_root_dir,
+    const nlohmann::json& pipeline_json, const std::string& model_root_dir,
     std::unique_ptr<ValidatedIoPlan>* out_plan, std::string* out_error,
-    DeploymentDiagnostic* out_diagnostic) {
+    DeploymentDiagnostic* out_diagnostic, uint32_t output_pool_depth) {
   if (out_diagnostic) out_diagnostic->Clear();
 
   if (!out_plan) {
@@ -99,14 +93,13 @@ int IoBindingResolver::ResolveFromPipelineJson(
       out_diagnostic->code = "DEPLOYMENT_ERROR";
       out_diagnostic->path = "/";
       out_diagnostic->message = "Null out_plan pointer";
-      out_diagnostic->legacy_status = -1;
     }
     return -1;
   }
   *out_plan = nullptr;
 
   DeploymentPrepareOptions options;
-  options.transport = transport;
+
   options.path_mode = model_root_dir.empty() ? DeploymentPathMode::kLexicalOnly
                                              : DeploymentPathMode::kUnderRoot;
   options.model_root_dir = model_root_dir;
@@ -115,12 +108,26 @@ int IoBindingResolver::ResolveFromPipelineJson(
   DeploymentDiagnostic prep_diag;
   if (!PrepareDeploymentDocument(pipeline_json, options, &prepared,
                                  &prep_diag)) {
-    if (out_error) *out_error = prep_diag.message;
+    if (out_error)
+      *out_error =
+          prep_diag.code + " at " + prep_diag.path + ": " + prep_diag.message;
     if (out_diagnostic) *out_diagnostic = prep_diag;
-    return prep_diag.legacy_status;
+    return prep_diag.pipeline_diagnostic ? -3 : -2;
   }
 
-  // 默认深度下的句柄池载荷总预算校验 (RFC-0062 §2.5, §2.6)
+  output_pool_depth =
+      output_pool_depth ? output_pool_depth : kDefaultOutputPoolDepth;
+  if (output_pool_depth > kMaxOutputPoolDepth) {
+    if (out_error) *out_error = "output_pool_depth exceeds hard limit";
+    if (out_diagnostic) {
+      out_diagnostic->code = "DEPLOYMENT_ERROR";
+      out_diagnostic->path = "/";
+      out_diagnostic->message = "output_pool_depth exceeds hard limit";
+    }
+    return -2;
+  }
+
+  // 按本次有效深度检查句柄池总预算
   size_t total_handle_pool_bytes = 0;
   for (const auto& [slot_name, pool_spec] : prepared.output_specs) {
     const auto* output_binding =
@@ -135,15 +142,14 @@ int IoBindingResolver::ResolveFromPipelineJson(
         out_diagnostic->path =
             "/deployment/io/output_allocations/" + EscapeJsonPointer(slot_name);
         out_diagnostic->message = msg;
-        out_diagnostic->legacy_status = -2;
       }
       return -2;
     }
     size_t slot_pool_bytes = 0;
     std::string budget_err;
     if (!ComputeOutputPoolPayloadBytes(*output_binding, pool_spec,
-                                       kDefaultOutputPoolDepth,
-                                       &slot_pool_bytes, &budget_err)) {
+                                       output_pool_depth, &slot_pool_bytes,
+                                       &budget_err)) {
       std::string msg = "Output pool budget calculation failed: " + budget_err;
       if (out_error) *out_error = msg;
       if (out_diagnostic) {
@@ -151,7 +157,6 @@ int IoBindingResolver::ResolveFromPipelineJson(
         out_diagnostic->path =
             "/deployment/io/output_allocations/" + EscapeJsonPointer(slot_name);
         out_diagnostic->message = msg;
-        out_diagnostic->legacy_status = -2;
       }
       return -2;
     }
@@ -163,7 +168,6 @@ int IoBindingResolver::ResolveFromPipelineJson(
         out_diagnostic->code = "INVALID_OUTPUT_ALLOCATION";
         out_diagnostic->path = "/deployment/io/output_allocations";
         out_diagnostic->message = msg;
-        out_diagnostic->legacy_status = -2;
       }
       return -2;
     }
@@ -178,7 +182,6 @@ int IoBindingResolver::ResolveFromPipelineJson(
       out_diagnostic->code = "INVALID_OUTPUT_ALLOCATION";
       out_diagnostic->path = "/deployment/io/output_allocations";
       out_diagnostic->message = msg;
-      out_diagnostic->legacy_status = -2;
     }
     return -2;
   }
@@ -187,7 +190,6 @@ int IoBindingResolver::ResolveFromPipelineJson(
   // neutral_pipeline_json)
   auto plan = std::make_unique<ValidatedPipelinePlan>(
       PipelineValidator::ValidateAndPlan(prepared.neutral_pipeline_json,
-                                         ValidationPolicy::kStrict,
                                          &prepared.io_boundary));
 
   ProjectModelPathDiagnostics(prepared, &plan->report);
@@ -203,7 +205,7 @@ int IoBindingResolver::ResolveFromPipelineJson(
         out_diagnostic->code = DiagnosticCodeName(d.code);
         out_diagnostic->path = d.path;
         out_diagnostic->message = d.message;
-        out_diagnostic->legacy_status = -3;
+
         out_diagnostic->pipeline_diagnostic =
             PipelineDiagnostic{d.code, d.path, d.message};
       }
@@ -214,7 +216,6 @@ int IoBindingResolver::ResolveFromPipelineJson(
         out_diagnostic->code = "VALIDATION_FAILED";
         out_diagnostic->path = "/";
         out_diagnostic->message = msg;
-        out_diagnostic->legacy_status = -3;
       }
     }
     return -3;

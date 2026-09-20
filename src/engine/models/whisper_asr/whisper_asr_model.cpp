@@ -5,6 +5,7 @@
 #include <string_view>
 #include <vector>
 
+#include "contracts/diagnostic.h"
 #include "edgeflow/log.h"
 #include "engine/fixed_batch_executor.h"
 #include "engine/text/utf8.h"
@@ -57,18 +58,15 @@ std::shared_ptr<IModel> WhisperAsrModel::Create(
 
     auto model = std::make_shared<WhisperAsrModel>();
     model->session_ = std::move(session);
-    model->language_ = language;
     model->max_audio_seconds_ = max_audio_seconds;
-    model->max_output_bytes_ = static_cast<size_t>(max_output_bytes);
     model->options_.language = language;
-    model->options_.max_output_bytes = model->max_output_bytes_;
+    model->options_.max_output_bytes = static_cast<size_t>(max_output_bytes);
     return model;
   } catch (const std::exception& e) {
-    inference_detail::SetDiagnostic(diagnostic, e.what());
+    SetDiagnosticNoexcept(diagnostic, e.what());
     return nullptr;
   } catch (...) {
-    inference_detail::SetDiagnostic(diagnostic,
-                                    "Unknown whisper_asr creation error");
+    SetDiagnosticNoexcept(diagnostic, "Unknown whisper_asr creation error");
     return nullptr;
   }
 }
@@ -86,8 +84,6 @@ const std::string& WhisperAsrModel::Capability() const noexcept {
 InferenceConcurrency WhisperAsrModel::Concurrency() const noexcept {
   return InferenceConcurrency::kConcurrent;
 }
-
-size_t WhisperAsrModel::GetMaxBatchSize() const noexcept { return 1; }
 
 int WhisperAsrModel::Transcribe(const AudioPcmBatch& audio,
                                 TextBatch* outputs) noexcept {
@@ -159,10 +155,10 @@ int WhisperAsrModel::Transcribe(const AudioPcmBatch& audio,
             return -1;
           }
           std::string trimmed = TrimAscii(raw_output);
-          if (trimmed.size() > max_output_bytes_) {
+          if (trimmed.size() > options_.max_output_bytes) {
             ALG_LOG_ERROR(
                 "[WhisperAsrModel] Output size %zu > max_output_bytes %zu\n",
-                trimmed.size(), max_output_bytes_);
+                trimmed.size(), options_.max_output_bytes);
             return -1;
           }
           batch->push_back(std::move(trimmed));

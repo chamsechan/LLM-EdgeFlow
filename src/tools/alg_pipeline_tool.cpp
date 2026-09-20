@@ -76,7 +76,7 @@ std::optional<fs::path> ProfilePipeline(const nlohmann::json& profile) {
   std::string error;
   if (!profile.contains("config") || !profile["config"].is_string() ||
       !llm_edgeflow::DeploymentIoConfig::ReadFromFile(
-          profile["config"].get<std::string>(), "operator", &config, &error)) {
+          profile["config"].get<std::string>(), &config, &error)) {
     return std::nullopt;
   }
   return fs::path(config.resolved_pipe_path);
@@ -150,7 +150,7 @@ nlohmann::json ResolveConf(const std::string& file, const std::string& root,
     return ToolError("DEPLOYMENT_CONFIG", message);
   }
 
-  auto effective = resolved.synthetic_pipeline_json;
+  auto effective = resolved.io_plan->resolved_pipeline_json;
   for (const auto& [id, node] : plan.node_plans)
     effective["pipeline"][node.node.source_index]["config"] =
         node.normalized_config;
@@ -170,13 +170,14 @@ nlohmann::json ResolveConf(const std::string& file, const std::string& root,
                         : "pipeline.models.model_path"},
          {"resolved", model.resolved_model_path}});
   nlohmann::json output_pools = nlohmann::json::object();
-  for (const auto& [slot, pool] : resolved.output_pool_specs) {
-    output_pools[slot] = {{"type", pool.type},
-                          {"allocator", pool.allocator},
-                          {"params", resolved.output_parameter_text.at(slot)},
-                          {"meta_num", pool.meta_num},
-                          {"metadata_type_id", pool.metadata_type_id},
-                          {"capacities", pool.capacities}};
+  for (const auto& [slot, pool] : resolved.io_plan->operator_output_specs) {
+    output_pools[slot] = {
+        {"type", pool.type},
+        {"allocator", pool.allocator},
+        {"params", resolved.io_plan->operator_output_parameter_texts.at(slot)},
+        {"meta_num", pool.meta_num},
+        {"metadata_type_id", pool.metadata_type_id},
+        {"capacities", pool.capacities}};
   }
   nlohmann::json configuration = {
       {"conf_path", resolved.conf_path.string()},
@@ -200,7 +201,7 @@ void Usage() {
             << "  alg_pipeline_tool plan FILE|--stdin [--explain]\n";
   std::cerr
       << "  alg_pipeline_tool resolve-conf FILE [--root DIR] [--depth N]\n"
-      << "  alg_pipeline_tool validate-io CONFIG [--transport operator] "
+      << "  alg_pipeline_tool validate-io CONFIG "
          "[--model-root DIR]\n"
       << "  alg_pipeline_tool edit --stdin\n"
       << "  alg_pipeline_tool fix-deps FILE [--in-place]\n";
@@ -436,13 +437,11 @@ int main(int argc, char* argv[]) {
       return 2;
     }
     std::string config_path = argv[2];
-    std::string transport = "operator";
+
     std::string model_root;
     for (int i = 3; i < argc; ++i) {
       std::string arg = argv[i];
-      if (arg == "--transport" && i + 1 < argc) {
-        transport = argv[++i];
-      } else if (arg == "--model-root" && i + 1 < argc) {
+      if (arg == "--model-root" && i + 1 < argc) {
         model_root = argv[++i];
       } else {
         Usage();
@@ -472,7 +471,7 @@ int main(int argc, char* argv[]) {
       std::string error;
       llm_edgeflow::DeploymentDiagnostic diag;
       int rc = llm_edgeflow::IoBindingResolver::ResolveFromFile(
-          config_path, transport, model_root, &plan, &error, &diag);
+          config_path, model_root, &plan, &error, &diag);
 
       if (rc != 0 || !plan) {
         std::string diag_path = diag.path.empty() ? "/" : diag.path;
@@ -492,7 +491,7 @@ int main(int argc, char* argv[]) {
       nlohmann::json binding_info = {
           {"binding_id", plan->binding.binding_id},
           {"biz_name", plan->binding.biz_name},
-          {"transport", plan->binding.transport},
+          {"transport", "operator"},
           {"input_converter_id", plan->binding.input_converter_id},
           {"output_converter_id", plan->binding.output_converter_id},
           {"input_port_mapping", plan->binding.input_ports},

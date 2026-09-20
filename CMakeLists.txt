@@ -254,7 +254,5 @@ add_subdirectory(src/tools)
 include(CTest)
 if(BUILD_TESTING)
   include(cmake_ext/GoogleTest.cmake)
-  option(LLM_EDGEFLOW_SHARDED_TEST_RUNNERS
-         "Build PCH-enabled sharded Google Test runners" ON)
   add_subdirectory(tests)
 endif()

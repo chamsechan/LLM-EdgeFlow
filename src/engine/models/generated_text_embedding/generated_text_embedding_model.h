@@ -16,7 +16,6 @@ class GeneratedTextEmbeddingModel final : public IEmbeddingModel {
   const std::string& ModelType() const noexcept override;
   const std::string& Capability() const noexcept override;
   InferenceConcurrency Concurrency() const noexcept override;
-  size_t GetMaxBatchSize() const noexcept override;
   int Embed(const TextBatch& inputs, const EmbeddingOptions& options,
             EmbeddingBatch* outputs) noexcept override;
 

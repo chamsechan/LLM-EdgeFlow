@@ -39,7 +39,6 @@ kiteLLM + ONNX，确认 Catalog 注册并运行包含真实 GGUF 的完整 CTest
 归档缓存位于 `3rdparty/kite_llm/v0.1.0/<x64|arm>/`，每次配置都校验归档 SHA-256，
 再解包到当前 build 的 `_deps/kite_llm_release/`。已有完整缓存时不调用 gh、不访问网络。
 缓存损坏会明确报错；删除报错指向的归档后重新配置即可下载。第三方文件均被 Git 忽略。
-旧构建目录如设置过 `KITELLM_ROOT`，用 `cmake -UKITELLM_ROOT ...` 清除。
 
 ## 使用与限制
 
@@ -54,8 +53,7 @@ kiteLLM + ONNX，确认 Catalog 注册并运行包含真实 GGUF 的完整 CTest
 - 当前固定 Linux 发布包按 CPU 接入。Operator / alg_demo 使用既有 `CPU` / `cpu_generic`
   平台与 `device_id=0` 即可运行正确配置的 Kite 文本生成业务；无需修改 Operator 参数。
   CUDA、NPU 等显式平台，以及 CPU 平台下大于 0 的设备 ID，均明确拒绝。
-- 公共 C ABI 的 `CompanyAlgParamCreate.device_id=-1` 仍表示不另指定设备；Backend
-  收到显式 -1 时映射到原生自动选择。原生非负 ID 是其 ggml 设备枚举索引，不保证等同于
+- Backend 收到显式 `device_id=-1` 时映射到原生自动选择。原生非负 ID 是其 ggml 设备枚举索引，不保证等同于
   CUDA ordinal。小于 -1 拒绝，其余索引由原生加载检查。
 - 显式 CPU 与 run-config 中 `model.gpu_layers > 0` 冲突时明确报错；其他上游字段和
   格式仍由 Kite 校验。本项目不添加平台 setter 或静默忽略平台要求。

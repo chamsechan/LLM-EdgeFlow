@@ -90,14 +90,14 @@ int EncodeOperatorStructuredDocument(AlgContext* context,
 OutputConverterDefinition MakeOperatorStructuredDocumentOutputConverter() {
   OutputConverterDefinition def;
   def.converter_id = "document.structured.operator.v1";
-  def.transport = "operator";
+
   def.schema_id = "document.structured.response";
   def.schema_version = 1;
   def.external_type = "CompanyOperatorEntityOutput";
   def.cardinality = "1:1";
   def.max_batch_size = 64;
   def.capacity_policy = "reject_overflow";
-  def.thread_model = "stateless";
+
   def.external_slots = {{"entity_out",
                          "CompanyOperatorEntityOutput",
                          PortDirection::kOutput,

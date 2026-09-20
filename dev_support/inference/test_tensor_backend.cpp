@@ -65,9 +65,7 @@ std::shared_ptr<IBackendSession> TestTensorBackend::Load(
     const BackendLoadSpec& spec, std::string* diagnostic) noexcept {
   (void)diagnostic;
   try {
-    requested_protocol_.store(spec.requested_protocol
-                                  ? static_cast<int>(*spec.requested_protocol)
-                                  : -1,
+    requested_protocol_.store(static_cast<int>(spec.requested_protocol),
                               std::memory_order_relaxed);
     return std::make_shared<TestTensorSession>(spec.model_path);
   } catch (...) {

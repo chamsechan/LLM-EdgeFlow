@@ -47,12 +47,6 @@ std::shared_ptr<IModel> QwenCausalLmModel::Create(const ModelCreateContext& ctx,
       return nullptr;
     }
 
-    const std::string chat_template =
-        ctx.model_config.value("chat_template", "qwen_chatml");
-    if (chat_template != "qwen_chatml") {
-      if (diagnostic) *diagnostic = "Unsupported Qwen chat template";
-      return nullptr;
-    }
     const std::string system_prompt =
         ctx.model_config.value("system_prompt", "");
     const bool add_bos = ctx.model_config.value("add_bos", false);
@@ -95,10 +89,6 @@ const std::string& QwenCausalLmModel::Capability() const noexcept {
 
 InferenceConcurrency QwenCausalLmModel::Concurrency() const noexcept {
   return InferenceConcurrency::kConcurrent;
-}
-
-size_t QwenCausalLmModel::GetMaxBatchSize() const noexcept {
-  return session_ ? session_->GetBatchPolicy().max_batch_size : 0;
 }
 
 std::string QwenCausalLmModel::ApplyChatTemplate(
@@ -188,10 +178,6 @@ int QwenCausalLmModel::GenerateOne(const TraceableItem<std::string>& prompt,
   }
 }
 
-void QwenCausalLmModel::StripIncompleteUtf8Suffix(std::string* text) noexcept {
-  utf8::StripIncompleteSuffix(text);
-}
-
 static const ModelDefinition kQwenCausalLmModelDefinition = [] {
   ModelDefinition definition;
   definition.model_type = QwenCausalLmModel::kModelType;
@@ -201,15 +187,6 @@ static const ModelDefinition kQwenCausalLmModelDefinition = [] {
   definition.required_protocol = ExecutionProtocol::kTextGeneration;
   definition.concurrency = InferenceConcurrency::kConcurrent;
   definition.config_fields = {
-      {"chat_template",
-       ConfigValueKind::kString,
-       false,
-       "qwen_chatml",
-       std::nullopt,
-       std::nullopt,
-       {"qwen_chatml"},
-       "使用 qwen_chatml 包装 system/user/assistant "
-       "角色，权重须支持该对话格式。"},
       {"system_prompt",
        ConfigValueKind::kString,
        false,

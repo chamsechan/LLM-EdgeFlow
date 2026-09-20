@@ -29,7 +29,7 @@ BizExposureDefinition MakeTranslateBizExposure() {
   BizExposureDefinition def;
   def.biz_name = "translate_v1";
   def.max_batch_size = 64;
-  def.required_transports = {"operator"};
+
   return def;
 }
 
@@ -37,7 +37,7 @@ IoBindingDefinition MakeTranslateOperatorBinding() {
   IoBindingDefinition def;
   def.binding_id = "translate.operator.v1";
   def.biz_name = "translate_v1";
-  def.transport = "operator";
+
   def.input_converter_id = "translate.json.operator.v1";
   def.output_converter_id = "translate.json.operator.v1";
   def.input_ports = {{"raw_request_ids", "raw_request_ids"},

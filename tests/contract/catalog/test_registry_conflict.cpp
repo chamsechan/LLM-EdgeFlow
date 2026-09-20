@@ -14,6 +14,7 @@
 #include "engine/model_interface.h"
 #include "engine/model_registry.h"
 #include "nodes/parameter_binding.h"
+#include "tests/support/pipeline_test_utils.h"
 
 namespace llm_edgeflow {
 
@@ -89,6 +90,7 @@ const bool kAuthoringStartupAttempted = [] {
 
 TEST(RegistryAuthoringStartupTest,
      DeclarationFailureReachesMainAndFailsClosed) {
+  RegisterTestBizs({"authoring_startup_test"});
   const char* selected = std::getenv("EDGEFLOW_BAD_AUTHORING_CASE");
   if (!selected) GTEST_SKIP() << "Requires a process-isolated authoring case";
   ASSERT_TRUE(kAuthoringStartupAttempted);
@@ -113,8 +115,7 @@ TEST(RegistryAuthoringStartupTest,
        nlohmann::json::array({{{"id", "dummy"},
                                {"node_type", DummyNode::kNodeType},
                                {"depends_on", nlohmann::json::array()}}})}};
-  const auto validation = PipelineValidator::ValidateAndPlan(
-      config, ValidationPolicy::kPrivateExtensionCompatible);
+  const auto validation = PipelineValidator::ValidateAndPlan(config);
   EXPECT_FALSE(validation.report.ok);
   ASSERT_FALSE(validation.report.diagnostics.empty());
   const auto& diagnostic = validation.report.diagnostics.front();
@@ -124,9 +125,7 @@ TEST(RegistryAuthoringStartupTest,
 
   Pipeline pipeline;
   PipelineDiagnostic build_diagnostic;
-  EXPECT_FALSE(
-      pipeline.BuildFromJson(config, &build_diagnostic,
-                             ValidationPolicy::kPrivateExtensionCompatible));
+  EXPECT_FALSE(BuildTestPipeline(pipeline, config, &build_diagnostic));
   EXPECT_EQ(build_diagnostic.code, DiagnosticCode::kRegistryConflict);
   EXPECT_NE(build_diagnostic.message.find("BadAuthoringNode"),
             std::string::npos);
@@ -140,7 +139,6 @@ class DummyModel : public IEmbeddingModel {
                                         std::string*) {
     return std::make_shared<DummyModel>();
   }
-  size_t GetMaxBatchSize() const noexcept override { return 1; }
   const std::string& ModelType() const noexcept override {
     static const std::string type = kModelType;
     return type;
@@ -161,6 +159,7 @@ REGISTER_MODEL_WITH_DEFINITION(DummyModel,
                                MakeTestModelDef(DummyModel::kModelType));
 
 TEST(RegistryConflictNodeTest, DuplicateNodeFailClosed) {
+  RegisterTestBizs({"conflict_node_test"});
   ASSERT_FALSE(NodeRegistry::Instance().HasConflict());
   ASSERT_FALSE(ModelRegistry::Instance().HasConflict());
   EXPECT_FALSE(NodeRegistry::Instance().Register(
@@ -177,13 +176,13 @@ TEST(RegistryConflictNodeTest, DuplicateNodeFailClosed) {
        nlohmann::json::array({{{"id", "node_0_DummyNode"},
                                {"node_type", DummyNode::kNodeType},
                                {"depends_on", nlohmann::json::array()}}})}};
-  EXPECT_FALSE(pipe.BuildFromJson(
-      cfg, &diag, ValidationPolicy::kPrivateExtensionCompatible));
+  EXPECT_FALSE(BuildTestPipeline(pipe, cfg, &diag));
   EXPECT_EQ(diag.code, DiagnosticCode::kRegistryConflict);
   EXPECT_EQ(diag.path, "/pipeline");
 }
 
 TEST(RegistryConflictModelTest, DuplicateModelFailClosed) {
+  RegisterTestBizs({"conflict_model_test"});
   ASSERT_FALSE(NodeRegistry::Instance().HasConflict());
   ASSERT_FALSE(ModelRegistry::Instance().HasConflict());
   EXPECT_FALSE(ModelRegistry::Instance().Register(
@@ -206,8 +205,7 @@ TEST(RegistryConflictModelTest, DuplicateModelFailClosed) {
        nlohmann::json::array({{{"id", "node_0_DummyNode"},
                                {"node_type", DummyNode::kNodeType},
                                {"depends_on", nlohmann::json::array()}}})}};
-  EXPECT_FALSE(pipe.BuildFromJson(
-      cfg, &diag, ValidationPolicy::kPrivateExtensionCompatible));
+  EXPECT_FALSE(BuildTestPipeline(pipe, cfg, &diag));
   EXPECT_EQ(diag.code, DiagnosticCode::kRegistryConflict);
   EXPECT_EQ(diag.path, "/models");
 }

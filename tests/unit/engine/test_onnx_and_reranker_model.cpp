@@ -30,6 +30,7 @@
 #include "engine/model_runtime_factory.h"
 #include "engine/models/bge_common/bert_wordpiece_tokenizer.h"
 #include "engine/models/bge_reranker/bge_reranker_model.h"
+#include "tests/support/pipeline_test_utils.h"
 
 #ifndef EDGEFLOW_RERANK_ONNX_FIXTURE
 #define EDGEFLOW_RERANK_ONNX_FIXTURE "models/rerank_fixture.onnx"
@@ -858,7 +859,7 @@ TEST_F(OnnxAndRerankerModelTest, RealOnnxRuntimeRerankFixtureExecution) {
   auto backend = BackendRegistry::Instance().Create("onnxruntime");
   ASSERT_NE(backend, nullptr);
 
-  BackendLoadSpec bspec;
+  BackendLoadSpec bspec{ExecutionProtocol::kTensorGraph};
   bspec.model_path = onnx_path.string();
   bspec.backend_config = {
       {"max_batch_size", 4},
@@ -946,24 +947,16 @@ TEST_F(OnnxAndRerankerModelTest, RealPipelineBuildAndExecuteSmoke) {
   pipe_json["models"][0]["model_config"]["max_length"] = 32;
   pipe_json["pipeline"][0]["config"]["top_k"] = 2;
 
-  auto smoke_cfg_path = temp_dir_ / "pipeline_cross_rerank_smoke.json";
-  std::ofstream cfg_out(smoke_cfg_path);
-  cfg_out << pipe_json.dump(2);
-  cfg_out.close();
-
   // 3. PipelineValidator Validate/Plan
-  auto planned_plan = PipelineValidator::ValidateAndPlan(
-      pipe_json, ValidationPolicy::kPrivateExtensionCompatible);
+  auto planned_plan = PipelineValidator::ValidateAndPlan(pipe_json);
   ASSERT_TRUE(planned_plan.report.ok) << planned_plan.report.ToJson().dump();
-  ASSERT_EQ(planned_plan.topological_order.size(), 1u);
-  EXPECT_EQ(planned_plan.topological_order[0], "node_0_TextRerankNode");
+  ASSERT_EQ(planned_plan.report.topological_order.size(), 1u);
+  EXPECT_EQ(planned_plan.report.topological_order[0], "node_0_TextRerankNode");
 
   // 4. Pipeline Build
   Pipeline pipeline;
   PipelineDiagnostic build_diag;
-  bool build_ok = pipeline.BuildFromConfigFile(
-      smoke_cfg_path.string(), &build_diag,
-      ValidationPolicy::kPrivateExtensionCompatible);
+  bool build_ok = BuildTestPipeline(pipeline, pipe_json, &build_diag);
   ASSERT_TRUE(build_ok) << build_diag.message << " at " << build_diag.path;
   EXPECT_TRUE(pipeline.IsReady());
 

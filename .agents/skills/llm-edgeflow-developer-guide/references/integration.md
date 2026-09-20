@@ -9,7 +9,7 @@ does not imply payload compatibility. Follow [the boundary and carrier distincti
 
 Start with [business onboarding](../../../../doc/dev_guide/business_onboarding.md) to select the requested
 integration path. Reuse the converters when the external contract is unchanged. Adding a production
-binding to the current shared SDK requires matching input and output converters registered with `transport = "operator"`.
+binding to the current shared SDK requires matching input and output converters and an explicit IoBinding registration.
 For new Operator host types, also register ValueType capacity, initialization and release.
 Register ValueTypes and named single-object output allocators through
 `adapter/operator_value_type.h`. Keep queue depth out of their callbacks. For multiple outputs

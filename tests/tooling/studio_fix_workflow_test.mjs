@@ -30,7 +30,7 @@ const document = {
   addEventListener() {}, documentElement: new Element(), body: new Element(),
 };
 let previewResponse, previewCalls = 0, confirmations = 0, validationCalls = 0;
-let catalogVersion = 3;
+let catalogVersion = 4;
 let authoringResponse, authoringCalls = [], preflightResponse;
 const requests = [];
 const context = vm.createContext({
@@ -234,14 +234,14 @@ console.log("Studio real repair handler, history, late response and schema-versi
 for (const opened of [false, true]) {
   reset();
   if (!opened) state.pipeline = null;
-  catalogVersion = 2;
+  catalogVersion = 3;
   const beforeCalls = validationCalls;
   await app.namespace.refreshLists();
   assert.equal(state.catalogReady, false, "Reject old Catalog on startup and on an open document");
-  assert.match(elements.get("#toast").children[0].textContent, /Catalog v3/);
+  assert.match(elements.get("#toast").children[0].textContent, /Catalog v4/);
   assert.equal(await app.namespace.validate(), false);
   assert.equal(validationCalls, beforeCalls, "No request after an incompatible Catalog");
-  catalogVersion = 3;
+  catalogVersion = 4;
   await app.namespace.loadCatalog();
   assert.equal(state.catalogReady, true, "A compatible Catalog restores readiness");
 }

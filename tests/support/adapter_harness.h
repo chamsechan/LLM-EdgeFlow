@@ -53,17 +53,18 @@ class AdapterHarness {
     if (!in_conv_ || !in_conv_->decode_fn) return -1;
     ExternalInputBatchView view;
     view.count = inputs.size();
-    view.type_id = in_conv_->external_type;
     std::string slot_name = in_conv_->external_slots.empty()
                                 ? ""
                                 : in_conv_->external_slots[0].slot_name;
     if (!slot_name.empty()) {
       view.slot_types[slot_name] = in_conv_->external_type;
-      view.leased_slots[slot_name] = inputs;
+      for (const void* input : inputs)
+        view.slots[slot_name].emplace_back(const_cast<void*>(input),
+                                           [](void*) {});
     }
     InputDecodeOptions options;
     options.converter_id = in_conv_->converter_id;
-    options.transport = in_conv_->transport;
+
     return in_conv_->decode_fn(view, options, in_bindings_, &ctx_, &status_);
   }
 
@@ -76,7 +77,6 @@ class AdapterHarness {
     }
     ExternalOutputBatchView view;
     view.count = outputs->size();
-    view.type_id = out_conv_->external_type;
     std::string slot_name = out_conv_->external_slots.empty()
                                 ? ""
                                 : out_conv_->external_slots[0].slot_name;
@@ -86,7 +86,7 @@ class AdapterHarness {
     }
     OutputEncodeOptions options;
     options.converter_id = out_conv_->converter_id;
-    options.transport = out_conv_->transport;
+
     size_t written = 0;
     int ret = out_conv_->encode_fn(&ctx_, out_bindings_, options, &view,
                                    &written, &status_);

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <utility>
 
+#include "contracts/diagnostic.h"
 #include "engine/models/bge_common/bert_wordpiece_tokenizer.h"
 
 namespace llm_edgeflow {
@@ -26,10 +27,6 @@ namespace {
 bool Reject(std::string* diagnostic, std::string message) {
   if (diagnostic) *diagnostic = std::move(message);
   return false;
-}
-
-void SetDiagnostic(std::string* diagnostic, std::string message) {
-  if (diagnostic) *diagnostic = std::move(message);
 }
 
 std::string RankRequirement(size_t min_rank, size_t max_rank) {
@@ -238,8 +235,8 @@ const TensorSpec* RequireFloatOutputMetadata(const ITensorGraphSession& session,
                                              std::string* diagnostic) {
   const auto& outputs = session.Outputs();
   if (outputs.empty()) {
-    SetDiagnostic(diagnostic,
-                  model_name + " session output metadata cannot be empty");
+    SetDiagnosticNoexcept(
+        diagnostic, model_name + " session output metadata cannot be empty");
     return nullptr;
   }
 
@@ -248,24 +245,25 @@ const TensorSpec* RequireFloatOutputMetadata(const ITensorGraphSession& session,
                                      return spec.name == output_name;
                                    });
   if (output == outputs.end()) {
-    SetDiagnostic(diagnostic,
-                  model_name +
-                      " session outputs missing expected output tensor: '" +
-                      output_name + "'");
+    SetDiagnosticNoexcept(
+        diagnostic, model_name +
+                        " session outputs missing expected output tensor: '" +
+                        output_name + "'");
     return nullptr;
   }
   if (output->element_type != ElementType::kFloat32) {
-    SetDiagnostic(diagnostic, model_name + " output '" + output_name +
-                                  "' dtype must be float32, got: " +
-                                  ElementTypeName(output->element_type));
+    SetDiagnosticNoexcept(diagnostic,
+                          model_name + " output '" + output_name +
+                              "' dtype must be float32, got: " +
+                              ElementTypeName(output->element_type));
     return nullptr;
   }
   if (min_rank > max_rank || output->shape.size() < min_rank ||
       output->shape.size() > max_rank) {
-    SetDiagnostic(diagnostic,
-                  model_name + " output '" + output_name + "' rank must be " +
-                      RankRequirement(min_rank, max_rank) +
-                      ", got: " + std::to_string(output->shape.size()));
+    SetDiagnosticNoexcept(
+        diagnostic, model_name + " output '" + output_name + "' rank must be " +
+                        RankRequirement(min_rank, max_rank) +
+                        ", got: " + std::to_string(output->shape.size()));
     return nullptr;
   }
   if (!ValidateTensorBatchDimension(output->shape[0], session.GetBatchPolicy(),
@@ -306,10 +304,8 @@ bool ValidateRuntimeBatchTensor(const Tensor& tensor, size_t expected_batch,
     }
     return true;
   } catch (...) {
-    try {
-      SetDiagnostic(diagnostic, "Exception validating output tensor metadata");
-    } catch (...) {
-    }
+    SetDiagnosticNoexcept(diagnostic,
+                          "Exception validating output tensor metadata");
     return false;
   }
 }

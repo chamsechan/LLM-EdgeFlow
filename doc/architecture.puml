@@ -109,23 +109,20 @@ package "流程编排层（Orchestration）" as Orchestration {
     - session_context_: SessionContext
     - plan_: std::unique_ptr<ValidatedPipelinePlan>
     - state_: State {kEmpty, kBuilding, kReady, kFailed}
-    - execution_layers_: std::vector<std::vector<size_t>>
-    + BuildFromConfigFile(config_path: string): bool
-    + BuildFromJson(root_config: json): bool
+    + BuildFromPlan(plan: ValidatedPipelinePlan): bool
     + Execute(req_ctx: AlgContext*): int
     + Control(cmd: int, json_param: string): int
   }
 
   class PipelineValidator <<(V,#0284C7) Static Validator>> {
-    + {static} ValidateAndPlan(json_obj, policy): ValidatedPipelinePlan
-    + {static} Validate(json_obj, policy): ValidationReport
+    + {static} ValidateAndPlan(json_obj): ValidatedPipelinePlan
+    + {static} Validate(json_obj): ValidationReport
   }
 
   class ValidatedPipelinePlan <<(P,#38BDF8) Immutable Plan>> {
     + report: ValidationReport
     + config: ParsedPipelineConfig
-    + topological_order: vector<string>
-    + topological_layers: vector<vector<string>>
+    + node_plans: unordered_map<string, ValidatedNodePlan>
   }
 
   class AlgContext <<(B,#10B981) Request Blackboard>> {
@@ -206,7 +203,6 @@ package "模型执行层（Model Execution）" as ModelExecution {
     + {abstract} ModelType(): const string&
     + {abstract} Capability(): const string&
     + {abstract} Concurrency(): InferenceConcurrency
-    + {abstract} GetMaxBatchSize(): size_t
   }
 
   interface IEmbeddingModel {

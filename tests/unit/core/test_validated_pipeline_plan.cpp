@@ -15,6 +15,7 @@
 #include "engine/backend_registry.h"
 #include "engine/model_interface.h"
 #include "engine/model_registry.h"
+#include "tests/support/pipeline_test_utils.h"
 
 namespace llm_edgeflow {
 
@@ -24,8 +25,8 @@ class PlanTestNode : public INode {
   inline static nlohmann::json observed_config = nlohmann::json::object();
 
   bool Init(const NodeInitContext& init_ctx) override {
-    if (!init_ctx.config) return false;
-    observed_config = *init_ctx.config;
+    if (!init_ctx.plan) return false;
+    observed_config = init_ctx.plan->normalized_config;
     return true;
   }
   int Process(AlgContext*) override { return 0; }
@@ -84,7 +85,6 @@ class SerializedPlanTestModel : public IModel {
                                         std::string*) {
     return std::make_shared<SerializedPlanTestModel>();
   }
-  size_t GetMaxBatchSize() const noexcept override { return 1; }
   const std::string& ModelType() const noexcept override {
     static const std::string type = kModelType;
     return type;
@@ -214,7 +214,12 @@ REGISTER_NODE_WITH_DEFINITION(FlowContractProducerNode,
 REGISTER_NODE_WITH_DEFINITION(FlowContractConsumerNode,
                               MakeFlowContractConsumerDefinition());
 
-TEST(ValidatedPipelinePlanTest, DiagnosticCodeNameTableDriven) {
+class ValidatedPipelinePlanTest : public ::testing::Test {
+ protected:
+  void SetUp() override { RegisterTestBizs({"plan_fixture_biz"}); }
+};
+
+TEST_F(ValidatedPipelinePlanTest, DiagnosticCodeNameTableDriven) {
   struct Case {
     DiagnosticCode code;
     const char* expected_name;
@@ -280,9 +285,9 @@ TEST(ValidatedPipelinePlanTest, DiagnosticCodeNameTableDriven) {
                "UNKNOWN");
 }
 
-TEST(ValidatedPipelinePlanTest, RejectsIncompatiblePortExecutionContracts) {
+TEST_F(ValidatedPipelinePlanTest, RejectsIncompatiblePortExecutionContracts) {
   nlohmann::json pipeline_json = {
-      {"biz_name", "unregistered_test_biz"},
+      {"biz_name", "plan_fixture_biz"},
       {"models", nlohmann::json::array()},
       {"pipeline",
        nlohmann::json::array(
@@ -293,8 +298,7 @@ TEST(ValidatedPipelinePlanTest, RejectsIncompatiblePortExecutionContracts) {
              {"node_type", FlowContractConsumerNode::kNodeType},
              {"depends_on", nlohmann::json::array({"producer"})}}})}};
 
-  auto plan = PipelineValidator::ValidateAndPlan(
-      pipeline_json, ValidationPolicy::kPrivateExtensionCompatible);
+  auto plan = PipelineValidator::ValidateAndPlan(pipeline_json);
   EXPECT_FALSE(plan.report.ok);
   const std::unordered_set<DiagnosticCode> expected = {
       DiagnosticCode::kPortCardinalityMismatch,
@@ -314,10 +318,10 @@ TEST(ValidatedPipelinePlanTest, RejectsIncompatiblePortExecutionContracts) {
   for (const auto code : expected) EXPECT_TRUE(actual.count(code));
 }
 
-TEST(ValidatedPipelinePlanTest,
-     RejectsDuplicateProducerEvenWhenDefinitionAllowsOverride) {
+TEST_F(ValidatedPipelinePlanTest,
+       RejectsDuplicateProducerEvenWhenDefinitionAllowsOverride) {
   nlohmann::json pipeline_json = {
-      {"biz_name", "unregistered_test_biz"},
+      {"biz_name", "plan_fixture_biz"},
       {"models", nlohmann::json::array()},
       {"pipeline", nlohmann::json::array(
                        {{{"id", "first"},
@@ -327,8 +331,7 @@ TEST(ValidatedPipelinePlanTest,
                          {"node_type", FlowContractProducerNode::kNodeType},
                          {"depends_on", nlohmann::json::array({"first"})}}})}};
 
-  const auto plan = PipelineValidator::ValidateAndPlan(
-      pipeline_json, ValidationPolicy::kPrivateExtensionCompatible);
+  const auto plan = PipelineValidator::ValidateAndPlan(pipeline_json);
   ASSERT_FALSE(plan.report.ok);
   const auto diagnostic =
       std::find_if(plan.report.diagnostics.begin(),
@@ -341,7 +344,7 @@ TEST(ValidatedPipelinePlanTest,
   EXPECT_EQ(diagnostic->related_nodes, std::vector<std::string>({"first"}));
 }
 
-TEST(ValidatedPipelinePlanTest, RejectsNodeOutputBoundToBusinessIngress) {
+TEST_F(ValidatedPipelinePlanTest, RejectsNodeOutputBoundToBusinessIngress) {
   std::ifstream stream("configs/pipeline_doc_qa_default.json");
   ASSERT_TRUE(stream.is_open());
   nlohmann::json pipeline_json;
@@ -373,7 +376,8 @@ TEST(ValidatedPipelinePlanTest, RejectsNodeOutputBoundToBusinessIngress) {
   EXPECT_EQ(diagnostic->related_nodes, std::vector<std::string>({"$ingress"}));
 }
 
-TEST(ValidatedPipelinePlanTest, ResolvesConfiguredPortLifetimeBeforePlanning) {
+TEST_F(ValidatedPipelinePlanTest,
+       ResolvesConfiguredPortLifetimeBeforePlanning) {
   nlohmann::json pipeline_json = {
       {"biz_name", "smart_doc_qa_v1"},
       {"models",
@@ -407,41 +411,28 @@ TEST(ValidatedPipelinePlanTest, ResolvesConfiguredPortLifetimeBeforePlanning) {
   EXPECT_EQ(binding->lifetime, "session");
 }
 
-TEST(ValidatedPipelinePlanTest, StrictVsCompatiblePolicy) {
-  // 1. Unregistered business with strict policy fails
-  nlohmann::json unreg_biz_json = {
-      {"biz_name", "unregistered_test_biz"},
-      {"models", nlohmann::json::array()},
-      {"pipeline",
-       nlohmann::json::array({{{"id", "node_0"},
-                               {"node_type", "PlanTestNode"},
-                               {"depends_on", nlohmann::json::array()}}})}};
-
-  auto strict_plan = PipelineValidator::ValidateAndPlan(
-      unreg_biz_json, ValidationPolicy::kStrict);
-  EXPECT_FALSE(strict_plan.report.ok);
-  ASSERT_FALSE(strict_plan.report.diagnostics.empty());
-  EXPECT_EQ(strict_plan.report.diagnostics.front().code,
-            DiagnosticCode::kUnknownBiz);
-
-  auto compat_plan = PipelineValidator::ValidateAndPlan(
-      unreg_biz_json, ValidationPolicy::kPrivateExtensionCompatible);
-  EXPECT_TRUE(compat_plan.report.ok);
-  EXPECT_EQ(compat_plan.topological_order.size(), 1u);
-  EXPECT_EQ(compat_plan.topological_layers.size(), 1u);
+TEST_F(ValidatedPipelinePlanTest, UnknownBusinessFailsClosed) {
+  auto plan = PipelineValidator::ValidateAndPlan(
+      {{"biz_name", "unknown_plan_biz"},
+       {"pipeline",
+        {{{"id", "node"},
+          {"node_type", "PlanTestNode"},
+          {"depends_on", nlohmann::json::array()}}}}});
+  ASSERT_FALSE(plan.report.ok);
+  ASSERT_FALSE(plan.report.diagnostics.empty());
+  EXPECT_EQ(plan.report.diagnostics.front().code, DiagnosticCode::kUnknownBiz);
 }
 
-TEST(ValidatedPipelinePlanTest, NormalizedNodeConfigIsRuntimeSingleSource) {
+TEST_F(ValidatedPipelinePlanTest, NormalizedNodeConfigIsRuntimeSingleSource) {
   nlohmann::json pipeline_json = {
-      {"biz_name", "unregistered_test_biz"},
+      {"biz_name", "plan_fixture_biz"},
       {"models", nlohmann::json::array()},
       {"pipeline",
        nlohmann::json::array({{{"id", "node_0"},
                                {"node_type", PlanTestNode::kNodeType},
                                {"depends_on", nlohmann::json::array()}}})}};
 
-  auto plan = PipelineValidator::ValidateAndPlan(
-      pipeline_json, ValidationPolicy::kPrivateExtensionCompatible);
+  auto plan = PipelineValidator::ValidateAndPlan(pipeline_json);
   ASSERT_TRUE(plan.report.ok);
   ASSERT_TRUE(plan.node_plans.at("node_0").node.config.empty());
   EXPECT_EQ(plan.node_plans.at("node_0").normalized_config.at("retry_limit"),
@@ -450,20 +441,18 @@ TEST(ValidatedPipelinePlanTest, NormalizedNodeConfigIsRuntimeSingleSource) {
   PlanTestNode::observed_config = nlohmann::json::object();
   Pipeline pipeline;
   PipelineDiagnostic diagnostic;
-  ASSERT_TRUE(
-      pipeline.BuildFromJson(pipeline_json, &diagnostic,
-                             ValidationPolicy::kPrivateExtensionCompatible))
+  ASSERT_TRUE(BuildTestPipeline(pipeline, pipeline_json, &diagnostic))
       << diagnostic.message;
   EXPECT_EQ(PlanTestNode::observed_config.at("retry_limit"), 3);
-  EXPECT_EQ(pipeline.GetBizName(), "unregistered_test_biz");
+  EXPECT_EQ(pipeline.GetBizName(), "plan_fixture_biz");
   EXPECT_EQ(pipeline.GetTopologicalOrder(),
             std::vector<std::string>({"node_0"}));
 }
 
-TEST(ValidatedPipelinePlanTest, MultiLayerWavefrontTopology) {
+TEST_F(ValidatedPipelinePlanTest, MultiLayerWavefrontTopology) {
   // Test DAG Wavefront layers calculation
   nlohmann::json dag_json = {
-      {"biz_name", "unregistered_test_biz"},
+      {"biz_name", "plan_fixture_biz"},
       {"models", nlohmann::json::array()},
       {"pipeline",
        nlohmann::json::array({
@@ -478,20 +467,19 @@ TEST(ValidatedPipelinePlanTest, MultiLayerWavefrontTopology) {
             {"depends_on", nlohmann::json::array({"node_a", "node_b"})}},
        })}};
 
-  auto plan = PipelineValidator::ValidateAndPlan(
-      dag_json, ValidationPolicy::kPrivateExtensionCompatible);
+  auto plan = PipelineValidator::ValidateAndPlan(dag_json);
   EXPECT_TRUE(plan.report.ok);
-  ASSERT_EQ(plan.topological_layers.size(), 2u);
+  ASSERT_EQ(plan.report.topological_layers.size(), 2u);
   // Layer 0 has node_a and node_b
-  EXPECT_EQ(plan.topological_layers[0].size(), 2u);
+  EXPECT_EQ(plan.report.topological_layers[0].size(), 2u);
   // Layer 1 has node_c
-  EXPECT_EQ(plan.topological_layers[1].size(), 1u);
-  EXPECT_EQ(plan.topological_layers[1][0], "node_c");
+  EXPECT_EQ(plan.report.topological_layers[1].size(), 1u);
+  EXPECT_EQ(plan.report.topological_layers[1][0], "node_c");
 }
 
-TEST(ValidatedPipelinePlanTest, RejectsSharedSerializedModelInParallelLayer) {
+TEST_F(ValidatedPipelinePlanTest, RejectsSharedSerializedModelInParallelLayer) {
   nlohmann::json pipeline_json = {
-      {"biz_name", "unregistered_test_biz"},
+      {"biz_name", "plan_fixture_biz"},
       {"execution_mode", "parallel"},
       {"models", nlohmann::json::array(
                      {{{"model_id", "shared"},
@@ -511,8 +499,7 @@ TEST(ValidatedPipelinePlanTest, RejectsSharedSerializedModelInParallelLayer) {
                                {"depends_on", nlohmann::json::array()},
                                {"config", {{"bind_model", "shared"}}}}})}};
 
-  auto plan = PipelineValidator::ValidateAndPlan(
-      pipeline_json, ValidationPolicy::kPrivateExtensionCompatible);
+  auto plan = PipelineValidator::ValidateAndPlan(pipeline_json);
   EXPECT_FALSE(plan.report.ok);
   auto diagnostic = std::find_if(
       plan.report.diagnostics.begin(), plan.report.diagnostics.end(),
@@ -545,7 +532,7 @@ inline NodeDefinition MakeRestrictedNodeDef() {
 }
 REGISTER_NODE_WITH_DEFINITION(RestrictedBusinessNode, MakeRestrictedNodeDef());
 
-TEST(ValidatedPipelinePlanTest, RejectsNodeFromDifferentBusiness) {
+TEST_F(ValidatedPipelinePlanTest, RejectsNodeFromDifferentBusiness) {
   nlohmann::json pipeline_json = {
       {"biz_name", "smart_doc_qa_v1"},
       {"models", nlohmann::json::array()},
@@ -564,8 +551,8 @@ TEST(ValidatedPipelinePlanTest, RejectsNodeFromDifferentBusiness) {
             plan.report.diagnostics.end());
 }
 
-TEST(ValidatedPipelinePlanTest,
-     DeterministicLexicalModelPathValidationWithoutDeploymentContext) {
+TEST_F(ValidatedPipelinePlanTest,
+       DeterministicLexicalModelPathValidationWithoutDeploymentContext) {
   if (!BackendRegistry::Instance().Find("mock_path_backend").has_value()) {
     BackendDefinition bdef;
     bdef.backend_type = "mock_path_backend";
@@ -622,15 +609,13 @@ TEST(ValidatedPipelinePlanTest,
 
   // Orchestration only performs deterministic lexical normalization. Deployment
   // roots are an Integration concern.
-  auto plan = PipelineValidator::ValidateAndPlan(
-      pipeline_json, ValidationPolicy::kPrivateExtensionCompatible);
+  auto plan = PipelineValidator::ValidateAndPlan(pipeline_json);
   ASSERT_TRUE(plan.report.ok) << plan.report.ToJson().dump();
   EXPECT_EQ(plan.models[0].resolved_model_path, "models/sub/model.onnx");
   EXPECT_EQ(plan.models[1].resolved_model_path, "/opt/models/fixed.onnx");
   EXPECT_EQ(plan.models[2].resolved_model_path, "model_direct.onnx");
 
-  auto plan_repeat = PipelineValidator::ValidateAndPlan(
-      pipeline_json, ValidationPolicy::kPrivateExtensionCompatible);
+  auto plan_repeat = PipelineValidator::ValidateAndPlan(pipeline_json);
   ASSERT_TRUE(plan_repeat.report.ok);
   EXPECT_EQ(plan_repeat.models[0].resolved_model_path,
             plan.models[0].resolved_model_path);
@@ -642,13 +627,12 @@ TEST(ValidatedPipelinePlanTest,
   // Parent traversal remains invalid even before deployment resolution.
   nlohmann::json escape_json = pipeline_json;
   escape_json["models"][0]["model_path"] = "../escape.onnx";
-  auto plan_escape = PipelineValidator::ValidateAndPlan(
-      escape_json, ValidationPolicy::kPrivateExtensionCompatible);
+  auto plan_escape = PipelineValidator::ValidateAndPlan(escape_json);
   EXPECT_FALSE(plan_escape.report.ok);
 }
 
-TEST(ValidatedPipelinePlanTest,
-     RejectsIncompatibleEgressPortExecutionContracts) {
+TEST_F(ValidatedPipelinePlanTest,
+       RejectsIncompatibleEgressPortExecutionContracts) {
   BizDefinition biz_def;
   biz_def.biz_name = "test_egress_flow_biz";
   biz_def.demo_biz = "test";
@@ -664,8 +648,7 @@ TEST(ValidatedPipelinePlanTest,
                          {"node_type", FlowContractProducerNode::kNodeType},
                          {"depends_on", nlohmann::json::array()}}})}};
 
-  auto plan = PipelineValidator::ValidateAndPlan(
-      pipeline_json, ValidationPolicy::kPrivateExtensionCompatible);
+  auto plan = PipelineValidator::ValidateAndPlan(pipeline_json);
   EXPECT_FALSE(plan.report.ok);
 
   bool found_cardinality = false;
@@ -691,8 +674,8 @@ TEST(ValidatedPipelinePlanTest,
   EXPECT_TRUE(found_lifetime);
 }
 
-TEST(ValidatedPipelinePlanTest,
-     OptionalEgressMayBeAbsentButMustMatchWhenPresent) {
+TEST_F(ValidatedPipelinePlanTest,
+       OptionalEgressMayBeAbsentButMustMatchWhenPresent) {
   BizDefinition biz;
   biz.biz_name = "test_optional_egress_type";
   biz.egress = {BizPortDefinition{"optional", "Int32Batch", false, "N:M",
@@ -715,9 +698,10 @@ TEST(ValidatedPipelinePlanTest,
             std::vector<std::string>{"$egress"});
 }
 
-TEST(ValidatedPipelinePlanTest, MultiModelBindingsAndConcurrencyDeduplication) {
+TEST_F(ValidatedPipelinePlanTest,
+       MultiModelBindingsAndConcurrencyDeduplication) {
   nlohmann::json base_pipeline = {
-      {"biz_name", "unregistered_test_biz"},
+      {"biz_name", "plan_fixture_biz"},
       {"execution_mode", "parallel"},
       {"models", nlohmann::json::array({
                      {{"model_id", "shared_a"},
@@ -749,8 +733,7 @@ TEST(ValidatedPipelinePlanTest, MultiModelBindingsAndConcurrencyDeduplication) {
        })}};
 
   // 1. 同节点同实例去重且独立实例并行通过
-  auto plan_ok = PipelineValidator::ValidateAndPlan(
-      base_pipeline, ValidationPolicy::kPrivateExtensionCompatible);
+  auto plan_ok = PipelineValidator::ValidateAndPlan(base_pipeline);
   EXPECT_TRUE(plan_ok.report.ok);
   const auto& multi_plan = plan_ok.node_plans["multi_node"];
   ASSERT_EQ(multi_plan.model_bindings.size(), 2U);
@@ -767,8 +750,7 @@ TEST(ValidatedPipelinePlanTest, MultiModelBindingsAndConcurrencyDeduplication) {
   // 2. 其他节点共享第一槽位或第二槽位的 serialized 模型时被拒绝
   auto conflict_pipeline = base_pipeline;
   conflict_pipeline["pipeline"][1]["config"]["bind_model"] = "shared_a";
-  auto plan_err = PipelineValidator::ValidateAndPlan(
-      conflict_pipeline, ValidationPolicy::kPrivateExtensionCompatible);
+  auto plan_err = PipelineValidator::ValidateAndPlan(conflict_pipeline);
   EXPECT_FALSE(plan_err.report.ok);
   auto diag = std::find_if(
       plan_err.report.diagnostics.begin(), plan_err.report.diagnostics.end(),
@@ -781,8 +763,8 @@ TEST(ValidatedPipelinePlanTest, MultiModelBindingsAndConcurrencyDeduplication) {
   EXPECT_EQ(diag->related_nodes, std::vector<std::string>{"multi_node"});
 }
 
-TEST(ValidatedPipelinePlanTest,
-     IoBoundaryValidationCoversIngressEgressAndExtraWrites) {
+TEST_F(ValidatedPipelinePlanTest,
+       IoBoundaryValidationCoversIngressEgressAndExtraWrites) {
   // 注册测试用 biz definition
   BizDefinition test_biz;
   test_biz.biz_name = "io_boundary_test_biz";
@@ -811,16 +793,16 @@ TEST(ValidatedPipelinePlanTest,
   valid_boundary.output_consumed_ports = {
       BizPortDefinition("text_out", "TextBatch", true)};
 
-  auto plan_ok = PipelineValidator::ValidateAndPlan(
-      valid_pipeline, ValidationPolicy::kStrict, &valid_boundary);
+  auto plan_ok =
+      PipelineValidator::ValidateAndPlan(valid_pipeline, &valid_boundary);
   EXPECT_TRUE(plan_ok.report.ok);
 
   // 2. 缺失必需 ingress 端口发布
   PipelineIoBoundary missing_in_boundary;
   missing_in_boundary.output_consumed_ports =
       valid_boundary.output_consumed_ports;
-  auto plan_missing_in = PipelineValidator::ValidateAndPlan(
-      valid_pipeline, ValidationPolicy::kStrict, &missing_in_boundary);
+  auto plan_missing_in =
+      PipelineValidator::ValidateAndPlan(valid_pipeline, &missing_in_boundary);
   EXPECT_FALSE(plan_missing_in.report.ok);
   auto diag_in =
       std::find_if(plan_missing_in.report.diagnostics.begin(),
@@ -834,8 +816,8 @@ TEST(ValidatedPipelinePlanTest,
   PipelineIoBoundary missing_out_boundary = valid_boundary;
   missing_out_boundary.output_consumed_ports.push_back(
       BizPortDefinition("unproduced_out", "TextBatch", true));
-  auto plan_missing_out = PipelineValidator::ValidateAndPlan(
-      valid_pipeline, ValidationPolicy::kStrict, &missing_out_boundary);
+  auto plan_missing_out =
+      PipelineValidator::ValidateAndPlan(valid_pipeline, &missing_out_boundary);
   EXPECT_FALSE(plan_missing_out.report.ok);
   auto diag_out = std::find_if(
       plan_missing_out.report.diagnostics.begin(),
@@ -849,8 +831,8 @@ TEST(ValidatedPipelinePlanTest,
   PipelineIoBoundary conflict_boundary = valid_boundary;
   conflict_boundary.input_published_ports.push_back(
       BizPortDefinition("text_out", "TextBatch", true));
-  auto plan_conflict = PipelineValidator::ValidateAndPlan(
-      valid_pipeline, ValidationPolicy::kStrict, &conflict_boundary);
+  auto plan_conflict =
+      PipelineValidator::ValidateAndPlan(valid_pipeline, &conflict_boundary);
   EXPECT_FALSE(plan_conflict.report.ok);
   auto diag_conflict =
       std::find_if(plan_conflict.report.diagnostics.begin(),
@@ -860,7 +842,7 @@ TEST(ValidatedPipelinePlanTest,
   ASSERT_NE(diag_conflict, plan_conflict.report.diagnostics.end());
 }
 
-TEST(ValidatedPipelinePlanTest, PipelineBuildFromPlanLifecycle) {
+TEST_F(ValidatedPipelinePlanTest, PipelineBuildFromPlanLifecycle) {
   nlohmann::json valid_pipeline = {
       {"biz_name", "io_boundary_test_biz"},
       {"pipeline", nlohmann::json::array({
@@ -879,8 +861,7 @@ TEST(ValidatedPipelinePlanTest, PipelineBuildFromPlanLifecycle) {
       BizPortDefinition("text_out", "TextBatch", true)};
 
   auto plan = std::make_unique<ValidatedPipelinePlan>(
-      PipelineValidator::ValidateAndPlan(valid_pipeline,
-                                         ValidationPolicy::kStrict, &boundary));
+      PipelineValidator::ValidateAndPlan(valid_pipeline, &boundary));
   ASSERT_TRUE(plan->report.ok);
 
   Pipeline pipeline;

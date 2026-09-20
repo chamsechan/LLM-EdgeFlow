@@ -7,6 +7,7 @@
 #include <unordered_set>
 
 #include "contracts/config_schema_validation.h"
+#include "contracts/json_pointer.h"
 #include "contracts/path_utils.h"
 #include "core/node_registry.h"
 #include "core/pipeline_catalog.h"
@@ -273,21 +274,6 @@ size_t LevenshteinDistance(std::string_view s1, std::string_view s2) {
   return dp[n];
 }
 
-std::string EscapeJsonPointer(std::string_view token) {
-  std::string escaped;
-  escaped.reserve(token.size());
-  for (char c : token) {
-    if (c == '~') {
-      escaped += "~0";
-    } else if (c == '/') {
-      escaped += "~1";
-    } else {
-      escaped += c;
-    }
-  }
-  return escaped;
-}
-
 bool ValueMatchesConfigKind(const nlohmann::json& value, ConfigValueKind kind) {
   switch (kind) {
     case ConfigValueKind::kString:
@@ -346,10 +332,9 @@ DiagnosticIdentity GetDiagnosticIdentity(const ValidationDiagnostic& d) {
   return id;
 }
 
-void PopulateBasicRemediation(
-    ValidationDiagnostic* diag, const nlohmann::json& root,
-    const PipelineCatalogSnapshot& catalog,
-    [[maybe_unused]] const std::vector<ValidationDiagnostic>& all_diagnostics) {
+void PopulateBasicRemediation(ValidationDiagnostic* diag,
+                              const nlohmann::json& root,
+                              const PipelineCatalogSnapshot& catalog) {
   if (!diag || diag->remediation.has_value()) return;
   if (!root.is_object()) return;
 
@@ -881,15 +866,14 @@ void PopulateBasicRemediation(
 }
 
 ValidatedPipelinePlan ValidateAndPlanInternal(
-    const nlohmann::json& root, ValidationPolicy policy,
-    const PipelineCatalogSnapshot& catalog,
+    const nlohmann::json& root, const PipelineCatalogSnapshot& catalog,
     const PipelineIoBoundary* io_boundary = nullptr) {
   ValidatedPipelinePlan plan;
   ValidationReport& report = plan.report;
 
   auto finish_plan = [&](ValidatedPipelinePlan& p) {
     for (auto& diag : p.report.diagnostics) {
-      PopulateBasicRemediation(&diag, root, catalog, p.report.diagnostics);
+      PopulateBasicRemediation(&diag, root, catalog);
     }
     p.report.ok = p.report.diagnostics.empty();
   };
@@ -902,7 +886,7 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
   }
   const auto& parsed = plan.config;
   const auto* biz = catalog.FindBiz(parsed.biz_name);
-  if (!biz && policy == ValidationPolicy::kStrict) {
+  if (!biz) {
     Add(&report, DiagnosticCode::kUnknownBiz, "/biz_name",
         "No registered biz contract accepts pipeline name: " + parsed.biz_name);
   }
@@ -927,18 +911,14 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
   std::unordered_map<std::string, InferenceConcurrency> model_concurrency;
   for (const auto& model : parsed.models) {
     auto model_def_opt = ModelRegistry::Instance().Find(model.model_type);
-    bool has_model = ModelRegistry::Instance().Has(model.model_type);
-    if (!has_model ||
-        (!model_def_opt.has_value() && policy == ValidationPolicy::kStrict)) {
+    if (!model_def_opt) {
       Add(&report, DiagnosticCode::kUnknownModelType,
           "/models/" + std::to_string(model.source_index) + "/model_type",
           "Unknown model_type: " + model.model_type);
     }
 
     auto backend_def_opt = BackendRegistry::Instance().Find(model.backend);
-    bool has_backend = BackendRegistry::Instance().Has(model.backend);
-    if (!has_backend ||
-        (!backend_def_opt.has_value() && policy == ValidationPolicy::kStrict)) {
+    if (!backend_def_opt) {
       Add(&report, DiagnosticCode::kUnknownBackend,
           "/models/" + std::to_string(model.source_index) + "/backend",
           "Unknown backend: " + model.backend);
@@ -1124,11 +1104,8 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
 
   const size_t pre_topology_errors = report.diagnostics.size();
   ResolveTopology(nodes, &report);
-  plan.topological_order = report.topological_order;
-  plan.topological_layers = report.topological_layers;
 
-  if (report.diagnostics.size() != pre_topology_errors ||
-      (policy == ValidationPolicy::kStrict && !biz) ||
+  if (report.diagnostics.size() != pre_topology_errors || !biz ||
       report.topological_order.size() != nodes.size()) {
     finish_plan(plan);
     return plan;
@@ -1614,24 +1591,21 @@ nlohmann::json ValidationReport::ToJson() const {
 }
 
 ValidatedPipelinePlan PipelineValidator::ValidateAndPlan(
-    const nlohmann::json& root, ValidationPolicy policy,
-    const PipelineIoBoundary* io_boundary) {
+    const nlohmann::json& root, const PipelineIoBoundary* io_boundary) {
   const auto catalog = PipelineCatalog::Snapshot();
-  return ValidateAndPlanInternal(root, policy, catalog, io_boundary);
+  return ValidateAndPlanInternal(root, catalog, io_boundary);
 }
 
 ValidationReport PipelineValidator::Validate(
-    const nlohmann::json& root, ValidationPolicy policy,
-    const PipelineIoBoundary* io_boundary) {
-  return ValidateAndPlan(root, policy, io_boundary).report;
+    const nlohmann::json& root, const PipelineIoBoundary* io_boundary) {
+  return ValidateAndPlan(root, io_boundary).report;
 }
 
 ValidationReport PipelineValidator::Explain(
-    const nlohmann::json& root, ValidationPolicy policy,
-    const PipelineIoBoundary* io_boundary) {
+    const nlohmann::json& root, const PipelineIoBoundary* io_boundary) {
   const auto catalog = PipelineCatalog::Snapshot();
   ValidationReport report =
-      ValidateAndPlanInternal(root, policy, catalog, io_boundary).report;
+      ValidateAndPlanInternal(root, catalog, io_boundary).report;
   if (report.ok) {
     return report;
   }
@@ -1844,8 +1818,7 @@ ValidationReport PipelineValidator::Explain(
 
       total_verification_attempts++;
       ValidationReport new_report =
-          ValidateAndPlanInternal(patched_root, policy, catalog, io_boundary)
-              .report;
+          ValidateAndPlanInternal(patched_root, catalog, io_boundary).report;
       if (new_report.ok) {
         fix.verification = "pipeline_valid";
         diag.remediation->fixes.push_back(std::move(fix));

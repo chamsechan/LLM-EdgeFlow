@@ -159,11 +159,6 @@ InferenceConcurrency BgeRerankerModel::Concurrency() const noexcept {
   return InferenceConcurrency::kConcurrent;
 }
 
-size_t BgeRerankerModel::GetMaxBatchSize() const noexcept {
-  return ConstrainModelBatchPolicy(session_.get(), max_batch_size_)
-      .max_batch_size;
-}
-
 int BgeRerankerModel::Score(const QueryCandidatesBatch& inputs,
                             ScoreBatch* outputs) noexcept {
   if (!outputs) return -1;

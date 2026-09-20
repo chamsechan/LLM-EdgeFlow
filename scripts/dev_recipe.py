@@ -134,8 +134,8 @@ def native(tool, arguments, root, document=None):
         raise RecipeError("Native " + arguments[0] + " failed", report)
     if arguments and arguments[0] == "catalog":
         schema_version = report.get("schema_version")
-        if schema_version not in (3, 4):
-            raise RecipeError(f"Unsupported Catalog schema version {schema_version}; dev_recipe requires Catalog v3 or v4", report)
+        if schema_version != 4:
+            raise RecipeError(f"Unsupported Catalog schema version {schema_version}; dev_recipe requires Catalog v4", report)
     return report
 
 
@@ -384,7 +384,7 @@ def verify_recipe(recipe, pipeline_path, tool_path, build_dir, effects_path, mod
                 steps.insert(1, step)
             targets = [tool.name, "alg_demo"]
             if recipe == "text-llm-node":
-                targets.append(SCAFFOLD.get_runner_info(root, build)[0])
+                targets.append("edgeflow_test_nodes_runner")
             proc = subprocess.run(["cmake", "--build", str(build), "--target", *targets, "-j4"],
                                   cwd=root, capture_output=True, text=True, check=False)
             if proc.returncode:
@@ -417,7 +417,7 @@ def verify_recipe(recipe, pipeline_path, tool_path, build_dir, effects_path, mod
         completed.append(step)
         if recipe == "text-llm-node":
             step = "focused_test"
-            runner = build / SCAFFOLD.get_runner_info(root, build)[1]
+            runner = build / "edgeflow_test_nodes_runner"
             filter_arg = f"--gtest_filter=CustomNodeCatalogTest.{name}_*"
             discovery = subprocess.run([str(runner), filter_arg, "--gtest_list_tests"], cwd=root,
                                        capture_output=True, text=True, check=False)

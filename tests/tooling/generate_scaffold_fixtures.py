@@ -40,32 +40,15 @@ def apply_documented_text_functions(code):
 
 
 with output.open("w", encoding="utf-8") as stream:
-    for name, options in cases:
-        code = subprocess.check_output(
-            [sys.executable, str(root / "scripts/scaffold_custom_node.py"), name,
-             *options, "--description", 'Test fixture: "quoted" \\ 中文\n',
-             "--dry-run", "--generate-test"], text=True)
-        if name == "ScaffoldTutorialLlmNode":
-            code = apply_documented_text_functions(code)
-        stream.write(code)
-
-    # Compile and execute the exact standalone tests produced for developers.
-    # Legacy snippet coverage above must not conceal a broken --write-test path.
     standalone_cases = [
         ("ScaffoldWrittenTextNode", ["--kind", "compute"]),
         ("ScaffoldWrittenAudioNode", ["--kind", "compute", "--in-port", "input:AudioPcmBatch",
                                       "--out-port", "output:AudioPcmBatch"]),
         ("ScaffoldWrittenControlNode", ["--control-id", "2000000043"]),
     ]
-    for kind in ("model", "unary_inference"):
-        for capability in ("llm", "embedding", "asr", "ocr", "rerank"):
-            if kind == "unary_inference" and capability == "ocr":
-                continue
-            tag = "Model" if kind == "model" else "Unary"
-            standalone_cases.append((f"ScaffoldWritten{tag}{capability.capitalize()}Node",
-                                     ["--kind", kind, "--model-capability", capability]))
     standalone_cases.append(("ScaffoldWrittenBasicLlmNode", ["--authoring", "basic", "--kind", "model", "-m", "llm"]))
     standalone_cases.append(("ScaffoldWrittenBasicMapNode", ["--authoring", "basic", "--kind", "compute"]))
+    standalone_cases.extend(cases)
     with tempfile.TemporaryDirectory(prefix="edgeflow-written-fixtures-") as directory:
         fixture_root = Path(directory)
         for relative in ("src/custom_nodes/CMakeLists.txt", "cmake_ext/CustomNodeTests.cmake"):
@@ -78,6 +61,12 @@ with output.open("w", encoding="utf-8") as stream:
                             name, *options, "--write-test", "--add-to-cmake"],
                            env=env, text=True, capture_output=True, check=True)
         for source in sorted((fixture_root / "src/custom_nodes").glob("*.cpp")):
-            stream.write(source.read_text(encoding="utf-8"))
+            code = source.read_text(encoding="utf-8")
+            if source.name == "scaffold_tutorial_llm_node.cpp":
+                code = apply_documented_text_functions(code)
+            stream.write(code)
         for test in sorted((fixture_root / "tests/unit/nodes").glob("test_*.cpp")):
-            stream.write(test.read_text(encoding="utf-8"))
+            code = test.read_text(encoding="utf-8")
+            if test.name == "test_scaffold_tutorial_llm_node.cpp":
+                code = code.replace('"mock_answer:"', '"mock_answer:实体抽取：\\n"')
+            stream.write(code)

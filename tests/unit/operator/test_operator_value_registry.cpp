@@ -11,6 +11,7 @@
 #include "adapter/operator/operator_value_type_registry.h"
 #include "core/alg_context.h"
 #include "scoped_allocation_failure.h"
+#include "tests/support/adapter_test_views.h"
 #include "tests/support/operator_nested_output_fixture.h"
 
 namespace llm_edgeflow {
@@ -1140,17 +1141,14 @@ TEST(OperatorValueRegistryTest, OperatorAgreesOnChannelNameBoundaries) {
     AlgContext ctx;
     const bool expected = length <= 256;
     ExternalInputBatchView view;
-    view.leased_slots["audit_in"] = {&op_input};
+    view.slots["audit_in"] = BorrowInputForTest({&op_input});
     view.slot_types["audit_in"] = "CompanyOperatorAuditInput";
     view.count = 1;
-    view.type_id = in_conv->external_type;
     InputPortBindings port_bindings({{"raw_request_ids", "raw_request_ids"},
                                      {"user_texts", "user_texts"},
                                      {"channel_names", "channel_names"}});
     InputDecodeOptions options;
     options.converter_id = in_conv->converter_id;
-    options.transport = "operator";
-    options.max_batch_size = 64;
     int dec_ret =
         in_conv->decode_fn(view, options, port_bindings, &ctx, nullptr);
     EXPECT_EQ(dec_ret == 0, expected);
@@ -1190,16 +1188,13 @@ TEST(OperatorValueRegistryTest, OperatorAgreesOnPcmBoundaries) {
         7, test.has_buffer ? samples.data() : nullptr, test.length, test.rate};
     AlgContext ctx;
     ExternalInputBatchView view;
-    view.leased_slots["audio_in"] = {&op_input};
+    view.slots["audio_in"] = BorrowInputForTest({&op_input});
     view.slot_types["audio_in"] = "CompanyOperatorAudioInput";
     view.count = 1;
-    view.type_id = in_conv->external_type;
     InputPortBindings port_bindings({{"raw_request_ids", "raw_request_ids"},
                                      {"audio_inputs", "audio_inputs"}});
     InputDecodeOptions options;
     options.converter_id = in_conv->converter_id;
-    options.transport = "operator";
-    options.max_batch_size = 64;
     int dec_ret =
         in_conv->decode_fn(view, options, port_bindings, &ctx, nullptr);
     EXPECT_EQ(dec_ret == 0, test.valid);

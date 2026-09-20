@@ -16,6 +16,7 @@
 #include "edgeflow/operator/interface.h"
 #include "edgeflow/operator/types.h"
 #include "platform_mock/error_codes.h"
+#include "tests/support/adapter_test_views.h"
 
 using namespace llm_edgeflow::operator_api;
 
@@ -217,20 +218,12 @@ TEST_F(OperatorSafetyTest, IoBindingRegistryConflictDetectionAndDescriptor) {
 
   EXPECT_EQ(binding->binding_id, "keyword_match.operator.v1");
   EXPECT_EQ(binding->biz_name, "keyword_match_v1");
-  EXPECT_EQ(binding->transport, "operator");
+
   EXPECT_GT(binding->max_batch_size, 0);
 
   // 测试重复 binding 注册拦截
   bool reg_dup_ret = registry.RegisterBinding(*binding);
   EXPECT_FALSE(reg_dup_ret) << "Duplicate binding_id registration must fail";
-  registry.ResetConflictForTesting();
-
-  // 测试非 operator transport 注册被拒绝
-  llm_edgeflow::IoBindingDefinition bad_binding = *binding;
-  bad_binding.binding_id = "test.cabi.forbidden";
-  bad_binding.transport = "cabi";
-  EXPECT_FALSE(registry.RegisterBinding(bad_binding));
-  EXPECT_TRUE(registry.HasConflict());
   registry.ResetConflictForTesting();
 }
 
@@ -464,16 +457,15 @@ TEST_F(OperatorSafetyTest, EntityFailureSampleSentinelValues) {
   out1.request_id = 99999;
   out1.status_code = -777;
 
-  llm_edgeflow::ExternalOutputBatchView out_view;
+  llm_edgeflow::TestOutputBatchView out_view;
   out_view.count = 2;
   out_view.leased_slots["entity_out"] = {&out0, &out1};
   out_view.slot_types["entity_out"] = "CompanyOperatorEntityOutput";
-  out_view.slot_capacities["entity_out"]["entities_json"] = 511;
+  out_view.SetCapacity("entity_out", "entities_json", 511);
 
   llm_edgeflow::OutputEncodeOptions options;
-  options.binding_id = "entity_extract.operator.v1";
+
   options.converter_id = out_conv->converter_id;
-  options.transport = "operator";
 
   llm_edgeflow::OutputPortBindings bindings(
       {{"raw_request_ids", "raw_request_ids"},

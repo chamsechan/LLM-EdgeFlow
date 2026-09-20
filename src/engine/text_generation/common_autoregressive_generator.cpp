@@ -9,31 +9,24 @@
 #include <unordered_set>
 #include <utility>
 
+#include "contracts/diagnostic.h"
 #include "engine/text/utf8.h"
 
 namespace llm_edgeflow {
 namespace text_generation {
 namespace {
 
-void SetDiagnostic(std::string* diagnostic,
-                   const std::string& message) noexcept {
-  if (!diagnostic) return;
-  try {
-    *diagnostic = message;
-  } catch (...) {
-  }
-}
-
 bool ValidateLogits(const std::vector<float>& logits,
                     std::string* diagnostic) noexcept {
   if (logits.empty()) {
-    SetDiagnostic(diagnostic, "Autoregressive decoder returned empty logits");
+    SetDiagnosticNoexcept(diagnostic,
+                          "Autoregressive decoder returned empty logits");
     return false;
   }
   if (!std::all_of(logits.begin(), logits.end(),
                    [](float value) { return std::isfinite(value); })) {
-    SetDiagnostic(diagnostic,
-                  "Autoregressive decoder returned non-finite logits");
+    SetDiagnosticNoexcept(diagnostic,
+                          "Autoregressive decoder returned non-finite logits");
     return false;
   }
   return true;
@@ -71,7 +64,8 @@ bool SampleToken(const std::vector<float>& source_logits,
     const size_t index =
         static_cast<size_t>(std::distance(logits.begin(), selected));
     if (index > static_cast<size_t>(std::numeric_limits<int32_t>::max())) {
-      SetDiagnostic(diagnostic, "Selected token id exceeds int32 range");
+      SetDiagnosticNoexcept(diagnostic,
+                            "Selected token id exceeds int32 range");
       return false;
     }
     *token = static_cast<int32_t>(index);
@@ -88,7 +82,7 @@ bool SampleToken(const std::vector<float>& source_logits,
     indices.resize(static_cast<size_t>(options.top_k));
   }
   if (indices.empty()) {
-    SetDiagnostic(diagnostic, "Sampling candidate set is empty");
+    SetDiagnosticNoexcept(diagnostic, "Sampling candidate set is empty");
     return false;
   }
 
@@ -101,14 +95,14 @@ bool SampleToken(const std::vector<float>& source_logits,
         std::exp((static_cast<double>(logits[indices[i]]) - max_logit) *
                  inverse_temperature);
     if (!std::isfinite(probability)) {
-      SetDiagnostic(diagnostic, "Sampling probability is non-finite");
+      SetDiagnosticNoexcept(diagnostic, "Sampling probability is non-finite");
       return false;
     }
     probabilities[i] = probability;
     total += probability;
   }
   if (!std::isfinite(total) || total <= 0.0) {
-    SetDiagnostic(diagnostic, "Sampling probability mass is invalid");
+    SetDiagnosticNoexcept(diagnostic, "Sampling probability mass is invalid");
     return false;
   }
   for (double& probability : probabilities) probability /= total;
@@ -124,7 +118,7 @@ bool SampleToken(const std::vector<float>& source_logits,
   }
   if (candidate_count == 0 || !std::isfinite(nucleus_mass) ||
       nucleus_mass <= 0.0) {
-    SetDiagnostic(diagnostic, "Top-p candidate mass is invalid");
+    SetDiagnosticNoexcept(diagnostic, "Top-p candidate mass is invalid");
     return false;
   }
 
@@ -140,7 +134,7 @@ bool SampleToken(const std::vector<float>& source_logits,
     }
   }
   if (selected > static_cast<size_t>(std::numeric_limits<int32_t>::max())) {
-    SetDiagnostic(diagnostic, "Sampled token id exceeds int32 range");
+    SetDiagnosticNoexcept(diagnostic, "Sampled token id exceeds int32 range");
     return false;
   }
   *token = static_cast<int32_t>(selected);
@@ -174,12 +168,13 @@ bool ValidateGenerateOptions(const GenerateOptions& options,
         options.repetition_penalty > 100.0f ||
         !std::all_of(options.stop_words.begin(), options.stop_words.end(),
                      [](const std::string& word) { return !word.empty(); })) {
-      SetDiagnostic(diagnostic, "Invalid text generation options");
+      SetDiagnosticNoexcept(diagnostic, "Invalid text generation options");
       return false;
     }
     return true;
   } catch (...) {
-    SetDiagnostic(diagnostic, "Exception validating text generation options");
+    SetDiagnosticNoexcept(diagnostic,
+                          "Exception validating text generation options");
     return false;
   }
 }
@@ -189,14 +184,14 @@ int CommonAutoregressiveGenerator::Generate(
     bool add_bos, const GenerateOptions& options, std::optional<uint64_t> seed,
     std::string* output, std::string* diagnostic) noexcept {
   if (!output) {
-    SetDiagnostic(diagnostic, "Text generation output pointer is null");
+    SetDiagnosticNoexcept(diagnostic, "Text generation output pointer is null");
     return -1;
   }
   output->clear();
   if (formatted_prompt.empty() ||
       !ValidateGenerateOptions(options, diagnostic)) {
     if (formatted_prompt.empty()) {
-      SetDiagnostic(diagnostic, "Formatted prompt is empty");
+      SetDiagnosticNoexcept(diagnostic, "Formatted prompt is empty");
     }
     return -1;
   }
@@ -211,7 +206,8 @@ int CommonAutoregressiveGenerator::Generate(
     }
     const size_t max_context = decoder.MaxContextTokens();
     if (max_context < 2 || prompt_tokens.size() >= max_context) {
-      SetDiagnostic(diagnostic, "Prompt exceeds text generation context");
+      SetDiagnosticNoexcept(diagnostic,
+                            "Prompt exceeds text generation context");
       return -1;
     }
 
@@ -268,12 +264,12 @@ int CommonAutoregressiveGenerator::Generate(
     return 0;
   } catch (const std::exception& e) {
     output->clear();
-    SetDiagnostic(diagnostic,
-                  std::string("Text generation exception: ") + e.what());
+    SetDiagnosticNoexcept(
+        diagnostic, std::string("Text generation exception: ") + e.what());
     return -1;
   } catch (...) {
     output->clear();
-    SetDiagnostic(diagnostic, "Unknown text generation exception");
+    SetDiagnosticNoexcept(diagnostic, "Unknown text generation exception");
     return -1;
   }
 }

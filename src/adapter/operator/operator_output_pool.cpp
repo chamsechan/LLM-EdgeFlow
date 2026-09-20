@@ -50,7 +50,6 @@ int OutputPoolState::Create(const std::string& suffix, uint32_t depth,
     }
 
     auto pool = std::shared_ptr<OutputPoolState>(new OutputPoolState());
-    pool->canonical_suffix_ = suffix;
     pool->depth_ = effective_depth;
     pool->spec_ = resolved_spec;
     pool->type_binding_ = binding;

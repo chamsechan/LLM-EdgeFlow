@@ -99,13 +99,12 @@ int DecodeOperatorDocQueryInput(const ExternalInputBatchView& source,
 InputConverterDefinition MakeOperatorDocQueryInputConverter() {
   InputConverterDefinition def;
   def.converter_id = "doc_query.plain.operator.v1";
-  def.transport = "operator";
+
   def.schema_id = "doc_query.plain.request";
   def.schema_version = 1;
   def.external_type = "CompanyOperatorDocInput";
   def.max_batch_size = 64;
-  def.ownership_policy = "copy_in";
-  def.thread_model = "stateless";
+
   def.external_slots = {{"doc_in",
                          "CompanyOperatorDocInput",
                          PortDirection::kInput,

@@ -118,9 +118,12 @@ class IAudioTranscriptionSession : public IBackendSession {
  * @brief 后端加载参数规格
  */
 struct BackendLoadSpec {
+  explicit BackendLoadSpec(ExecutionProtocol protocol)
+      : requested_protocol(protocol) {}
+
   std::string model_path;
   nlohmann::json backend_config = nlohmann::json::object();
-  std::optional<ExecutionProtocol> requested_protocol;
+  ExecutionProtocol requested_protocol;
   ExecutionTarget execution_target;
 };
 

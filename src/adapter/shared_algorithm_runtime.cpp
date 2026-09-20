@@ -86,14 +86,6 @@ int SharedAlgorithmRuntime::GlobalInit() noexcept {
   }
 }
 
-int SharedAlgorithmRuntime::GlobalDeinit() noexcept {
-  try {
-    return 0;
-  } catch (...) {
-    return COMPANY_ALG_ERR_UNKNOWN;
-  }
-}
-
 int SharedAlgorithmRuntime::CreateFromIoPlan(
     std::unique_ptr<ValidatedIoPlan> io_plan, int device_id,
     const RuntimeOptions* extra_runtime_options,

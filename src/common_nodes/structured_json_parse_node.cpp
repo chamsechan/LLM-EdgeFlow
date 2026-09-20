@@ -3,7 +3,6 @@
 #include <unordered_set>
 #include <vector>
 
-#include "contracts/config_schema_validation.h"
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
 #include "edgeflow/log.h"
@@ -76,11 +75,7 @@ const std::vector<ConfigFieldDefinition>& StructuredJsonParseConfigFields() {
  */
 struct StructuredJsonOptions {
   bool Load(const nlohmann::json& config) {
-    nlohmann::json normalized;
-    if (!ValidateAndNormalizeFields(StructuredJsonParseConfigFields(), config,
-                                    &normalized, nullptr)) {
-      return false;
-    }
+    const auto& normalized = config;
     fallback_json_ =
         normalized.value<std::string>("fallback_json", kDefaultFallbackJson);
     extract_json_block_ =

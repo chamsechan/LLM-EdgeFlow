@@ -32,7 +32,7 @@ BizExposureDefinition MakeOcrDocQaBizExposure() {
   BizExposureDefinition def;
   def.biz_name = "multimodal_ocr_invoice_qa";
   def.max_batch_size = 64;
-  def.required_transports = {"operator"};
+
   return def;
 }
 
@@ -40,7 +40,7 @@ IoBindingDefinition MakeOcrDocQaOperatorBinding() {
   IoBindingDefinition def;
   def.binding_id = "ocr_doc_qa.operator.v1";
   def.biz_name = "multimodal_ocr_invoice_qa";
-  def.transport = "operator";
+
   def.input_converter_id = "image_query.plain.operator.v1";
   def.output_converter_id = "invoice_result.plain.operator.v1";
   def.input_ports = {{"raw_request_ids", "raw_request_ids"},

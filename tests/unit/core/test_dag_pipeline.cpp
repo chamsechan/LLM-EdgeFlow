@@ -17,6 +17,7 @@
 #include "core/node_interface.h"
 #include "core/node_registry.h"
 #include "core/pipeline.h"
+#include "tests/support/pipeline_test_utils.h"
 
 namespace llm_edgeflow {
 
@@ -323,7 +324,16 @@ REGISTER_NODE_WITH_DEFINITION(SecondFailingDagNode,
 // -----------------------------------------------------------------------------
 // GTest 测试套件
 // -----------------------------------------------------------------------------
-class DagPipelineTest : public ::testing::Test {};
+class DagPipelineTest : public ::testing::Test {
+ protected:
+  void SetUp() override {
+    RegisterTestBizs(
+        {"cyclic_pipeline", "diamond_dag_test", "invalid_dep_pipeline",
+         "invocation_failure_test", "parallel_diagnostic_failure",
+         "parallel_error_diagnostic_test", "parallel_exception_test",
+         "parallel_wavefront_dag", "self_loop_pipeline", "shuffled_dag_test"});
+  }
+};
 
 // 1. 乱序书写自动拓扑重排 (Shuffled JSON -> Correct Order)
 TEST_F(DagPipelineTest, ShuffledOrderTopologicalSort) {
@@ -344,8 +354,7 @@ TEST_F(DagPipelineTest, ShuffledOrderTopologicalSort) {
                               {"depends_on", nlohmann::json::array()}}}}};
 
   Pipeline pipeline;
-  bool ok = pipeline.BuildFromJson(
-      config, nullptr, ValidationPolicy::kPrivateExtensionCompatible);
+  bool ok = BuildTestPipeline(pipeline, config, nullptr);
   ASSERT_TRUE(ok);
 
   // 校验拓扑序：node_a 必须在第一位，node_d 必须在最后一位
@@ -387,8 +396,7 @@ TEST_F(DagPipelineTest, DiamondBranchAndMerge) {
          {"depends_on", {"B", "C"}}}}}};
 
   Pipeline pipeline;
-  ASSERT_TRUE(pipeline.BuildFromJson(
-      config, nullptr, ValidationPolicy::kPrivateExtensionCompatible));
+  ASSERT_TRUE(BuildTestPipeline(pipeline, config, nullptr));
 
   AlgContext req_ctx;
   ResetExecutionTrace();
@@ -420,8 +428,7 @@ TEST_F(DagPipelineTest, CycleDetectionRejection) {
        }}};
 
   Pipeline pipeline;
-  bool ok = pipeline.BuildFromJson(
-      cyclic_config, nullptr, ValidationPolicy::kPrivateExtensionCompatible);
+  bool ok = BuildTestPipeline(pipeline, cyclic_config, nullptr);
   // 必须拦截成环并返回 false，禁止启动
   EXPECT_FALSE(ok);
 }
@@ -434,9 +441,7 @@ TEST_F(DagPipelineTest, SelfLoopCycleRejection) {
        {{{"id", "A"}, {"node_type", "DagTestNodeA"}, {"depends_on", {"A"}}}}}};
 
   Pipeline pipeline;
-  EXPECT_FALSE(
-      pipeline.BuildFromJson(self_loop_config, nullptr,
-                             ValidationPolicy::kPrivateExtensionCompatible));
+  EXPECT_FALSE(BuildTestPipeline(pipeline, self_loop_config, nullptr));
 }
 
 // 5. 非法依赖 ID 校验 (Non-existent Dependency ID)
@@ -449,9 +454,7 @@ TEST_F(DagPipelineTest, InvalidDependencyRejection) {
          {"depends_on", {"ghost_non_existent_node"}}}}}};
 
   Pipeline pipeline;
-  EXPECT_FALSE(
-      pipeline.BuildFromJson(invalid_dep_config, nullptr,
-                             ValidationPolicy::kPrivateExtensionCompatible));
+  EXPECT_FALSE(BuildTestPipeline(pipeline, invalid_dep_config, nullptr));
 }
 
 // 6. 异步波前分层并发调度测试 (Parallel Wavefront Execution)
@@ -478,8 +481,7 @@ TEST_F(DagPipelineTest, ParallelWavefrontExecution) {
          {"depends_on", {"node_b", "node_c"}}}}}};
 
   Pipeline pipeline;
-  ASSERT_TRUE(pipeline.BuildFromJson(
-      parallel_config, nullptr, ValidationPolicy::kPrivateExtensionCompatible));
+  ASSERT_TRUE(BuildTestPipeline(pipeline, parallel_config, nullptr));
   EXPECT_EQ(pipeline.GetExecutionMode(), Pipeline::ExecutionMode::kParallel);
 
   const auto& layers = pipeline.GetTopologicalLayers();
@@ -516,8 +518,7 @@ TEST_F(DagPipelineTest, ParallelExceptionWaitsForAllSubmittedNodes) {
 
   GatedProcessDagNode::Reset();
   Pipeline pipeline;
-  ASSERT_TRUE(pipeline.BuildFromJson(
-      config, nullptr, ValidationPolicy::kPrivateExtensionCompatible));
+  ASSERT_TRUE(BuildTestPipeline(pipeline, config, nullptr));
 
   AlgContext context;
   auto execution = std::async(std::launch::async,
@@ -549,8 +550,7 @@ TEST_F(DagPipelineTest, ParallelFailuresKeepCodeAndMessageFromSameNode) {
 
   ParallelFailureCoordinator::Reset();
   Pipeline pipeline;
-  ASSERT_TRUE(pipeline.BuildFromJson(
-      config, nullptr, ValidationPolicy::kPrivateExtensionCompatible));
+  ASSERT_TRUE(BuildTestPipeline(pipeline, config, nullptr));
 
   AlgContext context;
   EXPECT_EQ(pipeline.Execute(&context), -8101);
@@ -611,8 +611,7 @@ TEST_F(DagPipelineTest, SequentialAndSingleNodeParallelShareFailureContract) {
              {"node_type", ThrowingProcessDagNode::kNodeType},
              {"depends_on", nlohmann::json::array()}}}}};
       Pipeline pipeline;
-      EXPECT_TRUE(pipeline.BuildFromJson(
-          config, nullptr, ValidationPolicy::kPrivateExtensionCompatible));
+      EXPECT_TRUE(BuildTestPipeline(pipeline, config, nullptr));
       AlgContext ctx;
       ctx.SetError(-9998, "stale diagnostic");
       const int expected = failure < 2 ? -1 : (failure == 2 ? -8103 : -8104);
@@ -645,8 +644,7 @@ TEST_F(DagPipelineTest, DiagnosticFailureStillWaitsForSubmittedNodes) {
          {"depends_on", nlohmann::json::array()}}}}};
   GatedProcessDagNode::Reset();
   Pipeline pipeline;
-  ASSERT_TRUE(pipeline.BuildFromJson(
-      config, nullptr, ValidationPolicy::kPrivateExtensionCompatible));
+  ASSERT_TRUE(BuildTestPipeline(pipeline, config, nullptr));
   ThrowingProcessDagNode::failure_mode = 4;
   AlgContext ctx;
   auto execution = std::async(std::launch::async, [&] {

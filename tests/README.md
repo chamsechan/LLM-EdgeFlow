@@ -44,11 +44,11 @@ cmake --build build --target edgeflow_test_nodes_runner -j 4
 ./build/edgeflow_test_nodes_runner --gtest_filter='CommonNodesTest.*'
 ```
 
-The [Node helper](support/node_test_utils.h) initializes a registered Node with a Session. Put
+The [Node helper](support/node_test_utils.h) initializes a registered Node with a validated Plan and Session. Put
 request input into a fresh `AlgContext`, call Process, and assert actual outputs and
 `(req_id, sub_id)`; do not stop at factory creation. Cover the algorithm's empty/invalid input and
-failure behavior. The generator's `--generate-test` output is a starting point for an existing
-suite. Rebuild `alg_pipeline_tool` after a production registration/Definition change, and check
+failure behavior. The generator's `--write-test` creates a complete standalone test file; add
+`--add-to-cmake` to register both source and test. Rebuild `alg_pipeline_tool` after a production registration/Definition change, and check
 the composed solution with the same build. The final gate covers the complete default configuration
 even when first practice used a minimal build. Follow [CONTRIBUTING](../CONTRIBUTING.md#6-run-one-canonical-delivery-gate)
 to run it directly for a local handoff or through the authorized PR delivery script.
