@@ -1,143 +1,108 @@
 # LLM-EdgeFlow Agent Governance
 
-This file is the single source of truth for current architecture constraints and task routing.
-The shared development lifecycle is defined in [CONTRIBUTING.md](CONTRIBUTING.md); do not
-duplicate it in agent-specific instruction files.
+This file owns shared guardrails, task routing, and model-agnostic agent responsibilities.
+[CONTRIBUTING.md](CONTRIBUTING.md) owns the development and delivery lifecycle; affected-layer
+references below own detailed implementation contracts. Do not duplicate these rules in
+provider configurations or load every linked document at task start.
 
-The primary users are LLM solution developers: compose Pipelines, implement or reuse business
-Nodes, adapt platform I/O, and verify through the shared Demo. Keep ordinary solution work in
-those extension points; involve Core, Model or Backend changes only for a demonstrated gap.
+## Start with the requested scope
 
-## Current architecture invariants
+Read the files and tests needed to resolve the current task. A contained documentation, test,
+or configuration edit does not require a repository-wide tour. Read the relevant CONTRIBUTING
+sections before editing or delivering. Use the RFC route below only when needed.
 
-Use responsibility names in active documentation, diagnostics, and build targets. The canonical
-Chinese/English names are 接入适配层 / Integration, 流程编排层 / Orchestration,
-能力节点层 / Capability Nodes, and 模型执行层 / Model Execution.
+- Existing-capability Pipeline JSON, deployment `.conf`, or optional Demo Profile changes:
+  [pipeline-composer](.agents/skills/pipeline-composer/SKILL.md).
+- Complete JSON request → prompt processing → JSON response solutions:
+  [json-prompt-solution](.agents/skills/json-prompt-solution/SKILL.md), then its relevant route.
+- Operator/Adapter, Core/Pipeline, Node, Model, Backend, or Demo implementation:
+  [llm-edgeflow-developer-guide](.agents/skills/llm-edgeflow-developer-guide/SKILL.md).
+  Read only affected-layer references, including every layer of a cross-layer change.
+- RFC decisions or implementation/review: use [RFC lookup](CONTRIBUTING.md#rfc-lookup).
+  RFCs and their index are not startup reading. Linked RFCs are references, not a reading list.
+- Upload, PR, or merge explicitly requested by the user:
+  [github-branch-merge](.agents/skills/github-branch-merge/SKILL.md).
+  An implementation request alone never authorizes remote delivery.
 
-Dependencies flow downward only:
+Ordinary solution work belongs in Pipelines, reusable business Nodes, platform I/O, and the
+shared Demo; change Core, Models, or Backends only for a demonstrated gap. Query the target
+build's `alg_pipeline_tool` when capability/configuration facts are needed. Registrations and
+Definitions, not prose, are the executable Catalog; unrelated edits need no Catalog query.
 
-```text
-Integration       Operator / Biz adapters
-    ↓
-Orchestration     Pipeline / Validator / Catalog / Blackboard / Session
-    ↓
-Capability Nodes  Request-stateless Nodes
-    ↓
-Model Execution   Model semantics / neutral execution protocols / Backends
-```
+## Architecture guardrails
 
-- **Integration** — `include/edgeflow/operator/`, `include/platform_mock/`, `include/adapter/`,
-  and `src/adapter/`. The C++ Operator API (`llm_edgeflow::operator_api`) is the sole public
-  algorithm interface. All exported Operator table functions keep `noexcept`,
-  `catch (const std::exception&)`, and `catch (...)` barriers. Biz-specific conversion belongs
-  in registered `InputConverter`, `OutputConverter`, and `IoBinding` implementations, not in
-  central dispatch switches or lower layers.
-  Business input/output requirements describe the complete request/response at the Operator
-  boundary. Input converters own external payload validation and field selection; output
-  converters own response assembly, capacity checking, and serialization. The Operator API
-  must satisfy that contract without Demo/Python preprocessing or postprocessing. Demo may
-  construct carriers, hold buffers, invoke the SDK and display/copy its results; it must not
-  replace Adapter conversion. Reusing the same DTO struct does not imply the same payload
-  schema or business contract. Node ports and Catalog ingress/egress describe internal values,
-  not the external Operator payload. Existing local substitutes for platform public types live
-  only in `include/platform_mock/`; these are not company SDK headers. Keep framework
-  entrypoints and helpers under `edgeflow/`.
-- **Orchestration** — `include/core/` and `src/core/`. `PipelineValidator` is the single validation
-  and planning implementation. Runtime Pipeline documents use explicit `id` and `depends_on`;
-  `Pipeline` consumes `ValidatedPipelinePlan` without reparsing or resorting. Request values
-  live in `AlgContext` behind typed ports/`BlackboardKey<T>`; session resources live in
-  `SessionContext`.
-- **Capability Nodes** — `src/common_nodes/`, `src/custom_nodes/`, and `include/nodes/`. Common Nodes
-  provide framework-maintained, business-neutral operations; custom Nodes contain user-defined
-  domain algorithms and can be reused across Pipelines. Keep custom node files organized by
-  operation in one directory, not by business. Both are request-stateless, inherit `NodeBase`
-  or its shallow support classes, and register constructor plus `NodeDefinition` through
-  `REGISTER_NODE_WITH_DEFINITION`. Reuse Catalog operations before adding code; a domain
-  algorithm need not be generalized to enter `custom_nodes`. Common Nodes, Core and Engine
-  must not depend on custom implementations. All Nodes use typed logical ports and model
-  capabilities; platform structs and conversion remain in Integration. Follow `CONTRIBUTING.md`
-  for RFC thresholds and [custom Node onboarding](src/custom_nodes/README.md) for source layout.
-- **Model Execution** — `include/engine/` and `src/engine/`. Nodes depend on typed `IModel`
-  capabilities. Models own preprocessing/model semantics and register through
-  `REGISTER_MODEL_WITH_DEFINITION`; Backends own vendor runtime resources, implement neutral
-  execution protocols, and register through `REGISTER_BACKEND_WITH_DEFINITION`. Vendor headers
-  stay under the concrete Backend. Fixed-batch model paths use `FixedBatchExecutor::Execute` to
-  preserve padding removal and `(req_id, sub_id)` provenance.
+Use the canonical responsibility names in active docs, diagnostics, and build targets:
+接入适配层 / Integration → 流程编排层 / Orchestration → 能力节点层 / Capability Nodes
+→ 模型执行层 / Model Execution. Dependencies flow downward only.
 
-Do not infer available nodes, ports, models, backends, biz contracts, or configuration fields
-from prose. Query `alg_pipeline_tool`; registrations and Definitions are the executable catalog.
-
-## Task routing
-
-- Solution configuration using existing capabilities and biz contracts, including Pipeline JSON,
-  necessary `.conf` files and optional Demo Profiles: read and follow
-  [pipeline-composer](.agents/skills/pipeline-composer/SKILL.md). Reuse registered Nodes; route
-  capability gaps to implementation before writing C++.
-- Operator SDK/Adapter, Core/Pipeline, Node, Model, or Backend implementation: read and follow
-  [llm-edgeflow-developer-guide](.agents/skills/llm-edgeflow-developer-guide/SKILL.md), loading
-  only affected-layer references. New platform structures and Demo data conversion belong here;
-  preserve the current SDK's input/output converter and binding registry completeness when adding a biz.
-- Upload, PR, or merge requested by the user: read and follow
-  [github-branch-merge](.agents/skills/github-branch-merge/SKILL.md). Never upload or merge from
-  an ordinary implementation request.
-- RFC decisions and status: follow [the RFC index](doc/rfcs/README.md) and
-  [template](doc/rfcs/RFC_TEMPLATE.md).
+- **Integration:** the C++ Operator API (`llm_edgeflow::operator_api`) is the sole public
+  algorithm interface. Exported table functions retain `noexcept` and both
+  `catch (const std::exception&)` and `catch (...)` barriers. Registered `InputConverter`,
+  `OutputConverter`, and `IoBinding` own biz conversion, not central dispatch or lower layers.
+  The complete external request/response is the SDK contract: validation/field selection and
+  response assembly/capacity/serialization stay in Adapter, never Demo/Python. Demo may build
+  carriers, hold buffers, invoke the SDK and display/copy results. Shared DTO types do not imply
+  shared payload semantics; Node/Catalog ports are internal. Platform mocks live only in
+  `include/platform_mock/`; framework entrypoints/helpers stay under `edgeflow/`.
+- **Orchestration:** `PipelineValidator` alone validates/plans explicit `id` + `depends_on`.
+  `Pipeline` consumes `ValidatedPipelinePlan` without reparsing/resorting. Request values use
+  `AlgContext` and typed `BlackboardKey<T>` ports; session resources use `SessionContext`.
+- **Capability Nodes:** common Nodes are neutral framework operations; custom Nodes are
+  reusable domain algorithms organized by operation, not biz, in `src/custom_nodes/`.
+  Both are request-stateless, use `NodeBase` or shallow support classes, and register constructor
+  plus `NodeDefinition` via `REGISTER_NODE_WITH_DEFINITION`. Custom algorithms need not be
+  generalized. Common Nodes, Core, and Engine must not depend on custom implementations.
+  Nodes use typed logical ports and `IModel` capabilities, never platform structs/conversion.
+- **Model Execution:** Models own preprocessing/semantics; Backends own vendor runtime resources
+  and neutral execution protocols. Register with `REGISTER_MODEL_WITH_DEFINITION` and
+  `REGISTER_BACKEND_WITH_DEFINITION`. Vendor headers stay in the concrete Backend.
+  Fixed-batch paths use `FixedBatchExecutor::Execute` for padding removal and `(req_id, sub_id)`
+  provenance.
 
 ## Agent responsibilities
 
-These responsibilities are model- and provider-agnostic. Any supported agent framework may use
-them with whatever models it has available. Provider-specific model selection, reasoning effort,
-sandbox defaults, or runtime routing must live in that provider's own configuration rather than
-in this file.
+Roles are model- and provider-agnostic. Model selection, reasoning effort, sandbox settings,
+and provider runtime routing belong only in provider configuration (Codex: `.codex/`).
+The primary agent owns requirements, architecture/public contracts, non-mechanical implementation,
+coordination, durable documentation, and final completion against the requested outcome.
 
-The primary agent owns requirements, architecture and public-contract decisions, non-mechanical
-implementation, coordination, durable documentation, and the final report.
+- **Scout:** read-only exploration, call chains, impact analysis, and test discovery; no edits
+  or architecture decisions. Use when unfamiliar scope justifies separate discovery.
+- **Mechanical worker:** bounded low-risk edits from an already-decided plan. Return new
+  architecture/public-contract/ownership/cross-layer decisions to the primary agent.
+- **Test author:** independent focused behavior/contract tests; separate test-file ownership
+  from production edits when useful. Do not change production code just to satisfy tests.
+- **Verifier:** run relevant diagnostic checks and the single canonical gate defined in
+  CONTRIBUTING. Report commands, results, and skips; return defects to source/test owners
+  rather than silently fixing them.
+- **Reviewer:** read-only independent review of high-risk Operator, cross-layer, Core/Pipeline,
+  ownership/lifetime/concurrency, Model/Backend, or RFC changes. Check correctness, boundaries,
+  regressions, and whether tests prove the contract; routine low-risk edits need no reviewer.
 
-- **Scout** — read-only repository exploration, symbol/call-chain tracing, impact analysis, and
-  locating relevant tests or configuration. Use it before broad or unfamiliar changes when doing
-  so keeps discovery out of the primary agent's working context. It does not edit files or make
-  architecture decisions.
-- **Mechanical worker** — low-risk implementation after the primary agent has already made the
-  design decisions. Suitable work includes repetitive edits, boilerplate, registrations,
-  straightforward local refactors, and configuration changes. It must stop and return control
-  when it encounters a new architecture decision, public-contract change, unclear ownership, or
-  cross-layer design question.
-- **Test author** — independently write or update the smallest focused tests that prove the
-  requested behavior and public contract. Keep production and test file ownership separate when
-  parallel work is useful. Do not make production fixes merely to satisfy a test.
-- **Verifier** — after source and focused test edits are ready, run the smallest relevant
-  build/tests needed for diagnosis and then the single canonical pre-delivery gate from
-  `CONTRIBUTING.md`. Report exact commands and results. Do not silently fix source or tests;
-  return production defects to the implementation owner and test defects to the test author.
-- **Reviewer** — read-only independent review for high-risk changes: public Operator SDK API, cross-layer
-  architecture, Core/Pipeline semantics, ownership/lifetime/concurrency, Model/Backend behavior,
-  RFC implementation, or similarly difficult-to-reverse changes. Routine low-risk edits do not
-  require a separate reviewer. Review for correctness, architecture invariants, regression risk,
-  and whether tests actually prove the requested behavior.
+Small edits may stay with the primary agent plus a Verifier. Add other agents only for concrete
+work; do not split compilation and test execution into separate empty tasks. Give delegated
+work a scope, owned files, and acceptance evidence; delegate only decided mechanical edits.
+Avoid competing builds in one directory. Skills that change behavior include focused tests;
+a handoff or first implementation is not completion. Follow CONTRIBUTING for iteration,
+phase acceptance, the final gate, and honest reporting of blocked verification.
 
-Do not create empty sub-agent tasks. Small, obvious edits may stay with the primary agent plus a
-Verifier when separate implementation delegation would cost more than it saves. For larger work,
-prefer parallel Scout/Test-author discovery where useful, delegate only already-decided mechanical
-implementation to the Mechanical worker, and use the Reviewer only when risk justifies it.
-Do not run competing builds in the same build directory. The canonical gate retains its built-in
-configure/build/test work, so the Verifier must not duplicate a full build or full test pass around
-it except when diagnosing failure or checking a required non-default configuration.
+### Delegation context
+
+All roles follow [Start with the requested scope](#start-with-the-requested-scope) and
+[RFC lookup](CONTRIBUTING.md#rfc-lookup); provider role files reference, rather than redefine,
+those rules. Pass only task-relevant decisions and evidence. Reuse supplied context while it
+is valid for the target revision and scope; independent review still verifies required evidence.
+Return concise findings, file/line or artifact references, and exact check results/skips.
+Do not copy entire RFCs or logs into handoffs unless necessary to establish the result.
 
 ## Repository guardrails
 
-- Preserve unrelated user changes. Do not use destructive Git operations or push directly to
-  `main`.
-- Do not bundle third-party source or binaries. Dependency declarations remain pinned and
-  verified through `cmake_ext/`.
-- The current external workspace cannot access the company-internal SDK. Do not request, infer,
-  copy, or commit its headers, libraries, models, configuration, or credentials here. Prepare
-  only vendor-neutral migration and integration seams; actual SDK integration and target-hardware
-  acceptance begin only after the complete project moves into the authorized internal network.
-  Follow [RFC-0029](doc/rfcs/0029-external-readiness-and-intranet-sdk-migration.md).
-- Add or update the smallest tests that prove changed behavior; do not require a new executable
-  when an existing focused suite is the correct home.
-- `./scripts/run_all_tests.sh` is the canonical pre-delivery local gate. It already checks shell
-  syntax, formatting, Git whitespace, configures/builds the complete default backend set, and
-  runs all CTest tests. Do not routinely precede or follow it with duplicate full gates.
-- Update `doc/CHANGELOG.md` only for user-visible or architectural changes. Keep README focused on
-  the current product and navigation.
+Preserve unrelated user changes; no destructive Git operations or direct pushes to `main`.
+Do not bundle third-party sources/binaries; dependencies stay pinned and verified in `cmake_ext/`.
+The external workspace cannot access the company-internal SDK: do not request, infer, copy,
+or commit its headers, libraries, models, configuration, or credentials. Prepare only neutral
+integration seams; real SDK integration and target-hardware acceptance start only after the
+complete project enters the authorized internal network. Read
+[RFC-0029](doc/rfcs/0029-external-readiness-and-intranet-sdk-migration.md) only when the task
+needs migration details or target-environment acceptance; these restrictions apply without
+opening it.

@@ -1,29 +1,37 @@
 ---
 name: llm-edgeflow-developer-guide
-description: Route LLM-EdgeFlow implementation across Integration, Orchestration, Capability Nodes and Model Execution. Use for custom Nodes, platform I/O converters and bindings, Demo data conversion, Core, Models, Backends and verification; configuration-only solution work belongs to pipeline-composer.
+description: Implement or fix LLM-EdgeFlow C++/Demo behavior in Adapter, Core, Nodes, Models, or Backends. Not configuration-only composition.
 ---
 
 # LLM-EdgeFlow Developer Guide
 
-First classify the requested change. Read only the references needed for the affected layer; do not load every reference by default.
+Read the affected layer below, not the entire reference set. `AGENTS.md` owns shared constraints
+and roles; [CONTRIBUTING.md](../../../CONTRIBUTING.md) owns RFC thresholds, local iteration,
+phase acceptance, verification, and delivery. Follow its [RFC lookup](../../../CONTRIBUTING.md#rfc-lookup)
+policy for conditional reading; RFC citations in layer guides are not prerequisites.
 
-- New modality, Operator SDK structure/function behavior, Converter, IoBinding, or allowed runtime Pipeline name: read [Integration](references/integration.md).
-- Demo dataset/carrier construction, result display or registration: follow [business onboarding](../../../doc/dev_guide/business_onboarding.md#统一-demo-接入). External request parsing and response assembly belong to Adapter work; load Integration for those changes even when the C carrier layout stays the same.
-- Pipeline lifecycle, Validator, DAG planning, `AlgContext`, `BlackboardKey`, or session behavior: read [Orchestration](references/orchestration.md).
-- New or modified capability Node, its parameters, or a Control handler: read [Capability Nodes](references/capability-nodes.md). Start Control work from the [compiled example](../../../doc/dev_guide/first_control.md); reuse transport and instance routing.
-- Parameter values or compatible model replacement with no implementation changes: use `pipeline-composer` and [native deployment inspection](../../../doc/VERIFIABLE_SELECTION.md#替换模型后确认实际生效配置).
-- New Model semantics/capability, inference Backend, neutral protocol, or batch behavior: read [Model Execution](references/model-execution.md).
-- Before completing any implementation, read [Verification](references/verification.md).
+| Affected behavior | Read |
+| :--- | :--- |
+| Operator SDK, modality, external payload, Converter, IoBinding, allowed Pipeline names | [Integration](references/integration.md) |
+| Pipeline lifecycle, Validator/planning, typed Blackboard, sessions | [Orchestration](references/orchestration.md) |
+| Capability Node, parameters, Control handler | [Capability Nodes](references/capability-nodes.md); for Control, [compiled example](../../../doc/dev_guide/first_control.md) |
+| Model semantics/capability, Backend/protocol, batching | [Model Execution](references/model-execution.md) |
+| Demo carriers, dataset, registration, result display | [Demo onboarding](../../../doc/dev_guide/business_onboarding.md#统一-demo-接入) |
 
-Multi-layer features must preserve the dependency direction Integration → Orchestration → Capability Nodes → Model Execution. Never introduce an upward dependency. Follow [`CONTRIBUTING.md`](../../../CONTRIBUTING.md) for RFC thresholds, branch lifecycle, documentation, verification, and delivery.
+External field selection/response assembly is Integration work even when the carrier layout
+stays unchanged; Demo must not replace Adapter conversion. Load all affected-layer contracts
+for a cross-layer change, while preserving the downward dependency direction.
 
-If the request only configures a solution using existing nodes and biz contracts, use
-`pipeline-composer`, including necessary `.conf` and optional Profile edits. Ordinary composition
-must not modify Core or node implementations.
+For parameter values or compatible model replacement without implementation, use
+[pipeline-composer](../pipeline-composer/SKILL.md); inspect
+[native deployment resolution](../../../doc/VERIFIABLE_SELECTION.md#替换模型后确认实际生效配置)
+when model/deployment selection changes.
 
-Use `github-branch-merge` only when the user explicitly asks to upload, open a PR, or merge.
+For changed runtime, Catalog, or business I/O behavior, select the applicable evidence from
+[Verification](references/verification.md). A documentation-only correction does not require
+unrelated Pipeline execution; the CONTRIBUTING final gate still applies.
 
-After closing a capability or conversion gap, rebuild the Catalog and return to composition:
-validate and run the user's intended Pipeline with its own `.conf` and expected results. A compiled
-Node alone does not complete a request for a working solution. Routine custom Nodes that preserve
-existing contracts follow the lightweight path in `CONTRIBUTING.md`; add no extra approval step.
+After closing a capability/conversion gap for a requested solution, rebuild the affected
+registrations and resume composition, validation, and execution of the user's own configuration.
+A compiled Node or routing handoff alone is not completion. Routine custom Nodes preserving
+existing contracts use the lightweight CONTRIBUTING path, with no extra approval step.

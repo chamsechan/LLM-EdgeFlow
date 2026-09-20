@@ -1,5 +1,5 @@
 # Codex-only runtime and model mapping.
-# Model-agnostic sub-agent responsibilities are defined once in ../AGENTS.md.
+# Shared roles and delegation-context policy are defined once in ../AGENTS.md.
 # Keep this file compatible with Codex CLI 0.144.0-alpha.4 strict config.
 
 [features]
@@ -9,21 +9,21 @@ multi_agent = true
 max_threads = 4
 
 [agents.scout]
-description = "Read-only repository exploration, call-chain tracing, and impact analysis; follow the Scout role in AGENTS.md."
+description = "Read-only discovery and impact analysis for unfamiliar scope."
 config_file = "./agents/scout.toml"
 
 [agents.mechanical_worker]
-description = "Low-risk mechanical implementation from an already-decided plan; follow the Mechanical worker role in AGENTS.md."
+description = "Bounded mechanical edits after design decisions are settled."
 config_file = "./agents/mechanical_worker.toml"
 
 [agents.test_author]
-description = "Independent focused test authoring; follow the Test author role in AGENTS.md."
+description = "Independent focused behavior and public-contract tests."
 config_file = "./agents/test_author.toml"
 
 [agents.verifier]
-description = "Independent build and test verification; follow the Verifier role in AGENTS.md."
+description = "Diagnostic checks and the canonical delivery gate; no source fixes."
 config_file = "./agents/verifier.toml"
 
 [agents.reviewer]
-description = "Read-only independent review for high-risk changes; follow the Reviewer role in AGENTS.md."
+description = "Read-only independent review of high-risk changes."
 config_file = "./agents/reviewer.toml"

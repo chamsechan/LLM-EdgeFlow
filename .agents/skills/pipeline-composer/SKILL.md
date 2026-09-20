@@ -1,101 +1,32 @@
 ---
 name: pipeline-composer
-description: Compose and run LLM-EdgeFlow solutions using registered nodes and biz contracts. Covers Pipeline JSON, necessary deployment conf files, optional Demo Profiles, validation and smoke execution; route capability gaps or new I/O conversion code to llm-edgeflow-developer-guide.
+description: Compose or adjust Pipeline JSON, deployment conf, and Demo Profiles using existing LLM-EdgeFlow capabilities; validate and run the edited solution.
 ---
 
 # Pipeline Composer
 
-Use the runtime Catalog and Validator as the source of node, port, Pipeline parameter,
-Model/Backend and business-contract facts. Do not maintain a parallel catalog in this skill.
-For deployment `.conf` semantics, follow the [existing integration guide](../../../doc/developer_guide.md)
-and native Resolver; do not reproduce their validation rules.
+Use the target build's runtime Catalog, Validator, and native Resolver for capabilities, ports,
+parameters, biz contracts, and deployment semantics. Do not maintain a parallel catalog or
+validation logic in this skill. Scope edits to the requested JSON, necessary `.conf`, and
+optional Profile; configuration-only work normally needs no RFC.
 
-## Workflow
+Choose the applicable part of [the command reference](references/workflow.md): discover assets,
+create/clone a solution, validate changes, or run the intended configuration. Reuse current
+results for unchanged inputs and the same target build; rebuild when binaries or registrations
+are missing/stale. Do not read unrelated examples or repeat an unchanged full workflow.
 
-First compare the requested complete Operator SDK input/output contract with the existing Adapter / Converters.
-The same carrier layout is not enough: payload fields, types and serialization must also match.
-Catalog ingress/egress are internal ports. A missing external conversion belongs in Integration;
-do not compensate by extracting request fields or assembling business responses in Demo/Python.
-See [the I/O boundary](../../../doc/dev_guide/business_onboarding.md#输入输出以-operator-sdk-为边界).
+The boundary is the complete Operator SDK request/response, not Node ports or just a shared
+carrier type. Missing external parsing, field selection, serialization, or response assembly
+belongs in registered Adapter converters, never Demo/Python. A capability or I/O gap routes to
+[the developer guide](../llm-edgeflow-developer-guide/SKILL.md); do not silently implement C++
+as configuration work. After resolving the gap, resume the requested solution rather than
+stopping at a handoff. JSON prompt solutions also use
+[the JSON contract guide](../json-prompt-solution/SKILL.md).
 
-1. Build the tool if unavailable, and rebuild after registration changes. Query the target biz
-   contract and its filtered assets:
-
-   ```bash
-   ./build/alg_pipeline_tool catalog --biz <biz_name>
-   ```
-
-   Use the production tool for the target build. For fixtures deliberately using test-only
-   Models/Backends, use `alg_pipeline_tool_test` throughout discovery, init, validate and plan.
-   Do not switch to test registrations to bypass a production configuration failure; inspect
-   the diagnostics and target build's Catalog. [Tool selection and commands](../../../tools/pipeline_studio/README.md#校验工具选择).
-
-2. Inspect each plausible node before using it:
-
-   ```bash
-   ./build/alg_pipeline_tool describe-node <node_type>
-   ```
-
-3. Prefer cloning a compatible Profile; otherwise create an empty draft. Reuse registered nodes.
-   Limit edits to the requested Pipeline and necessary `.conf` / optional Profile configuration.
-   Cloning a Pipeline does not retarget the source Profile.
-
-   ```bash
-   ./build/alg_pipeline_tool init --biz <biz_name> --profile <profile_name>
-   ./build/alg_pipeline_tool init --biz <biz_name> --empty
-   ```
-
-   `init` normally returns a versioned response containing `pipeline`. To save a
-   runtime document directly, use `--raw` and a new destination (do not overwrite
-   an existing solution):
-
-   ```bash
-   ./build/alg_pipeline_tool init --biz <biz_name> --profile <profile_name> --raw > <new_pipeline.json>
-   ```
-
-   Check the command's exit status before using the file, then validate the saved
-   document. An empty draft needs nodes and bindings before it can validate.
-
-4. Every node must declare a non-empty `id` and an explicit `depends_on` array. Validate after every meaningful edit. Use diagnostic `code`, JSON `path`, `node_id`, `port`, `related_nodes`, and `suggestions` to repair the document; do not reproduce validation rules in scripts or prompts.
-
-   ```bash
-   ./build/alg_pipeline_tool validate <pipeline.json>
-   ./build/alg_pipeline_tool plan <pipeline.json>
-   ```
-
-5. After validation, run the edited Pipeline through a compatible Demo. Follow
-   [running the current solution](../../../tools/pipeline_studio/README.md#运行当前方案): confirm
-   `.conf` `pipe_path` resolves to the edited JSON, inspect pipeline-owned `deployment` (io_binding,
-   output_allocations, and model_paths), and select a matching biz and dataset. Use
-   `alg_pipeline_tool resolve-conf <edited.conf> --root <deployment_root> --depth <max_batch_or_depth>`
-   to inspect the native resolved paths, their sources and normalized defaults; it does not load
-   weights. Studio can save a JSON + `.conf` pair and command via “另存为可运行方案”; its model
-   directory is explicit (`models` normally, `.` for project-relative fixtures), and model paths
-   come from the edited Pipeline. For example:
-
-   ```bash
-   ./build/alg_demo --profile <compatible_profile> --config <edited.conf> --output-dir <run_output_dir>
-   ```
-
-   A new Profile is optional; explicit `--biz`, `--config` and `--dataset` also work. Use the
-   original Profile alone only when its configuration already points to the intended Pipeline.
-   Demo uses the selected Pipeline defaults (by default, no example Control is sent). Use
-   `--example-control` only for the built-in update demonstration, and provide a Control file
-   only when it is part of the requested scenario. Verify request IDs, status and expected
-   output fields in `results.jsonl` and `summary.json`.
-
-For human composition, use `./show --web` or `./show <pipeline.json> --web`. For AI and automation, use `alg_pipeline_tool` and consume its versioned JSON output.
-
-## Boundaries
-
-- Do not guess Blackboard Keys, types, node parameters, model IDs, engine capabilities, or Adapter ingress/egress.
-- Do not hand-edit a Catalog, Web node list, or this skill when nodes change; registration and Definition data must make assets discoverable.
-- Do not generate node implementation code during configuration composition.
-- If no Catalog composition can satisfy the contract, identify the missing input/output or capability and use `llm-edgeflow-developer-guide` for the affected implementation. After it is built, resume composition and verify the requested solution; a routing handoff alone is not completion.
-- Report configuration validation, actual execution/results and real-model or target-platform
-  acceptance separately. Smoke success does not prove business quality; use the
-  [selection and effects workflow](../../../doc/VERIFIABLE_SELECTION.md) when effects acceptance
-  is requested. Missing runtime assets leave execution unverified, even if static validation passes.
-- Configuration-only composition normally does not require an RFC. Follow
-  [`CONTRIBUTING.md`](../../../CONTRIBUTING.md) for branch, verification, documentation, and
-  delivery decisions; do not invoke remote delivery unless the user explicitly asks.
+For a requested runnable solution, validate and inspect the edited Pipeline's plan, confirm
+its `.conf` resolves to that JSON, run it, and inspect IDs/status/output fields. Report static
+validation, executed results, and real-model/target-hardware acceptance separately. Missing
+assets leave execution unverified; test-only registrations must not mask a production failure.
+Use [effects verification](../../../doc/VERIFIABLE_SELECTION.md) when quality acceptance is
+requested. [CONTRIBUTING.md](../../../CONTRIBUTING.md) owns focused checks, the single final gate,
+and delivery authorization; do not invoke remote delivery from composition alone.
