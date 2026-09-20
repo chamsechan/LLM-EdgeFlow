@@ -13,7 +13,7 @@ filtering or aggregation logic needs the full port and provenance contracts belo
 4. Declare inputs/outputs with the same `BlackboardKey<T>` objects used by `ProcessNode`. Never guess or duplicate key strings with inconsistent types.
 5. Provide a complete `NodeDefinition`: category, description, typed ports, configuration fields/defaults/ranges, model capability/reference field where relevant, biz applicability, override policy, and parallel safety.
 6. Register constructor and Definition together. A registered production node must appear automatically in `alg_pipeline_tool catalog`; never modify a Web list, skill table, or hand-maintained secondary Catalog.
-7. Validate configuration in `Init` as a defensive runtime boundary even though static validation runs first. Return errors; do not throw across framework boundaries.
+7. Init requires a valid `ValidatedNodePlan` and consumes its `normalized_config`. Keep semantic/runtime checks, but do not repeat schema normalization. Return errors; do not throw across framework boundaries.
 8. Add focused GoogleTest coverage for the affected configuration, port failures, outputs, provenance, concurrency declaration, Catalog visibility, and valid composition. Extend an existing suite when it already owns the contract.
 
 Use existing implementations in `src/common_nodes/`, the `src/custom_nodes/` authoring guide, and matching
@@ -21,21 +21,19 @@ Use existing implementations in `src/common_nodes/`, the `src/custom_nodes/` aut
 `tests/integration/pipeline/test_pipeline_catalog_validator.cpp` for Catalog/Validator integration;
 do not copy implementations into documentation.
 
-RFC-0044 config contract: reuse `ValidateAndNormalizeFields` from `contracts` in defensive
-initialization, using the same field list as the Definition. `ModelBoundNode` already does this
-before model binding. Keep cross-field semantic checks in a shared local helper; do not call
-PipelineValidator from a Node. Report processing failures through `Fail` / `Require`.
+The Validator normalizes initial fields once. Node initialization checks the Plan's structure
+and shares local semantic rules with preflight; do not call PipelineValidator from a Node.
+Report processing failures through `Fail` / `Require`.
 
 For complex Node parameters, optionally use `nodes/node_config_parser.h` with an ordinary
 parameter struct and a local semantic parser; `PromptGuidedLlmNode` is the compiled example.
 Use the parser's `Fields()` in the Definition. `Parse` reuses field validation/defaults;
-`ParseNormalized` directly consumes the object already normalized by the Validator or
-`ModelBoundNode`, without another normalization or JSON serialization. Preflight and Init
+`ParseNormalized` directly consumes the object already normalized by the Validator, without another normalization or JSON serialization. Preflight and Init
 run the same semantic rule separately; Process uses the stored parameters. Keep simple
 Nodes on the existing direct-reading path and do not introduce a configuration Pipeline Node.
 
 For initial configuration plus runtime Control, use the [Control starter](../../../../dev_support/node_authoring/starter_control_node.cpp):
-share field normalization and a local semantic parser, build the replacement before publishing it,
+normalize incoming Control updates and share a local semantic parser with Init, build the replacement before publishing it,
 and read a consistent configuration snapshot per request. Use `NodeInitContext::Fail` for an
 initialization reason; Pipeline adds the instance ID. Follow the [Control guide](../../../../doc/dev_guide/first_control.md)
 for schema limits, targeted payloads and the existing Operator/Demo path. Complex algorithms stay

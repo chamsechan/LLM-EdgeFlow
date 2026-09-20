@@ -19,7 +19,6 @@ class TestBizEmbeddingModel final : public IEmbeddingModel {
   const std::string& ModelType() const noexcept override;
   const std::string& Capability() const noexcept override;
   InferenceConcurrency Concurrency() const noexcept override;
-  size_t GetMaxBatchSize() const noexcept override;
   int Embed(const TextBatch& inputs, const EmbeddingOptions& options,
             EmbeddingBatch* outputs) noexcept override;
 
@@ -38,7 +37,6 @@ class TestBizRerankModel final : public IRerankModel {
   const std::string& ModelType() const noexcept override;
   const std::string& Capability() const noexcept override;
   InferenceConcurrency Concurrency() const noexcept override;
-  size_t GetMaxBatchSize() const noexcept override;
   int Score(const QueryCandidatesBatch& inputs,
             ScoreBatch* outputs) noexcept override;
 
@@ -56,7 +54,6 @@ class TestBizLlmModel final : public ILlmModel {
   const std::string& ModelType() const noexcept override;
   const std::string& Capability() const noexcept override;
   InferenceConcurrency Concurrency() const noexcept override;
-  size_t GetMaxBatchSize() const noexcept override;
   int Generate(const TextBatch& prompts, const GenerateOptions& options,
                TextBatch* outputs) noexcept override;
 
@@ -74,7 +71,6 @@ class TestBizOcrModel final : public IOcrModel {
   const std::string& ModelType() const noexcept override;
   const std::string& Capability() const noexcept override;
   InferenceConcurrency Concurrency() const noexcept override;
-  size_t GetMaxBatchSize() const noexcept override;
   int Recognize(const ImageRefBatch& images,
                 OcrDocumentBatch* outputs) noexcept override;
 
@@ -92,7 +88,6 @@ class TestBizAsrModel final : public IAsrModel {
   const std::string& ModelType() const noexcept override;
   const std::string& Capability() const noexcept override;
   InferenceConcurrency Concurrency() const noexcept override;
-  size_t GetMaxBatchSize() const noexcept override;
   int Transcribe(const AudioPcmBatch& audio,
                  TextBatch* outputs) noexcept override;
 

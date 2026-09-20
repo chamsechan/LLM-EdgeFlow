@@ -471,15 +471,14 @@ const std::string& KiteLlmBackend::BackendType() const noexcept {
 std::shared_ptr<IBackendSession> KiteLlmBackend::Load(
     const BackendLoadSpec& spec, std::string* diagnostic) noexcept {
   try {
-    if (spec.requested_protocol.has_value() &&
-        *spec.requested_protocol != ExecutionProtocol::kTextGeneration &&
-        *spec.requested_protocol != ExecutionProtocol::kImageTextGeneration &&
-        *spec.requested_protocol !=
+    if (spec.requested_protocol != ExecutionProtocol::kTextGeneration &&
+        spec.requested_protocol != ExecutionProtocol::kImageTextGeneration &&
+        spec.requested_protocol !=
             ExecutionProtocol::kGeneratedTokenEmbedding) {
       SetDiagnosticNoexcept(
           diagnostic,
           "kiteLLM does not support requested protocol: " +
-              std::string(ExecutionProtocolName(*spec.requested_protocol)));
+              std::string(ExecutionProtocolName(spec.requested_protocol)));
       return nullptr;
     }
     if (!ValidateExecutionTarget(spec.execution_target, diagnostic)) {

@@ -57,7 +57,7 @@ verify 依次完成：
 编译通过，不代表所选 CLI 或 Demo 已更新；verify 会明确构建这些独立目标。
 
 其他 Profile 的 `--effects`、`--model-root`、`--manifest` 使用方式见
-[提示词任务](recipe_prompt_config.md)。两条 recipe 只支持单输出 `data.outputs`；多输出部署
+[提示词任务](recipe_prompt_config.md)。两条 recipe 只支持单输出 `deployment.io.output_allocations`；多输出部署
 继续使用原生 Operator 流程。
 
 ## 文件冲突

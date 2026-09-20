@@ -4,6 +4,8 @@
 #include <string>
 #include <unordered_map>
 
+#include "contracts/json_pointer.h"
+
 namespace llm_edgeflow {
 
 /**
@@ -36,20 +38,6 @@ struct PipelineDocumentSplit {
 /**
  * @brief 遵循 RFC 6901 的 JSON Pointer 键转义 (~ 转为 ~0, / 转为 ~1)
  */
-inline std::string EscapeJsonPointer(std::string_view token) {
-  std::string escaped;
-  escaped.reserve(token.size());
-  for (char c : token) {
-    if (c == '~') {
-      escaped += "~0";
-    } else if (c == '/') {
-      escaped += "~1";
-    } else {
-      escaped += c;
-    }
-  }
-  return escaped;
-}
 
 /**
  * @brief 拆分并严格校验 Pipeline JSON 中的 deployment 部分与中性 Pipeline 结构

@@ -56,8 +56,7 @@ int TestCausalLmBackend::LoadCount() noexcept { return load_count_.load(); }
 std::shared_ptr<IBackendSession> TestCausalLmBackend::Load(
     const BackendLoadSpec& spec, std::string* diagnostic) noexcept {
   load_count_.fetch_add(1);
-  if (spec.requested_protocol.has_value() &&
-      *spec.requested_protocol != ExecutionProtocol::kTextGeneration) {
+  if (spec.requested_protocol != ExecutionProtocol::kTextGeneration) {
     if (diagnostic) *diagnostic = "Unsupported requested protocol";
     return nullptr;
   }

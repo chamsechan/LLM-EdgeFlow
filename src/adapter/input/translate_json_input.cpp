@@ -93,13 +93,12 @@ int DecodeOperatorTranslateJson(const ExternalInputBatchView& source,
 InputConverterDefinition MakeOperatorTranslateJsonInputConverter() {
   InputConverterDefinition def;
   def.converter_id = "translate.json.operator.v1";
-  def.transport = "operator";
+
   def.schema_id = "translate.json.request";
   def.schema_version = 1;
   def.external_type = "CompanyOperatorEntityInput";
   def.max_batch_size = 64;
-  def.ownership_policy = "copy_in";
-  def.thread_model = "stateless";
+
   def.external_slots = {{"entity_in",
                          "CompanyOperatorEntityInput",
                          PortDirection::kInput,

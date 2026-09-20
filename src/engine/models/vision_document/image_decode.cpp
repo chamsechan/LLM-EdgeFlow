@@ -4,6 +4,8 @@
 #include <memory>
 #include <vector>
 
+#include "contracts/diagnostic.h"
+
 #define STB_IMAGE_STATIC
 #define STB_IMAGE_IMPLEMENTATION
 #define STBI_ONLY_PNG
@@ -71,10 +73,10 @@ bool DecodeDocumentImage(const std::string& path, int patch_size,
     *output = std::move(staged);
     return true;
   } catch (const std::exception& e) {
-    inference_detail::SetDiagnostic(diagnostic, e.what());
+    SetDiagnosticNoexcept(diagnostic, e.what());
     return false;
   } catch (...) {
-    inference_detail::SetDiagnostic(diagnostic, "Unknown image decode error");
+    SetDiagnosticNoexcept(diagnostic, "Unknown image decode error");
     return false;
   }
 }

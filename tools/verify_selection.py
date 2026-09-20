@@ -223,13 +223,9 @@ def effect_inputs(spec_path, conf_path, demo):
     spec = read_json(spec_path)
     dataset = (spec_path.parent / spec["dataset"]).resolve()
     conf = read_json(conf_path)
-    if not isinstance(conf, dict) or "pipe_path" not in conf or not isinstance(conf["pipe_path"], str):
-        raise ValueError(f"Conf must contain non-empty 'pipe_path' (RFC-0061): {conf_path}")
-    if any(k in conf for k in ("schema_version", "data", "io_binding", "model_paths", "outputs")):
-        raise ValueError(
-            f"Deprecated deployment configuration format in {conf_path} (RFC-0061): "
-            "conf must contain only 'pipe_path'"
-        )
+    if (not isinstance(conf, dict) or set(conf) != {"pipe_path"}
+            or not isinstance(conf["pipe_path"], str) or not conf["pipe_path"].strip()):
+        raise ValueError(f"Conf must contain only non-empty 'pipe_path': {conf_path}")
     pipe_path = conf["pipe_path"]
     pipeline_file = (Path(conf_path).parent / pipe_path).resolve()
     pipe_doc = read_json(pipeline_file)

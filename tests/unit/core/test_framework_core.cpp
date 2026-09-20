@@ -15,6 +15,7 @@
 #include "dev_support/inference/test_biz_models.h"
 #include "engine/fixed_batch_executor.h"
 #include "engine/model_interface.h"
+#include "tests/support/pipeline_test_utils.h"
 
 namespace llm_edgeflow {
 
@@ -83,7 +84,6 @@ TEST(ModelManagerTest, TypedModels) {
 
   auto retrieved = manager.GetModel<IRerankModel>("my_rerank_v1");
   ASSERT_NE(retrieved, nullptr);
-  EXPECT_EQ(retrieved->GetMaxBatchSize(), 4);
   EXPECT_EQ(retrieved->Capability(), "rerank");
   EXPECT_EQ(manager.GetModel<IEmbeddingModel>("my_rerank_v1"), nullptr);
 }
@@ -130,6 +130,8 @@ TEST(SessionContextTest, SingleFlightCreatesOneTypedResource) {
 
 // 5. 测试 RuntimeOptions 与 Model/Backend 新方言构建
 TEST(PipelineTest, RuntimeOptionsWithModelBackendDialect) {
+  RegisterTestBizs({"test_runtime_opts"}, {{"text", "TextBatch"}},
+                   {{"chunks", "TextBatch", true, "1:N", "generate_sub_id"}});
   Pipeline pipe;
   RuntimeOptions opts;
   opts.device_id = 2;
@@ -152,8 +154,7 @@ TEST(PipelineTest, RuntimeOptionsWithModelBackendDialect) {
                                 {"depends_on", nlohmann::json::array()}}}}};
 
   PipelineDiagnostic diag;
-  bool ok = pipe.BuildFromJson(root_cfg, &diag,
-                               ValidationPolicy::kPrivateExtensionCompatible);
+  bool ok = BuildTestPipeline(pipe, root_cfg, &diag);
   EXPECT_TRUE(ok) << "Build failed: " << diag.message
                   << " (code: " << static_cast<int>(diag.code)
                   << ", path: " << diag.path << ")";

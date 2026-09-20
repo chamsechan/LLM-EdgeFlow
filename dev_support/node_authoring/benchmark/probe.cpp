@@ -6,6 +6,7 @@
 #include <string>
 
 #include "baseline_starter.cpp"
+#include "contracts/config_schema_validation.h"
 #include "current_starter.cpp"
 #include "nodes/authoring.h"
 
@@ -45,7 +46,6 @@ class EchoModel final : public ILlmModel {
   InferenceConcurrency Concurrency() const noexcept override {
     return InferenceConcurrency::kConcurrent;
   }
-  std::size_t GetMaxBatchSize() const noexcept override { return 32; }
   int Generate(const TextBatch& in, const GenerateOptions&,
                TextBatch* out) noexcept override {
     ++calls;
@@ -58,6 +58,13 @@ class ExplicitMap final : public NodeBase {
   ExplicitMap() : NodeBase("ExplicitMap") {}
 
  protected:
+  bool InitNode(const NodeInitContext& init, const nlohmann::json&,
+                SessionContext&) override {
+    BindPort(init, input_);
+    BindPort(init, output_);
+    return true;
+  }
+
   int ProcessNode(AlgContext& ctx) override {
     const auto* input = input_.Require(ctx, -1);
     if (!input) return -1;
@@ -131,6 +138,7 @@ int main(int argc, char** argv) {
   auto mock = std::make_shared<EchoModel>();
   if (!session.GetModelManager().RegisterModel("echo", mock, "probe-v1"))
     return 2;
+  ValidatedNodePlan plan;
   std::unique_ptr<INode> node;
   if (mode == "old_map")
     node = std::make_unique<ExplicitMap>();
@@ -143,10 +151,28 @@ int main(int argc, char** argv) {
                                       : "ProbeBatch");
   nlohmann::json config = nlohmann::json::object();
   if (mode != "old_map" && mode != "new_map") config["bind_model"] = "echo";
+  if (!node) return 3;
+  plan.normalized_config = config;
+  if (mode != "old_map") {
+    const auto definition = PipelineCatalog::FindNode(node->Name());
+    if (!definition ||
+        !ValidateAndNormalizeFields(definition->config_fields, config,
+                                    &plan.normalized_config, nullptr))
+      return 3;
+    for (const auto& dependency : definition->model_dependencies)
+      plan.model_bindings.push_back(
+          {dependency.name, dependency.capability, dependency.config_field,
+           plan.normalized_config.at(dependency.config_field)
+               .get<std::string>()});
+  }
+  plan.ports = {{"input", "input", "TextBatch", "1:1", "preserve", "request",
+                 PortDirection::kInput},
+                {"output", "output", "TextBatch", "1:1", "preserve", "request",
+                 PortDirection::kOutput}};
   NodeInitContext init;
   init.session_ctx = &session;
-  init.config = &config;
-  if (!node || !node->Init(init)) {
+  init.plan = &plan;
+  if (!node->Init(init)) {
     std::cerr << "Init failed: " << mode << '\n';
     return 3;
   }

@@ -14,6 +14,7 @@
 #include "engine/backend_interface.h"
 #include "engine/model_registry.h"
 #include "engine/models/qwen_causal_lm/qwen_causal_lm_model.h"
+#include "engine/text/utf8.h"
 #include "engine/text_generation/common_autoregressive_generator.h"
 
 namespace llm_edgeflow {
@@ -94,8 +95,7 @@ TEST(QwenCausalLmModelTest, DefinitionAndCreationRequireTextGeneration) {
   auto session = std::make_shared<ScriptedGenerationSession>();
   ModelCreateContext valid;
   valid.backend_session = session;
-  valid.model_config = {{"chat_template", "qwen_chatml"},
-                        {"system_prompt", "You are concise."},
+  valid.model_config = {{"system_prompt", "You are concise."},
                         {"random_seed", 7}};
   auto model = QwenCausalLmModel::Create(valid, &diagnostic);
   ASSERT_NE(model, nullptr) << diagnostic;
@@ -374,15 +374,15 @@ TEST(CommonAutoregressiveGeneratorTest,
   expect_failure(&decode_failure);
 }
 
-TEST(QwenCausalLmModelTest, Utf8SuffixCompatibilityHelper) {
+TEST(QwenCausalLmModelTest, Utf8SuffixTrimmingMatchesSharedHelper) {
   std::string incomplete = std::string("ok") + "\xE4\xB8";
-  QwenCausalLmModel::StripIncompleteUtf8Suffix(&incomplete);
+  utf8::StripIncompleteSuffix(&incomplete);
   EXPECT_EQ(incomplete, "ok");
   std::string complete = "中文";
-  QwenCausalLmModel::StripIncompleteUtf8Suffix(&complete);
+  utf8::StripIncompleteSuffix(&complete);
   EXPECT_EQ(complete, "中文");
   std::string dangling_continuation = std::string("ok") + "\x80";
-  QwenCausalLmModel::StripIncompleteUtf8Suffix(&dangling_continuation);
+  utf8::StripIncompleteSuffix(&dangling_continuation);
   EXPECT_EQ(dangling_continuation, "ok");
 
   auto session = std::make_shared<ScriptedGenerationSession>();

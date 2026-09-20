@@ -5,6 +5,7 @@
 #include <utility>
 
 #include "contracts/config_schema_validation.h"
+#include "contracts/diagnostic.h"
 #include "engine/runtime/registry_support.h"
 
 namespace llm_edgeflow {
@@ -100,8 +101,7 @@ std::shared_ptr<IModel> ModelRegistry::Create(
       std::lock_guard<std::mutex> lock(mutex_);
       auto it = entries_.find(model_type);
       if (it == entries_.end()) {
-        registry_support::SetDiagnostic(diagnostic,
-                                        "Unknown model type: " + model_type);
+        SetDiagnosticNoexcept(diagnostic, "Unknown model type: " + model_type);
         return nullptr;
       }
       creator = it->second.creator;
@@ -110,27 +110,24 @@ std::shared_ptr<IModel> ModelRegistry::Create(
     try {
       return creator(context, diagnostic);
     } catch (const std::exception& error) {
-      registry_support::SetDiagnostic(
-          diagnostic,
-          "Exception creating model " + model_type + ": " + error.what());
+      SetDiagnosticNoexcept(diagnostic, "Exception creating model " +
+                                            model_type + ": " + error.what());
       return nullptr;
     } catch (...) {
-      registry_support::SetDiagnostic(
-          diagnostic, "Unknown exception creating model " + model_type);
+      SetDiagnosticNoexcept(diagnostic,
+                            "Unknown exception creating model " + model_type);
       return nullptr;
     }
   } catch (const std::exception& error) {
     try {
-      registry_support::SetDiagnostic(
-          diagnostic,
-          "Exception preparing model " + model_type + ": " + error.what());
+      SetDiagnosticNoexcept(diagnostic, "Exception preparing model " +
+                                            model_type + ": " + error.what());
     } catch (...) {
-      registry_support::SetDiagnostic(diagnostic, "Exception preparing model");
+      SetDiagnosticNoexcept(diagnostic, "Exception preparing model");
     }
     return nullptr;
   } catch (...) {
-    registry_support::SetDiagnostic(diagnostic,
-                                    "Unknown exception preparing model");
+    SetDiagnosticNoexcept(diagnostic, "Unknown exception preparing model");
     return nullptr;
   }
 }
@@ -156,10 +153,6 @@ bool ModelRegistry::HasConflict() const noexcept {
 
 std::vector<std::string> ModelRegistry::GetConflictErrors() const {
   return registry_support::GetConflictErrors(mutex_, conflict_errors_);
-}
-
-void ModelRegistry::ClearForTesting() {
-  registry_support::Clear(mutex_, entries_, has_conflict_, conflict_errors_);
 }
 
 }  // namespace llm_edgeflow

@@ -19,6 +19,7 @@
 #include "core/validated_node_plan.h"
 #include "nodes/configuration_snapshot.h"
 #include "nodes/control_authoring.h"
+#include "nodes/model_binding.h"
 #include "nodes/model_calls.h"
 #include "nodes/node_base.h"
 #include "nodes/node_error_codes.h"
@@ -356,28 +357,20 @@ class ConcreteInputPortBinding final : public InputPortBinding<InputsT> {
   }
 
   bool BindPort(const NodeInitContext& init_ctx) override {
-    if (init_ctx.plan) {
-      const auto* binding =
-          init_ctx.plan->FindPort(name_, PortDirection::kInput);
-      if (binding && !binding->blackboard_key.empty()) {
-        if (binding->type_id != in_port_.TypeId()) {
-          return init_ctx.Fail("Input port type mismatch for '" + name_ + "'");
-        }
-        in_port_.Resolve(binding->blackboard_key);
-      } else {
-        if (required_) {
-          return init_ctx.Fail("Required input port '" + name_ +
-                               "' is unbound in plan");
-        }
-        in_port_.Unbind();
+    const auto* binding = init_ctx.plan->FindPort(name_, PortDirection::kInput);
+    if (binding && !binding->blackboard_key.empty()) {
+      if (binding->type_id != in_port_.TypeId()) {
+        return init_ctx.Fail("Input port type mismatch for '" + name_ + "'");
       }
+      in_port_.Resolve(binding->blackboard_key);
     } else {
-      if (!required_) {
-        return init_ctx.Fail(
-            "AuthorNode with optional inputs requires a ValidatedNodePlan");
+      if (required_) {
+        return init_ctx.Fail("Required input port '" + name_ +
+                             "' is unbound in plan");
       }
-      in_port_.Resolve(name_);
+      in_port_.Unbind();
     }
+
     return true;
   }
 
@@ -560,25 +553,6 @@ class InputsOf {
     return FindPort(name) != nullptr;
   }
 
-  std::unordered_set<std::string> ConnectedInputs(
-      const ValidatedNodePlan* plan) const {
-    std::unordered_set<std::string> connected;
-    if (plan) {
-      for (const auto& p : plan->ports) {
-        if (p.direction == PortDirection::kInput && !p.blackboard_key.empty()) {
-          connected.insert(p.logical_name);
-        }
-      }
-    } else {
-      for (const auto& b : bindings_) {
-        if (b->IsRequired()) {
-          connected.insert(b->LogicalName());
-        }
-      }
-    }
-    return connected;
-  }
-
  private:
   std::vector<std::unique_ptr<InputPortBinding<InputsT>>> bindings_;
 };
@@ -612,42 +586,6 @@ class ModelSlotBinding {
   virtual std::unique_ptr<ModelSlotBinding<ModelsT>> Clone() const = 0;
 };
 
-inline bool ResolveBoundModelId(const NodeInitContext& init_ctx,
-                                const std::string& slot_name,
-                                const std::string& capability,
-                                const std::string& config_field,
-                                const nlohmann::json& config,
-                                std::string* model_id, std::string* err) {
-  if (init_ctx.plan) {
-    const auto* binding = init_ctx.plan->FindModelBinding(slot_name);
-    if (!binding || binding->model_id.empty()) {
-      if (err) {
-        *err =
-            "Model binding for '" + slot_name + "' is missing or empty in plan";
-      }
-      return false;
-    }
-    if (binding->capability != capability) {
-      if (err) {
-        *err = "Model binding capability mismatch for '" + slot_name + "'";
-      }
-      return false;
-    }
-    *model_id = binding->model_id;
-  } else {
-    if (!config.contains(config_field) || !config[config_field].is_string()) {
-      if (err) *err = "Config missing model field: " + config_field;
-      return false;
-    }
-    *model_id = config[config_field].template get<std::string>();
-    if (model_id->empty()) {
-      if (err) *err = "Model binding field '" + config_field + "' is empty";
-      return false;
-    }
-  }
-  return true;
-}
-
 template <typename ModelsT>
 class LlmModelSlotBinding final : public ModelSlotBinding<ModelsT> {
  public:
@@ -667,11 +605,11 @@ class LlmModelSlotBinding final : public ModelSlotBinding<ModelsT> {
   }
 
   bool Bind(const NodeInitContext& init_ctx, SessionContext& session_ctx,
-            const nlohmann::json& config, ModelsT* models,
+            const nlohmann::json& /*config*/, ModelsT* models,
             std::string* err) override {
     std::string model_id;
-    if (!ResolveBoundModelId(init_ctx, slot_name_, Capability(), config_field_,
-                             config, &model_id, err)) {
+    if (!ResolveBoundModelId(*init_ctx.plan, slot_name_, Capability(),
+                             &model_id, err)) {
       return false;
     }
     auto model = session_ctx.GetModelManager().GetModel<ILlmModel>(model_id);
@@ -714,11 +652,11 @@ class EmbeddingModelSlotBinding final : public ModelSlotBinding<ModelsT> {
   }
 
   bool Bind(const NodeInitContext& init_ctx, SessionContext& session_ctx,
-            const nlohmann::json& config, ModelsT* models,
+            const nlohmann::json& /*config*/, ModelsT* models,
             std::string* err) override {
     std::string model_id;
-    if (!ResolveBoundModelId(init_ctx, slot_name_, Capability(), config_field_,
-                             config, &model_id, err)) {
+    if (!ResolveBoundModelId(*init_ctx.plan, slot_name_, Capability(),
+                             &model_id, err)) {
       return false;
     }
     auto model =
@@ -1109,65 +1047,37 @@ class AuthorNode<MapSpec<InputBatchT, OutputBatchT, ParamsT, MapFnT>>
   bool InitNode(const NodeInitContext& init_ctx, const nlohmann::json& config,
                 SessionContext& session_ctx) override {
     (void)session_ctx;
-    if (init_ctx.plan) {
-      const auto* in_binding =
-          init_ctx.plan->FindPort(spec_.InputName(), PortDirection::kInput);
-      if (!in_binding || in_binding->blackboard_key.empty()) {
-        return init_ctx.Fail("Required input port '" + spec_.InputName() +
-                             "' has no binding in plan");
-      }
-      if (in_binding->type_id != in_port_.TypeId()) {
-        return init_ctx.Fail("Input port type mismatch for '" +
-                             spec_.InputName() +
-                             "' (expected: " + in_port_.TypeId() +
-                             ", bound: " + in_binding->type_id + ")");
-      }
-      in_port_.Resolve(in_binding->blackboard_key);
-
-      const auto* out_binding =
-          init_ctx.plan->FindPort(spec_.OutputName(), PortDirection::kOutput);
-      if (!out_binding || out_binding->blackboard_key.empty()) {
-        return init_ctx.Fail("Output port '" + spec_.OutputName() +
-                             "' has no binding in plan");
-      }
-      if (out_binding->type_id != out_port_.TypeId()) {
-        return init_ctx.Fail("Output port type mismatch for '" +
-                             spec_.OutputName() +
-                             "' (expected: " + out_port_.TypeId() +
-                             ", bound: " + out_binding->type_id + ")");
-      }
-      out_port_.Resolve(out_binding->blackboard_key);
-    } else {
-      in_port_.Resolve(spec_.InputName());
-      out_port_.Resolve(spec_.OutputName());
+    const auto* in_binding =
+        init_ctx.plan->FindPort(spec_.InputName(), PortDirection::kInput);
+    if (!in_binding || in_binding->blackboard_key.empty()) {
+      return init_ctx.Fail("Required input port '" + spec_.InputName() +
+                           "' has no binding in plan");
     }
-
-    nlohmann::json normalized;
-    if (init_ctx.plan && !init_ctx.plan->normalized_config.is_null() &&
-        !init_ctx.plan->normalized_config.empty()) {
-      normalized = init_ctx.plan->normalized_config;
-    } else {
-      std::vector<ConfigFieldValidationError> validation_errors;
-      if (!ValidateAndNormalizeFields(spec_.ParametersSpec().Fields(), config,
-                                      &normalized, &validation_errors)) {
-        return init_ctx.Fail(validation_errors.empty()
-                                 ? "Invalid configuration"
-                                 : validation_errors.front().message);
-      }
+    if (in_binding->type_id != in_port_.TypeId()) {
+      return init_ctx.Fail("Input port type mismatch for '" +
+                           spec_.InputName() +
+                           "' (expected: " + in_port_.TypeId() +
+                           ", bound: " + in_binding->type_id + ")");
     }
+    in_port_.Resolve(in_binding->blackboard_key);
 
-    std::unordered_set<std::string> connected_inputs;
-    if (init_ctx.plan) {
-      for (const auto& p : init_ctx.plan->ports) {
-        if (p.direction == PortDirection::kInput && !p.blackboard_key.empty()) {
-          connected_inputs.insert(p.logical_name);
-        }
-      }
-    } else {
-      connected_inputs.insert(spec_.InputName());
+    const auto* out_binding =
+        init_ctx.plan->FindPort(spec_.OutputName(), PortDirection::kOutput);
+    if (!out_binding || out_binding->blackboard_key.empty()) {
+      return init_ctx.Fail("Output port '" + spec_.OutputName() +
+                           "' has no binding in plan");
     }
+    if (out_binding->type_id != out_port_.TypeId()) {
+      return init_ctx.Fail("Output port type mismatch for '" +
+                           spec_.OutputName() +
+                           "' (expected: " + out_port_.TypeId() +
+                           ", bound: " + out_binding->type_id + ")");
+    }
+    out_port_.Resolve(out_binding->blackboard_key);
 
-    binding_facts_ = MakeBindingFacts(init_ctx, std::move(connected_inputs));
+    const auto& normalized = config;
+
+    binding_facts_ = MakeBindingFacts(init_ctx);
 
     std::string err;
     auto parsed = spec_.ParametersSpec().ParseNormalized(normalized,
@@ -1301,38 +1211,21 @@ class AuthorNode<BatchSpec<InputsT, OutputBatchT, ParamsT, ModelsT, RunFnT>>
       return false;
     }
 
-    if (init_ctx.plan) {
-      const auto* out_binding = init_ctx.plan->FindPort(
-          spec_.Output().output_name, PortDirection::kOutput);
-      if (!out_binding || out_binding->blackboard_key.empty()) {
-        return init_ctx.Fail("Output port '" + spec_.Output().output_name +
-                             "' has no binding in plan");
-      }
-      if (out_binding->type_id != out_port_.TypeId()) {
-        return init_ctx.Fail("Output port type mismatch for '" +
-                             spec_.Output().output_name + "'");
-      }
-      out_port_.Resolve(out_binding->blackboard_key);
-    } else {
-      out_port_.Resolve(spec_.Output().output_name);
+    const auto* out_binding = init_ctx.plan->FindPort(
+        spec_.Output().output_name, PortDirection::kOutput);
+    if (!out_binding || out_binding->blackboard_key.empty()) {
+      return init_ctx.Fail("Output port '" + spec_.Output().output_name +
+                           "' has no binding in plan");
     }
-
-    nlohmann::json normalized;
-    if (init_ctx.plan && !init_ctx.plan->normalized_config.is_null() &&
-        !init_ctx.plan->normalized_config.empty()) {
-      normalized = init_ctx.plan->normalized_config;
-    } else {
-      std::vector<ConfigFieldValidationError> validation_errors;
-      if (!ValidateAndNormalizeFields(spec_.MergedFields(), config, &normalized,
-                                      &validation_errors)) {
-        return init_ctx.Fail(validation_errors.empty()
-                                 ? "Invalid configuration"
-                                 : validation_errors.front().message);
-      }
+    if (out_binding->type_id != out_port_.TypeId()) {
+      return init_ctx.Fail("Output port type mismatch for '" +
+                           spec_.Output().output_name + "'");
     }
+    out_port_.Resolve(out_binding->blackboard_key);
 
-    auto connected_inputs = spec_.Inputs().ConnectedInputs(init_ctx.plan);
-    binding_facts_ = MakeBindingFacts(init_ctx, std::move(connected_inputs));
+    const auto& normalized = config;
+
+    binding_facts_ = MakeBindingFacts(init_ctx);
 
     std::string err;
     auto parsed = spec_.ParametersSpec().ParseNormalized(normalized,

@@ -5,7 +5,6 @@
 #include <unordered_map>
 #include <vector>
 
-#include "contracts/config_schema_validation.h"
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
 #include "edgeflow/log.h"
@@ -96,11 +95,7 @@ class TextChunkNode final : public NodeBase {
  protected:
   bool InitNode(const NodeInitContext& init_ctx, const nlohmann::json& config,
                 SessionContext& /*session_ctx*/) override {
-    nlohmann::json normalized;
-    if (!ValidateAndNormalizeFields(TextChunkConfigFields(), config,
-                                    &normalized, nullptr)) {
-      return false;
-    }
+    const auto& normalized = config;
     if (!ValidChunkConfig(normalized)) {
       return false;
     }

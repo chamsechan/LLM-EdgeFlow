@@ -40,51 +40,31 @@ Backend；出现调度、模型语义或硬件能力缺口时，再查阅相应�
 
 ### Operator 镜像结构与输出池扩展指南
 
-新增 Operator 数据类型时必须区分两类协议：
+C++ `NamedIoBatch` 是算法的公开 Process 边界。`OperatorValueTypeRegistry` 注册
+外部类型、规范后缀及校验/分配生命周期；`InputConverter` 负责读取和深拷贝完整请求，
+`OutputConverter` 使用 Create 期输出池组装完整响应。`IoBindingDefinition` 声明业务、
+转换器、逻辑槽位与内部端口映射，注册审计检查类型和契约一致性。
 
-| 协议 | 使用位置 | 扩展方式 |
-| --- | --- | --- |
-| 纯 C ABI DTO | `Alg_Process` 与 BizAdapter | 声明纯 C 类型，使用 `IBizAdapter` 转换并注册 |
-| Operator 镜像 C 结构 | C++ `NamedIoBatch` Process 边界 | 注册值类型、业务槽位桥接、双向转换和输出池操作 |
-
-Operator 扩展分为两步：先在 `OperatorValueTypeRegistry` 中建立“规范后缀 -> 显式
-I/O 方向 + 外部 C 类型 + 校验/分配生命周期”的唯一绑定。输出 Binding 还必须统一声明
-每个 `CompanyString` 字段的默认/最大容量、metadata 上限及池载荷预算，Resolver 和输出池
-只消费这份 Schema，不维护第二套按后缀分支。再通过 `OperatorBizBridgeDescriptor` 声明
-业务及逻辑槽位，并完成与内部 DTO 的逐字段转换。Bridge 完整性按实际注册的 Adapter
-快照审计，新增业务无需修改中央业务 ID 列表。不要把 `.frame` 或 `.string` 直接绑定成
-整套业务 DTO，也不要恢复“一帧恰好一个输入/输出组”的限制。命名 I/O Key 的
-输入后缀必须与 Registry 中的规范后缀精确一致；输出后缀匹配 bridge 的 `key_suffix`，
-未设置时匹配类型后缀，不做自动归一化。
-
-`CompanyString` 只用于无嵌入 NUL 的文本，二进制内容使用 `CompanyBuffer`。Operator 镜像
-结构不得替换或渗透内部 DTO。输入转换只读取 `.get()` 指针并复制数据值；输出由
-Create 期固定池分配，Process 只向空输出槽位提交池化 shared_ptr。输出 deleter 只
-持有池状态的 weak lifetime token，Destroy 后不得访问输出数据。任何需要修改
-Blackboard、Node、Model 或 Backend 才能识别 Operator 结构的方案均违反分层要求。
+`CompanyString` 只用于无嵌入 NUL 的文本，二进制内容使用 `CompanyBuffer`。
+外部结构不得渗透 Node、Model 或 Backend。输出引用不延长 handle 的有效期；
+销毁和释放顺序见[业务接入](dev_guide/business_onboarding.md#输出容量)。
 
 目标交付共享库为 `company_alg_sdk`，产品 VERSION 为 11.0.0，
 SOVERSION/ABI major 为 7。
 其正式动态符号面固定为 3 个 `AlgBase_*` 和 3 个 Operator 入口；
 仓库内 Node、Registry、Model、Backend 和第三方运行时是隐藏实现，不得被外部扩展直接链接。
 Operator v4 的 Create 和配置预检都使用部署根 `model_path` 加相对
-`cfg_file_name`。每份 `.conf` 的根对象只能包含 `data`，`data` 只接受
-`pipe_path`、`model_paths` 和 `outputs`；单模型覆盖也必须使用以 `model_id`
-为键的 `model_paths` 映射。所有输出统一在按逻辑槽位配置的 `data.outputs` 中定义；
-旧 `data.mem_que` 已不再支持。Resolver 选择注册的输出类型与 `allocator`；独立配置读取组件通过固定枚举
-选取配置项并返回字符串。方案用 `MakeOutputParameterParser<T>` 将参数文本解析为
-普通 C++ 结构，框架归一化 `meta_num`、metadata type 和字段容量；业务桥接使用
-该规范化结果，不重复解析原始部署 JSON 或
-补默认值。每个输出槽位可注册自己的转换并拥有独立池，具体分配实现不接触队列深度。
+`cfg_file_name`。每份 `.conf` 只含非空相对 `pipe_path`；Pipeline 根 `deployment`
+包含 `io.io_binding`、`io.output_allocations` 和可选 `model_paths`。
+输出按逻辑槽位声明外部类型、分配方案及参数，Resolver 统一解析容量并按实际队列
+深度审计预算；转换器消费已解析的方案，不重复解析部署 JSON 或补默认值。
 完整例子见 [输出分配方案](dev_guide/operator_output_allocation.md)。
 
 ### Adapter 实施检查表
 
-`Unpack` 负责业务字段校验及深拷贝；批次预检不能替代字段校验。RFC-0044 删除了未被
-运行时调用的内部 `IBizAdapter::ValidateInput`：已有扩展应把校验迁入 `Unpack`（或其局部
-辅助函数），移除 override，并重新编译。两种入口共用
-[`biz_input_constraints.h`](../include/adapter/biz_input_constraints.h) 的渠道和音频限制，
-分别处理 C 字符串与 Operator 显式长度；显式部署限制可更严格。
+`InputConverter` 负责业务字段校验及深拷贝；批次预检不能替代字段校验。
+共享 [`biz_input_constraints.h`](../include/adapter/biz_input_constraints.h) 的渠道和音频限制，
+显式部署限制可更严格。
 
 Biz egress 描述 Adapter 消费的内部端口。普通一对一出口仍要求 `1:1 / preserve`；
 CrossRerank 的排名数组和 Compliance 的首项选择使用 `N:1 / aggregate`。
@@ -96,7 +76,7 @@ CrossRerank 的排名数组和 Compliance 的首项选择使用 `N:1 / aggregate
    `AdapterValidationHelper` 完成批次、指针和长度校验，发布中性数据至 `AlgContext`。
 3. 在 `src/adapter/output/` 实现 `OutputConverter`，完成输出结构租约组装与容量检查。
 4. 在 `src/adapter/biz/` 实现 `IoBinding` 绑定，声明业务逻辑端口到 Blackboard 的映射，
-   并通过 `REGISTER_BIZ_EXPOSURE` 声明 `required_transports = {"operator"}`。
+   并通过 `REGISTER_BIZ_EXPOSURE` 声明业务 ID 与批次上限。
 5. 解码与编码使用 `core/common_contracts.h` 中的中性值类型，并在
    `adapter/biz_blackboard_keys.h` 集中声明业务 ingress/egress `BlackboardKey<T>`；
    Core、Node 和 Engine 不得包含该业务 key 头。
@@ -107,7 +87,7 @@ CrossRerank 的排名数组和 Compliance 的首项选择使用 `N:1 / aggregate
 ## 2. 流程编排层：Pipeline 与静态校验计划
 
 流程编排层负责请求黑板生命周期与 DAG 管线单趟构建：
-- **`ValidatedPipelinePlan`**：`PipelineValidator::ValidateAndPlan()` 单趟静态校验与 DAG 拓扑排序输出的不可变执行计划，`Pipeline::BuildInternal()` 直接消费该计划，杜绝运行时二次解析或隐式 DAG 计算；Node 支持代码只依赖其中抽出的 `ValidatedNodePlan` 轻量契约，不反向包含完整 Validator。
+- **`ValidatedPipelinePlan`**：`PipelineValidator::ValidateAndPlan()` 单趟静态校验与 DAG 拓扑排序输出的不可变执行计划，`Pipeline::BuildFromPlan()` 直接消费该计划，杜绝运行时二次解析或隐式 DAG 计算；Node 支持代码只依赖其中抽出的 `ValidatedNodePlan` 轻量契约，不反向包含完整 Validator。
 - **`BlackboardKey<T>`**：强类型黑板键，各算子间通过 `Require` 与 `Publish` 交换数据，杜绝无类型内存乱序。
 - **`AlgContext` 并发契约**：输入使用 `Read` 获取只读快照，输出通过 typed port 单次
   `Publish`；不存在覆盖、删除或清空请求值的迁移入口。聚合行为由专用 Node 读取上游端口并

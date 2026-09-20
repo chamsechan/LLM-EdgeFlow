@@ -8,6 +8,7 @@
 #include "adapter/deployment_io_config.h"
 #include "adapter/io_binding.h"
 #include "adapter/io_converter.h"
+#include "adapter/operator/operator_value_type_registry.h"
 #include "adapter/operator_io_contracts.h"
 #include "core/pipeline_validator.h"
 
@@ -38,26 +39,23 @@ struct ValidatedIoPlan {
  */
 class IoBindingResolver {
  public:
-  static int ResolveFromConfig(const DeploymentIoConfig& config,
-                               const std::string& transport,  // "operator"
-                               const std::string& model_root_dir,
-                               std::unique_ptr<ValidatedIoPlan>* out_plan,
-                               std::string* out_error,
-                               DeploymentDiagnostic* out_diagnostic = nullptr);
+  static int ResolveFromConfig(
+      const DeploymentIoConfig& config, const std::string& model_root_dir,
+      std::unique_ptr<ValidatedIoPlan>* out_plan, std::string* out_error,
+      DeploymentDiagnostic* out_diagnostic = nullptr,
+      uint32_t output_pool_depth = kDefaultOutputPoolDepth);
 
-  static int ResolveFromFile(const std::string& config_path,
-                             const std::string& transport,
-                             const std::string& model_root_dir,
-                             std::unique_ptr<ValidatedIoPlan>* out_plan,
-                             std::string* out_error,
-                             DeploymentDiagnostic* out_diagnostic = nullptr);
+  static int ResolveFromFile(
+      const std::string& config_path, const std::string& model_root_dir,
+      std::unique_ptr<ValidatedIoPlan>* out_plan, std::string* out_error,
+      DeploymentDiagnostic* out_diagnostic = nullptr,
+      uint32_t output_pool_depth = kDefaultOutputPoolDepth);
 
   static int ResolveFromPipelineJson(
-      const nlohmann::json& pipeline_json,
-      const std::string& transport,  // "operator"
-      const std::string& model_root_dir,
+      const nlohmann::json& pipeline_json, const std::string& model_root_dir,
       std::unique_ptr<ValidatedIoPlan>* out_plan, std::string* out_error,
-      DeploymentDiagnostic* out_diagnostic = nullptr);
+      DeploymentDiagnostic* out_diagnostic = nullptr,
+      uint32_t output_pool_depth = kDefaultOutputPoolDepth);
 };
 
 }  // namespace llm_edgeflow

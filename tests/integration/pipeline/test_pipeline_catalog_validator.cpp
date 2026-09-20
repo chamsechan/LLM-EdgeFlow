@@ -20,6 +20,8 @@
 #include "engine/backend_registry.h"
 #include "engine/model_registry.h"
 #include "nodes/node_base.h"
+#include "tests/support/node_test_utils.h"
+#include "tests/support/pipeline_test_utils.h"
 
 namespace llm_edgeflow {
 namespace {
@@ -321,7 +323,7 @@ TEST(PipelineValidatorTest, TableDrivenParityMatrix) {
     // 2. Pipeline maps the first Validator diagnostic without recomputing it.
     Pipeline pipeline;
     PipelineDiagnostic pipe_diag;
-    bool built = pipeline.BuildFromJson(config, &pipe_diag);
+    bool built = BuildTestPipeline(pipeline, config, &pipe_diag);
     EXPECT_FALSE(built);
     EXPECT_EQ(pipeline.GetState(), Pipeline::State::kFailed);
     EXPECT_EQ(DiagnosticCodeName(pipe_diag.code),
@@ -334,7 +336,7 @@ TEST(PipelineValidatorTest, TableDrivenParityMatrix) {
     std::string biz = config.value("biz_name", "");
     std::string binding_id;
     for (const auto& b : IoBindingRegistry::Instance().AllBindings()) {
-      if (b.biz_name == biz && b.transport == "operator") {
+      if (b.biz_name == biz) {
         binding_id = b.binding_id;
         break;
       }
@@ -345,7 +347,6 @@ TEST(PipelineValidatorTest, TableDrivenParityMatrix) {
         IoBindingDefinition synth_b;
         synth_b.binding_id = binding_id;
         synth_b.biz_name = biz;
-        synth_b.transport = "operator";
         synth_b.input_converter_id = "keyword.plain.operator.v1";
         synth_b.output_converter_id = "keyword.result.operator.v1";
         IoBindingRegistry::Instance().RegisterBinding(synth_b);
@@ -355,14 +356,14 @@ TEST(PipelineValidatorTest, TableDrivenParityMatrix) {
         MakeSyntheticDeploymentDocForTest(config, binding_id);
     std::unique_ptr<ValidatedIoPlan> io_plan;
     std::string resolve_error;
+    DeploymentDiagnostic resolve_diagnostic;
     int resolve_result = IoBindingResolver::ResolveFromPipelineJson(
-        dep_config, "operator", "./models", &io_plan, &resolve_error);
+        dep_config, "./models", &io_plan, &resolve_error, &resolve_diagnostic);
     EXPECT_NE(resolve_result, 0);
     EXPECT_EQ(io_plan, nullptr);
-    EXPECT_NE(resolve_error.find(test["primary_code"].get<std::string>()),
-              std::string::npos);
-    EXPECT_NE(resolve_error.find(test["primary_path"].get<std::string>()),
-              std::string::npos);
+    EXPECT_EQ(resolve_diagnostic.code, test["primary_code"]);
+    EXPECT_EQ(resolve_diagnostic.path, test["primary_path"]);
+    EXPECT_NE(resolve_error.find(resolve_diagnostic.path), std::string::npos);
   }
 }
 
@@ -426,13 +427,10 @@ TEST(PipelineValidatorTest,
                     }))
         << report.ToJson();
     Pipeline pipeline;
-    EXPECT_FALSE(pipeline.BuildFromJson(root));
+    EXPECT_FALSE(BuildTestPipeline(pipeline, root));
     auto node = NodeRegistry::Instance().Create(type);
     SessionContext session;
-    NodeInitContext init;
-    init.config = &config;
-    init.session_ctx = &session;
-    EXPECT_FALSE(node->Init(init));
+    EXPECT_FALSE(InitNodeForTest(*node, config, &session));
   }
 }
 
@@ -467,7 +465,7 @@ TEST(PipelineValidatorTest, UnconnectedOptionalPortStaysAbsentAtRuntime) {
   ASSERT_TRUE(plan.report.ok) << plan.report.ToJson();
   EXPECT_EQ(plan.node_plans.at("b").FindPort("context_text"), nullptr);
   Pipeline pipeline;
-  ASSERT_TRUE(pipeline.BuildFromJson(root));
+  ASSERT_TRUE(BuildTestPipeline(pipeline, root));
   AlgContext ctx;
   ctx.Publish("input_sentences", TextBatch{{0, 0, "USER"}});
   ASSERT_EQ(pipeline.Execute(&ctx), 0);

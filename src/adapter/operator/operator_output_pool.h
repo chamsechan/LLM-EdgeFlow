@@ -63,15 +63,8 @@ class OutputPoolState : public std::enable_shared_from_this<OutputPoolState> {
    */
   void DestroyBlocks() noexcept;
 
-  bool IsClosing() const noexcept {
-    std::lock_guard<std::mutex> lock(mutex_);
-    return closing_;
-  }
-
   uint32_t Depth() const noexcept { return depth_; }
-  const std::string& CanonicalSuffix() const noexcept {
-    return canonical_suffix_;
-  }
+
   const ResolvedOutputPoolSpec& Spec() const noexcept { return spec_; }
 
   uint32_t CheckedOutCount() const noexcept {
@@ -87,7 +80,6 @@ class OutputPoolState : public std::enable_shared_from_this<OutputPoolState> {
  private:
   OutputPoolState() noexcept = default;
 
-  std::string canonical_suffix_;
   uint32_t depth_ = 0;
   ResolvedOutputPoolSpec spec_;
   const OperatorValueTypeBinding* type_binding_ = nullptr;

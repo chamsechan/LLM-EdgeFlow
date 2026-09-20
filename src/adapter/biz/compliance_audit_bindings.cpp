@@ -33,7 +33,7 @@ BizExposureDefinition MakeComplianceAuditBizExposure() {
   BizExposureDefinition def;
   def.biz_name = "dialogue_compliance_audit_v1";
   def.max_batch_size = 64;
-  def.required_transports = {"operator"};
+
   return def;
 }
 
@@ -41,7 +41,7 @@ IoBindingDefinition MakeComplianceAuditOperatorBinding() {
   IoBindingDefinition def;
   def.binding_id = "compliance_audit.operator.v1";
   def.biz_name = "dialogue_compliance_audit_v1";
-  def.transport = "operator";
+
   def.input_converter_id = "audit.plain.operator.v1";
   def.output_converter_id = "audit_result.plain.operator.v1";
   def.input_ports = {{"raw_request_ids", "raw_request_ids"},

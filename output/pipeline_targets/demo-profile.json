@@ -3,7 +3,7 @@
   "profiles": {
     "keyword_match": {
       "biz": "keyword_match",
-      "config": "build/studio-test-un9yc4ks/configs/pipeline_targets.conf",
+      "config": "build/studio-test-xn3u7c7z/configs/pipeline_targets.conf",
       "dataset": "/home/ubuntu/project/llm-ops-agy/data/corpus_keyword_match.txt",
       "batch_size": 2,
       "device_id": 0,

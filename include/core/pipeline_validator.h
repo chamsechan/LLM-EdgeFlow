@@ -15,11 +15,6 @@
 
 namespace llm_edgeflow {
 
-enum class ValidationPolicy {
-  kStrict,
-  kPrivateExtensionCompatible,
-};
-
 struct ValidationFix {
   std::string id;
   std::string title;
@@ -80,8 +75,6 @@ struct ValidatedModelPlan {
 struct ValidatedPipelinePlan {
   ParsedPipelineConfig config;
   std::vector<ValidatedModelPlan> models;
-  std::vector<std::string> topological_order;
-  std::vector<std::vector<std::string>> topological_layers;
   std::unordered_map<std::string, ValidatedNodePlan> node_plans;
   ValidationReport report;
 };
@@ -95,17 +88,14 @@ class PipelineValidator {
  public:
   static ValidatedPipelinePlan ValidateAndPlan(
       const nlohmann::json& root,
-      ValidationPolicy policy = ValidationPolicy::kStrict,
       const PipelineIoBoundary* io_boundary = nullptr);
 
   static ValidationReport Validate(
       const nlohmann::json& root,
-      ValidationPolicy policy = ValidationPolicy::kStrict,
       const PipelineIoBoundary* io_boundary = nullptr);
 
   static ValidationReport Explain(
       const nlohmann::json& root,
-      ValidationPolicy policy = ValidationPolicy::kStrict,
       const PipelineIoBoundary* io_boundary = nullptr);
 };
 

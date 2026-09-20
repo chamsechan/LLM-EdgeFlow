@@ -25,6 +25,7 @@
 #include "tests/support/adapter_examples/nested_array_adapter.h"
 #include "tests/support/adapter_examples/nested_pointer_tree_adapter.h"
 #include "tests/support/adapter_examples/tagged_union_adapter.h"
+#include "tests/support/adapter_test_views.h"
 
 namespace llm_edgeflow {
 
@@ -75,7 +76,7 @@ class TranslationProbeModel final : public ILlmModel {
   InferenceConcurrency Concurrency() const noexcept override {
     return InferenceConcurrency::kSerialized;
   }
-  size_t GetMaxBatchSize() const noexcept override { return 1; }
+
   int Generate(const TextBatch& prompts, const GenerateOptions&,
                TextBatch* outputs) noexcept override {
     try {
@@ -287,7 +288,7 @@ TEST_F(AdapterContractSecurityTest,
       {{"raw_request_ids", "raw_request_ids"}, {"llm_answers", "llm_answers"}});
   OutputEncodeOptions options;
   options.converter_id = "translate.json.operator.v1";
-  options.transport = "operator";
+
   AdapterStatus status;
 
   char buf_large[2500] = {0};
@@ -295,11 +296,11 @@ TEST_F(AdapterContractSecurityTest,
   CompanyOperatorEntityOutput fixed{};
   fixed.entities_json = &cs_large;
 
-  ExternalOutputBatchView fixed_view;
+  TestOutputBatchView fixed_view;
   fixed_view.count = 1;
   fixed_view.leased_slots["entity_out"] = {&fixed};
   fixed_view.slot_types["entity_out"] = "CompanyOperatorEntityOutput";
-  fixed_view.slot_capacities["entity_out"]["entities_json"] = 2047;
+  fixed_view.SetCapacity("entity_out", "entities_json", 2047);
   size_t written = 0;
 
   EXPECT_EQ(converter->encode_fn(&large, bindings, options, &fixed_view,
@@ -318,11 +319,11 @@ TEST_F(AdapterContractSecurityTest,
   first.entities_json = &cs_first;
   second.entities_json = &cs_second;
 
-  ExternalOutputBatchView reordered_view;
+  TestOutputBatchView reordered_view;
   reordered_view.count = 2;
   reordered_view.leased_slots["entity_out"] = {&first, &second};
   reordered_view.slot_types["entity_out"] = "CompanyOperatorEntityOutput";
-  reordered_view.slot_capacities["entity_out"]["entities_json"] = 511;
+  reordered_view.SetCapacity("entity_out", "entities_json", 511);
 
   ASSERT_EQ(converter->encode_fn(&reordered, bindings, options, &reordered_view,
                                  &written, &status),
@@ -471,10 +472,9 @@ TEST_F(AdapterContractSecurityTest,
       std::filesystem::weakly_canonical(GetConfigPath("models"));
   std::unique_ptr<ValidatedIoPlan> io_plan;
   std::string plan_err;
-  ASSERT_EQ(
-      IoBindingResolver::ResolveFromPipelineJson(
-          pipeline_json, "operator", model_root.string(), &io_plan, &plan_err),
-      0)
+  ASSERT_EQ(IoBindingResolver::ResolveFromPipelineJson(
+                pipeline_json, model_root.string(), &io_plan, &plan_err),
+            0)
       << plan_err;
   ASSERT_NE(io_plan, nullptr);
 
@@ -667,13 +667,12 @@ TEST_F(AdapterContractSecurityTest, DirectUnpackMemoryIsolation) {
 
   ExternalInputBatchView in_view;
   in_view.count = 1;
-  in_view.leased_slots["keyword_in"] = {&in_struct};
+  in_view.slots["keyword_in"] = llm_edgeflow::BorrowInputForTest({&in_struct});
   in_view.slot_types["keyword_in"] = "CompanyOperatorKeywordInput";
   InputPortBindings in_bindings({{"raw_request_ids", "raw_request_ids"},
                                  {"input_sentences", "input_sentences"}});
   InputDecodeOptions in_options;
   in_options.converter_id = "keyword.plain.operator.v1";
-  in_options.transport = "operator";
 
   AlgContext ctx;
   AdapterStatus status;
@@ -729,7 +728,6 @@ TEST_F(AdapterContractSecurityTest, PipelineBindingFailClosedAndExactMatch) {
 
   // 6.1 精确匹配成功
   EXPECT_EQ(binding->biz_name, "keyword_match_v1");
-  EXPECT_EQ(binding->transport, "operator");
 
   // 6.2 旧 cabi / 包含子串的伪造名称 / 大小写不匹配 / 空白名称均严格拒绝
   // (Fail-Closed)
@@ -755,23 +753,6 @@ TEST_F(AdapterContractSecurityTest, PipelineBindingFailClosedAndExactMatch) {
   int create_ret = op.Create(&handle, &param);
   EXPECT_NE(create_ret, 0);
   EXPECT_EQ(handle, nullptr);
-}
-
-// ---------------------------------------------------------------------------
-// 7. Registry 拒绝不支持的 Descriptor 策略组合 (RECHECK-003)
-// ---------------------------------------------------------------------------
-TEST_F(AdapterContractSecurityTest, RegistryRejectsUnsupportedPolicies) {
-  InputConverterDefinition bad_def;
-  bad_def.converter_id = "bad.converter.v1";
-  bad_def.transport = "unsupported_transport";
-  bad_def.decode_fn = [](const ExternalInputBatchView&,
-                         const InputDecodeOptions&, const InputPortBindings&,
-                         AlgContext*, AdapterStatus*) { return 0; };
-
-  bool reg_ret =
-      IoConverterRegistry::Instance().RegisterInputConverter(bad_def);
-  EXPECT_FALSE(reg_ret);
-  EXPECT_TRUE(IoConverterRegistry::Instance().HasConflict());
 }
 
 // ---------------------------------------------------------------------------
@@ -876,14 +857,14 @@ TEST_F(AdapterContractSecurityTest,
 
   ExternalInputBatchView carrier_view;
   carrier_view.count = 1;
-  carrier_view.leased_slots["entity_in"] = {&in_carrier};
+  carrier_view.slots["entity_in"] =
+      llm_edgeflow::BorrowInputForTest({&in_carrier});
   carrier_view.slot_types["entity_in"] = "CompanyOperatorEntityInput";
 
   InputPortBindings bindings({{"raw_request_ids", "raw_request_ids"},
                               {"input_sentences", "input_sentences"}});
   InputDecodeOptions options;
   options.converter_id = "translate.json.operator.v1";
-  options.transport = "operator";
 
   AlgContext carrier_ctx;
   AdapterStatus carrier_status;
@@ -900,7 +881,7 @@ TEST_F(AdapterContractSecurityTest,
   CompanyOperatorEntityInput in_biz{103, &cs_biz};
   ExternalInputBatchView biz_view;
   biz_view.count = 1;
-  biz_view.leased_slots["entity_in"] = {&in_biz};
+  biz_view.slots["entity_in"] = llm_edgeflow::BorrowInputForTest({&in_biz});
   biz_view.slot_types["entity_in"] = "CompanyOperatorEntityInput";
 
   AlgContext biz_ctx;
@@ -933,7 +914,6 @@ TEST_F(AdapterContractSecurityTest,
       {{"raw_request_ids", "raw_request_ids"}, {"llm_answers", "llm_answers"}});
   OutputEncodeOptions options;
   options.converter_id = "translate.json.operator.v1";
-  options.transport = "operator";
 
   size_t written = 0;
   AdapterStatus status;
@@ -970,7 +950,6 @@ TEST_F(AdapterContractSecurityTest,
       {{"raw_request_ids", "raw_request_ids"}, {"llm_answers", "llm_answers"}});
   OutputEncodeOptions options;
   options.converter_id = "translate.json.operator.v1";
-  options.transport = "operator";
 
   size_t written = 0;
   AdapterStatus status;
@@ -999,14 +978,13 @@ TEST_F(AdapterContractSecurityTest, TranslateNullContextDiagnostics) {
   CompanyOperatorEntityInput input{100, &cs};
   ExternalInputBatchView in_view;
   in_view.count = 1;
-  in_view.leased_slots["entity_in"] = {&input};
+  in_view.slots["entity_in"] = llm_edgeflow::BorrowInputForTest({&input});
   in_view.slot_types["entity_in"] = "CompanyOperatorEntityInput";
 
   InputPortBindings in_bindings({{"raw_request_ids", "raw_request_ids"},
                                  {"input_sentences", "input_sentences"}});
   InputDecodeOptions in_options;
   in_options.converter_id = "translate.json.operator.v1";
-  in_options.transport = "operator";
 
   AdapterStatus unpack_status;
   int unpack_ret = in_conv->decode_fn(in_view, in_options, in_bindings, nullptr,
@@ -1032,7 +1010,6 @@ TEST_F(AdapterContractSecurityTest, TranslateNullContextDiagnostics) {
       {{"raw_request_ids", "raw_request_ids"}, {"llm_answers", "llm_answers"}});
   OutputEncodeOptions out_options;
   out_options.converter_id = "translate.json.operator.v1";
-  out_options.transport = "operator";
 
   size_t written = 0;
   AdapterStatus pack_status;

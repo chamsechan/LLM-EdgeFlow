@@ -5,7 +5,6 @@
 #include <string>
 #include <vector>
 
-#include "adapter/shared_algorithm_runtime.h"
 #include "core/alg_context.h"
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
@@ -32,7 +31,6 @@ class ContractLlmModel final : public ILlmModel {
   InferenceConcurrency Concurrency() const noexcept override {
     return InferenceConcurrency::kConcurrent;
   }
-  size_t GetMaxBatchSize() const noexcept override { return 4; }
 
   int Generate(const TextBatch& prompts, const GenerateOptions& options,
                TextBatch* outputs) noexcept override {
@@ -64,7 +62,6 @@ class ContractLlmModel final : public ILlmModel {
 class LlmGenerateNodeTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    ASSERT_EQ(SharedAlgorithmRuntime::GlobalInit(), 0);
     session_ctx_ = std::make_unique<SessionContext>();
 
     model_ = std::make_shared<ContractLlmModel>();
@@ -157,14 +154,16 @@ TEST_F(LlmGenerateNodeTest, ValidatorAndInitializationRejectInvalidOptions) {
     ASSERT_NE(node, nullptr);
     EXPECT_FALSE(InitNodeForTest(*node, config, session_ctx_.get()));
   }
-  const auto definition = PipelineCatalog::FindNode("LlmGenerateNode");
-  ASSERT_TRUE(definition && definition->validate_config);
   std::string diagnostic;
-  EXPECT_TRUE(definition->validate_config(
-      {{"stop_words", nlohmann::json::array({"END"})},
-       {"max_tokens", 32768},
-       {"top_p", 1.0e-9}},
-      {}, &diagnostic));
+  EXPECT_NE(
+      PrepareNodePlanForTest("LlmGenerateNode",
+                             {{"bind_model", "llm_model_v1"},
+                              {"stop_words", nlohmann::json::array({"END"})},
+                              {"max_tokens", 32768},
+                              {"top_p", 1.0e-9}},
+                             {}, "", "", &diagnostic),
+      nullptr)
+      << diagnostic;
 }
 
 // 2. Missing Prompt Fails Closed

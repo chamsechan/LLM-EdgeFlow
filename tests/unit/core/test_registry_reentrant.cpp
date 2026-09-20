@@ -10,6 +10,7 @@
 #include "core/pipeline_diagnostic.h"
 #include "engine/model_interface.h"
 #include "engine/model_registry.h"
+#include "tests/support/pipeline_test_utils.h"
 #include "tests/support/registry_test_access.h"
 #include "tests/support/scoped_allocation_failure.h"
 
@@ -69,7 +70,6 @@ class ReentrantModel : public IEmbeddingModel {
                                         std::string*) {
     return std::make_shared<ReentrantModel>();
   }
-  size_t GetMaxBatchSize() const noexcept override { return 1; }
   const std::string& ModelType() const noexcept override {
     static const std::string type = kModelType;
     return type;
@@ -90,6 +90,7 @@ REGISTER_MODEL_WITH_DEFINITION(ReentrantModel,
                                MakeTestModelDef(ReentrantModel::kModelType));
 
 TEST(RegistryReentrantTest, ReentrantCreationZeroDeadlock) {
+  RegisterTestBizs({"reentrant_node_test", "reentrant_model_test"});
   // 1. 同步测试 Node 构造期重入 NodeRegistry
   {
     Pipeline p;
@@ -100,8 +101,7 @@ TEST(RegistryReentrantTest, ReentrantCreationZeroDeadlock) {
          nlohmann::json::array({{{"id", "node_0_ReentrantNode"},
                                  {"node_type", "ReentrantNode"},
                                  {"depends_on", nlohmann::json::array()}}})}};
-    EXPECT_TRUE(p.BuildFromJson(cfg, &diag,
-                                ValidationPolicy::kPrivateExtensionCompatible));
+    EXPECT_TRUE(BuildTestPipeline(p, cfg, &diag));
     EXPECT_TRUE(p.IsReady());
   }
 
@@ -123,8 +123,7 @@ TEST(RegistryReentrantTest, ReentrantCreationZeroDeadlock) {
          nlohmann::json::array({{{"id", "node_0_ReentrantNode"},
                                  {"node_type", "ReentrantNode"},
                                  {"depends_on", nlohmann::json::array()}}})}};
-    EXPECT_TRUE(p.BuildFromJson(cfg, &diag,
-                                ValidationPolicy::kPrivateExtensionCompatible));
+    EXPECT_TRUE(BuildTestPipeline(p, cfg, &diag));
     EXPECT_TRUE(p.IsReady());
   }
 }

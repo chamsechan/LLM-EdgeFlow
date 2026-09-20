@@ -13,7 +13,6 @@ class VisionDocumentModel final : public IOcrModel {
   const std::string& ModelType() const noexcept override;
   const std::string& Capability() const noexcept override;
   InferenceConcurrency Concurrency() const noexcept override;
-  size_t GetMaxBatchSize() const noexcept override;
   int Recognize(const ImageRefBatch& images,
                 OcrDocumentBatch* outputs) noexcept override;
 

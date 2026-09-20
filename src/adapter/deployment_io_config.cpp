@@ -17,13 +17,12 @@ static void SetConfigDiag(DeploymentDiagnostic* out_diag,
     out_diag->code = code;
     out_diag->path = path;
     out_diag->message = message;
-    out_diag->legacy_status = -2;
+
     out_diag->pipeline_diagnostic.reset();
   }
 }
 
 bool DeploymentIoConfig::ReadFromFile(const std::string& config_path,
-                                      const std::string& transport,
                                       DeploymentIoConfig* out_config,
                                       std::string* out_error,
                                       DeploymentDiagnostic* out_diagnostic) {
@@ -62,8 +61,7 @@ bool DeploymentIoConfig::ReadFromFile(const std::string& config_path,
 
   std::string parse_err;
   DeploymentDiagnostic parse_diag;
-  bool ok = Parse(root, cfg_dir.string(), transport, out_config, &parse_err,
-                  &parse_diag);
+  bool ok = Parse(root, cfg_dir.string(), out_config, &parse_err, &parse_diag);
   if (!ok) {
     std::string prefix = "Error in config file " + config_path + ": ";
     if (out_error) *out_error = prefix + parse_err;
@@ -79,7 +77,6 @@ bool DeploymentIoConfig::ReadFromFile(const std::string& config_path,
 
 bool DeploymentIoConfig::Parse(const nlohmann::json& root,
                                const std::string& config_dir,
-                               const std::string& transport,
                                DeploymentIoConfig* out_config,
                                std::string* out_error,
                                DeploymentDiagnostic* out_diagnostic) {
@@ -97,34 +94,6 @@ bool DeploymentIoConfig::Parse(const nlohmann::json& root,
     SetConfigDiag(out_diagnostic, "DEPLOYMENT_ERROR", "/",
                   "Root configuration must be a JSON object");
     return false;
-  }
-
-  if (transport != "operator") {
-    std::string msg = "Unsupported transport: '" + transport +
-                      "' (only 'operator' is supported)";
-    if (out_error) *out_error = msg;
-    SetConfigDiag(out_diagnostic, "UNSUPPORTED_TRANSPORT", "/", msg);
-    return false;
-  }
-
-  // 1. 检查并明确拒绝旧 Schema 1 字段及外部分散配置 (RFC-0061)
-  for (const char* deprecated_key :
-       {"data", "schema_version", "io_binding", "model_paths", "outputs"}) {
-    if (root.contains(deprecated_key)) {
-      std::string escaped_key = EscapeJsonPointer(deprecated_key);
-      std::string msg =
-          std::string(
-              "Deprecated deployment configuration format (RFC-0061) at /") +
-          escaped_key +
-          ": '.conf' files must contain only 'pipe_path'. Deployment "
-          "configuration "
-          "(io_binding, output_allocations, model_paths) has moved to the "
-          "'deployment' section inside the Pipeline JSON.";
-      if (out_error) *out_error = msg;
-      SetConfigDiag(out_diagnostic, "DEPLOYMENT_ERROR",
-                    std::string("/") + escaped_key, msg);
-      return false;
-    }
   }
 
   // 2. 根字段白名单: 必须有且仅有 pipe_path
@@ -148,7 +117,6 @@ bool DeploymentIoConfig::Parse(const nlohmann::json& root,
   }
 
   out_config->pipe_path = root["pipe_path"].get<std::string>();
-  out_config->raw_json = root;
 
   // 3. 解析 pipe_path 相对
   // config_dir，严格限制在配置根目录下，拒绝任何逃逸与搜索回退

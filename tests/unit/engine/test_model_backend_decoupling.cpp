@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "contracts/config_schema.h"
+#include "contracts/diagnostic.h"
 #include "contracts/inference_payloads.h"
 #include "contracts/traceable_item.h"
 #include "core/alg_context.h"
@@ -52,6 +53,9 @@ extern "C" int __wrap_posix_memalign(void** pointer, size_t alignment,
 #endif
 
 using namespace llm_edgeflow;
+
+static_assert(!std::is_default_constructible_v<BackendLoadSpec>);
+static_assert(std::is_constructible_v<BackendLoadSpec, ExecutionProtocol>);
 
 namespace {
 
@@ -116,10 +120,6 @@ class TestEmbeddingModel : public IEmbeddingModel {
 
   InferenceConcurrency Concurrency() const noexcept override {
     return InferenceConcurrency::kConcurrent;
-  }
-
-  size_t GetMaxBatchSize() const noexcept override {
-    return session_ ? session_->GetBatchPolicy().max_batch_size : 1;
   }
 
   int Embed(const TextBatch& inputs, const EmbeddingOptions& options,
@@ -915,12 +915,12 @@ class FakeAudioTranscriptionSession : public IAudioTranscriptionSession {
     ++transcribe_call_count;
     if (fail_on_call_index.has_value() &&
         transcribe_call_count == *fail_on_call_index) {
-      inference_detail::SetDiagnostic(diagnostic,
-                                      "Fake session error on designated call");
+      SetDiagnosticNoexcept(diagnostic,
+                            "Fake session error on designated call");
       return -1;
     }
     if (return_code != 0) {
-      inference_detail::SetDiagnostic(diagnostic, "Fake session error");
+      SetDiagnosticNoexcept(diagnostic, "Fake session error");
       return return_code;
     }
     if (return_embedded_nul) {
@@ -952,7 +952,6 @@ TEST(ModelBackendDecouplingTest,
   EXPECT_EQ(model->ModelType(), "whisper_asr");
   EXPECT_EQ(model->Capability(), "asr");
   EXPECT_EQ(model->Concurrency(), InferenceConcurrency::kConcurrent);
-  EXPECT_EQ(model->GetMaxBatchSize(), 1U);
 
   // 2. Null session
   ModelCreateContext null_ctx;
@@ -1181,8 +1180,7 @@ TEST(ModelBackendDecouplingTest,
     if (!BackendRegistry::Instance().Has(type)) continue;
     auto backend = BackendRegistry::Instance().Create(type);
     ASSERT_NE(backend, nullptr);
-    BackendLoadSpec spec;
-    spec.requested_protocol = static_cast<ExecutionProtocol>(999);
+    BackendLoadSpec spec{static_cast<ExecutionProtocol>(999)};
     bool injected = false;
     for (int step = 0; step < 4; ++step) {
       std::string diagnostic;

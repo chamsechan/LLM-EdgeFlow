@@ -26,12 +26,10 @@ void SetLastError(std::string_view err) noexcept {
 
 struct OperatorHandle {
   std::unique_ptr<llm_edgeflow::SharedAlgorithmRuntime> runtime;
-  uint32_t max_frame_depth = 25;
   uint32_t effective_process_batch_limit = 25;
-  std::string io_binding;
   const llm_edgeflow::InputConverterDefinition* input_converter = nullptr;
   const llm_edgeflow::OutputConverterDefinition* output_converter = nullptr;
-  llm_edgeflow::ResolvedOperatorConfig resolved_conf;
+  llm_edgeflow::ResolvedInputLimits input_limits;
   std::unordered_map<std::string,
                      std::shared_ptr<llm_edgeflow::OutputPoolState>>
       output_pools;
@@ -224,8 +222,9 @@ int Operator_Create(void** handle, const CreateParam* param) noexcept {
     for (const auto& out_slot :
          runtime->GetIoPlan()->output_converter->external_slots) {
       if (out_slot.direction != llm_edgeflow::PortDirection::kOutput) continue;
-      auto pit = resolved_conf.output_pool_specs.find(out_slot.slot_name);
-      if (pit == resolved_conf.output_pool_specs.end()) {
+      auto pit =
+          runtime->GetIoPlan()->operator_output_specs.find(out_slot.slot_name);
+      if (pit == runtime->GetIoPlan()->operator_output_specs.end()) {
         if (out_slot.required) {
           SetLastError("Missing output pool configuration for slot " +
                        out_slot.slot_name);
@@ -257,12 +256,10 @@ int Operator_Create(void** handle, const CreateParam* param) noexcept {
     }
 
     auto handle_instance = std::make_unique<OperatorHandle>();
-    handle_instance->max_frame_depth = effective_depth;
     handle_instance->effective_process_batch_limit = effective_batch_limit;
     handle_instance->input_converter = runtime->GetIoPlan()->input_converter;
     handle_instance->output_converter = runtime->GetIoPlan()->output_converter;
-    handle_instance->io_binding = resolved_conf.io_binding;
-    handle_instance->resolved_conf = std::move(resolved_conf);
+    handle_instance->input_limits = resolved_conf.input_limits;
     handle_instance->output_pools = std::move(pools);
     handle_instance->runtime = std::move(runtime);
 
@@ -333,8 +330,7 @@ int Operator_Process(void* handle, const NamedIoBatch& inputs,
     llm_edgeflow::ExternalInputBatchView in_view;
     std::string in_err;
     int in_ret = llm_edgeflow::ValidateAndExtractOperatorInputs(
-        inputs, *h->input_converter, h->resolved_conf.input_limits, &in_view,
-        &in_err);
+        inputs, *h->input_converter, h->input_limits, &in_view, &in_err);
     if (in_ret != 0) {
       SetLastError(in_err);
       return in_ret;
@@ -355,10 +351,8 @@ int Operator_Process(void* handle, const NamedIoBatch& inputs,
     // (在租用输出块之前完成业务校验；若校验失败则零输出块被租用)
     llm_edgeflow::AlgContext req_ctx;
     llm_edgeflow::InputDecodeOptions in_options;
-    in_options.binding_id = h->io_binding;
+
     in_options.converter_id = h->input_converter->converter_id;
-    in_options.transport = "operator";
-    in_options.max_batch_size = h->effective_process_batch_limit;
 
     llm_edgeflow::AdapterStatus decode_status;
     int decode_ret = h->input_converter->decode_fn(
@@ -394,25 +388,21 @@ int Operator_Process(void* handle, const NamedIoBatch& inputs,
     // 6. 执行统一输出编码 (将结果写入已租用的外部结构块)
     llm_edgeflow::ExternalOutputBatchView out_view;
     out_view.count = inputs.size();
-    out_view.type_id = h->output_converter->external_type;
     for (const auto& slot : h->output_converter->external_slots) {
       if (slot.direction == PortDirection::kOutput) {
         out_view.slot_types[slot.slot_name] = slot.type_id;
+        auto pool = h->output_pools.find(slot.slot_name);
+        if (pool != h->output_pools.end())
+          out_view.pool_specs[slot.slot_name] = &pool->second->Spec();
       }
     }
     for (const auto& acq : acquired_blocks) {
       out_view.leased_slots[acq.logical_name].push_back(acq.raw_block);
-      out_view.pool_specs[acq.logical_name] = acq.pool->Spec();
-      for (const auto& cap : acq.pool->Spec().capacities) {
-        out_view.slot_capacities[acq.logical_name][cap.first] = cap.second;
-      }
     }
 
     llm_edgeflow::OutputEncodeOptions out_options;
-    out_options.binding_id = h->io_binding;
+
     out_options.converter_id = h->output_converter->converter_id;
-    out_options.transport = "operator";
-    out_options.max_batch_size = h->effective_process_batch_limit;
 
     size_t written_count = 0;
     llm_edgeflow::AdapterStatus encode_status;
@@ -536,8 +526,7 @@ int Operator_Destroy(void* handle) noexcept {
 int Operator_Deinit() noexcept {
   try {
     int cleanup_ret = OperatorHandleManager::Instance().DestroyAll();
-    int deinit_ret = llm_edgeflow::SharedAlgorithmRuntime::GlobalDeinit();
-    return cleanup_ret != 0 ? cleanup_ret : deinit_ret;
+    return cleanup_ret;
   } catch (const std::exception& e) {
     SetLastError(e.what());
     return -99;

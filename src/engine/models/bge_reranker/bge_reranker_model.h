@@ -42,7 +42,6 @@ class BgeRerankerModel final : public IRerankModel {
   const std::string& ModelType() const noexcept override;
   const std::string& Capability() const noexcept override;
   InferenceConcurrency Concurrency() const noexcept override;
-  size_t GetMaxBatchSize() const noexcept override;
 
   int Score(const QueryCandidatesBatch& inputs,
             ScoreBatch* outputs) noexcept override;

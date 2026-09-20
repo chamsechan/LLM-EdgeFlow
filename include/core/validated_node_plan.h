@@ -33,17 +33,6 @@ struct ValidatedNodePlan {
   std::vector<ResolvedPortBinding> ports;
   std::vector<ResolvedNodeModelBinding> model_bindings;
 
-  std::string FindPortKey(
-      const std::string& logical_name,
-      PortDirection direction = PortDirection::kInput) const {
-    for (const auto& port : ports) {
-      if (port.logical_name == logical_name && port.direction == direction) {
-        return port.blackboard_key;
-      }
-    }
-    return {};
-  }
-
   const ResolvedPortBinding* FindPort(
       const std::string& logical_name,
       PortDirection direction = PortDirection::kInput) const {

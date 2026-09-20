@@ -102,13 +102,12 @@ int DecodeOperatorImageQueryInput(const ExternalInputBatchView& source,
 InputConverterDefinition MakeOperatorImageQueryInputConverter() {
   InputConverterDefinition def;
   def.converter_id = "image_query.plain.operator.v1";
-  def.transport = "operator";
+
   def.schema_id = "image_query.plain.request";
   def.schema_version = 1;
   def.external_type = "CompanyFrame,CompanyString";
   def.max_batch_size = 64;
-  def.ownership_policy = "copy_in";
-  def.thread_model = "stateless";
+
   def.external_slots = {{"frame",
                          "CompanyFrame",
                          PortDirection::kInput,

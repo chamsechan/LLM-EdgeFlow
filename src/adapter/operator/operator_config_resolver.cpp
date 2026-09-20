@@ -17,11 +17,11 @@ namespace llm_edgeflow {
 
 namespace {
 
-int ResolveContainedPath(const std::filesystem::path& canonical_root,
-                         const std::string& relative_value,
-                         const char* field_name, bool check_exists,
-                         bool is_directory, std::filesystem::path* resolved,
-                         std::string* error_msg) noexcept {
+int ResolveRequiredFileUnderRoot(const std::filesystem::path& canonical_root,
+                                 const std::string& relative_value,
+                                 const char* field_name,
+                                 std::filesystem::path* resolved,
+                                 std::string* error_msg) noexcept {
   try {
     if (!resolved) return -2;
     if (relative_value.empty()) {
@@ -43,14 +43,6 @@ int ResolveContainedPath(const std::filesystem::path& canonical_root,
       if (error_msg) {
         *error_msg = std::string(field_name) +
                      " contains Windows drive letter: " + relative_value;
-      }
-      return -2;
-    }
-    if (relative_value.rfind("//", 0) == 0 ||
-        relative_value.rfind("\\\\", 0) == 0) {
-      if (error_msg) {
-        *error_msg =
-            std::string(field_name) + " contains UNC path: " + relative_value;
       }
       return -2;
     }
@@ -77,31 +69,21 @@ int ResolveContainedPath(const std::filesystem::path& canonical_root,
     }
 
     std::filesystem::path canon_p;
-    if (check_exists) {
-      if (!std::filesystem::exists(combined, ec) || ec) {
-        if (error_msg) {
-          *error_msg = std::string(field_name) +
-                       " file does not exist: " + combined.string();
-        }
-        return -2;
+
+    if (!std::filesystem::exists(combined, ec) || ec) {
+      if (error_msg) {
+        *error_msg = std::string(field_name) +
+                     " file does not exist: " + combined.string();
       }
-      canon_p = std::filesystem::canonical(combined, ec);
-      if (ec) {
-        if (error_msg) {
-          *error_msg = "Failed to canonicalize " + std::string(field_name) +
-                       ": " + combined.string();
-        }
-        return -2;
+      return -2;
+    }
+    canon_p = std::filesystem::canonical(combined, ec);
+    if (ec) {
+      if (error_msg) {
+        *error_msg = "Failed to canonicalize " + std::string(field_name) +
+                     ": " + combined.string();
       }
-    } else {
-      canon_p = std::filesystem::weakly_canonical(combined, ec);
-      if (ec) {
-        if (error_msg) {
-          *error_msg = "Failed to weakly canonicalize " +
-                       std::string(field_name) + ": " + combined.string();
-        }
-        return -2;
-      }
+      return -2;
     }
 
     if (!IsPathWithinRoot(canonical_root, canon_p)) {
@@ -112,24 +94,11 @@ int ResolveContainedPath(const std::filesystem::path& canonical_root,
       return -2;
     }
 
-    if (check_exists) {
-      if (is_directory) {
-        if (!std::filesystem::is_directory(canon_p, ec) || ec) {
-          if (error_msg) {
-            *error_msg = std::string(field_name) +
-                         " is not a directory: " + canon_p.string();
-          }
-          return -2;
-        }
-      } else {
-        if (!std::filesystem::is_regular_file(canon_p, ec) || ec) {
-          if (error_msg) {
-            *error_msg = std::string(field_name) +
-                         " must be a regular file: " + canon_p.string();
-          }
-          return -2;
-        }
-      }
+    if (!std::filesystem::is_regular_file(canon_p, ec) || ec) {
+      if (error_msg)
+        *error_msg = std::string(field_name) +
+                     " must be a regular file: " + canon_p.string();
+      return -2;
     }
 
     *resolved = canon_p;
@@ -141,15 +110,6 @@ int ResolveContainedPath(const std::filesystem::path& canonical_root,
     SetDiagnosticNoexcept(error_msg, "Unknown exception");
     return -2;
   }
-}
-
-int ResolveRequiredFileUnderRoot(const std::filesystem::path& canonical_root,
-                                 const std::string& relative_value,
-                                 const char* field_name,
-                                 std::filesystem::path* resolved,
-                                 std::string* error_msg) noexcept {
-  return ResolveContainedPath(canonical_root, relative_value, field_name, true,
-                              false, resolved, error_msg);
 }
 
 }  // namespace
@@ -279,39 +239,6 @@ int OperatorConfigResolver::ResolveOutputAllocation(
   return ResolveOutputPoolSpec(*binding, requested, result, error) ? 0 : -2;
 }
 
-int OperatorConfigResolver::ResolveModelReferenceUnderRoot(
-    const std::filesystem::path& root, const std::string& rel_or_abs,
-    const char* field_name, std::filesystem::path* out_path,
-    std::string* error_msg) noexcept {
-  try {
-    std::error_code ec;
-    if (!std::filesystem::exists(root, ec) || ec ||
-        !std::filesystem::is_directory(root, ec) || ec) {
-      if (error_msg) {
-        *error_msg =
-            "model_path root must be an existing directory: " + root.string();
-      }
-      return -2;
-    }
-    const std::filesystem::path canonical_root =
-        std::filesystem::canonical(root, ec);
-    if (ec) {
-      if (error_msg) {
-        *error_msg = "Failed to canonicalize model_path root: " + root.string();
-      }
-      return -2;
-    }
-    return ResolveContainedPath(canonical_root, rel_or_abs, field_name, false,
-                                false, out_path, error_msg);
-  } catch (const std::exception& e) {
-    SetDiagnosticNoexcept(error_msg, e.what());
-    return -2;
-  } catch (...) {
-    SetDiagnosticNoexcept(error_msg, "Unknown exception");
-    return -2;
-  }
-}
-
 int OperatorConfigResolver::Resolve(
     const char* model_path, const char* cfg_file_name,
     ResolvedOperatorConfig* result, std::string* error_msg,
@@ -323,7 +250,7 @@ int OperatorConfigResolver::Resolve(
       out_diagnostic->code = code;
       out_diagnostic->path = path;
       out_diagnostic->message = message;
-      out_diagnostic->legacy_status = -2;
+
       out_diagnostic->pipeline_diagnostic.reset();
     }
   };
@@ -384,7 +311,6 @@ int OperatorConfigResolver::Resolve(
         out_diagnostic->path = "/";
         out_diagnostic->message =
             error_msg ? *error_msg : "Failed to resolve cfg_file_name";
-        out_diagnostic->legacy_status = ret;
       }
       return ret;
     }
@@ -392,9 +318,8 @@ int OperatorConfigResolver::Resolve(
     // 读取并解析部署配置文件 (Schema 1)
     DeploymentIoConfig dep_config;
     std::string dep_err;
-    if (!DeploymentIoConfig::ReadFromFile(full_cfg.string(), "operator",
-                                          &dep_config, &dep_err,
-                                          out_diagnostic)) {
+    if (!DeploymentIoConfig::ReadFromFile(full_cfg.string(), &dep_config,
+                                          &dep_err, out_diagnostic)) {
       if (error_msg) *error_msg = dep_err;
       return -2;
     }
@@ -403,62 +328,11 @@ int OperatorConfigResolver::Resolve(
     std::unique_ptr<ValidatedIoPlan> io_plan;
     std::string plan_err;
     int plan_ret = IoBindingResolver::ResolveFromConfig(
-        dep_config, "operator", canon_root.string(), &io_plan, &plan_err,
-        out_diagnostic);
+        dep_config, canon_root.string(), &io_plan, &plan_err, out_diagnostic,
+        effective_depth);
     if (plan_ret != 0) {
       if (error_msg) *error_msg = plan_err;
       return plan_ret;
-    }
-
-    // 如果有效深度不是默认深度，重新核对该深度下的总预算
-    if (effective_depth != kDefaultOutputPoolDepth) {
-      size_t total_handle_pool_bytes = 0;
-      for (const auto& [slot_name, pool_spec] :
-           io_plan->operator_output_specs) {
-        const auto* output_binding =
-            OperatorValueTypeRegistry::Instance().GetOutputBinding(
-                pool_spec.type, pool_spec.allocator);
-        if (!output_binding ||
-            output_binding->direction != IoDirection::kOutput) {
-          std::string msg = "Missing output value binding for suffix '" +
-                            pool_spec.type + "'";
-          set_diag("INVALID_OUTPUT_ALLOCATION",
-                   "/deployment/io/output_allocations/" +
-                       EscapeJsonPointer(slot_name),
-                   msg);
-          return -2;
-        }
-        size_t slot_pool_bytes = 0;
-        std::string budget_err;
-        if (!ComputeOutputPoolPayloadBytes(*output_binding, pool_spec,
-                                           effective_depth, &slot_pool_bytes,
-                                           &budget_err)) {
-          std::string msg =
-              "Output pool budget calculation failed: " + budget_err;
-          set_diag("INVALID_OUTPUT_ALLOCATION",
-                   "/deployment/io/output_allocations/" +
-                       EscapeJsonPointer(slot_name),
-                   msg);
-          return -2;
-        }
-        if (!CheckedAdd(total_handle_pool_bytes, slot_pool_bytes,
-                        &total_handle_pool_bytes)) {
-          std::string msg = "Handle pool budget addition overflowed";
-          set_diag("INVALID_OUTPUT_ALLOCATION",
-                   "/deployment/io/output_allocations", msg);
-          return -2;
-        }
-      }
-      if (total_handle_pool_bytes > kMaxHandlePoolPayloadBytes) {
-        std::string msg = "Total output pool payload (" +
-                          std::to_string(total_handle_pool_bytes) +
-                          " bytes) exceeds per-handle payload budget (" +
-                          std::to_string(kMaxHandlePoolPayloadBytes) +
-                          " bytes)";
-        set_diag("INVALID_OUTPUT_ALLOCATION",
-                 "/deployment/io/output_allocations", msg);
-        return -2;
-      }
     }
 
     result->conf_path = full_cfg;
@@ -466,9 +340,7 @@ int OperatorConfigResolver::Resolve(
     result->model_root_path = canon_root;
     result->biz_name = io_plan->binding.biz_name;
     result->io_binding = io_plan->binding.binding_id;
-    result->synthetic_pipeline_json = io_plan->resolved_pipeline_json;
-    result->output_pool_specs = io_plan->operator_output_specs;
-    result->output_parameter_text = io_plan->operator_output_parameter_texts;
+
     result->input_limits = ResolvedInputLimits{};
     result->io_plan = std::move(io_plan);
 
@@ -479,7 +351,6 @@ int OperatorConfigResolver::Resolve(
       out_diagnostic->code = "INTERNAL_EXCEPTION";
       out_diagnostic->path = "/";
       out_diagnostic->message = e.what();
-      out_diagnostic->legacy_status = -2;
     }
     return -2;
   } catch (...) {
@@ -488,7 +359,6 @@ int OperatorConfigResolver::Resolve(
       out_diagnostic->code = "INTERNAL_EXCEPTION";
       out_diagnostic->path = "/";
       out_diagnostic->message = "Unknown exception";
-      out_diagnostic->legacy_status = -2;
     }
     return -2;
   }

@@ -10,7 +10,6 @@
 #include <thread>
 #include <vector>
 
-#include "adapter/shared_algorithm_runtime.h"
 #include "core/alg_context.h"
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
@@ -19,16 +18,14 @@
 #include "core/session_context.h"
 #include "tests/support/node_process_pause.h"
 #include "tests/support/node_test_utils.h"
+#include "tests/support/pipeline_test_utils.h"
 #include "tests/support/scoped_allocation_failure.h"
 
 namespace llm_edgeflow {
 
 class TextTemplateNodeTest : public ::testing::Test {
  protected:
-  void SetUp() override {
-    ASSERT_EQ(SharedAlgorithmRuntime::GlobalInit(), 0);
-    session_ctx_ = std::make_unique<SessionContext>();
-  }
+  void SetUp() override { session_ctx_ = std::make_unique<SessionContext>(); }
   std::unique_ptr<SessionContext> session_ctx_;
 };
 
@@ -257,7 +254,7 @@ TEST_F(TextTemplateNodeTest, PipelineEnforcesPublishedControlSchema) {
   nlohmann::json pipe_json;
   cfg_in >> pipe_json;
   pipe_json.erase("deployment");
-  ASSERT_TRUE(pipeline.BuildFromJson(pipe_json, &diagnostic))
+  ASSERT_TRUE(BuildTestPipeline(pipeline, pipe_json, &diagnostic))
       << diagnostic.message;
 
   EXPECT_NE(pipeline.Control(kControlCmdUpdatePrompt, "{}"), 0);
@@ -309,7 +306,7 @@ TEST_F(TextTemplateNodeTest, UnconnectedBuiltinUsesDeclaredMissingPolicy) {
       root["pipeline"][0]["config"]["missing_variable_policy"] = policy;
       Pipeline pipeline;
       PipelineDiagnostic diagnostic;
-      ASSERT_TRUE(pipeline.BuildFromJson(root, &diagnostic))
+      ASSERT_TRUE(BuildTestPipeline(pipeline, root, &diagnostic))
           << diagnostic.message;
       AlgContext ctx;
       ctx.Publish("input_sentences", TextBatch{{1, 3, "hello"}});
@@ -366,8 +363,8 @@ TEST_F(TextTemplateNodeTest, MissingPrimarySampleDoesNotPublishPartialOutput) {
 TEST_F(TextTemplateNodeTest,
        ControlRejectsUnconnectedBuiltinAndRetainsConfiguration) {
   Pipeline pipeline;
-  ASSERT_TRUE(
-      pipeline.BuildFromJson(TemplatePipeline({{"template", "{{primary}}"}})));
+  ASSERT_TRUE(BuildTestPipeline(
+      pipeline, TemplatePipeline({{"template", "{{primary}}"}})));
   EXPECT_NE(pipeline.Control(kControlCmdUpdatePrompt,
                              R"({"template":"{{context}}"})"),
             0);
@@ -396,7 +393,9 @@ TEST_F(TextTemplateNodeTest, ConnectedAttributesRemainAvailableAcrossControl) {
                             {"allow_dynamic_attributes", false}};
   plan.ports.push_back({"attributes", "attrs", "TextAttributesBatch", "1:1",
                         "preserve", "request", PortDirection::kInput});
-  ASSERT_TRUE(node->Init({&plan, nullptr, session_ctx_.get()}));
+  plan.ports.push_back({"text", "text", "TextBatch", "1:1", "preserve",
+                        "request", PortDirection::kOutput});
+  ASSERT_TRUE(node->Init({&plan, session_ctx_.get()}));
   EXPECT_EQ(node->Control(kControlCmdUpdatePrompt,
                           R"({"allow_dynamic_attributes":false})")
                 .status,

@@ -92,20 +92,6 @@ class AdapterValidationHelper {
     return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
   }
 
-  template <typename T>
-  static const T* ReadRequiredContextValue(const AlgContext& ctx,
-                                           const BlackboardKey<T>& key,
-                                           const char* adapter_name,
-                                           AdapterStatus* out_status) {
-    const T* value = ctx.Read(key);
-    if (!value) {
-      const std::string field_path = key.name;
-      ReturnBufferTooSmall(out_status, field_path + " not found in AlgContext",
-                           field_path, adapter_name);
-    }
-    return value;
-  }
-
   template <typename T, typename U>
   static bool PublishContextValue(AlgContext& ctx, const BlackboardKey<T>& key,
                                   U&& value, const char* adapter_name,

@@ -24,6 +24,7 @@
 #include "engine/backend_registry.h"
 #include "engine/model_interface.h"
 #include "engine/model_registry.h"
+#include "tests/support/pipeline_test_utils.h"
 #include "tests/support/registry_test_access.h"
 
 namespace llm_edgeflow {
@@ -125,7 +126,6 @@ class SchemaProbeModel : public IModel {
     ++s_create_count;
     return std::make_shared<SchemaProbeModel>();
   }
-  size_t GetMaxBatchSize() const noexcept override { return 4; }
   const std::string& ModelType() const noexcept override {
     static const std::string type = kModelType;
     return type;
@@ -206,7 +206,7 @@ BackendDefinition MakeSchemaProbeBackendDefinition() {
 }
 
 nlohmann::json MakeSchemaProbePipeline(const nlohmann::json& backend_config) {
-  return {{"biz_name", "unregistered_test_biz"},
+  return {{"biz_name", "schema_fixture_biz"},
           {"models",
            {{{"model_id", "probe_model"},
              {"capability", "schema_probe"},
@@ -229,9 +229,14 @@ REGISTER_BACKEND_WITH_DEFINITION(SchemaProbeBackend,
 
 }  // namespace
 
-TEST(DefinitionSchemaValidationTest, EnforcesRequiredField) {
+class DefinitionSchemaValidationTest : public ::testing::Test {
+ protected:
+  void SetUp() override { RegisterTestBizs({"schema_fixture_biz"}); }
+};
+
+TEST_F(DefinitionSchemaValidationTest, EnforcesRequiredField) {
   nlohmann::json pipeline = {
-      {"biz_name", "unregistered_test_biz"},
+      {"biz_name", "schema_fixture_biz"},
       {"models", nlohmann::json::array()},
       {"pipeline",
        nlohmann::json::array({{{"id", "node_0"},
@@ -239,8 +244,7 @@ TEST(DefinitionSchemaValidationTest, EnforcesRequiredField) {
                                {"depends_on", nlohmann::json::array()},
                                {"config", nlohmann::json::object()}}})}};
 
-  auto plan = PipelineValidator::ValidateAndPlan(
-      pipeline, ValidationPolicy::kPrivateExtensionCompatible);
+  auto plan = PipelineValidator::ValidateAndPlan(pipeline);
   EXPECT_FALSE(plan.report.ok);
   ASSERT_FALSE(plan.report.diagnostics.empty());
   auto it =
@@ -253,9 +257,9 @@ TEST(DefinitionSchemaValidationTest, EnforcesRequiredField) {
   EXPECT_EQ(it->node_id, "node_0");
 }
 
-TEST(DefinitionSchemaValidationTest, EnforcesFieldTypeAndRange) {
+TEST_F(DefinitionSchemaValidationTest, EnforcesFieldTypeAndRange) {
   nlohmann::json pipeline = {
-      {"biz_name", "unregistered_test_biz"},
+      {"biz_name", "schema_fixture_biz"},
       {"models", nlohmann::json::array()},
       {"pipeline",
        nlohmann::json::array(
@@ -264,8 +268,7 @@ TEST(DefinitionSchemaValidationTest, EnforcesFieldTypeAndRange) {
              {"depends_on", nlohmann::json::array()},
              {"config", {{"req_str", "hello"}, {"opt_int", 200}}}}})}};
 
-  auto plan = PipelineValidator::ValidateAndPlan(
-      pipeline, ValidationPolicy::kPrivateExtensionCompatible);
+  auto plan = PipelineValidator::ValidateAndPlan(pipeline);
   EXPECT_FALSE(plan.report.ok);
   auto it =
       std::find_if(plan.report.diagnostics.begin(),
@@ -276,9 +279,9 @@ TEST(DefinitionSchemaValidationTest, EnforcesFieldTypeAndRange) {
   EXPECT_EQ(it->path, "/pipeline/0/config/opt_int");
 }
 
-TEST(DefinitionSchemaValidationTest, EnforcesStringEnumValues) {
+TEST_F(DefinitionSchemaValidationTest, EnforcesStringEnumValues) {
   nlohmann::json pipeline = {
-      {"biz_name", "unregistered_test_biz"},
+      {"biz_name", "schema_fixture_biz"},
       {"models", nlohmann::json::array()},
       {"pipeline",
        nlohmann::json::array(
@@ -288,8 +291,7 @@ TEST(DefinitionSchemaValidationTest, EnforcesStringEnumValues) {
              {"config",
               {{"req_str", "hello"}, {"enum_mode", "invalid_choice"}}}}})}};
 
-  auto plan = PipelineValidator::ValidateAndPlan(
-      pipeline, ValidationPolicy::kPrivateExtensionCompatible);
+  auto plan = PipelineValidator::ValidateAndPlan(pipeline);
   EXPECT_FALSE(plan.report.ok);
   auto it = std::find_if(plan.report.diagnostics.begin(),
                          plan.report.diagnostics.end(), [](const auto& item) {
@@ -299,9 +301,9 @@ TEST(DefinitionSchemaValidationTest, EnforcesStringEnumValues) {
   EXPECT_EQ(it->path, "/pipeline/0/config/enum_mode");
 }
 
-TEST(DefinitionSchemaValidationTest, EnforcesBackendConfigConstraints) {
+TEST_F(DefinitionSchemaValidationTest, EnforcesBackendConfigConstraints) {
   nlohmann::json pipeline = {
-      {"biz_name", "unregistered_test_biz"},
+      {"biz_name", "schema_fixture_biz"},
       {"models",
        nlohmann::json::array(
            {{{"model_id", "probe_model"},
@@ -318,8 +320,7 @@ TEST(DefinitionSchemaValidationTest, EnforcesBackendConfigConstraints) {
                                {"depends_on", nlohmann::json::array()},
                                {"config", {{"req_str", "valid"}}}}})}};
 
-  auto plan = PipelineValidator::ValidateAndPlan(
-      pipeline, ValidationPolicy::kPrivateExtensionCompatible);
+  auto plan = PipelineValidator::ValidateAndPlan(pipeline);
   EXPECT_FALSE(plan.report.ok);
 
   bool has_range = false;
@@ -338,17 +339,16 @@ TEST(DefinitionSchemaValidationTest, EnforcesBackendConfigConstraints) {
   EXPECT_TRUE(has_enum);
 }
 
-TEST(DefinitionSchemaValidationTest,
-     BackendCallbackReceivesNormalizedDefaults) {
+TEST_F(DefinitionSchemaValidationTest,
+       BackendCallbackReceivesNormalizedDefaults) {
   for (const auto& config :
        {nlohmann::json::object(),
         nlohmann::json{{"device_id", 1}, {"precision", "int8"}}}) {
     SchemaProbeBackend::ResetCounts();
     SchemaProbeModel::ResetCounts();
     SchemaProbeNode::ResetCounts();
-    const auto plan = PipelineValidator::ValidateAndPlan(
-        MakeSchemaProbePipeline(config),
-        ValidationPolicy::kPrivateExtensionCompatible);
+    const auto plan =
+        PipelineValidator::ValidateAndPlan(MakeSchemaProbePipeline(config));
     EXPECT_TRUE(plan.report.ok);
     EXPECT_EQ(SchemaProbeBackend::s_validate_count, 1);
     EXPECT_EQ(SchemaProbeBackend::s_validated_config.at("device_id"),
@@ -362,14 +362,13 @@ TEST(DefinitionSchemaValidationTest,
   }
 }
 
-TEST(DefinitionSchemaValidationTest,
-     BackendCombinationFailurePreventsMaterialization) {
+TEST_F(DefinitionSchemaValidationTest,
+       BackendCombinationFailurePreventsMaterialization) {
   SchemaProbeBackend::ResetCounts();
   SchemaProbeModel::ResetCounts();
   SchemaProbeNode::ResetCounts();
   const auto input = MakeSchemaProbePipeline({{"precision", "int8"}});
-  const auto plan = PipelineValidator::ValidateAndPlan(
-      input, ValidationPolicy::kPrivateExtensionCompatible);
+  const auto plan = PipelineValidator::ValidateAndPlan(input);
   EXPECT_FALSE(plan.report.ok);
   const auto diagnostic =
       std::find_if(plan.report.diagnostics.begin(),
@@ -384,8 +383,7 @@ TEST(DefinitionSchemaValidationTest,
 
   Pipeline pipeline;
   PipelineDiagnostic build_diagnostic;
-  EXPECT_FALSE(pipeline.BuildFromJson(
-      input, &build_diagnostic, ValidationPolicy::kPrivateExtensionCompatible));
+  EXPECT_FALSE(BuildTestPipeline(pipeline, input, &build_diagnostic));
   EXPECT_EQ(pipeline.GetState(), Pipeline::State::kFailed);
   EXPECT_EQ(SchemaProbeBackend::s_load_count, 0);
   EXPECT_EQ(SchemaProbeModel::s_create_count, 0);
@@ -393,29 +391,28 @@ TEST(DefinitionSchemaValidationTest,
   EXPECT_EQ(SchemaProbeNode::s_process_count, 0);
 }
 
-TEST(DefinitionSchemaValidationTest, InvalidBackendFieldsSkipSemanticCallback) {
+TEST_F(DefinitionSchemaValidationTest,
+       InvalidBackendFieldsSkipSemanticCallback) {
   for (const auto& config : {nlohmann::json{{"device_id", "wrong"}},
                              nlohmann::json{{"device_id", 17}},
                              nlohmann::json{{"precision", "unknown"}},
                              nlohmann::json{{"undeclared", 1}}}) {
     SCOPED_TRACE(config.dump());
     SchemaProbeBackend::ResetCounts();
-    const auto plan = PipelineValidator::ValidateAndPlan(
-        MakeSchemaProbePipeline(config),
-        ValidationPolicy::kPrivateExtensionCompatible);
+    const auto plan =
+        PipelineValidator::ValidateAndPlan(MakeSchemaProbePipeline(config));
     EXPECT_FALSE(plan.report.ok);
     EXPECT_EQ(SchemaProbeBackend::s_validate_count, 0);
     EXPECT_EQ(SchemaProbeBackend::s_load_count, 0);
   }
 }
 
-TEST(DefinitionSchemaValidationTest,
-     BackendCallbackExceptionsBecomeDiagnostics) {
+TEST_F(DefinitionSchemaValidationTest,
+       BackendCallbackExceptionsBecomeDiagnostics) {
   for (const int device_id : {15, 16}) {
     SchemaProbeBackend::ResetCounts();
     const auto plan = PipelineValidator::ValidateAndPlan(
-        MakeSchemaProbePipeline({{"device_id", device_id}}),
-        ValidationPolicy::kPrivateExtensionCompatible);
+        MakeSchemaProbePipeline({{"device_id", device_id}}));
     EXPECT_FALSE(plan.report.ok);
     EXPECT_EQ(SchemaProbeBackend::s_validate_count, 1);
     const auto diagnostic =
@@ -434,13 +431,13 @@ TEST(DefinitionSchemaValidationTest,
   }
 }
 
-TEST(DefinitionSchemaValidationTest, ValidationFailureHasZeroSideEffects) {
+TEST_F(DefinitionSchemaValidationTest, ValidationFailureHasZeroSideEffects) {
   SchemaProbeNode::ResetCounts();
   SchemaProbeModel::ResetCounts();
   SchemaProbeBackend::ResetCounts();
 
   nlohmann::json invalid_pipeline = {
-      {"biz_name", "unregistered_test_biz"},
+      {"biz_name", "schema_fixture_biz"},
       {"models",
        nlohmann::json::array({{{"model_id", "probe_model"},
                                {"capability", "schema_probe"},
@@ -457,8 +454,7 @@ TEST(DefinitionSchemaValidationTest, ValidationFailureHasZeroSideEffects) {
 
   Pipeline pipeline;
   PipelineDiagnostic diag;
-  bool built = pipeline.BuildFromJson(
-      invalid_pipeline, &diag, ValidationPolicy::kPrivateExtensionCompatible);
+  bool built = BuildTestPipeline(pipeline, invalid_pipeline, &diag);
   EXPECT_FALSE(built);
   EXPECT_EQ(pipeline.GetState(), Pipeline::State::kFailed);
 
@@ -469,7 +465,7 @@ TEST(DefinitionSchemaValidationTest, ValidationFailureHasZeroSideEffects) {
   EXPECT_EQ(SchemaProbeNode::s_process_count, 0);
 }
 
-TEST(DefinitionSchemaValidationTest, RejectsInvalidDefinitionAtRegistration) {
+TEST_F(DefinitionSchemaValidationTest, RejectsInvalidDefinitionAtRegistration) {
   // 1. Duplicate field names
   NodeDefinition dup_field_def;
   dup_field_def.node_type = "InvalidDupFieldNode";
@@ -629,8 +625,8 @@ TEST(DefinitionSchemaValidationTest, RejectsInvalidDefinitionAtRegistration) {
   EXPECT_FALSE(ValidateNodeDefinitionStructure(invalid_lifetime_override));
 }
 
-TEST(DefinitionSchemaValidationTest,
-     ControlIdsRequireExplicitIdenticalSharing) {
+TEST_F(DefinitionSchemaValidationTest,
+       ControlIdsRequireExplicitIdenticalSharing) {
   test_support::RegistryTestAccess::ScopedNodeState state_guard;
   auto dummy_creator = []() { return nullptr; };
 
@@ -685,8 +681,8 @@ TEST(DefinitionSchemaValidationTest,
   EXPECT_FALSE(ValidateNodeDefinitionStructure(invalid));
 }
 
-TEST(DefinitionSchemaValidationTest,
-     ControlPayloadParsingPreservesOutputOnFailure) {
+TEST_F(DefinitionSchemaValidationTest,
+       ControlPayloadParsingPreservesOutputOnFailure) {
   const nlohmann::json schema = {
       {"type", "object"},
       {"required", {"values"}},
@@ -711,7 +707,8 @@ TEST(DefinitionSchemaValidationTest,
   EXPECT_TRUE(error.empty());
 }
 
-TEST(DefinitionSchemaValidationTest, ControlSchemaRejectsInvalidDeclarations) {
+TEST_F(DefinitionSchemaValidationTest,
+       ControlSchemaRejectsInvalidDeclarations) {
   const std::vector<std::pair<nlohmann::json, std::string>> invalid = {
       {{{"type", "int"}}, "type"},
       {{{"type", {"number", "null"}}}, "type"},
@@ -752,8 +749,8 @@ TEST(DefinitionSchemaValidationTest, ControlSchemaRejectsInvalidDeclarations) {
   }
 }
 
-TEST(DefinitionSchemaValidationTest,
-     ControlSchemaAllowsDocumentaryAnnotations) {
+TEST_F(DefinitionSchemaValidationTest,
+       ControlSchemaAllowsDocumentaryAnnotations) {
   const nlohmann::json schema = {
       {"type", "object"},
       {"title", "Control parameters"},
@@ -777,8 +774,8 @@ TEST(DefinitionSchemaValidationTest,
   EXPECT_EQ(payload, nlohmann::json::object());
 }
 
-TEST(DefinitionSchemaValidationTest,
-     ControlPayloadEnforcesPublishedNumberBounds) {
+TEST_F(DefinitionSchemaValidationTest,
+       ControlPayloadEnforcesPublishedNumberBounds) {
   const auto definition = PipelineCatalog::FindNode("TextRuleMatchNode");
   ASSERT_TRUE(definition.has_value());
   ASSERT_FALSE(definition->control_commands.empty());
@@ -815,7 +812,8 @@ TEST(DefinitionSchemaValidationTest,
       ValidateControlPayload(4, {{"type", "integer"}, {"maximum", 3}}));
 }
 
-TEST(DefinitionSchemaValidationTest, NodeToJsonExportsConstraintsAndCommands) {
+TEST_F(DefinitionSchemaValidationTest,
+       NodeToJsonExportsConstraintsAndCommands) {
   const auto rerank_def = PipelineCatalog::FindNode("TextRerankNode");
   ASSERT_TRUE(rerank_def.has_value());
   auto json = PipelineCatalog::NodeToJson(*rerank_def);
@@ -841,7 +839,7 @@ TEST(DefinitionSchemaValidationTest, NodeToJsonExportsConstraintsAndCommands) {
   EXPECT_EQ(embedding_json["inputs"][0]["lifetime_config_field"], "lifetime");
 }
 
-TEST(DefinitionSchemaValidationTest, ProductionCatalogSelfCheck) {
+TEST_F(DefinitionSchemaValidationTest, ProductionCatalogSelfCheck) {
   const auto& nodes = PipelineCatalog::Nodes();
   EXPECT_FALSE(nodes.empty());
   for (const auto& node : nodes) {
@@ -878,7 +876,7 @@ TEST(DefinitionSchemaValidationTest, ProductionCatalogSelfCheck) {
   }
 }
 
-TEST(DefinitionSchemaValidationTest, RejectsInvalidNodePortDefinitions) {
+TEST_F(DefinitionSchemaValidationTest, RejectsInvalidNodePortDefinitions) {
   // Empty key
   NodeDefinition empty_key_node;
   empty_key_node.node_type = "EmptyKeyPortNode";
@@ -931,9 +929,9 @@ TEST(DefinitionSchemaValidationTest, RejectsInvalidNodePortDefinitions) {
   EXPECT_FALSE(PipelineCatalog::RegisterBizDefinition(invalid_biz));
 }
 
-TEST(DefinitionSchemaValidationTest, RejectsNonIntegerFloatsForIntegerField) {
+TEST_F(DefinitionSchemaValidationTest, RejectsNonIntegerFloatsForIntegerField) {
   nlohmann::json pipeline = {
-      {"biz_name", "unregistered_test_biz"},
+      {"biz_name", "schema_fixture_biz"},
       {"models", nlohmann::json::array()},
       {"pipeline",
        nlohmann::json::array(
@@ -942,8 +940,7 @@ TEST(DefinitionSchemaValidationTest, RejectsNonIntegerFloatsForIntegerField) {
              {"depends_on", nlohmann::json::array()},
              {"config", {{"req_str", "hello"}, {"opt_int", 20.5}}}}})}};
 
-  auto plan = PipelineValidator::ValidateAndPlan(
-      pipeline, ValidationPolicy::kPrivateExtensionCompatible);
+  auto plan = PipelineValidator::ValidateAndPlan(pipeline);
   EXPECT_FALSE(plan.report.ok);
   auto it = std::find_if(plan.report.diagnostics.begin(),
                          plan.report.diagnostics.end(), [](const auto& item) {
@@ -953,21 +950,20 @@ TEST(DefinitionSchemaValidationTest, RejectsNonIntegerFloatsForIntegerField) {
   EXPECT_EQ(it->path, "/pipeline/0/config/opt_int");
 }
 
-TEST(DefinitionSchemaValidationTest,
-     ValidateConfigExceptionMappingAndShortCircuit) {
+TEST_F(DefinitionSchemaValidationTest,
+       ValidateConfigExceptionMappingAndShortCircuit) {
   // Case 1: Field validation fails -> validate_config must NOT be called
   ThrowingValidateConfigNode::s_called = false;
   ThrowingValidateConfigNode::s_throw_mode = 1;
   nlohmann::json pipeline_field_fail = {
-      {"biz_name", "unregistered_test_biz"},
+      {"biz_name", "schema_fixture_biz"},
       {"models", nlohmann::json::array()},
       {"pipeline",
        nlohmann::json::array({{{"id", "node_0"},
                                {"node_type", "ThrowingValidateConfigNode"},
                                {"depends_on", nlohmann::json::array()},
                                {"config", {{"req_num", "not_an_int"}}}}})}};
-  auto plan1 = PipelineValidator::ValidateAndPlan(
-      pipeline_field_fail, ValidationPolicy::kPrivateExtensionCompatible);
+  auto plan1 = PipelineValidator::ValidateAndPlan(pipeline_field_fail);
   EXPECT_FALSE(plan1.report.ok);
   EXPECT_FALSE(ThrowingValidateConfigNode::s_called);
 
@@ -976,15 +972,14 @@ TEST(DefinitionSchemaValidationTest,
   ThrowingValidateConfigNode::s_called = false;
   ThrowingValidateConfigNode::s_throw_mode = 1;
   nlohmann::json pipeline_std_throw = {
-      {"biz_name", "unregistered_test_biz"},
+      {"biz_name", "schema_fixture_biz"},
       {"models", nlohmann::json::array()},
       {"pipeline",
        nlohmann::json::array({{{"id", "node_0"},
                                {"node_type", "ThrowingValidateConfigNode"},
                                {"depends_on", nlohmann::json::array()},
                                {"config", {{"req_num", 50}}}}})}};
-  auto plan2 = PipelineValidator::ValidateAndPlan(
-      pipeline_std_throw, ValidationPolicy::kPrivateExtensionCompatible);
+  auto plan2 = PipelineValidator::ValidateAndPlan(pipeline_std_throw);
   EXPECT_FALSE(plan2.report.ok);
   EXPECT_TRUE(ThrowingValidateConfigNode::s_called);
   auto it2 =
@@ -1000,8 +995,7 @@ TEST(DefinitionSchemaValidationTest,
   // -> mapped to kInvalidCombination
   ThrowingValidateConfigNode::s_called = false;
   ThrowingValidateConfigNode::s_throw_mode = 2;
-  auto plan3 = PipelineValidator::ValidateAndPlan(
-      pipeline_std_throw, ValidationPolicy::kPrivateExtensionCompatible);
+  auto plan3 = PipelineValidator::ValidateAndPlan(pipeline_std_throw);
   EXPECT_FALSE(plan3.report.ok);
   EXPECT_TRUE(ThrowingValidateConfigNode::s_called);
   auto it3 =
@@ -1013,7 +1007,7 @@ TEST(DefinitionSchemaValidationTest,
   EXPECT_NE(it3->message.find("unknown exception"), std::string::npos);
 }
 
-TEST(DefinitionSchemaValidationTest, IntegerBoundsDoNotRoundThroughDouble) {
+TEST_F(DefinitionSchemaValidationTest, IntegerBoundsDoNotRoundThroughDouble) {
   const std::vector<ConfigFieldDefinition> fields = {
       {"value", ConfigValueKind::kInteger, true, nullptr, -9007199254740992.0,
        9007199254740992.0}};
@@ -1031,8 +1025,8 @@ TEST(DefinitionSchemaValidationTest, IntegerBoundsDoNotRoundThroughDouble) {
       fields, {{"value", int64_t{9007199254740992}}}, &normalized, nullptr));
 }
 
-TEST(DefinitionSchemaValidationTest,
-     IntegerBoundsHandleLimitsAndFractionalBounds) {
+TEST_F(DefinitionSchemaValidationTest,
+       IntegerBoundsHandleLimitsAndFractionalBounds) {
   constexpr double kSignedLimit = 9223372036854775808.0;
   constexpr double kUnsignedLimit = 18446744073709551616.0;
   const auto signed_max = nlohmann::json(std::numeric_limits<int64_t>::max());
@@ -1084,8 +1078,8 @@ TEST(DefinitionSchemaValidationTest,
   }
 }
 
-TEST(DefinitionSchemaValidationTest,
-     PortNamesKeepTheirRolesAndCatalogSpelling) {
+TEST_F(DefinitionSchemaValidationTest,
+       PortNamesKeepTheirRolesAndCatalogSpelling) {
   static_assert(!std::is_convertible_v<NodePortDefinition, BizPortDefinition>);
   static_assert(!std::is_convertible_v<BizPortDefinition, NodePortDefinition>);
   const BlackboardKey<TextBatch> key{"request_text", "TextBatch"};
@@ -1101,7 +1095,7 @@ TEST(DefinitionSchemaValidationTest,
   EXPECT_FALSE(json["inputs"][0].contains("logical_name"));
 }
 
-TEST(DefinitionSchemaValidationTest, NodeAndBizRejectEmptyFlowMetadata) {
+TEST_F(DefinitionSchemaValidationTest, NodeAndBizRejectEmptyFlowMetadata) {
   for (int field = 0; field < 3; ++field) {
     NodePortDefinition port{"value", "TextBatch", true,
                             "1:1",   "preserve",  "request"};

@@ -10,7 +10,6 @@
 #include <vector>
 
 #include "common_nodes/support/compiled_text_regex.h"
-#include "contracts/config_schema_validation.h"
 #include "contracts/control_payload.h"
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
@@ -165,28 +164,26 @@ class TextRuleMatchNode final : public NodeBase {
   static bool ValidateConfig(const nlohmann::json& config,
                              const std::unordered_set<std::string>&,
                              std::string* diagnostic) {
-    nlohmann::json normalized;
     CategoryList categories;
     std::vector<RuleSpec> rules;
-    return ParseConfig(config, &normalized, &categories, &rules, diagnostic);
+    return ParseConfig(config, &categories, &rules, diagnostic);
   }
 
  protected:
   bool InitNode(const NodeInitContext& init_ctx, const nlohmann::json& config,
                 SessionContext& /*session_ctx*/) override {
-    nlohmann::json normalized;
     CategoryList categories;
     std::vector<RuleSpec> rules;
     std::string diagnostic;
-    if (!ParseConfig(config, &normalized, &categories, &rules, &diagnostic))
+    if (!ParseConfig(config, &categories, &rules, &diagnostic))
       return init_ctx.Fail(diagnostic);
 
     BindPort(init_ctx, in_text_);
     BindPort(init_ctx, out_matches_);
     RuleMatchState initial_state;
     initial_state.default_category =
-        normalized["default_category"].get<std::string>();
-    initial_state.default_score = normalized["default_score"].get<float>();
+        config["default_category"].get<std::string>();
+    initial_state.default_score = config["default_score"].get<float>();
     initial_state.category_keywords_list = std::move(categories);
     initial_state.rules_list = std::move(rules);
     snapshot_.Initialize(std::move(initial_state));
@@ -412,26 +409,14 @@ class TextRuleMatchNode final : public NodeBase {
   }
 
   static bool ParseConfig(const nlohmann::json& config,
-                          nlohmann::json* normalized, CategoryList* categories,
+                          CategoryList* categories,
                           std::vector<RuleSpec>* rules,
                           std::string* diagnostic) {
     if (diagnostic) diagnostic->clear();
-    std::vector<ConfigFieldValidationError> errors;
-    if (!ValidateAndNormalizeFields(TextRuleMatchConfigFields(), config,
-                                    normalized, &errors)) {
-      if (diagnostic) {
-        const auto& error = errors.front();
-        *diagnostic = error.field_name.empty()
-                          ? error.message
-                          : error.field_name + ": " + error.message;
-      }
-      return false;
-    }
-    return (!normalized->contains("categories") ||
-            BuildCategories((*normalized)["categories"], categories,
-                            diagnostic)) &&
-           (!normalized->contains("rules") ||
-            BuildRules((*normalized)["rules"], rules, diagnostic));
+    return (!config.contains("categories") ||
+            BuildCategories(config["categories"], categories, diagnostic)) &&
+           (!config.contains("rules") ||
+            BuildRules(config["rules"], rules, diagnostic));
   }
 
   ConfigurationSnapshot<RuleMatchState> snapshot_;

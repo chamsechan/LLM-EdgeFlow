@@ -22,9 +22,6 @@ struct ResolvedOperatorConfig {
   std::string biz_name;
   std::string io_binding;
   std::unique_ptr<ValidatedIoPlan> io_plan;
-  nlohmann::json synthetic_pipeline_json;
-  std::unordered_map<std::string, ResolvedOutputPoolSpec> output_pool_specs;
-  std::unordered_map<std::string, std::string> output_parameter_text;
   ResolvedInputLimits input_limits;
 };
 
@@ -38,12 +35,6 @@ class OperatorConfigResolver {
                                      ResolvedOutputPoolSpec* result,
                                      std::string* parameter_text,
                                      std::string* error);
-
-  static int ResolveModelReferenceUnderRoot(const std::filesystem::path& root,
-                                            const std::string& rel_or_abs,
-                                            const char* field_name,
-                                            std::filesystem::path* out_path,
-                                            std::string* error_msg) noexcept;
 
   static int Resolve(const char* model_path, const char* cfg_file_name,
                      ResolvedOperatorConfig* result, std::string* error_msg,

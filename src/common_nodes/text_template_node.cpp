@@ -11,7 +11,6 @@
 #include <utility>
 #include <vector>
 
-#include "contracts/config_schema_validation.h"
 #include "contracts/control_payload.h"
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
@@ -223,7 +222,7 @@ inline NodeResult<TemplateState> BuildNextTemplate(
             : diagnostic,
         node_error::control::kInvalidRequest);
   }
-  if (bindings.has_plan &&
+  if (bindings.has_bindings &&
       !ValidateTemplateInputs(new_tokens, bindings.connected_inputs,
                               next.missing_variable_policy, &diagnostic)) {
     return NodeResult<TemplateState>::Failure(
@@ -288,11 +287,7 @@ class TextTemplateNode final : public NodeBase {
     BindPort(init_ctx, in_attributes_);
     BindPort(init_ctx, out_text_);
 
-    nlohmann::json normalized_config;
-    if (!ValidateAndNormalizeFields(TextTemplateConfigFields(), config,
-                                    &normalized_config, nullptr)) {
-      return false;
-    }
+    const auto& normalized_config = config;
 
     TemplateState initial_state;
     initial_state.template_str =
@@ -342,11 +337,9 @@ class TextTemplateNode final : public NodeBase {
                          initial_state.allow_dynamic_attrs, &compiled)) {
       return false;
     }
-    if (binding_facts_.has_plan) {
-      if (!ValidateTemplateInputs(compiled, binding_facts_.connected_inputs,
-                                  initial_state.missing_variable_policy))
-        return false;
-    }
+    if (!ValidateTemplateInputs(compiled, binding_facts_.connected_inputs,
+                                initial_state.missing_variable_policy))
+      return false;
     initial_state.compiled_tokens = std::move(compiled);
     snapshot_.Initialize(std::move(initial_state));
     return true;

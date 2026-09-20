@@ -102,13 +102,12 @@ int DecodeOperatorAuditInput(const ExternalInputBatchView& source,
 InputConverterDefinition MakeOperatorAuditInputConverter() {
   InputConverterDefinition def;
   def.converter_id = "audit.plain.operator.v1";
-  def.transport = "operator";
+
   def.schema_id = "audit.plain.request";
   def.schema_version = 1;
   def.external_type = "CompanyOperatorAuditInput";
   def.max_batch_size = 64;
-  def.ownership_policy = "copy_in";
-  def.thread_model = "stateless";
+
   def.external_slots = {{"audit_in",
                          "CompanyOperatorAuditInput",
                          PortDirection::kInput,

@@ -9,7 +9,6 @@
 #include <utility>
 #include <vector>
 
-#include "contracts/config_schema_validation.h"
 #include "contracts/inference_payloads.h"
 #include "contracts/traceable_item.h"
 #include "core/alg_context.h"
@@ -22,6 +21,7 @@
 #include "engine/backend_registry.h"
 #include "engine/model_interface.h"
 #include "engine/model_registry.h"
+#include "tests/support/node_plan_fixture.h"
 
 namespace llm_edgeflow {
 
@@ -116,6 +116,7 @@ class NodeHarness {
 
   void Reset() {
     node_.reset();
+    plan_.reset();
     session_ctx_.reset();
     input_keys_.clear();
     output_keys_.clear();
@@ -165,12 +166,6 @@ class NodeHarness {
     return *this;
   }
 
-  NodeHarness& DisablePlan() {
-    use_plan_ = false;
-    Reset();
-    return *this;
-  }
-
   NodeHarness& OmitPortFromPlan(std::string logical_port_name) {
     omitted_ports_.insert(std::move(logical_port_name));
     Reset();
@@ -198,125 +193,18 @@ class NodeHarness {
           model ? model->Capability() : "llm", "mock");
     }
 
-    const auto definition = PipelineCatalog::FindNode(node_type_);
     input_keys_.clear();
     output_keys_.clear();
-
-    NodeInitContext init_ctx;
-    init_ctx.config = &config_;
-    init_ctx.session_ctx = session_ctx_.get();
-    init_diagnostic_.clear();
-    init_ctx.diagnostic = &init_diagnostic_;
-
-    if (use_plan_) {
-      if (definition) {
-        nlohmann::json doc = nlohmann::json::object();
-        std::string biz = "harness_biz";
-        doc["biz_name"] = biz;
-        doc["models"] = nlohmann::json::array();
-
-        nlohmann::json normalized_config;
-        if (!ValidateAndNormalizeFields(definition->config_fields, config_,
-                                        &normalized_config, nullptr)) {
-          normalized_config = config_;
-        }
-        std::unordered_set<std::string> declared_models;
-        for (const auto& dep : definition->model_dependencies) {
-          if (normalized_config.contains(dep.config_field) &&
-              normalized_config[dep.config_field].is_string()) {
-            std::string mid =
-                normalized_config[dep.config_field].get<std::string>();
-            if (!declared_models.insert(mid).second) continue;
-            const std::string mtype = "harness_dummy_m_" + dep.capability;
-            const std::string mbackend = "harness_dummy_b_" + dep.capability;
-            if (!ModelRegistry::Instance().Has(mtype)) {
-              ModelDefinition model_definition;
-              model_definition.model_type = mtype;
-              model_definition.capability = dep.capability;
-              model_definition.required_protocol =
-                  ExecutionProtocol::kTensorGraph;
-              model_definition.concurrency = InferenceConcurrency::kConcurrent;
-              ModelRegistry::Instance().Register(
-                  model_definition, [](const auto&, auto*) { return nullptr; });
-            }
-            if (!BackendRegistry::Instance().Has(mbackend)) {
-              BackendDefinition backend_definition;
-              backend_definition.backend_type = mbackend;
-              backend_definition.supported_protocols = {
-                  ExecutionProtocol::kTensorGraph};
-              backend_definition.concurrency =
-                  InferenceConcurrency::kConcurrent;
-              BackendRegistry::Instance().Register(backend_definition,
-                                                   []() { return nullptr; });
-            }
-            doc["models"].push_back({
-                {"model_id", mid},
-                {"capability", dep.capability},
-                {"model_type", mtype},
-                {"backend", mbackend},
-                {"model_path", "mock.bin"},
-                {"model_config", nlohmann::json::object()},
-                {"backend_config", nlohmann::json::object()},
-            });
-          }
-        }
-
-        nlohmann::json node_json = nlohmann::json::object();
-        node_json["id"] = "harness_node";
-        node_json["node_type"] = node_type_;
-        node_json["depends_on"] = nlohmann::json::array();
-        node_json["config"] = config_;
-
-        nlohmann::json ports_json = nlohmann::json::object();
-        ports_json["inputs"] = nlohmann::json::object();
-        ports_json["outputs"] = nlohmann::json::object();
-        for (const auto& in_def : definition->inputs) {
-          if (omitted_ports_.count(in_def.logical_name) == 0) {
-            ports_json["inputs"][in_def.logical_name] =
-                "bk_in_" + in_def.logical_name;
-          }
-        }
-        for (const auto& out_def : definition->outputs) {
-          ports_json["outputs"][out_def.logical_name] =
-              "bk_out_" + out_def.logical_name;
-        }
-        node_json["ports"] = std::move(ports_json);
-        doc["pipeline"] = nlohmann::json::array({std::move(node_json)});
-
-        auto plan_res = PipelineValidator::ValidateAndPlan(
-            doc, ValidationPolicy::kPrivateExtensionCompatible);
-        if (!plan_res.report.ok) {
-          std::string err_msg = "Configuration validation failed:";
-          for (const auto& d : plan_res.report.diagnostics) {
-            err_msg += " [" + d.path + "] " + d.message;
-          }
-          init_diagnostic_ = err_msg;
-          return false;
-        }
-
-        auto it = plan_res.node_plans.find("harness_node");
-        if (it != plan_res.node_plans.end()) {
-          plan_ = std::move(it->second);
-          for (const auto& p : plan_.ports) {
-            if (p.direction == PortDirection::kInput) {
-              input_keys_[p.logical_name] = p.blackboard_key;
-            } else if (p.direction == PortDirection::kOutput) {
-              output_keys_[p.logical_name] = p.blackboard_key;
-            }
-          }
-        }
-      }
-      init_ctx.plan = &plan_;
-    } else {
-      if (definition) {
-        for (const auto& in_def : definition->inputs) {
-          input_keys_[in_def.logical_name] = in_def.logical_name;
-        }
-        for (const auto& out_def : definition->outputs) {
-          output_keys_[out_def.logical_name] = out_def.logical_name;
-        }
-      }
+    plan_ = PrepareNodePlanForTest(node_type_, config_, omitted_ports_,
+                                   "bk_in_", "bk_out_", &init_diagnostic_);
+    if (!plan_) return false;
+    for (const auto& port : plan_->ports) {
+      auto& keys =
+          port.direction == PortDirection::kInput ? input_keys_ : output_keys_;
+      keys[port.logical_name] = port.blackboard_key;
     }
+    NodeInitContext init_ctx{plan_.get(), session_ctx_.get(),
+                             &init_diagnostic_};
 
     if (!node_->Init(init_ctx)) {
       if (init_diagnostic_.empty()) init_diagnostic_ = "Node Init failed";
@@ -376,16 +264,15 @@ class NodeHarness {
  private:
   std::string node_type_;
   nlohmann::json config_;
-  bool use_plan_ = true;
   std::unordered_map<std::string,
                      std::function<void(AlgContext&, const std::string&)>>
       custom_inputs_;
   std::unordered_map<std::string, std::shared_ptr<IModel>> models_;
   std::unordered_set<std::string> omitted_ports_;
 
-  std::unique_ptr<INode> node_;
   std::unique_ptr<SessionContext> session_ctx_;
-  ValidatedNodePlan plan_;
+  std::shared_ptr<ValidatedNodePlan> plan_;
+  std::unique_ptr<INode> node_;
   std::unordered_map<std::string, std::string> input_keys_;
   std::unordered_map<std::string, std::string> output_keys_;
   std::string init_diagnostic_;

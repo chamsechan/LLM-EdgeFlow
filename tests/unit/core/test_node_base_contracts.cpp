@@ -232,17 +232,18 @@ TEST(NodeBaseContractsTest, NullContextSafety) {
   ExceptionThrowingNode node;
   EXPECT_EQ(node.Process(nullptr),
             static_cast<int>(NodeRuntimeCode::kInvalidContext));
-  EXPECT_FALSE(InitNodeForTest(node, nlohmann::json::object(), nullptr));
+  EXPECT_FALSE(node.Init({}));
 }
 
 TEST(NodeBaseContractsTest, InitAndProcessExceptionSafety) {
   ExceptionThrowingNode fail_init_node(true);
   SessionContext session_ctx;
-  EXPECT_FALSE(
-      InitNodeForTest(fail_init_node, nlohmann::json::object(), &session_ctx));
 
   std::string diagnostic = "stale";
+  ValidatedNodePlan plan;
+  plan.normalized_config = nlohmann::json::object();
   NodeInitContext init_ctx;
+  init_ctx.plan = &plan;
   init_ctx.session_ctx = &session_ctx;
   init_ctx.diagnostic = &diagnostic;
   EXPECT_FALSE(fail_init_node.Init(init_ctx));
@@ -252,8 +253,8 @@ TEST(NodeBaseContractsTest, InitAndProcessExceptionSafety) {
   EXPECT_NE(diagnostic.find("SessionContext"), std::string::npos);
 
   ExceptionThrowingNode fail_proc_node(false);
-  EXPECT_TRUE(
-      InitNodeForTest(fail_proc_node, nlohmann::json::object(), &session_ctx));
+  init_ctx.session_ctx = &session_ctx;
+  EXPECT_TRUE(fail_proc_node.Init(init_ctx));
 
   AlgContext ctx;
   int ret = fail_proc_node.Process(&ctx);
@@ -287,7 +288,9 @@ class HelperTestNode : public NodeBase {
 TEST(NodeBaseContractsTest, RequireAndPublishHelpers) {
   HelperTestNode node;
   SessionContext session_ctx;
-  ASSERT_TRUE(InitNodeForTest(node, nlohmann::json::object(), &session_ctx));
+  ValidatedNodePlan plan;
+  plan.normalized_config = nlohmann::json::object();
+  ASSERT_TRUE(node.Init({&plan, &session_ctx}));
 
   // Missing input key
   {
@@ -365,7 +368,6 @@ TEST(NodeBaseContractsTest, BindingRejectsDefinitionRuntimeTypeDrift) {
 // 3. Mock Model Engine for ModelBoundNode and TraceableUnaryInferenceNode
 class MockAsrModel : public IAsrModel {
  public:
-  size_t GetMaxBatchSize() const noexcept override { return 16; }
   const std::string& ModelType() const noexcept override {
     static const std::string t = "mock_asr";
     return t;
@@ -400,9 +402,9 @@ class MockAsrModel : public IAsrModel {
 };
 
 inline constexpr BlackboardKey<AudioPcmBatch> kTestAudioInputs{
-    "test_audio_inputs", "traceable<pcm>[]"};
-inline constexpr BlackboardKey<TextBatch> kTestTranscripts{
-    "test_transcripts", "traceable<string>[]"};
+    "test_audio_inputs", "AudioPcmBatch"};
+inline constexpr BlackboardKey<TextBatch> kTestTranscripts{"test_transcripts",
+                                                           "TextBatch"};
 
 class MockTraceableAsrNode
     : public TraceableUnaryInferenceNode<IAsrModel, AudioPcmPayload,
@@ -423,6 +425,8 @@ TEST(NodeBaseContractsTest, TraceableUnaryInferenceNodeWorkflow) {
   test_support::RegistryTestAccess::ScopedNodeState state_guard;
   NodeDefinition definition;
   definition.node_type = MockTraceableAsrNode::kNodeType;
+  definition.inputs = {RequiredInputPort(kTestAudioInputs)};
+  definition.outputs = {OutputPort(kTestTranscripts)};
   definition.model_dependencies = {{"transcriber", "asr", "bind_model"}};
   definition.config_fields = {ConfigFieldDefinition{
       "bind_model", ConfigValueKind::kString, false, "test_asr_model"}};

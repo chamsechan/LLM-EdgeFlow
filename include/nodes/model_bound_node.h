@@ -4,9 +4,9 @@
 #include <string>
 #include <utility>
 
-#include "contracts/config_schema_validation.h"
 #include "core/pipeline_catalog.h"
 #include "engine/model_capability_traits.h"
+#include "nodes/model_binding.h"
 #include "nodes/node_base.h"
 
 namespace llm_edgeflow {
@@ -50,35 +50,10 @@ class ModelBoundNode : public NodeBase {
           "Node model capability does not match template capability");
     }
 
-    nlohmann::json normalized;
-    if (init_ctx.plan) {
-      const auto* binding = init_ctx.plan->FindModelBinding(dep.name);
-      if (!binding || binding->model_id.empty()) {
-        return init_ctx.Fail("Model binding for '" + dep.name +
-                             "' is missing or empty in plan");
-      }
-      if (binding->capability != dep.capability) {
-        return init_ctx.Fail("Model binding capability mismatch for '" +
-                             dep.name + "'");
-      }
-      model_id_ = binding->model_id;
-      normalized = init_ctx.plan->normalized_config;
-    } else {
-      std::vector<ConfigFieldValidationError> errors;
-      if (!ValidateAndNormalizeFields(definition->config_fields, config,
-                                      &normalized, &errors)) {
-        return init_ctx.Fail(errors.empty() ? "Invalid model Node configuration"
-                                            : errors.front().message);
-      }
-      model_id_.clear();
-      if (normalized.contains(dep.config_field) &&
-          normalized[dep.config_field].is_string()) {
-        model_id_ = normalized[dep.config_field].template get<std::string>();
-      }
-      if (model_id_.empty()) {
-        return init_ctx.Fail("Model binding field '" + dep.config_field +
-                             "' is empty");
-      }
+    std::string error;
+    if (!ResolveBoundModelId(*init_ctx.plan, dep.name, dep.capability,
+                             &model_id_, &error)) {
+      return init_ctx.Fail(error);
     }
 
     model_ = session_ctx.GetModelManager().GetModel<ModelCapability>(model_id_);
@@ -87,7 +62,7 @@ class ModelBoundNode : public NodeBase {
           "Model '" + model_id_ +
           "' is unavailable or has an incompatible capability");
     }
-    return InitModelNode(init_ctx, normalized, session_ctx);
+    return InitModelNode(init_ctx, config, session_ctx);
   }
 
   std::string model_id_;

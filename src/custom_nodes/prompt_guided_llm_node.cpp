@@ -239,7 +239,7 @@ class PromptGuidedLlmNode final : public ModelBoundNode<ILlmModel> {
     std::string error;
     auto parameters = PromptConfiguration().ParseNormalized(config, &error);
     if (!parameters) return init_ctx.Fail(error);
-    if (parameters->uses_context && init_ctx.plan && !context_port_.IsBound()) {
+    if (parameters->uses_context && !context_port_.IsBound()) {
       return init_ctx.Fail(
           "prompt_template uses context but context is not connected");
     }

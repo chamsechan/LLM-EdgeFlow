@@ -82,7 +82,7 @@ return answer;
 [多模型示例](../../dev_support/node_authoring/starter_multi_model_node.cpp)。它们用普通 `Run` 函数、
 `InputsOf`、`Parameters` 和 `ModelsOf` 声明输入、参数及模型槽位。输出数量变化、Control 等
 尚未被基础包装覆盖的需求，继续使用[高级生命周期模板](../../dev_support/node_authoring/starter_llm_node_advanced.cpp)。
-外部 C ABI 请求的字段选择与响应组装属于 Adapter，不能移到 Node 或 Demo；见
+外部 Operator 请求的字段选择与响应组装属于 Adapter，不能移到 Node 或 Demo；见
 [输入输出边界](business_onboarding.md#输入输出以-c-abi-为边界)。
 
 ## 4. 编译，让工具能够找到新节点
@@ -162,7 +162,7 @@ flowchart LR
 实际收到的提示词、后处理结果、多条输入的来源，以及输入快照未被修改。
 
 本练习的 `--write-test` 会创建并登记真实测试文件，使用 `NodeHarness` 注入输入与 mock，
-检查输出及模型调用。修改算法后同步填写独立业务期望；`--generate-test` 只打印注册片段。已有测试覆盖模型失败和错误来源时不发布输出；你的算法
+检查输出及模型调用。修改算法后同步填写独立业务期望。已有测试覆盖模型失败和错误来源时不发布输出；你的算法
 还应覆盖自己的边界输入。交付执行 `./scripts/run_all_tests.sh`，流程见
 [CONTRIBUTING](../../CONTRIBUTING.md)。
 

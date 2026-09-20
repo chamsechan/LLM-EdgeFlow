@@ -18,15 +18,7 @@
 #include "engine/fixed_batch_executor.h"
 #include "engine/model_interface.h"
 #include "platform_mock/operator_data_types.h"
-
-static std::string GetConfigPath(const std::string& rel_path) {
-  FILE* fp = fopen(rel_path.c_str(), "r");
-  if (fp) {
-    fclose(fp);
-    return rel_path;
-  }
-  return "../" + rel_path;
-}
+#include "tests/support/pipeline_test_utils.h"
 
 namespace llm_edgeflow {
 
@@ -44,8 +36,6 @@ class MockFaultyHardwareModel : public IEmbeddingModel {
   InferenceConcurrency Concurrency() const noexcept override {
     return InferenceConcurrency::kConcurrent;
   }
-  size_t GetMaxBatchSize() const noexcept override { return 4; }
-
   int Embed(const TextBatch& input_texts, const EmbeddingOptions&,
             EmbeddingBatch* output_embeddings) noexcept override {
     if (should_fail_) {
@@ -54,7 +44,7 @@ class MockFaultyHardwareModel : public IEmbeddingModel {
     }
 
     return FixedBatchExecutor::Execute<std::string, std::vector<float>>(
-        input_texts, BatchPolicy{GetMaxBatchSize(), GetMaxBatchSize()},
+        input_texts, BatchPolicy{4, 4},
         [](const BatchSlice& slice,
            std::vector<std::vector<float>>* batch_out) -> int {
           batch_out->assign(slice.execution_count,
@@ -117,8 +107,8 @@ class DeepDagNode : public INode {
  public:
   inline static constexpr char kNodeType[] = "DeepDagNode";
   bool Init(const NodeInitContext& init_ctx) override {
-    if (!init_ctx.config || !init_ctx.session_ctx) return false;
-    name_ = init_ctx.config->value("node_name", "DeepDagNode");
+    if (!init_ctx.plan || !init_ctx.session_ctx) return false;
+    name_ = init_ctx.plan->normalized_config.value("node_name", "DeepDagNode");
     return true;
   }
 
@@ -195,6 +185,7 @@ TEST_F(EngineFaultToleranceAndLifecycleTest,
 
 // 2. 5 层深度复杂波前 DAG 拓扑执行测试 (Layer 0 ~ Layer 4)
 TEST_F(EngineFaultToleranceAndLifecycleTest, Deep5LayerWavefrontDagExecution) {
+  llm_edgeflow::RegisterTestBizs({"deep_5_layer_dag"});
   using namespace llm_edgeflow;
 
   // 构建 5 层 11 节点复杂 DAG 图:
@@ -257,8 +248,7 @@ TEST_F(EngineFaultToleranceAndLifecycleTest, Deep5LayerWavefrontDagExecution) {
                                        {"depends_on", {"B1", "B2", "B3"}}}}}};
 
   Pipeline pipeline;
-  ASSERT_TRUE(pipeline.BuildFromJson(
-      deep_dag_config, nullptr, ValidationPolicy::kPrivateExtensionCompatible));
+  ASSERT_TRUE(BuildTestPipeline(pipeline, deep_dag_config, nullptr));
   EXPECT_EQ(pipeline.GetExecutionMode(), Pipeline::ExecutionMode::kParallel);
 
   const auto& layers = pipeline.GetTopologicalLayers();

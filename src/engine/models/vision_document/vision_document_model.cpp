@@ -1,5 +1,6 @@
 #include "engine/models/vision_document/vision_document_model.h"
 
+#include "contracts/diagnostic.h"
 #include "edgeflow/log.h"
 #include "engine/fixed_batch_executor.h"
 #include "engine/models/vision_document/image_decode.h"
@@ -40,11 +41,10 @@ std::shared_ptr<IModel> VisionDocumentModel::Create(
     model->options_.top_p = 1.0f;
     return model;
   } catch (const std::exception& e) {
-    inference_detail::SetDiagnostic(diagnostic, e.what());
+    SetDiagnosticNoexcept(diagnostic, e.what());
     return nullptr;
   } catch (...) {
-    inference_detail::SetDiagnostic(diagnostic,
-                                    "Unknown vision_document creation error");
+    SetDiagnosticNoexcept(diagnostic, "Unknown vision_document creation error");
     return nullptr;
   }
 }
@@ -60,8 +60,6 @@ const std::string& VisionDocumentModel::Capability() const noexcept {
 InferenceConcurrency VisionDocumentModel::Concurrency() const noexcept {
   return InferenceConcurrency::kConcurrent;
 }
-size_t VisionDocumentModel::GetMaxBatchSize() const noexcept { return 1; }
-
 int VisionDocumentModel::Recognize(const ImageRefBatch& images,
                                    OcrDocumentBatch* outputs) noexcept {
   if (!outputs) return -1;

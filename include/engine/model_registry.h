@@ -54,8 +54,6 @@ class ModelRegistry {
 
   std::vector<std::string> GetConflictErrors() const;
 
-  void ClearForTesting();
-
  private:
   struct Entry {
     ModelDefinition definition;

@@ -4,6 +4,7 @@
 #include "adapter/io_converter.h"
 #include "adapter/io_converter_registry.h"
 #include "contracts/inference_payloads.h"
+#include "tests/support/adapter_test_views.h"
 
 namespace llm_edgeflow {
 namespace {
@@ -36,7 +37,7 @@ TEST(IoConverterTest, ViewAccessorsAndPortBindings) {
   ExternalInputBatchView in_view;
   int sample_int = 42;
   in_view.count = 1;
-  in_view.leased_slots["slot_a"] = {&sample_int};
+  in_view.slots["slot_a"] = llm_edgeflow::BorrowInputForTest({&sample_int});
   in_view.slot_types["slot_a"] = "int";
 
   EXPECT_EQ(in_view.GetSlot<int>("slot_a", 0), &sample_int);
@@ -52,12 +53,12 @@ TEST(IoConverterTest, ViewAccessorsAndPortBindings) {
   EXPECT_EQ(in_view.GetSlot<int>("slot_shared", 1), nullptr);
 
   // 2. ExternalOutputBatchView 访问
-  ExternalOutputBatchView out_view;
+  TestOutputBatchView out_view;
   int out_sample = 0;
   out_view.count = 1;
   out_view.leased_slots["out_slot"] = {&out_sample};
   out_view.slot_types["out_slot"] = "int";
-  out_view.slot_capacities["out_slot"]["field_1"] = 1024;
+  out_view.SetCapacity("out_slot", "field_1", 1024);
   EXPECT_EQ(out_view.GetSlot<int>("out_slot", 0), &out_sample);
   EXPECT_EQ(out_view.GetSlot<float>("out_slot", 0), nullptr);
   EXPECT_EQ(out_view.GetSlotCapacity("out_slot", "field_1"), 1024U);
@@ -85,7 +86,7 @@ TEST(IoConverterTest, RegisterAndFindInputConverter) {
 
   InputConverterDefinition def;
   def.converter_id = "test.input.operator.v1";
-  def.transport = "operator";
+
   def.schema_id = "test_input";
   def.schema_version = 1;
   def.external_type = "int";
@@ -100,7 +101,7 @@ TEST(IoConverterTest, RegisterAndFindInputConverter) {
   const auto* found = reg.FindInputConverter("test.input.operator.v1");
   ASSERT_NE(found, nullptr);
   EXPECT_EQ(found->converter_id, "test.input.operator.v1");
-  EXPECT_EQ(found->transport, "operator");
+
   EXPECT_EQ(found->logical_ports.size(), 1U);
 
   // 重复注册拒绝并记录冲突
@@ -113,7 +114,7 @@ TEST(IoConverterTest, RegisterAndFindOutputConverter) {
 
   OutputConverterDefinition def;
   def.converter_id = "test.output.operator.v1";
-  def.transport = "operator";
+
   def.schema_id = "test_output";
   def.schema_version = 1;
   def.external_type = "int";
@@ -128,7 +129,6 @@ TEST(IoConverterTest, RegisterAndFindOutputConverter) {
   const auto* found = reg.FindOutputConverter("test.output.operator.v1");
   ASSERT_NE(found, nullptr);
   EXPECT_EQ(found->converter_id, "test.output.operator.v1");
-  EXPECT_EQ(found->transport, "operator");
 }
 
 TEST(IoConverterTest, RejectsInvalidDefinitions) {
@@ -137,8 +137,7 @@ TEST(IoConverterTest, RejectsInvalidDefinitions) {
   bad_in.decode_fn = &DummyDecode;
   EXPECT_FALSE(IoConverterRegistry::Instance().RegisterInputConverter(bad_in));
 
-  bad_in.converter_id = "bad.in.transport";
-  bad_in.transport = "invalid_transport";
+  bad_in.converter_id = "bad.in";
   bad_in.schema_id = "test";
   bad_in.schema_version = 1;
   bad_in.external_type = "int";
@@ -147,12 +146,6 @@ TEST(IoConverterTest, RejectsInvalidDefinitions) {
   bad_in.max_batch_size = 64;
   bad_in.logical_ports = {
       NodePortDefinition("texts", "TextBatch", true, "1:1")};
-  EXPECT_FALSE(IoConverterRegistry::Instance().RegisterInputConverter(bad_in));
-
-  bad_in.transport = "cabi";  // cabi must be rejected!
-  EXPECT_FALSE(IoConverterRegistry::Instance().RegisterInputConverter(bad_in));
-
-  bad_in.transport = "operator";
   bad_in.decode_fn = nullptr;
   EXPECT_FALSE(IoConverterRegistry::Instance().RegisterInputConverter(bad_in));
 
@@ -190,7 +183,7 @@ TEST(IoConverterTest, RejectsInvalidDefinitions) {
 
   OutputConverterDefinition bad_out;
   bad_out.converter_id = "bad.out";
-  bad_out.transport = "operator";
+
   bad_out.schema_id = "test";
   bad_out.schema_version = 1;
   bad_out.external_type = "int";
@@ -208,7 +201,7 @@ TEST(IoConverterTest, ExactSlotLookupAndTypeSafety) {
   // 1. shared_ptr (slots) path
   ExternalInputBatchView v;
   v.count = 1;
-  v.type_id = "ReproA";
+
   auto b_ptr = std::make_shared<ReproB>();
   v.slots["channel.slot"] = {b_ptr};
   v.slot_types["channel.slot"] = "ReproB";
@@ -221,21 +214,21 @@ TEST(IoConverterTest, ExactSlotLookupAndTypeSafety) {
   EXPECT_EQ(v.GetSlot<ReproB>("slot", 0), nullptr);
   EXPECT_EQ(v.GetSlot<ReproA>("slot", 0), nullptr);
 
-  // 2. leased_slots path
-  ExternalInputBatchView v_leased;
-  v_leased.count = 1;
-  v_leased.type_id = "ReproA";
-  ReproB raw_b;
-  v_leased.leased_slots["channel.slot"] = {&raw_b};
-  v_leased.slot_types["channel.slot"] = "ReproB";
+  v.slot_types.clear();
+  EXPECT_EQ(v.GetSlot<ReproB>("channel.slot", 0), nullptr);
 
-  // Exact lookup with correct type succeeds
-  EXPECT_EQ(v_leased.GetSlot<ReproB>("channel.slot", 0), &raw_b);
-  // Exact lookup with wrong type returns nullptr
-  EXPECT_EQ(v_leased.GetSlot<ReproA>("channel.slot", 0), nullptr);
-  // Short suffix lookup must NOT fallback: returns nullptr
-  EXPECT_EQ(v_leased.GetSlot<ReproB>("slot", 0), nullptr);
-  EXPECT_EQ(v_leased.GetSlot<ReproA>("slot", 0), nullptr);
+  TestOutputBatchView output;
+  output.leased_slots["channel.slot"] = {b_ptr.get()};
+  EXPECT_EQ(output.GetSlot<ReproB>("channel.slot", 0), nullptr);
+  output.slot_types["channel.slot"] = "ReproB";
+  EXPECT_EQ(output.GetSlot<ReproB>("channel.slot", 0), b_ptr.get());
+  EXPECT_EQ(output.GetSlot<ReproA>("channel.slot", 0), nullptr);
+  EXPECT_EQ(output.GetSlot<ReproB>("slot", 0), nullptr);
+  output.SetCapacity("channel.slot", "bytes", 512);
+  ASSERT_NE(output.GetPoolSpec("channel.slot"), nullptr);
+  EXPECT_EQ(output.GetPoolSpec("slot"), nullptr);
+  EXPECT_EQ(output.GetSlotCapacity("channel.slot", "bytes"), 512U);
+  EXPECT_EQ(output.GetSlotCapacity("slot", "bytes", 7), 7U);
 
   // 3. Multi-slot ambiguity resolution: distinct logical slots of same type
   ExternalInputBatchView multi;
@@ -263,7 +256,7 @@ TEST(IoConverterTest,
   // 1. Input converter with empty type_suffix must be rejected
   InputConverterDefinition bad_in;
   bad_in.converter_id = "test.empty_suffix.in";
-  bad_in.transport = "operator";
+
   bad_in.schema_id = "test_schema";
   bad_in.schema_version = 1;
   bad_in.external_type = "int";
@@ -279,7 +272,7 @@ TEST(IoConverterTest,
   // 2. Output converter with empty type_suffix must be rejected
   OutputConverterDefinition bad_out;
   bad_out.converter_id = "test.empty_suffix.out";
-  bad_out.transport = "operator";
+
   bad_out.schema_id = "test_schema";
   bad_out.schema_version = 1;
   bad_out.external_type = "int";
@@ -296,7 +289,7 @@ TEST(IoConverterTest,
   // successfully
   InputConverterDefinition multi_in;
   multi_in.converter_id = "test.multi_slot.in";
-  multi_in.transport = "operator";
+
   multi_in.schema_id = "test_schema";
   multi_in.schema_version = 1;
   multi_in.external_type = "int";

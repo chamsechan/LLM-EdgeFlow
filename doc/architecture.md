@@ -10,7 +10,7 @@
 
 | 职责名称 | 英文名称 | 源码归属 | 构建目标 |
 | :--- | :--- | :--- | :--- |
-| 接入适配层 | Integration | `include/adapter/`、`include/edgeflow/operator/`、`src/adapter/` 及公共 C ABI | `edgeflow_integration_objects` |
+| 接入适配层 | Integration | `include/adapter/`、`include/edgeflow/operator/`、`src/adapter/` 及 C++ Operator 接口 | `edgeflow_integration_objects` |
 | 流程编排层 | Orchestration | `include/core/`、`src/core/` | `edgeflow_orchestration_objects` |
 | 能力节点层 | Capability Nodes | `include/nodes/`、`src/common_nodes/`、`src/custom_nodes/` | `edgeflow_capability_nodes_objects` |
 | 模型执行层 | Model Execution | `include/engine/`、`src/engine/` | `edgeflow_model_execution_objects` |
@@ -165,7 +165,7 @@ Demo 不得提前拆解请求或在 SDK 返回后补组业务响应；内部节�
 - 目标共享库输出名称为 `company_alg_sdk`，产品 VERSION 为 11.0.0，
   SOVERSION/ABI major 为 7。
 - v4 Create 和配置预检都以必填部署根 `model_path` 加相对 `cfg_file_name` 解析；
-  `.conf` 的 `data.outputs` 按逻辑槽位归一化输出类型、分配方案、参数与容量；
+  Pipeline 的 `deployment.io.output_allocations` 按逻辑槽位归一化输出类型、分配方案、参数与容量；
   最外层的独立配置读取组件按固定枚举提取配置并返回字符串，注册方案在 Create
   将自己的参数文本解析为普通 C++ 结构；分配和业务转换共享该不可变结构。
   每个逻辑输出槽位拥有独立输出池，
@@ -208,7 +208,7 @@ Demo 不得提前拆解请求或在 SDK 返回后补组业务响应；内部节�
 图像文档识别沿用 `OcrDetectNode → IOcrModel`：`VisionDocumentModel` 在模型执行层
 通过中性 `IImageTextGenerationSession` 调用 Kite，Model 负责图像解码与识别指令，
 Backend 负责原生 RGB/聊天输入映射和运行资源。识别结果仅填充 `combined_text`，不伪造
-`boxes` 或置信度；原有 C ABI/Operator、DAG 端口和请求溯源保持原样。
+`boxes` 或置信度；Operator、DAG 端口和请求溯源遵守各层契约。
 
 生成向量接入遵循相同分层：`generated_text_embedding` 实现 `IEmbeddingModel`，
 经 `IGeneratedTokenEmbeddingSession` 获得生成 token 隐藏向量；Model 独占 prompt、

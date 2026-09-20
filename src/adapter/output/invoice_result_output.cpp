@@ -106,14 +106,14 @@ int EncodeOperatorInvoiceResult(AlgContext* context,
 OutputConverterDefinition MakeOperatorInvoiceResultOutputConverter() {
   OutputConverterDefinition def;
   def.converter_id = "invoice_result.plain.operator.v1";
-  def.transport = "operator";
+
   def.schema_id = "invoice_result.plain.response";
   def.schema_version = 1;
   def.external_type = "CompanyOdOutput";
   def.cardinality = "1:1";
   def.max_batch_size = 64;
   def.capacity_policy = "reject_overflow";
-  def.thread_model = "stateless";
+
   def.external_slots = {{"od_out",
                          "CompanyOdOutput",
                          PortDirection::kOutput,

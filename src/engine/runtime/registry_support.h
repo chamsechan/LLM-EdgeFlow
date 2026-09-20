@@ -12,11 +12,6 @@
 
 namespace llm_edgeflow::registry_support {
 
-inline void SetDiagnostic(std::string* diagnostic,
-                          std::string_view message) noexcept {
-  SetDiagnosticNoexcept(diagnostic, message);
-}
-
 template <typename Mutex>
 void RecordConflict(Mutex& mutex, bool& has_conflict,
                     std::vector<std::string>& errors,
@@ -92,15 +87,6 @@ std::vector<std::string> GetConflictErrors(
     Mutex& mutex, const std::vector<std::string>& errors) {
   std::lock_guard<Mutex> lock(mutex);
   return errors;
-}
-
-template <typename Mutex, typename EntryMap>
-void Clear(Mutex& mutex, EntryMap& entries, bool& has_conflict,
-           std::vector<std::string>& errors) {
-  std::lock_guard<Mutex> lock(mutex);
-  entries.clear();
-  has_conflict = false;
-  errors.clear();
 }
 
 }  // namespace llm_edgeflow::registry_support

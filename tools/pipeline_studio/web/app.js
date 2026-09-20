@@ -260,9 +260,9 @@ async function loadCatalog(biz = "") {
   return catalogRequests.run(
     () => api(`/catalog${biz ? `?biz=${encodeURIComponent(biz)}` : ""}`),
     catalog => {
-      if (catalog.schema_version !== 3) {
+      if (catalog.schema_version !== 4) {
         state.catalogReady = false;
-        const msg = `不支持的 Catalog 版本 (v${catalog.schema_version})，Pipeline Studio 要求 Catalog v3。请升级或重新构建后端工具。`;
+        const msg = `不支持的 Catalog 版本 (v${catalog.schema_version})，Pipeline Studio 要求 Catalog v4。请升级或重新构建后端工具。`;
         toast(msg, true);
         clearValidation(msg);
         renderOperators();
@@ -391,9 +391,9 @@ async function refreshLists() {
     await loadCatalog(state.pipeline.biz_name);
   } else {
     catalogRequests.invalidate();
-    if (allCatalog.schema_version !== 3) {
+    if (allCatalog.schema_version !== 4) {
       state.catalogReady = false;
-      const msg = `不支持的 Catalog 版本 (v${allCatalog.schema_version})，Pipeline Studio 要求 Catalog v3。请升级或重新构建后端工具。`;
+      const msg = `不支持的 Catalog 版本 (v${allCatalog.schema_version})，Pipeline Studio 要求 Catalog v4。请升级或重新构建后端工具。`;
       toast(msg, true);
       clearValidation(msg);
       renderOperators();

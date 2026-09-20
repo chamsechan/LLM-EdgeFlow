@@ -114,14 +114,14 @@ int EncodeOperatorAudioResult(AlgContext* context,
 OutputConverterDefinition MakeOperatorAudioResultOutputConverter() {
   OutputConverterDefinition def;
   def.converter_id = "audio_result.plain.operator.v1";
-  def.transport = "operator";
+
   def.schema_id = "audio_result.plain.response";
   def.schema_version = 1;
   def.external_type = "CompanyOperatorAudioOutput";
   def.cardinality = "1:1";
   def.max_batch_size = 64;
   def.capacity_policy = "reject_overflow";
-  def.thread_model = "stateless";
+
   def.external_slots = {{"audio_out",
                          "CompanyOperatorAudioOutput",
                          PortDirection::kOutput,

@@ -14,7 +14,6 @@ int ValidateAndExtractOperatorInputs(
     return -3;
   }
   out_view->count = inputs.size();
-  out_view->type_id = in_conv.external_type;
   out_view->slots.clear();
   out_view->slot_types.clear();
   for (const auto& slot : in_conv.external_slots) {

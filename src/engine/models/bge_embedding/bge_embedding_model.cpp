@@ -204,11 +204,6 @@ InferenceConcurrency BgeEmbeddingModel::Concurrency() const noexcept {
   return InferenceConcurrency::kConcurrent;
 }
 
-size_t BgeEmbeddingModel::GetMaxBatchSize() const noexcept {
-  return ConstrainModelBatchPolicy(session_.get(), max_batch_size_)
-      .max_batch_size;
-}
-
 int BgeEmbeddingModel::Embed(const TextBatch& inputs,
                              const EmbeddingOptions& options,
                              EmbeddingBatch* outputs) noexcept {

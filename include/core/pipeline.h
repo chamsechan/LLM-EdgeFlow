@@ -43,17 +43,6 @@ class Pipeline {
   ~Pipeline();
 
   /**
-   * @brief 从 JSON 配置文件构建整条管线 (包含严格校验、模型加载、DAG
-   * 拓扑分层与执行器组装)
-   */
-  bool BuildFromConfigFile(const std::string& config_file_path,
-                           PipelineDiagnostic* diagnostic = nullptr,
-                           ValidationPolicy policy = ValidationPolicy::kStrict);
-  bool BuildFromJson(const nlohmann::json& root_config,
-                     PipelineDiagnostic* diagnostic = nullptr,
-                     ValidationPolicy policy = ValidationPolicy::kStrict);
-
-  /**
    * @brief 从已验证的管线计划构建整条管线 (接收所有权，避免重复验证与物化)
    */
   bool BuildFromPlan(std::unique_ptr<ValidatedPipelinePlan> plan,
@@ -82,10 +71,10 @@ class Pipeline {
   const std::string& GetBizName() const { return plan_->config.biz_name; }
   ExecutionMode GetExecutionMode() const { return execution_mode_; }
   const std::vector<std::string>& GetTopologicalOrder() const {
-    return plan_->topological_order;
+    return plan_->report.topological_order;
   }
   const std::vector<std::vector<std::string>>& GetTopologicalLayers() const {
-    return plan_->topological_layers;
+    return plan_->report.topological_layers;
   }
   const ValidatedPipelinePlan& GetPlan() const { return *plan_; }
 
@@ -96,9 +85,6 @@ class Pipeline {
   };
   static NodeExecutionResult ExecuteNodeSafely(INode* node, AlgContext* req_ctx,
                                                std::string_view node_id);
-
-  bool BuildInternal(const nlohmann::json& root_config,
-                     PipelineDiagnostic* diagnostic, ValidationPolicy policy);
 
   friend class PipelineConfigTest;
   std::function<void()> test_internal_hook_;

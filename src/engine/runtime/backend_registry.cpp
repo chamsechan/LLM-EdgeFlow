@@ -6,6 +6,7 @@
 #include <utility>
 
 #include "contracts/config_schema_validation.h"
+#include "contracts/diagnostic.h"
 #include "engine/runtime/registry_support.h"
 
 namespace llm_edgeflow {
@@ -111,8 +112,8 @@ std::unique_ptr<IInferenceBackend> BackendRegistry::Create(
       std::lock_guard<std::mutex> lock(mutex_);
       auto it = entries_.find(backend_type);
       if (it == entries_.end()) {
-        registry_support::SetDiagnostic(
-            diagnostic, "Unknown backend type: " + backend_type);
+        SetDiagnosticNoexcept(diagnostic,
+                              "Unknown backend type: " + backend_type);
         return nullptr;
       }
       creator = it->second.creator;
@@ -121,28 +122,24 @@ std::unique_ptr<IInferenceBackend> BackendRegistry::Create(
     try {
       return creator();
     } catch (const std::exception& error) {
-      registry_support::SetDiagnostic(
-          diagnostic,
-          "Exception creating backend " + backend_type + ": " + error.what());
+      SetDiagnosticNoexcept(diagnostic, "Exception creating backend " +
+                                            backend_type + ": " + error.what());
       return nullptr;
     } catch (...) {
-      registry_support::SetDiagnostic(
+      SetDiagnosticNoexcept(
           diagnostic, "Unknown exception creating backend " + backend_type);
       return nullptr;
     }
   } catch (const std::exception& error) {
     try {
-      registry_support::SetDiagnostic(
-          diagnostic,
-          "Exception preparing backend " + backend_type + ": " + error.what());
+      SetDiagnosticNoexcept(diagnostic, "Exception preparing backend " +
+                                            backend_type + ": " + error.what());
     } catch (...) {
-      registry_support::SetDiagnostic(diagnostic,
-                                      "Exception preparing backend");
+      SetDiagnosticNoexcept(diagnostic, "Exception preparing backend");
     }
     return nullptr;
   } catch (...) {
-    registry_support::SetDiagnostic(diagnostic,
-                                    "Unknown exception preparing backend");
+    SetDiagnosticNoexcept(diagnostic, "Unknown exception preparing backend");
     return nullptr;
   }
 }
@@ -168,10 +165,6 @@ bool BackendRegistry::HasConflict() const noexcept {
 
 std::vector<std::string> BackendRegistry::GetConflictErrors() const {
   return registry_support::GetConflictErrors(mutex_, conflict_errors_);
-}
-
-void BackendRegistry::ClearForTesting() {
-  registry_support::Clear(mutex_, entries_, has_conflict_, conflict_errors_);
 }
 
 }  // namespace llm_edgeflow

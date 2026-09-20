@@ -33,12 +33,9 @@ class QwenCausalLmModel final : public ILlmModel {
   const std::string& ModelType() const noexcept override;
   const std::string& Capability() const noexcept override;
   InferenceConcurrency Concurrency() const noexcept override;
-  size_t GetMaxBatchSize() const noexcept override;
 
   int Generate(const TextBatch& prompts, const GenerateOptions& options,
                TextBatch* outputs) noexcept override;
-
-  static void StripIncompleteUtf8Suffix(std::string* text) noexcept;
 
  private:
   int GenerateOne(const TraceableItem<std::string>& prompt,

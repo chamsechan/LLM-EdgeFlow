@@ -715,9 +715,9 @@ class PipelineCliTest(unittest.TestCase):
 
         cases = [
             ("missing_with_override", missing_doc, "MISSING_FIELD"),
-            ("null_with_override", null_doc, "INVALID_MODEL_PATH"),
-            ("empty_with_override", empty_doc, "INVALID_MODEL_PATH"),
-            ("number_with_override", number_doc, "INVALID_MODEL_PATH"),
+            ("null_with_override", null_doc, "FIELD_TYPE"),
+            ("empty_with_override", empty_doc, "FIELD_RANGE"),
+            ("number_with_override", number_doc, "FIELD_TYPE"),
         ]
 
         # Add paired without-override cases to prove the identical structural requirements
@@ -737,10 +737,6 @@ class PipelineCliTest(unittest.TestCase):
                     self.assertEqual(res["diagnostics"][0]["path"], "/models/0/model_path")
                     if ep[0] == "plan":
                         self.assertEqual(res["plan"], {"layers": [], "topological_order": []})
-
-    def test_rfc0062_cli_raw_model_path_required_even_with_override(self):
-        # Alias for backward compatibility
-        self.test_rfc0062_cli_raw_model_path_required_even_with_override_t03()
 
     def test_rfc0062_cli_plan_envelopes_t16(self):
         # T16 via CLI: plan returns envelope with diagnostics on deployment preparation failure,

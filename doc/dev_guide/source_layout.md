@@ -68,17 +68,16 @@ src/adapter/
 
 | 名称 | 含义 |
 | --- | --- |
-| `AdapterName()` / `AdapterDescriptor.adapter_name` | Adapter 标识，例如 `DocQA` |
-| `AdapterDescriptor.biz_definitions` | Adapter 支持的业务 I/O 契约集合，不是 Pipeline 实例 |
+| `InputConverterDefinition.converter_id` / `OutputConverterDefinition.converter_id` | 独立输入、输出转换器标识 |
+| `IoBindingDefinition.binding_id` | 连接业务、转换器及外部逻辑槽位的接入绑定 |
 | `BizDefinition.biz_name` | Pipeline 绑定的契约 ID，例如 `smart_doc_qa_v1` |
 | `BizDefinition.demo_biz` | Demo 入口，例如 `doc_qa` |
 | `NodePortDefinition.logical_name` | Node 的逻辑端口名称，由 Pipeline 映射到具体黑板键 |
 | `BizPortDefinition.blackboard_key` | 业务 ingress/egress 使用的实际黑板键 |
-| `AdapterDescriptor.sdk_abi_version` | 与生成的 `COMPANY_ALG_ABI_VERSION` 一致的公共 SDK ABI |
 
 业务端口使用 `RequiredBizInput`、`OptionalBizInput`、`BizOutput`；Node 端口使用
 `RequiredInputPort`、`OptionalInputPort`、`OutputPort`。两种端口类型不可相互隐式转换。
-Catalog JSON 为兼容现有消费者，继续在两种声明中输出 `key`，由所属集合表达角色。
+Catalog JSON 在两种端口声明中输出 `key`，由所属集合表达逻辑端口或业务黑板键。
 
 `core/port_definition.h`、`core/node_definition.h`、`core/biz_definition.h` 分别维护
 端口、Node 和业务元数据，Catalog 服务在 `core/pipeline_catalog.h`。
@@ -94,7 +93,7 @@ Catalog JSON 为兼容现有消费者，继续在两种声明中输出 `key`，�
 | `edgeflow/export.h` | 符号可见性宏 |
 | `edgeflow/log.h` | 统一日志入口 |
 | `edgeflow/version.h` | 版本头（由 CMake 生成） |
-| `edgeflow/operator/interface.h` | Operator 纯 C 接口及函数表 |
+| `edgeflow/operator/interface.h` | C++ Operator 接口及函数表 |
 | `edgeflow/operator/types.h` | Operator 平台交互类型门面（转发至 platform_mock） |
 
 `Company*`、公共宏、C++ Operator 公开函数签名、结构布局及 `libcompany_alg_sdk`
@@ -102,10 +101,9 @@ Catalog JSON 为兼容现有消费者，继续在两种声明中输出 `key`，�
 
 `edgeflow/operator/types.h` 转发到 `platform_mock/operator_data_types.h`，
 Operator 平台交互类型集中在 `platform_mock/operator_types.h`，错误码来自 `platform_mock/error_codes.h`。
-现有兼容范围是本仓库的调用约定，真实公司公共头需要在授权内网单独核对和接入。
+真实公司公共头需要在授权内网单独核对和接入。
 
-示例配置与 Profile 的旧新名称见[配置迁移表](../../configs/README.md)。Pipeline JSON
-业务 ID、节点类型、模型和 Backend ID、端口绑定以及算法参数均保持原样。
+示例配置和 Profile 的命名见[配置说明](../../configs/README.md)。
 
 `common_nodes/custom_nodes`、`models/backends`、`dev_support/tests/support` 的现有
 职责划分继续适用。历史 RFC 和审计报告保留当时的名称与路径。

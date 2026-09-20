@@ -121,7 +121,7 @@ TextTemplate 的 `max_length` 是 UTF-8 字节预算，生成的 `max_tokens` �
 // Definition 与解析器使用同一份字段声明。
 def.config_fields = PromptConfiguration().Fields();
 
-// InitModelNode 已由 ModelBoundNode 校验并补齐配置。
+// InitModelNode 消费 Validator 已校验并补齐的 Plan 配置。
 auto next = PromptConfiguration().ParseNormalized(config, &error);
 if (!next) return init_ctx.Fail(error);
 config_ = std::move(*next);
@@ -131,8 +131,8 @@ config_ = std::move(*next);
 
 | 调用位置 | 使用方法 |
 | --- | --- |
-| 普通 `NodeBase::InitNode`，或已解码的 Control 参数 | `Parse(config, &error)`：复用 `ValidateAndNormalizeFields`，再做语义解析 |
-| `Definition.validate_config`、`ModelBoundNode::InitModelNode` | `ParseNormalized(config, &error)`：直接使用已按同一份字段列表校验、补齐的对象 |
+| 已解码的 Control 参数 | `Parse(config, &error)`：复用 `ValidateAndNormalizeFields`，再做语义解析 |
+| `Definition.validate_config`、`NodeBase::InitNode`、`ModelBoundNode::InitModelNode` | `ParseNormalized(config, &error)`：直接使用已按同一份字段列表校验、补齐的对象 |
 
 两种方法都返回 `std::optional<YourConfig>`；失败或异常只返回空值与诊断，不发布半成品。
 预检和初始化分别执行同一份语义规则；它们之间没有参数缓存。Process 只使用保存后的

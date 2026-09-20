@@ -24,11 +24,7 @@ bool IoBindingRegistry::RegisterBinding(const IoBindingDefinition& def) {
                                def.binding_id);
     return false;
   }
-  if (def.transport != "operator") {
-    conflict_errors_.push_back("Invalid transport '" + def.transport +
-                               "' in IoBindingDefinition: " + def.binding_id);
-    return false;
-  }
+
   if (def.input_converter_id.empty()) {
     conflict_errors_.push_back(
         "Empty input_converter_id in IoBindingDefinition: " + def.binding_id);
@@ -56,20 +52,6 @@ bool IoBindingRegistry::RegisterExposure(const BizExposureDefinition& def) {
   if (def.biz_name.empty()) {
     conflict_errors_.push_back("Empty biz_name in BizExposureDefinition");
     return false;
-  }
-  if (def.required_transports.empty()) {
-    conflict_errors_.push_back(
-        "Empty required_transports in BizExposureDefinition for: " +
-        def.biz_name);
-    return false;
-  }
-  for (const auto& t : def.required_transports) {
-    if (t != "operator") {
-      conflict_errors_.push_back(
-          "Invalid transport '" + t +
-          "' in required_transports for: " + def.biz_name);
-      return false;
-    }
   }
 
   auto it = exposures_.find(def.biz_name);
@@ -162,12 +144,6 @@ bool IoBindingRegistry::Audit(std::vector<std::string>* out_errors) const {
                        "' references unregistered input_converter: " +
                        binding.input_converter_id);
     } else {
-      if (in_conv->transport != binding.transport) {
-        errors.push_back("Binding '" + binding_id + "' transport '" +
-                         binding.transport +
-                         "' does not match input converter transport '" +
-                         in_conv->transport + "'");
-      }
       if (in_conv->max_batch_size == 0) {
         errors.push_back(
             "Binding '" + binding_id +
@@ -235,12 +211,6 @@ bool IoBindingRegistry::Audit(std::vector<std::string>* out_errors) const {
                        "' references unregistered output_converter: " +
                        binding.output_converter_id);
     } else {
-      if (out_conv->transport != binding.transport) {
-        errors.push_back("Binding '" + binding_id + "' transport '" +
-                         binding.transport +
-                         "' does not match output converter transport '" +
-                         out_conv->transport + "'");
-      }
       if (out_conv->max_batch_size == 0) {
         errors.push_back(
             "Binding '" + binding_id +
@@ -316,36 +286,35 @@ bool IoBindingRegistry::Audit(std::vector<std::string>* out_errors) const {
       }
     }
 
-    // 4. 若为 Operator 传输协议，检查对应槽位的 ValueType 绑定
-    if (binding.transport == "operator") {
-      if (in_conv) {
-        for (const auto& slot : in_conv->external_slots) {
-          if (slot.direction != PortDirection::kInput) continue;
-          const auto* val_binding =
-              OperatorValueTypeRegistry::Instance().GetBindingBySuffix(
-                  slot.type_suffix);
-          if (!val_binding) {
-            errors.push_back(
-                "Binding '" + binding_id + "' input slot '" + slot.slot_name +
-                "' uses unregistered ValueType suffix: " + slot.type_suffix);
-          } else if (!val_binding->validate_external) {
-            errors.push_back("Binding '" + binding_id + "' input slot '" +
-                             slot.slot_name + "' ValueType suffix '" +
-                             slot.type_suffix + "' missing validate_external");
-          }
+    // 4. 检查对应槽位的 ValueType 绑定
+
+    if (in_conv) {
+      for (const auto& slot : in_conv->external_slots) {
+        if (slot.direction != PortDirection::kInput) continue;
+        const auto* val_binding =
+            OperatorValueTypeRegistry::Instance().GetBindingBySuffix(
+                slot.type_suffix);
+        if (!val_binding) {
+          errors.push_back(
+              "Binding '" + binding_id + "' input slot '" + slot.slot_name +
+              "' uses unregistered ValueType suffix: " + slot.type_suffix);
+        } else if (!val_binding->validate_external) {
+          errors.push_back("Binding '" + binding_id + "' input slot '" +
+                           slot.slot_name + "' ValueType suffix '" +
+                           slot.type_suffix + "' missing validate_external");
         }
       }
-      if (out_conv) {
-        for (const auto& slot : out_conv->external_slots) {
-          if (slot.direction != PortDirection::kOutput) continue;
-          const auto* val_binding =
-              OperatorValueTypeRegistry::Instance().GetOutputBinding(
-                  slot.type_suffix, "");
-          if (!val_binding) {
-            errors.push_back(
-                "Binding '" + binding_id + "' output slot '" + slot.slot_name +
-                "' uses unregistered ValueType suffix: " + slot.type_suffix);
-          }
+    }
+    if (out_conv) {
+      for (const auto& slot : out_conv->external_slots) {
+        if (slot.direction != PortDirection::kOutput) continue;
+        const auto* val_binding =
+            OperatorValueTypeRegistry::Instance().GetOutputBinding(
+                slot.type_suffix, "");
+        if (!val_binding) {
+          errors.push_back(
+              "Binding '" + binding_id + "' output slot '" + slot.slot_name +
+              "' uses unregistered ValueType suffix: " + slot.type_suffix);
         }
       }
     }
@@ -353,20 +322,16 @@ bool IoBindingRegistry::Audit(std::vector<std::string>* out_errors) const {
 
   // 4. 检查生产曝光集合是否都有可用绑定
   for (const auto& [biz_name, exposure] : exposures_) {
-    for (const auto& req_transport : exposure.required_transports) {
-      bool found = false;
-      for (const auto& [_, binding] : bindings_) {
-        if (binding.biz_name == biz_name &&
-            binding.transport == req_transport) {
-          found = true;
-          break;
-        }
+    bool found = false;
+    for (const auto& [_, binding] : bindings_) {
+      if (binding.biz_name == biz_name) {
+        found = true;
+        break;
       }
-      if (!found) {
-        errors.push_back(
-            "Production exposure for biz '" + biz_name +
-            "' lacks valid binding for required transport: " + req_transport);
-      }
+    }
+    if (!found) {
+      errors.push_back("Production exposure for biz '" + biz_name +
+                       "' lacks a valid Operator binding");
     }
   }
 

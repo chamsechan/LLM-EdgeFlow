@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "adapter/biz_blackboard_keys.h"
+#include "adapter/deployment_model_resolver.h"
 #include "adapter/io_binding_registry.h"
 #include "adapter/io_converter_registry.h"
 #include "adapter/operator/operator_config_resolver.h"
@@ -23,6 +24,7 @@
 #include "edgeflow/operator/interface.h"
 #include "edgeflow/operator/types.h"
 #include "engine/backend_registry.h"
+#include "tests/support/adapter_test_views.h"
 #include "tests/support/control_test_utils.h"
 #include "tests/support/operator_nested_output_fixture.h"
 
@@ -1192,8 +1194,7 @@ TEST_F(OperatorApiTest, OutputsConfigValidationFailClosed) {
     })";
   }
   EXPECT_EQ(ops_.Create(&handle, &param), -2);
-  EXPECT_NE(std::string(GetOperatorLastError())
-                .find("Deprecated deployment configuration format (RFC-0061)"),
+  EXPECT_NE(std::string(GetOperatorLastError()).find("Unknown field"),
             std::string::npos);
 
   // 0b. 未知字段 mem_que 在 deployment.io 中严格拒绝 -> -2
@@ -1292,8 +1293,7 @@ TEST_F(OperatorApiTest, OutputsConfigValidationFailClosed) {
     })";
   }
   EXPECT_EQ(ops_.Create(&handle, &param), -2);
-  EXPECT_NE(std::string(GetOperatorLastError())
-                .find("Deprecated deployment configuration format (RFC-0061)"),
+  EXPECT_NE(std::string(GetOperatorLastError()).find("Unknown field"),
             std::string::npos);
 
   // 6. deployment.model_path 单值字段被拒绝 (必须为 model_paths 映射) -> -2
@@ -1925,8 +1925,9 @@ TEST_F(OperatorApiTest, ModelPathNonExistentFileAllowedWhileEscapeRejected) {
     int ret = llm_edgeflow::OperatorConfigResolver::Resolve(
         root_string.c_str(), "configs/model_paths.conf", &resolved, &err);
     EXPECT_EQ(ret, 0) << "Error: " << err;
-    ASSERT_EQ(resolved.synthetic_pipeline_json["models"].size(), 2u);
-    for (const auto& model : resolved.synthetic_pipeline_json["models"]) {
+    ASSERT_EQ(resolved.io_plan->resolved_pipeline_json["models"].size(), 2u);
+    for (const auto& model :
+         resolved.io_plan->resolved_pipeline_json["models"]) {
       const auto path =
           std::filesystem::path(model["model_path"].get<std::string>());
       EXPECT_TRUE(path.is_absolute());
@@ -1964,63 +1965,45 @@ TEST_F(OperatorApiTest, ModelPathNonExistentFileAllowedWhileEscapeRejected) {
         root_string.c_str(), "configs/single_model.conf", &resolved, &err);
     ASSERT_EQ(ret, 0) << err;
     const auto resolved_model = std::filesystem::path(
-        resolved.synthetic_pipeline_json["models"][0]["model_path"]
+        resolved.io_plan->resolved_pipeline_json["models"][0]["model_path"]
             .get<std::string>());
     EXPECT_EQ(resolved_model,
               canonical_root / "deployment/asr_model_will_arrive_later.bin");
     EXPECT_FALSE(std::filesystem::exists(resolved_model));
   }
 
-  // 3. 引用安全矩阵：空值、三类绝对路径、词法逃逸和现存 symlink
-  // 前缀逃逸全部 fail-closed；普通不存在目标成功。
+  // Current model resolution accepts canonical absolute paths within the root,
+  // and rejects relative traversal or symlink escape even for missing
+  // artifacts.
   {
-    std::filesystem::path resolved;
-    EXPECT_EQ(
-        llm_edgeflow::OperatorConfigResolver::ResolveModelReferenceUnderRoot(
-            root, "safe/missing_model.bin", "model_path", &resolved, &err),
-        0);
-    EXPECT_EQ(resolved, canonical_root / "safe/missing_model.bin");
-    EXPECT_FALSE(std::filesystem::exists(resolved));
-
-    // '..name' is a filename component, not traversal; normalized '..' may
-    // also stay inside the root. Model references need not exist yet.
-    for (const char* safe :
-         {"..name/missing_model.bin", "safe/../missing_model.bin", "."}) {
-      err.clear();
-      ASSERT_EQ(
-          llm_edgeflow::OperatorConfigResolver::ResolveModelReferenceUnderRoot(
-              root, safe, "model_path", &resolved, &err),
-          0)
-          << safe << ": " << err;
-      EXPECT_EQ(resolved,
-                std::filesystem::weakly_canonical(canonical_root / safe));
-    }
-
-    for (const char* bad :
-         {"", "/absolute/model.bin", "C:\\models\\model.bin",
-          "C:relative_model.bin", "\\rooted\\model.bin",
-          "\\\\server\\share\\model.bin", "../../escape_model.bin",
-          "safe/../../../escape_model.bin"}) {
-      err.clear();
+    auto resolve = [&](const std::string& reference, nlohmann::json* resolved) {
+      return llm_edgeflow::ResolveDeploymentModelPaths(
+          {{"models", {{{"model_id", "asr"}, {"model_path", reference}}}}},
+          root.string(), resolved, &err);
+    };
+    nlohmann::json resolved;
+    for (const std::string& safe :
+         {std::string("safe/missing_model.bin"),
+          std::string("..name/missing_model.bin"),
+          std::string("safe/../missing_model.bin"), std::string("."),
+          (canonical_root / "absolute_model.bin").string()}) {
+      ASSERT_TRUE(resolve(safe, &resolved)) << safe << ": " << err;
       EXPECT_EQ(
-          llm_edgeflow::OperatorConfigResolver::ResolveModelReferenceUnderRoot(
-              root, bad, "model_path", &resolved, &err),
-          -2)
-          << bad;
+          resolved["models"][0]["model_path"].get<std::string>(),
+          std::filesystem::weakly_canonical(canonical_root / safe).string());
+    }
+    for (const char* bad :
+         {"../../escape_model.bin", "safe/../../../escape_model.bin"}) {
+      EXPECT_FALSE(resolve(bad, &resolved)) << bad;
       EXPECT_FALSE(err.empty()) << bad;
     }
-
     std::error_code ec;
     std::filesystem::create_directory_symlink(outside, root / "outside_link",
                                               ec);
     ASSERT_FALSE(ec) << ec.message();
-    err.clear();
-    EXPECT_EQ(
-        llm_edgeflow::OperatorConfigResolver::ResolveModelReferenceUnderRoot(
-            root, "outside_link/missing_model.bin", "model_path", &resolved,
-            &err),
-        -2);
+    EXPECT_FALSE(resolve("outside_link/missing_model.bin", &resolved));
     EXPECT_FALSE(err.empty());
+    EXPECT_FALSE(resolve((outside / "model.bin").string(), &resolved));
   }
 
   // 4. cfg 和 pipe 是控制文件，仍必须存在且为 regular file。
@@ -2256,6 +2239,13 @@ void RegisterNestedOutputTestTypes() {
                                   MakeNestedOutputBinding(1));
   RegisterOperatorOutputAllocator("test_nested_alternate",
                                   MakeNestedOutputBinding(2));
+  auto footprint = MakeNestedOutputBinding();
+  footprint.output_layout.compute_block_payload_bytes =
+      [](const ResolvedOutputPoolSpec&, size_t* bytes, std::string*) {
+        *bytes = 3 * 1024 * 1024;
+        return true;
+      };
+  RegisterOperatorOutputAllocator("test_nested_3mib_footprint", footprint);
 }
 
 REGISTER_OPERATOR_VALUE_TYPE(RegisterNestedOutputTestTypes);
@@ -2316,7 +2306,7 @@ const bool g_reg_nested_output_components = []() {
 
   OutputConverterDefinition odef;
   odef.converter_id = "test_nested_output.operator.v1";
-  odef.transport = "operator";
+
   odef.schema_id = "test_nested_output";
   odef.schema_version = 1;
   odef.external_type = "test_nested_out";
@@ -2346,7 +2336,7 @@ const bool g_reg_nested_output_components = []() {
   IoBindingDefinition bind;
   bind.binding_id = "nested_output_test.operator.v1";
   bind.biz_name = "test_nested_output_v1";
-  bind.transport = "operator";
+
   bind.input_converter_id = "keyword.plain.operator.v1";
   bind.output_converter_id = "test_nested_output.operator.v1";
   bind.input_ports = {{"raw_request_ids", "raw_request_ids"},
@@ -2444,10 +2434,12 @@ TEST_F(OperatorApiTest,
       SCOPED_TRACE(slot);
       const auto& source = expected_alloc.at(slot).at("params");
       EXPECT_FALSE(source.contains("reject_hit"));
-      EXPECT_EQ(resolved.output_parameter_text.at(slot), source.dump());
-      EXPECT_EQ(resolved.output_parameter_text.at(slot).find("reject_hit"),
+      EXPECT_EQ(resolved.io_plan->operator_output_parameter_texts.at(slot),
+                source.dump());
+      EXPECT_EQ(resolved.io_plan->operator_output_parameter_texts.at(slot).find(
+                    "reject_hit"),
                 std::string::npos);
-      EXPECT_FALSE(resolved.output_pool_specs.at(slot)
+      EXPECT_FALSE(resolved.io_plan->operator_output_specs.at(slot)
                        .Parameters<NestedOutputParameters>()
                        .reject_hit);
     }
@@ -2620,6 +2612,38 @@ TEST_F(OperatorApiTest, NestedOutputFailureRollsBackAllSlotsAndAllowsRetry) {
   outputs.clear();
 }
 
+TEST_F(OperatorApiTest, OutputBudgetUsesRequestedDepthWithoutAllocating) {
+  using namespace llm_edgeflow::test_support;
+  ScopedTempDirectory temp;
+  auto pipeline = NestedOutputPipelineJson();
+  pipeline["deployment"]["io"]["output_allocations"]["main"]["allocator"] =
+      "test_nested_3mib_footprint";
+  std::ofstream(temp.path() / "pipeline.json") << pipeline;
+  std::ofstream(temp.path() / "pipeline.conf")
+      << nlohmann::json{{"pipe_path", "pipeline.json"}};
+  const auto root = temp.path().string();
+  llm_edgeflow::ResolvedOperatorConfig resolved;
+  std::string error;
+  const int allocations_before = nested_allocations;
+  EXPECT_EQ(llm_edgeflow::OperatorConfigResolver::Resolve(
+                root.c_str(), "pipeline.conf", &resolved, &error),
+            -2);
+  EXPECT_NE(error.find("payload budget"), std::string::npos);
+  EXPECT_EQ(llm_edgeflow::OperatorConfigResolver::Resolve(
+                root.c_str(), "pipeline.conf", &resolved, &error, 0),
+            -2);
+  EXPECT_NE(error.find("payload budget"), std::string::npos);
+  EXPECT_EQ(llm_edgeflow::OperatorConfigResolver::Resolve(
+                root.c_str(), "pipeline.conf", &resolved, &error, 1),
+            0)
+      << error;
+  ASSERT_NE(resolved.io_plan, nullptr);
+  EXPECT_EQ(llm_edgeflow::OperatorConfigResolver::Resolve(
+                root.c_str(), "pipeline.conf", &resolved, &error, 1025),
+            -2);
+  EXPECT_EQ(nested_allocations, allocations_before);
+}
+
 TEST_F(OperatorApiTest, AllOutputSlotsShareTheHandlePayloadBudget) {
   using namespace llm_edgeflow::test_support;
   ScopedTempDirectory temp;
@@ -2680,15 +2704,15 @@ TEST_F(OperatorApiTest, SharedCarrierDoesNotMergePayloadSchema) {
   llm_edgeflow::AdapterStatus status;
   llm_edgeflow::ExternalInputBatchView view_plain;
   view_plain.count = 1;
-  view_plain.leased_slots["entity_in"] = {&c_in_plain};
+  view_plain.slots["entity_in"] =
+      llm_edgeflow::BorrowInputForTest({&c_in_plain});
   view_plain.slot_types["entity_in"] = "CompanyOperatorEntityInput";
   llm_edgeflow::InputPortBindings port_bindings(
       {{"raw_request_ids", "raw_request_ids"},
        {"input_sentences", "input_sentences"}});
   llm_edgeflow::InputDecodeOptions decode_opts;
   decode_opts.converter_id = translate_in_conv->converter_id;
-  decode_opts.transport = "operator";
-  decode_opts.max_batch_size = 64;
+
   EXPECT_EQ(translate_in_conv->decode_fn(view_plain, decode_opts, port_bindings,
                                          &ctx, &status),
             COMPANY_ALG_ERR_INVALID_INPUT);
@@ -2701,7 +2725,7 @@ TEST_F(OperatorApiTest, SharedCarrierDoesNotMergePayloadSchema) {
   llm_edgeflow::AlgContext valid_ctx;
   llm_edgeflow::ExternalInputBatchView view_json;
   view_json.count = 1;
-  view_json.leased_slots["entity_in"] = {&c_in_json};
+  view_json.slots["entity_in"] = llm_edgeflow::BorrowInputForTest({&c_in_json});
   view_json.slot_types["entity_in"] = "CompanyOperatorEntityInput";
   EXPECT_EQ(translate_in_conv->decode_fn(view_json, decode_opts, port_bindings,
                                          &valid_ctx, &status),

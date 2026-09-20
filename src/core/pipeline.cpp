@@ -3,7 +3,6 @@
 #include <algorithm>
 #include <cstdint>
 #include <exception>
-#include <fstream>
 #include <future>
 
 #include "contracts/control_payload.h"
@@ -130,10 +129,10 @@ void ConfigureExecutor(const ParsedPipelineConfig& config,
 bool MaterializeNodes(RuntimeAssembly* assembly,
                       PipelineDiagnostic* diagnostic) {
   const auto& plan = *assembly->plan;
-  for (size_t layer_index = 0; layer_index < plan.topological_layers.size();
-       ++layer_index) {
+  for (size_t layer_index = 0;
+       layer_index < plan.report.topological_layers.size(); ++layer_index) {
     std::vector<INode*> layer_nodes;
-    for (const auto& node_id : plan.topological_layers[layer_index]) {
+    for (const auto& node_id : plan.report.topological_layers[layer_index]) {
       auto plan_it = plan.node_plans.find(node_id);
       if (plan_it == plan.node_plans.end()) {
         if (diagnostic) {
@@ -191,7 +190,6 @@ bool MaterializeNodes(RuntimeAssembly* assembly,
       try {
         NodeInitContext init_ctx;
         init_ctx.plan = &node_plan;
-        init_ctx.config = &node_plan.normalized_config;
         init_ctx.session_ctx = assembly->session.get();
         init_ctx.diagnostic = &init_error;
         init_ok = node->Init(init_ctx);
@@ -245,11 +243,11 @@ bool MaterializeNodes(RuntimeAssembly* assembly,
   ALG_LOG_DEBUG(
       "[Pipeline] DAG Wavefront Topology created with %zu execution layers:\n",
       assembly->node_layers.size());
-  for (size_t i = 0; i < plan.topological_layers.size(); ++i) {
+  for (size_t i = 0; i < plan.report.topological_layers.size(); ++i) {
     std::string node_ids;
-    for (size_t j = 0; j < plan.topological_layers[i].size(); ++j) {
-      node_ids += plan.topological_layers[i][j];
-      if (j + 1 < plan.topological_layers[i].size()) node_ids += ", ";
+    for (size_t j = 0; j < plan.report.topological_layers[i].size(); ++j) {
+      node_ids += plan.report.topological_layers[i][j];
+      if (j + 1 < plan.report.topological_layers[i].size()) node_ids += ", ";
     }
     ALG_LOG_DEBUG(
         "  Layer %zu [%s]: %s\n", i,
@@ -296,127 +294,6 @@ Pipeline::Pipeline()
       plan_(std::make_unique<ValidatedPipelinePlan>()) {}
 
 Pipeline::~Pipeline() = default;
-
-bool Pipeline::BuildFromConfigFile(const std::string& config_file_path,
-                                   PipelineDiagnostic* diagnostic,
-                                   ValidationPolicy policy) {
-  if (diagnostic) {
-    diagnostic->Clear();
-  }
-
-  // R1-ACC-002: 一次性构建状态检查
-  if (state_ != State::kEmpty) {
-    if (diagnostic) {
-      diagnostic->code = DiagnosticCode::kInvalidBuildState;
-      diagnostic->path = "/";
-      diagnostic->message =
-          "Pipeline build can only be attempted once on an empty Pipeline "
-          "instance";
-    }
-    ALG_LOG_ERROR(
-        "[Pipeline] Build attempted on non-empty Pipeline (state: %d)\n",
-        static_cast<int>(state_));
-    return false;
-  }
-
-  std::ifstream ifs(config_file_path);
-  if (!ifs.is_open()) {
-    state_ = State::kFailed;
-    if (diagnostic) {
-      diagnostic->code = DiagnosticCode::kConfigFileOpen;
-      diagnostic->path = "/";
-      diagnostic->message = "Failed to open config file: " + config_file_path;
-    }
-    ALG_LOG_ERROR("[Pipeline] Failed to open config file: %s\n",
-                  config_file_path.c_str());
-    return false;
-  }
-
-  // R1-ACC-001: 缩小 JSON 解析 try-catch 范围，避免掩盖下游构建异常
-  nlohmann::json root_json;
-  try {
-    ifs >> root_json;
-  } catch (const std::exception& e) {
-    state_ = State::kFailed;
-    if (diagnostic) {
-      diagnostic->code = DiagnosticCode::kJsonParse;
-      diagnostic->path = "/";
-      diagnostic->message = std::string("JSON parse exception in ") +
-                            config_file_path + ": " + e.what();
-    }
-    ALG_LOG_ERROR("[Pipeline] JSON parse exception in %s: %s\n",
-                  config_file_path.c_str(), e.what());
-    return false;
-  }
-
-  return BuildFromJson(root_json, diagnostic, policy);
-}
-
-bool Pipeline::BuildFromJson(const nlohmann::json& root_config,
-                             PipelineDiagnostic* diagnostic,
-                             ValidationPolicy policy) {
-  if (diagnostic) {
-    diagnostic->Clear();
-  }
-
-  // R1-ACC-002: 一次性构建状态检查
-  if (state_ != State::kEmpty) {
-    if (diagnostic) {
-      diagnostic->code = DiagnosticCode::kInvalidBuildState;
-      diagnostic->path = "/";
-      diagnostic->message =
-          "Pipeline build can only be attempted once on an empty Pipeline "
-          "instance";
-    }
-    ALG_LOG_ERROR(
-        "[Pipeline] Build attempted on non-empty Pipeline (state: %d)\n",
-        static_cast<int>(state_));
-    return false;
-  }
-
-  state_ = State::kBuilding;
-
-  // RECHECK-R1-001: RAII Guard 保证任何未捕获异常退出时状态机必转入
-  // kFailed，不滞留在 kBuilding
-  struct BuildingStateGuard {
-    State& s;
-    bool finalized = false;
-    ~BuildingStateGuard() {
-      if (!finalized) {
-        s = State::kFailed;
-      }
-    }
-  } guard{state_};
-
-  bool success = false;
-  try {
-    success = BuildInternal(root_config, diagnostic, policy);
-  } catch (const std::exception& e) {
-    success = false;
-    if (diagnostic) {
-      diagnostic->code = DiagnosticCode::kInternalException;
-      diagnostic->path = "/";
-      diagnostic->message =
-          std::string("Internal exception during pipeline build: ") + e.what();
-    }
-    ALG_LOG_ERROR(
-        "[Pipeline] Unhandled internal exception during pipeline build: %s\n",
-        e.what());
-  } catch (...) {
-    success = false;
-    if (diagnostic) {
-      diagnostic->code = DiagnosticCode::kInternalException;
-      diagnostic->path = "/";
-      diagnostic->message = "Unknown internal exception during pipeline build";
-    }
-    ALG_LOG_ERROR(
-        "[Pipeline] Unknown internal exception during pipeline build\n");
-  }
-
-  state_ = success ? State::kReady : State::kFailed;
-  guard.finalized = true;
-  return success;
-}
 
 bool Pipeline::BuildFromPlan(std::unique_ptr<ValidatedPipelinePlan> plan,
                              PipelineDiagnostic* diagnostic) {
@@ -533,61 +410,6 @@ bool Pipeline::BuildFromPlan(std::unique_ptr<ValidatedPipelinePlan> plan,
   return success;
 }
 
-bool Pipeline::BuildInternal(const nlohmann::json& root_config,
-                             PipelineDiagnostic* diagnostic,
-                             ValidationPolicy policy) {
-  // FINAL-R1-003: 仅在测试场景下注入异常，以提供 kInternalException
-  // 动态覆盖证据
-  if (test_internal_hook_) {
-    test_internal_hook_();
-  }
-
-  RuntimeAssembly assembly;
-  assembly.plan = std::make_unique<ValidatedPipelinePlan>(
-      PipelineValidator::ValidateAndPlan(root_config, policy));
-
-  if (!assembly.plan->report.ok) {
-    if (!assembly.plan->report.diagnostics.empty()) {
-      const auto& item = assembly.plan->report.diagnostics.front();
-      const char* code_str = DiagnosticCodeName(item.code);
-      if (diagnostic) {
-        diagnostic->code = item.code;
-        diagnostic->path = item.path;
-        diagnostic->message = item.message;
-      }
-      ALG_LOG_ERROR("[Pipeline] Validation failed: %s at %s: %s\n", code_str,
-                    item.path.c_str(), item.message.c_str());
-    } else if (diagnostic) {
-      diagnostic->code = DiagnosticCode::kInternalException;
-      diagnostic->path = "/";
-      diagnostic->message = "Validation failed without diagnostics";
-    }
-    return false;
-  }
-
-  assembly.session = std::make_unique<SessionContext>();
-  assembly.session->SetRuntimeOptions(session_ctx_->GetRuntimeOptions());
-
-  if (!MaterializeModels(*assembly.plan, assembly.session.get(), diagnostic)) {
-    return false;
-  }
-  if (!MaterializeNodes(&assembly, diagnostic)) {
-    return false;
-  }
-  ConfigureExecutor(assembly.plan->config, &assembly);
-
-  // The pointed-to Plan and Session objects keep the same addresses across
-  // this ownership transfer, so pointers retained by initialized Nodes stay
-  // valid. No Pipeline runtime state is published before this point.
-  plan_ = std::move(assembly.plan);
-  session_ctx_ = std::move(assembly.session);
-  execution_mode_ = assembly.execution_mode;
-  nodes_ = std::move(assembly.nodes);
-  node_layers_ = std::move(assembly.node_layers);
-  thread_pool_ = std::move(assembly.thread_pool);
-  return true;
-}
-
 int Pipeline::Execute(AlgContext* req_ctx) {
   // R1-ACC-002: 仅允许在 Ready 状态下执行
   if (state_ != State::kReady || !req_ctx) {
@@ -604,7 +426,7 @@ int Pipeline::Execute(AlgContext* req_ctx) {
       for (size_t i = 0; i < layer.size(); ++i) {
         auto* node = layer[i];
         NodeExecutionResult result = ExecuteNodeSafely(
-            node, req_ctx, plan_->topological_layers[layer_idx][i]);
+            node, req_ctx, plan_->report.topological_layers[layer_idx][i]);
         if (result.code != 0) {
           req_ctx->SetError(result.code, result.message);
           ALG_LOG_ERROR(
@@ -634,7 +456,7 @@ int Pipeline::Execute(AlgContext* req_ctx) {
         auto* node = layer[i];
         try {
           const std::string_view node_id =
-              plan_->topological_layers[layer_idx][i];
+              plan_->report.topological_layers[layer_idx][i];
           futures.push_back(thread_pool_->Submit([node, req_ctx, node_id]() {
             return ExecuteNodeSafely(node, req_ctx, node_id);
           }));
@@ -739,7 +561,7 @@ int Pipeline::Control(int cmd, const std::string& json_param,
   size_t node_index = 0;
   // Materialization uses this same layer/instance order. Keep diagnostics tied
   // to instance IDs even when several instances have the same Node type.
-  for (const auto& layer : plan_->topological_layers) {
+  for (const auto& layer : plan_->report.topological_layers) {
     for (const auto& id : layer) {
       auto* node = nodes_[node_index++].get();
       if (!target_id.empty() && id != target_id) continue;

@@ -89,6 +89,7 @@ RFC-0054 是接续 RFC-0052 与已交付 RFC-0053、RFC-0055 的实施规格。`
 | **RFC-0061** | Pipeline JSON 集中管理部署配置 | `Completed` | `v11.x` | 接入适配层、流程编排层 / Tooling / Docs | [0061-pipeline-owned-deployment-configuration.md](0061-pipeline-owned-deployment-configuration.md) |
 | **RFC-0062** | Integration 部署解析入口统一实施设计 | `Completed` | 投产前 | 接入适配层、流程编排层 / Tooling | [0062-unified-integration-deployment-preparation.md](0062-unified-integration-deployment-preparation.md) |
 | **RFC-0063** | Demo 执行参数仅由 Profile 提供 | `Completed` | 当前开发版本 | Demo / Tooling | [0063-demo-profile-only-tuning.md](0063-demo-profile-only-tuning.md) |
+| **RFC-0064** | 上线前单一现行契约与重复实现清理 | `Completed` | 投产前 | 四层 / Tooling / Build | [0064-prelaunch-contract-cleanup.md](0064-prelaunch-contract-cleanup.md) |
 
 ## 专项验收与评审归档
 

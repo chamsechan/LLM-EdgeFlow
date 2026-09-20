@@ -4,22 +4,11 @@
 #include <filesystem>
 #include <utility>
 
+#include "contracts/diagnostic.h"
 #include "engine/backend_registry.h"
 #include "engine/model_registry.h"
 
 namespace llm_edgeflow {
-
-namespace {
-
-void SetDiagnostic(std::string* diagnostic, const char* message) noexcept {
-  if (!diagnostic) return;
-  try {
-    *diagnostic = message;
-  } catch (...) {
-  }
-}
-
-}  // namespace
 
 std::shared_ptr<IModel> ModelRuntimeFactory::Create(
     const ModelLoadSpec& spec, std::string* diagnostic) noexcept {
@@ -70,10 +59,9 @@ std::shared_ptr<IModel> ModelRuntimeFactory::Create(
     }
 
     // 3. 加载后端会话
-    BackendLoadSpec load_spec;
+    BackendLoadSpec load_spec{model_def_opt->required_protocol};
     load_spec.model_path = spec.model_path;
     load_spec.backend_config = spec.backend_config;
-    load_spec.requested_protocol = model_def_opt->required_protocol;
     load_spec.execution_target = spec.execution_target;
 
     std::string backend_diag;
@@ -94,17 +82,6 @@ std::shared_ptr<IModel> ModelRuntimeFactory::Create(
       if (diagnostic) {
         *diagnostic = "Backend session type mismatch: expected " +
                       spec.backend_type + ", got " + session->BackendType();
-      }
-      return nullptr;
-    }
-
-    const auto& supported = backend_def_opt->supported_protocols;
-    if (std::find(supported.begin(), supported.end(), session->Protocol()) ==
-        supported.end()) {
-      if (diagnostic) {
-        *diagnostic = "Session protocol (" +
-                      std::string(ExecutionProtocolName(session->Protocol())) +
-                      ") not in backend supported protocols";
       }
       return nullptr;
     }
@@ -211,11 +188,12 @@ std::shared_ptr<IModel> ModelRuntimeFactory::Create(
     return model;
   } catch (const std::exception& e) {
     (void)e;
-    SetDiagnostic(diagnostic, "Exception in ModelRuntimeFactory::Create");
+    SetDiagnosticNoexcept(diagnostic,
+                          "Exception in ModelRuntimeFactory::Create");
     return nullptr;
   } catch (...) {
-    SetDiagnostic(diagnostic,
-                  "Unknown exception in ModelRuntimeFactory::Create");
+    SetDiagnosticNoexcept(diagnostic,
+                          "Unknown exception in ModelRuntimeFactory::Create");
     return nullptr;
   }
 }

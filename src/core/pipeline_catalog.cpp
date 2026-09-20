@@ -25,20 +25,6 @@ std::mutex& BizMutex() {
   return mutex;
 }
 
-template <typename Port>
-nlohmann::json PortJson(const Port& port) {
-  nlohmann::json result = {{"key", port.Name()},
-                           {"type_id", port.type_id},
-                           {"required", port.required},
-                           {"cardinality", port.cardinality},
-                           {"provenance_policy", port.provenance_policy},
-                           {"lifetime", port.lifetime}};
-  if (!port.lifetime_config_field.empty()) {
-    result["lifetime_config_field"] = port.lifetime_config_field;
-  }
-  return result;
-}
-
 nlohmann::json ConstraintJson(const PortGroupConstraint& constraint) {
   nlohmann::json result = {{"kind", PortConstraintKindName(constraint.kind)},
                            {"message", constraint.message}};
@@ -72,6 +58,20 @@ nlohmann::json FieldJson(const ConfigFieldDefinition& field) {
 }
 
 }  // namespace
+
+nlohmann::json PipelineCatalog::PortToJson(const std::string& key,
+                                           const PortContract& port) {
+  nlohmann::json result = {{"key", key},
+                           {"type_id", port.type_id},
+                           {"required", port.required},
+                           {"cardinality", port.cardinality},
+                           {"provenance_policy", port.provenance_policy},
+                           {"lifetime", port.lifetime}};
+  if (!port.lifetime_config_field.empty()) {
+    result["lifetime_config_field"] = port.lifetime_config_field;
+  }
+  return result;
+}
 
 const char* PortConstraintKindName(PortConstraintKind kind) {
   switch (kind) {
@@ -211,8 +211,10 @@ nlohmann::json PipelineCatalog::NodeToJson(const NodeDefinition& definition) {
   nlohmann::json constraints = nlohmann::json::array();
   nlohmann::json commands = nlohmann::json::array();
   nlohmann::json fields = nlohmann::json::array();
-  for (const auto& item : definition.inputs) inputs.push_back(PortJson(item));
-  for (const auto& item : definition.outputs) outputs.push_back(PortJson(item));
+  for (const auto& item : definition.inputs)
+    inputs.push_back(PortToJson(item.Name(), item));
+  for (const auto& item : definition.outputs)
+    outputs.push_back(PortToJson(item.Name(), item));
   for (const auto& item : definition.port_constraints)
     constraints.push_back(ConstraintJson(item));
   for (const auto& item : definition.control_commands)
@@ -302,8 +304,10 @@ nlohmann::json PipelineCatalog::ToJson(const PipelineCatalogSnapshot& snapshot,
     if (!biz_filter.empty() && item.biz_name != biz_filter) continue;
     nlohmann::json ingress = nlohmann::json::array();
     nlohmann::json egress = nlohmann::json::array();
-    for (const auto& port : item.ingress) ingress.push_back(PortJson(port));
-    for (const auto& port : item.egress) egress.push_back(PortJson(port));
+    for (const auto& port : item.ingress)
+      ingress.push_back(PortToJson(port.Name(), port));
+    for (const auto& port : item.egress)
+      egress.push_back(PortToJson(port.Name(), port));
     bizs.push_back({{"biz_name", item.biz_name},
                     {"demo_biz", item.demo_biz},
                     {"display_name", item.display_name},
@@ -311,8 +315,7 @@ nlohmann::json PipelineCatalog::ToJson(const PipelineCatalogSnapshot& snapshot,
                     {"egress", std::move(egress)}});
   }
 
-  return {{"schema_version", 3},
-          {"nodes", std::move(nodes)},
+  return {{"nodes", std::move(nodes)},
           {"models", std::move(models)},
           {"backends", std::move(backends)},
           {"bizs", std::move(bizs)}};

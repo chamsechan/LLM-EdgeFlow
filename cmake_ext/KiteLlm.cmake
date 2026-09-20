@@ -10,11 +10,6 @@ if(ENABLE_LLAMACPP)
     "kiteLLM embeds a different llama.cpp/ggml version. Use "
     "-DENABLE_KITELLM=ON -DENABLE_LLAMACPP=OFF to avoid symbol collisions.")
 endif()
-if(KITELLM_ROOT)
-  message(FATAL_ERROR
-    "KITELLM_ROOT is obsolete. Remove it with -UKITELLM_ROOT; "
-    "kiteLLM is now obtained from the pinned GitHub release.")
-endif()
 
 set(_kite_release "v0.1.0")
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND

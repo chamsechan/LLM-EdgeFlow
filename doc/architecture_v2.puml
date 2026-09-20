@@ -84,7 +84,7 @@ package "接入适配层（Integration）" as Integration {
   component "Shared Algorithm Runtime\nSharedAlgorithmRuntime\nSingle Decode-Execute-Encode" as SharedRuntime
   artifact "Business-Specific\nOperator Types" as CStructs
   component "IoBindingRegistry" as AdapterRegistry
-  interface "IoBinding\nInputConverter / OutputConverter\nDecode / Encode" as IBizAdapter
+  interface "IoBinding\nInputConverter / OutputConverter\nDecode / Encode" as IoConverters
   component "I/O Converters\nStatically Linked" as BizAdapters
   artifact "Common Typed Contracts" as CommonContracts
 }
@@ -94,8 +94,8 @@ PlatformScheduler --> PlatformFacade : OperatorFunc calls
 PlatformFacade --> SharedRuntime : execute via IoPlan
 PlatformFacade --> BizAdapters : decode input / encode output
 SharedRuntime --> AdapterRegistry : resolve binding by config
-AdapterRegistry o-- IBizAdapter
-BizAdapters ..|> IBizAdapter
+AdapterRegistry o-- IoConverters
+BizAdapters ..|> IoConverters
 BizAdapters --> CStructs : decode / encode slots
 BizAdapters --> CommonContracts : map to typed values
 Manifest --> AdapterRegistry : registration metadata
@@ -103,7 +103,7 @@ Scaffolder --> BizAdapters : generate scaffold
 
 ' Orchestration
 package "流程编排层（Orchestration）" as Orchestration {
-  component "PipelineBuilder\nPipeline::BuildFromJson" as PipelineBuilder
+  component "PipelineBuilder\nPipeline::BuildFromPlan\nValidatedPipelinePlan" as PipelineBuilder
   component "PipelineStaticValidator\nPipelineValidator\nDAG / ports / producers / parallel conflicts" as PipelineValidator
   component "Pipeline Runtime\nsequential / parallel wavefront" as PipelineRuntime
   component "Typed Port Access\nBlackboardKey<T>" as TypedPorts <<Implemented>>

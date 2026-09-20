@@ -190,7 +190,6 @@ class CountingMockLlmModel final : public ILlmModel {
   InferenceConcurrency Concurrency() const noexcept override {
     return InferenceConcurrency::kConcurrent;
   }
-  size_t GetMaxBatchSize() const noexcept override { return 8; }
 
   int Generate(const TextBatch& prompts, const GenerateOptions& options,
                TextBatch* outputs) noexcept override {
@@ -672,72 +671,6 @@ REGISTER_FUNCTION_NODE(NonCopyableBatchNode, NonCopyableBatchSpec());
 // ---------------------------------------------------------------------------
 // Strict Unplanned Fact Checking Node (Problem 2)
 // ---------------------------------------------------------------------------
-struct StrictUnplannedMapParams {
-  std::string name;
-};
-
-inline auto StrictUnplannedMapSpec() {
-  return MakeMapSpec(
-      Input<TextBatch>("input"), Output<TextBatch>("output"),
-      Parameters<StrictUnplannedMapParams>(
-          {
-              Field("name", &StrictUnplannedMapParams::name)
-                  .Default("unplanned"),
-          })
-          .Prepare([](StrictUnplannedMapParams*, const BindingFacts& facts,
-                      std::string* err) {
-            if (facts.has_plan) {
-              if (err)
-                *err = "StrictUnplannedMapNode expects has_plan == false";
-              return false;
-            }
-            return true;
-          }),
-      [](const std::string& in, const StrictUnplannedMapParams& p) {
-        return p.name + ":" + in;
-      });
-}
-REGISTER_FUNCTION_NODE(StrictUnplannedMapNode, StrictUnplannedMapSpec());
-
-struct StrictUnplannedBatchInputs {
-  const TextBatch* texts = nullptr;
-};
-
-struct StrictUnplannedBatchParams {
-  std::string name;
-};
-
-inline auto StrictUnplannedBatchSpec() {
-  return MakeBatchSpec(
-      InputsOf<StrictUnplannedBatchInputs>({
-          Required("texts", &StrictUnplannedBatchInputs::texts),
-      }),
-      PreservedOutput<TextBatch>("output", "texts"),
-      Parameters<StrictUnplannedBatchParams>(
-          {
-              Field("name", &StrictUnplannedBatchParams::name)
-                  .Default("unplanned_batch"),
-          })
-          .Prepare([](StrictUnplannedBatchParams*, const BindingFacts& facts,
-                      std::string* err) {
-            if (facts.has_plan) {
-              if (err)
-                *err = "StrictUnplannedBatchNode expects has_plan == false";
-              return false;
-            }
-            return true;
-          }),
-      [](const StrictUnplannedBatchInputs& in,
-         const StrictUnplannedBatchParams& p) -> NodeResult<TextBatch> {
-        TextBatch out;
-        if (!in.texts) return out;
-        for (const auto& item : *in.texts) {
-          out.emplace_back(item.req_id, item.sub_id, p.name + ":" + item.data);
-        }
-        return out;
-      });
-}
-REGISTER_FUNCTION_NODE(StrictUnplannedBatchNode, StrictUnplannedBatchSpec());
 
 struct ControlledBatchInputs {
   const TextBatch* texts = nullptr;
@@ -862,10 +795,8 @@ TEST(FunctionNodeTest, DuplicateOutputKeyFailsAndKeepsExistingValue) {
   auto node = NodeRegistry::Instance().Create("UpperMapNode");
   ASSERT_NE(node, nullptr);
 
-  NodeInitContext init_ctx;
   SessionContext session_ctx;
-  init_ctx.session_ctx = &session_ctx;
-  ASSERT_TRUE(node->Init(init_ctx));
+  ASSERT_TRUE(InitNodeForTest(*node, nlohmann::json::object(), &session_ctx));
 
   AlgContext ctx;
   TextBatch existing;
@@ -1008,17 +939,16 @@ TEST(FunctionNodeTest, BatchOptionalPortConnectedButMissingFailsClosed) {
   EXPECT_NE(result.diagnostic().find("context"), std::string::npos);
 }
 
-TEST(FunctionNodeTest, BatchUnplannedInitWithOptionalPortFails) {
-  auto mock_model = std::make_shared<CountingMockLlmModel>();
-  NodeHarness harness("AnswerBatchNode");
-  harness.Config({{"bind_model", "test_llm"}});
-  harness.BindModel("test_llm", mock_model);
-  harness.DisablePlan();
-
-  auto result = harness.Run();
-  EXPECT_FALSE(result.ok());
-  EXPECT_TRUE(result.init_failed());
-  EXPECT_NE(result.diagnostic().find("ValidatedNodePlan"), std::string::npos);
+TEST(FunctionNodeTest, MissingValidatedPlanFailsInitialization) {
+  auto node = NodeRegistry::Instance().Create("AnswerBatchNode");
+  ASSERT_NE(node, nullptr);
+  SessionContext session;
+  std::string diagnostic;
+  NodeInitContext init;
+  init.session_ctx = &session;
+  init.diagnostic = &diagnostic;
+  EXPECT_FALSE(node->Init(init));
+  EXPECT_NE(diagnostic.find("ValidatedNodePlan"), std::string::npos);
 }
 
 // M1: 一次非空批次一次 Model 调用；空输入零调用；options 完整传递
@@ -1189,8 +1119,7 @@ TEST(FunctionNodeTest, NodeHarnessFailsInitOnInvalidConfig) {
   auto result = harness.Run();
   EXPECT_FALSE(result.ok());
   EXPECT_TRUE(result.init_failed());
-  EXPECT_NE(result.diagnostic().find("Configuration validation failed"),
-            std::string::npos);
+  EXPECT_NE(result.diagnostic().find("unknown_field"), std::string::npos);
 }
 
 TEST(FunctionNodeTest, ProcessFailedPreservesAlgContextForOutputInspection) {
@@ -1224,13 +1153,12 @@ TEST(FunctionNodeTest, BindingValidationEnforcedInInitAndHarness) {
   SessionContext session_ctx;
   std::string map_init_diag;
   NodeInitContext init_ctx_map_unplanned;
-  init_ctx_map_unplanned.config = &invalid_map_cfg;
+
   init_ctx_map_unplanned.session_ctx = &session_ctx;
   init_ctx_map_unplanned.diagnostic = &map_init_diag;
   init_ctx_map_unplanned.plan = nullptr;
   EXPECT_FALSE(map_unplanned->Init(init_ctx_map_unplanned));
-  EXPECT_NE(map_init_diag.find("require_extra requires extra port"),
-            std::string::npos);
+  EXPECT_NE(map_init_diag.find("ValidatedNodePlan"), std::string::npos);
 
   // 3. Map Manual Plan Init fails when extra port missing
   auto map_manual = NodeRegistry::Instance().Create("BindingMapNode");
@@ -1245,7 +1173,7 @@ TEST(FunctionNodeTest, BindingValidationEnforcedInInitAndHarness) {
        "1:1", "preserve", "request", PortDirection::kOutput});
   std::string manual_map_diag;
   NodeInitContext init_ctx_map_manual;
-  init_ctx_map_manual.config = &invalid_map_cfg;
+
   init_ctx_map_manual.session_ctx = &session_ctx;
   init_ctx_map_manual.diagnostic = &manual_map_diag;
   init_ctx_map_manual.plan = &manual_map_plan;
@@ -1277,7 +1205,7 @@ TEST(FunctionNodeTest, BindingValidationEnforcedInInitAndHarness) {
        "1:1", "preserve", "request", PortDirection::kOutput});
   std::string manual_diag;
   NodeInitContext init_ctx_manual;
-  init_ctx_manual.config = &invalid_cfg;
+
   init_ctx_manual.session_ctx = &session_ctx;
   init_ctx_manual.diagnostic = &manual_diag;
   init_ctx_manual.plan = &manual_plan;
@@ -1335,7 +1263,7 @@ TEST(FunctionNodeTest, ComplexParserMatchesPreflightInitAndOwnsConfiguration) {
     ASSERT_NE(node, nullptr);
     SessionContext session;
     std::string init_error;
-    NodeInitContext init{&plan, &config, &session};
+    NodeInitContext init{&plan, &session};
     init.diagnostic = &init_error;
     EXPECT_EQ(node->Init(init), fault == 0);
     if (fault != 0) {
@@ -1702,10 +1630,9 @@ TEST(FunctionNodeTest, FunctionalBatchSpecWithControlsAndValidation) {
 
 TEST(FunctionNodeTest, SnapshotPauseTimeoutFailsProcess) {
   NodeHarness harness("ControlledMapNode");
-  harness.DisablePlan();
   ASSERT_TRUE(harness.EnsureInitialized());
   AlgContext ctx;
-  ctx.Publish("input", TextBatch{{101, 3, "sample"}});
+  ctx.Publish("bk_in_input", TextBatch{{101, 3, "sample"}});
   test_support::NodeProcessPause pause(std::chrono::milliseconds(0));
   int result = 0;
   {
@@ -1716,12 +1643,11 @@ TEST(FunctionNodeTest, SnapshotPauseTimeoutFailsProcess) {
   EXPECT_NE(result, 0);
   EXPECT_NE(ctx.GetErrorMessage().find("handshake timed out"),
             std::string::npos);
-  EXPECT_EQ(ctx.Read<TextBatch>("output"), nullptr);
+  EXPECT_EQ(ctx.Read<TextBatch>("bk_out_output"), nullptr);
 }
 
 TEST(FunctionNodeTest, WholeBatchProcessConsistencyDuringControl) {
   NodeHarness harness("ControlledMapNode");
-  harness.DisablePlan();
   harness.Config({{"prefix", "v1:"}, {"suffix", ":s1"}, {"multiplier", 1}});
   ASSERT_TRUE(harness.EnsureInitialized());
   auto* node = harness.GetNode();
@@ -1732,7 +1658,7 @@ TEST(FunctionNodeTest, WholeBatchProcessConsistencyDuringControl) {
     batch.emplace_back(100 + i, i, "sample_" + std::to_string(i));
   }
   AlgContext old_ctx;
-  old_ctx.Publish("input", batch);
+  old_ctx.Publish("bk_in_input", batch);
   test_support::NodeProcessPause pause;
   auto reader = std::async(std::launch::async, [&] {
     // The first allocation is outputs.reserve, after AuthorNode has acquired
@@ -1753,7 +1679,7 @@ TEST(FunctionNodeTest, WholeBatchProcessConsistencyDuringControl) {
   ASSERT_EQ(control.status, NodeControlStatus::kHandled);
   ASSERT_EQ(process_result, 0) << old_ctx.GetErrorMessage();
 
-  const auto* old_output = old_ctx.Read<TextBatch>("output");
+  const auto* old_output = old_ctx.Read<TextBatch>("bk_out_output");
   ASSERT_NE(old_output, nullptr);
   ASSERT_EQ(old_output->size(), batch.size());
   for (size_t i = 0; i < batch.size(); ++i) {
@@ -1762,9 +1688,9 @@ TEST(FunctionNodeTest, WholeBatchProcessConsistencyDuringControl) {
     EXPECT_EQ((*old_output)[i].sub_id, batch[i].sub_id);
   }
   AlgContext new_ctx;
-  new_ctx.Publish("input", batch);
+  new_ctx.Publish("bk_in_input", batch);
   ASSERT_EQ(node->Process(&new_ctx), 0);
-  const auto* new_output = new_ctx.Read<TextBatch>("output");
+  const auto* new_output = new_ctx.Read<TextBatch>("bk_out_output");
   ASSERT_NE(new_output, nullptr);
   ASSERT_EQ(new_output->size(), batch.size());
   for (size_t i = 0; i < batch.size(); ++i) {
@@ -1777,7 +1703,6 @@ TEST(FunctionNodeTest, WholeBatchProcessConsistencyDuringControl) {
 
 TEST(FunctionNodeTest, WholeBatchProcessConsistencyDuringControlForBatchSpec) {
   NodeHarness harness("ControlledBatchNode");
-  harness.DisablePlan();
   harness.Config({{"header", "old:"}, {"uppercase", false}});
   ASSERT_TRUE(harness.EnsureInitialized());
   auto* node = harness.GetNode();
@@ -1788,7 +1713,7 @@ TEST(FunctionNodeTest, WholeBatchProcessConsistencyDuringControlForBatchSpec) {
     batch.emplace_back(300 + i, i, "sample");
   }
   AlgContext old_ctx;
-  old_ctx.Publish("texts", batch);
+  old_ctx.Publish("bk_in_texts", batch);
   test_support::NodeProcessPause pause;
   auto reader = std::async(std::launch::async, [&] {
     // ControlledBatchFn reserves output after AuthorNode acquires its snapshot.
@@ -1808,7 +1733,7 @@ TEST(FunctionNodeTest, WholeBatchProcessConsistencyDuringControlForBatchSpec) {
   ASSERT_EQ(control.status, NodeControlStatus::kHandled);
   ASSERT_EQ(process_result, 0) << old_ctx.GetErrorMessage();
 
-  const auto* old_output = old_ctx.Read<TextBatch>("output");
+  const auto* old_output = old_ctx.Read<TextBatch>("bk_out_output");
   ASSERT_NE(old_output, nullptr);
   ASSERT_EQ(old_output->size(), batch.size());
   for (size_t i = 0; i < batch.size(); ++i) {
@@ -1817,9 +1742,9 @@ TEST(FunctionNodeTest, WholeBatchProcessConsistencyDuringControlForBatchSpec) {
     EXPECT_EQ((*old_output)[i].sub_id, batch[i].sub_id);
   }
   AlgContext new_ctx;
-  new_ctx.Publish("texts", batch);
+  new_ctx.Publish("bk_in_texts", batch);
   ASSERT_EQ(node->Process(&new_ctx), 0);
-  const auto* new_output = new_ctx.Read<TextBatch>("output");
+  const auto* new_output = new_ctx.Read<TextBatch>("bk_out_output");
   ASSERT_NE(new_output, nullptr);
   ASSERT_EQ(new_output->size(), batch.size());
   for (size_t i = 0; i < batch.size(); ++i) {
@@ -1833,7 +1758,6 @@ TEST(FunctionNodeTest,
      SpecWithNonCopyableParamsCompilesAndExecutesWithoutControls) {
   // Verifies MapSpec with non-copyable ParamsT (containing unique_ptr)
   NodeHarness map_harness("NonCopyableMapNode");
-  map_harness.DisablePlan();
   map_harness.Config({{"prefix", "map_nc:"}});
   map_harness.TextInput("input", {"hello", "world"});
   auto map_res = map_harness.Run();
@@ -1846,7 +1770,6 @@ TEST(FunctionNodeTest,
 
   // Verifies BatchSpec with non-copyable ParamsT (containing unique_ptr)
   NodeHarness batch_harness("NonCopyableBatchNode");
-  batch_harness.DisablePlan();
   batch_harness.Config({{"tag", "batch_nc:"}});
   batch_harness.TextInput("texts", {"foo", "bar"});
   auto batch_res = batch_harness.Run();
@@ -1856,57 +1779,6 @@ TEST(FunctionNodeTest,
 
   auto ctrl_batch = batch_harness.Control(1001, R"({})");
   EXPECT_EQ(ctrl_batch.status, NodeControlStatus::kUnsupported);
-
-  // Also verify planned execution works with non-copyable ParamsT
-  NodeHarness map_planned("NonCopyableMapNode");
-  map_planned.Config({{"prefix", "map_nc_p:"}});
-  map_planned.TextInput("input", {"hello"});
-  auto map_res_p = map_planned.Run();
-  ASSERT_TRUE(map_res_p.ok()) << map_res_p.diagnostic();
-  EXPECT_EQ(map_res_p.TextValues("output"),
-            (std::vector<std::string>{"map_nc_p:hello_100"}));
-
-  NodeHarness batch_planned("NonCopyableBatchNode");
-  batch_planned.Config({{"tag", "batch_nc_p:"}});
-  batch_planned.TextInput("texts", {"foo"});
-  auto batch_res_p = batch_planned.Run();
-  ASSERT_TRUE(batch_res_p.ok()) << batch_res_p.diagnostic();
-  EXPECT_EQ(batch_res_p.TextValues("output"),
-            (std::vector<std::string>{"batch_nc_p:foo_200"}));
-}
-
-TEST(FunctionNodeTest,
-     UnplannedInitPassesCorrectBindingFactsToPrepareWithoutPlan) {
-  // Map node verifying facts.has_plan is false during unplanned init
-  NodeHarness map_harness("StrictUnplannedMapNode");
-  map_harness.DisablePlan();
-  map_harness.TextInput("input", {"item1"});
-  auto map_res = map_harness.Run();
-  ASSERT_TRUE(map_res.ok()) << map_res.diagnostic();
-  EXPECT_EQ(map_res.TextValues("output"),
-            (std::vector<std::string>{"unplanned:item1"}));
-
-  // Batch node verifying facts.has_plan is false during unplanned init
-  NodeHarness batch_harness("StrictUnplannedBatchNode");
-  batch_harness.DisablePlan();
-  batch_harness.TextInput("texts", {"item2"});
-  auto batch_res = batch_harness.Run();
-  ASSERT_TRUE(batch_res.ok()) << batch_res.diagnostic();
-  EXPECT_EQ(batch_res.TextValues("output"),
-            (std::vector<std::string>{"unplanned_batch:item2"}));
-
-  // Verify that both fail if run WITH a plan (facts.has_plan == true)
-  NodeHarness map_planned("StrictUnplannedMapNode");
-  map_planned.TextInput("input", {"item_p"});
-  auto map_res_p = map_planned.Run();
-  EXPECT_FALSE(map_res_p.ok());
-  EXPECT_TRUE(map_res_p.init_failed());
-
-  NodeHarness batch_planned("StrictUnplannedBatchNode");
-  batch_planned.TextInput("texts", {"item_p"});
-  auto batch_res_p = batch_planned.Run();
-  EXPECT_FALSE(batch_res_p.ok());
-  EXPECT_TRUE(batch_res_p.init_failed());
 }
 
 TEST(FunctionNodeTest, SpecWithoutWithControlsReturnsUnsupported) {
@@ -2048,7 +1920,7 @@ inline auto BindingFactsProbeSpec() {
           })
           .Prepare([](BindingFactsProbeParams* p, const BindingFacts& facts,
                       std::string*) {
-            p->plan_seen = facts.has_plan;
+            p->plan_seen = facts.has_bindings;
             p->input_connected = facts.IsConnected("input");
             return true;
           }),
@@ -2067,21 +1939,10 @@ TEST(FunctionNodeTest, AuthorNodeInitPassesRealBindingFactsToPrepare) {
   ASSERT_TRUE(res_planned.ok()) << res_planned.diagnostic();
   EXPECT_EQ(res_planned.TextValues("output"),
             (std::vector<std::string>{"PLAN:CONN:hello"}));
-
-  // Test unplanned execution: plan_seen must be false, input is still connected
-  // logically
-  NodeHarness harness_unplanned("BindingFactsProbeNode");
-  harness_unplanned.DisablePlan();
-  harness_unplanned.TextInput("input", {"world"});
-  auto res_unplanned = harness_unplanned.Run();
-  ASSERT_TRUE(res_unplanned.ok()) << res_unplanned.diagnostic();
-  EXPECT_EQ(res_unplanned.TextValues("output"),
-            (std::vector<std::string>{"NO_PLAN:CONN:world"}));
 }
 
 TEST(FunctionNodeTest, RapidInterleavedControlsAndConcurrentProcesses) {
   NodeHarness harness("ControlledMapNode");
-  harness.DisablePlan();
   harness.Config({{"prefix", "p0:"}, {"suffix", ":s0"}, {"multiplier", 1}});
   ASSERT_TRUE(harness.EnsureInitialized());
   auto* node = harness.GetNode();
@@ -2124,10 +1985,10 @@ TEST(FunctionNodeTest, RapidInterleavedControlsAndConcurrentProcesses) {
           input.emplace_back(req_id, i, "payload_" + std::to_string(i));
         }
         req_id++;
-        ctx.Publish("input", std::move(input));
+        ctx.Publish("bk_in_input", std::move(input));
         int rc = node->Process(&ctx);
         EXPECT_EQ(rc, 0);
-        const auto* out = ctx.Read<TextBatch>("output");
+        const auto* out = ctx.Read<TextBatch>("bk_out_output");
         ASSERT_NE(out, nullptr);
         ASSERT_EQ(out->size(), 8u);
 
@@ -2174,9 +2035,9 @@ TEST(FunctionNodeTest, RapidInterleavedControlsAndConcurrentProcesses) {
 
   // Verify node remains in a coherent final state
   AlgContext final_ctx;
-  final_ctx.Publish("input", TextBatch{{999, 0, "final"}});
+  final_ctx.Publish("bk_in_input", TextBatch{{999, 0, "final"}});
   ASSERT_EQ(node->Process(&final_ctx), 0);
-  const auto* final_out = final_ctx.Read<TextBatch>("output");
+  const auto* final_out = final_ctx.Read<TextBatch>("bk_out_output");
   ASSERT_NE(final_out, nullptr);
   ASSERT_EQ(final_out->size(), 1u);
   EXPECT_EQ(final_out->at(0).data, "p30:final:s30");

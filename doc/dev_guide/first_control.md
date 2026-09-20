@@ -21,7 +21,7 @@
 
 ```bash
 ./build/alg_pipeline_tool catalog
-./scripts/scaffold_custom_node.py PrefixControlNode --control-id 1001 --add-to-cmake --generate-test
+./scripts/scaffold_custom_node.py PrefixControlNode --control-id 1001 --add-to-cmake --write-test
 ```
 
 `1001` 是练习选择的 ID；若已被占用，选用另一个 ID 并同步下发值。标准 ID 保留给
@@ -33,7 +33,7 @@ hot-swap 声明一致；通常直接复用同一份命令声明。重复使用�
 脚手架以[可编译模板](../../dev_support/node_authoring/starter_control_node.cpp)为唯一输入，
 生成 `src/custom_nodes/prefix_control_node.cpp`。这个选项只生成 TextBatch → TextBatch、
 1:1 保留来源的纯计算例子，不会改造任意已有 C++ 类。已有文件默认拒绝覆盖。
-`--generate-test` 打印注册及业务测试代码，请将它加入现有套件；不会自动修改测试文件。
+`--write-test` 生成独立测试文件；配合 `--add-to-cmake` 同时登记源文件和测试。
 
 ## 3. 阅读受控参数声明
 
@@ -152,13 +152,12 @@ int ret = ops.Control(handle, ControlCommand::kJson, &param);
 
 `kJson` 选择唯一参数结构；节点命令 ID 位于 `param.cmd_id`。payload 必须是非空 JSON object，
 UTF-8 字节数小于 65536，不含终止符。已有 Operator 命令 1/2/3 仍可按原结构调用。
-C ABI 继续直接使用 `CompanyAlgParamControl{cmd_id, json}`，不需要新增导出函数。
 
 Demo 的 `--control-cmd` 也可配置为 Profile 的 `control_cmd`，CLI 显式值优先；指定命令
 必须提供 `control_file`。省略命令时保留该 Demo 的默认命令。Demo 默认不发送内置演示
 更新；显式 `--example-control` 才启用，且显式文件优先。
 
-同一 handle 的 C ABI / Operator 调用串行；多个线程提交不保证顺序。内部直接调用
+同一 handle 的 Operator 调用串行；多个线程提交不保证顺序。内部直接调用
 Pipeline/Node 的 Control 时，由调用者序列化更新。裸 payload 广播到所有声明支持该
 命令的实例。一个 Pipeline 有多个同类节点时，用下面的信封只更新 `id: prefix`：
 
@@ -166,7 +165,7 @@ Pipeline/Node 的 Control 时，由调用者序列化更新。裸 payload 广播
 {"$edgeflow_control":1,"node_id":"prefix","payload":{"prefix":"VIP:"}}
 ```
 
-把该对象存入 Demo 的 Control 文件，或作为 `ControlJsonParam.json_param_str` / C ABI 的 JSON
+把该对象存入 Demo 的 Control 文件，或作为 `ControlJsonParam.json_param_str` 的 JSON
 字符串；`cmd_id` 仍放在原参数中。`$edgeflow_control` 是保留标记；信封必须且只能含上述
 三个字段，版本必须为整数 `1`，`node_id` 为非空的 Pipeline 实例 ID，`payload` 为对象。
 Node 只收到内部 `payload`，无需编写路由代码。未知 ID、该实例不支持命令或 schema
@@ -176,4 +175,4 @@ Node 只收到内部 `payload`，无需编写路由代码。未知 ID、该实�
 单节点应像模板一样先完成构造和校验，再替换配置。
 
 交付使用[统一开发流程](../../CONTRIBUTING.md)和 `./scripts/run_all_tests.sh`。对已有
-命令改变参数语义或公开接口时，先记录兼容决策；普通新命令不用修改中央分发代码。
+命令改变参数语义或公开接口时，先记录接口决策；普通新命令不用修改中央分发代码。

@@ -441,12 +441,11 @@ const std::string& LlamaCppBackend::BackendType() const noexcept {
 std::shared_ptr<IBackendSession> LlamaCppBackend::Load(
     const BackendLoadSpec& spec, std::string* diagnostic) noexcept {
   try {
-    if (spec.requested_protocol.has_value() &&
-        *spec.requested_protocol != ExecutionProtocol::kTextGeneration) {
+    if (spec.requested_protocol != ExecutionProtocol::kTextGeneration) {
       SetDiagnosticNoexcept(
           diagnostic,
           "llama.cpp backend does not support requested protocol: " +
-              std::string(ExecutionProtocolName(*spec.requested_protocol)));
+              std::string(ExecutionProtocolName(spec.requested_protocol)));
       return nullptr;
     }
     const std::string platform =

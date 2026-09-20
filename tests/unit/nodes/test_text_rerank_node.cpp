@@ -5,7 +5,6 @@
 #include <string>
 #include <vector>
 
-#include "adapter/shared_algorithm_runtime.h"
 #include "contracts/inference_payloads.h"
 #include "core/alg_context.h"
 #include "core/common_contracts.h"
@@ -16,6 +15,7 @@
 #include "engine/model_interface.h"
 #include "nodes/node_error_codes.h"
 #include "tests/support/node_test_utils.h"
+#include "tests/support/pipeline_test_utils.h"
 
 namespace llm_edgeflow {
 
@@ -34,7 +34,6 @@ class FakeRerankModel : public IRerankModel {
   InferenceConcurrency Concurrency() const noexcept override {
     return InferenceConcurrency::kConcurrent;
   }
-  size_t GetMaxBatchSize() const noexcept override { return 16; }
 
   int Score(const QueryCandidatesBatch& inputs,
             ScoreBatch* outputs) noexcept override {
@@ -77,7 +76,6 @@ class FakeRerankModel : public IRerankModel {
 class TextRerankNodeTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    ASSERT_EQ(SharedAlgorithmRuntime::GlobalInit(), 0);
     session_ctx_ = std::make_unique<SessionContext>();
 
     // 注册 Fake IRerankModel
@@ -97,7 +95,8 @@ TEST_F(TextRerankNodeTest, ProcessQueriesAndCandidates) {
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {{"bind_model", "fake_rerank_model"}, {"top_k", 2}};
-  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
+  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get(), nullptr,
+                              {"pairs", "candidate_texts"}));
 
   AlgContext ctx;
   TextBatch queries;
@@ -130,7 +129,8 @@ TEST_F(TextRerankNodeTest, ProcessPairsInput) {
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {{"bind_model", "fake_rerank_model"}, {"top_k", 1}};
-  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
+  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get(), nullptr,
+                              {"queries", "candidates", "candidate_texts"}));
 
   AlgContext ctx;
   QueryCandidatesBatch pairs;
@@ -152,7 +152,8 @@ TEST_F(TextRerankNodeTest, ProcessQueriesAndCandidateTexts) {
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {{"bind_model", "fake_rerank_model"}, {"top_k", 2}};
-  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
+  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get(), nullptr,
+                              {"pairs", "candidates"}));
 
   AlgContext ctx;
   TextBatch queries = {{10, 0, "Query 10"}};
@@ -181,7 +182,8 @@ TEST_F(TextRerankNodeTest, MultiRequestGrouping) {
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {{"bind_model", "fake_rerank_model"}, {"top_k", 1}};
-  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
+  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get(), nullptr,
+                              {"pairs", "candidates"}));
 
   AlgContext ctx;
   TextBatch queries = {{1, 0, "Q1"}, {2, 0, "Q2"}};
@@ -210,7 +212,8 @@ TEST_F(TextRerankNodeTest, TypedModelPairInputPath) {
   ASSERT_NE(node, nullptr);
 
   nlohmann::json cfg = {{"bind_model", "fake_rerank_model"}, {"top_k", 1}};
-  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
+  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get(), nullptr,
+                              {"queries", "candidates", "candidate_texts"}));
 
   AlgContext ctx;
   QueryCandidatesBatch pairs;
@@ -228,7 +231,8 @@ TEST_F(TextRerankNodeTest, FailuresAndProvenanceMismatch) {
   auto node = NodeRegistry::Instance().Create("TextRerankNode");
   ASSERT_NE(node, nullptr);
   nlohmann::json cfg = {{"bind_model", "fake_rerank_model"}, {"top_k", 1}};
-  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get()));
+  EXPECT_TRUE(InitNodeForTest(*node, cfg, session_ctx_.get(), nullptr,
+                              {"queries", "candidates", "candidate_texts"}));
 
   AlgContext ctx;
   QueryCandidatesBatch pairs = {
@@ -254,6 +258,10 @@ TEST_F(TextRerankNodeTest, FailuresAndProvenanceMismatch) {
 
 // 7. Port Constraints Validation Check
 TEST_F(TextRerankNodeTest, PortConstraintsValidation) {
+  RegisterTestBizs(
+      {"rerank_port_constraint_fixture"},
+      {{"doc_candidates", "RankedTextBatch", true, "N:1"}},
+      {{"ranked_results", "RankedTextBatch", true, "1:N", "generate_sub_id"}});
   auto has_constraint_err = [](const ValidationReport& r) {
     return std::any_of(r.diagnostics.begin(), r.diagnostics.end(),
                        [](const auto& d) {
@@ -263,7 +271,7 @@ TEST_F(TextRerankNodeTest, PortConstraintsValidation) {
 
   // Missing query when candidates is bound -> Fail
   nlohmann::json bad_pipeline = {
-      {"biz_name", "cross_rerank_matrix_v1"},
+      {"biz_name", "rerank_port_constraint_fixture"},
       {"models",
        {{{"capability", "rerank"},
          {"model_type", "test_biz_rerank"},
@@ -279,10 +287,9 @@ TEST_F(TextRerankNodeTest, PortConstraintsValidation) {
            {"outputs", {{"ranked", "ranked_results"}}}}},
          {"config", {{"bind_model", "rerank_model_v1"}}}}}}};
 
-  auto plan = PipelineValidator::ValidateAndPlan(
-      bad_pipeline, ValidationPolicy::kPrivateExtensionCompatible);
+  auto plan = PipelineValidator::ValidateAndPlan(bad_pipeline);
   EXPECT_FALSE(plan.report.ok);
-  EXPECT_TRUE(has_constraint_err(plan.report));
+  EXPECT_TRUE(has_constraint_err(plan.report)) << plan.report.ToJson().dump();
 }
 
 /**
@@ -301,7 +308,6 @@ class ControllableMockRerankModel : public IRerankModel {
   InferenceConcurrency Concurrency() const noexcept override {
     return InferenceConcurrency::kConcurrent;
   }
-  size_t GetMaxBatchSize() const noexcept override { return 16; }
 
   int Score(const QueryCandidatesBatch& input_pairs,
             ScoreBatch* output_scores) noexcept override {
@@ -350,7 +356,8 @@ TEST_F(TextRerankRankingTest, ReorderAndTopKFiltering) {
       {"bind_model", "test_rerank_model"},
       {"top_k", 2},
   };
-  ASSERT_TRUE(InitNodeForTest(*node_, cfg, &session_ctx_));
+  ASSERT_TRUE(InitNodeForTest(*node_, cfg, &session_ctx_, nullptr,
+                              {"pairs", "candidate_texts"}));
 
   AlgContext ctx;
   TextBatch raw_queries = {
@@ -403,7 +410,8 @@ TEST_F(TextRerankRankingTest, ReorderAndTopKFiltering) {
 // 2. 验证空候选集鲁棒性
 TEST_F(TextRerankRankingTest, EmptyCandidatesHandling) {
   nlohmann::json cfg = {{"bind_model", "test_rerank_model"}, {"top_k", 1}};
-  ASSERT_TRUE(InitNodeForTest(*node_, cfg, &session_ctx_));
+  ASSERT_TRUE(InitNodeForTest(*node_, cfg, &session_ctx_, nullptr,
+                              {"pairs", "candidate_texts"}));
 
   AlgContext ctx;
   TextBatch raw_queries = {TraceableItem<std::string>{0, 0, "Query"}};
@@ -418,7 +426,8 @@ TEST_F(TextRerankRankingTest, EmptyCandidatesHandling) {
 // 3. 验证缺失黑板 Key 拦截
 TEST_F(TextRerankRankingTest, MissingContextKeyHandling) {
   nlohmann::json cfg = {{"bind_model", "test_rerank_model"}};
-  ASSERT_TRUE(InitNodeForTest(*node_, cfg, &session_ctx_));
+  ASSERT_TRUE(InitNodeForTest(*node_, cfg, &session_ctx_, nullptr,
+                              {"pairs", "candidate_texts"}));
 
   AlgContext ctx;  // 空黑板
   int ret = node_->Process(&ctx);

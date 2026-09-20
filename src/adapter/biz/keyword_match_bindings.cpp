@@ -30,7 +30,7 @@ BizExposureDefinition MakeKeywordMatchBizExposure() {
   BizExposureDefinition def;
   def.biz_name = "keyword_match_v1";
   def.max_batch_size = 64;
-  def.required_transports = {"operator"};
+
   return def;
 }
 
@@ -38,7 +38,7 @@ IoBindingDefinition MakeKeywordMatchOperatorBinding() {
   IoBindingDefinition def;
   def.binding_id = "keyword_match.operator.v1";
   def.biz_name = "keyword_match_v1";
-  def.transport = "operator";
+
   def.input_converter_id = "keyword.plain.operator.v1";
   def.output_converter_id = "keyword.result.operator.v1";
   def.input_ports = {{"raw_request_ids", "raw_request_ids"},

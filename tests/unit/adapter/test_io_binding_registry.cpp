@@ -79,7 +79,7 @@ class IoBindingRegistryTest : public ::testing::Test {
     // 注册基础转换器供测试
     InputConverterDefinition in_def;
     in_def.converter_id = "test.in.operator";
-    in_def.transport = "operator";
+
     in_def.schema_id = "in_schema";
     in_def.schema_version = 1;
     in_def.external_type = "CompanyOperatorEntityInput";
@@ -94,7 +94,7 @@ class IoBindingRegistryTest : public ::testing::Test {
 
     OutputConverterDefinition out_def;
     out_def.converter_id = "test.out.operator";
-    out_def.transport = "operator";
+
     out_def.schema_id = "out_schema";
     out_def.schema_version = 1;
     out_def.external_type = "CompanyOperatorEntityOutput";
@@ -124,7 +124,7 @@ class IoBindingRegistryTest : public ::testing::Test {
     IoBindingDefinition binding;
     binding.binding_id = "test_biz.operator.v1";
     binding.biz_name = "test_biz_v1";
-    binding.transport = "operator";
+
     binding.input_converter_id = "test.in.operator";
     binding.output_converter_id = "test.out.operator";
     binding.input_ports = {{"texts", "input_sentences"}};
@@ -144,7 +144,7 @@ TEST_F(IoBindingRegistryTest, RegisterAndAuditValidBinding) {
   IoBindingDefinition binding;
   binding.binding_id = "test_biz.operator.v1";
   binding.biz_name = "test_biz_v1";
-  binding.transport = "operator";
+
   binding.input_converter_id = "test.in.operator";
   binding.output_converter_id = "test.out.operator";
   binding.input_ports = {{"texts", "input_sentences"}};
@@ -155,7 +155,7 @@ TEST_F(IoBindingRegistryTest, RegisterAndAuditValidBinding) {
   BizExposureDefinition exposure;
   exposure.biz_name = "test_biz_v1";
   exposure.max_batch_size = 32;
-  exposure.required_transports = {"operator"};
+
   EXPECT_TRUE(reg.RegisterExposure(exposure));
 
   std::vector<std::string> audit_errors;
@@ -170,7 +170,7 @@ TEST_F(IoBindingRegistryTest, AuditRejectsUnregisteredConvertersAndBiz) {
   IoBindingDefinition bad_biz;
   bad_biz.binding_id = "bad_biz.binding";
   bad_biz.biz_name = "non_existent_biz";
-  bad_biz.transport = "operator";
+
   bad_biz.input_converter_id = "test.in.operator";
   bad_biz.output_converter_id = "test.out.operator";
   reg.RegisterBinding(bad_biz);
@@ -191,7 +191,7 @@ TEST_F(IoBindingRegistryTest, AuditRejectsUnregisteredConvertersAndBiz) {
   IoBindingDefinition bad_conv;
   bad_conv.binding_id = "bad_conv.binding";
   bad_conv.biz_name = "test_biz_v1";
-  bad_conv.transport = "operator";
+
   bad_conv.input_converter_id = "non_existent_input";
   bad_conv.output_converter_id = "test.out.operator";
   reg.RegisterBinding(bad_conv);
@@ -213,15 +213,14 @@ TEST_F(IoBindingRegistryTest, AuditRejectsMissingProductionExposure) {
   // 暴露要求 operator，但未注册 operator 绑定
   BizExposureDefinition exposure;
   exposure.biz_name = "test_biz_v1";
-  exposure.required_transports = {"operator"};
+
   reg.RegisterExposure(exposure);
 
   std::vector<std::string> errors;
   EXPECT_FALSE(reg.Audit(&errors));
   bool found_missing_exp = false;
   for (const auto& e : errors) {
-    if (e.find("lacks valid binding for required transport: operator") !=
-        std::string::npos) {
+    if (e.find("lacks a valid Operator binding") != std::string::npos) {
       found_missing_exp = true;
     }
   }
@@ -235,7 +234,7 @@ TEST_F(IoBindingRegistryTest, UnselectedIllegalBindingFailsAudit) {
   IoBindingDefinition valid_binding;
   valid_binding.binding_id = "test_biz.operator.v1";
   valid_binding.biz_name = "test_biz_v1";
-  valid_binding.transport = "operator";
+
   valid_binding.input_converter_id = "test.in.operator";
   valid_binding.output_converter_id = "test.out.operator";
   valid_binding.input_ports = {{"texts", "input_sentences"}};
@@ -245,7 +244,7 @@ TEST_F(IoBindingRegistryTest, UnselectedIllegalBindingFailsAudit) {
   BizExposureDefinition exposure;
   exposure.biz_name = "test_biz_v1";
   exposure.max_batch_size = 32;
-  exposure.required_transports = {"operator"};
+
   EXPECT_TRUE(reg.RegisterExposure(exposure));
 
   // 单独 audit 合法绑定应当通过
@@ -257,7 +256,7 @@ TEST_F(IoBindingRegistryTest, UnselectedIllegalBindingFailsAudit) {
   IoBindingDefinition illegal_binding;
   illegal_binding.binding_id = "unselected_bad.operator.v1";
   illegal_binding.biz_name = "test_biz_v1";
-  illegal_binding.transport = "operator";
+
   illegal_binding.input_converter_id = "test.in.operator";
   illegal_binding.output_converter_id = "test.out.operator";
   illegal_binding.input_ports = {};  // 缺失必需 logical port texts
@@ -298,8 +297,7 @@ TEST_F(IoBindingRegistryTest, DeploymentIoConfigValidation) {
 
   DeploymentIoConfig parsed;
   std::string err;
-  EXPECT_TRUE(
-      DeploymentIoConfig::Parse(valid_cfg, tmp_dir, "operator", &parsed, &err));
+  EXPECT_TRUE(DeploymentIoConfig::Parse(valid_cfg, tmp_dir, &parsed, &err));
   EXPECT_EQ(parsed.pipe_path, "test.json");
 
   // 2. 拒绝旧 Schema 1 包装 (schema_version + data)
@@ -307,31 +305,24 @@ TEST_F(IoBindingRegistryTest, DeploymentIoConfigValidation) {
       {"schema_version", 1},
       {"data",
        {{"pipe_path", "test.json"}, {"io_binding", "test_biz.operator.v1"}}}};
-  EXPECT_FALSE(DeploymentIoConfig::Parse(old_schema1, tmp_dir, "operator",
-                                         &parsed, &err));
-  EXPECT_NE(err.find("Deprecated"), std::string::npos);
+  EXPECT_FALSE(DeploymentIoConfig::Parse(old_schema1, tmp_dir, &parsed, &err));
+  EXPECT_NE(err.find("Unknown field"), std::string::npos);
 
   // 3. 拒绝顶层未知字段
   nlohmann::json bad_field = valid_cfg;
   bad_field["extra_field"] = "foo";
-  EXPECT_FALSE(
-      DeploymentIoConfig::Parse(bad_field, tmp_dir, "operator", &parsed, &err));
-
-  // 4. 拒绝 cabi transport
-  EXPECT_FALSE(
-      DeploymentIoConfig::Parse(valid_cfg, tmp_dir, "cabi", &parsed, &err));
+  EXPECT_FALSE(DeploymentIoConfig::Parse(bad_field, tmp_dir, &parsed, &err));
 
   // 5. 路径逃逸拒绝
   nlohmann::json escape_cfg = {{"pipe_path", "../../../etc/passwd"}};
-  EXPECT_FALSE(DeploymentIoConfig::Parse(escape_cfg, tmp_dir, "operator",
-                                         &parsed, &err));
+  EXPECT_FALSE(DeploymentIoConfig::Parse(escape_cfg, tmp_dir, &parsed, &err));
 
   // 6. JSON Pointer 转义未知键 (例如 "bad~/field" -> "/bad~0~1field")
   nlohmann::json escaped_key_cfg = valid_cfg;
   escaped_key_cfg["bad~/field"] = 1;
   DeploymentDiagnostic diag;
-  EXPECT_FALSE(DeploymentIoConfig::Parse(escaped_key_cfg, tmp_dir, "operator",
-                                         &parsed, &err, &diag));
+  EXPECT_FALSE(DeploymentIoConfig::Parse(escaped_key_cfg, tmp_dir, &parsed,
+                                         &err, &diag));
   EXPECT_EQ(diag.code, "DEPLOYMENT_ERROR");
   EXPECT_EQ(diag.path, "/bad~0~1field");
 
@@ -343,8 +334,8 @@ TEST_F(IoBindingRegistryTest, DeploymentIoConfigValidation) {
   }
   std::string read_err;
   DeploymentDiagnostic read_diag;
-  EXPECT_FALSE(DeploymentIoConfig::ReadFromFile(
-      bad_conf_path, "operator", &parsed, &read_err, &read_diag));
+  EXPECT_FALSE(DeploymentIoConfig::ReadFromFile(bad_conf_path, &parsed,
+                                                &read_err, &read_diag));
   EXPECT_EQ(read_diag.code, "DEPLOYMENT_ERROR");
   EXPECT_EQ(read_diag.path, "/bad~0~1field");
   EXPECT_EQ(read_err.rfind("Error in config file " + bad_conf_path + ": ", 0),
@@ -359,8 +350,8 @@ TEST_F(IoBindingRegistryTest, DeploymentIoConfigValidation) {
     std::ofstream ofs(dep_conf_path);
     ofs << old_schema1.dump();
   }
-  EXPECT_FALSE(DeploymentIoConfig::ReadFromFile(
-      dep_conf_path, "operator", &parsed, &read_err, &read_diag));
+  EXPECT_FALSE(DeploymentIoConfig::ReadFromFile(dep_conf_path, &parsed,
+                                                &read_err, &read_diag));
   EXPECT_EQ(read_diag.code, "DEPLOYMENT_ERROR");
   EXPECT_EQ(read_err.rfind("Error in config file " + dep_conf_path + ": ", 0),
             0);
@@ -375,8 +366,8 @@ TEST_F(IoBindingRegistryTest, DeploymentIoConfigValidation) {
     std::ofstream ofs(keyword_conf_path);
     ofs << escaped_key_cfg.dump();
   }
-  EXPECT_FALSE(DeploymentIoConfig::ReadFromFile(
-      keyword_conf_path, "operator", &parsed, &read_err, &read_diag));
+  EXPECT_FALSE(DeploymentIoConfig::ReadFromFile(keyword_conf_path, &parsed,
+                                                &read_err, &read_diag));
   EXPECT_EQ(read_diag.code, "DEPLOYMENT_ERROR");
   EXPECT_EQ(read_diag.path, "/bad~0~1field");
   EXPECT_EQ(
@@ -388,8 +379,8 @@ TEST_F(IoBindingRegistryTest, DeploymentIoConfigValidation) {
   // 10. 多个 ~ 与 / 字符的转义校验
   nlohmann::json multi_escape_cfg = valid_cfg;
   multi_escape_cfg["a~b/c~0/d~1"] = 42;
-  EXPECT_FALSE(DeploymentIoConfig::Parse(multi_escape_cfg, tmp_dir, "operator",
-                                         &parsed, &err, &diag));
+  EXPECT_FALSE(DeploymentIoConfig::Parse(multi_escape_cfg, tmp_dir, &parsed,
+                                         &err, &diag));
   EXPECT_EQ(diag.code, "DEPLOYMENT_ERROR");
   EXPECT_EQ(diag.path, "/a~0b~1c~00~1d~01");
 
@@ -435,34 +426,31 @@ TEST_F(IoBindingRegistryTest, StrictConfigDirectoryIsolationAndCwdInvariance) {
 
   // 1. 同级文件 -> 成功
   EXPECT_TRUE(DeploymentIoConfig::Parse(make_conf("pipeline.json"),
-                                        base_dir.string(), "operator", &parsed,
-                                        &err));
+                                        base_dir.string(), &parsed, &err));
   EXPECT_EQ(parsed.resolved_pipe_path,
             fs::canonical(base_dir / "pipeline.json").string());
 
   // 2. 子目录文件 -> 成功
   EXPECT_TRUE(DeploymentIoConfig::Parse(make_conf("subdir/sub_pipeline.json"),
-                                        base_dir.string(), "operator", &parsed,
-                                        &err));
+                                        base_dir.string(), &parsed, &err));
   EXPECT_EQ(parsed.resolved_pipe_path,
             fs::canonical(sub_dir / "sub_pipeline.json").string());
 
   // 3. 父目录逃逸 (../outside/outside_pipeline.json) -> 严格拒绝
   EXPECT_FALSE(
       DeploymentIoConfig::Parse(make_conf("../outside/outside_pipeline.json"),
-                                base_dir.string(), "operator", &parsed, &err));
+                                base_dir.string(), &parsed, &err));
   EXPECT_NE(err.find("escapes config directory"), std::string::npos);
 
   // 4. 兄弟目录逃逸 (../sibling/sibling_pipeline.json) -> 严格拒绝
   EXPECT_FALSE(
       DeploymentIoConfig::Parse(make_conf("../sibling/sibling_pipeline.json"),
-                                base_dir.string(), "operator", &parsed, &err));
+                                base_dir.string(), &parsed, &err));
   EXPECT_NE(err.find("escapes config directory"), std::string::npos);
 
   // 5. 符号链接逃逸 (位于 base_dir 内但指向根外) -> 严格拒绝
   EXPECT_FALSE(DeploymentIoConfig::Parse(make_conf("symlink_escape.json"),
-                                         base_dir.string(), "operator", &parsed,
-                                         &err));
+                                         base_dir.string(), &parsed, &err));
   EXPECT_NE(err.find("escapes config directory"), std::string::npos);
 
   // 6. 切换工作目录不改变解析结果 (Cwd Invariance)
@@ -479,8 +467,8 @@ TEST_F(IoBindingRegistryTest, StrictConfigDirectoryIsolationAndCwdInvariance) {
 
   DeploymentIoConfig cwd_parsed;
   std::string cwd_err;
-  bool read_ok = DeploymentIoConfig::ReadFromFile(
-      conf_file.string(), "operator", &cwd_parsed, &cwd_err);
+  bool read_ok = DeploymentIoConfig::ReadFromFile(conf_file.string(),
+                                                  &cwd_parsed, &cwd_err);
 
   // 恢复原工作目录
   fs::current_path(orig_cwd, ec);
@@ -500,7 +488,7 @@ TEST_F(IoBindingRegistryTest, FailClosedAuditRejectsInvalidUnselectedBinding) {
   IoBindingDefinition valid_binding;
   valid_binding.binding_id = "test_biz.operator.v1";
   valid_binding.biz_name = "test_biz_v1";
-  valid_binding.transport = "operator";
+
   valid_binding.input_converter_id = "test.in.operator";
   valid_binding.output_converter_id = "test.out.operator";
   valid_binding.input_ports = {{"texts", "input_sentences"}};
@@ -510,14 +498,14 @@ TEST_F(IoBindingRegistryTest, FailClosedAuditRejectsInvalidUnselectedBinding) {
   BizExposureDefinition exposure;
   exposure.biz_name = "test_biz_v1";
   exposure.max_batch_size = 32;
-  exposure.required_transports = {"operator"};
+
   EXPECT_TRUE(reg.RegisterExposure(exposure));
 
   // 注册一个未被任何曝光引用的非法绑定 (输入端口缺少必需端口)
   IoBindingDefinition unselected_bad_binding;
   unselected_bad_binding.binding_id = "unselected_bad.operator.v1";
   unselected_bad_binding.biz_name = "test_biz_v1";
-  unselected_bad_binding.transport = "operator";
+
   unselected_bad_binding.input_converter_id = "test.in.operator";
   unselected_bad_binding.output_converter_id = "test.out.operator";
   // 故意遗漏必需输入映射 texts
@@ -648,8 +636,8 @@ TEST_F(IoBindingRegistryTest, BizMismatchFailsClosedWithExactPointer) {
 
   std::unique_ptr<ValidatedIoPlan> plan;
   std::string err;
-  int ret = IoBindingResolver::ResolveFromPipelineJson(doc, "operator",
-                                                       "./models", &plan, &err);
+  int ret =
+      IoBindingResolver::ResolveFromPipelineJson(doc, "./models", &plan, &err);
   EXPECT_EQ(ret, -2);
   EXPECT_EQ(plan, nullptr);
   EXPECT_NE(err.find("Pipeline biz_name 'smart_doc_qa_v1' does not match "
@@ -676,8 +664,8 @@ TEST_F(IoBindingRegistryTest, EscapedJsonPointerInModelPathsAndSlots) {
 
   std::unique_ptr<ValidatedIoPlan> plan;
   std::string err;
-  int ret = IoBindingResolver::ResolveFromPipelineJson(slot_doc, "operator",
-                                                       "./models", &plan, &err);
+  int ret = IoBindingResolver::ResolveFromPipelineJson(slot_doc, "./models",
+                                                       &plan, &err);
   EXPECT_EQ(ret, -2);
   // slot~0/bad escaped: ~ -> ~0, / -> ~1 => slot~00~1bad
   EXPECT_NE(err.find("/deployment/io/output_allocations/slot~00~1bad"),
@@ -700,8 +688,8 @@ TEST_F(IoBindingRegistryTest, EscapedJsonPointerInModelPathsAndSlots) {
       {"models", nlohmann::json::array()},
       {"pipeline", DefaultPipelineNodes()}};
 
-  ret = IoBindingResolver::ResolveFromPipelineJson(model_doc, "operator",
-                                                   "./models", &plan, &err);
+  ret = IoBindingResolver::ResolveFromPipelineJson(model_doc, "./models", &plan,
+                                                   &err);
   EXPECT_EQ(ret, -2);
   // model~1/test escaped: ~ -> ~0, / -> ~1 => model~01~1test
   EXPECT_NE(err.find("/deployment/model_paths/model~01~1test"),
@@ -739,8 +727,8 @@ TEST_F(IoBindingRegistryTest,
 
   std::unique_ptr<ValidatedIoPlan> plan;
   std::string err;
-  int ret = IoBindingResolver::ResolveFromPipelineJson(doc, "operator",
-                                                       "./models", &plan, &err);
+  int ret =
+      IoBindingResolver::ResolveFromPipelineJson(doc, "./models", &plan, &err);
   EXPECT_EQ(ret, -2);
   // mid~test escaped: mid~0test
   EXPECT_NE(err.find("/deployment/model_paths/mid~0test"), std::string::npos)
@@ -753,8 +741,8 @@ TEST_F(IoBindingRegistryTest,
   nlohmann::json unoverridden_doc = doc;
   unoverridden_doc["deployment"].erase("model_paths");
   unoverridden_doc["models"][0]["model_path"] = "../../escaped_model.bin";
-  ret = IoBindingResolver::ResolveFromPipelineJson(unoverridden_doc, "operator",
-                                                   "./models", &plan, &err);
+  ret = IoBindingResolver::ResolveFromPipelineJson(unoverridden_doc, "./models",
+                                                   &plan, &err);
   EXPECT_EQ(ret, -2);
   EXPECT_NE(err.find("/models/0/model_path"), std::string::npos)
       << "ACTUAL ERR: " << err;
@@ -789,7 +777,7 @@ TEST_F(IoBindingRegistryTest,
       {"pipeline", DefaultPipelineNodes()}};
 
   DeploymentPrepareOptions options;
-  options.transport = "operator";
+
   options.path_mode = DeploymentPathMode::kLexicalOnly;
 
   PreparedDeployment prepared;
@@ -845,7 +833,7 @@ TEST_F(IoBindingRegistryTest, MissingDeploymentFails_T02) {
       {"pipeline", DefaultPipelineNodes()}};
 
   DeploymentPrepareOptions options;
-  options.transport = "operator";
+
   options.path_mode = DeploymentPathMode::kLexicalOnly;
 
   PreparedDeployment prepared;
@@ -856,7 +844,6 @@ TEST_F(IoBindingRegistryTest, MissingDeploymentFails_T02) {
       PrepareDeploymentDocument(neutral_doc, options, &prepared, &diag));
   EXPECT_EQ(diag.code, "MISSING_DEPLOYMENT_IO");
   EXPECT_EQ(diag.path, "/deployment/io");
-  EXPECT_EQ(diag.legacy_status, -2);
 
   // 2. Core direct validation of a document containing deployment fails with
   // unknown field
@@ -899,7 +886,7 @@ TEST_F(IoBindingRegistryTest,
       {"pipeline", DefaultPipelineNodes()}};
 
   DeploymentPrepareOptions options;
-  options.transport = "operator";
+
   options.path_mode = DeploymentPathMode::kLexicalOnly;
 
   PreparedDeployment prepared;
@@ -911,7 +898,6 @@ TEST_F(IoBindingRegistryTest,
     EXPECT_FALSE(PrepareDeploymentDocument(doc, options, &prepared, &diag));
     EXPECT_EQ(diag.code, "MISSING_FIELD");
     EXPECT_EQ(diag.path, "/models/0/model_path");
-    EXPECT_EQ(diag.legacy_status, -3);
 
     // Paired check without override: same result
     doc["deployment"].erase("model_paths");
@@ -920,7 +906,6 @@ TEST_F(IoBindingRegistryTest,
         PrepareDeploymentDocument(doc, options, &prepared, &diag_no_override));
     EXPECT_EQ(diag_no_override.code, "MISSING_FIELD");
     EXPECT_EQ(diag_no_override.path, "/models/0/model_path");
-    EXPECT_EQ(diag_no_override.legacy_status, -3);
   }
 
   // Subcase 2: model_path is null
@@ -928,17 +913,15 @@ TEST_F(IoBindingRegistryTest,
     nlohmann::json doc = base_doc;
     doc["models"][0]["model_path"] = nullptr;
     EXPECT_FALSE(PrepareDeploymentDocument(doc, options, &prepared, &diag));
-    EXPECT_EQ(diag.code, "INVALID_MODEL_PATH");
+    EXPECT_EQ(diag.code, "FIELD_TYPE");
     EXPECT_EQ(diag.path, "/models/0/model_path");
-    EXPECT_EQ(diag.legacy_status, -2);
 
     doc["deployment"].erase("model_paths");
     DeploymentDiagnostic diag_no_override;
     EXPECT_FALSE(
         PrepareDeploymentDocument(doc, options, &prepared, &diag_no_override));
-    EXPECT_EQ(diag_no_override.code, "INVALID_MODEL_PATH");
+    EXPECT_EQ(diag_no_override.code, "FIELD_TYPE");
     EXPECT_EQ(diag_no_override.path, "/models/0/model_path");
-    EXPECT_EQ(diag_no_override.legacy_status, -2);
   }
 
   // Subcase 3: model_path is integer
@@ -946,17 +929,15 @@ TEST_F(IoBindingRegistryTest,
     nlohmann::json doc = base_doc;
     doc["models"][0]["model_path"] = 12345;
     EXPECT_FALSE(PrepareDeploymentDocument(doc, options, &prepared, &diag));
-    EXPECT_EQ(diag.code, "INVALID_MODEL_PATH");
+    EXPECT_EQ(diag.code, "FIELD_TYPE");
     EXPECT_EQ(diag.path, "/models/0/model_path");
-    EXPECT_EQ(diag.legacy_status, -2);
 
     doc["deployment"].erase("model_paths");
     DeploymentDiagnostic diag_no_override;
     EXPECT_FALSE(
         PrepareDeploymentDocument(doc, options, &prepared, &diag_no_override));
-    EXPECT_EQ(diag_no_override.code, "INVALID_MODEL_PATH");
+    EXPECT_EQ(diag_no_override.code, "FIELD_TYPE");
     EXPECT_EQ(diag_no_override.path, "/models/0/model_path");
-    EXPECT_EQ(diag_no_override.legacy_status, -2);
   }
 
   // Subcase 4: model_path is empty string
@@ -964,17 +945,15 @@ TEST_F(IoBindingRegistryTest,
     nlohmann::json doc = base_doc;
     doc["models"][0]["model_path"] = "";
     EXPECT_FALSE(PrepareDeploymentDocument(doc, options, &prepared, &diag));
-    EXPECT_EQ(diag.code, "INVALID_MODEL_PATH");
+    EXPECT_EQ(diag.code, "FIELD_RANGE");
     EXPECT_EQ(diag.path, "/models/0/model_path");
-    EXPECT_EQ(diag.legacy_status, -2);
 
     doc["deployment"].erase("model_paths");
     DeploymentDiagnostic diag_no_override;
     EXPECT_FALSE(
         PrepareDeploymentDocument(doc, options, &prepared, &diag_no_override));
-    EXPECT_EQ(diag_no_override.code, "INVALID_MODEL_PATH");
+    EXPECT_EQ(diag_no_override.code, "FIELD_RANGE");
     EXPECT_EQ(diag_no_override.path, "/models/0/model_path");
-    EXPECT_EQ(diag_no_override.legacy_status, -2);
   }
 }
 
@@ -983,7 +962,7 @@ TEST_F(IoBindingRegistryTest,
   RegisterTestBizBinding();
 
   DeploymentPrepareOptions options;
-  options.transport = "operator";
+
   options.path_mode = DeploymentPathMode::kLexicalOnly;
   PreparedDeployment prepared;
   DeploymentDiagnostic diag;
@@ -1087,7 +1066,7 @@ TEST_F(IoBindingRegistryTest,
       {"pipeline", DefaultPipelineNodes()}};
 
   DeploymentPrepareOptions options;
-  options.transport = "operator";
+
   options.path_mode = DeploymentPathMode::kUnderRoot;
   options.model_root_dir = temp_dir.string();
 
@@ -1128,7 +1107,7 @@ TEST_F(IoBindingRegistryTest, OverrideUnknownModelIdOrInvalidSyntax_T06) {
       {"pipeline", DefaultPipelineNodes()}};
 
   DeploymentPrepareOptions options;
-  options.transport = "operator";
+
   options.path_mode = DeploymentPathMode::kLexicalOnly;
   PreparedDeployment prepared;
   DeploymentDiagnostic diag;
@@ -1141,7 +1120,6 @@ TEST_F(IoBindingRegistryTest, OverrideUnknownModelIdOrInvalidSyntax_T06) {
     EXPECT_FALSE(PrepareDeploymentDocument(doc, options, &prepared, &diag));
     EXPECT_EQ(diag.code, "UNKNOWN_MODEL_ID");
     EXPECT_EQ(diag.path, "/deployment/model_paths/nonexistent_model");
-    EXPECT_EQ(diag.legacy_status, -2);
   }
 
   // Case 2: Override unknown model_id with special chars (escaped pointer)
@@ -1151,7 +1129,6 @@ TEST_F(IoBindingRegistryTest, OverrideUnknownModelIdOrInvalidSyntax_T06) {
     EXPECT_FALSE(PrepareDeploymentDocument(doc, options, &prepared, &diag));
     EXPECT_EQ(diag.code, "UNKNOWN_MODEL_ID");
     EXPECT_EQ(diag.path, "/deployment/model_paths/non~1exist~0id");
-    EXPECT_EQ(diag.legacy_status, -2);
   }
 
   // Case 3: Override value is non-string (e.g. integer)
@@ -1161,7 +1138,6 @@ TEST_F(IoBindingRegistryTest, OverrideUnknownModelIdOrInvalidSyntax_T06) {
     EXPECT_FALSE(PrepareDeploymentDocument(doc, options, &prepared, &diag));
     EXPECT_EQ(diag.code, "DEPLOYMENT_ERROR");
     EXPECT_EQ(diag.path, "/deployment/model_paths/mid_1");
-    EXPECT_EQ(diag.legacy_status, -2);
   }
 
   // Case 4: Override value is empty string
@@ -1171,7 +1147,6 @@ TEST_F(IoBindingRegistryTest, OverrideUnknownModelIdOrInvalidSyntax_T06) {
     EXPECT_FALSE(PrepareDeploymentDocument(doc, options, &prepared, &diag));
     EXPECT_EQ(diag.code, "DEPLOYMENT_ERROR");
     EXPECT_EQ(diag.path, "/deployment/model_paths/mid_1");
-    EXPECT_EQ(diag.legacy_status, -2);
   }
 }
 
@@ -1193,7 +1168,7 @@ TEST_F(IoBindingRegistryTest, DeploymentIoUnknownBindingOrMismatch_T07) {
       {"pipeline", DefaultPipelineNodes()}};
 
   DeploymentPrepareOptions options;
-  options.transport = "operator";
+
   options.path_mode = DeploymentPathMode::kLexicalOnly;
   PreparedDeployment prepared;
   DeploymentDiagnostic diag;
@@ -1205,7 +1180,6 @@ TEST_F(IoBindingRegistryTest, DeploymentIoUnknownBindingOrMismatch_T07) {
     EXPECT_FALSE(PrepareDeploymentDocument(doc, options, &prepared, &diag));
     EXPECT_EQ(diag.code, "UNKNOWN_IO_BINDING");
     EXPECT_EQ(diag.path, "/deployment/io/io_binding");
-    EXPECT_EQ(diag.legacy_status, -2);
   }
 
   // Case 2: Biz name mismatch
@@ -1215,18 +1189,6 @@ TEST_F(IoBindingRegistryTest, DeploymentIoUnknownBindingOrMismatch_T07) {
     EXPECT_FALSE(PrepareDeploymentDocument(doc, options, &prepared, &diag));
     EXPECT_EQ(diag.code, "BIZ_MISMATCH");
     EXPECT_EQ(diag.path, "/deployment/io/io_binding");
-    EXPECT_EQ(diag.legacy_status, -2);
-  }
-
-  // Case 3: Unsupported transport
-  {
-    nlohmann::json doc = base_doc;
-    DeploymentPrepareOptions rpc_opts = options;
-    rpc_opts.transport = "unsupported_transport";
-    EXPECT_FALSE(PrepareDeploymentDocument(doc, rpc_opts, &prepared, &diag));
-    EXPECT_EQ(diag.code, "UNSUPPORTED_TRANSPORT");
-    EXPECT_EQ(diag.path, "/");
-    EXPECT_EQ(diag.legacy_status, -2);
   }
 }
 
@@ -1248,7 +1210,7 @@ TEST_F(IoBindingRegistryTest, DeploymentIoSlotValidation_T08) {
       {"pipeline", DefaultPipelineNodes()}};
 
   DeploymentPrepareOptions options;
-  options.transport = "operator";
+
   options.path_mode = DeploymentPathMode::kLexicalOnly;
   PreparedDeployment prepared;
   DeploymentDiagnostic diag;
@@ -1260,7 +1222,6 @@ TEST_F(IoBindingRegistryTest, DeploymentIoSlotValidation_T08) {
     EXPECT_FALSE(PrepareDeploymentDocument(doc, options, &prepared, &diag));
     EXPECT_EQ(diag.code, "MISSING_OUTPUT_SLOT");
     EXPECT_EQ(diag.path, "/deployment/io/output_allocations/entity_out");
-    EXPECT_EQ(diag.legacy_status, -2);
   }
 
   // Case 2: Unknown slot in output_allocations
@@ -1272,7 +1233,6 @@ TEST_F(IoBindingRegistryTest, DeploymentIoSlotValidation_T08) {
     EXPECT_EQ(diag.code, "UNKNOWN_OUTPUT_SLOT");
     EXPECT_EQ(diag.path,
               "/deployment/io/output_allocations/unexpected_extra_slot");
-    EXPECT_EQ(diag.legacy_status, -2);
   }
 
   // Case 3: Slot allocation missing type field
@@ -1282,7 +1242,6 @@ TEST_F(IoBindingRegistryTest, DeploymentIoSlotValidation_T08) {
     EXPECT_FALSE(PrepareDeploymentDocument(doc, options, &prepared, &diag));
     EXPECT_EQ(diag.code, "INVALID_OUTPUT_ALLOCATION");
     EXPECT_EQ(diag.path, "/deployment/io/output_allocations/entity_out");
-    EXPECT_EQ(diag.legacy_status, -2);
   }
 }
 
@@ -1312,7 +1271,7 @@ TEST_F(IoBindingRegistryTest, PrepareFailureResetsPreparedStateAtomically_T18) {
       {"pipeline", DefaultPipelineNodes()}};
 
   DeploymentPrepareOptions options;
-  options.transport = "operator";
+
   options.path_mode = DeploymentPathMode::kLexicalOnly;
 
   PreparedDeployment prepared;
@@ -1467,8 +1426,8 @@ TEST_F(IoBindingRegistryTest,
   std::unique_ptr<ValidatedIoPlan> plan;
   std::string err;
   DeploymentDiagnostic diag;
-  int rc = IoBindingResolver::ResolveFromPipelineJson(
-      t03_doc, "operator", "./models", &plan, &err, &diag);
+  int rc = IoBindingResolver::ResolveFromPipelineJson(t03_doc, "./models",
+                                                      &plan, &err, &diag);
   EXPECT_EQ(rc, -3);
   EXPECT_EQ(plan, nullptr);
   EXPECT_EQ(diag.code, "MISSING_FIELD");
@@ -1478,8 +1437,8 @@ TEST_F(IoBindingRegistryTest,
   nlohmann::json t06_doc = t03_doc;
   t06_doc["models"][0]["model_path"] = "models/original.bin";
   t06_doc["deployment"]["model_paths"] = {{"unknown_mid", "models/foo.bin"}};
-  rc = IoBindingResolver::ResolveFromPipelineJson(
-      t06_doc, "operator", "./models", &plan, &err, &diag);
+  rc = IoBindingResolver::ResolveFromPipelineJson(t06_doc, "./models", &plan,
+                                                  &err, &diag);
   EXPECT_EQ(rc, -2);
   EXPECT_EQ(plan, nullptr);
   EXPECT_EQ(diag.code, "UNKNOWN_MODEL_ID");
@@ -1489,8 +1448,8 @@ TEST_F(IoBindingRegistryTest,
   nlohmann::json t07_doc = t03_doc;
   t07_doc["models"][0]["model_path"] = "models/original.bin";
   t07_doc["deployment"]["io"]["io_binding"] = "nonexistent.binding";
-  rc = IoBindingResolver::ResolveFromPipelineJson(
-      t07_doc, "operator", "./models", &plan, &err, &diag);
+  rc = IoBindingResolver::ResolveFromPipelineJson(t07_doc, "./models", &plan,
+                                                  &err, &diag);
   EXPECT_EQ(rc, -2);
   EXPECT_EQ(plan, nullptr);
   EXPECT_EQ(diag.code, "UNKNOWN_IO_BINDING");
@@ -1500,8 +1459,8 @@ TEST_F(IoBindingRegistryTest,
   nlohmann::json t08_doc = t03_doc;
   t08_doc["models"][0]["model_path"] = "models/original.bin";
   t08_doc["deployment"]["io"]["output_allocations"].clear();
-  rc = IoBindingResolver::ResolveFromPipelineJson(
-      t08_doc, "operator", "./models", &plan, &err, &diag);
+  rc = IoBindingResolver::ResolveFromPipelineJson(t08_doc, "./models", &plan,
+                                                  &err, &diag);
   EXPECT_EQ(rc, -2);
   EXPECT_EQ(plan, nullptr);
   EXPECT_EQ(diag.code, "MISSING_OUTPUT_SLOT");
@@ -1564,8 +1523,8 @@ TEST_F(IoBindingRegistryTest,
   DeploymentDiagnostic diag;
 
   // 1. Success case
-  int rc = IoBindingResolver::ResolveFromFile(conf_path.string(), "operator",
-                                              "", &plan, &err, &diag);
+  int rc = IoBindingResolver::ResolveFromFile(conf_path.string(), "", &plan,
+                                              &err, &diag);
   EXPECT_EQ(rc, 0);
   EXPECT_NE(plan, nullptr);
   EXPECT_TRUE(diag.code.empty());
@@ -1583,8 +1542,8 @@ TEST_F(IoBindingRegistryTest,
     t03_pipe["deployment"]["model_paths"] = {{"mid_1", "models/override.bin"}};
     write_file(pipe_path, t03_pipe);
 
-    rc = IoBindingResolver::ResolveFromFile(conf_path.string(), "operator", "",
-                                            &plan, &err, &diag);
+    rc = IoBindingResolver::ResolveFromFile(conf_path.string(), "", &plan, &err,
+                                            &diag);
     EXPECT_EQ(rc, -3);
     EXPECT_EQ(plan, nullptr);
     EXPECT_EQ(diag.code, "MISSING_FIELD");
@@ -1597,8 +1556,8 @@ TEST_F(IoBindingRegistryTest,
     t06_pipe["deployment"]["model_paths"] = {{"unknown_mid", "models/foo.bin"}};
     write_file(pipe_path, t06_pipe);
 
-    rc = IoBindingResolver::ResolveFromFile(conf_path.string(), "operator", "",
-                                            &plan, &err, &diag);
+    rc = IoBindingResolver::ResolveFromFile(conf_path.string(), "", &plan, &err,
+                                            &diag);
     EXPECT_EQ(rc, -2);
     EXPECT_EQ(plan, nullptr);
     EXPECT_EQ(diag.code, "UNKNOWN_MODEL_ID");
@@ -1611,8 +1570,8 @@ TEST_F(IoBindingRegistryTest,
     t07_pipe["deployment"]["io"]["io_binding"] = "unregistered.binding";
     write_file(pipe_path, t07_pipe);
 
-    rc = IoBindingResolver::ResolveFromFile(conf_path.string(), "operator", "",
-                                            &plan, &err, &diag);
+    rc = IoBindingResolver::ResolveFromFile(conf_path.string(), "", &plan, &err,
+                                            &diag);
     EXPECT_EQ(rc, -2);
     EXPECT_EQ(plan, nullptr);
     EXPECT_EQ(diag.code, "UNKNOWN_IO_BINDING");
@@ -1625,8 +1584,8 @@ TEST_F(IoBindingRegistryTest,
     t08_pipe["deployment"]["io"]["output_allocations"].clear();
     write_file(pipe_path, t08_pipe);
 
-    rc = IoBindingResolver::ResolveFromFile(conf_path.string(), "operator", "",
-                                            &plan, &err, &diag);
+    rc = IoBindingResolver::ResolveFromFile(conf_path.string(), "", &plan, &err,
+                                            &diag);
     EXPECT_EQ(rc, -2);
     EXPECT_EQ(plan, nullptr);
     EXPECT_EQ(diag.code, "MISSING_OUTPUT_SLOT");
@@ -1638,8 +1597,7 @@ TEST_F(IoBindingRegistryTest,
 
   // 6. Non-existent conf file -> CONFIG_FILE_OPEN
   rc = IoBindingResolver::ResolveFromFile(
-      (temp_dir / "nonexistent.conf").string(), "operator", "", &plan, &err,
-      &diag);
+      (temp_dir / "nonexistent.conf").string(), "", &plan, &err, &diag);
   EXPECT_EQ(rc, -2);
   EXPECT_EQ(plan, nullptr);
   EXPECT_EQ(diag.code, "CONFIG_FILE_OPEN");
@@ -1649,8 +1607,8 @@ TEST_F(IoBindingRegistryTest,
   {
     fs::path bad_conf = temp_dir / "bad_syntax.conf";
     write_raw(bad_conf, "{ unquoted: invalid JSON ...");
-    rc = IoBindingResolver::ResolveFromFile(bad_conf.string(), "operator", "",
-                                            &plan, &err, &diag);
+    rc = IoBindingResolver::ResolveFromFile(bad_conf.string(), "", &plan, &err,
+                                            &diag);
     EXPECT_EQ(rc, -2);
     EXPECT_EQ(plan, nullptr);
     EXPECT_EQ(diag.code, "JSON_PARSE");
@@ -1662,8 +1620,8 @@ TEST_F(IoBindingRegistryTest,
   {
     fs::path missing_pipe_conf = temp_dir / "missing_pipe.conf";
     write_file(missing_pipe_conf, {{"pipe_path", "missing_pipeline.json"}});
-    rc = IoBindingResolver::ResolveFromFile(missing_pipe_conf.string(),
-                                            "operator", "", &plan, &err, &diag);
+    rc = IoBindingResolver::ResolveFromFile(missing_pipe_conf.string(), "",
+                                            &plan, &err, &diag);
     EXPECT_EQ(rc, -2);
     EXPECT_EQ(plan, nullptr);
     EXPECT_EQ(diag.code, "DEPLOYMENT_ERROR");
@@ -1678,8 +1636,8 @@ TEST_F(IoBindingRegistryTest,
     fs::path bad_pipe_conf = temp_dir / "bad_pipe.conf";
     write_file(bad_pipe_conf, {{"pipe_path", "bad_pipe.json"}});
 
-    rc = IoBindingResolver::ResolveFromFile(bad_pipe_conf.string(), "operator",
-                                            "", &plan, &err, &diag);
+    rc = IoBindingResolver::ResolveFromFile(bad_pipe_conf.string(), "", &plan,
+                                            &err, &diag);
     EXPECT_EQ(rc, -2);
     EXPECT_EQ(plan, nullptr);
     EXPECT_EQ(diag.code, "JSON_PARSE");

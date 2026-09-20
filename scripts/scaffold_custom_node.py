@@ -312,87 +312,6 @@ def render_model_node(name, description, capability, in_port, out_port, authorin
     return render_node(name, description, "model", capability, in_port, out_port, authoring=authoring)
 
 
-def render_test_stub(name):
-    return f"""#include <gtest/gtest.h>
-#include "core/node_registry.h"
-#include "core/node_definition.h"
-
-namespace llm_edgeflow {{
-TEST(CustomNodeCatalogTest, {name}RegistrationAndInstantiation) {{
-  const auto def = PipelineCatalog::FindNode({cpp_string(name)});
-  ASSERT_TRUE(def.has_value());
-  EXPECT_EQ(def->category, "custom");
-  EXPECT_FALSE(def->inputs.empty());
-  EXPECT_FALSE(def->outputs.empty());
-  auto node = NodeRegistry::Instance().Create({cpp_string(name)});
-  ASSERT_NE(node, nullptr);
-  EXPECT_EQ(node->Name(), {cpp_string(name)});
-  // Add domain assertions, missing input, model failure and provenance coverage.
-}}
-}}  // namespace llm_edgeflow
-"""
-
-
-def render_control_test_stub(name, command_id, in_name, out_name):
-    return f'''#include <gtest/gtest.h>
-#include "core/common_contracts.h"
-#include "core/node_registry.h"
-#include "tests/support/node_test_utils.h"
-
-namespace llm_edgeflow {{
-TEST(CustomNodeCatalogTest, {name}ControlChangesOutputAndPreservesOnFailure) {{
-  auto node = NodeRegistry::Instance().Create({cpp_string(name)});
-  ASSERT_NE(node, nullptr);
-  SessionContext session;
-  ASSERT_TRUE(InitNodeForTest(*node, {{{{"prefix", "initial:"}}}}, &session));
-  const auto check_output = [&](const std::string& expected) {{
-    AlgContext ctx;
-    TextBatch input;
-    input.emplace_back(17, 3, "sample");
-    ctx.Publish({cpp_string(in_name)}, std::move(input));
-    ASSERT_EQ(node->Process(&ctx), 0);
-    const auto* output = ctx.Read<TextBatch>({cpp_string(out_name)});
-    ASSERT_NE(output, nullptr);
-    ASSERT_EQ(output->size(), 1u);
-    EXPECT_EQ(output->at(0).req_id, 17u);
-    EXPECT_EQ(output->at(0).sub_id, 3u);
-    EXPECT_EQ(output->at(0).data, expected);
-  }};
-  check_output("initial:sample");
-  const auto update = [&](const nlohmann::json& payload) {{
-    return node->Control({command_id}, payload.dump()).status;
-  }};
-  ASSERT_EQ(update({{{{"prefix", "new:"}}}}), NodeControlStatus::kHandled);
-  check_output("new:sample");
-  EXPECT_EQ(update({{{{"prefix", 12}}}}), NodeControlStatus::kFailed);
-  EXPECT_EQ(update({{{{"prefix", std::string(65, 'x')}}}}), NodeControlStatus::kFailed);
-  check_output("new:sample");
-  // Extend these assertions with the actual business input and expected result.
-}}
-
-TEST(CustomNodeCatalogTest, {name}RejectsInvalidInitialPrefix) {{
-  const auto definition = PipelineCatalog::FindNode({cpp_string(name)});
-  ASSERT_TRUE(definition.has_value());
-  ASSERT_TRUE(static_cast<bool>(definition->validate_config));
-  std::string error;
-  EXPECT_TRUE(definition->validate_config(nlohmann::json::object(), {{}}, &error));
-  const nlohmann::json invalid = {{{{"prefix", std::string(65, 'x')}}}};
-  EXPECT_FALSE(definition->validate_config(invalid, {{}}, &error));
-  EXPECT_NE(error.find("prefix exceeds 64 UTF-8 bytes"), std::string::npos);
-  auto node = NodeRegistry::Instance().Create({cpp_string(name)});
-  ASSERT_NE(node, nullptr);
-  SessionContext session;
-  NodeInitContext init;
-  init.config = &invalid;
-  init.session_ctx = &session;
-  init.diagnostic = &error;
-  EXPECT_FALSE(node->Init(init));
-  EXPECT_NE(error.find("prefix exceeds 64 UTF-8 bytes"), std::string::npos);
-}}
-}}  // namespace llm_edgeflow
-'''
-
-
 def render_standalone_test(name, description, kind, capability, in_port, out_port, control_id=None, authoring="advanced"):
     in_name, in_type, in_card, in_prov = in_port
     out_name, out_type, out_card, out_prov = out_port
@@ -576,11 +495,7 @@ TEST(CustomNodeCatalogTest, {name}_RejectsInvalidInitialPrefix) {{
   auto node = NodeRegistry::Instance().Create({cpp_string(name)});
   ASSERT_NE(node, nullptr);
   SessionContext session;
-  NodeInitContext init;
-  init.config = &invalid;
-  init.session_ctx = &session;
-  init.diagnostic = &error;
-  EXPECT_FALSE(node->Init(init));
+  EXPECT_FALSE(InitNodeForTest(*node, invalid, &session, &error));
   EXPECT_NE(error.find("prefix exceeds 64 UTF-8 bytes"), std::string::npos);
 }}
 
@@ -651,6 +566,7 @@ TEST(CustomNodeCatalogTest, {name}_InitAndMissingInputFailsWithoutPublishing) {{
   ASSERT_NE(node, nullptr);
   SessionContext session;
   ValidatedNodePlan plan;
+  plan.normalized_config = nlohmann::json::object();
   plan.ports.push_back(ResolvedPortBinding{{
       {cpp_string(in_name)}, "actual_in_key",
       BlackboardTypeTraits<{in_type}>::TypeName(), {cpp_string(in_card)}, {cpp_string(in_prov)},
@@ -659,7 +575,7 @@ TEST(CustomNodeCatalogTest, {name}_InitAndMissingInputFailsWithoutPublishing) {{
       {cpp_string(out_name)}, "actual_out_key",
       BlackboardTypeTraits<{out_type}>::TypeName(), {cpp_string(out_card)}, {cpp_string(out_prov)},
       "request", PortDirection::kOutput}});
-  ASSERT_TRUE(InitNodeWithPlan(*node, nlohmann::json::object(), &session, &plan));
+  ASSERT_TRUE(node->Init({{&plan, &session}}));
   AlgContext ctx;
   EXPECT_NE(node->Process(&ctx), 0);
   EXPECT_FALSE(ctx.Has("actual_out_key"));
@@ -670,6 +586,7 @@ TEST(CustomNodeCatalogTest, {name}_EmptyBatchPassesThrough) {{
   ASSERT_NE(node, nullptr);
   SessionContext session;
   ValidatedNodePlan plan;
+  plan.normalized_config = nlohmann::json::object();
   plan.ports.push_back(ResolvedPortBinding{{
       {cpp_string(in_name)}, "actual_in_key",
       BlackboardTypeTraits<{in_type}>::TypeName(), {cpp_string(in_card)}, {cpp_string(in_prov)},
@@ -678,7 +595,7 @@ TEST(CustomNodeCatalogTest, {name}_EmptyBatchPassesThrough) {{
       {cpp_string(out_name)}, "actual_out_key",
       BlackboardTypeTraits<{out_type}>::TypeName(), {cpp_string(out_card)}, {cpp_string(out_prov)},
       "request", PortDirection::kOutput}});
-  ASSERT_TRUE(InitNodeWithPlan(*node, nlohmann::json::object(), &session, &plan));
+  ASSERT_TRUE(node->Init({{&plan, &session}}));
   AlgContext ctx;
   ctx.Publish("actual_in_key", {in_type}{{}});
   ASSERT_EQ(node->Process(&ctx), 0);
@@ -692,6 +609,7 @@ TEST(CustomNodeCatalogTest, {name}_PreservesBatchDataAndProvenance) {{
   ASSERT_NE(node, nullptr);
   SessionContext session;
   ValidatedNodePlan plan;
+  plan.normalized_config = nlohmann::json::object();
   plan.ports.push_back(ResolvedPortBinding{{
       {cpp_string(in_name)}, "actual_in_key",
       BlackboardTypeTraits<{in_type}>::TypeName(), {cpp_string(in_card)}, {cpp_string(in_prov)},
@@ -700,7 +618,7 @@ TEST(CustomNodeCatalogTest, {name}_PreservesBatchDataAndProvenance) {{
       {cpp_string(out_name)}, "actual_out_key",
       BlackboardTypeTraits<{out_type}>::TypeName(), {cpp_string(out_card)}, {cpp_string(out_prov)},
       "request", PortDirection::kOutput}});
-  ASSERT_TRUE(InitNodeWithPlan(*node, nlohmann::json::object(), &session, &plan));
+  ASSERT_TRUE(node->Init({{&plan, &session}}));
   AlgContext ctx;
   {in_type} input;
   input.emplace_back(101, 3, {sample_in_1});
@@ -1142,17 +1060,6 @@ class ChangePlan:
             sys.stderr.write("Rollback conflicts (files retained):\n" + "\n".join(errors) + "\n")
 
 
-def get_runner_info(root: Path, build_dir: Path = None):
-    cache = (build_dir / "CMakeCache.txt") if build_dir else None
-    if not cache or not cache.exists():
-        cache = root / "build" / "CMakeCache.txt"
-    if cache.exists():
-        text = cache.read_text(encoding="utf-8", errors="replace")
-        if "LLM_EDGEFLOW_SHARDED_TEST_RUNNERS:BOOL=OFF" in text:
-            return "test_common_nodes", "test_common_nodes"
-    return "edgeflow_test_nodes_runner", "edgeflow_test_nodes_runner"
-
-
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("node_name", nargs="?")
@@ -1165,7 +1072,6 @@ def main():
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("-f", "--force", action="store_true")
     parser.add_argument("--add-to-cmake", action="store_true")
-    parser.add_argument("--generate-test", action="store_true", help="Print a starter Google Test snippet; add it to an existing suite")
     parser.add_argument("--write-test", action="store_true", help="Write a standalone test file in tests/unit/nodes/test_<snake_name>.cpp")
     parser.add_argument("--control-id", type=int, help="Generate the text-prefix Control starter using an unused custom command ID (>=1000)")
     parser.add_argument("--authoring", choices=["basic", "advanced"], default="advanced",
@@ -1179,8 +1085,6 @@ def main():
     if not args.node_name or not re.fullmatch(r"[A-Z][A-Za-z0-9]*", args.node_name):
         parser.error("node_name must be a PascalCase C++ identifier")
 
-    if args.write_test and args.generate_test:
-        parser.error("--write-test and --generate-test cannot be used together; --write-test writes a standalone test file")
     if args.write_test and args.force:
         parser.error("--write-test rejects --force to prevent multi-file overwrite; remove existing files explicitly")
     if args.write_test and args.output_dir != "src/custom_nodes":
@@ -1204,77 +1108,62 @@ def main():
         cmake_path = (target.parent / "CMakeLists.txt") if not args.write_test and args.output_dir != "src/custom_nodes" else (root / "src/custom_nodes/CMakeLists.txt")
         test_cmake_path = root / "cmake_ext/CustomNodeTests.cmake"
 
-        if not args.write_test:
-            # Preserve existing legacy behavior when --write-test is not given
-            if not args.dry_run:
-                if target.exists() and not args.force:
-                    raise ValueError(f"Target already exists: {target}; use --force to overwrite")
-                cmake_content = updated_cmakelists(cmake_path, target.name) if args.add_to_cmake else None
-                target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_text(content, encoding="utf-8")
-                if cmake_content is not None:
-                    cmake_path.write_text(cmake_content, encoding="utf-8")
-                print(f"Created {target}")
-                if args.control_id is not None:
-                    print("Next: edit ReadPrefix shared by config and Control, and its same-file schema. Walkthrough: doc/dev_guide/first_control.md")
-                if args.kind == "model" and capability == "llm":
-                    print("Next: edit BuildPrompt and FormatAnswer. Walkthrough: doc/dev_guide/first_custom_node.md")
-            else:
-                print(content)
-            if args.generate_test:
-                print("// Starter test snippet (add to an existing test suite):")
-                print(render_test_stub(name))
-                if args.control_id is not None:
-                    print(render_control_test_stub(name, args.control_id, in_port[0], out_port[0]))
-            return 0
-
-        # --write-test mode
-        test_content = render_standalone_test(name, args.description or f"Custom algorithm node {name}.",
-                                              args.kind, capability, in_port, out_port, args.control_id,
-                                              authoring=args.authoring)
-
         plan = ChangePlan()
-        plan.add_new_file(target, content)
-        plan.add_new_file(test_target, test_content)
+        if args.force and target.exists():
+            plan.add_modification(target, target.read_text(encoding="utf-8"), content)
+        else:
+            plan.add_new_file(target, content)
+        if args.write_test:
+            test_content = render_standalone_test(name, args.description or f"Custom algorithm node {name}.",
+                                                  args.kind, capability, in_port, out_port, args.control_id,
+                                                  authoring=args.authoring)
+            plan.add_new_file(test_target, test_content)
 
         if args.add_to_cmake:
             orig_cmake = cmake_path.read_text(encoding="utf-8")
             new_cmake = updated_cmakelists(cmake_path, target.name)
             plan.add_modification(cmake_path, orig_cmake, new_cmake)
 
-            orig_test_cmake = test_cmake_path.read_text(encoding="utf-8")
-            new_test_cmake = updated_custom_node_tests_cmake(test_cmake_path, test_filename)
-            plan.add_modification(test_cmake_path, orig_test_cmake, new_test_cmake)
+            if args.write_test:
+                orig_test_cmake = test_cmake_path.read_text(encoding="utf-8")
+                new_test_cmake = updated_custom_node_tests_cmake(test_cmake_path, test_filename)
+                plan.add_modification(test_cmake_path, orig_test_cmake, new_test_cmake)
 
         if args.dry_run:
-            print(f"--- {target} (new file) ---")
+            if args.write_test:
+                print(f"--- {target} (new file) ---")
             print(content)
-            print(f"--- {test_target} (new test file) ---")
-            print(test_content)
+            if args.write_test:
+                print(f"--- {test_target} (new test file) ---")
+                print(test_content)
             if args.add_to_cmake:
                 print(f"--- {cmake_path} registration ---")
                 print(f"+  {target.name}")
-                print(f"--- {test_cmake_path} registration ---")
-                print(f"+  {test_filename}")
+                if args.write_test:
+                    print(f"--- {test_cmake_path} registration ---")
+                    print(f"+  {test_filename}")
             return 0
 
         plan.commit()
 
         print(f"Created {target}")
-        print(f"Created {test_target}")
+        if args.write_test:
+            print(f"Created {test_target}")
         if args.add_to_cmake:
             print(f"Registered {target.name} in {cmake_path}")
-            print(f"Registered {test_filename} in {test_cmake_path}")
-            runner_target, runner_binary = get_runner_info(root)
-            print("Next steps:")
-            print(f"  Build command: cmake --build build --target {runner_target}")
-            print(f"  Test filter: CustomNodeCatalogTest.{name}_*")
-            print(f"  Run command: ctest --test-dir build -R CommonNodesTest")
-            print(f"  (or: ./build/{runner_binary} --gtest_filter=\"CustomNodeCatalogTest.{name}_*\")")
+            if args.write_test:
+                print(f"Registered {test_filename} in {test_cmake_path}")
+                print("Next steps:")
+                print("  Build command: cmake --build build --target edgeflow_test_nodes_runner")
+                print(f"  Test filter: CustomNodeCatalogTest.{name}_*")
+                print("  Run command: ctest --test-dir build -R CommonNodesTest")
+                print(f"  (or: ./build/edgeflow_test_nodes_runner --gtest_filter=\"CustomNodeCatalogTest.{name}_*\")")
+
         else:
             print("Pending registrations:")
             print(f"  Add {target.name} to {cmake_path}")
-            print(f"  Add {test_filename} to {test_cmake_path}")
+            if args.write_test:
+                print(f"  Add {test_filename} to {test_cmake_path}")
 
         if args.control_id is not None:
             print("Next: edit ReadPrefix shared by config and Control, and its same-file schema. Walkthrough: doc/dev_guide/first_control.md")

@@ -1,4 +1,3 @@
-#include <cmath>
 #include <cstdint>
 #include <limits>
 
@@ -20,29 +19,12 @@ bool ParseGenerateOptions(const nlohmann::json& config,
     return false;
   };
   try {
-    const auto max_tokens = config.value("max_tokens", nlohmann::json(128));
-    const auto top_k = config.value("top_k", nlohmann::json(0));
-    if (!max_tokens.is_number_integer() || max_tokens < 1 ||
-        max_tokens > 32768 || !top_k.is_number_integer() || top_k < 0 ||
-        top_k > std::numeric_limits<int32_t>::max()) {
-      return reject(
-          "max_tokens or top_k is outside the supported integer range");
-    }
-    const double temperature = config.value("temperature", 0.7);
-    const double top_p = config.value("top_p", 0.9);
-    const double repetition_penalty = config.value("repetition_penalty", 1.0);
-    if (!std::isfinite(temperature) || temperature < 0 || temperature > 2 ||
-        !std::isfinite(top_p) || top_p < 1.0e-9 || top_p > 1 ||
-        !std::isfinite(repetition_penalty) || repetition_penalty < 1.0e-9 ||
-        repetition_penalty > 100) {
-      return reject("Generation options are outside the supported range");
-    }
     GenerateOptions parsed;
-    parsed.max_tokens = max_tokens.get<int>();
-    parsed.top_k = top_k.get<int>();
-    parsed.temperature = static_cast<float>(temperature);
-    parsed.top_p = static_cast<float>(top_p);
-    parsed.repetition_penalty = static_cast<float>(repetition_penalty);
+    parsed.max_tokens = config.at("max_tokens").get<int>();
+    parsed.top_k = config.at("top_k").get<int>();
+    parsed.temperature = config.at("temperature").get<float>();
+    parsed.top_p = config.at("top_p").get<float>();
+    parsed.repetition_penalty = config.at("repetition_penalty").get<float>();
     if (config.contains("stop_words")) {
       if (!config["stop_words"].is_array())
         return reject("stop_words must be an array");
