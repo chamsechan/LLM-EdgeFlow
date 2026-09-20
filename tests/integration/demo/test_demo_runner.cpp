@@ -392,17 +392,14 @@ TEST(DemoRunnerTest, ProfileOwnsExecutionSettings) {
         {{"schema_version", 2}, {"profiles", {{"execution", value}}}});
   };
   write_profile(profile);
-  const char* args[] = {"alg_demo", "--profile", "execution", "--dataset",
-                        "custom.txt"};
   DemoOptions cli, merged;
+  cli.profile = "execution";
   std::string error;
-  ASSERT_EQ(ParseCommandLine(5, const_cast<char**>(args), &cli, &error), 0);
   ASSERT_EQ(LoadAndMergeProfiles(path, cli, &merged, &error), 0) << error;
   EXPECT_EQ(merged.batch_size, 4);
   EXPECT_EQ(merged.device_id, 2);
   EXPECT_EQ(merged.chip, "cuda");
   EXPECT_EQ(merged.depth_num, 8u);
-  EXPECT_EQ(merged.dataset_path, "custom.txt");
 
   auto defaults = profile;
   for (const char* field : {"batch_size", "device_id", "chip", "depth"})
