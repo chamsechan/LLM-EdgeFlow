@@ -37,8 +37,8 @@ JSON 读取器将选中值通过 `dump()` 转为拥有自身存储的 `std::stri
 
 | 字段 | 用途 |
 | --- | --- |
-| 槽位 `logical_name` | 业务中的输出槽位，也是 `deployment.io.output_allocations` 的配置键 |
-| 槽位 `key_suffix` | 外部 map key 最后一个点号后的部分；描述符必须显式填写，与 `logical_name` 及 `type_suffix` 相互独立；单槽 Helper 默认填充为规范 `type_suffix`，不再支持运行时省略或隐式回退 |
+| 槽位 `slot_name` | 业务中的输出槽位，也是 `deployment.io.output_allocations` 的配置键 |
+| 槽位 `key_suffix` | 外部 map key 最后一个点号后的部分；`ExternalSlotDefinition` 可显式指定，为空时由 `KeySuffix()` 使用 `type_suffix`。常见槽位工厂令 `type_suffix = slot_name`；异名槽位使用完整定义 |
 | `type` | 已注册的外层 ValueType，必须匹配槽位的 `type_suffix` |
 | `allocator` | 为该外层类型注册的分配方案标识；省略时使用类型的默认实现 |
 | `params` | 由方案解释、校验并补齐的单份布局参数，例如嵌套枚举与数组容量 |

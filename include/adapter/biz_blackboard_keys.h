@@ -34,6 +34,9 @@ inline constexpr auto kStructuredVerdicts =
     MakeBlackboardKey<StructuredDocumentBatch>("structured_verdicts");
 inline constexpr auto kMatchedPolicy =
     MakeBlackboardKey<RankedTextBatch>("matched_policy");
+// The output converter's logical port differs from the business blackboard key.
+inline constexpr auto kMatchedPolicies =
+    MakeBlackboardKey<RankedTextBatch>("matched_policies");
 inline constexpr auto kImagePaths =
     MakeBlackboardKey<ImageRefBatch>("image_paths");
 inline constexpr auto kUserQueries =

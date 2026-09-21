@@ -43,10 +43,8 @@ IoBindingDefinition MakeTranslateOperatorBinding() {
 
   def.input_converter_id = "translate.json.operator.v1";
   def.output_converter_id = "translate.json.operator.v1";
-  def.input_ports = {{"raw_request_ids", "raw_request_ids"},
-                     {"input_sentences", "input_sentences"}};
-  def.output_ports = {{"raw_request_ids", "raw_request_ids"},
-                      {"llm_answers", "llm_answers"}};
+  def.input_ports = {BindIoPort(kRawRequestIds), BindIoPort(kInputSentences)};
+  def.output_ports = {BindIoPort(kRawRequestIds), BindIoPort(kLlmAnswers)};
   def.max_batch_size = kMaxBatchSize;
   return def;
 }

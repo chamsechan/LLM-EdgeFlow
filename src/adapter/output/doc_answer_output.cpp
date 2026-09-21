@@ -25,36 +25,21 @@ int EncodeOperatorDocAnswer(AlgContext* context,
         options.converter_id.c_str());
   }
 
-  const auto* answers = context->Read(bindings.Key<TextBatch>("llm_answers"));
-  if (!answers) {
-    return AdapterValidationHelper::ReturnInvalidInput(
-        status, "Missing required context value: llm_answers", "answers",
-        options.converter_id.c_str());
-  }
+  const auto* answers = ReadOutputValue(*context, bindings, kLlmAnswers,
+                                        options, status, "answers");
+  if (!answers) return COMPANY_ALG_ERR_INVALID_INPUT;
 
   const auto* raw_req_ids =
-      context->Read(bindings.Key<std::vector<uint64_t>>("raw_request_ids"));
-  if (!raw_req_ids) {
-    return AdapterValidationHelper::ReturnInvalidInput(
-        status, "Missing required context value: raw_request_ids",
-        "raw_request_ids", options.converter_id.c_str());
-  }
+      ReadOutputValue(*context, bindings, kRawRequestIds, options, status);
+  if (!raw_req_ids) return COMPANY_ALG_ERR_INVALID_INPUT;
 
   const auto* intent_matches =
-      context->Read(bindings.Key<RuleMatchBatch>("intent_matches"));
-  if (!intent_matches) {
-    return AdapterValidationHelper::ReturnInvalidInput(
-        status, "Missing required context value: intent_matches",
-        "intent_matches", options.converter_id.c_str());
-  }
+      ReadOutputValue(*context, bindings, kIntentMatches, options, status);
+  if (!intent_matches) return COMPANY_ALG_ERR_INVALID_INPUT;
 
   const auto* chunk_counts =
-      context->Read(bindings.Key<Int32Batch>("doc_chunk_counts"));
-  if (!chunk_counts) {
-    return AdapterValidationHelper::ReturnInvalidInput(
-        status, "Missing required context value: doc_chunk_counts",
-        "doc_chunk_counts", options.converter_id.c_str());
-  }
+      ReadOutputValue(*context, bindings, kDocChunkCounts, options, status);
+  if (!chunk_counts) return COMPANY_ALG_ERR_INVALID_INPUT;
 
   size_t count = answers->size();
   if (destination->count < count) {
@@ -90,27 +75,16 @@ int EncodeOperatorDocAnswer(AlgContext* context,
     out->chunk_count = chunks_by_req[i]->data;
     out->status_code = match.status_code;
 
-    std::string err;
-    int ret = CopyToOperatorString(
-        match.category.c_str(), out->intent_name,
-        destination->GetSlotCapacity("doc_out", "intent_name", 63),
-        "intent_name", &err);
-    if (ret != 0) {
-      return AdapterValidationHelper::ReturnBufferTooSmall(
-          status,
-          err.empty() ? "Buffer too small for intent_name" : err.c_str(),
-          "intent_name", options.converter_id.c_str(), static_cast<int>(i));
+    if (!WriteOutputString(*destination, "doc_out", out->intent_name,
+                           "intent_name", match.category.c_str(), options,
+                           status, i)) {
+      return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     }
 
-    ret = CopyToOperatorString(
-        answers_by_req[i]->data.c_str(), out->answer_text,
-        destination->GetSlotCapacity("doc_out", "answer_text", 1023),
-        "answer_text", &err);
-    if (ret != 0) {
-      return AdapterValidationHelper::ReturnBufferTooSmall(
-          status,
-          err.empty() ? "Buffer too small for answer_text" : err.c_str(),
-          "answer_text", options.converter_id.c_str(), static_cast<int>(i));
+    if (!WriteOutputString(*destination, "doc_out", out->answer_text,
+                           "answer_text", answers_by_req[i]->data.c_str(),
+                           options, status, i)) {
+      return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     }
   }
 
@@ -123,19 +97,11 @@ OutputConverterDefinition MakeOperatorDocAnswerOutputConverter() {
   def.converter_id = "doc_answer.plain.operator.v1";
 
   def.schema_id = "doc_answer.plain.response";
-  def.schema_version = 1;
   def.external_type = "CompanyOperatorDocOutput";
-  def.cardinality = "1:1";
   def.max_batch_size = 64;
-  def.capacity_policy = "reject_overflow";
 
-  def.external_slots = {{"doc_out",
-                         "CompanyOperatorDocOutput",
-                         PortDirection::kOutput,
-                         true,
-                         "CompanyOperatorDocOutput",
-                         "doc_out",
-                         {"intent_name", "answer_text"}}};
+  def.external_slots = {ExternalOutputSlot<CompanyOperatorDocOutput>(
+      "doc_out", {"intent_name", "answer_text"})};
   def.logical_ports = {
       RequiredInputPort(kRawRequestIds), RequiredInputPort(kLlmAnswers),
       RequiredInputPort(kIntentMatches), RequiredInputPort(kDocChunkCounts)};

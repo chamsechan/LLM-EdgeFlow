@@ -27,20 +27,13 @@ int EncodeOperatorTranslationJson(AlgContext* context,
         options.converter_id.c_str());
   }
 
-  const auto* res = context->Read(bindings.Key<TextBatch>("llm_answers"));
-  if (!res) {
-    return AdapterValidationHelper::ReturnInvalidInput(
-        status, "Missing required context value: llm_answers", "res",
-        options.converter_id.c_str());
-  }
+  const auto* res =
+      ReadOutputValue(*context, bindings, kLlmAnswers, options, status, "res");
+  if (!res) return COMPANY_ALG_ERR_INVALID_INPUT;
 
   const auto* raw_req_ids =
-      context->Read(bindings.Key<std::vector<uint64_t>>("raw_request_ids"));
-  if (!raw_req_ids) {
-    return AdapterValidationHelper::ReturnInvalidInput(
-        status, "Missing required context value: raw_request_ids",
-        "raw_request_ids", options.converter_id.c_str());
-  }
+      ReadOutputValue(*context, bindings, kRawRequestIds, options, status);
+  if (!raw_req_ids) return COMPANY_ALG_ERR_INVALID_INPUT;
 
   size_t count = res->size();
   if (!destination || destination->count < count) {
@@ -55,7 +48,6 @@ int EncodeOperatorTranslationJson(AlgContext* context,
     return COMPANY_ALG_ERR_INVALID_INPUT;
   }
 
-  std::string diag_err;
   for (size_t i = 0; i < count; ++i) {
     auto* out =
         destination->GetSlot<CompanyOperatorEntityOutput>("entity_out", i);
@@ -70,14 +62,10 @@ int EncodeOperatorTranslationJson(AlgContext* context,
     nlohmann::json response = {{"translated", res_by_request[i]->data}};
     std::string payload = response.dump();
 
-    uint32_t cap =
-        destination->GetSlotCapacity("entity_out", "entities_json", 2047);
-    int ret = CopyToOperatorString(payload.c_str(), out->entities_json, cap,
-                                   "entities_json", &diag_err);
-    if (ret != 0) {
-      return AdapterValidationHelper::ReturnBufferTooSmall(
-          status, diag_err.c_str(), "entities_json",
-          options.converter_id.c_str(), static_cast<int>(i));
+    if (!WriteOutputString(*destination, "entity_out", out->entities_json,
+                           "entities_json", payload.c_str(), options, status,
+                           i)) {
+      return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     }
   }
 
@@ -90,19 +78,11 @@ OutputConverterDefinition MakeOperatorTranslationJsonOutputConverter() {
   def.converter_id = "translate.json.operator.v1";
 
   def.schema_id = "translate.json.response";
-  def.schema_version = 1;
   def.external_type = "CompanyOperatorEntityOutput";
-  def.cardinality = "1:1";
   def.max_batch_size = 64;
-  def.capacity_policy = "reject_overflow";
 
-  def.external_slots = {{"entity_out",
-                         "CompanyOperatorEntityOutput",
-                         PortDirection::kOutput,
-                         true,
-                         "CompanyOperatorEntityOutput",
-                         "entity_out",
-                         {"entities_json"}}};
+  def.external_slots = {ExternalOutputSlot<CompanyOperatorEntityOutput>(
+      "entity_out", {"entities_json"})};
   def.logical_ports = {RequiredInputPort(kRawRequestIds),
                        RequiredInputPort(kLlmAnswers)};
   def.encode_fn = &EncodeOperatorTranslationJson;

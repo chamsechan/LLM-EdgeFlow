@@ -43,10 +43,8 @@ IoBindingDefinition MakeKeywordMatchOperatorBinding() {
 
   def.input_converter_id = "keyword.plain.operator.v1";
   def.output_converter_id = "keyword.result.operator.v1";
-  def.input_ports = {{"raw_request_ids", "raw_request_ids"},
-                     {"input_sentences", "input_sentences"}};
-  def.output_ports = {{"raw_request_ids", "raw_request_ids"},
-                      {"rule_matches", "rule_matches"}};
+  def.input_ports = {BindIoPort(kRawRequestIds), BindIoPort(kInputSentences)};
+  def.output_ports = {BindIoPort(kRawRequestIds), BindIoPort(kRuleMatches)};
   def.max_batch_size = kMaxBatchSize;
   return def;
 }

@@ -26,21 +26,13 @@ int EncodeOperatorStructuredDocument(AlgContext* context,
         options.converter_id.c_str());
   }
 
-  const auto* res = context->Read(
-      bindings.Key<StructuredDocumentBatch>("extracted_entities"));
-  if (!res) {
-    return AdapterValidationHelper::ReturnInvalidInput(
-        status, "Missing required context value: extracted_entities", "res",
-        options.converter_id.c_str());
-  }
+  const auto* res = ReadOutputValue(*context, bindings, kExtractedEntities,
+                                    options, status, "res");
+  if (!res) return COMPANY_ALG_ERR_INVALID_INPUT;
 
   const auto* raw_req_ids =
-      context->Read(bindings.Key<std::vector<uint64_t>>("raw_request_ids"));
-  if (!raw_req_ids) {
-    return AdapterValidationHelper::ReturnInvalidInput(
-        status, "Missing required context value: raw_request_ids",
-        "raw_request_ids", options.converter_id.c_str());
-  }
+      ReadOutputValue(*context, bindings, kRawRequestIds, options, status);
+  if (!raw_req_ids) return COMPANY_ALG_ERR_INVALID_INPUT;
 
   size_t count = res->size();
   if (!destination || destination->count < count) {
@@ -55,7 +47,6 @@ int EncodeOperatorStructuredDocument(AlgContext* context,
     return COMPANY_ALG_ERR_INVALID_INPUT;
   }
 
-  std::string diag_err;
   for (size_t i = 0; i < count; ++i) {
     auto* out =
         destination->GetSlot<CompanyOperatorEntityOutput>("entity_out", i);
@@ -72,15 +63,10 @@ int EncodeOperatorStructuredDocument(AlgContext* context,
     }
     out->status_code = 0;
 
-    uint32_t cap =
-        destination->GetSlotCapacity("entity_out", "entities_json", 2047);
-    int ret = CopyToOperatorString(res_by_request[i]->data.json_payload.c_str(),
-                                   out->entities_json, cap, "entities_json",
-                                   &diag_err);
-    if (ret != 0) {
-      return AdapterValidationHelper::ReturnBufferTooSmall(
-          status, diag_err.c_str(), "entities_json",
-          options.converter_id.c_str(), static_cast<int>(i));
+    if (!WriteOutputString(
+            *destination, "entity_out", out->entities_json, "entities_json",
+            res_by_request[i]->data.json_payload.c_str(), options, status, i)) {
+      return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     }
   }
 
@@ -93,19 +79,11 @@ OutputConverterDefinition MakeOperatorStructuredDocumentOutputConverter() {
   def.converter_id = "document.structured.operator.v1";
 
   def.schema_id = "document.structured.response";
-  def.schema_version = 1;
   def.external_type = "CompanyOperatorEntityOutput";
-  def.cardinality = "1:1";
   def.max_batch_size = 64;
-  def.capacity_policy = "reject_overflow";
 
-  def.external_slots = {{"entity_out",
-                         "CompanyOperatorEntityOutput",
-                         PortDirection::kOutput,
-                         true,
-                         "CompanyOperatorEntityOutput",
-                         "entity_out",
-                         {"entities_json"}}};
+  def.external_slots = {ExternalOutputSlot<CompanyOperatorEntityOutput>(
+      "entity_out", {"entities_json"})};
   def.logical_ports = {RequiredInputPort(kRawRequestIds),
                        RequiredInputPort(kExtractedEntities)};
   def.encode_fn = &EncodeOperatorStructuredDocument;

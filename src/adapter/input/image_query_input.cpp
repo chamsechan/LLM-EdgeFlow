@@ -13,6 +13,8 @@
 namespace llm_edgeflow {
 namespace {
 
+constexpr size_t kMaxBatchSize = 64;
+
 constexpr size_t kMaxPathLen = 4096;
 constexpr size_t kMaxQueryLen = 64 * 1024;
 
@@ -20,15 +22,8 @@ int DecodeOperatorImageQueryInput(const ExternalInputBatchView& source,
                                   const InputDecodeOptions& options,
                                   const InputPortBindings& bindings,
                                   AlgContext* context, AdapterStatus* status) {
-  if (!context) {
-    return AdapterValidationHelper::ReturnInvalidInput(
-        status, "Null AlgContext passed to Decode", "context",
-        options.converter_id.c_str());
-  }
-  if (source.count == 0 || source.count > 64) {
-    return AdapterValidationHelper::ReturnInvalidInput(
-        status, "Batch size out of range [1, 64]", "slots",
-        options.converter_id.c_str());
+  if (!ValidateDecodeRequest(source, options, context, kMaxBatchSize, status)) {
+    return COMPANY_ALG_ERR_INVALID_INPUT;
   }
 
   std::vector<uint64_t> raw_req_ids;
@@ -40,21 +35,14 @@ int DecodeOperatorImageQueryInput(const ExternalInputBatchView& source,
   raw_queries.reserve(source.count);
 
   for (size_t i = 0; i < source.count; ++i) {
-    const auto* frame = source.GetSlot<CompanyFrame>("frame", i);
-    if (!frame) {
-      return AdapterValidationHelper::ReturnInvalidInput(
-          status, "Missing frame input slot or slot item is null", "frame",
-          options.converter_id.c_str(), static_cast<int>(i));
-    }
-    const auto* query = source.GetSlot<CompanyString>("string", i);
-    if (!query) {
-      return AdapterValidationHelper::ReturnInvalidInput(
-          status, "Missing string input slot or slot item is null", "string",
-          options.converter_id.c_str(), static_cast<int>(i));
-    }
+    const auto* frame =
+        ReadInputSlot<CompanyFrame>(source, "frame", i, options, status);
+    if (!frame) return COMPANY_ALG_ERR_INVALID_INPUT;
+    const auto* query =
+        ReadInputSlot<CompanyString>(source, "string", i, options, status);
+    if (!query) return COMPANY_ALG_ERR_INVALID_INPUT;
 
-    if (!frame->image_uri || frame->image_uri->length < 0 ||
-        (frame->image_uri->length > 0 && !frame->image_uri->data)) {
+    if (!IsValidInputString(frame->image_uri)) {
       return AdapterValidationHelper::ReturnInvalidInput(
           status, "Invalid frame.image_uri CompanyString", "frame.image_uri",
           options.converter_id.c_str(), static_cast<int>(i));
@@ -65,7 +53,7 @@ int DecodeOperatorImageQueryInput(const ExternalInputBatchView& source,
           options.converter_id.c_str(), static_cast<int>(i));
     }
 
-    if (query->length < 0 || (query->length > 0 && !query->data)) {
+    if (!IsValidInputString(query)) {
       return AdapterValidationHelper::ReturnInvalidInput(
           status, "Invalid query CompanyString", "string",
           options.converter_id.c_str(), static_cast<int>(i));
@@ -76,8 +64,8 @@ int DecodeOperatorImageQueryInput(const ExternalInputBatchView& source,
           options.converter_id.c_str(), static_cast<int>(i));
     }
 
-    std::string image_path(frame->image_uri->data, frame->image_uri->length);
-    std::string query_prompt(query->data, query->length);
+    std::string image_path = CopyInputString(*frame->image_uri);
+    std::string query_prompt = CopyInputString(*query);
 
     raw_req_ids.push_back(frame->request_id);
     raw_images.emplace_back(static_cast<uint32_t>(i), 0, std::move(image_path));
@@ -86,14 +74,14 @@ int DecodeOperatorImageQueryInput(const ExternalInputBatchView& source,
   }
 
   if (!AdapterValidationHelper::PublishContextValue(
-          *context, bindings.Key<std::vector<uint64_t>>("raw_request_ids"),
-          std::move(raw_req_ids), options.converter_id.c_str(), status) ||
+          *context, bindings.Key(kRawRequestIds), std::move(raw_req_ids),
+          options.converter_id.c_str(), status) ||
       !AdapterValidationHelper::PublishContextValue(
-          *context, bindings.Key<ImageRefBatch>("image_paths"),
-          std::move(raw_images), options.converter_id.c_str(), status) ||
+          *context, bindings.Key(kImagePaths), std::move(raw_images),
+          options.converter_id.c_str(), status) ||
       !AdapterValidationHelper::PublishContextValue(
-          *context, bindings.Key<TextBatch>("user_queries"),
-          std::move(raw_queries), options.converter_id.c_str(), status)) {
+          *context, bindings.Key(kUserQueries), std::move(raw_queries),
+          options.converter_id.c_str(), status)) {
     return COMPANY_ALG_ERR_INVALID_INPUT;
   }
 
@@ -105,24 +93,11 @@ InputConverterDefinition MakeOperatorImageQueryInputConverter() {
   def.converter_id = "image_query.plain.operator.v1";
 
   def.schema_id = "image_query.plain.request";
-  def.schema_version = 1;
   def.external_type = "CompanyFrame,CompanyString";
-  def.max_batch_size = 64;
+  def.max_batch_size = kMaxBatchSize;
 
-  def.external_slots = {{"frame",
-                         "CompanyFrame",
-                         PortDirection::kInput,
-                         true,
-                         "CompanyFrame",
-                         "frame",
-                         {}},
-                        {"string",
-                         "CompanyString",
-                         PortDirection::kInput,
-                         true,
-                         "CompanyString",
-                         "string",
-                         {}}};
+  def.external_slots = {ExternalInputSlot<CompanyFrame>("frame"),
+                        ExternalInputSlot<CompanyString>("string")};
   def.logical_ports = {OutputPort(kRawRequestIds), OutputPort(kImagePaths),
                        OutputPort(kUserQueries)};
   def.decode_fn = &DecodeOperatorImageQueryInput;

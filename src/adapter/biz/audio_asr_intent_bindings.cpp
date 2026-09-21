@@ -43,11 +43,9 @@ IoBindingDefinition MakeAudioAsrIntentOperatorBinding() {
 
   def.input_converter_id = "audio.pcm.operator.v1";
   def.output_converter_id = "audio_result.plain.operator.v1";
-  def.input_ports = {{"raw_request_ids", "raw_request_ids"},
-                     {"audio_inputs", "audio_inputs"}};
-  def.output_ports = {{"raw_request_ids", "raw_request_ids"},
-                      {"transcripts", "transcripts"},
-                      {"intent_slots", "intent_slots"}};
+  def.input_ports = {BindIoPort(kRawRequestIds), BindIoPort(kAudioInputs)};
+  def.output_ports = {BindIoPort(kRawRequestIds), BindIoPort(kTranscripts),
+                      BindIoPort(kIntentSlots)};
   def.max_batch_size = kMaxBatchSize;
   return def;
 }

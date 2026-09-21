@@ -14,21 +14,16 @@
 namespace llm_edgeflow {
 namespace {
 
+constexpr size_t kMaxBatchSize = 64;
+
 constexpr size_t kMaxTextLen = 64 * 1024;  // 64KB
 
 int DecodeOperatorRerankInput(const ExternalInputBatchView& source,
                               const InputDecodeOptions& options,
                               const InputPortBindings& bindings,
                               AlgContext* context, AdapterStatus* status) {
-  if (!context) {
-    return AdapterValidationHelper::ReturnInvalidInput(
-        status, "Null AlgContext passed to Decode", "context",
-        options.converter_id.c_str());
-  }
-  if (source.count == 0 || source.count > 64) {
-    return AdapterValidationHelper::ReturnInvalidInput(
-        status, "Batch size out of range [1, 64]", "slots",
-        options.converter_id.c_str());
+  if (!ValidateDecodeRequest(source, options, context, kMaxBatchSize, status)) {
+    return COMPANY_ALG_ERR_INVALID_INPUT;
   }
 
   std::vector<uint64_t> raw_req_ids;
@@ -40,15 +35,11 @@ int DecodeOperatorRerankInput(const ExternalInputBatchView& source,
   queries.reserve(source.count);
 
   for (size_t i = 0; i < source.count; ++i) {
-    const auto* in = source.GetSlot<CompanyOperatorRerankInput>("rerank_in", i);
-    if (!in) {
-      return AdapterValidationHelper::ReturnInvalidInput(
-          status, "Missing rerank_in input slot or slot item is null",
-          "rerank_in", options.converter_id.c_str(), static_cast<int>(i));
-    }
+    const auto* in = ReadInputSlot<CompanyOperatorRerankInput>(
+        source, "rerank_in", i, options, status);
+    if (!in) return COMPANY_ALG_ERR_INVALID_INPUT;
 
-    if (!in->query_text || in->query_text->length < 0 ||
-        (in->query_text->length > 0 && !in->query_text->data)) {
+    if (!IsValidInputString(in->query_text)) {
       return AdapterValidationHelper::ReturnInvalidInput(
           status, "Invalid query_text CompanyString", "rerank_in.query_text",
           options.converter_id.c_str(), static_cast<int>(i));
@@ -66,13 +57,13 @@ int DecodeOperatorRerankInput(const ExternalInputBatchView& source,
           static_cast<int>(i));
     }
 
-    std::string query_str(in->query_text->data, in->query_text->length);
+    std::string query_str = CopyInputString(*in->query_text);
     raw_req_ids.push_back(in->request_id);
     queries.emplace_back(static_cast<uint32_t>(i), 0, query_str);
 
     for (int c = 0; c < in->candidate_count; ++c) {
       const auto* pass = in->candidate_passages[c];
-      if (!pass || pass->length < 0 || (pass->length > 0 && !pass->data)) {
+      if (!IsValidInputString(pass)) {
         return AdapterValidationHelper::ReturnInvalidInput(
             status, "Invalid candidate passage CompanyString",
             "rerank_in.candidate_passages", options.converter_id.c_str(),
@@ -85,7 +76,7 @@ int DecodeOperatorRerankInput(const ExternalInputBatchView& source,
             static_cast<int>(i));
       }
 
-      std::string passage(pass->data, pass->length);
+      std::string passage = CopyInputString(*pass);
       candidates.emplace_back(
           static_cast<uint32_t>(i), static_cast<uint32_t>(c),
           RankedCandidate(passage, 0.0f, c + 1, static_cast<uint32_t>(c)));
@@ -95,17 +86,17 @@ int DecodeOperatorRerankInput(const ExternalInputBatchView& source,
   }
 
   if (!AdapterValidationHelper::PublishContextValue(
-          *context, bindings.Key<std::vector<uint64_t>>("raw_request_ids"),
-          std::move(raw_req_ids), options.converter_id.c_str(), status) ||
+          *context, bindings.Key(kRawRequestIds), std::move(raw_req_ids),
+          options.converter_id.c_str(), status) ||
       !AdapterValidationHelper::PublishContextValue(
-          *context, bindings.Key<TextBatch>("rerank_queries"),
-          std::move(queries), options.converter_id.c_str(), status) ||
+          *context, bindings.Key(kRerankQueries), std::move(queries),
+          options.converter_id.c_str(), status) ||
       !AdapterValidationHelper::PublishContextValue(
-          *context, bindings.Key<RankedTextBatch>("rerank_candidates"),
-          std::move(candidates), options.converter_id.c_str(), status) ||
+          *context, bindings.Key(kRerankCandidates), std::move(candidates),
+          options.converter_id.c_str(), status) ||
       !AdapterValidationHelper::PublishContextValue(
-          *context, bindings.Key<QueryCandidatesBatch>("rerank_pairs"),
-          std::move(pairs), options.converter_id.c_str(), status)) {
+          *context, bindings.Key(kRerankPairs), std::move(pairs),
+          options.converter_id.c_str(), status)) {
     return COMPANY_ALG_ERR_INVALID_INPUT;
   }
 
@@ -117,17 +108,11 @@ InputConverterDefinition MakeOperatorRerankInputConverter() {
   def.converter_id = "rerank.plain.operator.v1";
 
   def.schema_id = "rerank.plain.request";
-  def.schema_version = 1;
   def.external_type = "CompanyOperatorRerankInput";
-  def.max_batch_size = 64;
+  def.max_batch_size = kMaxBatchSize;
 
-  def.external_slots = {{"rerank_in",
-                         "CompanyOperatorRerankInput",
-                         PortDirection::kInput,
-                         true,
-                         "CompanyOperatorRerankInput",
-                         "rerank_in",
-                         {}}};
+  def.external_slots = {
+      ExternalInputSlot<CompanyOperatorRerankInput>("rerank_in")};
   def.logical_ports = {OutputPort(kRawRequestIds), OutputPort(kRerankQueries),
                        OutputPort(kRerankCandidates, "N:1"),
                        OutputPort(kRerankPairs, "N:1")};

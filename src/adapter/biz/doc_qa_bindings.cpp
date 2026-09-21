@@ -44,13 +44,10 @@ IoBindingDefinition MakeDocQaOperatorBinding() {
 
   def.input_converter_id = "doc_query.plain.operator.v1";
   def.output_converter_id = "doc_answer.plain.operator.v1";
-  def.input_ports = {{"raw_request_ids", "raw_request_ids"},
-                     {"raw_docs", "raw_docs"},
-                     {"raw_queries", "raw_queries"}};
-  def.output_ports = {{"raw_request_ids", "raw_request_ids"},
-                      {"llm_answers", "llm_answers"},
-                      {"intent_matches", "intent_matches"},
-                      {"doc_chunk_counts", "doc_chunk_counts"}};
+  def.input_ports = {BindIoPort(kRawRequestIds), BindIoPort(kRawDocs),
+                     BindIoPort(kRawQueries)};
+  def.output_ports = {BindIoPort(kRawRequestIds), BindIoPort(kLlmAnswers),
+                      BindIoPort(kIntentMatches), BindIoPort(kDocChunkCounts)};
   def.max_batch_size = kMaxBatchSize;
   return def;
 }

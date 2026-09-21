@@ -47,12 +47,9 @@ IoBindingDefinition MakeCrossRerankOperatorBinding() {
 
   def.input_converter_id = "rerank.plain.operator.v1";
   def.output_converter_id = "rerank_result.plain.operator.v1";
-  def.input_ports = {{"raw_request_ids", "raw_request_ids"},
-                     {"rerank_queries", "rerank_queries"},
-                     {"rerank_candidates", "rerank_candidates"},
-                     {"rerank_pairs", "rerank_pairs"}};
-  def.output_ports = {{"raw_request_ids", "raw_request_ids"},
-                      {"ranked_results", "ranked_results"}};
+  def.input_ports = {BindIoPort(kRawRequestIds), BindIoPort(kRerankQueries),
+                     BindIoPort(kRerankCandidates), BindIoPort(kRerankPairs)};
+  def.output_ports = {BindIoPort(kRawRequestIds), BindIoPort(kRankedResults)};
   def.max_batch_size = kMaxBatchSize;
   return def;
 }

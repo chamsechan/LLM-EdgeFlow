@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <memory>
 #include <string>
 #include <thread>
 #include <vector>
@@ -208,6 +209,104 @@ TEST_F(OperatorSafetyTest, NullOrMissingSlotInBatchInputs) {
   EXPECT_NE(ret, 0);
 
   EXPECT_EQ(op.Destroy(handle), 0);
+}
+
+TEST_F(OperatorSafetyTest, InputErrorsPrecedeOutputErrorsAndDoNotPublish) {
+  auto op = Get_LLM_EDGEFLOW_OperatorTable();
+  CreateParam param{};
+  param.model_path = ".";
+  param.cfg_file_name = "configs/pipeline_keyword_match_rules.conf";
+  param.compute_platform = ComputePlatform::kCpu;
+  param.max_frame_depth = 1;
+  void* raw_handle = nullptr;
+  ASSERT_EQ(op.Create(&raw_handle, &param), 0);
+  std::unique_ptr<void, int (*)(void*)> handle(raw_handle, op.Destroy);
+
+  CompanyString text{1, nullptr};
+  CompanyOperatorKeywordInput request{42, &text};
+  NamedIoBatch inputs(1);
+  inputs[0]["client.keyword_in"] = MakeBorrowedOperatorInput(&request);
+  NamedIoBatch outputs(1);
+  outputs[0]["invalid_output_key"] = nullptr;
+
+  // Both sides are invalid: carrier validation must win over output key
+  // parsing.
+  EXPECT_EQ(op.Process(handle.get(), inputs, outputs),
+            COMPANY_ALG_ERR_INVALID_INPUT);
+  EXPECT_NE(std::string(GetOperatorLastError())
+                .find("Validation failed for input key client.keyword_in"),
+            std::string::npos);
+  ASSERT_EQ(outputs[0].size(), 1U);
+  EXPECT_EQ(outputs[0].at("invalid_output_key"), nullptr);
+
+  char valid_text[] = "ordinary request";
+  text = {static_cast<int32_t>(std::strlen(valid_text)), valid_text};
+  EXPECT_EQ(op.Process(handle.get(), inputs, outputs),
+            COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
+  EXPECT_EQ(std::string(GetOperatorLastError()),
+            "Invalid output key format in frame 0: invalid_output_key");
+  EXPECT_EQ(outputs[0].at("invalid_output_key"), nullptr);
+
+  outputs[0].clear();
+  outputs[0]["client.keyword_out"] = nullptr;
+  ASSERT_EQ(op.Process(handle.get(), inputs, outputs), COMPANY_ALG_SUCCESS);
+  auto* result = static_cast<CompanyOperatorKeywordOutput*>(
+      outputs[0].at("client.keyword_out").get());
+  ASSERT_NE(result, nullptr);
+  EXPECT_EQ(result->request_id, 42U);
+}
+
+TEST_F(OperatorSafetyTest,
+       KeywordEncodeFailureRollsBackWholeBatchAndPoolLeases) {
+  auto op = Get_LLM_EDGEFLOW_OperatorTable();
+  CreateParam param{};
+  param.model_path = ".";
+  param.cfg_file_name = "configs/pipeline_keyword_match_rules.conf";
+  param.compute_platform = ComputePlatform::kCpu;
+  param.max_frame_depth = 2;
+  void* raw_handle = nullptr;
+  ASSERT_EQ(op.Create(&raw_handle, &param), 0);
+  std::unique_ptr<void, int (*)(void*)> handle(raw_handle, op.Destroy);
+
+  // Only the second sample matches a category whose serialized result exceeds
+  // the configured 2047-byte capacity. The first sample can encode normally.
+  const std::string rules =
+      "{\"categories\":{\"" + std::string(2100, 'x') + "\":[\"overflow\"]}}";
+  ControlUpdateRulesParam control{rules.c_str()};
+  ASSERT_EQ(op.Control(handle.get(), ControlCommand::kUpdateRules, &control),
+            0);
+  char ordinary[] = "ordinary";
+  char overflow[] = "overflow";
+  CompanyString first_text{8, ordinary};
+  CompanyString second_text{8, overflow};
+  CompanyOperatorKeywordInput first{41, &first_text};
+  CompanyOperatorKeywordInput second{42, &second_text};
+  NamedIoBatch inputs(2);
+  inputs[0]["client.keyword_in"] = MakeBorrowedOperatorInput(&first);
+  inputs[1]["client.keyword_in"] = MakeBorrowedOperatorInput(&second);
+  NamedIoBatch outputs(2);
+  for (auto& output : outputs) output["client.keyword_out"] = nullptr;
+
+  EXPECT_EQ(op.Process(handle.get(), inputs, outputs),
+            COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
+  EXPECT_NE(std::string(GetOperatorLastError()).find("match_result_json"),
+            std::string::npos);
+  for (const auto& output : outputs) {
+    ASSERT_EQ(output.size(), 1U);
+    EXPECT_EQ(output.at("client.keyword_out"), nullptr);
+  }
+
+  // Reusing a depth-two pool for another two-item batch proves all failed
+  // leases were returned, including the already encoded first sample.
+  second.sentence_text = &first_text;
+  ASSERT_EQ(op.Process(handle.get(), inputs, outputs), COMPANY_ALG_SUCCESS);
+  for (size_t i = 0; i < outputs.size(); ++i) {
+    auto* result = static_cast<CompanyOperatorKeywordOutput*>(
+        outputs[i].at("client.keyword_out").get());
+    ASSERT_NE(result, nullptr);
+    EXPECT_EQ(result->request_id, 41U + i);
+    EXPECT_EQ(result->is_hit, 0);
+  }
 }
 
 // 6. 测试 IoBinding 注册冲突防护与定义机器可读性

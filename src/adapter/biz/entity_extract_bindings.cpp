@@ -43,10 +43,9 @@ IoBindingDefinition MakeEntityExtractOperatorBinding() {
 
   def.input_converter_id = "text.plain.operator.v1";
   def.output_converter_id = "document.structured.operator.v1";
-  def.input_ports = {{"raw_request_ids", "raw_request_ids"},
-                     {"input_sentences", "input_sentences"}};
-  def.output_ports = {{"raw_request_ids", "raw_request_ids"},
-                      {"extracted_entities", "extracted_entities"}};
+  def.input_ports = {BindIoPort(kRawRequestIds), BindIoPort(kInputSentences)};
+  def.output_ports = {BindIoPort(kRawRequestIds),
+                      BindIoPort(kExtractedEntities)};
   def.max_batch_size = kMaxBatchSize;
   return def;
 }

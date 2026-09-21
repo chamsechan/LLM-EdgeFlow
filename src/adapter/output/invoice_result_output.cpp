@@ -25,29 +25,17 @@ int EncodeOperatorInvoiceResult(AlgContext* context,
         options.converter_id.c_str());
   }
 
-  const auto* invoice_jsons = context->Read(
-      bindings.Key<StructuredDocumentBatch>("extracted_invoice_json"));
-  if (!invoice_jsons) {
-    return AdapterValidationHelper::ReturnInvalidInput(
-        status, "Missing required context value: extracted_invoice_json",
-        "extracted_invoice_json", options.converter_id.c_str());
-  }
+  const auto* invoice_jsons = ReadOutputValue(
+      *context, bindings, kExtractedInvoiceJson, options, status);
+  if (!invoice_jsons) return COMPANY_ALG_ERR_INVALID_INPUT;
 
   const auto* ocr_docs =
-      context->Read(bindings.Key<OcrDocumentBatch>("ocr_docs"));
-  if (!ocr_docs) {
-    return AdapterValidationHelper::ReturnInvalidInput(
-        status, "Missing required context value: ocr_docs", "ocr_docs",
-        options.converter_id.c_str());
-  }
+      ReadOutputValue(*context, bindings, kOcrDocs, options, status);
+  if (!ocr_docs) return COMPANY_ALG_ERR_INVALID_INPUT;
 
   const auto* raw_req_ids =
-      context->Read(bindings.Key<std::vector<uint64_t>>("raw_request_ids"));
-  if (!raw_req_ids) {
-    return AdapterValidationHelper::ReturnInvalidInput(
-        status, "Missing required context value: raw_request_ids",
-        "raw_request_ids", options.converter_id.c_str());
-  }
+      ReadOutputValue(*context, bindings, kRawRequestIds, options, status);
+  if (!raw_req_ids) return COMPANY_ALG_ERR_INVALID_INPUT;
 
   size_t count = invoice_jsons->size();
   if (destination->count < count) {
@@ -86,17 +74,11 @@ int EncodeOperatorInvoiceResult(AlgContext* context,
     }
     out->status_code = 0;
 
-    std::string err;
-    int ret = CopyToOperatorString(
-        invoice_jsons_by_request[i]->data.json_payload.c_str(),
-        out->result_json,
-        destination->GetSlotCapacity("od_out", "result_json", 1023),
-        "result_json", &err);
-    if (ret != 0) {
-      return AdapterValidationHelper::ReturnBufferTooSmall(
-          status,
-          err.empty() ? "Buffer too small for result_json" : err.c_str(),
-          "result_json", options.converter_id.c_str(), static_cast<int>(i));
+    if (!WriteOutputString(
+            *destination, "od_out", out->result_json, "result_json",
+            invoice_jsons_by_request[i]->data.json_payload.c_str(), options,
+            status, i)) {
+      return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     }
   }
 
@@ -109,19 +91,11 @@ OutputConverterDefinition MakeOperatorInvoiceResultOutputConverter() {
   def.converter_id = "invoice_result.plain.operator.v1";
 
   def.schema_id = "invoice_result.plain.response";
-  def.schema_version = 1;
   def.external_type = "CompanyOdOutput";
-  def.cardinality = "1:1";
   def.max_batch_size = 64;
-  def.capacity_policy = "reject_overflow";
 
-  def.external_slots = {{"od_out",
-                         "CompanyOdOutput",
-                         PortDirection::kOutput,
-                         true,
-                         "CompanyOdOutput",
-                         "od_out",
-                         {"result_json"}}};
+  def.external_slots = {
+      ExternalOutputSlot<CompanyOdOutput>("od_out", {"result_json"})};
   def.logical_ports = {RequiredInputPort(kRawRequestIds),
                        RequiredInputPort(kExtractedInvoiceJson),
                        RequiredInputPort(kOcrDocs)};
