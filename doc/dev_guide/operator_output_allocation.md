@@ -93,7 +93,20 @@ JSON 读取器将选中值通过 `dump()` 转为拥有自身存储的 `std::stri
 也不需要在中央分发表增加业务判断。
 
 常见输出不需要手写以下生命周期回调。例如，假设接入的 DTO `SummaryOutput` 包含
-`CompanyString* summary` 和标量 `status` 时：
+`CompanyString* summary` 和标量 `status` 时，先在接入层相关转换器共享的头文件中，
+包含 DTO 定义和 `adapter/io_converter.h`，在首次使用 `GetSlot<SummaryOutput>` 前声明：
+
+```cpp
+namespace llm_edgeflow {
+DECLARE_EXTERNAL_TYPE_TRAITS(SummaryOutput, "SummaryOutput");
+}
+```
+
+新输入 DTO 也需要相同的 trait 声明。名称必须与 binding 的 `external_c_type_name`
+及转换器外部槽位的 `type_id` 一致；运行时注册 binding 不会自动声明 C++ trait，
+缺失或名称不一致会使输入、输出视图的 `GetSlot<T>` 返回空指针。
+
+然后在接入层 `.cpp` 的注册函数中构造并登记 binding：
 
 ```cpp
 auto binding = MakePooledOutputBinding<SummaryOutput>(

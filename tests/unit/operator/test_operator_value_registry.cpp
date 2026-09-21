@@ -17,6 +17,12 @@
 
 namespace llm_edgeflow {
 
+struct BusinessInput {
+  size_t text_bytes = 0;
+};
+
+DECLARE_EXTERNAL_TYPE_TRAITS(BusinessInput, "BusinessInput");
+
 namespace {
 
 struct PlainOutputParameters {
@@ -1210,9 +1216,6 @@ TEST(OperatorValueRegistryTest, OperatorAgreesOnPcmBoundaries) {
 
 TEST(OperatorValueRegistryTest,
      AuthoredInputForwardsTypedValueLimitsAndDiagnostics) {
-  struct BusinessInput {
-    size_t text_bytes = 0;
-  };
   const auto binding = [] {
     std::string type_name = "BusinessInput";
     auto result = MakeTypedInputBinding<BusinessInput>(
@@ -1229,10 +1232,19 @@ TEST(OperatorValueRegistryTest,
   EXPECT_EQ(binding.external_c_type_name, "BusinessInput");
   EXPECT_EQ(binding.direction, IoDirection::kInput);
   BusinessInput input{9};
+  ExternalInputBatchView view;
+  view.count = 1;
+  view.slots["input"] = BorrowInputForTest({&input});
+  view.slot_types["input"] = binding.external_c_type_name;
+  const auto* decoded = view.GetSlot<BusinessInput>("input", 0);
+  ASSERT_EQ(decoded, &input);
+  view.slot_types["input"] = "DifferentInput";
+  EXPECT_EQ(view.GetSlot<BusinessInput>("input", 0), nullptr);
+  view.slot_types["input"] = binding.external_c_type_name;
   ResolvedInputLimits limits;
   limits.max_text_bytes = 8;
   std::string error;
-  EXPECT_EQ(binding.validate_external(&input, limits, &error), -3);
+  EXPECT_EQ(binding.validate_external(decoded, limits, &error), -3);
   EXPECT_EQ(error, "business text exceeds configured limit");
   input.text_bytes = 8;
   EXPECT_EQ(binding.validate_external(&input, limits, nullptr), 0);
