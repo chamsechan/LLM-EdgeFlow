@@ -4,6 +4,7 @@
 
 #include "adapter/adapter_status.h"
 #include "adapter/adapter_validation_helper.h"
+#include "adapter/biz_blackboard_keys.h"
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter.h"
 #include "adapter/result_validation.h"
@@ -19,29 +20,28 @@ int EncodeOperatorDocAnswer(AlgContext* context,
                             ExternalOutputBatchView* destination,
                             size_t* written_count, AdapterStatus* status) {
   if (!context) {
-    return AdapterValidationHelper::ReturnBufferTooSmall(
+    return AdapterValidationHelper::ReturnInvalidInput(
         status, "Null AlgContext passed to Encode", "context",
         options.converter_id.c_str());
   }
 
-  const auto* answers =
-      context->Read<TextBatch>(bindings.GetActualKey("llm_answers"));
+  const auto* answers = context->Read(bindings.Key<TextBatch>("llm_answers"));
   if (!answers) {
-    return AdapterValidationHelper::ReturnBufferTooSmall(
+    return AdapterValidationHelper::ReturnInvalidInput(
         status, "Missing required context value: llm_answers", "answers",
         options.converter_id.c_str());
   }
 
-  const auto* raw_req_ids = context->Read<std::vector<uint64_t>>(
-      bindings.GetActualKey("raw_request_ids"));
+  const auto* raw_req_ids =
+      context->Read(bindings.Key<std::vector<uint64_t>>("raw_request_ids"));
   if (!raw_req_ids) {
-    return AdapterValidationHelper::ReturnBufferTooSmall(
+    return AdapterValidationHelper::ReturnInvalidInput(
         status, "Missing required context value: raw_request_ids",
         "raw_request_ids", options.converter_id.c_str());
   }
 
   const auto* intent_matches =
-      context->Read<RuleMatchBatch>(bindings.GetActualKey("intent_matches"));
+      context->Read(bindings.Key<RuleMatchBatch>("intent_matches"));
   if (!intent_matches) {
     return AdapterValidationHelper::ReturnInvalidInput(
         status, "Missing required context value: intent_matches",
@@ -49,7 +49,7 @@ int EncodeOperatorDocAnswer(AlgContext* context,
   }
 
   const auto* chunk_counts =
-      context->Read<Int32Batch>(bindings.GetActualKey("doc_chunk_counts"));
+      context->Read(bindings.Key<Int32Batch>("doc_chunk_counts"));
   if (!chunk_counts) {
     return AdapterValidationHelper::ReturnInvalidInput(
         status, "Missing required context value: doc_chunk_counts",
@@ -137,10 +137,8 @@ OutputConverterDefinition MakeOperatorDocAnswerOutputConverter() {
                          "doc_out",
                          {"intent_name", "answer_text"}}};
   def.logical_ports = {
-      NodePortDefinition("raw_request_ids", "vector<uint64>", true, "1:1"),
-      NodePortDefinition("llm_answers", "TextBatch", true, "1:1"),
-      NodePortDefinition("intent_matches", "RuleMatchBatch", true, "1:1"),
-      NodePortDefinition("doc_chunk_counts", "Int32Batch", true, "1:1")};
+      RequiredInputPort(kRawRequestIds), RequiredInputPort(kLlmAnswers),
+      RequiredInputPort(kIntentMatches), RequiredInputPort(kDocChunkCounts)};
   def.encode_fn = &EncodeOperatorDocAnswer;
   return def;
 }

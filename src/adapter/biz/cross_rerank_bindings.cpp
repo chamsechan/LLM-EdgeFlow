@@ -1,3 +1,4 @@
+#include "adapter/biz_blackboard_keys.h"
 #include "adapter/converter_authoring.h"
 #include "adapter/io_binding.h"
 #include "core/pipeline_catalog.h"
@@ -5,18 +6,21 @@
 namespace llm_edgeflow {
 namespace {
 
+constexpr const char* kBizName = "dense_cross_rerank_scoring";
+constexpr size_t kMaxBatchSize = 64;
+
 BizDefinition MakeCrossRerankBizDefinition() {
   BizDefinition def;
-  def.biz_name = "dense_cross_rerank_scoring";
+  def.biz_name = kBizName;
   def.demo_biz = "cross_rerank";
   def.display_name = "Cross-Encoder 精排";
   def.ingress = {
-      BizPortDefinition("raw_request_ids", "vector<uint64>", true, "1:1"),
-      BizPortDefinition("rerank_queries", "TextBatch", true, "1:1"),
-      BizPortDefinition("rerank_candidates", "RankedTextBatch", true, "N:1"),
-      BizPortDefinition("rerank_pairs", "QueryCandidatesBatch", true, "N:1")};
-  def.egress = {
-      BizPortDefinition("ranked_results", "RankedTextBatch", true, "N:1")};
+      RequiredBizInput(kRawRequestIds), RequiredBizInput(kRerankQueries),
+      BizPortDefinition(kRerankCandidates.name, kRerankCandidates.type_id, true,
+                        "N:1"),
+      BizPortDefinition(kRerankPairs.name, kRerankPairs.type_id, true, "N:1")};
+  def.egress = {BizPortDefinition(kRankedResults.name, kRankedResults.type_id,
+                                  true, "N:1")};
   return def;
 }
 
@@ -30,8 +34,8 @@ const bool g_reg_cross_rerank_biz = []() {
 
 BizExposureDefinition MakeCrossRerankBizExposure() {
   BizExposureDefinition def;
-  def.biz_name = "dense_cross_rerank_scoring";
-  def.max_batch_size = 64;
+  def.biz_name = kBizName;
+  def.max_batch_size = kMaxBatchSize;
 
   return def;
 }
@@ -39,7 +43,7 @@ BizExposureDefinition MakeCrossRerankBizExposure() {
 IoBindingDefinition MakeCrossRerankOperatorBinding() {
   IoBindingDefinition def;
   def.binding_id = "cross_rerank.operator.v1";
-  def.biz_name = "dense_cross_rerank_scoring";
+  def.biz_name = kBizName;
 
   def.input_converter_id = "rerank.plain.operator.v1";
   def.output_converter_id = "rerank_result.plain.operator.v1";
@@ -49,7 +53,7 @@ IoBindingDefinition MakeCrossRerankOperatorBinding() {
                      {"rerank_pairs", "rerank_pairs"}};
   def.output_ports = {{"raw_request_ids", "raw_request_ids"},
                       {"ranked_results", "ranked_results"}};
-  def.max_batch_size = 64;
+  def.max_batch_size = kMaxBatchSize;
   return def;
 }
 

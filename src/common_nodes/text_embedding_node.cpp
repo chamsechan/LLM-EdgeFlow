@@ -1,5 +1,6 @@
 #include <cmath>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -61,33 +62,33 @@ class TextEmbeddingNode final : public ModelBoundNode<IEmbeddingModel> {
       std::string cache_key = ConstructSessionCacheKey(
           model_id(), model_revision, normalize_, *text_items);
       SessionResourceKey<EmbeddingBatch> resource_key(std::move(cache_key));
-      int infer_err = 0;
-      auto cached = session_ctx_->GetOrCreateResource<EmbeddingBatch>(
-          resource_key, [&]() -> std::shared_ptr<EmbeddingBatch> {
-            auto output = std::make_shared<EmbeddingBatch>();
-            int ret = model()->Embed(*text_items, opts, output.get());
-            if (ret != 0) {
-              infer_err = ret;
-              return nullptr;
-            }
-            const auto alignment =
-                ValidatePreservedTraceableAlignment(*text_items, *output);
-            if (!alignment.IsAligned()) {
-              infer_err = AlignmentErrorCode(alignment.error);
-              return nullptr;
-            }
-            return output;
-          });
+      std::shared_ptr<EmbeddingBatch> cached;
+      try {
+        cached = session_ctx_->GetOrCreateResource<EmbeddingBatch>(
+            resource_key, [&]() {
+              auto output = std::make_shared<EmbeddingBatch>();
+              std::string diagnostic;
+              const int ret =
+                  model()->Embed(*text_items, opts, output.get(), &diagnostic);
+              if (ret != 0) {
+                throw EmbeddingFailure(
+                    ret, "TextEmbeddingNode: inference failed" +
+                             (diagnostic.empty() ? "" : ": " + diagnostic));
+              }
+              const auto alignment =
+                  ValidatePreservedTraceableAlignment(*text_items, *output);
+              if (!alignment.IsAligned()) {
+                const int code = AlignmentErrorCode(alignment.error);
+                throw EmbeddingFailure(code, AlignmentErrorMessage(code));
+              }
+              return output;
+            });
+      } catch (const EmbeddingFailure& failure) {
+        return Fail(req_ctx, failure.code, failure.what());
+      }
       if (!cached) {
-        if (infer_err == node_error::text_embedding::kOutputCountMismatch ||
-            infer_err ==
-                node_error::text_embedding::kOutputProvenanceMismatch) {
-          return FailAlignment(req_ctx, infer_err);
-        }
         return Fail(req_ctx,
-                    infer_err != 0
-                        ? infer_err
-                        : node_error::text_embedding::kSessionInferenceFailed,
+                    node_error::text_embedding::kSessionInferenceFailed,
                     "TextEmbeddingNode: single-flight inference failed");
       }
       const auto hit_alignment =
@@ -105,9 +106,13 @@ class TextEmbeddingNode final : public ModelBoundNode<IEmbeddingModel> {
         "items using model...\n",
         text_items->size());
 
-    int ret = model()->Embed(*text_items, opts, &output_embeddings);
+    std::string diagnostic;
+    int ret =
+        model()->Embed(*text_items, opts, &output_embeddings, &diagnostic);
     if (ret != 0) {
-      return Fail(req_ctx, ret, "TextEmbeddingNode: inference failed");
+      return Fail(req_ctx, ret,
+                  "TextEmbeddingNode: inference failed" +
+                      (diagnostic.empty() ? "" : ": " + diagnostic));
     }
     const auto alignment =
         ValidatePreservedTraceableAlignment(*text_items, output_embeddings);
@@ -132,11 +137,20 @@ class TextEmbeddingNode final : public ModelBoundNode<IEmbeddingModel> {
     return 0;
   }
 
+  struct EmbeddingFailure : std::runtime_error {
+    EmbeddingFailure(int error_code, const std::string& message)
+        : std::runtime_error(message), code(error_code) {}
+    int code;
+  };
+
+  static const char* AlignmentErrorMessage(int error_code) noexcept {
+    return error_code == node_error::text_embedding::kOutputCountMismatch
+               ? "TextEmbeddingNode: embedding count mismatch"
+               : "TextEmbeddingNode: embedding provenance mismatch";
+  }
+
   int FailAlignment(AlgContext& req_ctx, int error_code) const noexcept {
-    return Fail(req_ctx, error_code,
-                error_code == node_error::text_embedding::kOutputCountMismatch
-                    ? "TextEmbeddingNode: embedding count mismatch"
-                    : "TextEmbeddingNode: embedding provenance mismatch");
+    return Fail(req_ctx, error_code, AlignmentErrorMessage(error_code));
   }
 
   static void AppendUint64Le(std::string& buf, uint64_t value) {

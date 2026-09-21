@@ -5,6 +5,7 @@
 
 #include "adapter/adapter_status.h"
 #include "adapter/adapter_validation_helper.h"
+#include "adapter/biz_blackboard_keys.h"
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter.h"
 #include "adapter/result_validation.h"
@@ -21,31 +22,31 @@ int EncodeOperatorAuditResult(AlgContext* context,
                               ExternalOutputBatchView* destination,
                               size_t* written_count, AdapterStatus* status) {
   if (!context) {
-    return AdapterValidationHelper::ReturnBufferTooSmall(
+    return AdapterValidationHelper::ReturnInvalidInput(
         status, "Null AlgContext passed to Encode", "context",
         options.converter_id.c_str());
   }
 
-  const auto* verdicts = context->Read<StructuredDocumentBatch>(
-      bindings.GetActualKey("structured_verdicts"));
+  const auto* verdicts = context->Read(
+      bindings.Key<StructuredDocumentBatch>("structured_verdicts"));
   if (!verdicts) {
-    return AdapterValidationHelper::ReturnBufferTooSmall(
+    return AdapterValidationHelper::ReturnInvalidInput(
         status, "Missing required context value: structured_verdicts",
         "verdicts", options.converter_id.c_str());
   }
 
   const auto* matched_policies =
-      context->Read<RankedTextBatch>(bindings.GetActualKey("matched_policies"));
+      context->Read(bindings.Key<RankedTextBatch>("matched_policies"));
   if (!matched_policies) {
     return AdapterValidationHelper::ReturnInvalidInput(
         status, "Missing required context value: matched_policies",
         "matched_policies", options.converter_id.c_str());
   }
 
-  const auto* raw_req_ids = context->Read<std::vector<uint64_t>>(
-      bindings.GetActualKey("raw_request_ids"));
+  const auto* raw_req_ids =
+      context->Read(bindings.Key<std::vector<uint64_t>>("raw_request_ids"));
   if (!raw_req_ids) {
-    return AdapterValidationHelper::ReturnBufferTooSmall(
+    return AdapterValidationHelper::ReturnInvalidInput(
         status, "Missing required context value: raw_request_ids",
         "raw_request_ids", options.converter_id.c_str());
   }
@@ -179,10 +180,8 @@ OutputConverterDefinition MakeOperatorAuditResultOutputConverter() {
        "audit_out",
        {"risk_level", "matched_policy_clause", "audit_verdict_json"}}};
   def.logical_ports = {
-      NodePortDefinition("raw_request_ids", "vector<uint64>", true, "1:1"),
-      NodePortDefinition("structured_verdicts", "StructuredDocumentBatch", true,
-                         "1:1"),
-      NodePortDefinition("matched_policies", "RankedTextBatch", true, "N:1")};
+      RequiredInputPort(kRawRequestIds), RequiredInputPort(kStructuredVerdicts),
+      RequiredInputPort("matched_policies", kMatchedPolicy, "N:1")};
   def.encode_fn = &EncodeOperatorAuditResult;
   return def;
 }

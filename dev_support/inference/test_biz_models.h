@@ -20,7 +20,8 @@ class TestBizEmbeddingModel final : public IEmbeddingModel {
   const std::string& Capability() const noexcept override;
   InferenceConcurrency Concurrency() const noexcept override;
   int Embed(const TextBatch& inputs, const EmbeddingOptions& options,
-            EmbeddingBatch* outputs) noexcept override;
+            EmbeddingBatch* outputs,
+            std::string* diagnostic = nullptr) noexcept override;
 
  private:
   size_t embedding_dim_ = 384;
@@ -37,8 +38,8 @@ class TestBizRerankModel final : public IRerankModel {
   const std::string& ModelType() const noexcept override;
   const std::string& Capability() const noexcept override;
   InferenceConcurrency Concurrency() const noexcept override;
-  int Score(const QueryCandidatesBatch& inputs,
-            ScoreBatch* outputs) noexcept override;
+  int Score(const QueryCandidatesBatch& inputs, ScoreBatch* outputs,
+            std::string* diagnostic = nullptr) noexcept override;
 
  private:
   size_t max_batch_size_ = 4;
@@ -55,7 +56,8 @@ class TestBizLlmModel final : public ILlmModel {
   const std::string& Capability() const noexcept override;
   InferenceConcurrency Concurrency() const noexcept override;
   int Generate(const TextBatch& prompts, const GenerateOptions& options,
-               TextBatch* outputs) noexcept override;
+               TextBatch* outputs,
+               std::string* diagnostic = nullptr) noexcept override;
 
  private:
   size_t max_batch_size_ = 2;
@@ -71,8 +73,8 @@ class TestBizOcrModel final : public IOcrModel {
   const std::string& ModelType() const noexcept override;
   const std::string& Capability() const noexcept override;
   InferenceConcurrency Concurrency() const noexcept override;
-  int Recognize(const ImageRefBatch& images,
-                OcrDocumentBatch* outputs) noexcept override;
+  int Recognize(const ImageRefBatch& images, OcrDocumentBatch* outputs,
+                std::string* diagnostic = nullptr) noexcept override;
 
  private:
   size_t max_batch_size_ = 2;
@@ -88,8 +90,8 @@ class TestBizAsrModel final : public IAsrModel {
   const std::string& ModelType() const noexcept override;
   const std::string& Capability() const noexcept override;
   InferenceConcurrency Concurrency() const noexcept override;
-  int Transcribe(const AudioPcmBatch& audio,
-                 TextBatch* outputs) noexcept override;
+  int Transcribe(const AudioPcmBatch& audio, TextBatch* outputs,
+                 std::string* diagnostic = nullptr) noexcept override;
 
  private:
   size_t max_batch_size_ = 2;

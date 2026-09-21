@@ -4,6 +4,7 @@
 
 #include "adapter/adapter_status.h"
 #include "adapter/adapter_validation_helper.h"
+#include "adapter/biz_blackboard_keys.h"
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter.h"
 #include "contracts/inference_payloads.h"
@@ -85,13 +86,13 @@ int DecodeOperatorImageQueryInput(const ExternalInputBatchView& source,
   }
 
   if (!AdapterValidationHelper::PublishContextValue(
-          *context, bindings.GetActualKey("raw_request_ids"),
+          *context, bindings.Key<std::vector<uint64_t>>("raw_request_ids"),
           std::move(raw_req_ids), options.converter_id.c_str(), status) ||
       !AdapterValidationHelper::PublishContextValue(
-          *context, bindings.GetActualKey("image_paths"), std::move(raw_images),
-          options.converter_id.c_str(), status) ||
+          *context, bindings.Key<ImageRefBatch>("image_paths"),
+          std::move(raw_images), options.converter_id.c_str(), status) ||
       !AdapterValidationHelper::PublishContextValue(
-          *context, bindings.GetActualKey("user_queries"),
+          *context, bindings.Key<TextBatch>("user_queries"),
           std::move(raw_queries), options.converter_id.c_str(), status)) {
     return COMPANY_ALG_ERR_INVALID_INPUT;
   }
@@ -122,10 +123,8 @@ InputConverterDefinition MakeOperatorImageQueryInputConverter() {
                          "CompanyString",
                          "string",
                          {}}};
-  def.logical_ports = {
-      NodePortDefinition("raw_request_ids", "vector<uint64>", true, "1:1"),
-      NodePortDefinition("image_paths", "ImageRefBatch", true, "1:1"),
-      NodePortDefinition("user_queries", "TextBatch", true, "1:1")};
+  def.logical_ports = {OutputPort(kRawRequestIds), OutputPort(kImagePaths),
+                       OutputPort(kUserQueries)};
   def.decode_fn = &DecodeOperatorImageQueryInput;
   return def;
 }

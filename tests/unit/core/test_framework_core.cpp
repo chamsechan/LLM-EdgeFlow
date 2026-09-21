@@ -2,7 +2,9 @@
 
 #include <atomic>
 #include <chrono>
+#include <future>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <vector>
@@ -126,6 +128,60 @@ TEST(SessionContextTest, SingleFlightCreatesOneTypedResource) {
   for (const auto& result : results) {
     EXPECT_EQ(result, results.front());
   }
+}
+
+TEST(SessionContextTest, SingleFlightSharesFactoryFailureAndAllowsRetry) {
+  SessionContext context;
+  SessionResourceKey<std::string> key("failed-single-flight");
+  std::atomic<int> factory_calls{0};
+  std::promise<void> start;
+  const auto ready = start.get_future().share();
+  std::vector<std::future<std::string>> workers;
+  for (int i = 0; i < 8; ++i) {
+    workers.push_back(std::async(std::launch::async, [&] {
+      if (ready.wait_for(std::chrono::seconds(5)) != std::future_status::ready)
+        return std::string("start timeout");
+      try {
+        context.GetOrCreateResource<std::string>(
+            key, [&]() -> std::shared_ptr<std::string> {
+              ++factory_calls;
+              // Keep the flight open long enough for concurrent callers to
+              // join.
+              std::this_thread::sleep_for(std::chrono::milliseconds(50));
+              throw std::runtime_error("resource factory unavailable");
+            });
+        return std::string("missing exception");
+      } catch (const std::runtime_error& error) {
+        return std::string(error.what());
+      }
+    }));
+  }
+  start.set_value();
+  for (auto& worker : workers) {
+    ASSERT_EQ(worker.wait_for(std::chrono::seconds(5)),
+              std::future_status::ready);
+    EXPECT_EQ(worker.get(), "resource factory unavailable");
+  }
+  // At least one caller received the exception as a waiter, not a factory
+  // owner.
+  EXPECT_LT(factory_calls.load(), 8);
+  EXPECT_EQ(context.GetResource(key), nullptr);
+  auto recovered = context.GetOrCreateResource<std::string>(key, [&] {
+    ++factory_calls;
+    return std::make_shared<std::string>("recovered");
+  });
+  ASSERT_NE(recovered, nullptr);
+  EXPECT_EQ(*recovered, "recovered");
+  EXPECT_EQ(context.GetResource(key), recovered);
+  const int calls_after_retry = factory_calls.load();
+  EXPECT_EQ(context.GetOrCreateResource<std::string>(
+                key,
+                [&] {
+                  ++factory_calls;
+                  return std::make_shared<std::string>("unexpected recreation");
+                }),
+            recovered);
+  EXPECT_EQ(factory_calls.load(), calls_after_retry);
 }
 
 // 5. 测试 RuntimeOptions 与 Model/Backend 新方言构建

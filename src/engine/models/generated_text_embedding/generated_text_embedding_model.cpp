@@ -67,24 +67,34 @@ InferenceConcurrency GeneratedTextEmbeddingModel::Concurrency() const noexcept {
 }
 int GeneratedTextEmbeddingModel::Embed(const TextBatch& inputs,
                                        const EmbeddingOptions& options,
-                                       EmbeddingBatch* outputs) noexcept {
-  if (!outputs) return -1;
+                                       EmbeddingBatch* outputs,
+                                       std::string* diagnostic) noexcept {
+  if (diagnostic) diagnostic->clear();
+  if (!outputs) {
+    SetDiagnosticNoexcept(diagnostic, "Model output pointer is null");
+    return -1;
+  }
   outputs->clear();
-  if (!session_) return -1;
+  if (!session_) {
+    SetDiagnosticNoexcept(diagnostic, "Model session is null");
+    return -1;
+  }
   return FixedBatchExecutor::Execute<std::string, std::vector<float>>(
       inputs, session_->GetBatchPolicy(),
-      [this, &inputs, &options](const BatchSlice& slice,
-                                std::vector<std::vector<float>>* batch) {
+      [this, &inputs, &options, diagnostic](
+          const BatchSlice& slice, std::vector<std::vector<float>>* batch) {
         const auto& text = inputs[slice.offset].data;
-        if (text.empty()) return -1;
+        if (text.empty()) {
+          SetDiagnosticNoexcept(diagnostic, "Embedding text is empty");
+          return -1;
+        }
         GeneratedTokenEmbeddings tokens;
-        std::string diagnostic;
-        const int result =
-            session_->GenerateEmbeddings(prefix_ + text + suffix_, add_bos_,
-                                         max_tokens_, &tokens, &diagnostic);
+        std::string reason;
+        const int result = session_->GenerateEmbeddings(
+            prefix_ + text + suffix_, add_bos_, max_tokens_, &tokens, &reason);
         if (result != 0) {
-          ALG_LOG_ERROR("[GeneratedTextEmbeddingModel] %s\n",
-                        diagnostic.c_str());
+          ALG_LOG_ERROR("[GeneratedTextEmbeddingModel] %s\n", reason.c_str());
+          SetDiagnosticNoexcept(diagnostic, reason);
           return result;
         }
         if (tokens.values.empty() ||
@@ -93,6 +103,9 @@ int GeneratedTextEmbeddingModel::Embed(const TextBatch& inputs,
           ALG_LOG_ERROR(
               "[GeneratedTextEmbeddingModel] Missing or invalid generated "
               "token vectors (including immediate EOS)\n");
+          SetDiagnosticNoexcept(diagnostic,
+                                "Missing or invalid generated token vectors "
+                                "(including immediate EOS)");
           return -1;
         }
         std::vector<double> pooled(static_cast<size_t>(embedding_dim_), 0.0);
@@ -103,10 +116,16 @@ int GeneratedTextEmbeddingModel::Embed(const TextBatch& inputs,
                 "[GeneratedTextEmbeddingModel] Expected dimension %d, received "
                 "%zu; check model_config.embedding_dim\n",
                 embedding_dim_, values.size());
+            SetDiagnosticNoexcept(
+                diagnostic, "Generated token embedding dimension mismatch");
             return -1;
           }
           for (size_t col = 0; col < values.size(); ++col) {
-            if (!std::isfinite(values[col])) return -1;
+            if (!std::isfinite(values[col])) {
+              SetDiagnosticNoexcept(diagnostic,
+                                    "Generated embedding contains NaN or Inf");
+              return -1;
+            }
             if (pooling_ == "mean")
               pooled[col] += values[col];
             else if (row + 1 == tokens.values.size())
@@ -119,12 +138,14 @@ int GeneratedTextEmbeddingModel::Embed(const TextBatch& inputs,
         std::vector<float> vector;
         if (!embedding_support::FinalizeEmbeddingVector(
                 pooled, options.normalize, &vector)) {
+          SetDiagnosticNoexcept(diagnostic,
+                                "Embedding pooling or normalization failed");
           return -1;
         }
         batch->push_back(std::move(vector));
         return 0;
       },
-      outputs);
+      outputs, diagnostic);
 }
 
 static const ModelDefinition kGeneratedTextEmbeddingDefinition = [] {

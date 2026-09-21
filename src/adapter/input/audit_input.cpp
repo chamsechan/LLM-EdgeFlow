@@ -4,6 +4,7 @@
 
 #include "adapter/adapter_status.h"
 #include "adapter/adapter_validation_helper.h"
+#include "adapter/biz_blackboard_keys.h"
 #include "adapter/biz_input_constraints.h"
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter.h"
@@ -85,13 +86,13 @@ int DecodeOperatorAuditInput(const ExternalInputBatchView& source,
   }
 
   if (!AdapterValidationHelper::PublishContextValue(
-          *context, bindings.GetActualKey("raw_request_ids"),
+          *context, bindings.Key<std::vector<uint64_t>>("raw_request_ids"),
           std::move(req_ids), options.converter_id.c_str(), status) ||
       !AdapterValidationHelper::PublishContextValue(
-          *context, bindings.GetActualKey("user_texts"), std::move(user_texts),
-          options.converter_id.c_str(), status) ||
+          *context, bindings.Key<TextBatch>("user_texts"),
+          std::move(user_texts), options.converter_id.c_str(), status) ||
       !AdapterValidationHelper::PublishContextValue(
-          *context, bindings.GetActualKey("channel_names"),
+          *context, bindings.Key<TextBatch>("channel_names"),
           std::move(channel_names), options.converter_id.c_str(), status)) {
     return COMPANY_ALG_ERR_INVALID_INPUT;
   }
@@ -115,10 +116,8 @@ InputConverterDefinition MakeOperatorAuditInputConverter() {
                          "CompanyOperatorAuditInput",
                          "audit_in",
                          {}}};
-  def.logical_ports = {
-      NodePortDefinition("raw_request_ids", "vector<uint64>", true, "1:1"),
-      NodePortDefinition("user_texts", "TextBatch", true, "1:1"),
-      NodePortDefinition("channel_names", "TextBatch", true, "1:1")};
+  def.logical_ports = {OutputPort(kRawRequestIds), OutputPort(kUserTexts),
+                       OutputPort(kChannelNames)};
   def.decode_fn = &DecodeOperatorAuditInput;
   return def;
 }

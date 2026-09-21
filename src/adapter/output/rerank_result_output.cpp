@@ -6,6 +6,7 @@
 
 #include "adapter/adapter_status.h"
 #include "adapter/adapter_validation_helper.h"
+#include "adapter/biz_blackboard_keys.h"
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter.h"
 #include "adapter/result_validation.h"
@@ -22,23 +23,23 @@ int EncodeOperatorRerankResult(AlgContext* context,
                                ExternalOutputBatchView* destination,
                                size_t* written_count, AdapterStatus* status) {
   if (!context) {
-    return AdapterValidationHelper::ReturnBufferTooSmall(
+    return AdapterValidationHelper::ReturnInvalidInput(
         status, "Null AlgContext passed to Encode", "context",
         options.converter_id.c_str());
   }
 
   const auto* res =
-      context->Read<RankedTextBatch>(bindings.GetActualKey("ranked_results"));
+      context->Read(bindings.Key<RankedTextBatch>("ranked_results"));
   if (!res) {
-    return AdapterValidationHelper::ReturnBufferTooSmall(
+    return AdapterValidationHelper::ReturnInvalidInput(
         status, "Missing required context value: ranked_results",
         "ranked_results", options.converter_id.c_str());
   }
 
-  const auto* raw_req_ids = context->Read<std::vector<uint64_t>>(
-      bindings.GetActualKey("raw_request_ids"));
+  const auto* raw_req_ids =
+      context->Read(bindings.Key<std::vector<uint64_t>>("raw_request_ids"));
   if (!raw_req_ids) {
-    return AdapterValidationHelper::ReturnBufferTooSmall(
+    return AdapterValidationHelper::ReturnInvalidInput(
         status, "Missing required context value: raw_request_ids",
         "raw_request_ids", options.converter_id.c_str());
   }
@@ -118,9 +119,8 @@ OutputConverterDefinition MakeOperatorRerankResultOutputConverter() {
                          "CompanyOperatorRerankOutput",
                          "rerank_out",
                          {}}};
-  def.logical_ports = {
-      NodePortDefinition("raw_request_ids", "vector<uint64>", true, "1:1"),
-      NodePortDefinition("ranked_results", "RankedTextBatch", true, "N:1")};
+  def.logical_ports = {RequiredInputPort(kRawRequestIds),
+                       RequiredInputPort(kRankedResults, "N:1")};
   def.encode_fn = &EncodeOperatorRerankResult;
   return def;
 }

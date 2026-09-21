@@ -35,8 +35,9 @@ class FakeRerankModel : public IRerankModel {
     return InferenceConcurrency::kConcurrent;
   }
 
-  int Score(const QueryCandidatesBatch& inputs,
-            ScoreBatch* outputs) noexcept override {
+  int Score(const QueryCandidatesBatch& inputs, ScoreBatch* outputs,
+            std::string* diagnostic = nullptr) noexcept override {
+    if (diagnostic) diagnostic->clear();
     if (!outputs) return -1;
     outputs->clear();
     if (fail_score_) return -1;
@@ -309,8 +310,9 @@ class ControllableMockRerankModel : public IRerankModel {
     return InferenceConcurrency::kConcurrent;
   }
 
-  int Score(const QueryCandidatesBatch& input_pairs,
-            ScoreBatch* output_scores) noexcept override {
+  int Score(const QueryCandidatesBatch& input_pairs, ScoreBatch* output_scores,
+            std::string* diagnostic = nullptr) noexcept override {
+    if (diagnostic) diagnostic->clear();
     if (!output_scores) return -1;
     output_scores->clear();
     for (const auto& item : input_pairs) {

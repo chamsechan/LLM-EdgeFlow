@@ -9,6 +9,7 @@
 #include "adapter/io_converter_registry.h"
 #include "adapter/operator/json_output_config_reader.h"
 #include "adapter/operator/operator_value_type_registry.h"
+#include "adapter/operator_value_type.h"
 #include "core/alg_context.h"
 #include "scoped_allocation_failure.h"
 #include "tests/support/adapter_test_views.h"
@@ -1205,6 +1206,38 @@ TEST(OperatorValueRegistryTest, OperatorAgreesOnPcmBoundaries) {
   limits.max_audio_pcm_bytes = sizeof(float);
   CompanyOperatorAudioInput input{7, samples.data(), 2, 16000};
   EXPECT_NE(binding->validate_external(&input, limits, nullptr), 0);
+}
+
+TEST(OperatorValueRegistryTest,
+     AuthoredInputForwardsTypedValueLimitsAndDiagnostics) {
+  struct BusinessInput {
+    size_t text_bytes = 0;
+  };
+  const auto binding = [] {
+    std::string type_name = "BusinessInput";
+    auto result = MakeTypedInputBinding<BusinessInput>(
+        "test_business_input", type_name.c_str(),
+        [](const BusinessInput& input, const ResolvedInputLimits& limits,
+           std::string* error) -> int {
+          if (input.text_bytes <= limits.max_text_bytes) return 0;
+          if (error) *error = "business text exceeds configured limit";
+          return -3;
+        });
+    type_name.assign(type_name.size(), 'x');
+    return result;
+  }();
+  EXPECT_EQ(binding.external_c_type_name, "BusinessInput");
+  EXPECT_EQ(binding.direction, IoDirection::kInput);
+  BusinessInput input{9};
+  ResolvedInputLimits limits;
+  limits.max_text_bytes = 8;
+  std::string error;
+  EXPECT_EQ(binding.validate_external(&input, limits, &error), -3);
+  EXPECT_EQ(error, "business text exceeds configured limit");
+  input.text_bytes = 8;
+  EXPECT_EQ(binding.validate_external(&input, limits, nullptr), 0);
+  EXPECT_EQ(binding.validate_external(nullptr, limits, &error), -3);
+  EXPECT_EQ(error, "BusinessInput pointer is null");
 }
 
 }  // namespace llm_edgeflow

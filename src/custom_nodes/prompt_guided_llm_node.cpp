@@ -284,12 +284,14 @@ class PromptGuidedLlmNode final : public ModelBoundNode<ILlmModel> {
     }
 
     TextBatch raw_outputs;
-    int infer_ret =
-        model()->Generate(prompts, config_.generation, &raw_outputs);
+    std::string diagnostic;
+    int infer_ret = model()->Generate(prompts, config_.generation, &raw_outputs,
+                                      &diagnostic);
     if (infer_ret != 0) {
       req_ctx.SetError(kModelInferenceFailed,
                        Name() + ": model inference failed with code " +
-                           std::to_string(infer_ret));
+                           std::to_string(infer_ret) +
+                           (diagnostic.empty() ? "" : ": " + diagnostic));
       return kModelInferenceFailed;
     }
 

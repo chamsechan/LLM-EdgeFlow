@@ -78,7 +78,9 @@ class TranslationProbeModel final : public ILlmModel {
   }
 
   int Generate(const TextBatch& prompts, const GenerateOptions&,
-               TextBatch* outputs) noexcept override {
+               TextBatch* outputs,
+               std::string* diagnostic = nullptr) noexcept override {
+    if (diagnostic) diagnostic->clear();
     try {
       calls.push_back(prompts);
       if (failure != 0) return failure;
@@ -365,7 +367,7 @@ TEST_F(AdapterContractSecurityTest,
     reordered_view.count = 1;
     EXPECT_EQ(converter->encode_fn(&missing, bindings, options, &reordered_view,
                                    &written, &status),
-              COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
+              COMPANY_ALG_ERR_INVALID_INPUT);
   }
 }
 
@@ -920,9 +922,9 @@ TEST_F(AdapterContractSecurityTest,
   int ret =
       converter->encode_fn(&ctx, bindings, options, &view, &written, &status);
 
-  // Underlying reader wrote BUFFER_TOO_SMALL (-4) into AdapterStatus
-  EXPECT_EQ(ret, COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
-  EXPECT_EQ(status.Code(), COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
+  // Missing internal data is invalid input, independently of output capacity.
+  EXPECT_EQ(ret, COMPANY_ALG_ERR_INVALID_INPUT);
+  EXPECT_EQ(status.Code(), COMPANY_ALG_ERR_INVALID_INPUT);
 }
 
 // RFC-0053 / RFC-0059: Translate serialization failure (invalid UTF-8) priority
@@ -998,7 +1000,7 @@ TEST_F(AdapterContractSecurityTest, TranslateNullContextDiagnostics) {
       in_conv->decode_fn(in_view, in_options, in_bindings, nullptr, nullptr),
       COMPANY_ALG_ERR_INVALID_INPUT);
 
-  // 2. Encode with null context: must return BUFFER_TOO_SMALL (-4) with field
+  // 2. Encode with null context: must return INVALID_INPUT (-3) with field
   // "context"
   CompanyOperatorEntityOutput output{};
   ExternalOutputBatchView out_view;
@@ -1015,14 +1017,14 @@ TEST_F(AdapterContractSecurityTest, TranslateNullContextDiagnostics) {
   AdapterStatus pack_status;
   int pack_ret = out_conv->encode_fn(nullptr, out_bindings, out_options,
                                      &out_view, &written, &pack_status);
-  EXPECT_EQ(pack_ret, COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
-  EXPECT_EQ(pack_status.Code(), COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
+  EXPECT_EQ(pack_ret, COMPANY_ALG_ERR_INVALID_INPUT);
+  EXPECT_EQ(pack_status.Code(), COMPANY_ALG_ERR_INVALID_INPUT);
   EXPECT_EQ(pack_status.FieldPath(), "context");
   EXPECT_EQ(pack_status.AdapterName(), "translate.json.operator.v1");
 
   EXPECT_EQ(out_conv->encode_fn(nullptr, out_bindings, out_options, &out_view,
                                 &written, nullptr),
-            COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
+            COMPANY_ALG_ERR_INVALID_INPUT);
 }
 
 }  // namespace llm_edgeflow

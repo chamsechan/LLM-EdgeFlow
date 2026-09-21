@@ -118,9 +118,12 @@ class TextRerankNode final : public ModelBoundNode<IRerankModel> {
         "pairs with Reranker...\n",
         pair_items.size());
 
-    int ret = model()->Score(pair_items, &pair_scores);
+    std::string diagnostic;
+    int ret = model()->Score(pair_items, &pair_scores, &diagnostic);
     if (ret != 0) {
-      return Fail(req_ctx, ret, "TextRerankNode: model scoring failed");
+      return Fail(req_ctx, ret,
+                  "TextRerankNode: model scoring failed" +
+                      (diagnostic.empty() ? "" : ": " + diagnostic));
     }
 
     const auto alignment =

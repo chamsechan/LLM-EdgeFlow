@@ -44,6 +44,7 @@ class ScriptedGenerationSession final : public ITextGenerationSession {
   int Generate(const std::string& prompt, bool add_bos,
                const GenerateOptions& options, std::optional<uint64_t> seed,
                std::string* output, std::string* diagnostic) noexcept override {
+    if (diagnostic) diagnostic->clear();
     if (!output) return -1;
     output->clear();
     try {
@@ -162,6 +163,36 @@ TEST(QwenCausalLmModelTest, RandomSeedAndLaterFailureRollbackBatch) {
 
   EXPECT_NE(model.Generate({{3, 0, ""}}, GreedyOptions(), &outputs), 0);
   EXPECT_TRUE(outputs.empty());
+}
+
+TEST(QwenCausalLmModelTest, BackendDiagnosticSurvivesRollbackAndClearsOnReuse) {
+  auto session = std::make_shared<ScriptedGenerationSession>();
+  session->fail_call = 1;
+  QwenCausalLmModel model(session, "", false, -1);
+  TextBatch outputs{{9, 9, "stale output"}};
+  std::string diagnostic = "stale error";
+
+  EXPECT_NE(model.Generate({{1, 0, "first"}, {2, 0, "second"}}, GreedyOptions(),
+                           &outputs, &diagnostic),
+            0);
+  EXPECT_TRUE(outputs.empty());
+  EXPECT_EQ(diagnostic, "scripted failure");
+  ASSERT_EQ(session->calls.size(), 2U);
+
+  ASSERT_EQ(
+      model.Generate({{3, 4, "retry"}}, GreedyOptions(), &outputs, &diagnostic),
+      0);
+  EXPECT_TRUE(diagnostic.empty());
+  ASSERT_EQ(outputs.size(), 1U);
+  EXPECT_EQ(outputs.front().req_id, 3U);
+  EXPECT_EQ(outputs.front().sub_id, 4U);
+  EXPECT_EQ(outputs.front().data, "generated");
+
+  diagnostic = "previous failure";
+  ASSERT_EQ(model.Generate({}, GreedyOptions(), &outputs, &diagnostic), 0);
+  EXPECT_TRUE(diagnostic.empty());
+  EXPECT_TRUE(outputs.empty());
+  EXPECT_EQ(session->calls.size(), 3U);
 }
 
 class ScriptedDecoder final : public text_generation::IAutoregressiveDecoder {

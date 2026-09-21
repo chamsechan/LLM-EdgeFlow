@@ -44,7 +44,8 @@ class BgeEmbeddingModel final : public IEmbeddingModel {
   InferenceConcurrency Concurrency() const noexcept override;
 
   int Embed(const TextBatch& inputs, const EmbeddingOptions& options,
-            EmbeddingBatch* outputs) noexcept override;
+            EmbeddingBatch* outputs,
+            std::string* diagnostic = nullptr) noexcept override;
 
   const BertWordPieceTokenizer& Tokenizer() const noexcept {
     return tokenizer_;
@@ -58,7 +59,7 @@ class BgeEmbeddingModel final : public IEmbeddingModel {
  private:
   int RawEmbedSlice(const TextBatch& all_inputs, const BatchSlice& slice,
                     std::vector<std::vector<float>>* batch_embeddings,
-                    bool normalize_flag) noexcept;
+                    bool normalize_flag, std::string* diagnostic) noexcept;
 
   std::shared_ptr<ITensorGraphSession> session_;
   BertWordPieceTokenizer tokenizer_;

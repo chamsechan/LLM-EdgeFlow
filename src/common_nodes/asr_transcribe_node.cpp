@@ -49,9 +49,12 @@ class AsrTranscribeNode final : public ModelBoundNode<IAsrModel> {
         "streams...\n",
         audio_items->size());
 
-    int ret = model()->Transcribe(*audio_items, &transcripts);
+    std::string diagnostic;
+    int ret = model()->Transcribe(*audio_items, &transcripts, &diagnostic);
     if (ret != 0) {
-      return Fail(req_ctx, ret, "AsrTranscribeNode: ASR inference failed");
+      return Fail(req_ctx, ret,
+                  "AsrTranscribeNode: ASR inference failed" +
+                      (diagnostic.empty() ? "" : ": " + diagnostic));
     }
 
     const auto alignment =

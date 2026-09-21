@@ -1,10 +1,12 @@
 #include <gtest/gtest.h>
 
+#include <future>
 #include <memory>
 #include <nlohmann/json.hpp>
 #include <string>
 #include <vector>
 
+#include "contracts/diagnostic.h"
 #include "core/alg_context.h"
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
@@ -12,6 +14,7 @@
 #include "core/pipeline_validator.h"
 #include "core/session_context.h"
 #include "engine/model_interface.h"
+#include "nodes/model_calls.h"
 #include "tests/support/node_test_utils.h"
 
 namespace llm_edgeflow {
@@ -33,8 +36,16 @@ class ContractLlmModel final : public ILlmModel {
   }
 
   int Generate(const TextBatch& prompts, const GenerateOptions& options,
-               TextBatch* outputs) noexcept override {
+               TextBatch* outputs,
+               std::string* diagnostic = nullptr) noexcept override {
+    if (diagnostic) diagnostic->clear();
     if (!outputs) return -1;
+    if (fail_with_input_reason) {
+      outputs->clear();
+      SetDiagnosticNoexcept(diagnostic, prompts.empty() ? "backend failure"
+                                                        : prompts.front().data);
+      return -77;
+    }
     ++infer_calls;
     last_options = options;
     outputs->clear();
@@ -55,6 +66,7 @@ class ContractLlmModel final : public ILlmModel {
   GenerateOptions last_options;
   bool return_wrong_count = false;
   bool corrupt_provenance = false;
+  bool fail_with_input_reason = false;
 };
 
 }  // namespace
@@ -71,6 +83,43 @@ class LlmGenerateNodeTest : public ::testing::Test {
   std::unique_ptr<SessionContext> session_ctx_;
   std::shared_ptr<ContractLlmModel> model_;
 };
+
+TEST_F(LlmGenerateNodeTest, ModelReasonReachesRequestErrorWithoutOutput) {
+  model_->fail_with_input_reason = true;
+  auto node = NodeRegistry::Instance().Create("LlmGenerateNode");
+  ASSERT_NE(node, nullptr);
+  ASSERT_TRUE(InitNodeForTest(*node, {{"bind_model", "llm_model_v1"}},
+                              session_ctx_.get()));
+  AlgContext ctx;
+  ctx.Publish("prompt", TextBatch{{0, 0, "backend context capacity exceeded"}});
+  EXPECT_EQ(node->Process(&ctx), -77);
+  EXPECT_NE(ctx.GetErrorMessage().find("backend context capacity exceeded"),
+            std::string::npos);
+  EXPECT_EQ(ctx.Read<TextBatch>("text"), nullptr);
+}
+
+TEST_F(LlmGenerateNodeTest, ConcurrentModelCallsKeepIndependentReasons) {
+  model_->fail_with_input_reason = true;
+  LlmCall call(model_);
+  auto first = std::async(std::launch::async, [&] {
+    return call.Generate(TextBatch{{0, 0, "backend failure A"}});
+  });
+  auto second = std::async(std::launch::async, [&] {
+    return call.Generate(TextBatch{{1, 0, "backend failure B"}});
+  });
+  auto first_result = first.get();
+  auto second_result = second.get();
+  ASSERT_FALSE(first_result.ok());
+  ASSERT_FALSE(second_result.ok());
+  EXPECT_NE(first_result.failure().message.find("backend failure A"),
+            std::string::npos);
+  EXPECT_EQ(first_result.failure().message.find("backend failure B"),
+            std::string::npos);
+  EXPECT_NE(second_result.failure().message.find("backend failure B"),
+            std::string::npos);
+  EXPECT_EQ(second_result.failure().message.find("backend failure A"),
+            std::string::npos);
+}
 
 // 1. Process Batch Prompt Inference
 TEST_F(LlmGenerateNodeTest, ProcessBatchPromptInference) {

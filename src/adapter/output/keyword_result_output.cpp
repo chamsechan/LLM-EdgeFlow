@@ -4,6 +4,7 @@
 
 #include "adapter/adapter_status.h"
 #include "adapter/adapter_validation_helper.h"
+#include "adapter/biz_blackboard_keys.h"
 #include "adapter/biz_results.h"
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter.h"
@@ -19,23 +20,22 @@ int EncodeOperatorKeywordResult(AlgContext* context,
                                 ExternalOutputBatchView* destination,
                                 size_t* written_count, AdapterStatus* status) {
   if (!context) {
-    return AdapterValidationHelper::ReturnBufferTooSmall(
+    return AdapterValidationHelper::ReturnInvalidInput(
         status, "Null AlgContext passed to Encode", "context",
         options.converter_id.c_str());
   }
 
-  const auto* res =
-      context->Read<RuleMatchBatch>(bindings.GetActualKey("rule_matches"));
+  const auto* res = context->Read(bindings.Key<RuleMatchBatch>("rule_matches"));
   if (!res) {
-    return AdapterValidationHelper::ReturnBufferTooSmall(
+    return AdapterValidationHelper::ReturnInvalidInput(
         status, "Missing required context value: rule_matches", "res",
         options.converter_id.c_str());
   }
 
-  const auto* raw_req_ids = context->Read<std::vector<uint64_t>>(
-      bindings.GetActualKey("raw_request_ids"));
+  const auto* raw_req_ids =
+      context->Read(bindings.Key<std::vector<uint64_t>>("raw_request_ids"));
   if (!raw_req_ids) {
-    return AdapterValidationHelper::ReturnBufferTooSmall(
+    return AdapterValidationHelper::ReturnInvalidInput(
         status, "Missing required context value: raw_request_ids",
         "raw_request_ids", options.converter_id.c_str());
   }
@@ -100,9 +100,8 @@ OutputConverterDefinition MakeOperatorKeywordResultOutputConverter() {
                          "CompanyOperatorKeywordOutput",
                          "keyword_out",
                          {"match_result_json"}}};
-  def.logical_ports = {
-      NodePortDefinition("raw_request_ids", "vector<uint64>", true, "1:1"),
-      NodePortDefinition("rule_matches", "RuleMatchBatch", true, "1:1")};
+  def.logical_ports = {RequiredInputPort(kRawRequestIds),
+                       RequiredInputPort(kRuleMatches)};
   def.encode_fn = &EncodeOperatorKeywordResult;
   return def;
 }

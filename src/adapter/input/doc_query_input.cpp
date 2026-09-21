@@ -4,6 +4,7 @@
 
 #include "adapter/adapter_status.h"
 #include "adapter/adapter_validation_helper.h"
+#include "adapter/biz_blackboard_keys.h"
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter.h"
 #include "contracts/inference_payloads.h"
@@ -82,13 +83,13 @@ int DecodeOperatorDocQueryInput(const ExternalInputBatchView& source,
   }
 
   if (!AdapterValidationHelper::PublishContextValue(
-          *context, bindings.GetActualKey("raw_request_ids"),
+          *context, bindings.Key<std::vector<uint64_t>>("raw_request_ids"),
           std::move(raw_req_ids), options.converter_id.c_str(), status) ||
       !AdapterValidationHelper::PublishContextValue(
-          *context, bindings.GetActualKey("raw_docs"), std::move(raw_docs),
+          *context, bindings.Key<TextBatch>("raw_docs"), std::move(raw_docs),
           options.converter_id.c_str(), status) ||
       !AdapterValidationHelper::PublishContextValue(
-          *context, bindings.GetActualKey("raw_queries"),
+          *context, bindings.Key<TextBatch>("raw_queries"),
           std::move(raw_queries), options.converter_id.c_str(), status)) {
     return COMPANY_ALG_ERR_INVALID_INPUT;
   }
@@ -112,10 +113,8 @@ InputConverterDefinition MakeOperatorDocQueryInputConverter() {
                          "CompanyOperatorDocInput",
                          "doc_in",
                          {}}};
-  def.logical_ports = {
-      NodePortDefinition("raw_request_ids", "vector<uint64>", true, "1:1"),
-      NodePortDefinition("raw_docs", "TextBatch", true, "1:1"),
-      NodePortDefinition("raw_queries", "TextBatch", true, "1:1")};
+  def.logical_ports = {OutputPort(kRawRequestIds), OutputPort(kRawDocs),
+                       OutputPort(kRawQueries)};
   def.decode_fn = &DecodeOperatorDocQueryInput;
   return def;
 }

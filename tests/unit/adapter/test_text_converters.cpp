@@ -210,4 +210,50 @@ TEST_F(TextConvertersTest, InputConverterReusedAcrossTestBindings) {
   EXPECT_EQ(b1->input_converter_id, b2->input_converter_id);
 }
 
+TEST_F(TextConvertersTest, MissingResultsDifferFromOutputCapacityFailures) {
+  const auto* conv = IoConverterRegistry::Instance().FindOutputConverter(
+      "translate.json.operator.v1");
+  ASSERT_NE(conv, nullptr);
+  OutputPortBindings bindings(
+      {{"raw_request_ids", "raw_request_ids"}, {"llm_answers", "llm_answers"}});
+  OutputEncodeOptions options;
+  options.converter_id = conv->converter_id;
+  AlgContext context;
+  TestOutputBatchView destination;
+  AdapterStatus status;
+  size_t written = 0;
+  EXPECT_EQ(conv->encode_fn(&context, bindings, options, &destination, &written,
+                            &status),
+            COMPANY_ALG_ERR_INVALID_INPUT);
+  EXPECT_EQ(status.Code(), COMPANY_ALG_ERR_INVALID_INPUT);
+  ASSERT_TRUE(context.Publish("llm_answers", TextBatch{{0, 0, "hello"}}));
+  EXPECT_EQ(conv->encode_fn(&context, bindings, options, &destination, &written,
+                            &status),
+            COMPANY_ALG_ERR_INVALID_INPUT);
+  EXPECT_EQ(status.FieldPath(), "raw_request_ids");
+  ASSERT_TRUE(context.Publish("raw_request_ids", std::vector<uint64_t>{42}));
+  EXPECT_EQ(conv->encode_fn(&context, bindings, options, &destination, &written,
+                            &status),
+            COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
+  EXPECT_EQ(status.FieldPath(), "destination");
+  destination.count = 1;
+  EXPECT_EQ(conv->encode_fn(&context, bindings, options, &destination, &written,
+                            &status),
+            COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
+  EXPECT_EQ(status.FieldPath(), "entity_out");
+  char bytes[2] = {};
+  CompanyString text{1, bytes};
+  CompanyOperatorEntityOutput output{};
+  output.entities_json = &text;
+  destination.leased_slots["entity_out"] = {&output};
+  destination.slot_types["entity_out"] = "CompanyOperatorEntityOutput";
+  destination.SetCapacity("entity_out", "entities_json", 1);
+  EXPECT_EQ(conv->encode_fn(&context, bindings, options, &destination, &written,
+                            &status),
+            COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
+  EXPECT_EQ(status.Code(), COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
+  EXPECT_EQ(status.FieldPath(), "entities_json");
+  EXPECT_EQ(written, 0U);
+}
+
 }  // namespace llm_edgeflow

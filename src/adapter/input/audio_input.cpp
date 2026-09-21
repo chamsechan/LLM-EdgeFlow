@@ -4,6 +4,7 @@
 
 #include "adapter/adapter_status.h"
 #include "adapter/adapter_validation_helper.h"
+#include "adapter/biz_blackboard_keys.h"
 #include "adapter/biz_input_constraints.h"
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter.h"
@@ -74,10 +75,10 @@ int DecodeOperatorAudioInput(const ExternalInputBatchView& source,
   }
 
   if (!AdapterValidationHelper::PublishContextValue(
-          *context, bindings.GetActualKey("raw_request_ids"),
+          *context, bindings.Key<std::vector<uint64_t>>("raw_request_ids"),
           std::move(raw_req_ids), options.converter_id.c_str(), status) ||
       !AdapterValidationHelper::PublishContextValue(
-          *context, bindings.GetActualKey("audio_inputs"),
+          *context, bindings.Key<AudioPcmBatch>("audio_inputs"),
           std::move(raw_audios), options.converter_id.c_str(), status)) {
     return COMPANY_ALG_ERR_INVALID_INPUT;
   }
@@ -101,9 +102,7 @@ InputConverterDefinition MakeOperatorAudioInputConverter() {
                          "CompanyOperatorAudioInput",
                          "audio_in",
                          {}}};
-  def.logical_ports = {
-      NodePortDefinition("raw_request_ids", "vector<uint64>", true, "1:1"),
-      NodePortDefinition("audio_inputs", "AudioPcmBatch", true, "1:1")};
+  def.logical_ports = {OutputPort(kRawRequestIds), OutputPort(kAudioInputs)};
   def.decode_fn = &DecodeOperatorAudioInput;
   return def;
 }

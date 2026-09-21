@@ -1,3 +1,4 @@
+#include "adapter/biz_blackboard_keys.h"
 #include "adapter/converter_authoring.h"
 #include "adapter/io_binding.h"
 #include "core/pipeline_catalog.h"
@@ -5,16 +6,17 @@
 namespace llm_edgeflow {
 namespace {
 
+constexpr const char* kBizName = "entity_extract_v1";
+constexpr size_t kMaxBatchSize = 64;
+
 BizDefinition MakeEntityExtractBizDefinition() {
   BizDefinition def;
-  def.biz_name = "entity_extract_v1";
+  def.biz_name = kBizName;
   def.demo_biz = "entity_extract";
   def.display_name = "实体抽取";
-  def.ingress = {
-      BizPortDefinition("raw_request_ids", "vector<uint64>", true, "1:1"),
-      BizPortDefinition("input_sentences", "TextBatch", true, "1:1")};
-  def.egress = {BizPortDefinition("extracted_entities",
-                                  "StructuredDocumentBatch", true, "1:1")};
+  def.ingress = {RequiredBizInput(kRawRequestIds),
+                 RequiredBizInput(kInputSentences)};
+  def.egress = {BizOutput(kExtractedEntities)};
   return def;
 }
 
@@ -28,8 +30,8 @@ const bool g_reg_entity_extract_biz = []() {
 
 BizExposureDefinition MakeEntityExtractBizExposure() {
   BizExposureDefinition def;
-  def.biz_name = "entity_extract_v1";
-  def.max_batch_size = 64;
+  def.biz_name = kBizName;
+  def.max_batch_size = kMaxBatchSize;
 
   return def;
 }
@@ -37,7 +39,7 @@ BizExposureDefinition MakeEntityExtractBizExposure() {
 IoBindingDefinition MakeEntityExtractOperatorBinding() {
   IoBindingDefinition def;
   def.binding_id = "entity_extract.operator.v1";
-  def.biz_name = "entity_extract_v1";
+  def.biz_name = kBizName;
 
   def.input_converter_id = "text.plain.operator.v1";
   def.output_converter_id = "document.structured.operator.v1";
@@ -45,7 +47,7 @@ IoBindingDefinition MakeEntityExtractOperatorBinding() {
                      {"input_sentences", "input_sentences"}};
   def.output_ports = {{"raw_request_ids", "raw_request_ids"},
                       {"extracted_entities", "extracted_entities"}};
-  def.max_batch_size = 64;
+  def.max_batch_size = kMaxBatchSize;
   return def;
 }
 

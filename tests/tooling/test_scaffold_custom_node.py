@@ -88,7 +88,7 @@ class ScaffoldCustomNodeTest(unittest.TestCase):
             self.assertFalse((Path(temp) / "example_node.cpp").exists())
 
     def test_cpp_string_escaping_and_stateless_default(self):
-        result = self.run_cli("Example", "--description", '引号 " and \\ newline\n', "--dry-run")
+        result = self.run_cli("Example", "--authoring", "advanced", "--description", '引号 " and \\ newline\n', "--dry-run")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('def.description = "引号 \\" and \\\\ newline\\n";', result.stdout)
         self.assertIn("def.parallel_safe = false", result.stdout)
@@ -99,9 +99,9 @@ class ScaffoldCustomNodeTest(unittest.TestCase):
         generated = SCAFFOLD.render_model_node(
             "StarterAdvancedLlmNode", "LLM authoring starter", "llm",
             ("input", "TextBatch", "1:1", "preserve"),
-            ("output", "TextBatch", "1:1", "preserve"))
+            ("output", "TextBatch", "1:1", "preserve"), authoring="advanced")
         self.assertEqual(generated, source)
-        result = self.run_cli("SwappedNode", "--kind", "model", "-m", "llm",
+        result = self.run_cli("SwappedNode", "--authoring", "advanced", "--kind", "model", "-m", "llm",
                               "--in-port", "output:TextBatch", "--out-port", "input:TextBatch",
                               "--description", 'StarterLlmNode "input"\n', "--dry-run")
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -145,15 +145,15 @@ class ScaffoldCustomNodeTest(unittest.TestCase):
             source_file = Path(temp) / "src" / "custom_nodes" / "awesome_feature_node.cpp"
             self.assertTrue(source_file.exists())
             source_content = source_file.read_text(encoding="utf-8")
-            self.assertIn("class AwesomeFeatureNode final", source_content)
-            self.assertIn("AwesomeFeatureNode::kNodeType", source_content)
+            self.assertIn("REGISTER_FUNCTION_NODE(AwesomeFeatureNode, AwesomeFeatureNodeSpec());", source_content)
+            self.assertIn("MakeMapSpec", source_content)
 
             # Check test file generated under tests/unit/nodes/test_awesome_feature_node.cpp
             test_file = Path(temp) / "tests" / "unit" / "nodes" / "test_awesome_feature_node.cpp"
             self.assertTrue(test_file.exists())
             test_content = test_file.read_text(encoding="utf-8")
             self.assertIn("TEST(CustomNodeCatalogTest, AwesomeFeatureNode_RegistrationAndInstantiation)", test_content)
-            self.assertIn("TEST(CustomNodeCatalogTest, AwesomeFeatureNode_BusinessExample)", test_content)
+            self.assertIn("TEST(CustomNodeCatalogTest, AwesomeFeatureNode_MapPreservesInputData)", test_content)
 
             # Output reporting
             self.assertIn(f"Created {source_file}", result.stdout)
@@ -224,7 +224,7 @@ class ScaffoldCustomNodeTest(unittest.TestCase):
             source_file = Path(temp) / "src" / "custom_nodes" / "dry_run_node.cpp"
             test_file = Path(temp) / "tests" / "unit" / "nodes" / "test_dry_run_node.cpp"
             self.assertIn(f"--- {source_file} (new file) ---", result.stdout)
-            self.assertIn("class DryRunNode final", result.stdout)
+            self.assertIn("REGISTER_FUNCTION_NODE(DryRunNode, DryRunNodeSpec());", result.stdout)
             self.assertIn(f"--- {test_file} (new test file) ---", result.stdout)
             self.assertIn("TEST(CustomNodeCatalogTest, DryRunNode_", result.stdout)
             self.assertIn(f"--- {cmake_file} registration ---", result.stdout)
@@ -387,6 +387,55 @@ class ScaffoldCustomNodeTest(unittest.TestCase):
             self.assertEqual(first.read_text(), "first user edit")
             self.assertEqual(second.read_text(), "second user edit")
 
+    def test_advanced_model_templates_forward_failure_diagnostics(self):
+        for kind in ("model", "unary_inference"):
+            for capability in ("llm", "embedding", "asr", "ocr", "rerank"):
+                if kind == "unary_inference" and capability == "ocr":
+                    continue
+                with self.subTest(kind=kind, capability=capability):
+                    result = self.run_cli("DiagnosticNode", "--authoring", "advanced",
+                                          "--kind", kind, "-m", capability, "--dry-run")
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    if kind == "unary_inference":
+                        self.assertIn("std::string* diagnostic) override", result.stdout)
+                        self.assertIn("output, diagnostic)", result.stdout)
+                    elif capability == "llm":
+                        self.assertIn("&outputs, &diagnostic)", result.stdout)
+                        self.assertIn('diagnostic.empty() ? "" : ": " + diagnostic', result.stdout)
+                    else:
+                        self.assertIn("output, diagnostic)", result.stdout)
+                        self.assertIn('reason.empty() ? "" : ": " + reason', result.stdout)
+
+    def test_auto_selects_supported_templates_and_keeps_advanced_fallback(self):
+        cases = [([], "MakeMapSpec"),
+                 (["--kind", "model", "-m", "llm"], "MakeLlmTextSpec"),
+                 (["--kind", "model", "-m", "embedding"], "MakeBatchSpec"),
+                 (["--control-id", "1005"], "ControlChangesOutputAndPreservesOnFailure"),
+                 (["--out-port", "output:Int32Batch"], "class SelectedNode final"),
+                 (["--kind", "model", "-m", "asr"], "ModelBoundNode<IAsrModel>"),
+                 (["--authoring", "advanced"], "class SelectedNode final")]
+        for options, expected in cases:
+            with self.subTest(options=options):
+                result = self.run_cli("SelectedNode", *options, "--dry-run", "--write-test")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn(expected, result.stdout)
+
+    def test_basic_embedding_and_control_use_existing_function_contracts(self):
+        result = self.run_cli("EncoderNode", "--authoring", "basic", "--kind", "model",
+                              "-m", "embedding", "--in-port", "texts:TextBatch",
+                              "--out-port", "vectors:EmbeddingBatch", "--dry-run", "--write-test")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for expected in ['Required("texts", &Inputs::texts)',
+                         'PreservedOutput<EmbeddingBatch>("vectors", "texts")',
+                         'Embedding("encoder", "bind_model", &Models::encoder)',
+                         'models.encoder.Embed(*input.texts)',
+                         'EncoderNode_ControlledExecutionAndModelFailure']:
+            self.assertIn(expected, result.stdout)
+        result = self.run_cli("PrefixNode", "--authoring", "basic", "--control-id", "1005",
+                              "--dry-run", "--write-test")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("ControlChangesOutputAndPreservesOnFailure", result.stdout)
+
     def test_authoring_basic_generates_function_nodes_and_rejects_unsupported(self):
         result = self.run_cli("BasicMapNode", "--authoring", "basic", "--dry-run")
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -404,8 +453,6 @@ class ScaffoldCustomNodeTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             for bad_args in [
                 ["--authoring", "basic", "--kind", "unary_inference", "-m", "llm"],
-                ["--authoring", "basic", "--kind", "model", "-m", "embedding"],
-                ["--authoring", "basic", "--control-id", "1005"],
                 ["--authoring", "basic", "--in-port", "input:TextBatch:1:N:generate_sub_id"],
             ]:
                 res = self.run_cli("RejectedBasicNode", "--output-dir", temp, *bad_args)

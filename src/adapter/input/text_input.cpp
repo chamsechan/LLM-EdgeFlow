@@ -4,6 +4,7 @@
 
 #include "adapter/adapter_status.h"
 #include "adapter/adapter_validation_helper.h"
+#include "adapter/biz_blackboard_keys.h"
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter.h"
 #include "contracts/inference_payloads.h"
@@ -58,10 +59,10 @@ int DecodeOperatorEntityInput(const ExternalInputBatchView& source,
   }
 
   if (!AdapterValidationHelper::PublishContextValue(
-          *context, bindings.GetActualKey("raw_request_ids"),
+          *context, bindings.Key<std::vector<uint64_t>>("raw_request_ids"),
           std::move(req_ids), options.converter_id.c_str(), status) ||
       !AdapterValidationHelper::PublishContextValue(
-          *context, bindings.GetActualKey("input_sentences"),
+          *context, bindings.Key<TextBatch>("input_sentences"),
           std::move(sentences), options.converter_id.c_str(), status)) {
     return COMPANY_ALG_ERR_INVALID_INPUT;
   }
@@ -114,10 +115,10 @@ int DecodeOperatorKeywordInput(const ExternalInputBatchView& source,
   }
 
   if (!AdapterValidationHelper::PublishContextValue(
-          *context, bindings.GetActualKey("raw_request_ids"),
+          *context, bindings.Key<std::vector<uint64_t>>("raw_request_ids"),
           std::move(req_ids), options.converter_id.c_str(), status) ||
       !AdapterValidationHelper::PublishContextValue(
-          *context, bindings.GetActualKey("input_sentences"),
+          *context, bindings.Key<TextBatch>("input_sentences"),
           std::move(sentences), options.converter_id.c_str(), status)) {
     return COMPANY_ALG_ERR_INVALID_INPUT;
   }
@@ -142,9 +143,7 @@ InputConverterDefinition MakeOperatorEntityInputConverter() {
                          "entity_in",
                          {},
                          ""}};
-  def.logical_ports = {
-      NodePortDefinition("raw_request_ids", "vector<uint64>", true, "1:1"),
-      NodePortDefinition("input_sentences", "TextBatch", true, "1:1")};
+  def.logical_ports = {OutputPort(kRawRequestIds), OutputPort(kInputSentences)};
   def.decode_fn = &DecodeOperatorEntityInput;
   return def;
 }
@@ -166,9 +165,7 @@ InputConverterDefinition MakeOperatorKeywordInputConverter() {
                          "keyword_in",
                          {},
                          ""}};
-  def.logical_ports = {
-      NodePortDefinition("raw_request_ids", "vector<uint64>", true, "1:1"),
-      NodePortDefinition("input_sentences", "TextBatch", true, "1:1")};
+  def.logical_ports = {OutputPort(kRawRequestIds), OutputPort(kInputSentences)};
   def.decode_fn = &DecodeOperatorKeywordInput;
   return def;
 }

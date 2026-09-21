@@ -8,8 +8,10 @@ handle 的配置中选择不同的嵌套 `void*` 布局；配置在 Create 固�
 ## 开发者需要实现什么
 
 复用已有外层结构和布局时，只编写业务转换，选择已注册的方案即可。接入新结构时，
-定义自己的普通参数结构（包括布局枚举），提供参数解析、单份结构的分配/重置与
-载荷预算，再注册实现。`OwnedExternalBlock` 负责已登记内存的自动释放与失败回滚。
+先判断是否只是标准 `CompanyString*` 字段和可选 `CompanyAny*`：这类结构使用
+`MakePooledOutputBinding<T>` 声明成员与容量即可。其他嵌套布局提供自己的普通参数结构
+（包括布局枚举）、解析、单份分配/重置与载荷预算，再注册实现。
+`OwnedExternalBlock` 负责已登记内存的自动释放与失败回滚。
 参数类不需要继承框架基类，也不需要实现 `ToJson()`。
 
 配置文件读取由最外层 `OperatorConfigResolver` 负责，配置提取使用独立的接入组件
@@ -90,7 +92,23 @@ JSON 读取器将选中值通过 `dump()` 转为拥有自身存储的 `std::stri
 登记无参注册函数，并把源码加入接入层构建目标。不需要包含私有 registry 或 pool 头，
 也不需要在中央分发表增加业务判断。
 
-每个输出方案提供以下行为：
+常见输出不需要手写以下生命周期回调。例如，假设接入的 DTO `SummaryOutput` 包含
+`CompanyString* summary` 和标量 `status` 时：
+
+```cpp
+auto binding = MakePooledOutputBinding<SummaryOutput>(
+    "summary", "SummaryOutput",
+    {{"summary", &SummaryOutput::summary, {4096, 65536}}},
+    [](SummaryOutput& value) noexcept { value.status = 0; });
+RegisterOperatorValueType(binding);
+```
+
+容量结构的顺序是默认值、最大值。成员声明同时用于配置校验、预算、分配和
+重置；标量回调必须 `noexcept`，只重置标量，不能覆盖嵌套指针。输入对应使用
+`MakeTypedInputBinding<T>`，回调直接接收 `const T&` 和 `ResolvedInputLimits`。
+完整可执行示例见[输出池测试](../../tests/unit/operator/test_operator_output_pool.cpp)。
+
+特殊嵌套布局的输出方案提供以下行为：
 
 1. `normalize_parameters`：通过 `MakeOutputParameterParser<YourParameters>(parse)`
    注册字符串解析函数。`parse` 的签名是
@@ -133,9 +151,9 @@ binding.normalize_parameters =
 
 ## 转换与有效期
 
-在 `OperatorBizSlot::convert_output` 注册该槽位的业务结果转换函数。所有输出槽位
-均通过槽位级 `convert_output` 提供转换，旧顶层 `convert_sample_output` 已被移除。
-回调接收内部结果、已分配的外层结构和对应的 `ResolvedOutputPoolSpec`，按同一份
+通过 `REGISTER_OUTPUT_CONVERTER` 注册 `OutputConverter` 函数回调和 Definition，
+再由 `IoBindingDefinition` 绑定转换器与命名输出槽位。回调从 `ExternalOutputBatchView`
+按槽位读取已分配的外层结构与 `ResolvedOutputPoolSpec`，按同一份
 `allocator` 和类型化参数填充载荷。转换必须保持指针与已分配布局一致，不重新读取
 部署文件、不另设默认容量，也不把请求局部指针塞进输出结构。
 

@@ -3,7 +3,9 @@
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter.h"
 #include "adapter/io_converter_registry.h"
+#include "adapter/operator/operator_process_binding.h"
 #include "contracts/inference_payloads.h"
+#include "tests/support/adapter_harness.h"
 #include "tests/support/adapter_test_views.h"
 
 namespace llm_edgeflow {
@@ -311,6 +313,139 @@ TEST(IoConverterTest,
   EXPECT_EQ(found_in->external_slots[1].slot_name, "slot_second");
   EXPECT_EQ(found_in->external_slots[0].type_suffix, "int_suffix");
   EXPECT_EQ(found_in->external_slots[1].type_suffix, "int_suffix");
+}
+
+TEST(IoConverterTest, OptionalInputSlotsPreserveEveryFramePosition) {
+  InputConverterDefinition converter;
+  converter.external_slots = {{"required",
+                               "CompanyOperatorEntityInput",
+                               PortDirection::kInput,
+                               true,
+                               "CompanyOperatorEntityInput",
+                               "entity_in",
+                               {},
+                               "required"},
+                              {"optional",
+                               "CompanyOperatorEntityInput",
+                               PortDirection::kInput,
+                               false,
+                               "CompanyOperatorEntityInput",
+                               "entity_in",
+                               {},
+                               "optional"}};
+  char text[] = "hello";
+  CompanyString sentence{5, text};
+  operator_api::NamedIoBatch inputs(5);
+  std::vector<std::shared_ptr<CompanyOperatorEntityInput>> payloads;
+  for (size_t i = 0; i < inputs.size(); ++i) {
+    auto payload = std::make_shared<CompanyOperatorEntityInput>();
+    payload->request_id = 100 + i;
+    payload->sentence_text = &sentence;
+    inputs[i]["test.required"] = payload;
+    if (i % 2 == 1) inputs[i]["test.optional"] = payload;
+    payloads.push_back(std::move(payload));
+  }
+  ExternalInputBatchView view;
+  std::string error;
+  ASSERT_EQ(
+      ValidateAndExtractOperatorInputs(inputs, converter, {}, &view, &error), 0)
+      << error;
+  ASSERT_EQ(view.count, 5U);
+  ASSERT_EQ(view.slots.at("optional").size(), 5U);
+  for (size_t i = 0; i < inputs.size(); ++i) {
+    EXPECT_EQ(view.GetSlot<CompanyOperatorEntityInput>("required", i),
+              payloads[i].get());
+    const auto* optional =
+        view.GetSlot<CompanyOperatorEntityInput>("optional", i);
+    EXPECT_EQ(optional, i % 2 == 1 ? payloads[i].get() : nullptr);
+    if (i % 2 == 1) {
+      ASSERT_NE(optional, nullptr);
+      EXPECT_EQ(optional->request_id, 100 + i);
+    }
+  }
+  inputs[2].erase("test.required");
+  EXPECT_EQ(
+      ValidateAndExtractOperatorInputs(inputs, converter, {}, &view, &error),
+      -3);
+  EXPECT_NE(error.find("Missing required input slot"), std::string::npos);
+  EXPECT_NE(error.find("frame 2"), std::string::npos);
+}
+
+TEST(IoConverterTest, HarnessPreservesNamedSlotsTypesAndPoolCapacities) {
+  InputConverterDefinition input;
+  input.decode_fn = [](const ExternalInputBatchView& view,
+                       const InputDecodeOptions&, const InputPortBindings&,
+                       AlgContext* context, AdapterStatus*) -> int {
+    const auto* a = view.GetSlot<ReproA>("left", 0);
+    const auto* b = view.GetSlot<ReproB>("right", 0);
+    if (!a || !b || view.GetSlot<ReproB>("left", 0)) return -3;
+    return context->Publish("sum", a->a + static_cast<int>(b->b)) ? 0 : -3;
+  };
+  OutputConverterDefinition output;
+  output.encode_fn = [](AlgContext* context, const OutputPortBindings&,
+                        const OutputEncodeOptions&,
+                        ExternalOutputBatchView* view, size_t* written,
+                        AdapterStatus*) -> int {
+    auto* a = view->GetSlot<ReproA>("left", 0);
+    auto* b = view->GetSlot<ReproB>("right", 0);
+    const auto* sum = context->Read<int>("sum");
+    if (!a || !b || !sum || view->GetSlot<ReproA>("right", 0)) return -3;
+    if (view->GetSlotCapacity("right", "items") < 2) return -4;
+    a->a = *sum;
+    b->b = *sum;
+    *written = 1;
+    return 0;
+  };
+  test::AdapterHarness harness(&input, &output);
+  ReproA a;
+  ReproB b;
+  ExternalInputBatchView source;
+  source.count = 1;
+  source.slots["left"] = BorrowInputForTest({&a});
+  source.slots["right"] = BorrowInputForTest({&b});
+  source.slot_types = {{"left", "ReproA"}, {"right", "ReproB"}};
+  ASSERT_EQ(harness.DecodeOperator(source), 0);
+  TestOutputBatchView destination;
+  destination.count = 1;
+  destination.leased_slots = {{"left", {&a}}, {"right", {&b}}};
+  destination.slot_types = source.slot_types;
+  destination.SetCapacity("right", "items", 1);
+  size_t written = 0;
+  EXPECT_EQ(harness.EncodeOperator(&destination, &written), -4);
+  EXPECT_EQ(written, 0U);
+  destination.SetCapacity("right", "items", 2);
+  EXPECT_EQ(harness.EncodeOperator(&destination, &written), 0);
+  EXPECT_EQ(written, 1U);
+  EXPECT_EQ(a.a, 49);
+  EXPECT_EQ(b.b, 49U);
+}
+
+TEST(IoConverterTest, HarnessSingleSlotUsesDeclaredSlotType) {
+  InputConverterDefinition input;
+  input.external_type = "aggregate.input";
+  input.external_slots = {{"value", "ReproA"}};
+  input.decode_fn = [](const ExternalInputBatchView& view,
+                       const InputDecodeOptions&, const InputPortBindings&,
+                       AlgContext*, AdapterStatus*) -> int {
+    return view.GetSlot<ReproA>("value", 0) ? 0 : -3;
+  };
+  OutputConverterDefinition output;
+  output.external_type = "aggregate.output";
+  output.external_slots = {{"value", "ReproB", PortDirection::kOutput}};
+  output.encode_fn = [](AlgContext*, const OutputPortBindings&,
+                        const OutputEncodeOptions&,
+                        ExternalOutputBatchView* view, size_t* written,
+                        AdapterStatus*) -> int {
+    if (!view->GetSlot<ReproB>("value", 0)) return -3;
+    *written = 1;
+    return 0;
+  };
+  test::AdapterHarness harness(&input, &output);
+  ReproA value;
+  EXPECT_EQ(harness.DecodeOperator(std::vector<const void*>{&value}), 0);
+  std::vector<ReproB> outputs(2);
+  EXPECT_EQ(harness.EncodeOperator(&outputs), 0);
+  EXPECT_EQ(outputs.size(), 1U);
 }
 
 }  // namespace llm_edgeflow

@@ -32,11 +32,11 @@ STARTER_CONTROL_TEMPLATE = find_template("dev_support/node_authoring/starter_con
 
 # Compile-time capability signatures; availability still comes from the Catalog.
 CAPABILITY_MAP = {
-    "llm": ("ILlmModel", "TextBatch", "TextBatch", "Generate(input, GenerateOptions{}, output)"),
-    "embedding": ("IEmbeddingModel", "TextBatch", "EmbeddingBatch", "Embed(input, EmbeddingOptions{}, output)"),
-    "asr": ("IAsrModel", "AudioPcmBatch", "TextBatch", "Transcribe(input, output)"),
-    "ocr": ("IOcrModel", "ImageRefBatch", "OcrDocumentBatch", "Recognize(input, output)"),
-    "rerank": ("IRerankModel", "QueryCandidatesBatch", "ScoreBatch", "Score(input, output)"),
+    "llm": ("ILlmModel", "TextBatch", "TextBatch", "Generate(input, GenerateOptions{}, output, diagnostic)"),
+    "embedding": ("IEmbeddingModel", "TextBatch", "EmbeddingBatch", "Embed(input, EmbeddingOptions{}, output, diagnostic)"),
+    "asr": ("IAsrModel", "AudioPcmBatch", "TextBatch", "Transcribe(input, output, diagnostic)"),
+    "ocr": ("IOcrModel", "ImageRefBatch", "OcrDocumentBatch", "Recognize(input, output, diagnostic)"),
+    "rerank": ("IRerankModel", "QueryCandidatesBatch", "ScoreBatch", "Score(input, output, diagnostic)"),
 }
 
 
@@ -134,10 +134,58 @@ def render_basic_llm_starter(name, description, in_name, out_name):
                   lambda match: literals[match.group()], source)
 
 
-def render_node(name, description, kind, capability, in_port, out_port, control_id=None, authoring="advanced"):
-    if authoring == "basic":
-        if control_id is not None:
-            raise ValueError("--authoring basic does not support Control; use --authoring advanced")
+def resolve_authoring(authoring, kind, capability, in_port, out_port):
+    if authoring != "auto":
+        return authoring
+    preserved = (in_port[2:], out_port[2:]) == (("1:1", "preserve"), ("1:1", "preserve"))
+    pair = (in_port[1], out_port[1])
+    supported = (kind == "compute" and pair == ("TextBatch", "TextBatch")) or (
+        kind == "model" and capability in ("llm", "embedding")
+        and pair == CAPABILITY_MAP[capability][1:3])
+    return "basic" if preserved and supported else "advanced"
+
+
+def render_basic_embedding_node(name, description, in_name, out_name):
+    return f"""#include "nodes/authoring.h"
+
+namespace llm_edgeflow {{
+namespace custom_nodes {{
+namespace {{
+
+struct Inputs {{
+  const TextBatch* texts = nullptr;
+}};
+
+struct Models {{
+  EmbeddingCall encoder;
+}};
+
+static NodeResult<EmbeddingBatch> Run(const Inputs& input, const NoParameters&,
+                                      const Models& models) {{
+  // TODO: Add domain preprocessing or postprocessing as needed.
+  return models.encoder.Embed(*input.texts);
+}}
+
+auto {name}Spec() {{
+  return MakeBatchSpec(
+      InputsOf<Inputs>({{Required({cpp_string(in_name)}, &Inputs::texts)}}),
+      PreservedOutput<EmbeddingBatch>({cpp_string(out_name)}, {cpp_string(in_name)}),
+      ModelsOf<Models>({{Embedding("encoder", "bind_model", &Models::encoder)}}),
+      &Run)
+      .Description({cpp_string(description)});
+}}
+
+REGISTER_FUNCTION_NODE({name}, {name}Spec());
+
+}}  // namespace
+}}  // namespace custom_nodes
+}}  // namespace llm_edgeflow
+"""
+
+
+def render_node(name, description, kind, capability, in_port, out_port, control_id=None, authoring="auto"):
+    authoring = resolve_authoring(authoring, kind, capability, in_port, out_port)
+    if authoring == "basic" and control_id is None:
         in_name, in_type, in_card, in_prov = in_port
         out_name, out_type, out_card, out_prov = out_port
         if kind == "compute":
@@ -150,6 +198,10 @@ def render_node(name, description, kind, capability, in_port, out_port, control_
             if (in_type, out_type) != ("TextBatch", "TextBatch") or (in_card, in_prov, out_card, out_prov) != ("1:1", "preserve", "1:1", "preserve"):
                 raise ValueError("--authoring basic for LLM requires TextBatch 1:1 preserve ports; use --authoring advanced for other batch types")
             return render_basic_llm_starter(name, description, in_name, out_name)
+        elif kind == "model" and capability == "embedding":
+            if (in_type, out_type) != ("TextBatch", "EmbeddingBatch") or (in_card, in_prov, out_card, out_prov) != ("1:1", "preserve", "1:1", "preserve"):
+                raise ValueError("--authoring basic for Embedding requires TextBatch -> EmbeddingBatch 1:1 preserve ports; use --authoring advanced for other contracts")
+            return render_basic_embedding_node(name, description, in_name, out_name)
         else:
             target = f"model ({capability})" if kind == "model" else kind
             raise ValueError(f"--authoring basic does not support {target}; use --authoring advanced")
@@ -189,7 +241,8 @@ def render_node(name, description, kind, capability, in_port, out_port, control_
         implementation = f"""  {name}() : Base(kNodeType, {cpp_string(in_name)}, {cpp_string(out_name)}, -8101, -8103, -8103) {{}}
 
  protected:
-  int InferBatch(const InputBatch& input, OutputBatch* output) override {{
+  int InferBatch(const InputBatch& input, OutputBatch* output,
+                 std::string* diagnostic) override {{
     // TODO: Customize request-local preprocessing / postprocessing as needed.
     return model()->{signature[3]};
   }}
@@ -211,9 +264,14 @@ def render_node(name, description, kind, capability, in_port, out_port, control_
 '''
         else:
             processing = f"""    auto* output = &outputs;
+    std::string reason;
+    auto* diagnostic = &reason;
     // TODO: Build model inputs locally, then postprocess verified outputs.
     const int ret = model()->{signature[3]};
-    if (ret != 0) return Fail(ctx, ret, Name() + ": model inference failed");
+    if (ret != 0) {{
+      return Fail(ctx, ret, Name() + ": model inference failed" +
+                               (reason.empty() ? "" : ": " + reason));
+    }}
     if (!ValidatePreservedTraceableAlignment(input, outputs).IsAligned()) {{
       return Fail(ctx, -8103, Name() + ": output count or provenance mismatch");
     }}
@@ -308,15 +366,16 @@ REGISTER_NODE_WITH_DEFINITION({name}, Make{name}Definition());
 """
 
 
-def render_model_node(name, description, capability, in_port, out_port, authoring="advanced"):
+def render_model_node(name, description, capability, in_port, out_port, authoring="auto"):
     return render_node(name, description, "model", capability, in_port, out_port, authoring=authoring)
 
 
-def render_standalone_test(name, description, kind, capability, in_port, out_port, control_id=None, authoring="advanced"):
+def render_standalone_test(name, description, kind, capability, in_port, out_port, control_id=None, authoring="auto"):
     in_name, in_type, in_card, in_prov = in_port
     out_name, out_type, out_card, out_prov = out_port
 
-    if authoring == "basic":
+    authoring = resolve_authoring(authoring, kind, capability, in_port, out_port)
+    if authoring == "basic" and control_id is None and capability != "embedding":
         if kind == "compute":
             return f"""#include <gtest/gtest.h>
 #include <string>
@@ -716,6 +775,8 @@ TEST(CustomNodeCatalogTest, {name}_UnimplementedDomainLogicFailsCleanly) {{
 """
 
     # Model / Unary Inference
+    count_error = "node_error::author_node::kOutputCountMismatch" if authoring == "basic" else "-8103"
+    provenance_error = "node_error::author_node::kOutputProvenanceMismatch" if authoring == "basic" else "-8103"
     mock_class = {
         "llm": "ControlledMockLlmModel",
         "embedding": "ControlledMockEmbeddingModel",
@@ -765,6 +826,7 @@ TEST(CustomNodeCatalogTest, {name}_UnimplementedDomainLogicFailsCleanly) {{
 #include "core/session_context.h"
 #include "core/validated_node_plan.h"
 #include "tests/support/node_test_utils.h"
+#include "nodes/node_error_codes.h"
 
 namespace llm_edgeflow {{
 
@@ -841,7 +903,7 @@ TEST(CustomNodeCatalogTest, {name}_ControlledExecutionAndModelFailure) {{
     mock_model->fail_ = false;
   }}
 
-  // 4. Output count mismatch fails with -8103
+  // 4. Output count mismatch fails without publishing
   {{
     mock_model->return_wrong_count_ = true;
     AlgContext ctx;
@@ -849,19 +911,19 @@ TEST(CustomNodeCatalogTest, {name}_ControlledExecutionAndModelFailure) {{
     input.emplace_back(101, 1, {sample_in_1});
     input.emplace_back(101, 2, {sample_in_2});
     ctx.Publish({cpp_string(in_name)}, std::move(input));
-    EXPECT_EQ(node->Process(&ctx), -8103);
+    EXPECT_EQ(node->Process(&ctx), {count_error});
     EXPECT_FALSE(ctx.Has({cpp_string(out_name)}));
     mock_model->return_wrong_count_ = false;
   }}
 
-  // 5. Corrupted provenance fails with -8103
+  // 5. Corrupted provenance fails without publishing
   {{
     mock_model->corrupt_provenance_ = true;
     AlgContext ctx;
     {in_type} input;
     input.emplace_back(101, 1, {sample_in_1});
     ctx.Publish({cpp_string(in_name)}, std::move(input));
-    EXPECT_EQ(node->Process(&ctx), -8103);
+    EXPECT_EQ(node->Process(&ctx), {provenance_error});
     EXPECT_FALSE(ctx.Has({cpp_string(out_name)}));
     mock_model->corrupt_provenance_ = false;
   }}
@@ -1074,8 +1136,8 @@ def main():
     parser.add_argument("--add-to-cmake", action="store_true")
     parser.add_argument("--write-test", action="store_true", help="Write a standalone test file in tests/unit/nodes/test_<snake_name>.cpp")
     parser.add_argument("--control-id", type=int, help="Generate the text-prefix Control starter using an unused custom command ID (>=1000)")
-    parser.add_argument("--authoring", choices=["basic", "advanced"], default="advanced",
-                        help="Authoring style: basic (function-oriented) or advanced (lifecycle/class)")
+    parser.add_argument("--authoring", choices=["auto", "basic", "advanced"], default="auto",
+                        help="Authoring style: auto selects function-oriented templates where supported; basic requires them; advanced uses lifecycle/class templates")
     parser.add_argument("--self-test", action="store_true", help="Run the generator's Python tests")
     args = parser.parse_args()
     root = Path(os.environ.get("LLM_EDGEFLOW_REPO_ROOT", Path(__file__).resolve().parent.parent))

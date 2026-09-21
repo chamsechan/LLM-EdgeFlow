@@ -58,7 +58,9 @@ class ControlledMockLlmModel final : public ILlmModel {
   }
 
   int Generate(const TextBatch& prompts, const GenerateOptions&,
-               TextBatch* outputs) noexcept override {
+               TextBatch* outputs,
+               std::string* diagnostic = nullptr) noexcept override {
+    if (diagnostic) diagnostic->clear();
     if (fail_) {
       if (outputs) outputs->clear();
       return -8901;
@@ -98,7 +100,9 @@ class ControlledMockEmbeddingModel final : public IEmbeddingModel {
   }
 
   int Embed(const TextBatch& inputs, const EmbeddingOptions&,
-            EmbeddingBatch* outputs) noexcept override {
+            EmbeddingBatch* outputs,
+            std::string* diagnostic = nullptr) noexcept override {
+    if (diagnostic) diagnostic->clear();
     if (fail_) {
       if (outputs) outputs->clear();
       return -8901;
@@ -137,8 +141,9 @@ class ControlledMockRerankModel final : public IRerankModel {
     return InferenceConcurrency::kConcurrent;
   }
 
-  int Score(const QueryCandidatesBatch& inputs,
-            ScoreBatch* outputs) noexcept override {
+  int Score(const QueryCandidatesBatch& inputs, ScoreBatch* outputs,
+            std::string* diagnostic = nullptr) noexcept override {
+    if (diagnostic) diagnostic->clear();
     if (fail_) {
       if (outputs) outputs->clear();
       return -8901;
@@ -176,8 +181,9 @@ class ControlledMockOcrModel final : public IOcrModel {
     return InferenceConcurrency::kConcurrent;
   }
 
-  int Recognize(const ImageRefBatch& images,
-                OcrDocumentBatch* outputs) noexcept override {
+  int Recognize(const ImageRefBatch& images, OcrDocumentBatch* outputs,
+                std::string* diagnostic = nullptr) noexcept override {
+    if (diagnostic) diagnostic->clear();
     if (fail_) {
       if (outputs) outputs->clear();
       return -8901;
@@ -218,8 +224,9 @@ class ControlledMockAsrModel final : public IAsrModel {
     return InferenceConcurrency::kConcurrent;
   }
 
-  int Transcribe(const AudioPcmBatch& audio,
-                 TextBatch* outputs) noexcept override {
+  int Transcribe(const AudioPcmBatch& audio, TextBatch* outputs,
+                 std::string* diagnostic = nullptr) noexcept override {
+    if (diagnostic) diagnostic->clear();
     if (fail_) {
       if (outputs) outputs->clear();
       return -8901;

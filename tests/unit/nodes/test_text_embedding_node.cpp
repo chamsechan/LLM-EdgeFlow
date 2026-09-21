@@ -1,6 +1,8 @@
 #include <gtest/gtest.h>
 
 #include <atomic>
+#include <chrono>
+#include <future>
 #include <memory>
 #include <nlohmann/json.hpp>
 #include <string>
@@ -33,9 +35,16 @@ class CountingEmbeddingModel final : public IEmbeddingModel {
   }
 
   int Embed(const TextBatch& input_texts, const EmbeddingOptions&,
-            EmbeddingBatch* output_embeddings) noexcept override {
+            EmbeddingBatch* output_embeddings,
+            std::string* diagnostic = nullptr) noexcept override {
+    if (diagnostic) diagnostic->clear();
     infer_calls++;
     output_embeddings->clear();
+    if (fail_inference) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(50));
+      if (diagnostic) *diagnostic = "embedding backend unavailable";
+      return -731;
+    }
     for (const auto& in : input_texts) {
       output_embeddings->emplace_back(
           in.req_id, in.sub_id,
@@ -50,6 +59,7 @@ class CountingEmbeddingModel final : public IEmbeddingModel {
     return 0;
   }
 
+  bool fail_inference = false;
   bool return_wrong_count = false;
   bool corrupt_provenance = false;
 };
@@ -222,6 +232,70 @@ TEST_F(TextEmbeddingNodeTest, InvalidSessionOutputIsNotCached) {
   EXPECT_EQ(node->Process(&retry_ctx), 0);
   EXPECT_NE(retry_ctx.Read<EmbeddingBatch>("embedding"), nullptr);
   EXPECT_EQ(counting_model_->infer_calls.load(), 2);
+}
+
+TEST_F(TextEmbeddingNodeTest,
+       ConcurrentModelFailuresReachEveryRequestAndRetry) {
+  for (const char* lifetime : {"request", "session"}) {
+    SCOPED_TRACE(lifetime);
+    auto node = NodeRegistry::Instance().Create("TextEmbeddingNode");
+    ASSERT_NE(node, nullptr);
+    ASSERT_TRUE(InitNodeForTest(
+        *node, {{"bind_model", "embed_model_v1"}, {"lifetime", lifetime}},
+        session_ctx_.get()));
+    counting_model_->fail_inference = true;
+    const int calls_before = counting_model_->infer_calls.load();
+    std::promise<void> start;
+    const auto ready = start.get_future().share();
+    struct Result {
+      int code;
+      int context_code;
+      std::string message;
+      bool has_output;
+    };
+    std::vector<std::future<Result>> workers;
+    for (int i = 0; i < 8; ++i) {
+      workers.push_back(std::async(std::launch::async, [&] {
+        if (ready.wait_for(std::chrono::seconds(5)) !=
+            std::future_status::ready)
+          return Result{-1, -1, "start timeout", false};
+        AlgContext context;
+        context.Publish("text", TextBatch{{9, 0, "same session corpus"}});
+        const int code = node->Process(&context);
+        return Result{code, context.GetErrorCode(), context.GetErrorMessage(),
+                      context.Read<EmbeddingBatch>("embedding") != nullptr};
+      }));
+    }
+    start.set_value();
+    for (auto& worker : workers) {
+      ASSERT_EQ(worker.wait_for(std::chrono::seconds(5)),
+                std::future_status::ready);
+      const auto result = worker.get();
+      EXPECT_EQ(result.code, -731);
+      EXPECT_EQ(result.context_code, -731);
+      EXPECT_NE(result.message.find("embedding backend unavailable"),
+                std::string::npos);
+      EXPECT_FALSE(result.has_output);
+    }
+    if (std::string(lifetime) == "session") {
+      EXPECT_LT(counting_model_->infer_calls.load() - calls_before, 8);
+    }
+    // All workers have joined before changing model behavior.
+    counting_model_->fail_inference = false;
+    const int calls_before_retry = counting_model_->infer_calls.load();
+    AlgContext retry;
+    retry.Publish("text", TextBatch{{9, 0, "same session corpus"}});
+    ASSERT_EQ(node->Process(&retry), 0);
+    EXPECT_NE(retry.Read<EmbeddingBatch>("embedding"), nullptr);
+    EXPECT_EQ(counting_model_->infer_calls.load(), calls_before_retry + 1);
+    if (std::string(lifetime) == "session") {
+      AlgContext cached;
+      cached.Publish("text", TextBatch{{9, 0, "same session corpus"}});
+      ASSERT_EQ(node->Process(&cached), 0);
+      EXPECT_NE(cached.Read<EmbeddingBatch>("embedding"), nullptr);
+      EXPECT_EQ(counting_model_->infer_calls.load(), calls_before_retry + 1);
+    }
+  }
 }
 
 // 4. Session Cache Collision Reproduction Defeated (C01)

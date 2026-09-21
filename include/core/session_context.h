@@ -2,6 +2,7 @@
 
 #include <any>
 #include <cstdint>
+#include <exception>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -264,21 +265,31 @@ class SessionContext {
     std::lock_guard<std::mutex> key_lock(flight->mtx);
     if (flight->done) {
       RequireResourceType<T>(key.Name(), flight->type);
+      if (flight->failure) std::rethrow_exception(flight->failure);
       return std::static_pointer_cast<T>(flight->result);
     }
 
-    auto created = factory();
+    std::shared_ptr<T> created;
+    try {
+      created = factory();
+      if (created) {
+        std::lock_guard<std::mutex> lock(resource_mutex_);
+        resources_.insert_or_assign(
+            key.Name(), ResourceEntry{created, std::type_index(typeid(T))});
+      }
+    } catch (...) {
+      // Share this attempt's failure with its waiters without caching it.
+      flight->failure = std::current_exception();
+      created.reset();
+    }
     flight->result = created;
     flight->done = true;
 
     {
       std::lock_guard<std::mutex> lock(resource_mutex_);
-      if (created) {
-        resources_.insert_or_assign(
-            key.Name(), ResourceEntry{created, std::type_index(typeid(T))});
-      }
       flights_.erase(key.Name());
     }
+    if (flight->failure) std::rethrow_exception(flight->failure);
     return created;
   }
 
@@ -294,6 +305,7 @@ class SessionContext {
 
     std::mutex mtx;
     std::shared_ptr<void> result;
+    std::exception_ptr failure;
     std::type_index type;
     bool done = false;
   };

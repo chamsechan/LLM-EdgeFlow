@@ -4,6 +4,7 @@
 
 #include "adapter/adapter_status.h"
 #include "adapter/adapter_validation_helper.h"
+#include "adapter/biz_blackboard_keys.h"
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter.h"
 #include "contracts/inference_payloads.h"
@@ -94,17 +95,17 @@ int DecodeOperatorRerankInput(const ExternalInputBatchView& source,
   }
 
   if (!AdapterValidationHelper::PublishContextValue(
-          *context, bindings.GetActualKey("raw_request_ids"),
+          *context, bindings.Key<std::vector<uint64_t>>("raw_request_ids"),
           std::move(raw_req_ids), options.converter_id.c_str(), status) ||
       !AdapterValidationHelper::PublishContextValue(
-          *context, bindings.GetActualKey("rerank_queries"), std::move(queries),
-          options.converter_id.c_str(), status) ||
+          *context, bindings.Key<TextBatch>("rerank_queries"),
+          std::move(queries), options.converter_id.c_str(), status) ||
       !AdapterValidationHelper::PublishContextValue(
-          *context, bindings.GetActualKey("rerank_candidates"),
+          *context, bindings.Key<RankedTextBatch>("rerank_candidates"),
           std::move(candidates), options.converter_id.c_str(), status) ||
       !AdapterValidationHelper::PublishContextValue(
-          *context, bindings.GetActualKey("rerank_pairs"), std::move(pairs),
-          options.converter_id.c_str(), status)) {
+          *context, bindings.Key<QueryCandidatesBatch>("rerank_pairs"),
+          std::move(pairs), options.converter_id.c_str(), status)) {
     return COMPANY_ALG_ERR_INVALID_INPUT;
   }
 
@@ -127,11 +128,9 @@ InputConverterDefinition MakeOperatorRerankInputConverter() {
                          "CompanyOperatorRerankInput",
                          "rerank_in",
                          {}}};
-  def.logical_ports = {
-      NodePortDefinition("raw_request_ids", "vector<uint64>", true, "1:1"),
-      NodePortDefinition("rerank_queries", "TextBatch", true, "1:1"),
-      NodePortDefinition("rerank_candidates", "RankedTextBatch", true, "N:1"),
-      NodePortDefinition("rerank_pairs", "QueryCandidatesBatch", true, "N:1")};
+  def.logical_ports = {OutputPort(kRawRequestIds), OutputPort(kRerankQueries),
+                       OutputPort(kRerankCandidates, "N:1"),
+                       OutputPort(kRerankPairs, "N:1")};
   def.decode_fn = &DecodeOperatorRerankInput;
   return def;
 }

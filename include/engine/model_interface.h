@@ -25,13 +25,18 @@ class IModel {
   virtual InferenceConcurrency Concurrency() const noexcept = 0;
 };
 
+// Capability calls clear the optional diagnostic on entry and return a reason
+// on failure. The caller owns it for this invocation; Models retain no mutable
+// last-error state. Integer return codes and output rollback remain unchanged.
+
 /**
  * @brief Embedding 向量化模型能力接口
  */
 class IEmbeddingModel : public IModel {
  public:
   virtual int Embed(const TextBatch& inputs, const EmbeddingOptions& options,
-                    EmbeddingBatch* outputs) noexcept = 0;
+                    EmbeddingBatch* outputs,
+                    std::string* diagnostic = nullptr) noexcept = 0;
 };
 
 /**
@@ -39,8 +44,8 @@ class IEmbeddingModel : public IModel {
  */
 class IRerankModel : public IModel {
  public:
-  virtual int Score(const QueryCandidatesBatch& inputs,
-                    ScoreBatch* outputs) noexcept = 0;
+  virtual int Score(const QueryCandidatesBatch& inputs, ScoreBatch* outputs,
+                    std::string* diagnostic = nullptr) noexcept = 0;
 };
 
 /**
@@ -49,7 +54,8 @@ class IRerankModel : public IModel {
 class ILlmModel : public IModel {
  public:
   virtual int Generate(const TextBatch& prompts, const GenerateOptions& options,
-                       TextBatch* outputs) noexcept = 0;
+                       TextBatch* outputs,
+                       std::string* diagnostic = nullptr) noexcept = 0;
 };
 
 /**
@@ -57,8 +63,8 @@ class ILlmModel : public IModel {
  */
 class IOcrModel : public IModel {
  public:
-  virtual int Recognize(const ImageRefBatch& images,
-                        OcrDocumentBatch* outputs) noexcept = 0;
+  virtual int Recognize(const ImageRefBatch& images, OcrDocumentBatch* outputs,
+                        std::string* diagnostic = nullptr) noexcept = 0;
 };
 
 /**
@@ -66,8 +72,8 @@ class IOcrModel : public IModel {
  */
 class IAsrModel : public IModel {
  public:
-  virtual int Transcribe(const AudioPcmBatch& audio,
-                         TextBatch* outputs) noexcept = 0;
+  virtual int Transcribe(const AudioPcmBatch& audio, TextBatch* outputs,
+                         std::string* diagnostic = nullptr) noexcept = 0;
 };
 
 }  // namespace llm_edgeflow

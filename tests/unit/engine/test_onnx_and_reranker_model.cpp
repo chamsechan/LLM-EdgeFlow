@@ -662,7 +662,9 @@ TEST_F(OnnxAndRerankerModelTest, ModelStrictTensorBoundaryFailures) {
 
   // 1. Session Run 失败
   fake_session->fail_run_ = true;
-  EXPECT_NE(model.Score(inputs, &outputs), 0);
+  std::string diagnostic = "stale error";
+  EXPECT_NE(model.Score(inputs, &outputs, &diagnostic), 0);
+  EXPECT_EQ(diagnostic, "Forced run failure");
   EXPECT_TRUE(outputs.empty());
 
   // 2. Dtype 错误
@@ -749,9 +751,20 @@ TEST_F(OnnxAndRerankerModelTest, ModelStrictTensorBoundaryFailures) {
   outputs = {{999, 999, 1.0f}};
   BgeRerankerModel small_batch_model(fake_session, tokenizer, 16, "logits",
                                      "sigmoid", 2);
-  EXPECT_NE(small_batch_model.Score(multi_inputs, &outputs), 0);
+  diagnostic = "stale error";
+  EXPECT_NE(small_batch_model.Score(multi_inputs, &outputs, &diagnostic), 0);
+  EXPECT_EQ(diagnostic, "Forced run failure");
   EXPECT_TRUE(outputs.empty());
   EXPECT_EQ(fake_session->run_count_, 2);
+
+  fake_session->ResetFaults();
+  EXPECT_EQ(model.Score(inputs, &outputs, &diagnostic), 0);
+  EXPECT_TRUE(diagnostic.empty());
+  ASSERT_EQ(outputs.size(), inputs.size());
+  diagnostic = "previous failure";
+  EXPECT_EQ(model.Score({}, &outputs, &diagnostic), 0);
+  EXPECT_TRUE(diagnostic.empty());
+  EXPECT_TRUE(outputs.empty());
 }
 
 TEST_F(OnnxAndRerankerModelTest, FixedAndDynamicBatchScheduling) {

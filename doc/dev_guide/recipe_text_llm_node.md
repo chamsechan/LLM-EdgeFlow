@@ -2,7 +2,7 @@
 
 `text-llm-node` 自动创建源码、真实测试文件、两处 CMake 登记、Pipeline、conf 和效果样例。
 开发者主要编辑 `BuildPrompt`、`FormatAnswer` 以及独立业务期望。当前 recipe 默认生成 basic
-函数式接口，也可显式选择 `--authoring advanced`；独立脚手架仍默认 advanced。
+函数式接口，也可显式选择 `--authoring advanced`；独立脚手架默认 auto，LLM 同样选择函数式接口。
 
 ## 创建
 

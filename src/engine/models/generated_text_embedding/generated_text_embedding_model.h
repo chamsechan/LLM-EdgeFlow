@@ -17,7 +17,8 @@ class GeneratedTextEmbeddingModel final : public IEmbeddingModel {
   const std::string& Capability() const noexcept override;
   InferenceConcurrency Concurrency() const noexcept override;
   int Embed(const TextBatch& inputs, const EmbeddingOptions& options,
-            EmbeddingBatch* outputs) noexcept override;
+            EmbeddingBatch* outputs,
+            std::string* diagnostic = nullptr) noexcept override;
 
  private:
   std::shared_ptr<IGeneratedTokenEmbeddingSession> session_;

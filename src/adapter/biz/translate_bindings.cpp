@@ -1,3 +1,4 @@
+#include "adapter/biz_blackboard_keys.h"
 #include "adapter/converter_authoring.h"
 #include "adapter/io_binding.h"
 #include "core/pipeline_catalog.h"
@@ -5,15 +6,17 @@
 namespace llm_edgeflow {
 namespace {
 
+constexpr const char* kBizName = "translate_v1";
+constexpr size_t kMaxBatchSize = 64;
+
 BizDefinition MakeTranslateBizDefinition() {
   BizDefinition def;
-  def.biz_name = "translate_v1";
+  def.biz_name = kBizName;
   def.demo_biz = "translate";
   def.display_name = "JSON 字符串翻译";
-  def.ingress = {
-      BizPortDefinition("raw_request_ids", "vector<uint64>", true, "1:1"),
-      BizPortDefinition("input_sentences", "TextBatch", true, "1:1")};
-  def.egress = {BizPortDefinition("llm_answers", "TextBatch", true, "1:1")};
+  def.ingress = {RequiredBizInput(kRawRequestIds),
+                 RequiredBizInput(kInputSentences)};
+  def.egress = {BizOutput(kLlmAnswers)};
   return def;
 }
 
@@ -27,8 +30,8 @@ const bool g_reg_translate_biz = []() {
 
 BizExposureDefinition MakeTranslateBizExposure() {
   BizExposureDefinition def;
-  def.biz_name = "translate_v1";
-  def.max_batch_size = 64;
+  def.biz_name = kBizName;
+  def.max_batch_size = kMaxBatchSize;
 
   return def;
 }
@@ -36,7 +39,7 @@ BizExposureDefinition MakeTranslateBizExposure() {
 IoBindingDefinition MakeTranslateOperatorBinding() {
   IoBindingDefinition def;
   def.binding_id = "translate.operator.v1";
-  def.biz_name = "translate_v1";
+  def.biz_name = kBizName;
 
   def.input_converter_id = "translate.json.operator.v1";
   def.output_converter_id = "translate.json.operator.v1";
@@ -44,7 +47,7 @@ IoBindingDefinition MakeTranslateOperatorBinding() {
                      {"input_sentences", "input_sentences"}};
   def.output_ports = {{"raw_request_ids", "raw_request_ids"},
                       {"llm_answers", "llm_answers"}};
-  def.max_batch_size = 64;
+  def.max_batch_size = kMaxBatchSize;
   return def;
 }
 
