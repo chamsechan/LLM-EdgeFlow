@@ -66,7 +66,7 @@ int main() {
   // 3. Operator table inspection
   auto op = llm_edgeflow::operator_api::Get_LLM_EDGEFLOW_OperatorTable();
   if (!op.Init || !op.Create || !op.Process || !op.Control || !op.Destroy ||
-      !op.Deinit) {
+      !op.DeInit) {
     std::fprintf(
         stderr,
         "[SDK Consumer Test] Operator function table has null entries\n");
@@ -206,9 +206,9 @@ int main() {
     return 15;
   }
 
-  // 12. Deinit
-  if (op.Deinit() != 0) {
-    std::fprintf(stderr, "[SDK Consumer Test] op.Deinit failed\n");
+  // 12. DeInit
+  if (op.DeInit() != 0) {
+    std::fprintf(stderr, "[SDK Consumer Test] op.DeInit failed\n");
     return 16;
   }
 

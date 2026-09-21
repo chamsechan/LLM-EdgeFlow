@@ -28,7 +28,7 @@ class OperatorSafetyTest : public ::testing::Test {
     Get_LLM_EDGEFLOW_OperatorTable().Init();
   }
   void TearDown() override {
-    Get_LLM_EDGEFLOW_OperatorTable().Deinit();
+    Get_LLM_EDGEFLOW_OperatorTable().DeInit();
     llm_edgeflow::IoBindingRegistry::Instance().ResetConflictForTesting();
     llm_edgeflow::IoConverterRegistry::Instance().ResetConflictForTesting();
   }

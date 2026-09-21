@@ -125,7 +125,7 @@ nlohmann::json ResolveConf(const std::string& file, const std::string& root,
   struct RegistryGuard {
     operator_api::OperatorFunc ops;
     ~RegistryGuard() {
-      if (ops.Deinit != nullptr) ops.Deinit();
+      if (ops.DeInit != nullptr) ops.DeInit();
     }
   } registry_guard{ops};
   ResolvedOperatorConfig resolved;
@@ -405,7 +405,7 @@ int main(int argc, char* argv[]) {
     struct OpsGuard {
       llm_edgeflow::operator_api::OperatorFunc ops;
       ~OpsGuard() {
-        if (ops.Deinit != nullptr) ops.Deinit();
+        if (ops.DeInit != nullptr) ops.DeInit();
       }
     } ops_guard{ops};
 
@@ -462,7 +462,7 @@ int main(int argc, char* argv[]) {
     struct OpsGuard {
       llm_edgeflow::operator_api::OperatorFunc ops;
       ~OpsGuard() {
-        if (ops.Deinit != nullptr) ops.Deinit();
+        if (ops.DeInit != nullptr) ops.DeInit();
       }
     } ops_guard{ops};
 
@@ -539,7 +539,7 @@ int main(int argc, char* argv[]) {
     struct OpsGuard {
       llm_edgeflow::operator_api::OperatorFunc ops;
       ~OpsGuard() {
-        if (ops.Deinit != nullptr) ops.Deinit();
+        if (ops.DeInit != nullptr) ops.DeInit();
       }
     } ops_guard{ops};
 
@@ -610,7 +610,7 @@ int main(int argc, char* argv[]) {
     struct OpsGuard {
       llm_edgeflow::operator_api::OperatorFunc ops;
       ~OpsGuard() {
-        if (ops.Deinit != nullptr) ops.Deinit();
+        if (ops.DeInit != nullptr) ops.DeInit();
       }
     } ops_guard{ops};
 

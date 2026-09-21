@@ -82,7 +82,7 @@ class BgeModelTestBase : public ::testing::Test {
   void TearDown() override {
     std::error_code error;
     std::filesystem::remove_all(temp_dir_, error);
-    operator_api::Get_LLM_EDGEFLOW_OperatorTable().Deinit();
+    operator_api::Get_LLM_EDGEFLOW_OperatorTable().DeInit();
   }
 
   std::filesystem::path temp_dir_;

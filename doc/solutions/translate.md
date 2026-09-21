@@ -38,7 +38,7 @@ outputs[0]["trans.entity_out"] = nullptr;
 int ret = op.Process(handle, inputs, outputs);
 /* ret == 0 时，outputs[0]["trans.entity_out"] 指向 CompanyOperatorEntityOutput，
    其 entities_json 是完整的 {"translated":"..."}。
-   复制需要的值，重置 outputs/租约后，调用 op.Destroy(handle)、op.Deinit()。 */
+   复制需要的值，重置 outputs/租约后，调用 op.Destroy(handle)、op.DeInit()。 */
 ```
 
 `input.sentence_text` 的实际内容是：

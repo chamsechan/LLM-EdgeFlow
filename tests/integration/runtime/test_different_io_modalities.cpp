@@ -32,7 +32,7 @@ class DifferentIoModalitiesTest : public ::testing::Test {
     operator_api::Get_LLM_EDGEFLOW_OperatorTable().Init();
   }
   void TearDown() override {
-    operator_api::Get_LLM_EDGEFLOW_OperatorTable().Deinit();
+    operator_api::Get_LLM_EDGEFLOW_OperatorTable().DeInit();
   }
 };
 

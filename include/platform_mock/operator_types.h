@@ -114,7 +114,7 @@ struct OperatorFunc {
   // 调用前等待所有 Process/Control 返回并释放输出。有效 handle 一经 Destroy
   // 即被消费，即使因未归还输出返回错误也不可重试 Destroy 或继续使用 handle。
   int (*Destroy)(void* handle) noexcept;
-  int (*Deinit)() noexcept;
+  int (*DeInit)() noexcept;
 };
 
 }  // namespace llm_edgeflow::operator_api

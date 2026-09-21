@@ -168,7 +168,7 @@ TEST_F(RealModelE2ETest, RealModelOperatorEndToEnd) {
   }
 
   EXPECT_EQ(op.Destroy(handle), 0);
-  EXPECT_EQ(op.Deinit(), 0);
+  EXPECT_EQ(op.DeInit(), 0);
 }
 
 #ifdef HAVE_WHISPERCPP

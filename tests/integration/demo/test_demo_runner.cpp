@@ -193,7 +193,7 @@ TEST(DemoRunnerTest, RealKiteEntityExtractionThroughOperator) {
   auto ops = Get_LLM_EDGEFLOW_OperatorTable();
   ASSERT_EQ(ops.Init(), 0);
   const int result = desc->run(opts);
-  EXPECT_EQ(ops.Deinit(), 0);
+  EXPECT_EQ(ops.DeInit(), 0);
   ASSERT_EQ(result, 0);
 
   std::ifstream results(temporary.path / "output/entity_extract/results.jsonl");
@@ -668,7 +668,7 @@ TEST(DemoRunnerTest,
     EXPECT_EQ(summary["failed_count"], 0);
     EXPECT_EQ(summary["success_count"], index);
   }
-  EXPECT_EQ(ops.Deinit(), 0);
+  EXPECT_EQ(ops.DeInit(), 0);
 }
 
 // 5. 测试 DatasetReader 数据读取
@@ -878,7 +878,7 @@ TEST(DemoRunnerTest, FailClosedOnMissingOrInvalidControlFile) {
     }
   }
 
-  ops.Deinit();
+  ops.DeInit();
 }
 
 TEST(DemoRunnerTest, GenericControlCommandChangesCustomNodeOutput) {
@@ -912,7 +912,7 @@ TEST(DemoRunnerTest, GenericControlCommandChangesCustomNodeOutput) {
   options.control_file = (temporary.path / "control.json").string();
   options.control_cmd = 19999;
   EXPECT_EQ(demo->run(options), 5);
-  EXPECT_EQ(ops.Deinit(), 0);
+  EXPECT_EQ(ops.DeInit(), 0);
 }
 
 TEST(DemoRunnerTest, PreservesMixedSampleStatusesAndFailureCounts) {
@@ -959,7 +959,7 @@ TEST(DemoRunnerTest, PreservesMixedSampleStatusesAndFailureCounts) {
   EXPECT_EQ(summary["total_samples"], 2);
   EXPECT_EQ(summary["success_count"], 1);
   EXPECT_EQ(summary["failed_count"], 1);
-  EXPECT_EQ(ops.Deinit(), 0);
+  EXPECT_EQ(ops.DeInit(), 0);
 }
 
 TEST(DemoRunnerTest, ExampleControlIsExplicitAndFileControlTakesPrecedence) {
@@ -1006,7 +1006,7 @@ TEST(DemoRunnerTest, ExampleControlIsExplicitAndFileControlTakesPrecedence) {
   EXPECT_EQ(explicit_file[0]["output"]["is_hit"], true);
   EXPECT_NE(explicit_file[0].dump().find("FILE_RULE"), std::string::npos);
   EXPECT_EQ(explicit_file[1]["output"]["is_hit"], false);
-  EXPECT_EQ(ops.Deinit(), 0);
+  EXPECT_EQ(ops.DeInit(), 0);
 }
 
 TEST(DemoRunnerTest, ExampleControlCliAndRejectsRemovedFlag) {
@@ -1081,7 +1081,7 @@ TEST(DemoRunnerTest, OcrDemoAppliesExplicitControlBeforeProcessing) {
   options.control_cmd = 2;
   options.control_file.reset();
   EXPECT_EQ(demo->run(options), 3);
-  EXPECT_EQ(ops.Deinit(), 0);
+  EXPECT_EQ(ops.DeInit(), 0);
 }
 
 TEST(DemoRunnerTest, ControlCommandCliAndProfilePrecedence) {
@@ -1157,7 +1157,7 @@ TEST(DemoRunnerTest, OperatorBatchChunking) {
   }
   EXPECT_EQ(sample_count, 2);
 
-  ops.Deinit();
+  ops.DeInit();
 }
 
 // 8. 测试全业务 Demo Case 执行 (集成测试)
@@ -1192,7 +1192,7 @@ TEST(DemoRunnerTest, EndToEndAllMockSmokeBusinesses) {
     EXPECT_EQ(run_ret, 0) << "Execution failed for profile: " << prof_name;
   }
 
-  ops.Deinit();
+  ops.DeInit();
 }
 
 TEST(DemoRunnerTest, DeploymentProfilesFileSelection) {
@@ -1246,5 +1246,5 @@ TEST(DemoRunnerTest, RealKiteDeploymentProfiles) {
     if (!descriptor) continue;
     EXPECT_EQ(descriptor->run(options), 0) << name;
   }
-  EXPECT_EQ(ops.Deinit(), 0);
+  EXPECT_EQ(ops.DeInit(), 0);
 }
