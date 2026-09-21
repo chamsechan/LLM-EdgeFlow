@@ -8,6 +8,7 @@
 #include <thread>
 #include <vector>
 
+#include "adapter/io_converter.h"
 #include "adapter/operator/operator_output_pool.h"
 #include "adapter/operator/operator_process_binding.h"
 #include "adapter/operator/operator_value_type_registry.h"
@@ -17,13 +18,15 @@
 
 namespace llm_edgeflow {
 
-namespace {
-
 struct BusinessSummaryOutput {
   uint64_t request_id = 0;
   CompanyString* title = nullptr;
   CompanyString* summary = nullptr;
 };
+
+DECLARE_EXTERNAL_TYPE_TRAITS(BusinessSummaryOutput, "BusinessSummaryOutput");
+
+namespace {
 
 OperatorValueTypeBinding MakeBusinessSummaryBinding() {
   std::string type_name = "BusinessSummaryOutput";
@@ -73,7 +76,16 @@ TEST_F(OperatorOutputPoolTest,
       << error;
   void* block = nullptr;
   ASSERT_EQ(pool->Acquire(&block), 0);
-  auto* output = static_cast<BusinessSummaryOutput*>(block);
+  ExternalOutputBatchView view;
+  view.count = 1;
+  view.leased_slots["summary"] = {block};
+  view.slot_types["summary"] = binding.external_c_type_name;
+  auto* output = view.GetSlot<BusinessSummaryOutput>("summary", 0);
+  ASSERT_NE(output, nullptr);
+  EXPECT_EQ(static_cast<void*>(output), block);
+  view.slot_types["summary"] = "DifferentOutput";
+  EXPECT_EQ(view.GetSlot<BusinessSummaryOutput>("summary", 0), nullptr);
+  view.slot_types["summary"] = binding.external_c_type_name;
   ASSERT_NE(output->title, nullptr);
   ASSERT_NE(output->summary, nullptr);
   CompanyString* title = output->title;

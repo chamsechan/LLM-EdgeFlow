@@ -111,8 +111,13 @@ JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代�
 
 **ValueType 说明“这块平台内存是什么类型、如何检查和管理”，输出池负责有界租约与复用。**
 
-1. 当前环境的模拟宿主结构先在 `platform_mock/operator_data_types.h` 声明，类型实现
-   包含 `adapter/operator_value_type.h`，通过 `RegisterOperatorValueType` 与
+1. 当前环境的模拟宿主结构先在 `platform_mock/operator_data_types.h` 声明。
+   新输入、输出 DTO 均须在接入层共享头中包含 DTO 定义和 `adapter/io_converter.h`，
+   在 `llm_edgeflow` 命名空间声明 `DECLARE_EXTERNAL_TYPE_TRAITS(YourDto, "YourDto");`，
+   并保证该特化在所有转换器首次调用 `GetSlot<YourDto>` 前可见。
+   trait 名称须与 binding 的 `external_c_type_name`、外部槽位的 `type_id` 一致；
+   缺失或不一致会导致 `GetSlot` 返回空指针。已有 DTO 的 trait 直接复用。
+   类型实现包含 `adapter/operator_value_type.h`，通过 `RegisterOperatorValueType` 与
    `REGISTER_OPERATOR_VALUE_TYPE` 在自己的源码中登记。
    输入使用 `MakeTypedInputBinding<T>`，只需提供后缀、类型名及类型化校验函数。
    标准字符串字段与可选 metadata 使用 `MakePooledOutputBinding<T>`：声明成员、
