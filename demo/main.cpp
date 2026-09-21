@@ -24,8 +24,8 @@ struct OperatorGlobalGuard {
   }
 
   ~OperatorGlobalGuard() {
-    if (initialized && ops.Deinit) {
-      ops.Deinit();
+    if (initialized && ops.DeInit) {
+      ops.DeInit();
       initialized = false;
     }
   }
@@ -144,7 +144,7 @@ int main(int argc, char* argv[]) {
     return 0;
   }
 
-  // 2. 初始化 Operator 全局环境 (RAII 自动管理 Init / Deinit)
+  // 2. 初始化 Operator 全局环境 (RAII 自动管理 Init / DeInit)
   OperatorGlobalGuard global_guard;
   if (!global_guard.initialized) {
     std::cerr << "[Main ERROR] Global Operator Init failed: "

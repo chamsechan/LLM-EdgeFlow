@@ -523,7 +523,7 @@ int Operator_Destroy(void* handle) noexcept {
   }
 }
 
-int Operator_Deinit() noexcept {
+int Operator_DeInit() noexcept {
   try {
     int cleanup_ret = OperatorHandleManager::Instance().DestroyAll();
     return cleanup_ret;
@@ -531,7 +531,7 @@ int Operator_Deinit() noexcept {
     SetLastError(e.what());
     return -99;
   } catch (...) {
-    SetLastError("Unknown exception in Deinit");
+    SetLastError("Unknown exception in DeInit");
     return -100;
   }
 }
@@ -541,7 +541,7 @@ int Operator_Deinit() noexcept {
 OperatorFunc Get_LLM_EDGEFLOW_OperatorTable() noexcept {
   static const OperatorFunc table{
       Operator_Init,    Operator_Create,  Operator_Process,
-      Operator_Control, Operator_Destroy, Operator_Deinit,
+      Operator_Control, Operator_Destroy, Operator_DeInit,
   };
   return table;
 }

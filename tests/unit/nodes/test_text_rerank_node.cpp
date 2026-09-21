@@ -344,7 +344,7 @@ class TextRerankRankingTest : public ::testing::Test {
   }
 
   void TearDown() override {
-    operator_api::Get_LLM_EDGEFLOW_OperatorTable().Deinit();
+    operator_api::Get_LLM_EDGEFLOW_OperatorTable().DeInit();
   }
 
   std::shared_ptr<ControllableMockRerankModel> mock_model_;

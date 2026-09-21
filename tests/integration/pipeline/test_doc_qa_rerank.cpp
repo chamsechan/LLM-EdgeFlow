@@ -24,7 +24,7 @@ class DocQaRerankPipelineTest : public ::testing::Test {
     ASSERT_EQ(ops_.Init(), 0);
   }
 
-  void TearDown() override { ASSERT_EQ(ops_.Deinit(), 0); }
+  void TearDown() override { ASSERT_EQ(ops_.DeInit(), 0); }
 
   OperatorFunc ops_;
 };

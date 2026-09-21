@@ -126,14 +126,14 @@ class OperatorApiTest : public ::testing::Test {
     ASSERT_NE(ops_.Process, nullptr);
     ASSERT_NE(ops_.Control, nullptr);
     ASSERT_NE(ops_.Destroy, nullptr);
-    ASSERT_NE(ops_.Deinit, nullptr);
+    ASSERT_NE(ops_.DeInit, nullptr);
 
     int ret = ops_.Init();
     ASSERT_EQ(ret, 0);
   }
 
   void TearDown() override {
-    int ret = ops_.Deinit();
+    int ret = ops_.DeInit();
     EXPECT_EQ(ret, 0);
   }
 
@@ -151,7 +151,7 @@ TEST_F(OperatorApiTest, OperatorTableIntegrity) {
   EXPECT_NE(table.Process, nullptr);
   EXPECT_NE(table.Control, nullptr);
   EXPECT_NE(table.Destroy, nullptr);
-  EXPECT_NE(table.Deinit, nullptr);
+  EXPECT_NE(table.DeInit, nullptr);
 }
 
 // 2. 参数校验与负向安全拦截 (Create 阶段)

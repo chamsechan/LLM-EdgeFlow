@@ -26,7 +26,7 @@ class OperatorGoldenTest : public ::testing::Test {
     ASSERT_EQ(ops_.Init(), 0);
   }
 
-  void TearDown() override { EXPECT_EQ(ops_.Deinit(), 0); }
+  void TearDown() override { EXPECT_EQ(ops_.DeInit(), 0); }
 
   llm_edgeflow::operator_api::OperatorFunc ops_;
 };

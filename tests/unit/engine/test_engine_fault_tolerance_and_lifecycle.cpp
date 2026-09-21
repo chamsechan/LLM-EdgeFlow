@@ -344,6 +344,6 @@ TEST_F(EngineFaultToleranceAndLifecycleTest, RapidGlobalLifecycleInitDeInit) {
 
     outputs.clear();
     EXPECT_EQ(op.Destroy(handle), 0);
-    EXPECT_EQ(op.Deinit(), 0);
+    EXPECT_EQ(op.DeInit(), 0);
   }
 }
