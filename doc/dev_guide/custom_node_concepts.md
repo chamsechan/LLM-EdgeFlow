@@ -78,6 +78,11 @@ outputs.emplace_back(item.req_id, item.sub_id, new_value);
 高级路径仍可使用 `ModelBoundNode<ILlmModel>`。节点不用自己加载模型文件、创建厂商运行时
 或按 Backend 名称写分支。
 
+直接调用五种 `IModel` 能力时，最后一个可选参数是 `std::string* diagnostic`。调用方用
+局部字符串接收失败原因，并连同返回码传给 `Fail`；`LlmCall`、`EmbeddingCall` 及生成的
+高级模板已经处理该传递。模型实现应在入口清空诊断，失败时保留 Backend 原因，成功或
+空批次不留下旧错误；不要把“上一次错误”保存在共享模型成员中。
+
 下面几个字段承担不同职责：
 
 | 字段 / 接口 | 练习中的值 | 说明 |

@@ -78,7 +78,7 @@ class LlmGenerateNode final : public ModelBoundNode<ILlmModel> {
       // Keep this existing node's public error codes while sharing validation.
       const auto& failure = result.failure();
       int code = failure.cause_code;
-      std::string message = Name() + " inference failed";
+      std::string message = Name() + ": " + failure.message;
       if (failure.kind == NodeErrorKind::kOutputCountMismatch) {
         code = node_error::llm_generate::kOutputCountMismatch;
         message = Name() + " output count mismatch";

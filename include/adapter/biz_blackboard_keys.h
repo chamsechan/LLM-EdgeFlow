@@ -10,57 +10,55 @@ namespace llm_edgeflow {
 // Business-facing request and response slots belong to the Integration
 // adapters. Lower layers consume logical port bindings and neutral value
 // contracts only.
-inline constexpr BlackboardKey<std::vector<uint64_t>> kRawRequestIds{
-    "raw_request_ids", "vector<uint64>"};
+inline constexpr auto kRawRequestIds =
+    MakeBlackboardKey<std::vector<uint64_t>>("raw_request_ids");
 
-inline constexpr BlackboardKey<TextBatch> kInputSentences{"input_sentences",
-                                                          "TextBatch"};
-inline constexpr BlackboardKey<RuleMatchBatch> kRuleMatches{"rule_matches",
-                                                            "RuleMatchBatch"};
-inline constexpr BlackboardKey<StructuredDocumentBatch> kExtractedEntities{
-    "extracted_entities", "StructuredDocumentBatch"};
-inline constexpr BlackboardKey<TextBatch> kRawDocs{"raw_docs", "TextBatch"};
-inline constexpr BlackboardKey<TextBatch> kRawQueries{"raw_queries",
-                                                      "TextBatch"};
-inline constexpr BlackboardKey<TextBatch> kLlmAnswers{"llm_answers",
-                                                      "TextBatch"};
-inline constexpr BlackboardKey<RuleMatchBatch> kIntentMatches{"intent_matches",
-                                                              "RuleMatchBatch"};
-inline constexpr BlackboardKey<TextBatch> kDocChunks{"doc_chunks", "TextBatch"};
-inline constexpr BlackboardKey<Int32Batch> kDocChunkCounts{"doc_chunk_counts",
-                                                           "Int32Batch"};
-inline constexpr BlackboardKey<TextBatch> kUserTexts{"user_texts", "TextBatch"};
-inline constexpr BlackboardKey<TextBatch> kChannelNames{"channel_names",
-                                                        "TextBatch"};
-inline constexpr BlackboardKey<StructuredDocumentBatch> kStructuredVerdicts{
-    "structured_verdicts", "StructuredDocumentBatch"};
-inline constexpr BlackboardKey<RankedTextBatch> kMatchedPolicy{
-    "matched_policy", "RankedTextBatch"};
-inline constexpr BlackboardKey<ImageRefBatch> kImagePaths{"image_paths",
-                                                          "ImageRefBatch"};
-inline constexpr BlackboardKey<TextBatch> kUserQueries{"user_queries",
-                                                       "TextBatch"};
-inline constexpr BlackboardKey<StructuredDocumentBatch> kExtractedInvoiceJson{
-    "extracted_invoice_json", "StructuredDocumentBatch"};
-inline constexpr BlackboardKey<OcrDocumentBatch> kOcrDocs{"ocr_docs",
-                                                          "OcrDocumentBatch"};
-inline constexpr BlackboardKey<AudioPcmBatch> kAudioInputs{"audio_inputs",
-                                                           "AudioPcmBatch"};
-inline constexpr BlackboardKey<RuleMatchBatch> kIntentSlots{"intent_slots",
-                                                            "RuleMatchBatch"};
-inline constexpr BlackboardKey<TextBatch> kTranscripts{"transcripts",
-                                                       "TextBatch"};
-inline constexpr BlackboardKey<TextBatch> kRerankQueries{"rerank_queries",
-                                                         "TextBatch"};
-inline constexpr BlackboardKey<RankedTextBatch> kRerankCandidates{
-    "rerank_candidates", "RankedTextBatch"};
-inline constexpr BlackboardKey<QueryCandidatesBatch> kRerankPairs{
-    "rerank_pairs", "QueryCandidatesBatch"};
-inline constexpr BlackboardKey<RankedTextBatch> kRankedResults{
-    "ranked_results", "RankedTextBatch"};
-inline constexpr BlackboardKey<TextBatch> kLlmInputPrompts{"llm_input_prompts",
-                                                           "TextBatch"};
-inline constexpr BlackboardKey<TextBatch> kGeneratedLlmAnswers{
-    "generated_llm_answers", "TextBatch"};
+inline constexpr auto kInputSentences =
+    MakeBlackboardKey<TextBatch>("input_sentences");
+inline constexpr auto kRuleMatches =
+    MakeBlackboardKey<RuleMatchBatch>("rule_matches");
+inline constexpr auto kExtractedEntities =
+    MakeBlackboardKey<StructuredDocumentBatch>("extracted_entities");
+inline constexpr auto kRawDocs = MakeBlackboardKey<TextBatch>("raw_docs");
+inline constexpr auto kRawQueries = MakeBlackboardKey<TextBatch>("raw_queries");
+inline constexpr auto kLlmAnswers = MakeBlackboardKey<TextBatch>("llm_answers");
+inline constexpr auto kIntentMatches =
+    MakeBlackboardKey<RuleMatchBatch>("intent_matches");
+inline constexpr auto kDocChunks = MakeBlackboardKey<TextBatch>("doc_chunks");
+inline constexpr auto kDocChunkCounts =
+    MakeBlackboardKey<Int32Batch>("doc_chunk_counts");
+inline constexpr auto kUserTexts = MakeBlackboardKey<TextBatch>("user_texts");
+inline constexpr auto kChannelNames =
+    MakeBlackboardKey<TextBatch>("channel_names");
+inline constexpr auto kStructuredVerdicts =
+    MakeBlackboardKey<StructuredDocumentBatch>("structured_verdicts");
+inline constexpr auto kMatchedPolicy =
+    MakeBlackboardKey<RankedTextBatch>("matched_policy");
+inline constexpr auto kImagePaths =
+    MakeBlackboardKey<ImageRefBatch>("image_paths");
+inline constexpr auto kUserQueries =
+    MakeBlackboardKey<TextBatch>("user_queries");
+inline constexpr auto kExtractedInvoiceJson =
+    MakeBlackboardKey<StructuredDocumentBatch>("extracted_invoice_json");
+inline constexpr auto kOcrDocs =
+    MakeBlackboardKey<OcrDocumentBatch>("ocr_docs");
+inline constexpr auto kAudioInputs =
+    MakeBlackboardKey<AudioPcmBatch>("audio_inputs");
+inline constexpr auto kIntentSlots =
+    MakeBlackboardKey<RuleMatchBatch>("intent_slots");
+inline constexpr auto kTranscripts =
+    MakeBlackboardKey<TextBatch>("transcripts");
+inline constexpr auto kRerankQueries =
+    MakeBlackboardKey<TextBatch>("rerank_queries");
+inline constexpr auto kRerankCandidates =
+    MakeBlackboardKey<RankedTextBatch>("rerank_candidates");
+inline constexpr auto kRerankPairs =
+    MakeBlackboardKey<QueryCandidatesBatch>("rerank_pairs");
+inline constexpr auto kRankedResults =
+    MakeBlackboardKey<RankedTextBatch>("ranked_results");
+inline constexpr auto kLlmInputPrompts =
+    MakeBlackboardKey<TextBatch>("llm_input_prompts");
+inline constexpr auto kGeneratedLlmAnswers =
+    MakeBlackboardKey<TextBatch>("generated_llm_answers");
 
 }  // namespace llm_edgeflow

@@ -4,6 +4,7 @@
 
 #include "adapter/adapter_status.h"
 #include "adapter/adapter_validation_helper.h"
+#include "adapter/biz_blackboard_keys.h"
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter.h"
 #include "adapter/result_validation.h"
@@ -21,23 +22,22 @@ int EncodeOperatorTranslationJson(AlgContext* context,
                                   size_t* written_count,
                                   AdapterStatus* status) {
   if (!context) {
-    return AdapterValidationHelper::ReturnBufferTooSmall(
+    return AdapterValidationHelper::ReturnInvalidInput(
         status, "Null AlgContext passed to Encode", "context",
         options.converter_id.c_str());
   }
 
-  const auto* res =
-      context->Read<TextBatch>(bindings.GetActualKey("llm_answers"));
+  const auto* res = context->Read(bindings.Key<TextBatch>("llm_answers"));
   if (!res) {
-    return AdapterValidationHelper::ReturnBufferTooSmall(
+    return AdapterValidationHelper::ReturnInvalidInput(
         status, "Missing required context value: llm_answers", "res",
         options.converter_id.c_str());
   }
 
-  const auto* raw_req_ids = context->Read<std::vector<uint64_t>>(
-      bindings.GetActualKey("raw_request_ids"));
+  const auto* raw_req_ids =
+      context->Read(bindings.Key<std::vector<uint64_t>>("raw_request_ids"));
   if (!raw_req_ids) {
-    return AdapterValidationHelper::ReturnBufferTooSmall(
+    return AdapterValidationHelper::ReturnInvalidInput(
         status, "Missing required context value: raw_request_ids",
         "raw_request_ids", options.converter_id.c_str());
   }
@@ -103,9 +103,8 @@ OutputConverterDefinition MakeOperatorTranslationJsonOutputConverter() {
                          "CompanyOperatorEntityOutput",
                          "entity_out",
                          {"entities_json"}}};
-  def.logical_ports = {
-      NodePortDefinition("raw_request_ids", "vector<uint64>", true, "1:1"),
-      NodePortDefinition("llm_answers", "TextBatch", true, "1:1")};
+  def.logical_ports = {RequiredInputPort(kRawRequestIds),
+                       RequiredInputPort(kLlmAnswers)};
   def.encode_fn = &EncodeOperatorTranslationJson;
   return def;
 }

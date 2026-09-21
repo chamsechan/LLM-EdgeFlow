@@ -13,8 +13,8 @@ class VisionDocumentModel final : public IOcrModel {
   const std::string& ModelType() const noexcept override;
   const std::string& Capability() const noexcept override;
   InferenceConcurrency Concurrency() const noexcept override;
-  int Recognize(const ImageRefBatch& images,
-                OcrDocumentBatch* outputs) noexcept override;
+  int Recognize(const ImageRefBatch& images, OcrDocumentBatch* outputs,
+                std::string* diagnostic = nullptr) noexcept override;
 
  private:
   std::shared_ptr<IImageTextGenerationSession> session_;

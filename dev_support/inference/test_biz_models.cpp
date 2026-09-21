@@ -106,7 +106,9 @@ InferenceConcurrency TestBizEmbeddingModel::Concurrency() const noexcept {
 }
 int TestBizEmbeddingModel::Embed(const TextBatch& inputs,
                                  const EmbeddingOptions& options,
-                                 EmbeddingBatch* outputs) noexcept {
+                                 EmbeddingBatch* outputs,
+                                 std::string* diagnostic) noexcept {
+  if (diagnostic) diagnostic->clear();
   const BatchPolicy policy{max_batch_size_, max_batch_size_};
   return FixedBatchExecutor::Execute<std::string, std::vector<float>>(
       inputs, policy,
@@ -162,7 +164,9 @@ InferenceConcurrency TestBizRerankModel::Concurrency() const noexcept {
   return InferenceConcurrency::kSerialized;
 }
 int TestBizRerankModel::Score(const QueryCandidatesBatch& inputs,
-                              ScoreBatch* outputs) noexcept {
+                              ScoreBatch* outputs,
+                              std::string* diagnostic) noexcept {
+  if (diagnostic) diagnostic->clear();
   const BatchPolicy policy{max_batch_size_, max_batch_size_};
   return FixedBatchExecutor::Execute<QueryCandidatePair, float>(
       inputs, policy,
@@ -208,7 +212,9 @@ InferenceConcurrency TestBizLlmModel::Concurrency() const noexcept {
   return InferenceConcurrency::kSerialized;
 }
 int TestBizLlmModel::Generate(const TextBatch& prompts, const GenerateOptions&,
-                              TextBatch* outputs) noexcept {
+                              TextBatch* outputs,
+                              std::string* diagnostic) noexcept {
+  if (diagnostic) diagnostic->clear();
   const BatchPolicy policy{max_batch_size_, max_batch_size_};
   return FixedBatchExecutor::Execute<std::string, std::string>(
       prompts, policy,
@@ -245,7 +251,9 @@ InferenceConcurrency TestBizOcrModel::Concurrency() const noexcept {
   return InferenceConcurrency::kSerialized;
 }
 int TestBizOcrModel::Recognize(const ImageRefBatch& images,
-                               OcrDocumentBatch* outputs) noexcept {
+                               OcrDocumentBatch* outputs,
+                               std::string* diagnostic) noexcept {
+  if (diagnostic) diagnostic->clear();
   const BatchPolicy policy{max_batch_size_, max_batch_size_};
   return FixedBatchExecutor::Execute<std::string, OcrDocumentItem>(
       images, policy,
@@ -292,8 +300,9 @@ const std::string& TestBizAsrModel::Capability() const noexcept {
 InferenceConcurrency TestBizAsrModel::Concurrency() const noexcept {
   return InferenceConcurrency::kSerialized;
 }
-int TestBizAsrModel::Transcribe(const AudioPcmBatch& audio,
-                                TextBatch* outputs) noexcept {
+int TestBizAsrModel::Transcribe(const AudioPcmBatch& audio, TextBatch* outputs,
+                                std::string* diagnostic) noexcept {
+  if (diagnostic) diagnostic->clear();
   const BatchPolicy policy{max_batch_size_, max_batch_size_};
   return FixedBatchExecutor::Execute<AudioPcmPayload, std::string>(
       audio, policy,

@@ -19,6 +19,7 @@ int ValidateAndExtractOperatorInputs(
   for (const auto& slot : in_conv.external_slots) {
     if (slot.direction == PortDirection::kInput) {
       out_view->slot_types[slot.slot_name] = slot.type_id;
+      out_view->slots[slot.slot_name].resize(inputs.size());
     }
   }
 
@@ -90,7 +91,7 @@ int ValidateAndExtractOperatorInputs(
           }
           return validation_result;
         }
-        out_view->slots[slot.slot_name].push_back(std::move(payload));
+        out_view->slots[slot.slot_name][i] = std::move(payload);
       }
     }
 

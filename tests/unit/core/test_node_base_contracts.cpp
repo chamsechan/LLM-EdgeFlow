@@ -379,11 +379,16 @@ class MockAsrModel : public IAsrModel {
   InferenceConcurrency Concurrency() const noexcept override {
     return InferenceConcurrency::kConcurrent;
   }
-  int Transcribe(const AudioPcmBatch& inputs,
-                 TextBatch* outputs) noexcept override {
+  int Transcribe(const AudioPcmBatch& inputs, TextBatch* outputs,
+                 std::string* diagnostic = nullptr) noexcept override {
+    if (diagnostic) diagnostic->clear();
     if (!outputs) return -1;
     ++infer_calls_;
     outputs->clear();
+    if (fail_) {
+      if (diagnostic) *diagnostic = "ASR device unavailable";
+      return -6299;
+    }
     for (const auto& item : inputs) {
       outputs->emplace_back(item.req_id, item.sub_id, "mock_transcription");
     }
@@ -396,6 +401,7 @@ class MockAsrModel : public IAsrModel {
     return 0;
   }
 
+  bool fail_ = false;
   int infer_calls_ = 0;
   bool return_wrong_count_ = false;
   bool corrupt_provenance_ = false;
@@ -416,8 +422,9 @@ class MockTraceableAsrNode
                                     kTestTranscripts, -6201, -6202, -6203) {}
 
  protected:
-  int InferBatch(const InputBatch& input, OutputBatch* output) override {
-    return model()->Transcribe(input, output);
+  int InferBatch(const InputBatch& input, OutputBatch* output,
+                 std::string* diagnostic) override {
+    return model()->Transcribe(input, output, diagnostic);
   }
 };
 
@@ -464,6 +471,17 @@ TEST(NodeBaseContractsTest, TraceableUnaryInferenceNodeWorkflow) {
   ASSERT_NE(empty_results, nullptr);
   EXPECT_TRUE(empty_results->empty());
   EXPECT_EQ(model->infer_calls_, 1);
+
+  model->fail_ = true;
+  AlgContext failure_ctx;
+  failure_ctx.Publish(kTestAudioInputs,
+                      AudioPcmBatch{{7, 0, AudioPcmPayload{}}});
+  EXPECT_EQ(node.Process(&failure_ctx), -6299);
+  EXPECT_EQ(failure_ctx.GetErrorCode(), -6299);
+  EXPECT_NE(failure_ctx.GetErrorMessage().find("ASR device unavailable"),
+            std::string::npos);
+  EXPECT_FALSE(failure_ctx.Has(kTestTranscripts.name));
+  model->fail_ = false;
 
   AudioPcmBatch invalid_audios;
   invalid_audios.emplace_back(7, 0, AudioPcmPayload{});

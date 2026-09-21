@@ -54,9 +54,12 @@ class OcrDetectNode final : public ModelBoundNode<IOcrModel> {
         "[OcrDetectNode] Executing OCR text detection for %zu image files...\n",
         image_items->size());
 
-    int ret = model()->Recognize(*image_items, &doc_batch);
+    std::string diagnostic;
+    int ret = model()->Recognize(*image_items, &doc_batch, &diagnostic);
     if (ret != 0) {
-      return Fail(req_ctx, ret, "OcrDetectNode: OCR inference failed");
+      return Fail(req_ctx, ret,
+                  "OcrDetectNode: OCR inference failed" +
+                      (diagnostic.empty() ? "" : ": " + diagnostic));
     }
 
     const auto alignment =

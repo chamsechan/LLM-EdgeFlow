@@ -61,35 +61,47 @@ InferenceConcurrency VisionDocumentModel::Concurrency() const noexcept {
   return InferenceConcurrency::kConcurrent;
 }
 int VisionDocumentModel::Recognize(const ImageRefBatch& images,
-                                   OcrDocumentBatch* outputs) noexcept {
-  if (!outputs) return -1;
+                                   OcrDocumentBatch* outputs,
+                                   std::string* diagnostic) noexcept {
+  if (diagnostic) diagnostic->clear();
+  if (!outputs) {
+    SetDiagnosticNoexcept(diagnostic, "Model output pointer is null");
+    return -1;
+  }
   outputs->clear();
-  if (!session_) return -1;
+  if (!session_) {
+    SetDiagnosticNoexcept(diagnostic, "Model session is null");
+    return -1;
+  }
   return FixedBatchExecutor::Execute<std::string, OcrDocumentItem>(
       images, session_->GetBatchPolicy(),
-      [this, &images](const BatchSlice& slice,
-                      std::vector<OcrDocumentItem>* batch) {
+      [this, &images, diagnostic](const BatchSlice& slice,
+                                  std::vector<OcrDocumentItem>* batch) {
         ImageTextInput request;
-        std::string diagnostic;
+        std::string reason;
         if (!DecodeDocumentImage(images[slice.offset].data, patch_size_,
-                                 max_pixels_, &request, &diagnostic)) {
-          ALG_LOG_ERROR("[VisionDocumentModel] %s\n", diagnostic.c_str());
+                                 max_pixels_, &request, &reason)) {
+          ALG_LOG_ERROR("[VisionDocumentModel] %s\n", reason.c_str());
+          SetDiagnosticNoexcept(diagnostic, reason);
           return -1;
         }
         request.prompt = prompt_;
         OcrDocumentItem document;
-        const int result = session_->Generate(
-            request, options_, &document.combined_text, &diagnostic);
+        const int result = session_->Generate(request, options_,
+                                              &document.combined_text, &reason);
         if (result != 0 || document.combined_text.empty()) {
           ALG_LOG_ERROR("[VisionDocumentModel] Generation failed: %s\n",
-                        diagnostic.c_str());
+                        reason.c_str());
+          SetDiagnosticNoexcept(
+              diagnostic,
+              reason.empty() ? "Image generation returned empty text" : reason);
           return -1;
         }
         // Generative recognition has no measured boxes or confidence scores.
         batch->push_back(std::move(document));
         return 0;
       },
-      outputs);
+      outputs, diagnostic);
 }
 
 static const ModelDefinition kVisionDocumentDefinition = [] {

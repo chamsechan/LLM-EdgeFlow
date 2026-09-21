@@ -94,7 +94,8 @@ CrossRerank 的排名数组和 Compliance 的首项选择使用 `N:1 / aggregate
   发布新的输出 key，不原地修改已经发布的值。
 - **`SessionResourceKey<T>`**：会话级共享资源必须使用带静态类型的 key；动态资源名也要先
   构造 typed key。相同名称只能绑定同一种 `T`，类型不匹配会抛出 `std::logic_error`，
-  `GetOrCreateResource` 对同名同型资源提供 single-flight 创建。
+  `GetOrCreateResource` 对同名同型资源提供 single-flight 创建。同一次创建中的等待者
+  共享结果或异常；失败不进入缓存，后续调用可重试。
 - **`PipelineCatalogSnapshot`**：需要跨多次查找保持一致视图时先调用 `Snapshot()`；普通
   `Nodes/Bizs/FindNode/FindBiz` 返回独立值，不保存指向 Catalog 内部容器的引用或指针。
 

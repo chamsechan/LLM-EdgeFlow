@@ -27,11 +27,11 @@
 2. 生成骨架并登记源码（也可以手写）：
 
    ```bash
-   # 纯处理：默认生成保留来源的文本透传，在循环中替换为领域算法
-   ./scripts/scaffold_custom_node.py CustomFilterNode --kind compute --add-to-cmake --generate-test
+   # 纯处理：默认生成保留来源的文本透传，在 Transform 中填写领域算法
+   ./scripts/scaffold_custom_node.py CustomFilterNode --kind compute --add-to-cmake --write-test
 
    # Control 入门：文本前缀更新，选择尚未使用的 custom 命令 ID
-   ./scripts/scaffold_custom_node.py PrefixControlNode --control-id 1001 --add-to-cmake --generate-test
+   ./scripts/scaffold_custom_node.py PrefixControlNode --control-id 1001 --add-to-cmake --write-test
 
    # 推荐入门：普通函数 + Spec；生成并登记实际测试
    ./scripts/scaffold_custom_node.py DomainPromptNode --kind model -m llm --authoring basic --add-to-cmake --write-test
@@ -40,10 +40,10 @@
    ./scripts/scaffold_custom_node.py FastAudioNode --kind unary_inference -m asr --add-to-cmake
    ```
 
-   `--generate-test` **打印**可编译的注册测试片段，不会自动创建或登记测试文件。
-   把片段及领域断言加入现有测试套件。`--dry-run` 仅打印；已有文件默认拒绝覆盖。
-   `--authoring advanced` 保留生命周期路径，也是脚手架省略该选项时的默认值。
-   basic compute 支持 TextBatch 的 Map，basic model 支持 LLM 快捷组合。
+   `--write-test` 创建并登记测试文件，生成后补充领域断言。`--dry-run` 仅打印计划；
+   已有文件默认拒绝覆盖。默认 `--authoring auto` 对 TextBatch Map、LLM、Embedding
+   与 Control 选择函数式模板，其他组合使用高级路径。`--authoring advanced` 显式选择
+   生命周期模板；`--authoring basic` 对不支持的组合报错。
    多输入与条件调用参考[自由 Batch](../../dev_support/node_authoring/starter_batch_node.cpp)，
    两种能力参考[多模型](../../dev_support/node_authoring/starter_multi_model_node.cpp)。
 3. basic 在普通函数中实现算法，通过 Spec 声明字段和端口；高级路径在生成文件中实现请求内逻辑。`TraceableItem` 的载荷为 `.data`，保留来源的写法是

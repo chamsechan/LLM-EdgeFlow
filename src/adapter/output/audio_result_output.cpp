@@ -4,6 +4,7 @@
 
 #include "adapter/adapter_status.h"
 #include "adapter/adapter_validation_helper.h"
+#include "adapter/biz_blackboard_keys.h"
 #include "adapter/converter_authoring.h"
 #include "adapter/io_converter.h"
 #include "adapter/result_validation.h"
@@ -19,31 +20,31 @@ int EncodeOperatorAudioResult(AlgContext* context,
                               ExternalOutputBatchView* destination,
                               size_t* written_count, AdapterStatus* status) {
   if (!context) {
-    return AdapterValidationHelper::ReturnBufferTooSmall(
+    return AdapterValidationHelper::ReturnInvalidInput(
         status, "Null AlgContext passed to Encode", "context",
         options.converter_id.c_str());
   }
 
   const auto* transcripts =
-      context->Read<TextBatch>(bindings.GetActualKey("transcripts"));
+      context->Read(bindings.Key<TextBatch>("transcripts"));
   if (!transcripts) {
-    return AdapterValidationHelper::ReturnBufferTooSmall(
+    return AdapterValidationHelper::ReturnInvalidInput(
         status, "Missing required context value: transcripts", "transcripts",
         options.converter_id.c_str());
   }
 
   const auto* intent_slots =
-      context->Read<RuleMatchBatch>(bindings.GetActualKey("intent_slots"));
+      context->Read(bindings.Key<RuleMatchBatch>("intent_slots"));
   if (!intent_slots) {
     return AdapterValidationHelper::ReturnInvalidInput(
         status, "Missing required context value: intent_slots", "intent_slots",
         options.converter_id.c_str());
   }
 
-  const auto* raw_req_ids = context->Read<std::vector<uint64_t>>(
-      bindings.GetActualKey("raw_request_ids"));
+  const auto* raw_req_ids =
+      context->Read(bindings.Key<std::vector<uint64_t>>("raw_request_ids"));
   if (!raw_req_ids) {
-    return AdapterValidationHelper::ReturnBufferTooSmall(
+    return AdapterValidationHelper::ReturnInvalidInput(
         status, "Missing required context value: raw_request_ids",
         "raw_request_ids", options.converter_id.c_str());
   }
@@ -129,10 +130,9 @@ OutputConverterDefinition MakeOperatorAudioResultOutputConverter() {
                          "CompanyOperatorAudioOutput",
                          "audio_out",
                          {"transcribed_text", "intent_slot_json"}}};
-  def.logical_ports = {
-      NodePortDefinition("raw_request_ids", "vector<uint64>", true, "1:1"),
-      NodePortDefinition("transcripts", "TextBatch", true, "1:1"),
-      NodePortDefinition("intent_slots", "RuleMatchBatch", true, "1:1")};
+  def.logical_ports = {RequiredInputPort(kRawRequestIds),
+                       RequiredInputPort(kTranscripts),
+                       RequiredInputPort(kIntentSlots)};
   def.encode_fn = &EncodeOperatorAudioResult;
   return def;
 }

@@ -9,6 +9,7 @@
 #include <utility>
 #include <vector>
 
+#include "contracts/diagnostic.h"
 #include "edgeflow/log.h"
 #include "engine/fixed_batch_executor.h"
 #include "engine/text/utf8.h"
@@ -107,26 +108,38 @@ std::string QwenCausalLmModel::ApplyChatTemplate(
 
 int QwenCausalLmModel::Generate(const TextBatch& prompts,
                                 const GenerateOptions& options,
-                                TextBatch* outputs) noexcept {
-  if (!outputs) return -1;
+                                TextBatch* outputs,
+                                std::string* diagnostic) noexcept {
+  if (diagnostic) diagnostic->clear();
+  if (!outputs) {
+    SetDiagnosticNoexcept(diagnostic, "Model output pointer is null");
+    return -1;
+  }
   outputs->clear();
   if (prompts.empty()) return 0;
-  if (!session_) return -1;
+  if (!session_) {
+    SetDiagnosticNoexcept(diagnostic, "Model session is null");
+    return -1;
+  }
 
   const BatchPolicy policy = session_->GetBatchPolicy();
-  if (policy.max_batch_size == 0 || policy.fixed_batch_size != 0) return -1;
+  if (policy.max_batch_size == 0 || policy.fixed_batch_size != 0) {
+    SetDiagnosticNoexcept(diagnostic,
+                          "Text generation requires a non-fixed batch policy");
+    return -1;
+  }
   return FixedBatchExecutor::Execute<std::string, std::string>(
       prompts, policy,
-      [this, &prompts, &options](const BatchSlice& slice,
-                                 std::vector<std::string>* batch_outputs) {
+      [this, &prompts, &options, diagnostic](
+          const BatchSlice& slice, std::vector<std::string>* batch_outputs) {
         if (!batch_outputs) return -1;
         batch_outputs->clear();
         try {
           batch_outputs->reserve(slice.valid_count);
           for (size_t i = 0; i < slice.valid_count; ++i) {
             std::string output;
-            const int result =
-                GenerateOne(prompts[slice.offset + i], options, &output);
+            const int result = GenerateOne(prompts[slice.offset + i], options,
+                                           &output, diagnostic);
             if (result != 0) {
               batch_outputs->clear();
               return result;
@@ -134,20 +147,30 @@ int QwenCausalLmModel::Generate(const TextBatch& prompts,
             batch_outputs->push_back(std::move(output));
           }
           return 0;
+        } catch (const std::exception& error) {
+          SetDiagnosticNoexcept(diagnostic, error.what());
+          batch_outputs->clear();
+          return -1;
         } catch (...) {
+          SetDiagnosticNoexcept(diagnostic, "Unknown text batch exception");
           batch_outputs->clear();
           return -1;
         }
       },
-      outputs);
+      outputs, diagnostic);
 }
 
 int QwenCausalLmModel::GenerateOne(const TraceableItem<std::string>& prompt,
                                    const GenerateOptions& options,
-                                   std::string* output) noexcept {
+                                   std::string* output,
+                                   std::string* diagnostic) noexcept {
   if (!output) return -1;
   output->clear();
-  if (!session_ || prompt.data.empty()) return -1;
+  if (!session_ || prompt.data.empty()) {
+    SetDiagnosticNoexcept(
+        diagnostic, "Text generation requires a session and non-empty prompt");
+    return -1;
+  }
 
   try {
     std::optional<uint64_t> seed;
@@ -155,23 +178,26 @@ int QwenCausalLmModel::GenerateOne(const TraceableItem<std::string>& prompt,
       seed = MixSeed(static_cast<uint64_t>(random_seed_), prompt.req_id,
                      prompt.sub_id);
     }
-    std::string diagnostic;
+    std::string reason;
     const int result =
         session_->Generate(ApplyChatTemplate(prompt.data), add_bos_, options,
-                           seed, output, &diagnostic);
+                           seed, output, &reason);
     if (result != 0) {
+      SetDiagnosticNoexcept(diagnostic, reason);
       output->clear();
       ALG_LOG_ERROR("[QwenCausalLmModel] Generate failed: %s\n",
-                    diagnostic.c_str());
+                    reason.c_str());
       return result;
     }
     utf8::StripIncompleteSuffix(output);
     return 0;
   } catch (const std::exception& e) {
+    SetDiagnosticNoexcept(diagnostic, e.what());
     ALG_LOG_ERROR("[QwenCausalLmModel] Generate exception: %s\n", e.what());
     output->clear();
     return -1;
   } catch (...) {
+    SetDiagnosticNoexcept(diagnostic, "Unknown text generation exception");
     ALG_LOG_ERROR("[QwenCausalLmModel] Unknown Generate exception\n");
     output->clear();
     return -1;

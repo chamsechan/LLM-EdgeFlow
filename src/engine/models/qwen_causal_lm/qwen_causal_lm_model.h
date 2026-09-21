@@ -35,11 +35,13 @@ class QwenCausalLmModel final : public ILlmModel {
   InferenceConcurrency Concurrency() const noexcept override;
 
   int Generate(const TextBatch& prompts, const GenerateOptions& options,
-               TextBatch* outputs) noexcept override;
+               TextBatch* outputs,
+               std::string* diagnostic = nullptr) noexcept override;
 
  private:
   int GenerateOne(const TraceableItem<std::string>& prompt,
-                  const GenerateOptions& options, std::string* output) noexcept;
+                  const GenerateOptions& options, std::string* output,
+                  std::string* diagnostic) noexcept;
   std::string ApplyChatTemplate(const std::string& prompt) const;
 
   std::shared_ptr<ITextGenerationSession> session_;

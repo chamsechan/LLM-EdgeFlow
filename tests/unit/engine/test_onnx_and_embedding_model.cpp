@@ -617,7 +617,9 @@ TEST_F(OnnxAndEmbeddingModelTest,
 
   // 1. Session Run 失败
   fake_session->fail_run_ = true;
-  EXPECT_NE(model.Embed(inputs, opts, &outputs), 0);
+  std::string diagnostic = "stale error";
+  EXPECT_NE(model.Embed(inputs, opts, &outputs, &diagnostic), 0);
+  EXPECT_EQ(diagnostic, "Forced run failure");
   EXPECT_TRUE(outputs.empty());
 
   // 2. Output Dtype 错误 (R3-010)
@@ -705,9 +707,20 @@ TEST_F(OnnxAndEmbeddingModelTest,
   TextBatch multi_batch_inputs = {
       {1, 0, "hello"}, {2, 0, "hello"}, {3, 0, "hello"}};
   outputs = {{999, 999, {1.0f}}};
-  EXPECT_NE(model.Embed(multi_batch_inputs, opts, &outputs), 0);
+  diagnostic = "stale error";
+  EXPECT_NE(model.Embed(multi_batch_inputs, opts, &outputs, &diagnostic), 0);
+  EXPECT_EQ(diagnostic, "Forced run failure");
   EXPECT_TRUE(outputs.empty());
   EXPECT_EQ(fake_session->run_count_, 2);
+
+  fake_session->ResetFaults();
+  EXPECT_EQ(model.Embed(inputs, opts, &outputs, &diagnostic), 0);
+  EXPECT_TRUE(diagnostic.empty());
+  ASSERT_EQ(outputs.size(), inputs.size());
+  diagnostic = "previous failure";
+  EXPECT_EQ(model.Embed({}, opts, &outputs, &diagnostic), 0);
+  EXPECT_TRUE(diagnostic.empty());
+  EXPECT_TRUE(outputs.empty());
 }
 
 TEST_F(OnnxAndEmbeddingModelTest, FixedAndDynamicBatchScheduling) {

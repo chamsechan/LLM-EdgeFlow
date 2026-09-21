@@ -81,8 +81,9 @@ class ReentrantModel : public IEmbeddingModel {
   InferenceConcurrency Concurrency() const noexcept override {
     return InferenceConcurrency::kConcurrent;
   }
-  int Embed(const TextBatch&, const EmbeddingOptions&,
-            EmbeddingBatch*) noexcept override {
+  int Embed(const TextBatch&, const EmbeddingOptions&, EmbeddingBatch*,
+            std::string* diagnostic = nullptr) noexcept override {
+    if (diagnostic) diagnostic->clear();
     return 0;
   }
 };

@@ -36,6 +36,7 @@ target_sources(edgeflow_integration_objects PRIVATE
   operator/operator_control_registry.cpp
   operator/operator_output_pool.cpp
   operator/operator_process_binding.cpp
+  operator/operator_value_type.cpp
   operator/operator_value_type_registry.cpp
   operator/operator_builtin_value_types.cpp)
 

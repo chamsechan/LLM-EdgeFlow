@@ -18,8 +18,8 @@ class WhisperAsrModel final : public IAsrModel {
   const std::string& Capability() const noexcept override;
   InferenceConcurrency Concurrency() const noexcept override;
 
-  int Transcribe(const AudioPcmBatch& audio,
-                 TextBatch* outputs) noexcept override;
+  int Transcribe(const AudioPcmBatch& audio, TextBatch* outputs,
+                 std::string* diagnostic = nullptr) noexcept override;
 
  private:
   std::shared_ptr<IAudioTranscriptionSession> session_;

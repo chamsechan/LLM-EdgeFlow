@@ -80,8 +80,9 @@ return answer;
 或者参考完整样例中对应的一小部分。需要多输入或条件二次推理时，参考
 [自由 Batch 示例](../../dev_support/node_authoring/starter_batch_node.cpp)；需要两种模型能力时，参考
 [多模型示例](../../dev_support/node_authoring/starter_multi_model_node.cpp)。它们用普通 `Run` 函数、
-`InputsOf`、`Parameters` 和 `ModelsOf` 声明输入、参数及模型槽位。输出数量变化、Control 等
-尚未被基础包装覆盖的需求，继续使用[高级生命周期模板](../../dev_support/node_authoring/starter_llm_node_advanced.cpp)。
+`InputsOf`、`Parameters` 和 `ModelsOf` 声明输入、参数及模型槽位。Control 使用
+`.WithControls(...)`，参见[第一个 Control](first_control.md)。输出数量变化或多输出等
+超出当前 Spec 的需求，继续使用[高级生命周期模板](../../dev_support/node_authoring/starter_llm_node_advanced.cpp)。
 外部 Operator 请求的字段选择与响应组装属于 Adapter，不能移到 Node 或 Demo；见
 [输入输出边界](business_onboarding.md#输入输出以-c-abi-为边界)。
 

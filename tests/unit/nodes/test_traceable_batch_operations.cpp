@@ -35,7 +35,9 @@ class CountingMockLlmModel final : public ILlmModel {
   }
 
   int Generate(const TextBatch& prompts, const GenerateOptions& options,
-               TextBatch* outputs) noexcept override {
+               TextBatch* outputs,
+               std::string* diagnostic = nullptr) noexcept override {
+    if (diagnostic) diagnostic->clear();
     ++call_count;
     last_options = options;
     last_prompts = prompts;
@@ -1162,7 +1164,9 @@ TEST_F(TraceableBatchOperationsTest,
     }
 
     int Generate(const TextBatch& prompts, const GenerateOptions&,
-                 TextBatch* outputs) noexcept override {
+                 TextBatch* outputs,
+                 std::string* diagnostic = nullptr) noexcept override {
+      if (diagnostic) diagnostic->clear();
       ++call_count;
       last_prompts = prompts;
       if (outputs) {

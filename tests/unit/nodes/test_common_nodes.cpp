@@ -555,7 +555,9 @@ class CountingEmbeddingModel final : public IEmbeddingModel {
   }
 
   int Embed(const TextBatch& input_texts, const EmbeddingOptions&,
-            EmbeddingBatch* output_embeddings) noexcept override {
+            EmbeddingBatch* output_embeddings,
+            std::string* diagnostic = nullptr) noexcept override {
+    if (diagnostic) diagnostic->clear();
     infer_calls++;
     output_embeddings->clear();
     for (const auto& in : input_texts) {
@@ -779,7 +781,9 @@ class PromptContractModel final : public ILlmModel {
     return InferenceConcurrency::kSerialized;
   }
   int Generate(const TextBatch& input, const GenerateOptions& options,
-               TextBatch* output) noexcept override {
+               TextBatch* output,
+               std::string* diagnostic = nullptr) noexcept override {
+    if (diagnostic) diagnostic->clear();
     ++calls;
     prompts = input;
     last_options = options;
@@ -817,7 +821,9 @@ class StarterEmbeddingModel final : public IEmbeddingModel {
     return InferenceConcurrency::kConcurrent;
   }
   int Embed(const TextBatch& input, const EmbeddingOptions&,
-            EmbeddingBatch* output) noexcept override {
+            EmbeddingBatch* output,
+            std::string* diagnostic = nullptr) noexcept override {
+    if (diagnostic) diagnostic->clear();
     ++calls;
     output->clear();
     for (const auto& item : input) {

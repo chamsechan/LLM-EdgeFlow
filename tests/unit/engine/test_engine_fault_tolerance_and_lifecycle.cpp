@@ -37,7 +37,9 @@ class MockFaultyHardwareModel : public IEmbeddingModel {
     return InferenceConcurrency::kConcurrent;
   }
   int Embed(const TextBatch& input_texts, const EmbeddingOptions&,
-            EmbeddingBatch* output_embeddings) noexcept override {
+            EmbeddingBatch* output_embeddings,
+            std::string* diagnostic = nullptr) noexcept override {
+    if (diagnostic) diagnostic->clear();
     if (should_fail_) {
       // 模拟底层硬件 NPU DMA 超时或驱动错误
       return error_code_to_return_;

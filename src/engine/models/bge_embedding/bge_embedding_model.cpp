@@ -6,6 +6,7 @@
 #include <utility>
 #include <vector>
 
+#include "contracts/diagnostic.h"
 #include "edgeflow/log.h"
 #include "engine/fixed_batch_executor.h"
 #include "engine/models/bge_common/bert_model_support.h"
@@ -206,8 +207,13 @@ InferenceConcurrency BgeEmbeddingModel::Concurrency() const noexcept {
 
 int BgeEmbeddingModel::Embed(const TextBatch& inputs,
                              const EmbeddingOptions& options,
-                             EmbeddingBatch* outputs) noexcept {
-  if (!outputs) return -1;
+                             EmbeddingBatch* outputs,
+                             std::string* diagnostic) noexcept {
+  if (diagnostic) diagnostic->clear();
+  if (!outputs) {
+    SetDiagnosticNoexcept(diagnostic, "Model output pointer is null");
+    return -1;
+  }
   outputs->clear();
 
   if (inputs.empty()) {
@@ -215,6 +221,7 @@ int BgeEmbeddingModel::Embed(const TextBatch& inputs,
   }
 
   if (!session_) {
+    SetDiagnosticNoexcept(diagnostic, "Model session is null");
     return -1;
   }
 
@@ -224,19 +231,19 @@ int BgeEmbeddingModel::Embed(const TextBatch& inputs,
 
   return FixedBatchExecutor::Execute<std::string, std::vector<float>>(
       inputs, policy,
-      [this, should_normalize, &inputs](
+      [this, should_normalize, &inputs, diagnostic](
           const BatchSlice& slice,
           std::vector<std::vector<float>>* batch_embeddings) {
         return this->RawEmbedSlice(inputs, slice, batch_embeddings,
-                                   should_normalize);
+                                   should_normalize, diagnostic);
       },
-      outputs);
+      outputs, diagnostic);
 }
 
 int BgeEmbeddingModel::RawEmbedSlice(
     const TextBatch& all_inputs, const BatchSlice& slice,
-    std::vector<std::vector<float>>* batch_embeddings,
-    bool normalize_flag) noexcept {
+    std::vector<std::vector<float>>* batch_embeddings, bool normalize_flag,
+    std::string* diagnostic) noexcept {
   if (!batch_embeddings) return -1;
   batch_embeddings->clear();
 
@@ -252,6 +259,7 @@ int BgeEmbeddingModel::RawEmbedSlice(
                               &diag)) {
       ALG_LOG_ERROR("[BgeEmbeddingModel] Failed to create input tensors: %s\n",
                     diag.c_str());
+      SetDiagnosticNoexcept(diagnostic, diag);
       return -1;
     }
     int64_t* ids_ptr = input_tensors.ids;
@@ -268,6 +276,7 @@ int BgeEmbeddingModel::RawEmbedSlice(
                                &diag)) {
           ALG_LOG_ERROR("[BgeEmbeddingModel] Tokenizer encode error: %s\n",
                         diag.c_str());
+          SetDiagnosticNoexcept(diagnostic, diag);
           batch_embeddings->clear();
           return -1;
         }
@@ -293,6 +302,7 @@ int BgeEmbeddingModel::RawEmbedSlice(
     if (ret != 0) {
       ALG_LOG_ERROR("[BgeEmbeddingModel] session_->Run failed: %s\n",
                     diag.c_str());
+      SetDiagnosticNoexcept(diagnostic, diag);
       batch_embeddings->clear();
       return ret;
     }
@@ -305,6 +315,7 @@ int BgeEmbeddingModel::RawEmbedSlice(
           "session "
           "outputs\n",
           output_name_.c_str());
+      SetDiagnosticNoexcept(diagnostic, "Expected output tensor is missing");
       batch_embeddings->clear();
       return -1;
     }
@@ -314,6 +325,7 @@ int BgeEmbeddingModel::RawEmbedSlice(
                                  embedding_dim_, &data, &diag)) {
       ALG_LOG_ERROR("[BgeEmbeddingModel] ValidateEmbeddingOutput failed: %s\n",
                     diag.c_str());
+      SetDiagnosticNoexcept(diagnostic, diag);
       batch_embeddings->clear();
       return -1;
     }
@@ -356,6 +368,8 @@ int BgeEmbeddingModel::RawEmbedSlice(
 
         if (!embedding_support::FinalizeEmbeddingVector(
                 pooled, normalize_flag, &(*batch_embeddings)[b])) {
+          SetDiagnosticNoexcept(diagnostic,
+                                "Embedding pooling or normalization failed");
           batch_embeddings->clear();
           return -1;
         }
@@ -366,6 +380,8 @@ int BgeEmbeddingModel::RawEmbedSlice(
       for (size_t b = 0; b < exec_count; ++b) {
         if (!embedding_support::FinalizeEmbeddingVector(
                 data + b * dim, dim, normalize_flag, &(*batch_embeddings)[b])) {
+          SetDiagnosticNoexcept(diagnostic,
+                                "Embedding pooling or normalization failed");
           batch_embeddings->clear();
           return -1;
         }
@@ -376,10 +392,12 @@ int BgeEmbeddingModel::RawEmbedSlice(
   } catch (const std::exception& e) {
     ALG_LOG_ERROR("[BgeEmbeddingModel] RawEmbedSlice exception: %s\n",
                   e.what());
+    SetDiagnosticNoexcept(diagnostic, e.what());
     batch_embeddings->clear();
     return -1;
   } catch (...) {
     ALG_LOG_ERROR("[BgeEmbeddingModel] RawEmbedSlice unknown exception\n");
+    SetDiagnosticNoexcept(diagnostic, "Unknown model execution exception");
     batch_embeddings->clear();
     return -1;
   }

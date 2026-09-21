@@ -43,8 +43,8 @@ class BgeRerankerModel final : public IRerankModel {
   const std::string& Capability() const noexcept override;
   InferenceConcurrency Concurrency() const noexcept override;
 
-  int Score(const QueryCandidatesBatch& inputs,
-            ScoreBatch* outputs) noexcept override;
+  int Score(const QueryCandidatesBatch& inputs, ScoreBatch* outputs,
+            std::string* diagnostic = nullptr) noexcept override;
 
   const BertWordPieceTokenizer& Tokenizer() const noexcept {
     return tokenizer_;
@@ -57,8 +57,8 @@ class BgeRerankerModel final : public IRerankModel {
 
  private:
   int RawScoreSlice(const QueryCandidatesBatch& all_inputs,
-                    const BatchSlice& slice,
-                    std::vector<float>* batch_scores) noexcept;
+                    const BatchSlice& slice, std::vector<float>* batch_scores,
+                    std::string* diagnostic) noexcept;
 
   std::shared_ptr<ITensorGraphSession> session_;
   BertWordPieceTokenizer tokenizer_;

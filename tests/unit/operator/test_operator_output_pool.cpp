@@ -4,21 +4,133 @@
 #include <chrono>
 #include <cstring>
 #include <memory>
+#include <stdexcept>
 #include <thread>
 #include <vector>
 
 #include "adapter/operator/operator_output_pool.h"
 #include "adapter/operator/operator_process_binding.h"
 #include "adapter/operator/operator_value_type_registry.h"
+#include "adapter/operator_value_type.h"
 #include "scoped_allocation_failure.h"
 #include "tests/support/operator_nested_output_fixture.h"
 
 namespace llm_edgeflow {
 
+namespace {
+
+struct BusinessSummaryOutput {
+  uint64_t request_id = 0;
+  CompanyString* title = nullptr;
+  CompanyString* summary = nullptr;
+};
+
+OperatorValueTypeBinding MakeBusinessSummaryBinding() {
+  std::string type_name = "BusinessSummaryOutput";
+  std::string title_name = "title";
+  std::string summary_name = "summary";
+  auto binding = MakePooledOutputBinding<BusinessSummaryOutput>(
+      "test_business_summary", type_name.c_str(),
+      {{title_name, &BusinessSummaryOutput::title, {7, 31}},
+       {summary_name, &BusinessSummaryOutput::summary, {15, 63}}},
+      [](BusinessSummaryOutput& output) noexcept { output.request_id = 0; });
+  type_name.assign(type_name.size(), 'x');
+  title_name.assign(title_name.size(), 'x');
+  summary_name.assign(summary_name.size(), 'x');
+  return binding;
+}
+
+}  // namespace
+
 class OperatorOutputPoolTest : public ::testing::Test {
  protected:
   void SetUp() override { OperatorValueTypeRegistry::Instance().GlobalInit(); }
 };
+
+TEST_F(OperatorOutputPoolTest,
+       AuthoredOutputFieldsDriveBudgetAllocationAndReuse) {
+  const auto binding = MakeBusinessSummaryBinding();
+  EXPECT_EQ(binding.external_c_type_name, "BusinessSummaryOutput");
+  ASSERT_EQ(binding.output_layout.string_capacity_fields.size(), 2U);
+  EXPECT_EQ(
+      binding.output_layout.string_capacity_fields.at("title").default_capacity,
+      7U);
+  EXPECT_EQ(
+      binding.output_layout.string_capacity_fields.at("summary").max_capacity,
+      63U);
+  ResolvedOutputPoolSpec spec;
+  spec.type = binding.canonical_suffix;
+  spec.capacities["summary"] = 23;
+  size_t bytes = 0;
+  std::string error;
+  ASSERT_TRUE(ComputeOutputPoolPayloadBytes(binding, spec, 1, &bytes, &error))
+      << error;
+  EXPECT_EQ(bytes,
+            sizeof(BusinessSummaryOutput) + 2 * sizeof(CompanyString) + 8 + 24);
+  std::shared_ptr<OutputPoolState> pool;
+  ASSERT_EQ(
+      OutputPoolState::Create(spec.type, 1, spec, &binding, &pool, &error), 0)
+      << error;
+  void* block = nullptr;
+  ASSERT_EQ(pool->Acquire(&block), 0);
+  auto* output = static_cast<BusinessSummaryOutput*>(block);
+  ASSERT_NE(output->title, nullptr);
+  ASSERT_NE(output->summary, nullptr);
+  CompanyString* title = output->title;
+  CompanyString* summary = output->summary;
+  char* title_data = title->data;
+  char* summary_data = summary->data;
+  ASSERT_NE(title_data, nullptr);
+  ASSERT_NE(summary_data, nullptr);
+  for (int round = 0; round < 3; ++round) {
+    EXPECT_EQ(output->request_id, 0U);
+    EXPECT_EQ(output->title, title);
+    EXPECT_EQ(output->summary, summary);
+    EXPECT_EQ(title->data, title_data);
+    EXPECT_EQ(summary->data, summary_data);
+    EXPECT_EQ(title->length, 0);
+    EXPECT_EQ(summary->length, 0);
+    EXPECT_EQ(title_data[0], '\0');
+    EXPECT_EQ(summary_data[0], '\0');
+    output->request_id = 42;
+    std::memset(title_data, 't', 7);
+    title_data[7] = '\0';
+    title->length = 7;
+    std::memset(summary_data, 's', 23);
+    summary_data[23] = '\0';
+    summary->length = 23;
+    void* reused = nullptr;
+    int result = -1;
+    bool allocated = false;
+    {
+      test_support::ScopedAllocationFailure failure(0);
+      pool->ReturnBlock(block);
+      result = pool->Acquire(&reused);
+      allocated = failure.Triggered();
+    }
+    ASSERT_EQ(result, 0);
+    EXPECT_FALSE(allocated);
+    EXPECT_EQ(reused, block);
+  }
+  pool->ReturnBlock(block);
+}
+
+TEST_F(OperatorOutputPoolTest,
+       AuthoredOutputRejectsAmbiguousFieldDescriptions) {
+  using Field = OutputStringField<BusinessSummaryOutput>;
+  const std::vector<std::vector<Field>> invalid_fields = {
+      {{"", &BusinessSummaryOutput::title, {7, 31}}},
+      {{"title", &BusinessSummaryOutput::title, {7, 31}},
+       {"title", &BusinessSummaryOutput::summary, {15, 63}}},
+      {{"title", &BusinessSummaryOutput::title, {7, 31}},
+       {"summary", &BusinessSummaryOutput::title, {15, 63}}}};
+  for (const auto& fields : invalid_fields) {
+    EXPECT_THROW(MakePooledOutputBinding<BusinessSummaryOutput>(
+                     "test_invalid_fields", "BusinessSummaryOutput", fields,
+                     [](BusinessSummaryOutput&) noexcept {}),
+                 std::invalid_argument);
+  }
+}
 
 // 1. 深度 0 归一化为 25 且正常预分配，深度 > 1024 拦截
 TEST_F(OperatorOutputPoolTest, DepthZeroNormalizedTo25AndMaxLimitChecked) {
@@ -568,15 +680,19 @@ TEST_F(OperatorOutputPoolTest, StrictSpecTypeAndMemoryBudgetBoundary) {
 TEST_F(OperatorOutputPoolTest,
        EveryAllocationFailureReleasesResourcesAndAllowsRetry) {
   const auto nested_binding = test_support::MakeNestedOutputBinding();
-  const char* types[] = {"keyword_out", "entity_out",     "doc_out",
-                         "audit_out",   "audio_out",      "rerank_out",
-                         "od_out",      "test_nested_out"};
+  const auto authored_binding = MakeBusinessSummaryBinding();
+  const char* types[] = {
+      "keyword_out", "entity_out",      "doc_out",
+      "audit_out",   "audio_out",       "rerank_out",
+      "od_out",      "test_nested_out", "test_business_summary"};
   for (const char* type : types) {
     const std::string suffix(type);
     const auto* binding =
         suffix == nested_binding.canonical_suffix
             ? &nested_binding
             : OperatorValueTypeRegistry::Instance().GetBindingBySuffix(suffix);
+    if (suffix == authored_binding.canonical_suffix)
+      binding = &authored_binding;
     ASSERT_NE(binding, nullptr);
     ResolvedOutputPoolSpec spec;
     spec.type = suffix;

@@ -93,7 +93,9 @@ class DistinctMockEmbeddingModel : public IEmbeddingModel {
   }
 
   int Embed(const TextBatch& inputs, const EmbeddingOptions&,
-            EmbeddingBatch* outputs) noexcept override {
+            EmbeddingBatch* outputs,
+            std::string* diagnostic = nullptr) noexcept override {
+    if (diagnostic) diagnostic->clear();
     if (!outputs) return -1;
     outputs->clear();
     for (const auto& item : inputs) {

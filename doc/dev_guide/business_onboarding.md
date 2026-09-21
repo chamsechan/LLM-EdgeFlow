@@ -102,6 +102,11 @@ JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代�
 4. **登记构建。**
    将新增源码加入 `src/adapter/CMakeLists.txt` 的 `edgeflow_integration_objects`。
 
+共享 key 用 `MakeBlackboardKey<T>(name)` 定义；转换器 Definition 使用
+`RequiredInputPort` / `OutputPort`，转换回调通过 `bindings.Key<T>(logical_name)`
+读取或发布，避免手写可从类型推导的字符串。多槽测试可直接把
+`ExternalInputBatchView` / `ExternalOutputBatchView` 交给 `AdapterHarness`，包含各槽类型和池规格。
+
 ## 4. Operator 类型与输出池
 
 **ValueType 说明“这块平台内存是什么类型、如何检查和管理”，输出池负责有界租约与复用。**
@@ -109,8 +114,9 @@ JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代�
 1. 当前环境的模拟宿主结构先在 `platform_mock/operator_data_types.h` 声明，类型实现
    包含 `adapter/operator_value_type.h`，通过 `RegisterOperatorValueType` 与
    `REGISTER_OPERATOR_VALUE_TYPE` 在自己的源码中登记。
-   输入 binding 指定规范后缀、外部类型、I/O 方向和校验函数；输出 binding 还需声明
-   每个字符串的默认/最大容量、metadata 上限、池载荷预算及分配、重置、释放行为。
+   输入使用 `MakeTypedInputBinding<T>`，只需提供后缀、类型名及类型化校验函数。
+   标准字符串字段与可选 metadata 使用 `MakePooledOutputBinding<T>`：声明成员、
+   默认/最大容量及标量重置函数，复用内置预算、分配与释放实现；特殊布局才手写生命周期回调。
 2. 同一外层类型的不同嵌套布局可以注册命名分配方案，配置通过 `allocator` 和 `params`
    选择；用 `MakeOutputParameterParser<T>` 注册自己普通参数结构的字符串解析函数。
    配置只在最外层创建阶段读取，分配实现仅创建一份完整结构，不管理池深。

@@ -55,13 +55,16 @@ src/adapter/
     operator_config_resolver.cpp/.h
     operator_process_binding.cpp/.h
     operator_adapter.cpp
+    operator_value_type.cpp       通用值类型分配、预算与重置
 ```
 
-转换器作者包含 `adapter/io_converter.h` 与 `adapter/converter_authoring.h`，实现 `InputConverter` 与
-`OutputConverter` 纯虚类，并通过 `REGISTER_INPUT_CONVERTER` 和 `REGISTER_OUTPUT_CONVERTER` 注册。
+转换器作者包含 `adapter/io_converter.h` 与 `adapter/converter_authoring.h`，编写 `InputConverter` 与
+`OutputConverter` 函数回调及各自的 Definition，并通过 `REGISTER_INPUT_CONVERTER` 和 `REGISTER_OUTPUT_CONVERTER` 注册。
 各业务接入绑定在 `src/adapter/biz/` 中声明 `IoBindingDefinition`，通过 `REGISTER_IO_BINDING` 注册。
 宿主值类型与命名输出分配方案通过 `adapter/operator_value_type.h` 登记；实现只管理
-单份结构及嵌套存储，队列、租约和初始化审计归通用机制所有。
+单份结构及嵌套存储，队列、租约和初始化审计归通用机制所有。常见类型直接使用
+`MakeTypedInputBinding<T>` 与 `MakePooledOutputBinding<T>`；模板保留在扩展头中，
+非模板分配实现归 `src/adapter/operator/`，不按业务复制池机制。
 完整步骤见[业务接入](business_onboarding.md)。
 
 ## 标识符与定义

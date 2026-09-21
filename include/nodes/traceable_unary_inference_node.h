@@ -42,7 +42,8 @@ class TraceableUnaryInferenceNode : public ModelBoundNode<ModelCapability> {
         count_mismatch_error_(count_mismatch_error),
         provenance_mismatch_error_(provenance_mismatch_error) {}
 
-  virtual int InferBatch(const InputBatch& input, OutputBatch* output) = 0;
+  virtual int InferBatch(const InputBatch& input, OutputBatch* output,
+                         std::string* diagnostic) = 0;
 
   bool InitModelNode(const NodeInitContext& init_ctx,
                      const nlohmann::json& /*config*/,
@@ -63,9 +64,12 @@ class TraceableUnaryInferenceNode : public ModelBoundNode<ModelCapability> {
       out_port_.Set(req_ctx, std::move(outputs));
       return 0;
     }
-    int ret = InferBatch(*inputs, &outputs);
+    std::string diagnostic;
+    int ret = InferBatch(*inputs, &outputs, &diagnostic);
     if (ret != 0) {
-      return this->Fail(req_ctx, ret, this->Name() + " inference failed");
+      return this->Fail(req_ctx, ret,
+                        this->Name() + " inference failed" +
+                            (diagnostic.empty() ? "" : ": " + diagnostic));
     }
     const auto alignment =
         ValidatePreservedTraceableAlignment(*inputs, outputs);

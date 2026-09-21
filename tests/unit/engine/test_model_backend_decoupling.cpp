@@ -123,7 +123,9 @@ class TestEmbeddingModel : public IEmbeddingModel {
   }
 
   int Embed(const TextBatch& inputs, const EmbeddingOptions& options,
-            EmbeddingBatch* outputs) noexcept override {
+            EmbeddingBatch* outputs,
+            std::string* diagnostic = nullptr) noexcept override {
+    if (diagnostic) diagnostic->clear();
     if (!outputs) return -1;
     outputs->clear();
     if (inputs.empty()) return 0;
@@ -638,13 +640,18 @@ class DocumentImageSession final : public IImageTextGenerationSession {
   }
   BatchPolicy GetBatchPolicy() const noexcept override { return {1, 0}; }
   int Generate(const ImageTextInput& input, const GenerateOptions&,
-               std::string* output, std::string*) noexcept override {
+               std::string* output, std::string* diagnostic) noexcept override {
+    if (diagnostic) diagnostic->clear();
     ++calls;
     EXPECT_EQ(input.width, 2);
     EXPECT_EQ(input.height, 2);
     EXPECT_FALSE(input.prompt.empty());
     *output = "TOTAL 12.50";
-    return fail ? -1 : 0;
+    if (fail) {
+      SetDiagnosticNoexcept(diagnostic, "document image backend failed");
+      return -1;
+    }
+    return 0;
   }
   int calls = 0;
   bool fail = false;
@@ -715,9 +722,12 @@ TEST(ModelBackendDecouplingTest,
   EXPECT_NE(model->Recognize(images, &outputs), 0);
   EXPECT_TRUE(outputs.empty());
   session->fail = true;
-  EXPECT_NE(model->Recognize({images[0]}, &outputs), 0);
+  std::string diagnostic = "stale error";
+  EXPECT_NE(model->Recognize({images[0]}, &outputs, &diagnostic), 0);
+  EXPECT_EQ(diagnostic, "document image backend failed");
   EXPECT_TRUE(outputs.empty());
-  EXPECT_EQ(model->Recognize({}, &outputs), 0);
+  EXPECT_EQ(model->Recognize({}, &outputs, &diagnostic), 0);
+  EXPECT_TRUE(diagnostic.empty());
   EXPECT_NE(model->Recognize({}, nullptr), 0);
   context.model_config = {{"patch_size", 0}};
   EXPECT_EQ(VisionDocumentModel::Create(context, &error), nullptr);
@@ -752,12 +762,17 @@ class GeneratedEmbeddingSession final : public IGeneratedTokenEmbeddingSession {
   BatchPolicy GetBatchPolicy() const noexcept override { return policy; }
   int GenerateEmbeddings(const std::string& prompt, bool bos, int limit,
                          GeneratedTokenEmbeddings* output,
-                         std::string*) noexcept override {
+                         std::string* diagnostic) noexcept override {
+    if (diagnostic) diagnostic->clear();
     prompts.push_back(prompt);
     EXPECT_TRUE(bos);
     EXPECT_EQ(limit, 3);
     *output = response;
-    return prompts.size() == fail_call ? -7 : 0;
+    if (prompts.size() == fail_call) {
+      SetDiagnosticNoexcept(diagnostic, "generated embedding backend failed");
+      return -7;
+    }
+    return 0;
   }
   ExecutionProtocol protocol = ExecutionProtocol::kGeneratedTokenEmbedding;
   BatchPolicy policy{1, 0};
@@ -806,9 +821,12 @@ TEST(ModelBackendDecouplingTest,
   EXPECT_EQ(output[0].data, (std::vector<float>{0, 4}));
   session->prompts.clear();
   session->fail_call = 2;
-  EXPECT_EQ(model->Embed(inputs, {}, &output), -7);
+  std::string diagnostic = "stale error";
+  EXPECT_EQ(model->Embed(inputs, {}, &output, &diagnostic), -7);
+  EXPECT_EQ(diagnostic, "generated embedding backend failed");
   EXPECT_TRUE(output.empty());
-  EXPECT_EQ(model->Embed({}, {}, &output), 0);
+  EXPECT_EQ(model->Embed({}, {}, &output, &diagnostic), 0);
+  EXPECT_TRUE(diagnostic.empty());
   EXPECT_TRUE(output.empty());
   EXPECT_NE(model->Embed({}, {}, nullptr), 0);
 }
@@ -1127,10 +1145,15 @@ TEST(ModelBackendDecouplingTest, WhisperAsrModelTranscribeInputsAndBatching) {
   session->fail_on_call_index = 2;
   session->transcribe_call_count = 0;
   outputs.clear();
-  EXPECT_EQ(model->Transcribe(audio, &outputs), -1);
+  std::string diagnostic = "stale error";
+  EXPECT_EQ(model->Transcribe(audio, &outputs, &diagnostic), -1);
+  EXPECT_EQ(diagnostic, "Fake session error on designated call");
   EXPECT_TRUE(outputs.empty());
   EXPECT_EQ(session->transcribe_call_count, 2U);
   session->fail_on_call_index.reset();
+  EXPECT_EQ(model->Transcribe(audio, &outputs, &diagnostic), 0);
+  EXPECT_TRUE(diagnostic.empty());
+  ASSERT_EQ(outputs.size(), audio.size());
 
   // 15. Pre-validation on 3rd item failure -> session called 0 times
   audio[2].data.sample_rate = 8000;

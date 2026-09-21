@@ -46,8 +46,9 @@ class EchoModel final : public ILlmModel {
   InferenceConcurrency Concurrency() const noexcept override {
     return InferenceConcurrency::kConcurrent;
   }
-  int Generate(const TextBatch& in, const GenerateOptions&,
-               TextBatch* out) noexcept override {
+  int Generate(const TextBatch& in, const GenerateOptions&, TextBatch* out,
+               std::string* diagnostic = nullptr) noexcept override {
+    if (diagnostic) diagnostic->clear();
     ++calls;
     *out = in;
     return 0;

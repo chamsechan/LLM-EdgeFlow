@@ -18,6 +18,10 @@ for kind in ("model", "unary_inference"):
             continue  # The CLI rejects this unsupported container contract.
         tag = "Model" if kind == "model" else "Unary"
         cases.append((f"Scaffold{tag}{cap.capitalize()}Node", ["--kind", kind, "-m", cap]))
+cases.append(("ScaffoldAdvancedComputeNode", ["--authoring", "advanced"]))
+cases.append(("ScaffoldAdvancedLlmNode", ["--authoring", "advanced", "--kind", "model", "-m", "llm"]))
+cases.append(("ScaffoldBasicEmbeddingNode", ["--authoring", "basic", "--kind", "model", "-m", "embedding"]))
+cases.append(("ScaffoldBasicControlNode", ["--authoring", "basic", "--control-id", "2000000044"]))
 cases.append(("ScaffoldTutorialLlmNode", ["--kind", "model", "-m", "llm"]))
 cases.append(("ScaffoldControlNode", ["--control-id", "2000000042"]))
 
@@ -64,9 +68,11 @@ with output.open("w", encoding="utf-8") as stream:
             code = source.read_text(encoding="utf-8")
             if source.name == "scaffold_tutorial_llm_node.cpp":
                 code = apply_documented_text_functions(code)
+            # Preserve each source file's anonymous namespace isolation in this amalgamation.
+            code = code.replace("namespace {", f"namespace {source.stem} {{", 1)
             stream.write(code)
         for test in sorted((fixture_root / "tests/unit/nodes").glob("test_*.cpp")):
             code = test.read_text(encoding="utf-8")
             if test.name == "test_scaffold_tutorial_llm_node.cpp":
-                code = code.replace('"mock_answer:"', '"mock_answer:实体抽取：\\n"')
+                code = code.replace('mock_answer:', 'mock_answer:实体抽取：\\n')
             stream.write(code)

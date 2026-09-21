@@ -28,8 +28,9 @@ class TestOcrModel final : public IOcrModel {
   InferenceConcurrency Concurrency() const noexcept override {
     return InferenceConcurrency::kConcurrent;
   }
-  int Recognize(const ImageRefBatch& images,
-                OcrDocumentBatch* outputs) noexcept override {
+  int Recognize(const ImageRefBatch& images, OcrDocumentBatch* outputs,
+                std::string* diagnostic = nullptr) noexcept override {
+    if (diagnostic) diagnostic->clear();
     if (fail_) {
       if (outputs) outputs->clear();
       return -1;
@@ -83,8 +84,9 @@ class TestAsrModel final : public IAsrModel {
   InferenceConcurrency Concurrency() const noexcept override {
     return InferenceConcurrency::kConcurrent;
   }
-  int Transcribe(const AudioPcmBatch& audio,
-                 TextBatch* outputs) noexcept override {
+  int Transcribe(const AudioPcmBatch& audio, TextBatch* outputs,
+                 std::string* diagnostic = nullptr) noexcept override {
+    if (diagnostic) diagnostic->clear();
     if (fail_) {
       if (outputs) outputs->clear();
       return -1;

@@ -57,11 +57,16 @@ class AdapterHarness {
                                 ? ""
                                 : in_conv_->external_slots[0].slot_name;
     if (!slot_name.empty()) {
-      view.slot_types[slot_name] = in_conv_->external_type;
+      view.slot_types[slot_name] = in_conv_->external_slots[0].type_id;
       for (const void* input : inputs)
         view.slots[slot_name].emplace_back(const_cast<void*>(input),
                                            [](void*) {});
     }
+    return DecodeOperator(view);
+  }
+
+  int DecodeOperator(const ExternalInputBatchView& view) {
+    if (!in_conv_ || !in_conv_->decode_fn) return -1;
     InputDecodeOptions options;
     options.converter_id = in_conv_->converter_id;
 
@@ -81,19 +86,23 @@ class AdapterHarness {
                                 ? ""
                                 : out_conv_->external_slots[0].slot_name;
     if (!slot_name.empty()) {
-      view.slot_types[slot_name] = out_conv_->external_type;
+      view.slot_types[slot_name] = out_conv_->external_slots[0].type_id;
       view.leased_slots[slot_name] = output_ptrs;
     }
-    OutputEncodeOptions options;
-    options.converter_id = out_conv_->converter_id;
-
     size_t written = 0;
-    int ret = out_conv_->encode_fn(&ctx_, out_bindings_, options, &view,
-                                   &written, &status_);
+    int ret = EncodeOperator(&view, &written);
     if (ret == 0 && written <= outputs->size()) {
       outputs->resize(written);
     }
     return ret;
+  }
+
+  int EncodeOperator(ExternalOutputBatchView* view, size_t* written_count) {
+    if (!out_conv_ || !out_conv_->encode_fn || !view) return -1;
+    OutputEncodeOptions options;
+    options.converter_id = out_conv_->converter_id;
+    return out_conv_->encode_fn(&ctx_, out_bindings_, options, view,
+                                written_count, &status_);
   }
 
   template <typename T>

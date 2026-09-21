@@ -1,3 +1,4 @@
+#include "adapter/biz_blackboard_keys.h"
 #include "adapter/converter_authoring.h"
 #include "adapter/io_binding.h"
 #include "core/pipeline_catalog.h"
@@ -5,19 +6,19 @@
 namespace llm_edgeflow {
 namespace {
 
+constexpr const char* kBizName = "dialogue_compliance_audit_v1";
+constexpr size_t kMaxBatchSize = 64;
+
 BizDefinition MakeComplianceAuditBizDefinition() {
   BizDefinition def;
-  def.biz_name = "dialogue_compliance_audit_v1";
+  def.biz_name = kBizName;
   def.demo_biz = "dialogue_audit";
   def.display_name = "对话合规审核";
-  def.ingress = {
-      BizPortDefinition("raw_request_ids", "vector<uint64>", true, "1:1"),
-      BizPortDefinition("user_texts", "TextBatch", true, "1:1"),
-      BizPortDefinition("channel_names", "TextBatch", true, "1:1")};
-  def.egress = {
-      BizPortDefinition("structured_verdicts", "StructuredDocumentBatch", true,
-                        "1:1"),
-      BizPortDefinition("matched_policy", "RankedTextBatch", true, "N:1")};
+  def.ingress = {RequiredBizInput(kRawRequestIds), RequiredBizInput(kUserTexts),
+                 RequiredBizInput(kChannelNames)};
+  def.egress = {BizOutput(kStructuredVerdicts),
+                BizPortDefinition(kMatchedPolicy.name, kMatchedPolicy.type_id,
+                                  true, "N:1")};
   return def;
 }
 
@@ -31,8 +32,8 @@ const bool g_reg_compliance_audit_biz = []() {
 
 BizExposureDefinition MakeComplianceAuditBizExposure() {
   BizExposureDefinition def;
-  def.biz_name = "dialogue_compliance_audit_v1";
-  def.max_batch_size = 64;
+  def.biz_name = kBizName;
+  def.max_batch_size = kMaxBatchSize;
 
   return def;
 }
@@ -40,7 +41,7 @@ BizExposureDefinition MakeComplianceAuditBizExposure() {
 IoBindingDefinition MakeComplianceAuditOperatorBinding() {
   IoBindingDefinition def;
   def.binding_id = "compliance_audit.operator.v1";
-  def.biz_name = "dialogue_compliance_audit_v1";
+  def.biz_name = kBizName;
 
   def.input_converter_id = "audit.plain.operator.v1";
   def.output_converter_id = "audit_result.plain.operator.v1";
@@ -50,7 +51,7 @@ IoBindingDefinition MakeComplianceAuditOperatorBinding() {
   def.output_ports = {{"raw_request_ids", "raw_request_ids"},
                       {"structured_verdicts", "structured_verdicts"},
                       {"matched_policies", "matched_policy"}};
-  def.max_batch_size = 64;
+  def.max_batch_size = kMaxBatchSize;
   return def;
 }
 

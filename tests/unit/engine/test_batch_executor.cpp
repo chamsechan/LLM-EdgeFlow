@@ -186,3 +186,98 @@ TEST(FixedBatchExecutorTest, StrictOutputsAndRollback) {
   EXPECT_EQ(ret, -4);
   EXPECT_TRUE(outputs.empty());
 }
+
+TEST(FixedBatchExecutorTest, LaterFailurePreservesDiagnosticAndRollsBack) {
+  const std::vector<TraceableItem<int>> inputs{{1, 0, 10}, {2, 0, 20}};
+  std::vector<TraceableItem<int>> outputs{{9, 0, 99}};
+  std::string diagnostic = "stale error";
+  int calls = 0;
+  const int result = FixedBatchExecutor::Execute<int, int>(
+      inputs, BatchPolicy{1, 0},
+      [&](const BatchSlice&, std::vector<int>* batch_outputs) {
+        ++calls;
+        if (calls == 2) {
+          diagnostic = "scripted failure on second batch";
+          return -77;
+        }
+        batch_outputs->push_back(42);
+        return 0;
+      },
+      &outputs, &diagnostic);
+  EXPECT_EQ(result, -77);
+  EXPECT_EQ(calls, 2);
+  EXPECT_TRUE(outputs.empty());
+  EXPECT_EQ(diagnostic, "scripted failure on second batch");
+}
+
+TEST(FixedBatchExecutorTest, SuccessAndEmptyBatchClearPreviousDiagnostic) {
+  const std::vector<TraceableItem<int>> inputs{{1, 2, 10}};
+  std::vector<TraceableItem<int>> outputs;
+  std::string diagnostic = "previous failure";
+  int calls = 0;
+  const auto run = [&](const BatchSlice&, std::vector<int>* batch_outputs) {
+    ++calls;
+    batch_outputs->push_back(20);
+    return 0;
+  };
+  const int result = FixedBatchExecutor::Execute<int, int>(
+      inputs, BatchPolicy{1, 0}, run, &outputs, &diagnostic);
+  ASSERT_EQ(result, 0);
+  EXPECT_TRUE(diagnostic.empty());
+  ASSERT_EQ(outputs.size(), 1U);
+  EXPECT_EQ(outputs[0].req_id, 1U);
+  EXPECT_EQ(outputs[0].sub_id, 2U);
+  EXPECT_EQ(outputs[0].data, 20);
+
+  diagnostic = "another failure";
+  const int empty_result = FixedBatchExecutor::Execute<int, int>(
+      {}, BatchPolicy{1, 0}, run, &outputs, &diagnostic);
+  EXPECT_EQ(empty_result, 0);
+  EXPECT_TRUE(diagnostic.empty());
+  EXPECT_TRUE(outputs.empty());
+  EXPECT_EQ(calls, 1);
+}
+
+TEST(FixedBatchExecutorTest, LaterExceptionRetainsWhatAndRollsBack) {
+  const std::vector<TraceableItem<int>> inputs{{1, 0, 10}, {2, 0, 20}};
+  std::vector<TraceableItem<int>> outputs;
+  std::string diagnostic = "stale error";
+  int calls = 0;
+  const int result = FixedBatchExecutor::Execute<int, int>(
+      inputs, BatchPolicy{1, 0},
+      [&](const BatchSlice&, std::vector<int>* batch_outputs) {
+        if (++calls == 2) {
+          throw std::runtime_error("device unavailable on second batch");
+        }
+        batch_outputs->push_back(42);
+        return 0;
+      },
+      &outputs, &diagnostic);
+  EXPECT_EQ(result, -4);
+  EXPECT_EQ(calls, 2);
+  EXPECT_TRUE(outputs.empty());
+  EXPECT_EQ(diagnostic, "device unavailable on second batch");
+}
+
+TEST(FixedBatchExecutorTest, LaterFailureDoesNotReuseEarlierBatchDiagnostic) {
+  std::vector<TraceableItem<int>> inputs = {{0, 0, 10}, {1, 0, 20}};
+  std::vector<TraceableItem<int>> outputs;
+  std::string diagnostic;
+  size_t calls = 0;
+  const int result = FixedBatchExecutor::Execute<int, int>(
+      inputs, BatchPolicy{1, 1},
+      [&](const BatchSlice& slice, std::vector<int>* batch_outputs) {
+        ++calls;
+        if (slice.offset == 0) {
+          diagnostic = "earlier successful batch note";
+          batch_outputs->push_back(10);
+          return 0;
+        }
+        return -73;
+      },
+      &outputs, &diagnostic);
+  EXPECT_EQ(result, -73);
+  EXPECT_EQ(calls, 2U);
+  EXPECT_TRUE(outputs.empty());
+  EXPECT_EQ(diagnostic, "Batch execution failed");
+}

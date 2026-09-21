@@ -61,12 +61,14 @@ class LlmCall {
           node_error::author_node::kModelCallFailed, "generate", slot_name_);
     }
     TextBatch outputs;
-    int ret = model_->Generate(prompts, options, &outputs);
+    std::string diagnostic;
+    int ret = model_->Generate(prompts, options, &outputs, &diagnostic);
     if (ret != 0) {
       return NodeResult<TextBatch>::Failure(
           NodeErrorKind::kModelCallError,
-          "LLM generate failed with code " + std::to_string(ret), ret,
-          "generate", slot_name_);
+          "LLM generate failed with code " + std::to_string(ret) +
+              (diagnostic.empty() ? "" : ": " + diagnostic),
+          ret, "generate", slot_name_);
     }
     return detail::ConvertAlignedOutputs(prompts, std::move(outputs), "LLM",
                                          slot_name_);
@@ -104,12 +106,14 @@ class EmbeddingCall {
           node_error::author_node::kModelCallFailed, "embed", slot_name_);
     }
     EmbeddingBatch outputs;
-    int ret = model_->Embed(inputs, options, &outputs);
+    std::string diagnostic;
+    int ret = model_->Embed(inputs, options, &outputs, &diagnostic);
     if (ret != 0) {
       return NodeResult<EmbeddingBatch>::Failure(
           NodeErrorKind::kModelCallError,
-          "Embedding embed failed with code " + std::to_string(ret), ret,
-          "embed", slot_name_);
+          "Embedding embed failed with code " + std::to_string(ret) +
+              (diagnostic.empty() ? "" : ": " + diagnostic),
+          ret, "embed", slot_name_);
     }
     return detail::ConvertAlignedOutputs(inputs, std::move(outputs),
                                          "Embedding", slot_name_);

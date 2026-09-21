@@ -57,8 +57,14 @@ class StarterAdvancedLlmNode final : public ModelBoundNode<ILlmModel> {
     }
 
     // 2. Call the bound model. Reject failures before interpreting any output.
-    const int ret = model()->Generate(prompts, GenerateOptions{}, &outputs);
-    if (ret != 0) return Fail(ctx, ret, Name() + ": model inference failed");
+    std::string diagnostic;
+    const int ret =
+        model()->Generate(prompts, GenerateOptions{}, &outputs, &diagnostic);
+    if (ret != 0) {
+      return Fail(ctx, ret,
+                  Name() + ": model inference failed" +
+                      (diagnostic.empty() ? "" : ": " + diagnostic));
+    }
     if (!ValidatePreservedTraceableAlignment(*inputs, outputs).IsAligned()) {
       return Fail(ctx, -8103, Name() + ": output count or provenance mismatch");
     }
