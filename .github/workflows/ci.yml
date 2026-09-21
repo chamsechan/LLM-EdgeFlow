@@ -104,11 +104,6 @@ jobs:
             python3
           echo "TOOLCHAIN_ID=gcc-$(gcc -dumpfullversion || gcc -dumpversion)" >> $GITHUB_ENV
 
-      - name: Set CCache Epoch
-        shell: bash
-        run: |
-          echo "CCACHE_EPOCH=$(date -u +%G-%V)" >> "$GITHUB_ENV"
-
       - name: Restore Prebuilt 3rdparty Dependencies
         uses: actions/cache/restore@v4
         with:
@@ -125,7 +120,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ env.CCACHE_DIR }}
-          key: sanitizer-ccache-v2-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-${{ env.CCACHE_EPOCH }}
+          # Restore the latest accessible snapshot; save a new one after each
+          # successful run, including reruns (GitHub cache entries are immutable).
+          key: sanitizer-ccache-v2-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
             sanitizer-ccache-v2-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-
 
