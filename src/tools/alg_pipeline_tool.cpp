@@ -195,6 +195,8 @@ void Usage() {
   std::cerr << "Usage:\n"
             << "  alg_pipeline_tool catalog [--biz|-b NAME]\n"
             << "  alg_pipeline_tool describe-node NODE_TYPE\n"
+            << "  alg_pipeline_tool describe-model MODEL_TYPE\n"
+            << "  alg_pipeline_tool describe-backend BACKEND_TYPE\n"
             << "  alg_pipeline_tool init --biz|-b NAME [--profile "
                "NAME|--empty] [--raw]\n"
             << "  alg_pipeline_tool validate FILE|--stdin [--explain]\n"
@@ -298,6 +300,37 @@ int main(int argc, char* argv[]) {
     }
     auto result = PipelineCatalog::NodeToJson(*definition);
     result["schema_version"] = 3;
+    result["ok"] = true;
+    std::cout << result.dump(2) << std::endl;
+    return 0;
+  }
+
+  if (command == "describe-model" || command == "describe-backend") {
+    if (argc != 3) {
+      Usage();
+      return 2;
+    }
+    nlohmann::json result;
+    if (command == "describe-model") {
+      const auto definition = PipelineCatalog::FindModel(argv[2]);
+      if (!definition) {
+        std::cout
+            << PipelineError(DiagnosticCode::kUnknownModelType, argv[2]).dump(2)
+            << std::endl;
+        return 1;
+      }
+      result = PipelineCatalog::ModelToJson(*definition);
+    } else {
+      const auto definition = PipelineCatalog::FindBackend(argv[2]);
+      if (!definition) {
+        std::cout
+            << PipelineError(DiagnosticCode::kUnknownBackend, argv[2]).dump(2)
+            << std::endl;
+        return 1;
+      }
+      result = PipelineCatalog::BackendToJson(*definition);
+    }
+    result["schema_version"] = 1;
     result["ok"] = true;
     std::cout << result.dump(2) << std::endl;
     return 0;

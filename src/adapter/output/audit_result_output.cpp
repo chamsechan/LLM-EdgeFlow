@@ -27,29 +27,17 @@ int EncodeOperatorAuditResult(AlgContext* context,
         options.converter_id.c_str());
   }
 
-  const auto* verdicts = context->Read(
-      bindings.Key<StructuredDocumentBatch>("structured_verdicts"));
-  if (!verdicts) {
-    return AdapterValidationHelper::ReturnInvalidInput(
-        status, "Missing required context value: structured_verdicts",
-        "verdicts", options.converter_id.c_str());
-  }
+  const auto* verdicts = ReadOutputValue(
+      *context, bindings, kStructuredVerdicts, options, status, "verdicts");
+  if (!verdicts) return COMPANY_ALG_ERR_INVALID_INPUT;
 
   const auto* matched_policies =
-      context->Read(bindings.Key<RankedTextBatch>("matched_policies"));
-  if (!matched_policies) {
-    return AdapterValidationHelper::ReturnInvalidInput(
-        status, "Missing required context value: matched_policies",
-        "matched_policies", options.converter_id.c_str());
-  }
+      ReadOutputValue(*context, bindings, kMatchedPolicies, options, status);
+  if (!matched_policies) return COMPANY_ALG_ERR_INVALID_INPUT;
 
   const auto* raw_req_ids =
-      context->Read(bindings.Key<std::vector<uint64_t>>("raw_request_ids"));
-  if (!raw_req_ids) {
-    return AdapterValidationHelper::ReturnInvalidInput(
-        status, "Missing required context value: raw_request_ids",
-        "raw_request_ids", options.converter_id.c_str());
-  }
+      ReadOutputValue(*context, bindings, kRawRequestIds, options, status);
+  if (!raw_req_ids) return COMPANY_ALG_ERR_INVALID_INPUT;
 
   size_t count = verdicts->size();
   if (destination->count < count) {
@@ -119,40 +107,22 @@ int EncodeOperatorAuditResult(AlgContext* context,
     out->risk_score = risk_score;
     out->status_code = 0;
 
-    std::string err;
-    int ret = CopyToOperatorString(
-        risk_level.c_str(), out->risk_level,
-        destination->GetSlotCapacity("audit_out", "risk_level", 31),
-        "risk_level", &err);
-    if (ret != 0) {
-      return AdapterValidationHelper::ReturnBufferTooSmall(
-          status, err.empty() ? "Buffer too small for risk_level" : err.c_str(),
-          "risk_level", options.converter_id.c_str(), static_cast<int>(i));
+    if (!WriteOutputString(*destination, "audit_out", out->risk_level,
+                           "risk_level", risk_level.c_str(), options, status,
+                           i)) {
+      return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     }
 
-    ret = CopyToOperatorString(
-        policy_clause.c_str(), out->matched_policy_clause,
-        destination->GetSlotCapacity("audit_out", "matched_policy_clause", 255),
-        "matched_policy_clause", &err);
-    if (ret != 0) {
-      return AdapterValidationHelper::ReturnBufferTooSmall(
-          status,
-          err.empty() ? "Buffer too small for matched_policy_clause"
-                      : err.c_str(),
-          "matched_policy_clause", options.converter_id.c_str(),
-          static_cast<int>(i));
+    if (!WriteOutputString(*destination, "audit_out",
+                           out->matched_policy_clause, "matched_policy_clause",
+                           policy_clause.c_str(), options, status, i)) {
+      return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     }
 
-    ret = CopyToOperatorString(
-        verdict_json.c_str(), out->audit_verdict_json,
-        destination->GetSlotCapacity("audit_out", "audit_verdict_json", 1023),
-        "audit_verdict_json", &err);
-    if (ret != 0) {
-      return AdapterValidationHelper::ReturnBufferTooSmall(
-          status,
-          err.empty() ? "Buffer too small for audit_verdict_json" : err.c_str(),
-          "audit_verdict_json", options.converter_id.c_str(),
-          static_cast<int>(i));
+    if (!WriteOutputString(*destination, "audit_out", out->audit_verdict_json,
+                           "audit_verdict_json", verdict_json.c_str(), options,
+                           status, i)) {
+      return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     }
   }
 
@@ -165,23 +135,15 @@ OutputConverterDefinition MakeOperatorAuditResultOutputConverter() {
   def.converter_id = "audit_result.plain.operator.v1";
 
   def.schema_id = "audit_result.plain.response";
-  def.schema_version = 1;
   def.external_type = "CompanyOperatorAuditOutput";
-  def.cardinality = "1:1";
   def.max_batch_size = 64;
-  def.capacity_policy = "reject_overflow";
 
-  def.external_slots = {
-      {"audit_out",
-       "CompanyOperatorAuditOutput",
-       PortDirection::kOutput,
-       true,
-       "CompanyOperatorAuditOutput",
-       "audit_out",
-       {"risk_level", "matched_policy_clause", "audit_verdict_json"}}};
-  def.logical_ports = {
-      RequiredInputPort(kRawRequestIds), RequiredInputPort(kStructuredVerdicts),
-      RequiredInputPort("matched_policies", kMatchedPolicy, "N:1")};
+  def.external_slots = {ExternalOutputSlot<CompanyOperatorAuditOutput>(
+      "audit_out",
+      {"risk_level", "matched_policy_clause", "audit_verdict_json"})};
+  def.logical_ports = {RequiredInputPort(kRawRequestIds),
+                       RequiredInputPort(kStructuredVerdicts),
+                       RequiredInputPort(kMatchedPolicies, "N:1")};
   def.encode_fn = &EncodeOperatorAuditResult;
   return def;
 }

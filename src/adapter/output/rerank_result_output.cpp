@@ -29,20 +29,12 @@ int EncodeOperatorRerankResult(AlgContext* context,
   }
 
   const auto* res =
-      context->Read(bindings.Key<RankedTextBatch>("ranked_results"));
-  if (!res) {
-    return AdapterValidationHelper::ReturnInvalidInput(
-        status, "Missing required context value: ranked_results",
-        "ranked_results", options.converter_id.c_str());
-  }
+      ReadOutputValue(*context, bindings, kRankedResults, options, status);
+  if (!res) return COMPANY_ALG_ERR_INVALID_INPUT;
 
   const auto* raw_req_ids =
-      context->Read(bindings.Key<std::vector<uint64_t>>("raw_request_ids"));
-  if (!raw_req_ids) {
-    return AdapterValidationHelper::ReturnInvalidInput(
-        status, "Missing required context value: raw_request_ids",
-        "raw_request_ids", options.converter_id.c_str());
-  }
+      ReadOutputValue(*context, bindings, kRawRequestIds, options, status);
+  if (!raw_req_ids) return COMPANY_ALG_ERR_INVALID_INPUT;
 
   std::vector<const RankedTextBatch::value_type*> first;
   if (!IndexResults(res, raw_req_ids, &first, "ranked_results",
@@ -106,19 +98,11 @@ OutputConverterDefinition MakeOperatorRerankResultOutputConverter() {
   def.converter_id = "rerank_result.plain.operator.v1";
 
   def.schema_id = "rerank_result.plain.response";
-  def.schema_version = 1;
   def.external_type = "CompanyOperatorRerankOutput";
-  def.cardinality = "1:1";
   def.max_batch_size = 64;
-  def.capacity_policy = "reject_overflow";
 
-  def.external_slots = {{"rerank_out",
-                         "CompanyOperatorRerankOutput",
-                         PortDirection::kOutput,
-                         true,
-                         "CompanyOperatorRerankOutput",
-                         "rerank_out",
-                         {}}};
+  def.external_slots = {
+      ExternalOutputSlot<CompanyOperatorRerankOutput>("rerank_out")};
   def.logical_ports = {RequiredInputPort(kRawRequestIds),
                        RequiredInputPort(kRankedResults, "N:1")};
   def.encode_fn = &EncodeOperatorRerankResult;

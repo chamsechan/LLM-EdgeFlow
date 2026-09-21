@@ -129,10 +129,11 @@ TEST_F(TextConvertersTest, TranslationJsonOutputEncodeOperator) {
   CompanyOperatorEntityOutput out_struct{};
   out_struct.entities_json = &cs_buf;
 
-  ExternalOutputBatchView dest;
+  TestOutputBatchView dest;
   dest.count = 1;
   dest.leased_slots["entity_out"] = {&out_struct};
   dest.slot_types["entity_out"] = "CompanyOperatorEntityOutput";
+  dest.SetCapacity("entity_out", "entities_json", sizeof(buf) - 1);
 
   OutputPortBindings bindings(
       {{"raw_request_ids", "raw_request_ids"}, {"llm_answers", "llm_answers"}});

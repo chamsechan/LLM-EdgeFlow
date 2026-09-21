@@ -14,21 +14,16 @@
 namespace llm_edgeflow {
 namespace {
 
+constexpr size_t kMaxBatchSize = 64;
+
 constexpr size_t kMaxTextLen = 64 * 1024;  // 64KB
 
 int DecodeOperatorAuditInput(const ExternalInputBatchView& source,
                              const InputDecodeOptions& options,
                              const InputPortBindings& bindings,
                              AlgContext* context, AdapterStatus* status) {
-  if (!context) {
-    return AdapterValidationHelper::ReturnInvalidInput(
-        status, "Null AlgContext passed to Decode", "context",
-        options.converter_id.c_str());
-  }
-  if (source.count == 0 || source.count > 64) {
-    return AdapterValidationHelper::ReturnInvalidInput(
-        status, "Batch size out of range [1, 64]", "slots",
-        options.converter_id.c_str());
+  if (!ValidateDecodeRequest(source, options, context, kMaxBatchSize, status)) {
+    return COMPANY_ALG_ERR_INVALID_INPUT;
   }
 
   std::vector<uint64_t> req_ids;
@@ -40,15 +35,11 @@ int DecodeOperatorAuditInput(const ExternalInputBatchView& source,
   channel_names.reserve(source.count);
 
   for (size_t i = 0; i < source.count; ++i) {
-    const auto* in = source.GetSlot<CompanyOperatorAuditInput>("audit_in", i);
-    if (!in) {
-      return AdapterValidationHelper::ReturnInvalidInput(
-          status, "Missing audit_in input slot or slot item is null",
-          "audit_in", options.converter_id.c_str(), static_cast<int>(i));
-    }
+    const auto* in = ReadInputSlot<CompanyOperatorAuditInput>(
+        source, "audit_in", i, options, status);
+    if (!in) return COMPANY_ALG_ERR_INVALID_INPUT;
 
-    if (!in->user_text || in->user_text->length < 0 ||
-        (in->user_text->length > 0 && !in->user_text->data)) {
+    if (!IsValidInputString(in->user_text)) {
       return AdapterValidationHelper::ReturnInvalidInput(
           status, "Invalid user_text CompanyString", "audit_in.user_text",
           options.converter_id.c_str(), static_cast<int>(i));
@@ -61,8 +52,7 @@ int DecodeOperatorAuditInput(const ExternalInputBatchView& source,
 
     std::string channel_str;
     if (in->channel_name) {
-      if (in->channel_name->length < 0 ||
-          (in->channel_name->length > 0 && !in->channel_name->data)) {
+      if (!IsValidInputString(in->channel_name)) {
         return AdapterValidationHelper::ReturnInvalidInput(
             status, "Invalid channel_name CompanyString",
             "audit_in.channel_name", options.converter_id.c_str(),
@@ -75,10 +65,10 @@ int DecodeOperatorAuditInput(const ExternalInputBatchView& source,
             "audit_in.channel_name", options.converter_id.c_str(),
             static_cast<int>(i));
       }
-      channel_str.assign(in->channel_name->data, in->channel_name->length);
+      channel_str = CopyInputString(*in->channel_name);
     }
 
-    std::string user_str(in->user_text->data, in->user_text->length);
+    std::string user_str = CopyInputString(*in->user_text);
     req_ids.push_back(in->request_id);
     user_texts.emplace_back(static_cast<uint32_t>(i), 0, std::move(user_str));
     channel_names.emplace_back(static_cast<uint32_t>(i), 0,
@@ -86,14 +76,14 @@ int DecodeOperatorAuditInput(const ExternalInputBatchView& source,
   }
 
   if (!AdapterValidationHelper::PublishContextValue(
-          *context, bindings.Key<std::vector<uint64_t>>("raw_request_ids"),
-          std::move(req_ids), options.converter_id.c_str(), status) ||
+          *context, bindings.Key(kRawRequestIds), std::move(req_ids),
+          options.converter_id.c_str(), status) ||
       !AdapterValidationHelper::PublishContextValue(
-          *context, bindings.Key<TextBatch>("user_texts"),
-          std::move(user_texts), options.converter_id.c_str(), status) ||
+          *context, bindings.Key(kUserTexts), std::move(user_texts),
+          options.converter_id.c_str(), status) ||
       !AdapterValidationHelper::PublishContextValue(
-          *context, bindings.Key<TextBatch>("channel_names"),
-          std::move(channel_names), options.converter_id.c_str(), status)) {
+          *context, bindings.Key(kChannelNames), std::move(channel_names),
+          options.converter_id.c_str(), status)) {
     return COMPANY_ALG_ERR_INVALID_INPUT;
   }
 
@@ -105,17 +95,11 @@ InputConverterDefinition MakeOperatorAuditInputConverter() {
   def.converter_id = "audit.plain.operator.v1";
 
   def.schema_id = "audit.plain.request";
-  def.schema_version = 1;
   def.external_type = "CompanyOperatorAuditInput";
-  def.max_batch_size = 64;
+  def.max_batch_size = kMaxBatchSize;
 
-  def.external_slots = {{"audit_in",
-                         "CompanyOperatorAuditInput",
-                         PortDirection::kInput,
-                         true,
-                         "CompanyOperatorAuditInput",
-                         "audit_in",
-                         {}}};
+  def.external_slots = {
+      ExternalInputSlot<CompanyOperatorAuditInput>("audit_in")};
   def.logical_ports = {OutputPort(kRawRequestIds), OutputPort(kUserTexts),
                        OutputPort(kChannelNames)};
   def.decode_fn = &DecodeOperatorAuditInput;

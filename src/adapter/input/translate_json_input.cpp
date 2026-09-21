@@ -14,6 +14,8 @@
 namespace llm_edgeflow {
 namespace {
 
+constexpr size_t kMaxBatchSize = 64;
+
 constexpr size_t kMaxSentenceLen = 64 * 1024;  // 64 KiB
 
 int ParseTranslateQuery(const std::string& raw_text, std::string* out_query) {
@@ -32,15 +34,8 @@ int DecodeOperatorTranslateJson(const ExternalInputBatchView& source,
                                 const InputDecodeOptions& options,
                                 const InputPortBindings& bindings,
                                 AlgContext* context, AdapterStatus* status) {
-  if (!context) {
-    return AdapterValidationHelper::ReturnInvalidInput(
-        status, "Null AlgContext passed to Decode", "context",
-        options.converter_id.c_str());
-  }
-  if (source.count == 0 || source.count > 64) {
-    return AdapterValidationHelper::ReturnInvalidInput(
-        status, "Batch size out of range [1, 64]", "slots",
-        options.converter_id.c_str());
+  if (!ValidateDecodeRequest(source, options, context, kMaxBatchSize, status)) {
+    return COMPANY_ALG_ERR_INVALID_INPUT;
   }
 
   std::vector<uint64_t> req_ids;
@@ -49,14 +44,10 @@ int DecodeOperatorTranslateJson(const ExternalInputBatchView& source,
   sentences.reserve(source.count);
 
   for (size_t i = 0; i < source.count; ++i) {
-    const auto* in = source.GetSlot<CompanyOperatorEntityInput>("entity_in", i);
-    if (!in) {
-      return AdapterValidationHelper::ReturnInvalidInput(
-          status, "Missing entity_in input slot or slot item is null",
-          "entity_in", options.converter_id.c_str(), static_cast<int>(i));
-    }
-    if (!in->sentence_text || in->sentence_text->length < 0 ||
-        (in->sentence_text->length > 0 && !in->sentence_text->data)) {
+    const auto* in = ReadInputSlot<CompanyOperatorEntityInput>(
+        source, "entity_in", i, options, status);
+    if (!in) return COMPANY_ALG_ERR_INVALID_INPUT;
+    if (!IsValidInputString(in->sentence_text)) {
       return AdapterValidationHelper::ReturnInvalidInput(
           status, "sentence_text string pointer is null or invalid",
           "sentence_text", options.converter_id.c_str(), static_cast<int>(i));
@@ -67,7 +58,7 @@ int DecodeOperatorTranslateJson(const ExternalInputBatchView& source,
           options.converter_id.c_str(), static_cast<int>(i));
     }
 
-    std::string raw(in->sentence_text->data, in->sentence_text->length);
+    std::string raw = CopyInputString(*in->sentence_text);
     std::string query;
     if (ParseTranslateQuery(raw, &query) != 0) {
       return AdapterValidationHelper::ReturnInvalidInput(
@@ -80,11 +71,11 @@ int DecodeOperatorTranslateJson(const ExternalInputBatchView& source,
   }
 
   if (!AdapterValidationHelper::PublishContextValue(
-          *context, bindings.Key<std::vector<uint64_t>>("raw_request_ids"),
-          std::move(req_ids), options.converter_id.c_str(), status) ||
+          *context, bindings.Key(kRawRequestIds), std::move(req_ids),
+          options.converter_id.c_str(), status) ||
       !AdapterValidationHelper::PublishContextValue(
-          *context, bindings.Key<TextBatch>("input_sentences"),
-          std::move(sentences), options.converter_id.c_str(), status)) {
+          *context, bindings.Key(kInputSentences), std::move(sentences),
+          options.converter_id.c_str(), status)) {
     return COMPANY_ALG_ERR_INVALID_INPUT;
   }
 
@@ -96,17 +87,11 @@ InputConverterDefinition MakeOperatorTranslateJsonInputConverter() {
   def.converter_id = "translate.json.operator.v1";
 
   def.schema_id = "translate.json.request";
-  def.schema_version = 1;
   def.external_type = "CompanyOperatorEntityInput";
-  def.max_batch_size = 64;
+  def.max_batch_size = kMaxBatchSize;
 
-  def.external_slots = {{"entity_in",
-                         "CompanyOperatorEntityInput",
-                         PortDirection::kInput,
-                         true,
-                         "entity_in",
-                         "entity_in",
-                         {}}};
+  def.external_slots = {
+      ExternalInputSlot<CompanyOperatorEntityInput>("entity_in", "entity_in")};
   def.logical_ports = {OutputPort(kRawRequestIds), OutputPort(kInputSentences)};
   def.decode_fn = &DecodeOperatorTranslateJson;
   return def;

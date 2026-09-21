@@ -25,20 +25,13 @@ int EncodeOperatorKeywordResult(AlgContext* context,
         options.converter_id.c_str());
   }
 
-  const auto* res = context->Read(bindings.Key<RuleMatchBatch>("rule_matches"));
-  if (!res) {
-    return AdapterValidationHelper::ReturnInvalidInput(
-        status, "Missing required context value: rule_matches", "res",
-        options.converter_id.c_str());
-  }
+  const auto* res =
+      ReadOutputValue(*context, bindings, kRuleMatches, options, status, "res");
+  if (!res) return COMPANY_ALG_ERR_INVALID_INPUT;
 
   const auto* raw_req_ids =
-      context->Read(bindings.Key<std::vector<uint64_t>>("raw_request_ids"));
-  if (!raw_req_ids) {
-    return AdapterValidationHelper::ReturnInvalidInput(
-        status, "Missing required context value: raw_request_ids",
-        "raw_request_ids", options.converter_id.c_str());
-  }
+      ReadOutputValue(*context, bindings, kRawRequestIds, options, status);
+  if (!raw_req_ids) return COMPANY_ALG_ERR_INVALID_INPUT;
 
   size_t count = res->size();
   if (!destination || destination->count < count) {
@@ -53,7 +46,6 @@ int EncodeOperatorKeywordResult(AlgContext* context,
     return COMPANY_ALG_ERR_INVALID_INPUT;
   }
 
-  std::string diag_err;
   for (size_t i = 0; i < count; ++i) {
     auto* out =
         destination->GetSlot<CompanyOperatorKeywordOutput>("keyword_out", i);
@@ -66,15 +58,11 @@ int EncodeOperatorKeywordResult(AlgContext* context,
     out->is_hit = res_by_request[i]->data.is_hit;
     out->status_code = res_by_request[i]->data.status_code;
 
-    uint32_t cap =
-        destination->GetSlotCapacity("keyword_out", "match_result_json", 2047);
-    int ret = CopyToOperatorString(
-        res_by_request[i]->data.match_result_json.c_str(),
-        out->match_result_json, cap, "match_result_json", &diag_err);
-    if (ret != 0) {
-      return AdapterValidationHelper::ReturnBufferTooSmall(
-          status, diag_err.c_str(), "match_result_json",
-          options.converter_id.c_str(), static_cast<int>(i));
+    if (!WriteOutputString(*destination, "keyword_out", out->match_result_json,
+                           "match_result_json",
+                           res_by_request[i]->data.match_result_json.c_str(),
+                           options, status, i)) {
+      return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     }
   }
 
@@ -87,19 +75,11 @@ OutputConverterDefinition MakeOperatorKeywordResultOutputConverter() {
   def.converter_id = "keyword.result.operator.v1";
 
   def.schema_id = "keyword.result.response";
-  def.schema_version = 1;
   def.external_type = "CompanyOperatorKeywordOutput";
-  def.cardinality = "1:1";
   def.max_batch_size = 64;
-  def.capacity_policy = "reject_overflow";
 
-  def.external_slots = {{"keyword_out",
-                         "CompanyOperatorKeywordOutput",
-                         PortDirection::kOutput,
-                         true,
-                         "CompanyOperatorKeywordOutput",
-                         "keyword_out",
-                         {"match_result_json"}}};
+  def.external_slots = {ExternalOutputSlot<CompanyOperatorKeywordOutput>(
+      "keyword_out", {"match_result_json"})};
   def.logical_ports = {RequiredInputPort(kRawRequestIds),
                        RequiredInputPort(kRuleMatches)};
   def.encode_fn = &EncodeOperatorKeywordResult;

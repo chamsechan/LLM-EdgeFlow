@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <string>
 #include <utility>
@@ -74,11 +75,16 @@ class AdapterHarness {
   }
 
   template <typename COutput>
-  int EncodeOperator(std::vector<COutput>* outputs) {
+  int EncodeOperator(std::vector<COutput>* outputs,
+                     const std::map<std::string, size_t>& capacities = {}) {
     if (!out_conv_ || !out_conv_->encode_fn || !outputs) return -1;
     std::vector<void*> output_ptrs(outputs->size());
     for (size_t i = 0; i < outputs->size(); ++i) {
       output_ptrs[i] = &(*outputs)[i];
+    }
+    ResolvedOutputPoolSpec pool_spec;
+    for (const auto& [field, capacity] : capacities) {
+      pool_spec.capacities.emplace(field, static_cast<uint32_t>(capacity));
     }
     ExternalOutputBatchView view;
     view.count = outputs->size();
@@ -88,6 +94,7 @@ class AdapterHarness {
     if (!slot_name.empty()) {
       view.slot_types[slot_name] = out_conv_->external_slots[0].type_id;
       view.leased_slots[slot_name] = output_ptrs;
+      view.pool_specs[slot_name] = &pool_spec;
     }
     size_t written = 0;
     int ret = EncodeOperator(&view, &written);

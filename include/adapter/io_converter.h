@@ -161,6 +161,12 @@ class InputPortBindings {
     return BlackboardKey<T>{"", BlackboardTypeTraits<T>::TypeName()};
   }
 
+  // The token names a logical port; always resolve the actual key via bindings.
+  template <typename T>
+  BlackboardKey<T> Key(const BlackboardKey<T>& logical_port) const {
+    return Key<T>(logical_port.name);
+  }
+
   const std::string& GetActualKey(const std::string& logical_name) const {
     auto it = mapping_.find(logical_name);
     if (it != mapping_.end()) {
@@ -197,6 +203,11 @@ class OutputPortBindings {
                               BlackboardTypeTraits<T>::TypeName()};
     }
     return BlackboardKey<T>{"", BlackboardTypeTraits<T>::TypeName()};
+  }
+
+  template <typename T>
+  BlackboardKey<T> Key(const BlackboardKey<T>& logical_port) const {
+    return Key<T>(logical_port.name);
   }
 
   const std::string& GetActualKey(const std::string& logical_name) const {

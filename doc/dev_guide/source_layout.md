@@ -61,6 +61,10 @@ src/adapter/
 转换器作者包含 `adapter/io_converter.h` 与 `adapter/converter_authoring.h`，编写 `InputConverter` 与
 `OutputConverter` 函数回调及各自的 Definition，并通过 `REGISTER_INPUT_CONVERTER` 和 `REGISTER_OUTPUT_CONVERTER` 注册。
 各业务接入绑定在 `src/adapter/biz/` 中声明 `IoBindingDefinition`，通过 `REGISTER_IO_BINDING` 注册。
+端口 Definition、回调的 `bindings.Key(port)` 和 `BindIoPort` 映射共用 typed 声明；
+非同名映射显式传入逻辑端口与实际 key。常见必需槽可用 `ExternalInputSlot<T>` /
+`ExternalOutputSlot<T>` 推导类型和默认同名后缀，特殊布局仍使用完整定义。
+业务专属实现可按修改关联同文件组织，共享 converter 保留独立引用；不要求为每个业务创建聚合宏或新注册表。
 宿主值类型与命名输出分配方案通过 `adapter/operator_value_type.h` 登记；实现只管理
 单份结构及嵌套存储，队列、租约和初始化审计归通用机制所有。常见类型直接使用
 `MakeTypedInputBinding<T>` 与 `MakePooledOutputBinding<T>`；模板保留在扩展头中，

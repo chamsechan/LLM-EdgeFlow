@@ -43,12 +43,10 @@ IoBindingDefinition MakeOcrDocQaOperatorBinding() {
 
   def.input_converter_id = "image_query.plain.operator.v1";
   def.output_converter_id = "invoice_result.plain.operator.v1";
-  def.input_ports = {{"raw_request_ids", "raw_request_ids"},
-                     {"image_paths", "image_paths"},
-                     {"user_queries", "user_queries"}};
-  def.output_ports = {{"raw_request_ids", "raw_request_ids"},
-                      {"extracted_invoice_json", "extracted_invoice_json"},
-                      {"ocr_docs", "ocr_docs"}};
+  def.input_ports = {BindIoPort(kRawRequestIds), BindIoPort(kImagePaths),
+                     BindIoPort(kUserQueries)};
+  def.output_ports = {BindIoPort(kRawRequestIds),
+                      BindIoPort(kExtractedInvoiceJson), BindIoPort(kOcrDocs)};
   def.max_batch_size = kMaxBatchSize;
   return def;
 }

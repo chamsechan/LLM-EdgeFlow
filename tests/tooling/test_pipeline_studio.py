@@ -585,6 +585,47 @@ class PipelineCliTest(unittest.TestCase):
         self.assertNotIn("diagnostics", plan)
         self.assertTrue(plan["plan"]["topological_order"])
 
+    def test_describe_models_and_backends_match_catalog(self):
+        code, catalog = self.command("catalog")
+        self.assertEqual(code, 0)
+        for command, collection, type_field in (
+            ("describe-model", "models", "model_type"),
+            ("describe-backend", "backends", "backend_type"),
+        ):
+            self.assertTrue(catalog[collection])
+            for definition in catalog[collection]:
+                with self.subTest(command=command, name=definition[type_field]):
+                    code, described = self.command(command, definition[type_field])
+                    self.assertEqual(code, 0)
+                    self.assertEqual(described, {**definition, "schema_version": 1, "ok": True})
+
+    def test_describe_models_and_backends_reject_unknown_names(self):
+        for command, diagnostic in (
+            ("describe-model", "UNKNOWN_MODEL_TYPE"),
+            ("describe-backend", "UNKNOWN_BACKEND"),
+        ):
+            for name in ("not_registered", ""):
+                with self.subTest(command=command, name=name):
+                    code, described = self.command(command, name)
+                    self.assertEqual(code, 1)
+                    self.assertFalse(described["ok"])
+                    self.assertEqual(described["diagnostics"], [{
+                        "code": diagnostic, "path": "/", "message": name,
+                        "severity": "error",
+                    }])
+
+    def test_describe_models_and_backends_require_one_argument(self):
+        for command in ("describe-model", "describe-backend"):
+            for arguments in ((), ("name", "extra"), ("name", "--raw")):
+                with self.subTest(command=command, arguments=arguments):
+                    process = subprocess.run(
+                        [str(PIPELINE_TOOL), command, *arguments],
+                        text=True, capture_output=True, cwd=ROOT, check=False,
+                    )
+                    self.assertEqual(process.returncode, 2)
+                    self.assertEqual(process.stdout, "")
+                    self.assertIn("Usage:", process.stderr)
+
     def test_init_raw_can_be_saved_and_validated_without_unwrapping(self):
         args = ["init", "--biz", "keyword_match_v1", "--profile", "keyword_match_rules"]
         code, wrapped = self.command(*args)

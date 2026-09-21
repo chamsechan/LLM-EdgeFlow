@@ -5,6 +5,7 @@
 #include "adapter/io_converter_registry.h"
 #include "adapter/operator/operator_process_binding.h"
 #include "contracts/inference_payloads.h"
+#include "core/common_contracts.h"
 #include "tests/support/adapter_harness.h"
 #include "tests/support/adapter_test_views.h"
 
@@ -446,6 +447,91 @@ TEST(IoConverterTest, HarnessSingleSlotUsesDeclaredSlotType) {
   std::vector<ReproB> outputs(2);
   EXPECT_EQ(harness.EncodeOperator(&outputs), 0);
   EXPECT_EQ(outputs.size(), 1U);
+}
+
+TEST(IoConverterTest, TypedBindingsResolveNonIdentityPorts) {
+  constexpr auto logical = MakeBlackboardKey<TextBatch>("logical_text");
+  constexpr auto actual = MakeBlackboardKey<TextBatch>("storage_text");
+  InputPortBindings inputs({BindIoPort(logical, actual)});
+  OutputPortBindings outputs({BindIoPort(logical, actual)});
+  AlgContext context;
+  ASSERT_TRUE(context.Publish(inputs.Key(logical), TextBatch{{0, 0, "hello"}}));
+  const auto* value = context.Read(outputs.Key(logical));
+  ASSERT_NE(value, nullptr);
+  ASSERT_EQ(value->size(), 1U);
+  EXPECT_EQ(value->front().data, "hello");
+  EXPECT_EQ(context.Read(logical), nullptr);
+  EXPECT_STREQ(inputs.Key(logical).name, "storage_text");
+  EXPECT_STREQ(outputs.Key(logical).name, "storage_text");
+  EXPECT_EQ(BindIoPort(logical), std::make_pair(std::string("logical_text"),
+                                                std::string("logical_text")));
+}
+
+TEST(IoConverterTest, OutputWriterRequiresExplicitFieldCapacityWithoutWriting) {
+  TestOutputBatchView view;
+  OutputEncodeOptions options;
+  options.converter_id = "test.writer";
+  char bytes[] = "old";
+  CompanyString destination{3, bytes};
+  AdapterStatus status;
+  for (bool has_other_field : {false, true}) {
+    SCOPED_TRACE(has_other_field);
+    if (has_other_field) view.SetCapacity("output", "other", 3);
+    EXPECT_FALSE(WriteOutputString(view, "output", &destination, "text", "new",
+                                   options, &status, 2));
+    EXPECT_EQ(status.Code(), COMPANY_ALG_ERR_BUFFER_TOO_SMALL);
+    EXPECT_EQ(status.Message(), "Missing output capacity specification");
+    EXPECT_EQ(status.FieldPath(), "text");
+    EXPECT_EQ(status.SampleIndex(), 2);
+    EXPECT_EQ(status.AdapterName(), "test.writer");
+    EXPECT_STREQ(bytes, "old");
+    EXPECT_EQ(destination.length, 3);
+    EXPECT_FALSE(WriteOutputString(view, "output", &destination, "text", "new",
+                                   options, nullptr, 2));
+    EXPECT_STREQ(bytes, "old");
+  }
+}
+
+TEST(IoConverterTest, OutputWriterHonorsPayloadCapacityAndTerminator) {
+  TestOutputBatchView view;
+  view.SetCapacity("output", "text", 3);
+  OutputEncodeOptions options;
+  options.converter_id = "test.writer";
+  char bytes[] = {'?', '?', '?', '?', '!'};
+  CompanyString destination{0, bytes};
+  EXPECT_TRUE(WriteOutputString(view, "output", &destination, "text", "abc",
+                                options, nullptr, 0));
+  EXPECT_STREQ(bytes, "abc");
+  EXPECT_EQ(destination.length, 3);
+  EXPECT_EQ(bytes[3], '\0');
+  EXPECT_EQ(bytes[4], '!');
+  EXPECT_FALSE(WriteOutputString(view, "output", &destination, "text", "abcd",
+                                 options, nullptr, 0));
+  EXPECT_STREQ(bytes, "abc");
+  EXPECT_EQ(destination.length, 3);
+  EXPECT_EQ(bytes[4], '!');
+
+  view.SetCapacity("output", "text", 0);
+  EXPECT_TRUE(WriteOutputString(view, "output", &destination, "text", "",
+                                options, nullptr, 0));
+  EXPECT_EQ(destination.length, 0);
+  EXPECT_EQ(bytes[0], '\0');
+  EXPECT_EQ(bytes[1], 'b');
+}
+
+TEST(IoConverterTest, EmptyInputStringAllowsNullDataAndCopiesEmbeddedNulls) {
+  CompanyString empty{0, nullptr};
+  EXPECT_TRUE(IsValidInputString(&empty));
+  EXPECT_TRUE(CopyInputString(empty).empty());
+  EXPECT_FALSE(IsValidInputString(nullptr));
+  CompanyString missing{1, nullptr};
+  EXPECT_FALSE(IsValidInputString(&missing));
+  char bytes[] = {'a', '\0', 'b'};
+  CompanyString negative{-1, bytes};
+  EXPECT_FALSE(IsValidInputString(&negative));
+  CompanyString binary{3, bytes};
+  EXPECT_TRUE(IsValidInputString(&binary));
+  EXPECT_EQ(CopyInputString(binary), std::string(bytes, sizeof(bytes)));
 }
 
 }  // namespace llm_edgeflow

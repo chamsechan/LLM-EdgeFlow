@@ -26,28 +26,16 @@ int EncodeOperatorAudioResult(AlgContext* context,
   }
 
   const auto* transcripts =
-      context->Read(bindings.Key<TextBatch>("transcripts"));
-  if (!transcripts) {
-    return AdapterValidationHelper::ReturnInvalidInput(
-        status, "Missing required context value: transcripts", "transcripts",
-        options.converter_id.c_str());
-  }
+      ReadOutputValue(*context, bindings, kTranscripts, options, status);
+  if (!transcripts) return COMPANY_ALG_ERR_INVALID_INPUT;
 
   const auto* intent_slots =
-      context->Read(bindings.Key<RuleMatchBatch>("intent_slots"));
-  if (!intent_slots) {
-    return AdapterValidationHelper::ReturnInvalidInput(
-        status, "Missing required context value: intent_slots", "intent_slots",
-        options.converter_id.c_str());
-  }
+      ReadOutputValue(*context, bindings, kIntentSlots, options, status);
+  if (!intent_slots) return COMPANY_ALG_ERR_INVALID_INPUT;
 
   const auto* raw_req_ids =
-      context->Read(bindings.Key<std::vector<uint64_t>>("raw_request_ids"));
-  if (!raw_req_ids) {
-    return AdapterValidationHelper::ReturnInvalidInput(
-        status, "Missing required context value: raw_request_ids",
-        "raw_request_ids", options.converter_id.c_str());
-  }
+      ReadOutputValue(*context, bindings, kRawRequestIds, options, status);
+  if (!raw_req_ids) return COMPANY_ALG_ERR_INVALID_INPUT;
 
   size_t count = transcripts->size();
   if (destination->count < count) {
@@ -82,29 +70,17 @@ int EncodeOperatorAudioResult(AlgContext* context,
     const std::string& slot_json =
         intent_slots_by_request[i]->data.match_result_json;
 
-    std::string err;
-    int ret = CopyToOperatorString(
-        transcripts_by_request[i]->data.c_str(), out->transcribed_text,
-        destination->GetSlotCapacity("audio_out", "transcribed_text", 511),
-        "transcribed_text", &err);
-    if (ret != 0) {
-      return AdapterValidationHelper::ReturnBufferTooSmall(
-          status,
-          err.empty() ? "Buffer too small for transcribed_text" : err.c_str(),
-          "transcribed_text", options.converter_id.c_str(),
-          static_cast<int>(i));
+    if (!WriteOutputString(*destination, "audio_out", out->transcribed_text,
+                           "transcribed_text",
+                           transcripts_by_request[i]->data.c_str(), options,
+                           status, i)) {
+      return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     }
 
-    ret = CopyToOperatorString(
-        slot_json.c_str(), out->intent_slot_json,
-        destination->GetSlotCapacity("audio_out", "intent_slot_json", 1023),
-        "intent_slot_json", &err);
-    if (ret != 0) {
-      return AdapterValidationHelper::ReturnBufferTooSmall(
-          status,
-          err.empty() ? "Buffer too small for intent_slot_json" : err.c_str(),
-          "intent_slot_json", options.converter_id.c_str(),
-          static_cast<int>(i));
+    if (!WriteOutputString(*destination, "audio_out", out->intent_slot_json,
+                           "intent_slot_json", slot_json.c_str(), options,
+                           status, i)) {
+      return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     }
   }
 
@@ -117,19 +93,11 @@ OutputConverterDefinition MakeOperatorAudioResultOutputConverter() {
   def.converter_id = "audio_result.plain.operator.v1";
 
   def.schema_id = "audio_result.plain.response";
-  def.schema_version = 1;
   def.external_type = "CompanyOperatorAudioOutput";
-  def.cardinality = "1:1";
   def.max_batch_size = 64;
-  def.capacity_policy = "reject_overflow";
 
-  def.external_slots = {{"audio_out",
-                         "CompanyOperatorAudioOutput",
-                         PortDirection::kOutput,
-                         true,
-                         "CompanyOperatorAudioOutput",
-                         "audio_out",
-                         {"transcribed_text", "intent_slot_json"}}};
+  def.external_slots = {ExternalOutputSlot<CompanyOperatorAudioOutput>(
+      "audio_out", {"transcribed_text", "intent_slot_json"})};
   def.logical_ports = {RequiredInputPort(kRawRequestIds),
                        RequiredInputPort(kTranscripts),
                        RequiredInputPort(kIntentSlots)};

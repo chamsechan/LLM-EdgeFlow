@@ -45,12 +45,11 @@ IoBindingDefinition MakeComplianceAuditOperatorBinding() {
 
   def.input_converter_id = "audit.plain.operator.v1";
   def.output_converter_id = "audit_result.plain.operator.v1";
-  def.input_ports = {{"raw_request_ids", "raw_request_ids"},
-                     {"user_texts", "user_texts"},
-                     {"channel_names", "channel_names"}};
-  def.output_ports = {{"raw_request_ids", "raw_request_ids"},
-                      {"structured_verdicts", "structured_verdicts"},
-                      {"matched_policies", "matched_policy"}};
+  def.input_ports = {BindIoPort(kRawRequestIds), BindIoPort(kUserTexts),
+                     BindIoPort(kChannelNames)};
+  def.output_ports = {BindIoPort(kRawRequestIds),
+                      BindIoPort(kStructuredVerdicts),
+                      BindIoPort(kMatchedPolicies, kMatchedPolicy)};
   def.max_batch_size = kMaxBatchSize;
   return def;
 }

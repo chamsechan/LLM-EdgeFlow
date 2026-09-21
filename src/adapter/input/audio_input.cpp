@@ -14,19 +14,14 @@
 namespace llm_edgeflow {
 namespace {
 
+constexpr size_t kMaxBatchSize = 64;
+
 int DecodeOperatorAudioInput(const ExternalInputBatchView& source,
                              const InputDecodeOptions& options,
                              const InputPortBindings& bindings,
                              AlgContext* context, AdapterStatus* status) {
-  if (!context) {
-    return AdapterValidationHelper::ReturnInvalidInput(
-        status, "Null AlgContext passed to Decode", "context",
-        options.converter_id.c_str());
-  }
-  if (source.count == 0 || source.count > 64) {
-    return AdapterValidationHelper::ReturnInvalidInput(
-        status, "Batch size out of range [1, 64]", "slots",
-        options.converter_id.c_str());
+  if (!ValidateDecodeRequest(source, options, context, kMaxBatchSize, status)) {
+    return COMPANY_ALG_ERR_INVALID_INPUT;
   }
 
   std::vector<uint64_t> raw_req_ids;
@@ -36,12 +31,9 @@ int DecodeOperatorAudioInput(const ExternalInputBatchView& source,
   raw_audios.reserve(source.count);
 
   for (size_t i = 0; i < source.count; ++i) {
-    const auto* in = source.GetSlot<CompanyOperatorAudioInput>("audio_in", i);
-    if (!in) {
-      return AdapterValidationHelper::ReturnInvalidInput(
-          status, "Missing audio_in input slot or slot item is null",
-          "audio_in", options.converter_id.c_str(), static_cast<int>(i));
-    }
+    const auto* in = ReadInputSlot<CompanyOperatorAudioInput>(
+        source, "audio_in", i, options, status);
+    if (!in) return COMPANY_ALG_ERR_INVALID_INPUT;
 
     if (in->sample_rate < biz_input::kMinSampleRate ||
         in->sample_rate > biz_input::kMaxSampleRate) {
@@ -75,11 +67,11 @@ int DecodeOperatorAudioInput(const ExternalInputBatchView& source,
   }
 
   if (!AdapterValidationHelper::PublishContextValue(
-          *context, bindings.Key<std::vector<uint64_t>>("raw_request_ids"),
-          std::move(raw_req_ids), options.converter_id.c_str(), status) ||
+          *context, bindings.Key(kRawRequestIds), std::move(raw_req_ids),
+          options.converter_id.c_str(), status) ||
       !AdapterValidationHelper::PublishContextValue(
-          *context, bindings.Key<AudioPcmBatch>("audio_inputs"),
-          std::move(raw_audios), options.converter_id.c_str(), status)) {
+          *context, bindings.Key(kAudioInputs), std::move(raw_audios),
+          options.converter_id.c_str(), status)) {
     return COMPANY_ALG_ERR_INVALID_INPUT;
   }
 
@@ -91,17 +83,11 @@ InputConverterDefinition MakeOperatorAudioInputConverter() {
   def.converter_id = "audio.pcm.operator.v1";
 
   def.schema_id = "audio.pcm.request";
-  def.schema_version = 1;
   def.external_type = "CompanyOperatorAudioInput";
-  def.max_batch_size = 64;
+  def.max_batch_size = kMaxBatchSize;
 
-  def.external_slots = {{"audio_in",
-                         "CompanyOperatorAudioInput",
-                         PortDirection::kInput,
-                         true,
-                         "CompanyOperatorAudioInput",
-                         "audio_in",
-                         {}}};
+  def.external_slots = {
+      ExternalInputSlot<CompanyOperatorAudioInput>("audio_in")};
   def.logical_ports = {OutputPort(kRawRequestIds), OutputPort(kAudioInputs)};
   def.decode_fn = &DecodeOperatorAudioInput;
   return def;

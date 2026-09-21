@@ -22,11 +22,19 @@
 Demo 输出里的日志、统计和展示字段可以另行组织，但不能为 SDK 补做业务字段提取、
 字段改名、响应组装或默认成功结果。宿主程序直接调用 Operator SDK 就应获得约定响应。
 Catalog 的 ingress/egress 是转换器与 Pipeline 之间的内部逻辑端口，不能当成外部请求格式。
-完整示例见[翻译方案](../solutions/translate.md)。
+按数据形态选择下文的真实业务示例；相同载体可以承载不同协议。
 
 ## 1. 先确定要走哪条路径
 
 先运行 `./build/alg_pipeline_tool catalog`，核对已有业务契约、操作和模型能力。
+
+已知类型名称时可以直接查询，输出复用当前构建的 Catalog：
+
+```bash
+./build/alg_pipeline_tool describe-node TextRuleMatchNode
+./build/alg_pipeline_tool describe-model qwen_causal_lm
+./build/alg_pipeline_tool describe-backend llama_cpp
+```
 
 | 需求 | 修改范围与下一步 |
 | --- | --- |
@@ -83,15 +91,20 @@ JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代�
 参照关键词或实体抽取的转换器实现完成：
 
 1. **实现输入转换器（`src/adapter/input/`）。**
-   编写 `DecodeInputFn`，使用 `AdapterValidationHelper` 检查批次、指针和长度，
+   编写 `DecodeInputFn`，使用 `ValidateDecodeRequest` 复用 context/批次检查，
+   同一批次常量同时赋给 Definition。用 `ReadInputSlot<T>` 取得带类型检查的槽，
+   `IsValidInputString` 和 `CopyInputString` 处理字符串结构安全及自持有复制；
+   长度限制、可选字段含义及相应诊断留在原业务检查位置。
    将输入复制为中性 DTO 发布到 `AlgContext`。外部请求编号保存在 `raw_request_ids`，
    内部批次使用批内编号；输出阶段按来源映射回原编号。
    定义 `InputConverterDefinition`并使用
    `REGISTER_INPUT_CONVERTER` 注册。
 2. **实现输出转换器（`src/adapter/output/`）。**
-   编写 `EncodeOutputFn`，从 `AlgContext` 读取内部结果，检查结果完整性，按来源映射关联结果。
+   编写 `EncodeOutputFn`，用 `ReadOutputValue` 读取 typed 逻辑端口并报告缺值，
+   使用已有 `IndexResults` 检查结果完整性并按来源关联；多路组合、排名与业务状态继续显式处理。
    通过 `ExternalOutputBatchView` 将字段写入已租用的输出池结构（如 `CompanyOperator*Output`），
-   使用对应 `pool_specs` 中的容量 严格防护缓冲区溢出。
+   字符串使用 `WriteOutputString` 读取对应 `pool_specs` 的容量并安全写入，
+   不在转换器里再填写容量默认值。非字符串输出按自己的结构契约填充。
    定义 `OutputConverterDefinition`并使用
    `REGISTER_OUTPUT_CONVERTER` 注册。
 3. **实现业务绑定与曝光声明（`src/adapter/biz/`）。**
@@ -102,10 +115,37 @@ JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代�
 4. **登记构建。**
    将新增源码加入 `src/adapter/CMakeLists.txt` 的 `edgeflow_integration_objects`。
 
-共享 key 用 `MakeBlackboardKey<T>(name)` 定义；转换器 Definition 使用
-`RequiredInputPort` / `OutputPort`，转换回调通过 `bindings.Key<T>(logical_name)`
-读取或发布，避免手写可从类型推导的字符串。多槽测试可直接把
+共享端口用 `MakeBlackboardKey<T>(name)` 定义一次；转换器 Definition 使用
+`RequiredInputPort(port)` / `OutputPort(port)`，回调通过 `bindings.Key(port)`
+读取或发布，绑定映射使用 `BindIoPort(port)`。非同名映射使用
+`BindIoPort(logical_port, actual_key)`，两端的 C++ 类型必须一致。例如审核输出使用
+`BindIoPort(kMatchedPolicies, kMatchedPolicy)`，不能直接绕过绑定读写实际 key。
+
+外部必需槽的常见写法是 `ExternalInputSlot<T>(slot)` 和
+`ExternalOutputSlot<T>(slot, capacity_fields)`，类型由 traits 推导。
+这两个工厂令 `type_suffix = slot_name`，`key_suffix` 留空并通过 `KeySuffix()` 回退到 `type_suffix`；
+仅适用于必需槽且这三个名称相同的常见约定。输入工厂的第二参数是 `value_type`，不能用来覆盖后缀。
+不同后缀、可选槽或特殊布局使用完整 `ExternalSlotDefinition`，明确填写对应字段。
+例如逻辑槽名为 `result`、已注册类型后缀为 `entity_out`、外部 key 为 `sdk.answer` 时，
+分别设置 `slot_name = "result"`、`type_suffix = "entity_out"`、`key_suffix = "answer"`，不能直接套同名工厂。
+`schema_version`、输出 `cardinality`、`capacity_policy` 使用 Definition 已有默认值时无需再赋值；不同规则显式填写。
+多槽测试可直接把
 `ExternalInputBatchView` / `ExternalOutputBatchView` 交给 `AdapterHarness`，包含各槽类型和池规格。
+测试中直接持有字符数组时，给 `EncodeOperator` 显式提供各字段可用容量（数组大小减去结尾 NUL 的一字节），
+或用 `TestOutputBatchView::SetCapacity` 描述实际存储；`CompanyString.length` 是内容长度，不能作为容量。
+
+实现参考直接来自参与编译和测试的八个业务；公共辅助函数按适用范围使用，业务含义留在转换器中：
+
+| 数据形态 | 输入 / 输出实现 | 保留的业务职责 |
+| --- | --- | --- |
+| 纯文本、结构化结果 | [实体输入](../../src/adapter/input/text_input.cpp) / [实体输出](../../src/adapter/output/structured_document_output.cpp) | 结构化结果成功条件 |
+| 规则匹配 | [关键词输入](../../src/adapter/input/text_input.cpp) / [关键词输出](../../src/adapter/output/keyword_result_output.cpp) | 命中与业务状态 |
+| 完整 JSON 请求响应 | [翻译输入](../../src/adapter/input/translate_json_input.cpp) / [翻译输出](../../src/adapter/output/translation_json_output.cpp) | JSON 字段与响应协议 |
+| 可选字段、三路结果 | [文档输入](../../src/adapter/input/doc_query_input.cpp) / [文档输出](../../src/adapter/output/doc_answer_output.cpp) | 文档缺省、回答/意图/片段数关联 |
+| 风险判定、非同名端口 | [审核输入](../../src/adapter/input/audit_input.cpp) / [审核输出](../../src/adapter/output/audit_result_output.cpp) | 风险分数/枚举与排名校验 |
+| 音频、两路结果 | [音频输入](../../src/adapter/input/audio_input.cpp) / [音频输出](../../src/adapter/output/audio_result_output.cpp) | PCM 与采样率、转写/意图组合 |
+| 多个外部槽 | [图像问题输入](../../src/adapter/input/image_query_input.cpp) / [票据输出](../../src/adapter/output/invoice_result_output.cpp) | frame 的请求 ID、票据与 OCR boxes |
+| 候选展开与排名 | [重排输入](../../src/adapter/input/rerank_input.cpp) / [重排输出](../../src/adapter/output/rerank_result_output.cpp) | sub_id、排名和原始索引恢复 |
 
 ## 4. Operator 类型与输出池
 
@@ -173,6 +213,17 @@ Operator 的输出路径是 `Pipeline → 内部中性值 → OutputConverter �
 Result 与请求 Context 均不跨 Process 保存。Pipeline 的 `deployment.io.output_allocations` 按逻辑
 槽位分别指定类型、`allocator`、`params` 和容量。
 超过输出池容量时返回 `-4`，尚未发布的输出租约全部回滚。
+
+在运行前查看生效的池规格与配置，`depth` 应与实际宿主一致：
+
+```bash
+./build/alg_pipeline_tool resolve-conf configs/pipeline_keyword_match_rules.conf --root . --depth 1
+```
+
+输出中的 `output_pools` 包含各槽的类型、allocator、参数、metadata 和 capacities。
+复用已注册载体时只覆盖必要容量；特殊结构才需要自定义分配方案。预检证明配置与预算可以准备，
+无法预测任意未来模型响应的字节数。宿主可参考现有
+[Operator runner](../../demo/common/operator_runner.h)准备 required 输出 key，保持槽值为空并及时复制/释放结果。
 
 ## 7. 最小验证
 

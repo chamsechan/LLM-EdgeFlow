@@ -13,6 +13,8 @@
 namespace llm_edgeflow {
 namespace {
 
+constexpr size_t kMaxBatchSize = 64;
+
 constexpr size_t kMaxQueryLen = 64 * 1024;       // 64KB
 constexpr size_t kMaxDocLen = 10 * 1024 * 1024;  // 10MB
 
@@ -20,15 +22,8 @@ int DecodeOperatorDocQueryInput(const ExternalInputBatchView& source,
                                 const InputDecodeOptions& options,
                                 const InputPortBindings& bindings,
                                 AlgContext* context, AdapterStatus* status) {
-  if (!context) {
-    return AdapterValidationHelper::ReturnInvalidInput(
-        status, "Null AlgContext passed to Decode", "context",
-        options.converter_id.c_str());
-  }
-  if (source.count == 0 || source.count > 64) {
-    return AdapterValidationHelper::ReturnInvalidInput(
-        status, "Batch size out of range [1, 64]", "slots",
-        options.converter_id.c_str());
+  if (!ValidateDecodeRequest(source, options, context, kMaxBatchSize, status)) {
+    return COMPANY_ALG_ERR_INVALID_INPUT;
   }
 
   std::vector<uint64_t> raw_req_ids;
@@ -40,15 +35,11 @@ int DecodeOperatorDocQueryInput(const ExternalInputBatchView& source,
   raw_queries.reserve(source.count);
 
   for (size_t i = 0; i < source.count; ++i) {
-    const auto* in = source.GetSlot<CompanyOperatorDocInput>("doc_in", i);
-    if (!in) {
-      return AdapterValidationHelper::ReturnInvalidInput(
-          status, "Missing doc_in input slot or slot item is null", "doc_in",
-          options.converter_id.c_str(), static_cast<int>(i));
-    }
+    const auto* in = ReadInputSlot<CompanyOperatorDocInput>(source, "doc_in", i,
+                                                            options, status);
+    if (!in) return COMPANY_ALG_ERR_INVALID_INPUT;
 
-    if (!in->query_text || in->query_text->length < 0 ||
-        (in->query_text->length > 0 && !in->query_text->data)) {
+    if (!IsValidInputString(in->query_text)) {
       return AdapterValidationHelper::ReturnInvalidInput(
           status, "Invalid query_text CompanyString", "doc_in.query_text",
           options.converter_id.c_str(), static_cast<int>(i));
@@ -61,8 +52,7 @@ int DecodeOperatorDocQueryInput(const ExternalInputBatchView& source,
 
     std::string doc_str;
     if (in->doc_text) {
-      if (in->doc_text->length < 0 ||
-          (in->doc_text->length > 0 && !in->doc_text->data)) {
+      if (!IsValidInputString(in->doc_text)) {
         return AdapterValidationHelper::ReturnInvalidInput(
             status, "Invalid doc_text CompanyString", "doc_in.doc_text",
             options.converter_id.c_str(), static_cast<int>(i));
@@ -72,10 +62,10 @@ int DecodeOperatorDocQueryInput(const ExternalInputBatchView& source,
             status, "doc_text length exceeds limit", "doc_in.doc_text",
             options.converter_id.c_str(), static_cast<int>(i));
       }
-      doc_str.assign(in->doc_text->data, in->doc_text->length);
+      doc_str = CopyInputString(*in->doc_text);
     }
 
-    std::string query_str(in->query_text->data, in->query_text->length);
+    std::string query_str = CopyInputString(*in->query_text);
 
     raw_req_ids.push_back(in->request_id);
     raw_docs.emplace_back(static_cast<uint32_t>(i), 0, std::move(doc_str));
@@ -83,14 +73,14 @@ int DecodeOperatorDocQueryInput(const ExternalInputBatchView& source,
   }
 
   if (!AdapterValidationHelper::PublishContextValue(
-          *context, bindings.Key<std::vector<uint64_t>>("raw_request_ids"),
-          std::move(raw_req_ids), options.converter_id.c_str(), status) ||
-      !AdapterValidationHelper::PublishContextValue(
-          *context, bindings.Key<TextBatch>("raw_docs"), std::move(raw_docs),
+          *context, bindings.Key(kRawRequestIds), std::move(raw_req_ids),
           options.converter_id.c_str(), status) ||
       !AdapterValidationHelper::PublishContextValue(
-          *context, bindings.Key<TextBatch>("raw_queries"),
-          std::move(raw_queries), options.converter_id.c_str(), status)) {
+          *context, bindings.Key(kRawDocs), std::move(raw_docs),
+          options.converter_id.c_str(), status) ||
+      !AdapterValidationHelper::PublishContextValue(
+          *context, bindings.Key(kRawQueries), std::move(raw_queries),
+          options.converter_id.c_str(), status)) {
     return COMPANY_ALG_ERR_INVALID_INPUT;
   }
 
@@ -102,17 +92,10 @@ InputConverterDefinition MakeOperatorDocQueryInputConverter() {
   def.converter_id = "doc_query.plain.operator.v1";
 
   def.schema_id = "doc_query.plain.request";
-  def.schema_version = 1;
   def.external_type = "CompanyOperatorDocInput";
-  def.max_batch_size = 64;
+  def.max_batch_size = kMaxBatchSize;
 
-  def.external_slots = {{"doc_in",
-                         "CompanyOperatorDocInput",
-                         PortDirection::kInput,
-                         true,
-                         "CompanyOperatorDocInput",
-                         "doc_in",
-                         {}}};
+  def.external_slots = {ExternalInputSlot<CompanyOperatorDocInput>("doc_in")};
   def.logical_ports = {OutputPort(kRawRequestIds), OutputPort(kRawDocs),
                        OutputPort(kRawQueries)};
   def.decode_fn = &DecodeOperatorDocQueryInput;
