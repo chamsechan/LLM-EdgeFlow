@@ -5,5 +5,6 @@ target_sources(edgeflow_orchestration_objects PRIVATE
   pipeline.cpp
   pipeline_catalog.cpp
   pipeline_config.cpp
+  pipeline_config_structure.cpp
   pipeline_validator.cpp
   remediation_cause.cpp)

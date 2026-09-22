@@ -310,7 +310,7 @@ edgeflow_add_runner_test(OperatorOutputPoolTest edgeflow_test_adapter_runner
 edgeflow_add_runner_test(OperatorValueRegistryTest edgeflow_test_adapter_runner
   "OperatorValueRegistryTest.*" "${_edgeflow_tier2}")
 edgeflow_add_runner_test(OperatorGoldenTest edgeflow_test_adapter_runner
-  "OperatorGoldenTest.*" "${_edgeflow_tier2}")
+  "OperatorGoldenTest.*:ScopedTestOperatorTest.*" "${_edgeflow_tier2}")
 edgeflow_add_runner_test(AdapterPurityTest edgeflow_test_adapter_runner
   "AdapterPurityTest.*" "${_edgeflow_tier2}")
 edgeflow_add_runner_test(IoConverterTest edgeflow_test_adapter_runner

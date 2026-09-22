@@ -20,8 +20,8 @@
 调度、模型加载和平台数据拷贝继续由框架承担。Node 返回内部文本，Adapter 在方案执行
 完成后将最终值转换到平台结构。你不用在 Node 中操作平台指针或输出池。
 
-[基础模板源码](../../dev_support/node_authoring/starter_llm_node.cpp)由两个文本函数、Spec 声明
-和注册宏组成，默认做文本透传和模型调用。`--authoring basic` 直接使用这份文件，
+[模板源码](../../dev_support/node_authoring/starter_llm_node.cpp)由两个文本函数、Spec 声明
+和注册宏组成，默认做文本透传和模型调用。脚手架直接使用这份文件，
 生成的源码会进入现有测试 runner 编译。
 先关注 `BuildPrompt` 和 `FormatAnswer` 两个普通函数；其余部分可结合
 [五个概念说明](custom_node_concepts.md)逐步阅读。
@@ -41,7 +41,7 @@
 再生成源码：
 
 ```bash
-./scripts/scaffold_custom_node.py MyBusinessLlmNode --kind model -m llm --authoring basic --add-to-cmake --write-test
+./scripts/scaffold_custom_node.py MyBusinessLlmNode --kind model -m llm --add-to-cmake --write-test
 ```
 
 打开 `src/custom_nodes/my_business_llm_node.cpp`。文件中的主要内容分成三部分：
@@ -81,8 +81,10 @@ return answer;
 [自由 Batch 示例](../../dev_support/node_authoring/starter_batch_node.cpp)；需要两种模型能力时，参考
 [多模型示例](../../dev_support/node_authoring/starter_multi_model_node.cpp)。它们用普通 `Run` 函数、
 `InputsOf`、`Parameters` 和 `ModelsOf` 声明输入、参数及模型槽位。Control 使用
-`.WithControls(...)`，参见[第一个 Control](first_control.md)。输出数量变化或多输出等
-超出当前 Spec 的需求，继续使用[高级生命周期模板](../../dev_support/node_authoring/starter_llm_node_advanced.cpp)。
+`.WithControls(...)`，复杂命令使用 `.WithControl(...)`，参见[第一个 Control](first_control.md)。
+多输出用 `OutputsOf` / `Produced`，数量变化用 `ProducedBatch` 和 `PortFlow` 声明；
+参考 [TextChunkNode](../../src/common_nodes/text_chunk_node.cpp)。Map、Batch、LLM 组合都使用
+同一个 Spec 运行机制，12 个生产 Node 已统一迁移，复杂场景也无需另写生命周期。
 外部 Operator 请求的字段选择与响应组装属于 Adapter，不能移到 Node 或 Demo；见
 [输入输出边界](business_onboarding.md#输入输出以-c-abi-为边界)。
 

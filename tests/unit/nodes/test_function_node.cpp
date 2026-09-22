@@ -730,6 +730,97 @@ inline auto ControlledBatchSpec() {
 }
 REGISTER_FUNCTION_NODE(ControlledBatchNode, ControlledBatchSpec());
 
+struct ImageSummaryInputs {
+  const ImageRefBatch* images = nullptr;
+};
+struct ImageSummaryOutputs {
+  TextBatch names;
+  Int32Batch lengths;
+};
+struct ImageSummaryParams {
+  std::string fault;
+};
+auto ImageSummarySpec() {
+  return MakeBatchSpec(
+      InputsOf<ImageSummaryInputs>{
+          Required("images", &ImageSummaryInputs::images)},
+      OutputsOf<ImageSummaryOutputs>{
+          Produced("names", &ImageSummaryOutputs::names, "images"),
+          Produced("lengths", &ImageSummaryOutputs::lengths, "images")},
+      Parameters<ImageSummaryParams>{
+          Field("fault", &ImageSummaryParams::fault).Default("")},
+      [](const ImageSummaryInputs& inputs, const ImageSummaryParams& params,
+         const NoModels&) -> NodeResult<ImageSummaryOutputs> {
+        ImageSummaryOutputs output;
+        for (const auto& image : *inputs.images) {
+          output.names.emplace_back(image.req_id, image.sub_id, image.data);
+          output.lengths.emplace_back(image.req_id, image.sub_id,
+                                      static_cast<int32_t>(image.data.size()));
+        }
+        if (params.fault == "business") {
+          return NodeResult<ImageSummaryOutputs>::Failure(
+              NodeErrorKind::kBusinessError, "Cannot summarize image", -9876);
+        }
+        if (params.fault == "count") output.lengths.pop_back();
+        if (params.fault == "provenance") ++output.lengths.back().sub_id;
+        return output;
+      });
+}
+REGISTER_FUNCTION_NODE(ImageSummaryAuthorNode, ImageSummarySpec());
+
+struct SourceInputs {};
+auto SourceSpec() {
+  return MakeBatchSpec(
+      InputsOf<SourceInputs>{},
+      ProducedBatch<TextBatch>("chunks", {"1:N", "generate_sub_id", "session"}),
+      [](const SourceInputs&, const NoParameters&,
+         const NoModels&) -> NodeResult<TextBatch> {
+        return TextBatch{{41, 0, "first"}, {41, 1, "second"}, {41, 2, "third"}};
+      });
+}
+REGISTER_FUNCTION_NODE(GeneratedSourceAuthorNode, SourceSpec());
+
+constexpr int kComplexStateCommand = 4987;
+auto ComplexStateControlSpec() {
+  const nlohmann::json schema = {
+      {"type", "object"},
+      {"required", {"nested"}},
+      {"additionalProperties", false},
+      {"properties",
+       {{"nested",
+         {{"type", "object"},
+          {"required", {"prefix"}},
+          {"additionalProperties", false},
+          {"properties", {{"prefix", {{"type", "string"}}}}}}}}}};
+  return MakeBatchSpec(
+             InputsOf<ComplexInputs>{Required("input", &ComplexInputs::input)},
+             PreservedOutput<TextBatch>("output", "input"),
+             Parameters<CleanParams>{
+                 Field("prefix", &CleanParams::prefix).Default("old:")},
+             [](const ComplexInputs& input, const CleanParams& params,
+                const NoModels&) -> NodeResult<TextBatch> {
+               return MapPayloads(*input.input, [&](const std::string& value) {
+                 return params.prefix + value;
+               });
+             })
+      .WithControl(
+          ControlCommandDefinition(kComplexStateCommand, "replace_nested_state",
+                                   "Replace compiled prefix", schema, true),
+          [](const CleanParams& current, const nlohmann::json& payload,
+             const BindingFacts&) -> NodeResult<CleanParams> {
+            auto next = current;
+            next.prefix = payload.at("nested").at("prefix").get<std::string>();
+            if (next.prefix == "REJECT") {
+              return NodeResult<CleanParams>::Failure(
+                  NodeErrorKind::kBusinessError, "Rejected compiled prefix",
+                  -9877);
+            }
+            return next;
+          });
+}
+REGISTER_FUNCTION_NODE(ComplexStateControlAuthorNode,
+                       ComplexStateControlSpec());
+
 }  // namespace
 
 // ===========================================================================
@@ -1235,6 +1326,92 @@ TEST(FunctionNodeTest, BindingValidationEnforcedInInitAndHarness) {
   EXPECT_TRUE(result_ok.ok()) << result_ok.diagnostic();
   EXPECT_EQ(result_ok.TextValues("output"),
             (std::vector<std::string>{"hello"}));
+}
+
+TEST(FunctionNodeTest, PlannedPortBindingsPreserveAuthorDiagnosticsAndOrder) {
+  struct Case {
+    const char* node;
+    const char* port;
+    int fault;  // 0: absent, 1: empty key and wrong type, 2: wrong type, 3:
+                // valid.
+    const char* expected;
+  };
+  const Case cases[] = {
+      {"BindingMapNode", "input", 3, ""},
+      {"BindingTestNode", "texts", 3, ""},
+      {"BindingMapNode", "input", 0,
+       "Required input port 'input' has no binding in plan"},
+      {"BindingMapNode", "input", 1,
+       "Required input port 'input' has no binding in plan"},
+      {"BindingMapNode", "input", 2,
+       "Input port type mismatch for 'input' (expected: TextBatch, bound: "
+       "integer)"},
+      {"BindingMapNode", "output", 0,
+       "Output port 'output' has no binding in plan"},
+      {"BindingMapNode", "output", 1,
+       "Output port 'output' has no binding in plan"},
+      {"BindingMapNode", "output", 2,
+       "Output port type mismatch for 'output' (expected: TextBatch, bound: "
+       "integer)"},
+      {"BindingTestNode", "texts", 0,
+       "Required input port 'texts' is unbound in plan"},
+      {"BindingTestNode", "texts", 1,
+       "Required input port 'texts' is unbound in plan"},
+      {"BindingTestNode", "texts", 2, "Input port type mismatch for 'texts'"},
+      {"BindingTestNode", "mask", 0, ""},
+      {"BindingTestNode", "mask", 1, ""},
+      {"BindingTestNode", "mask", 2, "Input port type mismatch for 'mask'"},
+      {"BindingTestNode", "output", 0,
+       "Output port 'output' has no binding in plan"},
+      {"BindingTestNode", "output", 1,
+       "Output port 'output' has no binding in plan"},
+      {"BindingTestNode", "output", 2,
+       "Output port type mismatch for 'output'"},
+  };
+  for (const auto& test : cases) {
+    SCOPED_TRACE(test.node);
+    SCOPED_TRACE(test.port);
+    SCOPED_TRACE(test.fault);
+    const bool map = std::string(test.node) == "BindingMapNode";
+    ValidatedNodePlan plan;
+    plan.normalized_config = map ? nlohmann::json{{"require_extra", false}}
+                                 : nlohmann::json{{"check_mask", false}};
+    for (const auto& name :
+         map ? std::vector<std::string>{"input", "output"}
+             : std::vector<std::string>{"texts", "mask", "output"}) {
+      if (name == test.port && test.fault == 0) continue;
+      const bool broken = name == test.port && test.fault != 3;
+      plan.ports.push_back(
+          {name, broken && test.fault == 1 ? "" : "actual_" + name,
+           broken ? "integer" : "TextBatch", "1:1", "preserve", "request",
+           name == "output" ? PortDirection::kOutput : PortDirection::kInput});
+    }
+    // An input error must win even when the later output is invalid too.
+    if (std::string(test.port) != "output" && *test.expected != '\0') {
+      plan.ports.back().type_id = "integer";
+    }
+    auto node = NodeRegistry::Instance().Create(test.node);
+    ASSERT_NE(node, nullptr);
+    SessionContext session;
+    std::string diagnostic;
+    const bool succeeds = *test.expected == '\0';
+    ASSERT_EQ(node->Init({&plan, &session, &diagnostic}), succeeds);
+    EXPECT_EQ(diagnostic, test.expected);
+    if (succeeds) {
+      AlgContext context;
+      context.Publish(map ? "actual_input" : "actual_texts",
+                      TextBatch{{7, 2, "mapped"}});
+      context.Publish(map ? "input" : "texts", TextBatch{{7, 2, "wrong"}});
+      context.Publish("actual_mask", TextBatch{{7, 2, "mask"}});
+      context.Publish("mask", TextBatch{{7, 2, "stale optional"}});
+      ASSERT_EQ(node->Process(&context), 0);
+      const auto* output = context.Read<TextBatch>("actual_output");
+      ASSERT_NE(output, nullptr);
+      ASSERT_EQ(output->size(), 1u);
+      EXPECT_EQ(output->at(0).data, "mapped");
+      EXPECT_FALSE(context.Has("output"));
+    }
+  }
 }
 
 TEST(FunctionNodeTest, ComplexParserMatchesPreflightInitAndOwnsConfiguration) {
@@ -1845,6 +2022,40 @@ TEST(FunctionNodeTest, DeclarationValidationRejectsInvalidControlCommands) {
       std::invalid_argument);
 }
 
+TEST(FunctionNodeTest, PreservedOutputDeclarationsRequireNamedAnchors) {
+  struct Outputs {
+    TextBatch text;
+  };
+  EXPECT_THROW(PreservedOutput<TextBatch>("text", ""), std::invalid_argument);
+  EXPECT_THROW(Produced("text", &Outputs::text, std::string{}),
+               std::invalid_argument);
+}
+
+TEST(FunctionNodeTest, MixedControlDeclarationsRejectDuplicateIdInEitherOrder) {
+  auto make_spec = [] {
+    return MakeBatchSpec(
+        InputsOf<ComplexInputs>{Required("input", &ComplexInputs::input)},
+        PreservedOutput<TextBatch>("output", "input"), CleanConfig(),
+        [](const ComplexInputs& inputs, const CleanParams&,
+           const NoModels&) -> NodeResult<TextBatch> { return *inputs.input; });
+  };
+  auto update = [](const CleanParams& current, const nlohmann::json&,
+                   const BindingFacts&) -> NodeResult<CleanParams> {
+    return current;
+  };
+  const ControlCommandDefinition custom(4988, "custom_prefix");
+  EXPECT_THROW(
+      make_spec()
+          .WithControl(custom, update)
+          .WithControls({PatchFields(4988, "patch_prefix", {"prefix"})}),
+      std::invalid_argument);
+  EXPECT_THROW(
+      make_spec()
+          .WithControls({PatchFields(4988, "patch_prefix", {"prefix"})})
+          .WithControl(custom, update),
+      std::invalid_argument);
+}
+
 TEST(FunctionNodeTest, WithParserWithControlsRequiresExplicitPrepare) {
   struct DummyParams {
     std::string text;
@@ -1950,11 +2161,13 @@ TEST(FunctionNodeTest, RapidInterleavedControlsAndConcurrentProcesses) {
   auto* node = harness.GetNode();
   ASSERT_NE(node, nullptr);
 
-  std::atomic<bool> stop{false};
+  std::promise<void> start_signal;
+  const auto start = start_signal.get_future().share();
   std::atomic<int> successful_processes{0};
 
   // Writer thread 1: rapid ReplaceFields
   std::thread writer1([&]() {
+    start.wait();
     for (int i = 1; i <= 30; ++i) {
       std::string payload =
           "{\"prefix\":\"p" + std::to_string(i) +
@@ -1967,6 +2180,7 @@ TEST(FunctionNodeTest, RapidInterleavedControlsAndConcurrentProcesses) {
 
   // Writer thread 2: rapid PatchFields
   std::thread writer2([&]() {
+    start.wait();
     for (int i = 1; i <= 30; ++i) {
       std::string payload = "{\"suffix\":\":s" + std::to_string(i) + "\"}";
       auto res = node->Control(kCmdPatchMap, payload);
@@ -1979,8 +2193,9 @@ TEST(FunctionNodeTest, RapidInterleavedControlsAndConcurrentProcesses) {
   std::vector<std::thread> readers;
   for (int r = 0; r < 4; ++r) {
     readers.emplace_back([&, r]() {
+      start.wait();
       uint64_t req_id = 1000 + r * 10000;
-      while (!stop.load(std::memory_order_relaxed)) {
+      for (int iteration = 0; iteration < 30; ++iteration) {
         AlgContext ctx;
         TextBatch input;
         for (int i = 0; i < 8; ++i) {
@@ -2026,14 +2241,14 @@ TEST(FunctionNodeTest, RapidInterleavedControlsAndConcurrentProcesses) {
     });
   }
 
+  start_signal.set_value();
   writer1.join();
   writer2.join();
-  stop.store(true, std::memory_order_relaxed);
   for (auto& t : readers) {
     t.join();
   }
 
-  EXPECT_GT(successful_processes.load(), 0);
+  EXPECT_EQ(successful_processes.load(), 4 * 30);
 
   // Verify node remains in a coherent final state
   AlgContext final_ctx;
@@ -2043,6 +2258,127 @@ TEST(FunctionNodeTest, RapidInterleavedControlsAndConcurrentProcesses) {
   ASSERT_NE(final_out, nullptr);
   ASSERT_EQ(final_out->size(), 1u);
   EXPECT_EQ(final_out->at(0).data, "p30:final:s30");
+}
+
+}  // namespace llm_edgeflow
+
+namespace llm_edgeflow {
+
+TEST(FunctionNodeTest, ImageInputPublishesMultipleTypedOutputsWithProvenance) {
+  NodeHarness harness("ImageSummaryAuthorNode");
+  harness.CustomInput("images",
+                      ImageRefBatch{{91, 7, "a.png"}, {52, 3, "bb.jpg"}});
+  auto result = harness.Run();
+  ASSERT_TRUE(result.ok()) << result.diagnostic();
+  const auto* names = result.Output<TextBatch>("names");
+  const auto* lengths = result.Output<Int32Batch>("lengths");
+  ASSERT_NE(names, nullptr);
+  ASSERT_NE(lengths, nullptr);
+  ASSERT_EQ(names->size(), 2u);
+  ASSERT_EQ(lengths->size(), 2u);
+  EXPECT_EQ(names->at(0).data, "a.png");
+  EXPECT_EQ(names->at(1).data, "bb.jpg");
+  EXPECT_EQ(lengths->at(0).data, 5);
+  EXPECT_EQ(lengths->at(1).data, 6);
+  EXPECT_EQ(names->at(0).req_id, 91u);
+  EXPECT_EQ(names->at(0).sub_id, 7u);
+  EXPECT_EQ(names->at(1).req_id, 52u);
+  EXPECT_EQ(names->at(1).sub_id, 3u);
+  for (size_t i = 0; i < names->size(); ++i) {
+    EXPECT_EQ(lengths->at(i).req_id, names->at(i).req_id);
+    EXPECT_EQ(lengths->at(i).sub_id, names->at(i).sub_id);
+  }
+}
+
+TEST(FunctionNodeTest,
+     MultipleOutputsAreUnpublishedWhenSecondOutputOrBusinessFails) {
+  for (const std::string fault : {"count", "provenance", "business"}) {
+    SCOPED_TRACE(fault);
+    NodeHarness harness("ImageSummaryAuthorNode");
+    harness.Config({{"fault", fault}});
+    harness.CustomInput("images", ImageRefBatch{{91, 7, "a.png"}});
+    auto result = harness.Run();
+    ASSERT_FALSE(result.ok());
+    EXPECT_EQ(result.Output<TextBatch>("names"), nullptr);
+    EXPECT_EQ(result.Output<Int32Batch>("lengths"), nullptr);
+    if (fault == "business") {
+      EXPECT_EQ(result.process_code(), -9876);
+      EXPECT_NE(result.diagnostic().find("Cannot summarize image"),
+                std::string::npos);
+    } else {
+      EXPECT_NE(result.diagnostic().find("lengths"), std::string::npos);
+      EXPECT_EQ(result.process_code(),
+                fault == "count"
+                    ? node_error::author_node::kOutputCountMismatch
+                    : node_error::author_node::kOutputProvenanceMismatch);
+    }
+  }
+}
+
+TEST(FunctionNodeTest, MultipleOutputsRejectWrongTypeInSecondPlannedBinding) {
+  ValidatedNodePlan plan;
+  plan.normalized_config = {{"fault", ""}};
+  plan.ports = {{"images", "images", "ImageRefBatch", "1:1", "preserve",
+                 "request", PortDirection::kInput},
+                {"names", "names", "TextBatch", "1:1", "preserve", "request",
+                 PortDirection::kOutput},
+                {"lengths", "lengths", "TextBatch", "1:1", "preserve",
+                 "request", PortDirection::kOutput}};
+  auto node = NodeRegistry::Instance().Create("ImageSummaryAuthorNode");
+  ASSERT_NE(node, nullptr);
+  SessionContext session;
+  std::string diagnostic;
+  EXPECT_FALSE(node->Init({&plan, &session, &diagnostic}));
+  EXPECT_NE(diagnostic.find("lengths"), std::string::npos);
+  EXPECT_NE(diagnostic.find("type mismatch"), std::string::npos);
+}
+
+TEST(FunctionNodeTest, SourceWithoutInputsProducesDeclaredVariableCardinality) {
+  NodeHarness harness("GeneratedSourceAuthorNode");
+  auto result = harness.Run();
+  ASSERT_TRUE(result.ok()) << result.diagnostic();
+  EXPECT_EQ(result.TextValues("chunks"),
+            (std::vector<std::string>{"first", "second", "third"}));
+  const auto* output = result.Output<TextBatch>("chunks");
+  ASSERT_NE(output, nullptr);
+  for (size_t i = 0; i < output->size(); ++i) {
+    EXPECT_EQ(output->at(i).req_id, 41u);
+    EXPECT_EQ(output->at(i).sub_id, i);
+  }
+  const auto definition =
+      PipelineCatalog::FindNode("GeneratedSourceAuthorNode");
+  ASSERT_TRUE(definition.has_value());
+  EXPECT_TRUE(definition->inputs.empty());
+  ASSERT_EQ(definition->outputs.size(), 1u);
+  EXPECT_EQ(definition->outputs[0].cardinality, "1:N");
+  EXPECT_EQ(definition->outputs[0].provenance_policy, "generate_sub_id");
+  EXPECT_EQ(definition->outputs[0].lifetime, "session");
+}
+
+TEST(FunctionNodeTest,
+     ComplexControlRejectsInvalidPayloadAndCandidateWithoutLosingState) {
+  NodeHarness harness("ComplexStateControlAuthorNode");
+  harness.TextInput("input", {"one", "two"});
+  ASSERT_TRUE(harness.Run().ok());
+  auto accepted =
+      harness.Control(kComplexStateCommand, R"({"nested":{"prefix":"new:"}})");
+  ASSERT_EQ(accepted.status, NodeControlStatus::kHandled) << accepted.message;
+  for (const std::string payload :
+       {"{", R"({"nested":{"prefix":3}})",
+        R"({"nested":{"prefix":"wrong:"},"extra":true})",
+        R"({"nested":{"prefix":"REJECT"}})"}) {
+    SCOPED_TRACE(payload);
+    auto rejected = harness.Control(kComplexStateCommand, payload);
+    EXPECT_EQ(rejected.status, NodeControlStatus::kFailed);
+    if (payload.find("REJECT") != std::string::npos) {
+      EXPECT_NE(rejected.message.find("Rejected compiled prefix"),
+                std::string::npos);
+    }
+    auto result = harness.Run();
+    ASSERT_TRUE(result.ok()) << result.diagnostic();
+    EXPECT_EQ(result.TextValues("output"),
+              (std::vector<std::string>{"new:one", "new:two"}));
+  }
 }
 
 }  // namespace llm_edgeflow

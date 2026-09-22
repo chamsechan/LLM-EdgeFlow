@@ -388,20 +388,23 @@ TEST_F(TextTemplateNodeTest,
 
 TEST_F(TextTemplateNodeTest, ConnectedAttributesRemainAvailableAcrossControl) {
   auto node = NodeRegistry::Instance().Create("TextTemplateNode");
-  ValidatedNodePlan plan;
-  plan.normalized_config = {{"template", "{{name}}"},
-                            {"allow_dynamic_attributes", false}};
-  plan.ports.push_back({"attributes", "attrs", "TextAttributesBatch", "1:1",
-                        "preserve", "request", PortDirection::kInput});
-  plan.ports.push_back({"text", "text", "TextBatch", "1:1", "preserve",
-                        "request", PortDirection::kOutput});
-  ASSERT_TRUE(node->Init({&plan, session_ctx_.get()}));
+  std::string diagnostic;
+  auto plan = PrepareNodePlanForTest(
+      "TextTemplateNode",
+      {{"template", "{{name}}"}, {"allow_dynamic_attributes", false}},
+      {"primary", "context", "context_text", "matches", "document",
+       "document_text"},
+      "attrs_", "", &diagnostic);
+  ASSERT_NE(plan, nullptr) << diagnostic;
+  ASSERT_TRUE(node->Init({plan.get(), session_ctx_.get(), &diagnostic}))
+      << diagnostic;
   EXPECT_EQ(node->Control(kControlCmdUpdatePrompt,
                           R"({"allow_dynamic_attributes":false})")
                 .status,
             NodeControlStatus::kHandled);
   AlgContext ctx;
-  ctx.Publish("attrs", TextAttributesBatch{{1, 0, {{"name", "Alice"}}}});
+  ctx.Publish("attrs_attributes",
+              TextAttributesBatch{{1, 0, {{"name", "Alice"}}}});
   ASSERT_EQ(node->Process(&ctx), 0);
   EXPECT_EQ(ctx.Read<TextBatch>("text")->front().data, "Alice");
 }

@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -25,6 +26,12 @@ SPEC.loader.exec_module(RECIPE)
 
 
 class DevRecipeTest(unittest.TestCase):
+    def test_recipe_cli_has_no_alternate_authoring_mode(self):
+        result = subprocess.run(
+            [sys.executable, str(ROOT / "scripts/dev_recipe.py"), "prepare", "--help"],
+            text=True, capture_output=True, check=True)
+        self.assertNotIn("--authoring", result.stdout)
+
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="edgeflow-recipe-contract-")
         self.addCleanup(self.temporary.cleanup)

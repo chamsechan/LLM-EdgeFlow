@@ -59,6 +59,21 @@ It replaces C++ allocation functions in those executables; the SDK, tools and de
 the normal allocator without test hooks. Injection is one-shot, thread-local and scoped,
 with automatic restoration for nested scopes and exception unwinding.
 
+For ordinary Operator end-to-end tests, derive from
+[`OperatorTestFixture`](support/operator_test_fixture.h) and create a `ScopedTestOperator(ops_)`.
+`Create(conf)` uses root `.` / CPU / depth 25 / device 0, with explicit overrides available.
+Assert the returned status and `create_diagnostic()`; use `get()` for the real Operator calls.
+Keep business DTOs, named slots and complete response assertions in the test. The
+[Golden tests](integration/operator/test_operator_golden.cpp) and
+[DocQA test](integration/pipeline/test_doc_qa_rerank.cpp) are compiled examples.
+
+Declare the scoped handle before outputs so assertion failures release output leases first.
+Wait for outstanding calls and release every output reference before asserting `Close()`;
+its diagnostic is available via `close_diagnostic()`. The destructor performs fallback cleanup
+and reports failure. Only the outer fixture owns global `Init/DeInit`; closing one handle must
+not deinitialize another. Capacity, concurrency and lifecycle contract tests keep explicit API
+control. This helper neither copies outputs nor changes SDK depth or error semantics.
+
 Arm injection only around a synchronous operation, outside GoogleTest assertions. Sweep
 allocation positions until the operation succeeds without triggering injection; do not
 encode container names or fixed allocation counts. Check rollback, unchanged observable

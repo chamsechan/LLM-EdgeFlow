@@ -2723,5 +2723,165 @@ class Rfc0057AuthoringAndDeploymentTest(unittest.TestCase):
             self.assertEqual(json.loads(f_cycle.read_text()), cycle_pipe)
 
 
+class PipelineJsonSchemaTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.builds = []
+        tools = (PIPELINE_TOOL, Path(os.environ.get(
+            "LLM_EDGEFLOW_SELECTION_TOOL", ROOT / "build/alg_pipeline_tool")))
+        for tool in dict.fromkeys(tools):
+            artifacts = {}
+            for command in ("catalog", "export-schema"):
+                result = subprocess.run(
+                    [str(tool), command], cwd=ROOT, text=True,
+                    capture_output=True, timeout=30, check=True)
+                artifacts[command] = json.loads(result.stdout)
+                artifacts[command + "_raw"] = result.stdout
+            cls.builds.append((tool, artifacts))
+
+    def test_export_is_deterministic_bare_draft07_schema(self):
+        for tool, artifacts in self.builds:
+            with self.subTest(tool=tool):
+                schema = artifacts["export-schema"]
+                self.assertEqual(schema["$schema"],
+                                 "http://json-schema.org/draft-07/schema#")
+                self.assertEqual(schema["type"], "object")
+                self.assertNotIn("ok", schema)
+                repeated = subprocess.run(
+                    [str(tool), "export-schema"], cwd=ROOT, text=True,
+                    capture_output=True, timeout=30, check=True)
+                self.assertEqual(repeated.stdout, artifacts["export-schema_raw"])
+                catalog = subprocess.run(
+                    [str(tool), "catalog"], cwd=ROOT, text=True,
+                    capture_output=True, timeout=30, check=True)
+                self.assertEqual(catalog.stdout, artifacts["catalog_raw"])
+
+    def test_export_rejects_arguments(self):
+        for arguments in (("--stdin",), ("pipeline.json",), ("--output", "schema.json")):
+            with self.subTest(arguments=arguments):
+                result = subprocess.run(
+                    [str(PIPELINE_TOOL), "export-schema", *arguments],
+                    cwd=ROOT, text=True, capture_output=True, timeout=30)
+                self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+
+    def test_each_build_exposes_exactly_its_registered_choices(self):
+        for tool, artifacts in self.builds:
+            with self.subTest(tool=tool):
+                catalog = artifacts["catalog"]
+                properties = artifacts["export-schema"]["properties"]
+                nodes = properties["pipeline"]["items"]["oneOf"]
+                self.assertCountEqual(
+                    [node["properties"]["node_type"]["const"] for node in nodes],
+                    [node["node_type"] for node in catalog["nodes"]])
+                model = properties["models"]["items"]["properties"]
+                for choices, definitions, key in (
+                    (model["model_type"], catalog["models"], "model_type"),
+                    (model["backend"], catalog["backends"], "backend_type"),
+                    (properties["biz_name"], catalog["bizs"], "biz_name"),
+                ):
+                    if definitions:
+                        self.assertCountEqual(choices["enum"], [d[key] for d in definitions])
+                    else:
+                        self.assertIs(choices, False)
+
+    def assert_config_matches_catalog(self, config, fields):
+        self.assertEqual(set(config["properties"]), {f["name"] for f in fields})
+        self.assertCountEqual(config["required"], [f["name"] for f in fields if f["required"]])
+        self.assertFalse(config["additionalProperties"])
+        for field in fields:
+            actual = config["properties"][field["name"]]
+            self.assertEqual(actual["type"], field["type"])
+            for key in ("default", "minimum", "maximum", "enum"):
+                self.assertEqual(key in actual, key in field)
+                if key in field:
+                    self.assertEqual(actual[key], field[key])
+            if "semantic" in field:
+                self.assertEqual(actual["description"], field["semantic"])
+
+    def test_node_selection_carries_config_and_port_hints(self):
+        for tool, artifacts in self.builds:
+            branches = artifacts["export-schema"]["properties"]["pipeline"]["items"]["oneOf"]
+            by_type = {b["properties"]["node_type"]["const"]: b for b in branches}
+            for definition in artifacts["catalog"]["nodes"]:
+                with self.subTest(tool=tool, node=definition["node_type"]):
+                    branch = by_type[definition["node_type"]]
+                    self.assertIn("node_type", branch["required"])
+                    properties = branch["properties"]
+                    self.assert_config_matches_catalog(properties["config"], definition["config_fields"])
+                    self.assertEqual("config" in branch["required"],
+                                     any(f["required"] for f in definition["config_fields"]))
+                    for direction in ("inputs", "outputs"):
+                        ports = properties["ports"]["properties"][direction]
+                        self.assertEqual(set(ports["properties"]),
+                                         {p["key"] for p in definition[direction]})
+                        self.assertEqual(ports["required"], [])
+                        for port in definition[direction]:
+                            hint = ports["properties"][port["key"]]
+                            self.assertEqual(hint["type"], "string")
+                            self.assertIn(port["type_id"], hint["description"])
+
+    def test_model_and_backend_selection_preserves_field_metadata(self):
+        for tool, artifacts in self.builds:
+            model = artifacts["export-schema"]["properties"]["models"]["items"]
+            branches = model.get("allOf", [])
+            for section, selector, config_key in (
+                ("models", "model_type", "model_config"),
+                ("backends", "backend", "backend_config"),
+            ):
+                definition_key = "model_type" if section == "models" else "backend_type"
+                selected = {b["if"]["properties"][selector]["const"]: b["then"]
+                            for b in branches if selector in b["if"]["properties"]}
+                for definition in artifacts["catalog"][section]:
+                    with self.subTest(tool=tool, definition=definition[definition_key]):
+                        body = selected[definition[definition_key]]
+                        self.assert_config_matches_catalog(
+                            body["properties"][config_key], definition["config_fields"])
+                        self.assertEqual(config_key in body.get("required", []),
+                                         any(f["required"] for f in definition["config_fields"]))
+                        if section == "models":
+                            self.assertEqual(body["properties"]["capability"]["const"],
+                                             definition["capability"])
+
+    def test_complete_deployment_envelope_is_available(self):
+        for tool, artifacts in self.builds:
+            with self.subTest(tool=tool):
+                deployment = artifacts["export-schema"]["properties"]["deployment"]
+                self.assertEqual(set(deployment["properties"]), {"model_paths", "io"})
+                self.assertEqual(deployment["required"], ["io"])
+                io = deployment["properties"]["io"]
+                self.assertCountEqual(io["required"], ["io_binding", "output_allocations"])
+                self.assertCountEqual(io["properties"]["io_binding"]["enum"],
+                                      [b["binding_id"] for b in artifacts["catalog"]["io_bindings"]])
+                allocation = io["properties"]["output_allocations"]["additionalProperties"]
+                self.assertEqual(set(allocation["properties"]),
+                                 {"type", "allocator", "params", "meta_num",
+                                  "metadata_type_id", "capacities"})
+                self.assertEqual(allocation["required"], ["type"])
+                self.assertFalse(allocation["additionalProperties"])
+                # Array and scalar params are interpreted by the allocator.
+                params = allocation["properties"]["params"]
+                self.assertNotIn("type", params)
+                self.assertNotIn("enum", params)
+                capacity = allocation["properties"]["capacities"]["additionalProperties"]
+                self.assertEqual(capacity["type"], "integer")
+                self.assertEqual(capacity["minimum"], 1)
+
+    def test_editor_associates_schema_without_changing_pipeline_documents(self):
+        settings = json.loads((ROOT / "edgeflow.code-workspace").read_text())["settings"]
+        associations = settings["json.schemas"]
+        import fnmatch
+        representative = "/configs/pipeline_keyword_match_rules.json"
+        self.assertTrue(any(
+            a.get("url") and any(fnmatch.fnmatchcase(representative, pattern)
+                                 for pattern in a["fileMatch"])
+            for a in associations))
+        paths = list((ROOT / "configs").glob("pipeline_*.json"))
+        paths += list((ROOT / "demo/fixtures").rglob("pipeline_*.json"))
+        self.assertTrue(paths)
+        for path in paths:
+            with self.subTest(path=path):
+                self.assertNotIn("$schema", json.loads(path.read_text()))
+
+
 if __name__ == "__main__":
     unittest.main()

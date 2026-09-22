@@ -8,6 +8,8 @@ set(ENABLE_KITELLM OFF CACHE BOOL "" FORCE)
 set(ENABLE_WHISPERCPP OFF CACHE BOOL "" FORCE)
 add_subdirectory("${EDGEFLOW_SOURCE}" edgeflow EXCLUDE_FROM_ALL)
 add_executable(rfc52_probe probe.cpp)
+# Retired authoring helpers belong only to the historical comparison baseline.
+target_include_directories(rfc52_probe PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/baseline_include")
 target_link_libraries(rfc52_probe PRIVATE llm_edgeflow::internal_runtime)
 set_target_properties(rfc52_probe PROPERTIES CXX_VISIBILITY_PRESET hidden)
 target_link_libraries(rfc52_probe PRIVATE edgeflow_internal_headers)

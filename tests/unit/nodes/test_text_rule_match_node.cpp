@@ -15,6 +15,7 @@
 #include "core/node_registry.h"
 #include "core/pipeline_validator.h"
 #include "core/session_context.h"
+#include "nodes/node_error_codes.h"
 #include "tests/support/node_process_pause.h"
 #include "tests/support/node_test_utils.h"
 #include "tests/support/scoped_allocation_failure.h"
@@ -422,7 +423,7 @@ TEST_F(TextRuleMatchNodeTest, MissingInputFailsClosed) {
       InitNodeForTest(*node, nlohmann::json::object(), session_ctx_.get()));
 
   AlgContext empty_ctx;
-  EXPECT_EQ(node->Process(&empty_ctx), -5001);
+  EXPECT_EQ(node->Process(&empty_ctx), node_error::author_node::kMissingInput);
 }
 
 TEST_F(TextRuleMatchNodeTest, DirectConcurrentProcessAndControl) {

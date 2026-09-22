@@ -959,10 +959,10 @@ TEST_F(CommonNodesTest, LlmGeneratePreservesFailureCodesWithoutPublishing) {
     if (fault >= 2)
       ctx.Publish("prompt", TextBatch{{17, 4, "a"}, {29, 8, "b"}});
     const int expected =
-        fault < 2    ? node_error::llm_generate::kMissingInput
+        fault < 2    ? node_error::author_node::kMissingInput
         : fault == 2 ? -99
-        : fault == 3 ? node_error::llm_generate::kOutputCountMismatch
-                     : node_error::llm_generate::kOutputProvenanceMismatch;
+        : fault == 3 ? node_error::author_node::kOutputCountMismatch
+                     : node_error::author_node::kOutputProvenanceMismatch;
     const int before = model->calls;
     EXPECT_EQ(node->Process(&ctx), expected);
     EXPECT_FALSE(ctx.IsOk());
@@ -1213,7 +1213,7 @@ TEST_F(CommonNodesTest, PromptAndGeneratedLlmNodesFailWithoutPublishing) {
   ASSERT_TRUE(session_ctx_->GetModelManager().RegisterModel("prompt_contract",
                                                             model, "v1"));
   for (const char* name : {"PromptGuidedLlmNode", "ScaffoldModelLlmNode",
-                           "ScaffoldUnaryLlmNode", "ScaffoldTutorialLlmNode"}) {
+                           "ScaffoldTutorialLlmNode"}) {
     SCOPED_TRACE(name);
     auto node = NodeRegistry::Instance().Create(name);
     ASSERT_NE(node, nullptr);
@@ -1328,8 +1328,7 @@ TEST_F(CommonNodesTest, CustomAndGeneratedNodesUseStrictNativePlans) {
   }
   ASSERT_TRUE(session_ctx_->GetModelManager().RegisterModel(
       "entity_llm", std::make_shared<test::TestBizLlmModel>(2), "v1"));
-  for (const char* name : {"ScaffoldComputeNode", "ScaffoldModelLlmNode",
-                           "ScaffoldUnaryLlmNode"}) {
+  for (const char* name : {"ScaffoldComputeNode", "ScaffoldModelLlmNode"}) {
     auto doc = CustomPipeline("entity_extract");
     doc["pipeline"][0]["node_type"] = name;
     doc["pipeline"][0]["config"] =
@@ -1392,18 +1391,14 @@ TEST_F(CommonNodesTest, StarterTextFunctionsFollowTheDocumentedExercise) {
 TEST_F(CommonNodesTest, GeneratedCapabilityTemplatesCompileBindAndExecute) {
   CheckScaffoldExecution<TextBatch, TextBatch>("ScaffoldComputeNode", "",
                                                session_ctx_.get());
-  for (const std::string kind : {"Model", "Unary"}) {
-    CheckScaffoldExecution<TextBatch, TextBatch>(
-        "Scaffold" + kind + "LlmNode", "llm_model_v1", session_ctx_.get());
-    CheckScaffoldExecution<TextBatch, EmbeddingBatch>(
-        "Scaffold" + kind + "EmbeddingNode", "embed_model_v1",
-        session_ctx_.get());
-    CheckScaffoldExecution<AudioPcmBatch, TextBatch>(
-        "Scaffold" + kind + "AsrNode", "asr_model_v1", session_ctx_.get());
-    CheckScaffoldExecution<QueryCandidatesBatch, ScoreBatch>(
-        "Scaffold" + kind + "RerankNode", "rerank_model_v1",
-        session_ctx_.get());
-  }
+  CheckScaffoldExecution<TextBatch, TextBatch>(
+      "ScaffoldModelLlmNode", "llm_model_v1", session_ctx_.get());
+  CheckScaffoldExecution<TextBatch, EmbeddingBatch>(
+      "ScaffoldModelEmbeddingNode", "embed_model_v1", session_ctx_.get());
+  CheckScaffoldExecution<AudioPcmBatch, TextBatch>(
+      "ScaffoldModelAsrNode", "asr_model_v1", session_ctx_.get());
+  CheckScaffoldExecution<QueryCandidatesBatch, ScoreBatch>(
+      "ScaffoldModelRerankNode", "rerank_model_v1", session_ctx_.get());
   CheckScaffoldExecution<ImageRefBatch, OcrDocumentBatch>(
       "ScaffoldModelOcrNode", "ocr_model_v1", session_ctx_.get());
   auto node = NodeRegistry::Instance().Create("ScaffoldConversionNode");

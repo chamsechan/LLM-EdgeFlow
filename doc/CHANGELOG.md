@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-09-22 全部生产 Node 统一作者契约（RFC-0068）
+
+- 11 个 common Node 与 PromptGuidedLlmNode 全部迁移为函数 + Spec；目录职责、业务算法、端口和配置契约保留。
+- 同一接口覆盖 OCR 双输出、切块、无必需输入的源节点、动态模板、会话缓存、五种模型能力及复杂 Control。
+- 删除 advanced/unary 生成路径、旧模型/推理便利基类及旧错误码映射；通用缺值和输出对齐失败使用统一作者错误码，模型原始错误码继续传播。
+- 作者工具、编译示例和当前指南同步迁移；多输出全部完成算法及保序校验后才发布，不引入跨键事务。
+
+## 2026-09-22 作者布线与配置/测试便利性（RFC-0067）
+
+- `alg_pipeline_tool export-schema` 从当前 Catalog 生成离线 JSON Schema；编辑器通过文件关联补全，Pipeline 格式保持不变。
+- 固定配置结构由 Core / Integration 单一声明，原解析器与 Schema 导出器共用；保留原诊断与检查顺序。
+- 高级 Node 复用 typed key、成员就地初始化与 `BindPorts`，六处端口绑定共用底层实现；迁移多输入、多输出、session 节点及 advanced starter。
+- Operator 业务测试复用 fixture 和局部句柄清理，保留真实 SDK 输入输出、原始诊断与租约顺序。
+
 ## 2026-09-21 全业务接入开发简化（RFC-0066）
 
 - 八个业务的输入/输出和绑定复用 typed 端口声明；常见外部槽从载体类型推导元数据，非同名映射保持显式。

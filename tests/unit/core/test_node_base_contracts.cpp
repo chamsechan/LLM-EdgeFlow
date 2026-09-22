@@ -12,12 +12,11 @@
 #include "core/pipeline_catalog.h"
 #include "core/session_context.h"
 #include "engine/model_interface.h"
-#include "nodes/model_bound_node.h"
+#include "nodes/authoring.h"
 #include "nodes/node_base.h"
 #include "nodes/node_config_parser.h"
 #include "nodes/node_error_codes.h"
 #include "nodes/traceable_batch_validation.h"
-#include "nodes/traceable_unary_inference_node.h"
 #include "tests/support/node_test_utils.h"
 #include "tests/support/registry_test_access.h"
 
@@ -147,58 +146,30 @@ TEST(NodeBaseContractsTest, ConfigParserFailuresNeverReturnPartialParameters) {
   EXPECT_FALSE(error.empty());
 }
 
-TEST(NodeErrorCodesTest, UsesDistinctNodeDomains) {
+TEST(NodeErrorCodesTest, ActiveBusinessAndAuthoringErrorsAreDistinct) {
   EXPECT_EQ(node_error::control::kInvalidRequest, -1);
-  EXPECT_EQ(node_error::vector_top_k::kMissingInput, -3101);
-  EXPECT_EQ(node_error::text_chunk::kMissingInput, -4001);
-  EXPECT_EQ(node_error::text_embedding::kMissingInput, -4101);
-  EXPECT_EQ(node_error::text_embedding::kOutputCountMismatch, -4102);
-  EXPECT_EQ(node_error::text_embedding::kOutputProvenanceMismatch, -4103);
   EXPECT_EQ(node_error::text_embedding::kSessionInferenceFailed, -5101);
-  EXPECT_EQ(node_error::llm_generate::kMissingInput, -4301);
-  EXPECT_EQ(node_error::llm_generate::kOutputCountMismatch, -4302);
-  EXPECT_EQ(node_error::llm_generate::kOutputProvenanceMismatch, -4303);
-  EXPECT_EQ(node_error::text_rule_match::kMissingInput, -5001);
-  EXPECT_EQ(node_error::structured_json_parse::kMissingInput, -6101);
   EXPECT_EQ(node_error::structured_json_parse::kParseFailed, -6102);
   EXPECT_EQ(node_error::text_template::kRenderedOutputTooLong, -6201);
   EXPECT_EQ(node_error::text_template::kMissingVariable, -6202);
   EXPECT_EQ(node_error::text_rerank::kMissingInput, -7001);
-  EXPECT_EQ(node_error::text_rerank::kModelOutputMismatch, -7002);
-  EXPECT_EQ(node_error::ocr_detect::kMissingInput, -7101);
-  EXPECT_EQ(node_error::ocr_detect::kOutputCountMismatch, -7102);
-  EXPECT_EQ(node_error::ocr_detect::kOutputProvenanceMismatch, -7103);
-  EXPECT_EQ(node_error::asr_transcribe::kMissingInput, -7201);
-  EXPECT_EQ(node_error::asr_transcribe::kOutputCountMismatch, -7202);
-  EXPECT_EQ(node_error::asr_transcribe::kOutputProvenanceMismatch, -7203);
 
   const std::vector<int> codes = {
       node_error::control::kInvalidRequest,
-      node_error::vector_top_k::kMissingInput,
-      node_error::text_chunk::kMissingInput,
       node_error::text_chunk::kInvalidUtf8,
-      node_error::text_embedding::kMissingInput,
-      node_error::text_embedding::kOutputCountMismatch,
-      node_error::text_embedding::kOutputProvenanceMismatch,
       node_error::text_embedding::kSessionInferenceFailed,
-      node_error::llm_generate::kMissingInput,
-      node_error::llm_generate::kOutputCountMismatch,
-      node_error::llm_generate::kOutputProvenanceMismatch,
-      node_error::text_rule_match::kMissingInput,
       node_error::text_rule_match::kRegexExecutionFailed,
-      node_error::structured_json_parse::kMissingInput,
       node_error::structured_json_parse::kParseFailed,
       node_error::text_template::kRenderedOutputTooLong,
       node_error::text_template::kMissingVariable,
       node_error::text_template::kInvalidUtf8,
       node_error::text_rerank::kMissingInput,
-      node_error::text_rerank::kModelOutputMismatch,
-      node_error::ocr_detect::kMissingInput,
-      node_error::ocr_detect::kOutputCountMismatch,
-      node_error::ocr_detect::kOutputProvenanceMismatch,
-      node_error::asr_transcribe::kMissingInput,
-      node_error::asr_transcribe::kOutputCountMismatch,
-      node_error::asr_transcribe::kOutputProvenanceMismatch,
+      node_error::author_node::kMissingInput,
+      node_error::author_node::kBusinessError,
+      node_error::author_node::kModelCallFailed,
+      node_error::author_node::kOutputCountMismatch,
+      node_error::author_node::kOutputProvenanceMismatch,
+      node_error::author_node::kInternalError,
   };
   EXPECT_EQ(std::unordered_set<int>(codes.begin(), codes.end()).size(),
             codes.size());
@@ -365,7 +336,152 @@ TEST(NodeBaseContractsTest, BindingRejectsDefinitionRuntimeTypeDrift) {
   EXPECT_FALSE(node.Init(init_ctx));
 }
 
-// 3. Mock Model Engine for ModelBoundNode and TraceableUnaryInferenceNode
+class MultiPortProbeNode : public NodeBase {
+ public:
+  inline static constexpr auto kFirst = MakeBlackboardKey<TextBatch>("first");
+  inline static constexpr auto kOptional =
+      MakeBlackboardKey<TextBatch>("optional");
+  inline static constexpr auto kCombined =
+      MakeBlackboardKey<TextBatch>("combined");
+  inline static constexpr auto kEcho = MakeBlackboardKey<TextBatch>("echo");
+
+  MultiPortProbeNode() : NodeBase("MultiPortProbeNode") {}
+  bool OptionalIsBound() const { return optional_.IsBound(); }
+  bool CombinedIsBound() const { return combined_.IsBound(); }
+  bool EchoIsBound() const { return echo_.IsBound(); }
+
+ protected:
+  bool InitNode(const NodeInitContext& init_ctx, const nlohmann::json&,
+                SessionContext&) override {
+    BindPorts(init_ctx, first_, optional_, combined_, echo_);
+    return true;
+  }
+  int ProcessNode(AlgContext& ctx) override {
+    const auto* first = first_.Require(ctx, -9901);
+    if (!first) return -9901;
+    const auto* optional = optional_.Get(ctx);
+    TextBatch combined = *first;
+    for (auto& item : combined) {
+      item.data += optional ? optional->at(0).data : "<absent>";
+    }
+    combined_.Set(ctx, std::move(combined));
+    echo_.Set(ctx, *first);
+    return 0;
+  }
+
+ private:
+  BoundInput<TextBatch> first_{kFirst};
+  BoundInput<TextBatch> optional_{kOptional};
+  BoundOutput<TextBatch> combined_{kCombined};
+  BoundOutput<TextBatch> echo_{kEcho};
+};
+
+TEST(NodeBaseContractsTest,
+     BindPortsUsesPlannedKeysAndDisconnectsOptionalInput) {
+  test_support::RegistryTestAccess::ScopedNodeState state_guard;
+  NodeDefinition definition;
+  definition.node_type = "MultiPortProbeNode";
+  definition.inputs = {RequiredInputPort(MultiPortProbeNode::kFirst),
+                       OptionalInputPort(MultiPortProbeNode::kOptional)};
+  definition.outputs = {OutputPort(MultiPortProbeNode::kCombined),
+                        OutputPort(MultiPortProbeNode::kEcho)};
+  ASSERT_TRUE(NodeRegistry::Instance().Register(
+      definition.node_type,
+      [] { return std::make_unique<MultiPortProbeNode>(); }, definition));
+
+  for (bool omit_optional : {false, true}) {
+    SCOPED_TRACE(omit_optional);
+    std::string diagnostic;
+    const std::unordered_set<std::string> omitted =
+        omit_optional ? std::unordered_set<std::string>{"optional"}
+                      : std::unordered_set<std::string>{};
+    const auto plan = PrepareNodePlanForTest(
+        definition.node_type, nlohmann::json::object(), omitted, "actual_in_",
+        "actual_out_", &diagnostic);
+    ASSERT_NE(plan, nullptr) << diagnostic;
+    SessionContext session;
+    MultiPortProbeNode node;
+    ASSERT_TRUE(node.Init({plan.get(), &session, &diagnostic})) << diagnostic;
+    EXPECT_EQ(node.OptionalIsBound(), !omit_optional);
+    AlgContext ctx;
+    ctx.Publish("actual_in_first", TextBatch{{7, 0, "mapped"}});
+    ctx.Publish("actual_in_optional", TextBatch{{7, 0, "+optional"}});
+    ctx.Publish(MultiPortProbeNode::kFirst, TextBatch{{7, 0, "wrong first"}});
+    ctx.Publish(MultiPortProbeNode::kOptional,
+                TextBatch{{7, 0, "stale optional"}});
+    ASSERT_EQ(node.Process(&ctx), 0);
+    const auto* combined = ctx.Read<TextBatch>("actual_out_combined");
+    const auto* echo = ctx.Read<TextBatch>("actual_out_echo");
+    ASSERT_NE(combined, nullptr);
+    ASSERT_NE(echo, nullptr);
+    ASSERT_EQ(combined->size(), 1u);
+    ASSERT_EQ(echo->size(), 1u);
+    EXPECT_EQ(combined->at(0).data,
+              omit_optional ? "mapped<absent>" : "mapped+optional");
+    EXPECT_EQ(echo->at(0).data, "mapped");
+    EXPECT_EQ(combined->at(0).req_id, 7);
+    EXPECT_EQ(combined->at(0).sub_id, 0);
+    EXPECT_EQ(echo->at(0).req_id, 7);
+    EXPECT_EQ(echo->at(0).sub_id, 0);
+    EXPECT_FALSE(ctx.Has(MultiPortProbeNode::kCombined));
+    EXPECT_FALSE(ctx.Has(MultiPortProbeNode::kEcho));
+  }
+}
+
+TEST(NodeBaseContractsTest, BindPortsStopsAtFirstErrorInDeclarationOrder) {
+  ValidatedNodePlan plan;
+  plan.normalized_config = nlohmann::json::object();
+  plan.ports = {{"first", "actual_first", "integer", "1:1", "preserve",
+                 "request", PortDirection::kInput},
+                {"optional", "actual_optional", "TextBatch", "1:1", "preserve",
+                 "request", PortDirection::kInput},
+                {"combined", "actual_combined", "integer", "1:1", "preserve",
+                 "request", PortDirection::kOutput},
+                {"echo", "actual_echo", "TextBatch", "1:1", "preserve",
+                 "request", PortDirection::kOutput}};
+  SessionContext session;
+  MultiPortProbeNode node;
+  std::string diagnostic;
+  EXPECT_FALSE(node.Init({&plan, &session, &diagnostic}));
+  EXPECT_EQ(diagnostic,
+            "Input port TypeId mismatch for first (expected: TextBatch, bound: "
+            "integer)");
+  EXPECT_FALSE(node.OptionalIsBound());
+  EXPECT_FALSE(node.CombinedIsBound());
+  EXPECT_FALSE(node.EchoIsBound());
+}
+
+TEST(NodeBaseContractsTest, OutputBindingRejectsMissingKeysBeforeTypeMismatch) {
+  for (int fault = 0; fault < 3; ++fault) {
+    SCOPED_TRACE(fault);
+    ValidatedNodePlan plan;
+    plan.normalized_config = nlohmann::json::object();
+    // The runtime base permits unbound inputs; the author contract validates
+    // required inputs.
+    plan.ports.push_back({"optional", "", "integer", "1:1", "preserve",
+                          "request", PortDirection::kInput});
+    if (fault != 0) {
+      plan.ports.push_back({"combined", fault == 1 ? "" : "actual_combined",
+                            "integer", "1:1", "preserve", "request",
+                            PortDirection::kOutput});
+    }
+    plan.ports.push_back({"echo", "actual_echo", "integer", "1:1", "preserve",
+                          "request", PortDirection::kOutput});
+    SessionContext session;
+    MultiPortProbeNode node;
+    std::string diagnostic;
+    EXPECT_FALSE(node.Init({&plan, &session, &diagnostic}));
+    EXPECT_EQ(diagnostic, fault == 2
+                              ? "Output port TypeId mismatch for combined "
+                                "(expected: TextBatch, bound: integer)"
+                              : "Output port is unbound in plan: combined");
+    EXPECT_FALSE(node.OptionalIsBound());
+    EXPECT_FALSE(node.CombinedIsBound());
+    EXPECT_FALSE(node.EchoIsBound());
+  }
+}
+
+// 3. Unified function authoring with a model capability
 class MockAsrModel : public IAsrModel {
  public:
   const std::string& ModelType() const noexcept override {
@@ -412,41 +528,44 @@ inline constexpr BlackboardKey<AudioPcmBatch> kTestAudioInputs{
 inline constexpr BlackboardKey<TextBatch> kTestTranscripts{"test_transcripts",
                                                            "TextBatch"};
 
-class MockTraceableAsrNode
-    : public TraceableUnaryInferenceNode<IAsrModel, AudioPcmPayload,
-                                         std::string> {
- public:
-  inline static constexpr char kNodeType[] = "MockTraceableAsrNode";
-  MockTraceableAsrNode()
-      : TraceableUnaryInferenceNode(kNodeType, kTestAudioInputs,
-                                    kTestTranscripts, -6201, -6202, -6203) {}
-
- protected:
-  int InferBatch(const InputBatch& input, OutputBatch* output,
-                 std::string* diagnostic) override {
-    return model()->Transcribe(input, output, diagnostic);
-  }
+struct MockAsrInputs {
+  const AudioPcmBatch* audio = nullptr;
+};
+struct MockAsrModels {
+  AsrCall transcriber;
 };
 
-TEST(NodeBaseContractsTest, TraceableUnaryInferenceNodeWorkflow) {
+auto MockAsrSpec() {
+  return MakeBatchSpec(
+      InputsOf<MockAsrInputs>{
+          Required(kTestAudioInputs.name, &MockAsrInputs::audio)},
+      PreservedOutput<TextBatch>(kTestTranscripts.name, kTestAudioInputs.name),
+      ModelsOf<MockAsrModels>{Model("transcriber", "bind_model",
+                                    &MockAsrModels::transcriber,
+                                    "test_asr_model")},
+      [](const MockAsrInputs& inputs, const NoParameters&,
+         const MockAsrModels& models) {
+        return models.transcriber.Transcribe(*inputs.audio);
+      });
+}
+using MockAsrNode = AuthorNode<decltype(MockAsrSpec())>;
+
+TEST(NodeBaseContractsTest, FunctionAsrWorkflow) {
   test_support::RegistryTestAccess::ScopedNodeState state_guard;
-  NodeDefinition definition;
-  definition.node_type = MockTraceableAsrNode::kNodeType;
-  definition.inputs = {RequiredInputPort(kTestAudioInputs)};
-  definition.outputs = {OutputPort(kTestTranscripts)};
-  definition.model_dependencies = {{"transcriber", "asr", "bind_model"}};
-  definition.config_fields = {ConfigFieldDefinition{
-      "bind_model", ConfigValueKind::kString, false, "test_asr_model"}};
+  auto definition = MockAsrSpec().BuildDefinition("MockAsrNode");
   ASSERT_TRUE(NodeRegistry::Instance().Register(
       definition.node_type,
-      []() { return std::make_unique<MockTraceableAsrNode>(); }, definition));
+      []() {
+        return std::make_unique<MockAsrNode>("MockAsrNode", MockAsrSpec());
+      },
+      definition));
 
   SessionContext session_ctx;
   auto model = std::make_shared<MockAsrModel>();
   session_ctx.GetModelManager().RegisterModel("test_asr_model", model,
                                               "test-v1");
 
-  MockTraceableAsrNode node;
+  MockAsrNode node("MockAsrNode", MockAsrSpec());
   ASSERT_TRUE(InitNodeForTest(node, nlohmann::json::object(), &session_ctx));
 
   AlgContext ctx;
@@ -490,13 +609,17 @@ TEST(NodeBaseContractsTest, TraceableUnaryInferenceNodeWorkflow) {
   model->return_wrong_count_ = true;
   AlgContext count_ctx;
   count_ctx.Publish(kTestAudioInputs, invalid_audios);
-  EXPECT_EQ(node.Process(&count_ctx), -6202);
+  EXPECT_EQ(node.Process(&count_ctx),
+            node_error::author_node::kOutputCountMismatch);
+  EXPECT_FALSE(count_ctx.Has(kTestTranscripts.name));
 
   model->return_wrong_count_ = false;
   model->corrupt_provenance_ = true;
   AlgContext provenance_ctx;
   provenance_ctx.Publish(kTestAudioInputs, invalid_audios);
-  EXPECT_EQ(node.Process(&provenance_ctx), -6203);
+  EXPECT_EQ(node.Process(&provenance_ctx),
+            node_error::author_node::kOutputProvenanceMismatch);
+  EXPECT_FALSE(provenance_ctx.Has(kTestTranscripts.name));
 }
 
 TEST(NodeBaseContractsTest, TraceableAlignmentReportsFirstMismatch) {

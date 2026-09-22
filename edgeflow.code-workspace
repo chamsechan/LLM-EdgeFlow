@@ -1,0 +1,22 @@
+{
+  "folders": [{"path": "."}],
+  "settings": {
+    "json.schemas": [
+      {
+        "fileMatch": ["/configs/pipeline*.json"],
+        "url": "./build/pipeline.schema.json"
+      }
+    ]
+  },
+  "tasks": {
+    "version": "2.0.0",
+    "tasks": [
+      {
+        "label": "Refresh Pipeline JSON Schema",
+        "type": "shell",
+        "command": "cmake --build \"${workspaceFolder}/build\" --target alg_pipeline_tool && \"${workspaceFolder}/build/alg_pipeline_tool\" export-schema > \"${workspaceFolder}/build/pipeline.schema.json.tmp\" && mv \"${workspaceFolder}/build/pipeline.schema.json.tmp\" \"${workspaceFolder}/build/pipeline.schema.json\"",
+        "problemMatcher": ["$gcc"]
+      }
+    ]
+  }
+}

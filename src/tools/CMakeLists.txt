@@ -5,6 +5,7 @@ target_link_libraries(alg_show PRIVATE
 add_executable(alg_pipeline_tool
   alg_pipeline_tool.cpp
   pipeline_authoring.cpp
+  pipeline_json_schema.cpp
   pipeline_document_validation.cpp)
 target_link_libraries(alg_pipeline_tool PRIVATE
   edgeflow_internal_headers llm_edgeflow::internal_runtime)

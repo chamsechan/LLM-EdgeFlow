@@ -9,6 +9,9 @@ python3 dev_support/node_authoring/benchmark/run.py \
 所选 build 旁的 `*-source` 目录；不会把历史源码复制进当前生产注册。
 
 - 旧 LLM starter 从 Git `87f490b` 提取，只改类型/注册名避免重名；新旧包装链接同一当前 runtime。
+- 旧 starter 所需的两个已退役辅助头文件固定从 Git `87a28b7` 提取到工作目录的
+  `baseline_include/nodes`，仅作为探针私有比较基线；当前 SDK 不恢复旧作者接口。
+  `summary.json` 的 `baseline_helper_revision` 记录该版本。
 - 旧 Map 为等价显式 `NodeBase` 透传实现的重建，不冒充历史生产 Node。
 - 每批 32 条、每条 1024 字节，固定 Echo mock；预热 100 次，每个进程测 10000 次，独立重复 5 次。
 - 测量 `Process` 的线程 CPU 时间及 C++ `new/new[]` 请求次数、字节数；不包含输入发布和输出断言，

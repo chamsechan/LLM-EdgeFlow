@@ -1,147 +1,83 @@
 # 自定义 Node
 
 这里存放领域算法、特定前后处理和模型调用组合，与 `src/common_nodes/` 同属能力节点层。
-默认一个操作一个 `*_node.cpp`，直接放在本目录；文件名描述操作，不按项目或业务建立目录。
-一个自定义 Node 可以被多个 Pipeline 使用，也可以与通用 Node 混合连线。
+按操作组织 `*_node.cpp`，不按业务建目录；同一个 Node 可以被多个 Pipeline 复用。
 
 ## 第一次开发从这里开始
 
-| 你现在要做的事 | 推荐入口 |
-| --- | --- |
-| 已有能力连线组成方案 | [Pipeline Studio](../../tools/pipeline_studio/README.md) |
-| 写“前处理 → LLM → 后处理” | [第一个自定义 Node](../../doc/dev_guide/first_custom_node.md)：生成、修改两个函数、编译、连线、运行 |
-| 为节点增加运行时参数更新 | [第一个 Control](../../doc/dev_guide/first_control.md)：声明、更新、失败保持、通过 Demo 下发 |
-| 看不懂端口、来源编号、模型绑定等术语 | [五个概念说明](../../doc/dev_guide/custom_node_concepts.md)：结合一次请求解释用途和常见错误 |
-| 需要多输入、配置化模板和完整校验 | 本页下方的[完整参考样例](#完整参考样例) |
-| 对接新的平台输入输出结构 | [业务接入指南](../../doc/dev_guide/business_onboarding.md) |
+已有能力能通过连线完成时，直接使用 Pipeline。需要新增算法时，跟随
+[第一个自定义 Node](../../doc/dev_guide/first_custom_node.md) 完成生成、修改、编译和运行。
+[五个概念](../../doc/dev_guide/custom_node_concepts.md)解释端口、来源、模型、Catalog 和并发。
 
-入门使用[轻量 C++ 模板](../../dev_support/node_authoring/starter_llm_node.cpp)。
-`--kind model -m llm --authoring basic` 直接从它生成代码；先填写 `BuildPrompt`、`FormatAnswer`，其余
-固定结构继续负责端口、模型调用和来源检查。该模板不作为新内置节点加入生产 Catalog，
-生成并登记到本目录后才成为你自己的操作。
+全部 12 个生产 Node 使用 `REGISTER_FUNCTION_NODE` 从 Spec 生成绑定、Definition 和执行包装。
+Map、Batch、LLM 是同一契约的便利组合；`NodeBase` 是框架内部运行机制，不是业务作者的另一个入口。
 
 ## 通用开发步骤速查
 
-1. 查询 `build/alg_pipeline_tool catalog --biz <biz_name>` 和 `describe-node`，优先复用
-   已有操作；缺失的领域逻辑放在本目录，不要求先改造成通用算法。
-2. 生成骨架并登记源码（也可以手写）：
+1. 查询 `build/alg_pipeline_tool catalog --biz <biz_name>` 和 `describe-node`，确认已有能力。
+2. 生成普通函数、Spec 和对应测试：
 
    ```bash
-   # 纯处理：默认生成保留来源的文本透传，在 Transform 中填写领域算法
    ./scripts/scaffold_custom_node.py CustomFilterNode --kind compute --add-to-cmake --write-test
-
-   # Control 入门：文本前缀更新，选择尚未使用的 custom 命令 ID
+   ./scripts/scaffold_custom_node.py DomainPromptNode --kind model -m llm --add-to-cmake --write-test
+   ./scripts/scaffold_custom_node.py FastAudioNode --kind model -m asr --add-to-cmake --write-test
    ./scripts/scaffold_custom_node.py PrefixControlNode --control-id 1001 --add-to-cmake --write-test
-
-   # 推荐入门：普通函数 + Spec；生成并登记实际测试
-   ./scripts/scaffold_custom_node.py DomainPromptNode --kind model -m llm --authoring basic --add-to-cmake --write-test
-
-   # 已熟悉批处理接口后：一对一保序推理
-   ./scripts/scaffold_custom_node.py FastAudioNode --kind unary_inference -m asr --add-to-cmake
    ```
 
-   `--write-test` 创建并登记测试文件，生成后补充领域断言。`--dry-run` 仅打印计划；
-   已有文件默认拒绝覆盖。默认 `--authoring auto` 对 TextBatch Map、LLM、Embedding
-   与 Control 选择函数式模板，其他组合使用高级路径。`--authoring advanced` 显式选择
-   生命周期模板；`--authoring basic` 对不支持的组合报错。
-   多输入与条件调用参考[自由 Batch](../../dev_support/node_authoring/starter_batch_node.cpp)，
-   两种能力参考[多模型](../../dev_support/node_authoring/starter_multi_model_node.cpp)。
-3. basic 在普通函数中实现算法，通过 Spec 声明字段和端口；高级路径在生成文件中实现请求内逻辑。`TraceableItem` 的载荷为 `.data`，保留来源的写法是
-   `outputs.emplace_back(item.req_id, item.sub_id, new_value)`；模型句柄通过 `model()`
-   使用。请求数据留在局部变量，成员只存配置或安全共享句柄。
-4. 在同文件维护 `NodeDefinition`：逻辑端口、配置字段、模型能力及并发声明与实现一致。
-   模型骨架要求在 Pipeline 配置中指定 `bind_model`。生成器默认 `parallel_safe=false`，
-   审查节点的共享状态后再启用；`biz_names` 通常留空以便复用。
-5. 格式化、重新构建 SDK/工具和现有测试 runner，再查询 Catalog。沿用同一注册路径，
-   无需修改 Core、中央列表或 Studio。没加 `--add-to-cmake` 时，将文件名加入本目录
-   [CMakeLists.txt](CMakeLists.txt) 的 `target_sources`。
-6. 编排 Pipeline，运行原生 `validate`、`plan` 和匹配 Demo。已有外部结构直接复用
-   Adapter；新结构走[业务接入指南](../../doc/dev_guide/business_onboarding.md)。交付执行
-   [CONTRIBUTING](../../CONTRIBUTING.md) 中的统一门禁。
+   `--dry-run` 查看计划；已有文件默认拒绝覆盖。生成测试后补充独立业务期望。
+3. 在 `Transform`、`BuildPrompt` / `FormatAnswer` 或 `Run` 中实现普通算法，返回值或
+   `NodeResult`。配置、端口、模型只在 Spec 中声明；请求数据留在函数局部。
+4. 格式化、构建 SDK、CLI 和现有测试 runner，再查询 Catalog。未用 `--add-to-cmake` 时，
+   将源码加入本目录 [CMakeLists.txt](CMakeLists.txt)。无需修改中央节点列表或 Studio。
+5. 编排 Pipeline，执行原生 `validate`、`plan` 与匹配 Demo。新平台结构走
+   [业务接入指南](../../doc/dev_guide/business_onboarding.md)，交付执行
+   [CONTRIBUTING](../../CONTRIBUTING.md) 的统一门禁。
 
-可用节点、模型、Backend 和参数以当前构建的 Catalog 为准。脚手架只提供编译期接口
-骨架，不判断模型资源是否存在，也不替代 Validator 或领域测试。
+脚手架只提供接口骨架，不判断模型资源是否存在，也不替代业务验收。
+默认 `parallel_safe=false`；确认业务函数与共享资源可并发使用后再改为 `true`。
 
-### 端口与模型骨架边界
+### 端口与模型
 
-- 端口语法：`name:Batch` 或 `name:Batch:1:1:preserve`；例如
-  `chunks:TextBatch:1:N:generate_sub_id` 会完整保留 `1:N`。
-- compute 同类型、1:1/preserve 默认透传；异类型或其他数量关系只生成明确报错的
-  待实现入口，作者必须实现转换后才能得到业务结果。
-- model 支持当前五种模型能力，批类型必须与能力接口匹配。LLM / Embedding 使用
-  对应 options 的默认值；如需配置化，在 Node 中解析并声明字段。
-- unary_inference 适合 LLM、Embedding、ASR、Rerank 的 1:1 批处理。OCR 的
-  `ImageRefBatch` 是独立容器，当前浅层 unary 支持类不能保留该类型，请使用
-  `--kind model -m ocr`。脚本会拒绝不适用的组合。
-- 自定义批类型应提供 `BlackboardTypeTraits`；生成代码通过编译期检查拒绝未知类型标识。
+- 端口语法为 `name:Batch` 或 `name:Batch:1:1:preserve`；
+  `chunks:TextBatch:1:N:generate_sub_id` 完整表达拆分契约。
+- `InputsOf` 绑定普通输入结构的只读批次指针。`Required` 要求输入，`Optional` 允许不连接；
+  连接后仍允许当前请求缺值的业务，显式使用 `OptionalValue`。
+- `PreservedOutput` 声明 anchor，框架检查数量、顺序和来源。`ProducedBatch` 声明派生单输出，
+  `OutputsOf` / `Produced` 声明多输出；`PortFlow` 提供数量、来源、生命周期及其配置引用。
+  拆分、聚合等派生输出的正确性由算法及测试保证，声明不会自动证明这些关系。
+- `ModelsOf` 中的 `Model` 根据成员类型绑定五种模型能力：`LlmCall`、`EmbeddingCall`、
+  `AsrCall`、`OcrCall`、`RerankCall`。调用门面处理空批次、模型错误及保序校验。
+  模型骨架要求批类型匹配能力接口；包括 OCR 的 `ImageRefBatch`。
+- 同类型、保序的 compute 骨架可透传；异类型或派生输出保留明确失败的待实现入口。
+  新内部批类型提供 `BlackboardTypeTraits`；平台 DTO 不进入 Node。
 
 ## 自定义参数的最小约定
 
-在节点同一文件的 `NodeDefinition.config_fields` 声明字段，在 `InitNode` 或
-`InitModelNode` 使用 `config.value<T>()` 读取；不需要参数宏或修改 Core/Studio。
-字段类型、默认值、范围和枚举进入 Catalog；新增字段需重新编译，已有字段改值只需
-重新创建 Pipeline/实例加载配置。运行中的更新仍需显式实现 Control。
+在 `Parameters<Params>` 中用 `Field("name", &Params::member)` 声明成员，显式选择
+`.Required()` 或 `.Default(value)`，再写范围、枚举及说明。字段同时用于预检、初始化和 Catalog；
+业务函数收到普通参数结构，不再从 JSON 重复读取。跨字段检查用 `Validate`，连线约束用
+`ValidateBindings`。普通字段 Control 使用 `WithControls`，参考
+[Control 练习](../../doc/dev_guide/first_control.md)。
 
-同一字段的默认值使用节点内共享常量，例如：
-
-```cpp
-constexpr double kDefaultThreshold = 0.8;
-// 添加到 Definition.config_fields：
-ConfigFieldDefinition{"threshold", ConfigValueKind::kNumber,
-                      false, kDefaultThreshold, 0.0, 1.0};
-// 在初始化中读取：
-threshold_ = config.value<double>("threshold", kDefaultThreshold);
-```
-
-只有缺失字段才使用默认值；类型、范围或字段组合错误应拒绝，不能静默回退。
-Validator 在物化前检查声明，初始化仍保留防御校验。复杂配置确实重复使用时，
-将解析和语义检查集中为节点自己的函数，供 `validate_config`、初始化以及适用的
-Control 路径复用。可直接参考 [Control 模板](../../dev_support/node_authoring/starter_control_node.cpp)
-的 `PrefixConfigFields` / `ReadPrefix`，字段 `semantic` 写明用途、单位和嵌套结构，Catalog
-与 Studio 会显示同一说明。普通参数保存在节点配置成员，请求数据继续通过端口传递。
-
-涉及长度时写清单位：TextChunk 的 `chunk_size/overlap` 按 Unicode 码点计数，
-TextTemplate 的 `max_length` 是 UTF-8 字节预算，生成的 `max_tokens` 是 token 数。
-这些不同用途的参数不需要统一数值或名称。嵌套参数通过 JSON 配置，字段结构以节点
-声明及实际校验为准，不在前端维护独立规则。
+字段说明应明确单位：TextChunk 按 Unicode 码点切分，TextTemplate 的长度是 UTF-8 字节预算，
+生成的 `max_tokens` 是 token 数。类型、范围和字段组合错误应拒绝，不静默改用默认值。
 
 ### 参数复杂时，使用普通结构和解析封装
 
-包含 `nodes/node_config_parser.h`，用 `NodeConfigParser<YourConfig>` 保存一份字段列表
-和一个语义解析函数。`YourConfig` 是普通 C++ 结构；解析函数的签名是
-`bool(const nlohmann::json&, YourConfig*, std::string*)`。它直接读取已校验、已补默认值
-的 JSON 对象，把需要运行时使用的内容放入自己的结构，并处理跨字段、模板语法等
-专属规则。字段类型、范围和枚举交给原有通用校验，不重复编写。
+`Parameters<Params>.WithParser(NodeConfigParser<Params>(fields, parse))` 保存复杂字段与
+`bool(const nlohmann::json&, Params*, std::string*)` 解析函数。解析器接收已规范化 JSON，
+返回持有自身字符串和容器的普通对象；不保存 JSON 指针，不序列化后重解析。
+它与 `Field` 可组合，框架拒绝重名字段，预检和初始化共享语义规则。
 
-[PromptGuidedLlmNode](prompt_guided_llm_node.cpp) 是参与编译的完整例子：
-`PromptConfig` 保存模板、生成选项和输出处理设置，`ParsePromptConfig` 做语义解析，
-`PromptConfiguration()` 将字段声明和解析函数组合起来。
+参考 [StructuredJsonParseNode](../common_nodes/structured_json_parse_node.cpp) 和
+[PromptGuidedLlmNode](prompt_guided_llm_node.cpp)。复杂 Control 用 `.WithControl` 声明命令与
+构造下一状态的函数，参考 [TextTemplateNode](../common_nodes/text_template_node.cpp) 和
+[TextRuleMatchNode](../common_nodes/text_rule_match_node.cpp)：框架串行处理更新，失败保持旧值，
+每次请求读取一次一致快照。
 
-```cpp
-// Definition 与解析器使用同一份字段声明。
-def.config_fields = PromptConfiguration().Fields();
-
-// InitModelNode 消费 Validator 已校验并补齐的 Plan 配置。
-auto next = PromptConfiguration().ParseNormalized(config, &error);
-if (!next) return init_ctx.Fail(error);
-config_ = std::move(*next);
-```
-
-根据调用位置选择入口：
-
-| 调用位置 | 使用方法 |
-| --- | --- |
-| 已解码的 Control 参数 | `Parse(config, &error)`：复用 `ValidateAndNormalizeFields`，再做语义解析 |
-| `Definition.validate_config`、`NodeBase::InitNode`、`ModelBoundNode::InitModelNode` | `ParseNormalized(config, &error)`：直接使用已按同一份字段列表校验、补齐的对象 |
-
-两种方法都返回 `std::optional<YourConfig>`；失败或异常只返回空值与诊断，不发布半成品。
-预检和初始化分别执行同一份语义规则；它们之间没有参数缓存。Process 只使用保存后的
-参数结构，不再读取配置。需要 Control 时，解析成功后再按该节点原有的同步方式发布新值；
-helper 不增加热更新或并发能力。
-
-参数结构应持有自己的字符串、容器等内容，不保存指向输入 JSON 的指针或 `string_view`。
-整个过程不把 JSON 转成字符串再解析。简单的一两个参数可以继续使用前面的直接读取方式，
-不需要新的基类、配置节点或统一的业务字段枚举。
+会话缓存显式向 `Run` 注入 `const SessionResources&`，通过 `GetOrCreateResource` 和
+`GetModelRevision` 使用现有会话资源；参考
+[TextEmbeddingNode](../common_nodes/text_embedding_node.cpp)。不要将请求输入指针保存在缓存中。
 
 ## 完整参考样例
 

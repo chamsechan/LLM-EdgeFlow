@@ -176,13 +176,11 @@ package "能力节点层（Capability Nodes）" as CapabilityNodes {
     # Fail(ctx, err_code, msg): int
   }
 
-  class "ModelBoundNode<E>" as ModelBoundNode <<(M,#10B981) Model Template>> {
-    # model(): shared_ptr<E>
-    # model_id(): const string&
-  }
-
-  class "TraceableUnaryInferenceNode<E, In, Out>" as TraceableUnaryNode <<(U,#8B5CF6) Unary Template>> {
-    # {abstract} InferBatch(in: InputBatch, out: OutputBatch*): int
+  class "AuthorNode<Spec>" as AuthorNode <<(A,#10B981) Node Runtime>> {
+    - inputs: typed bindings
+    - outputs: typed bindings
+    - parameters: immutable configuration
+    - models: declared capability calls
   }
 
   class NodeRegistry <<(S,#EC4899) Singleton>> {
@@ -319,13 +317,12 @@ SessionContext *-- ModelManager
 ModelManager o-- IModel
 
 INode <|-- NodeBase
-NodeBase <|-- ModelBoundNode
-ModelBoundNode <|-- TraceableUnaryNode
-NodeBase <|.. CommonNodes
+NodeBase <|-- AuthorNode
+AuthorNode <|.. CommonNodes
 NodeRegistry ..> INode : 动态反射创建 (Fail-Closed)
 
-CommonNodes ..> AlgContext : Typed Key 读写
-ModelBoundNode ..> ModelManager : 索取纯虚能力接口
+AuthorNode ..> AlgContext : Typed port 读写
+AuthorNode ..> ModelManager : 解析声明的模型依赖
 
 IModel <|-- IEmbeddingModel
 IModel <|-- IRerankModel

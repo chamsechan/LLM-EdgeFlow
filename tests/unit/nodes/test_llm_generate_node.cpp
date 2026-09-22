@@ -15,6 +15,7 @@
 #include "core/session_context.h"
 #include "engine/model_interface.h"
 #include "nodes/model_calls.h"
+#include "nodes/node_error_codes.h"
 #include "tests/support/node_test_utils.h"
 
 namespace llm_edgeflow {
@@ -223,7 +224,7 @@ TEST_F(LlmGenerateNodeTest, MissingInputFailsClosed) {
                               session_ctx_.get()));
 
   AlgContext empty_ctx;
-  EXPECT_EQ(node->Process(&empty_ctx), -4301);
+  EXPECT_EQ(node->Process(&empty_ctx), node_error::author_node::kMissingInput);
 }
 
 TEST_F(LlmGenerateNodeTest, EmptyBatchSkipsInference) {
@@ -252,14 +253,16 @@ TEST_F(LlmGenerateNodeTest, InvalidModelOutputFailsClosed) {
   model_->return_wrong_count = true;
   AlgContext count_ctx;
   count_ctx.Publish("prompt", prompts);
-  EXPECT_EQ(node->Process(&count_ctx), -4302);
+  EXPECT_EQ(node->Process(&count_ctx),
+            node_error::author_node::kOutputCountMismatch);
   EXPECT_EQ(count_ctx.Read<TextBatch>("text"), nullptr);
 
   model_->return_wrong_count = false;
   model_->corrupt_provenance = true;
   AlgContext provenance_ctx;
   provenance_ctx.Publish("prompt", prompts);
-  EXPECT_EQ(node->Process(&provenance_ctx), -4303);
+  EXPECT_EQ(node->Process(&provenance_ctx),
+            node_error::author_node::kOutputProvenanceMismatch);
   EXPECT_EQ(provenance_ctx.Read<TextBatch>("text"), nullptr);
 }
 

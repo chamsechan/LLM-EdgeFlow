@@ -19,6 +19,8 @@ import subprocess
 import time
 
 
+BASELINE_HELPER_REVISION = "87a28b7"
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", type=Path, default=Path(__file__).resolve().parents[3])
@@ -40,6 +42,14 @@ def main():
 
     def run(command, **kwargs):
         return subprocess.run(command, check=True, text=True, env=env, **kwargs)
+
+    baseline_headers = work / "baseline_include" / "nodes"
+    baseline_headers.mkdir(parents=True, exist_ok=True)
+    for name in ("model_bound_node.h", "node_definition_helpers.h"):
+        header = run(["git", "-C", str(root), "show",
+                      BASELINE_HELPER_REVISION + ":include/nodes/" + name],
+                     capture_output=True).stdout
+        (baseline_headers / name).write_text(header)
 
     old = run(["git", "-C", str(root), "show",
                args.baseline + ":dev_support/node_authoring/starter_llm_node.cpp"],
@@ -84,7 +94,9 @@ def main():
     hashes = {name: hashlib.sha256((root / name).read_bytes()).hexdigest() for name in (
         "include/nodes/function_node.h", "include/nodes/parameter_binding.h",
         "include/nodes/model_calls.h", "dev_support/node_authoring/starter_llm_node.cpp")}
-    summary = dict(baseline_revision=args.baseline, platform=platform.platform(),
+    summary = dict(baseline_revision=args.baseline,
+                   baseline_helper_revision=BASELINE_HELPER_REVISION,
+                   platform=platform.platform(),
                    compile_command=base, iterations=args.iterations, source_sha256=hashes,
                    wrappers=summaries, compile_results=compile_results)
     (work / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")

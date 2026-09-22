@@ -15,6 +15,7 @@
 #include "core/pipeline_validator.h"
 #include "core/session_context.h"
 #include "engine/model_interface.h"
+#include "nodes/node_error_codes.h"
 #include "tests/support/node_test_utils.h"
 
 namespace llm_edgeflow {
@@ -171,7 +172,7 @@ TEST_F(TextEmbeddingNodeTest, MissingInputFailsClosed) {
                               session_ctx_.get()));
 
   AlgContext empty_ctx;
-  EXPECT_EQ(node->Process(&empty_ctx), -4101);
+  EXPECT_EQ(node->Process(&empty_ctx), node_error::author_node::kMissingInput);
 }
 
 TEST_F(TextEmbeddingNodeTest, EmptyBatchSkipsInference) {
@@ -200,14 +201,16 @@ TEST_F(TextEmbeddingNodeTest, InvalidRequestOutputFailsClosed) {
   counting_model_->return_wrong_count = true;
   AlgContext count_ctx;
   count_ctx.Publish("text", inputs);
-  EXPECT_EQ(node->Process(&count_ctx), -4102);
+  EXPECT_EQ(node->Process(&count_ctx),
+            node_error::author_node::kOutputCountMismatch);
   EXPECT_EQ(count_ctx.Read<EmbeddingBatch>("embedding"), nullptr);
 
   counting_model_->return_wrong_count = false;
   counting_model_->corrupt_provenance = true;
   AlgContext provenance_ctx;
   provenance_ctx.Publish("text", inputs);
-  EXPECT_EQ(node->Process(&provenance_ctx), -4103);
+  EXPECT_EQ(node->Process(&provenance_ctx),
+            node_error::author_node::kOutputProvenanceMismatch);
   EXPECT_EQ(provenance_ctx.Read<EmbeddingBatch>("embedding"), nullptr);
 }
 
@@ -223,7 +226,8 @@ TEST_F(TextEmbeddingNodeTest, InvalidSessionOutputIsNotCached) {
 
   AlgContext invalid_ctx;
   invalid_ctx.Publish("text", inputs);
-  EXPECT_EQ(node->Process(&invalid_ctx), -4102);
+  EXPECT_EQ(node->Process(&invalid_ctx),
+            node_error::author_node::kOutputCountMismatch);
   EXPECT_EQ(counting_model_->infer_calls.load(), 1);
 
   counting_model_->return_wrong_count = false;

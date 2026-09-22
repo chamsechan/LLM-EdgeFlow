@@ -24,19 +24,17 @@ def find_template(rel_path):
     return Path(__file__).resolve().parents[1] / rel_path
 
 
-STARTER_LLM_BASIC_TEMPLATE = find_template("dev_support/node_authoring/starter_llm_node.cpp")
-STARTER_LLM_ADVANCED_TEMPLATE = find_template("dev_support/node_authoring/starter_llm_node_advanced.cpp")
-STARTER_LLM_TEMPLATE = STARTER_LLM_ADVANCED_TEMPLATE
+STARTER_LLM_TEMPLATE = find_template("dev_support/node_authoring/starter_llm_node.cpp")
 STARTER_CONTROL_TEMPLATE = find_template("dev_support/node_authoring/starter_control_node.cpp")
 
 
 # Compile-time capability signatures; availability still comes from the Catalog.
 CAPABILITY_MAP = {
-    "llm": ("ILlmModel", "TextBatch", "TextBatch", "Generate(input, GenerateOptions{}, output, diagnostic)"),
-    "embedding": ("IEmbeddingModel", "TextBatch", "EmbeddingBatch", "Embed(input, EmbeddingOptions{}, output, diagnostic)"),
-    "asr": ("IAsrModel", "AudioPcmBatch", "TextBatch", "Transcribe(input, output, diagnostic)"),
-    "ocr": ("IOcrModel", "ImageRefBatch", "OcrDocumentBatch", "Recognize(input, output, diagnostic)"),
-    "rerank": ("IRerankModel", "QueryCandidatesBatch", "ScoreBatch", "Score(input, output, diagnostic)"),
+    "llm": ("LlmCall", "TextBatch", "TextBatch", "Generate"),
+    "embedding": ("EmbeddingCall", "TextBatch", "EmbeddingBatch", "Embed"),
+    "asr": ("AsrCall", "AudioPcmBatch", "TextBatch", "Transcribe"),
+    "ocr": ("OcrCall", "ImageRefBatch", "OcrDocumentBatch", "Recognize"),
+    "rerank": ("RerankCall", "QueryCandidatesBatch", "ScoreBatch", "Score"),
 }
 
 
@@ -73,21 +71,7 @@ def get_item_type_for_batch(batch):
     return f"decltype({batch}::value_type{{}}.data)"
 
 
-def render_llm_starter(name, description, in_name, out_name):
-    """Use the readable, compiled starter as the single LLM model template."""
-    source = STARTER_LLM_TEMPLATE.read_text(encoding="utf-8")
-    source = source.replace("StarterAdvancedLlmNode", name)
-    literals = {
-        '"input"': cpp_string(in_name),
-        '"output"': cpp_string(out_name),
-        '"LLM authoring starter"': cpp_string(description),
-    }
-    # One pass: a replacement may itself contain another placeholder's text.
-    return re.sub(r'"input"|"output"|"LLM authoring starter"',
-                  lambda match: literals[match.group()], source)
-
-
-def render_basic_map_node(name, description, in_port, out_port):
+def render_map_node(name, description, in_port, out_port):
     in_name, in_type, in_card, in_prov = in_port
     out_name, out_type, out_card, out_prov = out_port
     spec_func = f"{name}Spec"
@@ -121,8 +105,8 @@ REGISTER_FUNCTION_NODE({name}, {spec_func}());
 """
 
 
-def render_basic_llm_starter(name, description, in_name, out_name):
-    source = STARTER_LLM_BASIC_TEMPLATE.read_text(encoding="utf-8")
+def render_llm_starter(name, description, in_name, out_name):
+    source = STARTER_LLM_TEMPLATE.read_text(encoding="utf-8")
     source = source.replace("StarterLlmNode", name)
     source = source.replace("StarterLlmSpec", f"{name}Spec")
     literals = {
@@ -134,18 +118,7 @@ def render_basic_llm_starter(name, description, in_name, out_name):
                   lambda match: literals[match.group()], source)
 
 
-def resolve_authoring(authoring, kind, capability, in_port, out_port):
-    if authoring != "auto":
-        return authoring
-    preserved = (in_port[2:], out_port[2:]) == (("1:1", "preserve"), ("1:1", "preserve"))
-    pair = (in_port[1], out_port[1])
-    supported = (kind == "compute" and pair == ("TextBatch", "TextBatch")) or (
-        kind == "model" and capability in ("llm", "embedding")
-        and pair == CAPABILITY_MAP[capability][1:3])
-    return "basic" if preserved and supported else "advanced"
-
-
-def render_basic_embedding_node(name, description, in_name, out_name):
+def render_embedding_node(name, description, in_name, out_name):
     return f"""#include "nodes/authoring.h"
 
 namespace llm_edgeflow {{
@@ -183,32 +156,10 @@ REGISTER_FUNCTION_NODE({name}, {name}Spec());
 """
 
 
-def render_node(name, description, kind, capability, in_port, out_port, control_id=None, authoring="auto"):
-    authoring = resolve_authoring(authoring, kind, capability, in_port, out_port)
-    if authoring == "basic" and control_id is None:
-        in_name, in_type, in_card, in_prov = in_port
-        out_name, out_type, out_card, out_prov = out_port
-        if kind == "compute":
-            if (in_type, out_type) != ("TextBatch", "TextBatch"):
-                raise ValueError(f"--authoring basic for compute only supports TextBatch -> TextBatch; use --authoring advanced for {in_type} -> {out_type}")
-            if (in_card, in_prov, out_card, out_prov) != ("1:1", "preserve", "1:1", "preserve"):
-                raise ValueError("--authoring basic requires 1:1 preserve ports; use --authoring advanced for custom cardinality/provenance")
-            return render_basic_map_node(name, description, in_port, out_port)
-        elif kind == "model" and capability == "llm":
-            if (in_type, out_type) != ("TextBatch", "TextBatch") or (in_card, in_prov, out_card, out_prov) != ("1:1", "preserve", "1:1", "preserve"):
-                raise ValueError("--authoring basic for LLM requires TextBatch 1:1 preserve ports; use --authoring advanced for other batch types")
-            return render_basic_llm_starter(name, description, in_name, out_name)
-        elif kind == "model" and capability == "embedding":
-            if (in_type, out_type) != ("TextBatch", "EmbeddingBatch") or (in_card, in_prov, out_card, out_prov) != ("1:1", "preserve", "1:1", "preserve"):
-                raise ValueError("--authoring basic for Embedding requires TextBatch -> EmbeddingBatch 1:1 preserve ports; use --authoring advanced for other contracts")
-            return render_basic_embedding_node(name, description, in_name, out_name)
-        else:
-            target = f"model ({capability})" if kind == "model" else kind
-            raise ValueError(f"--authoring basic does not support {target}; use --authoring advanced")
-
+def render_node(name, description, kind, capability, in_port, out_port, control_id=None):
     in_name, in_type, in_card, in_prov = in_port
     out_name, out_type, out_card, out_prov = out_port
-    signature = CAPABILITY_MAP.get(capability)
+    preserved = (in_card, in_prov, out_card, out_prov) == ("1:1", "preserve", "1:1", "preserve")
     if control_id is not None:
         if not 1000 <= control_id <= 2147483647:
             raise ValueError("--control-id must be an unused custom ID in 1000..2147483647")
@@ -222,160 +173,82 @@ def render_node(name, description, kind, capability, in_port, out_port, control_
                     '"Control authoring starter"': cpp_string(description)}
         return re.sub(r'"input"|"output"|"Control authoring starter"',
                       lambda match: literals[match.group()], source)
-    if kind != "compute":
+    if kind == "model":
+        signature = CAPABILITY_MAP.get(capability)
         if not signature:
             raise ValueError("A model capability is required")
-        interface, expected_in, expected_out, call = signature
-        if (in_type, out_type) != (expected_in, expected_out):
-            raise ValueError(f"{capability} requires {expected_in} -> {expected_out}; customize conversions in C++")
-        if (in_card, in_prov, out_card, out_prov) != ("1:1", "preserve", "1:1", "preserve"):
+        if (in_type, out_type) != signature[1:3]:
+            raise ValueError(f"{capability} requires {signature[1]} -> {signature[2]}; customize conversions in C++")
+        if not preserved:
             raise ValueError("Model templates require 1:1 preserve ports; customize batch changes in C++")
-        if kind == "unary_inference" and capability == "ocr":
-            raise ValueError("ImageRefBatch is a distinct container; use --kind model for OCR")
-    if kind == "model" and capability == "llm":
-        return render_llm_starter(name, description, in_name, out_name)
-    base = "NodeBase" if kind == "compute" else f"ModelBoundNode<{signature[0]}>"
-    if kind == "unary_inference":
-        base = (f"TraceableUnaryInferenceNode<{signature[0]}, "
-                f"{get_item_type_for_batch(in_type)}, {get_item_type_for_batch(out_type)}>")
-        implementation = f"""  {name}() : Base(kNodeType, {cpp_string(in_name)}, {cpp_string(out_name)}, -8101, -8103, -8103) {{}}
+        if capability == "llm":
+            return render_llm_starter(name, description, in_name, out_name)
+        if capability == "embedding":
+            return render_embedding_node(name, description, in_name, out_name)
+    elif kind != "compute":
+        raise ValueError("kind must be compute or model")
+    elif preserved and in_type == out_type == "TextBatch":
+        return render_map_node(name, description, in_port, out_port)
 
- protected:
-  int InferBatch(const InputBatch& input, OutputBatch* output,
-                 std::string* diagnostic) override {{
-    // TODO: Customize request-local preprocessing / postprocessing as needed.
-    return model()->{signature[3]};
-  }}
-"""
+    input_flow = f"PortFlow{{{cpp_string(in_card)}, {cpp_string(in_prov)}}}"
+    output = (f"PreservedOutput<{out_type}>({cpp_string(out_name)}, {cpp_string(in_name)})"
+              if preserved else
+              f"ProducedBatch<{out_type}>({cpp_string(out_name)}, PortFlow{{{cpp_string(out_card)}, {cpp_string(out_prov)}}})")
+    models = ""
+    model_binding = "ModelsOf<NoModels>{}"
+    model_type = "NoModels"
+    if kind == "model":
+        call, _, _, method = CAPABILITY_MAP[capability]
+        models = f"struct Models {{ {call} model; }};\n"
+        model_type = "Models"
+        model_binding = 'ModelsOf<Models>{Model("model", "bind_model", &Models::model)}'
+        processing = f"  return models.model.{method}(*inputs.items);"
+    elif preserved and in_type == out_type:
+        processing = f"  return NodeResult<{out_type}>::Success(*inputs.items);"
     else:
-        init = "InitNode" if kind == "compute" else "InitModelNode"
-        if kind == "compute":
-            if in_type == out_type and (in_card, in_prov, out_card, out_prov) == ("1:1", "preserve", "1:1", "preserve"):
-                processing = """    for (const auto& item : input) {
-      // TODO: Replace identity with your domain logic. Preserve provenance.
-      outputs.emplace_back(item.req_id, item.sub_id, item.data);
-    }
-"""
-            else:
-                processing = '''    (void)input;
-    // TODO: Implement the declared transformation and provenance policy.
-    // Do not publish default payloads as successful business results.
-    return Fail(ctx, -8102, Name() + ": domain transformation is not implemented");
-'''
-        else:
-            processing = f"""    auto* output = &outputs;
-    std::string reason;
-    auto* diagnostic = &reason;
-    // TODO: Build model inputs locally, then postprocess verified outputs.
-    const int ret = model()->{signature[3]};
-    if (ret != 0) {{
-      return Fail(ctx, ret, Name() + ": model inference failed" +
-                               (reason.empty() ? "" : ": " + reason));
-    }}
-    if (!ValidatePreservedTraceableAlignment(input, outputs).IsAligned()) {{
-      return Fail(ctx, -8103, Name() + ": output count or provenance mismatch");
-    }}
-"""
-        implementation = f"""  {name}() : Base(kNodeType), in_port_({cpp_string(in_name)}), out_port_({cpp_string(out_name)}) {{}}
-
- protected:
-  bool {init}(const NodeInitContext& init_ctx, const nlohmann::json&,
-              SessionContext&) override {{
-    BindPort(init_ctx, in_port_);
-    BindPort(init_ctx, out_port_);
-    return true;
-  }}
-
-  int ProcessNode(AlgContext& ctx) override {{
-    const auto* inputs = in_port_.Require(ctx, -8101);
-    if (!inputs) return -8101;
-    {out_type} outputs;
-    if (inputs->empty()) {{
-      out_port_.Set(ctx, std::move(outputs));
-      return 0;
-    }}
-    const auto& input = *inputs;
-{processing}
-    out_port_.Set(ctx, std::move(outputs));
-    return 0;
-  }}
-
- private:
-  BoundInput<{in_type}> in_port_;
-  BoundOutput<{out_type}> out_port_;
-"""
-    model_definition = ""
-    if kind != "compute":
-        model_definition = f"""  def.config_fields = {{ConfigFieldDefinition{{"bind_model", ConfigValueKind::kString, true}}}};
-  def.model_dependencies = {{NodeModelDependency{{
-      "model",
-      {cpp_string(capability)},
-      "bind_model",
-  }}}};
-"""
-    return f"""#include <string>
-#include <string_view>
-#include <utility>
-
-#include "core/common_contracts.h"
-#include "core/node_registry.h"
-#include "core/node_definition.h"
-#include "engine/model_interface.h"
-#include "nodes/model_bound_node.h"
-#include "nodes/node_base.h"
-#include "nodes/traceable_batch_validation.h"
-#include "nodes/traceable_unary_inference_node.h"
+        processing = f'''  (void)inputs;
+  // TODO: Implement the declared transformation and provenance policy.
+  // Do not publish default payloads as successful business results.
+  return NodeResult<{out_type}>::Failure(
+      NodeErrorKind::kBusinessError, "domain transformation is not implemented", -8102);'''
+    return f'''#include "nodes/authoring.h"
 
 namespace llm_edgeflow {{
 namespace custom_nodes {{
 namespace {{
-
-static_assert(std::string_view(BlackboardTypeTraits<{in_type}>::TypeName()) != "Unknown",
-              "Input batch needs a BlackboardTypeTraits specialization");
-static_assert(std::string_view(BlackboardTypeTraits<{out_type}>::TypeName()) != "Unknown",
-              "Output batch needs a BlackboardTypeTraits specialization");
-
-class {name} final : public {base} {{
-  using Base = {base};
-
- public:
-  inline static constexpr char kNodeType[] = {cpp_string(name)};
-{implementation}}};
-
-NodeDefinition Make{name}Definition() {{
-  NodeDefinition def;
-  def.node_type = {name}::kNodeType;
-  def.category = "custom";
-  def.description = {cpp_string(description)};
-  def.inputs = {{RequiredInputPort({cpp_string(in_name)},
-      BlackboardKey<{in_type}>{{"", BlackboardTypeTraits<{in_type}>::TypeName()}},
-      {cpp_string(in_card)}, {cpp_string(in_prov)}, "request")}};
-  def.outputs = {{OutputPort({cpp_string(out_name)},
-      BlackboardKey<{out_type}>{{"", BlackboardTypeTraits<{out_type}>::TypeName()}},
-      {cpp_string(out_card)}, {cpp_string(out_prov)}, "request")}};
-{model_definition}  // Enable only after reviewing all node-owned shared state for concurrency.
-  def.parallel_safe = false;
-  return def;
+struct Inputs {{ const {in_type}* items = nullptr; }};
+{models}
+static NodeResult<{out_type}> Run(const Inputs& inputs, const NoParameters&,
+                                 const {model_type}&{ " models" if kind == "model" else ""}) {{
+{processing}
 }}
 
-REGISTER_NODE_WITH_DEFINITION({name}, Make{name}Definition());
+auto {name}Spec() {{
+  return MakeBatchSpec(
+      InputsOf<Inputs>{{Required({cpp_string(in_name)}, &Inputs::items, {input_flow})}},
+      {output},
+      {model_binding}, &Run)
+      .Description({cpp_string(description)});
+}}
 
+REGISTER_FUNCTION_NODE({name}, {name}Spec());
 }}  // namespace
 }}  // namespace custom_nodes
 }}  // namespace llm_edgeflow
-"""
+'''
 
 
-def render_model_node(name, description, capability, in_port, out_port, authoring="auto"):
-    return render_node(name, description, "model", capability, in_port, out_port, authoring=authoring)
+def render_model_node(name, description, capability, in_port, out_port):
+    return render_node(name, description, "model", capability, in_port, out_port)
 
 
-def render_standalone_test(name, description, kind, capability, in_port, out_port, control_id=None, authoring="auto"):
+def render_standalone_test(name, description, kind, capability, in_port, out_port, control_id=None):
     in_name, in_type, in_card, in_prov = in_port
     out_name, out_type, out_card, out_prov = out_port
 
-    authoring = resolve_authoring(authoring, kind, capability, in_port, out_port)
-    if authoring == "basic" and control_id is None and capability != "embedding":
+    preserved = (in_card, in_prov, out_card, out_prov) == ("1:1", "preserve", "1:1", "preserve")
+    if control_id is None and ((kind == "compute" and in_type == out_type == "TextBatch" and preserved)
+                               or (kind == "model" and capability == "llm")):
         if kind == "compute":
             return f"""#include <gtest/gtest.h>
 #include <string>
@@ -448,8 +321,6 @@ TEST(CustomNodeCatalogTest, {name}_ExecutesLlmGeneration) {{
 
 }}  // namespace llm_edgeflow
 """
-        else:
-            raise ValueError(f"--authoring basic does not support test generation for {kind}; use --authoring advanced")
 
     def sample_value_for_type(t, index=1):
         if t == "TextBatch":
@@ -774,9 +645,9 @@ TEST(CustomNodeCatalogTest, {name}_UnimplementedDomainLogicFailsCleanly) {{
 }}  // namespace llm_edgeflow
 """
 
-    # Model / Unary Inference
-    count_error = "node_error::author_node::kOutputCountMismatch" if authoring == "basic" else "-8103"
-    provenance_error = "node_error::author_node::kOutputProvenanceMismatch" if authoring == "basic" else "-8103"
+    # Model calls
+    count_error = "node_error::author_node::kOutputCountMismatch"
+    provenance_error = "node_error::author_node::kOutputProvenanceMismatch"
     mock_class = {
         "llm": "ControlledMockLlmModel",
         "embedding": "ControlledMockEmbeddingModel",
@@ -1125,7 +996,7 @@ class ChangePlan:
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("node_name", nargs="?")
-    parser.add_argument("-k", "--kind", choices=["compute", "model", "unary_inference"], default="compute")
+    parser.add_argument("-k", "--kind", choices=["compute", "model"], default="compute")
     parser.add_argument("-m", "--model-capability", choices=list(CAPABILITY_MAP))
     parser.add_argument("-d", "--description", default="")
     parser.add_argument("-i", "--in-port", help="name:Batch[:1:1[:preserve]]")
@@ -1136,8 +1007,6 @@ def main():
     parser.add_argument("--add-to-cmake", action="store_true")
     parser.add_argument("--write-test", action="store_true", help="Write a standalone test file in tests/unit/nodes/test_<snake_name>.cpp")
     parser.add_argument("--control-id", type=int, help="Generate the text-prefix Control starter using an unused custom command ID (>=1000)")
-    parser.add_argument("--authoring", choices=["auto", "basic", "advanced"], default="auto",
-                        help="Authoring style: auto selects function-oriented templates where supported; basic requires them; advanced uses lifecycle/class templates")
     parser.add_argument("--self-test", action="store_true", help="Run the generator's Python tests")
     args = parser.parse_args()
     root = Path(os.environ.get("LLM_EDGEFLOW_REPO_ROOT", Path(__file__).resolve().parent.parent))
@@ -1154,15 +1023,14 @@ def main():
 
     name = args.node_name if args.node_name.endswith("Node") else args.node_name + "Node"
     if args.kind == "compute" and args.model_capability:
-        parser.error("--model-capability requires --kind model or unary_inference")
+        parser.error("--model-capability requires --kind model")
     capability = (args.model_capability or "llm") if args.kind != "compute" else None
     signature = CAPABILITY_MAP.get(capability, (None, "TextBatch", "TextBatch"))
     try:
         in_port = parse_port_spec(args.in_port or f"input:{signature[1]}", "input")
         out_port = parse_port_spec(args.out_port or f"output:{signature[2]}", "output")
         content = render_node(name, args.description or f"Custom algorithm node {name}.",
-                              args.kind, capability, in_port, out_port, args.control_id,
-                              authoring=args.authoring)
+                              args.kind, capability, in_port, out_port, args.control_id)
 
         target = root / args.output_dir / (to_snake_case(name) + ".cpp")
         test_filename = f"test_{to_snake_case(name)}.cpp"
@@ -1177,8 +1045,7 @@ def main():
             plan.add_new_file(target, content)
         if args.write_test:
             test_content = render_standalone_test(name, args.description or f"Custom algorithm node {name}.",
-                                                  args.kind, capability, in_port, out_port, args.control_id,
-                                                  authoring=args.authoring)
+                                                  args.kind, capability, in_port, out_port, args.control_id)
             plan.add_new_file(test_target, test_content)
 
         if args.add_to_cmake:

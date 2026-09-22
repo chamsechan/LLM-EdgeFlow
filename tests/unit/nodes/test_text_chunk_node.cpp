@@ -9,6 +9,7 @@
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
 #include "core/session_context.h"
+#include "nodes/node_error_codes.h"
 #include "tests/support/node_test_utils.h"
 
 namespace llm_edgeflow {
@@ -216,7 +217,7 @@ TEST_F(TextChunkNodeTest, MissingInputFailsClosed) {
       InitNodeForTest(*node, nlohmann::json::object(), session_ctx_.get()));
 
   AlgContext empty_ctx;
-  EXPECT_EQ(node->Process(&empty_ctx), -4001);
+  EXPECT_EQ(node->Process(&empty_ctx), node_error::author_node::kMissingInput);
 }
 
 TEST_F(TextChunkNodeTest, DuplicateInputFailsClosed) {
@@ -231,7 +232,9 @@ TEST_F(TextChunkNodeTest, DuplicateInputFailsClosed) {
   input_batch.emplace_back(10, 0, "second message with same req_id and sub_id");
   ctx.Publish("text", input_batch);
 
-  EXPECT_EQ(node->Process(&ctx), -4003);
+  EXPECT_EQ(node->Process(&ctx), node_error::author_node::kBusinessError);
+  EXPECT_NE(ctx.GetErrorMessage().find("SplitPayloads duplicate input item"),
+            std::string::npos);
   EXPECT_EQ(ctx.Read<TextBatch>("chunks"), nullptr);
   EXPECT_EQ(ctx.Read<Int32Batch>("chunk_counts"), nullptr);
 }
