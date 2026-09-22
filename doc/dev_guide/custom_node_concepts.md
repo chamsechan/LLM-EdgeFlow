@@ -184,6 +184,7 @@ Control 更新单独归一化参数、构造下一状态后发布。
 多个输入、条件二次推理或复杂后处理都组织在普通 `Run` 函数中。保序输出用
 `PreservedOutput` 声明 anchor，框架检查等长、同序和同来源；局部选择后需要回填完整批次。
 拆分、排名或源输出用 `ProducedBatch` 和真实 `PortFlow`；多输出用 `OutputsOf` / `Produced`。
+每个输出端口必须绑定独立的结果成员；重复绑定同一成员会在声明时被拒绝，避免发布时重复移动。
 框架在发布前检查全部带 anchor 的输出，派生输出的编号和数量正确性由算法及测试保证。
 
 12 个生产 Node 都使用这套 Spec，包括 OCR 双输出、TextChunk 拆分、TextCorpusSource 源输出、

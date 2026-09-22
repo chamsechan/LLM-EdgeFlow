@@ -2031,6 +2031,63 @@ TEST(FunctionNodeTest, PreservedOutputDeclarationsRequireNamedAnchors) {
                std::invalid_argument);
 }
 
+TEST(FunctionNodeTest,
+     OutputDeclarationsRejectReusedMembersAcrossFlowOverloads) {
+  struct Outputs {
+    TextBatch items;
+  };
+  const auto first = Produced("a", &Outputs::items);
+  const std::vector<OutputBindingHolder<Outputs>> aliases = {
+      Produced("b", &Outputs::items),
+      Produced("b", &Outputs::items,
+               PortFlow{"1:N", "generate_sub_id", "request"}),
+      Produced("b", &Outputs::items, "input"),
+      Produced("b", &Outputs::items, PortFlow{}, "input")};
+  for (size_t i = 0; i < aliases.size(); ++i) {
+    SCOPED_TRACE(i);
+    EXPECT_THROW((OutputsOf<Outputs>{first, aliases[i]}),
+                 std::invalid_argument);
+  }
+}
+
+TEST(FunctionNodeTest, CopiedOutputBindingStillRejectsReusedMember) {
+  struct Outputs {
+    TextBatch items;
+  };
+  const auto original = Produced("a", &Outputs::items);
+  const auto copy = original;
+  EXPECT_THROW((OutputsOf<Outputs>{copy, Produced("b", &Outputs::items)}),
+               std::invalid_argument);
+}
+
+TEST(FunctionNodeTest,
+     OutputDeclarationsAllowDistinctMembersWithoutValueCreation) {
+  struct Outputs {
+    Outputs() = delete;
+    TextBatch first;
+    TextBatch second;
+    Int32Batch counts;
+  };
+  const OutputsOf<Outputs> outputs{Produced("first", &Outputs::first),
+                                   Produced("second", &Outputs::second),
+                                   Produced("counts", &Outputs::counts)};
+  const auto definitions = outputs.ToPortDefinitions();
+  ASSERT_EQ(definitions.size(), 3u);
+  EXPECT_EQ(definitions[0].logical_name, "first");
+  EXPECT_EQ(definitions[1].logical_name, "second");
+  EXPECT_EQ(definitions[2].logical_name, "counts");
+}
+
+TEST(FunctionNodeTest, OutputDeclarationsStillRejectDuplicatePortNames) {
+  struct Outputs {
+    TextBatch first;
+    TextBatch second;
+  };
+  EXPECT_THROW((OutputsOf<Outputs>{Produced("same", &Outputs::first),
+                                   Produced("same", &Outputs::second)}),
+               std::invalid_argument);
+}
+
 TEST(FunctionNodeTest, MixedControlDeclarationsRejectDuplicateIdInEitherOrder) {
   auto make_spec = [] {
     return MakeBatchSpec(

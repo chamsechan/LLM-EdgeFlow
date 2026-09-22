@@ -620,6 +620,7 @@ class OutputBinding {
   virtual bool Bind(const NodeInitContext&) = 0;
   virtual std::optional<NodeFailure> Validate(
       const ValueT&, const OutputAlignmentCheck&) const = 0;
+  virtual bool ConflictsWithMember(const OutputBinding& other) const = 0;
   virtual void Publish(AlgContext&, ValueT&) const = 0;
   virtual std::unique_ptr<OutputBinding> Clone() const = 0;
 };
@@ -630,12 +631,14 @@ class TypedOutputBinding final : public OutputBinding<ValueT> {
   using Accessor = std::function<BatchT&(ValueT&)>;
   using ConstAccessor = std::function<const BatchT&(const ValueT&)>;
   TypedOutputBinding(std::string name, Accessor access, ConstAccessor read,
-                     PortFlow flow, std::string anchor)
+                     PortFlow flow, std::string anchor,
+                     BatchT ValueT::*member = nullptr)
       : port_(std::move(name)),
         access_(std::move(access)),
         read_(std::move(read)),
         flow_(std::move(flow)),
-        anchor_(std::move(anchor)) {}
+        anchor_(std::move(anchor)),
+        member_(member) {}
   NodePortDefinition Definition() const override {
     return {port_.LogicalName(),
             BlackboardTypeTraits<BatchT>::TypeName(),
@@ -674,6 +677,10 @@ class TypedOutputBinding final : public OutputBinding<ValueT> {
           node_error::author_node::kOutputProvenanceMismatch};
     return std::nullopt;
   }
+  bool ConflictsWithMember(const OutputBinding<ValueT>& other) const override {
+    const auto* typed = dynamic_cast<const TypedOutputBinding*>(&other);
+    return member_ && typed && member_ == typed->member_;
+  }
   void Publish(AlgContext& context, ValueT& value) const override {
     port_.Set(context, std::move(access_(value)));
   }
@@ -687,6 +694,7 @@ class TypedOutputBinding final : public OutputBinding<ValueT> {
   ConstAccessor read_;
   PortFlow flow_;
   std::string anchor_;
+  BatchT ValueT::*member_;
 };
 
 template <typename ValueT>
@@ -713,7 +721,7 @@ OutputBindingHolder<ValueT> Produced(std::string name, BatchT ValueT::*member,
       std::make_unique<TypedOutputBinding<ValueT, BatchT>>(
           std::move(name), [member](ValueT& v) -> BatchT& { return v.*member; },
           [member](const ValueT& v) -> const BatchT& { return v.*member; },
-          std::move(flow), std::move(anchor)));
+          std::move(flow), std::move(anchor), member));
 }
 
 template <typename ValueT, typename BatchT>
@@ -728,11 +736,19 @@ template <typename ValueT>
 class OutputsOf {
  public:
   OutputsOf(std::initializer_list<OutputBindingHolder<ValueT>> bindings) {
-    for (const auto& binding : bindings) bindings_.push_back(binding.Clone());
     std::unordered_set<std::string> names;
-    for (const auto& binding : bindings_)
-      if (!names.insert(binding->Definition().logical_name).second)
+    for (const auto& binding : bindings) {
+      auto output = binding.Clone();
+      const auto name = output->Definition().logical_name;
+      if (!names.insert(name).second)
         throw std::invalid_argument("Duplicate output port");
+      for (const auto& previous : bindings_)
+        if (output->ConflictsWithMember(*previous))
+          throw std::invalid_argument(
+              "Output ports '" + previous->Definition().logical_name +
+              "' and '" + name + "' bind the same result member");
+      bindings_.push_back(std::move(output));
+    }
   }
   OutputsOf(const OutputsOf& other) {
     for (const auto& binding : other.bindings_)
