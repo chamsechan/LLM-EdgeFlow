@@ -1,3 +1,4 @@
+#include <gtest/gtest-spi.h>
 #include <gtest/gtest.h>
 
 #include <cstring>
@@ -9,6 +10,7 @@
 
 #include "edgeflow/operator/interface.h"
 #include "engine/backend_registry.h"
+#include "tests/support/operator_test_fixture.h"
 
 #ifndef EDGEFLOW_RERANK_ONNX_FIXTURE
 #define EDGEFLOW_RERANK_ONNX_FIXTURE "models/rerank_fixture.onnx"
@@ -19,30 +21,109 @@
 
 namespace llm_edgeflow {
 
-class OperatorGoldenTest : public ::testing::Test {
- protected:
-  void SetUp() override {
-    ops_ = llm_edgeflow::operator_api::Get_LLM_EDGEFLOW_OperatorTable();
-    ASSERT_EQ(ops_.Init(), 0);
-  }
+using test_support::ScopedTestOperator;
+class OperatorGoldenTest : public test_support::OperatorTestFixture {};
 
-  void TearDown() override { EXPECT_EQ(ops_.DeInit(), 0); }
-
-  llm_edgeflow::operator_api::OperatorFunc ops_;
+namespace {
+struct FakeOperatorState {
+  int create_code = 0;
+  int destroy_code = 0;
+  int destroy_count = 0;
+  uint32_t depth = 0;
 };
+thread_local FakeOperatorState fake_state;
+
+operator_api::OperatorFunc FakeOperatorTable() {
+  operator_api::OperatorFunc ops{};
+  ops.Create = [](void** handle,
+                  const operator_api::CreateParam* param) noexcept {
+    fake_state.depth = param->max_frame_depth;
+    *handle = fake_state.create_code == 0 ? &fake_state : nullptr;
+    return fake_state.create_code;
+  };
+  ops.Destroy = [](void*) noexcept {
+    ++fake_state.destroy_count;
+    return fake_state.destroy_code;
+  };
+  return ops;
+}
+}  // namespace
+
+TEST(ScopedTestOperatorTest, FailedCreateDoesNotDestroy) {
+  fake_state = {};
+  fake_state.create_code = -2;
+  {
+    ScopedTestOperator instance(FakeOperatorTable());
+    EXPECT_EQ(instance.Create("unused.conf"), -2);
+    EXPECT_EQ(instance.get(), nullptr);
+  }
+  EXPECT_EQ(fake_state.destroy_count, 0);
+}
+
+TEST(ScopedTestOperatorTest, EarlyReturnCleansUpAndPreservesDefaultDepth) {
+  fake_state = {};
+  EXPECT_FATAL_FAILURE(([] {
+                         ScopedTestOperator instance(FakeOperatorTable());
+                         ASSERT_EQ(instance.Create("unused.conf"), 0);
+                         EXPECT_EQ(fake_state.depth, 25u);
+                         ASSERT_TRUE(false) << "intentional early return";
+                       }()),
+                       "intentional early return");
+  EXPECT_EQ(fake_state.destroy_count, 1);
+}
+
+TEST(ScopedTestOperatorTest, FailedCloseConsumesHandleWithoutRetry) {
+  fake_state = {};
+  fake_state.destroy_code = -3;
+  {
+    ScopedTestOperator instance(FakeOperatorTable());
+    ASSERT_EQ(instance.Create("unused.conf", ".",
+                              operator_api::ComputePlatform::kCpu, 0),
+              0);
+    EXPECT_EQ(fake_state.depth, 0u);
+    EXPECT_EQ(instance.Close(), -3);
+    EXPECT_EQ(instance.get(), nullptr);
+    EXPECT_EQ(instance.Close(), 0);
+  }
+  EXPECT_EQ(fake_state.destroy_count, 1);
+}
+
+TEST(ScopedTestOperatorTest, DestructorReportsCleanupFailure) {
+  fake_state = {};
+  fake_state.destroy_code = -3;
+  EXPECT_NONFATAL_FAILURE(
+      {
+        ScopedTestOperator instance(FakeOperatorTable());
+        (void)instance.Create("unused.conf");
+      },
+      "code");
+  EXPECT_EQ(fake_state.destroy_count, 1);
+}
+
+TEST_F(OperatorGoldenTest, HandlesCloseIndependently) {
+  ScopedTestOperator first(ops_);
+  ScopedTestOperator second(ops_);
+  ASSERT_EQ(first.Create("configs/pipeline_keyword_match_rules.conf"), 0)
+      << first.create_diagnostic();
+  ASSERT_EQ(second.Create("configs/pipeline_keyword_match_rules.conf"), 0)
+      << second.create_diagnostic();
+  EXPECT_EQ(first.Close(), 0) << first.close_diagnostic();
+  operator_api::ControlUpdateRulesParam rules{
+      "{\"categories\":{\"VIP_SERVICE\":[\"VIP\"]}}"};
+  EXPECT_EQ(ops_.Control(second.get(),
+                         operator_api::ControlCommand::kUpdateRules, &rules),
+            0)
+      << operator_api::GetOperatorLastError();
+  EXPECT_EQ(second.Close(), 0) << second.close_diagnostic();
+}
 
 // Golden Test 1: DocQA (Biz 1)
 TEST_F(OperatorGoldenTest, DocQaGolden) {
   using namespace llm_edgeflow::operator_api;
-  CreateParam param{};
-  param.model_path = ".";
-  param.cfg_file_name = "demo/fixtures/mock/pipeline_doc_qa.conf";
-  param.device_id = 0;
-  param.compute_platform = ComputePlatform::kCpu;
-
-  void* handle = nullptr;
-  ASSERT_EQ(ops_.Create(&handle, &param), 0);
-  ASSERT_NE(handle, nullptr);
+  ScopedTestOperator instance(ops_);
+  ASSERT_EQ(instance.Create("demo/fixtures/mock/pipeline_doc_qa.conf"), 0)
+      << instance.create_diagnostic();
+  ASSERT_NE(instance.get(), nullptr);
 
   std::string doc =
       "LLM-EdgeFlow 采用 C++ 实现高性能端侧推理架构与 Pipeline 调度设计。";
@@ -63,7 +144,7 @@ TEST_F(OperatorGoldenTest, DocQaGolden) {
   NamedIoBatch outputs(1);
   outputs[0]["rag_channel.doc_out"] = std::shared_ptr<void>();
 
-  int p_ret = ops_.Process(handle, inputs, outputs);
+  int p_ret = ops_.Process(instance.get(), inputs, outputs);
   ASSERT_EQ(p_ret, 0) << "Process error: "
                       << llm_edgeflow::operator_api::GetOperatorLastError();
   auto out_sp = outputs[0]["rag_channel.doc_out"];
@@ -80,21 +161,16 @@ TEST_F(OperatorGoldenTest, DocQaGolden) {
 
   outputs.clear();
   out_sp.reset();
-  EXPECT_EQ(ops_.Destroy(handle), 0);
+  EXPECT_EQ(instance.Close(), 0) << instance.close_diagnostic();
 }
 
 // Golden Test 2: KeywordMatch (Biz 2)
 TEST_F(OperatorGoldenTest, KeywordMatchGolden) {
   using namespace llm_edgeflow::operator_api;
-  CreateParam param{};
-  param.model_path = ".";
-  param.cfg_file_name = "configs/pipeline_keyword_match_rules.conf";
-  param.device_id = 0;
-  param.compute_platform = ComputePlatform::kCpu;
-
-  void* handle = nullptr;
-  ASSERT_EQ(ops_.Create(&handle, &param), 0);
-  ASSERT_NE(handle, nullptr);
+  ScopedTestOperator instance(ops_);
+  ASSERT_EQ(instance.Create("configs/pipeline_keyword_match_rules.conf"), 0)
+      << instance.create_diagnostic();
+  ASSERT_NE(instance.get(), nullptr);
 
   std::string sentence = "客户要求加急处理VIP订单";
   CompanyString cs_sentence{static_cast<int32_t>(sentence.size()),
@@ -105,8 +181,9 @@ TEST_F(OperatorGoldenTest, KeywordMatchGolden) {
 
   ControlUpdateRulesParam rules_param{
       "{\"categories\":{\"VIP_SERVICE\":[\"VIP\",\"加急\"]}}"};
-  ASSERT_EQ(ops_.Control(handle, ControlCommand::kUpdateRules, &rules_param),
-            0);
+  ASSERT_EQ(
+      ops_.Control(instance.get(), ControlCommand::kUpdateRules, &rules_param),
+      0);
 
   NamedIoBatch inputs(1);
   inputs[0]["chan.keyword_in"] = MakeBorrowedOperatorInput(&in);
@@ -114,7 +191,7 @@ TEST_F(OperatorGoldenTest, KeywordMatchGolden) {
   NamedIoBatch outputs(1);
   outputs[0]["chan.keyword_out"] = std::shared_ptr<void>();
 
-  int p_ret = ops_.Process(handle, inputs, outputs);
+  int p_ret = ops_.Process(instance.get(), inputs, outputs);
   ASSERT_EQ(p_ret, 0) << "Process error: "
                       << llm_edgeflow::operator_api::GetOperatorLastError();
   auto out_sp = outputs[0]["chan.keyword_out"];
@@ -130,21 +207,17 @@ TEST_F(OperatorGoldenTest, KeywordMatchGolden) {
 
   outputs.clear();
   out_sp.reset();
-  EXPECT_EQ(ops_.Destroy(handle), 0);
+  EXPECT_EQ(instance.Close(), 0) << instance.close_diagnostic();
 }
 
 // Golden Test 3: EntityExtract (Biz 3)
 TEST_F(OperatorGoldenTest, EntityExtractGolden) {
   using namespace llm_edgeflow::operator_api;
-  CreateParam param{};
-  param.model_path = ".";
-  param.cfg_file_name = "demo/fixtures/mock/pipeline_entity_extract.conf";
-  param.device_id = 0;
-  param.compute_platform = ComputePlatform::kCpu;
-
-  void* handle = nullptr;
-  ASSERT_EQ(ops_.Create(&handle, &param), 0);
-  ASSERT_NE(handle, nullptr);
+  ScopedTestOperator instance(ops_);
+  ASSERT_EQ(instance.Create("demo/fixtures/mock/pipeline_entity_extract.conf"),
+            0)
+      << instance.create_diagnostic();
+  ASSERT_NE(instance.get(), nullptr);
 
   std::string text = "张三在北京大学计算机学院攻读博士学位。";
   CompanyString cs_text{static_cast<int32_t>(text.size()),
@@ -160,7 +233,7 @@ TEST_F(OperatorGoldenTest, EntityExtractGolden) {
   NamedIoBatch outputs(1);
   outputs[0]["ner_channel.entity_out"] = std::shared_ptr<void>();
 
-  int p_ret = ops_.Process(handle, inputs, outputs);
+  int p_ret = ops_.Process(instance.get(), inputs, outputs);
   ASSERT_EQ(p_ret, 0) << "Process error: "
                       << llm_edgeflow::operator_api::GetOperatorLastError();
   auto out_sp = outputs[0]["ner_channel.entity_out"];
@@ -172,21 +245,17 @@ TEST_F(OperatorGoldenTest, EntityExtractGolden) {
 
   outputs.clear();
   out_sp.reset();
-  EXPECT_EQ(ops_.Destroy(handle), 0);
+  EXPECT_EQ(instance.Close(), 0) << instance.close_diagnostic();
 }
 
 // Golden Test 4: ComplianceAudit (Biz 4)
 TEST_F(OperatorGoldenTest, ComplianceAuditGolden) {
   using namespace llm_edgeflow::operator_api;
-  CreateParam param{};
-  param.model_path = ".";
-  param.cfg_file_name = "demo/fixtures/mock/pipeline_dialogue_audit.conf";
-  param.device_id = 0;
-  param.compute_platform = ComputePlatform::kCpu;
-
-  void* handle = nullptr;
-  ASSERT_EQ(ops_.Create(&handle, &param), 0);
-  ASSERT_NE(handle, nullptr);
+  ScopedTestOperator instance(ops_);
+  ASSERT_EQ(instance.Create("demo/fixtures/mock/pipeline_dialogue_audit.conf"),
+            0)
+      << instance.create_diagnostic();
+  ASSERT_NE(instance.get(), nullptr);
 
   std::string user_text = "请加我个人微信私下转账，可以给您优惠";
   std::string channel = "chat_01";
@@ -206,7 +275,7 @@ TEST_F(OperatorGoldenTest, ComplianceAuditGolden) {
   NamedIoBatch outputs(1);
   outputs[0]["audit_channel.audit_out"] = std::shared_ptr<void>();
 
-  int p_ret = ops_.Process(handle, inputs, outputs);
+  int p_ret = ops_.Process(instance.get(), inputs, outputs);
   ASSERT_EQ(p_ret, 0) << "Process error: "
                       << llm_edgeflow::operator_api::GetOperatorLastError();
   auto out_sp = outputs[0]["audit_channel.audit_out"];
@@ -221,21 +290,16 @@ TEST_F(OperatorGoldenTest, ComplianceAuditGolden) {
 
   outputs.clear();
   out_sp.reset();
-  EXPECT_EQ(ops_.Destroy(handle), 0);
+  EXPECT_EQ(instance.Close(), 0) << instance.close_diagnostic();
 }
 
 // Golden Test 5: OcrDocQA (Biz 5)
 TEST_F(OperatorGoldenTest, OcrDocQaGolden) {
   using namespace llm_edgeflow::operator_api;
-  CreateParam param{};
-  param.model_path = ".";
-  param.cfg_file_name = "demo/fixtures/mock/pipeline_ocr_doc_qa.conf";
-  param.device_id = 0;
-  param.compute_platform = ComputePlatform::kCpu;
-
-  void* handle = nullptr;
-  ASSERT_EQ(ops_.Create(&handle, &param), 0);
-  ASSERT_NE(handle, nullptr);
+  ScopedTestOperator instance(ops_);
+  ASSERT_EQ(instance.Create("demo/fixtures/mock/pipeline_ocr_doc_qa.conf"), 0)
+      << instance.create_diagnostic();
+  ASSERT_NE(instance.get(), nullptr);
 
   std::string img_path = "./data/invoice_sample.png";
   std::string query = "请提取发票代码和金额";
@@ -253,7 +317,7 @@ TEST_F(OperatorGoldenTest, OcrDocQaGolden) {
   NamedIoBatch outputs(1);
   outputs[0]["ocr_channel.od_out"] = std::shared_ptr<void>();
 
-  int p_ret = ops_.Process(handle, inputs, outputs);
+  int p_ret = ops_.Process(instance.get(), inputs, outputs);
   ASSERT_EQ(p_ret, 0) << "Process error: "
                       << llm_edgeflow::operator_api::GetOperatorLastError();
   auto out_sp = outputs[0]["ocr_channel.od_out"];
@@ -266,22 +330,18 @@ TEST_F(OperatorGoldenTest, OcrDocQaGolden) {
 
   outputs.clear();
   out_sp.reset();
-  EXPECT_EQ(ops_.Destroy(handle), 0);
+  EXPECT_EQ(instance.Close(), 0) << instance.close_diagnostic();
 }
 
 // Golden Test 6: AudioAsrIntent (Biz 6) with Slot Extraction Exact Golden
 // Verification
 TEST_F(OperatorGoldenTest, AudioAsrIntentSlotExtractionGolden) {
   using namespace llm_edgeflow::operator_api;
-  CreateParam param{};
-  param.model_path = ".";
-  param.cfg_file_name = "demo/fixtures/mock/pipeline_audio_asr_intent.conf";
-  param.device_id = 0;
-  param.compute_platform = ComputePlatform::kCpu;
-
-  void* handle = nullptr;
-  ASSERT_EQ(ops_.Create(&handle, &param), 0);
-  ASSERT_NE(handle, nullptr);
+  ScopedTestOperator instance(ops_);
+  ASSERT_EQ(
+      instance.Create("demo/fixtures/mock/pipeline_audio_asr_intent.conf"), 0)
+      << instance.create_diagnostic();
+  ASSERT_NE(instance.get(), nullptr);
 
   // Sample 1: Navigation with avoid traffic (sum > 120 in mock ASR)
   std::vector<float> pcm_nav(16000, 0.05f);  // sum = 800 > 120
@@ -307,7 +367,7 @@ TEST_F(OperatorGoldenTest, AudioAsrIntentSlotExtractionGolden) {
   outputs[1]["mic_0.audio_out"] = std::shared_ptr<void>();
   outputs[2]["mic_0.audio_out"] = std::shared_ptr<void>();
 
-  int p_ret = ops_.Process(handle, inputs, outputs);
+  int p_ret = ops_.Process(instance.get(), inputs, outputs);
   ASSERT_EQ(p_ret, 0) << "Process error: "
                       << llm_edgeflow::operator_api::GetOperatorLastError();
 
@@ -375,7 +435,7 @@ TEST_F(OperatorGoldenTest, AudioAsrIntentSlotExtractionGolden) {
   out_sp1.reset();
   out_sp2.reset();
   out_sp3.reset();
-  EXPECT_EQ(ops_.Destroy(handle), 0);
+  EXPECT_EQ(instance.Close(), 0) << instance.close_diagnostic();
 }
 
 // Golden Test 7: CrossRerank (Biz 7)
@@ -420,15 +480,10 @@ TEST_F(OperatorGoldenTest, CrossRerankGolden) {
 
   using namespace llm_edgeflow::operator_api;
   std::string temp_dir_str = temp_dir.string();
-  CreateParam param{};
-  param.model_path = temp_dir_str.c_str();
-  param.cfg_file_name = "pipeline_cross_rerank.conf";
-  param.device_id = 0;
-  param.compute_platform = ComputePlatform::kCpu;
-
-  void* handle = nullptr;
-  ASSERT_EQ(ops_.Create(&handle, &param), 0);
-  ASSERT_NE(handle, nullptr);
+  ScopedTestOperator instance(ops_);
+  ASSERT_EQ(instance.Create("pipeline_cross_rerank.conf", temp_dir_str), 0)
+      << instance.create_diagnostic();
+  ASSERT_NE(instance.get(), nullptr);
 
   std::string query = "如何部署 EdgeFlow";
   std::string passage1 = "EdgeFlow 部署指南与快速上手";
@@ -453,7 +508,7 @@ TEST_F(OperatorGoldenTest, CrossRerankGolden) {
   NamedIoBatch outputs(1);
   outputs[0]["ranker.rerank_out"] = std::shared_ptr<void>();
 
-  ASSERT_EQ(ops_.Process(handle, inputs, outputs), 0);
+  ASSERT_EQ(ops_.Process(instance.get(), inputs, outputs), 0);
   auto out_sp = outputs[0]["ranker.rerank_out"];
   ASSERT_NE(out_sp, nullptr);
   auto* out_dto = static_cast<CompanyOperatorRerankOutput*>(out_sp.get());
@@ -462,22 +517,17 @@ TEST_F(OperatorGoldenTest, CrossRerankGolden) {
 
   outputs.clear();
   out_sp.reset();
-  EXPECT_EQ(ops_.Destroy(handle), 0);
+  EXPECT_EQ(instance.Close(), 0) << instance.close_diagnostic();
   std::filesystem::remove_all(temp_dir, ec);
 }
 
 // Golden Test 8: Translate (Biz 8)
 TEST_F(OperatorGoldenTest, TranslateGolden) {
   using namespace llm_edgeflow::operator_api;
-  CreateParam param{};
-  param.model_path = ".";
-  param.cfg_file_name = "demo/fixtures/mock/pipeline_translate.conf";
-  param.device_id = 0;
-  param.compute_platform = ComputePlatform::kCpu;
-
-  void* handle = nullptr;
-  ASSERT_EQ(ops_.Create(&handle, &param), 0);
-  ASSERT_NE(handle, nullptr);
+  ScopedTestOperator instance(ops_);
+  ASSERT_EQ(instance.Create("demo/fixtures/mock/pipeline_translate.conf"), 0)
+      << instance.create_diagnostic();
+  ASSERT_NE(instance.get(), nullptr);
 
   std::string json_input = "{\"query\": \"Hello world\"}";
   CompanyString cs_text{static_cast<int32_t>(json_input.size()),
@@ -493,7 +543,7 @@ TEST_F(OperatorGoldenTest, TranslateGolden) {
   NamedIoBatch outputs(1);
   outputs[0]["trans_channel.entity_out"] = std::shared_ptr<void>();
 
-  int p_ret = ops_.Process(handle, inputs, outputs);
+  int p_ret = ops_.Process(instance.get(), inputs, outputs);
   ASSERT_EQ(p_ret, 0) << "Process error: "
                       << llm_edgeflow::operator_api::GetOperatorLastError();
   auto out_sp = outputs[0]["trans_channel.entity_out"];
@@ -509,7 +559,7 @@ TEST_F(OperatorGoldenTest, TranslateGolden) {
 
   outputs.clear();
   out_sp.reset();
-  EXPECT_EQ(ops_.Destroy(handle), 0);
+  EXPECT_EQ(instance.Close(), 0) << instance.close_diagnostic();
 }
 
 }  // namespace llm_edgeflow

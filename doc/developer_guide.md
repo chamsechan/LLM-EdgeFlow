@@ -24,7 +24,7 @@ Backend；出现调度、模型语义或硬件能力缺口时，再查阅相应�
 | :--- | :--- | :--- | :--- |
 | **接入适配层（Integration）** | 新增输入/输出结构、转换器与业务绑定 | `include/platform_mock/operator_data_types.h`<br>`src/adapter/input/<biz>_input.cpp`<br>`src/adapter/output/<biz>_output.cpp`<br>`src/adapter/biz/<biz>_bindings.cpp` | `InputConverterDefinition`<br>`OutputConverterDefinition`<br>`IoBindingDefinition`<br>`REGISTER_INPUT_CONVERTER`<br>`REGISTER_OUTPUT_CONVERTER`<br>`REGISTER_IO_BINDING` |
 | **流程编排层（Orchestration）** | 扩展动态黑板、会话模型管理与全局资源 | `include/core/alg_context.h`<br>`include/core/session_context.h` | `AlgContext::Read/Publish`<br>`SessionResourceKey<T>` |
-| **能力节点层（Capability Nodes）** | 新增通用操作或可跨方案复用的领域算法 | `src/common_nodes/*.cpp`<br>`src/custom_nodes/*.cpp`<br>`include/nodes/*.h` | `NodeBase`<br>`REGISTER_NODE_WITH_DEFINITION(NodeName, def)` |
+| **能力节点层（Capability Nodes）** | 新增通用操作或可跨方案复用的领域算法 | `src/common_nodes/*.cpp`<br>`src/custom_nodes/*.cpp`<br>`include/nodes/*.h` | `MakeBatchSpec` / `MakeMapSpec`<br>`REGISTER_FUNCTION_NODE(NodeName, spec)` |
 | **模型执行层（Model Execution）** | 新增模型语义或接入新推理后端 | `include/engine/model_interface.h`<br>`include/engine/backend_interface.h`<br>`src/engine/models/`<br>`src/engine/backends/` | `REGISTER_MODEL_WITH_DEFINITION`<br>`REGISTER_BACKEND_WITH_DEFINITION`<br>`ModelRuntimeFactory`<br>`FixedBatchExecutor` |
 
 ---
@@ -99,8 +99,8 @@ CrossRerank 的排名数组和 Compliance 的首项选择使用 `N:1 / aggregate
 - **`PipelineCatalogSnapshot`**：需要跨多次查找保持一致视图时先调用 `Snapshot()`；普通
   `Nodes/Bizs/FindNode/FindBiz` 返回独立值，不保存指向 Catalog 内部容器的引用或指针。
 
-Node 作者仍使用 `BoundInput<T>::Require` 与 `BoundOutput<T>::Set`；端口包装负责执行
-`Read/Publish`，无需在业务 Node 中管理锁或快照。
+Node 作者声明 `InputsOf` / `OutputsOf`，算法接收只读输入并返回结果；`AuthorNode` 负责
+绑定和 `Read/Publish`，无需在业务函数中管理黑板、锁或快照。
 
 ---
 
@@ -111,12 +111,12 @@ typed port 契约时才新增 Node。Node 必须：
 
 - 通用操作放在 `src/common_nodes/`；领域算法与特定前后处理放在 `src/custom_nodes/`，
   默认按操作命名文件，不按业务建目录。自定义 Node 同样可以被多个方案复用；
-- 通过 `NodeBase`、`ModelBoundNode` 或 `TraceableUnaryInferenceNode` 使用已经解析的逻辑
-  端口，不固定实际 Blackboard Key；
+- 通过统一 Spec 声明端口、参数和模型依赖，算法使用普通函数；`AuthorNode` 复用
+  `NodeBase` 的运行时异常屏障，不要求业务作者覆写生命周期；
 - 请求间通过各自的 `AlgContext` 隔离数据，临时值留在处理函数局部，不把请求数据保存为成员；
   成员可持有配置和安全共享句柄。配置可初始化后固定，也可按
   [Control 约定](dev_guide/first_control.md)安全更新，每次处理读取一致快照；
-- 提供完整 `NodeDefinition` 并通过 `REGISTER_NODE_WITH_DEFINITION` 一次注册；
+- 使用 `REGISTER_FUNCTION_NODE`，由同一 Spec 生成完整 `NodeDefinition` 并注册；
 - 在 Catalog 可见，并覆盖非法配置、端口缺失/类型错误、输出、provenance 和并发声明。
 
 入门默认使用[轻量 LLM 模板](../dev_support/node_authoring/starter_llm_node.cpp)：
@@ -127,7 +127,7 @@ typed port 契约时才新增 Node。Node 必须：
 [`text_rerank_node.cpp`](../src/common_nodes/text_rerank_node.cpp) 及其同名测试为当前模板。
 
 自定义 Node 可以在一次处理内完成前处理、调用声明绑定的模型和后处理，沿用现有
-`ModelBoundNode`，无需新增专属基类。Definition 使用 `category = "custom"`；仅在存在
+`MakeBatchSpec`，无需新增专属基类。Spec 默认 `category = "custom"`；仅在存在
 真实业务契约限制时设置 `biz_names`。平台结构转换留在 Adapter，Core、Engine 和通用
 Node 不依赖自定义实现。编写、构建和复用步骤见
 [自定义 Node 接入指南](../src/custom_nodes/README.md)。

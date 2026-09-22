@@ -9,6 +9,7 @@
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
 #include "core/session_context.h"
+#include "nodes/node_error_codes.h"
 #include "tests/support/node_test_utils.h"
 
 namespace llm_edgeflow {
@@ -85,7 +86,7 @@ TEST_F(VectorTopKNodeTest, MissingInputFailsClosed) {
   ASSERT_TRUE(InitNodeForTest(*node, {{"top_k", 2}}, session_ctx_.get()));
 
   AlgContext empty_ctx;
-  EXPECT_EQ(node->Process(&empty_ctx), -3101);
+  EXPECT_EQ(node->Process(&empty_ctx), node_error::author_node::kMissingInput);
 }
 
 }  // namespace llm_edgeflow

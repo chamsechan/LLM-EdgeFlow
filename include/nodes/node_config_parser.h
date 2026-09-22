@@ -27,7 +27,7 @@ class NodeConfigParser {
   }
 
   // For raw Node configuration or an already decoded Control payload. Reuses
-  // the same field validation/defaults as PipelineValidator and ModelBoundNode.
+  // the same field validation/defaults as PipelineValidator and AuthorNode.
   std::optional<Parameters> Parse(const nlohmann::json& config,
                                   std::string* error = nullptr) const noexcept {
     if (error) error->clear();
@@ -51,7 +51,7 @@ class NodeConfigParser {
   }
 
   // Only for input already validated/defaulted with Fields(), such as a
-  // Definition's validate_config callback or ModelBoundNode::InitModelNode.
+  // Definition's validate_config callback or AuthorNode initialization.
   // Forwards the existing JSON object directly; does not copy or normalize it
   // again. The parser owns semantic checks and must return owned parameter
   // data.

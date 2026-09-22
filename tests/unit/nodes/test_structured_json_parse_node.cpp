@@ -9,6 +9,7 @@
 #include "core/common_contracts.h"
 #include "core/node_registry.h"
 #include "core/session_context.h"
+#include "nodes/node_error_codes.h"
 #include "tests/support/node_test_utils.h"
 
 namespace llm_edgeflow {
@@ -198,7 +199,7 @@ TEST_F(StructuredJsonParseNodeTest, MissingInputFailsClosed) {
       InitNodeForTest(*node, {{"failure_policy", "fail"}}, session_ctx_.get()));
 
   AlgContext empty_ctx;
-  EXPECT_EQ(node->Process(&empty_ctx), -6101);
+  EXPECT_EQ(node->Process(&empty_ctx), node_error::author_node::kMissingInput);
 }
 
 // 3. Fallback Policy on Malformed Input

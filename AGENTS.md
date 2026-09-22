@@ -49,8 +49,8 @@ Use the canonical responsibility names in active docs, diagnostics, and build ta
   `AlgContext` and typed `BlackboardKey<T>` ports; session resources use `SessionContext`.
 - **Capability Nodes:** common Nodes are neutral framework operations; custom Nodes are
   reusable domain algorithms organized by operation, not biz, in `src/custom_nodes/`.
-  Both are request-stateless, use `NodeBase` or shallow support classes, and register constructor
-  plus `NodeDefinition` via `REGISTER_NODE_WITH_DEFINITION`. Custom algorithms need not be
+  Both are request-stateless and use ordinary functions plus typed Specs, registered through
+  `REGISTER_FUNCTION_NODE`; `AuthorNode` owns the `NodeBase` runtime and generated Definition. Custom algorithms need not be
   generalized. Common Nodes, Core, and Engine must not depend on custom implementations.
   Nodes use typed logical ports and `IModel` capabilities, never platform structs/conversion.
 - **Model Execution:** Models own preprocessing/semantics; Backends own vendor runtime resources

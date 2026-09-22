@@ -10,6 +10,7 @@
 #include "core/node_registry.h"
 #include "core/session_context.h"
 #include "dev_support/inference/test_capability_models.h"
+#include "nodes/node_error_codes.h"
 #include "tests/support/node_test_utils.h"
 
 namespace llm_edgeflow {
@@ -60,7 +61,7 @@ TEST_F(OcrDetectNodeTest, MissingInputFailsClosed) {
                               session_ctx_.get()));
 
   AlgContext empty_ctx;
-  EXPECT_EQ(node->Process(&empty_ctx), -7101);
+  EXPECT_EQ(node->Process(&empty_ctx), node_error::author_node::kMissingInput);
 }
 
 TEST_F(OcrDetectNodeTest, InvalidModelOutputFailsClosed) {
@@ -75,13 +76,15 @@ TEST_F(OcrDetectNodeTest, InvalidModelOutputFailsClosed) {
   AlgContext count_ctx;
   count_ctx.Publish("images", images);
   ocr_model_->return_wrong_count_ = true;
-  EXPECT_EQ(node->Process(&count_ctx), -7102);
+  EXPECT_EQ(node->Process(&count_ctx),
+            node_error::author_node::kOutputCountMismatch);
 
   ocr_model_->return_wrong_count_ = false;
   ocr_model_->corrupt_provenance_ = true;
   AlgContext provenance_ctx;
   provenance_ctx.Publish("images", images);
-  EXPECT_EQ(node->Process(&provenance_ctx), -7103);
+  EXPECT_EQ(node->Process(&provenance_ctx),
+            node_error::author_node::kOutputProvenanceMismatch);
 }
 
 }  // namespace llm_edgeflow

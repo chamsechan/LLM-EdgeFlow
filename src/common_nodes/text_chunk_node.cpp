@@ -1,53 +1,24 @@
 #include <algorithm>
-#include <limits>
-#include <set>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
-#include "core/common_contracts.h"
-#include "core/node_registry.h"
-#include "edgeflow/log.h"
 #include "engine/text/utf8.h"
-#include "nodes/node_base.h"
+#include "nodes/authoring.h"
 #include "nodes/node_error_codes.h"
-#include "nodes/traceable_batch_operations.h"
 
 namespace llm_edgeflow {
-
 namespace {
-constexpr int64_t kDefaultChunkSize = 100;
-constexpr int64_t kDefaultOverlap = 0;
-
-const std::vector<ConfigFieldDefinition>& TextChunkConfigFields() {
-  static const std::vector<ConfigFieldDefinition> kFields = {
-      ConfigFieldDefinition{"chunk_size",
-                            ConfigValueKind::kInteger,
-                            false,
-                            kDefaultChunkSize,
-                            1.0,
-                            1000000.0,
-                            {},
-                            "每块最多包含的 Unicode 码点数；按 UTF-8 "
-                            "字符边界切分，不是字节数或模型 token 数。"},
-      ConfigFieldDefinition{
-          "overlap",
-          ConfigValueKind::kInteger,
-          false,
-          kDefaultOverlap,
-          0.0,
-          100000.0,
-          {},
-          "相邻块重叠的 Unicode 码点数，必须小于 chunk_size；0 表示无重叠。"}};
-  return kFields;
-}
-
-bool ValidChunkConfig(const nlohmann::json& config) {
-  const auto size = config.value<int64_t>("chunk_size", kDefaultChunkSize);
-  const auto overlap = config.value<int64_t>("overlap", kDefaultOverlap);
-  return size > 0 && size <= 1000000 && overlap >= 0 && overlap <= 100000 &&
-         overlap < size;
-}
+struct ChunkInputs {
+  const TextBatch* text = nullptr;
+};
+struct ChunkParams {
+  int64_t chunk_size{};
+  int64_t overlap{};
+};
+struct ChunkOutputs {
+  TextBatch chunks;
+  Int32Batch counts;
+};
 
 NodeResult<std::vector<std::string>> SplitText(const std::string& str,
                                                size_t chunk_size,
@@ -77,148 +48,48 @@ NodeResult<std::vector<std::string>> SplitText(const std::string& str,
   }
   return NodeResult<std::vector<std::string>>::Success(std::move(chunks));
 }
-}  // namespace
 
-/**
- * @brief 文本切片分块算子 (TextChunkNode, 1对N裂变与溯源绑定)
- */
-class TextChunkNode final : public NodeBase {
- public:
-  inline static constexpr char kNodeType[] = "TextChunkNode";
-
-  TextChunkNode()
-      : NodeBase(kNodeType),
-        in_text_("text"),
-        out_chunks_("chunks"),
-        out_chunk_counts_("chunk_counts") {}
-
- protected:
-  bool InitNode(const NodeInitContext& init_ctx, const nlohmann::json& config,
-                SessionContext& /*session_ctx*/) override {
-    const auto& normalized = config;
-    if (!ValidChunkConfig(normalized)) {
-      return false;
-    }
-
-    BindPort(init_ctx, in_text_);
-    BindPort(init_ctx, out_chunks_);
-    BindPort(init_ctx, out_chunk_counts_);
-
-    chunk_size_ = static_cast<size_t>(normalized["chunk_size"].get<int64_t>());
-    overlap_ = static_cast<size_t>(normalized["overlap"].get<int64_t>());
-    return true;
-  }
-
-  int ProcessNode(AlgContext& req_ctx) override {
-    const auto* text_items = in_text_.Require(
-        req_ctx, node_error::text_chunk::kMissingInput, "TextChunkNode input");
-    if (!text_items) {
-      return node_error::text_chunk::kMissingInput;
-    }
-
-    auto split_res = SplitPayloads(*text_items, [this](const std::string& str) {
-      return SplitText(str, chunk_size_, overlap_);
-    });
-
-    if (!split_res.ok()) {
-      const auto& failure = split_res.failure();
-      if (failure.batch_detail.has_value()) {
-        const auto& detail = *failure.batch_detail;
-        switch (detail.reason) {
-          case BatchFailureReason::kDuplicate: {
-            std::string key_str;
-            if (detail.key.has_value()) {
-              key_str = " for req_id=" + std::to_string(detail.key->req_id) +
-                        ", sub_id=" + std::to_string(detail.key->sub_id);
-            }
-            return Fail(req_ctx, node_error::text_chunk::kDuplicateInput,
-                        "TextChunkNode duplicate input item" + key_str);
-          }
-          case BatchFailureReason::kSubIdOverflow: {
-            std::string req_str;
-            if (detail.key.has_value()) {
-              req_str = " for req_id=" + std::to_string(detail.key->req_id);
-            }
-            return Fail(req_ctx, node_error::text_chunk::kSubIdOverflow,
-                        "TextChunkNode sub_id overflow" + req_str);
-          }
-          case BatchFailureReason::kCountOverflow:
-            return Fail(req_ctx, node_error::text_chunk::kCountOverflow,
-                        "TextChunkNode chunk count exceeds Int32 capacity");
-          case BatchFailureReason::kCallbackFailed: {
-            if (failure.cause_code == node_error::text_chunk::kInvalidUtf8) {
-              std::string req_str;
-              if (detail.key.has_value()) {
-                req_str = " for req_id=" + std::to_string(detail.key->req_id);
-              }
-              size_t off_pos = failure.message.find(" at byte offset ");
-              std::string off_str = (off_pos != std::string::npos)
-                                        ? failure.message.substr(off_pos)
-                                        : "";
-              return Fail(
-                  req_ctx, node_error::text_chunk::kInvalidUtf8,
-                  "TextChunkNode invalid UTF-8 input" + req_str + off_str);
-            }
-            int code = failure.cause_code != 0
-                           ? failure.cause_code
-                           : node_error::author_node::kBusinessError;
-            return Fail(req_ctx, code, failure.message);
-          }
-          default:
-            break;
-        }
-      }
-      int code = failure.cause_code != 0
-                     ? failure.cause_code
-                     : node_error::author_node::kInternalError;
-      return Fail(req_ctx, code, failure.message);
-    }
-
-    auto result = std::move(split_res).value();
-    ALG_LOG_DEBUG("[TextChunkNode] Split %zu input texts into %zu chunks.\n",
-                  text_items->size(), result.children.size());
-
-    out_chunks_.Set(req_ctx, std::move(result.children));
-    out_chunk_counts_.Set(req_ctx, std::move(result.counts));
-    return 0;
-  }
-
- private:
-  size_t chunk_size_ = kDefaultChunkSize;
-  size_t overlap_ = kDefaultOverlap;
-
-  BoundInput<TextBatch> in_text_;
-  BoundOutput<TextBatch> out_chunks_;
-  BoundOutput<Int32Batch> out_chunk_counts_;
-};
-
-NodeDefinition MakeTextChunkNodeDefinition() {
-  NodeDefinition def;
-  def.node_type = TextChunkNode::kNodeType;
-  def.category = "common";
-  def.validate_config = [](const nlohmann::json& config, const auto&,
-                           std::string* diagnostic) {
-    if (!ValidChunkConfig(config)) {
-      if (diagnostic) *diagnostic = "overlap must be smaller than chunk_size";
-      return false;
-    }
-    return true;
-  };
-  def.description =
-      "UTF-8 code-point-safe text chunking with overlap and provenance";
-  def.inputs = {RequiredInputPort("text",
-                                  BlackboardKey<TextBatch>{"", "TextBatch"},
-                                  "1:1", "preserve", "request")};
-  def.outputs = {
-      OutputPort("chunks", BlackboardKey<TextBatch>{"", "TextBatch"}, "1:N",
-                 "generate_sub_id", "request"),
-      OutputPort("chunk_counts", BlackboardKey<Int32Batch>{"", "Int32Batch"},
-                 "1:1", "preserve", "request")};
-  def.config_fields = TextChunkConfigFields();
-  def.parallel_safe = true;
-  return def;
+NodeResult<ChunkOutputs> ChunkText(const ChunkInputs& inputs,
+                                   const ChunkParams& params) {
+  auto result = SplitPayloads(*inputs.text, [&](const std::string& text) {
+    return SplitText(text, static_cast<size_t>(params.chunk_size),
+                     static_cast<size_t>(params.overlap));
+  });
+  if (!result.ok()) return NodeResult<ChunkOutputs>::Failure(result.failure());
+  auto split = std::move(result).value();
+  return NodeResult<ChunkOutputs>::Success(
+      {std::move(split.children), std::move(split.counts)});
 }
 
-REGISTER_NODE_WITH_DEFINITION(TextChunkNode, MakeTextChunkNodeDefinition());
-
+auto TextChunkSpec() {
+  auto params = Parameters<ChunkParams>(
+      {Field("chunk_size", &ChunkParams::chunk_size)
+           .Default(100)
+           .Range(1, 1000000)
+           .Description("每块最多包含的 Unicode 码点数；按 UTF-8 "
+                        "字符边界切分，不是字节数或模型 token 数。"),
+       Field("overlap", &ChunkParams::overlap)
+           .Default(0)
+           .Range(0, 100000)
+           .Description("相邻块重叠的 Unicode 码点数，必须小于 chunk_size；0 "
+                        "表示无重叠。")});
+  params.Validate([](const ChunkParams& value, std::string* diagnostic) {
+    if (value.overlap < value.chunk_size) return true;
+    if (diagnostic) *diagnostic = "overlap must be smaller than chunk_size";
+    return false;
+  });
+  return MakeBatchSpec(
+             InputsOf<ChunkInputs>({Required("text", &ChunkInputs::text)}),
+             OutputsOf<ChunkOutputs>(
+                 {Produced("chunks", &ChunkOutputs::chunks,
+                           PortFlow{"1:N", "generate_sub_id", "request"}),
+                  Produced("chunk_counts", &ChunkOutputs::counts, "text")}),
+             std::move(params), &ChunkText)
+      .Category("common")
+      .Description(
+          "UTF-8 code-point-safe text chunking with overlap and provenance")
+      .ParallelSafe(true);
+}
+}  // namespace
+REGISTER_FUNCTION_NODE(TextChunkNode, TextChunkSpec());
 }  // namespace llm_edgeflow

@@ -1,8 +1,7 @@
 # 任务：新增文本 LLM Node
 
 `text-llm-node` 自动创建源码、真实测试文件、两处 CMake 登记、Pipeline、conf 和效果样例。
-开发者主要编辑 `BuildPrompt`、`FormatAnswer` 以及独立业务期望。当前 recipe 默认生成 basic
-函数式接口，也可显式选择 `--authoring advanced`；独立脚手架默认 auto，LLM 同样选择函数式接口。
+开发者主要编辑 `BuildPrompt`、`FormatAnswer` 以及独立业务期望。recipe 与独立脚手架统一生成普通函数和 Spec，使用同一注册及执行机制。
 
 ## 创建
 
@@ -12,7 +11,7 @@ LLM Node，保留其上下游 Blackboard 键与依赖关系。
 ```bash
 cmake --build build --target alg_pipeline_tool_test alg_demo
 python3 scripts/dev_recipe.py prepare text-llm-node \
-  --name MySummaryNode --profile entity_extract_mock --authoring basic \
+  --name MySummaryNode --profile entity_extract_mock \
   --tool build/alg_pipeline_tool_test --build-dir build \
   --pipeline configs/pipeline_my_summary.json --json
 ```

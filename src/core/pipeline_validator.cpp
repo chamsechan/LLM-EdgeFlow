@@ -14,6 +14,7 @@
 #include "core/pipeline_config.h"
 #include "engine/backend_registry.h"
 #include "engine/model_registry.h"
+#include "pipeline_config_structure.h"
 
 namespace llm_edgeflow {
 namespace {
@@ -194,6 +195,14 @@ nlohmann::json ValidateConfigFields(
 
 bool ResolveTopology(const std::vector<ParsedNodeConfig>& nodes,
                      ValidationReport* report) {
+  const bool unique_dependencies = PipelineConfigStructure()
+                                       .at("properties")
+                                       .at("pipeline")
+                                       .at("items")
+                                       .at("properties")
+                                       .at("depends_on")
+                                       .at("uniqueItems")
+                                       .get<bool>();
   std::unordered_map<std::string, size_t> index;
   std::unordered_map<std::string, int> degrees;
   std::unordered_map<std::string, std::vector<std::string>> children;
@@ -217,7 +226,7 @@ bool ResolveTopology(const std::vector<ParsedNodeConfig>& nodes,
             "Dependency references an unknown node: " + dep, node.id, {},
             {dep});
         invalid_reference = true;
-      } else if (!seen.insert(dep).second) {
+      } else if (unique_dependencies && !seen.insert(dep).second) {
         Add(report, DiagnosticCode::kDuplicateDependency, path,
             "Dependency is declared more than once: " + dep, node.id, {},
             {dep});

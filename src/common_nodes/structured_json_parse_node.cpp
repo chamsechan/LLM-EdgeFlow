@@ -4,9 +4,8 @@
 #include <vector>
 
 #include "core/common_contracts.h"
-#include "core/node_registry.h"
 #include "edgeflow/log.h"
-#include "nodes/node_base.h"
+#include "nodes/authoring.h"
 #include "nodes/node_error_codes.h"
 
 namespace llm_edgeflow {
@@ -166,189 +165,161 @@ struct StructuredJsonOptions {
   std::unordered_map<std::string, std::string> field_types_;
 };
 
-class StructuredJsonParseNode final : public NodeBase {
- public:
-  inline static constexpr char kNodeType[] = "StructuredJsonParseNode";
+namespace {
+struct StructuredInputs {
+  const TextBatch* text = nullptr;
+};
 
-  StructuredJsonParseNode()
-      : NodeBase(kNodeType), in_text_("text"), out_doc_("document") {}
-
- protected:
-  bool InitNode(const NodeInitContext& init_ctx, const nlohmann::json& config,
-                SessionContext& /*session_ctx*/) override {
-    BindPort(init_ctx, in_text_);
-    BindPort(init_ctx, out_doc_);
-
-    return options_.Load(config);
-  }
-
-  int ProcessNode(AlgContext& req_ctx) override {
-    const auto* text_items = in_text_.Require(
-        req_ctx, node_error::structured_json_parse::kMissingInput,
-        "StructuredJsonParseNode input");
-    if (!text_items) {
-      return node_error::structured_json_parse::kMissingInput;
-    }
-
-    StructuredDocumentBatch output_docs;
-    output_docs.reserve(text_items->size());
-
-    for (const auto& item : *text_items) {
-      std::string parsed_json_str;
-      nlohmann::json parsed_structured = nlohmann::json::object();
-      JsonParseStatus status = JsonParseStatus::kOk;
-      std::string diag;
-
-      bool ok = ParseOrExtractJson(item.data, &parsed_json_str,
-                                   &parsed_structured, &status, &diag);
-      if (ok && !options_.ValidateStructuredFields(parsed_structured, &diag)) {
-        ok = false;
-        status = JsonParseStatus::kFailed;
-      }
-
-      if (!ok) {
-        if (options_.failure_policy_ == "fail") {
-          return Fail(req_ctx, node_error::structured_json_parse::kParseFailed,
-                      "JSON parse failed for sample: " + diag);
-        } else if (options_.failure_policy_ == "emit_diagnostic") {
-          output_docs.emplace_back(
-              item.req_id, item.sub_id,
-              JsonDocumentItem(options_.fallback_json_, false,
-                               JsonParseStatus::kFailed, diag,
-                               options_.fallback_structured_));
-          continue;
-        } else {  // configured_fallback
-          output_docs.emplace_back(
-              item.req_id, item.sub_id,
-              JsonDocumentItem(options_.fallback_json_, true,
-                               JsonParseStatus::kFallbackApplied, diag,
-                               options_.fallback_structured_));
-          continue;
-        }
-      }
-
-      output_docs.emplace_back(
-          item.req_id, item.sub_id,
-          JsonDocumentItem(std::move(parsed_json_str), true, status, diag,
-                           std::move(parsed_structured)));
-    }
-
-    out_doc_.Set(req_ctx, std::move(output_docs));
-    return 0;
-  }
-
- private:
-  bool ParseOrExtractJson(const std::string& input, std::string* out_json,
-                          nlohmann::json* out_structured,
-                          JsonParseStatus* out_status,
-                          std::string* out_diag) const {
-    if (input.empty()) {
-      *out_diag = "Empty input string";
-      return false;
-    }
-
-    const auto parse_candidate = [&](const std::string& candidate,
-                                     JsonParseStatus status) {
-      try {
-        auto parsed = nlohmann::json::parse(candidate);
-        *out_json = parsed.dump();
-        if (out_structured) *out_structured = std::move(parsed);
-        *out_status = status;
-        out_diag->clear();
-        return true;
-      } catch (const std::exception& e) {
-        *out_diag = e.what();
-        return false;
-      }
-    };
-    if (parse_candidate(input, JsonParseStatus::kOk)) return true;
-    if (!options_.extract_json_block_) return false;
-    const size_t code_block_start = input.find("```json");
-    if (code_block_start != std::string::npos) {
-      const size_t content_start = code_block_start + 7;
-      const size_t code_block_end = input.find("```", content_start);
-      if (code_block_end == std::string::npos) {
-        *out_diag = "Unclosed JSON markdown block";
-        return false;
-      }
-      // An invalid fenced value must not fall through to extracting its
-      // children.
-      return parse_candidate(
-          input.substr(content_start, code_block_end - content_start),
-          JsonParseStatus::kExtractedFromMarkdown);
-    }
-
-    // Preserve the first outer container, including arrays of objects. Never
-    // extract a valid child from a malformed or truncated parent container.
-    const size_t start = input.find_first_of("[{");
-    if (start == std::string::npos) return false;
-    std::vector<char> delimiters;
-    bool in_string = false;
-    bool escaped = false;
-    for (size_t pos = start; pos < input.size(); ++pos) {
-      const char ch = input[pos];
-      if (in_string) {
-        if (escaped) {
-          escaped = false;
-        } else if (ch == '\\') {
-          escaped = true;
-        } else if (ch == '"') {
-          in_string = false;
-        }
-        continue;
-      }
-      if (ch == '"') {
-        in_string = true;
-      } else if (ch == '[' || ch == '{') {
-        delimiters.push_back(ch);
-      } else if (ch == ']' || ch == '}') {
-        if (delimiters.empty() ||
-            delimiters.back() != (ch == ']' ? '[' : '{')) {
-          *out_diag = "Mismatched JSON container delimiters";
-          return false;
-        }
-        delimiters.pop_back();
-        if (delimiters.empty()) {
-          return parse_candidate(input.substr(start, pos - start + 1),
-                                 JsonParseStatus::kOk);
-        }
-      }
-    }
-    *out_diag = "Incomplete JSON container";
+bool ParseOrExtractJson(const StructuredJsonOptions& options,
+                        const std::string& input, std::string* out_json,
+                        nlohmann::json* out_structured,
+                        JsonParseStatus* out_status, std::string* out_diag) {
+  if (input.empty()) {
+    *out_diag = "Empty input string";
     return false;
   }
 
-  StructuredJsonOptions options_;
-  BoundInput<TextBatch> in_text_;
-  BoundOutput<StructuredDocumentBatch> out_doc_;
-};
-
-NodeDefinition MakeStructuredJsonParseNodeDefinition() {
-  NodeDefinition def;
-  def.node_type = StructuredJsonParseNode::kNodeType;
-  def.category = "common";
-  def.validate_config = [](const nlohmann::json& config, const auto&,
-                           std::string* diagnostic) {
-    StructuredJsonOptions options;
-    const bool ok = options.Load(config);
-    if (!ok && diagnostic)
-      *diagnostic = "Invalid structured JSON fields, types or fallback";
-    return ok;
+  const auto parse_candidate = [&](const std::string& candidate,
+                                   JsonParseStatus status) {
+    try {
+      auto parsed = nlohmann::json::parse(candidate);
+      *out_json = parsed.dump();
+      if (out_structured) *out_structured = std::move(parsed);
+      *out_status = status;
+      out_diag->clear();
+      return true;
+    } catch (const std::exception& e) {
+      *out_diag = e.what();
+      return false;
+    }
   };
-  def.description = "Complete JSON parsing and block extraction without repair";
-  def.inputs = {RequiredInputPort("text",
-                                  BlackboardKey<TextBatch>{"", "TextBatch"},
-                                  "1:1", "preserve", "request")};
-  def.outputs = {OutputPort(
-      "document",
-      BlackboardKey<StructuredDocumentBatch>{"", "StructuredDocumentBatch"},
-      "1:1", "preserve", "request")};
-  def.config_fields = StructuredJsonParseConfigFields();
-  def.parallel_safe = true;
-  return def;
+  if (parse_candidate(input, JsonParseStatus::kOk)) return true;
+  if (!options.extract_json_block_) return false;
+  const size_t code_block_start = input.find("```json");
+  if (code_block_start != std::string::npos) {
+    const size_t content_start = code_block_start + 7;
+    const size_t code_block_end = input.find("```", content_start);
+    if (code_block_end == std::string::npos) {
+      *out_diag = "Unclosed JSON markdown block";
+      return false;
+    }
+    // An invalid fenced value must not fall through to extracting its
+    // children.
+    return parse_candidate(
+        input.substr(content_start, code_block_end - content_start),
+        JsonParseStatus::kExtractedFromMarkdown);
+  }
+
+  // Preserve the first outer container, including arrays of objects. Never
+  // extract a valid child from a malformed or truncated parent container.
+  const size_t start = input.find_first_of("[{");
+  if (start == std::string::npos) return false;
+  std::vector<char> delimiters;
+  bool in_string = false;
+  bool escaped = false;
+  for (size_t pos = start; pos < input.size(); ++pos) {
+    const char ch = input[pos];
+    if (in_string) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch == '\\') {
+        escaped = true;
+      } else if (ch == '"') {
+        in_string = false;
+      }
+      continue;
+    }
+    if (ch == '"') {
+      in_string = true;
+    } else if (ch == '[' || ch == '{') {
+      delimiters.push_back(ch);
+    } else if (ch == ']' || ch == '}') {
+      if (delimiters.empty() || delimiters.back() != (ch == ']' ? '[' : '{')) {
+        *out_diag = "Mismatched JSON container delimiters";
+        return false;
+      }
+      delimiters.pop_back();
+      if (delimiters.empty()) {
+        return parse_candidate(input.substr(start, pos - start + 1),
+                               JsonParseStatus::kOk);
+      }
+    }
+  }
+  *out_diag = "Incomplete JSON container";
+  return false;
 }
 
-REGISTER_NODE_WITH_DEFINITION(StructuredJsonParseNode,
-                              MakeStructuredJsonParseNodeDefinition());
+NodeResult<StructuredDocumentBatch> ParseStructuredJson(
+    const StructuredInputs& inputs, const StructuredJsonOptions& options) {
+  const auto* text_items = inputs.text;
+  StructuredDocumentBatch output_docs;
+  output_docs.reserve(text_items->size());
 
+  for (const auto& item : *text_items) {
+    std::string parsed_json_str;
+    nlohmann::json parsed_structured = nlohmann::json::object();
+    JsonParseStatus status = JsonParseStatus::kOk;
+    std::string diag;
+
+    bool ok = ParseOrExtractJson(options, item.data, &parsed_json_str,
+                                 &parsed_structured, &status, &diag);
+    if (ok && !options.ValidateStructuredFields(parsed_structured, &diag)) {
+      ok = false;
+      status = JsonParseStatus::kFailed;
+    }
+
+    if (!ok) {
+      if (options.failure_policy_ == "fail") {
+        return NodeResult<StructuredDocumentBatch>::Failure(
+            NodeErrorKind::kBusinessError,
+            "JSON parse failed for sample: " + diag,
+            node_error::structured_json_parse::kParseFailed);
+      } else if (options.failure_policy_ == "emit_diagnostic") {
+        output_docs.emplace_back(
+            item.req_id, item.sub_id,
+            JsonDocumentItem(options.fallback_json_, false,
+                             JsonParseStatus::kFailed, diag,
+                             options.fallback_structured_));
+        continue;
+      } else {  // configured_fallback
+        output_docs.emplace_back(
+            item.req_id, item.sub_id,
+            JsonDocumentItem(options.fallback_json_, true,
+                             JsonParseStatus::kFallbackApplied, diag,
+                             options.fallback_structured_));
+        continue;
+      }
+    }
+
+    output_docs.emplace_back(
+        item.req_id, item.sub_id,
+        JsonDocumentItem(std::move(parsed_json_str), true, status, diag,
+                         std::move(parsed_structured)));
+  }
+
+  return NodeResult<StructuredDocumentBatch>::Success(std::move(output_docs));
+}
+
+auto StructuredJsonParseSpec() {
+  auto params = Parameters<StructuredJsonOptions>{}.WithParser(
+      NodeConfigParser<StructuredJsonOptions>(
+          StructuredJsonParseConfigFields(),
+          [](const nlohmann::json& config, StructuredJsonOptions* options,
+             std::string* diagnostic) {
+            const bool ok = options->Load(config);
+            if (!ok && diagnostic)
+              *diagnostic = "Invalid structured JSON fields, types or fallback";
+            return ok;
+          }));
+  return MakeBatchSpec(
+             InputsOf<StructuredInputs>(
+                 {Required("text", &StructuredInputs::text)}),
+             PreservedOutput<StructuredDocumentBatch>("document", "text"),
+             std::move(params), &ParseStructuredJson)
+      .Category("common")
+      .Description("Complete JSON parsing and block extraction without repair")
+      .ParallelSafe(true);
+}
+}  // namespace
+REGISTER_FUNCTION_NODE(StructuredJsonParseNode, StructuredJsonParseSpec());
 }  // namespace llm_edgeflow

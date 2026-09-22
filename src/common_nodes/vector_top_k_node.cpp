@@ -4,260 +4,188 @@
 #include <unordered_map>
 #include <vector>
 
-#include "core/common_contracts.h"
-#include "core/node_registry.h"
 #include "edgeflow/log.h"
-#include "nodes/node_base.h"
-#include "nodes/node_error_codes.h"
+#include "nodes/authoring.h"
 
 namespace llm_edgeflow {
-
 namespace {
-
-const std::vector<ConfigFieldDefinition>& VectorTopKConfigFields() {
-  static const std::vector<ConfigFieldDefinition> kFields = {
-      ConfigFieldDefinition{"candidate_scope",
-                            ConfigValueKind::kString,
-                            false,
-                            "request",
-                            std::nullopt,
-                            std::nullopt,
-                            {"request", "shared"},
-                            "request 只检索相同 req_id 的候选；shared 使用所有 "
-                            "req_id=0 的共享候选。"},
-      ConfigFieldDefinition{"top_k",
-                            ConfigValueKind::kInteger,
-                            false,
-                            1,
-                            1.0,
-                            1000.0,
-                            {},
-                            "每条查询按向量相似度降序返回的候选条数上限，在 "
-                            "min_score 过滤之后应用。"},
-      ConfigFieldDefinition{
-          "min_score",
-          ConfigValueKind::kNumber,
-          false,
-          0.0,
-          -100.0,
-          100.0,
-          {},
-          "保留相似度大于等于此值的候选；分数含义随 metric 变化。"},
-      ConfigFieldDefinition{"metric",
-                            ConfigValueKind::kString,
-                            false,
-                            "cosine",
-                            std::nullopt,
-                            std::nullopt,
-                            {"cosine", "dot_product"},
-                            "cosine 使用余弦相似度；dot_product "
-                            "使用原始向量点积，分数受向量模长影响。"}};
-  return kFields;
-}
-
-}  // namespace
-
-/**
- * @brief 向量相似度计算与 Top-K 检索排序算子 (VectorTopKNode)
- */
-class VectorTopKNode final : public NodeBase {
- public:
-  inline static constexpr char kNodeType[] = "VectorTopKNode";
-
-  VectorTopKNode()
-      : NodeBase(kNodeType),
-        in_queries_("queries"),
-        in_candidates_("candidates"),
-        in_candidate_texts_("candidate_texts"),
-        out_ranked_("ranked") {}
-
- protected:
-  bool InitNode(const NodeInitContext& init_ctx, const nlohmann::json& config,
-                SessionContext& /*session_ctx*/) override {
-    const auto& normalized = config;
-
-    BindPort(init_ctx, in_queries_);
-    BindPort(init_ctx, in_candidates_);
-    BindPort(init_ctx, in_candidate_texts_);
-    BindPort(init_ctx, out_ranked_);
-
-    top_k_ = normalized["top_k"].get<int>();
-    min_score_ = normalized["min_score"].get<float>();
-    metric_ = normalized["metric"].get<std::string>();
-    candidate_scope_ = normalized["candidate_scope"].get<std::string>();
-    return candidate_scope_ == "request" || candidate_scope_ == "shared";
-  }
-
-  int ProcessNode(AlgContext& req_ctx) override {
-    const auto* queries =
-        in_queries_.Require(req_ctx, node_error::vector_top_k::kMissingInput,
-                            "VectorTopKNode queries");
-    const auto* candidates =
-        in_candidates_.Require(req_ctx, node_error::vector_top_k::kMissingInput,
-                               "VectorTopKNode candidates");
-    if (!queries || !candidates) {
-      return node_error::vector_top_k::kMissingInput;
-    }
-
-    const auto* candidate_texts = in_candidate_texts_.Get(req_ctx);
-
-    // 索引候选文本 (根据 req_id 和 sub_id)
-    std::unordered_map<uint64_t, std::string> text_map;
-    if (candidate_texts) {
-      for (size_t i = 0; i < candidate_texts->size(); ++i) {
-        const auto& ct = (*candidate_texts)[i];
-        uint64_t key = (static_cast<uint64_t>(ct.req_id) << 32) | ct.sub_id;
-        text_map[key] = ct.data;
-      }
-    }
-
-    // 按 req_id 对候选向量分组
-    std::unordered_map<uint32_t, std::vector<size_t>> req_candidate_indices;
-    for (size_t i = 0; i < candidates->size(); ++i) {
-      req_candidate_indices[(*candidates)[i].req_id].push_back(i);
-    }
-
-    const bool is_shared_candidates = candidate_scope_ == "shared";
-    if (is_shared_candidates && !candidates->empty() &&
-        (req_candidate_indices.size() != 1 ||
-         !req_candidate_indices.count(0))) {
-      return Fail(req_ctx, -3102, "Shared candidates must use req_id 0");
-    }
-
-    RankedTextBatch ranked_batch;
-
-    for (const auto& q_item : *queries) {
-      uint32_t r_id = q_item.req_id;
-      const auto& q_vec = q_item.data;
-
-      const std::vector<size_t>* cand_indices = nullptr;
-      if (req_candidate_indices.find(r_id) != req_candidate_indices.end()) {
-        cand_indices = &req_candidate_indices[r_id];
-      } else if (is_shared_candidates) {
-        cand_indices = &req_candidate_indices[0];
-      }
-
-      if (!cand_indices || cand_indices->empty()) {
-        continue;
-      }
-
-      struct ScoredItem {
-        size_t cand_idx;
-        uint32_t original_sub_id;
-        float score;
-        std::string text;
-      };
-      std::vector<ScoredItem> scored_list;
-      scored_list.reserve(cand_indices->size());
-
-      for (size_t c_idx : *cand_indices) {
-        const auto& c_item = (*candidates)[c_idx];
-        if (q_vec.empty() || q_vec.size() != c_item.data.size() ||
-            !std::all_of(q_vec.begin(), q_vec.end(),
-                         [](float v) { return std::isfinite(v); }) ||
-            !std::all_of(c_item.data.begin(), c_item.data.end(),
-                         [](float v) { return std::isfinite(v); })) {
-          return Fail(req_ctx, -3102,
-                      "Invalid or mismatched embedding dimensions");
-        }
-        float score = (metric_ == "dot_product")
-                          ? DotProduct(q_vec, c_item.data)
-                          : CosineSimilarity(q_vec, c_item.data);
-        if (score >= min_score_) {
-          std::string text;
-          uint64_t text_key =
-              (static_cast<uint64_t>(c_item.req_id) << 32) | c_item.sub_id;
-          if (text_map.find(text_key) != text_map.end()) {
-            text = text_map[text_key];
-          } else if (candidate_texts) {
-            return Fail(req_ctx, -3102, "Candidate text provenance is missing");
-          }
-          scored_list.push_back({c_idx, c_item.sub_id, score, std::move(text)});
-        }
-      }
-
-      std::sort(scored_list.begin(), scored_list.end(),
-                [](const ScoredItem& a, const ScoredItem& b) {
-                  return a.score > b.score;
-                });
-
-      size_t count = std::min(static_cast<size_t>(top_k_), scored_list.size());
-      for (size_t k = 0; k < count; ++k) {
-        const auto& item = scored_list[k];
-        RankedCandidate rc(item.text, item.score, static_cast<int>(k + 1),
-                           item.original_sub_id);
-        ranked_batch.emplace_back(r_id, static_cast<uint32_t>(k),
-                                  std::move(rc));
-      }
-    }
-
-    ALG_LOG_DEBUG(
-        "[VectorTopKNode] Processed %zu queries, returned %zu top ranked "
-        "items.\n",
-        queries->size(), ranked_batch.size());
-
-    out_ranked_.Set(req_ctx, std::move(ranked_batch));
-    return 0;
-  }
-
- private:
-  static float CosineSimilarity(const std::vector<float>& v1,
-                                const std::vector<float>& v2) {
-    if (v1.empty() || v1.size() != v2.size()) return 0.0f;
-    float dot = 0.0f, norm1 = 0.0f, norm2 = 0.0f;
-    for (size_t i = 0; i < v1.size(); ++i) {
-      dot += v1[i] * v2[i];
-      norm1 += v1[i] * v1[i];
-      norm2 += v2[i] * v2[i];
-    }
-    if (norm1 <= 0.0f || norm2 <= 0.0f) return 0.0f;
-    return dot / (std::sqrt(norm1) * std::sqrt(norm2));
-  }
-
-  static float DotProduct(const std::vector<float>& v1,
-                          const std::vector<float>& v2) {
-    if (v1.empty() || v1.size() != v2.size()) return 0.0f;
-    float dot = 0.0f;
-    for (size_t i = 0; i < v1.size(); ++i) {
-      dot += v1[i] * v2[i];
-    }
-    return dot;
-  }
-
-  size_t top_k_ = 1;
-  float min_score_ = 0.0f;
-  std::string metric_ = "cosine";
-  std::string candidate_scope_ = "request";
-
-  BoundInput<EmbeddingBatch> in_queries_;
-  BoundInput<EmbeddingBatch> in_candidates_;
-  BoundInput<TextBatch> in_candidate_texts_;
-  BoundOutput<RankedTextBatch> out_ranked_;
+struct VectorInputs {
+  const EmbeddingBatch* queries = nullptr;
+  const EmbeddingBatch* candidates = nullptr;
+  const TextBatch* candidate_texts = nullptr;
 };
-
-NodeDefinition MakeVectorTopKNodeDefinition() {
-  NodeDefinition def;
-  def.node_type = VectorTopKNode::kNodeType;
-  def.category = "common";
-  def.description = "Vector Top-K search and ranking node";
-  def.inputs = {
-      RequiredInputPort("queries",
-                        BlackboardKey<EmbeddingBatch>{"", "EmbeddingBatch"},
-                        "1:1", "preserve", "request"),
-      RequiredInputPort("candidates",
-                        BlackboardKey<EmbeddingBatch>{"", "EmbeddingBatch"},
-                        "N:1", "preserve", "request"),
-      OptionalInputPort("candidate_texts",
-                        BlackboardKey<TextBatch>{"", "TextBatch"}, "N:1",
-                        "preserve", "request")};
-  def.outputs = {OutputPort(
-      "ranked", BlackboardKey<RankedTextBatch>{"", "RankedTextBatch"}, "1:N",
-      "generate_sub_id", "request")};
-  def.config_fields = VectorTopKConfigFields();
-  def.parallel_safe = true;
-  return def;
+struct VectorParams {
+  std::string candidate_scope;
+  int top_k{};
+  float min_score{};
+  std::string metric;
+};
+float CosineSimilarity(const std::vector<float>& v1,
+                       const std::vector<float>& v2) {
+  if (v1.empty() || v1.size() != v2.size()) return 0.0f;
+  float dot = 0.0f, norm1 = 0.0f, norm2 = 0.0f;
+  for (size_t i = 0; i < v1.size(); ++i) {
+    dot += v1[i] * v2[i];
+    norm1 += v1[i] * v1[i];
+    norm2 += v2[i] * v2[i];
+  }
+  if (norm1 <= 0.0f || norm2 <= 0.0f) return 0.0f;
+  return dot / (std::sqrt(norm1) * std::sqrt(norm2));
 }
 
-REGISTER_NODE_WITH_DEFINITION(VectorTopKNode, MakeVectorTopKNodeDefinition());
+float DotProduct(const std::vector<float>& v1, const std::vector<float>& v2) {
+  if (v1.empty() || v1.size() != v2.size()) return 0.0f;
+  float dot = 0.0f;
+  for (size_t i = 0; i < v1.size(); ++i) {
+    dot += v1[i] * v2[i];
+  }
+  return dot;
+}
 
+NodeResult<RankedTextBatch> RankVectors(const VectorInputs& inputs,
+                                        const VectorParams& params) {
+  const auto* queries = inputs.queries;
+  const auto* candidates = inputs.candidates;
+  const auto* candidate_texts = inputs.candidate_texts;
+  // 索引候选文本 (根据 req_id 和 sub_id)
+  std::unordered_map<uint64_t, std::string> text_map;
+  if (candidate_texts) {
+    for (size_t i = 0; i < candidate_texts->size(); ++i) {
+      const auto& ct = (*candidate_texts)[i];
+      uint64_t key = (static_cast<uint64_t>(ct.req_id) << 32) | ct.sub_id;
+      text_map[key] = ct.data;
+    }
+  }
+
+  // 按 req_id 对候选向量分组
+  std::unordered_map<uint32_t, std::vector<size_t>> req_candidate_indices;
+  for (size_t i = 0; i < candidates->size(); ++i) {
+    req_candidate_indices[(*candidates)[i].req_id].push_back(i);
+  }
+
+  const bool is_shared_candidates = params.candidate_scope == "shared";
+  if (is_shared_candidates && !candidates->empty() &&
+      (req_candidate_indices.size() != 1 || !req_candidate_indices.count(0))) {
+    return NodeResult<RankedTextBatch>::Failure(
+        NodeErrorKind::kBusinessError, "Shared candidates must use req_id 0",
+        -3102);
+  }
+
+  RankedTextBatch ranked_batch;
+
+  for (const auto& q_item : *queries) {
+    uint32_t r_id = q_item.req_id;
+    const auto& q_vec = q_item.data;
+
+    const std::vector<size_t>* cand_indices = nullptr;
+    if (req_candidate_indices.find(r_id) != req_candidate_indices.end()) {
+      cand_indices = &req_candidate_indices[r_id];
+    } else if (is_shared_candidates) {
+      cand_indices = &req_candidate_indices[0];
+    }
+
+    if (!cand_indices || cand_indices->empty()) {
+      continue;
+    }
+
+    struct ScoredItem {
+      size_t cand_idx;
+      uint32_t original_sub_id;
+      float score;
+      std::string text;
+    };
+    std::vector<ScoredItem> scored_list;
+    scored_list.reserve(cand_indices->size());
+
+    for (size_t c_idx : *cand_indices) {
+      const auto& c_item = (*candidates)[c_idx];
+      if (q_vec.empty() || q_vec.size() != c_item.data.size() ||
+          !std::all_of(q_vec.begin(), q_vec.end(),
+                       [](float v) { return std::isfinite(v); }) ||
+          !std::all_of(c_item.data.begin(), c_item.data.end(),
+                       [](float v) { return std::isfinite(v); })) {
+        return NodeResult<RankedTextBatch>::Failure(
+            NodeErrorKind::kBusinessError,
+            "Invalid or mismatched embedding dimensions", -3102);
+      }
+      float score = (params.metric == "dot_product")
+                        ? DotProduct(q_vec, c_item.data)
+                        : CosineSimilarity(q_vec, c_item.data);
+      if (score >= params.min_score) {
+        std::string text;
+        uint64_t text_key =
+            (static_cast<uint64_t>(c_item.req_id) << 32) | c_item.sub_id;
+        if (text_map.find(text_key) != text_map.end()) {
+          text = text_map[text_key];
+        } else if (candidate_texts) {
+          return NodeResult<RankedTextBatch>::Failure(
+              NodeErrorKind::kBusinessError,
+              "Candidate text provenance is missing", -3102);
+        }
+        scored_list.push_back({c_idx, c_item.sub_id, score, std::move(text)});
+      }
+    }
+
+    std::sort(scored_list.begin(), scored_list.end(),
+              [](const ScoredItem& a, const ScoredItem& b) {
+                return a.score > b.score;
+              });
+
+    size_t count =
+        std::min(static_cast<size_t>(params.top_k), scored_list.size());
+    for (size_t k = 0; k < count; ++k) {
+      const auto& item = scored_list[k];
+      RankedCandidate rc(item.text, item.score, static_cast<int>(k + 1),
+                         item.original_sub_id);
+      ranked_batch.emplace_back(r_id, static_cast<uint32_t>(k), std::move(rc));
+    }
+  }
+
+  ALG_LOG_DEBUG(
+      "[VectorTopKNode] Processed %zu queries, returned %zu top ranked "
+      "items.\n",
+      queries->size(), ranked_batch.size());
+
+  return NodeResult<RankedTextBatch>::Success(std::move(ranked_batch));
+}
+
+auto VectorTopKSpec() {
+  return MakeBatchSpec(
+             InputsOf<VectorInputs>(
+                 {Required("queries", &VectorInputs::queries),
+                  Required("candidates", &VectorInputs::candidates,
+                           PortFlow{"N:1", "preserve", "request"}),
+                  OptionalValue("candidate_texts",
+                                &VectorInputs::candidate_texts,
+                                PortFlow{"N:1", "preserve", "request"})}),
+             ProducedBatch<RankedTextBatch>(
+                 "ranked", PortFlow{"1:N", "generate_sub_id", "request"}),
+             Parameters<VectorParams>(
+                 {Field("candidate_scope", &VectorParams::candidate_scope)
+                      .Default("request")
+                      .Enum({"request", "shared"})
+                      .Description("request 只检索相同 req_id 的候选；shared "
+                                   "使用所有 req_id=0 的共享候选。"),
+                  Field("top_k", &VectorParams::top_k)
+                      .Default(1)
+                      .Range(1, 1000)
+                      .Description("每条查询按向量相似度降序返回的候选条数上限"
+                                   "，在 min_score 过滤之后应用。"),
+                  Field("min_score", &VectorParams::min_score)
+                      .Default(0.0f)
+                      .Range(-100, 100)
+                      .Description("保留相似度大于等于此值的候选；分数含义随 "
+                                   "metric 变化。"),
+                  Field("metric", &VectorParams::metric)
+                      .Default("cosine")
+                      .Enum({"cosine", "dot_product"})
+                      .Description("cosine 使用余弦相似度；dot_product "
+                                   "使用原始向量点积，分数受向量模长影响。")}),
+             &RankVectors)
+      .Category("common")
+      .Description("Vector Top-K search and ranking node")
+      .ParallelSafe(true);
+}
+}  // namespace
+REGISTER_FUNCTION_NODE(VectorTopKNode, VectorTopKSpec());
 }  // namespace llm_edgeflow

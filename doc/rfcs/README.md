@@ -92,6 +92,8 @@ RFC-0054 是接续 RFC-0052 与已交付 RFC-0053、RFC-0055 的实施规格。`
 | **RFC-0064** | 上线前单一现行契约与重复实现清理 | `Completed` | 投产前 | 四层 / Tooling / Build | [0064-prelaunch-contract-cleanup.md](0064-prelaunch-contract-cleanup.md) |
 | **RFC-0065** | 业务开发入口与诊断的定向简化 | `Completed` | 投产前 | 接入适配层、流程编排层、能力节点层、模型执行层 / Tooling | [0065-business-authoring-usability.md](0065-business-authoring-usability.md) |
 | **RFC-0066** | 上线前全业务开发简化——本次实施范围 | `Completed` | 投产前 | 接入适配层 / Tooling / Docs | [0066-prelaunch-authoring-and-runtime-simplification.md](0066-prelaunch-authoring-and-runtime-simplification.md) |
+| **RFC-0067** | 作者布线、配置补全与端到端测试的定向简化 | `Completed` | 投产前 | 流程编排层、接入适配层、能力节点层 / Tooling / Tests | [0067-authoring-friction.md](0067-authoring-friction.md) |
+| **RFC-0068** | 统一全部生产 Node 的作者契约 | `Completed` | 投产前 | 能力节点层 / Tooling / Tests | [0068-unified-node-authoring.md](0068-unified-node-authoring.md) |
 
 ## 专项验收与评审归档
 

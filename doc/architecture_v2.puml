@@ -130,7 +130,7 @@ CommonContracts --> RequestContext
 package "能力节点层（Capability Nodes）" as CapabilityNodes {
   interface "INode\nInit / Process / Control / Name" as INode
   component "NodeBase\nfinal noexcept lifecycle" as NodeBase <<Implemented>>
-  component "ModelBoundNode / TraceableUnaryInferenceNode" as NodeSupport <<Implemented>>
+  component "AuthorNode / typed Spec" as NodeSupport <<Implemented>>
   component "NodeRegistry\n(NodeRegistry)" as NodeRegistry
   component "Registered\nCommon Nodes" as CommonNodes
   component "Optional Domain Node\n(none currently registered)" as DomainNodes

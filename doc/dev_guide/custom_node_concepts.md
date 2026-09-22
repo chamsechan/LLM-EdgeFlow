@@ -11,9 +11,12 @@
 把一个 Node 看作批量处理函数。输入端口是函数参数，输出端口是返回值；`TextBatch`
 表示一组带来源编号的文本，而不是任意可以强制转换的内存。
 
-在[基础源码](../../dev_support/node_authoring/starter_llm_node.cpp)中，`Input<TextBatch>("input")`
+在[模板源码](../../dev_support/node_authoring/starter_llm_node.cpp)中，`Input<TextBatch>("input")`
 和 `Output<TextBatch>("output")` 声明逻辑名字和类型。Spec 同时生成运行时绑定与 Definition，
-业务函数不直接读写 Blackboard。高级生命周期路径仍可使用 `BoundInput` / `BoundOutput`。
+业务函数不直接读写 Blackboard。多输入使用 `InputsOf` 绑定普通输入结构，
+多输出使用 `OutputsOf` / `Produced` 绑定普通结果结构；类型和逻辑端口只声明一次。
+`Optional` 允许不连接端口；如果连接后当前请求仍可缺值，显式使用 `OptionalValue`，
+由算法处理这个状态。`PortFlow` 声明非默认的数量、来源和生命周期属性。
 
 有三个名字容易混淆：
 
@@ -35,8 +38,8 @@ Pipeline 还需要给传递的数据起名字，称为 Blackboard key。练习�
 `ports.inputs` / `ports.outputs` 负责这张映射，`depends_on` 明确节点执行依赖。
 换一个方案时，可以把 `input` 接到 `cleaned_texts`，不必改 C++ 中的接口名。
 
-这些值放在当前请求的 `AlgContext` 中，可以理解成“这次处理的数据工作区”。`Require`
-读到只读输入；缺失或类型不符时会记录错误。`Set` 发布输出，同一个数据名不能重复写入。
+框架将值放在当前请求的 `AlgContext` 中，可以理解成“这次处理的数据工作区”。
+Spec 包装读取只读输入，缺失或类型不符时记录错误；算法成功后发布返回值，同一个数据名不能重复写入。
 需要修改文本时创建新值，不原地修改已经发布的输入，也不直接调用另一个 Node 绕过 Pipeline。
 
 **第一次开发只需要做：** 选择正确的批类型、保持逻辑端口稳定，在 Pipeline 中连线。
@@ -73,15 +76,11 @@ outputs.emplace_back(item.req_id, item.sub_id, new_value);
 
 ## 3. 模型绑定：拿到一个已经准备好的模型能力
 
-你需要的是“生成文本”的能力。基础模板的 `MakeLlmTextSpec` 负责一次模型调用；自由 Batch
-通过 `ModelsOf` 中的 `Llm` 槽取得 `LlmCall`，调用 `Generate` 得到可检查的 `NodeResult`。
-高级路径仍可使用 `ModelBoundNode<ILlmModel>`。节点不用自己加载模型文件、创建厂商运行时
-或按 Backend 名称写分支。
-
-直接调用五种 `IModel` 能力时，最后一个可选参数是 `std::string* diagnostic`。调用方用
-局部字符串接收失败原因，并连同返回码传给 `Fail`；`LlmCall`、`EmbeddingCall` 及生成的
-高级模板已经处理该传递。模型实现应在入口清空诊断，失败时保留 Backend 原因，成功或
-空批次不留下旧错误；不要把“上一次错误”保存在共享模型成员中。
+你需要的是“生成文本”的能力。`MakeLlmTextSpec` 组合一次模型调用；Batch 通过
+`ModelsOf` 中的 `Model` 声明取得调用门面。成员类型决定能力：`LlmCall`、`EmbeddingCall`、
+`AsrCall`、`OcrCall`、`RerankCall` 分别提供 `Generate`、`Embed`、`Transcribe`、`Recognize`、`Score`。
+它们处理空批次、模型错误诊断及返回数量和来源检查，结果统一为 `NodeResult`。
+模型失败直接传播，不为旧节点错误码再做一层映射。Node 不加载模型文件或创建厂商运行时。
 
 下面几个字段承担不同职责：
 
@@ -98,8 +97,9 @@ outputs.emplace_back(item.req_id, item.sub_id, new_value);
 模型和后端的组合需要通过协议校验；路径是否可加载、资源是否充足，还要在构建运行时确认。
 
 Pipeline 构建期间准备模型资源，作者包装在初始化时取得各槽绑定的能力句柄。
-资源属于会话 `SessionContext`，当前输入输出属于请求 `AlgContext`。模型句柄可以是成员，
-本次提示词、回答、临时向量应留在处理函数局部。
+资源属于会话，当前输入输出属于请求。本次提示词、回答、临时向量留在函数局部。
+需要会话缓存时，`Run` 显式接收 `const SessionResources&`，通过 `GetOrCreateResource` 和
+`GetModelRevision` 访问资源；参考 [TextEmbeddingNode](../../src/common_nodes/text_embedding_node.cpp)。
 
 换一个支持相同能力的模型时，通常更新 `models` 配置与 `bind_model` 即可。业务函数是否
 仍适合新模型，要用实际数据确认。轻量模板使用 `GenerateOptions{}` 的默认采样参数；
@@ -126,35 +126,31 @@ LLM”。`NodeDefinition` 就是把这些要求写成框架能读取的接口说
 `prompt_template`、`strip_markdown` 等它没有声明的字段。未知字段被拒绝，能尽早发现
 “代码根本没有使用这个配置”的问题。
 
-基础接口用 `REGISTER_FUNCTION_NODE` 从 Spec 生成构造方法和说明；高级接口继续用
-`REGISTER_NODE_WITH_DEFINITION` 显式注册。构建之后，Catalog、
+所有生产 Node 用 `REGISTER_FUNCTION_NODE` 从 Spec 生成构造方法和说明。Map、Batch、
+LLM 便利组合使用同一契约；`NodeBase` 仅是框架内部运行机制。构建之后，Catalog、
 Validator 和 Studio 自动使用注册结果，不需要你再维护 UI 节点列表。
 
 **什么时候需要改 Definition？** 只改提示词构造或输出文本格式、接口保持不变时，通常
 不用改。增加端口、参数、输出类型或改变数量关系时，必须一起更新声明和实现。
 
-基础接口的 `Parameters<T>` 将字段声明、默认值和结构成员绑定在一处；语义校验用
+`Parameters<T>` 将字段声明、默认值和结构成员绑定在一处；语义校验用
 `Validate` / `ValidateBindings`，由预检与初始化共用。参考
 [自由 Batch starter](../../dev_support/node_authoring/starter_batch_node.cpp)。
 
 Definition 会帮助原生校验发现类型、字段和连线错误，但不会自动实现业务代码。
 Validator 根据 Definition 字段列表一次性校验未知字段、类型、范围和枚举，并填入默认值。
-Init 必须收到 `ValidatedNodePlan`，读取其中 `normalized_config` 和已解析端口；
-缺少 Plan 时失败。跨字段约束提取成局部函数，由 Init 与 `validate_config` 共用，
-初始化仍负责资源准备和语义检查。Control 更新单独归一化新参数后再发布。
-节点执行失败使用 `Fail/Require`，让返回码与请求诊断一致；初始化用 `init_ctx.Fail(reason)`
-传递具体原因。
-具体写法可按需参考 `PromptGuidedLlmNode`，第一天不必复制它的全部参数和解析逻辑。
+执行包装在初始化时消费 `ValidatedNodePlan` 的归一化配置与解析端口，缺少 Plan 时失败。
+业务函数收到普通输入、参数和模型，返回 `NodeResult`；包装统一写入错误码与诊断。
+跨字段及连线语义分别用 `Validate` / `ValidateBindings`，初始化与预检使用同一规则。
+Control 更新单独归一化参数、构造下一状态后发布。
 
-基础成员必须显式声明 `.Required()` 或 `.Default(value)`，不能同时使用两者，也不从
+`Field` 成员必须显式声明 `.Required()` 或 `.Default(value)`，不能同时使用两者，也不从
 结构体初值推断配置默认值。复杂数组/对象可用 `.WithParser(NodeConfigParser<YourConfig>(fields, parse))`
 与基础绑定组合：合并字段并拒绝重名，复杂 parser 先产生持有自身数据的参数对象，随后赋基础成员，
 最后执行 `Validate` 的跨字段规则及 `ValidateBindings` 的连线规则。parser 接收已规范化 JSON，
 不要再次序列化；复杂派生成员若依赖基础参数，使用最终语义校验检查它们。
 
-高级接口参数较多时可使用 `NodeConfigParser<YourConfig>`，将字段声明和语义解析放在一起，
-得到节点自己的普通参数结构。它复用上述通用校验并直接传递 JSON 对象；不增加
-序列化步骤，也不要求修改 Node 基类或 Pipeline。入口选择及完整例子见
+复杂参数的完整例子见
 [复杂参数封装](../../src/custom_nodes/README.md#参数复杂时使用普通结构和解析封装)。
 
 ## 5. 并发声明：保证两个执行过程不会互相污染
@@ -172,7 +168,8 @@ Init 必须收到 `ValidatedNodePlan`，读取其中 `normalized_config` 和已�
 | 经设计和验证可安全共享的资源句柄 | 当前请求的 Context 指针、临时请求缓存 |
 
 “无请求状态”允许节点持有配置。在线更新时先校验新值，失败保留旧值，每次处理读取
-一致快照；具体同步与更新写法见 [Control 练习](first_control.md#3-阅读四个编辑点)。
+一致快照。普通字段使用 `WithControls`；复杂命令使用 `WithControl` 声明 schema 和
+构造下一状态的函数，框架串行处理更新并发布。见 [Control 练习](first_control.md)。
 
 `parallel_safe=false` 是脚手架的保守初始声明。对于显式 `parallel` Pipeline，若该节点
 处于含多个节点的并行层，Validator 会拒绝这个计划；它不会自动加锁，也不会自动把
@@ -184,12 +181,15 @@ Init 必须收到 `ValidatedNodePlan`，读取其中 `normalized_config` 和已�
 
 ## 复杂算法仍按普通 C++ 函数组织
 
-多个输入、条件二次推理或复杂后处理可组织在普通自由 Batch 函数中：显式声明 anchor，
-最终返回与它等长、同序、同来源的 `PreservedOutput`。局部选择后须回填完整批次。
-需要发布拆分后的子项和父项计数等不同来源/数量的端口时，继续使用 `NodeBase`；需要模型句柄时用
-`ModelBoundNode`。`ProcessNode` 负责读端口、取得本次配置快照、调用你的算法函数、检查
-结果并发布。算法函数使用普通值、容器和局部变量；函数较多时拆成操作相关的 `.h/.cpp`，
-再登记同目录 CMake，保持 `custom_nodes` 按操作组织。复杂程度本身不要求修改 Core。
+多个输入、条件二次推理或复杂后处理都组织在普通 `Run` 函数中。保序输出用
+`PreservedOutput` 声明 anchor，框架检查等长、同序和同来源；局部选择后需要回填完整批次。
+拆分、排名或源输出用 `ProducedBatch` 和真实 `PortFlow`；多输出用 `OutputsOf` / `Produced`。
+每个输出端口必须绑定独立的结果成员；重复绑定同一成员会在声明时被拒绝，避免发布时重复移动。
+框架在发布前检查全部带 anchor 的输出，派生输出的编号和数量正确性由算法及测试保证。
+
+12 个生产 Node 都使用这套 Spec，包括 OCR 双输出、TextChunk 拆分、TextCorpusSource 源输出、
+TextEmbedding 会话缓存和两种复杂 Control。无需按场景维护另一套生命周期写法。
+函数较多时可拆成操作相关的 `.h/.cpp`，登记同目录 CMake，保持目录按操作组织。
 
 从下面的现有实现中只取需要的部分：
 
@@ -200,11 +200,11 @@ Init 必须收到 `ValidatedNodePlan`，读取其中 `normalized_config` 和已�
 | 按请求收集参考内容并保留空组 | [Group 示例](../../dev_support/node_authoring/starter_batch_group_node.cpp) 使用 `GroupByRequest`；按原 anchor 位置查询组，保持 A0/B0/A1 原序 |
 | 只对部分结果再次推理 | [Select/Scatter 示例](../../dev_support/node_authoring/starter_batch_select_scatter_node.cpp) 先 `SelectBatch`、显式 `Materialize()`、调用模型，再 `ScatterReplace`；无选中项时跳过第二次调用 |
 | 拆分载荷并分配子编号 | [TextChunkNode](../../src/common_nodes/text_chunk_node.cpp) 使用 `SplitPayloads`；每个请求连续分配子编号，counts 保留父 key，载荷回调只负责切分 |
-| 多个问题各自配多段材料 | [PromptGuidedLlmNode::ProcessNode](../../src/custom_nodes/prompt_guided_llm_node.cpp) 按 `req_id` 收集 context，主输出沿用 input 的 `(req_id, sub_id)` |
-| 候选打分、按请求分组、保留原候选来源 | [TextRerankNode::ProcessNode](../../src/common_nodes/text_rerank_node.cpp) 展示来源检查后再排序；新 rank 与原候选编号分别保存 |
+| 多个问题各自配多段材料 | [PromptGuidedLlmNode](../../src/custom_nodes/prompt_guided_llm_node.cpp) 按 `req_id` 收集 context，主输出沿用 input 的 `(req_id, sub_id)` |
+| 候选打分、按请求分组、保留原候选来源 | [TextRerankNode](../../src/common_nodes/text_rerank_node.cpp) 展示来源检查后再排序；新 rank 与原候选编号分别保存 |
 | 字段、默认值与范围 | [ValidateAndNormalizeFields](../../include/contracts/config_schema_validation.h)，Validator 消费 Definition 字段列表，Init 读取 Plan 中的归一化结果 |
 | 多字段配置转为普通参数结构 | [NodeConfigParser](../../include/nodes/node_config_parser.h)，复用字段校验与节点自己的语义解析 |
-| 初值与运行时更新使用同一业务校验 | [Control 模板](../../dev_support/node_authoring/starter_control_node.cpp) 的局部解析函数，失败不替换旧配置 |
+| 初值与运行时更新使用同一业务校验 | [TextTemplateNode](../../src/common_nodes/text_template_node.cpp) 使用 `WithControl`，失败不替换旧配置 |
 | 提示词变量替换 | [现有模板工具](../../include/nodes/text_template.h)，只在实际需要模板语义时使用 |
 
 批次工具由 `nodes/authoring.h` 提供，返回 `NodeResult`。Join/Group/Selection 借用输入，
@@ -218,10 +218,9 @@ Init 必须收到 `ValidatedNodePlan`，读取其中 `normalized_config` 和已�
 多输入不能仅凭数组下标配对：一对一数据用两个编号关联，片段聚合按声明的请求关系处理。
 空批次、某个请求没有候选、模型少返回一项，都应在算法测试中有明确预期。
 
-把本次输出构造在局部变量中，全部成功后再 `Set`。失败通过 `Fail(req_ctx, code, reason)`
-返回，原因写明涉及的字段或来源；初始化失败使用 `init_ctx.Fail(reason)`，Pipeline 会补上
-实例 ID 和类型。`diagnostic` 只在 Init 调用期间有效，不保存它的指针。
-配置需要在线修改时，为一次请求取一致快照；含外部资源的更新应先设计资源生命周期。
+把输出构造在局部变量中，全部成功后返回 `NodeResult::Success`；失败返回
+`NodeResult::Failure`，原因写明字段或来源。执行包装统一处理诊断和发布，普通算法不保存
+Context 指针。配置更新由包装提供一致快照；含外部资源的更新仍需明确资源生命周期。
 
 第一次测试可复用 [InitNodeForTest](../../tests/support/node_test_utils.h)，将断言加入现有
 Node 套件；命令见[局部测试路径](../../tests/README.md#fast-feedback-for-solution-authors)。
@@ -231,8 +230,8 @@ Node 套件；命令见[局部测试路径](../../tests/README.md#fast-feedback-
 ## 从一次运行看这些概念如何配合
 
 1. **构建时**：注册提供 Definition；Validator 检查连线、配置和模型引用，产生执行计划。
-2. **初始化时**：基类取得模型句柄；`BindPort` 根据计划把逻辑端口接到实际数据名。
-3. **处理时**：`Require` 读取本次输入；业务函数处理 `.data`；模型生成后检查来源，再发布结果。
+2. **初始化时**：Spec 包装按计划绑定端口、解析参数、取得声明的模型能力。
+3. **处理时**：包装读取输入和一致参数；业务函数处理 `.data`，返回结果；检查保序输出后发布。
 4. **返回时**：Adapter 读取方案的最终输出，按平台契约完成转换与拷贝。
 
 常见问题可按下面的顺序定位：
@@ -246,7 +245,7 @@ Node 套件；命令见[局部测试路径](../../tests/README.md#fast-feedback-
 | 输出数量或来源不匹配 | 前后处理是否删项/换序/改编号，模型是否正确保留来源 |
 | 并行计划被拒绝 | 节点声明以及同层所使用模型的并发能力 |
 
-需要核对精确接口时，再查阅 [Node 支持代码](../../include/nodes/node_base.h)、
-[模型绑定基类](../../include/nodes/model_bound_node.h)、
+需要核对精确接口时，再查阅 [Node 作者接口](../../include/nodes/authoring.h)、
+[模型调用门面](../../include/nodes/model_calls.h)、
 [模型能力接口](../../include/engine/model_interface.h)和
 [Definition 声明](../../include/core/pipeline_catalog.h)。

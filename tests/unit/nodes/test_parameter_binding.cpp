@@ -101,6 +101,33 @@ TEST(ParameterBindingTest, SuccessfulParseWithDefaultsAndOverrides) {
   EXPECT_EQ(custom_params->tags, (std::vector<std::string>{"a", "b"}));
 }
 
+TEST(ParameterBindingTest, FloatNumberFieldRejectsOverflowAndNonfiniteValues) {
+  struct ScoreParams {
+    float min_score = 0.0f;
+  };
+  auto schema = Parameters<ScoreParams>{
+      Field("min_score", &ScoreParams::min_score).Default(0.0f)};
+  ASSERT_EQ(schema.Fields().size(), 1u);
+  EXPECT_EQ(schema.Fields()[0].kind, ConfigValueKind::kNumber);
+
+  std::string diagnostic;
+  auto parsed = schema.Parse({{"min_score", 0.625}}, &diagnostic);
+  ASSERT_TRUE(parsed.has_value()) << diagnostic;
+  EXPECT_FLOAT_EQ(parsed->min_score, 0.625f);
+
+  const double float_limit = std::numeric_limits<float>::max();
+  for (double invalid : {float_limit * 2.0, -float_limit * 2.0,
+                         std::numeric_limits<double>::infinity(),
+                         -std::numeric_limits<double>::infinity(),
+                         std::numeric_limits<double>::quiet_NaN()}) {
+    SCOPED_TRACE(invalid);
+    diagnostic.clear();
+    EXPECT_FALSE(
+        schema.Parse({{"min_score", invalid}}, &diagnostic).has_value());
+    EXPECT_FALSE(diagnostic.empty());
+  }
+}
+
 TEST(ParameterBindingTest, RejectsNullValues) {
   auto schema = Parameters<SampleParams>({
       Field("mode", &SampleParams::mode).Default("fast"),

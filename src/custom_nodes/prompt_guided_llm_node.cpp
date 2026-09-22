@@ -6,25 +6,13 @@
 #include <utility>
 #include <vector>
 
-#include "contracts/traceable_item.h"
-#include "core/alg_context.h"
-#include "core/common_contracts.h"
-#include "core/node_definition.h"
-#include "core/node_registry.h"
-#include "edgeflow/log.h"
-#include "engine/model_interface.h"
-#include "nodes/model_bound_node.h"
-#include "nodes/node_base.h"
-#include "nodes/node_config_parser.h"
+#include "nodes/authoring.h"
 #include "nodes/text_template.h"
 
 namespace llm_edgeflow {
 namespace custom_nodes {
 
 namespace {
-constexpr int kMissingInput = -8001;
-constexpr int kModelInferenceFailed = -8002;
-constexpr int kOutputProvenanceMismatch = -8003;
 
 // Ordinary, owned configuration used by processing after initialization.
 struct PromptConfig {
@@ -75,16 +63,7 @@ bool ParsePromptConfig(const nlohmann::json& config, PromptConfig* parameters,
 
 const NodeConfigParser<PromptConfig>& PromptConfiguration() {
   static const NodeConfigParser<PromptConfig> parser(
-      {ConfigFieldDefinition{
-           "bind_model",
-           ConfigValueKind::kString,
-           false,
-           "llm_model_v1",
-           std::nullopt,
-           std::nullopt,
-           {},
-           "引用 models[].model_id；所选模型必须提供 llm 文本生成能力。"},
-       ConfigFieldDefinition{"prompt_template",
+      {ConfigFieldDefinition{"prompt_template",
                              ConfigValueKind::kString,
                              false,
                              "{{input}}",
@@ -213,176 +192,78 @@ std::string StripMarkdownCodeFence(std::string_view text) {
   return std::string(trimmed.substr(start, end - start + 1));
 }
 
-}  // namespace
-
-// Authoring example: local prompt processing, typed model call and response
-// cleanup.
-class PromptGuidedLlmNode final : public ModelBoundNode<ILlmModel> {
- public:
-  inline static constexpr char kNodeType[] = "PromptGuidedLlmNode";
-
-  explicit PromptGuidedLlmNode(std::string node_name = kNodeType)
-      : ModelBoundNode<ILlmModel>(std::move(node_name)),
-        in_port_("input"),
-        context_port_("context"),
-        out_port_("output") {}
-
- protected:
-  bool InitModelNode(const NodeInitContext& init_ctx,
-                     const nlohmann::json& config,
-                     SessionContext& session_ctx) override {
-    (void)session_ctx;
-    BindPort(init_ctx, in_port_);
-    BindPort(init_ctx, context_port_);
-    BindPort(init_ctx, out_port_);
-
-    std::string error;
-    auto parameters = PromptConfiguration().ParseNormalized(config, &error);
-    if (!parameters) return init_ctx.Fail(error);
-    if (parameters->uses_context && !context_port_.IsBound()) {
-      return init_ctx.Fail(
-          "prompt_template uses context but context is not connected");
-    }
-    config_ = std::move(*parameters);
-    return true;
-  }
-
-  int ProcessNode(AlgContext& req_ctx) override {
-    const auto* inputs = in_port_.Require(req_ctx, kMissingInput, "input text");
-    if (!inputs) {
-      return kMissingInput;
-    }
-
-    if (inputs->empty()) {
-      out_port_.Set(req_ctx, TextBatch{});
-      return 0;
-    }
-    const auto* contexts =
-        config_.uses_context
-            ? context_port_.Require(req_ctx, kMissingInput, "prompt context")
-            : nullptr;
-    if (config_.uses_context && !contexts) return kMissingInput;
-
-    // 组装模型输入批次，严格保留来源 (req_id, sub_id)
-    TextBatch prompts;
-    prompts.reserve(inputs->size());
-
-    for (size_t i = 0; i < inputs->size(); ++i) {
-      const auto& item = (*inputs)[i];
-      std::string ctx_str;
-      if (contexts) {
-        for (const auto& c : *contexts) {
-          if (c.req_id == item.req_id) {
-            if (!ctx_str.empty()) ctx_str += "\n";
-            ctx_str += c.data;
-          }
-        }
-      }
-
-      std::string rendered = RenderPrompt(item.data, ctx_str);
-      prompts.emplace_back(item.req_id, item.sub_id, std::move(rendered));
-    }
-
-    TextBatch raw_outputs;
-    std::string diagnostic;
-    int infer_ret = model()->Generate(prompts, config_.generation, &raw_outputs,
-                                      &diagnostic);
-    if (infer_ret != 0) {
-      req_ctx.SetError(kModelInferenceFailed,
-                       Name() + ": model inference failed with code " +
-                           std::to_string(infer_ret) +
-                           (diagnostic.empty() ? "" : ": " + diagnostic));
-      return kModelInferenceFailed;
-    }
-
-    if (raw_outputs.size() != prompts.size()) {
-      req_ctx.SetError(kOutputProvenanceMismatch,
-                       Name() + ": model output count mismatch (expected " +
-                           std::to_string(prompts.size()) + ", got " +
-                           std::to_string(raw_outputs.size()) + ")");
-      return kOutputProvenanceMismatch;
-    }
-
-    TextBatch final_outputs;
-    final_outputs.reserve(raw_outputs.size());
-    for (size_t i = 0; i < raw_outputs.size(); ++i) {
-      const auto& p = prompts[i];
-      const auto& r = raw_outputs[i];
-      if (r.req_id != p.req_id || r.sub_id != p.sub_id) {
-        req_ctx.SetError(kOutputProvenanceMismatch,
-                         Name() +
-                             ": model output provenance mismatch for item " +
-                             std::to_string(i));
-        return kOutputProvenanceMismatch;
-      }
-
-      std::string out_str = r.data;
-      if (config_.strip_markdown) {
-        out_str = StripMarkdown(out_str);
-      }
-      final_outputs.emplace_back(r.req_id, r.sub_id, std::move(out_str));
-    }
-
-    out_port_.Set(req_ctx, std::move(final_outputs));
-    return 0;
-  }
-
- private:
-  std::string RenderPrompt(const std::string& input,
-                           const std::string& context) const {
-    return RenderPromptFromParts(config_.prompt_prefix, config_.prompt_parts,
-                                 input, context);
-  }
-
-  static std::string StripMarkdown(std::string_view text) {
-    return StripMarkdownCodeFence(text);
-  }
-
-  BoundInput<TextBatch> in_port_;
-  BoundInput<TextBatch> context_port_;
-  BoundOutput<TextBatch> out_port_;
-
-  PromptConfig config_;
+struct Inputs {
+  const TextBatch* input = nullptr;
+  const TextBatch* context = nullptr;
+};
+struct Models {
+  LlmCall generator;
 };
 
-NodeDefinition MakePromptGuidedLlmNodeDefinition() {
-  NodeDefinition def;
-  def.node_type = PromptGuidedLlmNode::kNodeType;
-  def.category = "custom";
-  def.description =
-      "Custom domain node combining prompt construction, LLM generation, "
-      "and response post-processing using {{input}}/{{context}} templates";
-  def.inputs = {
-      RequiredInputPort("input", BlackboardKey<TextBatch>{"", "TextBatch"},
-                        "1:1", "preserve", "request"),
-      OptionalInputPort("context", BlackboardKey<TextBatch>{"", "TextBatch"},
-                        "N:1", "aggregate", "request"),
-  };
-  def.outputs = {
-      OutputPort("output", BlackboardKey<TextBatch>{"", "TextBatch"}, "1:1",
-                 "preserve", "request"),
-  };
-  def.config_fields = PromptConfiguration().Fields();
-  def.validate_config = [](const nlohmann::json& config,
-                           const std::unordered_set<std::string>& inputs,
-                           std::string* error) {
-    const auto parameters =
-        PromptConfiguration().ParseNormalized(config, error);
-    if (!parameters) return false;
-    if (parameters->uses_context && inputs.count("context") == 0) {
+NodeResult<TextBatch> GeneratePrompt(const Inputs& inputs,
+                                     const PromptConfig& params,
+                                     const Models& models) {
+  if (inputs.input->empty()) return NodeResult<TextBatch>::Success({});
+  if (params.uses_context && !inputs.context) {
+    return NodeResult<TextBatch>::Failure(
+        NodeErrorKind::kInputError, "missing prompt context",
+        node_error::author_node::kMissingInput);
+  }
+  TextBatch prompts;
+  prompts.reserve(inputs.input->size());
+  for (const auto& item : *inputs.input) {
+    std::string context;
+    if (params.uses_context) {
+      for (const auto& entry : *inputs.context) {
+        if (entry.req_id != item.req_id) continue;
+        if (!context.empty()) context += "\n";
+        context += entry.data;
+      }
+    }
+    prompts.emplace_back(
+        item.req_id, item.sub_id,
+        RenderPromptFromParts(params.prompt_prefix, params.prompt_parts,
+                              item.data, context));
+  }
+  auto result = models.generator.Generate(prompts, params.generation);
+  if (result.ok() && params.strip_markdown) {
+    for (auto& item : result.value())
+      item.data = StripMarkdownCodeFence(item.data);
+  }
+  return result;
+}
+
+auto PromptGuidedSpec() {
+  auto params = Parameters<PromptConfig>{}.WithParser(PromptConfiguration());
+  params.ValidateBindings([](const PromptConfig& config,
+                             const std::unordered_set<std::string>& inputs,
+                             std::string* error) {
+    if (config.uses_context && inputs.count("context") == 0) {
       if (error)
         *error = "prompt_template uses context but context is not connected";
       return false;
     }
     return true;
-  };
-  def.model_dependencies = {{"generator", "llm", "bind_model"}};
-  def.parallel_safe = true;
-  return def;
+  });
+  return MakeBatchSpec(
+             InputsOf<Inputs>{Required("input", &Inputs::input),
+                              OptionalValue("context", &Inputs::context,
+                                            InputFlow::AggregateByRequest)},
+             PreservedOutput<TextBatch>("output", "input"), std::move(params),
+             ModelsOf<Models>{Model("generator", "bind_model",
+                                    &Models::generator, "llm_model_v1",
+                                    "引用 models[].model_id；所选模型必须提供 "
+                                    "llm 文本生成能力。")},
+             &GeneratePrompt)
+      .Category("custom")
+      .ParallelSafe(true)
+      .Description(
+          "Custom domain node combining prompt construction, LLM generation, "
+          "and response post-processing using {{input}}/{{context}} templates");
 }
 
-REGISTER_NODE_WITH_DEFINITION(PromptGuidedLlmNode,
-                              MakePromptGuidedLlmNodeDefinition());
+REGISTER_FUNCTION_NODE(PromptGuidedLlmNode, PromptGuidedSpec());
 
+}  // namespace
 }  // namespace custom_nodes
 }  // namespace llm_edgeflow

@@ -249,12 +249,13 @@ TEST_F(TextRerankNodeTest, FailuresAndProvenanceMismatch) {
   // Score count mismatch
   fake_model_->fail_score_ = false;
   fake_model_->return_wrong_count_ = true;
-  EXPECT_EQ(node->Process(&ctx), node_error::text_rerank::kModelOutputMismatch);
+  EXPECT_EQ(node->Process(&ctx), node_error::author_node::kOutputCountMismatch);
 
   // Score provenance mismatch
   fake_model_->return_wrong_count_ = false;
   fake_model_->corrupt_provenance_ = true;
-  EXPECT_EQ(node->Process(&ctx), node_error::text_rerank::kModelOutputMismatch);
+  EXPECT_EQ(node->Process(&ctx),
+            node_error::author_node::kOutputProvenanceMismatch);
 }
 
 // 7. Port Constraints Validation Check

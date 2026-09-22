@@ -21,7 +21,6 @@ add_custom_command(
   DEPENDS
     "${PROJECT_SOURCE_DIR}/scripts/scaffold_custom_node.py"
     "${PROJECT_SOURCE_DIR}/dev_support/node_authoring/starter_llm_node.cpp"
-    "${PROJECT_SOURCE_DIR}/dev_support/node_authoring/starter_llm_node_advanced.cpp"
     "${PROJECT_SOURCE_DIR}/dev_support/node_authoring/starter_control_node.cpp"
     "${PROJECT_SOURCE_DIR}/doc/dev_guide/first_custom_node.md"
     "${PROJECT_SOURCE_DIR}/tests/tooling/generate_scaffold_fixtures.py"
@@ -30,9 +29,8 @@ add_custom_command(
   COMMENT "Generating custom Node snippets and standalone behavioral test fixtures"
   VERBATIM)
 
-# Compile the exact advanced examples in test runners, never the SDK Catalog.
+# Compile the exact function examples in test runners, never the SDK Catalog.
 list(APPEND EDGEFLOW_SCAFFOLD_FIXTURE_SOURCE
-  "${PROJECT_SOURCE_DIR}/dev_support/node_authoring/starter_llm_node_advanced.cpp"
   "${PROJECT_SOURCE_DIR}/dev_support/node_authoring/starter_batch_node.cpp"
   "${PROJECT_SOURCE_DIR}/dev_support/node_authoring/starter_multi_model_node.cpp"
   "${PROJECT_SOURCE_DIR}/dev_support/node_authoring/starter_batch_join_node.cpp"

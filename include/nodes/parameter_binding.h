@@ -120,6 +120,23 @@ struct FieldTypeTraits<double> {
 };
 
 template <>
+struct FieldTypeTraits<float> {
+  static constexpr ConfigValueKind kKind = ConfigValueKind::kNumber;
+  static bool Extract(const nlohmann::json& j, float* out, std::string* err) {
+    double value;
+    if (!FieldTypeTraits<double>::Extract(j, &value, err)) return false;
+    if (!(value >= -std::numeric_limits<float>::max() &&
+          value <= std::numeric_limits<float>::max())) {
+      if (err) *err = "number outside finite float range";
+      return false;
+    }
+    *out = static_cast<float>(value);
+    return true;
+  }
+  static nlohmann::json ToJson(float val) { return val; }
+};
+
+template <>
 struct FieldTypeTraits<std::vector<std::string>> {
   static constexpr ConfigValueKind kKind = ConfigValueKind::kArray;
   static bool Extract(const nlohmann::json& j, std::vector<std::string>* out,

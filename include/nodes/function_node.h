@@ -17,6 +17,7 @@
 #include "core/port_definition.h"
 #include "core/session_context.h"
 #include "core/validated_node_plan.h"
+#include "engine/model_capability_traits.h"
 #include "nodes/configuration_snapshot.h"
 #include "nodes/control_authoring.h"
 #include "nodes/model_binding.h"
@@ -25,6 +26,7 @@
 #include "nodes/node_error_codes.h"
 #include "nodes/node_result.h"
 #include "nodes/parameter_binding.h"
+#include "nodes/session_resources.h"
 #include "nodes/traceable_algorithms.h"
 #include "nodes/traceable_batch_validation.h"
 
@@ -45,6 +47,10 @@ struct BatchItemTraits<std::vector<TraceableItem<PayloadT>>> {
   using ItemType = TraceableItem<PayloadT>;
   using BatchType = std::vector<TraceableItem<PayloadT>>;
 };
+
+template <>
+struct BatchItemTraits<ImageRefBatch>
+    : BatchItemTraits<std::vector<TraceableItem<std::string>>> {};
 
 template <typename BatchT>
 struct Input {
@@ -112,19 +118,27 @@ struct MemberFunctionTraits<Ret (Class::*)(Args...)> {
 
 template <typename Fn, typename InputsT, typename ParamsT, typename ModelsT>
 auto InvokeBatch(const Fn& fn, const InputsT& inputs, const ParamsT& params,
-                 const ModelsT& models) {
+                 const ModelsT& models, const SessionResources& resources) {
   if constexpr (std::is_member_function_pointer_v<Fn>) {
     using ClassT = typename MemberFunctionTraits<Fn>::ClassType;
     ClassT logic{};
     if constexpr (std::is_invocable_v<Fn, ClassT, const InputsT&,
-                                      const ParamsT&, const ModelsT&>) {
+                                      const ParamsT&, const ModelsT&,
+                                      const SessionResources&>) {
+      return (logic.*fn)(inputs, params, models, resources);
+    } else if constexpr (std::is_invocable_v<Fn, ClassT, const InputsT&,
+                                             const ParamsT&, const ModelsT&>) {
       return (logic.*fn)(inputs, params, models);
     } else {
       return (logic.*fn)(inputs, params);
     }
   } else {
     if constexpr (std::is_invocable_v<Fn, const InputsT&, const ParamsT&,
-                                      const ModelsT&>) {
+                                      const ModelsT&,
+                                      const SessionResources&>) {
+      return fn(inputs, params, models, resources);
+    } else if constexpr (std::is_invocable_v<Fn, const InputsT&, const ParamsT&,
+                                             const ModelsT&>) {
       return fn(inputs, params, models);
     } else {
       return fn(inputs, params);
@@ -289,6 +303,27 @@ enum class InputFlow {
   AggregateByRequest,
 };
 
+// Flow metadata describes the existing port contract; it does not transform
+// data.
+struct PortFlow {
+  std::string cardinality = "1:1";
+  std::string provenance = "preserve";
+  std::string lifetime = "request";
+  std::string lifetime_config_field;
+
+  PortFlow() = default;
+  PortFlow(std::string card, std::string prov, std::string life = "request",
+           std::string lifetime_field = {})
+      : cardinality(std::move(card)),
+        provenance(std::move(prov)),
+        lifetime(std::move(life)),
+        lifetime_config_field(std::move(lifetime_field)) {}
+  PortFlow(InputFlow flow)  // NOLINT
+      : cardinality(flow == InputFlow::AggregateByRequest ? "N:1" : "1:1"),
+        provenance(flow == InputFlow::AggregateByRequest ? "aggregate"
+                                                         : "preserve") {}
+};
+
 class IProvenanceReader {
  public:
   virtual ~IProvenanceReader() = default;
@@ -336,33 +371,35 @@ class ConcreteInputPortBinding final : public InputPortBinding<InputsT> {
   using MemberPtr = const BatchT* InputsT::*;
 
   ConcreteInputPortBinding(std::string name, MemberPtr member_ptr,
-                           bool required, InputFlow flow)
+                           bool required, PortFlow flow,
+                           bool allow_missing_value = false)
       : name_(std::move(name)),
         member_ptr_(member_ptr),
         required_(required),
-        flow_(flow),
+        flow_(std::move(flow)),
+        allow_missing_value_(allow_missing_value),
         in_port_(name_) {}
 
   const std::string& LogicalName() const override { return name_; }
   bool IsRequired() const override { return required_; }
 
   NodePortDefinition ToPortDefinition() const override {
-    std::string card = (flow_ == InputFlow::AggregateByRequest ? "N:1" : "1:1");
-    std::string prov =
-        (flow_ == InputFlow::AggregateByRequest ? "aggregate" : "preserve");
-    return NodePortDefinition{
-        name_,           BlackboardTypeTraits<BatchT>::TypeName(),
-        required_,       std::move(card),
-        std::move(prov), "request"};
+    return NodePortDefinition{name_,
+                              BlackboardTypeTraits<BatchT>::TypeName(),
+                              required_,
+                              flow_.cardinality,
+                              flow_.provenance,
+                              flow_.lifetime,
+                              flow_.lifetime_config_field};
   }
 
   bool BindPort(const NodeInitContext& init_ctx) override {
-    const auto* binding = init_ctx.plan->FindPort(name_, PortDirection::kInput);
-    if (binding && !binding->blackboard_key.empty()) {
-      if (binding->type_id != in_port_.TypeId()) {
+    const auto result = detail::ResolvePortBinding(
+        *init_ctx.plan, PortDirection::kInput, in_port_);
+    if (result.status != detail::PortBindingStatus::kUnbound) {
+      if (result.status == detail::PortBindingStatus::kTypeMismatch) {
         return init_ctx.Fail("Input port type mismatch for '" + name_ + "'");
       }
-      in_port_.Resolve(binding->blackboard_key);
     } else {
       if (required_) {
         return init_ctx.Fail("Required input port '" + name_ +
@@ -385,8 +422,11 @@ class ConcreteInputPortBinding final : public InputPortBinding<InputsT> {
       inputs->*member_ptr_ = nullptr;
       return true;
     }
-    const auto* val = in_port_.Require(const_cast<AlgContext&>(ctx),
-                                       node_error::author_node::kMissingInput);
+    const auto* val = in_port_.Get(ctx);
+    if (allow_missing_value_) {
+      inputs->*member_ptr_ = val;
+      return true;
+    }
     if (!val) {
       if (err) *err = "Missing required input for port '" + name_ + "'";
       return false;
@@ -427,7 +467,8 @@ class ConcreteInputPortBinding final : public InputPortBinding<InputsT> {
   std::string name_;
   MemberPtr member_ptr_;
   bool required_;
-  InputFlow flow_;
+  PortFlow flow_;
+  bool allow_missing_value_;
   BoundInput<BatchT> in_port_;
 };
 
@@ -471,21 +512,31 @@ class InputBindingHolder {
 };
 
 template <typename InputsT, typename BatchT>
-inline InputBindingHolder<InputsT> Required(
-    std::string name, const BatchT* InputsT::*member_ptr,
-    InputFlow flow = InputFlow::PreserveByRequest) {
+inline InputBindingHolder<InputsT> Required(std::string name,
+                                            const BatchT* InputsT::*member_ptr,
+                                            PortFlow flow = {}) {
   return InputBindingHolder<InputsT>(
       std::make_unique<ConcreteInputPortBinding<InputsT, BatchT>>(
           std::move(name), member_ptr, true, flow));
 }
 
 template <typename InputsT, typename BatchT>
-inline InputBindingHolder<InputsT> Optional(
-    std::string name, const BatchT* InputsT::*member_ptr,
-    InputFlow flow = InputFlow::PreserveByRequest) {
+inline InputBindingHolder<InputsT> Optional(std::string name,
+                                            const BatchT* InputsT::*member_ptr,
+                                            PortFlow flow = {}) {
   return InputBindingHolder<InputsT>(
       std::make_unique<ConcreteInputPortBinding<InputsT, BatchT>>(
           std::move(name), member_ptr, false, flow));
+}
+
+// Optional connection whose absent request value is handled by the algorithm
+// (e.g. template missing-variable policy or conditionally used context).
+template <typename InputsT, typename BatchT>
+inline InputBindingHolder<InputsT> OptionalValue(
+    std::string name, const BatchT* InputsT::*member_ptr, PortFlow flow = {}) {
+  return InputBindingHolder<InputsT>(
+      std::make_unique<ConcreteInputPortBinding<InputsT, BatchT>>(
+          std::move(name), member_ptr, false, std::move(flow), true));
 }
 
 template <typename InputsT>
@@ -557,20 +608,228 @@ class InputsOf {
   std::vector<std::unique_ptr<InputPortBinding<InputsT>>> bindings_;
 };
 
-template <typename OutputBatchT>
-struct PreservedOutput {
-  static_assert(BatchItemTraits<OutputBatchT>::kIsTraceableBatch,
-                "Output batch type must be a vector of TraceableItem<T>");
-  using BatchType = OutputBatchT;
-  using PayloadType = typename BatchItemTraits<OutputBatchT>::PayloadType;
+using OutputAlignmentCheck = std::function<TraceableAlignmentResult(
+    const std::string&, const IProvenanceReader&)>;
 
-  std::string output_name;
-  std::string anchor_input_name;
-
-  PreservedOutput(std::string out_name, std::string anchor_in_name)
-      : output_name(std::move(out_name)),
-        anchor_input_name(std::move(anchor_in_name)) {}
+template <typename ValueT>
+class OutputBinding {
+ public:
+  virtual ~OutputBinding() = default;
+  virtual NodePortDefinition Definition() const = 0;
+  virtual const std::string& Anchor() const = 0;
+  virtual bool Bind(const NodeInitContext&) = 0;
+  virtual std::optional<NodeFailure> Validate(
+      const ValueT&, const OutputAlignmentCheck&) const = 0;
+  virtual bool ConflictsWithMember(const OutputBinding& other) const = 0;
+  virtual void Publish(AlgContext&, ValueT&) const = 0;
+  virtual std::unique_ptr<OutputBinding> Clone() const = 0;
 };
+
+template <typename ValueT, typename BatchT>
+class TypedOutputBinding final : public OutputBinding<ValueT> {
+ public:
+  using Accessor = std::function<BatchT&(ValueT&)>;
+  using ConstAccessor = std::function<const BatchT&(const ValueT&)>;
+  TypedOutputBinding(std::string name, Accessor access, ConstAccessor read,
+                     PortFlow flow, std::string anchor,
+                     BatchT ValueT::*member = nullptr)
+      : port_(std::move(name)),
+        access_(std::move(access)),
+        read_(std::move(read)),
+        flow_(std::move(flow)),
+        anchor_(std::move(anchor)),
+        member_(member) {}
+  NodePortDefinition Definition() const override {
+    return {port_.LogicalName(),
+            BlackboardTypeTraits<BatchT>::TypeName(),
+            true,
+            flow_.cardinality,
+            flow_.provenance,
+            flow_.lifetime,
+            flow_.lifetime_config_field};
+  }
+  const std::string& Anchor() const override { return anchor_; }
+  bool Bind(const NodeInitContext& init) override {
+    auto result =
+        detail::ResolvePortBinding(*init.plan, PortDirection::kOutput, port_);
+    if (result.status == detail::PortBindingStatus::kUnbound)
+      return init.Fail("Output port '" + port_.LogicalName() +
+                       "' has no binding in plan");
+    if (result.status == detail::PortBindingStatus::kTypeMismatch)
+      return init.Fail("Output port type mismatch for '" + port_.LogicalName() +
+                       "'");
+    return true;
+  }
+  std::optional<NodeFailure> Validate(
+      const ValueT& value, const OutputAlignmentCheck& check) const override {
+    if (anchor_.empty()) return std::nullopt;
+    TraceableBatchProvenanceReader<BatchT> reader(read_(value));
+    auto result = check(anchor_, reader);
+    if (result.error == TraceableAlignmentError::kCountMismatch)
+      return NodeFailure{
+          NodeErrorKind::kOutputCountMismatch,
+          "Output port '" + port_.LogicalName() + "' count mismatch",
+          node_error::author_node::kOutputCountMismatch};
+    if (result.error == TraceableAlignmentError::kProvenanceMismatch)
+      return NodeFailure{
+          NodeErrorKind::kOutputProvenanceMismatch,
+          "Output port '" + port_.LogicalName() + "' provenance mismatch",
+          node_error::author_node::kOutputProvenanceMismatch};
+    return std::nullopt;
+  }
+  bool ConflictsWithMember(const OutputBinding<ValueT>& other) const override {
+    const auto* typed = dynamic_cast<const TypedOutputBinding*>(&other);
+    return member_ && typed && member_ == typed->member_;
+  }
+  void Publish(AlgContext& context, ValueT& value) const override {
+    port_.Set(context, std::move(access_(value)));
+  }
+  std::unique_ptr<OutputBinding<ValueT>> Clone() const override {
+    return std::make_unique<TypedOutputBinding>(*this);
+  }
+
+ private:
+  BoundOutput<BatchT> port_;
+  Accessor access_;
+  ConstAccessor read_;
+  PortFlow flow_;
+  std::string anchor_;
+  BatchT ValueT::*member_;
+};
+
+template <typename ValueT>
+class OutputBindingHolder {
+ public:
+  OutputBindingHolder(std::unique_ptr<OutputBinding<ValueT>> binding)  // NOLINT
+      : binding_(std::move(binding)) {}
+  OutputBindingHolder(const OutputBindingHolder& other)
+      : binding_(other.binding_->Clone()) {}
+  OutputBindingHolder(OutputBindingHolder&&) noexcept = default;
+  std::unique_ptr<OutputBinding<ValueT>> Clone() const {
+    return binding_->Clone();
+  }
+
+ private:
+  std::unique_ptr<OutputBinding<ValueT>> binding_;
+};
+
+template <typename ValueT, typename BatchT>
+OutputBindingHolder<ValueT> Produced(std::string name, BatchT ValueT::*member,
+                                     PortFlow flow = {},
+                                     std::string anchor = {}) {
+  return OutputBindingHolder<ValueT>(
+      std::make_unique<TypedOutputBinding<ValueT, BatchT>>(
+          std::move(name), [member](ValueT& v) -> BatchT& { return v.*member; },
+          [member](const ValueT& v) -> const BatchT& { return v.*member; },
+          std::move(flow), std::move(anchor), member));
+}
+
+template <typename ValueT, typename BatchT>
+OutputBindingHolder<ValueT> Produced(std::string name, BatchT ValueT::*member,
+                                     std::string anchor) {
+  if (anchor.empty())
+    throw std::invalid_argument("Preserved output requires an anchor input");
+  return Produced(std::move(name), member, PortFlow{}, std::move(anchor));
+}
+
+template <typename ValueT>
+class OutputsOf {
+ public:
+  OutputsOf(std::initializer_list<OutputBindingHolder<ValueT>> bindings) {
+    std::unordered_set<std::string> names;
+    for (const auto& binding : bindings) {
+      auto output = binding.Clone();
+      const auto name = output->Definition().logical_name;
+      if (!names.insert(name).second)
+        throw std::invalid_argument("Duplicate output port");
+      for (const auto& previous : bindings_)
+        if (output->ConflictsWithMember(*previous))
+          throw std::invalid_argument(
+              "Output ports '" + previous->Definition().logical_name +
+              "' and '" + name + "' bind the same result member");
+      bindings_.push_back(std::move(output));
+    }
+  }
+  OutputsOf(const OutputsOf& other) {
+    for (const auto& binding : other.bindings_)
+      bindings_.push_back(binding->Clone());
+  }
+  OutputsOf(OutputsOf&&) noexcept = default;
+  OutputsOf& operator=(OutputsOf&&) noexcept = default;
+  OutputsOf& operator=(const OutputsOf& other) {
+    if (this != &other) {
+      OutputsOf copy(other);
+      *this = std::move(copy);
+    }
+    return *this;
+  }
+  std::vector<NodePortDefinition> ToPortDefinitions() const {
+    std::vector<NodePortDefinition> definitions;
+    for (const auto& binding : bindings_)
+      definitions.push_back(binding->Definition());
+    return definitions;
+  }
+  template <typename InputsT>
+  void CheckAnchors(const InputsOf<InputsT>& inputs) const {
+    for (const auto& binding : bindings_) {
+      if (!binding->Anchor().empty() && !inputs.HasPort(binding->Anchor()))
+        throw std::invalid_argument("PreservedOutput anchor port '" +
+                                    binding->Anchor() +
+                                    "' not found in declared inputs");
+    }
+  }
+  bool BindPorts(const NodeInitContext& init) {
+    for (auto& binding : bindings_)
+      if (!binding->Bind(init)) return false;
+    return true;
+  }
+  template <typename InputsT>
+  std::optional<NodeFailure> Validate(const InputsT& inputs,
+                                      const InputsOf<InputsT>& ports,
+                                      const ValueT& value) const {
+    OutputAlignmentCheck check = [&](const std::string& name,
+                                     const IProvenanceReader& output) {
+      const auto* port = ports.FindPort(name);
+      if (!port)
+        throw std::logic_error("Output anchor input is not declared: " + name);
+      if (!port->HasBatch(inputs))
+        return TraceableAlignmentResult{
+            output.Size() == 0 ? TraceableAlignmentError::kNone
+                               : TraceableAlignmentError::kCountMismatch,
+            0};
+      return port->ValidateAlignment(inputs, output);
+    };
+    for (const auto& binding : bindings_) {
+      if (auto failure = binding->Validate(value, check)) return failure;
+    }
+    return std::nullopt;
+  }
+  void Publish(AlgContext& context, ValueT&& value) const {
+    for (const auto& binding : bindings_) binding->Publish(context, value);
+  }
+
+ private:
+  std::vector<std::unique_ptr<OutputBinding<ValueT>>> bindings_;
+};
+
+template <typename BatchT>
+OutputsOf<BatchT> ProducedBatch(std::string name, PortFlow flow = {},
+                                std::string anchor = {}) {
+  return OutputsOf<BatchT>({OutputBindingHolder<BatchT>(
+      std::make_unique<TypedOutputBinding<BatchT, BatchT>>(
+          std::move(name), [](BatchT& v) -> BatchT& { return v; },
+          [](const BatchT& v) -> const BatchT& { return v; }, std::move(flow),
+          std::move(anchor)))});
+}
+
+template <typename BatchT>
+OutputsOf<BatchT> PreservedOutput(std::string name, std::string anchor,
+                                  PortFlow flow = {}) {
+  if (anchor.empty())
+    throw std::invalid_argument("Preserved output requires an anchor input");
+  return ProducedBatch<BatchT>(std::move(name), std::move(flow),
+                               std::move(anchor));
+}
 
 template <typename ModelsT>
 class ModelSlotBinding {
@@ -579,6 +838,7 @@ class ModelSlotBinding {
   virtual const std::string& SlotName() const = 0;
   virtual const std::string& ConfigField() const = 0;
   virtual const std::string& Capability() const = 0;
+  virtual ConfigFieldDefinition ToConfigField() const = 0;
   virtual bool Bind(const NodeInitContext& init_ctx,
                     SessionContext& session_ctx,
                     const nlohmann::json& normalized_config, ModelsT* models,
@@ -586,100 +846,63 @@ class ModelSlotBinding {
   virtual std::unique_ptr<ModelSlotBinding<ModelsT>> Clone() const = 0;
 };
 
-template <typename ModelsT>
-class LlmModelSlotBinding final : public ModelSlotBinding<ModelsT> {
+template <typename ModelsT, typename CallT>
+class TypedModelSlotBinding final : public ModelSlotBinding<ModelsT> {
  public:
-  using MemberPtr = LlmCall ModelsT::*;
-
-  LlmModelSlotBinding(std::string slot_name, std::string config_field,
-                      MemberPtr member_ptr)
-      : slot_name_(std::move(slot_name)),
-        config_field_(std::move(config_field)),
-        member_ptr_(member_ptr) {}
-
-  const std::string& SlotName() const override { return slot_name_; }
-  const std::string& ConfigField() const override { return config_field_; }
+  TypedModelSlotBinding(std::string slot, std::string field,
+                        CallT ModelsT::*member, std::string default_id,
+                        std::string description)
+      : slot_(std::move(slot)),
+        field_(std::move(field)),
+        member_(member),
+        default_id_(std::move(default_id)),
+        description_(std::move(description)) {}
+  const std::string& SlotName() const override { return slot_; }
+  const std::string& ConfigField() const override { return field_; }
   const std::string& Capability() const override {
-    static const std::string cap = "llm";
-    return cap;
+    static const std::string capability =
+        ModelCapabilityTraits<typename CallT::ModelType>::Capability();
+    return capability;
   }
-
-  bool Bind(const NodeInitContext& init_ctx, SessionContext& session_ctx,
-            const nlohmann::json& /*config*/, ModelsT* models,
-            std::string* err) override {
+  ConfigFieldDefinition ToConfigField() const override {
+    return {
+        field_,
+        ConfigValueKind::kString,
+        default_id_.empty(),
+        default_id_.empty() ? nlohmann::json() : nlohmann::json(default_id_),
+        std::nullopt,
+        std::nullopt,
+        {},
+        description_.empty() ? "Bound model ID for slot '" + slot_ + "'"
+                             : description_};
+  }
+  bool Bind(const NodeInitContext& init, SessionContext& session,
+            const nlohmann::json&, ModelsT* models,
+            std::string* error) override {
     std::string model_id;
-    if (!ResolveBoundModelId(*init_ctx.plan, slot_name_, Capability(),
-                             &model_id, err)) {
+    if (!ResolveBoundModelId(*init.plan, slot_, Capability(), &model_id, error))
       return false;
-    }
-    auto model = session_ctx.GetModelManager().GetModel<ILlmModel>(model_id);
-    if (!model) {
-      if (err) {
-        *err = "LLM model '" + model_id + "' is unavailable or incompatible";
-      }
-      return false;
-    }
-    models->*member_ptr_ = LlmCall(std::move(model), slot_name_);
-    return true;
-  }
-
-  std::unique_ptr<ModelSlotBinding<ModelsT>> Clone() const override {
-    return std::make_unique<LlmModelSlotBinding>(*this);
-  }
-
- private:
-  std::string slot_name_;
-  std::string config_field_;
-  MemberPtr member_ptr_;
-};
-
-template <typename ModelsT>
-class EmbeddingModelSlotBinding final : public ModelSlotBinding<ModelsT> {
- public:
-  using MemberPtr = EmbeddingCall ModelsT::*;
-
-  EmbeddingModelSlotBinding(std::string slot_name, std::string config_field,
-                            MemberPtr member_ptr)
-      : slot_name_(std::move(slot_name)),
-        config_field_(std::move(config_field)),
-        member_ptr_(member_ptr) {}
-
-  const std::string& SlotName() const override { return slot_name_; }
-  const std::string& ConfigField() const override { return config_field_; }
-  const std::string& Capability() const override {
-    static const std::string cap = "embedding";
-    return cap;
-  }
-
-  bool Bind(const NodeInitContext& init_ctx, SessionContext& session_ctx,
-            const nlohmann::json& /*config*/, ModelsT* models,
-            std::string* err) override {
-    std::string model_id;
-    if (!ResolveBoundModelId(*init_ctx.plan, slot_name_, Capability(),
-                             &model_id, err)) {
-      return false;
-    }
     auto model =
-        session_ctx.GetModelManager().GetModel<IEmbeddingModel>(model_id);
+        session.GetModelManager().GetModel<typename CallT::ModelType>(model_id);
     if (!model) {
-      if (err) {
-        *err =
-            "Embedding model '" + model_id + "' is unavailable or incompatible";
-      }
+      if (error)
+        *error = Capability() + " model '" + model_id +
+                 "' is unavailable or incompatible";
       return false;
     }
-    models->*member_ptr_ = EmbeddingCall(std::move(model), slot_name_);
+    models->*member_ = CallT(std::move(model), slot_, model_id);
     return true;
   }
-
   std::unique_ptr<ModelSlotBinding<ModelsT>> Clone() const override {
-    return std::make_unique<EmbeddingModelSlotBinding>(*this);
+    return std::make_unique<TypedModelSlotBinding>(*this);
   }
 
  private:
-  std::string slot_name_;
-  std::string config_field_;
-  MemberPtr member_ptr_;
+  std::string slot_;
+  std::string field_;
+  CallT ModelsT::*member_;
+  std::string default_id_;
+  std::string description_;
 };
 
 template <typename ModelsT>
@@ -723,22 +946,27 @@ class ModelSlotBindingHolder {
   std::unique_ptr<ModelSlotBinding<ModelsT>> binding_;
 };
 
-template <typename ModelsT>
-inline ModelSlotBindingHolder<ModelsT> Llm(std::string slot_name,
-                                           std::string config_field,
-                                           LlmCall ModelsT::*member_ptr) {
+template <typename ModelsT, typename CallT>
+inline ModelSlotBindingHolder<ModelsT> Model(std::string slot,
+                                             std::string field,
+                                             CallT ModelsT::*member,
+                                             std::string default_id = {},
+                                             std::string description = {}) {
   return ModelSlotBindingHolder<ModelsT>(
-      std::make_unique<LlmModelSlotBinding<ModelsT>>(
-          std::move(slot_name), std::move(config_field), member_ptr));
+      std::make_unique<TypedModelSlotBinding<ModelsT, CallT>>(
+          std::move(slot), std::move(field), member, std::move(default_id),
+          std::move(description)));
 }
 
 template <typename ModelsT>
+inline ModelSlotBindingHolder<ModelsT> Llm(std::string slot, std::string field,
+                                           LlmCall ModelsT::*member) {
+  return Model(std::move(slot), std::move(field), member);
+}
+template <typename ModelsT>
 inline ModelSlotBindingHolder<ModelsT> Embedding(
-    std::string slot_name, std::string config_field,
-    EmbeddingCall ModelsT::*member_ptr) {
-  return ModelSlotBindingHolder<ModelsT>(
-      std::make_unique<EmbeddingModelSlotBinding<ModelsT>>(
-          std::move(slot_name), std::move(config_field), member_ptr));
+    std::string slot, std::string field, EmbeddingCall ModelsT::*member) {
+  return Model(std::move(slot), std::move(field), member);
 }
 
 template <typename ModelsT>
@@ -790,15 +1018,7 @@ class ModelsOf {
     std::vector<ConfigFieldDefinition> fields;
     fields.reserve(bindings_.size());
     for (const auto& b : bindings_) {
-      fields.push_back(ConfigFieldDefinition{
-          b->ConfigField(),
-          ConfigValueKind::kString,
-          true,
-          nlohmann::json(),
-          std::nullopt,
-          std::nullopt,
-          {},
-          "Bound model ID for slot '" + b->SlotName() + "'"});
+      fields.push_back(b->ToConfigField());
     }
     return fields;
   }
@@ -846,18 +1066,14 @@ class BatchSpec {
   using ModelsType = ModelsT;
   using RunFunctionType = RunFnT;
 
-  BatchSpec(InputsOf<InputsT> inputs, PreservedOutput<OutputBatchT> output,
+  BatchSpec(InputsOf<InputsT> inputs, OutputsOf<OutputBatchT> output,
             Parameters<ParamsT> params, ModelsOf<ModelsT> models, RunFnT fn)
       : inputs_(std::move(inputs)),
         output_(std::move(output)),
         params_(std::move(params)),
         models_(std::move(models)),
         fn_(std::move(fn)) {
-    if (!inputs_.HasPort(output_.anchor_input_name)) {
-      throw std::invalid_argument("PreservedOutput anchor port '" +
-                                  output_.anchor_input_name +
-                                  "' not found in declared inputs");
-    }
+    output_.CheckAnchors(inputs_);
   }
 
   BatchSpec& Description(std::string desc) & {
@@ -900,6 +1116,12 @@ class BatchSpec {
     static_assert(std::is_copy_constructible_v<ParamsT>,
                   "WithControls requires copy-constructible ParametersType");
     ValidateControlCommands(commands, params_, &models_);
+    for (const auto& command : commands) {
+      for (const auto& custom : custom_controls_) {
+        if (command.Id() == custom.definition.cmd_id)
+          throw std::invalid_argument("Duplicate Control command");
+      }
+    }
     control_commands_ = std::move(commands);
     return std::move(*this);
   }
@@ -910,7 +1132,40 @@ class BatchSpec {
         std::vector<FieldControlCommand>(commands));
   }
 
-  bool HasControls() const noexcept { return !control_commands_.empty(); }
+  BatchSpec& PortConstraints(std::vector<PortGroupConstraint> constraints) & {
+    port_constraints_ = std::move(constraints);
+    return *this;
+  }
+  BatchSpec PortConstraints(std::vector<PortGroupConstraint> constraints) && {
+    port_constraints_ = std::move(constraints);
+    return std::move(*this);
+  }
+  using ControlUpdater = std::function<NodeResult<ParamsT>(
+      const ParamsT&, const nlohmann::json&, const BindingFacts&)>;
+  BatchSpec WithControl(ControlCommandDefinition definition,
+                        ControlUpdater update) && {
+    for (const auto& cmd : control_commands_) {
+      if (cmd.Id() == definition.cmd_id)
+        throw std::invalid_argument("Duplicate Control command");
+    }
+    for (const auto& cmd : custom_controls_) {
+      if (cmd.definition.cmd_id == definition.cmd_id)
+        throw std::invalid_argument("Duplicate Control command");
+    }
+    custom_controls_.push_back({std::move(definition), std::move(update)});
+    return std::move(*this);
+  }
+  struct CustomControl {
+    ControlCommandDefinition definition;
+    ControlUpdater update;
+  };
+  const std::vector<CustomControl>& CustomControls() const {
+    return custom_controls_;
+  }
+
+  bool HasControls() const noexcept {
+    return !control_commands_.empty() || !custom_controls_.empty();
+  }
 
   const std::vector<FieldControlCommand>& ControlCommands() const noexcept {
     return control_commands_;
@@ -918,9 +1173,8 @@ class BatchSpec {
 
   InputsOf<InputsT>& Inputs() noexcept { return inputs_; }
   const InputsOf<InputsT>& Inputs() const noexcept { return inputs_; }
-  const PreservedOutput<OutputBatchT>& Output() const noexcept {
-    return output_;
-  }
+  OutputsOf<OutputBatchT>& Output() noexcept { return output_; }
+  const OutputsOf<OutputBatchT>& Output() const noexcept { return output_; }
   const Parameters<ParamsT>& ParametersSpec() const noexcept { return params_; }
   ModelsOf<ModelsT>& Models() noexcept { return models_; }
   const ModelsOf<ModelsT>& Models() const noexcept { return models_; }
@@ -941,9 +1195,8 @@ class BatchSpec {
     def.parallel_safe = parallel_safe_;
     def.biz_names = biz_names_;
     def.inputs = inputs_.ToPortDefinitions();
-    def.outputs = {NodePortDefinition{
-        output_.output_name, BlackboardTypeTraits<OutputBatchT>::TypeName(),
-        true, "1:1", "preserve", "request"}};
+    def.outputs = output_.ToPortDefinitions();
+    def.port_constraints = port_constraints_;
 
     def.config_fields = MergedFields();
 
@@ -966,16 +1219,20 @@ class BatchSpec {
     for (const auto& cmd : control_commands_) {
       def.control_commands.push_back(cmd.ToCommandDefinition(params_));
     }
+    for (const auto& cmd : custom_controls_)
+      def.control_commands.push_back(cmd.definition);
     return def;
   }
 
  private:
   InputsOf<InputsT> inputs_;
-  PreservedOutput<OutputBatchT> output_;
+  OutputsOf<OutputBatchT> output_;
   Parameters<ParamsT> params_;
   ModelsOf<ModelsT> models_;
   RunFnT fn_;
   std::vector<FieldControlCommand> control_commands_;
+  std::vector<PortGroupConstraint> port_constraints_;
+  std::vector<CustomControl> custom_controls_;
   std::string category_ = "custom";
   std::string description_;
   bool parallel_safe_ = false;
@@ -986,7 +1243,7 @@ class BatchSpec {
 template <typename InputsT, typename OutputBatchT, typename ParamsT,
           typename ModelsT, typename RunFnT>
 inline auto MakeBatchSpec(InputsOf<InputsT> inputs,
-                          PreservedOutput<OutputBatchT> output,
+                          OutputsOf<OutputBatchT> output,
                           Parameters<ParamsT> params, ModelsOf<ModelsT> models,
                           RunFnT fn) {
   return BatchSpec<InputsT, OutputBatchT, ParamsT, ModelsT, RunFnT>(
@@ -997,7 +1254,7 @@ inline auto MakeBatchSpec(InputsOf<InputsT> inputs,
 template <typename InputsT, typename OutputBatchT, typename ModelsT,
           typename RunFnT>
 inline auto MakeBatchSpec(InputsOf<InputsT> inputs,
-                          PreservedOutput<OutputBatchT> output,
+                          OutputsOf<OutputBatchT> output,
                           ModelsOf<ModelsT> models, RunFnT fn) {
   return BatchSpec<InputsT, OutputBatchT, NoParameters, ModelsT, RunFnT>(
       std::move(inputs), std::move(output), Parameters<NoParameters>{},
@@ -1007,7 +1264,7 @@ inline auto MakeBatchSpec(InputsOf<InputsT> inputs,
 template <typename InputsT, typename OutputBatchT, typename ParamsT,
           typename RunFnT>
 inline auto MakeBatchSpec(InputsOf<InputsT> inputs,
-                          PreservedOutput<OutputBatchT> output,
+                          OutputsOf<OutputBatchT> output,
                           Parameters<ParamsT> params, RunFnT fn) {
   return BatchSpec<InputsT, OutputBatchT, ParamsT, NoModels, RunFnT>(
       std::move(inputs), std::move(output), std::move(params),
@@ -1016,7 +1273,7 @@ inline auto MakeBatchSpec(InputsOf<InputsT> inputs,
 
 template <typename InputsT, typename OutputBatchT, typename RunFnT>
 inline auto MakeBatchSpec(InputsOf<InputsT> inputs,
-                          PreservedOutput<OutputBatchT> output, RunFnT fn) {
+                          OutputsOf<OutputBatchT> output, RunFnT fn) {
   return BatchSpec<InputsT, OutputBatchT, NoParameters, NoModels, RunFnT>(
       std::move(inputs), std::move(output), Parameters<NoParameters>{},
       ModelsOf<NoModels>{}, std::move(fn));
@@ -1047,33 +1304,31 @@ class AuthorNode<MapSpec<InputBatchT, OutputBatchT, ParamsT, MapFnT>>
   bool InitNode(const NodeInitContext& init_ctx, const nlohmann::json& config,
                 SessionContext& session_ctx) override {
     (void)session_ctx;
-    const auto* in_binding =
-        init_ctx.plan->FindPort(spec_.InputName(), PortDirection::kInput);
-    if (!in_binding || in_binding->blackboard_key.empty()) {
+    const auto in_result = detail::ResolvePortBinding(
+        *init_ctx.plan, PortDirection::kInput, in_port_);
+    if (in_result.status == detail::PortBindingStatus::kUnbound) {
       return init_ctx.Fail("Required input port '" + spec_.InputName() +
                            "' has no binding in plan");
     }
-    if (in_binding->type_id != in_port_.TypeId()) {
+    if (in_result.status == detail::PortBindingStatus::kTypeMismatch) {
       return init_ctx.Fail("Input port type mismatch for '" +
                            spec_.InputName() +
                            "' (expected: " + in_port_.TypeId() +
-                           ", bound: " + in_binding->type_id + ")");
+                           ", bound: " + in_result.binding->type_id + ")");
     }
-    in_port_.Resolve(in_binding->blackboard_key);
 
-    const auto* out_binding =
-        init_ctx.plan->FindPort(spec_.OutputName(), PortDirection::kOutput);
-    if (!out_binding || out_binding->blackboard_key.empty()) {
+    const auto out_result = detail::ResolvePortBinding(
+        *init_ctx.plan, PortDirection::kOutput, out_port_);
+    if (out_result.status == detail::PortBindingStatus::kUnbound) {
       return init_ctx.Fail("Output port '" + spec_.OutputName() +
                            "' has no binding in plan");
     }
-    if (out_binding->type_id != out_port_.TypeId()) {
+    if (out_result.status == detail::PortBindingStatus::kTypeMismatch) {
       return init_ctx.Fail("Output port type mismatch for '" +
                            spec_.OutputName() +
                            "' (expected: " + out_port_.TypeId() +
-                           ", bound: " + out_binding->type_id + ")");
+                           ", bound: " + out_result.binding->type_id + ")");
     }
-    out_port_.Resolve(out_binding->blackboard_key);
 
     const auto& normalized = config;
 
@@ -1200,9 +1455,7 @@ class AuthorNode<BatchSpec<InputsT, OutputBatchT, ParamsT, ModelsT, RunFnT>>
   using SpecType = BatchSpec<InputsT, OutputBatchT, ParamsT, ModelsT, RunFnT>;
 
   AuthorNode(std::string node_name, SpecType spec)
-      : NodeBase(std::move(node_name)),
-        spec_(std::move(spec)),
-        out_port_(spec_.Output().output_name) {}
+      : NodeBase(std::move(node_name)), spec_(std::move(spec)) {}
 
  protected:
   bool InitNode(const NodeInitContext& init_ctx, const nlohmann::json& config,
@@ -1211,17 +1464,8 @@ class AuthorNode<BatchSpec<InputsT, OutputBatchT, ParamsT, ModelsT, RunFnT>>
       return false;
     }
 
-    const auto* out_binding = init_ctx.plan->FindPort(
-        spec_.Output().output_name, PortDirection::kOutput);
-    if (!out_binding || out_binding->blackboard_key.empty()) {
-      return init_ctx.Fail("Output port '" + spec_.Output().output_name +
-                           "' has no binding in plan");
-    }
-    if (out_binding->type_id != out_port_.TypeId()) {
-      return init_ctx.Fail("Output port type mismatch for '" +
-                           spec_.Output().output_name + "'");
-    }
-    out_port_.Resolve(out_binding->blackboard_key);
+    if (!spec_.Output().BindPorts(init_ctx)) return false;
+    resources_ = SessionResources(session_ctx);
 
     const auto& normalized = config;
 
@@ -1251,6 +1495,19 @@ class AuthorNode<BatchSpec<InputsT, OutputBatchT, ParamsT, ModelsT, RunFnT>>
                                 const std::string& json_param) override {
     if (!spec_.HasControls()) {
       return NodeControlResult::Unsupported();
+    }
+    for (const auto& command : spec_.CustomControls()) {
+      if (command.definition.cmd_id != cmd) continue;
+      nlohmann::json payload;
+      std::string error;
+      if (!ParseControlPayload(json_param, command.definition.payload_schema,
+                               &payload, &error)) {
+        return NodeControlResult::Failed(node_error::control::kInvalidRequest,
+                                         error);
+      }
+      return snapshot_.Update([&](const auto& current) {
+        return command.update(current, payload, binding_facts_);
+      });
     }
     if constexpr (std::is_copy_constructible_v<
                       typename SpecType::ParametersType>) {
@@ -1285,8 +1542,8 @@ class AuthorNode<BatchSpec<InputsT, OutputBatchT, ParamsT, ModelsT, RunFnT>>
       params_ptr = &parameters_;
     }
 
-    auto res =
-        detail::InvokeBatch(spec_.Function(), inputs, *params_ptr, models_);
+    auto res = detail::InvokeBatch(spec_.Function(), inputs, *params_ptr,
+                                   models_, resources_);
     if (!res.ok()) {
       auto failure = std::move(res).ExtractFailure();
       int code = failure.cause_code != 0
@@ -1299,43 +1556,18 @@ class AuthorNode<BatchSpec<InputsT, OutputBatchT, ParamsT, ModelsT, RunFnT>>
 
     OutputBatchT output = std::move(res).value();
 
-    // Anchor check
-    const auto* anchor_port =
-        spec_.Inputs().FindPort(spec_.Output().anchor_input_name);
-    if (!anchor_port) {
-      return this->Fail(req_ctx, node_error::author_node::kMissingOutputAnchor,
-                        "Anchor input port not found");
+    if (auto failure =
+            spec_.Output().Validate(inputs, spec_.Inputs(), output)) {
+      return this->Fail(req_ctx, failure->cause_code,
+                        failure->FormatDiagnostic());
     }
-
-    if (!anchor_port->HasBatch(inputs)) {
-      // If anchor was unconnected/null, only empty output is accepted
-      if (!output.empty()) {
-        return this->Fail(req_ctx,
-                          node_error::author_node::kOutputCountMismatch,
-                          "Output produced without anchor input");
-      }
-    } else {
-      TraceableBatchProvenanceReader<OutputBatchT> reader(output);
-      auto alignment = anchor_port->ValidateAlignment(inputs, reader);
-      if (alignment.error == TraceableAlignmentError::kCountMismatch) {
-        return this->Fail(req_ctx,
-                          node_error::author_node::kOutputCountMismatch,
-                          this->Name() + " output count mismatch");
-      }
-      if (alignment.error == TraceableAlignmentError::kProvenanceMismatch) {
-        return this->Fail(req_ctx,
-                          node_error::author_node::kOutputProvenanceMismatch,
-                          this->Name() + " output provenance mismatch");
-      }
-    }
-
-    out_port_.Set(req_ctx, std::move(output));
+    spec_.Output().Publish(req_ctx, std::move(output));
     return 0;
   }
 
  private:
   SpecType spec_;
-  BoundOutput<OutputBatchT> out_port_;
+  SessionResources resources_;
   typename SpecType::ParametersType parameters_{};
   typename SpecType::ModelsType models_{};
   ConfigurationSnapshot<typename SpecType::ParametersType> snapshot_;

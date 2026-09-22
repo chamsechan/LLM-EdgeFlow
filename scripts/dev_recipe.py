@@ -259,7 +259,7 @@ def select_llm_node(pipeline, catalog):
 
 
 def prepare(recipe, name, profile_name, tool_path, build_dir, pipeline_target, root,
-            effects_path=None, model_root=None, manifest_path=None, authoring="basic"):
+            effects_path=None, model_root=None, manifest_path=None):
     root = root.resolve()
     step, completed = "preconditions", []
     try:
@@ -301,8 +301,8 @@ def prepare(recipe, name, profile_name, tool_path, build_dir, pipeline_target, r
             test = root / "tests/unit/nodes" / ("test_" + snake + ".cpp")
             in_port, out_port = ("input", "TextBatch", "1:1", "preserve"), ("output", "TextBatch", "1:1", "preserve")
             description = f"{name} custom LLM node"
-            plan.add_new_file(src, SCAFFOLD.render_model_node(name, description, "llm", in_port, out_port, authoring=authoring))
-            plan.add_new_file(test, SCAFFOLD.render_standalone_test(name, description, "model", "llm", in_port, out_port, authoring=authoring))
+            plan.add_new_file(src, SCAFFOLD.render_model_node(name, description, "llm", in_port, out_port))
+            plan.add_new_file(test, SCAFFOLD.render_standalone_test(name, description, "model", "llm", in_port, out_port))
             for path, update, filename in [
                 (root / "src/custom_nodes/CMakeLists.txt", SCAFFOLD.updated_cmakelists, src.name),
                 (root / "cmake_ext/CustomNodeTests.cmake", SCAFFOLD.updated_custom_node_tests_cmake, test.name),
@@ -458,8 +458,6 @@ def main():
         sub.add_argument("--effects", type=Path, required=operation == "verify")
         sub.add_argument("--model-root", type=Path, required=operation == "verify")
         sub.add_argument("--manifest", type=Path)
-        sub.add_argument("--authoring", choices=["basic", "advanced"], default="basic",
-                         help="Authoring style for scaffolded custom node (default: basic)")
         sub.add_argument("--demo", type=Path)
         sub.add_argument("--json", action="store_true")
     args = parser.parse_args()
@@ -467,8 +465,7 @@ def main():
         return list_recipes(args.json)
     if args.command == "prepare":
         report = prepare(args.recipe, args.name, args.profile, args.tool, args.build_dir, args.pipeline, ROOT,
-                         args.effects, args.model_root, args.manifest,
-                         authoring=getattr(args, "authoring", "basic"))
+                         args.effects, args.model_root, args.manifest)
     else:
         report = verify_recipe(args.recipe, args.pipeline, args.tool, args.build_dir, args.effects,
                                args.model_root, args.name, args.demo, args.manifest)

@@ -11,17 +11,10 @@ root = Path(__file__).resolve().parents[2]
 output = Path(sys.argv[1])
 output.parent.mkdir(parents=True, exist_ok=True)
 cases = [("ScaffoldComputeNode", ["--kind", "compute"]),
-         ("ScaffoldConversionNode", ["--out-port", "output:Int32Batch"])]
-for kind in ("model", "unary_inference"):
-    for cap in ("llm", "embedding", "asr", "ocr", "rerank"):
-        if kind == "unary_inference" and cap == "ocr":
-            continue  # The CLI rejects this unsupported container contract.
-        tag = "Model" if kind == "model" else "Unary"
-        cases.append((f"Scaffold{tag}{cap.capitalize()}Node", ["--kind", kind, "-m", cap]))
-cases.append(("ScaffoldAdvancedComputeNode", ["--authoring", "advanced"]))
-cases.append(("ScaffoldAdvancedLlmNode", ["--authoring", "advanced", "--kind", "model", "-m", "llm"]))
-cases.append(("ScaffoldBasicEmbeddingNode", ["--authoring", "basic", "--kind", "model", "-m", "embedding"]))
-cases.append(("ScaffoldBasicControlNode", ["--authoring", "basic", "--control-id", "2000000044"]))
+         ("ScaffoldConversionNode", ["--out-port", "output:Int32Batch"]),
+         ("ScaffoldSplitStubNode", ["--out-port", "output:TextBatch:1:N:generate_sub_id"])]
+for cap in ("llm", "embedding", "asr", "ocr", "rerank"):
+    cases.append((f"ScaffoldModel{cap.capitalize()}Node", ["--kind", "model", "-m", cap]))
 cases.append(("ScaffoldTutorialLlmNode", ["--kind", "model", "-m", "llm"]))
 cases.append(("ScaffoldControlNode", ["--control-id", "2000000042"]))
 
@@ -50,8 +43,8 @@ with output.open("w", encoding="utf-8") as stream:
                                       "--out-port", "output:AudioPcmBatch"]),
         ("ScaffoldWrittenControlNode", ["--control-id", "2000000043"]),
     ]
-    standalone_cases.append(("ScaffoldWrittenBasicLlmNode", ["--authoring", "basic", "--kind", "model", "-m", "llm"]))
-    standalone_cases.append(("ScaffoldWrittenBasicMapNode", ["--authoring", "basic", "--kind", "compute"]))
+    standalone_cases.append(("ScaffoldWrittenLlmNode", ["--kind", "model", "-m", "llm"]))
+    standalone_cases.append(("ScaffoldWrittenMapNode", ["--kind", "compute"]))
     standalone_cases.extend(cases)
     with tempfile.TemporaryDirectory(prefix="edgeflow-written-fixtures-") as directory:
         fixture_root = Path(directory)

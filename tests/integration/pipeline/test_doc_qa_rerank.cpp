@@ -7,6 +7,7 @@
 
 #include "edgeflow/operator/interface.h"
 #include "edgeflow/operator/types.h"
+#include "tests/support/operator_test_fixture.h"
 
 using namespace llm_edgeflow::operator_api;
 
@@ -17,31 +18,18 @@ static std::string GetConfDir() {
   return std::filesystem::current_path().parent_path().string();
 }
 
-class DocQaRerankPipelineTest : public ::testing::Test {
- protected:
-  void SetUp() override {
-    ops_ = Get_LLM_EDGEFLOW_OperatorTable();
-    ASSERT_EQ(ops_.Init(), 0);
-  }
-
-  void TearDown() override { ASSERT_EQ(ops_.DeInit(), 0); }
-
-  OperatorFunc ops_;
-};
+using llm_edgeflow::test_support::ScopedTestOperator;
+class DocQaRerankPipelineTest
+    : public llm_edgeflow::test_support::OperatorTestFixture {};
 
 // 1. 测试基于 Operator 创建与执行 LLM + Rerank + QA 组合流水线
 TEST_F(DocQaRerankPipelineTest, ExecuteDocQaWithRerankerAndLlm) {
-  std::string root_dir = GetConfDir();
-  CreateParam param{};
-  param.model_path = root_dir.c_str();
-  param.cfg_file_name = "demo/fixtures/mock/pipeline_doc_qa_rerank.conf";
-  param.compute_platform = ComputePlatform::kAx650;
-  param.max_frame_depth = 25;
-
-  void* handle = nullptr;
-  int ret = ops_.Create(&handle, &param);
-  ASSERT_EQ(ret, 0) << "Create failed: " << GetOperatorLastError();
-  ASSERT_NE(handle, nullptr);
+  ScopedTestOperator instance(ops_);
+  ASSERT_EQ(instance.Create("demo/fixtures/mock/pipeline_doc_qa_rerank.conf",
+                            GetConfDir(), ComputePlatform::kAx650),
+            0)
+      << instance.create_diagnostic();
+  ASSERT_NE(instance.get(), nullptr);
 
   std::string doc1 =
       "企业级算法框架设计规范：采用4层分层架构，包含C-"
@@ -74,7 +62,7 @@ TEST_F(DocQaRerankPipelineTest, ExecuteDocQaWithRerankerAndLlm) {
   out_batch[0]["rag_channel.doc_out"] = std::shared_ptr<void>();
   out_batch[1]["rag_channel.doc_out"] = std::shared_ptr<void>();
 
-  ret = ops_.Process(handle, in_batch, out_batch);
+  const int ret = ops_.Process(instance.get(), in_batch, out_batch);
   EXPECT_EQ(ret, 0) << "Process failed: " << GetOperatorLastError();
 
   auto out1_sp = out_batch[0]["rag_channel.doc_out"];
@@ -105,5 +93,5 @@ TEST_F(DocQaRerankPipelineTest, ExecuteDocQaWithRerankerAndLlm) {
   out1_sp.reset();
   out2_sp.reset();
 
-  ops_.Destroy(handle);
+  EXPECT_EQ(instance.Close(), 0) << instance.close_diagnostic();
 }

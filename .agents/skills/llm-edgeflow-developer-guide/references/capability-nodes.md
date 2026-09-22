@@ -1,41 +1,48 @@
 # Capability Nodes
 
-Use this reference for a new or modified `INode` implementation.
+Use this reference for production Node implementation. Start first-time LLM authors with the
+[two-function exercise](../../../../doc/dev_guide/first_custom_node.md); consult the
+[concept guide](../../../../doc/dev_guide/custom_node_concepts.md) for batch contracts.
 
-For a first custom LLM Node using an existing model capability, start with the
-[two-function exercise](../../../../doc/dev_guide/first_custom_node.md) and its compiled starter.
-Use the [concept guide](../../../../doc/dev_guide/custom_node_concepts.md) as needed; multi-input,
-filtering or aggregation logic needs the full port and provenance contracts below.
+1. Query the target build's `alg_pipeline_tool catalog` and `describe-node` before adding a capability.
+2. Keep neutral operations in `src/common_nodes/` and domain algorithms in `src/custom_nodes/`,
+   organized by operation. Common Nodes, Core and Engine must not depend on custom implementations.
+   Platform conversion stays in Adapter. Follow CONTRIBUTING for RFC thresholds.
+3. Use ordinary functions and one Spec contract, registered with `REGISTER_FUNCTION_NODE`.
+   Map and LLM helpers compose the same authoring contract as Batch. All 12 production Nodes use it;
+   `NodeBase` is internal runtime infrastructure, not another business authoring choice.
+4. Declare input views with `InputsOf` and typed members. `Required` requires a value; `Optional`
+   permits an unconnected port; `OptionalValue` also permits a connected port without a request value
+   when the algorithm owns that policy. Specify non-default flow using `PortFlow`.
+5. Use `PreservedOutput` with an anchor for checked count/order/provenance. Use `ProducedBatch`
+   or `OutputsOf` / `Produced` for derived or multiple outputs. Derived-flow correctness remains
+   the algorithm's responsibility; declarations do not prove splitting or aggregation semantics.
+   Complete preserved-output checks precede publication of any output.
+6. Declare ordinary parameters using `Parameters` / `Field`, including defaults, bounds and semantic
+   descriptions. Use `Validate` / `ValidateBindings` for semantic and connection rules. Complex
+   configuration uses `WithParser(NodeConfigParser<Params>(fields, parse))`; consume normalized JSON,
+   own parsed values and share semantic rules between preflight and initialization.
+7. Declare model dependencies with `ModelsOf` / `Model`; member types select `LlmCall`,
+   `EmbeddingCall`, `AsrCall`, `OcrCall` or `RerankCall`. These facades handle empty batches,
+   model diagnostics and alignment checks. Propagate `NodeResult` failures without remapping shared
+   errors to old node-specific codes. Keep domain failure codes where they describe actual algorithms.
+8. Keep request data local. A `Run` needing session resources explicitly accepts
+   `const SessionResources&`; the facade exposes cache access and model revision queries, not arbitrary
+   model lookup or request Blackboard access. TextEmbeddingNode is the compiled cache example.
+9. Use `WithControls` for field updates, or `WithControl` for complex command schemas and ordinary
+   state-building functions. The framework serializes updates, retains old state on failure and reads
+   one immutable snapshot per request. TextTemplateNode and TextRuleMatchNode are production examples.
+   Follow the [Control guide](../../../../doc/dev_guide/first_control.md) for wire schema and delivery.
+10. Declare category, description, parallel safety and any actual business restrictions in the Spec.
+    Generated Definition is the only Catalog source; do not maintain a second UI registry.
+    Initialization consumes a ValidatedNodePlan; do not call PipelineValidator inside a Node.
 
-1. Query `alg_pipeline_tool catalog` and `describe-node` first. Add a node only when existing registered capabilities cannot close the required contract.
-2. Put framework-maintained neutral operations in `src/common_nodes/` and user-defined domain algorithms in `src/custom_nodes/`. Keep custom files organized by operation in the shared directory; they can be reused across businesses and need not be generalized for admission. Both use the same base classes and registration path. Follow `CONTRIBUTING.md` for RFC thresholds and [custom Node onboarding](../../../../src/custom_nodes/README.md) for authoring; platform conversion remains in Adapter, and Common Nodes/Core/Engine must not depend on custom implementations.
-3. Inherit `NodeBase` (or `ModelBoundNode`, `TraceableUnaryInferenceNode`). Exchange request values through `AlgContext`, keep temporary values local, and never retain request data in members. Members may hold configuration or safe shared handles. Configuration may remain fixed after Init or be updated safely through Control, with a consistent snapshot per request as described below. The Definition must truthfully declare parallel safety.
-4. Declare inputs/outputs with the same `BlackboardKey<T>` objects used by `ProcessNode`. Never guess or duplicate key strings with inconsistent types.
-5. Provide a complete `NodeDefinition`: category, description, typed ports, configuration fields/defaults/ranges, model capability/reference field where relevant, biz applicability, override policy, and parallel safety.
-6. Register constructor and Definition together. A registered production node must appear automatically in `alg_pipeline_tool catalog`; never modify a Web list, skill table, or hand-maintained secondary Catalog.
-7. Init requires a valid `ValidatedNodePlan` and consumes its `normalized_config`. Keep semantic/runtime checks, but do not repeat schema normalization. Return errors; do not throw across framework boundaries.
-8. Add focused GoogleTest coverage for the affected configuration, port failures, outputs, provenance, concurrency declaration, Catalog visibility, and valid composition. Extend an existing suite when it already owns the contract.
+Use existing production implementations and matching `tests/unit/nodes/test_*_node.cpp` suites.
+Add focused behavior and contract coverage for changed configuration, missing values, output provenance,
+model failures, Control rollback/concurrency, cache behavior and Catalog/composition as applicable.
+The authoring boundary writes returned failures to request diagnostics. Do not put Context handling,
+manual port binding or hand-built Definitions back into ordinary business functions.
 
-Use existing implementations in `src/common_nodes/`, the `src/custom_nodes/` authoring guide, and matching
-`tests/unit/nodes/test_*_node.cpp` suites as current templates. Use
-`tests/integration/pipeline/test_pipeline_catalog_validator.cpp` for Catalog/Validator integration;
-do not copy implementations into documentation.
-
-The Validator normalizes initial fields once. Node initialization checks the Plan's structure
-and shares local semantic rules with preflight; do not call PipelineValidator from a Node.
-Report processing failures through `Fail` / `Require`.
-
-For complex Node parameters, optionally use `nodes/node_config_parser.h` with an ordinary
-parameter struct and a local semantic parser; `PromptGuidedLlmNode` is the compiled example.
-Use the parser's `Fields()` in the Definition. `Parse` reuses field validation/defaults;
-`ParseNormalized` directly consumes the object already normalized by the Validator, without another normalization or JSON serialization. Preflight and Init
-run the same semantic rule separately; Process uses the stored parameters. Keep simple
-Nodes on the existing direct-reading path and do not introduce a configuration Pipeline Node.
-
-For initial configuration plus runtime Control, use the [Control starter](../../../../dev_support/node_authoring/starter_control_node.cpp):
-normalize incoming Control updates and share a local semantic parser with Init, build the replacement before publishing it,
-and read a consistent configuration snapshot per request. Use `NodeInitContext::Fail` for an
-initialization reason; Pipeline adds the instance ID. Follow the [Control guide](../../../../doc/dev_guide/first_control.md)
-for schema limits, targeted payloads and the existing Operator/Demo path. Complex algorithms stay
-in ordinary functions; reuse [the documented helpers](../../../../doc/dev_guide/custom_node_concepts.md#复杂算法仍按普通-c-函数组织)
-when their grouping or provenance contract fits.
+Use [batch helpers](../../../../doc/dev_guide/custom_node_concepts.md#复杂算法仍按普通-c-函数组织)
+only where their documented join/group/split contracts fit. Do not generalize a domain algorithm merely
+to fit a helper. The shared scaffold `--kind model -m asr` uses the same contract as other capabilities.

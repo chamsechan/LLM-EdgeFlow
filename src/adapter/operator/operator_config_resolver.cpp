@@ -1,19 +1,21 @@
 #include "adapter/operator/operator_config_resolver.h"
 
 #include <fstream>
-#include <limits>
 #include <sstream>
 #include <unordered_map>
-#include <unordered_set>
 
 #include "adapter/deployment_io_config.h"
+#include "adapter/deployment_structure.h"
 #include "adapter/io_binding_resolver.h"
 #include "adapter/operator/json_output_config_reader.h"
 #include "adapter/pipeline_document.h"
 #include "contracts/diagnostic.h"
+#include "contracts/json_structure.h"
 #include "contracts/path_utils.h"
 
 namespace llm_edgeflow {
+
+namespace structure = json_structure;
 
 namespace {
 
@@ -118,20 +120,19 @@ int OperatorConfigResolver::ResolveOutputAllocation(
     const nlohmann::json& config, const ExternalSlotDefinition& slot,
     ResolvedOutputPoolSpec* result, std::string* parameter_text,
     std::string* error) {
-  if (!config.is_object()) {
+  const auto& shape = OutputAllocationStructure();
+  if (!structure::HasType(config, shape)) {
     if (error) *error = "Output allocation must be an object";
     return -2;
   }
-  static const std::unordered_set<std::string> fields = {
-      "type",     "allocator",        "params",
-      "meta_num", "metadata_type_id", "capacities"};
   for (const auto& [field, value] : config.items()) {
-    if (!fields.count(field)) {
+    if (!structure::AllowsProperty(shape, field)) {
       if (error) *error = "Unknown output allocation field: " + field;
       return -2;
     }
   }
-  if (!config.contains("type") || !config["type"].is_string()) {
+  if (structure::MissingRequired(config, shape, "type") ||
+      !structure::HasType(config["type"], structure::Property(shape, "type"))) {
     if (error) *error = "Missing required 'type' string in output allocation";
     return -2;
   }
@@ -144,8 +145,10 @@ int OperatorConfigResolver::ResolveOutputAllocation(
     return -2;
   }
   if (config.contains("allocator")) {
-    if (!config["allocator"].is_string() ||
-        config["allocator"].get<std::string>().empty()) {
+    if (!structure::HasType(config["allocator"],
+                            structure::Property(shape, "allocator")) ||
+        structure::TooShort(config["allocator"],
+                            structure::Property(shape, "allocator"))) {
       if (error) *error = "Output allocator must be a nonempty string";
       return -2;
     }
@@ -168,17 +171,19 @@ int OperatorConfigResolver::ResolveOutputAllocation(
     return -2;
   }
   if (config.contains("meta_num")) {
+    const auto& meta_shape = structure::Property(shape, "meta_num");
     uint64_t mnum = 0;
     if (config["meta_num"].is_number_unsigned()) {
       mnum = config["meta_num"].get<uint64_t>();
-    } else if (config["meta_num"].is_number_integer() &&
-               config["meta_num"].get<int64_t>() >= 0) {
+    } else if (structure::HasType(config["meta_num"], meta_shape) &&
+               !structure::BelowMinimum(config["meta_num"].get<int64_t>(),
+                                        meta_shape)) {
       mnum = static_cast<uint64_t>(config["meta_num"].get<int64_t>());
     } else {
       if (error) *error = "config.meta_num must be non-negative integer";
       return -2;
     }
-    if (mnum > std::numeric_limits<uint32_t>::max()) {
+    if (structure::AboveMaximum(mnum, meta_shape)) {
       if (error) *error = "config.meta_num exceeds uint32 range";
       return -2;
     }
@@ -186,17 +191,18 @@ int OperatorConfigResolver::ResolveOutputAllocation(
   }
 
   if (config.contains("metadata_type_id")) {
+    const auto& type_shape = structure::Property(shape, "metadata_type_id");
     if (config["metadata_type_id"].is_number_unsigned()) {
       uint64_t uval = config["metadata_type_id"].get<uint64_t>();
-      if (uval > static_cast<uint64_t>(std::numeric_limits<int32_t>::max())) {
+      if (structure::AboveMaximum(uval, type_shape)) {
         if (error) *error = "config.metadata_type_id exceeds int32 range";
         return -2;
       }
       requested.metadata_type_id = static_cast<int32_t>(uval);
-    } else if (config["metadata_type_id"].is_number_integer()) {
+    } else if (structure::HasType(config["metadata_type_id"], type_shape)) {
       int64_t ival = config["metadata_type_id"].get<int64_t>();
-      if (ival < std::numeric_limits<int32_t>::min() ||
-          ival > std::numeric_limits<int32_t>::max()) {
+      if (structure::BelowMinimum(ival, type_shape) ||
+          structure::AboveMaximum(ival, type_shape)) {
         if (error) *error = "config.metadata_type_id exceeds int32 range";
         return -2;
       }
@@ -208,15 +214,19 @@ int OperatorConfigResolver::ResolveOutputAllocation(
   }
 
   if (config.contains("capacities")) {
-    if (!config["capacities"].is_object()) {
+    const auto& capacities_shape = structure::Property(shape, "capacities");
+    if (!structure::HasType(config["capacities"], capacities_shape)) {
       if (error) *error = "config.capacities must be an object";
       return -2;
     }
+    const auto& capacity_shape = capacities_shape.at("additionalProperties");
     for (const auto& [cap_field, cap_val] : config["capacities"].items()) {
       uint64_t uval = 0;
       if (cap_val.is_number_unsigned()) {
         uval = cap_val.get<uint64_t>();
-      } else if (cap_val.is_number_integer() && cap_val.get<int64_t>() > 0) {
+      } else if (structure::HasType(cap_val, capacity_shape) &&
+                 !structure::BelowMinimum(cap_val.get<int64_t>(),
+                                          capacity_shape)) {
         uval = static_cast<uint64_t>(cap_val.get<int64_t>());
       } else {
         if (error) {
@@ -225,7 +235,8 @@ int OperatorConfigResolver::ResolveOutputAllocation(
         }
         return -2;
       }
-      if (uval == 0 || uval > std::numeric_limits<uint32_t>::max()) {
+      if (structure::BelowMinimum(uval, capacity_shape) ||
+          structure::AboveMaximum(uval, capacity_shape)) {
         if (error) {
           *error = "Capacity for field '" + cap_field +
                    "' must fit a positive uint32";

@@ -144,6 +144,31 @@ class BoundOutput {
   bool is_bound_ = false;
 };
 
+namespace detail {
+
+enum class PortBindingStatus { kUnbound, kTypeMismatch, kBound };
+
+struct PortBindingResult {
+  PortBindingStatus status;
+  const ResolvedPortBinding* binding;
+};
+
+template <class PortT>
+PortBindingResult ResolvePortBinding(const ValidatedNodePlan& plan,
+                                     PortDirection direction, PortT& port) {
+  const auto* binding = plan.FindPort(port.LogicalName(), direction);
+  if (!binding || binding->blackboard_key.empty()) {
+    return {PortBindingStatus::kUnbound, binding};
+  }
+  if (binding->type_id != port.TypeId()) {
+    return {PortBindingStatus::kTypeMismatch, binding};
+  }
+  port.Resolve(binding->blackboard_key);
+  return {PortBindingStatus::kBound, binding};
+}
+
+}  // namespace detail
+
 class NodeBase : public INode {
  public:
   explicit NodeBase(std::string node_name) : node_name_(std::move(node_name)) {}
@@ -219,16 +244,15 @@ class NodeBase : public INode {
 
   template <typename T>
   void BindPort(const NodeInitContext& init_ctx, BoundInput<T>& in_port) const {
-    const auto* binding =
-        init_ctx.plan->FindPort(in_port.LogicalName(), PortDirection::kInput);
-    if (binding && !binding->blackboard_key.empty()) {
-      if (binding->type_id != in_port.TypeId()) {
-        throw std::invalid_argument("Input port TypeId mismatch for " +
-                                    in_port.LogicalName() +
-                                    " (expected: " + in_port.TypeId() +
-                                    ", bound: " + binding->type_id + ")");
+    const auto result = detail::ResolvePortBinding(
+        *init_ctx.plan, PortDirection::kInput, in_port);
+    if (result.status != detail::PortBindingStatus::kUnbound) {
+      if (result.status == detail::PortBindingStatus::kTypeMismatch) {
+        throw std::invalid_argument(
+            "Input port TypeId mismatch for " + in_port.LogicalName() +
+            " (expected: " + in_port.TypeId() +
+            ", bound: " + result.binding->type_id + ")");
       }
-      in_port.Resolve(binding->blackboard_key);
     } else {
       in_port.Unbind();
     }
@@ -237,19 +261,18 @@ class NodeBase : public INode {
   template <typename T>
   void BindPort(const NodeInitContext& init_ctx,
                 BoundOutput<T>& out_port) const {
-    const auto* binding =
-        init_ctx.plan->FindPort(out_port.LogicalName(), PortDirection::kOutput);
-    if (!binding || binding->blackboard_key.empty()) {
+    const auto result = detail::ResolvePortBinding(
+        *init_ctx.plan, PortDirection::kOutput, out_port);
+    if (result.status == detail::PortBindingStatus::kUnbound) {
       throw std::invalid_argument("Output port is unbound in plan: " +
                                   out_port.LogicalName());
     }
-    if (binding->type_id != out_port.TypeId()) {
+    if (result.status == detail::PortBindingStatus::kTypeMismatch) {
       throw std::invalid_argument("Output port TypeId mismatch for " +
                                   out_port.LogicalName() +
                                   " (expected: " + out_port.TypeId() +
-                                  ", bound: " + binding->type_id + ")");
+                                  ", bound: " + result.binding->type_id + ")");
     }
-    out_port.Resolve(binding->blackboard_key);
   }
 
   template <typename T>
@@ -258,6 +281,12 @@ class NodeBase : public INode {
     BoundInput<T> port(std::move(logical_name));
     BindPort(init_ctx, port);
     return port;
+  }
+
+  // Preserve BindPort's validation and left-to-right error ordering.
+  template <typename... Ports>
+  void BindPorts(const NodeInitContext& init_ctx, Ports&... ports) const {
+    (BindPort(init_ctx, ports), ...);
   }
 
   template <typename T>

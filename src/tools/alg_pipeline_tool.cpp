@@ -19,8 +19,11 @@
 #include "core/pipeline_validator.h"
 #include "demo/common/demo_profile_defaults.h"
 #include "edgeflow/operator/interface.h"
+#include "engine/backend_registry.h"
+#include "engine/model_registry.h"
 #include "nlohmann/json.hpp"
 #include "pipeline_document_validation.h"
+#include "pipeline_json_schema.h"
 #include "tools/pipeline_authoring.h"
 
 namespace {
@@ -194,6 +197,7 @@ nlohmann::json ResolveConf(const std::string& file, const std::string& root,
 void Usage() {
   std::cerr << "Usage:\n"
             << "  alg_pipeline_tool catalog [--biz|-b NAME]\n"
+            << "  alg_pipeline_tool export-schema\n"
             << "  alg_pipeline_tool describe-node NODE_TYPE\n"
             << "  alg_pipeline_tool describe-model MODEL_TYPE\n"
             << "  alg_pipeline_tool describe-backend BACKEND_TYPE\n"
@@ -259,9 +263,9 @@ int main(int argc, char* argv[]) {
     return result.value("ok", false) ? 0 : 1;
   }
 
-  if (command == "catalog") {
+  if (command == "catalog" || command == "export-schema") {
     std::string biz;
-    if (argc == 4 &&
+    if (command == "catalog" && argc == 4 &&
         (std::string(argv[2]) == "--biz" || std::string(argv[2]) == "-b")) {
       biz = argv[3];
     } else if (argc != 2) {
@@ -280,6 +284,22 @@ int main(int argc, char* argv[]) {
       return 1;
     }
     auto result = llm_edgeflow::IoCatalog::ToJson(snapshot, biz);
+    if (command == "export-schema") {
+      if (llm_edgeflow::ModelRegistry::Instance().HasConflict() ||
+          llm_edgeflow::BackendRegistry::Instance().HasConflict() ||
+          llm_edgeflow::IoBindingRegistry::Instance().HasConflict() ||
+          llm_edgeflow::IoConverterRegistry::Instance().HasConflict()) {
+        std::cout << PipelineError(
+                         DiagnosticCode::kRegistryConflict,
+                         "Cannot export schema with registration conflicts")
+                         .dump(2)
+                  << std::endl;
+        return 1;
+      }
+      std::cout << llm_edgeflow::BuildPipelineJsonSchema(result).dump(2)
+                << std::endl;
+      return 0;
+    }
     result["profiles"] = ProfilesJson(biz);
     result["ok"] = biz.empty() || !result["bizs"].empty();
     std::cout << result.dump(2) << std::endl;
