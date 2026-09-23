@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-09-23 普通模块开发辅助层（RFC-0069）
+
+- 常见 Converter 使用单行输入/结果函数，框架处理批次、绑定、来源和错误位置；迁移文本、翻译 JSON、PCM 输入及三类输出，注册与 Operator 契约保持。
+- 四个逐项 Model 使用 `FixedBatchExecutor::ExecuteItems`，统一循环、来源和失败清理，保留 Whisper 全批预检及 BGE Tensor 批处理。
+- 会话资源工厂可直接返回 `NodeResult`；模板与规则的初始配置和 Control 复用候选构建函数。
+- 删除 Node 作者层旧缓存转发入口及字符串写入的 `const char*` 兼容重载；已迁移模块保留单一业务实现。
+- 修复输出字符串内嵌 NUL 截断，以及排名节点重复 query / 缺 query 的静默关联；合法 pairs 和 shared candidates 保持。
+- Control 教程进入原生配置验证；普通生成测试使用 NodeHarness，重复运行保留输入。
+
 ## 2026-09-22 多输出成员绑定校验
 
 - `OutputsOf` 在声明时拒绝多个端口绑定同一结果成员，避免发布时重复移动造成后续输出为空；不同成员仍可使用相同批次类型。

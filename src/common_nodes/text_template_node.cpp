@@ -188,6 +188,23 @@ inline bool CompileTemplate(
   return ok;
 }
 
+bool BuildTemplateState(TemplateState* state,
+                        const std::unordered_set<std::string>* connected_inputs,
+                        std::string* diagnostic) {
+  std::vector<TextTemplateToken> tokens;
+  if (!CompileTemplate(state->template_str, state->static_values,
+                       state->allow_dynamic_attrs, &tokens, diagnostic)) {
+    return false;
+  }
+  if (connected_inputs &&
+      !ValidateTemplateInputs(tokens, *connected_inputs,
+                              state->missing_variable_policy, diagnostic)) {
+    return false;
+  }
+  state->compiled_tokens = std::move(tokens);
+  return true;
+}
+
 inline NodeResult<TemplateState> BuildNextTemplate(
     const TemplateState& current, const TemplateUpdate& update,
     const BindingFacts& bindings) {
@@ -206,10 +223,10 @@ inline NodeResult<TemplateState> BuildNextTemplate(
       next.static_values[k] = v;
     }
   }
-  std::vector<TextTemplateToken> new_tokens;
   std::string diagnostic;
-  if (!CompileTemplate(next.template_str, next.static_values,
-                       next.allow_dynamic_attrs, &new_tokens, &diagnostic)) {
+  if (!BuildTemplateState(
+          &next, bindings.has_bindings ? &bindings.connected_inputs : nullptr,
+          &diagnostic)) {
     return NodeResult<TemplateState>::Failure(
         NodeErrorKind::kBusinessError,
         diagnostic.empty()
@@ -217,17 +234,6 @@ inline NodeResult<TemplateState> BuildNextTemplate(
             : diagnostic,
         node_error::control::kInvalidRequest);
   }
-  if (bindings.has_bindings &&
-      !ValidateTemplateInputs(new_tokens, bindings.connected_inputs,
-                              next.missing_variable_policy, &diagnostic)) {
-    return NodeResult<TemplateState>::Failure(
-        NodeErrorKind::kBusinessError,
-        diagnostic.empty()
-            ? "Invalid template placeholders or syntax in Control"
-            : diagnostic,
-        node_error::control::kInvalidRequest);
-  }
-  next.compiled_tokens = std::move(new_tokens);
   return NodeResult<TemplateState>::Success(std::move(next));
 }
 
@@ -506,12 +512,8 @@ auto MakeTextTemplateSpec() {
                       std::string* diagnostic) {
             state->allow_dynamic_attrs = state->allow_dynamic_attrs ||
                                          bindings.IsConnected("attributes");
-            return CompileTemplate(state->template_str, state->static_values,
-                                   state->allow_dynamic_attrs,
-                                   &state->compiled_tokens, diagnostic) &&
-                   ValidateTemplateInputs(
-                       state->compiled_tokens, bindings.connected_inputs,
-                       state->missing_variable_policy, diagnostic);
+            return BuildTemplateState(state, &bindings.connected_inputs,
+                                      diagnostic);
           });
   auto control = ControlCommandDefinition(
       kControlCmdUpdatePrompt, "update_prompt",

@@ -77,6 +77,19 @@ mkdir -p build/control_tutorial
 ```json
 {
   "biz_name": "keyword_match_v1",
+  "deployment": {
+    "io": {
+      "io_binding": "keyword_match.operator.v1",
+      "output_allocations": {
+        "keyword_out": {
+          "type": "keyword_out",
+          "meta_num": 0,
+          "metadata_type_id": 0,
+          "capacities": {"match_result_json": 2047}
+        }
+      }
+    }
+  },
   "models": [],
   "pipeline": [
     {
@@ -105,25 +118,11 @@ mkdir -p build/control_tutorial
 同目录保存 `pipeline.conf`：
 
 ```json
-{
-  "data": {
-    "pipe_path": "build/control_tutorial/pipeline.json",
-    "outputs": {
-      "keyword_out": {
-        "type": "keyword_out",
-        "meta_num": 0,
-        "metadata_type_id": 0,
-        "capacities": {"match_result_json": 2047}
-      }
-    }
-  }
-}
+{"pipe_path": "pipeline.json"}
 ```
 
-`pipe_path` 相对部署根解析。本文从仓库根目录传入相对路径
-`--config build/control_tutorial/pipeline.conf`，Demo 据此使用仓库根作为部署根；
-因此这里填写 `build/control_tutorial/pipeline.json`，而不是只写文件名。
-宿主直接调用 Operator 时，部署根由 Create 的 `model_path` 指定。
+`pipe_path` 相对 `pipeline.conf` 所在目录解析；输入输出绑定和容量统一声明在
+Pipeline 的 `deployment.io` 中。Demo 与直接调用 Operator 使用同一套部署解析规则。
 
 `input.txt` 保存一行 `sample`；`control.json` 保存：
 

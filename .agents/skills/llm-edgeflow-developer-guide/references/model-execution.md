@@ -10,6 +10,7 @@ vendor runtime integration, or batch scheduling behavior.
 - BackendLoadSpec requires an explicit execution protocol; runtime session checks still verify the actual protocol. Batch policy belongs to the session, not IModel.
 - QwenCausalLmModel selects ChatML through its model type; there is no configurable template selector.
 - Fixed-batch Model paths call `FixedBatchExecutor::Execute` so padding, dummy removal, and `(req_id, sub_id)` provenance remain consistent.
+- Ordinary per-item Model paths use `FixedBatchExecutor::ExecuteItems` with a single input/output callback; it owns the loop, provenance and whole-batch rollback. Keep model-specific whole-batch prevalidation before this call, and preserve existing exception codes when migrating. It rejects nonempty fixed batches; do not replace tensor batching with repeated item calls.
 - Validate model paths/configuration and translate exceptions into framework errors. Vendor types must not escape the concrete Backend.
 - Keep loaded Model/Backend sessions session-scoped and lifecycle-safe. Test failed construction/load, protocol and capability mismatch, concurrency compatibility, shape/batch boundaries, padding, and provenance.
 

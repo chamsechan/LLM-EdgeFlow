@@ -14,64 +14,27 @@
 namespace llm_edgeflow {
 namespace {
 
+AdapterStatus EncodeDocument(const JsonDocumentItem& result,
+                             CompanyOperatorEntityOutput* output,
+                             const OutputStringWriter& writer) {
+  if (!IsSuccessfulDocument(result)) {
+    return AdapterStatus::InvalidInput(
+        "Structured result failed or used fallback", "res");
+  }
+  output->status_code = 0;
+  return writer.Write(output->entities_json, "entities_json",
+                      result.json_payload);
+}
+
 int EncodeOperatorStructuredDocument(AlgContext* context,
                                      const OutputPortBindings& bindings,
                                      const OutputEncodeOptions& options,
                                      ExternalOutputBatchView* destination,
                                      size_t* written_count,
                                      AdapterStatus* status) {
-  if (!context) {
-    return AdapterValidationHelper::ReturnInvalidInput(
-        status, "Null AlgContext passed to Encode", "context",
-        options.converter_id.c_str());
-  }
-
-  const auto* res = ReadOutputValue(*context, bindings, kExtractedEntities,
-                                    options, status, "res");
-  if (!res) return COMPANY_ALG_ERR_INVALID_INPUT;
-
-  const auto* raw_req_ids =
-      ReadOutputValue(*context, bindings, kRawRequestIds, options, status);
-  if (!raw_req_ids) return COMPANY_ALG_ERR_INVALID_INPUT;
-
-  size_t count = res->size();
-  if (!destination || destination->count < count) {
-    return AdapterValidationHelper::ReturnBufferTooSmall(
-        status, "Destination item count is less than output count",
-        "destination", options.converter_id.c_str());
-  }
-
-  std::vector<const StructuredDocumentBatch::value_type*> res_by_request;
-  if (!IndexResults(res, raw_req_ids, &res_by_request, "res",
-                    options.converter_id.c_str(), status)) {
-    return COMPANY_ALG_ERR_INVALID_INPUT;
-  }
-
-  for (size_t i = 0; i < count; ++i) {
-    auto* out =
-        destination->GetSlot<CompanyOperatorEntityOutput>("entity_out", i);
-    if (!out) {
-      return AdapterValidationHelper::ReturnBufferTooSmall(
-          status, "Missing entity_out slot block in output view", "entity_out",
-          options.converter_id.c_str(), static_cast<int>(i));
-    }
-    out->request_id = (*raw_req_ids)[i];
-    if (!IsSuccessfulDocument(res_by_request[i]->data)) {
-      return AdapterValidationHelper::ReturnInvalidInput(
-          status, "Structured result failed or used fallback", "res",
-          options.converter_id.c_str(), static_cast<int>(i));
-    }
-    out->status_code = 0;
-
-    if (!WriteOutputString(
-            *destination, "entity_out", out->entities_json, "entities_json",
-            res_by_request[i]->data.json_payload.c_str(), options, status, i)) {
-      return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
-    }
-  }
-
-  if (written_count) *written_count = count;
-  return COMPANY_ALG_SUCCESS;
+  return EncodeResultRows<CompanyOperatorEntityOutput>(
+      context, bindings, options, destination, written_count, status,
+      "entity_out", kRawRequestIds, kExtractedEntities, &EncodeDocument);
 }
 
 OutputConverterDefinition MakeOperatorStructuredDocumentOutputConverter() {

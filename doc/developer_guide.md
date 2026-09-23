@@ -94,7 +94,7 @@ CrossRerank 的排名数组和 Compliance 的首项选择使用 `N:1 / aggregate
   发布新的输出 key，不原地修改已经发布的值。
 - **`SessionResourceKey<T>`**：会话级共享资源必须使用带静态类型的 key；动态资源名也要先
   构造 typed key。相同名称只能绑定同一种 `T`，类型不匹配会抛出 `std::logic_error`，
-  `GetOrCreateResource` 对同名同型资源提供 single-flight 创建。同一次创建中的等待者
+  Core 的 `SessionContext::GetOrCreateResource` 对同名同型资源提供 single-flight 创建。同一次创建中的等待者
   共享结果或异常；失败不进入缓存，后续调用可重试。
 - **`PipelineCatalogSnapshot`**：需要跨多次查找保持一致视图时先调用 `Snapshot()`；普通
   `Nodes/Bizs/FindNode/FindBiz` 返回独立值，不保存指向 Catalog 内部容器的引用或指针。
@@ -153,6 +153,14 @@ Node 不依赖自定义实现。编写、构建和复用步骤见
 Model 自注册需实现 `IModel` 的某一强类型能力并声明所需协议；Backend 实现
 `IInferenceBackend` 并只返回中性 `IBackendSession`。二者分别提供完整
 `ModelDefinition` / `BackendDefinition` 并使用对应 `REGISTER_*_WITH_DEFINITION` 宏。
+
+逐项推理使用 `FixedBatchExecutor::ExecuteItems`：回调只接收一个
+`TraceableItem<Input>` 和 `Output*`，返回状态码。框架循环调用、保留 `(req_id, sub_id)`，
+任一项失败或抛异常就清空整批输出。回调可捕获本次调用的 options 和 diagnostic，不能保存请求引用。
+默认异常码为 `-4`；已有模型可指定其原异常码，例如 Qwen 使用 `-1`。
+模型仍负责资源准备、协议检查、输入输出语义与必要的整批预检，例如 Whisper 在首次推理前检查全部音频。
+固定 Tensor 路径继续使用 `FixedBatchExecutor::Execute` 显式准备补齐批次；`ExecuteItems` 拒绝固定批策略。
+参考 Qwen 的 `GenerateOne` 和 VisionDocument 的逐项回调，无需为普通循环新增模型基类。
 
 Embedding 的归一化选择由 `EmbeddingOptions.normalize` 决定，模型负责实际计算；
 TextEmbeddingNode 将 `config.normalize` 传给调用选项。BGE 不再接受重复的

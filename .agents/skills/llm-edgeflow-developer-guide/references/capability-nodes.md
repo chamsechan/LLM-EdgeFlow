@@ -29,10 +29,14 @@ Use this reference for production Node implementation. Start first-time LLM auth
 8. Keep request data local. A `Run` needing session resources explicitly accepts
    `const SessionResources&`; the facade exposes cache access and model revision queries, not arbitrary
    model lookup or request Blackboard access. TextEmbeddingNode is the compiled cache example.
+   Use `GetOrCreateResult<T>` for a factory returning `NodeResult<T>`; the facade preserves failures
+   for single-flight waiters without caching them. Resource keys and model revision remain explicit.
 9. Use `WithControls` for field updates, or `WithControl` for complex command schemas and ordinary
    state-building functions. The framework serializes updates, retains old state on failure and reads
    one immutable snapshot per request. TextTemplateNode and TextRuleMatchNode are production examples.
    Follow the [Control guide](../../../../doc/dev_guide/first_control.md) for wire schema and delivery.
+   Share ordinary candidate-state builders between initialization and complex updates; `WithControl`
+   does not rerun initialization's `Prepare`, so the update function must return a validated candidate.
 10. Declare category, description, parallel safety and any actual business restrictions in the Spec.
     Generated Definition is the only Catalog source; do not maintain a second UI registry.
     Initialization consumes a ValidatedNodePlan; do not call PipelineValidator inside a Node.

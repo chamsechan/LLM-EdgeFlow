@@ -19,13 +19,6 @@ struct EmbeddingModels {
   EmbeddingCall encoder;
 };
 
-// The session single-flight cache shares the complete failure with all waiters.
-struct EmbeddingFailure : std::runtime_error {
-  explicit EmbeddingFailure(NodeFailure value)
-      : std::runtime_error(value.message), failure(std::move(value)) {}
-  NodeFailure failure;
-};
-
 void AppendUint64Le(std::string& buf, uint64_t value) {
   for (unsigned shift = 0; shift < 64; shift += 8) {
     buf.push_back(static_cast<char>((value >> shift) & 0xff));
@@ -66,24 +59,19 @@ NodeResult<EmbeddingBatch> EmbedText(const EmbeddingInputs& inputs,
       models.encoder.ModelId(),
       resources.GetModelRevision(models.encoder.ModelId()), params.normalize,
       text));
-  std::shared_ptr<EmbeddingBatch> cached;
-  try {
-    cached = resources.GetOrCreateResource<EmbeddingBatch>(key, [&]() {
-      auto output = models.encoder.Embed(text, options);
-      if (!output.ok()) throw EmbeddingFailure(output.failure());
-      return std::make_shared<EmbeddingBatch>(std::move(output).value());
-    });
-  } catch (const EmbeddingFailure& error) {
-    return NodeResult<EmbeddingBatch>::Failure(error.failure);
-  }
-  if (!cached) {
+  auto cached = resources.GetOrCreateResult<EmbeddingBatch>(
+      key, [&]() { return models.encoder.Embed(text, options); });
+  if (!cached.ok())
+    return NodeResult<EmbeddingBatch>::Failure(cached.failure());
+  if (!cached.value()) {
     return NodeResult<EmbeddingBatch>::Failure(
         NodeErrorKind::kModelCallError,
         "TextEmbeddingNode: single-flight inference failed",
         node_error::text_embedding::kSessionInferenceFailed);
   }
-  return detail::ConvertAlignedOutputs(text, EmbeddingBatch(*cached),
-                                       "Embedding", models.encoder.SlotName());
+  // The model facade validated the cached result; PreservedOutput checks the
+  // returned copy again before publishing it for this request.
+  return NodeResult<EmbeddingBatch>::Success(*cached.value());
 }
 
 auto TextEmbeddingSpec() {

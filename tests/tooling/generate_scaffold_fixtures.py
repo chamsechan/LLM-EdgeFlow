@@ -2,6 +2,7 @@
 """Build-only test fixtures: exercise the public CLI and compile its exact output."""
 from pathlib import Path
 import os
+import json
 import re
 import subprocess
 import sys
@@ -69,3 +70,42 @@ with output.open("w", encoding="utf-8") as stream:
             if test.name == "test_scaffold_tutorial_llm_node.cpp":
                 code = code.replace('mock_answer:', 'mock_answer:实体抽取：\\n')
             stream.write(code)
+
+# Keep the runnable Control deployment in the walkthrough under native validation.
+# Only the tutorial node type is replaced with its isolated generated equivalent.
+guide = (root / "doc/dev_guide/first_control.md").read_text(encoding="utf-8")
+json_blocks = re.findall(r"```json\n(.*?)\n```", guide, re.DOTALL)
+if len(json_blocks) < 2:
+    raise RuntimeError("Control walkthrough must include pipeline and conf JSON")
+tutorial_dir = output.parent / "control_tutorial"
+tutorial_dir.mkdir(parents=True, exist_ok=True)
+pipeline = json.loads(json_blocks[0])
+if pipeline["pipeline"][0]["node_type"] != "PrefixControlNode":
+    raise RuntimeError("Control walkthrough node no longer matches the generated fixture")
+pipeline["pipeline"][0]["node_type"] = "ScaffoldControlNode"
+(tutorial_dir / "pipeline.json").write_text(json.dumps(pipeline), encoding="utf-8")
+(tutorial_dir / "pipeline.conf").write_text(json_blocks[1], encoding="utf-8")
+with output.open("a", encoding="utf-8") as stream:
+    stream.write('''
+#include <filesystem>
+#include "adapter/deployment_io_config.h"
+#include "adapter/io_binding_resolver.h"
+
+namespace llm_edgeflow {
+TEST(CustomNodeCatalogTest, ControlTutorialDeploymentUsesCurrentNativeContracts) {
+''')
+    stream.write("  const std::filesystem::path directory = " + json.dumps(str(tutorial_dir.resolve())) + ";\n")
+    stream.write('''  DeploymentIoConfig parsed;
+  std::string error;
+  ASSERT_TRUE(DeploymentIoConfig::ReadFromFile(
+      (directory / "pipeline.conf").string(), &parsed, &error)) << error;
+  EXPECT_EQ(std::filesystem::path(parsed.resolved_pipe_path),
+            std::filesystem::canonical(directory / "pipeline.json"));
+  std::unique_ptr<ValidatedIoPlan> plan;
+  ASSERT_EQ(IoBindingResolver::ResolveFromConfig(
+                parsed, directory.string(), &plan, &error), 0) << error;
+  ASSERT_NE(plan, nullptr);
+  EXPECT_EQ(plan->binding.binding_id, "keyword_match.operator.v1");
+}
+}  // namespace llm_edgeflow
+''')

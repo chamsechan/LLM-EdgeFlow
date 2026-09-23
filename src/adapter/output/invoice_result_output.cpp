@@ -74,10 +74,10 @@ int EncodeOperatorInvoiceResult(AlgContext* context,
     }
     out->status_code = 0;
 
-    if (!WriteOutputString(
-            *destination, "od_out", out->result_json, "result_json",
-            invoice_jsons_by_request[i]->data.json_payload.c_str(), options,
-            status, i)) {
+    if (!WriteOutputString(*destination, "od_out", out->result_json,
+                           "result_json",
+                           invoice_jsons_by_request[i]->data.json_payload,
+                           options, status, i)) {
       return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     }
   }

@@ -71,15 +71,13 @@ int EncodeOperatorAudioResult(AlgContext* context,
         intent_slots_by_request[i]->data.match_result_json;
 
     if (!WriteOutputString(*destination, "audio_out", out->transcribed_text,
-                           "transcribed_text",
-                           transcripts_by_request[i]->data.c_str(), options,
-                           status, i)) {
+                           "transcribed_text", transcripts_by_request[i]->data,
+                           options, status, i)) {
       return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     }
 
     if (!WriteOutputString(*destination, "audio_out", out->intent_slot_json,
-                           "intent_slot_json", slot_json.c_str(), options,
-                           status, i)) {
+                           "intent_slot_json", slot_json, options, status, i)) {
       return COMPANY_ALG_ERR_BUFFER_TOO_SMALL;
     }
   }

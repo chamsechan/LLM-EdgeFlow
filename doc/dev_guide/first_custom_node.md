@@ -86,7 +86,7 @@ return answer;
 参考 [TextChunkNode](../../src/common_nodes/text_chunk_node.cpp)。Map、Batch、LLM 组合都使用
 同一个 Spec 运行机制，12 个生产 Node 已统一迁移，复杂场景也无需另写生命周期。
 外部 Operator 请求的字段选择与响应组装属于 Adapter，不能移到 Node 或 Demo；见
-[输入输出边界](business_onboarding.md#输入输出以-c-abi-为边界)。
+[输入输出边界](business_onboarding.md#输入输出以-operator-接口为边界)。
 
 ## 4. 编译，让工具能够找到新节点
 

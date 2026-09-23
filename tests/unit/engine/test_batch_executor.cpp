@@ -281,3 +281,129 @@ TEST(FixedBatchExecutorTest, LaterFailureDoesNotReuseEarlierBatchDiagnostic) {
   EXPECT_TRUE(outputs.empty());
   EXPECT_EQ(diagnostic, "Batch execution failed");
 }
+
+TEST(FixedBatchExecutorTest, ExecuteItemsPreservesOrderAndDuplicateProvenance) {
+  const std::vector<TraceableItem<int>> inputs{
+      {9, 3, 10}, {9, 3, 20}, {1, 7, 30}};
+  std::vector<TraceableItem<int>> outputs{{99, 99, -1}};
+  std::string diagnostic = "stale";
+  int calls = 0;
+  const int result = FixedBatchExecutor::ExecuteItems<int, int>(
+      inputs, BatchPolicy{2, 0},
+      [&](const TraceableItem<int>& item, int* output) {
+        ++calls;
+        *output = item.data * 2;
+        return 0;
+      },
+      &outputs, &diagnostic);
+  ASSERT_EQ(result, 0);
+  EXPECT_EQ(calls, 3);
+  EXPECT_TRUE(diagnostic.empty());
+  ASSERT_EQ(outputs.size(), inputs.size());
+  for (size_t i = 0; i < inputs.size(); ++i) {
+    EXPECT_EQ(outputs[i].req_id, inputs[i].req_id);
+    EXPECT_EQ(outputs[i].sub_id, inputs[i].sub_id);
+    EXPECT_EQ(outputs[i].data, inputs[i].data * 2);
+  }
+}
+
+TEST(FixedBatchExecutorTest, ExecuteItemsValidatesOutputsAndFixedPolicy) {
+  const std::vector<TraceableItem<int>> inputs{{1, 0, 10}};
+  std::vector<TraceableItem<int>> outputs{{99, 0, -1}};
+  int calls = 0;
+  auto run = [&](const TraceableItem<int>&, int*) {
+    ++calls;
+    return 0;
+  };
+  int result = FixedBatchExecutor::ExecuteItems<int, int>(
+      inputs, BatchPolicy{1, 0}, run, nullptr);
+  EXPECT_EQ(result, -1);
+  result = FixedBatchExecutor::ExecuteItems<int, int>(inputs, BatchPolicy{2, 2},
+                                                      run, &outputs);
+  EXPECT_EQ(result, -2);
+  EXPECT_TRUE(outputs.empty());
+  outputs.emplace_back(99, 0, -1);
+  std::string diagnostic = "stale";
+  result = FixedBatchExecutor::ExecuteItems<int, int>(
+      {}, BatchPolicy{2, 2}, run, &outputs, &diagnostic);
+  EXPECT_EQ(result, 0);
+  EXPECT_TRUE(outputs.empty());
+  EXPECT_TRUE(diagnostic.empty());
+  EXPECT_EQ(calls, 0);
+}
+
+TEST(FixedBatchExecutorTest, ExecuteItemsRollsBackOnLaterError) {
+  const std::vector<TraceableItem<int>> inputs{
+      {1, 0, 10}, {2, 0, 20}, {3, 0, 30}};
+  std::vector<TraceableItem<int>> outputs;
+  std::string diagnostic = "stale";
+  int calls = 0;
+  const int result = FixedBatchExecutor::ExecuteItems<int, int>(
+      inputs, BatchPolicy{3, 0},
+      [&](const TraceableItem<int>& item, int* output) {
+        ++calls;
+        if (item.data == 20) {
+          diagnostic = "item inference failed";
+          return -73;
+        }
+        *output = item.data;
+        return 0;
+      },
+      &outputs, &diagnostic);
+  EXPECT_EQ(result, -73);
+  EXPECT_EQ(calls, 2);
+  EXPECT_TRUE(outputs.empty());
+  EXPECT_EQ(diagnostic, "item inference failed");
+}
+
+TEST(FixedBatchExecutorTest, ExecuteItemsRollsBackBothExceptionKinds) {
+  for (bool standard_exception : {false, true}) {
+    SCOPED_TRACE(standard_exception);
+    const std::vector<TraceableItem<int>> inputs{{1, 0, 10}, {2, 0, 20}};
+    std::vector<TraceableItem<int>> outputs;
+    std::string diagnostic;
+    int calls = 0;
+    const int result = FixedBatchExecutor::ExecuteItems<int, int>(
+        inputs, BatchPolicy{2, 0},
+        [&](const TraceableItem<int>& item, int* output) {
+          if (++calls == 2) {
+            if (standard_exception)
+              throw std::runtime_error("item unavailable");
+            throw 42;
+          }
+          *output = item.data;
+          return 0;
+        },
+        &outputs, &diagnostic, -87);
+    EXPECT_EQ(result, -87);
+    EXPECT_EQ(calls, 2);
+    EXPECT_TRUE(outputs.empty());
+    if (standard_exception)
+      EXPECT_EQ(diagnostic, "item unavailable");
+    else
+      EXPECT_FALSE(diagnostic.empty());
+  }
+}
+
+TEST(FixedBatchExecutorTest, ExecuteItemsDoesNotReuseEarlierItemDiagnostic) {
+  const std::vector<TraceableItem<int>> inputs{{1, 0, 10}, {2, 0, 20}};
+  std::vector<TraceableItem<int>> outputs;
+  std::string diagnostic;
+  int calls = 0;
+  const int result = FixedBatchExecutor::ExecuteItems<int, int>(
+      inputs, BatchPolicy{2, 0},
+      [&](const TraceableItem<int>& item, int* output) {
+        ++calls;
+        if (item.data == 10) {
+          diagnostic = "earlier successful item note";
+          *output = item.data;
+          return 0;
+        }
+        return -73;
+      },
+      &outputs, &diagnostic);
+  EXPECT_EQ(result, -73);
+  EXPECT_EQ(calls, 2);
+  EXPECT_TRUE(outputs.empty());
+  EXPECT_EQ(diagnostic, "Batch execution failed");
+}

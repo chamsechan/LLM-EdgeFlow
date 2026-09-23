@@ -82,7 +82,6 @@ def render_map_node(name, description, in_port, out_port):
 namespace llm_edgeflow {{
 namespace custom_nodes {{
 namespace {{
-
 // Map starter: transforms each input item independently while preserving provenance.
 static std::string Transform(const std::string& input) {{
   // TODO: Replace with your domain logic.
@@ -124,7 +123,6 @@ def render_embedding_node(name, description, in_name, out_name):
 namespace llm_edgeflow {{
 namespace custom_nodes {{
 namespace {{
-
 struct Inputs {{
   const TextBatch* texts = nullptr;
 }};
@@ -363,12 +361,11 @@ TEST(CustomNodeCatalogTest, {name}_ExecutesLlmGeneration) {{
 #include <utility>
 #include <vector>
 
-#include "core/alg_context.h"
 #include "core/common_contracts.h"
 #include "core/node_definition.h"
 #include "core/node_registry.h"
 #include "core/pipeline_catalog.h"
-#include "core/session_context.h"
+#include "tests/support/node_harness.h"
 #include "tests/support/node_test_utils.h"
 
 namespace llm_edgeflow {{
@@ -385,17 +382,15 @@ TEST(CustomNodeCatalogTest, {name}_RegistrationAndInstantiation) {{
 }}
 
 TEST(CustomNodeCatalogTest, {name}_ControlChangesOutputAndPreservesOnFailure) {{
-  auto node = NodeRegistry::Instance().Create({cpp_string(name)});
-  ASSERT_NE(node, nullptr);
-  SessionContext session;
-  ASSERT_TRUE(InitNodeForTest(*node, {{{{"prefix", "initial:"}}}}, &session));
+  NodeHarness harness({cpp_string(name)});
+  harness.Config({{{{"prefix", "initial:"}}}});
   const auto check_output = [&](const std::string& expected) {{
-    AlgContext ctx;
     TextBatch input;
     input.emplace_back(17, 3, "sample");
-    ctx.Publish({cpp_string(in_name)}, std::move(input));
-    ASSERT_EQ(node->Process(&ctx), 0);
-    const auto* output = ctx.Read<TextBatch>({cpp_string(out_name)});
+    harness.CustomInput({cpp_string(in_name)}, std::move(input));
+    auto result = harness.Run();
+    ASSERT_TRUE(result.ok()) << result.diagnostic();
+    const auto* output = result.Output<TextBatch>({cpp_string(out_name)});
     ASSERT_NE(output, nullptr);
     ASSERT_EQ(output->size(), 1u);
     EXPECT_EQ(output->at(0).req_id, 17u);
@@ -404,7 +399,7 @@ TEST(CustomNodeCatalogTest, {name}_ControlChangesOutputAndPreservesOnFailure) {{
   }};
   check_output("initial:sample");
   const auto update = [&](const nlohmann::json& payload) {{
-    return node->Control({control_id}, payload.dump()).status;
+    return harness.Control({control_id}, payload).status;
   }};
   ASSERT_EQ(update({{{{"prefix", "new:"}}}}), NodeControlStatus::kHandled);
   check_output("new:sample");
@@ -422,35 +417,31 @@ TEST(CustomNodeCatalogTest, {name}_RejectsInvalidInitialPrefix) {{
   const nlohmann::json invalid = {{{{"prefix", std::string(65, 'x')}}}};
   EXPECT_FALSE(definition->validate_config(invalid, {{}}, &error));
   EXPECT_NE(error.find("prefix exceeds 64 UTF-8 bytes"), std::string::npos);
-  auto node = NodeRegistry::Instance().Create({cpp_string(name)});
-  ASSERT_NE(node, nullptr);
-  SessionContext session;
-  EXPECT_FALSE(InitNodeForTest(*node, invalid, &session, &error));
-  EXPECT_NE(error.find("prefix exceeds 64 UTF-8 bytes"), std::string::npos);
+  NodeHarness harness({cpp_string(name)});
+  auto result = harness.Config(invalid).Run();
+  EXPECT_TRUE(result.init_failed());
+  EXPECT_NE(result.diagnostic().find("prefix exceeds 64 UTF-8 bytes"), std::string::npos);
 }}
 
 TEST(CustomNodeCatalogTest, {name}_MissingInputFailsWithoutPublishing) {{
-  auto node = NodeRegistry::Instance().Create({cpp_string(name)});
-  ASSERT_NE(node, nullptr);
-  SessionContext session;
-  ASSERT_TRUE(InitNodeForTest(*node, nlohmann::json::object(), &session));
-  AlgContext ctx;
-  EXPECT_NE(node->Process(&ctx), 0);
-  EXPECT_FALSE(ctx.Has({cpp_string(out_name)}));
+  NodeHarness harness({cpp_string(name)});
+
+  auto result = harness.Run();
+  EXPECT_FALSE(result.ok());
+  EXPECT_EQ(result.Output<{out_type}>({cpp_string(out_name)}), nullptr);
 }}
 
 TEST(CustomNodeCatalogTest, {name}_BusinessExample) {{
-  auto node = NodeRegistry::Instance().Create({cpp_string(name)});
-  ASSERT_NE(node, nullptr);
-  SessionContext session;
-  ASSERT_TRUE(InitNodeForTest(*node, {{{{"prefix", "biz:"}}}}, &session));
-  AlgContext ctx;
+  NodeHarness harness({cpp_string(name)});
+  harness.Config({{{{"prefix", "biz:"}}}});
+
   // Editable business input with independent expected output.
   TextBatch input;
   input.emplace_back(101, 1, "task_sample");
-  ctx.Publish({cpp_string(in_name)}, std::move(input));
-  ASSERT_EQ(node->Process(&ctx), 0);
-  const auto* output = ctx.Read<TextBatch>({cpp_string(out_name)});
+  harness.CustomInput({cpp_string(in_name)}, std::move(input));
+  auto result = harness.Run();
+  ASSERT_TRUE(result.ok()) << result.diagnostic();
+  const auto* output = result.Output<TextBatch>({cpp_string(out_name)});
   ASSERT_NE(output, nullptr);
   ASSERT_EQ(output->size(), 1u);
   EXPECT_EQ(output->at(0).data, "biz:task_sample");
@@ -469,13 +460,11 @@ TEST(CustomNodeCatalogTest, {name}_BusinessExample) {{
 #include <utility>
 #include <vector>
 
-#include "core/alg_context.h"
 #include "core/common_contracts.h"
 #include "core/node_definition.h"
 #include "core/node_registry.h"
 #include "core/pipeline_catalog.h"
-#include "core/session_context.h"
-#include "core/validated_node_plan.h"
+#include "tests/support/node_harness.h"
 #include "tests/support/node_test_utils.h"
 
 namespace llm_edgeflow {{
@@ -492,74 +481,35 @@ TEST(CustomNodeCatalogTest, {name}_RegistrationAndInstantiation) {{
 }}
 
 TEST(CustomNodeCatalogTest, {name}_InitAndMissingInputFailsWithoutPublishing) {{
-  auto node = NodeRegistry::Instance().Create({cpp_string(name)});
-  ASSERT_NE(node, nullptr);
-  SessionContext session;
-  ValidatedNodePlan plan;
-  plan.normalized_config = nlohmann::json::object();
-  plan.ports.push_back(ResolvedPortBinding{{
-      {cpp_string(in_name)}, "actual_in_key",
-      BlackboardTypeTraits<{in_type}>::TypeName(), {cpp_string(in_card)}, {cpp_string(in_prov)},
-      "request", PortDirection::kInput}});
-  plan.ports.push_back(ResolvedPortBinding{{
-      {cpp_string(out_name)}, "actual_out_key",
-      BlackboardTypeTraits<{out_type}>::TypeName(), {cpp_string(out_card)}, {cpp_string(out_prov)},
-      "request", PortDirection::kOutput}});
-  ASSERT_TRUE(node->Init({{&plan, &session}}));
-  AlgContext ctx;
-  EXPECT_NE(node->Process(&ctx), 0);
-  EXPECT_FALSE(ctx.Has("actual_out_key"));
+  NodeHarness harness({cpp_string(name)});
+
+  auto result = harness.Run();
+  EXPECT_FALSE(result.ok());
+  EXPECT_EQ(result.Output<{out_type}>({cpp_string(out_name)}), nullptr);
 }}
 
 TEST(CustomNodeCatalogTest, {name}_EmptyBatchPassesThrough) {{
-  auto node = NodeRegistry::Instance().Create({cpp_string(name)});
-  ASSERT_NE(node, nullptr);
-  SessionContext session;
-  ValidatedNodePlan plan;
-  plan.normalized_config = nlohmann::json::object();
-  plan.ports.push_back(ResolvedPortBinding{{
-      {cpp_string(in_name)}, "actual_in_key",
-      BlackboardTypeTraits<{in_type}>::TypeName(), {cpp_string(in_card)}, {cpp_string(in_prov)},
-      "request", PortDirection::kInput}});
-  plan.ports.push_back(ResolvedPortBinding{{
-      {cpp_string(out_name)}, "actual_out_key",
-      BlackboardTypeTraits<{out_type}>::TypeName(), {cpp_string(out_card)}, {cpp_string(out_prov)},
-      "request", PortDirection::kOutput}});
-  ASSERT_TRUE(node->Init({{&plan, &session}}));
-  AlgContext ctx;
-  ctx.Publish("actual_in_key", {in_type}{{}});
-  ASSERT_EQ(node->Process(&ctx), 0);
-  const auto* output = ctx.Read<{out_type}>("actual_out_key");
+  NodeHarness harness({cpp_string(name)});
+
+  harness.CustomInput({cpp_string(in_name)}, {in_type}{{}});
+  auto result = harness.Run();
+  ASSERT_TRUE(result.ok()) << result.diagnostic();
+  const auto* output = result.Output<{out_type}>({cpp_string(out_name)});
   ASSERT_NE(output, nullptr);
   EXPECT_TRUE(output->empty());
 }}
 
 TEST(CustomNodeCatalogTest, {name}_PreservesBatchDataAndProvenance) {{
-  auto node = NodeRegistry::Instance().Create({cpp_string(name)});
-  ASSERT_NE(node, nullptr);
-  SessionContext session;
-  ValidatedNodePlan plan;
-  plan.normalized_config = nlohmann::json::object();
-  plan.ports.push_back(ResolvedPortBinding{{
-      {cpp_string(in_name)}, "actual_in_key",
-      BlackboardTypeTraits<{in_type}>::TypeName(), {cpp_string(in_card)}, {cpp_string(in_prov)},
-      "request", PortDirection::kInput}});
-  plan.ports.push_back(ResolvedPortBinding{{
-      {cpp_string(out_name)}, "actual_out_key",
-      BlackboardTypeTraits<{out_type}>::TypeName(), {cpp_string(out_card)}, {cpp_string(out_prov)},
-      "request", PortDirection::kOutput}});
-  ASSERT_TRUE(node->Init({{&plan, &session}}));
-  AlgContext ctx;
+  NodeHarness harness({cpp_string(name)});
+
   {in_type} input;
   input.emplace_back(101, 3, {sample_in_1});
   input.emplace_back(101, 19, {sample_in_2});
   input.emplace_back(205, 1, {sample_in_3});
-  ctx.Publish("actual_in_key", input);
-  ASSERT_EQ(node->Process(&ctx), 0);
-  const auto* original_input = ctx.Read<{in_type}>("actual_in_key");
-  ASSERT_NE(original_input, nullptr);
-  EXPECT_EQ(original_input->size(), 3u);
-  const auto* output = ctx.Read<{out_type}>("actual_out_key");
+  harness.CustomInput({cpp_string(in_name)}, input);
+  auto result = harness.Run();
+  ASSERT_TRUE(result.ok()) << result.diagnostic();
+  const auto* output = result.Output<{out_type}>({cpp_string(out_name)});
   ASSERT_NE(output, nullptr);
   ASSERT_EQ(output->size(), 3u);
   EXPECT_EQ(output->at(0).req_id, 101u);
@@ -571,19 +521,25 @@ TEST(CustomNodeCatalogTest, {name}_PreservesBatchDataAndProvenance) {{
   EXPECT_EQ(output->at(2).req_id, 205u);
   EXPECT_EQ(output->at(2).sub_id, 1u);
 {compute_checks[2]}
+  auto repeated = harness.Run();
+  ASSERT_TRUE(repeated.ok()) << repeated.diagnostic();
+  const auto* repeated_output = repeated.Output<{out_type}>({cpp_string(out_name)});
+  ASSERT_NE(repeated_output, nullptr);
+  ASSERT_EQ(repeated_output->size(), 3u);
+  EXPECT_EQ(repeated_output->at(1).req_id, 101u);
+  EXPECT_EQ(repeated_output->at(1).sub_id, 19u);
+{payload_check("repeated_output->at(1).data", in_type, sample_in_2, "repeated_expected")}
 }}
 
 TEST(CustomNodeCatalogTest, {name}_BusinessExample) {{
-  auto node = NodeRegistry::Instance().Create({cpp_string(name)});
-  ASSERT_NE(node, nullptr);
-  SessionContext session;
-  ASSERT_TRUE(InitNodeForTest(*node, nlohmann::json::object(), &session));
-  AlgContext ctx;
+  NodeHarness harness({cpp_string(name)});
+
   {in_type} input;
   input.emplace_back(1, 0, {sample_in_1});
-  ctx.Publish({cpp_string(in_name)}, input);
-  ASSERT_EQ(node->Process(&ctx), 0);
-  const auto* output = ctx.Read<{out_type}>({cpp_string(out_name)});
+  harness.CustomInput({cpp_string(in_name)}, input);
+  auto result = harness.Run();
+  ASSERT_TRUE(result.ok()) << result.diagnostic();
+  const auto* output = result.Output<{out_type}>({cpp_string(out_name)});
   ASSERT_NE(output, nullptr);
   ASSERT_EQ(output->size(), 1u);
   EXPECT_EQ(output->at(0).req_id, 1u);
@@ -600,12 +556,11 @@ TEST(CustomNodeCatalogTest, {name}_BusinessExample) {{
 #include <utility>
 #include <vector>
 
-#include "core/alg_context.h"
 #include "core/common_contracts.h"
 #include "core/node_definition.h"
 #include "core/node_registry.h"
 #include "core/pipeline_catalog.h"
-#include "core/session_context.h"
+#include "tests/support/node_harness.h"
 #include "tests/support/node_test_utils.h"
 
 namespace llm_edgeflow {{
@@ -620,26 +575,22 @@ TEST(CustomNodeCatalogTest, {name}_RegistrationAndInstantiation) {{
 }}
 
 TEST(CustomNodeCatalogTest, {name}_MissingInputFailsWithoutPublishing) {{
-  auto node = NodeRegistry::Instance().Create({cpp_string(name)});
-  ASSERT_NE(node, nullptr);
-  SessionContext session;
-  ASSERT_TRUE(InitNodeForTest(*node, nlohmann::json::object(), &session));
-  AlgContext ctx;
-  EXPECT_NE(node->Process(&ctx), 0);
-  EXPECT_FALSE(ctx.Has({cpp_string(out_name)}));
+  NodeHarness harness({cpp_string(name)});
+
+  auto result = harness.Run();
+  EXPECT_FALSE(result.ok());
+  EXPECT_EQ(result.Output<{out_type}>({cpp_string(out_name)}), nullptr);
 }}
 
 TEST(CustomNodeCatalogTest, {name}_UnimplementedDomainLogicFailsCleanly) {{
-  auto node = NodeRegistry::Instance().Create({cpp_string(name)});
-  ASSERT_NE(node, nullptr);
-  SessionContext session;
-  ASSERT_TRUE(InitNodeForTest(*node, nlohmann::json::object(), &session));
-  AlgContext ctx;
+  NodeHarness harness({cpp_string(name)});
+
   {in_type} input;
   input.emplace_back(1, 0, {sample_in_1});
-  ctx.Publish({cpp_string(in_name)}, std::move(input));
-  EXPECT_EQ(node->Process(&ctx), -8102);
-  EXPECT_FALSE(ctx.Has({cpp_string(out_name)}));
+  harness.CustomInput({cpp_string(in_name)}, std::move(input));
+  auto result = harness.Run();
+  EXPECT_EQ(result.process_code(), -8102);
+  EXPECT_EQ(result.Output<{out_type}>({cpp_string(out_name)}), nullptr);
 }}
 
 }}  // namespace llm_edgeflow
@@ -689,13 +640,11 @@ TEST(CustomNodeCatalogTest, {name}_UnimplementedDomainLogicFailsCleanly) {{
 #include <utility>
 #include <vector>
 
-#include "core/alg_context.h"
 #include "core/common_contracts.h"
 #include "core/node_definition.h"
 #include "core/node_registry.h"
 #include "core/pipeline_catalog.h"
-#include "core/session_context.h"
-#include "core/validated_node_plan.h"
+#include "tests/support/node_harness.h"
 #include "tests/support/node_test_utils.h"
 #include "nodes/node_error_codes.h"
 
@@ -714,48 +663,41 @@ TEST(CustomNodeCatalogTest, {name}_RegistrationAndInstantiation) {{
 }}
 
 TEST(CustomNodeCatalogTest, {name}_EmptyBatchPassesThrough) {{
-  auto node = NodeRegistry::Instance().Create({cpp_string(name)});
-  ASSERT_NE(node, nullptr);
-  SessionContext session;
+  NodeHarness harness({cpp_string(name)});
   auto mock_model = std::make_shared<test::{mock_class}>();
-  ASSERT_TRUE(session.GetModelManager().RegisterModel(
-      "test_model", mock_model, "test-v1", mock_model->ModelType(),
-      mock_model->Capability(), "test_backend"));
-  ASSERT_TRUE(InitNodeForTest(*node, {{{{"bind_model", "test_model"}}}}, &session));
-  AlgContext ctx;
-  ctx.Publish({cpp_string(in_name)}, {in_type}{{}});
-  ASSERT_EQ(node->Process(&ctx), 0);
-  const auto* output = ctx.Read<{out_type}>({cpp_string(out_name)});
+  harness.BindModel("test_model", mock_model);
+  harness.Config({{{{"bind_model", "test_model"}}}});
+
+  harness.CustomInput({cpp_string(in_name)}, {in_type}{{}});
+  auto result = harness.Run();
+  ASSERT_TRUE(result.ok()) << result.diagnostic();
+  const auto* output = result.Output<{out_type}>({cpp_string(out_name)});
   ASSERT_NE(output, nullptr);
   EXPECT_TRUE(output->empty());
 }}
 
 TEST(CustomNodeCatalogTest, {name}_ControlledExecutionAndModelFailure) {{
-  auto node = NodeRegistry::Instance().Create({cpp_string(name)});
-  ASSERT_NE(node, nullptr);
-  SessionContext session;
+  NodeHarness harness({cpp_string(name)});
   auto mock_model = std::make_shared<test::{mock_class}>();
-  ASSERT_TRUE(session.GetModelManager().RegisterModel(
-      "test_model", mock_model, "test-v1", mock_model->ModelType(),
-      mock_model->Capability(), "test_backend"));
-  ASSERT_TRUE(InitNodeForTest(*node, {{{{"bind_model", "test_model"}}}}, &session));
+  harness.BindModel("test_model", mock_model);
+  harness.Config({{{{"bind_model", "test_model"}}}});
 
   // 1. Missing input fails without publishing output
   {{
-    AlgContext ctx;
-    EXPECT_NE(node->Process(&ctx), 0);
-    EXPECT_FALSE(ctx.Has({cpp_string(out_name)}));
+    auto result = harness.Run();
+    EXPECT_FALSE(result.ok());
+    EXPECT_EQ(result.Output<{out_type}>({cpp_string(out_name)}), nullptr);
   }}
 
   // 2. Normal execution succeeds
   {{
-    AlgContext ctx;
     {in_type} input;
     input.emplace_back(101, 1, {sample_in_1});
     input.emplace_back(101, 2, {sample_in_2});
-    ctx.Publish({cpp_string(in_name)}, std::move(input));
-    ASSERT_EQ(node->Process(&ctx), 0);
-    const auto* output = ctx.Read<{out_type}>({cpp_string(out_name)});
+    harness.CustomInput({cpp_string(in_name)}, std::move(input));
+    auto result = harness.Run();
+    ASSERT_TRUE(result.ok()) << result.diagnostic();
+    const auto* output = result.Output<{out_type}>({cpp_string(out_name)});
     ASSERT_NE(output, nullptr);
     ASSERT_EQ(output->size(), 2u);
     EXPECT_EQ(output->at(0).req_id, 101u);
@@ -765,56 +707,56 @@ TEST(CustomNodeCatalogTest, {name}_ControlledExecutionAndModelFailure) {{
   // 3. Model failure fails without publishing output
   {{
     mock_model->fail_ = true;
-    AlgContext ctx;
+
     {in_type} input;
     input.emplace_back(101, 1, {sample_in_1});
-    ctx.Publish({cpp_string(in_name)}, std::move(input));
-    EXPECT_NE(node->Process(&ctx), 0);
-    EXPECT_FALSE(ctx.Has({cpp_string(out_name)}));
+    harness.CustomInput({cpp_string(in_name)}, std::move(input));
+    auto result = harness.Run();
+    EXPECT_FALSE(result.ok());
+    EXPECT_EQ(result.Output<{out_type}>({cpp_string(out_name)}), nullptr);
     mock_model->fail_ = false;
   }}
 
   // 4. Output count mismatch fails without publishing
   {{
     mock_model->return_wrong_count_ = true;
-    AlgContext ctx;
+
     {in_type} input;
     input.emplace_back(101, 1, {sample_in_1});
     input.emplace_back(101, 2, {sample_in_2});
-    ctx.Publish({cpp_string(in_name)}, std::move(input));
-    EXPECT_EQ(node->Process(&ctx), {count_error});
-    EXPECT_FALSE(ctx.Has({cpp_string(out_name)}));
+    harness.CustomInput({cpp_string(in_name)}, std::move(input));
+    auto result = harness.Run();
+    EXPECT_EQ(result.process_code(), {count_error});
+    EXPECT_EQ(result.Output<{out_type}>({cpp_string(out_name)}), nullptr);
     mock_model->return_wrong_count_ = false;
   }}
 
   // 5. Corrupted provenance fails without publishing
   {{
     mock_model->corrupt_provenance_ = true;
-    AlgContext ctx;
+
     {in_type} input;
     input.emplace_back(101, 1, {sample_in_1});
-    ctx.Publish({cpp_string(in_name)}, std::move(input));
-    EXPECT_EQ(node->Process(&ctx), {provenance_error});
-    EXPECT_FALSE(ctx.Has({cpp_string(out_name)}));
+    harness.CustomInput({cpp_string(in_name)}, std::move(input));
+    auto result = harness.Run();
+    EXPECT_EQ(result.process_code(), {provenance_error});
+    EXPECT_EQ(result.Output<{out_type}>({cpp_string(out_name)}), nullptr);
     mock_model->corrupt_provenance_ = false;
   }}
 }}
 
 TEST(CustomNodeCatalogTest, {name}_BusinessExample) {{
-  auto node = NodeRegistry::Instance().Create({cpp_string(name)});
-  ASSERT_NE(node, nullptr);
-  SessionContext session;
+  NodeHarness harness({cpp_string(name)});
   auto mock_model = std::make_shared<test::{mock_class}>();
-  ASSERT_TRUE(session.GetModelManager().RegisterModel(
-      "test_model", mock_model, "test-v1", mock_model->ModelType(),
-      mock_model->Capability(), "test_backend"));
-  ASSERT_TRUE(InitNodeForTest(*node, {{{{"bind_model", "test_model"}}}}, &session));
-  AlgContext ctx;
+  harness.BindModel("test_model", mock_model);
+  harness.Config({{{{"bind_model", "test_model"}}}});
+
   {in_type} input;
   input.emplace_back(1, 0, {sample_in_1});
-  ctx.Publish({cpp_string(in_name)}, std::move(input));
-  ASSERT_EQ(node->Process(&ctx), 0);
-  const auto* output = ctx.Read<{out_type}>({cpp_string(out_name)});
+  harness.CustomInput({cpp_string(in_name)}, std::move(input));
+  auto result = harness.Run();
+  ASSERT_TRUE(result.ok()) << result.diagnostic();
+  const auto* output = result.Output<{out_type}>({cpp_string(out_name)});
   ASSERT_NE(output, nullptr);
   ASSERT_EQ(output->size(), 1u);
 {expected_output_check}
@@ -1095,7 +1037,7 @@ def main():
                 print(f"  Add {test_filename} to {test_cmake_path}")
 
         if args.control_id is not None:
-            print("Next: edit ReadPrefix shared by config and Control, and its same-file schema. Walkthrough: doc/dev_guide/first_control.md")
+            print("Next: edit ApplyPrefix for business logic and Parameters/Field for config and Control validation. Walkthrough: doc/dev_guide/first_control.md")
         if args.kind == "model" and capability == "llm":
             print("Next: edit BuildPrompt and FormatAnswer. Walkthrough: doc/dev_guide/first_custom_node.md")
 

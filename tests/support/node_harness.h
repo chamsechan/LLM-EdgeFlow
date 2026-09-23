@@ -152,11 +152,10 @@ class NodeHarness {
 
   template <typename T>
   NodeHarness& CustomInput(const std::string& logical_port_name, T value) {
-    custom_inputs_[logical_port_name] = [val = std::move(value)](
-                                            AlgContext& ctx,
-                                            const std::string& key) mutable {
-      ctx.Publish(key, std::move(val));
-    };
+    custom_inputs_[logical_port_name] =
+        [val = std::move(value)](AlgContext& ctx, const std::string& key) {
+          ctx.Publish(key, val);
+        };
     return *this;
   }
 
