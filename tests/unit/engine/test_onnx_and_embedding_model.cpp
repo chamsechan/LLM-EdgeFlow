@@ -1123,7 +1123,6 @@ TEST_F(OnnxAndEmbeddingModelTest, OnnxRuntimeFixturePassEvidence) {
   // model registration with an explicit typed Model/Backend fixture.
   pipeline_config["models"][1] = {
       {"model_id", "llm_model_llamacpp"},
-      {"capability", "llm"},
       {"model_type", "test_biz_llm"},
       {"backend", "test_causal_lm_backend"},
       {"model_path", "./models/test-qwen-mock.bin"},

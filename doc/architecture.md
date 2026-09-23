@@ -179,7 +179,7 @@ Demo 不得提前拆解请求或在 SDK 返回后补组业务响应；内部节�
 ### 流程编排层（Orchestration）
 - **代码位置**：`include/core/`，`src/core/`
 - **核心职责**：
-  1. **配置驱动与执行计划**：接入适配层的 `PrepareDeploymentDocument` 准备部署信息和中性 `PipelineIoBoundary`，`PipelineValidator::ValidateAndPlan` 解析中性 Pipeline 配置、校验端口与显式 DAG，并生成 `ValidatedPipelinePlan`；`Pipeline::BuildFromPlan` 消费计划，不重复解析或排序；
+  1. **配置驱动与执行计划**：接入适配层的 `PrepareDeploymentDocument` 准备部署信息和中性 `PipelineIoBoundary`，`PipelineValidator::ValidateAndPlan` 根据节点顶层 `inputs` / `outputs` 的数据映射推导唯一生产者依赖，合并可选 `depends_on` 的额外顺序约束，校验端口及 DAG 并生成 `ValidatedPipelinePlan`；`Pipeline::BuildFromPlan` 消费计划，不重复解析或排序。必需输入显式连接，可选输入省略即未连接；`max_parallel_workers` 默认 1，大于 1 时启用现有并行调度及安全检查；
   2. **三级状态管理**：
      - `SessionContext`：句柄级常驻状态，管理单句柄加载的多个模型实例
        （`ModelManager`）与 `SessionResourceKey<T>` 类型安全资源；同名异型访问在 cast 前

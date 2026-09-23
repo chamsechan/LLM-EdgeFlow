@@ -318,15 +318,7 @@ class TwoStageHarnessNode : public AuthorNode<decltype(TwoStageSpec())> {
 };
 
 NodeDefinition TwoStageDefinition() {
-  auto definition =
-      TwoStageSpec().BuildDefinition(TwoStageHarnessNode::kNodeType);
-  for (auto& field : definition.config_fields) {
-    if (field.name == "draft_model" || field.name == "revise_model") {
-      field.required = false;
-      field.default_value = "default_" + field.name;
-    }
-  }
-  return definition;
+  return TwoStageSpec().BuildDefinition(TwoStageHarnessNode::kNodeType);
 }
 
 REGISTER_NODE_WITH_DEFINITION(TwoStageHarnessNode, TwoStageDefinition());
@@ -956,7 +948,7 @@ TEST(FunctionNodeTest, HarnessAllowsModelSlotsToShareOneModel) {
   EXPECT_EQ(model->call_count, 2);
 }
 
-TEST(FunctionNodeTest, HarnessUsesDefinitionDefaultModelReferences) {
+TEST(FunctionNodeTest, ModelReferencesRequireExplicitConfiguration) {
   auto draft = std::make_shared<CountingMockLlmModel>();
   auto revise = std::make_shared<CountingMockLlmModel>();
   NodeHarness harness("TwoStageHarnessNode");
@@ -965,6 +957,20 @@ TEST(FunctionNodeTest, HarnessUsesDefinitionDefaultModelReferences) {
   harness.TextInput("questions", {"hello"});
 
   auto result = harness.Run();
+  EXPECT_FALSE(result.ok());
+  EXPECT_EQ(draft->call_count, 0);
+  EXPECT_EQ(revise->call_count, 0);
+
+  const auto definition = TwoStageDefinition();
+  ASSERT_EQ(definition.config_fields.size(), 2U);
+  for (const auto& field : definition.config_fields) {
+    EXPECT_TRUE(field.required);
+    EXPECT_TRUE(field.default_value.is_null());
+  }
+
+  harness.Config({{"draft_model", "default_draft_model"},
+                  {"revise_model", "default_revise_model"}});
+  result = harness.Run();
   ASSERT_TRUE(result.ok()) << result.diagnostic();
   EXPECT_EQ(result.TextValues("output"),
             (std::vector<std::string>{"ans:ans:hello"}));

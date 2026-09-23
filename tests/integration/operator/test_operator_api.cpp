@@ -2099,9 +2099,8 @@ TEST_F(OperatorApiTest, VariableResultsUsePoolCapacityAndRollbackOnFailure) {
          {{{"id", "rule"},
            {"node_type", "TextRuleMatchNode"},
            {"depends_on", nlohmann::json::array()},
-           {"ports",
-            {{"inputs", {{"text", "input_sentences"}}},
-             {"outputs", {{"matches", "rule_matches"}}}}},
+           {"inputs", {{"text", "input_sentences"}}},
+           {"outputs", {{"matches", "rule_matches"}}},
            {"config", {{"categories", {{"LONG", {word}}}}}}}}}};
     std::ofstream(temp.path() / "pipeline.json") << pipeline;
     std::ofstream(temp.path() / "pipeline.conf")

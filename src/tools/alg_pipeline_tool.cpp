@@ -209,8 +209,7 @@ void Usage() {
       << "  alg_pipeline_tool resolve-conf FILE [--root DIR] [--depth N]\n"
       << "  alg_pipeline_tool validate-io CONFIG "
          "[--model-root DIR]\n"
-      << "  alg_pipeline_tool edit --stdin\n"
-      << "  alg_pipeline_tool fix-deps FILE [--in-place]\n";
+      << "  alg_pipeline_tool edit --stdin\n";
 }
 
 }  // namespace
@@ -622,53 +621,6 @@ int main(int argc, char* argv[]) {
     }
     try {
       auto result = llm_edgeflow::PipelineAuthoring::ApplyRequest(request);
-      std::cout << result.ToJson().dump(2) << std::endl;
-      return result.ok ? 0 : 1;
-    } catch (const std::exception& error) {
-      std::cout << ToolError("AUTHORING_ERROR", error.what()).dump(2)
-                << std::endl;
-      return 1;
-    } catch (...) {
-      std::cout << ToolError("AUTHORING_ERROR", "未知编排工具错误").dump(2)
-                << std::endl;
-      return 1;
-    }
-  }
-
-  if (command == "fix-deps") {
-    if (argc < 3 || argc > 4) {
-      Usage();
-      return 2;
-    }
-    std::string file = argv[2];
-    bool in_place = false;
-    if (argc == 4) {
-      if (std::string(argv[3]) == "--in-place") {
-        in_place = true;
-      } else {
-        Usage();
-        return 2;
-      }
-    }
-    const auto ops =
-        llm_edgeflow::operator_api::Get_LLM_EDGEFLOW_OperatorTable();
-    if (ops.Init != nullptr && ops.Init() != 0) {
-      std::cout << PipelineError(
-                       DiagnosticCode::kRegistryConflict,
-                       llm_edgeflow::operator_api::GetOperatorLastError())
-                       .dump(2)
-                << std::endl;
-      return 1;
-    }
-    struct OpsGuard {
-      llm_edgeflow::operator_api::OperatorFunc ops;
-      ~OpsGuard() {
-        if (ops.DeInit != nullptr) ops.DeInit();
-      }
-    } ops_guard{ops};
-
-    try {
-      auto result = llm_edgeflow::PipelineAuthoring::FixDeps(file, in_place);
       std::cout << result.ToJson().dump(2) << std::endl;
       return result.ok ? 0 : 1;
     } catch (const std::exception& error) {

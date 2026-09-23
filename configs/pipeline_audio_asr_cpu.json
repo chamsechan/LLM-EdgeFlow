@@ -22,7 +22,6 @@
   "models": [
     {
       "model_id": "asr_model_v1",
-      "capability": "asr",
       "model_type": "whisper_asr",
       "backend": "whisper_cpp",
       "model_path": "ggml-base.bin",
@@ -40,33 +39,19 @@
     {
       "id": "transcribe",
       "node_type": "AsrTranscribeNode",
-      "depends_on": [],
-      "ports": {
-        "inputs": {
-          "audio": "audio_inputs"
-        },
-        "outputs": {
-          "text": "transcripts"
-        }
-      },
       "config": {
         "bind_model": "asr_model_v1"
+      },
+      "inputs": {
+        "audio": "audio_inputs"
+      },
+      "outputs": {
+        "text": "transcripts"
       }
     },
     {
       "id": "intent",
       "node_type": "TextRuleMatchNode",
-      "depends_on": [
-        "transcribe"
-      ],
-      "ports": {
-        "inputs": {
-          "text": "transcripts"
-        },
-        "outputs": {
-          "matches": "intent_slots"
-        }
-      },
       "config": {
         "default_category": "UNCLASSIFIED",
         "categories": {
@@ -78,6 +63,12 @@
             "播放"
           ]
         }
+      },
+      "inputs": {
+        "text": "transcripts"
+      },
+      "outputs": {
+        "matches": "intent_slots"
       }
     }
   ]

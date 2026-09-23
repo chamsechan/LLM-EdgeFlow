@@ -128,7 +128,9 @@ cp demo/fixtures/mock/pipeline_entity_extract_custom.conf demo/fixtures/mock/pip
 {"bind_model": "entity_llm"}
 ```
 
-保留该节点的 `ports` 和 `depends_on`，以及其他模型与 JSON 解析节点。
+保留该节点的 `inputs` 和 `outputs`，以及其他模型与 JSON 解析节点。
+Validator 根据输入数据的唯一生产者推导执行依赖，无需重复填写 `depends_on`；
+该字段仅用于没有数据连接的额外执行顺序。模型引用必须显式填写，不使用约定实例名作为默认值。
 在 `pipeline_first_node.conf` 中，将 `pipe_path` 改为
 `pipeline_first_node.json`（`.conf` 仅包含该定位字段；接入绑定与输出容量沿用 JSON 中的 `deployment`）。
 
@@ -143,7 +145,8 @@ flowchart LR
 ```
 
 为什么节点里叫 `input`，方案里却叫 `input_sentences`？前者是这个操作的接口名，后者是
-当前方案给数据取的名字；`ports` 将它们连起来。下一个方案可以换数据名，节点代码继续复用。
+当前方案给数据取的名字；`inputs` 将它们连起来，`outputs` 为输出数据指定名字。
+下一个方案可以换数据名，节点代码继续复用。
 
 ## 6. 校验并运行同一个 Demo
 

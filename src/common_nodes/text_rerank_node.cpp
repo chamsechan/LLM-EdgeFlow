@@ -154,7 +154,6 @@ auto TextRerankSpec() {
                           "分组，用重排模型分数降序保留的候选条数上限。")}),
              ModelsOf<RerankModels>(
                  {Model("reranker", "bind_model", &RerankModels::reranker,
-                        "rerank_model_v1",
                         "引用 models[].model_id；所选模型必须提供 rerank "
                         "查询与候选评分能力。")}),
              &RerankText)

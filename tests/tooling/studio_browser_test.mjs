@@ -268,15 +268,9 @@ try {
   await page.click('#runButton');
   await page.waitForFunction(() => document.querySelector('#runSummary').textContent.includes('运行已完成'));
   assert.equal(await page.locator('.run-sample').count(), 2);
-  // A real port action must use native authoring and remain a single undo step.
   await rule().click();
-  const beforeReset = await json();
   await page.locator("#nodeForm details > summary").click();
-  await page.locator("#nodeBindings button").filter({ hasText: "恢复默认绑定" }).first().click();
-  await page.waitForFunction(() => !JSON.parse(document.querySelector("#rawJson").value).pipeline[0].ports?.inputs?.text);
-  assert.ok(authoringRequests.some(request => request.operation?.kind === "reset_input_binding"));
-  await page.click("#undoButton");
-  assert.deepEqual(await json(), beforeReset);
+  assert.equal(await page.locator("#nodeBindings button").filter({ hasText: "恢复默认绑定" }).count(), 0);
 
   // Dependency controls are graph actions, not node-property draft buffers.
   // Add an independent node so the new ordering is observable and acyclic.
@@ -296,7 +290,7 @@ try {
     "Selecting an execution dependency must not create a pending parameter draft");
   await page.click("#addDependencyButton");
   await page.waitForFunction(({ id, dependency }) => JSON.parse(document.querySelector("#rawJson").value)
-    .pipeline.find(node => node.id === id).depends_on.includes(dependency),
+    .pipeline.find(node => node.id === id).depends_on?.includes(dependency),
     { id: addedNode.id, dependency: beforeAdd.pipeline[0].id });
   assert.ok(authoringRequests.some(request => request.operation?.kind === "add_dependency" &&
     request.operation.node_id === addedNode.id));
@@ -306,35 +300,15 @@ try {
   assert.deepEqual(await json(), beforeAdd, "The preceding undo removes the added node");
   await page.locator("#operatorSearch").fill("");
 
-  // Native missing-dependency remedies are reviewed on the page, never in a dialog.
+  // Data connections need no explicit ordering or dependency repair.
   await open("pipeline_browser_multi.json");
-  const repairOriginal = await json();
-  const missingDependencies = structuredClone(repairOriginal);
-  for (const node of missingDependencies.pipeline) node.depends_on = [];
+  const inferredDependencies = await json();
+  for (const node of inferredDependencies.pipeline) delete node.depends_on;
   await page.click('[data-tab="json"]');
-  await page.locator("#rawJson").fill(JSON.stringify(missingDependencies));
+  await page.locator("#rawJson").fill(JSON.stringify(inferredDependencies));
   await page.click("#quickValidateButton");
-  await page.waitForSelector("#validationOutput .fix-apply-btn");
-  let repairDialogs = 0;
-  const rejectRepairDialog = async dialog => { repairDialogs++; await dialog.dismiss(); };
-  page.on("dialog", rejectRepairDialog);
-  await page.locator("#validationOutput .fix-apply-btn").first().click();
-  await page.waitForSelector("#applyReviewedFix");
-  assert.deepEqual(await json(), missingDependencies, "Review must leave draft unchanged");
-  assert.equal(await page.locator("#fixReviewPanel details").getAttribute("open"), null);
-  await page.click("#cancelReviewedFix");
-  assert.equal(await page.locator("#fixReviewPanel").isVisible(), false);
-  await page.locator("#validationOutput .fix-apply-btn").first().click();
-  await page.waitForSelector("#applyReviewedFix");
-  await page.click("#applyReviewedFix");
-  await page.waitForFunction(() => document.querySelector("#fixReviewPanel").hidden);
-  assert.notDeepEqual(await json(), missingDependencies);
-  assert.equal(repairDialogs, 0);
-  page.off("dialog", rejectRepairDialog);
-  await page.click("#undoButton");
-  assert.deepEqual(await json(), missingDependencies, "One undo restores the entire reviewed draft");
-  await page.click("#undoButton");
-  assert.deepEqual(await json(), repairOriginal);
+  await page.waitForFunction(() => document.querySelector("#validationOutput").textContent.includes("校验通过"));
+  assert.equal(await page.locator("#validationOutput .fix-apply-btn").count(), 0);
   await open("pipeline_browser_other.json");
   // Native Validator reports use an object-valued error.message.
   await page.click('[data-tab="json"]');

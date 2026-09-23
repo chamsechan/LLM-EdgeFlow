@@ -24,7 +24,6 @@
   },
   "models": [
     {
-      "capability": "embedding",
       "model_type": "bge_embedding",
       "backend": "onnxruntime",
       "model_config": {
@@ -38,7 +37,6 @@
       "model_path": "bge_base_zh_v1.5.onnx"
     },
     {
-      "capability": "rerank",
       "model_type": "bge_reranker",
       "backend": "onnxruntime",
       "model_config": {
@@ -52,7 +50,6 @@
       "model_path": "ms_marco_tinybert_l2_v2_quantized.onnx"
     },
     {
-      "capability": "llm",
       "model_type": "qwen_causal_lm",
       "backend": "llama_cpp",
       "model_config": {
@@ -76,15 +73,6 @@
     {
       "id": "node_0_TextRuleMatchNode",
       "node_type": "TextRuleMatchNode",
-      "depends_on": [],
-      "ports": {
-        "inputs": {
-          "text": "user_texts"
-        },
-        "outputs": {
-          "matches": "rule_matches"
-        }
-      },
       "config": {
         "categories": {
           "BLACKLIST": [
@@ -95,17 +83,17 @@
             "刷单返利"
           ]
         }
+      },
+      "inputs": {
+        "text": "user_texts"
+      },
+      "outputs": {
+        "matches": "rule_matches"
       }
     },
     {
       "id": "node_1_TextCorpusSourceNode",
       "node_type": "TextCorpusSourceNode",
-      "depends_on": [],
-      "ports": {
-        "outputs": {
-          "corpus": "policy_corpus"
-        }
-      },
       "config": {
         "corpus": [
           "制度条款101: 严禁引导客户进行私下转账、绕过平台交易或索取银行卡密码",
@@ -113,140 +101,102 @@
           "制度条款103: 严禁以任何理由向客户推介非官方指定的返利或刷单活动",
           "制度条款104: 规范客服日常服务用语，严禁出现侮辱、辱骂或威胁客户的行为"
         ]
+      },
+      "outputs": {
+        "corpus": "policy_corpus"
       }
     },
     {
       "id": "node_2_QueryEmbeddingNode",
       "node_type": "TextEmbeddingNode",
-      "depends_on": [],
-      "ports": {
-        "inputs": {
-          "text": "user_texts"
-        },
-        "outputs": {
-          "embedding": "query_embeddings"
-        }
-      },
       "config": {
         "bind_model": "embed_model_v2"
+      },
+      "inputs": {
+        "text": "user_texts"
+      },
+      "outputs": {
+        "embedding": "query_embeddings"
       }
     },
     {
       "id": "node_3_PolicyEmbeddingNode",
       "node_type": "TextEmbeddingNode",
-      "depends_on": [
-        "node_1_TextCorpusSourceNode"
-      ],
-      "ports": {
-        "inputs": {
-          "text": "policy_corpus"
-        },
-        "outputs": {
-          "embedding": "policy_embeddings"
-        }
-      },
       "config": {
         "bind_model": "embed_model_v2",
         "lifetime": "session"
+      },
+      "inputs": {
+        "text": "policy_corpus"
+      },
+      "outputs": {
+        "embedding": "policy_embeddings"
       }
     },
     {
       "id": "node_4_VectorTopKNode",
       "node_type": "VectorTopKNode",
-      "depends_on": [
-        "node_2_QueryEmbeddingNode",
-        "node_3_PolicyEmbeddingNode"
-      ],
-      "ports": {
-        "inputs": {
-          "queries": "query_embeddings",
-          "candidates": "policy_embeddings",
-          "candidate_texts": "policy_corpus"
-        },
-        "outputs": {
-          "ranked": "coarse_policy"
-        }
-      },
       "config": {
         "top_k": 3,
         "candidate_scope": "shared"
+      },
+      "inputs": {
+        "queries": "query_embeddings",
+        "candidates": "policy_embeddings",
+        "candidate_texts": "policy_corpus"
+      },
+      "outputs": {
+        "ranked": "coarse_policy"
       }
     },
     {
       "id": "node_5_TextRerankNode",
       "node_type": "TextRerankNode",
-      "depends_on": [
-        "node_4_VectorTopKNode"
-      ],
-      "ports": {
-        "inputs": {
-          "queries": "user_texts",
-          "candidates": "coarse_policy"
-        },
-        "outputs": {
-          "ranked": "matched_policy"
-        }
-      },
       "config": {
         "bind_model": "rerank_model_v1",
         "top_k": 1
+      },
+      "inputs": {
+        "queries": "user_texts",
+        "candidates": "coarse_policy"
+      },
+      "outputs": {
+        "ranked": "matched_policy"
       }
     },
     {
       "id": "node_6_TextTemplateNode",
       "node_type": "TextTemplateNode",
-      "depends_on": [
-        "node_0_TextRuleMatchNode",
-        "node_5_TextRerankNode"
-      ],
-      "ports": {
-        "inputs": {
-          "primary": "user_texts",
-          "context": "matched_policy",
-          "matches": "rule_matches"
-        },
-        "outputs": {
-          "text": "prompt_text"
-        }
-      },
       "config": {
         "template": "你是一个专业的智能客服合规风控质检大模型。请根据相关制度条款对客服与用户的对话进行合规判定并给出建议：\n【对话内容】: {{primary}}\n【相关制度】: {{context}}\n【规则初筛】: {{matches}}\n请严格按JSON格式输出判定：{\"verdict\": \"违规/合规\", \"risk_level\": \"HIGH_RISK/SAFE\", \"suggestion\": \"...\"}\n【审核结论】:\nJSON 必须包含 risk_score 数值（0 到 1）。"
+      },
+      "inputs": {
+        "primary": "user_texts",
+        "context": "matched_policy",
+        "matches": "rule_matches"
+      },
+      "outputs": {
+        "text": "prompt_text"
       }
     },
     {
       "id": "node_7_LlmGenerateNode",
       "node_type": "LlmGenerateNode",
-      "depends_on": [
-        "node_6_TextTemplateNode"
-      ],
-      "ports": {
-        "inputs": {
-          "prompt": "prompt_text"
-        },
-        "outputs": {
-          "text": "llm_raw_verdict"
-        }
-      },
       "config": {
         "bind_model": "audit_llm_v1",
         "max_tokens": 256,
         "temperature": 0.1
+      },
+      "inputs": {
+        "prompt": "prompt_text"
+      },
+      "outputs": {
+        "text": "llm_raw_verdict"
       }
     },
     {
       "id": "node_8_StructuredJsonParseNode",
       "node_type": "StructuredJsonParseNode",
-      "depends_on": [
-        "node_7_LlmGenerateNode"
-      ],
-      "ports": {
-        "inputs": {
-          "text": "llm_raw_verdict"
-        },
-        "outputs": {
-          "document": "structured_verdicts"
-        }
-      },
       "config": {
         "fallback_json": "{\"verdict\": \"合规\", \"risk_level\": \"SAFE\", \"risk_score\": 0.10, \"suggestion\": \"无违规内容\"}",
         "field_types": {
@@ -258,6 +208,12 @@
           "risk_score"
         ],
         "failure_policy": "fail"
+      },
+      "inputs": {
+        "text": "llm_raw_verdict"
+      },
+      "outputs": {
+        "document": "structured_verdicts"
       }
     }
   ]

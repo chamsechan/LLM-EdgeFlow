@@ -114,7 +114,6 @@ TEST(RegistryReentrantTest, ReentrantCreationZeroDeadlock) {
         {"biz_name", "reentrant_model_test"},
         {"models", nlohmann::json::array(
                        {{{"model_id", "m1"},
-                         {"capability", "embedding"},
                          {"model_type", ReentrantModel::kModelType},
                          {"backend", "test_tensor_backend"},
                          {"model_path", "reentrant.bin"},

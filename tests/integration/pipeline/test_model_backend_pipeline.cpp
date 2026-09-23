@@ -324,12 +324,12 @@ TEST_F(ModelBackendPipelineTest, ValidateAndNormalizeConfigBoundsAndEnum) {
 }
 
 // 2. PipelineValidator and ValidatedModelPlan Tests
-TEST_F(ModelBackendPipelineTest, ValidatorProducesModelPlanAndZeroSideEffects) {
+TEST_F(ModelBackendPipelineTest,
+       ValidatorInfersModelCapabilityWithZeroSideEffects) {
   nlohmann::json cfg = {
       {"biz_name", "model_plan_test"},
       {"models", nlohmann::json::array({{
                      {"model_id", "emb_model"},
-                     {"capability", "embedding"},
                      {"model_type", "mock_bge_embedding"},
                      {"backend", "mock_test_backend"},
                      {"model_path", "./models/bge/model.onnx"},
@@ -398,13 +398,13 @@ TEST_F(ModelBackendPipelineTest,
         {"biz_name", "unified_qwen_backend_swap_test"},
         {"models",
          nlohmann::json::array({{{"model_id", "llm"},
-                                 {"capability", "llm"},
                                  {"model_type", "qwen_causal_lm"},
                                  {"backend", backend_name},
                                  {"model_path", "./models/qwen/model.bin"}}})},
         {"pipeline",
          nlohmann::json::array({{{"id", "generate"},
                                  {"node_type", "LlmGenerateNode"},
+                                 {"inputs", {{"prompt", "prompt"}}},
                                  {"depends_on", nlohmann::json::array()},
                                  {"config", {{"bind_model", "llm"}}}}})},
     };
@@ -457,7 +457,6 @@ TEST_F(ModelBackendPipelineTest, ValidatorRejectsProtocolMismatch) {
       {"models",
        nlohmann::json::array({{
            {"model_id", "emb_model"},
-           {"capability", "embedding"},
            {"model_type", "mock_bge_embedding"},  // requires kTensorGraph
            {"backend", "text_generation_only_backend"},
            {"model_path", "./model.bin"},
@@ -484,13 +483,14 @@ TEST_F(ModelBackendPipelineTest, ValidatorRejectsProtocolMismatch) {
   EXPECT_EQ(g_backend_create_count.load(), 0);
 }
 
-TEST_F(ModelBackendPipelineTest, ValidatorRejectsCapabilityMismatch) {
+TEST_F(ModelBackendPipelineTest, ValidatorRejectsRemovedCapabilityField) {
   nlohmann::json cfg = {
       {"biz_name", "cap_mismatch_test"},
       {"models",
        nlohmann::json::array({{
            {"model_id", "emb_model"},
-           {"capability", "rerank"},              // declared rerank
+           {"capability",
+            "rerank"},  // Removed field is rejected regardless of value.
            {"model_type", "mock_bge_embedding"},  // definition is embedding
            {"backend", "mock_test_backend"},
            {"model_path", "./model.onnx"},
@@ -506,13 +506,13 @@ TEST_F(ModelBackendPipelineTest, ValidatorRejectsCapabilityMismatch) {
   auto report = PipelineValidator::Validate(cfg);
   EXPECT_FALSE(report.ok);
 
-  bool found_cap_mismatch = false;
+  bool found_removed_field = false;
   for (const auto& diag : report.diagnostics) {
-    if (diag.code == DiagnosticCode::kModelCapabilityMismatch) {
-      found_cap_mismatch = true;
+    if (diag.code == DiagnosticCode::kUnknownField) {
+      found_removed_field = true;
     }
   }
-  EXPECT_TRUE(found_cap_mismatch);
+  EXPECT_TRUE(found_removed_field);
 }
 
 // 3. Pipeline Build and Atomic Materialization Tests
@@ -521,7 +521,6 @@ TEST_F(ModelBackendPipelineTest, PipelineBuildMaterializesAndRegistersModel) {
       {"biz_name", "pipeline_build_success"},
       {"models", nlohmann::json::array({{
                      {"model_id", "emb_model"},
-                     {"capability", "embedding"},
                      {"model_type", "mock_bge_embedding"},
                      {"backend", "mock_test_backend"},
                      {"model_path", "./models/bge/model.onnx"},
@@ -581,14 +580,12 @@ TEST_F(ModelBackendPipelineTest,
       {"models", nlohmann::json::array({
                      {
                          {"model_id", "good_model"},
-                         {"capability", "embedding"},
                          {"model_type", "mock_bge_embedding"},
                          {"backend", "mock_test_backend"},
                          {"model_path", "./models/good.onnx"},
                      },
                      {
                          {"model_id", "bad_model"},
-                         {"capability", "embedding"},
                          {"model_type", "mock_bge_embedding"},
                          {"backend", "failing_backend"},
                          {"model_path", "./models/bad.onnx"},
@@ -630,7 +627,6 @@ TEST_F(ModelBackendPipelineTest, ValidatorRejectsModelPathEscapingRoot) {
       {"biz_name", "path_escape_test"},
       {"models", nlohmann::json::array({{
                      {"model_id", "emb_model"},
-                     {"capability", "embedding"},
                      {"model_type", "mock_bge_embedding"},
                      {"backend", "mock_test_backend"},
                      {"model_path", "../outside/secret.onnx"},
@@ -664,7 +660,6 @@ TEST_F(ModelBackendPipelineTest,
       {"biz_name", "diag_test"},
       {"models", nlohmann::json::array({{
                      {"model_id", "emb_model"},
-                     {"capability", "embedding"},
                      {"model_type", "mock_bge_embedding"},
                      {"backend", "mock_test_backend"},
                      {"model_path", "./models/good.onnx"},
@@ -705,7 +700,6 @@ TEST_F(ModelBackendPipelineTest, ValidatorNormalizesPathLexically) {
       {"biz_name", "model_root_dir_test"},
       {"models", nlohmann::json::array({{
                      {"model_id", "emb_model"},
-                     {"capability", "embedding"},
                      {"model_type", "mock_bge_embedding"},
                      {"backend", "mock_test_backend"},
                      {"model_path", "./models/bge/model.onnx"},
@@ -729,7 +723,6 @@ TEST_F(ModelBackendPipelineTest, PipelinePassesResolvedPathAndTargetToBackend) {
       {"biz_name", "runtime_root_propagate_test"},
       {"models", nlohmann::json::array({{
                      {"model_id", "emb_model"},
-                     {"capability", "embedding"},
                      {"model_type", "mock_bge_embedding"},
                      {"backend", "mock_test_backend"},
                      {"model_path", "/deploy/edgeflow_root/weights/bge.onnx"},

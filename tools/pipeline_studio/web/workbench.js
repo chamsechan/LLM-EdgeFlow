@@ -15,7 +15,7 @@ export function compatibleModels(models = [], modelDefinitions = [], target = nu
     modelDefinitions.map(definition => [definition.model_type, definition.capability])
   );
   return models.filter(model => {
-    const capability = capabilityByType.get(model.model_type) || model.capability;
+    const capability = capabilityByType.get(model.model_type);
     return capability === requiredCapability;
   });
 }
@@ -81,14 +81,14 @@ export function graphDocument(pipeline, catalog) {
   }
   for (const node of nodes) {
     for (const port of definitions[node.id]?.outputs || []) {
-      const key = node.ports?.outputs?.[port.key] || port.key;
+      const key = node.outputs?.[port.key] || port.key;
       addProducer(key, { source: node.id, sourcePort: port.key });
     }
   }
   const edges = [];
   for (const node of nodes) {
     for (const port of definitions[node.id]?.inputs || []) {
-      const key = node.ports?.inputs?.[port.key] || (port.required ? port.key : null);
+      const key = node.inputs?.[port.key];
       if (key && producerMap.has(key)) {
         const prods = producerMap.get(key);
         if (prods.length === 1) {
@@ -180,7 +180,6 @@ export function upsertModel(pipeline, catalog, previousId, model) {
       }
     }
   }
-  model.capability = definition.capability;
   const index = pipeline.models.findIndex(item => item.model_id === previousId);
   if (index < 0) pipeline.models.push(model); else pipeline.models[index] = model;
   if (previousId && previousId !== model.model_id) {

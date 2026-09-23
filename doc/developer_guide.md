@@ -88,7 +88,7 @@ CrossRerank 的排名数组和 Compliance 的首项选择使用 `N:1 / aggregate
 ## 2. 流程编排层：Pipeline 与静态校验计划
 
 流程编排层负责请求黑板生命周期与 DAG 管线单趟构建：
-- **`ValidatedPipelinePlan`**：`PipelineValidator::ValidateAndPlan()` 单趟静态校验与 DAG 拓扑排序输出的不可变执行计划，`Pipeline::BuildFromPlan()` 直接消费该计划，杜绝运行时二次解析或隐式 DAG 计算；Node 支持代码只依赖其中抽出的 `ValidatedNodePlan` 轻量契约，不反向包含完整 Validator。
+- **`ValidatedPipelinePlan`**：`PipelineValidator::ValidateAndPlan()` 从节点顶层 `inputs` / `outputs` 的数据映射推导唯一生产者依赖，合并可选 `depends_on` 的额外顺序约束，完成静态校验和拓扑排序并输出不可变执行计划。`Pipeline::BuildFromPlan()` 直接消费该计划，不重复解析或推导 DAG；Node 支持代码只依赖其中抽出的 `ValidatedNodePlan` 轻量契约，不反向包含完整 Validator。
 - **`BlackboardKey<T>`**：强类型黑板键，各节点通过 `AlgContext::Read` 与 `Publish` 读取不可变输入并发布新值。
 - **`AlgContext` 并发契约**：输入使用 `Read` 获取只读快照，输出通过 typed port 单次
   `Publish`；不存在覆盖、删除或清空请求值的迁移入口。聚合行为由专用 Node 读取上游端口并
@@ -102,6 +102,8 @@ CrossRerank 的排名数组和 Compliance 的首项选择使用 `N:1 / aggregate
 
 Node 作者声明 `InputsOf` / `OutputsOf`，算法接收只读输入并返回结果；`AuthorNode` 负责
 绑定和 `Read/Publish`，无需在业务函数中管理黑板、锁或快照。
+配置中的必需输入必须显式绑定，可选输入省略即未连接；输出省略映射时沿用逻辑端口名。
+Pipeline 仅通过 `max_parallel_workers` 控制并发上限，范围为 1–64，默认 1。
 
 ---
 
@@ -185,7 +187,6 @@ Pipeline 配置只使用 Model/Backend 语法：
 ```json
 {
   "model_id": "embedding_v1",
-  "capability": "embedding",
   "model_type": "my_embedding_model",
   "backend": "my_tensor_backend",
   "model_path": "embedding/model.bin",
@@ -193,6 +194,9 @@ Pipeline 配置只使用 Model/Backend 语法：
   "backend_config": {"max_batch_size": 4}
 }
 ```
+
+模型能力来自 `model_type` 对应的注册 Definition，不在 JSON 中重复声明。
+Node 的模型引用字段（如 `bind_model`）必须显式填写 `model_id`，没有默认模型实例名。
 
 `ModelRuntimeFactory` 会验证 Model 能力、执行协议、并发模型与配置字段，
 再把构建好的 `IModel` 原子注册到 `ModelManager`。参考实现：

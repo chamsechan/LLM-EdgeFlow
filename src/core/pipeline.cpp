@@ -111,7 +111,7 @@ bool MaterializeModels(const ValidatedPipelinePlan& plan,
 
 void ConfigureExecutor(const ParsedPipelineConfig& config,
                        RuntimeAssembly* assembly) {
-  if (config.execution_mode == "parallel") {
+  if (config.max_parallel_workers > 1) {
     assembly->execution_mode = Pipeline::ExecutionMode::kParallel;
     assembly->thread_pool =
         std::make_unique<ThreadPool>(config.max_parallel_workers);

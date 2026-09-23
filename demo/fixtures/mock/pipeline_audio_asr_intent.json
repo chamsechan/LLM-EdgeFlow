@@ -21,7 +21,6 @@
   },
   "models": [
     {
-      "capability": "asr",
       "model_type": "test_biz_asr",
       "backend": "test_tensor_backend",
       "model_config": {
@@ -36,33 +35,19 @@
     {
       "id": "node_0_AsrTranscribeNode",
       "node_type": "AsrTranscribeNode",
-      "depends_on": [],
-      "ports": {
-        "inputs": {
-          "audio": "audio_inputs"
-        },
-        "outputs": {
-          "text": "transcripts"
-        }
-      },
       "config": {
         "bind_model": "asr_model_v1"
+      },
+      "inputs": {
+        "audio": "audio_inputs"
+      },
+      "outputs": {
+        "text": "transcripts"
       }
     },
     {
       "id": "node_1_TextRuleMatchNode",
       "node_type": "TextRuleMatchNode",
-      "depends_on": [
-        "node_0_AsrTranscribeNode"
-      ],
-      "ports": {
-        "inputs": {
-          "text": "transcripts"
-        },
-        "outputs": {
-          "matches": "intent_slots"
-        }
-      },
       "config": {
         "default_category": "GENERAL_VOICE_CMD",
         "default_score": 1.0,
@@ -156,6 +141,12 @@
             "score": 1.0
           }
         ]
+      },
+      "inputs": {
+        "text": "transcripts"
+      },
+      "outputs": {
+        "matches": "intent_slots"
       }
     }
   ]

@@ -275,14 +275,33 @@ TEST_F(TextTemplateNodeTest, PipelineEnforcesPublishedControlSchema) {
 namespace {
 nlohmann::json TemplatePipeline(const nlohmann::json& config) {
   auto root = nlohmann::json::parse(R"({
-    "biz_name":"keyword_match_v1", "models":[], "pipeline":[
-      {"id":"template", "node_type":"TextTemplateNode", "depends_on":[],
-       "ports":{"inputs":{"primary":"input_sentences"},
-                "outputs":{"text":"rendered_text"}}, "config":{}},
-      {"id":"rules", "node_type":"TextRuleMatchNode", "depends_on":["template"],
-       "ports":{"inputs":{"text":"rendered_text"},
-                "outputs":{"matches":"rule_matches"}}, "config":{}}
-    ]})");
+  "biz_name": "keyword_match_v1",
+  "models": [],
+  "pipeline": [
+    {
+      "id": "template",
+      "node_type": "TextTemplateNode",
+      "config": {},
+      "inputs": {
+        "primary": "input_sentences"
+      },
+      "outputs": {
+        "text": "rendered_text"
+      }
+    },
+    {
+      "id": "rules",
+      "node_type": "TextRuleMatchNode",
+      "config": {},
+      "inputs": {
+        "text": "rendered_text"
+      },
+      "outputs": {
+        "matches": "rule_matches"
+      }
+    }
+  ]
+})");
   root["pipeline"][0]["config"] = config;
   return root;
 }

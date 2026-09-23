@@ -136,6 +136,13 @@ bool ValidateNodeDefinitionStructure(const NodeDefinition& definition,
       }
       return false;
     }
+    if (!it->required || !it->default_value.is_null()) {
+      if (error) {
+        *error = "Model dependency config_field '" + dep.config_field +
+                 "' must be required and have no default model reference";
+      }
+      return false;
+    }
   }
   if (error) error->clear();
   return true;

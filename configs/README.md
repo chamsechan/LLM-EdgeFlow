@@ -13,6 +13,18 @@ JSON 字符串翻译的运行命令、输入输出与复用范围见[翻译方�
 需要选择可运行预设时查询 `alg_pipeline_tool catalog` 的 `profiles` 并核对资源；详细流程见
 [Pipeline Studio](../tools/pipeline_studio/README.md)。
 
+## 配置中的连接与模型
+
+节点保留 `id`、`node_type`、`config`，直接用顶层 `inputs` / `outputs` 将逻辑端口映射到数据名。
+必需输入必须明确连接，可选输入省略时表示未连接；输出省略映射时使用逻辑端口名。
+Validator 从输入数据的唯一生产者推导依赖，`depends_on` 仅用于额外执行顺序，可以省略。
+节点在数组中的位置不决定执行顺序；生产者缺失、多个生产者或成环会被拒绝。
+
+模型能力从 `model_type` 的注册 Definition 获取。节点的模型引用（如 `config.bind_model`）
+必须显式填写 `models[].model_id`；普通参数仍按 Definition 补齐默认值。
+`max_parallel_workers` 范围为 1–64，默认 1，大于 1 时启用并行调度和相应安全检查。
+旧的节点 `ports`、根级 `execution_mode` 和 `models[].capability` 字段不再接受。
+
 ## 手写 JSON 的补全
 
 完成 CMake 配置后，在 VS Code 打开仓内 [edgeflow.code-workspace](../edgeflow.code-workspace)，

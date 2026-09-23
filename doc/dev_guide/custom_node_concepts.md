@@ -35,7 +35,9 @@ Pipeline 还需要给传递的数据起名字，称为 Blackboard key。练习�
 | 读入 | `input` | `input_sentences` |
 | 写出 | `output` | `llm_raw_answer` |
 
-`ports.inputs` / `ports.outputs` 负责这张映射，`depends_on` 明确节点执行依赖。
+节点顶层的 `inputs` / `outputs` 负责这张映射。Validator 根据输入数据的唯一生产者
+推导执行依赖；只有额外执行顺序需要填写可选的 `depends_on`。数组排列顺序不决定执行顺序。
+必需输入必须显式连接，可选输入省略时表示未连接；输出未映射时仍使用逻辑端口名作为数据名。
 换一个方案时，可以把 `input` 接到 `cleaned_texts`，不必改 C++ 中的接口名。
 
 框架将值放在当前请求的 `AlgContext` 中，可以理解成“这次处理的数据工作区”。
@@ -86,7 +88,6 @@ outputs.emplace_back(item.req_id, item.sub_id, new_value);
 
 | 字段 / 接口 | 练习中的值 | 说明 |
 | --- | --- | --- |
-| `capability` | `llm` | 模型提供哪一类能力 |
 | `model_type` | `test_biz_llm` | 哪一种模型语义实现；本例为测试模型 |
 | `backend` | `test_causal_lm_backend` | 运行资源由哪一种后端实现提供；本例为测试后端 |
 | `model_id` | `entity_llm` | Pipeline 为这个模型实例起的名字 |
@@ -94,6 +95,8 @@ outputs.emplace_back(item.req_id, item.sub_id, new_value);
 | `ILlmModel` | C++ 接口 | 节点编译时依赖的能力约定 |
 
 模型类型和后端名称只是这个练习的已注册配置，其他环境以 Catalog 为准。
+模型能力由 `model_type` 对应的注册 Definition 提供，JSON 不再声明 `capability`。
+`Model` 声明的引用字段必须显式填写，不能依靠约定模型名或候选模型数量自动选择。
 模型和后端的组合需要通过协议校验；路径是否可加载、资源是否充足，还要在构建运行时确认。
 
 Pipeline 构建期间准备模型资源，作者包装在初始化时取得各槽绑定的能力句柄。
@@ -179,9 +182,9 @@ Control 更新单独归一化参数、构造下一状态后发布。
 `WithControl` 不会再次运行初始化的 `Prepare`。模板编译和规则解析各有一个实现，
 配置与补丁可以使用不同结构。
 
-`parallel_safe=false` 是脚手架的保守初始声明。对于显式 `parallel` Pipeline，若该节点
+`parallel_safe=false` 是脚手架的保守初始声明。Pipeline 的 `max_parallel_workers` 大于 1 时，若该节点
 处于含多个节点的并行层，Validator 会拒绝这个计划；它不会自动加锁，也不会自动把
-那一层改成串行。本练习沿用默认的 sequential 执行模式。
+那一层改成串行。`max_parallel_workers` 范围为 1–64，默认 1；本练习沿用默认串行执行。
 
 准备设为 `true` 时，检查你的业务函数、调用的辅助对象和所有节点自有共享状态。
 `true` 只说明节点自身可以按该契约并行执行；所绑定模型及 Backend 的并发约束仍由
@@ -248,7 +251,7 @@ Node 套件；命令见[局部测试路径](../../tests/README.md#fast-feedback-
 | --- | --- |
 | Catalog 找不到新节点 | 文件是否登记进 CMake、是否重新构建、执行的是否是刚构建的工具 |
 | 未知参数或缺失 `bind_model` | 当前 Definition、节点 config、`models[].model_id` |
-| 输入类型或生产者不匹配 | `ports` 两端的类型、实际数据名和 `depends_on` |
+| 输入类型或生产者不匹配 | `inputs` / `outputs` 两端的类型、实际数据名和唯一生产者 |
 | 模型调用返回错误 | 节点报告的错误码、所绑定模型的日志和资产配置 |
 | 输出数量或来源不匹配 | 前后处理是否删项/换序/改编号，模型是否正确保留来源 |
 | 并行计划被拒绝 | 节点声明以及同层所使用模型的并发能力 |

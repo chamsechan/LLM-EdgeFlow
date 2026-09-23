@@ -21,8 +21,9 @@ C++ 查看工具，展示更多声明信息：
 ./build/alg_show configs/pipeline_doc_qa_default.json
 ```
 
-该命令忠实输出 JSON 中声明的业务名、节点 ID、节点类型和 `depends_on`，不推导执行
-计划，也不启动 Web 服务。需要经过校验的拓扑顺序和波前层时，应使用
+该命令忠实输出 JSON 中声明的业务名、节点 ID、节点类型、`inputs` / `outputs` 数据映射，
+以及表示额外顺序的 `depends_on`。未声明的映射会标明缺省；查看器不推导执行计划，也不启动
+Web 服务。需要经过校验的拓扑顺序和波前层时，应使用
 `alg_pipeline_tool plan`。模型批处理信息仅显示配置中实际声明的
 `backend_config.max_batch_size`、`backend_config.decode_batch_size`；未声明时不推测默认值。
 
@@ -84,9 +85,9 @@ C++ 查看工具，展示更多声明信息：
   “放弃修改”恢复表单。校验、运行和保存会一次应用当前合法表单并继续；非法字段保留原输入并
   定位错误，不启动运行或保存。切换节点或返回浏览时，可选择“应用并继续”“放弃并继续”或
   “留在当前”。一次编辑一个表单；应用后仍需保存到文件。
-- 图上的新增、删节点、重命名和连接操作统一使用原生工具。断开数据线保留执行依赖；节点属性的
-  “输入绑定与执行依赖”可单独增删依赖、恢复默认绑定。恢复默认由 Catalog/Validator 解释，
-  不保证一定连上业务输入；不完整草稿仍可编辑，运行和保存要求校验成功。
+- 图上的新增、删节点、重命名和连接操作统一使用原生工具。连接只更新节点顶层 `inputs` /
+  `outputs`，数据依赖由 Core Validator 推导；断开直接删除输入映射，保留手写 `depends_on`。
+  节点属性可单独增删额外执行顺序；不完整草稿仍可编辑，运行和保存要求校验成功。
 - 校验诊断的修复按钮打开页内候选审阅，展开详情检查改动，选择应用或取消。草稿或工具变化会
   使旧候选失效；一次应用只产生一个撤销步骤。
 - 自由字符串支持多行编辑；原样应用保留换行、空白、已有空串和可选字段的缺省状态。
@@ -143,10 +144,11 @@ Catalog v4 的 `external_slots` 导出 `slot_name`、`type_id`、`type_suffix` �
 
 可将版本化编辑请求交给 `alg_pipeline_tool edit --stdin`，返回候选 Pipeline、变更和校验报告；
 单次最多 128 个动作、4 MiB，`require_valid: true` 要求最终候选合法。具体请求见
-[RFC-0057 的操作契约](../../doc/rfcs/0057-pipeline-composition-experience.md#41-所有者与接口)。
-手写 ports 后可先运行 `alg_pipeline_tool fix-deps pipeline.json` 预览确定的依赖补充，确认后
-加 `--in-place` 写回；歧义、环路、其他校验错误或文件写入失败均不覆盖原文件。
-带 `deployment` 的文档在 `validate`、`plan`、`edit` 与 `fix-deps` 中统一执行部署准备（RFC-0062）：原始模型路径必须为合法非空字符串，`deployment.model_paths` 覆盖不得掩盖非法原始声明；`edit` 与 `fix-deps` 同样严格校验未知 I/O 绑定或非法输出分配。
+[RFC-0071 的简化契约](../../doc/rfcs/0071-pipeline-configuration-simplicity.md)。
+工具支持新增、删除、重命名节点、连接、断开和单独增删执行依赖。无需补数据依赖，输入也没有
+隐式同名绑定。带 `deployment` 的文档在 `validate`、`plan`、`edit` 中统一执行部署准备：
+原始模型路径必须为合法非空字符串，`deployment.model_paths` 覆盖不得掩盖非法原始声明；
+`edit` 同样严格校验未知 I/O 绑定或非法输出分配。
 
 编排或修改 Pipeline 时，应先查询 Catalog 与节点 Definition，再执行 validate 和 plan。完整开发流程参见项目的 `pipeline-composer` skill 与[开发者指南](../../doc/developer_guide.md)。
 
@@ -273,7 +275,7 @@ Studio 为草稿生成项目内的临时 JSON 和 `.conf`。未关联部署时�
 
 ## 端口、模型与验收选择
 
-画布按具体端口连线，显示业务输入/输出，生成实际 `ports` 与 `depends_on`。
+画布按具体端口连线，显示业务输入/输出，生成节点顶层 `inputs` / `outputs`；数据依赖由框架推导。
 模型页支持 Model/Backend 完整字段、资产组合及当前构建的兼容检查。
 无兼容 Backend 的 Model 类型会标注“当前构建无兼容 Backend”，选择后显示缺失的协议，
 并禁止提交该模型组合；已有不可用模型仍可浏览。兼容提示来自 Catalog，不能代替模型

@@ -31,18 +31,6 @@ struct AuthoringResult {
   nlohmann::json ToJson() const;
 };
 
-struct FixDepsResult {
-  int schema_version = 1;
-  bool ok = false;
-  std::string target_file;
-  bool written = false;
-  std::vector<AuthoringChange> changes;
-  nlohmann::json validation = nlohmann::json::object();
-  std::vector<std::string> diagnostics;
-
-  nlohmann::json ToJson() const;
-};
-
 class PipelineAuthoring {
  public:
   // Applies a single authoring request containing {schema_version, pipeline,
@@ -55,11 +43,8 @@ class PipelineAuthoring {
                              std::vector<AuthoringChange>* changes,
                              std::string* error);
 
-  // Analyzes missing producer dependencies, previews or applies fixes in-place.
-  static FixDepsResult FixDeps(const std::string& file_path, bool in_place);
-
-  // Collects all occupied blackboard keys in document (explicit, default,
-  // placeholders, ingress, egress).
+  // Collects all occupied blackboard keys in document (explicit mappings,
+  // default outputs, ingress, egress).
   static std::unordered_set<std::string> GetOccupiedKeys(
       const nlohmann::json& pipeline);
 

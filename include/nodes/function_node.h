@@ -850,12 +850,10 @@ template <typename ModelsT, typename CallT>
 class TypedModelSlotBinding final : public ModelSlotBinding<ModelsT> {
  public:
   TypedModelSlotBinding(std::string slot, std::string field,
-                        CallT ModelsT::*member, std::string default_id,
-                        std::string description)
+                        CallT ModelsT::*member, std::string description)
       : slot_(std::move(slot)),
         field_(std::move(field)),
         member_(member),
-        default_id_(std::move(default_id)),
         description_(std::move(description)) {}
   const std::string& SlotName() const override { return slot_; }
   const std::string& ConfigField() const override { return field_; }
@@ -865,16 +863,15 @@ class TypedModelSlotBinding final : public ModelSlotBinding<ModelsT> {
     return capability;
   }
   ConfigFieldDefinition ToConfigField() const override {
-    return {
-        field_,
-        ConfigValueKind::kString,
-        default_id_.empty(),
-        default_id_.empty() ? nlohmann::json() : nlohmann::json(default_id_),
-        std::nullopt,
-        std::nullopt,
-        {},
-        description_.empty() ? "Bound model ID for slot '" + slot_ + "'"
-                             : description_};
+    return {field_,
+            ConfigValueKind::kString,
+            true,
+            nlohmann::json(),
+            std::nullopt,
+            std::nullopt,
+            {},
+            description_.empty() ? "Bound model ID for slot '" + slot_ + "'"
+                                 : description_};
   }
   bool Bind(const NodeInitContext& init, SessionContext& session,
             const nlohmann::json&, ModelsT* models,
@@ -901,7 +898,6 @@ class TypedModelSlotBinding final : public ModelSlotBinding<ModelsT> {
   std::string slot_;
   std::string field_;
   CallT ModelsT::*member_;
-  std::string default_id_;
   std::string description_;
 };
 
@@ -950,12 +946,10 @@ template <typename ModelsT, typename CallT>
 inline ModelSlotBindingHolder<ModelsT> Model(std::string slot,
                                              std::string field,
                                              CallT ModelsT::*member,
-                                             std::string default_id = {},
                                              std::string description = {}) {
   return ModelSlotBindingHolder<ModelsT>(
       std::make_unique<TypedModelSlotBinding<ModelsT, CallT>>(
-          std::move(slot), std::move(field), member, std::move(default_id),
-          std::move(description)));
+          std::move(slot), std::move(field), member, std::move(description)));
 }
 
 template <typename ModelsT>

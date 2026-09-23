@@ -20,15 +20,6 @@
     {
       "id": "node_0_TextRuleMatchNode",
       "node_type": "TextRuleMatchNode",
-      "depends_on": [],
-      "ports": {
-        "inputs": {
-          "text": "input_sentences"
-        },
-        "outputs": {
-          "matches": "rule_matches"
-        }
-      },
       "config": {
         "categories": {
           "SYSTEM_INIT": [
@@ -36,6 +27,12 @@
             "自检"
           ]
         }
+      },
+      "inputs": {
+        "text": "input_sentences"
+      },
+      "outputs": {
+        "matches": "rule_matches"
       }
     }
   ]

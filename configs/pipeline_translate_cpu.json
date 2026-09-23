@@ -29,7 +29,6 @@
         "n_threads": 4,
         "n_threads_batch": 4
       },
-      "capability": "llm",
       "model_config": {
         "add_bos": false,
         "random_seed": 0,
@@ -47,16 +46,13 @@
         "max_tokens": 512,
         "temperature": 0.0
       },
-      "depends_on": [],
       "id": "translate",
       "node_type": "LlmGenerateNode",
-      "ports": {
-        "inputs": {
-          "prompt": "input_sentences"
-        },
-        "outputs": {
-          "text": "llm_answers"
-        }
+      "inputs": {
+        "prompt": "input_sentences"
+      },
+      "outputs": {
+        "text": "llm_answers"
       }
     }
   ]

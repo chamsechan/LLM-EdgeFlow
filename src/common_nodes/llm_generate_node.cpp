@@ -111,7 +111,7 @@ auto LlmGenerateSpec() {
              PreservedOutput<TextBatch>("text", "prompt"),
              Parameters<GenerateOptions>{}.WithParser(std::move(parser)),
              ModelsOf<Models>{Model("generator", "bind_model",
-                                    &Models::generator, "llm_model_v1",
+                                    &Models::generator,
                                     "引用 models[].model_id；所选模型必须提供 "
                                     "llm 文本生成能力。")},
              &Generate)

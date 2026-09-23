@@ -245,13 +245,12 @@ def select_llm_node(pipeline, catalog):
             continue
         field = llm_dep.get("config_field")
         model_id = node.get("config", {}).get(field)
-        if model_id is None:
-            model_id = next((f.get("default") for f in definition.get("config_fields", []) if f["name"] == field), None)
         if not model_id:
             continue
-        bindings = node.get("ports", {})
-        in_key = bindings.get("inputs", {}).get(inputs[0]["key"], inputs[0]["key"])
-        out_key = bindings.get("outputs", {}).get(outputs[0]["key"], outputs[0]["key"])
+        in_key = node.get("inputs", {}).get(inputs[0]["key"])
+        if not in_key:
+            continue
+        out_key = node.get("outputs", {}).get(outputs[0]["key"], outputs[0]["key"])
         choices.append((index, model_id, in_key, out_key))
     if len(choices) != 1:
         raise RecipeError("text-llm-node requires exactly one Catalog-registered TextBatch 1:1 preserve LLM replacement point")
@@ -295,7 +294,8 @@ def prepare(recipe, name, profile_name, tool_path, build_dir, pipeline_target, r
             node = pipeline["pipeline"][index]
             node["node_type"] = name
             node["config"] = {"bind_model": model_id}
-            node["ports"] = {"inputs": {"input": in_key}, "outputs": {"output": out_key}}
+            node["inputs"] = {"input": in_key}
+            node["outputs"] = {"output": out_key}
             snake = SCAFFOLD.to_snake_case(name)
             src = root / "src/custom_nodes" / (snake + ".cpp")
             test = root / "tests/unit/nodes" / ("test_" + snake + ".cpp")

@@ -25,15 +25,13 @@ inline void WriteControlTestPipeline(const std::filesystem::path& directory) {
        {{{"id", "prefix"},
          {"node_type", "TestControlNode"},
          {"depends_on", nlohmann::json::array()},
-         {"ports",
-          {{"inputs", {{"input", "input_sentences"}}},
-           {"outputs", {{"output", "prefixed"}}}}}},
+         {"inputs", {{"input", "input_sentences"}}},
+         {"outputs", {{"output", "prefixed"}}}},
         {{"id", "matcher"},
          {"node_type", "TextRuleMatchNode"},
          {"depends_on", {"prefix"}},
-         {"ports",
-          {{"inputs", {{"text", "prefixed"}}},
-           {"outputs", {{"matches", "rule_matches"}}}}},
+         {"inputs", {{"text", "prefixed"}}},
+         {"outputs", {{"matches", "rule_matches"}}},
          {"config", {{"categories", {{"PREFIX_APPLIED", {"VIP:sample"}}}}}}}}}};
   const nlohmann::json conf = {{"pipe_path", "pipeline.json"}};
   std::ofstream(directory / "pipeline.json") << pipeline.dump(2);

@@ -25,7 +25,8 @@ Use this reference for production Node implementation. Start first-time LLM auth
    after parser and field assignment, before semantic/binding validation, to rebuild derived state.
 7. Declare model dependencies with `ModelsOf` / `Model`; member types select `LlmCall`,
    `EmbeddingCall`, `AsrCall`, `OcrCall` or `RerankCall`. These facades handle empty batches,
-   model diagnostics and alignment checks. Propagate `NodeResult` failures without remapping shared
+   model diagnostics and alignment checks. Model-reference fields are required and have no default
+   instance name. Propagate `NodeResult` failures without remapping shared
    errors to old node-specific codes. Keep domain failure codes where they describe actual algorithms.
 8. Keep request data local. A `Run` needing session resources explicitly accepts
    `const SessionResources&`; the facade exposes cache access and model revision queries, not arbitrary

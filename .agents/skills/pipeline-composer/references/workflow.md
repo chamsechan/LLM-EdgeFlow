@@ -55,7 +55,10 @@ document. An empty draft needs nodes and bindings before it can validate.
 
 ## Validate changed inputs
 
-Every node declares a non-empty `id` and an explicit `depends_on` array. Validate after a
+Every node declares a non-empty `id` and explicitly maps required `inputs`; `outputs` names
+its produced data. The Validator derives data dependencies; optional `depends_on` adds only
+extra ordering constraints. Model references are explicit, while capability comes from the
+registered model type. `max_parallel_workers` defaults to 1. Validate after a
 coherent change and before execution; an unchanged already-validated document with unchanged
 registrations need not be revalidated between unrelated commands. Use diagnostic `code`, JSON
 `path`, `node_id`, `port`, `related_nodes`, and `suggestions` to repair the document; do not

@@ -226,7 +226,7 @@ function renderAll() {
   if (!drafts.has("json")) $("#rawJson").value = state.pipeline ? JSON.stringify(state.pipeline, null, 2) : "";
   $("#graphSummary").textContent = state.pipeline ? `${nodes.length} 个节点 · ${document.edges.length} 条连线` : "打开方案，查看算法流程";
   $("#edgeSelection").hidden = !state.selectedEdge;
-  $("#edgeSelectionLabel").textContent = state.selectedEdge ? state.selectedEdge.dependency ? "已选中执行依赖" : `${state.selectedEdge.sourcePort} → ${state.selectedEdge.targetPort}` : "";
+  $("#edgeSelectionLabel").textContent = state.selectedEdge ? state.selectedEdge.dependency ? "已选中额外顺序" : `${state.selectedEdge.sourcePort} → ${state.selectedEdge.targetPort}` : "";
   $("#deleteEdgeButton").disabled = !state.editing || !state.selectedEdge;
   renderInspector(nodes.find(node => node.id === state.selected));
   renderBizContract();
@@ -301,7 +301,7 @@ function renderInspector(node) {
     const choices = modelRef ? compatibleModels(state.pipeline.models, state.catalog.models, requiredCap).map(model => model.model_id) : null;
     appendConfigField(container, field, node.config || {}, choices);
   }
-  renderBindings(node, definition);
+  renderBindings(node);
   if (drafts.has("node")) restoreFormBuffer($("#nodeForm"), drafts.get("node"));
 }
 
@@ -387,19 +387,11 @@ async function applyAuthoring(operation, options = {}) {
   } finally { state.authoringBusy = false; renderAll(); }
 }
 
-function renderBindings(node, definition) {
+function renderBindings(node) {
   const container = $("#nodeBindings");
   if (!container) return;
   container.replaceChildren();
-  for (const port of definition?.inputs || []) {
-    const row = document.createElement("div"); row.className = "row";
-    const label = document.createElement("span"); label.textContent = port.key;
-    const button = document.createElement("button"); button.type = "button";
-    button.textContent = "恢复默认绑定"; button.disabled = !state.editing || state.authoringBusy;
-    button.addEventListener("click", () => applyAuthoring({ kind: "reset_input_binding", target: { node_id: node.id, port: port.key } }));
-    row.append(label, button); container.append(row);
-  }
-  const label = document.createElement("p"); label.textContent = "执行依赖（断开数据线后保留，可单独删除）"; container.append(label);
+  const label = document.createElement("p"); label.textContent = "额外执行顺序（数据依赖由框架推导）"; container.append(label);
   for (const id of node.depends_on || []) {
     const row = document.createElement("div"); row.className = "row";
     const text = document.createElement("span"); text.textContent = id;

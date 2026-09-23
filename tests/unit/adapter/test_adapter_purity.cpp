@@ -1336,9 +1336,8 @@ TEST_F(AdapterPurityTest, ReuseProof_6_NegativeCombinations) {
       {{{"id", "node_0_TextRuleMatchNode"},
         {"node_type", "TextRuleMatchNode"},
         {"depends_on", nlohmann::json::array()},
-        {"ports",
-         {{"inputs", {{"text", "input_sentences"}}},
-          {"outputs", {{"matches", "rule_matches"}}}}},
+        {"inputs", {{"text", "input_sentences"}}},
+        {"outputs", {{"matches", "rule_matches"}}},
         {"config",
          {{"categories",
            {{"SYSTEM_INIT", nlohmann::json::array({"init"})}}}}}}});

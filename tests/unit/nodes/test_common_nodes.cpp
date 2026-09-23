@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <fstream>
 #include <memory>
 #include <nlohmann/json.hpp>
@@ -56,6 +57,34 @@ class CommonNodesTest : public ::testing::Test {
 
   std::unique_ptr<SessionContext> session_ctx_;
 };
+
+TEST_F(CommonNodesTest, ModelBindingsAreExplicitWithoutInstanceDefaults) {
+  for (const char* name :
+       {"LlmGenerateNode", "TextEmbeddingNode", "TextRerankNode",
+        "AsrTranscribeNode", "OcrDetectNode", "PromptGuidedLlmNode"}) {
+    SCOPED_TRACE(name);
+    const auto definition = PipelineCatalog::FindNode(name);
+    ASSERT_TRUE(definition.has_value());
+    ASSERT_EQ(definition->model_dependencies.size(), 1U);
+    const auto& dependency = definition->model_dependencies.front();
+    const auto field = std::find_if(
+        definition->config_fields.begin(), definition->config_fields.end(),
+        [&](const auto& candidate) {
+          return candidate.name == dependency.config_field;
+        });
+    ASSERT_NE(field, definition->config_fields.end());
+    EXPECT_TRUE(field->required);
+    EXPECT_TRUE(field->default_value.is_null());
+    EXPECT_FALSE(field->semantic.empty());
+
+    auto node = NodeRegistry::Instance().Create(name);
+    ASSERT_NE(node, nullptr);
+    std::string error;
+    EXPECT_FALSE(InitNodeForTest(*node, nlohmann::json::object(),
+                                 session_ctx_.get(), &error));
+    EXPECT_NE(error.find("bind_model"), std::string::npos) << error;
+  }
+}
 
 // 1. TextTemplateNode: placeholder validation, join, overflow policy, control
 TEST_F(CommonNodesTest, TextTemplateNodeComprehensive) {
@@ -389,18 +418,15 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
   nlohmann::json valid_pipeline_pairs = {
       {"biz_name", "custom_rerank_test"},
       {"models",
-       {{{"capability", "rerank"},
-         {"model_type", "test_biz_rerank"},
+       {{{"model_type", "test_biz_rerank"},
          {"backend", "test_tensor_backend"},
          {"model_id", "rerank_model_v1"},
          {"model_path", "./models/rerank.bin"}}}},
       {"pipeline",
        {{{"id", "node_0_TextRerankNode"},
          {"node_type", "TextRerankNode"},
-         {"depends_on", nlohmann::json::array()},
-         {"ports",
-          {{"inputs", {{"pairs", "any_pairs"}}},
-           {"outputs", {{"ranked", "ranked_results"}}}}},
+         {"inputs", {{"pairs", "any_pairs"}}},
+         {"outputs", {{"ranked", "ranked_results"}}},
          {"config", {{"bind_model", "rerank_model_v1"}}}}}}};
   auto plan_pairs = PipelineValidator::ValidateAndPlan(valid_pipeline_pairs);
   EXPECT_TRUE(plan_pairs.report.ok);
@@ -409,19 +435,16 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
   nlohmann::json valid_pipeline_qc = {
       {"biz_name", "custom_rerank_test"},
       {"models",
-       {{{"capability", "rerank"},
-         {"model_type", "test_biz_rerank"},
+       {{{"model_type", "test_biz_rerank"},
          {"backend", "test_tensor_backend"},
          {"model_id", "rerank_model_v1"},
          {"model_path", "./models/rerank.bin"}}}},
       {"pipeline",
        {{{"id", "node_0_TextRerankNode"},
          {"node_type", "TextRerankNode"},
-         {"depends_on", nlohmann::json::array()},
-         {"ports",
-          {{"inputs",
-            {{"queries", "any_queries"}, {"candidates", "any_candidates"}}},
-           {"outputs", {{"ranked", "ranked_results"}}}}},
+         {"inputs",
+          {{"queries", "any_queries"}, {"candidates", "any_candidates"}}},
+         {"outputs", {{"ranked", "ranked_results"}}},
          {"config", {{"bind_model", "rerank_model_v1"}}}}}}};
   auto plan_qc = PipelineValidator::ValidateAndPlan(valid_pipeline_qc);
   EXPECT_TRUE(plan_qc.report.ok);
@@ -430,20 +453,17 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
   nlohmann::json valid_pipeline_qct = {
       {"biz_name", "custom_rerank_test"},
       {"models",
-       {{{"capability", "rerank"},
-         {"model_type", "test_biz_rerank"},
+       {{{"model_type", "test_biz_rerank"},
          {"backend", "test_tensor_backend"},
          {"model_id", "rerank_model_v1"},
          {"model_path", "./models/rerank.bin"}}}},
       {"pipeline",
        {{{"id", "node_0_TextRerankNode"},
          {"node_type", "TextRerankNode"},
-         {"depends_on", nlohmann::json::array()},
-         {"ports",
-          {{"inputs",
-            {{"queries", "any_queries"},
-             {"candidate_texts", "any_candidate_texts"}}},
-           {"outputs", {{"ranked", "ranked_results"}}}}},
+         {"inputs",
+          {{"queries", "any_queries"},
+           {"candidate_texts", "any_candidate_texts"}}},
+         {"outputs", {{"ranked", "ranked_results"}}},
          {"config", {{"bind_model", "rerank_model_v1"}}}}}}};
   auto plan_qct = PipelineValidator::ValidateAndPlan(valid_pipeline_qct);
   EXPECT_TRUE(plan_qct.report.ok);
@@ -452,18 +472,15 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
   nlohmann::json bad_pipeline_1 = {
       {"biz_name", "custom_rerank_test"},
       {"models",
-       {{{"capability", "rerank"},
-         {"model_type", "test_biz_rerank"},
+       {{{"model_type", "test_biz_rerank"},
          {"backend", "test_tensor_backend"},
          {"model_id", "rerank_model_v1"},
          {"model_path", "./models/rerank.bin"}}}},
       {"pipeline",
        {{{"id", "node_0_TextRerankNode"},
          {"node_type", "TextRerankNode"},
-         {"depends_on", nlohmann::json::array()},
-         {"ports",
-          {{"inputs", {{"candidates", "some_cand"}}},
-           {"outputs", {{"ranked", "ranked_results"}}}}},
+         {"inputs", {{"candidates", "some_cand"}}},
+         {"outputs", {{"ranked", "ranked_results"}}},
          {"config", {{"bind_model", "rerank_model_v1"}}}}}}};
   auto plan1 = PipelineValidator::ValidateAndPlan(bad_pipeline_1);
   EXPECT_FALSE(plan1.report.ok);
@@ -473,18 +490,15 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
   nlohmann::json bad_pipeline_2 = {
       {"biz_name", "custom_rerank_test"},
       {"models",
-       {{{"capability", "rerank"},
-         {"model_type", "test_biz_rerank"},
+       {{{"model_type", "test_biz_rerank"},
          {"backend", "test_tensor_backend"},
          {"model_id", "rerank_model_v1"},
          {"model_path", "./models/rerank.bin"}}}},
       {"pipeline",
        {{{"id", "node_0_TextRerankNode"},
          {"node_type", "TextRerankNode"},
-         {"depends_on", nlohmann::json::array()},
-         {"ports",
-          {{"inputs", {{"queries", "some_queries"}}},
-           {"outputs", {{"ranked", "ranked_results"}}}}},
+         {"inputs", {{"queries", "some_queries"}}},
+         {"outputs", {{"ranked", "ranked_results"}}},
          {"config", {{"bind_model", "rerank_model_v1"}}}}}}};
   auto plan2 = PipelineValidator::ValidateAndPlan(bad_pipeline_2);
   EXPECT_FALSE(plan2.report.ok);
@@ -494,19 +508,15 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
   nlohmann::json bad_pipeline_3 = {
       {"biz_name", "custom_rerank_test"},
       {"models",
-       {{{"capability", "rerank"},
-         {"model_type", "test_biz_rerank"},
+       {{{"model_type", "test_biz_rerank"},
          {"backend", "test_tensor_backend"},
          {"model_id", "rerank_model_v1"},
          {"model_path", "./models/rerank.bin"}}}},
       {"pipeline",
        {{{"id", "node_0_TextRerankNode"},
          {"node_type", "TextRerankNode"},
-         {"depends_on", nlohmann::json::array()},
-         {"ports",
-          {{"inputs",
-            {{"pairs", "any_pairs"}, {"candidates", "any_candidates"}}},
-           {"outputs", {{"ranked", "ranked_results"}}}}},
+         {"inputs", {{"pairs", "any_pairs"}, {"candidates", "any_candidates"}}},
+         {"outputs", {{"ranked", "ranked_results"}}},
          {"config", {{"bind_model", "rerank_model_v1"}}}}}}};
   auto plan3 = PipelineValidator::ValidateAndPlan(bad_pipeline_3);
   EXPECT_FALSE(plan3.report.ok);
@@ -516,21 +526,18 @@ TEST_F(CommonNodesTest, TextRerankCombinationConstraintsValidation) {
   nlohmann::json bad_pipeline_4 = {
       {"biz_name", "custom_rerank_test"},
       {"models",
-       {{{"capability", "rerank"},
-         {"model_type", "test_biz_rerank"},
+       {{{"model_type", "test_biz_rerank"},
          {"backend", "test_tensor_backend"},
          {"model_id", "rerank_model_v1"},
          {"model_path", "./models/rerank.bin"}}}},
       {"pipeline",
        {{{"id", "node_0_TextRerankNode"},
          {"node_type", "TextRerankNode"},
-         {"depends_on", nlohmann::json::array()},
-         {"ports",
-          {{"inputs",
-            {{"queries", "any_queries"},
-             {"candidates", "any_candidates"},
-             {"candidate_texts", "any_candidate_texts"}}},
-           {"outputs", {{"ranked", "ranked_results"}}}}},
+         {"inputs",
+          {{"queries", "any_queries"},
+           {"candidates", "any_candidates"},
+           {"candidate_texts", "any_candidate_texts"}}},
+         {"outputs", {{"ranked", "ranked_results"}}},
          {"config", {{"bind_model", "rerank_model_v1"}}}}}}};
   auto plan4 = PipelineValidator::ValidateAndPlan(bad_pipeline_4);
   EXPECT_FALSE(plan4.report.ok);
@@ -1317,7 +1324,7 @@ TEST_F(CommonNodesTest, PromptConfigurationRejectedByValidatorAndInit) {
     EXPECT_TRUE(matching_diagnostic) << init_error;
   }
   auto doc = CustomPipeline("doc_qa");
-  doc["pipeline"][2]["ports"]["inputs"].erase("context");
+  doc["pipeline"][2]["inputs"].erase("context");
   EXPECT_FALSE(PipelineValidator::ValidateAndPlan(doc).report.ok);
 }
 

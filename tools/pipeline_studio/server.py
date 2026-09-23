@@ -1275,8 +1275,12 @@ def render_terminal(path: Path, pipeline: dict[str, Any]) -> None:
     nodes = pipeline.get("pipeline", [])
     for index, node in enumerate(nodes):
         node_id = node.get("id", "<missing-id>")
-        depends = node.get("depends_on", "<missing-depends_on>")
-        print(f"  [{index}] {node_id}: {node.get('node_type', 'unknown')} <- {depends}")
+        depends = node.get("depends_on", [])
+        print(f"  [{index}] {node_id}: {node.get('node_type', 'unknown')}")
+        for direction in ("inputs", "outputs"):
+            mapping = json.dumps(node[direction], ensure_ascii=False) if direction in node else "<未声明>"
+            print(f"      {direction}: {mapping}")
+        print(f"      depends_on: {json.dumps(depends, ensure_ascii=False)} (额外顺序)")
     print()
 
 

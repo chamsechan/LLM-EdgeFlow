@@ -213,7 +213,6 @@ TEST(PipelineValidatorTest, ReportsConfigAndCapabilityErrors) {
       {"biz_name", "entity_extract_v1"},
       {"models",
        {{{"model_id", "llm_model_v1"},
-         {"capability", "embedding"},
          {"model_type", "test_biz_embedding"},
          {"backend", "test_tensor_backend"},
          {"model_path", "fixture.bin"},
@@ -226,7 +225,10 @@ TEST(PipelineValidatorTest, ReportsConfigAndCapabilityErrors) {
         {{"id", "llm"},
          {"node_type", "LlmGenerateNode"},
          {"depends_on", {"pre"}},
-         {"config", {{"max_tokens", 0}, {"invented", true}}}},
+         {"config",
+          {{"bind_model", "llm_model_v1"},
+           {"max_tokens", 0},
+           {"invented", true}}}},
         {{"id", "post"},
          {"node_type", "StructuredJsonParseNode"},
          {"depends_on", {"llm"}}}}}};
@@ -444,26 +446,23 @@ TEST(PipelineValidatorTest, UnconnectedOptionalPortStaysAbsentAtRuntime) {
         {"node_type", "TextTemplateNode"},
         {"depends_on", nlohmann::json::array()},
         {"config", {{"template", "UNDECLARED"}}},
-        {"ports",
-         {{"inputs", {{"primary", "input_sentences"}}},
-          {"outputs", {{"text", "context_text"}}}}}},
+        {"inputs", {{"primary", "input_sentences"}}},
+        {"outputs", {{"text", "context"}}}},
        {{"id", "b"},
         {"node_type", "TextTemplateNode"},
-        {"depends_on", nlohmann::json::array()},
+        {"depends_on", {"a"}},
         {"config", {{"template", "{{primary}}|{{context}}"}}},
-        {"ports",
-         {{"inputs", {{"primary", "input_sentences"}}},
-          {"outputs", {{"text", "rendered"}}}}}},
+        {"inputs", {{"primary", "input_sentences"}}},
+        {"outputs", {{"text", "rendered"}}}},
        {{"id", "rule"},
         {"node_type", "TextRuleMatchNode"},
         {"depends_on", {"b"}},
-        {"ports",
-         {{"inputs", {{"text", "rendered"}}},
-          {"outputs", {{"matches", "rule_matches"}}}}}}});
+        {"inputs", {{"text", "rendered"}}},
+        {"outputs", {{"matches", "rule_matches"}}}}});
   root["pipeline"][1]["config"]["missing_variable_policy"] = "empty";
   const auto plan = PipelineValidator::ValidateAndPlan(root);
   ASSERT_TRUE(plan.report.ok) << plan.report.ToJson();
-  EXPECT_EQ(plan.node_plans.at("b").FindPort("context_text"), nullptr);
+  EXPECT_EQ(plan.node_plans.at("b").FindPort("context"), nullptr);
   Pipeline pipeline;
   ASSERT_TRUE(BuildTestPipeline(pipeline, root));
   AlgContext ctx;
@@ -474,61 +473,22 @@ TEST(PipelineValidatorTest, UnconnectedOptionalPortStaysAbsentAtRuntime) {
 }
 
 TEST(PipelineValidatorTest,
-     ExplainReturnsCandidateFixForProducerNotDependencyAncestor) {
+     ExplainAcceptsDataConnectionWithoutExplicitDependency) {
   std::ifstream stream(
       "demo/fixtures/mock/pipeline_entity_extract_custom.json");
   ASSERT_TRUE(stream.is_open());
   nlohmann::json root;
   stream >> root;
   root.erase("deployment");
-
-  // Node 0: custom_prompt (produces "llm_raw_answer")
-  // Node 1: node_2_StructuredJsonParseNode (consumes "llm_raw_answer" on port
-  // "text") Clear depends_on so node 1 does not depend on custom_prompt:
-  root["pipeline"][1]["depends_on"] = nlohmann::json::array();
+  for (auto& node : root["pipeline"]) node.erase("depends_on");
 
   const auto report = PipelineValidator::Explain(root);
-  EXPECT_FALSE(report.ok);
-  ASSERT_FALSE(report.diagnostics.empty());
-
-  const ValidationDiagnostic* target_diag = nullptr;
-  for (const auto& diag : report.diagnostics) {
-    if (diag.code == DiagnosticCode::kMissingInputProducer &&
-        diag.node_id == "node_2_StructuredJsonParseNode" &&
-        diag.port == "text") {
-      target_diag = &diag;
-      break;
-    }
-  }
-  ASSERT_NE(target_diag, nullptr);
-  ASSERT_TRUE(target_diag->remediation.has_value());
-  const auto& rem = *target_diag->remediation;
-  EXPECT_EQ(rem.schema_version, 1);
-  EXPECT_EQ(rem.cause, RemediationCause::kProducerNotDependencyAncestor);
-  EXPECT_EQ(rem.facts.value("producer_id", ""), "custom_prompt");
-  EXPECT_EQ(rem.facts.value("bound_key", ""), "llm_raw_answer");
-
-  ASSERT_FALSE(rem.fixes.empty());
-  const auto& fix = rem.fixes.front();
-  EXPECT_EQ(fix.verification, "pipeline_valid");
-  EXPECT_FALSE(fix.patch.empty());
-
-  // Verify the RFC 6902 patch adds the dependency to depends_on
-  bool found_add_dep = false;
-  for (const auto& op : fix.patch) {
-    if (op.value("op", "") == "add" &&
-        op.value("path", "").find("/depends_on") != std::string::npos &&
-        op.value("value", "") == "custom_prompt") {
-      found_add_dep = true;
-      break;
-    }
-  }
-  EXPECT_TRUE(found_add_dep);
-
-  // Applying patch recovers a fully valid pipeline
-  const auto patched = root.patch(fix.patch);
-  const auto verified_report = PipelineValidator::Validate(patched);
-  EXPECT_TRUE(verified_report.ok) << verified_report.ToJson().dump(2);
+  EXPECT_TRUE(report.ok) << report.ToJson().dump(2);
+  EXPECT_TRUE(report.diagnostics.empty());
+  const auto plan = PipelineValidator::ValidateAndPlan(root);
+  ASSERT_TRUE(plan.report.ok) << plan.report.ToJson().dump(2);
+  ASSERT_EQ(plan.report.topological_order.size(), 2U);
+  EXPECT_EQ(plan.report.topological_order.front(), "custom_prompt");
 }
 
 TEST(PipelineValidatorTest, ExplainReturnsCandidateFixForUnknownConfigField) {
@@ -697,8 +657,8 @@ TEST(PipelineValidatorTest, ValidateProducesBasicRemediation) {
   stream >> root;
   root.erase("deployment");
 
-  // Clear depends_on so node 1 has a missing input producer
-  root["pipeline"][1]["depends_on"] = nlohmann::json::array();
+  // Explicitly connect an input to a key with no producer.
+  root["pipeline"][1]["inputs"]["text"] = "missing_result";
 
   const auto report = PipelineValidator::Validate(root);
   EXPECT_FALSE(report.ok);
@@ -723,36 +683,32 @@ TEST(PipelineValidatorTest, ValidateProducesBasicRemediation) {
 }
 
 TEST(PipelineValidatorTest, ExplainCapsVerificationAttemptsAtEight) {
-  nlohmann::json root = {
-      {"biz_name", "entity_extract_v1"},
-      {"models", nlohmann::json::array()},
-      {"pipeline",
-       {{{"id", "custom_prompt"},
-         {"node_type", "PromptGuidedLlmNode"},
-         {"depends_on", nlohmann::json::array()},
-         {"ports",
-          {{"inputs", {{"input", "input_sentences"}}},
-           {"outputs", {{"output", "llm_raw_answer"}}}}},
-         {"config",
-          {{"bind_model", "missing_model"},
-           {"prompt_template", "Hello {{input}}"},
-           {"strip_markdown", true},
-           {"temperature", 0.1},
-           {"max_tokens", 64}}}},
-        {{"id", "node_2_StructuredJsonParseNode"},
-         {"node_type", "StructuredJsonParseNode"},
-         {"depends_on", {"custom_prompt"}},
-         {"ports",
-          {{"inputs", {{"text", "llm_raw_answer"}}},
-           {"outputs", {{"document", "extracted_entities"}}}}},
-         {"config", {{"failure_policy", "fail"}}}}}}};
+  nlohmann::json root = {{"biz_name", "entity_extract_v1"},
+                         {"models", nlohmann::json::array()},
+                         {"pipeline",
+                          {{{"id", "custom_prompt"},
+                            {"node_type", "PromptGuidedLlmNode"},
+                            {"depends_on", nlohmann::json::array()},
+                            {"inputs", {{"input", "input_sentences"}}},
+                            {"outputs", {{"output", "llm_raw_answer"}}},
+                            {"config",
+                             {{"bind_model", "missing_model"},
+                              {"prompt_template", "Hello {{input}}"},
+                              {"strip_markdown", true},
+                              {"temperature", 0.1},
+                              {"max_tokens", 64}}}},
+                           {{"id", "node_2_StructuredJsonParseNode"},
+                            {"node_type", "StructuredJsonParseNode"},
+                            {"depends_on", {"custom_prompt"}},
+                            {"inputs", {{"text", "llm_raw_answer"}}},
+                            {"outputs", {{"document", "extracted_entities"}}},
+                            {"config", {{"failure_policy", "fail"}}}}}}};
 
   for (int i = 0; i < 10; ++i) {
     char name_buf[32];
     std::snprintf(name_buf, sizeof(name_buf), "a_invalid_%02d", i);
     root["models"].push_back({
         {"model_id", name_buf},
-        {"capability", "llm"},
         {"model_type", "test_biz_llm"},
         {"backend", "unknown_backend"},
         {"model_path", "demo/fixtures/mock/artifacts/neutral-llm.fixture"},
@@ -763,7 +719,6 @@ TEST(PipelineValidatorTest, ExplainCapsVerificationAttemptsAtEight) {
 
   root["models"].push_back({
       {"model_id", "z_valid"},
-      {"capability", "llm"},
       {"model_type", "test_biz_llm"},
       {"backend", "test_causal_lm_backend"},
       {"model_path", "demo/fixtures/mock/artifacts/neutral-llm.fixture"},
@@ -796,7 +751,6 @@ TEST(PipelineValidatorTest, ExplainRejectsInvalidModelCandidates) {
   nlohmann::json root = {{"biz_name", "entity_extract_v1"},
                          {"models",
                           {{{"model_id", "broken_model"},
-                            {"capability", "llm"},
                             {"model_type", "bge_embedding"},
                             {"backend", "test_causal_lm_backend"},
                             {"model_path", "fixture.bin"},
@@ -806,9 +760,8 @@ TEST(PipelineValidatorTest, ExplainRejectsInvalidModelCandidates) {
                           {{{"id", "llm_node"},
                             {"node_type", "PromptGuidedLlmNode"},
                             {"depends_on", nlohmann::json::array()},
-                            {"ports",
-                             {{"inputs", {{"input", "input_sentences"}}},
-                              {"outputs", {{"output", "llm_raw_answer"}}}}},
+                            {"inputs", {{"input", "input_sentences"}}},
+                            {"outputs", {{"output", "llm_raw_answer"}}},
                             {"config",
                              {{"bind_model", "missing_model"},
                               {"prompt_template", "Hello {{input}}"},
@@ -846,14 +799,13 @@ TEST(PipelineValidatorTest, ExplainReturnsPortFlowMismatchRemediation) {
        {{{"id", "producer"},
          {"node_type", "TextCorpusSourceNode"},
          {"depends_on", nlohmann::json::array()},
-         {"ports", {{"outputs", {{"corpus", "corpus_text"}}}}},
+         {"outputs", {{"corpus", "corpus_text"}}},
          {"config", {{"corpus", {"sample text"}}}}},
         {{"id", "consumer"},
          {"node_type", "TextTemplateNode"},
          {"depends_on", {"producer"}},
-         {"ports",
-          {{"inputs", {{"primary", "corpus_text"}}},
-           {"outputs", {{"text", "rendered_text"}}}}},
+         {"inputs", {{"primary", "corpus_text"}}},
+         {"outputs", {{"text", "rendered_text"}}},
          {"config", {{"template", "prefix: {{primary}}"}}}}}}};
 
   const auto report = PipelineValidator::Validate(root);

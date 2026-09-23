@@ -36,16 +36,16 @@ nlohmann::json ControlInstancesPipeline() {
   return nlohmann::json::parse(R"({
     "biz_name":"keyword_match_v1", "models":[], "pipeline":[
       {"id":"rules_a", "node_type":"TextRuleMatchNode", "depends_on":[],
-       "ports":{"inputs":{"text":"input_sentences"},
-                "outputs":{"matches":"first_matches"}},
+       "inputs":{"text":"input_sentences"},
+                "outputs":{"matches":"first_matches"},
        "config":{"categories":{"INITIAL_A":["sample"]}}},
       {"id":"rules_b", "node_type":"TextRuleMatchNode", "depends_on":[],
-       "ports":{"inputs":{"text":"input_sentences"},
-                "outputs":{"matches":"rule_matches"}},
+       "inputs":{"text":"input_sentences"},
+                "outputs":{"matches":"rule_matches"},
        "config":{"categories":{"INITIAL_B":["sample"]}}},
       {"id":"template", "node_type":"TextTemplateNode", "depends_on":[],
-       "ports":{"inputs":{"primary":"input_sentences"},
-                "outputs":{"text":"rendered"}}}
+       "inputs":{"primary":"input_sentences"},
+                "outputs":{"text":"rendered"}}
     ]})");
 }
 

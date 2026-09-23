@@ -18,7 +18,6 @@ struct ParsedModelConfig {
   size_t source_index = 0;
 
   // RFC 0015 解耦标准字段 (Model/Backend 方言)
-  std::string capability;
   std::string model_type;
   std::string backend;
   std::string model_path;
@@ -51,8 +50,7 @@ struct ParsedNodeConfig {
  */
 struct ParsedPipelineConfig {
   std::string biz_name;
-  std::string execution_mode = "sequential";
-  size_t max_parallel_workers = 4;
+  size_t max_parallel_workers = 1;
   std::vector<ParsedModelConfig> models;
   std::vector<ParsedNodeConfig> nodes;
 };

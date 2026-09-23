@@ -38,8 +38,8 @@ nlohmann::json DefaultPipelineNodes() {
   node["id"] = "node_0";
   node["node_type"] = "TextRuleMatchNode";
   node["depends_on"] = nlohmann::json::array();
-  node["ports"]["inputs"]["text"] = "input_sentences";
-  node["ports"]["outputs"]["matches"] = "llm_answers";
+  node["inputs"]["text"] = "input_sentences";
+  node["outputs"]["matches"] = "llm_answers";
   node["config"]["categories"]["CAT"] = nlohmann::json::array({"word"});
   return nlohmann::json::array({node});
 }
@@ -536,8 +536,8 @@ TEST_F(IoBindingRegistryTest, SplitPipelineDocumentAndCoreBoundary) {
        {{{"id", "n0"},
          {"node_type", "TextRuleMatchNode"},
          {"depends_on", nlohmann::json::array()},
-         {"ports",
-          {{"inputs", {{"text", "in"}}}, {"outputs", {{"matches", "out"}}}}},
+         {"inputs", {{"text", "in"}}},
+         {"outputs", {{"matches", "out"}}},
          {"config", {{"categories", {{"CAT", {"word"}}}}}}}}}};
 
   PipelineDocumentSplit split;
@@ -559,8 +559,8 @@ TEST_F(IoBindingRegistryTest, SplitPipelineDocumentAndCoreBoundary) {
        {{{"id", "n0"},
          {"node_type", "TextRuleMatchNode"},
          {"depends_on", nlohmann::json::array()},
-         {"ports",
-          {{"inputs", {{"text", "in"}}}, {"outputs", {{"matches", "out"}}}}},
+         {"inputs", {{"text", "in"}}},
+         {"outputs", {{"matches", "out"}}},
          {"config", {{"categories", {{"CAT", {"word"}}}}}}}}}};
   EXPECT_TRUE(SplitPipelineDocument(neutral_doc, &split, &err));
   EXPECT_FALSE(split.has_deployment);
@@ -717,7 +717,6 @@ TEST_F(IoBindingRegistryTest,
               {"capacities", {{"entities_json", 2047}}}}}}}}}}},
       {"models",
        {{{"model_id", "mid~test"},
-         {"capability", "embedding"},
          {"model_type", "test_biz_embedding"},
          {"backend", "test_tensor_backend"},
          {"model_config", {{"embedding_dim", 128}, {"max_batch_size", 4}}},
@@ -768,7 +767,6 @@ TEST_F(IoBindingRegistryTest,
               {"capacities", {{"entities_json", 2047}}}}}}}}}}},
       {"models",
        {{{"model_id", "mid_1"},
-         {"capability", "embedding"},
          {"model_type", "test_biz_embedding"},
          {"backend", "test_tensor_backend"},
          {"model_config", {{"embedding_dim", 128}, {"max_batch_size", 4}}},
@@ -824,7 +822,6 @@ TEST_F(IoBindingRegistryTest, MissingDeploymentFails_T02) {
       {"biz_name", "test_biz_v1"},
       {"models",
        {{{"model_id", "mid_1"},
-         {"capability", "embedding"},
          {"model_type", "test_biz_embedding"},
          {"backend", "test_tensor_backend"},
          {"model_config", {{"embedding_dim", 128}, {"max_batch_size", 4}}},
@@ -878,7 +875,6 @@ TEST_F(IoBindingRegistryTest,
               {"capacities", {{"entities_json", 2047}}}}}}}}}}},
       {"models",
        {{{"model_id", "mid_1"},
-         {"capability", "embedding"},
          {"model_type", "test_biz_embedding"},
          {"backend", "test_tensor_backend"},
          {"model_config", {{"embedding_dim", 128}, {"max_batch_size", 4}}},
@@ -983,7 +979,7 @@ TEST_F(IoBindingRegistryTest,
     EXPECT_EQ(diag.path, "/models");
   }
 
-  // Case 2: models[0] missing required capability
+  // Case 2: an override cannot supply a missing required model_path.
   {
     nlohmann::json doc = {{"biz_name", "test_biz_v1"},
                           {"deployment",
@@ -995,12 +991,11 @@ TEST_F(IoBindingRegistryTest,
                           {"models",
                            {{{"model_id", "mid_1"},
                              {"model_type", "test_biz_embedding"},
-                             {"backend", "test_tensor_backend"},
-                             {"model_path", "models/original.bin"}}}},
+                             {"backend", "test_tensor_backend"}}}},
                           {"pipeline", DefaultPipelineNodes()}};
     EXPECT_FALSE(PrepareDeploymentDocument(doc, options, &prepared, &diag));
     EXPECT_EQ(diag.code, "MISSING_FIELD");
-    EXPECT_EQ(diag.path, "/models/0/capability");
+    EXPECT_EQ(diag.path, "/models/0/model_path");
   }
 
   // Case 3: Duplicate model_id
@@ -1014,12 +1009,10 @@ TEST_F(IoBindingRegistryTest,
                                {{"entity_out", {{"type", "entity_out"}}}}}}}}},
                           {"models",
                            {{{"model_id", "mid_1"},
-                             {"capability", "embedding"},
                              {"model_type", "test_biz_embedding"},
                              {"backend", "test_tensor_backend"},
                              {"model_path", "models/orig1.bin"}},
                             {{"model_id", "mid_1"},
-                             {"capability", "embedding"},
                              {"model_type", "test_biz_embedding"},
                              {"backend", "test_tensor_backend"},
                              {"model_path", "models/orig2.bin"}}}},
@@ -1057,7 +1050,6 @@ TEST_F(IoBindingRegistryTest,
               {"capacities", {{"entities_json", 2047}}}}}}}}}}},
       {"models",
        {{{"model_id", "mid_1"},
-         {"capability", "embedding"},
          {"model_type", "test_biz_embedding"},
          {"backend", "test_tensor_backend"},
          {"model_config", {{"embedding_dim", 128}, {"max_batch_size", 4}}},
@@ -1098,7 +1090,6 @@ TEST_F(IoBindingRegistryTest, OverrideUnknownModelIdOrInvalidSyntax_T06) {
               {"capacities", {{"entities_json", 2047}}}}}}}}}}},
       {"models",
        {{{"model_id", "mid_1"},
-         {"capability", "embedding"},
          {"model_type", "test_biz_embedding"},
          {"backend", "test_tensor_backend"},
          {"model_config", {{"embedding_dim", 128}, {"max_batch_size", 4}}},
@@ -1262,7 +1253,6 @@ TEST_F(IoBindingRegistryTest, PrepareFailureResetsPreparedStateAtomically_T18) {
               {"capacities", {{"entities_json", 2047}}}}}}}}}}},
       {"models",
        {{{"model_id", "mid_1"},
-         {"capability", "embedding"},
          {"model_type", "test_biz_embedding"},
          {"backend", "test_tensor_backend"},
          {"model_config", {{"embedding_dim", 128}, {"max_batch_size", 4}}},
@@ -1358,7 +1348,7 @@ TEST_F(IoBindingRegistryTest,
   // Diagnostic 3: Non-model diagnostic
   ValidationDiagnostic diag3;
   diag3.code = DiagnosticCode::kMissingField;
-  diag3.path = "/pipeline/0/ports/inputs/text";
+  diag3.path = "/pipeline/0/inputs/text";
   diag3.message = "Port unbound";
   report.diagnostics.push_back(diag3);
 
@@ -1390,7 +1380,7 @@ TEST_F(IoBindingRegistryTest,
   EXPECT_EQ(report.diagnostics[1].remediation->fixes[0].id, "fix_model_1");
 
   // Diagnostic 3: Unchanged
-  EXPECT_EQ(report.diagnostics[2].path, "/pipeline/0/ports/inputs/text");
+  EXPECT_EQ(report.diagnostics[2].path, "/pipeline/0/inputs/text");
 
   // Diagnostic 4: Escaped pointer with ~ and /
   EXPECT_EQ(report.diagnostics[3].path,
@@ -1416,7 +1406,6 @@ TEST_F(IoBindingRegistryTest,
               {"capacities", {{"entities_json", 2047}}}}}}}}}}},
       {"models",
        {{{"model_id", "mid_1"},
-         {"capability", "embedding"},
          {"model_type", "test_biz_embedding"},
          {"backend", "test_tensor_backend"},
          {"model_config", {{"embedding_dim", 128}, {"max_batch_size", 4}}},
@@ -1472,8 +1461,8 @@ nlohmann::json ValidTextTemplatePipelineNodes() {
   node["id"] = "node_0";
   node["node_type"] = "TextTemplateNode";
   node["depends_on"] = nlohmann::json::array();
-  node["ports"]["inputs"]["primary"] = "input_sentences";
-  node["ports"]["outputs"]["text"] = "llm_answers";
+  node["inputs"]["primary"] = "input_sentences";
+  node["outputs"]["text"] = "llm_answers";
   node["config"]["template"] = "{{primary}}";
   return nlohmann::json::array({node});
 }
@@ -1534,7 +1523,6 @@ TEST_F(IoBindingRegistryTest,
     nlohmann::json t03_pipe = base_pipeline;
     t03_pipe["models"] = {
         {{"model_id", "mid_1"},
-         {"capability", "embedding"},
          {"model_type", "test_biz_embedding"},
          {"backend", "test_tensor_backend"},
          {"model_config", {{"embedding_dim", 128}, {"max_batch_size", 4}}},

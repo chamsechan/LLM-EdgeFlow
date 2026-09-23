@@ -37,16 +37,20 @@ Json Fields(const Json& fields) {
   return Object(std::move(properties), std::move(required));
 }
 
-Json PortMappings(const Json& ports, const Json& mapping_shape) {
+Json PortMappings(const Json& ports, const Json& mapping_shape, bool inputs) {
   Json properties = Json::object();
+  Json required = Json::array();
   for (const auto& port : ports) {
     auto property = mapping_shape.at("additionalProperties");
-    property["description"] = port.at("type_id").get<std::string>() +
-                              "; Blackboard key (mapping may be omitted).";
+    property["description"] =
+        port.at("type_id").get<std::string>() +
+        (inputs ? "; explicit Blackboard key."
+                : "; Blackboard key (defaults to port name).");
     properties[port.at("key").get<std::string>()] = std::move(property);
+    if (inputs && port.at("required").get<bool>())
+      required.push_back(port.at("key"));
   }
-  // Required inputs and outputs can use Validator's default key mapping.
-  return Object(std::move(properties));
+  return Object(std::move(properties), std::move(required));
 }
 
 Json Node(const Json& definition) {
@@ -56,10 +60,12 @@ Json Node(const Json& definition) {
   auto& properties = result["properties"];
   properties["node_type"] = {{"const", definition.at("node_type")}};
   properties["config"] = std::move(config);
-  auto& ports = properties["ports"]["properties"];
   for (const char* direction : {"inputs", "outputs"}) {
-    ports[direction] =
-        PortMappings(definition.at(direction), ports.at(direction));
+    properties[direction] =
+        PortMappings(definition.at(direction), properties.at(direction),
+                     std::string(direction) == "inputs");
+    if (!properties[direction].at("required").empty())
+      result["required"].push_back(direction);
   }
   result["title"] = definition.at("node_type");
   result["description"] = definition.at("description");
@@ -71,9 +77,6 @@ Json ConfigBranch(const Json& definition, const char* selector,
   auto config = Fields(definition.at("config_fields"));
   Json body = {{"properties", {{config_key, config}}}};
   if (!config.at("required").empty()) body["required"] = {config_key};
-  if (definition.contains("capability")) {
-    body["properties"]["capability"] = {{"const", definition.at("capability")}};
-  }
   return {{"if",
            {{"properties",
              {{selector, {{"const", definition.at(definition_key)}}}}},

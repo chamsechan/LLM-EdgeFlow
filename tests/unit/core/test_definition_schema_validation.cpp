@@ -209,7 +209,6 @@ nlohmann::json MakeSchemaProbePipeline(const nlohmann::json& backend_config) {
   return {{"biz_name", "schema_fixture_biz"},
           {"models",
            {{{"model_id", "probe_model"},
-             {"capability", "schema_probe"},
              {"model_type", SchemaProbeModel::kModelType},
              {"backend", SchemaProbeBackend::kBackendType},
              {"model_path", "probe.bin"},
@@ -307,7 +306,6 @@ TEST_F(DefinitionSchemaValidationTest, EnforcesBackendConfigConstraints) {
       {"models",
        nlohmann::json::array(
            {{{"model_id", "probe_model"},
-             {"capability", "schema_probe"},
              {"model_type", SchemaProbeModel::kModelType},
              {"backend", SchemaProbeBackend::kBackendType},
              {"model_path", "probe.bin"},
@@ -440,7 +438,6 @@ TEST_F(DefinitionSchemaValidationTest, ValidationFailureHasZeroSideEffects) {
       {"biz_name", "schema_fixture_biz"},
       {"models",
        nlohmann::json::array({{{"model_id", "probe_model"},
-                               {"capability", "schema_probe"},
                                {"model_type", SchemaProbeModel::kModelType},
                                {"backend", SchemaProbeBackend::kBackendType},
                                {"model_path", "probe.bin"},
@@ -575,8 +572,8 @@ TEST_F(DefinitionSchemaValidationTest, RejectsInvalidDefinitionAtRegistration) {
       {"generator", "llm", "bind_model2"},
   };
   dup_slot_def.config_fields = {
-      ConfigFieldDefinition{"bind_model1", ConfigValueKind::kString},
-      ConfigFieldDefinition{"bind_model2", ConfigValueKind::kString},
+      ConfigFieldDefinition{"bind_model1", ConfigValueKind::kString, true},
+      ConfigFieldDefinition{"bind_model2", ConfigValueKind::kString, true},
   };
   EXPECT_FALSE(ValidateNodeDefinitionStructure(dup_slot_def));
 
@@ -587,7 +584,7 @@ TEST_F(DefinitionSchemaValidationTest, RejectsInvalidDefinitionAtRegistration) {
       {"reviewer", "llm", "bind_model"},
   };
   dup_dep_field_def.config_fields = {
-      ConfigFieldDefinition{"bind_model", ConfigValueKind::kString},
+      ConfigFieldDefinition{"bind_model", ConfigValueKind::kString, true},
   };
   EXPECT_FALSE(ValidateNodeDefinitionStructure(dup_dep_field_def));
 
@@ -623,6 +620,30 @@ TEST_F(DefinitionSchemaValidationTest, RejectsInvalidDefinitionAtRegistration) {
                             std::nullopt,
                             {"request", "forever"}}};
   EXPECT_FALSE(ValidateNodeDefinitionStructure(invalid_lifetime_override));
+}
+
+TEST_F(DefinitionSchemaValidationTest,
+       ModelReferenceRejectsOptionalOrDefaultBinding) {
+  test_support::RegistryTestAccess::ScopedNodeState state_guard;
+  NodeDefinition definition;
+  definition.node_type = "ExplicitModelReferenceNode";
+  definition.model_dependencies = {{"generator", "llm", "bind_model"}};
+  definition.config_fields = {{"bind_model", ConfigValueKind::kString, true}};
+  ASSERT_TRUE(ValidateNodeDefinitionStructure(definition));
+
+  auto optional = definition;
+  optional.node_type = "OptionalModelReferenceNode";
+  optional.config_fields.front().required = false;
+  EXPECT_FALSE(ValidateNodeDefinitionStructure(optional));
+  EXPECT_FALSE(NodeRegistry::Instance().Register(
+      optional.node_type, []() { return nullptr; }, optional));
+
+  auto with_default = definition;
+  with_default.node_type = "DefaultModelReferenceNode";
+  with_default.config_fields.front().default_value = "llm_model_v1";
+  EXPECT_FALSE(ValidateNodeDefinitionStructure(with_default));
+  EXPECT_FALSE(NodeRegistry::Instance().Register(
+      with_default.node_type, []() { return nullptr; }, with_default));
 }
 
 TEST_F(DefinitionSchemaValidationTest,

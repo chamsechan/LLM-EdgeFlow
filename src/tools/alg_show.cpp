@@ -95,9 +95,8 @@ int main(int argc, char* argv[]) {
     std::cout << "\n";
   }
 
-  // 2. 显式 DAG 声明。这里不推导拓扑或重复 PipelineValidator 规则。
-  std::cout << COLOR_BOLD
-            << "[ 2. 显式 DAG 节点与依赖 (Declared Nodes & Dependencies) ]"
+  // 2. 原文节点与连线。这里不推导拓扑或重复 PipelineValidator 规则。
+  std::cout << COLOR_BOLD << "[ 2. 节点与数据映射 (Declared Nodes & Mappings) ]"
             << COLOR_RESET << "\n";
   std::cout
       << COLOR_DIM
@@ -109,9 +108,8 @@ int main(int argc, char* argv[]) {
     const auto& node = pipeline[i];
     std::string node_id = node.value("id", "<missing-id>");
     std::string ntype = node.value("node_type", "UnknownNode");
-    std::string depends = node.contains("depends_on")
-                              ? node["depends_on"].dump()
-                              : "<missing-depends_on>";
+    std::string depends =
+        node.contains("depends_on") ? node["depends_on"].dump() : "[]";
     std::string bind_m = node.contains("config") && node["config"].is_object()
                              ? node["config"].value("bind_model", "")
                              : "";
@@ -121,7 +119,14 @@ int main(int argc, char* argv[]) {
     std::cout << "  " << card_color << "[" << i << "] " << node_id
               << COLOR_RESET << "\n"
               << "      node_type: " << ntype << "\n"
-              << "      depends_on: " << depends << "\n";
+              << "      inputs: "
+              << (node.contains("inputs") ? node["inputs"].dump() : "<未声明>")
+              << "\n"
+              << "      outputs: "
+              << (node.contains("outputs") ? node["outputs"].dump()
+                                           : "<未声明>")
+              << "\n"
+              << "      depends_on: " << depends << " (额外顺序)\n";
 
     if (!bind_m.empty()) {
       std::cout << "      bind_model: " << COLOR_MAGENTA << bind_m

@@ -61,7 +61,6 @@ inline std::shared_ptr<ValidatedNodePlan> PrepareNodePlanForTest(
                                            [] { return nullptr; });
     }
     models.push_back({{"model_id", id},
-                      {"capability", dep.capability},
                       {"model_type", model_type},
                       {"backend", backend},
                       {"model_path", "mock.bin"}});
@@ -98,13 +97,12 @@ inline std::shared_ptr<ValidatedNodePlan> PrepareNodePlanForTest(
     if (error) *error = "Failed to register Node fixture business";
     return nullptr;
   }
-  nlohmann::json node = {
-      {"id", "fixture_node"},
-      {"node_type", type},
-      {"depends_on", nlohmann::json::array()},
-      {"config", config},
-      {"ports",
-       {{"inputs", std::move(inputs)}, {"outputs", std::move(outputs)}}}};
+  nlohmann::json node = {{"id", "fixture_node"},
+                         {"node_type", type},
+                         {"depends_on", nlohmann::json::array()},
+                         {"config", config},
+                         {"inputs", std::move(inputs)},
+                         {"outputs", std::move(outputs)}};
   auto result = PipelineValidator::ValidateAndPlan(
       {{"biz_name", biz.biz_name},
        {"models", std::move(models)},

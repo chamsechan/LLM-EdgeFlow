@@ -128,3 +128,25 @@ near(graph.scale, 1);
 layers["#nodes"].children[1].fire("dblclick", { stopPropagation() {}, target: { classList: { contains: () => false } } });
 near(graph.positions.b.x + graph.sizes.b.width / 2, (root.clientWidth / 2 - graph.offset.x) / graph.scale);
 console.log("Studio graph geometry, routing and interaction checks passed");
+
+// Raw data mappings alone drive visible data edges. No missing required or
+// optional input may silently bind to a same-name key.
+const workbenchSource = readFileSync(new URL("../../tools/pipeline_studio/web/workbench.js", import.meta.url), "utf8");
+const { graphDocument } = await import(`data:text/javascript;base64,${Buffer.from(workbenchSource).toString("base64")}`);
+const catalog = { bizs: [{ biz_name: "example", ingress: [{ key: "request" }], egress: [] }], nodes: [
+  { node_type: "Producer", inputs: [], outputs: [{ key: "text" }, { key: "optional" }] },
+  { node_type: "Consumer", inputs: [{ key: "text", required: true }, { key: "optional", required: false }], outputs: [] },
+] };
+const pipelineDocument = { biz_name: "example", pipeline: [
+  { id: "consumer", node_type: "Consumer", inputs: { text: "text" } },
+  { id: "producer", node_type: "Producer" },
+  { id: "missing", node_type: "Consumer", depends_on: ["producer"] },
+] };
+const documentBeforeGraph = structuredClone(pipelineDocument);
+const graphDocumentResult = graphDocument(pipelineDocument, catalog);
+assert.equal(graphDocumentResult.edges.filter(edge => !edge.dependency).length, 1);
+assert.ok(graphDocumentResult.edges.some(edge => edge.source === "producer" && edge.target === "consumer" && edge.targetPort === "text"));
+assert.ok(graphDocumentResult.edges.some(edge => edge.source === "producer" && edge.target === "missing" && edge.dependency));
+assert.ok(!graphDocumentResult.edges.some(edge => edge.targetPort === "optional"));
+assert.deepEqual(pipelineDocument, documentBeforeGraph, "rendering must never persist inferred dependencies");
+console.log("Studio explicit input mappings, default outputs and independent ordering checks passed");

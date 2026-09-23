@@ -197,7 +197,6 @@ TEST_F(EngineFaultToleranceAndLifecycleTest, Deep5LayerWavefrontDagExecution) {
   // Layer 3: B1, B2, B3 (依赖 M1, M2)
   // Layer 4: Final (依赖 B1, B2, B3)
   nlohmann::json deep_dag_config = {{"biz_name", "deep_5_layer_dag"},
-                                    {"execution_mode", "parallel"},
                                     {"max_parallel_workers", 4},
                                     {"pipeline",
                                      {{{"id", "R1"},

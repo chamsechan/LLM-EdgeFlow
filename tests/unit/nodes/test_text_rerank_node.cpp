@@ -349,18 +349,15 @@ TEST_F(TextRerankNodeTest, PortConstraintsValidation) {
   nlohmann::json bad_pipeline = {
       {"biz_name", "rerank_port_constraint_fixture"},
       {"models",
-       {{{"capability", "rerank"},
-         {"model_type", "test_biz_rerank"},
+       {{{"model_type", "test_biz_rerank"},
          {"backend", "test_tensor_backend"},
          {"model_id", "rerank_model_v1"},
          {"model_path", "./models/rerank.bin"}}}},
       {"pipeline",
        {{{"id", "node_0_TextRerankNode"},
          {"node_type", "TextRerankNode"},
-         {"depends_on", nlohmann::json::array()},
-         {"ports",
-          {{"inputs", {{"candidates", "doc_candidates"}}},
-           {"outputs", {{"ranked", "ranked_results"}}}}},
+         {"inputs", {{"candidates", "doc_candidates"}}},
+         {"outputs", {{"ranked", "ranked_results"}}},
          {"config", {{"bind_model", "rerank_model_v1"}}}}}}};
 
   auto plan = PipelineValidator::ValidateAndPlan(bad_pipeline);

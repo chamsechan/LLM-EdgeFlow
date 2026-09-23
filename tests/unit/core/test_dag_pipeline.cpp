@@ -338,47 +338,51 @@ class DagPipelineTest : public ::testing::Test {
 // 1. 乱序书写自动拓扑重排 (Shuffled JSON -> Correct Order)
 TEST_F(DagPipelineTest, ShuffledOrderTopologicalSort) {
   // JSON 中故意将 D 写在最前，B 和 C 其次，A 写在最后 (逆序输入)
-  nlohmann::json config = {{"biz_name", "shuffled_dag_test"},
-                           {"pipeline",
-                            {{{"id", "node_d"},
-                              {"node_type", "DagTestNodeD"},
-                              {"depends_on", {"node_b", "node_c"}}},
-                             {{"id", "node_c"},
-                              {"node_type", "DagTestNodeC"},
-                              {"depends_on", {"node_a"}}},
-                             {{"id", "node_b"},
-                              {"node_type", "DagTestNodeB"},
-                              {"depends_on", {"node_a"}}},
-                             {{"id", "node_a"},
-                              {"node_type", "DagTestNodeA"},
-                              {"depends_on", nlohmann::json::array()}}}}};
+  nlohmann::json config = {
+      {"biz_name", "shuffled_dag_test"},
+      {"pipeline",
+       {{{"id", "node_d"},
+         {"node_type", "DagTestNodeD"},
+         {"inputs",
+          {{"node_b_out", "node_b_out"}, {"node_c_out", "node_c_out"}}}},
+        {{"id", "node_c"},
+         {"node_type", "DagTestNodeC"},
+         {"inputs", {{"node_a_out", "node_a_out"}}}},
+        {{"id", "node_b"},
+         {"node_type", "DagTestNodeB"},
+         {"inputs", {{"node_a_out", "node_a_out"}}}},
+        {{"id", "node_a"}, {"node_type", "DagTestNodeA"}}}}};
 
-  Pipeline pipeline;
-  bool ok = BuildTestPipeline(pipeline, config, nullptr);
-  ASSERT_TRUE(ok);
+  for (int workers : {1, 4}) {
+    SCOPED_TRACE(workers);
+    config["max_parallel_workers"] = workers;
+    Pipeline pipeline;
+    bool ok = BuildTestPipeline(pipeline, config, nullptr);
+    ASSERT_TRUE(ok);
 
-  // 校验拓扑序：node_a 必须在第一位，node_d 必须在最后一位
-  const auto& order = pipeline.GetTopologicalOrder();
-  ASSERT_EQ(order.size(), 4U);
-  EXPECT_EQ(order[0], "node_a");
-  EXPECT_EQ(order[3], "node_d");
+    // 校验拓扑序：node_a 必须在第一位，node_d 必须在最后一位
+    const auto& order = pipeline.GetTopologicalOrder();
+    ASSERT_EQ(order.size(), 4U);
+    EXPECT_EQ(order[0], "node_a");
+    EXPECT_EQ(order[3], "node_d");
 
-  // 执行管线并验证执行轨迹
-  AlgContext req_ctx;
-  ResetExecutionTrace();
+    // 执行管线并验证执行轨迹
+    AlgContext req_ctx;
+    ResetExecutionTrace();
 
-  int ret = pipeline.Execute(&req_ctx);
-  EXPECT_EQ(ret, 0);
+    int ret = pipeline.Execute(&req_ctx);
+    EXPECT_EQ(ret, 0);
 
-  const auto trace = SnapshotExecutionTrace();
-  ASSERT_EQ(trace.size(), 4);
-  EXPECT_EQ(trace[0], "NodeA");
-  EXPECT_EQ(trace[3], "NodeD");
+    const auto trace = SnapshotExecutionTrace();
+    ASSERT_EQ(trace.size(), 4);
+    EXPECT_EQ(trace[0], "NodeA");
+    EXPECT_EQ(trace[3], "NodeD");
 
-  auto* final_res = req_ctx.Read<std::string>("final_dag_result");
-  ASSERT_NE(final_res, nullptr);
-  EXPECT_EQ(*final_res,
-            "DataFromB_after_DataFromA + DataFromC_after_DataFromA");
+    auto* final_res = req_ctx.Read<std::string>("final_dag_result");
+    ASSERT_NE(final_res, nullptr);
+    EXPECT_EQ(*final_res,
+              "DataFromB_after_DataFromA + DataFromC_after_DataFromA");
+  }
 }
 
 // 2. 钻石分支与汇聚拓扑测试 (Diamond Branch & Merge)
@@ -389,10 +393,18 @@ TEST_F(DagPipelineTest, DiamondBranchAndMerge) {
        {{{"id", "A"},
          {"node_type", "DagTestNodeA"},
          {"depends_on", nlohmann::json::array()}},
-        {{"id", "B"}, {"node_type", "DagTestNodeB"}, {"depends_on", {"A"}}},
-        {{"id", "C"}, {"node_type", "DagTestNodeC"}, {"depends_on", {"A"}}},
+        {{"id", "B"},
+         {"node_type", "DagTestNodeB"},
+         {"inputs", {{"node_a_out", "node_a_out"}}},
+         {"depends_on", {"A"}}},
+        {{"id", "C"},
+         {"node_type", "DagTestNodeC"},
+         {"inputs", {{"node_a_out", "node_a_out"}}},
+         {"depends_on", {"A"}}},
         {{"id", "D"},
          {"node_type", "DagTestNodeD"},
+         {"inputs",
+          {{"node_b_out", "node_b_out"}, {"node_c_out", "node_c_out"}}},
          {"depends_on", {"B", "C"}}}}}};
 
   Pipeline pipeline;
@@ -421,9 +433,11 @@ TEST_F(DagPipelineTest, CycleDetectionRejection) {
             {"depends_on", {"C"}}},  // A 依赖 C
            {{"id", "B"},
             {"node_type", "DagTestNodeB"},
+            {"inputs", {{"node_a_out", "node_a_out"}}},
             {"depends_on", {"A"}}},  // B 依赖 A
            {{"id", "C"},
             {"node_type", "DagTestNodeC"},
+            {"inputs", {{"node_a_out", "node_a_out"}}},
             {"depends_on", {"B"}}}  // C 依赖 B (构成闭环)
        }}};
 
@@ -461,7 +475,6 @@ TEST_F(DagPipelineTest, InvalidDependencyRejection) {
 TEST_F(DagPipelineTest, ParallelWavefrontExecution) {
   nlohmann::json parallel_config = {
       {"biz_name", "parallel_wavefront_dag"},
-      {"execution_mode", "parallel"},
       {"max_parallel_workers", 4},
       {"pipeline",
        {// Layer 0: Root 节点 A
@@ -471,13 +484,17 @@ TEST_F(DagPipelineTest, ParallelWavefrontExecution) {
         // Layer 1: 兄弟节点 B 和 C 均依赖 A，在 Layer 1 并发执行
         {{"id", "node_b"},
          {"node_type", "DagTestNodeB"},
+         {"inputs", {{"node_a_out", "node_a_out"}}},
          {"depends_on", {"node_a"}}},
         {{"id", "node_c"},
          {"node_type", "DagTestNodeC"},
+         {"inputs", {{"node_a_out", "node_a_out"}}},
          {"depends_on", {"node_a"}}},
         // Layer 2: 汇聚节点 D，依赖 B 和 C
         {{"id", "node_d"},
          {"node_type", "DagTestNodeD"},
+         {"inputs",
+          {{"node_b_out", "node_b_out"}, {"node_c_out", "node_c_out"}}},
          {"depends_on", {"node_b", "node_c"}}}}}};
 
   Pipeline pipeline;
@@ -506,7 +523,6 @@ TEST_F(DagPipelineTest, ParallelWavefrontExecution) {
 TEST_F(DagPipelineTest, ParallelExceptionWaitsForAllSubmittedNodes) {
   const nlohmann::json config = {
       {"biz_name", "parallel_exception_test"},
-      {"execution_mode", "parallel"},
       {"max_parallel_workers", 2},
       {"pipeline",
        nlohmann::json::array({{{"id", "throwing"},
@@ -538,7 +554,6 @@ TEST_F(DagPipelineTest, ParallelExceptionWaitsForAllSubmittedNodes) {
 TEST_F(DagPipelineTest, ParallelFailuresKeepCodeAndMessageFromSameNode) {
   const nlohmann::json config = {
       {"biz_name", "parallel_error_diagnostic_test"},
-      {"execution_mode", "parallel"},
       {"max_parallel_workers", 2},
       {"pipeline",
        nlohmann::json::array({{{"id", "first"},
@@ -600,12 +615,12 @@ TEST_F(DagPipelineTest, ThreadSafeAlgContextStressTest) {
 }
 
 TEST_F(DagPipelineTest, SequentialAndSingleNodeParallelShareFailureContract) {
-  for (const char* mode : {"sequential", "parallel"}) {
+  for (int workers : {1, 4}) {
     for (int failure = 0; failure < 4; ++failure) {
       ThrowingProcessDagNode::failure_mode = failure;
       nlohmann::json config = {
           {"biz_name", "invocation_failure_test"},
-          {"execution_mode", mode},
+          {"max_parallel_workers", workers},
           {"pipeline",
            {{{"id", "failing"},
              {"node_type", ThrowingProcessDagNode::kNodeType},
@@ -633,7 +648,6 @@ TEST_F(DagPipelineTest, SequentialAndSingleNodeParallelShareFailureContract) {
 TEST_F(DagPipelineTest, DiagnosticFailureStillWaitsForSubmittedNodes) {
   const nlohmann::json config = {
       {"biz_name", "parallel_diagnostic_failure"},
-      {"execution_mode", "parallel"},
       {"max_parallel_workers", 2},
       {"pipeline",
        {{{"id", "failing"},
