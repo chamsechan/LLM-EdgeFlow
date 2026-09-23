@@ -8,6 +8,7 @@
 #include <limits>
 
 #include "demo/common/dataset_reader.h"
+#include "demo/common/demo_profile_fields.h"
 #include "edgeflow/log.h"
 #include "nlohmann/json.hpp"
 
@@ -104,13 +105,6 @@ int ParseCommandLine(int argc, char* argv[], DemoOptions* out_options,
       }
       out_options->profile = argv[++i];
       out_options->has_profile = true;
-    } else if (arg == "-b" || arg == "--biz") {
-      if (i + 1 >= argc) {
-        if (error_msg) *error_msg = "Missing value for argument: " + arg;
-        return 2;
-      }
-      out_options->biz = argv[++i];
-      out_options->has_biz = true;
     } else if (arg == "--profiles-file") {
       if (i + 1 >= argc || !argv[i + 1][0]) {
         if (error_msg) *error_msg = "--profiles-file requires a non-empty path";
@@ -252,16 +246,9 @@ int LoadAndValidateProfilesDocument(const std::string& profiles_path,
         *error_msg = "Profile name cannot be empty string in " + resolved_path;
       return 3;
     }
-    if (!p.is_object()) {
-      if (error_msg) *error_msg = "Profile '" + name + "' must be an object";
-      return 3;
-    }
-    bool has_biz = p.contains("biz") && p["biz"].is_string() &&
-                   !p["biz"].get<std::string>().empty();
-    if (!has_biz) {
-      if (error_msg)
-        *error_msg =
-            "Profile '" + name + "' must contain non-empty string 'biz'";
+    std::string fields_error;
+    if (!ValidateProfileFields(p, &fields_error)) {
+      if (error_msg) *error_msg = "Profile '" + name + "': " + fields_error;
       return 3;
     }
     if (!p.contains("config") || !p["config"].is_string() ||
@@ -398,6 +385,7 @@ int LoadAndMergeProfiles(const std::string& profiles_path,
   }
 
   *out_options = cli_options;
+  out_options->biz.clear();
 
   if (cli_options.profile.empty()) {
     // 未指定 Profile，无需从配置文件合并
@@ -421,6 +409,7 @@ int MergeProfileOptions(const nlohmann::json& root,
     return 3;
   }
   *out_options = cli_options;
+  out_options->biz.clear();
   const auto& profiles = root["profiles"];
   if (!profiles.contains(cli_options.profile)) {
     if (error_msg) {
@@ -431,22 +420,10 @@ int MergeProfileOptions(const nlohmann::json& root,
   }
 
   const auto& p = profiles[cli_options.profile];
-  std::string prof_biz = p["biz"].get<std::string>();
   std::string prof_cfg = p["config"].get<std::string>();
   std::string prof_data = p["dataset"].get<std::string>();
 
-  // 冲突检查：若 CLI 显式提供了 --biz，必须与 Profile biz 完全一致
-  if (cli_options.has_biz && cli_options.biz != prof_biz) {
-    if (error_msg) {
-      *error_msg = "Biz conflict: CLI specified '--biz " + cli_options.biz +
-                   "' but profile '" + cli_options.profile + "' requires '" +
-                   prof_biz + "'";
-    }
-    return 3;
-  }
-
-  // 严格合并优先级：默认值 < Profile < CLI显式参数 (P1-1)
-  out_options->biz = cli_options.has_biz ? cli_options.biz : prof_biz;
+  // 默认值 < Profile < CLI 显式参数。业务身份稍后由 SDK 解析最终配置。
   out_options->config_path =
       cli_options.has_config_path ? cli_options.config_path : prof_cfg;
   out_options->dataset_path =
@@ -497,15 +474,13 @@ void PrintHelp(const char* program_name) {
       << "  -l, --list                 List all available biz cases and "
          "profiles\n\n"
       << "Direct Execution Options:\n"
-      << "  -b, --biz <name>           Target biz (e.g. entity_extract, "
-         "doc_qa)\n"
       << "  -c, --config <path>         Operator deployment .conf path\n"
       << "  -d, --dataset <path>        Business dataset path\n"
       << "  -o, --output-dir <path>    Results output directory (default: "
          "./results)\n\n"
       << "Runtime Control & Output Options:\n"
       << "  --example-control          Apply the built-in Demo example update "
-         "(keyword_match)\n"
+         "(keyword_match_v1)\n"
       << "  --control-file <path>      Runtime control parameters JSON file\n"
       << "  --control-cmd <id>         Node command ID for --control-file\n"
       << "  --append                   Append output to existing results file "

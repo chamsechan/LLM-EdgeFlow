@@ -41,7 +41,7 @@ const context = vm.createContext({
     location: { search: "", hash: "" } },
   Option: class extends Element { constructor(text, value) { super("option"); this.textContent = text; this.value = value; } },
   async testApi(path) {
-    if (path.startsWith("/catalog")) return { schema_version: catalogVersion, nodes: [], models: [], profiles: [], bizs: [] };
+    if (path.startsWith("/catalog")) return { schema_version: catalogVersion, nodes: [], models: [], profiles: [], bizs: [], io_bindings: [] };
     if (path === "/profiles") return { profiles: [] };
     if (path === "/pipelines") return { pipelines: [] };
     if (path === "/assets") return { selections: [], variants: [] };
@@ -77,7 +77,7 @@ async function load(name) {
 const app = await load("app.js");
 await app.evaluate();
 const { state, history, drafts, handleApplyFix, restoreHistory } = app.namespace;
-const initial = { biz_name: "keyword_match_v1", models: [], pipeline: [], comment: "before" };
+const initial = { deployment: { io: { io_binding: "keyword_match.operator.v1" } }, models: [], pipeline: [], comment: "before" };
 const patched = { ...initial, comment: "after" };
 const fix = { id: "repair-1", title: "Repair", effect: "Replace comment", verification: "pipeline_valid",
   patch: [{ op: "replace", path: "/comment", value: "after" }] };

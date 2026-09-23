@@ -21,7 +21,7 @@ C++ 查看工具，展示更多声明信息：
 ./build/alg_show configs/pipeline_doc_qa_default.json
 ```
 
-该命令忠实输出 JSON 中声明的业务名、节点 ID、节点类型、`inputs` / `outputs` 数据映射，
+该命令忠实输出 JSON 中声明的 I/O 契约、节点 ID、节点类型、`inputs` / `outputs` 数据映射，
 以及表示额外顺序的 `depends_on`。未声明的映射会标明缺省；查看器不推导执行计划，也不启动
 Web 服务。需要经过校验的拓扑顺序和波前层时，应使用
 `alg_pipeline_tool plan`。模型批处理信息仅显示配置中实际声明的
@@ -73,7 +73,7 @@ Web 服务。需要经过校验的拓扑顺序和波前层时，应使用
   工具栏的 `−` / `+` 调整比例，点击百分比恢复 100%，“适应画布”显示完整流程。
   双击节点可聚焦并放大阅读。“自动布局”重新排列节点并适应画布；实线表示数据流，
   虚线表示独立的执行依赖。
-- 顶部“新建”直接展开新建表单，选择业务契约和 Profile 即可克隆，也可从空图开始。
+- 顶部“新建”直接展开新建表单，选择 I/O 契约和 Profile 即可克隆，也可从空图开始。
   点击“编辑方案”修改节点和连线。已有方案首次进入编辑时收起算子面板，可用
   “算子”“详情”按钮展开或收起两侧面板。浏览时参数只读，校验和草稿运行仍可直接使用。
   点击“浏览流程”收起工具回到全宽画布，再次点击节点可查看属性。
@@ -103,12 +103,12 @@ Web 服务。需要经过校验的拓扑顺序和波前层时，应使用
 从无需模型的关键词方案开始，先查询实际契约：
 
 ```bash
-./build/alg_pipeline_tool catalog --biz keyword_match_v1
+./build/alg_pipeline_tool catalog --io-binding keyword_match.operator.v1
 ./build/alg_pipeline_tool describe-node TextRuleMatchNode
 ./show --web
 ```
 
-1. 点击顶部“新建”，选择业务契约 `keyword_match_v1`，
+1. 点击顶部“新建”，选择 I/O 契约 `keyword_match.operator.v1`，
    从 `keyword_match_rules` Profile 克隆并点击“新建方案”。
 2. 在画布检查“业务输入”的 `input_sentences` → 节点 `text`，以及节点 `matches` →
    “业务输出”的 `rule_matches`。可选中连线后点击“删除连线”，再从输出端口拖到
@@ -125,9 +125,9 @@ Web 服务。需要经过校验的拓扑顺序和波前层时，应使用
 [第一个自定义 Node](../../doc/dev_guide/first_custom_node.md)，新平台结构转到
 [业务接入指南](../../doc/dev_guide/business_onboarding.md)。
 
-在“运行”页展开“接入契约”，可核对当前方案的 `biz_name`、Demo 入口、Binding、
-输入/输出 Converter 及槽位名称。`alg_pipeline_tool --biz` 使用业务契约 ID，
-`alg_demo --biz` 使用 Demo 入口名；使用 Profile 运行时无需重复填写这些名称。
+在“运行”页展开“接入契约”，可核对当前方案的 `io_binding`、输入/输出 Converter
+及槽位名称。Pipeline 只通过 `deployment.io.io_binding` 选择外部 I/O 契约；
+Demo 从 SDK 解析结果选择运行函数，Profile 仅保存配置、数据集和运行选项。
 Catalog v4 的 `external_slots` 导出 `slot_name`、`type_id`、`type_suffix` 和有效
 `key_suffix`，分别表示逻辑槽、宿主类型、类型注册后缀和外部键后缀。旧工具缺少的字段
 显示为“未提供”，重新构建 `alg_pipeline_tool` 后可查看完整信息。详情中的内部端口
@@ -136,7 +136,7 @@ Catalog v4 的 `external_slots` 导出 `slot_name`、`type_id`、`type_suffix` �
 ## 自动化 CLI
 
 ```bash
-./build/alg_pipeline_tool catalog --biz smart_doc_qa_v1
+./build/alg_pipeline_tool catalog --io-binding doc_qa.operator.v1
 ./build/alg_pipeline_tool describe-node TextEmbeddingNode
 ./build/alg_pipeline_tool validate configs/pipeline_doc_qa_default.json
 ./build/alg_pipeline_tool plan configs/pipeline_doc_qa_default.json
@@ -146,7 +146,7 @@ Catalog v4 的 `external_slots` 导出 `slot_name`、`type_id`、`type_suffix` �
 单次最多 128 个动作、4 MiB，`require_valid: true` 要求最终候选合法。具体请求见
 [RFC-0071 的简化契约](../../doc/rfcs/0071-pipeline-configuration-simplicity.md)。
 工具支持新增、删除、重命名节点、连接、断开和单独增删执行依赖。无需补数据依赖，输入也没有
-隐式同名绑定。带 `deployment` 的文档在 `validate`、`plan`、`edit` 中统一执行部署准备：
+隐式同名绑定。外部文档必须指定 `deployment.io.io_binding`，在 `validate`、`plan`、`edit` 中统一执行部署准备：
 原始模型路径必须为合法非空字符串，`deployment.model_paths` 覆盖不得掩盖非法原始声明；
 `edit` 同样严格校验未知 I/O 绑定或非法输出分配。
 
@@ -155,7 +155,7 @@ Catalog v4 的 `external_slots` 导出 `slot_name`、`type_id`、`type_suffix` �
 ### 校验工具选择
 
 CLI 克隆默认返回包含 `pipeline` 的版本化响应。需要直接保存 Pipeline JSON 时使用
-`init --biz <biz_name> --profile <profile_name> --raw`，确认命令成功后再对保存文件执行
+`init --io-binding <binding_id> --profile <profile_name> --raw`，确认命令成功后再对保存文件执行
 `validate`。`--empty --raw` 生成待填写草稿；`--empty` 与 `--profile` 不能同时指定。
 
 正式配置使用目标构建的 `alg_pipeline_tool`；有意使用测试 Model/Backend 的 Smoke
@@ -180,8 +180,8 @@ LLM_EDGEFLOW_PIPELINE_TOOL=./build/alg_pipeline_tool_test ./show --web
 ### 运行当前方案
 
 Pipeline JSON 描述算法连线并在 `deployment` 中持有部署配置（接入绑定、输出容量与模型路径覆盖）；`.conf` 仅包含 `pipe_path` 用于定位 Pipeline JSON；Profile 保存 Demo 的
-业务、配置、数据集等预设。“运行”页的“另存为可运行方案”会一起生成 JSON 和 `.conf`，
-并提供从项目根执行的完整命令；已有同名文件会拒绝覆盖。选择与业务匹配的 Profile，
+配置、数据集和执行参数。“运行”页的“另存为可运行方案”会一起生成 JSON 和 `.conf`，
+并提供从项目根执行的完整命令；已有同名文件会拒绝覆盖。选择与 I/O 契约匹配的 Profile，
 复用其数据集与运行选项，并从它指向的 Pipeline 读取输出分配配置。模型目录默认为 `models`；引用
 `demo/fixtures/...` 的测试方案填 `.`。模型路径按当前 Pipeline 重建，避免旧 Profile
 的路径覆盖刚选择的权重。运行与已保存方案各自的展开区显示原生部署解析结果，已保存方案同时提供完整命令。
@@ -218,10 +218,10 @@ Pipeline JSON 描述算法连线并在 `deployment` 中持有部署配置（接�
 ```
 
 CLI 的 `--config` 覆盖 Profile 原配置，因此不需要新增 Profile。也可以不带 Profile，
-显式传入业务、配置和数据集：
+显式传入配置和数据集，Demo 会从配置中的 I/O 契约确定运行入口：
 
 ```bash
-./build/alg_demo --biz keyword_match --config configs/pipeline_first_solution.conf --dataset data/corpus_keyword_match.txt --output-dir results/first-solution
+./build/alg_demo --config configs/pipeline_first_solution.conf --dataset data/corpus_keyword_match.txt --output-dir results/first-solution
 ```
 
 `chip`、`device_id`、`batch_size`、`depth` 仅从 Profile JSON 读取，不支持同名 CLI
@@ -229,7 +229,7 @@ CLI 的 `--config` 覆盖 Profile 原配置，因此不需要新增 Profile。�
 Profile；未指定时默认值分别为 `cpu`、`0`、`1`、`1`。无 Profile 的命令按单条提交。
 平台名只接受 `ax650`、`ascend310p`、`ascend910b`、`rk3588`、`cuda`、`cpu`
 （大小写不敏感）；旧别名如 `cpu_generic`、`nvidia_gpu` 已删除。
-Studio 将这四项连同业务、配置和数据集写入运行 Profile；保存方案返回的命令引用输出目录
+Studio 将这四项连同配置和数据集写入运行 Profile；保存方案返回的命令引用输出目录
 中的 `demo-profile.json`；每次保存更新该文件，复制的命令读取最新运行配置。
 Studio 不为缺失执行字段补值，预检按批次和深度缺省 1 计算。
 选择 Profile 时通过原生 `resolve-conf` 获取实际 Pipeline 路径，
@@ -239,9 +239,12 @@ Studio 不为缺失执行字段补值，预检按批次和深度缺省 1 计算�
 
 检查 `results/first-solution/keyword_match_rules/results.jsonl` 和 `summary.json`：
 本练习应有两条成功结果，第一条命中 `FIRST_RUN`，第二条未命中。核对请求 ID、状态
-和业务字段，不只看退出码。无 Profile 运行时，结果子目录改为业务名 `keyword_match`。
+和业务字段，不只看退出码。无 Profile 运行时，结果子目录为 SDK 解析出的业务名 `keyword_match_v1`。
 
-复用其他配置时，还要核对 Pipeline `deployment.model_paths` 的模型路径覆盖和 `deployment.io.output_allocations` 输出池容量是否适合
+每份方案显式填写 `deployment.io.io_binding`，无需填写根级 `biz_name`。
+`deployment.io.out_mem` 可省略，必需输出采用注册默认分配；可选输出通过显式槽位配置启用。
+输出类型由注册槽位确定；非默认容量、分配器和布局参数在 `out_mem` 中覆盖。
+复用其他配置时，还要核对 Pipeline `deployment.model_paths` 的模型路径覆盖和 `deployment.io.out_mem` 输出池容量是否适合
 当前方案；Pipeline 校验不代表部署资源可加载。Demo 默认不发送内置
 热更新覆盖所选规则或提示词，显式 `--control-file` 仍会执行，应只在需要该更新时提供。
 

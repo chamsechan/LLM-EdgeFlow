@@ -358,20 +358,22 @@ class PipelineConfigTest : public ::testing::Test {
 
 // 1. 正例：生产与 Stage 7 fixture 配置全部 Parse/Build 通过
 TEST_F(PipelineConfigTest, PositiveProductionAndStage7FixtureConfigs) {
-  const std::vector<std::string> configs = {
-      "configs/pipeline_keyword_match_rules.json",
-      "demo/fixtures/mock/pipeline_entity_extract.json",
-      "demo/fixtures/mock/pipeline_doc_qa.json",
-      "demo/fixtures/mock/pipeline_doc_qa_rerank.json",
-      "demo/fixtures/mock/pipeline_dialogue_audit.json",
-      "configs/pipeline_doc_qa_cpu.json",
-      "configs/pipeline_entity_extract_cpu.json",
-      "demo/fixtures/mock/pipeline_ocr_doc_qa.json",
-      "demo/fixtures/mock/pipeline_audio_asr_intent.json",
-      "configs/pipeline_cross_rerank_cpu.json",
-  };
+  const std::vector<std::pair<std::string, std::string>> configs = {
+      {"configs/pipeline_keyword_match_rules.json", "keyword_match_v1"},
+      {"demo/fixtures/mock/pipeline_entity_extract.json", "entity_extract_v1"},
+      {"demo/fixtures/mock/pipeline_doc_qa.json", "smart_doc_qa_v1"},
+      {"demo/fixtures/mock/pipeline_doc_qa_rerank.json", "smart_doc_qa_v1"},
+      {"demo/fixtures/mock/pipeline_dialogue_audit.json",
+       "dialogue_compliance_audit_v1"},
+      {"configs/pipeline_doc_qa_cpu.json", "smart_doc_qa_v1"},
+      {"configs/pipeline_entity_extract_cpu.json", "entity_extract_v1"},
+      {"demo/fixtures/mock/pipeline_ocr_doc_qa.json",
+       "multimodal_ocr_invoice_qa"},
+      {"demo/fixtures/mock/pipeline_audio_asr_intent.json",
+       "speech_audio_asr_intent_slot"},
+      {"configs/pipeline_cross_rerank_cpu.json", "dense_cross_rerank_scoring"}};
 
-  for (const auto& cfg_file : configs) {
+  for (const auto& [cfg_file, expected_biz] : configs) {
     std::string full_path = GetConfigPath(cfg_file);
     std::ifstream ifs(full_path);
     ASSERT_TRUE(ifs.is_open()) << "Failed to open config file: " << full_path;
@@ -389,6 +391,7 @@ TEST_F(PipelineConfigTest, PositiveProductionAndStage7FixtureConfigs) {
 
     nlohmann::json neutral_root = root;
     neutral_root.erase("deployment");
+    neutral_root["biz_name"] = expected_biz;
 
     ParsedPipelineConfig parsed_cfg;
     PipelineDiagnostic diag;

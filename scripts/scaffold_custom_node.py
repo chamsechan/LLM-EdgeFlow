@@ -188,7 +188,8 @@ def render_node(name, description, kind, capability, in_port, out_port, control_
     elif preserved and in_type == out_type == "TextBatch":
         return render_map_node(name, description, in_port, out_port)
 
-    input_flow = f"PortFlow{{{cpp_string(in_card)}, {cpp_string(in_prov)}}}"
+    input_flow = ("" if (in_card, in_prov) == ("1:1", "preserve") else
+                  f", PortFlow{{{cpp_string(in_card)}, {cpp_string(in_prov)}}}")
     output = (f"PreservedOutput<{out_type}>({cpp_string(out_name)}, {cpp_string(in_name)})"
               if preserved else
               f"ProducedBatch<{out_type}>({cpp_string(out_name)}, PortFlow{{{cpp_string(out_card)}, {cpp_string(out_prov)}}})")
@@ -223,7 +224,7 @@ static NodeResult<{out_type}> Run(const Inputs& inputs, const NoParameters&,
 
 auto {name}Spec() {{
   return MakeBatchSpec(
-      InputsOf<Inputs>{{Required({cpp_string(in_name)}, &Inputs::items, {input_flow})}},
+      InputsOf<Inputs>{{Required({cpp_string(in_name)}, &Inputs::items{input_flow})}},
       {output},
       {model_binding}, &Run)
       .Description({cpp_string(description)});

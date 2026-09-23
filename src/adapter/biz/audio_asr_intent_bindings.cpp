@@ -12,7 +12,6 @@ constexpr size_t kMaxBatchSize = 64;
 BizDefinition MakeAudioAsrIntentBizDefinition() {
   BizDefinition def;
   def.biz_name = kBizName;
-  def.demo_biz = "audio_asr";
   def.display_name = "语音识别与意图槽位";
   def.ingress = {RequiredBizInput(kRawRequestIds),
                  RequiredBizInput(kAudioInputs)};

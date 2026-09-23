@@ -49,7 +49,9 @@ int main(int argc, char* argv[]) {
     return 2;
   }
 
-  std::string biz_name = j.value("biz_name", "unnamed_biz");
+  std::string binding = j.value("deployment", nlohmann::json::object())
+                            .value("io", nlohmann::json::object())
+                            .value("io_binding", "<missing-io_binding>");
   auto models = j.value("models", nlohmann::json::array());
   auto pipeline = j.value("pipeline", nlohmann::json::array());
 
@@ -58,7 +60,7 @@ int main(int argc, char* argv[]) {
             << "LLM-EdgeFlow Declared Pipeline Viewer (Native Standalone)"
             << COLOR_RESET << "\n"
             << "ConfigFile: " << cfg_path << "\n"
-            << "BizName: " << biz_name << "\n\n";
+            << "I/O binding: " << binding << "\n\n";
 
   // 1. 模型资源池
   std::cout << COLOR_BOLD << "[ 1. 边缘设备挂载模型池 (ModelManager) ]"

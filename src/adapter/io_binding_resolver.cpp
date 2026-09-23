@@ -140,7 +140,7 @@ int IoBindingResolver::ResolveFromPipelineJson(
       if (out_diagnostic) {
         out_diagnostic->code = "INVALID_OUTPUT_ALLOCATION";
         out_diagnostic->path =
-            "/deployment/io/output_allocations/" + EscapeJsonPointer(slot_name);
+            "/deployment/io/out_mem/" + EscapeJsonPointer(slot_name);
         out_diagnostic->message = msg;
       }
       return -2;
@@ -155,7 +155,7 @@ int IoBindingResolver::ResolveFromPipelineJson(
       if (out_diagnostic) {
         out_diagnostic->code = "INVALID_OUTPUT_ALLOCATION";
         out_diagnostic->path =
-            "/deployment/io/output_allocations/" + EscapeJsonPointer(slot_name);
+            "/deployment/io/out_mem/" + EscapeJsonPointer(slot_name);
         out_diagnostic->message = msg;
       }
       return -2;
@@ -166,7 +166,7 @@ int IoBindingResolver::ResolveFromPipelineJson(
       if (out_error) *out_error = msg;
       if (out_diagnostic) {
         out_diagnostic->code = "INVALID_OUTPUT_ALLOCATION";
-        out_diagnostic->path = "/deployment/io/output_allocations";
+        out_diagnostic->path = "/deployment/io/out_mem";
         out_diagnostic->message = msg;
       }
       return -2;
@@ -180,7 +180,7 @@ int IoBindingResolver::ResolveFromPipelineJson(
     if (out_error) *out_error = msg;
     if (out_diagnostic) {
       out_diagnostic->code = "INVALID_OUTPUT_ALLOCATION";
-      out_diagnostic->path = "/deployment/io/output_allocations";
+      out_diagnostic->path = "/deployment/io/out_mem";
       out_diagnostic->message = msg;
     }
     return -2;
@@ -234,6 +234,9 @@ int IoBindingResolver::ResolveFromPipelineJson(
       std::move(prepared.output_parameter_texts);
   io_plan->overridden_model_ids = std::move(prepared.overridden_model_ids);
   io_plan->resolved_pipeline_json = std::move(prepared.neutral_pipeline_json);
+  io_plan->resolved_pipeline_json.erase("biz_name");
+  io_plan->resolved_pipeline_json["deployment"] =
+      pipeline_json.at("deployment");
   io_plan->pipeline_plan = std::move(plan);
 
   *out_plan = std::move(io_plan);

@@ -1344,14 +1344,12 @@ TEST_F(AdapterPurityTest, ReuseProof_6_NegativeCombinations) {
 
   // 1. Unknown or unregistered io_binding
   nlohmann::json bad_binding_json = {
-      {"biz_name", "keyword_match_v1"},
       {"deployment",
        {{"io",
          {{"io_binding", "non_existent.binding.v999"},
-          {"output_allocations",
+          {"out_mem",
            {{"keyword_out",
-             {{"type", "keyword_out"},
-              {"meta_num", 0},
+             {{"meta_num", 0},
               {"metadata_type_id", 0},
               {"capacities", {{"match_result_json", 2047}}}}}}}}}}},
       {"models", nlohmann::json::array()},
@@ -1377,11 +1375,10 @@ TEST_F(AdapterPurityTest, ReuseProof_6_NegativeCombinations) {
 
   // 4. Operator config with unknown output slot rejected by parity check
   nlohmann::json unknown_out_json = {
-      {"biz_name", "keyword_match_v1"},
       {"deployment",
        {{"io",
          {{"io_binding", "keyword_match.operator.v1"},
-          {"output_allocations", {{"unknown_slot", {{"type", "String"}}}}}}}}},
+          {"out_mem", {{"unknown_slot", nlohmann::json::object()}}}}}}},
       {"models", nlohmann::json::array()},
       {"pipeline", valid_pipeline}};
   ret = IoBindingResolver::ResolveFromPipelineJson(unknown_out_json, "./models",
@@ -1392,15 +1389,13 @@ TEST_F(AdapterPurityTest, ReuseProof_6_NegativeCombinations) {
 
   // 5. Unknown model_id in model_paths rejected
   nlohmann::json unknown_mid_json = {
-      {"biz_name", "keyword_match_v1"},
       {"deployment",
        {{"model_paths", {{"non_existent_model", "dummy_path"}}},
         {"io",
          {{"io_binding", "keyword_match.operator.v1"},
-          {"output_allocations",
+          {"out_mem",
            {{"keyword_out",
-             {{"type", "keyword_out"},
-              {"meta_num", 0},
+             {{"meta_num", 0},
               {"metadata_type_id", 0},
               {"capacities", {{"match_result_json", 2047}}}}}}}}}}},
       {"models", nlohmann::json::array()},

@@ -64,14 +64,14 @@ JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代�
 先确认实际注册，再运行一次完整路径：
 
 ```bash
-./build/alg_pipeline_tool catalog --biz keyword_match_v1
+./build/alg_pipeline_tool catalog --io-binding keyword_match.operator.v1
 ./build/alg_pipeline_tool describe-node TextRuleMatchNode
 ./build/alg_pipeline_tool validate configs/pipeline_keyword_match_rules.json
 ./build/alg_pipeline_tool plan configs/pipeline_keyword_match_rules.json
-./build/alg_demo --biz keyword_match --config configs/pipeline_keyword_match_rules.conf --dataset tests/fixtures/effects/keyword_inputs.txt --output-dir results/business-onboarding
+./build/alg_demo --config configs/pipeline_keyword_match_rules.conf --dataset tests/fixtures/effects/keyword_inputs.txt --output-dir results/business-onboarding
 ```
 
-查看 `results/business-onboarding/keyword_match/results.jsonl`：请求编号为 20001–20004，
+查看 `results/business-onboarding/keyword_match_v1/results.jsonl`：请求编号为 20001–20004，
 四条 `status` 均为 0，前两条 `output.is_hit` 为 true 且类别为 `SYSTEM_INIT`，后两条
 为 false。`summary.json` 应有四条成功、零条失败。这一步用于认识已有接入链路；
 新业务仍须换成自己的配置和输入验证。
@@ -89,10 +89,9 @@ JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代�
 | Demo 数据转换 | [keyword_match_demo.cpp](../../demo/biz/keyword_match_demo.cpp) | 为新绑定补充 `REGISTER_DEMO_BIZ`；已有运行代码无法表达载体或数据集格式时，再实现输入构造与输出复制 |
 | 构建与部署 | [接入适配层 CMake](../../src/adapter/CMakeLists.txt)、[Demo CMake](../../demo/CMakeLists.txt)、[Pipeline](../../configs/pipeline_keyword_match_rules.json)、[部署配置](../../configs/pipeline_keyword_match_rules.conf) | 登记新增 `.cpp`，编排业务端口，配置路径和输出容量 |
 
-其中，Pipeline 的 `biz_name`（`keyword_match_v1`）、Demo 的 `--biz`（`keyword_match`）
-和 Operator 槽位后缀（`keyword_in` / `keyword_out`）用途不同。
-前两者的关联由 binding 的 `BizDefinition` 声明；槽位由绑定关联到已注册宿主类型。
-新名字必须分别登记，不能只改 JSON 中的显示名称。
+配置作者只选择 `io_binding`（`keyword_match.operator.v1`）。它关联注册的内部业务边界、
+输入/输出转换器和端口映射；Demo 从配置自动选择运行入口。Operator 槽位后缀
+（`keyword_in` / `keyword_out`）属于宿主调用契约，由绑定关联到已注册宿主类型。
 
 ## 3. 实现并注册转换器与绑定
 
@@ -120,7 +119,7 @@ JSON 请求是不同的输入约定。已有 Nodes 能完成算法，也不代�
    定义 `OutputConverterDefinition`并使用
    `REGISTER_OUTPUT_CONVERTER` 注册。
 3. **实现业务绑定与曝光声明（`src/adapter/biz/`）。**
-   新 `biz_name` 先定义 `BizDefinition`，声明 Demo 名及完整 ingress/egress typed 端口，
+   新 `biz_name` 先定义 `BizDefinition`，声明业务名称及完整 ingress/egress typed 端口，
    调用 `PipelineCatalog::RegisterBizDefinition` 登记；业务端口契约不由转换器读写集合推导。
    在 `IoBindingDefinition` 中指定 `binding_id`、`biz_name`、
    绑定的 `input_converter_id` 和 `output_converter_id`，以及逻辑端口到内部 Blackboard Key 的映射。
@@ -199,7 +198,9 @@ Operator 的宿主输入校验会拒绝 `CompanyString` 中的原始嵌入 NUL�
 
 已有契约的新方案直接沿用对应 Demo 和数据集格式，只准备 Pipeline 与指向它的 `.conf`。
 新契约先检查已有 Demo 运行代码是否支持所需载体、槽位及数据集格式，可满足时复用这些代码。
-Demo 注册的 `expected_binding_id` 必须与部署绑定一致，不能仅因宿主类型相同就沿用旧 Demo 名。
+Pipeline 只选择 `io_binding`，Demo 调用 `ResolveOperatorConfigBiz` 解析业务身份并选择 runner。
+Profile 不填写业务名。SDK 预检与注册审计共用同业务 binding 的外部协议、载体及槽位一致性检查。Demo 按该契约准备载体，
+不能仅因宿主类型相同就复用另一业务契约；同一业务也不能登记不兼容的载体。
 这里的数据转换仅指载体构造和结果展示，外部协议的解包、
 字段选择与响应组装仍在转换器；不得把原始业务请求预先拆成内部节点输入。
 新绑定需要接入统一 Demo 时，按 `keyword_match_demo.cpp` 补齐以下部分：
@@ -211,17 +212,17 @@ Demo 注册的 `expected_binding_id` 必须与部署绑定一致，不能仅因�
    在 extractor 中把输出复制到本地结果值，再交给 `ResultWriter` 输出逐条记录。
    同时复制真实 `status_code`，写入样本的 `status`，不能固定填零。Process 返回成功表示
    调用完成，业务是否逐条成功还需检查 `results.jsonl` 和 `summary.json`。
-3. 用 `REGISTER_DEMO_BIZ(name, title, run_function, expected_binding_id)` 注册，`name` 与
-   `BizDefinition` 的 Demo 名一致，最后一个参数填写对应 `IoBindingDefinition::binding_id`；将新增源码加入
+3. 用 `REGISTER_DEMO_BIZ(biz_name, title, run_function)` 注册，名称与
+   binding 注册的内部业务名一致；将新增源码加入
    `demo/CMakeLists.txt`。无需在 `demo/main.cpp` 增加业务分支。
-4. 准备样例数据、Pipeline 和 `.conf`。先用显式 `--biz`、`--config`、`--dataset` 运行。
+4. 准备样例数据、Pipeline 和 `.conf`。先用 `--config`、`--dataset` 运行。
    仅需保存可重复调用的预设或加入套件时，再向 `demo/profiles.json` 添加 Profile。
 
-`.conf` 仅作为定位文件，包含单一字段 `pipe_path`，相对 `.conf` 所在目录解析（例如在 `configs/pipeline_keyword_match_rules.conf` 中填写 `pipeline_keyword_match_rules.json`）。宿主直接调用 Operator 时，部署根为 Create 的 `model_path`；同时在 Pipeline JSON 的 `deployment` 中核对 `model_paths` 覆盖与 `io.output_allocations` 输出容量。Profile 不会自动指向新方案，详细命令见[运行当前方案](../../tools/pipeline_studio/README.md#运行当前方案)。
+`.conf` 仅作为定位文件，包含单一字段 `pipe_path`，相对 `.conf` 所在目录解析（例如在 `configs/pipeline_keyword_match_rules.conf` 中填写 `pipeline_keyword_match_rules.json`）。宿主直接调用 Operator 时，部署根为 Create 的 `model_path`；同时在 Pipeline JSON 的 `deployment` 中核对 `model_paths` 覆盖与 `io.out_mem` 输出容量。Profile 不会自动指向新方案，详细命令见[运行当前方案](../../tools/pipeline_studio/README.md#运行当前方案)。
 
 Demo 的 `chip`、`device_id`、`batch_size`、`depth` 只从 Profile JSON 读取；对应 CLI
 选项已删除。使用 `--profiles-file <path> --profile <name>` 选择自有配置。未选 Profile
-或未提供字段时使用 `cpu`、`0`、`1`、`1`。业务、配置路径、数据集等其他 CLI 覆盖仍有效。
+或未提供字段时使用 `cpu`、`0`、`1`、`1`。配置路径、数据集等其他 CLI 覆盖仍有效。
 
 ## 6. 输出容量与生命周期
 
@@ -237,8 +238,10 @@ Demo 的 `chip`、`device_id`、`batch_size`、`depth` 只从 Profile JSON 读�
 [公开 Operator 契约](../../include/edgeflow/operator/interface.h)。
 
 Operator 的输出路径是 `Pipeline → 内部中性值 → OutputConverter → 已租用输出池`。
-Result 与请求 Context 均不跨 Process 保存。Pipeline 的 `deployment.io.output_allocations` 按逻辑
-槽位分别指定类型、`allocator`、`params` 和容量。
+Result 与请求 Context 均不跨 Process 保存。Pipeline 的 `deployment.io.out_mem` 按逻辑
+槽位覆盖 `allocator`、`params` 和容量。类型从槽位注册定义获得，不在配置中重复声明。
+必需输出省略配置时使用注册默认值；可选输出需要显式槽配置来启用。
+每份配置都显式选择 `deployment.io.io_binding`，没有输出覆盖时可省略 `out_mem`。
 单份响应超过已配置字段容量时返回 `-4`，尚未发布的输出租约全部回滚。
 
 在运行前查看生效的池规格与配置，`depth` 应与实际宿主一致：

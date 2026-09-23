@@ -41,7 +41,10 @@ Use this reference for production Node implementation. Start first-time LLM auth
    does not rerun initialization's `Prepare`, so the update function must return a validated candidate.
    Combining `WithParser` and field controls (`WithControls`) requires an explicit `Prepare`; field
    updates rerun it before semantic/binding validation and candidate publication.
-10. Declare category, description, parallel safety and any actual business restrictions in the Spec.
+10. Declare category, description and any actual business restrictions in the Spec.
+    Ordinary Map/LLM functions work on payloads; their existing helpers preserve provenance and flow.
+    Keep the default conservative parallel safety for sequential use; explicitly establish
+    `.ParallelSafe(true)` only when making the implementation available to parallel graphs.
     Generated Definition is the only Catalog source; do not maintain a second UI registry.
     Initialization consumes a ValidatedNodePlan; do not call PipelineValidator inside a Node.
 

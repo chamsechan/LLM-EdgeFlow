@@ -4,6 +4,7 @@
 
 #include "demo/common/demo_options.h"
 #include "demo/common/demo_registry.h"
+#include "demo/common/operator_runner.h"
 #include "edgeflow/operator/interface.h"
 #include "nlohmann/json.hpp"
 
@@ -44,12 +45,11 @@ void ListProfilesAndBizs(const std::string& profiles_file) {
   std::string err;
   if (LoadAndValidateProfilesDocument(profiles_file, &root, &err) == 0) {
     for (const auto& [name, p] : root["profiles"].items()) {
-      std::string biz = p["biz"].get<std::string>();
       std::string suite =
           p.contains("suite") ? p["suite"].get<std::string>() : "smoke";
       std::string cfg = p["config"].get<std::string>();
-      std::cout << "  - " << name << " [suite: " << suite << ", biz: " << biz
-                << ", cfg: " << cfg << "]" << std::endl;
+      std::cout << "  - " << name << " [suite: " << suite << ", cfg: " << cfg
+                << "]" << std::endl;
     }
   } else {
     std::cout << "  (" << err << ")" << std::endl;
@@ -95,6 +95,10 @@ int RunSuite(const std::string& suite_name, const DemoOptions& base_cli_opts) {
       return ret;
     }
 
+    if (!ResolveConfigBiz(&merged_opt, &err)) {
+      std::cerr << "[Config ERROR] " << err << std::endl;
+      return 3;
+    }
     const auto* desc = DemoRegistry::Instance().Find(merged_opt.biz);
     if (!desc) {
       std::cerr << "[Main ERROR] Biz '" << merged_opt.biz
@@ -156,8 +160,7 @@ int main(int argc, char* argv[]) {
   if (cli_options.has_suite) {
     return RunSuite(cli_options.suite, cli_options);
   }
-  if (!cli_options.has_profile && !cli_options.has_biz &&
-      !cli_options.has_config_path) {
+  if (!cli_options.has_profile && !cli_options.has_config_path) {
     return RunSuite("smoke", cli_options);
   }
 
@@ -171,11 +174,9 @@ int main(int argc, char* argv[]) {
     return merge_ret;
   }
 
-  if (options.biz.empty()) {
-    std::cerr << "[Main ERROR] No biz specified. Use --profile <name> or "
-                 "--biz <name>."
-              << std::endl;
-    return 2;
+  if (!ResolveConfigBiz(&options, &merge_err)) {
+    std::cerr << "[Config ERROR] " << merge_err << std::endl;
+    return 3;
   }
 
   // 5. 查找并分发业务

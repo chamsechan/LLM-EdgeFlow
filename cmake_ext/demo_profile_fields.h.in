@@ -1,0 +1,27 @@
+#pragma once
+
+#include <algorithm>
+#include <string>
+
+#include "nlohmann/json.hpp"
+
+namespace alg_demo {
+
+inline bool ValidateProfileFields(const nlohmann::json& profile,
+                                  std::string* error) {
+  if (!profile.is_object()) {
+    if (error) *error = "Profile must be an object";
+    return false;
+  }
+  static const auto fields = nlohmann::json::parse(
+      R"edgeflow(@LLM_EDGEFLOW_DEMO_PROFILE_FIELDS@)edgeflow");
+  for (auto it = profile.begin(); it != profile.end(); ++it) {
+    if (std::find(fields.begin(), fields.end(), it.key()) == fields.end()) {
+      if (error) *error = "Unknown Profile field: '" + it.key() + "'";
+      return false;
+    }
+  }
+  return true;
+}
+
+}  // namespace alg_demo

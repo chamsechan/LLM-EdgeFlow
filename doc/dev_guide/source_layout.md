@@ -79,10 +79,12 @@ src/adapter/
 | --- | --- |
 | `InputConverterDefinition.converter_id` / `OutputConverterDefinition.converter_id` | 独立输入、输出转换器标识 |
 | `IoBindingDefinition.binding_id` | 连接业务、转换器及外部逻辑槽位的接入绑定 |
-| `BizDefinition.biz_name` | Pipeline 绑定的契约 ID，例如 `smart_doc_qa_v1` |
-| `BizDefinition.demo_biz` | Demo 入口，例如 `doc_qa` |
+| `BizDefinition.biz_name` | 框架内部业务边界 ID，由绑定关联，例如 `smart_doc_qa_v1` |
 | `NodePortDefinition.logical_name` | Node 的逻辑端口名称，由 Pipeline 映射到具体黑板键 |
 | `BizPortDefinition.blackboard_key` | 业务 ingress/egress 使用的实际黑板键 |
+
+普通配置只填写 `deployment.io.io_binding`；业务边界由框架沿该绑定的注册关系获得。
+框架沿注册关系选择转换器和槽位，不按名字拼写推导载体类型。
 
 业务端口使用 `RequiredBizInput`、`OptionalBizInput`、`BizOutput`；Node 端口使用
 `RequiredInputPort`、`OptionalInputPort`、`OutputPort`。两种端口类型不可相互隐式转换。

@@ -26,9 +26,9 @@ void ConfigureLogLevelFromEnvironment() noexcept;
 struct DemoOptions {
   std::string profiles_file;  // Optional deployment-specific profile document
   std::string profile;        // 预定义运行配置 Profile 标识
-  std::string biz;  // 业务标识名 (如 entity_extract, keyword_match 等)
-  std::string config_path;               // Operator .conf 路径
-  std::string dataset_path;              // 业务测试集文件路径
+  std::string biz;            // SDK 从所选配置解析出的业务身份
+  std::string config_path;    // Operator .conf 路径
+  std::string dataset_path;   // 业务测试集文件路径
   std::string output_dir = "./results";  // 结果输出根目录
 
   // Execution settings are configured only by Profile JSON (or defaults).
@@ -50,7 +50,6 @@ struct DemoOptions {
   // 显式跟踪 CLI 是否显式提供了特定参数 (解决 CLI 默认值无法可靠覆盖 Profile
   // 问题)
   bool has_profile = false;
-  bool has_biz = false;
   bool has_config_path = false;
   bool has_dataset_path = false;
   bool has_control_file = false;

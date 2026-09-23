@@ -254,6 +254,7 @@ TEST_F(TextTemplateNodeTest, PipelineEnforcesPublishedControlSchema) {
   nlohmann::json pipe_json;
   cfg_in >> pipe_json;
   pipe_json.erase("deployment");
+  pipe_json["biz_name"] = "smart_doc_qa_v1";
   ASSERT_TRUE(BuildTestPipeline(pipeline, pipe_json, &diagnostic))
       << diagnostic.message;
 

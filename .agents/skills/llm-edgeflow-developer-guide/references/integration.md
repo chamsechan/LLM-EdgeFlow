@@ -15,8 +15,7 @@ For new Operator host types, also register ValueType capacity, initialization an
 Register ValueTypes and named single-object output allocators through
 `adapter/operator_value_type.h`. Keep queue depth out of their callbacks. For multiple outputs
 or config-selected nested payloads, follow the
-[output allocation guide](../../../../doc/dev_guide/operator_output_allocation.md): each logical
-slot selects its outer type, allocator and normalized parameters; map keys do not infer layout.
+[output allocation guide](../../../../doc/dev_guide/operator_output_allocation.md): slot Definitions determine the outer type; deployment only overrides allocator and parameters. Required slots use registered defaults; optional slots are enabled explicitly. Map keys do not infer layout.
 Keep configuration reading in Create-time Integration. `OperatorConfigResolver` validates
 slot configurations, allocator and capacities. It is not a Pipeline Node and does not run per request.
 
@@ -26,7 +25,7 @@ slot configurations, allocator and capacities. It is not a Pipeline Node and doe
 2. Operator public API lives in `include/edgeflow/operator/interface.h`; `types.h` forwards platform data structures. Platform mock interaction types live in `include/platform_mock/operator_types.h`, and payload structures in `operator_data_types.h`; see that directory's README for the distinction from real company headers.
 3. Preserve exported Operator functions and their exception barrier in `src/adapter/operator/operator_adapter.cpp`: `noexcept`, `try`, `catch (const std::exception&)`, and `catch (...)`.
 4. Implement ordinary `DecodeInputFn` callbacks in `InputConverterDefinition` under `src/adapter/input/`, `EncodeOutputFn` callbacks in `OutputConverterDefinition` under `src/adapter/output/`, and business binding through `IoBindingDefinition` under `src/adapter/biz/`. Register through `REGISTER_INPUT_CONVERTER`, `REGISTER_OUTPUT_CONVERTER`, and `REGISTER_IO_BINDING`.
-5. Register `BizDefinition` with `PipelineCatalog::RegisterBizDefinition` to declare `biz_name`, Demo name and complete ingress/egress Blackboard ports. `IoBindingDefinition` selects converters and maps their logical ports to those keys; `BizExposureDefinition` declares production exposure and its batch bound. The `biz_name` in Pipeline JSON must match the binding.
+5. Register `BizDefinition` with `PipelineCatalog::RegisterBizDefinition` to declare `biz_name` and complete ingress/egress Blackboard ports. `IoBindingDefinition` selects converters and maps their logical ports to those keys; `BizExposureDefinition` declares production exposure and its batch bound. External Pipeline JSON requires `deployment.io.io_binding` and rejects root `biz_name`; Integration derives the internal business boundary from the selected registration. Demo resolves its runner through the SDK configuration query; neither CLI nor Profile accepts a business selector. Bindings of the same biz must declare the same external schema, carrier and slot contract; Registry audit and deployment preflight enforce this before any payload cast.
 6. Copy input data when the lifetime requires it, store request-scoped values in `AlgContext`, and pack output into leased pool slots only through the documented ownership contract.
 
 For one required host slot and one payload/result per request, use `DecodeRequestRows` / `EncodeResultRows`

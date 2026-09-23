@@ -20,9 +20,6 @@ bool JsonOutputConfigReader::Read(OutputConfigField field, std::string* text,
     const char* key = nullptr;
     const char* fallback = nullptr;
     switch (field) {
-      case OutputConfigField::kType:
-        key = "type";
-        break;
       case OutputConfigField::kAllocator:
         key = "allocator";
         fallback = "\"\"";
@@ -49,20 +46,8 @@ bool JsonOutputConfigReader::Read(OutputConfigField field, std::string* text,
     }
     const auto value = config_.find(key);
     if (value == config_.end()) {
-      if (!fallback) {
-        SetDiagnosticNoexcept(error,
-                              "Missing required output configuration type");
-        return false;
-      }
       *text = fallback;
     } else {
-      if (field == OutputConfigField::kType &&
-          (!value->is_string() ||
-           value->get_ref<const std::string&>().empty())) {
-        SetDiagnosticNoexcept(
-            error, "Output configuration type must be a nonempty string");
-        return false;
-      }
       *text = value->dump();
     }
     return true;

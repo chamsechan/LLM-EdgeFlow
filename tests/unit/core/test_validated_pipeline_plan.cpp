@@ -351,6 +351,7 @@ TEST_F(ValidatedPipelinePlanTest, RejectsNodeOutputBoundToBusinessIngress) {
   nlohmann::json pipeline_json;
   stream >> pipeline_json;
   pipeline_json.erase("deployment");
+  pipeline_json["biz_name"] = "smart_doc_qa_v1";
   const size_t source_index = pipeline_json["pipeline"].size();
   pipeline_json["pipeline"].push_back(
       {{"id", "ingress_collision"},
@@ -633,7 +634,6 @@ TEST_F(ValidatedPipelinePlanTest,
        RejectsIncompatibleEgressPortExecutionContracts) {
   BizDefinition biz_def;
   biz_def.biz_name = "test_egress_flow_biz";
-  biz_def.demo_biz = "test";
   biz_def.egress = {BizPortDefinition{"flow", "TextBatch", true, "1:1",
                                       "independent", "session"}};
   ASSERT_TRUE(PipelineCatalog::RegisterBizDefinition(biz_def));

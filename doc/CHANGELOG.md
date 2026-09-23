@@ -1,5 +1,26 @@
 # Changelog
 
+## 2026-09-23 删除旧配置专用处理（RFC-0074）
+
+- 删除根级业务名和 Profile 业务选择的专用迁移提示，统一按现行字段声明拒绝未知字段，不保留别名或回退。
+- 外部 Pipeline 的解析与 Schema 共用结构声明；Demo、CLI、Studio 和 Recipe 共用当前 Profile 字段来源。
+- 配置作者的字段、运行默认值与 SDK ABI 保持不变；当前使用指南删除旧字段迁移说明。
+
+## 2026-09-23 I/O 契约作为配置入口（RFC-0073）
+
+- Pipeline 保留必需的 `deployment.io.io_binding`，删除根级 `biz_name`；接入适配层从绑定推导内部业务边界和转换器。
+- `output_allocations` 改为 `out_mem`，保留默认输出分配、容量覆盖和预算检查，不保留旧字段别名。
+- Demo 删除 `--biz` 与 Profile `biz`，根据配置选择 runner；SDK 查询入口改为 `ResolveOperatorConfigBiz`，ABI/SOVERSION 升为 9。
+- CLI、Schema、Studio、Recipe 和效果验证同步采用显式 binding；外部校验不再回退到无部署的中性文档。
+
+## 2026-09-23 业务身份与输出配置收敛（RFC-0072）
+
+- Pipeline、Demo 和 Profile 共用 `biz_name`，删除 Demo 别名与重复的 binding 登记；SDK 预检收敛为 `ValidateOperatorConfigBiz`，ABI/SOVERSION 升为 8。
+- 省略 `io_binding` 时，原生解析仅选取当前业务唯一的注册绑定；歧义要求显式选择，工具复用解析结果。
+- 删除输出配置 `type`，类型由槽位定义决定；必需输出自动使用已有默认分配配置，保留覆盖值、可选槽启用、布局和预算检查。
+- 普通配置可以省略整个 `deployment`；现有配置、Demo、Schema、工具及教程同步迁移，不保留旧 Demo 别名和旧 type 字段。
+- 普通逐条 Node 使用已有 Map/LLM 模板保留来源；文档将来源与并行安全细节放到按需阅读处，不增加 preset 或状态标签。
+
 ## 2026-09-23 Pipeline 配置概念收敛（RFC-0071）
 
 - Node 的 `inputs` / `outputs` 提升到顶层；Validator 从唯一数据生产者推导 DAG，`depends_on` 仅用于额外顺序约束。

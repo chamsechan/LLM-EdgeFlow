@@ -1,22 +1,10 @@
 {
-  "biz_name": "smart_doc_qa_v1",
   "deployment": {
     "model_paths": {
       "llm_model_v1": "demo/fixtures/mock/artifacts/neutral-llm.fixture"
     },
     "io": {
-      "io_binding": "doc_qa.operator.v1",
-      "output_allocations": {
-        "doc_out": {
-          "type": "doc_out",
-          "meta_num": 0,
-          "metadata_type_id": 0,
-          "capacities": {
-            "intent_name": 63,
-            "answer_text": 1023
-          }
-        }
-      }
+      "io_binding": "doc_qa.operator.v1"
     }
   },
   "models": [

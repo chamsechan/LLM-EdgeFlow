@@ -16,7 +16,7 @@ Build the tool if unavailable/stale, and rebuild after registration changes. Que
 biz contract and its filtered assets:
 
 ```bash
-./build/alg_pipeline_tool catalog --biz <biz_name>
+./build/alg_pipeline_tool catalog --io-binding <binding_id>
 ```
 
 Use the production tool for the target build. For fixtures deliberately using test-only
@@ -38,8 +38,8 @@ For an existing solution, edit the requested files instead of initializing anoth
 Reuse registered nodes; cloning a Pipeline does not retarget the source Profile.
 
 ```bash
-./build/alg_pipeline_tool init --biz <biz_name> --profile <profile_name>
-./build/alg_pipeline_tool init --biz <biz_name> --empty
+./build/alg_pipeline_tool init --io-binding <binding_id> --profile <profile_name>
+./build/alg_pipeline_tool init --io-binding <binding_id> --empty
 ```
 
 `init` normally returns a versioned response containing `pipeline`. To save a
@@ -47,7 +47,7 @@ runtime document directly, use `--raw` and a new destination (do not overwrite
 an existing solution):
 
 ```bash
-./build/alg_pipeline_tool init --biz <biz_name> --profile <profile_name> --raw > <new_pipeline.json>
+./build/alg_pipeline_tool init --io-binding <binding_id> --profile <profile_name> --raw > <new_pipeline.json>
 ```
 
 Check the command's exit status before using the file, then validate the saved
@@ -74,7 +74,7 @@ reproduce Validator rules in scripts or prompts. The final delivery gate remains
 After validation, run the edited Pipeline through a compatible Demo. Follow
 [running the current solution](../../../../tools/pipeline_studio/README.md#运行当前方案): confirm
 `.conf` `pipe_path` resolves to the edited JSON, inspect pipeline-owned `deployment` (io_binding,
-output_allocations, and model_paths), and select a matching biz and dataset. Use
+out_mem, and model_paths), and select a matching dataset; Demo derives its runner from the configuration. Use
 `alg_pipeline_tool resolve-conf <edited.conf> --root <deployment_root> --depth <max_batch_or_depth>`
 to inspect the native resolved paths, their sources and normalized defaults; it does not load
 weights. Studio can save a JSON + `.conf` pair and command via “另存为可运行方案”; its model
@@ -85,7 +85,7 @@ come from the edited Pipeline. For example:
 ./build/alg_demo --profile <compatible_profile> --config <edited.conf> --output-dir <run_output_dir>
 ```
 
-A new Profile is optional; explicit `--biz`, `--config` and `--dataset` also work. Use the
+A new Profile is optional; explicit `--config` and `--dataset` also work. Use the
 original Profile alone only when its configuration already points to the intended Pipeline.
 Execution settings `chip`, `device_id`, `batch_size`, and `depth` come only from Profile JSON;
 there are no corresponding CLI options. Without a Profile, Demo uses CPU, device 0, batch 1,

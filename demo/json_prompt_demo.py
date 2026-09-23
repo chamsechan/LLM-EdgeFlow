@@ -55,12 +55,12 @@ def collect_responses(result_file, count):
     return [responses[30001 + i] for i in range(count)]
 
 
-def _run_demo_impl(requests, config, biz, work_dir, executable):
+def _run_demo_impl(requests, config, work_dir, executable):
     dataset = work_dir / "input.txt"
     dataset.write_text("\n".join(requests) + "\n", encoding="utf-8")
     output_dir = work_dir / "results"
     command = [
-        str(executable), "--biz", biz, "--config", str(config),
+        str(executable), "--config", str(config),
         "--dataset", str(dataset), "--output-dir", str(output_dir),
     ]
     # Keep native diagnostic output out of the JSON string response stream.
@@ -68,12 +68,15 @@ def _run_demo_impl(requests, config, biz, work_dir, executable):
         result = subprocess.run(command, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT)
     if result.returncode:
         raise ValueError(f"alg_demo failed (exit {result.returncode}); see {work_dir / 'demo.log'}")
-    return collect_responses(output_dir / biz / "results.jsonl", len(requests))
+    result_files = list(output_dir.glob("*/results.jsonl"))
+    if len(result_files) != 1:
+        raise ValueError("Demo must produce exactly one results.jsonl in the run output directory")
+    return collect_responses(result_files[0], len(requests))
 
 
-def run_demo(payloads, config, biz, work_dir, executable):
+def run_demo(payloads, config, work_dir, executable):
     requests = prepare_requests(payloads)
-    return _run_demo_impl(requests, config, biz, work_dir, executable)
+    return _run_demo_impl(requests, config, work_dir, executable)
 
 
 def main(argv=None):
@@ -82,7 +85,6 @@ def main(argv=None):
     source.add_argument("--input", help="One JSON request string; otherwise read stdin")
     source.add_argument("--dataset", type=Path, help="UTF-8 JSONL requests, one object per line")
     parser.add_argument("--config", default="configs/pipeline_translate_cpu.conf")
-    parser.add_argument("--biz", default="translate", help="Registered SDK/Demo contract")
     parser.add_argument("--output-dir", type=Path, default=ROOT / "results/translate",
                         help="Parent directory for a unique run's dataset, logs and results")
     parser.add_argument("--demo-bin", type=Path, default=ROOT / "build/alg_demo")
@@ -97,7 +99,7 @@ def main(argv=None):
         args.output_dir.mkdir(parents=True, exist_ok=True)
         work_dir = Path(tempfile.mkdtemp(prefix="run-", dir=args.output_dir.resolve()))
         print(f"Demo artifacts: {work_dir}", file=sys.stderr)
-        responses = _run_demo_impl(texts, args.config, args.biz,
+        responses = _run_demo_impl(texts, args.config,
                                    work_dir, args.demo_bin.resolve())
         # Validate the entire run before publishing any response.
         sys.stdout.write("\n".join(responses) + "\n")

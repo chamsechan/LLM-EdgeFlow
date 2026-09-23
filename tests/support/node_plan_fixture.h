@@ -65,7 +65,7 @@ inline std::shared_ptr<ValidatedNodePlan> PrepareNodePlanForTest(
                       {"backend", backend},
                       {"model_path", "mock.bin"}});
   }
-  BizDefinition biz{"fixture_" + input_prefix + output_prefix + type, "test"};
+  BizDefinition biz{"fixture_" + input_prefix + output_prefix + type};
   nlohmann::json inputs = nlohmann::json::object();
   nlohmann::json outputs = nlohmann::json::object();
   auto bind = [&](const NodePortDefinition& port, const std::string& prefix,

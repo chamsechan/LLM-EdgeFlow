@@ -134,7 +134,7 @@ int RunCrossRerankDemo(const DemoOptions& options) {
   return 0;
 }
 
-REGISTER_DEMO_BIZ("cross_rerank", "纯语义精排打分业务", RunCrossRerankDemo,
-                  "cross_rerank.operator.v1");
+REGISTER_DEMO_BIZ("dense_cross_rerank_scoring", "纯语义精排打分业务",
+                  RunCrossRerankDemo);
 
 }  // namespace alg_demo

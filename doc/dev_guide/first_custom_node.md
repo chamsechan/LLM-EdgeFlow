@@ -30,7 +30,7 @@
 和注册宏组成，默认做文本透传和模型调用。脚手架直接使用这份文件，
 生成的源码会进入现有测试 runner 编译。
 先关注 `BuildPrompt` 和 `FormatAnswer` 两个普通函数；其余部分可结合
-[五个概念说明](custom_node_concepts.md)逐步阅读。
+[按需参考](custom_node_concepts.md)逐步阅读。
 
 ## 2. 生成自己的节点
 
@@ -40,7 +40,7 @@
 先查询当前构建，确认要复用的业务和节点：
 
 ```bash
-./build/alg_pipeline_tool catalog --biz entity_extract_v1
+./build/alg_pipeline_tool catalog --io-binding entity_extract.operator.v1
 ./build/alg_pipeline_tool describe-node StructuredJsonParseNode
 ```
 
@@ -79,8 +79,7 @@ while (!answer.empty() && answer.back() == '\n') answer.pop_back();
 return answer;
 ```
 
-你处理的是 `text`；固定结构负责把处理结果放回原来的 `(req_id, sub_id)`，不会把
-第二条回答当成第一条的结果。前处理从只读输入构造新文本，不修改其他节点共享的输入。
+你只处理 `text`；框架自动保留每条输入与回答的对应关系，无需在业务函数中传递或填写来源编号。前处理从只读输入构造新文本，不修改其他节点共享的输入。
 
 这里没有模板语言、参数解析或 Markdown 解析器。需要这些能力时再使用已有通用节点，
 或者参考完整样例中对应的一小部分。需要多输入或条件二次推理时，参考
@@ -153,13 +152,13 @@ flowchart LR
 ```bash
 ./build/alg_pipeline_tool_test validate demo/fixtures/mock/pipeline_first_node.json
 ./build/alg_pipeline_tool_test plan demo/fixtures/mock/pipeline_first_node.json
-./build/alg_demo --biz entity_extract --config demo/fixtures/mock/pipeline_first_node.conf --dataset data/corpus_entity_extract.txt --output-dir results/first-node
+./build/alg_demo --config demo/fixtures/mock/pipeline_first_node.conf --dataset data/corpus_entity_extract.txt --output-dir results/first-node
 ```
 
 这些配置使用测试模型，校验要用带测试注册的 `alg_pipeline_tool_test`。
 `alg_pipeline_tool` 用于查看生产注册，也能发现刚编译的自定义节点。
 
-查看 `results/first-node/entity_extract/results.jsonl`：应有 `request_id: 30001`、`status: 0`，
+查看 `results/first-node/entity_extract_v1/results.jsonl`：应有 `request_id: 30001`、`status: 0`，
 以及 `output.entities.nouns` 中的“张三”“清华大学”等值。`summary.json` 应显示一条成功、
 零条失败。这里验证节点、编排与 Adapter 的完整路径，回答来自确定性测试模型。
 
@@ -180,7 +179,7 @@ flowchart LR
 
 | 接下来遇到的问题 | 去哪里看 |
 | --- | --- |
-| 端口、编号、模型绑定、Definition、并发是什么意思 | [五个概念说明](custom_node_concepts.md) |
+| 端口、编号、模型绑定、Definition、并发是什么意思 | [按需参考](custom_node_concepts.md) |
 | 需要多个输入或条件重试 | [自由 Batch starter](../../dev_support/node_authoring/starter_batch_node.cpp) |
 | 需要 LLM 与 Embedding 两种能力 | [多模型 starter](../../dev_support/node_authoring/starter_multi_model_node.cpp) |
 | 需要配置化模板或复杂后处理 | [复杂算法的组织与现有辅助函数](custom_node_concepts.md#复杂算法仍按普通-c-函数组织) |

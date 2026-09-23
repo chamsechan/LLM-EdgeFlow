@@ -76,20 +76,7 @@ mkdir -p build/control_tutorial
 
 ```json
 {
-  "biz_name": "keyword_match_v1",
-  "deployment": {
-    "io": {
-      "io_binding": "keyword_match.operator.v1",
-      "output_allocations": {
-        "keyword_out": {
-          "type": "keyword_out",
-          "meta_num": 0,
-          "metadata_type_id": 0,
-          "capacities": {"match_result_json": 2047}
-        }
-      }
-    }
-  },
+  "deployment": {"io": {"io_binding": "keyword_match.operator.v1"}},
   "models": [],
   "pipeline": [
     {
@@ -129,10 +116,10 @@ Pipeline 的 `deployment.io` 中。Demo 与直接调用 Operator 使用同一套
 ```bash
 ./build/alg_pipeline_tool validate build/control_tutorial/pipeline.json
 ./build/alg_pipeline_tool plan build/control_tutorial/pipeline.json
-./build/alg_demo --biz keyword_match --config build/control_tutorial/pipeline.conf --dataset build/control_tutorial/input.txt --control-cmd 1001 --control-file build/control_tutorial/control.json --output-dir build/control_tutorial/updated
+./build/alg_demo --config build/control_tutorial/pipeline.conf --dataset build/control_tutorial/input.txt --control-cmd 1001 --control-file build/control_tutorial/control.json --output-dir build/control_tutorial/updated
 ```
 
-查看 `build/control_tutorial/updated/keyword_match/results.jsonl`：应有 `status: 0`、
+查看 `build/control_tutorial/updated/keyword_match_v1/results.jsonl`：应有 `status: 0`、
 `is_hit: true`，匹配类别为 `PREFIX_APPLIED`。去掉 `--control-cmd` 与 `--control-file` 后
 使用另一个输出目录运行，应得到 `is_hit: false`。这证明新增命令在节点中实际生效。
 

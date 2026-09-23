@@ -1,19 +1,10 @@
 {
-  "biz_name": "dense_cross_rerank_scoring",
   "deployment": {
     "model_paths": {
       "rerank_model_v1": "missing_rerank_fixture.onnx"
     },
     "io": {
-      "io_binding": "cross_rerank.operator.v1",
-      "output_allocations": {
-        "rerank_out": {
-          "type": "rerank_out",
-          "meta_num": 0,
-          "metadata_type_id": 0,
-          "capacities": {}
-        }
-      }
+      "io_binding": "cross_rerank.operator.v1"
     }
   },
   "models": [

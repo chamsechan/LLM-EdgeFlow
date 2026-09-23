@@ -845,10 +845,12 @@ class StarterEmbeddingModel final : public IEmbeddingModel {
   bool empty_embedding = false;
 };
 
-nlohmann::json CustomPipeline(const std::string& biz) {
+nlohmann::json CustomPipeline(const std::string& biz,
+                              const std::string& expected_biz) {
   std::ifstream file("demo/fixtures/mock/pipeline_" + biz + "_custom.json");
   auto doc = nlohmann::json::parse(file);
   doc.erase("deployment");
+  doc["biz_name"] = expected_biz;
   return doc;
 }
 
@@ -1106,7 +1108,7 @@ TEST_F(CommonNodesTest, PromptDefaultsMatchDirectInitializationAndNativePlan) {
   ASSERT_TRUE(
       session_ctx_->GetModelManager().RegisterModel("entity_llm", model, "v1"));
   const nlohmann::json config = {{"bind_model", "entity_llm"}};
-  auto document = CustomPipeline("entity_extract");
+  auto document = CustomPipeline("entity_extract", "entity_extract_v1");
   document["pipeline"][0]["config"] = config;
   const auto validated = PipelineValidator::ValidateAndPlan(document);
   ASSERT_TRUE(validated.report.ok) << validated.report.ToJson().dump(2);
@@ -1186,7 +1188,7 @@ TEST_F(CommonNodesTest,
   for (const std::string pattern :
        {"{{unclosed", "{{unknown}}", "{{}}", "{{invalid name}}"}) {
     SCOPED_TRACE(pattern);
-    auto doc = CustomPipeline("entity_extract");
+    auto doc = CustomPipeline("entity_extract", "entity_extract_v1");
     auto& config = doc["pipeline"][0]["config"];
     config["prompt_template"] = pattern;
     const auto result = PipelineValidator::ValidateAndPlan(doc);
@@ -1300,7 +1302,7 @@ TEST_F(CommonNodesTest, PromptConfigurationRejectedByValidatorAndInit) {
       {{"template_syntax", "standard"}}};
   for (const auto& bad : bad_configs) {
     SCOPED_TRACE(bad.dump());
-    auto doc = CustomPipeline("entity_extract");
+    auto doc = CustomPipeline("entity_extract", "entity_extract_v1");
     nlohmann::json config = {{"bind_model", "entity_llm"},
                              {"prompt_template", "{{input}}"}};
     config.update(bad);
@@ -1323,20 +1325,24 @@ TEST_F(CommonNodesTest, PromptConfigurationRejectedByValidatorAndInit) {
     }
     EXPECT_TRUE(matching_diagnostic) << init_error;
   }
-  auto doc = CustomPipeline("doc_qa");
+  auto doc = CustomPipeline("doc_qa", "smart_doc_qa_v1");
   doc["pipeline"][2]["inputs"].erase("context");
   EXPECT_FALSE(PipelineValidator::ValidateAndPlan(doc).report.ok);
 }
 
 TEST_F(CommonNodesTest, CustomAndGeneratedNodesUseStrictNativePlans) {
-  for (const char* biz : {"entity_extract", "doc_qa"}) {
-    auto plan = PipelineValidator::ValidateAndPlan(CustomPipeline(biz));
+  for (const auto& [fixture, expected_biz] :
+       std::vector<std::pair<std::string, std::string>>{
+           {"entity_extract", "entity_extract_v1"},
+           {"doc_qa", "smart_doc_qa_v1"}}) {
+    auto plan = PipelineValidator::ValidateAndPlan(
+        CustomPipeline(fixture, expected_biz));
     ASSERT_TRUE(plan.report.ok) << plan.report.ToJson().dump(2);
   }
   ASSERT_TRUE(session_ctx_->GetModelManager().RegisterModel(
       "entity_llm", std::make_shared<test::TestBizLlmModel>(2), "v1"));
   for (const char* name : {"ScaffoldComputeNode", "ScaffoldModelLlmNode"}) {
-    auto doc = CustomPipeline("entity_extract");
+    auto doc = CustomPipeline("entity_extract", "entity_extract_v1");
     doc["pipeline"][0]["node_type"] = name;
     doc["pipeline"][0]["config"] =
         std::string(name) == "ScaffoldComputeNode"
@@ -1362,7 +1368,7 @@ TEST_F(CommonNodesTest, StarterTextFunctionsFollowTheDocumentedExercise) {
   model->response_suffix = "\n\n";
   ASSERT_TRUE(
       session_ctx_->GetModelManager().RegisterModel("entity_llm", model, "v1"));
-  auto document = CustomPipeline("entity_extract");
+  auto document = CustomPipeline("entity_extract", "entity_extract_v1");
   document["pipeline"][0]["node_type"] = "ScaffoldTutorialLlmNode";
   document["pipeline"][0]["config"] = {{"bind_model", "entity_llm"}};
   const auto plan = PipelineValidator::ValidateAndPlan(document);

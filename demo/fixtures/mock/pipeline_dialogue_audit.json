@@ -1,5 +1,4 @@
 {
-  "biz_name": "dialogue_compliance_audit_v1",
   "deployment": {
     "model_paths": {
       "embed_model_v2": "./models/bge_m3_npu.bin",
@@ -7,19 +6,7 @@
       "audit_llm_v1": "./models/qwen_1_8b_npu.bin"
     },
     "io": {
-      "io_binding": "compliance_audit.operator.v1",
-      "output_allocations": {
-        "audit_out": {
-          "type": "audit_out",
-          "meta_num": 0,
-          "metadata_type_id": 0,
-          "capacities": {
-            "risk_level": 31,
-            "matched_policy_clause": 255,
-            "audit_verdict_json": 1023
-          }
-        }
-      }
+      "io_binding": "compliance_audit.operator.v1"
     }
   },
   "models": [

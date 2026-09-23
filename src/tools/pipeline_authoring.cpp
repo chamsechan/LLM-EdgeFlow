@@ -3,12 +3,26 @@
 #include <algorithm>
 #include <stdexcept>
 
+#include "adapter/io_binding_registry.h"
 #include "core/pipeline_catalog.h"
 #include "pipeline_document_validation.h"
 
 namespace llm_edgeflow {
 
 namespace {
+
+std::string BoundBiz(const nlohmann::json& pipeline) {
+  if (!pipeline.is_object() || !pipeline.contains("deployment") ||
+      !pipeline["deployment"].is_object())
+    return {};
+  const auto& deployment = pipeline["deployment"];
+  if (!deployment.contains("io") || !deployment["io"].is_object()) return {};
+  const auto& io = deployment["io"];
+  if (!io.contains("io_binding") || !io["io_binding"].is_string()) return {};
+  const auto* binding = IoBindingRegistry::Instance().FindBinding(
+      io["io_binding"].get<std::string>());
+  return binding ? binding->biz_name : std::string{};
+}
 
 nlohmann::json* FindNodeById(nlohmann::json* pipeline, const std::string& id) {
   if (!pipeline || !pipeline->contains("pipeline") ||
@@ -107,7 +121,7 @@ std::string CheckGraphEndpoint(nlohmann::json* pipeline,
   if (id == "$ingress" || id == "$egress") {
     if ((output && id != "$ingress") || (!output && id != "$egress"))
       throw std::invalid_argument("INVALID_ENDPOINT: 业务端点方向错误");
-    const auto biz = PipelineCatalog::FindBiz(pipeline->value("biz_name", ""));
+    const auto biz = PipelineCatalog::FindBiz(BoundBiz(*pipeline));
     if (biz) {
       const auto& ports = output ? biz->ingress : biz->egress;
       for (const auto& definition : ports)
@@ -132,7 +146,7 @@ std::string CheckGraphEndpoint(nlohmann::json* pipeline,
 void CheckUniqueProducer(const nlohmann::json& pipeline,
                          const std::string& key) {
   size_t count = 0;
-  auto biz = PipelineCatalog::FindBiz(pipeline.value("biz_name", ""));
+  auto biz = PipelineCatalog::FindBiz(BoundBiz(pipeline));
   if (biz)
     for (const auto& port : biz->ingress)
       if (port.blackboard_key == key) ++count;
@@ -246,7 +260,7 @@ std::unordered_set<std::string> PipelineAuthoring::GetOccupiedKeys(
   std::unordered_set<std::string> occupied;
   if (!pipeline.is_object()) return occupied;
 
-  std::string biz_name = pipeline.value("biz_name", "");
+  std::string biz_name = BoundBiz(pipeline);
   if (!biz_name.empty()) {
     auto biz = PipelineCatalog::FindBiz(biz_name);
     if (biz) {
@@ -325,7 +339,7 @@ bool PipelineAuthoring::ApplyOperation(nlohmann::json* pipeline,
     return false;
   }
 
-  std::string biz_name = pipeline->value("biz_name", "");
+  std::string biz_name = BoundBiz(*pipeline);
   auto biz = PipelineCatalog::FindBiz(biz_name);
 
   if (kind == "add_node") {
@@ -583,7 +597,8 @@ bool PipelineAuthoring::ApplyOperation(nlohmann::json* pipeline,
 
     if (src_id == "$ingress") {
       if (!biz) {
-        if (error) *error = "UNKNOWN_BIZ: " + biz_name;
+        if (error)
+          *error = "UNKNOWN_IO_BINDING: select deployment.io.io_binding";
         return false;
       }
       auto in_it = std::find_if(biz->ingress.begin(), biz->ingress.end(),
@@ -644,7 +659,8 @@ bool PipelineAuthoring::ApplyOperation(nlohmann::json* pipeline,
 
     if (tgt_id == "$egress") {
       if (!biz) {
-        if (error) *error = "UNKNOWN_BIZ: " + biz_name;
+        if (error)
+          *error = "UNKNOWN_IO_BINDING: select deployment.io.io_binding";
         return false;
       }
       auto out_it = std::find_if(biz->egress.begin(), biz->egress.end(),

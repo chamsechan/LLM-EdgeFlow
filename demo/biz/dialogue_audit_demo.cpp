@@ -156,7 +156,7 @@ int RunDialogueAuditDemo(const DemoOptions& options) {
   return 0;
 }
 
-REGISTER_DEMO_BIZ("dialogue_audit", "智能对话风控质检业务",
-                  RunDialogueAuditDemo, "compliance_audit.operator.v1");
+REGISTER_DEMO_BIZ("dialogue_compliance_audit_v1", "智能对话风控质检业务",
+                  RunDialogueAuditDemo);
 
 }  // namespace alg_demo

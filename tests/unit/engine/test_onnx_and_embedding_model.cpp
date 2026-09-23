@@ -1113,6 +1113,7 @@ TEST_F(OnnxAndEmbeddingModelTest, OnnxRuntimeFixturePassEvidence) {
   nlohmann::json pipeline_config;
   config_in >> pipeline_config;
   pipeline_config.erase("deployment");
+  pipeline_config["biz_name"] = "smart_doc_qa_v1";
   pipeline_config["models"][0]["model_path"] = onnx_path.string();
   pipeline_config["models"][0]["model_config"]["tokenizer_file"] =
       vocab_path.string();

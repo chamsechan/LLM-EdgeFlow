@@ -1,6 +1,8 @@
 # Operator 多输出与嵌套载荷分配
 
-业务开发者通过注册的实现描述**一份完整输出如何创建、重置和释放**。框架负责创建
+普通业务复用已注册输出结构，只在需要时覆盖容量。新增标准结构时，通过
+`MakePooledOutputBinding<T>` 声明字段、默认/最大容量及标量重置；框架负责分配和释放。
+特殊嵌套结构才需要描述一份完整输出的布局与生命周期。框架负责创建
 多少份（采用 Create 的实际池深）、租约和队列。同一个 map 键、同一个外层 C 结构，可以在不同
 handle 的配置中选择不同的嵌套 `void*` 布局；配置在 Create 固定，Process 使用
 同一份规范化配置进行结果转换。
@@ -23,7 +25,7 @@ std::string text;
 reader.Read(OutputConfigField::kParameters, &text, &error);
 ```
 
-可选字段是该组件固定的枚举：`kType`、`kAllocator`、`kParameters`、`kCapacities`、
+可选字段是该组件固定的枚举：`kAllocator`、`kParameters`、`kCapacities`、
 `kMetadataCount`、`kMetadataTypeId`。这些枚举选择框架配置项；具体载荷的布局枚举
 由结构体作者定义在自己的参数中。业务实现不传 JSON 路径，不读取整个部署文件。
 
@@ -37,9 +39,9 @@ JSON 读取器将选中值通过 `dump()` 转为拥有自身存储的 `std::stri
 
 | 字段 | 用途 |
 | --- | --- |
-| 槽位 `slot_name` | 业务中的输出槽位，也是 `deployment.io.output_allocations` 的配置键 |
+| 槽位 `slot_name` | 业务中的输出槽位，也是 `deployment.io.out_mem` 的配置键 |
 | 槽位 `key_suffix` | 外部 map key 最后一个点号后的部分；`ExternalSlotDefinition` 可显式指定，为空时由 `KeySuffix()` 使用 `type_suffix`。常见槽位工厂令 `type_suffix = slot_name`；异名槽位使用完整定义 |
-| `type` | 已注册的外层 ValueType，必须匹配槽位的 `type_suffix` |
+| 槽位 `type_suffix` | 注册定义指定的外层 ValueType；配置不再填写 `type` |
 | `allocator` | 为该外层类型注册的分配方案标识；省略时使用类型的默认实现 |
 | `params` | 由方案解释、校验并补齐的单份布局参数，例如嵌套枚举与数组容量 |
 | `capacities` / `meta_num` / `metadata_type_id` | 方案声明的标准字符串与 CompanyAny 容量字段 |
@@ -56,14 +58,12 @@ JSON 读取器将选中值通过 `dump()` 转为拥有自身存储的 `std::stri
   "deployment": {
     "io": {
       "io_binding": "<已注册的测试绑定>",
-      "output_allocations": {
+      "out_mem": {
         "main": {
-          "type": "test_nested_out",
           "allocator": "test_nested_standard",
           "params": {"kind": 1, "capacity": 8}
         },
         "audit": {
-          "type": "test_nested_out",
           "allocator": "test_nested_alternate",
           "params": {"kind": 2, "capacity": 16}
         }
@@ -79,9 +79,12 @@ JSON 读取器将选中值通过 `dump()` 转为拥有自身存储的 `std::stri
 `void* values` 再根据 `kind` 指向整数或浮点数组。修改 `main` 的方案或参数后创建
 另一个 handle，map 键仍可保持 `chan.result`。
 
-每个声明的输出槽位都需要配置，包括 `required=false` 的可选输出；可选是指 Process
-可以省略该输出 map 项。逻辑名和有效 map 后缀分别唯一；不同槽位可以复用相同类型
-和方案，各自使用独立容量和输出池。所有输出均统一在以逻辑槽位为键的 `deployment.io.output_allocations` 中配置。
+必需输出槽省略配置时使用已注册的默认 allocator、容量和零 metadata。只有修改默认值时
+才填写 `deployment.io.out_mem`；类型完全来自槽位定义，旧 `type` 字段会被拒绝。
+`required=false` 的可选输出需要显式槽配置来启用，`{}` 表示采用默认值；Process 可省略该输出。
+逻辑名和有效 map 后缀分别唯一；不同槽位可以复用相同类型和方案，各自使用独立容量和输出池。
+自定义 allocator 若要求布局参数，省略参数仍会报错。容量以实际载荷字节数为准，不能由 token 数
+直接换算；超限检测、池预算、租约、失败回滚及全部转换成功后发布仍由框架执行。
 
 ## 实现与注册
 

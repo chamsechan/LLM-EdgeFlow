@@ -12,7 +12,6 @@ constexpr size_t kMaxBatchSize = 64;
 BizDefinition MakeKeywordMatchBizDefinition() {
   BizDefinition def;
   def.biz_name = kBizName;
-  def.demo_biz = "keyword_match";
   def.display_name = "关注词匹配";
   def.ingress = {RequiredBizInput(kRawRequestIds),
                  RequiredBizInput(kInputSentences)};

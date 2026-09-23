@@ -426,7 +426,6 @@ if(LLM_EDGEFLOW_HAS_ONNXRUNTIME)
   add_test(
     NAME CrossRerankDemoFixtureTest
     COMMAND $<TARGET_FILE:alg_demo>
-            --biz cross_rerank
             --config
             "${EDGEFLOW_GENERATED_MODEL_FIXTURE_DIR}/pipeline_cross_rerank_fixture.conf"
             --dataset
@@ -436,7 +435,6 @@ if(LLM_EDGEFLOW_HAS_ONNXRUNTIME)
   add_test(
     NAME CrossRerankDemoMissingModelFailsClosedTest
     COMMAND $<TARGET_FILE:alg_demo>
-            --biz cross_rerank
             --config
             "${EDGEFLOW_GENERATED_MODEL_FIXTURE_DIR}/pipeline_cross_rerank_missing_model.conf"
             --dataset
@@ -486,7 +484,7 @@ foreach(config_path IN LISTS EDGEFLOW_PIPELINE_CONFIGS)
 endforeach()
 
 add_test(NAME PipelineToolCatalogTest COMMAND $<TARGET_FILE:alg_pipeline_tool>
-  catalog --biz keyword_match_v1)
+  catalog --io-binding keyword_match.operator.v1)
 add_test(NAME PipelineToolValidateTest COMMAND $<TARGET_FILE:alg_pipeline_tool>
   validate ${PROJECT_SOURCE_DIR}/configs/pipeline_keyword_match_rules.json)
 set_tests_properties(PipelineToolCatalogTest PipelineToolValidateTest

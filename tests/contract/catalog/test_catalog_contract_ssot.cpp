@@ -130,10 +130,10 @@ TEST_F(CatalogContractSsotTest, ProductionModelBackendCatalogHasNoFixtures) {
   }
 }
 
-// 3. 验证 7 种业务契约在 PipelineCatalog 中完整注册
+// 3. 验证业务契约在 PipelineCatalog 中完整注册
 TEST_F(CatalogContractSsotTest, AllBizDefinitionsAreRegistered) {
   const auto bizs = PipelineCatalog::Bizs();
-  EXPECT_GE(bizs.size(), 7U);
+  EXPECT_GE(bizs.size(), 8U);
 
   std::set<std::string> biz_names;
   for (const auto& b : bizs) {
@@ -148,11 +148,18 @@ TEST_F(CatalogContractSsotTest, AllBizDefinitionsAreRegistered) {
   EXPECT_TRUE(biz_names.count("multimodal_ocr_invoice_qa"));
   EXPECT_TRUE(biz_names.count("speech_audio_asr_intent_slot"));
   EXPECT_TRUE(biz_names.count("dense_cross_rerank_scoring"));
+  EXPECT_TRUE(biz_names.count("translate_v1"));
 
   for (const auto& name : biz_names) {
     const auto found = PipelineCatalog::FindBiz(name);
     ASSERT_TRUE(found.has_value()) << "Missing biz definition: " << name;
     EXPECT_EQ(found->biz_name, name);
+  }
+
+  const auto catalog = PipelineCatalog::ToJson();
+  for (const auto& biz : catalog.at("bizs")) {
+    EXPECT_TRUE(biz_names.count(biz.at("biz_name").get<std::string>()));
+    EXPECT_FALSE(biz.contains("demo_biz"));
   }
 }
 
@@ -176,9 +183,9 @@ TEST_F(CatalogContractSsotTest, BusinessBatchRegistrationIsAtomic) {
   const auto existing = PipelineCatalog::Bizs();
   ASSERT_FALSE(existing.empty());
   std::vector<BizDefinition> batch = {
-      BizDefinition{first, "probe"},
-      BizDefinition{existing.front().biz_name, "probe"},
-      BizDefinition{last, "probe"},
+      BizDefinition{first},
+      BizDefinition{existing.front().biz_name},
+      BizDefinition{last},
   };
 
   EXPECT_FALSE(PipelineCatalog::RegisterBizDefinitions(batch));
@@ -195,7 +202,7 @@ TEST_F(CatalogContractSsotTest,
   std::thread registrar([&]() {
     for (int i = 0; i < 16; ++i) {
       if (!PipelineCatalog::RegisterBizDefinition(BizDefinition{
-              "snapshot_concurrency_probe_" + std::to_string(i), "probe"})) {
+              "snapshot_concurrency_probe_" + std::to_string(i)})) {
         registration_ok = false;
       }
     }

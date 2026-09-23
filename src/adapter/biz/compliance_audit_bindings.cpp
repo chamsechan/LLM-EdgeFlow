@@ -12,7 +12,6 @@ constexpr size_t kMaxBatchSize = 64;
 BizDefinition MakeComplianceAuditBizDefinition() {
   BizDefinition def;
   def.biz_name = kBizName;
-  def.demo_biz = "dialogue_audit";
   def.display_name = "对话合规审核";
   def.ingress = {RequiredBizInput(kRawRequestIds), RequiredBizInput(kUserTexts),
                  RequiredBizInput(kChannelNames)};

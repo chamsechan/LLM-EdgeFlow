@@ -9,3 +9,5 @@ add_executable(alg_pipeline_tool
   pipeline_document_validation.cpp)
 target_link_libraries(alg_pipeline_tool PRIVATE
   edgeflow_internal_headers llm_edgeflow::internal_runtime)
+target_include_directories(alg_pipeline_tool PRIVATE
+  "${PROJECT_BINARY_DIR}/generated/internal")

@@ -19,7 +19,6 @@
         "/model_path": "demo/fixtures/mock/artifacts/neutral-llm.fixture"
       },
       "model": {
-        "capability": "llm",
         "model_type": "test_biz_llm",
         "backend": "test_causal_lm_backend",
         "model_path": "demo/fixtures/mock/artifacts/neutral-llm.fixture",

@@ -2,7 +2,6 @@
   "schema_version": 2,
   "profiles": {
     "entity_extract_kite": {
-      "biz": "entity_extract",
       "config": "configs/pipeline_entity_extract_kite.conf",
       "dataset": "data/corpus_entity_extract.txt",
       "suite": "real",
@@ -12,7 +11,6 @@
       "depth": 1
     },
     "doc_qa_kite": {
-      "biz": "doc_qa",
       "config": "configs/pipeline_doc_qa_kite.conf",
       "dataset": "data/corpus_doc_qa.txt",
       "suite": "real",
@@ -22,7 +20,6 @@
       "depth": 1
     },
     "doc_qa_rerank_kite": {
-      "biz": "doc_qa",
       "config": "configs/pipeline_doc_qa_rerank_kite.conf",
       "dataset": "data/corpus_doc_qa.txt",
       "suite": "real",
@@ -32,7 +29,6 @@
       "depth": 1
     },
     "dialogue_audit_kite": {
-      "biz": "dialogue_audit",
       "config": "configs/pipeline_dialogue_audit_kite.conf",
       "dataset": "data/corpus_dialogue_audit.txt",
       "suite": "real",
@@ -42,7 +38,6 @@
       "depth": 1
     },
     "ocr_doc_qa_kite": {
-      "biz": "ocr_doc_qa",
       "config": "configs/pipeline_ocr_doc_qa_kite.conf",
       "dataset": "data/corpus_ocr_doc_qa_kite.txt",
       "suite": "real",
@@ -52,7 +47,6 @@
       "depth": 1
     },
     "keyword_match_rules": {
-      "biz": "keyword_match",
       "config": "configs/pipeline_keyword_match_rules.conf",
       "dataset": "data/corpus_keyword_match.txt",
       "suite": "real",
@@ -62,7 +56,6 @@
       "depth": 2
     },
     "cross_rerank_cpu": {
-      "biz": "cross_rerank",
       "config": "configs/pipeline_cross_rerank_cpu.conf",
       "dataset": "data/corpus_cross_rerank.txt",
       "suite": "real",
@@ -72,7 +65,6 @@
       "depth": 1
     },
     "doc_qa_kite_embeddings": {
-      "biz": "doc_qa",
       "config": "configs/pipeline_doc_qa_kite_generated_embeddings.conf",
       "dataset": "data/corpus_doc_qa.txt",
       "suite": "real",

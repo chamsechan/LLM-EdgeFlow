@@ -77,7 +77,7 @@ cmake --build build --target alg_sdk alg_demo alg_pipeline_tool alg_show --paral
 
 ```bash
 # 查询当前构建中可用的业务契约与节点
-./build/alg_pipeline_tool catalog --biz keyword_match_v1
+./build/alg_pipeline_tool catalog --io-binding keyword_match.operator.v1
 ./build/alg_pipeline_tool describe-node TextRuleMatchNode
 
 # 查看经过校验的执行计划
@@ -160,7 +160,7 @@ Smoke 验证执行链路；真实模型的业务效果需使用目标数据集�
 
 | 目标 | 入口 |
 | :--- | :--- |
-| 理解节点端口、模型绑定与并发 | [节点作者的五个概念](doc/dev_guide/custom_node_concepts.md) |
+| 理解节点端口、模型绑定与并发 | [Node 常用写法与按需参考](doc/dev_guide/custom_node_concepts.md) |
 | 给节点增加运行时控制 | [Control 入门](doc/dev_guide/first_control.md) |
 | 扩展框架、模型或后端 | [开发者指南](doc/developer_guide.md) · [架构设计](doc/architecture.md) |
 | 准备模型并验证效果 | [模型、构建与效果验收](doc/VERIFIABLE_SELECTION.md) |
@@ -179,7 +179,7 @@ Smoke 验证执行链路；真实模型的业务效果需使用目标数据集�
 
 该命令统一执行格式与静态检查、配置构建及 CTest 测试。环境需具备 clang-format 18，以及架构图检查所需的 Java 17+；详细流程见 [CONTRIBUTING.md](CONTRIBUTING.md)，测试组织见 [tests/README.md](tests/README.md)，Agent 开发约束见 [AGENTS.md](AGENTS.md)。
 
-当前产品版本为 **v11.0.0**，公共 **ABI major 为 7**。接口边界见[架构设计](doc/architecture.md)，版本记录见 [Changelog](doc/CHANGELOG.md)。
+当前产品版本为 **v11.0.0**，公共 **ABI major 为 9**。接口边界见[架构设计](doc/architecture.md)，版本记录见 [Changelog](doc/CHANGELOG.md)。
 
 ## 许可证
 

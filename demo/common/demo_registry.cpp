@@ -24,13 +24,6 @@ bool DemoRegistry::Register(DemoDescriptor descriptor) {
     return false;
   }
 
-  if (descriptor.expected_binding_id.empty()) {
-    std::cerr << "[DemoRegistry ERROR] Empty expected_binding_id for biz: "
-              << descriptor.biz_name << std::endl;
-    has_conflict_ = true;
-    return false;
-  }
-
   if (descriptors_.find(descriptor.biz_name) != descriptors_.end()) {
     std::cerr << "[DemoRegistry ERROR] Duplicate registration for biz: "
               << descriptor.biz_name << std::endl;

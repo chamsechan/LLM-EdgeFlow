@@ -25,10 +25,18 @@ bool SplitPipelineDocument(const nlohmann::json& root,
     return false;
   }
 
+  for (const auto& [field, value] : root.items()) {
+    if (!structure::AllowsProperty(PipelineDocumentStructure(), field)) {
+      const auto path = "/" + EscapeJsonPointer(field);
+      if (out_error) *out_error = "Unknown field at " + path;
+      if (out_error_path) *out_error_path = path;
+      return false;
+    }
+  }
   if (!root.contains("deployment")) {
-    out_split->has_deployment = false;
-    out_split->neutral_pipeline_json = root;
-    return true;
+    if (out_error) *out_error = "Missing required field '/deployment'";
+    if (out_error_path) *out_error_path = "/deployment";
+    return false;
   }
 
   const auto& dep_shape = DeploymentStructure();
@@ -101,8 +109,11 @@ bool SplitPipelineDocument(const nlohmann::json& root,
     out_split->deployment.has_model_paths = true;
   }
 
-  // 3. 校验 io (当 deployment 存在时必填)
-  if (structure::MissingRequired(dep, dep_shape, "io")) {
+  out_split->neutral_pipeline_json = root;
+  out_split->neutral_pipeline_json.erase("deployment");
+
+  // 3. 唯一的外部契约入口，输出内存覆盖仍可省略。
+  if (!dep.contains("io")) {
     if (out_error) *out_error = "Missing required field '/deployment/io'";
     if (out_error_path) *out_error_path = "/deployment/io";
     return false;
@@ -115,13 +126,13 @@ bool SplitPipelineDocument(const nlohmann::json& root,
     return false;
   }
 
-  // 校验 io 内部白名单: 必须有且仅有 io_binding 与 output_allocations
+  // 校验 io 内部白名单。
   for (auto it = io.begin(); it != io.end(); ++it) {
     if (!structure::AllowsProperty(io_shape, it.key())) {
       if (out_error) {
         *out_error = "Unknown field at /deployment/io/" +
                      EscapeJsonPointer(it.key()) +
-                     " (only 'io_binding' and 'output_allocations' allowed)";
+                     " (only 'io_binding' and 'out_mem' allowed)";
       }
       if (out_error_path) {
         *out_error_path = "/deployment/io/" + EscapeJsonPointer(it.key());
@@ -130,55 +141,44 @@ bool SplitPipelineDocument(const nlohmann::json& root,
     }
   }
 
-  if (structure::MissingRequired(io, io_shape, "io_binding")) {
-    if (out_error) {
+  if (!io.contains("io_binding")) {
+    if (out_error)
       *out_error = "Missing required field '/deployment/io/io_binding'";
-    }
     if (out_error_path) *out_error_path = "/deployment/io/io_binding";
     return false;
   }
-  if (!structure::HasType(io["io_binding"],
-                          structure::Property(io_shape, "io_binding"))) {
-    if (out_error) {
-      *out_error = "Field '/deployment/io/io_binding' must be a string";
+  {
+    if (!structure::HasType(io["io_binding"],
+                            structure::Property(io_shape, "io_binding"))) {
+      if (out_error) {
+        *out_error = "Field '/deployment/io/io_binding' must be a string";
+      }
+      if (out_error_path) *out_error_path = "/deployment/io/io_binding";
+      return false;
     }
-    if (out_error_path) *out_error_path = "/deployment/io/io_binding";
-    return false;
-  }
-  std::string binding_id = io["io_binding"].get<std::string>();
-  if (structure::TooShort(io["io_binding"],
-                          structure::Property(io_shape, "io_binding"))) {
-    if (out_error) {
-      *out_error = "Field '/deployment/io/io_binding' cannot be empty";
+    std::string binding_id = io["io_binding"].get<std::string>();
+    if (structure::TooShort(io["io_binding"],
+                            structure::Property(io_shape, "io_binding"))) {
+      if (out_error) {
+        *out_error = "Field '/deployment/io/io_binding' cannot be empty";
+      }
+      if (out_error_path) *out_error_path = "/deployment/io/io_binding";
+      return false;
     }
-    if (out_error_path) *out_error_path = "/deployment/io/io_binding";
-    return false;
+    out_split->deployment.io.io_binding = std::move(binding_id);
   }
-  out_split->deployment.io.io_binding = std::move(binding_id);
 
-  if (structure::MissingRequired(io, io_shape, "output_allocations")) {
-    if (out_error) {
-      *out_error = "Missing required field '/deployment/io/output_allocations'";
+  if (io.contains("out_mem")) {
+    if (!structure::HasType(io["out_mem"],
+                            structure::Property(io_shape, "out_mem"))) {
+      if (out_error) {
+        *out_error = "Field '/deployment/io/out_mem' must be an object";
+      }
+      if (out_error_path) *out_error_path = "/deployment/io/out_mem";
+      return false;
     }
-    if (out_error_path) *out_error_path = "/deployment/io/output_allocations";
-    return false;
+    out_split->deployment.io.out_mem = io["out_mem"];
   }
-  if (!structure::HasType(
-          io["output_allocations"],
-          structure::Property(io_shape, "output_allocations"))) {
-    if (out_error) {
-      *out_error =
-          "Field '/deployment/io/output_allocations' must be an object";
-    }
-    if (out_error_path) *out_error_path = "/deployment/io/output_allocations";
-    return false;
-  }
-  out_split->deployment.io.output_allocations = io["output_allocations"];
-  out_split->deployment.has_io = true;
-
-  out_split->has_deployment = true;
-  out_split->neutral_pipeline_json = root;
-  out_split->neutral_pipeline_json.erase("deployment");
   return true;
 }
 

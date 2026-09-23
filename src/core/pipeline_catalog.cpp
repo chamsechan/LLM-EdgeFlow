@@ -309,7 +309,6 @@ nlohmann::json PipelineCatalog::ToJson(const PipelineCatalogSnapshot& snapshot,
     for (const auto& port : item.egress)
       egress.push_back(PortToJson(port.Name(), port));
     bizs.push_back({{"biz_name", item.biz_name},
-                    {"demo_biz", item.demo_biz},
                     {"display_name", item.display_name},
                     {"ingress", std::move(ingress)},
                     {"egress", std::move(egress)}});

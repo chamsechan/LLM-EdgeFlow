@@ -14,19 +14,12 @@ namespace alg_demo {
 using DemoRunFunction = int (*)(const DemoOptions& options);
 
 struct DemoDescriptor {
-  std::string biz_name;       // 业务标识名 (如 entity_extract, doc_qa)
+  std::string biz_name;  // Pipeline 业务契约名 (如 entity_extract_v1)
   std::string display_title;  // 终端展示标题 (如 "实体/名词提取业务")
   DemoRunFunction run = nullptr;
-  std::string
-      expected_binding_id;  // 权威接入绑定 ID (如 entity_extract.operator.v1)
-
   DemoDescriptor() = default;
-  DemoDescriptor(std::string name, std::string title, DemoRunFunction func,
-                 std::string binding_id)
-      : biz_name(std::move(name)),
-        display_title(std::move(title)),
-        run(func),
-        expected_binding_id(std::move(binding_id)) {}
+  DemoDescriptor(std::string name, std::string title, DemoRunFunction func)
+      : biz_name(std::move(name)), display_title(std::move(title)), run(func) {}
 };
 
 class DemoRegistry {
@@ -35,7 +28,7 @@ class DemoRegistry {
 
   /**
    * @brief 注册业务 Demo 描述符
-   * @param descriptor 业务描述符 (拒绝空名、空函数、空绑定或重复注册)
+   * @param descriptor 业务描述符 (拒绝空名、空函数或重复注册)
    * @return true 注册成功, false 注册失败 (冲突或非法)
    */
   bool Register(DemoDescriptor descriptor);
@@ -79,15 +72,14 @@ class DemoRegistry {
  */
 class DemoRegisterHelper {
  public:
-  DemoRegisterHelper(const char* name, const char* title, DemoRunFunction func,
-                     const char* expected_binding_id) {
-    DemoRegistry::Instance().Register(
-        {name, title, func, expected_binding_id ? expected_binding_id : ""});
+  DemoRegisterHelper(const char* name, const char* title,
+                     DemoRunFunction func) {
+    DemoRegistry::Instance().Register({name, title, func});
   }
 };
 
-#define REGISTER_DEMO_BIZ(biz_name, title, run_func, expected_binding_id) \
-  static ::alg_demo::DemoRegisterHelper g_demo_reg_##run_func(            \
-      biz_name, title, run_func, expected_binding_id);
+#define REGISTER_DEMO_BIZ(biz_name, title, run_func)                           \
+  static ::alg_demo::DemoRegisterHelper g_demo_reg_##run_func(biz_name, title, \
+                                                              run_func);
 
 }  // namespace alg_demo

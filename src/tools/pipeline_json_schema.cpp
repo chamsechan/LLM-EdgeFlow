@@ -118,9 +118,8 @@ nlohmann::json BuildPipelineJsonSchema(const nlohmann::json& catalog) {
     nodes.push_back(Node(definition));
   Json node_schema =
       nodes.empty() ? Json(false) : Json{{"oneOf", std::move(nodes)}};
-  auto schema = PipelineConfigStructure();
+  auto schema = PipelineDocumentStructure();
   auto& properties = schema["properties"];
-  properties["biz_name"] = Choices(catalog.at("bizs"), "biz_name");
   properties["models"] = Models(catalog);
   properties["deployment"] = Deployment(catalog);
   properties["pipeline"]["items"] = std::move(node_schema);

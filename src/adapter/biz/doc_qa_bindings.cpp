@@ -12,7 +12,6 @@ constexpr size_t kMaxBatchSize = 64;
 BizDefinition MakeDocQaBizDefinition() {
   BizDefinition def;
   def.biz_name = kBizName;
-  def.demo_biz = "doc_qa";
   def.display_name = "智能文档问答";
   def.ingress = {RequiredBizInput(kRawRequestIds), RequiredBizInput(kRawDocs),
                  RequiredBizInput(kRawQueries)};

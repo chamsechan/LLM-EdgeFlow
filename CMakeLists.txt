@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 3.16)
 project(LLMEdgeFlow VERSION 11.0.0 LANGUAGES C CXX)
 
-set(LLM_EDGEFLOW_ABI_VERSION "7.0.0")
-set(LLM_EDGEFLOW_ABI_VERSION_MAJOR 7)
+set(LLM_EDGEFLOW_ABI_VERSION "9.0.0")
+set(LLM_EDGEFLOW_ABI_VERSION_MAJOR 9)
 
 # 严格禁止 In-Source 构建 (防止误用 cmake . 污染源码目录并触发重复下载阻塞)
 if("${CMAKE_SOURCE_DIR}" STREQUAL "${CMAKE_BINARY_DIR}")
@@ -79,6 +79,14 @@ target_link_libraries(edgeflow_extension_headers INTERFACE edgeflow_public_heade
 
 # 仓库内工具和测试可访问源码；公开 SDK 目标只传播明确列出的调用头。
 add_library(edgeflow_internal_headers INTERFACE)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    "${PROJECT_SOURCE_DIR}/demo/common/profile_fields.json")
+file(READ "${PROJECT_SOURCE_DIR}/demo/common/profile_fields.json"
+    LLM_EDGEFLOW_DEMO_PROFILE_FIELDS)
+configure_file(
+    "${PROJECT_SOURCE_DIR}/cmake_ext/demo_profile_fields.h.in"
+    "${PROJECT_BINARY_DIR}/generated/internal/demo/common/demo_profile_fields.h"
+    @ONLY)
 target_include_directories(edgeflow_internal_headers INTERFACE
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/src)

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "name": "entity-neutral-model-contract",
-  "biz_name": "entity_extract_v1",
+  "io_binding": "entity_extract.operator.v1",
   "dataset": "../../../data/corpus_entity_extract.txt",
   "minimum_pass_rate": 1.0,
   "samples": [

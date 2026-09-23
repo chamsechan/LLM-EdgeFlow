@@ -2,7 +2,7 @@
 """Task recipes for solution developers in LLM-EdgeFlow.
 
 Provides task navigation, preparation, and verification for supported recipes:
-- prompt-config: adjust prompts using existing nodes within identical biz contracts
+- prompt-config: adjust prompts using existing nodes within the selected I/O contract
 - text-llm-node: create a custom LLM node (TextBatch -> TextBatch) with full scaffolding
 
 Both recipes require a single-output deployment. Pipelines or confs with
@@ -33,10 +33,14 @@ V_SPEC = importlib.util.spec_from_file_location("verify_selection", VERIFY_SELEC
 VERIFY_SELECTION = importlib.util.module_from_spec(V_SPEC)
 V_SPEC.loader.exec_module(VERIFY_SELECTION)
 
+P_SPEC = importlib.util.spec_from_file_location("demo_profile", ROOT / "demo/common/demo_profile.py")
+DEMO_PROFILE = importlib.util.module_from_spec(P_SPEC)
+P_SPEC.loader.exec_module(DEMO_PROFILE)
+
 SUPPORTED_RECIPES = {
     "prompt-config": {
         "title": "Prompt Configuration Recipe",
-        "description": "Adjust prompt templates and configurations using existing nodes within identical biz contracts.",
+        "description": "Adjust prompt templates and configurations using existing nodes within the selected I/O contract.",
         "preconditions": "Requires a verified data.outputs Profile and valid Pipeline.",
         "artifacts": "Pipeline JSON, pipeline .conf, effects sample, verification command.",
     },
@@ -73,7 +77,8 @@ def absolute(path, root):
     return (root / path).resolve() if not path.is_absolute() else path.resolve()
 
 
-def check_unsupported_deployment(conf_path):
+def require_deployment(conf_path, tool, root):
+    """Check the effective output slots through the native I/O resolver."""
     conf = read_json_file(conf_path)
     pipe_path = conf.get("pipe_path")
     if not pipe_path or not isinstance(pipe_path, str):
@@ -81,24 +86,15 @@ def check_unsupported_deployment(conf_path):
     pipeline_file = (Path(conf_path).parent / pipe_path).resolve()
     if not pipeline_file.is_file():
         raise RecipeError("A valid pipeline file is required")
+    resolved = native(tool, ["validate-io", str(conf_path)], root)
+    outputs = resolved["output_pools"]
+    if len(outputs) != 1:
+        raise RecipeError(
+            "This recipe supports only single-output deployment; use the native Operator workflow for other output layouts.",
+            code=UNSUPPORTED_RECIPE_DEPLOYMENT)
+    # Persist only authored overrides; required slot defaults stay in native code.
     doc = read_json_file(pipeline_file)
-    outputs = doc.get("deployment", {}).get("io", {}).get("output_allocations")
-    if not isinstance(outputs, dict) or not outputs:
-        raise RecipeError("A deployment.io.output_allocations configuration is required")
-    if len(outputs) > 1:
-        return {"error_code": UNSUPPORTED_RECIPE_DEPLOYMENT,
-                "message": "This recipe supports only single-output deployment; use the native Operator workflow for deployment.io.output_allocations with multiple slots."}
-    return None
-
-
-def require_deployment(conf_path):
-    unsupported = check_unsupported_deployment(conf_path)
-    if unsupported:
-        raise RecipeError(unsupported["message"], code=unsupported["error_code"])
-    conf = read_json_file(conf_path)
-    pipeline_file = (Path(conf_path).parent / conf["pipe_path"]).resolve()
-    doc = read_json_file(pipeline_file)
-    return doc["deployment"]["io"]["output_allocations"]
+    return doc.get("deployment", {}).get("io", {}).get("out_mem", {})
 
 
 def get_profile_data(profile_name, root=ROOT):
@@ -106,6 +102,10 @@ def get_profile_data(profile_name, root=ROOT):
     if profile_name not in profiles:
         raise RecipeError(f"Unknown Profile: {profile_name}")
     profile = profiles[profile_name]
+    try:
+        DEMO_PROFILE.validate_profile_fields(profile)
+    except ValueError as error:
+        raise RecipeError(f"Profile '{profile_name}': {error}") from error
     conf = absolute(profile["config"], root)
     conf_doc = read_json_file(conf)
     pipe_path = conf_doc.get("pipe_path", "")
@@ -196,8 +196,8 @@ def effects_inputs(profile_name, pipeline, root, effects_path, model_root, manif
         raise RecipeError("Supply --effects with independently labelled business outputs for this Profile")
     source = absolute(effects_path or default, root)
     spec = read_json_file(source)
-    if spec.get("biz_name") != pipeline["biz_name"]:
-        raise RecipeError("Effects biz_name does not match the selected Profile")
+    if spec.get("io_binding") != VERIFY_SELECTION.pipeline_binding(pipeline):
+        raise RecipeError("Effects io_binding does not match the selected Profile")
     check_effects(spec)
     dataset = absolute(spec["dataset"], source.parent)
     if not dataset.is_file():
@@ -267,13 +267,13 @@ def prepare(recipe, name, profile_name, tool_path, build_dir, pipeline_target, r
                 raise RecipeError("Node name must be a PascalCase C++ identifier")
             name = name if name.endswith("Node") else name + "Node"
         _, source_conf, _ = get_profile_data(profile_name, root)
-        outputs = require_deployment(source_conf)  # Reject multi-output before tools or writes.
         tool, build, demo = tool_context(tool_path, build_dir, root)
+        outputs = require_deployment(source_conf, tool, root)
         catalog = native(tool, ["catalog"], root)
         profile = next((p for p in catalog["profiles"] if p["name"] == profile_name), None)
         if profile is None or absolute(profile["config"], root) != source_conf:
             raise RecipeError("Profile is not available in the selected executable Catalog")
-        pipeline = native(tool, ["init", "--biz", profile["pipeline_biz"], "--profile", profile_name], root)["pipeline"]
+        pipeline = native(tool, ["init", "--io-binding", profile["io_binding"], "--profile", profile_name], root)["pipeline"]
         native(tool, ["validate", "--stdin"], root, pipeline)
         deployment_preview = copy.deepcopy(pipeline)
         target = absolute(pipeline_target, root)
@@ -362,13 +362,12 @@ def verify_recipe(recipe, pipeline_path, tool_path, build_dir, effects_path, mod
             raise RecipeError("A PascalCase --name is required for text-llm-node")
         pipeline_path = absolute(pipeline_path, root)
         conf_path = pipeline_path.with_suffix(".conf")
-        require_deployment(conf_path)
         pipeline = read_json_file(pipeline_path)
         effects = absolute(effects_path, root)
         spec = read_json_file(effects)
         check_effects(spec)
-        if spec.get("biz_name") != pipeline["biz_name"]:
-            raise RecipeError("Effects biz_name does not match the task")
+        if spec.get("io_binding") != VERIFY_SELECTION.pipeline_binding(pipeline):
+            raise RecipeError("Effects io_binding does not match the task")
         if not absolute(spec["dataset"], effects.parent).is_file():
             raise RecipeError("Effects dataset is missing")
         if demo_path is None:
@@ -401,6 +400,7 @@ def verify_recipe(recipe, pipeline_path, tool_path, build_dir, effects_path, mod
                 raise RecipeError(f"Pipeline does not use the requested Node {name}")
             completed.append(step)
         step = "config_validation"
+        require_deployment(conf_path, tool, root)
         native(tool, ["validate", "--stdin"], root, pipeline)
         native(tool, ["plan", "--stdin"], root, pipeline)
         bundle = deployment_root(root, pipeline_path, models)

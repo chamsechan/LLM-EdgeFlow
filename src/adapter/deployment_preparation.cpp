@@ -72,16 +72,22 @@ bool PrepareDeploymentDocument(const nlohmann::json& document,
     return false;
   }
 
-  if (!doc_split.has_deployment || !doc_split.deployment.has_io) {
+  // S2: 从明确的 I/O 绑定取得内部业务身份。
+  const auto& binding_id = doc_split.deployment.io.io_binding;
+  const auto* binding = IoBindingRegistry::Instance().FindBinding(binding_id);
+  if (!binding) {
     if (diagnostic) {
-      diagnostic->code = "MISSING_DEPLOYMENT_IO";
-      diagnostic->path = "/deployment/io";
-      diagnostic->message = "Missing required 'deployment.io' in pipeline JSON";
+      diagnostic->code = "UNKNOWN_IO_BINDING";
+      diagnostic->path = "/deployment/io/io_binding";
+      diagnostic->message =
+          "Unknown or unregistered io_binding: " + binding_id +
+          " (at /deployment/io/io_binding)";
     }
     return false;
   }
 
-  // S2: 覆盖之前验证原始中性结构
+  // 外部文档不保存业务名；只向 Core 的中性文档注入注册边界。
+  doc_split.neutral_pipeline_json["biz_name"] = binding->biz_name;
   ParsedPipelineConfig original_config;
   PipelineDiagnostic core_diag;
   if (!ParsePipelineConfig(doc_split.neutral_pipeline_json, &original_config,
@@ -95,32 +101,7 @@ bool PrepareDeploymentDocument(const nlohmann::json& document,
     return false;
   }
 
-  // S3: 解析 binding、converter 和业务边界
-  const std::string& binding_id = doc_split.deployment.io.io_binding;
-  const auto* binding = IoBindingRegistry::Instance().FindBinding(binding_id);
-  if (!binding) {
-    if (diagnostic) {
-      diagnostic->code = "UNKNOWN_IO_BINDING";
-      diagnostic->path = "/deployment/io/io_binding";
-      diagnostic->message =
-          "Unknown or unregistered io_binding: " + binding_id +
-          " (at /deployment/io/io_binding)";
-    }
-    return false;
-  }
-
-  if (original_config.biz_name != binding->biz_name) {
-    if (diagnostic) {
-      diagnostic->code = "BIZ_MISMATCH";
-      diagnostic->path = "/deployment/io/io_binding";
-      diagnostic->message = "Pipeline biz_name '" + original_config.biz_name +
-                            "' does not match binding biz_name '" +
-                            binding->biz_name +
-                            "' (at /deployment/io/io_binding)";
-    }
-    return false;
-  }
-
+  // S3: 解析转换器和业务边界。
   const auto* in_conv = IoConverterRegistry::Instance().FindInputConverter(
       binding->input_converter_id);
   if (!in_conv) {
@@ -147,6 +128,17 @@ bool PrepareDeploymentDocument(const nlohmann::json& document,
     return false;
   }
 
+  std::string contract_error;
+  if (!IoBindingRegistry::Instance().ValidateBizContract(binding->biz_name,
+                                                         &contract_error)) {
+    if (diagnostic) {
+      diagnostic->code = "BIZ_IO_CONTRACT_MISMATCH";
+      diagnostic->path = "/deployment/io/io_binding";
+      diagnostic->message = contract_error;
+    }
+    return false;
+  }
+
   size_t max_batch =
       std::min(in_conv->max_batch_size, out_conv->max_batch_size);
   const auto* exposure =
@@ -155,8 +147,8 @@ bool PrepareDeploymentDocument(const nlohmann::json& document,
     max_batch = std::min(max_batch, exposure->max_batch_size);
   }
 
-  // S4: 解析输出分配 (R ⊆ C ⊆ A)
-  const auto& allocations = doc_split.deployment.io.output_allocations;
+  // S4: 必需输出槽采用注册默认值；可选槽由显式配置启用。
+  const auto& allocations = doc_split.deployment.io.out_mem;
   std::unordered_map<std::string, ResolvedOutputPoolSpec> local_output_specs;
   std::unordered_map<std::string, std::string> local_output_params;
 
@@ -172,7 +164,7 @@ bool PrepareDeploymentDocument(const nlohmann::json& document,
     if (!found) {
       if (diagnostic) {
         std::string ptr =
-            "/deployment/io/output_allocations/" + EscapeJsonPointer(it.key());
+            "/deployment/io/out_mem/" + EscapeJsonPointer(it.key());
         diagnostic->code = "UNKNOWN_OUTPUT_SLOT";
         diagnostic->path = ptr;
         diagnostic->message =
@@ -184,29 +176,19 @@ bool PrepareDeploymentDocument(const nlohmann::json& document,
 
   for (const auto& slot : out_conv->external_slots) {
     if (slot.direction != PortDirection::kOutput) continue;
-    if (!allocations.contains(slot.slot_name)) {
-      if (slot.required) {
-        if (diagnostic) {
-          std::string ptr = "/deployment/io/output_allocations/" +
-                            EscapeJsonPointer(slot.slot_name);
-          diagnostic->code = "MISSING_OUTPUT_SLOT";
-          diagnostic->path = ptr;
-          diagnostic->message = "Missing required Operator output slot '" +
-                                slot.slot_name + "' (at " + ptr + ")";
-        }
-        return false;
-      }
-      continue;
-    }
+    if (!slot.required && !allocations.contains(slot.slot_name)) continue;
+    const auto allocation = allocations.contains(slot.slot_name)
+                                ? allocations.at(slot.slot_name)
+                                : nlohmann::json::object();
     ResolvedOutputPoolSpec pool_spec;
     std::string param_text;
     std::string alloc_err;
     int alloc_ret = OperatorConfigResolver::ResolveOutputAllocation(
-        allocations[slot.slot_name], slot, &pool_spec, &param_text, &alloc_err);
+        allocation, slot, &pool_spec, &param_text, &alloc_err);
     if (alloc_ret != 0) {
       if (diagnostic) {
-        std::string ptr = "/deployment/io/output_allocations/" +
-                          EscapeJsonPointer(slot.slot_name);
+        std::string ptr =
+            "/deployment/io/out_mem/" + EscapeJsonPointer(slot.slot_name);
         diagnostic->code = "INVALID_OUTPUT_ALLOCATION";
         diagnostic->path = ptr;
         diagnostic->message = alloc_err + " (at " + ptr + ")";
@@ -323,6 +305,9 @@ void ProjectModelPathDiagnostics(const PreparedDeployment& prepared,
   if (!report) return;
 
   for (auto& diag : report->diagnostics) {
+    if (diag.path == "/biz_name") {
+      diag.path = "/deployment/io/io_binding";
+    }
     if (diag.path.rfind("/models/", 0) == 0) {
       auto second_slash = diag.path.find('/', 8);
       if (second_slash != std::string::npos &&
@@ -349,6 +334,9 @@ void ProjectModelPathDiagnostics(const PreparedDeployment& prepared,
                   if (op.is_object() && op.contains("path") &&
                       op["path"].is_string()) {
                     std::string p = op["path"].get<std::string>();
+                    // The business identity is derived, never an editable field
+                    // in the external document.
+                    if (p == "/biz_name") return true;
                     if (p.rfind("/models/", 0) == 0) {
                       auto second_slash = p.find('/', 8);
                       if (second_slash != std::string::npos &&

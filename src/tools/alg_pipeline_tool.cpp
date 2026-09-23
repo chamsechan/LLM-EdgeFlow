@@ -18,6 +18,7 @@
 #include "core/pipeline_catalog.h"
 #include "core/pipeline_validator.h"
 #include "demo/common/demo_profile_defaults.h"
+#include "demo/common/demo_profile_fields.h"
 #include "edgeflow/operator/interface.h"
 #include "engine/backend_registry.h"
 #include "engine/model_registry.h"
@@ -85,7 +86,22 @@ std::optional<fs::path> ProfilePipeline(const nlohmann::json& profile) {
   return fs::path(config.resolved_pipe_path);
 }
 
-nlohmann::json ProfilesJson(const std::string& biz_filter) {
+const llm_edgeflow::IoBindingDefinition* DocumentBinding(
+    const nlohmann::json& pipeline) {
+  if (!pipeline.is_object() || !pipeline.contains("deployment") ||
+      !pipeline["deployment"].is_object())
+    return nullptr;
+  const auto& deployment = pipeline["deployment"];
+  if (!deployment.contains("io") || !deployment["io"].is_object())
+    return nullptr;
+  const auto& io = deployment["io"];
+  if (!io.contains("io_binding") || !io["io_binding"].is_string())
+    return nullptr;
+  return llm_edgeflow::IoBindingRegistry::Instance().FindBinding(
+      io["io_binding"].get<std::string>());
+}
+
+nlohmann::json ProfilesJson(const std::string& biz_filter, std::string* error) {
   nlohmann::json result = nlohmann::json::array();
   std::ifstream stream("demo/profiles.json");
   if (!stream.is_open()) return result;
@@ -93,17 +109,23 @@ nlohmann::json ProfilesJson(const std::string& biz_filter) {
   try {
     stream >> root;
     for (const auto& [name, profile] : root["profiles"].items()) {
+      std::string fields_error;
+      if (!alg_demo::ValidateProfileFields(profile, &fields_error)) {
+        if (error) *error = "Profile '" + name + "': " + fields_error;
+        return nlohmann::json::array();
+      }
       auto pipeline_path = ProfilePipeline(profile);
       if (!pipeline_path) continue;
       nlohmann::json pipeline;
       std::string error;
       if (!ReadJson(pipeline_path->string(), &pipeline, &error)) continue;
-      std::string pipeline_biz = pipeline.value("biz_name", "");
-      if (!biz_filter.empty() && pipeline_biz != biz_filter) continue;
+      const auto* binding = DocumentBinding(pipeline);
+      if (!binding) continue;
+      if (!biz_filter.empty() && binding->biz_name != biz_filter) continue;
       result.push_back(
           {{"name", name},
-           {"biz", profile.value("biz", "")},
-           {"pipeline_biz", pipeline_biz},
+           {"io_binding", binding->binding_id},
+           {"biz_name", binding->biz_name},
            {"config", profile.value("config", "")},
            {"dataset", profile.value("dataset", "")},
            {"suite", profile.value("suite", "smoke")},
@@ -116,6 +138,20 @@ nlohmann::json ProfilesJson(const std::string& biz_filter) {
     return nlohmann::json::array();
   }
   return result;
+}
+
+nlohmann::json OutputPoolsJson(const llm_edgeflow::ValidatedIoPlan& plan) {
+  nlohmann::json output_pools = nlohmann::json::object();
+  for (const auto& [slot, pool] : plan.operator_output_specs) {
+    output_pools[slot] = {
+        {"type", pool.type},
+        {"allocator", pool.allocator},
+        {"params", plan.operator_output_parameter_texts.at(slot)},
+        {"meta_num", pool.meta_num},
+        {"metadata_type_id", pool.metadata_type_id},
+        {"capacities", pool.capacities}};
+  }
+  return output_pools;
 }
 
 nlohmann::json ResolveConf(const std::string& file, const std::string& root,
@@ -158,6 +194,8 @@ nlohmann::json ResolveConf(const std::string& file, const std::string& root,
     effective["pipeline"][node.node.source_index]["config"] =
         node.normalized_config;
   for (const auto& model : plan.models) {
+    effective["models"][model.source_index]["model_path"] =
+        model.resolved_model_path;
     effective["models"][model.source_index]["model_config"] =
         model.normalized_model_config;
     effective["models"][model.source_index]["backend_config"] =
@@ -172,23 +210,15 @@ nlohmann::json ResolveConf(const std::string& file, const std::string& root,
                         ? "pipeline.deployment.model_paths"
                         : "pipeline.models.model_path"},
          {"resolved", model.resolved_model_path}});
-  nlohmann::json output_pools = nlohmann::json::object();
-  for (const auto& [slot, pool] : resolved.io_plan->operator_output_specs) {
-    output_pools[slot] = {
-        {"type", pool.type},
-        {"allocator", pool.allocator},
-        {"params", resolved.io_plan->operator_output_parameter_texts.at(slot)},
-        {"meta_num", pool.meta_num},
-        {"metadata_type_id", pool.metadata_type_id},
-        {"capacities", pool.capacities}};
-  }
   nlohmann::json configuration = {
+      {"biz_name", resolved.biz_name},
+      {"io_binding", resolved.io_binding},
       {"conf_path", resolved.conf_path.string()},
       {"pipeline_path", resolved.pipeline_path.string()},
       {"model_root", resolved.model_root_path.string()},
       {"effective_pipeline", std::move(effective)},
       {"model_paths", std::move(paths)},
-      {"output_pools", output_pools}};
+      {"output_pools", OutputPoolsJson(*resolved.io_plan)}};
   return {{"schema_version", 1},
           {"ok", true},
           {"configuration", std::move(configuration)}};
@@ -196,12 +226,12 @@ nlohmann::json ResolveConf(const std::string& file, const std::string& root,
 
 void Usage() {
   std::cerr << "Usage:\n"
-            << "  alg_pipeline_tool catalog [--biz|-b NAME]\n"
+            << "  alg_pipeline_tool catalog [--io-binding ID]\n"
             << "  alg_pipeline_tool export-schema\n"
             << "  alg_pipeline_tool describe-node NODE_TYPE\n"
             << "  alg_pipeline_tool describe-model MODEL_TYPE\n"
             << "  alg_pipeline_tool describe-backend BACKEND_TYPE\n"
-            << "  alg_pipeline_tool init --biz|-b NAME [--profile "
+            << "  alg_pipeline_tool init --io-binding ID [--profile "
                "NAME|--empty] [--raw]\n"
             << "  alg_pipeline_tool validate FILE|--stdin [--explain]\n"
             << "  alg_pipeline_tool plan FILE|--stdin [--explain]\n";
@@ -265,8 +295,15 @@ int main(int argc, char* argv[]) {
   if (command == "catalog" || command == "export-schema") {
     std::string biz;
     if (command == "catalog" && argc == 4 &&
-        (std::string(argv[2]) == "--biz" || std::string(argv[2]) == "-b")) {
-      biz = argv[3];
+        std::string(argv[2]) == "--io-binding") {
+      const auto* binding =
+          llm_edgeflow::IoBindingRegistry::Instance().FindBinding(argv[3]);
+      if (!binding) {
+        std::cout << ToolError("UNKNOWN_IO_BINDING", argv[3]).dump(2)
+                  << std::endl;
+        return 1;
+      }
+      biz = binding->biz_name;
     } else if (argc != 2) {
       Usage();
       return 2;
@@ -299,7 +336,13 @@ int main(int argc, char* argv[]) {
                 << std::endl;
       return 0;
     }
-    result["profiles"] = ProfilesJson(biz);
+    std::string profile_error;
+    result["profiles"] = ProfilesJson(biz, &profile_error);
+    if (!profile_error.empty()) {
+      std::cout << ToolError("INVALID_PROFILE", profile_error).dump(2)
+                << std::endl;
+      return 1;
+    }
     result["ok"] = biz.empty() || !result["bizs"].empty();
     std::cout << result.dump(2) << std::endl;
     return result["ok"].get<bool>() ? 0 : 1;
@@ -356,7 +399,7 @@ int main(int argc, char* argv[]) {
   }
 
   if (command == "init") {
-    std::string biz;
+    std::string binding_id;
     std::string profile;
     bool empty = false;
     bool raw = false;
@@ -364,8 +407,8 @@ int main(int argc, char* argv[]) {
       std::string arg = argv[i];
       const bool has_value =
           i + 1 < argc && argv[i + 1][0] != '\0' && argv[i + 1][0] != '-';
-      if ((arg == "--biz" || arg == "-b") && biz.empty() && has_value)
-        biz = argv[++i];
+      if (arg == "--io-binding" && binding_id.empty() && has_value)
+        binding_id = argv[++i];
       else if (arg == "--profile" && profile.empty() && has_value)
         profile = argv[++i];
       else if (arg == "--empty" && !empty)
@@ -377,18 +420,21 @@ int main(int argc, char* argv[]) {
         return 2;
       }
     }
-    if (biz.empty() || (empty && !profile.empty())) {
+    if (binding_id.empty() || (empty && !profile.empty())) {
       Usage();
       return 2;
     }
-    if (!PipelineCatalog::FindBiz(biz)) {
-      std::cout << PipelineError(DiagnosticCode::kUnknownBiz, biz).dump(2)
+    const auto* binding =
+        llm_edgeflow::IoBindingRegistry::Instance().FindBinding(binding_id);
+    if (!binding) {
+      std::cout << ToolError("UNKNOWN_IO_BINDING", binding_id).dump(2)
                 << std::endl;
       return 1;
     }
-    nlohmann::json pipeline = {{"biz_name", biz},
-                               {"models", nlohmann::json::array()},
-                               {"pipeline", nlohmann::json::array()}};
+    nlohmann::json pipeline = {
+        {"deployment", {{"io", {{"io_binding", binding_id}}}}},
+        {"models", nlohmann::json::array()},
+        {"pipeline", nlohmann::json::array()}};
     if (!profile.empty()) {
       std::string error;
       nlohmann::json profiles;
@@ -396,13 +442,23 @@ int main(int argc, char* argv[]) {
       if (ReadJson("demo/profiles.json", &profiles, &error) &&
           profiles.contains("profiles") && profiles["profiles"].is_object() &&
           profiles["profiles"].contains(profile)) {
+        std::string fields_error;
+        if (!alg_demo::ValidateProfileFields(profiles["profiles"][profile],
+                                             &fields_error)) {
+          std::cout << ToolError("INVALID_PROFILE",
+                                 "Profile '" + profile + "': " + fields_error)
+                           .dump(2)
+                    << std::endl;
+          return 1;
+        }
         path = ProfilePipeline(profiles["profiles"][profile]);
       }
       if (!path || !ReadJson(path->string(), &pipeline, &error) ||
-          pipeline.value("biz_name", "") != biz) {
+          !DocumentBinding(pipeline) ||
+          DocumentBinding(pipeline)->binding_id != binding_id) {
         std::cout << ToolError("PROFILE_MISMATCH",
                                "Profile is unavailable or belongs to another "
-                               "biz contract")
+                               "I/O binding")
                          .dump(2)
                   << std::endl;
         return 1;
@@ -558,6 +614,7 @@ int main(int argc, char* argv[]) {
       nlohmann::json result = {{"schema_version", 1},
                                {"ok", true},
                                {"binding", std::move(binding_info)},
+                               {"output_pools", OutputPoolsJson(*plan)},
                                {"diagnostics", nlohmann::json::array()}};
       std::cout << result.dump(2) << std::endl;
       return 0;

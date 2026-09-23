@@ -6,6 +6,7 @@
 #include <set>
 #include <string>
 
+#include "adapter/deployment_preparation.h"
 #include "adapter/io_binding_registry.h"
 #include "adapter/io_binding_resolver.h"
 #include "adapter/io_converter_registry.h"
@@ -48,6 +49,14 @@ NodeDefinition StudioCatalogProbeDefinition() {
 
 REGISTER_NODE_WITH_DEFINITION(StudioCatalogProbeNode,
                               StudioCatalogProbeDefinition());
+
+nlohmann::json PrepareExternalFixtureForCore(const nlohmann::json& document) {
+  PreparedDeployment prepared;
+  DeploymentDiagnostic diagnostic;
+  EXPECT_TRUE(PrepareDeploymentDocument(document, {}, &prepared, &diagnostic))
+      << diagnostic.code << " " << diagnostic.path << " " << diagnostic.message;
+  return prepared.neutral_pipeline_json;
+}
 
 TEST(PipelineCatalogTest, RegisteredProductionTypesHaveDefinitions) {
   for (const auto& node_type : NodeRegistry::Instance().ListTypes()) {
@@ -125,29 +134,17 @@ TEST(PipelineValidatorTest, AllRepositoryPipelinesValidate) {
       ++skipped_optional;
       continue;
     }
-    if (pipeline.contains("deployment")) {
-      // Core validator directly rejects deployment as an unknown root field
-      const auto direct_report = PipelineValidator::Validate(pipeline);
-      EXPECT_FALSE(direct_report.ok);
-      EXPECT_TRUE(std::any_of(
-          direct_report.diagnostics.begin(), direct_report.diagnostics.end(),
-          [](const ValidationDiagnostic& d) {
-            return d.code == DiagnosticCode::kUnknownField &&
-                   d.path == "/deployment";
-          }));
-
-      // Integration document splitter extracts the neutral pipeline for Core
-      PipelineDocumentSplit split;
-      std::string split_err;
-      ASSERT_TRUE(SplitPipelineDocument(pipeline, &split, &split_err))
-          << entry.path() << ": " << split_err;
-      const auto report =
-          PipelineValidator::Validate(split.neutral_pipeline_json);
-      EXPECT_TRUE(report.ok) << entry.path() << "\n" << report.ToJson().dump(2);
-    } else {
-      const auto report = PipelineValidator::Validate(pipeline);
-      EXPECT_TRUE(report.ok) << entry.path() << "\n" << report.ToJson().dump(2);
-    }
+    const auto direct_report = PipelineValidator::Validate(pipeline);
+    EXPECT_FALSE(direct_report.ok);
+    EXPECT_TRUE(std::any_of(
+        direct_report.diagnostics.begin(), direct_report.diagnostics.end(),
+        [](const auto& diagnostic) {
+          return diagnostic.code == DiagnosticCode::kUnknownField &&
+                 diagnostic.path == "/deployment";
+        }));
+    const auto neutral = PrepareExternalFixtureForCore(pipeline);
+    const auto report = PipelineValidator::Validate(neutral);
+    EXPECT_TRUE(report.ok) << entry.path() << "\n" << report.ToJson().dump(2);
     ++validated;
   }
   EXPECT_GT(validated, 0U);
@@ -159,7 +156,7 @@ TEST(PipelineValidatorTest, RejectsRemovedRuleCategoriesField) {
   ASSERT_TRUE(stream.is_open());
   nlohmann::json pipeline;
   stream >> pipeline;
-  pipeline.erase("deployment");
+  pipeline = PrepareExternalFixtureForCore(pipeline);
   ASSERT_FALSE(pipeline["pipeline"].empty());
   auto& config = pipeline["pipeline"][0]["config"];
   config["default_categories"] = config["categories"];
@@ -180,7 +177,7 @@ TEST(PipelineValidatorTest, ModelPathsUseLexicalChecksWithoutDeploymentRoots) {
   ASSERT_TRUE(stream.is_open());
   nlohmann::json pipeline;
   ASSERT_NO_THROW(stream >> pipeline);
-  pipeline.erase("deployment");
+  pipeline = PrepareExternalFixtureForCore(pipeline);
 
   for (const std::string& safe_path :
        {std::string("missing/artifact.bin"), std::string("..name/artifact.bin"),
@@ -265,7 +262,6 @@ static nlohmann::json MakeSyntheticDeploymentDocForTest(
           std::string slot_type =
               slot.type_suffix.empty() ? slot.slot_name : slot.type_suffix;
           nlohmann::json slot_alloc = {
-              {"type", slot_type},
               {"meta_num", 0},
               {"metadata_type_id", 0},
               {"capacities", nlohmann::json::object()}};
@@ -289,9 +285,9 @@ static nlohmann::json MakeSyntheticDeploymentDocForTest(
   }
 
   nlohmann::json synthetic = pipeline_json;
+  synthetic.erase("biz_name");
   synthetic["deployment"] = {
-      {"io",
-       {{"io_binding", binding_id}, {"output_allocations", allocations}}}};
+      {"io", {{"io_binding", binding_id}, {"out_mem", allocations}}}};
   return synthetic;
 }
 
@@ -363,8 +359,15 @@ TEST(PipelineValidatorTest, TableDrivenParityMatrix) {
         dep_config, "./models", &io_plan, &resolve_error, &resolve_diagnostic);
     EXPECT_NE(resolve_result, 0);
     EXPECT_EQ(io_plan, nullptr);
-    EXPECT_EQ(resolve_diagnostic.code, test["primary_code"]);
-    EXPECT_EQ(resolve_diagnostic.path, test["primary_path"]);
+    const std::string core_path = test["primary_path"].get<std::string>();
+    const bool unknown_root_field = test["primary_code"] == "UNKNOWN_FIELD" &&
+                                    core_path.find('/', 1) == std::string::npos;
+    EXPECT_EQ(resolve_diagnostic.code,
+              unknown_root_field ? "DEPLOYMENT_ERROR"
+                                 : test["primary_code"].get<std::string>());
+    EXPECT_EQ(resolve_diagnostic.path, core_path == "/biz_name"
+                                           ? "/deployment/io/io_binding"
+                                           : core_path);
     EXPECT_NE(resolve_error.find(resolve_diagnostic.path), std::string::npos);
   }
 }
@@ -374,7 +377,7 @@ TEST(PipelineValidatorTest, WhisperPipelineValidationDependsOnBackend) {
   ASSERT_TRUE(stream.is_open());
   nlohmann::json pipeline;
   stream >> pipeline;
-  pipeline.erase("deployment");
+  pipeline = PrepareExternalFixtureForCore(pipeline);
   const auto report = PipelineValidator::Validate(pipeline);
 #ifdef HAVE_WHISPERCPP
   EXPECT_TRUE(report.ok) << report.ToJson().dump(2);
@@ -413,7 +416,7 @@ TEST(PipelineValidatorTest,
     std::ifstream stream("configs/pipeline_keyword_match_rules.json");
     nlohmann::json root;
     stream >> root;
-    root.erase("deployment");
+    root = PrepareExternalFixtureForCore(root);
     root["pipeline"].push_back({{"id", "invalid"},
                                 {"node_type", type},
                                 {"depends_on", nlohmann::json::array()},
@@ -440,7 +443,7 @@ TEST(PipelineValidatorTest, UnconnectedOptionalPortStaysAbsentAtRuntime) {
   std::ifstream stream("configs/pipeline_keyword_match_rules.json");
   nlohmann::json root;
   stream >> root;
-  root.erase("deployment");
+  root = PrepareExternalFixtureForCore(root);
   root["pipeline"] = nlohmann::json::array(
       {{{"id", "a"},
         {"node_type", "TextTemplateNode"},
@@ -479,7 +482,7 @@ TEST(PipelineValidatorTest,
   ASSERT_TRUE(stream.is_open());
   nlohmann::json root;
   stream >> root;
-  root.erase("deployment");
+  root = PrepareExternalFixtureForCore(root);
   for (auto& node : root["pipeline"]) node.erase("depends_on");
 
   const auto report = PipelineValidator::Explain(root);
@@ -497,7 +500,7 @@ TEST(PipelineValidatorTest, ExplainReturnsCandidateFixForUnknownConfigField) {
   ASSERT_TRUE(stream.is_open());
   nlohmann::json root;
   stream >> root;
-  root.erase("deployment");
+  root = PrepareExternalFixtureForCore(root);
 
   // Misspell "temperature" as "temprature"
   root["pipeline"][0]["config"]["temprature"] = 0.1;
@@ -598,7 +601,7 @@ TEST(PipelineValidatorTest, ExplainCleanPipelineReturnsOk) {
   ASSERT_TRUE(stream.is_open());
   nlohmann::json root;
   stream >> root;
-  root.erase("deployment");
+  root = PrepareExternalFixtureForCore(root);
 
   const auto report = PipelineValidator::Explain(root);
   EXPECT_TRUE(report.ok);
@@ -612,7 +615,7 @@ TEST(PipelineValidatorTest, ExplainTargetResolved) {
   ASSERT_TRUE(stream.is_open());
   nlohmann::json root;
   stream >> root;
-  root.erase("deployment");
+  root = PrepareExternalFixtureForCore(root);
 
   // Introduce two independent errors:
   // 1. Misspelled config field in custom_prompt ("temprature" instead of
@@ -655,7 +658,7 @@ TEST(PipelineValidatorTest, ValidateProducesBasicRemediation) {
   ASSERT_TRUE(stream.is_open());
   nlohmann::json root;
   stream >> root;
-  root.erase("deployment");
+  root = PrepareExternalFixtureForCore(root);
 
   // Explicitly connect an input to a key with no producer.
   root["pipeline"][1]["inputs"]["text"] = "missing_result";

@@ -133,11 +133,11 @@ console.log("Studio graph geometry, routing and interaction checks passed");
 // optional input may silently bind to a same-name key.
 const workbenchSource = readFileSync(new URL("../../tools/pipeline_studio/web/workbench.js", import.meta.url), "utf8");
 const { graphDocument } = await import(`data:text/javascript;base64,${Buffer.from(workbenchSource).toString("base64")}`);
-const catalog = { bizs: [{ biz_name: "example", ingress: [{ key: "request" }], egress: [] }], nodes: [
+const catalog = { io_bindings: [{ binding_id: "example.binding", biz_name: "example" }], bizs: [{ biz_name: "example", ingress: [{ key: "request" }], egress: [] }], nodes: [
   { node_type: "Producer", inputs: [], outputs: [{ key: "text" }, { key: "optional" }] },
   { node_type: "Consumer", inputs: [{ key: "text", required: true }, { key: "optional", required: false }], outputs: [] },
 ] };
-const pipelineDocument = { biz_name: "example", pipeline: [
+const pipelineDocument = { deployment: { io: { io_binding: "example.binding" } }, pipeline: [
   { id: "consumer", node_type: "Consumer", inputs: { text: "text" } },
   { id: "producer", node_type: "Producer" },
   { id: "missing", node_type: "Consumer", depends_on: ["producer"] },

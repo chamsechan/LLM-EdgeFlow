@@ -181,13 +181,14 @@ TEST(DemoRunnerTest, RealKiteEntityExtractionThroughOperator) {
   std::ofstream(temporary.path / "input.txt") << "张三在北京工作。\n";
 
   DemoOptions opts;
-  opts.biz = "entity_extract";
   opts.config_path = (temporary.path / "pipeline.conf").string();
   opts.dataset_path = (temporary.path / "input.txt").string();
   opts.output_dir = (temporary.path / "output").string();
   opts.chip = "cpu";
   opts.device_id = 0;
   opts.batch_size = 1;
+  std::string resolution_error;
+  ASSERT_TRUE(ResolveConfigBiz(&opts, &resolution_error)) << resolution_error;
   const auto* desc = DemoRegistry::Instance().Find(opts.biz);
   ASSERT_NE(desc, nullptr);
   auto ops = Get_LLM_EDGEFLOW_OperatorTable();
@@ -241,8 +242,6 @@ TEST(DemoRunnerTest, CommandLineParsingSuccess) {
   const char* argv[] = {"alg_demo",
                         "--profile",
                         "entity_extract_mock",
-                        "--biz",
-                        "entity_extract",
                         "--config",
                         "demo/fixtures/mock/pipeline_entity_extract.conf",
                         "--dataset",
@@ -260,7 +259,7 @@ TEST(DemoRunnerTest, CommandLineParsingSuccess) {
   int ret = ParseCommandLine(argc, const_cast<char**>(argv), &opts, &err);
   EXPECT_EQ(ret, 0);
   EXPECT_EQ(opts.profile, "entity_extract_mock");
-  EXPECT_EQ(opts.biz, "entity_extract");
+  EXPECT_TRUE(opts.biz.empty());
   EXPECT_EQ(opts.config_path,
             "demo/fixtures/mock/pipeline_entity_extract.conf");
   EXPECT_EQ(opts.dataset_path, "data/corpus_entity_extract.txt");
@@ -275,24 +274,27 @@ TEST(DemoRunnerTest, CommandLineParsingSuccess) {
   EXPECT_TRUE(opts.allow_fallback_sample);
 }
 
-TEST(DemoRunnerTest, CommandLineBizName) {
-  const char* argv[] = {"alg_demo", "--biz", "entity_extract"};
-  int argc = 3;
-
-  DemoOptions opts;
-  std::string err;
-  int ret = ParseCommandLine(argc, const_cast<char**>(argv), &opts, &err);
-  EXPECT_EQ(ret, 0);
-  EXPECT_EQ(opts.biz, "entity_extract");
-  EXPECT_TRUE(opts.has_biz);
+TEST(DemoRunnerTest, UnknownCommandLineFlagsAreRejected) {
+  for (const char* flag : {"--biz", "-b", "--business", "--unknown-option"}) {
+    SCOPED_TRACE(flag);
+    const char* argv[] = {"alg_demo", flag, "entity_extract_v1"};
+    DemoOptions opts;
+    std::string err;
+    EXPECT_EQ(ParseCommandLine(3, const_cast<char**>(argv), &opts, &err), 2);
+    EXPECT_NE(err.find("Unknown CLI option"), std::string::npos);
+  }
 }
 
-TEST(DemoRunnerTest, RejectsLegacyBusinessFlag) {
-  const char* argv[] = {"alg_demo", "--business", "entity_extract"};
-  DemoOptions opts;
-  std::string err;
-  EXPECT_EQ(ParseCommandLine(3, const_cast<char**>(argv), &opts, &err), 2);
-  EXPECT_NE(err.find("Unknown CLI option"), std::string::npos);
+TEST(DemoRunnerTest, ConfigAloneResolvesRegisteredRunner) {
+  const char* argv[] = {"alg_demo", "--config",
+                        "configs/pipeline_keyword_match_rules.conf"};
+  DemoOptions options;
+  std::string error;
+  ASSERT_EQ(ParseCommandLine(3, const_cast<char**>(argv), &options, &error), 0);
+  EXPECT_TRUE(options.biz.empty());
+  ASSERT_TRUE(ResolveConfigBiz(&options, &error)) << error;
+  EXPECT_EQ(options.biz, "keyword_match_v1");
+  ASSERT_NE(DemoRegistry::Instance().Find(options.biz), nullptr);
 }
 
 // CLI errors retain exit code 2.
@@ -368,7 +370,7 @@ TEST(DemoRunnerTest, ProfileLoadAndMerge) {
   int ret = LoadAndMergeProfiles("demo/profiles.json", cli_opts, &merged, &err);
   EXPECT_EQ(ret, 0) << "Error: " << err;
 
-  EXPECT_EQ(merged.biz, "entity_extract");
+  EXPECT_TRUE(merged.biz.empty());
   EXPECT_EQ(merged.config_path,
             "demo/fixtures/mock/pipeline_entity_extract.conf");
   EXPECT_EQ(merged.dataset_path, "data/corpus_entity_extract.txt");
@@ -380,7 +382,6 @@ TEST(DemoRunnerTest, ProfileOwnsExecutionSettings) {
   KiteDemoDirectory temporary;
   const std::string path = (temporary.path / "profiles.json").string();
   const nlohmann::json profile = {
-      {"biz", "keyword_match"},
       {"config", "configs/pipeline_keyword_match_rules.conf"},
       {"dataset", "data/corpus_keyword_match.txt"},
       {"batch_size", 4},
@@ -428,17 +429,47 @@ TEST(DemoRunnerTest, ProfileOwnsExecutionSettings) {
   }
 }
 
-TEST(DemoRunnerTest, ProfileBizMismatchRejection) {
-  DemoOptions cli_opts;
-  cli_opts.profile = "entity_extract_mock";
-  cli_opts.biz = "doc_qa";  // 冲突的业务名
-  cli_opts.has_biz = true;
-
+TEST(DemoRunnerTest, ConfigOverrideDeterminesResolvedBiz) {
+  DemoOptions cli;
+  cli.profile = "entity_extract_mock";
+  cli.biz = "stale_resolved_value";
+  cli.config_path = "configs/pipeline_keyword_match_rules.conf";
+  cli.has_config_path = true;
   DemoOptions merged;
-  std::string err;
-  int ret = LoadAndMergeProfiles("demo/profiles.json", cli_opts, &merged, &err);
-  EXPECT_EQ(ret, 3);
-  EXPECT_NE(err.find("Biz conflict"), std::string::npos);
+  std::string error;
+  ASSERT_EQ(LoadAndMergeProfiles("demo/profiles.json", cli, &merged, &error), 0)
+      << error;
+  EXPECT_TRUE(merged.biz.empty());
+  EXPECT_EQ(merged.config_path, cli.config_path);
+  ASSERT_TRUE(ResolveConfigBiz(&merged, &error)) << error;
+  EXPECT_EQ(merged.biz, "keyword_match_v1");
+  ASSERT_NE(DemoRegistry::Instance().Find(merged.biz), nullptr);
+}
+
+TEST(DemoRunnerTest, ProfileRejectsUnknownFieldsAndInvalidShapes) {
+  KiteDemoDirectory temporary;
+  const auto path = temporary.path / "profiles.json";
+  const std::vector<std::pair<nlohmann::json, std::string>> cases = {
+      {{{"config", "configs/pipeline_keyword_match_rules.conf"},
+        {"dataset", "data/corpus_keyword_match.txt"},
+        {"biz", "keyword_match_v1"}},
+       "Unknown Profile field: 'biz'"},
+      {{{"config", "configs/pipeline_keyword_match_rules.conf"},
+        {"dataset", "data/corpus_keyword_match.txt"},
+        {"datset", "data/corpus_keyword_match.txt"}},
+       "Unknown Profile field: 'datset'"},
+      {nlohmann::json::array(), "must be an object"},
+      {nullptr, "must be an object"}};
+  for (const auto& [profile, diagnostic] : cases) {
+    SCOPED_TRACE(profile.dump());
+    std::ofstream(path) << nlohmann::json{{"schema_version", 2},
+                                          {"profiles", {{"invalid", profile}}}};
+    nlohmann::json profiles;
+    std::string error;
+    EXPECT_EQ(LoadAndValidateProfilesDocument(path.string(), &profiles, &error),
+              3);
+    EXPECT_NE(error.find(diagnostic), std::string::npos) << error;
+  }
 }
 
 TEST(DemoRunnerTest, ProfileNotFound) {
@@ -477,7 +508,6 @@ TEST(DemoRunnerTest, ProfileSchemaStrictValidation) {
       "schema_version": 2,
       "profiles": {
         "bad_prof": {
-          "biz": "entity_extract",
           "config": "demo/fixtures/mock/pipeline_entity_extract.conf",
           "dataset": "data/corpus_entity_extract.txt",
           "suite": "invalid_suite"
@@ -497,7 +527,6 @@ TEST(DemoRunnerTest, ProfileSchemaStrictValidation) {
       "schema_version": 2,
       "profiles": {
         "bad_suite_type": {
-          "biz": "keyword_match",
           "config": "configs/pipeline_keyword_match_rules.conf",
           "dataset": "data/corpus_keyword_match.txt",
           "suite": 123
@@ -516,7 +545,6 @@ TEST(DemoRunnerTest, ProfileSchemaStrictValidation) {
       "schema_version": 2,
       "profiles": {
         "overflow_prof": {
-          "biz": "entity_extract",
           "config": "demo/fixtures/mock/pipeline_entity_extract.conf",
           "dataset": "data/corpus_entity_extract.txt",
           "batch_size": 4294967297
@@ -544,74 +572,40 @@ TEST(DemoRunnerTest, RegistryLookupAndConflictDetection) {
     }
   } restore{reg.ListDescriptors()};
 
-  // 验证 7 大业务均已静态注册且包含权威的 expected_binding_id
-  const auto* desc_entity = reg.Find("entity_extract");
-  ASSERT_NE(desc_entity, nullptr);
-  EXPECT_EQ(desc_entity->expected_binding_id, "entity_extract.operator.v1");
-  EXPECT_EQ(DemoBizToExpectedBindingId("entity_extract"),
-            "entity_extract.operator.v1");
+  // Demo dispatch uses the Pipeline business identity directly.
+  for (const char* biz :
+       {"entity_extract_v1", "keyword_match_v1", "smart_doc_qa_v1",
+        "dialogue_compliance_audit_v1", "multimodal_ocr_invoice_qa",
+        "speech_audio_asr_intent_slot", "dense_cross_rerank_scoring",
+        "translate_v1"}) {
+    SCOPED_TRACE(biz);
+    const auto* descriptor = reg.Find(biz);
+    ASSERT_NE(descriptor, nullptr);
+    EXPECT_EQ(descriptor->biz_name, biz);
+    EXPECT_NE(descriptor->run, nullptr);
+  }
+  for (const char* alias :
+       {"entity_extract", "keyword_match", "doc_qa", "dialogue_audit",
+        "ocr_doc_qa", "audio_asr", "cross_rerank", "translate"}) {
+    EXPECT_EQ(reg.Find(alias), nullptr) << alias;
+  }
 
-  const auto* desc_keyword = reg.Find("keyword_match");
-  ASSERT_NE(desc_keyword, nullptr);
-  EXPECT_EQ(desc_keyword->expected_binding_id, "keyword_match.operator.v1");
-  EXPECT_EQ(DemoBizToExpectedBindingId("keyword_match"),
-            "keyword_match.operator.v1");
-
-  const auto* desc_doc_qa = reg.Find("doc_qa");
-  ASSERT_NE(desc_doc_qa, nullptr);
-  EXPECT_EQ(desc_doc_qa->expected_binding_id, "doc_qa.operator.v1");
-  EXPECT_EQ(DemoBizToExpectedBindingId("doc_qa"), "doc_qa.operator.v1");
-
-  const auto* desc_audit = reg.Find("dialogue_audit");
-  ASSERT_NE(desc_audit, nullptr);
-  EXPECT_EQ(desc_audit->expected_binding_id, "compliance_audit.operator.v1");
-  EXPECT_EQ(DemoBizToExpectedBindingId("dialogue_audit"),
-            "compliance_audit.operator.v1");
-
-  const auto* desc_ocr = reg.Find("ocr_doc_qa");
-  ASSERT_NE(desc_ocr, nullptr);
-  EXPECT_EQ(desc_ocr->expected_binding_id, "ocr_doc_qa.operator.v1");
-  EXPECT_EQ(DemoBizToExpectedBindingId("ocr_doc_qa"), "ocr_doc_qa.operator.v1");
-
-  const auto* desc_asr = reg.Find("audio_asr");
-  ASSERT_NE(desc_asr, nullptr);
-  EXPECT_EQ(desc_asr->expected_binding_id, "audio_asr_intent.operator.v1");
-  EXPECT_EQ(DemoBizToExpectedBindingId("audio_asr"),
-            "audio_asr_intent.operator.v1");
-
-  const auto* desc_rerank = reg.Find("cross_rerank");
-  ASSERT_NE(desc_rerank, nullptr);
-  EXPECT_EQ(desc_rerank->expected_binding_id, "cross_rerank.operator.v1");
-  EXPECT_EQ(DemoBizToExpectedBindingId("cross_rerank"),
-            "cross_rerank.operator.v1");
-
-  // 尝试重复注册已存在的业务名 -> 应该失败
-  bool ok = reg.Register({"entity_extract", "Duplicate",
-                          [](const DemoOptions&) { return 0; },
-                          "entity_extract.operator.v1"});
-  EXPECT_FALSE(ok);
+  EXPECT_FALSE(reg.Register({"entity_extract_v1", "Duplicate",
+                             [](const DemoOptions&) { return 0; }}));
   EXPECT_TRUE(reg.HasConflict());
+  EXPECT_FALSE(
+      reg.Register({"", "Empty", [](const DemoOptions&) { return 0; }}));
+  EXPECT_FALSE(reg.Register({"dummy_new", "NullFunc", nullptr}));
+  EXPECT_EQ(reg.Find("dummy_new"), nullptr);
 
-  // 尝试注册非法空业务名 -> 应该失败
-  ok = reg.Register({"", "Empty", [](const DemoOptions&) { return 0; },
-                     "entity_extract.operator.v1"});
-  EXPECT_FALSE(ok);
-
-  // 尝试注册空函数 -> 应该失败
-  ok = reg.Register(
-      {"dummy_new", "NullFunc", nullptr, "entity_extract.operator.v1"});
-  EXPECT_FALSE(ok);
-  EXPECT_FALSE(reg.Register({"missing_type", "Invalid type",
-                             [](const DemoOptions&) { return 0; }, ""}));
-  EXPECT_EQ(reg.Find("missing_type"), nullptr);
   reg.ResetForTesting();
-  // Registered names have no fallback in the central runner.
-  EXPECT_EQ(DemoBizToExpectedBindingId("entity_extract"), "");
-  EXPECT_TRUE(reg.Register({"new_domain_alias", "Domain",
-                            [](const DemoOptions&) { return 0; },
-                            "entity_extract.operator.v1"}));
-  EXPECT_EQ(DemoBizToExpectedBindingId("new_domain_alias"),
-            "entity_extract.operator.v1");
+  EXPECT_EQ(reg.Find("entity_extract_v1"), nullptr);
+  EXPECT_TRUE(reg.Register(
+      {"new_domain_v1", "Domain", [](const DemoOptions&) { return 0; }}));
+  const auto* added = reg.Find("new_domain_v1");
+  ASSERT_NE(added, nullptr);
+  EXPECT_EQ(added->biz_name, "new_domain_v1");
+  EXPECT_EQ(reg.Find("entity_extract_v1"), nullptr);
 }
 
 TEST(DemoRunnerTest,
@@ -631,6 +625,9 @@ TEST(DemoRunnerTest,
               0)
         << error;
     options.batch_size = 2;  // Exercise multi-request custom-node execution.
+    std::string resolution_error;
+    ASSERT_TRUE(ResolveConfigBiz(&options, &resolution_error))
+        << resolution_error;
     const auto* descriptor = DemoRegistry::Instance().Find(options.biz);
     ASSERT_NE(descriptor, nullptr);
     ASSERT_EQ(descriptor->run(options), 0);
@@ -642,7 +639,7 @@ TEST(DemoRunnerTest,
       const auto sample = nlohmann::json::parse(line);
       EXPECT_EQ(sample["status"], 0);
       const auto& output = sample["output"];
-      if (options.biz == "entity_extract") {
+      if (options.biz == "entity_extract_v1") {
         EXPECT_EQ(sample["request_id"], 30001 + index);
         ASSERT_TRUE(output.contains("entities"));
         EXPECT_EQ(output["entities"]["nouns"],
@@ -662,7 +659,7 @@ TEST(DemoRunnerTest,
       }
       ++index;
     }
-    EXPECT_EQ(index, options.biz == "entity_extract" ? 1U : 2U);
+    EXPECT_EQ(index, options.biz == "entity_extract_v1" ? 1U : 2U);
     std::ifstream summary_file(temporary.path / profile / "summary.json");
     const auto summary = nlohmann::json::parse(summary_file);
     EXPECT_EQ(summary["failed_count"], 0);
@@ -791,62 +788,45 @@ TEST(DemoRunnerTest, ResultWriterAtomicOutputAndCumulativeAppend) {
   }
 }
 
-// 7. 测试 Config 与 Biz 匹配校验、P1-2 pipe_path 类型异常与 P1-3 Operator
-// 公开预检 API
-TEST(DemoRunnerTest, ConfigBizMatchValidation) {
-  std::string err;
-
-  // 正确匹配
-  EXPECT_TRUE(
-      ValidateConfigBizMatch("demo/fixtures/mock/pipeline_entity_extract.conf",
-                             "entity_extract", &err));
-  EXPECT_TRUE(ValidateConfigBizMatch("demo/fixtures/mock/pipeline_doc_qa.conf",
-                                     "doc_qa", &err));
-  EXPECT_TRUE(ValidateConfigBizMatch(
-      "demo/fixtures/mock/pipeline_doc_qa_rerank.conf", "doc_qa", &err));
-  EXPECT_TRUE(ValidateConfigBizMatch(
-      "configs/pipeline_keyword_match_rules.conf", "keyword_match", &err));
-
-  // 错误匹配 -> 快速失败
-  EXPECT_FALSE(ValidateConfigBizMatch("demo/fixtures/mock/pipeline_doc_qa.conf",
-                                      "entity_extract", &err));
-  EXPECT_NE(err.find("Binding mismatch"), std::string::npos);
-
-  // P1-3: cross_rerank 绝不应该匹配 doc_qa_rerank (即使名字里有 rerank)
-  EXPECT_FALSE(ValidateConfigBizMatch(
-      "demo/fixtures/mock/pipeline_doc_qa_rerank.conf", "cross_rerank", &err));
-  EXPECT_NE(err.find("Binding mismatch"), std::string::npos);
-
-  // P1-2 探针测试: .conf 中 pipe_path 为数字 123 (必须返回 false，不抛异常崩溃)
-  std::string bad_conf_path = "./results/bad_pipe_path.conf";
-  {
-    std::ofstream ofs(bad_conf_path);
-    ofs << R"({"schema_version": 1, "data": {"pipe_path": 123, "io_binding": "keyword_match.operator.v1"}})";
+// Native resolution supplies the business identity and clears stale results.
+TEST(DemoRunnerTest, ConfigBizResolution) {
+  std::string error;
+  for (const auto& entry : std::vector<std::pair<std::string, std::string>>{
+           {"demo/fixtures/mock/pipeline_entity_extract.conf",
+            "entity_extract_v1"},
+           {"demo/fixtures/mock/pipeline_doc_qa.conf", "smart_doc_qa_v1"},
+           {"demo/fixtures/mock/pipeline_doc_qa_rerank.conf",
+            "smart_doc_qa_v1"},
+           {"configs/pipeline_keyword_match_rules.conf", "keyword_match_v1"}}) {
+    DemoOptions options;
+    options.config_path = entry.first;
+    options.biz = "stale_resolved_value";
+    ASSERT_TRUE(ResolveConfigBiz(&options, &error)) << error;
+    EXPECT_EQ(options.biz, entry.second);
   }
-  EXPECT_FALSE(ValidateConfigBizMatch(bad_conf_path, "keyword_match", &err));
-  EXPECT_NE(err.find("pipe_path"), std::string::npos);
-  std::filesystem::remove(bad_conf_path);
 
-  // 测试公开 API ValidateOperatorConfigBinding
-  char err_buf[256] = {0};
-  std::string root_dir = ".";
-  if (std::filesystem::exists("../configs")) {
-    root_dir = "..";
-  }
-  EXPECT_EQ(
-      ValidateOperatorConfigBinding(
-          root_dir.c_str(), "demo/fixtures/mock/pipeline_entity_extract.conf",
-          "entity_extract.operator.v1", err_buf, sizeof(err_buf)),
-      0);
-  EXPECT_EQ(
-      ValidateOperatorConfigBinding(
-          root_dir.c_str(), "demo/fixtures/mock/pipeline_entity_extract.conf",
-          "doc_qa.operator.v1", err_buf, sizeof(err_buf)),
-      -3);
-  EXPECT_EQ(ValidateOperatorConfigBinding(
-                root_dir.c_str(), "non_existent_conf_file.conf",
-                "doc_qa.operator.v1", err_buf, sizeof(err_buf)),
+  KiteDemoDirectory temporary;
+  const auto bad_conf = temporary.path / "invalid.conf";
+  std::ofstream(bad_conf) << R"({"pipe_path":123})";
+  DemoOptions options;
+  options.config_path = bad_conf.string();
+  options.biz = "stale_resolved_value";
+  EXPECT_FALSE(ResolveConfigBiz(&options, &error));
+  EXPECT_TRUE(options.biz.empty());
+  EXPECT_NE(error.find("pipe_path"), std::string::npos);
+  EXPECT_FALSE(ResolveConfigBiz(nullptr, &error));
+
+  char err_buf[256]{};
+  std::string biz;
+  EXPECT_EQ(ResolveOperatorConfigBiz(
+                ".", "demo/fixtures/mock/pipeline_entity_extract.conf", &biz,
+                err_buf, sizeof(err_buf)),
+            0);
+  EXPECT_EQ(biz, "entity_extract_v1");
+  EXPECT_EQ(ResolveOperatorConfigBiz(".", "non_existent_conf_file.conf", &biz,
+                                     err_buf, sizeof(err_buf)),
             -2);
+  EXPECT_TRUE(biz.empty());
 }
 
 // P1-2: 测试显式指定不存在或非法的 Control 文件 Fail-Closed
@@ -862,6 +842,8 @@ TEST(DemoRunnerTest, FailClosedOnMissingOrInvalidControlFile) {
     std::string err;
     ASSERT_EQ(LoadAndMergeProfiles("demo/profiles.json", opts, &opts, &err), 0)
         << err;
+    std::string resolution_error;
+    ASSERT_TRUE(ResolveConfigBiz(&opts, &resolution_error)) << resolution_error;
     const auto* desc = DemoRegistry::Instance().Find(opts.biz);
     ASSERT_NE(desc, nullptr);
 
@@ -887,18 +869,21 @@ TEST(DemoRunnerTest, GenericControlCommandChangesCustomNodeOutput) {
   std::ofstream(temporary.path / "input.txt") << "sample\n";
   std::ofstream(temporary.path / "control.json") << R"({"prefix":"VIP:"})";
   DemoOptions options;
-  options.biz = "keyword_match";
   options.config_path = (temporary.path / "pipeline.conf").string();
   options.dataset_path = (temporary.path / "input.txt").string();
   options.output_dir = (temporary.path / "results").string();
   options.control_cmd = 2000000041;
   options.control_file = (temporary.path / "control.json").string();
-  const auto* demo = DemoRegistry::Instance().Find("keyword_match");
+  std::string resolution_error;
+  ASSERT_TRUE(ResolveConfigBiz(&options, &resolution_error))
+      << resolution_error;
+  const auto* demo = DemoRegistry::Instance().Find(options.biz);
   ASSERT_NE(demo, nullptr);
   auto ops = Get_LLM_EDGEFLOW_OperatorTable();
   ASSERT_EQ(ops.Init(), 0);
   ASSERT_EQ(demo->run(options), 0);
-  std::ifstream results(temporary.path / "results/keyword_match/results.jsonl");
+  std::ifstream results(temporary.path /
+                        "results/keyword_match_v1/results.jsonl");
   ASSERT_TRUE(results.good());
   std::string line;
   ASSERT_TRUE(static_cast<bool>(std::getline(results, line)));
@@ -932,18 +917,20 @@ TEST(DemoRunnerTest, PreservesMixedSampleStatusesAndFailureCounts) {
   std::ofstream(temporary.path / "input.txt") << "success\nfail\n";
 
   DemoOptions options;
-  options.biz = "keyword_match";
   options.config_path = (temporary.path / "pipeline.conf").string();
   options.dataset_path = (temporary.path / "input.txt").string();
   options.output_dir = temporary.path.string();
   options.batch_size = 2;
+  std::string resolution_error;
+  ASSERT_TRUE(ResolveConfigBiz(&options, &resolution_error))
+      << resolution_error;
   const auto* demo = DemoRegistry::Instance().Find(options.biz);
   ASSERT_NE(demo, nullptr);
   auto ops = Get_LLM_EDGEFLOW_OperatorTable();
   ASSERT_EQ(ops.Init(), 0);
   ASSERT_EQ(demo->run(options), 0);
 
-  std::ifstream results(temporary.path / "keyword_match/results.jsonl");
+  std::ifstream results(temporary.path / "keyword_match_v1/results.jsonl");
   ASSERT_TRUE(results.good());
   std::string line;
   for (int index = 0; index < 2; ++index) {
@@ -953,7 +940,7 @@ TEST(DemoRunnerTest, PreservesMixedSampleStatusesAndFailureCounts) {
     EXPECT_EQ(sample["status"], index == 0 ? 0 : -42);
   }
   EXPECT_FALSE(static_cast<bool>(std::getline(results, line)));
-  std::ifstream summary_file(temporary.path / "keyword_match/summary.json");
+  std::ifstream summary_file(temporary.path / "keyword_match_v1/summary.json");
   ASSERT_TRUE(summary_file.good());
   const auto summary = nlohmann::json::parse(summary_file);
   EXPECT_EQ(summary["total_samples"], 2);
@@ -967,17 +954,19 @@ TEST(DemoRunnerTest, ExampleControlIsExplicitAndFileControlTakesPrecedence) {
   const auto dataset = temporary.path / "input.txt";
   std::ofstream(dataset) << "初始化自检\nVIP专员\n";
   DemoOptions options;
-  options.biz = "keyword_match";
   options.config_path = "configs/pipeline_keyword_match_rules.conf";
   options.dataset_path = dataset.string();
   options.output_dir = temporary.path.string();
+  std::string resolution_error;
+  ASSERT_TRUE(ResolveConfigBiz(&options, &resolution_error))
+      << resolution_error;
   const auto* demo = DemoRegistry::Instance().Find(options.biz);
   ASSERT_NE(demo, nullptr);
   auto ops = Get_LLM_EDGEFLOW_OperatorTable();
   ASSERT_EQ(ops.Init(), 0);
   auto run_and_read = [&]() {
     EXPECT_EQ(demo->run(options), 0);
-    std::ifstream results(temporary.path / "keyword_match/results.jsonl");
+    std::ifstream results(temporary.path / "keyword_match_v1/results.jsonl");
     std::vector<nlohmann::json> samples;
     std::string line;
     while (std::getline(results, line))
@@ -1046,6 +1035,9 @@ TEST(DemoRunnerTest, OcrDemoAppliesExplicitControlBeforeProcessing) {
   ASSERT_EQ(LoadAndMergeProfiles("demo/profiles.json", cli, &options, &error),
             0)
       << error;
+  std::string resolution_error;
+  ASSERT_TRUE(ResolveConfigBiz(&options, &resolution_error))
+      << resolution_error;
   const auto* demo = DemoRegistry::Instance().Find(options.biz);
   ASSERT_NE(demo, nullptr);
   auto ops = Get_LLM_EDGEFLOW_OperatorTable();
@@ -1091,8 +1083,7 @@ TEST(DemoRunnerTest, ControlCommandCliAndProfilePrecedence) {
         {"schema_version", 2},
         {"profiles",
          {{"control",
-           {{"biz", "keyword_match"},
-            {"config", "configs/pipeline_keyword_match_rules.conf"},
+           {{"config", "configs/pipeline_keyword_match_rules.conf"},
             {"dataset", "data/corpus_keyword_match.txt"},
             {"control_cmd", cmd},
             {"control_file", "payload.json"}}}}}};
@@ -1131,7 +1122,7 @@ TEST(DemoRunnerTest, OperatorBatchChunking) {
   OperatorFunc ops = Get_LLM_EDGEFLOW_OperatorTable();
   ASSERT_EQ(ops.Init(), 0);
 
-  const auto* desc = DemoRegistry::Instance().Find("keyword_match");
+  const auto* desc = DemoRegistry::Instance().Find("keyword_match_v1");
   ASSERT_NE(desc, nullptr);
 
   DemoOptions opts;
@@ -1139,6 +1130,7 @@ TEST(DemoRunnerTest, OperatorBatchChunking) {
   std::string err;
   int ret = LoadAndMergeProfiles("demo/profiles.json", opts, &opts, &err);
   ASSERT_EQ(ret, 0);
+  ASSERT_TRUE(ResolveConfigBiz(&opts, &err)) << err;
 
   // 指定 batch_size = 1 (数据集有 2 条样本，必须分 2 批执行)
   opts.batch_size = 1;
@@ -1184,7 +1176,9 @@ TEST(DemoRunnerTest, EndToEndAllMockSmokeBusinesses) {
     int ret = MergeProfileOptions(profiles, cli_opt, &merged_opt, &err);
     ASSERT_EQ(ret, 0) << "Profile merge failed for " << prof_name << ": "
                       << err;
-
+    std::string resolution_error;
+    ASSERT_TRUE(ResolveConfigBiz(&merged_opt, &resolution_error))
+        << resolution_error;
     const auto* desc = DemoRegistry::Instance().Find(merged_opt.biz);
     ASSERT_NE(desc, nullptr) << "Business not registered: " << merged_opt.biz;
 
@@ -1207,7 +1201,7 @@ TEST(DemoRunnerTest, DeploymentProfilesFileSelection) {
   ASSERT_EQ(
       LoadAndMergeProfiles(options.profiles_file, options, &merged, &error), 0)
       << error;
-  EXPECT_EQ(merged.biz, "entity_extract");
+  EXPECT_TRUE(merged.biz.empty());
   EXPECT_EQ(merged.config_path, "configs/pipeline_entity_extract_kite.conf");
   nlohmann::json profiles;
   ASSERT_EQ(
@@ -1241,6 +1235,9 @@ TEST(DemoRunnerTest, RealKiteDeploymentProfiles) {
     const int merged = MergeProfileOptions(profiles, cli, &options, &error);
     EXPECT_EQ(merged, 0) << error;
     if (merged) continue;
+    std::string resolution_error;
+    ASSERT_TRUE(ResolveConfigBiz(&options, &resolution_error))
+        << resolution_error;
     const auto* descriptor = DemoRegistry::Instance().Find(options.biz);
     EXPECT_NE(descriptor, nullptr);
     if (!descriptor) continue;
