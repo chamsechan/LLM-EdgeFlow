@@ -5,21 +5,22 @@
 
 ## 按任务开始
 
-| 任务 | 阅读入口 |
-| --- | --- |
-| 用已有节点编排方案 | [Studio 编排练习](../tools/pipeline_studio/README.md#第一次编排) → [运行当前方案](../tools/pipeline_studio/README.md#运行当前方案) |
-| 调整方案提示词与生成参数 | [提示词方案 Recipe 任务](dev_guide/recipe_prompt_config.md) |
-| 创建文本 LLM Node 并接入方案 | [文本大模型节点 Recipe 任务](dev_guide/recipe_text_llm_node.md) |
-| 编写第一个自定义 Node | [动手练习](dev_guide/first_custom_node.md) → [Node 作者的五个概念](dev_guide/custom_node_concepts.md) |
-| 给节点增加运行时控制 | [第一个 Control](dev_guide/first_control.md) |
-| 对接平台输入输出 | [业务接入指南](dev_guide/business_onboarding.md) → [Adapter 参考实现](dev_guide/adapter_templates/README.md) |
-| 准备模型、选择构建并验证效果 | [模型、构建与效果验收](VERIFIABLE_SELECTION.md) · [模型资产说明](../models/README.md) |
-| 扩展框架、模型或 Backend | [开发者扩展指南](developer_guide.md) · [架构职责与边界](architecture.md) |
+先判断外部契约是否变化、现有节点是否足够，再选择需要的路径；同一方案可以组合使用。
 
-## 架构与参考
+| 路径 | 何时使用 | 阅读入口 |
+| --- | --- | --- |
+| 已有能力编排 | 外部契约不变，调整配置与连线 | [Studio 编排练习](../tools/pipeline_studio/README.md#第一次编排) → [运行当前方案](../tools/pipeline_studio/README.md#运行当前方案)；提示词任务可用[现有 Recipe](dev_guide/recipe_prompt_config.md) |
+| 新增自定义 Node | 需要实现缺失算法 | [自定义 Node 入门](dev_guide/first_custom_node.md)，按任务选择 Recipe 或普通脚手架 |
+| 新增外部业务契约 | 请求或响应的字段、格式、语义变化 | [业务接入指南](dev_guide/business_onboarding.md)，先复用已有转换器、载体和 Demo 运行代码 |
+
+## 进阶与参考
 
 | 资料 | 职责 |
 | --- | --- |
+| [Node 作者的五个概念](dev_guide/custom_node_concepts.md) | 按需理解端口、来源、模型绑定、Definition 和并发 |
+| [第一个 Control](dev_guide/first_control.md) | 给节点增加运行时控制 |
+| [Adapter 参考实现](dev_guide/adapter_templates/README.md) | 按输入输出形态查阅已有转换实现 |
+| [模型、构建与效果验收](VERIFIABLE_SELECTION.md) · [模型资产说明](../models/README.md) | 准备模型、选择构建并验证效果 |
 | [架构设计](architecture.md) | 四层职责、编译依赖与运行时数据流 |
 | [开发者扩展指南](developer_guide.md) | 按职责查阅进阶接口与扩展约束 |
 | [自定义 Node 源码指南](../src/custom_nodes/README.md) | 源码布局、构建登记、测试与跨方案复用 |

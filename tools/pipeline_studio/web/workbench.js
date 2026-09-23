@@ -184,6 +184,12 @@ export function upsertModel(pipeline, catalog, previousId, model) {
   const index = pipeline.models.findIndex(item => item.model_id === previousId);
   if (index < 0) pipeline.models.push(model); else pipeline.models[index] = model;
   if (previousId && previousId !== model.model_id) {
+    const paths = pipeline.deployment?.model_paths;
+    if (paths && Object.hasOwn(paths, previousId)) {
+      pipeline.deployment.model_paths = Object.fromEntries(
+        Object.entries(paths).map(([id, path]) => [id === previousId ? model.model_id : id, path])
+      );
+    }
     for (const node of pipeline.pipeline) {
       const nodeDefinition = catalog.nodes.find(item => item.node_type === node.node_type);
       if (nodeDefinition && node.config) {

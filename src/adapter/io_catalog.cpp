@@ -13,6 +13,9 @@ namespace {
 
 nlohmann::json SlotJson(const ExternalSlotDefinition& slot) {
   return {{"slot_name", slot.slot_name},
+          {"type_id", slot.type_id},
+          {"type_suffix", slot.type_suffix},
+          {"key_suffix", slot.KeySuffix()},
           {"direction",
            slot.direction == PortDirection::kInput ? "input" : "output"},
           {"value_type", slot.value_type},

@@ -9,6 +9,7 @@
 
 #include "adapter/io_binding_registry.h"
 #include "adapter/io_catalog.h"
+#include "adapter/io_converter_registry.h"
 #include "core/node_interface.h"
 #include "core/node_registry.h"
 #include "core/pipeline_catalog.h"
@@ -275,6 +276,132 @@ TEST_F(CatalogContractSsotTest, IoCatalogSchema4SerializationAndFiltering) {
   EXPECT_TRUE(km_catalog["input_converters"].is_array());
   EXPECT_TRUE(km_catalog["output_converters"].is_array());
   EXPECT_TRUE(km_catalog["io_bindings"].is_array());
+}
+
+TEST_F(CatalogContractSsotTest, IoCatalogExportsKeywordSlotNamesAndTypes) {
+  const auto catalog = IoCatalog::ToJson("keyword_match_v1");
+  ASSERT_EQ(catalog.at("input_converters").size(), 1U);
+  ASSERT_EQ(catalog.at("output_converters").size(), 1U);
+
+  const auto& input = catalog.at("input_converters").at(0);
+  EXPECT_EQ(input.at("converter_id"), "keyword.plain.operator.v1");
+  ASSERT_EQ(input.at("external_slots").size(), 1U);
+  const auto& input_slot = input.at("external_slots").at(0);
+  EXPECT_EQ(input_slot.at("slot_name"), "keyword_in");
+  EXPECT_EQ(input_slot.at("type_id"), "CompanyOperatorKeywordInput");
+  EXPECT_EQ(input_slot.at("type_suffix"), "keyword_in");
+  EXPECT_EQ(input_slot.at("key_suffix"), "keyword_in");
+  EXPECT_EQ(input_slot.at("value_type"), "keyword_in");
+  EXPECT_EQ(input_slot.at("direction"), "input");
+  EXPECT_EQ(input_slot.at("required"), true);
+  EXPECT_EQ(input_slot.at("capacity_fields"), nlohmann::json::array());
+
+  const auto& output = catalog.at("output_converters").at(0);
+  EXPECT_EQ(output.at("converter_id"), "keyword.result.operator.v1");
+  ASSERT_EQ(output.at("external_slots").size(), 1U);
+  const auto& output_slot = output.at("external_slots").at(0);
+  EXPECT_EQ(output_slot.at("slot_name"), "keyword_out");
+  EXPECT_EQ(output_slot.at("type_id"), "CompanyOperatorKeywordOutput");
+  EXPECT_EQ(output_slot.at("type_suffix"), "keyword_out");
+  EXPECT_EQ(output_slot.at("key_suffix"), "keyword_out");
+  EXPECT_EQ(output_slot.at("value_type"), "CompanyOperatorKeywordOutput");
+  EXPECT_EQ(output_slot.at("direction"), "output");
+  EXPECT_EQ(output_slot.at("required"), true);
+  EXPECT_EQ(output_slot.at("capacity_fields"),
+            nlohmann::json::array({"match_result_json"}));
+}
+
+TEST_F(CatalogContractSsotTest,
+       IoCatalogDistinguishesSlotTypeAndEffectiveKeySuffixes) {
+  auto& registry = IoConverterRegistry::Instance();
+  ASSERT_FALSE(registry.HasConflict());
+  struct ScopedConverterState {
+    std::vector<InputConverterDefinition> inputs;
+    std::vector<OutputConverterDefinition> outputs;
+    ~ScopedConverterState() {
+      auto& registry = IoConverterRegistry::Instance();
+      registry.ClearForTesting();
+      for (const auto& input : inputs) {
+        EXPECT_TRUE(registry.RegisterInputConverter(input));
+      }
+      for (const auto& output : outputs) {
+        EXPECT_TRUE(registry.RegisterOutputConverter(output));
+      }
+    }
+  } scoped{registry.AllInputConverters(), registry.AllOutputConverters()};
+
+  const auto* original_input =
+      registry.FindInputConverter("keyword.plain.operator.v1");
+  const auto* original_output =
+      registry.FindOutputConverter("keyword.result.operator.v1");
+  ASSERT_NE(original_input, nullptr);
+  ASSERT_NE(original_output, nullptr);
+  auto input = *original_input;
+  auto output = *original_output;
+  input.converter_id = "catalog.slot_names.input";
+  input.external_slots = {
+      {"request_payload",
+       "CompanyOperatorKeywordInput",
+       PortDirection::kInput,
+       true,
+       "keyword_in",
+       "keyword_in",
+       {},
+       "service_request"},
+      {"fallback_request", "CompanyOperatorKeywordInput", PortDirection::kInput,
+       false, "keyword_in", "keyword_in"}};
+  output.converter_id = "catalog.slot_names.output";
+  output.external_slots = {{"reply_payload",
+                            "CompanyOperatorKeywordOutput",
+                            PortDirection::kOutput,
+                            true,
+                            "CompanyOperatorKeywordOutput",
+                            "keyword_out",
+                            {"match_result_json"},
+                            "service_reply"},
+                           {"fallback_reply",
+                            "CompanyOperatorKeywordOutput",
+                            PortDirection::kOutput,
+                            false,
+                            "CompanyOperatorKeywordOutput",
+                            "keyword_out",
+                            {"match_result_json"}}};
+  ASSERT_TRUE(registry.RegisterInputConverter(input));
+  ASSERT_TRUE(registry.RegisterOutputConverter(output));
+
+  const auto catalog = IoCatalog::ToJson();
+  EXPECT_EQ(catalog.at("schema_version"), 4);
+  const auto& inputs = catalog.at("input_converters");
+  const auto input_it = std::find_if(
+      inputs.begin(), inputs.end(), [](const nlohmann::json& converter) {
+        return converter.at("converter_id") == "catalog.slot_names.input";
+      });
+  ASSERT_NE(input_it, inputs.end());
+  const auto& input_slots = input_it->at("external_slots");
+  ASSERT_EQ(input_slots.size(), 2U);
+  EXPECT_EQ(input_slots.at(0).at("slot_name"), "request_payload");
+  EXPECT_EQ(input_slots.at(0).at("type_id"), "CompanyOperatorKeywordInput");
+  EXPECT_EQ(input_slots.at(0).at("type_suffix"), "keyword_in");
+  EXPECT_EQ(input_slots.at(0).at("key_suffix"), "service_request");
+  EXPECT_EQ(input_slots.at(1).at("slot_name"), "fallback_request");
+  EXPECT_EQ(input_slots.at(1).at("type_suffix"), "keyword_in");
+  EXPECT_EQ(input_slots.at(1).at("key_suffix"), "keyword_in");
+
+  const auto& outputs = catalog.at("output_converters");
+  const auto output_it = std::find_if(
+      outputs.begin(), outputs.end(), [](const nlohmann::json& converter) {
+        return converter.at("converter_id") == "catalog.slot_names.output";
+      });
+  ASSERT_NE(output_it, outputs.end());
+  const auto& output_slots = output_it->at("external_slots");
+  ASSERT_EQ(output_slots.size(), 2U);
+  EXPECT_EQ(output_slots.at(0).at("slot_name"), "reply_payload");
+  EXPECT_EQ(output_slots.at(0).at("type_id"), "CompanyOperatorKeywordOutput");
+  EXPECT_EQ(output_slots.at(0).at("type_suffix"), "keyword_out");
+  EXPECT_EQ(output_slots.at(0).at("key_suffix"), "service_reply");
+  EXPECT_EQ(output_slots.at(1).at("slot_name"), "fallback_reply");
+  EXPECT_EQ(output_slots.at(1).at("type_suffix"), "keyword_out");
+  EXPECT_EQ(output_slots.at(1).at("key_suffix"), "keyword_out");
 }
 
 // R6: 并发同名注册只有一个成功，另一方失败锁存

@@ -95,6 +95,7 @@ RFC-0054 是接续 RFC-0052 与已交付 RFC-0053、RFC-0055 的实施规格。`
 | **RFC-0067** | 作者布线、配置补全与端到端测试的定向简化 | `Completed` | 投产前 | 流程编排层、接入适配层、能力节点层 / Tooling / Tests | [0067-authoring-friction.md](0067-authoring-friction.md) |
 | **RFC-0068** | 统一全部生产 Node 的作者契约 | `Completed` | 投产前 | 能力节点层 / Tooling / Tests | [0068-unified-node-authoring.md](0068-unified-node-authoring.md) |
 | **RFC-0069** | 以普通函数降低模块开发负担 | `Completed` | 投产前 | 接入适配层、能力节点层、模型执行层 / Tooling | [0069-module-authoring-simplicity.md](0069-module-authoring-simplicity.md) |
+| **RFC-0070** | 新人入口与接入名称信息收敛 | `Completed` | 投产前 | 接入适配层 / Tooling / Docs | [0070-onboarding-entrypoints.md](0070-onboarding-entrypoints.md) |
 
 ## 专项验收与评审归档
 

@@ -578,7 +578,7 @@ class WorkbenchService:
                 if not preserve_backup:
                     shutil.rmtree(staging)
 
-    def profile_inputs(self, pipeline: Any, profile_name: str) -> tuple[dict, Any]:
+    def profile_inputs(self, pipeline: Any, profile_name: str) -> tuple[dict, Any, str]:
         profiles = read_json(PROFILE_FILE).get("profiles", {})
         profile = profiles.get(profile_name)
         if not profile:
@@ -590,14 +590,16 @@ class WorkbenchService:
         curr_biz = pipeline.get("biz_name")
         if orig_biz != curr_biz:
             raise StudioError("PROFILE_MISMATCH", "Profile 与业务契约不匹配")
-        outputs = original.get("deployment", {}).get("io", {}).get("output_allocations", {})
-        return copy.deepcopy(profile), copy.deepcopy(outputs)
+        io = original["deployment"]["io"]
+        return copy.deepcopy(profile), copy.deepcopy(io["output_allocations"]), io["io_binding"]
 
-    def run_conf(self, pipeline: Any, outputs: Any, pipe_path: Path, model_root: str) -> dict[str, Any]:
+    def run_conf(self, pipeline: Any, outputs: Any, pipe_path: Path, model_root: str,
+                 default_io_binding: str | None = None) -> dict[str, Any]:
         if not isinstance(model_root, str) or not model_root or Path(model_root).is_absolute():
             raise StudioError("INVALID_MODEL_ROOT", "模型目录必须是项目内的相对路径（例如 models 或 .）")
         try:
-            return SELECTION.build_run_conf(pipeline, outputs, pipe_path, model_root, PROJECT_ROOT)
+            return SELECTION.build_run_conf(pipeline, outputs, pipe_path, model_root, PROJECT_ROOT,
+                                            default_io_binding=default_io_binding)
         except (ValueError, TypeError, KeyError) as error:
             raise StudioError("INVALID_DEPLOYMENT_PATH", str(error)) from error
 
@@ -633,8 +635,9 @@ class WorkbenchService:
         if conf_name and (not managed or managed["conf_path"] != requested_conf):
             raise StudioError("DEPLOYMENT_NOT_ASSOCIATED", "部署配置未关联到当前方案")
         if not managed:
-            profile, outputs = self.profile_inputs(pipeline, profile_name)
-            return profile, self.run_conf(pipeline, outputs, path or PROJECT_ROOT / "build/pipeline.json", model_root)
+            profile, outputs, binding = self.profile_inputs(pipeline, profile_name)
+            return profile, self.run_conf(pipeline, outputs, path or PROJECT_ROOT / "build/pipeline.json", model_root,
+                                          default_io_binding=binding)
         conf_path = managed["conf_path"]
         if (path.is_symlink() or conf_path.is_symlink()
                 or not path.is_file() or not conf_path.is_file()):
@@ -812,12 +815,12 @@ class WorkbenchService:
             )
 
         if profile_name:
-            prof, _ = self.profile_inputs(pipeline, profile_name)
+            prof, _, _ = self.profile_inputs(pipeline, profile_name)
         else:
             prof = None
             for name in read_json(PROFILE_FILE).get("profiles", {}):
                 try:
-                    prof, _ = self.profile_inputs(pipeline, name)
+                    prof, _, _ = self.profile_inputs(pipeline, name)
                     break
                 except StudioError as error:
                     if error.code != "PROFILE_MISMATCH":

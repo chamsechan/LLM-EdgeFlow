@@ -67,34 +67,17 @@ def within(root, relative):
     return path
 
 
-BIZ_TO_OPERATOR_BINDING = {
-    "keyword_match_v1": "keyword_match.operator.v1",
-    "entity_extract_v1": "entity_extract.operator.v1",
-    "smart_doc_qa_v1": "doc_qa.operator.v1",
-    "dialogue_compliance_audit_v1": "compliance_audit.operator.v1",
-    "multimodal_ocr_invoice_qa": "ocr_doc_qa.operator.v1",
-    "speech_audio_asr_intent_slot": "audio_asr.operator.v1",
-    "dense_cross_rerank_scoring": "cross_rerank.operator.v1",
-    "text_translation_v1": "translate.operator.v1",
-}
-
-
-def build_run_conf(pipeline, outputs, pipe_path, model_root, bundle_root, io_binding=None):
+def build_run_conf(pipeline, outputs, pipe_path, model_root, bundle_root, default_io_binding=None):
     """Map the selected Pipeline's model paths into an explicit deployment root."""
     bundle_root = Path(bundle_root).resolve()
     model_root = within(bundle_root, model_root)
     pipeline_path = Path(pipe_path).name
     model_paths = {model["model_id"]: str(within(model_root, model["model_path"]).relative_to(bundle_root))
                    for model in pipeline.get("models", [])}
-    binding = (
-        io_binding
-        or pipeline.get("deployment", {}).get("io", {}).get("io_binding")
-        or BIZ_TO_OPERATOR_BINDING.get(pipeline.get("biz_name"))
-    )
     deployment = pipeline.setdefault("deployment", {})
     io_obj = deployment.setdefault("io", {})
-    if binding:
-        io_obj["io_binding"] = binding
+    if "io_binding" not in io_obj and default_io_binding is not None:
+        io_obj["io_binding"] = default_io_binding
     if outputs:
         io_obj["output_allocations"] = outputs
     if model_paths:
@@ -260,7 +243,8 @@ def evaluate(pipeline, selection, tool, model_root, spec_path, conf_path, demo):
     with tempfile.TemporaryDirectory(prefix=".selection-", dir=bundle_root) as directory:
         temporary = Path(directory)
         relative = temporary.relative_to(bundle_root)
-        generated_conf = build_run_conf(pipeline, outputs, relative / "pipeline.json", model_root, bundle_root)
+        generated_conf = build_run_conf(pipeline, outputs, relative / "pipeline.json", model_root, bundle_root,
+                                       default_io_binding=test_inputs["io_binding"])
         (temporary / "pipeline.json").write_text(json.dumps(pipeline))
         (temporary / "pipeline.conf").write_text(json.dumps(generated_conf))
         command = [str(Path(demo).resolve()), "--biz", biz, "--config", str(relative / "pipeline.conf"),
